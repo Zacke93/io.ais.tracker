@@ -1,7 +1,8 @@
 {
   "id": "io.aisstream.bridge",
-  "name": { "en": "AIS Tracker" },
+  "name": { "en": "AIS Tracker", "sv": "AIS Spårare" },
   "version": "0.0.1",
+  "category": "tools",
 
   "author": {
     "name": "Zakarias Mortensen",
