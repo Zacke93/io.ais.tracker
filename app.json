@@ -19,6 +19,20 @@
   "sdk": 3,
   "compatibility": ">=6.0.0",
   "startOnInstall": true,
+  "settings": [
+    {
+      "id": "ais_api_key",
+      "type": "text",
+      "title": {
+        "en": "AISStream API key",
+        "sv": "AISStream API-nyckel"
+      },
+      "hint": {
+        "en": "Create one at https://aisstream.io",
+        "sv": "Skapa en på https://aisstream.io"
+      }
+    }
+  ],
   "flow": {
     "conditions": [
       {
