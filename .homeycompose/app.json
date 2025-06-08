@@ -1,0 +1,14 @@
+{
+  "id": "io.aisstream.bridge",
+  "name": { "en": "AIS Tracker" },
+  "version": "0.0.1",
+
+  "author": {
+    "name": "Zacke93",
+    "email": "128399045+Zacke93@users.noreply.github.com"
+  },
+
+  "sdk": 3,
+  "compatibility": ">=6.0.0",
+  "startOnInstall": true
+}
