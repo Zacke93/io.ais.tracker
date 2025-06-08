@@ -5,10 +5,8 @@
     "en": "AIS Tracker",
     "sv": "AIS Spårare"
   },
-  "version": "0.0.1",
-  "category": [
-    "tools"
-  ],
+  "version": "0.0.2",
+  "category": ["tools"],
   "icon": "/assets/icon.svg",
   "brandColor": "#000000",
   "images": {
