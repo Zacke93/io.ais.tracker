@@ -8,12 +8,17 @@ const BRIDGES = {
   klaffbron: { name: "Klaffbron", lat: 58.283953, lon: 12.2847 },
   jarnvagsbron: { name: "Järnvägsbron", lat: 58.2917, lon: 12.2911 },
   stridsbergsbron: { name: "Stridsbergsbron", lat: 58.2935, lon: 12.294167 },
+  stockholm_inlet: {
+    name: "Stockholms inlopp (test 3 km)",
+    lat: 59.4,
+    lon: 18.3,
+    radius: 3000,
+  },
 };
 
-const MAX_DIST = 300; // meter räckvidd
-const MIN_KTS = 1.0; // ignorera båtar som (nästan) står still
-const SCAN_MS = 8_000; // lyssna max så här länge
-const BOX_PAD = 0.01; // ±grader runt bron
+const MAX_DIST = 300; // default-radie (m) om ingen radius finns i BRIDGES
+const MIN_KTS = 1.0; // ignorera (nästan) stillaliggande fartyg
+const SCAN_MS = 8_000; // lyssna så här länge per förfrågan
 const WS_URL = "wss://stream.aisstream.io/v0/stream";
 
 class AISBridgeApp extends Homey.App {
@@ -52,12 +57,16 @@ class AISBridgeApp extends Homey.App {
       }
 
       const b = BRIDGES[bridgeId];
+      const radius = b.radius ?? MAX_DIST; // m
+      const latPad = radius / 111000; // ° lat
+      const lonPad = radius / (111000 * Math.cos((b.lat * Math.PI) / 180));
+
       const bbox = [
-        [b.lat + BOX_PAD, b.lon - BOX_PAD],
-        [b.lat - BOX_PAD, b.lon + BOX_PAD],
+        [b.lat + latPad, b.lon - lonPad],
+        [b.lat - latPad, b.lon + lonPad],
       ];
 
-      this.log(`Startar skanning för ${b.name}`);
+      this.log(`Startar skanning (${radius} m) för ${b.name}`);
 
       return await new Promise((resolve) => {
         let done = false;
@@ -90,21 +99,18 @@ class AISBridgeApp extends Homey.App {
             const msg = JSON.parse(buf);
             if (msg.MessageType !== "PositionReport") return;
 
-            /* === RÄTT STAVNING HÄR! === */
             const meta = msg.Metadata || msg.MetaData || {};
             const body = msg.Message?.PositionReport || {};
 
             const lat = meta.Latitude ?? meta.latitude ?? body.Latitude;
             const lon = meta.Longitude ?? meta.longitude ?? body.Longitude;
             const sog = meta.SOG ?? meta.speedOverGround ?? body.SOG ?? 0;
-
             if (lat == null || lon == null || sog < MIN_KTS) return;
 
             const d = this._haversine(lat, lon, b.lat, b.lon);
-            if (d <= MAX_DIST) {
+            if (d <= radius) {
               this.log(
-                `🚢 ${body.ShipName || body.UserID || "Fartyg"} ` +
-                  `vid ${b.name} – ${d.toFixed(0)} m, ${sog.toFixed(1)} kn`
+                `🚢 Båt vid ${b.name} – ${d.toFixed(0)} m, ${sog.toFixed(1)} kn`
               );
               clearTimeout(timer);
               kill();
