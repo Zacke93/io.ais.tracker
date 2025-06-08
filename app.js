@@ -55,13 +55,12 @@ class AISBridgeApp extends Homey.App {
    * @param {'klaffbron'|'jarnvagsbron'} bridgeId
    * @returns {Promise<boolean>}
    */
-  _scanOnce(bridgeId) {
-    return new Promise(async (resolve) => {
+  async _scanOnce(bridgeId) {
+    try {
       const key = await this.homey.settings.get("ais_api_key");
       if (!key) {
         this.error("AIS API key not set");
-        resolve(false);
-        return;
+        return false;
       }
 
       const b = BRIDGES[bridgeId];
@@ -70,25 +69,26 @@ class AISBridgeApp extends Homey.App {
         [b.lat - BOX_PAD, b.lon + BOX_PAD],
       ];
 
-      let resolved = false;
-      const finish = (result) => {
-        if (resolved) return;
-        resolved = true;
-        cleanup();
-        resolve(result);
-      };
+      return await new Promise((resolve) => {
+        let resolved = false;
+        const finish = (result) => {
+          if (resolved) return;
+          resolved = true;
+          cleanup();
+          resolve(result);
+        };
 
-      // Timeout guard
-      const timer = setTimeout(() => finish(false), SCAN_MS);
+        // Timeout guard
+        const timer = setTimeout(() => finish(false), SCAN_MS);
 
-      // Connect
-      const ws = new WS("wss://stream.aisstream.io/v0/stream");
-      const cleanup = () => {
-        clearTimeout(timer);
-        try {
-          ws.close();
-        } catch (_) {}
-      };
+        // Connect
+        const ws = new WS("wss://stream.aisstream.io/v0/stream");
+        const cleanup = () => {
+          clearTimeout(timer);
+          try {
+            ws.close();
+          } catch (_) {}
+        };
 
       ws.on("open", () => {
         this.log(`WSS opened (bridge=${b.name})`);
@@ -136,6 +136,10 @@ class AISBridgeApp extends Homey.App {
         if (!resolved) finish(false);
       });
     });
+    } catch (err) {
+      this.error("Scan failed", err.message || err);
+      return false;
+    }
   }
 
   // ------------------- Helpers -------------------------------------------
