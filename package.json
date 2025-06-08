@@ -5,6 +5,9 @@
   "scripts": {
     "lint": "eslint --ext .js,.ts --ignore-path .gitignore ."
   },
+  "dependencies": {
+    "ws": "^8.0.0"
+  },
   "devDependencies": {
     "@types/homey": "npm:homey-apps-sdk-v3-types@^0.3.12",
     "eslint": "^7.32.0",
