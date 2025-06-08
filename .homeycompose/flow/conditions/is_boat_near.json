@@ -5,7 +5,6 @@
     "en": "A boat !{{is|isn't}} near {{bridge}}",
     "sv": "En båt !{{är|är inte}} nära {{bridge}}"
   },
-
   "titleFormatted": {
     "en": "A boat !{{is|isn't}} near [[bridge]]",
     "sv": "En båt !{{är|är inte}} nära [[bridge]]"
@@ -15,7 +14,7 @@
     {
       "name": "bridge",
       "type": "dropdown",
-      "title": { "en": "Bridge", "sv": "Bro" },
+      "title": { "en": "Zone / bridge", "sv": "Zon / bro" },
       "values": [
         {
           "id": "klaffbron",
@@ -28,6 +27,13 @@
         {
           "id": "stridsbergsbron",
           "label": { "en": "Stridsbergsbron", "sv": "Stridsbergsbron" }
+        },
+        {
+          "id": "stockholm_inlet",
+          "label": {
+            "en": "Stockholm Inlet (test 3 km)",
+            "sv": "Stockholms inlopp (test 3 km)"
+          }
         }
       ]
     }
