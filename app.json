@@ -6,7 +6,11 @@
     "sv": "AIS Spårare"
   },
   "version": "0.0.1",
-  "category": "tools",
+  "category": [
+    "tools"
+  ],
+  "icon": "/assets/icon.svg",
+  "brandColor": "#000000",
   "images": {
     "small": "/assets/images/app_small.png",
     "large": "/assets/images/app_large.png",
