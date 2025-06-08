@@ -5,8 +5,10 @@
     "en": "AIS Tracker",
     "sv": "AIS Spårare"
   },
-  "version": "0.0.2",
-  "category": ["tools"],
+  "version": "0.0.1",
+  "category": [
+    "tools"
+  ],
   "icon": "/assets/icon.svg",
   "brandColor": "#000000",
   "images": {
@@ -40,12 +42,12 @@
       {
         "id": "is_boat_near",
         "title": {
-          "en": "A boat is near {{bridge}}",
-          "sv": "En båt är nära {{bridge}}"
+          "en": "A boat !{{is|isn't}} near {{bridge}}",
+          "sv": "En båt !{{är|är inte}} nära {{bridge}}"
         },
         "titleFormatted": {
-          "en": "A boat is near {{bridge}}",
-          "sv": "En båt är nära {{bridge}}"
+          "en": "A boat !{{is|isn't}} near [[bridge]]",
+          "sv": "En båt !{{är|är inte}} nära [[bridge]]"
         },
         "args": [
           {
@@ -58,21 +60,21 @@
             "values": [
               {
                 "id": "klaffbron",
-                "title": {
+                "label": {
                   "en": "Klaffbron",
                   "sv": "Klaffbron"
                 }
               },
               {
                 "id": "jarnvagsbron",
-                "title": {
+                "label": {
                   "en": "Railway Bridge",
                   "sv": "Järnvägsbron"
                 }
               },
               {
                 "id": "stridsbergsbron",
-                "title": {
+                "label": {
                   "en": "Stridsbergsbron",
                   "sv": "Stridsbergsbron"
                 }
