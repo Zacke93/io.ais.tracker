@@ -4,65 +4,43 @@ const Homey = require("homey");
 const WS = require("ws");
 
 // ── Statisk konfiguration ────────────────────────────────────────────────
-/**
- * Broar som övervakas (WGS-84, decimala grader)
- */
 const BRIDGES = {
   klaffbron: { name: "Klaffbron", lat: 58.283953, lon: 12.2847 },
-  jarnvagsbron: { name: "Järnvägsbron", lat: 58.2917, lon: 12.2911 }, // ← justerad 👍
+  jarnvagsbron: { name: "Järnvägsbron", lat: 58.2917, lon: 12.2911 },
   stridsbergsbron: { name: "Stridsbergsbron", lat: 58.2935, lon: 12.294167 },
 };
 
-const MAX_DIST = 300; // meter – räckvidd som räknas som “nära”
-const MIN_KTS = 1.0; // filtrera bort stillaliggande båtar
-const SCAN_MS = 8_000; // lyssna max så här länge per förfrågan
-const BOX_PAD = 0.01; // ± grader runt bron för AIS-prenumerationen
+const MAX_DIST = 300; // meter räckvidd
+const MIN_KTS = 1.0; // ignorera båtar som (nästan) står still
+const SCAN_MS = 8_000; // lyssna max så här länge
+const BOX_PAD = 0.01; // ±grader runt bron
 const WS_URL = "wss://stream.aisstream.io/v0/stream";
 
-/**
- * Homey-app som on-demand lyssnar på AISstream och slår till
- * Flow-villkoret om ett fartyg kommer inom {@link MAX_DIST}.
- */
 class AISBridgeApp extends Homey.App {
   async onInit() {
     this.log("AIS Bridge (on-demand) started");
-
-    /** Cache per bro så vi inte öppnar flera sockets samtidigt */
     this._ongoingScans = new Map();
 
-    // Koppla Flow-kortet
     this.homey.flow
       .getConditionCard("is_boat_near")
       .registerRunListener(this.onFlowConditionIsBoatNear.bind(this));
   }
 
-  // ── Flow-villkorets kör-lyssnare ────────────────────────────────────────
-  /**
-   * @param {{bridge: keyof typeof BRIDGES}} args
-   * @returns {Promise<boolean>}
-   */
-  async onFlowConditionIsBoatNear(args) {
-    const bridgeId = args.bridge;
-
-    // Enbart en skanning per bro åt gången för att undvika rate-limits
+  /* ---------- Flow-villkor ---------- */
+  async onFlowConditionIsBoatNear({ bridge: bridgeId }) {
     if (this._ongoingScans.has(bridgeId)) {
       this.log(`Scan pågår redan för ${bridgeId} – återanvänder löftet`);
       return this._ongoingScans.get(bridgeId);
     }
 
-    const promise = this._scanOnce(bridgeId).finally(() =>
+    const p = this._scanOnce(bridgeId).finally(() =>
       this._ongoingScans.delete(bridgeId)
     );
-
-    this._ongoingScans.set(bridgeId, promise);
-    return promise;
+    this._ongoingScans.set(bridgeId, p);
+    return p;
   }
 
-  // ── Engångsskanner ─────────────────────────────────────────────────────
-  /**
-   * @param {keyof typeof BRIDGES} bridgeId
-   * @returns {Promise<boolean>}
-   */
+  /* ---------- Engångsskanner ---------- */
   async _scanOnce(bridgeId) {
     try {
       const key = this.homey.settings.get("ais_api_key");
@@ -74,42 +52,30 @@ class AISBridgeApp extends Homey.App {
       }
 
       const b = BRIDGES[bridgeId];
-      this.log(`Startar skanning för ${b.name} (${bridgeId})`);
-
       const bbox = [
         [b.lat + BOX_PAD, b.lon - BOX_PAD],
         [b.lat - BOX_PAD, b.lon + BOX_PAD],
       ];
 
+      this.log(`Startar skanning för ${b.name}`);
+
       return await new Promise((resolve) => {
-        let resolved = false;
-        let timer;
-
-        // Anslut
+        let done = false;
         const ws = new WS(WS_URL);
-
-        const cleanup = () => {
-          clearTimeout(timer);
-          try {
+        const kill = () => {
+          if (!done) {
+            done = true;
             ws.close();
-          } catch (_) {}
+          }
         };
 
-        const finish = (result) => {
-          if (resolved) return;
-          resolved = true;
-          cleanup();
-          resolve(result);
-        };
-
-        // Timeout-vakt
-        timer = setTimeout(() => {
-          this.log(`Timeout för ${b.name} efter ${SCAN_MS} ms`);
-          finish(false);
+        const timer = setTimeout(() => {
+          this.log(`Timeout (${SCAN_MS} ms) – ingen båt nära ${b.name}`);
+          kill();
+          resolve(false);
         }, SCAN_MS);
 
         ws.on("open", () => {
-          this.log(`WSS öppnad för ${b.name} – prenumererar på området`);
           ws.send(
             JSON.stringify({
               Apikey: key,
@@ -124,59 +90,63 @@ class AISBridgeApp extends Homey.App {
             const msg = JSON.parse(buf);
             if (msg.MessageType !== "PositionReport") return;
 
-            const m = msg.MetaData || {};
-            const lat = m.latitude ?? m.Latitude;
-            const lon = m.longitude ?? m.Longitude;
-            const sog = m.SOG ?? m.speedOverGround ?? 0;
+            /* === RÄTT STAVNING HÄR! === */
+            const meta = msg.Metadata || msg.MetaData || {};
+            const body = msg.Message?.PositionReport || {};
+
+            const lat = meta.Latitude ?? meta.latitude ?? body.Latitude;
+            const lon = meta.Longitude ?? meta.longitude ?? body.Longitude;
+            const sog = meta.SOG ?? meta.speedOverGround ?? body.SOG ?? 0;
 
             if (lat == null || lon == null || sog < MIN_KTS) return;
 
             const d = this._haversine(lat, lon, b.lat, b.lon);
             if (d <= MAX_DIST) {
               this.log(
-                `🚢 BÅT UPPTÄCKT vid ${b.name}! ` +
-                  `${m.ShipName || m.MMSI} @ ${d.toFixed(0)} m, ` +
-                  `${sog.toFixed(1)} kn`
+                `🚢 ${body.ShipName || body.UserID || "Fartyg"} ` +
+                  `vid ${b.name} – ${d.toFixed(0)} m, ${sog.toFixed(1)} kn`
               );
-              finish(true);
+              clearTimeout(timer);
+              kill();
+              resolve(true);
             }
           } catch (e) {
-            this.error(`JSON-fel för ${b.name}:`, e);
+            this.error(`JSON-fel (${b.name}):`, e);
           }
         });
 
         ws.on("error", (err) => {
-          this.error(`WSS-fel för ${b.name}:`, err.message);
-          finish(false);
+          this.error(`WSS-fel:`, err.message);
         });
         ws.on("close", () => {
-          this.log(`WSS stängd för ${b.name}`);
-          if (!resolved) finish(false);
+          clearTimeout(timer);
+          kill();
         });
       });
     } catch (err) {
-      this.error(`Skanning misslyckades för ${bridgeId}:`, err.message || err);
+      this.error(`Skanning kraschade:`, err.message || err);
       return false;
     }
   }
 
-  // ── Hjälpfunktioner ────────────────────────────────────────────────────
-  /**
-   * Storcirkelavstånd (haversine)
-   * @private
-   */
+  /* ---------- Hjälpare ---------- */
   _haversine(la1, lo1, la2, lo2) {
     const R = 6_371_000;
-    const φ1 = (la1 * Math.PI) / 180;
-    const φ2 = (la2 * Math.PI) / 180;
-    const dφ = ((la2 - la1) * Math.PI) / 180;
-    const dλ = ((lo2 - lo1) * Math.PI) / 180;
+    const φ1 = (la1 * Math.PI) / 180,
+      φ2 = (la2 * Math.PI) / 180,
+      dφ = ((la2 - la1) * Math.PI) / 180,
+      dλ = ((lo2 - lo1) * Math.PI) / 180;
 
-    const a =
-      Math.sin(dφ / 2) ** 2 +
-      Math.cos(φ1) * Math.cos(φ2) * Math.sin(dλ / 2) ** 2;
-
-    return 2 * R * Math.asin(Math.sqrt(a));
+    return (
+      2 *
+      R *
+      Math.asin(
+        Math.sqrt(
+          Math.sin(dφ / 2) ** 2 +
+            Math.cos(φ1) * Math.cos(φ2) * Math.sin(dλ / 2) ** 2
+        )
+      )
+    );
   }
 }
 
