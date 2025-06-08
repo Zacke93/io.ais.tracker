@@ -1,0 +1,8 @@
+{
+  "settings": {
+    "title": "AIS Tracker Inställningar",
+    "api_key": "AIS Stream API-nyckel",
+    "api_key_description": "Skapa en gratis API-nyckel på aisstream.io",
+    "save": "Spara inställningar"
+  }
+}

@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="/homey.css">
+    <script type="text/javascript" src="/homey.js" data-origin="settings"></script>
+</head>
+
+<body>
+    <div class="settings">
+        <h1 data-i18n="settings.title">AIS Tracker Settings</h1>
+
+        <div class="field">
+            <label for="ais_api_key" data-i18n="settings.api_key">AIS Stream API Key</label>
+            <input id="ais_api_key" type="text" placeholder="Enter your API key from aisstream.io" />
+            <p class="description" data-i18n="settings.api_key_description">
+                Create a free API key at <a href="https://aisstream.io" target="_blank">aisstream.io</a>
+            </p>
+        </div>
+
+        <div class="field">
+            <button id="save" class="btn btn-primary" data-i18n="settings.save">Save Settings</button>
+        </div>
+
+        <div id="status" class="status" style="display: none;"></div>
+    </div>
+
+    <script>
+        function onHomeyReady(Homey) {
+            const apiKeyInput = document.getElementById('ais_api_key');
+            const saveButton = document.getElementById('save');
+            const statusDiv = document.getElementById('status');
+
+            // Load existing settings
+            Homey.get('ais_api_key', function (err, value) {
+                if (!err && value) {
+                    apiKeyInput.value = value;
+                }
+            });
+
+            // Save settings
+            saveButton.addEventListener('click', function () {
+                const apiKey = apiKeyInput.value.trim();
+
+                if (!apiKey) {
+                    showStatus('Please enter an API key', 'error');
+                    return;
+                }
+
+                Homey.set('ais_api_key', apiKey, function (err) {
+                    if (err) {
+                        showStatus('Failed to save settings: ' + err.message, 'error');
+                    } else {
+                        showStatus('Settings saved successfully!', 'success');
+                    }
+                });
+            });
+
+            function showStatus(message, type) {
+                statusDiv.textContent = message;
+                statusDiv.className = 'status ' + type;
+                statusDiv.style.display = 'block';
+
+                setTimeout(function () {
+                    statusDiv.style.display = 'none';
+                }, 3000);
+            }
+
+            Homey.ready();
+        }
+    </script>
+
+    <style>
+        .settings {
+            padding: 20px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .field {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .description {
+            margin-top: 5px;
+            font-size: 12px;
+            color: #666;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .btn-primary {
+            background-color: #00a9ce;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background-color: #008bb3;
+        }
+
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+
+        .status.success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+    </style>
+</body>
+
+</html>
