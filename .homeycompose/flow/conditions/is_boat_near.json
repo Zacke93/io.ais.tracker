@@ -1,0 +1,13 @@
+{
+  "title": { "en": "A boat is near bridge" },
+  "args": [
+    {
+      "name": "bridge",
+      "type": "dropdown",
+      "values": [
+        { "id": "klaffbron", "label": { "en": "Klaffbron" } },
+        { "id": "jarnvagsbron", "label": { "en": "Järnvägsbron" } }
+      ]
+    }
+  ]
+}

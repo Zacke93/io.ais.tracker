@@ -1,0 +1,10 @@
+{
+  "id": "ais_api_key",
+  "type": "text",
+  "title": {
+    "en": "AISStream API key"
+  },
+  "hint": {
+    "en": "Create one at https://aisstream.io"
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "_comment": "This file is generated. Please edit .homeycompose/app.json instead.",
+  "id": "io.aisstream.bridge",
+  "name": {
+    "en": "AIS Tracker"
+  },
+  "version": "0.0.1",
+  "author": {
+    "name": "Zakarias Mortensen",
+    "email": "Zaka_9@hotmail.com"
+  },
+  "sdk": 3,
+  "compatibility": ">=6.0.0",
+  "startOnInstall": true,
+  "flow": {
+    "conditions": [
+      {
+        "title": {
+          "en": "A boat is near bridge"
+        },
+        "args": [
+          {
+            "name": "bridge",
+            "type": "dropdown",
+            "values": [
+              {
+                "id": "klaffbron",
+                "label": {
+                  "en": "Klaffbron"
+                }
+              },
+              {
+                "id": "jarnvagsbron",
+                "label": {
+                  "en": "Järnvägsbron"
+                }
+              }
+            ]
+          }
+        ],
+        "id": "is_boat_near"
+      }
+    ]
+  }
+}
