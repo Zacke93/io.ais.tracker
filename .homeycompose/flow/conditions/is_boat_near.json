@@ -1,13 +1,16 @@
 {
   "id": "is_boat_near",
+
   "title": {
-    "en": "A boat is near {{bridge}}",
-    "sv": "En båt är nära {{bridge}}"
+    "en": "A boat !{{is|isn't}} near {{bridge}}",
+    "sv": "En båt !{{är|är inte}} nära {{bridge}}"
   },
+
   "titleFormatted": {
-    "en": "A boat is near {{bridge}}",
-    "sv": "En båt är nära {{bridge}}"
+    "en": "A boat !{{is|isn't}} near [[bridge]]",
+    "sv": "En båt !{{är|är inte}} nära [[bridge]]"
   },
+
   "args": [
     {
       "name": "bridge",
@@ -16,15 +19,15 @@
       "values": [
         {
           "id": "klaffbron",
-          "title": { "en": "Klaffbron", "sv": "Klaffbron" }
+          "label": { "en": "Klaffbron", "sv": "Klaffbron" }
         },
         {
           "id": "jarnvagsbron",
-          "title": { "en": "Railway Bridge", "sv": "Järnvägsbron" }
+          "label": { "en": "Railway Bridge", "sv": "Järnvägsbron" }
         },
         {
           "id": "stridsbergsbron",
-          "title": { "en": "Stridsbergsbron", "sv": "Stridsbergsbron" }
+          "label": { "en": "Stridsbergsbron", "sv": "Stridsbergsbron" }
         }
       ]
     }
