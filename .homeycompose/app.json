@@ -4,6 +4,12 @@
   "version": "0.0.1",
   "category": "tools",
 
+  "images": {
+    "small": "/assets/images/app_small.png",
+    "large": "/assets/images/app_large.png",
+    "xlarge": "/assets/images/app_xlarge.png"
+  },
+
   "author": {
     "name": "Zakarias Mortensen",
     "email": "Zaka_9@hotmail.com"
