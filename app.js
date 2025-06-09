@@ -17,10 +17,11 @@ const BRIDGES = {
 };
 
 const MAX_DIST = 300; // default-radie (m) om ingen radius finns i BRIDGES
-const MIN_KTS = 1.0; // ignorera (nästan) stillaliggande fartyg
+const MIN_KTS = 1.0; // ignorera i princip stillaliggande fartyg
 const SCAN_MS = 8_000; // lyssna så här länge per förfrågan
 const WS_URL = "wss://stream.aisstream.io/v0/stream";
 
+// ── Homey-app ────────────────────────────────────────────────────────────
 class AISBridgeApp extends Homey.App {
   async onInit() {
     this.log("AIS Bridge (on-demand) started");
@@ -71,6 +72,7 @@ class AISBridgeApp extends Homey.App {
       return await new Promise((resolve) => {
         let done = false;
         const ws = new WS(WS_URL);
+
         const kill = () => {
           if (!done) {
             done = true;
@@ -85,11 +87,11 @@ class AISBridgeApp extends Homey.App {
         }, SCAN_MS);
 
         ws.on("open", () => {
+          // Enklare prenumeration: bara api-nyckel + bbox
           ws.send(
             JSON.stringify({
               Apikey: key,
               BoundingBoxes: [bbox],
-              FilterMessageTypes: ["PositionReport"],
             })
           );
         });
@@ -97,21 +99,52 @@ class AISBridgeApp extends Homey.App {
         ws.on("message", (buf) => {
           try {
             const msg = JSON.parse(buf);
-            if (msg.MessageType !== "PositionReport") return;
+
+            // Ta bara meddelanden som faktiskt innehåller positionsfält
+            if (
+              msg.MessageType !== "PositionReport" &&
+              msg.MessageType !== "StandardClassBPositionReport" &&
+              msg.MessageType !== "ExtendedClassBPositionReport"
+            )
+              return;
 
             const meta = msg.Metadata || msg.MetaData || {};
-            const body = msg.Message?.PositionReport || {};
+            const body =
+              msg.Message?.PositionReport ||
+              msg.Message?.StandardClassBPositionReport ||
+              msg.Message?.ExtendedClassBPositionReport ||
+              {};
 
-            const lat = meta.Latitude ?? meta.latitude ?? body.Latitude;
-            const lon = meta.Longitude ?? meta.longitude ?? body.Longitude;
-            const sog = meta.SOG ?? meta.speedOverGround ?? body.SOG ?? 0;
+            const lat =
+              meta.Latitude ?? meta.latitude ?? body.Latitude ?? body.latitude;
+            const lon =
+              meta.Longitude ??
+              meta.longitude ??
+              body.Longitude ??
+              body.longitude;
+            const sog =
+              meta.Sog ??
+              meta.SOG ??
+              meta.speedOverGround ??
+              body.Sog ??
+              body.SOG ??
+              body.speedOverGround ??
+              0;
             if (lat == null || lon == null || sog < MIN_KTS) return;
 
             const d = this._haversine(lat, lon, b.lat, b.lon);
             if (d <= radius) {
+              // Mer läsvänlig logg
+              const mmsi = body.MMSI ?? meta.MMSI ?? "–";
+              const name =
+                (body.Name ?? meta.ShipName ?? "").trim() || "(namn saknas)";
+              const cog = body.Cog ?? body.COG ?? meta.Cog ?? meta.COG ?? "–";
               this.log(
-                `🚢 Båt vid ${b.name} – ${d.toFixed(0)} m, ${sog.toFixed(1)} kn`
+                `🚢 ${name} (MMSI ${mmsi}) – ${d.toFixed(0)} m, ${sog.toFixed(
+                  1
+                )} kn, COG ${cog}`
               );
+
               clearTimeout(timer);
               kill();
               resolve(true);
@@ -121,9 +154,7 @@ class AISBridgeApp extends Homey.App {
           }
         });
 
-        ws.on("error", (err) => {
-          this.error(`WSS-fel:`, err.message);
-        });
+        ws.on("error", (err) => this.error(`WSS-fel:`, err.message));
         ws.on("close", () => {
           clearTimeout(timer);
           kill();
