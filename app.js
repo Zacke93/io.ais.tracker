@@ -17,7 +17,7 @@ const BRIDGES = {
 };
 
 const MAX_DIST = 300; // default-radie (m) om ingen radius finns i BRIDGES
-const MIN_KTS = 1.0; // ignorera i princip stillaliggande fartyg
+const MIN_KTS = 0.2; // ignorera i princip stillaliggande fartyg
 const SCAN_MS = 30_000; // lyssna så här länge per förfrågan
 const WS_URL = "wss://stream.aisstream.io/v0/stream";
 
