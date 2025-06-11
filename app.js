@@ -17,8 +17,8 @@ const BRIDGES = {
 };
 
 const MAX_DIST = 300; // m (om radius saknas ovan)
-const MIN_KTS = 1.0; // fart-tröskel (knop)
-const SCAN_MS = 8_000; // Homey-villkor måste svara < 30 000 ms
+const MIN_KTS = 0.2; // fart-tröskel (knop)
+const SCAN_MS = 30_000; // Homey-villkor måste svara < 30 000 ms
 const WS_URL = "wss://stream.aisstream.io/v0/stream";
 
 /* ── Hjälpfunktioner ──────────────────────────────────────────────── */
