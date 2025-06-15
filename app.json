@@ -5,7 +5,7 @@
     "en": "AIS Tracker",
     "sv": "AIS Spårare"
   },
-  "version": "0.0.8",
+  "version": "0.0.85",
   "category": [
     "tools"
   ],
@@ -38,53 +38,122 @@
     }
   ],
   "flow": {
-    "conditions": [
+    "triggers": [
       {
-        "id": "is_boat_near",
+        "id": "boat_near",
         "title": {
-          "en": "A boat !{{is|isn't}} near {{bridge}}",
-          "sv": "En båt !{{är|är inte}} nära {{bridge}}"
+          "en": "Boat near",
+          "sv": "Båt nära"
         },
         "titleFormatted": {
-          "en": "A boat !{{is|isn't}} near [[bridge]]",
-          "sv": "En båt !{{är|är inte}} nära [[bridge]]"
+          "en": "Boat near <bridge>",
+          "sv": "Båt nära <bridge>"
         },
         "args": [
           {
             "name": "bridge",
             "type": "dropdown",
             "title": {
-              "en": "Zone / bridge",
-              "sv": "Zon / bro"
+              "en": "Bridge",
+              "sv": "Bro"
             },
             "values": [
               {
-                "id": "klaffbron",
-                "label": {
-                  "en": "Klaffbron",
-                  "sv": "Klaffbron"
+                "id": "any",
+                "title": {
+                  "en": "Any bridge",
+                  "sv": "Alla broar"
                 }
+              },
+              {
+                "id": "klaffbron",
+                "title": "Klaffbron"
               },
               {
                 "id": "jarnvagsbron",
-                "label": {
-                  "en": "Railway Bridge",
-                  "sv": "Järnvägsbron"
-                }
+                "title": "Järnvägsbron"
               },
               {
                 "id": "stridsbergsbron",
-                "label": {
-                  "en": "Stridsbergsbron",
-                  "sv": "Stridsbergsbron"
+                "title": "Stridsbergsbron"
+              },
+              {
+                "id": "stallbackabron",
+                "title": "Stallbackabron"
+              }
+            ]
+          }
+        ],
+        "tokens": [
+          {
+            "name": "bridge",
+            "type": "string",
+            "title": {
+              "en": "Bridge",
+              "sv": "Bro"
+            }
+          },
+          {
+            "name": "vessel_name",
+            "type": "string",
+            "title": {
+              "en": "Vessel name",
+              "sv": "Fartygsnamn"
+            }
+          },
+          {
+            "name": "direction",
+            "type": "string",
+            "title": {
+              "en": "Direction",
+              "sv": "Riktning"
+            }
+          }
+        ]
+      }
+    ],
+    "conditions": [
+      {
+        "id": "boat_recent",
+        "title": {
+          "en": "Boat recently near",
+          "sv": "Båt nyligen nära"
+        },
+        "titleFormatted": {
+          "en": "Boat recently near <bridge>",
+          "sv": "Båt nyligen nära <bridge>"
+        },
+        "args": [
+          {
+            "name": "bridge",
+            "type": "dropdown",
+            "title": {
+              "en": "Bridge",
+              "sv": "Bro"
+            },
+            "values": [
+              {
+                "id": "any",
+                "title": {
+                  "en": "Any bridge",
+                  "sv": "Någon bro"
                 }
               },
               {
-                "id": "stockholm_inlet",
-                "label": {
-                  "en": "Stockholm Inlet (test 3 km)",
-                  "sv": "Stockholms inlopp (test 3 km)"
-                }
+                "id": "klaffbron",
+                "title": "Klaffbron"
+              },
+              {
+                "id": "jarnvagsbron",
+                "title": "Järnvägsbron"
+              },
+              {
+                "id": "stridsbergsbron",
+                "title": "Stridsbergsbron"
+              },
+              {
+                "id": "stallbackabron",
+                "title": "Stallbackabron"
               }
             ]
           }
