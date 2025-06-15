@@ -1,33 +1,35 @@
+/* ====================================================================
+   AIS Bridge – Homey-app som larmar när fartyg närmar sig broar
+   ==================================================================== */
 "use strict";
 
 const Homey = require("homey");
 const WS = require("ws");
 
-/* ── Statisk konfiguration ─────────────────────────────────────────── */
+/* ---------- Bro-koordinater ---------- */
 const BRIDGES = {
   klaffbron: { name: "Klaffbron", lat: 58.283953, lon: 12.2847 },
   jarnvagsbron: { name: "Järnvägsbron", lat: 58.2917, lon: 12.2911 },
   stridsbergsbron: { name: "Stridsbergsbron", lat: 58.2935, lon: 12.294167 },
-  stockholm_inlet: {
-    name: "Stockholms inlopp (test 3 km)",
-    lat: 59.4,
-    lon: 18.3,
-    radius: 3000, // ändra här om du vill större radie
-  },
+  stallbackabron: { name: "Stallbackabron", lat: 58.3177, lon: 12.3032 },
 };
 
-const MAX_DIST = 300; // m (om radius saknas ovan)
-const MIN_KTS = 0.2; // fart-tröskel (knop)
-const SCAN_MS = 30_000; // Homey-villkor måste svara < 30 000 ms
+/* ---------- Konstanter ---------- */
+const MAX_DIST = 600; // m – standardradie för bro
+const EXTRA_MARGIN = 1_000; // m – marginal runt bounding-boxen
+const MIN_KTS = 0.0; // ignorera helt stilla
+const MAX_AGE_SEC = 3 * 60; // ”nyligen nära”-fönster
 const WS_URL = "wss://stream.aisstream.io/v0/stream";
+const KEEPALIVE_MS = 60_000; // skicka ny subscription var minut
+const RECONNECT_MS = 10_000; // reconnect-försök vid fel
 
-/* ── Hjälpfunktioner ──────────────────────────────────────────────── */
-function haversine(la1, lo1, la2, lo2) {
+/* ---------- Hjälpfunktioner ---------- */
+function haversine(lat1, lon1, lat2, lon2) {
   const R = 6_371_000;
-  const φ1 = (la1 * Math.PI) / 180,
-    φ2 = (la2 * Math.PI) / 180;
-  const dφ = ((la2 - la1) * Math.PI) / 180,
-    dλ = ((lo2 - lo1) * Math.PI) / 180;
+  const φ1 = (lat1 * Math.PI) / 180,
+    φ2 = (lat2 * Math.PI) / 180;
+  const dφ = ((lat2 - lat1) * Math.PI) / 180;
+  const dλ = ((lon2 - lon1) * Math.PI) / 180;
   return (
     2 *
     R *
@@ -39,169 +41,213 @@ function haversine(la1, lo1, la2, lo2) {
     )
   );
 }
+
 function getDirection(cog) {
   const deg = Number(cog);
-  if (Number.isNaN(deg)) return "okänd";
-  // Vänern–Göta älv grov logik: 90°–270° ≈ söder/väst = Göteborg
-  return deg > 90 && deg < 270 ? "Göteborg" : "Vänersborg";
+  return !isNaN(deg) && deg > 90 && deg < 270 ? "Göteborg" : "Vänersborg";
 }
+const now = () => Date.now();
 
-/* ── Homey-app ─────────────────────────────────────────────────────── */
+/* ==================================================================== */
 class AISBridgeApp extends Homey.App {
-  async onInit() {
-    this.log("AIS Bridge (on-demand) started");
+  /* ==================================================================== */
 
-    /* --- 1. Skapa globala app-taggar (tomma till en början) --- */
-    this._tokens = {};
-    for (const [id, bridge] of Object.entries(BRIDGES)) {
-      const tName = await this.homey.flow.createToken(`boat_name_${id}`, {
-        type: "string",
-        title: `Fartygsnamn – ${bridge.name}`,
-      });
-      const tDir = await this.homey.flow.createToken(`boat_dir_${id}`, {
-        type: "string",
-        title: `Riktning – ${bridge.name}`,
-      });
-      this._tokens[id] = { name: tName, dir: tDir };
+  async onInit() {
+    this.log("AIS Bridge startad 🚀");
+
+    /* ------------------------------------------------------------
+          _lastSeen strukturen: { broId: { MMSI: tidsstämpel, … }, … }
+          ------------------------------------------------------------ */
+    this._lastSeen = {};
+
+    /* ---------- Global tagg som kan läsas upp i TTS ---------- */
+    this._activeBridgesTag = await this.homey.flow.createToken(
+      "active_bridges", // token-ID  {{active_bridges}}
+      "string", // datatyp
+      "Aktiva broar" // human-readable namn
+    );
+    this._updateActiveBridgesTag(); // init = tom sträng
+
+    /* ---------- Registrera Flow-kort ---------- */
+    this._boatNearTrigger = this.homey.flow.getTriggerCard("boat_near");
+    this._boatRecentCard = this.homey.flow.getConditionCard("boat_recent");
+    this._boatRecentCard.registerRunListener(
+      this._onFlowConditionBoatRecent.bind(this)
+    );
+
+    /* ---------- Starta AIS-strömmen ---------- */
+    this._startLiveFeed();
+  }
+
+  /* ============================================================
+        OCH-kort: är (minst ett) fartyg nyligen nära vald bro?
+        ============================================================ */
+  async _onFlowConditionBoatRecent({ bridge }) {
+    const cutoff = now() - MAX_AGE_SEC * 1000;
+
+    /* ”any” = sant om någon bro har färsk observation */
+    if (bridge === "any") {
+      return Object.values(this._lastSeen).some((perBridge) =>
+        Object.values(perBridge).some((ts) => ts > cutoff)
+      );
     }
 
-    /* --- 2. Registrera villkorskortet --- */
-    this._ongoingScans = new Map();
-    this.homey.flow
-      .getConditionCard("is_boat_near")
-      .registerRunListener(this.onFlowConditionIsBoatNear.bind(this));
+    const perBridge = this._lastSeen[bridge];
+    if (!perBridge) return false;
+    return Object.values(perBridge).some((ts) => ts > cutoff);
   }
 
-  /* ----- Villkor (“Och”) ----- */
-  async onFlowConditionIsBoatNear({ bridge }) {
-    if (this._ongoingScans.has(bridge)) return this._ongoingScans.get(bridge);
+  /* ============================================================
+        Starta kontinuerlig AIS-ström (websocket)
+        ============================================================ */
+  _startLiveFeed() {
+    const key = this.homey.settings.get("ais_api_key");
+    if (!key) {
+      this.error("AIS-nyckel saknas!");
+      return;
+    }
 
-    const p = this._scanOnce(bridge).finally(() =>
-      this._ongoingScans.delete(bridge)
-    );
-    this._ongoingScans.set(bridge, p);
-    return p;
-  }
+    /* ----- Beräkna EN gemensam bounding-box ----- */
+    const lats = Object.values(BRIDGES).map((b) => b.lat);
+    const lons = Object.values(BRIDGES).map((b) => b.lon);
+    const maxLat = Math.max(...lats),
+      minLat = Math.min(...lats);
+    const maxLon = Math.max(...lons),
+      minLon = Math.min(...lons);
+    const marginLat = EXTRA_MARGIN / 111_000;
+    const midLat = (maxLat + minLat) / 2;
+    const marginLon =
+      EXTRA_MARGIN / (111_000 * Math.cos((midLat * Math.PI) / 180));
+    const BOX = [
+      [maxLat + marginLat, minLon - marginLon],
+      [minLat - marginLat, maxLon + marginLon],
+    ];
 
-  /* ----- Engångsskanner (kallas av villkorskortet) ----- */
-  async _scanOnce(bridgeId) {
-    try {
-      const key = this.homey.settings.get("ais_api_key");
-      if (!key) {
-        this.error("AIS-nyckel saknas");
-        return false;
+    /* ----- Öppna websocket ----- */
+    const ws = new WS(WS_URL);
+    let keepAlive;
+    const subscribe = () =>
+      ws.send(JSON.stringify({ Apikey: key, BoundingBoxes: [BOX] }));
+
+    ws.on("open", () => {
+      this.log("WSS ansluten ✅");
+      subscribe();
+      keepAlive = setInterval(subscribe, KEEPALIVE_MS);
+    });
+
+    /* ----- Hantera varje inkommande AIS-paket ----- */
+    ws.on("message", (buf) => {
+      let msg;
+      try {
+        msg = JSON.parse(buf.toString());
+      } catch (e) {
+        return this.error("JSON-fel:", e);
       }
 
-      const B = BRIDGES[bridgeId];
-      const radius = B.radius ?? MAX_DIST;
-      const latPad = radius / 111000;
-      const lonPad = radius / (111000 * Math.cos((B.lat * Math.PI) / 180));
-      const bbox = [
-        [B.lat + latPad, B.lon - lonPad],
-        [B.lat - latPad, B.lon + lonPad],
-      ];
+      if (
+        msg.MessageType !== "PositionReport" &&
+        msg.MessageType !== "StandardClassBPositionReport" &&
+        msg.MessageType !== "ExtendedClassBPositionReport"
+      )
+        return; // ignorera alla andra meddelandetyper
 
-      this.log(`Startar skanning (${radius} m) för ${B.name}`);
+      const meta = msg.Metadata || msg.MetaData || {};
+      const body = Object.values(msg.Message || {})[0] || {};
 
-      return await new Promise((resolve) => {
-        let done = false;
-        const ws = new WS(WS_URL);
+      const lat = meta.Latitude ?? body.Latitude;
+      const lon = meta.Longitude ?? body.Longitude;
+      const sog = meta.Sog ?? meta.SOG ?? body.Sog ?? body.SOG ?? 0;
+      const mmsi = body.MMSI ?? meta.MMSI;
+      if (!lat || !lon || !mmsi || sog < MIN_KTS) return;
 
-        const kill = () => {
-          if (!done) {
-            done = true;
-            ws.close();
-          }
-        };
+      /* --- 1. Vilka broar ligger vi inom radien för? --- */
+      const hits = [];
+      for (const [id, B] of Object.entries(BRIDGES)) {
+        const d = haversine(lat, lon, B.lat, B.lon);
+        if (d <= (B.radius ?? MAX_DIST)) hits.push({ id, B, dist: d });
+      }
+      if (!hits.length) return;
 
-        const timer = setTimeout(() => {
-          this.log(`Timeout (${SCAN_MS} ms) – ingen båt nära ${B.name}`);
-          kill();
-          resolve(false);
-        }, SCAN_MS);
+      /* --- 2. Välj EN bro (närmast & framför) --- */
+      const dir = getDirection(body.Cog ?? meta.Cog);
+      const down = dir === "Göteborg";
+      hits.sort((a, b) => a.dist - b.dist);
+      const ahead = hits.filter((h) =>
+        down ? h.B.lat <= lat : h.B.lat >= lat
+      );
+      const { id: chosenId, B: chosenB } = ahead[0] || hits[0];
 
-        ws.on("open", () => {
-          ws.send(JSON.stringify({ Apikey: key, BoundingBoxes: [bbox] }));
-        });
+      /* --- 3. Flytta MMSI till rätt bro (unik zon) --- */
+      for (const list of Object.values(this._lastSeen)) delete list[mmsi]; // rensa gamla poster
 
-        ws.on("message", (buf) => {
-          let msg;
-          try {
-            msg = JSON.parse(buf.toString());
-          } catch (e) {
-            this.error("JSON-fel:", e);
-            return;
-          }
+      (this._lastSeen[chosenId] ??= {})[mmsi] = now();
 
-          /* --- typ-filter --- */
-          if (
-            msg.MessageType !== "PositionReport" &&
-            msg.MessageType !== "StandardClassBPositionReport" &&
-            msg.MessageType !== "ExtendedClassBPositionReport"
-          )
-            return;
+      /* --- 4. Uppdatera global tagg --- */
+      this._updateActiveBridgesTag();
 
-          const meta = msg.Metadata || msg.MetaData || {};
-          const body = Object.values(msg.Message || {})[0] || {};
+      /* --- 5. Logg + trigga Flow --- */
+      const name = (body.Name ?? meta.ShipName ?? "").trim() || "(namn saknas)";
+      this.log(`🚢 ${name} (${mmsi}) vid ${chosenB.name}  ${dir}`);
 
-          const lat =
-            meta.Latitude ?? meta.latitude ?? body.Latitude ?? body.latitude;
-          const lon =
-            meta.Longitude ??
-            meta.longitude ??
-            body.Longitude ??
-            body.longitude;
-          const sog =
-            meta.Sog ??
-            meta.SOG ??
-            meta.speedOverGround ??
-            body.Sog ??
-            body.SOG ??
-            body.speedOverGround ??
-            0;
-          if (lat == null || lon == null || sog < MIN_KTS) return;
+      const tokens = {
+        bridge: chosenB.name,
+        vessel_name: name,
+        direction: dir,
+      };
+      this._boatNearTrigger
+        .trigger(tokens, { bridge: chosenId })
+        .catch(this.error);
+      this._boatNearTrigger
+        .trigger(tokens, { bridge: "any" })
+        .catch(this.error);
+    });
 
-          const dist = haversine(lat, lon, B.lat, B.lon);
-          if (dist > radius) return;
+    /* ----- Reconnect-logik ----- */
+    const restart = (err) => {
+      if (keepAlive) clearInterval(keepAlive);
+      if (err) this.error("WSS-fel:", err.message || err);
+      setTimeout(() => this._startLiveFeed(), RECONNECT_MS);
+    };
+    ws.on("error", restart);
+    ws.on("close", () => restart());
+  }
 
-          /* --- Fartyg hittat! --- */
-          const name =
-            (body.Name ?? meta.ShipName ?? "").trim() || "(namn saknas)";
-          const cog = body.Cog ?? body.COG ?? meta.Cog ?? meta.COG ?? "–";
-          const dir = getDirection(cog);
+  /* ============================================================
+        Bygg naturlig svensk/frasevänlig text och sätt taggen
+        ============================================================ */
+  _updateActiveBridgesTag() {
+    const cutoff = now() - MAX_AGE_SEC * 1000;
+    const parts = [];
 
-          this.log(
-            `🚢 ${name} – ${dist.toFixed(0)} m, ${sog.toFixed(
-              1
-            )} kn, dir ${dir}`
-          );
+    /* -- rensa gamla poster och bygg fraser -- */
+    for (const [id, perBridge] of Object.entries(this._lastSeen)) {
+      for (const [mmsi, ts] of Object.entries(perBridge))
+        if (ts < cutoff) delete perBridge[mmsi];
 
-          /* Sätt app-taggarna */
-          const tok = this._tokens[bridgeId];
-          tok.name.setValue(name).catch(() => {});
-          tok.dir.setValue(dir).catch(() => {});
+      const count = Object.keys(perBridge).length;
+      if (!count) {
+        delete this._lastSeen[id];
+        continue;
+      }
 
-          /* Nollställ taggar efter 2 min */
-          setTimeout(() => {
-            tok.name.setValue(null).catch(() => {});
-            tok.dir.setValue(null).catch(() => {});
-          }, 2 * 60 * 1000);
-
-          clearTimeout(timer);
-          kill();
-          resolve(true);
-        });
-
-        ws.on("error", (e) => this.error("WSS-fel:", e.message));
-        ws.on("close", () => {
-          clearTimeout(timer);
-          kill();
-        });
-      });
-    } catch (err) {
-      this.error("Skanning kraschade:", err.message || err);
-      return false;
+      const broNamn = BRIDGES[id].name;
+      parts.push(
+        count === 1
+          ? `en båt nära ${broNamn}`
+          : `${count} båtar nära ${broNamn}`
+      );
     }
+
+    /* -- sätt slutlig fras -- */
+    let phrase = "inga fartyg nära någon bro";
+    if (parts.length === 1) phrase = parts[0];
+    else if (parts.length === 2) phrase = parts.join(" och ");
+    else if (parts.length > 2) {
+      const last = parts.pop();
+      phrase = parts.join(", ") + " och " + last;
+    }
+
+    this._activeBridgesTag.setValue(phrase);
   }
 }
 

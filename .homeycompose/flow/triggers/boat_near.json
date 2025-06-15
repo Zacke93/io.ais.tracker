@@ -1,0 +1,45 @@
+{
+  "id": "boat_near",
+  "title": {
+    "en": "Boat near",
+    "sv": "Båt nära"
+  },
+  "titleFormatted": {
+    "en": "Boat near <bridge>",
+    "sv": "Båt nära <bridge>"
+  },
+  "args": [
+    {
+      "name": "bridge",
+      "type": "dropdown",
+      "title": {
+        "en": "Bridge",
+        "sv": "Bro"
+      },
+      "values": [
+        { "id": "any", "title": { "en": "Any bridge", "sv": "Alla broar" } },
+        { "id": "klaffbron", "title": "Klaffbron" },
+        { "id": "jarnvagsbron", "title": "Järnvägsbron" },
+        { "id": "stridsbergsbron", "title": "Stridsbergsbron" },
+        { "id": "stallbackabron", "title": "Stallbackabron" }
+      ]
+    }
+  ],
+  "tokens": [
+    {
+      "name": "bridge",
+      "type": "string",
+      "title": { "en": "Bridge", "sv": "Bro" }
+    },
+    {
+      "name": "vessel_name",
+      "type": "string",
+      "title": { "en": "Vessel name", "sv": "Fartygsnamn" }
+    },
+    {
+      "name": "direction",
+      "type": "string",
+      "title": { "en": "Direction", "sv": "Riktning" }
+    }
+  ]
+}
