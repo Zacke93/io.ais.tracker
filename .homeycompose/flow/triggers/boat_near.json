@@ -1,21 +1,15 @@
 {
   "id": "boat_near",
-  "title": {
-    "en": "Boat near",
-    "sv": "Båt nära"
-  },
+  "title": { "en": "Boat near", "sv": "Båt nära" },
   "titleFormatted": {
-    "en": "Boat near <bridge>",
-    "sv": "Båt nära <bridge>"
+    "en": "Boat near [[bridge]]",
+    "sv": "Båt nära [[bridge]]"
   },
   "args": [
     {
       "name": "bridge",
       "type": "dropdown",
-      "title": {
-        "en": "Bridge",
-        "sv": "Bro"
-      },
+      "title": { "en": "Bridge", "sv": "Bro" },
       "values": [
         { "id": "any", "title": { "en": "Any bridge", "sv": "Alla broar" } },
         { "id": "klaffbron", "title": "Klaffbron" },

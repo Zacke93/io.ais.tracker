@@ -2,17 +2,14 @@
   "id": "boat_recent",
   "title": { "en": "Boat recently near", "sv": "Båt nyligen nära" },
   "titleFormatted": {
-    "en": "Boat recently near <bridge>",
-    "sv": "Båt nyligen nära <bridge>"
+    "en": "Boat recently near [[bridge]]",
+    "sv": "Båt nyligen nära [[bridge]]"
   },
   "args": [
     {
       "name": "bridge",
       "type": "dropdown",
-      "title": {
-        "en": "Bridge",
-        "sv": "Bro"
-      },
+      "title": { "en": "Bridge", "sv": "Bro" },
       "values": [
         { "id": "any", "title": { "en": "Any bridge", "sv": "Någon bro" } },
         { "id": "klaffbron", "title": "Klaffbron" },

@@ -46,8 +46,8 @@
           "sv": "Båt nära"
         },
         "titleFormatted": {
-          "en": "Boat near <bridge>",
-          "sv": "Båt nära <bridge>"
+          "en": "Boat near [[bridge]]",
+          "sv": "Båt nära [[bridge]]"
         },
         "args": [
           {
@@ -120,8 +120,8 @@
           "sv": "Båt nyligen nära"
         },
         "titleFormatted": {
-          "en": "Boat recently near <bridge>",
-          "sv": "Båt nyligen nära <bridge>"
+          "en": "Boat recently near [[bridge]]",
+          "sv": "Båt nyligen nära [[bridge]]"
         },
         "args": [
           {
