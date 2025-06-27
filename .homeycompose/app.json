@@ -5,7 +5,7 @@
     "sv": "AIS Spårare"
   },
 
-  "version": "0.0.85",
+  "version": "1.0.0",
   "category": ["tools"],
 
   "icon": "/assets/icon.svg",

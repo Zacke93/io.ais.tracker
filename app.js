@@ -19,9 +19,9 @@ const BRIDGES = {
 };
 
 /* ---------- Konstanter ---------- */
-const MAX_DIST = 4_000; // m – larmradie bro
-const EXTRA_MARGIN = 200_000; // m – storlek på prenumerationsruta
-const MIN_KTS = 0.0; // ignorera helt stilla
+const MAX_DIST = 600; // m – larmradie bro
+const EXTRA_MARGIN = 1_000; // m – storlek på prenumerationsruta
+const MIN_KTS = 0.2; // ignorera helt stilla
 const MAX_AGE_SEC = 3 * 60; // fönster för "nyligen"
 const WS_URL = "wss://stream.aisstream.io/v0/stream";
 const KEEPALIVE_MS = 60_000;
@@ -51,7 +51,7 @@ const getDirection = (cog) =>
 
 /* ==================================================================== */
 class AISBridgeApp extends Homey.App {
-  /* ==================================================================== */
+  /* ================================================================== */
 
   /* ---------- Smidig debug-utskrift ---------- */
   dbg(...args) {
@@ -64,6 +64,7 @@ class AISBridgeApp extends Homey.App {
     this._lastSeen = {}; // { bridgeId: { MMSI: ts } }
 
     await this._initGlobalToken();
+
     this._boatNearTrigger = this.homey.flow.getTriggerCard("boat_near");
     this._boatRecentCard = this.homey.flow.getConditionCard("boat_recent");
     this._boatRecentCard.registerRunListener(
@@ -76,34 +77,32 @@ class AISBridgeApp extends Homey.App {
   /* ---------------- Global token ---------------- */
   async _initGlobalToken() {
     try {
-      this._activeBridgesTag = await this.homey.flow.createToken(
-        TOKEN_ID,
-        "string",
-        "Aktiva broar",
-        { title: { en: "Active bridges", sv: "Aktiva broar" } }
-      );
-      this.dbg("Token skapad:", TOKEN_ID);
+      this._activeBridgesTag = await this.homey.flow.createToken(TOKEN_ID, {
+        type: "string",
+        // välj ett språk – eller använd this.homey.__('…') om du har nyckel i /locales
+        title: "Aktiva broar",
+      });
     } catch (err) {
-      if (String(err).includes("already exists")) {
+      if (String(err).includes("already")) {
         this._activeBridgesTag = await this.homey.flow.getToken(TOKEN_ID);
-        this.dbg("Token fanns redan, hämtad");
       } else {
-        this.error("Token-fel:", err);
         throw err;
       }
     }
+
     await this._activeBridgesTag.setValue("inga fartyg nära någon bro");
-    this.dbg("Token init-värde satt");
   }
 
   /* ---------------- Condition-kort ---------------- */
   async _onFlowConditionBoatRecent({ bridge }) {
     const cutoff = now() - MAX_AGE_SEC * 1000;
+
     if (bridge === "any") {
       return Object.values(this._lastSeen).some((perBridge) =>
         Object.values(perBridge).some((ts) => ts > cutoff)
       );
     }
+
     const perBridge = this._lastSeen[bridge];
     return perBridge && Object.values(perBridge).some((ts) => ts > cutoff);
   }
@@ -135,10 +134,11 @@ class AISBridgeApp extends Homey.App {
 
     /* ---- WebSocket ---- */
     const ws = new WS(WS_URL);
+
     const subscribe = () =>
       ws.send(JSON.stringify({ Apikey: key, BoundingBoxes: [BOX] }));
-    let keepAlive;
 
+    let keepAlive;
     ws.on("open", () => {
       this.log("WSS ansluten ✅");
       subscribe();
@@ -205,18 +205,17 @@ class AISBridgeApp extends Homey.App {
       const name = (body.Name ?? meta.ShipName ?? "").trim() || "(namn saknas)";
       this.log(`🚢 ${name} (${mmsi}) vid ${chosenB.name} ${dir}`);
 
-      /* --- trigga Flow --- */
+      /* --- trigga Flow-kortet --- */
       const tokens = {
         bridge: chosenB.name,
         vessel_name: name,
         direction: dir,
       };
-      this._boatNearTrigger
-        .trigger(tokens, { bridge: chosenId })
-        .catch(this.error);
-      this._boatNearTrigger
-        .trigger(tokens, { bridge: "any" })
-        .catch(this.error);
+
+      /* state.bridge används för att filtrera dropdown-argumentet */
+      const state = { bridge: chosenId };
+
+      this._boatNearTrigger.trigger(tokens, state).catch(this.error);
     });
 
     const restart = (err) => {
