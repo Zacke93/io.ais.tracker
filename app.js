@@ -7,7 +7,7 @@ const Homey = require("homey");
 const WS = require("ws");
 
 /* ---------- PARAMETRAR ---------- */
-const DEBUG_MODE = false; // ← växla här
+const DEBUG_MODE = false; // ← sätt true för debug
 const TOKEN_ID = "active_bridges";
 
 /* ---------- Bro-koordinater ---------- */
@@ -19,16 +19,17 @@ const BRIDGES = {
 };
 
 /* ---------- Konstanter ---------- */
-const MAX_DIST = 600; // m – larmradie bro
-const EXTRA_MARGIN = 1_000; // m – storlek på prenumerationsruta
-const MIN_KTS = 0.2; // ignorera helt stilla
-const MAX_AGE_SEC = 3 * 60; // fönster för "nyligen"
+const MAX_DIST = 4_000; // m – larmradie per bro
+const EXTRA_MARGIN = 200_000; // m – prenumerations-ruta
+const MIN_KTS = 0.0; // ignorera stillastående
+const MAX_AGE_SEC = 3 * 60; // “nyligen”-fönster
 const WS_URL = "wss://stream.aisstream.io/v0/stream";
 const KEEPALIVE_MS = 60_000;
 const RECONNECT_MS = 10_000;
 
 /* ---------- Hjälpfunktioner ---------- */
 const now = () => Date.now();
+
 function haversine(lat1, lon1, lat2, lon2) {
   const R = 6_371_000;
   const φ1 = (lat1 * Math.PI) / 180,
@@ -46,14 +47,14 @@ function haversine(lat1, lon1, lat2, lon2) {
     )
   );
 }
+
 const getDirection = (cog) =>
   Number(cog) > 90 && Number(cog) < 270 ? "Göteborg" : "Vänersborg";
 
 /* ==================================================================== */
 class AISBridgeApp extends Homey.App {
-  /* ================================================================== */
+  /* ==================================================================== */
 
-  /* ---------- Smidig debug-utskrift ---------- */
   dbg(...args) {
     if (DEBUG_MODE) this.log("[DEBUG]", ...args);
   }
@@ -61,7 +62,15 @@ class AISBridgeApp extends Homey.App {
   /* ===================== LIVSCYKEL ===================== */
   async onInit() {
     this.log("AIS Bridge startad 🚀  (debug =", DEBUG_MODE, ")");
-    this._lastSeen = {}; // { bridgeId: { MMSI: ts } }
+    /**
+     *  _lastSeen = {
+     *      klaffbron: {
+     *         211111111: { ts, dist, dir, towards }
+     *      },
+     *      …
+     *  }
+     */
+    this._lastSeen = {};
 
     await this._initGlobalToken();
 
@@ -79,32 +88,25 @@ class AISBridgeApp extends Homey.App {
     try {
       this._activeBridgesTag = await this.homey.flow.createToken(TOKEN_ID, {
         type: "string",
-        // välj ett språk – eller använd this.homey.__('…') om du har nyckel i /locales
         title: "Aktiva broar",
       });
     } catch (err) {
-      if (String(err).includes("already")) {
+      if (String(err).includes("already"))
         this._activeBridgesTag = await this.homey.flow.getToken(TOKEN_ID);
-      } else {
-        throw err;
-      }
+      else throw err;
     }
-
     await this._activeBridgesTag.setValue("inga fartyg nära någon bro");
   }
 
   /* ---------------- Condition-kort ---------------- */
   async _onFlowConditionBoatRecent({ bridge }) {
     const cutoff = now() - MAX_AGE_SEC * 1000;
-
-    if (bridge === "any") {
-      return Object.values(this._lastSeen).some((perBridge) =>
-        Object.values(perBridge).some((ts) => ts > cutoff)
+    if (bridge === "any")
+      return Object.values(this._lastSeen).some((per) =>
+        Object.values(per).some((v) => v.ts > cutoff)
       );
-    }
-
     const perBridge = this._lastSeen[bridge];
-    return perBridge && Object.values(perBridge).some((ts) => ts > cutoff);
+    return perBridge && Object.values(perBridge).some((v) => v.ts > cutoff);
   }
 
   /* ===================== WEBSOCKET ===================== */
@@ -130,11 +132,8 @@ class AISBridgeApp extends Homey.App {
       [maxLat + marginLat, minLon - marginLon],
       [minLat - marginLat, maxLon + marginLon],
     ];
-    this.dbg("Bounding box [lat,lon]:", BOX);
 
-    /* ---- WebSocket ---- */
     const ws = new WS(WS_URL);
-
     const subscribe = () =>
       ws.send(JSON.stringify({ Apikey: key, BoundingBoxes: [BOX] }));
 
@@ -146,11 +145,7 @@ class AISBridgeApp extends Homey.App {
     });
 
     ws.on("message", (buf) => {
-      /* – rå-debug – */
-      if (DEBUG_MODE) {
-        const head = buf.toString("utf8", 0, 120);
-        this.log("[RX]", head.replace(/\s+/g, " "));
-      }
+      if (DEBUG_MODE) this.dbg("[RX]", buf.toString("utf8", 0, 120));
 
       let msg;
       try {
@@ -177,45 +172,44 @@ class AISBridgeApp extends Homey.App {
       const mmsi = body.MMSI ?? meta.MMSI;
       if (!lat || !lon || !mmsi || sog < MIN_KTS) return;
 
-      /* --- distans till broar --- */
+      /* ---- distans till alla broar ---- */
       const hits = [];
       for (const [id, B] of Object.entries(BRIDGES)) {
         const d = haversine(lat, lon, B.lat, B.lon);
-        if (DEBUG_MODE && d < 10_000)
-          this.dbg(`⋯ ${mmsi} ${d.toFixed()} m från ${B.name}`);
         if (d <= (B.radius ?? MAX_DIST)) hits.push({ id, B, d });
       }
       if (!hits.length) return;
 
-      /* --- välj bro --- */
+      /* ---- välj närmast “framför” båten ---- */
       const dir = getDirection(body.Cog ?? meta.Cog);
       const down = dir === "Göteborg";
       hits.sort((a, b) => a.d - b.d);
       const ahead = hits.filter((h) =>
         down ? h.B.lat <= lat : h.B.lat >= lat
       );
-      const { id: chosenId, B: chosenB } = ahead[0] || hits[0];
+      const { id: bid, B, d } = ahead[0] || hits[0];
 
-      /* --- uppdatera intern state --- */
+      /* ---- är båten på väg mot eller från bron? ---- */
+      const towards =
+        dir === "Göteborg"
+          ? lat > B.lat // norr om bron = på väg mot
+          : lat < B.lat; // söder om bron = på väg mot
+
+      /* ---- uppdatera lastSeen ---- */
       for (const list of Object.values(this._lastSeen)) delete list[mmsi];
-      (this._lastSeen[chosenId] ??= {})[mmsi] = now();
-
-      /* --- token & logg --- */
-      this._updateActiveBridgesTag();
-      const name = (body.Name ?? meta.ShipName ?? "").trim() || "(namn saknas)";
-      this.log(`🚢 ${name} (${mmsi}) vid ${chosenB.name} ${dir}`);
-
-      /* --- trigga Flow-kortet --- */
-      const tokens = {
-        bridge: chosenB.name,
-        vessel_name: name,
-        direction: dir,
+      (this._lastSeen[bid] ??= {})[mmsi] = {
+        ts: now(),
+        dist: d,
+        dir,
+        towards,
       };
 
-      /* state.bridge används för att filtrera dropdown-argumentet */
-      const state = { bridge: chosenId };
+      /* ---- token & trigger ---- */
+      this._updateActiveBridgesTag();
 
-      this._boatNearTrigger.trigger(tokens, state).catch(this.error);
+      const name = (body.Name ?? meta.ShipName ?? "").trim() || "(namn saknas)";
+      const tokens = { bridge: B.name, vessel_name: name, direction: dir };
+      this._boatNearTrigger.trigger(tokens, { bridge: bid }).catch(this.error);
     });
 
     const restart = (err) => {
@@ -230,32 +224,62 @@ class AISBridgeApp extends Homey.App {
   /* ---------------- Token-uppdatering ---------------- */
   _updateActiveBridgesTag() {
     const cutoff = now() - MAX_AGE_SEC * 1000;
-    const parts = [];
+    const phrases = [];
 
-    for (const [id, perBridge] of Object.entries(this._lastSeen)) {
-      for (const [mmsi, ts] of Object.entries(perBridge))
-        if (ts < cutoff) delete perBridge[mmsi];
-
-      const count = Object.keys(perBridge).length;
-      if (!count) {
-        delete this._lastSeen[id];
+    for (const [bid, perBridge] of Object.entries(this._lastSeen)) {
+      /* städa gamla poster */
+      for (const [mmsi, v] of Object.entries(perBridge))
+        if (v.ts < cutoff) delete perBridge[mmsi];
+      const vessels = Object.values(perBridge);
+      if (!vessels.length) {
+        delete this._lastSeen[bid];
         continue;
       }
 
-      const bro = BRIDGES[id].name;
-      parts.push(
-        count === 1 ? `en båt nära ${bro}` : `${count} båtar nära ${bro}`
-      );
+      /* gruppera per dir + towards */
+      const groups = {};
+      vessels.forEach((v) => {
+        const key = `${v.dir}|${v.towards}`;
+        (groups[key] ??= []).push(v);
+      });
+
+      for (const [key, list] of Object.entries(groups)) {
+        const [dir, towards] = key.split("|");
+        list.sort((a, b) => a.dist - b.dist);
+
+        /* distans-sträng */
+        const dists = list.map((v) => Math.round(v.dist));
+        let distStr;
+        if (dists.length === 1) distStr = `${dists[0]}`;
+        else if (dists.length === 2)
+          distStr = `${dists[0]} respektive ${dists[1]}`;
+        else
+          distStr =
+            dists.slice(0, -1).join(", ") + " respektive " + dists.slice(-1);
+
+        /* grammatik */
+        const count = list.length;
+        const countStr = count === 1 ? "En båt" : `${count} båtar`;
+        const verb = towards === "true" || towards === true ? "har" : "är";
+        const suffix =
+          towards === "true" || towards === true ? "kvar till" : "från";
+
+        phrases.push(
+          `${countStr} med riktning mot ${dir} ` +
+            `${verb} ${distStr} meter ${suffix} ${BRIDGES[bid].name}`
+        );
+      }
     }
 
-    let phrase = "inga fartyg nära någon bro";
-    if (parts.length === 1) phrase = parts[0];
-    else if (parts.length === 2) phrase = parts.join(" och ");
-    else if (parts.length > 2)
-      phrase = parts.slice(0, -1).join(", ") + " och " + parts.slice(-1);
+    /* samman-foga meningar */
+    let sentence = "inga fartyg nära någon bro";
+    if (phrases.length === 1) sentence = phrases[0];
+    else if (phrases.length === 2) sentence = phrases.join(" och ");
+    else if (phrases.length > 2)
+      sentence = phrases.slice(0, -1).join(", ") + " och " + phrases.slice(-1);
 
-    this._activeBridgesTag.setValue(phrase).catch(this.error);
-    this.dbg("Token uppdaterad →", phrase);
+    this._activeBridgesTag.setValue(sentence).catch(this.error);
+    this.dbg("Token →", sentence);
   }
 }
 
