@@ -22,7 +22,7 @@
   ],
   "tokens": [
     {
-      "name": "bridge",
+      "name": "bridge_name",
       "type": "string",
       "title": { "en": "Bridge", "sv": "Bro" }
     },

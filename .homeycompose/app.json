@@ -1,11 +1,11 @@
 {
   "id": "io.aisstream.bridge",
   "name": {
-    "en": "AIS Tracker",
-    "sv": "AIS Spårare"
+    "en": "AIS Bridge",
+    "sv": "AIS Bridge"
   },
 
-  "version": "1.0.2",
+  "version": "1.0.5",
   "category": ["tools"],
 
   "icon": "/assets/icon.svg",
