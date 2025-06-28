@@ -7,7 +7,7 @@ const Homey = require("homey");
 const WS = require("ws");
 
 /* ---------- PARAMETRAR ---------- */
-const DEBUG_MODE = false; // ← sätt true för debug
+const DEBUG_MODE = true; // ← sätt true för debug
 const TOKEN_ID = "active_bridges";
 
 /* ---------- Bro-koordinater ---------- */

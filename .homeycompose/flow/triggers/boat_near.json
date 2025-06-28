@@ -12,6 +12,7 @@
       "title": { "en": "Bridge", "sv": "Bro" },
       "values": [
         { "id": "any", "title": { "en": "Any bridge", "sv": "Alla broar" } },
+        { "id": "olidebron", "title": "Olidebron" },
         { "id": "klaffbron", "title": "Klaffbron" },
         { "id": "jarnvagsbron", "title": "Järnvägsbron" },
         { "id": "stridsbergsbron", "title": "Stridsbergsbron" },
