@@ -82,11 +82,12 @@ const getDirection = (cog) =>
 
 /* ==================================================================== */
 class AISBridgeApp extends Homey.App {
+  /* Loggnivåer rättade ------------------------------ */
   dbg(...a) {
-    if (DEBUG_MODE || LIGHT_DEBUG_MODE) this.log("[LIGHT]", ...a);
+    if (DEBUG_MODE) this.log("[DEBUG]", ...a);
   }
   ldbg(...a) {
-    if (DEBUG_MODE) this.log("[DEBUG]", ...a);
+    if (DEBUG_MODE || LIGHT_DEBUG_MODE) this.log("[LIGHT]", ...a);
   }
 
   async onInit() {
@@ -99,16 +100,15 @@ class AISBridgeApp extends Homey.App {
     );
 
     this._lastSeen = {};
-
     await this._initGlobalToken();
 
     /* Flow-kort ------------------------------------ */
     this._boatNearTrigger = this.homey.flow.getTriggerCard("boat_near");
 
-    /* Listener: kör Flow om bro-valet matchar ------- */
-    this._boatNearTrigger.registerRunListener(async (args, state) => {
-      return args.bridge === "any" || args.bridge === state.bridge;
-    });
+    this._boatNearTrigger.registerRunListener(
+      async (args, state) =>
+        args.bridge === "any" || args.bridge === state.bridge
+    );
 
     /* Condition-kort -------------------------------- */
     this._boatRecentCard = this.homey.flow.getConditionCard("boat_recent");
@@ -154,7 +154,6 @@ class AISBridgeApp extends Homey.App {
       return;
     }
 
-    /* Bounding-box + marginal */
     const lats = Object.values(BRIDGES).map((b) => b.lat);
     const lons = Object.values(BRIDGES).map((b) => b.lon);
     const maxLat = Math.max(...lats),
@@ -176,7 +175,7 @@ class AISBridgeApp extends Homey.App {
     let keepAlive;
 
     ws.on("open", () => {
-      this.dbg("WSS ansluten");
+      this.ldbg("WSS ansluten ✅ – box:", BOX);
       subscribe();
       keepAlive = setInterval(subscribe, KEEPALIVE_MS);
     });
@@ -206,7 +205,6 @@ class AISBridgeApp extends Homey.App {
       const mmsi = body.MMSI ?? meta.MMSI;
       if (!lat || !lon || !mmsi || sog < MIN_KTS) return;
 
-      /* Hitta träffar */
       const hits = [];
       for (const [id, B] of Object.entries(BRIDGES)) {
         const d = haversine(lat, lon, B.lat, B.lon);
@@ -214,7 +212,6 @@ class AISBridgeApp extends Homey.App {
       }
       if (!hits.length) return;
 
-      /* Välj bro framför/närmast */
       const dir = getDirection(cog);
       const down = dir === "Göteborg";
       hits.sort((a, b) => a.d - b.d);
@@ -223,20 +220,17 @@ class AISBridgeApp extends Homey.App {
       );
       const { id: bid, B, d } = ahead[0] || hits[0];
 
-      /* Minnes-uppdatering */
       for (const per of Object.values(this._lastSeen)) delete per[mmsi];
       (this._lastSeen[bid] ??= {})[mmsi] = { ts: now(), dist: d, dir };
 
-      /* Token-text */
+      const name = (body.Name ?? meta.ShipName ?? "").trim() || "(namn saknas)";
+      this.ldbg(
+        `BOAT ${name} (${mmsi}) ${Math.round(d)} m från ${B.name}, dir=${dir}`
+      );
+
       this._updateActiveBridgesTag();
 
-      /* ----- ENDA trigger-anropet ----- */
-      const tokens = {
-        bridge_name: B.name,
-        vessel_name:
-          (body.Name ?? meta.ShipName ?? "").trim() || "(namn saknas)",
-        direction: dir,
-      };
+      const tokens = { bridge_name: B.name, vessel_name: name, direction: dir };
       const state = { bridge: bid };
       this._boatNearTrigger.trigger(tokens, state).catch(this.error);
     });
@@ -265,7 +259,6 @@ class AISBridgeApp extends Homey.App {
         continue;
       }
 
-      /* Gruppera på riktning */
       const groups = {};
       list.forEach((v) => {
         const k = v.dir;
@@ -295,7 +288,10 @@ class AISBridgeApp extends Homey.App {
       ? phrases[0]
       : phrases.slice(0, -1).join("; ") + " och " + phrases.slice(-1);
 
-    this._activeBridgesTag.setValue(sentence).catch(this.error);
+    this._activeBridgesTag
+      .setValue(sentence)
+      .then(() => this.ldbg("Token →", sentence))
+      .catch(this.error);
   }
 }
 
