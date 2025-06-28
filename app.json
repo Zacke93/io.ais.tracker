@@ -5,7 +5,7 @@
     "en": "AIS Tracker",
     "sv": "AIS Spårare"
   },
-  "version": "1.0.1",
+  "version": "1.0.2",
   "category": [
     "tools"
   ],
@@ -64,6 +64,10 @@
                   "en": "Any bridge",
                   "sv": "Alla broar"
                 }
+              },
+              {
+                "id": "olidebron",
+                "title": "Olidebron"
               },
               {
                 "id": "klaffbron",
@@ -136,8 +140,12 @@
                 "id": "any",
                 "title": {
                   "en": "Any bridge",
-                  "sv": "Någon bro"
+                  "sv": "Alla broar"
                 }
+              },
+              {
+                "id": "olidebron",
+                "title": "Olidebron"
               },
               {
                 "id": "klaffbron",
