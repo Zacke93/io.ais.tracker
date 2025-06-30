@@ -5,7 +5,7 @@
     "sv": "AIS Bridge"
   },
 
-  "version": "2.0.1",
+  "version": "3.0.0",
   "category": ["tools"],
 
   "icon": "/assets/icon.svg",
@@ -24,6 +24,21 @@
   "sdk": 3,
   "compatibility": ">=6.0.0",
   "startOnInstall": true,
+
+  "drivers": [
+    {
+      "id": "bridge_status",
+      "name": { "en": "Bridge status", "sv": "Broläge" },
+      "class": "sensor",
+      "capabilities": ["alarm_generic"],
+      "icon": "/drivers/bridge_status/assets/icon.png",
+      "images": {
+        "small": "/drivers/bridge_status/assets/images/small.png",
+        "large": "/drivers/bridge_status/assets/images/large.png"
+      },
+      "pair": [{ "id": "list_devices" }, { "id": "add_devices" }]
+    }
+  ],
 
   "settings": [
     {

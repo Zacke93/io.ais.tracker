@@ -1,0 +1,16 @@
+{
+  "name": {
+    "en": "Bridge status",
+    "sv": "Broläge"
+  },
+
+  "class": "sensor",
+  "capabilities": ["alarm_generic"],
+  "icon": "./assets/icon.png",
+  "images": {
+    "small": "/drivers/bridge_status/assets/images/small.png",
+    "large": "/drivers/bridge_status/assets/images/large.png"
+  },
+
+  "pair": [{ "id": "list_devices" }, { "id": "add_devices" }]
+}
