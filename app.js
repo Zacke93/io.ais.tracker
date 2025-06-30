@@ -51,7 +51,7 @@ const BRIDGES = {
 const DEFAULT_RADIUS = 300; // m
 const EXTRA_MARGIN = 2000; // m
 const MIN_KTS = 0.2; // knop
-const MAX_AGE_SEC = 3 * 60;
+const MAX_AGE_SEC = 3 * 60; // sek
 const WS_URL = "wss://stream.aisstream.io/v0/stream";
 const KEEPALIVE_MS = 60_000;
 const RECONNECT_MS = 10_000;
@@ -99,18 +99,19 @@ class AISBridgeApp extends Homey.App {
       ")"
     );
 
-    this._lastSeen = {}; // { bridgeId: { mmsi: { ts, dist, dir, towards } } }
+    this._lastSeen = {}; // { bridgeId: { mmsi: {...} } }
+    this._devices = new Set(); // << NYTT – håller enhets-referenser
+    this._latestBridgeSentence = "inga fartyg nära någon bro"; // << NYTT
 
     await this._initGlobalToken();
 
     /* Flow-kort -------------------------------------- */
     this._boatNearTrigger = this.homey.flow.getTriggerCard("boat_near");
 
-    /* --- Listener: strikt jämförelse ---------------- */
-    this._boatNearTrigger.registerRunListener(async (args, state) => {
-      // Kör bara om användarens val exakt matchar state.bridge
-      return args.bridge === state.bridge;
-    });
+    /* Listener: strikt jämförelse -------------------- */
+    this._boatNearTrigger.registerRunListener(
+      (args, state) => args.bridge === state.bridge
+    );
 
     /* Condition-kort --------------------------------- */
     this._boatRecentCard = this.homey.flow.getConditionCard("boat_recent");
@@ -134,7 +135,7 @@ class AISBridgeApp extends Homey.App {
         this._activeBridgesTag = await this.homey.flow.getToken(TOKEN_ID);
       else throw err;
     }
-    await this._activeBridgesTag.setValue("inga fartyg nära någon bro");
+    await this._activeBridgesTag.setValue(this._latestBridgeSentence); // << ändrat
   }
 
   /* ---- Flow-condition ‘boat_recent’ ---- */
@@ -259,16 +260,7 @@ class AISBridgeApp extends Homey.App {
       const state2 = { bridge: "any" };
       const match2 = this._boatNearTrigger.trigger(tokens, state2);
 
-      /* Enklare logg ---------------------------------- */
-      Promise.all([match1, match2])
-        .then(() => {
-          this.ldbg(
-            "Trigger boat_near skickad",
-            tokens,
-            `(state 1 = ${bid}, state 2 = any)`
-          );
-        })
-        .catch(this.error);
+      Promise.all([match1, match2]).catch(this.error);
     });
 
     const restart = (err) => {
@@ -331,10 +323,22 @@ class AISBridgeApp extends Homey.App {
     else if (phrases.length > 2)
       sentence = phrases.slice(0, -1).join(", ") + " och " + phrases.slice(-1);
 
+    this._latestBridgeSentence = sentence; // << NYTT
+
     this._activeBridgesTag
       .setValue(sentence)
       .then(() => this.ldbg("Token →", sentence))
       .catch(this.error);
+
+    /* << NYTT – uppdatera enhets-capability ---------- */
+    for (const dev of this._devices) {
+      // För alarm_generic: true = alarm, false = ingen alarm, men vi använder det för att veta om det finns båtar nära
+      const hasBoats = sentence !== "inga fartyg nära någon bro";
+
+      // Vi sätter alarm_generic och sparar strängen i enheten för senare åtkomst
+      dev.setCapabilityValue("alarm_generic", hasBoats).catch(this.error);
+      dev.store.lastSentence = sentence; // Vi sparar texten i enhets-lagringen
+    }
   }
 }
 
