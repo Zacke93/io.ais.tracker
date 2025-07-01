@@ -3,14 +3,24 @@
     "en": "Bridge status",
     "sv": "Broläge"
   },
-
   "class": "sensor",
-  "capabilities": ["alarm_generic"],
-  "icon": "./assets/icon.png",
+  "capabilities": ["alarm_generic", "bridge_text", "connection_status"],
+  "platforms": ["local"],
   "images": {
     "small": "/drivers/bridge_status/assets/images/small.png",
     "large": "/drivers/bridge_status/assets/images/large.png"
   },
-
-  "pair": [{ "id": "list_devices" }, { "id": "add_devices" }]
+  "pair": [
+    {
+      "id": "list_devices",
+      "template": "list_devices",
+      "navigation": {
+        "next": "add_devices"
+      }
+    },
+    {
+      "id": "add_devices",
+      "template": "add_devices"
+    }
+  ]
 }

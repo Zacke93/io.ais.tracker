@@ -5,25 +5,111 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="/homey.css">
     <script type="text/javascript" src="/homey.js" data-origin="settings"></script>
+    <style>
+        .container {
+            padding: 20px;
+        }
+
+        .field {
+            margin-bottom: 15px;
+        }
+
+        .label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        .input {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+        }
+
+        .buttons {
+            margin-top: 20px;
+            text-align: right;
+        }
+
+        .btn {
+            padding: 8px 15px;
+            margin-left: 10px;
+            cursor: pointer;
+        }
+
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 3px;
+            display: none;
+        }
+
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+
+        .info {
+            background-color: #e2f3fc;
+            color: #0c5460;
+        }
+
+        .instructions {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+
+        .instructions h3 {
+            margin-top: 0;
+            color: #495057;
+        }
+
+        .instructions ul {
+            margin-bottom: 0;
+        }
+
+        .instructions li {
+            margin-bottom: 8px;
+        }
+    </style>
 </head>
 
 <body>
-    <div class="settings">
-        <h1 data-i18n="settings.title">AIS Tracker Settings</h1>
+    <div class="container">
+        <h1>AIS Bridge Settings</h1>
 
         <div class="field">
-            <label for="ais_api_key" data-i18n="settings.api_key">AIS Stream API Key</label>
-            <input id="ais_api_key" type="text" placeholder="Enter your API key from aisstream.io" />
+            <label class="label" for="ais_api_key" data-i18n="settings.api_key">AISStream API Key</label>
+            <input class="input" id="ais_api_key" type="text" placeholder="xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx" />
             <p class="description" data-i18n="settings.api_key_description">
-                Create a free API key at <a href="https://aisstream.io" target="_blank">aisstream.io</a>
+                Get your key at <a href="https://aisstream.io" target="_blank">https://aisstream.io</a>
             </p>
         </div>
 
-        <div class="field">
+        <div id="status" class="status"></div>
+
+        <div class="buttons">
             <button id="save" class="btn btn-primary" data-i18n="settings.save">Save Settings</button>
         </div>
 
-        <div id="status" class="status" style="display: none;"></div>
+        <div class="instructions">
+            <h3>📋 Anslutningsstatus</h3>
+            <p>Efter att du sparat din API-nyckel:</p>
+            <ul>
+                <li><strong>✅ Giltig nyckel:</strong> Appen ansluter inom några sekunder</li>
+                <li><strong>❌ Ogiltig nyckel:</strong> Du får en notis i tidslinjen efter 5 misslyckade försök</li>
+                <li><strong>🔧 Felsökning:</strong> Kontrollera nyckeln på <a href="https://aisstream.io" target="_blank">aisstream.io</a></li>
+            </ul>
+            <p><em>Anslutningsstatusen visas i enheten "Bridge Status" i ditt hem.</em></p>
+        </div>
     </div>
 
     <script>
@@ -32,10 +118,10 @@
             const saveButton = document.getElementById('save');
             const statusDiv = document.getElementById('status');
 
-            // Load existing settings
-            Homey.get('ais_api_key', function (err, value) {
-                if (!err && value) {
-                    apiKeyInput.value = value;
+            // Load settings
+            Homey.get('ais_api_key', function (err, apiKey) {
+                if (!err && apiKey) {
+                    apiKeyInput.value = apiKey;
                 }
             });
 
@@ -44,99 +130,43 @@
                 const apiKey = apiKeyInput.value.trim();
 
                 if (!apiKey) {
-                    showStatus('Please enter an API key', 'error');
+                    showStatus('Vänligen ange en API-nyckel', 'error');
                     return;
                 }
 
+                // Basic validation
+                if (apiKey.length < 20) {
+                    showStatus('❌ API-nyckeln verkar för kort. Kontrollera din nyckel från aisstream.io', 'error');
+                    return;
+                }
+
+                showStatus('Sparar inställningar...', 'info');
+
                 Homey.set('ais_api_key', apiKey, function (err) {
                     if (err) {
-                        showStatus('Failed to save settings: ' + err.message, 'error');
+                        showStatus('Fel vid sparande: ' + err.message, 'error');
                     } else {
-                        showStatus('Settings saved successfully!', 'success');
+                        showStatus('✅ Inställningar sparade! Appen försöker nu ansluta...', 'success');
                     }
                 });
             });
 
+            // Helper for status messages
             function showStatus(message, type) {
                 statusDiv.textContent = message;
                 statusDiv.className = 'status ' + type;
                 statusDiv.style.display = 'block';
 
-                setTimeout(function () {
-                    statusDiv.style.display = 'none';
-                }, 3000);
+                if (type !== 'info') {
+                    setTimeout(function () {
+                        statusDiv.style.display = 'none';
+                    }, 5000);
+                }
             }
 
             Homey.ready();
         }
     </script>
-
-    <style>
-        .settings {
-            padding: 20px;
-            max-width: 600px;
-            margin: 0 auto;
-        }
-
-        .field {
-            margin-bottom: 20px;
-        }
-
-        label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: bold;
-        }
-
-        input[type="text"] {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 14px;
-        }
-
-        .description {
-            margin-top: 5px;
-            font-size: 12px;
-            color: #666;
-        }
-
-        .btn {
-            padding: 10px 20px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
-        }
-
-        .btn-primary {
-            background-color: #00a9ce;
-            color: white;
-        }
-
-        .btn-primary:hover {
-            background-color: #008bb3;
-        }
-
-        .status {
-            padding: 10px;
-            border-radius: 4px;
-            margin-top: 10px;
-        }
-
-        .status.success {
-            background-color: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
-        }
-
-        .status.error {
-            background-color: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-        }
-    </style>
 </body>
 
 </html>

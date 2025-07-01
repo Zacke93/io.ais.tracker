@@ -2,8 +2,13 @@
     Homey.setTitle('Adding AIS Bridge device...');
     Homey.showLoadingOverlay();
 
+    console.log('list_devices.html: Sending list_devices event');
     Homey.emit('list_devices', null, function (err, devices) {
-        if (err) return Homey.error(err);
+        if (err) {
+            console.error('Error in list_devices:', err);
+            return Homey.error(err);
+        }
+        console.log('list_devices.html: Received devices:', devices);
         Homey.hideLoadingOverlay();
         Homey.setTitle('Device found');
         Homey.nextView();

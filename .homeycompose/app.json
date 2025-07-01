@@ -5,7 +5,7 @@
     "sv": "AIS Bridge"
   },
 
-  "version": "3.0.0",
+  "version": "4.0.0",
   "category": ["tools"],
 
   "icon": "/assets/icon.svg",
@@ -40,6 +40,13 @@
     }
   ],
 
+  "api": {
+    "getConnectionStatus": {
+      "method": "GET",
+      "path": "/getConnectionStatus"
+    }
+  },
+
   "settings": [
     {
       "id": "ais_api_key",
@@ -49,9 +56,10 @@
         "sv": "AISStream API-nyckel"
       },
       "hint": {
-        "en": "Create one at https://aisstream.io",
-        "sv": "Skapa en på https://aisstream.io"
-      }
+        "en": "Create one at https://aisstream.io - Format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx",
+        "sv": "Skapa en på https://aisstream.io - Format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
+      },
+      "validation": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
     }
   ]
 }
