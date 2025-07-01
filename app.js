@@ -582,6 +582,7 @@ class AISBridgeApp extends Homey.App {
         const distance = Math.round(list[0].dist);
 
         // Create a clear, concise message for this group
+        let phrase;
         if (count === 1) {
           // Single boat
           const action = towards ? "har" : "är";
