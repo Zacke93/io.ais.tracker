@@ -1,0 +1,27 @@
+{
+  "type": "enum",
+  "title": {
+    "en": "Connection Status",
+    "sv": "Anslutningsstatus"
+  },
+  "getable": true,
+  "setable": false,
+  "uiComponent": "sensor",
+  "icon": "/assets/connection.svg",
+  "values": [
+    {
+      "id": "disconnected",
+      "title": {
+        "en": "Disconnected",
+        "sv": "Frånkopplad"
+      }
+    },
+    {
+      "id": "connected", 
+      "title": {
+        "en": "Connected",
+        "sv": "Uppkopplad"
+      }
+    }
+  ]
+}
