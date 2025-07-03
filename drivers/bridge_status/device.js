@@ -16,8 +16,21 @@ class BridgeStatusDevice extends Homey.Device {
 
       // Sätt initialt värde om appen redan hunnit skapa token-strängen
       const currentText =
-        this.homey.app._latestBridgeSentence || "Inga fartyg nära någon bro";
-      const hasBoats = currentText !== "Inga fartyg nära någon bro";
+        this.homey.app._latestBridgeSentence || "Inga båtar är i närheten av Klaffbron eller Stridsbergsbron";
+      
+      // Use the same logic as the app to determine hasBoats
+      let hasBoats = false;
+      if (this.homey.app._findRelevantBoats) {
+        try {
+          const relevantBoats = this.homey.app._findRelevantBoats();
+          hasBoats = relevantBoats.length > 0;
+        } catch (err) {
+          this.error("Error checking relevant boats, falling back to text comparison:", err);
+          hasBoats = currentText !== "Inga båtar är i närheten av Klaffbron eller Stridsbergsbron";
+        }
+      } else {
+        hasBoats = currentText !== "Inga båtar är i närheten av Klaffbron eller Stridsbergsbron";
+      }
 
       this.log("Setting initial capability values");
       this.log(`Current text: "${currentText}", hasBoats: ${hasBoats}`);
