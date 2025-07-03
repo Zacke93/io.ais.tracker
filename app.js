@@ -8,7 +8,7 @@ const WS = require("ws");
 
 /* ---------- DEBUG-FLAGGOR ---------- */
 const DEBUG_MODE = false; // massor av rådata
-const LIGHT_DEBUG_MODE = true; // bara “relevanta” loggar
+const LIGHT_DEBUG_MODE = false; // bara “relevanta” loggar
 
 /* ---------- GLOBAL TOKEN ---------- */
 const TOKEN_ID = "active_bridges";
@@ -49,12 +49,25 @@ const BRIDGES = {
 
 /* ---------- Konstanter ---------- */
 const DEFAULT_RADIUS = 300; // m
-const EXTRA_MARGIN = 2000; // m
 const MIN_KTS = 0.2; // knop
 const MAX_AGE_SEC = 3 * 60; // sek
 const WS_URL = "wss://stream.aisstream.io/v0/stream";
 const KEEPALIVE_MS = 60_000;
 const RECONNECT_MS = 10_000;
+
+/* ---------- Nya konstanter för förbättrad logik ---------- */
+const SPEED_HISTORY_MINUTES = 10; // Hur länge vi kommer ihåg hög hastighet
+const WAITING_SPEED_THRESHOLD = 0.5; // Under denna hastighet = "väntande"
+const ACTIVE_SPEED_THRESHOLD = 2.0; // Över denna hastighet = "aktiv"
+const MAX_SPEED_HISTORY = 10; // Max antal historiska datapunkter
+const COLLECTION_ZONE = {
+  south: { lat: 58.268138604819576, lon: 12.269025682200194 },
+  north: { lat: 58.320786584215874, lon: 12.323830097692591 },
+};
+
+/* ---------- Smart approach konstanter ---------- */
+const SLOWDOWN_FACTOR = 0.7; // Under 70% av max hastighet = "bromsar"
+const MIN_NAVIGATION_SPEED = 0.3; // Minimum för aktiv navigering
 
 /* ---------- Hjälpfunktioner ---------- */
 const now = () => Date.now();
@@ -77,9 +90,6 @@ function haversine(lat1, lon1, lat2, lon2) {
   );
 }
 
-const getDirection = (cog) =>
-  Number(cog) > 90 && Number(cog) < 270 ? "Göteborg" : "Vänersborg";
-
 /* ==================================================================== */
 class AISBridgeApp extends Homey.App {
   dbg(...a) {
@@ -101,7 +111,8 @@ class AISBridgeApp extends Homey.App {
 
     this._lastSeen = {}; // { bridgeId: { mmsi: {...} } }
     this._devices = new Set(); // måste initieras först
-    this._latestBridgeSentence = "Inga båtar är i närheten av Klaffbron eller Stridsbergsbron";
+    this._latestBridgeSentence =
+      "Inga båtar är i närheten av Klaffbron eller Stridsbergsbron";
 
     // NEW: Restore saved devices from storage
     await this._restoreDevices();
@@ -169,7 +180,7 @@ class AISBridgeApp extends Homey.App {
   }
 
   /* -------- WebSocket-ström -------- */
-  _startLiveFeed(retryCount = 0, initialDelay = RECONNECT_MS) {
+  _startLiveFeed() {
     // Don't try to connect if we're in API key failure mode
     if (this._apiKeyFailureMode) {
       this.log("Skipping connection attempt - in API key failure mode");
@@ -217,20 +228,10 @@ class AISBridgeApp extends Homey.App {
       this._connectionStatusTimeout = null;
     }
 
-    /* Bounding-box runt broarna + marginal */
-    const lats = Object.values(BRIDGES).map((b) => b.lat);
-    const lons = Object.values(BRIDGES).map((b) => b.lon);
-    const maxLat = Math.max(...lats),
-      minLat = Math.min(...lats);
-    const maxLon = Math.max(...lons),
-      minLon = Math.min(...lons);
-    const marginLat = EXTRA_MARGIN / 111_000;
-    const midLat = (maxLat + minLat) / 2;
-    const marginLon =
-      EXTRA_MARGIN / (111_000 * Math.cos((midLat * Math.PI) / 180));
+    /* Bounding-box för hela kanalområdet för datainsamling */
     const BOX = [
-      [maxLat + marginLat, minLon - marginLon],
-      [minLat - marginLat, maxLon + marginLon],
+      [COLLECTION_ZONE.north.lat, COLLECTION_ZONE.south.lon],
+      [COLLECTION_ZONE.south.lat, COLLECTION_ZONE.north.lon],
     ];
 
     try {
@@ -330,13 +331,25 @@ class AISBridgeApp extends Homey.App {
         // Get direction name
         const dir = cog > 90 && cog < 270 ? "Göteborg" : "Vänersborg";
 
-        /* Uppdatera minnet */
+        /* Uppdatera minnet med förbättrad datastruktur */
         for (const per of Object.values(this._lastSeen)) delete per[mmsi];
+        const existingData = this._lastSeen[bid]?.[mmsi];
         (this._lastSeen[bid] ??= {})[mmsi] = {
           ts: now(),
+          lat, // Lägg till lat/lon för smart approach
+          lon,
           dist: d,
           dir,
           towards,
+          sog,
+          maxRecentSog: this._updateMaxRecentSog(existingData, sog),
+          speedHistory: this._updateSpeedHistory(
+            existingData?.speedHistory || [],
+            sog
+          ),
+          lastActiveTime:
+            sog > ACTIVE_SPEED_THRESHOLD ? now() : existingData?.lastActiveTime,
+          mmsi,
         };
 
         /* LIGHT-logg */
@@ -545,7 +558,7 @@ class AISBridgeApp extends Homey.App {
       // Additional detailed logging in light debug mode
     }
 
-    // Clean up expired vessels
+    // Clean up expired vessels with improved memory management
     for (const [bid, perBridge] of Object.entries(this._lastSeen)) {
       for (const [mmsi, v] of Object.entries(perBridge)) {
         if (v.ts < cutoff) {
@@ -555,6 +568,36 @@ class AISBridgeApp extends Homey.App {
             this.ldbg(
               `Removed expired vessel ${mmsi} near ${BRIDGES[bid].name}`
             );
+          }
+        } else {
+          // Cleanup old speed history even for active vessels
+          if (v.speedHistory && v.speedHistory.length > 0) {
+            const maxAgeMs = SPEED_HISTORY_MINUTES * 60 * 1000;
+            const oldHistoryLength = v.speedHistory.length;
+            v.speedHistory = v.speedHistory
+              .filter((entry) => now() - entry.ts < maxAgeMs)
+              .slice(-MAX_SPEED_HISTORY);
+
+            if (v.speedHistory.length !== oldHistoryLength) {
+              if (LIGHT_DEBUG_MODE) {
+                this.ldbg(
+                  `Cleaned speed history for vessel ${mmsi}: ${oldHistoryLength} -> ${v.speedHistory.length} entries`
+                );
+              }
+            }
+          }
+
+          // Reset maxRecentSog if too old
+          if (
+            v.lastActiveTime &&
+            now() - v.lastActiveTime > SPEED_HISTORY_MINUTES * 60 * 1000
+          ) {
+            v.maxRecentSog = v.sog;
+            if (LIGHT_DEBUG_MODE) {
+              this.ldbg(
+                `Reset maxRecentSog for vessel ${mmsi} to current SOG: ${v.sog}`
+              );
+            }
           }
         }
       }
@@ -709,42 +752,124 @@ class AISBridgeApp extends Homey.App {
       // Validate boats array
       if (!boats || boats.length === 0) continue;
 
+      // FIXA: Säker hantering av boats array
+      if (!boats || boats.length === 0) continue;
+
       // Find the boat with shortest ETA
       const closestBoat = boats.reduce((min, boat) => {
         if (!min) return boat;
+        if (!boat || typeof boat.etaMinutes !== "number") return min;
         if (!isFinite(boat.etaMinutes)) return min;
         if (!isFinite(min.etaMinutes)) return boat;
         return boat.etaMinutes < min.etaMinutes ? boat : min;
       }, null);
 
       // Validate closest boat
-      if (!closestBoat || !isFinite(closestBoat.etaMinutes)) continue;
+      if (
+        !closestBoat ||
+        typeof closestBoat.etaMinutes !== "number" ||
+        !isFinite(closestBoat.etaMinutes)
+      ) {
+        this.ldbg(`Skipping bridge ${bridgeName} - no valid closest boat`);
+        continue;
+      }
 
       const count = boats.length;
       const etaMinutes = Math.max(0, Math.round(closestBoat.etaMinutes));
 
+      // FIXA: Säker analys av smart approach för bättre meddelanden
+      const highConfidenceBoats = boats.filter(
+        (boat) =>
+          boat && boat.smartAnalysis && boat.smartAnalysis.confidence === "high"
+      );
+      const preparingBoats = boats.filter(
+        (boat) =>
+          boat && boat.smartAnalysis && boat.smartAnalysis.action === "prepare"
+      );
+      const waitingBoats = boats.filter((boat) => boat && boat.isWaiting);
+
       let phrase;
       if (count === 1) {
-        if (closestBoat.isAtBridge) {
-          phrase = `En båt nära ${bridgeName}, beräknad broöppning ${
-            etaMinutes < 1 ? "nu" : `om ${etaMinutes} minuter`
-          }`;
+        const boat = closestBoat;
+        const isHighConfidence =
+          boat.smartAnalysis && boat.smartAnalysis.confidence === "high";
+        const isPreparing =
+          boat.smartAnalysis && boat.smartAnalysis.action === "prepare";
+
+        if (boat.isAtBridge) {
+          if (boat.isWaiting || isPreparing) {
+            phrase = `En båt väntar vid ${bridgeName}, beräknad broöppning ${
+              etaMinutes < 1 ? "nu" : `om ${etaMinutes} minuter`
+            }`;
+          } else if (isHighConfidence) {
+            phrase = `En båt närmar sig ${bridgeName}, beräknad broöppning ${
+              etaMinutes < 1 ? "nu" : `om ${etaMinutes} minuter`
+            }`;
+          } else {
+            phrase = `En båt nära ${bridgeName}, beräknad broöppning ${
+              etaMinutes < 1 ? "nu" : `om ${etaMinutes} minuter`
+            }`;
+          }
         } else {
-          phrase = `En båt vid ${
-            closestBoat.currentBridge
-          }, beräknad broöppning av ${bridgeName} ${
-            etaMinutes < 1 ? "nu" : `om ${etaMinutes} minuter`
-          }`;
+          if (boat.isWaiting || isPreparing) {
+            phrase = `En båt väntar vid ${
+              boat.currentBridge
+            }, beräknad broöppning av ${bridgeName} ${
+              etaMinutes < 1 ? "nu" : `om ${etaMinutes} minuter`
+            }`;
+          } else if (isHighConfidence) {
+            phrase = `En båt på väg från ${
+              boat.currentBridge
+            } mot ${bridgeName}, beräknad broöppning ${
+              etaMinutes < 1 ? "nu" : `om ${etaMinutes} minuter`
+            }`;
+          } else {
+            phrase = `En båt vid ${
+              boat.currentBridge
+            }, beräknad broöppning av ${bridgeName} ${
+              etaMinutes < 1 ? "nu" : `om ${etaMinutes} minuter`
+            }`;
+          }
         }
       } else {
-        if (closestBoat.isAtBridge) {
-          phrase = `Flera båtar nära ${bridgeName}, beräknad broöppning ${
+        // För flera båtar, använd redan filtrerade waitingBoats
+
+        if (preparingBoats.length > 0) {
+          if (closestBoat.isAtBridge) {
+            phrase = `${
+              preparingBoats.length > 1 ? "Flera" : "En"
+            } båt förbereder sig vid ${bridgeName}, beräknad broöppning ${
+              etaMinutes < 1 ? "nu" : `om ${etaMinutes} minuter`
+            }`;
+          } else {
+            phrase = `Flera båtar mot ${bridgeName} (några förbereder sig), beräknad broöppning ${
+              etaMinutes < 1 ? "nu" : `om ${etaMinutes} minuter`
+            }`;
+          }
+        } else if (waitingBoats.length > 0) {
+          if (closestBoat.isAtBridge) {
+            phrase = `Flera båtar väntar vid ${bridgeName}, beräknad broöppning ${
+              etaMinutes < 1 ? "nu" : `om ${etaMinutes} minuter`
+            }`;
+          } else {
+            phrase = `Flera båtar mot ${bridgeName} (några väntar), beräknad broöppning ${
+              etaMinutes < 1 ? "nu" : `om ${etaMinutes} minuter`
+            }`;
+          }
+        } else if (highConfidenceBoats.length > 0) {
+          phrase = `Flera båtar närmar sig ${bridgeName}, beräknad broöppning ${
             etaMinutes < 1 ? "nu" : `om ${etaMinutes} minuter`
           }`;
         } else {
-          phrase = `Flera båtar mot ${bridgeName}, beräknad broöppning ${
-            etaMinutes < 1 ? "nu" : `om ${etaMinutes} minuter`
-          }`;
+          if (closestBoat.isAtBridge) {
+            phrase = `Flera båtar nära ${bridgeName}, beräknad broöppning ${
+              etaMinutes < 1 ? "nu" : `om ${etaMinutes} minuter`
+            }`;
+          } else {
+            phrase = `Flera båtar mot ${bridgeName}, beräknad broöppning ${
+              etaMinutes < 1 ? "nu" : `om ${etaMinutes} minuter`
+            }`;
+          }
         }
       }
 
@@ -773,14 +898,21 @@ class AISBridgeApp extends Homey.App {
     ];
     const userBridges = ["klaffbron", "stridsbergsbron"];
 
-    this.ldbg(`=== _findRelevantBoats: Processing ${Object.keys(this._lastSeen).length} bridge(s) ===`);
+    this.ldbg(
+      `=== _findRelevantBoats: Processing ${
+        Object.keys(this._lastSeen).length
+      } bridge(s) with smart approach analysis ===`
+    );
 
     for (const [bid, vessels] of Object.entries(this._lastSeen)) {
-      this.ldbg(`Processing bridge: ${bid} with ${Object.keys(vessels).length} vessel(s)`);
-      
+      this.ldbg(
+        `Processing bridge: ${bid} with ${
+          Object.keys(vessels).length
+        } vessel(s)`
+      );
+
       for (const vessel of Object.values(vessels)) {
-        this.ldbg(`Checking vessel ${vessel.mmsi}: sog=${vessel.sog}, dir=${vessel.dir}, towards=${vessel.towards}, dist=${vessel.dist}`);
-        // Validate vessel data
+        // Validate vessel data first
         if (!vessel || typeof vessel !== "object") {
           this.ldbg(`  SKIP: Invalid vessel object`);
           continue;
@@ -806,15 +938,29 @@ class AISBridgeApp extends Homey.App {
           continue;
         }
 
-        // Only consider boats that are approaching bridges
-        if (!vessel.towards) {
-          this.ldbg(`  SKIP: Boat moving away from bridge`);
+        // Apply smart approach analysis once for all filtering decisions
+        const smartAnalysis = this._smartApproachDetection(vessel, bid);
+        this.ldbg(
+          `Checking vessel at ${bid}: sog=${vessel.sog}, dir=${vessel.dir}, towards=${vessel.towards}, dist=${vessel.dist}, smart: ${smartAnalysis.confidence}/${smartAnalysis.action}`
+        );
+
+        // Only consider boats that are approaching bridges OR have high confidence smart analysis
+        if (!vessel.towards && smartAnalysis.confidence !== "high") {
+          this.ldbg(
+            `  SKIP: Boat moving away from bridge and low smart confidence`
+          );
           continue;
         }
 
-        // Skip boats with very low speed (likely anchored)
-        if (vessel.sog < MIN_KTS) {
-          this.ldbg(`  SKIP: SOG too low: ${vessel.sog} < ${MIN_KTS}`);
+        // Skip boats with very low speed UNLESS they are waiting or have smart approach indication
+        if (
+          vessel.sog < MIN_KTS &&
+          !this._isWaiting(vessel, bid) &&
+          smartAnalysis.action !== "prepare"
+        ) {
+          this.ldbg(
+            `  SKIP: SOG too low, not waiting, and no smart prepare indication: ${vessel.sog} < ${MIN_KTS}`
+          );
           continue;
         }
 
@@ -831,7 +977,9 @@ class AISBridgeApp extends Homey.App {
         const currentBridgeName = BRIDGES[bid].name;
         const isGoingToVanersborg = vessel.dir === "Vänersborg";
 
-        this.ldbg(`  Processing: ${currentBridgeName} (index ${currentBridgeIndex}), direction: ${vessel.dir}`);
+        this.ldbg(
+          `  Processing: ${currentBridgeName} (index ${currentBridgeIndex}), direction: ${vessel.dir}`
+        );
 
         let targetBridge = null;
         let distanceToTarget = vessel.dist;
@@ -845,9 +993,17 @@ class AISBridgeApp extends Homey.App {
           this.ldbg(`  Already at user bridge: ${targetBridge}`);
         } else if (isGoingToVanersborg) {
           // Going north - find next user bridge
-          this.ldbg(`  Going north (Vänersborg), looking for next user bridge from index ${currentBridgeIndex + 1}`);
+          this.ldbg(
+            `  Going north (Vänersborg), looking for next user bridge from index ${
+              currentBridgeIndex + 1
+            }`
+          );
           for (let i = currentBridgeIndex + 1; i < bridgeOrder.length; i++) {
-            this.ldbg(`    Checking bridge at index ${i}: ${bridgeOrder[i]}, isUserBridge: ${userBridges.includes(bridgeOrder[i])}`);
+            this.ldbg(
+              `    Checking bridge at index ${i}: ${
+                bridgeOrder[i]
+              }, isUserBridge: ${userBridges.includes(bridgeOrder[i])}`
+            );
             if (userBridges.includes(bridgeOrder[i])) {
               const targetBridgeId = bridgeOrder[i];
               if (!BRIDGES[targetBridgeId] || !BRIDGES[targetBridgeId].name)
@@ -857,7 +1013,9 @@ class AISBridgeApp extends Homey.App {
                 bid,
                 targetBridgeId
               );
-              this.ldbg(`    Found target: ${targetBridge}, extra distance: ${extraDistance}m`);
+              this.ldbg(
+                `    Found target: ${targetBridge}, extra distance: ${extraDistance}m`
+              );
               // Guard against invalid distance calculation
               if (extraDistance > 0) {
                 distanceToTarget = vessel.dist + extraDistance;
@@ -869,9 +1027,17 @@ class AISBridgeApp extends Homey.App {
           }
         } else {
           // Going south - find previous user bridge
-          this.ldbg(`  Going south (Göteborg), looking for previous user bridge from index ${currentBridgeIndex - 1}`);
+          this.ldbg(
+            `  Going south (Göteborg), looking for previous user bridge from index ${
+              currentBridgeIndex - 1
+            }`
+          );
           for (let i = currentBridgeIndex - 1; i >= 0; i--) {
-            this.ldbg(`    Checking bridge at index ${i}: ${bridgeOrder[i]}, isUserBridge: ${userBridges.includes(bridgeOrder[i])}`);
+            this.ldbg(
+              `    Checking bridge at index ${i}: ${
+                bridgeOrder[i]
+              }, isUserBridge: ${userBridges.includes(bridgeOrder[i])}`
+            );
             if (userBridges.includes(bridgeOrder[i])) {
               const targetBridgeId = bridgeOrder[i];
               if (!BRIDGES[targetBridgeId] || !BRIDGES[targetBridgeId].name)
@@ -881,7 +1047,9 @@ class AISBridgeApp extends Homey.App {
                 bid,
                 targetBridgeId
               );
-              this.ldbg(`    Found target: ${targetBridge}, extra distance: ${extraDistance}m`);
+              this.ldbg(
+                `    Found target: ${targetBridge}, extra distance: ${extraDistance}m`
+              );
               // Guard against invalid distance calculation
               if (extraDistance > 0) {
                 distanceToTarget = vessel.dist + extraDistance;
@@ -895,24 +1063,20 @@ class AISBridgeApp extends Homey.App {
 
         // Skip if no relevant target bridge found
         if (!targetBridge) {
-          this.ldbg(`  SKIP: No target bridge found for ${currentBridgeName} going ${vessel.dir}`);
+          this.ldbg(
+            `  SKIP: No target bridge found for ${currentBridgeName} going ${vessel.dir}`
+          );
           continue;
         }
 
-        // Calculate ETA in minutes
-        const speedMs = vessel.sog * 0.514444; // Convert knots to m/s
-        this.ldbg(`  Target: ${targetBridge}, distance: ${distanceToTarget}m, speed: ${vessel.sog} knots (${speedMs.toFixed(2)} m/s)`);
+        // Calculate ETA using improved method
+        const etaMinutes = this._calculateETA(vessel, distanceToTarget, bid);
+        const isWaiting = this._isWaiting(vessel, bid);
 
-        // Guard against division by zero or very low speeds
-        if (speedMs <= 0.01) {
-          this.ldbg(`  SKIP: Speed too low for calculation: ${speedMs} m/s`);
-          continue;
-        }
-
-        const etaSeconds = distanceToTarget / speedMs;
-        const etaMinutes = etaSeconds / 60;
-
-        this.ldbg(`  ETA calculation: ${etaSeconds.toFixed(1)}s = ${etaMinutes.toFixed(1)} minutes`);
+        this.ldbg(
+          `  Target: ${targetBridge}, distance: ${distanceToTarget}m, speed: ${vessel.sog} knots, maxRecentSog: ${vessel.maxRecentSog}, isWaiting: ${isWaiting}`
+        );
+        this.ldbg(`  ETA calculation: ${etaMinutes.toFixed(1)} minutes`);
 
         // Guard against invalid calculations
         if (!isFinite(etaMinutes) || etaMinutes < 0) {
@@ -920,25 +1084,54 @@ class AISBridgeApp extends Homey.App {
           continue;
         }
 
-        // Only include boats that will reach bridge within reasonable time (30 minutes)
-        if (etaMinutes <= 30) {
-          this.ldbg(`  ✓ ADDED to relevantBoats: ${vessel.mmsi} -> ${targetBridge} in ${etaMinutes.toFixed(1)} min`);
+        // Reuse smart analysis from earlier (no need to recalculate)
+        // Include boats that will reach bridge within 30 minutes OR are waiting OR have high confidence smart analysis
+        const shouldInclude =
+          etaMinutes <= 30 ||
+          isWaiting ||
+          (smartAnalysis.confidence === "high" &&
+            smartAnalysis.action === "prepare");
+
+        if (shouldInclude) {
+          this.ldbg(
+            `  ✓ ADDED to relevantBoats: ${
+              vessel.mmsi
+            } -> ${targetBridge} in ${etaMinutes.toFixed(
+              1
+            )} min (waiting: ${isWaiting}, smart: ${smartAnalysis.confidence}/${
+              smartAnalysis.action
+            })`
+          );
           relevantBoats.push({
             mmsi: vessel.mmsi,
             currentBridge: currentBridgeName,
             targetBridge: targetBridge,
             etaMinutes: etaMinutes,
             isAtBridge: isAtTargetBridge,
+            isWaiting: isWaiting,
             sog: vessel.sog,
+            maxRecentSog: vessel.maxRecentSog,
             distance: distanceToTarget,
+            smartAnalysis: smartAnalysis,
           });
         } else {
-          this.ldbg(`  SKIP: ETA too long: ${etaMinutes.toFixed(1)} minutes > 30`);
+          this.ldbg(
+            `  SKIP: ETA too long: ${etaMinutes.toFixed(
+              1
+            )} minutes > 30, not waiting, and smart analysis: ${
+              smartAnalysis.confidence
+            }/${smartAnalysis.action}`
+          );
         }
       }
     }
 
-    this.ldbg(`=== _findRelevantBoats: Returning ${relevantBoats.length} relevant boat(s) ===`);
+    const smartBoats = relevantBoats.filter(
+      (boat) => boat.smartAnalysis && boat.smartAnalysis.confidence === "high"
+    ).length;
+    this.ldbg(
+      `=== _findRelevantBoats: Returning ${relevantBoats.length} relevant boat(s) (${smartBoats} high-confidence) ===`
+    );
     return relevantBoats;
   }
 
@@ -967,6 +1160,211 @@ class AISBridgeApp extends Homey.App {
 
     // Convert to degrees and normalize
     return ((θ * 180) / Math.PI + 360) % 360;
+  }
+
+  /* -------- Nya hjälpfunktioner för förbättrad hastighetshantering -------- */
+  _updateMaxRecentSog(existingData, currentSog) {
+    if (!existingData) return currentSog;
+
+    const timeSinceLastUpdate = now() - existingData.ts;
+    const maxAgeMs = SPEED_HISTORY_MINUTES * 60 * 1000;
+
+    // Om det gått för lång tid, använd bara nuvarande hastighet
+    if (timeSinceLastUpdate > maxAgeMs) {
+      return currentSog;
+    }
+
+    return Math.max(existingData.maxRecentSog || currentSog, currentSog);
+  }
+
+  _updateSpeedHistory(existingHistory, currentSog) {
+    const newEntry = { sog: currentSog, ts: now() };
+    const updatedHistory = [...existingHistory, newEntry];
+
+    // Rensa gamla poster (äldre än SPEED_HISTORY_MINUTES)
+    const maxAgeMs = SPEED_HISTORY_MINUTES * 60 * 1000;
+    const filteredHistory = updatedHistory.filter(
+      (entry) => now() - entry.ts < maxAgeMs
+    );
+
+    // Begränsa antal poster
+    return filteredHistory.slice(-MAX_SPEED_HISTORY);
+  }
+
+  _isWaiting(vessel, bid) {
+    const USER_BRIDGES = ["klaffbron", "stridsbergsbron"];
+    const timeSinceActive = now() - (vessel.lastActiveTime || 0);
+    const maxAgeMs = SPEED_HISTORY_MINUTES * 60 * 1000;
+
+    // FIXA: Ta bort cirkulär referens - använd bara grundläggande kriterier
+    const basicWaitingCriteria =
+      vessel.dist < DEFAULT_RADIUS &&
+      vessel.sog < WAITING_SPEED_THRESHOLD &&
+      vessel.maxRecentSog > ACTIVE_SPEED_THRESHOLD &&
+      timeSinceActive < maxAgeMs;
+
+    const isRelevantForUser =
+      USER_BRIDGES.includes(bid) || this._isHeadingToUserBridge(vessel, bid);
+
+    return basicWaitingCriteria && isRelevantForUser;
+  }
+
+  _isHeadingToUserBridge(vessel, currentBridgeId) {
+    const bridgeOrder = [
+      "olidebron",
+      "klaffbron",
+      "jarnvagsbron",
+      "stridsbergsbron",
+      "stallbackabron",
+    ];
+    const userBridges = ["klaffbron", "stridsbergsbron"];
+    const currentIndex = bridgeOrder.indexOf(currentBridgeId);
+
+    if (currentIndex === -1) return false;
+
+    const isGoingNorth = vessel.dir === "Vänersborg";
+
+    if (isGoingNorth) {
+      // Kolla om det finns en användarbro norr om nuvarande position
+      for (let i = currentIndex + 1; i < bridgeOrder.length; i++) {
+        if (userBridges.includes(bridgeOrder[i])) return true;
+      }
+    } else {
+      // Kolla om det finns en användarbro söder om nuvarande position
+      for (let i = currentIndex - 1; i >= 0; i--) {
+        if (userBridges.includes(bridgeOrder[i])) return true;
+      }
+    }
+
+    return false;
+  }
+
+  _calculateETA(vessel, distanceToTarget, bid) {
+    // FIXA: Säker hantering av input
+    if (
+      !vessel ||
+      typeof distanceToTarget !== "number" ||
+      distanceToTarget < 0
+    ) {
+      return Infinity; // Säker fallback
+    }
+
+    // Om båten väntar, antag att den kommer att accelerera snart
+    if (this._isWaiting(vessel, bid)) {
+      const effectiveSpeed = Math.max(
+        vessel.maxRecentSog || 0,
+        ACTIVE_SPEED_THRESHOLD
+      );
+      const speedMs = effectiveSpeed * 0.514444;
+      if (speedMs <= 0.01) return Infinity; // Undvik division med noll
+      return Math.max(0, distanceToTarget / speedMs / 60);
+    }
+
+    // Annars använd nuvarande hastighet men med minimum
+    const effectiveSpeed = Math.max(vessel.sog || 0, 0.5);
+    const speedMs = effectiveSpeed * 0.514444;
+    if (speedMs <= 0.01) return Infinity; // Undvik division med noll
+    return distanceToTarget / speedMs / 60;
+  }
+
+  /* -------- Smart Approach Detection Funktioner -------- */
+  _smartApproachDetection(vessel, bridgeId) {
+    // FIXA: Säker hantering av input
+    const bridge = BRIDGES[bridgeId];
+    if (!bridge || !vessel || typeof vessel !== "object") {
+      return {
+        confidence: "low",
+        action: "monitor",
+        likelyIntention: "monitoring",
+        factors: {},
+      };
+    }
+
+    // Säker hantering av numeriska värden
+    const vesselSog = typeof vessel.sog === "number" ? vessel.sog : 0;
+    const vesselMaxSog =
+      typeof vessel.maxRecentSog === "number" ? vessel.maxRecentSog : vesselSog;
+    const vesselDist = typeof vessel.dist === "number" ? vessel.dist : Infinity;
+
+    // 1. Är båten på rätt sida av bron för sin riktning?
+    const isCorrectSide = this._isOnCorrectSide(vessel, bridge, vessel.dir);
+
+    // 2. Har båten saktat ner nära bron? (planerar stopp)
+    const hasSlowedNearBridge =
+      vesselMaxSog > 0 && vesselSog < vesselMaxSog * SLOWDOWN_FACTOR;
+
+    // 3. Är hastigheten konsekvent med navigering? (inte bara drifting)
+    const isActivelyNavigating =
+      vesselSog > MIN_NAVIGATION_SPEED || vesselMaxSog > 1.0;
+
+    // 4. Är båten nära nog för att vara relevant?
+    const isRelevantDistance = vesselDist < DEFAULT_RADIUS;
+
+    return {
+      confidence: isCorrectSide && isActivelyNavigating ? "high" : "medium",
+      action: hasSlowedNearBridge && isRelevantDistance ? "prepare" : "monitor",
+      likelyIntention:
+        isCorrectSide && hasSlowedNearBridge ? "bridge_request" : "monitoring",
+      factors: {
+        correctSide: isCorrectSide,
+        slowed: hasSlowedNearBridge,
+        navigating: isActivelyNavigating,
+        closeEnough: isRelevantDistance,
+      },
+    };
+  }
+
+  _isOnCorrectSide(vessel, bridge, direction) {
+    // FIXA: Säker hantering av lat/lon
+    if (!vessel.lat || !bridge || !bridge.lat || !direction) {
+      return false; // Säker fallback
+    }
+
+    const vesselLat = vessel.lat;
+
+    if (direction === "Vänersborg") {
+      // Åker norrut - ska vara söder om bron för att vara relevant
+      return vesselLat <= bridge.lat;
+    } else {
+      // Åker söderut - ska vara norr om bron för att vara relevant
+      return vesselLat >= bridge.lat;
+    }
+  }
+
+  _isLikelyAnchored(vessel) {
+    // FIXA: Säker hantering av input
+    if (!vessel || typeof vessel !== "object") return true;
+
+    const vesselSog = typeof vessel.sog === "number" ? vessel.sog : 0;
+    const vesselMaxSog =
+      typeof vessel.maxRecentSog === "number" ? vessel.maxRecentSog : 0;
+    const lastActive =
+      typeof vessel.lastActiveTime === "number" ? vessel.lastActiveTime : now();
+
+    // Detektera om en båt troligen är ankrad/förtöjd
+    const hasBeenStationary =
+      vesselSog < MIN_NAVIGATION_SPEED && vesselMaxSog < 1.0;
+    const lowSpeedForLongTime = now() - lastActive > 5 * 60 * 1000; // 5 min
+
+    return hasBeenStationary || lowSpeedForLongTime;
+  }
+
+  _shouldIgnoreVessel(vessel, bridgeId) {
+    // FIXA: Säker hantering
+    if (!vessel || typeof vessel !== "object") return true;
+
+    // Filtrera bort båtar som uppenbart inte behöver broöppning
+    const analysis = this._smartApproachDetection(vessel, bridgeId);
+
+    // Ignorera om:
+    // 1. Troligen ankrad
+    // 2. På fel sida och inte närmar sig
+    // 3. Låg konfidens och ingen tecken på brobehov
+    return (
+      this._isLikelyAnchored(vessel) ||
+      (!analysis.factors?.correctSide && !analysis.factors?.slowed) ||
+      (analysis.confidence === "low" && analysis.action === "monitor")
+    );
   }
 
   /* ---------------- Uninit --------------------- */
