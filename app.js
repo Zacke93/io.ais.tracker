@@ -301,14 +301,6 @@ class AISBridgeApp extends Homey.App {
           this._updateConnectionStatus(true);
           this.log("First message received - connection established");
           this._isConnected = true;
-          
-          // Safety cleanup vid återanslutning för att rensa gamla data
-          const timeSinceLastConnection = now() - (this._lastConnectionCheck || 0);
-          if (timeSinceLastConnection > 5 * 60 * 1000) { // 5 minuter
-            this.ldbg("🔄 Connection restored after long disconnect, triggering safety cleanup");
-            this._updateActiveBridgesTag("connection_restored");
-          }
-          this._lastConnectionCheck = now(); // Set flag to prevent repeated logging
         }
 
         let msg;
@@ -572,28 +564,49 @@ class AISBridgeApp extends Homey.App {
     }
   }
 
-  /* -------- Hybrid Cleanup System -------- */
-  _setupHybridCleanup() {
-    // Event-based cleanup för prestanda (triggas av vessel updates)
-    this.ldbg("🚀 Hybrid cleanup system activated");
-    
-    // Safety fallback: cleanup varje 5 minuter för att garantera städning
-    // Denna körs bara om det finns data att städa
-    this._safetyCleanupInterval = this.homey.setInterval(() => {
-      const vesselCount = Object.values(this._lastSeen).reduce(
-        (sum, bridge) => sum + Object.keys(bridge).length, 0
-      );
+  /* -------- Timeout-based Cleanup System (from commit d8d0b03) -------- */
+  _scheduleVesselCleanup(mmsi, bridgeId) {
+    // Clear any existing timeout for this vessel
+    const timeoutKey = `${bridgeId}_${mmsi}`;
+    if (this._vesselTimeouts && this._vesselTimeouts[timeoutKey]) {
+      this.homey.clearTimeout(this._vesselTimeouts[timeoutKey]);
+    }
+
+    // Initialize timeouts object if not exists
+    if (!this._vesselTimeouts) {
+      this._vesselTimeouts = {};
+    }
+
+    // Schedule cleanup after MAX_AGE_SEC + 10 seconds buffer
+    const cleanupDelay = (MAX_AGE_SEC + 10) * 1000;
+    this._vesselTimeouts[timeoutKey] = this.homey.setTimeout(() => {
+      this.ddebug(`⏰ Timeout-triggered cleanup for vessel ${mmsi} at ${BRIDGES[bridgeId]?.name}`);
       
-      if (vesselCount > 0) {
-        this.ddebug(`🔄 Safety cleanup check: ${vesselCount} vessels tracked`);
-        this._updateActiveBridgesTag("safety_cleanup");
-      } else {
-        this.ddebug("🟢 Safety cleanup: no vessels to clean");
+      // Remove the vessel if it still exists and is old enough
+      if (this._lastSeen[bridgeId] && this._lastSeen[bridgeId][mmsi]) {
+        const vessel = this._lastSeen[bridgeId][mmsi];
+        const cutoff = now() - MAX_AGE_SEC * 1000;
+        
+        if (vessel.ts < cutoff) {
+          delete this._lastSeen[bridgeId][mmsi];
+          this.ldbg(`🧹 Timeout cleanup: removed expired vessel ${mmsi} from ${BRIDGES[bridgeId]?.name}`);
+          
+          // Remove bridge if no vessels left
+          if (Object.keys(this._lastSeen[bridgeId]).length === 0) {
+            delete this._lastSeen[bridgeId];
+            this.ldbg(`🧹 Removed empty bridge ${BRIDGES[bridgeId]?.name}`);
+          }
+          
+          // Trigger update after cleanup
+          this._updateActiveBridgesTag("timeout_cleanup");
+        }
       }
-    }, 5 * 60 * 1000); // Varje 5:e minut
-    
-    // Cleanup vid WebSocket återanslutning (för att rensa gamla data)
-    this._lastConnectionCheck = now();
+      
+      // Clean up the timeout reference
+      delete this._vesselTimeouts[timeoutKey];
+    }, cleanupDelay);
+
+    this.ddebug(`⏲️ Scheduled cleanup for vessel ${mmsi} in ${cleanupDelay/1000}s`);
   }
 
   /* -------- Uppdatera globalt token -------- */
@@ -682,11 +695,6 @@ class AISBridgeApp extends Homey.App {
     // Only log sentence changes, not repetitive same sentences
     if (hasBoats || this._latestBridgeSentence !== sentence) {
       this.ldbg(`📝 Generated: "${sentence}"`);
-    }
-
-    // Reset alarm if all vessels have been removed
-    if (dataRemoved && Object.keys(this._lastSeen).length === 0) {
-      this.ldbg("🧹 All vessels expired, resetting to 'no boats' status");
     }
 
     // Check if the sentence has actually changed
