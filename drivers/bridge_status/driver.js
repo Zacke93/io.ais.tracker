@@ -44,7 +44,7 @@ class BridgeStatusDriver extends Homey.Driver {
         setTimeout(() => {
           this.log("Triggering update after device creation");
           if (this.homey.app._updateActiveBridgesTag) {
-            this.homey.app._updateActiveBridgesTag();
+            this.homey.app._updateActiveBridgesTag("device_added");
           }
         }, 2000);
       }
