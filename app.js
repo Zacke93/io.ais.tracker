@@ -7,8 +7,11 @@ const Homey = require("homey");
 const WS = require("ws");
 
 /* ---------- DEBUG-FLAGGOR ---------- */
-const DEBUG_MODE = false; // massor av rådata
-const LIGHT_DEBUG_MODE = false; // bara “relevanta” loggar
+// Debug-nivåer hanteras nu via Homey-inställningar:
+// - "off": Ingen debug-loggning
+// - "basic": Grundläggande information
+// - "detailed": Smart logik och båtanalys
+// - "full": All AIS-data och behandling
 
 /* ---------- GLOBAL TOKEN ---------- */
 const TOKEN_ID = "active_bridges";
@@ -92,22 +95,43 @@ function haversine(lat1, lon1, lat2, lon2) {
 
 /* ==================================================================== */
 class AISBridgeApp extends Homey.App {
-  dbg(...a) {
-    if (DEBUG_MODE) this.log("[DEBUG]", ...a);
+  // Hämta debug-nivå från inställningar
+  getDebugLevel() {
+    return this.homey.settings.get('debug_level') || 'basic';
   }
+
+  // Olika debug-nivåer med emoji för enkel identifiering
+  dbg(...a) {
+    const level = this.getDebugLevel();
+    if (level === 'full') this.log("🔍 [FULL]", ...a);
+  }
+  
   ldbg(...a) {
-    if (DEBUG_MODE || LIGHT_DEBUG_MODE) this.log("[LIGHT]", ...a);
+    const level = this.getDebugLevel();
+    if (level === 'basic' || level === 'detailed' || level === 'full') this.log("ℹ️ [BASIC]", ...a);
+  }
+  
+  ddebug(...a) {
+    const level = this.getDebugLevel();
+    if (level === 'detailed' || level === 'full') this.log("🔧 [DETAILED]", ...a);
   }
 
   /* ---------------- Init --------------------- */
   async onInit() {
+    const debugLevel = this.getDebugLevel();
     this.log(
       "AIS Bridge startad 🚀  (DEBUG =",
-      DEBUG_MODE,
-      ", LIGHT =",
-      LIGHT_DEBUG_MODE,
+      debugLevel,
       ")"
     );
+
+    // Lyssna på inställningsändringar
+    this.homey.settings.on('set', (key) => {
+      if (key === 'debug_level') {
+        const newLevel = this.getDebugLevel();
+        this.log(`🎛️ Debug-nivå ändrad till: ${newLevel}`);
+      }
+    });
 
     this._lastSeen = {}; // { bridgeId: { mmsi: {...} } }
     this._devices = new Set(); // måste initieras först
@@ -269,14 +293,22 @@ class AISBridgeApp extends Homey.App {
       });
 
       this._ws.on("message", (buf) => {
-        if (DEBUG_MODE) this.dbg("[RX]", buf.toString("utf8", 0, 120));
+        this.dbg("[RX]", buf.toString("utf8", 0, 120));
 
         // First message received = successful connection
         if (!this._isConnected) {
           this._connectionAttempts = 0; // Reset counter on successful data
           this._updateConnectionStatus(true);
           this.log("First message received - connection established");
-          this._isConnected = true; // Set flag to prevent repeated logging
+          this._isConnected = true;
+          
+          // Safety cleanup vid återanslutning för att rensa gamla data
+          const timeSinceLastConnection = now() - (this._lastConnectionCheck || 0);
+          if (timeSinceLastConnection > 5 * 60 * 1000) { // 5 minuter
+            this.ldbg("🔄 Connection restored after long disconnect, triggering safety cleanup");
+            this._updateActiveBridgesTag("connection_restored");
+          }
+          this._lastConnectionCheck = now(); // Set flag to prevent repeated logging
         }
 
         let msg;
@@ -540,9 +572,34 @@ class AISBridgeApp extends Homey.App {
     }
   }
 
+  /* -------- Hybrid Cleanup System -------- */
+  _setupHybridCleanup() {
+    // Event-based cleanup för prestanda (triggas av vessel updates)
+    this.ldbg("🚀 Hybrid cleanup system activated");
+    
+    // Safety fallback: cleanup varje 5 minuter för att garantera städning
+    // Denna körs bara om det finns data att städa
+    this._safetyCleanupInterval = this.homey.setInterval(() => {
+      const vesselCount = Object.values(this._lastSeen).reduce(
+        (sum, bridge) => sum + Object.keys(bridge).length, 0
+      );
+      
+      if (vesselCount > 0) {
+        this.ddebug(`🔄 Safety cleanup check: ${vesselCount} vessels tracked`);
+        this._updateActiveBridgesTag("safety_cleanup");
+      } else {
+        this.ddebug("🟢 Safety cleanup: no vessels to clean");
+      }
+    }, 5 * 60 * 1000); // Varje 5:e minut
+    
+    // Cleanup vid WebSocket återanslutning (för att rensa gamla data)
+    this._lastConnectionCheck = now();
+  }
+
   /* -------- Uppdatera globalt token -------- */
-  _updateActiveBridgesTag() {
-    this.ldbg("=== _updateActiveBridgesTag called ===");
+  _updateActiveBridgesTag(triggerReason = "unknown") {
+    // Only log detailed info for detailed/full debug levels
+    this.ddebug(`=== _updateActiveBridgesTag called (${triggerReason}) ===`);
     const cutoff = now() - MAX_AGE_SEC * 1000;
     let dataRemoved = false;
 
@@ -551,11 +608,13 @@ class AISBridgeApp extends Homey.App {
       (sum, bridge) => sum + Object.keys(bridge).length,
       0
     );
-    this.ldbg(`Before cleanup: ${vesselCount} active vessels near bridges`);
-    this.ldbg(`_lastSeen bridges: ${Object.keys(this._lastSeen).join(", ")}`);
+    this.ddebug(`Before cleanup: ${vesselCount} active vessels near bridges`);
+    this.ddebug(`_lastSeen bridges: ${Object.keys(this._lastSeen).join(", ")}`);
 
-    if (LIGHT_DEBUG_MODE) {
-      // Additional detailed logging in light debug mode
+    // Skip cleanup if no vessels present
+    if (vesselCount === 0) {
+      this.ddebug("No vessels present, skipping cleanup");
+      return;
     }
 
     // Clean up expired vessels with improved memory management
@@ -564,11 +623,9 @@ class AISBridgeApp extends Homey.App {
         if (v.ts < cutoff) {
           delete perBridge[mmsi];
           dataRemoved = true;
-          if (LIGHT_DEBUG_MODE) {
-            this.ldbg(
+          this.ldbg(
               `Removed expired vessel ${mmsi} near ${BRIDGES[bid].name}`
             );
-          }
         } else {
           // Cleanup old speed history even for active vessels
           if (v.speedHistory && v.speedHistory.length > 0) {
@@ -579,11 +636,9 @@ class AISBridgeApp extends Homey.App {
               .slice(-MAX_SPEED_HISTORY);
 
             if (v.speedHistory.length !== oldHistoryLength) {
-              if (LIGHT_DEBUG_MODE) {
-                this.ldbg(
+              this.ddebug(
                   `Cleaned speed history for vessel ${mmsi}: ${oldHistoryLength} -> ${v.speedHistory.length} entries`
                 );
-              }
             }
           }
 
@@ -593,20 +648,16 @@ class AISBridgeApp extends Homey.App {
             now() - v.lastActiveTime > SPEED_HISTORY_MINUTES * 60 * 1000
           ) {
             v.maxRecentSog = v.sog;
-            if (LIGHT_DEBUG_MODE) {
-              this.ldbg(
+            this.ddebug(
                 `Reset maxRecentSog for vessel ${mmsi} to current SOG: ${v.sog}`
               );
-            }
           }
         }
       }
 
       if (Object.keys(perBridge).length === 0) {
         delete this._lastSeen[bid];
-        if (LIGHT_DEBUG_MODE) {
-          this.ldbg(`Removed bridge ${BRIDGES[bid].name} with no vessels`);
-        }
+        this.ldbg(`Removed bridge ${BRIDGES[bid].name} with no vessels`);
       }
     }
 
@@ -614,9 +665,12 @@ class AISBridgeApp extends Homey.App {
     const relevantBoats = this._findRelevantBoats();
     const hasBoats = relevantBoats.length > 0;
 
-    this.ldbg(
-      `Found ${relevantBoats.length} relevant boats, hasBoats: ${hasBoats}`
-    );
+    // Only log when boats are found or debug level is detailed+
+    if (hasBoats) {
+      this.ldbg(`🚢 Found ${relevantBoats.length} relevant boats approaching bridges`);
+    } else {
+      this.ddebug(`No relevant boats found (${Object.keys(this._lastSeen).length} vessels tracked)`);
+    }
 
     let sentence;
     if (relevantBoats.length === 0) {
@@ -625,11 +679,14 @@ class AISBridgeApp extends Homey.App {
       sentence = this._generateBridgeTextFromBoats(relevantBoats);
     }
 
-    this.ldbg(`Generated sentence: "${sentence}"`);
+    // Only log sentence changes, not repetitive same sentences
+    if (hasBoats || this._latestBridgeSentence !== sentence) {
+      this.ldbg(`📝 Generated: "${sentence}"`);
+    }
 
     // Reset alarm if all vessels have been removed
     if (dataRemoved && Object.keys(this._lastSeen).length === 0) {
-      this.ldbg("All vessels expired, resetting to 'no boats' status");
+      this.ldbg("🧹 All vessels expired, resetting to 'no boats' status");
     }
 
     // Check if the sentence has actually changed
@@ -933,7 +990,7 @@ class AISBridgeApp extends Homey.App {
           this.ldbg(`  SKIP: Invalid direction: ${vessel.dir}`);
           continue;
         }
-        if (typeof vessel.mmsi !== "string") {
+        if (!vessel.mmsi || (typeof vessel.mmsi !== "string" && typeof vessel.mmsi !== "number")) {
           this.ldbg(`  SKIP: Invalid MMSI: ${vessel.mmsi}`);
           continue;
         }

@@ -94,6 +94,19 @@
             </p>
         </div>
 
+        <div class="field">
+            <label class="label" for="debug_level" data-i18n="settings.debug_level">Debug Level</label>
+            <select class="input" id="debug_level">
+                <option value="off">Off - No debug logging</option>
+                <option value="basic">Basic - Essential information only</option>
+                <option value="detailed">Detailed - Smart logic and boat analysis</option>
+                <option value="full">Full - All AIS data and processing</option>
+            </select>
+            <p class="description" data-i18n="settings.debug_level_description">
+                Choose debug level for troubleshooting. Higher levels provide more detailed logs but may impact performance.
+            </p>
+        </div>
+
         <div id="status" class="status"></div>
 
         <div class="buttons">
@@ -115,6 +128,7 @@
     <script>
         function onHomeyReady(Homey) {
             const apiKeyInput = document.getElementById('ais_api_key');
+            const debugLevelSelect = document.getElementById('debug_level');
             const saveButton = document.getElementById('save');
             const statusDiv = document.getElementById('status');
 
@@ -125,9 +139,18 @@
                 }
             });
 
+            Homey.get('debug_level', function (err, debugLevel) {
+                if (!err && debugLevel) {
+                    debugLevelSelect.value = debugLevel;
+                } else {
+                    debugLevelSelect.value = 'basic'; // Default to basic
+                }
+            });
+
             // Save settings
             saveButton.addEventListener('click', function () {
                 const apiKey = apiKeyInput.value.trim();
+                const debugLevel = debugLevelSelect.value;
 
                 if (!apiKey) {
                     showStatus('Vänligen ange en API-nyckel', 'error');
@@ -142,12 +165,20 @@
 
                 showStatus('Sparar inställningar...', 'info');
 
+                // Save both settings
                 Homey.set('ais_api_key', apiKey, function (err) {
                     if (err) {
                         showStatus('Fel vid sparande: ' + err.message, 'error');
-                    } else {
-                        showStatus('✅ Inställningar sparade! Appen försöker nu ansluta...', 'success');
+                        return;
                     }
+                    
+                    Homey.set('debug_level', debugLevel, function (err) {
+                        if (err) {
+                            showStatus('Fel vid sparande av debug-nivå: ' + err.message, 'error');
+                        } else {
+                            showStatus('✅ Inställningar sparade! Appen försöker nu ansluta...', 'success');
+                        }
+                    });
                 });
             });
 
