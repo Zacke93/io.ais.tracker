@@ -64,7 +64,7 @@ class BridgeStatusDevice extends Homey.Device {
       setTimeout(() => {
         if (this.homey.app && this.homey.app._updateActiveBridgesTag) {
           this.log("Forcing update after device creation");
-          this.homey.app._updateActiveBridgesTag();
+          this.homey.app._updateActiveBridgesTag("device_init");
         }
       }, 1000);
     } catch (err) {

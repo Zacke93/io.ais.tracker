@@ -165,8 +165,15 @@ class AISBridgeApp extends Homey.App {
 
     // Set up periodic cleanup to ensure stale data gets removed
     this._cleanupInterval = this.homey.setInterval(() => {
-      this.ldbg("Running scheduled cleanup check");
-      this._updateActiveBridgesTag();
+      // Only log if there are actually vessels to check
+      const vesselCount = Object.values(this._lastSeen).reduce(
+        (sum, bridge) => sum + Object.keys(bridge).length,
+        0
+      );
+      if (vesselCount > 0) {
+        this.ldbg(`Running scheduled cleanup check (${vesselCount} vessels)`);
+      }
+      this._updateActiveBridgesTag("scheduled_cleanup");
     }, 60000); // Run every minute
 
     // Register for settings changes
@@ -385,8 +392,7 @@ class AISBridgeApp extends Homey.App {
 
         /* Token */
         try {
-          this.ldbg("Calling _updateActiveBridgesTag from WebSocket handler");
-          this._updateActiveBridgesTag();
+          this._updateActiveBridgesTag("vessel_update");
         } catch (err) {
           this.error("Error in _updateActiveBridgesTag from WebSocket:", err);
         }
@@ -733,22 +739,32 @@ class AISBridgeApp extends Homey.App {
 
   /* -------- Uppdatera globalt token -------- */
   _updateActiveBridgesTag(triggerReason = "unknown") {
-    // Only log detailed info for detailed/full debug levels
-    this.ddebug(`=== _updateActiveBridgesTag called (${triggerReason}) ===`);
     const cutoff = now() - MAX_AGE_SEC * 1000;
     let dataRemoved = false;
 
-    // Log the current state before cleanup
+    // Get current vessel count
     const vesselCount = Object.values(this._lastSeen).reduce(
       (sum, bridge) => sum + Object.keys(bridge).length,
       0
     );
-    this.ddebug(`Before cleanup: ${vesselCount} active vessels near bridges`);
-    this.ddebug(`_lastSeen bridges: ${Object.keys(this._lastSeen).join(", ")}`);
+
+    // Only log detailed info when there are vessels or for non-scheduled reasons
+    const shouldLogDetail = vesselCount > 0 || triggerReason !== "scheduled_cleanup";
+    
+    if (shouldLogDetail) {
+      this.ddebug(`=== _updateActiveBridgesTag called (${triggerReason}) ===`);
+      this.ddebug(`Before cleanup: ${vesselCount} active vessels near bridges`);
+      if (vesselCount > 0) {
+        this.ddebug(`_lastSeen bridges: ${Object.keys(this._lastSeen).join(", ")}`);
+      }
+    }
 
     // Skip cleanup if no vessels present
     if (vesselCount === 0) {
-      this.ddebug("No vessels present, skipping cleanup");
+      // Only log for non-scheduled cleanup calls
+      if (triggerReason !== "scheduled_cleanup") {
+        this.ddebug("No vessels present, skipping cleanup");
+      }
       return;
     }
 
@@ -759,7 +775,7 @@ class AISBridgeApp extends Homey.App {
           delete perBridge[mmsi];
           dataRemoved = true;
           this.ldbg(
-              `Removed expired vessel ${mmsi} near ${BRIDGES[bid].name}`
+              `🗑️ Removed expired vessel ${mmsi} near ${BRIDGES[bid]?.name || bid} (age: ${Math.round((now() - v.ts) / 1000)}s)`
             );
         } else {
           // Cleanup old speed history even for active vessels
@@ -792,7 +808,7 @@ class AISBridgeApp extends Homey.App {
 
       if (Object.keys(perBridge).length === 0) {
         delete this._lastSeen[bid];
-        this.ldbg(`Removed bridge ${BRIDGES[bid].name} with no vessels`);
+        this.ldbg(`🌉 Removed bridge ${BRIDGES[bid]?.name || bid} with no vessels`);
       }
     }
 

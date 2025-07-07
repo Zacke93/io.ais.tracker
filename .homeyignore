@@ -1,0 +1,31 @@
+# Test files and directories
+tests/
+coverage/
+README-TESTS.md
+
+# Development dependencies - keep package.json but not lock file
+node_modules/
+package-lock.json
+
+# Log files
+logs/
+*.log
+
+# Development files
+.gitignore
+.DS_Store
+run-with-logs.sh
+
+# Documentation - keep some for app store
+CLAUDE.md
+DEVELOPMENT.md
+CODE_OF_CONDUCT.md
+CONTRIBUTING.md
+
+# Jest and test related
+__tests__/
+*.test.js
+*.spec.js
+
+# Build artifacts
+.homeybuild/
