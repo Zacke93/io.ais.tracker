@@ -27,6 +27,10 @@
     "getConnectionStatus": {
       "method": "GET",
       "path": "/getConnectionStatus"
+    },
+    "getSystemHealth": {
+      "method": "GET",
+      "path": "/getSystemHealth"
     }
   },
   "settings": [

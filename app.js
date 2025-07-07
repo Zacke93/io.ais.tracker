@@ -564,26 +564,41 @@ class AISBridgeApp extends Homey.App {
     }
   }
 
-  /* -------- Timeout-based Cleanup System (from commit d8d0b03) -------- */
+  /* -------- Defended Timeout-based Cleanup System -------- */
   _scheduleVesselCleanup(mmsi, bridgeId) {
-    // Clear any existing timeout for this vessel
     const timeoutKey = `${bridgeId}_${mmsi}`;
-    if (this._vesselTimeouts && this._vesselTimeouts[timeoutKey]) {
+    
+    // Clear existing timeout
+    if (this._vesselTimeouts?.[timeoutKey]) {
       this.homey.clearTimeout(this._vesselTimeouts[timeoutKey]);
     }
 
-    // Initialize timeouts object if not exists
+    // Initialize with safety checks
     if (!this._vesselTimeouts) {
       this._vesselTimeouts = {};
     }
 
-    // Schedule cleanup after MAX_AGE_SEC + 10 seconds buffer
+    // SAFETY: Prevent timeout accumulation
+    if (Object.keys(this._vesselTimeouts).length > 200) {
+      this.error("🚨 Too many timeouts! Triggering emergency cleanup");
+      this._emergencyCleanup();
+      return;
+    }
+
     const cleanupDelay = (MAX_AGE_SEC + 10) * 1000;
     this._vesselTimeouts[timeoutKey] = this.homey.setTimeout(() => {
+      this._performVesselCleanup(mmsi, bridgeId, timeoutKey);
+    }, cleanupDelay);
+
+    this.ddebug(`⏲️ Scheduled cleanup for vessel ${mmsi} in ${cleanupDelay/1000}s`);
+  }
+
+  _performVesselCleanup(mmsi, bridgeId, timeoutKey) {
+    try {
       this.ddebug(`⏰ Timeout-triggered cleanup for vessel ${mmsi} at ${BRIDGES[bridgeId]?.name}`);
       
-      // Remove the vessel if it still exists and is old enough
-      if (this._lastSeen[bridgeId] && this._lastSeen[bridgeId][mmsi]) {
+      // Double-check vessel still exists and is actually expired
+      if (this._lastSeen[bridgeId]?.[mmsi]) {
         const vessel = this._lastSeen[bridgeId][mmsi];
         const cutoff = now() - MAX_AGE_SEC * 1000;
         
@@ -599,14 +614,121 @@ class AISBridgeApp extends Homey.App {
           
           // Trigger update after cleanup
           this._updateActiveBridgesTag("timeout_cleanup");
+          this._lastCleanupTime = now();
+        } else {
+          this.ddebug(`⏰ Vessel ${mmsi} not expired yet, keeping`);
+        }
+      } else {
+        this.ddebug(`⏰ Vessel ${mmsi} already removed`);
+      }
+    } catch (error) {
+      this.error(`🚨 Cleanup error for vessel ${mmsi}:`, error);
+    } finally {
+      // ALWAYS clean up timeout reference
+      delete this._vesselTimeouts?.[timeoutKey];
+    }
+  }
+
+  _emergencyCleanup() {
+    this.error("🚨 Emergency cleanup triggered");
+    
+    // Clear all timeouts
+    if (this._vesselTimeouts) {
+      Object.values(this._vesselTimeouts).forEach(timeout => {
+        this.homey.clearTimeout(timeout);
+      });
+      this._vesselTimeouts = {};
+    }
+    
+    // Manual cleanup of truly expired vessels
+    const cutoff = now() - MAX_AGE_SEC * 1000;
+    let cleaned = 0;
+    
+    for (const [bid, vessels] of Object.entries(this._lastSeen)) {
+      for (const [mmsi, vessel] of Object.entries(vessels)) {
+        if (vessel.ts < cutoff) {
+          delete this._lastSeen[bid][mmsi];
+          cleaned++;
+        } else {
+          // Re-schedule timeout for valid vessels
+          this._scheduleVesselCleanup(mmsi, bid);
         }
       }
       
-      // Clean up the timeout reference
-      delete this._vesselTimeouts[timeoutKey];
-    }, cleanupDelay);
+      // Clean up empty bridges
+      if (Object.keys(this._lastSeen[bid]).length === 0) {
+        delete this._lastSeen[bid];
+      }
+    }
+    
+    this.error(`🧹 Emergency cleanup completed: removed ${cleaned} expired vessels`);
+    this._updateActiveBridgesTag("emergency_cleanup");
+    this._lastCleanupTime = now();
+  }
 
-    this.ddebug(`⏲️ Scheduled cleanup for vessel ${mmsi} in ${cleanupDelay/1000}s`);
+  _recoverTimeouts() {
+    this.error("🔄 Recovering missing timeouts");
+    let recovered = 0;
+    
+    for (const [bid, vessels] of Object.entries(this._lastSeen)) {
+      for (const mmsi of Object.keys(vessels)) {
+        const timeoutKey = `${bid}_${mmsi}`;
+        if (!this._vesselTimeouts[timeoutKey]) {
+          this._scheduleVesselCleanup(mmsi, bid);
+          recovered++;
+        }
+      }
+    }
+    
+    this.ldbg(`🔄 Recovered ${recovered} missing timeouts`);
+  }
+
+  _setupSafetyValidator() {
+    // Lightweight validator - checks consistency without doing cleanup
+    this._safetyInterval = this.homey.setInterval(() => {
+      const vesselCount = Object.values(this._lastSeen).reduce(
+        (sum, bridge) => sum + Object.keys(bridge).length, 0
+      );
+      const timeoutCount = Object.keys(this._vesselTimeouts || {}).length;
+      
+      // Detect anomalies without fixing them immediately
+      if (timeoutCount > vesselCount * 2) {
+        this.error(`🚨 Timeout leak detected: ${timeoutCount} timeouts for ${vesselCount} vessels`);
+        this._emergencyCleanup();
+      }
+      
+      if (vesselCount > 0 && timeoutCount === 0) {
+        this.error(`🚨 Missing timeouts: ${vesselCount} vessels but no timeouts scheduled`);
+        this._recoverTimeouts();
+      }
+      
+      // Log health status at detailed level
+      this.ddebug(`🏥 Health check: ${vesselCount} vessels, ${timeoutCount} timeouts, ratio: ${vesselCount > 0 ? (timeoutCount / vesselCount).toFixed(2) : 'N/A'}`);
+      
+      // Warn if ratio is concerning but not critical
+      if (vesselCount > 0 && timeoutCount > vesselCount * 1.5) {
+        this.ddebug(`⚠️ High timeout ratio detected: ${timeoutCount}/${vesselCount} = ${(timeoutCount / vesselCount).toFixed(2)}`);
+      }
+      
+    }, 2 * 60 * 1000); // Check every 2 minutes
+  }
+
+  getSystemHealth() {
+    const vesselCount = Object.values(this._lastSeen).reduce(
+      (sum, bridge) => sum + Object.keys(bridge).length, 0
+    );
+    const timeoutCount = Object.keys(this._vesselTimeouts || {}).length;
+    
+    return {
+      vessels: vesselCount,
+      timeouts: timeoutCount,
+      ratio: vesselCount > 0 ? timeoutCount / vesselCount : 0,
+      healthy: timeoutCount <= vesselCount * 1.2, // Allow 20% overhead
+      lastCleanup: this._lastCleanupTime || 0,
+      timeSinceLastCleanup: this._lastCleanupTime ? now() - this._lastCleanupTime : null,
+      bridges: Object.keys(this._lastSeen).length,
+      isConnected: this._isConnected || false
+    };
   }
 
   /* -------- Uppdatera globalt token -------- */
