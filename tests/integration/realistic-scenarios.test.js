@@ -42,7 +42,6 @@ describe('Realistic AIS Scenarios Integration Tests', () => {
         const lat = meta.Latitude;
         const lon = meta.Longitude;
         const sog = meta.SOG;
-        const mmsi = meta.MMSI;
 
         // Test that speed decreases as boat approaches bridge (realistic behavior)
         if (index > 0) {
@@ -200,7 +199,6 @@ describe('Realistic AIS Scenarios Integration Tests', () => {
 
   describe('Bridge-Specific Detection', () => {
     test('should correctly identify boats near target bridges', () => {
-      const targetBridges = ['klaffbron', 'stridsbergsbron'];
       const scenario = TEST_SCENARIOS.multiple_boats_different_bridges;
 
       const boatsNearTargetBridges = scenario.filter((message) => {
@@ -302,7 +300,6 @@ describe('Realistic AIS Scenarios Integration Tests', () => {
 
     test('should maintain boat history and speed tracking', () => {
       const journey = createBoatJourney('multi_bridge_speedboat');
-      const { mmsi } = BOAT_SCENARIOS.multi_bridge_speedboat;
 
       let maxObservedSpeed = 0;
       let speedHistory = [];

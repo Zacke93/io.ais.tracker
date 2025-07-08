@@ -50,7 +50,9 @@ describe('Log-Based Realistic AIS Scenarios', () => {
         // Very close to Olidebron
         { distance: 45, speed: 2.3, timeOffset: 180000 },
         // Past Olidebron, heading to Klaffbron
-        { distance: 1400, speed: 2.4, timeOffset: 240000, bridge: 'klaffbron' },
+        {
+          distance: 1400, speed: 2.4, timeOffset: 240000, bridge: 'klaffbron',
+        },
       ];
 
       let lastEta = null;
@@ -75,12 +77,12 @@ describe('Log-Based Realistic AIS Scenarios', () => {
 
         // Test relevant boat detection
         const relevantBoats = await app._findRelevantBoats();
-        
+
         if (index < 4) { // Before reaching Klaffbron area
           expect(relevantBoats.length).toBe(1);
           expect(relevantBoats[0].mmsi).toBe(emmaMmsi);
           expect(relevantBoats[0].targetBridge).toBe('Klaffbron');
-          
+
           // ETA should be reasonable (10-20 minutes)
           expect(relevantBoats[0].etaMinutes).toBeGreaterThan(8);
           expect(relevantBoats[0].etaMinutes).toBeLessThan(25);
@@ -118,8 +120,6 @@ describe('Log-Based Realistic AIS Scenarios', () => {
       };
 
       // Simulate 8 minutes of signal loss (within new tolerance)
-      const signalLossTime = baseTime + (8 * 60 * 1000);
-      
       // Check that boat is still considered active during grace period
       const relevantBoatsDuringLoss = await app._findRelevantBoats();
       expect(relevantBoatsDuringLoss.length).toBe(1);
@@ -141,11 +141,17 @@ describe('Log-Based Realistic AIS Scenarios', () => {
       const encoreMmsi = '265531400';
       const journeyData = [
         // Fast approach to Klaffbron
-        { distance: 168, speed: 5.0, timeOffset: 0, towards: true },
+        {
+          distance: 168, speed: 5.0, timeOffset: 0, towards: true,
+        },
         // Very close - about to pass
-        { distance: 14, speed: 5.5, timeOffset: 60000, towards: false },
+        {
+          distance: 14, speed: 5.5, timeOffset: 60000, towards: false,
+        },
         // Past the bridge, moving away
-        { distance: 213, speed: 6.1, timeOffset: 120000, towards: false },
+        {
+          distance: 213, speed: 6.1, timeOffset: 120000, towards: false,
+        },
       ];
 
       const baseTime = Date.now();
@@ -187,13 +193,12 @@ describe('Log-Based Realistic AIS Scenarios', () => {
       app._lastSeen.klaffbron = {};
       app._lastSeen.klaffbron[encoreMmsi] = {
         ts: baseTime,
-        sog: speed,
-        mmsi: mmsi,
+        sog: 3.5,
+        mmsi: encoreMmsi,
         towards: true,
         dist: 50, // Very close
         dir: 'Göteborg',
         vessel_name: 'ENCORE',
-        towards: true,
         maxRecentSog: 5.0,
       };
 
@@ -204,10 +209,10 @@ describe('Log-Based Realistic AIS Scenarios', () => {
 
       // Test immediate route prediction logic (should detect Stridsbergsbron as next target)
       const hasNextTarget = await app._addToNextRelevantBridge(encoreMmsi, 'klaffbron', 'Göteborg');
-      
+
       // Should identify Stridsbergsbron as next target for northbound boats
       expect(hasNextTarget).toBe(true);
-      
+
       // Should NOT be in original bridge after passage
       expect(app._lastSeen.klaffbron[encoreMmsi]).toBeUndefined();
     });
@@ -224,12 +229,14 @@ describe('Log-Based Realistic AIS Scenarios', () => {
         // Continue towards Klaffbron
         { distance: 50, speed: 3.6, timeOffset: 120000 },
         // Past Olidebron, targeting Klaffbron
-        { distance: 1200, speed: 3.7, timeOffset: 180000, bridge: 'klaffbron' },
+        {
+          distance: 1200, speed: 3.7, timeOffset: 180000, bridge: 'klaffbron',
+        },
       ];
 
       const baseTime = Date.now();
 
-      for (const [index, data] of journeyData.entries()) {
+      for (const data of journeyData) {
         const currentTime = baseTime + data.timeOffset;
         const bridgeId = data.bridge || 'olidebron';
 
@@ -246,16 +253,16 @@ describe('Log-Based Realistic AIS Scenarios', () => {
         };
 
         const relevantBoats = await app._findRelevantBoats();
-        
+
         if (relevantBoats.length > 0) {
           const boat = relevantBoats[0];
           expect(boat.mmsi).toBe(skagernMmsi);
           expect(boat.targetBridge).toBe('Klaffbron');
-          
+
           // Speed should be consistent (cargo boat behavior)
           expect(data.speed).toBeGreaterThan(3.0);
           expect(data.speed).toBeLessThan(4.0);
-          
+
           // ETA should be reasonable for cargo boat
           expect(boat.etaMinutes).toBeGreaterThan(5);
           expect(boat.etaMinutes).toBeLessThan(20);
@@ -283,7 +290,7 @@ describe('Log-Based Realistic AIS Scenarios', () => {
       // Test timeout calculation
       const vessel = app._lastSeen.klaffbron[slowBoatMmsi];
       const individualTimeout = app._getSpeedAdjustedTimeout(vessel);
-      
+
       // Should get maximum bonus: 10min base + 10min very slow bonus = 20min
       expect(individualTimeout).toBe(20 * 60 * 1000);
     });
@@ -305,7 +312,7 @@ describe('Log-Based Realistic AIS Scenarios', () => {
 
       const vessel = app._lastSeen.klaffbron[mediumSlowMmsi];
       const individualTimeout = app._getSpeedAdjustedTimeout(vessel);
-      
+
       // Should get medium bonus: 10min base + 5min slow bonus = 15min
       expect(individualTimeout).toBe(15 * 60 * 1000);
     });
@@ -327,7 +334,7 @@ describe('Log-Based Realistic AIS Scenarios', () => {
 
       const vessel = app._lastSeen.klaffbron[fastBoatMmsi];
       const individualTimeout = app._getSpeedAdjustedTimeout(vessel);
-      
+
       // Should get base timeout: 10min base only (MAX_AGE_SEC)
       expect(individualTimeout).toBe(10 * 60 * 1000);
     });
@@ -342,8 +349,8 @@ describe('Log-Based Realistic AIS Scenarios', () => {
       app._lastSeen.olidebron = {};
       app._lastSeen.olidebron[complexMmsi] = {
         ts: baseTime,
-        sog: speed,
-        mmsi: mmsi,
+        sog: 4.0,
+        mmsi: complexMmsi,
         towards: true,
         dist: 280,
         dir: 'Vänersborg',
@@ -360,8 +367,8 @@ describe('Log-Based Realistic AIS Scenarios', () => {
       app._lastSeen.klaffbron = {};
       app._lastSeen.klaffbron[complexMmsi] = {
         ts: baseTime + 300000, // 5 minutes later
-        sog: speed,
-        mmsi: mmsi,
+        sog: 4.0,
+        mmsi: complexMmsi,
         towards: true,
         dist: 250,
         dir: 'Vänersborg',
@@ -378,8 +385,8 @@ describe('Log-Based Realistic AIS Scenarios', () => {
       app._lastSeen.stridsbergsbron = {};
       app._lastSeen.stridsbergsbron[complexMmsi] = {
         ts: baseTime + 600000, // 10 minutes later
-        sog: speed,
-        mmsi: mmsi,
+        sog: 4.0,
+        mmsi: complexMmsi,
         towards: true,
         dist: 200,
         dir: 'Vänersborg',
@@ -400,8 +407,8 @@ describe('Log-Based Realistic AIS Scenarios', () => {
       app._lastSeen.klaffbron = {};
       app._lastSeen.klaffbron[sameMmsi] = {
         ts: baseTime,
-        sog: speed,
-        mmsi: mmsi,
+        sog: 3.0,
+        mmsi: sameMmsi,
         towards: true,
         dist: 200,
         dir: 'Vänersborg',
@@ -412,8 +419,8 @@ describe('Log-Based Realistic AIS Scenarios', () => {
       app._lastSeen.stridsbergsbron = {};
       app._lastSeen.stridsbergsbron[sameMmsi] = {
         ts: baseTime + 1000, // 1 second later
-        sog: speed,
-        mmsi: mmsi,
+        sog: 3.0,
+        mmsi: sameMmsi,
         towards: true,
         dist: 180,
         dir: 'Vänersborg',
@@ -422,12 +429,12 @@ describe('Log-Based Realistic AIS Scenarios', () => {
       };
 
       const relevantBoats = await app._findRelevantBoats();
-      
+
       // Should detect both but message generation should prioritize
       expect(relevantBoats.length).toBe(2);
-      
+
       const bridgeText = app._generateBridgeTextFromBoats(relevantBoats);
-      
+
       // Should NOT contain combined message for same vessel
       expect(bridgeText).not.toContain(';');
       expect(bridgeText).toContain('Stridsbergsbron'); // Should prioritize Stridsbergsbron
@@ -437,7 +444,7 @@ describe('Log-Based Realistic AIS Scenarios', () => {
   describe('Realistic ETA Calculation Tests', () => {
     test('should return waiting status for very close slow boats', () => {
       const waitingMmsi = '777888999';
-      
+
       // Boat very close with very slow speed
       app._lastSeen.klaffbron = {};
       app._lastSeen.klaffbron[waitingMmsi] = {
@@ -456,7 +463,7 @@ describe('Log-Based Realistic AIS Scenarios', () => {
 
     test('should use speed compensation for realistic ETAs', () => {
       const compensatedMmsi = '111222333';
-      
+
       // Boat close with low current speed but high recent speed
       app._lastSeen.klaffbron = {};
       app._lastSeen.klaffbron[compensatedMmsi] = {
@@ -470,7 +477,7 @@ describe('Log-Based Realistic AIS Scenarios', () => {
 
       const vessel = { sog: 1.0, maxRecentSog: 8.0 };
       const eta = app._calculateETA(vessel, 800, 'klaffbron');
-      
+
       // Should use compensated speed (70% of 8.0 = 5.6 knots)
       // 800m at 5.6 knots ≈ 4.6 minutes
       expect(typeof eta === 'number').toBe(true);
@@ -481,13 +488,13 @@ describe('Log-Based Realistic AIS Scenarios', () => {
     test('should handle edge cases in ETA calculation', () => {
       // Zero distance
       expect(app._calculateETA({ sog: 5.0, maxRecentSog: 5.0 }, 0, 'klaffbron')).toBe('waiting');
-      
+
       // Zero speed and zero max speed
       expect(app._calculateETA({ sog: 0, maxRecentSog: 0 }, 100, 'klaffbron')).toBe('waiting');
-      
+
       // Negative distance (should not happen but handle gracefully) - should return Infinity for invalid input
       expect(app._calculateETA({ sog: 3.0, maxRecentSog: 3.0 }, -50, 'klaffbron')).toBe(Infinity);
-      
+
       // Very high speed (unrealistic)
       const highSpeedEta = app._calculateETA({ sog: 50.0, maxRecentSog: 50.0 }, 1000, 'klaffbron');
       expect(typeof highSpeedEta === 'number').toBe(true);
@@ -509,7 +516,9 @@ describe('Log-Based Realistic AIS Scenarios', () => {
         const speed = 1.5 + (i * 0.5); // Varying speeds
         const distance = 100 + (i * 50); // Varying distances
 
-        boats.push({ mmsi, bridgeId, speed, distance });
+        boats.push({
+          mmsi, bridgeId, speed, distance,
+        });
 
         app._lastSeen[bridgeId] = app._lastSeen[bridgeId] || {};
         app._lastSeen[bridgeId][mmsi] = {
@@ -550,11 +559,11 @@ describe('Log-Based Realistic AIS Scenarios', () => {
 
       // Scenario 1: Single boat at Klaffbron
       app._lastSeen.klaffbron = {
-        '111000111': {
+        111000111: {
           ts: baseTime,
-          sog: speed,
-        mmsi: mmsi,
-        towards: true,
+          sog: 3.0,
+          mmsi: '111000111',
+          towards: true,
           dist: 200,
           dir: 'Vänersborg',
           vessel_name: 'SINGLE BOAT',
@@ -569,11 +578,11 @@ describe('Log-Based Realistic AIS Scenarios', () => {
 
       // Scenario 2: Different boats at both target bridges
       app._lastSeen.stridsbergsbron = {
-        '222000222': {
+        222000222: {
           ts: baseTime,
-          sog: speed,
-        mmsi: mmsi,
-        towards: true,
+          sog: 2.5,
+          mmsi: '222000222',
+          towards: true,
           dist: 150,
           dir: 'Vänersborg',
           vessel_name: 'SECOND BOAT',
@@ -583,7 +592,7 @@ describe('Log-Based Realistic AIS Scenarios', () => {
 
       relevantBoats = await app._findRelevantBoats();
       message = app._generateBridgeTextFromBoats(relevantBoats);
-      
+
       // Should generate combined message for different boats
       expect(message).toContain(';');
       expect(message).toContain('Klaffbron');

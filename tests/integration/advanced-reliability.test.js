@@ -105,7 +105,7 @@ describe('Advanced Reliability and Performance Tests', () => {
       };
 
       const relevantBoats = await app._findRelevantBoats();
-      
+
       // Should detect direction change and stop tracking
       expect(relevantBoats.length).toBe(0);
     });
@@ -126,7 +126,7 @@ describe('Advanced Reliability and Performance Tests', () => {
       ];
 
       app._lastSeen.olidebron = {};
-      
+
       speedUpdates.forEach((update) => {
         app._lastSeen.olidebron[mmsi] = {
           ts: update.time,
@@ -155,7 +155,7 @@ describe('Advanced Reliability and Performance Tests', () => {
 
       testCases.forEach(({ speed, expectedTimeout }, index) => {
         const mmsi = `12345600${index}`;
-        
+
         app._lastSeen.klaffbron = app._lastSeen.klaffbron || {};
         app._lastSeen.klaffbron[mmsi] = {
           ts: Date.now(),
@@ -196,20 +196,20 @@ describe('Advanced Reliability and Performance Tests', () => {
 
       // Test immediate route prediction with required parameters
       const hasNextTarget = await app._addToNextRelevantBridge(
-        mmsi, 
-        'klaffbron', 
+        mmsi,
+        'klaffbron',
         58.28409551543077, // Klaffbron lat
         12.283929525245636, // Klaffbron lon
-        'Vänersborg', 
+        'Vänersborg',
         4.0, // sog
-        []
+        [],
       );
-      
+
       expect(hasNextTarget).toBe(true);
-      
+
       // Should be removed from Klaffbron and added to next relevant bridge
       expect(app._lastSeen.klaffbron[mmsi]).toBeUndefined();
-      
+
       // Should be added to Stridsbergsbron (next user bridge northbound)
       expect(app._lastSeen.stridsbergsbron).toBeDefined();
       expect(app._lastSeen.stridsbergsbron[mmsi]).toBeDefined();
@@ -244,17 +244,17 @@ describe('Advanced Reliability and Performance Tests', () => {
           klaffbron: { lat: 58.28409551543077, lon: 12.283929525245636 },
           stridsbergsbron: { lat: 58.293524096154634, lon: 12.294566425158054 },
         };
-        
+
         const hasNext = await app._addToNextRelevantBridge(
-          mmsi, 
-          from, 
+          mmsi,
+          from,
           bridges[from].lat,
           bridges[from].lon,
-          direction, 
+          direction,
           3.5,
-          []
+          [],
         );
-        
+
         if (to) {
           expect(hasNext).toBe(true);
           expect(app._lastSeen[to]).toBeDefined();
@@ -287,7 +287,7 @@ describe('Advanced Reliability and Performance Tests', () => {
       testCases.forEach(([distance, currentSpeed, maxSpeed, waiting, expectedType]) => {
         const vessel = { sog: currentSpeed, maxRecentSog: maxSpeed };
         const eta = app._calculateETA(vessel, distance, 'klaffbron');
-        
+
         if (expectedType === 'waiting') {
           expect(eta).toBe('waiting');
         } else {
@@ -304,7 +304,7 @@ describe('Advanced Reliability and Performance Tests', () => {
       const speed = 2.7; // knots
       const vessel = { sog: speed, maxRecentSog: speed };
       const eta = app._calculateETA(vessel, distance, 'klaffbron');
-      
+
       expect(typeof eta).toBe('number');
       expect(eta).toBeGreaterThan(17); // Should be around 19 minutes
       expect(eta).toBeLessThan(21);
@@ -347,7 +347,7 @@ describe('Advanced Reliability and Performance Tests', () => {
       expect(relevantBoats.length).toBe(2);
 
       const message = app._generateBridgeTextFromBoats(relevantBoats);
-      
+
       // Should prioritize Stridsbergsbron and NOT show combined message
       expect(message).toContain('Stridsbergsbron');
       expect(message).not.toContain(';'); // No combination for same vessel
@@ -359,7 +359,7 @@ describe('Advanced Reliability and Performance Tests', () => {
 
       // Different vessels at target bridges
       app._lastSeen.klaffbron = {
-        '111000111': {
+        111000111: {
           ts: baseTime,
           sog: 3.0,
           dist: 200,
@@ -370,7 +370,7 @@ describe('Advanced Reliability and Performance Tests', () => {
       };
 
       app._lastSeen.stridsbergsbron = {
-        '222000222': {
+        222000222: {
           ts: baseTime,
           sog: 2.5,
           dist: 150,
@@ -384,7 +384,7 @@ describe('Advanced Reliability and Performance Tests', () => {
       expect(relevantBoats.length).toBe(2);
 
       const message = app._generateBridgeTextFromBoats(relevantBoats);
-      
+
       // Should combine messages for different vessels
       expect(message).toContain(';');
       expect(message).toContain('Klaffbron');
@@ -427,12 +427,12 @@ describe('Advanced Reliability and Performance Tests', () => {
         const mmsi = `99800${i.toString().padStart(4, '0')}`;
         const bridges = ['olidebron', 'klaffbron', 'jarnvagsbron', 'stridsbergsbron'];
         const bridgeId = bridges[i % bridges.length];
-        
+
         app._lastSeen[bridgeId] = app._lastSeen[bridgeId] || {};
         app._lastSeen[bridgeId][mmsi] = {
           ts: baseTime + (i * 1000),
           sog: 0.5 + (i % 8) * 0.8, // Speeds from 0.5 to 6.1
-          dist: 50 + (i % 12) * 25,  // Distances from 50 to 325
+          dist: 50 + (i % 12) * 25, // Distances from 50 to 325
           dir: i % 2 === 0 ? 'Vänersborg' : 'Göteborg',
           vessel_name: `PERF_BOAT_${i}`,
           maxRecentSog: Math.max(2.0, 0.5 + (i % 8) * 0.8),
@@ -447,10 +447,10 @@ describe('Advanced Reliability and Performance Tests', () => {
 
       // Should complete within 200ms
       expect(endTime - startTime).toBeLessThan(200);
-      
+
       // Should detect some boats
       expect(relevantBoats.length).toBeGreaterThan(0);
-      
+
       // Message should be generated
       expect(message).toBeDefined();
       expect(typeof message).toBe('string');
@@ -462,21 +462,21 @@ describe('Advanced Reliability and Performance Tests', () => {
     test('should handle malformed boat data gracefully', async () => {
       // Test with missing or invalid data
       app._lastSeen.klaffbron = {
-        'invalid_boat_1': {
+        invalid_boat_1: {
           ts: Date.now(),
           // Missing sog
           dist: 200,
           dir: 'Vänersborg',
           vessel_name: 'INVALID_1',
         },
-        'invalid_boat_2': {
+        invalid_boat_2: {
           ts: Date.now(),
           sog: null, // Null speed
           dist: 150,
           dir: 'Vänersborg',
           vessel_name: 'INVALID_2',
         },
-        'valid_boat': {
+        valid_boat: {
           ts: Date.now(),
           sog: 3.0,
           dist: 180,
@@ -488,11 +488,11 @@ describe('Advanced Reliability and Performance Tests', () => {
 
       // Should not throw errors and should process valid boat
       const relevantBoats = await app._findRelevantBoats();
-      
+
       // Should only return valid boats
       expect(relevantBoats.length).toBeGreaterThanOrEqual(0);
       expect(relevantBoats.length).toBeLessThanOrEqual(1);
-      
+
       if (relevantBoats.length > 0) {
         expect(relevantBoats[0].mmsi).toBe('valid_boat');
       }
@@ -500,7 +500,7 @@ describe('Advanced Reliability and Performance Tests', () => {
 
     test('should handle extreme values gracefully', async () => {
       const mmsi = '999888777';
-      
+
       // Test with extreme values
       app._lastSeen.klaffbron = {};
       app._lastSeen.klaffbron[mmsi] = {
@@ -513,7 +513,7 @@ describe('Advanced Reliability and Performance Tests', () => {
       };
 
       const relevantBoats = await app._findRelevantBoats();
-      
+
       // Should handle gracefully without errors
       expect(Array.isArray(relevantBoats)).toBe(true);
     });

@@ -41,7 +41,6 @@ describe('ETA Calculation and Bridge Text Generation', () => {
     });
 
     test('should use speed compensation for waiting vessels', () => {
-      const currentSpeed = 0.3; // Very slow, indicating waiting
       const maxRecentSpeed = 4.5; // Previous normal cruising speed
       const distance = 500; // meters
 
@@ -247,7 +246,6 @@ describe('ETA Calculation and Bridge Text Generation', () => {
 
     test('should calculate next bridge for vessel route', () => {
       const currentBridge = 'klaffbron';
-      const direction = 'Vänersborg';
 
       // For Vänersborg direction from Klaffbron, next bridge should be Stridsbergsbron
       const bridgeOrder = ['klaffbron', 'stridsbergsbron', 'stallbackabron'];

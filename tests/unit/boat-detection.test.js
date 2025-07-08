@@ -219,7 +219,6 @@ describe('Smart Boat Detection', () => {
     });
 
     test('should handle waiting vessels with speed compensation', () => {
-      const currentSpeed = 0.3; // Very slow, waiting
       const maxRecentSpeed = 4.5; // Previous normal speed
       const distance = 500;
 

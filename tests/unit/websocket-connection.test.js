@@ -9,7 +9,7 @@ jest.mock('ws');
 
 const appPath = path.join(__dirname, '../../app.js');
 const AISBridgeApp = require(appPath);
-const { TEST_SCENARIOS, createAISMessage, BOAT_SCENARIOS } = require('../fixtures/boat-data');
+const { TEST_SCENARIOS } = require('../fixtures/boat-data');
 
 describe('WebSocket Connection Management', () => {
   let app;
@@ -157,8 +157,6 @@ describe('WebSocket Connection Management', () => {
 
       // Process each boat message
       multipleBoats.forEach((message) => {
-        const buffer = Buffer.from(JSON.stringify(message));
-
         // Simulate message processing logic
         const meta = message.Metadata || {};
         const body = Object.values(message.Message || {})[0] || {};
