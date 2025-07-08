@@ -386,22 +386,36 @@ class AISBridgeApp extends Homey.App {
           updatedLastDistances[bridgeId] = bridgeDistance;
         }
 
-        // Check if we passed any bridges (distance was decreasing, now increasing)
+        // FÖRBÄTTRAD BRIDGE PASSAGE DETECTION
         if (existingData?.lastDistances) {
           for (const [bridgeId, bridge] of Object.entries(BRIDGES)) {
             const previousDistance = existingData.lastDistances[bridgeId];
             const currentDistance = updatedLastDistances[bridgeId];
 
-            if (previousDistance && currentDistance
-                && previousDistance < bridge.radius // Was close to bridge
-                && currentDistance > previousDistance // Distance is increasing
-                && currentDistance > bridge.radius // Now outside bridge radius
-                && !updatedPassedBridges.includes(bridgeId)) { // Haven't marked as passed yet
-              updatedPassedBridges.push(bridgeId);
-              this.ldbg(`🌉 Vessel ${mmsi} passed bridge ${bridge.name} (${Math.round(previousDistance)}m → ${Math.round(currentDistance)}m)`);
+            if (previousDistance && currentDistance && !updatedPassedBridges.includes(bridgeId)) {
+              
+              // Original detection: var nära, nu längre bort
+              const originalPassage = previousDistance < bridge.radius 
+                && currentDistance > previousDistance 
+                && currentDistance > bridge.radius;
+                
+              // FÖRBÄTTRAD DETECTION: Detektera båtar som "hoppar" mellan broar
+              const bridgeJumpDetection = this._detectBridgeJump(mmsi, bridgeId, previousDistance, currentDistance, bridge, existingData);
+              
+              // FÖRBÄTTRAD DETECTION: Detektera "frozen data" och återhämtning
+              const staleDataRecovery = this._detectStaleDataRecovery(mmsi, bridgeId, existingData, bridge, currentDistance);
+              
+              if (originalPassage || bridgeJumpDetection || staleDataRecovery) {
+                updatedPassedBridges.push(bridgeId);
+                
+                const detectionType = originalPassage ? 'NORMAL' : 
+                                    bridgeJumpDetection ? 'JUMP' : 'RECOVERY';
+                                    
+                this.ldbg(`🌉 Vessel ${mmsi} passed bridge ${bridge.name} (${Math.round(previousDistance)}m → ${Math.round(currentDistance)}m) [${detectionType}]`);
 
-              // OMEDELBAR RUTTPREDIKTION: Lägg till båten vid nästa relevanta bro
-              this._addToNextRelevantBridge(mmsi, bridgeId, lat, lon, dir, sog, updatedPassedBridges);
+                // OMEDELBAR RUTTPREDIKTION: Lägg till båten vid nästa relevanta bro
+                this._addToNextRelevantBridge(mmsi, bridgeId, lat, lon, dir, sog, updatedPassedBridges);
+              }
             }
           }
         }
@@ -439,6 +453,16 @@ class AISBridgeApp extends Homey.App {
         const passedBridgesCount = updatedPassedBridges.length;
         const previousPassedCount = existingData?.passedBridges?.length || 0;
 
+        // AIS DATA FRESHNESS MONITORING
+        const timeSinceLastUpdate = existingData ? now() - existingData.ts : 0;
+        const staleDataWarning = this._checkStaleDataWarning(existingData, d, sog, lat, lon, timeSinceLastUpdate);
+        const duplicateDataWarning = this._checkDuplicateDataWarning(existingData, d, sog, lat, lon);
+        
+        // ENHANCED MONITORING: Log significant events for analysis
+        if (timeSinceLastUpdate > 5 * 60 * 1000) { // More than 5 minutes
+          this.ldbg(`⏰ LONG GAP: ${name} (${mmsi}) - ${Math.round(timeSinceLastUpdate/1000/60)}m since last update`);
+        }
+
         if (isNewVessel) {
           this.ldbg(
             `🆕 NEW VESSEL: ${name} (${mmsi}) detected at ${B.name} - ${Math.round(d)}m, ${sog} kn, heading ${dir}`,
@@ -452,9 +476,19 @@ class AISBridgeApp extends Homey.App {
             `📍 ROUTE UPDATE: ${name} (${mmsi}) at ${B.name} - ${Math.round(d)}m, ${sog} kn, heading ${dir} (passed ${passedBridgesCount} bridges)`,
           );
         } else {
-          this.ldbg(
-            `BOAT ${name} (${mmsi}) ${Math.round(d)} m från ${B.name}, dir=${dir}`,
-          );
+          let logMessage = `BOAT ${name} (${mmsi}) ${Math.round(d)} m från ${B.name}, dir=${dir}`;
+          
+          // Lägg till data freshness varningar
+          if (staleDataWarning) {
+            logMessage += ` [⚠️ STALE: ${Math.round(timeSinceLastUpdate/1000/60)}m]`;
+            this.ldbg(`⚠️ STALE DATA WARNING: ${name} (${mmsi}) - ${Math.round(timeSinceLastUpdate/1000/60)} minutes without updates`);
+          }
+          if (duplicateDataWarning) {
+            logMessage += ` [🔄 DUPLICATE]`;
+            this.ldbg(`🔄 DUPLICATE DATA WARNING: ${name} (${mmsi}) - identical position/speed detected`);
+          }
+          
+          this.ldbg(logMessage);
         }
 
         /* Token */
@@ -762,11 +796,13 @@ class AISBridgeApp extends Homey.App {
           }
           // Second stage: Remove vessel if grace period has expired
           else if (vessel.gracePeriod && vessel.graceStartTime && (now() - vessel.graceStartTime) > GRACE_PERIOD_SEC * 1000) {
+            this.ldbg(`🗑️ GRACE PERIOD EXPIRED: Removing ${mmsi} from ${bid} after ${Math.round((now() - vessel.graceStartTime)/1000)}s grace period`);
             delete this._lastSeen[bid][mmsi];
             cleaned++;
           }
           // Original removal for vessels older than grace period start
           else if (vessel.ts < graceCutoff) {
+            this.ldbg(`⏰ TIMEOUT EXPIRED: Removing ${mmsi} from ${bid} - last seen ${Math.round((now() - vessel.ts)/1000/60)}m ago`);
             delete this._lastSeen[bid][mmsi];
             cleaned++;
           }
@@ -1345,13 +1381,23 @@ class AISBridgeApp extends Homey.App {
           `Checking vessel at ${bid}: sog=${vessel.sog}, dir=${vessel.dir}, towards=${vessel.towards}, dist=${vessel.dist}, smart: ${smartAnalysis.confidence}/${smartAnalysis.action}`,
         );
 
-        // ENHANCED: Protection zone for boats turning around near bridges
+        // OPTIMERAD PROTECTION ZONE LOGIC - Förhindra fastna båtar
         const isWithinProtectionZone = vessel.dist <= PROTECTION_RADIUS;
+        const protectionZoneTimeout = this._checkProtectionZoneTimeout(vessel, bid);
+        const shouldEscapeProtectionZone = this._shouldEscapeProtectionZone(vessel, bid);
         
         // Only consider boats that are approaching bridges OR have high confidence smart analysis OR are within protection zone
         if (!vessel.towards && !isWithinProtectionZone && smartAnalysis.confidence !== 'high') {
           this.ldbg(
             `  SKIP: Boat moving away from bridge (${vessel.dist}m), outside protection zone (${PROTECTION_RADIUS}m), and low smart confidence`,
+          );
+          continue;
+        }
+        
+        // Escape protection zone if boat has been stuck too long
+        if (!vessel.towards && isWithinProtectionZone && (protectionZoneTimeout || shouldEscapeProtectionZone)) {
+          this.ldbg(
+            `  ESCAPE PROTECTION ZONE: Boat ${vessel.mmsi} at ${vessel.dist}m from ${bid} - timeout: ${protectionZoneTimeout}, escape: ${shouldEscapeProtectionZone}`,
           );
           continue;
         }
@@ -2038,6 +2084,166 @@ class AISBridgeApp extends Homey.App {
         setTimeout(() => this._updateActiveBridgesTag('immediate_route_update'), 0);
       }
     }
+  }
+
+  /* FÖRBÄTTRAD BRIDGE PASSAGE DETECTION - Detektera båtar som "hoppar" mellan broar */
+  _detectBridgeJump(mmsi, bridgeId, previousDistance, currentDistance, bridge, existingData) {
+    // Kontrollera om båten plötsligt dyker upp vid en annan bro
+    const timeSinceLastUpdate = now() - existingData.ts;
+    const MIN_JUMP_TIME = 5 * 60 * 1000; // 5 minuter utan uppdatering
+    const MAX_JUMP_DISTANCE = 2000; // 2km max avstånd för "hopp"
+    
+    if (timeSinceLastUpdate > MIN_JUMP_TIME && previousDistance > bridge.radius && currentDistance > bridge.radius) {
+      // Båten varit borta länge och är nu vid en annan bro
+      // Kontrollera om det är ett logiskt "hopp" mellan broar
+      const bridgeOrder = ['olidebron', 'klaffbron', 'jarnvagsbron', 'stridsbergsbron', 'stallbackabron'];
+      const currentBridgeIndex = bridgeOrder.indexOf(bridgeId);
+      
+      if (currentBridgeIndex !== -1) {
+        // Hitta vilken bro båten senast var vid
+        const passedBridges = existingData.passedBridges || [];
+        const lastBridge = passedBridges[passedBridges.length - 1];
+        
+        if (lastBridge) {
+          const lastBridgeIndex = bridgeOrder.indexOf(lastBridge);
+          const distance = Math.abs(currentBridgeIndex - lastBridgeIndex);
+          
+          // Om båten "hoppat" 1-2 broar i rätt riktning
+          if (distance >= 1 && distance <= 2) {
+            this.ldbg(`🚨 BRIDGE JUMP DETECTED: ${mmsi} from ${lastBridge} to ${bridgeId} after ${Math.round(timeSinceLastUpdate/1000/60)} minutes`);
+            return true;
+          }
+        }
+      }
+    }
+    
+    return false;
+  }
+
+  /* FÖRBÄTTRAD BRIDGE PASSAGE DETECTION - Detektera "frozen data" och återhämtning */
+  _detectStaleDataRecovery(mmsi, bridgeId, existingData, bridge, currentDistance) {
+    // Kontrollera om vi haft samma data för länge
+    const timeSinceLastUpdate = now() - existingData.ts;
+    const MIN_STALE_TIME = 3 * 60 * 1000; // 3 minuter med samma data
+    
+    if (timeSinceLastUpdate > MIN_STALE_TIME) {
+      // Kontrollera om vi haft exakt samma avstånd (frozen data)
+      const previousDistance = existingData.lastDistances?.[bridgeId];
+      const DISTANCE_TOLERANCE = 1; // 1 meter tolerans
+      
+      if (previousDistance && Math.abs(previousDistance - currentDistance) < DISTANCE_TOLERANCE) {
+        // Samma avstånd i flera minuter = frozen data
+        this.ldbg(`🧊 STALE DATA DETECTED: ${mmsi} at ${bridgeId} - same distance ${Math.round(currentDistance)}m for ${Math.round(timeSinceLastUpdate/1000/60)} minutes`);
+        
+        // Om båten nu är utanför bridge radius, anta passage
+        if (currentDistance > bridge.radius) {
+          this.ldbg(`🔄 RECOVERY PASSAGE: ${mmsi} assumed passed ${bridgeId} due to stale data recovery`);
+          return true;
+        }
+      }
+    }
+    
+    return false;
+  }
+
+  /* AIS DATA FRESHNESS MONITORING - Kontrollera stale data */
+  _checkStaleDataWarning(existingData, currentDistance, currentSog, currentLat, currentLon, timeSinceLastUpdate) {
+    if (!existingData) return false;
+    
+    const STALE_WARNING_TIME = 2 * 60 * 1000; // 2 minuter
+    const DISTANCE_TOLERANCE = 5; // 5 meter
+    const SPEED_TOLERANCE = 0.1; // 0.1 knot
+    const POSITION_TOLERANCE = 0.00001; // ~1 meter i lat/lon
+    
+    if (timeSinceLastUpdate > STALE_WARNING_TIME) {
+      // Kontrollera om data är identisk
+      const sameDistance = Math.abs(existingData.dist - currentDistance) < DISTANCE_TOLERANCE;
+      const sameSpeed = Math.abs(existingData.sog - currentSog) < SPEED_TOLERANCE;
+      const samePosition = existingData.lat && existingData.lon && 
+                          Math.abs(existingData.lat - currentLat) < POSITION_TOLERANCE &&
+                          Math.abs(existingData.lon - currentLon) < POSITION_TOLERANCE;
+      
+      if (sameDistance && sameSpeed && samePosition) {
+        return true; // Data är för gammal och identisk
+      }
+    }
+    
+    return false;
+  }
+
+  /* AIS DATA FRESHNESS MONITORING - Kontrollera dubbletter */
+  _checkDuplicateDataWarning(existingData, currentDistance, currentSog, currentLat, currentLon) {
+    if (!existingData) return false;
+    
+    const DISTANCE_TOLERANCE = 0.1; // 0.1 meter
+    const SPEED_TOLERANCE = 0.01; // 0.01 knot
+    const POSITION_TOLERANCE = 0.000001; // ~0.1 meter i lat/lon
+    
+    const sameDistance = Math.abs(existingData.dist - currentDistance) < DISTANCE_TOLERANCE;
+    const sameSpeed = Math.abs(existingData.sog - currentSog) < SPEED_TOLERANCE;
+    const samePosition = existingData.lat && existingData.lon && 
+                        Math.abs(existingData.lat - currentLat) < POSITION_TOLERANCE &&
+                        Math.abs(existingData.lon - currentLon) < POSITION_TOLERANCE;
+    
+    return sameDistance && sameSpeed && samePosition;
+  }
+
+  /* OPTIMERAD PROTECTION ZONE - Kontrollera timeout */
+  _checkProtectionZoneTimeout(vessel, bridgeId) {
+    const PROTECTION_ZONE_TIMEOUT = 10 * 60 * 1000; // 10 minuter max i protection zone
+    const timeSinceLastUpdate = now() - vessel.ts;
+    
+    // Om båten varit i protection zone för länge
+    if (timeSinceLastUpdate > PROTECTION_ZONE_TIMEOUT && vessel.dist <= PROTECTION_RADIUS && !vessel.towards) {
+      return true;
+    }
+    
+    return false;
+  }
+
+  /* OPTIMERAD PROTECTION ZONE - Kontrollera escape conditions */
+  _shouldEscapeProtectionZone(vessel, bridgeId) {
+    const MIN_ESCAPE_DISTANCE = 250; // 250m från bro
+    const MIN_ESCAPE_SPEED = 1.5; // 1.5 knots
+    const STAGNATION_TIME = 5 * 60 * 1000; // 5 minuter utan förändring
+    
+    // Escape condition 1: Båten är tillräckligt långt från bro OCH rör sig snabbt
+    if (vessel.dist > MIN_ESCAPE_DISTANCE && vessel.sog > MIN_ESCAPE_SPEED) {
+      return true;
+    }
+    
+    // Escape condition 2: Båten har varit på samma position för länge (stagnation)
+    if (vessel.lastDistances && vessel.lastDistances[bridgeId]) {
+      const timeSinceLastUpdate = now() - vessel.ts;
+      const distanceChange = Math.abs(vessel.dist - vessel.lastDistances[bridgeId]);
+      
+      if (timeSinceLastUpdate > STAGNATION_TIME && distanceChange < 10) {
+        return true; // Båten har knappt rört sig på 5 minuter
+      }
+    }
+    
+    // Escape condition 3: Båten är på väg till nästa bro i sekvensen
+    const bridgeOrder = ['olidebron', 'klaffbron', 'jarnvagsbron', 'stridsbergsbron', 'stallbackabron'];
+    const currentIndex = bridgeOrder.indexOf(bridgeId);
+    const direction = vessel.dir;
+    
+    if (currentIndex !== -1) {
+      const nextBridgeIndex = direction === 'Vänersborg' ? currentIndex + 1 : currentIndex - 1;
+      if (nextBridgeIndex >= 0 && nextBridgeIndex < bridgeOrder.length) {
+        const nextBridge = BRIDGES[bridgeOrder[nextBridgeIndex]];
+        if (nextBridge) {
+          const distanceToNext = haversine(vessel.lat, vessel.lon, nextBridge.lat, nextBridge.lon);
+          const distanceToCurrent = vessel.dist;
+          
+          // Om båten är närmare nästa bro än nuvarande bro
+          if (distanceToNext < distanceToCurrent) {
+            return true;
+          }
+        }
+      }
+    }
+    
+    return false;
   }
 
   /* Hjälpfunktion för att avgöra om båt är på väg mot en bro */
