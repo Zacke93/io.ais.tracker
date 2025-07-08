@@ -8,12 +8,12 @@ module.exports = {
     'drivers/**/*.js',
     '!node_modules/**',
     '!coverage/**',
-    '!tests/**'
+    '!tests/**',
   ],
   coverageReporters: ['text', 'lcov', 'html'],
   setupFilesAfterEnv: ['<rootDir>/tests/setup.js'],
   testTimeout: 10000,
   moduleNameMapper: {
-    '^homey$': '<rootDir>/tests/__mocks__/homey.js'
-  }
+    '^homey$': '<rootDir>/tests/__mocks__/homey.js',
+  },
 };
