@@ -6,7 +6,7 @@ jest.mock('ws', () => {
     on: jest.fn(),
     send: jest.fn(),
     close: jest.fn(),
-    readyState: 1 // OPEN
+    readyState: 1, // OPEN
   }));
 });
 
