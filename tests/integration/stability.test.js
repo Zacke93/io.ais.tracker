@@ -218,7 +218,6 @@ describe('Stability and Reliability Tests', () => {
     });
 
     test('should provide consistent ETAs for waiting vessels', () => {
-      const currentSpeed = 0.2;
       const maxRecentSpeed = 4.5;
       const distance = 500;
 

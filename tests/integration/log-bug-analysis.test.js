@@ -40,9 +40,9 @@ describe('Log Bug Analysis - Real AIS Log Issues', () => {
     test('should detect and recover from frozen vessel data', async () => {
       const mmsi = 'BUG1_TEST';
       const baseTime = Date.now();
-      
+
       console.log('=== BUG 1: Frozen vessel data syndrome ===');
-      
+
       // Stage 1: Normal vessel data
       app._lastSeen.klaffbron = {};
       app._lastSeen.klaffbron[mmsi] = {
@@ -51,7 +51,7 @@ describe('Log Bug Analysis - Real AIS Log Issues', () => {
         dist: 287.140534304579,
         dir: 'Vänersborg',
         vessel_name: 'FROZEN TESTER',
-        mmsi: mmsi,
+        mmsi,
         towards: true,
         maxRecentSog: 2.1,
         lastActiveTime: baseTime,
@@ -81,7 +81,7 @@ describe('Log Bug Analysis - Real AIS Log Issues', () => {
           lon: frozenLon,
           lastDistances: { klaffbron: frozenDist },
         };
-        await new Promise(resolve => setTimeout(resolve, 10));
+        await new Promise((resolve) => setTimeout(resolve, 10));
       }
 
       // Check if stale data warning was triggered
@@ -110,9 +110,9 @@ describe('Log Bug Analysis - Real AIS Log Issues', () => {
     test('should maintain vessel through long gaps with proper timeouts', async () => {
       const mmsi = 'BUG2_TEST';
       const baseTime = Date.now();
-      
+
       console.log('\n=== BUG 2: 7-minute gap scenario ===');
-      
+
       // Stage 1: Vessel detected at Klaffbron
       app._lastSeen.klaffbron = {};
       app._lastSeen.klaffbron[mmsi] = {
@@ -121,7 +121,7 @@ describe('Log Bug Analysis - Real AIS Log Issues', () => {
         dist: 287.140534304579,
         dir: 'Vänersborg',
         vessel_name: 'GAP TESTER',
-        mmsi: mmsi,
+        mmsi,
         towards: true,
         maxRecentSog: 2.1,
         lastActiveTime: baseTime,
@@ -136,19 +136,19 @@ describe('Log Bug Analysis - Real AIS Log Issues', () => {
       // Stage 2: 7-minute gap (no updates)
       const gapDuration = 7 * 60 * 1000; // 7 minutes
       const afterGapTime = baseTime + gapDuration;
-      
+
       // Check if vessel is still tracked during gap
       const timeoutValue = app._getSpeedAdjustedTimeout(app._lastSeen.klaffbron[mmsi]);
       console.log(`Timeout for vessel: ${timeoutValue} seconds`);
       console.log(`Gap duration: ${gapDuration / 1000} seconds`);
-      
+
       // Simulate time passing
       jest.spyOn(Date, 'now').mockReturnValue(afterGapTime);
-      
+
       // Check if vessel survives the gap
       relevantBoats = await app._findRelevantBoats();
       console.log(`Stage 2 - After 7-minute gap: ${relevantBoats.length} boats detected`);
-      
+
       // Stage 3: New data arrives at Järnvägsbron
       app._lastSeen.jarnvagsbron = {};
       app._lastSeen.jarnvagsbron[mmsi] = {
@@ -157,7 +157,7 @@ describe('Log Bug Analysis - Real AIS Log Issues', () => {
         dist: 180,
         dir: 'Vänersborg',
         vessel_name: 'GAP TESTER',
-        mmsi: mmsi,
+        mmsi,
         towards: true,
         maxRecentSog: 2.3,
         lastActiveTime: afterGapTime,
@@ -180,9 +180,9 @@ describe('Log Bug Analysis - Real AIS Log Issues', () => {
     test('should detect boats jumping between bridges', async () => {
       const mmsi = 'BUG3_TEST';
       const baseTime = Date.now();
-      
+
       console.log('\n=== BUG 3: Missing bridge passage detection ===');
-      
+
       // Stage 1: Vessel at Klaffbron
       app._lastSeen.klaffbron = {};
       app._lastSeen.klaffbron[mmsi] = {
@@ -191,7 +191,7 @@ describe('Log Bug Analysis - Real AIS Log Issues', () => {
         dist: 287.140534304579,
         dir: 'Vänersborg',
         vessel_name: 'JUMPER',
-        mmsi: mmsi,
+        mmsi,
         towards: true,
         maxRecentSog: 2.1,
         lastActiveTime: baseTime,
@@ -212,13 +212,13 @@ describe('Log Bug Analysis - Real AIS Log Issues', () => {
         dist: 180,
         dir: 'Vänersborg',
         vessel_name: 'JUMPER',
-        mmsi: mmsi,
+        mmsi,
         towards: true,
         maxRecentSog: 2.3,
         lastActiveTime: baseTime + 300000,
-        lastDistances: { 
+        lastDistances: {
           klaffbron: 1000, // Now far from previous bridge
-          jarnvagsbron: 180  // Close to new bridge
+          jarnvagsbron: 180, // Close to new bridge
         },
         lat: 58.292,
         lon: 12.292,
@@ -246,9 +246,9 @@ describe('Log Bug Analysis - Real AIS Log Issues', () => {
     test('should prevent boats from being trapped in protection zones', async () => {
       const mmsi = 'BUG4_TEST';
       const baseTime = Date.now();
-      
+
       console.log('\n=== BUG 4: Protection zone trap ===');
-      
+
       // Stage 1: Vessel enters protection zone
       app._lastSeen.klaffbron = {};
       app._lastSeen.klaffbron[mmsi] = {
@@ -257,7 +257,7 @@ describe('Log Bug Analysis - Real AIS Log Issues', () => {
         dist: 250, // Within protection zone
         dir: 'Vänersborg',
         vessel_name: 'TRAPPED BOAT',
-        mmsi: mmsi,
+        mmsi,
         towards: true,
         maxRecentSog: 2.5,
         lastActiveTime: baseTime,
@@ -305,9 +305,9 @@ describe('Log Bug Analysis - Real AIS Log Issues', () => {
     test('should detect and warn about stale AIS data', async () => {
       const mmsi = 'BUG5_TEST';
       const baseTime = Date.now();
-      
+
       console.log('\n=== BUG 5: Stale AIS data processing ===');
-      
+
       // Stage 1: Fresh data
       app._lastSeen.stridsbergsbron = {};
       app._lastSeen.stridsbergsbron[mmsi] = {
@@ -316,7 +316,7 @@ describe('Log Bug Analysis - Real AIS Log Issues', () => {
         dist: 195,
         dir: 'Vänersborg',
         vessel_name: 'STALE TESTER',
-        mmsi: mmsi,
+        mmsi,
         towards: true,
         maxRecentSog: 2.1,
         lastActiveTime: baseTime,
@@ -359,9 +359,9 @@ describe('Log Bug Analysis - Real AIS Log Issues', () => {
   describe('Integration Test: All bugs combined', () => {
     test('should handle multiple bug scenarios simultaneously', async () => {
       const baseTime = Date.now();
-      
+
       console.log('\n=== INTEGRATION TEST: All bugs combined ===');
-      
+
       // Create multiple vessels with different bug scenarios
       const vessels = [
         {
@@ -407,7 +407,7 @@ describe('Log Bug Analysis - Real AIS Log Issues', () => {
       ];
 
       // Set up all vessels
-      vessels.forEach(vessel => {
+      vessels.forEach((vessel) => {
         app._lastSeen[vessel.bridge] = app._lastSeen[vessel.bridge] || {};
         app._lastSeen[vessel.bridge][vessel.mmsi] = {
           ts: baseTime,
@@ -416,7 +416,7 @@ describe('Log Bug Analysis - Real AIS Log Issues', () => {
           dir: 'Vänersborg',
           vessel_name: vessel.name,
           mmsi: vessel.mmsi,
-          towards: vessel.mmsi === 'MULTI_004' ? false : true, // Trapped boat is turned around
+          towards: vessel.mmsi !== 'MULTI_004', // Trapped boat is turned around
           maxRecentSog: Math.max(vessel.sog, 2.0),
           lastActiveTime: baseTime,
           lastDistances: { [vessel.bridge]: vessel.dist },
@@ -433,15 +433,15 @@ describe('Log Bug Analysis - Real AIS Log Issues', () => {
       const processingTime = endTime - startTime;
       const bridgeText = app._generateBridgeTextFromBoats(relevantBoats);
 
-      console.log(`\nINTEGRATION TEST RESULTS:`);
+      console.log('\nINTEGRATION TEST RESULTS:');
       console.log(`Total vessels with bugs: ${vessels.length}`);
       console.log(`Vessels detected: ${relevantBoats.length}`);
       console.log(`Processing time: ${processingTime}ms`);
       console.log(`Bridge text: "${bridgeText}"`);
 
       // Check each vessel
-      vessels.forEach(vessel => {
-        const detected = relevantBoats.some(rb => rb.mmsi === vessel.mmsi);
+      vessels.forEach((vessel) => {
+        const detected = relevantBoats.some((rb) => rb.mmsi === vessel.mmsi);
         console.log(`${vessel.name} (${vessel.issue}): ${detected ? 'DETECTED' : 'NOT DETECTED'}`);
       });
 
