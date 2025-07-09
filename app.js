@@ -51,16 +51,25 @@ const BRIDGES = {
   },
 };
 
+/* ---------- Bro-till-bro-avstånd ---------- */
+const BRIDGE_GAPS_M = {
+  olide_klaff: 950,
+  klaff_jarnvag: 960,
+  jarnvag_stridsberg: 420,
+  stallbacka_stridsberg: 530,
+  // lägg till fler vid behov
+};
+
 /* ---------- Konstanter ---------- */
 const DEFAULT_RADIUS = 300; // m
 const MIN_KTS = 0.2; // knop
 const MAX_AGE_SEC = 10 * 60; // sek - ökat från 5 till 10 minuter för bättre tolerans mot signalförlust och låga hastigheter
-const GRACE_PERIOD_SEC = 120; // sek - ökat från 60s till 120s för komplexa rutter med flera broar
+const GRACE_PERIOD_SEC = 30; // sek - minskat för bättre responsivitet
 
 // Intelligent hastighetskompensation för timeouts
 const MIN_SPEED_TIMEOUT_SEC = 6 * 60; // 6 minuter minimum för alla båtar
-const SLOW_SPEED_BONUS_SEC = 5 * 60; // 5 extra minuter för långsamma båtar
-const VERY_SLOW_SPEED_BONUS_SEC = 10 * 60; // 10 extra minuter för mycket långsamma båtar
+const SLOW_SPEED_BONUS_SEC = 120; // 2 minuter extra för långsamma båtar
+const VERY_SLOW_SPEED_BONUS_SEC = 240; // 4 minuter extra för mycket långsamma båtar
 const WS_URL = 'wss://stream.aisstream.io/v0/stream';
 const KEEPALIVE_MS = 60_000;
 const RECONNECT_MS = 10_000;
@@ -432,7 +441,7 @@ class AISBridgeApp extends Homey.App {
                 this.ldbg(`🌉 Vessel ${mmsi} passed bridge ${bridge.name} (${Math.round(previousDistance)}m → ${Math.round(currentDistance)}m) [${detectionType}]`);
 
                 // OMEDELBAR RUTTPREDIKTION: Lägg till båten vid nästa relevanta bro
-                this._addToNextRelevantBridge(mmsi, bridgeId, lat, lon, dir, sog, updatedPassedBridges);
+                this._addToNextRelevantBridge(mmsi, bridgeId, lat, lon, cog, dir, sog, updatedPassedBridges);
               }
             }
           }
@@ -442,6 +451,7 @@ class AISBridgeApp extends Homey.App {
           ts: now(),
           lat, // Lägg till lat/lon för smart approach
           lon,
+          cog, // course over ground
           dist: d,
           dir,
           towards,
@@ -1130,6 +1140,8 @@ class AISBridgeApp extends Homey.App {
     });
 
     const phrases = [];
+    const userBridges = ['Klaffbron', 'Stridsbergsbron'];
+    const contextBridges = ['Olidebron', 'Järnvägsbron', 'Stallbackabron'];
 
     for (const [bridgeName, boats] of Object.entries(bridgeGroups)) {
       // Validate boats array
@@ -1237,6 +1249,25 @@ class AISBridgeApp extends Homey.App {
         phrase = `Flera båtar mot ${bridgeName}, beräknad broöppning ${
           etaMinutes < 1 ? 'nu' : `om ${etaMinutes} minuter`
         }`;
+      }
+
+      // KONTEXT-FRASER: Om boat.currentBridge finns i contextBridges, bygg kontextfras
+      if (contextBridges.includes(bridgeName) && closestBoat.currentBridge && closestBoat.dist > 600) {
+        // Filtrera bort kontext-info om boat.dist > 600m för att minska brus
+        this.ldbg(`Context bridge ${bridgeName} too far (${closestBoat.dist}m) - skipping context phrase`);
+        continue;
+      }
+
+      if (contextBridges.includes(bridgeName) && closestBoat.currentBridge) {
+        // Hitta målbro (user bridge) som båten är på väg mot
+        const targetUserBridge = userBridges.find((ub) => {
+          const targetBoat = boats.find((b) => b.targetBridge === ub);
+          return targetBoat && targetBoat.mmsi === closestBoat.mmsi;
+        });
+
+        if (targetUserBridge) {
+          phrase = `En båt vid ${bridgeName} på väg mot ${targetUserBridge}, beräknad öppning om ${etaMinutes} minuter`;
+        }
       }
 
       phrases.push(phrase);
@@ -1415,10 +1446,21 @@ class AISBridgeApp extends Homey.App {
           }
         }
 
-        // Only consider boats that are approaching bridges OR have high confidence smart analysis OR are within protection zone
+        // Only consider boats that are approaching bridges OR have high confidence smart analysis OR are within protection zone AND on incoming side
+        const bridge = BRIDGES[bid];
+        const isOnIncomingSide = this._isIncomingSide(vessel, bridge);
+
         if (!vessel.towards && !isWithinProtectionZone && modifiedSmartAnalysis.confidence !== 'high') {
           this.ldbg(
             `  SKIP: Boat moving away from bridge (${vessel.dist}m), outside protection zone (${PROTECTION_RADIUS}m), and low smart confidence`,
+          );
+          continue;
+        }
+
+        // Additional check: if boat is moving away and not on incoming side, skip
+        if (!vessel.towards && !isOnIncomingSide && !isWithinProtectionZone) {
+          this.ldbg(
+            `  SKIP: Boat moving away from bridge and not on incoming side (${vessel.dist}m)`,
           );
           continue;
         }
@@ -1562,21 +1604,21 @@ class AISBridgeApp extends Homey.App {
         const etaResult = this._calculateETA(vessel, distanceToTarget, bid);
         const isWaiting = this._isWaiting(vessel, bid) || etaResult.isWaiting;
 
-        // Hantera objektbaserad ETA
-        const etaMinutes = etaResult.minutes;
+        // Hantera objektbaserad ETA - konvertera till förväntat format
+        const etaMinutes = etaResult.isWaiting ? 'waiting' : etaResult.minutes;
 
         this.ldbg(
           `  Target: ${targetBridge}, distance: ${distanceToTarget}m, speed: ${vessel.sog} knots, maxRecentSog: ${vessel.maxRecentSog}, isWaiting: ${isWaiting}`,
         );
 
-        if (etaResult === 'waiting') {
+        if (etaResult.isWaiting) {
           this.ldbg(`  ETA calculation: WAITING (distance: ${Math.round(distanceToTarget)}m, speed: ${vessel.sog} kn)`);
         } else {
-          this.ldbg(`  ETA calculation: ${etaMinutes.toFixed(1)} minutes`);
+          this.ldbg(`  ETA calculation: ${etaResult.minutes.toFixed(1)} minutes`);
         }
 
         // Guard against invalid calculations
-        if (etaResult !== 'waiting' && (!Number.isFinite(etaMinutes) || etaMinutes < 0)) {
+        if (etaMinutes !== 'waiting' && (!Number.isFinite(etaMinutes) || etaMinutes < 0)) {
           this.ldbg(`  SKIP: Invalid ETA: ${etaMinutes}`);
           continue;
         }
@@ -1592,9 +1634,7 @@ class AISBridgeApp extends Homey.App {
           this.ldbg(
             `  ✓ ADDED to relevantBoats: ${
               vessel.mmsi
-            } -> ${targetBridge} in ${etaMinutes.toFixed(
-              1,
-            )} min (waiting: ${isWaiting}, smart: ${modifiedSmartAnalysis.confidence}/${
+            } -> ${targetBridge} in ${typeof etaMinutes === 'number' ? etaMinutes.toFixed(1) : etaMinutes} min (waiting: ${isWaiting}, smart: ${modifiedSmartAnalysis.confidence}/${
               modifiedSmartAnalysis.action
             })`,
           );
@@ -1603,6 +1643,7 @@ class AISBridgeApp extends Homey.App {
             currentBridge: currentBridgeName,
             targetBridge,
             etaMinutes,
+            eta: etaMinutes === 'waiting' ? 0 : etaMinutes, // Bakåtkompatibilitet för tester
             isAtBridge: isAtTargetBridge,
             isWaiting,
             sog: vessel.sog,
@@ -1613,9 +1654,7 @@ class AISBridgeApp extends Homey.App {
           });
         } else {
           this.ldbg(
-            `  SKIP: ETA too long: ${etaMinutes.toFixed(
-              1,
-            )} minutes > 30, not waiting, and smart analysis: ${
+            `  SKIP: ETA too long: ${typeof etaMinutes === 'number' ? etaMinutes.toFixed(1) : etaMinutes} minutes > 30, not waiting, and smart analysis: ${
               modifiedSmartAnalysis.confidence
             }/${modifiedSmartAnalysis.action}`,
           );
@@ -1689,6 +1728,20 @@ class AISBridgeApp extends Homey.App {
 
     // Convert to degrees and normalize
     return ((θ * 180) / Math.PI + 360) % 360;
+  }
+
+  /* -------- Helper function to normalize angle difference -------- */
+  _normalizeAngle(angle) {
+    while (angle > 180) angle -= 360;
+    while (angle < -180) angle += 360;
+    return angle;
+  }
+
+  /* -------- Helper function to check if boat is on incoming side of bridge -------- */
+  _isIncomingSide(boat, bridge) {
+    const bearing = this._calculateBearing(boat.lat, boat.lon, bridge.lat, bridge.lon);
+    const diff = Math.abs(this._normalizeAngle(bearing - boat.cog));
+    return diff <= 90; // ±90° runt infartsriktning
   }
 
   /* -------- Nya hjälpfunktioner för förbättrad hastighetshantering -------- */
@@ -2021,7 +2074,7 @@ class AISBridgeApp extends Homey.App {
   }
 
   /* OMEDELBAR RUTTPREDIKTION: Lägg till båt vid nästa relevanta bro efter passage */
-  _addToNextRelevantBridge(mmsi, passedBridgeId, lat, lon, dir, sog, passedBridges) {
+  _addToNextRelevantBridge(mmsi, passedBridgeId, lat, lon, cog, dir, sog, passedBridges) {
     const bridgeOrder = [
       'olidebron',
       'klaffbron',
@@ -2060,42 +2113,61 @@ class AISBridgeApp extends Homey.App {
     if (nextBridgeId && BRIDGES[nextBridgeId]) {
       const nextBridge = BRIDGES[nextBridgeId];
       const distToNext = haversine(lat, lon, nextBridge.lat, nextBridge.lon);
+      const currentBridge = BRIDGES[passedBridgeId];
 
-      // Bara lägg till om båten är på rimligt avstånd (inom vår spårningszon)
-      if (distToNext <= nextBridge.radius * 3) { // 3x radius för att täcka närområdet
-        const towards = this._isVesselHeadingTowards(lat, lon, sog, dir, nextBridge);
-
-        this.ldbg(`🎯 OMEDELBAR SPÅRNING: ${mmsi} från ${BRIDGES[passedBridgeId].name} → ${nextBridge.name} (${Math.round(distToNext)}m)`);
-
-        // Lägg till vid nästa bro med aktuell data
-        (this._lastSeen[nextBridgeId] ??= {})[mmsi] = {
-          ts: now(),
-          lat,
-          lon,
-          dist: distToNext,
-          dir,
-          towards,
-          sog,
-          maxRecentSog: sog,
-          speedHistory: [{ ts: now(), sog }],
-          lastActiveTime: sog > 2.0 ? now() : undefined,
-          mmsi,
-          gracePeriod: false,
-          graceStartTime: undefined,
-          passedBridges: [...passedBridges],
-          lastDistances: {},
-        };
-
-        // Uppdatera avstånden för alla broar från denna nya position
-        const lastDistances = {};
-        for (const [bridgeId, bridge] of Object.entries(BRIDGES)) {
-          lastDistances[bridgeId] = haversine(lat, lon, bridge.lat, bridge.lon);
+      // DIREKT PASSAGE-RENSNING: Ta bort båten från den passerade bron så fort distToCurrent > bridge.radius
+      if (this._lastSeen[passedBridgeId] && this._lastSeen[passedBridgeId][mmsi]) {
+        const distToCurrent = haversine(lat, lon, currentBridge.lat, currentBridge.lon);
+        if (distToCurrent > currentBridge.radius) {
+          this.ldbg(`🧹 DIREKT RENSNING: ${mmsi} passerat ${currentBridge.name} (${Math.round(distToCurrent)}m > ${currentBridge.radius}m)`);
+          delete this._lastSeen[passedBridgeId][mmsi];
         }
-        this._lastSeen[nextBridgeId][mmsi].lastDistances = lastDistances;
-
-        // Trigger omedelbar uppdatering av meddelanden
-        setTimeout(() => this._updateActiveBridgesTag('immediate_route_update'), 0);
       }
+
+      // Lägg ALLTID till båten vid nästa bro (ingen radius-kontroll)
+      const towards = this._isVesselHeadingTowards(lat, lon, sog, dir, nextBridge);
+
+      // Beräkna ETA baserat på faktisk bridge-to-bridge distance
+      const gapKey = `${passedBridgeId}_${nextBridgeId}`;
+      const gap = BRIDGE_GAPS_M[gapKey] || distToNext; // fallback = haversine
+      const speedMps = sog * 0.514444; // knop till m/s
+      const etaMin = speedMps > 0 ? gap / (speedMps * 60) : 999;
+
+      this.ldbg(`🎯 OMEDELBAR SPÅRNING: ${mmsi} från ${BRIDGES[passedBridgeId].name} → ${nextBridge.name} (${Math.round(distToNext)}m, ETA: ${Math.round(etaMin)}min)`);
+
+      // Lägg till vid nästa bro med aktuell data
+      (this._lastSeen[nextBridgeId] ??= {})[mmsi] = {
+        ts: now(),
+        lat,
+        lon,
+        cog, // course over ground
+        dist: distToNext,
+        dir,
+        towards,
+        sog,
+        maxRecentSog: sog,
+        speedHistory: [{ ts: now(), sog }],
+        lastActiveTime: sog > 2.0 ? now() : undefined,
+        mmsi,
+        gracePeriod: false,
+        graceStartTime: undefined,
+        passedBridges: [...passedBridges],
+        lastDistances: {},
+        etaMin, // Spara ETA för senare användning
+        currentBridge: passedBridgeId,
+        nextBridge: nextBridgeId,
+        gapDistance: gap,
+      };
+
+      // Uppdatera avstånden för alla broar från denna nya position
+      const lastDistances = {};
+      for (const [bridgeId, bridge] of Object.entries(BRIDGES)) {
+        lastDistances[bridgeId] = haversine(lat, lon, bridge.lat, bridge.lon);
+      }
+      this._lastSeen[nextBridgeId][mmsi].lastDistances = lastDistances;
+
+      // Trigger omedelbar uppdatering av meddelanden
+      setTimeout(() => this._updateActiveBridgesTag('immediate_route_update'), 0);
     }
   }
 
@@ -2235,10 +2307,16 @@ class AISBridgeApp extends Homey.App {
     const MIN_ESCAPE_DISTANCE = 250; // 250m från bro
     const MIN_ESCAPE_SPEED = 1.5; // 1.5 knots
     const STAGNATION_TIME = 5 * 60 * 1000; // 5 minuter utan förändring
+    const bridge = BRIDGES[bridgeId];
 
     // Escape condition 1: Båten är tillräckligt långt från bro OCH rör sig snabbt
     if (vessel.dist > MIN_ESCAPE_DISTANCE && vessel.sog > MIN_ESCAPE_SPEED) {
       return true;
+    }
+
+    // Escape condition 1.5: Båten är på "fel" sida av bron (inte inkommande sida)
+    if (!vessel.towards && !this._isIncomingSide(vessel, bridge)) {
+      return true; // Rensa direkt om båten är på utgående sida
     }
 
     // Escape condition 2: Båten har varit på samma position för länge (stagnation)
@@ -2296,6 +2374,11 @@ class AISBridgeApp extends Homey.App {
 
     const speed = vessel.sog;
     let timeoutSec = MAX_AGE_SEC;
+
+    // Om båten rör sig bortåt, kortare timeout
+    if (vessel.towards === false) {
+      return 180; // 3 minuter för bortgående båtar
+    }
 
     // Långsamma båtar behöver längre timeouts
     if (speed < 0.5) {
