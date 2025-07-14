@@ -81,6 +81,14 @@ class VesselStateManager extends EventEmitter {
       `🗑️ [VESSEL_REMOVAL] Fartyg ${mmsi} (${vessel.name}) tas bort från systemet`,
     );
 
+    // Rensa passedBridges innan borttagning
+    if (vessel.passedBridges && vessel.passedBridges.length > 0) {
+      this.logger.debug(
+        `🌉 [VESSEL_REMOVAL] Rensar ${vessel.passedBridges.length} passerade broar för ${mmsi}`,
+      );
+      vessel.passedBridges = [];
+    }
+
     this.vessels.delete(mmsi);
     this._cancelCleanup(mmsi);
 
@@ -177,13 +185,27 @@ class VesselStateManager extends EventEmitter {
   _calculateTimeout(v) {
     const d = v._distanceToNearest ?? Infinity; // fallback
 
+    // Timeout-zoner enligt kravspec §4.1
     let base;
-    if (d <= APPROACH_RADIUS) base = 20 * 60 * 1000; // 20 min
-    else if (d <= 600) base = 10 * 60 * 1000; // 10 min
-    else base = 2 * 60 * 1000; // 2 min
+    if (d <= APPROACH_RADIUS) {
+      // Brozon: ≤300m = 20 min
+      base = 20 * 60 * 1000;
+    } else if (d <= 600) {
+      // När-zon: 300-600m = 10 min
+      base = 10 * 60 * 1000;
+    } else {
+      // Övrigt: >600m = 2 min
+      base = 2 * 60 * 1000;
+    }
 
-    // "Waiting"-säkring
-    if (v.status === 'waiting') base = Math.max(base, 20 * 60 * 1000);
+    // Waiting-säkring enligt kravspec §4.1
+    if (v.status === 'waiting') {
+      base = Math.max(base, 20 * 60 * 1000); // Minst 20 min för waiting
+    }
+
+    this.logger.debug(
+      `⏱️ [TIMEOUT] Fartyg ${v.mmsi}: avstånd=${d.toFixed(0)}m, status=${v.status}, timeout=${base/60000}min`,
+    );
 
     return base;
   }
@@ -301,7 +323,7 @@ class BridgeMonitor extends EventEmitter {
         }: ${bridgeId} på ${distance.toFixed(0)}m avstånd`,
       );
 
-      /* Ny hysteresis-regel
+      /* Hysteresis-regel enligt kravspec §1
          – Byt bro direkt om det är samma som vessel.targetBridge
          – Annars krävs att nya bron är ≥10% närmare */
       const last = vessel.nearBridge;
@@ -313,10 +335,19 @@ class BridgeMonitor extends EventEmitter {
           this.bridges[last].lon,
         );
         const isTarget = bridgeId === this._findBridgeIdByNameInMonitor(vessel.targetBridge);
-        const threshold = isTarget ? 0.0 : 0.9; // 0% eller 10%
-        if (distance > lastDist * threshold) {
+        
+        // Om det är targetBridge, byt direkt. Annars måste nya bron vara minst 10% närmare
+        if (!isTarget && distance >= lastDist * 0.9) {
+          // Nya bron är inte minst 10% närmare, behåll gamla
           bridgeId = last;
           distance = lastDist;
+          this.logger.debug(
+            `🔄 [HYSTERESIS] Behåller ${last} som nearBridge (${lastDist.toFixed(0)}m) - ${bridgeId} är bara ${((1 - distance/lastDist) * 100).toFixed(1)}% närmare`,
+          );
+        } else if (!isTarget) {
+          this.logger.debug(
+            `🔄 [HYSTERESIS] Byter till ${bridgeId} som nearBridge (${distance.toFixed(0)}m) - är ${((1 - distance/lastDist) * 100).toFixed(1)}% närmare än ${last}`,
+          );
         }
       }
 
@@ -327,45 +358,94 @@ class BridgeMonitor extends EventEmitter {
           `🌉 [VESSEL_UPDATE] Fartyg ${vessel.mmsi} inom APPROACH_RADIUS (${APPROACH_RADIUS}m) för ${bridgeId}`,
         );
 
-        // Waiting detection logic - updated to use 300m radius
+        // Waiting detection logic enligt kravspec §1
         const WAIT_DIST = APPROACH_RADIUS; // 300 m
         const WAIT_SPEED = 0.20; // kn
-        const WAIT_TIME = 120 * 1000; // 2 min för snabbare flaggning
+        const WAIT_TIME = 120 * 1000; // 2 min kontinuerlig låg hastighet
 
         if (distance <= WAIT_DIST && vessel.sog < WAIT_SPEED) {
-          if (!vessel.waitSince) vessel.waitSince = Date.now();
-          if (Date.now() - vessel.waitSince > WAIT_TIME) {
-            vessel.status = 'waiting';
-            vessel.isWaiting = true; // sätt flaggan för ETA-beräkning
+          // Track kontinuerlig låg hastighet
+          if (!vessel.speedBelowThresholdSince) {
+            vessel.speedBelowThresholdSince = Date.now();
             this.logger.debug(
-              `⏳ [WAITING_LOGIC] Fartyg ${
-                vessel.mmsi
-              } väntar vid ${bridgeId} i ${Math.round(
-                (Date.now() - vessel.waitSince) / 1000,
-              )}s`,
+              `🐌 [WAITING_LOGIC] Fartyg ${vessel.mmsi} började gå långsamt vid ${bridgeId} (${vessel.sog.toFixed(2)}kn < ${WAIT_SPEED}kn)`,
             );
+          }
+          
+          const slowDuration = Date.now() - vessel.speedBelowThresholdSince;
+          
+          if (slowDuration > WAIT_TIME) {
+            // Sätt waiting status efter 2 min kontinuerlig låg hastighet
+            if (vessel.status !== 'waiting') {
+              vessel.status = 'waiting';
+              vessel.isWaiting = true;
+              vessel.waitSince = vessel.speedBelowThresholdSince; // För bakåtkompatibilitet
+              this.logger.debug(
+                `⏳ [WAITING_LOGIC] Fartyg ${vessel.mmsi} väntar vid ${bridgeId} efter ${Math.round(slowDuration / 1000)}s låg hastighet`,
+              );
+              // Emit status change for UI update
+              this.emit('vessel:status-changed', { vessel, oldStatus: 'approaching', newStatus: 'waiting' });
+            }
           } else {
-            vessel.status = 'approaching';
+            // Fortfarande i approaching medan vi väntar på 2 min
+            if (vessel.status !== 'approaching' && vessel.status !== 'under-bridge') {
+              vessel.status = 'approaching';
+            }
+            this.logger.debug(
+              `⏱️ [WAITING_LOGIC] Fartyg ${vessel.mmsi} långsam i ${Math.round(slowDuration / 1000)}s av ${WAIT_TIME/1000}s`,
+            );
           }
         } else {
+          // Hastighet över threshold eller utanför WAIT_DIST - återställ
+          if (vessel.speedBelowThresholdSince) {
+            this.logger.debug(
+              `🏃 [WAITING_LOGIC] Fartyg ${vessel.mmsi} inte längre långsam (${vessel.sog.toFixed(2)}kn eller ${distance.toFixed(0)}m från ${bridgeId})`,
+            );
+          }
+          delete vessel.speedBelowThresholdSince;
           delete vessel.waitSince;
-          delete vessel.isWaiting; // reset flaggan
-          vessel.status = 'approaching';
+          delete vessel.isWaiting;
+          
+          // Återställ status om den var waiting
+          if (vessel.status === 'waiting') {
+            vessel.status = 'approaching';
+            this.emit('vessel:status-changed', { vessel, oldStatus: 'waiting', newStatus: 'approaching' });
+          }
         }
 
         // Check if vessel is very close to its target bridge (<50m) and set under-bridge status
-        if (vessel.targetBridge && distance < 50) {
-          const targetId = this._findBridgeIdByNameInMonitor(
-            vessel.targetBridge,
-          );
-          if (targetId && vessel.nearBridge === targetId) {
-            vessel.status = 'under-bridge';
-            vessel.etaMinutes = 0;
-            this.logger.debug(
-              `🌉 [UNDER_BRIDGE] Fartyg ${vessel.mmsi} under bro ${
-                vessel.targetBridge
-              } (${distance.toFixed(0)}m)`,
+        if (vessel.targetBridge) {
+          const targetId = this._findBridgeIdByNameInMonitor(vessel.targetBridge);
+          if (targetId && this.bridges[targetId]) {
+            const targetDistance = this._haversine(
+              vessel.lat,
+              vessel.lon,
+              this.bridges[targetId].lat,
+              this.bridges[targetId].lon,
             );
+            
+            // Under-bridge när targetDistance < 50m enligt kravspec §5
+            if (targetDistance < 50) {
+              if (vessel.status !== 'under-bridge') {
+                const oldStatus = vessel.status;
+                vessel.status = 'under-bridge';
+                vessel.etaMinutes = 0; // ETA = 0 visar "nu" i UI
+                this.logger.debug(
+                  `🌉 [UNDER_BRIDGE] Fartyg ${vessel.mmsi} under ${
+                    vessel.targetBridge
+                  } (${targetDistance.toFixed(0)}m < 50m)`,
+                );
+                // Emit status change for UI update
+                this.emit('vessel:status-changed', { vessel, oldStatus, newStatus: 'under-bridge' });
+              }
+            } else if (vessel.status === 'under-bridge' && targetDistance >= 50) {
+              // Återställ från under-bridge när avståndet ökar
+              vessel.status = 'approaching';
+              this.logger.debug(
+                `🌉 [UNDER_BRIDGE] Fartyg ${vessel.mmsi} lämnat under-bridge status (${targetDistance.toFixed(0)}m >= 50m)`,
+              );
+              this.emit('vessel:status-changed', { vessel, oldStatus: 'under-bridge', newStatus: 'approaching' });
+            }
           }
         }
 
@@ -432,7 +512,7 @@ class BridgeMonitor extends EventEmitter {
         }
       }
 
-      // Check for bridge passage (distance rises above radius + LEAVE_BUFFER)
+      // Check for bridge passage (distance rises above 50m after being inside APPROACH_RADIUS)
       if (
         vessel.targetBridge
         && oldData?.targetBridge === vessel.targetBridge
@@ -449,42 +529,63 @@ class BridgeMonitor extends EventEmitter {
             targetBridge.lon,
           );
 
-          // Updated passage detector with exit logic based on increasing distance trend
+          // Track if vessel has been inside APPROACH_RADIUS
           if (targetDistance <= APPROACH_RADIUS) {
             vessel._wasInsideTarget = true;
+            this.logger.debug(
+              `📍 [BRIDGE_PASSAGE] Fartyg ${vessel.mmsi} inom APPROACH_RADIUS för ${vessel.targetBridge} (${targetDistance.toFixed(0)}m)`,
+            );
           }
 
-          // Exit logic: detect passage when distance is increasing and > 50m
-          if (vessel._wasInsideTarget) {
-            const increasing = targetDistance > (oldData?.distanceToTarget ?? targetDistance);
-            if (increasing && targetDistance > 50) {
-              vessel._outCounter = (vessel._outCounter || 0) + 1;
-              if (vessel._outCounter >= 3) {
-                // Mark as passed
-                this.logger.debug(
-                  `🌉 [BRIDGE_PASSAGE] Fartyg ${vessel.mmsi} har passerat `
-                    + `${vessel.targetBridge} (avstånd: ${targetDistance.toFixed(
-                      0,
-                    )}m > 50m, trend: ökande, outCounter: ${vessel._outCounter})`,
-                );
+          // Detect passage when distance > 50m after being inside
+          if (vessel._wasInsideTarget && targetDistance > 50) {
+            // Mark as passed
+            this.logger.debug(
+              `🌉 [BRIDGE_PASSAGE] Fartyg ${vessel.mmsi} har passerat `
+                + `${vessel.targetBridge} (avstånd: ${targetDistance.toFixed(
+                  0,
+                )}m > 50m)`,
+            );
 
-                // Update vessel status to 'passed' and reset tracker
-                vessel.status = 'passed';
-                vessel._wasInsideTarget = false;
-                vessel._outCounter = 0;
+            // Update vessel status to 'passed'
+            vessel.status = 'passed';
+            vessel._wasInsideTarget = false;
+            delete vessel._outCounter; // Clean up old logic
+            
+            // Add to passedBridges if not already there
+            if (!vessel.passedBridges) {
+              vessel.passedBridges = [];
+            }
+            if (!vessel.passedBridges.includes(targetBridgeId)) {
+              vessel.passedBridges.push(targetBridgeId);
+            }
 
-                this.emit('bridge:passed', {
-                  vessel,
-                  bridgeId: targetBridgeId,
-                  bridge: targetBridge,
-                  distance: targetDistance,
-                });
-                this.logger.debug(
-                  `🌉 [BRIDGE_EVENT] bridge:passed utlöst för ${vessel.mmsi} vid ${vessel.targetBridge} (status: ${vessel.status})`,
-                );
-              }
+            // Emit bridge:passed event
+            this.emit('bridge:passed', {
+              vessel,
+              bridgeId: targetBridgeId,
+              bridge: targetBridge,
+              distance: targetDistance,
+            });
+            
+            this.logger.debug(
+              `🌉 [BRIDGE_EVENT] bridge:passed utlöst för ${vessel.mmsi} vid ${vessel.targetBridge} (status: ${vessel.status})`,
+            );
+            
+            // Predict and set next target bridge immediately
+            const nextTargetBridge = this._findTargetBridge(vessel, targetBridgeId);
+            if (nextTargetBridge) {
+              vessel.targetBridge = nextTargetBridge;
+              this.logger.debug(
+                `🎯 [BRIDGE_PASSAGE] Ny målbro för ${vessel.mmsi}: ${nextTargetBridge}`,
+              );
+              // Force UI update
+              this.emit('vessel:eta-changed', { vessel });
             } else {
-              vessel._outCounter = 0;
+              vessel.targetBridge = null;
+              this.logger.debug(
+                `🏁 [BRIDGE_PASSAGE] Ingen mer målbro för ${vessel.mmsi} - rutt slutförd`,
+              );
             }
           }
         }
@@ -497,38 +598,49 @@ class BridgeMonitor extends EventEmitter {
       );
     }
 
-    // -------------------------------------------------
-    const tooSlow = vessel.sog < 0.2; // < 0.20 kn
+    // Irrelevant detection enligt kravspec §4.2
+    // Flagga irrelevant när alla villkor är sanna:
+    // 1. nearBridge === null
+    // 2. sog < 0.20 kn kontinuerligt ≥ 2 min
+    // 3. distance > 300 m
+    const nearBridge = vessel.nearBridge;
+    const tooSlow = vessel.sog < 0.20; // < 0.20 kn
     const outsideBridgeZone = !nearestBridge || nearestBridge.distance > APPROACH_RADIUS;
 
-    // Båten blir inaktiv om den varit långsam OCH utanför alla brozoner
-    // (APPROACH_RADIUS = 300 m) i sammanlagt ≥ 2 minuter
-    const inactive = tooSlow && outsideBridgeZone;
-    // -------------------------------------------------
-
-    if (inactive) {
+    if (!nearBridge && tooSlow && outsideBridgeZone) {
+      // Track kontinuerlig låg hastighet utanför brozon
       if (!vessel._inactiveSince) {
         vessel._inactiveSince = Date.now();
-        vessel.status = 'idle'; // Set status to idle when becoming inactive
+        vessel._inactiveSpeed = vessel.sog;
         this.logger.debug(
-          `💤 [VESSEL_IDLE] Fartyg ${vessel.mmsi} markerat som idle (inaktivt)`,
+          `💤 [VESSEL_IRRELEVANT] Fartyg ${vessel.mmsi} började vara inaktivt (${vessel.sog.toFixed(2)}kn < 0.20kn, ${nearestBridge?.distance.toFixed(0) || '∞'}m > 300m)`,
         );
       }
-      if (Date.now() - vessel._inactiveSince > 120000) {
-        // 2 minuter
+      
+      const inactiveDuration = Date.now() - vessel._inactiveSince;
+      
+      if (inactiveDuration > 120000) { // 2 minuter kontinuerlig inaktivitet
+        if (vessel.status !== 'waiting' && vessel.status !== 'under-bridge' && vessel.status !== 'approaching') {
+          vessel.status = 'idle'; // Set status to idle only if not actively waiting/approaching
+        }
         this.logger.debug(
-          `🗑️ [VESSEL_IRRELEVANT] Fartyg ${vessel.mmsi} inaktivt i >2 min - markerar som irrelevant`,
+          `🗑️ [VESSEL_IRRELEVANT] Fartyg ${vessel.mmsi} inaktivt i ${Math.round(inactiveDuration / 1000)}s - markerar som irrelevant`,
         );
         this.emit('vessel:irrelevant', { vessel });
       } else {
         this.logger.debug(
-          `⏳ [VESSEL_INACTIVE] Fartyg ${vessel.mmsi} inaktivt i ${Math.round(
-            (Date.now() - vessel._inactiveSince) / 1000,
-          )}s`,
+          `⏳ [VESSEL_IRRELEVANT] Fartyg ${vessel.mmsi} inaktivt i ${Math.round(inactiveDuration / 1000)}s av 120s`,
         );
       }
     } else {
-      delete vessel._inactiveSince;
+      // Återställ om något villkor inte längre uppfylls
+      if (vessel._inactiveSince) {
+        this.logger.debug(
+          `🏃 [VESSEL_IRRELEVANT] Fartyg ${vessel.mmsi} inte längre inaktivt (nearBridge=${nearBridge}, sog=${vessel.sog.toFixed(2)}kn, distance=${nearestBridge?.distance.toFixed(0) || '∞'}m)`,
+        );
+        delete vessel._inactiveSince;
+        delete vessel._inactiveSpeed;
+      }
     }
 
     // Emit ETA change event for continuous UI updates
@@ -1407,10 +1519,10 @@ class MessageGenerator {
             closest.currentBridge || bridgeName
           }`,
         );
-      } else if (closest.status === 'under-bridge') {
-        phrase = `Broöppning pågår vid ${bridgeName}`;
+      } else if (closest.status === 'under-bridge' || closest.etaMinutes === 0) {
+        phrase = `Öppning pågår vid ${bridgeName}`;
         this.logger.debug(
-          `🌉 [BRIDGE_TEXT] Under-bro scenario: ${closest.mmsi} passerar ${bridgeName}`,
+          `🌉 [BRIDGE_TEXT] Under-bridge scenario: ${closest.mmsi} vid ${bridgeName} (status: ${closest.status}, ETA: ${closest.etaMinutes})`,
         );
       } else if (
         closest.confidence === 'high'
@@ -1591,24 +1703,26 @@ class ETACalculator {
       }`,
     );
 
-    // Calculate effective speed
-    let effectiveSpeed = vessel.sog;
+    // Calculate effective speed enligt kravspec §6
+    let effectiveSpeed = vessel.sog || 0;
     let speedReason = 'aktuell hastighet';
 
-    if (vessel.isWaiting) {
+    if (vessel.isWaiting || vessel.status === 'waiting') {
+      // Waiting: max(maxRecentSpeed, 2 kn)
       effectiveSpeed = Math.max(vessel.maxRecentSpeed || 0, 2.0);
-      speedReason = `väntar - använder maxRecentSpeed (${vessel.maxRecentSpeed?.toFixed(
-        1,
-      )}kn) eller 2.0kn`;
-    } else if (targetDistance < 200) {
-      effectiveSpeed = Math.max(vessel.sog, 0.5);
+      speedReason = `waiting - max(${vessel.maxRecentSpeed?.toFixed(1) || '0'}kn, 2.0kn)`;
+    } else if (actualDistance < 200) {
+      // < 200m: minst 0.5 kn
+      effectiveSpeed = Math.max(vessel.sog || 0, 0.5);
       speedReason = 'nära (<200m) - minst 0.5kn';
-    } else if (targetDistance < 500) {
-      effectiveSpeed = Math.max(vessel.sog, 1.5);
-      speedReason = 'medeldistans (<500m) - minst 1.5kn';
+    } else if (actualDistance >= 200 && actualDistance <= 500) {
+      // 200-500m: minst 1.5 kn
+      effectiveSpeed = Math.max(vessel.sog || 0, 1.5);
+      speedReason = 'medeldistans (200-500m) - minst 1.5kn';
     } else {
-      effectiveSpeed = Math.max(vessel.sog, 2.0);
-      speedReason = 'långt avstånd (≥500m) - minst 2.0kn';
+      // > 500m: minst 2 kn
+      effectiveSpeed = Math.max(vessel.sog || 0, 2.0);
+      speedReason = 'långt avstånd (>500m) - minst 2.0kn';
     }
 
     this.logger.debug(
