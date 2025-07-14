@@ -3,66 +3,61 @@
 const Homey = require('homey');
 
 class BridgeStatusDevice extends Homey.Device {
+  /* ---------------------------------------------------
+   *  DEVICE INIT
+   * --------------------------------------------------- */
   async onInit() {
-    this.log('BridgeStatusDevice initializing...');
+    this.log('BridgeStatusDevice initializing…');
 
     try {
-      // Wait to ensure app is fully initialized
+      // 1) Vänta tills appen är redo
       await this._ensureAppReady();
 
-      // Registrera denna instans i appen så appen kan uppdatera capabilityn
+      // 2) Lägg in den här instansen i appens Set
       this.log('Adding device to app._devices collection');
       this.homey.app._devices.add(this);
       await this.homey.app._saveDevices();
 
-      // Sätt initialt värde om appen redan hunnit skapa token-strängen
-      const currentText = this.homey.app._latestBridgeSentence || 'Inga båtar är i närheten av Klaffbron eller Stridsbergsbron';
+      /* ---------------- Primär text & alarm ---------------- */
+      const defaultTxt = 'Inga båtar är i närheten av Klaffbron eller Stridsbergsbron';
+      const currentText = this.homey.app._latestBridgeSentence || defaultTxt;
 
-      // Use the same logic as the app to determine hasBoats
       let hasBoats = false;
-      if (this.homey.app._findRelevantBoats) {
+      if (typeof this.homey.app._findRelevantBoats === 'function') {
         try {
-          const relevantBoats = this.homey.app._findRelevantBoats();
-          hasBoats = relevantBoats.length > 0;
+          const boats = this.homey.app._findRelevantBoats();
+          hasBoats = boats.length > 0;
         } catch (err) {
-          this.error('Error checking relevant boats, falling back to text comparison:', err);
-          hasBoats = currentText !== 'Inga båtar är i närheten av Klaffbron eller Stridsbergsbron';
+          this.error('Error checking relevant boats, fallback:', err);
+          hasBoats = currentText !== defaultTxt;
         }
       } else {
-        hasBoats = currentText !== 'Inga båtar är i närheten av Klaffbron eller Stridsbergsbron';
+        hasBoats = currentText !== defaultTxt;
       }
 
       this.log('Setting initial capability values');
-      this.log(`Current text: "${currentText}", hasBoats: ${hasBoats}`);
       await this.setCapabilityValue('alarm_generic', hasBoats);
       await this.setCapabilityValue('bridge_text', currentText);
 
-      // Check if we have the connection_status capability, add it if not
-      if (!this.hasCapability('connection_status')) {
-        this.log('Adding connection_status capability');
-        await this.addCapability('connection_status');
-      }
-
-      // Set initial connection status based on app state
-      const isConnected = this.homey.app._isConnected || false;
-      const statusValue = isConnected ? 'connected' : 'disconnected';
+      // Synka direkt med appens nuvarande status
+      const statusValue = this.homey.app._isConnected
+        ? 'connected'
+        : 'disconnected';
       await this.setCapabilityValue('connection_status', statusValue);
-      this.log(`Set initial connection status to: ${statusValue}`);
+      this.log(`Initial connection status: ${statusValue}`);
 
-      // Initialize this.store if needed
+      /* ---------------- Persistens ------------------------- */
       if (!this.getStore()) {
-        this.log('Initializing device store');
         await this.setStoreValue('lastSentence', currentText);
       } else {
-        this.log('Store exists, updating lastSentence');
         await this.setStoreValue('lastSentence', currentText);
       }
 
       this.log('Device initialization complete');
 
-      // Force an update after device creation to ensure correct values
+      /* --------- Tvinga en uppdatering efter 1 s ----------- */
       setTimeout(() => {
-        if (this.homey.app && this.homey.app._updateActiveBridgesTag) {
+        if (this.homey.app?._updateActiveBridgesTag) {
           this.log('Forcing update after device creation');
           this.homey.app._updateActiveBridgesTag('device_init');
         }
@@ -72,28 +67,30 @@ class BridgeStatusDevice extends Homey.Device {
     }
   }
 
-  // Helper method to wait for app to be ready
-  async _ensureAppReady() {
-    // Try up to 10 times with 500ms intervals
-    for (let i = 0; i < 10; i++) {
-      if (this.homey.app && this.homey.app._devices instanceof Set) {
-        return true;
-      }
-      this.log(`Waiting for app to be ready (attempt ${i + 1})`);
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    }
-    throw new Error('App not ready after multiple attempts');
-  }
-
+  /* ---------------------------------------------------
+   *  DEVICE DELETED
+   * --------------------------------------------------- */
   async onDeleted() {
     this.log('Device being deleted');
     if (this.homey.app && this.homey.app._devices) {
       this.homey.app._devices.delete(this);
-      this.log('Removed from app._devices collection');
       await this.homey.app._saveDevices();
+      this.log('Removed from app._devices collection');
     } else {
-      this.error('Could not remove from app._devices - not available');
+      this.error('Could not remove from app._devices – not available');
     }
+  }
+
+  /* ---------------------------------------------------
+   *  PRIVATE: Wait until app exposes _devices Set
+   * --------------------------------------------------- */
+  async _ensureAppReady() {
+    for (let i = 0; i < 10; i++) {
+      if (this.homey.app && this.homey.app._devices instanceof Set) return true;
+      this.log(`Waiting for app to be ready (attempt ${i + 1})`);
+      await new Promise((res) => setTimeout(res, 500));
+    }
+    throw new Error('App not ready after multiple attempts');
   }
 }
 
