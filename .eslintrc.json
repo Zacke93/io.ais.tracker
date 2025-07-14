@@ -4,6 +4,9 @@
     "no-dupe-keys": "error",
     "no-duplicate-case": "error",
     "no-duplicate-imports": "error",
-    "no-redeclare": "error"
+    "no-redeclare": "error",
+    "max-classes-per-file": 0,
+    "no-mixed-operators": 0,
+    "global-require": 0
   }
 }
