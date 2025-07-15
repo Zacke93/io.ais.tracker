@@ -4,10 +4,9 @@ module.exports = {
   roots: ['<rootDir>/tests'],
   testMatch: [
     '**/integration/simple-bug-finder-tests.js',
-    '**/integration/bridge-passage-fixes.test.js',
-    '**/integration/cog-passage-fix-validation.test.js',
-    '**/integration/irrelevant-vessel-filtering.test.js',
-    '**/integration/validation-code-analysis.test.js'
+    '**/integration/comprehensive-bug-detection-tests.js',
+    '**/integration/real-log-scenario-tests.js',
+    '**/integration/chaos-edge-case-tests.js'
   ],
   collectCoverageFrom: [
     'app.js',

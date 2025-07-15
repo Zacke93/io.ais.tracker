@@ -225,13 +225,7 @@ class VesselStateManager extends EventEmitter {
 
     const now = Date.now();
     const filtered = history
-      .filter((entry) => {
-        // Handle corrupted entries
-        if (!entry || typeof entry !== 'object' || !entry.timestamp) {
-          return false;
-        }
-        return now - entry.timestamp < MAX_AGE;
-      })
+      .filter((entry) => now - entry.timestamp < MAX_AGE)
       .slice(-MAX_HISTORY + 1);
 
     filtered.push({ speed: currentSpeed, timestamp: now });
@@ -378,7 +372,7 @@ class BridgeMonitor extends EventEmitter {
          – Byt bro direkt om det är samma som vessel.targetBridge
          – Annars krävs att nya bron är ≥10% närmare */
       const last = vessel.nearBridge;
-      if (last && last !== bridgeId && this.bridges[last]) {
+      if (last && last !== bridgeId) {
         const lastDist = this._haversine(
           vessel.lat,
           vessel.lon,
@@ -453,9 +447,9 @@ class BridgeMonitor extends EventEmitter {
               `🏃 [WAITING_LOGIC] Fartyg ${vessel.mmsi} inte längre långsam (${vessel.sog.toFixed(2)}kn eller ${distance.toFixed(0)}m från ${bridgeId})`,
             );
           }
-          vessel.speedBelowThresholdSince = null;
-          vessel.waitSince = null;
-          vessel.isWaiting = false;
+          delete vessel.speedBelowThresholdSince;
+          delete vessel.waitSince;
+          delete vessel.isWaiting;
           
           // Återställ status om den var waiting
           if (vessel.status === 'waiting') {
@@ -1491,24 +1485,16 @@ class MessageGenerator {
 
     // Log detailed boat information
     relevantBoats.forEach((boat, index) => {
-      // Skip null/undefined entries
-      if (!boat) {
-        this.logger.debug(
-          `⚠️ [BRIDGE_TEXT] Hoppade över ogiltig båtdata vid index ${index}`
-        );
-        return;
-      }
-      
       this.logger.debug(
         `🚢 [BRIDGE_TEXT] Båt ${index + 1}/${relevantBoats.length}:`,
         {
           mmsi: boat.mmsi,
           currentBridge: boat.currentBridge,
           targetBridge: boat.targetBridge,
-          etaMinutes: typeof boat.etaMinutes === 'number' ? boat.etaMinutes.toFixed(1) : boat.etaMinutes,
+          etaMinutes: boat.etaMinutes?.toFixed(1),
           isWaiting: boat.isWaiting,
           confidence: boat.confidence,
-          distance: typeof boat.distance === 'number' ? `${boat.distance.toFixed(0)}m` : boat.distance,
+          distance: `${boat.distance?.toFixed(0)}m`,
         },
       );
     });
@@ -1549,12 +1535,6 @@ class MessageGenerator {
     let skippedBoats = 0;
 
     for (const boat of boats) {
-      // Skip null/undefined boats
-      if (!boat) {
-        skippedBoats++;
-        continue;
-      }
-      
       const target = boat.targetBridge;
       if (!target) {
         this.logger.debug(
@@ -1633,7 +1613,7 @@ class MessageGenerator {
       waitingBoats: waiting,
       closestBoat: {
         mmsi: closest.mmsi,
-        etaMinutes: typeof closest.etaMinutes === 'number' ? closest.etaMinutes.toFixed(1) : closest.etaMinutes,
+        etaMinutes: closest.etaMinutes?.toFixed(1),
         isWaiting: closest.isWaiting,
         confidence: closest.confidence,
         currentBridge: closest.currentBridge,
@@ -1808,8 +1788,8 @@ class MessageGenerator {
 // ============= MODUL 5: ETA CALCULATOR =============
 class ETACalculator {
   constructor(bridgeGaps, logger) {
-    this.bridgeGaps = bridgeGaps || {};
-    this.logger = logger || { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
+    this.bridgeGaps = bridgeGaps;
+    this.logger = logger;
   }
 
   calculateETA(vessel, targetDistance, bridgeId, targetBridgeId) {
@@ -1842,7 +1822,7 @@ class ETACalculator {
 
     // Use bridge gaps if available
     const gapKey = `${bridgeId}_${targetBridgeId}`;
-    const actualDistance = this.bridgeGaps[gapKey] || targetDistance || 0;
+    const actualDistance = this.bridgeGaps[gapKey] || targetDistance;
 
     this.logger.debug(
       `📏 [ETA_CALC] Avstånd: ${gapKey} -> ${actualDistance.toFixed(0)}m ${
@@ -3058,16 +3038,3 @@ class AISBridgeApp extends Homey.App {
 }
 
 module.exports = AISBridgeApp;
-
-// Exportera klasser för testning
-module.exports.VesselStateManager = VesselStateManager;
-module.exports.BridgeMonitor = BridgeMonitor;
-module.exports.AISConnectionManager = AISConnectionManager;
-module.exports.MessageGenerator = MessageGenerator;
-module.exports.ETACalculator = ETACalculator;
-
-// Exportera konstanter för testning
-module.exports.CONSTANTS = {
-  GRACE_MISSES,
-  APPROACH_RADIUS,
-};
