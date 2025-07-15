@@ -1,6 +1,25 @@
 # AIS Bridge Test Suite
 
-Denna omfattande testsvit verifierar kärnfunktionaliteten i AIS Bridge-appen för att säkerställa stabilitet och tillförlitlighet i båtspårning och bromöppningsförutsägelser. Testsviten innehåller 82+ tester som täcker allt från grundläggande funktionalitet till komplexa realistiska scenarier.
+Denna omfattande testsvit verifierar kärnfunktionaliteten i AIS Bridge-appen för att säkerställa stabilitet och tillförlitlighet i båtspårning och bromöppningsförutsägelser.
+
+## Uppdatering 2025-07-15: Nya tester som hittar riktiga buggar
+
+### simple-bug-finder-tests.js
+Nya tester skapade som faktiskt hittar buggar i produktionskoden:
+- **17 tester** som analyserar källkoden direkt
+- **3 kritiska buggar** identifierade och fixade:
+  1. `speedBelowThresholdSince` saknades i vessel data initialization
+  2. Reset-logik för hastighetsövervakning saknades
+  3. Meddelandeformat följde inte kravspec ("broöppning" → "öppning")
+- Alla tester passerar nu efter buggfixar
+
+### Kör de nya testerna:
+```bash
+npm test  # Kör simple-bug-finder-tests.js
+```
+
+### Gamla tester (arkiverade)
+De tidigare testerna (82+ st) testade mockar istället för riktig kod och har flyttats till `tests/integration/old-mock-tests/`.
 
 ## Översikt
 

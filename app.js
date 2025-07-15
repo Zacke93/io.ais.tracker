@@ -49,11 +49,20 @@ class VesselStateManager extends EventEmitter {
       nearBridge: oldData?.nearBridge || null, // 🆕 närmaste bro
       etaMinutes: oldData?.etaMinutes || null, // 🆕 ETA till målbro
       waitSince: oldData?.waitSince || null, // 🆕 väntdetektor
+      speedBelowThresholdSince: oldData?.speedBelowThresholdSince || null, // 🆕 kontinuerlig låg hastighet tracking
     };
 
     // Nollställ graceMisses om fartyget är relevant igen
     if (data.towards || data.sog > 0.5) {
       vesselData.graceMisses = 0;
+    }
+
+    // Återställ speedBelowThresholdSince om hastigheten ökar över 0.20 kn
+    if (data.sog > 0.20 && oldData?.speedBelowThresholdSince) {
+      vesselData.speedBelowThresholdSince = null;
+      this.logger.debug(
+        `🏃 [WAITING_LOGIC] Fartyg ${mmsi} hastighet ökade över 0.20 kn (${data.sog.toFixed(2)} kn), återställer waiting timer`
+      );
     }
 
     this.vessels.set(mmsi, vesselData);
@@ -262,6 +271,31 @@ class VesselStateManager extends EventEmitter {
     }
   }
 
+  _scheduleRemovalAfterCompletion(mmsi) {
+    const vessel = this.vessels.get(mmsi);
+    if (!vessel) return;
+
+    this.logger.debug(
+      `🏁 [COMPLETION_REMOVAL] Schemalägger borttagning av ${mmsi} efter 3 minuter (ingen målbro kvar)`,
+    );
+
+    // Cancel any existing cleanup timer
+    this._cancelCleanup(mmsi);
+
+    // Schedule removal after 3 minutes
+    const timerId = setTimeout(() => {
+      const v = this.vessels.get(mmsi);
+      if (v && v.status === 'passed' && !v.targetBridge) {
+        this.logger.debug(
+          `🗑️ [COMPLETION_REMOVAL] Tar bort fartyg ${mmsi} - rutt slutförd för 3 minuter sedan`,
+        );
+        this.removeVessel(mmsi);
+      }
+    }, 3 * 60 * 1000);
+
+    this.cleanupTimers.set(mmsi, timerId);
+  }
+
   destroy() {
     // Clean up all timers
     for (const timerId of this.cleanupTimers.values()) {
@@ -309,6 +343,17 @@ class BridgeMonitor extends EventEmitter {
     this.logger.debug(
       `🗺️ [VESSEL_UPDATE] Analyserar fartyg ${vessel.mmsi} för närhet till broar`,
     );
+
+    // Validate existing targetBridge is still relevant
+    if (vessel.targetBridge && this.vesselManager._validateTargetBridge) {
+      if (!this.vesselManager._validateTargetBridge(vessel)) {
+        vessel.targetBridge = null;
+        vessel.status = 'en-route';
+        this.logger.debug(
+          `🧹 [VESSEL_UPDATE] Cleared irrelevant targetBridge for ${vessel.mmsi}`,
+        );
+      }
+    }
 
     // Find nearest bridge and its distance
     const nearestBridge = this._findNearestBridge(vessel);
@@ -529,62 +574,119 @@ class BridgeMonitor extends EventEmitter {
             targetBridge.lon,
           );
 
-          // Track if vessel has been inside APPROACH_RADIUS
-          if (targetDistance <= APPROACH_RADIUS) {
+          // Track when vessel gets very close to target bridge (< 50m)
+          if (targetDistance < 50 && !vessel._wasInsideTarget) {
             vessel._wasInsideTarget = true;
+            vessel._closestDistanceToTarget = targetDistance;
             this.logger.debug(
-              `📍 [BRIDGE_PASSAGE] Fartyg ${vessel.mmsi} inom APPROACH_RADIUS för ${vessel.targetBridge} (${targetDistance.toFixed(0)}m)`,
+              `🎯 [BRIDGE_PASSAGE] Fartyg ${vessel.mmsi} mycket nära ${vessel.targetBridge} (${targetDistance.toFixed(0)}m < 50m)`,
             );
           }
 
-          // Detect passage when distance > 50m after being inside
+          // Update closest distance if vessel is getting closer
+          if (vessel._wasInsideTarget && targetDistance < (vessel._closestDistanceToTarget || Infinity)) {
+            vessel._closestDistanceToTarget = targetDistance;
+          }
+
+          // Store previous distance for trend detection
+          if (vessel.targetBridge) {
+            vessel._previousTargetDistance = vessel._lastTargetDistance;
+            vessel._lastTargetDistance = targetDistance;
+          }
+
+          // Detect passage - require multiple conditions
           if (vessel._wasInsideTarget && targetDistance > 50) {
-            // Mark as passed
-            this.logger.debug(
-              `🌉 [BRIDGE_PASSAGE] Fartyg ${vessel.mmsi} har passerat `
-                + `${vessel.targetBridge} (avstånd: ${targetDistance.toFixed(
-                  0,
-                )}m > 50m)`,
+            // Calculate bearing and COG difference
+            const bearingToBridge = this._calculateBearing(
+              vessel.lat,
+              vessel.lon,
+              targetBridge.lat,
+              targetBridge.lon,
             );
-
-            // Update vessel status to 'passed'
-            vessel.status = 'passed';
-            vessel._wasInsideTarget = false;
-            delete vessel._outCounter; // Clean up old logic
-            
-            // Add to passedBridges if not already there
-            if (!vessel.passedBridges) {
-              vessel.passedBridges = [];
-            }
-            if (!vessel.passedBridges.includes(targetBridgeId)) {
-              vessel.passedBridges.push(targetBridgeId);
-            }
-
-            // Emit bridge:passed event
-            this.emit('bridge:passed', {
-              vessel,
-              bridgeId: targetBridgeId,
-              bridge: targetBridge,
-              distance: targetDistance,
-            });
+            const cogDiff = Math.abs(vessel.cog - bearingToBridge);
+            const normalizedCogDiff = cogDiff > 180 ? 360 - cogDiff : cogDiff;
             
             this.logger.debug(
-              `🌉 [BRIDGE_EVENT] bridge:passed utlöst för ${vessel.mmsi} vid ${vessel.targetBridge} (status: ${vessel.status})`,
+              `🧭 [BRIDGE_PASSAGE] COG-analys för ${vessel.mmsi}: COG=${vessel.cog.toFixed(1)}°, bearing=${bearingToBridge.toFixed(1)}°, diff=${normalizedCogDiff.toFixed(1)}°`,
             );
             
-            // Predict and set next target bridge immediately
-            const nextTargetBridge = this._findTargetBridge(vessel, targetBridgeId);
-            if (nextTargetBridge) {
-              vessel.targetBridge = nextTargetBridge;
+            // More robust passage detection:
+            // 1. Distance must be increasing (currently > 50m, was < 50m)
+            // 2. COG must point away from bridge (> 90 degrees difference)
+            // 3. Vessel must have reasonable speed (> 0.5 knots)
+            // 4. Distance must be > 100m OR increasing consistently
+            const isMovingAway = normalizedCogDiff > 90;
+            const hasReasonableSpeed = vessel.sog > 0.5;
+            const distanceIncreasing = vessel._previousTargetDistance && 
+              vessel._lastTargetDistance > vessel._previousTargetDistance;
+            const hasMovedSignificantly = targetDistance > 100 || 
+              (distanceIncreasing && targetDistance > vessel._closestDistanceToTarget + 20);
+            
+            this.logger.debug(
+              `🔍 [BRIDGE_PASSAGE] Passage villkor för ${vessel.mmsi}: ` +
+              `movingAway=${isMovingAway}, speed=${hasReasonableSpeed} (${vessel.sog.toFixed(1)}kn), ` +
+              `significant=${hasMovedSignificantly} (dist=${targetDistance.toFixed(0)}m, closest=${vessel._closestDistanceToTarget?.toFixed(0)}m)`,
+            );
+            
+            if (isMovingAway && hasReasonableSpeed && hasMovedSignificantly) {
+              // Mark as passed
               this.logger.debug(
-                `🎯 [BRIDGE_PASSAGE] Ny målbro för ${vessel.mmsi}: ${nextTargetBridge}`,
+                `🌉 [BRIDGE_PASSAGE] Fartyg ${vessel.mmsi} har passerat `
+                  + `${vessel.targetBridge} (avstånd: ${targetDistance.toFixed(
+                    0,
+                  )}m > 50m, COG visar bort från bron)`,
               );
-              // Force UI update
-              this.emit('vessel:eta-changed', { vessel });
-            } else {
-              vessel.targetBridge = null;
+
+              // Update vessel status to 'passed'
+              vessel.status = 'passed';
+              vessel._wasInsideTarget = false;
+              delete vessel._outCounter; // Clean up old logic
+              delete vessel._closestDistanceToTarget;
+              delete vessel._lastTargetDistance;
+              delete vessel._previousTargetDistance;
+              
+              // Add to passedBridges if not already there
+              if (!vessel.passedBridges) {
+                vessel.passedBridges = [];
+              }
+              if (!vessel.passedBridges.includes(targetBridgeId)) {
+                vessel.passedBridges.push(targetBridgeId);
+              }
+
+              // Emit bridge:passed event
+              this.emit('bridge:passed', {
+                vessel,
+                bridgeId: targetBridgeId,
+                bridge: targetBridge,
+                distance: targetDistance,
+              });
+              
               this.logger.debug(
-                `🏁 [BRIDGE_PASSAGE] Ingen mer målbro för ${vessel.mmsi} - rutt slutförd`,
+                `🌉 [BRIDGE_EVENT] bridge:passed utlöst för ${vessel.mmsi} vid ${vessel.targetBridge} (status: ${vessel.status})`,
+              );
+              
+              // Predict and set next target bridge immediately
+              const nextTargetBridge = this._findTargetBridge(vessel, targetBridgeId);
+              if (nextTargetBridge) {
+                vessel.targetBridge = nextTargetBridge;
+                // IMPORTANT: Reset status to en-route when vessel gets new target
+                vessel.status = 'en-route';
+                this.logger.debug(
+                  `🎯 [BRIDGE_PASSAGE] Ny målbro för ${vessel.mmsi}: ${nextTargetBridge} (status: ${vessel.status})`,
+                );
+                // Force UI update
+                this.emit('vessel:eta-changed', { vessel });
+              } else {
+                vessel.targetBridge = null;
+                this.logger.debug(
+                  `🏁 [BRIDGE_PASSAGE] Ingen mer målbro för ${vessel.mmsi} - rutt slutförd`,
+                );
+                // Schedule removal after grace period for vessels with no more target bridges
+                this._scheduleRemovalAfterCompletion(vessel.mmsi);
+              }
+            } else {
+              this.logger.debug(
+                `⏸️ [BRIDGE_PASSAGE] Fartyg ${vessel.mmsi} är >50m från ${vessel.targetBridge} men rör sig fortfarande mot bron (COG diff: ${cogDiff.toFixed(0)}°)`,
               );
             }
           }
@@ -622,6 +724,13 @@ class BridgeMonitor extends EventEmitter {
       if (inactiveDuration > 120000) { // 2 minuter kontinuerlig inaktivitet
         if (vessel.status !== 'waiting' && vessel.status !== 'under-bridge' && vessel.status !== 'approaching') {
           vessel.status = 'idle'; // Set status to idle only if not actively waiting/approaching
+          // Clear targetBridge for idle vessels
+          if (vessel.targetBridge) {
+            this.logger.debug(
+              `🧹 [VESSEL_IRRELEVANT] Rensar targetBridge för inaktivt fartyg ${vessel.mmsi}`,
+            );
+            vessel.targetBridge = null;
+          }
         }
         this.logger.debug(
           `🗑️ [VESSEL_IRRELEVANT] Fartyg ${vessel.mmsi} inaktivt i ${Math.round(inactiveDuration / 1000)}s - markerar som irrelevant`,
@@ -698,6 +807,18 @@ class BridgeMonitor extends EventEmitter {
       if (bridge.name === name) return id;
     }
     return null;
+  }
+
+  /**
+   * Calculate bearing between two points
+   */
+  _calculateBearing(lat1, lon1, lat2, lon2) {
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const y = Math.sin(dLon) * Math.cos(lat2 * Math.PI / 180);
+    const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180)
+      - Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos(dLon);
+    const bearing = Math.atan2(y, x) * 180 / Math.PI;
+    return (bearing + 360) % 360;
   }
 
   checkVesselPosition(vessel) {
@@ -903,7 +1024,13 @@ class BridgeMonitor extends EventEmitter {
       `🎯 [TARGET_BRIDGE] Söker målbro för ${vessel.mmsi} vid ${currentBridgeId}`,
     );
 
-    if (this.userBridges.includes(currentBridgeId)) {
+    // Check if boat has already passed this bridge
+    if (vessel.passedBridges && vessel.passedBridges.includes(currentBridgeId)) {
+      this.logger.debug(
+        `⏭️ [TARGET_BRIDGE] Fartyg ${vessel.mmsi} har redan passerat ${currentBridgeId}, letar efter nästa bro`,
+      );
+      // Continue to find next bridge
+    } else if (this.userBridges.includes(currentBridgeId)) {
       const bridgeName = this.bridges[currentBridgeId].name;
       this.logger.debug(
         `🏁 [TARGET_BRIDGE] ${currentBridgeId} är redan användarbro -> ${bridgeName}`,
@@ -2058,8 +2185,13 @@ class AISBridgeApp extends Homey.App {
 
     // Iterate through ALL vessels in the system, not just those near user bridges
     for (const vessel of this.vesselManager.vessels.values()) {
-      // Filter out passed vessels only when targetBridge === null
-      if (vessel.status === 'passed' && vessel.targetBridge === null) continue;
+      // Filter out all passed vessels
+      if (vessel.status === 'passed') {
+        this.debug(
+          `⏭️ [RELEVANT_BOATS] Hoppar över fartyg ${vessel.mmsi} - status: passed`,
+        );
+        continue;
+      }
 
       // Only include vessels with targetBridge matching user bridges
       if (!userBridgeNames.includes(vessel.targetBridge)) {
@@ -2086,6 +2218,41 @@ class AISBridgeApp extends Homey.App {
         targetBridge.lat,
         targetBridge.lon,
       );
+      
+      // Filter out vessels that are too far and moving too slowly
+      // If vessel is > 1000m away and moving < 1 knot, it's not relevant
+      if (distanceToTarget > 1000 && vessel.sog < 1.0) {
+        this.debug(
+          `⏭️ [RELEVANT_BOATS] Hoppar över fartyg ${vessel.mmsi} - för långt borta (${distanceToTarget.toFixed(0)}m) och för långsam (${vessel.sog.toFixed(1)}kn)`,
+        );
+        continue;
+      }
+      
+      // If vessel is > 600m away and not moving, it's not relevant
+      if (distanceToTarget > 600 && vessel.sog < 0.2) {
+        this.debug(
+          `⏭️ [RELEVANT_BOATS] Hoppar över fartyg ${vessel.mmsi} - för långt borta (${distanceToTarget.toFixed(0)}m) och står still (${vessel.sog.toFixed(1)}kn)`,
+        );
+        continue;
+      }
+      
+      // If vessel is > 300m away and moving slowly, verify it's heading towards bridge
+      if (distanceToTarget > 300 && vessel.sog < 1.0) {
+        if (!this._isVesselHeadingTowardsBridge(vessel, targetBridge)) {
+          this.debug(
+            `⏭️ [RELEVANT_BOATS] Hoppar över fartyg ${vessel.mmsi} - för långt borta (${distanceToTarget.toFixed(0)}m) och inte på väg mot bron`,
+          );
+          continue;
+        }
+      }
+      
+      // Filter out vessels with status 'irrelevant'
+      if (vessel.status === 'irrelevant') {
+        this.debug(
+          `⏭️ [RELEVANT_BOATS] Hoppar över fartyg ${vessel.mmsi} - status: irrelevant`,
+        );
+        continue;
+      }
 
       // Use vessel.nearBridge as currentBridge if available, otherwise fallback
       let currentBridgeName = null; // no nearby bridge – let MessageGenerator handle fallback
@@ -2439,6 +2606,81 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * Check if vessel is heading towards a specific bridge based on COG
+   * @param {Object} vessel - The vessel object
+   * @param {Object} bridge - The bridge object with lat/lon
+   * @returns {boolean} - True if vessel is heading towards bridge
+   */
+  _isVesselHeadingTowardsBridge(vessel, bridge) {
+    // Skip check for very slow vessels as COG may be unreliable
+    if (vessel.sog < 0.5) {
+      return true; // Give benefit of doubt for slow vessels
+    }
+
+    const bearingToBridge = this.bridgeMonitor._calculateBearing(
+      vessel.lat,
+      vessel.lon,
+      bridge.lat,
+      bridge.lon,
+    );
+    
+    const cogDiff = Math.abs(vessel.cog - bearingToBridge);
+    const normalizedCogDiff = cogDiff > 180 ? 360 - cogDiff : cogDiff;
+    
+    // Vessel is heading towards bridge if COG difference is < 90 degrees
+    const isHeadingTowards = normalizedCogDiff < 90;
+    
+    this.debug(
+      `🧭 [HEADING_CHECK] Vessel ${vessel.mmsi}: COG=${vessel.cog.toFixed(1)}°, ` +
+      `bearing to bridge=${bearingToBridge.toFixed(1)}°, diff=${normalizedCogDiff.toFixed(1)}°, ` +
+      `heading towards=${isHeadingTowards}`,
+    );
+    
+    return isHeadingTowards;
+  }
+
+  /**
+   * Validate if current targetBridge is still relevant for vessel
+   * @param {Object} vessel - The vessel object
+   * @returns {boolean} - True if targetBridge should be kept
+   */
+  _validateTargetBridge(vessel) {
+    if (!vessel.targetBridge) return true;
+
+    // Find target bridge
+    const targetBridgeId = this._findBridgeIdByName(vessel.targetBridge);
+    if (!targetBridgeId || !this.bridges[targetBridgeId]) {
+      return false; // Bridge not found
+    }
+
+    const targetBridge = this.bridges[targetBridgeId];
+    const distance = this.bridgeMonitor._haversine(
+      vessel.lat,
+      vessel.lon,
+      targetBridge.lat,
+      targetBridge.lon,
+    );
+
+    // If vessel is very far and not moving, clear target
+    if (distance > 800 && vessel.sog < 0.3) {
+      this.debug(
+        `🎯 [TARGET_VALIDATION] Clearing target for ${vessel.mmsi} - too far (${distance.toFixed(0)}m) and too slow (${vessel.sog.toFixed(1)}kn)`,
+      );
+      return false;
+    }
+
+    // If vessel is far and heading away, clear target
+    if (distance > 400 && !this._isVesselHeadingTowardsBridge(vessel, targetBridge)) {
+      this.debug(
+        `🎯 [TARGET_VALIDATION] Clearing target for ${vessel.mmsi} - heading away from bridge`,
+      );
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
    * Calculate first target bridge based on COG N↔︎S direction
    */
   _initialiseTargetBridge(vessel) {
@@ -2491,6 +2733,39 @@ class AISBridgeApp extends Homey.App {
         nearestBridge.bridge.name
       } at ${nearestBridge.distance.toFixed(0)}m`,
     );
+
+    // IMPROVED: Stricter validation before setting target bridge
+    // 1. Don't set target for vessels too far away
+    if (nearestBridge.distance > 1000) {
+      this.debug(
+        `⏭️ [INIT_TARGET] Skippar målbro för ${vessel.mmsi} - för långt borta (${nearestBridge.distance.toFixed(0)}m > 1000m)`,
+      );
+      return;
+    }
+
+    // 2. Don't set target for vessels that are too slow and too far
+    if (nearestBridge.distance > 600 && vessel.sog < 0.5) {
+      this.debug(
+        `⏭️ [INIT_TARGET] Skippar målbro för ${vessel.mmsi} - för långt borta (${nearestBridge.distance.toFixed(0)}m) och för långsam (${vessel.sog.toFixed(1)}kn)`,
+      );
+      return;
+    }
+
+    // 3. Don't set target for essentially stationary vessels
+    if (nearestBridge.distance > 300 && vessel.sog < 0.2) {
+      this.debug(
+        `⏭️ [INIT_TARGET] Skippar målbro för ${vessel.mmsi} - för långt borta (${nearestBridge.distance.toFixed(0)}m) och nästan stillastående (${vessel.sog.toFixed(1)}kn)`,
+      );
+      return;
+    }
+
+    // 4. Verify vessel is actually heading towards the bridge
+    if (!this._isVesselHeadingTowardsBridge(vessel, nearestBridge.bridge)) {
+      this.debug(
+        `⏭️ [INIT_TARGET] Skippar målbro för ${vessel.mmsi} - inte på väg mot bron`,
+      );
+      return;
+    }
 
     // Use BridgeMonitor's existing logic to find target bridge
     const targetBridgeName = this.bridgeMonitor._findTargetBridge(
