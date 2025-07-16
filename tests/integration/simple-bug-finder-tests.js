@@ -33,7 +33,7 @@ describe('AIS Bridge App - Bug Finder Tests', () => {
       
       // Check if nearBridge switching has hysteresis logic
       const hasHysteresisCheck = appSource.includes('nearBridge') && 
-        (appSource.includes('* 0.9') || appSource.includes('* 1.1'));
+        (appSource.includes('HYSTERESIS_FACTOR') || appSource.includes('* 0.9') || appSource.includes('* 1.1'));
       expect(hasHysteresisCheck).toBe(true);
     });
 

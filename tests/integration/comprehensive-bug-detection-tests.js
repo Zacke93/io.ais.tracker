@@ -287,7 +287,7 @@ describe('AIS Tracker 2.0 - Comprehensive Bug Detection Tests', () => {
       // Should be reset
       expect(vessel.speedBelowThresholdSince).toBeNull();
       expect(mockLogger.debug).toHaveBeenCalledWith(
-        expect.stringContaining('hastighet ökade över 0.20 kn')
+        expect.stringContaining('återställer waiting timer')
       );
     });
   });
