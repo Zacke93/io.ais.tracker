@@ -6,7 +6,7 @@ module.exports = {
     '**/integration/simple-bug-finder-tests.js',
     '**/integration/comprehensive-bug-detection-tests.js',
     '**/integration/real-log-scenario-tests.js',
-    '**/integration/chaos-edge-case-tests.js'
+    '**/integration/chaos-edge-case-tests.js',
   ],
   collectCoverageFrom: [
     'app.js',
@@ -26,6 +26,6 @@ module.exports = {
     '/node_modules/',
     'ultimate.test.js',
     'ultimate-v2.2.test.js',
-    'ultimate-v2.3-comprehensive.test.js'
+    'ultimate-v2.3-comprehensive.test.js',
   ],
 };

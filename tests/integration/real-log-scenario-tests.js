@@ -17,8 +17,8 @@ const {
   CONSTANTS 
 } = require('../../app.js');
 
-const WebSocket = require('ws');
 const EventEmitter = require('events');
+// WebSocket will be mocked by Jest
 
 describe('Real Log Scenarios - Production Bug Reproduction', () => {
   let vesselManager;
@@ -70,8 +70,12 @@ describe('Real Log Scenarios - Production Bug Reproduction', () => {
   };
 
   beforeEach((done) => {
-    // Create WebSocket server for testing
-    wsServer = new WebSocket.Server({ port: 8765 });
+    // Create mock WebSocket server for testing
+    wsServer = {
+      clients: new Set(),
+      close: (cb) => cb && cb(),
+      on: jest.fn()
+    };
     
     mockLogger = {
       log: jest.fn(),
