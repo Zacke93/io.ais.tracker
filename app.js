@@ -72,6 +72,14 @@ class VesselStateManager extends EventEmitter {
         `🏃 [WAITING_LOGIC] Fartyg ${mmsi} hastighet ökade över ${WAITING_SPEED_THRESHOLD} kn (${data.sog.toFixed(2)} kn), återställer waiting timer`,
       );
     }
+    
+    // Nollställ miss-räknare när fart sjunker kraftigt (från > 0.5 till < 0.2 kn utanför brozon)
+    if (oldData && oldData.sog > 0.5 && data.sog < 0.2) {
+      vesselData.graceMisses = 0;
+      this.logger.debug(
+        `🔄 [MISS_RESET] Nollställer miss-räknare för ${mmsi} - hastighet sjönk från ${oldData.sog.toFixed(2)} till ${data.sog.toFixed(2)} kn`,
+      );
+    }
 
     this.vessels.set(mmsi, vesselData);
     // Sätt ett preliminärt avstånd tills BridgeMonitor hunnit fylla på
@@ -210,6 +218,14 @@ class VesselStateManager extends EventEmitter {
 
   _calculateTimeout(v) {
     const d = v._distanceToNearest ?? Infinity; // fallback
+    
+    // Hantera Infinity eller ogiltiga värden explicit
+    if (d === Infinity || isNaN(d) || d < 0) {
+      this.logger.debug(
+        `⏱️ [TIMEOUT] Fartyg ${v.mmsi}: ogiltigt avstånd (${d}), använder default 2 min timeout`
+      );
+      return 2 * 60 * 1000; // Default 2 min för okända avstånd
+    }
 
     // Timeout-zoner enligt kravspec §4.1
     let base;
@@ -224,6 +240,11 @@ class VesselStateManager extends EventEmitter {
       base = 2 * 60 * 1000;
     }
 
+    // Speed-villkorad timeout: snabba båtar (> 4 kn) får minst 5 min timeout
+    if (v.sog > 4) {
+      base = Math.max(base, 5 * 60 * 1000);
+    }
+    
     // Waiting-säkring enligt kravspec §4.1
     if (v.status === 'waiting') {
       base = Math.max(base, 20 * 60 * 1000); // Minst 20 min för waiting
@@ -546,6 +567,19 @@ class BridgeMonitor extends EventEmitter {
                 `🌉 [UNDER_BRIDGE] Fartyg ${vessel.mmsi} lämnat under-bridge status (${targetDistance.toFixed(0)}m >= 50m)`,
               );
               this.emit('vessel:status-changed', { vessel, oldStatus: 'under-bridge', newStatus: 'approaching' });
+              
+              // Bridge-switch: dynamiskt byte av targetBridge efter under-bridge
+              const wasUnder = oldData?.status === 'under-bridge';
+              const nowOutOfUnder = wasUnder && targetDistance > 60; // litet säkerhets-slack
+              
+              if (nowOutOfUnder) {
+                const newTarget = this._findTargetBridge(vessel, bridgeId);
+                if (newTarget && newTarget !== vessel.targetBridge) {
+                  vessel.targetBridge = newTarget;
+                  this.logger.debug(`[TARGET_SWITCH] Ny targetBridge → ${newTarget} för ${vessel.mmsi} (lämnat under-bridge zonen)`);
+                  this.emit('vessel:target-changed', { vessel });
+                }
+              }
             }
           }
         }
@@ -566,6 +600,23 @@ class BridgeMonitor extends EventEmitter {
         this.logger.debug(
           `🗺️ [VESSEL_UPDATE] Fartyg ${vessel.mmsi} utanför APPROACH_RADIUS för alla broar`,
         );
+      }
+
+      // Bridge-switch: kontrollera COG-ändring > 45°
+      if (oldData?.cog != null && vessel.targetBridge) {
+        const headingChanged = Math.abs(((vessel.cog - oldData.cog + 180) % 360) - 180) > 45;
+        
+        if (headingChanged) {
+          const currentBridgeId = vessel.nearBridge || this._findNearestBridge(vessel)?.bridgeId;
+          if (currentBridgeId) {
+            const newTarget = this._findTargetBridge(vessel, currentBridgeId);
+            if (newTarget && newTarget !== vessel.targetBridge) {
+              vessel.targetBridge = newTarget;
+              this.logger.debug(`[TARGET_SWITCH] Ny targetBridge → ${newTarget} för ${vessel.mmsi} (COG ändring > 45°)`);
+              this.emit('vessel:target-changed', { vessel });
+            }
+          }
+        }
       }
 
       // Calculate ETA if vessel has targetBridge and sufficient speed
@@ -1117,7 +1168,8 @@ class BridgeMonitor extends EventEmitter {
     }
 
     const currentIndex = this.bridgeOrder.indexOf(currentBridgeId);
-    const isGoingNorth = this._isVesselHeadingNorth(vessel);
+    // Använd bredare nordlig sektor för att avgöra generell riktning
+    const isGoingNorth = this._isVesselGenerallyNorthbound(vessel);
 
     this.logger.debug('🧮 [TARGET_BRIDGE] Brosekvens-analys:', {
       currentBridgeId,
@@ -1214,6 +1266,19 @@ class BridgeMonitor extends EventEmitter {
     // Heading 315°–45° = norrut (inkludera exakt 0°/360° som norr)
     const cog = Number(vessel.cog) || 0;
     return cog >= 315 || cog === 0 || cog <= 45;
+  }
+
+  /**
+   * Avgör om fartyget generellt går i nordlig riktning (bredare sektor)
+   * Används för att bestämma om fartyget går norr eller söder i broordningen
+   * @param {Object} vessel - Fartygsobjekt med COG
+   * @returns {boolean} - True om fartyget går generellt norrut (270°-90° via norr)
+   */
+  _isVesselGenerallyNorthbound(vessel) {
+    const cog = Number(vessel.cog) || 0;
+    // Bredare sektor: Allt från väst till öst via norr räknas som "northbound"
+    // Detta inkluderar NV, N, NE plus väst och öst
+    return cog >= 270 || cog <= 90;
   }
 
   _isOnCorrectSide(vessel, bridge) {
@@ -1325,10 +1390,11 @@ class BridgeMonitor extends EventEmitter {
 
 // ============= MODUL 3: AIS CONNECTION MANAGER =============
 class AISConnectionManager extends EventEmitter {
-  constructor(apiKey, logger) {
+  constructor(apiKey, logger, bridges = {}) {
     super();
     this.apiKey = apiKey;
     this.logger = logger;
+    this.bridges = bridges;
     this.ws = null;
     this.reconnectAttempts = 0;
     this.isConnected = false;
@@ -1505,16 +1571,39 @@ class AISConnectionManager extends EventEmitter {
     };
   }
 
+  _isWithinAnyBridgeZone(lat, lon) {
+    return Object.values(this.bridges || {}).some((bridge) => {
+      const distance = this._haversine(lat, lon, bridge.lat, bridge.lon);
+      return distance <= APPROACH_RADIUS; // 300 m
+    });
+  }
+
+  _haversine(lat1, lon1, lat2, lon2) {
+    const R = 6371000; // Earth radius in meters
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+      + Math.cos((lat1 * Math.PI) / 180)
+        * Math.cos((lat2 * Math.PI) / 180)
+        * Math.sin(dLon / 2)
+        * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
   _validateVesselData(data) {
+    const inBridgeZone = this._isWithinAnyBridgeZone(data.lat, data.lon);
+    const speedOk = inBridgeZone ? true : data.sog >= 0.2; // Inom 300m: alla hastigheter OK, utanför: minst 0.2 kn
+
     return (
       data.mmsi
       && data.lat !== undefined
       && Math.abs(data.lat) <= 90
       && data.lon !== undefined
       && Math.abs(data.lon) <= 180
-      && data.sog >= 0.05 // Sänkt från 0.2 för att kunna spåra väntande båtar
+      && speedOk
       && this._isInsideBoundingBox(data.lat, data.lon)
-    ); // Minimum speed threshold
+    );
   }
 
   _scheduleReconnect() {
@@ -2240,7 +2329,7 @@ class AISBridgeApp extends Homey.App {
     // Reset event hooking flag before creating new connection
     this._eventsHooked = false;
 
-    this.aisConnection = new AISConnectionManager(apiKey, this);
+    this.aisConnection = new AISConnectionManager(apiKey, this, this.bridges);
     // Connect module events (before connection to catch all events)
     this._connectModuleEvents();
     await this.aisConnection.connect();

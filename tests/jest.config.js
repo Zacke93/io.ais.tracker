@@ -7,6 +7,9 @@ module.exports = {
     '**/integration/comprehensive-bug-detection-tests.js',
     '**/integration/real-log-scenario-tests.js',
     '**/integration/chaos-edge-case-tests.js',
+    '**/integration/enhanced-real-log-tests.js',
+    '**/integration/enhanced-bug-finder-tests.js',
+    '**/comprehensive-test-suite.js',
   ],
   collectCoverageFrom: [
     'app.js',
