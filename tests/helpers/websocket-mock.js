@@ -1,6 +1,6 @@
 /**
  * WebSocket Mock Helper for AIS Bridge Tests
- * 
+ *
  * Provides a simple and reliable WebSocket mock that captures
  * event handlers and allows easy simulation of AIS messages.
  */
@@ -12,55 +12,55 @@ class MockWebSocket {
     this.CLOSED = 3;
     this.CONNECTING = 0;
     this.CLOSING = 2;
-    
+
     // Store event handlers
     this.eventHandlers = {
       open: [],
       message: [],
       close: [],
-      error: []
+      error: [],
     };
-    
+
     // Mock functions
     this.send = jest.fn();
     this.close = jest.fn(() => {
       this.readyState = this.CLOSED;
     });
   }
-  
+
   on(event, handler) {
     if (this.eventHandlers[event]) {
       this.eventHandlers[event].push(handler);
     }
     return this;
   }
-  
+
   // Simulate events
   simulateOpen() {
-    this.eventHandlers.open.forEach(handler => handler());
+    this.eventHandlers.open.forEach((handler) => handler());
   }
-  
+
   simulateMessage(data) {
     const messageData = typeof data === 'string' ? data : JSON.stringify(data);
-    this.eventHandlers.message.forEach(handler => handler(messageData));
+    this.eventHandlers.message.forEach((handler) => handler(messageData));
   }
-  
+
   simulateClose(code = 1000, reason = 'Normal closure') {
     this.readyState = this.CLOSED;
-    this.eventHandlers.close.forEach(handler => handler({ code, reason }));
+    this.eventHandlers.close.forEach((handler) => handler({ code, reason }));
   }
-  
+
   simulateError(error) {
-    this.eventHandlers.error.forEach(handler => handler(error));
+    this.eventHandlers.error.forEach((handler) => handler(error));
   }
-  
+
   // Helper to send AIS position report
   sendAISPosition(vessel) {
     const aisMessage = {
       MessageID: 'PositionReport',
-      MetaData: { 
+      MetaData: {
         time_utc: new Date().toISOString(),
-        source: 'test'
+        source: 'test',
       },
       Message: {
         PositionReport: {
@@ -79,26 +79,26 @@ class MockWebSocket {
           Timestamp: 0,
           TrueHeading: vessel.heading || vessel.cog || 0,
           UserID: vessel.mmsi,
-          Valid: true
-        }
-      }
+          Valid: true,
+        },
+      },
     };
-    
+
     // Also send static data if name is provided
     if (vessel.name) {
       this.sendAISStaticData(vessel);
     }
-    
+
     this.simulateMessage(aisMessage);
   }
-  
+
   // Helper to send AIS static data
   sendAISStaticData(vessel) {
     const staticMessage = {
       MessageID: 'ShipStaticData',
       MetaData: {
         time_utc: new Date().toISOString(),
-        source: 'test'
+        source: 'test',
       },
       Message: {
         ShipStaticData: {
@@ -109,14 +109,14 @@ class MockWebSocket {
             A: 10,
             B: 10,
             C: 5,
-            D: 5
+            D: 5,
           },
           Dte: false,
           Eta: {
             Day: 0,
             Hour: 24,
             Minute: 60,
-            Month: 0
+            Month: 0,
           },
           FixType: 1,
           ImoNumber: vessel.imo || 0,
@@ -126,11 +126,11 @@ class MockWebSocket {
           RepeatIndicator: 'DoNotRepeat',
           Type: vessel.shipType || 70,
           UserID: vessel.mmsi,
-          Valid: true
-        }
-      }
+          Valid: true,
+        },
+      },
     };
-    
+
     this.simulateMessage(staticMessage);
   }
 }
@@ -143,5 +143,5 @@ function createMockWebSocket() {
 // Export both the class and factory
 module.exports = {
   MockWebSocket,
-  createMockWebSocket
+  createMockWebSocket,
 };

@@ -3,6 +3,7 @@ module.exports = {
   rootDir: '../',
   roots: ['<rootDir>/tests'],
   testMatch: [
+    '**/modern-test-suite.js',
     '**/integration/simple-bug-finder-tests.js',
     '**/integration/comprehensive-bug-detection-tests.js',
     '**/integration/real-log-scenario-tests.js',
