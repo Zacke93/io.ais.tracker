@@ -1,35 +1,63 @@
+// Jest configuration for AIS Tracker tests
+// Ensures all tests can run with proper Homey SDK mocking
+
 module.exports = {
+  // Test environment
   testEnvironment: 'node',
-  rootDir: '../',
-  roots: ['<rootDir>/tests'],
+
+  // Root directories for tests (fix: already in tests directory)
+  roots: ['<rootDir>'],
+
+  // Test file patterns
   testMatch: [
-    '**/modern-test-suite.js',
-    '**/integration/simple-bug-finder-tests.js',
-    '**/integration/comprehensive-bug-detection-tests.js',
-    '**/integration/real-log-scenario-tests.js',
-    '**/integration/chaos-edge-case-tests.js',
-    '**/integration/enhanced-real-log-tests.js',
-    '**/integration/enhanced-bug-finder-tests.js',
-    '**/comprehensive-test-suite.js',
+    '**/*.test.js',
   ],
+
+  // Setup files to run before tests
+  setupFiles: [
+    '<rootDir>/__mocks__/homey.js',
+  ],
+
+  // Coverage configuration (fix: move app.js to parent directory)
   collectCoverageFrom: [
-    'app.js',
-    'drivers/**/*.js',
-    '!node_modules/**',
-    '!coverage/**',
-    '!tests/**',
+    '../app.js',
+    '../drivers/**/*.js',
+    '!**/node_modules/**',
+    '!**/__mocks__/**',
   ],
-  coverageReporters: ['text', 'lcov', 'html'],
-  setupFilesAfterEnv: ['<rootDir>/tests/setup.js'],
-  testTimeout: 30000, // Increased for integration tests
-  moduleNameMapper: {
-    '^homey$': '<rootDir>/tests/__mocks__/homey.js',
+
+  // Coverage thresholds
+  coverageThreshold: {
+    global: {
+      branches: 60,
+      functions: 70,
+      lines: 70,
+      statements: 70,
+    },
   },
-  // Disable old mock-based tests
-  testPathIgnorePatterns: [
-    '/node_modules/',
-    'ultimate.test.js',
-    'ultimate-v2.2.test.js',
-    'ultimate-v2.3-comprehensive.test.js',
-  ],
+
+  // Coverage reporting
+  collectCoverage: false, // Enable only when explicitly requested
+  coverageDirectory: 'coverage',
+  coverageReporters: ['text', 'lcov', 'html'],
+
+  // Module path mapping (fix: correct property name is moduleNameMapper)
+  moduleNameMapper: {
+    '^@/(.*)$': '<rootDir>/../$1',
+  },
+
+  // Test timeout (important for async operations)
+  testTimeout: 10000,
+
+  // Silent mode to reduce noise during testing
+  silent: false,
+
+  // Verbose output for better debugging
+  verbose: true,
+
+  // Clear mocks between tests
+  clearMocks: true,
+
+  // Reset modules between tests
+  resetModules: true,
 };
