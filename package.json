@@ -6,7 +6,13 @@
     "lint": "eslint --ext .js,.ts --ignore-path .gitignore .",
     "test": "jest --config tests/jest.config.js",
     "test:watch": "jest --config tests/jest.config.js --watch",
-    "test:coverage": "jest --config tests/jest.config.js --coverage"
+    "test:coverage": "jest --config tests/jest.config.js --coverage",
+    "test:consolidated": "jest --config tests/jest.config.js tests/consolidated-test-suite.test.js",
+    "test:unit": "jest --config tests/jest.config.js tests/unit",
+    "test:integration": "jest --config tests/jest.config.js tests/integration",
+    "test:production": "jest --config tests/jest.config.js tests/production",
+    "test:verbose": "jest --config tests/jest.config.js --verbose",
+    "test:debug": "jest --config tests/jest.config.js --verbose --no-cache --runInBand"
   },
   "dependencies": {
     "ws": "^8.0.0"

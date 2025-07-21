@@ -1,9 +1,9 @@
 {
-  "id": "boat_recent",
-  "title": { "en": "Boat recently near", "sv": "Båt nyligen nära" },
+  "id": "boat_at_bridge",
+  "title": { "en": "Boat at bridge", "sv": "Båt vid bro" },
   "titleFormatted": {
-    "en": "Boat recently near [[bridge]]",
-    "sv": "Båt nyligen nära [[bridge]]"
+    "en": "Boat at [[bridge]]",
+    "sv": "Båt vid [[bridge]]"
   },
   "args": [
     {
