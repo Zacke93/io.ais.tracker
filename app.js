@@ -921,9 +921,12 @@ class VesselStateManager extends EventEmitter {
       );
       const cogDiff = Math.abs(((vessel.cog - bearingToBridge + 180) % 360) - 180);
 
-      if (cogDiff < 90) {
+      if (cogDiff < 90 || (nearestBridge.distance < 100
+                           && vessel.sog > 1.0
+                           && !this.vesselManager._isVesselStationary(vessel))) {
         this.logger.debug(
-          `🎯 [PROACTIVE_TARGET] Båt ${vessel.mmsi} siktar mot användarbro ${nearestBridge.bridge.name} (COG diff: ${cogDiff.toFixed(1)}°)`,
+          `🎯 [PROACTIVE_TARGET] Båt ${vessel.mmsi} siktar mot användarbro ${nearestBridge.bridge.name} 
+          (COG diff: ${cogDiff.toFixed(1)}°, avstånd: ${nearestBridge.distance.toFixed(0)}m, SOG: ${vessel.sog}kn)`,
         );
         return nearestBridge.bridge.name;
       }
@@ -1280,45 +1283,67 @@ class BridgeMonitor extends EventEmitter {
           // Defensive checks - ensure vessel has required properties
           if (typeof vessel.sog !== 'number' || typeof distance !== 'number' || !vessel.mmsi) {
             this.logger.warn(`⚠️ [WAITING_LOGIC] Defensive: Invalid vessel properties for ${vessel.mmsi} - skipping waiting detection`);
-          } else if (distance <= APPROACH_RADIUS && vessel.targetBridge) {
-            // FIX 3: Simple and robust - any boat ≤300m from its target bridge is "waiting"
-            if (vessel.status !== 'waiting') {
-              this._syncStatusAndFlags(vessel, 'waiting');
-              vessel.waitSince = Date.now(); // Mark when waiting started
-              this.logger.debug(
-                `⏳ [WAITING_LOGIC] Fartyg ${vessel.mmsi} väntar vid ${bridgeId} - inom 300m från målbro (${distance.toFixed(0)}m, ${vessel.sog.toFixed(1)}kn)`,
+          } else if (vessel.targetBridge) {
+            // FIX 3: Check distance to TARGET bridge, not current bridge
+            const targetBridgeId = this._findBridgeIdByName(vessel.targetBridge);
+            if (targetBridgeId && this.bridges[targetBridgeId]) {
+              const targetDistance = this._calculateDistance(
+                vessel.lat, vessel.lon,
+                this.bridges[targetBridgeId].lat, this.bridges[targetBridgeId].lon,
               );
-              // Defensive emit - ensure error in status change doesn't break waiting detection
-              try {
-                this.emit('vessel:status-changed', { vessel, oldStatus: vessel.status || 'approaching', newStatus: 'waiting' });
-              } catch (emitError) {
-                this.logger.warn(`⚠️ [WAITING_LOGIC] Defensive: Status change emit failed for ${vessel.mmsi}:`, emitError.message);
-              }
 
-              // Enhanced protection for waiting boats
-              try {
-                vessel.protectedUntil = Date.now() + 30 * 60 * 1000; // 30 min skydd
-                if (this.vesselManager && this.vesselManager._cancelCleanup) {
-                  this.vesselManager._cancelCleanup(vessel.mmsi);
+              if (targetDistance <= APPROACH_RADIUS) {
+                // Simple and robust - any boat ≤300m from its target bridge is "waiting"
+                if (vessel.status !== 'waiting') {
+                  this._syncStatusAndFlags(vessel, 'waiting');
+                  vessel.waitSince = Date.now(); // Mark when waiting started
+                  this.logger.debug(
+                    `⏳ [WAITING_LOGIC] Fartyg ${vessel.mmsi} väntar vid ${vessel.targetBridge} - inom 300m från målbro (${targetDistance.toFixed(0)}m, ${vessel.sog.toFixed(1)}kn)`,
+                  );
+                  // Defensive emit - ensure error in status change doesn't break waiting detection
+                  try {
+                    this.emit('vessel:status-changed', { vessel, oldStatus: vessel.status || 'approaching', newStatus: 'waiting' });
+                  } catch (emitError) {
+                    this.logger.warn(`⚠️ [WAITING_LOGIC] Defensive: Status change emit failed for ${vessel.mmsi}:`, emitError.message);
+                  }
                 }
-                this.logger.debug(
-                  `🛡️ [WAITING_PROTECTION] Skyddar väntande fartyg ${vessel.mmsi} inom 300m från ${bridgeId} i 30 min`,
-                );
-              } catch (protectionError) {
-                this.logger.warn(`⚠️ [WAITING_LOGIC] Defensive: Protection setup failed for ${vessel.mmsi}:`, protectionError.message);
+
+                // Enhanced protection for waiting boats
+                try {
+                  vessel.protectedUntil = Date.now() + 30 * 60 * 1000; // 30 min skydd
+                  if (this.vesselManager && this.vesselManager._cancelCleanup) {
+                    this.vesselManager._cancelCleanup(vessel.mmsi);
+                  }
+                  this.logger.debug(
+                    `🛡️ [WAITING_PROTECTION] Skyddar väntande fartyg ${vessel.mmsi} inom 300m från ${vessel.targetBridge} i 30 min`,
+                  );
+                } catch (protectionError) {
+                  this.logger.warn(`⚠️ [WAITING_LOGIC] Defensive: Protection setup failed for ${vessel.mmsi}:`, protectionError.message);
+                }
               }
             }
-          } else if (distance > APPROACH_RADIUS && vessel.status === 'waiting') {
-            // FIX 3: Reset waiting status when boat moves away from bridge
-            this._syncStatusAndFlags(vessel, 'approaching');
-            vessel.waitSince = null;
-            this.logger.debug(
-              `🏃 [WAITING_LOGIC] Fartyg ${vessel.mmsi} lämnar väntområde - återgår till approaching (${distance.toFixed(0)}m från bro)`,
-            );
-            try {
-              this.emit('vessel:status-changed', { vessel, oldStatus: 'waiting', newStatus: 'approaching' });
-            } catch (emitError) {
-              this.logger.warn(`⚠️ [WAITING_LOGIC] Defensive: Status reset emit failed for ${vessel.mmsi}:`, emitError.message);
+          } else if (vessel.targetBridge && vessel.status === 'waiting') {
+            // FIX 3: Check if boat has moved away from TARGET bridge, not current bridge
+            const targetBridgeId = this._findBridgeIdByName(vessel.targetBridge);
+            if (targetBridgeId && this.bridges[targetBridgeId]) {
+              const targetDistance = this._calculateDistance(
+                vessel.lat, vessel.lon,
+                this.bridges[targetBridgeId].lat, this.bridges[targetBridgeId].lon,
+              );
+
+              if (targetDistance > APPROACH_RADIUS) {
+                // Reset waiting status when boat moves away from target bridge
+                this._syncStatusAndFlags(vessel, 'approaching');
+                vessel.waitSince = null;
+                this.logger.debug(
+                  `🏃 [WAITING_LOGIC] Fartyg ${vessel.mmsi} lämnar väntområde - återgår till approaching (${targetDistance.toFixed(0)}m från målbro)`,
+                );
+                try {
+                  this.emit('vessel:status-changed', { vessel, oldStatus: 'waiting', newStatus: 'approaching' });
+                } catch (emitError) {
+                  this.logger.warn(`⚠️ [WAITING_LOGIC] Defensive: Status reset emit failed for ${vessel.mmsi}:`, emitError.message);
+                }
+              }
             }
           }
         } catch (waitingError) {
@@ -3557,7 +3582,12 @@ class MessageGenerator {
           `🌉 [BRIDGE_TEXT] Under-bridge scenario: ${closest.mmsi} vid ${actualBridge} (status: ${closest.status}, ETA: ${closest.etaMinutes})`,
         );
       } else if (closest.status === 'waiting' || closest.isWaiting) {
-        phrase = `En båt väntar vid ${closest.currentBridge || bridgeName}, inväntar broöppning`;
+        const bridgeForMessage = closest.currentBridge || bridgeName;
+        if (bridgeForMessage === 'Stallbackabron') {
+          phrase = `En båt närmar sig ${bridgeForMessage}`;
+        } else {
+          phrase = `En båt väntar vid ${bridgeForMessage}, inväntar broöppning`;
+        }
         this.logger.debug(
           `💤 [BRIDGE_TEXT] Väntscenario: ${closest.mmsi} vid ${
             closest.currentBridge || bridgeName
@@ -3592,14 +3622,22 @@ class MessageGenerator {
       if (additionalCount === 0) {
         // All boats are waiting
         const waitingText = waiting === 1 ? '1 båt' : `${waiting} båtar`;
-        phrase = `${waitingText} väntar vid ${bridgeName}, inväntar broöppning`;
+        if (bridgeName === 'Stallbackabron') {
+          phrase = `${waitingText} närmar sig ${bridgeName}`;
+        } else {
+          phrase = `${waitingText} väntar vid ${bridgeName}, inväntar broöppning`;
+        }
       } else {
         // Mix of waiting and approaching boats
         const additionalText = additionalCount === 1
           ? 'ytterligare 1 båt'
           : `ytterligare ${additionalCount} båtar`;
         const waitingText = waiting === 1 ? '1 båt' : `${waiting} båtar`;
-        phrase = `${waitingText} väntar vid ${bridgeName}, ${additionalText} på väg, inväntar broöppning`;
+        if (bridgeName === 'Stallbackabron') {
+          phrase = `${waitingText} närmar sig ${bridgeName}, ${additionalText} på väg`;
+        } else {
+          phrase = `${waitingText} väntar vid ${bridgeName}, ${additionalText} på väg, inväntar broöppning`;
+        }
       }
       this.logger.debug(
         `👥💤 [BRIDGE_TEXT] Multi-boat waiting priority (SECOND PRIORITY): ${count} totalt, ${waiting} väntar`,
@@ -4337,16 +4375,16 @@ class AISBridgeApp extends Homey.App {
       }
 
       // FIX 2: Enhanced distance and speed filtering to reduce ghost boats
-      // If vessel is > 800m away and moving < 1.2 knot, it's not relevant (tighter than 1000m/1kn)
-      if (distanceToTarget > 800 && vessel.sog < 1.2) {
+      // If vessel is > 1200m away and moving < 1.0 knot, it's not relevant (more responsive than 800m/1.2kn)
+      if (distanceToTarget > 1200 && vessel.sog < 1.0) {
         this.debug(
           `⏭️ [RELEVANT_BOATS] Hoppar över fartyg ${vessel.mmsi} - för långt borta (${distanceToTarget.toFixed(0)}m) och för långsam (${vessel.sog.toFixed(1)}kn)`,
         );
         continue;
       }
 
-      // If vessel is > 500m away and barely moving, it's not relevant (tighter than 600m/0.2kn)
-      if (distanceToTarget > 500 && vessel.sog < 0.25) {
+      // If vessel is > 800m away and barely moving, it's not relevant (more responsive than 500m/0.25kn)
+      if (distanceToTarget > 800 && vessel.sog < 0.2) {
         this.debug(
           `⏭️ [RELEVANT_BOATS] Hoppar över fartyg ${vessel.mmsi} - för långt borta (${distanceToTarget.toFixed(0)}m) och står still (${vessel.sog.toFixed(1)}kn)`,
         );
