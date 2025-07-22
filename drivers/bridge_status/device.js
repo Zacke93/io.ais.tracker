@@ -15,8 +15,7 @@ class BridgeStatusDevice extends Homey.Device {
 
       // 2) Lägg in den här instansen i appens Set
       this.log('Adding device to app._devices collection');
-      this.homey.app._devices.add(this);
-      await this.homey.app._saveDevices();
+      this.homey.app.addDevice(this);
 
       /* ---------------- Primär text & alarm ---------------- */
       const defaultTxt = 'Inga båtar är i närheten av Klaffbron eller Stridsbergsbron';
@@ -72,12 +71,11 @@ class BridgeStatusDevice extends Homey.Device {
    * --------------------------------------------------- */
   async onDeleted() {
     this.log('Device being deleted');
-    if (this.homey.app && this.homey.app._devices) {
-      this.homey.app._devices.delete(this);
-      await this.homey.app._saveDevices();
+    if (this.homey.app) {
+      this.homey.app.removeDevice(this);
       this.log('Removed from app._devices collection');
     } else {
-      this.error('Could not remove from app._devices – not available');
+      this.error('Could not remove from app – not available');
     }
   }
 
@@ -86,7 +84,7 @@ class BridgeStatusDevice extends Homey.Device {
    * --------------------------------------------------- */
   async _ensureAppReady() {
     for (let i = 0; i < 10; i++) {
-      if (this.homey.app && this.homey.app._devices instanceof Set) return true;
+      if (this.homey.app && this.homey.app._devices) return true;
       this.log(`Waiting for app to be ready (attempt ${i + 1})`);
       await new Promise((res) => setTimeout(res, 500));
     }
