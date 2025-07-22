@@ -1,3 +1,4 @@
+/* eslint-disable max-classes-per-file */
 // Comprehensive Homey SDK mock for testing
 // Provides all necessary Homey APIs used by the AIS Tracker app
 
