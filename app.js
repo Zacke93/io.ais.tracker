@@ -32,6 +32,10 @@ class AISBridgeApp extends Homey.App {
     this._lastBridgeAlarm = false;
     this._eventsHooked = false;
 
+    // UI update debouncing to prevent double bridge text changes
+    this._uiUpdateTimer = null;
+    this._uiUpdatePending = false;
+
     // Setup settings change listener
     this._setupSettingsListener();
 
@@ -236,16 +240,22 @@ class AISBridgeApp extends Homey.App {
       Object.assign(vessel, statusResult);
       vessel._distanceToNearest = proximityData.nearestDistance;
 
-      // 4. Calculate ETA if approaching
-      if (statusResult.status === 'approaching' || statusResult.status === 'waiting') {
+      // 4. Calculate ETA for relevant statuses (EXPANDED: includes en-route and stallbacka-waiting)
+      if (statusResult.status === 'approaching' || statusResult.status === 'waiting'
+          || statusResult.status === 'en-route' || statusResult.status === 'stallbacka-waiting') {
         vessel.etaMinutes = this.statusService.calculateETA(vessel, proximityData);
+      } else {
+        vessel.etaMinutes = null; // Clear ETA for other statuses (under-bridge, passed)
       }
 
       // 5. Schedule appropriate cleanup timeout
       const timeout = this.proximityService.calculateProximityTimeout(vessel, proximityData);
       this.vesselDataService.scheduleCleanup(vessel.mmsi, timeout);
 
-      this.debug(`🎯 [POSITION_ANALYSIS] ${vessel.mmsi}: status=${vessel.status}, distance=${proximityData.nearestDistance.toFixed(0)}m, ETA=${vessel.etaMinutes?.toFixed(1)}min`);
+      const etaDisplay = vessel.etaMinutes !== null && vessel.etaMinutes !== undefined && Number.isFinite(vessel.etaMinutes) 
+        ? `${vessel.etaMinutes.toFixed(1)}min` 
+        : 'null';
+      this.debug(`🎯 [POSITION_ANALYSIS] ${vessel.mmsi}: status=${vessel.status}, distance=${proximityData.nearestDistance.toFixed(0)}m, ETA=${etaDisplay}`);
 
     } catch (error) {
       this.error(`Error analyzing vessel position for ${vessel.mmsi}:`, error);
@@ -278,12 +288,12 @@ class AISBridgeApp extends Homey.App {
     // Bridge order (south to north): Klaffbron → Stridsbergsbron
 
     if (vessel.cog >= COG_DIRECTIONS.NORTH_MIN || vessel.cog <= COG_DIRECTIONS.NORTH_MAX) {
-      // Northbound (from south): Will encounter Klaffbron first
-      return 'Klaffbron';
+      // Northbound (from south): Will encounter Stridsbergsbron first
+      return 'Stridsbergsbron';
     }
 
-    // Southbound (from north): Will encounter Stridsbergsbron first
-    return 'Stridsbergsbron';
+    // Southbound (from north): Will encounter Klaffbron first
+    return 'Klaffbron';
   }
 
   /**
@@ -401,7 +411,36 @@ class AISBridgeApp extends Homey.App {
    * @private
    */
   _updateUI() {
+    // DEBOUNCE: Prevent multiple UI updates in quick succession
+    if (this._uiUpdatePending) {
+      return; // Already scheduled
+    }
+
+    this._uiUpdatePending = true;
+
+    // Clear any existing timer
+    if (this._uiUpdateTimer) {
+      clearTimeout(this._uiUpdateTimer);
+    }
+
+    // Schedule update after brief delay to allow all events to settle
+    this._uiUpdateTimer = setTimeout(() => {
+      this._actuallyUpdateUI();
+      this._uiUpdatePending = false;
+      this._uiUpdateTimer = null;
+    }, 10); // 10ms debounce
+  }
+
+  /**
+   * Actually perform the UI update
+   * @private
+   */
+  _actuallyUpdateUI() {
     try {
+      // CRITICAL: Re-evaluate all vessel statuses before UI update
+      // This ensures that time-sensitive statuses like "passed" are current
+      this._reevaluateVesselStatuses();
+
       // Get vessels relevant for bridge text
       const relevantVessels = this._findRelevantBoatsForBridgeText();
 
@@ -424,6 +463,30 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * Re-evaluate all vessel statuses (critical for time-sensitive updates)
+   * @private
+   */
+  _reevaluateVesselStatuses() {
+    const allVessels = this.vesselDataService.getAllVessels();
+
+    allVessels.forEach((vessel) => {
+      // Re-analyze proximity and status for each vessel
+      const proximityData = this.proximityService.analyzeVesselProximity(vessel);
+      const statusResult = this.statusService.analyzeVesselStatus(vessel, proximityData);
+
+      // Update vessel status if it changed
+      if (statusResult.statusChanged) {
+        vessel.status = statusResult.status;
+        vessel.isWaiting = statusResult.isWaiting;
+        vessel.isApproaching = statusResult.isApproaching;
+        vessel.etaMinutes = statusResult.etaMinutes;
+
+        this.debug(`🔄 [STATUS_UPDATE] ${vessel.mmsi}: ${statusResult.status} (${statusResult.statusReason})`);
+      }
+    });
+  }
+
+  /**
    * Find vessels relevant for bridge text generation
    * @private
    */
@@ -437,7 +500,18 @@ class AISBridgeApp extends Homey.App {
       let currentBridge = null;
 
       if (proximityData.nearestBridge && proximityData.nearestDistance <= 400) {
-        currentBridge = proximityData.nearestBridge.name;
+        // PASSAGE CLEARING: Don't set currentBridge if vessel has recently passed this bridge
+        // and is now moving away (avoids "En båt vid X" messages after passage)
+        const bridgeName = proximityData.nearestBridge.name;
+        const hasRecentlyPassedThisBridge = vessel.lastPassedBridge === bridgeName
+          && vessel.lastPassedBridgeTime
+          && (Date.now() - vessel.lastPassedBridgeTime) < 3 * 60 * 1000; // 3 minutes
+
+        if (!hasRecentlyPassedThisBridge) {
+          currentBridge = bridgeName;
+        } else {
+          this.debug(`🌉 [PASSAGE_CLEAR] ${vessel.mmsi}: Not setting currentBridge to ${bridgeName} - recently passed`);
+        }
       }
 
       return {
@@ -450,11 +524,15 @@ class AISBridgeApp extends Homey.App {
         isApproaching: vessel.isApproaching,
         confidence: vessel.confidence || 'medium',
         status: vessel.status,
+        lastPassedBridge: vessel.lastPassedBridge,
         lastPassedBridgeTime: vessel.lastPassedBridgeTime,
         distance: proximityData.nearestDistance,
         distanceToCurrent: proximityData.nearestDistance,
         sog: vessel.sog,
         passedBridges: vessel.passedBridges || [],
+        // ADD: Position data needed for Stallbackabron distance calculations
+        lat: vessel.lat,
+        lon: vessel.lon,
       };
     });
   }
@@ -602,6 +680,9 @@ class AISBridgeApp extends Homey.App {
       }
 
       this.log('🌐 [AIS_CONNECTION] Starting AIS stream connection...');
+
+      // Event handlers are already set up in _setupEventHandlers()
+      // Just start the connection
       await this.aisClient.connect(apiKey);
 
     } catch (error) {
@@ -674,6 +755,19 @@ class AISBridgeApp extends Homey.App {
     }
 
     this.log('✅ AIS Bridge shutdown complete');
+  }
+
+  /**
+   * Update connection status on all devices
+   * @private
+   */
+  _updateConnectionStatus(connected) {
+    for (const device of this._devices) {
+      if (device.setCapabilityValue) {
+        device.setCapabilityValue('connection_status', connected ? 'connected' : 'disconnected')
+          .catch((err) => this.error('Failed to update connection status:', err));
+      }
+    }
   }
 
   /**

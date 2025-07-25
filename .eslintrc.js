@@ -9,6 +9,9 @@ module.exports = {
     node: true,
     es6: true,
   },
+  rules: {
+    'node/no-unsupported-features/es-syntax': 'off',
+  },
   overrides: [
     {
       files: ['tests/**/*.js'],
