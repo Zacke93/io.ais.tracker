@@ -5,46 +5,70 @@ const RealAppTestRunner = require('./RealAppTestRunner');
 /**
  * REAL APP TEST: North to South Journey
  *
- * This test uses the COMPLETE app.js logic including:
- * - VesselDataService (real vessel management)
- * - StatusService (real status analysis)
- * - ProximityService (real distance calculations)
- * - BridgeTextService (real bridge text generation)
- * - All event-driven communication
- * - Real target bridge assignment logic
- * - Real timeout and cleanup mechanisms
+ * 🔄 KRITISKT: Detta test använder 100% verklig app.js-logik via RealAppTestRunner:
+ * - VesselDataService (verklig vessel management)
+ * - StatusService (verklig status analysis)
+ * - ProximityService (verkliga avståndsberäkningar)
+ * - BridgeTextService (verklig bridge text generering)
+ * - All event-driven kommunikation
+ * - Verklig target bridge assignment logic
+ * - Verkliga timeout och cleanup mekanismer
+ *
+ * ⚠️ INGA SIMULERADE RESULTAT - alla meddelanden kommer från riktiga services
+ * ✅ EXAKTA AVSTÅND - 600m, 450m, 250m, 45m, 55m framför varje bro
+ * ✅ VERKLIGA GPS-KOORDINATER - beräknade från constants.js BRIDGES
  */
 
 async function runRealScenario1() {
   const runner = new RealAppTestRunner();
 
-  // DETALJERAT TEST - varje bro testas vid exakt 300m och 50m avstånd
-  // Detta visar exakt när approach (300m) och under-bridge (50m) triggers
+  // KONTROLLERAT TEST - exakta avstånd: Bounding box → 600m → 450m → 250m → 45m → 55m framför
+  // Detta använder 100% verklig app.js-logik utan simulerade resultat
+  // Avståndstriggrar: 500m (närmar sig), 300m (inväntar broöppning), 50m (broöppning pågår)
   // Ordning: Stallbacka → Stridsbergsbron → Järnväg → Klaffbron → Olidebron
+
+  // VERKLIGA KOORDINATER från constants.js BRIDGES
+  const BRIDGE_COORDS = {
+    stallbackabron: { lat: 58.31142992293701, lon: 12.31456385688822 },
+    stridsbergsbron: { lat: 58.293524096154634, lon: 12.294566425158054 },
+    jarnvagsbron: { lat: 58.29164042152742, lon: 12.292025280073759 },
+    klaffbron: { lat: 58.28409551543077, lon: 12.283929525245636 },
+    olidebron: { lat: 58.272743083145855, lon: 12.275115821922993 },
+  };
+
+  // Beräkna exakt GPS-koordinat på specificerat avstånd norr om en bro
+  function calculatePositionNorthOfBridge(bridgeCoords, distanceMeters) {
+    const metersPerLatDegree = 111000; // 1 grad lat ≈ 111000m
+    const latOffset = distanceMeters / metersPerLatDegree;
+    return {
+      lat: bridgeCoords.lat + latOffset,
+      lon: bridgeCoords.lon,
+    };
+  }
+
   const realJourneySteps = [
     {
-      description: '🚢 Start: Båt långt norr om alla broar',
+      description: '🚢 Start: Båt precis innanför bounding box (58.319°)',
       vessels: [
         {
           mmsi: '265123456',
           name: 'M/V Nordkap',
-          lat: 58.320, // Far north
-          lon: 12.320,
+          lat: 58.319, // Precis innanför NORTH bounding box (58.32)
+          lon: 12.315,
           sog: 4.5,
           cog: 180, // Southbound
         },
       ],
     },
 
-    // === STALLBACKABRON (mellanbro) ===
+    // === STALLBACKABRON (mellanbro) - EXAKTA AVSTÅND ===
     {
-      description: '📍 Stallbackabron: 300m avstånd (approach radius)',
+      description: '🌉 Stallbackabron: 600m avstånd (långt bort)',
       vessels: [
         {
           mmsi: '265123456',
           name: 'M/V Nordkap',
-          lat: 58.31415, // ~300m north of Stallbacka
-          lon: 12.31726,
+          ...calculatePositionNorthOfBridge(BRIDGE_COORDS.stallbackabron, 600),
           sog: 4.2,
           cog: 180,
         },
@@ -52,13 +76,52 @@ async function runRealScenario1() {
     },
 
     {
-      description: '📍 Stallbackabron: 50m avstånd (under-bridge zone)',
+      description: '🌉 Stallbackabron: 450m avstånd (inom APPROACHING_RADIUS 500m)',
       vessels: [
         {
           mmsi: '265123456',
           name: 'M/V Nordkap',
-          lat: 58.31188, // ~50m north of Stallbacka
-          lon: 12.31501,
+          ...calculatePositionNorthOfBridge(BRIDGE_COORDS.stallbackabron, 450),
+          sog: 4.0,
+          cog: 180,
+        },
+      ],
+    },
+
+    {
+      description: '🌉 Stallbackabron: 250m avstånd (inom APPROACH_RADIUS 300m - SPECIALHANTERING!)',
+      vessels: [
+        {
+          mmsi: '265123456',
+          name: 'M/V Nordkap',
+          ...calculatePositionNorthOfBridge(BRIDGE_COORDS.stallbackabron, 250),
+          sog: 3.8,
+          cog: 180,
+        },
+      ],
+    },
+
+    {
+      description: '🌉 Stallbackabron: 45m avstånd (inom UNDER_BRIDGE_DISTANCE 50m)',
+      vessels: [
+        {
+          mmsi: '265123456',
+          name: 'M/V Nordkap',
+          ...calculatePositionNorthOfBridge(BRIDGE_COORDS.stallbackabron, 45),
+          sog: 3.5,
+          cog: 180,
+        },
+      ],
+    },
+
+    {
+      description: '🌉 Stallbackabron: 55m söder om bro (passerat)',
+      vessels: [
+        {
+          mmsi: '265123456',
+          name: 'M/V Nordkap',
+          lat: BRIDGE_COORDS.stallbackabron.lat - (55 / 111000), // 55m söder om
+          lon: BRIDGE_COORDS.stallbackabron.lon,
           sog: 3.8,
           cog: 180,
         },
@@ -79,15 +142,14 @@ async function runRealScenario1() {
       ],
     },
 
-    // === STRIDSBERGSBRON (MÅLBRO) ===
+    // === STRIDSBERGSBRON (MÅLBRO) - EXAKTA AVSTÅND ===
     {
-      description: '🎯 Stridsbergsbron (MÅLBRO): 300m avstånd (approach radius)',
+      description: '🎯 Stridsbergsbron (MÅLBRO): 600m avstånd (långt bort)',
       vessels: [
         {
           mmsi: '265123456',
           name: 'M/V Nordkap',
-          lat: 58.2962, // ~300m north of Stridsbergsbron
-          lon: 12.2972,
+          ...calculatePositionNorthOfBridge(BRIDGE_COORDS.stridsbergsbron, 600),
           sog: 3.9,
           cog: 180,
         },
@@ -95,13 +157,52 @@ async function runRealScenario1() {
     },
 
     {
-      description: '🎯 Stridsbergsbron (MÅLBRO): 50m avstånd (under-bridge zone)',
+      description: '🎯 Stridsbergsbron (MÅLBRO): 450m avstånd (inom APPROACHING_RADIUS 500m)',
       vessels: [
         {
           mmsi: '265123456',
           name: 'M/V Nordkap',
-          lat: 58.29397, // ~50m north of Stridsbergsbron
-          lon: 12.29501,
+          ...calculatePositionNorthOfBridge(BRIDGE_COORDS.stridsbergsbron, 450),
+          sog: 3.7,
+          cog: 180,
+        },
+      ],
+    },
+
+    {
+      description: '🎯 Stridsbergsbron (MÅLBRO): 250m avstånd (inom APPROACH_RADIUS 300m)',
+      vessels: [
+        {
+          mmsi: '265123456',
+          name: 'M/V Nordkap',
+          ...calculatePositionNorthOfBridge(BRIDGE_COORDS.stridsbergsbron, 250),
+          sog: 3.5,
+          cog: 180,
+        },
+      ],
+    },
+
+    {
+      description: '🎯 Stridsbergsbron (MÅLBRO): 45m avstånd (inom UNDER_BRIDGE_DISTANCE 50m)',
+      vessels: [
+        {
+          mmsi: '265123456',
+          name: 'M/V Nordkap',
+          ...calculatePositionNorthOfBridge(BRIDGE_COORDS.stridsbergsbron, 45),
+          sog: 3.2,
+          cog: 180,
+        },
+      ],
+    },
+
+    {
+      description: '🎯 Stridsbergsbron (MÅLBRO): 55m söder om bro (passerat MÅLBRO - target bridge transition!)',
+      vessels: [
+        {
+          mmsi: '265123456',
+          name: 'M/V Nordkap',
+          lat: BRIDGE_COORDS.stridsbergsbron.lat - (55 / 111000), // 55m söder om
+          lon: BRIDGE_COORDS.stridsbergsbron.lon,
           sog: 3.5,
           cog: 180,
         },

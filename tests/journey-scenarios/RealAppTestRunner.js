@@ -126,7 +126,6 @@ class RealAppTestRunner {
     console.log(`📡 Processing AIS message for ${vessel.name} (${vessel.mmsi})`);
     console.log(`   Position: ${vessel.lat?.toFixed(5)}, ${vessel.lon?.toFixed(5)}`);
     console.log(`   Speed: ${vessel.sog} knop, Course: ${vessel.cog}°`);
-    console.log(`   Expected status: ${vessel.status}, Target: ${vessel.targetBridge}`);
 
     // Process through real app logic
     this.app._processAISMessage(aisMessage);

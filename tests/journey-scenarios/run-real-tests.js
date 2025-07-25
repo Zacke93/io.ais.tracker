@@ -18,7 +18,7 @@ console.log('- Event-driven kommunikation mellan alla services');
 console.log('');
 console.log('📚 TILLGÄNGLIGA REAL APP SCENARIOS:');
 console.log('1. North to South Journey - Komplett resa genom alla broar');
-console.log('2. [Fler scenarios kommer läggas till baserat på dina behov]');
+console.log('2. Complex Multi-Vessel - 4 båtar mot båda målbroarna samtidigt');
 console.log('');
 
 const readline = require('readline');
@@ -28,7 +28,7 @@ const rl = readline.createInterface({
   output: process.stdout,
 });
 
-rl.question('Ange scenario (1) eller tryck Enter för scenario 1: ', async (answer) => {
+rl.question('Ange scenario (1-2) eller tryck Enter för scenario 1: ', async (answer) => {
   console.log('\n');
 
   const choice = answer.trim() || '1';
@@ -42,6 +42,17 @@ rl.question('Ange scenario (1) eller tryck Enter för scenario 1: ', async (answ
         console.log('\n✅ Scenario completed successfully!');
       } catch (error) {
         console.error('\n❌ Scenario failed:', error.message);
+      }
+      break;
+
+    case '2':
+      console.log('🚀 Kör Complex Multi-Vessel Journey med REAL APP LOGIC...\n');
+      try {
+        const { complexMultiVesselJourney } = require('./complex-multi-vessel-journey'); // eslint-disable-line global-require
+        await complexMultiVesselJourney();
+        console.log('\n✅ Complex multi-vessel scenario completed successfully!');
+      } catch (error) {
+        console.error('\n❌ Complex multi-vessel scenario failed:', error.message);
       }
       break;
 
