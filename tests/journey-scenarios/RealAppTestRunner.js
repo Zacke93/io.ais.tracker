@@ -117,8 +117,8 @@ class RealAppTestRunner {
       msgType: 1,
       lat: vessel.lat,
       lon: vessel.lon,
-      sog: vessel.sog || 3.5,
-      cog: vessel.cog || 180,
+      sog: vessel.sog !== undefined ? vessel.sog : 3.5, // CRITICAL FIX: Properly handle sog=0
+      cog: vessel.cog !== undefined ? vessel.cog : 180, // CRITICAL FIX: Properly handle cog=0
       shipName: vessel.name || 'Test Vessel',
       timestamp: Date.now(),
     };
@@ -273,6 +273,18 @@ class RealAppTestRunner {
       bridgeTextChanges: this.bridgeTextHistory,
       finalBridgeText: this.lastBridgeText,
     };
+  }
+
+  /**
+   * Get current bridge text from app
+   */
+  getCurrentBridgeText() {
+    if (!this.app || !this.app.bridgeTextService) {
+      return 'Inga båtar är i närheten av Klaffbron eller Stridsbergsbron';
+    }
+
+    const relevantVessels = this.app._findRelevantBoatsForBridgeText();
+    return this.app.bridgeTextService.generateBridgeText(relevantVessels);
   }
 
   /**
