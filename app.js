@@ -9,6 +9,7 @@ const BridgeTextService = require('./lib/services/BridgeTextService');
 const ProximityService = require('./lib/services/ProximityService');
 const StatusService = require('./lib/services/StatusService');
 const AISStreamClient = require('./lib/connection/AISStreamClient');
+const { etaDisplay } = require('./lib/utils/etaValidation');
 
 // Import utilities and constants
 const {
@@ -22,6 +23,17 @@ const {
  */
 class AISBridgeApp extends Homey.App {
   async onInit() {
+    // Setup global crash protection
+    process.on('uncaughtException', (err) => {
+      this.error('[FATAL] Uncaught exception:', err);
+      // Log but don't exit - let process continue if possible
+    });
+    
+    process.on('unhandledRejection', (reason, promise) => {
+      this.error('[FATAL] Unhandled rejection at:', promise, 'reason:', reason);
+      // Log but don't exit - let process continue if possible  
+    });
+    
     this.log('AIS Bridge starting with modular architecture v2.0');
 
     // Initialize settings and state
@@ -31,10 +43,17 @@ class AISBridgeApp extends Homey.App {
     this._lastBridgeText = '';
     this._lastBridgeAlarm = false;
     this._eventsHooked = false;
+    
+    // Boat near trigger deduplication
+    this._lastBoatNearByKey = new Map(); // Track last trigger time per vessel+bridge
 
     // UI update debouncing to prevent double bridge text changes
     this._uiUpdateTimer = null;
     this._uiUpdatePending = false;
+
+    // Timer tracking for cleanup
+    this._vesselRemovalTimers = new Map(); // Track vessel removal timers
+    this._monitoringInterval = null; // Track monitoring interval
 
     // Setup settings change listener
     this._setupSettingsListener();
@@ -83,8 +102,8 @@ class AISBridgeApp extends Homey.App {
       this.proximityService = new ProximityService(this.bridgeRegistry, this);
       this.statusService = new StatusService(this.bridgeRegistry, this);
 
-      // Output services
-      this.bridgeTextService = new BridgeTextService(this.bridgeRegistry, this);
+      // Output services (inject ProximityService for consistent distance calculations)
+      this.bridgeTextService = new BridgeTextService(this.bridgeRegistry, this, this.proximityService);
 
       // Connection services
       this.aisClient = new AISStreamClient(this);
@@ -158,23 +177,33 @@ class AISBridgeApp extends Homey.App {
 
     // Analyze initial position
     await this._analyzeVesselPosition(vessel);
+    
+    // Trigger boat_near if vessel already has a target bridge assigned
+    if (vessel.targetBridge) {
+      await this._triggerBoatNearFlow(vessel);
+    }
 
     // Update UI
     this._updateUI();
   }
 
   /**
-   * Handle vessel data updates
+   * Handle vessel data updates (with crash protection)
    * @private
    */
   async _onVesselUpdated({ mmsi, vessel, oldVessel }) {
-    this.debug(`📝 [VESSEL_UPDATED] Vessel: ${mmsi}`);
+    try {
+      this.debug(`📝 [VESSEL_UPDATED] Vessel: ${mmsi}`);
 
-    // Analyze position and status changes
-    await this._analyzeVesselPosition(vessel);
+      // Analyze position and status changes
+      await this._analyzeVesselPosition(vessel);
 
-    // Update UI if needed
-    this._updateUIIfNeeded(vessel, oldVessel);
+      // Update UI if needed
+      this._updateUIIfNeeded(vessel, oldVessel);
+    } catch (error) {
+      this.error(`[PROTECTED] Error handling vessel update for ${mmsi}:`, error);
+      // Continue processing other vessels
+    }
   }
 
   /**
@@ -183,6 +212,13 @@ class AISBridgeApp extends Homey.App {
    */
   async _onVesselRemoved({ mmsi, vessel, reason }) {
     this.debug(`🗑️ [VESSEL_REMOVED] Vessel: ${mmsi} (${reason})`);
+
+    // CRITICAL FIX: Clear any pending removal timer for this vessel
+    if (this._vesselRemovalTimers.has(mmsi)) {
+      clearTimeout(this._vesselRemovalTimers.get(mmsi));
+      this._vesselRemovalTimers.delete(mmsi);
+      this.debug(`🧹 [CLEANUP] Cleared removal timer for ${mmsi}`);
+    }
 
     // Clear any UI references
     await this._clearBridgeText(mmsi);
@@ -200,8 +236,9 @@ class AISBridgeApp extends Homey.App {
   }) {
     this.debug(`🔄 [STATUS_CHANGED] Vessel ${vessel.mmsi}: ${oldStatus} → ${newStatus} (${reason})`);
 
-    // Trigger flow cards for important status changes
-    if (newStatus === 'approaching') {
+    // Trigger flow cards for important status changes (expanded conditions)
+    const triggerStatuses = ['approaching', 'waiting', 'under-bridge', 'stallbacka-waiting'];
+    if (triggerStatuses.includes(newStatus)) {
       await this._triggerBoatNearFlow(vessel);
     }
 
@@ -209,10 +246,21 @@ class AISBridgeApp extends Homey.App {
     if (newStatus === 'passed' && vessel.targetBridge) {
       if (this._hasPassedFinalTargetBridge(vessel)) {
         this.debug(`🏁 [FINAL_BRIDGE_PASSED] Vessel ${vessel.mmsi} passed final target bridge ${vessel.targetBridge} - scheduling removal in 15s`);
-        // Remove after short delay to allow bridge text to show "precis passerat"
-        setTimeout(() => {
+
+        // CRITICAL FIX: Track timer for cleanup
+        // Clear any existing timer for this vessel first
+        if (this._vesselRemovalTimers.has(vessel.mmsi)) {
+          clearTimeout(this._vesselRemovalTimers.get(vessel.mmsi));
+        }
+
+        // Specs: 'passed' status must show for 1 minute
+        // Remove after 60 seconds to allow bridge text to show "precis passerat"
+        const timerId = setTimeout(() => {
           this.vesselDataService.removeVessel(vessel.mmsi, 'passed-final-bridge');
-        }, 15000); // 15 seconds
+          this._vesselRemovalTimers.delete(vessel.mmsi); // Clean up timer reference
+        }, 60000); // 60 seconds per Bridge Text Format V2.0 specification
+
+        this._vesselRemovalTimers.set(vessel.mmsi, timerId);
         return; // Don't update UI yet, let "precis passerat" show first
       }
     }
@@ -225,7 +273,7 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
-   * Analyze vessel position and update all related services
+   * Analyze vessel position and update all related services (with crash protection)
    * @private
    */
   async _analyzeVesselPosition(vessel) {
@@ -233,14 +281,24 @@ class AISBridgeApp extends Homey.App {
       // 1. Analyze proximity to bridges
       const proximityData = this.proximityService.analyzeVesselProximity(vessel);
 
-      // 2. Analyze and update vessel status
+      // 2. CRITICAL FIX: Preserve targetBridge before status analysis
+      const originalTargetBridge = vessel.targetBridge;
+
+      // 3. Analyze and update vessel status
       const statusResult = this.statusService.analyzeVesselStatus(vessel, proximityData);
 
-      // 3. Update vessel with analysis results
+      // 4. Update vessel with analysis results but preserve critical data
       Object.assign(vessel, statusResult);
+
+      // 5. CRITICAL FIX: Restore targetBridge if it was lost during status analysis
+      if (originalTargetBridge && !vessel.targetBridge) {
+        vessel.targetBridge = originalTargetBridge;
+        this.debug(`🛡️ [TARGET_BRIDGE_PROTECTION] ${vessel.mmsi}: Restored targetBridge: ${originalTargetBridge}`);
+      }
+
       vessel._distanceToNearest = proximityData.nearestDistance;
 
-      // 4. Calculate ETA for relevant statuses (EXPANDED: includes en-route and stallbacka-waiting)
+      // 6. Calculate ETA for relevant statuses (EXPANDED: includes en-route and stallbacka-waiting)
       if (statusResult.status === 'approaching' || statusResult.status === 'waiting'
           || statusResult.status === 'en-route' || statusResult.status === 'stallbacka-waiting') {
         vessel.etaMinutes = this.statusService.calculateETA(vessel, proximityData);
@@ -248,17 +306,16 @@ class AISBridgeApp extends Homey.App {
         vessel.etaMinutes = null; // Clear ETA for other statuses (under-bridge, passed)
       }
 
-      // 5. Schedule appropriate cleanup timeout
+      // 7. Schedule appropriate cleanup timeout
       const timeout = this.proximityService.calculateProximityTimeout(vessel, proximityData);
       this.vesselDataService.scheduleCleanup(vessel.mmsi, timeout);
 
-      const etaDisplay = vessel.etaMinutes !== null && vessel.etaMinutes !== undefined && Number.isFinite(vessel.etaMinutes) 
-        ? `${vessel.etaMinutes.toFixed(1)}min` 
-        : 'null';
-      this.debug(`🎯 [POSITION_ANALYSIS] ${vessel.mmsi}: status=${vessel.status}, distance=${proximityData.nearestDistance.toFixed(0)}m, ETA=${etaDisplay}`);
+      const etaDisplayText = etaDisplay(vessel.etaMinutes);
+      this.debug(`🎯 [POSITION_ANALYSIS] ${vessel.mmsi}: status=${vessel.status}, distance=${proximityData.nearestDistance.toFixed(0)}m, ETA=${etaDisplayText}`);
 
     } catch (error) {
-      this.error(`Error analyzing vessel position for ${vessel.mmsi}:`, error);
+      this.error(`[PROTECTED] Error analyzing vessel position for ${vessel.mmsi}:`, error);
+      // Continue with next vessel - don't crash
     }
   }
 
@@ -271,12 +328,11 @@ class AISBridgeApp extends Homey.App {
       return; // Already has target bridge
     }
 
-    // Determine target bridge based on position and course
-    const targetBridge = this._calculateInitialTargetBridge(vessel);
-    if (targetBridge) {
-      vessel.targetBridge = targetBridge;
-      this.debug(`🎯 [TARGET_BRIDGE] Assigned ${targetBridge} to vessel ${vessel.mmsi}`);
-    }
+    // CRITICAL FIX: Respect VesselDataService's filtering decision
+    // VesselDataService should be the single source of truth for target bridge assignment
+    // If vessel doesn't have target bridge, it means VesselDataService filtered it out (e.g., too slow, anchored)
+    // Don't override that decision here
+    this.debug(`ℹ️ [TARGET_BRIDGE] VesselDataService didn't assign target bridge to ${vessel.mmsi} - respecting that decision`);
   }
 
   /**
@@ -379,12 +435,13 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
-   * Process AIS message from stream
+   * Process AIS message from stream (with crash protection)
    * @private
    */
   _processAISMessage(message) {
     try {
-      if (!message || !message.mmsi) {
+      // CRITICAL FIX: Add comprehensive input validation
+      if (!this._validateAISMessage(message)) {
         return;
       }
 
@@ -402,8 +459,51 @@ class AISBridgeApp extends Homey.App {
       }
 
     } catch (error) {
-      this.error('Error processing AIS message:', error);
+      this.error('[PROTECTED] Error processing AIS message:', error);
+      // Continue processing other messages
     }
+  }
+
+  /**
+   * Validate AIS message data
+   * @private
+   */
+  _validateAISMessage(message) {
+    if (!message || typeof message !== 'object') {
+      this.debug('⚠️ [AIS_VALIDATION] Invalid message object');
+      return false;
+    }
+
+    if (!message.mmsi || typeof message.mmsi !== 'string') {
+      this.debug('⚠️ [AIS_VALIDATION] Missing or invalid MMSI');
+      return false;
+    }
+
+    // Validate latitude (-90 to 90)
+    if (typeof message.lat !== 'number' || message.lat < -90 || message.lat > 90) {
+      this.debug(`⚠️ [AIS_VALIDATION] Invalid latitude: ${message.lat}`);
+      return false;
+    }
+
+    // Validate longitude (-180 to 180)
+    if (typeof message.lon !== 'number' || message.lon < -180 || message.lon > 180) {
+      this.debug(`⚠️ [AIS_VALIDATION] Invalid longitude: ${message.lon}`);
+      return false;
+    }
+
+    // Validate speed over ground (0 to reasonable max, e.g., 100 knots)
+    if (message.sog !== undefined && (typeof message.sog !== 'number' || message.sog < 0 || message.sog > 100)) {
+      this.debug(`⚠️ [AIS_VALIDATION] Invalid SOG: ${message.sog}`);
+      return false;
+    }
+
+    // Validate course over ground (0 to 360)
+    if (message.cog !== undefined && (typeof message.cog !== 'number' || message.cog < 0 || message.cog >= 360)) {
+      this.debug(`⚠️ [AIS_VALIDATION] Invalid COG: ${message.cog}`);
+      return false;
+    }
+
+    return true;
   }
 
   /**
@@ -432,10 +532,10 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
-   * Actually perform the UI update
+   * Actually perform the UI update (with crash protection)
    * @private
    */
-  _actuallyUpdateUI() {
+  async _actuallyUpdateUI() {
     try {
       // CRITICAL: Re-evaluate all vessel statuses before UI update
       // This ensures that time-sensitive statuses like "passed" are current
@@ -451,6 +551,16 @@ class AISBridgeApp extends Homey.App {
       if (bridgeText !== this._lastBridgeText) {
         this._lastBridgeText = bridgeText;
         this._updateDeviceCapability('bridge_text', bridgeText);
+        
+        // CRITICAL FIX: Also update global token for flows
+        try {
+          if (this._globalBridgeTextToken) {
+            await this._globalBridgeTextToken.setValue(bridgeText);
+          }
+        } catch (error) {
+          this.error('[GLOBAL_TOKEN_ERROR] Failed to update global bridge text token:', error);
+        }
+        
         this.debug(`📱 [UI_UPDATE] Bridge text updated: "${bridgeText}"`);
       }
 
@@ -458,7 +568,8 @@ class AISBridgeApp extends Homey.App {
       this._updateDeviceCapability('connection_status', this._isConnected ? 'connected' : 'disconnected');
 
     } catch (error) {
-      this.error('Error updating UI:', error);
+      this.error('[PROTECTED] Error updating UI:', error);
+      // Don't let UI errors crash the app
     }
   }
 
@@ -479,7 +590,14 @@ class AISBridgeApp extends Homey.App {
         vessel.status = statusResult.status;
         vessel.isWaiting = statusResult.isWaiting;
         vessel.isApproaching = statusResult.isApproaching;
-        vessel.etaMinutes = statusResult.etaMinutes;
+      }
+      
+      // CRITICAL FIX: Always recalculate ETA for relevant statuses
+      // ETA can change even if status doesn't change
+      if (['approaching', 'waiting', 'en-route', 'stallbacka-waiting'].includes(vessel.status)) {
+        vessel.etaMinutes = this.statusService.calculateETA(vessel, proximityData);
+      } else {
+        vessel.etaMinutes = null;
 
         this.debug(`🔄 [STATUS_UPDATE] ${vessel.mmsi}: ${statusResult.status} (${statusResult.statusReason})`);
       }
@@ -555,17 +673,20 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
-   * Update device capability for all devices
+   * Update device capability for all devices (with crash protection)
    * @private
    */
   _updateDeviceCapability(capability, value) {
     for (const device of this._devices) {
       try {
-        device.setCapabilityValue(capability, value).catch((err) => {
-          this.error(`Error setting ${capability} for device ${device.getName()}:`, err);
-        });
+        if (device && device.setCapabilityValue) {
+          device.setCapabilityValue(capability, value).catch((err) => {
+            this.error(`[PROTECTED] Error setting ${capability} for device ${device.getName ? device.getName() : 'unknown'}:`, err);
+          });
+        }
       } catch (error) {
-        this.error(`Error updating capability ${capability}:`, error);
+        this.error(`[PROTECTED] Error updating capability ${capability}:`, error);
+        // Continue with next device
       }
     }
   }
@@ -581,12 +702,25 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
-   * Trigger boat near flow card
+   * Trigger boat near flow card (with deduplication)
    * @private
    */
   async _triggerBoatNearFlow(vessel) {
     try {
       if (!this._boatNearTrigger) {
+        return;
+      }
+      
+      // Dedupe key: vessel+bridge combination
+      const key = `${vessel.mmsi}:${vessel.targetBridge || 'unknown'}`;
+      const lastTriggerTime = this._lastBoatNearByKey.get(key) || 0;
+      const now = Date.now();
+      const { BOAT_NEAR_DEDUPE_MINUTES = 10 } = require('./lib/constants');
+      const dedupeMs = BOAT_NEAR_DEDUPE_MINUTES * 60 * 1000;
+      
+      // Skip if triggered recently for this vessel+bridge combo
+      if (now - lastTriggerTime < dedupeMs) {
+        this.debug(`🚫 [FLOW_TRIGGER] Skipping duplicate boat_near for ${key} (last: ${Math.round((now - lastTriggerTime) / 1000)}s ago)`);
         return;
       }
 
@@ -598,7 +732,8 @@ class AISBridgeApp extends Homey.App {
       };
 
       await this._boatNearTrigger.trigger(null, tokens);
-      this.debug(`🎯 [FLOW_TRIGGER] boat_near triggered for ${vessel.mmsi}`);
+      this._lastBoatNearByKey.set(key, now);
+      this.debug(`🎯 [FLOW_TRIGGER] boat_near triggered for ${vessel.mmsi} approaching ${vessel.targetBridge}`);
 
     } catch (error) {
       this.error('Error triggering boat near flow:', error);
@@ -620,7 +755,7 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
-   * Initialize global flow token
+   * Initialize global flow token (with crash protection)
    * @private
    */
   async _initGlobalToken() {
@@ -633,12 +768,13 @@ class AISBridgeApp extends Homey.App {
       }
       await this._globalBridgeTextToken.setValue(this._lastBridgeText);
     } catch (error) {
-      this.error('Error initializing global token:', error);
+      this.error('[NON-FATAL] Error initializing global token:', error);
+      // Global tokens are optional - don't crash
     }
   }
 
   /**
-   * Setup flow cards
+   * Setup flow cards (with crash protection)
    * @private
    */
   async _setupFlowCards() {
@@ -649,14 +785,20 @@ class AISBridgeApp extends Homey.App {
       // Condition cards
       const boatRecentCondition = this.homey.flow.getConditionCard('boat_at_bridge');
       boatRecentCondition.registerRunListener(async (args) => {
-        const bridgeName = args.bridge;
-        const vessels = this.vesselDataService.getVesselsByTargetBridge(bridgeName);
-        return vessels.some((vessel) => ['approaching', 'waiting', 'under-bridge'].includes(vessel.status));
+        try {
+          const bridgeName = args.bridge;
+          const vessels = this.vesselDataService.getVesselsByTargetBridge(bridgeName);
+          return vessels.some((vessel) => ['approaching', 'waiting', 'under-bridge'].includes(vessel.status));
+        } catch (error) {
+          this.error('[PROTECTED] Error in flow condition:', error);
+          return false; // Safe default
+        }
       });
 
       this.log('✅ Flow cards configured');
     } catch (error) {
-      this.error('Error setting up flow cards:', error);
+      this.error('[NON-FATAL] Error setting up flow cards:', error);
+      // Flow cards are optional - don't crash the app
     }
   }
 
@@ -729,8 +871,9 @@ class AISBridgeApp extends Homey.App {
    * @private
    */
   _setupMonitoring() {
+    // CRITICAL FIX: Track interval for cleanup
     // Monitor vessel count
-    setInterval(() => {
+    this._monitoringInterval = setInterval(() => {
       const vesselCount = this.vesselDataService.getVesselCount();
       if (vesselCount > 0) {
         this.debug(`📊 [MONITORING] Tracking ${vesselCount} vessels`);
@@ -744,6 +887,27 @@ class AISBridgeApp extends Homey.App {
   async onUninit() {
     this.log('🛑 AIS Bridge shutting down...');
 
+    // CRITICAL FIX: Cleanup all timers to prevent memory leaks
+
+    // Clear UI update timer
+    if (this._uiUpdateTimer) {
+      clearTimeout(this._uiUpdateTimer);
+      this._uiUpdateTimer = null;
+    }
+
+    // Clear all vessel removal timers
+    for (const [mmsi, timerId] of this._vesselRemovalTimers) {
+      clearTimeout(timerId);
+      this.debug(`🧹 [CLEANUP] Cleared removal timer for vessel ${mmsi}`);
+    }
+    this._vesselRemovalTimers.clear();
+
+    // Clear monitoring interval
+    if (this._monitoringInterval) {
+      clearInterval(this._monitoringInterval);
+      this._monitoringInterval = null;
+    }
+
     // Disconnect AIS stream
     if (this.aisClient) {
       this.aisClient.disconnect();
@@ -754,7 +918,7 @@ class AISBridgeApp extends Homey.App {
       this.homey.settings.off('set', this._onSettingsChanged);
     }
 
-    this.log('✅ AIS Bridge shutdown complete');
+    this.log('✅ AIS Bridge shutdown complete with proper cleanup');
   }
 
   /**
