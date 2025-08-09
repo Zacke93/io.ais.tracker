@@ -201,7 +201,7 @@ class AISBridgeApp extends Homey.App {
       // Update UI if needed
       this._updateUIIfNeeded(vessel, oldVessel);
     } catch (error) {
-      this.error(`[PROTECTED] Error handling vessel update for ${mmsi}:`, error);
+      this.error(`Error handling vessel update for ${mmsi}:`, error);
       // Continue processing other vessels
     }
   }
@@ -314,7 +314,7 @@ class AISBridgeApp extends Homey.App {
       this.debug(`🎯 [POSITION_ANALYSIS] ${vessel.mmsi}: status=${vessel.status}, distance=${proximityData.nearestDistance.toFixed(0)}m, ETA=${etaDisplayText}`);
 
     } catch (error) {
-      this.error(`[PROTECTED] Error analyzing vessel position for ${vessel.mmsi}:`, error);
+      this.error(`Error analyzing vessel position for ${vessel.mmsi}:`, error);
       // Continue with next vessel - don't crash
     }
   }
@@ -459,7 +459,7 @@ class AISBridgeApp extends Homey.App {
       }
 
     } catch (error) {
-      this.error('[PROTECTED] Error processing AIS message:', error);
+      this.error('Error processing AIS message:', error);
       // Continue processing other messages
     }
   }
@@ -568,7 +568,7 @@ class AISBridgeApp extends Homey.App {
       this._updateDeviceCapability('connection_status', this._isConnected ? 'connected' : 'disconnected');
 
     } catch (error) {
-      this.error('[PROTECTED] Error updating UI:', error);
+      this.error('Error updating UI:', error);
       // Don't let UI errors crash the app
     }
   }
@@ -681,11 +681,11 @@ class AISBridgeApp extends Homey.App {
       try {
         if (device && device.setCapabilityValue) {
           device.setCapabilityValue(capability, value).catch((err) => {
-            this.error(`[PROTECTED] Error setting ${capability} for device ${device.getName ? device.getName() : 'unknown'}:`, err);
+            this.error(`Error setting ${capability} for device ${device.getName ? device.getName() : 'unknown'}:`, err);
           });
         }
       } catch (error) {
-        this.error(`[PROTECTED] Error updating capability ${capability}:`, error);
+        this.error(`Error updating capability ${capability}:`, error);
         // Continue with next device
       }
     }
@@ -707,12 +707,13 @@ class AISBridgeApp extends Homey.App {
    */
   async _triggerBoatNearFlow(vessel) {
     try {
-      if (!this._boatNearTrigger) {
+      if (!this._boatNearTrigger || !vessel.targetBridge) {
+        // Skip trigger if no flow card or no target bridge
         return;
       }
       
       // Dedupe key: vessel+bridge combination
-      const key = `${vessel.mmsi}:${vessel.targetBridge || 'unknown'}`;
+      const key = `${vessel.mmsi}:${vessel.targetBridge}`;
       const lastTriggerTime = this._lastBoatNearByKey.get(key) || 0;
       const now = Date.now();
       const { BOAT_NEAR_DEDUPE_MINUTES = 10 } = require('./lib/constants');
@@ -726,7 +727,7 @@ class AISBridgeApp extends Homey.App {
 
       const tokens = {
         boat_name: vessel.name || 'Unknown',
-        bridge_name: vessel.targetBridge || 'Unknown',
+        bridge_name: vessel.targetBridge,
         direction: this._getDirectionString(vessel),
         eta_minutes: Math.round(vessel.etaMinutes || 0),
       };
@@ -768,7 +769,7 @@ class AISBridgeApp extends Homey.App {
       }
       await this._globalBridgeTextToken.setValue(this._lastBridgeText);
     } catch (error) {
-      this.error('[NON-FATAL] Error initializing global token:', error);
+      this.error('Error initializing global token:', error);
       // Global tokens are optional - don't crash
     }
   }
@@ -790,14 +791,14 @@ class AISBridgeApp extends Homey.App {
           const vessels = this.vesselDataService.getVesselsByTargetBridge(bridgeName);
           return vessels.some((vessel) => ['approaching', 'waiting', 'under-bridge'].includes(vessel.status));
         } catch (error) {
-          this.error('[PROTECTED] Error in flow condition:', error);
+          this.error('Error in flow condition:', error);
           return false; // Safe default
         }
       });
 
       this.log('✅ Flow cards configured');
     } catch (error) {
-      this.error('[NON-FATAL] Error setting up flow cards:', error);
+      this.error('Error setting up flow cards:', error);
       // Flow cards are optional - don't crash the app
     }
   }
