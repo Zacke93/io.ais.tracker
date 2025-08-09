@@ -1,6 +1,58 @@
 # Recent Changes - AIS Bridge App
 
-## 2025-08-09 (SESSION 2) - DEDUPE SYSTEM REFACTORING & KODFÖRBÄTTRINGAR ✅ (LATEST UPDATE)
+## 2025-08-09 (SESSION 3) - KRITISKA BUGFIXAR FRÅN KODGRANSKNING ✅ (LATEST UPDATE)
+
+### **🔧 FIXADE BLOCKERS FRÅN FEEDBACK:**
+
+Efter kritisk kodgranskning har följande allvarliga buggar åtgärdats:
+
+#### **1. alarm_generic mismatch-fel (FIXAD):**
+- **Problem**: Strängjämförelse failade pga olika text mellan app.js och BridgeTextService
+- **Konsekvens**: alarm_generic blev fel när inga båtar fanns
+- **Fix**: Baserar nu på `relevantVessels.length > 0` istället för strängjämförelse
+
+#### **2. "Passed final bridge" UI-bugg (FIXAD):**
+- **Problem**: Log sa "15s" men timer var 60s + UI uppdaterades inte direkt
+- **Konsekvens**: "Precis passerat" visades inte direkt efter passage
+- **Fix**: Log säger nu korrekt "60s" + `_updateUI()` anropas direkt
+
+#### **3. Dedupe-nycklar memory leak (FIXAD):**
+- **Problem**: `_triggeredBoatNearKeys` Set rensades aldrig när båtar togs bort
+- **Konsekvens**: Memory leak över tid
+- **Fix**: `_onVesselRemoved()` anropar nu `_clearBoatNearTriggers()`
+
+#### **4. Dubbel "disconnected" event (FIXAD):**
+- **Problem**: Både `disconnect()` och `_onClose()` emittade 'disconnected'
+- **Konsekvens**: Dubbla events när WebSocket stängdes
+- **Fix**: Endast `_onClose()` emittar nu (ws.close() triggar close event)
+
+#### **5. "Alla väntar vid mellanbro" → "okänd målbro" (FIXAD):**
+- **Problem**: Endast count skickades till `_generateWaitingMessage()`, inte vessel data
+- **Konsekvens**: Target bridge kunde inte deriveras → "okänd målbro"
+- **Fix**: Skickar nu `{ ...priorityVessel, count }` med all data
+
+#### **6. Passage-fönster bridge ID/namn-bugg (FIXAD):**
+- **Problem**: `lastPassedBridge` (namn) skickades direkt till `getDistanceBetweenBridges()` som förväntar ID
+- **Konsekvens**: Gap-beräkning failade, fel passage-timing
+- **Fix**: Konverterar både lastPassedBridge och targetBridge till IDs först
+
+#### **7. distanceToCurrent felberäkning (FIXAD):**
+- **Problem**: Använd alltid `nearestDistance` även när currentBridge != nearestBridge
+- **Konsekvens**: Fel distans visades i bridge text
+- **Fix**: Slår upp korrekt distans från `proximityData.bridgeDistances[currentBridgeId]`
+
+### **🧹 BORTTAGEN DEAD CODE:**
+- **_calculateInitialTargetBridge()** - Definierad men aldrig använd
+- **_updateConnectionStatus()** - Definierad men aldrig använd
+
+### **✅ LINT STATUS:**
+- **Huvudkod**: 0 fel, 0 varningar (helt perfekt!)
+- **Testfiler**: 12 fel, 5 varningar (ej kritiska)
+- Auto-fix löste: trailing spaces, multiple empty lines
+
+---
+
+## 2025-08-09 (SESSION 2) - DEDUPE SYSTEM REFACTORING & KODFÖRBÄTTRINGAR ✅
 
 ### **🔧 BOAT_NEAR TRIGGER DEDUPE - ÄNDRAT FRÅN TIDSBASERAD TILL TILLSTÅNDSBASERAD:**
 

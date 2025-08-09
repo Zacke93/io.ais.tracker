@@ -220,6 +220,9 @@ class AISBridgeApp extends Homey.App {
       this.debug(`🧹 [CLEANUP] Cleared removal timer for ${mmsi}`);
     }
 
+    // FIX: Clear boat_near dedupe keys when vessel is removed
+    this._clearBoatNearTriggers(vessel || { mmsi });
+
     // Clear any UI references
     await this._clearBridgeText(mmsi);
 
@@ -254,7 +257,8 @@ class AISBridgeApp extends Homey.App {
     // Check if vessel has passed its final target bridge
     if (newStatus === 'passed' && vessel.targetBridge) {
       if (this._hasPassedFinalTargetBridge(vessel)) {
-        this.debug(`🏁 [FINAL_BRIDGE_PASSED] Vessel ${vessel.mmsi} passed final target bridge ${vessel.targetBridge} - scheduling removal in 15s`);
+        // FIX: Correct log message to match actual timeout (60s not 15s)
+        this.debug(`🏁 [FINAL_BRIDGE_PASSED] Vessel ${vessel.mmsi} passed final target bridge ${vessel.targetBridge} - scheduling removal in 60s`);
 
         // CRITICAL FIX: Track timer for cleanup
         // Clear any existing timer for this vessel first
@@ -270,7 +274,10 @@ class AISBridgeApp extends Homey.App {
         }, 60000); // 60 seconds per Bridge Text Format V2.0 specification
 
         this._vesselRemovalTimers.set(vessel.mmsi, timerId);
-        return; // Don't update UI yet, let "precis passerat" show first
+
+        // FIX: Update UI immediately to show "precis passerat" message
+        this._updateUI();
+        return;
       }
     }
 
@@ -342,23 +349,6 @@ class AISBridgeApp extends Homey.App {
     // If vessel doesn't have target bridge, it means VesselDataService filtered it out (e.g., too slow, anchored)
     // Don't override that decision here
     this.debug(`ℹ️ [TARGET_BRIDGE] VesselDataService didn't assign target bridge to ${vessel.mmsi} - respecting that decision`);
-  }
-
-  /**
-   * Calculate initial target bridge based on vessel position and COG
-   * @private
-   */
-  _calculateInitialTargetBridge(vessel) {
-    // FIXED: Assign target bridge based on which target bridge vessel will encounter FIRST
-    // Bridge order (south to north): Klaffbron → Stridsbergsbron
-
-    if (vessel.cog >= COG_DIRECTIONS.NORTH_MIN || vessel.cog <= COG_DIRECTIONS.NORTH_MAX) {
-      // Northbound (from south): Will encounter Stridsbergsbron first
-      return 'Stridsbergsbron';
-    }
-
-    // Southbound (from north): Will encounter Klaffbron first
-    return 'Klaffbron';
   }
 
   /**
@@ -577,8 +567,8 @@ class AISBridgeApp extends Homey.App {
       this._updateDeviceCapability('connection_status', this._isConnected ? 'connected' : 'disconnected');
 
       // Update alarm_generic - active when boats are present
-      const defaultMessage = 'Inga båtar i närheten av Stridsbergsbron eller Klaffbron';
-      const hasActiveBoats = bridgeText && bridgeText !== defaultMessage;
+      // FIX: Base on vessel count instead of string comparison
+      const hasActiveBoats = relevantVessels.length > 0;
       this._updateDeviceCapability('alarm_generic', hasActiveBoats);
 
       if (hasActiveBoats) {
@@ -650,6 +640,12 @@ class AISBridgeApp extends Homey.App {
         }
       }
 
+      // FIX: Calculate correct distance to currentBridge
+      const currentBridgeId = currentBridge ? this.bridgeRegistry.findBridgeIdByName(currentBridge) : null;
+      const distToCurrent = currentBridgeId
+        ? (proximityData.bridgeDistances[currentBridgeId] ?? proximityData.nearestDistance)
+        : proximityData.nearestDistance;
+
       return {
         mmsi: vessel.mmsi,
         name: vessel.name,
@@ -663,7 +659,7 @@ class AISBridgeApp extends Homey.App {
         lastPassedBridge: vessel.lastPassedBridge,
         lastPassedBridgeTime: vessel.lastPassedBridgeTime,
         distance: proximityData.nearestDistance,
-        distanceToCurrent: proximityData.nearestDistance,
+        distanceToCurrent: distToCurrent,
         sog: vessel.sog,
         cog: vessel.cog, // CRITICAL: Add COG for target bridge derivation
         passedBridges: vessel.passedBridges || [],
@@ -1039,19 +1035,6 @@ class AISBridgeApp extends Homey.App {
     }
 
     this.log('✅ AIS Bridge shutdown complete with proper cleanup');
-  }
-
-  /**
-   * Update connection status on all devices
-   * @private
-   */
-  _updateConnectionStatus(connected) {
-    for (const device of this._devices) {
-      if (device.setCapabilityValue) {
-        device.setCapabilityValue('connection_status', connected ? 'connected' : 'disconnected')
-          .catch((err) => this.error('Failed to update connection status:', err));
-      }
-    }
   }
 
   /**
