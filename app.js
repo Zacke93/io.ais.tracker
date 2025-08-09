@@ -42,6 +42,7 @@ class AISBridgeApp extends Homey.App {
     this._devices = new Set();
     this._lastBridgeText = '';
     this._lastBridgeAlarm = false;
+    this._lastConnectionStatus = 'disconnected'; // Track last connection status to avoid redundant updates
     this._eventsHooked = false;
 
     // Boat near trigger deduplication - tracks which vessels have been triggered for each bridge
@@ -444,8 +445,9 @@ class AISBridgeApp extends Homey.App {
         return;
       }
 
-      // Update vessel in data service
-      const vessel = this.vesselDataService.updateVessel(message.mmsi, {
+      // Update vessel in data service (normalize MMSI to string)
+      const mmsiStr = String(message.mmsi);
+      const vessel = this.vesselDataService.updateVessel(mmsiStr, {
         lat: message.lat,
         lon: message.lon,
         sog: message.sog || 0,
@@ -473,7 +475,8 @@ class AISBridgeApp extends Homey.App {
       return false;
     }
 
-    if (!message.mmsi || typeof message.mmsi !== 'string') {
+    // FIX: Accept both string and number MMSI (common in AIS data)
+    if (!message.mmsi || (typeof message.mmsi !== 'string' && typeof message.mmsi !== 'number')) {
       this.debug('⚠️ [AIS_VALIDATION] Missing or invalid MMSI');
       return false;
     }
@@ -563,16 +566,28 @@ class AISBridgeApp extends Homey.App {
         this.debug(`📱 [UI_UPDATE] Bridge text updated: "${bridgeText}"`);
       }
 
-      // Update connection status
-      this._updateDeviceCapability('connection_status', this._isConnected ? 'connected' : 'disconnected');
+      // Update connection status only if changed
+      const currentConnectionStatus = this._isConnected ? 'connected' : 'disconnected';
+      if (currentConnectionStatus !== this._lastConnectionStatus) {
+        this._lastConnectionStatus = currentConnectionStatus;
+        this._updateDeviceCapability('connection_status', currentConnectionStatus);
+        this.debug(`🌐 [CONNECTION_STATUS] Changed to: ${currentConnectionStatus}`);
+      }
 
       // Update alarm_generic - active when boats are present
       // FIX: Base on vessel count instead of string comparison
       const hasActiveBoats = relevantVessels.length > 0;
-      this._updateDeviceCapability('alarm_generic', hasActiveBoats);
 
-      if (hasActiveBoats) {
-        this.debug(`🚨 [ALARM_GENERIC] Active - boats present: "${bridgeText}"`);
+      // Only update alarm_generic capability if value has changed
+      if (hasActiveBoats !== this._lastBridgeAlarm) {
+        this._lastBridgeAlarm = hasActiveBoats;
+        this._updateDeviceCapability('alarm_generic', hasActiveBoats);
+
+        if (hasActiveBoats) {
+          this.debug(`🚨 [ALARM_GENERIC] Activated - boats present: "${bridgeText}"`);
+        } else {
+          this.debug('✅ [ALARM_GENERIC] Deactivated - no boats present');
+        }
       }
 
     } catch (error) {
@@ -631,7 +646,7 @@ class AISBridgeApp extends Homey.App {
         const bridgeName = proximityData.nearestBridge.name;
         const hasRecentlyPassedThisBridge = vessel.lastPassedBridge === bridgeName
           && vessel.lastPassedBridgeTime
-          && (Date.now() - vessel.lastPassedBridgeTime) < 3 * 60 * 1000; // 3 minutes
+          && (Date.now() - vessel.lastPassedBridgeTime) < 60 * 1000; // 60 seconds (matches "precis passerat" window)
 
         if (!hasRecentlyPassedThisBridge) {
           currentBridge = bridgeName;
@@ -729,7 +744,8 @@ class AISBridgeApp extends Homey.App {
 
       // CRITICAL: Check if vessel is within 300m of target bridge
       const proximityData = this.proximityService.analyzeVesselProximity(vessel);
-      const targetBridgeData = proximityData.bridges.find((b) => b.name === vessel.targetBridge);
+      const bridges = proximityData.bridges || []; // Safety: ensure array exists
+      const targetBridgeData = bridges.find((b) => b.name === vessel.targetBridge);
 
       if (!targetBridgeData || targetBridgeData.distance > 300) {
         // Vessel is not within 300m of target bridge, skip trigger
@@ -750,7 +766,7 @@ class AISBridgeApp extends Homey.App {
         boat_name: vessel.name || 'Unknown',
         bridge_name: vessel.targetBridge,
         direction: this._getDirectionString(vessel),
-        eta_minutes: Math.round(vessel.etaMinutes || 0),
+        eta_minutes: Number.isFinite(vessel.etaMinutes) ? Math.round(vessel.etaMinutes) : null, // FIX: Return null instead of 0 for missing ETA
       };
 
       // Trigger for specific bridge flows
@@ -785,7 +801,8 @@ class AISBridgeApp extends Homey.App {
 
       // Check if vessel is within 300m of ANY bridge
       const proximityData = this.proximityService.analyzeVesselProximity(vessel);
-      const nearbyBridge = proximityData.bridges.find((b) => b.distance <= 300);
+      const bridges = proximityData.bridges || []; // Safety: ensure array exists
+      const nearbyBridge = bridges.find((b) => b.distance <= 300);
 
       if (!nearbyBridge) {
         return;
@@ -802,7 +819,7 @@ class AISBridgeApp extends Homey.App {
         boat_name: vessel.name || 'Unknown',
         bridge_name: nearbyBridge.name,
         direction: this._getDirectionString(vessel),
-        eta_minutes: Math.round(vessel.etaMinutes || 0),
+        eta_minutes: Number.isFinite(vessel.etaMinutes) ? Math.round(vessel.etaMinutes) : null, // FIX: Return null instead of 0 for missing ETA
       };
 
       // Trigger with special args for "any" bridge flows
@@ -839,7 +856,8 @@ class AISBridgeApp extends Homey.App {
    * @private
    */
   _getDirectionString(vessel) {
-    if (!vessel.cog) return 'unknown';
+    // FIX: Handle COG=0 correctly (0° is valid north heading)
+    if (vessel.cog == null || !Number.isFinite(vessel.cog)) return 'unknown';
 
     if (vessel.cog >= COG_DIRECTIONS.NORTH_MIN || vessel.cog <= COG_DIRECTIONS.NORTH_MAX) {
       return 'northbound';
@@ -874,7 +892,8 @@ class AISBridgeApp extends Homey.App {
   async _setupFlowCards() {
     try {
       // Trigger cards
-      this._boatNearTrigger = this.homey.flow.getDeviceTriggerCard('boat_near');
+      // FIX: Use getTriggerCard for app-wide triggers (not device-specific)
+      this._boatNearTrigger = this.homey.flow.getTriggerCard('boat_near');
 
       // Condition cards
       const boatRecentCondition = this.homey.flow.getConditionCard('boat_at_bridge');
@@ -901,7 +920,8 @@ class AISBridgeApp extends Homey.App {
               stallbackabron: 'Stallbackabron',
             };
             const actualBridgeName = bridgeNameMap[bridgeName] || bridgeName;
-            const bridgeData = proximityData.bridges.find((b) => b.name === actualBridgeName);
+            const bridges = proximityData.bridges || []; // Safety: ensure array exists
+            const bridgeData = bridges.find((b) => b.name === actualBridgeName);
             return bridgeData && bridgeData.distance <= 300;
 
           });
