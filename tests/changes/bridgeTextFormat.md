@@ -74,10 +74,13 @@
 
 ### 3. Broöppning pågår (under-bridge status)
 
+**VIKTIGT GRUPPBETEENDE:** När EN båt har status 'under-bridge' (<50m från bro) visas "Broöppning pågår" för HELA gruppen mot samma målbro. Detta är avsiktligt för att prioritera den mest kritiska statusen för användarens förståelse.
+
 **Målbroar (<50m från bro):**
 
 - **Standard**: "Broöppning pågår vid [målbro]"
 - **Multi-vessel**: "Broöppning pågår vid [målbro], ytterligare 2 båtar på väg"
+- **Gruppbeteende**: Även båtar som är längre bort (t.ex. 146m, status=waiting) inkluderas i "ytterligare X båtar" när minst en båt är under-bridge
 
 **Mellanbroar (<50m från bro):**
 

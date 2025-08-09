@@ -28,12 +28,12 @@ class AISBridgeApp extends Homey.App {
       this.error('[FATAL] Uncaught exception:', err);
       // Log but don't exit - let process continue if possible
     });
-    
+
     process.on('unhandledRejection', (reason, promise) => {
       this.error('[FATAL] Unhandled rejection at:', promise, 'reason:', reason);
-      // Log but don't exit - let process continue if possible  
+      // Log but don't exit - let process continue if possible
     });
-    
+
     this.log('AIS Bridge starting with modular architecture v2.0');
 
     // Initialize settings and state
@@ -43,9 +43,9 @@ class AISBridgeApp extends Homey.App {
     this._lastBridgeText = '';
     this._lastBridgeAlarm = false;
     this._eventsHooked = false;
-    
-    // Boat near trigger deduplication
-    this._lastBoatNearByKey = new Map(); // Track last trigger time per vessel+bridge
+
+    // Boat near trigger deduplication - tracks which vessels have been triggered for each bridge
+    this._triggeredBoatNearKeys = new Set(); // Track vessel+bridge combinations that have been triggered
 
     // UI update debouncing to prevent double bridge text changes
     this._uiUpdateTimer = null;
@@ -177,7 +177,7 @@ class AISBridgeApp extends Homey.App {
 
     // Analyze initial position
     await this._analyzeVesselPosition(vessel);
-    
+
     // Trigger boat_near if vessel already has a target bridge assigned
     if (vessel.targetBridge) {
       await this._triggerBoatNearFlow(vessel);
@@ -236,10 +236,19 @@ class AISBridgeApp extends Homey.App {
   }) {
     this.debug(`🔄 [STATUS_CHANGED] Vessel ${vessel.mmsi}: ${oldStatus} → ${newStatus} (${reason})`);
 
-    // Trigger flow cards for important status changes (expanded conditions)
-    const triggerStatuses = ['approaching', 'waiting', 'under-bridge', 'stallbacka-waiting'];
-    if (triggerStatuses.includes(newStatus)) {
+    // Trigger flow cards when vessel enters 300m zone
+    // Only trigger on 'waiting' status (which is set at 300m)
+    if (newStatus === 'waiting' && oldStatus !== 'waiting') {
       await this._triggerBoatNearFlow(vessel);
+      // Also trigger for "any" bridge
+      await this._triggerBoatNearFlowForAny(vessel);
+    }
+
+    // Clear triggers when vessel leaves the area (no longer waiting/approaching/under-bridge)
+    if (oldStatus === 'waiting' || oldStatus === 'approaching' || oldStatus === 'under-bridge') {
+      if (newStatus === 'en-route' || newStatus === 'passed') {
+        this._clearBoatNearTriggers(vessel);
+      }
     }
 
     // Check if vessel has passed its final target bridge
@@ -551,7 +560,7 @@ class AISBridgeApp extends Homey.App {
       if (bridgeText !== this._lastBridgeText) {
         this._lastBridgeText = bridgeText;
         this._updateDeviceCapability('bridge_text', bridgeText);
-        
+
         // CRITICAL FIX: Also update global token for flows
         try {
           if (this._globalBridgeTextToken) {
@@ -560,12 +569,21 @@ class AISBridgeApp extends Homey.App {
         } catch (error) {
           this.error('[GLOBAL_TOKEN_ERROR] Failed to update global bridge text token:', error);
         }
-        
+
         this.debug(`📱 [UI_UPDATE] Bridge text updated: "${bridgeText}"`);
       }
 
       // Update connection status
       this._updateDeviceCapability('connection_status', this._isConnected ? 'connected' : 'disconnected');
+
+      // Update alarm_generic - active when boats are present
+      const defaultMessage = 'Inga båtar i närheten av Stridsbergsbron eller Klaffbron';
+      const hasActiveBoats = bridgeText && bridgeText !== defaultMessage;
+      this._updateDeviceCapability('alarm_generic', hasActiveBoats);
+
+      if (hasActiveBoats) {
+        this.debug(`🚨 [ALARM_GENERIC] Active - boats present: "${bridgeText}"`);
+      }
 
     } catch (error) {
       this.error('Error updating UI:', error);
@@ -591,7 +609,7 @@ class AISBridgeApp extends Homey.App {
         vessel.isWaiting = statusResult.isWaiting;
         vessel.isApproaching = statusResult.isApproaching;
       }
-      
+
       // CRITICAL FIX: Always recalculate ETA for relevant statuses
       // ETA can change even if status doesn't change
       if (['approaching', 'waiting', 'en-route', 'stallbacka-waiting'].includes(vessel.status)) {
@@ -647,6 +665,7 @@ class AISBridgeApp extends Homey.App {
         distance: proximityData.nearestDistance,
         distanceToCurrent: proximityData.nearestDistance,
         sog: vessel.sog,
+        cog: vessel.cog, // CRITICAL: Add COG for target bridge derivation
         passedBridges: vessel.passedBridges || [],
         // ADD: Position data needed for Stallbackabron distance calculations
         lat: vessel.lat,
@@ -711,17 +730,23 @@ class AISBridgeApp extends Homey.App {
         // Skip trigger if no flow card or no target bridge
         return;
       }
-      
+
+      // CRITICAL: Check if vessel is within 300m of target bridge
+      const proximityData = this.proximityService.analyzeVesselProximity(vessel);
+      const targetBridgeData = proximityData.bridges.find((b) => b.name === vessel.targetBridge);
+
+      if (!targetBridgeData || targetBridgeData.distance > 300) {
+        // Vessel is not within 300m of target bridge, skip trigger
+        this.debug(`🚫 [FLOW_TRIGGER] Skipping boat_near - ${vessel.mmsi} is ${targetBridgeData ? Math.round(targetBridgeData.distance) : '?'}m from ${vessel.targetBridge} (>300m)`);
+        return;
+      }
+
       // Dedupe key: vessel+bridge combination
       const key = `${vessel.mmsi}:${vessel.targetBridge}`;
-      const lastTriggerTime = this._lastBoatNearByKey.get(key) || 0;
-      const now = Date.now();
-      const { BOAT_NEAR_DEDUPE_MINUTES = 10 } = require('./lib/constants');
-      const dedupeMs = BOAT_NEAR_DEDUPE_MINUTES * 60 * 1000;
-      
-      // Skip if triggered recently for this vessel+bridge combo
-      if (now - lastTriggerTime < dedupeMs) {
-        this.debug(`🚫 [FLOW_TRIGGER] Skipping duplicate boat_near for ${key} (last: ${Math.round((now - lastTriggerTime) / 1000)}s ago)`);
+
+      // Skip if already triggered for this vessel+bridge combo
+      if (this._triggeredBoatNearKeys.has(key)) {
+        this.debug(`🚫 [FLOW_TRIGGER] Already triggered boat_near for ${key} - waiting for vessel to leave area`);
         return;
       }
 
@@ -732,12 +757,84 @@ class AISBridgeApp extends Homey.App {
         eta_minutes: Math.round(vessel.etaMinutes || 0),
       };
 
-      await this._boatNearTrigger.trigger(null, tokens);
-      this._lastBoatNearByKey.set(key, now);
-      this.debug(`🎯 [FLOW_TRIGGER] boat_near triggered for ${vessel.mmsi} approaching ${vessel.targetBridge}`);
+      // Trigger for specific bridge flows
+      const bridgeIdMap = {
+        Olidebron: 'olidebron',
+        Klaffbron: 'klaffbron',
+        Järnvägsbron: 'jarnvagsbron',
+        Stridsbergsbron: 'stridsbergsbron',
+        Stallbackabron: 'stallbackabron',
+      };
+      const bridgeId = bridgeIdMap[vessel.targetBridge];
+      if (bridgeId) {
+        await this._boatNearTrigger.trigger({ bridge: bridgeId }, tokens);
+      }
+      this._triggeredBoatNearKeys.add(key);
+      this.debug(`🎯 [FLOW_TRIGGER] boat_near triggered for ${vessel.mmsi} at ${Math.round(targetBridgeData.distance)}m from ${vessel.targetBridge}`);
 
     } catch (error) {
       this.error('Error triggering boat near flow:', error);
+    }
+  }
+
+  /**
+   * Trigger boat near flow card for "any" bridge
+   * @private
+   */
+  async _triggerBoatNearFlowForAny(vessel) {
+    try {
+      if (!this._boatNearTrigger) {
+        return;
+      }
+
+      // Check if vessel is within 300m of ANY bridge
+      const proximityData = this.proximityService.analyzeVesselProximity(vessel);
+      const nearbyBridge = proximityData.bridges.find((b) => b.distance <= 300);
+
+      if (!nearbyBridge) {
+        return;
+      }
+
+      // Dedupe key for "any" bridge
+      const key = `${vessel.mmsi}:any`;
+
+      if (this._triggeredBoatNearKeys.has(key)) {
+        return;
+      }
+
+      const tokens = {
+        boat_name: vessel.name || 'Unknown',
+        bridge_name: nearbyBridge.name,
+        direction: this._getDirectionString(vessel),
+        eta_minutes: Math.round(vessel.etaMinutes || 0),
+      };
+
+      // Trigger with special args for "any" bridge flows
+      await this._boatNearTrigger.trigger({ bridge: 'any' }, tokens);
+      this._triggeredBoatNearKeys.add(key);
+      this.debug(`🎯 [FLOW_TRIGGER] boat_near (any) triggered for ${vessel.mmsi} at ${Math.round(nearbyBridge.distance)}m from ${nearbyBridge.name}`);
+
+    } catch (error) {
+      this.error('Error triggering boat near flow for any:', error);
+    }
+  }
+
+  /**
+   * Clear boat near triggers when vessel leaves area or changes status
+   * @private
+   */
+  _clearBoatNearTriggers(vessel) {
+    // Clear all trigger keys for this vessel
+    const keysToRemove = [];
+    for (const key of this._triggeredBoatNearKeys) {
+      if (key.startsWith(`${vessel.mmsi}:`)) {
+        keysToRemove.push(key);
+      }
+    }
+
+    if (keysToRemove.length > 0) {
+      keysToRemove.forEach((key) => this._triggeredBoatNearKeys.delete(key));
+      this.debug(`🧹 [TRIGGER_CLEAR] Cleared ${keysToRemove.length} boat_near triggers for vessel ${vessel.mmsi}`);
     }
   }
 
@@ -788,8 +885,30 @@ class AISBridgeApp extends Homey.App {
       boatRecentCondition.registerRunListener(async (args) => {
         try {
           const bridgeName = args.bridge;
-          const vessels = this.vesselDataService.getVesselsByTargetBridge(bridgeName);
-          return vessels.some((vessel) => ['approaching', 'waiting', 'under-bridge'].includes(vessel.status));
+          const allVessels = this.vesselDataService.getAllVessels();
+
+          // Check if any vessel is within 300m of the specified bridge
+          return allVessels.some((vessel) => {
+            const proximityData = this.proximityService.analyzeVesselProximity(vessel);
+
+            if (bridgeName === 'any') {
+              // Check if vessel is within 300m of ANY bridge
+              return proximityData.bridges.some((b) => b.distance <= 300);
+            }
+            // Check if vessel is within 300m of SPECIFIC bridge
+            // Convert bridge ID to proper name
+            const bridgeNameMap = {
+              olidebron: 'Olidebron',
+              klaffbron: 'Klaffbron',
+              jarnvagsbron: 'Järnvägsbron',
+              stridsbergsbron: 'Stridsbergsbron',
+              stallbackabron: 'Stallbackabron',
+            };
+            const actualBridgeName = bridgeNameMap[bridgeName] || bridgeName;
+            const bridgeData = proximityData.bridges.find((b) => b.name === actualBridgeName);
+            return bridgeData && bridgeData.distance <= 300;
+
+          });
         } catch (error) {
           this.error('Error in flow condition:', error);
           return false; // Safe default
