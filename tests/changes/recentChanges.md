@@ -1,6 +1,53 @@
 # Recent Changes - AIS Bridge App
 
-## 2025-08-08 - COMPLETE SYSTEM-WIDE CRITICAL BUG FIXES & BRIDGE TEXT V2.0 IMPLEMENTATION ✅ (LATEST UPDATE)
+## 2025-08-08 - AUTENTISKA STATUSAR MED LINJEKORSNING & ROBUST KRASCHSKYDD ✅ (LATEST UPDATE)
+
+### **🎯 PRODUKTIONSFIXAR FÖR AUTENTISKA STATUSAR & ROBUST DRIFT**
+
+Implementerat kritiska förbättringar för äkta statusrapportering och robust applikationsdrift:
+
+#### **🔧 DEL 1: LINJEKORSNINGS-DETEKTION FÖR GLES AIS-DATA:**
+- **Ny funktion**: `hasCrossedBridgeLine()` i `geometry.js`
+- **Dual detection**: Både traditionell (<50m) OCH linjekorsning
+- **Smart validering**: Kräver minst en position <150m från bro
+- **Säkerhetsvillkor**: Måste röra sig bort (>60m) efter korsning
+- **Resultat**: Passage detekteras även med glesa AIS-punkter UTAN syntetisk "pågår"
+
+#### **🔧 DEL 2: UNDER-BRIDGE HYSTERESIS (50m→70m):**
+- **SET-tröskel**: Status sätts vid ≤50m från bro
+- **CLEAR-tröskel**: Status släpps först vid ≥70m från bro  
+- **Latch-flagga**: `vessel._underBridgeLatched` håller status stabil
+- **Gäller alla broar**: Målbroar, mellanbroar och Stallbacka
+- **Resultat**: Ingen fladder vid 50m-gränsen
+
+#### **🔧 DEL 3: AUTENTISK "BROÖPPNING PÅGÅR":**
+- **Strikt gating**: Visar "pågår" ENDAST när `status === 'under-bridge'`
+- **Ingen fallback**: Aldrig baserat på enbart distans
+- **Verifierat**: Alla 9 förekomster i BridgeTextService kräver äkta under-bridge
+- **Resultat**: "Broöppning pågår" visas bara när båt verkligen observerats ≤50m
+
+#### **🔧 DEL 4: FÖRBÄTTRADE BOAT_NEAR TRIGGERS:**
+- **Utökade statusar**: Triggas vid approaching, waiting, under-bridge, stallbacka-waiting
+- **Målbro-tilldelning**: Triggas när båt får första målbro
+- **Dedupe-logik**: Max 1 trigger per båt+bro var 10:e minut
+- **Edge-case fix**: Skippar helt om targetBridge saknas (ingen "unknown")
+
+#### **🔧 DEL 5: GLOBALT KRASCHSKYDD:**
+- **Process handlers**: `uncaughtException` och `unhandledRejection` loggar men kraschar inte
+- **Try/catch överallt**: Alla event-handlers, flows och UI-uppdateringar skyddade
+- **Logger fix**: `this.logger.warn()` → `this.logger.log()` (Homey har ingen warn)
+- **Resultat**: Appen fortsätter köra även vid edge-cases
+
+#### **🔧 DEL 6: RENSAD PRODUKTIONSKOD:**
+- **Borttaget**: FEATURE_LINE_CROSSING flagga (alltid på nu)
+- **Borttaget**: Test-prefix som [PROTECTED], [NON-FATAL], [CRITICAL]
+- **Behållet**: LINE_CROSSING_MIN_PROXIMITY_M = 150m
+- **Behållet**: BOAT_NEAR_DEDUPE_MINUTES = 10
+- **Legacy alias**: UNDER_BRIDGE_DISTANCE behållen för bakåtkompatibilitet
+
+---
+
+## 2025-08-08 - COMPLETE SYSTEM-WIDE CRITICAL BUG FIXES & BRIDGE TEXT V2.0 IMPLEMENTATION ✅
 
 ### **🚀 FINAL CRITICAL FIXES - GPS-HOPP, APP.JS & CONSTANTS**
 
