@@ -1,6 +1,86 @@
 # Recent Changes - AIS Bridge App
 
-## 2025-08-08 - AUTENTISKA STATUSAR MED LINJEKORSNING & ROBUST KRASCHSKYDD ✅ (LATEST UPDATE)
+## 2025-08-09 (SESSION 2) - DEDUPE SYSTEM REFACTORING & KODFÖRBÄTTRINGAR ✅ (LATEST UPDATE)
+
+### **🔧 BOAT_NEAR TRIGGER DEDUPE - ÄNDRAT FRÅN TIDSBASERAD TILL TILLSTÅNDSBASERAD:**
+
+Efter användarfeedback om problematisk 10-minuters dedupe-timer implementerades ett bättre system:
+
+#### **🐛 PROBLEM MED GAMLA SYSTEMET:**
+- **10-minuters timer**: Triggade samma båt/bro-kombination var 10:e minut om båten stannade kvar
+- **Oönskad upprepning**: Användare fick upprepade notifikationer för samma båt
+- **Memory concerns**: Map med timestamps riskerade att växa obegränsat
+
+#### **✅ NYTT TILLSTÅNDSBASERAT SYSTEM:**
+- **En-gångs trigger**: Triggas endast FÖRSTA gången båt kommer inom 300m från bro
+- **State tracking**: Använder `Set` med nycklar `${mmsi}:${targetBridge}` istället för Map med timestamps
+- **Automatisk rensning**: Tar bort från Set när båt lämnar området (status blir en-route/passed)
+- **Ingen upprepning**: Triggas aldrig igen förrän båten lämnat området och sedan återvänder
+- **Implementation**: app.js rad 191-192, 788-816
+
+#### **🔧 FLOW CARDS FIXAR:**
+1. **boat_near trigger**: Triggas nu endast inom 300m från bro (inte baserat på status)
+2. **boat_at_bridge condition**: Kontrollerar faktisk distans <300m (inte status)
+3. **alarm_generic capability**: Uppdateras när båtar finns/försvinner
+
+#### **🔧 KODFÖRBÄTTRINGAR FRÅN FEEDBACK:**
+
+1. **UNDER_BRIDGE_DISTANCE - Single Source of Truth**:
+   - `UNDER_BRIDGE_SET_DISTANCE = 50` (primär konstant)
+   - `UNDER_BRIDGE_DISTANCE = UNDER_BRIDGE_SET_DISTANCE` (alias för bakåtkompatibilitet)
+   - Eliminerar risk för inkonsistenta värden
+
+2. **Linjekorsning med broorientation**:
+   - Varje bro har nu `axisBearing` (130° för de flesta, 125° för Stallbackabron)
+   - `hasCrossedBridgeLine()` använder korrekt vinkelprojektion
+   - Detekterar passage även när AIS-punkter är på vardera sidan om bron
+
+3. **Memory leak prevention**:
+   - Bytte från tidbaserad Map-cleanup till storleksbaserad
+   - Rensar äldsta entries när Set växer över 1000 nycklar
+   - Ingen risk för obegränsad minnestillväxt
+
+4. **ESLint fixes**:
+   - Fixade 35 fel (auto-fix + manuella fixar)
+   - Tog bort oanvänd `BOAT_NEAR_DEDUPE_MINUTES` konstant
+   - Fixade brace-style, no-lonely-if, trailing spaces
+   - Fixade global-require genom att flytta imports
+   - Kvarstår 18 fel (13 i testfiler - ej kritiska)
+
+#### **🔧 RENSNING AV ONÖDIGA FILER:**
+- Raderade 200KB app.old.js backup
+- Tog bort 9 .DS_Store filer
+- Raderade 26 gamla loggfiler 
+- Tog bort root node_modules och package.json (onödiga)
+- Städade duplicerade testfiler
+
+---
+
+## 2025-08-09 - KRITISKA BRIDGE TEXT BUGFIXAR ✅
+
+### **🔧 FIXADE BRIDGE TEXT BUGAR:**
+
+Efter djup analys av produktionsloggar identifierades och fixades följande kritiska problem:
+
+#### **🐛 BUG 1: COG saknades i bridge text-data**
+- **Problem**: `_findRelevantBoatsForBridgeText()` skickade inte med COG till BridgeTextService
+- **Konsekvens**: `_deriveTargetBridge()` kunde inte räkna ut målbro → "okänd målbro" visades
+- **Fix**: Lade till `cog: vessel.cog` i returdata (app.js rad 649)
+
+#### **🐛 BUG 2: 0.0 kn hastighet blockerades felaktigt**
+- **Problem**: `if (speed <= minSpeed)` blockerade även exakt 0.0 kn när minSpeed=0.0
+- **Konsekvens**: Väntande båtar (0.0 kn) nära målbroar fick inte målbro tilldelad
+- **Fix**: Ändrade till `if (speed < minSpeed)` (VesselDataService.js rad 372)
+
+#### **✅ BEKRÄFTAT GRUPPBETEENDE (avsiktligt designval):**
+- **"Broöppning pågår" för hela gruppen**: När EN båt är under-bridge (<50m) visas "Broöppning pågår" för ALLA båtar mot samma målbro
+- **Detta är önskat beteende**: Prioriterar den mest kritiska statusen för användarens förståelse
+- **Exempel**: Båt A är 12m från bron (under-bridge), Båt B är 146m från bron (waiting) → "Broöppning pågår vid [bro], ytterligare 1 båt på väg"
+- **Dokumenterat**: CLAUDE.md och bridgeTextFormat.md uppdaterade med detta gruppbeteende
+
+---
+
+## 2025-08-08 - AUTENTISKA STATUSAR MED LINJEKORSNING & ROBUST KRASCHSKYDD ✅
 
 ### **🎯 PRODUKTIONSFIXAR FÖR AUTENTISKA STATUSAR & ROBUST DRIFT**
 
