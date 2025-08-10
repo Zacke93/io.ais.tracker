@@ -1,6 +1,50 @@
 # Recent Changes - AIS Bridge App
 
-## 2025-08-10 (SESSION 11) - FLOW TOKEN FELHANTERING ✅ (LATEST UPDATE)
+## 2025-08-11 (SESSION 12) - 200M PROTECTION FIX ✅ (LATEST UPDATE)
+
+### **🔧 KRITISK FIX FÖR 200M TARGET BRIDGE PROTECTION**
+
+#### **Problem identifierat:**
+200m-spärren som lades till 2025-08-08 av ChatGPT5 blockerade målbro-byten även EFTER bekräftad passage. Detta orsakade att båtar aldrig fick ny målbro efter att ha passerat sin nuvarande målbro.
+
+#### **Rotorsak:**
+- Spärren på rad 591 i VesselDataService.js blockerade ALLA målbro-byten inom 200m från nuvarande målbro
+- Ingen kontroll om båten faktiskt hade passerat bron
+- Detta skapade scenariot: "inväntar broöppning av Olidebron på väg mot Stridsbergsbron" (omöjligt)
+
+#### **Implementerad lösning:**
+Modifierat 200m-spärren att kontrollera om båten faktiskt passerat innan blockering:
+
+```javascript
+// VesselDataService.js rad 591-611
+if (distanceToCurrentTarget <= 200) {
+  // Kontrollera om båten faktiskt passerat målbron
+  const recentlyPassed = vessel.lastPassedBridge === vessel.targetBridge
+                        && vessel.lastPassedBridgeTime
+                        && (Date.now() - vessel.lastPassedBridgeTime < 120000); // 2 min grace
+  
+  const confirmedPassage = vessel._wasCloseToTarget === vessel.targetBridge;
+  
+  if (!recentlyPassed && !confirmedPassage) {
+    // Blockera bara om båten INTE passerat
+    return; // Don't change targetBridge yet
+  }
+  // Tillåt byte om båten faktiskt passerat
+}
+```
+
+#### **Resultat:**
+- ✅ Behåller skydd mot för tidiga målbro-byten när båt närmar sig/vänder vid bro
+- ✅ Tillåter korrekt målbro-byte efter bekräftad passage
+- ✅ Använder både tidsfönster (2 min) och _wasCloseToTarget för robust detektion
+- ✅ Tydlig loggning för debugging av både blockerade och tillåtna byten
+
+#### **Teknisk detalj:**
+Denna fix samverkar med passage detection-fixen från SESSION 10 där `_wasCloseToTarget` introducerades för att persistent spåra när båtar varit nära sin målbro.
+
+---
+
+## 2025-08-10 (SESSION 11) - FLOW TOKEN FELHANTERING ✅
 
 ### **🔧 TVÅ PROBLEM IDENTIFIERADE OCH ÅTGÄRDADE:**
 
