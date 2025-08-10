@@ -1,6 +1,95 @@
 # Recent Changes - AIS Bridge App
 
-## 2025-08-09 (SESSION 9) - PRESTANDAOPTIMERING ✅ (LATEST UPDATE)
+## 2025-08-10 (SESSION 11) - FLOW TOKEN FELHANTERING ✅ (LATEST UPDATE)
+
+### **🔧 TVÅ PROBLEM IDENTIFIERADE OCH ÅTGÄRDADE:**
+
+#### **1. ✅ App-krasch vid session-avslut (VALIDERAT)**
+**Problem**: Loggen avbröts med Node.js socket.io fel  
+**Orsak**: Normal avslutning av `homey app run` debug-session  
+**Åtgärd**: Inget fel i vår kod - detta är förväntat beteende när debug-sessionen avslutas
+
+#### **2. ✅ Flow-token "bridge_name" undefined fel (DELVIS VALIDERAT)**
+
+**Problem**: Flow triggers kraschade med "Expected token bridge_name of type string, got undefined"
+
+**Felaktig hypotes från extern AI**: "När target saknas, använd nearbyBridge.name"  
+**Verklig orsak**: Två separata problem i flow trigger-funktionerna
+
+##### **Fix 1 - _triggerBoatNearFlow (app.js:767):**
+```javascript
+// FÖRE: bridge_name: vessel.targetBridge  // Kunde vara null
+// EFTER: bridge_name: vessel.targetBridge || 'Unknown'
+```
+
+##### **Fix 2 - _triggerBoatNearFlowForAny (app.js:820):**
+```javascript
+// FÖRE: bridge_name: nearbyBridge.name  // Kunde vara undefined
+// EFTER: bridge_name: nearbyBridge.name || 'Unknown'
+```
+
+**Teknisk förklaring**:
+- Även om vi kollar `!vessel.targetBridge` på rad 740 och returnerar tidigt, kan targetBridge fortfarande vara null i edge cases
+- ProximityService kan returnera bridge objekt utan name property i vissa fall
+- Fallback till 'Unknown' säkerställer att flow tokens alltid har en sträng
+
+**Verifiering**:
+- ✅ Flow triggers kraschar inte längre vid undefined/null värden
+- ✅ Flows får 'Unknown' som bridge_name när bro-information saknas
+- ✅ Ingen påverkan på normal funktionalitet
+
+---
+
+## 2025-08-10 (SESSION 10) - KRITISK PASSAGE DETECTION BUGGFIX ✅
+
+### **🚨 KRITISK BUGG: Target Bridge Transitions Fungerade Inte**
+
+Efter analys av loggar upptäcktes att båtar ALDRIG fick ny målbro efter passage. Problemet spårades till en ändring från 2025-07-27 som introducerade en allvarlig bugg i passage detection.
+
+#### **Problem identifierat i logganalys:**
+- Båt 244063000 åkte söderut från Stallbackabron
+- Passerade Stridsbergsbron (kom till 65m, sedan 77m bort)
+- **MEN**: Behöll Stridsbergsbron som målbro hela vägen till Klaffbron
+- Bridge text visade felaktigt "på väg mot Stridsbergsbron" när båten var 1.5km SÖDER om bron
+
+#### **Rotorsak - Bugg från 2025-07-27:**
+```javascript
+// BUGGY CODE från session 2025-07-27:
+const wasVeryClose = previousDistance <= 100; // Kollar BARA föregående position
+```
+
+**Problemet**: `wasVeryClose` återställdes varje uppdatering. När båten kom över 100m från bron blev `wasVeryClose = false` eftersom den bara kollade föregående position, inte om båten NÅGONSIN varit nära.
+
+#### **✅ LÖSNING - Persistent Close Tracking (VesselDataService.js:779-813)**
+```javascript
+// CRITICAL FIX: Track if vessel has EVER been very close to the target bridge
+if ((previousDistance <= 100 || currentDistance <= 100) && !vessel._wasCloseToTarget) {
+  vessel._wasCloseToTarget = vessel.targetBridge; // Spara vilken bro vi var nära
+}
+
+// Check if vessel was EVER close to THIS target bridge
+const wasVeryClose = vessel._wasCloseToTarget === vessel.targetBridge;
+```
+
+#### **Tekniska detaljer:**
+1. **Ny vessel property**: `_wasCloseToTarget` persisterar mellan uppdateringar
+2. **Smart reset**: Rensas endast efter lyckad passage detection
+3. **Bridge-specifik**: Sparar VILKET bro som båten var nära (hanterar målbro-byten)
+
+#### **Verifiering:**
+- ✅ Passage detection fungerar nu även när båten är >100m från bron
+- ✅ Target bridge uppdateras korrekt: Stridsbergsbron → Klaffbron (söderut)
+- ✅ Bridge text visar korrekt riktning efter passage
+- ✅ Båtar tas bort efter att ha passerat sista målbron
+
+### **Lärdomar:**
+- Kritisk bugg introducerad av "fix" från 2025-07-27 som såg korrekt ut men missade edge case
+- Vikten av att testa hela resor, inte bara enskilda passager
+- Stateful tracking krävs för robusta passage detections
+
+---
+
+## 2025-08-09 (SESSION 9) - PRESTANDAOPTIMERING ✅
 
 ### **⚡ CAPABILITY UPDATE OPTIMERING:**
 
