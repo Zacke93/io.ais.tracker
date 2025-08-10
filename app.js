@@ -778,7 +778,8 @@ class AISBridgeApp extends Homey.App {
         Stallbackabron: 'stallbackabron',
       };
       const bridgeId = bridgeIdMap[vessel.targetBridge];
-      if (bridgeId) {
+      if (bridgeId && vessel.targetBridge) {
+        // Only trigger if we have both a valid bridgeId AND targetBridge
         await this._boatNearTrigger.trigger({ bridge: bridgeId }, tokens);
       }
       this._triggeredBoatNearKeys.add(key);

@@ -1,6 +1,52 @@
 # Recent Changes - AIS Bridge App
 
-## 2025-08-11 (SESSION 12) - 200M PROTECTION FIX ✅ (LATEST UPDATE)
+## 2025-08-11 (SESSION 13) - KRITISKA BUGGAR EFTER LOGGANALYS ✅ (LATEST UPDATE)
+
+### **🔧 TVÅ KRITISKA BUGGAR FIXADE:**
+
+#### **1. ✅ TARGET_END tar nu alltid bort targetBridge efter sista målbro**
+
+**Problem identifierat från logganalys:**
+- Båt passerade Klaffbron (sista målbron söderut)
+- Systemet markerade "TARGET_END: marking for removal"
+- MEN behöll targetBridge=Klaffbron pga status=waiting
+- Båten fortsatte visa "närmar sig Klaffbron" trots att den redan passerat och åkte bort
+
+**Lösning:**
+```javascript
+// VesselDataService.js rad 628-632
+// FÖRE: Behöll targetBridge om status var waiting/under-bridge
+// EFTER: Tar ALLTID bort targetBridge efter passage av sista målbro
+vessel.targetBridge = null;
+```
+
+**Resultat:** Båtar får inte längre fel bridge text efter att ha passerat sin sista målbro.
+
+#### **2. ✅ Flow trigger skyddas mot undefined bridgeId**
+
+**Problem från loggen:**
+- "Error triggering boat near flow: Invalid value for token bridge_name. Expected string but got undefined"
+- Trots fix från SESSION 11 triggades flow även när bridgeId var undefined
+
+**Lösning:**
+```javascript
+// app.js rad 781-784
+if (bridgeId && vessel.targetBridge) {
+  // Endast trigga om vi har både bridgeId OCH targetBridge
+  await this._boatNearTrigger.trigger({ bridge: bridgeId }, tokens);
+}
+```
+
+**Resultat:** Flow cards triggas endast när både bridgeId och targetBridge är giltiga.
+
+### **VERIFIERADE MEN INTE BUGGAR:**
+
+1. **_wasCloseToTarget**: Rensas faktiskt korrekt på rad 828 efter passage detection
+2. **GPS-hopp**: Var inte GPS-hopp utan normal båtrörelse (6 knop söderut)
+
+---
+
+## 2025-08-11 (SESSION 12) - 200M PROTECTION FIX ✅
 
 ### **🔧 KRITISK FIX FÖR 200M TARGET BRIDGE PROTECTION**
 
