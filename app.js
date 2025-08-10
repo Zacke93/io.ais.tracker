@@ -764,7 +764,7 @@ class AISBridgeApp extends Homey.App {
 
       const tokens = {
         boat_name: vessel.name || 'Unknown',
-        bridge_name: vessel.targetBridge,
+        bridge_name: vessel.targetBridge || 'Unknown', // FIX: Fallback to 'Unknown' if targetBridge is null
         direction: this._getDirectionString(vessel),
         eta_minutes: Number.isFinite(vessel.etaMinutes) ? Math.round(vessel.etaMinutes) : null, // FIX: Return null instead of 0 for missing ETA
       };
@@ -817,7 +817,7 @@ class AISBridgeApp extends Homey.App {
 
       const tokens = {
         boat_name: vessel.name || 'Unknown',
-        bridge_name: nearbyBridge.name,
+        bridge_name: nearbyBridge.name || 'Unknown', // FIX: Fallback to 'Unknown' if name is undefined
         direction: this._getDirectionString(vessel),
         eta_minutes: Number.isFinite(vessel.etaMinutes) ? Math.round(vessel.etaMinutes) : null, // FIX: Return null instead of 0 for missing ETA
       };
