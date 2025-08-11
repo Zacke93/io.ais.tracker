@@ -737,24 +737,33 @@ class AISBridgeApp extends Homey.App {
    */
   async _triggerBoatNearFlow(vessel) {
     try {
-      if (!this._boatNearTrigger || !vessel.targetBridge) {
-        // Skip trigger if no flow card or no target bridge
+      if (!this._boatNearTrigger) {
+        // Skip trigger if no flow card
         return;
       }
 
-      // CRITICAL: Check if vessel is within 300m of target bridge
+      // CRITICAL FIX: Use currentBridge as fallback when targetBridge is missing
+      // This allows flow triggers for vessels at intermediate bridges
+      const bridgeForFlow = vessel.targetBridge || vessel.currentBridge;
+
+      if (!bridgeForFlow) {
+        // Skip trigger if no bridge association at all
+        return;
+      }
+
+      // CRITICAL: Check if vessel is within 300m of the relevant bridge
       const proximityData = this.proximityService.analyzeVesselProximity(vessel);
       const bridges = proximityData.bridges || []; // Safety: ensure array exists
-      const targetBridgeData = bridges.find((b) => b.name === vessel.targetBridge);
+      const relevantBridgeData = bridges.find((b) => b.name === bridgeForFlow);
 
-      if (!targetBridgeData || targetBridgeData.distance > 300) {
-        // Vessel is not within 300m of target bridge, skip trigger
-        this.debug(`🚫 [FLOW_TRIGGER] Skipping boat_near - ${vessel.mmsi} is ${targetBridgeData ? Math.round(targetBridgeData.distance) : '?'}m from ${vessel.targetBridge} (>300m)`);
+      if (!relevantBridgeData || relevantBridgeData.distance > 300) {
+        // Vessel is not within 300m of the bridge, skip trigger
+        this.debug(`🚫 [FLOW_TRIGGER] Skipping boat_near - ${vessel.mmsi} is ${relevantBridgeData ? Math.round(relevantBridgeData.distance) : '?'}m from ${bridgeForFlow} (>300m)`);
         return;
       }
 
       // Dedupe key: vessel+bridge combination
-      const key = `${vessel.mmsi}:${vessel.targetBridge}`;
+      const key = `${vessel.mmsi}:${bridgeForFlow}`;
 
       // Skip if already triggered for this vessel+bridge combo
       if (this._triggeredBoatNearKeys.has(key)) {
@@ -764,7 +773,7 @@ class AISBridgeApp extends Homey.App {
 
       const tokens = {
         boat_name: vessel.name || 'Unknown',
-        bridge_name: vessel.targetBridge || 'Unknown', // FIX: Fallback to 'Unknown' if targetBridge is null
+        bridge_name: bridgeForFlow, // Use the determined bridge (target or current)
         direction: this._getDirectionString(vessel),
         eta_minutes: Number.isFinite(vessel.etaMinutes) ? Math.round(vessel.etaMinutes) : null, // FIX: Return null instead of 0 for missing ETA
       };
@@ -777,13 +786,13 @@ class AISBridgeApp extends Homey.App {
         Stridsbergsbron: 'stridsbergsbron',
         Stallbackabron: 'stallbackabron',
       };
-      const bridgeId = bridgeIdMap[vessel.targetBridge];
-      if (bridgeId && vessel.targetBridge) {
-        // Only trigger if we have both a valid bridgeId AND targetBridge
+      const bridgeId = bridgeIdMap[bridgeForFlow];
+      if (bridgeId && bridgeForFlow) {
+        // Only trigger if we have both a valid bridgeId AND bridge
         await this._boatNearTrigger.trigger({ bridge: bridgeId }, tokens);
       }
       this._triggeredBoatNearKeys.add(key);
-      this.debug(`🎯 [FLOW_TRIGGER] boat_near triggered for ${vessel.mmsi} at ${Math.round(targetBridgeData.distance)}m from ${vessel.targetBridge}`);
+      this.debug(`🎯 [FLOW_TRIGGER] boat_near triggered for ${vessel.mmsi} at ${Math.round(relevantBridgeData.distance)}m from ${bridgeForFlow}`);
 
     } catch (error) {
       this.error('Error triggering boat near flow:', error);
@@ -945,6 +954,13 @@ class AISBridgeApp extends Homey.App {
    */
   async _startConnection() {
     try {
+      // Skip AIS connection in test environment
+      if (process.env.NODE_ENV === 'test' || global.__TEST_MODE__) {
+        this.log('🧪 [TEST] Skipping AIS connection in test mode');
+        this._isConnected = false;
+        return;
+      }
+
       const apiKey = this.homey.settings.get('ais_api_key');
 
       if (!apiKey) {
@@ -1008,6 +1024,12 @@ class AISBridgeApp extends Homey.App {
    * @private
    */
   _setupMonitoring() {
+    // Skip monitoring in test environment to prevent hanging tests
+    if (process.env.NODE_ENV === 'test' || global.__TEST_MODE__) {
+      this.debug('🧪 [TEST] Skipping monitoring interval setup');
+      return;
+    }
+
     // CRITICAL FIX: Track interval for cleanup
     // Monitor vessel count
     this._monitoringInterval = setInterval(() => {
@@ -1043,6 +1065,11 @@ class AISBridgeApp extends Homey.App {
     if (this._monitoringInterval) {
       clearInterval(this._monitoringInterval);
       this._monitoringInterval = null;
+    }
+
+    // Clear all vessel service timers
+    if (this.vesselDataService) {
+      this.vesselDataService.clearAllTimers();
     }
 
     // Disconnect AIS stream

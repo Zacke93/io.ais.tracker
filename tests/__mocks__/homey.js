@@ -193,6 +193,10 @@ const mockHomey = {
       return Promise.resolve(new MockFlowToken(id, value));
     },
 
+    getTriggerCard: (id) => {
+      return new MockFlowCard();
+    },
+
     getDeviceTriggerCard: (id) => {
       return new MockFlowCard();
     },

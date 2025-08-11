@@ -33,6 +33,8 @@ class RealAppTestRunner {
    * Initialize the real app with mocked Homey environment
    */
   async initializeApp() {
+    // Set test mode to prevent monitoring intervals
+    global.__TEST_MODE__ = true;
     // Create real app instance
     this.app = new AISBridgeApp();
     this.app.homey = mockHomey;
@@ -89,7 +91,7 @@ class RealAppTestRunner {
       }
 
       // Give app time to process
-      await this._wait(100);
+      await this._wait(10);
 
       // Log current state
       this._logCurrentAppState();
@@ -303,6 +305,8 @@ class RealAppTestRunner {
       await this.app.onUninit();
       this.app = null;
     }
+    // Clear test mode flag
+    delete global.__TEST_MODE__;
   }
 }
 
