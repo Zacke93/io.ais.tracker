@@ -8,6 +8,7 @@ const VesselDataService = require('./lib/services/VesselDataService');
 const BridgeTextService = require('./lib/services/BridgeTextService');
 const ProximityService = require('./lib/services/ProximityService');
 const StatusService = require('./lib/services/StatusService');
+const SystemCoordinator = require('./lib/services/SystemCoordinator');
 const AISStreamClient = require('./lib/connection/AISStreamClient');
 const { etaDisplay } = require('./lib/utils/etaValidation');
 
@@ -86,6 +87,9 @@ class AISBridgeApp extends Homey.App {
     try {
       this.log('🔧 Initializing modular services...');
 
+      // System coordinator for GPS events and stabilization
+      this.systemCoordinator = new SystemCoordinator(this);
+
       // Core models
       this.bridgeRegistry = new BridgeRegistry(BRIDGES);
 
@@ -96,15 +100,15 @@ class AISBridgeApp extends Homey.App {
         throw new Error('Invalid bridge configuration');
       }
 
-      // Data services
+      // Data services (pass systemCoordinator)
       this.vesselDataService = new VesselDataService(this, this.bridgeRegistry);
 
-      // Analysis services
+      // Analysis services (pass systemCoordinator where needed)
       this.proximityService = new ProximityService(this.bridgeRegistry, this);
-      this.statusService = new StatusService(this.bridgeRegistry, this);
+      this.statusService = new StatusService(this.bridgeRegistry, this, this.systemCoordinator);
 
       // Output services (inject ProximityService for consistent distance calculations)
-      this.bridgeTextService = new BridgeTextService(this.bridgeRegistry, this, this.proximityService);
+      this.bridgeTextService = new BridgeTextService(this.bridgeRegistry, this, this.systemCoordinator);
 
       // Connection services
       this.aisClient = new AISStreamClient(this);
@@ -224,6 +228,9 @@ class AISBridgeApp extends Homey.App {
     // FIX: Clear boat_near dedupe keys when vessel is removed
     this._clearBoatNearTriggers(vessel || { mmsi });
 
+    // Clean up status stabilizer history
+    this.statusService.statusStabilizer.removeVessel(mmsi);
+
     // Clear any UI references
     await this._clearBridgeText(mmsi);
 
@@ -301,8 +308,13 @@ class AISBridgeApp extends Homey.App {
       // 2. CRITICAL FIX: Preserve targetBridge before status analysis
       const originalTargetBridge = vessel.targetBridge;
 
-      // 3. Analyze and update vessel status
-      const statusResult = this.statusService.analyzeVesselStatus(vessel, proximityData);
+      // 3. Analyze and update vessel status (with GPS jump analysis)
+      const positionAnalysis = {
+        gpsJumpDetected: vessel._gpsJumpDetected || false,
+        positionUncertain: vessel._positionUncertain || false,
+        analysis: vessel._positionAnalysis || null,
+      };
+      const statusResult = this.statusService.analyzeVesselStatus(vessel, proximityData, positionAnalysis);
 
       // 4. Update vessel with analysis results but preserve critical data
       Object.assign(vessel, statusResult);
