@@ -4,7 +4,6 @@ const EventEmitter = require('events');
 const geometry = require('../utils/geometry');
 const constants = require('../constants');
 const GPSJumpAnalyzer = require('../utils/GPSJumpAnalyzer');
-const SystemCoordinator = require('./SystemCoordinator');
 
 const { LINE_CROSSING_MIN_PROXIMITY_M } = constants;
 
@@ -21,7 +20,6 @@ class VesselDataService extends EventEmitter {
     this.bridgeVessels = new Map(); // Map<bridgeId, Set<mmsi>>
     this.cleanupTimers = new Map(); // Map<mmsi, timeoutId>
     this.gpsJumpAnalyzer = new GPSJumpAnalyzer(logger);
-    this.systemCoordinator = new SystemCoordinator(logger);
     
     // ENHANCED: Target bridge protection tracking
     this.targetBridgeProtection = new Map(); // Map<mmsi, ProtectionData>
@@ -56,47 +54,29 @@ class VesselDataService extends EventEmitter {
         this.logger.debug(`🚫 [TARGET_REJECTED] ${mmsi}: New vessel rejected for target bridge`);
       }
     } else if (!isNewVessel && vessel.targetBridge) {
-      // ENHANCED: Check for passage first, then apply protection if no passage detected
-      const hasPassedCurrentTarget = this._hasPassedTargetBridge(vessel, oldVessel);
+      // ENHANCED: Check and apply target bridge protection before handling transitions
+      const protectionActive = this._checkTargetBridgeProtection(vessel, oldVessel);
       
-      if (hasPassedCurrentTarget) {
-        // PASSAGE DETECTED: Override protection and allow transition
-        this.logger.log(
-          `🎯 [PASSAGE_OVERRIDE] ${vessel.mmsi}: Passage detected - allowing transition despite protection`
-        );
+      // Existing vessel: Handle target bridge transitions and protection
+      if (!protectionActive) {
         this._handleTargetBridgeTransition(vessel, oldVessel);
-      } else {
-        // Check and apply target bridge protection for non-passage situations
-        const protectionActive = this._checkTargetBridgeProtection(vessel, oldVessel);
-        
-        // Existing vessel: Handle target bridge transitions and protection
-        if (!protectionActive) {
-          this._handleTargetBridgeTransition(vessel, oldVessel);
 
-          // CRITICAL: Check if vessel has become anchored/stationary after having target bridge
-          if (!this._shouldAssignTargetBridge(vessel)) {
-            this.logger.debug(
-              `🚫 [TARGET_REMOVAL] ${vessel.mmsi}: Removing target bridge ${vessel.targetBridge} - vessel appears to have anchored (${Number(vessel.sog)}kn)`,
-            );
-            vessel.targetBridge = null;
-          }
-        } else {
-          // Still handle intermediate bridge passages even when protection is active
-          this._handleIntermediateBridgePassage(vessel, oldVessel);
+        // CRITICAL: Check if vessel has become anchored/stationary after having target bridge
+        if (!this._shouldAssignTargetBridge(vessel)) {
           this.logger.debug(
-            `🛡️ [TARGET_PROTECTION_ACTIVE] ${vessel.mmsi}: Target bridge protection preventing transitions`
+            `🚫 [TARGET_REMOVAL] ${vessel.mmsi}: Removing target bridge ${vessel.targetBridge} - vessel appears to have anchored (${Number(vessel.sog)}kn)`,
           );
+          vessel.targetBridge = null;
         }
+      } else {
+        this.logger.debug(
+          `🛡️ [TARGET_PROTECTION_ACTIVE] ${vessel.mmsi}: Target bridge protection preventing transitions`
+        );
       }
     }
 
     // Store vessel
     this.vessels.set(mmsi, vessel);
-
-    // ENHANCED: Log passage tracking status for audit purposes
-    if (!isNewVessel && (vessel.lastPassedBridge || (vessel.passedBridges && vessel.passedBridges.length > 0))) {
-      this._logPassageTrackingStatus(vessel);
-    }
 
     // Emit events
     if (isNewVessel) {
@@ -120,9 +100,6 @@ class VesselDataService extends EventEmitter {
     if (!vessel) {
       return;
     }
-
-    // Clean up SystemCoordinator state
-    this.systemCoordinator.removeVessel(mmsi);
 
     // 300m Protection Zone: Check if vessel is within protection zone of any bridge
     if (reason === 'timeout') {
@@ -227,15 +204,35 @@ class VesselDataService extends EventEmitter {
    */
   getVesselsForBridgeText() {
     const allVessels = Array.from(this.vessels.values());
-    const filteredVessels = allVessels.filter((vessel) => {
-      // Must have target bridge
-      if (!vessel.targetBridge) {
-        this.logger.debug(`❌ [BRIDGE_TEXT_FILTER] ${vessel.mmsi}: No targetBridge`);
+    const filteredVessels = allVessels.map((vessel) => {
+      // CRITICAL FIX: Special cases that should show in bridge text even without targetBridge
+      const isUnderBridgeWithoutTarget = vessel.status === 'under-bridge' && !vessel.targetBridge;
+      const isStallbackabraBridgeWaiting = vessel.status === 'stallbacka-waiting'; // NEW: Stallbackabron special status
+
+      // BRIDGE TEXT V2.0 FIX: Waiting at target bridge without targetBridge assigned
+      const isWaitingAtTargetBridge = vessel.status === 'waiting'
+        && vessel.currentBridge
+        && (vessel.currentBridge === 'Klaffbron' || vessel.currentBridge === 'Stridsbergsbron');
+
+      // Must have target bridge (except special cases)
+      if (!vessel.targetBridge && !isUnderBridgeWithoutTarget && !isStallbackabraBridgeWaiting && !isWaitingAtTargetBridge) {
+        this.logger.debug(`❌ [BRIDGE_TEXT_FILTER] ${vessel.mmsi}: No targetBridge and not special case`);
         return false;
       }
 
-      // Must be targeting a valid bridge
-      if (!this.bridgeRegistry.isValidTargetBridge(vessel.targetBridge)) {
+      // FIX: Don't mutate vessel in getter - return a modified copy instead
+      // If waiting at target bridge without targetBridge, we'll handle it in BridgeTextService
+      if (!vessel.targetBridge && isWaitingAtTargetBridge) {
+        // Return a shallow copy with targetBridge set for presentation
+        return {
+          ...vessel,
+          targetBridge: vessel.currentBridge,
+          _derivedTargetBridge: true, // Mark as derived for debugging
+        };
+      }
+
+      // Must be targeting a valid bridge (except under-bridge vessels without target)
+      if (vessel.targetBridge && !this.bridgeRegistry.isValidTargetBridge(vessel.targetBridge)) {
         this.logger.debug(`❌ [BRIDGE_TEXT_FILTER] ${vessel.mmsi}: Invalid targetBridge: ${vessel.targetBridge}`);
         return false;
       }
@@ -247,9 +244,12 @@ class VesselDataService extends EventEmitter {
       }
 
       // Must have status that matters for bridge text
+      // NOW INCLUDES: en-route with target bridge (for "på väg mot" messages)
+      // AND: stallbacka-waiting for special Stallbackabron handling
       const relevantStatuses = [
         'approaching',
         'waiting',
+        'stallbacka-waiting',
         'under-bridge',
         'passed',
         'en-route',
@@ -262,11 +262,39 @@ class VesselDataService extends EventEmitter {
       }
 
       this.logger.debug(`✅ [BRIDGE_TEXT_FILTER] ${vessel.mmsi}: Included in bridge text (${vessel.status}, target=${vessel.targetBridge})`);
-      return true;
-    });
+      return vessel; // Return the vessel (possibly modified copy)
+    }).filter(Boolean); // Filter out any null/false values
 
     this.logger.debug(`📊 [BRIDGE_TEXT_FILTER] Filtered ${filteredVessels.length}/${allVessels.length} vessels for bridge text`);
     return filteredVessels;
+  }
+
+  /**
+   * Associate vessel with bridge
+   * @param {string} mmsi - Vessel MMSI
+   * @param {string} bridgeId - Bridge ID
+   */
+  associateVesselWithBridge(mmsi, bridgeId) {
+    if (!this.bridgeVessels.has(bridgeId)) {
+      this.bridgeVessels.set(bridgeId, new Set());
+    }
+    this.bridgeVessels.get(bridgeId).add(mmsi);
+  }
+
+  /**
+   * Remove vessel from bridge association
+   * @param {string} mmsi - Vessel MMSI
+   * @param {string} bridgeId - Bridge ID (optional - removes from all if not specified)
+   */
+  removeVesselFromBridge(mmsi, bridgeId = null) {
+    if (bridgeId) {
+      const vesselSet = this.bridgeVessels.get(bridgeId);
+      if (vesselSet) {
+        vesselSet.delete(mmsi);
+      }
+    } else {
+      this._removeFromBridgeAssociations(mmsi);
+    }
   }
 
   /**
@@ -319,57 +347,197 @@ class VesselDataService extends EventEmitter {
 
   /**
    * Determine if vessel should be assigned a target bridge
+   * Stricter filtering to prevent anchored boats from getting target bridges
    * @private
    * @param {Object} vessel - Vessel object
    * @returns {boolean} True if vessel should get target bridge
    */
   _shouldAssignTargetBridge(vessel) {
-    const speed = Number(vessel.sog);
+    const speed = Number(vessel.sog); // Ensure numeric comparison
 
-    // Basic speed requirement - must be moving
-    if (speed < 0.5) {
+    // BRIDGE TEXT V2.0: Special handling for stationary vessels near target bridges
+    // But still prevent obviously anchored boats far from bridges
+
+    // Calculate distance to nearest bridge first
+    let nearestDistance = Infinity;
+    let nearestBridgeName = null; // Track name directly during calculation
+
+    for (const bridge of Object.values(this.bridgeRegistry.bridges)) {
+      const distance = geometry.calculateDistance(
+        vessel.lat, vessel.lon,
+        bridge.lat, bridge.lon,
+      );
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestBridgeName = bridge.name; // Track name when we find a closer bridge
+      }
+    }
+
+    // UPDATED SPEED REQUIREMENTS based on proximity to bridges:
+    // - Far from bridges (>500m): Must have ≥0.7kn (prevent anchored boats far away)
+    // - Approaching bridges (300-500m): Must have ≥0.5kn (boats slowing down for bridge)
+    // - Near bridges (<300m): Must have ≥0.3kn (UPDATED: no more 0.0kn allowance - fixes ZENIT problem)
+
+    let minSpeed;
+    let context;
+
+    if (nearestDistance > 500) {
+      minSpeed = 0.7;
+      context = 'far from bridges';
+    } else if (nearestDistance > 300) {
+      minSpeed = 0.5;
+      context = 'approaching bridge';
+    } else {
+      // BRIDGE TEXT FORMAT V2.0: No speed requirement within 300m of target bridges
+      // nearestBridgeName already tracked during distance calculation above
+      const isNearTargetBridge = nearestBridgeName
+        && (nearestBridgeName === 'Klaffbron' || nearestBridgeName === 'Stridsbergsbron');
+
+      if (isNearTargetBridge) {
+        // Near target bridge (<300m): Allow 0.0kn for waiting status
+        minSpeed = 0.0;
+        context = 'near target bridge (waiting allowed)';
+        this.logger.debug(
+          `🎯 [TARGET_ASSIGNMENT] ${vessel.mmsi}: Near target bridge ${nearestBridgeName} - allowing 0.0kn for waiting`,
+        );
+      } else if (vessel.lastPositionChange && (Date.now() - vessel.lastPositionChange) < 60000) {
+        // Near intermediate bridge: Require some movement or recent movement
+        // Moved within last minute - allow lower speed
+        minSpeed = 0.1;
+        context = 'near intermediate bridge (recent movement)';
+      } else {
+        // No recent movement - require higher speed to avoid anchored boats
+        minSpeed = 0.3;
+        context = 'near intermediate bridge (no recent movement)';
+      }
+    }
+
+    if (speed < minSpeed) {
       this.logger.debug(
-        `🚫 [TARGET_ASSIGNMENT] ${vessel.mmsi}: Too slow for target bridge (${speed}kn < 0.5kn) - likely anchored`,
+        `🚫 [TARGET_ASSIGNMENT] ${vessel.mmsi}: Too slow for target bridge (${speed}kn < ${minSpeed}kn, ${nearestDistance.toFixed(0)}m ${context}) - likely anchored`,
       );
       return false;
     }
 
-    // Course should be defined (but 0° is valid north heading)
-    if (!Number.isFinite(vessel.cog)) {
+    // COURSE VALIDATION: Course should be defined (but 0° is valid north heading)
+    // Allow undefined COG near bridges if vessel has reasonable speed
+    if (!Number.isFinite(vessel.cog) && nearestDistance > 300) {
       this.logger.debug(
-        `🚫 [TARGET_ASSIGNMENT] ${vessel.mmsi}: Invalid/missing course (${vessel.cog}) - likely stationary/anchored`,
+        `🚫 [TARGET_ASSIGNMENT] ${vessel.mmsi}: Invalid/missing course (${vessel.cog}) and far from bridges (${nearestDistance.toFixed(0)}m) - likely stationary/anchored`,
       );
       return false;
+    } if (!Number.isFinite(vessel.cog) && nearestDistance <= 300 && speed >= minSpeed) {
+      this.logger.debug(
+        `⚠️ [TARGET_ASSIGNMENT] ${vessel.mmsi}: No course but near bridge with movement (${nearestDistance.toFixed(0)}m, ${speed}kn) - allowing`,
+      );
     }
 
     this.logger.debug(
-      `✅ [TARGET_ASSIGNMENT] ${vessel.mmsi}: Qualifies for target bridge (${speed}kn, ${vessel.cog}°)`,
+      `✅ [TARGET_ASSIGNMENT] ${vessel.mmsi}: Qualifies for target bridge (${speed}kn, ${nearestDistance.toFixed(0)}m, ${vessel.cog}°)`,
     );
     return true;
   }
 
   /**
-   * Check if vessel is suitable for bridge text
+   * Check if vessel is suitable for bridge text (consistent with target bridge assignment)
    * @private
    * @param {Object} vessel - Vessel object
    * @returns {boolean} True if vessel should appear in bridge text
    */
   _isVesselSuitableForBridgeText(vessel) {
-    const speed = Number(vessel.sog);
-
-    // More lenient requirements for bridge text than target assignment
-    if (speed < 0.3) {
+    // CRITICAL FIX: Under-bridge vessels without targetBridge should always pass
+    // They lost their targetBridge after passing final target but are still under a bridge
+    if (vessel.status === 'under-bridge' && !vessel.targetBridge) {
       this.logger.debug(
-        `🚫 [BRIDGE_TEXT_FILTER] ${vessel.mmsi}: Too slow for bridge text (${speed}kn < 0.3kn)`,
+        `✅ [BRIDGE_TEXT_FILTER] ${vessel.mmsi}: Under-bridge vessel without targetBridge - allowing for bridge text`,
+      );
+      return true;
+    }
+
+    // CRITICAL FIX: Waiting vessels should be included ONLY if they have a valid target bridge
+    // This prevents zombie vessels without target bridge from appearing in bridge text
+    if (vessel.status === 'waiting' || vessel.status === 'stallbacka-waiting') {
+      if (!vessel.targetBridge) {
+        this.logger.debug(
+          `❌ [BRIDGE_TEXT_FILTER] ${vessel.mmsi}: Waiting vessel without targetBridge - excluding from bridge text`,
+        );
+        return false; // EXCLUDE vessels without target bridge
+      }
+
+      this.logger.debug(
+        `✅ [BRIDGE_TEXT_FILTER] ${vessel.mmsi}: Waiting vessel (${vessel.status}) with target ${vessel.targetBridge} - include in bridge text`,
+      );
+      return true;
+    }
+
+    // If vessel doesn't have target bridge, it was already filtered out in target assignment
+    // So vessels with target bridge are presumed suitable. But apply similar dynamic logic.
+
+    const speed = Number(vessel.sog); // Ensure numeric comparison
+
+    // Calculate distance to nearest bridge (same logic as target assignment)
+    let nearestDistance = Infinity;
+    for (const bridge of Object.values(this.bridgeRegistry.bridges)) {
+      const distance = geometry.calculateDistance(
+        vessel.lat, vessel.lon,
+        bridge.lat, bridge.lon,
+      );
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+      }
+    }
+
+    // SAME DYNAMIC LOGIC as target assignment:
+    // - Far from bridges (>500m): Must have ≥0.5kn (slightly more lenient than target assignment)
+    // - Approaching bridges (300-500m): Must have ≥0.3kn
+    // - Near bridges (<300m): Can be 0.0kn (boats waiting for bridge opening)
+
+    let minSpeed;
+    let context;
+
+    if (nearestDistance > 500) {
+      minSpeed = 0.5; // Slightly more lenient than target assignment (0.5 vs 0.7)
+      context = 'far from bridges';
+    } else if (nearestDistance > 300) {
+      minSpeed = 0.3;
+      context = 'approaching bridge';
+    } else {
+      // Near bridges (<300m): Allow any speed including 0.0kn (waiting for bridge opening)
+      minSpeed = 0.0;
+      context = 'near bridge (may be waiting)';
+    }
+
+    if (speed < minSpeed) { // Note: < instead of <= to allow exactly 0.0kn when minSpeed is 0.0
+      this.logger.debug(
+        `🚫 [BRIDGE_TEXT_FILTER] ${vessel.mmsi}: Too slow for bridge text (${speed}kn < ${minSpeed}kn, ${nearestDistance.toFixed(0)}m ${context})`,
       );
       return false;
+    }
+
+    // The dynamic speed filtering above handles most cases
+    // Additional check: boats with target bridges that are very far from their target
+    if (vessel.targetBridge && speed <= 0.6) {
+      const targetBridge = this.bridgeRegistry.getBridgeByName(vessel.targetBridge);
+      if (targetBridge) {
+        const distanceToTarget = geometry.calculateDistance(
+          vessel.lat, vessel.lon,
+          targetBridge.lat, targetBridge.lon,
+        );
+
+        if (distanceToTarget > 1000) { // 1km+ from target bridge
+          this.logger.debug(
+            `🚫 [BRIDGE_TEXT_FILTER] ${vessel.mmsi}: Too far from target bridge ${vessel.targetBridge} with low speed (${distanceToTarget.toFixed(0)}m, ${speed}kn) - likely anchored`,
+          );
+          return false;
+        }
+      }
     }
 
     return true;
   }
 
   /**
-   * Calculate target bridge based on vessel position and direction
+   * Calculate target bridge based on vessel position and direction (ROBUST V2.0)
    * @private
    */
   _calculateTargetBridge(vessel) {
@@ -395,7 +563,7 @@ class VesselDataService extends EventEmitter {
       // Check if vessel is leaving canal northbound (north of Stridsbergsbron)
       if (vessel.lat > stridsbergsbronLat) {
         this.logger.debug(
-          `🚪 [TARGET_ASSIGNMENT] ${vessel.mmsi}: Norrut, norr om Stridsbergsbron → lämnar kanalen, ingen målbro`,
+          `🚪 [TARGET_ASSIGNMENT] ${vessel.mmsi}: Norrut, norr om Stridsbergsbron (${vessel.lat} > ${stridsbergsbronLat}) → lämnar kanalen, ingen målbro`,
         );
         return null; // No target bridge - vessel leaving canal
       }
@@ -404,13 +572,13 @@ class VesselDataService extends EventEmitter {
       if (vessel.lat < klaffbronLat) {
         // Söder om Klaffbron → Klaffbron är första målbro
         this.logger.debug(
-          `🎯 [TARGET_ASSIGNMENT] ${vessel.mmsi}: Norrut, söder om Klaffbron → Klaffbron först`,
+          `🎯 [TARGET_ASSIGNMENT] ${vessel.mmsi}: Norrut, söder om Klaffbron (${vessel.lat} < ${klaffbronLat}) → Klaffbron först`,
         );
         return 'Klaffbron';
       }
       // Between Klaffbron and Stridsbergsbron → Stridsbergsbron är första (och enda) målbro
       this.logger.debug(
-        `🎯 [TARGET_ASSIGNMENT] ${vessel.mmsi}: Norrut, mellan broarna → Stridsbergsbron`,
+        `🎯 [TARGET_ASSIGNMENT] ${vessel.mmsi}: Norrut, mellan broarna (${vessel.lat} >= ${klaffbronLat}) → Stridsbergsbron`,
       );
       return 'Stridsbergsbron';
     }
@@ -418,7 +586,7 @@ class VesselDataService extends EventEmitter {
     // Check if vessel is leaving canal southbound (south of Klaffbron)
     if (vessel.lat < klaffbronLat) {
       this.logger.debug(
-        `🚪 [TARGET_ASSIGNMENT] ${vessel.mmsi}: Söderut, söder om Klaffbron → lämnar kanalen, ingen målbro`,
+        `🚪 [TARGET_ASSIGNMENT] ${vessel.mmsi}: Söderut, söder om Klaffbron (${vessel.lat} < ${klaffbronLat}) → lämnar kanalen, ingen målbro`,
       );
       return null; // No target bridge - vessel leaving canal
     }
@@ -427,35 +595,48 @@ class VesselDataService extends EventEmitter {
     if (vessel.lat > stridsbergsbronLat) {
       // Norr om Stridsbergsbron → Stridsbergsbron är första målbro
       this.logger.debug(
-        `🎯 [TARGET_ASSIGNMENT] ${vessel.mmsi}: Söderut, norr om Stridsbergsbron → Stridsbergsbron först`,
+        `🎯 [TARGET_ASSIGNMENT] ${vessel.mmsi}: Söderut, norr om Stridsbergsbron (${vessel.lat} > ${stridsbergsbronLat}) → Stridsbergsbron först`,
       );
       return 'Stridsbergsbron';
     }
     // Between Stridsbergsbron and Klaffbron → Klaffbron är första (och enda) målbro
     this.logger.debug(
-      `🎯 [TARGET_ASSIGNMENT] ${vessel.mmsi}: Söderut, mellan broarna → Klaffbron`,
+      `🎯 [TARGET_ASSIGNMENT] ${vessel.mmsi}: Söderut, mellan broarna (${vessel.lat} <= ${stridsbergsbronLat}) → Klaffbron`,
     );
     return 'Klaffbron';
   }
 
   /**
-   * Handle target bridge transitions (ENHANCED: Now separate from passage detection)
+   * Handle target bridge transitions and protection (NEW: Robust logic)
    * @private
    */
   _handleTargetBridgeTransition(vessel, oldVessel) {
-    // ENHANCED: This method now assumes passage has already been detected
-    // Check once more to be safe, but this should normally be true
+    // Note: APPROACH_RADIUS not used in this method but kept for potential future use
+
+    // BRIDGE TEXT V2.0: Protect targetBridge during "precis passerat" 60s window
+    // BUT ONLY if we haven't gotten a new target bridge since then
+    if (vessel.lastPassedBridgeTime
+        && (Date.now() - vessel.lastPassedBridgeTime) < 60000
+        && vessel.lastPassedBridge === vessel.targetBridge) {
+      this.logger.debug(
+        `⏸️ [TARGET_PROTECTION] ${vessel.mmsi}: Within 60s "precis passerat" window for SAME bridge - keeping targetBridge`,
+      );
+      return; // Don't change targetBridge during the 60s window for the SAME bridge
+    }
+
+    // FIRST: Check if vessel has passed current target bridge and needs next target bridge
     const hasPassedCurrentTarget = this._hasPassedTargetBridge(
       vessel,
       oldVessel,
     );
 
     this.logger.debug(
-      `🔍 [TARGET_TRANSITION] ${vessel.mmsi}: hasPassedCurrentTarget=${hasPassedCurrentTarget}, targetBridge=${vessel.targetBridge}`,
+      `🔍 [TARGET_DEBUG] ${vessel.mmsi}: hasPassedCurrentTarget=${hasPassedCurrentTarget}, targetBridge=${vessel.targetBridge}`,
     );
 
     if (hasPassedCurrentTarget) {
-      // CRITICAL FIX: Don't change targetBridge if vessel is still very close to current target (≤200m)
+      // CRITICAL FIX: Don't change targetBridge if vessel is still very close to current target (≤100m)
+      // This prevents targetBridge from changing from Klaffbron to Stridsbergsbron while vessel is still under/very close to Klaffbron
       const targetBridge = this.bridgeRegistry.getBridgeByName(vessel.targetBridge);
       if (targetBridge) {
         const distanceToCurrentTarget = geometry.calculateDistance(
@@ -467,46 +648,58 @@ class VesselDataService extends EventEmitter {
           `🔍 [TARGET_DEBUG] ${vessel.mmsi}: Distance to ${vessel.targetBridge}: ${distanceToCurrentTarget.toFixed(0)}m`,
         );
 
-        if (distanceToCurrentTarget <= 200) { // Still very close to current target bridge
+        if (distanceToCurrentTarget <= 200) { // Still very close to current target bridge (increased threshold)
+          // CRITICAL FIX: Check if vessel has actually passed the target bridge
           const recentlyPassed = vessel.lastPassedBridge === vessel.targetBridge
                                 && vessel.lastPassedBridgeTime
                                 && (Date.now() - vessel.lastPassedBridgeTime < 120000); // 2 min grace period
 
-          if (!recentlyPassed) {
+          // FIX: hasPassedCurrentTarget already confirms passage - don't need to re-check _wasCloseToTarget
+          // The 200m protection should only apply if we HAVEN'T confirmed passage
+          // If hasPassedCurrentTarget is true, we KNOW the vessel has passed
+          const confirmedPassage = hasPassedCurrentTarget; // Use the actual passage detection result
+
+          if (!recentlyPassed && !confirmedPassage) {
+            // Only block if vessel has NOT actually passed the bridge
             this.logger.debug(
               `🛡️ [TARGET_TRANSITION_BLOCKED] ${vessel.mmsi}: Blocking targetBridge change while ${distanceToCurrentTarget.toFixed(0)}m from ${vessel.targetBridge}`,
             );
             return; // Don't change targetBridge yet
           }
+          // Allow transition despite close distance - vessel has passed the bridge
+          this.logger.debug(
+            `✅ [TARGET_TRANSITION_ALLOWED] ${vessel.mmsi}: Allowing transition despite ${distanceToCurrentTarget.toFixed(0)}m distance - vessel has passed ${vessel.targetBridge}`,
+          );
         }
       }
 
       const nextTargetBridge = this._calculateNextTargetBridge(vessel);
       if (nextTargetBridge && nextTargetBridge !== vessel.targetBridge) {
-        this.logger.log(
+        this.logger.debug(
           `🎯 [TARGET_TRANSITION] ${vessel.mmsi}: Passed ${vessel.targetBridge} → ${nextTargetBridge}`,
         );
         vessel.targetBridge = nextTargetBridge;
-        // ENHANCED: Mark as recently passed for bridge text - ALWAYS RECORD TARGET BRIDGE PASSAGES
+        // Clear _wasCloseToTarget when getting new target bridge
+        vessel._wasCloseToTarget = null;
+        // Mark as recently passed for bridge text
         vessel.lastPassedBridgeTime = Date.now();
         vessel.lastPassedBridge = oldVessel.targetBridge;
-        this.logger.log(
-          `📝 [TARGET_PASSAGE_RECORDED] ${vessel.mmsi}: Recorded passage of target bridge ${oldVessel.targetBridge}`,
-        );
       } else if (!nextTargetBridge) {
         // No more target bridges in this direction - vessel should be removed after passage timeout
-        this.logger.log(
+        this.logger.debug(
           `🏁 [TARGET_END] ${vessel.mmsi}: Passed final target bridge ${vessel.targetBridge} - marking for removal`,
         );
+        // CRITICAL FIX: Always remove targetBridge after passing final bridge
+        // The vessel has PASSED the bridge and is moving away, so keeping targetBridge
+        // causes incorrect "approaching" messages after passage
         vessel.targetBridge = null;
+        vessel._wasCloseToTarget = null; // Clear when removing target bridge
+        this.logger.debug(`✅ [TARGET_REMOVED] ${vessel.mmsi}: Removed targetBridge after passing final bridge (status: ${vessel.status})`);
         vessel.lastPassedBridgeTime = Date.now();
         vessel.lastPassedBridge = oldVessel.targetBridge;
-        this.logger.log(
-          `📝 [FINAL_TARGET_PASSAGE_RECORDED] ${vessel.mmsi}: Recorded passage of final target bridge ${oldVessel.targetBridge}`,
-        );
       }
     } else {
-      // Check if vessel passed any intermediate bridge
+      // Check if vessel passed any intermediate bridge (like Stallbackabron)
       this._handleIntermediateBridgePassage(vessel, oldVessel);
     }
   }
@@ -565,7 +758,6 @@ class VesselDataService extends EventEmitter {
       // Bridge passage tracking
       passedBridges: oldVessel?.passedBridges || [],
       lastPassedBridgeTime: oldVessel?.lastPassedBridgeTime || null,
-      lastPassedBridge: oldVessel?.lastPassedBridge || null,
 
       // Timing and detection
       etaMinutes: oldVessel?.etaMinutes || null,
@@ -581,7 +773,7 @@ class VesselDataService extends EventEmitter {
       towards: data.towards || null,
       gracePeriod: false,
       _targetAssignmentAttempts: oldVessel?._targetAssignmentAttempts || 0,
-      _wasCloseToTarget: oldVessel?._wasCloseToTarget || null,
+      _wasCloseToTarget: oldVessel?._wasCloseToTarget || null, // CRITICAL: Persist _wasCloseToTarget between updates
       confidence: oldVessel?.confidence || 'medium',
       
       // GPS jump analysis data (NEW)
@@ -638,7 +830,7 @@ class VesselDataService extends EventEmitter {
   }
 
   /**
-   * Check if vessel has passed its current target bridge
+   * Check if vessel has passed its current target bridge (NEW)
    * @private
    */
   _hasPassedTargetBridge(vessel, oldVessel) {
@@ -653,26 +845,7 @@ class VesselDataService extends EventEmitter {
       return false;
     }
 
-    // USE ENHANCED PASSAGE DETECTION: Utilize the comprehensive detectBridgePassage function
-    const passageResult = geometry.detectBridgePassage(vessel, oldVessel, targetBridge);
-    
-    if (passageResult.passed) {
-      this.logger.log(
-        `🎯 [TARGET_BRIDGE_PASSED] ${vessel.mmsi}: Passed target bridge ${vessel.targetBridge} `
-        + `(method: ${passageResult.method}, confidence: ${passageResult.confidence.toFixed(2)})`,
-      );
-      
-      // Log details for debugging
-      if (passageResult.details) {
-        this.logger.debug(
-          `🔍 [PASSAGE_DETAILS] ${vessel.mmsi}: ${JSON.stringify(passageResult.details)}`,
-        );
-      }
-      
-      return true;
-    }
-
-    // FALLBACK: Legacy tracking for compatibility
+    // Calculate distances to target bridge
     const currentDistance = geometry.calculateDistance(
       vessel.lat,
       vessel.lon,
@@ -686,28 +859,50 @@ class VesselDataService extends EventEmitter {
       targetBridge.lon,
     );
 
-    // Track if vessel has EVER been very close to the target bridge
+    // CRITICAL FIX: Track if vessel has EVER been very close to the target bridge
+    // Store in vessel object to persist between updates
+    // Check both previous and current distances to catch close approaches
+    // IMPORTANT: Check if vessel was close to THIS SPECIFIC target bridge, not just any bridge
+
     if ((previousDistance <= 100 || currentDistance <= 100)
         && (!oldVessel._wasCloseToTarget || oldVessel._wasCloseToTarget !== vessel.targetBridge)) {
-      vessel._wasCloseToTarget = vessel.targetBridge;
+      vessel._wasCloseToTarget = vessel.targetBridge; // Remember which bridge we were close to
       const closeDistance = Math.min(previousDistance, currentDistance);
       this.logger.debug(
         `🎯 [CLOSE_TO_TARGET] ${vessel.mmsi}: Marking as close to ${vessel.targetBridge} (${closeDistance.toFixed(0)}m)`,
       );
     }
 
-    // DEBUG: Log why passage was not detected
+    // Check if vessel was EVER close to THIS target bridge (not just in previous update)
+    const wasVeryClose = vessel._wasCloseToTarget === vessel.targetBridge;
+    const nowMovingAway = currentDistance > previousDistance; // Now getting farther
+    const hasMovedAwayEnough = currentDistance > 60; // Has moved away from immediate bridge area
+
+    const hasPassed = wasVeryClose && nowMovingAway && hasMovedAwayEnough;
+
+    // DEBUG: Always log the passage detection logic
     this.logger.debug(
-      `🔍 [NO_PASSAGE] ${vessel.mmsi} -> ${vessel.targetBridge}: `
+      `🔍 [PASSAGE_DEBUG] ${vessel.mmsi} -> ${vessel.targetBridge}: `
       + `prev=${previousDistance.toFixed(0)}m, curr=${currentDistance.toFixed(0)}m, `
-      + `method=${passageResult.method}`,
+      + `wasVeryClose=${wasVeryClose}, nowMovingAway=${nowMovingAway}, hasMovedAwayEnough=${hasMovedAwayEnough}, `
+      + `hasPassed=${hasPassed}`,
     );
 
-    return false;
+    if (hasPassed) {
+      this.logger.debug(
+        `🚢💨 [PASSAGE_DETECTED] ${vessel.mmsi}: Passed ${
+          vessel.targetBridge
+        } (${previousDistance.toFixed(0)}m → ${currentDistance.toFixed(0)}m)`,
+      );
+      // CRITICAL: Do NOT clear _wasCloseToTarget here - it needs to persist for 200m protection logic
+      // It will be cleared when vessel gets a new target bridge
+    }
+
+    return hasPassed;
   }
 
   /**
-   * Calculate next target bridge based on vessel direction
+   * Calculate next target bridge based on vessel direction (NEW)
    * @private
    */
   _calculateNextTargetBridge(vessel) {
@@ -740,7 +935,7 @@ class VesselDataService extends EventEmitter {
   _handleGPSJumpDetection(mmsi, currentPosition, previousPosition, oldVessel, currentAISData) {
     const { MOVEMENT_DETECTION } = constants;
 
-    // TESTING: Skip GPS jump detection for test vessels
+    // TESTING: Skip GPS jump detection for test vessels (allows testing real bridge logic)
     if (mmsi && mmsi.includes('265CONTROL')) {
       this.logger.debug(
         `🧪 [TEST_MODE] Skipping GPS jump detection for test vessel ${mmsi}`,
@@ -749,7 +944,6 @@ class VesselDataService extends EventEmitter {
         position: currentPosition,
         changeTime: Date.now(),
         jumpDetected: false,
-        analysis: { reason: 'test_mode' },
       };
     }
 
@@ -759,107 +953,80 @@ class VesselDataService extends EventEmitter {
         position: currentPosition,
         changeTime: Date.now(),
         jumpDetected: false,
-        analysis: { reason: 'no_previous_data' },
       };
     }
 
-    // Use new sophisticated GPS jump analyzer
-    const currentVessel = {
-      cog: currentAISData?.cog || oldVessel?.cog,
-      sog: currentAISData?.sog || oldVessel?.sog,
-      timestamp: Date.now(),
-    };
-
-    const analysis = this.gpsJumpAnalyzer.analyzeMovement(
-      mmsi, currentPosition, previousPosition, currentVessel, oldVessel,
+    // Calculate movement distance
+    const movementDistance = geometry.calculateDistance(
+      previousPosition.lat,
+      previousPosition.lon,
+      currentPosition.lat,
+      currentPosition.lon,
     );
 
-    // ENHANCED: Coordinate with SystemCoordinator for improved handling
-    const coordination = this.systemCoordinator.coordinatePositionUpdate(
-      mmsi, analysis, currentVessel, oldVessel,
-    );
+    // Detect GPS jumps based on movement threshold
+    if (movementDistance > MOVEMENT_DETECTION.GPS_JUMP_THRESHOLD) {
+      // GPS JUMP DETECTED - LOG ONLY, DO NOT RESTORE POSITION
+      this.logger.error(
+        `🚨 [GPS_JUMP] ${mmsi}: Large movement detected ${movementDistance.toFixed(
+          0,
+        )}m (threshold: ${MOVEMENT_DETECTION.GPS_JUMP_THRESHOLD}m) - ACCEPTING NEW POSITION`,
+      );
 
-    // Determine position change time based on movement
+      // Per user requirement: Only log GPS jumps, don't restore old position
+      // This allows legitimate large movements to be tracked
+      return {
+        position: currentPosition, // USE NEW POSITION (not old)
+        changeTime: Date.now(),
+        jumpDetected: true, // Mark as detected for logging
+        jumpDistance: movementDistance,
+      };
+    }
+
+    if (
+      movementDistance > 100
+      && movementDistance <= MOVEMENT_DETECTION.GPS_JUMP_THRESHOLD
+    ) {
+      // Medium jump (100-500m): Accept with warning
+      this.logger.error(
+        `⚠️ [GPS_UNCERTAIN] ${mmsi}: Uncertain position jump ${movementDistance.toFixed(
+          0,
+        )}m - accepting with caution`,
+      );
+
+      return {
+        position: currentPosition, // Accept new position
+        changeTime: Date.now(),
+        jumpDetected: false,
+        positionUncertain: true,
+      };
+    }
+
+    // Normal movement or small jump - determine position change time
     let positionChangeTime = Date.now();
-    if (analysis.movementDistance <= MOVEMENT_DETECTION.MINIMUM_MOVEMENT) {
+    if (movementDistance <= MOVEMENT_DETECTION.MINIMUM_MOVEMENT) {
       // Very small movement - don't update change time
       positionChangeTime = oldVessel.lastPositionChange || Date.now();
     }
 
-    // Handle different analysis results
-    let finalPosition = currentPosition;
-    const statusFlags = {};
-
-    switch (analysis.action) {
-      case 'gps_jump_detected':
-        // GPS jump detected - apply smoothing or position filtering
-        finalPosition = this._handleDetectedGPSJump(mmsi, currentPosition, previousPosition, analysis);
-        statusFlags.gpsJumpDetected = true;
-        statusFlags.positionFiltered = finalPosition !== currentPosition;
-        break;
-
-      case 'accept_with_caution':
-        // Accept but mark as uncertain for status stability
-        finalPosition = currentPosition;
-        statusFlags.positionUncertain = true;
-        this.logger.log(
-          `⚠️ [GPS_UNCERTAIN] ${mmsi}: Uncertain movement ${analysis.movementDistance.toFixed(0)}m - `
-          + `confidence: ${analysis.confidence} (${analysis.reason})`,
-        );
-        break;
-
-      case 'accept':
-        // Normal acceptance
-        finalPosition = currentPosition;
-        if (analysis.movementDistance > 500) {
-          this.logger.log(
-            `✅ [LEGITIMATE_MOVEMENT] ${mmsi}: Large legitimate movement ${analysis.movementDistance.toFixed(0)}m - `
-            + `${analysis.reason}`,
-          );
-        }
-        break;
-
-      default:
-        // Fallback to current position
-        finalPosition = currentPosition;
-        break;
-    }
-
     this.logger.debug(
-      `📍 [POSITION_TRACKING] ${mmsi}: movement ${analysis.movementDistance.toFixed(1)}m, `
-      + `action: ${analysis.action}, updating change time: ${
-        analysis.movementDistance > MOVEMENT_DETECTION.MINIMUM_MOVEMENT ? 'YES' : 'NO'
-      }`,
+      `📍 [POSITION_TRACKING] ${mmsi}: movement ${movementDistance.toFixed(
+        1,
+      )}m, `
+        + `updating change time: ${
+          movementDistance > MOVEMENT_DETECTION.MINIMUM_MOVEMENT ? 'YES' : 'NO'
+        }`,
     );
 
     return {
-      position: finalPosition,
+      position: currentPosition,
       changeTime: positionChangeTime,
-      jumpDetected: analysis.isGPSJump,
-      jumpDistance: analysis.movementDistance,
-      analysis,
-      coordination,
-      ...statusFlags,
+      jumpDetected: false,
     };
   }
 
   /**
-   * Handle detected GPS jump with position smoothing or filtering
-   * @private
-   */
-  _handleDetectedGPSJump(mmsi, currentPosition, previousPosition, analysis) {
-    // For now, still accept current position but with heavy logging
-    // In future versions, could implement position smoothing or restoration
-    this.logger.error(
-      `🚨 [GPS_JUMP_DETECTED] ${mmsi}: GPS jump ${analysis.movementDistance.toFixed(0)}m - `
-      + `accepting with status stability protection (confidence: ${analysis.confidence})`,
-    );
-
-    return currentPosition; // For now, still accept new position
-  }
-
-  /**
-   * Handle passage of intermediate bridges (non-target bridges) - ENHANCED TRACKING
+   * Handle passage of intermediate bridges (non-target bridges)
    * @private
    */
   _handleIntermediateBridgePassage(vessel, oldVessel) {
@@ -876,9 +1043,6 @@ class VesselDataService extends EventEmitter {
       };
     });
 
-    let passagesDetected = 0;
-    let passagesRecorded = 0;
-
     for (const bridge of allBridges) {
       // Skip if this is the target bridge (already handled above)
       if (bridge.name === vessel.targetBridge) continue;
@@ -888,80 +1052,44 @@ class VesselDataService extends EventEmitter {
         oldVessel,
         bridge,
       );
-      
       if (hasPassedThisBridge) {
-        passagesDetected++;
-        this.logger.log(
-          `🌉 [INTERMEDIATE_PASSAGE_DETECTED] ${vessel.mmsi}: Detected passage of intermediate bridge ${bridge.name}`,
+        this.logger.debug(
+          `🌉 [INTERMEDIATE_PASSED] ${vessel.mmsi}: Passed intermediate bridge ${bridge.name}`,
         );
 
-        // ENHANCED PASSAGE RECORDING: Always record intermediate bridge passages
-        // but respect target bridge passage priority for ETA calculations
+        // Only set lastPassedBridge if no recent target bridge passage
+        // This preserves "precis passerat [målbro]" messages from being overwritten
         const timeSinceLastPassed = vessel.lastPassedBridgeTime ? Date.now() - vessel.lastPassedBridgeTime : Infinity;
         const isLastPassedTargetBridge = vessel.lastPassedBridge === 'Klaffbron' || vessel.lastPassedBridge === 'Stridsbergsbron';
 
         if (!isLastPassedTargetBridge || timeSinceLastPassed > 60000) { // 1 minute grace period
           vessel.lastPassedBridgeTime = Date.now();
           vessel.lastPassedBridge = bridge.name;
-          passagesRecorded++;
-          this.logger.log(
-            `📝 [INTERMEDIATE_PASSAGE_RECORDED] ${vessel.mmsi}: Recorded passage of intermediate bridge ${bridge.name} `
-            + `(was lastPassed: ${oldVessel.lastPassedBridge || 'none'})`,
+          this.logger.debug(
+            `🌉 [INTERMEDIATE_OVERWRITE] ${vessel.mmsi}: Set lastPassedBridge to ${bridge.name} (grace period: ${(timeSinceLastPassed / 1000).toFixed(1)}s)`,
           );
         } else {
-          this.logger.log(
-            `⚠️ [INTERMEDIATE_PASSAGE_SKIPPED] ${vessel.mmsi}: Intermediate bridge ${bridge.name} passage detected but NOT recorded `
-            + `(recent target bridge passage: ${vessel.lastPassedBridge}, ${Math.round(timeSinceLastPassed/1000)}s ago)`,
+          this.logger.debug(
+            `🛡️ [TARGET_PROTECTED] ${vessel.mmsi}: Keeping lastPassedBridge as ${vessel.lastPassedBridge} (target bridge protection, ${(timeSinceLastPassed / 1000).toFixed(1)}s ago)`,
           );
         }
 
-        // ALWAYS add to passed bridges list for comprehensive tracking
+        // Add to passed bridges list if not already there
         if (!vessel.passedBridges) vessel.passedBridges = [];
         if (!vessel.passedBridges.includes(bridge.name)) {
           vessel.passedBridges.push(bridge.name);
-          this.logger.debug(
-            `📋 [PASSED_BRIDGES_UPDATED] ${vessel.mmsi}: Added ${bridge.name} to passedBridges list. Current: [${vessel.passedBridges.join(', ')}]`,
-          );
         }
-        
         break; // Only handle one bridge passage per update
       }
-    }
-
-    // Summary logging for passage tracking audit
-    if (passagesDetected > 0) {
-      this.logger.log(
-        `📊 [PASSAGE_TRACKING_SUMMARY] ${vessel.mmsi}: Detected ${passagesDetected} passage(s), recorded ${passagesRecorded} `
-        + `(currentLastPassed: ${vessel.lastPassedBridge || 'none'})`,
-      );
     }
   }
 
   /**
-   * Check if vessel has passed a specific bridge (ENHANCED: Uses comprehensive detection)
+   * Check if vessel has passed a specific bridge
    * @private
    */
   _hasPassedBridge(vessel, oldVessel, bridge) {
-    // USE ENHANCED PASSAGE DETECTION: Utilize the comprehensive detectBridgePassage function
-    const passageResult = geometry.detectBridgePassage(vessel, oldVessel, bridge);
-    
-    if (passageResult.passed) {
-      this.logger.log(
-        `🌉 [BRIDGE_PASSED] ${vessel.mmsi}: Passed bridge ${bridge.name} `
-        + `(method: ${passageResult.method}, confidence: ${passageResult.confidence.toFixed(2)})`,
-      );
-      
-      // Log details for debugging
-      if (passageResult.details) {
-        this.logger.debug(
-          `🔍 [PASSAGE_DETAILS] ${vessel.mmsi}: ${JSON.stringify(passageResult.details)}`,
-        );
-      }
-      
-      return true;
-    }
-
-    // DEBUG: Log why passage was not detected (only if vessel was reasonably close)
+    // Calculate distances to the bridge
     const currentDistance = geometry.calculateDistance(
       vessel.lat,
       vessel.lon,
@@ -974,35 +1102,48 @@ class VesselDataService extends EventEmitter {
       bridge.lat,
       bridge.lon,
     );
-    
-    // Only log detailed debug if vessel was close to bridge
-    if (Math.min(currentDistance, previousDistance) <= 300) {
+
+    // METHOD 1: Traditional detection - vessel was very close and is now moving away
+    const wasVeryClose = previousDistance <= 50; // Was under or very close to bridge
+    const isNowFarther = currentDistance > previousDistance; // Now moving away
+    const isNowReasonablyFar = currentDistance > 60; // Now clearly past the bridge
+
+    const hasPassedTraditional = wasVeryClose && isNowFarther && isNowReasonablyFar;
+
+    // METHOD 2: Line crossing detection for sparse AIS data
+    // Check if vessel crossed the bridge line between previous and current position
+    const prevPos = { lat: oldVessel.lat, lon: oldVessel.lon };
+    const currPos = { lat: vessel.lat, lon: vessel.lon };
+
+    let hasPassedByCrossing = geometry.hasCrossedBridgeLine(prevPos, currPos, bridge, {
+      minProximityM: LINE_CROSSING_MIN_PROXIMITY_M,
+    });
+
+    // Additional safety checks for line crossing
+    if (hasPassedByCrossing) {
+      // Ensure vessel is moving away from bridge after crossing
+      const isMovingAway = currentDistance > previousDistance && currentDistance > 60;
+      if (!isMovingAway) {
+        hasPassedByCrossing = false; // Reject crossing if not moving away
+      } else {
+        this.logger.debug(
+          `🔀 [LINE_CROSS] ${vessel.mmsi}: Crossed ${bridge.name} line `
+          + `(prevDist: ${previousDistance.toFixed(0)}m, currDist: ${currentDistance.toFixed(0)}m)`,
+        );
+      }
+    }
+
+    const hasPassed = hasPassedTraditional || hasPassedByCrossing;
+
+    if (hasPassed && !hasPassedByCrossing) {
       this.logger.debug(
-        `🔍 [NO_PASSAGE] ${vessel.mmsi} -> ${bridge.name}: `
-        + `prev=${previousDistance.toFixed(0)}m, curr=${currentDistance.toFixed(0)}m, `
-        + `method=${passageResult.method}`,
+        `🚢💨 [BRIDGE_PASSAGE] ${vessel.mmsi}: Passed ${
+          bridge.name
+        } (${previousDistance.toFixed(0)}m → ${currentDistance.toFixed(0)}m)`,
       );
     }
 
-    return false;
-  }
-
-  /**
-   * Log vessel passage tracking status (for audit purposes)
-   * @param {Object} vessel - Vessel object
-   * @private
-   */
-  _logPassageTrackingStatus(vessel) {
-    const hasPassageData = vessel.lastPassedBridge || (vessel.passedBridges && vessel.passedBridges.length > 0);
-    
-    if (hasPassageData) {
-      const timeSincePassage = vessel.lastPassedBridgeTime ? Math.round((Date.now() - vessel.lastPassedBridgeTime) / 1000) : 'unknown';
-      this.logger.debug(
-        `📋 [PASSAGE_AUDIT] ${vessel.mmsi}: lastPassedBridge=${vessel.lastPassedBridge || 'none'}, `
-        + `timeSince=${timeSincePassage}s, passedBridges=[${(vessel.passedBridges || []).join(', ')}], `
-        + `targetBridge=${vessel.targetBridge || 'none'}`,
-      );
-    }
+    return hasPassed;
   }
 
   /**
@@ -1012,279 +1153,6 @@ class VesselDataService extends EventEmitter {
   _removeFromBridgeAssociations(mmsi) {
     for (const vesselSet of this.bridgeVessels.values()) {
       vesselSet.delete(mmsi);
-    }
-  }
-
-  /**
-   * ENHANCED: Check and apply target bridge protection
-   * Prevents target bridge changes during GPS events, maneuvers, and close approaches
-   * @private
-   * @param {Object} vessel - Current vessel data
-   * @param {Object} oldVessel - Previous vessel data
-   * @returns {boolean} True if protection is active (blocks target bridge changes)
-   */
-  _checkTargetBridgeProtection(vessel, oldVessel) {
-    if (!vessel.targetBridge || !oldVessel) {
-      return false;
-    }
-
-    const mmsi = vessel.mmsi;
-    const currentTime = Date.now();
-
-    // Get current protection state
-    let protection = this.targetBridgeProtection.get(mmsi) || {
-      isActive: false,
-      reason: null,
-      startTime: null,
-      targetBridge: null,
-      confidence: 1.0,
-      gpsEventDetected: false,
-      closeToTarget: false,
-      maneuverDetected: false
-    };
-
-    // Calculate distance to current target bridge
-    const targetBridge = this.bridgeRegistry.getBridgeByName(vessel.targetBridge);
-    const distanceToTarget = targetBridge ? geometry.calculateDistance(
-      vessel.lat, vessel.lon, targetBridge.lat, targetBridge.lon
-    ) : 9999;
-
-    // PROTECTION CONDITION 1: Distance-based protection (300m zone)
-    const isInProtectionZone = distanceToTarget <= 300;
-    
-    // PROTECTION CONDITION 2: GPS event protection
-    const gpsEventActive = this._detectGPSEventProtection(vessel, oldVessel);
-    
-    // PROTECTION CONDITION 3: Maneuver detection protection
-    const maneuverActive = this._detectManeuverProtection(vessel, oldVessel);
-    
-    // PROTECTION CONDITION 4: Recent passage protection (60s after passing a bridge)
-    const recentPassageActive = vessel.lastPassedBridgeTime &&
-      (currentTime - vessel.lastPassedBridgeTime) < 60000;
-
-    // Determine if protection should be activated
-    const shouldActivateProtection = isInProtectionZone || gpsEventActive || 
-      maneuverActive || recentPassageActive;
-
-    if (shouldActivateProtection && !protection.isActive) {
-      // Activate protection
-      protection = {
-        isActive: true,
-        reason: this._getProtectionReason(isInProtectionZone, gpsEventActive, maneuverActive, recentPassageActive),
-        startTime: currentTime,
-        targetBridge: vessel.targetBridge,
-        confidence: this._calculateProtectionConfidence(vessel, oldVessel),
-        gpsEventDetected: gpsEventActive,
-        closeToTarget: isInProtectionZone,
-        maneuverDetected: maneuverActive,
-        distanceToTarget
-      };
-
-      this.targetBridgeProtection.set(mmsi, protection);
-      this._scheduleProtectionTimeout(mmsi);
-
-      this.logger.log(
-        `🛡️ [TARGET_PROTECTION_ACTIVATED] ${mmsi}: Protecting target bridge ${vessel.targetBridge} `
-        + `(${protection.reason}, distance: ${distanceToTarget.toFixed(0)}m, confidence: ${protection.confidence.toFixed(2)})`
-      );
-
-    } else if (protection.isActive) {
-      // Update existing protection
-      protection.distanceToTarget = distanceToTarget;
-      protection.closeToTarget = isInProtectionZone;
-      protection.gpsEventDetected = gpsEventActive;
-      protection.maneuverDetected = maneuverActive;
-      
-      // Check if protection should be deactivated
-      const shouldDeactivate = this._shouldDeactivateProtection(protection, vessel, currentTime);
-      
-      if (shouldDeactivate) {
-        this._deactivateProtection(mmsi, protection.reason);
-        return false;
-      }
-
-      // Update vessel's target bridge to protected value if it was changed
-      if (vessel.targetBridge !== protection.targetBridge) {
-        this.logger.log(
-          `🛡️ [TARGET_PROTECTION_RESTORE] ${mmsi}: Restoring target bridge from `
-          + `${vessel.targetBridge} to ${protection.targetBridge} (protection active)`
-        );
-        vessel.targetBridge = protection.targetBridge;
-      }
-    }
-
-    return protection.isActive;
-  }
-
-  /**
-   * ENHANCED: Detect GPS event requiring protection
-   * @private
-   */
-  _detectGPSEventProtection(vessel, oldVessel) {
-    // Check for GPS jump detected by analyzer
-    if (vessel._gpsJumpDetected) {
-      return true;
-    }
-
-    // Check for position uncertainty
-    if (vessel._positionUncertain) {
-      return true;
-    }
-
-    // Check for large movement that might be GPS error
-    const movementDistance = geometry.calculateDistance(
-      oldVessel.lat, oldVessel.lon,
-      vessel.lat, vessel.lon
-    );
-
-    if (movementDistance > 200) { // Large movement requiring caution
-      return true;
-    }
-
-    return false;
-  }
-
-  /**
-   * ENHANCED: Detect maneuver requiring protection
-   * @private
-   */
-  _detectManeuverProtection(vessel, oldVessel) {
-    // Large COG change indicating maneuver
-    if (Number.isFinite(vessel.cog) && Number.isFinite(oldVessel.cog)) {
-      let cogChange = Math.abs(vessel.cog - oldVessel.cog);
-      if (cogChange > 180) {
-        cogChange = 360 - cogChange;
-      }
-      
-      if (cogChange > 45) { // Significant direction change
-        return true;
-      }
-    }
-
-    // Rapid speed change indicating maneuver
-    const speedChange = Math.abs((vessel.sog || 0) - (oldVessel.sog || 0));
-    if (speedChange > 2.0) { // Significant speed change
-      return true;
-    }
-
-    return false;
-  }
-
-  /**
-   * ENHANCED: Get protection reason for logging
-   * @private
-   */
-  _getProtectionReason(isInZone, gpsEvent, maneuver, recentPassage) {
-    const reasons = [];
-    if (isInZone) reasons.push('proximity');
-    if (gpsEvent) reasons.push('gps-event');
-    if (maneuver) reasons.push('maneuver');
-    if (recentPassage) reasons.push('recent-passage');
-    return reasons.join('+');
-  }
-
-  /**
-   * ENHANCED: Calculate protection confidence
-   * @private
-   */
-  _calculateProtectionConfidence(vessel, oldVessel) {
-    let confidence = 1.0;
-
-    // Reduce confidence for GPS events
-    if (vessel._gpsJumpDetected) {
-      confidence *= 0.7;
-    }
-    if (vessel._positionUncertain) {
-      confidence *= 0.8;
-    }
-
-    // Increase confidence for proximity
-    const targetBridge = this.bridgeRegistry.getBridgeByName(vessel.targetBridge);
-    if (targetBridge) {
-      const distance = geometry.calculateDistance(
-        vessel.lat, vessel.lon, targetBridge.lat, targetBridge.lon
-      );
-      if (distance <= 100) {
-        confidence = Math.min(1.0, confidence + 0.2);
-      }
-    }
-
-    return confidence;
-  }
-
-  /**
-   * ENHANCED: Check if protection should be deactivated
-   * @private
-   */
-  _shouldDeactivateProtection(protection, vessel, currentTime) {
-    const protectionDuration = currentTime - protection.startTime;
-    const maxProtectionTime = 300000; // 5 minutes maximum protection
-
-    // Deactivate if maximum time exceeded
-    if (protectionDuration > maxProtectionTime) {
-      return true;
-    }
-
-    // Deactivate if far from target and no GPS events
-    if (protection.distanceToTarget > 500 && 
-        !protection.gpsEventDetected && 
-        !protection.maneuverDetected &&
-        protectionDuration > 60000) { // 1 minute minimum for distance-based
-      return true;
-    }
-
-    // Deactivate if GPS events resolved and sufficient time passed
-    if (protection.gpsEventDetected && 
-        !vessel._gpsJumpDetected && 
-        !vessel._positionUncertain &&
-        protectionDuration > 30000) { // 30 seconds for GPS events
-      return true;
-    }
-
-    return false;
-  }
-
-  /**
-   * ENHANCED: Deactivate protection
-   * @private
-   */
-  _deactivateProtection(mmsi, reason) {
-    const protection = this.targetBridgeProtection.get(mmsi);
-    if (protection) {
-      const duration = Date.now() - protection.startTime;
-      this.logger.log(
-        `🛡️ [TARGET_PROTECTION_DEACTIVATED] ${mmsi}: Protection ended after ${(duration/1000).toFixed(1)}s `
-        + `(reason: ${reason})`
-      );
-
-      this.targetBridgeProtection.delete(mmsi);
-      this._clearProtectionTimer(mmsi);
-    }
-  }
-
-  /**
-   * ENHANCED: Schedule protection timeout
-   * @private
-   */
-  _scheduleProtectionTimeout(mmsi) {
-    this._clearProtectionTimer(mmsi);
-
-    const timer = setTimeout(() => {
-      this._deactivateProtection(mmsi, 'timeout');
-    }, 300000); // 5 minutes maximum protection
-
-    this.protectionTimers.set(mmsi, timer);
-  }
-
-  /**
-   * ENHANCED: Clear protection timer
-   * @private
-   */
-  _clearProtectionTimer(mmsi) {
-    const timer = this.protectionTimers.get(mmsi);
-    if (timer) {
-      clearTimeout(timer);
-      this.protectionTimers.delete(mmsi);
     }
   }
 }
