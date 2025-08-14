@@ -82,7 +82,7 @@ describe('SystemCoordinator Integration Tests', () => {
   describe('Status Stabilization Coordination', () => {
     test('should enhance stabilization during active coordination', () => {
       const mmsi = '257941000';
-      
+
       // First activate coordination with GPS jump
       const gpsAnalysis = {
         isGPSJump: true,
@@ -91,7 +91,7 @@ describe('SystemCoordinator Integration Tests', () => {
       };
       const vessel = { mmsi, status: 'waiting' };
       const oldVessel = { mmsi, status: 'en-route' };
-      
+
       coordinator.coordinatePositionUpdate(mmsi, gpsAnalysis, vessel, oldVessel);
 
       // Then test status stabilization
@@ -112,12 +112,12 @@ describe('SystemCoordinator Integration Tests', () => {
 
     test('should end coordination after timeout period', async () => {
       const mmsi = '257941000';
-      
+
       // Activate coordination
       const gpsAnalysis = { isGPSJump: true, movementDistance: 600 };
       const vessel = { mmsi };
       const oldVessel = { mmsi };
-      
+
       coordinator.coordinatePositionUpdate(mmsi, gpsAnalysis, vessel, oldVessel);
 
       // Mock time passage
@@ -176,11 +176,11 @@ describe('SystemCoordinator Integration Tests', () => {
   describe('Real Scenario Integration - Boat 257941000', () => {
     test('should handle U-turn maneuver with coordination', () => {
       const mmsi = '257941000';
-      
+
       // Simulate U-turn scenario - large movement with direction change
       const startPosition = { lat: 59.3293, lon: 18.0686 };
       const afterUturn = { lat: 59.3285, lon: 18.0678 };
-      
+
       const vessel = {
         mmsi,
         ...afterUturn,
@@ -189,7 +189,7 @@ describe('SystemCoordinator Integration Tests', () => {
         targetBridge: 'Klaffbron',
         status: 'waiting',
       };
-      
+
       const oldVessel = {
         mmsi,
         ...startPosition,
@@ -228,14 +228,14 @@ describe('SystemCoordinator Integration Tests', () => {
       };
 
       const coordinatedStatus = coordinator.coordinateStatusStabilization(mmsi, statusResult, gpsAnalysis);
-      
+
       // Should debounce bridge text updates during maneuver
       expect(coordinatedStatus.bridgeTextDebounced).toBe(true);
     });
 
     test('should handle GPS jump with proper protection', () => {
       const mmsi = '257941000';
-      
+
       const vessel = {
         mmsi,
         lat: 59.3300, // Jumped position
@@ -245,7 +245,7 @@ describe('SystemCoordinator Integration Tests', () => {
         targetBridge: 'Klaffbron',
         status: 'waiting',
       };
-      
+
       const oldVessel = {
         mmsi,
         lat: 59.3293, // Original position
@@ -278,7 +278,7 @@ describe('SystemCoordinator Integration Tests', () => {
       };
 
       const coordinatedStatus = coordinator.coordinateStatusStabilization(mmsi, statusResult, gpsAnalysis);
-      
+
       expect(coordinatedStatus.bridgeTextDebounced).toBe(true);
       expect(coordinatedStatus.extendedStabilization).toBe(true);
     });
@@ -287,33 +287,33 @@ describe('SystemCoordinator Integration Tests', () => {
   describe('Cleanup and Memory Management', () => {
     test('should clean up old coordination state', () => {
       const mmsi = '257941000';
-      
+
       // Add coordination state
       const gpsAnalysis = { isGPSJump: true, movementDistance: 500 };
       coordinator.coordinatePositionUpdate(mmsi, gpsAnalysis, { mmsi }, {});
-      
+
       expect(coordinator.vesselCoordinationState.has(mmsi)).toBe(true);
-      
+
       // Mock old timestamp
       const state = coordinator.vesselCoordinationState.get(mmsi);
       state.lastUpdateTime = Date.now() - (2 * 60 * 60 * 1000); // 2 hours ago
-      
+
       coordinator.cleanup();
-      
+
       expect(coordinator.vesselCoordinationState.has(mmsi)).toBe(false);
     });
 
     test('should remove vessel coordination state on vessel removal', () => {
       const mmsi = '257941000';
-      
+
       // Add coordination state
       const gpsAnalysis = { isGPSJump: true, movementDistance: 500 };
       coordinator.coordinatePositionUpdate(mmsi, gpsAnalysis, { mmsi }, {});
-      
+
       expect(coordinator.vesselCoordinationState.has(mmsi)).toBe(true);
-      
+
       coordinator.removeVessel(mmsi);
-      
+
       expect(coordinator.vesselCoordinationState.has(mmsi)).toBe(false);
     });
   });
@@ -321,7 +321,7 @@ describe('SystemCoordinator Integration Tests', () => {
   describe('Configuration and Status', () => {
     test('should provide coordination status for debugging', () => {
       const status = coordinator.getCoordinationStatus();
-      
+
       expect(status).toHaveProperty('globalState');
       expect(status).toHaveProperty('activeCoordinations');
       expect(status).toHaveProperty('activeDebounces');

@@ -1,13 +1,13 @@
-#!/usr/bin/env node
-
 'use strict';
+
+/* eslint-disable no-console */
 
 /**
  * Complete Integration Test Suite
  * Tests all new functionality: GPSJumpAnalyzer, StatusStabilizer, SystemCoordinator, Enhanced Passage Detection
  */
 
-const path = require('path');
+// const path = require('path'); // Unused - commented out
 
 // Mock Homey environment
 global.Homey = {
@@ -50,7 +50,7 @@ class IntegrationTester {
     this.bridgeTextService = new BridgeTextService(logger);
     this.gpsJumpAnalyzer = new GPSJumpAnalyzer(logger);
     this.statusStabilizer = new StatusStabilizer(logger);
-    
+
     this.testResults = [];
     this.passedTests = 0;
     this.failedTests = 0;
@@ -63,35 +63,35 @@ class IntegrationTester {
 
     // Test 1: GPS Jump Analysis
     await this.testGPSJumpAnalysis();
-    
+
     // Test 2: Status Stabilization
     await this.testStatusStabilization();
-    
+
     // Test 3: System Coordination
     await this.testSystemCoordination();
-    
+
     // Test 4: Enhanced Passage Detection
     await this.testEnhancedPassageDetection();
-    
+
     // Test 5: Complete Integration Flow
     await this.testCompleteIntegrationFlow();
-    
+
     // Test 6: Target Bridge Protection
     await this.testTargetBridgeProtection();
-    
+
     // Test 7: Bridge Text Debouncing
     await this.testBridgeTextDebouncing();
-    
+
     // Test 8: Memory Management
     await this.testMemoryManagement();
-    
+
     this.printSummary();
   }
 
   async testGPSJumpAnalysis() {
     console.log('\n📍 TEST 1: GPS Jump Analysis');
     console.log('─────────────────────────────');
-    
+
     const tests = [
       {
         name: 'Small movement (<100m)',
@@ -118,19 +118,19 @@ class IntegrationTester {
         expected: { action: 'gps_jump_detected', isGPSJump: true },
       },
     ];
-    
+
     for (const test of tests) {
       const result = this.gpsJumpAnalyzer.analyzeMovement(
         '123456789',
         test.current,
         test.previous,
         test.currentVessel,
-        test.oldVessel
+        test.oldVessel,
       );
-      
-      const passed = result.action === test.expected.action && 
-                    result.isGPSJump === test.expected.isGPSJump;
-      
+
+      const passed = result.action === test.expected.action
+                    && result.isGPSJump === test.expected.isGPSJump;
+
       this.recordTest(test.name, passed, result);
     }
   }
@@ -138,14 +138,14 @@ class IntegrationTester {
   async testStatusStabilization() {
     console.log('\n🛡️ TEST 2: Status Stabilization');
     console.log('─────────────────────────────');
-    
+
     const vessel = {
       mmsi: '123456789',
       status: 'en-route',
       sog: 8,
       _distanceToNearest: 500,
     };
-    
+
     const tests = [
       {
         name: 'Normal status change',
@@ -166,15 +166,15 @@ class IntegrationTester {
         expectedStabilized: true,
       },
     ];
-    
+
     for (const test of tests) {
       const result = this.statusStabilizer.stabilizeStatus(
         vessel.mmsi,
         test.proposedStatus,
         vessel,
-        test.positionAnalysis
+        test.positionAnalysis,
       );
-      
+
       const passed = result.stabilized === test.expectedStabilized;
       this.recordTest(test.name, passed, result);
     }
@@ -183,7 +183,7 @@ class IntegrationTester {
   async testSystemCoordination() {
     console.log('\n🎮 TEST 3: System Coordination');
     console.log('─────────────────────────────');
-    
+
     const tests = [
       {
         name: 'GPS jump coordination',
@@ -204,18 +204,18 @@ class IntegrationTester {
         expectedDebounce: false,
       },
     ];
-    
+
     for (const test of tests) {
       const result = this.systemCoordinator.coordinatePositionUpdate(
         '123456789',
         test.gpsAnalysis,
         { mmsi: '123456789' },
-        null
+        null,
       );
-      
-      const passed = result.shouldActivateProtection === test.expectedProtection &&
-                    result.shouldDebounceText === test.expectedDebounce;
-      
+
+      const passed = result.shouldActivateProtection === test.expectedProtection
+                    && result.shouldDebounceText === test.expectedDebounce;
+
       this.recordTest(test.name, passed, result);
     }
   }
@@ -223,14 +223,14 @@ class IntegrationTester {
   async testEnhancedPassageDetection() {
     console.log('\n🌉 TEST 4: Enhanced Passage Detection');
     console.log('──────────────────────────────────');
-    
+
     const bridge = BRIDGES.stallbackabron || {
       name: 'Stallbackabron',
       lat: 58.31265,
       lon: 11.44652,
       radius: 300,
     };
-    
+
     const tests = [
       {
         name: 'Traditional close passage',
@@ -254,14 +254,14 @@ class IntegrationTester {
         expectedMethod: 'stallbackabron_special',
       },
     ];
-    
+
     for (const test of tests) {
       const result = geometry.detectBridgePassage(
         test.vessel,
         test.oldVessel,
-        bridge
+        bridge,
       );
-      
+
       const passed = result.passed === test.expectedPassed;
       this.recordTest(test.name, passed, result);
     }
@@ -270,7 +270,7 @@ class IntegrationTester {
   async testCompleteIntegrationFlow() {
     console.log('\n🔄 TEST 5: Complete Integration Flow');
     console.log('──────────────────────────────────');
-    
+
     // Simulate boat 257941000 scenario
     const vessel = {
       mmsi: '257941000',
@@ -285,43 +285,42 @@ class IntegrationTester {
       lastPosition: { lat: 58.315, lon: 11.44 },
       timestamp: Date.now(),
     };
-    
+
     // Step 1: Update vessel with GPS jump
     console.log('  → Simulating GPS jump...');
     const oldVessel = { ...vessel };
     vessel.lat = 58.31;
     vessel.lon = 11.46;
-    
+
     // Analyze GPS movement
     const gpsAnalysis = this.gpsJumpAnalyzer.analyzeMovement(
       vessel.mmsi,
       { lat: vessel.lat, lon: vessel.lon },
       oldVessel.lastPosition,
       vessel,
-      oldVessel
+      oldVessel,
     );
-    
+
     // Coordinate with system
     const coordination = this.systemCoordinator.coordinatePositionUpdate(
       vessel.mmsi,
       gpsAnalysis,
       vessel,
-      oldVessel
+      oldVessel,
     );
-    
+
     // Apply status stabilization
     const stabilizedStatus = this.statusStabilizer.stabilizeStatus(
       vessel.mmsi,
       'approaching',
       vessel,
-      gpsAnalysis
+      gpsAnalysis,
     );
-    
-    const integrationWorked = 
-      gpsAnalysis.action !== 'reject' &&
-      coordination.shouldActivateProtection &&
-      stabilizedStatus.stabilized;
-    
+
+    const integrationWorked = gpsAnalysis.action !== 'reject'
+      && coordination.shouldActivateProtection
+      && stabilizedStatus.stabilized;
+
     this.recordTest('Complete integration flow', integrationWorked, {
       gpsAnalysis,
       coordination,
@@ -332,27 +331,27 @@ class IntegrationTester {
   async testTargetBridgeProtection() {
     console.log('\n🎯 TEST 6: Target Bridge Protection');
     console.log('────────────────────────────────');
-    
+
     const vessel = {
       mmsi: '123456789',
       targetBridge: 'Stridsbergsbron',
       lat: 58.293,
       lon: 11.446,
     };
-    
+
     // Test that target bridge is preserved
-    const oldVessel = { ...vessel };
+    // const oldVessel = { ...vessel }; // Unused - commented out // eslint-disable-line no-unused-vars
     vessel.lat = 58.294;
-    
+
     this.vesselDataService.updateVessel(vessel);
     const updatedVessel = this.vesselDataService.getVessel(vessel.mmsi);
-    
+
     const targetPreserved = updatedVessel && updatedVessel.targetBridge === vessel.targetBridge;
-    this.recordTest('Target bridge preserved during update', targetPreserved, { 
+    this.recordTest('Target bridge preserved during update', targetPreserved, {
       original: vessel.targetBridge,
-      updated: updatedVessel?.targetBridge 
+      updated: updatedVessel?.targetBridge,
     });
-    
+
     // Test protection during GPS jump scenario
     const protectionScenario = vessel.targetBridge === 'Stridsbergsbron';
     this.recordTest('Protection scenario setup', protectionScenario, { targetBridge: vessel.targetBridge });
@@ -361,60 +360,60 @@ class IntegrationTester {
   async testBridgeTextDebouncing() {
     console.log('\n⏱️ TEST 7: Bridge Text Debouncing');
     console.log('──────────────────────────────');
-    
+
     const vessels = [
       { mmsi: '123456789', targetBridge: 'Klaffbron' },
       { mmsi: '987654321', targetBridge: 'Stridsbergsbron' },
     ];
-    
+
     // Activate debounce for first vessel
     this.systemCoordinator._activateBridgeTextDebounce('123456789', Date.now());
-    
+
     const debounceStatus = this.systemCoordinator.shouldDebounceBridgeText(vessels);
     const shouldDebounce = debounceStatus.shouldDebounce && debounceStatus.activeDebounces > 0;
-    
+
     this.recordTest('Bridge text debouncing active', shouldDebounce, debounceStatus);
   }
 
   async testMemoryManagement() {
     console.log('\n🧹 TEST 8: Memory Management');
     console.log('─────────────────────────');
-    
+
     // Add test data
     for (let i = 0; i < 10; i++) {
       const mmsi = `12345678${i}`;
       this.statusStabilizer._getOrCreateHistory(mmsi);
       this.systemCoordinator._getOrCreateCoordinationState(mmsi);
     }
-    
+
     const beforeCleanup = {
       statusHistory: this.statusStabilizer.statusHistory.size,
       coordinationState: this.systemCoordinator.vesselCoordinationState.size,
     };
-    
+
     // Run cleanup
     this.statusStabilizer.cleanup();
     this.systemCoordinator.cleanup();
-    
+
     const afterCleanup = {
       statusHistory: this.statusStabilizer.statusHistory.size,
       coordinationState: this.systemCoordinator.vesselCoordinationState.size,
     };
-    
-    const cleanupWorked = afterCleanup.statusHistory <= beforeCleanup.statusHistory &&
-                         afterCleanup.coordinationState <= beforeCleanup.coordinationState;
-    
+
+    const cleanupWorked = afterCleanup.statusHistory <= beforeCleanup.statusHistory
+                         && afterCleanup.coordinationState <= beforeCleanup.coordinationState;
+
     this.recordTest('Memory cleanup', cleanupWorked, { beforeCleanup, afterCleanup });
   }
 
   recordTest(name, passed, details) {
     const status = passed ? '✅' : '❌';
     console.log(`  ${status} ${name}`);
-    
+
     if (!passed && details) {
       console.log('    Details:', JSON.stringify(details, null, 2).split('\n').join('\n    '));
     }
-    
+
     this.testResults.push({ name, passed, details });
     if (passed) {
       this.passedTests++;
@@ -430,17 +429,20 @@ class IntegrationTester {
     console.log(`✅ Passed: ${this.passedTests}`);
     console.log(`❌ Failed: ${this.failedTests}`);
     console.log(`📈 Success Rate: ${((this.passedTests / (this.passedTests + this.failedTests)) * 100).toFixed(1)}%`);
-    
+
     if (this.failedTests > 0) {
       console.log('\n❌ Failed Tests:');
       this.testResults
-        .filter(t => !t.passed)
-        .forEach(t => console.log(`  - ${t.name}`));
+        .filter((t) => !t.passed)
+        .forEach((t) => console.log(`  - ${t.name}`));
     }
-    
+
     console.log('\n========================================\n');
-    
-    process.exit(this.failedTests > 0 ? 1 : 0);
+
+    // process.exit(this.failedTests > 0 ? 1 : 0); // Let Node exit naturally
+    if (this.failedTests > 0) {
+      throw new Error(`${this.failedTests} tests failed`);
+    }
   }
 }
 

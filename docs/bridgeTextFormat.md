@@ -31,23 +31,25 @@
 
 **VIKTIGT**: Stallbackabron visar ALDRIG "inväntar broöppning" oavsett hastighet eller avstånd!
 
-**Multi-vessel för Stallbackabron (MED "PÅ VÄG MOT" + ETA):**
+**Multi-vessel för Stallbackabron (KONSEKVENT FORMAT):**
 
-- "Tre båtar närmar sig Stallbackabron på väg mot [målbro], beräknad broöppning om X minuter"
-- "Två båtar åker strax under Stallbackabron på väg mot [målbro], beräknad broöppning om X minuter"
-- "En båt passerar Stallbackabron på väg mot [målbro], ytterligare 2 båtar på väg, beräknad broöppning om X minuter"
+- **Närmar sig**: "En båt närmar sig Stallbackabron på väg mot [målbro], ytterligare X båtar på väg, beräknad broöppning om X minuter"
+- **Åker strax under**: "En båt åker strax under Stallbackabron på väg mot [målbro], ytterligare X båtar på väg, beräknad broöppning om X minuter"
+- **Passerar**: "En båt passerar Stallbackabron på väg mot [målbro], ytterligare X båtar på väg, beräknad broöppning om X minuter"
+
+**OBS:** Alltid "En båt" följt av "ytterligare X båtar" för konsekvent format med andra broar
 
 ### 1. Närmar sig (approaching status - NY 500m REGEL)
 
 **Målbroar (Klaffbron/Stridsbergsbron):**
 
 - **<500m**: "En båt närmar sig [målbro], beräknad broöppning om X minuter"
-- **Multi-vessel**: "Tre båtar närmar sig [målbro], beräknad broöppning om X minuter"
+- **Multi-vessel**: "Två/Tre båtar närmar sig [målbro], beräknad broöppning om X minuter" (text-baserade siffror)
 
 **Mellanbroar (Olidebron/Järnvägsbron):**
 
 - **<500m**: "En båt närmar sig [mellanbro] på väg mot [målbro], beräknad broöppning om X minuter"
-- **Multi-vessel**: "Tre båtar närmar sig [mellanbro] på väg mot [målbro], beräknad broöppning om X minuter"
+- **Multi-vessel**: "Två/Tre båtar närmar sig [mellanbro] på väg mot [målbro], beräknad broöppning om X minuter" (text-baserade siffror)
 
 **Stallbackabron (specialfall):**
 
@@ -59,7 +61,7 @@
 
 - **<300m trigger**: Båt ≤300m från målbro
 - **1 båt**: "En båt inväntar broöppning vid [målbro]"
-- **Multi-vessel**: "Tre båtar inväntar broöppning vid [målbro]"
+- **Multi-vessel**: "Två/Tre båtar inväntar broöppning vid [målbro]" (text-baserade siffror)
 - **Ingen ETA visas** (för nära för korrekt beräkning)
 
 **Mellanbroar (Olidebron, Järnvägsbron - INTE Stallbackabron):**
@@ -67,7 +69,8 @@
 - **<300m trigger**: Båt ≤300m från mellanbro
 - **Format**: "En båt inväntar broöppning av [mellanbro] på väg mot [målbro], beräknad broöppning om X minuter"
 - **ETA visar tid till målbro** (inte till mellanbron)
-- **Multi-vessel**: "En båt inväntar broöppning av [mellanbro] på väg mot [målbro], ytterligare 2 båtar på väg, beräknad broöppning om X minuter"
+- **Multi-vessel**: "Två/Tre båtar inväntar broöppning av [mellanbro] på väg mot [målbro], beräknad broöppning om X minuter" 
+  ELLER "En båt inväntar broöppning av [mellanbro] på väg mot [målbro], ytterligare X båtar på väg, beräknad broöppning om X minuter"
 - **KRITISK FIX**: `_shouldShowWaiting()` kontrollerar nu specifik bro istället för att returnera true för alla broar
 
 **VIKTIG REGEL**: Stallbackabron visar ALDRIG "inväntar broöppning" - använder istället "åker strax under"!
@@ -440,6 +443,42 @@ if (
 #### **GPS-HOPP RECOVERY:**
 
 - **Position återställd**: Normal meddelande-generation återupptas efter giltiga GPS-koordinater
+
+---
+
+## TEKNISKA IMPLEMENTERINGSDETALJER
+
+### Numerisk Text-konvertering
+
+**Alla numeriska räkneord använder text-baserade siffror:**
+- 1 = "En"
+- 2 = "Två"
+- 3 = "Tre"
+- 4+ = siffror ("4", "5", etc.)
+
+**Exempel:**
+- "Två båtar inväntar broöppning" (INTE "2 båtar")
+- "ytterligare Tre båtar på väg" (INTE "ytterligare 3 båtar")
+
+### Passage Window System
+
+**PassageWindowManager - Centraliserad hantering:**
+- **Display Window**: ALLTID 60 sekunder för "precis passerat" meddelanden
+- **Internal Grace Period**: Hastighetsbaserad (2 min snabb, 1 min långsam) för intern systemlogik
+- **Dynamic Calculation**: Avancerad beräkning baserat på broavstånd för intelligenta timings
+
+**Separation av logik:**
+- Användare ser alltid 60 sekunders "precis passerat"
+- Systemet använder smart intern logik för stabilitet
+- Målbro-skydd använder hastighetsbaserad grace period
+
+### Stallbackabron Konsekvent Format
+
+**ALLTID använd "ytterligare X båtar" format:**
+- RÄTT: "En båt åker strax under Stallbackabron, ytterligare Två båtar på väg"
+- FEL: "Tre båtar åker strax under Stallbackabron"
+
+Detta säkerställer konsekvent format med alla andra broar.
 
 ---
 
