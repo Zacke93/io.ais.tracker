@@ -2,13 +2,10 @@
     Homey.setTitle('Adding AIS Bridge device...');
     Homey.showLoadingOverlay();
 
-    console.log('add_devices.html: Sending add_device event');
     Homey.emit('add_device', null, function (err, result) {
         if (err) {
-            console.error('Error in add_device:', err);
             return Homey.error(err);
         }
-        console.log('add_devices.html: Device added successfully:', result);
         Homey.hideLoadingOverlay();
         Homey.done();
     });

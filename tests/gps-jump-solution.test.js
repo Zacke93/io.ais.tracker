@@ -14,7 +14,7 @@ describe('GPS Jump Solution', () => {
       log: jest.fn(),
       error: jest.fn(),
     };
-    
+
     gpsAnalyzer = new GPSJumpAnalyzer(mockLogger);
     statusStabilizer = new StatusStabilizer(mockLogger);
   });
@@ -49,7 +49,7 @@ describe('GPS Jump Solution', () => {
 
       // Should detect as uncertain due to potential inconsistency
       expect(result.action).toBe('accept_with_caution');
-      expect(result.isGPSJump).toBe(false); 
+      expect(result.isGPSJump).toBe(false);
       expect(result.confidence).toBe('medium');
     });
 
@@ -184,19 +184,19 @@ describe('GPS Jump Solution', () => {
       const positions = [
         { lat: 58.29000, lon: 12.29000 }, // Starting position
         { lat: 58.29400, lon: 12.29500 }, // +763m jump with COG change
-        { lat: 58.29800, lon: 12.30000 }, // +1033m jump 
+        { lat: 58.29800, lon: 12.30000 }, // +1033m jump
         { lat: 58.29500, lon: 12.29600 }, // +646m jump (returning)
       ];
 
       const vesselStates = [
-        { cog: 30, sog: 3.5 },  // Northbound
+        { cog: 30, sog: 3.5 }, // Northbound
         { cog: 200, sog: 3.2 }, // U-turn to southbound (explains large jump)
         { cog: 210, sog: 3.8 }, // Continuing southbound
-        { cog: 30, sog: 3.5 },  // Another direction change
+        { cog: 30, sog: 3.5 }, // Another direction change
       ];
 
       let currentStatus = 'en-route';
-      let vessel = { mmsi: '257941000', status: currentStatus };
+      const vessel = { mmsi: '257941000', status: currentStatus };
 
       for (let i = 1; i < positions.length; i++) {
         const analysis = gpsAnalyzer.analyzeMovement(

@@ -123,6 +123,14 @@
               "en": "Direction",
               "sv": "Riktning"
             }
+          },
+          {
+            "name": "eta_minutes",
+            "type": "number",
+            "title": {
+              "en": "ETA (minutes)",
+              "sv": "Beräknad ankomst (minuter)"
+            }
           }
         ]
       }
