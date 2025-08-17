@@ -51,9 +51,8 @@ class AISBridgeApp extends Homey.App {
     // Boat near trigger deduplication - tracks which vessels have been triggered for each bridge
     this._triggeredBoatNearKeys = new Set(); // Track vessel+bridge combinations that have been triggered
 
-    // UI update debouncing to prevent double bridge text changes
-    this._uiUpdateTimer = null;
-    this._uiUpdatePending = false;
+    // UI update state tracking (no more debouncing - using immediate updates with change detection)
+    this._uiUpdateScheduled = false;
 
     // Timer tracking for cleanup
     this._vesselRemovalTimers = new Map(); // Track vessel removal timers
@@ -220,6 +219,11 @@ class AISBridgeApp extends Homey.App {
   async _onVesselRemoved({ mmsi, vessel, reason }) {
     this.debug(`🗑️ [VESSEL_REMOVED] Vessel: ${mmsi} (${reason})`);
 
+    // ENHANCED DEBUG: Log current state before removal
+    const currentVesselCount = this.vesselDataService.getVesselCount();
+    this.debug(`🔍 [VESSEL_REMOVAL_DEBUG] Current vessel count: ${currentVesselCount}, removing: ${mmsi}`);
+    this.debug(`🔍 [VESSEL_REMOVAL_DEBUG] Current _lastBridgeText: "${this._lastBridgeText}"`);
+
     // CRITICAL FIX: Clear any pending removal timer for this vessel
     if (this._vesselRemovalTimers.has(mmsi)) {
       clearTimeout(this._vesselRemovalTimers.get(mmsi));
@@ -233,11 +237,44 @@ class AISBridgeApp extends Homey.App {
     // Clean up status stabilizer history
     this.statusService.statusStabilizer.removeVessel(mmsi);
 
-    // Clear any UI references
-    await this._clearBridgeText(mmsi);
+    // ENHANCED FIX: Force UI update when vessel is removed
+    // This ensures bridge text updates to default message when all vessels are gone
+    const remainingVesselCount = currentVesselCount - 1; // Count after this removal
+    this.debug(`🔍 [VESSEL_REMOVAL_DEBUG] Vessels remaining after removal: ${remainingVesselCount}`);
 
-    // Update UI
-    this._updateUI();
+    if (remainingVesselCount === 0) {
+      // CRITICAL: Force bridge text update to default when no vessels remain
+      this.debug('🔄 [VESSEL_REMOVAL_DEBUG] Last vessel removed - forcing bridge text to default');
+      // eslint-disable-next-line global-require
+      const { BRIDGE_TEXT_CONSTANTS } = require('./lib/constants');
+      const defaultMessage = BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE;
+      this.debug(`🔄 [VESSEL_REMOVAL_DEBUG] Default message: "${defaultMessage}"`);
+
+      // Force update even if text hasn't "changed" according to comparison
+      this._lastBridgeText = defaultMessage;
+      this._updateDeviceCapability('bridge_text', defaultMessage);
+      this.debug(`📱 [UI_UPDATE] FORCED bridge text update to default: "${defaultMessage}"`);
+
+      // Also update global token
+      try {
+        if (this._globalBridgeTextToken) {
+          await this._globalBridgeTextToken.setValue(defaultMessage);
+        }
+      } catch (error) {
+        this.error('[GLOBAL_TOKEN_ERROR] Failed to update global bridge text token:', error);
+      }
+
+      // Update alarm_generic to false when no boats
+      if (this._lastBridgeAlarm !== false) {
+        this._lastBridgeAlarm = false;
+        this._updateDeviceCapability('alarm_generic', false);
+        this.debug('✅ [ALARM_GENERIC] Deactivated - no boats present after removal');
+      }
+    } else {
+      // Normal UI update for partial removal
+      this.debug(`🔄 [VESSEL_REMOVAL_DEBUG] ${remainingVesselCount} vessels remain - normal UI update`);
+      this._updateUI();
+    }
   }
 
   /**
@@ -297,10 +334,18 @@ class AISBridgeApp extends Homey.App {
     }
 
     // Update UI for significant status changes
-    // CRITICAL FIX: Added 'stallbacka-waiting' to trigger UI updates
-    const significantStatuses = ['approaching', 'waiting', 'under-bridge', 'passed', 'stallbacka-waiting'];
+    // CRITICAL FIX: Added 'stallbacka-waiting' and 'en-route' to trigger UI updates
+    const significantStatuses = ['approaching', 'waiting', 'under-bridge', 'passed', 'stallbacka-waiting', 'en-route'];
+
+    this.debug(`🔍 [UI_UPDATE_CHECK] ${vessel.mmsi}: newStatus="${newStatus}", oldStatus="${oldStatus}"`);
+    this.debug(`🔍 [UI_UPDATE_CHECK] significantStatuses=${JSON.stringify(significantStatuses)}`);
+    this.debug(`🔍 [UI_UPDATE_CHECK] newInList=${significantStatuses.includes(newStatus)}, oldInList=${significantStatuses.includes(oldStatus)}`);
+
     if (significantStatuses.includes(newStatus) || significantStatuses.includes(oldStatus)) {
+      this.debug(`✅ [UI_UPDATE_TRIGGER] ${vessel.mmsi}: Calling _updateUI() due to status change ${oldStatus} → ${newStatus}`);
       this._updateUI();
+    } else {
+      this.debug(`❌ [UI_UPDATE_SKIP] ${vessel.mmsi}: Skipping _updateUI() for status change ${oldStatus} → ${newStatus}`);
     }
   }
 
@@ -530,10 +575,17 @@ class AISBridgeApp extends Homey.App {
       return false;
     }
 
-    // CRITICAL FIX: More robust COG validation with finite check
-    if (message.cog !== undefined && (!Number.isFinite(message.cog) || message.cog < 0 || message.cog >= VALIDATION_CONSTANTS.COG_MAX)) {
-      this.debug(`⚠️ [AIS_VALIDATION] Invalid COG: ${message.cog}`);
-      return false;
+    // CRITICAL FIX: More robust COG validation with finite check and 360° normalization
+    if (message.cog !== undefined) {
+      if (!Number.isFinite(message.cog) || message.cog < 0 || message.cog > 360) {
+        this.debug(`⚠️ [AIS_VALIDATION] Invalid COG: ${message.cog}`);
+        return false;
+      }
+      // Normalize 360° to 0° (both represent north)
+      if (message.cog === 360) {
+        message.cog = 0;
+        this.debug('🔄 [AIS_VALIDATION] Normalized COG 360° to 0°');
+      }
     }
 
     // CRITICAL FIX: Additional validation for ship name
@@ -546,39 +598,35 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
-   * Update UI bridge text
+   * Schedule immediate UI update with smart batching
+   * REPLACES debounce system with reliable immediate updates + change detection
    * @private
    */
   _updateUI() {
-    // CRITICAL FIX: More robust debounce with atomic operation
-    // Clear any existing timer first (prevents timer leak)
-    if (this._uiUpdateTimer) {
-      clearTimeout(this._uiUpdateTimer);
-      this._uiUpdateTimer = null;
+    this.debug('🔄 [_updateUI] Called - scheduling immediate UI update');
+
+    // Skip if already scheduled in current event loop cycle
+    if (this._uiUpdateScheduled) {
+      this.debug('🔄 [_updateUI] UI update already scheduled for this cycle - skipping');
+      return;
     }
 
-    // Check if already pending after clearing timer
-    if (this._uiUpdatePending) {
-      return; // Already scheduled with fresh timer
-    }
+    // Mark as scheduled and use setImmediate for natural batching
+    this._uiUpdateScheduled = true;
+    this.debug('🔄 [_updateUI] Scheduling immediate UI update with setImmediate');
 
-    this._uiUpdatePending = true;
-
-    // Schedule update after brief delay to allow all events to settle
-    this._uiUpdateTimer = setTimeout(() => {
+    setImmediate(() => {
       try {
-        // Ensure flag consistency before updating
-        if (this._uiUpdatePending) {
-          this._actuallyUpdateUI();
-        }
+        this.debug('✅ [_updateUI] setImmediate fired - calling _actuallyUpdateUI()');
+        this._actuallyUpdateUI();
       } catch (error) {
-        this.error('Error in UI update timer:', error);
+        this.error('❌ [_updateUI] Error in immediate UI update:', error);
       } finally {
-        // CRITICAL FIX: Always reset state in finally block
-        this._uiUpdatePending = false;
-        this._uiUpdateTimer = null;
+        // Reset flag for next cycle
+        this._uiUpdateScheduled = false;
+        this.debug('🔄 [_updateUI] Immediate update cycle complete');
       }
-    }, UI_CONSTANTS.UI_UPDATE_DEBOUNCE_MS); // 10ms debounce
+    });
   }
 
   /**
@@ -586,19 +634,25 @@ class AISBridgeApp extends Homey.App {
    * @private
    */
   async _actuallyUpdateUI() {
+    this.debug('📱 [_actuallyUpdateUI] Starting UI update');
     try {
       // CRITICAL: Re-evaluate all vessel statuses before UI update
       // This ensures that time-sensitive statuses like "passed" are current
+      this.debug('📱 [_actuallyUpdateUI] Re-evaluating vessel statuses');
       this._reevaluateVesselStatuses();
 
       // Get vessels relevant for bridge text
       const relevantVessels = this._findRelevantBoatsForBridgeText();
+      this.debug(`📱 [_actuallyUpdateUI] Found ${relevantVessels.length} relevant vessels`);
 
       // Generate bridge text
       const bridgeText = this.bridgeTextService.generateBridgeText(relevantVessels);
+      this.debug(`📱 [_actuallyUpdateUI] Generated bridge text: "${bridgeText}"`);
 
-      // Update devices if text changed
+      // Update devices if text changed (change detection prevents unnecessary updates)
+      this.debug(`📱 [_actuallyUpdateUI] Comparing: new="${bridgeText}" vs last="${this._lastBridgeText}"`);
       if (bridgeText !== this._lastBridgeText) {
+        this.debug('✅ [_actuallyUpdateUI] Bridge text changed - updating devices');
         this._lastBridgeText = bridgeText;
         this._updateDeviceCapability('bridge_text', bridgeText);
 
@@ -612,6 +666,8 @@ class AISBridgeApp extends Homey.App {
         }
 
         this.debug(`📱 [UI_UPDATE] Bridge text updated: "${bridgeText}"`);
+      } else {
+        this.debug(`📱 [UI_UPDATE] Bridge text unchanged: "${bridgeText}"`);
       }
 
       // Update connection status only if changed
@@ -755,10 +811,25 @@ class AISBridgeApp extends Homey.App {
       'status', 'targetBridge', 'isWaiting', 'isApproaching', 'etaMinutes',
     ];
 
+    this.debug(`🔍 [_updateUIIfNeeded] ${vessel.mmsi}: Checking for significant changes`);
+
+    // Debug each significant change
+    significantChanges.forEach((key) => {
+      const oldVal = oldVessel?.[key];
+      const newVal = vessel[key];
+      const changed = newVal !== oldVal;
+      this.debug(`🔍 [_updateUIIfNeeded] ${vessel.mmsi}: ${key}: "${oldVal}" → "${newVal}" (changed: ${changed})`);
+    });
+
     const hasSignificantChange = significantChanges.some((key) => vessel[key] !== oldVessel?.[key]);
 
+    this.debug(`🔍 [_updateUIIfNeeded] ${vessel.mmsi}: hasSignificantChange=${hasSignificantChange}`);
+
     if (hasSignificantChange) {
+      this.debug(`✅ [_updateUIIfNeeded] ${vessel.mmsi}: Triggering UI update due to significant changes`);
       this._updateUI();
+    } else {
+      this.debug(`❌ [_updateUIIfNeeded] ${vessel.mmsi}: No significant changes - skipping UI update`);
     }
   }
 
@@ -814,15 +885,35 @@ class AISBridgeApp extends Homey.App {
       // This allows flow triggers for vessels at intermediate bridges
       const bridgeForFlow = vessel.targetBridge || vessel.currentBridge;
 
+      // ENHANCED DEBUG: Log detailed vessel state for debugging
+      this.debug(`🔍 [FLOW_TRIGGER_DEBUG] ${vessel.mmsi}: targetBridge="${vessel.targetBridge}", currentBridge="${vessel.currentBridge}", bridgeForFlow="${bridgeForFlow}"`);
+
       if (!bridgeForFlow) {
         // Skip trigger if no bridge association at all
         this.debug(`⚠️ [FLOW_TRIGGER] Skipping boat_near - vessel ${vessel.mmsi} has no bridge association (target: ${vessel.targetBridge}, current: ${vessel.currentBridge})`);
         return;
       }
 
+      // ENHANCED VALIDATION: Validate bridgeForFlow immediately
+      if (typeof bridgeForFlow !== 'string' || bridgeForFlow.trim() === '') {
+        this.error(
+          `[FLOW_TRIGGER] CRITICAL: bridgeForFlow is invalid! value="${bridgeForFlow}", `
+          + `type=${typeof bridgeForFlow}, vessel.targetBridge=${vessel.targetBridge}, `
+          + `vessel.currentBridge=${vessel.currentBridge}`,
+        );
+        return;
+      }
+
       // CRITICAL: Check if vessel is within 300m of the relevant bridge
       const proximityData = this.proximityService.analyzeVesselProximity(vessel);
       const bridges = proximityData.bridges || []; // Safety: ensure array exists
+
+      // ENHANCED DEBUG: Log proximity data for debugging
+      this.debug(`🔍 [FLOW_TRIGGER_DEBUG] ${vessel.mmsi}: proximityData.bridges count=${bridges.length}, looking for bridge="${bridgeForFlow}"`);
+      bridges.forEach((bridge, index) => {
+        this.debug(`🔍 [FLOW_TRIGGER_DEBUG] ${vessel.mmsi}: bridge[${index}] = {name: "${bridge.name}", distance: ${bridge.distance?.toFixed(0)}m}`);
+      });
+
       const relevantBridgeData = bridges.find((b) => b.name === bridgeForFlow);
 
       if (!relevantBridgeData || relevantBridgeData.distance > FLOW_CONSTANTS.FLOW_TRIGGER_DISTANCE_THRESHOLD) {
@@ -840,12 +931,6 @@ class AISBridgeApp extends Homey.App {
         return;
       }
 
-      // CRITICAL FIX: Double-check bridge name before creating tokens
-      if (!bridgeForFlow) {
-        this.error(`[FLOW_TRIGGER] CRITICAL: bridgeForFlow became undefined after checks! vessel.targetBridge=${vessel.targetBridge}, vessel.currentBridge=${vessel.currentBridge}`);
-        return;
-      }
-
       const tokens = {
         vessel_name: vessel.name || 'Unknown', // FIX: Changed from boat_name to match app.json declaration
         bridge_name: bridgeForFlow, // Use the determined bridge (target or current)
@@ -853,18 +938,47 @@ class AISBridgeApp extends Homey.App {
         eta_minutes: Number.isFinite(vessel.etaMinutes) ? Math.round(vessel.etaMinutes) : null, // FIX: Return null instead of 0 for missing ETA
       };
 
+      // ENHANCED DEBUG: Log token values before trigger
+      this.debug(`🔍 [FLOW_TRIGGER_DEBUG] ${vessel.mmsi}: Creating tokens = ${JSON.stringify(tokens)}`);
+
+      // DEFENSIVE: Final validation before trigger
+      if (!tokens.bridge_name || typeof tokens.bridge_name !== 'string' || tokens.bridge_name.trim() === '') {
+        this.error(`[FLOW_TRIGGER] CRITICAL: tokens.bridge_name is invalid! tokens=${JSON.stringify(tokens)}`);
+        return;
+      }
+
+      // CRITICAL FIX: Create immutable copy of tokens to prevent race conditions
+      const safeTokens = {
+        vessel_name: String(tokens.vessel_name || 'Unknown'),
+        bridge_name: String(tokens.bridge_name),
+        direction: String(tokens.direction || 'unknown'),
+        eta_minutes: tokens.eta_minutes,
+      };
+
       // Trigger for specific bridge flows
       // Use centralized bridge name mapping from constants
       const bridgeId = BRIDGE_NAME_TO_ID[bridgeForFlow];
+
+      // ENHANCED DEBUG: Log bridge mapping
+      this.debug(`🔍 [FLOW_TRIGGER_DEBUG] ${vessel.mmsi}: BRIDGE_NAME_TO_ID["${bridgeForFlow}"] = "${bridgeId}"`);
+
       if (bridgeId && bridgeForFlow) {
         // Only trigger if we have both a valid bridgeId AND bridge
-        await this._boatNearTrigger.trigger({ bridge: bridgeId }, tokens);
+        this.debug(`🎯 [FLOW_TRIGGER_DEBUG] ${vessel.mmsi}: About to trigger with bridgeId="${bridgeId}" and safeTokens=${JSON.stringify(safeTokens)}`);
+        await this._boatNearTrigger.trigger({ bridge: bridgeId }, safeTokens);
+        this.debug(`✅ [FLOW_TRIGGER_DEBUG] ${vessel.mmsi}: Successfully triggered for bridge "${bridgeId}"`);
+      } else {
+        this.error(`[FLOW_TRIGGER] CRITICAL: Cannot find bridgeId for bridge name "${bridgeForFlow}" in BRIDGE_NAME_TO_ID mapping`);
+        return;
       }
+
       this._triggeredBoatNearKeys.add(key);
       this.debug(`🎯 [FLOW_TRIGGER] boat_near triggered for ${vessel.mmsi} at ${Math.round(relevantBridgeData.distance)}m from ${bridgeForFlow}`);
 
     } catch (error) {
       this.error('Error triggering boat near flow:', error);
+      // ENHANCED DEBUG: Log detailed error context
+      this.error(`[FLOW_TRIGGER] Error context: vessel=${vessel?.mmsi}, targetBridge=${vessel?.targetBridge}, currentBridge=${vessel?.currentBridge}`);
     }
   }
 
@@ -881,39 +995,75 @@ class AISBridgeApp extends Homey.App {
       // Check if vessel is within 300m of ANY bridge
       const proximityData = this.proximityService.analyzeVesselProximity(vessel);
       const bridges = proximityData.bridges || []; // Safety: ensure array exists
+
+      // ENHANCED DEBUG: Log proximity data for "any" bridge debugging
+      this.debug(`🔍 [FLOW_TRIGGER_ANY_DEBUG] ${vessel.mmsi}: proximityData.bridges count=${bridges.length}`);
+      bridges.forEach((bridge, index) => {
+        this.debug(`🔍 [FLOW_TRIGGER_ANY_DEBUG] ${vessel.mmsi}: bridge[${index}] = {name: "${bridge.name}", distance: ${bridge.distance?.toFixed(0)}m}`);
+      });
+
       const nearbyBridge = bridges.find((b) => b.distance <= FLOW_CONSTANTS.FLOW_TRIGGER_DISTANCE_THRESHOLD);
 
       if (!nearbyBridge) {
+        this.debug(`🚫 [FLOW_TRIGGER_ANY] No bridge within 300m for vessel ${vessel.mmsi}`);
         return;
       }
+
+      // ENHANCED DEBUG: Log found nearby bridge
+      this.debug(`🔍 [FLOW_TRIGGER_ANY_DEBUG] ${vessel.mmsi}: Found nearby bridge = {name: "${nearbyBridge.name}", distance: ${nearbyBridge.distance?.toFixed(0)}m}`);
 
       // Dedupe key for "any" bridge
       const key = `${vessel.mmsi}:any`;
 
       if (this._triggeredBoatNearKeys.has(key)) {
+        this.debug(`🚫 [FLOW_TRIGGER_ANY] Already triggered for ${key}`);
         return;
       }
 
       // Validate that nearbyBridge has a name before triggering
-      if (!nearbyBridge || !nearbyBridge.name) {
-        this.debug(`⚠️ [FLOW_TRIGGER] Skipping boat_near (any) - bridge name undefined for ${vessel.mmsi} (bridge: ${JSON.stringify(nearbyBridge)})`);
+      if (!nearbyBridge || !nearbyBridge.name || typeof nearbyBridge.name !== 'string' || nearbyBridge.name.trim() === '') {
+        this.error(`[FLOW_TRIGGER_ANY] CRITICAL: Bridge name invalid for ${vessel.mmsi} - bridge: ${JSON.stringify(nearbyBridge)}`);
+        this.error(`[FLOW_TRIGGER_ANY] CRITICAL: nearbyBridge.name="${nearbyBridge?.name}", type=${typeof nearbyBridge?.name}`);
         return;
       }
 
       const tokens = {
         vessel_name: vessel.name || 'Unknown', // FIX: Changed from boat_name to match app.json declaration
-        bridge_name: nearbyBridge.name, // Now guaranteed to exist
+        bridge_name: nearbyBridge.name, // Now guaranteed to exist and be valid string
         direction: this._getDirectionString(vessel),
         eta_minutes: Number.isFinite(vessel.etaMinutes) ? Math.round(vessel.etaMinutes) : null, // FIX: Return null instead of 0 for missing ETA
       };
 
+      // ENHANCED DEBUG: Log token values before trigger
+      this.debug(`🔍 [FLOW_TRIGGER_ANY_DEBUG] ${vessel.mmsi}: Creating tokens = ${JSON.stringify(tokens)}`);
+
+      // DEFENSIVE: Final validation before trigger
+      if (!tokens.bridge_name || typeof tokens.bridge_name !== 'string' || tokens.bridge_name.trim() === '') {
+        this.error(`[FLOW_TRIGGER_ANY] CRITICAL: tokens.bridge_name invalid! tokens=${JSON.stringify(tokens)}`);
+        return;
+      }
+
+      // CRITICAL FIX: Create immutable copy of tokens to prevent race conditions
+      const safeTokens = {
+        vessel_name: String(tokens.vessel_name || 'Unknown'),
+        bridge_name: String(tokens.bridge_name),
+        direction: String(tokens.direction || 'unknown'),
+        eta_minutes: tokens.eta_minutes,
+      };
+
       // Trigger with special args for "any" bridge flows
-      await this._boatNearTrigger.trigger({ bridge: 'any' }, tokens);
+      this.debug(`🎯 [FLOW_TRIGGER_ANY_DEBUG] ${vessel.mmsi}: About to trigger "any" with safeTokens=${JSON.stringify(safeTokens)}`);
+      await this._boatNearTrigger.trigger({ bridge: 'any' }, safeTokens);
+      this.debug(`✅ [FLOW_TRIGGER_ANY_DEBUG] ${vessel.mmsi}: Successfully triggered "any" bridge flow`);
+
       this._triggeredBoatNearKeys.add(key);
       this.debug(`🎯 [FLOW_TRIGGER] boat_near (any) triggered for ${vessel.mmsi} at ${Math.round(nearbyBridge.distance)}m from ${nearbyBridge.name}`);
 
     } catch (error) {
       this.error('Error triggering boat near flow for any:', error);
+      // ENHANCED DEBUG: Log detailed error context
+      const proximityDataAvailable = typeof proximityData !== 'undefined';
+      this.error(`[FLOW_TRIGGER_ANY] Error context: vessel=${vessel?.mmsi}, proximityData available=${proximityDataAvailable}`);
     }
   }
 
@@ -1136,12 +1286,7 @@ class AISBridgeApp extends Homey.App {
     this.log('🛑 AIS Bridge shutting down...');
 
     // CRITICAL FIX: Cleanup all timers to prevent memory leaks
-
-    // Clear UI update timer
-    if (this._uiUpdateTimer) {
-      clearTimeout(this._uiUpdateTimer);
-      this._uiUpdateTimer = null;
-    }
+    // Note: No UI update timers to clean up - using setImmediate which auto-cleans
 
     // Clear all vessel removal timers
     for (const [mmsi, timerId] of this._vesselRemovalTimers) {
