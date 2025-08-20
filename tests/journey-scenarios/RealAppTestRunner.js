@@ -13,7 +13,7 @@ const Module = require('module');
 const originalRequire = Module.prototype.require;
 Module.prototype.require = function requireOverride(id) {
   if (id === 'homey') {
-    return require('../__mocks__/homey'); // eslint-disable-line global-require
+    return require('../__mocks__/homey'); // eslint-disable-line global-require, import/extensions
   }
   return originalRequire.call(this, id);
 };
@@ -125,12 +125,58 @@ class RealAppTestRunner {
       timestamp: Date.now(),
     };
 
-    console.log(`📡 Processing AIS message for ${vessel.name} (${vessel.mmsi})`);
-    console.log(`   Position: ${vessel.lat?.toFixed(5)}, ${vessel.lon?.toFixed(5)}`);
-    console.log(`   Speed: ${vessel.sog} knop, Course: ${vessel.cog}°`);
+    // Calculate distance to nearest bridge for detailed logging
+    let nearestBridge = null;
+    let nearestDistance = null;
+
+    if (this.app && this.app.proximityService) {
+      try {
+        const proximityData = this.app.proximityService.analyzeVesselProximity({
+          lat: vessel.lat,
+          lon: vessel.lon,
+          sog: vessel.sog,
+          cog: vessel.cog,
+        });
+        nearestBridge = proximityData.nearestBridge;
+        nearestDistance = proximityData.nearestDistance;
+      } catch (error) {
+        // Fallback if proximity service not available
+      }
+    }
+
+    console.log(`📡 Processing AIS: ${vessel.name} (${vessel.mmsi})`);
+    console.log(`   📍 Position: ${vessel.lat?.toFixed(5)}, ${vessel.lon?.toFixed(5)}`);
+    console.log(`   🚤 Speed: ${vessel.sog} knop, Course: ${vessel.cog}°`);
+    if (nearestBridge && nearestDistance !== null) {
+      const nbName = typeof nearestBridge === 'string' ? nearestBridge : (nearestBridge.name || 'unknown');
+      console.log(`   🌉 Närmaste bro: ${nbName} (${Math.round(nearestDistance)}m)`);
+    }
 
     // Process through real app logic
-    this.app._processAISMessage(aisMessage);
+    try {
+      this.app._processAISMessage(aisMessage);
+
+      // Give the app time to process the message and update bridge text
+      await this._wait(50);
+
+      // Force UI update to ensure bridge text is recalculated
+      if (this.app._updateUI) {
+        this.app._updateUI();
+        await this._wait(150); // Wait for debounced update
+      }
+
+      // Check for immediate bridge text change after processing
+      const currentBridgeText = this.getCurrentBridgeText();
+      if (currentBridgeText !== this.lastBridgeText) {
+        console.log('   📢 OMEDELBAR BRIDGE TEXT ÄNDRING:');
+        console.log(`   🔄 "${this.lastBridgeText}"`);
+        console.log(`   ➡️  "${currentBridgeText}"`);
+      }
+
+    } catch (error) {
+      console.error('❌ Error processing AIS message:', error);
+      throw error;
+    }
   }
 
   /**
@@ -162,6 +208,7 @@ class RealAppTestRunner {
           previousText: this.lastBridgeText,
           newText: value,
           vessels: this._getCurrentVesselSummary(),
+          nearest: this.getCurrentNearestBridgeInfo(),
         };
 
         this.bridgeTextHistory.push(change);
@@ -195,19 +242,48 @@ class RealAppTestRunner {
   }
 
   /**
-   * Log current app state
+   * Log current app state with detailed bridge text analysis
    * @private
    */
   _logCurrentAppState() {
     const vesselCount = this.app.vesselDataService?.getVesselCount() || 0;
-    console.log(`🚢 Current vessels in system: ${vesselCount}`);
+    console.log(`\n🚢 SYSTEMSTATUS: ${vesselCount} vessels active`);
 
     if (vesselCount > 0) {
       const vessels = this.app.vesselDataService.getAllVessels();
-      vessels.forEach((vessel) => {
-        console.log(`   • ${vessel.name} (${vessel.mmsi}): ${vessel.status} → ${vessel.targetBridge}`);
-        console.log(`     Distance: ${vessel._distanceToNearest?.toFixed(0)}m, ETA: ${vessel.etaMinutes?.toFixed(1)}min`);
+      console.log('📊 VESSEL DETALJER:');
+      vessels.forEach((vessel, index) => {
+        const distance = vessel._distanceToNearest?.toFixed(0) || 'unknown';
+        const eta = vessel.etaMinutes ? `${vessel.etaMinutes.toFixed(1)}min` : 'N/A';
+        const targetBridge = vessel.targetBridge || 'ingen';
+
+        console.log(`   ${index + 1}. "${vessel.name}" (${vessel.mmsi})`);
+        console.log(`      📍 Status: ${vessel.status} → Target: ${targetBridge}`);
+        console.log(`      📏 Avstånd: ${distance}m | ⏱️ ETA: ${eta}`);
       });
+
+      // Show current bridge text with analysis
+      const currentBridgeText = this.getCurrentBridgeText();
+      console.log('\n📢 AKTUELL BRIDGE TEXT:');
+      console.log(`   "${currentBridgeText}"`);
+
+      // Analyze bridge text content
+      if (currentBridgeText !== 'Inga båtar är i närheten av Klaffbron eller Stridsbergsbron') {
+        console.log('📝 BRIDGE TEXT ANALYS:');
+
+        // Check for specific patterns
+        if (currentBridgeText.includes('En båt')) console.log('   ✓ Single vessel message');
+        if (currentBridgeText.includes('Två båtar')) console.log('   ✓ Two vessel message');
+        if (currentBridgeText.includes('Tre båtar')) console.log('   ✓ Three vessel message');
+        if (currentBridgeText.includes('ytterligare')) console.log('   ✓ Multi-vessel formatting');
+        if (currentBridgeText.includes('beräknad broöppning om')) console.log('   ✓ ETA included');
+        if (currentBridgeText.includes('Stallbackabron')) console.log('   ✓ Stallbackabron mentioned');
+        if (currentBridgeText.includes('åker strax under')) console.log('   ✓ Stallbackabron special message');
+        if (currentBridgeText.includes('inväntar broöppning')) console.log('   ✓ Waiting message');
+        if (currentBridgeText.includes('har precis passerat')) console.log('   ✓ Just passed message');
+      }
+    } else {
+      console.log('📢 BRIDGE TEXT: "Inga båtar i systemet"');
     }
   }
 
@@ -287,6 +363,41 @@ class RealAppTestRunner {
 
     const relevantVessels = this.app._findRelevantBoatsForBridgeText();
     return this.app.bridgeTextService.generateBridgeText(relevantVessels);
+  }
+
+  /**
+   * Get nearest bridge info for the first active vessel
+   */
+  getCurrentNearestBridgeInfo() {
+    if (!this.app || !this.app.vesselDataService || !this.app.proximityService) {
+      return { name: null, distance: null };
+    }
+    const vessels = this.app.vesselDataService.getAllVessels();
+    if (!vessels || vessels.length === 0) {
+      return { name: null, distance: null };
+    }
+    const vessel = vessels[0];
+    try {
+      const prox = this.app.proximityService.analyzeVesselProximity(vessel);
+      const name = prox.nearestBridge ? prox.nearestBridge.name : null;
+      const distance = Number.isFinite(prox.nearestDistance) ? Math.round(prox.nearestDistance) : null;
+      return { name, distance };
+    } catch (e) {
+      return { name: null, distance: null };
+    }
+  }
+
+  /**
+   * Get last and previous bridge text snapshot
+   */
+  getBridgeTextSnapshot() {
+    const current = this.lastBridgeText;
+    let previous = null;
+    if (this.bridgeTextHistory && this.bridgeTextHistory.length > 0) {
+      const lastChange = this.bridgeTextHistory[this.bridgeTextHistory.length - 1];
+      previous = lastChange ? lastChange.previousText : null;
+    }
+    return { current, previous };
   }
 
   /**

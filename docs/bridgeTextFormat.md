@@ -89,6 +89,7 @@
 
 - **Standard**: "Broöppning pågår vid [mellanbro], beräknad broöppning av [målbro] om X minuter"
 - **Multi-vessel**: "Broöppning pågår vid [mellanbro], ytterligare 2 båtar på väg, beräknad broöppning av [målbro] om X minuter"
+- **KRITISK FIX**: För mellanbroar (Olidebron, Järnvägsbron) MÅSTE alltid målbron visas: "Broöppning pågår vid Järnvägsbron, beräknad broöppning av Stridsbergsbron om 1 minut"
 
 **Stallbackabron (specialfall):**
 
@@ -190,6 +191,12 @@
 **VIKTIGT**: Waiting kan nu detektera intermediate bridges (Järnvägsbron, Olidebron) även om båten har "recently passed" status från annan bro.
 
 ### INTERMEDIATE BRIDGE LOGIC (KRITISKA FIXES):
+
+**KRITISK BUGGFIX 2025-08-17**: Under-bridge meddelanden för mellanbroar visade inte målbro
+
+**Problem**: I BridgeTextService rad 724 fanns en för tidig `return` för all under-bridge status som förhindrade korrekt hantering av mellanbroar vs målbroar. Detta orsakade meddelanden som "Broöppning pågår vid Järnvägsbron, beräknad broöppning om 1 minut" istället för korrekt "Broöppning pågår vid Järnvägsbron, beräknad broöppning av Stridsbergsbron om 1 minut".
+
+**Fix**: Tog bort för tidiga return och låter koden nå target vs intermediate bridge-logiken på raderna 846-855 som korrekt kontrollerar `_isTargetBridge()` och lägger till målbro-information för mellanbroar.
 
 **StatusService**: Sätter nu `currentBridge` och `distanceToCurrent` för intermediate bridge detection:
 

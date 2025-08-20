@@ -30,6 +30,7 @@ const VesselDataService = require('./lib/services/VesselDataService');
 const StatusService = require('./lib/services/StatusService');
 const BridgeTextService = require('./lib/services/BridgeTextService');
 const SystemCoordinator = require('./lib/services/SystemCoordinator');
+const BridgeRegistry = require('./lib/models/BridgeRegistry');
 const GPSJumpAnalyzer = require('./lib/utils/GPSJumpAnalyzer');
 const StatusStabilizer = require('./lib/services/StatusStabilizer');
 const geometry = require('./lib/utils/geometry');
@@ -44,10 +45,11 @@ const logger = {
 
 class IntegrationTester {
   constructor() {
+    this.bridgeRegistry = new BridgeRegistry(BRIDGES);
     this.systemCoordinator = new SystemCoordinator(logger);
-    this.vesselDataService = new VesselDataService(logger);
-    this.statusService = new StatusService(logger, this.systemCoordinator);
-    this.bridgeTextService = new BridgeTextService(logger);
+    this.vesselDataService = new VesselDataService(logger, this.bridgeRegistry, this.systemCoordinator);
+    this.statusService = new StatusService(this.bridgeRegistry, logger, this.systemCoordinator);
+    this.bridgeTextService = new BridgeTextService(this.bridgeRegistry, logger, this.systemCoordinator);
     this.gpsJumpAnalyzer = new GPSJumpAnalyzer(logger);
     this.statusStabilizer = new StatusStabilizer(logger);
 
