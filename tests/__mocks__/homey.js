@@ -113,10 +113,11 @@ class MockFlowToken {
   }
 }
 
-// Mock flow card
+// Mock flow card with enhanced trigger tracking
 class MockFlowCard {
   constructor() {
     this.runListeners = [];
+    this.triggerCalls = []; // Track all trigger calls for testing
   }
 
   registerRunListener(listener) {
@@ -124,7 +125,63 @@ class MockFlowCard {
   }
 
   async trigger(device, tokens, state) {
-    return Promise.resolve();
+    // CRITICAL: Validate tokens exactly like real Homey does
+    // This will catch the same errors that occurred in production logs
+
+    try {
+      // Validate boat_near flow tokens (from app.json schema)
+      if (tokens.vessel_name !== undefined && typeof tokens.vessel_name !== 'string') {
+        throw new Error(`Could not trigger Flow card with id "boat_near": Invalid value for token vessel_name. Expected string but got ${typeof tokens.vessel_name}`);
+      }
+
+      if (tokens.bridge_name !== undefined && typeof tokens.bridge_name !== 'string') {
+        throw new Error(`Could not trigger Flow card with id "boat_near": Invalid value for token bridge_name. Expected string but got ${typeof tokens.bridge_name}`);
+      }
+
+      if (tokens.direction !== undefined && typeof tokens.direction !== 'string') {
+        throw new Error(`Could not trigger Flow card with id "boat_near": Invalid value for token direction. Expected string but got ${typeof tokens.direction}`);
+      }
+
+      if (tokens.eta_minutes !== undefined && tokens.eta_minutes !== null && typeof tokens.eta_minutes !== 'number') {
+        throw new Error(`Could not trigger Flow card with id "boat_near": Invalid value for token eta_minutes. Expected number but got ${typeof tokens.eta_minutes}`);
+      }
+
+      // CRITICAL: bridge_name must be defined and not null/undefined
+      if (tokens.bridge_name === undefined || tokens.bridge_name === null) {
+        throw new Error(`Could not trigger Flow card with id "boat_near": Invalid value for token bridge_name. Expected string but got ${tokens.bridge_name}`);
+      }
+
+      // Track successful trigger call
+      const triggerCall = {
+        timestamp: new Date().toISOString(),
+        device: device ? device.constructor.name : null,
+        tokens: { ...tokens },
+        state: { ...state },
+        success: true,
+      };
+
+      this.triggerCalls.push(triggerCall);
+      console.log('🎯 Flow trigger called:', JSON.stringify(triggerCall, null, 2));
+
+      return Promise.resolve();
+
+    } catch (error) {
+      // Track failed trigger call
+      const triggerCall = {
+        timestamp: new Date().toISOString(),
+        device: device ? device.constructor.name : null,
+        tokens: { ...tokens },
+        state: { ...state },
+        success: false,
+        error: error.message,
+      };
+
+      this.triggerCalls.push(triggerCall);
+      console.log('❌ Flow trigger FAILED:', JSON.stringify(triggerCall, null, 2));
+
+      // Re-throw the error to match real Homey behavior
+      throw error;
+    }
   }
 
   // Helper for tests to simulate flow card execution
@@ -134,6 +191,15 @@ class MockFlowCard {
       if (result !== undefined) return result;
     }
     return true;
+  }
+
+  // Test helpers
+  getTriggerCalls() {
+    return this.triggerCalls;
+  }
+
+  clearTriggerCalls() {
+    this.triggerCalls = [];
   }
 }
 
