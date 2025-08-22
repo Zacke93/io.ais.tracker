@@ -112,10 +112,10 @@ class AISBridgeApp extends Homey.App {
 
       // Analysis services (pass systemCoordinator where needed)
       this.proximityService = new ProximityService(this.bridgeRegistry, this);
-      this.statusService = new StatusService(this.bridgeRegistry, this, this.systemCoordinator);
+      this.statusService = new StatusService(this.bridgeRegistry, this, this.systemCoordinator, this.vesselDataService);
 
       // Output services (inject ProximityService for consistent distance calculations)
-      this.bridgeTextService = new BridgeTextService(this.bridgeRegistry, this, this.systemCoordinator);
+      this.bridgeTextService = new BridgeTextService(this.bridgeRegistry, this, this.systemCoordinator, this.vesselDataService);
 
       // Connection services
       this.aisClient = new AISStreamClient(this);
@@ -405,6 +405,12 @@ class AISBridgeApp extends Homey.App {
         positionUncertain: vessel._positionUncertain || false,
         analysis: vessel._positionAnalysis || null,
       };
+      
+      // GPS JUMP HOLD: Set hold if GPS jump detected
+      if (positionAnalysis.gpsJumpDetected) {
+        this.vesselDataService.setGpsJumpHold(vessel.mmsi, 2000); // 2 second hold
+      }
+      
       const statusResult = this.statusService.analyzeVesselStatus(vessel, proximityData, positionAnalysis);
 
       // 4. Update vessel with analysis results but preserve critical data
@@ -724,12 +730,18 @@ class AISBridgeApp extends Homey.App {
       return 'immediate';
     }
 
-    // High significance patterns
+    // High significance patterns - ENHANCED for critical bridge statuses
     if (reason.includes('status-change') && (
       reason.includes('to-waiting')
       || reason.includes('to-under-bridge')
       || reason.includes('to-passed')
+      || reason.includes('to-stallbacka-waiting') // CRITICAL: Stallbackabron status changes
     )) {
+      return 'high';
+    }
+
+    // ENHANCED: Stallbackabron-related updates get high priority
+    if (reason.includes('stallbacka') || reason.includes('Stallbackabron')) {
       return 'high';
     }
 
@@ -795,12 +807,17 @@ class AISBridgeApp extends Homey.App {
       this.debug(`📱 [_actuallyUpdateUI] Comparing: new="${bridgeText}" vs last="${this._lastBridgeText}"`);
 
       // CRITICAL FIX: Also check for significant time passage to catch ETA changes
+      // PASSAGE DUPLICATION FIX: Use status-based gating instead of string matching
       const timeSinceLastUpdate = Date.now() - (this._lastBridgeTextUpdate || 0);
-      const forceUpdateDueToTime = timeSinceLastUpdate > 60000 && relevantVessels.length > 0; // Force update every minute if vessels present
+      const hasPassedVessels = relevantVessels.some(vessel => vessel.status === 'passed');
+      const forceUpdateDueToTime = timeSinceLastUpdate > 60000 && relevantVessels.length > 0 && !hasPassedVessels; // Force update every minute if vessels present, but never when "passed" vessels exist
 
       if (bridgeText !== this._lastBridgeText || forceUpdateDueToTime) {
         if (forceUpdateDueToTime && bridgeText === this._lastBridgeText) {
           this.debug('⏰ [_actuallyUpdateUI] Forcing update due to time passage (ETA changes)');
+        }
+        if (hasPassedVessels && timeSinceLastUpdate > 60000 && bridgeText === this._lastBridgeText) {
+          this.debug('🚫 [PASSAGE_DUPLICATION] Prevented force update of "passed" vessels message - would create duplicate');
         }
         this.debug('✅ [_actuallyUpdateUI] Bridge text changed - updating devices');
         this._lastBridgeText = bridgeText;
@@ -817,8 +834,19 @@ class AISBridgeApp extends Homey.App {
         }
 
         this.debug(`📱 [UI_UPDATE] Bridge text updated: "${bridgeText}"`);
+        // Reset unchanged aggregation window on change
+        this._unchangedCount = 0;
+        this._unchangedWindowStart = Date.now();
       } else {
-        this.debug(`📱 [UI_UPDATE] Bridge text unchanged: "${bridgeText}"`);
+        // Aggregate unchanged logs to reduce noise
+        this._unchangedCount = (this._unchangedCount || 0) + 1;
+        if (!this._unchangedWindowStart) this._unchangedWindowStart = Date.now();
+        const elapsed = Date.now() - this._unchangedWindowStart;
+        if (elapsed >= 60000) {
+          this.debug(`📱 [UI_UPDATE] Bridge text unchanged x${this._unchangedCount} (last 60s)`);
+          this._unchangedCount = 0;
+          this._unchangedWindowStart = Date.now();
+        }
       }
 
       // Update connection status only if changed
@@ -829,9 +857,14 @@ class AISBridgeApp extends Homey.App {
         this.debug(`🌐 [CONNECTION_STATUS] Changed to: ${currentConnectionStatus}`);
       }
 
-      // Update alarm_generic - active when boats are present
-      // FIX: Base on vessel count instead of string comparison
+      // ENHANCED: Update alarm_generic - should match bridge text state
+      // With improved generation, default text should only appear when no relevant vessels exist
       const hasActiveBoats = relevantVessels.length > 0;
+
+      // SAFETY CHECK: This should never happen with improved bridge text generation
+      if (relevantVessels.length > 0 && bridgeText === BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE) {
+        this.error(`🚨 [BRIDGE_TEXT_BUG] ${relevantVessels.length} relevant vessels but got default text - this indicates a bug in bridge text generation`);
+      }
 
       // Only update alarm_generic capability if value has changed
       if (hasActiveBoats !== this._lastBridgeAlarm) {
@@ -1213,8 +1246,12 @@ class AISBridgeApp extends Homey.App {
         vessel_name: vessel.name || 'Unknown', // FIX: Changed from boat_name to match app.json declaration
         bridge_name: bridgeForFlow, // Already validated above
         direction: this._getDirectionString(vessel),
-        eta_minutes: Number.isFinite(vessel.etaMinutes) ? Math.round(vessel.etaMinutes) : null, // FIX: Return null instead of 0 for missing ETA
       };
+
+      // Always compute numeric ETA token for flows; use -1 when ETA is unavailable
+      tokens.eta_minutes = Number.isFinite(vessel.etaMinutes)
+        ? Math.round(vessel.etaMinutes)
+        : -1;
 
       // ENHANCED DEBUG: Log token values before trigger
       this.debug(`🔍 [FLOW_TRIGGER_DEBUG] ${vessel.mmsi}: Creating tokens = ${JSON.stringify(tokens)}`);
@@ -1224,8 +1261,17 @@ class AISBridgeApp extends Homey.App {
         vessel_name: String(tokens.vessel_name || 'Unknown'),
         bridge_name: String(tokens.bridge_name), // Already validated, safe to use
         direction: String(tokens.direction || 'unknown'),
-        eta_minutes: tokens.eta_minutes,
       };
+
+      // Always include eta_minutes (number). -1 indicates ETA unavailable for flows
+      safeTokens.eta_minutes = Number.isFinite(tokens.eta_minutes)
+        ? tokens.eta_minutes
+        : -1;
+
+      // Emit diagnostic when ETA is unavailable for flows
+      if (safeTokens.eta_minutes === -1) {
+        this.debug(`🛈 [FLOW_TRIGGER_DIAG] ${vessel.mmsi}: ETA unavailable → sending eta_minutes=-1 for bridgeId="${bridgeId}"`);
+      }
 
       // Trigger for specific bridge flows (bridgeId already validated above)
       this.debug(`🎯 [FLOW_TRIGGER_DEBUG] ${vessel.mmsi}: About to trigger with bridgeId="${bridgeId}" and safeTokens=${JSON.stringify(safeTokens)}`);
@@ -1345,8 +1391,12 @@ class AISBridgeApp extends Homey.App {
         vessel_name: vessel.name || 'Unknown', // FIX: Changed from boat_name to match app.json declaration
         bridge_name: nearbyBridge.name, // Already validated above
         direction: this._getDirectionString(vessel),
-        eta_minutes: Number.isFinite(vessel.etaMinutes) ? Math.round(vessel.etaMinutes) : null, // FIX: Return null instead of 0 for missing ETA
       };
+
+      // Always compute numeric ETA token for flows; use -1 when ETA is unavailable
+      tokens.eta_minutes = Number.isFinite(vessel.etaMinutes)
+        ? Math.round(vessel.etaMinutes)
+        : -1;
 
       // ENHANCED DEBUG: Log token values before processing
       this.debug(`🔍 [FLOW_TRIGGER_ANY_DEBUG] ${vessel.mmsi}: Creating tokens = ${JSON.stringify(tokens)}`);
@@ -1356,8 +1406,17 @@ class AISBridgeApp extends Homey.App {
         vessel_name: String(tokens.vessel_name || 'Unknown'),
         bridge_name: String(tokens.bridge_name), // Already validated, safe to use
         direction: String(tokens.direction || 'unknown'),
-        eta_minutes: tokens.eta_minutes,
       };
+
+      // Always include eta_minutes (number). -1 indicates ETA unavailable for flows
+      safeTokens.eta_minutes = Number.isFinite(tokens.eta_minutes)
+        ? tokens.eta_minutes
+        : -1;
+
+      // Emit diagnostic when ETA is unavailable for flows
+      if (safeTokens.eta_minutes === -1) {
+        this.debug(`🛈 [FLOW_TRIGGER_ANY_DIAG] ${vessel.mmsi}: ETA unavailable → sending eta_minutes=-1 for bridgeId="any"`);
+      }
 
       // Trigger with special args for "any" bridge flows
       this.debug(`🎯 [FLOW_TRIGGER_ANY_DEBUG] ${vessel.mmsi}: About to trigger "any" with safeTokens=${JSON.stringify(safeTokens)}`);
