@@ -40,23 +40,9 @@ describe('🧭 Log Replay Journey - 1:1 Bridge Text Verification', () => {
     const allSnapshots = parser.parseSnapshots();
     expect(allSnapshots.length).toBeGreaterThan(0);
 
-    // Quick debug: show first snapshot vessel count to confirm parsing
-    console.log(`Parsed total snapshots: ${allSnapshots.length}`);
-    if (allSnapshots[0]) {
-      console.log(`First snapshot vessels: ${allSnapshots[0].vessels.length}`);
-    }
-
-    // Build MMSI frequency from parsed snapshots for debugging
-    const mmsiFreq = new Map();
-    for (const s of allSnapshots) {
-      for (const v of s.vessels) {
-        mmsiFreq.set(v.mmsi, (mmsiFreq.get(v.mmsi) || 0) + 1);
-      }
-    }
-    console.log('MMSI frequency (top 5):', Array.from(mmsiFreq.entries()).slice(0, 5));
-
-    // Use all parsed snapshots for 1:1 verification
-    const snapshots = allSnapshots;
+    // Filter to the single boat journey
+    const snapshots = allSnapshots.filter((s) => s.vessels.some((v) => v.mmsi === targetMmsi));
+    expect(Array.isArray(snapshots)).toBe(true);
     expect(snapshots.length).toBeGreaterThan(0);
 
     console.log(`\n📄 Replaying ${snapshots.length} snapshots for MMSI ${targetMmsi}`);

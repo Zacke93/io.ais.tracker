@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { BRIDGES, APPROACH_RADIUS, APPROACHING_RADIUS } = require('../../lib/constants');
 
 /**
  * LogReplayParser
@@ -40,10 +41,18 @@ class LogReplayParser {
   parseSnapshots(options = {}) {
     if (!this.lines || this.lines.length === 0) this.load();
 
-    const etaByMmsi = new Map(); // mmsi -> { eta: number, ts: Date }
+    const etaByMmsi = new Map(); // mmsi -> [{ eta, speed, ts }]
+    const etaFormatByMmsi = new Map(); // mmsi -> [{ eta, distance, speed, ts }]
     const passageAuditByMmsi = new Map(); // mmsi -> { lastPassedBridge, timeSinceSec, ts: Date }
+    const etaInternalByMmsi = new Map(); // mmsi -> [{ eta, ts }]
+
+    // Snapshot-local ETA collections (reset at each snapshot start)
+    const snapshotEtaByMmsi = new Map(); // mmsi -> [{ eta, speed, ts }]
+    const snapshotEtaFormatByMmsi = new Map(); // mmsi -> [{ eta, distance, speed, ts }]
+    const snapshotEtaInternalByMmsi = new Map(); // mmsi -> [{ eta, ts }]
 
     const snapshots = [];
+    let vesselBlocksParsed = 0;
 
     let inSnapshot = false;
     let currentSnapshot = null;
@@ -75,7 +84,12 @@ class LogReplayParser {
       // }
       const text = blockLines.join('\n');
       const getString = (key) => {
-        const m = text.match(new RegExp(`${key}:\s*'([^']*)'`));
+        const re = new RegExp(`${key}:\\s*'([^']*)'`);
+        const m = text.match(re);
+        if (!m && process.env.LOG_REPLAY_DEBUG) {
+          // eslint-disable-next-line no-console
+          console.log(`[LogReplayParser] getString miss for ${key} in:\n${text}`);
+        }
         return m ? m[1] : null;
       };
       const getBool = (key) => {
@@ -94,25 +108,82 @@ class LogReplayParser {
 
       // distanceToCurrent: derive from 'distance' when currentBridge exists
       const distanceStr = getString('distance');
-      if (vessel.currentBridge && distanceStr) {
+      if (distanceStr) {
         const d = parseNumeric(distanceStr);
-        if (Number.isFinite(d)) vessel.distanceToCurrent = d;
+        if (Number.isFinite(d)) {
+          if (vessel.currentBridge) vessel.distanceToCurrent = d;
+          // Keep nearest distance for Stallbacka approach reconstruction
+          vessel._nearestDistance = d;
+        }
       }
 
       return vessel;
     };
 
+    let vesselLineHits = 0;
     for (let i = 0; i < this.lines.length; i++) {
       const line = this.lines[i];
 
       // Keep ETA by MMSI for later enrichment
       if (line.includes('[ETA_CALC]')) {
         const ts = parseTimestamp(line);
-        const m = line.match(/ETA_CALC]\s*(\d+):[^E]*ETA=([\d.]+)min/);
+        // Prefer variant with explicit speed first
+        let m = line.match(/\[ETA_CALC\]\s*(\d+):.*?speed=([\d.]+)kn,\s*ETA=([\d.]+)min/);
         if (m) {
           const mmsi = m[1];
-          const eta = Number(m[2]);
-          etaByMmsi.set(mmsi, { eta, ts });
+          const speed = Number(m[2]);
+          const eta = Number(m[3]);
+          const etaEntry = { eta, speed, ts };
+          // Global collection
+          const arr = etaByMmsi.get(mmsi) || [];
+          arr.push(etaEntry);
+          etaByMmsi.set(mmsi, arr);
+          // Snapshot-local collection if inside snapshot
+          if (inSnapshot) {
+            const snapArr = snapshotEtaByMmsi.get(mmsi) || [];
+            snapArr.push(etaEntry);
+            snapshotEtaByMmsi.set(mmsi, snapArr);
+          }
+        } else {
+          m = line.match(/\[ETA_CALC\]\s*(\d+):.*?ETA=([\d.]+)min/);
+          if (m) {
+            const mmsi = m[1];
+            const eta = Number(m[2]);
+            const etaEntry = { eta, speed: null, ts };
+            // Global collection
+            const arr = etaByMmsi.get(mmsi) || [];
+            arr.push(etaEntry);
+            etaByMmsi.set(mmsi, arr);
+            // Snapshot-local collection if inside snapshot
+            if (inSnapshot) {
+              const snapArr = snapshotEtaByMmsi.get(mmsi) || [];
+              snapArr.push(etaEntry);
+              snapshotEtaByMmsi.set(mmsi, snapArr);
+            }
+          }
+        }
+      }
+
+      // Capture ETA_FORMAT (used by BridgeTextService._formatPassedETA)
+      if (line.includes('[ETA_FORMAT]')) {
+        const ts = parseTimestamp(line);
+        const m = line.match(/\[ETA_FORMAT\]\s*(\d+):.*?distance=([\d.]+)m,\s*speed=([\d.]+)kn,\s*ETA=([\d.]+)min/);
+        if (m) {
+          const mmsi = m[1];
+          const distance = Number(m[2]);
+          const speed = Number(m[3]);
+          const eta = Number(m[4]);
+          const etaEntry = { eta, distance, speed, ts };
+          // Global collection
+          const arr = etaFormatByMmsi.get(mmsi) || [];
+          arr.push(etaEntry);
+          etaFormatByMmsi.set(mmsi, arr);
+          // Snapshot-local collection if inside snapshot
+          if (inSnapshot) {
+            const snapArr = snapshotEtaFormatByMmsi.get(mmsi) || [];
+            snapArr.push(etaEntry);
+            snapshotEtaFormatByMmsi.set(mmsi, snapArr);
+          }
         }
       }
 
@@ -128,14 +199,41 @@ class LogReplayParser {
         }
       }
 
+      // Track internal etaMinutes changes for precision
+      if (line.includes('[_updateUIIfNeeded]') && line.includes('etaMinutes:')) {
+        const ts = parseTimestamp(line);
+        const m = line.match(/_updateUIIfNeeded\]\s*(\d+):.*etaMinutes:\s*"[^"]*"\s*→\s*"([\d.]+)"/);
+        if (m) {
+          const mmsi = m[1];
+          const eta = Number(m[2]);
+          const etaEntry = { eta, ts };
+          // Global collection
+          const arr = etaInternalByMmsi.get(mmsi) || [];
+          arr.push(etaEntry);
+          etaInternalByMmsi.set(mmsi, arr);
+          // Snapshot-local collection if inside snapshot
+          if (inSnapshot) {
+            const snapArr = snapshotEtaInternalByMmsi.get(mmsi) || [];
+            snapArr.push(etaEntry);
+            snapshotEtaInternalByMmsi.set(mmsi, snapArr);
+          }
+        }
+      }
+
       // Detect snapshot start
       if (line.includes('[BRIDGE_TEXT] Generating bridge text for')) {
         inSnapshot = true;
+        const startTs = parseTimestamp(line);
         currentSnapshot = {
-          ts: parseTimestamp(line),
+          startTs: startTs,
+          ts: startTs, // Keep for backward compatibility, will be updated to endTs
           vessels: [],
           expectedFinalMessage: null,
         };
+        // Clear snapshot-local ETA collections for fresh snapshot
+        snapshotEtaByMmsi.clear();
+        snapshotEtaFormatByMmsi.clear();
+        snapshotEtaInternalByMmsi.clear();
         continue;
       }
 
@@ -143,6 +241,11 @@ class LogReplayParser {
 
       // Capture per-vessel blocks
       if (line.includes('[BRIDGE_TEXT] Vessel')) {
+        vesselLineHits += 1;
+        if (process.env.LOG_REPLAY_DEBUG) {
+          // eslint-disable-next-line no-console
+          console.log(`[LogReplayParser] vessel start at line ${i}`);
+        }
         // Start of object literal
         currentVesselBlock = [];
         // next line likely is '{', capture from there until '}'
@@ -159,11 +262,8 @@ class LogReplayParser {
         i = j;
         const vessel = parseVesselBlock(currentVesselBlock);
         if (vessel && vessel.mmsi) {
-          // Enrich with ETA if available
-          const etaEntry = etaByMmsi.get(vessel.mmsi);
-          if (etaEntry && Number.isFinite(etaEntry.eta)) {
-            vessel.etaMinutes = etaEntry.eta;
-          }
+          vesselBlocksParsed += 1;
+          // No per-vessel ETA assignment here; do it at snapshot finalize with timestamp-aware lookup
           // Enrich with passage audit
           const audit = passageAuditByMmsi.get(vessel.mmsi);
           if (audit && audit.lastPassedBridge) {
@@ -172,7 +272,25 @@ class LogReplayParser {
             const baseTs = currentSnapshot.ts || audit.ts || new Date();
             vessel.lastPassedBridgeTime = baseTs.getTime() - (audit.timeSinceSec * 1000);
           }
+
+          // Inject approximate lat/lon for Stallbackabron-approach logic
+          // If currentBridge is Stallbackabron and distance is present, create a synthetic position
+          if (vessel.currentBridge === 'Stallbackabron') {
+            const stallbacka = BRIDGES.stallbackabron || BRIDGES['stallbackabron'];
+            const distStr = currentVesselBlock.join('\n').match(/distance:\s*'([0-9.]+)m'/);
+            const meters = distStr ? Number(distStr[1]) : null;
+            if (stallbacka && Number.isFinite(meters)) {
+              // Offset in latitude by meters north (direction doesn't matter for distance)
+              const metersPerDegLat = 111320;
+              const dLat = meters / metersPerDegLat;
+              vessel.lat = stallbacka.lat + dLat;
+              vessel.lon = stallbacka.lon;
+            }
+          }
           currentSnapshot.vessels.push(vessel);
+        } else if (process.env.LOG_REPLAY_DEBUG) {
+          // eslint-disable-next-line no-console
+          console.log('[LogReplayParser] failed to parse vessel block:\n' + currentVesselBlock.join('\n'));
         }
         continue;
       }
@@ -181,6 +299,128 @@ class LogReplayParser {
       if (line.includes('[BRIDGE_TEXT] Final message:')) {
         const m = line.match(/Final message: \"(.*)\"/);
         currentSnapshot.expectedFinalMessage = m ? m[1] : '';
+        // Set end timestamp and keep for final processing
+        const finalTs = parseTimestamp(line);
+        if (finalTs) {
+          currentSnapshot.endTs = finalTs;
+          currentSnapshot.ts = finalTs; // Keep for backward compatibility
+        }
+        // Finalize ETAs for vessels in this snapshot with snapshot-interval priority
+        if (currentSnapshot && currentSnapshot.vessels) {
+          const startTs = currentSnapshot.startTs;
+          const endTs = currentSnapshot.endTs;
+          const tolerance = 50; // 50ms tolerance for entries just after endTs
+          const preSnapshotTolerance = 100; // 100ms tolerance for entries just before startTs
+          
+          const pickLatestInInterval = (snapMap, globalMap, mmsi, startTs, endTs) => {
+            const endTsWithTolerance = new Date(endTs.getTime() + tolerance);
+            const startTsWithTolerance = new Date(startTs.getTime() - preSnapshotTolerance);
+            // Priority 1: Latest in snapshot interval (startTs to endTs + tolerance)
+            const snapArr = snapMap.get(mmsi);
+            if (snapArr && snapArr.length > 0) {
+              for (let k = snapArr.length - 1; k >= 0; k--) {
+                const e = snapArr[k];
+                if (e.ts && e.ts >= startTs && e.ts <= endTsWithTolerance) {
+                  if (process.env.LOG_REPLAY_DEBUG) {
+                    // eslint-disable-next-line no-console
+                    console.log(`[LogReplayParser] pickLatestInInterval SNAPSHOT: ${mmsi} found ${e.eta} at ${e.ts.toISOString()}`);
+                  }
+                  return e;
+                }
+              }
+            }
+            // Priority 2: Extended search in global with pre-snapshot tolerance
+            const globalArr = globalMap.get(mmsi);
+            if (!globalArr || globalArr.length === 0) return null;
+            for (let k = globalArr.length - 1; k >= 0; k--) {
+              const e = globalArr[k];
+              if (e.ts && e.ts >= startTsWithTolerance && e.ts <= endTsWithTolerance) {
+                if (process.env.LOG_REPLAY_DEBUG) {
+                  // eslint-disable-next-line no-console
+                  console.log(`[LogReplayParser] pickLatestInInterval GLOBAL: ${mmsi} found ${e.eta} at ${e.ts.toISOString()} (expanded: ${startTsWithTolerance.toISOString()}-${endTsWithTolerance.toISOString()})`);
+                }
+                return e;
+              }
+            }
+            return null;
+          };
+          currentSnapshot.vessels.forEach((v) => {
+            // Get best ETA entries using snapshot-interval priority
+            const etaInternalEntry = pickLatestInInterval(snapshotEtaInternalByMmsi, etaInternalByMmsi, v.mmsi, startTs, endTs);
+            const etaEntry = pickLatestInInterval(snapshotEtaByMmsi, etaByMmsi, v.mmsi, startTs, endTs);
+            const etaFmtEntry = pickLatestInInterval(snapshotEtaFormatByMmsi, etaFormatByMmsi, v.mmsi, startTs, endTs);
+            
+            let chosen = null;
+            // For normal approaching/en-route/waiting messages, prioritize snapshot ETAs
+            if (v.status === 'approaching' || v.status === 'en-route' || v.status === 'waiting' || v.status === 'under-bridge' || v.status === 'stallbacka-waiting') {
+              // Priority: etaInternal > etaCalc > etaFormat within snapshot interval
+              if (etaInternalEntry && Number.isFinite(etaInternalEntry.eta)) chosen = etaInternalEntry.eta;
+              else if (etaEntry && Number.isFinite(etaEntry.eta)) chosen = etaEntry.eta;
+              else if (etaFmtEntry && Number.isFinite(etaFmtEntry.eta)) chosen = etaFmtEntry.eta;
+            }
+            // For passed messages, do not set eta here (we force recompute below)
+            if (chosen != null) {
+              v.etaMinutes = chosen;
+              if (process.env.LOG_REPLAY_DEBUG) {
+                // eslint-disable-next-line no-console
+                console.log(`[LogReplayParser] Finalize ETA for ${v.mmsi}: ${chosen} (from ${etaInternalEntry ? 'internal' : etaEntry ? 'calc' : 'format'})`);
+              }
+            }
+            // Apply speed preference: ETA_FORMAT speed > ETA_CALC speed  
+            if (etaFmtEntry && Number.isFinite(etaFmtEntry.speed)) {
+              v.sog = etaFmtEntry.speed;
+            } else if (etaEntry && Number.isFinite(etaEntry.speed)) {
+              v.sog = etaEntry.speed;
+            }
+
+            // If passed: force recalculation (ignore any stale etaMinutes from logs)
+            if (v.status === 'passed') {
+              v.etaMinutes = null;
+              if (process.env.LOG_REPLAY_DEBUG) {
+                // eslint-disable-next-line no-console
+                console.log(`[LogReplayParser] passed snapshot for ${v.mmsi}: etaFmtEntry=${JSON.stringify(etaFmtEntry)} etaEntry=${JSON.stringify(etaEntry)}`);
+              }
+            }
+            // If passed and we have ETA_FORMAT distance, synthesize position relative to target bridge
+            if (v.status === 'passed' && v.targetBridge && etaFmtEntry && Number.isFinite(etaFmtEntry.distance)) {
+              const targetKey = Object.keys(BRIDGES).find((k) => BRIDGES[k].name === v.targetBridge) || v.targetBridge;
+              const target = BRIDGES[targetKey];
+              if (target) {
+                const metersPerDegLat = 111320;
+                const dLat = (etaFmtEntry.distance || 0) / metersPerDegLat;
+                v.lat = target.lat + dLat; // arbitrary north offset
+                v.lon = target.lon;
+                // Force recalculation from position for "precis passerat"
+                v.etaMinutes = null;
+                if (!v.sog && etaFmtEntry && Number.isFinite(etaFmtEntry.speed)) {
+                  v.sog = etaFmtEntry.speed;
+                }
+                if (process.env.LOG_REPLAY_DEBUG) {
+                  // eslint-disable-next-line no-console
+                  console.log(`[LogReplayParser] Synth pos for ${v.mmsi}: ${v.lat}, ${v.lon} (d=${etaFmtEntry.distance}m, sog=${v.sog})`);
+                }
+              }
+            }
+
+            // If approaching Stridsbergsbron near Stallbackabron without coordinates, synthesize position from nearest distance
+            if (v.status === 'approaching' && v.targetBridge === 'Stridsbergsbron' && !v.lat && Number.isFinite(v._nearestDistance)) {
+              const d = v._nearestDistance;
+              if (d <= APPROACHING_RADIUS && d > APPROACH_RADIUS) {
+                const stallbacka = BRIDGES.stallbackabron;
+                if (stallbacka) {
+                  const metersPerDegLat = 111320;
+                  const dLat = d / metersPerDegLat;
+                  v.lat = stallbacka.lat + dLat;
+                  v.lon = stallbacka.lon;
+                  if (process.env.LOG_REPLAY_DEBUG) {
+                    // eslint-disable-next-line no-console
+                    console.log(`[LogReplayParser] Synth Stallbacka-approach pos for ${v.mmsi}: ${v.lat}, ${v.lon} (d=${d}m)`);
+                  }
+                }
+              }
+            }
+          });
+        }
         // Snapshot complete at final message
         inSnapshot = false;
         if (!options.filterMmsi
@@ -192,6 +432,11 @@ class LogReplayParser {
       }
     }
 
+    // Debug summary
+    if (typeof process !== 'undefined' && process.env && process.env.LOG_REPLAY_DEBUG) {
+      // eslint-disable-next-line no-console
+      console.log(`[LogReplayParser] snapshots=${snapshots.length}, vesselBlocks=${vesselBlocksParsed}, vesselLineHits=${vesselLineHits}`);
+    }
     return snapshots;
   }
 }
