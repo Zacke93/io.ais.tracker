@@ -19,6 +19,14 @@ async function main() {
   const parser = new LogReplayParser(logFile);
   const snapshots = parser.parseSnapshots();
   console.log(`Parsed ${snapshots.length} snapshots from ${logFile}`);
+  // Debug: MMSI frequency
+  const freq = new Map();
+  for (const s of snapshots) {
+    for (const v of s.vessels) {
+      freq.set(v.mmsi, (freq.get(v.mmsi) || 0) + 1);
+    }
+  }
+  console.log('Top MMSIs:', Array.from(freq.entries()).slice(0, 5));
 
   const registry = new BridgeRegistry(BRIDGES);
   const coordinator = new SystemCoordinator(logger);
