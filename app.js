@@ -405,12 +405,12 @@ class AISBridgeApp extends Homey.App {
         positionUncertain: vessel._positionUncertain || false,
         analysis: vessel._positionAnalysis || null,
       };
-      
+
       // GPS JUMP HOLD: Set hold if GPS jump detected
       if (positionAnalysis.gpsJumpDetected) {
         this.vesselDataService.setGpsJumpHold(vessel.mmsi, 2000); // 2 second hold
       }
-      
+
       const statusResult = this.statusService.analyzeVesselStatus(vessel, proximityData, positionAnalysis);
 
       // 4. Update vessel with analysis results but preserve critical data
@@ -809,7 +809,7 @@ class AISBridgeApp extends Homey.App {
       // CRITICAL FIX: Also check for significant time passage to catch ETA changes
       // PASSAGE DUPLICATION FIX: Use status-based gating instead of string matching
       const timeSinceLastUpdate = Date.now() - (this._lastBridgeTextUpdate || 0);
-      const hasPassedVessels = relevantVessels.some(vessel => vessel.status === 'passed');
+      const hasPassedVessels = relevantVessels.some((vessel) => vessel.status === 'passed');
       const forceUpdateDueToTime = timeSinceLastUpdate > 60000 && relevantVessels.length > 0 && !hasPassedVessels; // Force update every minute if vessels present, but never when "passed" vessels exist
 
       if (bridgeText !== this._lastBridgeText || forceUpdateDueToTime) {
@@ -1188,8 +1188,11 @@ class AISBridgeApp extends Homey.App {
    */
   async _triggerBoatNearFlow(vessel) {
     try {
+      // ENHANCED DEBUG: Initial flow trigger attempt
+      this.debug(`🎯 [FLOW_TRIGGER_START] ${vessel.mmsi}: Attempting boat_near trigger...`);
+
       if (!this._boatNearTrigger) {
-        // Skip trigger if no flow card
+        this.debug(`🚫 [FLOW_TRIGGER_SKIP] ${vessel.mmsi}: No _boatNearTrigger available`);
         return;
       }
 
@@ -1198,11 +1201,11 @@ class AISBridgeApp extends Homey.App {
       const bridgeForFlow = vessel.targetBridge || vessel.currentBridge;
 
       // ENHANCED DEBUG: Log detailed vessel state for debugging
-      this.debug(`🔍 [FLOW_TRIGGER_DEBUG] ${vessel.mmsi}: targetBridge="${vessel.targetBridge}", currentBridge="${vessel.currentBridge}", bridgeForFlow="${bridgeForFlow}"`);
+      this.debug(`🔍 [FLOW_TRIGGER_DEBUG] ${vessel.mmsi}: status="${vessel.status}", targetBridge="${vessel.targetBridge}", currentBridge="${vessel.currentBridge}", bridgeForFlow="${bridgeForFlow}"`);
 
       // CRITICAL FIX: Validate bridge name BEFORE any key generation or processing
       if (!bridgeForFlow || typeof bridgeForFlow !== 'string' || bridgeForFlow.trim() === '') {
-        this.debug(`⚠️ [FLOW_TRIGGER] Skipping boat_near - vessel ${vessel.mmsi} has invalid bridge association: "${bridgeForFlow}" (type: ${typeof bridgeForFlow})`);
+        this.debug(`⚠️ [FLOW_TRIGGER_SKIP] ${vessel.mmsi}: Invalid bridge association - bridgeForFlow="${bridgeForFlow}" (type: ${typeof bridgeForFlow})`);
         return;
       }
 
@@ -1235,9 +1238,10 @@ class AISBridgeApp extends Homey.App {
       // This ensures we never create keys with invalid bridge names
       const dedupeKey = `${vessel.mmsi}:${bridgeForFlow}`;
 
-      // Skip if already triggered for this vessel+bridge combo
+      // ENHANCED DEDUPE DEBUG: Check if already triggered for this vessel+bridge combo
       if (this._triggeredBoatNearKeys.has(dedupeKey)) {
-        this.debug(`🚫 [FLOW_TRIGGER] Already triggered boat_near for ${dedupeKey} - waiting for vessel to leave area`);
+        this.debug(`🚫 [FLOW_TRIGGER_DEDUPE] ${vessel.mmsi}: Already triggered for "${bridgeForFlow}" - dedupe active (expires in ${FLOW_CONSTANTS.BOAT_NEAR_DEDUPE_MINUTES} min)`);
+        this.debug(`🔍 [FLOW_TRIGGER_DEDUPE_DETAIL] Active dedupe keys: ${this._triggeredBoatNearKeys.size}, this key: "${dedupeKey}"`);
         return;
       }
 
@@ -1254,7 +1258,7 @@ class AISBridgeApp extends Homey.App {
         : -1;
 
       // ENHANCED DEBUG: Log token values before trigger
-      this.debug(`🔍 [FLOW_TRIGGER_DEBUG] ${vessel.mmsi}: Creating tokens = ${JSON.stringify(tokens)}`);
+      this.debug(`🔍 [FLOW_TRIGGER_TOKENS] ${vessel.mmsi}: Raw tokens = ${JSON.stringify(tokens)}`);
 
       // CRITICAL FIX: Create DEEP immutable copy to prevent race conditions and object mutation
       const safeTokens = {
@@ -1268,27 +1272,39 @@ class AISBridgeApp extends Homey.App {
         ? tokens.eta_minutes
         : -1;
 
-      // Emit diagnostic when ETA is unavailable for flows
+      // ENHANCED DEBUG: Log final tokens and ETA status
+      this.debug(`🔍 [FLOW_TRIGGER_SAFE_TOKENS] ${vessel.mmsi}: Safe tokens = ${JSON.stringify(safeTokens)}`);
       if (safeTokens.eta_minutes === -1) {
-        this.debug(`🛈 [FLOW_TRIGGER_DIAG] ${vessel.mmsi}: ETA unavailable → sending eta_minutes=-1 for bridgeId="${bridgeId}"`);
+        this.debug(`⚠️ [FLOW_TRIGGER_ETA] ${vessel.mmsi}: ETA unavailable - sending eta_minutes=-1 to flow`);
+      } else {
+        this.debug(`✅ [FLOW_TRIGGER_ETA] ${vessel.mmsi}: ETA available - sending eta_minutes=${safeTokens.eta_minutes} to flow`);
       }
 
-      // Trigger for specific bridge flows (bridgeId already validated above)
-      this.debug(`🎯 [FLOW_TRIGGER_DEBUG] ${vessel.mmsi}: About to trigger with bridgeId="${bridgeId}" and safeTokens=${JSON.stringify(safeTokens)}`);
+      // ENHANCED DEBUG: About to trigger with full context
+      this.debug(`🎯 [FLOW_TRIGGER_ATTEMPT] ${vessel.mmsi}: Triggering boat_near with bridgeId="${bridgeId}", distance=${Math.round(relevantBridgeData.distance)}m`);
 
       try {
         // *** CRITICAL FIX: CORRECT PARAMETER ORDER - tokens first, state second ***
         await this._boatNearTrigger.trigger(safeTokens, { bridge: bridgeId });
-        this.debug(`✅ [FLOW_TRIGGER_DEBUG] ${vessel.mmsi}: Successfully triggered for bridge "${bridgeId}"`);
+
+        // ENHANCED SUCCESS DEBUG: Detailed success logging
+        this.debug(`✅ [FLOW_TRIGGER_SUCCESS] ${vessel.mmsi}: boat_near triggered successfully!`);
+        this.debug(`🎯 [FLOW_TRIGGER_SUCCESS_DETAIL] Bridge="${bridgeForFlow}" (ID: ${bridgeId}), Distance=${Math.round(relevantBridgeData.distance)}m, Status="${vessel.status}"`);
 
         // CRITICAL FIX: Add key to deduplication set ONLY after successful trigger
         // This prevents orphaned keys if trigger fails
         this._triggeredBoatNearKeys.add(dedupeKey);
-        this.debug(`🎯 [FLOW_TRIGGER] boat_near triggered for ${vessel.mmsi} at ${Math.round(relevantBridgeData.distance)}m from ${bridgeForFlow}`);
+        this.debug(`🔒 [FLOW_TRIGGER_DEDUPE_SET] ${vessel.mmsi}: Added "${dedupeKey}" to dedupe set (total keys: ${this._triggeredBoatNearKeys.size})`);
 
       } catch (triggerError) {
-        this.error(`[FLOW_TRIGGER] FAILED to trigger bridge "${bridgeId}":`, triggerError);
-        this.error(`[FLOW_TRIGGER] Failed tokens: ${JSON.stringify(safeTokens)}`);
+        // ENHANCED ERROR DEBUG: Detailed error logging
+        this.error(`❌ [FLOW_TRIGGER_ERROR] ${vessel.mmsi}: FAILED to trigger boat_near for bridge "${bridgeId}"`);
+        this.error(`❌ [FLOW_TRIGGER_ERROR_DETAIL] Error: ${triggerError.message || triggerError}`);
+        this.error(`❌ [FLOW_TRIGGER_ERROR_TOKENS] Failed tokens: ${JSON.stringify(safeTokens)}`);
+        this.error(`❌ [FLOW_TRIGGER_ERROR_STATE] State: { bridge: "${bridgeId}" }`);
+        if (triggerError.stack) {
+          this.error(`❌ [FLOW_TRIGGER_ERROR_STACK] ${triggerError.stack}`);
+        }
         // Don't add key to deduplication set if trigger failed
         // Don't re-throw - let app continue
         return;
@@ -1311,14 +1327,17 @@ class AISBridgeApp extends Homey.App {
     let nearbyBridge = null;
 
     try {
+      // ENHANCED DEBUG: Initial "any" bridge trigger attempt
+      this.debug(`🎯 [FLOW_TRIGGER_ANY_START] ${vessel.mmsi}: Attempting boat_near "any" bridge trigger...`);
+
       if (!this._boatNearTrigger) {
-        this.debug(`🚫 [FLOW_TRIGGER_ANY] No boat_near trigger available for vessel ${vessel?.mmsi}`);
+        this.debug(`🚫 [FLOW_TRIGGER_ANY_SKIP] ${vessel.mmsi}: No _boatNearTrigger available`);
         return;
       }
 
       // CRITICAL FIX: Enhanced vessel validation
       if (!vessel || !vessel.mmsi || !Number.isFinite(vessel.lat) || !Number.isFinite(vessel.lon)) {
-        this.error(`[FLOW_TRIGGER_ANY] CRITICAL: Invalid vessel data provided: ${JSON.stringify(vessel)}`);
+        this.error(`❌ [FLOW_TRIGGER_ANY_INVALID] ${vessel.mmsi}: Invalid vessel data - lat=${vessel?.lat}, lon=${vessel?.lon}`);
         return;
       }
 
@@ -1471,6 +1490,9 @@ class AISBridgeApp extends Homey.App {
    * @private
    */
   _clearBoatNearTriggers(vessel) {
+    // ENHANCED DEBUG: Start trigger clearing
+    this.debug(`🧹 [TRIGGER_CLEAR_START] ${vessel.mmsi}: Clearing boat_near triggers...`);
+
     // Clear all trigger keys for this vessel
     const keysToRemove = [];
     for (const key of this._triggeredBoatNearKeys) {
@@ -1480,8 +1502,14 @@ class AISBridgeApp extends Homey.App {
     }
 
     if (keysToRemove.length > 0) {
+      // ENHANCED DEBUG: Log which keys are being cleared
+      this.debug(`🧹 [TRIGGER_CLEAR_KEYS] ${vessel.mmsi}: Removing keys: ${keysToRemove.join(', ')}`);
+
       keysToRemove.forEach((key) => this._triggeredBoatNearKeys.delete(key));
-      this.debug(`🧹 [TRIGGER_CLEAR] Cleared ${keysToRemove.length} boat_near triggers for vessel ${vessel.mmsi}`);
+
+      this.debug(`✅ [TRIGGER_CLEAR_SUCCESS] ${vessel.mmsi}: Cleared ${keysToRemove.length} boat_near triggers (remaining keys: ${this._triggeredBoatNearKeys.size})`);
+    } else {
+      this.debug(`ℹ️ [TRIGGER_CLEAR_NONE] ${vessel.mmsi}: No boat_near triggers to clear`);
     }
   }
 
@@ -1537,31 +1565,36 @@ class AISBridgeApp extends Homey.App {
       const boatRecentCondition = this.homey.flow.getConditionCard('boat_at_bridge');
       boatRecentCondition.registerRunListener(async (args) => {
         try {
+          // ENHANCED DEBUG: Start condition evaluation
+          this.debug(`🎯 [CONDITION_START] boat_at_bridge: Evaluating condition with args=${JSON.stringify(args)}`);
+
           // Input validation - ensure bridge parameter exists and is valid
           if (!args || typeof args.bridge !== 'string' || args.bridge.trim() === '') {
-            this.error('Invalid bridge parameter in boat_at_bridge condition:', args);
+            this.debug(`❌ [CONDITION_INVALID_ARGS] boat_at_bridge: Invalid bridge parameter - args=${JSON.stringify(args)}`);
             return false;
           }
 
           const bridgeName = args.bridge.trim();
+          this.debug(`🔍 [CONDITION_DEBUG] boat_at_bridge: Checking for bridge="${bridgeName}"`);
 
           // Validate bridge parameter against known values
           const validBridgeIds = Object.keys(BRIDGE_ID_TO_NAME).concat(['any']);
           if (!validBridgeIds.includes(bridgeName)) {
-            this.error(`Unknown bridge ID in boat_at_bridge condition: "${bridgeName}". Valid IDs:`, validBridgeIds);
+            this.debug(`❌ [CONDITION_INVALID_BRIDGE] boat_at_bridge: Unknown bridge ID "${bridgeName}". Valid IDs: ${validBridgeIds.join(', ')}`);
             return false;
           }
 
           const allVessels = this.vesselDataService.getAllVessels();
+          this.debug(`🔍 [CONDITION_VESSELS] boat_at_bridge: Checking ${allVessels?.length || 0} vessels`);
 
           // Safety check - ensure vessels array exists
           if (!Array.isArray(allVessels)) {
-            this.error('boat_at_bridge condition: allVessels is not an array');
+            this.debug(`❌ [CONDITION_INVALID_VESSELS] boat_at_bridge: allVessels is not an array - type=${typeof allVessels}`);
             return false;
           }
 
           // Check if any vessel is within 300m of the specified bridge
-          return allVessels.some((vessel) => {
+          const result = allVessels.some((vessel) => {
             // Validate vessel object
             if (!vessel || typeof vessel !== 'object') {
               this.debug('boat_at_bridge condition: invalid vessel object:', vessel);
@@ -1611,12 +1644,20 @@ class AISBridgeApp extends Homey.App {
               return false;
             }
 
-            return bridgeData.distance <= FLOW_CONSTANTS.FLOW_TRIGGER_DISTANCE_THRESHOLD;
+            const isWithinRange = bridgeData.distance <= FLOW_CONSTANTS.FLOW_TRIGGER_DISTANCE_THRESHOLD;
+            if (isWithinRange) {
+              this.debug(`✅ [CONDITION_MATCH] boat_at_bridge: Vessel ${vessel.mmsi} is ${bridgeData.distance.toFixed(0)}m from ${actualBridgeName} (≤300m)`);
+            }
+            return isWithinRange;
           });
 
+          // ENHANCED DEBUG: Log final condition result
+          this.debug(`🎯 [CONDITION_RESULT] boat_at_bridge: bridge="${bridgeName}" → ${result} (checked ${allVessels.length} vessels)`);
+          return result;
+
         } catch (error) {
-          this.error('Unexpected error in boat_at_bridge flow condition:', error.message || error);
-          this.error('Stack trace:', error.stack);
+          this.error('❌ [CONDITION_ERROR] Unexpected error in boat_at_bridge flow condition:', error.message || error);
+          this.error('❌ [CONDITION_ERROR_STACK] Stack trace:', error.stack);
           return false; // Safe default - condition fails on error
         }
       });
