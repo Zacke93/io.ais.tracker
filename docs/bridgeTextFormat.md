@@ -1,5 +1,31 @@
 # Bridge Text Format Regler V2.0 - ROBUST SYSTEM
 
+## Generella riktlinjer för bridge text
+
+### Stabilitet och pålitlighet
+
+**Bridge text måste vara stabilt och pålitligt för att bibehålla användarförtroende:**
+
+- **Ingen "hopping"**: Båtar får aldrig "hoppa ur" bridge text för att sedan dyka upp igen kort därefter såvida båtarna inte ankrar eller åker ur bounding boxen. Detta undergräver användarens förtroende i systemet.
+- **Trovärdighet är kritisk**: Varje unikt meddelande måste stämma överens med verkligheten. Användaren kan komma att bara se ett enda meddelande, och om en båt då är "borttagen" från systemet för att återkomma kort därefter, förlorar användaren förtroendet för appen.
+- **Kontinuerlig synlighet**: Båtar som inte ankrar ska förbli synliga i bridge text tills de verkligen har passerat sitt slutmål eller lämnat systemets räckvidd.
+
+### Perfekt informationsflöde
+
+**I ett idealt scenario ska bridge text visa unika meddelanden för alla stadier:**
+
+- **På väg mot målbro**: Tydliga meddelanden när båtar är på väg (en-route)
+- **Före bro**: Tydliga meddelanden när båtar närmar sig (approaching, waiting)
+- **Under bro**: Exakta meddelanden när passage pågår (under-bridge)
+- **Efter bro**: Informativa meddelanden när båtar har passerat (passed)
+- **Ingen överhoppning**: Systemet ska sträva efter att aldrig "hoppa över" viktiga meddelanden, vilket ger användaren den mest precisa informationen om var båtar befinner sig
+
+### Implementeringskonsekvenser
+
+- **Skyddsmekanismer**: Använd 300m Protection Zone och andra skyddsmekanismer för att förhindra oväntad borttagning av båtar
+- **Timeout-hantering**: Var försiktig med cleanup-timers för att inte ta bort båtar som fortfarande är relevanta
+- **Status-övergångar**: Säkerställ mjuka övergångar mellan statusar utan "fladder" eller återkommande on/off-beteende
+
 ## Grundläggande koncept
 
 ### Brotyper:
@@ -69,7 +95,7 @@
 - **<300m trigger**: Båt ≤300m från mellanbro
 - **Format**: "En båt inväntar broöppning av [mellanbro] på väg mot [målbro], beräknad broöppning om X minuter"
 - **ETA visar tid till målbro** (inte till mellanbron)
-- **Multi-vessel**: "Två/Tre båtar inväntar broöppning av [mellanbro] på väg mot [målbro], beräknad broöppning om X minuter" 
+- **Multi-vessel**: "Två/Tre båtar inväntar broöppning av [mellanbro] på väg mot [målbro], beräknad broöppning om X minuter"
   ELLER "En båt inväntar broöppning av [mellanbro] på väg mot [målbro], ytterligare X båtar på väg, beräknad broöppning om X minuter"
 - **KRITISK FIX**: `_shouldShowWaiting()` kontrollerar nu specifik bro istället för att returnera true för alla broar
 
@@ -458,23 +484,27 @@ if (
 ### Numerisk Text-konvertering
 
 **Alla numeriska räkneord använder text-baserade siffror:**
+
 - 1 = "En"
 - 2 = "Två"
 - 3 = "Tre"
 - 4+ = siffror ("4", "5", etc.)
 
 **Exempel:**
+
 - "Två båtar inväntar broöppning" (INTE "2 båtar")
 - "ytterligare Tre båtar på väg" (INTE "ytterligare 3 båtar")
 
 ### Passage Window System
 
 **PassageWindowManager - Centraliserad hantering:**
+
 - **Display Window**: ALLTID 60 sekunder för "precis passerat" meddelanden
 - **Internal Grace Period**: Hastighetsbaserad (2 min snabb, 1 min långsam) för intern systemlogik
 - **Dynamic Calculation**: Avancerad beräkning baserat på broavstånd för intelligenta timings
 
 **Separation av logik:**
+
 - Användare ser alltid 60 sekunders "precis passerat"
 - Systemet använder smart intern logik för stabilitet
 - Målbro-skydd använder hastighetsbaserad grace period
@@ -482,6 +512,7 @@ if (
 ### Stallbackabron Konsekvent Format
 
 **ALLTID använd "ytterligare X båtar" format:**
+
 - RÄTT: "En båt åker strax under Stallbackabron, ytterligare Två båtar på väg"
 - FEL: "Tre båtar åker strax under Stallbackabron"
 
