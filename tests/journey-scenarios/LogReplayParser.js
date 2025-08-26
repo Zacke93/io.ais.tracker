@@ -173,7 +173,9 @@ class LogReplayParser {
           const distance = Number(m[2]);
           const speed = Number(m[3]);
           const eta = Number(m[4]);
-          const etaEntry = { eta, distance, speed, ts };
+          const etaEntry = {
+            eta, distance, speed, ts,
+          };
           // Global collection
           const arr = etaFormatByMmsi.get(mmsi) || [];
           arr.push(etaEntry);
@@ -225,7 +227,7 @@ class LogReplayParser {
         inSnapshot = true;
         const startTs = parseTimestamp(line);
         currentSnapshot = {
-          startTs: startTs,
+          startTs,
           ts: startTs, // Keep for backward compatibility, will be updated to endTs
           vessels: [],
           expectedFinalMessage: null,
@@ -290,7 +292,7 @@ class LogReplayParser {
           currentSnapshot.vessels.push(vessel);
         } else if (process.env.LOG_REPLAY_DEBUG) {
           // eslint-disable-next-line no-console
-          console.log('[LogReplayParser] failed to parse vessel block:\n' + currentVesselBlock.join('\n'));
+          console.log(`[LogReplayParser] failed to parse vessel block:\n${currentVesselBlock.join('\n')}`);
         }
         continue;
       }
@@ -307,11 +309,11 @@ class LogReplayParser {
         }
         // Finalize ETAs for vessels in this snapshot with snapshot-interval priority
         if (currentSnapshot && currentSnapshot.vessels) {
-          const startTs = currentSnapshot.startTs;
-          const endTs = currentSnapshot.endTs;
+          const { startTs } = currentSnapshot;
+          const { endTs } = currentSnapshot;
           const tolerance = 50; // 50ms tolerance for entries just after endTs
           const preSnapshotTolerance = 100; // 100ms tolerance for entries just before startTs
-          
+
           const pickLatestInInterval = (snapMap, globalMap, mmsi, startTs, endTs) => {
             const endTsWithTolerance = new Date(endTs.getTime() + tolerance);
             const startTsWithTolerance = new Date(startTs.getTime() - preSnapshotTolerance);
@@ -349,7 +351,7 @@ class LogReplayParser {
             const etaInternalEntry = pickLatestInInterval(snapshotEtaInternalByMmsi, etaInternalByMmsi, v.mmsi, startTs, endTs);
             const etaEntry = pickLatestInInterval(snapshotEtaByMmsi, etaByMmsi, v.mmsi, startTs, endTs);
             const etaFmtEntry = pickLatestInInterval(snapshotEtaFormatByMmsi, etaFormatByMmsi, v.mmsi, startTs, endTs);
-            
+
             let chosen = null;
             // For normal approaching/en-route/waiting messages, prioritize snapshot ETAs
             if (v.status === 'approaching' || v.status === 'en-route' || v.status === 'waiting' || v.status === 'under-bridge' || v.status === 'stallbacka-waiting') {
@@ -362,11 +364,16 @@ class LogReplayParser {
             if (chosen != null) {
               v.etaMinutes = chosen;
               if (process.env.LOG_REPLAY_DEBUG) {
+                // Determine ETA source for debugging
+                let etaSource = 'format';
+                if (etaInternalEntry) etaSource = 'internal';
+                else if (etaEntry) etaSource = 'calc';
+
                 // eslint-disable-next-line no-console
-                console.log(`[LogReplayParser] Finalize ETA for ${v.mmsi}: ${chosen} (from ${etaInternalEntry ? 'internal' : etaEntry ? 'calc' : 'format'})`);
+                console.log(`[LogReplayParser] Finalize ETA for ${v.mmsi}: ${chosen} (from ${etaSource})`);
               }
             }
-            // Apply speed preference: ETA_FORMAT speed > ETA_CALC speed  
+            // Apply speed preference: ETA_FORMAT speed > ETA_CALC speed
             if (etaFmtEntry && Number.isFinite(etaFmtEntry.speed)) {
               v.sog = etaFmtEntry.speed;
             } else if (etaEntry && Number.isFinite(etaEntry.speed)) {
