@@ -1,12 +1,19 @@
 #!/bin/bash
 
-# Skapa logs-mapp i AIS Tracker huvudmappen
-mkdir -p "../logs"
+# Robust path handling: anchor logs relative to this script's directory,
+# resolving to an absolute path so messages never show ".." and work from any CWD.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOGS_DIR="$(cd "$SCRIPT_DIR/../logs" && pwd 2>/dev/null || true)"
+if [ -z "$LOGS_DIR" ]; then
+  # Create logs dir if it did not exist and resolve absolute path
+  mkdir -p "$SCRIPT_DIR/../logs"
+  LOGS_DIR="$(cd "$SCRIPT_DIR/../logs" && pwd)"
+fi
 
 # Generera filnamn med datum och tid
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-LOGFILE="../logs/app-$TIMESTAMP.log"
-BRIDGE_TEXT_SUMMARY="../logs/bridge-text-summary-$TIMESTAMP.md"
+LOGFILE="$LOGS_DIR/app-$TIMESTAMP.log"
+BRIDGE_TEXT_SUMMARY="$LOGS_DIR/bridge-text-summary-$TIMESTAMP.md"
 
 echo "Startar app och sparar loggar till: $LOGFILE"
 echo "Bridge text summary kommer skapas i: $BRIDGE_TEXT_SUMMARY"
@@ -17,12 +24,14 @@ extract_bridge_text() {
     echo ""
     echo "🔍 Genererar bridge text summary..."
     
-    # Skapa bridge text summary
-    cat > "$BRIDGE_TEXT_SUMMARY" << 'EOL'
+    # Skapa bridge text summary (portable header expansion, macOS/BSD-friendly)
+    GENERATED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+    SOURCE_NAME="$(basename "$LOGFILE")"
+    cat > "$BRIDGE_TEXT_SUMMARY" << EOL
 # Bridge Text Summary Report
 
-**Generated:** $(date --iso-8601=seconds)
-**Source:** $(basename "$LOGFILE")
+**Generated:** $GENERATED_AT
+**Source:** $SOURCE_NAME
 
 ## All Bridge Text Updates (Chronological)
 
