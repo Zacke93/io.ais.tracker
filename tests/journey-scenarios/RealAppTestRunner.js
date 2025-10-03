@@ -9,11 +9,28 @@
 // Setup module path for mocking
 const Module = require('module');
 
-// Override require for 'homey' module
+// Minimal WebSocket stub to satisfy AISStreamClient without network
+function WSStub() {
+  this.readyState = WSStub.OPEN;
+  this._handlers = {};
+}
+WSStub.prototype.on = function on(evt, cb) {
+  this._handlers[evt] = cb;
+};
+WSStub.prototype.send = function send() { /* noop */ };
+WSStub.prototype.close = function close() {
+  if (this._handlers.close) this._handlers.close(1000, 'test_close');
+};
+WSStub.OPEN = 1;
+
+// Override require for 'homey' and 'ws' modules (avoid external deps during tests)
 const originalRequire = Module.prototype.require;
 Module.prototype.require = function requireOverride(id) {
   if (id === 'homey') {
     return require('../__mocks__/homey'); // eslint-disable-line global-require, import/extensions
+  }
+  if (id === 'ws') {
+    return WSStub;
   }
   return originalRequire.call(this, id);
 };
@@ -41,7 +58,7 @@ class RealAppTestRunner {
 
     // Add mock settings
     mockHomey.app.settings = {
-      debug_level: 'detailed',
+      debug_level: 'off',
       ais_api_key: null, // No API key for testing
     };
 

@@ -339,6 +339,7 @@ class LogReplayParser {
               if (e.ts && e.ts >= startTsWithTolerance && e.ts <= endTsWithTolerance) {
                 if (process.env.LOG_REPLAY_DEBUG) {
                   // eslint-disable-next-line no-console
+                  // eslint-disable-next-line max-len
                   console.log(`[LogReplayParser] pickLatestInInterval GLOBAL: ${mmsi} found ${e.eta} at ${e.ts.toISOString()} (expanded: ${startTsWithTolerance.toISOString()}-${endTsWithTolerance.toISOString()})`);
                 }
                 return e;

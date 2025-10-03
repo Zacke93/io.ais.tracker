@@ -41,52 +41,50 @@ describe('🛡️ BULLETPROOF BRIDGE TEXT - 100% PÅLITLIG REALTIDSINFORMATION',
     test('Corrupted vessel data - Bridge text överlever total data corruption', async () => {
       console.log('\n🔴 TEST: Total data corruption - BridgeTextService måste överleva');
 
-      // Simulate total service corruption
-      const originalGenerateBridgeText = app.bridgeTextService.generateBridgeText;
-      let corruptionCallCount = 0;
-
-      app.bridgeTextService.generateBridgeText = function mockGenerateBridgeText(vessels) {
-        corruptionCallCount++;
-        if (corruptionCallCount <= 3) {
-          // Simulate different types of failures
-          if (corruptionCallCount === 1) throw new Error('Memory corruption in bridge text generation');
-          if (corruptionCallCount === 2) return null;
-          if (corruptionCallCount === 3) return undefined;
-        }
-        // After 3 failures, use original logic
-        return originalGenerateBridgeText.call(this, vessels);
-      };
-
       try {
-        // Test 1: Exception during generation - Should use fallback
-        const bridgeText1 = app.bridgeTextService.generateBridgeText([]);
+        // Test 1: Corrupted vessel data that should trigger error handling
+        const corruptedVessels = [
+          null,
+          undefined,
+          { /* missing required properties */ },
+          { mmsi: null, name: null },
+          { mmsi: '123', name: 'Test', lat: 'invalid', lon: 'invalid' },
+        ];
+
+        const bridgeText1 = app.bridgeTextService.generateBridgeText(corruptedVessels);
         expect(typeof bridgeText1).toBe('string');
         expect(bridgeText1.length).toBeGreaterThan(0);
-        console.log(`   Test 1 (Exception): "${bridgeText1}"`);
+        console.log(`   Test 1 (Corrupted data): "${bridgeText1}"`);
 
-        // Test 2: null return - Should use fallback
-        const bridgeText2 = app.bridgeTextService.generateBridgeText([]);
+        // Test 2: Extremely large arrays that could cause memory issues
+        const oversizedArray = new Array(1000).fill(null).map(() => ({ 
+          mmsi: 'invalid', 
+          name: null,
+          corrupt: true 
+        }));
+        
+        const bridgeText2 = app.bridgeTextService.generateBridgeText(oversizedArray);
         expect(typeof bridgeText2).toBe('string');
         expect(bridgeText2.length).toBeGreaterThan(0);
-        console.log(`   Test 2 (null): "${bridgeText2}"`);
+        console.log(`   Test 2 (Oversized array): "${bridgeText2}"`);
 
-        // Test 3: undefined return - Should use fallback
-        const bridgeText3 = app.bridgeTextService.generateBridgeText([]);
+        // Test 3: Empty and null arrays
+        const bridgeText3 = app.bridgeTextService.generateBridgeText(null);
         expect(typeof bridgeText3).toBe('string');
         expect(bridgeText3.length).toBeGreaterThan(0);
-        console.log(`   Test 3 (undefined): "${bridgeText3}"`);
+        console.log(`   Test 3 (null array): "${bridgeText3}"`);
 
-        // Test 4: Should work normally after failures
-        const bridgeText4 = app.bridgeTextService.generateBridgeText([]);
+        // Test 4: Undefined input
+        const bridgeText4 = app.bridgeTextService.generateBridgeText(undefined);
         expect(typeof bridgeText4).toBe('string');
         expect(bridgeText4.length).toBeGreaterThan(0);
-        console.log(`   Test 4 (normal): "${bridgeText4}"`);
+        console.log(`   Test 4 (undefined): "${bridgeText4}"`);
 
-        console.log(`✅ Bridge text överlevde ${corruptionCallCount} corruption attempts`);
+        console.log('✅ Bridge text överlevde alla corruption attempts');
 
-      } finally {
-        // Restore original function
-        app.bridgeTextService.generateBridgeText = originalGenerateBridgeText;
+      } catch (testError) {
+        // This should NOT happen - BridgeTextService should handle all errors internally
+        throw new Error(`CRITICAL: BridgeTextService failed to handle corruption: ${testError.message}`);
       }
     });
 
