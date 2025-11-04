@@ -15,6 +15,7 @@
 ### ✅ **RESULTAT**
 - Notiser via `boat_near`-triggern fungerar igen utan spamming av “Invalid Flow Card ID”.
 - Dokumentationen (`CODEX.md`) beskriver nu korrekt att endast app-triggren används.
+- Automatisk självtest för `boat_near` körs inte längre vid start – sätt `AIS_BRIDGE_SELFTEST=true` om du vill aktivera den manuellt.
 
 ## 2025-11-04: BRIDGE TEXT – SAKNAD "PRECIS PASSERAT" EFTER MÅLBRO ✅
 
