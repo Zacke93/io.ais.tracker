@@ -2857,11 +2857,14 @@ class AISBridgeApp extends Homey.App {
 
       this.log('✅ Flow cards configured');
 
-      // CRITICAL TEST: Test trigger functionality immediately after setup (skip in test mode)
+      // Optional self-test: only run when explicitly enabled
+      const selfTestEnabled = process.env.AIS_BRIDGE_SELFTEST === 'true';
       if (process.env.NODE_ENV === 'test' || global.__TEST_MODE__) {
         this.debug('🧪 [TRIGGER_TEST] Test mode detected - skipping automatic trigger self-test');
-      } else {
+      } else if (selfTestEnabled) {
         setTimeout(() => this._testTriggerFunctionality(), 5000);
+      } else {
+        this.log('ℹ️ [TRIGGER_TEST] Automatic self-test disabled (set AIS_BRIDGE_SELFTEST=true to enable)');
       }
     } catch (error) {
       this.error('Error setting up flow cards:', error);
