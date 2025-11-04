@@ -79,15 +79,6 @@ class BridgeStatusDevice extends Homey.Device {
     }
   }
 
-  async triggerBoatNear(tokens, state) {
-    const trigger = this.driver.getBoatNearDeviceTrigger && this.driver.getBoatNearDeviceTrigger();
-    if (!trigger) {
-      this.log('⚠️ [FLOW_TRIGGER] boat_near_device trigger not available – skipping');
-      return Promise.resolve();
-    }
-    return trigger.trigger(this, tokens, state);
-  }
-
   /* ---------------------------------------------------
    *  PRIVATE: Wait until app exposes _devices Set
    * --------------------------------------------------- */

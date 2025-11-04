@@ -2187,54 +2187,22 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
-   * Trigger boat near flow using best available method (app-level or device-level)
+   * Trigger boat_near flow card (app-level)
    * @private
    */
   async _triggerBoatNearFlowBest(tokens, state, vessel) {
-    const results = [];
-    let appTriggered = false;
-    let deviceTriggered = false;
-    let lastError = null;
-
-    if (!this._useDeviceTrigger && this._boatNearTrigger) {
-      try {
-        this.debug(`🔧 [TRIGGER_METHOD] ${vessel.mmsi}: Using app-level trigger`);
-        const result = await this._boatNearTrigger.trigger(tokens, state);
-        results.push(result);
-        appTriggered = true;
-      } catch (error) {
-        lastError = error;
-        this.error(`❌ [FLOW_TRIGGER_APP_ERROR] ${vessel.mmsi}: Failed to trigger app-level card`, error.message || error);
-      }
+    if (!this._boatNearTrigger || typeof this._boatNearTrigger.trigger !== 'function') {
+      this.error('❌ [FLOW_TRIGGER] boat_near trigger card unavailable – cannot fire flow');
+      return null;
     }
 
-    const devices = Array.from(this._devices || []);
-    if (devices.length > 0) {
-      for (const device of devices) {
-        if (!device || typeof device.triggerBoatNear !== 'function') {
-          continue;
-        }
-        try {
-          this.debug(`🔧 [TRIGGER_METHOD] ${vessel.mmsi}: Triggering device-level card for device ${device.getName ? device.getName() : device.id || 'unknown'}`);
-          const deviceResult = await device.triggerBoatNear(tokens, state);
-          results.push(deviceResult);
-          deviceTriggered = true;
-        } catch (error) {
-          lastError = error;
-          this.error(`❌ [FLOW_TRIGGER_DEVICE_ERROR] ${vessel.mmsi}: Failed to trigger device-level card`, error.message || error);
-        }
-      }
-      if (!deviceTriggered) {
-        this.error('⚠️ [FLOW_TRIGGER_DEVICE_MISSING] No device triggers succeeded');
-      }
+    try {
+      this.debug(`🔧 [TRIGGER_METHOD] ${vessel.mmsi}: Using app-level boat_near trigger`);
+      return await this._boatNearTrigger.trigger(tokens, state);
+    } catch (error) {
+      this.error(`❌ [FLOW_TRIGGER_APP_ERROR] ${vessel.mmsi}: Failed to trigger boat_near card`, error.message || error);
+      throw error;
     }
-
-    if (!appTriggered && !deviceTriggered) {
-      if (lastError) throw lastError;
-      throw new Error('No flow trigger cards available for boat_near');
-    }
-
-    return results.length > 0 ? results[results.length - 1] : null;
   }
 
   /**
@@ -2665,6 +2633,29 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * Normalize flow bridge arguments/state to canonical string IDs
+   * @param {any} value - Bridge argument (string or object with id)
+   * @returns {string|null} Normalized bridge id or null if unavailable
+   * @private
+   */
+  _normalizeBridgeArgument(value) {
+    if (!value) return null;
+    if (typeof value === 'string') {
+      return value.trim() || null;
+    }
+    if (typeof value === 'object') {
+      if (typeof value.id === 'string') {
+        return value.id.trim() || null;
+      }
+      if (typeof value.name === 'string') {
+        // Convert display name to id if possible
+        return BRIDGE_NAME_TO_ID[value.name] || value.name.trim() || null;
+      }
+    }
+    return null;
+  }
+
+  /**
    * Initialize global flow token (with crash protection)
    * @private
    */
@@ -2702,13 +2693,42 @@ class AISBridgeApp extends Homey.App {
       if (!this._boatNearTrigger) {
         this.error('❌ [FLOW_CRITICAL] boat_near trigger not found - flows WILL NOT work!');
         this.error('❌ [FLOW_CRITICAL] This is why you are not getting notifications!');
-        this.error('❌ [FLOW_CRITICAL] Will attempt device-level trigger as fallback...');
-
-        // Try to setup device-level trigger as backup
-        this._useDeviceTrigger = true;
       } else {
         this.log('✅ [FLOW_SUCCESS] boat_near trigger successfully initialized');
-        this._useDeviceTrigger = false;
+
+        // Register robust run listener so Homey can match trigger arguments
+        this._boatNearTrigger.registerRunListener(async (args, state) => {
+          try {
+            const selectedBridge = this._normalizeBridgeArgument(args?.bridge);
+            const stateBridge = this._normalizeBridgeArgument(state?.bridge);
+
+            // If Flow card is configured for "Any bridge", always allow trigger
+            if (selectedBridge === 'any') {
+              return true;
+            }
+
+            // If no specific bridge provided, fail safe (prevents accidental matches)
+            if (!selectedBridge) {
+              this.debug('❌ [FLOW_RUN_LISTENER] Missing selected bridge in args, rejecting trigger');
+              return false;
+            }
+
+            if (!stateBridge) {
+              this.debug('❌ [FLOW_RUN_LISTENER] Missing bridge in trigger state, rejecting trigger');
+              return false;
+            }
+
+            const matches = selectedBridge === stateBridge;
+            this.debug(
+              `🎯 [FLOW_RUN_LISTENER] Comparing Flow bridge "${selectedBridge}" `
+              + `with trigger state "${stateBridge}" → ${matches}`,
+            );
+            return matches;
+          } catch (error) {
+            this.error('❌ [FLOW_RUN_LISTENER] Error while matching boat_near trigger:', error);
+            return false;
+          }
+        });
       }
 
       // Condition cards

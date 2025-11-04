@@ -57,25 +57,22 @@
 
 **VIKTIGT**: Stallbackabron visar ALDRIG "inväntar broöppning" oavsett hastighet eller avstånd!
 
-**Multi-vessel för Stallbackabron (KONSEKVENT FORMAT):**
+**Multi-vessel för Stallbackabron:**
 
-- **Närmar sig**: "En båt närmar sig Stallbackabron på väg mot [målbro], ytterligare X båtar på väg, beräknad broöppning om X minuter"
-- **Åker strax under**: "En båt åker strax under Stallbackabron på väg mot [målbro], ytterligare X båtar på väg, beräknad broöppning om X minuter"
-- **Passerar**: "En båt passerar Stallbackabron på väg mot [målbro], ytterligare X båtar på väg, beräknad broöppning om X minuter"
-
-**OBS:** Alltid "En båt" följt av "ytterligare X båtar" för konsekvent format med andra broar
+- Alla texter bygger på en ledande båt och suffixet `, ytterligare X båtar på väg`. Exempel: "En båt passerar Stallbackabron på väg mot Stridsbergsbron, ytterligare två båtar på väg, beräknad broöppning om 12 minuter".
+- När flera båtar har samma Stallbacka-status används även ett textbaserat totalantal i början ("Två båtar …") följt av samma `ytterligare X`-suffix som beskriver hur många extra båtar som ingår i gruppen.
 
 ### 1. Närmar sig (approaching status - NY 500m REGEL)
 
 **Målbroar (Klaffbron/Stridsbergsbron):**
 
 - **<500m**: "En båt närmar sig [målbro], beräknad broöppning om X minuter"
-- **Multi-vessel**: "Två/Tre båtar närmar sig [målbro], beräknad broöppning om X minuter" (text-baserade siffror)
+- **Multi-vessel**: "En båt närmar sig [målbro], ytterligare X båtar på väg, beräknad broöppning om X minuter"
 
 **Mellanbroar (Olidebron/Järnvägsbron):**
 
 - **<500m**: "En båt närmar sig [mellanbro] på väg mot [målbro], beräknad broöppning om X minuter"
-- **Multi-vessel**: "Två/Tre båtar närmar sig [mellanbro] på väg mot [målbro], beräknad broöppning om X minuter" (text-baserade siffror)
+- **Multi-vessel**: "En båt närmar sig [mellanbro] på väg mot [målbro], ytterligare X båtar på väg, beräknad broöppning om X minuter"
 
 **Stallbackabron (specialfall):**
 
@@ -215,6 +212,44 @@
 6. **En-route** (>500m) - på väg mot (lägsta prioritet)
 
 **VIKTIGT**: Waiting kan nu detektera intermediate bridges (Järnvägsbron, Olidebron) även om båten har "recently passed" status från annan bro.
+
+### REFERENSSCENARIER (BÖR MATCHA LOGGAR)
+
+#### Nordgående (Olidebron → Klaffbron → Stridsbergsbron)
+- **En-route mot första målbron**: `En båt på väg mot Klaffbron, beräknad broöppning om 14 minuter`
+- **Olidebron approaching**: `En båt närmar sig Olidebron på väg mot Klaffbron, beräknad broöppning om 14 minuter`
+- **Olidebron waiting**: `En båt inväntar broöppning av Olidebron på väg mot Klaffbron, beräknad broöppning om 12 minuter`
+- **Olidebron under**: `Broöppning pågår vid Olidebron, beräknad broöppning av Klaffbron om 16 minuter`
+- **Olidebron passed**: `En båt har precis passerat Olidebron på väg mot Klaffbron, beräknad broöppning om 15 minuter`
+- **Klaffbron approaching**: `En båt närmar sig Klaffbron, beräknad broöppning om 5 minuter`
+- **Klaffbron waiting (ingen ETA)**: `En båt inväntar broöppning vid Klaffbron`
+- **Klaffbron under**: `Broöppning pågår vid Klaffbron`
+- **Klaffbron passed + ny målbro**: `En båt har precis passerat Klaffbron på väg mot Stridsbergsbron, beräknad broöppning om 17 minuter`
+- **Järnvägsbron approaching**: `En båt närmar sig Järnvägsbron på väg mot Stridsbergsbron, beräknad broöppning om 8 minuter`
+- **Järnvägsbron waiting**: `En båt inväntar broöppning av Järnvägsbron på väg mot Stridsbergsbron, beräknad broöppning om 4 minuter`
+- **Järnvägsbron under**: `Broöppning pågår vid Järnvägsbron, beräknad broöppning av Stridsbergsbron om 1 minut`
+- **Järnvägsbron passed**: `En båt har precis passerat Järnvägsbron på väg mot Stridsbergsbron, beräknad broöppning om 1 minut`
+- **Stridsbergsbron waiting (ingen ETA)**: `En båt inväntar broöppning vid Stridsbergsbron`
+- **Stridsbergsbron under**: `Broöppning pågår vid Stridsbergsbron`
+- **System tomt**: `Inga båtar är i närheten av Klaffbron eller Stridsbergsbron`
+
+#### Sydgående (Stallbackabron → Stridsbergsbron → Klaffbron)
+- **Stallbackabron approaching**: `En båt närmar sig Stallbackabron på väg mot Stridsbergsbron, beräknad broöppning om 10 minuter`
+- **Stallbackabron special waiting**: `En båt åker strax under Stallbackabron på väg mot Stridsbergsbron, beräknad broöppning om 10 minuter`
+- **Stallbackabron under**: `En båt passerar Stallbackabron på väg mot Stridsbergsbron, beräknad broöppning om 12 minuter`
+- **Stallbackabron passed**: `En båt har precis passerat Stallbackabron på väg mot Stridsbergsbron, beräknad broöppning om 11 minuter`
+- **Stridsbergsbron en-route**: `En båt på väg mot Stridsbergsbron, beräknad broöppning om 9 minuter`
+- **Stridsbergsbron approaching**: `En båt närmar sig Stridsbergsbron, beräknad broöppning om 2 minuter`
+- **Stridsbergsbron waiting (ingen ETA)**: `En båt inväntar broöppning vid Stridsbergsbron`
+- **Stridsbergsbron under**: `Broöppning pågår vid Stridsbergsbron`
+- **Stridsbergsbron passed + ny målbro**: `En båt har precis passerat Stridsbergsbron på väg mot Klaffbron, beräknad broöppning om 19 minuter`
+- **Järnvägsbron waiting**: `En båt inväntar broöppning av Järnvägsbron på väg mot Klaffbron, beräknad broöppning om 21 minuter`
+- **Järnvägsbron under**: `Broöppning pågår vid Järnvägsbron, beräknad broöppning av Klaffbron om 15 minuter`
+- **Järnvägsbron passed**: `En båt har precis passerat Järnvägsbron på väg mot Klaffbron, beräknad broöppning om 15 minuter`
+- **Klaffbron approaching**: `En båt närmar sig Klaffbron, beräknad broöppning om 2 minuter`
+- **Klaffbron waiting (ingen ETA)**: `En båt inväntar broöppning vid Klaffbron`
+- **Klaffbron under**: `Broöppning pågår vid Klaffbron`
+- **System tomt**: `Inga båtar är i närheten av Klaffbron eller Stridsbergsbron`
 
 ### INTERMEDIATE BRIDGE LOGIC (KRITISKA FIXES):
 
@@ -466,7 +501,7 @@ if (
 #### **INGA MEDDELANDEN:**
 
 - **Norrut förbi Stridsbergsbron**: Ingen text genereras (utanför system)
-- **Inga relevanta båtar**: `"Inga båtar i närheten av Stridsbergsbron eller Klaffbron"`
+- **Inga relevanta båtar**: `"Inga båtar är i närheten av Klaffbron eller Stridsbergsbron"`
 
 #### **ELIMINATION SCENARIOS:**
 

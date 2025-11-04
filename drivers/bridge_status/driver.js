@@ -5,32 +5,6 @@ const Homey = require('homey');
 class BridgeStatusDriver extends Homey.Driver {
   async onInit() {
     this.log('BridgeStatusDriver init');
-    // Flow cards fetched lazily when needed; some platforms report them as "Invalid"
-    // during startup even though they are available once the driver is fully loaded.
-    this.boatNearDeviceTrigger = null;
-  }
-
-  getBoatNearDeviceTrigger() {
-    if (!this.boatNearDeviceTrigger) {
-      this._initDeviceTrigger();
-    }
-    return this.boatNearDeviceTrigger || null;
-  }
-
-  _initDeviceTrigger() {
-    try {
-      const trigger = this.homey.flow.getDeviceTriggerCard('boat_near_device');
-      if (trigger && typeof trigger.trigger === 'function') {
-        this.boatNearDeviceTrigger = trigger;
-        this.log('✅ [FLOW_SETUP] boat_near_device trigger registered');
-      } else {
-        this.boatNearDeviceTrigger = null;
-        this.log('⚠️ [FLOW_SETUP] boat_near_device trigger currently unavailable');
-      }
-    } catch (error) {
-      this.boatNearDeviceTrigger = null;
-      this.log(`⚠️ [FLOW_SETUP] boat_near_device trigger unavailable: ${error.message || error}`);
-    }
   }
 
   /**
