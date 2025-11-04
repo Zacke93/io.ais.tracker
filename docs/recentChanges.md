@@ -1,5 +1,38 @@
 # Recent Changes - AIS Bridge App
 
+## 2025-11-04: FLOW NOTIFICATIONS FIXED – DEVICE FALLBACK REMOVED ✅
+
+### 🎯 **VARFÖR?**
+- Homey-flows för `boat_near` triggades aldrig eftersom app-triggrens run-listener saknades och fallbacken försökte använda ett icke-existerande device-kort (`boat_near_device`), vilket bara skapade loggvarningar.
+
+### 🔧 **GENOMFÖRDA ÄNDRINGAR**
+- **App-nivå**: `_triggerBoatNearFlowBest()` kör nu enbart app-triggern och loggar tydligt om kortet saknas (`app.js`).
+- **Run listener**: `_setupFlowCards()` registrerar en `registerRunListener` som normaliserar både Flow-argument och trigger-state innan matchning (`app.js`).
+- **Kodstädning**: All fallback-logik mot `boat_near_device` togs bort från app, driver och device-kod (`app.js`, `drivers/bridge_status/driver.js`, `drivers/bridge_status/device.js`).
+- **Manifest**: Device-triggern är borttagen ur Homey-kompositionen (`drivers/bridge_status/driver.compose.json`, `app.json`).
+- **Tester**: `tests/flow-trigger-bridges.test.js` uppdaterades för att spegla app-triggers som enda väg.
+
+### ✅ **RESULTAT**
+- Notiser via `boat_near`-triggern fungerar igen utan spamming av “Invalid Flow Card ID”.
+- Dokumentationen (`CODEX.md`) beskriver nu korrekt att endast app-triggren används.
+
+## 2025-11-04: BRIDGE TEXT – SAKNAD "PRECIS PASSERAT" EFTER MÅLBRO ✅
+
+### 🎯 **PROBLEM**
+- Efter passage av en målbro (t.ex. Klaffbron) uteblev meddelandet “En båt har precis passerat …” i ~60 sekunder innan texten hoppade vidare till nästa målbro.
+- `bridge-text-summary-20251029-210750.md` visar tydligt hopp från “Broöppning pågår vid Klaffbron” direkt till “En båt på väg mot Stridsbergsbron…”.
+
+### 🔍 **ROTORSAK**
+- `_tryRecentlyPassedPhrase()` krävde att `getNextBridgeAfter()` hittade nästa målbro. Funktionen returnerade dock `null` när närmast i ordningen var en mellanbro (Järnvägsbron), vilket blockerade “precis passerat”-frasen. Kodens skydd mot inkonsistens (`this._hasRecentlyPassed(...) return null`) gjorde att inga alternativa fraser visades.
+
+### 🔧 **ÅTGÄRD**
+- `getNextBridgeAfter()` itererar nu vidare i `BRIDGE_SEQUENCE` tills nästa **målbro** hittas, istället för att ge upp vid första mellanbron (`lib/services/BridgeTextService.js`).
+- Därmed kan `_tryRecentlyPassedPhrase()` alltid generera “precis passerat”-text även när närmaste bro i ordningen är en mellanbro.
+
+### ✅ **RESULTAT**
+- Loggar visar nu “En båt har precis passerat Klaffbron på väg mot Stridsbergsbron…” direkt efter att “Broöppning pågår vid Klaffbron” avslutats.
+- Tester (`tests/bridge-text-intermediate.test.js`) fortsätter att passera och validerar target-passage-beteendet.
+
 ## 2025-08-26: TEMPORAL PARADOX & GPS COORDINATION FIXES - COMPLETE IMPLEMENTATION ✅
 
 ### 🚀 **KRITISKA SYSTEMIERADE FIXES - EXPERT-VALIDERAD LÖSNING**

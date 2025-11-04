@@ -17,7 +17,6 @@ const logger = {
 describe('Flow trigger bridge selection', () => {
   let originalGetTriggerCard;
   let originalGetConditionCard;
-  let originalGetDeviceTriggerCard;
   let originalEnv;
   let originalTestMode;
 
@@ -25,7 +24,6 @@ describe('Flow trigger bridge selection', () => {
     jest.clearAllMocks();
     originalGetTriggerCard = __mockHomey.flow.getTriggerCard;
     originalGetConditionCard = __mockHomey.flow.getConditionCard;
-    originalGetDeviceTriggerCard = __mockHomey.flow.getDeviceTriggerCard;
     originalEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = 'production';
     originalTestMode = global.__TEST_MODE__;
@@ -35,7 +33,6 @@ describe('Flow trigger bridge selection', () => {
   afterEach(() => {
     __mockHomey.flow.getTriggerCard = originalGetTriggerCard;
     __mockHomey.flow.getConditionCard = originalGetConditionCard;
-    __mockHomey.flow.getDeviceTriggerCard = originalGetDeviceTriggerCard;
     process.env.NODE_ENV = originalEnv;
     if (originalTestMode === undefined) {
       delete global.__TEST_MODE__;
@@ -44,8 +41,7 @@ describe('Flow trigger bridge selection', () => {
     }
   });
 
-  const setupApp = async (options = {}) => {
-    const { includeDevice = false } = options;
+  const setupApp = async () => {
     const triggerPrototype = originalGetTriggerCard('boat_near').constructor;
     const conditionPrototype = originalGetConditionCard('boat_at_bridge').constructor;
 
@@ -54,7 +50,6 @@ describe('Flow trigger bridge selection', () => {
 
     __mockHomey.flow.getTriggerCard = jest.fn(() => triggerCard);
     __mockHomey.flow.getConditionCard = jest.fn(() => conditionCard);
-    __mockHomey.flow.getDeviceTriggerCard = jest.fn(() => null);
 
     const app = new AISBridgeApp();
     app.homey = __mockHomey;
@@ -67,14 +62,6 @@ describe('Flow trigger bridge selection', () => {
     app.vesselDataService = { getAllVessels: jest.fn(() => []) };
     app._triggeredBoatNearKeys = new Set();
     app._devices = new Set();
-
-    if (includeDevice) {
-      const device = __mockHomey.createMockDevice();
-      device.homey = __mockHomey;
-      device.getName = () => 'Bridge Status Test';
-      device.triggerBoatNear = jest.fn().mockResolvedValue(undefined);
-      app._devices.add(device);
-    }
 
     jest.useFakeTimers();
     app._testTriggerFunctionality = jest.fn().mockResolvedValue(undefined);
@@ -139,33 +126,5 @@ describe('Flow trigger bridge selection', () => {
     expect(calls[0].tokens.bridge_name).toBe('Klaffbron');
     expect(calls[0].state.bridge).toBe('klaffbron');
     expect(calls[0].tokens.eta_minutes).toBe(4);
-  });
-
-  test('fires device-level trigger when bridge status device exists', async () => {
-    const { app, triggerCard } = await setupApp({ includeDevice: true });
-    const olide = constants.BRIDGES.olidebron;
-
-    const vessel = {
-      mmsi: 'INT_DEVICE',
-      name: 'Device Vessel',
-      lat: olide.lat - 0.001,
-      lon: olide.lon,
-      sog: 3,
-      cog: 15,
-      status: 'waiting',
-      targetBridge: 'Klaffbron',
-      currentBridge: 'Olidebron',
-      distanceToCurrent: 110,
-      etaMinutes: 8,
-    };
-
-    await app._triggerBoatNearFlow(vessel);
-
-    const appCalls = triggerCard.getTriggerCalls();
-
-    expect(appCalls).toHaveLength(1);
-    const device = Array.from(app._devices)[0];
-    expect(device.triggerBoatNear).toHaveBeenCalledTimes(1);
-    expect(device.triggerBoatNear.mock.calls[0][0].bridge_name).toBe('Olidebron');
   });
 });
