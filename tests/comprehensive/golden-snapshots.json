@@ -1,0 +1,307 @@
+{
+  "Journey 1: Single vessel North→South (complete passage)": [
+    {
+      "step": 1,
+      "description": "Start 600m north of Stallbackabron",
+      "expectedText": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 18 minuter"
+    },
+    {
+      "step": 2,
+      "description": "Approaching Stallbackabron (450m)",
+      "expectedText": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 17 minuter"
+    },
+    {
+      "step": 3,
+      "description": "Special waiting at Stallbackabron (280m)",
+      "expectedText": "En båt åker strax under Stallbackabron på väg mot Stridsbergsbron, beräknad broöppning om 16 minuter"
+    },
+    {
+      "step": 4,
+      "description": "Under Stallbackabron (30m)",
+      "expectedText": "En båt passerar Stallbackabron på väg mot Stridsbergsbron, beräknad broöppning om 15 minuter"
+    },
+    {
+      "step": 5,
+      "description": "Just passed Stallbackabron (80m south)",
+      "expectedText": "En båt har precis passerat Stallbackabron på väg mot Stridsbergsbron, beräknad broöppning om 15 minuter"
+    },
+    {
+      "step": 6,
+      "description": "Approaching Stridsbergsbron (450m)",
+      "expectedText": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 3 minuter"
+    },
+    {
+      "step": 7,
+      "description": "Waiting at Stridsbergsbron (280m)",
+      "expectedText": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 2 minuter"
+    },
+    {
+      "step": 8,
+      "description": "Under-bridge at Stridsbergsbron (30m)",
+      "expectedText": "Broöppning pågår vid Stridsbergsbron"
+    },
+    {
+      "step": 9,
+      "description": "Just passed Stridsbergsbron (80m south)",
+      "expectedText": "En båt på väg mot Klaffbron, beräknad broöppning om 9 minuter"
+    },
+    {
+      "step": 10,
+      "description": "Approaching Klaffbron (450m)",
+      "expectedText": "En båt närmar sig Järnvägsbron på väg mot Klaffbron, beräknad broöppning om 3 minuter"
+    },
+    {
+      "step": 11,
+      "description": "Waiting at Klaffbron (280m)",
+      "expectedText": "En båt på väg mot Klaffbron, beräknad broöppning om 2 minuter"
+    },
+    {
+      "step": 12,
+      "description": "Passed Klaffbron, journey complete",
+      "expectedText": "Inga båtar är i närheten av Klaffbron eller Stridsbergsbron"
+    }
+  ],
+  "Journey 2: Single vessel South→North (complete passage)": [
+    {
+      "step": 1,
+      "description": "Start 600m south of Olidebron",
+      "expectedText": "En båt på väg mot Klaffbron, beräknad broöppning om 10 minuter"
+    },
+    {
+      "step": 2,
+      "description": "Approaching Klaffbron (450m)",
+      "expectedText": "En båt på väg mot Klaffbron, beräknad broöppning om 3 minuter"
+    },
+    {
+      "step": 3,
+      "description": "Waiting at Klaffbron (280m)",
+      "expectedText": "En båt på väg mot Klaffbron, beräknad broöppning om 2 minuter"
+    },
+    {
+      "step": 4,
+      "description": "Under-bridge at Klaffbron (30m)",
+      "expectedText": "Broöppning pågår vid Klaffbron"
+    },
+    {
+      "step": 5,
+      "description": "Just passed Klaffbron (80m north)",
+      "expectedText": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 10 minuter"
+    },
+    {
+      "step": 6,
+      "description": "Approaching Stridsbergsbron (450m)",
+      "expectedText": "En båt inväntar broöppning av Järnvägsbron på väg mot Stridsbergsbron, beräknad broöppning om 4 minuter"
+    },
+    {
+      "step": 7,
+      "description": "Waiting at Stridsbergsbron (280m)",
+      "expectedText": "En båt inväntar broöppning vid Stridsbergsbron"
+    },
+    {
+      "step": 8,
+      "description": "Journey complete",
+      "expectedText": "Inga båtar är i närheten av Klaffbron eller Stridsbergsbron"
+    }
+  ],
+  "Journey 3: Fast vessel (8 knots) timing validation": [
+    {
+      "step": 1,
+      "description": "Fast vessel 800m from Klaffbron",
+      "expectedText": "En båt närmar sig Olidebron på väg mot Klaffbron, beräknad broöppning om 6 minuter"
+    },
+    {
+      "step": 2,
+      "description": "Fast approach (450m)",
+      "expectedText": "En båt på väg mot Klaffbron, beräknad broöppning om 2 minuter"
+    },
+    {
+      "step": 3,
+      "description": "Reached Klaffbron quickly",
+      "expectedText": "En båt på väg mot Klaffbron, beräknad broöppning om 1 minut"
+    }
+  ],
+  "Journey 4: Slow vessel (3 knots) timing validation": [
+    {
+      "step": 1,
+      "description": "Slow vessel 600m from Stridsbergsbron",
+      "expectedText": "En båt närmar sig Järnvägsbron på väg mot Stridsbergsbron, beräknad broöppning om 8 minuter"
+    },
+    {
+      "step": 2,
+      "description": "Slow approach (450m)",
+      "expectedText": "En båt inväntar broöppning av Järnvägsbron på väg mot Stridsbergsbron, beräknad broöppning om 7 minuter"
+    },
+    {
+      "step": 3,
+      "description": "Still approaching slowly",
+      "expectedText": "En båt inväntar broöppning av Järnvägsbron på väg mot Stridsbergsbron, beräknad broöppning om 6 minuter"
+    }
+  ],
+  "Transition: Approaching → Waiting (boundary test)": [
+    {
+      "step": 1,
+      "description": "Just inside approaching zone (499m)",
+      "expectedText": "En båt på väg mot Klaffbron, beräknad broöppning om 3 minuter"
+    },
+    {
+      "step": 2,
+      "description": "Just inside waiting zone (299m)",
+      "expectedText": "En båt på väg mot Klaffbron, beräknad broöppning om 2 minuter"
+    }
+  ],
+  "Transition: Waiting → Under-bridge (boundary test)": [
+    {
+      "step": 1,
+      "description": "Just outside under-bridge zone (51m)",
+      "expectedText": "En båt inväntar broöppning vid Stridsbergsbron"
+    },
+    {
+      "step": 2,
+      "description": "Just inside under-bridge zone (49m)",
+      "expectedText": "Broöppning pågår vid Stridsbergsbron"
+    }
+  ],
+  "Transition: Under-bridge → Passed": [
+    {
+      "step": 1,
+      "description": "Under bridge (30m north)",
+      "expectedText": "Broöppning pågår vid Klaffbron"
+    },
+    {
+      "step": 2,
+      "description": "Just passed (70m south)",
+      "expectedText": "Inga båtar är i närheten av Klaffbron eller Stridsbergsbron"
+    }
+  ],
+  "Stallbackabron: Complete special sequence": [
+    {
+      "step": 1,
+      "description": "Approaching Stallbackabron (450m)",
+      "expectedText": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 17 minuter"
+    },
+    {
+      "step": 2,
+      "description": "Special waiting \"åker strax under\" (280m)",
+      "expectedText": "En båt åker strax under Stallbackabron på väg mot Stridsbergsbron, beräknad broöppning om 16 minuter"
+    },
+    {
+      "step": 3,
+      "description": "Passing Stallbackabron (30m)",
+      "expectedText": "En båt passerar Stallbackabron på väg mot Stridsbergsbron, beräknad broöppning om 15 minuter"
+    },
+    {
+      "step": 4,
+      "description": "Just passed Stallbackabron (80m south)",
+      "expectedText": "En båt har precis passerat Stallbackabron på väg mot Stridsbergsbron, beräknad broöppning om 15 minuter"
+    }
+  ],
+  "Intermediate bridge: Olidebron messages": [
+    {
+      "step": 1,
+      "description": "Approaching Olidebron (450m)",
+      "expectedText": "En båt närmar sig Olidebron på väg mot Klaffbron, beräknad broöppning om 9 minuter"
+    },
+    {
+      "step": 2,
+      "description": "Waiting at Olidebron (280m)",
+      "expectedText": "En båt på väg mot Klaffbron, beräknad broöppning om 8 minuter"
+    },
+    {
+      "step": 3,
+      "description": "Under Olidebron (30m)",
+      "expectedText": "Broöppning pågår vid Olidebron, beräknad broöppning av Klaffbron om 9 minuter"
+    }
+  ],
+  "Intermediate bridge: Järnvägsbron messages": [
+    {
+      "step": 1,
+      "description": "Approaching Järnvägsbron (450m)",
+      "expectedText": "En båt inväntar broöppning vid Stridsbergsbron"
+    },
+    {
+      "step": 2,
+      "description": "Under Järnvägsbron (30m)",
+      "expectedText": "Broöppning pågår vid Järnvägsbron, beräknad broöppning av Klaffbron om 6 minuter"
+    }
+  ],
+  "Multi: 2 vessels waiting at Klaffbron": [
+    {
+      "step": 1,
+      "description": "2 boats both waiting at Klaffbron",
+      "expectedText": "Två båtar på väg mot Klaffbron, beräknad broöppning om 2 minuter"
+    }
+  ],
+  "Multi: 2 vessels same bridge (one waiting, one under-bridge)": [
+    {
+      "step": 1,
+      "description": "One under-bridge, one waiting",
+      "expectedText": "Broöppning pågår vid Stridsbergsbron, ytterligare 1 båt på väg"
+    }
+  ],
+  "Multi: 2 vessels different target bridges (semicolon)": [
+    {
+      "step": 1,
+      "description": "One at Klaffbron, one at Stridsbergsbron",
+      "expectedText": "En båt på väg mot Klaffbron, beräknad broöppning om 2 minuter; En båt inväntar broöppning vid Stridsbergsbron"
+    }
+  ],
+  "Multi: 3 vessels at Klaffbron (mixed statuses)": [
+    {
+      "step": 1,
+      "description": "3 boats at different distances",
+      "expectedText": "En båt på väg mot Klaffbron, ytterligare Två båtar på väg, beräknad broöppning om 2 minuter"
+    }
+  ],
+  "Multi: 5 vessels at Stridsbergsbron": [
+    {
+      "step": 1,
+      "description": "5 boats waiting at Stridsbergsbron",
+      "expectedText": "Broöppning pågår vid Järnvägsbron, beräknad broöppning av Stridsbergsbron om 2 minuter"
+    }
+  ],
+  "Edge: Distance boundary 301m vs 299m": [
+    {
+      "step": 1,
+      "description": "Just outside waiting zone (301m)",
+      "expectedText": "En båt närmar sig Klaffbron, beräknad broöppning om 2 minuter"
+    },
+    {
+      "step": 2,
+      "description": "Just inside waiting zone (299m)",
+      "expectedText": "En båt på väg mot Klaffbron, beräknad broöppning om 2 minuter"
+    }
+  ],
+  "Edge: Distance boundary 51m vs 49m": [
+    {
+      "step": 1,
+      "description": "Just outside under-bridge (51m)",
+      "expectedText": "En båt inväntar broöppning vid Stridsbergsbron"
+    },
+    {
+      "step": 2,
+      "description": "Just inside under-bridge (49m)",
+      "expectedText": "Broöppning pågår vid Stridsbergsbron"
+    }
+  ],
+  "Edge: No vessels (default message)": [
+    {
+      "step": 1,
+      "description": "No vessels in system",
+      "expectedText": "Inga båtar är i närheten av Klaffbron eller Stridsbergsbron"
+    }
+  ],
+  "Edge: Vessel with missing name": [
+    {
+      "step": 1,
+      "description": "Vessel without name (should be filtered)",
+      "expectedText": "En båt på väg mot Klaffbron, beräknad broöppning om 2 minuter"
+    }
+  ],
+  "Edge: Very slow vessel (0.5 knots)": [
+    {
+      "step": 1,
+      "description": "Almost stationary vessel",
+      "expectedText": "En båt närmar sig Klaffbron, beräknad broöppning om 26 minuter"
+    }
+  ]
+}

@@ -44,6 +44,8 @@ class RealAppTestRunner {
     this.bridgeTextHistory = [];
     this.lastBridgeText = 'Inga båtar är i närheten av Klaffbron eller Stridsbergsbron';
     this.stepNumber = 0;
+    this._waitMultiplier = 1; // Allow acceleration during automated tests
+    this.logLevel = process.env.BRIDGE_TEXT_LOG_LEVEL || 'summary';
   }
 
   /**
@@ -75,15 +77,15 @@ class RealAppTestRunner {
     // Hook into bridge text updates
     this._hookBridgeTextUpdates();
 
-    console.log('✅ Real AISBridgeApp initialized with all services');
+    this._logSummary('✅ Real AISBridgeApp initialized with all services');
   }
 
   /**
    * Run a journey scenario using real app logic
    */
   async runRealJourney(scenarioName, journeySteps) {
-    console.log(`\n🚢 REAL APP JOURNEY TEST: ${scenarioName}`);
-    console.log('='.repeat(80));
+    this._logVerbose(`\n🚢 REAL APP JOURNEY TEST: ${scenarioName}`);
+    this._logVerbose('='.repeat(80));
 
     if (!this.app) {
       await this.initializeApp();
@@ -94,8 +96,8 @@ class RealAppTestRunner {
 
     for (const step of journeySteps) {
       this.stepNumber++;
-      console.log(`\n📍 STEG ${this.stepNumber}: ${step.description}`);
-      console.log('-'.repeat(50));
+      this._logVerbose(`\n📍 STEG ${this.stepNumber}: ${step.description}`);
+      this._logVerbose('-'.repeat(50));
 
       // Process each vessel as AIS message
       if (step.vessels && step.vessels.length > 0) {
@@ -108,7 +110,7 @@ class RealAppTestRunner {
       }
 
       // Give app time to process
-      await this._wait(10);
+      await this._wait(1.5);
 
       // Log current state
       this._logCurrentAppState();
@@ -117,7 +119,7 @@ class RealAppTestRunner {
       this._checkBridgeTextChanges(step.description);
 
       if (step.delaySeconds) {
-        console.log(`⏱️  Väntar ${step.delaySeconds} sekunder...`);
+        this._logVerbose(`⏱️  Väntar ${step.delaySeconds} sekunder...`);
         await this._wait(step.delaySeconds * 1000);
       }
     }
@@ -161,12 +163,12 @@ class RealAppTestRunner {
       }
     }
 
-    console.log(`📡 Processing AIS: ${vessel.name} (${vessel.mmsi})`);
-    console.log(`   📍 Position: ${vessel.lat?.toFixed(5)}, ${vessel.lon?.toFixed(5)}`);
-    console.log(`   🚤 Speed: ${vessel.sog} knop, Course: ${vessel.cog}°`);
+    this._logVerbose(`📡 Processing AIS: ${vessel.name} (${vessel.mmsi})`);
+    this._logVerbose(`   📍 Position: ${vessel.lat?.toFixed(5)}, ${vessel.lon?.toFixed(5)}`);
+    this._logVerbose(`   🚤 Speed: ${vessel.sog} knop, Course: ${vessel.cog}°`);
     if (nearestBridge && nearestDistance !== null) {
       const nbName = typeof nearestBridge === 'string' ? nearestBridge : (nearestBridge.name || 'unknown');
-      console.log(`   🌉 Närmaste bro: ${nbName} (${Math.round(nearestDistance)}m)`);
+      this._logVerbose(`   🌉 Närmaste bro: ${nbName} (${Math.round(nearestDistance)}m)`);
     }
 
     // Process through real app logic
@@ -174,20 +176,20 @@ class RealAppTestRunner {
       this.app._processAISMessage(aisMessage);
 
       // Give the app time to process the message and update bridge text
-      await this._wait(50);
+      await this._wait(3.5999999999999996);
 
       // Force UI update to ensure bridge text is recalculated
       if (this.app._updateUI) {
         this.app._updateUI();
-        await this._wait(150); // Wait for debounced update
+        await this._wait(10.5); // Wait for debounced update
       }
 
       // Check for immediate bridge text change after processing
       const currentBridgeText = this.getCurrentBridgeText();
       if (currentBridgeText !== this.lastBridgeText) {
-        console.log('   📢 OMEDELBAR BRIDGE TEXT ÄNDRING:');
-        console.log(`   🔄 "${this.lastBridgeText}"`);
-        console.log(`   ➡️  "${currentBridgeText}"`);
+        this._logVerbose('   📢 OMEDELBAR BRIDGE TEXT ÄNDRING:');
+        this._logVerbose(`   🔄 "${this.lastBridgeText}"`);
+        this._logVerbose(`   ➡️  "${currentBridgeText}"`);
       }
 
     } catch (error) {
@@ -201,7 +203,7 @@ class RealAppTestRunner {
    * @private
    */
   async _simulateVesselCleanup() {
-    console.log('🧹 Simulating vessel cleanup (boats leaving system)');
+    this._logVerbose('🧹 Simulating vessel cleanup (boats leaving system)');
     // Force cleanup of all vessels
     const allVessels = this.app.vesselDataService.getAllVessels();
     for (const vessel of allVessels) {
@@ -231,8 +233,8 @@ class RealAppTestRunner {
         this.bridgeTextHistory.push(change);
         this.lastBridgeText = value;
 
-        console.log(`🔄 BRIDGE TEXT CHANGED: "${value}"`);
-        console.log(`   Previous: "${change.previousText}"`);
+        this._logVerbose(`🔄 BRIDGE TEXT CHANGED: "${value}"`);
+        this._logVerbose(`   Previous: "${change.previousText}"`);
       }
 
       // Call original method
@@ -264,43 +266,43 @@ class RealAppTestRunner {
    */
   _logCurrentAppState() {
     const vesselCount = this.app.vesselDataService?.getVesselCount() || 0;
-    console.log(`\n🚢 SYSTEMSTATUS: ${vesselCount} vessels active`);
+    this._logVerbose(`\n🚢 SYSTEMSTATUS: ${vesselCount} vessels active`);
 
     if (vesselCount > 0) {
       const vessels = this.app.vesselDataService.getAllVessels();
-      console.log('📊 VESSEL DETALJER:');
+      this._logVerbose('📊 VESSEL DETALJER:');
       vessels.forEach((vessel, index) => {
         const distance = vessel._distanceToNearest?.toFixed(0) || 'unknown';
         const eta = vessel.etaMinutes ? `${vessel.etaMinutes.toFixed(1)}min` : 'N/A';
         const targetBridge = vessel.targetBridge || 'ingen';
 
-        console.log(`   ${index + 1}. "${vessel.name}" (${vessel.mmsi})`);
-        console.log(`      📍 Status: ${vessel.status} → Target: ${targetBridge}`);
-        console.log(`      📏 Avstånd: ${distance}m | ⏱️ ETA: ${eta}`);
+        this._logVerbose(`   ${index + 1}. "${vessel.name}" (${vessel.mmsi})`);
+        this._logVerbose(`      📍 Status: ${vessel.status} → Target: ${targetBridge}`);
+        this._logVerbose(`      📏 Avstånd: ${distance}m | ⏱️ ETA: ${eta}`);
       });
 
       // Show current bridge text with analysis
       const currentBridgeText = this.getCurrentBridgeText();
-      console.log('\n📢 AKTUELL BRIDGE TEXT:');
-      console.log(`   "${currentBridgeText}"`);
+      this._logVerbose('\n📢 AKTUELL BRIDGE TEXT:');
+      this._logVerbose(`   "${currentBridgeText}"`);
 
       // Analyze bridge text content
       if (currentBridgeText !== 'Inga båtar är i närheten av Klaffbron eller Stridsbergsbron') {
-        console.log('📝 BRIDGE TEXT ANALYS:');
+        this._logVerbose('📝 BRIDGE TEXT ANALYS:');
 
         // Check for specific patterns
-        if (currentBridgeText.includes('En båt')) console.log('   ✓ Single vessel message');
-        if (currentBridgeText.includes('Två båtar')) console.log('   ✓ Two vessel message');
-        if (currentBridgeText.includes('Tre båtar')) console.log('   ✓ Three vessel message');
-        if (currentBridgeText.includes('ytterligare')) console.log('   ✓ Multi-vessel formatting');
-        if (currentBridgeText.includes('beräknad broöppning om')) console.log('   ✓ ETA included');
-        if (currentBridgeText.includes('Stallbackabron')) console.log('   ✓ Stallbackabron mentioned');
-        if (currentBridgeText.includes('åker strax under')) console.log('   ✓ Stallbackabron special message');
-        if (currentBridgeText.includes('inväntar broöppning')) console.log('   ✓ Waiting message');
-        if (currentBridgeText.includes('har precis passerat')) console.log('   ✓ Just passed message');
+        if (currentBridgeText.includes('En båt')) this._logVerbose('   ✓ Single vessel message');
+        if (currentBridgeText.includes('Två båtar')) this._logVerbose('   ✓ Two vessel message');
+        if (currentBridgeText.includes('Tre båtar')) this._logVerbose('   ✓ Three vessel message');
+        if (currentBridgeText.includes('ytterligare')) this._logVerbose('   ✓ Multi-vessel formatting');
+        if (currentBridgeText.includes('beräknad broöppning om')) this._logVerbose('   ✓ ETA included');
+        if (currentBridgeText.includes('Stallbackabron')) this._logVerbose('   ✓ Stallbackabron mentioned');
+        if (currentBridgeText.includes('åker strax under')) this._logVerbose('   ✓ Stallbackabron special message');
+        if (currentBridgeText.includes('inväntar broöppning')) this._logVerbose('   ✓ Waiting message');
+        if (currentBridgeText.includes('har precis passerat')) this._logVerbose('   ✓ Just passed message');
       }
     } else {
-      console.log('📢 BRIDGE TEXT: "Inga båtar i systemet"');
+      this._logVerbose('📢 BRIDGE TEXT: "Inga båtar i systemet"');
     }
   }
 
@@ -313,10 +315,10 @@ class RealAppTestRunner {
     const relevantVessels = this.app._findRelevantBoatsForBridgeText();
     const currentBridgeText = this.app.bridgeTextService.generateBridgeText(relevantVessels);
 
-    console.log(`📢 CURRENT BRIDGE TEXT: "${currentBridgeText}"`);
+    this._logVerbose(`📢 CURRENT BRIDGE TEXT: "${currentBridgeText}"`);
 
     if (currentBridgeText !== this.lastBridgeText) {
-      console.log(`🔄 DETECTED CHANGE: "${this.lastBridgeText}" → "${currentBridgeText}"`);
+      this._logVerbose(`🔄 DETECTED CHANGE: "${this.lastBridgeText}" → "${currentBridgeText}"`);
 
       this.bridgeTextHistory.push({
         step: this.stepNumber,
@@ -329,7 +331,7 @@ class RealAppTestRunner {
 
       this.lastBridgeText = currentBridgeText;
     } else {
-      console.log('✅ No bridge text change');
+      this._logVerbose('✅ No bridge text change');
     }
   }
 
@@ -338,25 +340,25 @@ class RealAppTestRunner {
    * @private
    */
   _generateJourneyReport(scenarioName) {
-    console.log(`\n${'='.repeat(80)}`);
-    console.log('📋 REAL APP JOURNEY REPORT');
-    console.log('='.repeat(80));
+    this._logVerbose(`\n${'='.repeat(80)}`);
+    this._logVerbose('📋 REAL APP JOURNEY REPORT');
+    this._logVerbose('='.repeat(80));
 
-    console.log(`🎬 Scenario: ${scenarioName}`);
-    console.log(`📊 Total steps: ${this.stepNumber}`);
-    console.log(`🔄 Bridge text changes: ${this.bridgeTextHistory.length}`);
-    console.log(`📢 Final bridge text: "${this.lastBridgeText}"`);
+    this._logVerbose(`🎬 Scenario: ${scenarioName}`);
+    this._logVerbose(`📊 Total steps: ${this.stepNumber}`);
+    this._logVerbose(`🔄 Bridge text changes: ${this.bridgeTextHistory.length}`);
+    this._logVerbose(`📢 Final bridge text: "${this.lastBridgeText}"`);
 
     if (this.bridgeTextHistory.length > 0) {
-      console.log('\n📝 All Bridge Text Changes:');
+      this._logVerbose('\n📝 All Bridge Text Changes:');
       this.bridgeTextHistory.forEach((change, index) => {
-        console.log(`\n  ${index + 1}. Step ${change.step}: ${change.description || 'N/A'}`);
-        console.log(`     From: "${change.previousText}"`);
-        console.log(`     To:   "${change.newText}"`);
-        console.log(`     Vessels: ${change.vessels.length} active`);
+        this._logVerbose(`\n  ${index + 1}. Step ${change.step}: ${change.description || 'N/A'}`);
+        this._logVerbose(`     From: "${change.previousText}"`);
+        this._logVerbose(`     To:   "${change.newText}"`);
+        this._logVerbose(`     Vessels: ${change.vessels.length} active`);
         if (change.vessels.length > 0) {
           change.vessels.forEach((vessel) => {
-            console.log(`       - ${vessel.name}: ${vessel.status} → ${vessel.targetBridge} (${vessel.distance}m, ${vessel.etaMinutes}min)`);
+            this._logVerbose(`       - ${vessel.name}: ${vessel.status} → ${vessel.targetBridge} (${vessel.distance}m, ${vessel.etaMinutes}min)`);
           });
         }
       });
@@ -422,7 +424,77 @@ class RealAppTestRunner {
    * @private
    */
   async _wait(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+    const scaled = Math.max(0, Math.round(ms * this._waitMultiplier));
+    if (scaled === 0) return Promise.resolve();
+    return new Promise((resolve) => setTimeout(resolve, scaled));
+  }
+
+  /**
+   * Logging helpers with adjustable verbosity
+   * @private
+   */
+  _shouldLog(level = 'summary') {
+    const weights = { silent: 0, summary: 1, verbose: 2 };
+    const current = weights[this.logLevel] ?? 1;
+    const requested = weights[level] ?? 1;
+    return requested <= current;
+  }
+
+  _log(level, ...args) {
+    if (this._shouldLog(level)) {
+      console.log(...args); // eslint-disable-line no-console
+    }
+  }
+
+  _logSummary(...args) {
+    this._log('summary', ...args);
+  }
+
+  _logVerbose(...args) {
+    this._log('verbose', ...args);
+  }
+
+  /**
+   * Generate bridge text for a specific vessel configuration (for golden snapshot testing)
+   * This method:
+   * 1. Clears all vessels from app state
+   * 2. Processes provided vessels as AIS messages
+   * 3. Returns the resulting bridge text
+   * @param {Array} vessels - Array of vessel objects with {mmsi, name, lat, lon, sog, cog}
+   * @returns {Promise<string>} Generated bridge text
+   */
+  async generateBridgeTextFromVessels(vessels) {
+    if (!this.app) {
+      throw new Error('App not initialized. Call initializeApp() first.');
+    }
+
+    // Clear all existing vessels to ensure clean state
+    const existingVessels = this.app.vesselDataService.getAllVessels();
+    for (const vessel of existingVessels) {
+      this.app.vesselDataService.removeVessel(vessel.mmsi, 'snapshot-cleanup');
+    }
+
+    // Process each provided vessel as AIS message
+    for (const vessel of vessels) {
+      await this._processVesselAsAISMessage(vessel);
+    }
+
+    // Wait for app to fully process and update bridge text
+    await this._wait(18);
+
+    // Get and return the resulting bridge text
+    return this.getCurrentBridgeText();
+  }
+
+  /**
+   * Scale internal wait times (0 = immediate, 0.1 = 10% of real duration)
+   * @param {number} multiplier
+   */
+  setWaitMultiplier(multiplier) {
+    if (!Number.isFinite(multiplier) || multiplier < 0) {
+      throw new Error(`Invalid wait multiplier: ${multiplier}`);
+    }
+    this._waitMultiplier = multiplier;
   }
 
   /**
