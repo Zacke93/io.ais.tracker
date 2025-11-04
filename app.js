@@ -2,129 +2,263 @@
 
 const Homey = require('homey');
 
-// Import modular services
+// =============================================================================
+// SERVICE IMPORTS
+// =============================================================================
+// Dessa services utgör appens kärna och hanterar olika aspekter av systemet:
+
+// MODELS: Hanterar bro-konfiguration och data
 const BridgeRegistry = require('./lib/models/BridgeRegistry');
+
+// DATA SERVICES: Hanterar båtdata (CRUD operations, cleanup, lifecycle)
 const VesselDataService = require('./lib/services/VesselDataService');
+
+// OUTPUT SERVICES: Genererar användargränssnitt-texter
 const BridgeTextService = require('./lib/services/BridgeTextService');
-const ProximityService = require('./lib/services/ProximityService');
-const StatusService = require('./lib/services/StatusService');
+
+// ANALYSIS SERVICES: Analyserar position, status och rörelser
+const ProximityService = require('./lib/services/ProximityService'); // Avstånd till broar
+const StatusService = require('./lib/services/StatusService'); // Båtstatus (waiting, under-bridge, etc.)
+
+// KOORDINATION: Hanterar GPS-hopp och systemkoordinering
 const SystemCoordinator = require('./lib/services/SystemCoordinator');
-const PassageLatchService = require('./lib/services/PassageLatchService');
-const GPSJumpGateService = require('./lib/services/GPSJumpGateService');
-const RouteOrderValidator = require('./lib/services/RouteOrderValidator');
+const PassageLatchService = require('./lib/services/PassageLatchService'); // Förhindrar status-hopp vid bropassage
+const GPSJumpGateService = require('./lib/services/GPSJumpGateService'); // GPS-hopp detektion
+const RouteOrderValidator = require('./lib/services/RouteOrderValidator'); // Validerar logisk broordning
+
+// CONNECTION: Hanterar WebSocket-anslutning till AISstream.io
 const AISStreamClient = require('./lib/connection/AISStreamClient');
+
+// UTILITIES: Hjälpfunktioner
 const { etaDisplay } = require('./lib/utils/etaValidation');
 const geometry = require('./lib/utils/geometry');
 
-// Import utilities and constants
+// =============================================================================
+// CONSTANTS: Centraliserade konfigurations-värden
+// =============================================================================
 const {
-  BRIDGES, COG_DIRECTIONS, UI_CONSTANTS, VALIDATION_CONSTANTS,
-  FLOW_CONSTANTS, BRIDGE_TEXT_CONSTANTS, PASSAGE_TIMING,
-  BRIDGE_NAME_TO_ID, BRIDGE_ID_TO_NAME,
+  BRIDGES, // Bro-positioner och konfiguration
+  COG_DIRECTIONS, // Course Over Ground riktningar (nord/syd)
+  UI_CONSTANTS, // UI-uppdatering timeouts
+  VALIDATION_CONSTANTS, // Validerings-trösklar
+  FLOW_CONSTANTS, // Homey Flow-kort konfiguration
+  BRIDGE_TEXT_CONSTANTS, // Bridge text meddelande-regler
+  PASSAGE_TIMING, // Timing för bropassager
+  BRIDGE_NAME_TO_ID, // Konvertering mellan bronamn och ID
+  BRIDGE_ID_TO_NAME,
 } = require('./lib/constants');
 
 /**
- * AIS Bridge App - Refactored modular architecture
- * Tracks boats near bridges using AIS data from AISstream.io
- * Focus on Klaffbron and Stridsbergsbron as target bridges
+ * =============================================================================
+ * AIS BRIDGE APP - HUVUDKLASS
+ * =============================================================================
+ *
+ * SYFTE:
+ * Spårar båtar nära broar i Trollhättekanalen med AIS-data från AISstream.io.
+ * Visar meddelanden när båtar närmar sig eller passerar Klaffbron och Stridsbergsbron.
+ *
+ * ARKITEKTUR:
+ * - Modulär service-baserad arkitektur med dependency injection
+ * - Event-driven kommunikation mellan services
+ * - Mikro-grace coalescing för UI-uppdateringar (intelligent batching)
+ * - GPS-hopp hantering och koordinering
+ *
+ * HUVUDFUNKTIONER:
+ * 1. Ta emot AIS-data från WebSocket
+ * 2. Spåra båtar och deras position/status
+ * 3. Beräkna ETA till målbroar
+ * 4. Generera användarvänliga meddelanden ("bridge text")
+ * 5. Trigga Homey Flow-kort för automationer
  */
 class AISBridgeApp extends Homey.App {
+  /**
+   * INITIALISERING AV APPEN
+   *
+   * ORDNINGSFÖLJD (viktigt för dependencies):
+   * 1. Global felhantering (crashskydd)
+   * 2. Grundläggande tillstånd
+   * 3. Settings listener
+   * 4. Initiera services (dependency injection)
+   * 5. Setup Flow cards
+   * 6. Setup event handlers
+   * 7. Starta AIS-anslutning
+   * 8. Starta monitoring
+   * 9. Initiera UI-uppdateringssystem
+   */
   async onInit() {
-    // Setup global crash protection
+    // =========================================================================
+    // STEG 1: GLOBAL FELHANTERING
+    // =========================================================================
+    // SYFTE: Förhindra att appen kraschar vid oväntade fel
+    // Loggar fel men låter processen fortsätta köra om möjligt
     process.on('uncaughtException', (err) => {
       this.error('[FATAL] Uncaught exception:', err);
-      // Log but don't exit - let process continue if possible
+      // Logga men exit inte - låt process fortsätta om möjligt
     });
 
     process.on('unhandledRejection', (reason, promise) => {
       this.error('[FATAL] Unhandled rejection at:', promise, 'reason:', reason);
-      // Log but don't exit - let process continue if possible
+      // Logga men exit inte - låt process fortsätta om möjligt
     });
 
     this.log('AIS Bridge starting with modular architecture v2.0');
 
-    // Initialize settings and state
+    // =========================================================================
+    // STEG 2: GRUNDLÄGGANDE TILLSTÅND OCH VARIABLER
+    // =========================================================================
+    // Dessa variabler håller appens state mellan AIS-uppdateringar
+
+    // --- SETTINGS OCH KONFIGURATION ---
     this.debugLevel = this.homey.settings.get('debug_level') || 'basic';
+
+    // --- ANSLUTNINGSSTATUS ---
+    // Spårar om vi är anslutna till AISstream.io WebSocket
     this._isConnected = false;
+    this._lastConnectionStatus = 'disconnected'; // Cache för att undvika redundanta UI-uppdateringar
+
+    // --- HOMEY DEVICES ---
+    // Set med alla registrerade enheter (används för capability updates)
     this._devices = new Set();
-    this._lastBridgeText = '';
-    this._lastBridgeAlarm = false;
-    this._lastConnectionStatus = 'disconnected'; // Track last connection status to avoid redundant updates
+
+    // --- UI STATE CACHING ---
+    // SYFTE: Undvika onödiga UI-uppdateringar genom att cacha senaste värden
+    this._lastBridgeText = ''; // Senaste bridge text meddelande
+    this._lastBridgeAlarm = false; // Senaste alarm status (true = båtar finns)
+
+    // --- EVENT SYSTEM ---
+    // SYFTE: Förhindra dubbel-registrering av event listeners
     this._eventsHooked = false;
 
-    // Boat near trigger deduplication - tracks which vessels have been triggered for each bridge
-    this._triggeredBoatNearKeys = new Set(); // Track vessel+bridge combinations that have been triggered
+    // --- FLOW TRIGGER DEDUPLICATION ---
+    // SYFTE: Förhindra att samma båt triggar "boat_near" flow flera gånger
+    // Format: Set med nycklar "mmsi:bridgeName" (t.ex. "265648040:Klaffbron")
+    // Dedupe-perioden är 10 minuter (rensas i monitoring loop)
+    this._triggeredBoatNearKeys = new Set();
 
-    // UI update state tracking (no more debouncing - using immediate updates with change detection)
+    // --- UI UPPDATERINGS-STATE ---
+    // SYFTE: Spåra om en UI-uppdatering redan är schemalagd (förhindrar duplikat)
     this._uiUpdateScheduled = false;
 
-    // Timer tracking for cleanup
-    this._vesselRemovalTimers = new Map(); // Track vessel removal timers
-    this._monitoringInterval = null; // Track monitoring interval
+    // --- TIMER TRACKING ---
+    // SYFTE: Hålla koll på alla timers för korrekt cleanup vid shutdown
+    this._vesselRemovalTimers = new Map(); // Map<mmsi, timerId> för vessel cleanup
+    this._monitoringInterval = null; // Monitoring loop timer
 
-    // RACE CONDITION FIX: Track vessel removal processing to prevent concurrent operations
-    this._processingRemoval = new Set(); // Track vessels being removed
+    // --- RACE CONDITION SKYDD ---
+    // SYFTE: Förhindra att flera trådar försöker ta bort samma vessel samtidigt
+    // Detta kan orsaka crashes och inkonsekvent state
+    this._processingRemoval = new Set(); // Set med MMSI som håller på att tas bort
 
-    // Setup settings change listener
+    // =========================================================================
+    // STEG 3: SETUP SETTINGS LISTENER
+    // =========================================================================
+    // Lyssnar på ändringar av debug_level setting från Homey UI
     this._setupSettingsListener();
 
-    // Initialize modular services with dependency injection
-    await this._initializeServices();
-
-    // Setup flow cards and device management
-    await this._setupFlowCards();
-    await this._initGlobalToken();
-
-    // Setup event-driven communication between services
-    this._setupEventHandlers();
-
-    // Start AIS connection
-    await this._startConnection();
-
-    // Setup monitoring
-    this._setupMonitoring();
-
-    // MIKRO-GRACE COALESCING: Initialize UI update system
-    this._initializeCoalescingSystem();
+    // =========================================================================
+    // STEG 4-9: FORTSATT INITIALISERING
+    // =========================================================================
+    // Initiera services, flow cards, event handlers, AIS-anslutning och monitoring
+    await this._initializeServices(); // Steg 4: Skapa alla service-instanser
+    await this._setupFlowCards(); // Steg 5: Registrera Homey Flow-kort
+    await this._initGlobalToken(); // Steg 5b: Skapa global bridge_text token
+    this._setupEventHandlers(); // Steg 6: Koppla event listeners mellan services
+    await this._startConnection(); // Steg 7: Anslut till AISstream.io WebSocket
+    this._setupMonitoring(); // Steg 8: Starta monitoring loops
+    this._initializeCoalescingSystem(); // Steg 9: Initiera mikro-grace UI-system
 
     this.log('AIS Bridge initialized successfully with modular architecture');
   }
 
   /**
-   * Initialize all modular services
+   * ==========================================================================
+   * SERVICE INITIALISERING
+   * ==========================================================================
+   *
+   * SYFTE:
+   * Skapa och konfigurera alla service-instanser med dependency injection.
+   *
+   * DEPENDENCY ORDNING (viktigt!):
+   * 1. SystemCoordinator (används av många andra services)
+   * 2. BridgeRegistry (bro-konfiguration)
+   * 3. VesselDataService (behöver SystemCoordinator + BridgeRegistry)
+   * 4. Analysis services (behöver VesselDataService)
+   * 5. Output services (behöver alla ovanstående)
+   * 6. Connection services (fristående)
+   *
+   * VARFÖR DEPENDENCY INJECTION?
+   * - Testbarhet: Services kan mockas i tester
+   * - Flexibilitet: Lätt att byta implementation
+   * - Tydlighet: Dependencies är explicita i konstruktorer
+   *
    * @private
    */
   async _initializeServices() {
     try {
       this.log('🔧 Initializing modular services...');
 
-      // System coordinator for GPS events and stabilization
+      // --- STEG 1: SYSTEM COORDINATOR ---
+      // SYFTE: Koordinerar GPS-hopp detektion och status-stabilisering
+      // Detta är en "hub" som andra services använder för att koordinera beteende
       this.systemCoordinator = new SystemCoordinator(this);
 
-      // Core models
+      // --- STEG 2: BRIDGE REGISTRY (DATA MODEL) ---
+      // SYFTE: Håller information om alla broar (position, namn, radie)
+      // Validerar att bro-konfigurationen är korrekt vid start
       this.bridgeRegistry = new BridgeRegistry(BRIDGES);
 
-      // Validate bridge configuration
       const validation = this.bridgeRegistry.validateConfiguration();
       if (!validation.valid) {
         this.error('Bridge configuration invalid:', validation.errors);
         throw new Error('Invalid bridge configuration');
       }
 
-      // Data services (pass systemCoordinator)
+      // --- STEG 3: VESSEL DATA SERVICE ---
+      // SYFTE: Central hantering av båtdata (CRUD operations)
+      // - Skapar/uppdaterar/tar bort vessels
+      // - Hanterar cleanup timers
+      // - Spårar vessel lifecycle (entry → passage → removal)
       this.vesselDataService = new VesselDataService(this, this.bridgeRegistry, this.systemCoordinator);
 
-      // Analysis services (pass systemCoordinator where needed)
+      // --- STEG 4: ANALYSIS SERVICES ---
+      // Dessa analyserar vessel-data och bestämmer status/position
+
+      // ProximityService: Beräknar avstånd till broar
       this.proximityService = new ProximityService(this.bridgeRegistry, this);
+
+      // PassageLatchService: Förhindrar status-hopp vid bropassage (anti-flicker)
       this.passageLatchService = new PassageLatchService(this);
+
+      // GPSJumpGateService: Detekterar GPS-hopp och gatar passage-detektering
       this.gpsJumpGateService = new GPSJumpGateService(this, this.systemCoordinator);
+
+      // RouteOrderValidator: Validerar att bropassager sker i logisk ordning
       this.routeOrderValidator = new RouteOrderValidator(this, this.bridgeRegistry);
-      this.statusService = new StatusService(this.bridgeRegistry, this, this.systemCoordinator, this.vesselDataService, this.passageLatchService);
 
-      // Output services (inject ProximityService for consistent distance calculations)
-      this.bridgeTextService = new BridgeTextService(this.bridgeRegistry, this, this.systemCoordinator, this.vesselDataService, this.passageLatchService);
+      // StatusService: Bestämmer vessel status (approaching/waiting/under-bridge/passed)
+      // Detta är kärnan i status-logiken och används av alla andra services
+      this.statusService = new StatusService(
+        this.bridgeRegistry,
+        this,
+        this.systemCoordinator,
+        this.vesselDataService,
+        this.passageLatchService,
+      );
 
-      // Connection services
+      // --- STEG 5: OUTPUT SERVICES ---
+      // BridgeTextService: Genererar användarvänliga meddelanden från vessel-data
+      // Exempel: "En båt inväntar broöppning vid Klaffbron"
+      this.bridgeTextService = new BridgeTextService(
+        this.bridgeRegistry,
+        this,
+        this.systemCoordinator,
+        this.vesselDataService,
+        this.passageLatchService,
+      );
+
+      // --- STEG 6: CONNECTION SERVICES ---
+      // AISStreamClient: Hanterar WebSocket-anslutning till AISstream.io
+      // Tar emot AIS-meddelanden och emitterar events
       this.aisClient = new AISStreamClient(this);
 
       this.log('✅ All services initialized successfully');
@@ -135,7 +269,17 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
-   * Setup settings change listener
+   * ==========================================================================
+   * SETTINGS LISTENER
+   * ==========================================================================
+   *
+   * SYFTE:
+   * Lyssnar på ändringar i Homey settings och uppdaterar app-konfiguration.
+   *
+   * SUPPORTED SETTINGS:
+   * - debug_level: Kontrollerar hur mycket logging som visas
+   *   Nivåer: 'off', 'basic', 'detailed', 'full'
+   *
    * @private
    */
   _setupSettingsListener() {
@@ -144,6 +288,7 @@ class AISBridgeApp extends Homey.App {
         const newLevel = this.homey.settings.get('debug_level');
         this.log(`🔧 Debug level change received: "${newLevel}" (type: ${typeof newLevel})`);
 
+        // Validera att nivån är tillåten
         const allowed = ['off', 'basic', 'detailed', 'full'];
         if (allowed.includes(newLevel)) {
           this.debugLevel = newLevel;
@@ -153,127 +298,251 @@ class AISBridgeApp extends Homey.App {
         }
       }
     };
+
+    // Registrera listener för settings-ändringar
     this.homey.settings.on('set', this._onSettingsChanged);
   }
 
   /**
-   * Setup event handlers for inter-service communication
+   * ==========================================================================
+   * EVENT HANDLERS SETUP - EVENT-DRIVEN ARKITEKTUR
+   * ==========================================================================
+   *
+   * SYFTE:
+   * Koppla samman alla services via event-baserad kommunikation.
+   * Detta ger löst kopplade komponenter som kan arbeta oberoende.
+   *
+   * EVENT FLÖDE:
+   *
+   * 1. AIS Client Events:
+   *    connected → _onAISConnected → Uppdatera UI status
+   *    disconnected → _onAISDisconnected → Uppdatera UI status
+   *    ais-message → _onAISMessage → Process AIS data (VIKTIGAST!)
+   *    error → _onAISError → Logga fel
+   *    reconnect-needed → _onAISReconnectNeeded → Försök återanslut
+   *
+   * 2. VesselDataService Events:
+   *    vessel:entered → _onVesselEntered → Initial setup för ny båt
+   *    vessel:updated → _onVesselUpdated → Uppdatera UI
+   *    vessel:removed → _onVesselRemoved → Cleanup och UI-update
+   *
+   * 3. StatusService Events:
+   *    status:changed → _onVesselStatusChanged → Trigga flows, uppdatera UI
+   *
+   * VARFÖR EVENT-DRIVEN?
+   * - Decoupling: Services behöver inte känna till varandra
+   * - Flexibilitet: Lätt att lägga till nya listeners
+   * - Testbarhet: Events kan mockas i tester
+   *
    * @private
    */
   _setupEventHandlers() {
+    // SKYDD MOT DUBBEL-REGISTRERING
+    // Om event handlers redan är registrerade, gör ingenting
     if (this._eventsHooked) return;
     this._eventsHooked = true;
 
     this.log('🔗 Setting up event-driven communication...');
 
-    // Vessel data service events
+    // --- VESSEL DATA SERVICE EVENTS ---
+    // Dessa events triggas när båtar läggs till, uppdateras eller tas bort
+
+    // vessel:entered: Ny båt har dykt upp i systemet
     this.vesselDataService.on('vessel:entered', this._onVesselEntered.bind(this));
+
+    // vessel:updated: Befintlig båt har fått nya AIS-data
     this.vesselDataService.on('vessel:updated', this._onVesselUpdated.bind(this));
+
+    // vessel:removed: Båt har tagits bort (timeout eller lämnat området)
     this.vesselDataService.on('vessel:removed', this._onVesselRemoved.bind(this));
 
-    // Status service events
+    // --- STATUS SERVICE EVENTS ---
+    // Triggas när en båts status ändras (approaching → waiting → under-bridge → passed)
     this.statusService.on('status:changed', this._onVesselStatusChanged.bind(this));
 
-    // AIS client events
+    // --- AIS CLIENT EVENTS ---
+    // Dessa events kommer från WebSocket-anslutningen till AISstream.io
+
+    // connected: WebSocket anslutning etablerad
     this.aisClient.on('connected', this._onAISConnected.bind(this));
+
+    // disconnected: WebSocket anslutning tappad
     this.aisClient.on('disconnected', this._onAISDisconnected.bind(this));
+
+    // ais-message: Nytt AIS-meddelande mottaget (VIKTIGAST!)
+    // Detta är hjärtat av appen - här processas all båtdata
     this.aisClient.on('ais-message', this._onAISMessage.bind(this));
+
+    // error: WebSocket fel
     this.aisClient.on('error', this._onAISError.bind(this));
+
+    // reconnect-needed: Anslutning tappades, behöver återansluta
     this.aisClient.on('reconnect-needed', this._onAISReconnectNeeded.bind(this));
 
     this.log('✅ Event handlers configured');
   }
 
   /**
-   * Handle new vessel entering the system
+   * ==========================================================================
+   * VESSEL ENTERED HANDLER
+   * ==========================================================================
+   *
+   * SYFTE:
+   * Hanterar när en ny båt dyker upp i systemet första gången.
+   *
+   * FLÖDE:
+   * 1. Initiera målbro (beräkna baserat på position och kurs)
+   * 2. Analysera initial position och status
+   * 3. Trigga boat_near Flow om båt redan har målbro
+   * 4. Uppdatera UI
+   *
+   * @param {Object} param - Event data
+   * @param {string} param.mmsi - Båtens MMSI
+   * @param {Object} param.vessel - Vessel object
    * @private
    */
   async _onVesselEntered({ mmsi, vessel }) {
     this.debug(`🆕 [VESSEL_ENTERED] New vessel: ${mmsi}`);
 
-    // Initialize target bridge if needed
+    // STEG 1: INITIERA MÅLBRO
+    // Beräknar vilken bro båten är på väg mot baserat på position och COG
     await this._initializeTargetBridge(vessel);
 
-    // Analyze initial position
+    // STEG 2: ANALYSERA INITIAL POSITION
+    // Beräknar avstånd till broar och initial status
     await this._analyzeVesselPosition(vessel);
 
-    // Trigger boat_near if vessel already has a target bridge assigned
+    // STEG 3: TRIGGA BOAT_NEAR FLOW
+    // Om båten redan har en målbro tilldelad, trigga Homey Flow
     if (vessel.targetBridge) {
       await this._triggerBoatNearFlow(vessel);
     }
 
-    // Update UI
+    // STEG 4: UPPDATERA UI
     this._updateUI('normal', `vessel-entered-${mmsi}`);
   }
 
   /**
-   * Handle vessel data updates (with crash protection)
+   * ==========================================================================
+   * VESSEL UPDATED HANDLER
+   * ==========================================================================
+   *
+   * SYFTE:
+   * Hanterar när en befintlig båt får uppdaterade AIS-data.
+   *
+   * FLÖDE:
+   * 1. Kolla om målbro har ändrats → rensa ETA history
+   * 2. Analysera ny position och status
+   * 3. Uppdatera UI om något betydelsefullt har ändrats
+   *
+   * CRASH PROTECTION:
+   * Omsluten av try/catch så att ett fel inte stoppar andra vessels
+   *
+   * @param {Object} param - Event data
+   * @param {string} param.mmsi - Båtens MMSI
+   * @param {Object} param.vessel - Uppdaterat vessel object
+   * @param {Object} param.oldVessel - Tidigare vessel object (för jämförelse)
    * @private
    */
   async _onVesselUpdated({ mmsi, vessel, oldVessel }) {
     try {
       this.debug(`📝 [VESSEL_UPDATED] Vessel: ${mmsi}`);
 
-      // ENHANCED: Check for target bridge changes and clear ETA history if needed
+      // STEG 1: HANTERA MÅLBRO-ÄNDRINGAR
+      // Om målbron har ändrats, rensa ETA-historik (gamla ETA-beräkningar är inte längre relevanta)
       if (oldVessel && vessel.targetBridge !== oldVessel.targetBridge) {
-        this.statusService.clearVesselETAHistory(mmsi, `target_bridge_change_${oldVessel.targetBridge || 'none'}_to_${vessel.targetBridge || 'none'}`);
+        this.statusService.clearVesselETAHistory(
+          mmsi,
+          `target_bridge_change_${oldVessel.targetBridge || 'none'}_to_${vessel.targetBridge || 'none'}`,
+        );
       }
 
-      // Analyze position and status changes
+      // STEG 2: ANALYSERA POSITION OCH STATUS
+      // Beräknar nya avstånd, status, ETA baserat på uppdaterad position
       await this._analyzeVesselPosition(vessel);
 
-      // Update UI if needed
+      // STEG 3: UPPDATERA UI OM NÖDVÄNDIGT
+      // Intelligent UI-uppdatering som bara sker vid betydelsefulla ändringar
       this._updateUIIfNeeded(vessel, oldVessel);
     } catch (error) {
+      // CRASH PROTECTION: Ett fel för en båt ska inte stoppa processning av andra
       this.error(`Error handling vessel update for ${mmsi}:`, error);
-      // Continue processing other vessels
+      // Fortsätt processa andra vessels
     }
   }
 
   /**
-   * Handle vessel removal
+   * ==========================================================================
+   * VESSEL REMOVED HANDLER
+   * ==========================================================================
+   *
+   * SYFTE:
+   * Hanterar när en båt tas bort från systemet (timeout eller lämnat området).
+   *
+   * FLÖDE:
+   * 1. Race condition check (förhindra dubbel-borttagning)
+   * 2. Rensa alla timers för denna vessel
+   * 3. Rensa boat_near triggers och ETA history
+   * 4. Uppdatera UI (speciell hantering när sista båt tas bort)
+   *
+   * RACE CONDITION SKYDD:
+   * Använder _processingRemoval Set för att förhindra att samma vessel
+   * processas av flera trådar samtidigt.
+   *
+   * SÄRSKILD HANTERING:
+   * När sista båten tas bort (remainingVesselCount === 0):
+   * - Tvinga bridge text till standardmeddelande
+   * - Avaktivera alarm_generic
+   * - Uppdatera global token
+   *
+   * @param {Object} param - Event data
+   * @param {string} param.mmsi - Båtens MMSI
+   * @param {Object} param.vessel - Vessel object (kan vara null)
+   * @param {string} param.reason - Anledning till borttagning (timeout/passed-final-bridge/etc)
    * @private
    */
   async _onVesselRemoved({ mmsi, vessel, reason }) {
     this.debug(`🗑️ [VESSEL_REMOVED] Vessel: ${mmsi} (${reason})`);
 
-    // RACE CONDITION FIX: Check if vessel removal is already being processed
+    // RACE CONDITION CHECK: Förhindra dubbel-processning
     if (this._processingRemoval && this._processingRemoval.has(mmsi)) {
       this.debug(`🔒 [RACE_PROTECTION] Vessel ${mmsi} removal already being processed - skipping`);
       return;
     }
 
-    // RACE CONDITION FIX: Mark vessel removal as being processed
+    // MARKERA SOM "BEING PROCESSED"
     if (!this._processingRemoval) {
       this._processingRemoval = new Set();
     }
     this._processingRemoval.add(mmsi);
 
     try {
-      // ENHANCED DEBUG: Log current state before removal
+      // DEBUG: Logga current state för troubleshooting
       const currentVesselCount = this.vesselDataService.getVesselCount();
       this.debug(`🔍 [VESSEL_REMOVAL_DEBUG] Current vessel count: ${currentVesselCount}, removing: ${mmsi}`);
       this.debug(`🔍 [VESSEL_REMOVAL_DEBUG] Current _lastBridgeText: "${this._lastBridgeText}"`);
 
-      // CRITICAL FIX: Clear any pending removal timer for this vessel
+      // STEG 1: RENSA REMOVAL TIMERS
+      // Förhindra att gamla timers försöker ta bort vessel igen
       if (this._vesselRemovalTimers.has(mmsi)) {
         clearTimeout(this._vesselRemovalTimers.get(mmsi));
         this._vesselRemovalTimers.delete(mmsi);
         this.debug(`🧹 [CLEANUP] Cleared removal timer for ${mmsi}`);
       }
 
-      // FIX: Clear boat_near dedupe keys when vessel is removed
+      // STEG 2: RENSA BOAT_NEAR TRIGGERS
+      // Ta bort dedupe-nycklar så att båten kan trigga igen om den kommer tillbaka
       this._clearBoatNearTriggers(vessel || { mmsi });
 
-      // Clean up status stabilizer history
+      // STEG 3: RENSA STATUS STABILIZER HISTORY
       this.statusService.statusStabilizer.removeVessel(mmsi);
 
-      // ENHANCED: Clear ETA history for removed vessel (ETA Monotoni-skydd integration)
+      // STEG 4: RENSA ETA HISTORY
+      // Ta bort alla sparade ETA-beräkningar för denna vessel
       this.statusService.clearVesselETAHistory(mmsi, `vessel_removed_${reason}`);
 
-      // RACE CONDITION FIX: Force UI update when vessel is removed
-      // This ensures bridge text updates to default message when all vessels are gone
-      const remainingVesselCount = currentVesselCount - 1; // Count after this removal
+      // STEG 5: UPPDATERA UI
+      const remainingVesselCount = currentVesselCount - 1; // Antal efter borttagning
       this.debug(`🔍 [VESSEL_REMOVAL_DEBUG] Vessels remaining after removal: ${remainingVesselCount}`);
 
       if (remainingVesselCount === 0) {
@@ -323,7 +592,32 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
-   * Handle vessel status changes
+   * ==========================================================================
+   * VESSEL STATUS CHANGED HANDLER
+   * ==========================================================================
+   *
+   * SYFTE:
+   * Hanterar när en båts status ändras (t.ex. approaching → waiting → under-bridge).
+   *
+   * FLÖDE:
+   * 1. Trigga boat_near Flow vid status 'waiting' (300m zon)
+   * 2. Rensa triggers när båt lämnar området
+   * 3. Hantera final bridge passage (schemalägg removal efter 60s)
+   * 4. Uppdatera UI för betydelsefulla status-ändringar
+   *
+   * STATUS-ÖVERGÅNGAR SOM HANTERAS:
+   * - approaching (500m)
+   * - waiting (300m) → TRIGGAR FLOW CARDS
+   * - under-bridge (50m)
+   * - passed → "precis passerat" (60s window)
+   * - stallbacka-waiting (Stallbackabron special)
+   * - en-route (standard)
+   *
+   * @param {Object} param - Event data
+   * @param {Object} param.vessel - Vessel object
+   * @param {string} param.oldStatus - Tidigare status
+   * @param {string} param.newStatus - Ny status
+   * @param {string} param.reason - Anledning till statusändring
    * @private
    */
   async _onVesselStatusChanged({
@@ -331,58 +625,57 @@ class AISBridgeApp extends Homey.App {
   }) {
     this.debug(`🔄 [STATUS_CHANGED] Vessel ${vessel.mmsi}: ${oldStatus} → ${newStatus} (${reason})`);
 
-    // Trigger flow cards when vessel enters 300m zone
-    // Only trigger on 'waiting' status (which is set at 300m)
+    // STEG 1: TRIGGA FLOW CARDS VID 300M ZON (WAITING STATUS)
+    // När båt kommer inom 300m (waiting status) trigga Homey automation
     if (newStatus === 'waiting' && oldStatus !== 'waiting') {
-      await this._triggerBoatNearFlow(vessel);
-      // Also trigger for "any" bridge
-      await this._triggerBoatNearFlowForAny(vessel);
+      await this._triggerBoatNearFlow(vessel); // Specific bridge trigger
+      await this._triggerBoatNearFlowForAny(vessel); // "Any bridge" trigger
     }
 
-    // Clear triggers when vessel leaves the area (no longer waiting/approaching/under-bridge)
+    // STEG 2: RENSA TRIGGERS NÄR BÅT LÄMNAR OMRÅDET
+    // När båt inte längre är nära bro, rensa dedupe-nycklar
     if (oldStatus === 'waiting' || oldStatus === 'approaching' || oldStatus === 'under-bridge') {
       if (newStatus === 'en-route' || newStatus === 'passed') {
         this._clearBoatNearTriggers(vessel);
       }
     }
 
-    // Check if vessel has passed its final target bridge
+    // STEG 3: HANTERA FINAL BRIDGE PASSAGE
+    // När båt passerat sin sista målbro, schemalägg borttagning efter 60s
     if (newStatus === 'passed' && vessel.targetBridge) {
       if (this._hasPassedFinalTargetBridge(vessel)) {
-        // FIX: Correct log message to match actual timeout (60s not 15s)
         this.debug(`🏁 [FINAL_BRIDGE_PASSED] Vessel ${vessel.mmsi} passed final target bridge ${vessel.targetBridge} - scheduling removal in 60s`);
 
-        // RACE CONDITION FIX: Track timer for cleanup with atomic operation
-        // Clear any existing timer for this vessel first
+        // RACE CONDITION FIX: Rensa gammal timer först (atomisk operation)
         if (this._vesselRemovalTimers.has(vessel.mmsi)) {
           clearTimeout(this._vesselRemovalTimers.get(vessel.mmsi));
-          this._vesselRemovalTimers.delete(vessel.mmsi); // Remove old reference immediately
+          this._vesselRemovalTimers.delete(vessel.mmsi);
         }
 
-        // Specs: 'passed' status must show for 1 minute
-        // Remove after 60 seconds to allow bridge text to show "precis passerat"
+        // VIKTIGT: "Precis passerat" meddelande måste visas i 60 sekunder
+        // Därför tas båt bort först efter denna period
         try {
           const timerId = setTimeout(() => {
-            // RACE CONDITION FIX: Check if vessel is not already being removed
+            // RACE CONDITION CHECK: Förhindra dubbel-borttagning
             if (!this._processingRemoval || !this._processingRemoval.has(vessel.mmsi)) {
               this.vesselDataService.removeVessel(vessel.mmsi, 'passed-final-bridge');
             }
-            this._vesselRemovalTimers.delete(vessel.mmsi); // Clean up timer reference
-          }, PASSAGE_TIMING.PASSED_HOLD_MS); // 60 seconds per Bridge Text Format V2.0 specification
+            this._vesselRemovalTimers.delete(vessel.mmsi);
+          }, PASSAGE_TIMING.PASSED_HOLD_MS); // 60 sekunder enligt spec
 
           this._vesselRemovalTimers.set(vessel.mmsi, timerId);
         } catch (error) {
           this.error(`[TIMER_ERROR] Failed to set removal timer for vessel ${vessel.mmsi}:`, error);
         }
 
-        // FIX: Update UI immediately to show "precis passerat" message
+        // Uppdatera UI omedelbart för att visa "precis passerat" meddelande
         this._updateUI('critical', `vessel-passed-final-${vessel.mmsi}`);
         return;
       }
     }
 
-    // Update UI for significant status changes
-    // CRITICAL FIX: Added 'stallbacka-waiting' and 'en-route' to trigger UI updates
+    // STEG 4: UPPDATERA UI FÖR BETYDELSEFULLA STATUS-ÄNDRINGAR
+    // Vissa statusar kräver omedelbar UI-uppdatering
     const significantStatuses = ['approaching', 'waiting', 'under-bridge', 'passed', 'stallbacka-waiting', 'en-route'];
 
     this.debug(`🔍 [UI_UPDATE_CHECK] ${vessel.mmsi}: newStatus="${newStatus}", oldStatus="${oldStatus}"`);
@@ -390,7 +683,7 @@ class AISBridgeApp extends Homey.App {
     this.debug(`🔍 [UI_UPDATE_CHECK] newInList=${significantStatuses.includes(newStatus)}, oldInList=${significantStatuses.includes(oldStatus)}`);
 
     if (significantStatuses.includes(newStatus) || significantStatuses.includes(oldStatus)) {
-      // Determine priority based on status criticality
+      // Bestäm prioritet baserat på hur kritisk statusen är
       const criticalStatuses = ['under-bridge', 'passed', 'waiting'];
       const priority = criticalStatuses.includes(newStatus) ? 'critical' : 'normal';
       const reason = `status-change-${oldStatus}-to-${newStatus}`;
@@ -403,29 +696,73 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
-   * Analyze vessel position and update all related services (with crash protection)
+   * ==========================================================================
+   * VESSEL POSITION ANALYSIS - KÄRN-LOGIK FÖR POSITION/STATUS
+   * ==========================================================================
+   *
+   * SYFTE:
+   * Analyserar en båts position och uppdaterar ALL relaterad data:
+   * - Avstånd till broar
+   * - Status (approaching/waiting/under-bridge/passed)
+   * - GPS-hopp hantering
+   * - Bropassage-detektering
+   *
+   * FLÖDE:
+   * 1. Beräkna proximity (avstånd till alla broar)
+   * 2. GPS-hopp hantering (om detekterat)
+   *    - Sätt GPS jump hold (2s spärrning)
+   *    - Aktivera passage gate (blockera falska passager)
+   *    - Rensa route history vid stora hopp
+   * 3. Bekräfta stable candidate passages (tvåstegs-validering)
+   * 4. Analysera och uppdatera status
+   * 5. Schedulera cleanup timeout
+   *
+   * GPS-HOPP HANTERING:
+   * När GPS-hopp detekteras aktiveras flera skyddsmekanismer:
+   * - PassageLatchService: Förhindrar status-hopp
+   * - GPSJumpGateService: Blockerar passage-detektering
+   * - RouteOrderValidator: Rensar historik vid stora hopp (>1km)
+   *
+   * @param {Object} vessel - Vessel object att analysera
    * @private
    */
   async _analyzeVesselPosition(vessel) {
     try {
-      // 1. Analyze proximity to bridges
+      // STEG 1: CREATE VESSEL SNAPSHOT
+      // CRITICAL FIX: Create shallow copy of vessel state before any modifications
+      // This snapshot is needed for passage detection and transition logic
+      const oldVessel = {
+        targetBridge: vessel.targetBridge,
+        lastPassedBridge: vessel.lastPassedBridge,
+        lastPassedBridgeTime: vessel.lastPassedBridgeTime,
+        lat: vessel.lat,
+        lon: vessel.lon,
+        sog: vessel.sog,
+        cog: vessel.cog,
+      };
+
+      // STEG 2: PROXIMITY ANALYSIS
+      // Beräkna avstånd till alla broar och hitta närmaste
       const proximityData = this.proximityService.analyzeVesselProximity(vessel);
 
-      // 2. CRITICAL FIX: Preserve targetBridge before status analysis
+      // STEG 3: BEVARA TARGETBRIDGE
+      // Kritisk fix: Spara originalvärde innan status-analys (kan ändras)
       const originalTargetBridge = vessel.targetBridge;
 
-      // 3. Analyze and update vessel status (with GPS jump analysis)
+      // STEG 3: HÄMTA GPS JUMP ANALYSIS DATA
+      // Data från VesselDataService om GPS-hopp har detekterats
       const positionAnalysis = {
         gpsJumpDetected: vessel._gpsJumpDetected || false,
         positionUncertain: vessel._positionUncertain || false,
         analysis: vessel._positionAnalysis || null,
       };
 
-      // GPS JUMP HOLD: Set hold if GPS jump detected
+      // STEG 4: GPS JUMP HANTERING
       if (positionAnalysis.gpsJumpDetected) {
-        this.vesselDataService.setGpsJumpHold(vessel.mmsi, 2000); // 2 second hold
+        // GPS JUMP HOLD: Spärrning i 2 sekunder (förhindrar passage-detektering)
+        this.vesselDataService.setGpsJumpHold(vessel.mmsi, 2000);
 
-        // PASSAGE-LATCH: Handle GPS jump for latch stability
+        // PASSAGE-LATCH: Stabilisera passage-detektion
         if (this.passageLatchService) {
           this.passageLatchService.handleGPSJump(
             vessel.mmsi.toString(),
@@ -434,7 +771,7 @@ class AISBridgeApp extends Homey.App {
           );
         }
 
-        // GPS-JUMP GATING: Activate gate to block passage detection
+        // GPS-JUMP GATE: Blockera passage-detektering under GPS-instabilitet
         if (this.gpsJumpGateService) {
           this.gpsJumpGateService.activateGate(
             vessel.mmsi.toString(),
@@ -443,7 +780,8 @@ class AISBridgeApp extends Homey.App {
           );
         }
 
-        // ROUTE ORDER VALIDATOR: Clear history for large GPS jumps
+        // ROUTE ORDER VALIDATOR: Rensa historik vid stora GPS-hopp (>1km)
+        // Stora hopp gör route order validation oanvändbar
         if (this.routeOrderValidator && positionAnalysis.movementDistance > 1000) {
           this.routeOrderValidator.clearVesselHistory(
             vessel.mmsi.toString(),
@@ -452,32 +790,37 @@ class AISBridgeApp extends Homey.App {
         }
       }
 
-      // CONFIRM STABLE CANDIDATE PASSAGES: Process two-stage confirmation
+      // STEG 5: BEKRÄFTA STABLE CANDIDATE PASSAGES
+      // Tvåstegs-validering: Kandidat-passage → Bekräftad passage
       if (this.gpsJumpGateService) {
         const confirmedPassages = this.gpsJumpGateService.confirmStableCandidates(vessel.mmsi.toString(), vessel);
 
-        // Process confirmed passages
+        // Processa bekräftade passager
         for (const confirmedPassage of confirmedPassages) {
           this.debug(`✅ [GPS_GATE_CONFIRMED] ${vessel.mmsi}: Confirmed passage of ${confirmedPassage.bridgeName}`);
 
-          // Manually trigger passage processing for confirmed passages
+          // Hantera bekräftad passage
           if (confirmedPassage.bridgeName === vessel.targetBridge) {
-            // Target bridge passage
-            this.vesselDataService._handleTargetBridgeTransition(vessel, confirmedPassage.confirmedAt);
+            // MÅLBRO PASSAGE: Trigger transition till nästa målbro
+            // CRITICAL FIX: Pass oldVessel snapshot instead of timestamp
+            this.vesselDataService._handleTargetBridgeTransition(vessel, oldVessel);
           } else {
-            // Intermediate bridge passage - update lastPassedBridge
+            // MELLANBRO PASSAGE: Uppdatera lastPassedBridge
             vessel.lastPassedBridge = confirmedPassage.bridgeName;
             vessel.lastPassedBridgeTime = confirmedPassage.confirmedAt;
           }
         }
       }
 
+      // STEG 6: STATUS ANALYSIS
+      // Analysera och bestäm status baserat på position och proximity
       const statusResult = this.statusService.analyzeVesselStatus(vessel, proximityData, positionAnalysis);
 
-      // 4. Update vessel with analysis results but preserve critical data
+      // STEG 7: UPPDATERA VESSEL MED RESULTAT
       Object.assign(vessel, statusResult);
 
-      // 5. CRITICAL FIX: Restore targetBridge if it was lost during status analysis
+      // STEG 8: ÅTERSTÄLL TARGETBRIDGE OM DEN FÖRLORATS
+      // CRITICAL FIX: Restore targetBridge if it was lost during status analysis
       if (originalTargetBridge && !vessel.targetBridge) {
         vessel.targetBridge = originalTargetBridge;
         this.debug(`🛡️ [TARGET_BRIDGE_PROTECTION] ${vessel.mmsi}: Restored targetBridge: ${originalTargetBridge}`);
@@ -584,7 +927,19 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
-   * Handle AIS message received
+   * ==========================================================================
+   * AIS MESSAGE HANDLER - HJÄRTAT AV APPEN
+   * ==========================================================================
+   *
+   * SYFTE:
+   * Tar emot AIS-meddelanden från WebSocket och startar processning.
+   * Detta är entry point för all båtdata som kommer in i systemet.
+   *
+   * FREKVENS:
+   * Kallas varje gång ett AIS-meddelande tas emot från AISstream.io
+   * (kan vara flera gånger per sekund per båt)
+   *
+   * @param {Object} aisData - Rå AIS-data från AISstream.io
    * @private
    */
   _onAISMessage(aisData) {
@@ -592,7 +947,13 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
-   * Handle AIS connection error
+   * ==========================================================================
+   * AIS FEL-HANTERING
+   * ==========================================================================
+   *
+   * SYFTE:
+   * Loggar WebSocket-fel från AIS-anslutningen
+   *
    * @private
    */
   _onAISError(error) {
@@ -600,11 +961,22 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
-   * Handle AIS reconnect needed
+   * ==========================================================================
+   * AIS ÅTERANSLUTNING
+   * ==========================================================================
+   *
+   * SYFTE:
+   * Försöker återansluta till AISstream.io om anslutningen tappas
+   *
+   * LOGIK:
+   * 1. Hämta sparad API-nyckel från Homey settings
+   * 2. Om nyckel finns, försök ansluta igen
+   * 3. Om anslutning misslyckas, logga fel
+   *
    * @private
    */
   _onAISReconnectNeeded() {
-    // Try to reconnect with stored API key
+    // Försök återansluta med sparad API-nyckel
     const apiKey = this.homey.settings.get('ais_api_key');
     if (apiKey) {
       this.aisClient.connect(apiKey).catch((err) => {
@@ -614,22 +986,60 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
-   * Process AIS message from stream (with crash protection)
+   * ==========================================================================
+   * AIS MESSAGE PROCESSNING - KÄRNLOGIK
+   * ==========================================================================
+   *
+   * SYFTE:
+   * Processar ett AIS-meddelande och uppdaterar vessel-data i systemet.
+   *
+   * FLÖDE:
+   * 1. VALIDERA AIS-data (position, hastighet, kurs)
+   * 2. NORMALISERA MMSI till string (backend använder strings)
+   * 3. UPPDATERA VESSEL i VesselDataService
+   *    - Om ny båt → skapar vessel object
+   *    - Om befintlig → uppdaterar properties
+   *    - Triggar events som andra services lyssnar på
+   *
+   * VIKTIGA DETALJER:
+   * - Hastighetsvärde null bevaras (betyder "okänd") istället för att tvingas till 0
+   * - MMSI konverteras alltid till string för konsistens
+   * - Crash protection med try/catch (en dålig AIS-meddelande ska inte krascha appen)
+   *
+   * NÄSTA STEG (sker i VesselDataService):
+   * - Beräkna avstånd till broar
+   * - Bestäm vessel status
+   * - Trigga UI-uppdatering
+   *
+   * @param {Object} message - AIS-meddelande att processa
+   * @param {string|number} message.mmsi - Båtens MMSI-nummer
+   * @param {number} message.lat - Latitud
+   * @param {number} message.lon - Longitud
+   * @param {number} [message.sog] - Speed Over Ground (hastighet i knop)
+   * @param {number} [message.cog] - Course Over Ground (kurs i grader)
+   * @param {string} [message.shipName] - Båtens namn
    * @private
    */
   _processAISMessage(message) {
     try {
-      // CRITICAL FIX: Add comprehensive input validation
+      // STEG 1: VALIDERA AIS-MEDDELANDE
+      // Kontrollera att alla required fields är korrekta
       if (!this._validateAISMessage(message)) {
-        return;
+        return; // Ogiltigt meddelande, skippa processning
       }
 
-      // Update vessel in data service (normalize MMSI to string)
+      // STEG 2: NORMALISERA MMSI TILL STRING
+      // Backend använder strings för MMSI (mer flexibelt)
       const mmsiStr = String(message.mmsi);
+
+      // STEG 3: UPPDATERA VESSEL I DATA SERVICE
+      // Detta startar hela kedjan av processning:
+      // updateVessel → analyzeProximity → analyzeStatus → updateUI
       const vessel = this.vesselDataService.updateVessel(mmsiStr, {
         lat: message.lat,
         lon: message.lon,
-        // Preserve unknown speed as null instead of forcing 0
+        // VIKTIGT: Bevara null för okänd hastighet (tvinga inte till 0)
+        // null = okänd hastighet, 0 = verklig nollhastighet (stillaliggande)
         sog: Number.isFinite(message.sog) ? message.sog : null,
         cog: message.cog ?? null,
         name: message.shipName || 'Unknown',
@@ -640,8 +1050,9 @@ class AISBridgeApp extends Homey.App {
       }
 
     } catch (error) {
+      // CRASH PROTECTION: Ett felaktigt meddelande ska inte krascha hela appen
       this.error('Error processing AIS message:', error);
-      // Continue processing other messages
+      // Fortsätt processa andra meddelanden
     }
   }
 
@@ -1044,7 +1455,7 @@ class AISBridgeApp extends Homey.App {
           this.error('[GLOBAL_TOKEN_ERROR] Failed to update global bridge text token:', error);
         }
 
-        this.debug(`📱 [UI_UPDATE] Bridge text updated: "${bridgeText}"`);
+        this.log(`📱 [UI_UPDATE] Bridge text updated: "${bridgeText}"`);
         // Reset unchanged aggregation window on change
         this._unchangedCount = 0;
         this._unchangedWindowStart = Date.now();
@@ -1780,25 +2191,50 @@ class AISBridgeApp extends Homey.App {
    * @private
    */
   async _triggerBoatNearFlowBest(tokens, state, vessel) {
+    const results = [];
+    let appTriggered = false;
+    let deviceTriggered = false;
+    let lastError = null;
+
     if (!this._useDeviceTrigger && this._boatNearTrigger) {
-      // Use app-level trigger
-      this.debug(`🔧 [TRIGGER_METHOD] ${vessel.mmsi}: Using app-level trigger`);
-      return this._boatNearTrigger.trigger(tokens, state);
+      try {
+        this.debug(`🔧 [TRIGGER_METHOD] ${vessel.mmsi}: Using app-level trigger`);
+        const result = await this._boatNearTrigger.trigger(tokens, state);
+        results.push(result);
+        appTriggered = true;
+      } catch (error) {
+        lastError = error;
+        this.error(`❌ [FLOW_TRIGGER_APP_ERROR] ${vessel.mmsi}: Failed to trigger app-level card`, error.message || error);
+      }
     }
-    // Use device-level trigger as fallback
-    this.debug(`🔧 [TRIGGER_METHOD] ${vessel.mmsi}: Using device-level trigger fallback`);
+
     const devices = Array.from(this._devices || []);
-    if (devices.length === 0) {
-      throw new Error('No devices available for device-level trigger');
+    if (devices.length > 0) {
+      for (const device of devices) {
+        if (!device || typeof device.triggerBoatNear !== 'function') {
+          continue;
+        }
+        try {
+          this.debug(`🔧 [TRIGGER_METHOD] ${vessel.mmsi}: Triggering device-level card for device ${device.getName ? device.getName() : device.id || 'unknown'}`);
+          const deviceResult = await device.triggerBoatNear(tokens, state);
+          results.push(deviceResult);
+          deviceTriggered = true;
+        } catch (error) {
+          lastError = error;
+          this.error(`❌ [FLOW_TRIGGER_DEVICE_ERROR] ${vessel.mmsi}: Failed to trigger device-level card`, error.message || error);
+        }
+      }
+      if (!deviceTriggered) {
+        this.error('⚠️ [FLOW_TRIGGER_DEVICE_MISSING] No device triggers succeeded');
+      }
     }
 
-    const device = devices[0]; // Use first available device
-    const deviceTrigger = device.homey.flow.getDeviceTriggerCard('boat_near_device');
-    if (!deviceTrigger) {
-      throw new Error('Device trigger boat_near_device not found');
+    if (!appTriggered && !deviceTriggered) {
+      if (lastError) throw lastError;
+      throw new Error('No flow trigger cards available for boat_near');
     }
 
-    return deviceTrigger.trigger(device, tokens, state);
+    return results.length > 0 ? results[results.length - 1] : null;
   }
 
   /**
@@ -1820,128 +2256,189 @@ class AISBridgeApp extends Homey.App {
         return;
       }
 
-      // CRITICAL FIX: Use currentBridge as fallback when targetBridge is missing
-      // This allows flow triggers for vessels at intermediate bridges
-      const bridgeForFlow = vessel.targetBridge || vessel.currentBridge;
-
-      // ENHANCED DEBUG: Log detailed vessel state for debugging
-      this.debug(`🔍 [FLOW_TRIGGER_DEBUG] ${vessel.mmsi}: status="${vessel.status}", targetBridge="${vessel.targetBridge}", currentBridge="${vessel.currentBridge}", bridgeForFlow="${bridgeForFlow}"`);
-
-      // CRITICAL FIX: Validate bridge name BEFORE any key generation or processing
-      if (!bridgeForFlow || typeof bridgeForFlow !== 'string' || bridgeForFlow.trim() === '') {
-        this.debug(`⚠️ [FLOW_TRIGGER_SKIP] ${vessel.mmsi}: Invalid bridge association - bridgeForFlow="${bridgeForFlow}" (type: ${typeof bridgeForFlow})`);
-        return;
-      }
-
-      // Validate bridge name exists in our mapping
-      const bridgeId = BRIDGE_NAME_TO_ID[bridgeForFlow];
-      if (!bridgeId) {
-        this.error(`[FLOW_TRIGGER] CRITICAL: Unknown bridge name "${bridgeForFlow}" - not found in BRIDGE_NAME_TO_ID mapping`);
-        return;
-      }
-
-      // CRITICAL: Check if vessel is within 300m of the relevant bridge
       const proximityData = this.proximityService.analyzeVesselProximity(vessel);
-      const bridges = proximityData.bridges || []; // Safety: ensure array exists
+      if (!proximityData || typeof proximityData !== 'object') {
+        this.error(`[FLOW_TRIGGER] CRITICAL: Invalid proximity data for vessel ${vessel.mmsi}: ${JSON.stringify(proximityData)}`);
+        return;
+      }
+
+      const bridges = Array.isArray(proximityData.bridges) ? proximityData.bridges : [];
 
       // ENHANCED DEBUG: Log proximity data for debugging
-      this.debug(`🔍 [FLOW_TRIGGER_DEBUG] ${vessel.mmsi}: proximityData.bridges count=${bridges.length}, looking for bridge="${bridgeForFlow}"`);
+      this.debug(`🔍 [FLOW_TRIGGER_DEBUG] ${vessel.mmsi}: proximityData.bridges count=${bridges.length}`);
       bridges.forEach((bridge, index) => {
-        this.debug(`🔍 [FLOW_TRIGGER_DEBUG] ${vessel.mmsi}: bridge[${index}] = {name: "${bridge.name}", distance: ${bridge.distance?.toFixed(0)}m}`);
+        this.debug(`🔍 [FLOW_TRIGGER_DEBUG] ${vessel.mmsi}: bridge[${index}] = {name: "${bridge?.name}", distance: ${bridge?.distance?.toFixed(0)}m}`);
       });
 
-      const relevantBridgeData = bridges.find((b) => b.name === bridgeForFlow);
+      const candidates = this._getFlowTriggerCandidates(vessel, proximityData);
 
-      if (!relevantBridgeData || relevantBridgeData.distance > FLOW_CONSTANTS.FLOW_TRIGGER_DISTANCE_THRESHOLD) {
-        // Vessel is not within 300m of the bridge, skip trigger
-        this.debug(`🚫 [FLOW_TRIGGER] Skipping boat_near - ${vessel.mmsi} is ${relevantBridgeData ? Math.round(relevantBridgeData.distance) : '?'}m from ${bridgeForFlow} (>300m)`);
+      if (candidates.length === 0) {
+        this.log(
+          `🚫 [FLOW_TRIGGER_SKIP] ${vessel.mmsi}: No eligible bridges within `
+          + `${FLOW_CONSTANTS.FLOW_TRIGGER_DISTANCE_THRESHOLD}m (target=${vessel.targetBridge || 'none'}, current=${vessel.currentBridge || 'none'})`,
+        );
         return;
       }
 
-      // CRITICAL FIX: Create deduplication key ONLY after all validations pass
-      // This ensures we never create keys with invalid bridge names
-      const dedupeKey = `${vessel.mmsi}:${bridgeForFlow}`;
+      this.log(
+        `🎯 [FLOW_TRIGGER_CANDIDATES] ${vessel.mmsi}: ${candidates.map((c) => `${c.name} (${Math.round(c.distance)}m, source=${c.source})`).join(', ')}`,
+      );
 
-      // ENHANCED DEDUPE DEBUG: Check if already triggered for this vessel+bridge combo
-      if (this._triggeredBoatNearKeys.has(dedupeKey)) {
-        this.debug(`🚫 [FLOW_TRIGGER_DEDUPE] ${vessel.mmsi}: Already triggered for "${bridgeForFlow}" - dedupe active (expires in ${FLOW_CONSTANTS.BOAT_NEAR_DEDUPE_MINUTES} min)`);
-        this.debug(`🔍 [FLOW_TRIGGER_DEDUPE_DETAIL] Active dedupe keys: ${this._triggeredBoatNearKeys.size}, this key: "${dedupeKey}"`);
-        return;
-      }
-
-      // Create tokens with validated bridge name
-      const tokens = {
-        vessel_name: vessel.name || 'Unknown', // FIX: Changed from boat_name to match app.json declaration
-        bridge_name: bridgeForFlow, // Already validated above
-        direction: this._getDirectionString(vessel),
-      };
-
-      // Always compute numeric ETA token for flows; use -1 when ETA is unavailable
-      tokens.eta_minutes = Number.isFinite(vessel.etaMinutes)
-        ? Math.round(vessel.etaMinutes)
-        : -1;
-
-      // ENHANCED DEBUG: Log token values before trigger
-      this.debug(`🔍 [FLOW_TRIGGER_TOKENS] ${vessel.mmsi}: Raw tokens = ${JSON.stringify(tokens)}`);
-
-      // CRITICAL FIX: Create DEEP immutable copy to prevent race conditions and object mutation
-      const safeTokens = {
-        vessel_name: String(tokens.vessel_name || 'Unknown'),
-        bridge_name: String(tokens.bridge_name), // Already validated, safe to use
-        direction: String(tokens.direction || 'unknown'),
-      };
-
-      // Always include eta_minutes (number). -1 indicates ETA unavailable for flows
-      safeTokens.eta_minutes = Number.isFinite(tokens.eta_minutes)
-        ? tokens.eta_minutes
-        : -1;
-
-      // ENHANCED DEBUG: Log final tokens and ETA status
-      this.debug(`🔍 [FLOW_TRIGGER_SAFE_TOKENS] ${vessel.mmsi}: Safe tokens = ${JSON.stringify(safeTokens)}`);
-      if (safeTokens.eta_minutes === -1) {
-        this.debug(`⚠️ [FLOW_TRIGGER_ETA] ${vessel.mmsi}: ETA unavailable - sending eta_minutes=-1 to flow`);
-      } else {
-        this.debug(`✅ [FLOW_TRIGGER_ETA] ${vessel.mmsi}: ETA available - sending eta_minutes=${safeTokens.eta_minutes} to flow`);
-      }
-
-      // ENHANCED DEBUG: About to trigger with full context
-      this.debug(`🎯 [FLOW_TRIGGER_ATTEMPT] ${vessel.mmsi}: Triggering boat_near with bridgeId="${bridgeId}", distance=${Math.round(relevantBridgeData.distance)}m`);
-
-      // Trigger validation is now handled in _triggerBoatNearFlowBest()
-
-      this.debug(`🔧 [FLOW_TRIGGER_READY] ${vessel.mmsi}: About to call trigger with tokens=${JSON.stringify(safeTokens)}, state=${JSON.stringify({ bridge: bridgeId })}`);
-
-      try {
-        // *** CRITICAL FIX: Use best available trigger method (app or device level) ***
-        await this._triggerBoatNearFlowBest(safeTokens, { bridge: bridgeId }, vessel);
-
-        // ENHANCED SUCCESS DEBUG: Detailed success logging
-        this.debug(`✅ [FLOW_TRIGGER_SUCCESS] ${vessel.mmsi}: boat_near triggered successfully!`);
-        this.debug(`🎯 [FLOW_TRIGGER_SUCCESS_DETAIL] Bridge="${bridgeForFlow}" (ID: ${bridgeId}), Distance=${Math.round(relevantBridgeData.distance)}m, Status="${vessel.status}"`);
-
-        // CRITICAL FIX: Add key to deduplication set ONLY after successful trigger
-        // This prevents orphaned keys if trigger fails
-        this._triggeredBoatNearKeys.add(dedupeKey);
-        this.debug(`🔒 [FLOW_TRIGGER_DEDUPE_SET] ${vessel.mmsi}: Added "${dedupeKey}" to dedupe set (total keys: ${this._triggeredBoatNearKeys.size})`);
-
-      } catch (triggerError) {
-        // ENHANCED ERROR DEBUG: Detailed error logging
-        this.error(`❌ [FLOW_TRIGGER_ERROR] ${vessel.mmsi}: FAILED to trigger boat_near for bridge "${bridgeId}"`);
-        this.error(`❌ [FLOW_TRIGGER_ERROR_DETAIL] Error: ${triggerError.message || triggerError}`);
-        this.error(`❌ [FLOW_TRIGGER_ERROR_TOKENS] Failed tokens: ${JSON.stringify(safeTokens)}`);
-        this.error(`❌ [FLOW_TRIGGER_ERROR_STATE] State: { bridge: "${bridgeId}" }`);
-        if (triggerError.stack) {
-          this.error(`❌ [FLOW_TRIGGER_ERROR_STACK] ${triggerError.stack}`);
-        }
-        // Don't add key to deduplication set if trigger failed
-        // Don't re-throw - let app continue
-        return;
+      for (const candidate of candidates) {
+        await this._triggerBoatNearFlowForBridge(vessel, candidate);
       }
 
     } catch (error) {
       this.error('Error triggering boat near flow:', error);
       // ENHANCED DEBUG: Log detailed error context
       this.error(`[FLOW_TRIGGER] Error context: vessel=${vessel?.mmsi}, targetBridge=${vessel?.targetBridge}, currentBridge=${vessel?.currentBridge}`);
+    }
+  }
+
+  /**
+   * Determine which bridges should trigger Flow cards for a vessel
+   * @private
+   */
+  _getFlowTriggerCandidates(vessel, proximityData) {
+    const threshold = FLOW_CONSTANTS.FLOW_TRIGGER_DISTANCE_THRESHOLD;
+    const bridges = Array.isArray(proximityData?.bridges) ? proximityData.bridges : [];
+    const nearestBridge = proximityData?.nearestBridge;
+    const candidates = [];
+    const seen = new Set();
+
+    const resolveDistance = (bridgeName) => {
+      const bridgeData = bridges.find((bridge) => bridge && bridge.name === bridgeName);
+      if (bridgeData && Number.isFinite(bridgeData.distance)) {
+        return bridgeData.distance;
+      }
+      if (nearestBridge && nearestBridge.name === bridgeName && Number.isFinite(nearestBridge.distance)) {
+        return nearestBridge.distance;
+      }
+      if (bridgeName === vessel.currentBridge && Number.isFinite(vessel.distanceToCurrent)) {
+        return vessel.distanceToCurrent;
+      }
+      return null;
+    };
+
+    const addCandidate = (bridgeName, source) => {
+      if (!bridgeName || typeof bridgeName !== 'string') return;
+      if (seen.has(bridgeName)) return;
+
+      const bridgeId = BRIDGE_NAME_TO_ID[bridgeName];
+      if (!bridgeId) {
+        this.error(`[FLOW_TRIGGER] CRITICAL: Unknown bridge name "${bridgeName}" - not found in BRIDGE_NAME_TO_ID mapping`);
+        return;
+      }
+
+      const distance = resolveDistance(bridgeName);
+      if (!Number.isFinite(distance) || distance > threshold) {
+        this.debug(
+          `🚫 [FLOW_TRIGGER_CANDIDATE_SKIP] ${vessel.mmsi}: ${bridgeName} `
+          + `distance=${distance != null ? Math.round(distance) : 'unknown'}m (source=${source})`,
+        );
+        return;
+      }
+
+      candidates.push({
+        name: bridgeName,
+        id: bridgeId,
+        distance,
+        source,
+      });
+      seen.add(bridgeName);
+    };
+
+    addCandidate(vessel.targetBridge, 'target');
+    addCandidate(vessel.currentBridge, 'current');
+
+    if (
+      candidates.length === 0
+      && nearestBridge
+      && nearestBridge.name
+      && Number.isFinite(nearestBridge.distance)
+      && nearestBridge.distance <= threshold
+    ) {
+      addCandidate(nearestBridge.name, 'nearest');
+    }
+
+    return candidates;
+  }
+
+  /**
+   * Trigger the boat_near flow for a specific bridge candidate
+   * @private
+   */
+  async _triggerBoatNearFlowForBridge(vessel, candidate) {
+    const { name: bridgeName, id: bridgeId, distance, source } = candidate;
+
+    const dedupeKey = `${vessel.mmsi}:${bridgeName}`;
+
+    // ENHANCED DEDUPE DEBUG: Check if already triggered for this vessel+bridge combo
+    if (this._triggeredBoatNearKeys.has(dedupeKey)) {
+      this.log(
+        `🚫 [FLOW_TRIGGER_DEDUPE] ${vessel.mmsi}: Already triggered for "${bridgeName}" `
+        + `(source=${source}) - dedupe active (${this._triggeredBoatNearKeys.size} keys stored)`,
+      );
+      return;
+    }
+
+    // Create tokens with validated bridge name
+    const tokens = {
+      vessel_name: vessel.name || 'Unknown',
+      bridge_name: bridgeName,
+      direction: this._getDirectionString(vessel),
+    };
+
+    tokens.eta_minutes = Number.isFinite(vessel.etaMinutes)
+      ? Math.round(vessel.etaMinutes)
+      : -1;
+
+    // CRITICAL FIX: Create DEEP immutable copy to prevent race conditions and object mutation
+    const safeTokens = {
+      vessel_name: String(tokens.vessel_name || 'Unknown'),
+      bridge_name: String(tokens.bridge_name),
+      direction: String(tokens.direction || 'unknown'),
+    };
+
+    safeTokens.eta_minutes = Number.isFinite(tokens.eta_minutes)
+      ? tokens.eta_minutes
+      : -1;
+
+    // ENHANCED DEBUG: Log final tokens and ETA status
+    this.debug(`🔍 [FLOW_TRIGGER_SAFE_TOKENS] ${vessel.mmsi}: Safe tokens = ${JSON.stringify(safeTokens)}`);
+    if (safeTokens.eta_minutes === -1) {
+      this.debug(`⚠️ [FLOW_TRIGGER_ETA] ${vessel.mmsi}: ETA unavailable - sending eta_minutes=-1 to flow`);
+    } else {
+      this.debug(`✅ [FLOW_TRIGGER_ETA] ${vessel.mmsi}: ETA available - sending eta_minutes=${safeTokens.eta_minutes} to flow`);
+    }
+
+    this.log(
+      `🚀 [FLOW_TRIGGER_ATTEMPT] ${vessel.mmsi}: bridge=${bridgeName} (${Math.round(distance)}m, source=${source}), `
+      + `direction=${safeTokens.direction}, ETA=${safeTokens.eta_minutes}`,
+    );
+
+    try {
+      await this._triggerBoatNearFlowBest(safeTokens, { bridge: bridgeId }, vessel);
+
+      // ENHANCED SUCCESS DEBUG: Detailed success logging
+      this.log(
+        `✅ [FLOW_TRIGGER_SUCCESS] ${vessel.mmsi}: boat_near fired for ${bridgeName} `
+        + `(ID=${bridgeId}, distance=${Math.round(distance)}m, status=${vessel.status})`,
+      );
+
+      this._triggeredBoatNearKeys.add(dedupeKey);
+      this.debug(`🔒 [FLOW_TRIGGER_DEDUPE_SET] ${vessel.mmsi}: Added "${dedupeKey}" to dedupe set (total keys: ${this._triggeredBoatNearKeys.size})`);
+    } catch (triggerError) {
+      this.error(
+        `❌ [FLOW_TRIGGER_ERROR] ${vessel.mmsi}: boat_near failed for ${bridgeName} `
+        + `(ID=${bridgeId}, distance=${Math.round(distance)}m, status=${vessel.status}): ${triggerError.message || triggerError}`,
+      );
+      this.error(`❌ [FLOW_TRIGGER_ERROR_TOKENS] Failed tokens: ${JSON.stringify(safeTokens)}`);
+      this.error(`❌ [FLOW_TRIGGER_ERROR_STATE] State: { bridge: "${bridgeId}" }`);
+      if (triggerError.stack) {
+        this.error(`❌ [FLOW_TRIGGER_ERROR_STACK] ${triggerError.stack}`);
+      }
+      // Don't add key to deduplication set if trigger failed
     }
   }
 
@@ -2222,20 +2719,43 @@ class AISBridgeApp extends Homey.App {
           this.debug(`🎯 [CONDITION_START] boat_at_bridge: Evaluating condition with args=${JSON.stringify(args)}`);
 
           // Input validation - ensure bridge parameter exists and is valid
-          if (!args || typeof args.bridge !== 'string' || args.bridge.trim() === '') {
-            this.debug(`❌ [CONDITION_INVALID_ARGS] boat_at_bridge: Invalid bridge parameter - args=${JSON.stringify(args)}`);
+          if (!args || args.bridge == null) {
+            this.debug(`❌ [CONDITION_INVALID_ARGS] boat_at_bridge: Missing bridge parameter - args=${JSON.stringify(args)}`);
             return false;
           }
 
-          const bridgeName = args.bridge.trim();
-          this.debug(`🔍 [CONDITION_DEBUG] boat_at_bridge: Checking for bridge="${bridgeName}"`);
+          let bridgeIdOrName;
+          if (typeof args.bridge === 'string') {
+            bridgeIdOrName = args.bridge.trim();
+          } else if (typeof args.bridge === 'object' && typeof args.bridge.id === 'string') {
+            bridgeIdOrName = args.bridge.id.trim();
+          } else {
+            this.debug(`❌ [CONDITION_INVALID_ARGS] boat_at_bridge: Unsupported bridge parameter type - args=${JSON.stringify(args)}`);
+            return false;
+          }
+
+          if (!bridgeIdOrName) {
+            this.debug(`❌ [CONDITION_INVALID_ARGS] boat_at_bridge: Empty bridge parameter - args=${JSON.stringify(args)}`);
+            return false;
+          }
+
+          this.debug(`🔍 [CONDITION_DEBUG] boat_at_bridge: Checking for bridge parameter="${bridgeIdOrName}"`);
 
           // Validate bridge parameter against known values
           const validBridgeIds = Object.keys(BRIDGE_ID_TO_NAME).concat(['any']);
-          if (!validBridgeIds.includes(bridgeName)) {
-            this.debug(`❌ [CONDITION_INVALID_BRIDGE] boat_at_bridge: Unknown bridge ID "${bridgeName}". Valid IDs: ${validBridgeIds.join(', ')}`);
+          const normalizedBridgeId = validBridgeIds.includes(bridgeIdOrName)
+            ? bridgeIdOrName
+            : BRIDGE_NAME_TO_ID[bridgeIdOrName];
+
+          if (!normalizedBridgeId || !validBridgeIds.includes(normalizedBridgeId)) {
+            this.debug(
+              `❌ [CONDITION_INVALID_BRIDGE] boat_at_bridge: Unknown bridge "${bridgeIdOrName}". `
+              + `Valid IDs: ${validBridgeIds.join(', ')}`,
+            );
             return false;
           }
+
+          const bridgeId = normalizedBridgeId;
 
           const allVessels = this.vesselDataService.getAllVessels();
           this.debug(`🔍 [CONDITION_VESSELS] boat_at_bridge: Checking ${allVessels?.length || 0} vessels`);
@@ -2269,23 +2789,23 @@ class AISBridgeApp extends Homey.App {
               return false;
             }
 
-            if (bridgeName === 'any') {
-              // Check if vessel is within 300m of ANY bridge
-              return proximityData.bridges.some((bridge) => {
-                return bridge
-                       && typeof bridge === 'object'
-                       && Number.isFinite(bridge.distance)
+          if (bridgeId === 'any') {
+            // Check if vessel is within 300m of ANY bridge
+            return proximityData.bridges.some((bridge) => {
+              return bridge
+                     && typeof bridge === 'object'
+                     && Number.isFinite(bridge.distance)
                        && bridge.distance <= FLOW_CONSTANTS.FLOW_TRIGGER_DISTANCE_THRESHOLD;
               });
-            }
+          }
 
-            // Check if vessel is within 300m of SPECIFIC bridge
-            // Use centralized bridge ID mapping from constants
-            const actualBridgeName = BRIDGE_ID_TO_NAME[bridgeName];
-            if (!actualBridgeName) {
-              this.error(`boat_at_bridge condition: No bridge name mapping found for ID "${bridgeName}"`);
-              return false;
-            }
+          // Check if vessel is within 300m of SPECIFIC bridge
+          // Use centralized bridge ID mapping from constants
+          const actualBridgeName = BRIDGE_ID_TO_NAME[bridgeId];
+          if (!actualBridgeName) {
+            this.error(`boat_at_bridge condition: No bridge name mapping found for ID "${bridgeId}"`);
+            return false;
+          }
 
             // Find specific bridge data with validation
             const bridgeData = proximityData.bridges.find((bridge) => bridge
@@ -2305,7 +2825,7 @@ class AISBridgeApp extends Homey.App {
           });
 
           // ENHANCED DEBUG: Log final condition result
-          this.debug(`🎯 [CONDITION_RESULT] boat_at_bridge: bridge="${bridgeName}" → ${result} (checked ${allVessels.length} vessels)`);
+          this.debug(`🎯 [CONDITION_RESULT] boat_at_bridge: bridge="${bridgeId}" → ${result} (checked ${allVessels.length} vessels)`);
           return result;
 
         } catch (error) {
@@ -2317,8 +2837,12 @@ class AISBridgeApp extends Homey.App {
 
       this.log('✅ Flow cards configured');
 
-      // CRITICAL TEST: Test trigger functionality immediately after setup
-      setTimeout(() => this._testTriggerFunctionality(), 5000);
+      // CRITICAL TEST: Test trigger functionality immediately after setup (skip in test mode)
+      if (process.env.NODE_ENV === 'test' || global.__TEST_MODE__) {
+        this.debug('🧪 [TRIGGER_TEST] Test mode detected - skipping automatic trigger self-test');
+      } else {
+        setTimeout(() => this._testTriggerFunctionality(), 5000);
+      }
     } catch (error) {
       this.error('Error setting up flow cards:', error);
       // Flow cards are optional - don't crash the app

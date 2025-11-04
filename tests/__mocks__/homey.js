@@ -124,7 +124,27 @@ class MockFlowCard {
     this.runListeners.push(listener);
   }
 
-  async trigger(device, tokens, state) {
+  async trigger(deviceOrTokens, tokensOrState, state) {
+    // CRITICAL FIX: Handle both app-level (2 params) and device-level (3 params) trigger calls
+    // App-level: trigger(tokens, state)
+    // Device-level: trigger(device, tokens, state)
+
+    let device = null;
+    let tokens = null;
+    let actualState = null;
+
+    // Detect call signature by checking if first param looks like a device or tokens object
+    if (arguments.length === 2) {
+      // App-level trigger: trigger(tokens, state)
+      tokens = deviceOrTokens;
+      actualState = tokensOrState;
+    } else {
+      // Device-level trigger: trigger(device, tokens, state)
+      device = deviceOrTokens;
+      tokens = tokensOrState;
+      actualState = state;
+    }
+
     // CRITICAL: Validate tokens exactly like real Homey does
     // This will catch the same errors that occurred in production logs
 
@@ -156,7 +176,7 @@ class MockFlowCard {
         timestamp: new Date().toISOString(),
         device: device ? device.constructor.name : null,
         tokens: { ...tokens },
-        state: { ...state },
+        state: { ...actualState },
         success: true,
       };
 
@@ -171,7 +191,7 @@ class MockFlowCard {
         timestamp: new Date().toISOString(),
         device: device ? device.constructor.name : null,
         tokens: { ...tokens },
-        state: { ...state },
+        state: { ...actualState },
         success: false,
         error: error.message,
       };
