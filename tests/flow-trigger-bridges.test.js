@@ -127,4 +127,39 @@ describe('Flow trigger bridge selection', () => {
     expect(calls[0].state.bridge).toBe('klaffbron');
     expect(calls[0].tokens.eta_minutes).toBe(4);
   });
+
+  test('prioritises target bridge over intermediate candidates', async () => {
+    const { app, triggerCard } = await setupApp();
+
+    const vessel = {
+      mmsi: 'V123',
+      name: 'Priority Vessel',
+      lat: 58.2925,
+      lon: 12.2935,
+      sog: 2,
+      cog: 200,
+      status: 'waiting',
+      targetBridge: 'Stridsbergsbron',
+      currentBridge: 'Järnvägsbron',
+      distanceToCurrent: 150,
+      etaMinutes: 6,
+    };
+
+    const proximityMock = {
+      bridges: [
+        { name: 'Stridsbergsbron', distance: 140 },
+        { name: 'Järnvägsbron', distance: 150 },
+      ],
+      nearestBridge: { name: 'Järnvägsbron', distance: 150 },
+    };
+
+    jest.spyOn(app.proximityService, 'analyzeVesselProximity').mockReturnValue(proximityMock);
+
+    await app._triggerBoatNearFlow(vessel);
+
+    const calls = triggerCard.getTriggerCalls();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].tokens.bridge_name).toBe('Stridsbergsbron');
+    expect(calls[0].state.bridge).toBe('stridsbergsbron');
+  });
 });

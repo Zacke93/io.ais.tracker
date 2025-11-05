@@ -2329,6 +2329,11 @@ class AISBridgeApp extends Homey.App {
       addCandidate(nearestBridge.name, 'nearest');
     }
 
+    const hasTargetCandidate = candidates.some((candidate) => candidate.source === 'target');
+    if (hasTargetCandidate) {
+      return candidates.filter((candidate) => candidate.source === 'target');
+    }
+
     return candidates;
   }
 
