@@ -11,6 +11,9 @@
 - **Kodstädning**: All fallback-logik mot `boat_near_device` togs bort från app, driver och device-kod (`app.js`, `drivers/bridge_status/driver.js`, `drivers/bridge_status/device.js`).
 - **Manifest**: Device-triggern är borttagen ur Homey-kompositionen (`drivers/bridge_status/driver.compose.json`, `app.json`).
 - **Tester**: `tests/flow-trigger-bridges.test.js` uppdaterades för att spegla app-triggers som enda väg.
+- **Notifieringsprioritet**: `_getFlowTriggerCandidates()` returnerar nu endast målbroet om både målbro och mellanbro är inom räckhåll, vilket förhindrar dubbla notiser för samma händelse (`app.js`, nya testfall i `tests/flow-trigger-bridges.test.js`).
+- **ETA-stabilitet**: `ProgressiveETACalculator` hindrar ETA från att öka under väntestatus (`waiting`/`stallbacka-waiting`) så bridge text inte “backar” till 30+ minuter när båtar hålls stilla (`lib/services/ProgressiveETACalculator.js`).
+- **Bridge text kontinuitet**: När AIS avslutar målbrotilldelning kortvarigt räknar vi fram ett fallback-målbro och behåller båten i bridge text (ingen “Inga båtar …” glitch mellan Stridsbergsbron och Klaffbron) (`lib/services/VesselDataService.js`, `lib/services/BridgeTextService.js`).
 
 ### ✅ **RESULTAT**
 - Notiser via `boat_near`-triggern fungerar igen utan spamming av “Invalid Flow Card ID”.
