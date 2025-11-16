@@ -1,5 +1,43 @@
 # Recent Changes - AIS Bridge App
 
+# Recent Changes - AIS Bridge App
+
+## 2025-11-12: Bridge text enforces under-bridge stage ✅
+
+### 🎯 **PROBLEM**
+- Loggar visade att vissa passager hoppade direkt från “inväntar” till “har precis passerat” när AIS saknade datapunkter under själva broöppningen.
+- Stallbackabron tappade helt “passerar …”-frasen i reala loggar vilket bryter manus-sekvensen användaren förväntar sig.
+
+### 🔧 **GENOMFÖRDA ÄNDRINGAR**
+- **Sekvens-minne:** `BridgeTextService` spårar nu senaste “Broöppning pågår …”-annons per bro och blockerar “precis passerat” tills en under-bro-fras publicerats för samma passage. Pending-flaggan sätts av `VesselDataService` när en passage registreras och rensas automatiskt när broöppningen annonserats.
+- **Tvingat under-läge:** Ny pending-flagga gör att `BridgeTextService` behandlar både Klaff-/Stridsbergsbron och Stallbackabron som “under bridge” även om inga datapunkter <50 m hann loggas, vilket producerar rätt text i nästa uppdatering.
+- **Stallbackabron:** `StallbackabronHelper` synkar med den nya pending-flaggans logik så “En båt passerar Stallbackabron …” alltid infaller före “precis passerat”.
+- **Tester:** Nya Jest-specar täcker sekvensblocket för målbroar och pending-läget för Stallbackabron så att regress inte kan ske.
+- **AIS replay capture:** `run-with-logs.sh` sätter nu `AIS_REPLAY_CAPTURE_FILE` så appen loggar varje AIS-meddelande som JSONL (`ais-replay-*.jsonl`). Dessa filer kan användas för framtida “log replay”-tester med exakt produktionsdata.
+
+### ✅ **RESULTAT**
+- Bridge text följer nu manusordningen “inväntar” → “Broöppning pågår/passerar” → “har precis passerat” även när AIS matar glesa uppdateringar.
+- Stallbackabron visar aldrig längre bara “åker strax under” → “har precis passerat”; “passerar …” fasen är garanterad.
+
+## 2025-11-06: BRIDGE TEXT & TERMINAL NOTIFICATIONS HARDENED ✅
+
+### 🎯 **PROBLEM**
+- Flow-kortet `boat_near` skickade två notiser (målbro + “any”) varje gång en båt gick in i 300 m-zonen.
+- Både Järnvägsbron och Stallbackabron hoppade direkt från “inväntar” till “precis passerat” när AIS inte levererade datapunkter inom 50 m → “Broöppning pågår …”/“passerar …” saknades i reala loggar.
+- Båtar som passerat sista målbron (Stridsbergsbron norrut / Klaffbron söderut) försvann efter 60 s och hann aldrig trigga Stallbackabron/Olidebron, trots att användaren valt dessa broar i flows.
+
+### 🔧 **GENOMFÖRDA ÄNDRINGAR**
+- **Notifieringar:** `_onVesselStatusChanged()` triggar nu endast `_triggerBoatNearFlow()` och gör det även för `stallbacka-waiting`. Den separata “any bridge”-triggern är borttagen, så “alla broar”-flows får exakt en notis (`app.js`).
+- **Terminal tracking:** Finala målbro-pass rensar inte längre ut båtar förrän de även rapporterat Stallbackabron (norrut) respektive Olidebron (söderut). Vi behåller riktningen via `_finalTargetBridge/_finalTargetDirection` och väntar in slutpassagen innan cleanup (`app.js`, `lib/services/VesselDataService.js`).
+- **Bridge text:** `BridgeTextService` känner nu av syntetiska under-bro-håll och blockerar “precis passerat” tills “Broöppning pågår …” har visats. Samma logik används i multi-vessel-fall och för Stallbackabron som alltid levererar “passerar …” även vid saknade datapunkter (`lib/services/BridgeTextService.js`, `lib/utils/StallbackabronHelper.js`).
+- **Riktning:** `getNextBridgeAfter()` accepterar både låst färdriktning och COG så att “har precis passerat Stridsbergsbron …” inte hoppar till Klaffbron när kursen är brusig.
+- **Tester:** Nya Jest-specar täcker syntetiska “Broöppning pågår” + “passerar Stallbackabron” samt final-mellanbrokravet och `stallbacka-waiting`-notifieringar (`tests/bridge-text-intermediate.test.js`, `tests/bridge-text-stallbacka.test.js`, `tests/status-change-flow-triggers.test.js`, `tests/final-target-tracking.test.js`).
+
+### ✅ **RESULTAT**
+- `boat_near`-flows skickar nu exakt en notis per bro oavsett om användaren valt “alla broar” eller en viss bro.
+- Loggar visar kompletta manus-sekvenser: “inväntar” → “Broöppning pågår” → “precis passerat” även när AIS missar datapunkter i ±50 m-zonen.
+- Stallbackabron/Olidebron triggas även efter sista målbro, så användare som bara bevakar ändbroarna får pålitliga notiser.
+
 ## 2025-11-04: FLOW NOTIFICATIONS FIXED – DEVICE FALLBACK REMOVED ✅
 
 ### 🎯 **VARFÖR?**

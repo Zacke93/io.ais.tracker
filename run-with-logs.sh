@@ -14,9 +14,13 @@ fi
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 LOGFILE="$LOGS_DIR/app-$TIMESTAMP.log"
 BRIDGE_TEXT_SUMMARY="$LOGS_DIR/bridge-text-summary-$TIMESTAMP.md"
+AIS_REPLAY_FILE="$LOGS_DIR/ais-replay-$TIMESTAMP.jsonl"
+
+touch "$AIS_REPLAY_FILE"
 
 echo "Startar app och sparar loggar till: $LOGFILE"
 echo "Bridge text summary kommer skapas i: $BRIDGE_TEXT_SUMMARY"
+echo "AIS replay data loggas till: $AIS_REPLAY_FILE"
 echo "Tryck Ctrl+C för att stoppa"
 
 # Funktion för att extrahera bridge text updates när appen stoppas
@@ -63,12 +67,13 @@ EOL
     echo "- **Passed Events:** $PASSED_UPDATES" >> "$BRIDGE_TEXT_SUMMARY"
     
     echo "✅ Bridge text summary skapad: $BRIDGE_TEXT_SUMMARY"
+    echo "✅ AIS replay logg skapad: $AIS_REPLAY_FILE"
 }
 
 # Sätt trap för att köra bridge text extraction när scriptet avbryts
 trap extract_bridge_text EXIT
 
 # Kör appen och spara både stdout och stderr till loggfil
-homey app run --remote 2>&1 | tee "$LOGFILE"
+AIS_REPLAY_CAPTURE_FILE="$AIS_REPLAY_FILE" homey app run --remote 2>&1 | tee "$LOGFILE"
 
 echo "Loggar sparade i: $LOGFILE"
