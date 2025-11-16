@@ -18,12 +18,12 @@
     {
       "step": 4,
       "description": "Under Stallbackabron (30m)",
-      "expectedText": "En båt passerar Stallbackabron på väg mot Stridsbergsbron, beräknad broöppning om 15 minuter"
+      "expectedText": "En båt passerar Stallbackabron på väg mot Stridsbergsbron, beräknad broöppning om 12 minuter"
     },
     {
       "step": 5,
       "description": "Just passed Stallbackabron (80m south)",
-      "expectedText": "En båt har precis passerat Stallbackabron på väg mot Stridsbergsbron, beräknad broöppning om 15 minuter"
+      "expectedText": "En båt har precis passerat Stallbackabron på väg mot Stridsbergsbron, beräknad broöppning om 12 minuter"
     },
     {
       "step": 6,
@@ -187,12 +187,12 @@
     {
       "step": 3,
       "description": "Passing Stallbackabron (30m)",
-      "expectedText": "En båt passerar Stallbackabron på väg mot Stridsbergsbron, beräknad broöppning om 15 minuter"
+      "expectedText": "En båt passerar Stallbackabron på väg mot Stridsbergsbron, beräknad broöppning om 12 minuter"
     },
     {
       "step": 4,
       "description": "Just passed Stallbackabron (80m south)",
-      "expectedText": "En båt har precis passerat Stallbackabron på väg mot Stridsbergsbron, beräknad broöppning om 15 minuter"
+      "expectedText": "En båt har precis passerat Stallbackabron på väg mot Stridsbergsbron, beräknad broöppning om 12 minuter"
     }
   ],
   "Intermediate bridge: Olidebron messages": [
