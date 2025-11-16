@@ -1,5 +1,6 @@
 'use strict';
 
+const fs = require('fs');
 const Homey = require('homey');
 
 // =============================================================================
@@ -110,6 +111,11 @@ class AISBridgeApp extends Homey.App {
 
     // --- SETTINGS OCH KONFIGURATION ---
     this.debugLevel = this.homey.settings.get('debug_level') || 'basic';
+    this._replayCaptureFile = process.env.AIS_REPLAY_CAPTURE_FILE || null;
+    this._replayCaptureErrorLogged = false;
+    if (this._replayCaptureFile) {
+      this.log(`🧪 [AIS_REPLAY] Capturing AIS data to ${this._replayCaptureFile}`);
+    }
 
     // --- ANSLUTNINGSSTATUS ---
     // Spårar om vi är anslutna till AISstream.io WebSocket
@@ -1031,19 +1037,34 @@ class AISBridgeApp extends Homey.App {
       // STEG 2: NORMALISERA MMSI TILL STRING
       // Backend använder strings för MMSI (mer flexibelt)
       const mmsiStr = String(message.mmsi);
-
-      // STEG 3: UPPDATERA VESSEL I DATA SERVICE
-      // Detta startar hela kedjan av processning:
-      // updateVessel → analyzeProximity → analyzeStatus → updateUI
-      const vessel = this.vesselDataService.updateVessel(mmsiStr, {
+      const normalizedSog = Number.isFinite(message.sog) ? message.sog : null;
+      const normalizedCog = Number.isFinite(message.cog) ? message.cog : null;
+      const vesselPatch = {
         lat: message.lat,
         lon: message.lon,
         // VIKTIGT: Bevara null för okänd hastighet (tvinga inte till 0)
         // null = okänd hastighet, 0 = verklig nollhastighet (stillaliggande)
-        sog: Number.isFinite(message.sog) ? message.sog : null,
-        cog: message.cog ?? null,
+        sog: normalizedSog,
+        cog: normalizedCog,
         name: message.shipName || 'Unknown',
+      };
+
+      this._captureAISReplaySample({
+        mmsi: mmsiStr,
+        msgType: message.msgType || null,
+        lat: vesselPatch.lat,
+        lon: vesselPatch.lon,
+        sog: vesselPatch.sog,
+        cog: vesselPatch.cog,
+        shipName: vesselPatch.name,
+        aisTimestamp: message.timestamp || null,
+        receivedAt: new Date().toISOString(),
       });
+
+      // STEG 3: UPPDATERA VESSEL I DATA SERVICE
+      // Detta startar hela kedjan av processning:
+      // updateVessel → analyzeProximity → analyzeStatus → updateUI
+      const vessel = this.vesselDataService.updateVessel(mmsiStr, vesselPatch);
 
       if (vessel) {
         this.debug(`📡 [AIS_MESSAGE] Processed message for vessel ${message.mmsi}`);
@@ -2993,6 +3014,29 @@ class AISBridgeApp extends Homey.App {
         shipName: 'Test Vessel 2',
       });
     }, 5000);
+  }
+
+  /**
+   * Capture AIS data for replay if AIS_REPLAY_CAPTURE_FILE is set.
+   * @private
+   * @param {Object} sample - Normalized AIS sample
+   */
+  _captureAISReplaySample(sample) {
+    if (!this._replayCaptureFile || !sample || !sample.mmsi) {
+      return;
+    }
+
+    const payload = {
+      ...sample,
+      receivedAt: sample.receivedAt || new Date().toISOString(),
+    };
+
+    fs.appendFile(this._replayCaptureFile, `${JSON.stringify(payload)}\n`, (err) => {
+      if (err && !this._replayCaptureErrorLogged) {
+        this._replayCaptureErrorLogged = true;
+        this.error('⚠️ [AIS_REPLAY] Failed to write replay sample:', err.message);
+      }
+    });
   }
 
   /**
