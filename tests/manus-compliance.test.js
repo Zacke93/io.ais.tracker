@@ -605,7 +605,7 @@ describe('Manus Compliance Tests (ais-replay-20260121-075318)', () => {
         { pattern: /på väg mot/, phase: 'en-route', priority: 1 },
         { pattern: /närmar sig/, phase: 'approaching', priority: 2 },
         { pattern: /inväntar broöppning/, phase: 'waiting', priority: 3 },
-        { pattern: /åker strax under/, phase: 'special-waiting', priority: 3 },
+        { pattern: /passerar strax/, phase: 'special-waiting', priority: 3 },
         { pattern: /Broöppning pågår|passerar/, phase: 'under-bridge', priority: 4 },
         { pattern: /har precis passerat/, phase: 'passed', priority: 5 },
       ];

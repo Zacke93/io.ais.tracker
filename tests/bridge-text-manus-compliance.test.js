@@ -46,6 +46,7 @@ const resetBridgeTextServiceStateForReplay = (runner) => {
   service.lastBridgeTextTime = 0;
   service.lastNonDefaultText = '';
   service.lastNonDefaultTextTime = 0;
+  service.resetPhaseTracking?.();
 };
 
 // Parse replay file

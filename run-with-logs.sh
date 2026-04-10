@@ -88,7 +88,7 @@ if [ "$RUN_REMOTE" = "true" ]; then
 fi
 
 AIS_REPLAY_CAPTURE_FILE="$AIS_REPLAY_FILE" "${HOMEY_CMD[@]}" 2>&1 | tee "$LOGFILE" | tee >(
-    grep 'AIS_REPLAY_SAMPLE' | sed 's/^.*AIS_REPLAY_SAMPLE\\] //' >> "$AIS_REPLAY_FILE"
+    grep 'AIS_REPLAY_SAMPLE' | sed 's/^.*AIS_REPLAY_SAMPLE\] //' >> "$AIS_REPLAY_FILE"
 )
 
 echo "Loggar sparade i: $LOGFILE"

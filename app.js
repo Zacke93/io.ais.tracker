@@ -1985,7 +1985,7 @@ class AISBridgeApp extends Homey.App {
     if (firstVessel._routeDirection) {
       dirSuffix = firstVessel._routeDirection.startsWith('north') ? ' (nordgående)' : ' (sydgående)';
     }
-    const etaSuffix = firstVessel.eta ? `, beräknad broöppning ${firstVessel.eta}` : '';
+    const etaSuffix = firstVessel.etaMinutes ? `, beräknad broöppning om ${Math.round(firstVessel.etaMinutes)} minuter` : '';
 
     if (vesselCount === 1) {
       if (bridge && Number.isFinite(dist)) {
