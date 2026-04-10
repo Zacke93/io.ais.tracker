@@ -30,10 +30,10 @@ describe('Flow condition argument handling', () => {
   });
 
   const setupAppWithMocks = async (vesselFactory) => {
-    const conditionPrototype = originalGetConditionCard('boat_at_bridge').constructor;
-    const triggerPrototype = originalGetTriggerCard('boat_near').constructor;
-    const conditionCard = new conditionPrototype();
-    const triggerCard = new triggerPrototype();
+    const ConditionPrototype = originalGetConditionCard('boat_at_bridge').constructor;
+    const TriggerPrototype = originalGetTriggerCard('boat_near').constructor;
+    const conditionCard = new ConditionPrototype();
+    const triggerCard = new TriggerPrototype();
 
     __mockHomey.flow.getConditionCard = jest.fn(() => conditionCard);
     __mockHomey.flow.getTriggerCard = jest.fn(() => triggerCard);

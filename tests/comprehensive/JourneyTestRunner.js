@@ -45,13 +45,13 @@ class JourneyTestRunner {
 
       if (!snapshotMatch) {
         throw new Error(
-          `\n❌ SNAPSHOT ERROR: No golden snapshot found for step ${waypoint.step}\n` +
-          `Scenario: ${scenario.name}\n` +
-          `Description: ${waypoint.description}`,
+          `\n❌ SNAPSHOT ERROR: No golden snapshot found for step ${waypoint.step}\n`
+          + `Scenario: ${scenario.name}\n`
+          + `Description: ${waypoint.description}`,
         );
       }
 
-      const expectedText = snapshotMatch.expectedText;
+      const { expectedText } = snapshotMatch;
 
       // Concise visual output with emoji and nearest bridge info
       const emoji = this._getEmoji(actualText);
@@ -95,17 +95,17 @@ class JourneyTestRunner {
     const diff = this._calculateDiff(expected, actual);
 
     throw new Error(
-      `\n${'='.repeat(80)}\n` +
-      `❌ BRIDGE TEXT MISMATCH\n` +
-      `${'='.repeat(80)}\n\n` +
-      `Scenario: ${scenario.name}\n` +
-      `Step: ${waypoint.step}\n` +
-      `Description: ${waypoint.description}\n\n` +
-      `Expected:\n  "${expected}"\n\n` +
-      `Got:\n  "${actual}"\n\n` +
-      `Diff:\n${diff}\n\n` +
-      `Vessel state:\n${JSON.stringify(waypoint.vessels, null, 2)}\n` +
-      `${'='.repeat(80)}`,
+      `\n${'='.repeat(80)}\n`
+      + '❌ BRIDGE TEXT MISMATCH\n'
+      + `${'='.repeat(80)}\n\n`
+      + `Scenario: ${scenario.name}\n`
+      + `Step: ${waypoint.step}\n`
+      + `Description: ${waypoint.description}\n\n`
+      + `Expected:\n  "${expected}"\n\n`
+      + `Got:\n  "${actual}"\n\n`
+      + `Diff:\n${diff}\n\n`
+      + `Vessel state:\n${JSON.stringify(waypoint.vessels, null, 2)}\n`
+      + `${'='.repeat(80)}`,
     );
   }
 
@@ -117,9 +117,9 @@ class JourneyTestRunner {
     const maxLen = Math.max(expected.length, actual.length);
     const lines = [];
 
-    lines.push('  Expected: ' + expected);
-    lines.push('  Actual:   ' + actual);
-    lines.push('  Diff:     ' + this._createDiffLine(expected, actual));
+    lines.push(`  Expected: ${expected}`);
+    lines.push(`  Actual:   ${actual}`);
+    lines.push(`  Diff:     ${this._createDiffLine(expected, actual)}`);
 
     return lines.join('\n');
   }

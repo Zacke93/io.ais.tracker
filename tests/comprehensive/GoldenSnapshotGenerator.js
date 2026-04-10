@@ -124,16 +124,16 @@ class GoldenSnapshotGenerator {
         // Validate structure
         if (!snapshot.step || !snapshot.description || snapshot.expectedText === undefined) {
           throw new Error(
-            `Invalid snapshot in scenario "${scenarioName}": ` +
-            `missing required fields (step, description, expectedText)`,
+            `Invalid snapshot in scenario "${scenarioName}": `
+            + 'missing required fields (step, description, expectedText)',
           );
         }
 
         // Validate bridge text is string
         if (typeof snapshot.expectedText !== 'string') {
           throw new Error(
-            `Invalid snapshot in scenario "${scenarioName}" step ${snapshot.step}: ` +
-            `expectedText must be string, got ${typeof snapshot.expectedText}`,
+            `Invalid snapshot in scenario "${scenarioName}" step ${snapshot.step}: `
+            + `expectedText must be string, got ${typeof snapshot.expectedText}`,
           );
         }
 

@@ -42,11 +42,11 @@ describe('Flow trigger bridge selection', () => {
   });
 
   const setupApp = async () => {
-    const triggerPrototype = originalGetTriggerCard('boat_near').constructor;
-    const conditionPrototype = originalGetConditionCard('boat_at_bridge').constructor;
+    const TriggerPrototype = originalGetTriggerCard('boat_near').constructor;
+    const ConditionPrototype = originalGetConditionCard('boat_at_bridge').constructor;
 
-    const triggerCard = new triggerPrototype();
-    const conditionCard = new conditionPrototype();
+    const triggerCard = new TriggerPrototype();
+    const conditionCard = new ConditionPrototype();
 
     __mockHomey.flow.getTriggerCard = jest.fn(() => triggerCard);
     __mockHomey.flow.getConditionCard = jest.fn(() => conditionCard);

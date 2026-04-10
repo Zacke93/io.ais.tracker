@@ -10,7 +10,7 @@ const logger = {
   error: jest.fn(),
 };
 
-describe('BridgeTextService – Stallbackabron synthetic coverage', () => {
+describe('BridgeTextService – Stallbackabron stateless distance-based', () => {
   let service;
 
   beforeEach(() => {
@@ -18,40 +18,52 @@ describe('BridgeTextService – Stallbackabron synthetic coverage', () => {
     service = new BridgeTextService(new BridgeRegistry(), logger, null, null, null);
   });
 
-  test('keeps "passerar Stallbackabron" when synthetic under-bridge hold is active', () => {
+  test('shows distance-based text for vessel 160m from Stallbackabron', () => {
     const vessel = {
       mmsi: '111222333',
       name: 'Northbound Test',
-      status: 'stallbacka-waiting',
       currentBridge: 'Stallbackabron',
       targetBridge: 'Stridsbergsbron',
       distanceToCurrent: 160,
       etaMinutes: 12,
-      _syntheticUnderBridgeUntil: Date.now() + 8000,
-      _syntheticUnderBridgeBridgeName: 'Stallbackabron',
+      cog: 10,
+    };
+
+    const text = service.generateBridgeText([vessel]);
+    expect(text).toMatch(/En båt 160m från Stallbackabron på väg mot Stridsbergsbron/);
+  });
+
+  test('shows "passerar" for vessel <50m from Stallbackabron', () => {
+    const vessel = {
+      mmsi: '111222333',
+      name: 'Under Stallbacka',
+      currentBridge: 'Stallbackabron',
+      targetBridge: 'Stridsbergsbron',
+      distanceToCurrent: 30,
+      etaMinutes: 10,
+      cog: 10,
     };
 
     const text = service.generateBridgeText([vessel]);
     expect(text).toContain('En båt passerar Stallbackabron');
   });
 
-  test('forces "passerar Stallbackabron" när pending-flagga finns', () => {
-    const now = Date.now();
+  test('shows "på väg mot" for vessel far from Stallbackabron', () => {
     const vessel = {
       mmsi: '999888777',
-      name: 'Pending Sample',
-      status: 'stallbacka-waiting',
+      name: 'Far Away',
       targetBridge: 'Stridsbergsbron',
       etaMinutes: 9,
       currentBridge: null,
       distanceToCurrent: null,
+      distance: 2000,
+      cog: 10,
+      sog: 4.5,
       lat: constants.BRIDGES.stallbackabron.lat + 0.01,
       lon: constants.BRIDGES.stallbackabron.lon,
-      _pendingUnderBridgeBridgeName: 'Stallbackabron',
-      _pendingUnderBridgeSetAt: now - 500,
     };
 
     const text = service.generateBridgeText([vessel]);
-    expect(text).toContain('passerar Stallbackabron');
+    expect(text).toMatch(/En båt på väg mot Stridsbergsbron/);
   });
 });

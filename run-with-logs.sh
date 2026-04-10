@@ -74,6 +74,21 @@ EOL
 trap extract_bridge_text EXIT
 
 # Kör appen och spara både stdout och stderr till loggfil
-AIS_REPLAY_CAPTURE_FILE="$AIS_REPLAY_FILE" homey app run --remote 2>&1 | tee "$LOGFILE"
+# Samtidigt extraheras AIS-replay-rader (innehåller [AIS_REPLAY_SAMPLE]) till jsonl-filen
+# OBS: Vissa Homey CLI-versioner saknar stöd för --env.* för att vidarebefordra env till hubben.
+# Därför fångar vi alltid AIS_REPLAY_SAMPLE från stdout och skriver lokalt till jsonl.
+RUN_REMOTE=${RUN_REMOTE:-true}
+if [ "$RUN_REMOTE" = "true" ] && [ -n "$AIS_BRIDGE_SELFTEST" ]; then
+  echo "⚠️ Homey CLI saknar --env-stöd: AIS_BRIDGE_SELFTEST kan inte aktiveras på remote. Sätt RUN_REMOTE=false för lokal självtest."
+fi
+
+HOMEY_CMD=(homey app run)
+if [ "$RUN_REMOTE" = "true" ]; then
+  HOMEY_CMD+=(--remote)
+fi
+
+AIS_REPLAY_CAPTURE_FILE="$AIS_REPLAY_FILE" "${HOMEY_CMD[@]}" 2>&1 | tee "$LOGFILE" | tee >(
+    grep 'AIS_REPLAY_SAMPLE' | sed 's/^.*AIS_REPLAY_SAMPLE\\] //' >> "$AIS_REPLAY_FILE"
+)
 
 echo "Loggar sparade i: $LOGFILE"
