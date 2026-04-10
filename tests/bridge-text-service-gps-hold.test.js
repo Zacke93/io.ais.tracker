@@ -2,22 +2,20 @@
 
 const BridgeTextService = require('../lib/services/BridgeTextService');
 const BridgeRegistry = require('../lib/models/BridgeRegistry');
-const { BRIDGES } = require('../lib/constants');
+const { BRIDGES, BRIDGE_TEXT_CONSTANTS } = require('../lib/constants');
 
-describe('🛡️ BridgeTextService – GPS Hold UI protection', () => {
+describe('BridgeTextService – GPS Hold UI protection', () => {
   const logger = {
     debug: jest.fn(),
     error: jest.fn(),
     log: jest.fn(),
   };
 
-  test('Returns last bridge text when all vessels are filtered by GPS jump hold', () => {
+  test('Returns default message when all vessels are filtered by GPS jump hold', () => {
     const registry = new BridgeRegistry(BRIDGES);
-    const systemCoordinator = null; // not needed for this test
     const vesselDataService = { hasGpsJumpHold: (mmsi) => mmsi === '111111111' };
 
-    const svc = new BridgeTextService(registry, logger, systemCoordinator, vesselDataService);
-    svc.lastBridgeText = 'En båt närmar sig Stridsbergsbron, beräknad broöppning 4 min';
+    const svc = new BridgeTextService(registry, logger, null, vesselDataService);
 
     const vessels = [{
       mmsi: '111111111',
@@ -27,9 +25,11 @@ describe('🛡️ BridgeTextService – GPS Hold UI protection', () => {
       lat: 58.29,
       lon: 12.29,
       etaMinutes: 4,
+      cog: 25,
     }];
 
     const text = svc.generateBridgeText(vessels);
-    expect(text).toBe(svc.lastBridgeText);
+    // With all vessels filtered by GPS hold, stateless service returns default
+    expect(text).toBe(BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE);
   });
 });

@@ -52,9 +52,9 @@ describe('🎬 COMPREHENSIVE BRIDGE TEXT TEST SUITE', () => {
 
     if (!fs.existsSync(snapshotPath)) {
       throw new Error(
-        `\n❌ Golden snapshots not found!\n\n` +
-        `Please generate golden snapshots first by running:\n` +
-        `  node tests/comprehensive/generate-snapshots.js\n`,
+        '\n❌ Golden snapshots not found!\n\n'
+        + 'Please generate golden snapshots first by running:\n'
+        + '  node tests/comprehensive/generate-snapshots.js\n',
       );
     }
 
@@ -65,8 +65,8 @@ describe('🎬 COMPREHENSIVE BRIDGE TEXT TEST SUITE', () => {
     for (const scenario of scenarios) {
       if (!goldenSnapshots[scenario.name]) {
         throw new Error(
-          `Missing golden snapshot for scenario: "${scenario.name}"\n` +
-          `Please regenerate golden snapshots.`,
+          `Missing golden snapshot for scenario: "${scenario.name}"\n`
+          + 'Please regenerate golden snapshots.',
         );
       }
     }

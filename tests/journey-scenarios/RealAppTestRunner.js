@@ -141,7 +141,7 @@ class RealAppTestRunner {
       sog: vessel.sog !== undefined ? vessel.sog : 3.5, // CRITICAL FIX: Properly handle sog=0
       cog: vessel.cog !== undefined ? vessel.cog : 180, // CRITICAL FIX: Properly handle cog=0
       shipName: vessel.name || 'Test Vessel',
-      timestamp: Date.now(),
+      timestamp: vessel.timestamp || vessel.aisTimestamp || Date.now(),
     };
 
     // Calculate distance to nearest bridge for detailed logging
@@ -173,18 +173,27 @@ class RealAppTestRunner {
 
     // Process through real app logic
     try {
+      // Suppress app's internal UI updates during processing to prevent
+      // scheduled callbacks (setImmediate / setTimeout) from calling
+      // generateBridgeText and consuming one-time injection state
+      // (e.g. Stallbackabron "åker strax under" phase injection).
+      // The runner's explicit getCurrentBridgeText() below is the single
+      // authoritative call to generateBridgeText per AIS sample.
+      const origPublishUpdate = this.app._publishUpdate;
+      this.app._publishUpdate = () => {};
+
       this.app._processAISMessage(aisMessage);
 
-      // Give the app time to process the message and update bridge text
-      await this._wait(3.5999999999999996);
+      // Give the app time to process vessel state (position, status, ETA)
+      await this._wait(14);
 
-      // Force UI update to ensure bridge text is recalculated
-      if (this.app._updateUI) {
-        this.app._updateUI();
-        await this._wait(10.5); // Wait for debounced update
-      }
+      // Restore _publishUpdate before generating bridge text
+      this.app._publishUpdate = origPublishUpdate;
 
-      // Check for immediate bridge text change after processing
+      // Invalidera cache — nästa getCurrentBridgeText() genererar nytt
+      this._bridgeTextCache = null;
+
+      // Single authoritative bridge text generation
       const currentBridgeText = this.getCurrentBridgeText();
       if (currentBridgeText !== this.lastBridgeText) {
         this._logVerbose('   📢 OMEDELBAR BRIDGE TEXT ÄNDRING:');
@@ -247,7 +256,7 @@ class RealAppTestRunner {
    * @private
    */
   _getCurrentVesselSummary() {
-    if (!this.app.vesselDataService) return [];
+    if (!this.app || !this.app.vesselDataService) return [];
 
     const vessels = this.app.vesselDataService.getAllVessels();
     return vessels.map((vessel) => ({
@@ -380,8 +389,17 @@ class RealAppTestRunner {
       return 'Inga båtar är i närheten av Klaffbron eller Stridsbergsbron';
     }
 
+    // Returnera cacheat resultat om det finns (undviker dubbel-anrop som
+    // kan konsumera engångsinjiceringar i BridgeTextService).
+    // Cachen invalideras i _processVesselAsAISMessage innan varje anrop.
+    if (this._bridgeTextCache !== null && this._bridgeTextCache !== undefined) {
+      return this._bridgeTextCache;
+    }
+
     const relevantVessels = this.app._findRelevantBoatsForBridgeText();
-    return this.app.bridgeTextService.generateBridgeText(relevantVessels);
+    const result = this.app.bridgeTextService.generateBridgeText(relevantVessels);
+    this._bridgeTextCache = result;
+    return result;
   }
 
   /**
@@ -472,6 +490,11 @@ class RealAppTestRunner {
     const existingVessels = this.app.vesselDataService.getAllVessels();
     for (const vessel of existingVessels) {
       this.app.vesselDataService.removeVessel(vessel.mmsi, 'snapshot-cleanup');
+    }
+
+    // Reset phase tracking state to prevent cross-scenario interference
+    if (this.app.bridgeTextService && typeof this.app.bridgeTextService.resetPhaseTracking === 'function') {
+      this.app.bridgeTextService.resetPhaseTracking();
     }
 
     // Process each provided vessel as AIS message

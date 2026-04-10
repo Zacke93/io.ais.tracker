@@ -519,7 +519,7 @@ class ScenarioLibrary {
 
       {
         name: 'Intermediate bridge: Olidebron messages',
-        description: 'Tests intermediate bridge message format',
+        description: 'Tests intermediate bridge message format (northbound)',
         waypoints: [
           {
             step: 1,
@@ -527,20 +527,20 @@ class ScenarioLibrary {
             vessels: [{
               mmsi: '265573130',
               name: 'INTER1',
-              ...this._calculatePosition('olidebron', 450, 'south'),
+              ...this._calculatePosition('olidebron', 450, 'south'), // From south, approaching northbound
               sog: 5.0,
-              cog: 25,
+              cog: 25, // Northbound → target Stridsbergsbron
             }],
           },
           {
             step: 2,
-            description: 'Waiting at Olidebron (280m)',
+            description: 'Waiting at Olidebron (260m)',
             vessels: [{
               mmsi: '265573130',
               name: 'INTER1',
-              ...this._calculatePosition('olidebron', 280, 'south'),
+              ...this._calculatePosition('olidebron', 260, 'south'), // Closer, within waiting zone
               sog: 5.0,
-              cog: 25,
+              cog: 25, // Northbound → target Stridsbergsbron
             }],
           },
           {
@@ -549,9 +549,9 @@ class ScenarioLibrary {
             vessels: [{
               mmsi: '265573130',
               name: 'INTER1',
-              ...this._calculatePosition('olidebron', 30, 'south'),
+              ...this._calculatePosition('olidebron', 30, 'south'), // Under bridge
               sog: 5.0,
-              cog: 25,
+              cog: 25, // Northbound → target Stridsbergsbron
             }],
           },
         ],
@@ -605,16 +605,16 @@ class ScenarioLibrary {
               {
                 mmsi: '246924000',
                 name: 'BOAT1',
-                ...this._calculatePosition('klaffbron', 280, 'south'),
+                ...this._calculatePosition('klaffbron', 250, 'north'), // Within WAITING_SET_DISTANCE (270m), north of bridge
                 sog: 5.0,
-                cog: 25,
+                cog: 200, // Southbound → target Klaffbron
               },
               {
                 mmsi: '275514000',
                 name: 'BOAT2',
-                ...this._calculatePosition('klaffbron', 290, 'south'),
+                ...this._calculatePosition('klaffbron', 260, 'north'), // Within WAITING_SET_DISTANCE (270m), north of bridge
                 sog: 5.0,
-                cog: 25,
+                cog: 200, // Southbound → target Klaffbron
               },
             ],
           },
@@ -659,16 +659,16 @@ class ScenarioLibrary {
               {
                 mmsi: '246924000',
                 name: 'BOAT1',
-                ...this._calculatePosition('klaffbron', 280, 'south'),
+                ...this._calculatePosition('klaffbron', 250, 'north'), // From north, within waiting zone
                 sog: 5.0,
-                cog: 25,
+                cog: 200, // Southbound → target Klaffbron
               },
               {
                 mmsi: '275514000',
                 name: 'BOAT2',
-                ...this._calculatePosition('stridsbergsbron', 280, 'south'),
+                ...this._calculatePosition('stridsbergsbron', 200, 'south'), // Closer to Stridsbergsbron (200m < 210m midpoint)
                 sog: 5.0,
-                cog: 25,
+                cog: 25, // Northbound → target Stridsbergsbron
               },
             ],
           },
@@ -686,7 +686,7 @@ class ScenarioLibrary {
               {
                 mmsi: '246924000',
                 name: 'BOAT1',
-                ...this._calculatePosition('klaffbron', 280, 'south'),
+                ...this._calculatePosition('klaffbron', 260, 'south'), // Within WAITING_SET_DISTANCE (270m)
                 sog: 5.0,
                 cog: 25,
               },
@@ -893,32 +893,32 @@ class ScenarioLibrary {
           // Validate required properties
           if (!vessel.mmsi || !vessel.name) {
             throw new Error(
-              `Scenario "${scenario.name}" step ${waypoint.step}: ` +
-              `Vessel missing mmsi or name`,
+              `Scenario "${scenario.name}" step ${waypoint.step}: `
+              + 'Vessel missing mmsi or name',
             );
           }
 
           // Validate coordinates
           if (vessel.lat === undefined || vessel.lon === undefined) {
             throw new Error(
-              `Scenario "${scenario.name}" step ${waypoint.step}: ` +
-              `Vessel ${vessel.mmsi} missing coordinates`,
+              `Scenario "${scenario.name}" step ${waypoint.step}: `
+              + `Vessel ${vessel.mmsi} missing coordinates`,
             );
           }
 
           // Validate speed
           if (vessel.sog !== undefined && (vessel.sog < 0 || vessel.sog > 20)) {
             throw new Error(
-              `Scenario "${scenario.name}" step ${waypoint.step}: ` +
-              `Vessel ${vessel.mmsi} has unrealistic speed: ${vessel.sog}kn`,
+              `Scenario "${scenario.name}" step ${waypoint.step}: `
+              + `Vessel ${vessel.mmsi} has unrealistic speed: ${vessel.sog}kn`,
             );
           }
 
           // Validate COG
           if (vessel.cog !== undefined && (vessel.cog < 0 || vessel.cog >= 360)) {
             throw new Error(
-              `Scenario "${scenario.name}" step ${waypoint.step}: ` +
-              `Vessel ${vessel.mmsi} has invalid COG: ${vessel.cog}°`,
+              `Scenario "${scenario.name}" step ${waypoint.step}: `
+              + `Vessel ${vessel.mmsi} has invalid COG: ${vessel.cog}°`,
             );
           }
         }

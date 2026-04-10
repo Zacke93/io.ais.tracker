@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('fs');
+const path = require('path');
 const Homey = require('homey');
 
 // =============================================================================
@@ -47,6 +48,7 @@ const {
   PASSAGE_TIMING, // Timing för bropassager
   BRIDGE_NAME_TO_ID, // Konvertering mellan bronamn och ID
   BRIDGE_ID_TO_NAME,
+  TRIGGER_POINTS, // Geografiska triggerpunkter (utanför brotext-systemet)
 } = require('./lib/constants');
 
 /**
@@ -111,10 +113,26 @@ class AISBridgeApp extends Homey.App {
 
     // --- SETTINGS OCH KONFIGURATION ---
     this.debugLevel = this.homey.settings.get('debug_level') || 'basic';
-    this._replayCaptureFile = process.env.AIS_REPLAY_CAPTURE_FILE || null;
+    const replayCapturePath = process.env.AIS_REPLAY_CAPTURE_FILE
+      || process.env.AIS_REPLAY_FILE
+      || (this.homey?.env ? (this.homey.env.AIS_REPLAY_CAPTURE_FILE || this.homey.env.AIS_REPLAY_FILE) : null);
+    this._replayCaptureFile = replayCapturePath || null;
     this._replayCaptureErrorLogged = false;
     if (this._replayCaptureFile) {
-      this.log(`🧪 [AIS_REPLAY] Capturing AIS data to ${this._replayCaptureFile}`);
+      try {
+        const replayDir = path.dirname(this._replayCaptureFile);
+        if (replayDir && replayDir !== '.' && !fs.existsSync(replayDir)) {
+          fs.mkdirSync(replayDir, { recursive: true });
+        }
+        this.log(`🧪 [AIS_REPLAY] Capturing AIS data to ${this._replayCaptureFile}`);
+        this.log('🧪 [AIS_REPLAY] AIS Replay initierat (fil + stdout)');
+      } catch (replayPathError) {
+        this.error(`⚠️ [AIS_REPLAY] Unable to prepare replay file path "${this._replayCaptureFile}":`, replayPathError.message);
+        this._replayCaptureFile = null;
+      }
+    } else {
+      this.log('ℹ️ [AIS_REPLAY] No AIS_REPLAY_CAPTURE_FILE detected; replay samples will be emitted to stdout only');
+      this.log('ℹ️ [AIS_REPLAY] AIS Replay initierat (endast stdout, jsonl skapas via run-with-logs.sh)');
     }
 
     // --- ANSLUTNINGSSTATUS ---
@@ -461,11 +479,32 @@ class AISBridgeApp extends Homey.App {
           mmsi,
           `target_bridge_change_${oldVessel.targetBridge || 'none'}_to_${vessel.targetBridge || 'none'}`,
         );
+
+        // BUG 12 FIX B: Avbryt removal-timer vid targetBridge-transition.
+        // Om fartyget fått ny targetBridge har det inte avslutat resan.
+        if (vessel.targetBridge && this._vesselRemovalTimers.has(mmsi)) {
+          clearTimeout(this._vesselRemovalTimers.get(mmsi));
+          this._vesselRemovalTimers.delete(mmsi);
+          vessel._finalTargetBridge = null;
+          this.debug(`🛡️ [REMOVAL_CANCELLED] ${mmsi}: Target changed to ${vessel.targetBridge}, cancelled removal timer`);
+        }
       }
 
       // STEG 2: ANALYSERA POSITION OCH STATUS
       // Beräknar nya avstånd, status, ETA baserat på uppdaterad position
       await this._analyzeVesselPosition(vessel);
+
+      // STEG 2b: TRIGGA FLOW CARDS VID PROXIMITY
+      // Anropa vid varje positionsuppdatering — dedup-systemet
+      // (_triggeredBoatNearKeys) förhindrar dubbletter automatiskt.
+      // Löser problem med snabba fartyg som hoppar över 'waiting'-status.
+      // Guard: Undvik triggers för passed/slutförda resor (Bug C+D fix).
+      const shouldTriggerProximity = (vessel.currentBridge || vessel.targetBridge)
+        && vessel.status !== 'passed'
+        && !vessel._finalTargetBridge;
+      if (shouldTriggerProximity) {
+        await this._triggerBoatNearFlow(vessel);
+      }
 
       // STEG 3: UPPDATERA UI OM NÖDVÄNDIGT
       // Intelligent UI-uppdatering som bara sker vid betydelsefulla ändringar
@@ -537,8 +576,14 @@ class AISBridgeApp extends Homey.App {
       }
 
       // STEG 2: RENSA BOAT_NEAR TRIGGERS
-      // Ta bort dedupe-nycklar så att båten kan trigga igen om den kommer tillbaka
-      this._clearBoatNearTriggers(vessel || { mmsi });
+      // BUG 7 FIX: Bevara dedupnycklar vid timeout om fartyget har aktiv resa.
+      // Annars orsakar re-entry inom samma passage en dubblerad trigger.
+      const hasActiveJourney = vessel && vessel.passedBridges && vessel.passedBridges.length > 0;
+      if (reason === 'timeout' && hasActiveJourney) {
+        this.debug(`🛡️ [DEDUP_PRESERVE] ${mmsi}: Keeping trigger dedup keys (active journey, timeout removal)`);
+      } else {
+        this._clearBoatNearTriggers(vessel || { mmsi });
+      }
 
       // STEG 3: RENSA STATUS STABILIZER HISTORY
       this.statusService.statusStabilizer.removeVessel(mmsi);
@@ -546,6 +591,11 @@ class AISBridgeApp extends Homey.App {
       // STEG 4: RENSA ETA HISTORY
       // Ta bort alla sparade ETA-beräkningar för denna vessel
       this.statusService.clearVesselETAHistory(mmsi, `vessel_removed_${reason}`);
+
+      // STEG 4b: RENSA BRIDGE TEXT PHASE TRACKING
+      if (this.bridgeTextService) {
+        this.bridgeTextService.clearVesselPhaseTracking(mmsi);
+      }
 
       // STEG 5: UPPDATERA UI
       const remainingVesselCount = currentVesselCount - 1; // Antal efter borttagning
@@ -633,23 +683,49 @@ class AISBridgeApp extends Homey.App {
 
     // STEG 1: TRIGGA FLOW CARDS VID 300M ZON (WAITING STATUS)
     // När båt kommer inom 300m (waiting status) trigga Homey automation
-    if (newStatus === 'waiting' && oldStatus !== 'waiting') {
+    const shouldTriggerBoatNear = (
+      (newStatus === 'waiting' && oldStatus !== 'waiting')
+      || (newStatus === 'stallbacka-waiting' && oldStatus !== 'stallbacka-waiting')
+    );
+
+    if (shouldTriggerBoatNear) {
       await this._triggerBoatNearFlow(vessel); // Specific bridge trigger
-      await this._triggerBoatNearFlowForAny(vessel); // "Any bridge" trigger
     }
 
     // STEG 2: RENSA TRIGGERS NÄR BÅT LÄMNAR OMRÅDET
-    // När båt inte längre är nära bro, rensa dedupe-nycklar
-    if (oldStatus === 'waiting' || oldStatus === 'approaching' || oldStatus === 'under-bridge') {
+    // BUG 10 FIX: Rensa INTE under aktiv resa (passedBridges). Status-transitionen
+    // waiting→en-route sker naturligt vid passage, men ska inte rensa dedup
+    // för broar fartyget ännu inte passerat (orsakar dubbla triggers).
+    if (oldStatus === 'waiting' || oldStatus === 'approaching' || oldStatus === 'under-bridge' || oldStatus === 'stallbacka-waiting') {
       if (newStatus === 'en-route' || newStatus === 'passed') {
-        this._clearBoatNearTriggers(vessel);
+        const hasActiveJourney = vessel.passedBridges && vessel.passedBridges.length > 0;
+        if (!hasActiveJourney) {
+          this._clearBoatNearTriggers(vessel);
+        } else {
+          this.debug(`🛡️ [DEDUP_PRESERVE_STATUS] ${vessel.mmsi}: Keeping dedup keys during active journey (${oldStatus}→${newStatus})`);
+        }
       }
     }
 
     // STEG 3: HANTERA FINAL BRIDGE PASSAGE
-    // När båt passerat sin sista målbro, schemalägg borttagning efter 60s
+    // När båt passerat sin sista målbro, schemalägg borttagning
     if (newStatus === 'passed' && vessel.targetBridge) {
-      if (this._hasPassedFinalTargetBridge(vessel)) {
+      // BUG 1 FIX: Om terminal-bro (Klaffbron/Stridsbergsbron) just passerats,
+      // sätt _finalTargetBridge omedelbart — vänta inte på downstream-bekräftelse
+      // som kan ta 4+ minuter och orsakar textregression.
+      // BUG 12 FIX: Kontrollera riktning — Klaffbron är terminal bara för sydgående,
+      // Stridsbergsbron bara för nordgående. Utan detta schemaläggs felaktig borttagning
+      // för nordgående fartyg som passerat Klaffbron (som inte är deras sista bro).
+      const isNorthbound = vessel.cog >= COG_DIRECTIONS.NORTH_MIN || vessel.cog <= COG_DIRECTIONS.NORTH_MAX;
+      const terminalBridge = isNorthbound ? 'Stridsbergsbron' : 'Klaffbron';
+      const isTerminalTarget = vessel.targetBridge === terminalBridge
+        && vessel.passedBridges?.includes(terminalBridge);
+      if (isTerminalTarget && !vessel._finalTargetBridge) {
+        vessel._finalTargetBridge = vessel.targetBridge;
+        this.debug(`🏁 [EARLY_FINAL_TARGET] ${vessel.mmsi}: Set _finalTargetBridge=${vessel.targetBridge} immediately on passage`);
+      }
+
+      if (isTerminalTarget || this._hasPassedFinalTargetBridge(vessel)) {
         this.debug(`🏁 [FINAL_BRIDGE_PASSED] Vessel ${vessel.mmsi} passed final target bridge ${vessel.targetBridge} - scheduling removal in 60s`);
 
         // RACE CONDITION FIX: Rensa gammal timer först (atomisk operation)
@@ -842,6 +918,9 @@ class AISBridgeApp extends Homey.App {
         vessel.etaMinutes = null; // Clear ETA for other statuses (under-bridge, passed)
       }
 
+      // Bug B fix: mark that this vessel received a fresh AIS position update
+      vessel._positionUpdatedSinceLastETA = true;
+
       // 7. Schedule appropriate cleanup timeout
       const timeout = this.proximityService.calculateProximityTimeout(vessel, proximityData);
       this.vesselDataService.scheduleCleanup(vessel.mmsi, timeout);
@@ -879,36 +958,34 @@ class AISBridgeApp extends Homey.App {
    * @private
    */
   _hasPassedFinalTargetBridge(vessel) {
-    if (!vessel.targetBridge || !vessel.passedBridges || vessel.passedBridges.length === 0) {
+    if (!vessel || !vessel.passedBridges || vessel.passedBridges.length === 0) {
       return false;
     }
 
-    // Check if vessel has passed its target bridge
-    const hasPassedTargetBridge = vessel.passedBridges.includes(vessel.targetBridge);
-    if (!hasPassedTargetBridge) {
-      return false;
+    // Determine final target context
+    const finalTarget = vessel._finalTargetBridge || vessel.targetBridge;
+    if (!finalTarget) return false;
+
+    // Must have passed the final target itself
+    const hasPassedTargetBridge = vessel.passedBridges.includes(finalTarget);
+    if (!hasPassedTargetBridge) return false;
+
+    // Resolve travel direction (prefer explicit lock)
+    let direction = vessel._finalTargetDirection || null;
+    if (!direction && Number.isFinite(vessel.cog)) {
+      const northbound = vessel.cog >= COG_DIRECTIONS.NORTH_MIN || vessel.cog <= COG_DIRECTIONS.NORTH_MAX;
+      direction = northbound ? 'north' : 'south';
+    }
+    if (!direction) return false; // Unknown direction → keep vessel
+
+    // Require downstream bridge confirmation before cleanup
+    if (direction === 'north') {
+      // Northbound journeys must also pass Stallbackabron after Stridsbergsbron
+      return vessel.passedBridges.includes('Stallbackabron');
     }
 
-    // CRITICAL FIX: Handle null/invalid COG gracefully
-    // If COG is missing, we can't determine direction reliably, so default to "not final"
-    if (!Number.isFinite(vessel.cog)) {
-      return false; // Conservative approach - don't remove vessel if direction is unknown
-    }
-
-    // Determine if there are more target bridges in the vessel's direction
-    const isNorthbound = vessel.cog >= COG_DIRECTIONS.NORTH_MIN || vessel.cog <= COG_DIRECTIONS.NORTH_MAX;
-
-    if (vessel.targetBridge === 'Klaffbron') {
-      // If northbound and passed Klaffbron, next target would be Stridsbergsbron
-      return !isNorthbound; // Only final if southbound
-    }
-
-    if (vessel.targetBridge === 'Stridsbergsbron') {
-      // If southbound and passed Stridsbergsbron, next target would be Klaffbron
-      return isNorthbound; // Only final if northbound
-    }
-
-    return false;
+    // Southbound journeys must also pass Olidebron after Klaffbron
+    return vessel.passedBridges.includes('Olidebron');
   }
 
   /**
@@ -1898,15 +1975,31 @@ class AISBridgeApp extends Homey.App {
       return BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE;
     }
 
-    // Generate minimal safe text based on vessel count
     const vesselCount = vessels.length;
-    const bridges = [...new Set(vessels.map((v) => v.targetBridge).filter(Boolean))];
+    const firstVessel = vessels[0];
+    const bridge = firstVessel.currentBridge || firstVessel.targetBridge;
+    const dist = firstVessel.distanceToCurrent ?? firstVessel.distance;
+
+    // BUG 5 FIX: Include direction and ETA when available for more informative fallback
+    let dirSuffix = '';
+    if (firstVessel._routeDirection) {
+      dirSuffix = firstVessel._routeDirection.startsWith('north') ? ' (nordgående)' : ' (sydgående)';
+    }
+    const etaSuffix = firstVessel.eta ? `, beräknad broöppning ${firstVessel.eta}` : '';
 
     if (vesselCount === 1) {
-      return `En båt är i närheten av ${bridges.length > 0 ? bridges[0] : 'broarna'}`;
+      if (bridge && Number.isFinite(dist)) {
+        return `En båt ${Math.round(dist)}m från ${bridge}${dirSuffix}${etaSuffix}`;
+      }
+      return `En båt är i närheten av ${bridge || 'broarna'}${dirSuffix}`;
+    }
+
+    // Flerfartyg: inkludera bronamn om alla nära samma bro
+    const bridges = [...new Set(vessels.map((v) => v.currentBridge || v.targetBridge).filter(Boolean))];
+    if (bridges.length === 1) {
+      return `${vesselCount} båtar är i närheten av ${bridges[0]}`;
     }
     return `${vesselCount} båtar är i närheten av broarna`;
-
   }
 
   /**
@@ -2058,10 +2151,14 @@ class AISBridgeApp extends Homey.App {
         vessel.isWaiting = statusResult.isWaiting;
         vessel.isApproaching = statusResult.isApproaching;
 
-        // CRITICAL FIX: Always recalculate ETA for relevant statuses
-        // ETA can change even if status doesn't change
+        // Bug B fix: only recalculate ETA if we received a fresh AIS position update
+        // Timer-only re-evaluations reuse the last ETA to prevent oscillation
         if (['approaching', 'waiting', 'en-route', 'stallbacka-waiting'].includes(vessel.status)) {
-          vessel.etaMinutes = this.statusService.calculateETA(vessel, proximityData);
+          if (vessel._positionUpdatedSinceLastETA) {
+            vessel.etaMinutes = this.statusService.calculateETA(vessel, proximityData);
+            vessel._positionUpdatedSinceLastETA = false;
+          }
+          // else: reuse existing vessel.etaMinutes
         } else {
           vessel.etaMinutes = null;
         }
@@ -2087,28 +2184,28 @@ class AISBridgeApp extends Homey.App {
     const vesselsBeingRemoved = this._processingRemoval || new Set();
     const filteredVessels = vessels.filter((vessel) => !vesselsBeingRemoved.has(vessel.mmsi));
 
-    // Transform vessel data to format expected by BridgeTextService
+    // Transform vessel data to format expected by BridgeTextService (stateless)
     return filteredVessels.map((vessel) => {
       // Find current bridge based on nearest distance
       const proximityData = this.proximityService.analyzeVesselProximity(vessel);
       let currentBridge = null;
 
       if (proximityData.nearestBridge && proximityData.nearestDistance <= BRIDGE_TEXT_CONSTANTS.VESSEL_DISTANCE_THRESHOLD) {
-        // PASSAGE CLEARING: Don't set currentBridge if vessel has recently passed this bridge
-        // and is now moving away (avoids "En båt vid X" messages after passage)
         const bridgeName = proximityData.nearestBridge.name;
+        // ROOT FIX: Kontrollera passedBridges — inte bara tidsfönster.
+        // PASSAGE_CLEAR_WINDOW (60s) löper ut medan fartyget fortfarande är inom 400m
+        // av den passerade bron, vilket felaktigt sätter currentBridge till den.
+        const hasPassedThisBridge = vessel.passedBridges && vessel.passedBridges.includes(bridgeName);
         const hasRecentlyPassedThisBridge = vessel.lastPassedBridge === bridgeName
           && vessel.lastPassedBridgeTime
-          && (Date.now() - vessel.lastPassedBridgeTime) < BRIDGE_TEXT_CONSTANTS.PASSAGE_CLEAR_WINDOW_MS; // 60 seconds (matches "precis passerat" window)
+          && (Date.now() - vessel.lastPassedBridgeTime) < BRIDGE_TEXT_CONSTANTS.PASSAGE_CLEAR_WINDOW_MS;
 
-        if (!hasRecentlyPassedThisBridge) {
+        if (!hasRecentlyPassedThisBridge && !hasPassedThisBridge) {
           currentBridge = bridgeName;
-        } else {
-          this.debug(`🌉 [PASSAGE_CLEAR] ${vessel.mmsi}: Not setting currentBridge to ${bridgeName} - recently passed`);
         }
       }
 
-      // FIX: Calculate correct distance to currentBridge
+      // Calculate correct distance to currentBridge
       const currentBridgeId = currentBridge ? this.bridgeRegistry.findBridgeIdByName(currentBridge) : null;
       const distToCurrent = currentBridgeId
         ? (proximityData.bridgeDistances[currentBridgeId] ?? proximityData.nearestDistance)
@@ -2121,17 +2218,17 @@ class AISBridgeApp extends Homey.App {
         currentBridge,
         etaMinutes: vessel.etaMinutes,
         isWaiting: vessel.isWaiting,
-        isApproaching: vessel.isApproaching,
-        confidence: vessel.confidence || 'medium',
         status: vessel.status,
         lastPassedBridge: vessel.lastPassedBridge,
         lastPassedBridgeTime: vessel.lastPassedBridgeTime,
         distance: proximityData.nearestDistance,
         distanceToCurrent: distToCurrent,
         sog: vessel.sog,
-        cog: vessel.cog, // CRITICAL: Add COG for target bridge derivation
+        cog: vessel.cog,
         passedBridges: vessel.passedBridges || [],
-        // ADD: Position data needed for Stallbackabron distance calculations
+        _routeDirection: vessel._routeDirection,
+        _finalTargetDirection: vessel._finalTargetDirection,
+        _bridgeOpeningUntil: vessel._bridgeOpeningUntil,
         lat: vessel.lat,
         lon: vessel.lon,
       };
@@ -2350,9 +2447,25 @@ class AISBridgeApp extends Homey.App {
       addCandidate(nearestBridge.name, 'nearest');
     }
 
+    // Trigger points: independently calculate distance and add as candidates
+    // (geographic trigger points outside the bridge passage system)
+    if (Number.isFinite(vessel.lat) && Number.isFinite(vessel.lon)) {
+      for (const [tpId, tp] of Object.entries(TRIGGER_POINTS)) {
+        if (seen.has(tp.name)) continue;
+        const dist = geometry.calculateDistance(vessel.lat, vessel.lon, tp.lat, tp.lon);
+        if (dist !== null && dist <= threshold) {
+          candidates.push({
+            name: tp.name, id: tpId, distance: dist, source: 'trigger-point',
+          });
+          seen.add(tp.name);
+        }
+      }
+    }
+
     const hasTargetCandidate = candidates.some((candidate) => candidate.source === 'target');
     if (hasTargetCandidate) {
-      return candidates.filter((candidate) => candidate.source === 'target');
+      // Keep trigger points alongside target candidates
+      return candidates.filter((candidate) => candidate.source === 'target' || candidate.source === 'trigger-point');
     }
 
     return candidates;
@@ -2363,7 +2476,9 @@ class AISBridgeApp extends Homey.App {
    * @private
    */
   async _triggerBoatNearFlowForBridge(vessel, candidate) {
-    const { name: bridgeName, id: bridgeId, distance, source } = candidate;
+    const {
+      name: bridgeName, id: bridgeId, distance, source,
+    } = candidate;
 
     const dedupeKey = `${vessel.mmsi}:${bridgeName}`;
 
@@ -2383,9 +2498,16 @@ class AISBridgeApp extends Homey.App {
       direction: this._getDirectionString(vessel),
     };
 
-    tokens.eta_minutes = Number.isFinite(vessel.etaMinutes)
-      ? Math.round(vessel.etaMinutes)
-      : -1;
+    // BUGG 4 FIX: Fallback ETA-beräkning om vessel.etaMinutes saknas
+    let eta = vessel.etaMinutes;
+    if (!Number.isFinite(eta) || eta < 0) {
+      const dist = candidate.distance;
+      const speedMs = (vessel.sog || 0) * 0.5144; // knop → m/s
+      if (speedMs > 0.1 && Number.isFinite(dist)) {
+        eta = Math.round((dist / speedMs) / 60); // minuter
+      }
+    }
+    tokens.eta_minutes = Number.isFinite(eta) && eta >= 0 ? Math.round(eta) : -1;
 
     // CRITICAL FIX: Create DEEP immutable copy to prevent race conditions and object mutation
     const safeTokens = {
@@ -2412,17 +2534,21 @@ class AISBridgeApp extends Homey.App {
     );
 
     try {
+      // RACE FIX: Sätt dedup-nyckel FÖRE async trigger för att förhindra
+      // att parallella _onVesselUpdated-anrop slipper igenom.
+      this._triggeredBoatNearKeys.add(dedupeKey);
+
       await this._triggerBoatNearFlowBest(safeTokens, { bridge: bridgeId }, vessel);
 
-      // ENHANCED SUCCESS DEBUG: Detailed success logging
       this.log(
         `✅ [FLOW_TRIGGER_SUCCESS] ${vessel.mmsi}: boat_near fired for ${bridgeName} `
         + `(ID=${bridgeId}, distance=${Math.round(distance)}m, status=${vessel.status})`,
       );
 
-      this._triggeredBoatNearKeys.add(dedupeKey);
       this.debug(`🔒 [FLOW_TRIGGER_DEDUPE_SET] ${vessel.mmsi}: Added "${dedupeKey}" to dedupe set (total keys: ${this._triggeredBoatNearKeys.size})`);
     } catch (triggerError) {
+      // Rensa dedup-nyckeln vid misslyckad trigger så att retry kan ske
+      this._triggeredBoatNearKeys.delete(dedupeKey);
       this.error(
         `❌ [FLOW_TRIGGER_ERROR] ${vessel.mmsi}: boat_near failed for ${bridgeName} `
         + `(ID=${bridgeId}, distance=${Math.round(distance)}m, status=${vessel.status}): ${triggerError.message || triggerError}`,
@@ -2432,7 +2558,6 @@ class AISBridgeApp extends Homey.App {
       if (triggerError.stack) {
         this.error(`❌ [FLOW_TRIGGER_ERROR_STACK] ${triggerError.stack}`);
       }
-      // Don't add key to deduplication set if trigger failed
     }
   }
 
@@ -2567,20 +2692,19 @@ class AISBridgeApp extends Homey.App {
       // Trigger validation is now handled in _triggerBoatNearFlowBest()
 
       try {
-        // *** CRITICAL FIX: Use best available trigger method (app or device level) ***
+        // RACE FIX: Sätt dedup-nyckel FÖRE async trigger
+        this._triggeredBoatNearKeys.add(dedupeKey);
+
         await this._triggerBoatNearFlowBest(safeTokens, { bridge: 'any' }, vessel);
         this.debug(`✅ [FLOW_TRIGGER_ANY_DEBUG] ${vessel.mmsi}: Successfully triggered "any" bridge flow`);
-
-        // CRITICAL FIX: Add key to deduplication set ONLY after successful trigger
-        // This prevents orphaned keys if trigger fails
-        this._triggeredBoatNearKeys.add(dedupeKey);
         this.debug(`🎯 [FLOW_TRIGGER] boat_near (any) triggered for ${vessel.mmsi} at ${Math.round(nearbyBridge.distance)}m from ${nearbyBridge.name}`);
 
       } catch (triggerError) {
+        // Rensa dedup-nyckeln vid misslyckad trigger
+        this._triggeredBoatNearKeys.delete(dedupeKey);
         this.error('[FLOW_TRIGGER_ANY] FAILED to trigger "any" bridge:', triggerError);
         this.error(`[FLOW_TRIGGER_ANY] Failed tokens: ${JSON.stringify(safeTokens)}`);
         this.error('[FLOW_TRIGGER_ANY] Trigger error details:', triggerError.stack || triggerError.message);
-        // Don't add key to deduplication set if trigger failed
         // Don't re-throw - let app continue
         return;
       }
@@ -2835,23 +2959,23 @@ class AISBridgeApp extends Homey.App {
               return false;
             }
 
-          if (bridgeId === 'any') {
+            if (bridgeId === 'any') {
             // Check if vessel is within 300m of ANY bridge
-            return proximityData.bridges.some((bridge) => {
-              return bridge
+              return proximityData.bridges.some((bridge) => {
+                return bridge
                      && typeof bridge === 'object'
                      && Number.isFinite(bridge.distance)
                        && bridge.distance <= FLOW_CONSTANTS.FLOW_TRIGGER_DISTANCE_THRESHOLD;
               });
-          }
+            }
 
-          // Check if vessel is within 300m of SPECIFIC bridge
-          // Use centralized bridge ID mapping from constants
-          const actualBridgeName = BRIDGE_ID_TO_NAME[bridgeId];
-          if (!actualBridgeName) {
-            this.error(`boat_at_bridge condition: No bridge name mapping found for ID "${bridgeId}"`);
-            return false;
-          }
+            // Check if vessel is within 300m of SPECIFIC bridge
+            // Use centralized bridge ID mapping from constants
+            const actualBridgeName = BRIDGE_ID_TO_NAME[bridgeId];
+            if (!actualBridgeName) {
+              this.error(`boat_at_bridge condition: No bridge name mapping found for ID "${bridgeId}"`);
+              return false;
+            }
 
             // Find specific bridge data with validation
             const bridgeData = proximityData.bridges.find((bridge) => bridge
@@ -3023,6 +3147,8 @@ class AISBridgeApp extends Homey.App {
    */
   _captureAISReplaySample(sample) {
     if (!this._replayCaptureFile || !sample || !sample.mmsi) {
+      // Always emit replay data to stdout so run-with-logs can capture locally
+      this.log('[AIS_REPLAY_SAMPLE]', JSON.stringify(sample));
       return;
     }
 
@@ -3030,6 +3156,9 @@ class AISBridgeApp extends Homey.App {
       ...sample,
       receivedAt: sample.receivedAt || new Date().toISOString(),
     };
+
+    // Emit to stdout as well for belt-and-braces capture when filesystem is sandboxed
+    this.log('[AIS_REPLAY_SAMPLE]', JSON.stringify(payload));
 
     fs.appendFile(this._replayCaptureFile, `${JSON.stringify(payload)}\n`, (err) => {
       if (err && !this._replayCaptureErrorLogged) {
@@ -3102,7 +3231,7 @@ class AISBridgeApp extends Homey.App {
       } catch (error) {
         this.error('Error in watchdog:', error);
       }
-    }, 90000); // Every 90 seconds
+    }, 30000); // Every 30 seconds — ensures smooth phase transitions without AIS
 
     this.debug('✅ [COALESCING] Micro-grace coalescing system initialized');
   }
@@ -3210,10 +3339,29 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
-   * Debug logging with level support
+   * Debug logging with level support.
+   * Levels: off < basic < detailed < full
+   * @param {string} message
+   * @param  {...any} args
+   * @param {string} [level='detailed'] - minimum level required to show this message
    */
   debug(message, ...args) {
-    if (this.debugLevel && this.debugLevel !== 'off') {
+    if (!this.debugLevel || this.debugLevel === 'off') return;
+
+    // Determine the minimum level needed for this message
+    const levels = { basic: 1, detailed: 2, full: 3 };
+    const currentLevel = levels[this.debugLevel] || 0;
+
+    // Messages containing these patterns are "basic" (always shown when not off)
+    // Everything else requires "detailed", AIS raw data requires "full"
+    let requiredLevel = 2; // default: detailed
+    if (/\[UI_UPDATE\]|\[TARGET_BRIDGE_PASSED\]|\[TARGET_TRANSITION\]|\[JOURNEY_COMPLETED\]|\[BRIDGE_OPENING\]|\[INTERMEDIATE_PASSAGE\]|\[VESSEL_ENTERED\]|\[VESSEL_REMOVED\]|\[STATUS_CHANGED\]/.test(message)) {
+      requiredLevel = 1; // basic
+    } else if (/\[AIS_RAW\]|\[POSITION_ANALYSIS\]|\[PROXIMITY_ANALYSIS\]|\[ETA_CALC\]|\[COALESCING\]|\[SNAPSHOT\]/.test(message)) {
+      requiredLevel = 3; // full
+    }
+
+    if (currentLevel >= requiredLevel) {
       this.log(`[DEBUG] ${message}`, ...args);
     }
   }

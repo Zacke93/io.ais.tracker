@@ -5,7 +5,7 @@
     "en": "AIS Bridge",
     "sv": "AIS Bridge"
   },
-  "version": "4.9.9",
+  "version": "5.0.0",
   "category": [
     "tools"
   ],
@@ -75,6 +75,10 @@
                   "en": "Any bridge",
                   "sv": "Alla broar"
                 }
+              },
+              {
+                "id": "kanalinfarten",
+                "title": "Kanalinfarten"
               },
               {
                 "id": "olidebron",
@@ -161,6 +165,10 @@
                   "en": "Any bridge",
                   "sv": "Alla broar"
                 }
+              },
+              {
+                "id": "kanalinfarten",
+                "title": "Kanalinfarten"
               },
               {
                 "id": "olidebron",

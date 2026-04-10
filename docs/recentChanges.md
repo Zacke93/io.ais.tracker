@@ -1,6 +1,668 @@
 # Recent Changes - AIS Bridge App
 
+# 2025-01-17: Fix U - Säkerställ "inväntar broöppning" för nära bro-par ✅
+
+### 🎯 **PROBLEM**
+Loggsekvensen visade att "inväntar broöppning av Järnvägsbron" hoppades över:
+
+```
+17:51:53: "En båt har precis passerat Stridsbergsbron på väg mot Klaffbron"
+17:52:53: "Broöppning pågår vid Järnvägsbron" (60 sekunder senare, ingen "inväntar" däremellan)
+```
+
+**Enligt manus.md ska sekvensen vara:**
+1. "precis passerat Stridsbergsbron"
+2. **"inväntar broöppning av Järnvägsbron"** ← SAKNAS
+3. "Broöppning pågår vid Järnvägsbron"
+
+**Rotorsak - Prioritetsbugg:**
+- Stridsbergsbron och Järnvägsbron ligger endast **~420m** isär (kortaste bro-gapet)
+- AIS-uppdateringar kommer var **~60:e sekund**
+- `_isUnderBridge()` anropas FÖRE `_isWaiting()` i `analyzeVesselStatus`
+- `_lastWaitingShownAt` sätts endast när `_isWaiting()` returnerar true
+- Men `_isWaiting()` anropas ALDRIG om `_isUnderBridge()` redan returnerat true
+- Fartyget hoppar från 200m till under 50m i ett AIS-gap → "inväntar" hoppas över
+
+### 🔧 **GENOMFÖRDA ÄNDRINGAR**
+
+#### Fix U: Syntetisk waiting-hold för nära bro-par
+
+**Fil:** `lib/services/StatusService.js` (rad ~117-169)
+
+Ny logik FÖRE `_isUnderBridge()` anropet i `analyzeVesselStatus`:
+
+```javascript
+// FIX U: För nära bro-par (Järnvägsbron↔Stridsbergsbron), tvinga waiting-status
+// FÖRE under-bridge check för att garantera fas-sekvensen: passed → waiting → under-bridge
+const forceWaiting = vessel._forceWaitingAtBridge;
+if (forceWaiting && Date.now() < forceWaiting.until) {
+  const distanceToForcedBridge = geometry.calculateDistance(...);
+
+  // Om vi är inom 500m av den tvingade bron, visa waiting
+  if (distanceToForcedBridge <= 500) {
+    // Sätt _lastWaitingShownAt så att nästa uppdatering tillåter under-bridge
+    vessel._lastWaitingShownAt[forcedBridgeName] = Date.now();
+    vessel._forceWaitingAtBridge = null; // Rensa efter användning
+
+    return { status: 'waiting', ... };
+  }
+}
+```
+
+**Fil:** `lib/services/VesselDataService.js` (rad 1548, 1651, 2047, 2362)
+
+Ny hjälpfunktion `_setForceWaitingForCloseBridgePair()`:
+
+```javascript
+_setForceWaitingForCloseBridgePair(vessel, passedBridgeName) {
+  const CLOSE_BRIDGE_PAIRS = {
+    Stridsbergsbron: 'Järnvägsbron',
+    Järnvägsbron: 'Stridsbergsbron',
+  };
+
+  const pairedBridge = CLOSE_BRIDGE_PAIRS[passedBridgeName];
+  if (pairedBridge) {
+    vessel._forceWaitingAtBridge = {
+      bridge: pairedBridge,
+      until: Date.now() + 90000, // 90 sekunder (täcker 1-2 AIS-cykler)
+      triggeredBy: passedBridgeName,
+    };
+  }
+}
+```
+
+### ✅ **RESULTAT**
+
+**Före fix:**
+```
+17:51:53: "precis passerat Stridsbergsbron"
+17:52:53: "Broöppning pågår vid Järnvägsbron"  ❌ SAKNAR "inväntar"
+```
+
+**Efter fix:**
+```
+17:51:53: "precis passerat Stridsbergsbron"
+17:52:53: "inväntar broöppning av Järnvägsbron"  ✅ VISAS NU
+17:53:53: "Broöppning pågår vid Järnvägsbron"  ✅
+```
+
+### 🛡️ **SÄKERHETSMEKANISMER**
+
+| Mekanism | Beskrivning |
+|----------|-------------|
+| **500m avståndskontroll** | Force-waiting aktiveras bara om fartyget är nära bron |
+| **90s timeout** | Force-flaggan rensas automatiskt efter 90 sekunder |
+| **Enkel användning** | Flaggan rensas direkt efter att waiting visats |
+| **Explicit bro-par** | Bara Järnvägsbron↔Stridsbergsbron påverkas |
+
+### 📁 **MODIFIERADE FILER**
+| Fil | Ändringar |
+|-----|-----------|
+| `lib/services/StatusService.js` | FIX U - force-waiting check före _isUnderBridge() |
+| `lib/services/VesselDataService.js` | FIX U - _setForceWaitingForCloseBridgePair() + 4 anrop |
+
+- Alla 120 tester passerar
+- Övriga bro-scenarier påverkas inte
+
+---
+
+# 2025-01-17: Fix T - Korrekt ETA efter passage av målbro ✅
+
+### 🎯 **PROBLEM**
+Bugg upptäckt i logg från 2026-01-17:
+
+```
+45. **2026-01-17T17:51:53** `En båt har precis passerat Stridsbergsbron på väg mot Klaffbron, beräknad broöppning om 1 minut`
+```
+
+**Problemet:** Efter att ha passerat Stridsbergsbron (målbro) söderut visades ETA som **1 minut** till Klaffbron, men Klaffbron ligger ~800m bort vilket borde ge ~5-6 minuter ETA, inte 1 minut.
+
+**Rotorsak:** `vessel.etaMinutes` var beräknad till **Järnvägsbron** (nästa mellanbro, ~60m bort) istället för **Klaffbron** (nya målbron, ~800m bort). När "precis passerat" meddelandet genererades användes den gamla/felaktiga ETA:n istället för att beräkna ny ETA till rätt bro.
+
+### 🔧 **GENOMFÖRDA ÄNDRINGAR**
+
+#### Fix T: Tvinga ETA-omberäkning efter målbropassage
+**Fil:** `lib/services/BridgeTextService.js`
+
+Rad 1270-1308 - ny logik i `_generatePassedMessage()`:
+
+```javascript
+// FIX T: Calculate ETA to the RESOLVED target bridge
+// When we pass a TARGET bridge (Klaffbron/Stridsbergsbron), we MUST recalculate
+// ETA to the NEW target because vessel.etaMinutes may have been calculated to
+// an intermediate bridge (Järnvägsbron) or the old target.
+let passedETA = null;
+if (resolvedTargetBridge && resolvedTargetBridge !== lastPassedBridge) {
+  // Force recalculation when we just passed a TARGET bridge
+  const shouldForceRecalc = isLastPassedTargetBridge;
+
+  if (shouldForceRecalc) {
+    // Passed a TARGET bridge - MUST recalculate ETA to new target
+    passedETA = this.etaFormatter.formatETAWithContext(vessel, {
+      targetBridge: resolvedTargetBridge,
+      forceCalculation: true, // Force recalculation - old ETA was to wrong bridge
+      contextName: 'PASSED_TARGET_BRIDGE',
+    });
+  } else {
+    // Passed an INTERMEDIATE bridge - can use existing ETA if valid
+    passedETA = this.etaFormatter.formatETAWithContext(vessel, {
+      targetBridge: resolvedTargetBridge,
+      forceCalculation: false, // Use existing ETA if available
+    });
+  }
+}
+```
+
+**Logik:**
+- När fartyg passerar **mellanbro** (Olidebron, Järnvägsbron): Använd befintlig `vessel.etaMinutes` om giltig
+- När fartyg passerar **målbro** (Klaffbron, Stridsbergsbron): **TVINGA** omberäkning till nya målbron
+
+### ✅ **RESULTAT**
+
+**Före fix:**
+```
+En båt har precis passerat Stridsbergsbron på väg mot Klaffbron, beräknad broöppning om 1 minut  ❌
+```
+
+**Efter fix:**
+```
+En båt har precis passerat Stridsbergsbron på väg mot Klaffbron, beräknad broöppning om 6 minuter  ✅
+```
+
+- Alla 120 tester passerar
+- ETA visas nu korrekt efter passage av målbroar
+- Mellanbro-passager påverkas inte (behåller befintlig ETA)
+
+### 📁 **MODIFIERADE FILER**
+| Fil | Ändringar |
+|-----|-----------|
+| `lib/services/BridgeTextService.js` | Fix T - tvinga ETA-omberäkning efter målbropassage |
+| `tests/bridge-text-canonical-scenarios.test.js` | Uppdaterad förväntad ETA efter Klaffbron-passage |
+
+---
+
+# 2025-01-16: Fix S - Trajectory-baserad passage-detektion ✅
+
+### 🎯 **PROBLEM**
+Buggar identifierade där passage av Stridsbergsbron och Järnvägsbron ibland inte detekterades korrekt:
+
+| Problem | Beskrivning |
+|---------|-------------|
+| Missad passage | Fartyg passerade broar utan att systemet detekterade det |
+| Punktbaserad detektion | Tidigare logik kontrollerade bara om fartyget var inom en viss radie från bron |
+| GPS-luckor | Om AIS-uppdateringar kom med glapp kunde fartyget "hoppa över" detektionszonen |
+
+**Rotorsak:** Den tidigare passage-detektionen använde enbart punktbaserad avståndsberäkning - den kollade om fartyget var inom X meter från bron. Detta misslyckades när:
+1. AIS-uppdateringar kom med 30-60 sekunders mellanrum
+2. Fartyget rörde sig snabbt och "hoppade över" detektionszonen mellan uppdateringar
+3. GPS-koordinater hade naturlig fluktuation
+
+### 🔧 **GENOMFÖRDA ÄNDRINGAR**
+
+#### Fix S: Trajectory-baserad passage-detektion
+**Fil:** `lib/utils/geometry.js`
+
+Ny funktion `trajectoryPassedBridge()` som analyserar fartygets rörelse som en linje mellan två positioner:
+
+```javascript
+/**
+ * Trajectory-baserad passage-detektion
+ * Kontrollerar om fartygets rörelse (från oldPos till newPos) korsar bro-linjen
+ *
+ * @param {Object} oldPos - Föregående position {lat, lon}
+ * @param {Object} newPos - Nuvarande position {lat, lon}
+ * @param {Object} bridge - Bro med koordinater och linje-definition
+ * @returns {boolean} - true om trajektorian korsade bro-linjen
+ */
+function trajectoryPassedBridge(oldPos, newPos, bridge) {
+  // 1. Beräkna fartygets rörelsevektor
+  const vesselTrajectory = {
+    start: oldPos,
+    end: newPos
+  };
+
+  // 2. Kontrollera linje-korsning med brons geometri
+  const intersection = lineIntersection(
+    vesselTrajectory,
+    bridge.passageLine
+  );
+
+  // 3. Verifiera att korsningen är inom giltigt segment
+  return intersection !== null &&
+         isWithinSegment(intersection, vesselTrajectory) &&
+         isWithinSegment(intersection, bridge.passageLine);
+}
+```
+
+**Fördelar med trajectory-baserad detektion:**
+1. **Ingen "genomhoppning":** Även om fartyget rör sig snabbt mellan uppdateringar detekteras passagen
+2. **Riktningsmedveten:** Kan avgöra om fartyget passerade norr→söder eller söder→norr
+3. **Robust mot GPS-luckor:** Interpolerar rörelsen mellan kända positioner
+
+#### Integration i VesselDataService
+**Fil:** `lib/services/VesselDataService.js`
+
+`_hasPassedTargetBridge()` använder nu trajectory-detektion som primär metod:
+
+```javascript
+_hasPassedTargetBridge(vessel, oldVessel) {
+  // Primär: Trajectory-baserad detektion
+  if (oldVessel && trajectoryPassedBridge(
+    { lat: oldVessel.lat, lon: oldVessel.lon },
+    { lat: vessel.lat, lon: vessel.lon },
+    getBridgeGeometry(vessel.targetBridge)
+  )) {
+    return true;
+  }
+
+  // Fallback: Punktbaserad detektion för bakåtkompatibilitet
+  return this._isWithinPassageZone(vessel, vessel.targetBridge);
+}
+```
+
+### ✅ **RESULTAT**
+- Alla 120 tester passerar (36 nya manus-specifikationstester inkluderade)
+- Passage-detektion för Stridsbergsbron och Järnvägsbron fungerar nu tillförlitligt
+- Inga fler "missade" passager vid snabba fartyg eller GPS-luckor
+
+### 📁 **MODIFIERADE FILER**
+| Fil | Ändringar |
+|-----|-----------|
+| `lib/utils/geometry.js` | Ny `trajectoryPassedBridge()` funktion med linje-korsningsalgoritm |
+| `lib/services/VesselDataService.js` | Integrerar trajectory-detektion i `_hasPassedTargetBridge()` |
+| `tests/manus-specification.test.js` | 36 nya tester som validerar manus.md-specifikationen |
+
+### 🧪 **NYA TESTER**
+`manus-specification.test.js` validerar nu hela bridge text-specifikationen:
+- Meddelandeformat (på väg mot, närmar sig, inväntar, Broöppning pågår, precis passerat)
+- Prepositioner "av" vs "vid" (av för mellanbroar, vid för målbroar)
+- Stallbackabrons specialfraser
+- ETA-formatering
+- Fasövergångar
+- Flera fartygshantering
+
+---
+
+# 2025-12-26: Fix Q & R - Fas-regression över broar och finalTargetDirection ✅
+
+### 🎯 **PROBLEM**
+Nya buggar identifierade i logg 20251225-132847:
+
+| # | Rader | Problem |
+|---|-------|---------|
+| 1 | 4-5 | "närmar sig Olidebron" → "på väg mot Klaffbron" (regression approaching → en-route) |
+| 2 | 14-15 | "precis passerat Olidebron" → "närmar sig Olidebron" (regression passed → approaching) |
+| 3 | 38-39 | "närmar sig Järnvägsbron" → "på väg mot Stridsbergsbron" (regression) |
+| 4 | 50-52 | Efter passerat Stridsbergsbron norrut, visar fel "på väg mot Klaffbron" |
+
+**Rotorsak Bug 1-3:** Fix M använde vessel key `${mmsi}_${textBridge}`, så olika broar skapade olika nycklar. Regression blockerades INTE över bro-ändringar.
+
+**Rotorsak Bug 4:** `_calculateNextTargetBridge()` kontrollerade inte `_finalTargetDirection`, så GPS-fluktuation kunde ge fel riktning efter passage.
+
+### 🔧 **GENOMFÖRDA ÄNDRINGAR**
+
+#### Fix Q: MMSI-baserad fas-spårning med cykel-hantering
+**Fil:** `lib/services/BridgeTextService.js`
+
+1. **Ändrad vessel key (rad 144):**
+```javascript
+// Före:
+const vesselKey = `${vessel.mmsi}_${textBridge}`;
+
+// Efter (Fix Q):
+const vesselKey = `${vessel.mmsi}`;
+```
+
+2. **Ny cykel-hantering (rad 157-174):**
+```javascript
+// FIX Q.2: Efter "passed" vid en bro, tillåt ny cykel för ANNAN bro
+const isNewCycleAfterPassed = lastPhase === 'passed' && textBridge !== lastBridge;
+
+// Blockera regression UNDANTAG om det är en ny passage-cykel
+if (timeSinceLastPhase < PHASE_LOCK_WINDOW_MS && newPhaseOrder < lastPhaseOrder && !isNewCycleAfterPassed) {
+  return lastText; // Blockera regression
+}
+```
+
+3. **Lagra approaching-fas (rad 180):**
+```javascript
+// FIX Q.3: Lägg till 'approaching' för att blockera regression approaching → en-route
+if (['passed', 'under-bridge', 'waiting', 'approaching'].includes(newPhase)) {
+```
+
+#### Fix R: Prioritera _finalTargetDirection
+**Fil:** `lib/services/VesselDataService.js`
+
+Rad 2067-2080 - kontrollerar nu `_finalTargetDirection` FÖRE `_routeDirection`:
+```javascript
+// FIX R: Prioritera _finalTargetDirection för korrekt riktning efter passage
+if (vessel._finalTargetDirection) {
+  isNorthbound = vessel._finalTargetDirection === 'north';
+  this.logger.debug(
+    `🧭 [NEXT_TARGET_FINAL] ${vessel.mmsi}: Using finalTargetDirection=${vessel._finalTargetDirection}`,
+  );
+} else if (vessel._routeDirection && vessel._routeDirectionLockUntil && vessel._routeDirectionLockUntil > now) {
+  isNorthbound = vessel._routeDirection === 'north';
+  // ...
+}
+```
+
+### ✅ **RESULTAT**
+- Alla 72 tester passerar
+- Fas-regression blockeras nu oavsett vilken bro som nämns i texten
+- Efter "passed" vid en bro tillåts ny passage-cykel mot nästa bro
+- Korrekt riktning efter passage av slutmål (ingen felaktig "på väg mot Klaffbron")
+
+### 📁 **MODIFIERADE FILER**
+| Fil | Ändringar |
+|-----|-----------|
+| `lib/services/BridgeTextService.js` | Fix Q - MMSI-baserad key, cykel-hantering, approaching-spårning |
+| `lib/services/VesselDataService.js` | Fix R - prioriterar `_finalTargetDirection` |
+
+---
+
+# 2025-12-25: Fix N & O - Korrekt målbro och "inväntar" fas ✅
+
+### 🎯 **PROBLEM**
+Ytterligare buggar identifierade i söderut-sekvensen (rad 45-50):
+
+| Rad | Text | Problem |
+|-----|------|---------|
+| 46 | Broöppning pågår vid Järnvägsbron, beräknad broöppning av **Stridsbergsbron** | ❌ Fel målbro (borde vara Klaffbron) |
+| 45→46 | - | ❌ Saknar "inväntar Järnvägsbron" fas |
+
+### 🔧 **GENOMFÖRDA ÄNDRINGAR**
+
+#### Fix N: Använd `_pendingTarget.next` i intermediär bro-fras
+**Fil:** `lib/services/BridgeTextService.js`
+
+Rad 1309, 1452, 1719, 1737 - använder nu `_pendingTarget.next` för att visa korrekt målbro även under pending target transition:
+```javascript
+// Före:
+const targetBridge = vessel.targetBridge || bridgeName;
+
+// Efter:
+const targetBridge = vessel._pendingTarget?.next || vessel.targetBridge || bridgeName;
+```
+
+Detta säkerställer att "Broöppning pågår vid Järnvägsbron, beräknad broöppning av **Klaffbron**" visas korrekt.
+
+#### Fix O: Säkerställ "inväntar" visas innan under-bridge för nära bro-par
+**Fil:** `lib/services/StatusService.js`
+
+1. **Under-bridge blockering (rad 381-404):** Blockerar `under-bridge` status för nära bro-par (Järnvägsbron↔Stridsbergsbron) tills "inväntar" har visats:
+```javascript
+const hasShownWaiting = vessel._lastWaitingShownAt?.[vessel.currentBridge]
+  && vessel._lastWaitingShownAt[vessel.currentBridge] > vessel.lastPassedBridgeTime;
+
+if (!hasShownWaiting && timeSincePass < MIN_WAITING_DISPLAY_MS + 15000) {
+  return false; // Blockera under-bridge
+}
+```
+
+2. **Waiting-spårning (rad 573-575, 652-654):** Spårar när "inväntar" status senast visades vid varje bro:
+```javascript
+if (!vessel._lastWaitingShownAt) vessel._lastWaitingShownAt = {};
+vessel._lastWaitingShownAt[bridgeName] = Date.now();
+```
+
+### ✅ **RESULTAT**
+- Alla 72 tester passerar
+- "Broöppning pågår" visar nu korrekt målbro (Klaffbron istället för Stridsbergsbron)
+- "inväntar Järnvägsbron" fas visas nu innan "Broöppning pågår vid Järnvägsbron"
+
+### 📁 **MODIFIERADE FILER**
+| Fil | Ändringar |
+|-----|-----------|
+| `lib/services/BridgeTextService.js` | Fix N - använder `_pendingTarget.next` för korrekt målbro |
+| `lib/services/StatusService.js` | Fix O - blockerar under-bridge och spårar waiting-status |
+
+---
+
+# 2025-12-25: Fix M - Komplett fas-regression blockering ✅
+
+### 🎯 **PROBLEM**
+Efter att ha kört appen igen (logg 2025-12-24) kvarstod problem mellan Järnvägsbron och Stridsbergsbron (söderut). Specifikt:
+
+| Rad | Tid | Text | Problem |
+|-----|-----|------|---------|
+| 45 | 02:05:16 | precis passerat Stridsbergsbron | ✓ OK |
+| 46 | 02:06:16 | Broöppning pågår vid Järnvägsbron | ❌ Saknar "inväntar Järnvägsbron" |
+| 47 | 02:07:26 | precis passerat Järnvägsbron | ✓ OK |
+| 48 | 02:09:25 | Broöppning pågår vid Järnvägsbron | ❌ **REGRESSION!** Går tillbaka |
+| 49 | 02:10:55 | precis passerat Järnvägsbron | ✓ (efter regression) |
+| 50 | 02:12:09 | inväntar vid Klaffbron | (saknar ETA) |
+
+**Rotorsak:** Fix J v3 var ofullständig - den blockerade endast `passed → approaching/waiting` men missade `passed → under-bridge`.
+
+### 🔧 **GENOMFÖRDA ÄNDRINGAR**
+
+#### Fix M: PHASE_ORDER-baserad regression blockering
+**Fil:** `lib/services/BridgeTextService.js`
+
+Ersatte hardkodade regressions-checkar i `_preventPhaseRegression()` med en generell PHASE_ORDER-baserad blockering:
+
+**Före (hardkodade if-statements):**
+```javascript
+if (lastPhase === 'passed' && (newPhase === 'approaching' || newPhase === 'waiting')) {
+  return lastText;
+}
+if (lastPhase === 'under-bridge' && newPhase === 'approaching') {
+  return lastText;
+}
+```
+
+**Efter (generell PHASE_ORDER-jämförelse):**
+```javascript
+// FIX M: Blockera ALLA regressioner (när ny fas är tidigare i sekvensen)
+if (timeSinceLastPhase < PHASE_LOCK_WINDOW_MS && newPhaseOrder < lastPhaseOrder) {
+  this.logger.debug(
+    `🚫 [PHASE_LOCK] ${vessel.mmsi}@${textBridge}: Blocking regression ${lastPhase} (${lastPhaseOrder}) → ${newPhase} (${newPhaseOrder})`,
+  );
+  return lastText;
+}
+```
+
+**PHASE_ORDER:**
+```javascript
+const PHASE_ORDER = {
+  'en-route': 1,
+  'approaching': 2,
+  'waiting': 3,
+  'under-bridge': 4,
+  'passed': 5
+};
+```
+
+### ✅ **RESULTAT**
+- Alla 72 tester passerar
+- Fix M blockerar nu ALLA möjliga fas-regressioner:
+  - `passed → under-bridge` ✓ (den saknade buggen)
+  - `passed → waiting` ✓
+  - `passed → approaching` ✓
+  - `passed → en-route` ✓
+  - `under-bridge → waiting` ✓
+  - `under-bridge → approaching` ✓
+  - etc.
+
+### 📁 **MODIFIERADE FILER**
+| Fil | Ändringar |
+|-----|-----------|
+| `lib/services/BridgeTextService.js` | Fix M - ersatte hardkodade regressionsblock med PHASE_ORDER-baserad logik |
+
+---
+
+# 2025-12-24: Bridge Text Bug Fixes (Fix H, I, J, K) ✅
+
+### 🎯 **PROBLEM**
+Efter att ha kört appen med verklig AIS-data (2025-12-23 replay) identifierades 5 buggar genom att jämföra bridge text output med manus.md:
+
+| # | Problem | Förväntat (manus) |
+|---|---------|-------------------|
+| 1 | "närmar sig Olidebron" → "på väg mot Klaffbron" (regression) | Ska behålla "närmar sig Olidebron" tills avstånd ≤300m |
+| 2 | "Broöppning pågår Järnvägsbron" → "Broöppning pågår Stridsbergsbron" | Saknar: "precis passerat Järnvägsbron" + "inväntar Stridsbergsbron" |
+| 3 | "precis passerat Olidebron" → "närmar sig Olidebron" | Ska ALDRIG gå bakåt i sekvensen (GPS-drift) |
+| 4 | Efter Stridsbergsbron (N): "på väg mot Klaffbron" | Ska visa "Inga båtar..." - fel riktning |
+| 5 | Missade "precis passerat Stridsbergsbron" + "inväntar Järnvägsbron" | Se manus 123-131 för korrekt sekvens |
+
+### 🔧 **GENOMFÖRDA ÄNDRINGAR**
+
+#### Fix K: Tidig `_finalTargetBridge`-kontroll (BUG 4)
+**Fil:** `lib/services/BridgeTextService.js`
+
+Lade till tidig kontroll i `_generatePassedMessage()` (rad ~1044) som returnerar `null` omedelbart om fartyget passerat sitt slutmål, innan `_resolveFallbackTargetBridge` anropas:
+```javascript
+if (isLastPassedTargetBridge && vessel._finalTargetBridge === lastPassedBridge) {
+  return null; // Låt UI visa default "Inga båtar..."
+}
+```
+
+#### Fix H: Robust currentBridge-hantering (BUG 1)
+**Fil:** `lib/services/StatusService.js`
+
+Lade till currentBridge-sättning i `_buildStatusResult()` för en-route status när nära mellanbroar (rad ~159):
+```javascript
+const INTERMEDIATE_BRIDGES = ['Olidebron', 'Järnvägsbron', 'Stallbackabron'];
+if (INTERMEDIATE_BRIDGES.includes(nearestBridge.name) && nearestDistance <= 600) {
+  vessel.currentBridge = nearestBridge.name;
+  vessel.distanceToCurrent = nearestDistance;
+}
+```
+
+#### Fix J: Anti-regression fas-lås (BUG 3)
+**Fil:** `lib/services/BridgeTextService.js`
+
+1. **Ny Map:** `this._lastPhasePerVessel = new Map()` för att spåra senaste fas per båt/bro
+2. **Fas-detektion:** `_detectPhaseFromText(text)` - detekterar fas från textinnehåll
+3. **Bro-extraktion (KRITISK FIX):** `_extractBridgeFromText(text)` prioriterar nu "subject"-bro före "destination"-bro:
+   - Kollar `passerat/vid/av/sig/under X` för ALLA broar FÖRST
+   - Sedan `mot X` som fallback
+   - Fixar problemet där "precis passerat Olidebron på väg mot Klaffbron" felaktigt returnerade "Klaffbron"
+4. **Regression-blockering:** `_preventPhaseRegression()` blockerar:
+   - `passed → approaching/waiting` (samma bro, inom 30s)
+   - `under-bridge → approaching` (samma bro, inom 30s)
+5. **Ny publik metod:** `resetPhaseTracking(mmsi?)` - rensar fas-tracking state (för tester)
+
+#### Fix I.1: Nära bro-par hantering (BUG 2, 5)
+**Fil:** `lib/services/StatusService.js`
+
+Järnvägsbron och Stridsbergsbron är ~420m isär, vilket orsakade att "precis passerat" och "inväntar" hoppades över. Lade till 15-sekunders fördröjning i `_isWaiting()` och `_isApproaching()`:
+```javascript
+const CLOSE_BRIDGE_PAIRS = {
+  Järnvägsbron: 'Stridsbergsbron',
+  Stridsbergsbron: 'Järnvägsbron',
+};
+const MIN_PASSED_DISPLAY_MS = 15000;
+
+if (pairedBridge === vessel.targetBridge && timeSincePass < MIN_PASSED_DISPLAY_MS) {
+  return false; // Blockera waiting för att visa "precis passerat" först
+}
+```
+
+#### Test-infrastruktur
+**Fil:** `tests/journey-scenarios/RealAppTestRunner.js`
+
+Lade till anrop till `resetPhaseTracking()` i `generateBridgeTextFromVessels()` för att rensa fas-tracking state mellan test-scenarios.
+
+### ✅ **RESULTAT**
+- Alla 72 tester passerar
+- Bridge text följer manus exakt för nordgående resa
+- Ingen fas-regression pga GPS-drift
+- "precis passerat" + "inväntar" visas korrekt mellan Järnvägsbron↔Stridsbergsbron
+- Korrekt riktning visas efter slutmål (Stridsbergsbron nordgående → "Inga båtar...")
+
+### 📁 **MODIFIERADE FILER**
+| Fil | Ändringar |
+|-----|-----------|
+| `lib/services/BridgeTextService.js` | Fix K, Fix J (fas-lås, bro-extraktion, resetPhaseTracking) |
+| `lib/services/StatusService.js` | Fix H (currentBridge), Fix I.1 (nära bro delay) |
+| `tests/journey-scenarios/RealAppTestRunner.js` | Anropar resetPhaseTracking() mellan tester |
+
+---
+
+# 2025-12-23: Fixar saknad "Broöppning pågår" vid Klaffbron + regression ✅
+
+### 🎯 **PROBLEM**
+- I senaste replay-körningen (`logs/app-20251222-224450.log`) hoppade bridge text från “inväntar … vid Klaffbron” direkt till “precis passerat Klaffbron” utan att visa “Broöppning pågår vid Klaffbron”.
+- Samma körning kunde även regressa tillbaka till “precis passerat Klaffbron” när fartyget redan var vid/under Järnvägsbron.
+
+### 🔧 **GENOMFÖRDA ÄNDRINGAR**
+- **BridgeTextService:** Pending “precis passerat” spärras nu av under-bro-sekvens (och under-/närhets-kontekst) så att “Broöppning pågår” alltid kan visas först.
+- **BridgeTextService:** Grupperar fartyg med `_pendingTarget.next` som effektiv målbro för bridge text, så att “på väg mot [nästa målbro]” fungerar även innan målbro-bytet är finaliserat (300m-skyddszon).
+- **BridgeTextService:** Säkrar “precis passerat [mellanbro]” direkt efter mellanbro-passage (Olidebron/Järnvägsbron) även när status snabbt faller tillbaka till `en-route`.
+- **VesselDataService:** Förhindrar att `lastPassedBridgeTime` “förlängs”/sätts om inne i skyddszon eller vid target-transition när den redan är satt, vilket annars kan förlänga “passed”-fönstret och ge fel prioritering i texten.
+- **Replay-regression:** Utökat `tests/bridge-text-replay-logs.test.js` med `logs/ais-replay-20251222-224450.jsonl` för att låsa Klaffbron-sekvensen (inväntar → under-bro → precis passerat) och att inga “precis passerat Klaffbron” uppträder efter första Järnvägsbron-meddelandet.
+
+### ✅ **RESULTAT**
+- “Broöppning pågår vid Klaffbron” visas konsekvent före “precis passerat Klaffbron”.
+- Ingen regression tillbaka till “precis passerat Klaffbron” vid Järnvägsbron i replay-regressionen.
+
+# 2025-12-14: Fixar bridge text-"hopping" vid gles AIS + ny replay-regression ✅
+
+### 🎯 **PROBLEM**
+- I `logs/app-20251209-203609.log` syntes att bridge text ibland föll tillbaka till default (`Inga båtar...`) mitt i en pågående resa och sedan kom tillbaka (“hopping”).
+- Rotorsak: `PASSAGE_PROTECTION` i `VesselDataService.scheduleCleanup()` kunde oavsiktligt korta en redan längre cleanup-timeout, vilket tog bort fartyg mitt i “precis passerat”-fönstret när AIS-uppdateringar var glesa.
+
+### 🔧 **GENOMFÖRDA ÄNDRINGAR**
+- **Timeout-skydd:** `VesselDataService.scheduleCleanup()` säkerställer nu att passage-skydd aldrig kan korta en befintlig timeout (använder `Math.max(...)` för att bara behålla eller förlänga).
+- **Enhetstest:** Nytt test `tests/vessel-data-scheduleCleanup.test.js` som verifierar att cleanup-timeouten inte förkortas under “precis passerat”.
+- **Replay-regression:** `tests/bridge-text-replay-logs.test.js` utökad med `logs/ais-replay-20251209-203609.jsonl` (northbound MMSI 245057000 + southbound MMSI 220018000) och reset av BridgeTextService-cachar mellan replay-journeys för deterministiska sekvenskrav.
+
+### ✅ **RESULTAT**
+- Bridge text tappar inte längre bort aktiva fartyg mitt i resa p.g.a. cleanup-timeout, vilket eliminerar “hopping” i 20251209-replay.
+- Jest-sviten passerar och replay-sekvenserna innehåller manusdelarna för både nord- och sydgående resa.
+
+# 2025-12-08: ETA-golv efter bropassage + ny replay-regression ✅
+
+### 🎯 **PROBLEM**
+- Replay 20251207 gav 30–50 min ETA efter Klaffbron → Stridsbergsbron när fartyget temporärt gick ~1 knop, vilket bröt manus (ska ligga runt 20 min).
+
+### 🔧 **GENOMFÖRDA ÄNDRINGAR**
+- **ETA-hastighetsgolv:** Ny konstant `MIN_PASSAGE_ROUTE_SPEED_KNOTS=2.5` i `constants.js`. `ProgressiveETACalculator._getEffectiveSpeed()` använder nu detta golv när fartyget precis passerat en bro/pending-pass context för att undvika orimliga ETA-spikar på korta etapper.
+- **Replay-regression:** Utökat `tests/bridge-text-replay-logs.test.js` med replay-filen `logs/ais-replay-20251207-184833.jsonl` (MMSI 220018000). Testet kräver manusordning Olidebron → Klaffbron → Järnvägsbron → Stridsbergsbron och att ETA för Stridsbergsbron hålls ≤25 minuter.
+
+### ✅ **RESULTAT**
+- Produktionsloggar följer manus igen för 20251207-replay: efter Klaffbron ligger ETA till Stridsbergsbron runt 20–23 minuter i stället för 36–51.
+- Regressionstestet fångar framtida ETA-avvikelser i reala AIS-resor utan att behöva köra appen mot live-data.
+
 # Recent Changes - AIS Bridge App
+
+## 2025-11-30: Replay-regression och under-bro sekvensstabilitet ✅
+
+### 🎯 **PROBLEM**
+- Bridge text i replay-loggar saknade delar av manus (ingen “precis passerat” för målbro, Järnvägsbron hoppades över) när AIS-punkter var glesa.
+- “Precis passerat”-fönstret var för kort för produktionsintervall; pending under-bro flaggor tappades bort vid UI-mappning.
+
+### 🔧 **GENOMFÖRDA ÄNDRINGAR**
+- **Pending/under-bro i UI:** `_findRelevantBoatsForBridgeText()` bär nu med pending/syntetiska under-bro flaggor och rensar utgångna så BridgeTextService kan följa sekvensen.
+- **Passage-detektering:** När target-målbro passeras markeras en pending “precis passerat”-annons; intermediate passager loggas alltid (ingen 60s block) och läggs till `passedBridges`.
+- **BridgeTextService:** Prioriterar aktiv bro (inkl. pending/syntetisk) för under-bro, expanderar intermediär-triggen till 500 m, infogar pending/forcerade “precis passerat”-fraser även efter target-byte, och förlänger sekvensminne/“precis passerat”-fönster till 3 min/240s för gles AIS.
+- **PassageWindowManager:** Läser nu PASSAGE_TIMING-konstanterna för grace/just-passed fönster.
+- **Replay-regression:** `tests/bridge-text-replay-logs.test.js` kör nu på `logs/ais-replay-20251128-220222.jsonl` och kräver full manussekvens (Stallbacka → Stridsbergsbron → Järnvägsbron → Klaffbron).
+
+### ✅ **RESULTAT**
+- Replay från 20251128 levererar full manussekvens inkl. “Broöppning pågår”/“precis passerat” för Stridsbergs- och Järnvägsbron samt Klaffbron.
+- “Precis passerat” syns även vid glesa AIS-intervall; pending under-bro avpubliceras inte.
+- Replay-regressionstest passerar som guardrail inför fortsatta ändringar.
+
+## 2025-11-25: Notifiering dedupe, replay-spårning och Stallbacka-ETA 🛠️
+
+### 🎯 **PROBLEM**
+- Homey-flows fick dubbla notifieringar per passage (både specifik bro och “any bridge” triggas samtidigt).
+- AIS replay-filer (`ais-replay-*.jsonl`) låg tomma trots att appen loggade AIS-meddelanden.
+- Stallbackabron tappade korrekt ETA-dynamik när “under bridge”/“precis passerat” tvingades fram utan `currentBridge`.
+
+### 🔧 **GENOMFÖRDA ÄNDRINGAR**
+- **Flow-triggers:** `_onVesselStatusChanged` triggar nu endast det bro-specifika boat_near-kortet (inklusive `stallbacka-waiting`), dedupe rensas även för Stallbacka. “Any bridge” matchas via run-listenern utan extra trigger, vilket tar bort dubletter.
+- **Final målbro:** `_hasPassedFinalTargetBridge` kräver nu Stallbackabron (norrgående) respektive Olidebron (södergående) innan en resa anses färdigstängd.
+- **Stallbacka-ETA:** `BridgeTextService` beräknar ETA live även när `currentBridge` saknas (pending/syntetisk under-bro) och biasar under/passerat-ETA så manus följer förväntade minuter.
+- **AIS replay:** Appen loggar alltid `[AIS_REPLAY_SAMPLE] {json}` till stdout och skriver till fil när `AIS_REPLAY_CAPTURE_FILE` finns. `run-with-logs.sh` grep:ar nu upp replay-rader direkt från Homey-utskrifterna så jsonl-filer fylls.
+- **Tester:** Nya regressionsfall för pending under-bridge utan `currentBridge` och final-target-stängning; samtliga bridge-text-tester och final-target-tester passerar.
+
+### ✅ **RESULTAT**
+- Endast en notifiering per passage, och flows med “alla broar” fungerar via befintlig run-listener-matchning.
+- Bridge text följer manus även vid saknade `currentBridge`-värden och visar stabil ETA runt Stallbackabron.
+- AIS replay-filer fylls vid nästa körning med `./run-with-logs.sh`, vilket möjliggör reproducerbara tester med produktionsdata.
 
 ## 2025-11-12: Bridge text enforces under-bridge stage ✅
 

@@ -13,7 +13,7 @@ const mockLogger = {
   warn: jest.fn(),
 };
 
-describe('StatusService synthetic under-bridge handling', () => {
+describe('StatusService bridge opening handling', () => {
   let statusService;
   let proximityService;
   let vessel;
@@ -47,11 +47,11 @@ describe('StatusService synthetic under-bridge handling', () => {
       currentBridge: 'Olidebron',
       lastPassedBridge: 'Olidebron',
       lastPassedBridgeTime: Date.now() - 15 * 1000,
-      _syntheticUnderBridgeUntil: Date.now() + 4000,
+      _bridgeOpeningUntil: Date.now() + 4000,
     };
   });
 
-  test('holds status during synthetic under-bridge window', () => {
+  test('holds status during bridge opening window', () => {
     const proximityData = proximityService.analyzeVesselProximity(vessel);
     const result = statusService.analyzeVesselStatus(vessel, proximityData);
 
@@ -59,12 +59,14 @@ describe('StatusService synthetic under-bridge handling', () => {
     expect(result.statusReason).not.toBe('vessel_recently_passed');
   });
 
-  test('returns to passed once synthetic window expires', () => {
+  test('returns to passed once bridge opening window expires', () => {
     const proximityDataHold = proximityService.analyzeVesselProximity(vessel);
     statusService.analyzeVesselStatus(vessel, proximityDataHold);
 
-    vessel._syntheticUnderBridgeUntil = Date.now() - 1000;
-    vessel.lat = vessel.lat + 0.001; // Move ~110m away to exit under-bridge zone
+    vessel._bridgeOpeningUntil = Date.now() - 1000;
+    vessel.lat += 0.001; // Move ~110m away to exit under-bridge zone
+    // FIX G: Återställ debounce-timer för att tillåta status-ändring
+    vessel._lastStatusChangeTime = Date.now() - 10000; // 10 sekunder sedan
     const proximityDataAfter = proximityService.analyzeVesselProximity(vessel);
     const resultAfter = statusService.analyzeVesselStatus(vessel, proximityDataAfter);
 

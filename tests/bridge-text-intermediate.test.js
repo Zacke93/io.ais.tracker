@@ -10,7 +10,7 @@ const logger = {
   error: jest.fn(),
 };
 
-describe('BridgeTextService intermediate bridge messaging', () => {
+describe('BridgeTextService intermediate bridge messaging (stateless)', () => {
   let service;
   let vesselDataService;
 
@@ -21,11 +21,10 @@ describe('BridgeTextService intermediate bridge messaging', () => {
     service = new BridgeTextService(bridgeRegistry, logger, null, vesselDataService, null);
   });
 
-  test('generates "Broöppning pågår" for intermediate under-bridge', () => {
+  test('generates "Broöppning pågår" for intermediate under-bridge (<50m)', () => {
     const vessel = {
       mmsi: '304225000',
       name: 'Test Vessel',
-      status: 'under-bridge',
       currentBridge: 'Olidebron',
       targetBridge: 'Klaffbron',
       etaMinutes: 9,
@@ -40,9 +39,9 @@ describe('BridgeTextService intermediate bridge messaging', () => {
     expect(text).toContain('Broöppning pågår vid Olidebron');
   });
 
-  test('generates "precis passerat" för målbro efter att broöppning visats', () => {
+  test('generates "precis passerat" for target bridge', () => {
     const now = Date.now();
-    const baseVessel = {
+    const vessel = {
       mmsi: '304225000',
       name: 'Test Vessel',
       targetBridge: 'Stridsbergsbron',
@@ -51,100 +50,57 @@ describe('BridgeTextService intermediate bridge messaging', () => {
       cog: 15,
       lat: constants.BRIDGES.klaffbron.lat + 0.01,
       lon: constants.BRIDGES.klaffbron.lon,
-    };
-
-    // Först registreras under-bro-stadiet
-    const underStage = {
-      ...baseVessel,
-      status: 'under-bridge',
-      currentBridge: 'Klaffbron',
-      distanceToCurrent: 25,
-      _pendingUnderBridgeBridgeName: 'Klaffbron',
-      _pendingUnderBridgeSetAt: now - 500,
-    };
-    service.generateBridgeText([underStage]);
-
-    const vessel = {
-      ...baseVessel,
-      status: 'passed',
       lastPassedBridge: 'Klaffbron',
-      lastPassedBridgeTime: now - 15 * 1000,
+      lastPassedBridgeTime: now - 15000,
     };
 
     const text = service.generateBridgeText([vessel]);
     expect(text).toMatch(/En båt har precis passerat Klaffbron på väg mot Stridsbergsbron/);
   });
 
-  test('uses "inväntar broöppning" phrasing when vessel is waiting at intermediate bridge', () => {
+  test('shows distance-based text for vessel near intermediate bridge', () => {
     const vessel = {
       mmsi: '304225000',
       name: 'Test Vessel',
-      status: 'waiting',
       currentBridge: 'Olidebron',
       targetBridge: 'Klaffbron',
       etaMinutes: 8,
       distanceToCurrent: 120,
+      cog: 12,
     };
 
     const text = service.generateBridgeText([vessel]);
-    expect(text).toBe('En båt inväntar broöppning av Olidebron på väg mot Klaffbron, beräknad broöppning om 8 minuter');
+    expect(text).toMatch(/En båt 120m från Olidebron på väg mot Klaffbron/);
   });
 
-  test('falls back to "på väg mot" when not actively waiting at intermediate bridge', () => {
+  test('shows "på väg mot" for far vessel with intermediate currentBridge', () => {
     const vessel = {
       mmsi: '304225000',
       name: 'Test Vessel',
-      status: 'en-route',
       currentBridge: 'Olidebron',
       targetBridge: 'Klaffbron',
       etaMinutes: 8,
-      distanceToCurrent: 120,
+      distanceToCurrent: 600,
+      cog: 12,
     };
 
     const text = service.generateBridgeText([vessel]);
-    expect(text).toBe('En båt på väg mot Klaffbron, beräknad broöppning om 8 minuter');
+    // >=500m → "på väg mot [target]"
+    expect(text).toMatch(/En båt på väg mot Klaffbron/);
   });
 
-  test('shows "Broöppning pågår" when synthetic under-bridge hold is active', () => {
-    const now = Date.now();
+  test('shows "Broöppning pågår vid Järnvägsbron" for <50m', () => {
     const vessel = {
       mmsi: '304225000',
       name: 'Synthetic Hold',
-      status: 'waiting',
       currentBridge: 'Järnvägsbron',
       targetBridge: 'Stridsbergsbron',
-      distanceToCurrent: 180,
+      distanceToCurrent: 25,
       etaMinutes: 5,
-      _syntheticUnderBridgeUntil: now + 5000,
-      _syntheticUnderBridgeBridgeName: 'Järnvägsbron',
+      cog: 10,
     };
 
     const text = service.generateBridgeText([vessel]);
     expect(text).toContain('Broöppning pågår vid Järnvägsbron');
-  });
-
-  test('delays "precis passerat" until "Broöppning pågår" har visats', () => {
-    const now = Date.now();
-    const vessel = {
-      mmsi: '555666777',
-      name: 'Sequence Vessel',
-      status: 'passed',
-      targetBridge: 'Stridsbergsbron',
-      lastPassedBridge: 'Klaffbron',
-      lastPassedBridgeTime: now - 4000,
-      etaMinutes: 17,
-      lat: constants.BRIDGES.klaffbron.lat,
-      lon: constants.BRIDGES.klaffbron.lon,
-      currentBridge: 'Klaffbron',
-      distanceToCurrent: 120,
-      _pendingUnderBridgeBridgeName: 'Klaffbron',
-      _pendingUnderBridgeSetAt: now - 500,
-    };
-
-    const first = service.generateBridgeText([vessel]);
-    expect(first).toContain('Broöppning pågår vid Klaffbron');
-
-    const second = service.generateBridgeText([vessel]);
-    expect(second).toMatch(/En båt har precis passerat Klaffbron/);
   });
 });
