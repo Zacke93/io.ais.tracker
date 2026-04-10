@@ -235,7 +235,8 @@ describe('targetBridge disappearance reproduction (log 20260308-114134)', () => 
     console.log(`  Klaffbron passage detected: ${klaffbronPassed}`);
     console.log(`  Transition to Stridsbergsbron: ${transitionToStridsbergsbron}`);
 
-    // This is diagnostic — we expect to see where things go wrong
-    expect(true).toBe(true);
+    // Verify passage detection and target transition work correctly
+    expect(klaffbronPassed).toBe(true);
+    expect(transitionToStridsbergsbron).toBe(true);
   });
 });
