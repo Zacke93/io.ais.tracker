@@ -1,5 +1,49 @@
 # Recent Changes - AIS Bridge App
 
+# 2026-04-12: Bridge Text Variant-1 refactor ✅
+
+### 🎯 **PROBLEM**
+Granskning av `app-20260410-211049.log` visade att 4-fas-modellen (`inväntar` / `Broöppning pågår` / `precis passerat`) tappade 7 fraser över 4 resor. Rotorsaker:
+
+- **AIS-sampling ~60s** tillåter båtar att röra sig 90–150m mellan samples — 500m/300m/50m-zonerna kan korsas utan att något sample fångar dem.
+- **Närliggande broar konkurrerar om UI-utrymmet** — när Järnvägsbron är `under-bridge` döljs Stridsbergsbrons `inväntar`-fas trots att båten är inom 300m.
+
+Detta stred mot principen i `bridgeTextFormat.md` att inga viktiga faser ska hoppas över.
+
+### 🔧 **LÖSNING: Variant-1 (en fras per målbro)**
+Ersatte 4-fas-modellen med en enda fras per målbro-grupp. Format:
+
+```
+[Antal] [båt|båtar] på väg mot [Klaffbron|Stridsbergsbron], beräknad broöppning om X minuter
+```
+
+- ETA < 1 min → `beräknad broöppning strax`
+- ETA = 1 min → `beräknad broöppning om 1 minut` (singular)
+- Multi-vessel: aggregerat antal (`En`, `Två`, ..., `Tio`, `11+`); ETA = närmaste båten
+- Två målbroar samtidigt: semikolon-separering (`...; En båt på väg mot ...`)
+- Mellanbroar (Olidebron, Järnvägsbron, Stallbackabron) nämns aldrig
+- Ingen `precis passerat`-fras — direkt övergång till nästa målbro när `VesselDataService` byter `targetBridge`
+
+### 🧪 **VARFÖR 100% KONSEKVENT**
+- **En regel, en fras-typ** → ingen risk för fas-kollision eller kompression
+- **Pure function** av `vessels` → samma input ger alltid samma output; inget state, ingen timer
+- **Passage-detektion frikopplad** — `VesselDataService` hanterar passage via trajectory-intersection som är matematiskt deterministisk; bridge text läser bara `targetBridge` och `etaMinutes`
+
+### 📂 **FILER**
+- `lib/services/BridgeTextService.js` — 736 → 177 rader (omskriven)
+- `tests/bridge-text-variant1.test.js` — ny (45 tester)
+- `tests/comprehensive/golden-snapshots.json` — regenererad (20 journeys × 53 steg)
+- `docs/bridgeTextFormat.md` — omskriven
+- Raderade 24 fas-specifika testfiler (`phase2-*`, `phase3-*`, `bridge-text-canonical-*`, `manus-*`, `production-log-*`, m.fl.)
+
+### ✅ **VERIFIERING**
+- `npm test tests/bridge-text-variant1.test.js` → 45/45 ✅
+- `npm test tests/comprehensive/` → 22/22 ✅
+- Golden snapshots validerade: inga förbjudna ord (`inväntar`, `pågår`, `precis passerat`, `ETA `, `Olidebron`, `Järnvägsbron`, `Stallbackabron`) förekommer i output
+- Bibehållen infrastruktur: VesselDataService, StatusService, ProgressiveETACalculator, AISStreamClient, PassageLatchService, flow triggers — alla oförändrade
+
+---
+
 # 2025-01-17: Fix U - Säkerställ "inväntar broöppning" för nära bro-par ✅
 
 ### 🎯 **PROBLEM**
