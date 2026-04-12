@@ -497,6 +497,9 @@ class RealAppTestRunner {
       this.app.bridgeTextService.resetPhaseTracking();
     }
 
+    // Invalidate bridge text cache so empty-vessel scenarios regenerate from fresh state
+    this._bridgeTextCache = null;
+
     // Process each provided vessel as AIS message
     for (const vessel of vessels) {
       await this._processVesselAsAISMessage(vessel);
