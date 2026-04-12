@@ -58,7 +58,7 @@
     {
       "step": 12,
       "description": "Passed Klaffbron, journey complete",
-      "expectedText": "En båt på väg mot Klaffbron, beräknad broöppning om 2 minuter"
+      "expectedText": "Inga båtar är i närheten av Klaffbron eller Stridsbergsbron"
     }
   ],
   "Journey 2: Single vessel South→North (complete passage)": [
@@ -100,7 +100,7 @@
     {
       "step": 8,
       "description": "Journey complete",
-      "expectedText": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 3 minuter"
+      "expectedText": "Inga båtar är i närheten av Klaffbron eller Stridsbergsbron"
     }
   ],
   "Journey 3: Fast vessel (8 knots) timing validation": [
@@ -287,7 +287,7 @@
     {
       "step": 1,
       "description": "No vessels in system",
-      "expectedText": "En båt på väg mot Stridsbergsbron, beräknad broöppning strax"
+      "expectedText": "Inga båtar är i närheten av Klaffbron eller Stridsbergsbron"
     }
   ],
   "Edge: Vessel with missing name": [
