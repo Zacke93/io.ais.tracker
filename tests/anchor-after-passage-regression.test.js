@@ -69,15 +69,25 @@ describe('Anchor after passage regression (HMS ARCTURUS bug)', () => {
     // Simulate northbound approach to Klaffbron via several AIS updates
     const aisUpdates = [
       // Approaching Klaffbron from ~500m south
-      { lat: 58.27960, lon: 12.28150, sog: 5.9, cog: 17 },
+      {
+        lat: 58.27960, lon: 12.28150, sog: 5.9, cog: 17,
+      },
       // ~350m from Klaffbron
-      { lat: 58.28100, lon: 12.28280, sog: 6.0, cog: 17 },
+      {
+        lat: 58.28100, lon: 12.28280, sog: 6.0, cog: 17,
+      },
       // ~170m from Klaffbron (within protection zone)
-      { lat: 58.28260, lon: 12.28356, sog: 6.0, cog: 10 },
+      {
+        lat: 58.28260, lon: 12.28356, sog: 6.0, cog: 10,
+      },
       // ~21m from Klaffbron (just passing)
-      { lat: 58.28428, lon: 12.28404, sog: 6.1, cog: 8 },
+      {
+        lat: 58.28428, lon: 12.28404, sog: 6.1, cog: 8,
+      },
       // Just past Klaffbron (~200m north, within protection zone)
-      { lat: 58.28586, lon: 12.28538, sog: 0.9, cog: 154 },
+      {
+        lat: 58.28586, lon: 12.28538, sog: 0.9, cog: 154,
+      },
     ];
 
     let vessel;

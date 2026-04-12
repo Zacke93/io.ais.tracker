@@ -3355,7 +3355,12 @@ class AISBridgeApp extends Homey.App {
     // Messages containing these patterns are "basic" (always shown when not off)
     // Everything else requires "detailed", AIS raw data requires "full"
     let requiredLevel = 2; // default: detailed
-    if (/\[UI_UPDATE\]|\[TARGET_BRIDGE_PASSED\]|\[TARGET_TRANSITION\]|\[JOURNEY_COMPLETED\]|\[BRIDGE_OPENING\]|\[INTERMEDIATE_PASSAGE\]|\[VESSEL_ENTERED\]|\[VESSEL_REMOVED\]|\[STATUS_CHANGED\]/.test(message)) {
+    const basicTags = [
+      'UI_UPDATE', 'TARGET_BRIDGE_PASSED', 'TARGET_TRANSITION', 'JOURNEY_COMPLETED',
+      'BRIDGE_OPENING', 'INTERMEDIATE_PASSAGE', 'VESSEL_ENTERED', 'VESSEL_REMOVED', 'STATUS_CHANGED',
+    ];
+    const basicPattern = new RegExp(basicTags.map((t) => `\\[${t}\\]`).join('|'));
+    if (basicPattern.test(message)) {
       requiredLevel = 1; // basic
     } else if (/\[AIS_RAW\]|\[POSITION_ANALYSIS\]|\[PROXIMITY_ANALYSIS\]|\[ETA_CALC\]|\[COALESCING\]|\[SNAPSHOT\]/.test(message)) {
       requiredLevel = 3; // full
