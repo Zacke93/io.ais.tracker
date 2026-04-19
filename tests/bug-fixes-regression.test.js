@@ -240,31 +240,83 @@ describe('Bug #6 — absolute ETA jump clamp', () => {
   });
 });
 
-describe('Bug #11 — ETA > 30 min clamps to qualitative phrase', () => {
+describe('Bug #11 follow-up — no upper cap, honest large-ETA values', () => {
+  // The original Bug #11 fix clamped ETA > 30 min to "inväntar broöppning".
+  // After deeper review (Bug #3 + #6 pipelines are now trustworthy), the
+  // clamp was removed: large values are shown verbatim so users see the
+  // real state of a slow/stationary vessel instead of a misleading phrase.
   const makeService = () => new BridgeTextService(null, mockLogger());
 
-  test('ETA = 45 min → "inväntar broöppning"', () => {
+  test('ETA = 45 min → "om 45 minuter"', () => {
     const vessels = [{ mmsi: '1', targetBridge: 'Klaffbron', etaMinutes: 45 }];
     expect(makeService().generateBridgeText(vessels))
-      .toBe('En båt på väg mot Klaffbron, inväntar broöppning');
+      .toBe('En båt på väg mot Klaffbron, beräknad broöppning om 45 minuter');
   });
 
-  test('ETA = 106 min (seen in log) → "inväntar broöppning"', () => {
+  test('ETA = 106 min (seen in log) → "om 106 minuter"', () => {
     const vessels = [{ mmsi: '1', targetBridge: 'Stridsbergsbron', etaMinutes: 106 }];
     expect(makeService().generateBridgeText(vessels))
-      .toBe('En båt på väg mot Stridsbergsbron, inväntar broöppning');
+      .toBe('En båt på väg mot Stridsbergsbron, beräknad broöppning om 106 minuter');
   });
 
-  test('ETA = 30 min (boundary) → "om 30 minuter" preserved', () => {
+  test('ETA = 30 min → "om 30 minuter"', () => {
     const vessels = [{ mmsi: '1', targetBridge: 'Klaffbron', etaMinutes: 30 }];
     expect(makeService().generateBridgeText(vessels))
       .toBe('En båt på väg mot Klaffbron, beräknad broöppning om 30 minuter');
   });
 
-  test('ETA = 30.9 min (rounds to 31) → "inväntar broöppning"', () => {
+  test('ETA = 30.9 min (rounds to 31) → "om 31 minuter"', () => {
     const vessels = [{ mmsi: '1', targetBridge: 'Klaffbron', etaMinutes: 30.9 }];
     expect(makeService().generateBridgeText(vessels))
-      .toBe('En båt på väg mot Klaffbron, inväntar broöppning');
+      .toBe('En båt på väg mot Klaffbron, beräknad broöppning om 31 minuter');
+  });
+
+  test('ETA = null → "ETA okänd" (honest failure signal)', () => {
+    const vessels = [{ mmsi: '1', targetBridge: 'Klaffbron', etaMinutes: null }];
+    expect(makeService().generateBridgeText(vessels))
+      .toBe('En båt på väg mot Klaffbron, ETA okänd');
+  });
+
+  test('ETA = NaN → "ETA okänd"', () => {
+    const vessels = [{ mmsi: '1', targetBridge: 'Klaffbron', etaMinutes: NaN }];
+    expect(makeService().generateBridgeText(vessels))
+      .toBe('En båt på väg mot Klaffbron, ETA okänd');
+  });
+});
+
+describe('Under-bridge ETA handling (alternativ 1 — no "Broöppning pågår" phrase)', () => {
+  // Decision: skip the "Broöppning pågår" phrase entirely. Instead, let the
+  // ETA calculation work for under-bridge vessels too — a vessel 10m from
+  // the target bridge at speed-floor 0.5kn yields ~0.65 min → naturally
+  // renders as "strax". Under-bridge-vessels with null ETA would show
+  // "ETA okänd" which is wrong — they're exactly where the bridge opens.
+  const makeService = () => new BridgeTextService(null, mockLogger());
+
+  test('single under-bridge vessel with computed low ETA shows "strax"', () => {
+    const vessels = [{
+      mmsi: '1',
+      targetBridge: 'Klaffbron',
+      status: 'under-bridge',
+      etaMinutes: 0.3,
+    }];
+    expect(makeService().generateBridgeText(vessels))
+      .toBe('En båt på väg mot Klaffbron, beräknad broöppning strax');
+  });
+
+  test('under-bridge with low ETA dominates group over waiting vessel', () => {
+    // Lead vessel selection picks lowest valid ETA, so under-bridge (0.4)
+    // wins over waiting (3.0). The output correctly signals that the
+    // bridge is opening NOW for one of the two vessels.
+    const vessels = [
+      {
+        mmsi: '1', targetBridge: 'Klaffbron', status: 'under-bridge', etaMinutes: 0.4,
+      },
+      {
+        mmsi: '2', targetBridge: 'Klaffbron', status: 'waiting', etaMinutes: 3,
+      },
+    ];
+    expect(makeService().generateBridgeText(vessels))
+      .toBe('Två båtar på väg mot Klaffbron, beräknad broöppning strax');
   });
 });
 

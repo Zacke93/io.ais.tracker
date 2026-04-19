@@ -23,10 +23,14 @@ Beräknas från gruppens ledande båt — den båt i gruppen med lägst giltig `
 
 | `etaMinutes` | Klausul |
 |---|---|
-| `null`, `undefined`, `NaN`, `≤ 0`, ogiltig | `beräknad broöppning strax` |
+| `null`, `undefined`, `NaN`, ogiltig | `ETA okänd` |
 | `< 1` | `beräknad broöppning strax` |
 | `1` (efter avrundning) | `beräknad broöppning om 1 minut` |
 | `N ≥ 2` (efter avrundning) | `beräknad broöppning om N minuter` |
+
+**Inget tak på ETA-värdet.** Stora värden (40, 80, 120 minuter) visas verbatim — efter Bug #3/#6-fixen ger ETA-pipelinen trovärdiga värden även för stillastående båtar, så att visa 72 minuter ärligt är bättre än att klampa till en fras som lovar något annat.
+
+**"ETA okänd"** triggas endast vid systemfel (ogiltig beräkning, NaN, geometri-fel). I normal drift ska detta aldrig visas; om det gör det är det en signal att något gått fel i ETA-pipelinen.
 
 ## Semikolon-separering
 
