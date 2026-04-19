@@ -208,8 +208,8 @@
     },
     {
       "step": 3,
-      "description": "Under Olidebron (30m)",
-      "expectedText": "En båt på väg mot Klaffbron, beräknad broöppning strax"
+      "description": "Under Olidebron (30m) — now shows honest ETA to target Klaffbron (not 'strax'). Previously etaMinutes was nulled for under-bridge vessels, which the old ETA-clause formatter rendered as 'strax' — a false promise since the vessel is still >500m from the target.",
+      "expectedText": "En båt på väg mot Klaffbron, beräknad broöppning om 6 minuter"
     }
   ],
   "Intermediate bridge: Järnvägsbron messages": [
@@ -220,8 +220,8 @@
     },
     {
       "step": 2,
-      "description": "Under Järnvägsbron (30m)",
-      "expectedText": "En båt på väg mot Klaffbron, beräknad broöppning strax"
+      "description": "Under Järnvägsbron (30m) — now shows honest ETA to target Klaffbron (southbound) instead of 'strax'. The vessel is still >500m from Klaffbron.",
+      "expectedText": "En båt på väg mot Klaffbron, beräknad broöppning om 6 minuter"
     }
   ],
   "Multi: 2 vessels waiting at Klaffbron": [
@@ -234,8 +234,8 @@
   "Multi: 2 vessels same bridge (one waiting, one under-bridge)": [
     {
       "step": 1,
-      "description": "One under-bridge, one waiting",
-      "expectedText": "Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 3 minuter"
+      "description": "One under-bridge at target, one waiting 3 min away. The under-bridge vessel now has a computed ETA (~0.3 min) so it becomes the group lead, rendering 'strax' — accurately signalling that the bridge is opening NOW for vessel 1. Previously the under-bridge vessel was ignored (null ETA) and the wait-3-min vessel dominated.",
+      "expectedText": "Två båtar på väg mot Stridsbergsbron, beräknad broöppning strax"
     }
   ],
   "Multi: 2 vessels different target bridges (semicolon)": [

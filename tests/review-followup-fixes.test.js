@@ -21,8 +21,7 @@ const BridgeTextService = require('../lib/services/BridgeTextService');
 const ProgressiveETACalculator = require('../lib/services/ProgressiveETACalculator');
 const {
   formatETABroOpeningClause,
-  clampETAMinutesForDisplay,
-  ETA_CLAMP_THRESHOLD_MINUTES,
+  etaMinutesForDisplay,
 } = require('../lib/utils/etaValidation');
 
 const mockLogger = () => ({
@@ -136,11 +135,15 @@ describe('Review C2 — _underBridgeSince preserved across AIS updates', () => {
   });
 });
 
-describe('Review H2 — ETA clamp helper works as SSOT across all paths', () => {
-  test('formatETABroOpeningClause returns "inväntar broöppning" for >30min', () => {
-    expect(formatETABroOpeningClause(45)).toBe('inväntar broöppning');
-    expect(formatETABroOpeningClause(106)).toBe('inväntar broöppning');
-    expect(formatETABroOpeningClause(31)).toBe('inväntar broöppning');
+describe('Review H2 — ETA clause helper as SSOT across all paths', () => {
+  // Behaviour was tightened after review follow-up: no upper cap on large
+  // ETAs (values are honest), and invalid ETA renders as "ETA okänd" rather
+  // than "strax" (which falsely promised an imminent opening).
+
+  test('formatETABroOpeningClause returns verbatim text for large values (no cap)', () => {
+    expect(formatETABroOpeningClause(45)).toBe('beräknad broöppning om 45 minuter');
+    expect(formatETABroOpeningClause(106)).toBe('beräknad broöppning om 106 minuter');
+    expect(formatETABroOpeningClause(31)).toBe('beräknad broöppning om 31 minuter');
   });
 
   test('formatETABroOpeningClause returns normal text for <= 30min', () => {
@@ -149,23 +152,28 @@ describe('Review H2 — ETA clamp helper works as SSOT across all paths', () => 
     expect(formatETABroOpeningClause(0.5)).toBe('beräknad broöppning strax');
   });
 
-  test('formatETABroOpeningClause is resilient to null/undefined/NaN', () => {
-    expect(formatETABroOpeningClause(null)).toBe('beräknad broöppning strax');
-    expect(formatETABroOpeningClause(undefined)).toBe('beräknad broöppning strax');
-    expect(formatETABroOpeningClause(NaN)).toBe('beräknad broöppning strax');
+  test('formatETABroOpeningClause returns "ETA okänd" for invalid ETA', () => {
+    expect(formatETABroOpeningClause(null)).toBe('ETA okänd');
+    expect(formatETABroOpeningClause(undefined)).toBe('ETA okänd');
+    expect(formatETABroOpeningClause(NaN)).toBe('ETA okänd');
+    expect(formatETABroOpeningClause(-1)).toBe('ETA okänd');
+    expect(formatETABroOpeningClause(0)).toBe('ETA okänd');
+    expect(formatETABroOpeningClause(Infinity)).toBe('ETA okänd');
   });
 
-  test('clampETAMinutesForDisplay returns ceiling at threshold', () => {
-    expect(clampETAMinutesForDisplay(106)).toBe(ETA_CLAMP_THRESHOLD_MINUTES);
-    expect(clampETAMinutesForDisplay(30)).toBe(30);
-    expect(clampETAMinutesForDisplay(null)).toBeNull();
+  test('etaMinutesForDisplay rounds without clamping', () => {
+    expect(etaMinutesForDisplay(106)).toBe(106);
+    expect(etaMinutesForDisplay(30)).toBe(30);
+    expect(etaMinutesForDisplay(30.9)).toBe(31);
+    expect(etaMinutesForDisplay(null)).toBeNull();
+    expect(etaMinutesForDisplay(NaN)).toBeNull();
   });
 
-  test('BridgeTextService now delegates to helper (regression: identical output)', () => {
+  test('BridgeTextService delegates to helper (large value shown verbatim)', () => {
     const service = new BridgeTextService(null, mockLogger());
     const vessels = [{ mmsi: '1', targetBridge: 'Klaffbron', etaMinutes: 85 }];
     expect(service.generateBridgeText(vessels))
-      .toBe('En båt på väg mot Klaffbron, inväntar broöppning');
+      .toBe('En båt på väg mot Klaffbron, beräknad broöppning om 85 minuter');
   });
 });
 

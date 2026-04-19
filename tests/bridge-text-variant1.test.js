@@ -112,68 +112,72 @@ describe('BridgeTextService — Variant-1 format contract', () => {
       );
     });
 
-    test('ETA = null → "strax"', () => {
+    // Invalid / out-of-range ETA values → "ETA okänd" (honest failure signal).
+    // This should never trigger in normal operation; if it does, it indicates
+    // a bug in the ETA pipeline. Previously these rendered as "strax", which
+    // falsely promised an imminent bridge opening.
+    test('ETA = null → "ETA okänd"', () => {
       const v = mkVessel({ etaMinutes: null });
       expect(makeService().generateBridgeText([v])).toBe(
-        'En båt på väg mot Klaffbron, beräknad broöppning strax',
+        'En båt på väg mot Klaffbron, ETA okänd',
       );
     });
 
-    test('ETA = undefined → "strax"', () => {
+    test('ETA = undefined → "ETA okänd"', () => {
       const v = mkVessel({ etaMinutes: undefined });
       expect(makeService().generateBridgeText([v])).toBe(
-        'En båt på väg mot Klaffbron, beräknad broöppning strax',
+        'En båt på väg mot Klaffbron, ETA okänd',
       );
     });
 
-    test('ETA = NaN → "strax"', () => {
+    test('ETA = NaN → "ETA okänd"', () => {
       const v = mkVessel({ etaMinutes: NaN });
       expect(makeService().generateBridgeText([v])).toBe(
-        'En båt på väg mot Klaffbron, beräknad broöppning strax',
+        'En båt på väg mot Klaffbron, ETA okänd',
       );
     });
 
-    test('ETA = 0 → "strax"', () => {
+    test('ETA = 0 → "ETA okänd" (not > 0, treated as invalid)', () => {
       const v = mkVessel({ etaMinutes: 0 });
       expect(makeService().generateBridgeText([v])).toBe(
-        'En båt på väg mot Klaffbron, beräknad broöppning strax',
+        'En båt på väg mot Klaffbron, ETA okänd',
       );
     });
 
-    test('ETA = -5 → "strax"', () => {
+    test('ETA = -5 → "ETA okänd"', () => {
       const v = mkVessel({ etaMinutes: -5 });
       expect(makeService().generateBridgeText([v])).toBe(
-        'En båt på väg mot Klaffbron, beräknad broöppning strax',
+        'En båt på väg mot Klaffbron, ETA okänd',
       );
     });
 
-    test('ETA = Infinity → "strax"', () => {
+    test('ETA = Infinity → "ETA okänd"', () => {
       const v = mkVessel({ etaMinutes: Infinity });
       expect(makeService().generateBridgeText([v])).toBe(
-        'En båt på väg mot Klaffbron, beräknad broöppning strax',
+        'En båt på väg mot Klaffbron, ETA okänd',
       );
     });
 
-    test('ETA = 30 min → "om 30 minuter" (upper boundary kept)', () => {
+    test('ETA = 30 min → "om 30 minuter"', () => {
       const v = mkVessel({ etaMinutes: 30 });
       expect(makeService().generateBridgeText([v])).toBe(
         'En båt på väg mot Klaffbron, beräknad broöppning om 30 minuter',
       );
     });
 
-    test('ETA = 59 min → "inväntar broöppning" (Bug #11: clamp > 30 min)', () => {
-      // Large ETAs observed in production (60, 83, 106 min) are produced by
-      // near-stationary vessels and confuse users. Fall back to qualitative phrase.
+    test('ETA = 59 min → "om 59 minuter" (no upper cap)', () => {
+      // Post-fix ETA pipeline is trustworthy — show large values verbatim
+      // rather than clamping to a phrase that implies the vessel is at the bridge.
       const v = mkVessel({ etaMinutes: 59 });
       expect(makeService().generateBridgeText([v])).toBe(
-        'En båt på väg mot Klaffbron, inväntar broöppning',
+        'En båt på väg mot Klaffbron, beräknad broöppning om 59 minuter',
       );
     });
 
-    test('ETA = 120 min → "inväntar broöppning" (Bug #11: clamp > 30 min)', () => {
+    test('ETA = 120 min → "om 120 minuter" (no upper cap)', () => {
       const v = mkVessel({ etaMinutes: 120 });
       expect(makeService().generateBridgeText([v])).toBe(
-        'En båt på väg mot Klaffbron, inväntar broöppning',
+        'En båt på väg mot Klaffbron, beräknad broöppning om 120 minuter',
       );
     });
   });
@@ -241,9 +245,12 @@ describe('BridgeTextService — Variant-1 format contract', () => {
         mkVessel({ mmsi: '111', etaMinutes: null, distanceToCurrent: 500 }),
         mkVessel({ mmsi: '222', etaMinutes: null, distanceToCurrent: 200 }),
       ];
-      // Both have ETA=null → fallback to distance ordering; ETA clause is "strax"
+      // Both have ETA=null → lead selection falls back to distance ordering,
+      // but the lead's etaMinutes is still null → "ETA okänd" clause.
+      // In normal operation vessels with null ETA should not be in the relevant
+      // set; this test guards the grammatical output for the edge case.
       expect(makeService().generateBridgeText(vessels)).toBe(
-        'Två båtar på väg mot Klaffbron, beräknad broöppning strax',
+        'Två båtar på väg mot Klaffbron, ETA okänd',
       );
     });
   });
@@ -352,7 +359,9 @@ describe('BridgeTextService — Invariants', () => {
     [{ mmsi: '111', targetBridge: 'Klaffbron', etaMinutes: 5 }],
     [{ mmsi: '111', targetBridge: 'Stridsbergsbron', etaMinutes: 1 }],
     [{ mmsi: '111', targetBridge: 'Klaffbron', etaMinutes: 0.3 }],
-    [{ mmsi: '111', targetBridge: 'Klaffbron', etaMinutes: null }],
+    // etaMinutes:null scenario removed — now renders "ETA okänd" which is
+    // covered by dedicated tests above. Invariants below (no "ETA " uppercase,
+    // must contain "beräknad broöppning") only hold for valid-ETA scenarios.
     [
       { mmsi: '111', targetBridge: 'Klaffbron', etaMinutes: 3 },
       { mmsi: '222', targetBridge: 'Stridsbergsbron', etaMinutes: 10 },

@@ -32,7 +32,7 @@ const RouteOrderValidator = require('./lib/services/RouteOrderValidator'); // Va
 const AISStreamClient = require('./lib/connection/AISStreamClient');
 
 // UTILITIES: Hjälpfunktioner
-const { etaDisplay, formatETABroOpeningClause, clampETAMinutesForDisplay } = require('./lib/utils/etaValidation');
+const { etaDisplay, formatETABroOpeningClause, etaMinutesForDisplay } = require('./lib/utils/etaValidation');
 const geometry = require('./lib/utils/geometry');
 
 // =============================================================================
@@ -915,12 +915,16 @@ class AISBridgeApp extends Homey.App {
 
       vessel._distanceToNearest = proximityData.nearestDistance;
 
-      // 6. Calculate ETA for relevant statuses (EXPANDED: includes en-route and stallbacka-waiting)
-      if (statusResult.status === 'approaching' || statusResult.status === 'waiting'
-          || statusResult.status === 'en-route' || statusResult.status === 'stallbacka-waiting') {
+      // 6. Calculate ETA for relevant statuses. Includes 'under-bridge' so the
+      //    bridge-text clause remains meaningful while a vessel is right at
+      //    the bridge — a 10m distance at speed-floor 0.5kn yields ~0.65 min,
+      //    which naturally renders as "beräknad broöppning strax". Without
+      //    this, under-bridge vessels would show "ETA okänd" which is wrong.
+      if (['approaching', 'waiting', 'en-route', 'stallbacka-waiting', 'under-bridge']
+        .includes(statusResult.status)) {
         vessel.etaMinutes = this.statusService.calculateETA(vessel, proximityData);
       } else {
-        vessel.etaMinutes = null; // Clear ETA for other statuses (under-bridge, passed)
+        vessel.etaMinutes = null; // Clear ETA for 'passed' (vessel has moved on)
       }
 
       // Bug B fix: mark that this vessel received a fresh AIS position update
@@ -2230,8 +2234,12 @@ class AISBridgeApp extends Homey.App {
         vessel.isApproaching = statusResult.isApproaching;
 
         // Bug B fix: only recalculate ETA if we received a fresh AIS position update
-        // Timer-only re-evaluations reuse the last ETA to prevent oscillation
-        if (['approaching', 'waiting', 'en-route', 'stallbacka-waiting'].includes(vessel.status)) {
+        // Timer-only re-evaluations reuse the last ETA to prevent oscillation.
+        // Same status list as in _processAISMessage above — 'under-bridge' is
+        // included so a vessel at the bridge keeps showing a meaningful clause
+        // ("strax" for <1min) instead of "ETA okänd".
+        if (['approaching', 'waiting', 'en-route', 'stallbacka-waiting', 'under-bridge']
+          .includes(vessel.status)) {
           if (vessel._positionUpdatedSinceLastETA) {
             vessel.etaMinutes = this.statusService.calculateETA(vessel, proximityData);
             vessel._positionUpdatedSinceLastETA = false;
@@ -2585,9 +2593,9 @@ class AISBridgeApp extends Homey.App {
         eta = Math.round((dist / speedMs) / 60); // minuter
       }
     }
-    // Review fix H2: clamp to 30-min ceiling so Flow tokens stay consistent
-    // with bridge_text ("inväntar broöppning") for near-stationary vessels.
-    tokens.eta_minutes = clampETAMinutesForDisplay(eta) ?? -1;
+    // Round ETA for Flow tokens. No upper cap — post-fix ETA values are
+    // trustworthy and users building Flow automations need accurate numbers.
+    tokens.eta_minutes = etaMinutesForDisplay(eta) ?? -1;
 
     // CRITICAL FIX: Create DEEP immutable copy to prevent race conditions and object mutation
     const safeTokens = {
@@ -2742,9 +2750,9 @@ class AISBridgeApp extends Homey.App {
       };
 
       // Always compute numeric ETA token for flows; use -1 when ETA is unavailable.
-      // Review fix H2: clamp to 30-min ceiling so the token does not carry
-      // absurd values (60, 82, 106) for near-stationary vessels.
-      tokens.eta_minutes = clampETAMinutesForDisplay(vessel.etaMinutes) ?? -1;
+      // No upper cap — post-fix ETA values are trustworthy; Flow automations
+      // need accurate numbers to make decisions.
+      tokens.eta_minutes = etaMinutesForDisplay(vessel.etaMinutes) ?? -1;
 
       // ENHANCED DEBUG: Log token values before processing
       this.debug(`🔍 [FLOW_TRIGGER_ANY_DEBUG] ${vessel.mmsi}: Creating tokens = ${JSON.stringify(tokens)}`);
