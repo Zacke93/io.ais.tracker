@@ -32,7 +32,7 @@ const RouteOrderValidator = require('./lib/services/RouteOrderValidator'); // Va
 const AISStreamClient = require('./lib/connection/AISStreamClient');
 
 // UTILITIES: Hjälpfunktioner
-const { etaDisplay, formatETABroOpeningClause } = require('./lib/utils/etaValidation');
+const { etaDisplay, formatETABroOpeningClause, clampETAMinutesForDisplay } = require('./lib/utils/etaValidation');
 const geometry = require('./lib/utils/geometry');
 
 // =============================================================================
@@ -1746,7 +1746,7 @@ class AISBridgeApp extends Homey.App {
 
         if (hasCriticalIssues) {
           validationResult.shouldUseFallback = true;
-          validationResult.fallbackText = this._generateSafeFallbackText(relevantVessels);
+          validationResult.fallbackText = this._generateSafeFallbackText(relevantVessels, bridgeText);
         } else if (hasMinorIssues && this._lastBridgeText) {
           // For minor issues, keep using last known good text
           validationResult.shouldUseFallback = true;
@@ -2004,9 +2004,12 @@ class AISBridgeApp extends Homey.App {
 
   /**
    * Generate safe fallback text when validation fails
+   * @param {Array} vessels
+   * @param {string|null} [failedBridgeText] - the primary output that just
+   *   failed validation; used to detect identical re-emit.
    * @private
    */
-  _generateSafeFallbackText(vessels) {
+  _generateSafeFallbackText(vessels, failedBridgeText = null) {
     if (!vessels || vessels.length === 0) {
       return BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE;
     }
@@ -2017,20 +2020,26 @@ class AISBridgeApp extends Homey.App {
     // validation failure — that would re-emit the same bad output.
     // Strict prerequisites: vessel has a valid targetBridge, a finite ETA (or
     // null, meaning "strax" is acceptable), a usable mmsi, and is not
-    // currently marked as on gps-hold. If any vessel fails, fall through to
-    // the descriptive fallback below.
+    // currently marked as on gps-hold (mirrors BridgeTextService's internal
+    // filter so the re-call actually sees a different vessel set). If any
+    // vessel fails, fall through to the descriptive fallback below. As a
+    // final safety net, if the re-call still produces the exact text that
+    // just failed validation, fall through rather than shipping it.
     try {
       const sanitizedVessels = vessels.filter((v) => {
         if (!v || !v.mmsi) return false;
         if (!TARGET_BRIDGES.includes(v.targetBridge)) return false;
+        if (v.hasGpsJumpHold) return false;
         if (v.etaMinutes != null
             && !(Number.isFinite(v.etaMinutes) && v.etaMinutes >= 0)) return false;
         return true;
       });
-      const allVesselsPassed = sanitizedVessels.length === vessels.length;
-      if (allVesselsPassed && sanitizedVessels.length > 0 && this.bridgeTextService) {
+      const vesselSetChanged = sanitizedVessels.length !== vessels.length;
+      if (sanitizedVessels.length > 0 && this.bridgeTextService && vesselSetChanged) {
         const variant1 = this.bridgeTextService.generateBridgeText(sanitizedVessels);
-        if (variant1 && variant1 !== BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE) {
+        if (variant1
+            && variant1 !== BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE
+            && variant1 !== failedBridgeText) {
           return variant1;
         }
       }
@@ -2576,7 +2585,9 @@ class AISBridgeApp extends Homey.App {
         eta = Math.round((dist / speedMs) / 60); // minuter
       }
     }
-    tokens.eta_minutes = Number.isFinite(eta) && eta >= 0 ? Math.round(eta) : -1;
+    // Review fix H2: clamp to 30-min ceiling so Flow tokens stay consistent
+    // with bridge_text ("inväntar broöppning") for near-stationary vessels.
+    tokens.eta_minutes = clampETAMinutesForDisplay(eta) ?? -1;
 
     // CRITICAL FIX: Create DEEP immutable copy to prevent race conditions and object mutation
     const safeTokens = {
@@ -2730,10 +2741,10 @@ class AISBridgeApp extends Homey.App {
         direction: this._getDirectionString(vessel),
       };
 
-      // Always compute numeric ETA token for flows; use -1 when ETA is unavailable
-      tokens.eta_minutes = Number.isFinite(vessel.etaMinutes)
-        ? Math.round(vessel.etaMinutes)
-        : -1;
+      // Always compute numeric ETA token for flows; use -1 when ETA is unavailable.
+      // Review fix H2: clamp to 30-min ceiling so the token does not carry
+      // absurd values (60, 82, 106) for near-stationary vessels.
+      tokens.eta_minutes = clampETAMinutesForDisplay(vessel.etaMinutes) ?? -1;
 
       // ENHANCED DEBUG: Log token values before processing
       this.debug(`🔍 [FLOW_TRIGGER_ANY_DEBUG] ${vessel.mmsi}: Creating tokens = ${JSON.stringify(tokens)}`);
