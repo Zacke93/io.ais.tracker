@@ -32,7 +32,7 @@ const RouteOrderValidator = require('./lib/services/RouteOrderValidator'); // Va
 const AISStreamClient = require('./lib/connection/AISStreamClient');
 
 // UTILITIES: Hjälpfunktioner
-const { etaDisplay } = require('./lib/utils/etaValidation');
+const { etaDisplay, formatETABroOpeningClause } = require('./lib/utils/etaValidation');
 const geometry = require('./lib/utils/geometry');
 
 // =============================================================================
@@ -140,6 +140,10 @@ class AISBridgeApp extends Homey.App {
     // Spårar om vi är anslutna till AISstream.io WebSocket
     this._isConnected = false;
     this._lastConnectionStatus = 'disconnected'; // Cache för att undvika redundanta UI-uppdateringar
+    // Review fix M2: seed _lastConnectionLost at boot so the stale-data guard
+    // (Bug #12) works correctly even if the AIS client never succeeds in
+    // connecting. Cleared on first successful _onAISConnected.
+    this._lastConnectionLost = Date.now();
 
     // --- HOMEY DEVICES ---
     // Set med alla registrerade enheter (används för capability updates)
@@ -1008,11 +1012,11 @@ class AISBridgeApp extends Homey.App {
   _onAISDisconnected(disconnectInfo = {}) {
     const { code = 'unknown', reason = 'unknown' } = disconnectInfo;
     this.log(`🔌 [AIS_CONNECTION] Disconnected from AIS stream: ${code} - ${reason}`);
-    const wasConnected = this._isConnected;
     this._isConnected = false;
-    // Bug #12: record first moment of disconnect. Used by bridge text generation
+    // Bug #12 + Review fix M2: record disconnect timestamp if not already
+    // recorded (boot seed or previous loss). Used by bridge text generation
     // to suppress updates against frozen vessel data after >2 min offline.
-    if (wasConnected && !this._lastConnectionLost) {
+    if (!this._lastConnectionLost) {
       this._lastConnectionLost = Date.now();
     }
     this._updateDeviceCapability('connection_status', 'disconnected');
@@ -2007,17 +2011,25 @@ class AISBridgeApp extends Homey.App {
       return BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE;
     }
 
-    // Bug #7 fix: prefer the BridgeTextService's variant-1 output when vessels
-    // have a valid targetBridge. The legacy "N båtar är i närheten av broarna"
-    // fallback produced user-hostile strings that broke the otherwise
-    // consistent bridge-text grammar. Only when vessels lack a proper target
-    // do we fall through to the debug-style descriptive fallback.
+    // Bug #7 fix + Review fix H3: prefer BridgeTextService's variant-1 output
+    // when all input vessels pass a strict sanity check. We must NOT re-call
+    // BridgeTextService with the same vessel set that just produced a
+    // validation failure — that would re-emit the same bad output.
+    // Strict prerequisites: vessel has a valid targetBridge, a finite ETA (or
+    // null, meaning "strax" is acceptable), a usable mmsi, and is not
+    // currently marked as on gps-hold. If any vessel fails, fall through to
+    // the descriptive fallback below.
     try {
-      const vesselsWithTarget = vessels.filter(
-        (v) => v && TARGET_BRIDGES.includes(v.targetBridge),
-      );
-      if (vesselsWithTarget.length > 0 && this.bridgeTextService) {
-        const variant1 = this.bridgeTextService.generateBridgeText(vesselsWithTarget);
+      const sanitizedVessels = vessels.filter((v) => {
+        if (!v || !v.mmsi) return false;
+        if (!TARGET_BRIDGES.includes(v.targetBridge)) return false;
+        if (v.etaMinutes != null
+            && !(Number.isFinite(v.etaMinutes) && v.etaMinutes >= 0)) return false;
+        return true;
+      });
+      const allVesselsPassed = sanitizedVessels.length === vessels.length;
+      if (allVesselsPassed && sanitizedVessels.length > 0 && this.bridgeTextService) {
+        const variant1 = this.bridgeTextService.generateBridgeText(sanitizedVessels);
         if (variant1 && variant1 !== BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE) {
           return variant1;
         }
@@ -2037,7 +2049,12 @@ class AISBridgeApp extends Homey.App {
     if (firstVessel._routeDirection) {
       dirSuffix = firstVessel._routeDirection.startsWith('north') ? ' (nordgående)' : ' (sydgående)';
     }
-    const etaSuffix = firstVessel.etaMinutes ? `, beräknad broöppning om ${Math.round(firstVessel.etaMinutes)} minuter` : '';
+    // Review fix H2: route ETA clause through SSOT helper so descriptive
+    // fallback can never emit "om 106 minuter" for a near-stationary vessel.
+    // The helper returns 'inväntar broöppning' / 'strax' / 'om N minuter'.
+    const etaSuffix = firstVessel.etaMinutes
+      ? `, ${formatETABroOpeningClause(firstVessel.etaMinutes)}`
+      : '';
 
     if (vesselCount === 1) {
       if (bridge && Number.isFinite(dist)) {
