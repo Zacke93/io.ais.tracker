@@ -49,6 +49,7 @@ const {
   BRIDGE_NAME_TO_ID, // Konvertering mellan bronamn och ID
   BRIDGE_ID_TO_NAME,
   TRIGGER_POINTS, // Geografiska triggerpunkter (utanför brotext-systemet)
+  TARGET_BRIDGES, // Bug #4: används för att harmonisera BRIDGE_TEXT_BUG-check
 } = require('./lib/constants');
 
 /**
@@ -995,6 +996,8 @@ class AISBridgeApp extends Homey.App {
   _onAISConnected() {
     this.log('🌐 [AIS_CONNECTION] Connected to AIS stream');
     this._isConnected = true;
+    // Bug #12: clear disconnect timestamp so bridge text resumes normal operation
+    this._lastConnectionLost = null;
     this._updateDeviceCapability('connection_status', 'connected');
   }
 
@@ -1005,7 +1008,13 @@ class AISBridgeApp extends Homey.App {
   _onAISDisconnected(disconnectInfo = {}) {
     const { code = 'unknown', reason = 'unknown' } = disconnectInfo;
     this.log(`🔌 [AIS_CONNECTION] Disconnected from AIS stream: ${code} - ${reason}`);
+    const wasConnected = this._isConnected;
     this._isConnected = false;
+    // Bug #12: record first moment of disconnect. Used by bridge text generation
+    // to suppress updates against frozen vessel data after >2 min offline.
+    if (wasConnected && !this._lastConnectionLost) {
+      this._lastConnectionLost = Date.now();
+    }
     this._updateDeviceCapability('connection_status', 'disconnected');
   }
 
@@ -1519,6 +1528,21 @@ class AISBridgeApp extends Homey.App {
         this.debug('✅ [SUMMARY_VALIDATION] Bridge text passed all sanity checks');
       }
 
+      // Bug #12 fix: after AIS has been disconnected for >2 minutes, stop
+      // showing cached bridge text against frozen vessel data. The watchdog
+      // (every 30s) would otherwise keep rebroadcasting stale "En båt på väg
+      // mot..." messages even though no new position updates are arriving.
+      if (!this._isConnected && this._lastConnectionLost) {
+        const disconnectedMs = Date.now() - this._lastConnectionLost;
+        if (disconnectedMs > 2 * 60 * 1000) {
+          const overrideText = 'AIS-anslutning saknas — data kan vara inaktuell';
+          if (bridgeText !== overrideText) {
+            this.debug(`🔌 [STALE_DATA_GUARD] AIS disconnected ${Math.round(disconnectedMs / 1000)}s — suppressing bridge text`);
+          }
+          bridgeText = overrideText;
+        }
+      }
+
       // ENHANCED: Update devices with atomic change detection and dedupe
       const bridgeTextHash = this._hashString(bridgeText);
       this.debug(`📱 [SNAPSHOT_PROCESS] Comparing: new="${bridgeText}" (hash: ${bridgeTextHash}) vs last="${this._lastBridgeText}" (hash: ${this._lastBridgeTextHash})`);
@@ -1588,9 +1612,17 @@ class AISBridgeApp extends Homey.App {
       // With improved generation, default text should only appear when no relevant vessels exist
       const hasActiveBoats = relevantVessels.length > 0;
 
-      // SAFETY CHECK: This should never happen with improved bridge text generation
-      if (relevantVessels.length > 0 && bridgeText === BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE) {
-        this.error(`🚨 [BRIDGE_TEXT_BUG] ${relevantVessels.length} relevant vessels but got default text - this indicates a bug in bridge text generation`);
+      // Bug #4 fix: harmonize filtering with BridgeTextService. The service filters
+      // vessels by TARGET_BRIDGES.includes(targetBridge) (BridgeTextService.js:80).
+      // relevantVessels may include vessels whose targetBridge was just cleared by
+      // a JOURNEY_COMPLETED transition — those are expected to yield DEFAULT_MESSAGE
+      // and are NOT bugs. Only alert when vessels with a valid target bridge are
+      // present but default text still results.
+      const visibleVessels = relevantVessels.filter(
+        (v) => v && TARGET_BRIDGES.includes(v.targetBridge),
+      );
+      if (visibleVessels.length > 0 && bridgeText === BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE) {
+        this.error(`🚨 [BRIDGE_TEXT_BUG] ${visibleVessels.length} visible vessels but got default text - this indicates a bug in bridge text generation`);
       }
 
       // Only update alarm_generic capability if value has changed
@@ -1973,6 +2005,26 @@ class AISBridgeApp extends Homey.App {
   _generateSafeFallbackText(vessels) {
     if (!vessels || vessels.length === 0) {
       return BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE;
+    }
+
+    // Bug #7 fix: prefer the BridgeTextService's variant-1 output when vessels
+    // have a valid targetBridge. The legacy "N båtar är i närheten av broarna"
+    // fallback produced user-hostile strings that broke the otherwise
+    // consistent bridge-text grammar. Only when vessels lack a proper target
+    // do we fall through to the debug-style descriptive fallback.
+    try {
+      const vesselsWithTarget = vessels.filter(
+        (v) => v && TARGET_BRIDGES.includes(v.targetBridge),
+      );
+      if (vesselsWithTarget.length > 0 && this.bridgeTextService) {
+        const variant1 = this.bridgeTextService.generateBridgeText(vesselsWithTarget);
+        if (variant1 && variant1 !== BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE) {
+          return variant1;
+        }
+      }
+    } catch (error) {
+      // Fall through to legacy descriptive fallback on any error
+      this.debug(`[FALLBACK_PRIMARY_FAIL] Using descriptive fallback: ${error.message}`);
     }
 
     const vesselCount = vessels.length;

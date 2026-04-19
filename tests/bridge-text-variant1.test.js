@@ -154,17 +154,26 @@ describe('BridgeTextService — Variant-1 format contract', () => {
       );
     });
 
-    test('ETA = 59 min → "om 59 minuter"', () => {
-      const v = mkVessel({ etaMinutes: 59 });
+    test('ETA = 30 min → "om 30 minuter" (upper boundary kept)', () => {
+      const v = mkVessel({ etaMinutes: 30 });
       expect(makeService().generateBridgeText([v])).toBe(
-        'En båt på väg mot Klaffbron, beräknad broöppning om 59 minuter',
+        'En båt på väg mot Klaffbron, beräknad broöppning om 30 minuter',
       );
     });
 
-    test('ETA = 120 min → "om 120 minuter"', () => {
+    test('ETA = 59 min → "inväntar broöppning" (Bug #11: clamp > 30 min)', () => {
+      // Large ETAs observed in production (60, 83, 106 min) are produced by
+      // near-stationary vessels and confuse users. Fall back to qualitative phrase.
+      const v = mkVessel({ etaMinutes: 59 });
+      expect(makeService().generateBridgeText([v])).toBe(
+        'En båt på väg mot Klaffbron, inväntar broöppning',
+      );
+    });
+
+    test('ETA = 120 min → "inväntar broöppning" (Bug #11: clamp > 30 min)', () => {
       const v = mkVessel({ etaMinutes: 120 });
       expect(makeService().generateBridgeText([v])).toBe(
-        'En båt på väg mot Klaffbron, beräknad broöppning om 120 minuter',
+        'En båt på väg mot Klaffbron, inväntar broöppning',
       );
     });
   });
