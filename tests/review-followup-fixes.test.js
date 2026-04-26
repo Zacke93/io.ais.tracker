@@ -146,9 +146,12 @@ describe('Review H2 — ETA clause helper as SSOT across all paths', () => {
     expect(formatETABroOpeningClause(31)).toBe('beräknad broöppning om 31 minuter');
   });
 
-  test('formatETABroOpeningClause returns normal text for <= 30min', () => {
+  test('formatETABroOpeningClause returns normal text for >= 3min', () => {
     expect(formatETABroOpeningClause(30)).toBe('beräknad broöppning om 30 minuter');
-    expect(formatETABroOpeningClause(1)).toBe('beräknad broöppning om 1 minut');
+    expect(formatETABroOpeningClause(3)).toBe('beräknad broöppning om 3 minuter');
+    // Fix 6: < 3 min ger "strax" (var tidigare < 1 min)
+    expect(formatETABroOpeningClause(2.99)).toBe('beräknad broöppning strax');
+    expect(formatETABroOpeningClause(1)).toBe('beräknad broöppning strax');
     expect(formatETABroOpeningClause(0.5)).toBe('beräknad broöppning strax');
   });
 

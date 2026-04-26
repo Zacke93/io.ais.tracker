@@ -128,7 +128,13 @@ describe('Flow trigger bridge selection', () => {
     expect(calls[0].tokens.eta_minutes).toBe(4);
   });
 
-  test('prioritises target bridge over intermediate candidates', async () => {
+  test('triggers BOTH target and current when within 300m of both (Fix 7)', async () => {
+    // Fix 7: when target (Stridsbergsbron) and current (Järnvägsbron) are
+    // both within 300m and are different bridges, both should fire. The
+    // 300m proximity-zones overlap geographically (the bridges are ~260m
+    // apart), so a vessel between them is legitimately in both zones.
+    // Without this fix, the EKEN scenario (production log 2026-04-26)
+    // silently dropped Stridsbergsbron's notification.
     const { app, triggerCard } = await setupApp();
 
     const vessel = {
@@ -158,8 +164,9 @@ describe('Flow trigger bridge selection', () => {
     await app._triggerBoatNearFlow(vessel);
 
     const calls = triggerCard.getTriggerCalls();
-    expect(calls).toHaveLength(1);
-    expect(calls[0].tokens.bridge_name).toBe('Stridsbergsbron');
-    expect(calls[0].state.bridge).toBe('stridsbergsbron');
+    // Both target and current trigger; dedup keys are independent per bridge
+    expect(calls).toHaveLength(2);
+    const bridgeNames = calls.map((c) => c.tokens.bridge_name).sort();
+    expect(bridgeNames).toEqual(['Järnvägsbron', 'Stridsbergsbron']);
   });
 });

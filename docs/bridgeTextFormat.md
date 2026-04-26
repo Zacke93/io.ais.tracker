@@ -24,13 +24,16 @@ Beräknas från gruppens ledande båt — den båt i gruppen med lägst giltig `
 | `etaMinutes` | Klausul |
 |---|---|
 | `null`, `undefined`, `NaN`, ogiltig | `ETA okänd` |
-| `< 1` | `beräknad broöppning strax` |
-| `1` (efter avrundning) | `beräknad broöppning om 1 minut` |
-| `N ≥ 2` (efter avrundning) | `beräknad broöppning om N minuter` |
+| `< 3` | `beräknad broöppning strax` |
+| `N ≥ 3` (efter avrundning) | `beräknad broöppning om N minuter` |
 
-**Inget tak på ETA-värdet.** Stora värden (40, 80, 120 minuter) visas verbatim — efter Bug #3/#6-fixen ger ETA-pipelinen trovärdiga värden även för stillastående båtar, så att visa 72 minuter ärligt är bättre än att klampa till en fras som lovar något annat.
+**Inget tak på ETA-värdet.** Stora värden (40, 80, 120 minuter) visas verbatim — ETA-pipelinen ger trovärdiga värden även för stillastående båtar, så att visa 72 minuter ärligt är bättre än att klampa till en fras som lovar något annat.
 
-**"ETA okänd"** triggas endast vid systemfel (ogiltig beräkning, NaN, geometri-fel). I normal drift ska detta aldrig visas; om det gör det är det en signal att något gått fel i ETA-pipelinen.
+**Strax-tröskeln är 3 min** (justerad från 1 min efter produktionsanalys april 2026). Med tidigare 1-min-tröskel hoppade Class B AIS (30 s intervall) ofta över den ~30 m breda strax-zonen — endast 13 % av båtarna fick "strax"-fasen visad. Med 3-min-tröskel blir zonen ~460 m vid 5 knop och praktiskt taget alla båtar får "strax" under sin passage.
+
+**"ETA okänd"** triggas i två fall:
+1. AIS-data har inte uppdaterats på > 5 minuter (vesseln finns kvar, men dess ETA är inte längre tillförlitlig).
+2. Internt beräkningsfel (sällsynt — felsökning krävs om det inträffar i normal drift).
 
 ## Semikolon-separering
 

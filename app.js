@@ -917,14 +917,19 @@ class AISBridgeApp extends Homey.App {
 
       // 6. Calculate ETA for relevant statuses. Includes 'under-bridge' so the
       //    bridge-text clause remains meaningful while a vessel is right at
-      //    the bridge — a 10m distance at speed-floor 0.5kn yields ~0.65 min,
-      //    which naturally renders as "beräknad broöppning strax". Without
-      //    this, under-bridge vessels would show "ETA okänd" which is wrong.
+      //    the bridge. Fix 1: also include 'passed' when targetBridge has been
+      //    re-assigned to a NEW bridge after passage (e.g. passed Klaffbron,
+      //    target now Stridsbergsbron). Without this, every post-passage
+      //    watchdog tick nulls the ETA → "ETA okänd" appears 55× per week.
+      const hasOngoingJourney = vessel.targetBridge
+        && vessel.targetBridge !== vessel.lastPassedBridge;
       if (['approaching', 'waiting', 'en-route', 'stallbacka-waiting', 'under-bridge']
-        .includes(statusResult.status)) {
+        .includes(statusResult.status)
+        || (statusResult.status === 'passed' && hasOngoingJourney)) {
         vessel.etaMinutes = this.statusService.calculateETA(vessel, proximityData);
       } else {
-        vessel.etaMinutes = null; // Clear ETA for 'passed' (vessel has moved on)
+        // 'passed' without ongoing journey (terminal passage) → null is correct
+        vessel.etaMinutes = null;
       }
 
       // Bug B fix: mark that this vessel received a fresh AIS position update
@@ -2238,13 +2243,37 @@ class AISBridgeApp extends Homey.App {
         // Same status list as in _processAISMessage above — 'under-bridge' is
         // included so a vessel at the bridge keeps showing a meaningful clause
         // ("strax" for <1min) instead of "ETA okänd".
-        if (['approaching', 'waiting', 'en-route', 'stallbacka-waiting', 'under-bridge']
-          .includes(vessel.status)) {
+        // Fix 1: same status list as in _processAISMessage above. 'passed'
+        // is included only when targetBridge points to a new (different) bridge,
+        // so post-passage watchdog ticks compute ETA toward the next target
+        // instead of nulling it (which would render as "ETA okänd").
+        const hasOngoingJourneyEval = vessel.targetBridge
+          && vessel.targetBridge !== vessel.lastPassedBridge;
+        const inETACalcStatus = ['approaching', 'waiting', 'en-route', 'stallbacka-waiting', 'under-bridge']
+          .includes(vessel.status)
+          || (vessel.status === 'passed' && hasOngoingJourneyEval);
+
+        if (inETACalcStatus) {
           if (vessel._positionUpdatedSinceLastETA) {
             vessel.etaMinutes = this.statusService.calculateETA(vessel, proximityData);
             vessel._positionUpdatedSinceLastETA = false;
+          } else {
+            // Fix 2: if no fresh AIS for >5 min, clear ETA so bridge_text
+            // shows "ETA okänd" instead of a stale value. Without this guard,
+            // "strax"/"3 min" can stay frozen for 8-12 minutes (observed in
+            // production logs 2026-04). Vessel itself stays alive until the
+            // 30-min STALE_AIS removal kicks in.
+            const ageMs = Date.now() - (vessel.lastPositionUpdate || 0);
+            if (ageMs > UI_CONSTANTS.STALE_ETA_THRESHOLD_MS) {
+              if (vessel.etaMinutes !== null) {
+                this.debug(
+                  `⏰ [ETA_STALE] ${vessel.mmsi}: AIS ${Math.round(ageMs / 1000)}s old → clearing ETA`,
+                );
+              }
+              vessel.etaMinutes = null;
+            }
+            // else: reuse existing vessel.etaMinutes
           }
-          // else: reuse existing vessel.etaMinutes
         } else {
           vessel.etaMinutes = null;
         }
@@ -2428,6 +2457,17 @@ class AISBridgeApp extends Homey.App {
         return;
       }
 
+      // Fix 5: respect GPS jump hold to prevent spurious triggers during GPS noise.
+      // A 150-200m GPS glitch can satisfy proximity (<300m) and set a dedup key,
+      // which would then block the legitimate trigger when the vessel actually
+      // arrives via real position data. Mirrors the filter BridgeTextService uses.
+      if (this.vesselDataService
+          && typeof this.vesselDataService.hasGpsJumpHold === 'function'
+          && this.vesselDataService.hasGpsJumpHold(vessel.mmsi)) {
+        this.debug(`🛡️ [FLOW_TRIGGER_GPS_HOLD] ${vessel.mmsi}: skipping during GPS jump`);
+        return;
+      }
+
       const proximityData = this.proximityService.analyzeVesselProximity(vessel);
       if (!proximityData || typeof proximityData !== 'object') {
         this.error(`[FLOW_TRIGGER] CRITICAL: Invalid proximity data for vessel ${vessel.mmsi}: ${JSON.stringify(proximityData)}`);
@@ -2550,7 +2590,26 @@ class AISBridgeApp extends Homey.App {
 
     const hasTargetCandidate = candidates.some((candidate) => candidate.source === 'target');
     if (hasTargetCandidate) {
-      // Keep trigger points alongside target candidates
+      // Fix 7: when both target and current bridges are within 300m AND are
+      // different bridges, allow BOTH to trigger. This handles the geography
+      // where Järnvägsbron and Stridsbergsbron are only ~260m apart, so their
+      // 300m proximity-zones overlap. Without this, the EKEN scenario from
+      // production logs (2026-04-26 00:49:34) silently dropped Stridsbergsbron's
+      // notification because Järnvägsbron was the closer "current" bridge.
+      // Dedup keys per bridge prevent duplicate notifications.
+      const targetCandidate = candidates.find((c) => c.source === 'target');
+      const currentCandidate = candidates.find(
+        (c) => (c.source === 'current' || c.source === 'nearest')
+          && c.name !== targetCandidate.name,
+      );
+      if (currentCandidate) {
+        // Both legitimate — return target + current/nearest + trigger-points
+        return candidates.filter((candidate) => candidate.source === 'target'
+          || candidate.source === 'current'
+          || candidate.source === 'nearest'
+          || candidate.source === 'trigger-point');
+      }
+      // Otherwise: target dominates (existing behavior)
       return candidates.filter((candidate) => candidate.source === 'target' || candidate.source === 'trigger-point');
     }
 

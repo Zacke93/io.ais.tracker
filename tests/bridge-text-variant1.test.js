@@ -77,24 +77,41 @@ describe('BridgeTextService — Variant-1 format contract', () => {
       );
     });
 
-    test('ETA = 1 min → singular "om 1 minut"', () => {
+    // Fix 6: strax-tröskeln höjdes från <1 min till <3 min så Class B AIS
+    // (30s intervall) hinner fånga zonen för i princip alla båtar. Tester
+    // för 1-2 min uppdaterade till "strax".
+    test('ETA = 1 min → "strax" (Fix 6: <3 min ger strax)', () => {
       const v = mkVessel({ etaMinutes: 1 });
       expect(makeService().generateBridgeText([v])).toBe(
-        'En båt på väg mot Klaffbron, beräknad broöppning om 1 minut',
+        'En båt på väg mot Klaffbron, beräknad broöppning strax',
       );
     });
 
-    test('ETA = 1.4 min → rounded to 1 → "om 1 minut"', () => {
+    test('ETA = 1.4 min → "strax"', () => {
       const v = mkVessel({ etaMinutes: 1.4 });
       expect(makeService().generateBridgeText([v])).toBe(
-        'En båt på väg mot Klaffbron, beräknad broöppning om 1 minut',
+        'En båt på väg mot Klaffbron, beräknad broöppning strax',
       );
     });
 
-    test('ETA = 1.5 min → rounded to 2 → "om 2 minuter"', () => {
+    test('ETA = 1.5 min → "strax"', () => {
       const v = mkVessel({ etaMinutes: 1.5 });
       expect(makeService().generateBridgeText([v])).toBe(
-        'En båt på väg mot Klaffbron, beräknad broöppning om 2 minuter',
+        'En båt på väg mot Klaffbron, beräknad broöppning strax',
+      );
+    });
+
+    test('ETA = 2.99 min → "strax" (just under threshold)', () => {
+      const v = mkVessel({ etaMinutes: 2.99 });
+      expect(makeService().generateBridgeText([v])).toBe(
+        'En båt på väg mot Klaffbron, beräknad broöppning strax',
+      );
+    });
+
+    test('ETA = 3 min → "om 3 minuter" (boundary, no longer strax)', () => {
+      const v = mkVessel({ etaMinutes: 3 });
+      expect(makeService().generateBridgeText([v])).toBe(
+        'En båt på väg mot Klaffbron, beräknad broöppning om 3 minuter',
       );
     });
 
@@ -215,8 +232,9 @@ describe('BridgeTextService — Variant-1 format contract', () => {
         mkVessel({ mmsi: '222', etaMinutes: 5 }),
         mkVessel({ mmsi: '333', etaMinutes: 2 }),
       ];
+      // Lead vessel ETA=2 → < 3 min → "strax" (Fix 6)
       expect(makeService().generateBridgeText(vessels)).toBe(
-        'Tre båtar på väg mot Klaffbron, beräknad broöppning om 2 minuter',
+        'Tre båtar på väg mot Klaffbron, beräknad broöppning strax',
       );
     });
 
@@ -225,8 +243,9 @@ describe('BridgeTextService — Variant-1 format contract', () => {
         mmsi: `${100 + i}`,
         etaMinutes: 10 - i,
       }));
+      // Lead is i=9 → ETA=1 → < 3 min → "strax" (Fix 6)
       expect(makeService().generateBridgeText(vessels)).toBe(
-        'Tio båtar på väg mot Klaffbron, beräknad broöppning om 1 minut',
+        'Tio båtar på väg mot Klaffbron, beräknad broöppning strax',
       );
     });
 
@@ -235,8 +254,9 @@ describe('BridgeTextService — Variant-1 format contract', () => {
         mmsi: `${100 + i}`,
         etaMinutes: 11 - i,
       }));
+      // Lead is i=10 → ETA=1 → < 3 min → "strax" (Fix 6)
       expect(makeService().generateBridgeText(vessels)).toBe(
-        '11 båtar på väg mot Klaffbron, beräknad broöppning om 1 minut',
+        '11 båtar på väg mot Klaffbron, beräknad broöppning strax',
       );
     });
 
