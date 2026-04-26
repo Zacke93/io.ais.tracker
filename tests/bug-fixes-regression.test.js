@@ -337,15 +337,20 @@ describe('Bug #13 — elimination timer not overwritten by AIS updates', () => {
     const service = new VesselDataService(logger, registry, coordinator);
 
     const mmsi = '265012090';
+    // Northbound vessel that has cleared the entire canal (passed Stallbackabron).
+    // Updated 2026-04-27: terminal-completion now requires Stallbackabron pass
+    // for northbound (was Stridsbergsbron) so notifications fire all the way
+    // through the canal.
     service.vessels.set(mmsi, {
       mmsi,
-      lat: 58.30,
-      lon: 12.30,
+      lat: 58.32,
+      lon: 12.32,
       sog: 9.5,
       targetBridge: null,
-      lastPassedBridge: 'Stridsbergsbron',
+      lastPassedBridge: 'Stallbackabron',
       cog: 30,
-      passedBridges: ['Klaffbron', 'Järnvägsbron', 'Stridsbergsbron'],
+      _finalTargetDirection: 'north',
+      passedBridges: ['Klaffbron', 'Järnvägsbron', 'Stridsbergsbron', 'Stallbackabron'],
       lastPositionUpdate: Date.now(),
     });
 
@@ -375,15 +380,17 @@ describe('Bug #13 — elimination timer not overwritten by AIS updates', () => {
     const service = new VesselDataService(logger, registry, coordinator);
 
     const mmsi = '265012090';
+    // Same setup as previous test — vessel has cleared the canal northbound.
     service.vessels.set(mmsi, {
       mmsi,
-      lat: 58.30,
-      lon: 12.30,
+      lat: 58.32,
+      lon: 12.32,
       sog: 9.5,
       targetBridge: null,
-      lastPassedBridge: 'Stridsbergsbron',
+      lastPassedBridge: 'Stallbackabron',
       cog: 30,
-      passedBridges: ['Klaffbron', 'Järnvägsbron', 'Stridsbergsbron'],
+      _finalTargetDirection: 'north',
+      passedBridges: ['Klaffbron', 'Järnvägsbron', 'Stridsbergsbron', 'Stallbackabron'],
       lastPositionUpdate: Date.now(),
     });
 

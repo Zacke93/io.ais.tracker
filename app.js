@@ -501,12 +501,20 @@ class AISBridgeApp extends Homey.App {
 
       // STEG 2b: TRIGGA FLOW CARDS VID PROXIMITY
       // Anropa vid varje positionsuppdatering — dedup-systemet
-      // (_triggeredBoatNearKeys) förhindrar dubbletter automatiskt.
+      // (_triggeredBoatNearKeys) förhindrar dubbletter per bro automatiskt.
       // Löser problem med snabba fartyg som hoppar över 'waiting'-status.
-      // Guard: Undvik triggers för passed/slutförda resor (Bug C+D fix).
-      const shouldTriggerProximity = (vessel.currentBridge || vessel.targetBridge)
-        && vessel.status !== 'passed'
-        && !vessel._finalTargetBridge;
+      //
+      // 2026-04-27: tog bort tidigare `vessel.status !== 'passed'` och
+      // `!vessel._finalTargetBridge`-blockaden. Den blockerade notiser för
+      // intermediate broar (Olidebron) och Kanalinfarten EFTER att vesseln
+      // passerat sin sista målbro — södergående båtar fick aldrig
+      // Kanalinfarten-notis t.ex. Notis-spam-risken som motiverade blockaden
+      // är inte aktuell: dedup-keys per bro garanterar EN notis per bro per
+      // resa, och VesselLifecycleManager._isJourneyComplete tar bort vesseln
+      // när den faktiskt har lämnat kanalen.
+      const shouldTriggerProximity = vessel.currentBridge
+        || vessel.targetBridge
+        || vessel._finalTargetBridge;
       if (shouldTriggerProximity) {
         await this._triggerBoatNearFlow(vessel);
       }
