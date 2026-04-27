@@ -449,3 +449,66 @@ describe('Fix D refinement — wrong-side & passedBridges', () => {
     expect(shouldRecalc).toBe(false);
   });
 });
+
+describe('Fix H — Distansbaserad "strax"-trigger', () => {
+  const { formatETABroOpeningClause } = require('../lib/utils/etaValidation');
+
+  test('imminent=true tvingar "strax" oavsett ETA', () => {
+    expect(formatETABroOpeningClause(15, { imminent: true }))
+      .toBe('beräknad broöppning strax');
+    expect(formatETABroOpeningClause(7, { imminent: true }))
+      .toBe('beräknad broöppning strax');
+  });
+
+  test('imminent=true tvingar "strax" även när ETA är null (stale)', () => {
+    expect(formatETABroOpeningClause(null, { imminent: true }))
+      .toBe('beräknad broöppning strax');
+  });
+
+  test('imminent=true överstyr extrapolated-flagga', () => {
+    expect(formatETABroOpeningClause(7, { imminent: true, extrapolated: true }))
+      .toBe('beräknad broöppning strax');
+  });
+
+  test('imminent=false → vanlig logik gäller', () => {
+    expect(formatETABroOpeningClause(7, { imminent: false }))
+      .toBe('beräknad broöppning om 7 minuter');
+    expect(formatETABroOpeningClause(2, { imminent: false }))
+      .toBe('beräknad broöppning strax');
+  });
+
+  test('utan options → bakåtkompatibelt beteende', () => {
+    expect(formatETABroOpeningClause(7))
+      .toBe('beräknad broöppning om 7 minuter');
+  });
+
+  test('imminent-trigger-villkor: vessel inom 300m från målbro', () => {
+    const distToTarget = 250;
+    const isImminent = distToTarget <= 300;
+    expect(isImminent).toBe(true);
+  });
+
+  test('imminent-trigger blockeras vid 301m', () => {
+    const distToTarget = 301;
+    const isImminent = distToTarget <= 300;
+    expect(isImminent).toBe(false);
+  });
+
+  test('NORDIC SOLA Klaffbron-scenariot: 100m, sog 4.0 → strax (löste fall 1)', () => {
+    const distToTarget = 100;
+    const sog = 4.0; // Snabb båt, ETA hoppade 3 → passerat
+    const isImminent = distToTarget <= 300; // sog spelar ingen roll
+    expect(isImminent).toBe(true);
+    expect(formatETABroOpeningClause(0.5, { imminent: isImminent }))
+      .toBe('beräknad broöppning strax');
+  });
+
+  test('NORDIC SOLA Stridsbergsbron-scenariot: 200m, sog 1.0 → strax (löste fall 2)', () => {
+    // Stillastående/saktande båt — ETA frusen runt 6 min, men vessel är vid bron
+    const distToTarget = 200;
+    const isImminent = distToTarget <= 300;
+    expect(isImminent).toBe(true);
+    expect(formatETABroOpeningClause(6, { imminent: isImminent }))
+      .toBe('beräknad broöppning strax');
+  });
+});
