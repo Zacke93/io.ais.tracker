@@ -519,6 +519,19 @@ class AISBridgeApp extends Homey.App {
         await this._triggerBoatNearFlow(vessel);
       }
 
+      // BUG C fix (2026-04-27): fallback-trigger för passage detekterad utan proximity.
+      // S/Y ROSE 13:58:17: Klaffbron-passage upptäcktes via trajectory_based_passage
+      // efter 8 min Klass B AIS-gap, men inga AIS-uppdateringar inom 300m → ingen
+      // trigger sattes och notisen missades helt. Dedup-keys förhindrar dubbletter
+      // om bron redan triggat via vanlig proximity.
+      const justRegisteredPassage = vessel.lastPassedBridge
+        && Number.isFinite(vessel.lastPassedBridgeTime)
+        && Date.now() - vessel.lastPassedBridgeTime < 2000
+        && vessel.lastPassedBridge !== oldVessel?.lastPassedBridge;
+      if (justRegisteredPassage) {
+        await this._triggerBoatNearFlowFallback(vessel, vessel.lastPassedBridge);
+      }
+
       // STEG 3: UPPDATERA UI OM NÖDVÄNDIGT
       // Intelligent UI-uppdatering som bara sker vid betydelsefulla ändringar
       this._updateUIIfNeeded(vessel, oldVessel);
@@ -2265,25 +2278,55 @@ class AISBridgeApp extends Homey.App {
           if (vessel._positionUpdatedSinceLastETA) {
             vessel.etaMinutes = this.statusService.calculateETA(vessel, proximityData);
             vessel._positionUpdatedSinceLastETA = false;
+            vessel._etaIsExtrapolated = false;
+            vessel._etaExtrapolationBaseMs = Date.now();
           } else {
-            // Fix 2: if no fresh AIS for >5 min, clear ETA so bridge_text
-            // shows "ETA okänd" instead of a stale value. Without this guard,
-            // "strax"/"3 min" can stay frozen for 8-12 minutes (observed in
-            // production logs 2026-04). Vessel itself stays alive until the
-            // 30-min STALE_AIS removal kicks in.
+            // Fix G (2026-04-28): smart stale-ETA-hantering.
+            //   0–5 min:  använd senaste ETA oförändrat (täcker normalt AIS-jitter)
+            //   5–10 min: extrapolera ned (lastETA - ageMin) → "om cirka N min"
+            //   >10 min:  nullify → "ETA okänd"
+            // För bilförare ger extrapolation användbar info under typiska
+            // Klass B AIS-glapp 5–8 min. Om båten vänt under tystnaden rättas
+            // siffran inom max 10 min av nästa AIS-tick.
             const ageMs = Date.now() - (vessel.lastPositionUpdate || 0);
-            if (ageMs > UI_CONSTANTS.STALE_ETA_THRESHOLD_MS) {
+            if (ageMs > UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS) {
               if (vessel.etaMinutes !== null) {
                 this.debug(
-                  `⏰ [ETA_STALE] ${vessel.mmsi}: AIS ${Math.round(ageMs / 1000)}s old → clearing ETA`,
+                  `⏰ [ETA_STALE_HARD] ${vessel.mmsi}: AIS ${Math.round(ageMs / 1000)}s old → clearing ETA`,
                 );
               }
               vessel.etaMinutes = null;
+              vessel._etaIsExtrapolated = false;
+            } else if (ageMs > UI_CONSTANTS.STALE_ETA_SOFT_THRESHOLD_MS
+                && Number.isFinite(vessel.etaMinutes)
+                && vessel.etaMinutes > 0) {
+              // Extrapolera: dra av tiden som gått sedan senaste verkliga beräkning.
+              const baseMs = Number.isFinite(vessel._etaExtrapolationBaseMs)
+                ? vessel._etaExtrapolationBaseMs
+                : (vessel.lastPositionUpdate || Date.now());
+              const elapsedMin = (Date.now() - baseMs) / 60000;
+              const baseETA = Number.isFinite(vessel._etaExtrapolationBaseValue)
+                ? vessel._etaExtrapolationBaseValue
+                : vessel.etaMinutes;
+              const extrapolated = Math.max(0, baseETA - elapsedMin);
+              if (extrapolated > 0) {
+                vessel.etaMinutes = extrapolated;
+                vessel._etaIsExtrapolated = true;
+                if (!Number.isFinite(vessel._etaExtrapolationBaseValue)) {
+                  vessel._etaExtrapolationBaseValue = baseETA;
+                }
+              } else {
+                // Extrapolation gick ned till 0 → båten skulle vara framme.
+                // Visa "okänd" hellre än att frysa på 0.
+                vessel.etaMinutes = null;
+                vessel._etaIsExtrapolated = false;
+              }
             }
             // else: reuse existing vessel.etaMinutes
           }
         } else {
           vessel.etaMinutes = null;
+          vessel._etaIsExtrapolated = false;
         }
 
         if (statusResult.statusChanged) {
@@ -2537,6 +2580,15 @@ class AISBridgeApp extends Homey.App {
       if (bridgeName === vessel.currentBridge && Number.isFinite(vessel.distanceToCurrent)) {
         return vessel.distanceToCurrent;
       }
+      // BUG B fix (2026-04-27): direktberäkning från vessel-position till bro-koordinat
+      // när proximityData är inkomplett. S/Y ROSE 14:01:18: current=Olidebron men alla
+      // tre branches misslyckades trots att båten var ~225m från bron → SKIP felaktigt.
+      if (Number.isFinite(vessel.lat) && Number.isFinite(vessel.lon) && this.bridgeRegistry) {
+        const bridge = this.bridgeRegistry.getBridgeByName(bridgeName);
+        if (bridge && Number.isFinite(bridge.lat) && Number.isFinite(bridge.lon)) {
+          return geometry.calculateDistance(vessel.lat, vessel.lon, bridge.lat, bridge.lon);
+        }
+      }
       return null;
     };
 
@@ -2570,6 +2622,18 @@ class AISBridgeApp extends Homey.App {
 
     addCandidate(vessel.targetBridge, 'target');
     addCandidate(vessel.currentBridge, 'current');
+
+    // BUG A fix (2026-04-27): nyligen passerad bro fortfarande inom 300m är kandidat.
+    // S/Y ROSE 13:50:16: BRIDGE_PASSED Järnvägsbron + currentBridge bytt till Klaffbron
+    // i samma tick → Järnvägsbron försvann ur candidates trots ~111m avstånd.
+    // 15s grace räcker för att fånga närliggande AIS-tick utan att läcka över i senare resor.
+    // Dedup-keys (rad 2639) garanterar att bron triggar max EN gång per resa.
+    const PASSAGE_TRIGGER_GRACE_MS = 15000;
+    if (vessel.lastPassedBridge
+        && Number.isFinite(vessel.lastPassedBridgeTime)
+        && Date.now() - vessel.lastPassedBridgeTime < PASSAGE_TRIGGER_GRACE_MS) {
+      addCandidate(vessel.lastPassedBridge, 'just-passed');
+    }
 
     if (
       candidates.length === 0
@@ -2607,14 +2671,15 @@ class AISBridgeApp extends Homey.App {
       // Dedup keys per bridge prevent duplicate notifications.
       const targetCandidate = candidates.find((c) => c.source === 'target');
       const currentCandidate = candidates.find(
-        (c) => (c.source === 'current' || c.source === 'nearest')
+        (c) => (c.source === 'current' || c.source === 'nearest' || c.source === 'just-passed')
           && c.name !== targetCandidate.name,
       );
       if (currentCandidate) {
-        // Both legitimate — return target + current/nearest + trigger-points
+        // Both legitimate — return target + current/nearest/just-passed + trigger-points
         return candidates.filter((candidate) => candidate.source === 'target'
           || candidate.source === 'current'
           || candidate.source === 'nearest'
+          || candidate.source === 'just-passed'
           || candidate.source === 'trigger-point');
       }
       // Otherwise: target dominates (existing behavior)
@@ -2622,6 +2687,48 @@ class AISBridgeApp extends Homey.App {
     }
 
     return candidates;
+  }
+
+  /**
+   * BUG C fix (2026-04-27): Fallback flow-trigger när passage detekterats men
+   * proximity-triggern aldrig kördes (Klass B AIS-gap där båten hoppar från
+   * utanför 300m direkt till passerad). Bypassar eligibility-check men respekterar
+   * dedup och GPS-jump-hold.
+   * @private
+   */
+  async _triggerBoatNearFlowFallback(vessel, bridgeName) {
+    if (!this._boatNearTrigger) return;
+    if (this.vesselDataService?.hasGpsJumpHold?.(vessel.mmsi)) {
+      this.debug(
+        `🛡️ [FALLBACK_TRIGGER_GPS_HOLD] ${vessel.mmsi}: skipping ${bridgeName} fallback during GPS jump`,
+      );
+      return;
+    }
+    const bridgeId = BRIDGE_NAME_TO_ID[bridgeName];
+    if (!bridgeId) {
+      this.error(`[FALLBACK_TRIGGER] Unknown bridge name "${bridgeName}"`);
+      return;
+    }
+
+    let distance = 0;
+    if (Number.isFinite(vessel.lat) && Number.isFinite(vessel.lon) && this.bridgeRegistry) {
+      const bridge = this.bridgeRegistry.getBridgeByName(bridgeName);
+      if (bridge && Number.isFinite(bridge.lat) && Number.isFinite(bridge.lon)) {
+        distance = geometry.calculateDistance(vessel.lat, vessel.lon, bridge.lat, bridge.lon) || 0;
+      }
+    }
+
+    this.log(
+      `⚠️ [FALLBACK_BOAT_NEAR] ${vessel.mmsi}: Passage of ${bridgeName} detected `
+      + `without prior proximity trigger (distance=${Math.round(distance)}m) — firing failsafe`,
+    );
+
+    await this._triggerBoatNearFlowForBridge(vessel, {
+      name: bridgeName,
+      id: bridgeId,
+      distance,
+      source: 'passage-fallback',
+    });
   }
 
   /**
