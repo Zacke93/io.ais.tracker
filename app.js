@@ -2329,6 +2329,35 @@ class AISBridgeApp extends Homey.App {
           vessel._etaIsExtrapolated = false;
         }
 
+        // Fix H (2026-04-28): distansbaserad "strax"-trigger för aktiva resor.
+        // Bilförare behöver veta att broöppning är imminent när båt närmar sig
+        // målbro — oavsett om hon saktar ner/stannar för att vänta (vanligt
+        // beteende i kanalen) eller om Class A 30s-tick hoppar över ETA<3-zonen.
+        // Skydd: kräver targetBridge satt + färsk AIS + ej GPS-jump-hold så
+        // spökbåtar (Bug #1) och stale data inte triggar falsk "strax".
+        vessel._isImminentAtTargetBridge = false;
+        const ageMs = Date.now() - (vessel.lastPositionUpdate || 0);
+        const dataIsFreshEnough = ageMs <= UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS;
+        if (vessel.targetBridge
+            && dataIsFreshEnough
+            && Number.isFinite(vessel.lat)
+            && Number.isFinite(vessel.lon)
+            && this.bridgeRegistry
+            && !this.vesselDataService?.hasGpsJumpHold?.(vessel.mmsi)) {
+          const targetBridge = this.bridgeRegistry.getBridgeByName(vessel.targetBridge);
+          if (targetBridge
+              && Number.isFinite(targetBridge.lat)
+              && Number.isFinite(targetBridge.lon)) {
+            const distToTarget = geometry.calculateDistance(
+              vessel.lat, vessel.lon,
+              targetBridge.lat, targetBridge.lon,
+            );
+            if (Number.isFinite(distToTarget) && distToTarget <= 300) {
+              vessel._isImminentAtTargetBridge = true;
+            }
+          }
+        }
+
         if (statusResult.statusChanged) {
           this.debug(`🔄 [STATUS_UPDATE] ${vessel.mmsi}: ${statusResult.status} (${statusResult.statusReason})`);
         }
