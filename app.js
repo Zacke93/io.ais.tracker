@@ -2780,17 +2780,52 @@ class AISBridgeApp extends Homey.App {
       }
     }
 
-    // Anomali 1 fix (2026-05-05): blockera fallback-trigger när vesseln redan
-    // är långt förbi bron. Distance i Fix C är från NUVARANDE position till bron,
-    // inte position vid passage-tillfället. Vid stora Klass B AIS-glapp (5+ min)
-    // har båten redan rört sig 1+ km förbi → notis "boat_near (1057m/1384m)" är
-    // vilseledande. 500m räcker för legitima fall (typiska 100-300m) men stoppar
-    // missvisande långdistans-triggers.
-    const FALLBACK_MAX_DISTANCE = 500;
-    if (distance > FALLBACK_MAX_DISTANCE) {
+    // Anomali 1 fix v2 (2026-05-05): tid-baserad relevans-check istället för
+    // fast distans-cap. Distance i Fix C är från NUVARANDE position till bron,
+    // inte position vid passage-tillfället. Frågan är inte "hur långt bort"
+    // utan "hur länge sedan passagen". Notis "boat_near" är bara relevant om
+    // broöppning fortfarande är pågående eller mycket nyligen avslutad.
+    //
+    // Logik:
+    //   1. ABSOLUT max 2000m — extrema fall (GPS-fel, stora glapp), aldrig
+    //      relevant att notifiera.
+    //   2. För båtar med sog > 0.5 knot: uppskatta tid sedan passage som
+    //      distance / sog. Om > 5 min → skippa (notis irrelevant).
+    //      → Snabba båtar får mer distans-tolerans (12kn → ~1850m i 5 min)
+    //      → Långsamma får mindre (3kn → ~460m i 5 min)
+    //   3. För nästan-stillastående (sog ≤ 0.5): båten har inte rört sig
+    //      långt sedan passage, så stor distance betyder att hon aldrig
+    //      var nära. Behåll 500m-cap som säkerhetsnät (spökbåt-skydd).
+    const FALLBACK_HARD_MAX_DISTANCE = 2000;
+    const FALLBACK_TIME_SINCE_PASSAGE_MAX_S = 300; // 5 min
+    const FALLBACK_LOW_SOG_MAX_DISTANCE = 500;
+    const SOG_MOTION_THRESHOLD = 0.5;
+
+    if (distance > FALLBACK_HARD_MAX_DISTANCE) {
       this.log(
         `🚫 [FALLBACK_TRIGGER_TOO_FAR] ${vessel.mmsi}: Skipping ${bridgeName} fallback `
-        + `— vessel already ${Math.round(distance)}m past bridge (>${FALLBACK_MAX_DISTANCE}m max)`,
+        + `— ${Math.round(distance)}m exceeds absolute max ${FALLBACK_HARD_MAX_DISTANCE}m`,
+      );
+      return;
+    }
+
+    const sogMps = Number.isFinite(vessel.sog) ? vessel.sog * 0.5144 : 0;
+    if (sogMps > SOG_MOTION_THRESHOLD * 0.5144 && distance > 0) {
+      const timeSincePassageS = distance / sogMps;
+      if (timeSincePassageS > FALLBACK_TIME_SINCE_PASSAGE_MAX_S) {
+        this.log(
+          `🚫 [FALLBACK_TRIGGER_STALE] ${vessel.mmsi}: Skipping ${bridgeName} fallback `
+          + `— estimated ${Math.round(timeSincePassageS)}s since passage `
+          + `(distance=${Math.round(distance)}m, sog=${vessel.sog}kn) exceeds ${FALLBACK_TIME_SINCE_PASSAGE_MAX_S}s`,
+        );
+        return;
+      }
+    } else if (distance > FALLBACK_LOW_SOG_MAX_DISTANCE) {
+      // Låg-sog: båten har inte hunnit långt sedan passage, så stor distance
+      // betyder att hon aldrig var nära bron — sannolikt felaktig passage-detektion.
+      this.log(
+        `🚫 [FALLBACK_TRIGGER_LOW_SOG_FAR] ${vessel.mmsi}: Skipping ${bridgeName} fallback `
+        + `— ${Math.round(distance)}m with sog=${vessel.sog}kn (low-sog limit ${FALLBACK_LOW_SOG_MAX_DISTANCE}m)`,
       );
       return;
     }
