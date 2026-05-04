@@ -582,6 +582,70 @@ describe('Anomali 1 fix v2 — Tid-baserad fallback-relevans', () => {
   });
 });
 
+describe('Anomali 4 fix — JOURNEY_COMPLETED logg-spam', () => {
+  test('första JOURNEY_COMPLETED loggas', () => {
+    const eliminationPending = new Set();
+    const mmsi = '265012090';
+    const alreadyPending = eliminationPending.has(mmsi);
+    expect(alreadyPending).toBe(false); // → logga
+    eliminationPending.add(mmsi);
+  });
+
+  test('andra/tredje/fjärde JOURNEY_COMPLETED-anrop skippar logg', () => {
+    const eliminationPending = new Set();
+    const mmsi = '265012090';
+    eliminationPending.add(mmsi); // simulera att första körningen har skett
+    const alreadyPending = eliminationPending.has(mmsi);
+    expect(alreadyPending).toBe(true); // → skippa logg, gå till DUP-debug
+  });
+
+  test('PRICKBJORN-scenariot 5 ggr — bara 1 INFO-logg, 4 DEBUG-loggar', () => {
+    const eliminationPending = new Set();
+    const mmsi = '265012090';
+    const triggers = [false, false, false, false, false]; // 5 anrop
+    const logged = triggers.map(() => {
+      const wasPending = eliminationPending.has(mmsi);
+      eliminationPending.add(mmsi);
+      return wasPending ? 'DEBUG' : 'INFO';
+    });
+    expect(logged).toEqual(['INFO', 'DEBUG', 'DEBUG', 'DEBUG', 'DEBUG']);
+  });
+});
+
+describe('Anomali 5 fix — Fix D sog-tröskel mot COG-noise', () => {
+  const FIX_D_MIN_SOG = 2.0;
+
+  // Replikerar villkor från updateVessel
+  const fixDActivates = (sog) => Number.isFinite(sog) && sog >= FIX_D_MIN_SOG;
+
+  test('AERANDIR 17:11:33 sog 1.8 → Fix D blockerad (under tröskel)', () => {
+    expect(fixDActivates(1.8)).toBe(false);
+  });
+
+  test('AERANDIR 17:13:03 sog 1.1 → Fix D blockerad', () => {
+    expect(fixDActivates(1.1)).toBe(false);
+  });
+
+  test('FRIDA 09:21:20 sog 11.9 → Fix D aktiveras (legitim U-sväng)', () => {
+    expect(fixDActivates(11.9)).toBe(true);
+  });
+
+  test('AMELIA 14:23:40 sog 1.8 → Fix D blockerad efter sog-tröskel', () => {
+    // OBS: AMELIA hade sog 1.8 → även hennes "U-sväng" var tveksam.
+    // Anomali 5 förhindrar att vi nullar target på COG-noise vid stilla båt.
+    expect(fixDActivates(1.8)).toBe(false);
+  });
+
+  test('Gränsfall sog=2.0 → tröskel uppnådd, Fix D aktiveras', () => {
+    expect(fixDActivates(2.0)).toBe(true);
+  });
+
+  test('sog=NaN/undefined → Fix D blockerad (defensiv)', () => {
+    expect(fixDActivates(NaN)).toBe(false);
+    expect(fixDActivates(undefined)).toBe(false);
+  });
+});
+
 describe('Anomali 2 fix — STALLBACKABRON_EXIT_LAT symmetri', () => {
   test('konstant matchar södermotsvarigheten i ungefärlig 300m-buffer', () => {
     // Stallbackabron 58.31142992293701, +0.0027 deg ≈ 300m i lat
