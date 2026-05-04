@@ -513,35 +513,72 @@ describe('Fix H — Distansbaserad "strax"-trigger', () => {
   });
 });
 
-describe('Anomali 1 fix — Fix C max-distans 500m', () => {
-  test('fallback med distance=200m → tillåten', () => {
-    const FALLBACK_MAX_DISTANCE = 500;
-    const distance = 200;
-    expect(distance > FALLBACK_MAX_DISTANCE).toBe(false);
+describe('Anomali 1 fix v2 — Tid-baserad fallback-relevans', () => {
+  const FALLBACK_HARD_MAX_DISTANCE = 2000;
+  const FALLBACK_TIME_SINCE_PASSAGE_MAX_S = 300;
+  const FALLBACK_LOW_SOG_MAX_DISTANCE = 500;
+  const SOG_MOTION_THRESHOLD = 0.5;
+
+  // Hjälpare: simulerar besluts-logik
+  const shouldSkipFallback = (distance, sog) => {
+    if (distance > FALLBACK_HARD_MAX_DISTANCE) return 'absolute-max';
+    const sogMps = Number.isFinite(sog) ? sog * 0.5144 : 0;
+    if (sogMps > SOG_MOTION_THRESHOLD * 0.5144 && distance > 0) {
+      const timeSincePassageS = distance / sogMps;
+      if (timeSincePassageS > FALLBACK_TIME_SINCE_PASSAGE_MAX_S) return 'stale';
+    } else if (distance > FALLBACK_LOW_SOG_MAX_DISTANCE) {
+      return 'low-sog-far';
+    }
+    return null; // allow trigger
+  };
+
+  test('WIZARD-scenariot 1057m + sog 6.5 → 316s sedan passage → blockerad (stale)', () => {
+    expect(shouldSkipFallback(1057, 6.5)).toBe('stale');
   });
 
-  test('fallback med distance=500m gränsfall → tillåten (inte >max)', () => {
-    const FALLBACK_MAX_DISTANCE = 500;
-    const distance = 500;
-    expect(distance > FALLBACK_MAX_DISTANCE).toBe(false);
+  test('ARABELLA-scenariot 1384m + sog 4.9 → 549s sedan passage → blockerad (stale)', () => {
+    expect(shouldSkipFallback(1384, 4.9)).toBe('stale');
   });
 
-  test('fallback med distance=501m → blockerad', () => {
-    const FALLBACK_MAX_DISTANCE = 500;
-    const distance = 501;
-    expect(distance > FALLBACK_MAX_DISTANCE).toBe(true);
+  test('Snabb båt 800m + sog 12 → 130s sedan passage → tillåten', () => {
+    // 800m / (12*0.5144 m/s) = 130s = 2.2 min — fortfarande relevant
+    expect(shouldSkipFallback(800, 12)).toBe(null);
   });
 
-  test('WIZARD-scenariot 2026-04-30 09:58:20: 1057m → blockerad', () => {
-    const FALLBACK_MAX_DISTANCE = 500;
-    const distance = 1057;
-    expect(distance > FALLBACK_MAX_DISTANCE).toBe(true);
+  test('Långsam båt 460m + sog 3 → 298s sedan passage → tillåten (precis under 5 min)', () => {
+    // 460m / (3*0.5144 m/s) = 298s = 4.97 min — gränsfall
+    expect(shouldSkipFallback(460, 3)).toBe(null);
   });
 
-  test('ARABELLA-scenariot 2026-05-01 07:06:36: 1384m → blockerad', () => {
-    const FALLBACK_MAX_DISTANCE = 500;
-    const distance = 1384;
-    expect(distance > FALLBACK_MAX_DISTANCE).toBe(true);
+  test('Långsam båt 600m + sog 3 → 388s sedan passage → blockerad', () => {
+    expect(shouldSkipFallback(600, 3)).toBe('stale');
+  });
+
+  test('Stillastående 300m + sog 0 → tillåten (under låg-sog-cap 500m)', () => {
+    expect(shouldSkipFallback(300, 0)).toBe(null);
+  });
+
+  test('Stillastående 600m + sog 0.2 → blockerad (över låg-sog-cap)', () => {
+    expect(shouldSkipFallback(600, 0.2)).toBe('low-sog-far');
+  });
+
+  test('Extrem distans 2500m → blockerad (absolut max)', () => {
+    expect(shouldSkipFallback(2500, 6)).toBe('absolute-max');
+  });
+
+  test('Normal nära fall: 200m + sog 5 → tillåten', () => {
+    expect(shouldSkipFallback(200, 5)).toBe(null);
+  });
+
+  test('Snabb båt med stort gap: 1500m + sog 14 → 208s → tillåten', () => {
+    // Snabba båtar får mer tolerans — 14kn × 5min = 1850m max
+    expect(shouldSkipFallback(1500, 14)).toBe(null);
+  });
+
+  test('Tröskelvärden — har korrekta värden', () => {
+    expect(FALLBACK_HARD_MAX_DISTANCE).toBe(2000);
+    expect(FALLBACK_TIME_SINCE_PASSAGE_MAX_S).toBe(300);
+    expect(FALLBACK_LOW_SOG_MAX_DISTANCE).toBe(500);
   });
 });
 
