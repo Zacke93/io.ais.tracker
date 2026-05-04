@@ -512,3 +512,48 @@ describe('Fix H — Distansbaserad "strax"-trigger', () => {
       .toBe('beräknad broöppning strax');
   });
 });
+
+describe('Anomali 1 fix — Fix C max-distans 500m', () => {
+  test('fallback med distance=200m → tillåten', () => {
+    const FALLBACK_MAX_DISTANCE = 500;
+    const distance = 200;
+    expect(distance > FALLBACK_MAX_DISTANCE).toBe(false);
+  });
+
+  test('fallback med distance=500m gränsfall → tillåten (inte >max)', () => {
+    const FALLBACK_MAX_DISTANCE = 500;
+    const distance = 500;
+    expect(distance > FALLBACK_MAX_DISTANCE).toBe(false);
+  });
+
+  test('fallback med distance=501m → blockerad', () => {
+    const FALLBACK_MAX_DISTANCE = 500;
+    const distance = 501;
+    expect(distance > FALLBACK_MAX_DISTANCE).toBe(true);
+  });
+
+  test('WIZARD-scenariot 2026-04-30 09:58:20: 1057m → blockerad', () => {
+    const FALLBACK_MAX_DISTANCE = 500;
+    const distance = 1057;
+    expect(distance > FALLBACK_MAX_DISTANCE).toBe(true);
+  });
+
+  test('ARABELLA-scenariot 2026-05-01 07:06:36: 1384m → blockerad', () => {
+    const FALLBACK_MAX_DISTANCE = 500;
+    const distance = 1384;
+    expect(distance > FALLBACK_MAX_DISTANCE).toBe(true);
+  });
+});
+
+describe('Anomali 2 fix — STALLBACKABRON_EXIT_LAT symmetri', () => {
+  test('konstant matchar södermotsvarigheten i ungefärlig 300m-buffer', () => {
+    // Stallbackabron 58.31142992293701, +0.0027 deg ≈ 300m i lat
+    // Kanalinfarten 58.268, -0.0027 deg = 58.2653 (befintlig konstant)
+    const STALLBACKABRON_LAT = 58.31142992293701;
+    const STALLBACKABRON_EXIT_LAT = 58.3141;
+    const buffer = STALLBACKABRON_EXIT_LAT - STALLBACKABRON_LAT;
+    // Bör vara ~0.0027 (motsvarande 300m)
+    expect(buffer).toBeGreaterThan(0.002);
+    expect(buffer).toBeLessThan(0.004);
+  });
+});

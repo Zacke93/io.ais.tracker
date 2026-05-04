@@ -2335,25 +2335,58 @@ class AISBridgeApp extends Homey.App {
         // beteende i kanalen) eller om Class A 30s-tick hoppar över ETA<3-zonen.
         // Skydd: kräver targetBridge satt + färsk AIS + ej GPS-jump-hold så
         // spökbåtar (Bug #1) och stale data inte triggar falsk "strax".
+        //
+        // Anomali 3 debug (2026-05-05): producerar rikt loggning när vessel har
+        // targetBridge men imminent inte sätts, så vi kan diagnosticera varför
+        // "ETA okänd" visas trots att förutsättningarna borde stämma.
         vessel._isImminentAtTargetBridge = false;
         const ageMs = Date.now() - (vessel.lastPositionUpdate || 0);
         const dataIsFreshEnough = ageMs <= UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS;
-        if (vessel.targetBridge
-            && dataIsFreshEnough
-            && Number.isFinite(vessel.lat)
-            && Number.isFinite(vessel.lon)
-            && this.bridgeRegistry
-            && !this.vesselDataService?.hasGpsJumpHold?.(vessel.mmsi)) {
-          const targetBridge = this.bridgeRegistry.getBridgeByName(vessel.targetBridge);
-          if (targetBridge
-              && Number.isFinite(targetBridge.lat)
-              && Number.isFinite(targetBridge.lon)) {
-            const distToTarget = geometry.calculateDistance(
-              vessel.lat, vessel.lon,
-              targetBridge.lat, targetBridge.lon,
+        if (vessel.targetBridge) {
+          const ageS = Math.round(ageMs / 1000);
+          if (!dataIsFreshEnough) {
+            this.debug(
+              `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, AIS too old (${ageS}s > ${UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS / 1000}s)`,
             );
-            if (Number.isFinite(distToTarget) && distToTarget <= 300) {
-              vessel._isImminentAtTargetBridge = true;
+          } else if (!Number.isFinite(vessel.lat) || !Number.isFinite(vessel.lon)) {
+            this.debug(
+              `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, lat/lon not finite (lat=${vessel.lat}, lon=${vessel.lon})`,
+            );
+          } else if (this.vesselDataService?.hasGpsJumpHold?.(vessel.mmsi)) {
+            this.debug(
+              `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, GPS jump hold active`,
+            );
+          } else if (!this.bridgeRegistry) {
+            this.debug(
+              `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, bridgeRegistry missing`,
+            );
+          } else {
+            const targetBridge = this.bridgeRegistry.getBridgeByName(vessel.targetBridge);
+            if (!targetBridge
+                || !Number.isFinite(targetBridge.lat)
+                || !Number.isFinite(targetBridge.lon)) {
+              this.debug(
+                `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge} not in registry or invalid coords`,
+              );
+            } else {
+              const distToTarget = geometry.calculateDistance(
+                vessel.lat, vessel.lon,
+                targetBridge.lat, targetBridge.lon,
+              );
+              if (!Number.isFinite(distToTarget)) {
+                this.debug(
+                  `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, distance not finite`,
+                );
+              } else if (distToTarget > 300) {
+                this.debug(
+                  `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, dist=${Math.round(distToTarget)}m > 300m (AIS ${ageS}s old)`,
+                );
+              } else {
+                vessel._isImminentAtTargetBridge = true;
+                this.debug(
+                  `✨ [IMMINENT_SET] ${vessel.mmsi}: target=${vessel.targetBridge}, dist=${Math.round(distToTarget)}m, AIS ${ageS}s old`,
+                );
+              }
             }
           }
         }
@@ -2745,6 +2778,21 @@ class AISBridgeApp extends Homey.App {
       if (bridge && Number.isFinite(bridge.lat) && Number.isFinite(bridge.lon)) {
         distance = geometry.calculateDistance(vessel.lat, vessel.lon, bridge.lat, bridge.lon) || 0;
       }
+    }
+
+    // Anomali 1 fix (2026-05-05): blockera fallback-trigger när vesseln redan
+    // är långt förbi bron. Distance i Fix C är från NUVARANDE position till bron,
+    // inte position vid passage-tillfället. Vid stora Klass B AIS-glapp (5+ min)
+    // har båten redan rört sig 1+ km förbi → notis "boat_near (1057m/1384m)" är
+    // vilseledande. 500m räcker för legitima fall (typiska 100-300m) men stoppar
+    // missvisande långdistans-triggers.
+    const FALLBACK_MAX_DISTANCE = 500;
+    if (distance > FALLBACK_MAX_DISTANCE) {
+      this.log(
+        `🚫 [FALLBACK_TRIGGER_TOO_FAR] ${vessel.mmsi}: Skipping ${bridgeName} fallback `
+        + `— vessel already ${Math.round(distance)}m past bridge (>${FALLBACK_MAX_DISTANCE}m max)`,
+      );
+      return;
     }
 
     this.log(
