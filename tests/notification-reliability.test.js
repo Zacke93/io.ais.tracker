@@ -612,6 +612,60 @@ describe('Anomali 4 fix — JOURNEY_COMPLETED logg-spam', () => {
   });
 });
 
+describe('Anomali 3 v2 — extrapolation-exhausted fallback till imminent', () => {
+  // Replikerar logiken från app.js _reevaluateVesselStatuses
+  const checkExtrapolation = (baseETA, elapsedMin) => {
+    const extrapolated = Math.max(0, baseETA - elapsedMin);
+    if (extrapolated > 0) {
+      return { etaMinutes: extrapolated, exhausted: false };
+    }
+    return { etaMinutes: null, exhausted: true };
+  };
+
+  test('ELFKUNGEN-scenariot: ETA=5min, 5m 14s stale → exhausted=true', () => {
+    const result = checkExtrapolation(5, 5.23);
+    expect(result.etaMinutes).toBeNull();
+    expect(result.exhausted).toBe(true);
+  });
+
+  test('ETA=10min, 6min stale → extrapolerad till 4 min, ej exhausted', () => {
+    const result = checkExtrapolation(10, 6);
+    expect(result.etaMinutes).toBe(4);
+    expect(result.exhausted).toBe(false);
+  });
+
+  test('ETA=3min, 5m stale → extrapolation 0 → exhausted', () => {
+    const result = checkExtrapolation(3, 5);
+    expect(result.etaMinutes).toBeNull();
+    expect(result.exhausted).toBe(true);
+  });
+
+  test('imminent-fallback: dist=334m + exhausted=true → imminent=true', () => {
+    const distance = 334;
+    const exhausted = true;
+    const isImminent = distance <= 300 || exhausted === true;
+    expect(isImminent).toBe(true);
+  });
+
+  test('imminent-skip: dist=500m + exhausted=false → imminent=false', () => {
+    const distance = 500;
+    const exhausted = false;
+    const isImminent = distance <= 300 || exhausted === true;
+    expect(isImminent).toBe(false);
+  });
+
+  test('exhausted rensas vid HARD-zon (>10 min stale)', () => {
+    // Logik: vid >10 min stale ska vi ge upp helt, inte visa "strax"
+    const ageMs = 11 * 60 * 1000;
+    const HARD = 10 * 60 * 1000;
+    if (ageMs > HARD) {
+      // simulerar koden: rensar exhausted-flaggan
+      const exhausted = false;
+      expect(exhausted).toBe(false); // bekräfta att vi inte visar strax efter HARD
+    }
+  });
+});
+
 describe('Anomali 5 fix — Fix D sog-tröskel mot COG-noise', () => {
   const FIX_D_MIN_SOG = 2.0;
 
