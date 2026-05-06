@@ -2280,6 +2280,8 @@ class AISBridgeApp extends Homey.App {
             vessel._positionUpdatedSinceLastETA = false;
             vessel._etaIsExtrapolated = false;
             vessel._etaExtrapolationBaseMs = Date.now();
+            vessel._etaExtrapolationExhausted = false;
+            vessel._etaExtrapolationBaseValue = undefined;
           } else {
             // Fix G (2026-04-28): smart stale-ETA-hantering.
             //   0–5 min:  använd senaste ETA oförändrat (täcker normalt AIS-jitter)
@@ -2297,6 +2299,9 @@ class AISBridgeApp extends Homey.App {
               }
               vessel.etaMinutes = null;
               vessel._etaIsExtrapolated = false;
+              // Anomali 3: rensa exhausted-flagga vid HARD-zon. Vid >10 min stale
+              // är data för gammal för att lita på att båten fortfarande är vid bron.
+              vessel._etaExtrapolationExhausted = false;
             } else if (ageMs > UI_CONSTANTS.STALE_ETA_SOFT_THRESHOLD_MS
                 && Number.isFinite(vessel.etaMinutes)
                 && vessel.etaMinutes > 0) {
@@ -2316,10 +2321,19 @@ class AISBridgeApp extends Homey.App {
                   vessel._etaExtrapolationBaseValue = baseETA;
                 }
               } else {
-                // Extrapolation gick ned till 0 → båten skulle vara framme.
-                // Visa "okänd" hellre än att frysa på 0.
+                // Anomali 3 fix (2026-05-06): extrapolation gick ned till 0 →
+                // båten BORDE vara framme nu enligt vår sista verkliga ETA.
+                // Tidigare visade vi "ETA okänd" vilket fick bilförare att se
+                // 8+ minuter okänd-text när vi faktiskt vet att broöppning är
+                // imminent. ELFKUNGEN 06-05 14:10–14:18 är paradigm-fallet.
+                //
+                // Nu sätter vi flaggan _etaExtrapolationExhausted så Fix H
+                // nedan visar "broöppning strax" istället för "ETA okänd".
+                // Risk: båten har vänt under tystnaden → "strax" är fel under
+                // max 5 min (mellan SOFT 5min och HARD 10min) tills nästa AIS.
                 vessel.etaMinutes = null;
                 vessel._etaIsExtrapolated = false;
+                vessel._etaExtrapolationExhausted = true;
               }
             }
             // else: reuse existing vessel.etaMinutes
@@ -2327,6 +2341,7 @@ class AISBridgeApp extends Homey.App {
         } else {
           vessel.etaMinutes = null;
           vessel._etaIsExtrapolated = false;
+          vessel._etaExtrapolationExhausted = false;
         }
 
         // Fix H (2026-04-28): distansbaserad "strax"-trigger för aktiva resor.
@@ -2378,9 +2393,22 @@ class AISBridgeApp extends Homey.App {
                   `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, distance not finite`,
                 );
               } else if (distToTarget > 300) {
-                this.debug(
-                  `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, dist=${Math.round(distToTarget)}m > 300m (AIS ${ageS}s old)`,
-                );
+                // Anomali 3 fix (2026-05-06): även när vesseln är >300m kan vår
+                // egen extrapolation ha sagt att hon borde vara framme. Då är
+                // "strax" mer ärligt än "ETA okänd" — vi vet inte exakt var
+                // hon är just nu, men vi vet att broöppning är imminent enligt
+                // hennes senaste fart och kurs.
+                if (vessel._etaExtrapolationExhausted === true) {
+                  vessel._isImminentAtTargetBridge = true;
+                  this.log(
+                    `✨ [IMMINENT_SET_EXHAUSTED] ${vessel.mmsi}: target=${vessel.targetBridge}, `
+                    + `dist=${Math.round(distToTarget)}m but extrapolation exhausted (AIS ${ageS}s old)`,
+                  );
+                } else {
+                  this.debug(
+                    `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, dist=${Math.round(distToTarget)}m > 300m (AIS ${ageS}s old)`,
+                  );
+                }
               } else {
                 vessel._isImminentAtTargetBridge = true;
                 this.debug(
