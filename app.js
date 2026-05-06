@@ -495,6 +495,51 @@ class AISBridgeApp extends Homey.App {
         }
       }
 
+      // Anomali 7 fix (2026-05-06): detektera "ny resa" efter U-sväng för
+      // båt som tidigare slutfört en resa (t.ex. norrut till Vänern).
+      // PRICKBJORN 05-05 06:42 — vände söderut efter Stallbackabron-passage,
+      // passerade Stridsbergsbron + Järnvägsbron men dedup-keys från norrut
+      // blockerade alla notiser. Bilförare missade hela söderut-resan.
+      //
+      // Logik: om vessel har targetBridge=null + _finalTargetDirection från
+      // tidigare resa + nu rör sig signifikant i motsatt riktning → börja ny
+      // resa genom att rensa passedBridges, dedup-keys, _finalTarget*-flaggor.
+      // Det tillåter accelerated-target-assignment att tilldela ny målbro.
+      //
+      // Edge cases hanterade:
+      //   - GPS-jump → blockerad av hasGpsJumpHold (Bug #1-skydd)
+      //   - Wobble nära mål → kräver sog ≥ 2.0kn (mätbar fart)
+      //   - Öster/väster-cog (drift) → kräver cog tydligt N (315-45) eller S (135-225)
+      //   - Triggerintegritet → _finalTargetDirection nullas efter rensning
+      //     så detta inte triggar igen i nästa tick
+      const NEW_JOURNEY_MIN_SOG = 2.0;
+      if (!vessel.targetBridge
+          && vessel._finalTargetDirection
+          && Number.isFinite(vessel.cog)
+          && Number.isFinite(vessel.sog)
+          && vessel.sog >= NEW_JOURNEY_MIN_SOG
+          && !this.vesselDataService?.hasGpsJumpHold?.(vessel.mmsi)) {
+        const cogIsNorth = vessel.cog >= 315 || vessel.cog <= 45;
+        const cogIsSouth = vessel.cog >= 135 && vessel.cog <= 225;
+        const finalWasNorth = vessel._finalTargetDirection === 'north';
+        const newJourneyDetected = (cogIsSouth && finalWasNorth)
+          || (cogIsNorth && !finalWasNorth);
+
+        if (newJourneyDetected) {
+          const newDir = cogIsNorth ? 'north' : 'south';
+          this.log(
+            `🔁 [NEW_JOURNEY] ${mmsi}: Direction reversed from previous journey `
+            + `(${vessel._finalTargetDirection} → ${newDir}, sog=${vessel.sog.toFixed(1)}kn) `
+            + '— resetting passedBridges + dedup keys for fresh trip',
+          );
+          vessel.passedBridges = [];
+          vessel._finalTargetBridge = null;
+          vessel._finalTargetDirection = null;
+          // Rensa dedup-keys så broar i den nya riktningen kan trigga notiser
+          this._clearBoatNearTriggers(vessel);
+        }
+      }
+
       // STEG 2: ANALYSERA POSITION OCH STATUS
       // Beräknar nya avstånd, status, ETA baserat på uppdaterad position
       await this._analyzeVesselPosition(vessel);
