@@ -666,6 +666,153 @@ describe('Anomali 3 v2 — extrapolation-exhausted fallback till imminent', () =
   });
 });
 
+describe('Anomali 7 — NEW_JOURNEY-detektion efter U-sväng', () => {
+  // Replikerar villkor från app.js _onVesselUpdated
+  const NEW_JOURNEY_MIN_SOG = 2.0;
+
+  const detectNewJourney = (vessel) => {
+    if (vessel.targetBridge) return false;
+    if (!vessel._finalTargetDirection) return false;
+    if (!Number.isFinite(vessel.cog)) return false;
+    if (!Number.isFinite(vessel.sog)) return false;
+    if (vessel.sog < NEW_JOURNEY_MIN_SOG) return false;
+    const cogIsNorth = vessel.cog >= 315 || vessel.cog <= 45;
+    const cogIsSouth = vessel.cog >= 135 && vessel.cog <= 225;
+    const finalWasNorth = vessel._finalTargetDirection === 'north';
+    return (cogIsSouth && finalWasNorth) || (cogIsNorth && !finalWasNorth);
+  };
+
+  test('PRICKBJORN-scenariot: efter norr-resa, vänder söder med sog 7.4 → ny resa', () => {
+    expect(detectNewJourney({
+      targetBridge: null,
+      _finalTargetDirection: 'north',
+      cog: 213,
+      sog: 7.4,
+    })).toBe(true);
+  });
+
+  test('Söder-resa följt av norr-vändning → ny resa', () => {
+    expect(detectNewJourney({
+      targetBridge: null,
+      _finalTargetDirection: 'south',
+      cog: 30,
+      sog: 6.0,
+    })).toBe(true);
+  });
+
+  test('Samma riktning som tidigare → INGEN ny resa', () => {
+    expect(detectNewJourney({
+      targetBridge: null,
+      _finalTargetDirection: 'north',
+      cog: 30,
+      sog: 6.0,
+    })).toBe(false);
+  });
+
+  test('Wobble (sog 1.5kn) → ingen ny resa (skydd mot drift)', () => {
+    expect(detectNewJourney({
+      targetBridge: null,
+      _finalTargetDirection: 'north',
+      cog: 200,
+      sog: 1.5,
+    })).toBe(false);
+  });
+
+  test('Öster-cog (90°) → varken N eller S → ingen ny resa', () => {
+    expect(detectNewJourney({
+      targetBridge: null,
+      _finalTargetDirection: 'north',
+      cog: 90,
+      sog: 5.0,
+    })).toBe(false);
+  });
+
+  test('Aktiv resa (targetBridge satt) → ingen ny resa', () => {
+    expect(detectNewJourney({
+      targetBridge: 'Klaffbron',
+      _finalTargetDirection: 'north',
+      cog: 200,
+      sog: 5.0,
+    })).toBe(false);
+  });
+
+  test('Ingen tidigare _finalTargetDirection (första resa) → ingen ny resa', () => {
+    expect(detectNewJourney({
+      targetBridge: null,
+      _finalTargetDirection: null,
+      cog: 200,
+      sog: 5.0,
+    })).toBe(false);
+  });
+
+  test('sog precis vid tröskeln 2.0kn → ny resa', () => {
+    expect(detectNewJourney({
+      targetBridge: null,
+      _finalTargetDirection: 'north',
+      cog: 200,
+      sog: 2.0,
+    })).toBe(true);
+  });
+
+  test('cog gränsfall 135° → ny resa när tidigare norr', () => {
+    expect(detectNewJourney({
+      targetBridge: null,
+      _finalTargetDirection: 'north',
+      cog: 135,
+      sog: 5.0,
+    })).toBe(true);
+  });
+
+  test('cog 134° (östsöder) → INTE räknas som söder → ingen ny resa', () => {
+    expect(detectNewJourney({
+      targetBridge: null,
+      _finalTargetDirection: 'north',
+      cog: 134,
+      sog: 5.0,
+    })).toBe(false);
+  });
+});
+
+describe('Anomali 8 fix — Fix 3 utvidgad till non-decreasing growth', () => {
+  // Simulerar logiken
+  const checkGrowthCap = (history, sog) => {
+    if (history.length < 3) return { capped: false };
+    const lastThree = history.slice(-3);
+    const nonDecreasing = lastThree.every((v, i) => i === 0 || v >= lastThree[i - 1]);
+    const hasGrowth = lastThree[lastThree.length - 1] > lastThree[0];
+    const stationary = Number.isFinite(sog) && sog < 0.8;
+    return { capped: nonDecreasing && hasGrowth && stationary };
+  };
+
+  test('PRICKBJORN-mönster [7, 8, 9, 9, 11] sista 3 = [9, 9, 11] → cap aktiv', () => {
+    expect(checkGrowthCap([7, 8, 9, 9, 11], 0.2).capped).toBe(true);
+  });
+
+  test('Strikt växande [5, 7, 9] sog 0.1 → cap aktiv (oförändrat beteende)', () => {
+    expect(checkGrowthCap([5, 7, 9], 0.1).capped).toBe(true);
+  });
+
+  test('Plateau [9, 9, 9] → ingen growth → INGEN cap', () => {
+    expect(checkGrowthCap([9, 9, 9], 0.1).capped).toBe(false);
+  });
+
+  test('Minskande [11, 9, 7] → ingen cap', () => {
+    expect(checkGrowthCap([11, 9, 7], 0.1).capped).toBe(false);
+  });
+
+  test('Mixed [10, 8, 11] (hopp ner sedan upp) → ingen cap', () => {
+    expect(checkGrowthCap([10, 8, 11], 0.1).capped).toBe(false);
+  });
+
+  test('Rörlig båt sog 4.0 + växande → INGEN cap (Fix 3 gäller bara stationary)', () => {
+    expect(checkGrowthCap([5, 7, 9], 4.0).capped).toBe(false);
+  });
+
+  test('För kort historik (<3 samples) → ingen cap', () => {
+    expect(checkGrowthCap([5, 7], 0.1).capped).toBe(false);
+  });
+});
+
 describe('Anomali 5 fix — Fix D sog-tröskel mot COG-noise', () => {
   const FIX_D_MIN_SOG = 2.0;
 
