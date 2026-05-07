@@ -666,6 +666,94 @@ describe('Anomali 3 v2 — extrapolation-exhausted fallback till imminent', () =
   });
 });
 
+describe('Anomali 9 — Skipped bridges fallback efter STALE_AIS-återkomst', () => {
+  // Replikerar logiken från app.js _checkSkippedBridgesFallback
+  const findSkippedBridges = (vesselLat, oldVesselLat, cog) => {
+    if (!Number.isFinite(cog)) return [];
+    const cogIsNorth = cog >= 315 || cog <= 45;
+    const cogIsSouth = cog >= 135 && cog <= 225;
+    if (!cogIsNorth && !cogIsSouth) return [];
+    const direction = cogIsNorth ? 'north' : 'south';
+
+    const bridges = [
+      { name: 'Olidebron', lat: 58.272743 },
+      { name: 'Klaffbron', lat: 58.284095 },
+      { name: 'Järnvägsbron', lat: 58.291640 },
+      { name: 'Stridsbergsbron', lat: 58.293524 },
+      { name: 'Stallbackabron', lat: 58.311430 },
+    ];
+
+    let minLat;
+    let maxLat;
+    if (oldVesselLat == null) {
+      // Ny vessel: anta start från port
+      if (direction === 'north') {
+        minLat = 58.265;
+        maxLat = vesselLat;
+      } else {
+        minLat = vesselLat;
+        maxLat = 58.32;
+      }
+    } else if (Math.abs(vesselLat - oldVesselLat) > 0.005) {
+      // Stort lat-hopp
+      minLat = Math.min(vesselLat, oldVesselLat);
+      maxLat = Math.max(vesselLat, oldVesselLat);
+    } else {
+      return [];
+    }
+
+    return bridges.filter((b) => b.lat > minLat && b.lat < maxLat).map((b) => b.name);
+  };
+
+  test('PRICKBJORN-scenariot: ny vessel vid Järnvägsbron söderut → Stallbackabron + Stridsbergsbron som skipped', () => {
+    // 265801490 vid 11:33 lat 58.292 (Järnvägsbron 17m) cog 217° söder
+    const skipped = findSkippedBridges(58.292, null, 217);
+    expect(skipped).toContain('Stridsbergsbron');
+    expect(skipped).toContain('Stallbackabron');
+  });
+
+  test('Ny vessel vid Klaffbron norrut → Olidebron som skipped', () => {
+    // Vessel vid lat 58.285 cog 30° norr
+    const skipped = findSkippedBridges(58.285, null, 30);
+    expect(skipped).toContain('Olidebron');
+    expect(skipped).not.toContain('Stallbackabron');
+  });
+
+  test('Stort lat-hopp 58.292 → 58.277 söderut: Klaffbron i intervall', () => {
+    // 265801490 11:47:20: lat-hopp från 58.292 till 58.277 — Klaffbron 58.284 i mitten
+    const skipped = findSkippedBridges(58.277, 58.292, 200);
+    expect(skipped).toContain('Klaffbron');
+  });
+
+  test('Litet lat-hopp <500m → inga skipped bridges', () => {
+    const skipped = findSkippedBridges(58.292, 58.290, 217);
+    expect(skipped).toEqual([]);
+  });
+
+  test('Cog öster (90°) → tomt resultat (för osäkert)', () => {
+    const skipped = findSkippedBridges(58.292, null, 90);
+    expect(skipped).toEqual([]);
+  });
+
+  test('Persistent dedup-konceptet: timestamp inom 2h → skippa fallback', () => {
+    const persistentMap = new Map();
+    persistentMap.set('265801490:Stallbackabron', Date.now() - 30 * 60 * 1000); // 30 min sedan
+    const ts = persistentMap.get('265801490:Stallbackabron');
+    const PERSISTENT_DEDUP_WINDOW_MS = 2 * 60 * 60 * 1000;
+    const shouldSkip = Number.isFinite(ts) && Date.now() - ts < PERSISTENT_DEDUP_WINDOW_MS;
+    expect(shouldSkip).toBe(true);
+  });
+
+  test('Persistent dedup: timestamp >2h → tillåt fallback', () => {
+    const persistentMap = new Map();
+    persistentMap.set('265801490:Stallbackabron', Date.now() - 3 * 60 * 60 * 1000); // 3h sedan
+    const ts = persistentMap.get('265801490:Stallbackabron');
+    const PERSISTENT_DEDUP_WINDOW_MS = 2 * 60 * 60 * 1000;
+    const shouldSkip = Number.isFinite(ts) && Date.now() - ts < PERSISTENT_DEDUP_WINDOW_MS;
+    expect(shouldSkip).toBe(false);
+  });
+});
+
 describe('Anomali 7 — NEW_JOURNEY-detektion efter U-sväng', () => {
   // Replikerar villkor från app.js _onVesselUpdated
   const NEW_JOURNEY_MIN_SOG = 2.0;
