@@ -9,8 +9,7 @@
     "strict": false,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "moduleResolution": "node10"
+    "forceConsistentCasingInFileNames": true
   },
   "include": [
     "**/*.js"
