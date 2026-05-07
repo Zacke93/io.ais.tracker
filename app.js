@@ -164,6 +164,15 @@ class AISBridgeApp extends Homey.App {
     // Dedupe-perioden är 10 minuter (rensas i monitoring loop)
     this._triggeredBoatNearKeys = new Set();
 
+    // Anomali 9 fix (2026-05-07): persistent dedup som överlever vessel-removal.
+    // _triggeredBoatNearKeys clearas vid STALE_AIS / journey-completion, vilket
+    // gör att en återskapad vessel kan trigga samma bro igen → dubbel-notis.
+    // Denna Map behåller (mmsi:bridgeName → timestamp) i 2 timmar så fallback
+    // för "skipped bridges" inte triggar broar som redan fått notis nyligen.
+    // Format: Map<"mmsi:bridgeName", number_timestamp_ms>
+    this._persistentRecentTriggers = new Map();
+    this._PERSISTENT_DEDUP_WINDOW_MS = 2 * 60 * 60 * 1000; // 2 timmar
+
     // --- UI UPPDATERINGS-STATE ---
     // SYFTE: Spåra om en UI-uppdatering redan är schemalagd (förhindrar duplikat)
     this._uiUpdateScheduled = false;
@@ -562,6 +571,15 @@ class AISBridgeApp extends Homey.App {
         || vessel._finalTargetBridge;
       if (shouldTriggerProximity) {
         await this._triggerBoatNearFlow(vessel);
+      }
+
+      // Anomali 9 fix (2026-05-07): kolla om broar har hoppats över via STALE_AIS
+      // removal (ny vessel-instans skapad inuti kanalen) eller stora positions-hopp.
+      // Persistent dedup (2h) hindrar dubbel-notis.
+      try {
+        await this._checkSkippedBridgesFallback(vessel, oldVessel);
+      } catch (err) {
+        this.error(`[SKIPPED_BRIDGES_CHECK] Error for ${mmsi}:`, err);
       }
 
       // BUG C fix (2026-04-27): fallback-trigger för passage detekterad utan proximity.
@@ -2694,6 +2712,92 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * Anomali 9 fix (2026-05-07): detektera broar som hoppats över via STALE_AIS
+   * removal eller stora positions-hopp, och utlös fallback-notis.
+   *
+   * Två scenarios:
+   *   A. Ny vessel skapas inuti kanalen (oldVessel === null): hon kom från
+   *      Vänern (norr) eller söder, och har redan passerat broar mellan port
+   *      och nuvarande position.
+   *   B. Existerande vessel har stort lat-hopp (>500m): hon passerade broar
+   *      mellan oldVessel.lat och vessel.lat.
+   *
+   * Persistent dedup (2h) hindrar dubbel-notis vid återskapning av samma vessel.
+   * @private
+   */
+  async _checkSkippedBridgesFallback(vessel, oldVessel) {
+    if (!Number.isFinite(vessel.lat) || !Number.isFinite(vessel.lon)) return;
+    if (!Number.isFinite(vessel.sog) || vessel.sog < 2.0) return;
+    if (!vessel.targetBridge) return;
+    if (this.vesselDataService?.hasGpsJumpHold?.(vessel.mmsi)) return;
+    if (!this.bridgeRegistry) return;
+
+    // Härled direction från cog (mer tillförlitligt än _routeDirection vid återskapning)
+    if (!Number.isFinite(vessel.cog)) return;
+    const cogIsNorth = vessel.cog >= 315 || vessel.cog <= 45;
+    const cogIsSouth = vessel.cog >= 135 && vessel.cog <= 225;
+    if (!cogIsNorth && !cogIsSouth) return; // Öster/väster — för osäkert
+
+    const direction = cogIsNorth ? 'north' : 'south';
+
+    // Identifiera "intermediate" broar (passage-relevanta, ej trigger-points)
+    const allBridges = ['Olidebron', 'Klaffbron', 'Järnvägsbron', 'Stridsbergsbron', 'Stallbackabron'];
+
+    // Bestäm lat-intervall där vi letar efter passade broar
+    let minLat;
+    let maxLat;
+    let scenario;
+    if (!oldVessel) {
+      // SCENARIO A: ny vessel inuti kanalen — antag start från port
+      // Norrgående: hon kom från söder (Kanalinfarten ~58.27)
+      // Södergående: hon kom från norr (Vänern ~58.32)
+      scenario = 'new-vessel';
+      if (direction === 'north') {
+        minLat = 58.265; // strax söder om Kanalinfarten
+        maxLat = vessel.lat;
+      } else {
+        minLat = vessel.lat;
+        maxLat = 58.32; // norr om Stallbackabron
+      }
+    } else if (Number.isFinite(oldVessel.lat)
+        && Math.abs(vessel.lat - oldVessel.lat) > 0.005) {
+      // SCENARIO B: stort lat-hopp (>~550m) → broar mellan oldLat och newLat
+      scenario = 'large-jump';
+      minLat = Math.min(vessel.lat, oldVessel.lat);
+      maxLat = Math.max(vessel.lat, oldVessel.lat);
+    } else {
+      return; // Varken ny vessel eller stort hopp
+    }
+
+    // Identifiera broar inom lat-intervallet (exklusive endpoints)
+    const passedBridges = [];
+    for (const bridgeName of allBridges) {
+      const bridge = this.bridgeRegistry.getBridgeByName(bridgeName);
+      if (!bridge || !Number.isFinite(bridge.lat)) continue;
+      if (bridge.lat > minLat && bridge.lat < maxLat) {
+        passedBridges.push(bridgeName);
+      }
+    }
+
+    if (passedBridges.length === 0) return;
+
+    this.log(
+      `🔍 [SKIPPED_BRIDGES_CHECK] ${vessel.mmsi}: ${scenario}, direction=${direction}, `
+      + `lat-range=[${minLat.toFixed(4)},${maxLat.toFixed(4)}], `
+      + `candidates=[${passedBridges.join(', ')}]`,
+    );
+
+    // Utlös fallback för varje skipad bro (dedup hindrar dubbletter via persistent map)
+    for (const bridgeName of passedBridges) {
+      try {
+        await this._triggerBoatNearFlowFallback(vessel, bridgeName);
+      } catch (err) {
+        this.error(`[SKIPPED_BRIDGES_FALLBACK] Error for ${bridgeName}:`, err);
+      }
+    }
+  }
+
+  /**
    * Determine which bridges should trigger Flow cards for a vessel
    * @private
    */
@@ -2874,6 +2978,25 @@ class AISBridgeApp extends Homey.App {
     const FALLBACK_LOW_SOG_MAX_DISTANCE = 500;
     const SOG_MOTION_THRESHOLD = 0.5;
 
+    // Anomali 9 fix (2026-05-07): persistent dedup-check.
+    // Vid vessel-återskapning (efter STALE_AIS removal) clearas _triggeredBoatNearKeys.
+    // Om bron triggat senaste 2h enligt persistent map — skippa fallback för att
+    // undvika dubbel-notis.
+    const persistentDedupeKey = `${vessel.mmsi}:${bridgeName}`;
+    const recentTriggerTs = this._persistentRecentTriggers
+      ? this._persistentRecentTriggers.get(persistentDedupeKey)
+      : null;
+    const persistentWindowMs = this._PERSISTENT_DEDUP_WINDOW_MS || 2 * 60 * 60 * 1000;
+    if (Number.isFinite(recentTriggerTs)
+        && Date.now() - recentTriggerTs < persistentWindowMs) {
+      const minutesSince = Math.round((Date.now() - recentTriggerTs) / 60000);
+      this.log(
+        `🚫 [FALLBACK_TRIGGER_PERSISTENT_DEDUP] ${vessel.mmsi}: Skipping ${bridgeName} fallback `
+        + `— triggered ${minutesSince} min ago (within 2h window)`,
+      );
+      return;
+    }
+
     if (distance > FALLBACK_HARD_MAX_DISTANCE) {
       this.log(
         `🚫 [FALLBACK_TRIGGER_TOO_FAR] ${vessel.mmsi}: Skipping ${bridgeName} fallback `
@@ -2984,6 +3107,12 @@ class AISBridgeApp extends Homey.App {
       // RACE FIX: Sätt dedup-nyckel FÖRE async trigger för att förhindra
       // att parallella _onVesselUpdated-anrop slipper igenom.
       this._triggeredBoatNearKeys.add(dedupeKey);
+      // Anomali 9 fix: lagra också i persistent map som inte clearas vid
+      // vessel-removal — för 2h-dedup vid skipped-bridges-fallback.
+      // Defensive: vissa testkonstruktorer hoppar över app-init, så map kan saknas.
+      if (this._persistentRecentTriggers) {
+        this._persistentRecentTriggers.set(dedupeKey, Date.now());
+      }
 
       await this._triggerBoatNearFlowBest(safeTokens, { bridge: bridgeId }, vessel);
 
@@ -3649,6 +3778,23 @@ class AISBridgeApp extends Homey.App {
       if (keysToRemove.length > 0) {
         keysToRemove.forEach((key) => this._triggeredBoatNearKeys.delete(key));
         this.debug(`🧹 [CLEANUP] Removed ${keysToRemove.length} stale boat_near triggers`);
+      }
+
+      // Anomali 9 fix: rensa _persistentRecentTriggers entries äldre än 2h
+      // för att map inte ska växa obegränsat.
+      if (this._persistentRecentTriggers) {
+        const persistentNow = Date.now();
+        const persistentWindow = this._PERSISTENT_DEDUP_WINDOW_MS || 2 * 60 * 60 * 1000;
+        const persistentExpired = [];
+        for (const [key, ts] of this._persistentRecentTriggers.entries()) {
+          if (persistentNow - ts > persistentWindow) {
+            persistentExpired.push(key);
+          }
+        }
+        if (persistentExpired.length > 0) {
+          persistentExpired.forEach((key) => this._persistentRecentTriggers.delete(key));
+          this.debug(`🧹 [CLEANUP] Removed ${persistentExpired.length} expired persistent dedup entries`);
+        }
       }
     }, UI_CONSTANTS.MONITORING_INTERVAL_MS); // Every minute
   }
