@@ -674,6 +674,22 @@ class AISBridgeApp extends Homey.App {
         this._clearBoatNearTriggers(vessel || { mmsi });
       }
 
+      // Anomali 10 (2026-05-12): Kanalinfarten exit-fallback för södergående båtar
+      // som passerar trigger-point-zonen via långt AIS-glapp (Klass B). Verifierat
+      // 2026-05-08 (265037590, 327m) och 2026-05-09 (246140000, 318m) — båda missade
+      // notisen via ~20 min AIS-glapp innan COMPLETED_BYPASS. Dedup hanteras i fallback.
+      if (vessel
+          && Number.isFinite(vessel.lat)
+          && Number.isFinite(vessel.lon)
+          && vessel._finalTargetDirection === 'south'
+          && vessel._finalTargetBridge) {
+        try {
+          await this._triggerExitPointFallback(vessel);
+        } catch (err) {
+          this.error(`[EXIT_TRIGGER_FALLBACK] Error for ${mmsi}:`, err);
+        }
+      }
+
       // STEG 3: RENSA STATUS STABILIZER HISTORY
       this.statusService.statusStabilizer.removeVessel(mmsi);
 
@@ -2929,6 +2945,46 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * Anomali 10 (2026-05-12): Vid vessel removal, om södergående båt slutade
+   * inom 400m norr om Kanalinfarten utan att hennes trigger utlösts under resan,
+   * utlös fallback. Hanterar Klass B-båtar med ~20 min AIS-glapp över exit-zonen.
+   * @private
+   */
+  async _triggerExitPointFallback(vessel) {
+    const { kanalinfarten } = TRIGGER_POINTS;
+    if (!kanalinfarten
+        || !Number.isFinite(kanalinfarten.lat)
+        || !Number.isFinite(kanalinfarten.lon)) {
+      return;
+    }
+    const distance = geometry.calculateDistance(
+      vessel.lat, vessel.lon,
+      kanalinfarten.lat, kanalinfarten.lon,
+    );
+    const EXIT_FALLBACK_RADIUS = 400; // 100m buffer utöver 300m-zonen
+    if (!Number.isFinite(distance) || distance > EXIT_FALLBACK_RADIUS) {
+      return;
+    }
+    // Bara om vesseln är norr om Kanalinfarten (lat > tp.lat) — då har hon ännu
+    // inte passerat söderut, men förväntas göra det. Söder om → redan passerad.
+    if (vessel.lat < kanalinfarten.lat) {
+      return;
+    }
+    const dedupeKey = `${vessel.mmsi}:Kanalinfarten`;
+    if (this._triggeredBoatNearKeys && this._triggeredBoatNearKeys.has(dedupeKey)) {
+      this.debug(
+        `🚫 [EXIT_TRIGGER_DEDUPE] ${vessel.mmsi}: Kanalinfarten already triggered this session`,
+      );
+      return;
+    }
+    this.log(
+      `🚪 [EXIT_TRIGGER_FALLBACK] ${vessel.mmsi}: Last known position ${Math.round(distance)}m `
+      + 'from Kanalinfarten — firing fallback for missed exit notification',
+    );
+    await this._triggerBoatNearFlowFallback(vessel, 'Kanalinfarten');
+  }
+
+  /**
    * BUG C fix (2026-04-27): Fallback flow-trigger när passage detekterats men
    * proximity-triggern aldrig kördes (Klass B AIS-gap där båten hoppar från
    * utanför 300m direkt till passerad). Bypassar eligibility-check men respekterar
@@ -2950,10 +3006,22 @@ class AISBridgeApp extends Homey.App {
     }
 
     let distance = 0;
-    if (Number.isFinite(vessel.lat) && Number.isFinite(vessel.lon) && this.bridgeRegistry) {
-      const bridge = this.bridgeRegistry.getBridgeByName(bridgeName);
-      if (bridge && Number.isFinite(bridge.lat) && Number.isFinite(bridge.lon)) {
-        distance = geometry.calculateDistance(vessel.lat, vessel.lon, bridge.lat, bridge.lon) || 0;
+    if (Number.isFinite(vessel.lat) && Number.isFinite(vessel.lon)) {
+      if (this.bridgeRegistry) {
+        const bridge = this.bridgeRegistry.getBridgeByName(bridgeName);
+        if (bridge && Number.isFinite(bridge.lat) && Number.isFinite(bridge.lon)) {
+          distance = geometry.calculateDistance(vessel.lat, vessel.lon, bridge.lat, bridge.lon) || 0;
+        }
+      }
+      // Anomali 10 (2026-05-12): trigger-points (Kanalinfarten) ligger utanför bridgeRegistry.
+      // Slå upp dem direkt i TRIGGER_POINTS så distance-beräkning fungerar för fallback.
+      if (distance === 0) {
+        for (const tp of Object.values(TRIGGER_POINTS)) {
+          if (tp.name === bridgeName && Number.isFinite(tp.lat) && Number.isFinite(tp.lon)) {
+            distance = geometry.calculateDistance(vessel.lat, vessel.lon, tp.lat, tp.lon) || 0;
+            break;
+          }
+        }
       }
     }
 
