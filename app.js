@@ -2977,6 +2977,20 @@ class AISBridgeApp extends Homey.App {
       );
       return;
     }
+    // Anomali 10 v2: kontrollera persistent dedup (2h) här innan vi loggar "firing".
+    // Utan denna check loggas missvisande "EXIT_TRIGGER_FALLBACK: firing fallback"
+    // följt av "FALLBACK_TRIGGER_PERSISTENT_DEDUP: skipping" från _triggerBoatNearFlowFallback.
+    if (this._persistentRecentTriggers) {
+      const recentTs = this._persistentRecentTriggers.get(dedupeKey);
+      const persistentWindowMs = this._PERSISTENT_DEDUP_WINDOW_MS || 2 * 60 * 60 * 1000;
+      if (Number.isFinite(recentTs) && Date.now() - recentTs < persistentWindowMs) {
+        this.debug(
+          `🚫 [EXIT_TRIGGER_PERSISTENT_DEDUPE] ${vessel.mmsi}: Kanalinfarten triggered `
+          + `${Math.round((Date.now() - recentTs) / 60000)} min ago (within 2h window)`,
+        );
+        return;
+      }
+    }
     this.log(
       `🚪 [EXIT_TRIGGER_FALLBACK] ${vessel.mmsi}: Last known position ${Math.round(distance)}m `
       + 'from Kanalinfarten — firing fallback for missed exit notification',
