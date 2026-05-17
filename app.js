@@ -2756,8 +2756,11 @@ class AISBridgeApp extends Homey.App {
 
     const direction = cogIsNorth ? 'north' : 'south';
 
-    // Identifiera "intermediate" broar (passage-relevanta, ej trigger-points)
-    const allBridges = ['Olidebron', 'Klaffbron', 'Järnvägsbron', 'Stridsbergsbron', 'Stallbackabron'];
+    // Identifiera broar + Kanalinfarten (trigger-point). Anomali 13 (2026-05-16):
+    // norrgående NEW_VESSELS som dyker upp norr om Kanalinfartens 300m-zon missade
+    // notisen tidigare. Verifierat 2026-05-14/15: 246639000, 265759070, 265576710
+    // dök upp ~58.27 (>300m från Kanalinfarten 58.268) och fick aldrig notis.
+    const allBridges = ['Olidebron', 'Klaffbron', 'Järnvägsbron', 'Stridsbergsbron', 'Stallbackabron', 'Kanalinfarten'];
 
     // Bestäm lat-intervall där vi letar efter passade broar
     let minLat;
@@ -2788,9 +2791,21 @@ class AISBridgeApp extends Homey.App {
     // Identifiera broar inom lat-intervallet (exklusive endpoints)
     const passedBridges = [];
     for (const bridgeName of allBridges) {
+      let bridgeLat;
       const bridge = this.bridgeRegistry.getBridgeByName(bridgeName);
-      if (!bridge || !Number.isFinite(bridge.lat)) continue;
-      if (bridge.lat > minLat && bridge.lat < maxLat) {
+      if (bridge && Number.isFinite(bridge.lat)) {
+        bridgeLat = bridge.lat;
+      } else {
+        // Trigger-points (Kanalinfarten) ligger inte i bridgeRegistry — slå upp i TRIGGER_POINTS
+        for (const tp of Object.values(TRIGGER_POINTS)) {
+          if (tp.name === bridgeName && Number.isFinite(tp.lat)) {
+            bridgeLat = tp.lat;
+            break;
+          }
+        }
+      }
+      if (!Number.isFinite(bridgeLat)) continue;
+      if (bridgeLat > minLat && bridgeLat < maxLat) {
         passedBridges.push(bridgeName);
       }
     }
