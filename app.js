@@ -3463,7 +3463,13 @@ class AISBridgeApp extends Homey.App {
     if (vessel.cog >= COG_DIRECTIONS.NORTH_MIN || vessel.cog <= COG_DIRECTIONS.NORTH_MAX) {
       return 'northbound';
     }
-    return 'southbound';
+    // Anomali 16 (2026-05-19): explicit syd-intervall istället för "default till southbound".
+    // Cog 46-134° (öst) eller 226-314° (väst) är inte N/S — returnera 'unknown' ärligt.
+    // Tidigare returnerades 'southbound' för cog 73° (öst) vilket gav felaktig Flow-token.
+    if (vessel.cog >= 135 && vessel.cog <= 225) {
+      return 'southbound';
+    }
+    return 'unknown';
   }
 
   /**
