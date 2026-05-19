@@ -456,6 +456,17 @@ class AISBridgeApp extends Homey.App {
       await this._triggerBoatNearFlow(vessel);
     }
 
+    // STEG 3b: ANOMALI 13 v2 (2026-05-19) — kör skipped-bridges-fallback även för NEW_VESSEL.
+    // Tidigare körde _checkSkippedBridgesFallback bara i _onVesselUpdated → Anomali 13:s
+    // NEW_VESSEL-scenario (oldVessel=null) triggade ALDRIG i praktiken.
+    // Verifierat 2026-05-19: 230011000 PRIMA VIKING + 265048570 SANUK dök upp norr om
+    // Kanalinfartens 300m-zon, fick Olidebron-notis direkt men aldrig Kanalinfarten.
+    try {
+      await this._checkSkippedBridgesFallback(vessel, null);
+    } catch (err) {
+      this.error(`[SKIPPED_BRIDGES_CHECK] Error for ${mmsi}:`, err);
+    }
+
     // STEG 4: UPPDATERA UI
     this._updateUI('normal', `vessel-entered-${mmsi}`);
   }
