@@ -2755,7 +2755,12 @@ class AISBridgeApp extends Homey.App {
   async _checkSkippedBridgesFallback(vessel, oldVessel) {
     if (!Number.isFinite(vessel.lat) || !Number.isFinite(vessel.lon)) return;
     if (!Number.isFinite(vessel.sog) || vessel.sog < 2.0) return;
-    if (!vessel.targetBridge) return;
+    // Anomali 17 (2026-05-20): kör även för post-TARGET_END (targetBridge=null men
+    // _finalTargetBridge satt). Tidigare returnerade `if (!vessel.targetBridge)` tidigt,
+    // så large-jumps över Stallbackabron/Olidebron EFTER sista målbron fångades aldrig.
+    // Verifierat 2026-05-20: 258114080 large-jump 1108m (lat 58.308→58.317) över
+    // Stallbackabron post-TARGET_END → ingen SKIPPED_BRIDGES_CHECK → missad notis.
+    if (!vessel.targetBridge && !vessel._finalTargetBridge) return;
     if (this.vesselDataService?.hasGpsJumpHold?.(vessel.mmsi)) return;
     if (!this.bridgeRegistry) return;
 
