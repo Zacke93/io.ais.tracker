@@ -6,7 +6,7 @@ Exhaustive test suite for bridge text functionality using real app logic.
 
 ```
 comprehensive/
-├── ScenarioLibrary.js              # 52 curated test scenarios
+├── ScenarioLibrary.js              # 20 curated test scenarios
 ├── GoldenSnapshotGenerator.js      # Generates expected outputs
 ├── JourneyTestRunner.js            # Visual test execution
 ├── generate-snapshots.js           # Script to create golden snapshots
@@ -63,30 +63,28 @@ Tests will compare actual outputs against frozen golden snapshots.
 
 ## 🎨 Visual Output
 
-Tests provide clear, emoji-rich console output:
+Tests provide clear, emoji-rich console output. Bridge text follows the **Variant-1** model — one phrase per target bridge, no phase text (no "inväntar"/"Broöppning pågår"/"precis passerat"), and only Klaffbron/Stridsbergsbron are ever named:
 
 ```
 ================================================================================
 🚢 Journey 1: Single vessel North→South (complete passage)
 ================================================================================
 
-🟠 Update #1: "En båt närmar sig Stallbackabron på väg mot Stridsbergsbron..."
-🟣 Update #2: "En båt åker strax under Stallbackabron på väg mot Stridsbergsbron..."
-🟢 Update #3: "En båt passerar Stallbackabron på väg mot Stridsbergsbron..."
-🔵 Update #4: "En båt har precis passerat Stallbackabron på väg mot Stridsbergsbron..."
+🎯 Update #1: "En båt på väg mot Stridsbergsbron, beräknad broöppning om 18 minuter"
+🎯 Update #4: "En båt på väg mot Stridsbergsbron, beräknad broöppning om 12 minuter"
+🎯 Update #6: "En båt på väg mot Stridsbergsbron, beräknad broöppning strax"
+🎯 Update #9: "En båt på väg mot Klaffbron, beräknad broöppning om 9 minuter"
+⚪ Update #12: "Inga båtar är i närheten av Klaffbron eller Stridsbergsbron"
 ...
 
 ✅ Journey completed: 12 updates validated
 ```
 
 ### Emoji Legend
-- ⚪ No vessels (default message)
-- 🟢 Under-bridge (opening in progress)
-- 🟡 Waiting (awaiting opening)
-- 🔵 Just passed (recently passed bridge)
-- 🟠 Approaching (getting close)
-- 🟣 Stallbackabron special messages
-- 🎯 Other scenarios
+- ⚪ Default message (no relevant vessels)
+- 🎯 Active phrase (one or more vessels heading toward a target bridge)
+
+Note: the målbro a vessel heads toward changes as it passes bridges (intermediate bridges are tracked internally but never named in the text), so a single journey moves between "...mot Stridsbergsbron" and "...mot Klaffbron" phrases.
 
 ## 🔧 When to Regenerate Snapshots
 
