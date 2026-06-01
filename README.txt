@@ -88,12 +88,13 @@ Svenskt räkneord 1–10: `En, Två, Tre, Fyra, Fem, Sex, Sju, Åtta, Nio, Tio`.
 
 ### ETA-klausul
 
-| `etaMinutes` | Visas som |
+| Villkor | Visas som |
 |--------------|-----------|
-| Saknas / NaN / ≤ 0 (systemfel) | `ETA okänd` |
-| Inga AIS-uppdateringar > 5 min | `ETA okänd` |
+| Inom 300 m från målbro (imminent) | `beräknad broöppning strax` |
+| Saknas / NaN / ogiltig | `ETA okänd` |
+| Inga positionsuppdateringar > 10 min | `ETA okänd` |
+| AIS 5–10 min stale (extrapolerad) | `beräknad broöppning om cirka N minuter` |
 | < 3 min | `beräknad broöppning strax` |
-| 3 min (avrundat) | `beräknad broöppning om 3 minuter` |
 | ≥ 3 min | `beräknad broöppning om N minuter` (inget tak) |
 
 ### Multi-vessel
@@ -213,10 +214,10 @@ För Class B-båtar med långa intervall kan en sample landa **mellan** två bro
 
 ### "ETA okänd"
 Visas när:
-1. AIS-data har inte uppdaterats på > 5 minuter
-2. Internt beräkningsfel (sällsynt — ska felsökas)
+1. Position har inte uppdaterats på > 10 minuter (vid 5–10 min extrapoleras ETA i stället och visas som "cirka N minuter")
+2. Ogiltig/saknad ETA, eller internt beräkningsfel (sällsynt — ska felsökas)
 
-I normalt drift ska ETA alltid vara ett tal.
+I normal drift ska ETA alltid vara ett tal. En båt inom 300 m från målbron visar dock alltid "strax", oavsett ETA-värde.
 
 ### Stallbackabron
 En **hög bro** som inte öppnar. Notiser triggas för spårning, men status blir aldrig "under-bridge" eller "broöppning". Bridge text nämner inte Stallbackabron.
@@ -259,12 +260,12 @@ homey app run
 
 ### Tester
 ```bash
-npx jest --config tests/jest.config.js --forceExit
+npm test
 ```
 
 ### Lint
 ```bash
-npx eslint .
+npm run lint
 ```
 
 ### Validera Homey-pakettering

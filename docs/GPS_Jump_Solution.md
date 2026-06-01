@@ -30,14 +30,23 @@ Sophisticated analysis engine that evaluates multiple factors:
 - **Speed Consistency**: Validates if movement distance matches reported SOG over time elapsed
 - **Movement Pattern Analysis**: Considers recent vessel behavior
 
-#### Decision Logic:
+#### Decision Logic (`_analyzeLargeMovement`, movements > 500m):
 ```javascript
+// 1. Deterministic physics gate (F64): catches physically-impossible jumps
+//    even in the 300-800m range, but ONLY when there is no clear turn.
+if (movementDistance > maxRealisticDistance && movementDistance > 300
+    && (cogChange === null || cogChange <= 45)) → "gps_jump_detected"
+
+// 2. Clear turn (cogChange > 45°) with some legitimacy → accept as maneuver
+// 3. Otherwise fall through to the legitimacy score:
 legitimacyScore = (cogChangeScore + bearingConsistencyScore + speedConsistencyScore) / factors
 
 if (score >= 0.7) → "accept" (legitimate_direction_change)
-if (score >= 0.4) → "accept_with_caution" (uncertain_movement)  
-if (score < 0.4) → "gps_jump_detected" (likely_gps_error)
+if (score >= 0.4) → "accept_with_caution" (uncertain_movement)
+if (score < 0.4)  → "gps_jump_detected" (likely_gps_error)
 ```
+
+**F64 (2026-06):** the physics gate previously required > 800m, so a physically-impossible 500–800m jump without a supporting course change could slip through to the legitimacy score and be accepted, injecting a wrong position/ETA/bridge for one tick. The gate now applies from > 300m but only when there is no clear turn (`cogChange` null or ≤ 45°), so legitimate U-turns still fall through to the maneuver/legitimacy branches.
 
 #### Actions:
 - **accept**: Normal processing, large movement is legitimate
@@ -141,32 +150,42 @@ if (positionAnalysis?.gpsJumpDetected || positionAnalysis?.positionUncertain) {
 ### Constants (in `/lib/constants.js`):
 ```javascript
 MOVEMENT_DETECTION: {
-  GPS_JUMP_THRESHOLD: 500, // meters - existing threshold
-  // GPSJumpAnalyzer uses this as starting point for analysis
+  MINIMUM_MOVEMENT: 5,      // meters - smallest movement that counts
+  GPS_JUMP_THRESHOLD: 500,  // meters - large-movement analysis kicks in above this
 }
 ```
 
-### Stabilization Parameters:
+### Stabilization Parameters (`StatusStabilizer.js`, STABILIZER_CONSTANTS):
 ```javascript
-// In StatusStabilizer.js
-GPS_JUMP_STABILIZATION_DURATION = 30 * 1000; // 30 seconds
-UNCERTAIN_POSITION_CONSISTENCY_REQUIRED = 2; // readings
-FLICKERING_DETECTION_WINDOW = 3; // status changes
+GPS_STABILIZATION_DURATION_MS = 30 * 1000; // 30s — hold status after a GPS jump
+CONSISTENCY_REQUIREMENT = 2;               // readings needed to change status when uncertain
 ```
+
+### System-wide coordination (`SystemCoordinator.js`, config):
+```javascript
+gpsEventCooldownMs        = 5000;   // 5s — quiet window before decaying the instability counter
+maxConcurrentGPSEvents    = 3;      // threshold for system-wide coordination
+bridgeTextDebounceMs      = 2000;   // 2s — bridge-text debounce during coordination
+```
+Decay is driven by `lastJumpTime` (time since the last *actual* jump), so system-wide coordination always releases after a calm period (F10) — it can no longer stick permanently.
 
 ## Testing
 
-### Test Coverage:
-- **Unit Tests**: `tests/gps-jump-solution.test.js`
-- **Integration Tests**: Real boat journey scenarios
-- **Edge Cases**: Rapid direction changes, GPS dropouts, legitimate high-speed movements
+### Test Coverage (current files):
+- `tests/gps-physics-gate.test.js` — F64 physics gate (impossible 500–800m jumps vs legitimate U-turns)
+- `tests/gps-jump-movement-distance.test.js` — `movementDistance` propagation into latch/gate/route-clearing
+- `tests/gps-gate-candidate-retry.test.js` — F11 GPSJumpGateService two-step confirmation + retry of unstable candidates
+- `tests/gps-hold-ui-flicker.test.js` — F29 GPS-hold must not flip bridge_text to DEFAULT for a lone held vessel
+- `tests/system-coordinator-decay.test.js` — F10 system-wide coordination decays (never stuck permanently)
+- `tests/hysteresis-corruption-fix.test.js`, `tests/statusService-synthetic-hold.test.js` — status stabilization
+- `tests/comprehensive/` + `tests/journey-scenarios/` — full journey/golden-snapshot validation
 
 ### Test Scenarios:
-1. **Legitimate Direction Changes**: U-turns, course corrections
-2. **Real GPS Jumps**: Inconsistent movement patterns
-3. **Medium Distance Movements**: 100-500m uncertain cases
+1. **Legitimate Direction Changes**: U-turns, course corrections (cogChange > 45°)
+2. **Real GPS Jumps**: physically-impossible movement without a turn
+3. **Medium Distance Movements**: 100–500m uncertain cases
 4. **Status Flickering**: Prevention of rapid status changes
-5. **Integration**: Full boat 257941000 scenario reproduction
+5. **Coordination lifecycle**: activation under bursts, decay during calm (F10)
 
 ## Benefits
 

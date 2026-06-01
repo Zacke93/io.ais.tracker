@@ -256,7 +256,7 @@
     {
       "step": 1,
       "description": "5 boats waiting at Stridsbergsbron",
-      "expectedText": "Fem båtar på väg mot Stridsbergsbron, beräknad broöppning om 3 minuter"
+      "expectedText": "Fem båtar på väg mot Stridsbergsbron, beräknad broöppning strax"
     }
   ],
   "Edge: Distance boundary 301m vs 299m": [

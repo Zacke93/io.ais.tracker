@@ -1,5 +1,147 @@
 # Recent Changes - AIS Bridge App
 
+# 2026-06-01: Notis-token-fixar (från replay-validering) + reparerad replay-harness ✅
+
+Replay-valideringen mot historisk AIS-data (`docs/replay-validation-2026-06-01.md`) avslöjade tre defekter i boat_near-NOTIS-TOKENS (inte i texten användaren läser). Alla tre åtgärdade + harnessen gjord 1:1 med produktion.
+
+### 🔧 **ÅTGÄRDAT (app.js)**
+- **Notis-ETA mot rätt bro** `_triggerBoatNearFlowForBridge`: token-ETA ärvde `vessel.etaMinutes` (ETA till MÅLbron) även för en mellanbro-/just-passad-notis → JOSEPHINE fick "ETA 68 min" 80 m från Järnvägsbron (ETA var till Klaffbron ~1 km bort). Nu: target-kandidat behåller målbro-ETA; icke-target beräknar ETA mot den NOTIFIERADE brons avstånd, och nära+långsam (<150 m, <1 kn) ger -1 (okänd) i stället för en stor extrapolerad siffra.
+- **Robust notis-riktning** `_getDirectionString`: använder nu den latch-låsta `_finalTargetDirection`/`_routeDirection` PRIMÄRT (överlever stillastående/COG-brus), med COG som fallback bakom en SOG-gate (`< MINIMUM_VIABLE_SPEED 0.5 kn` → unknown). Sydbandet breddat till 135–314° (SV-kurser är normal sydfärd i den NE–SV-orienterade kanalen). Åtgärdar (a) stillaliggande båt felklassad som northbound och (b) sydgående COG 226.7° → unknown.
+
+### 🧪 **REPARERAD REPLAY-HARNESS** (`tests/replay-validation/replayRunner.js`)
+- Kör den riktiga appen mot `logs/ais-replay-*.jsonl` med virtuell klocka (historiska tidsstämplar) och fångar bridge_text + boat_near.
+- Rotorsak till tidigare fångst-fel (14 av 29 notiser): `__TEST_MODE__` nollades synkront per meddelande → de icke-awaitade `vessel:updated`-lyssnarna körde i en senare microtask där guarden var aktiv igen. Fix: TEST_MODE av för hela uppspelningen + dränera async-lyssnare (`await setImmediate`) efter varje sample. **Nu 1:1: 29/29 notiser, exakt matchande `logs/app-20260525-231934.log` per fartyg.**
+
+### 🧪 **VERIFIERING**
+- Nya tester: `tests/notification-tokens.test.js` (9). Uppdaterat: `flow-trigger-bridges.test.js` (mellanbro-ETA-assert speglade den fixade buggen).
+- `npm test` → 394/394 (48 sviter) ✅. `npm run lint` → rent ✅.
+- Replay-harness mot historisk data: 29/29 notiser, 0 `unknown`-riktning, 0 ETA >30 min, 0 processfel.
+
+---
+
+# 2026-06-01: F19 — borttagen död kod (städning) ✅
+- **F19** `VesselDataService` + `constants.js`: tog bort den döda `_routeDirectionLockUntil`-tidsstämpeln (skrevs men lästes aldrig — falskt oscillations-lås; verklig dämpning sköts av Fix D-debounce). `_lockRouteDirection` förenklad (behåller den LEVANDE `vessel._routeDirection`-sättningen + 5 anropare; tog bort lock-state och `lockMs`-param). Tog bort den nu oanvända konstanten `ROUTE_DIRECTION_LOCK_MS` (deklaration + export). Verifierat noll kvarvarande referenser.
+- `npm test` → 385/385 (47 sviter) ✅, `npm run lint` → rent ✅.
+
+**Därmed är hela granskningen (34/34 fynd) helt avslutad: 33 åtgärdade, 1 avfärdad (F40, bröt avsiktligt repro-test).**
+
+---
+
+# 2026-06-01: Fas 4b — GPS-koordination (de återstående 7 fynden) ✅
+
+Alla återstående GPS-koordinationsfynd från granskningen åtgärdade, var och en med dedikerat säkerhetsfall-test och full svit-validering efter varje fix.
+
+### 🔧 **ÅTGÄRDAT**
+- **F64 (LÅG)** `GPSJumpAnalyzer.js:94`: fysik-grinden krävde >800m → fysiskt omöjliga 500-800m-hopp utan kursstöd kunde accepteras (fel position/ETA/bro en tick). Grinden gäller nu från >300m men ENDAST utan tydlig sväng (`cogChange===null || <=45°`); legitima U-svängar släpps. Test: `gps-physics-gate.test.js`.
+- **F34 (MEDEL)** `app.js`: huvud-proximityvägen (`_triggerBoatNearFlowForBridge`) läste bara session-Set:en → dubbelnotis när vessel återskapas inom 2h efter STALE_AIS-removal. Läser nu persistent 2h-dedupen. **Säkert mot missade notiser:** NEW_JOURNEY rensar nu ÄVEN persistent (`_clearBoatNearTriggers(vessel, true)`), så en legitim ny resa kan notifiera samma broar igen. Test: `boat-near-persistent-dedupe-main-path.test.js` (inkl. säkerhetsfall).
+- **F26 (MEDEL)** `VesselDataService.scheduleCleanup`: BUG 6 anti-shortening-guarden tystade 100ms-elimineringen → avslutad/spök-båt kvar upp till 10 min i bridge_text. `forceElimination`-flagga kringgår guarden för bekräftad elimination. Test: `vessel-elimination-force.test.js`.
+- **F13 (MEDEL)** `PassageLatchService.shouldBlockStatus`: latchen var riktnings-agnostisk → blockerade legitim vändning tillbaka mot bron i ~7 min (fryst text, uteblivna notiser). Ny valfri `currentCog`-param: släpper igenom vid bevisad motsatt riktning, behåller blockering vid samma/osäker riktning. 5 anrop i StatusService uppdaterade. Test: `passage-latch-direction.test.js`.
+- **F18 (MEDEL)** `VesselDataService._calculateTargetBridge` m.fl.: tvingade binärt 'south' vid tvetydig COG (46-134/226-314) → fel målbro + fel `_routeDirection`. Använder nu tre-vägs `_safeDetermineDirection` (null vid osäker COG → ingen gissad målbro). Kompletterar Anomali 16 (som bara skippade vid osäker COG + låg sog). Test: `target-bridge-direction.test.js`.
+- **F21 (MEDEL)** `VesselDataService`: skyddszonen höll målbron nära ALLA broar inkl. redan passerade mellanbroar → fryst target/ETA för ankrad båt vid mellanbro. PROTECTION_ZONE_SAVE gäller inte längre när skyddszons-bron är redan passerad OCH ≠ målbron. **Bonusfix:** `_isInProtectionZone` returnerar nu NÄRMASTE bron (inte första i iterationen) — kritiskt, annars kunde en båt PÅ målbron felaktigt matcha en närliggande passerad mellanbro (testet fångade detta). HMS ARCTURUS-anchor-skyddet vid målbron intakt. Test: `protection-zone-intermediate.test.js`.
+- **F10 (HÖG)** `SystemCoordinator`: system-wide-koordination kunde fastna PERMANENT (`_assessSystemStability` omstämplade `lastStabilityEvent` varje tick → decay blockerades → all passage-detektion gatad, bridge_text frös globalt). Decay baseras nu på en SEPARAT `lastJumpTime` (sätts bara vid faktiska jumps) och körs FÖRE stabilitetsbedömningen. En lugn period släpper alltid koordinationen. Test: `system-coordinator-decay.test.js`. (Tidigare absolut-timeout-försök återställdes — detta är rotorsaksfixen.)
+
+### 🧪 **VERIFIERING**
+- 7 nya testfiler. Full svit grön efter varje fix (journey/anchor-regressioner inkluderade). `npm run lint` rent.
+
+---
+
+# 2026-05-31: Fas 4 — GPS-koordination (contained fixar) ✅ + slutstatus
+
+### 🔧 **ÅTGÄRDAT (Fas 4, contained & test-gated)**
+- **F28 (MEDEL)** `VesselDataService._applyCoordinationResults`: satte `vessel._stabilizationLevel` men de faktiska läsarna (`GPSJumpGateService:208`, `ProgressiveETACalculator:739`, `app.js:1635`) läser `vessel.lastCoordinationLevel` → de var döda (bl.a. GPS-jump-micro-grace för bridge_text). Speglar nu till `lastCoordinationLevel`.
+- **F11 (HÖG)** `GPSJumpGateService.confirmStableCandidates`: en "gammal nog men instabil" kandidat droppades tyst (varken confirmed/remaining) → en äkta bropassage kunde tappas vid brusig GPS precis vid 5s-kontrollen (fryst fel bro + missad notis). Behålls nu i `remainingCandidates` upp till `_gateTimeout` (30s) så en senare stabil tick bekräftar den. Test: `gps-gate-candidate-retry.test.js`.
+- **F29 (MEDEL)** `app.js _processUIUpdate`: en ensam båt med kort GPS-jump-hold (~2s) filtreras av BridgeTextService → texten flippade till DEFAULT mitt i resa (flimmer). Behåller nu förra texten när enda anledningen till DEFAULT är att en aktiv båt (giltig targetBridge) är kortvarigt GPS-hållen. Test: `gps-hold-ui-flicker.test.js`.
+
+### ⏸️ **ÅTERSTÄLLT / EJ ÄNDRAT (kräver journey-replay-validering)**
+- **F10** (system-wide-koordination kan fastna): fix påbörjad men **återställd** — kunde inte verifieras grön med isolerat enhetstest (kräver journey-replay av faktisk tick-kadens). Rotorsak bekräftad: `_assessSystemStability` omstämplar `lastStabilityEvent` varje tick → tids-decayen i `_updateGlobalCoordinationState` blockeras. SystemCoordinator lämnad orörd.
+- **F13, F18, F21, F26, F34, F64** — GPS-/passage-/dedupe-logik med hög regressionsrisk; bör tas i en stabil miljö med journey-replay (`tests/comprehensive/`, `tests/journey-scenarios/`). F34 särskilt försiktigt (risk för MISSADE notiser).
+- **F40, F19** — avfärdade efter analys (se nedan / föregående post).
+
+### ⏸️ **PÅBÖRJAT MEN ÅTERSTÄLLT**
+- **F10** (system-wide-koordination kan fastna permanent): fix påbörjades i `SystemCoordinator` (absolut timeout) men **återställdes** — fixen verifierades inte grön (test visade att koordinationen inte släpptes) och utvecklingsmiljön var tillfälligt degraderad (opålitliga fil-läsningar). Lämnas oförändrad t.v. Kräver noggrann omtag med journey-validering. Rotorsak bekräftad: `_assessSystemStability` omstämplar `lastStabilityEvent` varje tick → tids-decayen i `_updateGlobalCoordinationState` blockeras.
+
+### ⏭️ **KVAR (Fas 4, kräver journey-validering)**
+F10 (omtag), F11 (GPSJumpGate instabil kandidat droppas tyst), F13 (PassageLatch riktning), F18 (syd-COG-definition), F21 (skyddszon mellanbroar), F26 (100ms-elimination vs BUG6), F29 (gpsJumpHold flippar UI→DEFAULT), F34 (persistent dedupe huvudväg — risk för missade notiser), F64 (GPS-fysikgrind 500-800m). Lågprio städning: F19 (dött `_routeDirectionLockUntil`).
+
+### 🧪 **VERIFIERING**
+- `npm test` → 349/349 (37 sviter) ✅. `npm run lint` → rent ✅.
+
+---
+
+# 2026-05-30: Fas 3.5 — contained tillförlitlighets- & städfixar ✅
+
+Fortsättning på granskningen. Alla test-gated (npm test grön efter varje grupp).
+
+### 🔧 **ÅTGÄRDAT**
+- **F37 (LÅG)** `app.js _setupEventHandlers`: `vessel:entered` och `status:changed` registreras nu med `.catch()`-wrapper → ohanterade rejections i de async, fire-and-forget-handlarna loggas istället för att bubbla.
+- **F45 (MEDEL)** `BridgeTextService._buildGroupPhrase`: `imminent` aggregeras över HELA målbro-gruppen (`vessels.some(...)`) — en icke-lead båt inom 300m ger nu korrekt "strax" för gruppen.
+- **F74 (LÅG)** `ProgressiveETACalculator._getFallbackETA`: outlier-blandningen cappas uppåt mot senaste accepterade ETA (`Math.min(blended, lastProcessed)`) → en spik kan inte längre re-injiceras/driva baslinjen uppåt.
+- **F36 (MEDEL)** `app.js` boat_at_bridge-condition: "Kanalinfarten" är ett giltigt dropdown-val men låg inte i `proximityData.bridges` → villkoret kunde aldrig bli sant. Speglar nu notis-vägen och beräknar avstånd direkt mot `TRIGGER_POINTS`.
+- **F63 (LÅG)** `app.js _triggerExitPointFallback`: staleness-guard — fyrar inte exit-notis om senaste AIS (`vessel.timestamp/_lastSeen`) är äldre än HARD-tröskeln (undviker falsk notis på inaktuell position upp till 400m bort).
+- **F75 (LÅG)** `app.js`: tog bort död `_lastBridgeTexts` (plural Map, deklarerad men aldrig läst/skriven). Faktisk dedupe sker via `_lastBridgeText`/`_lastBridgeTextHash` (singular).
+
+### ⏭️ **MEDVETET EJ ÄNDRAT (efter analys)**
+- **F40** — att gatea stale-ETA på `vessel.timestamp` i stället för `lastPositionUpdate` BRÖT anomali-3-repro-testet (WIZARD-incidenten): en båt som sänder men vars POSITION är >10 min gammal ska inte behålla "strax"/ETA. Återställt; nyttan täcks redan av Fix H. Kommentar tillagd i koden.
+- **F19** — `_routeDirectionLockUntil` skrivs men läses aldrig (verkligt dött), men ofarligt. Lämnas (lågprio städning).
+
+### 🧪 **VERIFIERING**
+- Nya/utökade tester: `condition-kanalinfarten.test.js` (F36), `bridge-text-group-imminent.test.js` (F45). 
+- `npm test` → 351/351 (38 sviter) ✅. `npm run lint` → rent ✅.
+
+### ⏭️ **KVAR**
+Fas 4 GPS-koordination (hög regressionsrisk, journey-validering): F10/F11/F13/F18/F21/F26/F28/F29/F34/F64.
+
+---
+
+# 2026-05-30: Fas 2–3 + livscykel — anslutningsresiliens & notis-tillförlitlighet ✅
+
+Fortsättning på tillförlitlighetsgranskningen (se `docs/reliability-audit-2026-05-29.md`).
+
+### 🔧 **FAS 2 — ANSLUTNINGSRESILIENS** (`lib/connection/AISStreamClient.js`, `app.js`)
+- **F1 (HÖG)** Pong-watchdog: `_startPing` markerar `_awaitingPong` och kör `ws.terminate()` om pong uteblir mellan två 30s-cykler → half-open/tyst anslutning upptäcks och triggar reconnect (tidigare kunde feeden dö tyst i timmar). `_onPong` rensar flaggan.
+- **F3 (HÖG)** Zombie-reconnect stoppad: `disconnect()` sätter `_intentionalClose` + `_clearTimers()`; `_onClose` schemalägger ingen reconnect vid avsiktlig stängning (close-kod är 1005/1006, aldrig 1000). Fixar även reconnectTimer-läcka i `onUninit`.
+- **F2 (HÖG)** STALE_DATA_GUARD blir nåbar via F1 (half-open → `disconnected` → `_isConnected=false`/`_lastConnectionLost`). Notis-färskhet hanteras av F5.
+- **F55 (MEDEL)** Serverfel (t.ex. ogiltig nyckel) emittar `auth-error` i `_onMessage`; `app.js` lyssnar på `max-reconnects-reached` + `auth-error` och loggar tydligt.
+
+### 🔧 **FAS 3 — NOTIS-TILLFÖRLITLIGHET** (`app.js`)
+- **F7 (HÖG, +F35)** "Alla broar"-flow avfyras nu **en gång per resa** i stället för en gång per bro (run-listenern journey-scopar `mmsi:any` via `mmsi` i trigger-state). Eliminerar ~6 dubblettnotiser per resa. Rensas av `_clearBoatNearTriggers`.
+- **F5 (HÖG)** Färskhetsspärr i `_triggerBoatNearFlow`: ingen notis om senaste AIS-mottagning (`vessel.timestamp`) är äldre än stale-tröskeln → inga falska notiser på frusen data. Gatat på AIS-mottagning (ej positionsändring) så väntande båtar aldrig blockeras.
+
+### 🔧 **LIVSCYKEL/STÄDNING**
+- **F54 (MEDEL)** `onInit` sparar `uncaughtException`/`unhandledRejection`-referenser; `onUninit` avregistrerar dem → ingen lyssnarläcka/MaxListenersExceeded över omstart.
+- **F70 (LÅG)** `SystemCoordinator.removeVessel` clearTimeout:ar debounce-timern innan delete.
+
+### 🧪 **VERIFIERING**
+- Nya tester: `tests/ais-connection-resilience.test.js` (F1/F3/F55), utökade `tests/flow-trigger-bridges.test.js` (F5/F7).
+- `npm test` → 346/346 (36 sviter) ✅. `npm run lint` → rent ✅. `node --check` på ändrade filer ✅.
+
+### ⏭️ **KVAR**
+F36 (Kanalinfarten-condition), F34 (dubbelnotis vid återskapning — kräver NEW_JOURNEY-koordinering), F37 (try/catch på handlers), Fas 4 (GPS/koordination — F10/F11/F13/F18/F21/F26/F29/F40/F45, hög regressionsrisk, bör replay-valideras), Fas 5-rester (F19/F75/F28/F41/F63/F64/F74).
+
+---
+
+# 2026-05-29: Tillförlitlighetsgranskning + Fas 1-fixar ✅
+
+### 🎯 **BAKGRUND**
+Kritisk multi-agent-granskning av hela appen med fokus på de två tillförlitlighetspelarna (bridge_text + boat_near-notiser). 137 råfynd → 34 verifierade. Full rapport: `docs/reliability-audit-2026-05-29.md` (+ `-findings.json`).
+
+### 🔧 **FAS 1 — ÅTGÄRDADE FYND (trivial/små, hög utdelning, inkl. 2 kritiska)**
+- **F8 (KRITISK)** `app.js _setupSettingsListener`: listenern reagerade bara på `debug_level` → byte av `ais_api_key` triggade ingen återanslutning. Ny gren kör `aisClient.reconnectWithKey(newKey)`. Ny metod `AISStreamClient.reconnectWithKey()` river ner gamla socketen säkert (`_clearTimers()` + `removeAllListeners()` innan `connect()`) så en fördröjd `close` inte nollar/avsubbar den nya anslutningen.
+- **F16 (KRITISK)** `app.js _extractVesselCounts`: räknade bara ASCII-siffror, men Variant-1 skriver ordtal ("Två/Tre båtar"). Korrekt flerbåtstext underkändes kritiskt → degraderad fallback. Nu språkmedveten räkning (ordtal En–Tio + siffror).
+- **F4 (HÖG)** `app.js _findRelevantBoatsForBridgeText`: projektionen tappade `_etaIsExtrapolated`/`_isImminentAtTargetBridge` → "strax"/"cirka N min" var död via publiceringsvägen. Båda fälten tillagda. (Golden-snapshot för "5 båtar vid Stridsbergsbron" uppdaterad: båtar <300m från målbro → korrekt "strax".)
+- **F14 (HÖG)** `app.js _analyzeVesselPosition`: läste `positionAnalysis.movementDistance` (alltid undefined) i stället för `positionAnalysis.analysis.movementDistance` → latch/route-historik rensades aldrig vid >1km GPS-hopp. Fält-kedjan rättad.
+- **F6 (HÖG)** `app.js _triggerBoatNearFlowForBridge`: vid misslyckad trigger rensades bara session-dedupe, inte den persistenta 2h-nyckeln → en notis som aldrig levererades tystade skyddsnätet i 2h. Catch rensar nu båda.
+- **F25 (MEDEL)** `app.js _onVesselRemoved`: sista-vessel-default satte `_lastBridgeText` men inte `_lastBridgeTextHash`/timestamp → dedupe-desync kunde frysa texten på DEFAULT. Hash + timestamp synkas nu.
+
+### 🧪 **VERIFIERING**
+- 5 nya regressionstestfiler (16 tester): `bridge-text-count-validation`, `bridge-text-imminent-projection`, `api-key-reconnect`, `gps-jump-movement-distance`, `boat-near-persistent-dedupe-rollback`.
+- `npm test` → 337/337 (35 sviter) ✅. `npm run lint` → rent ✅.
+
+### ⏭️ **KVAR (se rapporten)**
+Fas 2 (anslutningsresiliens: F1 pong-watchdog för half-open, F3 zombie-reconnect/onUninit, F2 datadriven stale-guard, F55 auth-fel), Fas 3 (notis-dedupe-konsistens), Fas 4 (GPS/koordination, högre regressionsrisk), Fas 5 (städning/dead state).
+
+---
+
 # 2026-04-12: Bridge Text Variant-1 refactor ✅
 
 ### 🎯 **PROBLEM**

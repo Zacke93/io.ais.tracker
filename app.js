@@ -52,6 +52,10 @@ const {
   TARGET_BRIDGES, // Bug #4: används för att harmonisera BRIDGE_TEXT_BUG-check
 } = require('./lib/constants');
 
+// Lägsta fart (knop) där COG är tillförlitlig för riktningsbestämning. Under
+// detta är COG brus (stillaliggande båt). Bor i PASSAGE_TIMING i constants.
+const MIN_VIABLE_SPEED_KN = PASSAGE_TIMING.MINIMUM_VIABLE_SPEED;
+
 /**
  * =============================================================================
  * AIS BRIDGE APP - HUVUDKLASS
@@ -95,15 +99,20 @@ class AISBridgeApp extends Homey.App {
     // =========================================================================
     // SYFTE: Förhindra att appen kraschar vid oväntade fel
     // Loggar fel men låter processen fortsätta köra om möjligt
-    process.on('uncaughtException', (err) => {
+    // F54: spara referenser så lyssnarna kan avregistreras i onUninit. Homey
+    // kan starta om en app i samma process; anonyma process-lyssnare skulle
+    // annars ackumuleras per omstart → MaxListenersExceeded + döda app-instanser
+    // hålls vid liv (minnesläcka).
+    this._onUncaughtException = (err) => {
       this.error('[FATAL] Uncaught exception:', err);
       // Logga men exit inte - låt process fortsätta om möjligt
-    });
-
-    process.on('unhandledRejection', (reason, promise) => {
+    };
+    this._onUnhandledRejection = (reason, promise) => {
       this.error('[FATAL] Unhandled rejection at:', promise, 'reason:', reason);
       // Logga men exit inte - låt process fortsätta om möjligt
-    });
+    };
+    process.on('uncaughtException', this._onUncaughtException);
+    process.on('unhandledRejection', this._onUnhandledRejection);
 
     this.log('AIS Bridge starting with modular architecture v2.0');
 
@@ -334,6 +343,25 @@ class AISBridgeApp extends Homey.App {
         } else {
           this.log(`⚠️ Ignoring invalid debug_level value: ${newLevel}`);
         }
+      } else if (key === 'ais_api_key') {
+        // F8 (KRITISK): listenern reagerade tidigare ENBART på debug_level, så
+        // ett byte av API-nyckeln gjorde ingenting — connect() anropades aldrig
+        // med den nya nyckeln och hela datainflödet (bridge_text + notiser) låg
+        // nere tills appen startades om manuellt. Återanslut nu kontrollerat.
+        const newKey = this.homey.settings.get('ais_api_key');
+        if (typeof newKey === 'string' && newKey.trim().length > 0) {
+          this.log('🔑 [SETTINGS] ais_api_key ändrad — återansluter AIS-strömmen med ny nyckel');
+          if (this.aisClient && typeof this.aisClient.reconnectWithKey === 'function') {
+            this.aisClient.reconnectWithKey(newKey.trim()).catch((err) => {
+              this.error('[SETTINGS] Misslyckades att återansluta med ny API-nyckel:', err);
+            });
+          }
+        } else {
+          this.log('🔑 [SETTINGS] ais_api_key tömd/ogiltig — kopplar ner AIS-strömmen');
+          if (this.aisClient && typeof this.aisClient.disconnect === 'function') {
+            this.aisClient.disconnect();
+          }
+        }
       }
     };
 
@@ -386,7 +414,9 @@ class AISBridgeApp extends Homey.App {
     // Dessa events triggas när båtar läggs till, uppdateras eller tas bort
 
     // vessel:entered: Ny båt har dykt upp i systemet
-    this.vesselDataService.on('vessel:entered', this._onVesselEntered.bind(this));
+    // F37: fånga ohanterade rejections (handlern är async + fire-and-forget) så
+    // ett fel i en båts entry-flöde inte blir en unhandledRejection.
+    this.vesselDataService.on('vessel:entered', (e) => this._onVesselEntered(e).catch((err) => this.error('[VESSEL_ENTERED] Unhandled error:', err)));
 
     // vessel:updated: Befintlig båt har fått nya AIS-data
     this.vesselDataService.on('vessel:updated', this._onVesselUpdated.bind(this));
@@ -396,7 +426,8 @@ class AISBridgeApp extends Homey.App {
 
     // --- STATUS SERVICE EVENTS ---
     // Triggas när en båts status ändras (approaching → waiting → under-bridge → passed)
-    this.statusService.on('status:changed', this._onVesselStatusChanged.bind(this));
+    // F37: fånga ohanterade rejections i den asynkrona, fire-and-forget-handlern.
+    this.statusService.on('status:changed', (e) => this._onVesselStatusChanged(e).catch((err) => this.error('[STATUS_CHANGED] Unhandled error:', err)));
 
     // --- AIS CLIENT EVENTS ---
     // Dessa events kommer från WebSocket-anslutningen till AISstream.io
@@ -416,6 +447,12 @@ class AISBridgeApp extends Homey.App {
 
     // reconnect-needed: Anslutning tappades, behöver återansluta
     this.aisClient.on('reconnect-needed', this._onAISReconnectNeeded.bind(this));
+
+    // F55: AIS-servern fortfarande onåbar efter många försök (annars tyst loop)
+    this.aisClient.on('max-reconnects-reached', this._onAISMaxReconnects.bind(this));
+
+    // F55: server-/auth-fel från AISstream.io (t.ex. ogiltig API-nyckel)
+    this.aisClient.on('auth-error', this._onAISAuthError.bind(this));
 
     this.log('✅ Event handlers configured');
   }
@@ -555,8 +592,10 @@ class AISBridgeApp extends Homey.App {
           vessel.passedBridges = [];
           vessel._finalTargetBridge = null;
           vessel._finalTargetDirection = null;
-          // Rensa dedup-keys så broar i den nya riktningen kan trigga notiser
-          this._clearBoatNearTriggers(vessel);
+          // Rensa dedup-keys så broar i den nya riktningen kan trigga notiser.
+          // F34: rensa ÄVEN persistent (clearPersistent=true) — en äkta ny resa
+          // ska kunna notifiera samma broar igen även inom 2h-fönstret.
+          this._clearBoatNearTriggers(vessel, true);
         }
       }
 
@@ -727,6 +766,12 @@ class AISBridgeApp extends Homey.App {
 
         // Force update even if text hasn't "changed" according to comparison
         this._lastBridgeText = defaultMessage;
+        // F25: håll hash + timestamp i synk med texten. Den hash-baserade
+        // dedupen i _processUIUpdate jämför mot _lastBridgeTextHash; om bara
+        // _lastBridgeText sätts här desyncar de, och när samma båt återkommer
+        // med exakt samma fras kan dedupen frysa UI:t på DEFAULT.
+        this._lastBridgeTextHash = this._hashString(defaultMessage);
+        this._lastBridgeTextUpdate = Date.now();
         this._updateDeviceCapability('bridge_text', defaultMessage);
         this.debug(`📱 [UI_UPDATE] FORCED bridge text update to default: "${defaultMessage}"`);
 
@@ -964,7 +1009,7 @@ class AISBridgeApp extends Homey.App {
         if (this.passageLatchService) {
           this.passageLatchService.handleGPSJump(
             vessel.mmsi.toString(),
-            positionAnalysis.movementDistance || 0,
+            positionAnalysis.analysis?.movementDistance || 0,
             vessel,
           );
         }
@@ -973,17 +1018,17 @@ class AISBridgeApp extends Homey.App {
         if (this.gpsJumpGateService) {
           this.gpsJumpGateService.activateGate(
             vessel.mmsi.toString(),
-            positionAnalysis.movementDistance || 0,
+            positionAnalysis.analysis?.movementDistance || 0,
             'gps_jump_detected',
           );
         }
 
         // ROUTE ORDER VALIDATOR: Rensa historik vid stora GPS-hopp (>1km)
         // Stora hopp gör route order validation oanvändbar
-        if (this.routeOrderValidator && positionAnalysis.movementDistance > 1000) {
+        if (this.routeOrderValidator && positionAnalysis.analysis?.movementDistance > 1000) {
           this.routeOrderValidator.clearVesselHistory(
             vessel.mmsi.toString(),
-            `large_gps_jump_${positionAnalysis.movementDistance}m`,
+            `large_gps_jump_${positionAnalysis.analysis?.movementDistance}m`,
           );
         }
       }
@@ -1174,6 +1219,32 @@ class AISBridgeApp extends Homey.App {
    */
   _onAISError(error) {
     this.error('❌ [AIS_CONNECTION] AIS stream error:', error);
+  }
+
+  /**
+   * F55: AIS-servern är fortfarande onåbar efter alla snabba/medium-försök.
+   * Tidigare emittades 'max-reconnects-reached' utan lyssnare → ingen
+   * användarsignal vid ihållande nätverks-/nyckelproblem.
+   * @private
+   */
+  _onAISMaxReconnects() {
+    this.error(
+      '⚠️ [AIS_CONNECTION] AIS-servern är fortfarande onåbar efter många försök. '
+      + 'Kontrollera internetanslutningen och att API-nyckeln i appens inställningar är giltig. '
+      + 'Appen fortsätter försöka återansluta i bakgrunden.',
+    );
+  }
+
+  /**
+   * F55: server-/auth-fel från AISstream.io (t.ex. ogiltig API-nyckel).
+   * @param {*} detail
+   * @private
+   */
+  _onAISAuthError(detail) {
+    this.error(
+      `❌ [AIS_CONNECTION] Fel från AISstream.io: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}. `
+      + 'Kontrollera API-nyckeln i appens inställningar.',
+    );
   }
 
   /**
@@ -1632,6 +1703,27 @@ class AISBridgeApp extends Homey.App {
         if (!bridgeText || typeof bridgeText !== 'string' || bridgeText.trim() === '') {
           this.error('[BRIDGE_TEXT] Generated empty or invalid bridge text, using fallback');
           bridgeText = BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE;
+        }
+
+        // F29: en ensam båt som råkar ut för en kort GPS-jump-hold filtreras bort
+        // av BridgeTextService (hasGpsJumpHold) → texten flippar till DEFAULT
+        // ("Inga båtar...") mitt i en resa, för att komma tillbaka ~2s senare.
+        // Om resultatet blev DEFAULT MEN det finns minst en relevant båt med
+        // giltig targetBridge som just nu är GPS-hållen, behåll förra texten i
+        // stället för att blinka tomt (samma intention som micro-grace).
+        if (bridgeText === BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE
+            && this._lastBridgeText
+            && this._lastBridgeText !== BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE
+            && Array.isArray(relevantVessels)
+            && this.vesselDataService
+            && typeof this.vesselDataService.hasGpsJumpHold === 'function') {
+          const hasHeldActiveVessel = relevantVessels.some((v) => v
+            && TARGET_BRIDGES.includes(v.targetBridge)
+            && this.vesselDataService.hasGpsJumpHold(v.mmsi));
+          if (hasHeldActiveVessel) {
+            this.debug('🛡️ [GPS_HOLD_UI] Behåller förra texten — aktiv båt är kortvarigt GPS-hållen (undviker DEFAULT-flimmer)');
+            bridgeText = this._lastBridgeText;
+          }
         }
       } catch (bridgeTextError) {
         this.error('[BRIDGE_TEXT] CRITICAL ERROR during bridge text generation:', bridgeTextError);
@@ -2093,26 +2185,46 @@ class AISBridgeApp extends Homey.App {
       implicitCount: 0,
     };
 
-    // Look for explicit numbers
-    const numberMatches = bridgeText.match(/(\d+)\s*(båt|vessel)/gi);
-    if (numberMatches) {
-      for (const match of numberMatches) {
-        const num = parseInt(match.match(/\d+/)[0], 10);
-        if (num && num > 0) {
-          counts.totalMentioned += num;
-        }
+    if (typeof bridgeText !== 'string' || bridgeText.length === 0) {
+      return counts;
+    }
+
+    // F16: Variant-1 skriver räkneordet som svenskt ordtal ("En/Två/.../Tio")
+    // för 1-10 och som siffra för >10. Den gamla regexen matchade BARA siffror
+    // (/(\d+)\s*(båt|vessel)/) och underkände därför korrekt flerbåtstext
+    // (t.ex. "En båt ...; Tre båtar ...") som kritisk count-mismatch →
+    // degraderad fallback "N båtar är i närheten". Räkna nu både ordtal och
+    // siffror som står omedelbart före "båt"/"båtar" och summera dem.
+    const WORD_TO_NUM = {
+      en: 1,
+      två: 2,
+      tva: 2,
+      tre: 3,
+      fyra: 4,
+      fem: 5,
+      sex: 6,
+      sju: 7,
+      åtta: 8,
+      atta: 8,
+      nio: 9,
+      tio: 10,
+    };
+    const groupRe = /\b(\d+|en|två|tva|tre|fyra|fem|sex|sju|åtta|atta|nio|tio)\s+(?:båt|båtar)\b/gi;
+    let match = groupRe.exec(bridgeText);
+    while (match !== null) {
+      const token = match[1].toLowerCase();
+      const num = /^\d+$/.test(token) ? parseInt(token, 10) : WORD_TO_NUM[token];
+      if (num && num > 0) {
+        counts.totalMentioned += num;
       }
+      match = groupRe.exec(bridgeText);
     }
 
-    // Look for implicit counts ("En båt", "ytterligare X båtar")
-    if (bridgeText.includes('En båt') || bridgeText.includes('en båt')) {
-      counts.implicitCount += 1;
-    }
-
+    // Bakåtkompatibilitet: legacy "ytterligare X båtar"-fras (gamla fas-modellen).
     const additionalMatches = bridgeText.match(/ytterligare\s*(\d+)/gi);
     if (additionalMatches) {
-      for (const match of additionalMatches) {
-        const num = parseInt(match.match(/\d+/)[0], 10);
+      for (const m of additionalMatches) {
+        const num = parseInt(m.match(/\d+/)[0], 10);
         if (num && num > 0) {
           counts.implicitCount += num;
         }
@@ -2380,6 +2492,12 @@ class AISBridgeApp extends Homey.App {
             // För bilförare ger extrapolation användbar info under typiska
             // Klass B AIS-glapp 5–8 min. Om båten vänt under tystnaden rättas
             // siffran inom max 10 min av nästa AIS-tick.
+            // F40 (medvetet EJ ändrat): staleness gatas på lastPositionUpdate
+            // (positionsålder), inte AIS-mottagning. Att byta till vessel.timestamp
+            // skulle behålla en gammal ETA/imminent för en båt som sänder men vars
+            // POSITION är okänd sedan >10 min — det bryter Anomali-3-säkerhetsvalet
+            // (repro-test för WIZARD 2026-04-30) och nyttan täcks redan av Fix H
+            // imminent-zonen (<300m). Lämnas som lastPositionUpdate.
             const ageMs = Date.now() - (vessel.lastPositionUpdate || 0);
             if (ageMs > UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS) {
               if (vessel.etaMinutes !== null) {
@@ -2445,6 +2563,9 @@ class AISBridgeApp extends Homey.App {
         // targetBridge men imminent inte sätts, så vi kan diagnosticera varför
         // "ETA okänd" visas trots att förutsättningarna borde stämma.
         vessel._isImminentAtTargetBridge = false;
+        // F40 (medvetet EJ ändrat): se kommentar ovan. Imminent gatas på
+        // positionsålder så vi inte påstår "broöppning strax" för en båt vars
+        // position är >10 min gammal (Anomali-3-säkerhetsval).
         const ageMs = Date.now() - (vessel.lastPositionUpdate || 0);
         const dataIsFreshEnough = ageMs <= UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS;
         if (vessel.targetBridge) {
@@ -2575,6 +2696,12 @@ class AISBridgeApp extends Homey.App {
         _routeDirection: vessel._routeDirection,
         _finalTargetDirection: vessel._finalTargetDirection,
         _bridgeOpeningUntil: vessel._bridgeOpeningUntil,
+        // F4: dessa två flaggor styr "strax"/"cirka N min" i BridgeTextService.
+        // Utan dem i projektionen blir de alltid undefined (=== true → false),
+        // så imminent-override och extrapolerad-text aktiveras aldrig via
+        // publiceringsvägen.
+        _etaIsExtrapolated: vessel._etaIsExtrapolated,
+        _isImminentAtTargetBridge: vessel._isImminentAtTargetBridge,
         lat: vessel.lat,
         lon: vessel.lon,
       };
@@ -2696,6 +2823,22 @@ class AISBridgeApp extends Homey.App {
           && typeof this.vesselDataService.hasGpsJumpHold === 'function'
           && this.vesselDataService.hasGpsJumpHold(vessel.mmsi)) {
         this.debug(`🛡️ [FLOW_TRIGGER_GPS_HOLD] ${vessel.mmsi}: skipping during GPS jump`);
+        return;
+      }
+
+      // F5: don't fire notifications on stale/frozen vessel data. If we haven't
+      // received an AIS message for this vessel in a long time, the feed may be
+      // half-open (see F1) or the vessel is gone — a "boat near" notification
+      // would be false. Gate on AIS-RECEIPT time (vessel.timestamp/_lastSeen),
+      // NOT position-change time, so a legitimately waiting boat (still
+      // transmitting every ≤3 min) is never blocked. Vessels without a
+      // timestamp (e.g. some unit-test fixtures) are treated as fresh.
+      const lastAisMs = vessel.timestamp || vessel._lastSeen || 0;
+      if (lastAisMs && (Date.now() - lastAisMs) > UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS) {
+        this.debug(
+          `🛡️ [FLOW_TRIGGER_STALE] ${vessel.mmsi}: skipping — last AIS `
+          + `${Math.round((Date.now() - lastAisMs) / 1000)}s ago (> stale threshold)`,
+        );
         return;
       }
 
@@ -2988,6 +3131,18 @@ class AISBridgeApp extends Homey.App {
         || !Number.isFinite(kanalinfarten.lon)) {
       return;
     }
+    // F63: fyra inte exit-notis på en INAKTUELL position. Detta är en
+    // fallback som kan trigga upp till 400m bort baserat på vessel.lat/lon —
+    // om den positionen är minuter gammal (båten redan ute ur kanalen / borta)
+    // blir notisen falsk. Kräv färsk AIS (samma HARD-tröskel som ETA-staleness).
+    const lastAisMs = vessel.timestamp || vessel._lastSeen || 0;
+    if (lastAisMs && (Date.now() - lastAisMs) > UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS) {
+      this.debug(
+        `🛡️ [EXIT_TRIGGER_STALE] ${vessel.mmsi}: skipping exit fallback — last AIS `
+        + `${Math.round((Date.now() - lastAisMs) / 1000)}s ago (> stale threshold)`,
+      );
+      return;
+    }
     const distance = geometry.calculateDistance(
       vessel.lat, vessel.lon,
       kanalinfarten.lat, kanalinfarten.lon,
@@ -3172,6 +3327,25 @@ class AISBridgeApp extends Homey.App {
       return;
     }
 
+    // F34: även persistent 2h-dedup i huvudvägen (speglar fallback-/exit-vägarna).
+    // Vid STALE_AIS-removal tömps session-Set:en (_triggeredBoatNearKeys) men den
+    // persistenta mappen lever kvar → utan denna check skulle en vessel som
+    // återskapas inom 2h få DUBBELNOTIS för en bro hon redan notifierats om.
+    // SÄKERT mot missade notiser: en äkta NEW_JOURNEY rensar persistent-mappen
+    // (se _clearBoatNearTriggers(vessel, true)), så en legitim ny resa blockeras
+    // inte.
+    if (this._persistentRecentTriggers) {
+      const recentTs = this._persistentRecentTriggers.get(dedupeKey);
+      const persistentWindowMs = this._PERSISTENT_DEDUP_WINDOW_MS || 2 * 60 * 60 * 1000;
+      if (Number.isFinite(recentTs) && Date.now() - recentTs < persistentWindowMs) {
+        this.log(
+          `🚫 [FLOW_TRIGGER_PERSISTENT_DEDUP] ${vessel.mmsi}: Skipping "${bridgeName}" `
+          + `— triggered ${Math.round((Date.now() - recentTs) / 60000)} min ago (within 2h window)`,
+        );
+        return;
+      }
+    }
+
     // Create tokens with validated bridge name
     const tokens = {
       vessel_name: vessel.name || 'Unknown',
@@ -3179,13 +3353,25 @@ class AISBridgeApp extends Homey.App {
       direction: this._getDirectionString(vessel),
     };
 
-    // BUGG 4 FIX: Fallback ETA-beräkning om vessel.etaMinutes saknas
-    let eta = vessel.etaMinutes;
+    // ETA-token för notisen.
+    // vessel.etaMinutes är ETA till MÅLBRON (Klaffbron/Stridsbergsbron). För en
+    // notis om MÅLBRON är det rätt storhet. Men för en mellanbro / just-passad
+    // bro / trigger-punkt (source ≠ 'target') är målbro-ETA fel — den kan vara
+    // tiotals minuter medan båten är 80 m från den NOTIFIERADE bron.
+    // Replay-fynd (2026-06-01): JOSEPHINE 80 m från Järnvägsbron fick ETA=68
+    // (ETA till Klaffbron ~1 km bort). Beräkna i stället ETA mot den notifierade
+    // brons faktiska avstånd för icke-target-kandidater.
+    let eta = (source === 'target') ? vessel.etaMinutes : null;
     if (!Number.isFinite(eta) || eta < 0) {
       const dist = candidate.distance;
       const speedMs = (vessel.sog || 0) * 0.5144; // knop → m/s
-      if (speedMs > 0.1 && Number.isFinite(dist)) {
-        eta = Math.round((dist / speedMs) / 60); // minuter
+      // För en icke-målbro där båten är nära OCH knappt rör sig (precis vid /
+      // under / just passerad bron) är en extrapolerad ETA till just den bron
+      // inte meningsfull — hon är ju redan där. -1 (okänd) är ärligare än en
+      // stor siffra från en nära-noll-fart-division.
+      const nearAndSlow = source !== 'target' && dist < 150 && (vessel.sog || 0) < 1.0;
+      if (!nearAndSlow && speedMs > 0.1 && Number.isFinite(dist)) {
+        eta = Math.round((dist / speedMs) / 60); // minuter till den NOTIFIERADE bron
       }
     }
     // Round ETA for Flow tokens. No upper cap — post-fix ETA values are
@@ -3227,7 +3413,10 @@ class AISBridgeApp extends Homey.App {
         this._persistentRecentTriggers.set(dedupeKey, Date.now());
       }
 
-      await this._triggerBoatNearFlowBest(safeTokens, { bridge: bridgeId }, vessel);
+      // F7: carry mmsi in the trigger state so the run-listener can scope an
+      // "Any bridge" flow to ONE notification per vessel journey instead of one
+      // per bridge candidate.
+      await this._triggerBoatNearFlowBest(safeTokens, { bridge: bridgeId, mmsi: vessel.mmsi }, vessel);
 
       this.log(
         `✅ [FLOW_TRIGGER_SUCCESS] ${vessel.mmsi}: boat_near fired for ${bridgeName} `
@@ -3238,6 +3427,12 @@ class AISBridgeApp extends Homey.App {
     } catch (triggerError) {
       // Rensa dedup-nyckeln vid misslyckad trigger så att retry kan ske
       this._triggeredBoatNearKeys.delete(dedupeKey);
+      // F6: spegla rollbacken även för den persistenta 2h-nyckeln. Annars
+      // markeras en notis som ALDRIG levererades som "nyligen skickad", vilket
+      // tystar failsafe-/skipped-bridges-skyddsnätet i upp till 2 timmar.
+      if (this._persistentRecentTriggers) {
+        this._persistentRecentTriggers.delete(dedupeKey);
+      }
       this.error(
         `❌ [FLOW_TRIGGER_ERROR] ${vessel.mmsi}: boat_near failed for ${bridgeName} `
         + `(ID=${bridgeId}, distance=${Math.round(distance)}m, status=${vessel.status}): ${triggerError.message || triggerError}`,
@@ -3428,7 +3623,7 @@ class AISBridgeApp extends Homey.App {
    * Clear boat near triggers when vessel leaves area or changes status
    * @private
    */
-  _clearBoatNearTriggers(vessel) {
+  _clearBoatNearTriggers(vessel, clearPersistent = false) {
     // ENHANCED DEBUG: Start trigger clearing
     this.debug(`🧹 [TRIGGER_CLEAR_START] ${vessel.mmsi}: Clearing boat_near triggers...`);
 
@@ -3450,6 +3645,25 @@ class AISBridgeApp extends Homey.App {
     } else {
       this.debug(`ℹ️ [TRIGGER_CLEAR_NONE] ${vessel.mmsi}: No boat_near triggers to clear`);
     }
+
+    // F34: clearPersistent rensar ÄVEN den persistenta 2h-dedup-mappen. Detta
+    // görs ENDAST vid en bekräftad NEW_JOURNEY (riktningsvändning) — INTE vid
+    // ordinarie status-rensning under en pågående resa (då ska persistent-
+    // skyddsnätet leva kvar). Utan detta skulle persistent-dedupen blockera
+    // notiser för den NYA resans broar i upp till 2h → MISSAD notis (värre än
+    // den dubblett F34 åtgärdar).
+    if (clearPersistent && this._persistentRecentTriggers) {
+      const persistentToRemove = [];
+      for (const key of this._persistentRecentTriggers.keys()) {
+        if (key.startsWith(`${vessel.mmsi}:`)) {
+          persistentToRemove.push(key);
+        }
+      }
+      persistentToRemove.forEach((key) => this._persistentRecentTriggers.delete(key));
+      if (persistentToRemove.length > 0) {
+        this.debug(`🧹 [TRIGGER_CLEAR_PERSISTENT] ${vessel.mmsi}: Cleared ${persistentToRemove.length} persistent dedup keys (new journey)`);
+      }
+    }
   }
 
   /**
@@ -3460,18 +3674,34 @@ class AISBridgeApp extends Homey.App {
    * @private
    */
   _getDirectionString(vessel) {
-    // CRITICAL FIX: Handle COG=0 correctly (0° is valid north heading) and validate COG range
+    // PRIMÄRT: den latch-låsta ruttriktningen. Den sätts av _lockRouteDirection /
+    // målbro-logiken och överlever stillastående/COG-brus — vilket gör den
+    // betydligt mer tillförlitlig än momentan COG för notis-token.
+    // Replay-fynd (2026-06-01): en sydgående båt som ankrar vid en mellanbro
+    // (sog≈0, brus-COG) fick fel/'unknown' riktning när vi bara läste COG.
+    const routeDir = vessel._finalTargetDirection || vessel._routeDirection;
+    if (routeDir === 'north') return 'northbound';
+    if (routeDir === 'south') return 'southbound';
+
+    // FALLBACK: COG, men endast när farten är mätbar. Vid sog < MINIMUM_VIABLE_SPEED
+    // är COG brus (en stillaliggande båt kan rapportera vilken kurs som helst) →
+    // returnera 'unknown' i stället för en gissning.
     if (vessel.cog == null || !Number.isFinite(vessel.cog) || vessel.cog < 0 || vessel.cog >= 360) {
+      return 'unknown';
+    }
+    if (Number.isFinite(vessel.sog) && vessel.sog < MIN_VIABLE_SPEED_KN) {
       return 'unknown';
     }
 
     if (vessel.cog >= COG_DIRECTIONS.NORTH_MIN || vessel.cog <= COG_DIRECTIONS.NORTH_MAX) {
       return 'northbound';
     }
-    // Anomali 16 (2026-05-19): explicit syd-intervall istället för "default till southbound".
-    // Cog 46-134° (öst) eller 226-314° (väst) är inte N/S — returnera 'unknown' ärligt.
-    // Tidigare returnerades 'southbound' för cog 73° (öst) vilket gav felaktig Flow-token.
-    if (vessel.cog >= 135 && vessel.cog <= 225) {
+    // Sydband breddat till 135–314°: i den NE–SV-orienterade kanalen är
+    // sydväst-/väst-kurser (226–314°) normal sydfärd. Tidigare 135–225° gav
+    // felaktigt 'unknown' för en bevisligen sydgående båt med COG 226.7°
+    // (JOSEPHINE @09:46, replay-fynd). Öst-kurser (46–134°) förblir 'unknown'.
+    if (vessel.cog > COG_DIRECTIONS.NORTH_MAX && vessel.cog < COG_DIRECTIONS.NORTH_MIN
+        && vessel.cog >= 135) {
       return 'southbound';
     }
     return 'unknown';
@@ -3547,8 +3777,22 @@ class AISBridgeApp extends Homey.App {
             const selectedBridge = this._normalizeBridgeArgument(args?.bridge);
             const stateBridge = this._normalizeBridgeArgument(state?.bridge);
 
-            // If Flow card is configured for "Any bridge", always allow trigger
+            // If Flow card is configured for "Any bridge", fire ONCE per vessel
+            // journey instead of once per bridge candidate. F7: previously this
+            // returned true for every boat_near trigger() (one per bridge along
+            // the route), so an "Any bridge" flow produced up to ~6 duplicate
+            // notifications per journey. Gate on a journey-scoped key that
+            // _clearBoatNearTriggers wipes (prefix `${mmsi}:`).
             if (selectedBridge === 'any') {
+              const anyMmsi = (state && state.mmsi != null) ? String(state.mmsi) : null;
+              if (anyMmsi && this._triggeredBoatNearKeys) {
+                const anyKey = `${anyMmsi}:any`;
+                if (this._triggeredBoatNearKeys.has(anyKey)) {
+                  this.debug(`🚫 [FLOW_RUN_LISTENER] "any" already fired this journey for ${anyMmsi} — skipping duplicate`);
+                  return false;
+                }
+                this._triggeredBoatNearKeys.add(anyKey);
+              }
               return true;
             }
 
@@ -3679,6 +3923,22 @@ class AISBridgeApp extends Homey.App {
 
             // Validate bridge data and distance
             if (!bridgeData || !Number.isFinite(bridgeData.distance)) {
+              // F36: trigger-points (Kanalinfarten) är giltiga dropdown-val men
+              // ligger INTE i proximityData.bridges (bara riktiga broar finns där),
+              // så villkoret kunde aldrig bli sant för Kanalinfarten. Spegla
+              // notis-vägen: beräkna avstånd direkt mot TRIGGER_POINTS.
+              if (Number.isFinite(vessel.lat) && Number.isFinite(vessel.lon)) {
+                for (const tp of Object.values(TRIGGER_POINTS)) {
+                  if (tp.name === actualBridgeName
+                      && Number.isFinite(tp.lat) && Number.isFinite(tp.lon)) {
+                    const tpDist = geometry.calculateDistance(
+                      vessel.lat, vessel.lon, tp.lat, tp.lon,
+                    );
+                    return Number.isFinite(tpDist)
+                      && tpDist <= FLOW_CONSTANTS.FLOW_TRIGGER_DISTANCE_THRESHOLD;
+                  }
+                }
+              }
               return false;
             }
 
@@ -3929,7 +4189,9 @@ class AISBridgeApp extends Homey.App {
     this._microGraceBatches = new Map(); // bridgeKey -> [reasons]
     this._inFlightUpdates = new Set(); // Set of bridgeKeys currently updating
     this._rerunNeeded = new Set(); // bridgeKeys needing rerun after current update
-    this._lastBridgeTexts = new Map(); // bridgeKey -> lastSentText (for dedupe)
+    // F75: _lastBridgeTexts (plural) borttagen — var deklarerad men aldrig
+    // läst/skriven (död state, vilseledande). Faktisk dedupe sker via
+    // _lastBridgeText/_lastBridgeTextHash (singular) i _processUIUpdate.
 
     // Self-healing watchdog (minimal overhead)
     this._watchdogTimer = setInterval(() => {
@@ -3998,7 +4260,6 @@ class AISBridgeApp extends Homey.App {
     if (this._microGraceBatches) this._microGraceBatches.clear();
     if (this._inFlightUpdates) this._inFlightUpdates.clear();
     if (this._rerunNeeded) this._rerunNeeded.clear();
-    if (this._lastBridgeTexts) this._lastBridgeTexts.clear();
 
     // Clear all vessel service timers
     if (this.vesselDataService) {
@@ -4013,6 +4274,16 @@ class AISBridgeApp extends Homey.App {
     // Remove event listeners
     if (this.homey && this.homey.settings) {
       this.homey.settings.off('set', this._onSettingsChanged);
+    }
+
+    // F54: avregistrera process-nivå-lyssnarna (annars läcker de över omstart)
+    if (this._onUncaughtException) {
+      process.removeListener('uncaughtException', this._onUncaughtException);
+      this._onUncaughtException = null;
+    }
+    if (this._onUnhandledRejection) {
+      process.removeListener('unhandledRejection', this._onUnhandledRejection);
+      this._onUnhandledRejection = null;
     }
 
     this.log('✅ AIS Bridge shutdown complete with proper cleanup');

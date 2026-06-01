@@ -21,19 +21,27 @@ Detta är den enda modell som är matematiskt bevisbart 100% konsekvent: *en* re
 
 Beräknas från gruppens ledande båt — den båt i gruppen med lägst giltig `etaMinutes`. Om ingen båt har giltig ETA, fallback till båten med lägst `distanceToCurrent`; annars första båten.
 
-| `etaMinutes` | Klausul |
+Klausulen avgörs i prioritetsordning (`lib/utils/etaValidation.js → formatETABroOpeningClause`):
+
+| Villkor | Klausul |
 |---|---|
-| `null`, `undefined`, `NaN`, ogiltig | `ETA okänd` |
-| `< 3` | `beräknad broöppning strax` |
+| **imminent** (vessel <300 m från målbro) | `beräknad broöppning strax` |
+| `null`, `undefined`, `NaN`, ogiltig ETA | `ETA okänd` |
+| `etaMinutes < 3` | `beräknad broöppning strax` |
+| **extrapolerad** (AIS 5–10 min stale) och `N ≥ 3` | `beräknad broöppning om cirka N minuter` |
 | `N ≥ 3` (efter avrundning) | `beräknad broöppning om N minuter` |
+
+**Imminent-flaggan vinner över allt.** När en båt är inom 300 m från sin målbro tvingas "strax" oavsett ETA-värde — även för en stillastående/saktande båt som väntar, eller en Class A-båt vars 30 s-tick hoppar över ETA<3-zonen. Flaggan (`_isImminentAtTargetBridge`) sätts i `app.js` efter skydd (targetBridge satt, AIS färsk, ej GPS-jump-hold) och aggregeras över hela målbro-gruppen.
 
 **Inget tak på ETA-värdet.** Stora värden (40, 80, 120 minuter) visas verbatim — ETA-pipelinen ger trovärdiga värden även för stillastående båtar, så att visa 72 minuter ärligt är bättre än att klampa till en fras som lovar något annat.
 
-**Strax-tröskeln är 3 min** (justerad från 1 min efter produktionsanalys april 2026). Med tidigare 1-min-tröskel hoppade Class B AIS (30 s intervall) ofta över den ~30 m breda strax-zonen — endast 13 % av båtarna fick "strax"-fasen visad. Med 3-min-tröskel blir zonen ~460 m vid 5 knop och praktiskt taget alla båtar får "strax" under sin passage.
+**Strax-tröskeln är 3 min** (justerad från 1 min efter produktionsanalys april 2026). Med tidigare 1-min-tröskel hoppade Class B AIS (30 s intervall) ofta över den ~30 m breda strax-zonen. Med 3-min-tröskel blir zonen ~460 m vid 5 knop och praktiskt taget alla båtar får "strax" under sin passage.
 
-**"ETA okänd"** triggas i två fall:
-1. AIS-data har inte uppdaterats på > 5 minuter (vesseln finns kvar, men dess ETA är inte längre tillförlitlig).
-2. Internt beräkningsfel (sällsynt — felsökning krävs om det inträffar i normal drift).
+**Stale-ETA (två trösklar, `lib/constants.js`):**
+- **5–10 min utan positionsuppdatering (SOFT):** ETA extrapoleras ned (senaste ETA minus förfluten tid) och markeras "cirka" så att texten är ärlig om osäkerheten.
+- **> 10 min utan positionsuppdatering (HARD):** ETA nollställs → `ETA okänd` (data är för gammal för att lita på).
+
+**"ETA okänd"** triggas alltså vid: > 10 min utan positionsuppdatering, ogiltig/saknad ETA, eller internt beräkningsfel (sällsynt — felsökning krävs om det inträffar i normal drift). OBS: imminent-flaggan (<300 m) överstyr detta till "strax".
 
 ## Semikolon-separering
 

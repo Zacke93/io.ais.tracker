@@ -98,7 +98,12 @@ describe('Flow trigger bridge selection', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].tokens.bridge_name).toBe('Olidebron');
     expect(calls[0].state.bridge).toBe('olidebron');
-    expect(calls[0].tokens.eta_minutes).toBe(8);
+    // Token-ETA-fix (2026-06-01, replay-validering): en notis om en MELLANBRO
+    // (Olidebron, source=current) ska INTE ärva vessel.etaMinutes (=8, ETA till
+    // MÅLbron Klaffbron). Den ska visa ETA till den NOTIFIERADE bron: 110 m vid
+    // 3 knop (~1.54 m/s) ≈ 1 min. Det gamla värdet 8 var den bugg som fixen
+    // åtgärdar (vilseledande ETA till fel bro i notisen).
+    expect(calls[0].tokens.eta_minutes).toBe(1);
   });
 
   test('triggers flow for target bridge within 300m', async () => {
@@ -168,5 +173,76 @@ describe('Flow trigger bridge selection', () => {
     expect(calls).toHaveLength(2);
     const bridgeNames = calls.map((c) => c.tokens.bridge_name).sort();
     expect(bridgeNames).toEqual(['Järnvägsbron', 'Stridsbergsbron']);
+  });
+
+  test('F5: stale vessel data (old AIS receipt) does NOT fire a notification', async () => {
+    const { app, triggerCard } = await setupApp();
+    const klaff = constants.BRIDGES.klaffbron;
+
+    const vessel = {
+      mmsi: 'STALE01',
+      name: 'Stale Vessel',
+      lat: klaff.lat - 0.001,
+      lon: klaff.lon,
+      sog: 3,
+      cog: 205,
+      status: 'waiting',
+      targetBridge: 'Klaffbron',
+      currentBridge: 'Klaffbron',
+      distanceToCurrent: 110,
+      etaMinutes: 4,
+      // Last AIS received 20 minutes ago → exceeds stale threshold
+      timestamp: Date.now() - (20 * 60 * 1000),
+    };
+
+    await app._triggerBoatNearFlow(vessel);
+
+    expect(triggerCard.getTriggerCalls()).toHaveLength(0);
+  });
+
+  test('F5: fresh AIS receipt still fires normally', async () => {
+    const { app, triggerCard } = await setupApp();
+    const klaff = constants.BRIDGES.klaffbron;
+
+    const vessel = {
+      mmsi: 'FRESH01',
+      name: 'Fresh Vessel',
+      lat: klaff.lat - 0.001,
+      lon: klaff.lon,
+      sog: 3,
+      cog: 205,
+      status: 'waiting',
+      targetBridge: 'Klaffbron',
+      currentBridge: 'Klaffbron',
+      distanceToCurrent: 110,
+      etaMinutes: 4,
+      timestamp: Date.now(), // fresh
+    };
+
+    await app._triggerBoatNearFlow(vessel);
+
+    expect(triggerCard.getTriggerCalls()).toHaveLength(1);
+    expect(triggerCard.getTriggerCalls()[0].tokens.bridge_name).toBe('Klaffbron');
+  });
+
+  test('F7: "Any bridge" flow fires once per journey, not once per bridge', async () => {
+    const { app, triggerCard } = await setupApp();
+    const runListener = triggerCard.runListeners[0];
+    app._triggeredBoatNearKeys = new Set();
+    const anyArgs = { bridge: 'any' };
+
+    // First bridge of the journey → "any" matches and fires
+    expect(await runListener(anyArgs, { bridge: 'klaffbron', mmsi: '555' })).toBe(true);
+    // Subsequent bridges same journey → "any" deduped (no duplicate spam)
+    expect(await runListener(anyArgs, { bridge: 'jarnvagsbron', mmsi: '555' })).toBe(false);
+    expect(await runListener(anyArgs, { bridge: 'stridsbergsbron', mmsi: '555' })).toBe(false);
+    // Different vessel → fires independently
+    expect(await runListener(anyArgs, { bridge: 'klaffbron', mmsi: '999' })).toBe(true);
+    // After the journey ends and triggers are cleared → fires again next journey
+    app._clearBoatNearTriggers({ mmsi: '555' });
+    expect(await runListener(anyArgs, { bridge: 'klaffbron', mmsi: '555' })).toBe(true);
+    // A specific-bridge flow is unaffected by the "any" gate
+    expect(await runListener({ bridge: 'klaffbron' }, { bridge: 'klaffbron', mmsi: '777' })).toBe(true);
+    expect(await runListener({ bridge: 'klaffbron' }, { bridge: 'jarnvagsbron', mmsi: '777' })).toBe(false);
   });
 });
