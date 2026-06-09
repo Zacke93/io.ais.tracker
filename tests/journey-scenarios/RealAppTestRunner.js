@@ -74,6 +74,15 @@ class RealAppTestRunner {
     // Initialize the app (this runs all the real initialization)
     await this.app.onInit();
 
+    // P8-följdfix (2026-06-09): harnessen matar in AIS-data och simulerar
+    // alltså en ANSLUTEN app, men test-läget i _startConnection lämnar
+    // _isConnected=false. Utan detta träffar vessel-cleanup mellan scenarier
+    // stale-guarden i _onVesselRemoved (som med rätta vägrar trycka ut
+    // DEFAULT-text under AIS-avbrott) och beter sig som "mitt i ett avbrott"
+    // i stället för som normal drift.
+    this.app._isConnected = true;
+    this.app._lastConnectionLost = null;
+
     // Hook into bridge text updates
     this._hookBridgeTextUpdates();
 

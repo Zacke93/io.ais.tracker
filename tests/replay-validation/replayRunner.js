@@ -1,27 +1,35 @@
 'use strict';
 
 /**
- * Replay-runner för validering mot historisk AIS-data.
+ * Replay-runner för validering mot historisk AIS-data (v2 — fake-timers).
  *
  * Kör den RIKTIGA appen (app.onInit + alla services) mot en ais-replay-*.jsonl
  * och fångar, per fartyg/resa:
- *   - varje bridge_text-övergång (med tidsstämpel + fartygs-state)
+ *   - varje bridge_text-övergång (via den RIKTIGA publiceringsvägen
+ *     _updateDeviceCapability — inkl. coalescing/stale-guard)
  *   - varje boat_near-notis (tokens: bro, riktning, ETA, success)
  *
- * Tidssemantik: AIS-samples spelas upp med sina HISTORISKA aisTimestamp, men
- * appens egna tidsberoenden (stale-ETA, dedupe-fönster, cleanup) använder
- * Date.now(). För att replayen ska efterlikna verklig drift skjuts en virtuell
- * klocka fram till varje samples aisTimestamp innan det matas in (via en
- * injicerad nowFn där appen stödjer det) OCH vi processar i kronologisk ordning.
+ * TIDSMODELL (v2, åtgärdar fidelitetsbristen i v1):
+ * En @sinonjs/fake-timers-klocka driver BÅDE Date.now OCH setTimeout/setInterval.
+ * Mellan två samples stegas klockan fram till nästa samples aisTimestamp med
+ * clock.tick(gap) — då fyrar appens RIKTIGA cleanup-/STALE_AIS-/protection-/
+ * monitoring-timrar precis som i drift. I v1 mockades bara Date.now medan
+ * setTimeout var äkta och aldrig hann lösa ut → fartyg städades aldrig → replayen
+ * ÖVER-producerade fantomnotiser för fartyg som produktion korrekt tagit bort.
  *
- * Output: ett JSON-objekt på stdout (mellan markörer) som workflowet läser.
+ * setImmediate hålls ÄKTA (ej fejkad) så att mock-homey och microtask-dränering
+ * fungerar; de icke-awaitade async-lyssnarna (vessel:updated/status:changed)
+ * dräneras med `await new Promise(setImmediate)` efter varje steg.
  *
  * Körs som: node tests/replay-validation/replayRunner.js <jsonl-path> [mmsiFilter]
+ * Skriver ett JSON-objekt på stdout mellan markörer (__REPLAY_JSON__...__END__).
  */
 
 const fs = require('fs');
 const path = require('path');
 const Module = require('module');
+// eslint-disable-next-line node/no-unpublished-require
+const FakeTimers = require('@sinonjs/fake-timers'); // dev-only: replay-harness, ej publicerad app-kod
 
 // ---- Mocka 'homey' och 'ws' precis som RealAppTestRunner ----
 function WSStub() {
@@ -54,6 +62,10 @@ const mockHomeyModule = require(path.join(ROOT, 'tests', '__mocks__', 'homey'));
 const mockHomey = mockHomeyModule.__mockHomey;
 const AISBridgeApp = require(path.join(ROOT, 'app'));
 
+// Äkta setImmediate (sparas innan klockan installeras) för microtask-dränering.
+const realSetImmediate = setImmediate;
+const drain = () => new Promise((resolve) => realSetImmediate(resolve));
+
 async function main() {
   const jsonlPath = process.argv[2];
   const mmsiFilter = process.argv[3] || null;
@@ -65,7 +77,6 @@ async function main() {
   let samples = fs.readFileSync(jsonlPath, 'utf8').trim().split('\n')
     .filter(Boolean)
     .map((l) => JSON.parse(l));
-  // Kronologisk ordning (säkerställ)
   samples.sort((a, b) => (a.aisTimestamp || 0) - (b.aisTimestamp || 0));
   if (mmsiFilter) samples = samples.filter((s) => String(s.mmsi) === String(mmsiFilter));
   if (samples.length === 0) {
@@ -73,80 +84,75 @@ async function main() {
     return;
   }
 
-  // ---- Virtuell klocka: appens Date.now() följer AIS-tidsstämplarna ----
-  const realNow = Date.now;
-  let virtualNow = samples[0].aisTimestamp;
-  // eslint-disable-next-line no-global-assign
-  Date.now = () => virtualNow;
+  // ---- Fake-klocka: driver BÅDE Date OCH setTimeout/setInterval ----
+  // setImmediate hålls äkta (draineras manuellt). nextTick lämnas äkta.
+  const clock = FakeTimers.install({
+    now: samples[0].aisTimestamp,
+    toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+  });
 
   // ---- Init app ----
-  global.__TEST_MODE__ = true; // hindrar monitoring-intervall...
+  global.__TEST_MODE__ = true; // hindrar monitoring-intervall under init
   const app = new AISBridgeApp();
   app.homey = mockHomey;
   // ais_api_key=null → onInit ansluter INTE AIS (annars startar ws-ping ett
-  // setInterval som håller event-loopen vid liv för evigt). Vi matar AIS
-  // manuellt via _processAISMessage nedan.
+  // setInterval som håller event-loopen vid liv). Vi matar AIS manuellt nedan.
   mockHomey.app.settings = { debug_level: 'off', ais_api_key: null };
   mockHomey.settings = {
     get: (k) => mockHomey.app.settings[k] || null, on: () => {}, off: () => {},
   };
 
-  // Tysta console-spam under replay (vi vill bara ha vår JSON)
+  // Tysta console-spam under replay (vi vill bara ha vår JSON på stdout)
   const origLog = console.log;
   console.log = () => {};
 
   await app.onInit();
+  await drain();
 
-  // KRITISKT för 1:1-trohet: notiser måste få avfyras precis som i produktion.
-  // _triggerBoatNearFlow skippar tyst vid __TEST_MODE__ (app.js:2801). Notiserna
-  // avfyras dessutom i ICKE-AWAITADE async-lyssnare (vessel:updated /
-  // status:changed, app.js:418), så de körs i en senare microtask EFTER att
-  // _processAISMessage returnerat.
-  //
-  // Tidigare bugg: vi nollade __TEST_MODE__ synkront PER meddelande och
-  // återställde det direkt — då hann lyssnar-microtasken se flaggan återställd
-  // och svalde notisen (fångade 14 av 29). Fix: stäng av TEST_MODE för HELA
-  // uppspelningen och DRÄNERA async-lyssnarna (await setImmediate) efter varje
-  // sample så de hinner köra klart innan nästa.
+  // KRITISKT: replayen ska spegla en ANSLUTEN drift (produktionskörningen var
+  // ansluten hela tiden). Utan detta är stale-guarden armad från första samplet
+  // och _processUIUpdate skulle override:a texten till "AIS saknas". Sätt
+  // anslutet-tillstånd så bridge_text-fångsten via _updateDeviceCapability
+  // speglar verklig drift (INV-B4 testas separat med simulerat avbrott).
+  app._isConnected = true;
+  app._lastConnectionLost = null;
+  app._lastConnectionStatus = 'connected';
+
+  // Notiser måste få avfyras precis som i produktion. _triggerBoatNearFlow
+  // skippar tyst vid __TEST_MODE__, och notiserna avfyras i ICKE-AWAITADE
+  // async-lyssnare. Stäng därför av TEST_MODE för HELA uppspelningen och
+  // dränera lyssnarna efter varje steg.
   const savedTestMode = global.__TEST_MODE__;
   const savedNodeEnv = process.env.NODE_ENV;
   global.__TEST_MODE__ = undefined;
   process.env.NODE_ENV = 'production';
 
-  // Notiser fångas av MockFlowCard.triggerCalls på boat_near-kortet.
   const boatNearCard = app._boatNearTrigger;
-  const drain = () => new Promise((resolve) => setImmediate(resolve));
 
-  // ---- Fånga bridge_text-övergångar ----
+  // ---- Fånga bridge_text-övergångar via RIKTIGA publiceringsvägen ----
   const bridgeTextLog = [];
   const origUpdateCap = app._updateDeviceCapability.bind(app);
   let lastBridgeText = null;
   app._updateDeviceCapability = (capability, value) => {
     if (capability === 'bridge_text' && value !== lastBridgeText) {
-      bridgeTextLog.push({ t: virtualNow, iso: new Date(virtualNow).toISOString(), text: value });
+      const t = Date.now();
+      bridgeTextLog.push({ t, iso: new Date(t).toISOString(), text: value });
       lastBridgeText = value;
     }
     return origUpdateCap(capability, value);
   };
 
-  // Hjälp: generera och fånga bridge text "som UI:t skulle visa nu"
-  function captureBridgeText() {
-    try {
-      const relevant = app._findRelevantBoatsForBridgeText();
-      const text = app.bridgeTextService.generateBridgeText(relevant);
-      if (text !== lastBridgeText) {
-        bridgeTextLog.push({ t: virtualNow, iso: new Date(virtualNow).toISOString(), text });
-        lastBridgeText = text;
-      }
-    } catch (e) {
-      bridgeTextLog.push({ t: virtualNow, iso: new Date(virtualNow).toISOString(), text: `__ERROR__:${e.message}` });
-    }
-  }
-
-  // ---- Spela upp samples kronologiskt ----
+  // ---- Spela upp samples kronologiskt med fake-klockan ----
   let processErrors = 0;
   for (const s of samples) {
-    virtualNow = s.aisTimestamp;
+    // 1) Stega klockan fram till samplets tid → fyrar cleanup/STALE_AIS/
+    //    protection/monitoring-timrar som förfaller i gapet (precis som drift).
+    const gap = s.aisTimestamp - Date.now();
+    if (gap > 0) clock.tick(gap);
+    // eslint-disable-next-line no-await-in-loop
+    await drain(); // flush microtasks/async-lyssnare från ev. timer-callbacks
+
+    // 2) Mata in AIS-meddelandet vid denna (fejkade) tid.
     const aisMessage = {
       mmsi: String(s.mmsi),
       msgType: s.msgType || 'PositionReport',
@@ -155,33 +161,35 @@ async function main() {
       sog: s.sog,
       cog: s.cog,
       shipName: s.shipName || 'Unknown',
-      timestamp: virtualNow,
+      timestamp: s.aisTimestamp,
     };
     try {
       app._processAISMessage(aisMessage);
-      // Dränera de icke-awaitade event-lyssnarna (vessel:entered/updated,
-      // status:changed) så notiser hinner avfyras innan nästa sample — 1:1 med
-      // hur Homeys event-loop bearbetar mellan inkommande AIS-meddelanden.
+      // eslint-disable-next-line no-await-in-loop
+      await drain();
+      // Fyra ev. coalescing-timrar (grace-period setTimeout) som schemalagts av
+      // denna update, och dränera deras lyssnare.
+      clock.tick(60);
       // eslint-disable-next-line no-await-in-loop
       await drain();
       // eslint-disable-next-line no-await-in-loop
       await drain();
     } catch (e) {
       processErrors++;
-      bridgeTextLog.push({ t: virtualNow, iso: new Date(virtualNow).toISOString(), text: `__PROCESS_ERROR__:${e.message}` });
+      const t = Date.now();
+      bridgeTextLog.push({ t, iso: new Date(t).toISOString(), text: `__PROCESS_ERROR__:${e.message}` });
     }
-    captureBridgeText();
   }
 
-  // Återställ globala flaggor efter uppspelning
+  // ---- Slutstädning: stega fram klockan rejält så att kvarvarande
+  //      cleanup-/grace-timrar löser ut (post-resa) och slut-texten fångas.
+  clock.tick(40 * 60 * 1000); // +40 min
+  await drain();
+  await drain();
+
+  // Återställ globala flaggor
   global.__TEST_MODE__ = savedTestMode;
   process.env.NODE_ENV = savedNodeEnv;
-
-  // ---- Slutstädning: simulera att tiden går (cleanup-timers) ----
-  // Hoppa fram klockan rejält så att eventuella kvarvarande båtar
-  // (post-resa) hinner rensas, och fånga slut-texten.
-  virtualNow += 40 * 60 * 1000; // +40 min
-  captureBridgeText();
 
   // ---- Samla notiser ----
   const notifications = (boatNearCard && boatNearCard.triggerCalls ? boatNearCard.triggerCalls : [])
@@ -197,7 +205,42 @@ async function main() {
 
   // Återställ
   console.log = origLog;
-  Date.now = realNow;
+
+  // ---- Läckagediagnostik (soak-kontroll, tillagd 2026-06-09) ----
+  // Efter hela korpusen + 40 min efterspel ska alla per-fartygs-strukturer
+  // vara (nära) tomma. Växande värden här = långtidsläcka i 24/7-drift.
+  // Undantag by design: _persistentRecentTriggers håller poster i 2h (dedupe).
+  const vds = app.vesselDataService || {};
+  const sizeOf = (x) => (x && typeof x.size === 'number' ? x.size : null);
+  const leakDiagnostics = {
+    vessels: sizeOf(vds.vessels),
+    bridgeVesselAssociations: vds.bridgeVessels
+      ? [...vds.bridgeVessels.values()].reduce((s, set) => s + set.size, 0)
+      : null,
+    cleanupTimers: sizeOf(vds.cleanupTimers),
+    protectionTimers: sizeOf(vds.protectionTimers),
+    targetBridgeProtection: sizeOf(vds.targetBridgeProtection),
+    processedPassages: sizeOf(vds.processedPassages),
+    passageCleanupTimers: sizeOf(vds._passageCleanupTimers),
+    passageDetectionCache: sizeOf(vds._passageDetectionCache),
+    logDebounce: sizeOf(vds._logDebounce),
+    logRepeatCount: sizeOf(vds._logRepeatCount),
+    triggeredBoatNearKeys: sizeOf(app._triggeredBoatNearKeys),
+    persistentRecentTriggers: sizeOf(app._persistentRecentTriggers),
+    vesselRemovalTimers: sizeOf(app._vesselRemovalTimers),
+    processingRemoval: sizeOf(app._processingRemoval),
+    gpsGateGatedVessels: app.gpsJumpGateService
+      ? sizeOf(app.gpsJumpGateService._gatedVessels) : null,
+    gpsGateCandidates: app.gpsJumpGateService
+      ? sizeOf(app.gpsJumpGateService._candidatePassages) : null,
+    passageLatches: app.passageLatchService
+      ? sizeOf(app.passageLatchService._passageLatches) : null,
+    routeOrderHistory: app.routeOrderValidator
+      ? sizeOf(app.routeOrderValidator._vesselPassageHistory) : null,
+    statusStabilizerHistory: app.statusService && app.statusService.statusStabilizer
+      ? sizeOf(app.statusService.statusStabilizer.statusHistory) : null,
+    heapUsedMB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+  };
 
   const result = {
     jsonl: path.basename(jsonlPath),
@@ -208,14 +251,16 @@ async function main() {
     bridgeTextTransitions: bridgeTextLog,
     notifications,
     notificationCount: notifications.length,
+    leakDiagnostics,
   };
 
   process.stdout.write(`__REPLAY_JSON__${JSON.stringify(result)}__END__\n`);
 
-  // Städa ned appen och tvinga avslut (appen kan ha kvarvarande timers).
+  // Städa ned appen och tvinga avslut.
   try {
     await app.onUninit();
   } catch (_) { /* ignore */ }
+  clock.uninstall();
   process.exit(0);
 }
 
