@@ -1471,6 +1471,12 @@ class AISBridgeApp extends Homey.App {
       const mmsiStr = String(message.mmsi);
       const normalizedSog = Number.isFinite(message.sog) ? message.sog : null;
       const normalizedCog = Number.isFinite(message.cog) ? message.cog : null;
+      // Förtöjningsdetektering lager 3: AIS-navigationsstatus (Class A).
+      // null = okänd/saknas (Class B sänder aldrig fältet).
+      const normalizedNavStatus = Number.isInteger(message.navStatus)
+        && message.navStatus >= 0 && message.navStatus <= 15
+        ? message.navStatus
+        : null;
       const vesselPatch = {
         lat: message.lat,
         lon: message.lon,
@@ -1478,6 +1484,7 @@ class AISBridgeApp extends Homey.App {
         // null = okänd hastighet, 0 = verklig nollhastighet (stillaliggande)
         sog: normalizedSog,
         cog: normalizedCog,
+        navStatus: normalizedNavStatus,
         name: message.shipName || 'Unknown',
       };
 
@@ -2973,6 +2980,14 @@ class AISBridgeApp extends Homey.App {
 
       if (!this._boatNearTrigger) {
         this.debug(`🚫 [FLOW_TRIGGER_SKIP] ${vessel.mmsi}: No _boatNearTrigger available`);
+        return;
+      }
+
+      // FÖRTÖJNINGSDETEKTERING (2026-06-10): förtöjda/ankrade fartyg får
+      // aldrig avfyra boat_near. Hängslen utöver target-demotionen — täcker
+      // även framtida kandidatvägar som inte kräver targetBridge.
+      if (vessel._moored) {
+        this.debug(`⚓ [FLOW_TRIGGER_SKIP] ${vessel.mmsi}: Vessel is moored/anchored - no notification`);
         return;
       }
 
