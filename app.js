@@ -182,6 +182,13 @@ class AISBridgeApp extends Homey.App {
     this._persistentRecentTriggers = new Map();
     this._PERSISTENT_DEDUP_WINDOW_MS = 2 * 60 * 60 * 1000; // 2 timmar
 
+    // P2-fix (2026-06-09): kartan var tidigare ren in-memory → en app-omstart
+    // (uppdatering/krasch) nollade 2h-dedupen och ett fartyg som dröjde sig
+    // kvar nära en bro fick GARANTERAT dubbelnotis. Ladda persisterat
+    // tillstånd från homey.settings (med expiry-filter) och skriv tillbaka
+    // vid varje mutation (se _persistRecentTriggers).
+    this._loadPersistentTriggers();
+
     // --- UI UPPDATERINGS-STATE ---
     // SYFTE: Spåra om en UI-uppdatering redan är schemalagd (förhindrar duplikat)
     this._uiUpdateScheduled = false;
@@ -367,6 +374,62 @@ class AISBridgeApp extends Homey.App {
 
     // Registrera listener för settings-ändringar
     this.homey.settings.on('set', this._onSettingsChanged);
+  }
+
+  /**
+   * P2-fix: ladda persisterad 2h-dedup-karta från homey.settings.
+   * Poster äldre än dedup-fönstret filtreras bort vid laddning.
+   * Defensivt skriven — settings kan saknas i testkonstruktioner.
+   * @private
+   */
+  _loadPersistentTriggers() {
+    try {
+      if (!this.homey || !this.homey.settings || typeof this.homey.settings.get !== 'function') {
+        return;
+      }
+      const stored = this.homey.settings.get('persistent_recent_triggers');
+      if (!stored || typeof stored !== 'object') {
+        return;
+      }
+      const now = Date.now();
+      const windowMs = this._PERSISTENT_DEDUP_WINDOW_MS;
+      let loaded = 0;
+      for (const [key, ts] of Object.entries(stored)) {
+        if (Number.isFinite(ts) && now - ts < windowMs) {
+          this._persistentRecentTriggers.set(key, ts);
+          loaded++;
+        }
+      }
+      if (loaded > 0) {
+        this.log(`🔁 [PERSISTENT_DEDUP] Restored ${loaded} recent trigger entries from settings (survives restart)`);
+      }
+    } catch (error) {
+      this.error('[PERSISTENT_DEDUP] Failed to load persisted triggers:', error.message || error);
+    }
+  }
+
+  /**
+   * P2-fix: skriv 2h-dedup-kartan till homey.settings. Anropas efter varje
+   * mutation (set/delete/cleanup). Skrivfrekvensen är låg (en per notis) så
+   * write-through är billigt och säkrar tillståndet även vid krasch.
+   * @private
+   */
+  _persistRecentTriggers() {
+    try {
+      if (!this.homey || !this.homey.settings || typeof this.homey.settings.set !== 'function') {
+        return;
+      }
+      if (!this._persistentRecentTriggers) {
+        return;
+      }
+      const serialized = {};
+      for (const [key, ts] of this._persistentRecentTriggers.entries()) {
+        serialized[key] = ts;
+      }
+      this.homey.settings.set('persistent_recent_triggers', serialized);
+    } catch (error) {
+      this.error('[PERSISTENT_DEDUP] Failed to persist triggers:', error.message || error);
+    }
   }
 
   /**
@@ -756,7 +819,17 @@ class AISBridgeApp extends Homey.App {
       const remainingVesselCount = currentVesselCount - 1; // Antal efter borttagning
       this.debug(`🔍 [VESSEL_REMOVAL_DEBUG] Vessels remaining after removal: ${remainingVesselCount}`);
 
-      if (remainingVesselCount === 0) {
+      if (remainingVesselCount === 0 && !this._isConnected) {
+        // P8-fix (2026-06-09): det sista fartyget togs bort MEDAN AIS-strömmen
+        // är nere (typiskt STALE_AIS-timeout under ett avbrott). Att då trycka
+        // ut DEFAULT ("inga båtar...") är en lögn — vi VET inte att kanalen är
+        // tom, vi har bara ingen data. Behåll senaste text; _onAISConnected
+        // tvingar en färsk uppdatering så fort strömmen är tillbaka.
+        this.log(
+          '🛡️ [VESSEL_REMOVAL_STALE_GUARD] Last vessel removed while AIS is disconnected — '
+          + 'keeping last bridge text until reconnect refresh',
+        );
+      } else if (remainingVesselCount === 0) {
         // CRITICAL: Force bridge text update to default when no vessels remain
         this.debug('🔄 [VESSEL_REMOVAL_DEBUG] Last vessel removed - forcing bridge text to default');
         // eslint-disable-next-line global-require
@@ -1046,12 +1119,28 @@ class AISBridgeApp extends Homey.App {
           if (confirmedPassage.bridgeName === vessel.targetBridge) {
             // MÅLBRO PASSAGE: Trigger transition till nästa målbro
             // CRITICAL FIX: Pass oldVessel snapshot instead of timestamp
-            this.vesselDataService._handleTargetBridgeTransition(vessel, oldVessel);
+            // P6-fix (2026-06-09): confirmedPassage=true → transitionen
+            // appliceras direkt utan om-gating. Tidigare körde
+            // _handleTargetBridgeTransition om hela passage-detekteringen
+            // (gate + cache + linjekorsning) som vid det här laget gav false
+            // → transitionen uteblev och bridge_text frös i 2-3 min.
+            this.vesselDataService._handleTargetBridgeTransition(
+              vessel,
+              oldVessel,
+              { confirmedPassage: true },
+            );
           } else {
             // MELLANBRO PASSAGE: Uppdatera lastPassedBridge
             vessel.lastPassedBridge = confirmedPassage.bridgeName;
             vessel.lastPassedBridgeTime = confirmedPassage.confirmedAt;
           }
+        }
+
+        // P6-fix: en bekräftad passage bevisar 5s GPS-stabilitet
+        // (confirmStableCandidates kräver det) → gaten har gjort sitt och får
+        // inte fortsätta blockera nästa passage-detektering.
+        if (confirmedPassages.length > 0) {
+          this.gpsJumpGateService.clearGate(vessel.mmsi.toString());
         }
       }
 
@@ -1168,6 +1257,20 @@ class AISBridgeApp extends Homey.App {
     // Bug #12: clear disconnect timestamp so bridge text resumes normal operation
     this._lastConnectionLost = null;
     this._updateDeviceCapability('connection_status', 'connected');
+
+    // P8-fix (2026-06-09): tvinga en bridge_text-synk efter (åter)anslutning.
+    // Under avbrottet kan texten ha frusits (Bug#12-guard) eller hållits kvar
+    // av stale-guarden i _onVesselRemoved — utan denna refresh låg den kvar
+    // tills nästa fartygshändelse råkade trigga en uppdatering.
+    // Guard på _microGraceTimers: vid allra första boot-connect är coalescing-
+    // systemet (onInit steg 9) ännu inte initierat — och texten är ändå färsk.
+    if (this._microGraceTimers) {
+      try {
+        this._updateUI('critical', 'ais-reconnected');
+      } catch (error) {
+        this.error('[AIS_CONNECTION] Post-reconnect UI refresh failed:', error.message || error);
+      }
+    }
   }
 
   /**
@@ -1222,6 +1325,34 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * B3-fix (2026-06-09): skicka en Homey-timeline-notis vid anslutnings-/
+   * nyckelproblem. Tidigare loggades felen bara — en användare utan
+   * loggåtkomst fick aldrig veta att appen stod still (inga notiser, frusen
+   * bridge_text). Dedupe: max en notis per 24h så ihållande fel inte spammar
+   * timeline (loggarna fortsätter visa varje försök).
+   * @param {string} message - Användarvänligt meddelande (visas i timeline)
+   * @private
+   */
+  async _notifyConnectionIssue(message) {
+    try {
+      const DEDUPE_MS = 24 * 60 * 60 * 1000;
+      const now = Date.now();
+      if (this._lastConnectionIssueNotifiedAt
+          && now - this._lastConnectionIssueNotifiedAt < DEDUPE_MS) {
+        return;
+      }
+      if (!this.homey || !this.homey.notifications
+          || typeof this.homey.notifications.createNotification !== 'function') {
+        return;
+      }
+      this._lastConnectionIssueNotifiedAt = now;
+      await this.homey.notifications.createNotification({ excerpt: message });
+    } catch (error) {
+      this.error('[AIS_CONNECTION] Failed to create timeline notification:', error.message || error);
+    }
+  }
+
+  /**
    * F55: AIS-servern är fortfarande onåbar efter alla snabba/medium-försök.
    * Tidigare emittades 'max-reconnects-reached' utan lyssnare → ingen
    * användarsignal vid ihållande nätverks-/nyckelproblem.
@@ -1232,6 +1363,11 @@ class AISBridgeApp extends Homey.App {
       '⚠️ [AIS_CONNECTION] AIS-servern är fortfarande onåbar efter många försök. '
       + 'Kontrollera internetanslutningen och att API-nyckeln i appens inställningar är giltig. '
       + 'Appen fortsätter försöka återansluta i bakgrunden.',
+    );
+    // B3: synliggör för användaren via timeline (deduped till 1/24h)
+    this._notifyConnectionIssue(
+      'AIS Tracker: kan inte nå AISstream.io. Kontrollera internetanslutningen '
+      + 'och API-nyckeln i appens inställningar. Appen fortsätter försöka återansluta.',
     );
   }
 
@@ -1244,6 +1380,11 @@ class AISBridgeApp extends Homey.App {
     this.error(
       `❌ [AIS_CONNECTION] Fel från AISstream.io: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}. `
       + 'Kontrollera API-nyckeln i appens inställningar.',
+    );
+    // B3: synliggör för användaren via timeline (deduped till 1/24h)
+    this._notifyConnectionIssue(
+      'AIS Tracker: AISstream.io avvisade anslutningen — API-nyckeln är '
+      + 'troligen ogiltig. Uppdatera nyckeln i appens inställningar.',
     );
   }
 
@@ -1269,6 +1410,16 @@ class AISBridgeApp extends Homey.App {
       this.aisClient.connect(apiKey).catch((err) => {
         this.error('Failed to reconnect to AIS stream:', err);
       });
+    } else {
+      // B3-fix (2026-06-09): tidigare gjorde tom nyckel detta till en tyst
+      // evighetsloop — klienten emittade reconnect-needed, vi gjorde inget,
+      // användaren fick aldrig veta varför appen stod still.
+      this.error('⚠️ [AIS_CONNECTION] Kan inte återansluta — ingen API-nyckel konfigurerad.');
+      this._updateDeviceCapability('connection_status', 'disconnected');
+      this._notifyConnectionIssue(
+        'AIS Tracker: ingen API-nyckel är konfigurerad — appen tar inte emot '
+        + 'båtdata. Lägg in din AISstream.io-nyckel i appens inställningar.',
+      );
     }
   }
 
@@ -1391,6 +1542,16 @@ class AISBridgeApp extends Homey.App {
     // CRITICAL FIX: More robust longitude validation with finite check
     if (!Number.isFinite(message.lon) || message.lon < VALIDATION_CONSTANTS.LONGITUDE_MIN || message.lon > VALIDATION_CONSTANTS.LONGITUDE_MAX) {
       this.debug(`⚠️ [AIS_VALIDATION] Invalid longitude: ${message.lon}`);
+      return false;
+    }
+
+    // Fuzz-härdning (2026-06-09): spegla klientens 0,0-avvisning (Guineabukten
+    // ≈ "GPS saknas"-artefakt, ~6000 km från Trollhättan). AISStreamClient
+    // filtrerar redan dessa i _extractAISData, men appnivån ska inte LITA på
+    // det — defense-in-depth så att ett framtida klientbyte inte kan släppa
+    // in spökfartyg i bridge_text/notiser.
+    if (message.lat === 0 && message.lon === 0) {
+      this.debug(`⚠️ [AIS_VALIDATION] Rejecting 0,0 coordinates (missing-GPS artefact) for ${message.mmsi}`);
       return false;
     }
 
@@ -3411,6 +3572,7 @@ class AISBridgeApp extends Homey.App {
       // Defensive: vissa testkonstruktorer hoppar över app-init, så map kan saknas.
       if (this._persistentRecentTriggers) {
         this._persistentRecentTriggers.set(dedupeKey, Date.now());
+        this._persistRecentTriggers(); // P2: överlev omstart
       }
 
       // F7: carry mmsi in the trigger state so the run-listener can scope an
@@ -3432,6 +3594,7 @@ class AISBridgeApp extends Homey.App {
       // tystar failsafe-/skipped-bridges-skyddsnätet i upp till 2 timmar.
       if (this._persistentRecentTriggers) {
         this._persistentRecentTriggers.delete(dedupeKey);
+        this._persistRecentTriggers(); // P2: håll persisterat tillstånd i synk
       }
       this.error(
         `❌ [FLOW_TRIGGER_ERROR] ${vessel.mmsi}: boat_near failed for ${bridgeName} `
@@ -3661,6 +3824,7 @@ class AISBridgeApp extends Homey.App {
       }
       persistentToRemove.forEach((key) => this._persistentRecentTriggers.delete(key));
       if (persistentToRemove.length > 0) {
+        this._persistRecentTriggers(); // P2: håll persisterat tillstånd i synk
         this.debug(`🧹 [TRIGGER_CLEAR_PERSISTENT] ${vessel.mmsi}: Cleared ${persistentToRemove.length} persistent dedup keys (new journey)`);
       }
     }
@@ -4043,6 +4207,16 @@ class AISBridgeApp extends Homey.App {
         this.log('⚠️ [AIS_CONNECTION] No API key configured - using development mode');
         this._isConnected = false;
 
+        // B3-fix (2026-06-09): synliggör för användaren att appen inte tar
+        // emot data — tidigare loggades detta bara och appen såg "frisk" ut.
+        this._updateDeviceCapability('connection_status', 'disconnected');
+        if (process.env.NODE_ENV !== 'development') {
+          this._notifyConnectionIssue(
+            'AIS Tracker: ingen API-nyckel är konfigurerad — appen tar inte emot '
+            + 'båtdata. Lägg in din AISstream.io-nyckel i appens inställningar.',
+          );
+        }
+
         // Simulate test data in development
         if (process.env.NODE_ENV === 'development') {
           this._simulateTestData();
@@ -4124,6 +4298,53 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * B2-fix (2026-06-09): stale-feed-watchdog. Ping/pong i AISStreamClient
+   * fångar död TCP-socket, men INTE fallet "socket lever, pong svarar, men
+   * inga AIS-meddelanden" (tappad subscription, misslyckad subscribe-send,
+   * server slutat skicka, nyckel ogiltigförklarad utan fel-meddelande).
+   * Tystnaden mäts på AKTUELL anslutning: min(tid sedan senaste meddelande,
+   * uptime) — så en nyss omansluten socket får alltid ett helt fönster innan
+   * nästa ingripande. Åtgärden återanvänder reconnectWithKey() som är härdad
+   * mot dubbla sockets/zombie-reconnects.
+   * @private
+   */
+  _checkAISFeedHealth() {
+    try {
+      if (!this.aisClient
+          || !this.aisClient.isConnected
+          || typeof this.aisClient.getConnectionStats !== 'function') {
+        return;
+      }
+
+      const stats = this.aisClient.getConnectionStats();
+      const sinceMessage = Number.isFinite(stats.timeSinceLastMessage)
+        ? stats.timeSinceLastMessage
+        : Infinity; // aldrig fått något meddelande → räkna från uppkoppling
+      const silenceMs = Math.min(sinceMessage, stats.uptime || 0);
+
+      const staleLimit = UI_CONSTANTS.STALE_FEED_RECONNECT_MS || 20 * 60 * 1000;
+      if (silenceMs < staleLimit) {
+        return;
+      }
+
+      const apiKey = this.homey.settings.get('ais_api_key');
+      if (!apiKey || typeof this.aisClient.reconnectWithKey !== 'function') {
+        return;
+      }
+
+      this.log(
+        `🐕 [FEED_WATCHDOG] No AIS messages for ${Math.round(silenceMs / 60000)} min while connected — `
+        + 'forcing reconnect + resubscribe (harmless if the canal is just quiet)',
+      );
+      this.aisClient.reconnectWithKey(apiKey).catch((err) => {
+        this.error('[FEED_WATCHDOG] Forced reconnect failed:', err);
+      });
+    } catch (error) {
+      this.error('[FEED_WATCHDOG] Health check failed:', error.message || error);
+    }
+  }
+
+  /**
    * Setup monitoring
    * @private
    */
@@ -4172,9 +4393,15 @@ class AISBridgeApp extends Homey.App {
         }
         if (persistentExpired.length > 0) {
           persistentExpired.forEach((key) => this._persistentRecentTriggers.delete(key));
+          this._persistRecentTriggers(); // P2: håll persisterat tillstånd i synk
           this.debug(`🧹 [CLEANUP] Removed ${persistentExpired.length} expired persistent dedup entries`);
         }
       }
+
+      // B2-fix (2026-06-09): stale-data-watchdog — upptäcker "ansluten men
+      // döv" (tappad subscription, server slutat skicka) som ping/pong inte
+      // fångar, och tvingar en full omanslutning + omprenumeration.
+      this._checkAISFeedHealth();
     }, UI_CONSTANTS.MONITORING_INTERVAL_MS); // Every minute
   }
 
@@ -4270,6 +4497,24 @@ class AISBridgeApp extends Homey.App {
     if (this.aisClient) {
       this.aisClient.disconnect();
     }
+
+    // P2-fix: flusha 2h-dedup-kartan en sista gång så en kontrollerad omstart
+    // garanterat har färskt tillstånd (write-through täcker normalfallet).
+    this._persistRecentTriggers();
+
+    // B8-hygien (2026-06-09): avregistrera service-/klient-lyssnare. Tjänsterna
+    // återskapas visserligen i onInit, men explicit avregistrering gör
+    // livscykeln robust om Homey någonsin återanvänder app-instansen.
+    if (this.vesselDataService && typeof this.vesselDataService.removeAllListeners === 'function') {
+      this.vesselDataService.removeAllListeners();
+    }
+    if (this.statusService && typeof this.statusService.removeAllListeners === 'function') {
+      this.statusService.removeAllListeners();
+    }
+    if (this.aisClient && typeof this.aisClient.removeAllListeners === 'function') {
+      this.aisClient.removeAllListeners();
+    }
+    this._eventsHooked = false;
 
     // Remove event listeners
     if (this.homey && this.homey.settings) {

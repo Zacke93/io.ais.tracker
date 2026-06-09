@@ -1,6 +1,7 @@
 'use strict';
 
 const Homey = require('homey');
+const { BRIDGE_TEXT_CONSTANTS } = require('../../lib/constants');
 
 class BridgeStatusDevice extends Homey.Device {
   /* ---------------------------------------------------
@@ -18,14 +19,20 @@ class BridgeStatusDevice extends Homey.Device {
       this.homey.app.addDevice(this);
 
       /* ---------------- Primär text & alarm ---------------- */
-      const defaultTxt = 'Inga båtar är i närheten av Klaffbron eller Stridsbergsbron';
-      const currentText = this.homey.app._latestBridgeSentence || defaultTxt;
+      // A5-fix (2026-06-09): läste tidigare _latestBridgeSentence som aldrig
+      // funnits i app.js → enheten visade ALLTID default-texten. Rätt
+      // egenskap är _lastBridgeText. Default hämtas från constants så den
+      // inte kan glida isär från appens.
+      const defaultTxt = BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE;
+      const currentText = this.homey.app._lastBridgeText || defaultTxt;
 
+      // A5-fix: _findRelevantBoats fanns inte heller (rätt namn är
+      // _findRelevantBoatsForBridgeText) → fallbacken användes alltid.
       let hasBoats = false;
-      if (typeof this.homey.app._findRelevantBoats === 'function') {
+      if (typeof this.homey.app._findRelevantBoatsForBridgeText === 'function') {
         try {
-          const boats = this.homey.app._findRelevantBoats();
-          hasBoats = boats.length > 0;
+          const boats = this.homey.app._findRelevantBoatsForBridgeText();
+          hasBoats = Array.isArray(boats) && boats.length > 0;
         } catch (err) {
           this.error('Error checking relevant boats, fallback:', err);
           hasBoats = currentText !== defaultTxt;
@@ -46,19 +53,23 @@ class BridgeStatusDevice extends Homey.Device {
       this.log(`Initial connection status: ${statusValue}`);
 
       /* ---------------- Persistens ------------------------- */
-      if (!this.getStore()) {
-        await this.setStoreValue('lastSentence', currentText);
-      } else {
-        await this.setStoreValue('lastSentence', currentText);
-      }
+      await this.setStoreValue('lastSentence', currentText);
 
       this.log('Device initialization complete');
 
       /* --------- Tvinga en uppdatering efter 1 s ----------- */
-      setTimeout(() => {
-        if (this.homey.app?._updateActiveBridgesTag) {
-          this.log('Forcing update after device creation');
-          this.homey.app._updateActiveBridgesTag('device_init');
+      // A5-fix: _updateActiveBridgesTag fanns inte i app.js — rätt väg är
+      // appens ordinarie UI-pipeline (_updateUI). Timern spåras så
+      // onDeleted kan rensa den om enheten tas bort inom sekunden.
+      this._initUpdateTimeout = setTimeout(() => {
+        this._initUpdateTimeout = null;
+        if (typeof this.homey.app?._updateUI === 'function') {
+          this.log('Forcing UI update after device creation');
+          try {
+            this.homey.app._updateUI('critical', 'device-init');
+          } catch (err) {
+            this.error('Post-init UI update failed:', err);
+          }
         }
       }, 1000);
     } catch (err) {
@@ -71,6 +82,10 @@ class BridgeStatusDevice extends Homey.Device {
    * --------------------------------------------------- */
   async onDeleted() {
     this.log('Device being deleted');
+    if (this._initUpdateTimeout) {
+      clearTimeout(this._initUpdateTimeout);
+      this._initUpdateTimeout = null;
+    }
     if (this.homey.app) {
       this.homey.app.removeDevice(this);
       this.log('Removed from app._devices collection');

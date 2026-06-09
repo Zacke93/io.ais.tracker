@@ -17,7 +17,9 @@ class BridgeStatusDriver extends Homey.Driver {
       {
         name: 'AIS Bridge status',
         data: { id: 'bridge_status_1' }, // unikt ID
-        capabilities: ['alarm_generic', 'bridge_text'],
+        // A5-fix (2026-06-09): connection_status saknades här men finns i
+        // app.json och sätts av device.js → håll listan komplett.
+        capabilities: ['alarm_generic', 'bridge_text', 'connection_status'],
       },
     ];
   }
@@ -46,10 +48,17 @@ class BridgeStatusDriver extends Homey.Driver {
         }
 
         // Force an update of the sentence after a short delay to ensure device is ready
-        setTimeout(() => {
+        // A5-fix (2026-06-09): _updateActiveBridgesTag fanns aldrig i app.js —
+        // använd appens ordinarie UI-pipeline. homey.setTimeout (typad i SDK3)
+        // disposas automatiskt om appen stängs ner.
+        this.homey.setTimeout(() => {
           this.log('Triggering update after device creation');
-          if (this.homey.app._updateActiveBridgesTag) {
-            this.homey.app._updateActiveBridgesTag('device_added');
+          if (typeof this.homey.app?._updateUI === 'function') {
+            try {
+              this.homey.app._updateUI('critical', 'device-added');
+            } catch (err) {
+              this.error('Post-pairing UI update failed:', err);
+            }
           }
         }, 2000);
       }
