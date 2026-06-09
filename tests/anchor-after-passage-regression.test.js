@@ -152,7 +152,11 @@ describe('Anchor after passage regression (HMS ARCTURUS bug)', () => {
   // -------------------------------------------------------------------
 
   test('Regression guard: vessel waiting at first bridge (empty passedBridges) SHOULD get target', () => {
-    // Vessel approaching Klaffbron for the first time, stopped nearby waiting for opening
+    // Vessel approaching Klaffbron for the first time, stopped nearby waiting for opening.
+    // Förtöjningsdetektering (2026-06-10): en äkta väntare har ALLTID rörelse-
+    // bevis (hon seglade hit under appens observation) — flaggan sätts av
+    // updateVessel och persisteras på vesseln. Utan beviset avvisas numera
+    // stationära fartyg (kajliggar-fixen, se moored-vessel-detection.test.js).
     const newVessel = {
       mmsi: MMSI,
       lat: BRIDGES.klaffbron.lat - 0.001, // ~110m south
@@ -160,6 +164,7 @@ describe('Anchor after passage regression (HMS ARCTURUS bug)', () => {
       sog: 0,
       cog: 15,
       passedBridges: [], // No bridges passed yet
+      _hasMovementProof: true, // seglade hit — bevisad rörelse
     };
 
     const shouldAssign = vesselDataService._shouldAssignTargetBridge(newVessel, null);
@@ -198,6 +203,8 @@ describe('Anchor after passage regression (HMS ARCTURUS bug)', () => {
   });
 
   test('Fix B: vessel at SOG=0.31 (above boundary) with passedBridges is allowed', () => {
+    // Förtöjningsdetektering (2026-06-10): båten har passerat broar → hade
+    // rörelsebevis sedan länge i verklig drift (flaggan följer vesseln).
     const newVessel = {
       mmsi: MMSI,
       lat: ANCHOR_POS.lat,
@@ -205,6 +212,7 @@ describe('Anchor after passage regression (HMS ARCTURUS bug)', () => {
       sog: 0.31, // Just above threshold
       cog: 25,
       passedBridges: ['Klaffbron'],
+      _hasMovementProof: true,
     };
 
     // Should be allowed — vessel is moving enough to potentially be transiting
