@@ -5,6 +5,8 @@
   "scripts": {
     "lint": "eslint --ext .js,.ts --ignore-path .gitignore .",
     "test": "jest --config tests/jest.config.js --detectOpenHandles",
+    "replay:all": "node tests/replay-validation/runAllCorpora.js",
+    "replay:synthetic": "node tests/replay-validation/runSyntheticScenarios.js",
     "test:watch": "jest --config tests/jest.config.js --watch",
     "test:coverage": "jest --config tests/jest.config.js --coverage",
     "test:consolidated": "jest --config tests/jest.config.js tests/consolidated-test-suite.test.js",

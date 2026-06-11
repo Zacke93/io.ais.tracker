@@ -142,6 +142,24 @@ async function main() {
     return origUpdateCap(capability, value);
   };
 
+  // ---- Fånga MÅLBRO-passager för journey-invarianten (2026-06-11) ----
+  // INV-5 ("varje detekterad målbro-passage ⇒ minst en notis för den bron")
+  // är den invariant som hade fångat AURANA-missen proaktivt. Passagerna
+  // fångas ur appens egna loggrader (TARGET/FINAL_TARGET_PASSAGE_RECORDED).
+  const targetPassages = [];
+  const passageRe = /\[(?:FINAL_)?TARGET_PASSAGE_RECORDED\] (\d+): Recorded passage of (?:final )?target bridge (\S+)/;
+  const origAppLog = app.log.bind(app);
+  app.log = (...args) => {
+    const line = args.join(' ');
+    const pm = line.match(passageRe);
+    if (pm) {
+      targetPassages.push({
+        t: Date.now(), iso: new Date(Date.now()).toISOString(), mmsi: pm[1], bridge: pm[2],
+      });
+    }
+    return origAppLog(...args);
+  };
+
   // ---- Spela upp samples kronologiskt med fake-klockan ----
   let processErrors = 0;
   for (const s of samples) {
@@ -160,6 +178,7 @@ async function main() {
       lon: s.lon,
       sog: s.sog,
       cog: s.cog,
+      navStatus: s.navStatus, // syntetiska scenarier kan sätta den; korpusar saknar fältet → null
       shipName: s.shipName || 'Unknown',
       timestamp: s.aisTimestamp,
     };
@@ -251,6 +270,7 @@ async function main() {
     bridgeTextTransitions: bridgeTextLog,
     notifications,
     notificationCount: notifications.length,
+    targetPassages,
     leakDiagnostics,
   };
 

@@ -1168,17 +1168,37 @@ class AISBridgeApp extends Homey.App {
       //    watchdog tick nulls the ETA → "ETA okänd" appears 55× per week.
       const hasOngoingJourney = vessel.targetBridge
         && vessel.targetBridge !== vessel.lastPassedBridge;
+      // RC5-fix (2026-06-11): meddelandevägen och snapshot-vägen hade OLIKA
+      // staleness-semantik — snapshot-vägen nullar ETA när POSITIONEN är >10
+      // min gammal (Fix G, nycklad på lastPositionUpdate som fryses för
+      // stillaliggare), medan denna väg räknade om ovillkorligt vid varje
+      // mottaget meddelande (fartgolvet fabricerar då t.ex. "105 minuter" för
+      // en förtöjd båt 775 m bort). Resultat i förfix-loggen: texten flippade
+      // numeric↔"ETA okänd" 21 gånger på en timme. Nu gatas omberäkningen på
+      // SAMMA signal: har positionen inte avancerat på >10 min behålls
+      // nuvarande värde och snapshot-vägen äger staleness-beslutet (SSOT).
+      const positionAgeMs = Date.now() - (vessel.lastPositionUpdate || 0);
+      const positionFresh = positionAgeMs <= UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS;
       if (['approaching', 'waiting', 'en-route', 'stallbacka-waiting', 'under-bridge']
         .includes(statusResult.status)
         || (statusResult.status === 'passed' && hasOngoingJourney)) {
-        vessel.etaMinutes = this.statusService.calculateETA(vessel, proximityData);
+        if (positionFresh) {
+          // RC4: clampa även meddelandevägen mot senast publicerade värde —
+          // annars läcker sågtänder förbi snapshot-clampen.
+          const freshMsgETA = this.statusService.calculateETA(vessel, proximityData);
+          vessel.etaMinutes = this._reconcilePublishedETA(vessel, freshMsgETA);
+        }
+        // else: behåll nuvarande värde — Fix G/HARD-nullify styr presentationen
       } else {
         // 'passed' without ongoing journey (terminal passage) → null is correct
         vessel.etaMinutes = null;
+        vessel._etaPublishedValue = null;
       }
 
-      // Bug B fix: mark that this vessel received a fresh AIS position update
-      vessel._positionUpdatedSinceLastETA = true;
+      // Bug B fix + RC5: markera färsk position ENDAST när positionen faktiskt
+      // avancerat — annars konsumerar nästa snapshot flaggan och räknar om mot
+      // frusen position (flip-flop-motorn i förfix-loggen).
+      vessel._positionUpdatedSinceLastETA = positionFresh;
 
       // 7. Schedule appropriate cleanup timeout
       const timeout = this.proximityService.calculateProximityTimeout(vessel, proximityData);
@@ -1463,6 +1483,19 @@ class AISBridgeApp extends Homey.App {
       // STEG 1: VALIDERA AIS-MEDDELANDE
       // Kontrollera att alla required fields är korrekta
       if (!this._validateAISMessage(message)) {
+        // Observabilitet (2026-06-11): avvisningar var bara debug-loggade →
+        // i SABETH-utredningen gick det inte att skilja "transpondern tyst"
+        // från "meddelanden avvisades". Rate-limited info-logg (1/mmsi/5 min).
+        const rejMmsi = String(message?.mmsi || 'unknown');
+        if (!this._aisRejectLogTimes) this._aisRejectLogTimes = new Map();
+        const lastRej = this._aisRejectLogTimes.get(rejMmsi) || 0;
+        if (Date.now() - lastRej > 5 * 60 * 1000) {
+          this._aisRejectLogTimes.set(rejMmsi, Date.now());
+          this.log(
+            `🚮 [AIS_VALIDATION_REJECT] ${rejMmsi}: message failed validation `
+            + `(lat=${message?.lat}, lon=${message?.lon}, sog=${message?.sog}, cog=${message?.cog})`,
+          );
+        }
         return; // Ogiltigt meddelande, skippa processning
       }
 
@@ -1588,6 +1621,73 @@ class AISBridgeApp extends Homey.App {
     }
 
     return true;
+  }
+
+  /**
+   * RC4-fix (2026-06-11): dämpa en färsk ETA-beräkning mot det senast
+   * PUBLICERADE värdet för samma fartyg+målbro. Kalkylatorns interna
+   * monotoniskydd dämpar mot sin egen historik — som divergerar från det
+   * användaren ser så fort Fix G-extrapolering varit aktiv. Tillåten delta
+   * skalas med glappets längd (en båt KAN ha hunnit ändra läge under ett
+   * långt glapp) + en andel av nivån, så äkta förändringar konvergerar på
+   * några ticks medan sågtänder (9→4→9→17 i 19h-loggen) klipps.
+   * Clampen släpps vid målbrobyte (nytt mål = ny ETA-skala).
+   * @param {Object} vessel - Vessel object (muteras: _etaPublishTarget)
+   * @param {number|null} freshETA - Nyberäknad ETA
+   * @returns {number|null} Publicerbar ETA
+   * @private
+   */
+  _reconcilePublishedETA(vessel, freshETA) {
+    // _etaPublishedValue är ett SEPARAT spårfält — vessel.etaMinutes duger
+    // inte som referens eftersom meddelandevägen skriver över det innan
+    // snapshot-vägen hinner jämföra (då blir clampen en no-op och sågtänder
+    // läcker: 19h-replayen visade 3→9 på 10 s via exakt det hålet).
+    const published = Number.isFinite(vessel._etaPublishedValue) ? vessel._etaPublishedValue : null;
+    const sameTarget = vessel._etaPublishTarget === vessel.targetBridge;
+    vessel._etaPublishTarget = vessel.targetBridge;
+
+    if (!Number.isFinite(freshETA) || published === null || !sameTarget
+        // I "strax"-bandet (<3 min) släpps clampen: texten är binär där
+        // (strax/om N) och ett golv på +3 skulle SKAPA artificiella
+        // "om 3 minuter" för båtar som verkligen är strax framme.
+        || published < 3) {
+      vessel._etaPublishedValue = Number.isFinite(freshETA) ? freshETA : null;
+      vessel._etaPublishedAtMs = Date.now();
+      return freshETA;
+    }
+
+    // Glappet mäts sedan senaste PUBLICERING — det är användarens upplevda
+    // förändringstakt som ska begränsas, inte beräkningsintervallet.
+    // BURST-skydd: meddelandevägen och snapshot-vägen anropar båda denna
+    // metod inom samma sekund — utan fryst baslinje stegar clampen dubbelt
+    // per burst (3→6→9 inom 10 s i 19h-replayen). Alla anrop inom 30 s
+    // clampar därför mot SAMMA baslinje (värdet vid burstens början).
+    const now = Date.now();
+    const isNewBurst = !Number.isFinite(vessel._etaBurstAtMs) || (now - vessel._etaBurstAtMs) > 30000;
+    if (isNewBurst) {
+      const publishedAtMs = Number.isFinite(vessel._etaPublishedAtMs) ? vessel._etaPublishedAtMs : now;
+      vessel._etaBurstAtMs = now;
+      vessel._etaBurstBase = published;
+      vessel._etaBurstGapMin = Math.max(0, (now - publishedAtMs) / 60000);
+    }
+    const base = Number.isFinite(vessel._etaBurstBase) ? vessel._etaBurstBase : published;
+    const gapMin = Number.isFinite(vessel._etaBurstGapMin) ? vessel._etaBurstGapMin : 0;
+    const maxDelta = Math.max(3, gapMin + 0.25 * base);
+    const delta = freshETA - base;
+
+    let result;
+    if (Math.abs(delta) <= maxDelta) {
+      result = freshETA;
+    } else {
+      result = base + Math.sign(delta) * maxDelta;
+      this.debug(
+        `🪜 [ETA_PUBLISH_CLAMP] ${vessel.mmsi}: fresh ${freshETA.toFixed(1)} vs burst-base `
+        + `${base.toFixed(1)} (gap ${gapMin.toFixed(1)} min) → clamped to ${result.toFixed(1)}`,
+      );
+    }
+    vessel._etaPublishedValue = result;
+    vessel._etaPublishedAtMs = vessel._etaBurstAtMs;
+    return result;
   }
 
   /**
@@ -1903,10 +2003,17 @@ class AISBridgeApp extends Homey.App {
       // ENHANCED: Summary validation and sanity checks
       const validationResult = this._validateBridgeTextSummary(bridgeText, relevantVessels, snapshot);
       if (!validationResult.isValid) {
-        this.debug(`⚠️ [SUMMARY_VALIDATION] Bridge text failed validation: ${validationResult.reason}`);
+        // Observabilitet (2026-06-11): valideringsfall var debug-loggade →
+        // i flertrafik-scenarier degraderades texten utan spår i prodloggen.
+        // Detta ÄR en anomalisignal (textmotorn producerade något validatorn
+        // underkände) — error-nivå med orsak gör den diagnosbar.
+        this.error(
+          `⚠️ [SUMMARY_VALIDATION] Bridge text failed validation: ${validationResult.reason} `
+          + `(text="${bridgeText}")`,
+        );
         if (validationResult.shouldUseFallback) {
           bridgeText = validationResult.fallbackText || this._lastBridgeText || BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE;
-          this.debug(`🔄 [SUMMARY_FALLBACK] Using validated fallback: "${bridgeText}"`);
+          this.error(`🔄 [SUMMARY_FALLBACK] Using validated fallback: "${bridgeText}"`);
         }
       } else {
         this.debug('✅ [SUMMARY_VALIDATION] Bridge text passed all sanity checks');
@@ -1961,7 +2068,16 @@ class AISBridgeApp extends Homey.App {
           this.error('[GLOBAL_TOKEN_ERROR] Failed to update global bridge text token:', error);
         }
 
-        this.log(`📱 [UI_UPDATE] Bridge text updated: "${bridgeText}"`);
+        // RC6-fix (2026-06-11): skilj ÄKTA textändring från periodisk
+        // tvångsomskrivning — 128 av 231 "updated"-rader i 19h-loggen var
+        // oförändrad text, vilket gör loggen/summaryn oanvändbar som
+        // ändringshistorik. [UI_UPDATE] = texten ÄNDRADES; [UI_REFRESH] =
+        // samma text omskriven (keepalive). Summary-verktyg filtrerar på tagg.
+        if (textActuallyChanged) {
+          this.log(`📱 [UI_UPDATE] Bridge text updated: "${bridgeText}"`);
+        } else {
+          this.log(`🔁 [UI_REFRESH] Bridge text refreshed (unchanged): "${bridgeText}"`);
+        }
         // Reset unchanged aggregation window on change
         this._unchangedCount = 0;
         this._unchangedWindowStart = Date.now();
@@ -2122,9 +2238,25 @@ class AISBridgeApp extends Homey.App {
       // Determine fallback strategy
       if (!validationResult.isValid) {
         const hasMinorIssues = validationResult.checks.some((check) => !check.passed && check.severity === 'minor');
-        const hasCriticalIssues = validationResult.checks.some((check) => !check.passed && check.severity === 'critical');
+        const failedCritical = validationResult.checks.filter((check) => !check.passed && check.severity === 'critical');
+        const hasCriticalIssues = failedCritical.length > 0;
 
-        if (hasCriticalIssues) {
+        // RC-B-fix (2026-06-11): count-mismatchen är i praktiken en TRANSIENT
+        // en-ticks-divergens vid passagemoment (textens klausulfiltrering ≠
+        // rålistan — 19h-loggen: #108 08:04:56, #209 16:28:51). Att då ersätta
+        // en nästan-korrekt detaljerad text med generiska "N båtar är i
+        // närheten av broarna" är en SÄMRE lögn än att behålla föregående
+        // text som är sekunder gammal. Endast när count-checken är den ENDA
+        // kritiska missen och en färsk föregående text finns → behåll den;
+        // alla andra kritiska fel degraderar som tidigare.
+        const onlyCountFailed = failedCritical.length === 1
+          && failedCritical[0].issue && failedCritical[0].issue.includes('vessels provided');
+        if (hasCriticalIssues && onlyCountFailed
+            && this._lastBridgeText
+            && this._lastBridgeText !== BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE) {
+          validationResult.shouldUseFallback = true;
+          validationResult.fallbackText = this._lastBridgeText;
+        } else if (hasCriticalIssues) {
           validationResult.shouldUseFallback = true;
           validationResult.fallbackText = this._generateSafeFallbackText(relevantVessels, bridgeText);
         } else if (hasMinorIssues && this._lastBridgeText) {
@@ -2190,24 +2322,38 @@ class AISBridgeApp extends Homey.App {
     for (const vessel of vessels) {
       if (!vessel || !vessel.mmsi) continue;
 
-      // Check status-distance consistency
-      if (vessel.status === 'under-bridge' && vessel.targetBridge) {
-        const targetBridge = this.bridgeRegistry.getBridgeByName(vessel.targetBridge);
-        if (targetBridge) {
-          const distance = geometry.calculateDistance(vessel.lat, vessel.lon, targetBridge.lat, targetBridge.lon);
-          if (distance > 100) { // Under-bridge should be <50m, allowing some tolerance
-            inconsistencies.push(`${vessel.mmsi} status='under-bridge' but ${distance.toFixed(0)}m from ${vessel.targetBridge}`);
-          }
+      // RC-B2-fix (2026-06-11, hittad av syntetiska scenariosviten): de gamla
+      // reglerna jämförde 'under-bridge' mot MÅLBRONS avstånd/ETA — men en båt
+      // under en MELLANBRO (Olidebron/Järnvägsbron/Stallbackabron) har
+      // legitimt målbron 1-2 km bort och mål-ETA 5-15 min. Falsklarmen gav
+      // critical → fallback → count-degradering i flertrafik ("3 båtar är i
+      // närheten av broarna"). Reglerna dömer nu mot verkligheten:
+      //  1. under-bridge ⇒ nära NÄRMASTE bro (vilken som helst)
+      //  2. under-bridge + stor ETA flaggas bara när bron man är under ÄR målbron
+      //  3. passed + ETA flaggas bara för TERMINAL passage (ingen pågående resa)
+      let nearestDist = Infinity;
+      let distToTarget = Infinity;
+      for (const bridge of Object.values(this.bridgeRegistry.bridges)) {
+        if (!bridge || !Number.isFinite(bridge.lat)) continue;
+        const d = geometry.calculateDistance(vessel.lat, vessel.lon, bridge.lat, bridge.lon);
+        if (Number.isFinite(d)) {
+          if (d < nearestDist) nearestDist = d;
+          if (bridge.name === vessel.targetBridge) distToTarget = d;
         }
       }
 
-      // Check ETA consistency with status
+      if (vessel.status === 'under-bridge' && Number.isFinite(nearestDist) && nearestDist > 100) {
+        inconsistencies.push(`${vessel.mmsi} status='under-bridge' but ${nearestDist.toFixed(0)}m from nearest bridge`);
+      }
+
       if (vessel.etaMinutes !== null && vessel.etaMinutes !== undefined) {
-        if (vessel.status === 'under-bridge' && vessel.etaMinutes > 1) {
-          inconsistencies.push(`${vessel.mmsi} status='under-bridge' but ETA=${vessel.etaMinutes.toFixed(1)}min`);
+        const underTargetBridge = vessel.status === 'under-bridge' && distToTarget <= 100;
+        if (underTargetBridge && vessel.etaMinutes > 1) {
+          inconsistencies.push(`${vessel.mmsi} status='under-bridge' at target but ETA=${vessel.etaMinutes.toFixed(1)}min`);
         }
-        if (vessel.status === 'passed' && vessel.etaMinutes > 0) {
-          inconsistencies.push(`${vessel.mmsi} status='passed' but ETA=${vessel.etaMinutes.toFixed(1)}min`);
+        const ongoingJourney = vessel.targetBridge && vessel.targetBridge !== vessel.lastPassedBridge;
+        if (vessel.status === 'passed' && !ongoingJourney && vessel.etaMinutes > 0) {
+          inconsistencies.push(`${vessel.mmsi} status='passed' (terminal) but ETA=${vessel.etaMinutes.toFixed(1)}min`);
         }
       }
     }
@@ -2646,7 +2792,12 @@ class AISBridgeApp extends Homey.App {
 
         if (inETACalcStatus) {
           if (vessel._positionUpdatedSinceLastETA) {
-            vessel.etaMinutes = this.statusService.calculateETA(vessel, proximityData);
+            // RC4-fix (2026-06-11): dämpa färsk beräkning mot senast
+            // PUBLICERADE värde (det användaren faktiskt såg) — kalkylatorns
+            // interna historik vet inget om Fix G-extrapolerade publiceringar,
+            // så utan detta uppstår sågtand (19h-loggen: 9→"cirka 4"→9→17).
+            const freshETA = this.statusService.calculateETA(vessel, proximityData);
+            vessel.etaMinutes = this._reconcilePublishedETA(vessel, freshETA);
             vessel._positionUpdatedSinceLastETA = false;
             vessel._etaIsExtrapolated = false;
             vessel._etaExtrapolationBaseMs = Date.now();
@@ -2675,12 +2826,20 @@ class AISBridgeApp extends Homey.App {
               }
               vessel.etaMinutes = null;
               vessel._etaIsExtrapolated = false;
+              vessel._etaPublishedValue = null; // RC4: "okänd" = ny baslinje
               // Anomali 3: rensa exhausted-flagga vid HARD-zon. Vid >10 min stale
               // är data för gammal för att lita på att båten fortfarande är vid bron.
               vessel._etaExtrapolationExhausted = false;
             } else if (ageMs > UI_CONSTANTS.STALE_ETA_SOFT_THRESHOLD_MS
                 && Number.isFinite(vessel.etaMinutes)
-                && vessel.etaMinutes > 0) {
+                && vessel.etaMinutes > 0
+                // RC4-fix (2026-06-11): dead-reckoning förutsätter FRAMDRIFT.
+                // För nära-stillastående båtar (sog < 1 kn) domineras verkligt
+                // ETA av fartgolven och SJUNKER inte med tiden — extrapolering
+                // som drar av 1 min/min springer före verkligheten och ger
+                // sågtand när färsk AIS rättar (LILLI: 9→cirka4→9). Behåll
+                // senaste värdet oförändrat i stället (else-grenen nedan).
+                && Number.isFinite(vessel.sog) && vessel.sog >= 1.0) {
               // Extrapolera: dra av tiden som gått sedan senaste verkliga beräkning.
               const baseMs = Number.isFinite(vessel._etaExtrapolationBaseMs)
                 ? vessel._etaExtrapolationBaseMs
@@ -2693,6 +2852,10 @@ class AISBridgeApp extends Homey.App {
               if (extrapolated > 0) {
                 vessel.etaMinutes = extrapolated;
                 vessel._etaIsExtrapolated = true;
+                // RC4: extrapolerade värden ÄR publicerade — registrera dem som
+                // baslinje så nästa färska beräkning dämpas mot det användaren såg
+                vessel._etaPublishedValue = extrapolated;
+                vessel._etaPublishedAtMs = Date.now();
                 if (!Number.isFinite(vessel._etaExtrapolationBaseValue)) {
                   vessel._etaExtrapolationBaseValue = baseETA;
                 }
@@ -3449,18 +3612,45 @@ class AISBridgeApp extends Homey.App {
       return;
     }
 
-    const sogMps = Number.isFinite(vessel.sog) ? vessel.sog * 0.5144 : 0;
-    if (sogMps > SOG_MOTION_THRESHOLD * 0.5144 && distance > 0) {
-      const timeSincePassageS = distance / sogMps;
-      if (timeSincePassageS > FALLBACK_TIME_SINCE_PASSAGE_MAX_S) {
+    // RC3-fix (2026-06-11): stale-skattningen underdrev failsafen systematiskt.
+    // (a) Om passagen är ANKRAD (vessel.passedAt[bro]) är tiden EXAKT känd —
+    //     använd den i stället för någon skattning alls.
+    // (b) Annars: skatta med maxRecentSpeed (transitfarten) i stället för
+    //     momentan sog — båtar SAKTAR IN efter passage, så momentan sog
+    //     överskattar tiden grovt. 19h-prodloggen: SILJA missade Klaffbron-
+    //     notisen HELT (skattat 461 s med sog 2,7 kn; verklig tid ~250 s,
+    //     transitfart 5,8 kn — maxRecentSpeed hade gett 215 s < 300).
+    const anchoredPassageTs = vessel.passedAt && vessel.passedAt[bridgeName];
+    if (Number.isFinite(anchoredPassageTs)) {
+      const exactTimeSinceS = (Date.now() - anchoredPassageTs) / 1000;
+      if (exactTimeSinceS > FALLBACK_TIME_SINCE_PASSAGE_MAX_S) {
         this.log(
           `🚫 [FALLBACK_TRIGGER_STALE] ${vessel.mmsi}: Skipping ${bridgeName} fallback `
-          + `— estimated ${Math.round(timeSincePassageS)}s since passage `
-          + `(distance=${Math.round(distance)}m, sog=${vessel.sog}kn) exceeds ${FALLBACK_TIME_SINCE_PASSAGE_MAX_S}s`,
+          + `— anchored passage ${Math.round(exactTimeSinceS)}s ago exceeds ${FALLBACK_TIME_SINCE_PASSAGE_MAX_S}s`,
         );
         return;
       }
-    } else if (distance > FALLBACK_LOW_SOG_MAX_DISTANCE) {
+    } else {
+      const effectiveSogKn = Math.max(
+        Number.isFinite(vessel.sog) ? vessel.sog : 0,
+        Number.isFinite(vessel.maxRecentSpeed) ? vessel.maxRecentSpeed : 0,
+      );
+      const sogMps = effectiveSogKn * 0.5144;
+      if (sogMps > SOG_MOTION_THRESHOLD * 0.5144 && distance > 0) {
+        const timeSincePassageS = distance / sogMps;
+        if (timeSincePassageS > FALLBACK_TIME_SINCE_PASSAGE_MAX_S) {
+          this.log(
+            `🚫 [FALLBACK_TRIGGER_STALE] ${vessel.mmsi}: Skipping ${bridgeName} fallback `
+            + `— estimated ${Math.round(timeSincePassageS)}s since passage `
+            + `(distance=${Math.round(distance)}m, effSog=${effectiveSogKn.toFixed(1)}kn) exceeds ${FALLBACK_TIME_SINCE_PASSAGE_MAX_S}s`,
+          );
+          return;
+        }
+      }
+    }
+    if (!Number.isFinite(anchoredPassageTs)
+        && !(Number.isFinite(vessel.sog) && vessel.sog > SOG_MOTION_THRESHOLD)
+        && distance > FALLBACK_LOW_SOG_MAX_DISTANCE) {
       // Låg-sog: båten har inte hunnit långt sedan passage, så stor distance
       // betyder att hon aldrig var nära bron — sannolikt felaktig passage-detektion.
       this.log(
