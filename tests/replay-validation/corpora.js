@@ -52,6 +52,19 @@ module.exports = [
       + 'FALSKA notis — korrekt beteende är 0. Låst 2026-06-10 efter mooring-fixen.',
   },
   {
+    id: '20260611-4h',
+    jsonl: path.join(LOGS_DIR, 'ais-replay-20260611-115443.jsonl'),
+    appLog: path.join(LOGS_DIR, 'app-20260611-115443.log'),
+    hours: 4,
+    locked: true,
+    expectedNotifications: 3,
+    note: 'Verifieringskörning efter 19h-auditens fixar (2ae66a4). En båt '
+      + '(219028819): vänta vid Järnvägsbron → Strids → Stallbacka, 3 korrekta '
+      + 'notiser; 503-storm 12:14-12:36 hanterad; 4h tyst kanal med watchdog. '
+      + 'Låst 2026-06-12. OBS: RC-S3 flyttar Järnvägsbron-notisen till första '
+      + 'rörelsebevisade samplet (09:58) — antal och fördelning oförändrade.',
+  },
+  {
     id: '20260610-19h',
     jsonl: path.join(LOGS_DIR, 'ais-replay-20260610-012751.jsonl'),
     appLog: path.join(LOGS_DIR, 'app-20260610-012751.log'),

@@ -50,6 +50,7 @@ const {
   BRIDGE_ID_TO_NAME,
   TRIGGER_POINTS, // Geografiska triggerpunkter (utanför brotext-systemet)
   TARGET_BRIDGES, // Bug #4: används för att harmonisera BRIDGE_TEXT_BUG-check
+  MOORING_DETECTION, // Förtöjningsdetektering (rörelsebevis-trösklar)
 } = require('./lib/constants');
 
 // Lägsta fart (knop) där COG är tillförlitlig för riktningsbestämning. Under
@@ -3154,6 +3155,20 @@ class AISBridgeApp extends Homey.App {
         return;
       }
 
+      // RC-S3 (2026-06-12): samma rörelsebevis-krav som målbro-gaten.
+      // Körningen 2026-06-11 visade att source=current kringgår beviset:
+      // en notis avfyrades 1 sekund efter första samplet för en stillastående
+      // obevisad båt (sog 0,1). Den gången var båten en äkta väntare — men
+      // mönstret är identiskt med en båt förtöjd vid okänd kajplats nära en
+      // bro (kajliggar-klassen utanför MOORING_ZONES). En äkta väntare
+      // notifieras i stället vid första rörelsen (typiskt nästa sample).
+      const provenMoving = vessel._hasMovementProof
+        || (Number.isFinite(vessel.sog) && vessel.sog >= MOORING_DETECTION.MOVEMENT_PROOF_SOG_KN);
+      if (!provenMoving) {
+        this.debug(`🏃 [FLOW_TRIGGER_SKIP] ${vessel.mmsi}: No movement proof yet - no notification`);
+        return;
+      }
+
       // Fix 5: respect GPS jump hold to prevent spurious triggers during GPS noise.
       // A 150-200m GPS glitch can satisfy proximity (<300m) and set a dedup key,
       // which would then block the legitimate trigger when the vessel actually
@@ -4527,7 +4542,20 @@ class AISBridgeApp extends Homey.App {
         : Infinity; // aldrig fått något meddelande → räkna från uppkoppling
       const silenceMs = Math.min(sinceMessage, stats.uptime || 0);
 
-      const staleLimit = UI_CONSTANTS.STALE_FEED_RECONNECT_MS || 20 * 60 * 1000;
+      const staleBase = UI_CONSTANTS.STALE_FEED_RECONNECT_MS || 20 * 60 * 1000;
+      if (silenceMs < staleBase) {
+        // Färsk data → nollställ tystnads-backoffen
+        this._feedWatchdogStrikes = 0;
+        return;
+      }
+
+      // RC-S2 (2026-06-12): exponentiell tystnads-backoff. Körningen 2026-06-11
+      // visade 10 watchdog-omanslutningar på 4h tyst kanal (var 20:e minut) —
+      // onödig churn mot servern (och möjligt bidrag till deras 503-rate-
+      // limiting). Vid upprepade tysta omanslutningar dubblas tröskeln:
+      // 20 → 40 → 80 → 120 min (tak). Första meddelandet nollställer.
+      const strikes = this._feedWatchdogStrikes || 0;
+      const staleLimit = Math.min(staleBase * 2 ** strikes, 2 * 60 * 60 * 1000);
       if (silenceMs < staleLimit) {
         return;
       }
@@ -4539,8 +4567,11 @@ class AISBridgeApp extends Homey.App {
 
       this.log(
         `🐕 [FEED_WATCHDOG] No AIS messages for ${Math.round(silenceMs / 60000)} min while connected — `
-        + 'forcing reconnect + resubscribe (harmless if the canal is just quiet)',
+        + `forcing reconnect + resubscribe (strike ${strikes + 1}, next threshold `
+        + `${Math.round(Math.min(staleBase * 2 ** (strikes + 1), 2 * 60 * 60 * 1000) / 60000)} min; `
+        + 'harmless if the canal is just quiet)',
       );
+      this._feedWatchdogStrikes = strikes + 1;
       this.aisClient.reconnectWithKey(apiKey).catch((err) => {
         this.error('[FEED_WATCHDOG] Forced reconnect failed:', err);
       });
