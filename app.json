@@ -9,6 +9,10 @@
   "category": [
     "tools"
   ],
+  "description": {
+    "en": "Live bridge-opening alerts for the Trollhätte canal. Tracks vessels via AIS and tells you when Klaffbron or Stridsbergsbron is about to open — as a status text and Flow triggers.",
+    "sv": "Broöppningskoll för Trollhätte kanal i realtid. Spårar fartyg via AIS och berättar när Klaffbron eller Stridsbergsbron är på väg att öppna — som statustext och Flow-triggers."
+  },
   "icon": "/assets/icon.svg",
   "brandColor": "#000000",
   "images": {
@@ -20,6 +24,8 @@
     "name": "Zakarias Mortensen",
     "email": "Zaka_9@hotmail.com"
   },
+  "support": "mailto:Zaka_9@hotmail.com",
+  "source": "https://github.com/Zacke93/io.ais.tracker",
   "sdk": 3,
   "compatibility": ">=6.0.0",
   "startOnInstall": true,

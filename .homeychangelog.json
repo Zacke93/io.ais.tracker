@@ -1,0 +1,6 @@
+{
+  "5.0.0": {
+    "en": "First public release. Live vessel tracking for the Trollhätte canal with bridge-opening status text and boat_near Flow triggers for Klaffbron and Stridsbergsbron. Hardened with 70+ hours of production replay validation, mooring detection, AIS-gap failsafes and self-healing connection watchdogs.",
+    "sv": "Första publika versionen. Fartygsspårning i realtid för Trollhätte kanal med broöppningsstatustext och boat_near-Flow-triggers för Klaffbron och Stridsbergsbron. Härdad med 70+ timmar produktions-replayvalidering, förtöjningsdetektering, AIS-glapp-failsafes och självläkande anslutningsvakter."
+  }
+}

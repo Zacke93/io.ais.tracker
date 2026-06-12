@@ -21,11 +21,21 @@ CLAUDE.md
 DEVELOPMENT.md
 CODE_OF_CONDUCT.md
 CONTRIBUTING.md
+docs/
+CODEX.md
+recentChanges.md
 
 # Jest and test related
 __tests__/
 *.test.js
 *.spec.js
+test-integration-complete.js
+
+# Editor/tooling config (publiceringsstädning 2026-06-12)
+.vscode/
+jsconfig.json
+.eslintrc.js
+.eslintrc.json
 
 # Build artifacts
 .homeybuild/
