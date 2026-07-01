@@ -94,8 +94,8 @@
     },
     {
       "step": 7,
-      "description": "Waiting at Stridsbergsbron (280m)",
-      "expectedText": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 3 minuter"
+      "description": "Waiting at Stridsbergsbron (280m) — OMLÅST 2026-07-01: Fix H imminent (<300m ⇒ strax); gamla 'om 3 minuter' var race-artefakt (statusomvärderingen hann ibland inte köra före textbygget; jfr Journey 1 steg 7 som alltid haft strax för samma fall)",
+      "expectedText": "En båt på väg mot Stridsbergsbron, beräknad broöppning strax"
     },
     {
       "step": 8,
@@ -241,8 +241,8 @@
   "Multi: 2 vessels different target bridges (semicolon)": [
     {
       "step": 1,
-      "description": "One at Klaffbron, one at Stridsbergsbron — Fix 6: Klaffbron ETA<3 → strax",
-      "expectedText": "En båt på väg mot Klaffbron, beräknad broöppning strax; En båt på väg mot Stridsbergsbron, beräknad broöppning om 3 minuter"
+      "description": "One at Klaffbron, one at Stridsbergsbron — Fix 6: Klaffbron ETA<3 → strax; OMLÅST 2026-07-01: även Stridsbergsbron-båten är <300m ⇒ Fix H imminent ⇒ strax (gamla 'om 3 minuter' var race-artefakt, se Journey 2 steg 7)",
+      "expectedText": "En båt på väg mot Klaffbron, beräknad broöppning strax; En båt på väg mot Stridsbergsbron, beräknad broöppning strax"
     }
   ],
   "Multi: 3 vessels at Klaffbron (mixed statuses)": [

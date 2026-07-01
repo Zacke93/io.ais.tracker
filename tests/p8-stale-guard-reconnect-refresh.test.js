@@ -26,7 +26,11 @@ describe('P8: stale-guard vid 0 båtar + UI-refresh vid reconnect', () => {
     app._vesselRemovalTimers = new Map();
     app._processingRemoval = new Set();
     app._triggeredBoatNearKeys = new Set();
-    app.vesselDataService = { getVesselCount: jest.fn().mockReturnValue(1) };
+    // BT-F1 (2026-07-01): vessels.delete() sker FÖRE emit('vessel:removed'),
+    // så getVesselCount() i handlern är antalet EFTER borttagning — "sista
+    // fartyget bort" simuleras därför med 0 (gamla mocken returnerade 1 och
+    // förlitade sig på handlerns numera borttagna dubbelsubtraktion).
+    app.vesselDataService = { getVesselCount: jest.fn().mockReturnValue(0) };
     app.statusService = {
       statusStabilizer: { removeVessel: jest.fn() },
       clearVesselETAHistory: jest.fn(),

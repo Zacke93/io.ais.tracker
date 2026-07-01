@@ -36,10 +36,14 @@ describe('P6: bekräftad GPS-gate-passage om-gatas inte', () => {
     svc._handleTargetBridgeTransition(vessel, oldVessel, { confirmedPassage: true });
 
     expect(svc._applyTargetTransition).toHaveBeenCalledWith(vessel, oldVessel, 'Stridsbergsbron');
-    // Kortslutning: den opålitliga re-detekteringen ska inte ens konsulteras
-    expect(svc._hasPassedTargetBridge).not.toHaveBeenCalled();
-    // Inte heller falla tillbaka till mellanbro-hantering
-    expect(svc._handleIntermediateBridgePassage).not.toHaveBeenCalled();
+    // P6-kärnan: den BEKRÄFTADE transitionen får inte om-gatas — transitionen
+    // ska ha applicerats FÖRE varje ev. detekteringsanrop. S-F3-kedjan
+    // (2026-07-01) får därefter konsultera detekteringen för det NYA målet
+    // (samma gap-segment kan ha korsat även nästa bro).
+    const applyOrder = svc._applyTargetTransition.mock.invocationCallOrder[0];
+    for (const detectOrder of svc._hasPassedTargetBridge.mock.invocationCallOrder) {
+      expect(detectOrder).toBeGreaterThan(applyOrder);
+    }
   });
 
   test('utan flaggan gäller ordinarie re-detektering (ingen transition vid false)', () => {

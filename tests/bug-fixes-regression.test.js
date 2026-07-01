@@ -147,11 +147,29 @@ describe('Bug #3 — speed floor only for moving vessels', () => {
       mmsi: '222',
       sog: 1.2,
       lastPassedBridge: 'Klaffbron',
+      // E-F5 (2026-07-01): passagekontexten är numera tidsbegränsad (15 min)
+      // — golvet gäller bara med FÄRSK passagestämpel.
+      lastPassedBridgeTime: Date.now() - 60 * 1000,
       status: 'en-route',
     };
     const speed = calc._getEffectiveSpeed(vessel);
     // SOG 1.2 > 0.8 → still considered moving, floor 2.5 applies
     expect(speed).toBeCloseTo(2.5, 1);
+  });
+
+  test('E-F5: gammal passagestämpel (>15 min) ger INGET passage-golv', () => {
+    const calc = makeCalculator();
+    const vessel = {
+      mmsi: '223',
+      sog: 1.5,
+      lastPassedBridge: 'Klaffbron',
+      lastPassedBridgeTime: Date.now() - 40 * 60 * 1000, // 40 min sedan
+      status: 'en-route',
+    };
+    const speed = calc._getEffectiveSpeed(vessel);
+    // Genuint långsam båt (1,5 kn) på post-passage-benet ska få ÄRLIG ETA —
+    // 2,5 kn-golvet gav annars ~40 % för optimistisk tid i över en timme.
+    expect(speed).toBeCloseTo(1.5, 1);
   });
 
   test('drift vessel (SOG=0.5) below threshold gets base floor only', () => {

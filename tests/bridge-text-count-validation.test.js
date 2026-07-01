@@ -59,11 +59,32 @@ describe('F16: språkmedveten fartygsräkning i bridge_text-validering', () => {
     expect(result.passed).toBe(true);
   });
 
-  test('genuint missförhållande fångas fortfarande (1 nämnd, 4 faktiska)', () => {
+  test('genuint missförhållande fångas fortfarande (1 nämnd, 4 renderbara)', () => {
     const text = 'En båt på väg mot Klaffbron, beräknad broöppning strax';
-    const vessels = [{ mmsi: '1' }, { mmsi: '2' }, { mmsi: '3' }, { mmsi: '4' }];
+    // BT-F2 (2026-07-01): validatorn räknar numera bara RENDERBARA fartyg
+    // (giltig targetBridge, ej GPS-hold) — samma filter som BridgeTextService.
+    const vessels = [
+      { mmsi: '1', targetBridge: 'Klaffbron' },
+      { mmsi: '2', targetBridge: 'Klaffbron' },
+      { mmsi: '3', targetBridge: 'Klaffbron' },
+      { mmsi: '4', targetBridge: 'Klaffbron' },
+    ];
     const result = app._validateVesselCounts(text, vessels);
     expect(result.passed).toBe(false);
     expect(result.severity).toBe('critical');
+  });
+
+  test('BT-F2: fartyg i passagefönster (targetBridge=null) räknas INTE', () => {
+    // BUG 11-inkluderingen skickar med fartyg i 180s-passagefönstret som
+    // textmotorn aldrig kan rendera — de gav tidigare falsk critical-mismatch
+    // och RC-B-fallbacken återpublicerade en inaktuell text efter passage.
+    const text = 'En båt på väg mot Stridsbergsbron, beräknad broöppning om 15 minuter';
+    const vessels = [
+      { mmsi: '1', targetBridge: 'Stridsbergsbron' },
+      { mmsi: '2', targetBridge: null }, // nyss terminalpasserad
+      { mmsi: '3', targetBridge: null }, // nyss terminalpasserad
+    ];
+    const result = app._validateVesselCounts(text, vessels);
+    expect(result.passed).toBe(true);
   });
 });
