@@ -30,9 +30,10 @@ describe('F10: system-wide koordination decayar och fastnar inte permanent', () 
     let t = 1_000_000;
     const rec = {};
 
-    // Burst: 3 jumps inom cooldown → count >= tröskel → aktiveras
+    // Burst: 3 jumps från 3 DISTINKTA fartyg inom fönstret → aktiveras.
+    // C4 (2026-07-01): en ensam jumper räknas EN gång oavsett antal hopp.
     for (let i = 0; i < 3; i++) {
-      sc._handleGPSJumpEvent('111', {}, rec, t);
+      sc._handleGPSJumpEvent(`111${i}`, {}, rec, t);
       sc._updateGlobalCoordinationState(gpsJump, t); // decay (ingen — färskt jump)
       sc._assessSystemStability(rec, t);
       t += 1000;
@@ -60,9 +61,9 @@ describe('F10: system-wide koordination decayar och fastnar inte permanent', () 
     let t = 2_000_000;
     const rec = {};
 
-    // Bygg upp till aktiv koordination
+    // Bygg upp till aktiv koordination (3 distinkta fartyg, C4)
     for (let i = 0; i < 3; i++) {
-      sc._handleGPSJumpEvent('222', {}, rec, t);
+      sc._handleGPSJumpEvent(`222${i}`, {}, rec, t);
       sc._updateGlobalCoordinationState(gpsJump, t);
       sc._assessSystemStability(rec, t);
       t += 1000;
@@ -82,6 +83,24 @@ describe('F10: system-wide koordination decayar och fastnar inte permanent', () 
       }
     }
     expect(released).toBe(true);
+  });
+
+  test('C4: ETT fartyg med ihållande hopp aktiverar ALDRIG system_wide', () => {
+    const sc = new SystemCoordinator(makeLogger());
+    let t = 4_000_000;
+    const rec = {};
+    // Ensamt ankrat multipath-fartyg hoppar var 10:e sekund i 5 minuter —
+    // gamla råräknaren nådde tröskeln efter 30 s och blockerade passage-
+    // detektering för ALLA fartyg (med ~timmes decay). Distinkt-räkningen
+    // håller count=1 oavsett.
+    for (let i = 0; i < 30; i++) {
+      sc._handleGPSJumpEvent('999', {}, rec, t);
+      sc._updateGlobalCoordinationState(gpsJump, t);
+      sc._assessSystemStability(rec, t);
+      t += 10_000;
+    }
+    expect(sc.globalSystemState.coordinationActive).toBe(false);
+    expect(sc.globalSystemState.unstableGPSCount).toBeLessThanOrEqual(1);
   });
 
   test('färre jumps än tröskeln aktiverar aldrig (ingen falsk koordination)', () => {

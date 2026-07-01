@@ -111,13 +111,48 @@ describe('RC2: INFERRED Järnvägsbron-passage endast vid TARGET_END', () => {
   test('TARGET_END vid Stridsbergsbron infererar Järnvägsbron (ligger bakom)', () => {
     const svc = makeVDS();
     const vessel = {
-      mmsi: '265000001', lat: 58.2940, lon: 12.2950, sog: 4, cog: 25, targetBridge: 'Stridsbergsbron', passedBridges: ['Klaffbron'], _routeDirection: 'north',
+      mmsi: '265000001',
+      lat: 58.2940,
+      lon: 12.2950,
+      sog: 4,
+      cog: 25,
+      targetBridge: 'Stridsbergsbron',
+      passedBridges: ['Klaffbron'],
+      _routeDirection: 'north',
+      // S-F6 (2026-07-01): inferensen kräver att resan BÖRJADE bortom
+      // Järnvägsbron i färdriktningen (norrgående: söder om 58.2916).
+      _firstSeenLat: 58.2700,
     };
     const oldVessel = { ...vessel };
 
     svc._applyTargetTransition(vessel, oldVessel, null); // TARGET_END
 
     expect(vessel.passedBridges).toContain('Järnvägsbron'); // geometriskt nödvändig
+  });
+
+  test('S-F6: kajstart MELLAN broarna → ingen inferred Järnvägsbron', () => {
+    const svc = makeVDS();
+    // Södergående båt som lade ut från Kajen norr om Klaffbron (58.2857-64,
+    // MELLAN Klaffbron 58.284 och Järnvägsbron 58.2916) — hon har ALDRIG
+    // korsat Järnvägsbron; gamla inferensen gav falsk passedBridges-post och
+    // falsk boat_near-notis via backfillen.
+    const vessel = {
+      mmsi: '265000002',
+      lat: 58.2820,
+      lon: 12.2850,
+      sog: 4,
+      cog: 190,
+      targetBridge: 'Klaffbron',
+      passedBridges: [],
+      _routeDirection: 'south',
+      _firstSeenLat: 58.2860, // kajen — söder om Järnvägsbron
+    };
+    const oldVessel = { ...vessel };
+
+    svc._applyTargetTransition(vessel, oldVessel, null); // TARGET_END Klaffbron
+
+    expect(vessel.passedBridges).not.toContain('Järnvägsbron');
+    expect(vessel._passageBackfills || []).not.toContain('Järnvägsbron');
   });
 });
 

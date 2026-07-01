@@ -53,17 +53,26 @@ describe('F1: pong-watchdog upptäcker half-open WebSocket', () => {
  * efter shutdown. Nu gateas reconnect på en explicit avsikts-flagga.
  */
 describe('F3: avsiktlig disconnect schemalägger ingen reconnect', () => {
-  test('disconnect() → _onClose schemalägger INTE reconnect', () => {
+  test('disconnect() kopplar av socketen och schemalägger INTE reconnect', () => {
+    // Race-fix 2026-06-13: disconnect() detachar numera lyssnarna FÖRE close
+    // (samma mönster som reconnectWithKey) — gamla socketens close-event kan
+    // aldrig nå _onClose, så ingen zombie-reconnect är möjlig den vägen.
+    // Klienten emittar 'disconnected' själv (app-lagret behöver signalen).
     const client = new AISStreamClient(makeLogger());
     client._scheduleReconnect = jest.fn();
-    client.ws = { close: jest.fn() };
+    const fakeWs = { close: jest.fn(), removeAllListeners: jest.fn(), on: jest.fn() };
+    client.ws = fakeWs;
+    const disconnectedEvents = [];
+    client.on('disconnected', (e) => disconnectedEvents.push(e));
 
     client.disconnect();
-    expect(client._intentionalClose).toBe(true);
 
-    client._onClose(1006, 'closed by us'); // close-eventet fyrar efteråt
+    expect(fakeWs.removeAllListeners).toHaveBeenCalled(); // detach före close
+    expect(fakeWs.close).toHaveBeenCalled();
+    expect(client.ws).toBeNull();
     expect(client._scheduleReconnect).not.toHaveBeenCalled();
-    expect(client._intentionalClose).toBe(false);
+    expect(client._intentionalClose).toBe(false); // ingen kvardröjande avsiktsflagga
+    expect(disconnectedEvents).toHaveLength(1); // app-lagret fick sin signal
   });
 
   test('oväntad close (1006) schemalägger reconnect', () => {

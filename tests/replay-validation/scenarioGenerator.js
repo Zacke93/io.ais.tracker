@@ -102,6 +102,13 @@ function pointAt(path, metrics, s) {
  * @param {{atFraction:number,offsetM:number}} [opts.gpsJump] - transient teleport en sample
  * @param {{lat:number,lon:number,durationS:number,navStatus:number|null}} [opts.moorAt]
  *   - ligg still på fast punkt (utanför rutten) i durationS innan ev. rutt körs
+ * @param {number[]} [opts.navStatusPattern] - cykliskt navStatus-mönster under stop-fasen
+ *   (t.ex. [0,5] = flappar var annan sample) — testar förtöjningslager 3-hysteres
+ * @param {{fromFraction:number,toFraction:number,speedKn:number}} [opts.slowZone]
+ *   - sänkt fart i ett ruttintervall (RC3-klassen: sog-kollaps vid bron)
+ * @param {{atFraction:number,backM:number}} [opts.staleEcho] - EN fördröjd
+ *   gammal position (backM bakom aktuell) mitt i resan — out-of-order-leverans
+ * @param {number} [opts.duplicateEvery] - emittera varje N:e sample dubbelt
  * @param {Function} rnd - seedad PRNG
  * @returns {Array<Object>} samples (jsonl-rader)
  */
@@ -139,9 +146,14 @@ function generateJourney(opts, rnd) {
   // Ev. förtöjningsfas på fast punkt först
   if (opts.moorAt) {
     const moorEnd = tS + opts.moorAt.durationS;
+    let moorIdx = 0;
     while (tS < moorEnd) {
-      push(opts.moorAt.lat, opts.moorAt.lon, 0.05, rnd() * 360, opts.moorAt.navStatus ?? null);
+      const navSt = Array.isArray(opts.navStatusPattern) && opts.navStatusPattern.length > 0
+        ? opts.navStatusPattern[moorIdx % opts.navStatusPattern.length]
+        : (opts.moorAt.navStatus ?? null);
+      push(opts.moorAt.lat, opts.moorAt.lon, 0.05, rnd() * 360, navSt);
       tS += interval;
+      moorIdx++;
     }
     if (!opts.runRouteAfterMooring) return samples;
   }
@@ -159,6 +171,8 @@ function generateJourney(opts, rnd) {
   let stopRemaining = 0;
   let stopDone = false; // stoppet får bara trigga EN gång (annars evig retrigg på samma position)
   let uTurned = false;
+  let stopIdx = 0;
+  let echoDone = false;
 
   while (s >= 0 && s <= metrics.total) {
     const frac = goingNorth ? s / metrics.total : 1 - s / metrics.total;
@@ -172,6 +186,12 @@ function generateJourney(opts, rnd) {
       stopRemaining = opts.stop.durationS;
       stopDone = true;
     }
+
+    // Sänkt fart i zon (RC3-klassen: inbromsning genom bropassagen)
+    const inSlowZone = opts.slowZone
+      && frac >= opts.slowZone.fromFraction && frac <= opts.slowZone.toFraction;
+    const cruiseKn = inSlowZone ? opts.slowZone.speedKn : opts.speedKn;
+    const cruiseMs = cruiseKn * 0.5144;
 
     const p = pointAt(path, metrics, s);
     let { lat } = p;
@@ -191,17 +211,37 @@ function generateJourney(opts, rnd) {
     }
 
     if (!inGap) {
-      push(lat, lon, stopRemaining > 0 ? 0.1 : opts.speedKn, cog, null);
+      let navSt = null;
+      if (stopRemaining > 0 && Array.isArray(opts.navStatusPattern) && opts.navStatusPattern.length > 0) {
+        navSt = opts.navStatusPattern[stopIdx % opts.navStatusPattern.length];
+        stopIdx++;
+      }
+      push(lat, lon, stopRemaining > 0 ? 0.1 : cruiseKn, cog, navSt);
+      if (opts.duplicateEvery && samples.length % opts.duplicateEvery === 0) {
+        samples.push({ ...samples[samples.length - 1] }); // exakt dubblett
+      }
+      // Out-of-order-leverans: EN fördröjd gammal position (bakom aktuell).
+      // Mottagningstiden stämplas +1 s efter ordinarie samplet — precis som
+      // produktionens receipt-stämpling gör att sen leverans ser ut som ett
+      // spatialt BAKLÄNGES-hopp, inte som tidsskev.
+      if (opts.staleEcho && !echoDone && frac >= opts.staleEcho.atFraction) {
+        const backS = Math.max(0, Math.min(metrics.total, s - dir * opts.staleEcho.backM));
+        const bp = pointAt(path, metrics, backS);
+        tS += 1;
+        push(bp.lat, bp.lon, cruiseKn, cog, null);
+        tS -= 1;
+        echoDone = true;
+      }
     }
 
     tS += interval;
     if (stopRemaining > 0) {
       stopRemaining = Math.max(0, stopRemaining - interval);
     } else {
-      s += dir * speedMs * interval;
+      s += dir * cruiseMs * interval;
     }
     if (uTurned && ((goingNorth && s <= 0) || (!goingNorth && s >= metrics.total))) break;
-    if (samples.length > 1000) break; // säkerhetsspärr
+    if (samples.length > 1200) break; // säkerhetsspärr
   }
 
   return samples;
@@ -227,6 +267,11 @@ function generateScenario(scenario) {
   const all = [];
   for (const v of scenario.vessels) {
     all.push(...generateJourney({ ...v }, rnd));
+  }
+  // Anslutningshändelser (2026-07-01): ctrl-rader (disconnect/reconnect)
+  // konsumeras av replayRunner och simulerar avbrott mitt i korpusen.
+  for (const ev of scenario.events || []) {
+    all.push({ ctrl: ev.ctrl, aisTimestamp: BASE_TIME_MS + Math.round(ev.atOffsetS * 1000) });
   }
   all.sort((a, b) => a.aisTimestamp - b.aisTimestamp);
   return all;

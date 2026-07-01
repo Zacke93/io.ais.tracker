@@ -36,9 +36,18 @@ module.exports = [
     appLog: path.join(LOGS_DIR, 'app-20260601-231305.log'),
     hours: 41,
     locked: true,
-    expectedNotifications: 75,
+    expectedNotifications: 77,
     note: '41h-korpusen. 75/75 inkl. per-fartyg+bro-fördelning validerat 2026-06-09 '
-      + '(prod-loggens 75:e är null-attribuerad — samma notis, 211355290@Stallbackabron).',
+      + '(prod-loggens 75:e är null-attribuerad — samma notis, 211355290@Stallbackabron). '
+      + 'OMLÅST 75→77 (2026-07-01, S-F3 + previousTarget-fixen): BÅDA nya är RÄTTADE '
+      + 'missar för 265580000 (EBONITA PRINCESS), verifierade mot rå jsonl: '
+      + '(1) Stallbackabron — verklig norrgående korsning 08:45:00 (lat 58.3098→58.3131, '
+      + '8,9 kn) som "en passage per update"-breaken tappade; (2) Järnvägsbron — korsad '
+      + 'i 15-min-gapet 08:18→08:33 (58.28x→58.2946 spänner 58.2916); gamla koden '
+      + 'registrerade fel TARGET_END-bro (stale previousTarget) så RC2b-inferensen '
+      + 'aldrig fick fyra. Fixen rättade även riktningstokens (northbound, tidigare '
+      + 'felaktigt southbound) och eliminerade dubbel Klaffbron-registrering. '
+      + 'Samma facit-fälle-prejudikat som AURANA 29→30.',
   },
   {
     id: '20260610-förfix',

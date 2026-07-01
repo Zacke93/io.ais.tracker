@@ -16,7 +16,9 @@ const { execFileSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { generateScenario } = require('./scenarioGenerator');
+const {
+  generateScenario, buildPath, pathMetrics, BASE_TIME_MS,
+} = require('./scenarioGenerator');
 const { validateInvariants } = require('./invariants');
 const { MOORING_ZONES } = require('../../lib/constants');
 
@@ -25,6 +27,16 @@ const QUAY = {
   lat: (MOORING_ZONES[0].start.lat + MOORING_ZONES[0].end.lat) / 2,
   lon: (MOORING_ZONES[0].start.lon + MOORING_ZONES[0].end.lon) / 2,
 };
+
+// Rutt-geometri för tidsberäkningar (möten, anslutningshändelser).
+const PATH = buildPath();
+const METRICS = pathMetrics(PATH);
+// Kedjeindex i PATH: [0]=syd-ext, [1]=Olidebron, [2]=Klaffbron,
+// [3]=Järnvägsbron, [4]=Stridsbergsbron, [5]=Stallbackabron, [6]=nord-ext.
+const FRAC_KLAFFBRON = METRICS.cum[2] / METRICS.total;
+const FRAC_STRIDSBERG = METRICS.cum[4] / METRICS.total;
+/** Sekunder tills en norrgående båt (speedKn) når given ruttandel. */
+const northSecondsToFraction = (frac, speedKn) => Math.round((frac * METRICS.total) / (speedKn * 0.5144));
 
 /**
  * Kurerad scenariomatris. Förväntningar:
@@ -154,6 +166,171 @@ const SCENARIOS = [
     ],
     expect: { minTargetPassages: 4 },
   },
+  // === Utökning 2026-07-01 (testaudit DEL D + N1/S-F3/S-F4/S-F7-klasserna) ===
+  {
+    // Äkta tur-och-retur: U-sväng EFTER Klaffbron → returpassagen av samma
+    // bro är en NY passage och ska ge en ANDRA notis (journey-reset-vägen,
+    // N1). INV-2:s journey-reset-medvetna dubbletthantering dömer.
+    name: 'u-sväng-efter-Klaffbron',
+    seed: 25,
+    vessels: [{
+      mmsi: '901000018', direction: 'north', speedKn: 4.5, uTurnAtFraction: 0.45,
+    }],
+    expect: { minTargetPassages: 2, minNotifiedBridges: ['Klaffbron'] },
+  },
+  {
+    // Två båtar möts VID Stridsbergsbron — grupplogik, klausulunikhet (INV-9)
+    // och att båda får sina målbropassager/notiser utan korskontaminering.
+    name: 'möte-vid-Stridsbergsbron',
+    seed: 26,
+    vessels: [
+      {
+        mmsi: '901000019', name: 'MÖTE-N', direction: 'north', speedKn: 4.5,
+      },
+      {
+        mmsi: '901000020',
+        name: 'MÖTE-S',
+        direction: 'south',
+        speedKn: 4.5,
+        startOffsetS: Math.max(0, northSecondsToFraction(FRAC_STRIDSBERG, 4.5)
+          - northSecondsToFraction(1 - FRAC_STRIDSBERG, 4.5)),
+      },
+    ],
+    expect: { minTargetPassages: 4 },
+  },
+  {
+    // navStatus-flap 0↔5 hos en ÄKTA väntare vid Klaffbron — lager 3
+    // (navStatus∈{1,5} vid stillhet) får inte demotera en båt som inväntar
+    // broöppning (S-F7-klassen).
+    name: 'navstatus-flap-väntare',
+    seed: 27,
+    vessels: [{
+      mmsi: '901000021',
+      direction: 'north',
+      speedKn: 4.0,
+      stop: { atFraction: 0.34, durationS: 600 },
+      navStatusPattern: [0, 5],
+    }],
+    expect: { minTargetPassages: 2 },
+  },
+  {
+    // Kajliggare med KONSTANT navStatus=5 (moored) — lager 3 ska klassa
+    // henne förtöjd; inga notiser, ingen båttext. Första scenariot som
+    // faktiskt exercerar navStatus-lagret (korpusarna saknar fältet).
+    name: 'navstatus-5-kajliggare',
+    seed: 28,
+    vessels: [{
+      mmsi: '901000022', direction: 'north', speedKn: 0, jitterM: 2, moorAt: { ...QUAY, durationS: 2400, navStatus: 5 },
+    }],
+    expect: { zeroNotifications: true, noVesselText: true },
+  },
+  {
+    // GPS-outlier som TELEPORTERAR över Klaffbron (en sample, +300 m i
+    // färdriktningen, sedan tillbaka på banan) — falsk linjekorsning får
+    // inte ge dubbla notiser eller falsk passage (S-F4-klassen).
+    name: 'teleport-över-Klaffbron',
+    seed: 29,
+    vessels: [{
+      mmsi: '901000023',
+      direction: 'north',
+      speedKn: 4.5,
+      gpsJump: { atFraction: Math.max(0, FRAC_KLAFFBRON - 150 / METRICS.total), offsetM: 300 },
+    }],
+    expect: { minTargetPassages: 2 },
+  },
+  {
+    // RC3-klassen proaktivt: sog-kollaps till 0,6 kn genom själva
+    // passagezonen — failsafens tidsskattning får inte strypa notisen.
+    name: 'sog-kollaps-vid-Klaffbron',
+    seed: 30,
+    vessels: [{
+      mmsi: '901000024',
+      direction: 'north',
+      speedKn: 4.5,
+      slowZone: { fromFraction: FRAC_KLAFFBRON - 0.03, toFraction: FRAC_KLAFFBRON + 0.01, speedKn: 0.6 },
+    }],
+    expect: { minTargetPassages: 2, minNotifiedBridges: ['Klaffbron'] },
+  },
+  {
+    // Krypfart genom hela kanalen — hastighetsgolv/ETA-rimlighet får inte
+    // producera absurda texter (INV-1/9) och passagerna ska ändå detekteras.
+    name: 'krypfart-0.8kn',
+    seed: 31,
+    vessels: [{
+      mmsi: '901000025', direction: 'north', speedKn: 0.8, reportIntervalS: 300,
+    }],
+    expect: { minTargetPassages: 2 },
+  },
+  {
+    // Varje meddelande levereras DUBBELT (multi-mottagare/AISstream-dubbletter)
+    // — utfallet ska vara identiskt med enkel leverans: inga dubbelnotiser.
+    name: 'dubblettmeddelanden',
+    seed: 32,
+    vessels: [{
+      mmsi: '901000026', direction: 'north', speedKn: 4.5, duplicateEvery: 1,
+    }],
+    expect: { minTargetPassages: 2 },
+  },
+  {
+    // 35-min-gap i målbrozonen: fartyget stale-raderas (30 min) och återföds
+    // BORTOM Klaffbron. Klaffbron-notisen är då >17 min gammal = medvetet
+    // INTE notifierad (scenario A-skattningen); resten av resan ska leverera.
+    name: 'gap-35min-över-Klaffbron',
+    seed: 33,
+    vessels: [{
+      mmsi: '901000027',
+      direction: 'north',
+      speedKn: 1.6,
+      // Gap-start 1200 m söder om Klaffbron: 2100 s @ 1,6 kn ≈ 1720 m →
+      // återfödelse ~520 m norr om Klaffbron (söder om Järnvägsbron) så att
+      // resten av resan (Stridsbergsbron) kan levereras normalt.
+      gap: { atFraction: Math.max(0, FRAC_KLAFFBRON - 1200 / METRICS.total), durationS: 2100 },
+    }],
+    expect: { minTargetPassages: 1, minNotifiedBridges: ['Stridsbergsbron'] },
+  },
+  {
+    // Out-of-order-leverans: EN fördröjd gammal position (400 m bakom) mitt
+    // i resan — får inte ge sågtand (INV-3), falsk passage eller dubbelnotis.
+    name: 'fördröjd-gammal-position',
+    seed: 34,
+    vessels: [{
+      mmsi: '901000028', direction: 'north', speedKn: 4.5, staleEcho: { atFraction: 0.5, backM: 400 },
+    }],
+    expect: { minTargetPassages: 2 },
+  },
+  {
+    // Två fartyg med SAMMA namn men olika mmsi — dedup är mmsi-nycklad och
+    // får inte korskontaminera.
+    name: 'samma-namn-två-mmsi',
+    seed: 35,
+    vessels: [
+      {
+        mmsi: '901000029', name: 'HAVSÖRN', direction: 'north', speedKn: 4.2,
+      },
+      {
+        mmsi: '901000030', name: 'HAVSÖRN', direction: 'north', speedKn: 4.2, startOffsetS: 120,
+      },
+    ],
+    expect: { minTargetPassages: 4 },
+  },
+  {
+    // Anslutningsavbrott mitt i passage: AIS-tystnad + disconnect 5 min
+    // strax före Klaffbron, reconnect när båten är bortom. Notisen får inte
+    // tappas (failsafe-kedjan) och slutstädningen ska vara ren (INV-6/12).
+    name: 'avbrott-mitt-i-passage',
+    seed: 36,
+    vessels: [{
+      mmsi: '901000031',
+      direction: 'north',
+      speedKn: 4.5,
+      gap: { atFraction: Math.max(0, FRAC_KLAFFBRON - 200 / METRICS.total), durationS: 300 },
+    }],
+    events: [
+      { ctrl: 'disconnect', atOffsetS: northSecondsToFraction(FRAC_KLAFFBRON - 200 / METRICS.total, 4.5) + 5 },
+      { ctrl: 'reconnect', atOffsetS: northSecondsToFraction(FRAC_KLAFFBRON - 200 / METRICS.total, 4.5) + 305 },
+    ],
+    expect: { minNotifiedBridges: ['Klaffbron', 'Stridsbergsbron'] },
+  },
 ];
 
 function runScenario(scenario) {
@@ -178,7 +355,9 @@ function checkExpectations(scenario, result) {
   const passages = result.targetPassages || [];
   const notifications = result.notifications || [];
 
-  if ((result.processErrors || []).length > 0) problems.push(`${result.processErrors.length} processfel`);
+  // Harness-fix (2026-07-01): processErrors är ett TAL — gamla `.length`-
+  // kontrollen var död (undefined > 0 är alltid false).
+  if ((result.processErrors || 0) > 0) problems.push(`${result.processErrors} processfel`);
   if (result.leakDiagnostics && result.leakDiagnostics.vessels !== 0) {
     problems.push(`${result.leakDiagnostics.vessels} fartyg kvar efter efterspel`);
   }

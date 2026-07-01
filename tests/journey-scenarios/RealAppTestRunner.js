@@ -405,6 +405,15 @@ class RealAppTestRunner {
       return this._bridgeTextCache;
     }
 
+    // Helkodsgranskning 2026-07-01: spegla produktionens snapshotväg —
+    // _createUISnapshot kör ALLTID _reevaluateVesselStatuses() (sätter bl.a.
+    // _isImminentAtTargetBridge för Fix H/F45 "strax") innan texten byggs.
+    // Utan detta var golden-testen tidsberoende: de passerade bara när en
+    // kvarhängande deferred UI-update råkade köra omvärderingen först
+    // (en bieffekt av BT-F1-buggens off-by-one som nu är fixad).
+    if (typeof this.app._reevaluateVesselStatuses === 'function') {
+      this.app._reevaluateVesselStatuses();
+    }
     const relevantVessels = this.app._findRelevantBoatsForBridgeText();
     const result = this.app.bridgeTextService.generateBridgeText(relevantVessels);
     this._bridgeTextCache = result;

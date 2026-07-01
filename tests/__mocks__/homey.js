@@ -51,7 +51,8 @@ class MockApp {
   }
 
   log(...args) {
-    // Optional: console.log('[APP]', ...args);
+    // REPLAY_VERBOSE=1 (felsökningsläge i replay-harnessen) visar app-loggen
+    if (process.env.REPLAY_VERBOSE) console.log('[APP]', ...args);
   }
 
   error(...args) {

@@ -16,6 +16,11 @@ const { execFileSync } = require('child_process');
 const path = require('path');
 const corpora = require('./corpora');
 const { validateInvariants } = require('./invariants');
+// Fördelningsfacit (2026-07-01): totalsumman räcker inte — en missad notis +
+// en fantomnotis ger samma summa (kompenserande fel). Multiset:en av
+// (mmsi,bro)-par låses per korpus; regenerera MEDVETET (med motivering i
+// corpora.js-noten) via en verifierad körning när facit ändras.
+const distribution = require('./corpora-distribution.json');
 
 const RUNNER = path.join(__dirname, 'replayRunner.js');
 
@@ -44,7 +49,10 @@ for (const corpus of corpora) {
   }
 
   const notifications = result.notificationCount;
-  const processErrors = (result.processErrors || []).length;
+  // Harness-fix (2026-07-01): processErrors är ett TAL — den gamla
+  // `(...|| []).length` gav alltid undefined → krascher i _processAISMessage
+  // flaggades ALDRIG av gaten (död kontroll sedan dag 1).
+  const processErrors = result.processErrors || 0;
   const leaks = result.leakDiagnostics || {};
   const vesselsLeft = leaks.vessels;
 
@@ -53,6 +61,24 @@ for (const corpus of corpora) {
   if (vesselsLeft !== 0) problems.push(`${vesselsLeft} fartyg kvar efter efterspel`);
   if (corpus.locked && notifications !== corpus.expectedNotifications) {
     problems.push(`notiser ${notifications} ≠ facit ${corpus.expectedNotifications}`);
+  }
+
+  // Fördelningsvalidering: (mmsi,bro)-multiset måste matcha exakt.
+  if (corpus.locked && distribution[corpus.id]) {
+    const expectedKeys = Object.entries(distribution[corpus.id])
+      .flatMap(([mmsi, bridges]) => bridges.map((b) => `${mmsi}:${b}`))
+      .sort();
+    const actualKeys = (result.notifications || [])
+      .map((n) => `${n.mmsi}:${n.bridge}`)
+      .sort();
+    if (JSON.stringify(actualKeys) !== JSON.stringify(expectedKeys)) {
+      const countBy = (arr) => arr.reduce((m, k) => m.set(k, (m.get(k) || 0) + 1), new Map());
+      const a = countBy(actualKeys);
+      const e = countBy(expectedKeys);
+      const missing = [...e].filter(([k, c]) => (a.get(k) || 0) < c).map(([k]) => k);
+      const extra = [...a].filter(([k, c]) => (e.get(k) || 0) < c).map(([k]) => k);
+      problems.push(`FÖRDELNING AVVIKER: saknas=[${missing.join(', ')}] extra=[${extra.join(', ')}]`);
+    }
   }
 
   // Facit-oberoende invarianter — fångar buggklasser som facit-jämförelsen

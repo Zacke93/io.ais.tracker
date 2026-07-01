@@ -102,9 +102,12 @@ async function main() {
     get: (k) => mockHomey.app.settings[k] || null, on: () => {}, off: () => {},
   };
 
-  // Tysta console-spam under replay (vi vill bara ha vår JSON på stdout)
+  // Tysta console-spam under replay (vi vill bara ha vår JSON på stdout).
+  // REPLAY_VERBOSE=1 behåller loggarna på stderr — felsökningsläge.
   const origLog = console.log;
-  console.log = () => {};
+  console.log = process.env.REPLAY_VERBOSE
+    ? (...args) => process.stderr.write(`${args.join(' ')}\n`)
+    : () => {};
 
   await app.onInit();
   await drain();
@@ -148,6 +151,14 @@ async function main() {
   // fångas ur appens egna loggrader (TARGET/FINAL_TARGET_PASSAGE_RECORDED).
   const targetPassages = [];
   const passageRe = /\[(?:FINAL_)?TARGET_PASSAGE_RECORDED\] (\d+): Recorded passage of (?:final )?target bridge (\S+)/;
+  // Harness-fördjupning (2026-07-01): fånga även journey-resets (U-sväng/
+  // NEW_JOURNEY/re-entry — legitimerar en ANDRA notis för samma mmsi:bro) och
+  // mellanbro-registreringar (INV-13: en målbro som loggas som INTERMEDIATE
+  // är en tyst degraderad målbropassage — osynlig för INV-5:s regex).
+  const journeyResets = [];
+  const journeyResetRe = /\[(?:JOURNEY_RESET|NEW_JOURNEY|REENTRY_NEW_JOURNEY)\] (\d+):/;
+  const intermediatePassages = [];
+  const intermediateRe = /\[INTERMEDIATE_PASSAGE_RECORDED\] (\d+): Recorded passage of intermediate bridge (\S+)/;
   const origAppLog = app.log.bind(app);
   app.log = (...args) => {
     const line = args.join(' ');
@@ -155,6 +166,16 @@ async function main() {
     if (pm) {
       targetPassages.push({
         t: Date.now(), iso: new Date(Date.now()).toISOString(), mmsi: pm[1], bridge: pm[2],
+      });
+    }
+    const jm = line.match(journeyResetRe);
+    if (jm) {
+      journeyResets.push({ t: Date.now(), iso: new Date(Date.now()).toISOString(), mmsi: jm[1] });
+    }
+    const im = line.match(intermediateRe);
+    if (im) {
+      intermediatePassages.push({
+        t: Date.now(), iso: new Date(Date.now()).toISOString(), mmsi: im[1], bridge: im[2],
       });
     }
     return origAppLog(...args);
@@ -169,6 +190,29 @@ async function main() {
     if (gap > 0) clock.tick(gap);
     // eslint-disable-next-line no-await-in-loop
     await drain(); // flush microtasks/async-lyssnare från ev. timer-callbacks
+
+    // 1b) Anslutningshändelser (2026-07-01): ctrl-samples simulerar avbrott/
+    //     återanslutning mitt i korpusen — testar stale-guarden ("AIS-
+    //     anslutning saknas"-overriden), alarm-släckning och reconnect-
+    //     refreshen (P8) i helkedjan, vilket tidigare var OMÖJLIGT i replay
+    //     (app._isConnected forcerades true en gång för hela körningen).
+    if (s.ctrl === 'disconnect') {
+      app._isConnected = false;
+      app._lastConnectionLost = Date.now();
+      app._lastConnectionStatus = 'disconnected';
+      continue;
+    }
+    if (s.ctrl === 'reconnect') {
+      app._isConnected = true;
+      app._lastConnectionLost = null;
+      app._lastConnectionStatus = 'connected';
+      try {
+        if (typeof app._onAISConnected === 'function') app._onAISConnected();
+      } catch (e) { /* reconnect-refresh är best-effort i replay */ }
+      // eslint-disable-next-line no-await-in-loop
+      await drain();
+      continue;
+    }
 
     // 2) Mata in AIS-meddelandet vid denna (fejkade) tid.
     const aisMessage = {
@@ -213,6 +257,10 @@ async function main() {
   // ---- Samla notiser ----
   const notifications = (boatNearCard && boatNearCard.triggerCalls ? boatNearCard.triggerCalls : [])
     .map((c) => ({
+      // Harness-fördjupning (2026-07-01): tidsstämpeln (fake-klockan är
+      // deterministisk) möjliggör tids-invarianter — notis-före-passage
+      // (INV-7) och journey-reset-medveten dubbletthantering (INV-2).
+      t: c.timestamp ? Date.parse(c.timestamp) : null,
       bridge: c.tokens && c.tokens.bridge_name,
       direction: c.tokens && c.tokens.direction,
       eta: c.tokens && c.tokens.eta_minutes,
@@ -271,6 +319,8 @@ async function main() {
     notifications,
     notificationCount: notifications.length,
     targetPassages,
+    journeyResets,
+    intermediatePassages,
     leakDiagnostics,
   };
 
