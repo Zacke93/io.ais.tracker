@@ -4176,37 +4176,15 @@ class AISBridgeApp extends Homey.App {
             const selectedBridge = this._normalizeBridgeArgument(args?.bridge);
             const stateBridge = this._normalizeBridgeArgument(state?.bridge);
 
-            // If Flow card is configured for "Any bridge", fire ONCE per vessel
-            // journey instead of once per bridge candidate. F7: previously this
-            // returned true for every boat_near trigger() (one per bridge along
-            // the route), so an "Any bridge" flow produced up to ~6 duplicate
-            // notifications per journey. Gate on a journey-scoped key that
-            // _clearBoatNearTriggers wipes (prefix `${mmsi}:`).
+            // "Alla broar"-semantik (ANVÄNDARBESLUT 2026-07-02, 11h-körningen):
+            // flowen ska trigga vid VARJE bro — inte en gång per resa som
+            // F7-gaten gjorde (den behandlade per-bro-notiserna som
+            // "duplikat"). Dedup sker redan UPPSTRÖMS per mmsi:bro
+            // (_triggeredBoatNearKeys + persistent 2h-mappen), så varje
+            // trigger()-anrop som når hit är en redan deduplicerad
+            // per-bro-händelse → max EN notis per bro och resa, upp till
+            // 6 för en full genomresa. mmsi:any-nyckeln är borttagen.
             if (selectedBridge === 'any') {
-              const anyMmsi = (state && state.mmsi != null) ? String(state.mmsi) : null;
-              if (anyMmsi && this._triggeredBoatNearKeys) {
-                const anyKey = `${anyMmsi}:any`;
-                if (this._triggeredBoatNearKeys.has(anyKey)) {
-                  this.debug(`🚫 [FLOW_RUN_LISTENER] "any" already fired this journey for ${anyMmsi} — skipping duplicate`);
-                  return false;
-                }
-                // N10 (2026-07-01): sessions-nyckeln städas av monitoring-
-                // loopen ≤60 s efter timeout-removal (även när BUG 7 bevarat
-                // den för aktiv resa) — konsultera därför ÄVEN persistent-
-                // mappen så "Any bridge"-flowen inte avfyras två gånger på
-                // samma resa efter re-entry. En äkta NY resa rensar mappen
-                // (journey-reset ⇒ _clearBoatNearTriggers(vessel, true)).
-                const persistentTs = this._persistentRecentTriggers?.get(anyKey);
-                const anyWindowMs = this._PERSISTENT_DEDUP_WINDOW_MS || 2 * 60 * 60 * 1000;
-                if (Number.isFinite(persistentTs) && Date.now() - persistentTs < anyWindowMs) {
-                  this.debug(`🚫 [FLOW_RUN_LISTENER] "any" persistent-deduped for ${anyMmsi} (same journey window)`);
-                  return false;
-                }
-                this._triggeredBoatNearKeys.add(anyKey);
-                if (this._persistentRecentTriggers) {
-                  this._persistentRecentTriggers.set(anyKey, Date.now());
-                }
-              }
               return true;
             }
 

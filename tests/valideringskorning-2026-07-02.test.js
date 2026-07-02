@@ -97,3 +97,69 @@ describe('RC7-undantag: stillaliggande båt med gles mottagning döljs inte', ()
     expect(svc.getVesselsForBridgeText()).toHaveLength(0);
   });
 });
+
+describe('Namnstickiness: känt namn ersätts aldrig av Unknown', () => {
+  test('sample utan namn behåller tidigare känt namn', () => {
+    const svc = Object.create(VesselDataService.prototype);
+    svc.logger = makeLogger();
+    svc.gpsJumpAnalyzer = {
+      analyzeMovement: () => ({
+        action: 'accept', isGPSJump: false, movementDistance: 5, analysis: {},
+      }),
+    };
+    svc.systemCoordinator = { coordinatePositionUpdate: () => null };
+    svc._updateSpeedHistory = () => [];
+    svc._calculateMaxRecentSpeed = () => 0;
+
+    const oldVessel = { name: 'MOSHE', lat: 58.28, lon: 12.28 };
+    const vessel = svc._createVesselObject('211471090', {
+      lat: 58.281, lon: 12.281, sog: 5, cog: 20, name: 'Unknown',
+    }, oldVessel);
+
+    // 11h-körningen: MOSHE:s första notis avfyrades som "Unknown" och
+    // SOLUTION växlade Unknown↔SOLUTION — Class B skickar namnet bara i
+    // vissa meddelanden. Ett känt namn ska klistra.
+    expect(vessel.name).toBe('MOSHE');
+  });
+
+  test('nytt äkta namn uppdaterar (namnbyte tillåtet)', () => {
+    const svc = Object.create(VesselDataService.prototype);
+    svc.logger = makeLogger();
+    svc.gpsJumpAnalyzer = {
+      analyzeMovement: () => ({
+        action: 'accept', isGPSJump: false, movementDistance: 5, analysis: {},
+      }),
+    };
+    svc.systemCoordinator = { coordinatePositionUpdate: () => null };
+    svc._updateSpeedHistory = () => [];
+    svc._calculateMaxRecentSpeed = () => 0;
+
+    const oldVessel = { name: 'Unknown', lat: 58.28, lon: 12.28 };
+    const vessel = svc._createVesselObject('211471090', {
+      lat: 58.281, lon: 12.281, sog: 5, cog: 20, name: 'MOSHE',
+    }, oldVessel);
+
+    expect(vessel.name).toBe('MOSHE');
+  });
+});
+
+describe('Extrapolerad klausul i strax-bandet', () => {
+  const { formatETABroOpeningClause } = require('../lib/utils/etaValidation');
+
+  test('extrapolerat ETA <3 ger "om cirka 2 minuter", inte strax', () => {
+    // MARLIN 09:22:27: extrapolerad nedräkning visade "strax" 730 m från
+    // bron och korrigerades UPPÅT 67 s senare — strax reserveras för färsk
+    // data/imminent/exhausted.
+    expect(formatETABroOpeningClause(1.8, { extrapolated: true }))
+      .toBe('beräknad broöppning om cirka 2 minuter');
+  });
+
+  test('färskt ETA <3 ger fortfarande strax', () => {
+    expect(formatETABroOpeningClause(1.8)).toBe('beräknad broöppning strax');
+  });
+
+  test('exhausted-vägen (imminent-flaggan) behåller strax', () => {
+    expect(formatETABroOpeningClause(null, { imminent: true, extrapolated: true }))
+      .toBe('beräknad broöppning strax');
+  });
+});

@@ -225,23 +225,21 @@ describe('Flow trigger bridge selection', () => {
     expect(triggerCard.getTriggerCalls()[0].tokens.bridge_name).toBe('Klaffbron');
   });
 
-  test('F7: "Any bridge" flow fires once per journey, not once per bridge', async () => {
+  test('"Any bridge" flow triggar vid VARJE bro (användarbeslut 2026-07-02)', async () => {
     const { app, triggerCard } = await setupApp();
     const runListener = triggerCard.runListeners[0];
     app._triggeredBoatNearKeys = new Set();
     const anyArgs = { bridge: 'any' };
 
-    // First bridge of the journey → "any" matches and fires
+    // F7-gaten (en gång per resa) ERSATT: "alla broar" ska matcha varje
+    // avfyrad trigger. Dedup sker uppströms per mmsi:bro, så varje anrop
+    // hit är redan en unik per-bro-händelse — max en notis per bro/resa.
     expect(await runListener(anyArgs, { bridge: 'klaffbron', mmsi: '555' })).toBe(true);
-    // Subsequent bridges same journey → "any" deduped (no duplicate spam)
-    expect(await runListener(anyArgs, { bridge: 'jarnvagsbron', mmsi: '555' })).toBe(false);
-    expect(await runListener(anyArgs, { bridge: 'stridsbergsbron', mmsi: '555' })).toBe(false);
-    // Different vessel → fires independently
+    expect(await runListener(anyArgs, { bridge: 'jarnvagsbron', mmsi: '555' })).toBe(true);
+    expect(await runListener(anyArgs, { bridge: 'stridsbergsbron', mmsi: '555' })).toBe(true);
+    // Andra fartyg fungerar oberoende
     expect(await runListener(anyArgs, { bridge: 'klaffbron', mmsi: '999' })).toBe(true);
-    // After the journey ends and triggers are cleared → fires again next journey
-    app._clearBoatNearTriggers({ mmsi: '555' });
-    expect(await runListener(anyArgs, { bridge: 'klaffbron', mmsi: '555' })).toBe(true);
-    // A specific-bridge flow is unaffected by the "any" gate
+    // A specific-bridge flow is unaffected by the "any" semantics
     expect(await runListener({ bridge: 'klaffbron' }, { bridge: 'klaffbron', mmsi: '777' })).toBe(true);
     expect(await runListener({ bridge: 'klaffbron' }, { bridge: 'jarnvagsbron', mmsi: '777' })).toBe(false);
   });
