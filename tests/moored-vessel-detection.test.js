@@ -117,8 +117,21 @@ describe('Förtöjningsdetektering: kajliggare vs äkta broöppningsväntare', (
     let vessel = svc.getVessel('265000003');
     expect(vessel.targetBridge).toBe('Klaffbron');
 
-    // Förtöjer vid kajen (stationär i zonen)
+    // Förtöjer vid kajen (stationär i zonen). Körning 2026-07-02 (ELFKUNGEN):
+    // zonlagret kräver nu stillhetsTID — 15 min för båt med target inom
+    // 600 m — så en KÖARE som pausar vid kajen inför broöppning inte
+    // demoteras. Kort paus (≤9 min) ska alltså INTE klassa som förtöjd:
     for (let i = 0; i < 3; i++) {
+      vessel = svc.updateVessel('265000003', {
+        lat: QUAY.lat, lon: QUAY.lon, sog: 0.1, cog: 30, name: 'TEST',
+      });
+      tick(3);
+    }
+    expect(vessel._moored).toBe(false); // kö-skyddad (6 min stillhet < 15 min)
+    expect(vessel.targetBridge).toBe('Klaffbron');
+
+    // ...men en äkta förtöjning (≥15 min still i zonen) demoteras:
+    for (let i = 0; i < 4; i++) {
       vessel = svc.updateVessel('265000003', {
         lat: QUAY.lat, lon: QUAY.lon, sog: 0.1, cog: 30, name: 'TEST',
       });

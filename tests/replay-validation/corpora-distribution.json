@@ -46,7 +46,8 @@
   "20260601-41h": {
     "211112870": [
       "Klaffbron",
-      "Stallbackabron"
+      "Stallbackabron",
+      "Stridsbergsbron"
     ],
     "211355290": [
       "Järnvägsbron",
@@ -133,6 +134,7 @@
       "Stridsbergsbron"
     ],
     "265759700": [
+      "Klaffbron",
       "Olidebron",
       "Stallbackabron"
     ],
@@ -151,6 +153,9 @@
       "Olidebron",
       "Stallbackabron",
       "Stridsbergsbron"
+    ],
+    "231898000": [
+      "Stallbackabron"
     ]
   },
   "20260610-förfix": {},
@@ -266,6 +271,52 @@
       "Stallbackabron"
     ],
     "265825890": [
+      "Järnvägsbron",
+      "Kanalinfarten",
+      "Klaffbron",
+      "Olidebron",
+      "Stallbackabron",
+      "Stridsbergsbron"
+    ]
+  },
+  "20260702-2h": {
+    "211351080": [
+      "Järnvägsbron",
+      "Stallbackabron",
+      "Stridsbergsbron"
+    ],
+    "211536930": [
+      "Kanalinfarten",
+      "Klaffbron",
+      "Olidebron"
+    ],
+    "257639530": [
+      "Kanalinfarten",
+      "Olidebron"
+    ],
+    "257904890": [
+      "Järnvägsbron",
+      "Kanalinfarten",
+      "Klaffbron",
+      "Olidebron",
+      "Stridsbergsbron"
+    ],
+    "265558470": [
+      "Järnvägsbron",
+      "Klaffbron",
+      "Olidebron",
+      "Stallbackabron",
+      "Stridsbergsbron"
+    ],
+    "265573130": [
+      "Järnvägsbron",
+      "Kanalinfarten",
+      "Klaffbron",
+      "Olidebron",
+      "Stallbackabron",
+      "Stridsbergsbron"
+    ],
+    "265800960": [
       "Järnvägsbron",
       "Kanalinfarten",
       "Klaffbron",

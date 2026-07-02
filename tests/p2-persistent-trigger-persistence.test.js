@@ -69,13 +69,39 @@ describe('P2: persistent boat_near-dedup överlever omstart', () => {
 
   test('roundtrip: persist i instans 1 → load i instans 2 (simulerad omstart)', () => {
     const ts = Date.now() - 5 * 60 * 1000; // notis för 5 min sedan
-    app._persistentRecentTriggers.set('265001111:Klaffbron', ts);
+    // Nytt format 2026-07-02 (ELFKUNGEN): { t, dir } — riktningen gör dedupen
+    // resemedveten över omstarter (returresa i motsatt riktning blockeras inte).
+    app._persistentRecentTriggers.set('265001111:Klaffbron', { t: ts, dir: 'south' });
     app._persistRecentTriggers();
 
     const restartedApp = makeApp(); // delar samma settings-store
     restartedApp._loadPersistentTriggers();
 
-    expect(restartedApp._persistentRecentTriggers.get('265001111:Klaffbron')).toBe(ts);
+    expect(restartedApp._persistentRecentTriggers.get('265001111:Klaffbron')).toEqual({ t: ts, dir: 'south' });
+  });
+
+  test('legacy-poster (rena tal) laddas som riktningslösa {t, dir: null}', () => {
+    const ts = Date.now() - 5 * 60 * 1000;
+    store.persistent_recent_triggers = { '265001111:Klaffbron': ts };
+
+    app._loadPersistentTriggers();
+
+    expect(app._persistentRecentTriggers.get('265001111:Klaffbron')).toEqual({ t: ts, dir: null });
+  });
+
+  test('riktningsmedveten dedup: samma riktning blockerar, motsatt släpper igenom (ELFKUNGEN)', () => {
+    const ts = Date.now() - 95 * 60 * 1000; // 95 min sedan — inom 2h-fönstret
+    app._persistentRecentTriggers.set('265573130:Stridsbergsbron', { t: ts, dir: 'north' });
+
+    // Samma riktning → blockerad
+    expect(app._persistentDedupCheck('265573130:Stridsbergsbron', { _routeDirection: 'north' }).blocked).toBe(true);
+    // Motsatt riktning (returresan söderut) → NY passage, släpps igenom
+    expect(app._persistentDedupCheck('265573130:Stridsbergsbron', { _routeDirection: 'south' }).blocked).toBe(false);
+    // Okänd riktning → konservativ blockering
+    expect(app._persistentDedupCheck('265573130:Stridsbergsbron', { cog: 90 }).blocked).toBe(true);
+    // Riktningslös lagrad post (legacy) → konservativ blockering även vid motsatt riktning
+    app._persistentRecentTriggers.set('265999999:Klaffbron', { t: ts, dir: null });
+    expect(app._persistentDedupCheck('265999999:Klaffbron', { _routeDirection: 'south' }).blocked).toBe(true);
   });
 
   test('defensiv: kraschar inte utan settings (testkonstruktioner)', () => {

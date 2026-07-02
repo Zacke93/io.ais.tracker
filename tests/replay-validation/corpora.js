@@ -36,7 +36,7 @@ module.exports = [
     appLog: path.join(LOGS_DIR, 'app-20260601-231305.log'),
     hours: 41,
     locked: true,
-    expectedNotifications: 78,
+    expectedNotifications: 81,
     note: '41h-korpusen. 75/75 inkl. per-fartyg+bro-fördelning validerat 2026-06-09 '
       + '(prod-loggens 75:e är null-attribuerad — samma notis, 211355290@Stallbackabron). '
       + 'OMLÅST 75→77 (2026-07-01, S-F3 + previousTarget-fixen): BÅDA nya är RÄTTADE '
@@ -51,7 +51,19 @@ module.exports = [
       + 'MOSHE-fixen): 211112870@Stallbackabron är RÄTTAD miss — återfödd målbrolös '
       + 'efter 73-min-gap norr om Stridsbergsbron, live-korsade Stallbackabron '
       + '11:40→11:47 (6,3–6,9 kn, verifierad mot rå jsonl); målbrolösa fartyg fick '
-      + 'tidigare ingen linjekorsningsdetektering alls.',
+      + 'tidigare ingen linjekorsningsdetektering alls. OMLÅST 78→81 (2026-07-02b, '
+      + 'SY FREYJA-fixen: target-gaten i skipped-bridges-failsafen borttagen): alla '
+      + 'tre nya är RÄTTADE missar för MÅLLÖSA fartyg, verifierade mot rå jsonl: '
+      + '(1) 211112870@Stridsbergsbron — korsad i 72-min-gapet 10:22→11:35 '
+      + '(58.28808→58.29902 spänner 58.2935), återfödd mållös 615 m norr om bron '
+      + '(Järnvägsbron föll utanför 300s-fönstret, ~302s — medveten policy); '
+      + '(2) 231898000@Stallbackabron — 17h ankrad vid Spikön, avgick 13:58 norrut '
+      + 'MÅLLÖS, korsade Stallbackabron i 5,5-min-gapet 14:03:54→14:09:22 '
+      + '(58.30540→58.31410 spänner 58.31143); (3) 265759700@Klaffbron — södergående, '
+      + 'korsade Klaffbron i 30-min-gapet 08:17→08:47 (58.31079→58.27945), återfödd '
+      + 'mållös 516 m söder om bron (Jvb/Strids utanför tidsfönstret — policy). '
+      + 'Gamla gaten `!targetBridge && !_finalTargetBridge` strök failsafen för '
+      + 'utgående/mållösa båtar — samma klass som MOSHE-missen fast i app-lagret.',
   },
   {
     id: '20260610-förfix',
@@ -108,5 +120,23 @@ module.exports = [
       + '(NO LIMIT: RC7-filtret dolde stillaliggande båt med gles mottagning, '
       + '"Inga båtar" var 10:e minut) fixad — replay har 0 DEFAULT-flashar '
       + '(INV-14 vaktar klassen).',
+  },
+  {
+    id: '20260702-2h',
+    jsonl: path.join(LOGS_DIR, 'ais-replay-20260702-132758.jsonl'),
+    appLog: path.join(LOGS_DIR, 'app-20260702-132758.log'),
+    hours: 2,
+    locked: true,
+    expectedNotifications: 30,
+    note: 'Eftermiddagskörningen 2026-07-02 (nio fartyg, källa till de åtta felen i '
+      + 'docs/korrigeringar-2026-07-02b.md). LÅST 30 (2026-07-02): prod gav 26; '
+      + 'diffarna är verifierade mot rå jsonl: −1 CLABBYDOO@Järnvägsbron (trolig '
+      + 'FALSK kajavgångsnotis — N7-marginalen), +2 SY FREYJA@Jvb+Strids (korsade '
+      + 'i 20-min-gap, target-gaten åt failsafen), +1 ELFKUNGEN@Strids (äkta '
+      + 'passage 12:08:30, prod-blockerad av omstarts-dedup som replay saknar), '
+      + '+2 ELFKUNGEN@Jvb (korsad i 22-min-gap) + ELFKUNGEN@Kanalinfarten (äkta '
+      + 'exit; båda möjliga när kajzonsdemoteringens kö-förtur behåller target). '
+      + 'Körningen valideras även med 14 invarianter (rena) — bl.a. tvingade '
+      + 'INV-14 mitt-i-passage-nivån 15→20 min (PAX-flashen 12:24:55).',
   },
 ];
