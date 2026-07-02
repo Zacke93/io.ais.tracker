@@ -97,6 +97,8 @@ function pointAt(path, metrics, s) {
  * @param {number} [opts.startOffsetS=0] - starttid relativt scenariots bas
  * @param {{atFraction:number,durationS:number}} [opts.gap] - AIS-tystnad (båten fortsätter)
  * @param {{atFraction:number,durationS:number}} [opts.stop] - fysiskt stopp (sänder med sog≈0)
+ * @param {number} [opts.stopReportIntervalS] - glesare rapportintervall UNDER
+ *   stoppet (NO LIMIT-klassen: ankrade båtar hörs var 12–18:e minut)
  * @param {number} [opts.uTurnAtFraction] - vänd vid given andel av rutten
  * @param {number} [opts.jitterM=3] - GPS-brus (± meter, uniform)
  * @param {{atFraction:number,offsetM:number}} [opts.gpsJump] - transient teleport en sample
@@ -234,9 +236,12 @@ function generateJourney(opts, rnd) {
       }
     }
 
-    tS += interval;
+    const stepInterval = stopRemaining > 0 && Number.isFinite(opts.stopReportIntervalS)
+      ? opts.stopReportIntervalS
+      : interval;
+    tS += stepInterval;
     if (stopRemaining > 0) {
-      stopRemaining = Math.max(0, stopRemaining - interval);
+      stopRemaining = Math.max(0, stopRemaining - stepInterval);
     } else {
       s += dir * cruiseMs * interval;
     }

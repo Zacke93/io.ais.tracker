@@ -36,7 +36,7 @@ module.exports = [
     appLog: path.join(LOGS_DIR, 'app-20260601-231305.log'),
     hours: 41,
     locked: true,
-    expectedNotifications: 77,
+    expectedNotifications: 78,
     note: '41h-korpusen. 75/75 inkl. per-fartyg+bro-fördelning validerat 2026-06-09 '
       + '(prod-loggens 75:e är null-attribuerad — samma notis, 211355290@Stallbackabron). '
       + 'OMLÅST 75→77 (2026-07-01, S-F3 + previousTarget-fixen): BÅDA nya är RÄTTADE '
@@ -47,7 +47,11 @@ module.exports = [
       + 'registrerade fel TARGET_END-bro (stale previousTarget) så RC2b-inferensen '
       + 'aldrig fick fyra. Fixen rättade även riktningstokens (northbound, tidigare '
       + 'felaktigt southbound) och eliminerade dubbel Klaffbron-registrering. '
-      + 'Samma facit-fälle-prejudikat som AURANA 29→30.',
+      + 'Samma facit-fälle-prejudikat som AURANA 29→30. OMLÅST 77→78 (2026-07-02, '
+      + 'MOSHE-fixen): 211112870@Stallbackabron är RÄTTAD miss — återfödd målbrolös '
+      + 'efter 73-min-gap norr om Stridsbergsbron, live-korsade Stallbackabron '
+      + '11:40→11:47 (6,3–6,9 kn, verifierad mot rå jsonl); målbrolösa fartyg fick '
+      + 'tidigare ingen linjekorsningsdetektering alls.',
   },
   {
     id: '20260610-förfix',
@@ -85,5 +89,24 @@ module.exports = [
       + 'momentan sog) och DIANA@Järnvägsbron (RC2: falsk INFERRED_PASSAGE '
       + 'blockerade äkta passagen). Replay med fixarna ger exakt dessa +2, '
       + 'inga andra fördelningsändringar (verifierat per mmsi+bro 2026-06-11).',
+  },
+  {
+    id: '20260702-11h',
+    jsonl: path.join(LOGS_DIR, 'ais-replay-20260702-010825.jsonl'),
+    appLog: path.join(LOGS_DIR, 'app-20260702-010825.log'),
+    hours: 11,
+    locked: true,
+    expectedNotifications: 24,
+    note: '11h-valideringskörningen efter helkodsgranskningen (f0cf7c7). LÅST 24 '
+      + '(2026-07-02): prod gav 23; +1 är RÄTTAD miss MOSHE/211471090@Olidebron — '
+      + 'stale-raderad i 44-min-gap, återfödd målbrolös söder om Klaffbron, '
+      + 'live-korsade Olidebron 09:09→09:15 (312 m från bron vid båda samples = '
+      + 'utanför proximityzonen) men målbrolösa fartyg fick ingen linjekorsnings- '
+      + 'detektering. Nio fartyg inkl. kajavgång (S-F6 verifierad live: '
+      + 'INFERRED_PASSAGE_SKIP korrekt), 29-min-gap räddat komplett (SILVERMORK II, '
+      + 'alla 6 broar), nattlig 503/429-storm hanterad. Prod-textflappen '
+      + '(NO LIMIT: RC7-filtret dolde stillaliggande båt med gles mottagning, '
+      + '"Inga båtar" var 10:e minut) fixad — replay har 0 DEFAULT-flashar '
+      + '(INV-14 vaktar klassen).',
   },
 ];

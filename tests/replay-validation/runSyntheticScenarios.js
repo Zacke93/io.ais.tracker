@@ -331,6 +331,43 @@ const SCENARIOS = [
     ],
     expect: { minNotifiedBridges: ['Klaffbron', 'Stridsbergsbron'] },
   },
+  // === Utökning 2026-07-02 (11h-valideringskörningens två prod-klasser) ===
+  {
+    // NO LIMIT-klassen: båt MED target stannar 40 min och hörs bara var
+    // 12:e minut (>10-min-RC7-fönstret). Före fixen doldes hon vid +10 min
+    // och återkom vid nästa sample → "Inga båtar"-flapp (INV-14 dömer).
+    // Efter fixen: stillaliggande (sog<1.5) visas upp till 25 min.
+    name: 'ankrad-gles-sändare',
+    seed: 37,
+    vessels: [{
+      mmsi: '901000032',
+      direction: 'north',
+      speedKn: 4.0,
+      stop: { atFraction: 0.34, durationS: 2400 },
+      stopReportIntervalS: 720,
+    }],
+    // Pelarutfallet är det som räknas: BÅDA målbroarnas notiser levereras.
+    // (Klaffbron-target avregistreras KORREKT under 48-min-parkeringen 370 m
+    // från bron — LOW_SPEED-grace — så bara Stridsbergsbron blir en formell
+    // målbropassage; Klaffbron-notisen räddas av failsafe-kedjan vid
+    // avgången. INV-14 vaktar att parkeringen inte ger DEFAULT-flappar.)
+    expect: { minTargetPassages: 1, minNotifiedBridges: ['Klaffbron', 'Stridsbergsbron'] },
+  },
+  {
+    // MOSHE-klassen: södergående båt stale-raderas i 35-min-gap som spänner
+    // Stridsbergsbron+Klaffbron, återföds MÅLBROLÖS söder om Klaffbron och
+    // live-korsar Olidebron. Före fixen fick målbrolösa fartyg ingen
+    // linjekorsningsdetektering alls → Olidebron-notisen missades.
+    name: 'återfödd-utflygare-söderut',
+    seed: 38,
+    vessels: [{
+      mmsi: '901000033',
+      direction: 'south',
+      speedKn: 1.6,
+      gap: { atFraction: (1 - FRAC_STRIDSBERG) - 200 / METRICS.total, durationS: 2100 },
+    }],
+    expect: { minNotifiedBridges: ['Olidebron'] },
+  },
 ];
 
 function runScenario(scenario) {

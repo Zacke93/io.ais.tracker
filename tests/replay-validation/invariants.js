@@ -157,16 +157,17 @@ function validateInvariants(result) {
           && series[i].count === series[i - 1].count) {
         violations.push(`ETA-SÅGTAND UPP: ${series[i].iso} ${bridge} ${series[i - 1].eta}→${series[i].eta} på ${Math.round(dt)}s`);
       }
-      // Oscillation: leta X→Y→X′. Bandat till det operativa området (X ≤ 15
-      // min, 2026-07-01) — bilförare agerar på små ETA; ±3-fladder på
-      // 16–19-min-nivån är naturligt fartbrus för krypfartsbåtar, inte den
-      // användarfientliga signaturen.
+      // Oscillation: leta X→Y→X′. RELATIV tröskel (2026-07-02): hoppet måste
+      // vara ≥ max(3, 30 % av nivån) — ±3-fladder på 12–19-min-nivån är
+      // naturligt fartbrus för krypfartsbåtar, medan 4→9→5 i det låga bandet
+      // (där bilförare agerar) är den äkta användarfientliga signaturen.
       if (i >= 2) {
         const x = series[i - 2];
         const y = series[i - 1];
         const x2 = series[i];
         const span = (x2.t - x.t) / 1000;
-        if (span <= 240 && x.eta <= 15 && Math.abs(y.eta - x.eta) >= 3 && Math.abs(x2.eta - x.eta) <= 1
+        const oscThreshold = Math.max(3, 0.3 * x.eta);
+        if (span <= 240 && Math.abs(y.eta - x.eta) >= oscThreshold && Math.abs(x2.eta - x.eta) <= 1
             && x.count === y.count && y.count === x2.count) {
           violations.push(`ETA-OSCILLATION: ${x2.iso} ${bridge} ${x.eta}→${y.eta}→${x2.eta} inom ${Math.round(span)}s`);
         }
@@ -210,6 +211,43 @@ function validateInvariants(result) {
     const span = (transitions[i + 1].t - transitions[i - 1].t) / 1000;
     if (prevDetailed && nextDetailed && span <= 90) {
       violations.push(`COUNT-DEGRADERING: ${transitions[i].iso} "${transitions[i].text}" inklämd (${Math.round(span)}s)`);
+    }
+  }
+
+  // INV-14 (2026-07-02): DEFAULT-flash — texten faller till "Inga båtar" och
+  // återkommer inom 5 min med SAMMA signatur (samma målbro + samma antal-ord)
+  // utan att någon målbropassage skett = ett fartyg doldes felaktigt.
+  // NO LIMIT-klassen (11h-körningen 2026-07-02): stillaliggande båt med gles
+  // mottagning gömdes av RC7-presentationsfiltret var 10:e minut → texten
+  // flappade "på väg mot Klaffbron"↔"Inga båtar". INV-4 ser bara
+  // 90 s-sandwichar med generisk text — den här klassen är längre och går
+  // hela vägen till DEFAULT.
+  for (let i = 1; i < transitions.length - 1; i++) {
+    if (transitions[i].text !== DEFAULT_MESSAGE) continue;
+    const prev = transitions[i - 1];
+    const next = transitions[i + 1];
+    // Mät DEFAULT-textens egen varaktighet — en "Inga båtar" som ersätts av
+    // samma signatur inom 5 min var retroaktivt onödig (fartyget fanns kvar).
+    const flashSpan = (next.t - transitions[i].t) / 1000;
+    if (flashSpan > 300) continue;
+    const clauseSig = (text) => {
+      const m = new Map();
+      for (const clause of text.split('; ')) {
+        const p = clause.match(new RegExp(`^(\\S+) båt(?:ar)? på väg mot ${TARGET}`));
+        if (p) m.set(p[2], p[1]);
+      }
+      return m;
+    };
+    const before = clauseSig(prev.text);
+    const after = clauseSig(next.text);
+    for (const [bridge, count] of before) {
+      if (after.get(bridge) !== count) continue;
+      const passageBetween = targetPassages.some(
+        (p) => p.bridge === bridge && p.t >= prev.t && p.t <= next.t,
+      );
+      if (!passageBetween) {
+        violations.push(`DEFAULT-FLASH: ${transitions[i].iso} "Inga båtar" inklämd (${Math.round(flashSpan)}s) mellan två "${count} … ${bridge}"-texter utan passage`);
+      }
     }
   }
 
