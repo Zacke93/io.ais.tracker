@@ -368,6 +368,62 @@ const SCENARIOS = [
     }],
     expect: { minNotifiedBridges: ['Olidebron'] },
   },
+  {
+    // SY FREYJA-klassen (körning 2026-07-02b): norrgående båt tystnar i
+    // 35-min-gap (krypfart genom tystnaden), stale-raderas, och återföds
+    // MÅLLÖS ~200 m NORR om Stridsbergsbron på väg ut mot Vänern — hon
+    // korsade Järnvägsbron OCH Stridsbergsbron i gapet. Före fixen strök
+    // target-gaten (`!targetBridge && !_finalTargetBridge`) i
+    // _checkSkippedBridgesFallback BÅDA failsafe-notiserna.
+    name: 'återfödd-utflygare-norrut',
+    seed: 39,
+    vessels: [{
+      mmsi: '901000034',
+      direction: 'north',
+      speedKn: 4.5,
+      // Krypfart (0,68 kn) genom zonen [Jvb−250 m, Strids+150 m] = 657 m tar
+      // ~31 min → tystnaden överskrider STALE_AIS (30 min) → borttagning +
+      // återfödelse. Gap-svansen (~20 s i 4,5 kn) landar henne ~200 m norr om
+      // Strids med full fart → scenario A:s tidsfönster täcker Jvb (~270 s)
+      // och Strids (~85 s).
+      slowZone: {
+        fromFraction: (METRICS.cum[3] - 250) / METRICS.total,
+        toFraction: (METRICS.cum[4] + 150) / METRICS.total,
+        speedKn: 0.68,
+      },
+      gap: { atFraction: (METRICS.cum[3] - 250) / METRICS.total, durationS: 1900 },
+    }],
+    expect: { minNotifiedBridges: ['Järnvägsbron', 'Stridsbergsbron'] },
+  },
+  {
+    // YEMANJA II-klassen (körning 2026-07-02b): målbron korsas i ett gap
+    // vars ändpunkter ligger UTANFÖR geometrimetodernas gränser (prev ~1000 m
+    // söder, curr ~380 m norr om Klaffbron), och båten STANNAR sedan utan att
+    // korsa någon mer brolinje. Före fixen var failsafen notis-enbart —
+    // target förblev den passerade bron (prod: 39 min "på väg mot Klaffbron"
+    // medan båten låg still vid Järnvägsbron) och ingen målbropassage
+    // registrerades. GAP_TARGET_INFERRED applicerar nu transitionen direkt.
+    name: 'gap-över-målbron-utan-geometriträff',
+    seed: 40,
+    vessels: [{
+      mmsi: '901000035',
+      direction: 'north',
+      speedKn: 4.8,
+      // Gap 500 s ≈ 1250–1500 m (fartsjitter) → återfödelse ~250–450 m NORR
+      // om Klaffbron i full fart (prev ~1000 m söder → båda ändpunkterna
+      // utanför geometrimetodernas gränser). Stoppet ligger vid Jvb−110 m,
+      // med god marginal BORTOM gap-landningen (annars fryser generatorn
+      // henne under tystnaden och återfödelsesamplet får sog≈0 → failsafens
+      // sog≥2-gate stänger). Där står hon 25 min — YEMANJA II låg still vid
+      // Järnvägsbron. Diskriminatorn är minTargetPassages=2: utan
+      // GAP_TARGET_INFERRED registreras Klaffbron-passagen ALDRIG (den senare
+      // MISSED_TARGET_INFERRED-vägen vid Jvb-korsningen loggar ingen
+      // TARGET_PASSAGE_RECORDED — verifierat empiriskt).
+      gap: { atFraction: (METRICS.cum[2] - 1000) / METRICS.total, durationS: 500 },
+      stop: { atFraction: (METRICS.cum[2] + 850) / METRICS.total, durationS: 1500 },
+    }],
+    expect: { minTargetPassages: 2, minNotifiedBridges: ['Olidebron', 'Klaffbron'] },
+  },
 ];
 
 function runScenario(scenario) {

@@ -401,9 +401,16 @@ class AISBridgeApp extends Homey.App {
       const now = Date.now();
       const windowMs = this._PERSISTENT_DEDUP_WINDOW_MS;
       let loaded = 0;
-      for (const [key, ts] of Object.entries(stored)) {
+      for (const [key, value] of Object.entries(stored)) {
+        // Körning 2026-07-02 (ELFKUNGEN): nytt format {t, dir} — riktningen
+        // gör dedupen resemedveten över omstarter. Äldre lagrade poster är
+        // rena tal; de accepteras utan riktning (konservativ blockering).
+        const ts = typeof value === 'number' ? value : value && value.t;
         if (Number.isFinite(ts) && now - ts < windowMs) {
-          this._persistentRecentTriggers.set(key, ts);
+          this._persistentRecentTriggers.set(
+            key,
+            typeof value === 'number' ? { t: value, dir: null } : { t: ts, dir: value.dir || null },
+          );
           loaded++;
         }
       }
@@ -413,6 +420,56 @@ class AISBridgeApp extends Homey.App {
     } catch (error) {
       this.error('[PERSISTENT_DEDUP] Failed to load persisted triggers:', error.message || error);
     }
+  }
+
+  /**
+   * Körning 2026-07-02 (ELFKUNGEN): riktningsmedveten persistent-dedup-koll.
+   * ELFKUNGEN passerade Stridsbergsbron norrut ~10:32 (förra app-processen),
+   * vände vid Stallbackabron och passerade Strids IGEN söderut 12:08 — en ny
+   * broöppning, men 2h-fönstret från settings blockerade notisen ("triggered
+   * 95 min ago"). I-session rensas dedupen av journey-reset/NEW_JOURNEY vid
+   * vändningar, men över en omstart finns ingen sådan händelse. Regeln:
+   * en post blockerar bara i SAMMA färdriktning; motsatt riktning = ny
+   * passage. Saknas riktning (äldre poster/okänd cog) blockeras konservativt.
+   * @param {string} dedupeKey - "mmsi:Bronamn"
+   * @param {Object} vessel - för aktuell färdriktning
+   * @returns {{blocked: boolean, minutesSince: number}}
+   * @private
+   */
+  _persistentDedupCheck(dedupeKey, vessel) {
+    if (!this._persistentRecentTriggers) return { blocked: false, minutesSince: 0 };
+    const entry = this._persistentRecentTriggers.get(dedupeKey);
+    const ts = typeof entry === 'number' ? entry : entry && entry.t;
+    if (!Number.isFinite(ts)) return { blocked: false, minutesSince: 0 };
+    const windowMs = this._PERSISTENT_DEDUP_WINDOW_MS || 2 * 60 * 60 * 1000;
+    const age = Date.now() - ts;
+    if (age >= windowMs) return { blocked: false, minutesSince: Math.round(age / 60000) };
+    const storedDir = typeof entry === 'object' && entry ? entry.dir : null;
+    const currentDir = this._dedupDirection(vessel);
+    if (storedDir && currentDir && storedDir !== currentDir) {
+      this.log(
+        `🔁 [PERSISTENT_DEDUP_DIRECTION] ${dedupeKey}: entry ${Math.round(age / 60000)} min old but `
+        + `direction flipped (${storedDir} → ${currentDir}) — treating as NEW passage, not blocking`,
+      );
+      return { blocked: false, minutesSince: Math.round(age / 60000) };
+    }
+    return { blocked: true, minutesSince: Math.round(age / 60000) };
+  }
+
+  /**
+   * Färdriktning för dedup-poster: låst ruttriktning i första hand, annars cog.
+   * @private
+   */
+  _dedupDirection(vessel) {
+    if (!vessel) return null;
+    if (vessel._routeDirection === 'north' || vessel._routeDirection === 'south') {
+      return vessel._routeDirection;
+    }
+    const { cog } = vessel;
+    if (!Number.isFinite(cog)) return null;
+    if (cog >= 315 || cog <= 45) return 'north';
+    if (cog >= 135 && cog <= 225) return 'south';
+    return null;
   }
 
   /**
@@ -1271,9 +1328,13 @@ class AISBridgeApp extends Homey.App {
       if (['approaching', 'waiting', 'en-route', 'stallbacka-waiting', 'under-bridge']
         .includes(statusResult.status)
         || (statusResult.status === 'passed' && hasOngoingJourney)) {
-        if (positionFresh) {
+        if (positionFresh && vessel._positionUncertain !== true && vessel._gpsJumpDetected !== true) {
           // RC4: clampa även meddelandevägen mot senast publicerade värde —
           // annars läcker sågtänder förbi snapshot-clampen.
+          // Echo-gaten (2026-07-02b): GPS-osäkra sampel (S-F4 accept_with_
+          // caution, t.ex. en out-of-order-levererad gammal position) får
+          // inte driva publicerade ETA-hopp — behåll värdet tills ett rent
+          // sampel kommer (se tvillinggaten i _reevaluateVesselStatuses).
           const freshMsgETA = this.statusService.calculateETA(vessel, proximityData);
           vessel.etaMinutes = this._reconcilePublishedETA(vessel, freshMsgETA);
         }
@@ -2921,11 +2982,22 @@ class AISBridgeApp extends Homey.App {
           || (vessel.status === 'passed' && hasOngoingJourneyEval);
 
         if (inETACalcStatus) {
-          if (vessel._positionUpdatedSinceLastETA) {
+          if (vessel._positionUpdatedSinceLastETA
+              && vessel._positionUncertain !== true
+              && vessel._gpsJumpDetected !== true) {
             // RC4-fix (2026-06-11): dämpa färsk beräkning mot senast
             // PUBLICERADE värde (det användaren faktiskt såg) — kalkylatorns
             // interna historik vet inget om Fix G-extrapolerade publiceringar,
             // så utan detta uppstår sågtand (19h-loggen: 9→"cirka 4"→9→17).
+            //
+            // Echo-gaten (2026-07-02b, scenariot fördröjd-gammal-position):
+            // ett GPS-osäkert sampel (S-F4 accept_with_caution — t.ex. en
+            // out-of-order-levererad GAMMAL position 400 m bakåt) får inte
+            // driva ett publicerat ETA-hopp ("strax"→"om 4 minuter"→"strax"
+            // inom 90 s). Behåll publicerat värde tills ett RENT sampel
+            // kommer (_positionUncertain nollställs per sampel). Flappen
+            // maskerades tidigare av att distance_fallback felaktigt förklarade
+            // ankommande båtar passerade — sidbyteskravet avslöjade den.
             const freshETA = this.statusService.calculateETA(vessel, proximityData);
             vessel.etaMinutes = this._reconcilePublishedETA(vessel, freshETA);
             vessel._positionUpdatedSinceLastETA = false;
@@ -3023,13 +3095,24 @@ class AISBridgeApp extends Homey.App {
         // Anomali 3 debug (2026-05-05): producerar rikt loggning när vessel har
         // targetBridge men imminent inte sätts, så vi kan diagnosticera varför
         // "ETA okänd" visas trots att förutsättningarna borde stämma.
-        vessel._isImminentAtTargetBridge = false;
+        // Echo-gaten (2026-07-02b): på ett GPS-osäkert sampel (S-F4
+        // accept_with_caution — bakåtlevererad gammal position) behåller vi
+        // FÖREGÅENDE imminent-läge i stället för att härleda om från den
+        // osäkra positionen. Utan detta släcktes "strax" av ekot och tändes
+        // igen av nästa rena sampel (flappen strax↔"om N minuter" i
+        // fördröjd-gammal-position-scenariot). Nästa rena sampel härleder om.
+        const holdImminentForUncertain = (vessel._positionUncertain === true
+          || vessel._gpsJumpDetected === true)
+          && vessel.targetBridge;
+        if (!holdImminentForUncertain) {
+          vessel._isImminentAtTargetBridge = false;
+        }
         // F40 (medvetet EJ ändrat): se kommentar ovan. Imminent gatas på
         // positionsålder så vi inte påstår "broöppning strax" för en båt vars
         // position är >10 min gammal (Anomali-3-säkerhetsval).
         const ageMs = Date.now() - (vessel.lastPositionUpdate || 0);
         const dataIsFreshEnough = ageMs <= UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS;
-        if (vessel.targetBridge) {
+        if (vessel.targetBridge && !holdImminentForUncertain) {
           const ageS = Math.round(ageMs / 1000);
           if (!dataIsFreshEnough) {
             this.debug(
@@ -3070,7 +3153,14 @@ class AISBridgeApp extends Homey.App {
                 // "strax" mer ärligt än "ETA okänd" — vi vet inte exakt var
                 // hon är just nu, men vi vet att broöppning är imminent enligt
                 // hennes senaste fart och kurs.
-                if (vessel._etaExtrapolationExhausted === true) {
+                //
+                // Körning 2026-07-02: grenen saknade övre distansgräns och satte
+                // "strax" på 433 m (HAJH-LAIF — verklig öppning 25 min senare),
+                // 1016 m (YEMANJA II — som redan PASSERAT målet) och 1419 m
+                // (ELFKUNGEN). En uttömd extrapolation är en gissning byggd på
+                // ≥5 min gammal fart — bortom ~500 m (≈"strax"-bandets räckvidd
+                // vid 5 kn) är "ETA okänd" det ärliga svaret.
+                if (vessel._etaExtrapolationExhausted === true && distToTarget <= 500) {
                   vessel._isImminentAtTargetBridge = true;
                   this.log(
                     `✨ [IMMINENT_SET_EXHAUSTED] ${vessel.mmsi}: target=${vessel.targetBridge}, `
@@ -3078,7 +3168,9 @@ class AISBridgeApp extends Homey.App {
                   );
                 } else {
                   this.debug(
-                    `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, dist=${Math.round(distToTarget)}m > 300m (AIS ${ageS}s old)`,
+                    `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, `
+                    + `dist=${Math.round(distToTarget)}m > 300m `
+                    + `(AIS ${ageS}s old, exhausted=${vessel._etaExtrapolationExhausted === true})`,
                   );
                 }
               } else {
@@ -3384,9 +3476,16 @@ class AISBridgeApp extends Homey.App {
     // Anomali 17 (2026-05-20): kör även för post-TARGET_END (targetBridge=null men
     // _finalTargetBridge satt). Tidigare returnerade `if (!vessel.targetBridge)` tidigt,
     // så large-jumps över Stallbackabron/Olidebron EFTER sista målbron fångades aldrig.
-    // Verifierat 2026-05-20: 258114080 large-jump 1108m (lat 58.308→58.317) över
-    // Stallbackabron post-TARGET_END → ingen SKIPPED_BRIDGES_CHECK → missad notis.
-    if (!vessel.targetBridge && !vessel._finalTargetBridge) return;
+    //
+    // Körning 2026-07-02 (SY FREYJA): target-gaten HELT borttagen. En mållös
+    // båt (tyst borttagen och återfödd NORR om Stridsbergsbron på väg ut mot
+    // Vänern → ingen target tilldelas) korsade Järnvägsbron OCH Stridsbergs-
+    // bron i ett 20-min-gap — `!targetBridge && !_finalTargetBridge` stoppade
+    // failsafen och båda notiserna uteblev trots broöppning. Samma klass som
+    // MOSHE-missen men i failsafe-lagret; distans-/tidsgaterna i
+    // _triggerBoatNearFlowFallback (2000 m/300 s) begränsar redan kandidaterna
+    // till broar båten rimligen just passerat. Förtöjda båtar exkluderas.
+    if (vessel._moored) return;
     if (this.vesselDataService?.hasGpsJumpHold?.(vessel.mmsi)) return;
     if (!this.bridgeRegistry) return;
 
@@ -3419,8 +3518,15 @@ class AISBridgeApp extends Homey.App {
       // kajen som "passerade" fast båten aldrig korsat dem (t.ex. Klaffbron
       // för avgång norrut från Kajen norr om Klaffbron). Begränsa intervallet
       // till första kända positionen i stället för porten.
+      // Körning 2026-07-02 (CLABBYDOO): 100 m marginal utöver kapselns 30 m.
+      // Transpondern skickar första rapporten först EFTER avgång — en båt i
+      // 4–5 kn hinner 50–100 m från kajen före första samplet (CLABBYDOO
+      // sågs först 67 m bortom kapselns norra ände och fick en trolig falsk
+      // Järnvägsbron-failsafe). Marginalens pris är att en äkta transitör
+      // vars FÖRSTA sampel råkar ligga vid kajen inte får bakåt-inferens —
+      // samma medvetna "gissa inte"-avvägning som MOJITO II-klassen.
       const startedAtQuay = this.vesselDataService?.isNearMooringZone?.(
-        vessel._firstSeenLat, vessel._firstSeenLon,
+        vessel._firstSeenLat, vessel._firstSeenLon, 100,
       ) === true;
       if (direction === 'north') {
         minLat = startedAtQuay ? vessel._firstSeenLat : 58.265; // strax söder om Kanalinfarten
@@ -3488,6 +3594,24 @@ class AISBridgeApp extends Homey.App {
         await this._triggerBoatNearFlowFallback(vessel, bridgeName, fallbackOptions);
       } catch (err) {
         this.error(`[SKIPPED_BRIDGES_FALLBACK] Error for ${bridgeName}:`, err);
+      }
+    }
+
+    // Körning 2026-07-02 (YEMANJA II): failsafen var notis-enbart. När hoppet
+    // korsade MÅLBRON men landade mellan broarna (utanför geometrimetodernas
+    // gränser) förblev targetBridge den passerade bron i 39 min — texten
+    // visade "på väg mot Klaffbron" medan båten låg vid Järnvägsbron.
+    // För scenario B (observerat hopp, inte antagande) appliceras därför
+    // passagen även i VDS: målbro → transition, mellanbro → registrering
+    // (med RC9-inferens om den ligger bortom target). Scenario A är ett
+    // antagande om resans start — där ändras ingen target.
+    if (scenario === 'large-jump' && typeof this.vesselDataService?.applyInferredPassage === 'function') {
+      for (const bridgeName of passedBridges) {
+        try {
+          this.vesselDataService.applyInferredPassage(vessel, oldVessel, bridgeName);
+        } catch (err) {
+          this.error(`[SKIPPED_BRIDGES_TRANSITION] Error for ${bridgeName}:`, err);
+        }
       }
     }
   }
@@ -3638,13 +3762,22 @@ class AISBridgeApp extends Homey.App {
     }
     // F63: fyra inte exit-notis på en INAKTUELL position. Detta är en
     // fallback som kan trigga upp till 400m bort baserat på vessel.lat/lon —
-    // om den positionen är minuter gammal (båten redan ute ur kanalen / borta)
-    // blir notisen falsk. Kräv färsk AIS (samma HARD-tröskel som ETA-staleness).
-    const lastAisMs = vessel.timestamp || vessel._lastSeen || 0;
-    if (lastAisMs && (Date.now() - lastAisMs) > UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS) {
+    // om den positionen är timmar gammal (båten redan ute ur kanalen / borta)
+    // blir notisen falsk.
+    // Körning 2026-07-02 (CLABBYDOO): garden var död kod — vesselSnapshot
+    // saknade ålderfälten (nu tillagda) OCH 10-min-tröskeln var oförenlig med
+    // featuren själv: exit-fallbacken körs vid removal, som för slutförda
+    // resor sker via ~20-min-timern, så Anomali 10:s egna verifierade fall
+    // (265037590, 246140000 — "~20 min AIS-glapp innan COMPLETED_BYPASS")
+    // hade också stoppats. Tröskeln är därför 25 min (> removal-timern),
+    // och positionens ålder mäts med lastPositionUpdate — inte timestamp,
+    // som uppdateras av varje meddelande inklusive namnmeddelanden.
+    const EXIT_FALLBACK_MAX_POSITION_AGE_MS = 25 * 60 * 1000;
+    const lastAisMs = vessel.lastPositionUpdate || vessel.timestamp || vessel._lastSeen || 0;
+    if (!lastAisMs || (Date.now() - lastAisMs) > EXIT_FALLBACK_MAX_POSITION_AGE_MS) {
       this.debug(
-        `🛡️ [EXIT_TRIGGER_STALE] ${vessel.mmsi}: skipping exit fallback — last AIS `
-        + `${Math.round((Date.now() - lastAisMs) / 1000)}s ago (> stale threshold)`,
+        `🛡️ [EXIT_TRIGGER_STALE] ${vessel.mmsi}: skipping exit fallback — last position `
+        + `${lastAisMs ? `${Math.round((Date.now() - lastAisMs) / 1000)}s ago` : 'unknown age'} (> 25 min or missing)`,
       );
       return;
     }
@@ -3671,13 +3804,12 @@ class AISBridgeApp extends Homey.App {
     // Anomali 10 v2: kontrollera persistent dedup (2h) här innan vi loggar "firing".
     // Utan denna check loggas missvisande "EXIT_TRIGGER_FALLBACK: firing fallback"
     // följt av "FALLBACK_TRIGGER_PERSISTENT_DEDUP: skipping" från _triggerBoatNearFlowFallback.
-    if (this._persistentRecentTriggers) {
-      const recentTs = this._persistentRecentTriggers.get(dedupeKey);
-      const persistentWindowMs = this._PERSISTENT_DEDUP_WINDOW_MS || 2 * 60 * 60 * 1000;
-      if (Number.isFinite(recentTs) && Date.now() - recentTs < persistentWindowMs) {
+    {
+      const exitDedup = this._persistentDedupCheck(dedupeKey, vessel);
+      if (exitDedup.blocked) {
         this.debug(
           `🚫 [EXIT_TRIGGER_PERSISTENT_DEDUPE] ${vessel.mmsi}: Kanalinfarten triggered `
-          + `${Math.round((Date.now() - recentTs) / 60000)} min ago (within 2h window)`,
+          + `${exitDedup.minutesSince} min ago (within 2h window)`,
         );
         return;
       }
@@ -3756,16 +3888,11 @@ class AISBridgeApp extends Homey.App {
     // Om bron triggat senaste 2h enligt persistent map — skippa fallback för att
     // undvika dubbel-notis.
     const persistentDedupeKey = `${vessel.mmsi}:${bridgeName}`;
-    const recentTriggerTs = this._persistentRecentTriggers
-      ? this._persistentRecentTriggers.get(persistentDedupeKey)
-      : null;
-    const persistentWindowMs = this._PERSISTENT_DEDUP_WINDOW_MS || 2 * 60 * 60 * 1000;
-    if (Number.isFinite(recentTriggerTs)
-        && Date.now() - recentTriggerTs < persistentWindowMs) {
-      const minutesSince = Math.round((Date.now() - recentTriggerTs) / 60000);
+    const fallbackDedup = this._persistentDedupCheck(persistentDedupeKey, vessel);
+    if (fallbackDedup.blocked) {
       this.log(
         `🚫 [FALLBACK_TRIGGER_PERSISTENT_DEDUP] ${vessel.mmsi}: Skipping ${bridgeName} fallback `
-        + `— triggered ${minutesSince} min ago (within 2h window)`,
+        + `— triggered ${fallbackDedup.minutesSince} min ago (within 2h window)`,
       );
       return;
     }
@@ -3890,13 +4017,12 @@ class AISBridgeApp extends Homey.App {
     // SÄKERT mot missade notiser: en äkta NEW_JOURNEY rensar persistent-mappen
     // (se _clearBoatNearTriggers(vessel, true)), så en legitim ny resa blockeras
     // inte.
-    if (this._persistentRecentTriggers) {
-      const recentTs = this._persistentRecentTriggers.get(dedupeKey);
-      const persistentWindowMs = this._PERSISTENT_DEDUP_WINDOW_MS || 2 * 60 * 60 * 1000;
-      if (Number.isFinite(recentTs) && Date.now() - recentTs < persistentWindowMs) {
+    {
+      const mainDedup = this._persistentDedupCheck(dedupeKey, vessel);
+      if (mainDedup.blocked) {
         this.log(
           `🚫 [FLOW_TRIGGER_PERSISTENT_DEDUP] ${vessel.mmsi}: Skipping "${bridgeName}" `
-          + `— triggered ${Math.round((Date.now() - recentTs) / 60000)} min ago (within 2h window)`,
+          + `— triggered ${mainDedup.minutesSince} min ago (within 2h window)`,
         );
         return;
       }
@@ -3975,7 +4101,9 @@ class AISBridgeApp extends Homey.App {
       // vessel-removal — för 2h-dedup vid skipped-bridges-fallback.
       // Defensive: vissa testkonstruktorer hoppar över app-init, så map kan saknas.
       if (this._persistentRecentTriggers) {
-        this._persistentRecentTriggers.set(dedupeKey, Date.now());
+        // Riktningen lagras så en returresa (motsatt riktning) inom 2h inte
+        // blockeras efter omstart (ELFKUNGEN-fallet 2026-07-02).
+        this._persistentRecentTriggers.set(dedupeKey, { t: Date.now(), dir: this._dedupDirection(vessel) });
         this._persistRecentTriggers(); // P2: överlev omstart
       }
 
@@ -4630,8 +4758,9 @@ class AISBridgeApp extends Homey.App {
         const persistentNow = Date.now();
         const persistentWindow = this._PERSISTENT_DEDUP_WINDOW_MS || 2 * 60 * 60 * 1000;
         const persistentExpired = [];
-        for (const [key, ts] of this._persistentRecentTriggers.entries()) {
-          if (persistentNow - ts > persistentWindow) {
+        for (const [key, value] of this._persistentRecentTriggers.entries()) {
+          const ts = typeof value === 'number' ? value : value && value.t;
+          if (!Number.isFinite(ts) || persistentNow - ts > persistentWindow) {
             persistentExpired.push(key);
           }
         }

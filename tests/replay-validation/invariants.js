@@ -130,7 +130,18 @@ function validateInvariants(result) {
       const resetBetween = journeyResets.some(
         (r) => r.mmsi === mmsi && r.t >= prevT && r.t <= curT,
       );
-      if (!resetBetween) {
+      // Riktningsmedvetenhet (2026-07-02b): två notiser för samma nyckel i
+      // MOTSATT riktning är en fysisk RETURPASSAGE (per-bro-semantiken:
+      // varje transit ska notifiera) — legitim även utan reset-event, för
+      // Fix D bekräftar inte alla U-svängar (t.ex. vändning FÖRE målbron
+      // där ruttriktningen hinner låsas om av annan mekanism). Dubblett-
+      // skyddet består i SAMMA riktning: där krävs journey-reset.
+      const prevDir = sorted[i - 1].direction;
+      const curDir = sorted[i].direction;
+      const oppositeDirections = prevDir && curDir
+        && prevDir !== 'unknown' && curDir !== 'unknown'
+        && prevDir !== curDir;
+      if (!resetBetween && !oppositeDirections) {
         violations.push(`NOTIS-DUBBLETT: ${k} × ${list.length} utan journey-reset emellan`);
         break;
       }

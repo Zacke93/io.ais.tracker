@@ -299,8 +299,13 @@ describe('RC4: publicerings-clamp mot ETA-sågtand', () => {
 describe('RC7: stale-exklusion ur bridge_text-underlaget', () => {
   test('fartyg med 11 min gammalt meddelande exkluderas; 5 min inkluderas', () => {
     const svc = makeVDS();
+    // SABETH-klassen: I RÖRELSE (sog ≥ 3) och LÅNGT från broarna (>600 m
+    // nearest, >300 m från target) — 10-min-regeln gäller. Position flyttad
+    // 2026-07-02: de nya nivåerna (kö ≤600 m / mitt-i-passage ≤300 m från
+    // target) håller båtar NÄRA broar synliga längre — testets gamla
+    // position (~210 m från Klaffbron) täcks numera av 15-min-nivån.
     svc.vessels.set('1', {
-      mmsi: '1', targetBridge: 'Klaffbron', status: 'en-route', sog: 4.0, cog: 25, lat: 58.286, lon: 12.286, timestamp: Date.now() - 11 * 60 * 1000, lastPositionUpdate: Date.now() - 11 * 60 * 1000,
+      mmsi: '1', targetBridge: 'Klaffbron', status: 'en-route', sog: 4.0, cog: 25, lat: 58.2785, lon: 12.2805, timestamp: Date.now() - 11 * 60 * 1000, lastPositionUpdate: Date.now() - 11 * 60 * 1000,
     });
     svc.vessels.set('2', {
       mmsi: '2', targetBridge: 'Klaffbron', status: 'en-route', sog: 4.0, cog: 25, lat: 58.287, lon: 12.287, timestamp: Date.now() - 5 * 60 * 1000, lastPositionUpdate: Date.now() - 5 * 60 * 1000,
@@ -310,6 +315,42 @@ describe('RC7: stale-exklusion ur bridge_text-underlaget', () => {
     const mmsis = result.map((v) => v.mmsi);
     expect(mmsis).not.toContain('1');
     expect(mmsis).toContain('2');
+  });
+
+  test('mitt-i-passage-nivån (2026-07-02, PAX): ≤300 m från målbron ⇒ synlig vid 11 min', () => {
+    const svc = makeVDS();
+    // PAX-fallet: 182 m från Stridsbergsbron, väntande på öppning, tystnade
+    // 19 min → gamla 10-min-regeln gav "Inga båtar" medan bron öppnades.
+    svc.vessels.set('3', {
+      mmsi: '3',
+      targetBridge: 'Stridsbergsbron',
+      status: 'waiting',
+      sog: 5.4,
+      cog: 222,
+      lat: 58.29479,
+      lon: 12.29653,
+      timestamp: Date.now() - 11 * 60 * 1000,
+      lastPositionUpdate: Date.now() - 11 * 60 * 1000,
+    });
+    expect(svc.getVesselsForBridgeText().map((v) => v.mmsi)).toContain('3');
+  });
+
+  test('kö-nivån (2026-07-02, HAJH-LAIF): sog < 3 och ≤600 m från bro ⇒ synlig vid 18 min', () => {
+    const svc = makeVDS();
+    // HAJH-LAIF-fallet: bromsade in i kö vid Järnvägsbron (sista sog 2,4 kn,
+    // ~150 m från bron), tystnade 30 min — doldes efter 10 min trots kö.
+    svc.vessels.set('4', {
+      mmsi: '4',
+      targetBridge: 'Stridsbergsbron',
+      status: 'en-route',
+      sog: 2.4,
+      cog: 242,
+      lat: 58.290353,
+      lon: 12.29028,
+      timestamp: Date.now() - 18 * 60 * 1000,
+      lastPositionUpdate: Date.now() - 18 * 60 * 1000,
+    });
+    expect(svc.getVesselsForBridgeText().map((v) => v.mmsi)).toContain('4');
   });
 });
 
