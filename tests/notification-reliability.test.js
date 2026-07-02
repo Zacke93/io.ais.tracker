@@ -341,9 +341,12 @@ describe('Fix G — Smart Stale ETA (extrapolation 5–10 min)', () => {
       .toBe('beräknad broöppning om cirka 7 minuter');
   });
 
-  test('formatETABroOpeningClause extrapolated < 3 → fortfarande "strax"', () => {
+  test('formatETABroOpeningClause extrapolated < 3 → "om cirka 2 minuter" (11h-fyndet 2026-07-02)', () => {
+    // MARLIN 09:22:27: extrapolerad nedräkning visade "strax" 730 m från
+    // bron och korrigerades UPPÅT 67 s senare. Strax reserveras för färsk
+    // data/imminent/exhausted; extrapolationen säger ärligt "cirka".
     expect(formatETABroOpeningClause(2, { extrapolated: true }))
-      .toBe('beräknad broöppning strax');
+      .toBe('beräknad broöppning om cirka 2 minuter');
   });
 
   test('formatETABroOpeningClause extrapolated null → "ETA okänd"', () => {

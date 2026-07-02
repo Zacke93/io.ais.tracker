@@ -87,3 +87,42 @@ ej-förtöjd + rörelsebevis; BUG C-failsafen levererar notisen.
 498/498 enhetstester (59 sviter), 6/6 låsta korpusar (~80 h proddata,
 30/78/0/3/47/24 med per-fartyg+bro-fördelning), 28/28 syntetiska
 scenarier, 14 facit-oberoende invarianter, lint rent.
+
+## Uppföljning (användarrapporterade observationer, 2026-07-02)
+
+### 3. "Unknown" i notiser (pelare 2) — FIXAD + FÖRKLARAD
+Två källor:
+- **Namnbugg (fixad):** Class B blandar positionsrapporter (utan namn) med
+  statiska data (med namn); `name: data.name || 'Unknown'` lät strängen
+  'Unknown' ERSÄTTA ett tidigare känt namn. MOSHE:s första notis avfyrades
+  som "Unknown" 2 min före namnets ankomst; SOLUTION växlade
+  Unknown↔SOLUTION mellan samples. Fix: namnstickiness — ett en gång känt
+  namn ersätts aldrig av 'Unknown' (äkta namnbyten uppdaterar fortfarande).
+- **eta_minutes=-1 (medvetet):** 8 av 23 notiser i körningen var
+  failsafe-/just-passed-notiser där bron redan är passerad — där är -1
+  ("okänd") det ÄRLIGA värdet (E-F3/N9-beslutet). Flows som läser upp
+  eta_minutes bör hantera -1 som "nu/okänd".
+
+### 4. "Alla broar"-triggern — SEMANTIK ÄNDRAD (användarbeslut)
+F7-gaten (2026-04) lät "Any bridge"-flowen trigga EN gång per resa —
+per-bro-notiserna betraktades då som "duplikat". Användarens faktiska
+förväntan är en notis vid VARJE bro. Ny semantik: run-listenern matchar
+varje avfyrad trigger; dedup sker redan uppströms per mmsi:bro, så flowen
+får max EN notis per bro och resa (upp till 6 för full genomresa).
+mmsi:any-nyckeln (inkl. N10-persistentspegeln) är borttagen.
+
+### 5. Extrapolerad "strax" (pelare 1) — FIXAD
+09:22:27 visades "beräknad broöppning strax" för MARLIN 730 m från
+Klaffbron — en EXTRAPOLERAD nedräkning (5 min gammal data) som 67 s senare
+korrigerades UPPÅT till "om 4 minuter". Fix: extrapolerade värden i
+<3-bandet visar "om cirka 2 minuter"; "strax" reserveras för färsk
+data/imminent/exhausted (exhausted-vägen behåller strax — MARLIN-fallet
+09:28 var korrekt).
+
+### Bridge-text-summaryn i övrigt: genomgången rad för rad — REN
+Alla 49 övergångar förklarade: räkningarna 1→2→3→2→1→0 speglade äkta
+trafik + korrekta döljningar; #26→#27 (15→7 på 13 s) var RC4-klampen som
+bromsade ett större rådatafall (designat beteende); #23–#24 stigande ETA
+var äkta inbromsning (+1/cykel-skyddet); NO LIMIT:s Klaffbron-notis efter
+10:02 var omöjlig (SABETH-klass: total tystnad efter sista samplet).
+Inga ytterligare buggar.
