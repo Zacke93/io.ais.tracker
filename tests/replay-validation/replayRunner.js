@@ -93,13 +93,21 @@ async function main() {
 
   // ---- Init app ----
   global.__TEST_MODE__ = true; // hindrar monitoring-intervall under init
-  const app = new AISBridgeApp();
+  let app = new AISBridgeApp();
   app.homey = mockHomey;
   // ais_api_key=null → onInit ansluter INTE AIS (annars startar ws-ping ett
   // setInterval som håller event-loopen vid liv). Vi matar AIS manuellt nedan.
+  // set (2026-07-03): persistensvägarna (_persistRecentTriggers/
+  // _persistVesselNames) skriver på riktigt så ctrl:'restart' kan testa
+  // load/save-cykeln i helkedjan — tidigare no-op:ade de tyst (ingen set).
   mockHomey.app.settings = { debug_level: 'off', ais_api_key: null };
   mockHomey.settings = {
-    get: (k) => mockHomey.app.settings[k] || null, on: () => {}, off: () => {},
+    get: (k) => mockHomey.app.settings[k] || null,
+    set: (k, v) => {
+      mockHomey.app.settings[k] = v;
+    },
+    on: () => {},
+    off: () => {},
   };
 
   // Tysta console-spam under replay (vi vill bara ha vår JSON på stdout).
@@ -109,41 +117,22 @@ async function main() {
     ? (...args) => process.stderr.write(`${args.join(' ')}\n`)
     : () => {};
 
-  await app.onInit();
-  await drain();
-
-  // KRITISKT: replayen ska spegla en ANSLUTEN drift (produktionskörningen var
-  // ansluten hela tiden). Utan detta är stale-guarden armad från första samplet
-  // och _processUIUpdate skulle override:a texten till "AIS saknas". Sätt
-  // anslutet-tillstånd så bridge_text-fångsten via _updateDeviceCapability
-  // speglar verklig drift (INV-B4 testas separat med simulerat avbrott).
-  app._isConnected = true;
-  app._lastConnectionLost = null;
-  app._lastConnectionStatus = 'connected';
-
   // Notiser måste få avfyras precis som i produktion. _triggerBoatNearFlow
   // skippar tyst vid __TEST_MODE__, och notiserna avfyras i ICKE-AWAITADE
-  // async-lyssnare. Stäng därför av TEST_MODE för HELA uppspelningen och
-  // dränera lyssnarna efter varje steg.
+  // async-lyssnare. VIKTIGT (regression 2026-07-03, scenario 34): onInit
+  // MÅSTE köras under __TEST_MODE__=true (hoppar över monitoring-intervall
+  // m.m. — harnessens etablerade initläge); TEST_MODE stängs av EFTER init,
+  // före uppspelningen. Samma dans görs vid ctrl:'restart'.
   const savedTestMode = global.__TEST_MODE__;
   const savedNodeEnv = process.env.NODE_ENV;
-  global.__TEST_MODE__ = undefined;
-  process.env.NODE_ENV = 'production';
 
-  const boatNearCard = app._boatNearTrigger;
+  // ctrl:'restart' (2026-07-03) skapar en NY app-instans mitt i körningen —
+  // notiser samlas över ALLA kortinstanser (mocken skapar nytt kort per app).
+  const boatNearCards = [];
 
   // ---- Fånga bridge_text-övergångar via RIKTIGA publiceringsvägen ----
   const bridgeTextLog = [];
-  const origUpdateCap = app._updateDeviceCapability.bind(app);
   let lastBridgeText = null;
-  app._updateDeviceCapability = (capability, value) => {
-    if (capability === 'bridge_text' && value !== lastBridgeText) {
-      const t = Date.now();
-      bridgeTextLog.push({ t, iso: new Date(t).toISOString(), text: value });
-      lastBridgeText = value;
-    }
-    return origUpdateCap(capability, value);
-  };
 
   // ---- Fånga MÅLBRO-passager för journey-invarianten (2026-06-11) ----
   // INV-5 ("varje detekterad målbro-passage ⇒ minst en notis för den bron")
@@ -159,27 +148,63 @@ async function main() {
   const journeyResetRe = /\[(?:JOURNEY_RESET|NEW_JOURNEY|REENTRY_NEW_JOURNEY)\] (\d+):/;
   const intermediatePassages = [];
   const intermediateRe = /\[INTERMEDIATE_PASSAGE_RECORDED\] (\d+): Recorded passage of intermediate bridge (\S+)/;
-  const origAppLog = app.log.bind(app);
-  app.log = (...args) => {
-    const line = args.join(' ');
-    const pm = line.match(passageRe);
-    if (pm) {
-      targetPassages.push({
-        t: Date.now(), iso: new Date(Date.now()).toISOString(), mmsi: pm[1], bridge: pm[2],
-      });
-    }
-    const jm = line.match(journeyResetRe);
-    if (jm) {
-      journeyResets.push({ t: Date.now(), iso: new Date(Date.now()).toISOString(), mmsi: jm[1] });
-    }
-    const im = line.match(intermediateRe);
-    if (im) {
-      intermediatePassages.push({
-        t: Date.now(), iso: new Date(Date.now()).toISOString(), mmsi: im[1], bridge: im[2],
-      });
-    }
-    return origAppLog(...args);
+
+  // ---- Instrumentera en app-instans (körs igen efter ctrl:'restart') ----
+  const instrumentApp = (instance) => {
+    // KRITISKT: replayen ska spegla en ANSLUTEN drift. Utan detta är
+    // stale-guarden armad från första samplet och _processUIUpdate skulle
+    // override:a texten till "AIS saknas".
+    instance._isConnected = true;
+    instance._lastConnectionLost = null;
+    instance._lastConnectionStatus = 'connected';
+    boatNearCards.push(instance._boatNearTrigger);
+
+    const origUpdateCap = instance._updateDeviceCapability.bind(instance);
+    instance._updateDeviceCapability = (capability, value) => {
+      if (capability === 'bridge_text' && value !== lastBridgeText) {
+        const t = Date.now();
+        bridgeTextLog.push({ t, iso: new Date(t).toISOString(), text: value });
+        lastBridgeText = value;
+      }
+      return origUpdateCap(capability, value);
+    };
+
+    const origAppLog = instance.log.bind(instance);
+    instance.log = (...args) => {
+      const line = args.join(' ');
+      const pm = line.match(passageRe);
+      if (pm) {
+        targetPassages.push({
+          t: Date.now(), iso: new Date(Date.now()).toISOString(), mmsi: pm[1], bridge: pm[2],
+        });
+      }
+      const jm = line.match(journeyResetRe);
+      if (jm) {
+        journeyResets.push({ t: Date.now(), iso: new Date(Date.now()).toISOString(), mmsi: jm[1] });
+      }
+      const im = line.match(intermediateRe);
+      if (im) {
+        intermediatePassages.push({
+          t: Date.now(),
+          iso: new Date(Date.now()).toISOString(),
+          mmsi: im[1],
+          bridge: im[2],
+          // no-target-markören (2026-07-03): en mållös båts målbropassage är
+          // korrekt intermediate-bokförd — INV-13 undantar dem.
+          noTarget: line.includes('no-target'),
+        });
+      }
+      return origAppLog(...args);
+    };
   };
+
+  await app.onInit();
+  await drain();
+  instrumentApp(app);
+
+  // Init klar — nu släpps TEST_MODE så notiserna avfyras som i produktion.
+  global.__TEST_MODE__ = undefined;
+  process.env.NODE_ENV = 'production';
 
   // ---- Spela upp samples kronologiskt med fake-klockan ----
   let processErrors = 0;
@@ -211,6 +236,30 @@ async function main() {
       } catch (e) { /* reconnect-refresh är best-effort i replay */ }
       // eslint-disable-next-line no-await-in-loop
       await drain();
+      continue;
+    }
+    // ctrl:'restart' (2026-07-03, fas 7): ÄKTA processomstart mitt i replayen
+    // — gamla instansen städas ned, en NY AISBridgeApp skapas mot SAMMA
+    // settings-store (persistent 2h-dedup + namncache laddas om på riktigt).
+    // Testar load/save-cykeln i helkedjan, vilket tidigare bara fanns på
+    // enhetsnivå (p2-sviterna).
+    if (s.ctrl === 'restart') {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await app.onUninit();
+      } catch (e) { /* nedstängning är best-effort i replay */ }
+      // eslint-disable-next-line no-await-in-loop
+      await drain();
+      // Samma initdans som vid start: onInit under __TEST_MODE__=true.
+      global.__TEST_MODE__ = true;
+      app = new AISBridgeApp();
+      app.homey = mockHomey;
+      // eslint-disable-next-line no-await-in-loop
+      await app.onInit();
+      // eslint-disable-next-line no-await-in-loop
+      await drain();
+      instrumentApp(app);
+      global.__TEST_MODE__ = undefined;
       continue;
     }
 
@@ -254,8 +303,9 @@ async function main() {
   global.__TEST_MODE__ = savedTestMode;
   process.env.NODE_ENV = savedNodeEnv;
 
-  // ---- Samla notiser ----
-  const notifications = (boatNearCard && boatNearCard.triggerCalls ? boatNearCard.triggerCalls : [])
+  // ---- Samla notiser (över ALLA app-instanser vid ctrl:'restart') ----
+  const notifications = boatNearCards
+    .flatMap((card) => (card && card.triggerCalls ? card.triggerCalls : []))
     .map((c) => ({
       // Harness-fördjupning (2026-07-01): tidsstämpeln (fake-klockan är
       // deterministisk) möjliggör tids-invarianter — notis-före-passage
@@ -264,11 +314,55 @@ async function main() {
       bridge: c.tokens && c.tokens.bridge_name,
       direction: c.tokens && c.tokens.direction,
       eta: c.tokens && c.tokens.eta_minutes,
+      // Harness-fördjupning (2026-07-03): namn + distans + källa fångas för
+      // invarianterna INV-8 (namnkvalitet) och INV-11 (distansrimlighet, där
+      // source särskiljer inferens-/fallbacknotiser från proximity).
+      name: c.tokens && c.tokens.vessel_name,
+      distance: c.state && Number.isFinite(c.state.distance) ? c.state.distance : null,
+      source: (c.state && c.state.source) || null,
       stateBridge: c.state && c.state.bridge,
       mmsi: c.state && c.state.mmsi,
       success: c.success,
       error: c.error || null,
     }));
+
+  // ---- Berika notiser med fartygets position (2026-07-03) ----
+  // Närmast föregående + nästa sample för samma mmsi (fake-klockan lägger
+  // notis-t och aisTimestamp på samma tidslinje). Ger INV-11 (distans-
+  // rimlighet) och INV-15 (riktning-vs-geografi) något att räkna på.
+  const posByMmsi = new Map();
+  for (const s of samples) {
+    if (s.ctrl || typeof s.lat !== 'number') continue;
+    const key = String(s.mmsi);
+    if (!posByMmsi.has(key)) posByMmsi.set(key, []);
+    posByMmsi.get(key).push(s);
+  }
+  for (const n of notifications) {
+    let before = null;
+    let after = null;
+    if (Number.isFinite(n.t)) {
+      for (const s of posByMmsi.get(String(n.mmsi)) || []) {
+        if (s.aisTimestamp <= n.t) before = s;
+        else {
+          after = s; break;
+        }
+      }
+    }
+    n.vesselLat = before ? before.lat : null;
+    n.vesselLon = before ? before.lon : null;
+    n.vesselLatNext = after ? after.lat : null;
+  }
+
+  // Första tidpunkt per mmsi där ett riktigt namn (≠Unknown) förekom i
+  // strömmen — INV-8 (namnkvalitet) jämför notisnamnen mot detta.
+  const firstNameSeen = {};
+  for (const s of samples) {
+    if (s.ctrl) continue;
+    const nm = (s.shipName || '').trim();
+    if (nm && nm !== 'Unknown' && !(String(s.mmsi) in firstNameSeen)) {
+      firstNameSeen[String(s.mmsi)] = s.aisTimestamp;
+    }
+  }
 
   // Återställ
   console.log = origLog;
@@ -318,6 +412,8 @@ async function main() {
     bridgeTextTransitions: bridgeTextLog,
     notifications,
     notificationCount: notifications.length,
+    firstNameSeen,
+    firstSampleMs: samples.length > 0 ? samples[0].aisTimestamp : null,
     targetPassages,
     journeyResets,
     intermediatePassages,

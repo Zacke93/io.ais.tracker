@@ -25,10 +25,14 @@
  *        publicerade texten vara DEFAULT — fångar spöktext/stale text.
  * INV-7  Notis-timing: varje målbropassage ska ha en notis senast 60 s efter
  *        registreringen — "klockan får inte ringa efter att tåget gått".
+ * INV-8  Namnkvalitet (skärpt 2026-07-03): notis med platshållarnamn trots
+ *        att riktigt namn förekommit i strömmen före notisögonblicket.
  * INV-9  Klausulstruktur: max EN klausul per målbro i samma text; Klaffbron
  *        före Stridsbergsbron; rimlighetstak på antal (≤15).
  * INV-10 Strax-zombie: en "strax"-text som står orörd >35 min utan att någon
  *        målbropassage sker för bron är en fastfrusen lögn.
+ * INV-11 Distansrimlighet (skärpt 2026-07-03): proximity-notiser ≤400 m;
+ *        fallback-/inferensnotiser ≤10 km-sanity.
  * INV-12 Läckage: alla per-fartygs-strukturer (utom medvetna undantag) ska
  *        vara tomma efter efterspelet — timer-/latch-läckor blir pelarbrott
  *        i 24/7-drift.
@@ -37,7 +41,10 @@
  *        passagemomentet — INV-5 ser den inte, så den flaggas explicit.
  *        Undantag: journey-reset (U-sväng) kan legitimt göra en f.d. målbro
  *        till mellanbro på returresan (t.ex. Stridsbergsbron för södergående
- *        som redan passerat den norrut före vändningen).
+ *        som redan passerat den norrut före vändningen), samt no-target-
+ *        markerade passager (mållös båt har inget target att transitera).
+ * INV-16 ETA-fysik (skärpt 2026-07-03): implicerad fart distans/ETA < 30 kn
+ *        för proximity-notiser.
  */
 
 const COUNT_WORDS = '(En|Två|Tre|Fyra|Fem|Sex|Sju|Åtta|Nio|Tio|[2-9]\\d?)';
@@ -335,6 +342,39 @@ function validateInvariants(result) {
     }
   }
 
+  // INV-8/INV-11/INV-16 (2026-07-03, SKÄRPTA från WARN i fas 6 — noll utslag
+  // över 8 korpusar + 32 syntetiska efter B1/B2-fixarna):
+  const PROXIMITY_SOURCES = new Set(['target', 'current', 'nearest', 'trigger-point']);
+  const PLACEHOLDER_NAMES = new Set(['Unknown', 'Okänd båt']);
+  const firstNameSeen = result.firstNameSeen || {};
+  for (const n of notifications) {
+    // INV-8 Namnkvalitet: notis med platshållarnamn trots att ett riktigt
+    // namn för mmsi:t förekommit i strömmen FÖRE notisögonblicket — fångar
+    // snapshot-/stickiness-brott (fältlist-fällans namnvariant).
+    const knownSince = firstNameSeen[String(n.mmsi)];
+    if ((!n.name || PLACEHOLDER_NAMES.has(n.name))
+        && Number.isFinite(knownSince) && Number.isFinite(n.t) && knownSince <= n.t) {
+      violations.push(`INV-8 NAMN: ${n.mmsi}@${n.bridge} fick "${n.name}" trots känt namn sedan ${new Date(knownSince).toISOString()}`);
+    }
+    // INV-11 Distansrimlighet: proximity-källor inom triggerradien (+marginal);
+    // fallback-/inferenskällor får vara sena men aldrig bortom 10 km-sanity.
+    if (Number.isFinite(n.distance)) {
+      if (PROXIMITY_SOURCES.has(n.source) && n.distance > 400) {
+        violations.push(`INV-11 DISTANS: ${n.mmsi}@${n.bridge} @${n.distance}m via source=${n.source} (proximity-källa >400 m)`);
+      } else if (n.distance > 10000) {
+        violations.push(`INV-11 DISTANS: ${n.mmsi}@${n.bridge} @${n.distance}m via source=${n.source} (bortom 10 km-sanity)`);
+      }
+    }
+    // INV-16 ETA-vs-distans-fysik: implicerad fart < 30 kn för proximity-källor.
+    if (PROXIMITY_SOURCES.has(n.source) && Number.isFinite(n.distance)
+        && Number.isInteger(n.eta) && n.eta > 0) {
+      const impliedMs = n.distance / (n.eta * 60);
+      if (impliedMs > 15.4) {
+        violations.push(`INV-16 ETA-FYSIK: ${n.mmsi}@${n.bridge} ${n.distance}m på ${n.eta} min ⇒ ${(impliedMs * 1.944).toFixed(0)} kn`);
+      }
+    }
+  }
+
   // INV-13: målbro registrerad som INTERMEDIATE = tyst degraderad
   // målbropassage (target-status tappad i passagemomentet) — osynlig för
   // INV-5. Undantag: (a) efter journey-reset kan en f.d. målbro legitimt
@@ -343,6 +383,11 @@ function validateInvariants(result) {
   // fartyg+bro inom 60 s) är självläkt — målbrostatusen återupprättades.
   for (const ip of intermediatePassages) {
     if (!TARGET_BRIDGES.includes(ip.bridge)) continue;
+    // no-target-undantag (2026-07-03, NO LIMIT): en MÅLLÖS båts passage av en
+    // målbro är korrekt intermediate-bokförd — kajavgångens rörelsebeviskrav
+    // håller target tills rörelse setts, och det finns inget target att
+    // transitera. Notispelaren vaktas separat av INV-5/notisfångsten.
+    if (ip.noTarget === true) continue;
     const resetBefore = journeyResets.some((r) => r.mmsi === ip.mmsi && r.t <= ip.t);
     const correctedAsTarget = targetPassages.some(
       (p) => p.mmsi === ip.mmsi && p.bridge === ip.bridge && Math.abs(p.t - ip.t) <= 60000,
@@ -355,4 +400,95 @@ function validateInvariants(result) {
   return violations;
 }
 
-module.exports = { validateInvariants };
+/**
+ * WARN-invarianter (2026-07-03, fas 0.4) — sanningskontroller i VARNINGSLÄGE.
+ * INV-8/11/16 SKÄRPTES till fatala (validateInvariants) i fas 6 efter noll
+ * utslag över 8 korpusar + 32 syntetiska. Kvar som WARN (kända, dokumenterade
+ * heuristikbrister — omprövas per körning):
+ *
+ * INV-15 Riktning-vs-geografi: notisens direction ska stämma med fartygets
+ *        faktiska lat-rörelse runt notisögonblicket. WARN pga legitima
+ *        momentana backningar (kö-drift vid väntan: PHILULA@Jvb −120 m) och
+ *        scenario-artefakter (teleport/stale-echo rör sig bakåt per design).
+ * INV-17 Textflapp-budget: ≥5 textbyten inom 60 s eller >40 byten/timme.
+ *        WARN tills budgeten kalibrerats per samtidig båtmängd (flertrafik-
+ *        scenariot ger legitimt 66/h med tre båtar i rörelse).
+ * INV-18 Mjuk ETA-monotoni: obruten stigande ETA-serie (+≥8 min inom ≤15 min,
+ *        samma antal-ord, ingen passage). WARN pga legitim fysik: en båt som
+ *        SAKTAR IN får stigande ETA (krypfart-scenariot 19→42 min är sant).
+ */
+function validateWarnInvariants(result) {
+  const warnings = [];
+  const notifications = result.notifications || [];
+  const transitions = result.bridgeTextTransitions || [];
+  const targetPassages = result.targetPassages || [];
+
+  for (const n of notifications) {
+    // INV-15: riktning-vs-geografi (0.0005° lat ≈ 55 m — under det är trenden brus)
+    if (Number.isFinite(n.vesselLat) && Number.isFinite(n.vesselLatNext)
+        && (n.direction === 'northbound' || n.direction === 'southbound')) {
+      const dLat = n.vesselLatNext - n.vesselLat;
+      if (Math.abs(dLat) > 0.0005) {
+        const geoDir = dLat > 0 ? 'northbound' : 'southbound';
+        if (geoDir !== n.direction) {
+          warnings.push(`INV-15 RIKTNING: ${n.mmsi}@${n.bridge} direction=${n.direction} men lat rör sig ${geoDir === 'northbound' ? 'norrut' : 'söderut'} (Δ${dLat.toFixed(5)})`);
+        }
+      }
+    }
+  }
+
+  // INV-17: textflapp-budget
+  for (let i = 0; i + 4 < transitions.length; i++) {
+    const span = (transitions[i + 4].t - transitions[i].t) / 1000;
+    if (span <= 60) {
+      warnings.push(`INV-17 FLAPP: 5 textbyten inom ${Math.round(span)}s vid ${transitions[i].iso}`);
+      i += 4; // rapportera klustret en gång
+    }
+  }
+  if (transitions.length >= 2) {
+    const hours = (transitions[transitions.length - 1].t - transitions[0].t) / 3600000;
+    if (hours >= 1 && transitions.length / hours > 40) {
+      warnings.push(`INV-17 FLAPP: ${(transitions.length / hours).toFixed(0)} textbyten/timme över ${hours.toFixed(1)}h`);
+    }
+  }
+
+  // INV-18: mjuk ETA-monotoni — obruten stigande serie utan passage
+  const softSeries = new Map(); // bridge → [{t, iso, eta, count}]
+  for (const t of transitions) {
+    for (const clause of t.text.split('; ')) {
+      const parsed = parseClause(clause);
+      if (!parsed || parsed.eta === null) continue;
+      if (!softSeries.has(parsed.bridge)) softSeries.set(parsed.bridge, []);
+      softSeries.get(parsed.bridge).push({
+        t: t.t, iso: t.iso, eta: parsed.eta, count: clause.split(' ')[0],
+      });
+    }
+  }
+  for (const [bridge, series] of softSeries) {
+    let runStart = 0;
+    for (let i = 1; i <= series.length; i++) {
+      const rising = i < series.length
+        && series[i].eta > series[i - 1].eta
+        && series[i].count === series[i - 1].count
+        && (series[i].t - series[i - 1].t) <= 5 * 60 * 1000;
+      if (rising) continue;
+      const first = series[runStart];
+      const last = series[i - 1];
+      const riseMin = last.eta - first.eta;
+      const spanMs = last.t - first.t;
+      if (riseMin >= 8 && spanMs <= 15 * 60 * 1000 && i - 1 > runStart) {
+        const passageInWindow = targetPassages.some(
+          (p) => p.bridge === bridge && p.t >= first.t && p.t <= last.t,
+        );
+        if (!passageInWindow) {
+          warnings.push(`INV-18 ETA-STIGNING: ${first.iso} ${bridge} ${first.eta}→${last.eta} min över ${Math.round(spanMs / 60000)} min utan passage`);
+        }
+      }
+      runStart = i;
+    }
+  }
+
+  return warnings;
+}
+
+module.exports = { validateInvariants, validateWarnInvariants };

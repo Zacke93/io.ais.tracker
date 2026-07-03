@@ -18,15 +18,19 @@ module.exports = {
     '<rootDir>/__mocks__/homey.js',
   ],
 
-  // Coverage configuration (fix: move app.js to parent directory)
+  // Coverage configuration. Fas 7-fix (2026-07-03): lib/ ingår — tidigare
+  // mättes bara app.js + drivers, så alla services rapporterade 0 % och
+  // trösklarna var missvisande.
   collectCoverageFrom: [
     '../app.js',
+    '../lib/**/*.js',
     '../drivers/**/*.js',
     '!**/node_modules/**',
     '!**/__mocks__/**',
   ],
 
-  // Coverage thresholds
+  // Coverage thresholds (omkalibrerade 2026-07-03 mot faktisk mätning
+  // inkl. lib/ — höjs i takt med fas 7-testerna, aldrig sänks)
   coverageThreshold: {
     global: {
       branches: 60,

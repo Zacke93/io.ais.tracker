@@ -15,7 +15,7 @@
 const { execFileSync } = require('child_process');
 const path = require('path');
 const corpora = require('./corpora');
-const { validateInvariants } = require('./invariants');
+const { validateInvariants, validateWarnInvariants } = require('./invariants');
 // Fördelningsfacit (2026-07-01): totalsumman räcker inte — en missad notis +
 // en fantomnotis ger samma summa (kompenserande fel). Multiset:en av
 // (mmsi,bro)-par låses per korpus; regenerera MEDVETET (med motivering i
@@ -92,6 +92,16 @@ for (const corpus of corpora) {
   }
 
   if (corpus.locked && problems.length > 0) failed = true;
+
+  // WARN-invarianter (fas 0.4, 2026-07-03): informativa tills B1–B8 landat —
+  // rapporteras men fäller ALDRIG körningen. Skärps i fas 6.
+  const warns = validateWarnInvariants(result);
+  if (warns.length > 0) {
+    const shown = warns.slice(0, 8);
+    console.log(`\n  ⚠️ ${corpus.id}: ${warns.length} WARN-invariantutslag:`);
+    for (const w of shown) console.log(`     ${w}`);
+    if (warns.length > shown.length) console.log(`     ... +${warns.length - shown.length} fler`);
+  }
 
   let status;
   if (problems.length === 0) {

@@ -111,6 +111,9 @@ function pointAt(path, metrics, s) {
  * @param {{atFraction:number,backM:number}} [opts.staleEcho] - EN fördröjd
  *   gammal position (backM bakom aktuell) mitt i resan — out-of-order-leverans
  * @param {number} [opts.duplicateEvery] - emittera varje N:e sample dubbelt
+ * @param {number} [opts.nameFromS] - namnbackfill (B1/VALEN-klassen):
+ *   shipName är "Unknown" tills resetid ≥ nameFromS sekunder — som aisstreams
+ *   sena MetaData-backfill för Class B. Testar namncachen + notistokens.
  * @param {Function} rnd - seedad PRNG
  * @returns {Array<Object>} samples (jsonl-rader)
  */
@@ -131,6 +134,12 @@ function generateJourney(opts, rnd) {
   const push = (lat, lon, sog, cog, navStatus) => {
     const j = jitterDeg(lat);
     const ts = BASE_TIME_MS + Math.round(tS * 1000);
+    // Namnbackfill (B1): före nameFromS är namnet "Unknown" — aisstream
+    // backfyller Class B-namn sent (VALEN: 36 min).
+    const realName = opts.name || `SYNT-${opts.mmsi.slice(-4)}`;
+    const shipName = Number.isFinite(opts.nameFromS) && tS < opts.nameFromS
+      ? 'Unknown'
+      : realName;
     samples.push({
       mmsi: opts.mmsi,
       msgType: 'PositionReport',
@@ -139,7 +148,7 @@ function generateJourney(opts, rnd) {
       sog: Math.max(0, sog + (rnd() * 0.2 - 0.1)),
       cog: (cog + (rnd() * 6 - 3) + 360) % 360,
       navStatus: opts.navStatusOverride != null ? opts.navStatusOverride : navStatus,
-      shipName: opts.name || `SYNT-${opts.mmsi.slice(-4)}`,
+      shipName,
       aisTimestamp: ts,
       receivedAt: new Date(ts).toISOString(),
     });
