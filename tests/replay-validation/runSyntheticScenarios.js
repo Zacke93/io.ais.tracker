@@ -19,7 +19,7 @@ const path = require('path');
 const {
   generateScenario, buildPath, pathMetrics, BASE_TIME_MS,
 } = require('./scenarioGenerator');
-const { validateInvariants } = require('./invariants');
+const { validateInvariants, validateWarnInvariants } = require('./invariants');
 const { MOORING_ZONES } = require('../../lib/constants');
 
 const RUNNER = path.join(__dirname, 'replayRunner.js');
@@ -424,6 +424,135 @@ const SCENARIOS = [
     }],
     expect: { minTargetPassages: 2, minNotifiedBridges: ['Olidebron', 'Klaffbron'] },
   },
+  {
+    // ELFKUNGEN-klassen (körning 2026-07-03, F2): norrgående båt tystnar i
+    // 23-min-gap som spänner FYRA broar (Olide+Klaff+Jvb+Strids) och återkommer
+    // norr om Stridsbergsbron — i kanalsvängen där cog legitimt är 30–55°.
+    // Före fixen: (1) cog-gaten (north = cog ≤45°) kunde stryka HELA
+    // kontrollen; (2) 2000 m-taket dödade Klaffbron-flushen; (3) target-
+    // protection RESTORE:ade den passerade bron. Diskriminatorer:
+    // minTargetPassages=2 (Klaff+Strids transiteras i kaskad i samma tick)
+    // + alla fyra broarna notifierade.
+    name: 'gap-över-fyra-broar-norrut',
+    seed: 41,
+    vessels: [{
+      mmsi: '901000036',
+      direction: 'north',
+      speedKn: 6.5,
+      // Gap 1380 s (23 min) från strax söder om Olidebron; i 6,5 kn ≈ 4,6 km
+      // → återfödelse norr om Stridsbergsbron (cum[4]), som ELFKUNGEN 10:29.
+      gap: { atFraction: (METRICS.cum[1] - 150) / METRICS.total, durationS: 1380 },
+    }],
+    expect: {
+      minTargetPassages: 2,
+      minNotifiedBridges: ['Olidebron', 'Klaffbron', 'Järnvägsbron', 'Stridsbergsbron'],
+    },
+  },
+  {
+    // DIANA-klassen (körning 2026-07-03, F5): södergående 14-min-gap som
+    // spänner Strids+Jvb+Klaff. Före fixen flushades bara målbron —
+    // Järnvägsbron @2057 m ströps av 2000 m-taket. Kräver även färdriktnings-
+    // ordningen (nord→syd) i flush-loopen: annars kollapsar target-kedjan.
+    name: 'gap-över-tre-broar-söderut',
+    seed: 42,
+    vessels: [{
+      mmsi: '901000037',
+      direction: 'south',
+      speedKn: 5.9,
+      // Sydgående rutt: fraction räknas från norr. Gap startar ~300 m norr om
+      // Stridsbergsbron (dist från norr = total − cum[4] − 300) och varar
+      // 840 s ≈ 2,5 km i 5,9 kn → landar söder om Klaffbron.
+      gap: {
+        atFraction: (METRICS.total - METRICS.cum[4] - 300) / METRICS.total,
+        durationS: 840,
+      },
+    }],
+    expect: {
+      minTargetPassages: 2,
+      minNotifiedBridges: ['Stridsbergsbron', 'Järnvägsbron', 'Klaffbron'],
+    },
+  },
+  {
+    // B1-namnbackfill (VALEN-klassen, körning 2026-07-03): shipName är
+    // "Unknown" de första 20 minuterna — som aisstreams sena MetaData-
+    // backfill för Class B. Kontrakt: (a) den råa platshållaren "Unknown"
+    // läcker ALDRIG till notistokens (fallbacken är "Okänd båt");
+    // (b) notiser efter backfillen bär det riktiga namnet (stickiness);
+    // (c) INV-8 (fatal) vaktar att ett EN gång känt namn aldrig tappas.
+    name: 'namnbackfill-unknown-20min',
+    seed: 43,
+    vessels: [{
+      mmsi: '901000038',
+      name: 'SYNT-VALEN',
+      direction: 'north',
+      speedKn: 5.0,
+      nameFromS: 1200, // namnet anländer 20 min in — efter Kanalinfarten/Olidebron
+    }],
+    expect: {
+      minTargetPassages: 2,
+      noUnknownTokens: true,
+      namedNoticesAfterS: 1500, // 5 min marginal efter backfill (rapportintervall)
+      minNotifiedBridges: ['Klaffbron', 'Stridsbergsbron'],
+    },
+  },
+  {
+    // Storgrupp (fas 7, 2026-07-03): FEM samtidiga norrgående båtar i konvoj
+    // med 4-min-lucka — mer än någon korpus uppvisat (max 3). Tränar
+    // grupperings-/räknelogiken ("Fem båtar på väg mot..."), INV-9:s
+    // klausulstruktur och INV-1-grammatikens ordtal under verklig samtidighet.
+    name: 'storgrupp-fem-båtar',
+    seed: 44,
+    vessels: [
+      {
+        mmsi: '901000040', name: 'SYNT-GRUPP1', direction: 'north', speedKn: 5.5, startOffsetS: 0,
+      },
+      {
+        mmsi: '901000041', name: 'SYNT-GRUPP2', direction: 'north', speedKn: 5.4, startOffsetS: 240,
+      },
+      {
+        mmsi: '901000042', name: 'SYNT-GRUPP3', direction: 'north', speedKn: 5.3, startOffsetS: 480,
+      },
+      {
+        mmsi: '901000043', name: 'SYNT-GRUPP4', direction: 'north', speedKn: 5.2, startOffsetS: 720,
+      },
+      {
+        mmsi: '901000044', name: 'SYNT-GRUPP5', direction: 'north', speedKn: 5.1, startOffsetS: 960,
+      },
+    ],
+    expect: {
+      minTargetPassages: 10, // 5 båtar × 2 målbroar
+      noUnknownTokens: true,
+      minNotifiedBridges: ['Klaffbron', 'Stridsbergsbron'],
+    },
+  },
+  {
+    // Äkta processomstart (fas 7, 2026-07-03): ctrl:'restart' river appen och
+    // skapar en NY instans mot samma settings-store mitt i resan (strax efter
+    // Klaffbron-passagen). Testar load/save-cykeln i HELKEDJAN: den
+    // persistenta 2h-dedupen laddas om och måste blockera återfödelse-
+    // inferensens omnotiser för redan notifierade broar (Kanalinfarten/
+    // Olidebron/Klaffbron ligger bakom den återfödda båten) — dubbletter
+    // fälls av fatala INV-2. Post-restart-broarna (Jvb/Strids/Stallbacka)
+    // ska notifieras normalt.
+    name: 'omstart-mitt-i-passage',
+    seed: 45,
+    vessels: [{
+      mmsi: '901000045',
+      name: 'SYNT-OMSTART',
+      direction: 'north',
+      speedKn: 5.0,
+    }],
+    events: [{
+      ctrl: 'restart',
+      // ~200 m norr om Klaffbron: restid = distans / (5,0 kn × 0,5144 m/s)
+      atOffsetS: Math.round((METRICS.cum[2] + 200) / (5.0 * 0.5144)),
+    }],
+    expect: {
+      minTargetPassages: 2,
+      noUnknownTokens: true,
+      minNotifiedBridges: ['Klaffbron', 'Järnvägsbron', 'Stridsbergsbron', 'Stallbackabron'],
+    },
+  },
 ];
 
 function runScenario(scenario) {
@@ -473,6 +602,22 @@ function checkExpectations(scenario, result) {
       if (!notified.has(bridge)) problems.push(`saknad notis för ${bridge}`);
     }
   }
+  // B1-kontrakt (2026-07-03): token-fallbacken är "Okänd båt" — den råa
+  // aisstream-platshållaren "Unknown" får ALDRIG nå en notis.
+  if (e.noUnknownTokens) {
+    const raw = notifications.filter((n) => n.name === 'Unknown');
+    if (raw.length > 0) problems.push(`"Unknown" läckte till ${raw.length} notistokens`);
+  }
+  // B1-namnbackfill: notiser EFTER given scenariosekund ska bära riktigt namn.
+  if (e.namedNoticesAfterS != null && Number.isFinite(result.firstSampleMs)) {
+    const cutoverMs = result.firstSampleMs + e.namedNoticesAfterS * 1000;
+    const placeholders = notifications.filter(
+      (n) => Number.isFinite(n.t) && n.t >= cutoverMs && (n.name === 'Okänd båt' || n.name === 'Unknown'),
+    );
+    if (placeholders.length > 0) {
+      problems.push(`${placeholders.length} notiser efter namnbackfill saknar riktigt namn`);
+    }
+  }
 
   const invariantViolations = validateInvariants(result);
   for (const v of invariantViolations.slice(0, 4)) problems.push(`INVARIANT: ${v}`);
@@ -490,6 +635,11 @@ for (const scenario of SCENARIOS) {
   try {
     const { result, sampleCount } = runScenario(scenario);
     const problems = checkExpectations(scenario, result);
+    // WARN-invarianter (fas 0.4, 2026-07-03): informativa, fäller inte.
+    const warns = validateWarnInvariants(result);
+    if (warns.length > 0) {
+      console.log(`  ⚠️ ${scenario.name}: ${warns.length} WARN — ${warns.slice(0, 2).join('; ')}${warns.length > 2 ? ' …' : ''}`);
+    }
     if (problems.length === 0) {
       outcome = `✅ ${scenario.name.padEnd(38)} samples=${sampleCount}, passager=${(result.targetPassages || []).length}, notiser=${result.notificationCount}`;
     } else {
