@@ -5,10 +5,10 @@ const GPSJumpGateService = require('../lib/services/GPSJumpGateService');
 const makeLogger = () => ({ debug: jest.fn(), log: jest.fn(), error: jest.fn() });
 
 // Stridsbergsbron-nära position (target för testet).
-// OBS: registerCandidatePassage lagrar vesselState.speed från vessel.speed,
-// och _isVesselStable jämför .speed — så fixturen måste ha `speed`, inte `sog`.
+// OBS: sedan S-F1 lagrar registerCandidatePassage vesselState.sog från
+// vessel.sog, och _isVesselStable jämför .sog — fixturen ska ha `sog`.
 const BASE = {
-  lat: 58.29495, lon: 12.296806, speed: 6.7, cog: 219,
+  lat: 58.29495, lon: 12.296806, sog: 6.7, cog: 219,
 };
 const PASSAGE = { passed: true };
 

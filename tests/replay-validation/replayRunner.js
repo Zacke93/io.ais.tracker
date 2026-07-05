@@ -375,9 +375,6 @@ async function main() {
   const sizeOf = (x) => (x && typeof x.size === 'number' ? x.size : null);
   const leakDiagnostics = {
     vessels: sizeOf(vds.vessels),
-    bridgeVesselAssociations: vds.bridgeVessels
-      ? [...vds.bridgeVessels.values()].reduce((s, set) => s + set.size, 0)
-      : null,
     cleanupTimers: sizeOf(vds.cleanupTimers),
     protectionTimers: sizeOf(vds.protectionTimers),
     targetBridgeProtection: sizeOf(vds.targetBridgeProtection),
@@ -420,17 +417,18 @@ async function main() {
     leakDiagnostics,
   };
 
-  process.stdout.write(`__REPLAY_JSON__${JSON.stringify(result)}__END__\n`);
-
-  // Städa ned appen och tvinga avslut.
+  // Städa ned appen FÖRE utskriften och avsluta i write-CALLBACKEN.
+  // Soak-lärdomen (2026-07-03): för stora resultat (72h-soaken ger megabyte-
+  // JSON) blir process.stdout.write asynkron när pipe-bufferten fylls — ett
+  // omedelbart process.exit(0) dödade processen MITT I flushen och föräldern
+  // fick trunkerad JSON utan markörslut. Callbacken garanterar flush.
   try {
     await app.onUninit();
   } catch (_) { /* ignore */ }
   clock.uninstall();
-  process.exit(0);
+  process.stdout.write(`__REPLAY_JSON__${JSON.stringify(result)}__END__\n`, () => process.exit(0));
 }
 
 main().catch((e) => {
-  process.stdout.write(`__REPLAY_JSON__${JSON.stringify({ fatal: e.message, stack: e.stack })}__END__\n`);
-  process.exit(1);
+  process.stdout.write(`__REPLAY_JSON__${JSON.stringify({ fatal: e.message, stack: e.stack })}__END__\n`, () => process.exit(1));
 });

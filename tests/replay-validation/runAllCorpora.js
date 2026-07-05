@@ -2,7 +2,7 @@
 
 /**
  * Multikorpus-replay (2026-06-10): kör replayRunner mot SAMTLIGA korpusar i
- * corpora.js (~65h produktionsdata) och validerar mot facit.
+ * corpora.js (~100h produktionsdata) och validerar mot facit.
  *
  * Användning:  node tests/replay-validation/runAllCorpora.js   (från io.ais.tracker/)
  * Exit-kod:    0 om alla LÅSTA korpusar matchar facit och inga processfel,

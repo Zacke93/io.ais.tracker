@@ -424,11 +424,15 @@ function validateWarnInvariants(result) {
   const targetPassages = result.targetPassages || [];
 
   for (const n of notifications) {
-    // INV-15: riktning-vs-geografi (0.0005° lat ≈ 55 m — under det är trenden brus)
+    // INV-15: riktning-vs-geografi. Kalibrerad 2026-07-03 (fas 6-uppföljning):
+    // tröskeln höjd 55→220 m — kö-drift (PHILULA@Jvb backade 120 m under
+    // väntan) och scenario-artefakter (teleport/stale-echo rör sig bakåt per
+    // design, 170–340 m) är legitima; ett ÄKTA riktningsfel (fel token för
+    // hela resan) ger konsekvent kilometer-skala rörelse åt fel håll.
     if (Number.isFinite(n.vesselLat) && Number.isFinite(n.vesselLatNext)
         && (n.direction === 'northbound' || n.direction === 'southbound')) {
       const dLat = n.vesselLatNext - n.vesselLat;
-      if (Math.abs(dLat) > 0.0005) {
+      if (Math.abs(dLat) > 0.002) {
         const geoDir = dLat > 0 ? 'northbound' : 'southbound';
         if (geoDir !== n.direction) {
           warnings.push(`INV-15 RIKTNING: ${n.mmsi}@${n.bridge} direction=${n.direction} men lat rör sig ${geoDir === 'northbound' ? 'norrut' : 'söderut'} (Δ${dLat.toFixed(5)})`);
@@ -447,8 +451,13 @@ function validateWarnInvariants(result) {
   }
   if (transitions.length >= 2) {
     const hours = (transitions[transitions.length - 1].t - transitions[0].t) / 3600000;
-    if (hours >= 1 && transitions.length / hours > 40) {
-      warnings.push(`INV-17 FLAPP: ${(transitions.length / hours).toFixed(0)} textbyten/timme över ${hours.toFixed(1)}h`);
+    // Kalibrerad 2026-07-03: budgeten skalar med antalet samtidiga fartyg —
+    // tre båtar i rörelse ger legitimt ~66 byten/h (flertrafik-scenariot);
+    // fast 40/h flaggade normal flertrafik som flimmer.
+    const uniqueVessels = new Set(notifications.map((n) => String(n.mmsi))).size;
+    const budgetPerHour = Math.max(40, 24 * uniqueVessels);
+    if (hours >= 1 && transitions.length / hours > budgetPerHour) {
+      warnings.push(`INV-17 FLAPP: ${(transitions.length / hours).toFixed(0)} textbyten/timme över ${hours.toFixed(1)}h (budget ${budgetPerHour} för ${uniqueVessels} fartyg)`);
     }
   }
 

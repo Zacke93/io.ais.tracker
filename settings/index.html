@@ -132,10 +132,16 @@
             const saveButton = document.getElementById('save');
             const statusDiv = document.getElementById('status');
 
+            // Senast sparade API-nyckeln — används för att bara skriva
+            // ais_api_key (och därmed trigga AIS-återanslutning i app.js)
+            // när nyckeln faktiskt ÄNDRATS.
+            let storedApiKey = '';
+
             // Load settings
             Homey.get('ais_api_key', function (err, apiKey) {
                 if (!err && apiKey) {
-                    apiKeyInput.value = apiKey;
+                    storedApiKey = String(apiKey).trim();
+                    apiKeyInput.value = storedApiKey;
                 }
             });
 
@@ -151,32 +157,40 @@
             saveButton.addEventListener('click', function () {
                 const apiKey = apiKeyInput.value.trim();
                 const debugLevel = debugLevelSelect.value;
+                const apiKeyChanged = apiKey !== storedApiKey;
 
-                if (!apiKey) {
-                    showStatus('Vänligen ange en API-nyckel', 'error');
-                    return;
-                }
-
-                // Basic validation
-                if (apiKey.length < 20) {
+                // Validera bara när en NY, icke-tom nyckel angetts. Debug-nivån
+                // ska kunna sparas utan API-nyckel.
+                if (apiKeyChanged && apiKey && apiKey.length < 20) {
                     showStatus('❌ API-nyckeln verkar för kort. Kontrollera din nyckel från aisstream.io', 'error');
                     return;
                 }
 
                 showStatus('Sparar inställningar...', 'info');
 
-                // Save both settings
-                Homey.set('ais_api_key', apiKey, function (err) {
+                Homey.set('debug_level', debugLevel, function (err) {
                     if (err) {
-                        showStatus('Fel vid sparande: ' + err.message, 'error');
+                        showStatus('Fel vid sparande av debug-nivå: ' + err.message, 'error');
                         return;
                     }
-                    
-                    Homey.set('debug_level', debugLevel, function (err) {
+
+                    if (!apiKeyChanged) {
+                        // Oförändrad nyckel — skriv INTE ais_api_key, annars
+                        // tvingas en onödig AIS-återanslutning vid varje sparning.
+                        showStatus('✅ Inställningar sparade!', 'success');
+                        return;
+                    }
+
+                    Homey.set('ais_api_key', apiKey, function (err) {
                         if (err) {
-                            showStatus('Fel vid sparande av debug-nivå: ' + err.message, 'error');
-                        } else {
+                            showStatus('Fel vid sparande: ' + err.message, 'error');
+                            return;
+                        }
+                        storedApiKey = apiKey;
+                        if (apiKey) {
                             showStatus('✅ Inställningar sparade! Appen försöker nu ansluta...', 'success');
+                        } else {
+                            showStatus('✅ Inställningar sparade! API-nyckeln togs bort — AIS-strömmen kopplas ner.', 'success');
                         }
                     });
                 });

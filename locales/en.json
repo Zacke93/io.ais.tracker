@@ -3,6 +3,8 @@
     "title": "AIS Tracker Settings",
     "api_key": "AIS Stream API Key",
     "api_key_description": "Create a free API key at aisstream.io",
+    "debug_level": "Debug Level",
+    "debug_level_description": "Choose debug level for troubleshooting. Higher levels provide more detailed logs but may impact performance.",
     "save": "Save Settings"
   }
 }

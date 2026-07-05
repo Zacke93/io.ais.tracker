@@ -14,7 +14,24 @@ class BridgeStatusDevice extends Homey.Device {
       // 1) Vänta tills appen är redo
       await this._ensureAppReady();
 
-      // 2) Lägg in den här instansen i appens Set
+      // 2) Capability-migrering: enheter parade innan en capability lades
+      // till i driver.compose.json (t.ex. connection_status, tillagd
+      // 2026-06-09) saknar den annars för alltid och varje
+      // setCapabilityValue-anrop kastar. Standard Homey-mönster: lägg till
+      // saknade capabilities i onInit. Listan speglar driver.compose.json.
+      const requiredCapabilities = ['alarm_generic', 'bridge_text', 'connection_status'];
+      for (const capabilityId of requiredCapabilities) {
+        if (!this.hasCapability(capabilityId)) {
+          try {
+            this.log(`Migrating device: adding missing capability '${capabilityId}'`);
+            await this.addCapability(capabilityId);
+          } catch (err) {
+            this.error(`Failed to add missing capability '${capabilityId}':`, err);
+          }
+        }
+      }
+
+      // 3) Lägg in den här instansen i appens Set
       this.log('Adding device to app._devices collection');
       this.homey.app.addDevice(this);
 

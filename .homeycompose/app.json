@@ -31,33 +31,6 @@
 
   "sdk": 3,
   "compatibility": ">=6.0.0",
-  "startOnInstall": true,
-
-  "drivers": [
-    {
-      "id": "bridge_status",
-      "name": { "en": "Bridge status", "sv": "Broläge" },
-      "class": "sensor",
-      "capabilities": ["alarm_generic", "bridge_text", "connection_status"],
-      "icon": "/drivers/bridge_status/assets/icon.svg",
-      "images": {
-        "small": "/drivers/bridge_status/assets/images/small.png",
-        "large": "/drivers/bridge_status/assets/images/large.png"
-      },
-      "pair": [{ "id": "list_devices" }, { "id": "add_devices" }]
-    }
-  ],
-
-  "api": {
-    "getConnectionStatus": {
-      "method": "GET",
-      "path": "/getConnectionStatus"
-    },
-    "getSystemHealth": {
-      "method": "GET",
-      "path": "/getSystemHealth"
-    }
-  },
 
   "settings": [
     {
@@ -71,7 +44,7 @@
         "en": "Create one at https://aisstream.io - Format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx",
         "sv": "Skapa en på https://aisstream.io - Format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
       },
-      "validation": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
     }
   ]
 }

@@ -10,9 +10,9 @@ const { PASSAGE_TIMING } = require('../lib/constants');
  * StatusService (isWithinInternalGracePeriod) och VesselDataService
  * (shouldShowRecentlyPassed/getDisplayWindow).
  *
- * OBS (upptäckt vid granskning 2026-07-03): VesselDataService anropar
- * passageWindowManager.removeVessel(mmsi) bakom en typeof-vakt, men metoden
- * finns inte — anropet är en tyst no-op (harmlöst, modulen är tillståndslös).
+ * Städat 2026-07-05: getDynamicPassageWindow raderades (död kod — inga
+ * produktionsanropare) tillsammans med sina tester; de typeof-vaktade
+ * removeVessel-anropen i VesselDataService raderades samtidigt.
  */
 describe('PassageWindowManager — passagefönster (kontrakt)', () => {
   let manager;
@@ -48,74 +48,6 @@ describe('PassageWindowManager — passagefönster (kontrakt)', () => {
     test('grace-perioden matchar FAST_VESSEL_PASSED_WINDOW-konstanten', () => {
       expect(manager.getInternalGracePeriod({ mmsi: '7', sog: 4.0 }))
         .toBe(PASSAGE_TIMING.FAST_VESSEL_PASSED_WINDOW);
-    });
-  });
-
-  describe('getDynamicPassageWindow — dynamiskt fönster från broavstånd', () => {
-    // Samma formel som i modulen: restid × 1,5, klampad till [90 s, 300 s].
-    const expectedWindow = (gapMeters, speedKnots) => {
-      const speedMps = (speedKnots * 1852) / 3600;
-      const timeWindow = (gapMeters / speedMps) * 1000 * 1.5;
-      return Math.min(Math.max(timeWindow, 90000), 300000);
-    };
-
-    test('Järnvägsbron→Stridsbergsbron (420 m) i 5 knop ger restid × 1,5 inom gränserna', () => {
-      const vessel = { mmsi: '265000001', sog: 5.0 };
-      const result = manager.getDynamicPassageWindow(vessel, 'Järnvägsbron', 'Stridsbergsbron');
-      expect(result).toBe(expectedWindow(420, 5.0));
-      expect(result).toBeGreaterThan(90000);
-      expect(result).toBeLessThan(300000);
-    });
-
-    test('omvänd riktning använder samma gap (Stridsbergsbron→Järnvägsbron)', () => {
-      const vessel = { mmsi: '265000002', sog: 5.0 };
-      expect(manager.getDynamicPassageWindow(vessel, 'Stridsbergsbron', 'Järnvägsbron'))
-        .toBe(expectedWindow(420, 5.0));
-    });
-
-    test('snabb båt över kort gap klampas till minst 90 s', () => {
-      const vessel = { mmsi: '265000003', sog: 15.0 };
-      expect(manager.getDynamicPassageWindow(vessel, 'Järnvägsbron', 'Stridsbergsbron')).toBe(90000);
-    });
-
-    test('långsam båt över långt gap klampas till högst 300 s', () => {
-      const vessel = { mmsi: '265000004', sog: 1.0 };
-      expect(manager.getDynamicPassageWindow(vessel, 'Stridsbergsbron', 'Stallbackabron')).toBe(300000);
-    });
-
-    test('SOG 0 klampas till 0,5 knop (passerar vakten, ingen division med noll)', () => {
-      const vessel = { mmsi: '265000005', sog: 0 };
-      expect(manager.getDynamicPassageWindow(vessel, 'Klaffbron', 'Järnvägsbron')).toBe(300000);
-    });
-
-    test('okänt bropar faller tillbaka på 800 m-gapet', () => {
-      const vessel = { mmsi: '265000006', sog: 8.0 };
-      expect(manager.getDynamicPassageWindow(vessel, 'Olidebron', 'Stridsbergsbron'))
-        .toBe(expectedWindow(800, 8.0));
-    });
-
-    test('ogiltig båt/fart faller tillbaka på interna grace-perioden (180 s)', () => {
-      expect(manager.getDynamicPassageWindow(null, 'Klaffbron', 'Järnvägsbron')).toBe(180000);
-      expect(manager.getDynamicPassageWindow({ mmsi: '7', sog: NaN }, 'Klaffbron', 'Järnvägsbron')).toBe(180000);
-      expect(manager.getDynamicPassageWindow({ mmsi: '8', sog: -1 }, 'Klaffbron', 'Järnvägsbron')).toBe(180000);
-    });
-
-    test('saknade eller okända bronamn faller tillbaka på interna grace-perioden', () => {
-      const vessel = { mmsi: '265000009', sog: 5.0 };
-      expect(manager.getDynamicPassageWindow(vessel, null, 'Klaffbron')).toBe(180000);
-      expect(manager.getDynamicPassageWindow(vessel, 'Klaffbron', undefined)).toBe(180000);
-      expect(manager.getDynamicPassageWindow(vessel, 'Finnsintebron', 'Klaffbron')).toBe(180000);
-    });
-
-    test('kastar aldrig — trasigt registry fångas och ger fallback', () => {
-      const throwingRegistry = {
-        findBridgeIdByName: () => {
-          throw new Error('boom');
-        },
-      };
-      const m = new PassageWindowManager(logger, throwingRegistry);
-      expect(m.getDynamicPassageWindow({ mmsi: '10', sog: 5.0 }, 'Klaffbron', 'Järnvägsbron')).toBe(180000);
-      expect(logger.error).toHaveBeenCalled();
     });
   });
 
