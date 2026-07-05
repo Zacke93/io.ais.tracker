@@ -3,6 +3,8 @@
     "title": "AIS Tracker Inställningar",
     "api_key": "AIS Stream API-nyckel",
     "api_key_description": "Skapa en gratis API-nyckel på aisstream.io",
+    "debug_level": "Debug-nivå",
+    "debug_level_description": "Välj debug-nivå för felsökning. Högre nivåer ger mer detaljerade loggar men kan påverka prestandan.",
     "save": "Spara inställningar"
   }
 }

@@ -58,9 +58,9 @@ describe('StatusStabilizer – hysteres och statusstabilisering', () => {
 
   describe('normalfall utan positionsosäkerhet', () => {
     test('första avläsningen accepteras direkt med hög konfidens', () => {
-      // OBS: "no_history"-grenen i _applyStabilizationLogic är död kod —
-      // proposed status pushas till historiken FÖRE analysen, så recentEntries
-      // är aldrig tom. Första anropet går därför via normal_operation.
+      // OBS: proposed status pushas till historiken FÖRE analysen, så
+      // recentEntries är aldrig tom — den gamla "no_history"-grenen var död
+      // kod och raderades 2026-07-05. Första anropet går via normal_operation.
       const result = stabilizer.stabilizeStatus(MMSI, 'en-route', makeVessel('en-route'), null);
 
       expect(result.status).toBe('en-route');
@@ -185,26 +185,30 @@ describe('StatusStabilizer – hysteres och statusstabilisering', () => {
       expect(result.reason).toBe('gps_jump_resolved');
     });
 
-    test('KÄND ANOMALI: stabiliseringsfönstret återstartas INTE av ett nytt GPS-hopp om flaggan aldrig återställdes', () => {
-      // Scenario: hopp 1 startar fönstret; en mellanliggande avläsning där
-      // proposed == previous lämnar stabilizationActive=true utan att röra
-      // starttiden. Ett NYTT hopp 5 min senare får då INGEN stabilisering
-      // eftersom det gamla fönstret redan "gått ut". Testet låser nuvarande
-      // beteende — rapporterad anomali, fixa ej här.
+    test('FIXAT 2026-07-05: agreement-avläsning släpper fönstret så ett NYTT GPS-hopp får färsk stabilisering', () => {
+      // Scenario (tidigare anomali): hopp 1 startar fönstret; en mellanliggande
+      // avläsning där proposed == previous lämnade stabilizationActive=true med
+      // den gamla starttiden kvar — ett NYTT hopp 5 min senare träffade då ett
+      // redan "utgånget" fönster och fick INGEN stabilisering. Fixen släpper
+      // fönstret vid agreement (oenigheten är löst), så nästa hopp med
+      // statusändring startar ett färskt 30 s-fönster.
       stabilizer.stabilizeStatus(MMSI, 'en-route', makeVessel('waiting'), { gpsJumpDetected: true });
       mockNow += 10 * 1000;
-      // Avläsning där proposed == previous: lämnar flaggan aktiv
-      stabilizer.stabilizeStatus(MMSI, 'waiting', makeVessel('waiting'), { gpsJumpDetected: true });
+      // Avläsning där proposed == previous: släpper fönstret (löst oenighet)
+      const agree = stabilizer.stabilizeStatus(MMSI, 'waiting', makeVessel('waiting'), { gpsJumpDetected: true });
+      expect(agree.reason).toBe('gps_jump_resolved');
+      expect(stabilizer.statusHistory.get(MMSI).stabilizationActive).toBe(false);
       mockNow += 5 * 60 * 1000;
 
-      // Nytt GPS-hopp med statusändring — borde rimligen stabiliseras, men gör det inte
+      // Nytt GPS-hopp med statusändring — stabiliseras nu med färskt fönster
       const result = stabilizer.stabilizeStatus(
         MMSI, 'en-route', makeVessel('waiting'), { gpsJumpDetected: true },
       );
 
-      expect(result.status).toBe('en-route');
-      expect(result.reason).toBe('gps_jump_resolved');
-      expect(result.stabilized).toBe(false);
+      expect(result.status).toBe('waiting'); // föregående status hålls kvar
+      expect(result.reason).toBe('gps_jump_stabilization');
+      expect(result.stabilized).toBe(true);
+      expect(result.stabilizationRemaining).toBe(30 * 1000);
     });
   });
 

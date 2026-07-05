@@ -1,84 +1,82 @@
 # ARCHITECTURE.md — AIS Tracker (io.ais.tracker)
 
-Varaktig arkitekturkarta, byggd genom verifierande läsning 2026-07-03.
-Alla fil:rad-hänvisningar är kontrollerade mot koden samma dag
-(app.js = 5158-radersversionen, mtime 14:02; VesselDataService.js = 13:57-versionen).
-Radnummer prefixade med `~` är lästa men kan glida vid framtida redigering.
-Ersätter CODEX.md och docs/recentChanges.md (raderade 2026-07-03, användarbeslut —
-de beskrev en borttagen fas-modell).
+Varaktig arkitekturkarta, byggd 2026-07-03; helreviderad mot koden 2026-07-05
+efter produktionsredo-fixarna (app.js = 5512 rader; VesselDataService.js =
+4701 rader). Radnummer prefixade med `~` kan glida vid framtida redigering.
+Ersätter CODEX.md och docs/recentChanges.md (raderade 2026-07-03, användarbeslut).
 
 ## 1. Översikt & modulgraf
 
 ```
 AISstream.io (WebSocket)
-   │ ais-message / static-name / connected / disconnected / reconnect-needed
-   ▼
+   ▼ ais-message / static-name / connected / disconnected / reconnect-needed
 AISStreamClient (lib/connection/AISStreamClient.js)
    ▼
-app.js  _onAISMessage → _processAISMessage (app.js:1772)
+app.js  _onAISMessage → _processAISMessage (app.js:1894)
    ▼ updateVessel(mmsi, patch)
 VesselDataService (lib/services/VesselDataService.js)
-   │ events: vessel:entered / vessel:updated / vessel:removed / vessel:journey-reset
-   ▼
-app.js händelsehanterare (_onVesselEntered:735, _onVesselUpdated:789, _onVesselRemoved:988)
-   ├─→ StatusService.analyzeVesselStatus (status/ETA) ── status:changed → _onVesselStatusChanged:1161
+   ▼ events: vessel:entered / vessel:updated / vessel:removed / vessel:journey-reset
+app.js händelsehanterare (_onVesselEntered:804, _onVesselUpdated:858, _onVesselRemoved:1074)
+   ├─→ StatusService.analyzeVesselStatus (status/ETA) ── status:changed → _onVesselStatusChanged:1282
    ├─→ ProximityService.analyzeVesselProximity (avstånd/zoner)
    ├─→ boat_near-Flow-vägarna (§3)
-   └─→ _updateUI → coalescing → _processUIUpdate:2263 → bridge_text-capability + global token
+   └─→ _updateUI → coalescing → _processUIUpdate:2393 → bridge_text-capability + global token
 ```
 
 Moduler (ansvar / ägda tillstånd / in-ut):
 
 - **AISStreamClient** (lib/connection/AISStreamClient.js): WebSocket-livscykel mot
-  AISstream.io. Prenumererar med bounding box över kanalen (:246–255), filtrerar
-  meddelandetyper (PositionReport, StandardClassB..., ExtendedClassB...; :379–385),
-  extraherar mmsi/lat/lon/sog/cog/navStatus/shipName i `_extractAISData` (:462–510,
-  avvisar 0,0-koordinater). Äger reconnect-tillstånd (progressiva delays, medium
-  5 min ×12, slow 60 min; :516–521), ping/pong-watchdog (`_awaitingPong` :35).
-  Emitterar `connected`, `disconnected`, `ais-message`, `static-name` (typ 5/24-namn,
-  :362–373), `auth-error`, `error`, `reconnect-needed`, `max-reconnects-reached`.
+  AISstream.io. Bounding box-prenumeration (:254), meddelandetypfilter (:379–386),
+  extraktion av mmsi/lat/lon/sog/cog/navStatus/shipName i `_extractAISData`
+  (:463–515, avvisar 0,0; String()-wrap på Name). Reconnect-tillstånd (progressiva
+  delays, medium 5 min ×12, slow 60 min; :521–529), ping/pong-watchdog
+  (`_awaitingPong` :35). Emitterar connected/disconnected/ais-message/static-name
+  (typ 5/24-namn, :362–373)/auth-error/error/reconnect-needed/max-reconnects-reached.
 - **app.js (AISBridgeApp)**: orkestrering, Flow-kort, UI-publicering, notisdedupe,
-  persistens, monitoring. Äger `_triggeredBoatNearKeys` (session-Set, :~181),
-  `_persistentRecentTriggers` (2h-Map, :~189), `_knownVesselNames` (namncache, :204–206),
-  `_vesselRemovalTimers`, `_processingRemoval`, coalescing-tillstånd (:4961–).
-  Services instansieras :274–333 (SystemCoordinator, BridgeRegistry, VesselDataService,
-  ProximityService, PassageLatchService, GPSJumpGateService, RouteOrderValidator,
-  StatusService, BridgeTextService, AISStreamClient).
+  persistens, monitoring. Äger `_triggeredBoatNearKeys` (session-Set, :181),
+  `_persistentRecentTriggers` (2h-Map, :189), `_knownVesselNames` (namncache,
+  :204–207), `_lastKnownPositions` (6h-Map för återfödda båtar, :214–216, §3/§6),
+  `_vesselRemovalTimers`, `_processingRemoval`, coalescing-tillstånd (:2139–2251,
+  watchdog :5302–5313). Samtliga services instansieras :283–333.
 - **VesselDataService** (VDS): sanningskälla för fartygstillstånd. `updateVessel`
-  (:92) bygger om vesselobjektet varje meddelande via `_createVesselObject` (:2664–2874,
-  EXPLICIT fältlista — se §8a), kör förtöjningsdetektering (:129–139), Fix D-U-sväng
-  (:141–230), målbrologik (`_shouldAssignTargetBridge`:1798, `_calculateTargetBridge`:2071,
-  `_handleTargetBridgeTransition`:2268, `_applyTargetTransition`:2437), passage-detektering
-  (`_hasPassedBridge`:3659, `_hasPassedTargetBridge`:2999), target-protection (:3938–4033),
-  GPS-jump-hold (`setGpsJumpHold`/`hasGpsJumpHold`:4559/4576), removal + snapshot (:507–698),
-  RC7-presentationsfiltret (`getVesselsForBridgeText`:1210–1330).
-- **StatusService**: statusmaskinen (`analyzeVesselStatus`:73, prioritetsordning
+  (:88) bygger om vesselobjektet varje meddelande via `_createVesselObject`
+  (:2633–2865, EXPLICIT fältlista — §8a), kör förtöjningsdetektering (:125–135),
+  Fix D-U-sväng (:137–265), målbrologik (`_shouldAssignTargetBridge`:1753,
+  `_calculateTargetBridge`:2026, `_handleTargetBridgeTransition`:2223,
+  `_applyTargetTransition`:2392), passage-detektering (`_hasPassedBridge`:3693,
+  `_hasPassedTargetBridge`:2990), target-protection (:3963–4058), GPS-jump-hold
+  (:4609/4638), removal + snapshot (:511–709), RC7-filtret (:1165–1307).
+- **StatusService**: statusmaskinen (`analyzeVesselStatus`:71, prioritetsordning
   under-bridge > passed > waiting > stallbacka-waiting > approaching > en-route,
-  :173–247), under-bridge-hysteres (:409–580), ETA via ProgressiveETACalculator.
-  Äger StallbackabronHelper, CurrentBridgeManager, StatusStabilizer,
-  PassageWindowManager, ProgressiveETACalculator (:27–44). Emitterar `status:changed`.
-- **ProximityService**: stateless avståndsanalys fartyg↔broar (`analyzeVesselProximity`),
-  bridgeDistances/nearestBridge.
+  :171–227; FIX U-tvingad waiting som "prioritet 0" :110–168),
+  under-bridge-hysteres (:407–657). Äger CurrentBridgeManager, StatusStabilizer,
+  PassageWindowManager, ProgressiveETACalculator. Emitterar `status:changed`.
+- **ProximityService**: stateless avståndsanalys fartyg↔broar
+  (`analyzeVesselProximity`), bridgeDistances/nearestBridge.
 - **SystemCoordinator**: koordinerar GPS-analys/stabilisering; räknar distinkta
-  "jumpers" (C4) i stället för råa händelser (SystemCoordinator.js:~20–30).
+  "jumpers" (C4) via `recentJumpers`-Map (:26, :185–188); `cleanup()` (:410)
+  körs varje minut från monitoring-loopen (§6). Inga publika
+  debounce-/koordinationsmetoder längre (§9).
 - **GPSJumpGateService**: blockerar passage-detektering under GPS-hopp;
-  tvåstegsbekräftelse candidate→confirm, 30 s gate-timeout. Anropas från VDS
-  (:3029–3040, :3661–3672).
+  candidate→confirm, 30 s gate-timeout. Anropas från VDS (:3020–3028,
+  :3695–3703; clearVessel vid removal :736–738).
 - **PassageLatchService**: latch per båt+bro som blockerar retrograda statusar
   ("tidsresor"); 10 min latch-timeout. Konsumeras av StatusService via
-  `shouldBlockStatus` (StatusService.js:712, 786, 852, 900, 1116).
+  `shouldBlockStatus` (StatusService.js:772, 846, 912, 960, 1176).
 - **RouteOrderValidator**: avvisar fysiskt omöjlig broordning per riktning.
 - **StatusStabilizer**: hysteres/konfidens vid GPS-osäkerhet (2 konsekutiva
-  avläsningar för statusbyte).
-- **VesselLifecycleManager**: resekomplettering/eliminering; terminalgränser
-  KANALINFARTEN_EXIT_LAT 58.2653 / STALLBACKABRON_EXIT_LAT 58.3141.
-- **CurrentBridgeManager**: robust `currentBridge`-spårning, SET 500 m/CLEAR 600 m.
+  avläsningar för statusbyte). **VesselLifecycleManager**: resekomplettering;
+  terminalgränser KANALINFARTEN_EXIT_LAT 58.2653 / STALLBACKABRON_EXIT_LAT 58.3141.
+- **CurrentBridgeManager**: robust `currentBridge`-spårning. `distanceToCurrent`
+  räknas alltid OM från positionen FÖRE reglerna (:30–39; jfr §8a offer 7).
+  Regel 0: passerad bro rensas (:41–52); Regel 1: SET ≤500 m med flapp-skydd —
+  nyss passerad bro (`lastPassedBridge`, >50 m) sätts inte om (:58–69); Regel 2:
+  CLEAR >600 m (:70–78). Ingen Regel 3 (ersatt av omräkningen, :79).
 - **BridgeTextService**: ren funktion vessels→text (§5).
-- **Utils**: `geometry` (haversine, distancePointToSegmentM), `MessageBuilder` +
-  `CountTextHelper` (svenska räkneord), `ETAFormatter`/`etaValidation`
-  (isValidETA, formatETABroOpeningClause = SSOT för ETA-klausulen),
-  `StallbackabronHelper` (numera minimal: `isStallbackabron`), `PassageWindowManager`
-  (passagefönster/grace), `GPSJumpAnalyzer` (hopp vs äkta manöver).
+- **Utils**: `geometry` (haversine, distancePointToSegmentM, hasChangedBridgeSide),
+  `CountTextHelper`, `etaValidation` (isValidETA, formatETABroOpeningClause =
+  SSOT för ETA-klausulen), `PassageWindowManager`, `GPSJumpAnalyzer`.
+  (`MessageBuilder`/`ETAFormatter`/`StallbackabronHelper` raderade 2026-07-05; §9.)
 
 ## 2. Geografin (lib/constants.js)
 
@@ -94,305 +92,375 @@ Broar i `BRIDGES` (:151–187), syd→nord (`BRIDGE_SEQUENCE` :255–261):
 
 - `TARGET_BRIDGES = ['Klaffbron', 'Stridsbergsbron']` (:234); `INTERMEDIATE_BRIDGES` (:237).
 - **Kanalinfarten** är INGEN bro utan trigger-punkt (`TRIGGER_POINTS.kanalinfarten`,
-  :117–124: 58.268003/12.269365, radius 300 m) — triggar boat_near-Flow men ingår
-  inte i brotext/status. Ligger inte i BridgeRegistry (uppslag sker direkt i
-  TRIGGER_POINTS, app.js:~3688, ~3982).
+  :117–124: 58.268003/12.269365, radius 300 m) — triggar boat_near men ingår inte
+  i brotext/status; ej i BridgeRegistry, uppslag direkt i TRIGGER_POINTS
+  (app.js:3938/4108/4156/4255/4892).
 - `BRIDGE_GAPS` (:244–249): olide–klaff 950 m, klaff–järnväg 960 m,
   järnväg–strids 420 m (kortast, kritisk timing), strids–stallbacka 2310 m.
-- `MOORING_ZONES` (:216–227): kapsel (centrumlinje + 30 m halvbredd) för
-  "Kajen norr om Klaffbron" (190–295 m från bron, mitt i väntzonen).
-  `MOORING_DETECTION` (:204–210): STATIONARY 0.3 kn, MOVEMENT_PROOF 0.5 kn/50 m,
-  navstatus 1/5, 2h-backstop.
+- `MOORING_ZONES` (:216–227): kapsel (centrumlinje + 30 m halvbredd) för "Kajen
+  norr om Klaffbron" (190–295 m från bron, mitt i väntzonen). `MOORING_DETECTION`
+  (:204–210): STATIONARY 0.3 kn, MOVEMENT_PROOF 0.5 kn/50 m, navstatus 1/5,
+  2h-backstop.
 - Stallbackabron-specialregler i `STALLBACKABRON_SPECIAL` (:343–348): aldrig
   "inväntar broöppning"; egen status `stallbacka-waiting`.
 
 ## 3. Dataflödet AIS→notis (boat_near)
 
-Inflöde: `_processAISMessage` (app.js:1772) validerar (:1776, `_validateAISMessage`
-:~1856: mmsi/lat/lon/sog≤100/cog-normalisering/0,0-avvisning), normaliserar sog/cog/
-navStatus till null vid okänt, injicerar namncachen (B1, :1804–1815: riktigt namn
-registreras, "Unknown" ersätts med cachat namn) och anropar `VDS.updateVessel` (:~1842).
+Inflöde: `_processAISMessage` (app.js:1894) validerar (`_validateAISMessage`
+:1989, 0,0-avvisning :2018), normaliserar sog/cog/navStatus till null vid okänt,
+injicerar namncachen (B1, :1930–1937: riktigt namn registreras via
+`_rememberVesselName`:593, "Unknown" ersätts med cachat namn) och anropar
+`VDS.updateVessel` (:1964). Parallellt fyller `_onStaticName` (:1730, kopplad :768)
+namncachen från typ 5/24-namn och uppdaterar levande "Unknown"-fartyg på plats.
 
 ### De FYRA notisvägarna
 
-1. **Proximity** — `_triggerBoatNearFlow` (app.js:3509). Anropas från
-   `_onVesselEntered` (:749, om targetBridge), `_onVesselUpdated` (:904, om
-   current/target/finalTarget) och `_onVesselStatusChanged` (:1166–1175, vid
-   övergång till waiting/stallbacka-waiting). Egna gater i ordning: test-läge →
-   `_moored` (:~3527) → rörelsebevis (RC-S3: `_hasMovementProof` eller sog ≥ 0.5,
-   :~3539) → GPS-jump-hold (:~3550) → stale-AIS >10 min på MOTTAGNINGS-tid (F5,
-   :~3563) → kandidatval (`_getFlowTriggerCandidates`:3776) → per kandidat
-   `_triggerBoatNearFlowForBridge` (:4150).
-2. **Passage-fallback** (BUG C) — `_onVesselUpdated` :~925–932: nyregistrerad
+1. **Proximity** — `_triggerBoatNearFlow` (app.js:3693). Anropas från
+   `_onVesselEntered` (:818, om targetBridge), `_onVesselUpdated` (:990, gate
+   :985–989: current/target/finalTarget/nära trigger-punkt) och
+   `_onVesselStatusChanged` (:1289–1295, övergång till waiting/stallbacka-waiting).
+   Egna gater i ordning (:3695–3786): test-läge → `_moored` → rörelsebevis (RC-S3:
+   `_hasMovementProof` eller sog ≥ 0.5) → GPS-jump-hold → stale-AIS >10 min på
+   MOTTAGNINGS-tid (F5) → kandidatval (:4022) → per kandidat (:3786).
+2. **Passage-fallback** (BUG C) — `_onVesselUpdated` :1011–1018: nyregistrerad
    passage (`lastPassedBridge` stämplad <2000 ms sedan; N5 jämför namn ELLER
-   tidsstämpel) → `_triggerBoatNearFlowFallback(vessel, lastPassedBridge)` (:3984).
-3. **Backfill** — `_onVesselUpdated` :~939–946: `vessel._passageBackfills[]`
+   tidsstämpel) → `_triggerBoatNearFlowFallback(vessel, lastPassedBridge)`.
+3. **Backfill** — `_onVesselUpdated` :1025–1032: `vessel._passageBackfills[]`
    (fylls av RC9-/gap-inferens i VDS, `registerConfirmedIntermediatePassage`
-   VDS:3482–3484) töms och varje bro begärs via `_triggerBoatNearFlowFallback`.
-4. **Exit/removal** — `_onVesselRemoved` (:988) → gate :1031–1041 (giltiga
+   VDS:3437–3486) töms och varje bro begärs via `_triggerBoatNearFlowFallback`.
+4. **Exit/removal** — `_onVesselRemoved` (:1074) → gate :1132–1142 (giltiga
    koordinater + `_finalTargetDirection === 'south'` + `_finalTargetBridge`) →
-   `_triggerExitPointFallback` (:3909): F63-stale-vakt ≤25 min på
-   `lastPositionUpdate` (:~3928), ≤400 m från Kanalinfarten (:~3941), fartyget
-   norr om punkten (:~3947), session- + persistent-dedupe (:~3950–3968) →
-   `_triggerBoatNearFlowFallback(vessel, 'Kanalinfarten')`.
+   `_triggerExitPointFallback` (:4155–4220: F63-stale ≤25 min på
+   `lastPositionUpdate`, ≤400 m från Kanalinfarten, norr om punkten, session- +
+   persistent-dedupe) → `_triggerBoatNearFlowFallback(vessel, 'Kanalinfarten')`.
 
-### `_checkSkippedBridgesFallback` (app.js:3626)
+### `_checkSkippedBridgesFallback` (app.js:3810)
 
-Körs vid entered (:~755) och updated (:911). Kräver sog ≥ 2.0, ej `_moored`, ej
-GPS-hold, cog tydligt N (≥315/≤45) eller S (135–225). Target-gaten är BORTTAGEN
-(SY FREYJA 2026-07-02: mållösa återfödda båtar ska också fångas).
+Körs vid entered (:827) och updated (:997). Gemensamma gater för BÅDA scenarier:
+giltiga koordinater, ej `_moored` (:3824), ej GPS-hold (:3825). Target-gaten är
+BORTTAGEN (SY FREYJA 2026-07-02: mållösa återfödda båtar ska också fångas);
+scenariovalet görs FÖRE sog-/cog-gaterna (:3828–3839). **F8**: fallbacken anropas
+ALLTID med `detectionTs: Date.now()` (:4006–4008) — stale-fönstret räknas från
+detektionsögonblicket.
 
-- **Scenario A (new-vessel, oldVessel=null)**: antar start från kanalport
-  (58.265 syd / 58.32 nord) — UTOM när första positionen ligger i/nära en
-  förtöjningszon (**N7-kajvakten**: `isNearMooringZone(_firstSeenLat/Lon, 100)`,
-  :~3678–3695; då begränsas intervallet till kajen så broar bakom kajen inte
-  falsknotifieras).
-- **Scenario B (large-jump, |Δlat| > 0.005 ≈ 550 m)**: broar mellan gamla och nya
-  lat. Fallback anropas med `{ detectionTs: Date.now() }` (N3, :~3744) så
-  stale-fönstret räknas från detektionsögonblicket. Dessutom appliceras passagen
-  i VDS via `applyInferredPassage` (:~3761 → VDS:3502–3522): målbro → äkta
-  måltransition, mellanbro → `registerConfirmedIntermediatePassage` (med
-  RC9-inferens om bron ligger bortom target).
+- **Scenario A (new-vessel, oldVessel=null)**: kräver sog ≥ 2.0 (:3866) och cog
+  tydligt N (≥315/≤45) eller S (135–225) (:3868–3870). Antar start från kanalport
+  (58.265 syd / 58.32 nord, :3907/:3911) — UTOM när (a) `_lastKnownPositions`
+  har en färsk post (<6 h TTL, skriven vid removal :1084–1090): fönstret
+  begränsas till [senast kända position, nuvarande] (:3895–3902, återfödda
+  båtar); eller (b) första positionen ligger i/nära en förtöjningszon
+  (**N7-kajvakten**: `isNearMooringZone(_firstSeenLat/Lon, 100)`, :3903–3904 —
+  broar bakom kajen falsknotifieras inte).
+- **Scenario B (large-jump, |Δlat| > 0.005 ≈ 550 m)**: INGA sog-/cog-gater —
+  hoppvektorn ger både rörelsebevis och riktning (`vessel.lat > oldVessel.lat ⇒
+  north`, :3852–3858). Broar mellan gamla och nya lat flushas i
+  FÄRDRIKTNINGSordning (:3960). Inferensen appliceras i VDS FÖRE notisloopen
+  via `applyInferredPassage` (:3981–3989 → VDS:3528–3555): målbro → äkta
+  måltransition (+ protection-släpp 'inferred-passage'), mellanbro →
+  `registerConfirmedIntermediatePassage` (RC9-inferens om bron ligger bortom
+  target). Notisloopen (:4009–4015) skickar `{ detectionTs, inferredFlush: true }`.
 
-### Gate-kedjan i `_triggerBoatNearFlowFallback` (app.js:3984–4119)
+### Gate-kedjan i `_triggerBoatNearFlowFallback` (app.js:4230–4417)
 
-I ordning: (0) GPS-jump-hold (:~3990) → (1) **persistent dedupe** 2h
-riktningsmedveten (:~4043) → (2) **2000 m-tak** FALLBACK_HARD_MAX_DISTANCE
-(:~4053) → (3) **stale**: exakt känd tid (`passedAt[bro]`/detectionTs,
-max-väljare för "när VI fick veta") > 300 s ⇒ skip; annars skattning
-distans/maxRecentSpeed (RC3) > 300 s ⇒ skip (:~4076–4119) → (4) **low-sog**:
-stillastående (≤0.5 kn) utan tidsreferens och >500 m ⇒ skip (:~4120–4131).
+I ordning: (0) GPS-jump-hold (:4232–4237) → (1) **persistent dedupe** 2h
+riktningsmedveten (:4289–4297) → (2) **avståndstak**: normalt 2000 m
+FALLBACK_HARD_MAX_DISTANCE (:4327); vid `inferredFlush` ERSÄTTS taket av
+10 km-sanity + krav på färsk position <2 min (`lastPositionUpdate`, :4307–4326
+— gap-hopp är legitimt långa) → (3) **stale**: exakt känd tid
+(`passedAt[bro]`/detectionTs, max-väljare för "när VI fick veta") > 300 s ⇒
+skip; annars skattning distans/maxRecentSpeed (RC3) > 300 s ⇒ skip (:4335–4394)
+→ (4) **low-sog**: ≤0.5 kn utan tidsreferens och >500 m ⇒ skip (:4395–4405).
 Passerar allt → `_triggerBoatNearFlowForBridge` med `source: 'passage-fallback'`.
 
-### Kandidat-urval och source-värden (`_getFlowTriggerCandidates`, app.js:3776)
+### Kandidatval (:4022), dedup-lagren och tokens (`_triggerBoatNearFlowForBridge`:4424)
 
-Tröskel 300 m (FLOW_CONSTANTS.FLOW_TRIGGER_DISTANCE_THRESHOLD). Källor:
-`target` → `current` → `just-passed` (15 s grace efter passage) → `nearest`
-(endast om inga andra) → `trigger-point` (Kanalinfarten, egen distansberäkning).
-Finns target-kandidat: target dominerar, MEN target + current/nearest/just-passed
-får båda trigga när de är olika broar (Fix 7, Järnvägs/Strids-överlappet).
-Femte/sjätte source-värdet `passage-fallback` sätts av fallback-vägen (:~4137).
+Kandidatval: tröskel 300 m (FLOW_TRIGGER_DISTANCE_THRESHOLD). Källor i ordning
+(:4080–4113): `target` → `current` → `just-passed` (15 s grace efter passage) →
+`nearest` (endast om inga andra) → `trigger-point` (Kanalinfarten, egen
+distansberäkning). Finns target-kandidat: target dominerar, MEN target +
+current/nearest/just-passed får båda trigga när de är olika broar (Fix 7,
+Järnvägs/Strids-överlappet; :4120–4146). Sjätte source-värdet
+`passage-fallback` sätts av fallback-vägen. Dedup-lagren:
 
-### `_triggerBoatNearFlowForBridge` (app.js:4150) och dedup-lagren
-
-1. **Session-Set** `_triggeredBoatNearKeys` ("mmsi:Bro", :4158). Rensas per
-   fartyg vid journey-reset/NEW_JOURNEY (`_clearBoatNearTriggers`:4307; med
-   `clearPersistent=true` rensas även 2h-mappen), vid statuslämning utan aktiv
-   resa (:1181–1189), vid removal utan aktiv resa (:1020–1025, BUG 7 bevarar vid
+1. **Session-Set** `_triggeredBoatNearKeys` ("mmsi:Bro", :4429–4432). Rensas vid
+   journey-reset/NEW_JOURNEY (`_clearBoatNearTriggers`:4588; `clearPersistent=true`
+   rensar även 2h-mappen — anropad :741, :948), statuslämning utan aktiv resa
+   (:1298–1310), removal utan aktiv resa (:1118–1125, BUG 7 bevarar vid
    timeout+aktiv resa) och för döda mmsi i monitoring-loopen.
 2. **Persistent 2h-Map** `_persistentRecentTriggers`: post `{t, dir}`;
-   `_persistentDedupCheck` (:449–467) blockerar ENDAST i samma färdriktning
-   (motsatt riktning = ny passage, ELFKUNGEN-fallet); riktning saknas ⇒
-   konservativ blockering. Kontrolleras i huvudvägen (:4174), fallback (:~4043)
-   och exit (:~3961). Skrivs vid varje mutation (§6), rollback vid triggerfel
-   (:4283–4290).
+   `_persistentDedupCheck` (:458–474) blockerar ENDAST i samma färdriktning
+   (motsatt = ny passage, ELFKUNGEN-fallet); riktning saknas ⇒ konservativ
+   blockering. Kontrolleras i huvudvägen (:4448), fallback (:4289) och exit
+   (:4206). Skrivs vid varje mutation (§6), rollback vid triggerfel (:4562–4571).
 
-Tokens: `vessel_name` (B1: känt namn → cache-uppslag → "Okänd båt", :4188–4193),
-`bridge_name`, `direction` (`_getDirectionString`: låst `_routeDirection` först,
-annars breddat COG-band — P5-beslut), `eta_minutes` (target-källa = målbro-ETA;
-övriga källor = dist/fart mot den notifierade bron; `passage-fallback`/`just-passed`
-⇒ -1; nära+långsam icke-target ⇒ -1; :4203–4227).
+Tokens: `vessel_name` (B1: känt namn → cache-uppslag → "Okänd båt", :4464),
+`bridge_name`, `direction` (`_getDirectionString`:4639: låst rutt-riktning
+först, annars COG — 'unknown' vid omätbar fart), `eta_minutes` (target-källa =
+målbro-ETA; övriga = dist/fart mot notisbron; `passage-fallback`/`just-passed`
+⇒ -1; nära+långsam icke-target ⇒ -1; :4477–4501).
 
-**Trigger-state (NY form, :4271–4273):**
-`{ bridge: bridgeId, mmsi: vessel.mmsi, distance: Math.round(distance), source }`
-— mmsi låter en "Any bridge"-flow begränsas till en notis per resa; distance/source
-konsumeras av replay-invarianterna (distansrimlighet, inferens-särskiljning).
+**Trigger-state (:4546):** `{ bridge, mmsi, distance: Math.round(d), source }`.
+OBS per-bro-semantik: dedupen sker UPPSTRÖMS per mmsi:bro, så en "Any
+bridge"-flow fyrar max EN gång per BRO och resa (upp till 6 för full genomresa)
+— run-listenern (:4743–4758) släpper `'any'` rakt igenom; per-resa-gaten (F7,
+mmsi:any-nyckeln) togs bort 2026-07-02 (användarbeslut). distance/source
+konsumeras av replay-invarianterna (INV-11, inferens-särskiljning).
+
+### Övriga Flow-/notisytor
+
+- **boat_at_bridge (villkorskort)** — run-listener app.js:4785–4906: sant om
+  NÅGOT fartyg är ≤300 m från vald bro ('any' stöds, :4862–4869); F36 räknar
+  trigger-punkter direkt mot TRIGGER_POINTS (:4887–4902).
+- **Anslutningsnotiser** — `_notifyConnectionIssue` (:1769): timeline-notis max
+  1/24 h (:1771–1776); vid max-reconnects (:1801), auth-fel (:1818) och saknad
+  API-nyckel (:1852, :5015). connected/disconnected ger ENBART connection_status.
 
 ## 4. Tillståndsmaskiner
 
 ### Target-livscykeln (VDS)
 
-- Tilldelning: `_shouldAssignTargetBridge` (:1798, kräver bl.a. rörelsebevis,
-  ej `_moored`) → `_calculateTargetBridge` (:2071, COG-riktning + position).
-- Transition: `_applyTargetTransition` (:2437–2525). `previousTarget` läses från
-  det LEVANDE objektet (S-F3-följdfixen, :2447). Vid byte till nästa bro:
-  targetBridge muteras, `_finalTarget*` nollas och **hela ETA-serien nollställs**
-  (:2472–2481: etaMinutes, `_etaPublishedValue`, `_etaIsExtrapolated`,
-  `_etaExtrapolationExhausted`, `_etaExtrapolationBaseMs/Value`,
-  `_positionUpdatedSinceLastETA=true`, `_isImminentAtTargetBridge=false`) +
-  `clearVesselETAHistory` (:2497). Riktning låses (`_lockRouteDirection`:2483).
-  Vid TARGET_END (:2503–2524): targetBridge=null, `_finalTargetBridge`/
-  `_finalTargetDirection` sätts, spårning fortsätter mot Stallbackabron resp.
-  Olidebron+Kanalinfarten. Passagen ankras (`_anchorPassageTimestamp`:2533)
-  med RC9-kronologivakt (:2551–2556).
-- **Target-protection** (`_checkTargetBridgeProtection`, VDS:3938–4033).
-  Aktivering (:3981–3999) om något av: ≤300 m från target; GPS-event
-  (`_gpsJumpDetected`/`_positionUncertain`/rörelse >200 m, :4039–4061); manöver
-  (COG-ändring >45°, :4067–4078); passage <60 s sedan; koordination aktiv. Aktiv
-  protection ÅTERSTÄLLER targetBridge om något ändrat den (:4023–4029).
-  Deaktivering (`_shouldDeactivateProtection`:4136–4170): >5 min alltid; >500 m
-  från target + inga event + >1 min; GPS löst + >30 s; koordination löst + >15 s.
-- U-sväng: Fix D (VDS:141–230, sog ≥ 2.0, 2-observations-debounce
-  `_fixDPendingReversal`) nollar target mitt i resan; `vessel:journey-reset`
-  låter app-lagret rensa båda dedup-lagren (app.js:~669). Post-resa: NEW_JOURNEY
-  (app.js:~828–880, samma debounce via `_newJourneyPending`) nollar
-  passedBridges + dedupe för returresan.
+- Tilldelning: `_shouldAssignTargetBridge` (:1753, kräver bl.a. rörelsebevis,
+  ej `_moored`) → `_calculateTargetBridge` (:2026, COG-riktning + position).
+- Transition: `_applyTargetTransition` (:2392–2627). `previousTarget` läses från
+  det LEVANDE objektet (S-F3-följdfixen, :2402). Vid byte till nästa bro:
+  targetBridge muteras, `_finalTarget*` nollas, **hela ETA-serien nollställs**
+  (:2427–2437: etaMinutes, `_etaPublishedValue`, alla extrapolationsflaggor inkl.
+  `_etaExhaustedAtMs`, `_isImminentAtTargetBridge=false`) + `clearVesselETAHistory`
+  (:2453); riktningen låses (`_lockRouteDirection`:2439). Vid TARGET_END
+  (:2459–2494): targetBridge=null, `_finalTargetBridge`/`_finalTargetDirection`
+  sätts, spårning fortsätter mot Stallbackabron resp. Olidebron+Kanalinfarten;
+  **B6**: samma ETA-/imminent-nollning görs ÄVEN här (:2476–2484 — annars
+  zombie-"strax"). Passagen ankras (`_anchorPassageTimestamp`:4559, anrop :2502)
+  med RC9-kronologivakt (:2520–2525).
+- **Gap-kedjan**: `_handleTargetBridgeTransition` (:2223) omvärderar efter
+  bekräftad passage det NYA targetet mot SAMMA AIS-segment (`_gapChainDepth`,
+  max djup 3, :2311–2312 — ett stort gap kan korsa flera broar).
+- **`_pendingTarget`**: target-byte fångat i 300 m-skyddszonen skjuts upp
+  (`{source, next, since}`) tills zonen lämnats/grace löpt ut (:2229–2263;
+  sätts :2358–2370, :3172–3176; rensas vid moored-demote :132).
+- **Target-protection** (`_checkTargetBridgeProtection`, VDS:3963–4058).
+  Aktivering (:3989–4007) om något av: ≤300 m från target; GPS-event
+  (jump/osäker/rörelse >200 m, :4064–4081); manöver (COG-ändring >45° ELLER
+  fartändring >2 kn, :4092–4109); passage <60 s; koordination aktiv. Aktiv
+  protection ÅTERSTÄLLER targetBridge om något ändrat den (:4047–4054).
+  Deaktivering (`_shouldDeactivateProtection`:4161): **B3** — skyddad bro i
+  `passedBridges` ⇒ OMEDELBART (:4172–4176); >5 min alltid; >500 m + inga event
+  + >1 min; GPS löst + >30 s; koordination löst + >15 s. Släpps även vid
+  inferens (`'missed-target-inferred'` :3481, `'inferred-passage'` :3547), Fix D
+  (:238–239) och NEW_JOURNEY via publika `clearTargetProtection` (:4217–4220,
+  anrop app.js:944 — annars RESTORE:ar skyddet gamla resans bro).
+  **RC9-origin-vakten** `_targetOriginSideOk` (:3501, används :3469/:3652):
+  `_firstSeenLat` måste ligga på rätt sida om target för färdriktningen —
+  stoppar fabricerad "bortom target"-inferens efter U-sväng.
+- U-sväng: Fix D (VDS:137–265, sog ≥ 2.0 :149, 2-observations-debounce
+  `_fixDPendingReversal` :196–231) nollar target mitt i resan; journey-reset
+  rensar båda dedup-lagren (app.js:738–741). Post-resa: NEW_JOURNEY
+  (app.js:897–952, debounce `_newJourneyPending`) nollar passedBridges + dedupe
+  + target-protection för returresan.
 
 ### Passage-latch + under-bridge-hysteres (StatusService)
 
-- `_isUnderBridge` (:409–580). Syntetiskt broöppningsfönster `_bridgeOpeningUntil`
-  håller under-bridge (30 s, distansventil >300 m rensar; :411–459).
-  Hysteres: SET ≤50 m, CLEAR <70 m (:514–517, :562–564; konstanter
-  constants.js:52–53). **10-min force-clear** (:482–498): latchad under-bridge
-  äldre än UNDER_BRIDGE_MAX_DURATION_MS = 10 min → latch släpps och `return false`
-  (kritiskt: annars re-sättes latchen omedelbart). FIX O (:520–543) kräver att
-  "inväntar" visats mellan par-broarna Järnvägs/Strids.
-- PassageLatchService blockerar retrograda waiting/approaching/stallbacka-statusar
-  efter registrerad passage (StatusService:712, 786, 852, 900, 1116); latchar
-  rensas vid removal (VDS:735–737).
+- `_isUnderBridge` (:407–657). Syntetiskt broöppningsfönster `_bridgeOpeningUntil`
+  håller under-bridge (30 s, distansventil >300 m rensar; :409–458). Hysteres:
+  SET ≤50 m, CLEAR <70 m (:541–543 mellanbro, :594–596 målbro; konstanter
+  constants.js:52–53). **10-min force-clear** (:513–523): latch äldre än 10 min
+  (UNDER_BRIDGE_MAX_DURATION_MS) → släpps och `return false` (annars re-sättes
+  latchen omedelbart). **B5-frysning** (:502–510): vid AIS-gap (positionsålder
+  >2 min) fryses ackumulerad under-bro-tid EN gång i `_underBridgeFrozenAccMs`,
+  basen hålls mot den — väggtid under gapet räknas inte mot 10-min-taket;
+  släpps (null) vid färsk position. FIX O (:546–569) kräver att "inväntar"
+  visats mellan par-broarna Järnvägs/Strids. **Entry + sidbyteskrav**:
+  `_underBridgeEntryLat/Lon` fångas när latchen sätts (:580–581, :602–603); vid
+  latch-clear (:618–654) ankras passagen ENDAST om fartyget bytt sida om bron
+  relativt entry (`hasChangedBridgeSide`, geometry.js:443; :636–644) —
+  samma-sida-utglidning ankrar ingen passage (:645–649).
+- PassageLatchService blockerar retrograda statusar efter registrerad passage
+  (radlista i §1); latchar rensas vid removal (VDS:740–742).
 
-### Förtöjningslagren (VDS `_updateMooringEvidence`, :1633–1757)
+### Förtöjningslagren (VDS `_updateMooringEvidence`, :1588–1712)
 
 1. **Rörelsebevis** (klistrar): sog ≥ 0.5 kn direkt; nettoförflyttning ≥50 m
-   kräver 2 konsekutiva prover, GPS-flaggade prover räknas inte (S-F5, :1636–1668).
-   Utan bevis: ingen målbro och ingen notis (RC-S3, app.js:~3539).
-2. **Demotering, inte borttagning**: `_moored` + target ⇒ target rensas
-   (VDS:130–139), fartyget behålls (ingen re-entry-churn).
-3. **Navstatus**: 1 (ankar)/5 (förtöjd) + stillaliggande (:1711–1713).
+   kräver 2 konsekutiva prover, GPS-flaggade räknas inte (S-F5, :1598–1618).
+   Utan bevis: ingen målbro och ingen notis (RC-S3, app.js:3723–3728).
+2. **Demotering, inte borttagning**: `_moored` + target ⇒ target och
+   `_pendingTarget` rensas, protection släpps (VDS:126–135), fartyget behålls.
+3. **Navstatus**: 1 (ankar)/5 (förtöjd) + stillaliggande (:1666–1668).
 4. **Kajzon**: stationär i MOORING_ZONE kräver stillhetsTID — 3 min normalt,
-   **15 min** för trolig köare (target inom 600 m + rörelsebevis) (:1715–1741).
-5. **2h-backstop**: stationär > MAX_STATIONARY_WAIT_MS (:1743–1747).
+   **15 min** för trolig köare (target inom 600 m + rörelsebevis) (:1681–1696).
+5. **2h-backstop**: stationär > MAX_STATIONARY_WAIT_MS (:1698–1702).
    Släpp-hysteres: tydlig avgång (≥0.5 kn) direkt; gråzon kräver 2 prover
-   (:1683–1698); navstatus-flap ensam släpper inte (:1705–1710).
+   (`_mooredReleasePending`, :1638–1653); navstatus-flap ensam släpper inte
+   (:1660–1665).
 
-### ETA-extrapoleringens tillstånd (app.js `_reevaluateVesselStatuses`, :3101–3347)
+### ETA-extrapoleringens tillstånd (app.js `_reevaluateVesselStatuses`, :3262–3531)
 
-Flaggor (persisteras i `_createVesselObject`, VDS:2867–2870): `_etaIsExtrapolated`,
-`_etaExtrapolationExhausted`, `_etaExtrapolationBaseMs/Value`, `_etaPublishedValue`,
-`_isImminentAtTargetBridge`. Flöde per omvärdering (30 s-watchdogen driver):
+Flaggor (bärs av `_createVesselObject`-fältlistan, §8a): `_etaIsExtrapolated`,
+`_etaExtrapolationExhausted`, `_etaExhaustedAtMs`, `_etaExtrapolationBaseMs/Value`,
+`_etaPublishedValue`, `_isImminentAtTargetBridge`. Per omvärdering (30 s-watchdogen):
 - Färskt rent sampel ⇒ `calculateETA` + RC4-dämpning mot publicerat värde
-  (`_reconcilePublishedETA`:1943), extrapolationstillståndet nollas (:~3151–3163).
-- Stale 5–10 min (Fix G) ⇒ extrapolera ned (kräver sog ≥ 1.0 kn; :~3185–3215);
-  når den 0 ⇒ `_etaExtrapolationExhausted = true` (visar "strax" i st.f. "okänd").
+  (`_reconcilePublishedETA`:2073), extrapolationstillståndet nollas (:3298–3322).
+- Stale 5–10 min (Fix G) ⇒ extrapolera ned (kräver sog ≥ 1.0 kn; :3351–3379);
+  når den 0 ⇒ `_etaExtrapolationExhausted = true` + `_etaExhaustedAtMs = nu`
+  (:3391–3398; visar "strax" i st.f. "okänd").
 - Stale >10 min ⇒ ETA null + flaggor rensas (Anomali 3-säkerhetsval; gatas på
-  `lastPositionUpdate`, F40 medvetet).
-- Fix H imminent (:~3240–3337): target + färsk AIS + ej GPS-hold + ≤300 m ⇒
-  `_isImminentAtTargetBridge = true`; **IMMINENT_SET_EXHAUSTED**: exhausted-flaggan
-  + `distToTarget <= 500` m ⇒ imminent trots >300 m (:3316–3321; övre gräns 500 m
-  infördes 2026-07-02). Echo-gate: GPS-osäkert sampel behåller föregående
-  imminent-läge (:~3255–3262).
+  `lastPositionUpdate`, F40 medvetet; :3338–3350).
+- Fix H imminent (:3429–3517): target + färsk AIS + ej GPS-hold + ≤300 m ⇒
+  `_isImminentAtTargetBridge = true` (:3513–3517); **IMMINENT_SET_EXHAUSTED**
+  (:3496–3505): exhausted + ≤500 m ⇒ imminent trots >300 m, MEN bara inom **90 s**
+  av uttömningen (`_etaExhaustedAtMs`, ZWERK-tidslocket 2026-07-03 — därefter
+  "ETA okänd"). Echo-gate/imminent-hold: GPS-osäkert sampel behåller föregående
+  imminent-läge ENDAST om datat är färskt ≤10 min (F40-gränsen; :3429–3442);
+  per-tick-nollningen sker :3441. **B6**: vid TARGET_END nollas
+  imminent/exhausted/`_etaExhaustedAtMs` även i VDS (VDS:2476–2484, ovan).
 
 ## 5. bridge_text-pipelinen
 
-1. **RC7-presentationsfiltret** (VDS `getVesselsForBridgeText`:1210–1330):
-   fartyg vars senast MOTTAGNA data är äldre än nivågränsen döljs (behålls internt).
-   Nivåer: (a) nära-stilla vid sista kontakt (sog < 1.5) ⇒ 25 min;
-   (b) kö-klassen (sog < 3.0 OCH ≤600 m från närmaste bro) ⇒ 25 min;
-   (c) mitt-i-passage (≤300 m från MÅLBRON) ⇒ 20 min; (d) annars (SABETH-klassen,
-   rörlig långt från broar) ⇒ 10 min (:1252–1276). Därefter: giltig målbro eller
-   nära Stallbackabron eller i 180 s passagefönster (:1279–1312), ankringsfilter
-   (:1315) och relevant status (:1321–).
-2. **Projektion** (app.js `_findRelevantBoatsForBridgeText`:3353–3415): explicit
+1. **RC7-presentationsfiltret** (VDS `getVesselsForBridgeText`:1165–1307):
+   fartyg vars senast MOTTAGNA data är äldre än nivågränsen döljs (behålls
+   internt). Nivåer: (a) nära-stilla vid sista kontakt (sog < 1.5) ⇒ 25 min
+   (:1208); (b) kö-klassen (sog < 3.0 OCH ≤600 m från närmaste bro) ⇒ 25 min
+   (:1212); (c) mitt-i-passage (≤300 m från MÅLBRON) ⇒ 20 min (:1223); (d)
+   annars (SABETH-klassen) ⇒ 10 min (:1182, :1207). Därefter: giltig målbro/nära
+   Stallbackabron/180 s passagefönster, ankringsfilter, relevant status (:~1230–1307).
+2. **Projektion** (app.js `_findRelevantBoatsForBridgeText`:3537–3594): explicit
    fältlista till BridgeTextService inkl. `_etaIsExtrapolated` och
-   `_isImminentAtTargetBridge` (F4 — fälla, se §8a).
-3. **BridgeTextService** (lib/services/BridgeTextService.js, 186 rader, stateless):
-   **Variant-1-grammatiken** — en fras per målbrogrupp:
-   `"[Räkneord] [båt|båtar] på väg mot [Klaffbron|Stridsbergsbron], [ETA-klausul]"`
-   (:125–141). Endast målbroar nämns. ETA-klausul via `formatETABroOpeningClause`
-   (SSOT, etaValidation): ogiltig ⇒ "ETA okänd"; <3 min ELLER imminent ⇒
-   "beräknad broöppning strax" (imminent gäller HELA gruppen, F45 :134);
-   ≥3 min ⇒ "om N minuter" (extrapolerad ⇒ "om cirka N minuter").
-   Lead-båt = lägst giltig ETA, annars kortast distans (:151–165).
-   Multi-target-separator "; ", Klaffbron först (:98–109). Tom input ⇒
-   DEFAULT_MESSAGE ("Inga båtar är i närheten av Klaffbron eller Stridsbergsbron").
-4. **UI-coalescing** (app.js): `_updateUI`:2009 → `_scheduleCoalescedUpdate`:2017
+   `_isImminentAtTargetBridge` (F4 — fälla, §8a); `_processingRemoval` filtreras bort.
+3. **BridgeTextService** (199 rader, stateless): **Variant-1-grammatiken** — en
+   fras per målbrogrupp (`_buildGroupPhrase`:126–154): `"[Räkneord] [båt|båtar]
+   på väg mot [Klaffbron|Stridsbergsbron], [ETA-klausul]"` (:153). Endast
+   målbroar nämns. ETA-klausul via `formatETABroOpeningClause` (SSOT,
+   etaValidation): ogiltig ⇒ "ETA okänd"; <3 min ELLER imminent ⇒ "beräknad
+   broöppning strax" (imminent gäller HELA gruppen, F45 :146–147); ≥3 min ⇒
+   "om N minuter" (extrapolerad ⇒ "om cirka N minuter"). **B6-zombieundantaget**
+   (:134–151): fartyg vars target redan ligger i `passedBridges` räknas i
+   antalet men driver varken imminent eller lead-ETA (isZombie :134–135; lead
+   väljs ur zombie-fria mängden :136–138). Lead-båt = lägst giltig ETA, annars
+   kortast distans (`_selectLeadVessel`:164–178). Separator "; ", Klaffbron först
+   (:91–110). Tom input ⇒ DEFAULT_MESSAGE ("Inga båtar är i närheten av Klaffbron
+   eller Stridsbergsbron").
+4. **UI-coalescing** (app.js): `_updateUI`:2139 → `_scheduleCoalescedUpdate`:2147
    (micro-grace 15/25/40 ms per signifikans; critical/immediate bypassar;
-   high-event krymper väntetiden till 10 ms). `_actuallyUpdateUI` kan lägga
-   200 ms micro-grace + omsnapshot. 30 s-watchdog driver självläkning (:~4975).
-5. **Publicering** (`_processUIUpdate`:2263): F29-vakt (GPS-hållen ensam båt ⇒
-   behåll förra texten, :~2286–2305); summary-validering; **stale-guard**: AIS
-   nere >2 min ⇒ texten ersätts med STALE_DATA_OVERRIDE_TEXT ("AIS-anslutning
-   saknas — data kan vara inaktuell", :64, :2332–2345) och alarm_generic tvingas
-   AV (C8, :~2427); hash-dedupe (`_lastBridgeTextHash`) + 60 s tvångsrefresh
-   (ej vid passed-fartyg); loggtaggar UI_UPDATE (ändrad) vs UI_REFRESH (RC6).
-   Skriver `bridge_text`, `connection_status`, `alarm_generic` (capabilities i
-   drivers/bridge_status) + global token `global_bridge_text` (:~4462).
-   Specialfall sista båten borta: DEFAULT tvingas + hash synkas (F25, :1074–1107);
-   P8: sista båten borta MEDAN AIS nere ⇒ behåll texten (:1064–1073).
+   high-event krymper till 10 ms). `_actuallyUpdateUI` (:2251) kan lägga 200 ms
+   micro-grace + omsnapshot. 30 s-watchdog driver självläkning (:5302–5313).
+5. **Publicering** (`_processUIUpdate`:2393): **fel-snapshot-guard** (:2402–2405,
+   `snapshot.error` ⇒ behåll förra texten — tom lista pga krasch är "vet ej",
+   inte "tom kanal"); F29-vakt (GPS-hållen ensam båt ⇒ behåll förra texten,
+   :2432–2445); **stale-guard**: AIS nere >2 min ⇒ STALE_DATA_OVERRIDE_TEXT
+   ("AIS-anslutning saknas — data kan vara inaktuell", :64, :2476–2485) och
+   alarm_generic tvingas AV (C8, :2567–2586); hash-dedupe + 60 s tvångsrefresh
+   (ej vid passed-fartyg, :2488–2499); loggtaggar UI_UPDATE vs UI_REFRESH (RC6).
+   Skriver capabilityerna `bridge_text`/`connection_status`/`alarm_generic`
+   (drivers/bridge_status) + global token `global_bridge_text` (:2514, skapas
+   :4703). Sista båten borta: DEFAULT tvingas + hash synkas (F25, :1195–1228);
+   **P8 + feedstall**: DEFAULT-tvånget gatas på `!_isConnected` ELLER
+   feed-tystnad >5 min ("ansluten men döv", FEED_SILENT_GUARD_MS :1173,
+   villkor :1185) ⇒ behåll texten (:1185–1194).
 
 ## 6. Persistens (homey.settings)
 
 | Nyckel | Läses | Skrivs | Innehåll |
 |---|---|---|---|
-| `debug_level` | app.js:132, :358–368 | Homey-UI | 'basic'/... loggnivå; settings-listener :~358 |
-| `ais_api_key` | :~375, :~1689 (connect) | Homey-UI | API-nyckel; ändring ⇒ `reconnectWithKey` (F8, :370–390) |
-| `persistent_recent_triggers` | `_loadPersistentTriggers`:402–433 | `_persistRecentTriggers`:491–507 | 2h-notisdedupe `{ "mmsi:Bro": {t, dir} }` |
-| `known_vessel_names` | `_loadVesselNames`:515–540 | `_persistVesselNames`:547–570 | B1-namncache `{ mmsi: {name, t} }`, 30 d TTL, max 200 poster |
+| `debug_level` | app.js:132, listener :365–378 | Homey-UI | 'basic'/... loggnivå; listener registreras :402 |
+| `ais_api_key` | :5005 (boot), :5144 | Homey-UI | API-nyckel; ändring ⇒ `reconnectWithKey` (F8, :379–397) |
+| `persistent_recent_triggers` | `_loadPersistentTriggers`:411 | `_persistRecentTriggers`:505 | 2h-notisdedupe `{ "mmsi:Bro": {t, dir} }` |
+| `known_vessel_names` | `_loadVesselNames`:529 | `_persistVesselNames`:561 | B1-namncache `{ mmsi: {name, t} }`, 30 d TTL, max 200 poster (äldst-först-eviction); skrivs via `_rememberVesselName`:593 bara vid nytt/ändrat namn eller >24 h sedan sist |
+| `last_known_positions` | `_loadLastKnownPositions`:615 | `_persistLastKnownPositions`:646 | `{ mmsi: {lat, lon, t} }`, 6 h TTL; skrivs vid removal (:1084–1090); begränsar skipped-bridges-scenario A för återfödda båtar (§3) |
 
 Mönstret (mall för framtida cacher): ladda i konstruktorn med expiry-filter och
-defensiva guards; **write-through vid varje mutation** (låg skrivfrekvens);
-rollback vid misslyckad operation (:4283–4290); TTL-städning i monitoring-loopen
-(`_setupMonitoring`:4883, intervall 60 s: rensar döda mmsi ur session-Set:en,
-utgångna 2h-poster + persist, samt kör `_checkAISFeedHealth` B2-watchdogen,
-:~4894–4940); slutlig flush i `onUninit` (:~5000). Migrationsvänlig läsning:
-gamla talposter accepteras jämte nya `{t, dir}` (:404–416).
+guards; **write-through vid varje mutation**; rollback vid misslyckad operation
+(:4562–4571); migrationsvänlig läsning (talposter jämte `{t, dir}`, :424–433).
+
+**Monitoring-loopen** (`_setupMonitoring`:5168, 60 s, avstängd i test-läge):
+döda mmsi ur session-Set:en (:5183–5204); utgångna 2h-poster + persist
+(:5206–5223); namncache-TTL (:5225–5239); **SystemCoordinator.cleanup()**
+(:5241–5251 — anropades tidigare aldrig i drift); `_aisRejectLogTimes` (:5253);
+`last_known_positions`-TTL (:5265–5277); `_checkAISFeedHealth`
+B2-feedstall-watchdogen (:5282, def :5112).
+
+**`onUninit`** (:5321): removal-timers + `_processingRemoval` + monitoring-
+intervall (:5328–5347); **destroy-kedjan** passageLatchService/routeOrderValidator/
+gpsJumpGateService `.destroy()` (:5353–5359); självtest-timern (:5362–5365);
+coalescing-/immediate-/watchdog-timers + mappar (:5368–5392); `VDS.clearAllTimers()`
+(:5395); `aisClient.disconnect()` (:5400); slutlig flush av ENBART
+`persistent_recent_triggers` (:5406 — namncachen och last_known_positions litar
+på write-through + monitoring); removeAllListeners + lyssnare av (:5411–5435).
 
 ## 7. Replay-/testharnessen (tests/replay-validation/)
 
 Permanent valideringsverktyg — kör den RIKTIGA appen mot inspelad AIS-jsonl.
 - `replayRunner.js`: v2 med @sinonjs/fake-timers — klockan driver BÅDE Date.now
-  och timers (`clock.tick(gap)` mellan samples) så cleanup/STALE_AIS/monitoring
-  fyrar som i drift; setImmediate hålls äkta för microtask-dränering (:1–30).
-- `corpora.js`: manifest med 7 korpusar; `locked` + `expectedNotifications` +
-  motiverad `note` vid omlåsning = **facit**. Jsonl/prodloggar bor i `../logs/`.
-- `corpora-distribution.json`: fördelningslåsning per fartyg+bro (inte bara antal).
-- `invariants.js`: facit-OBEROENDE sanningskontroller INV-1…INV-14 (grammatik,
-  notiskvalitet/dubbletter, ETA-sågtand, count-degradering, journey⇒notis,
-  sluttext-DEFAULT, notis-timing ≤60 s, klausulstruktur, strax-zombie m.fl.).
+  och timers (`clock.tick(gap)` mellan samples, :89–92, :214–215); setImmediate/
+  nextTick hålls äkta. Init KRÄVER `__TEST_MODE__=true` (:95; av före uppspelning
+  :206–207). Notisfångsten bär name/distance/source (:307–327) +
+  positionsberikning (närmaste sampel före/efter per mmsi → vesselLat/Lon/LatNext
+  :329–354; firstNameSeen :358–365) för INV-8/11/15. `ctrl:'restart'` = äkta
+  processomstart (:246–264): `onUninit()` → `new AISBridgeApp()` → `onInit()`;
+  persistensen återläses ur samma mock-settings; notiser samlas över instanserna.
+- `corpora.js`: **8 låsta korpusar (~101,5 h** = 4+41+1+4+19+11+2+19,5) med
+  `expectedNotifications` + motiverad `note` vid omlåsning = **facit**;
+  `corpora-distribution.json` låser fördelningen per fartyg+bro. Data i `../logs/`.
+- `invariants.js`: facit-OBEROENDE sanningskontroller **INV-1…INV-18**. Fatala:
+  INV-1…14 + INV-16 (`validateInvariants`; INV-8 namnkvalitet/INV-11
+  distansrimlighet/INV-16 ETA-fysik <30 kn SKÄRPTES från WARN 2026-07-03). WARN:
+  INV-15/17/18 (`validateWarnInvariants`, kalibrerade: INV-15 riktning-vs-geografi
+  ~220 m (0,002°); INV-17 textflappbudget max(40, 24×antal fartyg)/h; INV-18
+  mjuk ETA-monotoni ≥8 min inom 15 min).
 - `scenarioGenerator.js` + `runSyntheticScenarios.js`: seedade syntetiska resor
-  genom riktig brogeometri (situationer som aldrig förekommit i korpus).
+  genom riktig brogeometri — **35 scenarier**; `nameFromS` (:139–142) simulerar
+  sen namn-backfill: "Unknown" sänds tills t ≥ nameFromS s (VALEN-klassen).
+- `runSoak.js`: separat 72 h-soak (seed 46: 2 kajliggare + 36 genomresor, 2
+  avbrott + 2 äkta restarts); bedömer STABILITET (0 processfel, inga läckor,
+  fatala invarianter rena, ≥5 notiser/fullbordad resa) — inte facit. Körs
+  manuellt (`node tests/replay-validation/runSoak.js`; medvetet inget npm-script).
 - Körs: `npm run replay:all` / `npm run replay:synthetic`.
-- KÄND fidelitetsbrist historiskt löst i v2; kvarvarande: se minnesanteckning.
 
 ## 8. KÄNDA FÄLLOR
 
 **(a) De två explicita fältlistorna.** Vesselobjektet BYGGS OM vid varje
-AIS-meddelande (`_createVesselObject`, VDS:2664–2874) och SNAPSHOT:as vid removal
-(`vesselSnapshot`, VDS:621–652). Fält som inte uttryckligen kopieras **raderas
-tyst**. Fyra kända offer: (1) `passedAt` m.fl. i `_createVesselObject`
-(2026-06-13, VDS:2751–2756); (2) ålderfälten `timestamp`/`lastPositionUpdate`/
+AIS-meddelande (`_createVesselObject`, VDS:2633–2865) och SNAPSHOT:as vid removal
+(`vesselSnapshot`, VDS:625–664). Fält som inte uttryckligen kopieras **raderas
+tyst**. SJU kända offer: (1) `passedAt` m.fl. i `_createVesselObject`
+(2026-06-13, VDS:2725–2730); (2) ålderfälten `timestamp`/`lastPositionUpdate`/
 `_lastSeen` i snapshotten — gjorde F63-exit-vakten till död kod (CLABBYDOO,
-VDS:644–651); (3) `_isImminentAtTargetBridge` (echo-flappen, VDS:2766–2772);
+VDS:648–655); (3) `_isImminentAtTargetBridge` (echo-flappen, VDS:2740–2746);
 (4) `name` vs `shipName` i snapshotten — exit-notiser hette alltid "Unknown"
-(VDS:630–633). **REGEL: varje nytt fält som konsumeras efter removal eller
-över meddelandegränser MÅSTE läggas till i BÅDA fältlistorna.**
+(VDS:634–637); (5) `_etaExhaustedAtMs` i `_createVesselObject` — 90 s-fönstret
+började om varje meddelande (VDS:2860–2861); (6) `maxRecentSpeed`/`passedAt` i
+snapshotten — RC3-stale-gaten degraderade till momentan sog (SILJA-klassen,
+VDS:656–663); (7) `currentBridge`/`distanceToCurrent` i `_createVesselObject` —
+**CBM-hysteresens rotorsak**: fälten var undefined varje tick så hela
+500/600 m-hysteresen var död (VDS:2788–2793). Fältlistan bär numera även
+`_underBridgeFrozenAccMs` (:2787), `_underBridgeEntryLat/Lon` (:2796–2797) och
+`_pendingTarget` (:2765). **REGEL: varje nytt fält som konsumeras efter removal
+eller över meddelandegränser MÅSTE läggas till i BÅDA fältlistorna.**
 
-**(b) OneDrive gör lint långsamt.** Projektet ligger i OneDrive-synkad katalog —
-kör eslint per fil, inte över hela trädet.
+**(b) OneDrive gör lint långsamt.** Kör eslint per fil, inte över hela trädet.
 
 **(c) Jest fyller disken.** Pipa `npm test` till en sammanfattning (t.ex.
 `| tail`), annars ENOSPC av verbose-utskrifterna.
 
-**(d) Source-fältlistan för Flow-state.** Trigger-state är numera
-`{ bridge, mmsi, distance, source }` (app.js:4271–4273) med source-värdena
+**(d) Source-fältlistan för Flow-state.** Trigger-state är
+`{ bridge, mmsi, distance, source }` (app.js:4546) med source-värdena
 `target | current | nearest | just-passed | trigger-point | passage-fallback`
-(§3). Replay-invarianterna och ev. run-listener-filter konsumerar dessa — ett
-nytt source-värde eller state-fält måste synkas med invariants.js och
-Flow-kortets förväntningar, annars felklassas notiser i valideringen.
+(§3). Replay-invarianterna och run-listenern (:4743) konsumerar dessa — nya
+source-värden/state-fält måste synkas med invariants.js, annars felklassas
+notiser i valideringen.
 
-## 9. Granskningsfynd (avvikelser funna vid läsningen)
+## 9. Granskningsfynd (kvarvarande avvikelser i KODEN)
 
-1. **app.js redigerades under granskningen** (mtime 14:00 → 14:02 2026-07-03;
-   4985 → 5113 → 5158 rader: B1-namncachen + "Okänd båt"-tokenfallbacken).
-   Uppdragets/minnets äldre radnummer (persistens "392–497", gate-kedjan
-   "3870–3990", IMMINENT "3163", TTL "4757", trigger-state "~4110") är
-   förskjutna ca +120–160 rader; detta dokuments nummer avser 5158-versionen.
-2. **Stale kommentar om removal-fönstret**: app.js:~1211 loggar "scheduling
-   removal in 60s" och :~1228 kommenterar "60 sekunder enligt spec", men timern
-   använder `PASSAGE_TIMING.PASSED_HOLD_MS` = 150 000 ms = 2,5 min
-   (constants.js:330). Koden vinner; kommentarerna bör rättas.
-3. **Stale lagerräkning i constants.js**: kommentaren :193–196 säger "Fyra
-   lager" men listar och koden implementerar FEM (rörelsebevis, demotering,
-   navstatus, kajzon, backstop).
-4. **Variabelnamn kvar från gammalt format**: `_persistRecentTriggers`
-   (app.js:500) itererar `[key, ts]` där `ts` numera är `{t, dir}`-objekt —
-   fungerar (JSON-serialisering), men namnet vilseleder.
-5. **Fjärde settings-nyckeln**: `known_vessel_names` (B1, 2026-07-03) fanns inte
-   i uppdragsbeskrivningens lista (debug_level/ais_api_key/persistent_recent_triggers)
-   — dokumenterad i §6.
-6. **Removal-snapshotten** är VDS:621–652 (inte 621–649) — utökad med name- och
-   ålderfälten efter fältlist-offren 2/4.
-7. **Stale radhänvisning i BridgeTextService**: kommentaren "API stability with
-   app.js:597" (BridgeTextService.js:43) — anropsplatsen är numera app.js:~1052.
-8. **StallbackabronHelper är i praktiken tom** (endast `isStallbackabron`) trots
-   att StatusService fortfarande instansierar den (:34) — kandidat för borttagning.
+Kvarvarande kod-skönhetsfel (funna vid helrevisionen 2026-07-05):
+
+1. **Stale loggrad**: app.js:1332 loggar "scheduling removal in 60s" men timern
+   använder PASSED_HOLD_MS = 150 s (constants.js:330); bara loggsträngen ljuger.
+2. **Vilseledande variabelnamn**: `_persistRecentTriggers` (app.js:505) itererar
+   `[key, ts]` (:514) där `ts` numera är `{t, dir}`-objekt.
+3. **Stale korpussumma**: runAllCorpora.js:4 säger "~65h", manifestet summerar
+   101,5 h (banret räknar dynamiskt och skriver rätt).
+4. **Offer-numreringen hoppar över 5**: koden märker 4:e/6:e/7:e offret
+   (VDS:634/656/2788); 5:e (`_etaExhaustedAtMs`) är bara belagt i
+   tests/bridge-text-livscykel-b4b5b6.test.js:72 ("5:e offret-vakt").
+
+Åtgärdat sedan 2026-07-03: "Fem lager"-kommentaren rättad (constants.js:193);
+MessageBuilder/ETAFormatter/StallbackabronHelper raderade — noll levande
+förekomster (grep 2026-07-05); `shouldDebounceBridgeText` numera privat i
+SystemCoordinator, ingen publik `hasActiveCoordination`.

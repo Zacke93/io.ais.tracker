@@ -35,7 +35,7 @@ describe('RouteOrderValidator – validering av broordning', () => {
       cog,
       lat: 58.28,
       lon: 12.28,
-      speed: 5.0,
+      sog: 5.0, // fältet heter sog (S-F1) — registerPassage lagrar vessel.sog
       ...overrides,
     };
   }
@@ -201,17 +201,19 @@ describe('RouteOrderValidator – validering av broordning', () => {
       expect(result.confidence).toBe(0.7);
     });
 
-    test('KÄND BUGG: COG exakt 0° detekteras INTE som riktningsbyte (falsy-check i _hasDirectionChanged)', () => {
-      // _hasDirectionChanged gör `!currentVessel.cog` vilket är sant för 0 (rakt norrut).
-      // En vändning till exakt nordlig kurs missas därför och passagen blockeras
-      // som bakåtpassage. Testet låser NUVARANDE (buggiga) beteende — fixa ej här.
+    test('FIXAT 2026-07-05: COG exakt 0° detekteras som riktningsbyte (Number.isFinite-check)', () => {
+      // Tidigare gjorde _hasDirectionChanged `!currentVessel.cog`, vilket är
+      // sant för 0 (rakt norrut) — vändningen missades och passagen blockerades
+      // som bakåtpassage. Nu släpper Number.isFinite igenom 0 och vändningen
+      // syd→nord gör passagen legitim.
       validator.registerPassage(MMSI, 'Stridsbergsbron', makeVessel(180));
       mockNow += 5 * 60 * 1000;
 
       const result = validator.validatePassageOrder(MMSI, 'Klaffbron', makeVessel(0));
 
-      expect(result.valid).toBe(false);
-      expect(result.reason).toBe('backwards_sequence_Stridsbergsbron_to_Klaffbron');
+      expect(result.valid).toBe(true);
+      expect(result.reason).toBe('direction_change_detected');
+      expect(result.confidence).toBe(0.7);
     });
   });
 

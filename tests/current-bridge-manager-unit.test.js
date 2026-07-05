@@ -118,31 +118,43 @@ describe('CurrentBridgeManager – hysteres för currentBridge', () => {
       expect(vessel.distanceToCurrent).toBeNull();
     });
 
-    test('rensningen använder LAGRAT avstånd → en uppdaterings fördröjning (dokumenterat beteende)', () => {
-      // Regel 2 jämför vessel.distanceToCurrent (föregående värde) mot 600 m,
-      // inte det färska avståndet. Första avläsningen bortom 600 m uppdaterar
-      // bara avståndet (Regel 3); rensningen sker först nästa avläsning.
+    test('rensningen sker på FÄRSKT avstånd — ingen fördröjning (fixat 2026-07-03)', () => {
+      // Produktionsredo-fixen: avståndet till nuvarande bro räknas om FÖRST,
+      // så Regel 2 dömer på färskt värde och rensar direkt vid >600 m.
       const vessel = makeVessel({ currentBridge: 'Klaffbron', distanceToCurrent: 480 });
 
       manager.updateCurrentBridge(vessel, makeProximity('Klaffbron', 610));
-      expect(vessel.currentBridge).toBe('Klaffbron'); // ännu inte rensad
-      expect(vessel.distanceToCurrent).toBe(610);
-
-      manager.updateCurrentBridge(vessel, makeProximity('Klaffbron', 620));
-      expect(vessel.currentBridge).toBeNull(); // nu rensad (610 > 600)
+      expect(vessel.currentBridge).toBeNull(); // rensad direkt (610 > 600)
+      expect(vessel.distanceToCurrent).toBeNull();
     });
 
-    test('KÄND ANOMALI: currentBridge fastnar om en ANNAN bro blir närmast bortom 500 m', () => {
-      // Regel 3 uppdaterar bara avståndet när nearest.name === currentBridge.
-      // Om närmaste bro plötsligt är en annan (t.ex. efter GPS-hopp) och det
-      // lagrade avståndet är <= 600 m rensas currentBridge aldrig — det gamla
-      // avståndet fryses. Testet låser nuvarande beteende — rapporterad anomali.
+    test('currentBridge fastnar INTE när en ANNAN bro blir närmast (fixat 2026-07-03)', () => {
+      // Stuck-fyndet: gamla Regel 3 uppdaterade bara avståndet när nearest
+      // VAR currentBridge — annan-bro-närmast frös det lagrade avståndet.
+      // Omräkningen läser nu brons färska avstånd ur bridges-listan.
+      const vessel = makeVessel({ currentBridge: 'Klaffbron', distanceToCurrent: 400 });
+      const proximity = makeProximity('Stallbackabron', 900, {
+        bridges: [
+          { name: 'Klaffbron', distance: 750 }, // båten har dragit iväg
+          { name: 'Stallbackabron', distance: 900 },
+        ],
+      });
+
+      manager.updateCurrentBridge(vessel, proximity);
+
+      expect(vessel.currentBridge).toBeNull(); // rensad — inte fastnad
+      expect(vessel.distanceToCurrent).toBeNull();
+    });
+
+    test('utan färskt avstånd för currentBridge behålls lagrat värde (defensivt)', () => {
+      // Om proximitetsdatan saknar bron helt (minimal mock) kan avståndet
+      // inte räknas om — beteendet degraderar till det gamla (ingen krasch).
       const vessel = makeVessel({ currentBridge: 'Klaffbron', distanceToCurrent: 400 });
 
       manager.updateCurrentBridge(vessel, makeProximity('Stallbackabron', 900));
 
-      expect(vessel.currentBridge).toBe('Klaffbron'); // fastnar
-      expect(vessel.distanceToCurrent).toBe(400); // fryst gammalt avstånd
+      expect(vessel.currentBridge).toBe('Klaffbron');
+      expect(vessel.distanceToCurrent).toBe(400);
     });
 
     test('ingen närmaste bro alls: currentBridge i bandet behålls oförändrad', () => {
@@ -198,10 +210,10 @@ describe('CurrentBridgeManager – hysteres för currentBridge', () => {
       expect(vessel.distanceToCurrent).toBe(200);
     });
 
-    test('KÄND ANOMALI: passerad bro i 50–500 m-bandet flappar sätt→rensa varannan uppdatering', () => {
-      // Efter rensningen (Regel 0) är currentBridge null → nästa uppdatering
-      // sätter Regel 1 tillbaka den passerade bron (inom 500 m) → uppdateringen
-      // därefter rensar Regel 0 igen. Testet låser nuvarande beteende.
+    test('passerad bro i 50–500 m-bandet flappar INTE (fixat 2026-07-03)', () => {
+      // Flapp-fyndet: efter Regel 0-rensningen återsatte Regel 1 den
+      // passerade bron nästa tick → sätt→rensa-oscillation varannan
+      // uppdatering. Regel 1 hoppar nu över nyss passerad bro (>50 m bortom).
       const vessel = makeVessel({
         currentBridge: 'Klaffbron',
         lastPassedBridge: 'Klaffbron',
@@ -213,10 +225,10 @@ describe('CurrentBridgeManager – hysteres för currentBridge', () => {
       expect(vessel.currentBridge).toBeNull(); // rensad (Regel 0)
 
       manager.updateCurrentBridge(vessel, proximity);
-      expect(vessel.currentBridge).toBe('Klaffbron'); // återsatt (Regel 1)
+      expect(vessel.currentBridge).toBeNull(); // förblir rensad — ingen flapp
 
       manager.updateCurrentBridge(vessel, proximity);
-      expect(vessel.currentBridge).toBeNull(); // rensad igen (Regel 0)
+      expect(vessel.currentBridge).toBeNull();
     });
   });
 

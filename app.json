@@ -28,17 +28,6 @@
   "source": "https://github.com/Zacke93/io.ais.tracker",
   "sdk": 3,
   "compatibility": ">=6.0.0",
-  "startOnInstall": true,
-  "api": {
-    "getConnectionStatus": {
-      "method": "GET",
-      "path": "/getConnectionStatus"
-    },
-    "getSystemHealth": {
-      "method": "GET",
-      "path": "/getSystemHealth"
-    }
-  },
   "settings": [
     {
       "id": "ais_api_key",
@@ -51,7 +40,7 @@
         "en": "Create one at https://aisstream.io - Format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx",
         "sv": "Skapa en på https://aisstream.io - Format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
       },
-      "validation": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
     }
   ],
   "flow": {

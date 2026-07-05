@@ -207,10 +207,13 @@ class AISBridgeApp extends Homey.App {
     this._loadVesselNames();
 
     // F2-följdfix (2026-07-03, SPIKEN): sista kända position per mmsi vid
-    // removal — begränsar scenario A:s porten-antagande vid återfödelse
-    // (in-memory räcker: en processomstart nollar även vesselService).
+    // removal — begränsar scenario A:s porten-antagande vid återfödelse.
+    // Produktionsredo-granskningen: PERSISTERAS över omstart — utan detta
+    // återkom porten-antagandets falska notiser efter varje appomstart
+    // (F8-beslutet tog bort tidsskattningsstrypet som råkade maskera dem).
     this._lastKnownPositions = new Map();
     this._LAST_KNOWN_POSITION_TTL_MS = 6 * 60 * 60 * 1000; // 6 timmar
+    this._loadLastKnownPositions();
 
     // --- UI UPPDATERINGS-STATE ---
     // SYFTE: Spåra om en UI-uppdatering redan är schemalagd (förhindrar duplikat)
@@ -484,7 +487,12 @@ class AISBridgeApp extends Homey.App {
     const { cog } = vessel;
     if (!Number.isFinite(cog)) return null;
     if (cog >= 315 || cog <= 45) return 'north';
-    if (cog >= 135 && cog <= 225) return 'south';
+    // Produktionsredo (2026-07-03): sydband 135–314° — harmoniserat med
+    // _getDirectionString. Det smala bandet (135–225) lagrade dir=null för
+    // SV-kurs (226–314°, normal sydfärd i den NE–SV-orienterade kanalen)
+    // → ELFKUNGEN-undantaget (motsatt riktning släpper dedup) slog aldrig
+    // för sådana returresor.
+    if (cog >= 135 && cog < 315) return 'south';
     return null;
   }
 
@@ -503,8 +511,9 @@ class AISBridgeApp extends Homey.App {
         return;
       }
       const serialized = {};
-      for (const [key, ts] of this._persistentRecentTriggers.entries()) {
-        serialized[key] = ts;
+      // Värdet är sedan 2026-07-02 ett {t, dir}-objekt (inte ett rent tal).
+      for (const [key, entry] of this._persistentRecentTriggers.entries()) {
+        serialized[key] = entry;
       }
       this.homey.settings.set('persistent_recent_triggers', serialized);
     } catch (error) {
@@ -595,6 +604,61 @@ class AISBridgeApp extends Homey.App {
       if (!existing || existing.name !== trimmed) {
         this.log(`📛 [NAME_CACHE] ${key}: remembered vessel name "${trimmed}"${existing ? ` (was "${existing.name}")` : ''}`);
       }
+    }
+  }
+
+  /**
+   * SPIKEN-vaktens persistens (2026-07-03): sista kända position per mmsi
+   * överlever omstart. Samma defensiva mönster som _loadPersistentTriggers;
+   * TTL-filter (6 h) vid inläsning.
+   * @private
+   */
+  _loadLastKnownPositions() {
+    try {
+      if (!this.homey || !this.homey.settings || typeof this.homey.settings.get !== 'function') {
+        return;
+      }
+      const stored = this.homey.settings.get('last_known_positions');
+      if (!stored || typeof stored !== 'object') {
+        return;
+      }
+      const now = Date.now();
+      let loaded = 0;
+      for (const [mmsi, entry] of Object.entries(stored)) {
+        if (entry && Number.isFinite(entry.lat) && Number.isFinite(entry.lon)
+            && Number.isFinite(entry.t) && now - entry.t < this._LAST_KNOWN_POSITION_TTL_MS) {
+          this._lastKnownPositions.set(String(mmsi), entry);
+          loaded++;
+        }
+      }
+      if (loaded > 0) {
+        this.log(`🔁 [LAST_KNOWN] Restored ${loaded} last-known positions from settings (survives restart)`);
+      }
+    } catch (error) {
+      this.error('[LAST_KNOWN] Failed to load last-known positions:', error.message || error);
+    }
+  }
+
+  /**
+   * SPIKEN-vaktens persistens: skriv mappen till settings. Anropas vid
+   * mutation (removal) — låg frekvens, write-through är billigt.
+   * @private
+   */
+  _persistLastKnownPositions() {
+    try {
+      if (!this.homey || !this.homey.settings || typeof this.homey.settings.set !== 'function') {
+        return;
+      }
+      if (!this._lastKnownPositions) {
+        return;
+      }
+      const serialized = {};
+      for (const [mmsi, entry] of this._lastKnownPositions.entries()) {
+        serialized[mmsi] = entry;
+      }
+      this.homey.settings.set('last_known_positions', serialized);
+    } catch (error) {
+      this.error('[LAST_KNOWN] Failed to persist last-known positions:', error.message || error);
     }
   }
 
@@ -875,6 +939,10 @@ class AISBridgeApp extends Homey.App {
             // N6: uppdatera ruttriktningen så direction-token i kommande
             // notiser speglar den NYA resan (inte kvarvarande gamla låset).
             vessel._routeDirection = newDir;
+            // Produktionsredo (2026-07-03): tömd passedBridges besegrar
+            // B3-vakten — släpp kvarvarande protection så gamla resans bro
+            // inte RESTORE:as som target för den nya resan.
+            this.vesselDataService.clearTargetProtection?.(mmsi);
             // Rensa dedup-keys så broar i den nya riktningen kan trigga notiser.
             // F34: rensa ÄVEN persistent (clearPersistent=true) — en äkta ny resa
             // ska kunna notifiera samma broar igen även inom 2h-fönstret.
@@ -903,9 +971,22 @@ class AISBridgeApp extends Homey.App {
       // är inte aktuell: dedup-keys per bro garanterar EN notis per bro per
       // resa, och VesselLifecycleManager._isJourneyComplete tar bort vesseln
       // när den faktiskt har lämnat kanalen.
+      // Produktionsredo (2026-07-03, CONFIRMED): trigger-points (Kanalinfarten)
+      // ligger UTANFÖR brosystemet — en MÅLLÖS båt (återfödd utan target,
+      // >500 m från närmaste bro ⇒ ingen currentBridge) nådde aldrig
+      // _getFlowTriggerCandidates trigger-point-grenen och exit-notisen
+      // missades strukturellt (removal-fallbacken kräver dessutom
+      // _finalTargetDirection). Kör proximityn även när båten är inom
+      // triggerradien av en trigger-point.
+      const nearTriggerPoint = Number.isFinite(vessel.lat) && Number.isFinite(vessel.lon)
+        && Object.values(TRIGGER_POINTS).some((tp) => {
+          const d = geometry.calculateDistance(vessel.lat, vessel.lon, tp.lat, tp.lon);
+          return d !== null && d <= FLOW_CONSTANTS.FLOW_TRIGGER_DISTANCE_THRESHOLD;
+        });
       const shouldTriggerProximity = vessel.currentBridge
         || vessel.targetBridge
-        || vessel._finalTargetBridge;
+        || vessel._finalTargetBridge
+        || nearTriggerPoint;
       if (shouldTriggerProximity) {
         await this._triggerBoatNearFlow(vessel);
       }
@@ -1006,6 +1087,7 @@ class AISBridgeApp extends Homey.App {
       this._lastKnownPositions.set(String(mmsi), {
         lat: vessel.lat, lon: vessel.lon, t: Date.now(),
       });
+      this._persistLastKnownPositions();
     }
 
     // RACE CONDITION CHECK: Förhindra dubbel-processning
@@ -1081,15 +1163,35 @@ class AISBridgeApp extends Homey.App {
       const remainingVesselCount = currentVesselCount;
       this.debug(`🔍 [VESSEL_REMOVAL_DEBUG] Vessels remaining after removal: ${remainingVesselCount}`);
 
-      if (remainingVesselCount === 0 && !this._isConnected) {
+      // Produktionsredo (2026-07-03, CONFIRMED): P8-vakten gäller även
+      // "ansluten men döv" — B2-watchdogens eget motiverade fall (socket uppe,
+      // pong svarar, inga AIS-meddelanden på >5 min: tappad subscription/
+      // server slutat skicka). Utan detta tvingades DEFAULT ut som sanning
+      // när sista båten STALE-timeoutade under ett feedstall, och den falska
+      // "Inga båtar"-texten stod tills watchdogen tvingade reconnect
+      // (20–120 min efter backoff). Första meddelandet efter återhämtning
+      // uppdaterar texten precis som _onAISConnected gör efter disconnect.
+      const FEED_SILENT_GUARD_MS = 5 * 60 * 1000;
+      let feedSilentMs = null;
+      if (this.aisClient && typeof this.aisClient.getConnectionStats === 'function') {
+        try {
+          const feedStats = this.aisClient.getConnectionStats();
+          feedSilentMs = Number.isFinite(feedStats.timeSinceLastMessage)
+            ? feedStats.timeSinceLastMessage
+            : null;
+        } catch (_) { /* stats är best-effort */ }
+      }
+      const feedIsSilent = feedSilentMs !== null && feedSilentMs > FEED_SILENT_GUARD_MS;
+
+      if (remainingVesselCount === 0 && (!this._isConnected || feedIsSilent)) {
         // P8-fix (2026-06-09): det sista fartyget togs bort MEDAN AIS-strömmen
         // är nere (typiskt STALE_AIS-timeout under ett avbrott). Att då trycka
         // ut DEFAULT ("inga båtar...") är en lögn — vi VET inte att kanalen är
         // tom, vi har bara ingen data. Behåll senaste text; _onAISConnected
         // tvingar en färsk uppdatering så fort strömmen är tillbaka.
         this.log(
-          '🛡️ [VESSEL_REMOVAL_STALE_GUARD] Last vessel removed while AIS is disconnected — '
-          + 'keeping last bridge text until reconnect refresh',
+          `🛡️ [VESSEL_REMOVAL_STALE_GUARD] Last vessel removed while AIS is ${this._isConnected ? `silent (${Math.round((feedSilentMs || 0) / 1000)}s without messages)` : 'disconnected'} — `
+          + 'keeping last bridge text until data returns',
         );
       } else if (remainingVesselCount === 0) {
         // CRITICAL: Force bridge text update to default when no vessels remain
@@ -1228,7 +1330,7 @@ class AISBridgeApp extends Homey.App {
       }
 
       if (isTerminalTarget || this._hasPassedFinalTargetBridge(vessel)) {
-        this.debug(`🏁 [FINAL_BRIDGE_PASSED] Vessel ${vessel.mmsi} passed final target bridge ${vessel.targetBridge} - scheduling removal in 60s`);
+        this.debug(`🏁 [FINAL_BRIDGE_PASSED] Vessel ${vessel.mmsi} passed final target bridge ${vessel.targetBridge} - scheduling removal (PASSED_HOLD_MS)`);
 
         // RACE CONDITION FIX: Rensa gammal timer först (atomisk operation)
         if (this._vesselRemovalTimers.has(vessel.mmsi)) {
@@ -1236,8 +1338,9 @@ class AISBridgeApp extends Homey.App {
           this._vesselRemovalTimers.delete(vessel.mmsi);
         }
 
-        // VIKTIGT: "Precis passerat" meddelande måste visas i 60 sekunder
-        // Därför tas båt bort först efter denna period
+        // VIKTIGT: "Precis passerat"-meddelandet måste hinna visas hela
+        // visningsfönstret (PASSED_HOLD_MS = 150 s / 2,5 min) — därför tas
+        // båten bort först efter denna period
         try {
           const timerId = setTimeout(() => {
             // RACE CONDITION CHECK: Förhindra dubbel-borttagning
@@ -1245,7 +1348,7 @@ class AISBridgeApp extends Homey.App {
               this.vesselDataService.removeVessel(vessel.mmsi, 'passed-final-bridge');
             }
             this._vesselRemovalTimers.delete(vessel.mmsi);
-          }, PASSAGE_TIMING.PASSED_HOLD_MS); // 60 sekunder enligt spec
+          }, PASSAGE_TIMING.PASSED_HOLD_MS); // 150 s (2,5 min) visningsfönster
 
           this._vesselRemovalTimers.set(vessel.mmsi, timerId);
         } catch (error) {
@@ -1918,22 +2021,30 @@ class AISBridgeApp extends Homey.App {
       return false;
     }
 
-    // CRITICAL FIX: More robust SOG validation with finite check
-    if (message.sog !== undefined && (!Number.isFinite(message.sog) || message.sog < 0 || message.sog > VALIDATION_CONSTANTS.SOG_MAX)) {
+    // Produktionsredo (2026-07-03): null är LEGITIMT för sog/cog — AIS-spec
+    // tillåter "ej tillgänglig" och AISStreamClient levererar då null.
+    // Gamla kontrollen (`!== undefined` + finit-krav) avvisade HELA
+    // positionsrapporten: fartyget blev osynligt och notiser missades trots
+    // giltig position. Appens dokumenterade kontrakt är "null = okänd fart"
+    // — valideringen ska bara avvisa KORRUPTA värden (NaN, negativa, orimliga).
+    if (message.sog !== undefined && message.sog !== null
+        && (!Number.isFinite(message.sog) || message.sog < 0 || message.sog > VALIDATION_CONSTANTS.SOG_MAX)) {
       this.debug(`⚠️ [AIS_VALIDATION] Invalid SOG: ${message.sog}`);
       return false;
     }
 
-    // CRITICAL FIX: More robust COG validation with finite check and 360° normalization
-    if (message.cog !== undefined) {
+    if (message.cog !== undefined && message.cog !== null) {
       if (!Number.isFinite(message.cog) || message.cog < 0 || message.cog > 360) {
         this.debug(`⚠️ [AIS_VALIDATION] Invalid COG: ${message.cog}`);
         return false;
       }
-      // Normalize 360° to 0° (both represent north)
+      // AIS-spec (ITU-R M.1371): giltig COG är 0–359,9° — värdet 360 är
+      // sentinelen "kurs ej tillgänglig". Gamla normaliseringen 360→0
+      // FABRICERADE en nordkurs som matade riktnings-/mållogiken; rätt
+      // tolkning är okänd kurs (null).
       if (message.cog === 360) {
-        message.cog = 0;
-        this.debug('🔄 [AIS_VALIDATION] Normalized COG 360° to 0°');
+        message.cog = null;
+        this.debug('🔄 [AIS_VALIDATION] COG 360° = "not available" → null (okänd kurs)');
       }
     }
 
@@ -2283,6 +2394,16 @@ class AISBridgeApp extends Homey.App {
   async _processUIUpdate(snapshot) {
     try {
       this.debug(`📱 [SNAPSHOT_PROCESS] Processing UI update with ${snapshot.vesselCount} vessels`);
+
+      // Produktionsredo (2026-07-03): en FEL-snapshot (error:true — snapshot-
+      // vägen kastade) har en TOM vessellista som inte betyder "kanalen är
+      // tom" utan "vi vet inte". Att fortsätta publicerade falsk "Inga
+      // båtar"-text trots aktiva fartyg. Behåll senaste text; nästa lyckade
+      // snapshot uppdaterar.
+      if (snapshot.error === true) {
+        this.log('🛡️ [SNAPSHOT_ERROR_GUARD] UI snapshot failed — keeping last bridge text');
+        return { success: false, error: 'snapshot_error' };
+      }
 
       // Use snapshot data (already filtered and processed)
       const { relevantVessels, vesselsBeingRemoved } = snapshot;
@@ -2970,9 +3091,16 @@ class AISBridgeApp extends Homey.App {
     }
     // Review fix H2: route ETA clause through SSOT helper so descriptive
     // fallback can never emit "om 106 minuter" for a near-stationary vessel.
-    // The helper returns 'inväntar broöppning' / 'strax' / 'om N minuter'.
+    // Produktionsredo (2026-07-03, CONFIRMED): skicka med extrapolated/
+    // imminent-optionerna — utan dem kunde nödfallbacken visa hårt "strax"
+    // för en extrapolerad gissning (SSOT-hjälparen säger "cirka 2 minuter"
+    // för extrapolerade värden i strax-bandet). Hjälparen returnerar
+    // 'ETA okänd' / 'strax' / 'om (cirka) N minuter'.
     const etaSuffix = firstVessel.etaMinutes
-      ? `, ${formatETABroOpeningClause(firstVessel.etaMinutes)}`
+      ? `, ${formatETABroOpeningClause(firstVessel.etaMinutes, {
+        extrapolated: firstVessel._etaIsExtrapolated === true,
+        imminent: firstVessel._isImminentAtTargetBridge === true,
+      })}`
       : '';
 
     if (vesselCount === 1) {
@@ -3296,17 +3424,23 @@ class AISBridgeApp extends Homey.App {
         // osäkra positionen. Utan detta släcktes "strax" av ekot och tändes
         // igen av nästa rena sampel (flappen strax↔"om N minuter" i
         // fördröjd-gammal-position-scenariot). Nästa rena sampel härleder om.
-        const holdImminentForUncertain = (vessel._positionUncertain === true
-          || vessel._gpsJumpDetected === true)
-          && vessel.targetBridge;
-        if (!holdImminentForUncertain) {
-          vessel._isImminentAtTargetBridge = false;
-        }
         // F40 (medvetet EJ ändrat): se kommentar ovan. Imminent gatas på
         // positionsålder så vi inte påstår "broöppning strax" för en båt vars
         // position är >10 min gammal (Anomali-3-säkerhetsval).
         const ageMs = Date.now() - (vessel.lastPositionUpdate || 0);
         const dataIsFreshEnough = ageMs <= UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS;
+        // Produktionsredo (2026-07-03, CONFIRMED): hold-vägen delar F40:s
+        // färskhetsgräns. Utan den höll en båt som fastnat med
+        // _positionUncertain och sedan TYSTNAT sitt gamla "strax" i upp till
+        // 20–25 min (tills STALE-removal) — echo-gaten är till för sekunders
+        // eko-flapp, inte som evig frysning av stale data.
+        const holdImminentForUncertain = (vessel._positionUncertain === true
+          || vessel._gpsJumpDetected === true)
+          && vessel.targetBridge
+          && dataIsFreshEnough;
+        if (!holdImminentForUncertain) {
+          vessel._isImminentAtTargetBridge = false;
+        }
         if (vessel.targetBridge && !holdImminentForUncertain) {
           const ageS = Math.round(ageMs / 1000);
           if (!dataIsFreshEnough) {
@@ -4795,7 +4929,11 @@ class AISBridgeApp extends Homey.App {
       if (process.env.NODE_ENV === 'test' || global.__TEST_MODE__) {
         this.debug('🧪 [TRIGGER_TEST] Test mode detected - skipping automatic trigger self-test');
       } else if (selfTestEnabled) {
-        setTimeout(() => this._testTriggerFunctionality(), 5000);
+        // Produktionsredo (2026-07-03): spåra timern så onUninit kan rensa.
+        this._selfTestTimer = setTimeout(() => {
+          this._selfTestTimer = null;
+          this._testTriggerFunctionality();
+        }, 5000);
       } else {
         this.log('ℹ️ [TRIGGER_TEST] Automatic self-test disabled (set AIS_BRIDGE_SELFTEST=true to enable)');
       }
@@ -5050,7 +5188,13 @@ class AISBridgeApp extends Homey.App {
 
       for (const key of this._triggeredBoatNearKeys) {
         const mmsi = key.split(':')[0];
-        if (!activeMmsis.has(mmsi)) {
+        // Produktionsredo (2026-07-03): BUG 7 bevarar medvetet dedup-nycklar
+        // vid timeout-removal (re-entry inom samma passage) — men den här
+        // städningen raderade dem ändå inom 60 s och gjorde bevarandet dött.
+        // Behåll nycklar som fortfarande är dedup-relevanta enligt
+        // persistent-mappen (2h-TTL:n styr livslängden).
+        if (!activeMmsis.has(mmsi)
+            && !(this._persistentRecentTriggers && this._persistentRecentTriggers.has(key))) {
           keysToRemove.push(key);
         }
       }
@@ -5095,15 +5239,42 @@ class AISBridgeApp extends Homey.App {
         }
       }
 
+      // Produktionsredo (2026-07-03): SystemCoordinators 1h-städning av
+      // koordinationstillstånd anropades ALDRIG i produktion (bara i tester)
+      // — per-fartygs-poster för borttagna fartyg kunde ligga kvar. Koppla
+      // till monitoring-loopen (körs varje minut; cleanup är billig).
+      if (this.systemCoordinator && typeof this.systemCoordinator.cleanup === 'function') {
+        try {
+          this.systemCoordinator.cleanup();
+        } catch (error) {
+          this.error('[CLEANUP] SystemCoordinator cleanup failed:', error.message || error);
+        }
+      }
+
+      // Produktionsredo (2026-07-03): _aisRejectLogTimes (loggdedup för
+      // avvisade AIS-meddelanden) växte obegränsat — en post per unikt
+      // avvisat mmsi, aldrig städad. Rensa poster äldre än 1 h.
+      if (this._aisRejectLogTimes && this._aisRejectLogTimes.size > 0) {
+        const rejNow = Date.now();
+        for (const [mmsi, ts] of this._aisRejectLogTimes.entries()) {
+          if (!Number.isFinite(ts) || rejNow - ts > 60 * 60 * 1000) {
+            this._aisRejectLogTimes.delete(mmsi);
+          }
+        }
+      }
+
       // F2-följdfix (2026-07-03): rensa sista-kända-positioner äldre än TTL:n.
       if (this._lastKnownPositions && this._lastKnownPositions.size > 0) {
         const posNow = Date.now();
         const posTtl = this._LAST_KNOWN_POSITION_TTL_MS || 6 * 60 * 60 * 1000;
+        let posExpired = 0;
         for (const [mmsi, entry] of this._lastKnownPositions.entries()) {
           if (!entry || !Number.isFinite(entry.t) || posNow - entry.t >= posTtl) {
             this._lastKnownPositions.delete(mmsi);
+            posExpired++;
           }
         }
+        if (posExpired > 0) this._persistLastKnownPositions();
       }
 
       // B2-fix (2026-06-09): stale-data-watchdog — upptäcker "ansluten men
@@ -5174,6 +5345,24 @@ class AISBridgeApp extends Homey.App {
     if (this._monitoringInterval) {
       clearInterval(this._monitoringInterval);
       this._monitoringInterval = null;
+    }
+
+    // Produktionsredo (2026-07-03): destroy-kedjan för services med EGNA
+    // intervalltimers — de överlevde annars shutdown (timer-läcka om Homey
+    // återanvänder processen). PassageLatch 60 s-cleanup, RouteOrderValidator
+    // 2h-cleanup, GPSJumpGate 10 s/5 min-cleanup.
+    for (const svc of [this.passageLatchService, this.routeOrderValidator, this.gpsJumpGateService]) {
+      try {
+        if (svc && typeof svc.destroy === 'function') svc.destroy();
+      } catch (error) {
+        this.error('[CLEANUP] Service destroy failed:', error.message || error);
+      }
+    }
+
+    // Självtest-timern (spåras sedan 2026-07-03)
+    if (this._selfTestTimer) {
+      clearTimeout(this._selfTestTimer);
+      this._selfTestTimer = null;
     }
 
     // COALESCING CLEANUP: Clear all coalescing timers and state
