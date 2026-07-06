@@ -276,7 +276,11 @@ describe('RC4: publicerings-clamp mot ETA-sågtand', () => {
     const vessel2 = {
       mmsi: '1', targetBridge: 'Klaffbron', _etaPublishTarget: 'Klaffbron', _etaPublishedValue: 12, _etaPublishedAtMs: Date.now() - 6 * 60 * 1000,
     };
-    expect(app._reconcilePublishedETA(vessel2, 25)).toBe(21); // klipps vid 12+9
+    // Helgranskning 2026-07-06: toBeCloseTo — testet kör i REALTID (inga
+    // fake-timers) så millisekunderna mellan _etaPublishedAtMs-konstruktionen
+    // och klippberäkningen läcker in i glapp-skalningen (21,0000167 ≠ 21).
+    // Förexisterande flakighet, inte en produktändring.
+    expect(app._reconcilePublishedETA(vessel2, 25)).toBeCloseTo(21, 2); // klipps vid 12+9
   });
 
   test('målbrobyte släpper clampen', () => {

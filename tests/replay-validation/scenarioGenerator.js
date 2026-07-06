@@ -114,6 +114,9 @@ function pointAt(path, metrics, s) {
  * @param {number} [opts.nameFromS] - namnbackfill (B1/VALEN-klassen):
  *   shipName är "Unknown" tills resetid ≥ nameFromS sekunder — som aisstreams
  *   sena MetaData-backfill för Class B. Testar namncachen + notistokens.
+ * @param {boolean} [opts.sogNull] - Class B utan fartgivare (helgranskningen
+ *   2026-07-06): sog är null i VARJE rapport ("ej tillgänglig" enligt spec).
+ *   Rörelsebevis/målbro/notiser ska bäras helt av positionsdeltan.
  * @param {Function} rnd - seedad PRNG
  * @returns {Array<Object>} samples (jsonl-rader)
  */
@@ -145,7 +148,7 @@ function generateJourney(opts, rnd) {
       msgType: 'PositionReport',
       lat: lat + j.dLat,
       lon: lon + j.dLon,
-      sog: Math.max(0, sog + (rnd() * 0.2 - 0.1)),
+      sog: opts.sogNull ? null : Math.max(0, sog + (rnd() * 0.2 - 0.1)),
       cog: (cog + (rnd() * 6 - 3) + 360) % 360,
       navStatus: opts.navStatusOverride != null ? opts.navStatusOverride : navStatus,
       shipName,

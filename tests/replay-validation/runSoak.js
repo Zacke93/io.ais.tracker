@@ -144,7 +144,9 @@ try {
   if (result.fatal) throw new Error(`Replay-fatal: ${result.fatal}`);
 } finally {
   if (!process.env.SOAK_KEEP) {
-    try { fs.unlinkSync(tmpFile); } catch (_) { /* tomt */ }
+    try {
+      fs.unlinkSync(tmpFile);
+    } catch (_) { /* tomt */ }
   }
 }
 
@@ -157,7 +159,12 @@ if ((result.processErrors || 0) > 0) problems.push(`${result.processErrors} proc
 const LEAK_EXCEPTIONS = new Set(['triggeredBoatNearKeys', 'persistentRecentTriggers', 'heapUsedMB']);
 for (const [field, value] of Object.entries(leaks)) {
   if (LEAK_EXCEPTIONS.has(field)) continue;
-  if (Number.isFinite(value) && value !== 0) {
+  // Helgranskning 2026-07-06 (harness-corpora#R2-3): icke-finita värden
+  // inaktiverade kontrollen TYST — ett omdöpt/trasigt diagnostikfält såg ut
+  // som "ingen läcka". Nu är icke-finit själv ett fel.
+  if (!Number.isFinite(value)) {
+    problems.push(`LÄCKAGEDIAGNOSTIK TRASIG: ${field}=${value} (icke-finit — kontrollen kan inte köras)`);
+  } else if (value !== 0) {
     problems.push(`LÄCKA efter 72h: ${field}=${value} (ska vara 0)`);
   }
 }

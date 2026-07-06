@@ -91,8 +91,13 @@ describe('VesselDataService — re-entry prevention after completed journey (Bug
       cog: 200,
     };
     const shouldAssign = vesselDataService._shouldAssignTargetBridge(newVessel, null);
-    // Should not be blocked by re-entry prevention
-    // (may still fail other checks but not the re-entry one)
+    // Helgranskning 2026-07-06 (t-lifecycle#2): assertera RESULTATET —
+    // shouldAssign beräknades men prövades aldrig. REENTRY_BLOCK-loggen får
+    // heller inte förekomma (cooldownen har löpt ut).
+    expect(shouldAssign).toBe(true);
+    const reentryBlocked = logger.debug.mock.calls
+      .some(([msg]) => typeof msg === 'string' && msg.includes('REENTRY_BLOCK'));
+    expect(reentryBlocked).toBe(false);
     // Verify the completed journey record was cleaned up
     expect(vesselDataService._completedJourneys.has(MMSI)).toBe(false);
   });
@@ -112,12 +117,14 @@ describe('VesselDataService — re-entry prevention after completed journey (Bug
     };
     // Should not be blocked by re-entry prevention for different MMSI
     expect(vesselDataService._completedJourneys.has(OTHER_MMSI)).toBe(false);
-    // _shouldAssignTargetBridge may fail for other reasons but not re-entry
     const result = vesselDataService._shouldAssignTargetBridge(otherVessel, null);
-    // The re-entry check should pass (not blocking other MMSI)
-    // Note: result may be false due to other checks (like GPS, movement etc.)
-    // but the _completedJourneys check should not be the reason
-    expect(vesselDataService._completedJourneys.has(OTHER_MMSI)).toBe(false);
+    // Helgranskning 2026-07-06 (t-lifecycle#1): assertera resultatet OCH att
+    // re-entry-blocket specifikt inte var orsaken — tidigare kastades result
+    // och samma _completedJourneys-assertion upprepades två gånger.
+    expect(result).toBe(true);
+    const reentryBlocked = logger.debug.mock.calls
+      .some(([msg]) => typeof msg === 'string' && msg.includes(`REENTRY_BLOCK] ${OTHER_MMSI}`));
+    expect(reentryBlocked).toBe(false);
   });
 
   // --- Test 4: Cleanup of completed records after 15 min ---

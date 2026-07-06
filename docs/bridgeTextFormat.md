@@ -27,9 +27,17 @@ Klausulen avgörs i prioritetsordning (`lib/utils/etaValidation.js → formatETA
 |---|---|
 | **imminent** (vessel <300 m från målbro) | `beräknad broöppning strax` |
 | `null`, `undefined`, `NaN`, ogiltig ETA | `ETA okänd` |
-| `etaMinutes < 3` | `beräknad broöppning strax` |
+| **extrapolerad** och `etaMinutes < 3` | `beräknad broöppning om cirka 2 minuter` |
+| `etaMinutes < 3` (färsk data) | `beräknad broöppning strax` |
 | **extrapolerad** (AIS 5–10 min stale) och `N ≥ 3` | `beräknad broöppning om cirka N minuter` |
 | `N ≥ 3` (efter avrundning) | `beräknad broöppning om N minuter` |
+
+*Extrapolerad-under-3-undantaget (dokumenterat vid helgranskningen 2026-07-06,
+docs-core#5): en extrapolerad siffra som räknat ner in i strax-bandet är en
+gissning från 5+ min gammal data — 11h-körningens MARLIN visades "strax" 730 m
+från bron och korrigerades uppåt 67 s senare. "Strax" reserveras för färsk
+data/imminent; extrapolationen säger ärligt "cirka". (Exhausted-vägen går via
+imminent-flaggan och behåller strax.)*
 
 **Imminent-flaggan vinner över allt.** När en båt är inom 300 m från sin målbro tvingas "strax" oavsett ETA-värde — även för en stillastående/saktande båt som väntar, eller en Class A-båt vars 30 s-tick hoppar över ETA<3-zonen. Flaggan (`_isImminentAtTargetBridge`) sätts i `app.js` efter skydd (targetBridge satt, AIS färsk, ej GPS-jump-hold) och aggregeras över hela målbro-gruppen.
 

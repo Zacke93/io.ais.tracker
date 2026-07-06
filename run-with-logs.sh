@@ -21,10 +21,31 @@ touch "$AIS_REPLAY_FILE"
 echo "Startar app och sparar loggar till: $LOGFILE"
 echo "Bridge text summary kommer skapas i: $BRIDGE_TEXT_SUMMARY"
 echo "AIS replay data loggas till: $AIS_REPLAY_FILE"
+echo ""
+echo "⚠️  VIKTIGT: replay-fångsten ([AIS_REPLAY_SAMPLE]-raderna) kräver att"
+echo "    appens inställning debug_level är satt till 'full' (Homey-appens"
+echo "    inställningssida). Utan den blir jsonl-filen TOM och körningen kan"
+echo "    inte analyseras/låsas som korpus. (Ändrad 2026-07-06: raderna"
+echo "    loggas inte längre i normal drift för att skona Homey-loggen.)"
 echo "Tryck Ctrl+C för att stoppa"
+
+# Aktiv vakt (2026-07-06): larma tidigt om replay-rader uteblir — annars
+# upptäcks en tom jsonl först efter ett dygns fältprov.
+(
+  sleep 120
+  if [ ! -s "$AIS_REPLAY_FILE" ]; then
+    echo ""
+    echo "🚨🚨 [REPLAY-VAKT] Inga [AIS_REPLAY_SAMPLE]-rader efter 2 minuter!"
+    echo "🚨🚨 Kontrollera att debug_level='full' i appens inställningar,"
+    echo "🚨🚨 annars blir replay-filen tom och körningen oanalyserbar."
+    echo ""
+  fi
+) &
+REPLAY_GUARD_PID=$!
 
 # Funktion för att extrahera bridge text updates när appen stoppas
 extract_bridge_text() {
+    kill "$REPLAY_GUARD_PID" 2>/dev/null || true
     echo ""
     echo "🔍 Genererar bridge text summary..."
     

@@ -318,9 +318,39 @@ describe('FEL 4 (CLABBYDOO): exit-fallbackens stale-gard lever och mäter positi
   test('20 min gammal position ⇒ notisen avfyras (removal-timern ÄR ~20 min)', async () => {
     const app = makeApp();
     await app._triggerExitPointFallback({
-      mmsi: '211536930', ...nearExit, lastPositionUpdate: Date.now() - 20 * 60 * 1000,
+      mmsi: '211536930',
+      ...nearExit,
+      lastPositionUpdate: Date.now() - 20 * 60 * 1000,
+      // Helgranskning 2026-07-06 (app-6#R2-2): exit-fallbacken kräver numera
+      // rörelsebevis + icke-förtöjd — CLABBYDOO var en bevisat rörlig båt.
+      _hasMovementProof: true,
+      _moored: false,
     });
     expect(app._triggerBoatNearFlowFallback).toHaveBeenCalledWith(expect.anything(), 'Kanalinfarten');
+  });
+
+  test('förtöjd båt nära Kanalinfarten ⇒ exit-fallbacken stoppar (app-6#R2-2)', async () => {
+    const app = makeApp();
+    await app._triggerExitPointFallback({
+      mmsi: '211536931',
+      ...nearExit,
+      lastPositionUpdate: Date.now() - 5 * 60 * 1000,
+      _hasMovementProof: true,
+      _moored: true,
+    });
+    expect(app._triggerBoatNearFlowFallback).not.toHaveBeenCalled();
+  });
+
+  test('båt utan rörelsebevis ⇒ exit-fallbacken stoppar (kajliggarklassen)', async () => {
+    const app = makeApp();
+    await app._triggerExitPointFallback({
+      mmsi: '211536932',
+      ...nearExit,
+      lastPositionUpdate: Date.now() - 5 * 60 * 1000,
+      _hasMovementProof: false,
+      _moored: false,
+    });
+    expect(app._triggerBoatNearFlowFallback).not.toHaveBeenCalled();
   });
 
   test('30 min gammal position ⇒ garden stoppar (falsk-notis-risken)', async () => {

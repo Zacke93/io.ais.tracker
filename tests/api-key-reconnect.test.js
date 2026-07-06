@@ -54,7 +54,11 @@ describe('F8: AISStreamClient.reconnectWithKey river ner gamla socketen säkert'
     const logger = { log: jest.fn(), debug: jest.fn(), error: jest.fn() };
     const client = new AISStreamClient(logger);
     client.connect = jest.fn().mockResolvedValue(undefined); // undvik riktig WebSocket
-    const fakeWs = { removeAllListeners: jest.fn(), close: jest.fn() };
+    // Helgranskning 2026-07-06 (t-connection#1): mocken saknade .on — den
+    // kritiska error-sinken (skydd mot ohanterat 'error'-event från den
+    // gamla socketen efter detach) kastade internt och SVALDES av
+    // detach-catchen, så testet var grönt utan att sinken någonsin kopplats.
+    const fakeWs = { removeAllListeners: jest.fn(), close: jest.fn(), on: jest.fn() };
     client.ws = fakeWs;
     client.reconnectAttempts = 5;
     client.reconnectTimer = setTimeout(() => {}, 100000);
@@ -62,6 +66,8 @@ describe('F8: AISStreamClient.reconnectWithKey river ner gamla socketen säkert'
     client.reconnectWithKey('KEYX');
 
     expect(fakeWs.removeAllListeners).toHaveBeenCalled();
+    expect(fakeWs.on).toHaveBeenCalledWith('error', expect.any(Function));
+    expect(logger.debug).not.toHaveBeenCalledWith(expect.stringContaining('detach failed'));
     expect(fakeWs.close).toHaveBeenCalled();
     expect(client.ws).toBeNull();
     expect(client.reconnectAttempts).toBe(0);

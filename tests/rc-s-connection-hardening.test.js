@@ -127,6 +127,17 @@ describe('RC-S3: rörelsebevis krävs i proximity-notisvägen', () => {
     app.debug = jest.fn();
     app._boatNearTrigger = {};
     app.vesselDataService = { hasGpsJumpHold: () => false };
+    // Helgranskning 2026-07-06 (t-connection#3): utan proximityService
+    // kastade kandidatvalet TypeError som SVALDES av notisvägens catch —
+    // testerna var gröna på ett internt kraschande flöde. Båten placeras
+    // långt från alla broar (inga kandidater) så vägen slutar definierat.
+    app.proximityService = {
+      analyzeVesselProximity: jest.fn().mockReturnValue({
+        nearestBridge: 'Klaffbron',
+        nearestDistance: 800,
+        bridges: [],
+      }),
+    };
     app._findEligibleBridgesSpy = null;
     return app;
   }
@@ -144,18 +155,22 @@ describe('RC-S3: rörelsebevis krävs i proximity-notisvägen', () => {
   test('båt med rörelsebevis passerar gaten', async () => {
     const app = makeApp();
     const vessel = {
-      mmsi: '219028819', sog: 0.1, _hasMovementProof: true, _moored: false, lat: 58.29, lon: 12.29, targetBridge: null, status: 'waiting',
+      mmsi: '219028819', sog: 0.1, _hasMovementProof: true, _moored: false, lat: 58.29, lon: 12.29, targetBridge: null, status: 'waiting', timestamp: Date.now(), _lastSeen: Date.now(),
     };
     await app._triggerBoatNearFlow(vessel);
     expect(app.debug).not.toHaveBeenCalledWith(expect.stringContaining('No movement proof yet'));
+    // Helgranskning 2026-07-06 (t-connection#3): vägen EFTER gaten får inte
+    // kasta internt och sväljas — det maskerade för tunna mockar.
+    expect(app.error).not.toHaveBeenCalled();
   });
 
   test('båt i rörelse (sog ≥ 0.5) passerar utan persisterat bevis', async () => {
     const app = makeApp();
     const vessel = {
-      mmsi: '219028819', sog: 4.5, _hasMovementProof: false, _moored: false, lat: 58.29, lon: 12.29, targetBridge: null, status: 'en-route',
+      mmsi: '219028819', sog: 4.5, _hasMovementProof: false, _moored: false, lat: 58.29, lon: 12.29, targetBridge: null, status: 'en-route', timestamp: Date.now(), _lastSeen: Date.now(),
     };
     await app._triggerBoatNearFlow(vessel);
     expect(app.debug).not.toHaveBeenCalledWith(expect.stringContaining('No movement proof yet'));
+    expect(app.error).not.toHaveBeenCalled();
   });
 });

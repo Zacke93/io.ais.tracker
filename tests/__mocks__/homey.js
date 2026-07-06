@@ -182,7 +182,12 @@ class MockFlowCard {
       };
 
       this.triggerCalls.push(triggerCall);
-      console.log('🎯 Flow trigger called:', JSON.stringify(triggerCall, null, 2));
+      // Helgranskning 2026-07-06 (t-infra): flerradig JSON per notis i VARJE
+      // test fyllde disken (kända ENOSPC-problemet) — tyst som standard,
+      // REPLAY_VERBOSE=1 återställer utskriften vid felsökning.
+      if (process.env.REPLAY_VERBOSE) {
+        console.log('🎯 Flow trigger called:', JSON.stringify(triggerCall, null, 2));
+      }
 
       return Promise.resolve();
 
@@ -198,7 +203,9 @@ class MockFlowCard {
       };
 
       this.triggerCalls.push(triggerCall);
-      console.log('❌ Flow trigger FAILED:', JSON.stringify(triggerCall, null, 2));
+      if (process.env.REPLAY_VERBOSE) {
+        console.log('❌ Flow trigger FAILED:', JSON.stringify(triggerCall, null, 2));
+      }
 
       // Re-throw the error to match real Homey behavior
       throw error;
@@ -274,6 +281,26 @@ const appInstance = new MockApp();
 // Main Homey mock object
 const mockHomey = {
   app: appInstance,
+
+  // Helgranskning 2026-07-06 (t-infra): funktionell settings-store — mocken
+  // saknade helt homey.settings, så varje svit fick injicera sin egen.
+  // Sviter som sätter en egen mockHomey.settings skriver bara över denna.
+  settings: {
+    _store: {},
+    get(key) {
+      return Object.prototype.hasOwnProperty.call(this._store, key) ? this._store[key] : null;
+    },
+    set(key, value, callback) {
+      this._store[key] = value;
+      if (typeof callback === 'function') callback(null);
+    },
+    unset(key, callback) {
+      delete this._store[key];
+      if (typeof callback === 'function') callback(null);
+    },
+    on() {},
+    off() {},
+  },
 
   flow: {
     createToken: async (id, value) => {

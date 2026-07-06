@@ -29,14 +29,16 @@ module.exports = {
     '!**/__mocks__/**',
   ],
 
-  // Coverage thresholds (omkalibrerade 2026-07-03 mot faktisk mätning
-  // inkl. lib/ — höjs i takt med fas 7-testerna, aldrig sänks)
+  // Coverage thresholds — ett GOLV som ALDRIG sänks, bara höjs.
+  // Ratchet 2026-07-06 (helgranskningens teststärkning): uppmätt
+  // 76,7/71,9/81,9/77,6 → golv strax under (marginal ~1–2 pp för legitim
+  // variation). Föregående golv (2026-07-03): 70/60/70/70.
   coverageThreshold: {
     global: {
-      branches: 60,
-      functions: 70,
-      lines: 70,
-      statements: 70,
+      branches: 70,
+      functions: 80,
+      lines: 76,
+      statements: 75,
     },
   },
 

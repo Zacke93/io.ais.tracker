@@ -52,10 +52,12 @@ describe('ProgressiveETA — monotonic protection (Bug 4)', () => {
     });
     const eta2 = calculator.calculateProgressiveETA(v2, proximityData);
 
-    // ETA should not increase by more than 1 min for approaching vessel
-    // The protection allows some increase but should be bounded
-    expect(eta2).toBeDefined();
+    // Helgranskning 2026-07-06 (t-eta-geo#1): assertera själva +1-min-taket
+    // — tidigare prövades bara defined/not-null, så skyddet kunde tas bort
+    // utan att testet föll. Rå-ETA:n för v2 (3 kn) är ~33 % högre än
+    // baslinjen; skyddet ska begränsa publicerad stigning till +1 min.
     expect(eta2).not.toBeNull();
+    expect(eta2).toBeLessThanOrEqual(eta1 + 1.000001);
   });
 
   // --- Test 2: Monotonic decrease at steady speed ---

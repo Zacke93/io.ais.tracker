@@ -17,7 +17,7 @@
 | `STALE_ETA_SOFT / HARD` | 5 / 10 min | börja extrapolera / ge upp ETA |
 | `COG NORTH_MIN / MAX` | 315° / 45° | nordband |
 | `BOAT_NEAR_DEDUPE_MINUTES` | 10 min | (legacy re-trigger-fönster) |
-| `_PERSISTENT_DEDUP_WINDOW_MS` | 2 h | persistent dedupe-fönster |
+| `_PERSISTENT_DEDUP_WINDOW_MS` | 2 h | persistent dedupe-fönster — bor i `app.js:190`, inte i constants.js (helgranskningen 2026-07-06, docs-core#R2-3) |
 
 Målbroar: **Klaffbron**, **Stridsbergsbron**. Övriga (Kanalinfarten, Olidebron, Järnvägsbron, Stallbackabron) är mellanbroar/trigger-punkter.
 
@@ -108,5 +108,5 @@ Per målbro-grupp: `"{antal} båt(ar) på väg mot {målbro}, {ETA-klausul}"`. F
 
 ### Konsekvenser inarbetade i reglerna ovan
 - **B1/INV-B1:** ett fartyg förblir *relevant* för bridge_text så länge det är inom `APPROACHING_RADIUS` (500 m) av sin målbro på en aktiv resa, **även om sog ≈ 0**. En stoppad båt visas som "En båt på väg mot X" utan ETA-klausul (eller med "ETA okänd" om ETA saknas). Texten får aldrig falla till DEFAULT medan en sådan båt finns.
-- **A2/INV-N4:** `_getDirectionString` sydband snävas till 135–225° för COG-fallback; off-axis (226–314°) utan route-latch → `unknown`.
+- **A2/INV-N4:** `_getDirectionString` sydband snävas till 135–225° för COG-fallback; off-axis (226–314°) utan route-latch → `unknown`. **REVIDERAT 2026-07-02 (JOSEPHINE, replay-belagt):** token-fallbackens sydband breddades till 135–314° — bevisligen sydgående båt med COG 226,7° fick felaktigt `unknown`. Det STRIKTA bandet 135–225° gäller fortsatt alla HÖGRISK-beslut (målbro-/riktningslås, Fix D, NEW_JOURNEY). Koden + `notification-tokens.test.js` är sanningskällan (P5-beslutet i constants.js:276–285); denna spec-rad behålls som historik (helgranskningen 2026-07-06, docs-core#R2-1).
 - **B3/INV-B2:** visad ETA klampas icke-ökande medan fartyget närmar sig (tolerans för brus tillåten).

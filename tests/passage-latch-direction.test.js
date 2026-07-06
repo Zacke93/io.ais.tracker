@@ -27,9 +27,12 @@ describe('F13: riktningskänslig passage-latch', () => {
     expect(svc.shouldBlockStatus(mmsi, bridge, 'waiting', 10)).toBe(true);
   });
 
-  test('SLÄPPER IGENOM vid bevisad vändning (söderut, COG 180°)', () => {
-    // Båten har vänt och rör sig söderut tillbaka mot bron → INTE blockera
-    expect(svc.shouldBlockStatus(mmsi, bridge, 'waiting', 180)).toBe(false);
+  test('SLÄPPER IGENOM vid bevisad vändning (söderut, COG 180°) — efter två konsekutiva samples', () => {
+    // Helgranskning 2026-07-06 (route-latch#2): releasen kräver numera TVÅ
+    // konsekutiva motsatta avläsningar (Anomali 18-spegling) — ett enda
+    // brusigt sampel hos en långsam båt ska INTE släppa latchen.
+    expect(svc.shouldBlockStatus(mmsi, bridge, 'waiting', 180)).toBe(true); // 1:a: pending
+    expect(svc.shouldBlockStatus(mmsi, bridge, 'waiting', 180)).toBe(false); // 2:a: släpp
   });
 
   test('behåller blockering vid OSÄKER COG (öster 90°) — ingen regress-risk', () => {

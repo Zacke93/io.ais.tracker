@@ -184,7 +184,10 @@ describe('B6: TARGET_END nollställer ETA-serien + imminent (F9/PHILULA)', () =>
   test('BridgeTextService: imminent-flagga för redan passerad target driver INTE "strax"', () => {
     const logger = { log: jest.fn(), debug: jest.fn(), error: jest.fn() };
     const BridgeTextService = require('../lib/services/BridgeTextService');
-    const bts = new BridgeTextService(logger, new BridgeRegistry());
+    // Helgranskning 2026-07-06 (t-bridge-text#3): argumenten var omkastade
+    // mot signaturen (bridgeRegistry, logger, ...) — testet råkade passera
+    // ändå men prövade tjänsten med logger som registry.
+    const bts = new BridgeTextService(new BridgeRegistry(), logger);
 
     const lingering = {
       mmsi: '211597910',

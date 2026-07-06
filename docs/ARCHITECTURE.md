@@ -412,14 +412,37 @@ Permanent valideringsverktyg — kör den RIKTIGA appen mot inspelad AIS-jsonl.
   avbrott + 2 äkta restarts); bedömer STABILITET (0 processfel, inga läckor,
   fatala invarianter rena, ≥5 notiser/fullbordad resa) — inte facit. Körs
   manuellt (`node tests/replay-validation/runSoak.js`; medvetet inget npm-script).
-- Körs: `npm run replay:all` / `npm run replay:synthetic`.
+- Körs: `npm run replay:all` / `npm run replay:synthetic` — eller hela kedjan
+  med `npm run validate` (jest + korpusar + scenarier) resp.
+  `npm run validate:full` (+ soaken). Praktisk körbok: `docs/VALIDATION.md`.
+
+**Teststärkningen 2026-07-06** (helgranskningens sista insats):
+- 38 syntetiska scenarier (+3: `fartgivarlös-genomresa` med sog=null —
+  avslöjade direkt GPSJumpAnalyzers 1 kn-golv för okänd fart;
+  `kajliggare-kanalinfarten-ingen-exitnotis`; `gps-hopp-vid-notisgränsen`).
+  Generatorn stöder `sogNull: true`.
+- Invarianterna har EGNA enhetstester (`tests/replay-invariants-unit.test.js`)
+  — domarlogiken döms åt båda hållen. INV-11/16 täcker nu även källan
+  `just-passed` (empiriskt ren över hela batteriet vid tillägget).
+- Projektions-fältlistvakt med AUTOMATISKT källsvep
+  (helgranskning-2026-07-06-sviten): faller om textmotorn börjar läsa ett
+  vessel-fält som `_findRelevantBoatsForBridgeText`-projektionen inte bär.
+- TEST_MODE-no-op:en i `_triggerBoatNearFlow` kringgås numera i riktade
+  jest-tester (NODE_ENV='production'-mönstret) — Fix 5-/mooring-gaten på den
+  RIKTIGA notisvägen har direkta tester.
+- Tautologi-/inline-kopietester omskrivna till produktionsdrivna (Fix D-
+  journey-reset via updateVessel, M2-boot-seed via äkta onInit, METHOD 5/
+  sideFlipped-geometri, M1/M3-diskriminering); kvarvarande rena
+  dokumentationstester är MÄRKTA "⚠️ DOKUMENTATIONSTEST".
+- Coverage-golv (ratchet, sänks aldrig): 75/70/80/76 (stmts/branch/funcs/
+  lines) i `tests/jest.config.js`.
 
 ## 8. KÄNDA FÄLLOR
 
 **(a) De två explicita fältlistorna.** Vesselobjektet BYGGS OM vid varje
 AIS-meddelande (`_createVesselObject`, VDS:2633–2865) och SNAPSHOT:as vid removal
 (`vesselSnapshot`, VDS:625–664). Fält som inte uttryckligen kopieras **raderas
-tyst**. SJU kända offer: (1) `passedAt` m.fl. i `_createVesselObject`
+tyst**. NIO kända offer: (1) `passedAt` m.fl. i `_createVesselObject`
 (2026-06-13, VDS:2725–2730); (2) ålderfälten `timestamp`/`lastPositionUpdate`/
 `_lastSeen` i snapshotten — gjorde F63-exit-vakten till död kod (CLABBYDOO,
 VDS:648–655); (3) `_isImminentAtTargetBridge` (echo-flappen, VDS:2740–2746);
@@ -429,10 +452,25 @@ började om varje meddelande (VDS:2860–2861); (6) `maxRecentSpeed`/`passedAt` 
 snapshotten — RC3-stale-gaten degraderade till momentan sog (SILJA-klassen,
 VDS:656–663); (7) `currentBridge`/`distanceToCurrent` i `_createVesselObject` —
 **CBM-hysteresens rotorsak**: fälten var undefined varje tick så hela
-500/600 m-hysteresen var död (VDS:2788–2793). Fältlistan bär numera även
-`_underBridgeFrozenAccMs` (:2787), `_underBridgeEntryLat/Lon` (:2796–2797) och
-`_pendingTarget` (:2765). **REGEL: varje nytt fält som konsumeras efter removal
-eller över meddelandegränser MÅSTE läggas till i BÅDA fältlistorna.**
+500/600 m-hysteresen var död (VDS:2788–2793); (8) **namnbytes-varianten**
+(helgranskningen 2026-07-06): koordinationsnivån skrevs till
+`_stabilizationLevel` som INGEN läste medan tre konsumenter
+(app `_hasActiveGPSJumps`, GPSJumpGateService:235, ProgressiveETACalculator:801)
+läste `lastCoordinationLevel` som ALDRIG skrevs — tre designade GPS-skydd var
+döda; fältet skrivs/nollas nu i `_applyCoordinationResults` och bärs i
+fältlistan; (9) **projektionsvarianten** (helgranskningen 2026-07-06): en
+TREDJE fältlista finns i `_findRelevantBoatsForBridgeText`-projektionen —
+micro-graces kritisk-övergångsterm läste `_criticalTransitionHoldUntil`/
+`_zoneTransitions` ur projektionen som saknar fälten (alltid false);
+`_hasCriticalZoneTransitions` slår nu upp det levande objektet via
+`getVessel(mmsi)`. Fältlistan bär numera även `_underBridgeFrozenAccMs`,
+`_underBridgeEntryLat/Lon`, `_pendingTarget` och `lastCoordinationLevel`;
+snapshotten bär även `_moored`/`_hasMovementProof` (exit-fallbackens gates).
+**REGEL: varje nytt fält som konsumeras efter removal eller över
+meddelandegränser MÅSTE läggas till i BÅDA fältlistorna — och läses fältet i
+publiceringsvägen även i PROJEKTIONEN (app.js `_findRelevantBoatsForBridgeText`)
+eller via levande uppslag.** Vaktlistan `SNAPSHOT_CONSUMED_FIELDS`
+(tests/namnkedjan-b1.test.js) ska täcka varje fält fallbackvägen läser.
 
 **(b) OneDrive gör lint långsamt.** Kör eslint per fil, inte över hela trädet.
 
@@ -448,19 +486,30 @@ notiser i valideringen.
 
 ## 9. Granskningsfynd (kvarvarande avvikelser i KODEN)
 
-Kvarvarande kod-skönhetsfel (funna vid helrevisionen 2026-07-05):
+§9.1–9.4 från helrevisionen 2026-07-05 var redan åtgärdade i koden när
+helgranskningen 2026-07-06 kontrollerade dem (loggraden säger PASSED_HOLD_MS,
+`ts`→`entry` omdöpt, runAllCorpora säger ~100h, 5:e offret är kodmärkt i
+VDS:2860) — posterna var stale DOKUMENTATION, inte kodfel. Fullständig
+fyndredovisning för helgranskningen: `docs/helgranskning-2026-07-06.md`.
 
-1. **Stale loggrad**: app.js:1332 loggar "scheduling removal in 60s" men timern
-   använder PASSED_HOLD_MS = 150 s (constants.js:330); bara loggsträngen ljuger.
-2. **Vilseledande variabelnamn**: `_persistRecentTriggers` (app.js:505) itererar
-   `[key, ts]` (:514) där `ts` numera är `{t, dir}`-objekt.
-3. **Stale korpussumma**: runAllCorpora.js:4 säger "~65h", manifestet summerar
-   101,5 h (banret räknar dynamiskt och skriver rätt).
-4. **Offer-numreringen hoppar över 5**: koden märker 4:e/6:e/7:e offret
-   (VDS:634/656/2788); 5:e (`_etaExhaustedAtMs`) är bara belagt i
-   tests/bridge-text-livscykel-b4b5b6.test.js:72 ("5:e offret-vakt").
+Medvetet accepterade beteenden (utöver P5): eta_minutes=-1-sentinelen i
+flow-tokens; 3 dokumenterade INV-18-WARN i soaken (Strids 12→27 vid legitim
+inbromsning); geometry-epsilongrenen i `hasChangedBridgeSide` (kräver position
+~vid brolinjen — geometriskt ointaglig för köande båtar); Fix G-extrapolering
+fryser för sog=null (extrapolering utan känd fart vore gissning); första
+post-gap-ETA:n bär en cykels förgapsoptimism (alternativet gav korpusbelagd
+fatal sågtand 2→32 min — prövad och återtagen 2026-07-06).
+
+**Replay-fångsten kräver debug_level='full'** (sedan 2026-07-06):
+`[AIS_REPLAY_SAMPLE]`-raderna loggas inte längre i normal drift (spammade
+Homey-loggen med varje AIS-meddelande i produktion). run-with-logs.sh varnar
+aktivt om jsonl-filen är tom efter 2 min. **Fältprov utan debug_level=full ger
+en oanalyserbar körning.**
 
 Åtgärdat sedan 2026-07-03: "Fem lager"-kommentaren rättad (constants.js:193);
 MessageBuilder/ETAFormatter/StallbackabronHelper raderade — noll levande
 förekomster (grep 2026-07-05); `shouldDebounceBridgeText` numera privat i
-SystemCoordinator, ingen publik `hasActiveCoordination`.
+SystemCoordinator, ingen publik `hasActiveCoordination`; helgranskningen
+2026-07-06 raderade även `test-integration-complete.js` (stale API-referenser,
+homeyignorerad), `.eslintrc.json` (död konfig — `.eslintrc.js` har företräde)
+och ProximityServices oanvända `getProtectionZoneStatus`/`getUnderBridgeStatus`.
