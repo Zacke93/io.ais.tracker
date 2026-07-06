@@ -63,6 +63,14 @@ for (const corpus of corpora) {
     problems.push(`notiser ${notifications} ≠ facit ${corpus.expectedNotifications}`);
   }
 
+  // Helgranskning 2026-07-06 (harness-corpora#R2-1): en LÅST korpus UTAN
+  // fördelningspost hoppade tyst över multiset-gaten — kärnskyddet mot
+  // kompenserande fel (miss + fantom = samma summa). Saknad post är nu ett
+  // hårt fel: varje korpuslåsning MÅSTE registrera sin fördelning.
+  if (corpus.locked && !distribution[corpus.id]) {
+    problems.push('FÖRDELNINGSPOST SAKNAS i corpora-distribution.json — multiset-gaten kan inte köras');
+  }
+
   // Fördelningsvalidering: (mmsi,bro)-multiset måste matcha exakt.
   if (corpus.locked && distribution[corpus.id]) {
     const expectedKeys = Object.entries(distribution[corpus.id])

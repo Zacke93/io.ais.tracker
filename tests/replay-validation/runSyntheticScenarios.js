@@ -20,7 +20,7 @@ const {
   generateScenario, buildPath, pathMetrics, BASE_TIME_MS,
 } = require('./scenarioGenerator');
 const { validateInvariants, validateWarnInvariants } = require('./invariants');
-const { MOORING_ZONES } = require('../../lib/constants');
+const { MOORING_ZONES, TRIGGER_POINTS } = require('../../lib/constants');
 
 const RUNNER = path.join(__dirname, 'replayRunner.js');
 const QUAY = {
@@ -551,6 +551,80 @@ const SCENARIOS = [
       minTargetPassages: 2,
       noUnknownTokens: true,
       minNotifiedBridges: ['Klaffbron', 'Järnvägsbron', 'Stridsbergsbron', 'Stallbackabron'],
+    },
+  },
+  // === Utökning 2026-07-06 (helgranskningens teststärkning) ===
+  {
+    // sog=null-klassen (helgranskningen 2026-07-06, F1): Class B-transponder
+    // UTAN fartgivare — sog är null i VARJE rapport ("ej tillgänglig" enligt
+    // AIS-spec, får inte avvisas). Före F1-fixarna: Number(null)=0 föll på
+    // fartgrindarna (målbro först <300 m), ANCHOR_BLOCK hårdblockerade efter
+    // passage (Strids-target uteblev) och waiting-timern kastade TypeError.
+    // Kontraktet: hela genomresan bärs av positionsdeltan (rörelsebevis) —
+    // båda målbroarna passeras formellt OCH notifieras.
+    name: 'fartgivarlös-genomresa (sog=null)',
+    seed: 47,
+    vessels: [{
+      mmsi: '901000047',
+      name: 'SYNT-NOSPEED',
+      direction: 'north',
+      speedKn: 4.5, // styr positionsdeltan; sogNull nollar själva fältet
+      sogNull: true,
+    }],
+    expect: {
+      minTargetPassages: 2,
+      noUnknownTokens: true,
+      minNotifiedBridges: ['Klaffbron', 'Stridsbergsbron'],
+    },
+  },
+  {
+    // Kajliggare vid KANALINFARTEN (helgranskningen 2026-07-06, app-6#R2-2):
+    // förtöjd båt ~250 m NORR om trigger-punkten — inom exit-fallbackens
+    // 400 m-radie och på "rätt" sida. Före fixen saknade exit-fallbacken
+    // förtöjnings-/rörelsebevis-gate (och snapshotten fälten) → varje
+    // removal-cykel gav en falsk Kanalinfarten-notis (persistent dedup
+    // begränsade till en per 2 h — fortfarande P2-brott). Efterspelets
+    // removal får INTE producera någon notis.
+    name: 'kajliggare-kanalinfarten-ingen-exitnotis',
+    seed: 48,
+    vessels: [{
+      mmsi: '901000048',
+      name: 'SYNT-KAJEXIT',
+      direction: 'north',
+      speedKn: 0,
+      jitterM: 2,
+      moorAt: {
+        lat: TRIGGER_POINTS.kanalinfarten.lat + 250 / 111320,
+        lon: TRIGGER_POINTS.kanalinfarten.lon,
+        durationS: 2700,
+        navStatus: null, // Class B — förtöjningen måste bevisas av rörelselagren
+      },
+    }],
+    expect: { zeroNotifications: true, noVesselText: true },
+  },
+  {
+    // GPS-hopp VID notisgränsen (helgranskningen 2026-07-06, Fix 5-gaten):
+    // 500 m-teleport i EN sample precis när båten närmar sig Klaffbrons
+    // 300 m-zon. Fix 5-hold:en ska blockera notis från den falska positionen;
+    // den legitima notisen kommer när äkta positionen når zonen. Fatala
+    // INV-11 (notisdistans, positionsberikad) fäller körningen om en notis
+    // avfyras från hopp-positionen; fatala INV-2 fäller dubbletter om dedup-
+    // nyckeln sätts av hoppet och blockerar den äkta.
+    name: 'gps-hopp-vid-notisgränsen',
+    seed: 49,
+    vessels: [{
+      mmsi: '901000049',
+      name: 'SYNT-HOPPGRÄNS',
+      direction: 'north',
+      speedKn: 4.5,
+      gpsJump: {
+        atFraction: (METRICS.cum[2] - 350) / METRICS.total, // ~350 m söder om Klaffbron
+        offsetM: 500,
+      },
+    }],
+    expect: {
+      minTargetPassages: 2,
+      minNotifiedBridges: ['Klaffbron', 'Stridsbergsbron'],
     },
   },
 ];

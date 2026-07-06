@@ -406,19 +406,27 @@ describe('BridgeTextService — Invariants', () => {
     }
   });
 
-  test('Output never contains uppercase "ETA "', () => {
+  test('Output never contains uppercase "ETA " — utom legitima "ETA okänd"', () => {
+    // Helgranskning 2026-07-06 (t-bridge-text#4): "ETA okänd" är en LEGITIM
+    // klausul (formatETABroOpeningClause vid ogiltig ETA) — den gamla
+    // blanka förbudsregeln var fel som invariant även om scenarierna aldrig
+    // råkade producera frasen. Förbjuds: alla ANDRA "ETA "-förekomster
+    // (versal-ETA hörde till legacy-textmodellen).
     for (const vessels of scenarios) {
       const text = makeService().generateBridgeText(vessels);
-      expect(text).not.toContain('ETA ');
+      expect(text.replace(/ETA okänd/g, '')).not.toContain('ETA ');
     }
   });
 
-  test('Non-default output always contains "på väg mot " and "beräknad broöppning"', () => {
+  test('Non-default output always contains "på väg mot " och en ETA-klausul', () => {
+    // Helgranskning 2026-07-06 (t-bridge-text#4): "beräknad broöppning" är
+    // inte den enda legitima klausulen — "ETA okänd" är kontraktsenlig vid
+    // ogiltig ETA. Invarianterna speglar nu formatETABroOpeningClause.
     for (const vessels of scenarios) {
       const text = makeService().generateBridgeText(vessels);
       if (text !== DEFAULT) {
         expect(text).toContain('på väg mot ');
-        expect(text).toContain('beräknad broöppning');
+        expect(/beräknad broöppning|ETA okänd/.test(text)).toBe(true);
       }
     }
   });

@@ -47,10 +47,12 @@ describe('Pre-publish verification E2E', () => {
         cog: 200,
       });
       let text = runner.getCurrentBridgeText();
+      // Helgranskning 2026-07-06 (t-journey#2): POSITIV detektionsassert —
+      // den gamla villkorade formen var vakuöst grön om båten aldrig
+      // upptäcktes. En sydgående båt 300 m norr om Stallbackabron ska synas.
+      expect(text).not.toBe('Inga båtar är i närheten av Klaffbron eller Stridsbergsbron');
       // Bug A fix: southbound from Stallbackabron should target Stridsbergsbron
-      if (text.includes('mot')) {
-        expect(text).not.toMatch(/mot Klaffbron/);
-      }
+      expect(text).not.toMatch(/mot Klaffbron/);
 
       // Step 2: Slightly closer to Stallbackabron (~100m incremental move)
       await runner._processVesselAsAISMessage({
@@ -137,10 +139,11 @@ describe('Pre-publish verification E2E', () => {
 
       const text = runner.getCurrentBridgeText();
       expect(text).not.toBe('Inga båtar är i närheten av Klaffbron eller Stridsbergsbron');
-      // If under-bridge V3 is lead, should show Phase 3 or similar with additional count
-      if (text.includes('ytterligare')) {
-        expect(text).toMatch(/ytterligare/);
-      }
+      // Helgranskning 2026-07-06 (t-journey#3): den gamla formen
+      // `if (includes) expect(toMatch)` var en tautologi (vaktvillkoret VAR
+      // assertionen). Tre Klaffbron-riktade båtar där V3 är lead ⇒ minst en
+      // "ytterligare N båt(ar)"-klausul ELLER ett flerbåtstal måste synas.
+      expect(/ytterligare \d+ båt|Två båtar|Tre båtar/.test(text)).toBe(true);
 
       // Cleanup
       await runner._simulateVesselCleanup();

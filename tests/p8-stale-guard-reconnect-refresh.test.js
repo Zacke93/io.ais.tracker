@@ -62,6 +62,42 @@ describe('P8: stale-guard vid 0 båtar + UI-refresh vid reconnect', () => {
     expect(app._globalBridgeTextToken.setValue).not.toHaveBeenCalled();
   });
 
+  test('ansluten-men-döv feed (>5 min tyst) + sista fartyget bort → texten behålls (t-connection#2)', async () => {
+    // Helgranskning 2026-07-06: feedIsSilent-grenen var helt otestad —
+    // sviten satte aldrig app.aisClient. "Socket uppe men inga meddelanden"
+    // är P8:s andra ansikte (produktionsredo 2026-07-03).
+    const app = makeApp({ isConnected: true });
+    app.aisClient = {
+      getConnectionStats: jest.fn().mockReturnValue({
+        timeSinceLastMessage: 6 * 60 * 1000, // > 5 min tystnad
+        uptime: 60 * 60 * 1000,
+      }),
+    };
+    const textBefore = app._lastBridgeText;
+
+    await app._onVesselRemoved(removedEvent);
+
+    expect(app._lastBridgeText).toBe(textBefore);
+    expect(app._updateDeviceCapability).not.toHaveBeenCalledWith(
+      'bridge_text',
+      BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE,
+    );
+  });
+
+  test('ansluten och FÄRSK feed + sista fartyget bort → DEFAULT trycks ut (grenen släpper)', async () => {
+    const app = makeApp({ isConnected: true });
+    app.aisClient = {
+      getConnectionStats: jest.fn().mockReturnValue({
+        timeSinceLastMessage: 20 * 1000, // färsk data
+        uptime: 60 * 60 * 1000,
+      }),
+    };
+
+    await app._onVesselRemoved(removedEvent);
+
+    expect(app._lastBridgeText).toBe(BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE);
+  });
+
   test('AIS uppe + sista fartyget bort → DEFAULT trycks ut som tidigare', async () => {
     const app = makeApp({ isConnected: true });
 

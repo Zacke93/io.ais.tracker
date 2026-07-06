@@ -189,3 +189,70 @@ describe('Passage detection — stationary/drifting vessels (Bug 2)', () => {
     }
   });
 });
+
+describe('METHOD 5 & sideFlipped — diskriminerande täckning (helgranskningen 2026-07-06, t-passage#1/#2)', () => {
+  // Strukturell insikt som dessa tester LÅSER: varje äkta sign-flip av
+  // brolinjen med prev ≤ 250 m fångas av METHOD 3 (enhanced_line_crossing,
+  // minProximity 250) INNAN METHOD 5 nås. METHOD 5:s unika bidrag är därför
+  // epsilon-fallet i hasChangedBridgeSide: ett sampel PÅ brolinjen (|proj|
+  // ≤ 10 m längs kanalaxeln) följt av kursändring + bortåtrörelse på det som
+  // formellt är samma sida. Positivfallet konstruerar exakt den geometrin;
+  // negativfallet är U-svängen på samma sida (sideFlipped false) som METHOD
+  // 5:s sidbyteskrav infördes för att stoppa (körning 2026-07-02).
+  const m5bridge = {
+    lat: BRIDGES.stridsbergsbron.lat,
+    lon: BRIDGES.stridsbergsbron.lon,
+    axisBearing: BRIDGES.stridsbergsbron.axisBearing, // 130 → kanalaxel 40°
+    name: 'Stridsbergsbron',
+  };
+  const toRad = (d) => (d * Math.PI) / 180;
+  const alongB = toRad(m5bridge.axisBearing - 90); // kanalaxeln (40°)
+  const latB = toRad(m5bridge.axisBearing); // brolinjen (130°)
+  /** Position ur (proj längs kanalaxeln, lateral längs brolinjen) i meter. */
+  const posAt = (projM, lateralM) => {
+    const dN = Math.cos(alongB) * projM + Math.cos(latB) * lateralM;
+    const dE = Math.sin(alongB) * projM + Math.sin(latB) * lateralM;
+    return {
+      lat: m5bridge.lat + dN / 111320,
+      lon: m5bridge.lon + dE / (111320 * Math.cos(toRad(m5bridge.lat))),
+    };
+  };
+
+  test('POSITIV: sampel på brolinjen + >60° kurssväng + bortåtrörelse ⇒ METHOD 5 (och ingen annan metod)', () => {
+    // prev: PÅ brolinjen (proj −5 m, inom epsilon) men 210 m lateralt →
+    // dist ~210 (>200 slår ut METHOD 4, >50 slår ut METHOD 1; lateral 210
+    // > 120 slår ut METHOD 2; ingen sign-flip slår ut METHOD 3).
+    const oldVessel = { ...posAt(-5, -210), sog: 3.5, cog: 40 };
+    // curr: proj −180, lateral −240 → dist ~300 (> prev−10), Δcog 90°.
+    const vessel = { ...posAt(-180, -240), sog: 3.0, cog: 130 };
+
+    const result = detectBridgePassage(vessel, oldVessel, m5bridge);
+    expect(result.passed).toBe(true);
+    expect(result.method).toBe('direction_change_passage');
+  });
+
+  test('NEGATIV: identisk U-svängsgeometri men UTANFÖR epsilon (samma sida) ⇒ ingen passage alls', () => {
+    // Enda skillnaden mot positivfallet: prev ligger 30 m från brolinjen
+    // (utanför ±10 m-epsilon) — båda samples på samma sida ⇒ sideFlipped
+    // false ⇒ METHOD 5:s sidbyteskrav stoppar U-svängen; ingen annan metod
+    // matchar heller.
+    const oldVessel = { ...posAt(-30, -210), sog: 3.5, cog: 40 };
+    const vessel = { ...posAt(-180, -240), sog: 3.0, cog: 130 };
+
+    const result = detectBridgePassage(vessel, oldVessel, m5bridge);
+    expect(result.passed).toBe(false);
+  });
+
+  test('KONTROLL: äkta sign-flip nära bron tas av tidigare metod — METHOD 5 är inte första försvarslinjen', () => {
+    // prev 150 m söder om linjen (lateral 30), curr 150 m norr — en äkta
+    // korsning nära bron. Ska ge passage via en HÖGRE-konfidensmetod
+    // (trajectory/line-crossing), vilket dokumenterar metodordningen.
+    const oldVessel = { ...posAt(-150, -30), sog: 4.0, cog: 40 };
+    const vessel = { ...posAt(150, 30), sog: 4.0, cog: 45 };
+
+    const result = detectBridgePassage(vessel, oldVessel, m5bridge);
+    expect(result.passed).toBe(true);
+    expect(result.method).not.toBe('direction_change_passage');
+    expect(result.confidence).toBeGreaterThanOrEqual(0.75);
+  });
+});

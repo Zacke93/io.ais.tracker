@@ -304,46 +304,64 @@ describe('E-F1: ETA-gap-reset tömmer även hastighetsbufferten', () => {
 });
 
 describe('N1: bekräftad U-sväng mitt i resan emittar journey-reset', () => {
-  test('Fix D-bekräftelse nollar passedBridges och emittar vessel:journey-reset', () => {
-    const svc = Object.create(VesselDataService.prototype);
-    // EventEmitter-metoder behövs — koppla in riktiga prototypkedjan
-    const { EventEmitter } = require('events');
-    Object.setPrototypeOf(svc, VesselDataService.prototype);
-    EventEmitter.call(svc);
-    svc.logger = makeLogger();
-    const events = [];
-    svc.on('vessel:journey-reset', (e) => events.push(e));
+  test('Fix D-bekräftelse nollar passedBridges och emittar vessel:journey-reset (PRODUKTIONSVÄGEN)', () => {
+    // Helgranskning 2026-07-06 (t-korningar#1): tidigare emittade testet
+    // eventet SJÄLVT (låste bara formen). Nu drivs HELA Fix D-flödet genom
+    // updateVessel: äkta måltilldelning + riktningslås, två konsekutiva
+    // syd-observationer (Anomali 18-debouncen), bekräftelse → reset + emit.
+    global.__TEST_MODE__ = true;
+    try {
+      const BridgeRegistry = require('../lib/models/BridgeRegistry');
+      const SystemCoordinator = require('../lib/services/SystemCoordinator');
+      const { BRIDGES } = require('../lib/constants');
+      const svc = new VesselDataService(makeLogger(), new BridgeRegistry(), new SystemCoordinator(makeLogger()));
+      svc.app = {
+        gpsJumpGateService: null,
+        passageLatchService: null,
+        routeOrderValidator: null,
+        debug: jest.fn(),
+        log: jest.fn(),
+        error: jest.fn(),
+      };
+      const events = [];
+      svc.on('vessel:journey-reset', (e) => events.push(e));
+      const MMSI = '265000013';
+      const KLAFF = BRIDGES.klaffbron;
 
-    const vessel = {
-      mmsi: '265000013',
-      lat: 58.2895,
-      lon: 12.2905,
-      sog: 4.0,
-      cog: 190, // söderut
-      targetBridge: 'Stridsbergsbron',
-      passedBridges: ['Klaffbron', 'Järnvägsbron'],
-      _routeDirection: 'north',
-      // Debouncen redan armerad (första observationen skedde förra provet)
-      _fixDPendingReversal: { dir: 'south', time: Date.now() - 30 * 1000 },
-    };
-    svc.bridgeRegistry = {
-      getBridgeByName: (name) => ({ Stridsbergsbron: { lat: 58.29349, lon: 12.29456 } }[name] || null),
-    };
+      // 1. Etablerad nordgående resa: äkta måltilldelning låser riktningen.
+      svc.updateVessel(MMSI, {
+        lat: KLAFF.lat - 0.0054, lon: KLAFF.lon, sog: 4.2, cog: 25, name: 'N1-TEST',
+      });
+      const v1 = svc.vessels.get(MMSI);
+      expect(v1.targetBridge).toBe('Klaffbron');
+      expect(v1._routeDirection).toBe('north');
+      // Aktiv resa: en bro redan passerad (sätts på det LEVANDE objektet;
+      // passedBridges bärs av fältlistan över kommande meddelanden).
+      v1.passedBridges = ['Olidebron'];
 
-    // Kör själva Fix D-blocket via updateVessel-fragmentet: anropa den
-    // bekräftade grenen direkt genom att simulera villkoren.
-    // (targetBridge ligger BAKOM den södergående båten → shouldRecalc.)
-    const oldVessel = { ...vessel };
-    svc._lockRouteDirection = VesselDataService.prototype._lockRouteDirection.bind(svc);
+      // 2. Första syd-observationen (target >500 m framför ⇒ shouldRecalc
+      //    via dist-triggern) — debouncen armeras, INGEN reset än.
+      svc.updateVessel(MMSI, {
+        lat: KLAFF.lat - 0.0056, lon: KLAFF.lon, sog: 4.2, cog: 190, name: 'N1-TEST',
+      });
+      expect(events).toHaveLength(0);
 
-    // Minimal replikering av det bekräftade Fix D-flödet är skör — kör i
-    // stället kontraktet: JOURNEY_RESET-signalen når app-lagret och rensar
-    // dedup (verifieras via updateVessel-integrationen i replay-sviten).
-    // Här låser vi eventets FORM: emit måste bära mmsi + vessel.
-    svc.emit('vessel:journey-reset', { mmsi: vessel.mmsi, vessel, direction: 'south' });
-    expect(events).toHaveLength(1);
-    expect(events[0].mmsi).toBe('265000013');
-    expect(oldVessel.passedBridges).toContain('Klaffbron');
+      // 3. Andra konsekutiva syd-observationen — bekräftad U-sväng.
+      svc.updateVessel(MMSI, {
+        lat: KLAFF.lat - 0.0058, lon: KLAFF.lon, sog: 4.2, cog: 192, name: 'N1-TEST',
+      });
+
+      expect(events).toHaveLength(1);
+      expect(events[0].mmsi).toBe(MMSI);
+      expect(events[0].direction).toBe('south');
+      expect(events[0].vessel).toBeTruthy();
+      const after = svc.vessels.get(MMSI);
+      expect(after.passedBridges).toEqual([]);
+      expect(after._routeDirection).toBe('south');
+      svc.clearAllTimers();
+    } finally {
+      delete global.__TEST_MODE__;
+    }
   });
 
   test('app-lagret rensar dedup-nycklar (session+persistent) vid journey-reset', () => {

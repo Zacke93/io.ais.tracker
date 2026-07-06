@@ -34,6 +34,13 @@ const SNAPSHOT_CONSUMED_FIELDS = [
   'lastPassedBridge', 'lastPassedBridgeTime', 'passedBridges',
   'status', 'etaMinutes',
   'timestamp', 'lastPositionUpdate', '_lastSeen',
+  // Helgranskning 2026-07-06 (t-kedjor#1): 6:e offrets fält saknades i
+  // vakten — en refaktor som tappade dem ur snapshotten passerade grönt.
+  'maxRecentSpeed', // RC3-stale-gatens effektiva fart i exit-fallbacken (app.js ~4379)
+  'passedAt', // ankrad korsningstid för failsafe-fönstret (app.js ~4351)
+  // Helgranskning 2026-07-06 (app-6#R2-2): exit-fallbackens nya gates.
+  '_moored',
+  '_hasMovementProof',
 ];
 
 describe('B1: snapshot-fullständighet (fältlist-vakten)', () => {

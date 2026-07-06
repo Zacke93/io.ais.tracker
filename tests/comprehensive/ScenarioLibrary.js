@@ -97,11 +97,11 @@ class ScenarioLibrary {
           },
           {
             step: 3,
-            description: 'Special waiting at Stallbackabron (280m)',
+            description: 'Special waiting at Stallbackabron (260m)',
             vessels: [{
               mmsi: '246924000',
               name: 'LAURIERBORG',
-              ...this._calculatePosition('stallbackabron', 280, 'north'),
+              ...this._calculatePosition('stallbackabron', 260, 'north'),
               sog: 5.2,
               cog: 205,
             }],
@@ -141,11 +141,11 @@ class ScenarioLibrary {
           },
           {
             step: 7,
-            description: 'Waiting at Stridsbergsbron (280m)',
+            description: 'Waiting at Stridsbergsbron (260m)',
             vessels: [{
               mmsi: '246924000',
               name: 'LAURIERBORG',
-              ...this._calculatePosition('stridsbergsbron', 280, 'north'),
+              ...this._calculatePosition('stridsbergsbron', 260, 'north'),
               sog: 5.2,
               cog: 205,
             }],
@@ -185,11 +185,11 @@ class ScenarioLibrary {
           },
           {
             step: 11,
-            description: 'Waiting at Klaffbron (280m)',
+            description: 'Waiting at Klaffbron (260m)',
             vessels: [{
               mmsi: '246924000',
               name: 'LAURIERBORG',
-              ...this._calculatePosition('klaffbron', 280, 'north'),
+              ...this._calculatePosition('klaffbron', 260, 'north'),
               sog: 5.2,
               cog: 205,
             }],
@@ -230,11 +230,11 @@ class ScenarioLibrary {
           },
           {
             step: 3,
-            description: 'Waiting at Klaffbron (280m)',
+            description: 'Waiting at Klaffbron (260m)',
             vessels: [{
               mmsi: '275514000',
               name: 'NORDIC PASSAGE',
-              ...this._calculatePosition('klaffbron', 280, 'south'),
+              ...this._calculatePosition('klaffbron', 260, 'south'),
               sog: 4.8,
               cog: 25,
             }],
@@ -274,11 +274,11 @@ class ScenarioLibrary {
           },
           {
             step: 7,
-            description: 'Waiting at Stridsbergsbron (280m)',
+            description: 'Waiting at Stridsbergsbron (260m)',
             vessels: [{
               mmsi: '275514000',
               name: 'NORDIC PASSAGE',
-              ...this._calculatePosition('stridsbergsbron', 280, 'south'),
+              ...this._calculatePosition('stridsbergsbron', 260, 'south'),
               sog: 4.8,
               cog: 25,
             }],
@@ -323,7 +323,7 @@ class ScenarioLibrary {
             vessels: [{
               mmsi: '265727030',
               name: 'EXPRESS',
-              ...this._calculatePosition('klaffbron', 280, 'south'),
+              ...this._calculatePosition('klaffbron', 260, 'south'),
               sog: 8.0,
               cog: 25,
             }],
@@ -381,26 +381,26 @@ class ScenarioLibrary {
     return [
       {
         name: 'Transition: Approaching → Waiting (boundary test)',
-        description: 'Tests 500m→300m transition for waiting status',
+        description: 'Tests approaching→waiting över de OPERATIVA hysteres-avstånden (480/270 m)',
         waypoints: [
           {
             step: 1,
-            description: 'Just inside approaching zone (499m)',
+            description: 'Just inside approaching zone (470m — set-avståndet är 480)',
             vessels: [{
               mmsi: '246924000',
               name: 'TEST1',
-              ...this._calculatePosition('klaffbron', 499, 'south'),
+              ...this._calculatePosition('klaffbron', 470, 'south'),
               sog: 5.0,
               cog: 25,
             }],
           },
           {
             step: 2,
-            description: 'Just inside waiting zone (299m)',
+            description: 'Just inside waiting zone (260m — set-avståndet är 270)',
             vessels: [{
               mmsi: '246924000',
               name: 'TEST1',
-              ...this._calculatePosition('klaffbron', 299, 'south'),
+              ...this._calculatePosition('klaffbron', 260, 'south'),
               sog: 5.0,
               cog: 25,
             }],
@@ -483,11 +483,11 @@ class ScenarioLibrary {
           },
           {
             step: 2,
-            description: 'Special waiting "åker strax under" (280m)',
+            description: 'Special waiting "åker strax under" (260m)',
             vessels: [{
               mmsi: '246924000',
               name: 'STALLTEST',
-              ...this._calculatePosition('stallbackabron', 280, 'north'),
+              ...this._calculatePosition('stallbackabron', 260, 'north'),
               sog: 5.2,
               cog: 205,
             }],
@@ -639,7 +639,7 @@ class ScenarioLibrary {
               {
                 mmsi: '275514000',
                 name: 'BOAT2',
-                ...this._calculatePosition('stridsbergsbron', 280, 'south'),
+                ...this._calculatePosition('stridsbergsbron', 260, 'south'),
                 sog: 5.0,
                 cog: 25,
               },
@@ -666,7 +666,10 @@ class ScenarioLibrary {
               {
                 mmsi: '275514000',
                 name: 'BOAT2',
-                ...this._calculatePosition('stridsbergsbron', 200, 'south'), // Closer to Stridsbergsbron (200m < 210m midpoint)
+                // Närmast Strids: verkliga gapet Jvb–Strids är 257 m (midpoint
+                // ~129) — gamla 200 m hamnade 57 m från Järnvägsbron
+                // (helgranskning 2026-07-06, t-scenario-library#2).
+                ...this._calculatePosition('stridsbergsbron', 100, 'south'),
                 sog: 5.0,
                 cog: 25, // Northbound → target Stridsbergsbron
               },
@@ -741,7 +744,7 @@ class ScenarioLibrary {
               {
                 mmsi: '265607140',
                 name: 'BOAT4',
-                ...this._calculatePosition('stridsbergsbron', 280, 'south'),
+                ...this._calculatePosition('stridsbergsbron', 260, 'south'),
                 sog: 5.0,
                 cog: 25,
               },
@@ -782,11 +785,11 @@ class ScenarioLibrary {
           },
           {
             step: 2,
-            description: 'Just inside waiting zone (299m)',
+            description: 'Just inside waiting zone (260m — set-avståndet är 270)',
             vessels: [{
               mmsi: '246924000',
               name: 'EDGE1',
-              ...this._calculatePosition('klaffbron', 299, 'south'),
+              ...this._calculatePosition('klaffbron', 260, 'south'),
               sog: 5.0,
               cog: 25,
             }],
@@ -837,16 +840,22 @@ class ScenarioLibrary {
 
       {
         name: 'Edge: Vessel with missing name',
-        description: 'Tests vessel without name property (should be filtered by app)',
-        skipValidation: true, // This scenario intentionally has invalid data to test filtering
+        description: 'Namnlös båt (aisstream-platshållaren "Unknown") — texten är count-baserad och ska vara opåverkad',
+        skipValidation: true,
         waypoints: [
           {
             step: 1,
-            description: 'Vessel without name (should be filtered)',
+            // Helgranskning 2026-07-06 (t-comprehensive#2): tidigare
+            // utelämnades name och runnern substituerade tyst 'Test Vessel'
+            // — scenariot testade INGENTING om namnlösa båtar. Produktions-
+            // kontraktet är att AISStreamClient ALDRIG levererar null utan
+            // platshållaren 'Unknown' (rad ~511) — det är det realistiska
+            // namnlösa fallet, och det får inte störa textbygget.
+            description: 'Namnlös båt (shipName="Unknown") renderas normalt i count-baserad text',
             vessels: [{
               mmsi: '999999999',
-              // name intentionally missing
-              ...this._calculatePosition('klaffbron', 280, 'south'),
+              name: 'Unknown', // aisstreams platshållare — det äkta namnlösa fallet
+              ...this._calculatePosition('klaffbron', 260, 'south'),
               sog: 5.0,
               cog: 25,
             }],

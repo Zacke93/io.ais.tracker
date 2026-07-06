@@ -1320,7 +1320,16 @@ class AISBridgeApp extends Homey.App {
       // BUG 12 FIX: Kontrollera riktning — Klaffbron är terminal bara för sydgående,
       // Stridsbergsbron bara för nordgående. Utan detta schemaläggs felaktig borttagning
       // för nordgående fartyg som passerat Klaffbron (som inte är deras sista bro).
-      const isNorthbound = vessel.cog >= COG_DIRECTIONS.NORTH_MIN || vessel.cog <= COG_DIRECTIONS.NORTH_MAX;
+      // Helgranskning 2026-07-06 (app-3#1-härdning): föredra riktningslåsen
+      // (som syskonen _hasPassedFinalTargetBridge/_calculateNextTargetBridge)
+      // och finit-gata rå-cog-fallbacken — null <= 45 gav annars "nord" för
+      // okänd kurs. Inert idag (target-transitionen körs uppströms), men
+      // raden ska inte vara den enda i familjen som litar blint på momentan cog.
+      const lockedDir = vessel._finalTargetDirection || vessel._routeDirection;
+      const isNorthbound = lockedDir
+        ? lockedDir === 'north'
+        : (Number.isFinite(vessel.cog)
+          && (vessel.cog >= COG_DIRECTIONS.NORTH_MIN || vessel.cog <= COG_DIRECTIONS.NORTH_MAX));
       const terminalBridge = isNorthbound ? 'Stridsbergsbron' : 'Klaffbron';
       const isTerminalTarget = vessel.targetBridge === terminalBridge
         && vessel.passedBridges?.includes(terminalBridge);
@@ -2366,14 +2375,22 @@ class AISBridgeApp extends Homey.App {
 
     try {
       for (const vessel of vessels) {
+        // Helgranskning 2026-07-06 (app-5#1, fältlist-fällans 9:e offer —
+        // projektionsvarianten): relevantVessels är BridgeText-projektionen
+        // vars fältlista saknar _criticalTransitionHoldUntil/_zoneTransitions
+        // (de sätts av StatusService på de RIKTIGA fartygsobjekten). Läst på
+        // projektionen var båda kontrollerna alltid falska → kritisk-
+        // övergångstermen i micro-grace var död. Slå upp det levande objektet.
+        const liveVessel = this.vesselDataService?.getVessel?.(vessel.mmsi) || vessel;
+
         // Check for active critical transition holds (stallbacka-waiting, under-bridge)
-        if (this.statusService.hasActiveCriticalTransition(vessel)) {
+        if (this.statusService.hasActiveCriticalTransition(liveVessel)) {
           this.debug(`🔥 [CRITICAL_TRANSITION_DETECTED] ${vessel.mmsi}: Active critical transition detected for micro-grace`);
           return true;
         }
 
         // Check for high-priority recent transitions
-        const highestTransition = this.statusService.getHighestPriorityTransition(vessel);
+        const highestTransition = this.statusService.getHighestPriorityTransition(liveVessel);
         if (highestTransition && highestTransition.isCritical) {
           this.debug(`⚡ [PRIORITY_TRANSITION_DETECTED] ${vessel.mmsi}: Critical transition to ${highestTransition.status} detected for micro-grace`);
           return true;
@@ -2433,6 +2450,12 @@ class AISBridgeApp extends Homey.App {
         if (bridgeText === BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE
             && this._lastBridgeText
             && this._lastBridgeText !== BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE
+            // Helgranskning 2026-07-06 (app-4#1): återpublicera ALDRIG
+            // frånkopplingstexten — samma BT-F5-undantag som validerings-
+            // fallbacken (rad ~2730). Utan detta kunde F29 visa "AIS-
+            // anslutning saknas" i ~2 s EFTER lyckad återanslutning när den
+            // enda båten var kortvarigt GPS-hållen.
+            && this._lastBridgeText !== STALE_DATA_OVERRIDE_TEXT
             && Array.isArray(relevantVessels)
             && this.vesselDataService
             && typeof this.vesselDataService.hasGpsJumpHold === 'function') {
@@ -2566,7 +2589,12 @@ class AISBridgeApp extends Homey.App {
       // AV, inte fortsätta lysa i upp till 28 min på spökdata (texten och
       // larmet sa tidigare emot varandra under långa avbrott).
       const staleGuardActive = bridgeText === STALE_DATA_OVERRIDE_TEXT;
-      const hasActiveBoats = relevantVessels.length > 0 && !staleGuardActive;
+      // Helgranskning 2026-07-06 (app-4#2): larmet speglar TEXTEN, inte
+      // rålistan. relevantVessels innehåller orenderbara båtar (targetBridge
+      // nyss nollad, BUG 11-fönstret) → larmet kunde lysa i upp till 180 s
+      // medan texten sa "Inga båtar". alarm ⇔ text är den enda kombination
+      // som aldrig säger emot sig själv i användarens panel.
+      const hasActiveBoats = bridgeText !== BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE && !staleGuardActive;
 
       // Bug #4 fix: harmonize filtering with BridgeTextService. The service filters
       // vessels by TARGET_BRIDGES.includes(targetBridge) (BridgeTextService.js:80).
@@ -4189,6 +4217,19 @@ class AISBridgeApp extends Homey.App {
     if (!Number.isFinite(distance) || distance > EXIT_FALLBACK_RADIUS) {
       return;
     }
+    // Helgranskning 2026-07-06 (app-6#R2-2): systervägarnas förtöjnings-/
+    // rörelsebevis-gate saknades här — en kajliggare inom 400 m från
+    // Kanalinfarten fick annars en falsk exit-notis vid varje removal-cykel
+    // (var 2:e timme via persistent-dedup-fönstret). Snapshotten bär numera
+    // _moored/_hasMovementProof (fältlistan uppdaterad).
+    if (vessel._moored === true) {
+      this.debug(`⚓ [EXIT_TRIGGER_SKIP] ${vessel.mmsi}: moored/anchored — no exit notification`);
+      return;
+    }
+    if (vessel._hasMovementProof !== true) {
+      this.debug(`🏃 [EXIT_TRIGGER_SKIP] ${vessel.mmsi}: no movement proof — no exit notification`);
+      return;
+    }
     // Bara om vesseln är norr om Kanalinfarten (lat > tp.lat) — då har hon ännu
     // inte passerat söderut, men förväntas göra det. Söder om → redan passerad.
     if (vessel.lat < kanalinfarten.lat) {
@@ -5048,7 +5089,10 @@ class AISBridgeApp extends Homey.App {
    * @private
    */
   _simulateTestData() {
-    setTimeout(() => {
+    // Helgranskning 2026-07-06 (app-8#2): spåra timern så onUninit kan rensa
+    // den — annars fyrar den mot delvis nedrivna tjänster vid snabb
+    // avinitiering (endast utvecklingsläge, hygien).
+    this._simulateTestDataTimer = setTimeout(() => {
       this._processAISMessage({
         mmsi: '123456789',
         msgType: 1,
@@ -5077,9 +5121,18 @@ class AISBridgeApp extends Homey.App {
    * @param {Object} sample - Normalized AIS sample
    */
   _captureAISReplaySample(sample) {
+    // Helgranskning 2026-07-06 (app-2#R2-2): den ovillkorliga stdout-raden
+    // spammade Homeys app-logg med VARJE AIS-meddelande i publicerad drift
+    // (tiotusentals rader/dygn — dränker verklig diagnostik och sliter på
+    // enheten). Replay-fångsten gatar nu på debug_level='full', som är det
+    // dokumenterade läget för valideringskörningar (run-with-logs.sh varnar
+    // aktivt om raderna uteblir). Fil-fångstvägen (env, lokal körning)
+    // fungerar oberoende av debugnivån.
+    const replayLoggingEnabled = this.debugLevel === 'full' || this._replayCaptureFile;
     if (!this._replayCaptureFile || !sample || !sample.mmsi) {
-      // Always emit replay data to stdout so run-with-logs can capture locally
-      this.log('[AIS_REPLAY_SAMPLE]', JSON.stringify(sample));
+      if (replayLoggingEnabled && sample && sample.mmsi) {
+        this.log('[AIS_REPLAY_SAMPLE]', JSON.stringify(sample));
+      }
       return;
     }
 
@@ -5126,8 +5179,17 @@ class AISBridgeApp extends Homey.App {
 
       const staleBase = UI_CONSTANTS.STALE_FEED_RECONNECT_MS || 20 * 60 * 1000;
       if (silenceMs < staleBase) {
-        // Färsk data → nollställ tystnads-backoffen
-        this._feedWatchdogStrikes = 0;
+        // Helgranskning 2026-07-06 (app-8#1): nollställ backoffen ENDAST på
+        // riktig data (sinceMessage), inte på ung socket. Efter varje tyst
+        // reconnect nollställdes openedAt → silenceMs≈uptime<staleBase →
+        // strikes=0 → eskaleringen 20→40→80→120 min kunde ALDRIG ske och
+        // watchdogen reconnectade var 20:e minut för evigt på tyst kanal —
+        // exakt den 503-churn RC-S2 skulle stoppa. silenceMs (min:ad mot
+        // uptime) styr fortfarande SJÄLVA ingripandet, så en nyss omansluten
+        // socket får alltid ett helt tyst fönster innan nästa försök.
+        if (sinceMessage < staleBase) {
+          this._feedWatchdogStrikes = 0;
+        }
         return;
       }
 
@@ -5351,7 +5413,10 @@ class AISBridgeApp extends Homey.App {
     // intervalltimers — de överlevde annars shutdown (timer-läcka om Homey
     // återanvänder processen). PassageLatch 60 s-cleanup, RouteOrderValidator
     // 2h-cleanup, GPSJumpGate 10 s/5 min-cleanup.
-    for (const svc of [this.passageLatchService, this.routeOrderValidator, this.gpsJumpGateService]) {
+    // Helgranskning 2026-07-06 (app-9#1): statusService tillagd — dess
+    // ProgressiveETACalculator äger ett 5-min-setInterval som annars läckte
+    // per onInit-cykel.
+    for (const svc of [this.passageLatchService, this.routeOrderValidator, this.gpsJumpGateService, this.statusService]) {
       try {
         if (svc && typeof svc.destroy === 'function') svc.destroy();
       } catch (error) {
@@ -5363,6 +5428,12 @@ class AISBridgeApp extends Homey.App {
     if (this._selfTestTimer) {
       clearTimeout(this._selfTestTimer);
       this._selfTestTimer = null;
+    }
+
+    // Dev-simuleringstimern (helgranskning 2026-07-06, app-8#2)
+    if (this._simulateTestDataTimer) {
+      clearTimeout(this._simulateTestDataTimer);
+      this._simulateTestDataTimer = null;
     }
 
     // COALESCING CLEANUP: Clear all coalescing timers and state

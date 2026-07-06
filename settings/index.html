@@ -145,16 +145,28 @@
                 }
             });
 
+            // Helgranskning 2026-07-06 (kontrakt-homey#1): spara-knappen
+            // skrev debug_level ovillkorligt — trycktes den innan GET hunnit
+            // svara skrevs select-defaulten ('basic') över en lagrad 'full'
+            // (tyst nedgradering). Knappen är avstängd tills nivån laddats.
+            let debugLevelLoaded = false;
+            saveButton.disabled = true;
             Homey.get('debug_level', function (err, debugLevel) {
                 if (!err && debugLevel) {
                     debugLevelSelect.value = debugLevel;
                 } else {
                     debugLevelSelect.value = 'basic'; // Default to basic
                 }
+                debugLevelLoaded = true;
+                saveButton.disabled = false;
             });
 
             // Save settings
             saveButton.addEventListener('click', function () {
+                if (!debugLevelLoaded) {
+                    showStatus('⏳ Inställningarna laddas fortfarande — försök igen strax.', 'info');
+                    return;
+                }
                 const apiKey = apiKeyInput.value.trim();
                 const debugLevel = debugLevelSelect.value;
                 const apiKeyChanged = apiKey !== storedApiKey;

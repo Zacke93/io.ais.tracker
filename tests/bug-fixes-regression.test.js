@@ -391,6 +391,41 @@ describe('Bug #13 — elimination timer not overwritten by AIS updates', () => {
     expect(service.vessels.has(mmsi)).toBe(false);
   });
 
+  test('ELIMINATION_PROTECTION-vakten exekveras faktiskt (t-regression-a#1)', () => {
+    // Helgranskning 2026-07-06: testet ovan diskriminerade INTE vakten —
+    // med frusen fake-klocka gav förstagrenens återinträde (journey ännu
+    // komplett) samma expiry även om vakten togs bort. Här tvingas vakt-
+    // grenen: fartyget är INTE journey-komplett men står i eliminationskön.
+    const logger = mockLogger();
+    const registry = new BridgeRegistry();
+    const coordinator = new SystemCoordinator(logger);
+    const service = new VesselDataService(logger, registry, coordinator);
+
+    const mmsi = '265012091';
+    service.vessels.set(mmsi, {
+      mmsi,
+      lat: 58.28,
+      lon: 12.284,
+      sog: 4.0,
+      targetBridge: 'Stridsbergsbron',
+      cog: 30,
+      passedBridges: ['Klaffbron'],
+      lastPositionUpdate: Date.now(),
+    });
+    if (!service._eliminationPending) service._eliminationPending = new Set();
+    service._eliminationPending.add(mmsi);
+    service._cleanupExpiryTimes.set(mmsi, Date.now() + 100);
+    const expiryBefore = service._cleanupExpiryTimes.get(mmsi);
+
+    service.scheduleCleanup(mmsi, 10 * 60 * 1000);
+
+    const guardFired = logger.debug.mock.calls
+      .some(([msg]) => typeof msg === 'string' && msg.includes('ELIMINATION_PROTECTION'));
+    expect(guardFired).toBe(true);
+    expect(service._cleanupExpiryTimes.get(mmsi)).toBe(expiryBefore);
+    service.clearAllTimers();
+  });
+
   test('_eliminationPending is cleared after vessel removal', () => {
     const logger = mockLogger();
     const registry = new BridgeRegistry();

@@ -28,7 +28,13 @@ const mockLogger = () => ({
 });
 
 describe('Fix 1 — passed-status med ny target får beräknad ETA', () => {
-  // Direct unit-test of the gate: hasOngoingJourney = targetBridge && targetBridge !== lastPassedBridge
+  // ⚠️ DOKUMENTATIONSTEST (märkt vid helgranskningen 2026-07-06,
+  // t-bridge-text#1): blocket RE-IMPLEMENTERAR grinden inline och exekverar
+  // INGEN produktionskod — det låser den avsedda semantiken som läsbar
+  // specifikation. Det VERKLIGA beteendet (app.js ~1563/~3321) täcks av
+  // replay-korpusarna (passed-med-ny-target förekommer i varje korpus) och
+  // bridge-text-livscykel-sviten. Ändras grinden i app.js utan att detta
+  // block uppdateras är det DOKUMENTATIONEN som är stale — inte ett larm.
   test('vessel passed Klaffbron, target=Stridsbergsbron → hasOngoingJourney is true', () => {
     const vessel = { targetBridge: 'Stridsbergsbron', lastPassedBridge: 'Klaffbron' };
     const hasOngoingJourney = vessel.targetBridge && vessel.targetBridge !== vessel.lastPassedBridge;
@@ -50,22 +56,23 @@ describe('Fix 1 — passed-status med ny target får beräknad ETA', () => {
 });
 
 describe('Fix 2 — ETA staleness-check (5 min threshold)', () => {
-  // Behaviour validated semantically: ageMs > STALE_ETA_THRESHOLD_MS → null
-  // Direct integration test would require full app boot which is not in scope.
-  const STALE_ETA_THRESHOLD_MS = 5 * 60 * 1000;
+  // Helgranskning 2026-07-06 (t-bridge-text#2): tröskeln importeras nu från
+  // PRODUKTIONENS konstanter — den gamla lokala kopian var självkonsistent
+  // (testet kunde aldrig upptäcka en ändrad produktionströskel).
+  // eslint-disable-next-line global-require
+  const { UI_CONSTANTS } = require('../lib/constants');
+  const SOFT = UI_CONSTANTS.STALE_ETA_SOFT_THRESHOLD_MS;
+
+  test('produktionströskeln är 5 min (kontraktslås mot lib/constants)', () => {
+    expect(SOFT).toBe(5 * 60 * 1000);
+  });
 
   test('lastPositionUpdate 4 min ago is NOT stale', () => {
-    const ageMs = 4 * 60 * 1000;
-    expect(ageMs > STALE_ETA_THRESHOLD_MS).toBe(false);
+    expect(4 * 60 * 1000 > SOFT).toBe(false);
   });
 
   test('lastPositionUpdate 6 min ago IS stale', () => {
-    const ageMs = 6 * 60 * 1000;
-    expect(ageMs > STALE_ETA_THRESHOLD_MS).toBe(true);
-  });
-
-  test('threshold value matches plan (5 minutes = 300000 ms)', () => {
-    expect(STALE_ETA_THRESHOLD_MS).toBe(300000);
+    expect(6 * 60 * 1000 > SOFT).toBe(true);
   });
 });
 

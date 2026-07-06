@@ -197,25 +197,57 @@ function validateInvariants(result) {
   // minst en boat_near-notis för samma fartyg+bro någonstans i körningen.
   // (Passager som aldrig detekteras — totalt AIS-mörker — omfattas inte:
   // utan data är notis omöjlig.)
-  const notifiedKeys = new Set(notifications.map((n) => `${n.mmsi}:${n.bridge}`));
+  // Helgranskning 2026-07-06 (harness-core#1): RÄKNINGSBASERAD per nyckel —
+  // den gamla Set-varianten kvitterade en missad ANDRA passage (U-sväng/
+  // returresa) med FÖRSTA passagens notis. Nu krävs minst lika många notiser
+  // som passager per (mmsi,bro). Fördelningsmultiset:en täcker låsta korpusar;
+  // detta täcker soak/syntetiska/olåsta där facit saknas.
+  const notifsByKey = new Map();
+  for (const n of notifications) {
+    const key = `${n.mmsi}:${n.bridge}`;
+    if (!notifsByKey.has(key)) notifsByKey.set(key, []);
+    notifsByKey.get(key).push(n);
+  }
+  const passagesByKey = new Map();
   for (const p of targetPassages) {
-    if (!notifiedKeys.has(`${p.mmsi}:${p.bridge}`)) {
-      violations.push(`MISSAD MÅLBRO-NOTIS: ${p.iso} ${p.mmsi} passerade ${p.bridge} utan notis`);
+    const key = `${p.mmsi}:${p.bridge}`;
+    if (!passagesByKey.has(key)) passagesByKey.set(key, []);
+    passagesByKey.get(key).push(p);
+  }
+  for (const [key, passList] of passagesByKey) {
+    const notifCount = (notifsByKey.get(key) || []).length;
+    if (notifCount < passList.length) {
+      const last = passList[passList.length - 1];
+      violations.push(
+        `MISSAD MÅLBRO-NOTIS: ${key} — ${passList.length} registrerade passager men ${notifCount} notis(er) `
+        + `(senaste passage ${last.iso})`,
+      );
     }
   }
 
-  // INV-7: notis-timing — passagens notis ska finnas senast 60 s efter
+  // INV-7: notis-timing — varje passages notis ska finnas senast 60 s efter
   // registreringen (proximity-notiser kommer långt FÖRE, failsafes i samma
   // tick — båda OK; en notis som dröjer minuter efter passagen är värdelös).
-  for (const p of targetPassages) {
-    const hasTimely = notifications.some(
-      (n) => n.mmsi === p.mmsi && n.bridge === p.bridge
-        && Number.isFinite(n.t) && n.t <= p.t + 60000,
-    );
-    const hasAny = notifiedKeys.has(`${p.mmsi}:${p.bridge}`);
-    if (hasAny && !hasTimely) {
-      violations.push(`SEN MÅLBRO-NOTIS: ${p.iso} ${p.mmsi}@${p.bridge} — notisen kom >60s efter registrerad passage`);
-    }
+  // Helgranskning 2026-07-06 (harness-core#1): prefix-räknad per nyckel —
+  // k:te passagen kräver minst k notiser inom sitt tidsfönster, så första
+  // notisen inte kan kvittera returpassagen.
+  for (const [key, passList] of passagesByKey) {
+    const notifTimes = (notifsByKey.get(key) || [])
+      .map((n) => n.t)
+      .filter((t) => Number.isFinite(t))
+      .sort((a, b) => a - b);
+    const sortedPasses = [...passList].sort((a, b) => a.t - b.t);
+    sortedPasses.forEach((p, idx) => {
+      const timelyCount = notifTimes.filter((t) => t <= p.t + 60000).length;
+      const totalForKey = notifTimes.length;
+      // Flagga SEN bara när notiser FINNS för passagen (missen fångas av INV-5).
+      if (totalForKey >= idx + 1 && timelyCount < idx + 1) {
+        violations.push(
+          `SEN MÅLBRO-NOTIS: ${p.iso} ${key} — passage nr ${idx + 1} saknar notis inom 60s `
+          + `(${timelyCount} i tid av minst ${idx + 1} krävda)`,
+        );
+      }
+    });
   }
 
   // INV-4: count-degradering — generisk "är i närheten av"-text inklämd
@@ -344,7 +376,11 @@ function validateInvariants(result) {
 
   // INV-8/INV-11/INV-16 (2026-07-03, SKÄRPTA från WARN i fas 6 — noll utslag
   // över 8 korpusar + 32 syntetiska efter B1/B2-fixarna):
-  const PROXIMITY_SOURCES = new Set(['target', 'current', 'nearest', 'trigger-point']);
+  // Helgranskning 2026-07-06 (harness-core#R2-2): 'just-passed' tillagd —
+  // en äkta närzons-källa som tidigare undgick både INV-11:s 400 m-gräns
+  // och INV-16:s fartfysik. Empiriskt verifierad ren över 8/8 korpusar +
+  // 38 syntetiska scenarier vid tillägget.
+  const PROXIMITY_SOURCES = new Set(['target', 'current', 'nearest', 'trigger-point', 'just-passed']);
   const PLACEHOLDER_NAMES = new Set(['Unknown', 'Okänd båt']);
   const firstNameSeen = result.firstNameSeen || {};
   for (const n of notifications) {

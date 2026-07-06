@@ -1,5 +1,7 @@
 'use strict';
 
+jest.mock('homey');
+
 /**
  * Regression tests for review follow-up fixes on branch
  * fix/ghost-vessel-and-eta-bugs, identified by code-reviewer agent.
@@ -241,17 +243,46 @@ describe('Review M1 — Bug #6 absolute clamp only for slow vessels', () => {
     const proximityData = { nearestBridge: { id: 'jarnvagsbron' }, nearestDistance: 800 };
 
     const result = calc._processETAWithProtection(vessel, 82, proximityData);
-    expect(result).toBeLessThan(75);
+    // Helgranskning 2026-07-06 (t-regression-b#R2-1): skärpt från `< 75` —
+    // EMA UTAN klampen ger ~71 (0.6·64 + 0.4·82) som också klarade 75, så
+    // testet kunde inte upptäcka en borttagen klamp. Klampen är ±3 min från
+    // föregående publicerade (64 → max 67).
+    expect(result).toBeLessThanOrEqual(67.01);
+    expect(result).toBeGreaterThan(60);
   });
 });
 
-describe('Review M2 — _lastConnectionLost behavior (validated via semantics)', () => {
-  test('a fresh boot-seeded timestamp is within last 30 seconds', () => {
-    // Semantics validated via the fix at app.js:145. We can't bootstrap the
-    // full app inside jest, so we assert the contract: if a code path sets
-    // _lastConnectionLost at construction, it must be recent.
-    const seeded = Date.now();
-    expect(Date.now() - seeded).toBeLessThan(1000);
+describe('Review M2 — _lastConnectionLost boot-seedas av onInit (PRODUKTIONSVÄGEN)', () => {
+  test('efter onInit utan lyckad anslutning är stale-guarden armerad', async () => {
+    // Helgranskning 2026-07-06 (t-regression-b#1): gamla testet var en ren
+    // tautologi (seedade en egen variabel). Nu bootas den RIKTIGA appen
+    // (samma mönster som RealAppTestRunner) och kontraktet asserteras:
+    // _lastConnectionLost sätts under onInit så Bug #12-stale-guarden
+    // fungerar även om AIS-anslutningen aldrig lyckas.
+    global.__TEST_MODE__ = true;
+    try {
+      // eslint-disable-next-line global-require
+      const mockHomey = require('./__mocks__/homey').__mockHomey;
+      // eslint-disable-next-line global-require
+      const AISBridgeApp = require('../app');
+      const app = new AISBridgeApp();
+      app.homey = mockHomey;
+      mockHomey.app.settings = { debug_level: 'off', ais_api_key: null };
+      mockHomey.settings = {
+        get: (key) => mockHomey.app.settings[key] || null,
+        on: () => {},
+        off: () => {},
+      };
+      const before = Date.now();
+      await app.onInit();
+
+      expect(Number.isFinite(app._lastConnectionLost)).toBe(true);
+      expect(app._lastConnectionLost).toBeGreaterThanOrEqual(before);
+      expect(app._isConnected).toBe(false); // ingen nyckel → ingen anslutning
+      await app.onUninit(); // städa timers/lyssnare
+    } finally {
+      delete global.__TEST_MODE__;
+    }
   });
 });
 
@@ -268,14 +299,21 @@ describe('Review M3 — Bug #3 requires consecutive slow samples', () => {
     const calc = makeCalc();
     const mmsi = 'maneuvering';
 
-    // Populate buffer: high, high, low (clear transitional)
-    calc._getAveragedSpeed({ mmsi }, 5.0);
-    calc._getAveragedSpeed({ mmsi }, 4.5);
+    // Helgranskning 2026-07-06 (t-regression-b#2): buffertvärdena valda så
+    // att SNITTET (≈1,3 kn) ligger UNDER golvet 2,5 — annars passerade
+    // testet även utan golvet (gamla värdena gav snitt 3,2 ≥ 2,5). Nu är
+    // golvet den enda förklaringen till resultatet.
+    calc._getAveragedSpeed({ mmsi }, 2.0);
+    calc._getAveragedSpeed({ mmsi }, 1.8);
     const speed = calc._getEffectiveSpeed({
-      mmsi, sog: 0.1, status: 'passed', lastPassedBridge: 'Klaffbron',
+      mmsi,
+      sog: 0.1,
+      status: 'passed',
+      lastPassedBridge: 'Klaffbron',
+      lastPassedBridgeTime: Date.now() - 60 * 1000, // E-F5: golvet kräver färsk passage
     });
-    // Avg = (5.0 + 4.5 + 0.1)/3 ≈ 3.2 → vesselIsMoving true anyway.
-    // Even if avg were low: allBufferedSlow is false because 5.0 and 4.5 > 1.0
+    // Avg = (2.0 + 1.8 + 0.1)/3 ≈ 1.3 < 2.5, men allBufferedSlow är false
+    // (2.0 och 1.8 > 1.0) → rörlig → passagegolvet 2.5 ska gälla.
     expect(speed).toBeGreaterThanOrEqual(2.5);
   });
 

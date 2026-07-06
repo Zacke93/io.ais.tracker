@@ -167,6 +167,26 @@ describe('SystemCoordinator — koordinationsanalys och cleanup', () => {
       });
     });
 
+    test('koordinationsfönstret löper ut tidsbaserat — getCoordination släpper efter 10 s (t-unit-gps#1)', () => {
+      // Helgranskning 2026-07-06: den viktigaste fastlåsningsfixen
+      // (produktionsredo 2026-07-03: tidsbaserad aktiv-bedömning i
+      // getCoordination) saknade helt test — permanent gating gav missade
+      // notiser. Fönstret ÄR stabilizationCoordinationMs (10 s).
+      sc.coordinatePositionUpdate(MMSI, JUMP, {}, {});
+      expect(sc.getCoordination(MMSI).coordinationActive).toBe(true);
+
+      // Precis innanför fönstret: fortfarande aktiv.
+      mockNow += 9 * 1000;
+      expect(sc.getCoordination(MMSI).coordinationActive).toBe(true);
+
+      // Förbi fönstret: släppt — utan nya coordinate-anrop.
+      mockNow += 2 * 1000;
+      const coord = sc.getCoordination(MMSI);
+      expect(coord.coordinationActive).toBe(false);
+      expect(coord.level).toBe('normal');
+      expect(coord.protection).toBe(false);
+    });
+
     test('koordinationstyperna mappas till publika nivåer (moderate/light)', () => {
       sc.coordinatePositionUpdate('265000111', CAUTION, {}, {});
       sc.coordinatePositionUpdate('265000222', LARGE, {}, {});
