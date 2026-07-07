@@ -286,6 +286,29 @@ describe('F4: timeout-removal räknas som avslutad resa ENDAST efter målbropass
     }
   });
 
+  test('FÄLTPROV (LYS): målbroar passerade men INTE riktningens sista bro ⇒ INGEN completed-post', () => {
+    // LYS 2026-07-07 10:14: sydgående, Strids+Klaffbron passerade, timeout
+    // MELLAN Klaffbron och Olidebron → completed-posten + reentry-blocket
+    // åt upp gap-failsafen för Olidebron/Kanalinfarten (2 missade notiser).
+    // Syd är avslutad först vid Olidebron.
+    global.__TEST_MODE__ = true;
+    try {
+      const svc = makeVds();
+      const vessel = svc.updateVessel('265000024', {
+        lat: 58.2760, lon: 12.2770, sog: 4.5, cog: 205, name: 'LYS-TEST',
+      });
+      expect(vessel).toBeTruthy();
+      vessel.targetBridge = null;
+      vessel._routeDirection = 'south';
+      vessel.passedBridges = ['Stallbackabron', 'Stridsbergsbron', 'Järnvägsbron', 'Klaffbron'];
+      svc.removeVessel('265000024', 'timeout');
+      expect(svc._completedJourneys.has('265000024')).toBe(false);
+      svc.clearAllTimers();
+    } finally {
+      delete global.__TEST_MODE__;
+    }
+  });
+
   test('målbro (Klaffbron) i passedBridges + timeout ⇒ completed journey registreras (Bug E-fallet bevarat)', () => {
     global.__TEST_MODE__ = true;
     try {
@@ -295,6 +318,9 @@ describe('F4: timeout-removal räknas som avslutad resa ENDAST efter målbropass
       });
       expect(vessel).toBeTruthy();
       vessel.targetBridge = null;
+      // Fältprov-skärpningen 2026-07-07: completed-timeout kräver
+      // riktningsslutförd resa (syd ⇒ Olidebron passerad) + känd riktning.
+      vessel._routeDirection = 'south';
       vessel.passedBridges = ['Stridsbergsbron', 'Järnvägsbron', 'Klaffbron', 'Olidebron'];
       svc.removeVessel('265000021', 'timeout');
       expect(svc._completedJourneys.has('265000021')).toBe(true);
@@ -350,6 +376,84 @@ describe('F4: StatusService.destroy river ETA-kalkylatorns intervall (app-9#1)',
     } finally {
       delete global.__TEST_MODE__;
     }
+  });
+});
+
+describe('FÄLTPROV 2026-07-07: sessionsdedupens riktningsundantag (ELFKUNGEN-returmissarna)', () => {
+  // Fyra missade returnotiser i 14h-fältprovet: sessionsnycklarna från den
+  // nordgående turen överlevde removal (BUG7-bevarandet) och blockerade
+  // returens failsafe-notiser trots att persistent-lagret korrekt släppte
+  // ("direction flipped"). Sessionschecken speglar nu persistent-logiken.
+  let savedEnv;
+  beforeEach(() => {
+    savedEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    global.__TEST_MODE__ = undefined;
+  });
+  afterEach(() => {
+    process.env.NODE_ENV = savedEnv;
+    global.__TEST_MODE__ = undefined;
+  });
+
+  function makeDedupeApp() {
+    // eslint-disable-next-line global-require
+    const AISBridgeApp = require('../app');
+    const app = new AISBridgeApp();
+    app.log = jest.fn();
+    app.error = jest.fn();
+    app.debug = jest.fn();
+    app._boatNearTrigger = { trigger: jest.fn().mockResolvedValue(undefined) };
+    app.vesselDataService = { hasGpsJumpHold: jest.fn().mockReturnValue(false) };
+    app._triggeredBoatNearKeys = new Set(['265573130:Stallbackabron']);
+    app._persistentRecentTriggers = new Map([
+      // Nordgående turens post, 78 min gammal (inom 2h-fönstret).
+      ['265573130:Stallbackabron', { t: Date.now() - 78 * 60 * 1000, dir: 'north' }],
+    ]);
+    return app;
+  }
+
+  const returVessel = () => ({
+    mmsi: '265573130',
+    name: 'ELFKUNGEN',
+    sog: 7.8,
+    cog: 220, // sydgående retur
+    _hasMovementProof: true,
+    _moored: false,
+    lat: 58.3053,
+    lon: 12.3093,
+    targetBridge: 'Stridsbergsbron',
+    status: 'en-route',
+    timestamp: Date.now(),
+    _lastSeen: Date.now(),
+  });
+
+  test('motriktad returpassage SLÄPPS trots kvarvarande sessionsnyckel (kortet avfyras)', async () => {
+    const app = makeDedupeApp();
+    await app._triggerBoatNearFlowForBridge(returVessel(), {
+      name: 'Stallbackabron', id: 'stallbackabron', distance: 744, source: 'passage-fallback',
+    });
+    expect(app.log).toHaveBeenCalledWith(expect.stringContaining('FLOW_TRIGGER_DEDUPE_DIRECTION'));
+    expect(app._boatNearTrigger.trigger).toHaveBeenCalledTimes(1);
+    expect(app.error).not.toHaveBeenCalled();
+  });
+
+  test('SAMMA riktning blockeras fortfarande (äkta dubblett-skyddet intakt)', async () => {
+    const app = makeDedupeApp();
+    const northAgain = { ...returVessel(), cog: 20 }; // fortfarande nordgående
+    await app._triggerBoatNearFlowForBridge(northAgain, {
+      name: 'Stallbackabron', id: 'stallbackabron', distance: 744, source: 'passage-fallback',
+    });
+    expect(app.log).toHaveBeenCalledWith(expect.stringContaining('FLOW_TRIGGER_DEDUPE]'));
+    expect(app._boatNearTrigger.trigger).not.toHaveBeenCalled();
+  });
+
+  test('okänd aktuell riktning (cog null utan ruttlås) blockeras konservativt', async () => {
+    const app = makeDedupeApp();
+    const unknownDir = { ...returVessel(), cog: null };
+    await app._triggerBoatNearFlowForBridge(unknownDir, {
+      name: 'Stallbackabron', id: 'stallbackabron', distance: 744, source: 'passage-fallback',
+    });
+    expect(app._boatNearTrigger.trigger).not.toHaveBeenCalled();
   });
 });
 
