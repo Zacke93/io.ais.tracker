@@ -627,6 +627,41 @@ const SCENARIOS = [
       minNotifiedBridges: ['Klaffbron', 'Stridsbergsbron'],
     },
   },
+  {
+    // HERA II-klassen (FÄLTPROV 2026-07-07, missad Järnvägsbron): sydgående
+    // båt tystnar i 35-min-gap som spänner Stridsbergsbron+Järnvägsbron,
+    // stale-raderas, och ÅTERFÖDS I KÖ-FART (~0,6 kn) söder om Järnvägsbron
+    // på väg mot Klaffbron. Före fixen strök scenario A:s sog≥2-gate hela
+    // inferensen trots att sist-kända-positionen POSITIONSBEVISADE
+    // korsningarna — riktningen tas nu ur positionsdeltat i reborn-fallet.
+    name: 'återfödd-i-kö (HERA-klassen)',
+    seed: 50,
+    vessels: [{
+      mmsi: '901000050',
+      name: 'SYNT-HERA',
+      direction: 'south',
+      speedKn: 5.0,
+      // Sydgående: fraction räknas från norr. Kö-fart (0,45 kn) från 100 m
+      // norr om Strids till 400 m söder om Jvb; gapet (35 min → removal vid
+      // 30 min) börjar strax söder om Strids-linjen INNE i kö-zonen →
+      // tystnadssträckan blir 0,45 kn × 2100 s ≈ 490 m → återfödsel ~230 m
+      // söder om Järnvägsbron, fortfarande i kö-fart (<2 kn — porten-gatens
+      // gamla offer). Strids notifieras live (waiting) före gapet; Jvb-
+      // korsningen är POSITIONSBEVISAD av [sist kända → återfödsel].
+      slowZone: {
+        fromFraction: (METRICS.total - METRICS.cum[4] - 100) / METRICS.total,
+        toFraction: (METRICS.total - METRICS.cum[3] + 400) / METRICS.total,
+        speedKn: 0.45,
+      },
+      gap: {
+        atFraction: (METRICS.total - METRICS.cum[4] + 30) / METRICS.total,
+        durationS: 2100,
+      },
+    }],
+    expect: {
+      minNotifiedBridges: ['Stridsbergsbron', 'Järnvägsbron', 'Klaffbron'],
+    },
+  },
 ];
 
 function runScenario(scenario) {

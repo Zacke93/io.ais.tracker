@@ -192,4 +192,31 @@ module.exports = [
       + 'INV-13 kräver no-target-undantaget (NO LIMIT: mållös kajavgång '
       + 'passerade Klaffbron — korrekt intermediate-bokföring).',
   },
+  {
+    id: '20260707-14h',
+    jsonl: path.join(LOGS_DIR, 'ais-replay-20260707-092154.jsonl'),
+    appLog: path.join(LOGS_DIR, 'app-20260707-092154.log'),
+    hours: 14,
+    locked: true,
+    expectedNotifications: 72,
+    note: '14h-fältprovet 2026-07-07 (femton fartyg, dagtrafik, gles Class B — '
+      + 'radgranskat av 47 Opus-agenter + dirigent, se '
+      + 'docs/helgranskning-2026-07-06.md §fältprov). LÅST 72 (2026-07-08): '
+      + 'prod gav 66; alla 6 diffar är RÄTTADE missar verifierade mot rå '
+      + 'jsonl: +4 ELFKUNGEN retur-transiten 12:05–12:39 '
+      + '(Stallbacka+Strids+Jvb+Klaffbron — banbevisad N→S-tur-och-retur; '
+      + 'sessionsdedupens riktningsundantag saknades medan persistent-lagret '
+      + 'korrekt släppte), +1 HERA II@Järnvägsbron (positionsbevisad korsning '
+      + 'i 33-min-gapet 08:42→09:15; scenario A:s sog≥2-portgissningsgate '
+      + 'ströks för reborn-med-positionsbevis), +1 LYS@Olidebron '
+      + '(positionsbevisad 10:04→10:14; timeout-completed-posten + '
+      + 'reentry-blocket åt gap-failsafen — completed kräver nu '
+      + 'riktningsslutförd resa). LYS@Kanalinfarten INTE facit (sista sample '
+      + '58.2689 norr om triggern — korsningen aldrig belagd; stale-gaten '
+      + 'stoppar korrekt). Prods null-mmsi-notis är HAVBO@Stallbackabron '
+      + '(banbevisad; korrekt attribuerad i replay, loggkosmetiken fixad). '
+      + 'Fältbevisade i körningen: watchdog-eskaleringen 20→40→80→120, '
+      + 'PASSED_HOLD_UI-klassen (IMPERATOR/BALTIC JONGLEUR terminal-DEFAULT), '
+      + '0 fel, 0 textflappar (117 ändringar).',
+  },
 ];

@@ -411,5 +411,109 @@
       "Klaffbron",
       "Olidebron"
     ]
+  },
+  "20260707-14h": {
+    "211321210": [
+      "Stallbackabron",
+      "Stridsbergsbron",
+      "Järnvägsbron",
+      "Klaffbron",
+      "Olidebron"
+    ],
+    "219025791": [
+      "Järnvägsbron",
+      "Stridsbergsbron",
+      "Stallbackabron"
+    ],
+    "231843000": [
+      "Kanalinfarten",
+      "Olidebron",
+      "Klaffbron",
+      "Stridsbergsbron",
+      "Järnvägsbron",
+      "Stallbackabron"
+    ],
+    "244750397": [
+      "Olidebron",
+      "Kanalinfarten",
+      "Klaffbron",
+      "Järnvägsbron",
+      "Stridsbergsbron",
+      "Stallbackabron"
+    ],
+    "257141000": [
+      "Olidebron",
+      "Kanalinfarten",
+      "Järnvägsbron",
+      "Klaffbron",
+      "Stridsbergsbron",
+      "Stallbackabron"
+    ],
+    "257605080": [
+      "Kanalinfarten",
+      "Olidebron",
+      "Klaffbron"
+    ],
+    "257699280": [
+      "Olidebron",
+      "Kanalinfarten"
+    ],
+    "258177180": [
+      "Stallbackabron",
+      "Stridsbergsbron",
+      "Järnvägsbron"
+    ],
+    "265083240": [
+      "Stallbackabron",
+      "Stridsbergsbron",
+      "Järnvägsbron",
+      "Klaffbron",
+      "Olidebron"
+    ],
+    "265573130": [
+      "Kanalinfarten",
+      "Olidebron",
+      "Stridsbergsbron",
+      "Klaffbron",
+      "Järnvägsbron",
+      "Stallbackabron",
+      "Stallbackabron",
+      "Stridsbergsbron",
+      "Järnvägsbron",
+      "Klaffbron"
+    ],
+    "265689820": [
+      "Stallbackabron",
+      "Stridsbergsbron",
+      "Klaffbron",
+      "Järnvägsbron",
+      "Olidebron",
+      "Kanalinfarten"
+    ],
+    "265706440": [
+      "Klaffbron",
+      "Olidebron"
+    ],
+    "265750880": [
+      "Olidebron",
+      "Kanalinfarten",
+      "Stridsbergsbron",
+      "Järnvägsbron",
+      "Klaffbron",
+      "Stallbackabron"
+    ],
+    "265759070": [
+      "Stridsbergsbron",
+      "Järnvägsbron",
+      "Klaffbron"
+    ],
+    "304028000": [
+      "Stallbackabron",
+      "Stridsbergsbron",
+      "Järnvägsbron",
+      "Klaffbron",
+      "Kanalinfarten",
+      "Olidebron"
+    ]
   }
 }

@@ -211,8 +211,22 @@ async function main() {
   for (const s of samples) {
     // 1) Stega klockan fram till samplets tid → fyrar cleanup/STALE_AIS/
     //    protection/monitoring-timrar som förfaller i gapet (precis som drift).
-    const gap = s.aisTimestamp - Date.now();
-    if (gap > 0) clock.tick(gap);
+    // Korpus #9 (2026-07-08, ILLUSION-fönstret): CHUNKA stora gap i 30 s-steg
+    // med drain per steg. Ett synkront 30-min-tick körde annars ALLA
+    // reevaluerings-timers i klump och deras UI-publiceringar flushades
+    // först EFTER hela gapet — mellanliggande textdegraderingar ("ETA
+    // okänd"→"Inga båtar", som PROD publicerade 14:57/15:12) kollapsade och
+    // INV-10 såg falskt en 35-min-"strax"-zombie. 30 s = reevaluerings-
+    // intervallet, så varje timer-tick publicerar på sin riktiga faketid
+    // (harness-core#2-precisionen, tidigare dokumenterad som latent).
+    let gap = s.aisTimestamp - Date.now();
+    while (gap > 0) {
+      const step = Math.min(gap, 30000);
+      clock.tick(step);
+      gap -= step;
+      // eslint-disable-next-line no-await-in-loop
+      await drain();
+    }
     // eslint-disable-next-line no-await-in-loop
     await drain(); // flush microtasks/async-lyssnare från ev. timer-callbacks
 
@@ -295,8 +309,12 @@ async function main() {
 
   // ---- Slutstädning: stega fram klockan rejält så att kvarvarande
   //      cleanup-/grace-timrar löser ut (post-resa) och slut-texten fångas.
-  clock.tick(40 * 60 * 1000); // +40 min
-  await drain();
+  //      Chunkat av samma skäl som huvudloopen (korpus #9, 2026-07-08).
+  for (let left = 40 * 60 * 1000; left > 0; left -= 30000) {
+    clock.tick(Math.min(left, 30000));
+    // eslint-disable-next-line no-await-in-loop
+    await drain();
+  }
   await drain();
 
   // Återställ globala flaggor

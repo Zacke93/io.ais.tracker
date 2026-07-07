@@ -2467,6 +2467,32 @@ class AISBridgeApp extends Homey.App {
             bridgeText = this._lastBridgeText;
           }
         }
+
+        // FÄLTPROV 2026-07-07 (IMPERATOR 17:18, BALTIC JONGLEUR 20:46 —
+        // två oberoende granskarfynd, samma klass): terminal-målbropassage
+        // (TARGET_END) nollar targetBridge medan båten fortfarande är UNDER
+        // bron → BUG 11-fönstret håller henne i listan men textmotorn
+        // renderar inte targetlösa → texten föll från "…strax" till "Inga
+        // båtar" MITT I broöppningen. Behåll senaste texten under passed-
+        // fönstret vid en MÅLBRO (samma hold-mönster som F29 ovan; samma
+        // 150 s som visningsfönstret PASSED_HOLD_MS). Släpper automatiskt:
+        // nästa renderbara båt ger ny text, annars faller texten till
+        // DEFAULT när fönstret löpt ut.
+        if (bridgeText === BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE
+            && this._lastBridgeText
+            && this._lastBridgeText !== BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE
+            && this._lastBridgeText !== STALE_DATA_OVERRIDE_TEXT
+            && Array.isArray(relevantVessels)) {
+          const recentTargetPassage = relevantVessels.some((v) => v
+            && v.lastPassedBridge
+            && TARGET_BRIDGES.includes(v.lastPassedBridge)
+            && Number.isFinite(v.lastPassedBridgeTime)
+            && (Date.now() - v.lastPassedBridgeTime) < PASSAGE_TIMING.PASSED_HOLD_MS);
+          if (recentTargetPassage) {
+            this.debug('🌉 [PASSED_HOLD_UI] Behåller förra texten — båt i passed-fönstret vid målbro (broöppningen pågår; undviker falskt "Inga båtar")');
+            bridgeText = this._lastBridgeText;
+          }
+        }
       } catch (bridgeTextError) {
         this.error('[BRIDGE_TEXT] CRITICAL ERROR during bridge text generation:', bridgeTextError);
         // Use last known good text or default
@@ -3890,14 +3916,32 @@ class AISBridgeApp extends Homey.App {
       // Norrgående: hon kom från söder (Kanalinfarten ~58.27)
       // Södergående: hon kom från norr (Vänern ~58.32)
       scenario = 'new-vessel';
-      // Antagandet kräver rörelsebevis + tydlig kurs (härled riktning från
-      // cog — mer tillförlitligt än _routeDirection vid återskapning).
-      if (!Number.isFinite(vessel.sog) || vessel.sog < 2.0) return;
-      if (!Number.isFinite(vessel.cog)) return;
-      const cogIsNorth = vessel.cog >= 315 || vessel.cog <= 45;
-      const cogIsSouth = vessel.cog >= 135 && vessel.cog <= 225;
-      if (!cogIsNorth && !cogIsSouth) return; // Öster/väster — för osäkert
-      direction = cogIsNorth ? 'north' : 'south';
+      // FÄLTPROV 2026-07-07 (HERA II 09:15, missad Järnvägsbron): fart-/
+      // cog-gaterna gäller PORT-GISSNINGEN (utan historik är inferensen en
+      // gissning som kräver bevisad rörelse och tydlig kurs). Men en ÅTERFÖDD
+      // båt med sist kända position har POSITIONSBEVIS — [senast kända →
+      // nuvarande] måste ha korsats oavsett aktuell fart (HERA återföddes i
+      // 0,5 kn i Klaffbron-kön → gaten strök den belagda Jvb-passagen).
+      // Riktningen tas då ur positionsdeltat (säkrare än cog vid låg fart).
+      let rebornLastKnown = this._lastKnownPositions?.get(String(vessel.mmsi)) || null;
+      if (rebornLastKnown && Date.now() - rebornLastKnown.t >= this._LAST_KNOWN_POSITION_TTL_MS) {
+        this._lastKnownPositions.delete(String(vessel.mmsi));
+        rebornLastKnown = null;
+      }
+      const REBORN_MIN_DELTA_LAT = 100 / 111320; // ~100 m — under det är riktningen brus
+      const rebornDLat = rebornLastKnown ? vessel.lat - rebornLastKnown.lat : null;
+      const rebornEvidence = rebornLastKnown !== null && Math.abs(rebornDLat) >= REBORN_MIN_DELTA_LAT;
+      if (rebornEvidence) {
+        direction = rebornDLat > 0 ? 'north' : 'south';
+      } else {
+        // Portgissningens ursprungliga gater (P5-banden medvetna).
+        if (!Number.isFinite(vessel.sog) || vessel.sog < 2.0) return;
+        if (!Number.isFinite(vessel.cog)) return;
+        const cogIsNorth = vessel.cog >= 315 || vessel.cog <= 45;
+        const cogIsSouth = vessel.cog >= 135 && vessel.cog <= 225;
+        if (!cogIsNorth && !cogIsSouth) return; // Öster/väster — för osäkert
+        direction = cogIsNorth ? 'north' : 'south';
+      }
       // N7 (2026-07-01): antag INTE kanalport-start för en båt som lade ut
       // från en känd kaj mitt i kanalen (transpondern slås på vid avgång →
       // första positionen är kajen). Utan detta notifierades broar BAKOM
@@ -3921,11 +3965,8 @@ class AISBridgeApp extends Homey.App {
       // Järnvägsbron+Stridsbergsbron som ALDRIG korsats (gamla distans/fart-
       // skattningen råkade maskera klassen). Begränsa fönstret till
       // [senast kända, nuvarande] — broar däremellan MÅSTE ha korsats.
-      let lastKnown = this._lastKnownPositions?.get(String(vessel.mmsi)) || null;
-      if (lastKnown && Date.now() - lastKnown.t >= this._LAST_KNOWN_POSITION_TTL_MS) {
-        this._lastKnownPositions.delete(String(vessel.mmsi));
-        lastKnown = null;
-      }
+      // (Hämtad + TTL-prövad ovan i reborn-evidensblocket.)
+      const lastKnown = rebornLastKnown;
       let startBoundLat = null;
       if (lastKnown) {
         startBoundLat = lastKnown.lat;
@@ -4237,10 +4278,28 @@ class AISBridgeApp extends Homey.App {
     }
     const dedupeKey = `${vessel.mmsi}:Kanalinfarten`;
     if (this._triggeredBoatNearKeys && this._triggeredBoatNearKeys.has(dedupeKey)) {
-      this.debug(
-        `🚫 [EXIT_TRIGGER_DEDUPE] ${vessel.mmsi}: Kanalinfarten already triggered this session`,
-      );
-      return;
+      // FÄLTPROV 2026-07-07: samma riktningsundantag som huvudvägens
+      // sessionscheck — en sydgående EXIT efter nordgående ENTRY-notis är en
+      // fysisk returpassage, inte en dubblett (sessionsnycklar överlever
+      // removal i timmar via BUG7-bevarandet).
+      const persisted = this._persistentRecentTriggers
+        ? this._persistentRecentTriggers.get(dedupeKey)
+        : null;
+      const prevDir = persisted && persisted.dir ? persisted.dir : null;
+      const curDir = this._dedupDirection(vessel);
+      const oppositeDirection = prevDir && curDir && prevDir !== curDir;
+      if (oppositeDirection || !persisted) {
+        this._triggeredBoatNearKeys.delete(dedupeKey);
+        this.log(
+          `🔁 [EXIT_TRIGGER_DEDUPE_DIRECTION] ${dedupeKey}: session key released `
+          + `(${oppositeDirection ? `direction flipped ${prevDir} → ${curDir}` : 'no persistent entry (expired)'})`,
+        );
+      } else {
+        this.debug(
+          `🚫 [EXIT_TRIGGER_DEDUPE] ${vessel.mmsi}: Kanalinfarten already triggered this session`,
+        );
+        return;
+      }
     }
     // Anomali 10 v2: kontrollera persistent dedup (2h) här innan vi loggar "firing".
     // Utan denna check loggas missvisande "EXIT_TRIGGER_FALLBACK: firing fallback"
@@ -4469,14 +4528,43 @@ class AISBridgeApp extends Homey.App {
     } = candidate;
 
     const dedupeKey = `${vessel.mmsi}:${bridgeName}`;
+    // FÄLTPROV 2026-07-07 (kosmetiskt): fånga mmsi:t NU — vessel-objektet kan
+    // nollställas av removal-race under await:andet nedan, vilket gav
+    // "FLOW_TRIGGER_SUCCESS] null:" i loggen (notisen var äkta; 41h- och
+    // 14h-körningarna hade var sin). Dedup-nyckeln var alltid korrekt.
+    const mmsiLabel = vessel.mmsi;
 
     // ENHANCED DEDUPE DEBUG: Check if already triggered for this vessel+bridge combo
     if (this._triggeredBoatNearKeys.has(dedupeKey)) {
-      this.log(
-        `🚫 [FLOW_TRIGGER_DEDUPE] ${vessel.mmsi}: Already triggered for "${bridgeName}" `
-        + `(source=${source}) - dedupe active (${this._triggeredBoatNearKeys.size} keys stored)`,
-      );
-      return;
+      // FÄLTPROV 2026-07-07 (ELFKUNGEN 12:05/12:37, 4 missade returnotiser):
+      // riktningsundantaget fanns i PERSISTENT-lagret men inte här — och
+      // sessionsnycklarna överlever removal i timmar (BUG7-bevarandet håller
+      // nycklar med persistent motsvarighet), medan N2-återfödselrensningen
+      // är död när _completedJourneys-posten prunats (15 min) långt före en
+      // normal retur (ELFKUNGEN: 76 min). Spegla persistent-logikens beslut:
+      // dokumenterat MOTSATT riktning ⇒ fysisk RETURPASSAGE ⇒ ny notis.
+      // Persistent-posten bär riktningen ({t, dir}); saknas den (>2h) är
+      // sessionsnyckeln uråldrig och 2h-fönstret ändå passerat → släpp.
+      const persisted = this._persistentRecentTriggers
+        ? this._persistentRecentTriggers.get(dedupeKey)
+        : null;
+      const prevDir = persisted && persisted.dir ? persisted.dir : null;
+      const curDir = this._dedupDirection(vessel);
+      const oppositeDirection = prevDir && curDir && prevDir !== curDir;
+      if (oppositeDirection || !persisted) {
+        this._triggeredBoatNearKeys.delete(dedupeKey);
+        this.log(
+          `🔁 [FLOW_TRIGGER_DEDUPE_DIRECTION] ${dedupeKey}: session key released `
+          + `(${oppositeDirection ? `direction flipped ${prevDir} → ${curDir}` : 'no persistent entry (expired)'} `
+          + '— treating as NEW passage)',
+        );
+      } else {
+        this.log(
+          `🚫 [FLOW_TRIGGER_DEDUPE] ${vessel.mmsi}: Already triggered for "${bridgeName}" `
+          + `(source=${source}) - dedupe active (${this._triggeredBoatNearKeys.size} keys stored)`,
+        );
+        return;
+      }
     }
 
     // F34: även persistent 2h-dedup i huvudvägen (speglar fallback-/exit-vägarna).
@@ -4596,7 +4684,7 @@ class AISBridgeApp extends Homey.App {
         ? 'passage-inferred'
         : vessel.status;
       this.log(
-        `✅ [FLOW_TRIGGER_SUCCESS] ${vessel.mmsi}: boat_near fired for ${bridgeName} `
+        `✅ [FLOW_TRIGGER_SUCCESS] ${mmsiLabel}: boat_near fired for ${bridgeName} `
         + `(ID=${bridgeId}, distance=${Math.round(distance)}m, status=${logStatus})`,
       );
 

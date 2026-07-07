@@ -81,7 +81,12 @@ describe('RC7-undantag: stillaliggande båt med gles mottagning döljs inte', ()
     expect(svc.getVesselsForBridgeText()).toHaveLength(0);
   });
 
-  test('SABETH-klassen oförändrad: båt I RÖRELSE (sog 4.4) döljs vid >10 min', () => {
+  test('SABETH-klassen: målbro-riktad rörlig båt döljs vid >15 min (korpus #9-kalibrering)', () => {
+    // Korpus #9 (2026-07-08): target-satta aktiva transiter får 15 min —
+    // verklig Class B-täthet i kanalen är 6–13 min och 10-min-släppet gav
+    // "Inga båtar"-flash mitt i transit (ELFKUNGEN 12:15 i 14h-fältprovet,
+    // 07:51-fallet i 41h). SABETH-skyddet (död transponder → spökvisning)
+    // består via 15-min-taket: hon döljs 5 min senare, men flappar inte.
     const svc = makeVDS();
     const vessel = baseVessel({
       mmsi: '265571760',
@@ -91,9 +96,12 @@ describe('RC7-undantag: stillaliggande båt med gles mottagning döljs inte', ()
       lastPositionUpdate: Date.now() - 12 * 60 * 1000,
     });
     svc.vessels.set(vessel.mmsi, vessel);
+    // 12 min: inom target-fönstret → SYNLIG (gles Class B, ingen flapp).
+    expect(svc.getVesselsForBridgeText()).toHaveLength(1);
 
-    // En rörlig båts 12 min gamla position är en LÖGN (SABETH passerade
-    // fyra broar efter att transpondern dog) — hide-designen består.
+    // 16 min: bortom fönstret → dold (spökskyddet består).
+    vessel.timestamp = Date.now() - 16 * 60 * 1000;
+    vessel.lastPositionUpdate = Date.now() - 16 * 60 * 1000;
     expect(svc.getVesselsForBridgeText()).toHaveLength(0);
   });
 });

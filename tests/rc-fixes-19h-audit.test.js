@@ -317,8 +317,17 @@ describe('RC7: stale-exklusion ur bridge_text-underlaget', () => {
 
     const result = svc.getVesselsForBridgeText();
     const mmsis = result.map((v) => v.mmsi);
-    expect(mmsis).not.toContain('1');
+    // Korpus #9 (2026-07-08): target-satt aktiv transit har 15-min-fönster
+    // (verklig Class B-täthet 6–13 min) — 11 min är numera SYNLIG.
+    expect(mmsis).toContain('1');
     expect(mmsis).toContain('2');
+
+    // Bortom 15-min-fönstret döljs den (spökskyddet består).
+    svc.vessels.get('1').lastPositionUpdate = Date.now() - 16 * 60 * 1000;
+    svc.vessels.get('1').timestamp = Date.now() - 16 * 60 * 1000;
+    const after = svc.getVesselsForBridgeText().map((v) => v.mmsi);
+    expect(after).not.toContain('1');
+    expect(after).toContain('2');
   });
 
   test('mitt-i-passage-nivån (2026-07-02, PAX): ≤300 m från målbron ⇒ synlig vid 11 min', () => {

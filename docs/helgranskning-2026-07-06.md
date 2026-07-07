@@ -225,3 +225,55 @@ regressionen granskningen själv införde fångades av det egna batteriet.
 Kvarvarande väg: (1) fältprov ~1 dygn med **debug_level='full'**
 (run-with-logs.sh varnar annars), (2) analys + korpus #9-låsning,
 (3) merge + `homey app publish`.
+
+---
+
+## §FÄLTPROV 20260707-092154 (14 h dagtrafik) — analys 2026-07-07/08
+
+**Metod:** 47 Opus 4.8-granskare (45 loggsegment à 2000 rader med överlapp +
+bananalys + textkorrelation) läste VARJE rad av 85 282; dirigenten
+rotorsaksbestämde varje fynd mot rå jsonl och kod. 15 fartyg, 66 prod-notiser,
+117 textändringar, 0 fel, 0 textflappar i huvudflödet.
+
+**Fältbevisade fixar (från 2026-07-06-omgången):** watchdog-eskaleringen
+(21→40→80→120 min + reset på äkta data), P8-stale-guarden,
+moored-/movement-proof-gaterna, debug_level-insamlingen.
+
+**Äkta fynd → fixade + regressionslåsta:**
+1. **ELFKUNGEN-returmissarna (kritisk, 4 missade notiser):** sessionsdedupen
+   saknade persistent-lagrets riktningsundantag och BUG7-bevarandet höll
+   nycklarna i timmar; N2-återfödselrensningen är död >15 min (completed-
+   posten prunas). Sessionschecken speglar nu persistent-beslutet
+   (FLOW_TRIGGER_DEDUPE_DIRECTION) — även i exit-fallbacken. 3 enhetstester.
+2. **HERA II Järnvägsbron-missen (hög):** scenario A:s sog≥2-gate gäller
+   PORTGISSNINGEN men ströp reborn-med-POSITIONSBEVIS (återfödsel i kö-fart
+   0,5 kn). Reborn-fallet tar nu riktningen ur positionsdeltat och kringgår
+   fart-/cog-gaten. Nytt syntetiskt scenario 'återfödd-i-kö (HERA-klassen)'.
+3. **LYS Olidebron-missen (hög):** timeout-completed + reentry-block åt
+   gap-failsafen trots ofullbordad resa. Completed-timeout kräver nu
+   RIKTNINGSSLUTFÖRD resa (nord ⇒ Stallbackabron, syd ⇒ Olidebron).
+4. **Terminal-DEFAULT (hög, IMPERATOR/BALTIC JONGLEUR):** target-nollning vid
+   terminalpassage fällde texten till "Inga båtar" MITT i broöppningen →
+   PASSED_HOLD_UI (150 s hold, F29-mönstret). 3 enhetstester.
+5. **ANCHOR_PASSAGE-fallbacken (låg, EKEN):** kunde ankra target-bron 1181 m
+   bort → ankring kräver nu ≤150 m till bron.
+6. **Stale-släppet 10 min mitt i transit (INV-14-belagt i BÅDE 14h och 41h):**
+   målbro-riktad aktiv transit får 15 min (verklig Class B-täthet 6–13 min);
+   mållösa behåller 10.
+7. Kosmetiskt: FLOW_TRIGGER_SUCCESS-mmsi:t fångas före await (null-klassen).
+
+**Harnessuppgradering (korpus #9 blottlade harness-core#2):** replayRunner
+chunkar nu stora klockgap i 30 s-steg med drain per steg — timer-drivna
+textpubliceringar landar på sina riktiga faketider. Blottlade omedelbart de
+verkliga INV-14-fallen ovan (som prod uppvisade men gamla harnessen dolde)
+och eliminerade den falska INV-10-zombien.
+
+**Accepterat (dokumenterade avvägningar):** F40-stale-degraderingens
+antalsfluktuation/ETA-hopp vid 600s-gränsen för väntande glesa sändare
+(3→2→3, strax→12/24 min — säkerhetsvalet "aldrig strax på gammal position"
+står); extrapoleringens ikapp-hopp vid soft-tröskeln (13→cirka 7 — ärlig
+enkelriktad korrigering).
+
+**KORPUS #9 LÅST:** 20260707-14h, facit 72 (prod 66 + 6 rådataverifierade
+rättade missar), fördelningsmultiset låst. Batteriet är nu 9 korpusar /
+~115,5 h produktionsdata.
