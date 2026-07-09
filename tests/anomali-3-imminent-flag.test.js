@@ -127,12 +127,39 @@ describe('Anomali 3 — Fix H imminent-flagga vid stale AIS', () => {
     });
 
     const vessel = runner.app.vesselDataService.getVessel(mmsi);
-    vessel.lastPositionUpdate = Date.now() - (12 * 60 * 1000); // 12 min stale
+    // F4-E (fältprov 4, 2026-07-09): staleness mäts mot senast BEKRÄFTADE
+    // positionsrapport (max(timestamp, lastPositionUpdate)) — det äkta
+    // Anomali-3-fallet är en TYST transponder, så BÅDA klockorna åldras här.
+    vessel.lastPositionUpdate = Date.now() - (12 * 60 * 1000);
+    vessel.timestamp = Date.now() - (12 * 60 * 1000);
 
     runner.app._reevaluateVesselStatuses();
 
     const vesselAfter = runner.app.vesselDataService.getVessel(mmsi);
     expect(vesselAfter._isImminentAtTargetBridge).toBe(false);
+  }, 30000);
+
+  test('SOKERI-klassen (F4-E): stillaliggande SÄNDARE behåller imminent (position bekräftad färskt)', async () => {
+    const mmsi = '265721274';
+    await runner._processVesselAsAISMessage({
+      mmsi,
+      name: 'ParkedSender',
+      lat: 58.29495,
+      lon: 12.296806,
+      sog: 6.7,
+      cog: 219,
+    });
+
+    const vessel = runner.app.vesselDataService.getVessel(mmsi);
+    // Position oförändrad i 12 min — men meddelanden fortsätter anlända
+    // (timestamp färsk): väntaren vid bron får INTE degraderas till okänd.
+    vessel.lastPositionUpdate = Date.now() - (12 * 60 * 1000);
+    vessel.timestamp = Date.now() - (30 * 1000);
+
+    runner.app._reevaluateVesselStatuses();
+
+    const vesselAfter = runner.app.vesselDataService.getVessel(mmsi);
+    expect(vesselAfter._isImminentAtTargetBridge).toBe(true);
   }, 30000);
 
   test('Imminent-flagga blir false när dist > 300m', async () => {

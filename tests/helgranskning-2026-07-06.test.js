@@ -466,6 +466,9 @@ describe('T3: projektions-fältlistvakten (t-bridge-text#R2-2 — fältlist-fäl
   const PROJECTION_CONSUMED_FIELDS = [
     'mmsi', 'targetBridge', 'etaMinutes', 'passedBridges',
     'distanceToCurrent', '_isImminentAtTargetBridge', '_etaIsExtrapolated',
+    // Fältprov 4b (2026-07-09): under-MÅLBRON-dominansen i gruppklausulen
+    // läser status + currentBridge — båda bärs av projektionen.
+    'status', 'currentBridge',
   ];
 
   function makeProjectionApp() {

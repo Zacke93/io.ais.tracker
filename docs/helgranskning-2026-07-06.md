@@ -277,3 +277,216 @@ enkelriktad korrigering).
 **KORPUS #9 LÅST:** 20260707-14h, facit 72 (prod 66 + 6 rådataverifierade
 rättade missar), fördelningsmultiset låst. Batteriet är nu 9 korpusar /
 ~115,5 h produktionsdata.
+
+## §FÄLTPROV 3: 20260708-001857 (21 h) — analys 2026-07-08
+
+**Metod:** 28 granskare (25 chunkläsare à ~2 500 rader + bridge_text-,
+notiskompletthets- och ETA-revisorer) läste varje rad av 59 258; dirigenten
+rotorsaksbestämde varje fynd mot rå AIS och kod. 10 fartyg, 55 prod-notiser,
+91 textuppdateringar, 0 fel. **Pelare 2 var 100 % ur lådan**: inga missade
+och inga falska notiser (alla "saknade" var korrekt obevisade — ankarkravet/
+LYS-regeln; HALIFAX Olidebron ×2 är en äkta U-sväng = två öppningshändelser).
+
+**Huvudfyndet — AKIRA-klustret (1 critical + 6 major, samma rot):** en
+kajliggare i kajzonen fick target=Klaffbron på sydlig avgångskurs (1,1 kn),
+U-svängde norrut och korsade POSITIONSBEVISAT Stridsbergsbron 07:30:09 —
+men RC9-blocken läste den inlåsta `_routeDirection='south'` (beyondTarget
+föll åt fel håll), TARGET_PROTECTION (maneuver/gps-event) återaktiverades
+var 300:e sekund, och Fix D:s COG-debounce behövde två samples till →
+spöktexten "på väg mot Klaffbron, om 16 min" levde 5,5 min EFTER beviset
+(hela fel-bro-fönstret 07:20:55–07:35:37).
+
+**Fixar (alla batterivaliderade, replayen av körningen = prod EXAKT 55):**
+1. **Korsningsbevis-reversalen:** RC9-platserna härleder korsningsriktningen
+   ur positionsdeltat (`_evidencedCrossingDirection`); motsatt belagd
+   korsning bekräftar reversalen OMEDELBART (`_confirmDirectionReversal` =
+   Fix D:s confirmed-gren, extraherad). Origin-underkänd bortom-target ⇒
+   `_clearStaleTargetBeyond` (target rensas utan fantomtransition).
+2. **Riktningsrelativ N1-reset:** journey-reset rensar bara broar FRAMFÖR
+   båten i nya riktningen — full rensning dubbelnotifierade nya benets
+   redan avfyrade broar (Jvb ×2 i replayen tills fixen).
+3. **Retroaktiv-källa-gaten:** persistent-dedupens riktningsflip-undantag
+   kräver ≥15 min gammal post för passage-fallback/just-passed/exit (en
+   färsk notis täcker samma öppningshändelse oavsett riktningsflagga —
+   AKIRA:s approach-post var felmärkt 'south'). Approach-vägen (source=
+   current) behåller HALIFAX-semantiken; äkta returer är ≥31 min i all data.
+4. **Svepriktningslåset (SISU):** skipped-bridges-svepets belagda riktning
+   låses på reborn-vessels utan `_routeDirection` — notistokens byggdes som
+   'unknown' i samma millisekund som svepet visste 'north'.
+5. **FIX_U-riktningsgaten:** force-waiting sätts aldrig mot en redan
+   passerad parbro (JUNO/SELENE/MAJALISA: retrograd waiting + kritisk
+   statusflapp på frusen position).
+6. **Hysteresis-spårningen följer null:** "Target bridge changed X→null"
+   retriggade varje statuspass (77 identiska resets, SOLANDE) och nollade
+   under-bridge-latchen för MÅLLÖSA båtar (ELFKUNGEN@Stallbackabron —
+   hysteresen var i praktiken död post-target).
+7. **Capture-förnyelsegaten:** kritiska transition-holds förnyas bara när
+   positionen avancerat (stale position återfångade holden var 30:e sekund,
+   SELENE 02:30–02:33).
+8. **Svep-idempotens:** skipped-bridges-svepet körs en gång per
+   (mmsi, positionstid) — kördes dubbelt via entered+updated-vägarna.
+9. Kosmetik: journey-completed-removals märks 'journey-completed' (inte
+   '(timeout)'); lastKnown-posten bär positionens EGEN tid (`posT`) för
+   ärlig åldersloggning (t på removal STYR TTL:n medvetet — skyddar mot
+   SPIKEN-fantomer); ETA_START loggar bronamn (inte "[object Object]").
+
+**Harness/invarianter:** TARGET_RECALC räknas som journey-reset i harnessen
+(legitimerar returnotiser och INV-13:s nya 60 s-korrigeringsfönster (c) —
+U-svängskorrigerad målbro-som-mellanbro är inte tyst degradering). Nytt
+syntetiskt scenario 'kajavgång-u-sväng (AKIRA-klassen)' (seed 51) med nya
+förväntansnyckeln `forbiddenNotifiedBridges` (fantomvakt — fällde först en
+felbyggd scenariogeometri, sedan Jvb ×2-regressionen på riktigt).
+
+**Verifierat korrekt per design (ej fel):** ELFKUNGEN-returens slut
+("3 min"→"strax"→"ETA okänd"→"Inga båtar"; ingen Klaffbron-notis —
+transpondern tystnade 476 m före bron), AVALON:s trippelflush 07:35
+(positionsbevisad gap-kedja), SOLANDE:s "Okänd båt"-token (första kontakt,
+designad fallback), watchdog-eskaleringen genom tyst natt/eftermiddag,
+extrapolerings-/färskhetsflappen ±1 min (dokumenterad avvägning),
+MAJALISA:s 56 s "Inga båtar" vid 23-min-gap (bortom 15-min-fönstret).
+
+**KORPUS #10 LÅST:** 20260708-21h, facit 55 = prod (första korpusen utan
+en enda rättad miss). Batteriet är nu 10 korpusar / ~136,5 h. Slutläge:
+862/862 jest, 10/10 korpusar EXAKTA, 42/42 scenarier, 72h-soak stabil,
+lint rent, homey validate publish rent.
+
+## §FÄLTPROV 4: 20260708-224444 (21 h, 24 fartyg) — analys 2026-07-09
+
+**Metod:** 73 Opus 4.8-läsare (max effort) läste varje rad av 180 184 —
+körningens alla fynd rotorsakades av dirigenten mot rå AIS och kod (48 råfynd:
+1 critical, 9 major). Livligaste körningen hittills (kommersiell trafik,
+5-båtsköer). 114 notiser, 203 textuppdateringar, 0 processfel. Första
+fältprovet av fältprov 3-fixarna — alla arbetade korrekt (inga U-svängsfall).
+
+**HUVUDFYND A — LOGGHÅLET (infra, ej appfel):** loggfångsten tappade
+09:30:04–09:34:54 (~4 min, mitt i lastpiken). Läsarnas CRITICAAL ("NORDIC SOLA
+passerade Strids+Jvb utan notis") och "processfrysning" MOTBEVISADES:
+CHEERIO:s persistent-dedup-post stämplades 09:33:38 MITT i hålet (processen
+levde), nyckelräknaren gick 16→25 genom hålet (+9 = de "saknade" notiserna
+avfyrades). Rotorsak: tee-röret skrev direkt i OneDrive-mappen som stallade
+under synk. FIX (ANVÄNDARBESLUT): run-with-logs.sh skriver live-loggen lokalt
+(~/.ais-tracker-logs/), synkar var 10:e min + vid avslut; dubbel håldetektor
+(runtime-larm >3 min stillastående logg + efterhandsanalys i summaryn,
+validerad mot det äkta hålet); körboken kräver "Logg-integritet: OK" före
+korpuslåsning. KONSEKVENS (ANVÄNDARBESLUT): körningen låses INTE som korpus
+(facit overifierbart i hålet); nästa körning blir #11.
+
+**HUVUDFYND B — staleness-klockan (pelare 1-dominanten, 9 läsarfynd samma
+rot):** degraderingsgaterna (ETA_STALE_HARD, IMMINENT-kedjan, exit-fallback,
+B5 under-bridge, inferred-flush-färskhet) mätte positionsÄNDRINGSTID — en
+stillaliggande men aktivt SÄNDANDE väntare (SOKERI: 74 m från Strids, sog 0,
+samples var 3:e min) åldrades falskt förbi 600 s-tröskeln → "ETA okänd"-dippar
+mitt i kön, strax→minuter-hopp (08:43, 14:50, 15:01), frusna klockor (INVITA,
+PIANO, DE ZWIJGER, TUNA). FIX: `_lastConfirmedPositionMs` (max(timestamp,
+lastPositionUpdate)) i ALLA degraderingsgater — OMRÄKNINGSGATEN (Fix G-
+tvillingen) prövades också men ÅTERTOGS (facit-fällan: 41h-korpusen gav fatal
+ETA-oscillation 8→11→9 — utan ny position finns inget nytt att beräkna).
+Distinktionen dokumenterad i kod: omräkning kräver positionsförändring,
+degradering kräver uteblivna livstecken. WIZARD-/Anomali-3-skyddet består
+(timestamp bumpar bara på bearbetade positionsmeddelanden).
+
+**Övriga fixar (alla facit-prövade):**
+1. **F4-B (SENTA, äkta miss):** reborn-fönstrets positionsbevisade kandidater
+   bär inferredFlush förbi 2000 m-taket (Jvb 2139 m ströps medan Klaffbron
+   1184 m i samma fönster notifierades). BLOTTLADE ATT GAMLA FACIT HADE
+   MISSAR: 19h OMLÅST 49→51 (SABETH Jvb+Klaffbron) och 11h OMLÅST 25→30
+   (MOSHE Jvb+Strids; SOLUTION Jvb+Klaffbron+Strids) — samtliga sju
+   positionsbevisade mot rå jsonl (gap-fönstren omsluter broarna).
+2. **F4-C (PIANO, dubbelnotis):** riktningsflip-släppets NYA riktning kräver
+   rörelsebevis (sog ≥ 2,0) — COG-vobbel hos väntare (40,6° @ 0,7 kn)
+   släppte dedup-nyckeln. Lagringssidan orörd (HALIFAX-posten @ 1,1 kn är
+   facit-låst; hennes äkta U-svängssläpp @ 4,2 kn består).
+3. **F4-J (PIANO, falsk målbro):** låst ruttriktning motsägs inte av COG
+   utan rörelsebevis i målbro-NYTILLDELNINGEN — vobbeln gav "Norrut →
+   Klaffbron" för en båt 1,3 km SÖDER om bron ("på väg mot Klaffbron"-text
+   tills removal).
+4. **F4-F (SKAGERN, odetekterad Stallbacka-korsning):** linjekorsningens
+   närhetskrav mäter BANANS segmentavstånd, inte bara ändpunkternas
+   radialavstånd (samples 312/344 m från bromitten, banan 158 m — helt
+   odetekterad: ingen bokföring, ingen notis). Ren generalisering —
+   10/10 korpusar oförändrade.
+5. **F4-I (MALVA, spökbåt i antalet):** ANKRAD-EFTER-PASSAGE-demoten —
+   stillastående ≥10 min efter passage med target ≥800 m bort rensas
+   (MALVA: ankrad 130 m utanför kajkapseln, "Två båtar på väg mot
+   Stridsbergsbron" i 40+ min). Kö-skyddet: <800 m demoteras aldrig.
+   BELUGA-följdfixen: mitt-i-passage-fönstret (20 min) gäller närhet till
+   NÄRMSTA bro (hon tystnade UNDER Järnvägsbron och släpptes på 15-min-
+   gränsen mitt i transit).
+
+**PRÖVADE OCH ÅTERKALLADE (facit-fällan fungerade, 3 st):**
+- **F4-D-strykningen (bevisprincipen för förstakontakt):** bröt SEX låsta
+  korpusfacit — 10 rådata-ÄKTA notiser försvann (EXGRATIA/265759070:s session
+  session är samma geometriska klass som "fantomen"). Klassen är oavgörbar
+  i realtid; F8-beslutet äger. HERA II 07:24 (Klaffbron-notis 1467 m på
+  porten-gissning) dokumenteras som accepterad avvägning. OBS: användarens
+  ursprungliga beslut fattades på ofullständiga premisser — omprövningen
+  redovisad.
+- **F4-E på omräkningsgaten** (se ovan).
+- **F4-G (under-bridge dominerar gruppens klausul):** gav korpusbelagda
+  fatala ETA-sågtänder (strax↔9–11 min) — statusen är flappigare än
+  imminent-flaggan. NATHALIE 2-fallet (1 s "om 12 minuter" under bron) =
+  accepterad kosmetik; 08:43-klassen löses av huvudfynd B.
+
+**Verifierat korrekt/redan täckt:** F4-K (dedup-rollback vid triggerfel
+finns sedan F6); JOSELINA (kö-fönstrets designade trade-off); SOKERI 27,75
+vs CHEERIO 25,3 min ("inkonsekvensen" = sändande vs tyst — olika klockor,
+korrekt); INVITA:s reborn-notis (positionsbevisad); eta_minutes=-1-sentinelen
+(dokumenterad i ARCHITECTURE.md sedan tidigare).
+
+**Testtillskott:** tests/faltprov-4-20260709.test.js (11 tester, exakta
+produktionskoordinater) + tre syntetiska scenarier (seed 52 SENTA-, 53
+PIANO-vobbel-, 54 SOKERI-klasserna) + ny förväntansnyckel
+maxNotifiedPerBridge (dubblettvakt som INV-2:s riktningsundantag inte
+täcker). Batteriet: 45 scenarier.
+
+**Slutläge fältprov 4:** 873/873 jest, 10/10 korpusar EXAKTA (~136,5 h, två
+facit omlåsta med rådataverifierade rättade missar), 45/45 scenarier,
+72h-soak stabil, lint rent, homey validate publish rent.
+
+## §FÄLTPROV 4b: användarens följdfrågor (2026-07-09, eftermiddag)
+
+Användaren utmanade två domar — utfall:
+
+**F4-L SJÄLVLÄRANDE KAJKARTAN (användarens idé, implementerad):**
+"Båtar dyker sällan upp mitt i kanalen om de inte legat ankrade" — de
+statiska MOORING_ZONES täcker inte gästhamnar/ankringsvikar (MALVA låg
+bevisligen 130 m utanför närmsta kapsel). Nu lärs varje konstaterad
+förtöjning/ankring (MOORED_DEMOTE + ANCHORED_DEMOTE emitterar
+vessel:mooring-spot) persistent i settings (`learned_mooring_spots`,
+50 m-dedup med TTL-förnyelse, tak 200, TTL 30 dagar) och N7-kajvakten
+konsulterar inlärda platser (100 m-radie): förstakontakt nära en inlärd
+plats behandlas som kajavgång — porten-gissningens fantomer stryps exakt
+där båtar bevisligen brukar ligga, och skyddet växer för varje körning.
+KALIBRERING EFTER ANVÄNDARFRÅGOR (4b): TTL höjd 30→365 dagar (fysiska
+kajplatser är stabila i år — 30 dagar hade raderat kartan efter en tyst
+vinter; förnyas vid varje återbekräftad förtöjning) + BROFILTER 300 m
+(en långkö vid en MELLANBRO — t.ex. Jvb-kö med target Klaffbron 964 m
+bort, som passerar ANCHORED-vägens ≥800 m-krav — får inte läras som
+kajplats). Notera: inlärningen kräver ingen felnotis — platsen lärs när
+en båt LIGGER STILL, oberoende av notisflödet; värsta fall för en osedd
+plats är dagens trolighetsgissning tills första förtöjningen där.
+Faktakoll redovisad: korpusarna innehåller ~10 verifierat ÄKTA
+transit-födslar mitt i kanalen (svag Class B + mottagarluckor), så
+gissningen som helhet behålls — kartan stryper den selektivt.
+
+**F4-M STRAX-HOLD — TRE VARIANTER FÄLLDA, SEDAN LÖST GENOM OMDIAGNOS:**
+(1) 90 s generell hold → ljög efter äkta ledarpassager (0.5→31-sågtand,
+2 korpusar); (2) 30 s samma-båt-kvar → ljög under ärlig degradering
+(0.5→11); (3) exhausted-undantag → dött via ETA_STALE_HARD:s
+flaggnollning (och avvärjde i förbigående det TIONDE fältlistoffret i
+projektionen). FULLSTÄNDIG OMROTORSAKNING avslöjade sedan att "glimten"
+var en FELDIAGNOS: NATHALIE 2 var vid 15:32:41 under JÄRNVÄGSBRON
+(mellanbron) och 993 m från målbron — "om 12 minuter" var SANT;
+sekundskiftet till "strax" var ett färskt sample som ärligt avslöjade att
+den 5,5 min tysta sändaren hunnit fram (IMMINENT_SKIP dist=993m i loggen
+är beviset). Holds försökte alltså dölja korrekt text — därav
+facit-fällningarna. Enda "tidigare strax" vore positionsgissning bortom
+datat (HAJH-LAIF-klassen, korpusförbjuden). SLUTLÖSNING: det vattentäta
+hörnfallet täcks — båt fysiskt under SJÄLVA MÅLBRON (status under-bridge
++ currentBridge === targetBridge, ej zombie) ⇒ klausulen "strax" oavsett
+ledarens ETA. Skild från fällda F4-G (mellanbro-fall = sågtandskällan).
+Facit-neutral (10/10 EXAKTA), 4 nya enhetstester, projektionsvaktlistan
+utökad med status/currentBridge.
+
+**Slutläge 4b:** 878/878 jest, 10/10 korpusar EXAKTA, 45/45 scenarier,
+72h-soak stabil, lint rent, validate publish rent.

@@ -68,12 +68,21 @@ inbromsning) — dokumenterade, ignorera.
 1. Sätt appens inställning **`debug_level` = `full`** — annars loggas inga
    `[AIS_REPLAY_SAMPLE]`-rader och jsonl-filen blir TOM (skriptet varnar
    högljutt efter 2 min).
-2. `./run-with-logs.sh` — kör ~1 dygn. Ger `logs/app-*.log` +
+2. `./run-with-logs.sh` — kör ~1 dygn. Live-loggen skrivs LOKALT
+   (`~/.ais-tracker-logs/`, immunt mot OneDrive-synkstall — fältprov 4 tappade
+   4 min loggrader när tee-röret skrev direkt i molnmappen) och synkas till
+   `logs/` var 10:e minut + vid avslut. Ger `logs/app-*.log` +
    `logs/ais-replay-*.jsonl`.
-3. Analysera: jämför loggens notiser/texter mot förväntat beteende;
+3. **Kontrollera logg-integriteten**: summaryn (`bridge-text-summary-*.md`)
+   har sektionen "Logg-integritet (håldetektor)". Står det TIDSHÅL där är
+   körningen OFULLSTÄNDIG — den kan analyseras som fältbevis men får ALDRIG
+   korpuslåsas (facit i hålet är overifierbart; jsonl:en saknar samples).
+   Skriptet larmar också live om loggfilen slutar växa >3 min.
+4. Analysera: jämför loggens notiser/texter mot förväntat beteende;
    replaya jsonl:en: `node tests/replay-validation/replayRunner.js <jsonl>`.
-4. Lås som korpus: post i `corpora.js` (id, jsonl-sökväg, timmar, facit-antal,
-   locked: true, motiveringskommentar) + fördelningsmultiset i
+5. Lås som korpus (KRÄVER "Logg-integritet: OK" från steg 3): post i
+   `corpora.js` (id, jsonl-sökväg, timmar, facit-antal, locked: true,
+   motiveringskommentar) + fördelningsmultiset i
    `corpora-distribution.json` (genereras från en verifierad körning).
 
 ## Kända fällor för den som skriver nya tester

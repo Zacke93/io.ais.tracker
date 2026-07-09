@@ -109,7 +109,7 @@ module.exports = [
     appLog: path.join(LOGS_DIR, 'app-20260610-012751.log'),
     hours: 19,
     locked: true,
-    expectedNotifications: 49,
+    expectedNotifications: 51,
     note: '19h-körningen (RC1–RC9-auditens underlag). LÅST 47 (2026-06-11): prod gav '
       + '45 men MISSADE två — SILJA@Klaffbron (RC3: failsafe-stale-skattning med '
       + 'momentan sog) och DIANA@Järnvägsbron (RC2: falsk INFERRED_PASSAGE '
@@ -120,7 +120,14 @@ module.exports = [
       + '08:04→08:46 (58.27445→58.30655 spänner 58.29352); (2) 235029263@'
       + 'Klaffbron — södergående född 58.27414 SÖDER om Klaffbron i 3,3 kn: '
       + 'Klaffbron passerades logiskt säkert (både kaj- och Vänern-ursprung '
-      + 'ligger norr om bron); gamla 300s-skattningen ströp båda.',
+      + 'ligger norr om bron); gamla 300s-skattningen ströp båda. '
+      + 'OMLÅST 49→51 (2026-07-09, fältprov 4 F4-B — SENTA-klassen: '
+      + 'inferredFlush gäller nu även scenario A:s positionsbevisade '
+      + 'reborn-fönster): +211478350/SABETH@Järnvägsbron + @Klaffbron — '
+      + 'BÅDA korsade i samma bevisade 42-min-gap 08:04→08:46 '
+      + '(58.27445→58.30655 spänner 58.2841 och 58.2916); gamla '
+      + '2000 m-taket ströp dem (2139/1600+ m) medan grannbron i samma '
+      + 'fönster notifierades — inkonsekvensen som fältprov 4 blottlade.',
   },
   {
     id: '20260702-11h',
@@ -128,7 +135,7 @@ module.exports = [
     appLog: path.join(LOGS_DIR, 'app-20260702-010825.log'),
     hours: 11,
     locked: true,
-    expectedNotifications: 25,
+    expectedNotifications: 30,
     note: '11h-valideringskörningen efter helkodsgranskningen (f0cf7c7). LÅST 24 '
       + '(2026-07-02): prod gav 23; +1 är RÄTTAD miss MOSHE/211471090@Olidebron — '
       + 'stale-raderad i 44-min-gap, återfödd målbrolös söder om Klaffbron, '
@@ -143,7 +150,15 @@ module.exports = [
       + 'B2/inferredFlush): +1 är RÄTTAD miss 211471090/MOSHE@Klaffbron — '
       + 'korsad i 44,3-min-gapet 08:24→09:09 (58.30775→58.27507 spänner '
       + '58.28409), verifierad mot rå jsonl; ströps tidigare av 2000 m-taket/'
-      + 'tidsfönstret (samma klass som ELFKUNGEN F2).',
+      + 'tidsfönstret (samma klass som ELFKUNGEN F2). OMLÅST 25→30 '
+      + '(2026-07-09, fältprov 4 F4-B — SENTA-klassen: inferredFlush även i '
+      + 'scenario A:s positionsbevisade reborn-fönster), ALLA verifierade '
+      + 'mot rå jsonl: +211471090/MOSHE@Järnvägsbron + @Stridsbergsbron '
+      + '(samma bevisade 44-min-gap 08:24→09:09 som Klaffbron-tillägget — '
+      + 'fönstret spänner 58.2916 och 58.2935); +265571760/SOLUTION@'
+      + 'Järnvägsbron + @Klaffbron + @Stridsbergsbron (53-min-gapet '
+      + '09:23→10:16, 58.27920→58.31115 spänner alla tre). 2000 m-taket '
+      + 'ströp samtliga trots positionsbevisad korsning.',
   },
   {
     id: '20260702-2h',
@@ -218,5 +233,36 @@ module.exports = [
       + 'Fältbevisade i körningen: watchdog-eskaleringen 20→40→80→120, '
       + 'PASSED_HOLD_UI-klassen (IMPERATOR/BALTIC JONGLEUR terminal-DEFAULT), '
       + '0 fel, 0 textflappar (117 ändringar).',
+  },
+  {
+    id: '20260708-21h',
+    jsonl: path.join(LOGS_DIR, 'ais-replay-20260708-001857.jsonl'),
+    appLog: path.join(LOGS_DIR, 'app-20260708-001857.log'),
+    hours: 21,
+    locked: true,
+    expectedNotifications: 55,
+    note: '21h-körningen 2026-07-08 (tio fartyg, dagtrafik + tyst natt/'
+      + 'eftermiddag — fältprov 3: 28 granskare radläste 59 258 rader, se '
+      + 'docs/helgranskning-2026-07-06.md §fältprov 3). LÅST 55 (2026-07-08) '
+      + '= prod EXAKT: körningen hade inga missade och inga falska notiser '
+      + '(första fältprovet med 100 % pelare 2 ur lådan). HALIFAX Olidebron '
+      + '×2 är KORREKT (äkta U-sväng 08:29 syd → 08:39 nord = två öppnings-'
+      + 'händelser); ELFKUNGEN 8 notiser (nordresa + sydretur 12:54 — '
+      + 'Klaffbron-returen EJ facit: transpondern tystnade 476 m före bron, '
+      + 'korsningen aldrig belagd — LYS-regeln). Körningen fällde tre fixar '
+      + 'som replayen validerar: AKIRA-reversalen (broskorsningsbevis slår '
+      + 'Fix D:s COG-debounce — spöktexten "på väg mot Klaffbron" rättas i '
+      + 'korsningsticken, inte 5,5 min senare), riktningsrelativ N1-reset '
+      + '(full journey-reset rensade nya benets dedup → Jvb ×2 i replayen '
+      + 'tills fixen), och retroaktiv-källa-gaten i persistent-dedupen '
+      + '(riktningsflip-undantaget kräver ≥15 min gammal post för '
+      + 'passage-fallback/just-passed/exit — AKIRA:s felmärkta approach-post '
+      + 'fick inte återutlösa failsafen; approach-vägen behåller '
+      + 'HALIFAX-semantiken). KÄND WARN: INV-15 på AKIRA@Järnvägsbron '
+      + '07:20:09 (token southbound, rörelse nordlig) — riktningen var '
+      + 'genuint obelagd där (cog 101°, 1,5 kn, inlåst syd sedan '
+      + 'kajavgången); korsningsbeviset kom först 07:30 och rättade allt '
+      + 'nedströms. Medveten avvägning: låst ruttriktning > momentan COG '
+      + 'för token (replay-fyndet 2026-06-01).',
   },
 ];

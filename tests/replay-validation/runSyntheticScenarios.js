@@ -17,7 +17,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const {
-  generateScenario, buildPath, pathMetrics, BASE_TIME_MS,
+  generateScenario, buildPath, pathMetrics, pointAt, BASE_TIME_MS,
 } = require('./scenarioGenerator');
 const { validateInvariants, validateWarnInvariants } = require('./invariants');
 const { MOORING_ZONES, TRIGGER_POINTS } = require('../../lib/constants');
@@ -45,6 +45,8 @@ const northSecondsToFraction = (frac, speedKn) => Math.round((frac * METRICS.tot
  *  - zeroNotifications: inga notiser alls
  *  - noVesselText: ingen "på väg mot"-text får publiceras
  *  - minNotifiedBridges: dessa broar MÅSTE ha fått notis
+ *  - forbiddenNotifiedBridges: dessa broar får INTE ha fått notis
+ *  - maxNotifiedPerBridge: {bro: N} — max antal notiser per bro (dubblettvakt)
  */
 const SCENARIOS = [
   {
@@ -662,6 +664,141 @@ const SCENARIOS = [
       minNotifiedBridges: ['Stridsbergsbron', 'Järnvägsbron', 'Klaffbron'],
     },
   },
+  {
+    // AKIRA-klassen (FÄLTPROV 3, 2026-07-08): kajliggare i KAJZONEN (mellan
+    // Klaffbron och Järnvägsbron) som avgår SÖDERUT i låg fart (target=
+    // Klaffbron sätts, _routeDirection låses 'south'), U-svänger utan att
+    // någonsin korsa Klaffbron och drar norrut i marschfart med gles Class B-
+    // cadence (5 min) — Järnvägsbron+Stridsbergsbron korsas i ETT samplesteg.
+    // Före fixen läste RC9-blocken den inlåsta _routeDirection='south' →
+    // beyondTarget föll åt fel håll, TARGET_PROTECTION (maneuver/gps-event)
+    // återaktiverades och höll Klaffbron ⇒ "på väg mot Klaffbron, om 16 min"
+    // i 5,5 min EFTER den positionsbevisade Strids-korsningen (tills Fix D:s
+    // COG-debounce fått två samples). Nu: korsningsbeviset bekräftar
+    // reversalen OMEDELBART. Notisförväntningarna vaktar pelare 2 genom
+    // reversal-tick:et (Jvb+Strids-flushen får inte tappas när target rensas
+    // mitt i ticken) och forbiddenNotifiedBridges vaktar att ingen fantom-
+    // Klaffbron-notis fabriceras (hon var aldrig söder om Klaffbron).
+    name: 'kajavgång-u-sväng (AKIRA-klassen)',
+    seed: 51,
+    vessels: [(() => {
+      const sDep = METRICS.cum[2] + 500; // kajplats ~500 m norr om Klaffbron
+      const sTurn = METRICS.cum[2] + 335; // vändpunkt — närmast Klaffbron blir ~315 m (utanför 300 m-notiszonen)
+      const kaj = pointAt(PATH, METRICS, sDep);
+      return {
+        mmsi: '901000051',
+        name: 'SYNT-AKIRA',
+        direction: 'south',
+        speedKn: 5.0,
+        reportIntervalS: 300, // gles Class B — broarna korsas mellan samples
+        moorAt: {
+          lat: kaj.lat, lon: kaj.lon, durationS: 900, navStatus: null,
+        },
+        runRouteAfterMooring: true,
+        // Sydlig avgång + vändning + norrgående kryp i låg fart (AKIRA:
+        // 0,9–1,5 kn — Fix D:s sog≥2-gate förblir stängd, targeten består).
+        // Zonen sträcker sig FÖRBI Järnvägsbron (cum[3]+71) så att det
+        // FÖRSTA snabba nordsamplet är själva korsningssamplet — precis som
+        // AKIRA:s 07:30:09 där TARGET_RECALC_PENDING sattes i samma tick
+        // som Strids-passagen detekterades (COG-debouncen hann alltså inte;
+        // korsningsbeviset MÅSTE bekräfta reversalen). Marginalerna (±100 m
+        // runt vänd-/kajpunkten) skyddar mot nearestPathS 25 m-grid.
+        slowZone: {
+          fromFraction: 1 - (METRICS.cum[3] + 71) / METRICS.total,
+          toFraction: 1 - (sTurn - 100) / METRICS.total,
+          speedKn: 1.2,
+        },
+        uTurnAtFraction: 1 - sTurn / METRICS.total,
+      };
+    })()],
+    expect: {
+      minNotifiedBridges: ['Järnvägsbron', 'Stridsbergsbron', 'Stallbackabron'],
+      forbiddenNotifiedBridges: ['Klaffbron'],
+    },
+  },
+  {
+    // SENTA-klassen (FÄLTPROV 4, 2026-07-09, F4-B): sydgående köar vid
+    // Stridsbergsbron (waiting-notis), tystnar i långt gap, stale-removas
+    // och ÅTERFÖDS ~2,3 km söderut nära Olidebron. Reborn-fönstret
+    // [lastKnown → nuvarande] positionsbevisar Järnvägsbron+Klaffbron —
+    // men Jvb låg 2139 m bort och ströps av 2000 m-taket medan Klaffbron
+    // (1184 m) i SAMMA fönster notifierades. F4-B: fönsterbelagda
+    // kandidater bär inferredFlush (position färsk + 10 km-sanity).
+    name: 'reborn-fönster-bortom-2000m (SENTA-klassen)',
+    seed: 52,
+    vessels: [{
+      mmsi: '901000052',
+      name: 'SYNT-SENTA',
+      direction: 'south',
+      speedKn: 3.0,
+      slowZone: {
+        fromFraction: (METRICS.total - METRICS.cum[4] - 100) / METRICS.total,
+        toFraction: (METRICS.total - METRICS.cum[4] + 150) / METRICS.total,
+        speedKn: 0.5,
+      },
+      gap: {
+        atFraction: (METRICS.total - METRICS.cum[4] + 30) / METRICS.total,
+        durationS: 2400,
+      },
+    }],
+    expect: {
+      minNotifiedBridges: ['Stridsbergsbron', 'Järnvägsbron', 'Klaffbron'],
+    },
+  },
+  {
+    // PIANO-klassen (FÄLTPROV 4, 2026-07-09, F4-C): sydgående väntar i
+    // krypfart vid Olidebron (waiting-notis), COG-vobblar/U-svänger i
+    // 0,5 kn utan att korsa bron. Före fixen släppte riktningsflip-
+    // undantaget (session + persistent) dedup-nyckeln på vobbeln → ANDRA
+    // Olidebron-notisen för samma väntläge. F4-C: flip-bedömningens nya
+    // riktning kräver sog ≥ 2,0 kn. Returresan norrut (4,5 kn) ger
+    // legitima nya notiser för de norra broarna (äkta riktningsbyte) —
+    // Olidebron får EXAKT EN.
+    name: 'väntare-vobbel-vid-bro (PIANO-klassen)',
+    seed: 53,
+    vessels: [{
+      mmsi: '901000053',
+      name: 'SYNT-PIANO',
+      direction: 'south',
+      speedKn: 4.5,
+      slowZone: {
+        fromFraction: (METRICS.total - METRICS.cum[1] - 400) / METRICS.total,
+        toFraction: (METRICS.total - METRICS.cum[1] + 150) / METRICS.total,
+        speedKn: 0.5,
+      },
+      uTurnAtFraction: (METRICS.total - (METRICS.cum[1] + 150)) / METRICS.total,
+    }],
+    expect: {
+      minNotifiedBridges: ['Olidebron'],
+      maxNotifiedPerBridge: { Olidebron: 1 },
+    },
+  },
+  {
+    // SOKERI-klassen (FÄLTPROV 4, 2026-07-09, F4-E): sydgående parkerar
+    // 74 m norr om Stridsbergsbron i 35 min och SÄNDER var 3:e minut
+    // (stillastående men levande — Class B-ankringskadens). Före fixen
+    // mätte degraderingsgaterna positionsÄNDRINGSTID → ETA_STALE_HARD
+    // dömde färskt bekräftad väntare som "615s old" → "ETA okänd"-dipp
+    // mitt i kön + strax→minuter-hopp. F4-E: bekräftad-position-klockan.
+    // INV-14 (DEFAULT-flash), INV-17 (textflapp) och INV-18 (ETA-stigning)
+    // vaktar hela textbeteendet under väntan.
+    name: 'parkerad-väntare-färsk-sändare (SOKERI-klassen)',
+    seed: 54,
+    vessels: [{
+      mmsi: '901000054',
+      name: 'SYNT-SOKERI',
+      direction: 'south',
+      speedKn: 4.0,
+      stop: {
+        atFraction: (METRICS.total - METRICS.cum[4] - 74) / METRICS.total,
+        durationS: 2100,
+      },
+      stopReportIntervalS: 180,
+    }],
+    expect: {
+      minNotifiedBridges: ['Stridsbergsbron'],
+    },
+  },
 ];
 
 function runScenario(scenario) {
@@ -709,6 +846,26 @@ function checkExpectations(scenario, result) {
     const notified = new Set(notifications.map((n) => n.bridge));
     for (const bridge of e.minNotifiedBridges) {
       if (!notified.has(bridge)) problems.push(`saknad notis för ${bridge}`);
+    }
+  }
+  // Fältprov 3 (2026-07-08, AKIRA-klassen): broar som ALDRIG korsats får
+  // inte notifieras — vaktar mot fantomnotiser från reversal-/inferenslogiken.
+  if (e.forbiddenNotifiedBridges) {
+    const notified = new Set(notifications.map((n) => n.bridge));
+    for (const bridge of e.forbiddenNotifiedBridges) {
+      if (notified.has(bridge)) problems.push(`FÖRBJUDEN notis för ${bridge} (bron korsades aldrig)`);
+    }
+  }
+  // Fältprov 4 (2026-07-09, PIANO-klassen): max antal notiser per bro —
+  // vaktar dubbletter som INV-2:s motsatt-riktnings-undantag annars släpper
+  // (COG-vobbel hos väntare är inte en äkta returpassage).
+  if (e.maxNotifiedPerBridge) {
+    const counts = {};
+    for (const n of notifications) counts[n.bridge] = (counts[n.bridge] || 0) + 1;
+    for (const [bridge, maxN] of Object.entries(e.maxNotifiedPerBridge)) {
+      if ((counts[bridge] || 0) > maxN) {
+        problems.push(`DUBBLETT: ${bridge} fick ${counts[bridge]} notiser (max ${maxN})`);
+      }
     }
   }
   // B1-kontrakt (2026-07-03): token-fallbacken är "Okänd båt" — den råa
