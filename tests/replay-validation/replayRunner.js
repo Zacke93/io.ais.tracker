@@ -145,7 +145,12 @@ async function main() {
   // mellanbro-registreringar (INV-13: en målbro som loggas som INTERMEDIATE
   // är en tyst degraderad målbropassage — osynlig för INV-5:s regex).
   const journeyResets = [];
-  const journeyResetRe = /\[(?:JOURNEY_RESET|NEW_JOURNEY|REENTRY_NEW_JOURNEY)\] (\d+):/;
+  // Fältprov 3 (2026-07-08): TARGET_RECALC (bekräftad riktningsreversal —
+  // COG-debounce ELLER broskorsningsbevis) räknas som journey-reset: den
+  // legitimerar returnotiser (INV-2) och U-svängskorrigerade målbro-som-
+  // mellanbro-registreringar (INV-13 c). Riktningsrelativa N1-resets utan
+  // broar framför loggar ingen JOURNEY_RESET-rad — TARGET_RECALC loggas alltid.
+  const journeyResetRe = /\[(?:JOURNEY_RESET|NEW_JOURNEY|REENTRY_NEW_JOURNEY|TARGET_RECALC)\] (\d+):/;
   const intermediatePassages = [];
   const intermediateRe = /\[INTERMEDIATE_PASSAGE_RECORDED\] (\d+): Recorded passage of intermediate bridge (\S+)/;
 

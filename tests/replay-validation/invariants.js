@@ -424,7 +424,12 @@ function validateInvariants(result) {
     // håller target tills rörelse setts, och det finns inget target att
     // transitera. Notispelaren vaktas separat av INV-5/notisfångsten.
     if (ip.noTarget === true) continue;
-    const resetBefore = journeyResets.some((r) => r.mmsi === ip.mmsi && r.t <= ip.t);
+    // (c) Fältprov 3 (2026-07-08, AKIRA): en U-svängd båt med kvarhängande
+    // motsatt target korsar en målbro som intermediate — korsningsbevis-
+    // reversalen (TARGET_RECALC) korrigerar tillståndet i SAMMA tick, men
+    // registreringsraden hinner före. Reset/reversal inom 60 s EFTER
+    // registreringen är en korrigering, inte en tyst degradering.
+    const resetBefore = journeyResets.some((r) => r.mmsi === ip.mmsi && r.t <= ip.t + 60000);
     const correctedAsTarget = targetPassages.some(
       (p) => p.mmsi === ip.mmsi && p.bridge === ip.bridge && Math.abs(p.t - ip.t) <= 60000,
     );

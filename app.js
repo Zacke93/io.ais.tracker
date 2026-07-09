@@ -215,6 +215,22 @@ class AISBridgeApp extends Homey.App {
     this._LAST_KNOWN_POSITION_TTL_MS = 6 * 60 * 60 * 1000; // 6 timmar
     this._loadLastKnownPositions();
 
+    // --- SJÄLVLÄRANDE KAJKARTA (F4-L, fältprov 4 2026-07-09) ---
+    // Konstaterade förtöjnings-/ankringsplatser (MOORED_DEMOTE/
+    // ANCHORED_DEMOTE) lärs persistent. De statiska MOORING_ZONES täcker
+    // inte gästhamnar/ankringsvikar — en förstakontakt nära en INLÄRD plats
+    // behandlas som kajavgång (N7-vakten) i stället för porten-gissning,
+    // vilket stryper fantomnotiser där båtar bevisligen brukar ligga.
+    this._learnedMooringSpots = [];
+    // Fältprov 4b (2026-07-09, ANVÄNDARFRÅGA om vintern): fysiska kaj-/
+    // ankringsplatser är stabila i år — 30 dagar hade raderat hela kartan
+    // efter en tyst vintersäsong och tvingat om-inlärning varje vår. 365
+    // dagar med TTL-FÖRNYELSE vid varje återbekräftad förtöjning låter
+    // kartan övervintra; en plats försvinner bara om ingen båt legat där
+    // på ett helt år.
+    this._LEARNED_SPOT_TTL_MS = 365 * 24 * 60 * 60 * 1000;
+    this._loadLearnedMooringSpots();
+
     // --- UI UPPDATERINGS-STATE ---
     // SYFTE: Spåra om en UI-uppdatering redan är schemalagd (förhindrar duplikat)
     this._uiUpdateScheduled = false;
@@ -452,10 +468,21 @@ class AISBridgeApp extends Homey.App {
    * passage. Saknas riktning (äldre poster/okänd cog) blockeras konservativt.
    * @param {string} dedupeKey - "mmsi:Bronamn"
    * @param {Object} vessel - för aktuell färdriktning
+   * @param {Object} [opts] - { retroactiveSource: true } för failsafe-/exit-
+   *   bekräftelser (passage-fallback/just-passed/exit): riktningsflip-
+   *   undantaget kräver då att posten är ≥15 min gammal. Fältprov 3
+   *   (2026-07-08, AKIRA Jvb ×2): en approach-notis märktes 'south' av den
+   *   inlåsta ruttriktningen; när korsningsbeviset 10 min senare rättade
+   *   låset till 'north' såg flip-undantaget en "ny passage" och failsafen
+   *   dubbelnotifierade SAMMA broöppningshändelse. En färsk notis för samma
+   *   bro täcker samma öppning oavsett riktningsflagga — äkta returer tar
+   *   längre (ELFKUNGEN 117 min; korpus #9-returen ≥66 min). Approach-vägen
+   *   (source=current) berörs INTE — HALIFAX äkta U-sväng (10 min) ska
+   *   fortsatt släppas där.
    * @returns {{blocked: boolean, minutesSince: number}}
    * @private
    */
-  _persistentDedupCheck(dedupeKey, vessel) {
+  _persistentDedupCheck(dedupeKey, vessel, opts = {}) {
     if (!this._persistentRecentTriggers) return { blocked: false, minutesSince: 0 };
     const entry = this._persistentRecentTriggers.get(dedupeKey);
     const ts = typeof entry === 'number' ? entry : entry && entry.t;
@@ -464,8 +491,17 @@ class AISBridgeApp extends Homey.App {
     const age = Date.now() - ts;
     if (age >= windowMs) return { blocked: false, minutesSince: Math.round(age / 60000) };
     const storedDir = typeof entry === 'object' && entry ? entry.dir : null;
-    const currentDir = this._dedupDirection(vessel);
+    // F4-C (PIANO): flip-bedömningens NYA riktning kräver rörelsebevis
+    const currentDir = this._dedupDirection(vessel, { requireMovement: true });
     if (storedDir && currentDir && storedDir !== currentDir) {
+      const RETROACTIVE_FLIP_MIN_AGE_MS = 15 * 60 * 1000;
+      if (opts.retroactiveSource && age < RETROACTIVE_FLIP_MIN_AGE_MS) {
+        this.log(
+          `🚫 [PERSISTENT_DEDUP_RECENT] ${dedupeKey}: direction flipped (${storedDir} → ${currentDir}) `
+          + `but entry only ${Math.round(age / 60000)} min old — same bridge-opening event, blocking retroactive re-notify`,
+        );
+        return { blocked: true, minutesSince: Math.round(age / 60000) };
+      }
       this.log(
         `🔁 [PERSISTENT_DEDUP_DIRECTION] ${dedupeKey}: entry ${Math.round(age / 60000)} min old but `
         + `direction flipped (${storedDir} → ${currentDir}) — treating as NEW passage, not blocking`,
@@ -477,15 +513,29 @@ class AISBridgeApp extends Homey.App {
 
   /**
    * Färdriktning för dedup-poster: låst ruttriktning i första hand, annars cog.
+   * @param {Object} vessel - Vesselobjekt
+   * @param {Object} [opts] - { requireMovement: true } för riktningsflip-
+   *   BEDÖMNINGAR (F4-C, fältprov 4 2026-07-09, PIANO): den NYA riktningen i
+   *   ett flip-släpp måste vara rörelsebelagd — cog-fallbacken kräver då
+   *   sog ≥ 2,0 kn (Fix D-tröskeln). PIANO väntade vid Olidebron (113 m) och
+   *   fick 'north' ur cog 40,6° @ 0,7 kn → flip-undantaget släppte nyckeln →
+   *   DUBBELNOTIS för samma väntläge. LAGRINGEN (posten vid notis) behåller
+   *   default — HALIFAX:s 08:29-post ('south' @ 1,1 kn) är facit-låst i
+   *   korpus #10 och krävs för att hennes äkta U-svängssläpp (4,2 kn) ska
+   *   fungera. Den låsta _routeDirection-grenen berörs inte (positionsbevisad).
    * @private
    */
-  _dedupDirection(vessel) {
+  _dedupDirection(vessel, opts = {}) {
     if (!vessel) return null;
     if (vessel._routeDirection === 'north' || vessel._routeDirection === 'south') {
       return vessel._routeDirection;
     }
     const { cog } = vessel;
     if (!Number.isFinite(cog)) return null;
+    if (opts.requireMovement === true
+        && (!Number.isFinite(vessel.sog) || vessel.sog < 2.0)) {
+      return null; // COG är vobbel vid väntfart — okänd ⇒ konservativ blockering
+    }
     if (cog >= 315 || cog <= 45) return 'north';
     // Produktionsredo (2026-07-03): sydband 135–314° — harmoniserat med
     // _getDirectionString. Det smala bandet (135–225) lagrade dir=null för
@@ -613,6 +663,111 @@ class AISBridgeApp extends Homey.App {
    * TTL-filter (6 h) vid inläsning.
    * @private
    */
+  /**
+   * F4-L: läs inlärda förtöjningsplatser från settings (TTL-prövade).
+   * @private
+   */
+  _loadLearnedMooringSpots() {
+    try {
+      if (!this.homey || !this.homey.settings || typeof this.homey.settings.get !== 'function') {
+        return;
+      }
+      const stored = this.homey.settings.get('learned_mooring_spots');
+      if (!Array.isArray(stored)) return;
+      const now = Date.now();
+      this._learnedMooringSpots = stored.filter((s) => s
+        && Number.isFinite(s.lat) && Number.isFinite(s.lon)
+        && Number.isFinite(s.t) && now - s.t < this._LEARNED_SPOT_TTL_MS);
+      if (this._learnedMooringSpots.length > 0) {
+        this.log(`⚓ [MOORING_SPOTS] Restored ${this._learnedMooringSpots.length} learned mooring spots (survives restart)`);
+      }
+    } catch (error) {
+      this.error('[MOORING_SPOTS] Failed to load learned spots:', error.message || error);
+    }
+  }
+
+  /**
+   * F4-L: skriv inlärda platser till settings (write-through, låg frekvens).
+   * @private
+   */
+  _persistLearnedMooringSpots() {
+    try {
+      if (!this.homey || !this.homey.settings || typeof this.homey.settings.set !== 'function') {
+        return;
+      }
+      this.homey.settings.set('learned_mooring_spots', this._learnedMooringSpots || []);
+    } catch (error) {
+      this.error('[MOORING_SPOTS] Failed to persist learned spots:', error.message || error);
+    }
+  }
+
+  /**
+   * F4-L: lär en bevisad förtöjnings-/ankringsplats. Dedup 50 m (befintlig
+   * plats får förnyad TTL), tak 200 platser (äldst evicteras).
+   * @private
+   */
+  _learnMooringSpot(lat, lon, mmsi) {
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    if (!Array.isArray(this._learnedMooringSpots)) this._learnedMooringSpots = [];
+    // Fältprov 4b (2026-07-09): BROFILTER — punkter inom 300 m från en bro
+    // lärs inte. Demote-vägarna undantar redan brovänta (femlagrets
+    // väntundantag; ANCHORED kräver ≥800 m från TARGET), men en långkö vid
+    // en MELLANBRO (t.ex. Järnvägsbron-kö med target Klaffbron, 964 m bort)
+    // kunde annars smyga in som "kajplats" och få framtida förstakontakter
+    // vid bron felklassade som kajstartare. Äkta gästhamnar ligger inte
+    // under broarna; de statiska MOORING_ZONES påverkas inte av filtret.
+    if (this.bridgeRegistry && typeof this.bridgeRegistry.getAllBridgeIds === 'function') {
+      for (const bridgeId of this.bridgeRegistry.getAllBridgeIds()) {
+        const bridge = this.bridgeRegistry.getBridge(bridgeId);
+        if (bridge && Number.isFinite(bridge.lat) && Number.isFinite(bridge.lon)) {
+          const dBridge = geometry.calculateDistance(lat, lon, bridge.lat, bridge.lon);
+          if (Number.isFinite(dBridge) && dBridge < 300) {
+            this.debug(
+              `⚓ [MOORING_SPOT_SKIP_NEAR_BRIDGE] ${mmsi}: ${Math.round(dBridge)} m från `
+              + `${bridge.name} — brozon lärs inte som förtöjningsplats`,
+            );
+            return;
+          }
+        }
+      }
+    }
+    const DEDUP_RADIUS_M = 50;
+    for (const spot of this._learnedMooringSpots) {
+      const d = geometry.calculateDistance(lat, lon, spot.lat, spot.lon);
+      if (Number.isFinite(d) && d <= DEDUP_RADIUS_M) {
+        spot.t = Date.now(); // platsen återbekräftad — förnya TTL
+        this._persistLearnedMooringSpots();
+        return;
+      }
+    }
+    this._learnedMooringSpots.push({ lat, lon, t: Date.now() });
+    const MAX_SPOTS = 200;
+    if (this._learnedMooringSpots.length > MAX_SPOTS) {
+      this._learnedMooringSpots.sort((a, b) => a.t - b.t);
+      this._learnedMooringSpots.splice(0, this._learnedMooringSpots.length - MAX_SPOTS);
+    }
+    this.log(
+      `⚓ [MOORING_SPOT_LEARNED] ${mmsi}: ny förtöjningsplats (${lat.toFixed(5)}, ${lon.toFixed(5)}) `
+      + `— ${this._learnedMooringSpots.length} kända platser`,
+    );
+    this._persistLearnedMooringSpots();
+  }
+
+  /**
+   * F4-L: ligger punkten nära en inlärd förtöjningsplats? (TTL-prövad)
+   * @private
+   */
+  _isNearLearnedMooringSpot(lat, lon, radiusM = 100) {
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+    if (!Array.isArray(this._learnedMooringSpots)) return false;
+    const now = Date.now();
+    return this._learnedMooringSpots.some((s) => {
+      if (!Number.isFinite(s.t) || now - s.t >= this._LEARNED_SPOT_TTL_MS) return false;
+      const d = geometry.calculateDistance(lat, lon, s.lat, s.lon);
+      return Number.isFinite(d) && d <= radiusM;
+    });
+  }
+
   _loadLastKnownPositions() {
     try {
       if (!this.homey || !this.homey.settings || typeof this.homey.settings.get !== 'function') {
@@ -736,12 +891,42 @@ class AISBridgeApp extends Homey.App {
     // (Fix D) = ny resa i motsatt riktning. VDS har nollat passedBridges;
     // app-lagret måste spegla NEW_JOURNEY-resetten och rensa dedup-nycklarna
     // (session + persistent) så returresans broar kan notifiera igen.
-    this.vesselDataService.on('vessel:journey-reset', ({ mmsi, vessel }) => {
+    this.vesselDataService.on('vessel:journey-reset', ({ mmsi, vessel, bridges }) => {
       try {
-        this.log(`🔁 [JOURNEY_RESET_DEDUP] ${mmsi}: clearing boat_near dedup keys for reversed journey`);
-        this._clearBoatNearTriggers(vessel, true);
+        if (Array.isArray(bridges) && bridges.length > 0) {
+          // Fältprov 3 (2026-07-08): riktningsrelativ reset — rensa endast
+          // nycklarna för broar FRAMFÖR båten i nya riktningen. Full rensning
+          // dubbelnotifierade nya benets redan avfyrade broar (AKIRA:
+          // Järnvägsbron ×2 i replayen av 21h-loggen).
+          this.log(
+            `🔁 [JOURNEY_RESET_DEDUP] ${mmsi}: clearing boat_near dedup keys for `
+            + `reversed journey [${bridges.join(', ')}]`,
+          );
+          let persistentDirty = false;
+          for (const bridgeName of bridges) {
+            const key = `${mmsi}:${bridgeName}`;
+            this._triggeredBoatNearKeys.delete(key);
+            if (this._persistentRecentTriggers && this._persistentRecentTriggers.delete(key)) {
+              persistentDirty = true;
+            }
+          }
+          if (persistentDirty) this._persistRecentTriggers();
+        } else {
+          this.log(`🔁 [JOURNEY_RESET_DEDUP] ${mmsi}: clearing boat_near dedup keys for reversed journey`);
+          this._clearBoatNearTriggers(vessel, true);
+        }
       } catch (err) {
         this.error(`[JOURNEY_RESET] Error clearing triggers for ${mmsi}:`, err);
+      }
+    });
+
+    // vessel:mooring-spot (F4-L, fältprov 4 2026-07-09): självlärande
+    // kajkartan — konstaterade förtöjningar/ankringar lärs persistent.
+    this.vesselDataService.on('vessel:mooring-spot', ({ mmsi, lat, lon }) => {
+      try {
+        this._learnMooringSpot(lat, lon, mmsi);
+      } catch (err) {
+        this.error(`[MOORING_SPOTS] Failed to learn spot for ${mmsi}:`, err.message || err);
       }
     });
 
@@ -1074,6 +1259,8 @@ class AISBridgeApp extends Homey.App {
    */
   async _onVesselRemoved({ mmsi, vessel, reason }) {
     this.debug(`🗑️ [VESSEL_REMOVED] Vessel: ${mmsi} (${reason})`);
+    // Fältprov 3: städa svep-idempotensposten (en per mmsi)
+    if (this._skippedBridgesSweepSeen) this._skippedBridgesSweepSeen.delete(String(mmsi));
 
     // F2-följdfix (körning 2026-07-03, SPIKEN-klassen): minns senaste kända
     // position vid removal. När fartyget återföds behandlas det som "ny båt"
@@ -1084,8 +1271,20 @@ class AISBridgeApp extends Homey.App {
     // stället för gissning. TTL i _startMonitoring-loopen.
     if (vessel && Number.isFinite(vessel.lat) && Number.isFinite(vessel.lon)) {
       if (!this._lastKnownPositions) this._lastKnownPositions = new Map();
+      // Fältprov 3 (2026-07-08): t = removaltid (TTL-ankaret — fönsterlogiken
+      // "broar mellan två kända positioner måste ha korsats" är sund oavsett
+      // positionens ålder, och TTL:n på removal råkar även skydda mot
+      // SPIKEN-fantomer när båten varit tyst länge FÖRE removal). posT =
+      // positionens EGEN tid, för ärlig åldersloggning (ELFKUNGEN 12:54
+      // loggades "1 min old" för en 31 min gammal position).
+      let posT = Date.now();
+      if (Number.isFinite(vessel.lastPositionUpdate)) {
+        posT = vessel.lastPositionUpdate;
+      } else if (Number.isFinite(vessel.timestamp)) {
+        posT = vessel.timestamp;
+      }
       this._lastKnownPositions.set(String(mmsi), {
-        lat: vessel.lat, lon: vessel.lon, t: Date.now(),
+        lat: vessel.lat, lon: vessel.lon, t: Date.now(), posT,
       });
       this._persistLastKnownPositions();
     }
@@ -1571,6 +1770,14 @@ class AISBridgeApp extends Homey.App {
       // numeric↔"ETA okänd" 21 gånger på en timme. Nu gatas omberäkningen på
       // SAMMA signal: har positionen inte avancerat på >10 min behålls
       // nuvarande värde och snapshot-vägen äger staleness-beslutet (SSOT).
+      // F4-E PRÖVAD OCH ÅTERTAGEN HÄR (2026-07-09): max-klockan på just DENNA
+      // gate gav korpusbelagd fatal ETA-oscillation (41h: Strids 8→11→9 inom
+      // 180 s + 14 extra textövergångar) — stillaliggande glesa sändare fick
+      // fartbrusiga omräkningar varje meddelande. Distinktionen som håller:
+      // OMRÄKNING kräver positionsFÖRÄNDRING (denna gate, lastPositionUpdate
+      // — utan ny position finns inget nytt att beräkna), DEGRADERING kräver
+      // uteblivna LIVSTECKEN (max-klockan — ETA_STALE_HARD/IMMINENT/B5/exit).
+      // SOKERI-fallet löses av degraderingsgaterna ensamma.
       const positionAgeMs = Date.now() - (vessel.lastPositionUpdate || 0);
       const positionFresh = positionAgeMs <= UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS;
       if (['approaching', 'waiting', 'en-route', 'stallbacka-waiting', 'under-bridge']
@@ -3383,13 +3590,20 @@ class AISBridgeApp extends Homey.App {
             // För bilförare ger extrapolation användbar info under typiska
             // Klass B AIS-glapp 5–8 min. Om båten vänt under tystnaden rättas
             // siffran inom max 10 min av nästa AIS-tick.
-            // F40 (medvetet EJ ändrat): staleness gatas på lastPositionUpdate
-            // (positionsålder), inte AIS-mottagning. Att byta till vessel.timestamp
-            // skulle behålla en gammal ETA/imminent för en båt som sänder men vars
-            // POSITION är okänd sedan >10 min — det bryter Anomali-3-säkerhetsvalet
-            // (repro-test för WIZARD 2026-04-30) och nyttan täcks redan av Fix H
-            // imminent-zonen (<300m). Lämnas som lastPositionUpdate.
-            const ageMs = Date.now() - (vessel.lastPositionUpdate || 0);
+            // F40 FÖRFINAT (fältprov 4, 2026-07-09, SOKERI — F4-E): staleness
+            // mäts mot senast BEKRÄFTADE positionsrapport
+            // (max(timestamp, lastPositionUpdate)), inte enbart positions-
+            // ÄNDRINGSTID. SOKERI väntade 74 m från Stridsbergsbron (sog 0,
+            // sände accepterade positioner var ~3:e min) men lastPositionUpdate
+            // frös vid ankomsten → ETA_STALE_HARD dömde henne "615s old" och
+            // texten föll till "ETA okänd" mitt i kön (åtta läsarfynd, samma
+            // rot). En stillaliggande båt vars position BEKRÄFTAS färskt är
+            // inte "okänd position" — det är känd, färsk, stilla position.
+            // Anomali-3-/WIZARD-säkerhetsvalet BESTÅR: vessel.timestamp bumpar
+            // bara när ett positionsmeddelande faktiskt bearbetas
+            // (_createVesselObject) — en tyst transponder fryser båda
+            // klockorna och degraderingen slår som förut.
+            const ageMs = Date.now() - this._lastConfirmedPositionMs(vessel);
             if (ageMs > UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS) {
               if (vessel.etaMinutes !== null) {
                 this.debug(
@@ -3481,7 +3695,9 @@ class AISBridgeApp extends Homey.App {
         // F40 (medvetet EJ ändrat): se kommentar ovan. Imminent gatas på
         // positionsålder så vi inte påstår "broöppning strax" för en båt vars
         // position är >10 min gammal (Anomali-3-säkerhetsval).
-        const ageMs = Date.now() - (vessel.lastPositionUpdate || 0);
+        // F4-E (2026-07-09): samma bekräftade-position-klocka som ETA-gaten —
+        // en väntande båt som sänder oförändrad position är FÄRSK (SOKERI).
+        const ageMs = Date.now() - this._lastConfirmedPositionMs(vessel);
         const dataIsFreshEnough = ageMs <= UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS;
         // Produktionsredo (2026-07-03, CONFIRMED): hold-vägen delar F40:s
         // färskhetsgräns. Utan den höll en båt som fastnat med
@@ -3641,7 +3857,7 @@ class AISBridgeApp extends Homey.App {
         _routeDirection: vessel._routeDirection,
         _finalTargetDirection: vessel._finalTargetDirection,
         _bridgeOpeningUntil: vessel._bridgeOpeningUntil,
-        // F4: dessa två flaggor styr "strax"/"cirka N min" i BridgeTextService.
+        // F4: dessa flaggor styr "strax"/"cirka N min" i BridgeTextService.
         // Utan dem i projektionen blir de alltid undefined (=== true → false),
         // så imminent-override och extrapolerad-text aktiveras aldrig via
         // publiceringsvägen.
@@ -3864,6 +4080,20 @@ class AISBridgeApp extends Homey.App {
    */
   async _checkSkippedBridgesFallback(vessel, oldVessel) {
     if (!Number.isFinite(vessel.lat) || !Number.isFinite(vessel.lon)) return;
+    // Fältprov 3 (2026-07-08): svepet anropas från både entered- och
+    // updated-vägen och kunde köra TVÅ gånger för samma AIS-position —
+    // dubbla identiska dedup-/kandidatpass i samma millisekund (SISU,
+    // HALIFAX, SOLANDE). Effekterna var deduperade men passet är inte
+    // gratis: kör en gång per (mmsi, positionstid). Posten städas i
+    // _onVesselRemoved.
+    {
+      const sweepTs = Number.isFinite(vessel.lastPositionUpdate) ? vessel.lastPositionUpdate : vessel.timestamp;
+      if (Number.isFinite(sweepTs)) {
+        if (!this._skippedBridgesSweepSeen) this._skippedBridgesSweepSeen = new Map();
+        if (this._skippedBridgesSweepSeen.get(String(vessel.mmsi)) === sweepTs) return;
+        this._skippedBridgesSweepSeen.set(String(vessel.mmsi), sweepTs);
+      }
+    }
     // Anomali 17 (2026-05-20): kör även för post-TARGET_END (targetBridge=null men
     // _finalTargetBridge satt). Tidigare returnerade `if (!vessel.targetBridge)` tidigt,
     // så large-jumps över Stallbackabron/Olidebron EFTER sista målbron fångades aldrig.
@@ -3904,6 +4134,10 @@ class AISBridgeApp extends Homey.App {
     let maxLat;
     let scenario;
     let direction;
+    // F4-D: bevisade fönstrets gränser (null = hela fönstret positionsbevisat,
+    // vilket gäller scenario B där hoppets ändpunkter är observerade).
+    let provenLowLat = null;
+    let provenHighLat = null;
     if (isLargeJump) {
       // SCENARIO B: stort lat-hopp (>~550m) → broar mellan oldLat och newLat.
       // Riktningen härleds ur hoppets fysiska förflyttning.
@@ -3955,9 +4189,14 @@ class AISBridgeApp extends Homey.App {
       // Järnvägsbron-failsafe). Marginalens pris är att en äkta transitör
       // vars FÖRSTA sampel råkar ligga vid kajen inte får bakåt-inferens —
       // samma medvetna "gissa inte"-avvägning som MOJITO II-klassen.
+      // F4-L (2026-07-09): kajvakten konsulterar även den SJÄLVLÄRANDE
+      // kajkartan — förstakontakt nära en plats där båtar bevisligen legat
+      // förtöjda/ankrade (gästhamnar, ankringsvikar utanför de statiska
+      // kapslarna) behandlas som kajavgång, inte porten-gissning.
       const startedAtQuay = this.vesselDataService?.isNearMooringZone?.(
         vessel._firstSeenLat, vessel._firstSeenLon, 100,
-      ) === true;
+      ) === true
+        || this._isNearLearnedMooringSpot(vessel._firstSeenLat, vessel._firstSeenLon, 100);
       // F2-följdfix (2026-07-03, SPIKEN-klassen): en ÅTERFÖDD båt (borttagen
       // och återskapad) har en sist kända position — då är porten-antagandet
       // fel evidensnivå. SPIKEN låg ankrad norr om Stridsbergsbron, STALE-
@@ -3980,11 +4219,30 @@ class AISBridgeApp extends Homey.App {
         minLat = vessel.lat;
         maxLat = startBoundLat !== null ? startBoundLat : 58.32; // norr om Stallbackabron
       }
+      // F4-D (fältprov 4, 2026-07-09, HERA II — ANVÄNDARBESLUT: bevisprincipen):
+      // det BEVISADE fönstret är [lastKnown|_firstSeen, nuvarande] — båten har
+      // demonstrerat att den var vid båda ändpunkterna. Porten-antagandets
+      // förlängning bortom bevisgränsen är en GISSNING: HERA II
+      // (förstakontakt 107 m norr om Olidebron, sydgående) fick en Klaffbron-
+      // notis 1467 m bort för en bro hon kan ha lagt ut EFTER (kaj/gästhamn
+      // utanför MOORING_ZONES). Gissningsdelens broar notifieras INTE längre —
+      // med ETT undantag: KANALINFARTEN-porten för nordgående (geometriskt
+      // nödvändig för en nordgående båt inne i kanalen som inte kajstartat —
+      // F8-beslutet 2026-07-03, PHILULA/DIAMOND, korpus #8-facit).
+      let provenBoundLat = vessel.lat;
+      if (Number.isFinite(startBoundLat)) {
+        provenBoundLat = startBoundLat;
+      } else if (Number.isFinite(vessel._firstSeenLat)) {
+        provenBoundLat = vessel._firstSeenLat;
+      }
+      provenLowLat = Math.min(provenBoundLat, vessel.lat);
+      provenHighLat = Math.max(provenBoundLat, vessel.lat);
       if (lastKnown) {
         this.log(
           `📍 [SKIPPED_BRIDGES_LAST_KNOWN] ${vessel.mmsi}: Reborn vessel — limiting inferred `
           + `passage window to last known position (${lastKnown.lat.toFixed(5)}, `
-          + `${Math.round((Date.now() - lastKnown.t) / 60000)} min old)`,
+          + `position ${Math.round((Date.now() - (Number.isFinite(lastKnown.posT) ? lastKnown.posT : lastKnown.t)) / 60000)} min old, `
+          + `removed ${Math.round((Date.now() - lastKnown.t) / 60000)} min ago)`,
         );
       } else if (startedAtQuay) {
         this.log(
@@ -4036,6 +4294,21 @@ class AISBridgeApp extends Homey.App {
       + `candidates=[${passedBridges.join(', ')}]`,
     );
 
+    // Fältprov 3 (2026-07-08, SISU 10:52): svepets riktning är belagd
+    // (hoppvektor/reborn-positionsdelta/gated port-gissning) medan en
+    // återfödd vessel kan sakna _routeDirection (osäker COG stoppade
+    // targettilldelningen). Utan låset byggdes flush-notisernas
+    // direction-token som 'unknown' i samma millisekund som svepet visste
+    // 'north'. Lås bara när riktning saknas — motsägelser mot ett
+    // befintligt lås hanteras av korsningsbevis-reversalen i VDS.
+    if (!vessel._routeDirection && (direction === 'north' || direction === 'south')) {
+      vessel._routeDirection = direction;
+      this.log(
+        `🧭 [SKIPPED_BRIDGES_DIRECTION_LOCK] ${vessel.mmsi}: route direction '${direction}' `
+        + 'locked from evidenced sweep window',
+      );
+    }
+
     // Körning 2026-07-02 (YEMANJA II): failsafen var notis-enbart. När hoppet
     // korsade MÅLBRON men landade mellan broarna (utanför geometrimetodernas
     // gränser) förblev targetBridge den passerade bron i 39 min — texten
@@ -4069,16 +4342,36 @@ class AISBridgeApp extends Homey.App {
     // en bräcklig 300 s-uppskattning (OLIVIER/ELFKUNGEN fick notis,
     // PHILULA/DIAMOND ströps godtyckligt). 2000 m-taket, sog≥2-gaten,
     // kajvakten (N7) och persistent dedupe består som skydd för scenario A.
-    // inferredFlush (scenario B): bron är geometriskt belagd mellan hoppets
-    // ändpunkter — distanstaket ersätts av positionfärskhet + sanity i
+    // inferredFlush: bron är geometriskt belagd mellan två OBSERVERADE
+    // positioner — distanstaket ersätts av positionfärskhet + sanity i
     // _triggerBoatNearFlowFallback (DIANA: Järnvägsbron @2057 m ströps av
     // 2000 m-taket; ELFKUNGEN: Klaffbron @3863 m — båda verkliga passager).
-    const fallbackOptions = scenario === 'large-jump'
-      ? { detectionTs: Date.now(), inferredFlush: true }
-      : { detectionTs: Date.now() };
-    for (const bridgeName of passedBridges) {
+    // F4-B (fältprov 4, 2026-07-09, SENTA): gäller nu ÄVEN scenario A:s
+    // bevisade fönster ([lastKnown|firstSeen → nuvarande]) — SENTA:s
+    // positionsbevisade Järnvägsbron-korsning ströps av 2000 m-taket (2139 m)
+    // medan Klaffbron (1184 m) i samma fönster fick sin notis.
+    // F4-D PRÖVAD OCH ÅTERKALLAD (2026-07-09): bevisprincipen som STRYKNING
+    // av gissningsdelens broar bröt SEX låsta korpusfacit — 10 rådata-ÄKTA
+    // notiser försvann (EXGRATIA/265759070:s session i 14h-korpusen,
+    // SOLANDE/JUNO@Stallbackabron i 21h, 211112870 i 41h m.fl. är samma
+    // geometriska klass som 07:24-"fantomen" men bevisat verkliga Vänern-/
+    // kanalankomster). Klassen är OAVGÖRBAR i realtid — F8-beslutet
+    // (2026-07-03: trolig passage notifieras; sog≥2-, cog-band-, kajvakts-
+    // och 2000 m-gaterna är skydden) äger. HERA II 07:24-fallet
+    // dokumenteras som accepterad avvägning i stället.
+    for (const entry of passedBridgeEntries) {
+      const bridgeName = entry.name;
       try {
-        await this._triggerBoatNearFlowFallback(vessel, bridgeName, fallbackOptions);
+        // F4-B (SENTA): inferredFlush för alla POSITIONSBEVISADE kandidater —
+        // scenario B:s hoppfönster OCH scenario A:s bevisade fönster
+        // ([lastKnown|firstSeen|kaj → nuvarande]). Gissningsdelens kandidater
+        // (bortom bevisgränsen) behåller 2000 m-taket som förut.
+        const proven = scenario === 'large-jump'
+          || (provenLowLat !== null && entry.lat > provenLowLat && entry.lat < provenHighLat);
+        const options = proven
+          ? { detectionTs: Date.now(), inferredFlush: true }
+          : { detectionTs: Date.now() };
+        await this._triggerBoatNearFlowFallback(vessel, bridgeName, options);
       } catch (err) {
         this.error(`[SKIPPED_BRIDGES_FALLBACK] Error for ${bridgeName}:`, err);
       }
@@ -4238,11 +4531,15 @@ class AISBridgeApp extends Homey.App {
     // featuren själv: exit-fallbacken körs vid removal, som för slutförda
     // resor sker via ~20-min-timern, så Anomali 10:s egna verifierade fall
     // (265037590, 246140000 — "~20 min AIS-glapp innan COMPLETED_BYPASS")
-    // hade också stoppats. Tröskeln är därför 25 min (> removal-timern),
-    // och positionens ålder mäts med lastPositionUpdate — inte timestamp,
-    // som uppdateras av varje meddelande inklusive namnmeddelanden.
+    // hade också stoppats. Tröskeln är därför 25 min (> removal-timern).
+    // F4-E (2026-07-09): åldern mäts mot senast BEKRÄFTADE positionsrapport
+    // (max-klockan). Den gamla kommentaren "timestamp uppdateras av namn-
+    // meddelanden" är föråldrad: _onStaticName sätter numera bara vessel.name
+    // — timestamp stämplas enbart i _createVesselObject (positionsmeddelanden).
     const EXIT_FALLBACK_MAX_POSITION_AGE_MS = 25 * 60 * 1000;
-    const lastAisMs = vessel.lastPositionUpdate || vessel.timestamp || vessel._lastSeen || 0;
+    const lastAisMs = Math.max(
+      vessel.timestamp || 0, vessel.lastPositionUpdate || 0, vessel._lastSeen || 0,
+    );
     if (!lastAisMs || (Date.now() - lastAisMs) > EXIT_FALLBACK_MAX_POSITION_AGE_MS) {
       this.debug(
         `🛡️ [EXIT_TRIGGER_STALE] ${vessel.mmsi}: skipping exit fallback — last position `
@@ -4286,7 +4583,8 @@ class AISBridgeApp extends Homey.App {
         ? this._persistentRecentTriggers.get(dedupeKey)
         : null;
       const prevDir = persisted && persisted.dir ? persisted.dir : null;
-      const curDir = this._dedupDirection(vessel);
+      // F4-C (PIANO): flip-bedömningens NYA riktning kräver rörelsebevis
+      const curDir = this._dedupDirection(vessel, { requireMovement: true });
       const oppositeDirection = prevDir && curDir && prevDir !== curDir;
       if (oppositeDirection || !persisted) {
         this._triggeredBoatNearKeys.delete(dedupeKey);
@@ -4305,7 +4603,7 @@ class AISBridgeApp extends Homey.App {
     // Utan denna check loggas missvisande "EXIT_TRIGGER_FALLBACK: firing fallback"
     // följt av "FALLBACK_TRIGGER_PERSISTENT_DEDUP: skipping" från _triggerBoatNearFlowFallback.
     {
-      const exitDedup = this._persistentDedupCheck(dedupeKey, vessel);
+      const exitDedup = this._persistentDedupCheck(dedupeKey, vessel, { retroactiveSource: true });
       if (exitDedup.blocked) {
         this.debug(
           `🚫 [EXIT_TRIGGER_PERSISTENT_DEDUPE] ${vessel.mmsi}: Kanalinfarten triggered `
@@ -4388,7 +4686,7 @@ class AISBridgeApp extends Homey.App {
     // Om bron triggat senaste 2h enligt persistent map — skippa fallback för att
     // undvika dubbel-notis.
     const persistentDedupeKey = `${vessel.mmsi}:${bridgeName}`;
-    const fallbackDedup = this._persistentDedupCheck(persistentDedupeKey, vessel);
+    const fallbackDedup = this._persistentDedupCheck(persistentDedupeKey, vessel, { retroactiveSource: true });
     if (fallbackDedup.blocked) {
       this.log(
         `🚫 [FALLBACK_TRIGGER_PERSISTENT_DEDUP] ${vessel.mmsi}: Skipping ${bridgeName} fallback `
@@ -4408,9 +4706,10 @@ class AISBridgeApp extends Homey.App {
     if (options.inferredFlush === true) {
       const INFERRED_FLUSH_SANITY_MAX_M = 10000;
       const INFERRED_FLUSH_MAX_POSITION_AGE_MS = 2 * 60 * 1000;
-      const posAgeMs = Number.isFinite(vessel.lastPositionUpdate)
-        ? Date.now() - vessel.lastPositionUpdate
-        : null;
+      // F4-E (2026-07-09): bekräftad-position-klockan — beviset är färskt även
+      // när positionen är oförändrad men aktivt bekräftad (väntande sändare).
+      const lastConfirmed = this._lastConfirmedPositionMs(vessel);
+      const posAgeMs = lastConfirmed > 0 ? Date.now() - lastConfirmed : null;
       if (distance > INFERRED_FLUSH_SANITY_MAX_M) {
         this.log(
           `🚫 [FALLBACK_TRIGGER_TOO_FAR] ${vessel.mmsi}: Skipping ${bridgeName} inferred flush `
@@ -4549,7 +4848,8 @@ class AISBridgeApp extends Homey.App {
         ? this._persistentRecentTriggers.get(dedupeKey)
         : null;
       const prevDir = persisted && persisted.dir ? persisted.dir : null;
-      const curDir = this._dedupDirection(vessel);
+      // F4-C (PIANO): flip-bedömningens NYA riktning kräver rörelsebevis
+      const curDir = this._dedupDirection(vessel, { requireMovement: true });
       const oppositeDirection = prevDir && curDir && prevDir !== curDir;
       if (oppositeDirection || !persisted) {
         this._triggeredBoatNearKeys.delete(dedupeKey);
@@ -4575,7 +4875,11 @@ class AISBridgeApp extends Homey.App {
     // (se _clearBoatNearTriggers(vessel, true)), så en legitim ny resa blockeras
     // inte.
     {
-      const mainDedup = this._persistentDedupCheck(dedupeKey, vessel);
+      // Fältprov 3: passage-fallback/just-passed är retroaktiva bekräftelser
+      // — riktningsflip-undantaget kräver ≥15 min gammal post där (approach-
+      // källor, source=current, behåller HALIFAX-semantiken).
+      const isRetroactiveSource = source === 'passage-fallback' || source === 'just-passed';
+      const mainDedup = this._persistentDedupCheck(dedupeKey, vessel, { retroactiveSource: isRetroactiveSource });
       if (mainDedup.blocked) {
         this.log(
           `🚫 [FLOW_TRIGGER_PERSISTENT_DEDUP] ${vessel.mmsi}: Skipping "${bridgeName}" `
@@ -4757,6 +5061,22 @@ class AISBridgeApp extends Homey.App {
         this.debug(`🧹 [TRIGGER_CLEAR_PERSISTENT] ${vessel.mmsi}: Cleared ${persistentToRemove.length} persistent dedup keys (new journey)`);
       }
     }
+  }
+
+  /**
+   * Senast BEKRÄFTADE positionsrapport (F4-E, fältprov 4 2026-07-09, SOKERI):
+   * max(timestamp, lastPositionUpdate). vessel.timestamp stämplas för varje
+   * bearbetat positionsmeddelande (_createVesselObject) medan
+   * lastPositionUpdate bara följer positionsÄNDRINGAR — en väntande båt vid
+   * bron (sog 0, sänder var ~3:e min) åldrades falskt förbi 600 s-tröskeln
+   * och fick "ETA okänd" mitt i kön. RC1-mönstret (removal/display-vägarna
+   * i VesselDataService) använder redan samma max-klocka.
+   * @param {Object} vessel - Vesselobjekt
+   * @returns {number} epoch-ms för senast bekräftade position (0 om okänd)
+   * @private
+   */
+  _lastConfirmedPositionMs(vessel) {
+    return Math.max(vessel.timestamp || 0, vessel.lastPositionUpdate || 0);
   }
 
   /**
