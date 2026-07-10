@@ -490,3 +490,74 @@ utökad med status/currentBridge.
 
 **Slutläge 4b:** 878/878 jest, 10/10 korpusar EXAKTA, 45/45 scenarier,
 72h-soak stabil, lint rent, validate publish rent.
+
+## FÄLTPROV 5 (20260710-015254, 13,5 h, 12 fartyg, 79 notiser) — 2026-07-10
+
+**Metod:** 50 Opus-max-läsare radläste alla 123 989 rader (69 råfynd: 3 major,
+16 minor, 50 info); dirigenten körde parallell rådatarevision (notiskors,
+per-fartyg-tidslinjer ur jsonl) och rotorsakade varje fynd mot rå AIS + kod.
+Loggfångst-fixen från fältprov 4 LEVERERADE: lokala/OneDrive-kopior identiska,
+håldetektorn fångade wifi-tappet exakt (13:12:15–13:18:45 — EFTER sista
+jsonl-samplet 13:09:22, så replaydatat är komplett; användarbeslut: bortse
+från slutet).
+
+### Fixat (rådataverifierat + facit-vaktat)
+
+- **F5-A (P2): expired-släppets två hål** — sessionsdedupens "no persistent
+  entry (expired) — treating as NEW passage" var ovillkorligt. (a) PILOT 761
+  STILLALIGGANDE vid lots-stationen (sog 0, ANCHOR_BLOCK, 294 m från redan
+  passerad Stallbackabron) re-notifierades när 2h-posten prunades (08:25-
+  FANTOMEN); (b) släppet avfyrade under OBEKRÄFTAD reversal med gammal
+  riktningstoken, och NEW_JOURNEY-bekräftelsen 80 s senare rensade nyckeln
+  och avfyrade om (11:32/11:33-DUBBLETTEN). Släppet kräver nu rörelsebevisad
+  riktning (F4-C-principen, sog ≥ 2) och väntar ut pending-reversal
+  (bekräftelsen äger notisen). ELFKUNGEN-klassens legitima >2h-returer i
+  rörelse släpps som förut (korpusvaktat).
+- **F5-B (P2): exit-fallbackens radie villkorat utökad 400→800 m** — IN-AXXI
+  (sydtransit 6,5 kn, Olide passerad, försvann 546 m norr om punkten) var
+  TREDJE rådataverifierade fallet i klassen (318/327 m skapade 400 m-gaten).
+  Utökningen kräver aktiv sydtransit i sista samplet (sog ≥ 3 + cog 135–225 +
+  Olidebron i passedBridges) — en Olide-liggare (~520 m från punkten, sog 0)
+  träffas aldrig. OMLÅSNINGAR (alla rådataverifierade äkta missar som prod-
+  facit kodifierat): 11h 30→31 (+265726650@Kanalinf), 2h 32→33 (+PAX),
+  19,5h 54→55 (+265741640) — SENTA-processens mönster.
+- **F5-C PRÖVAD OCH ÅTERKALLAD**: projektionsklamp av waiting-ETA (mot
+  SAGESSE-sågtanden 23↔12 — okapad approaching-beräkning visades under
+  waiting) FÄLLDES av 41h-korpusen: klampen växlade med status-hysteresen
+  och skapade VÄRRE oscillation (12→71→12 på 9 s). Fjärde bekräftelsen av
+  F4-G/F4-M-läxan: visningsingrepp som följer status är flappigare än
+  beräkningsvärdet. SAGESSE-fallet accepteras som mild kosmetik; negativtest
+  låser att projektionen aldrig klampar.
+- **INV-3-precisering**: sågtand-UPP-grenen fällde ärliga degraderingar
+  (ANTARES: äkta strax vid bron → sändaren tystnade → ärligt ledarbyte till
+  7 min utan antalsändring). Diskriminatorn mot SOKERI-klassen (falsk
+  staleness) är ÅTERGÅNGEN: falsk degradering studsar tillbaka till strax
+  inom sekunder–minut, ärlig ger stabil ny nivå. Strax-hopp fälls nu endast
+  vid återgång <3 inom 120 s; icke-strax-hopp fälls ovillkorligt som förut.
+
+### Avvisat efter rotorsakning (läsarfynd som inte höll)
+
+- "VIRGO ETA-oscillation 7→cirka 2→7 med snap-back" (major): FELDIAGNOS —
+  "cirka 2" var VIRGO:s ÄRLIGA dead-reckoning (hon passerade bron strax
+  efter), och 7:an efteråt var PILOT 761:s ärliga kö-ETA efter ledarbytet
+  (Fix H-exhausted nekades korrekt på 712 m > 500). Designen fungerade.
+- LADY X@Klaffbron 07:08 (porten-gissningen, sydgående förstakontakt 58.274):
+  elfte-fallet-klassen — obevisbar; F8-ANVÄNDARBESLUTET äger; kajkartan hade
+  ingen inlärd plats där (3 inlärda platser fanns, alla norr om Stallbacka).
+- JOSELINA/MALVA-inferredflushar: positionsbevisade fönster (kajstarter utan
+  bakåtfantomer) — beviskontraktet levererade exakt enligt design.
+- ELFKUNGEN: båda jätteflusharna (10:40 ×3 broar, 13:09 ×4) positionsbevisade
+  äkta gap-passager; Stallbacka-returen 12:38 designenlig riktningsflip.
+- Kända accepterade klasser (dokumenterade sedan tidigare): exakt→cirka-
+  märkning vid stale (chunk 11/44), strax↔minuter-gränsflapp (chunk 39,
+  F4-M-slutdomen), stale-hold-fönstren (DELFIN/VIRGO-räkning), FIX_U-racet
+  (1 tick, maskerad av leaving-gaten), ETA_GAP_RESET-hopp efter tystnad.
+
+### KORPUS #11 LÅST: 20260710-13h, facit 79
+
+Prod gav 79 med 2 fel + 2 missar som tog ut varandra: facit = replay med
+F5-A/F5-B där varje diff är rådataverifierad (−PILOT-fantomen, −PILOT-
+dubbletten, +IN-AXXI@Kanalinf, +ELFKUNGEN@Kanalinf-syd som wifi-hålet dödade
+loggen före). 11 korpusar / ~150 h. Batteriet: 923/923 jest (78 sviter,
++15 F5-tester), 11/11 korpusar EXAKTA, 43 scenarier, soak stabil, lint +
+validate publish rent.

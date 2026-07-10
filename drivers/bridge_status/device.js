@@ -91,6 +91,26 @@ class BridgeStatusDevice extends Homey.Device {
       }, 1000);
     } catch (err) {
       this.error('Failed to initialize device:', err);
+      // ChatGPT-granskningen 2026-07-10 (I1): synliggör felet i stället för
+      // att tyst registrera en halvinitierad enhet. Flaggan låter appens
+      // nästa lyckade capability-skrivning (_updateDeviceCapability i
+      // app.js) återställa tillgängligheten automatiskt — enheten fastnar
+      // aldrig i unavailable när push-pipelinen bevisligen fungerar igen.
+      this._initFailed = true;
+      // Skärpt i andra granskningsrundan: ett fel FÖRE addDevice-steget
+      // lämnade enheten utanför push-Set:en — då når självläkningen den
+      // aldrig. Registrera i catchen också (Set.add är idempotent, så
+      // dubbelregistrering vid fel EFTER addDevice är ofarlig).
+      try {
+        if (this.homey && this.homey.app && typeof this.homey.app.addDevice === 'function') {
+          this.homey.app.addDevice(this);
+        }
+      } catch (addErr) {
+        this.error('Failed to register device for recovery:', addErr);
+      }
+      if (typeof this.setUnavailable === 'function') {
+        this.setUnavailable('Initialization failed — recovering automatically').catch(() => {});
+      }
     }
   }
 

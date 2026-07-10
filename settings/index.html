@@ -88,7 +88,10 @@
 
         <div class="field">
             <label class="label" for="ais_api_key" data-i18n="settings.api_key">AISStream API Key</label>
-            <input class="input" id="ais_api_key" type="text" placeholder="xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx" />
+            <!-- ChatGPT-granskningen 2026-07-10 (I2): password-typ (nyckeln är
+                 en hemlighet) + generisk placeholder — riktiga aisstream-nycklar
+                 är 40 hex-tecken, INTE UUID som gamla platshållaren antydde. -->
+            <input class="input" id="ais_api_key" type="password" placeholder="Your aisstream.io API key" />
             <p class="description" data-i18n="settings.api_key_description">
                 Get your key at <a href="https://aisstream.io" target="_blank">https://aisstream.io</a>
             </p>
@@ -113,15 +116,19 @@
             <button id="save" class="btn btn-primary" data-i18n="settings.save">Save Settings</button>
         </div>
 
+        <!-- ChatGPT-granskningen 2026-07-10 (H2): engelska som basspråk
+             (Homey-riktlinjen kräver engelska och avråder från sporadiska
+             språkblandningar); svensk översättning appliceras via I18N-
+             tabellen i scriptet nedan när webview-språket är svenska. -->
         <div class="instructions">
-            <h3>📋 Anslutningsstatus</h3>
-            <p>Efter att du sparat din API-nyckel:</p>
+            <h3 id="instr-title">📋 Connection status</h3>
+            <p id="instr-intro">After saving your API key:</p>
             <ul>
-                <li><strong>✅ Giltig nyckel:</strong> Appen ansluter inom några sekunder</li>
-                <li><strong>❌ Ogiltig nyckel:</strong> Du får en notis i tidslinjen efter 5 misslyckade försök</li>
-                <li><strong>🔧 Felsökning:</strong> Kontrollera nyckeln på <a href="https://aisstream.io" target="_blank">aisstream.io</a></li>
+                <li id="instr-valid"><strong>✅ Valid key:</strong> the app connects within a few seconds</li>
+                <li id="instr-invalid"><strong>❌ Invalid key:</strong> you get a timeline notification after repeated failed attempts</li>
+                <li id="instr-help"><strong>🔧 Troubleshooting:</strong> check your key at <a href="https://aisstream.io" target="_blank">aisstream.io</a></li>
             </ul>
-            <p><em>Anslutningsstatusen visas i enheten "Bridge Status" i ditt hem.</em></p>
+            <p><em id="instr-footer">The connection status is shown on the "Bridge Status" device in your home.</em></p>
         </div>
     </div>
 
@@ -131,6 +138,54 @@
             const debugLevelSelect = document.getElementById('debug_level');
             const saveButton = document.getElementById('save');
             const statusDiv = document.getElementById('status');
+
+            // ChatGPT-granskningen 2026-07-10 (H2): engelska är basspråket i
+            // markupen; svenska appliceras här när webview-språket är svenskt.
+            // navigator.language följer telefonens språk — ingen Homey-API-
+            // beroende detektering som kan kasta.
+            const I18N = {
+                en: {
+                    stillLoading: '⏳ Settings are still loading — try again in a moment.',
+                    keyTooShort: '❌ The API key looks too short. Check your key from aisstream.io',
+                    saving: 'Saving settings...',
+                    saveDebugError: 'Error saving debug level: ',
+                    saveError: 'Error saving: ',
+                    saved: '✅ Settings saved!',
+                    savedConnecting: '✅ Settings saved! The app is now trying to connect...',
+                    savedKeyRemoved: '✅ Settings saved! API key removed — the AIS stream will disconnect.',
+                },
+                sv: {
+                    stillLoading: '⏳ Inställningarna laddas fortfarande — försök igen strax.',
+                    keyTooShort: '❌ API-nyckeln verkar för kort. Kontrollera din nyckel från aisstream.io',
+                    saving: 'Sparar inställningar...',
+                    saveDebugError: 'Fel vid sparande av debug-nivå: ',
+                    saveError: 'Fel vid sparande: ',
+                    saved: '✅ Inställningar sparade!',
+                    savedConnecting: '✅ Inställningar sparade! Appen försöker nu ansluta...',
+                    savedKeyRemoved: '✅ Inställningar sparade! API-nyckeln togs bort — AIS-strömmen kopplas ner.',
+                    instrTitle: '📋 Anslutningsstatus',
+                    instrIntro: 'Efter att du sparat din API-nyckel:',
+                    instrValid: '<strong>✅ Giltig nyckel:</strong> appen ansluter inom några sekunder',
+                    instrInvalid: '<strong>❌ Ogiltig nyckel:</strong> du får en notis i tidslinjen efter upprepade misslyckade försök',
+                    instrHelp: '<strong>🔧 Felsökning:</strong> kontrollera nyckeln på <a href="https://aisstream.io" target="_blank">aisstream.io</a>',
+                    instrFooter: 'Anslutningsstatusen visas i enheten "Bridge Status" i ditt hem.',
+                },
+            };
+            let lang = 'en';
+            try {
+                if (String(navigator.language || '').toLowerCase().indexOf('sv') === 0) lang = 'sv';
+            } catch (e) { /* behåll engelska */ }
+            const t = function (key) {
+                return (I18N[lang] && I18N[lang][key]) || I18N.en[key] || key;
+            };
+            if (lang === 'sv') {
+                document.getElementById('instr-title').textContent = t('instrTitle');
+                document.getElementById('instr-intro').textContent = t('instrIntro');
+                document.getElementById('instr-valid').innerHTML = t('instrValid');
+                document.getElementById('instr-invalid').innerHTML = t('instrInvalid');
+                document.getElementById('instr-help').innerHTML = t('instrHelp');
+                document.getElementById('instr-footer').textContent = t('instrFooter');
+            }
 
             // Senast sparade API-nyckeln — används för att bara skriva
             // ais_api_key (och därmed trigga AIS-återanslutning i app.js)
@@ -164,7 +219,7 @@
             // Save settings
             saveButton.addEventListener('click', function () {
                 if (!debugLevelLoaded) {
-                    showStatus('⏳ Inställningarna laddas fortfarande — försök igen strax.', 'info');
+                    showStatus(t('stillLoading'), 'info');
                     return;
                 }
                 const apiKey = apiKeyInput.value.trim();
@@ -174,35 +229,35 @@
                 // Validera bara när en NY, icke-tom nyckel angetts. Debug-nivån
                 // ska kunna sparas utan API-nyckel.
                 if (apiKeyChanged && apiKey && apiKey.length < 20) {
-                    showStatus('❌ API-nyckeln verkar för kort. Kontrollera din nyckel från aisstream.io', 'error');
+                    showStatus(t('keyTooShort'), 'error');
                     return;
                 }
 
-                showStatus('Sparar inställningar...', 'info');
+                showStatus(t('saving'), 'info');
 
                 Homey.set('debug_level', debugLevel, function (err) {
                     if (err) {
-                        showStatus('Fel vid sparande av debug-nivå: ' + err.message, 'error');
+                        showStatus(t('saveDebugError') + err.message, 'error');
                         return;
                     }
 
                     if (!apiKeyChanged) {
                         // Oförändrad nyckel — skriv INTE ais_api_key, annars
                         // tvingas en onödig AIS-återanslutning vid varje sparning.
-                        showStatus('✅ Inställningar sparade!', 'success');
+                        showStatus(t('saved'), 'success');
                         return;
                     }
 
                     Homey.set('ais_api_key', apiKey, function (err) {
                         if (err) {
-                            showStatus('Fel vid sparande: ' + err.message, 'error');
+                            showStatus(t('saveError') + err.message, 'error');
                             return;
                         }
                         storedApiKey = apiKey;
                         if (apiKey) {
-                            showStatus('✅ Inställningar sparade! Appen försöker nu ansluta...', 'success');
+                            showStatus(t('savedConnecting'), 'success');
                         } else {
-                            showStatus('✅ Inställningar sparade! API-nyckeln togs bort — AIS-strömmen kopplas ner.', 'success');
+                            showStatus(t('savedKeyRemoved'), 'success');
                         }
                     });
                 });

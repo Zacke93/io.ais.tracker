@@ -31,16 +31,15 @@
   "settings": [
     {
       "id": "ais_api_key",
-      "type": "text",
+      "type": "password",
       "title": {
         "en": "AISStream API key",
         "sv": "AISStream API-nyckel"
       },
       "hint": {
-        "en": "Create one at https://aisstream.io - Format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx",
-        "sv": "Skapa en på https://aisstream.io - Format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
-      },
-      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        "en": "Create a free key at https://aisstream.io (a long string of letters and digits).",
+        "sv": "Skapa en gratis nyckel på https://aisstream.io (en lång sträng med bokstäver och siffror)."
+      }
     }
   ],
   "flow": {
@@ -127,8 +126,16 @@
             "name": "eta_minutes",
             "type": "number",
             "title": {
-              "en": "ETA (minutes)",
-              "sv": "Beräknad ankomst (minuter)"
+              "en": "ETA (minutes, -1 = unknown)",
+              "sv": "Beräknad ankomst (minuter, -1 = okänd)"
+            }
+          },
+          {
+            "name": "eta_available",
+            "type": "boolean",
+            "title": {
+              "en": "ETA available",
+              "sv": "ETA tillgänglig"
             }
           }
         ]
@@ -234,7 +241,7 @@
         "sv": "Broläge Text"
       },
       "getable": true,
-      "setable": true,
+      "setable": false,
       "uiComponent": "sensor",
       "icon": "/drivers/bridge_status/assets/icon.svg"
     },

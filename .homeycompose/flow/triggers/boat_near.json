@@ -40,7 +40,12 @@
     {
       "name": "eta_minutes",
       "type": "number",
-      "title": { "en": "ETA (minutes)", "sv": "Beräknad ankomst (minuter)" }
+      "title": { "en": "ETA (minutes, -1 = unknown)", "sv": "Beräknad ankomst (minuter, -1 = okänd)" }
+    },
+    {
+      "name": "eta_available",
+      "type": "boolean",
+      "title": { "en": "ETA available", "sv": "ETA tillgänglig" }
     }
   ]
 }

@@ -7,19 +7,15 @@
     "test": "jest --config tests/jest.config.js --detectOpenHandles",
     "replay:all": "node tests/replay-validation/runAllCorpora.js",
     "replay:synthetic": "node tests/replay-validation/runSyntheticScenarios.js",
-    "validate": "jest --config tests/jest.config.js --silent 2>&1 | tail -5 && node tests/replay-validation/runAllCorpora.js && node tests/replay-validation/runSyntheticScenarios.js",
+    "validate": "(jest --config tests/jest.config.js --silent > \"${TMPDIR:-/tmp}/ais-jest-validate.log\" 2>&1; ec=$?; tail -5 \"${TMPDIR:-/tmp}/ais-jest-validate.log\"; exit $ec) && node tests/replay-validation/runAllCorpora.js && node tests/replay-validation/runSyntheticScenarios.js",
     "validate:full": "npm run validate && node tests/replay-validation/runSoak.js",
     "test:watch": "jest --config tests/jest.config.js --watch",
     "test:coverage": "jest --config tests/jest.config.js --coverage",
-    "test:consolidated": "jest --config tests/jest.config.js tests/consolidated-test-suite.test.js",
-    "test:unit": "jest --config tests/jest.config.js tests/unit",
-    "test:integration": "jest --config tests/jest.config.js tests/integration",
-    "test:production": "jest --config tests/jest.config.js tests/production",
     "test:verbose": "jest --config tests/jest.config.js --verbose",
     "test:debug": "jest --config tests/jest.config.js --verbose --no-cache --runInBand"
   },
   "dependencies": {
-    "ws": "^8.0.0"
+    "ws": "^8.21.0"
   },
   "devDependencies": {
     "@sinonjs/fake-timers": "^10.3.0",

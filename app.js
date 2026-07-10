@@ -965,6 +965,11 @@ class AISBridgeApp extends Homey.App {
     // F55: server-/auth-fel från AISstream.io (t.ex. ogiltig API-nyckel)
     this.aisClient.on('auth-error', this._onAISAuthError.bind(this));
 
+    // ChatGPT-granskningen 2026-07-10 (D1): icke-auth-serverfel (throttling,
+    // odefinierade serverfel) klassificeras nu separat i klienten — får en
+    // neutral notistext i stället för det vilseledande nyckelrådet.
+    this.aisClient.on('server-error', this._onAISServerError.bind(this));
+
     this.log('✅ Event handlers configured');
   }
 
@@ -1984,11 +1989,15 @@ class AISBridgeApp extends Homey.App {
    * @private
    */
   async _notifyConnectionIssue(message) {
+    // ChatGPT-granskningen 2026-07-10 (J1): stämpeln sätts före await som
+    // race-vakt, men måste rullas tillbaka om leveransen misslyckas — annars
+    // spärrar en ALDRIG levererad notis alla nya försök i 24h (samma
+    // F6-rollback-princip som boat_near-triggern).
+    const prev = this._lastConnectionIssueNotifiedAt;
     try {
       const DEDUPE_MS = 24 * 60 * 60 * 1000;
       const now = Date.now();
-      if (this._lastConnectionIssueNotifiedAt
-          && now - this._lastConnectionIssueNotifiedAt < DEDUPE_MS) {
+      if (prev && now - prev < DEDUPE_MS) {
         return;
       }
       if (!this.homey || !this.homey.notifications
@@ -1998,6 +2007,7 @@ class AISBridgeApp extends Homey.App {
       this._lastConnectionIssueNotifiedAt = now;
       await this.homey.notifications.createNotification({ excerpt: message });
     } catch (error) {
+      this._lastConnectionIssueNotifiedAt = prev;
       this.error('[AIS_CONNECTION] Failed to create timeline notification:', error.message || error);
     }
   }
@@ -2035,6 +2045,25 @@ class AISBridgeApp extends Homey.App {
     this._notifyConnectionIssue(
       'AIS Tracker: AISstream.io avvisade anslutningen — API-nyckeln är '
       + 'troligen ogiltig. Uppdatera nyckeln i appens inställningar.',
+    );
+  }
+
+  /**
+   * ChatGPT-granskningen 2026-07-10 (D1): serverfel som INTE är nyckel-
+   * relaterade (throttling, ogiltigt request-format, odefinierade fel).
+   * Klienten river socketen själv (terminate → close → reconnect+backoff),
+   * så här behövs bara logg + neutral användarsignal — inte nyckelrådet.
+   * @param {*} detail
+   * @private
+   */
+  _onAISServerError(detail) {
+    this.error(
+      `❌ [AIS_CONNECTION] Serverfel från AISstream.io (ej nyckelrelaterat): ${typeof detail === 'string' ? detail : JSON.stringify(detail)}. `
+      + 'Appen återansluter automatiskt.',
+    );
+    this._notifyConnectionIssue(
+      'AIS Tracker: AISstream.io returnerade ett serverfel (t.ex. tillfällig '
+      + 'överbelastning). Appen återansluter automatiskt i bakgrunden.',
     );
   }
 
@@ -3839,6 +3868,15 @@ class AISBridgeApp extends Homey.App {
         ? (proximityData.bridgeDistances[currentBridgeId] ?? proximityData.nearestDistance)
         : proximityData.nearestDistance;
 
+      // F5-C PRÖVAD OCH ÅTERKALLAD (fältprov 5, 2026-07-10): en projektions-
+      // klamp av waiting-ETA till WAITING_STATUS_MAX_ETA_MINUTES (mot
+      // SAGESSE-sågtanden 23↔12) FÄLLDES av 41h-korpusen — klampen växlar
+      // med status-hysteresens waiting↔approaching och skapade en VÄRRE
+      // korpusbelagd oscillation (12→71→12 på 9 s; INV-sågtand + INV-
+      // oscillation). Samma läxa som F4-G/F4-M: visningsingrepp som följer
+      // status är flappigare än beräkningsvärdet. SAGESSE-fallet (23 i 9 min
+      // efter approaching→waiting-skifte tills nästa beräkning kapade)
+      // accepteras som mild kosmetik — beräkningens ETA_WAIT_CAP äger.
       return {
         mmsi: vessel.mmsi,
         name: vessel.name,
@@ -3909,7 +3947,26 @@ class AISBridgeApp extends Homey.App {
     for (const device of this._devices) {
       try {
         if (device && device.setCapabilityValue) {
-          device.setCapabilityValue(capability, value).catch((err) => {
+          device.setCapabilityValue(capability, value).then(() => {
+            // ChatGPT-granskningen 2026-07-10 (I1, skärpt i andra rundan):
+            // en enhet vars onInit misslyckades markeras unavailable av
+            // device.js-catchen — första lyckade capability-skrivningen
+            // bevisar att enheten fungerar igen. Flaggan rensas FÖRST när
+            // setAvailable bevisligen lyckats; misslyckas den behålls
+            // flaggan så nästa skrivning gör ett nytt försök (annars kunde
+            // enheten fastna i unavailable för evigt).
+            if (device._initFailed) {
+              if (typeof device.setAvailable === 'function') {
+                device.setAvailable().then(() => {
+                  device._initFailed = false;
+                }).catch((availErr) => {
+                  this.error('setAvailable failed — retrying on next update:', availErr);
+                });
+              } else {
+                device._initFailed = false; // inget setAvailable-API (testläge)
+              }
+            }
+          }).catch((err) => {
             this.error(`Error setting ${capability} for device ${device.getName ? device.getName() : 'unknown'}:`, err);
           });
         }
@@ -4552,7 +4609,28 @@ class AISBridgeApp extends Homey.App {
       kanalinfarten.lat, kanalinfarten.lon,
     );
     const EXIT_FALLBACK_RADIUS = 400; // 100m buffer utöver 300m-zonen
-    if (!Number.isFinite(distance) || distance > EXIT_FALLBACK_RADIUS) {
+    // F5-B (fältprov 5, IN-AXXI): TREDJE rådataverifierade fallet i klassen —
+    // sydgående i 6,5 kn med Olidebron bevisat passerad försvann 546 m norr
+    // om punkten (sista sample 08:48, removal 09:08) → 400 m-gaten strök
+    // notisen tyst. En ren radiehöjning vore farlig: Olidebron ligger ~520 m
+    // norr om punkten, så en båt som LÄGGER SIG vid Olide hamnar i bandet.
+    // Utökningen kräver därför aktiv sydgående transit i sista samplet:
+    // marschfart + sydlig kurs + Olidebron i passedBridges (alla tre bevisar
+    // att båten var på väg UT, inte parkerad). Basradien 400 m oförändrad.
+    const EXIT_FALLBACK_EXTENDED_RADIUS = 800;
+    const activeSouthTransit = Number.isFinite(vessel.sog) && vessel.sog >= 3.0
+      && Number.isFinite(vessel.cog) && vessel.cog >= 135 && vessel.cog <= 225
+      && Array.isArray(vessel.passedBridges) && vessel.passedBridges.includes('Olidebron');
+    const withinExitRange = Number.isFinite(distance)
+      && (distance <= EXIT_FALLBACK_RADIUS
+        || (distance <= EXIT_FALLBACK_EXTENDED_RADIUS && activeSouthTransit));
+    if (!withinExitRange) {
+      if (Number.isFinite(distance) && distance <= EXIT_FALLBACK_EXTENDED_RADIUS) {
+        this.debug(
+          `🚪 [EXIT_TRIGGER_SKIP_RANGE] ${vessel.mmsi}: ${Math.round(distance)}m from Kanalinfarten `
+          + '— beyond 400m and no active south-transit evidence for extended range',
+        );
+      }
       return;
     }
     // Helgranskning 2026-07-06 (app-6#R2-2): systervägarnas förtöjnings-/
@@ -4851,13 +4929,37 @@ class AISBridgeApp extends Homey.App {
       // F4-C (PIANO): flip-bedömningens NYA riktning kräver rörelsebevis
       const curDir = this._dedupDirection(vessel, { requireMovement: true });
       const oppositeDirection = prevDir && curDir && prevDir !== curDir;
-      if (oppositeDirection || !persisted) {
+      // F5-A (fältprov 5, PILOT 761): expired-släppet var ovillkorligt och
+      // hade två rådataverifierade hål:
+      //   (a) 08:25 — STILLALIGGAREN: lotsen parkerad 294 m från Stallbacka-
+      //       bron (sog 0, ANCHOR_BLOCK) re-notifierades när 2h-posten
+      //       prunades, trots att ingen ny passage förestod. Släppet kräver
+      //       nu rörelsebevisad riktning (curDir !== null ⇔ sog ≥ 2 kn) —
+      //       samma F4-C-princip som flip-grenen.
+      //   (b) 11:32/11:33 — DUBBLETTEN: släppet avfyrade under OBEKRÄFTAD
+      //       reversal (_newJourneyPending) med gamla riktningen i tokens;
+      //       80 s senare rensade NEW_JOURNEY-bekräftelsen den färska
+      //       nyckeln och avfyrade om. Under pending väntar släppet — den
+      //       bekräftade reversalen äger notisen (rätt riktning, EN notis).
+      // Legitima >2h-returer i RÖRELSE (ELFKUNGEN-klassen, korpuslåsta)
+      // uppfyller båda kraven och släpps som förut.
+      const expiredRelease = !persisted && !oppositeDirection
+        ? (curDir !== null && !vessel._newJourneyPending)
+        : false;
+      if (oppositeDirection || (!persisted && expiredRelease)) {
         this._triggeredBoatNearKeys.delete(dedupeKey);
         this.log(
           `🔁 [FLOW_TRIGGER_DEDUPE_DIRECTION] ${dedupeKey}: session key released `
           + `(${oppositeDirection ? `direction flipped ${prevDir} → ${curDir}` : 'no persistent entry (expired)'} `
           + '— treating as NEW passage)',
         );
+      } else if (!persisted) {
+        // Expired men utan rörelsebevis / under pending-reversal: blockera.
+        this.log(
+          `🚫 [FLOW_TRIGGER_DEDUPE_EXPIRED_HOLD] ${vessel.mmsi}: "${bridgeName}" dedup expired but `
+          + `${vessel._newJourneyPending ? 'reversal pending (confirmation owns the notification)' : 'no movement evidence (stationary vessel — no new passage)'} — keeping block`,
+        );
+        return;
       } else {
         this.log(
           `🚫 [FLOW_TRIGGER_DEDUPE] ${vessel.mmsi}: Already triggered for "${bridgeName}" `
@@ -4944,6 +5046,12 @@ class AISBridgeApp extends Homey.App {
     safeTokens.eta_minutes = Number.isFinite(tokens.eta_minutes)
       ? tokens.eta_minutes
       : -1;
+
+    // ChatGPT-granskningen 2026-07-10 (G1): additiv boolean-token så
+    // flow-byggare slipper -1-sentinelens fotgevär (villkoret
+    // "eta_minutes < 5" är annars sant även när ETA saknas). Semantiken
+    // för eta_minutes är OFÖRÄNDRAD (-1 = okänd; korpuslåst i invariants).
+    safeTokens.eta_available = safeTokens.eta_minutes >= 0;
 
     // ENHANCED DEBUG: Log final tokens and ETA status
     this.debug(`🔍 [FLOW_TRIGGER_SAFE_TOKENS] ${vessel.mmsi}: Safe tokens = ${JSON.stringify(safeTokens)}`);
@@ -5294,6 +5402,25 @@ class AISBridgeApp extends Homey.App {
               return false;
             }
 
+            // ChatGPT-granskningen 2026-07-10 (G2): spegla notis-/brotext-
+            // vägarnas behörighetsgater. Utan dessa håller en kajförtöjd båt
+            // (som sänder AIS för evigt inom 300 m från bron), en GPS-hopp-
+            // spärrad båt eller en död sändare villkoret sant långt efter
+            // att notiser/brotext slutat räkna med henne.
+            if (vessel._moored === true) {
+              return false;
+            }
+            if (this.vesselDataService
+                && typeof this.vesselDataService.hasGpsJumpHold === 'function'
+                && this.vesselDataService.hasGpsJumpHold(vessel.mmsi)) {
+              return false;
+            }
+            const lastHeardMs = Math.max(vessel.timestamp || 0, vessel.lastPositionUpdate || 0);
+            if (lastHeardMs > 0
+                && Date.now() - lastHeardMs > UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS) {
+              return false;
+            }
+
             // Get proximity data with comprehensive validation
             const proximityData = this.proximityService.analyzeVesselProximity(vessel);
 
@@ -5311,6 +5438,11 @@ class AISBridgeApp extends Homey.App {
 
             if (bridgeId === 'any') {
             // Check if vessel is within 300m of ANY bridge
+              // ANVÄNDARBESLUT 2026-07-10: "any" betyder MEDVETET bara riktiga
+              // broar. Kanalinfarten är ingen bro utan en nöjes-triggerpunkt —
+              // den nås ENBART via det specifika dropdown-valet (F36-fallbacken
+              // nedan). ChatGPT-granskningens G2-förslag att inkludera den i
+              // "any" prövades och DROGS TILLBAKA på användarens begäran.
               return proximityData.bridges.some((bridge) => {
                 return bridge
                      && typeof bridge === 'object'
@@ -5405,6 +5537,7 @@ class AISBridgeApp extends Homey.App {
         bridge_name: 'Klaffbron',
         direction: 'northbound',
         eta_minutes: 5,
+        eta_available: true,
       };
 
       const testState = { bridge: 'klaffbron' };

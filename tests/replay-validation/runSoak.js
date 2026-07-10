@@ -207,5 +207,9 @@ if (problems.length > 0) {
   for (const p of problems) console.log(`   ${p}`);
   process.exit(1);
 }
-console.log('\n✅ 72h-soaken stabil: 0 processfel, alla per-fartygs-strukturer tomma, invarianter rena.');
+// Formulering rättad 2026-07-10 (andra granskningsrundan): dedup-nycklarna
+// är MEDVETET undantagna tomhetskravet (se motiveringen vid LEAK_EXCEPTIONS
+// ovan — de ska överleva per design och vaktas av 100-taket i stället).
+console.log('\n✅ 72h-soaken stabil: 0 processfel, per-fartygs-strukturer tomma '
+  + '(dedup-nycklar medvetet undantagna — vaktade av 100-taket), inga fatala invariantutslag.');
 process.exit(0);

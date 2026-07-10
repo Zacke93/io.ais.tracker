@@ -95,8 +95,10 @@ Broar i `BRIDGES` (:151–187), syd→nord (`BRIDGE_SEQUENCE` :255–261):
   :117–124: 58.268003/12.269365, radius 300 m) — triggar boat_near men ingår inte
   i brotext/status; ej i BridgeRegistry, uppslag direkt i TRIGGER_POINTS
   (app.js:3938/4108/4156/4255/4892).
-- `BRIDGE_GAPS` (:244–249): olide–klaff 950 m, klaff–järnväg 960 m,
-  järnväg–strids 420 m (kortast, kritisk timing), strids–stallbacka 2310 m.
+- `BRIDGE_GAPS` (:250–255): olide–klaff 1363 m, klaff–järnväg 960 m,
+  järnväg–strids 257 m (kortast, kritisk timing), strids–stallbacka 2310 m.
+  (Haversine bro-till-bro; 950/420-datafelen rättades i helgranskningen
+  2026-07-06 — denna rad släpade efter till 2026-07-10.)
 - `MOORING_ZONES` (:216–227): kapsel (centrumlinje + 30 m halvbredd) för "Kajen
   norr om Klaffbron" (190–295 m från bron, mitt i väntzonen). `MOORING_DETECTION`
   (:204–210): STATIONARY 0.3 kn, MOVEMENT_PROOF 0.5 kn/50 m, navstatus 1/5,
