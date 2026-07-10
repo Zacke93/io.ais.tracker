@@ -43,20 +43,17 @@ class BridgeStatusDevice extends Homey.Device {
       const defaultTxt = BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE;
       const currentText = this.homey.app._lastBridgeText || defaultTxt;
 
-      // A5-fix: _findRelevantBoats fanns inte heller (rätt namn är
-      // _findRelevantBoatsForBridgeText) → fallbacken användes alltid.
-      let hasBoats = false;
-      if (typeof this.homey.app._findRelevantBoatsForBridgeText === 'function') {
-        try {
-          const boats = this.homey.app._findRelevantBoatsForBridgeText();
-          hasBoats = Array.isArray(boats) && boats.length > 0;
-        } catch (err) {
-          this.error('Error checking relevant boats, fallback:', err);
-          hasBoats = currentText !== defaultTxt;
-        }
-      } else {
-        hasBoats = currentText !== defaultTxt;
-      }
+      // Fable-granskningen 2026-07-10b (A2-4/SYS-4): spegla APPENS larmcache
+      // i stället för att räkna rå-projektionen — appen övergav rålistans
+      // semantik 2026-07-06 (app-4#2: larm ⇔ text; rålistan innehåller
+      // orenderbara båtar) och appens värde-dedup (`!==`) korrigerar aldrig
+      // en avvikande initialskrivning förrän nästa äkta larmväxling. En
+      // enhet parad i BUG 11-fönstret kunde annars lysa larm mot "Inga
+      // båtar"-text i timmar.
+      const appAlarm = this.homey.app._lastBridgeAlarm;
+      const hasBoats = typeof appAlarm === 'boolean'
+        ? appAlarm
+        : currentText !== defaultTxt;
 
       this.log('Setting initial capability values');
       await this.setCapabilityValue('alarm_generic', hasBoats);
@@ -83,6 +80,14 @@ class BridgeStatusDevice extends Homey.Device {
         if (typeof this.homey.app?._updateUI === 'function') {
           this.log('Forcing UI update after device creation');
           try {
+            // Fable-granskningen 2026-07-10b (SYS-3/P1-5): init-skrivningarna
+            // ovan går UTANFÖR appens serialiserade skrivkedja och kan lägga
+            // en stale text OVANPÅ en nyare push (pariringsrace) — och
+            // hash-/värde-dedupen skrev då aldrig om. Nolla dedup-cacherna
+            // före den forcerade cykeln så den ordinarie kedjan garanterat
+            // skriver om text + larm med FÄRSKT värde till alla enheter.
+            this.homey.app._lastBridgeTextHash = null;
+            this.homey.app._lastBridgeAlarm = null;
             this.homey.app._updateUI('critical', 'device-init');
           } catch (err) {
             this.error('Post-init UI update failed:', err);
@@ -102,7 +107,13 @@ class BridgeStatusDevice extends Homey.Device {
       // aldrig. Registrera i catchen också (Set.add är idempotent, så
       // dubbelregistrering vid fel EFTER addDevice är ofarlig).
       try {
-        if (this.homey && this.homey.app && typeof this.homey.app.addDevice === 'function') {
+        // Fable-granskningen 2026-07-10b (SYS-1): raderas enheten MEDAN
+        // onInit awaitar kastar de kvarvarande skrivningarna in hit EFTER
+        // att onDeleted hunnit köra removeDevice — den ovillkorliga
+        // återregistreringen gjorde enheten till permanent zombie i
+        // push-Set:et (varje skrivning rejectar → hash-null varje cykel →
+        // error-storm tills appomstart). Registrera aldrig en raderad enhet.
+        if (!this._deleted && this.homey && this.homey.app && typeof this.homey.app.addDevice === 'function') {
           this.homey.app.addDevice(this);
         }
       } catch (addErr) {
@@ -119,6 +130,7 @@ class BridgeStatusDevice extends Homey.Device {
    * --------------------------------------------------- */
   async onDeleted() {
     this.log('Device being deleted');
+    this._deleted = true; // SYS-1: spärra onInit-catchens återregistrering
     if (this._initUpdateTimeout) {
       clearTimeout(this._initUpdateTimeout);
       this._initUpdateTimeout = null;

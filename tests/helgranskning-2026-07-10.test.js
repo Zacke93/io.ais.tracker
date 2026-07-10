@@ -202,6 +202,7 @@ describe('A3-1: Kanalinfarten-exitens expired-släpp kräver rörelse + reversal
     await app._triggerExitPointFallback(stillSnapshot({ sog: 5.0 }));
     expect(app._triggerBoatNearFlowFallback).toHaveBeenCalledWith(
       expect.objectContaining({ mmsi: '265999002' }), 'Kanalinfarten',
+      expect.objectContaining({ detectionTs: expect.any(Number) }), // A3-2: exit = detektionsögonblicket
     );
   });
 
@@ -248,15 +249,34 @@ describe('A3-2: otillgängligt boat_near-kort markerar ALDRIG notisen som skicka
 // T-1 + T-3: nöd-fallbacktexten nämner aldrig mellanbroar; representant = lägst ETA
 // =============================================================================
 describe('T-1/T-3: _generateSafeFallbackText håller mellanbro-kontraktet', () => {
+  // P1-4 (Fable 2026-07-10b): mocken var tidigare hasGpsJumpHold=true för
+  // att tvinga fram den beskrivande grenen — men alla-hållna ger numera
+  // (korrekt) DEFAULT ("Inga båtar…", alarm ⇔ text). Beskrivande grenen nås
+  // nu ÄRLIGT: renderbara båtar där sanitized === rålistan hoppar över
+  // variant1-omkallet (vesselSetChanged=false) och faller till beskrivningen.
   const makeApp = () => {
     const app = new AISBridgeApp();
     app.log = jest.fn();
     app.debug = jest.fn();
     app.error = jest.fn();
     app.bridgeRegistry = new BridgeRegistry();
-    app.vesselDataService = { hasGpsJumpHold: jest.fn().mockReturnValue(true) };
+    app.vesselDataService = { hasGpsJumpHold: jest.fn().mockReturnValue(false) };
     return app;
   };
+
+  test('P1-4: ALLA båtar orenderbara (GPS-hållna) → fallbacken säger DEFAULT, inte "N båtar"', () => {
+    const app = makeApp();
+    app.vesselDataService.hasGpsJumpHold.mockReturnValue(true);
+    const text = app._generateSafeFallbackText([
+      {
+        mmsi: '1', currentBridge: 'Klaffbron', targetBridge: 'Klaffbron', etaMinutes: 8, lat: 58.283, lon: 12.283,
+      },
+      {
+        mmsi: '2', currentBridge: 'Klaffbron', targetBridge: 'Klaffbron', etaMinutes: 5, lat: 58.283, lon: 12.283,
+      },
+    ]);
+    expect(text).toBe('Inga båtar är i närheten av Klaffbron eller Stridsbergsbron');
+  });
 
   test('en båt vid Järnvägsbron mot Stridsbergsbron → texten nämner ALDRIG Järnvägsbron', () => {
     const app = makeApp();

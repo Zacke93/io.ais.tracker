@@ -74,8 +74,10 @@ läckage (INV-12), ETA-fysik (INV-16). WARN (informativa): INV-15/17/18.
 Domarlogiken har EGNA enhetstester i `tests/replay-invariants-unit.test.js` —
 ändrar du en invariant, uppdatera dem.
 
-Kända legitima WARN: 3 st INV-18 i soaken (Strids 12→27 min vid modellerad
-inbromsning) — dokumenterade, ignorera.
+Kända legitima WARN: 2 st INV-18 i soaken (Strids 19→27 min vid modellerad
+inbromsning; var 3 före Fable-granskningen 2026-07-10b — E-1-fixen tog en) —
+dokumenterade, ignorera. Korpusnivå: INV-18 i 19h/13,5h + INV-15 i 21h
+(AKIRA, dokumenterad i corpora.js) är förexisterande och informativa.
 
 ## Fältprov / ny korpus (så samlas verklighet in)
 

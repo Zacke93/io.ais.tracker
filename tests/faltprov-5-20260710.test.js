@@ -154,6 +154,7 @@ describe('F5-B: Kanalinfarten-exit med utökad radie vid aktiv sydtransit', () =
     await app._triggerExitPointFallback(inAxxiSnapshot());
     expect(app._triggerBoatNearFlowFallback).toHaveBeenCalledWith(
       expect.objectContaining({ mmsi: '244130745' }), 'Kanalinfarten',
+      expect.objectContaining({ detectionTs: expect.any(Number) }), // A3-2: exit = detektionsögonblicket
     );
   });
 

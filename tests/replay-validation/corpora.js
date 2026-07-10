@@ -44,7 +44,7 @@ module.exports = [
     appLog: path.join(LOGS_DIR, 'app-20260601-231305.log'),
     hours: 41,
     locked: true,
-    expectedNotifications: 85,
+    expectedNotifications: 86,
     note: '41h-korpusen. 75/75 inkl. per-fartyg+bro-fördelning validerat 2026-06-09 '
       + '(prod-loggens 75:e är null-attribuerad — samma notis, 211355290@Stallbackabron). '
       + 'OMLÅST 75→77 (2026-07-01, S-F3 + previousTarget-fixen): BÅDA nya är RÄTTADE '
@@ -85,7 +85,14 @@ module.exports = [
       + '2000 m-taket/tidsfönstret (dokumenterad policy-icke-fix, nu levererad '
       + 'av inferredFlush-undantaget). OBS: SPIKEN-vakten (sista kända position '
       + 'begränsar återfödelseinferens) hindrar 231898000:s FALSKA Jvb/Strids-'
-      + 'notiser som en naiv F8 hade skapat — ankrad norr om broarna hela tiden.',
+      + 'notiser som en naiv F8 hade skapat — ankrad norr om broarna hela tiden. '
+      + 'OMLÅST 85→86 (2026-07-10b, A4-3/P2-4: exit-gaten för MÅLLÖSA sydgående): '
+      + '265759700@Kanalinfarten är RÄTTAD miss, verifierad mot rå jsonl: full '
+      + 'sydtransit (58.319→58.272, alla broar korsade söderut), sista sample '
+      + '08:53:55 507 m NORR om punkten i 4,5 kn/cog 213 (aktiv transit) → removal. '
+      + 'Gamla gaten krävde _finalTargetDirection+_finalTargetBridge (avslutad resa) '
+      + '— mållösa transitörer miste exit-notisen strukturellt (samma klass som '
+      + 'SY FREYJA-fixen tog i svepet).',
   },
   {
     id: '20260610-förfix',
@@ -143,7 +150,7 @@ module.exports = [
     appLog: path.join(LOGS_DIR, 'app-20260702-010825.log'),
     hours: 11,
     locked: true,
-    expectedNotifications: 31,
+    expectedNotifications: 32,
     note: '11h-valideringskörningen efter helkodsgranskningen (f0cf7c7). LÅST 24 '
       + '(2026-07-02): prod gav 23; +1 är RÄTTAD miss MOSHE/211471090@Olidebron — '
       + 'stale-raderad i 44-min-gap, återfödd målbrolös söder om Klaffbron, '
@@ -171,7 +178,13 @@ module.exports = [
       + 'radie villkorat utökad 400→800 m vid aktiv sydtransit): '
       + '+265726650@Kanalinfarten — rådataverifierad: kontinuerlig sydresa, '
       + 'sista sample 07:11:15 @529 m från punkten i 4,5 kn/cog 213 med '
-      + 'Olidebron passerad; gamla 400 m-gaten strök den äkta exiten tyst.',
+      + 'Olidebron passerad; gamla 400 m-gaten strök den äkta exiten tyst. '
+      + 'OMLÅST 31→32 (2026-07-10b, A4-3/P2-4: exit-gaten för MÅLLÖSA sydgående): '
+      + '+211471090/MOSHE@Kanalinfarten — rådataverifierad: sydtransit '
+      + '58.310→58.270 (Strids/Jvb/Klaff/Olide korsade), sista sample 09:15:39 '
+      + '316 m NORR om punkten i 4,9 kn/cog 212 → removal. MOSHE var återfödd '
+      + 'MÅLLÖS (target aldrig satt) — gamla gaten krävde avslutad resa '
+      + '(_finalTargetDirection) och strök hennes exit strukturellt.',
   },
   {
     id: '20260702-2h',
@@ -234,7 +247,7 @@ module.exports = [
     appLog: path.join(LOGS_DIR, 'app-20260707-092154.log'),
     hours: 14,
     locked: true,
-    expectedNotifications: 72,
+    expectedNotifications: 73,
     note: '14h-fältprovet 2026-07-07 (femton fartyg, dagtrafik, gles Class B — '
       + 'radgranskat av 47 Opus-agenter + dirigent, se '
       + 'docs/helgranskning-2026-07-06.md §fältprov). LÅST 72 (2026-07-08): '
@@ -253,7 +266,12 @@ module.exports = [
       + '(banbevisad; korrekt attribuerad i replay, loggkosmetiken fixad). '
       + 'Fältbevisade i körningen: watchdog-eskaleringen 20→40→80→120, '
       + 'PASSED_HOLD_UI-klassen (IMPERATOR/BALTIC JONGLEUR terminal-DEFAULT), '
-      + '0 fel, 0 textflappar (117 ändringar).',
+      + '0 fel, 0 textflappar (117 ändringar). '
+      + 'OMLÅST 72→73 (2026-07-10b, A4-3/P2-4: exit-gaten för MÅLLÖSA sydgående): '
+      + '+265083240@Kanalinfarten — rådataverifierad: full sydtransit '
+      + '(58.318→58.271, alla broar korsade söderut), sista sample 15:48:45 '
+      + '409 m NORR om punkten i 5,8 kn/cog 214 → removal. Gamla gaten krävde '
+      + 'avslutad resa (_finalTargetDirection) och strök exiten strukturellt.',
   },
   {
     id: '20260708-21h',
@@ -292,7 +310,7 @@ module.exports = [
     appLog: path.join(LOGS_DIR, 'app-20260710-015254.log'),
     hours: 13.5,
     locked: true,
-    expectedNotifications: 79,
+    expectedNotifications: 80,
     note: '13,5h-körningen 2026-07-10 (tolv fartyg, intensiv dagtrafik — '
       + 'fältprov 5: 50 Opus-max-läsare radläste 123 989 rader, se '
       + 'docs/helgranskning-2026-07-06.md §fältprov 5). LÅST 79 (2026-07-10): '
@@ -314,6 +332,13 @@ module.exports = [
       + '(användarbeslut: bortse från slutet). Körningen bekräftade även '
       + 'porten-gissningen (LADY X@Klaffbron obevisbar — F8-beslutet äger), '
       + 'beviskontraktet (JOSELINA/MALVA kajstarter utan bakåtfantomer) '
-      + 'och F4-fixarna (loggfångst, staleness-klockan) i drift.',
+      + 'och F4-fixarna (loggfångst, staleness-klockan) i drift. '
+      + 'OMLÅST 79→80 (2026-07-10b, A4-3/P2-4: exit-gaten för MÅLLÖSA sydgående): '
+      + '+244750397@Kanalinfarten — rådataverifierad: sydtransit 58.311→58.272 '
+      + '(Strids/Jvb/Klaffbron korsade söderut), sista sample 12:37:22 574 m '
+      + 'NORR om punkten i 3,5 kn/cog 216 (aktiv transit) → removal. Gamla '
+      + 'gaten krävde avslutad resa (_finalTargetDirection) och strök exiten '
+      + 'strukturellt (samma klass som IN-AXXI/ELFKUNGEN-exiterna ovan, men '
+      + 'för MÅLLÖS transitör).',
   },
 ];

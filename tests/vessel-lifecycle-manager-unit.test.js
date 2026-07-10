@@ -297,10 +297,11 @@ describe('VesselLifecycleManager – resefullbordan och eliminering', () => {
       expect(status.reason).toBe('No target but not completed - last passage: Järnvägsbron');
     });
 
-    test('KÄND ANOMALI: reason-riktningen läses från COG, inte från låst _finalTargetDirection', () => {
-      // Beslutet använder _finalTargetDirection='north' men reason-texten
-      // härleds separat från COG (180 → "southbound"). Kosmetisk inkonsekvens
-      // i loggtext — beslutet (shouldEliminate) är korrekt. Låser nuvarande beteende.
+    test('SYS-6 FIXAD: reason-riktningen följer låst _finalTargetDirection, inte drift-COG', () => {
+      // Fable-granskningen 2026-07-10b (SYS-6): den tidigare "KÄNDA ANOMALIN"
+      // (etiketten läste rå cog → "southbound" för en norrut-fullbordan) är
+      // åtgärdad — etiketten använder nu samma källa som beslutet
+      // (_finalTargetDirection || _routeDirection, cog endast som fallback).
       const status = manager.getJourneyStatus(makeVessel({
         cog: 180,
         _finalTargetDirection: 'north',
@@ -310,7 +311,7 @@ describe('VesselLifecycleManager – resefullbordan och eliminering', () => {
 
       expect(status.isNorthbound).toBe(true);
       expect(status.shouldEliminate).toBe(true);
-      expect(status.reason).toBe('Journey completed - passed final target bridge Stallbackabron (southbound)');
+      expect(status.reason).toBe('Journey completed - passed final target bridge Stallbackabron (northbound)');
     });
 
     test('logJourneyAnalysis loggar via logger.debug utan att kasta', () => {
