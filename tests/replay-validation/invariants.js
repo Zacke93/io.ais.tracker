@@ -173,7 +173,30 @@ function validateInvariants(result) {
       const delta = series[i].eta - series[i - 1].eta;
       if (dt <= 120 && delta >= 6 && series[i - 1].eta <= 20
           && series[i].count === series[i - 1].count) {
-        violations.push(`ETA-SÅGTAND UPP: ${series[i].iso} ${bridge} ${series[i - 1].eta}→${series[i].eta} på ${Math.round(dt)}s`);
+        // Fältprov 5 (2026-07-10, korpus #11 ANTARES/COMETOGETHER):
+        // hopp FRÅN strax-nivån (<3) har en LEGITIM klass — ledarens ÄRLIGA
+        // degradering (sändaren tyst ≥10 min, imminent åldersgatad) eller
+        // ledarbyte utan antalsändring (kön står kvar i räkningen).
+        // Diskriminatorn mot den FALSKA klassen (SOKERI: felmätt staleness)
+        // är ÅTERGÅNGEN: falsk degradering studsar tillbaka till strax när
+        // nästa färska sample kommer (sekunder–minut), ärlig degradering ger
+        // en STABIL ny nivå. Fäll därför bara strax-hopp som återgår till
+        // <3 inom 120 s (flapp/falsk degradering); icke-strax-hopp fälls
+        // ovillkorligt som förut (ingen legitim mekanism kvar efter F4-E).
+        const fromImminent = series[i - 1].eta < 3;
+        let revertsQuickly = false;
+        if (fromImminent) {
+          for (let j = i + 1; j < series.length
+            && (series[j].t - series[i].t) / 1000 <= 120; j++) {
+            if (series[j].eta < 3) {
+              revertsQuickly = true;
+              break;
+            }
+          }
+        }
+        if (!fromImminent || revertsQuickly) {
+          violations.push(`ETA-SÅGTAND UPP: ${series[i].iso} ${bridge} ${series[i - 1].eta}→${series[i].eta} på ${Math.round(dt)}s`);
+        }
       }
       // Oscillation: leta X→Y→X′. RELATIV tröskel (2026-07-02): hoppet måste
       // vara ≥ max(3, 30 % av nivån) — ±3-fladder på 12–19-min-nivån är

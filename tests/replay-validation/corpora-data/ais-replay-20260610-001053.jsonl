@@ -1,0 +1,13 @@
+{"mmsi":"220276000","msgType":"PositionReport","lat":58.28604166666666,"lon":12.285701666666666,"sog":0.1,"cog":326,"shipName":"SKONNERTEN JYLLAND.","aisTimestamp":1781043368200,"receivedAt":"2026-06-09T22:16:08.201Z"}
+{"mmsi":"220276000","msgType":"PositionReport","lat":58.286025,"lon":12.285725000000001,"sog":0,"cog":0,"shipName":"SKONNERTEN JYLLAND.","aisTimestamp":1781043548248,"receivedAt":"2026-06-09T22:19:08.248Z"}
+{"mmsi":"220276000","msgType":"PositionReport","lat":58.28605,"lon":12.285689999999999,"sog":0.1,"cog":326,"shipName":"SKONNERTEN JYLLAND.","aisTimestamp":1781043908191,"receivedAt":"2026-06-09T22:25:08.191Z"}
+{"mmsi":"220276000","msgType":"PositionReport","lat":58.28605166666667,"lon":12.285738333333335,"sog":0,"cog":0,"shipName":"SKONNERTEN JYLLAND.","aisTimestamp":1781044088544,"receivedAt":"2026-06-09T22:28:08.544Z"}
+{"mmsi":"220276000","msgType":"PositionReport","lat":58.28604833333333,"lon":12.285725000000001,"sog":0,"cog":0,"shipName":"SKONNERTEN JYLLAND.","aisTimestamp":1781044626732,"receivedAt":"2026-06-09T22:37:06.732Z"}
+{"mmsi":"220276000","msgType":"PositionReport","lat":58.28606,"lon":12.2857,"sog":0,"cog":0,"shipName":"SKONNERTEN JYLLAND.","aisTimestamp":1781044807662,"receivedAt":"2026-06-09T22:40:07.662Z"}
+{"mmsi":"220276000","msgType":"PositionReport","lat":58.286044999999994,"lon":12.2857,"sog":0,"cog":0,"shipName":"SKONNERTEN JYLLAND.","aisTimestamp":1781045167057,"receivedAt":"2026-06-09T22:46:07.057Z"}
+{"mmsi":"220276000","msgType":"PositionReport","lat":58.286044999999994,"lon":12.285715000000001,"sog":0,"cog":0,"shipName":"SKONNERTEN JYLLAND.","aisTimestamp":1781045347563,"receivedAt":"2026-06-09T22:49:07.563Z"}
+{"mmsi":"220276000","msgType":"PositionReport","lat":58.28605,"lon":12.28572,"sog":0,"cog":0,"shipName":"SKONNERTEN JYLLAND.","aisTimestamp":1781045525577,"receivedAt":"2026-06-09T22:52:05.577Z"}
+{"mmsi":"220276000","msgType":"PositionReport","lat":58.28604,"lon":12.285718333333334,"sog":0,"cog":0,"shipName":"SKONNERTEN JYLLAND.","aisTimestamp":1781045887079,"receivedAt":"2026-06-09T22:58:07.079Z"}
+{"mmsi":"220276000","msgType":"PositionReport","lat":58.28605666666667,"lon":12.285681666666667,"sog":0,"cog":0,"shipName":"SKONNERTEN JYLLAND.","aisTimestamp":1781046065905,"receivedAt":"2026-06-09T23:01:05.906Z"}
+{"mmsi":"220276000","msgType":"PositionReport","lat":58.286055000000005,"lon":12.285706666666666,"sog":0,"cog":0,"shipName":"SKONNERTEN JYLLAND.","aisTimestamp":1781046246332,"receivedAt":"2026-06-09T23:04:06.332Z"}
+{"mmsi":"220276000","msgType":"PositionReport","lat":58.28605,"lon":12.285698333333332,"sog":0,"cog":0,"shipName":"SKONNERTEN JYLLAND.","aisTimestamp":1781046425778,"receivedAt":"2026-06-09T23:07:05.778Z"}

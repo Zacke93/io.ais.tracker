@@ -17,10 +17,18 @@ const path = require('path');
 
 const LOGS_DIR = path.resolve(__dirname, '../../../logs');
 
+// ChatGPT-granskningen 2026-07-10 (B3): de låsta korpusarnas jsonl (~0,5 MB
+// totalt) är byte-exakta kopior committade I repot — replay:all fungerar nu
+// i en ren checkout/CI utan OneDrive-arkivet. appLog-fälten pekar kvar på
+// det externa arkivet (multi-MB, konsumeras ALDRIG av harnessen — enbart
+// dokumentära pekare för manuell rotorsaksanalys). VIKTIGT vid ny korpus:
+// kopiera jsonl:en hit OFÖRÄNDRAD (facit-fällan — samma bytes, samma facit).
+const CORPORA_DATA_DIR = path.resolve(__dirname, 'corpora-data');
+
 module.exports = [
   {
     id: '20260525',
-    jsonl: path.join(LOGS_DIR, 'ais-replay-20260525-231934.jsonl'),
+    jsonl: path.join(CORPORA_DATA_DIR, 'ais-replay-20260525-231934.jsonl'),
     appLog: path.join(LOGS_DIR, 'app-20260525-231934.log'),
     hours: 4,
     locked: true,
@@ -32,7 +40,7 @@ module.exports = [
   },
   {
     id: '20260601-41h',
-    jsonl: path.join(LOGS_DIR, 'ais-replay-20260601-231305.jsonl'),
+    jsonl: path.join(CORPORA_DATA_DIR, 'ais-replay-20260601-231305.jsonl'),
     appLog: path.join(LOGS_DIR, 'app-20260601-231305.log'),
     hours: 41,
     locked: true,
@@ -81,7 +89,7 @@ module.exports = [
   },
   {
     id: '20260610-förfix',
-    jsonl: path.join(LOGS_DIR, 'ais-replay-20260610-001053.jsonl'),
+    jsonl: path.join(CORPORA_DATA_DIR, 'ais-replay-20260610-001053.jsonl'),
     appLog: path.join(LOGS_DIR, 'app-20260610-001053.log'),
     hours: 1,
     locked: true,
@@ -92,7 +100,7 @@ module.exports = [
   },
   {
     id: '20260611-4h',
-    jsonl: path.join(LOGS_DIR, 'ais-replay-20260611-115443.jsonl'),
+    jsonl: path.join(CORPORA_DATA_DIR, 'ais-replay-20260611-115443.jsonl'),
     appLog: path.join(LOGS_DIR, 'app-20260611-115443.log'),
     hours: 4,
     locked: true,
@@ -105,7 +113,7 @@ module.exports = [
   },
   {
     id: '20260610-19h',
-    jsonl: path.join(LOGS_DIR, 'ais-replay-20260610-012751.jsonl'),
+    jsonl: path.join(CORPORA_DATA_DIR, 'ais-replay-20260610-012751.jsonl'),
     appLog: path.join(LOGS_DIR, 'app-20260610-012751.log'),
     hours: 19,
     locked: true,
@@ -131,11 +139,11 @@ module.exports = [
   },
   {
     id: '20260702-11h',
-    jsonl: path.join(LOGS_DIR, 'ais-replay-20260702-010825.jsonl'),
+    jsonl: path.join(CORPORA_DATA_DIR, 'ais-replay-20260702-010825.jsonl'),
     appLog: path.join(LOGS_DIR, 'app-20260702-010825.log'),
     hours: 11,
     locked: true,
-    expectedNotifications: 30,
+    expectedNotifications: 31,
     note: '11h-valideringskörningen efter helkodsgranskningen (f0cf7c7). LÅST 24 '
       + '(2026-07-02): prod gav 23; +1 är RÄTTAD miss MOSHE/211471090@Olidebron — '
       + 'stale-raderad i 44-min-gap, återfödd målbrolös söder om Klaffbron, '
@@ -158,15 +166,20 @@ module.exports = [
       + 'fönstret spänner 58.2916 och 58.2935); +265571760/SOLUTION@'
       + 'Järnvägsbron + @Klaffbron + @Stridsbergsbron (53-min-gapet '
       + '09:23→10:16, 58.27920→58.31115 spänner alla tre). 2000 m-taket '
-      + 'ströp samtliga trots positionsbevisad korsning.',
+      + 'ströp samtliga trots positionsbevisad korsning. OMLÅST 30→31 '
+      + '(2026-07-10, fältprov 5 F5-B — IN-AXXI-klassen: exit-fallbackens '
+      + 'radie villkorat utökad 400→800 m vid aktiv sydtransit): '
+      + '+265726650@Kanalinfarten — rådataverifierad: kontinuerlig sydresa, '
+      + 'sista sample 07:11:15 @529 m från punkten i 4,5 kn/cog 213 med '
+      + 'Olidebron passerad; gamla 400 m-gaten strök den äkta exiten tyst.',
   },
   {
     id: '20260702-2h',
-    jsonl: path.join(LOGS_DIR, 'ais-replay-20260702-132758.jsonl'),
+    jsonl: path.join(CORPORA_DATA_DIR, 'ais-replay-20260702-132758.jsonl'),
     appLog: path.join(LOGS_DIR, 'app-20260702-132758.log'),
     hours: 2,
     locked: true,
-    expectedNotifications: 32,
+    expectedNotifications: 33,
     note: 'Eftermiddagskörningen 2026-07-02 (nio fartyg, källa till de åtta felen i '
       + 'docs/korrigeringar-2026-07-02b.md). LÅST 30 (2026-07-02): prod gav 26; '
       + 'diffarna är verifierade mot rå jsonl: −1 CLABBYDOO@Järnvägsbron (trolig '
@@ -183,15 +196,19 @@ module.exports = [
       + 'födelseinferens per F8-ANVÄNDARBESLUTET (säker endast vid Vänern-'
       + 'ursprung — accepterad osäkerhet per beslut). OBS: SPIKEN-vakten '
       + 'hindrar SY FREYJA:s falska Klaffbron-gissning (sist känd 58.28919 '
-      + 'NORR om Klaffbron — bron låg aldrig i det belagda fönstret).',
+      + 'NORR om Klaffbron — bron låg aldrig i det belagda fönstret). '
+      + 'OMLÅST 32→33 (2026-07-10, fältprov 5 F5-B — IN-AXXI-klassen): '
+      + '+265558470/PAX@Kanalinfarten — rådataverifierad: kontinuerlig '
+      + 'sydresa, sista sample 12:44:16 @482 m i 6,0 kn/cog 211 med '
+      + 'Olidebron passerad; gamla 400 m-exitgaten strök den äkta exiten.',
   },
   {
     id: '20260702-19h',
-    jsonl: path.join(LOGS_DIR, 'ais-replay-20260702-174109.jsonl'),
+    jsonl: path.join(CORPORA_DATA_DIR, 'ais-replay-20260702-174109.jsonl'),
     appLog: path.join(LOGS_DIR, 'app-20260702-174109.log'),
     hours: 19.5,
     locked: true,
-    expectedNotifications: 54,
+    expectedNotifications: 55,
     note: '19,5h-körningen 2026-07-02→03 (tolv fartyg, källa till fynden F1–F14 i '
       + 'docs/korrigeringar-2026-07-03.md). LÅST 54 (2026-07-03): prod gav 48; '
       + 'alla 6 diffar är RÄTTADE missar verifierade mot rå jsonl: '
@@ -205,11 +222,15 @@ module.exports = [
       + '"Okänd båt" tills namnet anländer 17:09; namncachen löser det i drift '
       + 'från andra körningen. Förtöjda APHRODITE/SOLUTION 0 notiser (F14). '
       + 'INV-13 kräver no-target-undantaget (NO LIMIT: mållös kajavgång '
-      + 'passerade Klaffbron — korrekt intermediate-bokföring).',
+      + 'passerade Klaffbron — korrekt intermediate-bokföring). '
+      + 'OMLÅST 54→55 (2026-07-10, fältprov 5 F5-B — IN-AXXI-klassen): '
+      + '+265741640@Kanalinfarten — rådataverifierad: kontinuerlig sydresa '
+      + '(alla fem broar redan i fördelningen), sista sample 17:10:51 @477 m '
+      + 'i 5,0 kn/cog 214; gamla 400 m-exitgaten strök den äkta exiten.',
   },
   {
     id: '20260707-14h',
-    jsonl: path.join(LOGS_DIR, 'ais-replay-20260707-092154.jsonl'),
+    jsonl: path.join(CORPORA_DATA_DIR, 'ais-replay-20260707-092154.jsonl'),
     appLog: path.join(LOGS_DIR, 'app-20260707-092154.log'),
     hours: 14,
     locked: true,
@@ -236,7 +257,7 @@ module.exports = [
   },
   {
     id: '20260708-21h',
-    jsonl: path.join(LOGS_DIR, 'ais-replay-20260708-001857.jsonl'),
+    jsonl: path.join(CORPORA_DATA_DIR, 'ais-replay-20260708-001857.jsonl'),
     appLog: path.join(LOGS_DIR, 'app-20260708-001857.log'),
     hours: 21,
     locked: true,
@@ -264,5 +285,35 @@ module.exports = [
       + 'kajavgången); korsningsbeviset kom först 07:30 och rättade allt '
       + 'nedströms. Medveten avvägning: låst ruttriktning > momentan COG '
       + 'för token (replay-fyndet 2026-06-01).',
+  },
+  {
+    id: '20260710-13h',
+    jsonl: path.join(CORPORA_DATA_DIR, 'ais-replay-20260710-015254.jsonl'),
+    appLog: path.join(LOGS_DIR, 'app-20260710-015254.log'),
+    hours: 13.5,
+    locked: true,
+    expectedNotifications: 79,
+    note: '13,5h-körningen 2026-07-10 (tolv fartyg, intensiv dagtrafik — '
+      + 'fältprov 5: 50 Opus-max-läsare radläste 123 989 rader, se '
+      + 'docs/helgranskning-2026-07-06.md §fältprov 5). LÅST 79 (2026-07-10): '
+      + 'prod gav också 79 men med 2 fel + 2 missar som tar ut varandra i '
+      + 'antal — facit är replay-utfallet med F5-A/F5-B, varje diff '
+      + 'rådataverifierad: −1 PILOT 761@Stallbackabron 08:25 (FANTOM: '
+      + 'stillaliggande vid lots-stationen, sog 0/ANCHOR_BLOCK, '
+      + 're-notifierad när 2h-posten prunades — F5-A:s rörelsekrav), '
+      + '−1 PILOT 761@Stallbackabron 11:32 (DUBBLETT: expired-släpp under '
+      + 'obekräftad reversal med fel riktningstoken; 11:33-notisen efter '
+      + 'NEW_JOURNEY-bekräftelsen är den äkta — F5-A:s pending-gate), '
+      + '+1 IN-AXXI@Kanalinfarten (ÄKTA missad exit: sista sample 546 m '
+      + 'norr om punkten i 6,5 kn sydtransit, Olide passerad — F5-B), '
+      + '+1 ELFKUNGEN@Kanalinfarten syd (ÄKTA: sista sample 13:09 @425 m '
+      + 'i 6,1 kn sydtransit; prod-loggen dog i wifi-hålet före removal). '
+      + 'LOGG-INTEGRITET: håldetektorns utslag (13:12:15–13:18:45, wifi-'
+      + 'tapp på loggdatorn) ligger EFTER sista jsonl-samplet 13:09:22 — '
+      + 'replaydatat är komplett; hålet drabbar enbart loggsvansen '
+      + '(användarbeslut: bortse från slutet). Körningen bekräftade även '
+      + 'porten-gissningen (LADY X@Klaffbron obevisbar — F8-beslutet äger), '
+      + 'beviskontraktet (JOSELINA/MALVA kajstarter utan bakåtfantomer) '
+      + 'och F4-fixarna (loggfångst, staleness-klockan) i drift.',
   },
 ];

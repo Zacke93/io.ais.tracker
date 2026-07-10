@@ -23,9 +23,10 @@ Eller stegen var för sig:
 
 | Steg | Kommando | Grönt betyder |
 |---|---|---|
-| Enhetstester | `npm test 2>&1 \| tail -5` (**pipa alltid** — annars ENOSPC) | 844+ tester passerar |
-| Korpusarna | `npm run replay:all` | 8 låsta korpusar (~101,5 h verklig AIS) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + alla invarianter |
-| Syntetiska | `npm run replay:synthetic` | 38 scenarier (gap, U-svängar, GPS-hopp, kajliggare, sog=null, omstart …) håller sina kontrakt |
+| Enhetstester | `npm test 2>&1 \| tail -5` (**pipa alltid** — annars ENOSPC) | 900+ tester passerar |
+| | ⚠️ **Pipe-fällan** (ChatGPT-granskningen 2026-07-10, B1): pipens exitkod är `tail`:s (≈alltid 0) — LÄS `Tests:`-raden, lita inte på `$?`. `npm run validate` är immun: den skriver jest-utdatan till en tempfil och propagerar jest:s riktiga exitkod. | |
+| Korpusarna | `npm run replay:all` | 11 låsta korpusar (~150 h verklig AIS) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + alla invarianter |
+| Syntetiska | `npm run replay:synthetic` | 43 scenarier (gap, U-svängar, GPS-hopp, kajliggare, sog=null, omstart …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. |
 | Soaken | `node tests/replay-validation/runSoak.js` | 72 h blandtrafik: 0 processfel, inga läckor, fatala invarianter rena |
 | Lint | `npx eslint <ändrade filer>` (per fil — OneDrive gör helträd långsamt) | 0 fel |
 
@@ -38,8 +39,12 @@ Korpusarnas facit ÄR sanningen tills du bevisat motsatsen i rådata. Om en
 ändring flyttar en korpussiffra:
 
 1. **Anta regression.** Rulla inte facit för att bli grön.
-2. Öppna korpusens `logs/ais-replay-*.jsonl` och följ det avvikande fartyget
-   sampel för sampel.
+2. Öppna korpusens `ais-replay-*.jsonl` och följ det avvikande fartyget
+   sampel för sampel. Harnessen läser `tests/replay-validation/corpora-data/`
+   (byte-exakta repo-kopior sedan 2026-07-10 — replay:all fungerar i ren
+   checkout); appens fullständiga körloggar (`app-*.log`) för djupare
+   rotorsaksanalys ligger kvar i det externa arkivet `../logs/`. Ny korpus:
+   kopiera jsonl:en OFÖRÄNDRAD till corpora-data/ (samma bytes = samma facit).
 3. Endast om rådatan BEVISAR att det nya utfallet är korrekt (t.ex. en notis
    som produktionsversionen bevisligen missade) får facit låsas om — och då
    med motivering i `tests/replay-validation/corpora.js` + uppdaterad
