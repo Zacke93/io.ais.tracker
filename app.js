@@ -494,7 +494,16 @@ class AISBridgeApp extends Homey.App {
     // F4-C (PIANO): flip-bedömningens NYA riktning kräver rörelsebevis
     const currentDir = this._dedupDirection(vessel, { requireMovement: true });
     if (storedDir && currentDir && storedDir !== currentDir) {
-      const RETROACTIVE_FLIP_MIN_AGE_MS = 15 * 60 * 1000;
+      // Fable-granskningen 2026-07-10b (A4-2): 15 min täckte inte vardagliga
+      // köväntetider vid rusningsspärr (15–60 min) — en vobbel-lagrad post
+      // (dir ur cog vid väntfart, målbrolös båt utan ruttlås) + bevisad
+      // korsning >15 min senare gav ANDRA notisen för samma passage.
+      // Lagringen kan inte rörelsegated:as (HALIFAX-posten 'south' @ 1,1 kn
+      // är facit-låst och krävs för hennes äkta U-svängssläpp) — rätt ratt
+      // är denna gräns. Kalibrering ur egna facit: äkta retroaktiva returer
+      // tar ≥66 min (korpus #9) resp. 117 min (ELFKUNGEN); HALIFAX äkta
+      // 10-min-U-sväng går via approach-vägen som inte berörs av gaten.
+      const RETROACTIVE_FLIP_MIN_AGE_MS = 60 * 60 * 1000;
       if (opts.retroactiveSource && age < RETROACTIVE_FLIP_MIN_AGE_MS) {
         this.log(
           `🚫 [PERSISTENT_DEDUP_RECENT] ${dedupeKey}: direction flipped (${storedDir} → ${currentDir}) `
@@ -735,8 +744,16 @@ class AISBridgeApp extends Homey.App {
     for (const spot of this._learnedMooringSpots) {
       const d = geometry.calculateDistance(lat, lon, spot.lat, spot.lon);
       if (Number.isFinite(d) && d <= DEDUP_RADIUS_M) {
-        spot.t = Date.now(); // platsen återbekräftad — förnya TTL
-        this._persistLearnedMooringSpots();
+        // Fable-granskningen 2026-07-10b (A1-1/DIV-1): TTL-förnyelsen
+        // persisterade vid VARJE AIS-meddelande från förtöjd båt (~480
+        // settings-skrivningar/dygn/kajliggare — flash-slitage + IO-churn
+        // på en enhet som kör i månader). En 365-dagars-TTL behöver högst
+        // dygnsgranulär förnyelse — samma 24h-guard som namncachen
+        // (_rememberVesselName), beprövad mall i samma fil.
+        if (Date.now() - spot.t > 24 * 60 * 60 * 1000) {
+          spot.t = Date.now(); // platsen återbekräftad — förnya TTL
+          this._persistLearnedMooringSpots();
+        }
         return;
       }
     }
@@ -885,7 +902,10 @@ class AISBridgeApp extends Homey.App {
     this.vesselDataService.on('vessel:updated', this._onVesselUpdated.bind(this));
 
     // vessel:removed: Båt har tagits bort (timeout eller lämnat området)
-    this.vesselDataService.on('vessel:removed', this._onVesselRemoved.bind(this));
+    // DIV-3 (Fable 2026-07-10b): samma F37-wrapper som systerhändelserna —
+    // en rejection i den asynkrona handlern fick annars drunkna som
+    // kontextlös global unhandledRejection i stället för taggad fellogg.
+    this.vesselDataService.on('vessel:removed', (e) => this._onVesselRemoved(e).catch((err) => this.error('[VESSEL_REMOVED] Unhandled error:', err)));
 
     // vessel:journey-reset (N1, 2026-07-01): bekräftad U-sväng MITT i resan
     // (Fix D) = ny resa i motsatt riktning. VDS har nollat passedBridges;
@@ -913,7 +933,16 @@ class AISBridgeApp extends Homey.App {
           if (persistentDirty) this._persistRecentTriggers();
         } else {
           this.log(`🔁 [JOURNEY_RESET_DEDUP] ${mmsi}: clearing boat_near dedup keys for reversed journey`);
-          this._clearBoatNearTriggers(vessel, true);
+          // Fable-granskningen 2026-07-10b (P2-1): N2-reentry-resetten (10-min-
+          // cooldownens utgång) var positionsblind — den raderade även poster
+          // för broar som notifierats UNDER cooldownen (MOSHE-klassen: Olide-
+          // bron-notis 40 s före resetten, båten kvar i 300 m-zonen) → nästa
+          // proximity-tick avfyrade om SAMMA fysiska passage. Tidslinjen ger
+          // en ren skiljelinje: förra resans poster är ≥10 min gamla vid
+          // resetten (completion + cooldown), nya benets poster <10 min —
+          // bevara de färska. (N1-vägen ovan är riktningsrelativ och rörs ej;
+          // NEW_JOURNEY-fullrensningen i _onVesselUpdated är HALIFAX-facitlåst.)
+          this._clearBoatNearTriggers(vessel, true, { preserveFreshPersistentMs: 10 * 60 * 1000 });
         }
       } catch (err) {
         this.error(`[JOURNEY_RESET] Error clearing triggers for ${mmsi}:`, err);
@@ -1341,11 +1370,28 @@ class AISBridgeApp extends Homey.App {
       // som passerar trigger-point-zonen via långt AIS-glapp (Klass B). Verifierat
       // 2026-05-08 (265037590, 327m) och 2026-05-09 (246140000, 318m) — båda missade
       // notisen via ~20 min AIS-glapp innan COMPLETED_BYPASS. Dedup hanteras i fallback.
+      // Fable-granskningen 2026-07-10b (A4-3/P2-4): gaten krävde en AVSLUTAD
+      // sydresa (_finalTargetDirection + _finalTargetBridge) — en MÅLLÖS
+      // sydgående transitör (MOSHE-/SY FREYJA-klassen: återfödd söder om
+      // Klaffbron, target aldrig satt, passager bokförda som intermediate)
+      // miste sin Kanalinfarten-notis strukturellt vid removal. Samma
+      // inkonsistens som SY FREYJA-fixen tog i svepet (target-gaten bort),
+      // kvarlämnad här. Krav för den mållösa vägen: låst sydriktning +
+      // MINST EN bokförd bropassage (bevisad kanaltransit — inte en båt som
+      // bara dök upp nära utfarten); fallbackens egna radie-/stale-/dedup-
+      // gater vaktar resten.
+      const completedSouthJourney = vessel
+        && vessel._finalTargetDirection === 'south'
+        && vessel._finalTargetBridge;
+      const targetlessSouthTransit = vessel
+        && !vessel._finalTargetDirection
+        && vessel._routeDirection === 'south'
+        && Array.isArray(vessel.passedBridges)
+        && vessel.passedBridges.length > 0;
       if (vessel
           && Number.isFinite(vessel.lat)
           && Number.isFinite(vessel.lon)
-          && vessel._finalTargetDirection === 'south'
-          && vessel._finalTargetBridge) {
+          && (completedSouthJourney || targetlessSouthTransit)) {
         try {
           await this._triggerExitPointFallback(vessel);
         } catch (err) {
@@ -1430,6 +1476,9 @@ class AISBridgeApp extends Homey.App {
           }
         } catch (error) {
           this.error('[GLOBAL_TOKEN_ERROR] Failed to update global bridge text token:', error);
+          // A2-3 (Fable 2026-07-10b): se _processUIUpdate — nollad hash gör
+          // nästa cykel (watchdog-läkningen) till garanterad omskrivning.
+          this._lastBridgeTextHash = null;
         }
 
         // Update alarm_generic to false when no boats
@@ -1704,6 +1753,24 @@ class AISBridgeApp extends Homey.App {
 
         // Processa bekräftade passager
         for (const confirmedPassage of confirmedPassages) {
+          // Fable-granskningen 2026-07-10b (G-1): SIDOKONTRAKTET. GJ-1-
+          // fysikens tillåtelsefönster växer linjärt med kandidatens ålder
+          // medan en FALSK kandidats offset (snapshot = hopp-positionen,
+          // båten kvar på äkta sidan) är konstant — varje falsk kandidat
+          // "stabiliserades" därför garanterat inom C1:s 20-min-TTL
+          // (600 m-hopp @ ~10 min) → falsk målbrotransition + fantomnotis
+          // och den ÄKTA passagen dedupades senare bort. En verklig passage
+          // lämnar båten på snapshotens sida av brolinjen; ligger hon
+          // ENTYDIGT på motsatta sidan är passagen motbevisad — droppa.
+          const gateBridge = this.bridgeRegistry?.getBridgeByName?.(confirmedPassage.bridgeName);
+          if (gateBridge && confirmedPassage.vesselState
+              && geometry.isDecisivelyOppositeBridgeSide(confirmedPassage.vesselState, vessel, gateBridge)) {
+            this.log(
+              `🚫 [GPS_GATE_REFUTED] ${vessel.mmsi}: ${confirmedPassage.bridgeName}-kandidaten motbevisad `
+              + 'av sidokontraktet (båten kvar på pre-passage-sidan — snapshotten var ett GPS-hopp)',
+            );
+            continue;
+          }
           this.debug(`✅ [GPS_GATE_CONFIRMED] ${vessel.mmsi}: Confirmed passage of ${confirmedPassage.bridgeName}`);
 
           // Hantera bekräftad passage
@@ -2822,6 +2889,12 @@ class AISBridgeApp extends Homey.App {
           }
         } catch (error) {
           this.error('[GLOBAL_TOKEN_ERROR] Failed to update global bridge text token:', error);
+          // Fable-granskningen 2026-07-10b (A2-3): hashen sattes FÖRE setValue
+          // — utan nollställning dedupades nästa identiska cykel bort och
+          // tokenen (flows läser den!) stod kvar på gammal text tills nästa
+          // äkta textändring. Nollad hash → nästa cykel skriver om BÅDE
+          // device och token (watchdog-läkningen driver cykeln vid 0 båtar).
+          this._lastBridgeTextHash = null;
         }
 
         // RC6-fix (2026-06-11): skilj ÄKTA textändring från periodisk
@@ -3367,22 +3440,22 @@ class AISBridgeApp extends Homey.App {
     // vessel fails, fall through to the descriptive fallback below. As a
     // final safety net, if the re-call still produces the exact text that
     // just failed validation, fall through rather than shipping it.
+    const sanitizedVessels = vessels.filter((v) => {
+      if (!v || !v.mmsi) return false;
+      if (!TARGET_BRIDGES.includes(v.targetBridge)) return false;
+      // BT-F4 (2026-07-01): hold-status finns INTE som fält på projektionen
+      // (v.hasGpsJumpHold var alltid undefined → filtret dött) — fråga
+      // tjänsten, precis som BridgeTextService gör.
+      if (this.vesselDataService
+          && typeof this.vesselDataService.hasGpsJumpHold === 'function'
+          && this.vesselDataService.hasGpsJumpHold(v.mmsi)) {
+        return false;
+      }
+      if (v.etaMinutes != null
+          && !(Number.isFinite(v.etaMinutes) && v.etaMinutes >= 0)) return false;
+      return true;
+    });
     try {
-      const sanitizedVessels = vessels.filter((v) => {
-        if (!v || !v.mmsi) return false;
-        if (!TARGET_BRIDGES.includes(v.targetBridge)) return false;
-        // BT-F4 (2026-07-01): hold-status finns INTE som fält på projektionen
-        // (v.hasGpsJumpHold var alltid undefined → filtret dött) — fråga
-        // tjänsten, precis som BridgeTextService gör.
-        if (this.vesselDataService
-            && typeof this.vesselDataService.hasGpsJumpHold === 'function'
-            && this.vesselDataService.hasGpsJumpHold(v.mmsi)) {
-          return false;
-        }
-        if (v.etaMinutes != null
-            && !(Number.isFinite(v.etaMinutes) && v.etaMinutes >= 0)) return false;
-        return true;
-      });
       const vesselSetChanged = sanitizedVessels.length !== vessels.length;
       if (sanitizedVessels.length > 0 && this.bridgeTextService && vesselSetChanged) {
         const variant1 = this.bridgeTextService.generateBridgeText(sanitizedVessels);
@@ -3397,17 +3470,25 @@ class AISBridgeApp extends Homey.App {
       this.debug(`[FALLBACK_PRIMARY_FAIL] Using descriptive fallback: ${error.message}`);
     }
 
-    const vesselCount = vessels.length;
+    // Fable-granskningen 2026-07-10b (P1-4): den beskrivande grenen räknade
+    // RÅLISTAN (inkl. BUG 11-fönstrets mållösa och GPS-hållna som textmotorn
+    // avsiktligt exkluderar) — när ALLA var orenderbara ersatte "N båtar är i
+    // närheten av broarna" en KORREKT "Inga båtar…"-text (antalslögn + larm
+    // som motsäger texten). Räkna och representera samma mängd som motorn.
+    if (sanitizedVessels.length === 0) {
+      return BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE;
+    }
+    const vesselCount = sanitizedVessels.length;
     // Helgranskning 2026-07-10 (T-3): representanten är båten med lägst
     // giltig ETA (samma ledarprincip som huvudmotorn) — vessels[0] kunde
     // vara en godtycklig/avlägsnare båt med distans/ETA som motsade texten
     // användaren nyss såg.
-    const firstVessel = vessels.reduce((best, v) => {
+    const firstVessel = sanitizedVessels.reduce((best, v) => {
       if (!v) return best;
       const bestEta = best && Number.isFinite(best.etaMinutes) ? best.etaMinutes : Infinity;
       const vEta = Number.isFinite(v.etaMinutes) ? v.etaMinutes : Infinity;
       return vEta < bestEta ? v : best;
-    }, vessels[0]);
+    }, sanitizedVessels[0]);
     // Helgranskning 2026-07-10 (T-1): fallbacken fick ALDRIG säga mellanbro-
     // namn, men `currentBridge` är närmaste registerbro inom 400 m — dvs.
     // även Olidebron/Järnvägsbron/Stallbackabron. Kontraktet
@@ -3445,7 +3526,14 @@ class AISBridgeApp extends Homey.App {
     // för en extrapolerad gissning (SSOT-hjälparen säger "cirka 2 minuter"
     // för extrapolerade värden i strax-bandet). Hjälparen returnerar
     // 'ETA okänd' / 'strax' / 'om (cirka) N minuter'.
-    const etaSuffix = firstVessel.etaMinutes
+    // Fable-granskningen 2026-07-10b (A3-3): truthiness-gaten (etaMinutes
+    // null/0 → ingen klausul alls) gjorde imminent-"strax" och "ETA okänd"
+    // onåbara — exakt kombinationen etaMinutes=null + imminent=true sätts av
+    // uttömd extrapolering, och huvudmotorn visar då "strax". Anropa
+    // hjälparen även när ETA saknas men imminent är satt.
+    const hasEtaClause = Number.isFinite(firstVessel.etaMinutes)
+      || firstVessel._isImminentAtTargetBridge === true;
+    const etaSuffix = hasEtaClause
       ? `, ${formatETABroOpeningClause(firstVessel.etaMinutes, {
         extrapolated: firstVessel._etaIsExtrapolated === true,
         imminent: firstVessel._isImminentAtTargetBridge === true,
@@ -3627,13 +3715,37 @@ class AISBridgeApp extends Homey.App {
           if (vessel && vessel._isImminentAtTargetBridge) {
             vessel._isImminentAtTargetBridge = false;
           }
+          // A3-4 (Fable 2026-07-10b): T-2-kompletteringen — returen hoppar
+          // över hela ETA-staleness-maskineriet (inkl. HARD-nollningen), så
+          // etaMinutes frös annars på sist beräknade värde och texten visade
+          // fryst minutsiffra i stället för degradering.
+          if (vessel && vessel.etaMinutes !== null && vessel.etaMinutes !== undefined) {
+            vessel.etaMinutes = null;
+            vessel._etaIsExtrapolated = false;
+          }
           this.debug('⚠️ [STATUS_UPDATE] Skipping invalid vessel:', vessel?.mmsi || 'unknown');
           return;
         }
 
         // Re-analyze proximity and status for each vessel
         const proximityData = this.proximityService.analyzeVesselProximity(vessel);
-        const statusResult = this.statusService.analyzeVesselStatus(vessel, proximityData);
+        // Fable-granskningen 2026-07-10b (S-1): timer-/snapshotvägen anropade
+        // utan positionAnalysis → stabilizern (gate:ad på den i StatusService)
+        // hoppades över och vessel.status skrevs ovillkorligt nedan. Det hold
+        // stabilizern etablerade i meddelandevägen (GPS-hopp 30 s /
+        // osäkerhets-konsistenskravet) revs därmed upp inom ≤30 s av nästa
+        // timerpass från SAMMA osäkra position — falsk statusflapp i text och
+        // notiskedja. ETA-vägen längre ned har haft exakt dessa gater hela
+        // tiden (_positionUncertain/_gpsJumpDetected); statusvägen får nu
+        // samma: syntetisera analysen ur fartygets flaggor (satta per senast
+        // accepterade meddelande, nollade av nästa rena sample).
+        const timerPositionAnalysis = (vessel._gpsJumpDetected === true || vessel._positionUncertain === true)
+          ? {
+            gpsJumpDetected: vessel._gpsJumpDetected === true,
+            positionUncertain: vessel._positionUncertain === true,
+          }
+          : null;
+        const statusResult = this.statusService.analyzeVesselStatus(vessel, proximityData, timerPositionAnalysis);
 
         // CRITICAL FIX: Always update status - it might have been changed elsewhere
         // This ensures UI always gets the latest status
@@ -3807,6 +3919,12 @@ class AISBridgeApp extends Homey.App {
           || vessel._gpsJumpDetected === true)
           && vessel.targetBridge
           && dataIsFreshEnough;
+        // Fable-granskningen 2026-07-10b (P1-3): hysteres på imminent-
+        // gränsen — den hårda 300 m-gränsen fick en ködrivande båt
+        // (285→315→290 m mellan accepterade sampel) att flappa
+        // "strax"↔"om N minuter" per tick. SET ≤300 / CLEAR >350 (samma
+        // geometri som waiting-hysteresen; statuslagret hade den redan).
+        const wasImminent = vessel._isImminentAtTargetBridge === true;
         if (!holdImminentForUncertain) {
           vessel._isImminentAtTargetBridge = false;
         }
@@ -3841,11 +3959,13 @@ class AISBridgeApp extends Homey.App {
                 vessel.lat, vessel.lon,
                 targetBridge.lat, targetBridge.lon,
               );
+              // P1-3: hysteresgräns — se wasImminent-kommentaren ovan.
+              const imminentLimitM = wasImminent ? 350 : 300;
               if (!Number.isFinite(distToTarget)) {
                 this.debug(
                   `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, distance not finite`,
                 );
-              } else if (distToTarget > 300) {
+              } else if (distToTarget > imminentLimitM) {
                 // Anomali 3 fix (2026-05-06): även när vesseln är >300m kan vår
                 // egen extrapolation ha sagt att hon borde vara framme. Då är
                 // "strax" mer ärligt än "ETA okänd" — vi vet inte exakt var
@@ -3876,7 +3996,7 @@ class AISBridgeApp extends Homey.App {
                 } else {
                   this.debug(
                     `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, `
-                    + `dist=${Math.round(distToTarget)}m > 300m `
+                    + `dist=${Math.round(distToTarget)}m > ${imminentLimitM}m `
                     + `(AIS ${ageS}s old, exhausted=${vessel._etaExtrapolationExhausted === true})`,
                   );
                 }
@@ -4021,14 +4141,52 @@ class AISBridgeApp extends Homey.App {
     // medan textcachen trodde det nya (hash-dedupen skrev aldrig om).
     if (!this._capWriteChains) this._capWriteChains = new Map();
     const prev = this._capWriteChains.get(capability) || Promise.resolve();
-    const next = prev.then(() => this._writeCapabilityToDevices(capability, value));
+    const next = prev.then(() => this._writeCapabilityWithTimeout(capability, value));
     // Kedjan får aldrig fastna på ett fel — felen hanteras/loggas i
     // _writeCapabilityToDevices.
     this._capWriteChains.set(capability, next.catch(() => {}));
   }
 
+  /**
+   * Fable-granskningen 2026-07-10b (SYS-2): C4b-serialiseringen gjorde varje
+   * skrivning beroende av att föregående promise SETTLAR — en enda hängande
+   * setCapabilityValue (Homey-IPC som aldrig svarar) wedgade kedjan för
+   * alltid, tyst: appen trodde den publicerade, enheten stod stilla
+   * (pelare 1-totalbortfall utan loggrad, oåterkalleligt utan omstart).
+   * Timeout-vakten släpper kedjan efter 30 s och nollar dedup-sentinelen så
+   * nästa cykel skriver om.
+   * @private
+   */
+  _writeCapabilityWithTimeout(capability, value) {
+    const WRITE_TIMEOUT_MS = 30 * 1000;
+    let timer = null;
+    const timeout = new Promise((resolve) => {
+      timer = setTimeout(() => {
+        this.error(`⏱️ [CAP_WRITE_TIMEOUT] ${capability}: skrivningen svarade inte inom 30 s — släpper kedjan och nollar dedupen`);
+        if (capability === 'bridge_text') this._lastBridgeTextHash = null;
+        else if (capability === 'alarm_generic') this._lastBridgeAlarm = null;
+        else if (capability === 'connection_status') this._lastConnectionStatus = null;
+        resolve();
+      }, WRITE_TIMEOUT_MS);
+      if (timer && typeof timer.unref === 'function') timer.unref();
+    });
+    const guarded = this._writeCapabilityToDevices(capability, value).then(
+      () => clearTimeout(timer),
+      (err) => {
+        clearTimeout(timer);
+        throw err;
+      },
+    );
+    return Promise.race([guarded, timeout]);
+  }
+
   async _writeCapabilityToDevices(capability, value) {
     const writes = [];
+    // Fable-granskningen 2026-07-10b (P1-1-skärpningen): deklareras FÖRE
+    // loopen så även ett SYNKRONT kast ur setCapabilityValue räknas som
+    // misslyckad skrivning (fångades tidigare i loop-catchen utan att
+    // självläkningen nedan såg det).
+    let anyRejected = false;
     for (const device of this._devices) {
       try {
         if (device && device.setCapabilityValue) {
@@ -4058,12 +4216,12 @@ class AISBridgeApp extends Homey.App {
         }
       } catch (error) {
         this.error(`Error updating capability ${capability}:`, error);
+        anyRejected = true; // P1-1: synkront kast = misslyckad skrivning
         // Continue with next device
       }
     }
     // (Promise.allSettled är otillgänglig i konfigens Node-golv — manuell
     // ekvivalent; felen är redan loggade i per-device-catchen ovan.)
-    let anyRejected = false;
     await Promise.all(writes.map((p) => p.then(() => {}, () => {
       anyRejected = true;
     })));
@@ -4072,9 +4230,25 @@ class AISBridgeApp extends Homey.App {
     // bort och enheten fastnar på gammal text. Värst för SLUT-texten ("Inga
     // båtar…"): utan båtar finns ingen forceUpdateDueToTime-självläkning.
     // Nollställd hash gör nästa UI-cykel till en garanterad omskrivning.
-    if (capability === 'bridge_text' && anyRejected) {
-      this._lastBridgeTextHash = null;
-      this.error('❌ [BRIDGE_TEXT_WRITE_FAILED] Hash-dedupen nollställd — texten skrivs om vid nästa UI-cykel');
+    //
+    // Fable-granskningen 2026-07-10b (A2-1/P1-2): samma självläkning för
+    // SYSTERKANALERNA — alarm_generic/connection_status har cache-före-
+    // skrivning + värde-dedup (`!==`), så en misslyckad skrivning frös
+    // enheten på fel värde tills nästa äkta värdeväxling (larm som lyser
+    // hela natten mot "Inga båtar"-text). null är ren felsentinel
+    // (initialvärdena är false/'disconnected') och tvingar omskrivning vid
+    // nästa jämförelse.
+    if (anyRejected) {
+      if (capability === 'bridge_text') {
+        this._lastBridgeTextHash = null;
+        this.error('❌ [BRIDGE_TEXT_WRITE_FAILED] Hash-dedupen nollställd — texten skrivs om vid nästa UI-cykel');
+      } else if (capability === 'alarm_generic') {
+        this._lastBridgeAlarm = null;
+        this.error('❌ [ALARM_WRITE_FAILED] Larm-dedupen nollställd — larmet skrivs om vid nästa UI-cykel');
+      } else if (capability === 'connection_status') {
+        this._lastConnectionStatus = null;
+        this.error('❌ [CONNECTION_STATUS_WRITE_FAILED] Status-dedupen nollställd — skrivs om vid nästa UI-cykel');
+      }
     }
   }
 
@@ -4383,16 +4557,18 @@ class AISBridgeApp extends Homey.App {
         minLat = vessel.lat;
         maxLat = startBoundLat !== null ? startBoundLat : 58.32; // norr om Stallbackabron
       }
-      // F4-D (fältprov 4, 2026-07-09, HERA II — ANVÄNDARBESLUT: bevisprincipen):
-      // det BEVISADE fönstret är [lastKnown|_firstSeen, nuvarande] — båten har
-      // demonstrerat att den var vid båda ändpunkterna. Porten-antagandets
-      // förlängning bortom bevisgränsen är en GISSNING: HERA II
-      // (förstakontakt 107 m norr om Olidebron, sydgående) fick en Klaffbron-
-      // notis 1467 m bort för en bro hon kan ha lagt ut EFTER (kaj/gästhamn
-      // utanför MOORING_ZONES). Gissningsdelens broar notifieras INTE längre —
-      // med ETT undantag: KANALINFARTEN-porten för nordgående (geometriskt
-      // nödvändig för en nordgående båt inne i kanalen som inte kajstartat —
-      // F8-beslutet 2026-07-03, PHILULA/DIAMOND, korpus #8-facit).
+      // F4-D (fältprov 4, 2026-07-09, HERA II): det BEVISADE fönstret är
+      // [lastKnown|_firstSeen, nuvarande] — båten har demonstrerat att den
+      // var vid båda ändpunkterna; porten-antagandets förlängning bortom
+      // bevisgränsen är en GISSNING (HERA II: förstakontakt 107 m norr om
+      // Olidebron, sydgående, fick Klaffbron-notis 1467 m bort för en bro
+      // hon kan ha lagt ut EFTER).
+      // OBS (A4-H, Fable 2026-07-10b): F4-D:s AKTIVA STRYKNING av
+      // gissningsdelens notiser ÅTERKALLADES senare (se beslutsblocket vid
+      // notisloopen nedan) — F8-beteendet äger: ALLA kandidater notifieras,
+      // gissningsdelen gated av 2000 m-taket, bevisdelen bär inferredFlush.
+      // provenLow/High-fönstret nedan används alltså för FLAGGNING
+      // (inferredFlush-undantaget från 2000 m-taket), inte för strykning.
       let provenBoundLat = vessel.lat;
       if (Number.isFinite(startBoundLat)) {
         provenBoundLat = startBoundLat;
@@ -4786,8 +4962,13 @@ class AISBridgeApp extends Homey.App {
       // och ingen obekräftad reversal. Äkta returexits i rörelse (IN-AXXI-
       // klassen, korpuslåsta) uppfyller kraven och släpps som förut.
       const movingNow = Number.isFinite(vessel.sog) && vessel.sog >= 2.0;
+      // Scenario #44-spegeln (Fable 2026-07-10b): redan-passerad-gaten från
+      // huvudvägen — no-op för Kanalinfarten (triggerpunkter bokförs aldrig
+      // i passedBridges) men vägarna ska förbli exakta speglar.
+      const alreadyPassedThisJourney = Array.isArray(vessel.passedBridges)
+        && vessel.passedBridges.includes('Kanalinfarten');
       const expiredRelease = !persisted && !oppositeDirection
-        ? (curDir !== null && movingNow && !vessel._newJourneyPending)
+        ? (curDir !== null && movingNow && !vessel._newJourneyPending && !alreadyPassedThisJourney)
         : false;
       if (oppositeDirection || (!persisted && expiredRelease)) {
         this._triggeredBoatNearKeys.delete(dedupeKey);
@@ -4825,7 +5006,14 @@ class AISBridgeApp extends Homey.App {
       `🚪 [EXIT_TRIGGER_FALLBACK] ${vessel.mmsi}: Last known position ${Math.round(distance)}m `
       + 'from Kanalinfarten — firing fallback for missed exit notification',
     );
-    await this._triggerBoatNearFlowFallback(vessel, 'Kanalinfarten');
+    // Fable-granskningen 2026-07-10b (A3-2): utan detectionTs föll anropet i
+    // distans/fart-SKATTNINGEN (Kanalinfarten finns aldrig i passedAt) som
+    // tolkar exit-avståndet som "tid sedan passage" — 300 s-gränsen ströp då
+    // F5-B-radien till ~154 m per knop (700 m @ 4 kn = 340 s → struken; hela
+    // 800 m kräver ≥5,2 kn). Exit-fallet ÄR detektionsögonblicket: vi fick
+    // veta om den missade utfarten NU (removal). Positionens ålder vaktas
+    // separat av F63-/RC3-gaterna ovan.
+    await this._triggerBoatNearFlowFallback(vessel, 'Kanalinfarten', { detectionTs: Date.now() });
   }
 
   /**
@@ -5091,8 +5279,19 @@ class AISBridgeApp extends Homey.App {
       // uppfyller alla kraven och släpps som förut; fartgivarlösa returer
       // täcks av korsningsbevis-reversalen (NEW_JOURNEY rensar nycklarna).
       const movingNow = Number.isFinite(vessel.sog) && vessel.sog >= 2.0;
+      // Fable-granskningen 2026-07-10b (scenario #44, PILOT-resume-hålet —
+      // LATENT sedan C3): en båt som PASSERAT bron på innevarande resa,
+      // parkerat >2h (posten utgången) och sedan ÅTERUPPTAR färden BORT
+      // från bron uppfyllde rörelsekravet → fantomnotis utan ny passage.
+      // C3 avslöjade hålet ("utgången = frånvarande" öppnar släppet även
+      // där prune-timing tidigare råkade blockera). En bro i passedBridges
+      // kan bara ge NY notis via ny resa (journey-reset rensar listan) —
+      // äkta U-svängar går via flip-grenen (oppositeDirection, orörd) och
+      // NEW_JOURNEY, aldrig via expired-släppet.
+      const alreadyPassedThisJourney = Array.isArray(vessel.passedBridges)
+        && vessel.passedBridges.includes(bridgeName);
       const expiredRelease = !persisted && !oppositeDirection
-        ? (curDir !== null && movingNow && !vessel._newJourneyPending)
+        ? (curDir !== null && movingNow && !vessel._newJourneyPending && !alreadyPassedThisJourney)
         : false;
       if (oppositeDirection || (!persisted && expiredRelease)) {
         this._triggeredBoatNearKeys.delete(dedupeKey);
@@ -5102,10 +5301,17 @@ class AISBridgeApp extends Homey.App {
           + '— treating as NEW passage)',
         );
       } else if (!persisted) {
-        // Expired men utan rörelsebevis / under pending-reversal: blockera.
+        // Expired men utan rörelsebevis / under pending-reversal / redan
+        // passerad på innevarande resa: blockera.
+        let holdReason = 'no movement evidence (stationary vessel — no new passage)';
+        if (vessel._newJourneyPending) {
+          holdReason = 'reversal pending (confirmation owns the notification)';
+        } else if (alreadyPassedThisJourney) {
+          holdReason = 'bridge already passed this journey (no new passage without journey reset)';
+        }
         this.log(
           `🚫 [FLOW_TRIGGER_DEDUPE_EXPIRED_HOLD] ${vessel.mmsi}: "${bridgeName}" dedup expired but `
-          + `${vessel._newJourneyPending ? 'reversal pending (confirmation owns the notification)' : 'no movement evidence (stationary vessel — no new passage)'} — keeping block`,
+          + `${holdReason} — keeping block`,
         );
         return;
       } else {
@@ -5214,6 +5420,14 @@ class AISBridgeApp extends Homey.App {
       + `direction=${safeTokens.direction}, ETA=${safeTokens.eta_minutes}`,
     );
 
+    // P2-3 (Fable 2026-07-10b): fånga en ev. FÖREXISTERANDE persistent-post
+    // (flip-släppets väg skriver ÖVER en giltig färsk post med motsatt
+    // riktning) så catch-rollbacken kan ÅTERSTÄLLA den i stället för att
+    // radera — radering öppnade för re-notis av URSPRUNGSpassagen inom
+    // 2h-fönstret om båten vobblade tillbaka efter ett trigger-fel.
+    const previousPersistentEntry = this._persistentRecentTriggers
+      ? this._persistentRecentTriggers.get(dedupeKey)
+      : undefined;
     try {
       // RACE FIX: Sätt dedup-nyckel FÖRE async trigger för att förhindra
       // att parallella _onVesselUpdated-anrop slipper igenom.
@@ -5255,8 +5469,14 @@ class AISBridgeApp extends Homey.App {
       // F6: spegla rollbacken även för den persistenta 2h-nyckeln. Annars
       // markeras en notis som ALDRIG levererades som "nyligen skickad", vilket
       // tystar failsafe-/skipped-bridges-skyddsnätet i upp till 2 timmar.
+      // P2-3: rollback = ÅTERSTÄLL föregående tillstånd — fanns en giltig
+      // post före överskrivningen (flip-släppet) ska den tillbaka, inte bort.
       if (this._persistentRecentTriggers) {
-        this._persistentRecentTriggers.delete(dedupeKey);
+        if (previousPersistentEntry !== undefined) {
+          this._persistentRecentTriggers.set(dedupeKey, previousPersistentEntry);
+        } else {
+          this._persistentRecentTriggers.delete(dedupeKey);
+        }
         this._persistRecentTriggers(); // P2: håll persisterat tillstånd i synk
       }
       this.error(
@@ -5275,14 +5495,27 @@ class AISBridgeApp extends Homey.App {
    * Clear boat near triggers when vessel leaves area or changes status
    * @private
    */
-  _clearBoatNearTriggers(vessel, clearPersistent = false) {
+  _clearBoatNearTriggers(vessel, clearPersistent = false, opts = {}) {
     // ENHANCED DEBUG: Start trigger clearing
     this.debug(`🧹 [TRIGGER_CLEAR_START] ${vessel.mmsi}: Clearing boat_near triggers...`);
+
+    // P2-1 (Fable 2026-07-10b): N2-reentryns selektivitet — en nyckel vars
+    // persistenta post är färskare än gränsen tillhör det PÅGÅENDE benet
+    // (notifierad under cooldownen) och ska överleva resetten i BÅDA lagren.
+    const preserveMs = Number.isFinite(opts.preserveFreshPersistentMs)
+      ? opts.preserveFreshPersistentMs
+      : null;
+    const isFreshPost = (key) => {
+      if (preserveMs === null || !this._persistentRecentTriggers) return false;
+      const raw = this._persistentRecentTriggers.get(key);
+      const ts = typeof raw === 'number' ? raw : raw && raw.t;
+      return Number.isFinite(ts) && (Date.now() - ts) < preserveMs;
+    };
 
     // Clear all trigger keys for this vessel
     const keysToRemove = [];
     for (const key of this._triggeredBoatNearKeys) {
-      if (key.startsWith(`${vessel.mmsi}:`)) {
+      if (key.startsWith(`${vessel.mmsi}:`) && !isFreshPost(key)) {
         keysToRemove.push(key);
       }
     }
@@ -5307,7 +5540,7 @@ class AISBridgeApp extends Homey.App {
     if (clearPersistent && this._persistentRecentTriggers) {
       const persistentToRemove = [];
       for (const key of this._persistentRecentTriggers.keys()) {
-        if (key.startsWith(`${vessel.mmsi}:`)) {
+        if (key.startsWith(`${vessel.mmsi}:`) && !isFreshPost(key)) {
           persistentToRemove.push(key);
         }
       }
@@ -6053,11 +6286,23 @@ class AISBridgeApp extends Homey.App {
     // Self-healing watchdog (minimal overhead)
     this._watchdogTimer = setInterval(() => {
       try {
-        // Only run watchdog if we have vessels
+        // Only run watchdog if we have vessels — UTOM när en dedup-cache
+        // står i felsentinel (null): Fable-granskningen 2026-07-10b
+        // (A2-2/P1-1) visade att C4a-självläkningen saknade DRIVKRAFT i
+        // exakt det värsta fallet (0 båtar): den misslyckade "Inga båtar"-
+        // skrivningen nollade hashen, men ingen UI-cykel kördes förrän
+        // nästa externa händelse (feed-watchdogens reconnect, 20–120 min)
+        // — enheten visade nattgammal båttext i timmar. En cache i null
+        // betyder "senaste skrivningen misslyckades" → kör läkningscykeln
+        // även på tom kanal (den publicerar DEFAULT, sätter cachen och
+        // tystnar igen).
         const vessels = this.vesselDataService.getAllVessels();
-        if (vessels.length === 0) return;
+        const healNeeded = this._lastBridgeTextHash === null
+          || this._lastBridgeAlarm === null
+          || this._lastConnectionStatus === null;
+        if (vessels.length === 0 && !healNeeded) return;
 
-        this.debug(`🐕 [WATCHDOG] Running self-healing check (${vessels.length} vessels)`);
+        this.debug(`🐕 [WATCHDOG] Running self-healing check (${vessels.length} vessels${healNeeded ? ', heal needed' : ''})`);
         this._scheduleCoalescedUpdate('normal', 'watchdog-self-healing');
       } catch (error) {
         this.error('Error in watchdog:', error);
@@ -6072,6 +6317,15 @@ class AISBridgeApp extends Homey.App {
    */
   async onUninit() {
     this.log('🛑 AIS Bridge shutting down...');
+
+    // DIV-2 (Fable 2026-07-10b): släpp skrivkedjorna så en köad skrivning
+    // inte exekverar EFTER "shutdown complete" mot rivna device-API:er
+    // (kosmetisk fellogg efter avslut). _updateDeviceCapability återskapar
+    // Map:en defensivt om något ändå skriver sent.
+    if (this._capWriteChains) {
+      this._capWriteChains.clear();
+      this._capWriteChains = null;
+    }
 
     // CRITICAL FIX: Cleanup all timers to prevent memory leaks
     // Note: No UI update timers to clean up - using setImmediate which auto-cleans

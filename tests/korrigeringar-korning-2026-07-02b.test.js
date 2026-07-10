@@ -326,7 +326,7 @@ describe('FEL 4 (CLABBYDOO): exit-fallbackens stale-gard lever och mäter positi
       _hasMovementProof: true,
       _moored: false,
     });
-    expect(app._triggerBoatNearFlowFallback).toHaveBeenCalledWith(expect.anything(), 'Kanalinfarten');
+    expect(app._triggerBoatNearFlowFallback).toHaveBeenCalledWith(expect.anything(), 'Kanalinfarten', expect.objectContaining({ detectionTs: expect.any(Number) })); // A3-2
   });
 
   test('förtöjd båt nära Kanalinfarten ⇒ exit-fallbacken stoppar (app-6#R2-2)', async () => {

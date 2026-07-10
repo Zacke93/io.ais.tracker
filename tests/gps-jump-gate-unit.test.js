@@ -207,10 +207,18 @@ describe('GPSJumpGateService — gate-livscykel och kandidathantering', () => {
       advance(6_000);
 
       const [confirmed] = svc.confirmStableCandidates('265024', BASE_VESSEL);
+      // G-1 (Fable 2026-07-10b): vesselState (registrerings-snapshotten)
+      // följer numera med så konsumenten kan köra sidokontraktet.
       expect(confirmed).toEqual({
         bridgeName: 'Klaffbron',
         passageResult: PASSAGE,
         confirmedAt: now,
+        vesselState: {
+          lat: BASE_VESSEL.lat,
+          lon: BASE_VESSEL.lon,
+          cog: BASE_VESSEL.cog,
+          sog: BASE_VESSEL.sog,
+        },
       });
     });
 

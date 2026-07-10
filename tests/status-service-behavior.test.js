@@ -576,10 +576,13 @@ describe('StatusService — beteende', () => {
 
     test('minskande avstånd räcker (metod 2) när kursen är obrukbar', () => {
       const prev = southOf(BRIDGES.stallbackabron, 450);
+      // Fable-granskningen 2026-07-10b (V1-3): fältet heter lastPosition —
+      // testet fabricerade tidigare previousPosition (som produktionen
+      // aldrig skriver) och "verifierade" därmed en död kodväg.
       const vessel = makeStallbackaVessel({
         cog: undefined, // metod 1 faller bort
         sog: 1.0, // under fartfallbackens 2 kn
-        previousPosition: { lat: prev.lat, lon: prev.lon }, // var 450 m bort, nu 400 m
+        lastPosition: { lat: prev.lat, lon: prev.lon }, // var 450 m bort, nu 400 m
       });
 
       const result = statusService.analyzeVesselStatus(vessel, emptyProx);
@@ -599,7 +602,7 @@ describe('StatusService — beteende', () => {
       const vessel = makeStallbackaVessel({
         cog: 180, // söderut, bort från bron
         sog: 1.0,
-        previousPosition: { lat: prev.lat, lon: prev.lon }, // var 380 m, nu 400 m — glider bort
+        lastPosition: { lat: prev.lat, lon: prev.lon }, // var 380 m, nu 400 m — glider bort (V1-3: rätt fältnamn)
       });
 
       const result = statusService.analyzeVesselStatus(vessel, emptyProx);
@@ -744,8 +747,11 @@ describe('StatusService — beteende', () => {
       const { result } = analyze(vessel);
 
       expect(result.status).toBe('en-route');
+      // G-4 (Fable 2026-07-10b): kontraktet bär numera sampeltidsstämpeln
+      // (lastPositionUpdate ?? timestamp ?? null) som 5:e argument så
+      // reversal-bekräftelsen kräver två OLIKA positionssampel.
       expect(passageLatchService.shouldBlockStatus)
-        .toHaveBeenCalledWith('265123000', 'Klaffbron', 'waiting', 20);
+        .toHaveBeenCalledWith('265123000', 'Klaffbron', 'waiting', 20, null);
     });
   });
 

@@ -13,17 +13,17 @@
     {
       "step": 3,
       "description": "Special waiting at Stallbackabron (260m)",
-      "expectedText": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 12 minuter"
+      "expectedText": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 16 minuter"
     },
     {
       "step": 4,
       "description": "Under Stallbackabron (30m)",
-      "expectedText": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 12 minuter"
+      "expectedText": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 15 minuter"
     },
     {
       "step": 5,
       "description": "Just passed Stallbackabron (80m south)",
-      "expectedText": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 12 minuter"
+      "expectedText": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 15 minuter"
     },
     {
       "step": 6,
@@ -182,17 +182,17 @@
     {
       "step": 2,
       "description": "Special waiting \"åker strax under\" (260m)",
-      "expectedText": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 12 minuter"
+      "expectedText": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 16 minuter"
     },
     {
       "step": 3,
       "description": "Passing Stallbackabron (30m)",
-      "expectedText": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 12 minuter"
+      "expectedText": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 15 minuter"
     },
     {
       "step": 4,
       "description": "Just passed Stallbackabron (80m south)",
-      "expectedText": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 12 minuter"
+      "expectedText": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 15 minuter"
     }
   ],
   "Intermediate bridge: Olidebron messages": [
