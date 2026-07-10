@@ -9,6 +9,15 @@
  *
  * Fix 7 är redan testat i tests/flow-trigger-bridges.test.js. Detta är
  * kompletterande tester för att täcka edge-cases och Fix 5.
+ *
+ * ⚠️ VIKTIG KLASSNING (testauditen 2026-07-10, TD14): flertalet block i den
+ * här filen är DOKUMENTATIONSTESTER — de definierar LOKALA kopior av
+ * produktionsvillkoren och asserterar dem mot handräknade värden. De låser
+ * AVSEDD semantik som specifikation men exekverar INTE produktionskoden och
+ * kan därför ALDRIG falla på en produktionsregression. Regressionsskyddet
+ * för dessa beteenden bärs av korpusarna + de produktionsdrivna sviterna
+ * (flow-trigger-*, faltprov-*, helgranskning-*). Blocken är märkta
+ * "⚠️ DOKUMENTATIONSTEST" i describe-namnet — räkna dem INTE som pelarskydd.
  */
 
 describe('Fix 5 — GPS-jump skydd för flow-triggers', () => {
@@ -124,7 +133,7 @@ describe('Fix 7 — Multi-bridge candidates (smoke test)', () => {
  * Härleds från app-20260427-011256.log analys.
  */
 
-describe('BUG A fix — lastPassedBridge candidate inom 15s grace', () => {
+describe('⚠️ DOKUMENTATIONSTEST: BUG A fix — lastPassedBridge candidate inom 15s grace', () => {
   const PASSAGE_TRIGGER_GRACE_MS = 15000;
 
   const isJustPassedCandidate = (vessel) => Boolean(
@@ -182,7 +191,7 @@ describe('BUG A fix — lastPassedBridge candidate inom 15s grace', () => {
   });
 });
 
-describe('BUG B fix — resolveDistance fallback via direkt beräkning', () => {
+describe('⚠️ DOKUMENTATIONSTEST: BUG B fix — resolveDistance fallback via direkt beräkning', () => {
   const BridgeRegistry = require('../lib/models/BridgeRegistry');
   const geometry = require('../lib/utils/geometry');
 
@@ -212,7 +221,7 @@ describe('BUG B fix — resolveDistance fallback via direkt beräkning', () => {
   });
 });
 
-describe('BUG C fix — justRegisteredPassage-villkor', () => {
+describe('⚠️ DOKUMENTATIONSTEST: BUG C fix — justRegisteredPassage-villkor', () => {
   const isJustRegistered = (vessel, oldVessel) => Boolean(
     vessel.lastPassedBridge
     && Number.isFinite(vessel.lastPassedBridgeTime)
@@ -245,7 +254,7 @@ describe('BUG C fix — justRegisteredPassage-villkor', () => {
   });
 });
 
-describe('BUG D fix — U-sväng-detektion', () => {
+describe('⚠️ DOKUMENTATIONSTEST: BUG D fix — U-sväng-detektion', () => {
   const COG_NORTH_MIN = 315;
   const COG_NORTH_MAX = 45;
 
@@ -328,7 +337,7 @@ describe('BUG F fix — TARGET_END logmeddelande', () => {
   });
 });
 
-describe('Fix G — Smart Stale ETA (extrapolation 5–10 min)', () => {
+describe('⚠️ DOKUMENTATIONSTEST: Fix G — Smart Stale ETA (extrapolation 5–10 min)', () => {
   const { formatETABroOpeningClause } = require('../lib/utils/etaValidation');
   const { UI_CONSTANTS } = require('../lib/constants');
 
@@ -388,7 +397,7 @@ describe('Fix G — Smart Stale ETA (extrapolation 5–10 min)', () => {
   });
 });
 
-describe('Fix D refinement — wrong-side & passedBridges', () => {
+describe('⚠️ DOKUMENTATIONSTEST: Fix D refinement — wrong-side & passedBridges', () => {
   const targetIsBehindVessel = (vesselLat, targetLat, cogIsNorth) => {
     const targetIsActuallyNorthOfVessel = targetLat > vesselLat;
     return cogIsNorth !== targetIsActuallyNorthOfVessel;
@@ -453,7 +462,7 @@ describe('Fix D refinement — wrong-side & passedBridges', () => {
   });
 });
 
-describe('Fix H — Distansbaserad "strax"-trigger', () => {
+describe('⚠️ DOKUMENTATIONSTEST: Fix H — Distansbaserad "strax"-trigger', () => {
   const { formatETABroOpeningClause } = require('../lib/utils/etaValidation');
 
   test('imminent=true tvingar "strax" oavsett ETA', () => {
@@ -516,7 +525,7 @@ describe('Fix H — Distansbaserad "strax"-trigger', () => {
   });
 });
 
-describe('Anomali 1 fix v2 — Tid-baserad fallback-relevans', () => {
+describe('⚠️ DOKUMENTATIONSTEST: Anomali 1 fix v2 — Tid-baserad fallback-relevans', () => {
   const FALLBACK_HARD_MAX_DISTANCE = 2000;
   const FALLBACK_TIME_SINCE_PASSAGE_MAX_S = 300;
   const FALLBACK_LOW_SOG_MAX_DISTANCE = 500;
@@ -615,7 +624,7 @@ describe('Anomali 4 fix — JOURNEY_COMPLETED logg-spam', () => {
   });
 });
 
-describe('Anomali 3 v2 — extrapolation-exhausted fallback till imminent', () => {
+describe('⚠️ DOKUMENTATIONSTEST: Anomali 3 v2 — extrapolation-exhausted fallback till imminent', () => {
   // Replikerar logiken från app.js _reevaluateVesselStatuses
   const checkExtrapolation = (baseETA, elapsedMin) => {
     const extrapolated = Math.max(0, baseETA - elapsedMin);
@@ -669,7 +678,7 @@ describe('Anomali 3 v2 — extrapolation-exhausted fallback till imminent', () =
   });
 });
 
-describe('Anomali 9 — Skipped bridges fallback efter STALE_AIS-återkomst', () => {
+describe('⚠️ DOKUMENTATIONSTEST: Anomali 9 — Skipped bridges fallback efter STALE_AIS-återkomst', () => {
   // Replikerar logiken från app.js _checkSkippedBridgesFallback
   const findSkippedBridges = (vesselLat, oldVesselLat, cog) => {
     if (!Number.isFinite(cog)) return [];
@@ -757,7 +766,7 @@ describe('Anomali 9 — Skipped bridges fallback efter STALE_AIS-återkomst', ()
   });
 });
 
-describe('Anomali 7 — NEW_JOURNEY-detektion efter U-sväng', () => {
+describe('⚠️ DOKUMENTATIONSTEST: Anomali 7 — NEW_JOURNEY-detektion efter U-sväng', () => {
   // Replikerar villkor från app.js _onVesselUpdated
   const NEW_JOURNEY_MIN_SOG = 2.0;
 
@@ -864,7 +873,7 @@ describe('Anomali 7 — NEW_JOURNEY-detektion efter U-sväng', () => {
   });
 });
 
-describe('Anomali 8 fix — Fix 3 utvidgad till non-decreasing growth', () => {
+describe('⚠️ DOKUMENTATIONSTEST: Anomali 8 fix — Fix 3 utvidgad till non-decreasing growth', () => {
   // Simulerar logiken
   const checkGrowthCap = (history, sog) => {
     if (history.length < 3) return { capped: false };

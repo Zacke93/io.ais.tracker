@@ -42,9 +42,11 @@ describe('Fuzz: korrupt AIS-data når aldrig pelarna', () => {
     {
       mmsi: '265001111', lat: 58.29, lon: 12.29, sog: -5,
     }, // negativ fart
-    {
-      mmsi: '265001111', lat: 58.29, lon: 12.29, sog: 250,
-    }, // omöjlig fart
+    // OBS (helgranskning 2026-07-10, A2-2): sog ÖVER SOG_MAX (t.ex. 250
+    // eller sentinelen 102.3) är inte längre skräp som fäller meddelandet —
+    // positionen är giltig och farten normaliseras till null (samma
+    // försvar-på-djupet som 0,0-garden; osynliga-båtar-klassen). Det fallet
+    // täcks av egna tester nedan.
     {
       mmsi: '265001111', lat: 58.29, lon: 12.29, cog: 720,
     }, // ogiltig kurs
@@ -62,6 +64,20 @@ describe('Fuzz: korrupt AIS-data når aldrig pelarna', () => {
       expect(() => app._processAISMessage(msg)).not.toThrow();
     }
     expect(app.vesselDataService.updateVessel).not.toHaveBeenCalled();
+  });
+
+  test('A2-2: sog över SOG_MAX (sentinel/korrupt fart) fäller INTE meddelandet — farten blir null, positionen behålls', () => {
+    const app = makeApp();
+    for (const sogValue of [102.3, 250]) {
+      app.vesselDataService.updateVessel.mockClear();
+      app._processAISMessage({
+        mmsi: '265001111', lat: 58.29, lon: 12.29, sog: sogValue, cog: 25,
+      });
+      expect(app.vesselDataService.updateVessel).toHaveBeenCalledTimes(1);
+      const [, patch] = app.vesselDataService.updateVessel.mock.calls[0];
+      expect(patch.sog).toBeNull();
+      expect(patch.lat).toBe(58.29);
+    }
   });
 
   test('giltigt meddelande passerar valideringen (negativ kontroll)', () => {

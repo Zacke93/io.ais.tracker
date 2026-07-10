@@ -1082,7 +1082,7 @@ class AISBridgeApp extends Homey.App {
       // Edge cases hanterade:
       //   - GPS-jump → blockerad av hasGpsJumpHold (Bug #1-skydd)
       //   - Wobble nära mål → kräver sog ≥ 2.0kn (mätbar fart)
-      //   - Öster/väster-cog (drift) → kräver cog tydligt N (315-45) eller S (135-225)
+      //   - Öster-cog (drift) → kräver cog tydligt N (315-45) eller S (135-314)
       //   - Triggerintegritet → _finalTargetDirection nullas efter rensning
       //     så detta inte triggar igen i nästa tick
       const NEW_JOURNEY_MIN_SOG = 2.0;
@@ -1093,7 +1093,14 @@ class AISBridgeApp extends Homey.App {
           && vessel.sog >= NEW_JOURNEY_MIN_SOG
           && !this.vesselDataService?.hasGpsJumpHold?.(vessel.mmsi)) {
         const cogIsNorth = vessel.cog >= 315 || vessel.cog <= 45;
-        const cogIsSouth = vessel.cog >= 135 && vessel.cog <= 225;
+        // Helgranskning 2026-07-10 (A1-1): sydbandet var 135–225 (Anomali 7-
+        // originalet) medan _dedupDirection/_getDirectionString harmoniserades
+        // till 135–315 redan 2026-07-03 — SV-kurs (226–314°) är NORMAL sydfärd
+        // i den NE–SV-orienterade kanalen, inte drift. En båt som vände
+        // söderut med t.ex. cog 250° fick aldrig NEW_JOURNEY → dedup-nycklarna
+        // från nordresan blockerade returresans alla notiser (PRICKBJORN-
+        // klassen, exakt det detta block finns för att förhindra).
+        const cogIsSouth = vessel.cog >= 135 && vessel.cog < 315;
         const finalWasNorth = vessel._finalTargetDirection === 'north';
         const newJourneyDetected = (cogIsSouth && finalWasNorth)
           || (cogIsNorth && !finalWasNorth);
@@ -2272,10 +2279,23 @@ class AISBridgeApp extends Homey.App {
     // positionsrapporten: fartyget blev osynligt och notiser missades trots
     // giltig position. Appens dokumenterade kontrakt är "null = okänd fart"
     // — valideringen ska bara avvisa KORRUPTA värden (NaN, negativa, orimliga).
-    if (message.sog !== undefined && message.sog !== null
-        && (!Number.isFinite(message.sog) || message.sog < 0 || message.sog > VALIDATION_CONSTANTS.SOG_MAX)) {
-      this.debug(`⚠️ [AIS_VALIDATION] Invalid SOG: ${message.sog}`);
-      return false;
+    if (message.sog !== undefined && message.sog !== null) {
+      // Helgranskning 2026-07-10 (A2-2): SOG-sentinelen 102.3 ("ej
+      // tillgänglig", ITU-R M.1371) normaliseras till null i AISStreamClient,
+      // men appnivån ska inte LITA på det (samma försvar-på-djupet-princip
+      // som 0,0-garden ovan). Regredierar klientnormaliseringen blev HELA
+      // positionsrapporten annars avvisad (102.3 > SOG_MAX) → osynlig båt —
+      // exakt osynliga-båtar-incidenten från helgranskningen 2026-07-06.
+      // Överfart (> SOG_MAX) tolkas som "fart ej tillgänglig", inte korrupt
+      // rapport; positionen är fortfarande giltig. Symmetriskt med COG
+      // 360→null nedan.
+      if (Number.isFinite(message.sog) && message.sog > VALIDATION_CONSTANTS.SOG_MAX) {
+        this.debug(`🔄 [AIS_VALIDATION] SOG ${message.sog} > ${VALIDATION_CONSTANTS.SOG_MAX} = "not available"/korrupt fart → null (position behålls)`);
+        message.sog = null;
+      } else if (!Number.isFinite(message.sog) || message.sog < 0) {
+        this.debug(`⚠️ [AIS_VALIDATION] Invalid SOG: ${message.sog}`);
+        return false;
+      }
     }
 
     if (message.cog !== undefined && message.cog !== null) {
@@ -2864,8 +2884,16 @@ class AISBridgeApp extends Homey.App {
       // a JOURNEY_COMPLETED transition — those are expected to yield DEFAULT_MESSAGE
       // and are NOT bugs. Only alert when vessels with a valid target bridge are
       // present but default text still results.
+      // Helgranskning 2026-07-10 (A2-1): spegla även GPS-hold-filtret —
+      // BridgeTextService OCH count-validatorn (BT-F2) exkluderar båda
+      // hasGpsJumpHold-fartyg, så en ensam GPS-hållen målbåt ger legitimt
+      // DEFAULT-text. Utan filtret lyste error-larmet falskt i exakt det
+      // fallet (error-kanalen ska bara bära äkta anomalier).
       const visibleVessels = relevantVessels.filter(
-        (v) => v && TARGET_BRIDGES.includes(v.targetBridge),
+        (v) => v && TARGET_BRIDGES.includes(v.targetBridge)
+          && !(this.vesselDataService
+            && typeof this.vesselDataService.hasGpsJumpHold === 'function'
+            && this.vesselDataService.hasGpsJumpHold(v.mmsi)),
       );
       if (visibleVessels.length > 0 && bridgeText === BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE) {
         this.error(`🚨 [BRIDGE_TEXT_BUG] ${visibleVessels.length} visible vessels but got default text - this indicates a bug in bridge text generation`);
@@ -3370,9 +3398,40 @@ class AISBridgeApp extends Homey.App {
     }
 
     const vesselCount = vessels.length;
-    const firstVessel = vessels[0];
-    const bridge = firstVessel.currentBridge || firstVessel.targetBridge;
-    const dist = firstVessel.distanceToCurrent ?? firstVessel.distance;
+    // Helgranskning 2026-07-10 (T-3): representanten är båten med lägst
+    // giltig ETA (samma ledarprincip som huvudmotorn) — vessels[0] kunde
+    // vara en godtycklig/avlägsnare båt med distans/ETA som motsade texten
+    // användaren nyss såg.
+    const firstVessel = vessels.reduce((best, v) => {
+      if (!v) return best;
+      const bestEta = best && Number.isFinite(best.etaMinutes) ? best.etaMinutes : Infinity;
+      const vEta = Number.isFinite(v.etaMinutes) ? v.etaMinutes : Infinity;
+      return vEta < bestEta ? v : best;
+    }, vessels[0]);
+    // Helgranskning 2026-07-10 (T-1): fallbacken fick ALDRIG säga mellanbro-
+    // namn, men `currentBridge` är närmaste registerbro inom 400 m — dvs.
+    // även Olidebron/Järnvägsbron/Stallbackabron. Kontraktet
+    // (bridgeTextFormat.md: "Mellanbroar nämns aldrig i texten") gäller även
+    // den degraderade vägen. Bronamn i fallbacktext begränsas därför till
+    // målbroarna; distansen räknas mot just den bro som nämns (currentBridge
+    // när den ÄR målbro, annars geometriskt mot targetBridge) så text och
+    // meter aldrig pekar på olika broar.
+    const currentIsTarget = TARGET_BRIDGES.includes(firstVessel.currentBridge);
+    const targetName = TARGET_BRIDGES.includes(firstVessel.targetBridge)
+      ? firstVessel.targetBridge
+      : null;
+    const bridge = currentIsTarget ? firstVessel.currentBridge : targetName;
+    let dist = null;
+    if (currentIsTarget) {
+      dist = firstVessel.distanceToCurrent ?? firstVessel.distance;
+    } else if (targetName && Number.isFinite(firstVessel.lat) && Number.isFinite(firstVessel.lon)) {
+      const targetObj = this.bridgeRegistry?.getBridgeByName?.(targetName);
+      if (targetObj && Number.isFinite(targetObj.lat) && Number.isFinite(targetObj.lon)) {
+        dist = geometry.calculateDistance(
+          firstVessel.lat, firstVessel.lon, targetObj.lat, targetObj.lon,
+        );
+      }
+    }
 
     // BUG 5 FIX: Include direction and ETA when available for more informative fallback
     let dirSuffix = '';
@@ -3400,8 +3459,11 @@ class AISBridgeApp extends Homey.App {
       return `En båt är i närheten av ${bridge || 'broarna'}${dirSuffix}`;
     }
 
-    // Flerfartyg: inkludera bronamn om alla nära samma bro
-    const bridges = [...new Set(vessels.map((v) => v.currentBridge || v.targetBridge).filter(Boolean))];
+    // Flerfartyg: inkludera bronamn om alla mot samma MÅLBRO (T-1: aldrig
+    // mellanbro — currentBridge deltar inte i namnvalet).
+    const bridges = [...new Set(vessels
+      .map((v) => (v && TARGET_BRIDGES.includes(v.targetBridge) ? v.targetBridge : null))
+      .filter(Boolean))];
     if (bridges.length === 1) {
       return `${vesselCount} båtar är i närheten av ${bridges[0]}`;
     }
@@ -3557,6 +3619,14 @@ class AISBridgeApp extends Homey.App {
       try {
         // CRITICAL FIX: Validate vessel object before processing
         if (!vessel || !vessel.mmsi || !Number.isFinite(vessel.lat) || !Number.isFinite(vessel.lon)) {
+          // Helgranskning 2026-07-10 (T-2): nollställ imminent-flaggan innan
+          // hoppet — resten av loopen (inkl. den ordinarie reset-then-set-
+          // sekvensen längre ned) körs aldrig för det här fartyget, så en
+          // kvarhängande true från förra ticket kunde annars driva falskt
+          // "strax" i texten för en båt utan användbar position.
+          if (vessel && vessel._isImminentAtTargetBridge) {
+            vessel._isImminentAtTargetBridge = false;
+          }
           this.debug('⚠️ [STATUS_UPDATE] Skipping invalid vessel:', vessel?.mmsi || 'unknown');
           return;
         }
@@ -3944,10 +4014,25 @@ class AISBridgeApp extends Homey.App {
    * @private
    */
   _updateDeviceCapability(capability, value) {
+    // ChatGPT-verifieringen 2026-07-10 (C4b): serialisera skrivningarna per
+    // capability — två snabba uppdateringar (A→B) var tidigare oawaitade
+    // parallella promises som kunde landa i OMVÄND ordning på enheten (B:s
+    // skrivning löste före A:s) → enheten fastnade på det GAMLA värdet
+    // medan textcachen trodde det nya (hash-dedupen skrev aldrig om).
+    if (!this._capWriteChains) this._capWriteChains = new Map();
+    const prev = this._capWriteChains.get(capability) || Promise.resolve();
+    const next = prev.then(() => this._writeCapabilityToDevices(capability, value));
+    // Kedjan får aldrig fastna på ett fel — felen hanteras/loggas i
+    // _writeCapabilityToDevices.
+    this._capWriteChains.set(capability, next.catch(() => {}));
+  }
+
+  async _writeCapabilityToDevices(capability, value) {
+    const writes = [];
     for (const device of this._devices) {
       try {
         if (device && device.setCapabilityValue) {
-          device.setCapabilityValue(capability, value).then(() => {
+          writes.push(device.setCapabilityValue(capability, value).then(() => {
             // ChatGPT-granskningen 2026-07-10 (I1, skärpt i andra rundan):
             // en enhet vars onInit misslyckades markeras unavailable av
             // device.js-catchen — första lyckade capability-skrivningen
@@ -3968,12 +4053,28 @@ class AISBridgeApp extends Homey.App {
             }
           }).catch((err) => {
             this.error(`Error setting ${capability} for device ${device.getName ? device.getName() : 'unknown'}:`, err);
-          });
+            return Promise.reject(err);
+          }));
         }
       } catch (error) {
         this.error(`Error updating capability ${capability}:`, error);
         // Continue with next device
       }
+    }
+    // (Promise.allSettled är otillgänglig i konfigens Node-golv — manuell
+    // ekvivalent; felen är redan loggade i per-device-catchen ovan.)
+    let anyRejected = false;
+    await Promise.all(writes.map((p) => p.then(() => {}, () => {
+      anyRejected = true;
+    })));
+    // ChatGPT-verifieringen 2026-07-10 (C4a): textcachen/hashen uppdateras
+    // FÖRE skrivningen — misslyckas den dedupas alla identiska omskrivningar
+    // bort och enheten fastnar på gammal text. Värst för SLUT-texten ("Inga
+    // båtar…"): utan båtar finns ingen forceUpdateDueToTime-självläkning.
+    // Nollställd hash gör nästa UI-cykel till en garanterad omskrivning.
+    if (capability === 'bridge_text' && anyRejected) {
+      this._lastBridgeTextHash = null;
+      this.error('❌ [BRIDGE_TEXT_WRITE_FAILED] Hash-dedupen nollställd — texten skrivs om vid nästa UI-cykel');
     }
   }
 
@@ -4001,8 +4102,14 @@ class AISBridgeApp extends Homey.App {
    */
   async _triggerBoatNearFlowBest(tokens, state, vessel) {
     if (!this._boatNearTrigger || typeof this._boatNearTrigger.trigger !== 'function') {
+      // Helgranskning 2026-07-10 (A3-2): kasta i stället för return null —
+      // en normal retur tolkades som framgång av _triggerBoatNearFlowForBridge
+      // (dedup-nyckel + persistent-post skrevs, FLOW_TRIGGER_SUCCESS loggades)
+      // trots att ingen notis levererades → bron 2h-spärrad utan notis.
+      // Throw:en tar F4-K-rollbackvägen: nycklarna återställs, nästa
+      // kandidat får försöka.
       this.error('❌ [FLOW_TRIGGER] boat_near trigger card unavailable – cannot fire flow');
-      return null;
+      throw new Error('boat_near trigger card unavailable');
     }
 
     try {
@@ -4657,19 +4764,43 @@ class AISBridgeApp extends Homey.App {
       // sessionscheck — en sydgående EXIT efter nordgående ENTRY-notis är en
       // fysisk returpassage, inte en dubblett (sessionsnycklar överlever
       // removal i timmar via BUG7-bevarandet).
-      const persisted = this._persistentRecentTriggers
+      // C3 (ChatGPT-verifieringen 2026-07-10): utgången post = frånvarande
+      // post, oberoende av prune-timing — se huvudvägens kommentar.
+      const persistedRaw = this._persistentRecentTriggers
         ? this._persistentRecentTriggers.get(dedupeKey)
         : null;
+      const persistedTs = typeof persistedRaw === 'number' ? persistedRaw : persistedRaw && persistedRaw.t;
+      const persistedFresh = Number.isFinite(persistedTs)
+        && (Date.now() - persistedTs) < (this._PERSISTENT_DEDUP_WINDOW_MS || 2 * 60 * 60 * 1000);
+      const persisted = persistedFresh ? persistedRaw : null;
       const prevDir = persisted && persisted.dir ? persisted.dir : null;
       // F4-C (PIANO): flip-bedömningens NYA riktning kräver rörelsebevis
       const curDir = this._dedupDirection(vessel, { requireMovement: true });
       const oppositeDirection = prevDir && curDir && prevDir !== curDir;
-      if (oppositeDirection || !persisted) {
+      // Helgranskning 2026-07-10 (A3-1): expired-släppet var ovillkorligt här
+      // medan huvudvägen fick F5-A-gaten (fältprov 5, PILOT 761) — en reborn-
+      // båt med intjänat (klistrande) rörelsebevis som ligger still inom
+      // 400 m norr om punkten kunde få en ANDRA exit-notis när 2h-posten
+      // prunats, utan ny passage. Spegla huvudvägen: släpp kräver rörelse i
+      // NUET (C2: explicit sog ≥ 2 — låst rutt räcker inte, se huvudvägen)
+      // och ingen obekräftad reversal. Äkta returexits i rörelse (IN-AXXI-
+      // klassen, korpuslåsta) uppfyller kraven och släpps som förut.
+      const movingNow = Number.isFinite(vessel.sog) && vessel.sog >= 2.0;
+      const expiredRelease = !persisted && !oppositeDirection
+        ? (curDir !== null && movingNow && !vessel._newJourneyPending)
+        : false;
+      if (oppositeDirection || (!persisted && expiredRelease)) {
         this._triggeredBoatNearKeys.delete(dedupeKey);
         this.log(
           `🔁 [EXIT_TRIGGER_DEDUPE_DIRECTION] ${dedupeKey}: session key released `
           + `(${oppositeDirection ? `direction flipped ${prevDir} → ${curDir}` : 'no persistent entry (expired)'})`,
         );
+      } else if (!persisted) {
+        this.log(
+          `🚫 [EXIT_TRIGGER_DEDUPE_EXPIRED_HOLD] ${vessel.mmsi}: Kanalinfarten dedup expired but `
+          + `${vessel._newJourneyPending ? 'reversal pending' : 'no movement evidence (stationary vessel — no new passage)'} — keeping block`,
+        );
+        return;
       } else {
         this.debug(
           `🚫 [EXIT_TRIGGER_DEDUPE] ${vessel.mmsi}: Kanalinfarten already triggered this session`,
@@ -4922,9 +5053,19 @@ class AISBridgeApp extends Homey.App {
       // dokumenterat MOTSATT riktning ⇒ fysisk RETURPASSAGE ⇒ ny notis.
       // Persistent-posten bär riktningen ({t, dir}); saknas den (>2h) är
       // sessionsnyckeln uråldrig och 2h-fönstret ändå passerat → släpp.
-      const persisted = this._persistentRecentTriggers
+      // ChatGPT-verifieringen 2026-07-10 (C3): en post ÄLDRE än 2h-fönstret
+      // som ännu inte hunnit prunas av monitoring-cleanupen (60s-intervall)
+      // räknas som UTGÅNGEN — _persistentDedupCheck behandlar den redan så,
+      // men sessionssläppet krävde att posten var FYSISKT borttagen ur
+      // mappen. En äkta ny passage strax efter 2h kunde då blockeras hela
+      // prune-glappet och missas helt om båten hann korsa 300 m-zonen.
+      const persistedRaw = this._persistentRecentTriggers
         ? this._persistentRecentTriggers.get(dedupeKey)
         : null;
+      const persistedTs = typeof persistedRaw === 'number' ? persistedRaw : persistedRaw && persistedRaw.t;
+      const persistedFresh = Number.isFinite(persistedTs)
+        && (Date.now() - persistedTs) < (this._PERSISTENT_DEDUP_WINDOW_MS || 2 * 60 * 60 * 1000);
+      const persisted = persistedFresh ? persistedRaw : null;
       const prevDir = persisted && persisted.dir ? persisted.dir : null;
       // F4-C (PIANO): flip-bedömningens NYA riktning kräver rörelsebevis
       const curDir = this._dedupDirection(vessel, { requireMovement: true });
@@ -4934,17 +5075,24 @@ class AISBridgeApp extends Homey.App {
       //   (a) 08:25 — STILLALIGGAREN: lotsen parkerad 294 m från Stallbacka-
       //       bron (sog 0, ANCHOR_BLOCK) re-notifierades när 2h-posten
       //       prunades, trots att ingen ny passage förestod. Släppet kräver
-      //       nu rörelsebevisad riktning (curDir !== null ⇔ sog ≥ 2 kn) —
-      //       samma F4-C-princip som flip-grenen.
+      //       nu rörelsebevisad riktning — samma F4-C-princip som flip-grenen.
       //   (b) 11:32/11:33 — DUBBLETTEN: släppet avfyrade under OBEKRÄFTAD
       //       reversal (_newJourneyPending) med gamla riktningen i tokens;
       //       80 s senare rensade NEW_JOURNEY-bekräftelsen den färska
       //       nyckeln och avfyrade om. Under pending väntar släppet — den
       //       bekräftade reversalen äger notisen (rätt riktning, EN notis).
+      // ChatGPT-verifieringen 2026-07-10 (C2): "curDir !== null" var inte
+      // nog — en LÅST _routeDirection uppfyller det även vid sog 0 (låset
+      // är från gamla resan och bevisar ingen NY passage). Intentionen var
+      // rörelse I NUET: explicit fartkrav. Fönstret var realistiskt: dedup-
+      // expiry (notis + 2h) infaller alltid före moored-2h-backstopen
+      // (stillhetsstart + 2h) för en båt som stannat EFTER notisen.
       // Legitima >2h-returer i RÖRELSE (ELFKUNGEN-klassen, korpuslåsta)
-      // uppfyller båda kraven och släpps som förut.
+      // uppfyller alla kraven och släpps som förut; fartgivarlösa returer
+      // täcks av korsningsbevis-reversalen (NEW_JOURNEY rensar nycklarna).
+      const movingNow = Number.isFinite(vessel.sog) && vessel.sog >= 2.0;
       const expiredRelease = !persisted && !oppositeDirection
-        ? (curDir !== null && !vessel._newJourneyPending)
+        ? (curDir !== null && movingNow && !vessel._newJourneyPending)
         : false;
       if (oppositeDirection || (!persisted && expiredRelease)) {
         this._triggeredBoatNearKeys.delete(dedupeKey);

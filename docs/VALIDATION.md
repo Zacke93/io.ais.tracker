@@ -25,8 +25,8 @@ Eller stegen var för sig:
 |---|---|---|
 | Enhetstester | `npm test 2>&1 \| tail -5` (**pipa alltid** — annars ENOSPC) | 900+ tester passerar |
 | | ⚠️ **Pipe-fällan** (ChatGPT-granskningen 2026-07-10, B1): pipens exitkod är `tail`:s (≈alltid 0) — LÄS `Tests:`-raden, lita inte på `$?`. `npm run validate` är immun: den skriver jest-utdatan till en tempfil och propagerar jest:s riktiga exitkod. | |
-| Korpusarna | `npm run replay:all` | 11 låsta korpusar (~150 h verklig AIS) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + alla invarianter |
-| Syntetiska | `npm run replay:synthetic` | 43 scenarier (gap, U-svängar, GPS-hopp, kajliggare, sog=null, omstart …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. |
+| Korpusarna | `npm run replay:all` | 11 låsta korpusar (~150 h verklig AIS) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + exakt (mmsi,bro,riktning)-fördelning + EXAKT bridge_text-transitionsström (golden-text/) + alla invarianter |
+| Syntetiska | `npm run replay:synthetic` | 44 scenarier (gap, U-svängar, GPS-hopp, kajliggare, sog=null, omstart, 2h-prune-stillaliggare …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. |
 | Soaken | `node tests/replay-validation/runSoak.js` | 72 h blandtrafik: 0 processfel, inga läckor, fatala invarianter rena |
 | Lint | `npx eslint <ändrade filer>` (per fil — OneDrive gör helträd långsamt) | 0 fel |
 
@@ -50,6 +50,15 @@ Korpusarnas facit ÄR sanningen tills du bevisat motsatsen i rådata. Om en
    med motivering i `tests/replay-validation/corpora.js` + uppdaterad
    fördelningspost i `corpora-distribution.json` (låst korpus utan
    fördelningspost är numera ett hårt fel).
+4. **Riktnings- och golden-text-faciten** (2026-07-10): utöver (mmsi,bro)-
+   multiseten låses även (mmsi,bro,riktning)-multiseten
+   (`corpora-direction-distribution.json`) och HELA bridge_text-
+   transitionsströmmen (`golden-text/<korpus>.json`). Vid en medveten,
+   rådataverifierad beteendeändring: kör
+   `REGEN_DISTRIBUTIONS=1 npm run replay:all` — skriptet vägrar skriva om
+   någon låst korpus inte är grön i övrigt, och du MÅSTE granska diffen i
+   golden-filerna som vilken facit-omlåsning som helst (git diff visar
+   exakt vilka texter som ändrats).
 
 Exempel på att fällan fungerar: helgranskningens ETA-gap-omordning gav
 "ärligare" värden men korpusbelagd fatal sågtand (2→32 min i texten) —

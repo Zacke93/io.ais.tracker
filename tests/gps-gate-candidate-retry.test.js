@@ -60,14 +60,29 @@ describe('F11: instabil-men-gammal GPS-gate-kandidat tappas inte', () => {
     expect(svc._candidatePassages.has('222')).toBe(false); // konsumerad
   });
 
-  test('instabil bortom max-ålder (>30s) överges (ingen oändlig retention)', () => {
+  test('instabil bortom kandidat-TTL:n (>20 min) överges (ingen oändlig retention)', () => {
+    // C1 (ChatGPT-verifieringen 2026-07-10): retry-fönstret följer numera
+    // _candidateTtl (20 min, täcker Class B-maxkadens) i stället för
+    // _gateTimeout (30 s) — 30 s övergav varje gles-kadens-kandidat vid
+    // FÖRSTA bekräftelseförsöket. Instabilitet vid stor ålder kräver
+    // kursbrott (avståndsgränsen är kadensmedveten sedan GJ-1).
     svc.registerCandidatePassage('333', 'Järnvägsbron', PASSAGE, BASE);
-    ageCandidate('333', 31000); // > _gateTimeout (30s)
+    ageCandidate('333', 21 * 60 * 1000); // > _candidateTtl (20 min)
 
-    const unstable = { ...BASE, lat: BASE.lat + 0.002 };
+    const unstable = { ...BASE, cog: (BASE.cog + 90) % 360 }; // kursbrott > 60°
     const r = svc.confirmStableCandidates('333', unstable);
     expect(r).toHaveLength(0);
     expect(svc._candidatePassages.has('333')).toBe(false); // övergiven
+  });
+
+  test('C1: instabil vid 3 min (Class B-kadens) BEHÅLLS för retry — gamla 30s-gränsen övergav den', () => {
+    svc.registerCandidatePassage('555', 'Järnvägsbron', PASSAGE, BASE);
+    ageCandidate('555', 3 * 60 * 1000);
+
+    const unstable = { ...BASE, cog: (BASE.cog + 90) % 360 }; // kursbrott > 60°
+    const r = svc.confirmStableCandidates('555', unstable);
+    expect(r).toHaveLength(0);
+    expect(svc._candidatePassages.has('555')).toBe(true); // behållen till nästa sample
   });
 
   test('kandidat inte gammal nog ännu → behålls (oförändrat)', () => {

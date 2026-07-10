@@ -115,26 +115,9 @@ describe('PassageLatchService — latch-livscykeln', () => {
     });
   });
 
-  describe('shouldBlockMessage — meddelandenivån', () => {
-    test('blockerar Stallbacka-specifika meddelanden efter passage av Stallbackabron', () => {
-      svc.registerPassage(MMSI, 'Stallbackabron', 'north');
-
-      expect(svc.shouldBlockMessage(MMSI, 'Stallbackabron', 'stallbacka-waiting')).toBe(true);
-      expect(svc.shouldBlockMessage(MMSI, 'Stallbackabron', 'approaching')).toBe(true);
-    });
-
-    test('blockerar standardmeddelanden för övriga broar efter passage', () => {
-      svc.registerPassage(MMSI, 'Järnvägsbron', 'south');
-
-      expect(svc.shouldBlockMessage(MMSI, 'Järnvägsbron', 'waiting')).toBe(true);
-      expect(svc.shouldBlockMessage(MMSI, 'Järnvägsbron', 'under-bridge')).toBe(false);
-    });
-
-    test('utan registrerad passage blockeras inga meddelanden', () => {
-      expect(svc.shouldBlockMessage(MMSI, 'Stallbackabron', 'stallbacka-waiting')).toBe(false);
-      expect(svc.shouldBlockMessage(MMSI, 'Klaffbron', 'waiting')).toBe(false);
-    });
-  });
+  // Helgranskning 2026-07-10: shouldBlockMessage-blocket raderat ihop med
+  // metoden (död kod — noll produktionsanrop; statusnivån shouldBlockStatus
+  // täcks av blocken ovan).
 
   describe('clearLatch / clearVesselLatches — riktad rensning', () => {
     test('clearLatch rensar bara den angivna bron, andra latches kvarstår', () => {

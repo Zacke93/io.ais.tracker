@@ -30,15 +30,15 @@ module.exports = {
   ],
 
   // Coverage thresholds — ett GOLV som ALDRIG sänks, bara höjs.
-  // Ratchet 2026-07-06 (helgranskningens teststärkning): uppmätt
-  // 76,7/71,9/81,9/77,6 → golv strax under (marginal ~1–2 pp för legitim
-  // variation). Föregående golv (2026-07-03): 70/60/70/70.
+  // Ratchet 2026-07-10 (helkodsgranskningen): uppmätt 78,8/75,3/83,7/79,5
+  // (dödkod raderad + 26 nya tester) → golv strax under (marginal ~1–2 pp
+  // för legitim variation). Föregående golv (2026-07-06): 75/70/80/76.
   coverageThreshold: {
     global: {
-      branches: 70,
-      functions: 80,
-      lines: 76,
-      statements: 75,
+      branches: 73,
+      functions: 82,
+      lines: 78,
+      statements: 77,
     },
   },
 

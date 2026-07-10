@@ -246,12 +246,16 @@ describe('GPSJumpGateService — gate-livscykel och kandidathantering', () => {
 
   describe('_cleanupExpiredGates: periodisk självstädning', () => {
     test('utgångna gates och kandidater rensas, färska behålls (partiell filtrering)', () => {
-      // Gamla poster (blir 31 s gamla)
-      svc.activateGate('gammal-gate', 900);
+      // C1 (ChatGPT-verifieringen 2026-07-10): kandidater lever numera
+      // _candidateTtl (20 min — Class B-maxkadensen), INTE gateTimeout
+      // (30 s). Gamla poster åldras därför förbi 20 min; gates förbi 30 s.
       svc.registerCandidatePassage('gammal-kandidat', 'Klaffbron', PASSAGE, BASE_VESSEL);
       svc.registerCandidatePassage('blandad', 'Klaffbron', PASSAGE, BASE_VESSEL);
 
-      advance(31_000); // > gateTimeout (30 s)
+      advance(21 * 60 * 1000); // > candidateTtl (20 min)
+
+      svc.activateGate('gammal-gate', 900);
+      advance(31_000); // > gateTimeout (30 s) för gaten
 
       // Färska poster
       svc.activateGate('färsk-gate', 300);
@@ -269,6 +273,15 @@ describe('GPSJumpGateService — gate-livscykel och kandidathantering', () => {
       expect(svc._candidatePassages.get('blandad')).toHaveLength(1);
       expect(svc._candidatePassages.get('blandad')[0].bridgeName).toBe('Järnvägsbron');
       expect(status.totalCandidates).toBe(2);
+    });
+
+    test('C1: kandidat vid Class B-kadens (3 min) överlever produktions-städningen', () => {
+      svc.registerCandidatePassage('265041', 'Klaffbron', PASSAGE, BASE_VESSEL);
+      advance(3 * 60 * 1000); // typisk gles kadens — gamla 30s-gränsen raderade
+
+      svc._cleanupExpiredGates();
+
+      expect(svc._candidatePassages.has('265041')).toBe(true);
     });
 
     test('kandidater yngre än 30 s överlever städningen (C3: gränsen är gateTimeout, inte 15 s)', () => {

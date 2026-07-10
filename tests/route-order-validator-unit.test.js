@@ -119,13 +119,17 @@ describe('RouteOrderValidator – validering av broordning', () => {
       expect(result.confidence).toBe(0.8);
     });
 
-    test('hopp över 3 broar blockeras (Stallbackabron → Olidebron söderut)', () => {
+    test('G-1 (helgranskning 2026-07-10): hopp över 3 broar TILLÅTS — hela kedjan kan täckas av ett Class B-glapp (Stallbackabron → Olidebron söderut)', () => {
+      // Gamla taket (+3, max 2 broar) blockerade en äkta hel-kedje-detektering
+      // som "sequence_too_far_forward" när båten var snabbare än
+      // 30-min-undantaget — en ren pelare 2-missrisk. detectBridgePassage
+      // kräver fortfarande äkta linjekorsningsbevis.
       validator.registerPassage(MMSI, 'Stallbackabron', makeVessel(180));
 
       const result = validator.validatePassageOrder(MMSI, 'Olidebron', makeVessel(180));
 
-      expect(result.valid).toBe(false);
-      expect(result.reason).toBe('sequence_too_far_forward');
+      expect(result.valid).toBe(true);
+      expect(result.reason).toBe('valid_sequence_skip');
     });
 
     test('bakåtpassage blockeras (Järnvägsbron → Stridsbergsbron söderut)', () => {

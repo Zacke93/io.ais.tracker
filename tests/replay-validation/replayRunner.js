@@ -252,7 +252,14 @@ async function main() {
       app._lastConnectionStatus = 'connected';
       try {
         if (typeof app._onAISConnected === 'function') app._onAISConnected();
-      } catch (e) { /* reconnect-refresh är best-effort i replay */ }
+      } catch (e) {
+        // Testauditen 2026-07-10 (TE16): ett kastande _onAISConnected (t.ex.
+        // trasig P8-reconnect-refresh) är en ÄKTA regression, inte replay-
+        // brus — räkna som processfel så batteriet blir rött i stället för
+        // att svälja tyst.
+        processErrors++;
+        console.error(`[REPLAY] processfel i reconnect-refresh: ${e.message || e}`);
+      }
       // eslint-disable-next-line no-await-in-loop
       await drain();
       continue;
@@ -266,7 +273,12 @@ async function main() {
       try {
         // eslint-disable-next-line no-await-in-loop
         await app.onUninit();
-      } catch (e) { /* nedstängning är best-effort i replay */ }
+      } catch (e) {
+        // TE16: kastande onUninit är en äkta regression (timer-/cleanup-
+        // vägen) — räkna, svälj inte.
+        processErrors++;
+        console.error(`[REPLAY] processfel i onUninit vid restart: ${e.message || e}`);
+      }
       // eslint-disable-next-line no-await-in-loop
       await drain();
       // Samma initdans som vid start: onInit under __TEST_MODE__=true.
