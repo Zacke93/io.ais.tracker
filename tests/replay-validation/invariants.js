@@ -143,13 +143,26 @@ function validateInvariants(result) {
       // Fix D bekräftar inte alla U-svängar (t.ex. vändning FÖRE målbron
       // där ruttriktningen hinner låsas om av annan mekanism). Dubblett-
       // skyddet består i SAMMA riktning: där krävs journey-reset.
+      //
+      // Testauditen 2026-07-10 (TB5): undantaget var en öppen dörr — en
+      // serie N,S,N,S,… godkändes helt (varje konsekutivt par "motsatt"),
+      // så en riktnings-token-vobbel kunde legitimera obegränsat många
+      // notiser. En FYSISK returpassage tar minuter (vända + segla tillbaka
+      // till 300 m-zonen; korpusbelagda äkta returer: HALIFAX 10 min,
+      // ELFKUNGEN 76 min) — kräv därför ≥5 min mellan flip-legitimerade
+      // notiser. PIANO-klassens vobbel-dubbletter kom inom ~1 min och fälls.
       const prevDir = sorted[i - 1].direction;
       const curDir = sorted[i].direction;
       const oppositeDirections = prevDir && curDir
         && prevDir !== 'unknown' && curDir !== 'unknown'
         && prevDir !== curDir;
-      if (!resetBetween && !oppositeDirections) {
-        violations.push(`NOTIS-DUBBLETT: ${k} × ${list.length} utan journey-reset emellan`);
+      const physicallyPlausibleReturn = oppositeDirections
+        && (curT - prevT) >= 5 * 60 * 1000;
+      if (!resetBetween && !physicallyPlausibleReturn) {
+        const flipNote = oppositeDirections
+          ? ` (riktningsflip inom ${Math.round((curT - prevT) / 1000)}s — fysiskt orimlig retur)`
+          : '';
+        violations.push(`NOTIS-DUBBLETT: ${k} × ${list.length} utan journey-reset emellan${flipNote}`);
         break;
       }
     }
@@ -480,6 +493,11 @@ function validateInvariants(result) {
  * INV-18 Mjuk ETA-monotoni: obruten stigande ETA-serie (+≥8 min inom ≤15 min,
  *        samma antal-ord, ingen passage). WARN pga legitim fysik: en båt som
  *        SAKTAR IN får stigande ETA (krypfart-scenariot 19→42 min är sant).
+ * INV-19 Flip-frekvens (2026-07-10, TB5): ≥4 riktningsflip-släppta notiser
+ *        för samma (mmsi,bro) utan journey-reset — pendlings-/vobbelsignal.
+ * INV-20 Målbro-flapp (2026-07-10, TB7): "på väg mot X" försvinner och
+ *        återkommer inom 3 min utan målbropassage — target-thrash. WARN
+ *        tills korpuskalibrerad.
  */
 function validateWarnInvariants(result) {
   const warnings = [];
@@ -558,6 +576,78 @@ function validateWarnInvariants(result) {
         }
       }
       runStart = i;
+    }
+  }
+
+  // INV-19 (testauditen 2026-07-10, TB5): flip-frekvens — många riktnings-
+  // flip-legitimerade dubbelnotiser för samma (mmsi,bro) utan journey-reset
+  // är en pendlings-/vobbelsignal värd manuell granskning även när varje
+  // enskilt par klarar den fatala 5-min-gränsen i INV-2.
+  {
+    const journeyResets = result.journeyResets || [];
+    const byKey = new Map();
+    for (const n of notifications) {
+      const k = `${n.mmsi}:${n.bridge}`;
+      if (!byKey.has(k)) byKey.set(k, []);
+      byKey.get(k).push(n);
+    }
+    for (const [k, list] of byKey) {
+      if (list.length < 3) continue;
+      const mmsi = k.split(':')[0];
+      const sorted = [...list].sort((a, b) => (a.t || 0) - (b.t || 0));
+      let flipReleases = 0;
+      for (let i = 1; i < sorted.length; i++) {
+        const prevT = sorted[i - 1].t || 0;
+        const curT = sorted[i].t || 0;
+        const resetBetween = journeyResets.some(
+          (r) => r.mmsi === mmsi && r.t >= prevT && r.t <= curT,
+        );
+        const prevDir = sorted[i - 1].direction;
+        const curDir = sorted[i].direction;
+        if (!resetBetween && prevDir && curDir
+            && prevDir !== 'unknown' && curDir !== 'unknown' && prevDir !== curDir) {
+          flipReleases++;
+        }
+      }
+      if (flipReleases >= 4) {
+        warnings.push(`INV-19 FLIP-FREKVENS: ${k} hade ${flipReleases} riktningsflip-släppta notiser utan journey-reset — granska att alla är äkta returpassager`);
+      }
+    }
+  }
+
+  // INV-20 (testauditen 2026-07-10, TB7): målbro-oscillation i texten —
+  // samma räkne-ord som hoppar Klaffbron↔Stridsbergsbron fram och tillbaka
+  // inom ett kort fönster utan mellanliggande målbropassage är target-thrash
+  // (INV-3:s syskon för MÅLBRON i stället för ETA:t). WARN tills korpus-
+  // kalibrerad: legitima byten sker vid passage (vaktas bort nedan) och vid
+  // äkta U-sväng (sällsynt inom 3 min).
+  {
+    const bridgeAppearances = []; // {t, iso, bridges:Set}
+    for (const t of transitions) {
+      const bridges = new Set();
+      for (const clause of t.text.split('; ')) {
+        const m = clause.match(/på väg mot (Klaffbron|Stridsbergsbron)/);
+        if (m) bridges.add(m[1]);
+      }
+      bridgeAppearances.push({ t: t.t, iso: t.iso, bridges });
+    }
+    for (let i = 2; i < bridgeAppearances.length; i++) {
+      const a = bridgeAppearances[i - 2];
+      const b = bridgeAppearances[i - 1];
+      const c = bridgeAppearances[i];
+      const windowMs = c.t - a.t;
+      if (windowMs > 3 * 60 * 1000) continue;
+      // Mönstret X → (X saknas, Y finns) → X inom 3 min utan passage
+      for (const bridge of a.bridges) {
+        if (!b.bridges.has(bridge) && b.bridges.size > 0 && c.bridges.has(bridge)) {
+          const passageInWindow = targetPassages.some(
+            (p) => p.t >= a.t && p.t <= c.t,
+          );
+          if (!passageInWindow) {
+            warnings.push(`INV-20 MÅLBRO-FLAPP: "${bridge}" försvann och återkom i texten inom ${Math.round(windowMs / 1000)}s utan passage (${a.iso})`);
+          }
+        }
+      }
     }
   }
 

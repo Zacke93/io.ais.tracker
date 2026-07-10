@@ -799,6 +799,35 @@ const SCENARIOS = [
       minNotifiedBridges: ['Stridsbergsbron'],
     },
   },
+  {
+    // PILOT 761-klassen (fältprov 5, 2026-07-10, F5-A / testauditen TA3):
+    // nordgående passerar hela kanalen och lägger sig still 200 m norr om
+    // Stallbackabron (lots-stationen) — SÄNDANDE var 3:e minut i 2h20.
+    // 2h-deduppostens fönster hinner löpa ut medan sessionsnyckeln lever
+    // och båten står kvar INOM 300 m-notiszonen. Före F5-A släppte
+    // expired-grenen sessionsnyckeln ovillkorligt → FANTOM-notis för
+    // Stallbackabron utan ny passage (08:25-fantomen). Kontraktet låser
+    // EXAKT EN notis per bro över hela förloppet — regressionsskydd för
+    // expired-släppskedjan i HELKEDJA (enhetstesterna i faltprov-5- och
+    // helgranskning-2026-07-10-sviterna täcker grenarna isolerat).
+    name: 'stillaliggare-efter-2h-prune (PILOT-klassen)',
+    seed: 55,
+    vessels: [{
+      mmsi: '901000055',
+      name: 'SYNT-PILOT',
+      direction: 'north',
+      speedKn: 5.0,
+      stop: {
+        atFraction: (METRICS.cum[5] + 200) / METRICS.total,
+        durationS: 8400,
+      },
+      stopReportIntervalS: 180,
+    }],
+    expect: {
+      minNotifiedBridges: ['Klaffbron', 'Stridsbergsbron', 'Stallbackabron'],
+      maxNotifiedPerBridge: { Stallbackabron: 1, Stridsbergsbron: 1, Klaffbron: 1 },
+    },
+  },
 ];
 
 function runScenario(scenario) {
