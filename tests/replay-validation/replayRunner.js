@@ -334,6 +334,28 @@ async function main() {
   }
   await drain();
 
+  // ---- Leveransbevis för global flow-token (CG2-18A, 2026-07-11) ----
+  // Replayen loggade tidigare bara den BESLUTADE texten (wrappern fångar
+  // skrivFÖRSÖKET i _writeCapabilityToDevices); tokenens faktiska innehåll
+  // asserterades aldrig — _setGlobalTokenSafe kunde brytas utan att någon
+  // korpus föll. Mockens setValue sätter värdet synkront, så efter
+  // slutstädningen ska tokenen exakt spegla appens egen textcache
+  // (init-semantiken: '' ⇒ DEFAULT, se _initGlobalToken). En diskrepans =
+  // tappad/felordnad tokenleverans (CG2-4-klassen) och räknas som processfel.
+  try {
+    // eslint-disable-next-line global-require
+    const { BRIDGE_TEXT_CONSTANTS } = require('../../lib/constants');
+    const tokenValue = app._globalBridgeTextToken ? app._globalBridgeTextToken.value : null;
+    const expectedToken = app._lastBridgeText || BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE;
+    if (tokenValue !== expectedToken) {
+      processErrors++;
+      console.error(`[REPLAY] GLOBAL_TOKEN_DELIVERY_MISMATCH: token="${tokenValue}" förväntad="${expectedToken}"`);
+    }
+  } catch (e) {
+    processErrors++;
+    console.error(`[REPLAY] tokenleverans-assertionen kastade: ${e.message || e}`);
+  }
+
   // Återställ globala flaggor
   global.__TEST_MODE__ = savedTestMode;
   process.env.NODE_ENV = savedNodeEnv;

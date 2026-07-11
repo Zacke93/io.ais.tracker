@@ -1048,8 +1048,26 @@ class AISBridgeApp extends Homey.App {
     await this._analyzeVesselPosition(vessel);
 
     // STEG 3: TRIGGA BOAT_NEAR FLOW
-    // Om båten redan har en målbro tilldelad, trigga Homey Flow
-    if (vessel.targetBridge) {
+    // ChatGPT-granskning 2 (CG2-2, 2026-07-11): grinden utökad med
+    // trigger-punkterna. Tidigare krävdes targetBridge — en MÅLLÖS
+    // förstakontakt inne i Kanalinfartens 300 m-zon (cog utanför
+    // riktningsbanden ⇒ target=null) skippades här, och varken updated-vägen
+    // (kräver ett ANDRA sample i zonen), skipped-bridges-svepet (fångar bara
+    // passerade broar) eller exit-fallbacken (kräver transitbevis) räddade
+    // engångschansen ⇒ permanent Kanalinfarten-miss. Kandidatlogiken i
+    // _triggerBoatNearFlow filtrerar själv (moored/rörelsebevis/GPS-håll/
+    // stale/dedup) — positionsbevisad NÄRHET, ingen gissad passage.
+    // MEDVETET SNÄV (SISU-fyndet vid införandet): currentBridge ingår INTE —
+    // en ÅTERFÖDD båt intill en just gap-passerad bro ska notifieras av
+    // skipped-bridges-fallbacken (STEG 3b), vars riktning kommer ur den
+    // positionsbevisade hoppvektorn; en proximity-notis här hade förekommit
+    // den med cog-läst 'unknown'-riktning (riktningsfacit-regression).
+    const enteredNearTriggerPoint = Number.isFinite(vessel.lat) && Number.isFinite(vessel.lon)
+      && Object.values(TRIGGER_POINTS).some((tp) => {
+        const d = geometry.calculateDistance(vessel.lat, vessel.lon, tp.lat, tp.lon);
+        return d !== null && d <= FLOW_CONSTANTS.FLOW_TRIGGER_DISTANCE_THRESHOLD;
+      });
+    if (vessel.targetBridge || enteredNearTriggerPoint) {
       await this._triggerBoatNearFlow(vessel);
     }
 
@@ -2961,7 +2979,14 @@ class AISBridgeApp extends Homey.App {
       // CRITICAL FIX: Use hash-based dedupe for exact change detection
       const timeSinceLastUpdate = Date.now() - (this._lastBridgeTextUpdate || 0);
       const hasPassedVessels = relevantVessels.some((vessel) => vessel.status === 'passed');
-      const textActuallyChanged = bridgeTextHash !== this._lastBridgeTextHash;
+      // ChatGPT-granskning 2 (CG2-15, 2026-07-11): 32-bitshashen har äkta
+      // kollisioner (1197 buckets i den realistiska textrymden) — en kollision
+      // gjorde att ny text tyst behölls gammal. OR-termen jämför strängen och
+      // kan bara LÄGGA TILL skrivningar; hash-ledet bevaras eftersom
+      // null-sentinelen (hash=null, sträng kvar) måste fortsätta tvinga
+      // omskrivning av SAMMA text efter timeout/fel.
+      const textActuallyChanged = bridgeTextHash !== this._lastBridgeTextHash
+        || bridgeText !== this._lastBridgeText;
 
       // Force update every minute if vessels present, but never when "passed" vessels exist
       const forceUpdateDueToTime = timeSinceLastUpdate > 60000 && relevantVessels.length > 0 && !hasPassedVessels;
@@ -3758,8 +3783,16 @@ class AISBridgeApp extends Homey.App {
       }
 
       // Check for in-flight update
-      if (this._inFlightUpdates.has(bridgeKey)) {
-        this.debug(`✋ [IN_FLIGHT] Update in progress for ${bridgeKey} - scheduling rerun`);
+      // ChatGPT-granskning 2 (CG2-4, 2026-07-11): vakten är GLOBAL, inte
+      // per-bridgeKey. bridge_text/global token/alarm_generic är alla globala
+      // enskilda utdata — vid 1→0-båtsövergången fick ett gammalt in-flight-
+      // pass ('Klaffbron') och ett nytt ('global') olika nycklar, interleavade,
+      // och det äldre passet skrev token=ACTIVE + alarm=true EFTER det nyare
+      // DEFAULT-passet. Alla felsentineler var normala → watchdog-osynligt
+      // stale-läge tills nästa båt. Global serialisering gör att hela
+      // transaktionen (text+token+larm) alltid speglar SAMMA snapshot.
+      if (this._inFlightUpdates.size > 0) {
+        this.debug(`✋ [IN_FLIGHT] Update in progress - scheduling rerun (blocked key: ${bridgeKey})`);
         this._rerunNeeded.add(bridgeKey);
         return;
       }
@@ -3772,13 +3805,18 @@ class AISBridgeApp extends Homey.App {
         await this._actuallyUpdateUI();
 
         // Check if we need to rerun due to events during update
-        if (this._rerunNeeded.has(bridgeKey)) {
-          this._rerunNeeded.delete(bridgeKey);
-          this.debug(`🔄 [RERUN] Scheduling rerun for ${bridgeKey} due to events during update`);
+        // CG2-4: kolla HELA setten — ett blockerat pass kan bära en annan
+        // bridgeKey än den in-flight (t.ex. 'global' mot 'Klaffbron');
+        // per-nyckel-kollen tappade det passets uppdatering tills nästa
+        // externa händelse. En rerun genererar från aktuellt tillstånd och
+        // täcker alla väntande nycklar på en gång.
+        if (this._rerunNeeded.size > 0) {
+          this._rerunNeeded.clear();
+          this.debug('🔄 [RERUN] Scheduling rerun due to events during update');
 
           // Schedule rerun with new version
           setImmediate(() => {
-            this._publishUpdate(++this._updateVersion, bridgeKey, ['rerun-after-inflight']);
+            this._publishUpdate(++this._updateVersion, this._determineBridgeKey(), ['rerun-after-inflight']);
           });
         }
       } finally {
@@ -4323,6 +4361,24 @@ class AISBridgeApp extends Homey.App {
    * @private
    */
   async _setGlobalTokenSafe(text) {
+    // ChatGPT-granskning 2 (CG2-12b, 2026-07-11): lat återskapning. Ett
+    // transient createToken-fel vid init lämnade annars token död till
+    // appomstart (early return här på varje publicering). Rate-limitad till
+    // ett försök per minut; _globalTokenRecreatePending bryter rekursionen
+    // (_initGlobalToken anropar den här metoden för sitt setValue).
+    if (!this._globalBridgeTextToken && !this._shuttingDown && !this._globalTokenRecreatePending
+        && this.homey && this.homey.flow && typeof this.homey.flow.createToken === 'function') {
+      const nowTs = Date.now();
+      if (!this._lastGlobalTokenRecreateAttempt || nowTs - this._lastGlobalTokenRecreateAttempt > 60 * 1000) {
+        this._lastGlobalTokenRecreateAttempt = nowTs;
+        this._globalTokenRecreatePending = true;
+        try {
+          await this._initGlobalToken();
+        } finally {
+          this._globalTokenRecreatePending = false;
+        }
+      }
+    }
     if (!this._globalBridgeTextToken || this._shuttingDown) return;
     let timer = null;
     let timedOut = false;
@@ -4370,7 +4426,22 @@ class AISBridgeApp extends Homey.App {
             // flaggan så nästa skrivning gör ett nytt försök (annars kunde
             // enheten fastna i unavailable för evigt).
             if (device._initFailed) {
-              if (typeof device.setAvailable === 'function') {
+              // ChatGPT-granskning 2 (CG2-6, 2026-07-11): en lyckad skrivning
+              // på VILKEN kanal som helst räckte för att klarera flaggan —
+              // en enhet vars bridge_text-migrering misslyckades blev
+              // "available" på en lyckad alarm_generic-skrivning medan
+              // pelare 1-kanalen saknades helt (error-storm, osynligt för
+              // användaren). Kräv att ALLA obligatoriska capabilities finns
+              // innan enheten friskförklaras; saknas någon förblir den
+              // ärligt unavailable tills nästa onInit retar migreringen.
+              // (Stubbar utan hasCapability-API behandlas som kompletta —
+              // bevarar testlägets I1-beteende.)
+              const REQUIRED_CAPABILITIES = ['alarm_generic', 'bridge_text', 'connection_status'];
+              const allCapabilitiesPresent = typeof device.hasCapability !== 'function'
+                || REQUIRED_CAPABILITIES.every((cap) => device.hasCapability(cap));
+              if (!allCapabilitiesPresent) {
+                this.error(`[INIT_RECOVERY_BLOCKED] ${device.getName ? device.getName() : 'device'} saknar obligatorisk capability — förblir unavailable tills migreringen lyckas (nästa onInit)`);
+              } else if (typeof device.setAvailable === 'function') {
                 device.setAvailable().then(() => {
                   device._initFailed = false;
                 }).catch((availErr) => {
@@ -5909,15 +5980,34 @@ class AISBridgeApp extends Homey.App {
   async _initGlobalToken() {
     try {
       if (!this._globalBridgeTextToken) {
-        this._globalBridgeTextToken = await this.homey.flow.createToken('global_bridge_text', {
-          type: 'string',
-          title: 'Bridge Text',
-        });
+        // ChatGPT-granskning 2 (CG2-12c, 2026-07-11): bounded. onInit
+        // awaitar den här metoden FÖRE _startConnection/_setupMonitoring —
+        // en hängande createToken (ej rejection; try/catch fångar bara
+        // rejection) stallade hela appstarten utan AIS och utan watchdog.
+        // Publiceringsvägen fick 10 s-vakten i A2R2-2; init-vägen var
+        // asymmetriskt oskyddad.
+        let createTimer = null;
+        try {
+          this._globalBridgeTextToken = await Promise.race([
+            this.homey.flow.createToken('global_bridge_text', {
+              type: 'string',
+              title: 'Bridge Text',
+            }),
+            new Promise((resolve, reject) => {
+              createTimer = setTimeout(() => reject(new Error('createToken(global_bridge_text) svarade inte inom 10 s')), 10 * 1000);
+              if (createTimer && typeof createTimer.unref === 'function') createTimer.unref();
+            }),
+          ]);
+        } finally {
+          clearTimeout(createTimer);
+        }
       }
       // BT-F8 (2026-07-01): vid appstart är _lastBridgeText fortfarande '' —
       // flows som läser global_bridge_text före första UI-uppdateringen ska
       // få DEFAULT-meddelandet, inte tom sträng.
-      await this._globalBridgeTextToken.setValue(
+      // CG2-12c: setValue går via _setGlobalTokenSafe (10 s-race +
+      // sen-landningshantering) i stället för naken await.
+      await this._setGlobalTokenSafe(
         this._lastBridgeText || BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE,
       );
     } catch (error) {
@@ -6417,6 +6507,62 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * Dedup-cachestädningen (körs av monitoring-loopen varje minut).
+   * ChatGPT-granskning 2 (CG2-10, 2026-07-11): ORDNINGEN ÄR ETT KONTRAKT —
+   * persistent-posterna prunas FÖRE sessionsnycklarna. Omvänd ordning lämnade
+   * ett 60 s orphan-fönster: nyckeln behölls (posten fanns kvar vid kollen)
+   * medan posten raderades i samma tick — återföddes båten i fönstret var
+   * mmsi:t aktivt igen och nyckeln prunades aldrig (fartgivarlös återfödd =
+   * permanent notisblock, pelare 2-miss). Orphan-spegeln (DIVR2-4) täcker
+   * inte fallet: den kräver postens tidsstämpel för sitt 2h-krav och kan
+   * inte fyra när posten är borta.
+   * @private
+   */
+  _pruneDedupCaches() {
+    // Anomali 9 fix: rensa _persistentRecentTriggers entries äldre än 2h
+    // för att map inte ska växa obegränsat.
+    if (this._persistentRecentTriggers) {
+      const persistentNow = Date.now();
+      const persistentWindow = this._PERSISTENT_DEDUP_WINDOW_MS || 2 * 60 * 60 * 1000;
+      const persistentExpired = [];
+      for (const [key, value] of this._persistentRecentTriggers.entries()) {
+        const ts = typeof value === 'number' ? value : value && value.t;
+        if (!Number.isFinite(ts) || persistentNow - ts > persistentWindow) {
+          persistentExpired.push(key);
+        }
+      }
+      if (persistentExpired.length > 0) {
+        persistentExpired.forEach((key) => this._persistentRecentTriggers.delete(key));
+        this._persistRecentTriggers(); // P2: håll persisterat tillstånd i synk
+        this.debug(`🧹 [CLEANUP] Removed ${persistentExpired.length} expired persistent dedup entries`);
+      }
+    }
+
+    // FIX: Cleanup stale boat near triggers for vessels that no longer exist
+    const activeVessels = this.vesselDataService.getAllVessels();
+    const activeMmsis = new Set(activeVessels.map((v) => v.mmsi));
+    const keysToRemove = [];
+
+    for (const key of this._triggeredBoatNearKeys) {
+      const mmsi = key.split(':')[0];
+      // Produktionsredo (2026-07-03): BUG 7 bevarar medvetet dedup-nycklar
+      // vid timeout-removal (re-entry inom samma passage) — men den här
+      // städningen raderade dem ändå inom 60 s och gjorde bevarandet dött.
+      // Behåll nycklar som fortfarande är dedup-relevanta enligt
+      // persistent-mappen (2h-TTL:n styr livslängden).
+      if (!activeMmsis.has(mmsi)
+          && !(this._persistentRecentTriggers && this._persistentRecentTriggers.has(key))) {
+        keysToRemove.push(key);
+      }
+    }
+
+    if (keysToRemove.length > 0) {
+      keysToRemove.forEach((key) => this._triggeredBoatNearKeys.delete(key));
+      this.debug(`🧹 [CLEANUP] Removed ${keysToRemove.length} stale boat_near triggers`);
+    }
+  }
+
+  /**
    * Setup monitoring
    * @private
    */
@@ -6435,47 +6581,10 @@ class AISBridgeApp extends Homey.App {
         this.debug(`📊 [MONITORING] Tracking ${vesselCount} vessels`);
       }
 
-      // FIX: Cleanup stale boat near triggers for vessels that no longer exist
-      const activeVessels = this.vesselDataService.getAllVessels();
-      const activeMmsis = new Set(activeVessels.map((v) => v.mmsi));
-      const keysToRemove = [];
-
-      for (const key of this._triggeredBoatNearKeys) {
-        const mmsi = key.split(':')[0];
-        // Produktionsredo (2026-07-03): BUG 7 bevarar medvetet dedup-nycklar
-        // vid timeout-removal (re-entry inom samma passage) — men den här
-        // städningen raderade dem ändå inom 60 s och gjorde bevarandet dött.
-        // Behåll nycklar som fortfarande är dedup-relevanta enligt
-        // persistent-mappen (2h-TTL:n styr livslängden).
-        if (!activeMmsis.has(mmsi)
-            && !(this._persistentRecentTriggers && this._persistentRecentTriggers.has(key))) {
-          keysToRemove.push(key);
-        }
-      }
-
-      if (keysToRemove.length > 0) {
-        keysToRemove.forEach((key) => this._triggeredBoatNearKeys.delete(key));
-        this.debug(`🧹 [CLEANUP] Removed ${keysToRemove.length} stale boat_near triggers`);
-      }
-
-      // Anomali 9 fix: rensa _persistentRecentTriggers entries äldre än 2h
-      // för att map inte ska växa obegränsat.
-      if (this._persistentRecentTriggers) {
-        const persistentNow = Date.now();
-        const persistentWindow = this._PERSISTENT_DEDUP_WINDOW_MS || 2 * 60 * 60 * 1000;
-        const persistentExpired = [];
-        for (const [key, value] of this._persistentRecentTriggers.entries()) {
-          const ts = typeof value === 'number' ? value : value && value.t;
-          if (!Number.isFinite(ts) || persistentNow - ts > persistentWindow) {
-            persistentExpired.push(key);
-          }
-        }
-        if (persistentExpired.length > 0) {
-          persistentExpired.forEach((key) => this._persistentRecentTriggers.delete(key));
-          this._persistRecentTriggers(); // P2: håll persisterat tillstånd i synk
-          this.debug(`🧹 [CLEANUP] Removed ${persistentExpired.length} expired persistent dedup entries`);
-        }
-      }
+      // Dedup-städningen (persistent 2h-map + sessionsnycklar) — extraherad
+      // till egen metod (CG2-10) så ordningskontraktet kan enhetstestas
+      // (monitoring-loopen är TEST_MODE-gatad och nås aldrig av jest).
+      this._pruneDedupCaches();
 
       // B1 (2026-07-03): rensa namncache-poster äldre än TTL:n (30 dagar).
       if (this._knownVesselNames) {
@@ -6629,7 +6738,9 @@ class AISBridgeApp extends Homey.App {
     // Helgranskning 2026-07-06 (app-9#1): statusService tillagd — dess
     // ProgressiveETACalculator äger ett 5-min-setInterval som annars läckte
     // per onInit-cykel.
-    for (const svc of [this.passageLatchService, this.routeOrderValidator, this.gpsJumpGateService, this.statusService]) {
+    // ChatGPT-granskning 2 (CG2-17, 2026-07-11): systemCoordinator tillagd —
+    // dess 2 s-debounce-timers saknade annars destroy-väg.
+    for (const svc of [this.passageLatchService, this.routeOrderValidator, this.gpsJumpGateService, this.statusService, this.systemCoordinator]) {
       try {
         if (svc && typeof svc.destroy === 'function') svc.destroy();
       } catch (error) {
