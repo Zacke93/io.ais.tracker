@@ -100,7 +100,10 @@ async function main() {
   // set (2026-07-03): persistensvägarna (_persistRecentTriggers/
   // _persistVesselNames) skriver på riktigt så ctrl:'restart' kan testa
   // load/save-cykeln i helkedjan — tidigare no-op:ade de tyst (ingen set).
-  mockHomey.app.settings = { debug_level: 'off', ais_api_key: null };
+  // Fältprov 6 (2026-07-11): REPLAY_DEBUG_LEVEL=full exponerar appens
+  // debug-rader (ETA-kedjan m.m.) i verbose-läget — rotorsaksdiagnos av
+  // golden-diffar kräver dem. Default 'off' är oförändrad.
+  mockHomey.app.settings = { debug_level: process.env.REPLAY_DEBUG_LEVEL || 'off', ais_api_key: null };
   mockHomey.settings = {
     get: (k) => mockHomey.app.settings[k] || null,
     set: (k, v) => {
