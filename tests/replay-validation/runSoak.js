@@ -190,9 +190,34 @@ if (result.notificationCount < minExpected) {
   problems.push(`notiser ${result.notificationCount} < rimlighetsgolv ${minExpected} (${fullJourneys} genomresor × 5)`);
 }
 
+// ChatGPT-granskning 2 (CG2-19, 2026-07-11): PER-BRO-golv. Det aggregerade
+// golvet (×5 av 6 notispunkter) släppte igenom att en HEL broklass tappade
+// alla sina notiser — varje resa gav då exakt 5 och totalen landade på
+// golvet. INV-5 backstoppar bara målbroarna (Klaffbron/Stridsbergsbron);
+// mellanbroarna hade ingen täckning alls. Kräv minst hälften av de raka
+// genomresornas notiser per bro/triggerpunkt (toleransen absorberar legitim
+// per-resa-suppression: gap-resorna %4, köstoppen %6, U-svängarna %9).
+const EXPECTED_NOTIFICATION_POINTS = [
+  'Kanalinfarten', 'Olidebron', 'Klaffbron', 'Järnvägsbron', 'Stridsbergsbron', 'Stallbackabron',
+];
+const perBridgeCounts = new Map();
+for (const n of (result.notifications || [])) {
+  if (n && n.bridge) perBridgeCounts.set(n.bridge, (perBridgeCounts.get(n.bridge) || 0) + 1);
+}
+const perBridgeFloor = Math.ceil(fullJourneys * 0.5);
+const perBridgeSummary = EXPECTED_NOTIFICATION_POINTS
+  .map((b) => `${b}=${perBridgeCounts.get(b) || 0}`).join(' ');
+for (const bridgeName of EXPECTED_NOTIFICATION_POINTS) {
+  const count = perBridgeCounts.get(bridgeName) || 0;
+  if (count < perBridgeFloor) {
+    problems.push(`broklass ${bridgeName}: ${count} notiser < per-bro-golv ${perBridgeFloor} (systematisk klassmiss?)`);
+  }
+}
+
 const warns = validateWarnInvariants(result);
 
 console.log(`\nNotiser: ${result.notificationCount} (golv ${minExpected})`);
+console.log(`Per bro (golv ${perBridgeFloor}): ${perBridgeSummary}`);
 console.log(`Textövergångar: ${(result.bridgeTextTransitions || []).length}`);
 console.log(`Målbropassager: ${(result.targetPassages || []).length}`);
 console.log(`heapUsedMB: ${leaks.heapUsedMB} | persistentRecentTriggers: ${leaks.persistentRecentTriggers} | triggeredBoatNearKeys: ${leaks.triggeredBoatNearKeys}`);

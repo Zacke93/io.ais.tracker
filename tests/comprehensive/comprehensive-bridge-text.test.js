@@ -162,7 +162,14 @@ describe('🎬 COMPREHENSIVE BRIDGE TEXT TEST SUITE', () => {
     console.log(`✅ Total bridge text updates: ${totalUpdates}`);
     console.log(`${'='.repeat(80)}\n`);
 
+    // ChatGPT-granskning 2 (CG2-20, 2026-07-11): assertera bara på tillstånd
+    // testet själv härleder (scenarios via beforeAll). totalUpdates muteras av
+    // SYSKONTESTERNA (runJourney-räknaren) — en assertion på den gjorde sviten
+    // ordningsberoende (skulle falla under `jest --randomize` när
+    // sammanfattningen råkar köras först). Räknaren behålls som informativ
+    // loggrad ovan; scenariernas faktiska täckning bevisas av golden-
+    // snapshot-jämförelserna i respektive test.
     expect(totalScenarios).toBeGreaterThan(0);
-    expect(totalUpdates).toBeGreaterThan(0);
+    expect(totalWaypoints).toBeGreaterThan(0);
   });
 });
