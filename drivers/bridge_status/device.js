@@ -14,6 +14,17 @@ class BridgeStatusDevice extends Homey.Device {
       // 1) Vänta tills appen är redo
       await this._ensureAppReady();
 
+      // R2 2026-07-11 (SYSR2-1): raderas enheten MEDAN onInit awaitar
+      // (kallstartens _ensureAppReady kan sova sekunder) hann onDeleted
+      // köra removeDevice som no-op — och rad addDevice nedan registrerade
+      // sedan zombien permanent (varje skrivning rejectar → hash-null varje
+      // cykel → error-storm tills appomstart). SYS-1-flaggan täckte bara
+      // catch-vägen; try-vägen behöver samma spärr.
+      if (this._deleted) {
+        this.log('Device deleted during init — aborting initialization');
+        return;
+      }
+
       // 2) Capability-migrering: enheter parade innan en capability lades
       // till i driver.compose.json (t.ex. connection_status, tillagd
       // 2026-06-09) saknar den annars för alltid och varje
@@ -86,8 +97,12 @@ class BridgeStatusDevice extends Homey.Device {
             // hash-/värde-dedupen skrev då aldrig om. Nolla dedup-cacherna
             // före den forcerade cykeln så den ordinarie kedjan garanterat
             // skriver om text + larm med FÄRSKT värde till alla enheter.
+            // R2 2026-07-11 (SYSR2-3): även connection_status — den tredje
+            // kanalen skrevs också direkt (rad ~69) och en stale
+            // direktskrivning frös annars tills nästa äkta transition.
             this.homey.app._lastBridgeTextHash = null;
             this.homey.app._lastBridgeAlarm = null;
+            this.homey.app._lastConnectionStatus = null;
             this.homey.app._updateUI('critical', 'device-init');
           } catch (err) {
             this.error('Post-init UI update failed:', err);
