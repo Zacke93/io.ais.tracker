@@ -247,7 +247,7 @@ module.exports = [
     appLog: path.join(LOGS_DIR, 'app-20260707-092154.log'),
     hours: 14,
     locked: true,
-    expectedNotifications: 73,
+    expectedNotifications: 74,
     note: '14h-fältprovet 2026-07-07 (femton fartyg, dagtrafik, gles Class B — '
       + 'radgranskat av 47 Opus-agenter + dirigent, se '
       + 'docs/helgranskning-2026-07-06.md §fältprov). LÅST 72 (2026-07-08): '
@@ -271,7 +271,24 @@ module.exports = [
       + '+265083240@Kanalinfarten — rådataverifierad: full sydtransit '
       + '(58.318→58.271, alla broar korsade söderut), sista sample 15:48:45 '
       + '409 m NORR om punkten i 5,8 kn/cog 214 → removal. Gamla gaten krävde '
-      + 'avslutad resa (_finalTargetDirection) och strök exiten strukturellt.',
+      + 'avslutad resa (_finalTargetDirection) och strök exiten strukturellt. '
+      + 'GOLDEN OMLÅST (R2 2026-07-11, SR2-3): AKIRA-spöket förkortat 25→6,5 '
+      + 'min — stillaliggande kajbåt (0,1 kn @58.2876, sista sample 08:37:10) '
+      + 'med retroaktiv Klaffbron-passage fick korrekt passed-status via '
+      + 'färsklästa broöppningsfönstret i stället för att spöka i "Fyra båtar '
+      + 'på väg mot Stridsbergsbron" med ETA 53 min (F4-I-spökbåtsklassen). '
+      + 'OMLÅST 73→74 (R2 2026-07-11, A1R2-3 alt. 1 — ANVÄNDARBESLUT: '
+      + 'avfyrad bro-notis räknas som transitbevis i exit-gaten): '
+      + '+211321210/LYS@Kanalinfarten är RÄTTAD miss, rådataverifierad: '
+      + 'avgång 10:04 i 6 kn syd, Olidebron positionsbevisat korsad '
+      + '10:04→10:14 (den redan facit-rättade +1-missen — notisen kom via '
+      + 'svepet som INTE bokför i passedBridges, därför nådde hon aldrig '
+      + 'exit-gaten i gårdagens omlåsning), sista sample 10:14:39 i 5 kn/'
+      + 'cog 210 ENDAST 119 m norr om punkten — närmare än både IN-AXXI '
+      + '(546 m) och 265083240 (409 m). Fältprov 2-notens "LYS@Kanalinfarten '
+      + 'INTE facit" beskrev dåvarande gate-beteende (mållösa nådde aldrig '
+      + 'exit-vägen), inte en dom över den fysiska händelsen — HÄVD med '
+      + 'detta rådatabelägg.',
   },
   {
     id: '20260708-21h',

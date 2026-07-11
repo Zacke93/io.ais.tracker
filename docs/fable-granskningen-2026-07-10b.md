@@ -168,3 +168,102 @@ rådataverifierade varje notisdiff mot korpus-jsonl före fix/omlåsning.
 - **72h-soak stabil**: 0 processfel, 2 informativa INV-18 (tidigare 3).
 - **Lint rent** (hela ändringsytan), **homey validate publish rent**.
 - **INGEN commit** (väntar på uttrycklig begäran).
+
+---
+
+# OMGÅNG 2 — verifieringsgranskningen 2026-07-11 (mot b17da05)
+
+**Uppdrag:** exakt samma 16-paketsgranskning som omgång 1, som VERIFIERING
+("gör exakt samma granskning igen för att verkligen se till att inget mer
+hittas"). Alla 16 granskare avbröts en gång av sessionstak/anslutningsfel och
+återupptogs med kontext intakt. ~31 unika fynd (5 hittade av 2–4 oberoende
+granskare) → **29 fixade**, 1 uppskjuten (A1R2-3), 1 scenariofälld gate
+tillagd under fixfasen (re-cross × echo).
+
+## Huvudfynd
+
+- **RE-CROSS-familjen (P2R2-1 HÖG/KRITISK-gräns, P2R2-2 HÖG, V2R2-1, A4R2-2
+  — gemensam rot):** VDS-skippet "bro i passedBridges" gjorde nytt
+  korsningsbevis omöjligt, samtidigt som ALLA reset-vägar kräver
+  target (Fix D/korsningsbevis), _finalTargetDirection (NEW_JOURNEY) eller
+  completed (N2). Klassen "mållös/oavslutad + vänd" — kajvändaren som
+  förtöjer mitt i resan och vänder hem; U-sväng+återkorsning i samma
+  kadensgap — fick HELA returresan odetekterad och onotifierad (stale
+  riktningslås höll dedupen stängd i 2h, #44-gaten därefter för evigt).
+  FIX: re-cross-bevis FÖRE skippet (bron strikt mellan positionerna i
+  motsatt riktning + rörelse i nuet + GPS-REN tick) ⇒ bekräftad reversal +
+  dedup-släpp för bron + ordinarie registrering. GPS-suspect-gaten
+  tillkom efter att scenariot fördröjd-gammal-position FÄLLDE första
+  varianten (echo-sampel 400 m bakåt gav falsk reversal) — batteriet
+  gjorde sitt jobb.
+- **V1R2-1 (HÖG):** sog-ARVET i fältlistan (sticky finit) förgiftade
+  mooring-maskineriet — _updateMooringEvidence läste MERGAT värde, så
+  null-sog-grenen var nåbar endast för aldrig-finita båtar. Ett förirrat
+  0,2 kn-prov ⇒ evigt förtöjd trots vandrande position; ärvd ≥0,3 ⇒
+  kajliggare aldrig förtöjd (2026-06-10-klassen via arvsvägen). FIX: rå
+  sampel-sog som parameter.
+- **Publiceringsvägen:** token-setValue timeout-säkrad (A2R2-2/P1R2-1,
+  2×HÖG — hängning wedgade lanen permanent + läckte _processingRemoval);
+  sen-landande timeout-släppt skrivning nollar sentinelen vid settling
+  (A2R2-1/SYSR2-2/P1R2-2/DIVR2-2 — 4 oberoende!); UI-cykelns DEFAULT
+  gatas av feed-stall (A2R2-3/P1R2-4 — P8-spegeln i _processUIUpdate);
+  _shuttingDown-flaggan (A2R2-4).
+- **Gaterna:** TTL i stable-grenen (GR2-1/DIVR2-1 — C1-klassens
+  kvarvarande divergens); konsumtionen skippas på flaggade ticks (GR2-2);
+  kandidater ruttordningsvalideras (GR2-4); latch/validator föredrar
+  korsningsbeviset (GR2-5); sydbanden A1-1-harmoniserade (GR2-6);
+  clearGate räknar endast applicerade (GR2-3).
+- **Status/text:** exhausted-seedad imminent utan hysteres — 90s-taket
+  äger igen (A3R2-1/P1R2-3); SR2-1-spärrtidsstämpeln (retroaktivt släpp);
+  SR2-2 (stabilizer-rollbackens ETA-bieffekt); SR2-3 (färskläst
+  broöppningsfönster); BR2-1 (CBM Regel 0-oscillationen, empiriskt
+  reproducerad); fallbackens renderable-mängd (A3R2-2/-3).
+- **Notiskedjan:** Kanalinfarten återfick 15-min-flipgränsen (A4R2-1/
+  A1R2-2/P2R2-3 — 3 oberoende; 60-min-höjningen gällde bro-returer,
+  entry/exit är två legitima notiser och rundturen tar 25–60 min);
+  freshlyRecrossed-släppet i #44-gaten (A4R2-2); exit-reversal-motbeviset
+  (A4R2-3); fartgivarlös-radien via maxRecentSpeed (A1R2-1);
+  DIVR2-4-orphan-spegeln (prod/replay-divergens i sessionsnycklar — den
+  fartgivarlösa returen missades i replay men inte i prod);
+  P2R2-4 + DIVR2-3 (flip-/rollback-hygien); FIX U-korsningsbevis +
+  reversal-städning (V3R2-1/-2); sorteringsriktning ur segmentet (V3R2-3);
+  G-3-spegeln utanför bounce-vakten (V2R2-2).
+- **ETA:** decay-golvet otakat (ER2-1) + wait-clampen enbart äkta
+  'waiting' (ER2-2) — E-1:s eget argument fullföljt.
+- **Device:** _deleted-spärr på try-vägen (SYSR2-1 HÖG);
+  connection_status i init-läkningen (SYSR2-3); SYS-6-verifierad.
+- **Härdningar:** isHeadingTowards sog=null-vakten (GEOR2-not),
+  vessel:updated F37-catch, stale H2-kommentar.
+
+## Rena paket/verifierat i omgång 2
+GEOR2 helt rent (alla 4 GEO-fixar beteendebevarande; sidokontraktets
+matematik omräknad). V2-1-nordspegeln KOMPLETT. G-2/G-4-grundfallen,
+S-1 (ingen evig maskering), fältlistorna (ingen ny post), P2-1-preserve,
+nyckelformaten (21 förekomster), C1-stängningen i övrigt — allt verifierat.
+
+## Golden-text omlåst (diffgranskad rad för rad)
+Notisantal/fördelning/riktning EXAKTA i alla 11 korpusar utan omlåsning.
+Golden-diffarna: mestadels millisekund-artefakter (fler Date.now()-anrop) +
+avsiktliga förbättringar: 14h-korpusens **AKIRA-spöke förkortat 25→6,5 min**
+("Fyra→Tre båtar" — stillaliggande kajbåt med retroaktiv passage fick
+korrekt 'passed' via SR2-3 i stället för att spöka i målbrogruppen med
+ETA 53 min; rotorsakad mot rådata, F4-I-spökbåtsklassen); 2h/21h/19h/13h:
+ärliga degraderingar och wait-clamp-släpp enligt fixarnas avsikt.
+
+## Uppskjutet
+- **A1R2-3:** FIXAD I EFTERHAND (användarbeslut alt. 1, 2026-07-11): exit-
+  gaten räknar avfyrad bro-notis som transitbevis (bokföringen orörd —
+  svepets inferensfrihet består). Fixen väckte LYS@Kanalinfarten i
+  14h-korpusen — rådataverifierad ÄKTA miss (5 kn/cog 210, 119 m från
+  punkten; Olidebron positionsbevisad men svep-notifierad = obokförd) →
+  KORPUS OMLÅST 73→74. Fältprov 2-notens "INTE facit"-dom hävd med
+  rådatabelägget.
+- Kvarstående från omgång 1: E-2, SYS-5, S-4, S-5 full radering.
+- Känd replay-artefakt: GLOBAL_TOKEN_TIMEOUT-fellogg i scenarier
+  (fake-klockan stegar >10 s före mock-settling) — kosmetisk, fäller inget.
+
+## Verifiering
+1011/1011 jest (83 sviter; +27 i tests/fable-omgang2-2026-07-11.test.js),
+11/11 korpusar EXAKTA (alla gater; golden regenererad via REGEN +
+diffgranskad), 44/44 scenarier (echo-scenariot fällde+läkte re-cross-gaten),
+72h-soak stabil (2 INV-18), lint rent, homey validate publish rent.
