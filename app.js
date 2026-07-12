@@ -1242,10 +1242,45 @@ class AISBridgeApp extends Homey.App {
           const d = geometry.calculateDistance(vessel.lat, vessel.lon, tp.lat, tp.lon);
           return d !== null && d <= FLOW_CONSTANTS.FLOW_TRIGGER_DISTANCE_THRESHOLD;
         });
+      // Fältprov 7 (FP7-3, 2026-07-12, CALIMA): gles Class B-kadens kan kliva
+      // rakt ÖVER trigger-punktens 300 m-zon — CALIMA:s sydgående utfart hade
+      // sista samplen 330 m NORR resp. 306 m SÖDER om Kanalinfarten medan
+      // segmentet passerade 43 m från punkten: hela genomkorsningen låg i
+      // gapet och den punktvisa kollen såg aldrig zonen (enda pelare 2-missen
+      // i körningen). Segmentsvepet fångar fallet: om sträckan mellan förra
+      // och nuvarande sample passerar inom tröskeln flaggas punkten som
+      // transient kandidat (fältet lever bara denna tick — vessel-objektet
+      // byggs om nästa update). Δlat-kravet skiljer genomkorsning från
+      // sidledes drift utanför zonen; dedup-nyckeln garanterar EN notis.
+      if (oldVessel
+          && Number.isFinite(oldVessel.lat) && Number.isFinite(oldVessel.lon)
+          && Number.isFinite(vessel.lat) && Number.isFinite(vessel.lon)) {
+        for (const tp of Object.values(TRIGGER_POINTS)) {
+          const dNow = geometry.calculateDistance(vessel.lat, vessel.lon, tp.lat, tp.lon);
+          const dPrev = geometry.calculateDistance(oldVessel.lat, oldVessel.lon, tp.lat, tp.lon);
+          const bothOutside = Number.isFinite(dNow) && Number.isFinite(dPrev)
+            && dNow > FLOW_CONSTANTS.FLOW_TRIGGER_DISTANCE_THRESHOLD
+            && dPrev > FLOW_CONSTANTS.FLOW_TRIGGER_DISTANCE_THRESHOLD;
+          const crossedLatitude = (oldVessel.lat - tp.lat) * (vessel.lat - tp.lat) < 0;
+          if (!bothOutside || !crossedLatitude) continue;
+          const segDist = geometry.distancePointToSegmentM(
+            tp.lat, tp.lon, oldVessel.lat, oldVessel.lon, vessel.lat, vessel.lon,
+          );
+          if (Number.isFinite(segDist) && segDist <= FLOW_CONSTANTS.FLOW_TRIGGER_DISTANCE_THRESHOLD) {
+            vessel._tpSweepCandidate = { name: tp.name, distance: Math.round(segDist) };
+            this.log(
+              `🧵 [TRIGGER_POINT_SWEEP] ${vessel.mmsi}: segment ${Math.round(dPrev)}m→${Math.round(dNow)}m `
+              + `crossed ${tp.name} zone (min ${Math.round(segDist)}m) inside a cadence gap — flagging candidate`,
+            );
+            break;
+          }
+        }
+      }
       const shouldTriggerProximity = vessel.currentBridge
         || vessel.targetBridge
         || vessel._finalTargetBridge
-        || nearTriggerPoint;
+        || nearTriggerPoint
+        || vessel._tpSweepCandidate;
       if (shouldTriggerProximity) {
         await this._triggerBoatNearFlow(vessel);
       }
@@ -3953,6 +3988,15 @@ class AISBridgeApp extends Homey.App {
                 this.debug(
                   `⏰ [ETA_STALE_HARD] ${vessel.mmsi}: AIS ${Math.round(ageMs / 1000)}s old → clearing ETA`,
                 );
+                // FP7-1 (2026-07-12, NICOLINE): armera kalkylatorns
+                // stationär-hold — UTAN att röra historiken. Nästa färska
+                // sample för en STATIONÄR båt golvfabricerade annars om
+                // ("om 101 minuter" på 0,1 kn, visad i 9 min); en RÖRLIG
+                // återkomst släpper holden direkt och behåller sin
+                // dämpningshistorik exakt som förut (rensningsvarianten
+                // rörde 6 låsta korpusgoldens och ÅTERTOGS). Kö-båtar med
+                // normal kadens når aldrig hit (>600 s-tröskeln).
+                this.statusService.armStationaryETAHold(String(vessel.mmsi), 'eta_stale_hard');
               }
               vessel.etaMinutes = null;
               vessel._etaIsExtrapolated = false;
@@ -5053,9 +5097,18 @@ class AISBridgeApp extends Homey.App {
       for (const [tpId, tp] of Object.entries(TRIGGER_POINTS)) {
         if (seen.has(tp.name)) continue;
         const dist = geometry.calculateDistance(vessel.lat, vessel.lon, tp.lat, tp.lon);
-        if (dist !== null && dist <= threshold) {
+        // FP7-3 (CALIMA): segmentsvepet i _onVesselUpdated flaggar en
+        // genomkorsning vars BÅDA ändpunkter ligger utanför 300 m-zonen —
+        // kandidatens distans är segmentets minsta avstånd till punkten.
+        const sweep = vessel._tpSweepCandidate && vessel._tpSweepCandidate.name === tp.name
+          ? vessel._tpSweepCandidate
+          : null;
+        if ((dist !== null && dist <= threshold) || sweep) {
           candidates.push({
-            name: tp.name, id: tpId, distance: dist, source: 'trigger-point',
+            name: tp.name,
+            id: tpId,
+            distance: (dist !== null && dist <= threshold) ? dist : sweep.distance,
+            source: 'trigger-point',
           });
           seen.add(tp.name);
         }
