@@ -49,6 +49,12 @@ const makeCalc = () => new ProgressiveETACalculator(makeLogger(), {
   getBridgeByName: (name) => (name === 'Stridsbergsbron'
     ? { name: 'Stridsbergsbron', lat: 58.29352, lon: 12.294323 }
     : KLAFFBRON),
+  getBridgeById: (id) => (id === 'stridsbergsbron'
+    ? { name: 'Stridsbergsbron', lat: 58.29352, lon: 12.294323 }
+    : KLAFFBRON),
+  normalizeToId: (x) => (typeof x === 'string' ? x.toLowerCase() : x),
+  getNameById: (id) => (id === 'stridsbergsbron' ? 'Stridsbergsbron' : 'Klaffbron'),
+  getDistanceBetweenBridges: () => 1300,
 });
 
 // KNIGHT OWL-geometrin: 354 m norr om Klaffbron, target Stridsbergsbron (882 m)
@@ -67,6 +73,12 @@ describe('FP6-1: post-transition stationär-hold (KNIGHT OWL 57-min-fabrikatet)'
     calc.destroy();
   });
 
+  // FP7-1 (2026-07-12, NICOLINE) utökade holden med 'eta_stale_hard'-
+  // armeringen. OBS: den GENERELLA varianten ("stationär + tom/stale
+  // historik ⇒ null" utan armering) PRÖVADES OCH ÅTERTOGS — den fällde 6–7
+  // korpusgoldens + FATAL ETA-oscillation (kö-båtar i väntläge har samma
+  // signatur som förtöjare). Armeringssignalerna är de smala, säkra vägarna.
+
   test('VDS-vägens reason (target_transition_X_to_Y) + stationär ⇒ ETA null i stället för 57 min', () => {
     calc.clearVesselETAHistory('265025880', 'target_transition_Klaffbron_to_Stridsbergsbron');
     expect(calc._getEffectiveSpeed(knightOwl(0.1))).toBeNull();
@@ -78,9 +90,19 @@ describe('FP6-1: post-transition stationär-hold (KNIGHT OWL 57-min-fabrikatet)'
     expect(calc._getEffectiveSpeed(knightOwl(0.1))).toBeNull();
   });
 
+  test('FP7-1: armStationaryHold (eta_stale_hard) — NICOLINE-fallet ("om 101 minuter" på 0,1 kn efter dödförklarad position)', () => {
+    // Armeringen rör INTE historiken — bygg först en baslinje och verifiera
+    // att en RÖRLIG återkomst behåller den (korpusdämpningen orörd).
+    const nicoline = { ...knightOwl(0.1), mmsi: '211727200' };
+    expect(calc.calculateProgressiveETA({ ...nicoline, sog: 4.0 }, null)).not.toBeNull(); // baslinje byggd
+    calc.armStationaryHold('211727200', 'eta_stale_hard');
+    expect(calc._getEffectiveSpeed(nicoline)).toBeNull(); // stationär ⇒ ETA okänd trots baslinje
+    // ...rörlig återkomst släpper holden och dämpningshistoriken är INTAKT
+    expect(calc._getEffectiveSpeed({ ...nicoline, sog: 3.5 })).toBeGreaterThan(0.5);
+    expect(calc._etaHistory.get('211727200')).toBeDefined(); // historiken rördes aldrig
+  });
+
   test('DUBBELCLEAREN (transition följt av bridge_change i samma tick) behåller holden — replay-fällan', () => {
-    // Verklig ordning ur körningsloggen 13:06:30.783→.787: VDS-transitionen
-    // rensar först, app.js STEG 1 rensar IGEN på eventet, ETA beräknas sist.
     calc.clearVesselETAHistory('265025880', 'target_transition_Klaffbron_to_Stridsbergsbron');
     calc.clearVesselETAHistory('265025880', 'target_bridge_change_Klaffbron_to_Stridsbergsbron');
     expect(calc._getEffectiveSpeed(knightOwl(0.1))).toBeNull();
@@ -91,15 +113,13 @@ describe('FP6-1: post-transition stationär-hold (KNIGHT OWL 57-min-fabrikatet)'
     expect(calc._getEffectiveSpeed(knightOwl(0.1))).toBeNull();
     const speed = calc._getEffectiveSpeed(knightOwl(4.2));
     expect(speed).toBeGreaterThan(0.5); // rörlig ⇒ äkta fart används
-    // holden är släppt: nästa stillasample får golvet igen (nu FINNS baslinje
-    // från 4,2-provet så outlier-/EMA-skydden är åter operativa)
-    expect(calc._getEffectiveSpeed(knightOwl(0.1))).not.toBeNull();
+    expect(calc._getEffectiveSpeed(knightOwl(0.1))).not.toBeNull(); // holden släppt
   });
 
-  test('SPIKEN/AIR-skyddet: första tilldelningen (none_to_X) armerar ALDRIG — golv-ETA behålls', () => {
+  test('KÖ-/SPIKEN-skyddet: första tilldelningen (none_to_X) armerar ALDRIG — golv-ETA behålls', () => {
     calc.clearVesselETAHistory('265025880', 'target_bridge_change_none_to_Stridsbergsbron');
     const speed = calc._getEffectiveSpeed(knightOwl(0.1));
-    expect(speed).toBe(0.5); // stillaliggare med nytt (första) mål: golden-låst golvbeteende
+    expect(speed).toBe(0.5); // kö-/stillaliggarklassens golden-låsta golvbeteende
   });
 
   test('målsläpp (X_to_none) och removal städar holden', () => {
