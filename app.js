@@ -4791,6 +4791,32 @@ class AISBridgeApp extends Homey.App {
       const rebornEvidence = rebornLastKnown !== null && Math.abs(rebornDLat) >= REBORN_MIN_DELTA_LAT;
       if (rebornEvidence) {
         direction = rebornDLat > 0 ? 'north' : 'south';
+        // FP8 (2026-07-13, IDUN): hoppvektorn ÄR rörelsebevis — svepet
+        // notifierar på den ([lastKnown → nuvarande] = demonstrerad
+        // förflyttning), men målbrotilldelningen dömde samma båt som
+        // "never seen moving" (beviset raderades med objektet vid timeout-
+        // removal, och _firstSeenLat = reborn-positionen ger noll netto-
+        // förflyttning för en kö-väntare). IDUN stod 26 min i Järnvägsbro-
+        // kön, positionsbevisat genom Klaffbron (hopp 1 149 m), och
+        // räknades inte i bridge_text.
+        // TRÖSKEL 500 m — INTE svepets 100 m: SOLUTION (19,5h-korpusen,
+        // facit-fälld första variant) reborn:ade med 204 m hopp över 24 min
+        // (0,3 kn = ankardrift/svaj) och fick via beviset FEL målbro i
+        // 2,7 min ("Två båtar mot Stridsbergsbron" 07:26:45). Ett hopp
+        // ≥500 m kan inte vara drift i kanalen; under det är båten inte
+        // bevisat transiterande — målbron får vänta på live-rörelse som
+        // förut. Svepets riktningströskel (100 m) har en annan roll
+        // (notis-inferensens riktning) och är facit-låst — rörs inte.
+        const REBORN_PROOF_MIN_DELTA_LAT = 500 / 111320;
+        if (vessel._hasMovementProof !== true
+            && Math.abs(rebornDLat) >= REBORN_PROOF_MIN_DELTA_LAT) {
+          vessel._hasMovementProof = true;
+          vessel._movementProofPending = false;
+          this.log(
+            `🏃 [REBORN_MOVEMENT_PROOF] ${vessel.mmsi}: Reborn displacement `
+            + `${Math.round(Math.abs(rebornDLat) * 111320)}m (last known → current) proves movement`,
+          );
+        }
       } else {
         // Portgissningens ursprungliga gater (P5-banden medvetna).
         if (!Number.isFinite(vessel.sog) || vessel.sog < 2.0) return;
@@ -4897,6 +4923,32 @@ class AISBridgeApp extends Homey.App {
         }
       }
       if (!Number.isFinite(bridgeLat)) continue;
+      // FP8 (2026-07-13, CAPELLA): samma kanalrelevans-gate som live-grenens
+      // trigger-point-kandidater — en SYDGÅENDE korsning av triggerPUNKTEN
+      // utan kanalhistorik (kajstart i själva zonen, "lämnar kanalen") är
+      // positionsbevisat sann men kanalirrelevant: båten har ingen resa som
+      // notisen förvarnar om. Kanalhistorik = passedBridges/målbro ELLER att
+      // det BEVISADE fönstrets norra ände ligger norr om punkten (båten kom
+      // demonstrerat från kanalsidan — täcker SENTA-klassen: timeout-reborn
+      // med raderad passedBridges men lastKnown norr om punkten, och LYS-
+      // klassen: kajstart norr om punkten). Porten-gissningens OBEVISADE
+      // 58.32-ände räknas inte (bevisprincipen, F4-D). Riktiga BROAR berörs
+      // inte (de har brotext-/öppningsrelevans i sig).
+      const isTriggerPoint = !this.bridgeRegistry.getBridgeByName(bridgeName);
+      if (isTriggerPoint && direction === 'south') {
+        const provenNorthLat = provenHighLat !== null ? provenHighLat : maxLat;
+        const hasCanalHistory = (Array.isArray(vessel.passedBridges) && vessel.passedBridges.length > 0)
+          || !!vessel.targetBridge
+          || !!vessel._finalTargetBridge
+          || (Number.isFinite(provenNorthLat) && provenNorthLat > bridgeLat + 0.0009);
+        if (!hasCanalHistory) {
+          this.debug(
+            `🚪 [SKIPPED_BRIDGES_TP_SKIP] ${vessel.mmsi}: southbound ${bridgeName} crossing `
+            + 'without canal history (quay start in zone) - not inferring',
+          );
+          continue;
+        }
+      }
       if (bridgeLat > minLat && bridgeLat < maxLat) {
         passedBridgeEntries.push({ name: bridgeName, lat: bridgeLat });
       }
@@ -5104,6 +5156,27 @@ class AISBridgeApp extends Homey.App {
           ? vessel._tpSweepCandidate
           : null;
         if ((dist !== null && dist <= threshold) || sweep) {
+          // FP8 (2026-07-13, PILOT 761/CAPELLA): lotskajen ligger ~120–155 m
+          // från Kanalinfarten-punkten — kajstartare som lägger ut SÖDERUT
+          // (bort från kanalen, "lämnar kanalen, ingen målbro") fick notis
+          // enbart på zonnärvaro. Sydgående kräver kanalrelevans: transitbevis
+          // (passerade broar/målbro) eller episodstart norr om punkten (äkta
+          // utfart, LYS-klassen). Nordgående/okänd riktning berörs inte —
+          // förvarning för inkommande båtar är punktens syfte. Exit-fallbacken
+          // (removal-vägen) är en annan väg och har egna beviskrav.
+          if (this._getDirectionString(vessel) === 'southbound') {
+            const hasCanalHistory = (Array.isArray(vessel.passedBridges) && vessel.passedBridges.length > 0)
+              || !!vessel.targetBridge
+              || !!vessel._finalTargetBridge
+              || (Number.isFinite(vessel._firstSeenLat) && vessel._firstSeenLat > tp.lat + 0.0009);
+            if (!hasCanalHistory) {
+              this.debug(
+                `🚪 [TRIGGER_POINT_SKIP] ${vessel.mmsi}: southbound at ${tp.name} without canal history `
+                + '(quay start in zone, leaving canal) - no candidate',
+              );
+              continue;
+            }
+          }
           candidates.push({
             name: tp.name,
             id: tpId,
@@ -5992,12 +6065,19 @@ class AISBridgeApp extends Homey.App {
     if (vessel.cog >= COG_DIRECTIONS.NORTH_MIN || vessel.cog <= COG_DIRECTIONS.NORTH_MAX) {
       return 'northbound';
     }
-    // Sydband breddat till 135–314°: i den NE–SV-orienterade kanalen är
-    // sydväst-/väst-kurser (226–314°) normal sydfärd. Tidigare 135–225° gav
-    // felaktigt 'unknown' för en bevisligen sydgående båt med COG 226.7°
-    // (JOSEPHINE @09:46, replay-fynd). Öst-kurser (46–134°) förblir 'unknown'.
+    // Sydband 135–270°: i den NE–SV-orienterade kanalen är sydväst-kurser
+    // (226–270°) normal sydfärd. Tidigare 135–225° gav felaktigt 'unknown'
+    // för en bevisligen sydgående båt med COG 226.7° (JOSEPHINE @09:46,
+    // replay-fynd). Öst-kurser (46–134°) förblir 'unknown'.
+    // FP8 (2026-07-13, 219034975): toppen snävad 314→270 — COG 314.7° (NV,
+    // 0.3° från nordbandet) fick token 'southbound' för en båt vid Kanal-
+    // infarten som sannolikt var på väg IN. Empiri över tre körningar
+    // (136+ h): äkta nordgående in vid infarten har COG 28–33°, äkta syd-
+    // gående 135–245°; INGEN legitim kanalfärd använder 270–314° (de enda
+    // träffarna låg ute på älven söder om punkten, utanför alla zoner).
+    // VNV–NV (271–314°) är tvetydigt → 'unknown' är den ärliga tokenen.
     if (vessel.cog > COG_DIRECTIONS.NORTH_MAX && vessel.cog < COG_DIRECTIONS.NORTH_MIN
-        && vessel.cog >= 135) {
+        && vessel.cog >= 135 && vessel.cog <= 270) {
       return 'southbound';
     }
     return 'unknown';

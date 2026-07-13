@@ -124,17 +124,23 @@ EOL
     echo "## Summary Statistics" >> "$BRIDGE_TEXT_SUMMARY"
     echo "" >> "$BRIDGE_TEXT_SUMMARY"
 
+    # FP8 (2026-07-13): räknarna moderniserade. De gamla grep-mönstren
+    # ("Broöppning pågår"/"inväntar broöppning"/"närmar sig") tillhör ett
+    # textformat appen inte längre producerar (designbeslut "alternativ 1":
+    # under-bridge/waiting renderas som "beräknad broöppning strax") —
+    # summaryn visade permanent 0/0/0 och utlöste en falsk regressions-
+    # misstanke i fältprov 8-granskningen. Nu räknas det som finns.
     TOTAL_UPDATES=$(grep -c "📱 \[UI_UPDATE\] Bridge text updated:" "$LOGFILE")
-    UNDER_BRIDGE=$(grep -c "Broöppning pågår" "$LOGFILE")
-    WAITING_UPDATES=$(grep -c "inväntar broöppning" "$LOGFILE")
-    APPROACHING_UPDATES=$(grep -c "närmar sig" "$LOGFILE")
-    PASSED_UPDATES=$(grep -c "precis passerat" "$LOGFILE")
+    NOTIFICATIONS=$(grep -c "\[FLOW_TRIGGER_SUCCESS\]" "$LOGFILE")
+    STRAX_UPDATES=$(grep "📱 \[UI_UPDATE\] Bridge text updated:" "$LOGFILE" | grep -c "broöppning strax")
+    ETA_UNKNOWN=$(grep "📱 \[UI_UPDATE\] Bridge text updated:" "$LOGFILE" | grep -c "ETA okänd")
+    DEFAULT_UPDATES=$(grep "📱 \[UI_UPDATE\] Bridge text updated:" "$LOGFILE" | grep -c "Inga båtar är i närheten")
 
     echo "- **Total Bridge Text Updates:** $TOTAL_UPDATES" >> "$BRIDGE_TEXT_SUMMARY"
-    echo "- **Under Bridge Events:** $UNDER_BRIDGE" >> "$BRIDGE_TEXT_SUMMARY"
-    echo "- **Waiting Events:** $WAITING_UPDATES" >> "$BRIDGE_TEXT_SUMMARY"
-    echo "- **Approaching Events:** $APPROACHING_UPDATES" >> "$BRIDGE_TEXT_SUMMARY"
-    echo "- **Passed Events:** $PASSED_UPDATES" >> "$BRIDGE_TEXT_SUMMARY"
+    echo "- **boat_near Notifications:** $NOTIFICATIONS" >> "$BRIDGE_TEXT_SUMMARY"
+    echo "- **\"strax\"-Updates:** $STRAX_UPDATES" >> "$BRIDGE_TEXT_SUMMARY"
+    echo "- **\"ETA okänd\"-Updates:** $ETA_UNKNOWN" >> "$BRIDGE_TEXT_SUMMARY"
+    echo "- **\"Inga båtar\"-Updates:** $DEFAULT_UPDATES" >> "$BRIDGE_TEXT_SUMMARY"
 
     # HÅLDETEKTOR, efterhand (F4-A): tidsstämpelluckor >180 s i loggen = tappade
     # rader (watchdogen loggar var ~90 s). Resultatet skrivs i summaryn så en

@@ -358,4 +358,60 @@ module.exports = [
       + 'strukturellt (samma klass som IN-AXXI/ELFKUNGEN-exiterna ovan, men '
       + 'för MÅLLÖS transitör).',
   },
+  {
+    id: '20260711-7h',
+    jsonl: path.join(CORPORA_DATA_DIR, 'ais-replay-20260711-134232.jsonl'),
+    appLog: path.join(LOGS_DIR, 'app-20260711-134232.log'),
+    hours: 7,
+    locked: true,
+    expectedNotifications: 12,
+    note: '7h-körningen 2026-07-11 (åtta fartyg — fältprov 6: 23 Opus max-'
+      + 'läsare radläste 47 560 rader, se docs/faltprov6-2026-07-11.md). '
+      + 'LÅST 12 (2026-07-13) = prod EXAKT: pelare 2 var PERFEKT ur lådan '
+      + '(12 notiser = 12 verkliga passager, 0 miss/fantom/dubblett). '
+      + 'Körningen som hittade KNIGHT OWL-57-min-fabrikatet (FP6-1, '
+      + '_postTransitionStationaryHold) — pelare 1-fixen ändrar text, inte '
+      + 'notiser. Håldetektorn ren.',
+  },
+  {
+    id: '20260711-16h',
+    jsonl: path.join(CORPORA_DATA_DIR, 'ais-replay-20260711-232958.jsonl'),
+    appLog: path.join(LOGS_DIR, 'app-20260711-232958.log'),
+    hours: 16.5,
+    locked: true,
+    expectedNotifications: 48,
+    note: '16,5h-körningen 2026-07-11/12 (fjorton fartyg — fältprov 7: 59 '
+      + 'Opus max-läsare radläste 135 455 rader, se docs/faltprov7-2026-07-12.md). '
+      + 'LÅST 48 (2026-07-13) = prod 47 + EN RÄTTAD MISS: '
+      + '211844940/CALIMA@Kanalinfarten southbound — rådataverifierad: '
+      + 'sydutfarten klev ÖVER 300 m-zonen i ett Class B-glapp (330 m N → '
+      + '306 m S, segmentets minsta avstånd 43 m från punkten) och FP7-3-'
+      + 'segmentsvepet väcker notisen. Körningen som hittade NICOLINE-101-'
+      + 'min-fabrikatet (FP7-1, armStationaryHold). Håldetektorn ren.',
+  },
+  {
+    id: '20260712-25h',
+    jsonl: path.join(CORPORA_DATA_DIR, 'ais-replay-20260712-174434.jsonl'),
+    appLog: path.join(LOGS_DIR, 'app-20260712-174434.log'),
+    hours: 25,
+    locked: true,
+    expectedNotifications: 86,
+    note: '25h-körningen 2026-07-12/13 (27 fartyg, 821 samples — fältprov 8: '
+      + '90 Opus max-läsare radläste 214 250 rader, 287 fynd/0 critical, se '
+      + 'docs/faltprov8-2026-07-13.md). Projektets renaste fältprov: 0 '
+      + 'missar/dubbletter, 0 processfel. LÅST 86 (2026-07-13) = prod 88 '
+      + 'MINUS två RÄTTADE FANTOMER (FP8-1, kanalrelevans-gaten för '
+      + 'sydgående vid triggerPUNKTEN): −265606970/PILOT 761@Kanalinfarten '
+      + '05:42 (förtöjd 14 h vid lotskajen ~130 m från punkten, lade ut '
+      + 'SÖDERUT, korsade ALDRIG triggerlatituden — max lat 58.26762 < '
+      + '58.268) och −265552060/CAPELLA@Kanalinfarten 06:24 (samma kajstart '
+      + 'i zonen; korsade linjen sydgående men fönstret börjar I zonen — '
+      + 'återvände norrut 33 min senare; ingen kanalresa). Riktningsfacit: '
+      + '219034975@Kanalinfarten southbound→unknown (FP8-2, COG-sydbandets '
+      + 'topp 314→270: cog 314,7° är 0,3° från nordbandet — båten var '
+      + 'sannolikt på väg IN). Golden-text bär FP8-3 (IDUN-inräkningen: '
+      + '"Fem båtar på väg mot Stridsbergsbron" 08:21 — alla fem rådata-'
+      + 'verifierade Strids-passager). SENTA-exiten (timeout-reborn med '
+      + 'lastKnown norr om punkten) är facit-vakt för fönsterkriteriet.',
+  },
 ];

@@ -226,3 +226,87 @@ describe('Notistoken-validering (INV-2:s fältkontroll)', () => {
     expect(v.some((x) => x.includes('misslyckad'))).toBe(true);
   });
 });
+
+describe('INV-3/16 FP8-kalibreringen (2026-07-13, korpus 20260712-25h)', () => {
+  const trans = (offsetS, text) => ({
+    t: T0 + offsetS * 1000,
+    iso: new Date(T0 + offsetS * 1000).toISOString(),
+    text,
+  });
+  const klaff = (eta, approx = false) => `En båt på väg mot Klaffbron, beräknad broöppning om ${approx ? 'cirka ' : ''}${eta} minuter`;
+
+  test('IDUN-klassen: cirka-X → färsk Y → X±1 är Fix G-rättelsen, INTE oscillation', () => {
+    const result = baseResult({
+      bridgeTextTransitions: [
+        trans(0, klaff(7, true)), // extrapolerad "cirka 7"
+        trans(27, klaff(10)), //     färsk rättelse UPP
+        trans(207, klaff(6)), //     äkta nedräkning
+      ],
+    });
+    expect(validateInvariants(result).filter((x) => x.includes('OSCILLATION'))).toEqual([]);
+  });
+
+  test('äkta oscillation (färsk→färsk→färsk, SOKERI-klassen) fälls som förut', () => {
+    const result = baseResult({
+      bridgeTextTransitions: [
+        trans(0, klaff(7)),
+        trans(27, klaff(10)),
+        trans(207, klaff(6)),
+      ],
+    });
+    expect(validateInvariants(result).some((x) => x.includes('OSCILLATION'))).toBe(true);
+  });
+
+  test('ELFKUNGEN-klassen: hopp från SOFT-zonen (4→10) med STABIL ny nivå är exhausted-ledarbytet, inte sågtand', () => {
+    const result = baseResult({
+      bridgeTextTransitions: [
+        trans(0, klaff(4)), //   hållet värde (ledarens sändare tyst)
+        trans(79, klaff(10)), // exhausted → nästa båts äkta ETA
+        trans(139, klaff(10)), // stabil ny nivå — ingen studs
+      ],
+    });
+    expect(validateInvariants(result).filter((x) => x.includes('SÅGTAND'))).toEqual([]);
+  });
+
+  test('SOFT-zonshopp som STUDSAR tillbaka fälls (falsk degradering)', () => {
+    const result = baseResult({
+      bridgeTextTransitions: [
+        trans(0, klaff(4)),
+        trans(79, klaff(10)),
+        trans(139, klaff(4)), // studs = flapp/falsk klass
+      ],
+    });
+    expect(validateInvariants(result).some((x) => x.includes('SÅGTAND'))).toBe(true);
+  });
+
+  test('hopp i 6–20-bandet fälls ovillkorligt (F4-E/SOKERI-bandet orört)', () => {
+    const result = baseResult({
+      bridgeTextTransitions: [
+        trans(0, klaff(8)),
+        trans(79, klaff(15)),
+        trans(139, klaff(15)),
+      ],
+    });
+    expect(validateInvariants(result).some((x) => x.includes('SÅGTAND'))).toBe(true);
+  });
+
+  test('strax-hoppets ursprungliga diskriminator lever (fältprov 5-klassen)', () => {
+    const straxText = 'En båt på väg mot Klaffbron, beräknad broöppning strax';
+    const stable = baseResult({
+      bridgeTextTransitions: [
+        trans(0, straxText),
+        trans(60, klaff(9)),
+        trans(150, klaff(9)),
+      ],
+    });
+    expect(validateInvariants(stable).filter((x) => x.includes('SÅGTAND'))).toEqual([]);
+    const flapping = baseResult({
+      bridgeTextTransitions: [
+        trans(0, straxText),
+        trans(60, klaff(9)),
+        trans(110, straxText),
+      ],
+    });
+    expect(validateInvariants(flapping).some((x) => x.includes('SÅGTAND'))).toBe(true);
+  });
+});
