@@ -66,14 +66,16 @@ const ALL_BRIDGES = ['Klaffbron', 'Stridsbergsbron', 'Järnvägsbron', 'Olidebro
 const DEFAULT_MESSAGE = 'Inga båtar är i närheten av Klaffbron eller Stridsbergsbron';
 const TARGET_BRIDGES = ['Klaffbron', 'Stridsbergsbron'];
 
-/** Extrahera {bridge, eta} ur en klausul ("strax" → 0.5, "okänd" → null). */
+/** Extrahera {bridge, eta, approx} ur en klausul ("strax" → 0.5, "okänd" → null). */
 function parseClause(clause) {
   const m = clause.match(new RegExp(`på väg mot ${TARGET}, ${ETA_CLAUSE}`));
   if (!m) return null;
   const bridge = m[1];
-  if (/strax/.test(m[2])) return { bridge, eta: 0.5 };
+  if (/strax/.test(m[2])) return { bridge, eta: 0.5, approx: false };
   const num = m[2].match(/(\d+) minuter/);
-  return { bridge, eta: num ? Number(num[1]) : null };
+  // FP8 (2026-07-13): "cirka" = Fix G-extrapolerat värde — markören låter
+  // INV-3/16 skilja extrapolationens färsk-data-rättelse från äkta oscillation.
+  return { bridge, eta: num ? Number(num[1]) : null, approx: /cirka/.test(m[2]) };
 }
 
 /** Summera antal båtar som nämns i en text (ordtal + siffror). */
@@ -176,7 +178,7 @@ function validateInvariants(result) {
       if (!parsed || parsed.eta === null) continue;
       if (!clauseSeries.has(parsed.bridge)) clauseSeries.set(parsed.bridge, []);
       clauseSeries.get(parsed.bridge).push({
-        t: t.t, iso: t.iso, eta: parsed.eta, count: clause.split(' ')[0],
+        t: t.t, iso: t.iso, eta: parsed.eta, count: clause.split(' ')[0], approx: parsed.approx === true,
       });
     }
   }
@@ -193,21 +195,29 @@ function validateInvariants(result) {
         // Diskriminatorn mot den FALSKA klassen (SOKERI: felmätt staleness)
         // är ÅTERGÅNGEN: falsk degradering studsar tillbaka till strax när
         // nästa färska sample kommer (sekunder–minut), ärlig degradering ger
-        // en STABIL ny nivå. Fäll därför bara strax-hopp som återgår till
-        // <3 inom 120 s (flapp/falsk degradering); icke-strax-hopp fälls
-        // ovillkorligt som förut (ingen legitim mekanism kvar efter F4-E).
-        const fromImminent = series[i - 1].eta < 3;
+        // en STABIL ny nivå.
+        // FP8-KALIBRERING (2026-07-13, korpus 20260712-25h, ELFKUNGEN→
+        // UNDINE 12:32 "4→10"): den legitima klassens band utvidgat <3 → ≤5.
+        // Fix G:s SOFT-fönster HÅLLER ett publicerat värde oförändrat i upp
+        // till 5 min när sändaren tystnar; vid SOFT-gränsen dör ledarens
+        // extrapolation (exhausted) och nästa båts ÄKTA ETA tar över — ett
+        // ärligt uppåthopp från ett värde som per definition kan vara ≤5
+        // (ELFKUNGEN: färsk 3,8 → 30-min-gap → höll "4" → exhausted →
+        // UNDINE 10, stabil ny nivå utan studs). Samma studs-diskriminator
+        // skiljer falsk klass; 6–20-bandet fälls ovillkorligt som förut
+        // (SOKERI-klassens hemvist — ingen legitim mekanism efter F4-E).
+        const fromSoftZone = series[i - 1].eta <= 5;
         let revertsQuickly = false;
-        if (fromImminent) {
+        if (fromSoftZone) {
           for (let j = i + 1; j < series.length
             && (series[j].t - series[i].t) / 1000 <= 120; j++) {
-            if (series[j].eta < 3) {
+            if (series[j].eta <= series[i - 1].eta + 1) {
               revertsQuickly = true;
               break;
             }
           }
         }
-        if (!fromImminent || revertsQuickly) {
+        if (!fromSoftZone || revertsQuickly) {
           violations.push(`ETA-SÅGTAND UPP: ${series[i].iso} ${bridge} ${series[i - 1].eta}→${series[i].eta} på ${Math.round(dt)}s`);
         }
       }
@@ -215,14 +225,22 @@ function validateInvariants(result) {
       // vara ≥ max(3, 30 % av nivån) — ±3-fladder på 12–19-min-nivån är
       // naturligt fartbrus för krypfartsbåtar, medan 4→9→5 i det låga bandet
       // (där bilförare agerar) är den äkta användarfientliga signaturen.
+      // FP8-KALIBRERING (2026-07-13, korpus 20260712-25h, IDUN 07:14
+      // "cirka 7→10→6"): när X är EXTRAPOLERAT ("cirka") och Y en färsk
+      // beräkning är X→Y Fix G-rättelsen (dead-reckoning som sprungit
+      // före/efter verkligheten korrigeras av nästa sample — dokumenterad
+      // design) — IDUN:s äkta beräkningsserie var monotont 12→10→6 och
+      // "cirka 7" en 27-sekunders extrapolationsartefakt i 6-min-gapet.
+      // Äkta oscillation (färsk→färsk→färsk, SOKERI-klassen) fälls som förut.
       if (i >= 2) {
         const x = series[i - 2];
         const y = series[i - 1];
         const x2 = series[i];
         const span = (x2.t - x.t) / 1000;
         const oscThreshold = Math.max(3, 0.3 * x.eta);
+        const extrapolationCorrection = x.approx === true && y.approx !== true;
         if (span <= 240 && Math.abs(y.eta - x.eta) >= oscThreshold && Math.abs(x2.eta - x.eta) <= 1
-            && x.count === y.count && y.count === x2.count) {
+            && x.count === y.count && y.count === x2.count && !extrapolationCorrection) {
           violations.push(`ETA-OSCILLATION: ${x2.iso} ${bridge} ${x.eta}→${y.eta}→${x2.eta} inom ${Math.round(span)}s`);
         }
       }
