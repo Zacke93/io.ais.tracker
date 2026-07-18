@@ -188,6 +188,12 @@ class AISBridgeApp extends Homey.App {
     // Format: Map<"mmsi:bridgeName", number_timestamp_ms>
     this._persistentRecentTriggers = new Map();
     this._PERSISTENT_DEDUP_WINDOW_MS = 2 * 60 * 60 * 1000; // 2 timmar
+    // FP9 (2026-07-18, RONJA): fysisk livslängd för persistent-poster.
+    // BLOCKERINGSFÖNSTRET är oförändrat 2 h (alla tidsjämförelser ovan är
+    // tidsbaserade, C3-semantiken består) — men posten måste ÖVERLEVA till
+    // 6 h (lastKnown-TTL:n = reborn-svepets räckhåll) så samma-riktnings-
+    // gaten i _persistentDedupCheck kan se den bortom 2 h-fönstret.
+    this._PERSISTENT_DEDUP_RETENTION_MS = 6 * 60 * 60 * 1000; // 6 timmar
 
     // P2-fix (2026-06-09): kartan var tidigare ren in-memory → en app-omstart
     // (uppdatering/krasch) nollade 2h-dedupen och ett fartyg som dröjde sig
@@ -434,7 +440,10 @@ class AISBridgeApp extends Homey.App {
         return;
       }
       const now = Date.now();
-      const windowMs = this._PERSISTENT_DEDUP_WINDOW_MS;
+      // FP9: ladda upp till RETENTION (6 h) — blockeringsfönstret (2 h)
+      // tillämpas tidsbaserat i _persistentDedupCheck; äldre poster behövs
+      // för samma-riktnings-gaten (RONJA-klassen).
+      const windowMs = this._PERSISTENT_DEDUP_RETENTION_MS || this._PERSISTENT_DEDUP_WINDOW_MS;
       let loaded = 0;
       for (const [key, value] of Object.entries(stored)) {
         // Körning 2026-07-02 (ELFKUNGEN): nytt format {t, dir} — riktningen
@@ -489,7 +498,34 @@ class AISBridgeApp extends Homey.App {
     if (!Number.isFinite(ts)) return { blocked: false, minutesSince: 0 };
     const windowMs = this._PERSISTENT_DEDUP_WINDOW_MS || 2 * 60 * 60 * 1000;
     const age = Date.now() - ts;
-    if (age >= windowMs) return { blocked: false, minutesSince: Math.round(age / 60000) };
+    if (age >= windowMs) {
+      // FP9 (2026-07-18, RONJA 18:35): 2h-utgången var ovillkorlig — en
+      // waiting-notifierad Järnvägsbro-passage (15:14, southbound) re-
+      // notifierades av reborn-svepet 3h21m senare (passage-inferred, 629 m,
+      // sog 0) eftersom fönstret löpt ut. En RETROAKTIV källa (svep/fallback/
+      // exit) i SAMMA riktning som posten är per definition samma passage —
+      // svepet kan inte se två separata samma-riktningspassager utan en
+      // mellanliggande motsatt korsning (som hade flippat riktningen och
+      // släppts av flip-grenen). Blockera samma-riktnings-retro upp till
+      // lastKnown-TTL:n (6 h) — svepets räckhåll. Live-källor (source=
+      // current/target, retroactiveSource=false) berörs INTE: en äkta ny
+      // transit notifieras alltid via proximity. Riktningskravet är
+      // rörelsebevisat (F4-C); okänd riktning ⇒ dagens släpp består.
+      const lateStoredDir = typeof entry === 'object' && entry ? entry.dir : null;
+      const lateCurrentDir = this._dedupDirection(vessel, { requireMovement: true });
+      const retentionMs = this._PERSISTENT_DEDUP_RETENTION_MS || 6 * 60 * 60 * 1000;
+      if (opts.retroactiveSource === true
+          && lateStoredDir && lateCurrentDir && lateStoredDir === lateCurrentDir
+          && age < retentionMs) {
+        this.log(
+          `🚫 [PERSISTENT_DEDUP_SAME_DIR_LATE] ${dedupeKey}: entry ${Math.round(age / 60000)} min old `
+          + `(beyond 2h window) but same direction (${lateStoredDir}) and retroactive source — `
+          + 'same passage, blocking re-notify',
+        );
+        return { blocked: true, minutesSince: Math.round(age / 60000) };
+      }
+      return { blocked: false, minutesSince: Math.round(age / 60000) };
+    }
     const storedDir = typeof entry === 'object' && entry ? entry.dir : null;
     // F4-C (PIANO): flip-bedömningens NYA riktning kräver rörelsebevis
     const currentDir = this._dedupDirection(vessel, { requireMovement: true });
@@ -926,8 +962,38 @@ class AISBridgeApp extends Homey.App {
     // (Fix D) = ny resa i motsatt riktning. VDS har nollat passedBridges;
     // app-lagret måste spegla NEW_JOURNEY-resetten och rensa dedup-nycklarna
     // (session + persistent) så returresans broar kan notifiera igen.
-    this.vesselDataService.on('vessel:journey-reset', ({ mmsi, vessel, bridges }) => {
+    this.vesselDataService.on('vessel:journey-reset', ({
+      mmsi, vessel, bridges, prevJourneyDirection,
+    }) => {
       try {
+        // FP9 (2026-07-18, SEEBAER III 10:02 + ELFKUNGEN 14:56): N2-resetten
+        // antog "reborn efter cooldown = returresa" utan riktningsbevis.
+        // SEEBAER III timeout-exitade söderut 09:47 (TP-notis + dedup-nyckel
+        // satt, DEDUP_PRESERVE), reborn:ades 15 min senare FORTFARANDE
+        // sydgående (cog 243° @ 2,7 kn, samma utfärd) — resetten rensade
+        // nycklarna och svepet re-notifierade samma TP-passage (373 m).
+        // ELFKUNGEN reborn:ade med sog 0 (riktning obevisbar) och fick samma
+        // dubblett via okänd-grenen. Rensa därför ENDAST när den nya
+        // riktningen är RÖRELSEBEVISAD (F4-C-kravet) och MOTSATT förra
+        // resans slutriktning. Samma/okänd riktning behåller nycklarna —
+        // en ÄKTA retur bevisar sig ändå: flip-undantaget i
+        // _persistentDedupCheck (rörelsebevisad motsatt riktning) och
+        // NEW_JOURNEY-korsningsbeviset äger de vägarna, och kalibrerade
+        // äkta returer tar ≥25 min (R2). Gäller bara N2-vägen
+        // (prevJourneyDirection satt) — N1-reversalen är korsningsbevisad
+        // och rörs inte.
+        if (prevJourneyDirection === 'north' || prevJourneyDirection === 'south') {
+          const rebornDir = this._dedupDirection(vessel, { requireMovement: true });
+          const provenOpposite = rebornDir !== null && rebornDir !== prevJourneyDirection;
+          if (!provenOpposite) {
+            this.log(
+              `🚫 [JOURNEY_RESET_SAME_DIRECTION] ${mmsi}: reborn heading ${rebornDir || 'unknown'} `
+              + `vs previous journey ${prevJourneyDirection} — no proven reversal, keeping dedup keys `
+              + '(true returns release via direction-flip/NEW_JOURNEY)',
+            );
+            return;
+          }
+        }
         if (Array.isArray(bridges) && bridges.length > 0) {
           // Fältprov 3 (2026-07-08): riktningsrelativ reset — rensa endast
           // nycklarna för broar FRAMFÖR båten i nya riktningen. Full rensning
@@ -1310,6 +1376,37 @@ class AISBridgeApp extends Homey.App {
           || vessel.lastPassedBridgeTime !== oldVessel?.lastPassedBridgeTime);
       if (justRegisteredPassage) {
         await this._triggerBoatNearFlowFallback(vessel, vessel.lastPassedBridge);
+      }
+
+      // FP9 (2026-07-18, NORFJELL 01:01): multi-passage i SAMMA tick —
+      // lastPassedBridge håller bara den SIST stämplade passagen. När ett
+      // AIS-gap låter båten passera två broar mellan två sampel (Strids som
+      // target via trajectory_based_passage + Järnvägsbron som intermediate,
+      // registrerade millisekunder isär) skrev intermediate-vägen över
+      // fältet innan BUG C-checken kördes — målbrons failsafe uteblev och
+      // Stridsbergsbron-notisen försvann helt.
+      // OBS (replayvaliderad fallgrop): passedBridges-ARRAYEN DELAS by
+      // reference mellan vessel och oldVessel (_createVesselObject:
+      // "oldVessel?.passedBridges || []") — en old-diff är alltid tom.
+      // Diffa i stället via passedAt-ankringarna: en passage registrerad
+      // DENNA tick har en färsk tidsstämpel (< 2000 ms, samma fönster som
+      // BUG C). Fallbackens egna skydd (persistent dedup, 2000 m-tak,
+      // stale-fönster) gäller per bro, så re-pass efter NEW_JOURNEY-reset
+      // och redan notifierade broar hanteras som förut; en U-svängs GAMLA
+      // ankring är per definition inte färsk och skippas konservativt.
+      {
+        const FRESH_PASSAGE_MS = 2000;
+        const anchored = (vessel.passedAt && typeof vessel.passedAt === 'object') ? vessel.passedAt : {};
+        for (const [anchoredBridge, anchoredTs] of Object.entries(anchored)) {
+          if (!Number.isFinite(anchoredTs) || Date.now() - anchoredTs >= FRESH_PASSAGE_MS) continue;
+          if (justRegisteredPassage && anchoredBridge === vessel.lastPassedBridge) continue;
+          this.log(
+            `🌉 [MULTI_PASSAGE_FALLBACK] ${mmsi}: ${anchoredBridge} also anchored this tick `
+            + `(lastPassedBridge=${vessel.lastPassedBridge || 'none'}) — requesting failsafe`,
+          );
+          // eslint-disable-next-line no-await-in-loop
+          await this._triggerBoatNearFlowFallback(vessel, anchoredBridge, { detectionTs: Date.now() });
+        }
       }
 
       // Backfill-fix (2026-06-13): inferens-vägarna (RC9 missad målbro,
@@ -4281,6 +4378,12 @@ class AISBridgeApp extends Homey.App {
         _isImminentAtTargetBridge: vessel._isImminentAtTargetBridge,
         lat: vessel.lat,
         lon: vessel.lon,
+        // FP9 (2026-07-18, FIX I1): under-målbron-dominansens färskhetsgate
+        // i BridgeTextService läser positionstiderna — utan dem i
+        // projektionen vore gaten tyst verkningslös (fältlist-fällan,
+        // projektionsvakten T3 kräver paret här + i vaktlistan).
+        timestamp: vessel.timestamp,
+        lastPositionUpdate: vessel.lastPositionUpdate,
       };
     });
   }
@@ -5176,6 +5279,26 @@ class AISBridgeApp extends Homey.App {
               );
               continue;
             }
+          } else {
+            // FP9 (2026-07-18, VIRGO 11:32): FP8-gatens NORDSPEGEL — lots-
+            // kajen ligger INUTI zonen och en förtöjd båts drift-cog hamnar
+            // lika gärna i nordbandet (VIRGO: cog 330° @ 0,6 kn, reborn en
+            // minut efter timeout, target AVVISAD som ankrad) som i syd.
+            // Nord-/okänd-riktning är punktens förvarningssyfte (inkommande
+            // båtar), så gaten kräver bara TRANSITINDIKATION: målbro satt
+            // ELLER fart ≥ 1 kn. En långsam äkta inkommande utan målbro får
+            // notisen någon minut senare när target/rörelse etableras —
+            // dedup-nyckeln sätts inte vid skip, så notisen fördröjs, inte
+            // förloras. Sydgrenens LYS-klass (exit) berörs inte.
+            const transitIndication = !!vessel.targetBridge
+              || (Number.isFinite(vessel.sog) && vessel.sog >= 1.0);
+            if (!transitIndication) {
+              this.debug(
+                `🚪 [TRIGGER_POINT_SKIP_IDLE] ${vessel.mmsi}: ${this._getDirectionString(vessel)} at ${tp.name} `
+                + `without transit indication (no target, sog=${vessel.sog}) - no candidate`,
+              );
+              continue;
+            }
           }
           candidates.push({
             name: tp.name,
@@ -5812,6 +5935,27 @@ class AISBridgeApp extends Homey.App {
     // (ETA till Klaffbron ~1 km bort). Beräkna i stället ETA mot den notifierade
     // brons faktiska avstånd för icke-target-kandidater.
     let eta = (source === 'target') ? vessel.etaMinutes : null;
+    // FP9 (2026-07-18, NORFJELL 01:06 / SEEBAER III 08:56 / LIZYMAR 08:54):
+    // target-källans token läser vessel.etaMinutes som kan vara ett helt
+    // AIS-gap gammal — trigger-ticket bygger tokens INNAN gap-samplets ETA
+    // räknats om (6 vs 1,3 min; 19 vs 12; burst-clampade 18 vs 0,2 under
+    // bron). Fysiskt tak: notisens ETA kan aldrig överstiga rå restid
+    // (distans/fart) + 3 min marginal när båten bevisligen rör sig — taket
+    // kan bara SÄNKA mot verkligheten och rör inte låg-fartsfall (där rå
+    // restid är större och lagrat värde behålls).
+    if (source === 'target' && Number.isFinite(eta)) {
+      const rawSpeedMs = (Number.isFinite(vessel.sog) ? vessel.sog : 0) * 0.5144;
+      if (rawSpeedMs > 0.1 && Number.isFinite(distance)) {
+        const rawEtaMin = (distance / rawSpeedMs) / 60;
+        if (eta > rawEtaMin + 3) {
+          this.debug(
+            `⏱️ [FLOW_TRIGGER_ETA_CAP] ${mmsiLabel}: stored ETA ${eta.toFixed(1)} min exceeds raw `
+            + `travel time ${rawEtaMin.toFixed(1)} min (${Math.round(distance)}m @ ${vessel.sog}kn) — capping`,
+          );
+          eta = rawEtaMin;
+        }
+      }
+    }
     // E-F3/N9 (2026-07-01): för en REDAN PASSERAD bro (failsafe/just-passed)
     // är en framräknad "ETA" riktningslöst nonsens — dist/fart mäter tid till
     // en bro båten rör sig BORT ifrån (t.ex. "4 min" 700 m EFTER passagen).
@@ -6652,11 +6796,15 @@ class AISBridgeApp extends Homey.App {
    * @private
    */
   _pruneDedupCaches() {
-    // Anomali 9 fix: rensa _persistentRecentTriggers entries äldre än 2h
-    // för att map inte ska växa obegränsat.
+    // Anomali 9 fix: rensa _persistentRecentTriggers entries äldre än
+    // retentionsgränsen för att map inte ska växa obegränsat.
+    // FP9: fysisk prune vid RETENTION (6 h), inte blockeringsfönstret (2 h) —
+    // alla 2h-jämförelser är tidsbaserade (C3) så beteendet inom fönstret är
+    // oförändrat; posterna behövs för samma-riktnings-gaten (RONJA-klassen).
     if (this._persistentRecentTriggers) {
       const persistentNow = Date.now();
-      const persistentWindow = this._PERSISTENT_DEDUP_WINDOW_MS || 2 * 60 * 60 * 1000;
+      const persistentWindow = this._PERSISTENT_DEDUP_RETENTION_MS
+        || this._PERSISTENT_DEDUP_WINDOW_MS || 2 * 60 * 60 * 1000;
       const persistentExpired = [];
       for (const [key, value] of this._persistentRecentTriggers.entries()) {
         const ts = typeof value === 'number' ? value : value && value.t;

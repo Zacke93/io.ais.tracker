@@ -257,6 +257,31 @@ describe('INV-3/16 FP8-kalibreringen (2026-07-13, korpus 20260712-25h)', () => {
     expect(validateInvariants(result).some((x) => x.includes('OSCILLATION'))).toBe(true);
   });
 
+  test('FP9 SEEBAER-klassen: färsk X → cirka-MELLANDIPP → färsk X±1 är Fix G-rättelsens spegel, INTE oscillation', () => {
+    // Korpus 20260713-41h 08:52–08:54: "6 → cirka 2 → 5" — extrapolationen
+    // dippade i 6-min-gapet och färska samplet (SEEBAER III:s notistick)
+    // rättade tillbaka. Mellanvärdet är approx; ytterpunkterna färska.
+    const result = baseResult({
+      bridgeTextTransitions: [
+        trans(0, klaff(6)),
+        trans(60, klaff(2, true)), // extrapolerad dipp
+        trans(81, klaff(5)), //       färsk rättelse
+      ],
+    });
+    expect(validateInvariants(result).filter((x) => x.includes('OSCILLATION'))).toEqual([]);
+  });
+
+  test('FP9: cirka-mellanvärde följt av cirka-ytterpunkt undantas INTE (bara färsk rättelse kvalar)', () => {
+    const result = baseResult({
+      bridgeTextTransitions: [
+        trans(0, klaff(6)),
+        trans(60, klaff(2, true)),
+        trans(81, klaff(5, true)), // fortfarande extrapolerad — ingen färsk rättelse
+      ],
+    });
+    expect(validateInvariants(result).some((x) => x.includes('OSCILLATION'))).toBe(true);
+  });
+
   test('ELFKUNGEN-klassen: hopp från SOFT-zonen (4→10) med STABIL ny nivå är exhausted-ledarbytet, inte sågtand', () => {
     const result = baseResult({
       bridgeTextTransitions: [

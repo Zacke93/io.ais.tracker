@@ -469,6 +469,9 @@ describe('T3: projektions-fältlistvakten (t-bridge-text#R2-2 — fältlist-fäl
     // Fältprov 4b (2026-07-09): under-MÅLBRON-dominansen i gruppklausulen
     // läser status + currentBridge — båda bärs av projektionen.
     'status', 'currentBridge',
+    // FP9 (2026-07-18, FIX I1): under-målbron-dominansens färskhetsgate
+    // läser positionstiderna (FREE WILLY-strax-spöket).
+    'timestamp', 'lastPositionUpdate',
   ];
 
   function makeProjectionApp() {
@@ -499,6 +502,8 @@ describe('T3: projektions-fältlistvakten (t-bridge-text#R2-2 — fältlist-fäl
         _isImminentAtTargetBridge: false,
         lat: 58.28,
         lon: 12.28,
+        timestamp: Date.now(),
+        lastPositionUpdate: Date.now(),
       }],
     };
     app.proximityService = {

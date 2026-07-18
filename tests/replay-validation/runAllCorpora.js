@@ -148,12 +148,32 @@ for (const corpus of corpora) {
 
   // Facit-oberoende invarianter — fångar buggklasser som facit-jämförelsen
   // är strukturellt blind för (se docs/bug-audit-2026-06-10.md §D-E).
+  // FP9 (2026-07-18): en korpuspost får bära knownInvariantExceptions —
+  // EXAKTA utslagssträngar (prefixmatch) som är RÅDATAVERIFIERAT designenliga
+  // förlopp vilka de textbaserade reglerna inte kan särskilja (NORDIC
+  // SOLA-klassen: 6-min-tyst ledare visar sig ha bromsat till kö — färskt
+  // sampel rättar ETA:n ärligt uppåt och studsar vid re-acceleration; text-
+  // signaturen är identisk med SOKERI-klassens). Varje post MÅSTE motiveras
+  // i corpora.js-noten. Matchade utslag loggas synligt men fäller inte;
+  // omatchade fäller med full styrka som förut.
+  const knownExceptions = Array.isArray(corpus.knownInvariantExceptions)
+    ? corpus.knownInvariantExceptions : [];
   const invariantViolations = validateInvariants(result);
-  for (const v of invariantViolations.slice(0, 5)) {
+  const knownHits = [];
+  const liveViolations = [];
+  for (const v of invariantViolations) {
+    if (knownExceptions.some((k) => v.startsWith(k))) knownHits.push(v);
+    else liveViolations.push(v);
+  }
+  if (knownHits.length > 0) {
+    console.log(`\n  ℹ️ ${corpus.id}: ${knownHits.length} KÄNDA invariantutslag (rådataverifierade, se corpora.js):`);
+    for (const v of knownHits) console.log(`     ${v}`);
+  }
+  for (const v of liveViolations.slice(0, 5)) {
     problems.push(`INVARIANT: ${v}`);
   }
-  if (invariantViolations.length > 5) {
-    problems.push(`... +${invariantViolations.length - 5} fler invariantbrott`);
+  if (liveViolations.length > 5) {
+    problems.push(`... +${liveViolations.length - 5} fler invariantbrott`);
   }
 
   if (corpus.locked && problems.length > 0) failed = true;
