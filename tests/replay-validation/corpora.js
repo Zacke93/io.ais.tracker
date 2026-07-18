@@ -356,7 +356,16 @@ module.exports = [
       + 'NORR om punkten i 3,5 kn/cog 216 (aktiv transit) → removal. Gamla '
       + 'gaten krävde avslutad resa (_finalTargetDirection) och strök exiten '
       + 'strukturellt (samma klass som IN-AXXI/ELFKUNGEN-exiterna ovan, men '
-      + 'för MÅLLÖS transitör).',
+      + 'för MÅLLÖS transitör). '
+      + 'GOLDEN OMLÅST 135→134 (FP9 2026-07-18, FIX L retrograd-vakten): '
+      + 'övergången "cirka 2 minuter" 12:48:06 var en artefaktrendering — '
+      + '265606970:s retrograda approaching-flapp för redan passerad '
+      + 'Olidebron (frusen position sedan passagen, latch-utgången) skapade '
+      + 'extra UI-ticks varav ett råkade rendera ELFKUNGENS extrapolerade '
+      + 'mellanvärde. Utan flappen renderas nästa tick 12:48:17 där '
+      + 'exhausted-kedjan (IMMINENT_SET_EXHAUSTED @311s → 90 s strax → '
+      + 'ETA okänd @12:50:06) äger — samma regelverk, notiserna 80/80 '
+      + 'byte-identiska.',
   },
   {
     id: '20260711-7h',
@@ -413,5 +422,48 @@ module.exports = [
       + '"Fem båtar på väg mot Stridsbergsbron" 08:21 — alla fem rådata-'
       + 'verifierade Strids-passager). SENTA-exiten (timeout-reborn med '
       + 'lastKnown norr om punkten) är facit-vakt för fönsterkriteriet.',
+  },
+  {
+    id: '20260713-41h',
+    jsonl: path.join(CORPORA_DATA_DIR, 'ais-replay-20260713-221737.jsonl'),
+    appLog: path.join(LOGS_DIR, 'app-20260713-221737.log'),
+    hours: 41,
+    locked: true,
+    expectedNotifications: 164,
+    note: '41h-körningen 2026-07-13/15 (34 fartyg, 1355 samples, 388 825 '
+      + 'rader — störst hittills; fältprov 9: 130 Opus xhigh-läsare + '
+      + 'dirigentens korsningsfacit, se docs/faltprov9-2026-07-18.md). '
+      + 'LÅST 164 (2026-07-18): prod gav 166 men med 2 dubbletter + 1 '
+      + 'fantom + 1 målbro-miss — facit är replay-utfallet med FP9-fixarna '
+      + 'A–D, varje diff rådataverifierad: −1 SEEBAER III@Kanalinfarten '
+      + '(DUBBLETT: N2-resetten rensade dedup för samma-riktnings-reborn '
+      + '15 min efter exit-notisen — FIX A), −1 RONJA@Järnvägsbron '
+      + '(DUBBLETT: waiting-notis 15:14 + svep-re-notify 18:35 när 2h-'
+      + 'fönstret gått ut, sog 0-båt på 202 min gammal lastKnown — FIX D), '
+      + '−1 VIRGO@Kanalinfarten (FANTOM: förtöjd lotskajsbåt, drift-cog '
+      + '330° kringgick FP8-1:s syd-gate — FIX C), +1 NORFJELL@'
+      + 'Stridsbergsbron (ÄKTA MISS: målbron + Järnvägsbron passerade i '
+      + 'samma 5,3-min-gap-tick; lastPassedBridge höll bara den sista — '
+      + 'FIX B/MULTI_PASSAGE via passedAt). Golden-text bär FIX H\'-vakten '
+      + '(kajvobbel-targets söder om Kanalinfarten nekas utan nordprogress '
+      + '— 19 falska "på väg mot Klaffbron, om 33–103 min"-övergångar '
+      + 'borta; reborn-spik-klassen kvarstår dokumenterad) och FIX I1 '
+      + '(under-målbron-strax kräver färsk position). NAUTILUS-exemplet '
+      + '(22h-tystnad → Strids 2 025 m > 2000 m-taket vid porten-gissning) '
+      + 'är accepterad avvägning, INTE miss i facit. '
+      + 'KÄNDA INVARIANTUTSLAG (rådataverifierade, NORDIC SOLA-klassen): '
+      + 'sågtanden 08:48:51 "8→14" + oscillationen 08:50:22 "8→14→9" är EN '
+      + 'händelse — NORDIC SOLA (258715000) låg 6 min AIS-tyst (360 s) på '
+      + 'gruppledarens gamla 8:a, färska samplet 08:48:51.380 visade 1,7 kn '
+      + '(kö-inbromsning inför Järnvägsbron; approaching-notisen avfyrade i '
+      + 'SAMMA tick) → progressiv ETA 15,8/13,5 → gruppens 14, och 9:an '
+      + '95 s senare är re-accelerationen. Ärlig färsk-data-rättelse — '
+      + 'textbaserat oskiljbar från SOKERI-signaturen (studsdiskriminatorn '
+      + 'antar färskt belagt ursprungsvärde). Undantagen är EXAKTA strängar; '
+      + 'varje NY sågtand/oscillation fäller korpusen med full styrka.',
+    knownInvariantExceptions: [
+      'ETA-SÅGTAND UPP: 2026-07-15T08:48:51.405Z Stridsbergsbron 8→14',
+      'ETA-OSCILLATION: 2026-07-15T08:50:22.118Z Stridsbergsbron 8→14→9',
+    ],
   },
 ];

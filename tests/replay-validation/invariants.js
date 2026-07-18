@@ -238,7 +238,14 @@ function validateInvariants(result) {
         const x2 = series[i];
         const span = (x2.t - x.t) / 1000;
         const oscThreshold = Math.max(3, 0.3 * x.eta);
-        const extrapolationCorrection = x.approx === true && y.approx !== true;
+        // FP9-KALIBRERING (2026-07-18, korpus 20260713-41h, SEEBAER-gruppen
+        // 08:52–08:54 "6→cirka 2→5"): SPEGELN av FP8:s IDUN-undantag — här
+        // är MELLANVÄRDET extrapolerat (dead-reckoning dippade i 6-min-
+        // gapet) och båda ytterväpunkterna färska beräkningar. Samma Fix
+        // G-rättelseklass: extrapolationens avvikelse korrigeras av nästa
+        // sample. Äkta oscillation (färsk→färsk→färsk) fälls som förut.
+        const extrapolationCorrection = (x.approx === true && y.approx !== true)
+          || (y.approx === true && x.approx !== true && x2.approx !== true);
         if (span <= 240 && Math.abs(y.eta - x.eta) >= oscThreshold && Math.abs(x2.eta - x.eta) <= 1
             && x.count === y.count && y.count === x2.count && !extrapolationCorrection) {
           violations.push(`ETA-OSCILLATION: ${x2.iso} ${bridge} ${x.eta}→${y.eta}→${x2.eta} inom ${Math.round(span)}s`);
