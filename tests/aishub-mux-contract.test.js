@@ -189,10 +189,12 @@ describe('Etapp 2: skuggläget — inte en enda AISHub-fix vidare till pipelinen
     expect(received[0].fixFeed).toBe('aisstream');
   });
 
-  test('🔭 SHADOW_COMPARE loggas var 5:e minut med latensdelta för samma (mmsi, position)', () => {
+  test('🔭 SHADOW_COMPARE: fixLag + race med KORREKT teckenförklaring (fältprov 2)', () => {
     const now = Date.now();
-    // aisstream tar emot positionen 40 s EFTER AISHubs fixtid — deltat ska
-    // bli +40000 (positivt = AISHub-fixen var färskare).
+    // aisstream tog emot positionen vid now; AISHubs fix är 40 s ÄLDRE och
+    // levererades samtidigt. fixLag = mottagning − fixtid = +40000 ⇒
+    // positivt betyder att AISHubs STÄMPEL är äldre (den gamla texten
+    // påstod motsatsen och hade lett till fel GO-beslut).
     mux._ingestFromFeed('aisstream', msg({ timestamp: now, fixTs: now }));
     mux._ingestFromFeed('aishub', msg({
       fixFeed: 'aishub', fixTsQuality: 'true-fix', fixTs: now - 40000, timestamp: now,
@@ -210,7 +212,95 @@ describe('Etapp 2: skuggläget — inte en enda AISHub-fix vidare till pipelinen
     const report = shadowLines[0];
     expect(report).toContain('both=1');
     expect(report).toContain('onlyAishub=1');
-    expect(report).toContain('medianDeltaMs=40000');
+    expect(report).toContain('fixLagMedianMs=40000');
+    expect(report).toContain('positivt = AISHubs fixstämpel är ÄLDRE');
+    // Leveranskapplöpningen: båda levererade vid now ⇒ 0.
+    expect(report).toContain('raceMedianMs=0');
+    expect(report).toContain('positivt = AISHub levererade till appen FÖRE aisstream');
+    // p90 undertrycks vid för få sampel (1 st) — annars vore p90 = max.
+    expect(report).toContain('fixLagP90Ms=-');
+  });
+
+  test('FÄLTPROV 2-FYNDET: föråldrat par förkastas — kajliggarens 3-minutersrytm får inte förgifta medianen', () => {
+    const now = Date.now();
+    // aisstream tog emot denna position för 40 MINUTER sedan. Båten ligger
+    // still och rapporterar samma avrundade koordinat igen; AISHubs fix är
+    // färsk. Utan skew-grinden parades dessa och gav ett skräpvärde på
+    // −2 400 000 ms (32 % av fältprovets sampel var av den sorten).
+    mux._ingestFromFeed('aisstream', msg({ timestamp: now - 40 * 60 * 1000, fixTs: now - 40 * 60 * 1000 }));
+    mux._ingestFromFeed('aishub', msg({
+      fixFeed: 'aishub', fixTsQuality: 'true-fix', fixTs: now, timestamp: now,
+    }));
+
+    jest.advanceTimersByTime(5 * 60 * 1000);
+    const report = logger.log.mock.calls
+      .map((c) => c.join(' '))
+      .filter((l) => l.includes('[SHADOW_COMPARE]'))[0];
+    expect(report).toContain('samples=0');
+    expect(report).toContain('stalePairsDropped=1');
+    expect(report).toContain('fixLagMedianMs=-');
+  });
+
+  test('FÄLTPROV 2: positionsindexet prunas på ÅLDER, inte bara på storlek', () => {
+    const now = Date.now();
+    mux._ingestFromFeed('aisstream', msg({ timestamp: now, fixTs: now }));
+    expect(mux._shadowPosIndex.size).toBe(1);
+    // Inom TTL: posten lever.
+    jest.setSystemTime(now + 2 * 60 * 1000);
+    mux.pruneFusionState();
+    expect(mux._shadowPosIndex.size).toBe(1);
+    // Bortom TTL (5 min): borta — tidigare rensades den först vid >500 poster
+    // (indexet nådde 46 på en timme, dvs. rensades aldrig i praktiken).
+    jest.setSystemTime(now + 6 * 60 * 1000);
+    mux.pruneFusionState();
+    expect(mux._shadowPosIndex.size).toBe(0);
+  });
+
+  test('FÄLTPROV 2: maxSilence per källa mäter kontinuitet — det AISHub faktiskt vinner på', () => {
+    const now = Date.now();
+    mux._ingestFromFeed('aisstream', msg({ timestamp: now, fixTs: now }));
+    mux._ingestFromFeed('aishub', msg({ fixFeed: 'aishub', fixTs: now, timestamp: now }));
+    // aisstream tystnar i 4 min, AISHub fortsätter var 65:e sekund.
+    jest.setSystemTime(now + 65000);
+    mux._ingestFromFeed('aishub', msg({
+      fixFeed: 'aishub', fixTs: now + 65000, timestamp: now + 65000, lat: 58.2901,
+    }));
+    jest.setSystemTime(now + 4 * 60 * 1000);
+    mux._ingestFromFeed('aisstream', msg({ timestamp: now + 4 * 60 * 1000, fixTs: now + 4 * 60 * 1000, lat: 58.2902 }));
+
+    jest.advanceTimersByTime(5 * 60 * 1000);
+    const report = logger.log.mock.calls
+      .map((c) => c.join(' '))
+      .filter((l) => l.includes('[SHADOW_COMPARE]'))[0];
+    expect(report).toContain('maxSilenceAisstreamMs=240000');
+    expect(report).toContain('maxSilenceAishubMs=65000');
+  });
+
+  test('FÄLTPROV 2: GO-kriteriernas råvärden loggas (AISHUB_HEALTH) — fanns i stats men skrevs aldrig', () => {
+    const now = Date.now();
+    mux._ingestFromFeed('aishub', msg({ fixFeed: 'aishub', fixTs: now, timestamp: now }));
+    jest.advanceTimersByTime(5 * 60 * 1000);
+    const health = logger.log.mock.calls
+      .map((c) => c.join(' '))
+      .filter((l) => l.includes('[AISHUB_HEALTH]'));
+    expect(health.length).toBeGreaterThanOrEqual(1);
+    // Kriterium 3 och 4 måste gå att avgöra ur loggen.
+    expect(health[0]).toMatch(/timeParseFail=\d+/);
+    expect(health[0]).toMatch(/emptyResponses=\d+ \([\d.]+%\)/);
+    expect(health[0]).toMatch(/dedupSize=\d+/);
+  });
+
+  test('FÄLTPROV 2: slutspolning vid stopp — påbörjat fönster går inte förlorat', () => {
+    const now = Date.now();
+    mux._ingestFromFeed('aisstream', msg({ timestamp: now, fixTs: now }));
+    mux._ingestFromFeed('aishub', msg({ fixFeed: 'aishub', fixTs: now, timestamp: now }));
+    // Stoppa FÖRE 5-minutersgränsen — mätdatan ska ändå rapporteras.
+    mux._stopShadowTimer();
+    const finals = logger.log.mock.calls
+      .map((c) => c.join(' '))
+      .filter((l) => l.includes('[SHADOW_COMPARE]') && l.includes('slutspolning'));
+    expect(finals.length).toBe(1);
+    expect(finals[0]).toContain('both=1');
   });
 
   test('FÄLTPROV 1-FYNDET: skugg-pollens färskhet får ALDRIG nå aggregatet — stale-vakterna ska kunna fyra', () => {
