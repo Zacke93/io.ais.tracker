@@ -92,6 +92,12 @@ SYNC_PID=$!
 
 # Funktion för att extrahera bridge text updates när appen stoppas
 extract_bridge_text() {
+    # Fältprov 1 (2026-08-02): GNU grep under UTF-8-locale (LANG=en_US.UTF-8
+    # i Git Bash) matchar INTE emoji-mönstren (📱 U+1F4F1) — summaryn
+    # rapporterade permanent 0 uppdateringar trots träffar i loggen, och det
+    # är artefakten körboken kräver för korpuslåsning. LC_ALL=C ger ren
+    # bytematchning och alla mönster träffar igen.
+    export LC_ALL=C
     kill "$REPLAY_GUARD_PID" 2>/dev/null || true
     kill "$HOLE_GUARD_PID" 2>/dev/null || true
     kill "$SYNC_PID" 2>/dev/null || true

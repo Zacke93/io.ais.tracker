@@ -404,6 +404,47 @@ describe('Etapp 1: AISHubClient emission, dedup och boxfilter', () => {
     expect(client.getConnectionStats().counters.outOfBox).toBe(1);
   });
 
+  test('FÄLTPROV 1-FYNDET (sekretess): USERNAME maskeras i AISHUB_RESPONSE_SAMPLE — usernamet ÄR autentiseringen', async () => {
+    client = new AISHubClient(
+      {
+        log: jest.fn(), debug: jest.fn(), error: jest.fn(), debugLevel: 'full',
+      },
+      makeStore(),
+    );
+    client._httpGet = jest.fn(async () => ({ statusCode: 200, body: okSweepBody([makeRecord()]) }));
+    await client.connect('testuser');
+    await jest.advanceTimersByTimeAsync(5 * 1000);
+
+    const sampleLines = client.logger.log.mock.calls
+      .filter((c) => String(c[0]).includes('AISHUB_RESPONSE_SAMPLE'))
+      .map((c) => c.join(' '));
+    expect(sampleLines.length).toBe(1);
+    expect(sampleLines[0]).toContain('"USERNAME\\":\\"***\\"');
+    expect(sampleLines[0]).not.toContain('testuser');
+  });
+
+  test('FÄLTPROV 1-FYNDET (telemetri): AISHUB_POLL loggar PER-SVEP-dupes + separata livstidstotaler', async () => {
+    const t = '2026-08-02 12:00:30 GMT';
+    client = new AISHubClient(makeLogger(), makeStore());
+    client._httpGet = jest.fn(async () => ({ statusCode: 200, body: okSweepBody([makeRecord({ TIME: t })]) }));
+    await client.connect('testuser');
+    // Tre pollar med SAMMA fix: p1 färsk, p2 dup (svep 1, total 1), p3 dup (svep 1, total 2).
+    await jest.advanceTimersByTimeAsync(150 * 1000);
+
+    const pollLines = client.logger.log.mock.calls
+      .map((c) => c.join(' '))
+      .filter((l) => l.includes('[AISHUB_POLL]'));
+    expect(pollLines.length).toBe(3);
+    expect(pollLines[0]).toContain('dupes=0');
+    expect(pollLines[0]).toContain('dupesTotal=0');
+    expect(pollLines[1]).toContain('dupes=1');
+    expect(pollLines[1]).toContain('dupesTotal=1');
+    // Kärnan i fyndet: per-svep-talet förblir 1 medan totalen växer —
+    // tidigare loggades totalen som "dupes" och kvoten var oläsbar.
+    expect(pollLines[2]).toContain('dupes=1');
+    expect(pollLines[2]).toContain('dupesTotal=2');
+  });
+
   test('reconnectWithKey är en no-op (ingen extra poll, ingen krasch)', async () => {
     collect([{ statusCode: 200, body: okSweepBody([]) }]);
     await client.connect('testuser');
