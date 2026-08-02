@@ -37,6 +37,13 @@ function makeStore() {
   };
 }
 
+beforeEach(() => {
+  if (!jest.isMockFunction(setTimeout)) {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-08-02T12:00:00.000Z'));
+  }
+});
+
 function msg(overrides = {}) {
   return {
     mmsi: '265001111',
@@ -137,6 +144,69 @@ describe("Etapp 3: muxens routing i 'both'-läget", () => {
       timestamp: now,
     }));
     expect(received).toHaveLength(0);
+  });
+});
+
+describe('FÄLTPROV 3: fusionsfälten sätts VID KÄLLAN — harnessen får inte maskera produktionen', () => {
+  test('AISStreamClient._extractAISData bär fixTs/fixFeed/fixTsQuality', () => {
+    // eslint-disable-next-line global-require
+    const AISStreamClient = require('../lib/connection/AISStreamClient');
+    const client = new AISStreamClient(makeLogger());
+    const out = client._extractAISData({
+      MessageType: 'PositionReport',
+      MetaData: {
+        MMSI: 265001111, Latitude: 58.29, Longitude: 12.29, ShipName: 'KÄLLPROV',
+      },
+      Message: { PositionReport: { MMSI: 265001111, Sog: 5, Cog: 25 } },
+    });
+    expect(out).not.toBeNull();
+    expect(out.fixFeed).toBe('aisstream');
+    expect(out.fixTsQuality).toBe('receipt');
+    expect(Number.isFinite(out.fixTs)).toBe(true);
+    // Mottagningstid och fixtid är SAMMA stämpel för en pushande källa.
+    expect(out.fixTs).toBe(out.timestamp);
+  });
+
+  test('F5 fyrar på ett ÄKTA aisstream→AISHub-källbyte utan harness-injektion', () => {
+    // Buggen: utan fixFeed vid källan blev state.lastFeed undefined (falsy)
+    // och F5-grinden hoppades över för hela riktningen aisstream→AISHub.
+    // Detta test matar EXAKT det klienten producerar — ingen injektion.
+    // eslint-disable-next-line global-require
+    const AISStreamClient = require('../lib/connection/AISStreamClient');
+    const client = new AISStreamClient(makeLogger());
+    const streamMsg = client._extractAISData({
+      MessageType: 'PositionReport',
+      MetaData: {
+        MMSI: 265001111, Latitude: 58.29, Longitude: 12.29, ShipName: 'SWITCH',
+      },
+      Message: { PositionReport: { MMSI: 265001111, Sog: 5, Cog: 0 } },
+    });
+
+    const mux = new AISSourceMultiplexer(makeLogger(), makeStore());
+    try {
+      mux._config.source = 'both';
+      const seen = [];
+      mux.on('ais-message', (m) => seen.push(m));
+
+      mux._ingestFromFeed('aisstream', streamMsg);
+      // AISHub-fix ~300 m bort, 45 s senare — INOM det nya 90s-fönstret
+      // (med det gamla 30s-fönstret hann ett källbyte aldrig ske i tid).
+      jest.advanceTimersByTime(45000);
+      mux._ingestFromFeed('aishub', {
+        ...streamMsg,
+        lat: 58.29 + 300 / 111320,
+        fixFeed: 'aishub',
+        fixTsQuality: 'true-fix',
+        fixTs: Date.now(),
+        timestamp: Date.now(),
+      });
+
+      expect(seen).toHaveLength(2);
+      expect(seen[1].feedSwitch).toBe(true);
+      expect(mux.getConnectionStats().fusion.feedSwitches).toBe(1);
+    } finally {
+      mux.disconnect();
+    }
   });
 });
 

@@ -217,16 +217,34 @@ describe('F5: källbytesskydd — flagga, aldrig blockering', () => {
     expect(r2.feedSwitch).toBe(true);
   });
 
-  test('källbyte + hopp UTANFÖR 30 s-fönstret ⇒ ingen flagga', () => {
+  test('FÄLTPROV 3: källbyte 45 s senare ligger INOM fönstret ⇒ flaggas (30s-fönstret var kortare än pollkadensen)', () => {
+    // Fönstret var 30 s medan AISHub pollar var 65-70:e sekund — ett
+    // källbyte hann i praktiken ALDRIG ske inom fönstret, och samtliga
+    // nio observerade källbyten över 150 m i fältprovet låg utanför det.
+    // F5 var alltså död på riktig trafik. 90 s spänner en hel pollcykel.
     const state = createState();
     const stream = msg({ fixFeed: 'aisstream', fixTs: NOW });
     const r1 = shouldAccept(state, stream, NOW, CFG);
     applyAccept(state, stream, r1.fixTs, NOW);
 
     const hub = msg({
-      fixFeed: 'aishub', fixTs: NOW + 35000, lat: 58.29 + 300 / 111320, lon: 12.2902,
+      fixFeed: 'aishub', fixTs: NOW + 45000, lat: 58.29 + 300 / 111320, lon: 12.2902,
     });
-    const r2 = shouldAccept(state, hub, NOW + 40000, CFG);
+    const r2 = shouldAccept(state, hub, NOW + 45000, CFG);
+    expect(r2.accept).toBe(true);
+    expect(r2.feedSwitch).toBe(true);
+  });
+
+  test('källbyte + hopp UTANFÖR fönstret (>90 s) ⇒ ingen flagga', () => {
+    const state = createState();
+    const stream = msg({ fixFeed: 'aisstream', fixTs: NOW });
+    const r1 = shouldAccept(state, stream, NOW, CFG);
+    applyAccept(state, stream, r1.fixTs, NOW);
+
+    const hub = msg({
+      fixFeed: 'aishub', fixTs: NOW + 100000, lat: 58.29 + 300 / 111320, lon: 12.2902,
+    });
+    const r2 = shouldAccept(state, hub, NOW + 100000, CFG);
     expect(r2.accept).toBe(true);
     expect(r2.feedSwitch).toBe(false);
   });
