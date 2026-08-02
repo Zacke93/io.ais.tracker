@@ -213,6 +213,33 @@ describe('Etapp 2: skuggläget — inte en enda AISHub-fix vidare till pipelinen
     expect(report).toContain('medianDeltaMs=40000');
   });
 
+  test('FÄLTPROV 1-FYNDET: skugg-pollens färskhet får ALDRIG nå aggregatet — stale-vakterna ska kunna fyra', () => {
+    // I skuggläge kastas varje AISHub-fix av muxen — men klienten stämplar
+    // sin lastMessageTime vid emission. Räknades den in i aggregatet höll
+    // 65s-pollen timeSinceLastMessage permanent färsk och app.js stale-
+    // vakter (UI_FEED_STALE_GUARD/VESSEL_REMOVAL_STALE_GUARD) kunde aldrig
+    // fyra vid aisstream-avbrott → "Inga båtar"-lögnen.
+    mux._hubClient.isConnected = true;
+    mux._hubClient.lastMessageTime = Date.now() - 5000; // pollen "levererar"
+
+    const stats = mux.getConnectionStats();
+    // Aggregatet: datalöst (aisstream inaktiv, hubben matar inte pipelinen).
+    expect(stats.isConnected).toBe(false);
+    expect(mux.isConnected).toBe(false);
+    expect(stats.lastMessageTime).toBeNull();
+    expect(stats.timeSinceLastMessage).toBeNull();
+    // perFeed: råvärdena finns kvar (feed-watchdogens sanning).
+    expect(stats.perFeed.aishub.isConnected).toBe(true);
+    expect(Number.isFinite(stats.perFeed.aishub.timeSinceLastMessage)).toBe(true);
+
+    // I 'both'-läget matar hubben pipelinen — då SKA den räknas.
+    mux._config.source = 'both';
+    const bothStats = mux.getConnectionStats();
+    expect(bothStats.isConnected).toBe(true);
+    expect(Number.isFinite(bothStats.timeSinceLastMessage)).toBe(true);
+    mux._config.source = 'shadow'; // återställ för övriga tester
+  });
+
   test('skuggtimern städas vid återgång till aisstream-läget', () => {
     expect(mux._shadowTimer).not.toBeNull();
     mux.applySourceConfig({ source: 'aisstream', apiKey: null, aishubUsername: 'testuser' });
