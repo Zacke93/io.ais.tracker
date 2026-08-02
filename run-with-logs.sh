@@ -155,12 +155,19 @@ EOL
     echo "" >> "$BRIDGE_TEXT_SUMMARY"
     echo "## Logg-integritet (håldetektor)" >> "$BRIDGE_TEXT_SUMMARY"
     echo "" >> "$BRIDGE_TEXT_SUMMARY"
+    # Fältprov 2 (2026-08-02): den gamla awk:en jämförde ENDAST rader inom
+    # samma datum (`if (prevd == d && ...)`), så varje hål som spände över
+    # midnatt rapporterades aldrig — och ett 48h-fältprov passerar midnatt
+    # två gånger. Dagsräknaren nedan ger en monoton sekundskala över
+    # dygnsgränser (loggen är kronologisk, så varje datumbyte = +1 dygn).
     HOLES=$(grep -oE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}' "$LOGFILE" | \
       awk -F'[T:]' '{
         t = $2*3600 + $3*60 + $4; d = $1;
-        if (prevd == d && prevt != "" && t - prevt > 180)
-          printf "- HÅL: %s → %s (%d s utan loggrader)\n", prev, $0, t - prevt;
-        prevt = t; prevd = d; prev = $0;
+        if (prevd != "" && d != prevd) daycount++;
+        tabs = t + daycount*86400;
+        if (prevt != "" && tabs - prevt > 180)
+          printf "- HÅL: %s → %s (%d s utan loggrader)\n", prev, $0, tabs - prevt;
+        prevt = tabs; prevd = d; prev = $0;
       }')
     if [ -n "$HOLES" ]; then
         echo "⚠️ **TIDSHÅL FUNNA — körningen är OFULLSTÄNDIG och får inte korpuslåsas:**" >> "$BRIDGE_TEXT_SUMMARY"
