@@ -84,17 +84,21 @@ for (const corpus of corpora) {
     problems.push(`notiser ${notifications} ≠ facit ${corpus.expectedNotifications}`);
   }
 
+  // Etapp 3: en fusionskorpus (fusionOf satt) valideras mot PARENTENS
+  // fördelningsfacit — fusionens kontrakt är just "identiskt utfall".
+  const distKey = corpus.fusionOf || corpus.id;
+
   // Helgranskning 2026-07-06 (harness-corpora#R2-1): en LÅST korpus UTAN
   // fördelningspost hoppade tyst över multiset-gaten — kärnskyddet mot
   // kompenserande fel (miss + fantom = samma summa). Saknad post är nu ett
   // hårt fel: varje korpuslåsning MÅSTE registrera sin fördelning.
-  if (corpus.locked && !distribution[corpus.id]) {
+  if (corpus.locked && !distribution[distKey]) {
     problems.push('FÖRDELNINGSPOST SAKNAS i corpora-distribution.json — multiset-gaten kan inte köras');
   }
 
   // Fördelningsvalidering: (mmsi,bro)-multiset måste matcha exakt.
-  if (corpus.locked && distribution[corpus.id]) {
-    const expectedKeys = Object.entries(distribution[corpus.id])
+  if (corpus.locked && distribution[distKey]) {
+    const expectedKeys = Object.entries(distribution[distKey])
       .flatMap(([mmsi, bridges]) => bridges.map((b) => `${mmsi}:${b}`))
       .sort();
     const actualKeys = (result.notifications || [])
@@ -111,11 +115,11 @@ for (const corpus of corpora) {
   }
 
   // TA2 (2026-07-10): riktningsmultiset — mmsi:bro:riktning måste matcha.
-  if (corpus.locked && directionDistribution[corpus.id]) {
+  if (corpus.locked && directionDistribution[distKey]) {
     const countBy = (arr) => arr.reduce((m, k) => m.set(k, (m.get(k) || 0) + 1), new Map());
     const actual = countBy((result.notifications || [])
       .map((n) => `${n.mmsi}:${n.bridge}:${n.direction || 'unknown'}`));
-    const expected = new Map(Object.entries(directionDistribution[corpus.id]));
+    const expected = new Map(Object.entries(directionDistribution[distKey]));
     const missing = [...expected].filter(([k, c]) => (actual.get(k) || 0) < c).map(([k]) => k);
     const extra = [...actual].filter(([k, c]) => (expected.get(k) || 0) < c).map(([k]) => k);
     if (missing.length || extra.length) {
@@ -126,7 +130,10 @@ for (const corpus of corpora) {
   }
 
   // TA1 (2026-07-10): golden bridge_text — hela transitionsströmmen jämförs.
-  if (corpus.locked) {
+  // Etapp 3: hoppas MEDVETET över för fusionskorpusar (fusionOf) — hub-ekon
+  // förskjuter publiceringstidpunkter utan att ändra innehållsbesluten;
+  // multiset-gaterna ovan är fusionens facit.
+  if (corpus.locked && !corpus.fusionOf) {
     const goldenPath = path.join(GOLDEN_DIR, `${corpus.id}.json`);
     if (fs.existsSync(goldenPath)) {
       const golden = JSON.parse(fs.readFileSync(goldenPath, 'utf8'));

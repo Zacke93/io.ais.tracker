@@ -23,6 +23,18 @@ WSStub.prototype.close = function close() {
 };
 WSStub.OPEN = 1;
 
+// Nätisolering (etapp 1, 2026-08-02): inga äkta anrop mot AISHub från
+// testbatteriet — rate-limiten (1/min per username) bränns annars av en
+// enda körning. Stubben kastar vid användning.
+const HttpsThrowStub = {
+  get() {
+    throw new Error('https.get blockerad i test-harnessen (nätisolering)');
+  },
+  request() {
+    throw new Error('https.request blockerad i test-harnessen (nätisolering)');
+  },
+};
+
 // Override require for 'homey' and 'ws' modules (avoid external deps during tests)
 const originalRequire = Module.prototype.require;
 Module.prototype.require = function requireOverride(id) {
@@ -31,6 +43,9 @@ Module.prototype.require = function requireOverride(id) {
   }
   if (id === 'ws') {
     return WSStub;
+  }
+  if (id === 'https') {
+    return HttpsThrowStub;
   }
   return originalRequire.call(this, id);
 };

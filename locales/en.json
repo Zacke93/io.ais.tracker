@@ -3,8 +3,17 @@
     "title": "AIS Tracker Settings",
     "api_key": "AIS Stream API Key",
     "api_key_description": "Create a free API key at aisstream.io",
+    "aishub_username": "AISHub username",
+    "aishub_username_description": "Requires an AISHub membership with your own NMEA station feed: API access is granted only while your station reports ≥10 vessels per 7 days with ≥90 % uptime. Poll one username from ONE device only — AISHub allows max 1 request per minute.",
+    "ais_source": "AIS data source",
+    "ais_source_description": "aisstream = today's behavior (default). shadow = AISHub is polled and measured (🔭 SHADOW_COMPARE in the log) without affecting bridge status. both = dual-source fusion (freshest fix wins). aishub = AISHub only.",
+    "ais_source_aisstream": "AISstream only (default)",
+    "ais_source_shadow": "Shadow mode — AISHub measures only",
+    "ais_source_both": "Both — dual-source fusion",
+    "ais_source_aishub": "AISHub only",
     "debug_level": "Debug Level",
     "debug_level_description": "Choose debug level for troubleshooting. Higher levels provide more detailed logs but may impact performance.",
-    "save": "Save Settings"
+    "save": "Save Settings",
+    "attribution": "AIS data: AISHub (aishub.net) and aisstream.io"
   }
 }

@@ -79,6 +79,12 @@
         .instructions li {
             margin-bottom: 8px;
         }
+
+        .attribution {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #6c757d;
+        }
     </style>
 </head>
 
@@ -94,6 +100,39 @@
             <input class="input" id="ais_api_key" type="password" placeholder="Your aisstream.io API key" />
             <p class="description" data-i18n="settings.api_key_description">
                 Get your key at <a href="https://aisstream.io" target="_blank">https://aisstream.io</a>
+            </p>
+        </div>
+
+        <!-- Etapp 2 (2026-08-02): AISHub som andra källa. Username är en
+             KONTOUPPGIFT (ingen hemlighet) → type=text, lättare felsökning.
+             Whitelist-validering i scriptet: klistrad URL eller &/?/mellanslag
+             hade annars förstört ALLA efterföljande query-parametrar. -->
+        <div class="field">
+            <label class="label" for="aishub_username" id="lbl-aishub-username">AISHub username (optional)</label>
+            <input class="input" id="aishub_username" type="text" placeholder="Your aishub.net username" />
+            <p class="description" id="desc-aishub-username">
+                Requires an AISHub membership with your own NMEA station
+                (&ge;10 vessels/7 days, &ge;90% uptime). Max 1 request/minute —
+                use one username on ONE device only.
+                <a href="https://www.aishub.net" target="_blank">aishub.net</a>
+            </p>
+        </div>
+
+        <!-- Källvalet är ett rent beteendeval (samma precedens som debug_level:
+             bara här, inte i manifestet). 'aisstream' FÖRST så pre-load-
+             renderingen är korrekt för befintliga användare. -->
+        <div class="field">
+            <label class="label" for="ais_source" id="lbl-ais-source">AIS data source</label>
+            <select class="input" id="ais_source">
+                <option value="aisstream" id="opt-src-aisstream">AISstream only (default)</option>
+                <option value="shadow" id="opt-src-shadow">Shadow mode — AISHub measures only</option>
+                <option value="both" id="opt-src-both">Both — dual-source fusion</option>
+                <option value="aishub" id="opt-src-aishub">AISHub only</option>
+            </select>
+            <p class="description" id="desc-ais-source">
+                Shadow mode polls AISHub and logs a freshness/coverage comparison
+                (SHADOW_COMPARE) without affecting bridge status. Switch to
+                "Both" after reviewing at least 48 h of shadow data.
             </p>
         </div>
 
@@ -127,17 +166,26 @@
                 <li id="instr-valid"><strong>✅ Valid key:</strong> the app connects within a few seconds</li>
                 <li id="instr-invalid"><strong>❌ Invalid key:</strong> you get a timeline notification after repeated failed attempts</li>
                 <li id="instr-help"><strong>🔧 Troubleshooting:</strong> check your key at <a href="https://aisstream.io" target="_blank">aisstream.io</a></li>
+                <li id="instr-aishub"><strong>📡 AISHub:</strong> the first poll starts within ~1 minute; look for AISHUB_POLL / SHADOW_COMPARE lines in the app log</li>
             </ul>
             <p><em id="instr-footer">The connection status is shown on the "Bridge Status" device in your home.</em></p>
+            <p class="attribution" id="attribution">AIS data: AISHub (aishub.net) and aisstream.io</p>
         </div>
     </div>
 
     <script>
         function onHomeyReady(Homey) {
             const apiKeyInput = document.getElementById('ais_api_key');
+            const aishubUsernameInput = document.getElementById('aishub_username');
+            const aisSourceSelect = document.getElementById('ais_source');
             const debugLevelSelect = document.getElementById('debug_level');
             const saveButton = document.getElementById('save');
             const statusDiv = document.getElementById('status');
+
+            // Whitelist för AISHub-username: fångar klistrad URL, &, ?, =
+            // och mellanslag som annars förstör query-strängen mot ws.php.
+            const AISHUB_USERNAME_RE = /^[A-Za-z0-9._-]{3,64}$/;
+            const ALLOWED_SOURCES = ['aisstream', 'shadow', 'both', 'aishub'];
 
             // ChatGPT-granskningen 2026-07-10 (H2): engelska är basspråket i
             // markupen; svenska appliceras här när webview-språket är svenskt.
@@ -147,6 +195,8 @@
                 en: {
                     stillLoading: '⏳ Settings are still loading — try again in a moment.',
                     keyTooShort: '❌ The API key looks too short. Check your key from aisstream.io',
+                    badUsername: '❌ The AISHub username may only contain letters, digits, dot, underscore and dash (3-64 characters). Enter the username only — not a URL.',
+                    sourceNeedsUsername: '❌ That source mode requires an AISHub username. Fill it in first, or keep "AISstream only".',
                     saving: 'Saving settings...',
                     saveDebugError: 'Error saving debug level: ',
                     saveError: 'Error saving: ',
@@ -157,6 +207,8 @@
                 sv: {
                     stillLoading: '⏳ Inställningarna laddas fortfarande — försök igen strax.',
                     keyTooShort: '❌ API-nyckeln verkar för kort. Kontrollera din nyckel från aisstream.io',
+                    badUsername: '❌ AISHub-användarnamnet får bara innehålla bokstäver, siffror, punkt, understreck och bindestreck (3-64 tecken). Ange bara användarnamnet — inte en URL.',
+                    sourceNeedsUsername: '❌ Det källäget kräver ett AISHub-användarnamn. Fyll i det först, eller behåll "Enbart AISstream".',
                     saving: 'Sparar inställningar...',
                     saveDebugError: 'Fel vid sparande av debug-nivå: ',
                     saveError: 'Fel vid sparande: ',
@@ -168,7 +220,17 @@
                     instrValid: '<strong>✅ Giltig nyckel:</strong> appen ansluter inom några sekunder',
                     instrInvalid: '<strong>❌ Ogiltig nyckel:</strong> du får en notis i tidslinjen efter upprepade misslyckade försök',
                     instrHelp: '<strong>🔧 Felsökning:</strong> kontrollera nyckeln på <a href="https://aisstream.io" target="_blank">aisstream.io</a>',
+                    instrAishub: '<strong>📡 AISHub:</strong> första pollen startar inom ~1 minut; leta efter AISHUB_POLL/SHADOW_COMPARE-rader i appens logg',
                     instrFooter: 'Anslutningsstatusen visas i enheten "Bridge Status" i ditt hem.',
+                    attribution: 'AIS-data: AISHub (aishub.net) och aisstream.io',
+                    lblAishubUsername: 'AISHub-användarnamn (valfritt)',
+                    descAishubUsername: 'Kräver AISHub-medlemskap med egen NMEA-station (≥10 fartyg/7 dygn, ≥90 % upptid). Max 1 anrop/minut — använd ett användarnamn på EN enhet. <a href="https://www.aishub.net" target="_blank">aishub.net</a>',
+                    lblAisSource: 'AIS-datakälla',
+                    descAisSource: 'Skuggläget pollar AISHub och loggar en färskhets-/täckningsjämförelse (SHADOW_COMPARE) utan att påverka brostatus. Byt till "Båda" först efter minst 48 h granskad skuggdata.',
+                    optSrcAisstream: 'Enbart AISstream (standard)',
+                    optSrcShadow: 'Skuggläge — AISHub mäter bara',
+                    optSrcBoth: 'Båda — dubbelkälla med fusion',
+                    optSrcAishub: 'Enbart AISHub',
                 },
             };
             let lang = 'en';
@@ -184,52 +246,110 @@
                 document.getElementById('instr-valid').innerHTML = t('instrValid');
                 document.getElementById('instr-invalid').innerHTML = t('instrInvalid');
                 document.getElementById('instr-help').innerHTML = t('instrHelp');
+                document.getElementById('instr-aishub').innerHTML = t('instrAishub');
                 document.getElementById('instr-footer').textContent = t('instrFooter');
+                document.getElementById('attribution').textContent = t('attribution');
+                document.getElementById('lbl-aishub-username').textContent = t('lblAishubUsername');
+                document.getElementById('desc-aishub-username').innerHTML = t('descAishubUsername');
+                document.getElementById('lbl-ais-source').textContent = t('lblAisSource');
+                document.getElementById('desc-ais-source').textContent = t('descAisSource');
+                document.getElementById('opt-src-aisstream').textContent = t('optSrcAisstream');
+                document.getElementById('opt-src-shadow').textContent = t('optSrcShadow');
+                document.getElementById('opt-src-both').textContent = t('optSrcBoth');
+                document.getElementById('opt-src-aishub').textContent = t('optSrcAishub');
             }
 
-            // Senast sparade API-nyckeln — används för att bara skriva
-            // ais_api_key (och därmed trigga AIS-återanslutning i app.js)
-            // när nyckeln faktiskt ÄNDRATS.
+            // Senast sparade värden — ALLA fyra nycklar skrivs ENDAST vid
+            // faktisk ändring (motivet från I2-granskningen gäller varje
+            // källnyckel: varje skrivning startar om en källa/omkonfigurerar
+            // muxen; ais_source-skrivningar utan ändring hade dessutom
+            // triggat applySourceConfig i onödan vid varje "Spara").
             let storedApiKey = '';
+            let storedAishubUsername = '';
+            let storedAisSource = 'aisstream';
 
-            // Load settings
+            // Helgranskning 2026-07-06 (kontrakt-homey#1): spara-knappen får
+            // inte skriva förrän ALLT laddats — annars skrivs select-defaults
+            // över lagrade värden (tyst nedgradering). Räknare i stället för
+            // en boolean nu när fyra nycklar laddas parallellt.
+            let pending = 4;
+            saveButton.disabled = true;
+            const loaded = function () {
+                pending--;
+                if (pending === 0) saveButton.disabled = false;
+            };
+
             Homey.get('ais_api_key', function (err, apiKey) {
                 if (!err && apiKey) {
                     storedApiKey = String(apiKey).trim();
                     apiKeyInput.value = storedApiKey;
                 }
+                loaded();
             });
-
-            // Helgranskning 2026-07-06 (kontrakt-homey#1): spara-knappen
-            // skrev debug_level ovillkorligt — trycktes den innan GET hunnit
-            // svara skrevs select-defaulten ('basic') över en lagrad 'full'
-            // (tyst nedgradering). Knappen är avstängd tills nivån laddats.
-            let debugLevelLoaded = false;
-            saveButton.disabled = true;
+            Homey.get('aishub_username', function (err, username) {
+                if (!err && username) {
+                    storedAishubUsername = String(username).trim();
+                    aishubUsernameInput.value = storedAishubUsername;
+                }
+                loaded();
+            });
+            Homey.get('ais_source', function (err, source) {
+                if (!err && source && ALLOWED_SOURCES.indexOf(String(source)) !== -1) {
+                    storedAisSource = String(source);
+                }
+                aisSourceSelect.value = storedAisSource;
+                loaded();
+            });
             Homey.get('debug_level', function (err, debugLevel) {
                 if (!err && debugLevel) {
                     debugLevelSelect.value = debugLevel;
                 } else {
                     debugLevelSelect.value = 'basic'; // Default to basic
                 }
-                debugLevelLoaded = true;
-                saveButton.disabled = false;
+                loaded();
             });
+
+            // Sekventiell skrivkedja: skriv nästa nyckel ENDAST om den ändrats.
+            function saveChanged(pairs, done) {
+                const next = pairs.shift();
+                if (!next) { done(null); return; }
+                if (!next.changed) { saveChanged(pairs, done); return; }
+                Homey.set(next.key, next.value, function (err) {
+                    if (err) { done(err); return; }
+                    next.commit();
+                    saveChanged(pairs, done);
+                });
+            }
 
             // Save settings
             saveButton.addEventListener('click', function () {
-                if (!debugLevelLoaded) {
+                if (pending > 0) {
                     showStatus(t('stillLoading'), 'info');
                     return;
                 }
                 const apiKey = apiKeyInput.value.trim();
+                const aishubUsername = aishubUsernameInput.value.trim();
+                const aisSource = ALLOWED_SOURCES.indexOf(aisSourceSelect.value) !== -1
+                    ? aisSourceSelect.value
+                    : 'aisstream';
                 const debugLevel = debugLevelSelect.value;
+
                 const apiKeyChanged = apiKey !== storedApiKey;
+                const usernameChanged = aishubUsername !== storedAishubUsername;
+                const sourceChanged = aisSource !== storedAisSource;
 
                 // Validera bara när en NY, icke-tom nyckel angetts. Debug-nivån
                 // ska kunna sparas utan API-nyckel.
                 if (apiKeyChanged && apiKey && apiKey.length < 20) {
                     showStatus(t('keyTooShort'), 'error');
+                    return;
+                }
+                if (aishubUsername && !AISHUB_USERNAME_RE.test(aishubUsername)) {
+                    showStatus(t('badUsername'), 'error');
+                    return;
+                }
+                if (aisSource !== 'aisstream' && !aishubUsername) {
+                    showStatus(t('sourceNeedsUsername'), 'error');
                     return;
                 }
 
@@ -241,23 +361,39 @@
                         return;
                     }
 
-                    if (!apiKeyChanged) {
-                        // Oförändrad nyckel — skriv INTE ais_api_key, annars
-                        // tvingas en onödig AIS-återanslutning vid varje sparning.
-                        showStatus(t('saved'), 'success');
-                        return;
-                    }
-
-                    Homey.set('ais_api_key', apiKey, function (err) {
-                        if (err) {
-                            showStatus(t('saveError') + err.message, 'error');
+                    saveChanged([
+                        {
+                            key: 'aishub_username',
+                            value: aishubUsername,
+                            changed: usernameChanged,
+                            commit: function () { storedAishubUsername = aishubUsername; },
+                        },
+                        {
+                            key: 'ais_source',
+                            value: aisSource,
+                            changed: sourceChanged,
+                            commit: function () { storedAisSource = aisSource; },
+                        },
+                        {
+                            // Sist: ais_api_key — skrivningen triggar käll-
+                            // omkonfigurationen i appen, så username/källval
+                            // ska redan vara på plats när den landar.
+                            key: 'ais_api_key',
+                            value: apiKey,
+                            changed: apiKeyChanged,
+                            commit: function () { storedApiKey = apiKey; },
+                        },
+                    ], function (err2) {
+                        if (err2) {
+                            showStatus(t('saveError') + err2.message, 'error');
                             return;
                         }
-                        storedApiKey = apiKey;
-                        if (apiKey) {
+                        if (apiKeyChanged && !apiKey) {
+                            showStatus(t('savedKeyRemoved'), 'success');
+                        } else if (apiKeyChanged || usernameChanged || sourceChanged) {
                             showStatus(t('savedConnecting'), 'success');
                         } else {
-                            showStatus(t('savedKeyRemoved'), 'success');
+                            showStatus(t('saved'), 'success');
                         }
                     });
                 });

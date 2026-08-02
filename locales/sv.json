@@ -3,8 +3,17 @@
     "title": "AIS Tracker Inställningar",
     "api_key": "AIS Stream API-nyckel",
     "api_key_description": "Skapa en gratis API-nyckel på aisstream.io",
+    "aishub_username": "AISHub-användarnamn",
+    "aishub_username_description": "Kräver AISHub-medlemskap med egen NMEA-station: API-access ges bara medan din station rapporterar ≥10 fartyg per 7 dygn med ≥90 % upptid. Polla ett användarnamn från EN enhet — AISHub tillåter max 1 anrop per minut.",
+    "ais_source": "AIS-datakälla",
+    "ais_source_description": "aisstream = dagens beteende (standard). shadow = AISHub pollas och mäts (🔭 SHADOW_COMPARE i loggen) utan att påverka brostatus. both = dubbelkälla med fusion (färskaste fix vinner). aishub = enbart AISHub.",
+    "ais_source_aisstream": "Enbart AISstream (standard)",
+    "ais_source_shadow": "Skuggläge — AISHub mäter bara",
+    "ais_source_both": "Båda — dubbelkälla med fusion",
+    "ais_source_aishub": "Enbart AISHub",
     "debug_level": "Debug-nivå",
     "debug_level_description": "Välj debug-nivå för felsökning. Högre nivåer ger mer detaljerade loggar men kan påverka prestandan.",
-    "save": "Spara inställningar"
+    "save": "Spara inställningar",
+    "attribution": "AIS-data: AISHub (aishub.net) och aisstream.io"
   }
 }

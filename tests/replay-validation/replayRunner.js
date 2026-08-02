@@ -48,6 +48,19 @@ WSStub.prototype.close = function close() {
 };
 WSStub.OPEN = 1;
 
+// Nätisolering (etapp 1, 2026-08-02): batteriet får ALDRIG göra äkta anrop
+// mot användarens AISHub-konto — rate-limiten (1 request/minut per username)
+// bränns av en enda testkörning och kan ge indragen access. Stubben KASTAR
+// vid användning: en kodväg som når nätet under replay är en äkta bugg.
+const HttpsThrowStub = {
+  get() {
+    throw new Error('https.get blockerad i replay-harnessen (nätisolering)');
+  },
+  request() {
+    throw new Error('https.request blockerad i replay-harnessen (nätisolering)');
+  },
+};
+
 const ROOT = path.resolve(__dirname, '..', '..');
 const originalRequire = Module.prototype.require;
 Module.prototype.require = function requireOverride(id) {
@@ -55,6 +68,7 @@ Module.prototype.require = function requireOverride(id) {
     return require(path.join(ROOT, 'tests', '__mocks__', 'homey')); // eslint-disable-line global-require
   }
   if (id === 'ws') return WSStub;
+  if (id === 'https') return HttpsThrowStub;
   return originalRequire.call(this, id);
 };
 
@@ -210,6 +224,19 @@ async function main() {
   await drain();
   instrumentApp(app);
 
+  // REPLAY_FUSION=1 (etapp 3, V3-C1): mata via muxen så FixFusionPolicy
+  // F1-F5 faktiskt sitter i vägen — default (bypass) matar _processAISMessage
+  // direkt och bevarar etapp 0-2:s bit-identiska facit. Källäget sätts
+  // direkt på muxens config (INTE via applySourceConfig — den skulle skapa
+  // ett AISHub-barn vars pollkedja spammar den kastande https-stubben).
+  const FUSION_MODE = process.env.REPLAY_FUSION === '1';
+  const enableFusionRouting = (theApp) => {
+    if (FUSION_MODE && theApp.aisClient && theApp.aisClient._config) {
+      theApp.aisClient._config.source = 'both';
+    }
+  };
+  enableFusionRouting(app);
+
   // Init klar — nu släpps TEST_MODE så notiserna avfyras som i produktion.
   global.__TEST_MODE__ = undefined;
   process.env.NODE_ENV = 'production';
@@ -293,6 +320,7 @@ async function main() {
       // eslint-disable-next-line no-await-in-loop
       await drain();
       instrumentApp(app);
+      enableFusionRouting(app); // fusion-läget överlever ctrl:'restart'
       global.__TEST_MODE__ = undefined;
       continue;
     }
@@ -308,9 +336,23 @@ async function main() {
       navStatus: s.navStatus, // syntetiska scenarier kan sätta den; korpusar saknar fältet → null
       shipName: s.shipName || 'Unknown',
       timestamp: s.aisTimestamp,
+      // Etapp 0: korpusar utan fälten (alla 15 låsta) får identiteten
+      // fixTs = aisTimestamp (== fake-now vid inmatning, se klockstegningen
+      // ovan) och feed 'aisstream' → fixtids-dt ≡ mottagningstids-dt →
+      // bit-identiskt facit. Framtida AISHub-/fusionskorpusar sätter fälten.
+      fixTs: s.fixTs ?? s.aisTimestamp,
+      fixFeed: s.feed ?? 'aisstream',
+      // Etapp 3: kvaliteten styr F1 (monoton spärr endast för true-fix).
+      fixTsQuality: s.feed === 'aishub' ? 'true-fix' : 'receipt',
     };
     try {
-      app._processAISMessage(aisMessage);
+      if (FUSION_MODE && app.aisClient && typeof app.aisClient._ingestFromFeed === 'function') {
+        // Muxen i vägen: F1-F5 körs, accepterade fixar når _processAISMessage
+        // via ordinarie 'ais-message'-lyssnaren (_setupEventHandlers).
+        app.aisClient._ingestFromFeed(s.feed === 'aishub' ? 'aishub' : 'aisstream', aisMessage);
+      } else {
+        app._processAISMessage(aisMessage);
+      }
       // eslint-disable-next-line no-await-in-loop
       await drain();
       // Fyra ev. coalescing-timrar (grace-period setTimeout) som schemalagts av
@@ -457,6 +499,9 @@ async function main() {
       ? sizeOf(app.routeOrderValidator._vesselPassageHistory) : null,
     statusStabilizerHistory: app.statusService && app.statusService.statusStabilizer
       ? sizeOf(app.statusService.statusStabilizer.statusHistory) : null,
+    // Etapp 3: muxens fusionsstate — ALLTID tal (soak-kravet V1-M10).
+    fusionStateSize: app.aisClient && app.aisClient._fusionStates
+      ? sizeOf(app.aisClient._fusionStates) ?? 0 : 0,
     heapUsedMB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
   };
 
@@ -469,6 +514,12 @@ async function main() {
     bridgeTextTransitions: bridgeTextLog,
     notifications,
     notificationCount: notifications.length,
+    // Etapp 3: fusionsstatistik (REPLAY_FUSION-grinden asserterar att F1-F5
+    // faktiskt satt i vägen — accepted > 0 och rejected > 0 för ekokorpusar).
+    fusionStats: (FUSION_MODE && app.aisClient
+      && typeof app.aisClient.getConnectionStats === 'function')
+      ? app.aisClient.getConnectionStats().fusion
+      : null,
     firstNameSeen,
     firstSampleMs: samples.length > 0 ? samples[0].aisTimestamp : null,
     targetPassages,
