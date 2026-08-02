@@ -1,4 +1,16 @@
 {
+  "5.3.0": {
+    "en": "Dual-source fusion goes live ('Both' mode): the freshest position per vessel wins across AISstream and AISHub, with per-source monotonic dedup, cross-source echo suppression, age/clock-skew gates and a feed-switch flag that keeps source handovers out of the global GPS-jump tally. The GPS gate window adapts to poll cadence. New replay:fusion regression gate proves fusion changes nothing when AISHub only echoes known data. Enable 'Both' only after reviewing 48h of shadow data.",
+    "sv": "Dubbelkällefusionen aktiveras ('Både'-läget): färskaste positionen per fartyg vinner över AISstream och AISHub, med per-källa-monoton dedup, korskälle-ekosuppression, ålders-/klockskevsgrindar och en källbytesflagga som håller källskiften utanför den globala GPS-hopp-tallyn. GPS-gatens fönster anpassas till pollkadensen. Ny replay:fusion-regressionsgrind bevisar att fusionen inte ändrar något när AISHub bara ekar känd data. Aktivera 'Både' först efter 48 h granskad skuggdata."
+  },
+  "5.2.0": {
+    "en": "AISHub as a second AIS source (opt-in): enter your AISHub username and pick a source mode in settings. Shadow mode measures AISHub freshness/coverage side-by-side (SHADOW_COMPARE in the log) without touching bridge status. Per-source watchdogs, per-source notifications and a hard 1-request/minute poll discipline that survives restarts. Default behavior without an AISHub username is unchanged.",
+    "sv": "AISHub som andra AIS-källa (opt-in): ange ditt AISHub-användarnamn och välj källäge i inställningarna. Skuggläget mäter AISHubs färskhet/täckning sida vid sida (SHADOW_COMPARE i loggen) utan att röra brostatus. Per-källa-vakter, per-källa-notiser och en hård 1-anrop/minut-polldisciplin som överlever omstarter. Standardbeteendet utan AISHub-användarnamn är oförändrat."
+  },
+  "5.1.0": {
+    "en": "Groundwork for multi-source AIS: every message now carries its fix timestamp and source (fixTs/fixFeed), and the physics calculations (GPS-jump analysis, movement gates, quay-wobble guard) measure true fix separation within a source. No behavior change with aisstream as the only source.",
+    "sv": "Grundarbete för fler AIS-källor: varje meddelande bär nu sin fixtid och källa (fixTs/fixFeed), och fysikberäkningarna (GPS-hoppanalys, rörelsegrindar, kajvobbelvakten) mäter äkta fixseparation inom en källa. Oförändrat beteende med enbart aisstream som källa."
+  },
   "5.0.0": {
     "en": "First public release. Live vessel tracking for the Trollhätte canal with bridge-opening status text and boat_near Flow triggers for Klaffbron and Stridsbergsbron. Hardened with 70+ hours of production replay validation, mooring detection, AIS-gap failsafes and self-healing connection watchdogs.",
     "sv": "Första publika versionen. Fartygsspårning i realtid för Trollhätte kanal med broöppningsstatustext och boat_near-Flow-triggers för Klaffbron och Stridsbergsbron. Härdad med 70+ timmar produktions-replayvalidering, förtöjningsdetektering, AIS-glapp-failsafes och självläkande anslutningsvakter."

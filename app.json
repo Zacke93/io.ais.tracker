@@ -5,7 +5,7 @@
     "en": "AIS Bridge",
     "sv": "AIS Bridge"
   },
-  "version": "5.0.0",
+  "version": "5.3.0",
   "category": [
     "tools"
   ],
@@ -39,6 +39,18 @@
       "hint": {
         "en": "Create a free key at https://aisstream.io (a long string of letters and digits).",
         "sv": "Skapa en gratis nyckel på https://aisstream.io (en lång sträng med bokstäver och siffror)."
+      }
+    },
+    {
+      "id": "aishub_username",
+      "type": "text",
+      "title": {
+        "en": "AISHub username (optional)",
+        "sv": "AISHub-användarnamn (valfritt)"
+      },
+      "hint": {
+        "en": "Requires an AISHub membership with your own NMEA station: API access is granted only while your station reports at least 10 vessels per 7 days with at least 90% uptime. Poll one username from ONE device only (AISHub allows max 1 request/minute). AIS data: AISHub (aishub.net).",
+        "sv": "Kräver AISHub-medlemskap med egen NMEA-station: API-access ges bara medan din station rapporterar minst 10 fartyg per 7 dygn med minst 90 % upptid. Polla ett användarnamn från EN enhet (AISHub tillåter max 1 anrop/minut). AIS-data: AISHub (aishub.net)."
       }
     }
   ],

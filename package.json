@@ -1,11 +1,12 @@
 {
   "name": "io.ais.tracker",
-  "version": "5.0.0",
+  "version": "5.3.0",
   "main": "app.js",
   "scripts": {
     "lint": "eslint --ext .js,.ts --ignore-path .gitignore .",
     "test": "jest --config tests/jest.config.js --detectOpenHandles",
     "replay:all": "node tests/replay-validation/runAllCorpora.js",
+    "replay:fusion": "node tests/replay-validation/runFusionCorpora.js",
     "replay:synthetic": "node tests/replay-validation/runSyntheticScenarios.js",
     "validate": "(jest --config tests/jest.config.js --silent > \"${TMPDIR:-/tmp}/ais-jest-validate.log\" 2>&1; ec=$?; tail -5 \"${TMPDIR:-/tmp}/ais-jest-validate.log\"; exit $ec) && node tests/replay-validation/runAllCorpora.js && node tests/replay-validation/runSyntheticScenarios.js",
     "validate:full": "npm run validate && node tests/replay-validation/runSoak.js",

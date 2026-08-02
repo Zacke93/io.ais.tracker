@@ -30,6 +30,25 @@ Eller stegen var för sig:
 | Soaken | `node tests/replay-validation/runSoak.js` | 72 h blandtrafik: 0 processfel, inga läckor, fatala invarianter rena |
 | Lint | `npx eslint <ändrade filer>` (per fil — OneDrive gör helträd långsamt) | 0 fel |
 
+**Nätisolering (etapp 1, 2026-08-02):** replay-harnessen och RealAppTestRunner
+stubbar `https` med en KASTANDE stub — batteriet kan aldrig göra äkta anrop
+mot AISHub (rate-limiten är 1 request/minut per username; en testkörning som
+läcker ut på nätet kan ge indragen access). AISHub-klienten enhetstestas med
+mockad `_httpGet` under fake timers (`tests/aishub-client-unit.test.js` låser
+kadensdisciplinen: aldrig < 61 s mellan poll-starter över 24 h simulerad tid).
+
+**Fusionsgrinden (etapp 3, 2026-08-02):** `npm run replay:fusion` genererar en
+syntetisk AISHub-skuggström ur varje låst korpus (makeFusionCorpus: 65s-poll-
+snapshots av senast kända fix, re-leveranser, 150 ms-spridning) och kör den
+genom AISSourceMultiplexer i 'both'-läge (`REPLAY_FUSION=1` — muxen sitter PÅ
+RIKTIGT i vägen, F1-F5 aktiva). Kontraktet: eftersom ekona bara upprepar redan
+levererad information ska notisantal, (mmsi,bro)-multiset och riktnings-
+multiset vara EXAKT parentkorpusens facit, och grinden asserterar dessutom
+att fusionen var aktiv (accepted > 0, alla ekon svalda: rejected > 0).
+Golden-text hoppas medvetet över (ekon förskjuter publiceringstidpunkter utan
+att ändra innehållsbeslut). Kör grinden efter varje ändring i FixFusionPolicy,
+AISSourceMultiplexer eller fixTs-plumbningen — utöver ordinarie batteri.
+
 **Rött är alltid på riktigt.** Batteriet har inga kända flakiga tester.
 Om en låst korpus avviker har du en regression i pelarna — börja där.
 

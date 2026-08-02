@@ -8,10 +8,19 @@ Ersätter CODEX.md och docs/recentChanges.md (raderade 2026-07-03, användarbesl
 ## 1. Översikt & modulgraf
 
 ```
-AISstream.io (WebSocket)
-   ▼ ais-message / static-name / connected / disconnected / reconnect-needed
-AISStreamClient (lib/connection/AISStreamClient.js)
-   ▼
+AISstream.io (WebSocket)                AISHub ws.php (HTTPS-poll 65s, opt-in)
+   ▼ push                                  ▼ batch (aishubParser → sentinels → TIME→fixTs → dedup)
+AISStreamClient (oförändrad)            AISHubClient (lib/connection/AISHubClient.js)
+   └──────────────┬────────────────────────┘
+                  ▼ (etapp 2, 2026-08-02)
+AISSourceMultiplexer (lib/connection/AISSourceMultiplexer.js)
+   • ais_source='aisstream' (default): REN PASS-THROUGH — dagens beteende exakt
+   • 'shadow': AISHub mäts (🔭 SHADOW_COMPARE var 5:e min), påverkar ALDRIG pipelinen
+   • 'both':  FixFusionPolicy F1-F5 (per-källa-monotoni, korskälle-innehållsdedup,
+              åldersgrind, klockskevsklamp, feedSwitch-flagga)
+   • 'aishub': solo-poll
+   ▼ samma nio events som AISStreamClient (isConnected är en LEVANDE GETTER;
+     getConnectionStats() bär perFeed — feed-vakten läser ALDRIG aggregatet)
 app.js  _onAISMessage → _processAISMessage (app.js:1894)
    ▼ updateVessel(mmsi, patch)
 VesselDataService (lib/services/VesselDataService.js)
@@ -32,8 +41,28 @@ Moduler (ansvar / ägda tillstånd / in-ut):
   delays, medium 5 min ×12, slow 60 min; :521–529), ping/pong-watchdog
   (`_awaitingPong` :35). Emitterar connected/disconnected/ais-message/static-name
   (typ 5/24-namn, :362–373)/auth-error/error/reconnect-needed/max-reconnects-reached.
-- **app.js (AISBridgeApp)**: orkestrering, Flow-kort, UI-publicering, notisdedupe,
-  persistens, monitoring. Äger `_triggeredBoatNearKeys` (session-Set, :181),
+- **AISHubClient** (lib/connection/AISHubClient.js, etapp 1 2026-08-02): pollande
+  klient mot AISHubs webservice. HÅRD kadensdisciplin (max 1 request/minut per
+  username — kontraktsbrott ⇒ tomt svar/indragen access): EN setTimeout-kedja,
+  single-flight, ombokning i `finally` (en missad ombokning = död kedja),
+  persisterad spärr (`aishub_last_poll_at`) som överlever omstart, backoff
+  65→130→260→300 s som ALDRIG kortar kadensen. Parsning i `lib/utils/aishubParser.js`
+  (ERROR-gren FÖRE formkontroll, FORMAT/RECORDS-assertioner, sentinelparitet med
+  AISStreamClient, TIME→fixTs utan `new Date(str)`). Emitterar samma eventyta;
+  positionen bär `fixTs`/`fixFeed:'aishub'`/`fixTsQuality:'true-fix'`.
+- **AISSourceMultiplexer** (lib/connection/AISSourceMultiplexer.js, etapp 2):
+  fan-in — app.js vet aldrig att fler än en källa finns. Äger stream-barnet
+  (alltid) + hub-barnet (vid konfiguration), aggregerad flankemission
+  (connected/disconnected på aggregatets 0→1/1→0, aldrig per barnhändelse —
+  Bug#12), namnnormalisering på båda källorna ('Unknown'-sentinelen bevaras
+  EXAKT), `applySourceConfig` (idempotent), `_ingestFromFeed` (replay-/testingång),
+  skuggjämförelsen och fusionsstate. Klockdomänsinvarianten: `vessel.timestamp`
+  förblir MOTTAGNINGSTID (TTL/stale/passage-ID); `fixTs` (fixtid) används enbart
+  för fysik-dt inom samma källa (GPSJumpAnalyzer/gaten/kajvobbelvakten, etapp 0).
+- **app.js (AISBridgeApp)**: orkestrering, Flow-kort, UI-publicering, notisdedupe
+  (per källa/felklass sedan etapp 2: `_notifyConnectionIssue(msg, feedKey)`),
+  persistens, monitoring (inkl. per-feed-watchdog `_checkAISFeedHealth` +
+  `[FEED_SILENT]`-korsvakt + muxens `pruneFusionState`). Äger `_triggeredBoatNearKeys` (session-Set, :181),
   `_persistentRecentTriggers` (2h-Map, :189), `_knownVesselNames` (namncache,
   :204–207), `_lastKnownPositions` (6h-Map för återfödda båtar, :214–216, §3/§6),
   `_vesselRemovalTimers`, `_processingRemoval`, coalescing-tillstånd (:2139–2251,

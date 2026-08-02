@@ -29,7 +29,7 @@ const GPSJumpGateService = require('./lib/services/GPSJumpGateService'); // GPS-
 const RouteOrderValidator = require('./lib/services/RouteOrderValidator'); // Validerar logisk broordning
 
 // CONNECTION: Hanterar WebSocket-anslutning till AISstream.io
-const AISStreamClient = require('./lib/connection/AISStreamClient');
+const AISSourceMultiplexer = require('./lib/connection/AISSourceMultiplexer'); // äger AISStreamClient + ev. AISHubClient
 
 // UTILITIES: Hjälpfunktioner
 const { etaDisplay, formatETABroOpeningClause, etaMinutesForDisplay } = require('./lib/utils/etaValidation');
@@ -51,6 +51,7 @@ const {
   TRIGGER_POINTS, // Geografiska triggerpunkter (utanför brotext-systemet)
   TARGET_BRIDGES, // Bug #4: används för att harmonisera BRIDGE_TEXT_BUG-check
   MOORING_DETECTION, // Förtöjningsdetektering (rörelsebevis-trösklar)
+  AIS_CONFIG, // Etapp 2: AISHub-vaktens trösklar (AIS_CONFIG.AISHUB)
 } = require('./lib/constants');
 
 // Lägsta fart (knop) där COG är tillförlitlig för riktningsbestämning. Under
@@ -359,9 +360,14 @@ class AISBridgeApp extends Homey.App {
       );
 
       // --- STEG 6: CONNECTION SERVICES ---
-      // AISStreamClient: Hanterar WebSocket-anslutning till AISstream.io
-      // Tar emot AIS-meddelanden och emitterar events
-      this.aisClient = new AISStreamClient(this);
+      // Etapp 2 (2026-08-02): this.aisClient är ALLTID en AISSourceMultiplexer.
+      // Med enbart aisstream konfigurerad (default) är muxen ren pass-through
+      // — noll grindar, noll state, noll timers — och alla befintliga
+      // anropsställen (events, connect, reconnectWithKey, disconnect,
+      // getConnectionStats, isConnected-propertyn) står orörda i form.
+      // AISHub (skugga/fusion/solo) aktiveras via settings: aishub_username
+      // + ais_source, applicerade genom _applyAisSourceConfig().
+      this.aisClient = new AISSourceMultiplexer(this, this.homey && this.homey.settings);
 
       this.log('✅ All services initialized successfully');
     } catch (error) {
@@ -398,23 +404,43 @@ class AISBridgeApp extends Homey.App {
         } else {
           this.log(`⚠️ Ignoring invalid debug_level value: ${newLevel}`);
         }
+      } else if (key === 'aishub_last_poll_at') {
+        // Etapp 2: AISHub-klientens EGEN rate-limit-bokföring (persisterad
+        // poll-spärr, skrivs varje minut). Får ALDRIG trigga någon
+        // omkonfiguration — utan detta undantag hade appens listener
+        // reagerat på varje poll (V2-C2-följdkravet).
+      } else if (key === 'aishub_username' || key === 'ais_source') {
+        // Etapp 2: källkonfiguration ändrad — muxen reder ut omställningen
+        // idempotent (identisk effektiv config = no-op; AISHub-start
+        // respekterar alltid den persisterade poll-spärren + startjitter).
+        this.log(`🔀 [SETTINGS] ${key} ändrad — applicerar källkonfiguration`);
+        this._applyAisSourceConfig();
       } else if (key === 'ais_api_key') {
         // F8 (KRITISK): listenern reagerade tidigare ENBART på debug_level, så
         // ett byte av API-nyckeln gjorde ingenting — connect() anropades aldrig
         // med den nya nyckeln och hela datainflödet (bridge_text + notiser) låg
         // nere tills appen startades om manuellt. Återanslut nu kontrollerat.
-        const newKey = this.homey.settings.get('ais_api_key');
-        if (typeof newKey === 'string' && newKey.trim().length > 0) {
-          this.log('🔑 [SETTINGS] ais_api_key ändrad — återansluter AIS-strömmen med ny nyckel');
-          if (this.aisClient && typeof this.aisClient.reconnectWithKey === 'function') {
-            this.aisClient.reconnectWithKey(newKey.trim()).catch((err) => {
-              this.error('[SETTINGS] Misslyckades att återansluta med ny API-nyckel:', err);
-            });
-          }
+        // Etapp 2: när muxen finns går ändringen via källkonfigurationen
+        // (konfigmatrisen: i dual-läge ska en tömd aisstream-nyckel degradera
+        // till solo-AISHub — inte riva BÅDA källorna). Legacy-vägen behålls
+        // för stubbar utan applySourceConfig (testkontraktet).
+        if (this.aisClient && typeof this.aisClient.applySourceConfig === 'function') {
+          this.log('🔑 [SETTINGS] ais_api_key ändrad — applicerar källkonfiguration');
+          this._applyAisSourceConfig();
         } else {
-          this.log('🔑 [SETTINGS] ais_api_key tömd/ogiltig — kopplar ner AIS-strömmen');
-          if (this.aisClient && typeof this.aisClient.disconnect === 'function') {
-            this.aisClient.disconnect();
+          const newKey = this.homey.settings.get('ais_api_key');
+          if (typeof newKey === 'string' && newKey.trim().length > 0) {
+            this.log('🔑 [SETTINGS] ais_api_key ändrad — återansluter AIS-strömmen med ny nyckel');
+            if (this.aisClient && typeof this.aisClient.reconnectWithKey === 'function') {
+              this.aisClient.reconnectWithKey(newKey.trim()).catch((err) => {
+                this.error('[SETTINGS] Misslyckades att återansluta med ny API-nyckel:', err);
+              });
+            }
+          } else {
+            this.log('🔑 [SETTINGS] ais_api_key tömd/ogiltig — kopplar ner AIS-strömmen');
+            if (this.aisClient && typeof this.aisClient.disconnect === 'function') {
+              this.aisClient.disconnect();
+            }
           }
         }
       }
@@ -422,6 +448,62 @@ class AISBridgeApp extends Homey.App {
 
     // Registrera listener för settings-ändringar
     this.homey.settings.on('set', this._onSettingsChanged);
+  }
+
+  /**
+   * Etapp 2 (2026-08-02): läs de tre källinställningarna och applicera dem
+   * på muxen. Fallback-regeln (konfigmatrisen): ett aishub-läge utan
+   * username faller tillbaka till aisstream MED notis — aldrig tyst död.
+   * Degraderingsregeln: 'both' utan aisstream-nyckel kör solo-AISHub med
+   * varningsnotis.
+   * @private
+   */
+  _applyAisSourceConfig() {
+    try {
+      if (!this.aisClient || typeof this.aisClient.applySourceConfig !== 'function') {
+        return;
+      }
+      if (!this.homey || !this.homey.settings || typeof this.homey.settings.get !== 'function') {
+        return;
+      }
+      const apiKey = String(this.homey.settings.get('ais_api_key') || '').trim();
+      const aishubUsername = String(this.homey.settings.get('aishub_username') || '').trim();
+      const rawSource = String(this.homey.settings.get('ais_source') || 'aisstream');
+      const allowed = ['aisstream', 'shadow', 'both', 'aishub'];
+      const source = allowed.includes(rawSource) ? rawSource : 'aisstream';
+
+      if (source !== 'aisstream' && !aishubUsername) {
+        this.log(`⚠️ [AIS_SOURCE] ais_source='${source}' utan aishub_username — faller tillbaka till aisstream`);
+        this._notifyConnectionIssue(
+          'AIS Tracker: källvalet kräver ett AISHub-användarnamn — appen kör '
+          + 'vidare med enbart AISstream tills du fyllt i det i inställningarna.',
+          'config:fallback',
+        );
+      } else if ((source === 'both' || source === 'shadow') && !apiKey && aishubUsername) {
+        this.log(`⚠️ [AIS_SOURCE] ais_source='${source}' utan aisstream-nyckel — kör enbart AISHub`);
+        this._notifyConnectionIssue(
+          'AIS Tracker: ingen AISstream-nyckel är konfigurerad — appen kör '
+          + 'enbart AISHub tills nyckeln finns i inställningarna.',
+          'aisstream:nokey',
+        );
+      }
+
+      this.aisClient.applySourceConfig({ source, apiKey: apiKey || null, aishubUsername: aishubUsername || null });
+
+      // Etapp 3 (V1-m6): kadensmedvetet gate-fönster — när en pollande
+      // källa matar PIPELINEN (both/aishub) måste GPS-gaten spänna över
+      // minst en pollcykel, annars är källbytesskyddet en no-op. Skugg-
+      // läget rör inte pipelinen ⇒ basfönstret behålls.
+      if (this.gpsJumpGateService && typeof this.gpsJumpGateService.setPollCadenceMs === 'function') {
+        const effectiveSource = (source !== 'aisstream' && !aishubUsername) ? 'aisstream' : source;
+        const hubFeedsPipeline = effectiveSource === 'both' || effectiveSource === 'aishub';
+        this.gpsJumpGateService.setPollCadenceMs(
+          hubFeedsPipeline ? AIS_CONFIG.AISHUB.POLL_INTERVAL_MS : null,
+        );
+      }
+    } catch (error) {
+      this.error('[AIS_SOURCE] Kunde inte applicera källkonfigurationen:', error.message || error);
+    }
   }
 
   /**
@@ -2277,14 +2359,20 @@ class AISBridgeApp extends Homey.App {
    * bridge_text). Dedupe: max en notis per 24h så ihållande fel inte spammar
    * timeline (loggarna fortsätter visa varje försök).
    * @param {string} message - Användarvänligt meddelande (visas i timeline)
+   * @param {string} [feedKey='global'] - Dedupnyckel per källa/felklass
+   *        (etapp 2, V1-M6): en GLOBAL skalär lät ett AISHub-fel tysta ett
+   *        aisstream-nyckelfel i ett helt dygn. Nycklar: 'aisstream:auth',
+   *        'aisstream:server', 'aisstream:net', 'aisstream:nokey',
+   *        'aishub:auth', 'aishub:server', 'aishub:silent', 'config:fallback' …
    * @private
    */
-  async _notifyConnectionIssue(message) {
+  async _notifyConnectionIssue(message, feedKey = 'global') {
     // ChatGPT-granskningen 2026-07-10 (J1): stämpeln sätts före await som
     // race-vakt, men måste rullas tillbaka om leveransen misslyckas — annars
     // spärrar en ALDRIG levererad notis alla nya försök i 24h (samma
-    // F6-rollback-princip som boat_near-triggern).
-    const prev = this._lastConnectionIssueNotifiedAt;
+    // F6-rollback-princip som boat_near-triggern). Rollbacken är PER NYCKEL.
+    if (!this._connectionIssueNotifiedAt) this._connectionIssueNotifiedAt = new Map();
+    const prev = this._connectionIssueNotifiedAt.get(feedKey);
     try {
       const DEDUPE_MS = 24 * 60 * 60 * 1000;
       const now = Date.now();
@@ -2295,10 +2383,14 @@ class AISBridgeApp extends Homey.App {
           || typeof this.homey.notifications.createNotification !== 'function') {
         return;
       }
-      this._lastConnectionIssueNotifiedAt = now;
+      this._connectionIssueNotifiedAt.set(feedKey, now);
       await this.homey.notifications.createNotification({ excerpt: message });
     } catch (error) {
-      this._lastConnectionIssueNotifiedAt = prev;
+      if (prev === undefined) {
+        this._connectionIssueNotifiedAt.delete(feedKey);
+      } else {
+        this._connectionIssueNotifiedAt.set(feedKey, prev);
+      }
       this.error('[AIS_CONNECTION] Failed to create timeline notification:', error.message || error);
     }
   }
@@ -2315,46 +2407,66 @@ class AISBridgeApp extends Homey.App {
       + 'Kontrollera internetanslutningen och att API-nyckeln i appens inställningar är giltig. '
       + 'Appen fortsätter försöka återansluta i bakgrunden.',
     );
-    // B3: synliggör för användaren via timeline (deduped till 1/24h)
+    // B3: synliggör för användaren via timeline (deduped till 1/24h per källa)
     this._notifyConnectionIssue(
       'AIS Tracker: kan inte nå AISstream.io. Kontrollera internetanslutningen '
       + 'och API-nyckeln i appens inställningar. Appen fortsätter försöka återansluta.',
+      'aisstream:net',
     );
   }
 
   /**
-   * F55: server-/auth-fel från AISstream.io (t.ex. ogiltig API-nyckel).
+   * F55: auth-fel från en AIS-källa (t.ex. ogiltig API-nyckel/indraget
+   * AISHub-medlemskap). Etapp 2: KÄLLNEUTRAL — muxen skickar källan som
+   * andra argument, texten och dedupnyckeln väljs per källa.
    * @param {*} detail
+   * @param {string} [feed='aisstream']
    * @private
    */
-  _onAISAuthError(detail) {
+  _onAISAuthError(detail, feed = 'aisstream') {
+    const source = feed === 'aishub' ? 'AISHub' : 'AISstream.io';
     this.error(
-      `❌ [AIS_CONNECTION] Fel från AISstream.io: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}. `
-      + 'Kontrollera API-nyckeln i appens inställningar.',
+      `❌ [AIS_CONNECTION] Fel från ${source}: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}. ${
+        feed === 'aishub'
+          ? 'Kontrollera AISHub-användarnamnet och din stationsstatus i appens inställningar.'
+          : 'Kontrollera API-nyckeln i appens inställningar.'}`,
     );
-    // B3: synliggör för användaren via timeline (deduped till 1/24h)
+    // B3: synliggör för användaren via timeline (deduped till 1/24h per källa)
     this._notifyConnectionIssue(
-      'AIS Tracker: AISstream.io avvisade anslutningen — API-nyckeln är '
-      + 'troligen ogiltig. Uppdatera nyckeln i appens inställningar.',
+      feed === 'aishub'
+        ? ('AIS Tracker: AISHub avvisade förfrågan — kontrollera användarnamnet '
+          + 'och att din AIS-station uppfyller bidragskraven (≥10 fartyg/7 dygn, '
+          + '≥90 % upptid).')
+        : ('AIS Tracker: AISstream.io avvisade anslutningen — API-nyckeln är '
+          + 'troligen ogiltig. Uppdatera nyckeln i appens inställningar.'),
+      `${feed}:auth`,
     );
   }
 
   /**
    * ChatGPT-granskningen 2026-07-10 (D1): serverfel som INTE är nyckel-
    * relaterade (throttling, ogiltigt request-format, odefinierade fel).
-   * Klienten river socketen själv (terminate → close → reconnect+backoff),
-   * så här behövs bara logg + neutral användarsignal — inte nyckelrådet.
+   * Klienten läker själv (aisstream: terminate → close → reconnect+backoff;
+   * AISHub: backoff i poll-kedjan), så här behövs bara logg + neutral
+   * användarsignal — inte nyckelrådet. Etapp 2: källneutral (muxen skickar
+   * källan som andra argument).
    * @param {*} detail
+   * @param {string} [feed='aisstream']
    * @private
    */
-  _onAISServerError(detail) {
+  _onAISServerError(detail, feed = 'aisstream') {
+    const source = feed === 'aishub' ? 'AISHub' : 'AISstream.io';
     this.error(
-      `❌ [AIS_CONNECTION] Serverfel från AISstream.io (ej nyckelrelaterat): ${typeof detail === 'string' ? detail : JSON.stringify(detail)}. `
-      + 'Appen återansluter automatiskt.',
+      `❌ [AIS_CONNECTION] Serverfel från ${source} (ej nyckelrelaterat): ${typeof detail === 'string' ? detail : JSON.stringify(detail)}. ${
+        feed === 'aishub' ? 'Poll-kedjan backar av automatiskt.' : 'Appen återansluter automatiskt.'}`,
     );
     this._notifyConnectionIssue(
-      'AIS Tracker: AISstream.io returnerade ett serverfel (t.ex. tillfällig '
-      + 'överbelastning). Appen återansluter automatiskt i bakgrunden.',
+      feed === 'aishub'
+        ? ('AIS Tracker: AISHub returnerade ett serverfel (t.ex. tillfällig '
+          + 'överbelastning). Appen fortsätter polla med backoff i bakgrunden.')
+        : ('AIS Tracker: AISstream.io returnerade ett serverfel (t.ex. tillfällig '
+          + 'överbelastning). Appen återansluter automatiskt i bakgrunden.'),
+      `${feed}:server`,
     );
   }
 
@@ -2389,6 +2501,7 @@ class AISBridgeApp extends Homey.App {
       this._notifyConnectionIssue(
         'AIS Tracker: ingen API-nyckel är konfigurerad — appen tar inte emot '
         + 'båtdata. Lägg in din AISstream.io-nyckel i appens inställningar.',
+        'aisstream:nokey',
       );
     }
   }
@@ -2460,6 +2573,17 @@ class AISBridgeApp extends Homey.App {
         && message.navStatus >= 0 && message.navStatus <= 15
         ? message.navStatus
         : null;
+      // Etapp 0 AISHub-förberedelse (2026-08-02): fixtid + källa följer med
+      // genom pipelinen som syskonfält. aisstream bär ingen äkta fixtid →
+      // identitet: fixTs = klientens mottagningsstämpel (message.timestamp),
+      // fixFeed = 'aisstream'. Klockdomänsinvarianten: fixTs (domän F)
+      // används ENDAST för fysik-dt inom samma källa — TTL/stale/passage-ID
+      // fortsätter mäta mottagningstid (domän M, vessel.timestamp).
+      let normalizedFixTs = message.fixTs;
+      if (!Number.isFinite(normalizedFixTs)) {
+        normalizedFixTs = Number.isFinite(message.timestamp) ? message.timestamp : Date.now();
+      }
+      const normalizedFixFeed = message.fixFeed || 'aisstream';
       // B1 (2026-07-03): namncachen ersätter aisstreams "Unknown"-platshållare
       // med senast kända riktiga namn för mmsi:t (överlever omstart). Riktiga
       // namn registreras i cachen; injektionen sker FÖRE vesselPatch så även
@@ -2481,6 +2605,12 @@ class AISBridgeApp extends Homey.App {
         cog: normalizedCog,
         navStatus: normalizedNavStatus,
         name: effectiveName,
+        fixTs: normalizedFixTs,
+        fixFeed: normalizedFixFeed,
+        // Etapp 3: källbytesflaggan (F5) — plumbas hela vägen till
+        // SystemCoordinator så den GLOBALA jump-tallyn undantas när
+        // "hoppet" bara är två källors olika GPS-vy av samma fartyg.
+        feedSwitch: message.feedSwitch === true,
       };
 
       this._captureAISReplaySample({
@@ -2492,6 +2622,11 @@ class AISBridgeApp extends Homey.App {
         cog: vesselPatch.cog,
         shipName: vesselPatch.name,
         aisTimestamp: message.timestamp || null,
+        // Etapp 0: fixtid/källa i inspelningen — aisTimestamp förblir
+        // harnessens väggklocka (mottagningstid); fixTs/feed är syskonfält
+        // som framtida AISHub-/fusionskorpusar bär explicit.
+        fixTs: normalizedFixTs,
+        feed: normalizedFixFeed,
         receivedAt: new Date().toISOString(),
       });
 
@@ -6603,9 +6738,19 @@ class AISBridgeApp extends Homey.App {
         return;
       }
 
-      const apiKey = this.homey.settings.get('ais_api_key');
+      // Etapp 2: applicera källkonfigurationen FÖRE anslutning så muxen vet
+      // läget (aisstream/shadow/both/aishub) när connect() startar barnen.
+      this._applyAisSourceConfig();
 
-      if (!apiKey) {
+      const apiKey = String(this.homey.settings.get('ais_api_key') || '').trim();
+      const aishubUsername = String(this.homey.settings.get('aishub_username') || '').trim();
+      const rawSource = String(this.homey.settings.get('ais_source') || 'aisstream');
+      const sourceWantsHub = ['shadow', 'both', 'aishub'].includes(rawSource) && !!aishubUsername;
+
+      // Källmedveten tomnyckelgren (etapp 2): utan aisstream-nyckel OCH utan
+      // konfigurerad AISHub-källa är appen datalös — exakt dagens beteende.
+      // Med AISHub konfigurerad startar muxen den källan trots tom nyckel.
+      if (!apiKey && !sourceWantsHub) {
         this.log('⚠️ [AIS_CONNECTION] No API key configured - using development mode');
         this._isConnected = false;
 
@@ -6616,6 +6761,7 @@ class AISBridgeApp extends Homey.App {
           this._notifyConnectionIssue(
             'AIS Tracker: ingen API-nyckel är konfigurerad — appen tar inte emot '
             + 'båtdata. Lägg in din AISstream.io-nyckel i appens inställningar.',
+            'aisstream:nokey',
           );
         }
 
@@ -6626,11 +6772,15 @@ class AISBridgeApp extends Homey.App {
         return;
       }
 
-      this.log('🌐 [AIS_CONNECTION] Starting AIS stream connection...');
+      if (!apiKey) {
+        this.log('🌐 [AIS_CONNECTION] Ingen AISstream-nyckel — startar enbart AISHub-källan');
+      } else {
+        this.log('🌐 [AIS_CONNECTION] Starting AIS stream connection...');
+      }
 
       // Event handlers are already set up in _setupEventHandlers()
       // Just start the connection
-      await this.aisClient.connect(apiKey);
+      await this.aisClient.connect(apiKey || null);
 
     } catch (error) {
       this.error('Error starting AIS connection:', error);
@@ -6731,6 +6881,20 @@ class AISBridgeApp extends Homey.App {
       }
 
       const stats = this.aisClient.getConnectionStats();
+
+      // Etapp 2 (V1-C2/V3-C2): med muxens perFeed-uppslag körs vakten PER
+      // KÄLLA. Aggregatets timeSinceLastMessage=min hade annars hållits
+      // permanent färskt av AISHubs 65s-poll ⇒ 20-min-tröskeln nås aldrig ⇒
+      // den enda detektorn för "aisstream-socket lever men levererar noll"
+      // (B2/RC-S2) vore död i dual-läge. Utan perFeed (legacy-stubbar,
+      // pass-through-paritet) körs exakt dagens plattlogik nedan.
+      if (stats.perFeed) {
+        this._checkAisstreamFeedHealthPerFeed(stats.perFeed.aisstream);
+        this._checkAishubFeedHealth(stats.perFeed.aishub);
+        this._checkCrossFeedSilence(stats.perFeed);
+        return;
+      }
+
       const sinceMessage = Number.isFinite(stats.timeSinceLastMessage)
         ? stats.timeSinceLastMessage
         : Infinity; // aldrig fått något meddelande → räkna från uppkoppling
@@ -6780,6 +6944,149 @@ class AISBridgeApp extends Homey.App {
       });
     } catch (error) {
       this.error('[FEED_WATCHDOG] Health check failed:', error.message || error);
+    }
+  }
+
+  /**
+   * Etapp 2: aisstream-grenen av feed-vakten — EXAKT dagens B2/RC-S2-logik
+   * men läst ur perFeed.aisstream (aldrig aggregatet). Gatad på ais_api_key
+   * precis som förut; reconnectWithKey-vägen är härdad i klienten.
+   * @param {object} feedStats - stats.perFeed.aisstream
+   * @private
+   */
+  _checkAisstreamFeedHealthPerFeed(feedStats) {
+    if (!feedStats || !feedStats.configured || !feedStats.isConnected) {
+      return;
+    }
+    const sinceMessage = Number.isFinite(feedStats.timeSinceLastMessage)
+      ? feedStats.timeSinceLastMessage
+      : Infinity;
+    const silenceMs = Math.min(sinceMessage, feedStats.uptime || 0);
+
+    const staleBase = UI_CONSTANTS.STALE_FEED_RECONNECT_MS || 20 * 60 * 1000;
+    if (silenceMs < staleBase) {
+      if (sinceMessage < staleBase) {
+        this._feedWatchdogStrikes = 0;
+      }
+      return;
+    }
+
+    const strikes = this._feedWatchdogStrikes || 0;
+    const staleLimit = Math.min(staleBase * 2 ** strikes, 2 * 60 * 60 * 1000);
+    if (silenceMs < staleLimit) {
+      return;
+    }
+
+    const apiKey = this.homey.settings.get('ais_api_key');
+    if (!apiKey || typeof this.aisClient.reconnectWithKey !== 'function') {
+      return;
+    }
+
+    this.log(
+      `🐕 [FEED_WATCHDOG] aisstream: no messages for ${Math.round(silenceMs / 60000)} min while connected — `
+      + `forcing reconnect + resubscribe (strike ${strikes + 1}; harmless if the canal is just quiet)`,
+    );
+    this._feedWatchdogStrikes = strikes + 1;
+    this.aisClient.reconnectWithKey(String(apiKey).trim()).catch((err) => {
+      this.error('[FEED_WATCHDOG] Forced reconnect failed:', err);
+    });
+  }
+
+  /**
+   * Etapp 2: AISHub-grenen — gatas ALDRIG på ais_api_key (V1-C2). Klientens
+   * poll-kedja läker sig själv (finally-ombokning + backoff), så vaktens
+   * enda äkta mål är en DÖD kedja (tappad timer) eller långvarig tystnad:
+   * kicken går via forceReschedule() → _poll() som OVILLKORLIGT respekterar
+   * den persisterade 61s-spärren — vakten kan aldrig bryta kadensen.
+   * @param {object} feedStats - stats.perFeed.aishub
+   * @private
+   */
+  _checkAishubFeedHealth(feedStats) {
+    if (!feedStats || !feedStats.configured) {
+      this._aishubWatchdogStrikes = 0;
+      return;
+    }
+    if (typeof this.aisClient.kickAishub !== 'function') return;
+    const now = Date.now();
+    const cfg = AIS_CONFIG.AISHUB;
+
+    // Död kedja: ingen poll ens STARTAD på > 2×backoff-tak + marginal.
+    const chainDeadMs = 2 * cfg.BACKOFF_MAX_MS + 60 * 1000; // 11 min
+    const lastPollStart = feedStats.lastPollStartedAt;
+    if (Number.isFinite(lastPollStart) && now - lastPollStart > chainDeadMs) {
+      this.log(
+        `🐕 [FEED_WATCHDOG] aishub: ingen poll startad på ${Math.round((now - lastPollStart) / 60000)} min `
+        + '— kedjan verkar död, tvingar omschemaläggning (spärren respekteras)',
+      );
+      this._aishubWatchdogStrikes = (this._aishubWatchdogStrikes || 0) + 1;
+      this.aisClient.kickAishub();
+      return;
+    }
+
+    // Tystnadsgren: kontakt etablerad men inga lyckade svar (>200 s ⇒ strike
+    // med exponentiell tröskel 200 s → 400 s → … tak 2 h, kick per strike).
+    if (!feedStats.isConnected) return; // klientens egen flank/backoff äger nedkopplat läge
+    const lastOk = feedStats.lastOkResponseAt;
+    const silence = Number.isFinite(lastOk) ? now - lastOk : Infinity;
+    if (silence < cfg.SILENT_FEED_MS) {
+      this._aishubWatchdogStrikes = 0;
+      return;
+    }
+    const strikes = this._aishubWatchdogStrikes || 0;
+    const limit = Math.min(cfg.SILENT_FEED_MS * 2 ** strikes, 2 * 60 * 60 * 1000);
+    if (silence < limit) return;
+    this.log(
+      `🐕 [FEED_WATCHDOG] aishub: inga lyckade svar på ${Math.round(silence / 1000)} s `
+      + `— tvingar omschemaläggning (strike ${strikes + 1})`,
+    );
+    this._aishubWatchdogStrikes = strikes + 1;
+    this.aisClient.kickAishub();
+  }
+
+  /**
+   * Etapp 2 ([FEED_SILENT], slutplanen §7): en KONFIGURERAD källa som inte
+   * levererat en enda accepterad position på 15 min medan den andra flödar
+   * är en tyst död — logga (rate-limitat 1/15 min) + notis (1/24h per källa).
+   * Mäts på lastMessageTime (emissionsdriven = accepted, aldrig records).
+   * @param {object} perFeed - stats.perFeed
+   * @private
+   */
+  _checkCrossFeedSilence(perFeed) {
+    const SILENT_MS = 15 * 60 * 1000;
+    const FRESH_MS = 2 * 60 * 1000;
+    const s = perFeed.aisstream;
+    const h = perFeed.aishub;
+    if (!s || !h || !s.configured || !h.configured) return;
+
+    const sSilence = Number.isFinite(s.timeSinceLastMessage) ? s.timeSinceLastMessage : Infinity;
+    const hSilence = Number.isFinite(h.timeSinceLastMessage) ? h.timeSinceLastMessage : Infinity;
+
+    if (!this._feedSilentLogTimes) this._feedSilentLogTimes = new Map();
+    const logLimited = (feed, message) => {
+      const last = this._feedSilentLogTimes.get(feed) || 0;
+      if (Date.now() - last < SILENT_MS) return;
+      this._feedSilentLogTimes.set(feed, Date.now());
+      this.log(`⚠️ [FEED_SILENT] ${message}`);
+    };
+
+    // Källan måste ha haft chansen (upptid > fönstret) innan den döms.
+    if (sSilence > SILENT_MS && hSilence < FRESH_MS && (s.uptime || 0) > SILENT_MS) {
+      logLimited('aisstream', `aisstream har inte levererat på ${Math.round(sSilence / 60000)} min medan AISHub flödar`);
+      this._notifyConnectionIssue(
+        'AIS Tracker: AISstream har inte levererat några positioner på 15 min '
+        + 'medan AISHub flödar — anslutningen kan vara halvdöd. Appens vakter '
+        + 'försöker återansluta automatiskt.',
+        'aisstream:silent',
+      );
+    }
+    if (hSilence > SILENT_MS && sSilence < FRESH_MS && (h.uptime || 0) > SILENT_MS) {
+      logLimited('aishub', `AISHub har inte levererat på ${Math.round(hSilence / 60000)} min medan aisstream flödar`);
+      this._notifyConnectionIssue(
+        'AIS Tracker: AISHub har inte levererat några positioner på 15 min '
+        + 'medan AISstream flödar — kontrollera användarnamnet och din '
+        + 'stationsstatus på aishub.net.',
+        'aishub:silent',
+      );
     }
   }
 
@@ -6925,6 +7232,12 @@ class AISBridgeApp extends Homey.App {
       // döv" (tappad subscription, server slutat skicka) som ping/pong inte
       // fångar, och tvingar en full omanslutning + omprenumeration.
       this._checkAISFeedHealth();
+
+      // Etapp 2: pruna muxens fusions-/skuggstate i monitoring-takt (samma
+      // mönster som övriga kartor; ofarlig no-op i pass-through-läget).
+      if (this.aisClient && typeof this.aisClient.pruneFusionState === 'function') {
+        this.aisClient.pruneFusionState();
+      }
     }, UI_CONSTANTS.MONITORING_INTERVAL_MS); // Every minute
   }
 

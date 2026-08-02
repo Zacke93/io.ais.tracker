@@ -1,3 +1,5 @@
 Never miss a bridge opening on the Trollhätte canal again. AIS Bridge tracks vessels in real time and tells you when the Klaffbron or Stridsbergsbron bridge in Trollhättan is about to open, with a live status text for your dashboard and Flow cards that let you automate notifications, lights or speaker announcements when a boat approaches a bridge of your choice.
 
 Arrival times are calculated from each vessel's position, speed and course, with smart filtering of anchored and waiting boats, so you are only alerted when it matters. The app requires a free API key from aisstream.io, entered in the app settings.
+
+Optionally, AISHub (aishub.net) can be added as a second AIS source for members who run their own NMEA receiving station. A shadow mode measures AISHub's freshness and coverage side by side with AISstream (SHADOW_COMPARE in the app log) without affecting bridge status; dual-source fusion can then be enabled where the freshest position per vessel wins. AIS data: AISHub (aishub.net) and aisstream.io.
