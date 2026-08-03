@@ -255,17 +255,140 @@ describe('Etapp 1: AISHubClient anslutningssemantik och felmatris', () => {
     expect(serverErrors.some((m) => String(m).includes('Internal database failure'))).toBe(true);
   });
 
-  test('HTTP 403 × 5 ⇒ pollandet STOPPAS + auth-error (indragen access får inte spamma)', async () => {
+  // UPPDATERAT 2026-08-03 (V6, A/B-natten): testet hette tidigare "pollandet
+  // STOPPAS" och låste fast att femte 403:an satte _stopped = true. Det var
+  // ett DÖDLÄGE, inte ett skydd: ingen kodväg återupplivade klienten utan
+  // appomstart eller username-byte, så ett övergående 403 (AISHubs
+  // stationskrav mäts löpande) slog ut andrakällan för processens livstid.
+  // Kontraktet är nu PAUS + automatisk återupptagning; kravet det gamla
+  // testet egentligen skyddade — "indragen access får aldrig spamma ws.php" —
+  // asserteras hårdare än förr (noll pollar under hela cooldownen).
+  test('HTTP 403 × 5 ⇒ pollandet PAUSAS AUTH_COOLDOWN_MS + EN auth-error (V6)', async () => {
     makeClientWithScript([{ statusCode: 403, body: 'Forbidden' }]);
     const authErrors = [];
     client.on('auth-error', (m) => authErrors.push(m));
     await client.connect('testuser');
     await jest.advanceTimersByTimeAsync(4 * 3600 * 1000);
     expect(client._httpGet).toHaveBeenCalledTimes(5);
-    expect(authErrors.length).toBeGreaterThanOrEqual(1);
+    // EN användarnotis per episod — inte en per avvisad poll.
+    expect(authErrors).toHaveLength(1);
+    expect(client.isConnected).toBe(false);
+    expect(client.getConnectionStats().authCooldownMsLeft).toBeGreaterThan(0);
+
+    // Tyst under hela pausen — och kedjan är INTE död (_stopped är kvar false).
     const calls = client._httpGet.mock.calls.length;
     await jest.advanceTimersByTimeAsync(3600 * 1000);
-    expect(client._httpGet.mock.calls.length).toBe(calls); // stoppad
+    expect(client._httpGet.mock.calls.length).toBe(calls);
+    expect(client._stopped).toBe(false);
+  });
+
+  test('V6: kedjan ÅTERUPPTAS av sig själv efter cooldownen — ett övergående 403 dödar inte källan', async () => {
+    let mode = 'deny';
+    makeClientWithScript([() => (mode === 'deny'
+      ? { statusCode: 403, body: 'Forbidden' }
+      : { statusCode: 200, body: okSweepBody([]) })]);
+    const authErrors = [];
+    client.on('auth-error', (m) => authErrors.push(m));
+    await client.connect('testuser');
+
+    // Femte 403:an faller vid t≈990 s (65+130+260+300+300 backoff) ⇒ pausen
+    // löper till t≈990 s + AUTH_COOLDOWN_MS.
+    await jest.advanceTimersByTimeAsync(5 * 3600 * 1000);
+    expect(client._httpGet).toHaveBeenCalledTimes(5);
+
+    // Accessen kommer tillbaka under pausen (stationen uppfyller kraven igen).
+    mode = 'ok';
+    await jest.advanceTimersByTimeAsync(2 * 3600 * 1000); // förbi 6h-pausen
+    expect(client._httpGet.mock.calls.length).toBeGreaterThan(5);
+    expect(client.isConnected).toBe(true);
+    expect(client.getConnectionStats().authCooldownMsLeft).toBe(0);
+    expect(client.getConnectionStats().authCooldownUntil).toBeNull();
+
+    // …och kadensen är återställd till baskadensen, aldrig under spärren.
+    const at = client._httpGet.mock.calls.length;
+    await jest.advanceTimersByTimeAsync(10 * 60 * 1000);
+    expect(client._httpGet.mock.calls.length).toBeGreaterThan(at);
+  });
+
+  test('V6: forceReschedule (feed-vakten) kan INTE bryta auth-cooldownen', async () => {
+    makeClientWithScript([{ statusCode: 403, body: 'Forbidden' }]);
+    await client.connect('testuser');
+    await jest.advanceTimersByTimeAsync(4 * 3600 * 1000);
+    const calls = client._httpGet.mock.calls.length;
+    expect(calls).toBe(5);
+
+    // Watchdogen kickar var 20:e minut i 2 h — noll extra pollar mot ws.php.
+    // (Femte 403:an föll vid t≈990 s ⇒ pausen löper till t≈6 h 16 min;
+    // fönstret nedan slutar vid t = 6 h och ligger alltså helt inuti den.)
+    for (let i = 0; i < 6; i++) {
+      client.forceReschedule();
+      // eslint-disable-next-line no-await-in-loop
+      await jest.advanceTimersByTimeAsync(20 * 60 * 1000);
+    }
+    expect(client.getConnectionStats().authCooldownMsLeft).toBeGreaterThan(0);
+    expect(client._httpGet.mock.calls.length).toBe(calls);
+  });
+
+  test('V6/granskningsrunda 2: permanent 403 ger INTE en vilseledande server-error per dygn', async () => {
+    // _failStreak nollställdes inte när cooldownen sattes, så den FÖRSTA
+    // pollen efter varje 6-timmarspaus föll rakt in i "≥3 raka misslyckade
+    // pollar" ⇒ server-error ⇒ app-lagrets 24h-dedup per nyckel släppte
+    // igenom minst en pushnotis per dygn, för evigt, med FEL diagnos
+    // ("serverfel … fortsätter polla med backoff" — kedjan är pausad).
+    makeClientWithScript([{ statusCode: 403, body: 'Forbidden' }]);
+    const authErrors = [];
+    const serverErrors = [];
+    client.on('auth-error', (m) => authErrors.push(m));
+    client.on('server-error', (m) => serverErrors.push(m));
+    await client.connect('testuser');
+    await jest.advanceTimersByTimeAsync(48 * 3600 * 1000);
+    expect(authErrors).toHaveLength(1);
+    expect(serverErrors).toHaveLength(0);
+  });
+
+  test('V6/granskningsrunda 2: error-record med access-text går in i SAMMA auth-maskineri', async () => {
+    // AISHubs DOKUMENTERADE felväg är HTTP 200 + [{ERROR:true,…}] (se
+    // aishubParsers kontraktsblock). Den grenen räknade aldrig
+    // _authFailCount, kunde aldrig pausa och emitterade auth-error vid VARJE
+    // poll — 288 anrop/dygn mot ett konto som uttryckligen nekats.
+    makeClientWithScript([{
+      statusCode: 200,
+      body: JSON.stringify([{ ERROR: true, ERROR_MESSAGE: 'Access Denied: invalid username' }]),
+    }]);
+    const authErrors = [];
+    client.on('auth-error', (m) => authErrors.push(m));
+    await client.connect('testuser');
+    await jest.advanceTimersByTimeAsync(48 * 3600 * 1000);
+    expect(authErrors).toHaveLength(1);
+    expect(client.getConnectionStats().authCooldownMsLeft).toBeGreaterThan(0);
+    expect(client.getConnectionStats().counters.authFail).toBeGreaterThan(0);
+    // Kadensdisciplinen: 48 h mot ett nekat konto ger 8 cooldowncykler à
+    // AUTH_FAIL_STOP bekräftande pollar = 40, dvs. ~20/dygn. Före fixen
+    // pollade samma konto 577 gånger (288/dygn, backofftaket 300 s) och
+    // emitterade lika många auth-error.
+    expect(client._httpGet.mock.calls.length).toBeLessThan(60);
+  });
+
+  test('V6: en NY auth-episod efter tillfrisknande notifierar igen (engångsflaggan är per episod)', async () => {
+    let mode = 'ok';
+    makeClientWithScript([() => (mode === 'deny'
+      ? { statusCode: 403, body: 'Forbidden' }
+      : { statusCode: 200, body: okSweepBody([]) })]);
+    const authErrors = [];
+    client.on('auth-error', (m) => authErrors.push(m));
+    await client.connect('testuser');
+    await jest.advanceTimersByTimeAsync(70 * 1000); // frisk kontakt
+    expect(authErrors).toHaveLength(0);
+
+    mode = 'deny';
+    await jest.advanceTimersByTimeAsync(20 * 60 * 1000);
+    expect(authErrors).toHaveLength(1); // episod 1
+
+    mode = 'ok';
+    await jest.advanceTimersByTimeAsync(8 * 3600 * 1000); // förbi pausen, frisk
+    mode = 'deny';
+    await jest.advanceTimersByTimeAsync(20 * 60 * 1000);
+    expect(authErrors).toHaveLength(2); // episod 2 — inte tystad för alltid
   });
 
   test('FORMAT-mismatch ⇒ server-error + noll emitterade meddelanden', async () => {
@@ -443,6 +566,27 @@ describe('Etapp 1: AISHubClient emission, dedup och boxfilter', () => {
     // tidigare loggades totalen som "dupes" och kvoten var oläsbar.
     expect(pollLines[2]).toContain('dupes=1');
     expect(pollLines[2]).toContain('dupesTotal=2');
+  });
+
+  test('FYND 15 (A/B-natten): dedup-taket evicterar ÄLDST KÄNDA FIX — inte det först insatta', () => {
+    client = new AISHubClient(makeLogger(), makeStore());
+    const now = Date.now();
+    // Det AKTIVA fartyget sattes in FÖRST och har den FÄRSKASTE fixen. Den
+    // gamla prunen (map.keys().next()) slängde exakt denna — och att tappa
+    // dedup-posten för ett aktivt fartyg betyder att nästa polls RE-LEVERANS
+    // av samma fix åker in i pipelinen som en ny position.
+    client._dedup.set('265000001', now - 1000);
+    for (let i = 0; i < CFG.DEDUP_MAX_ENTRIES; i++) {
+      client._dedup.set(`2650100${i}`, now - 60000 - i); // äldre fix, inom TTL
+    }
+    expect(client._dedup.size).toBe(CFG.DEDUP_MAX_ENTRIES + 1);
+
+    client._pruneDedup(now);
+
+    expect(client._dedup.size).toBe(CFG.DEDUP_MAX_ENTRIES);
+    expect(client._dedup.has('265000001')).toBe(true);
+    // Den evicterade är den med äldst fixtid (i = MAX-1 ⇒ lägst fixTs).
+    expect(client._dedup.has(`2650100${CFG.DEDUP_MAX_ENTRIES - 1}`)).toBe(false);
   });
 
   test('reconnectWithKey är en no-op (ingen extra poll, ingen krasch)', async () => {

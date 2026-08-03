@@ -51,6 +51,7 @@ const {
   TRIGGER_POINTS, // Geografiska triggerpunkter (utanför brotext-systemet)
   TARGET_BRIDGES, // Bug #4: används för att harmonisera BRIDGE_TEXT_BUG-check
   MOORING_DETECTION, // Förtöjningsdetektering (rörelsebevis-trösklar)
+  QUAY_DEPARTURE_GATE, // V1: korroboreringskrav för kajavgång i trigger-punktzon
   AIS_CONFIG, // Etapp 2: AISHub-vaktens trösklar (AIS_CONFIG.AISHUB)
 } = require('./lib/constants');
 
@@ -237,6 +238,18 @@ class AISBridgeApp extends Homey.App {
     // på ett helt år.
     this._LEARNED_SPOT_TTL_MS = 365 * 24 * 60 * 60 * 1000;
     this._loadLearnedMooringSpots();
+
+    // --- KAJSTABIL HISTORIK (V1, A/B-natten 2026-08-03) ---
+    // mmsi → { stillAt, lat, lon, movingFixes } för fartyg i trigger-punkternas
+    // närområde. Bokföringen ligger på APP-nivå (inte på vessel-objektet)
+    // därför att kajliggarna kring Kanalinfarten återföds oupphörligt —
+    // PRICKBJORN gick igenom 72 VESSEL_ENTERED/REMOVED-cykler under de tio
+    // A/B-timmarna, och ett vessel-scopat minne hade nollställts vid varje
+    // återfödelse (dessutom är fältlistan i _createVesselObject en känd
+    // fälla för nya fält). Prunas i _pruneDedupCaches (varje minut).
+    this._quayStableLedger = new Map();
+    this._quayLedgerPersistedAt = 0;
+    this._loadQuayLedger();
 
     // --- UI UPPDATERINGS-STATE ---
     // SYFTE: Spåra om en UI-uppdatering redan är schemalagd (förhindrar duplikat)
@@ -916,6 +929,194 @@ class AISBridgeApp extends Homey.App {
     });
   }
 
+  /**
+   * V1 (A/B-natten 2026-08-03): bokför kajstabil historik för fartyg i
+   * trigger-punkternas närområde. Körs på VARJE positionsuppdatering — även
+   * för förtöjda båtar, som aldrig når notisvägen (_triggerBoatNearFlow
+   * returnerar på vessel._moored) och vars stillhet därför inte kan avläsas
+   * där grinden sitter.
+   *
+   * Stillasample = klassad förtöjd ELLER sog under rörelsebeviströskeln
+   * (MOVEMENT_PROOF_SOG_KN). Ett stillasample ankrar positionen och nollar
+   * rörelseräknaren; en fix ≥ TRANSIT_SOG_KN räknar upp den. sog=null rör
+   * INGENTING — okänd fart är inget bevis åt något håll (S-F7-semantiken;
+   * en fartgivarlös förtöjd båt fångas ändå via vessel._moored).
+   * @param {Object} vessel - Uppdaterat fartygsobjekt
+   * @private
+   */
+  _noteQuayStability(vessel) {
+    if (!vessel || !Number.isFinite(vessel.lat) || !Number.isFinite(vessel.lon)) return;
+    // Lat init (samma mönster som _feedSilentLogTimes): direktanropande
+    // enhetstester bygger app-objekt utan konstruktorn.
+    if (!this._quayStableLedger) this._quayStableLedger = new Map();
+    const mmsi = String(vessel.mmsi);
+    const nearTriggerPoint = Object.values(TRIGGER_POINTS).some((tp) => {
+      const d = geometry.calculateDistance(vessel.lat, vessel.lon, tp.lat, tp.lon);
+      return Number.isFinite(d) && d <= QUAY_DEPARTURE_GATE.LEDGER_RADIUS_M;
+    });
+    if (!nearTriggerPoint) {
+      // Ute ur närområdet = i transit: släpp bokföringen (bounded minne, och
+      // en återkomst prövas som förut tills nytt stillasample bokförts).
+      this._quayStableLedger.delete(mmsi);
+      return;
+    }
+
+    const sog = Number.isFinite(vessel.sog) ? vessel.sog : null;
+    const entry = this._quayStableLedger.get(mmsi)
+      || {
+        stillAt: 0, lat: null, lon: null, movingFixes: 0,
+      };
+    // PERSISTENT KAJBEVIS (granskningsrunda 2, 2026-08-03): den inlärda
+    // kajkartan (F4-L, 365 dygns TTL i settings) räknas som stillasample för
+    // en båt som ligger PÅ en känd kajplats. Bokföringen är annars strikt
+    // sessionslokal, och en appomstart eller ett långt sändaruppehåll (i rent
+    // aisstream-läge hade nattens kajliggare 7-15 glapp > 15 min, max 120 min)
+    // hade nollställt den kajhistorik grinden vilar på — precis för den
+    // fartygsklass fantomen uppstod i.
+    const onLearnedQuay = sog !== null && sog < QUAY_DEPARTURE_GATE.TRANSIT_SOG_KN
+      && this._isNearLearnedMooringSpot(vessel.lat, vessel.lon);
+    if (vessel._moored === true || onLearnedQuay
+        || (sog !== null && sog < MOORING_DETECTION.MOVEMENT_PROOF_SOG_KN)) {
+      entry.stillAt = Date.now();
+      entry.lat = vessel.lat;
+      entry.lon = vessel.lon;
+      entry.movingFixes = 0;
+    } else if (sog !== null) {
+      // DÖDBANDET 0,5-1,0 kn NOLLSTÄLLER (granskningsrunda 2): "två PÅ
+      // VARANDRA FÖLJANDE rörelsefixar" var inte sant — ett mellanliggande
+      // sampel varken räknade upp eller nollade, så sekvensen 1,2 / 0,7 / 1,1
+      // gav movingFixes = 2. Det är kajvobbelns naturliga profil.
+      if (sog >= QUAY_DEPARTURE_GATE.TRANSIT_SOG_KN) entry.movingFixes += 1;
+      else entry.movingFixes = 0;
+    }
+    this._quayStableLedger.set(mmsi, entry);
+    this._persistQuayLedger();
+  }
+
+  /**
+   * V1 (granskningsrunda 2, 2026-08-03): läs kajbokföringen ur settings.
+   *
+   * Bokföringen var strikt sessionslokal, och en appomstart 5 s före en
+   * kajavgång återskapade PRICKBJORN-fantomen exakt (verifierat med
+   * ctrl:'restart' i nattkorpusen: 25 notiser i stället för 24). En Homey-app
+   * startas om vid varje uppdatering och varje omstart av enheten — hålet är
+   * smalt men helt reproducerbart. TTL-prövad vid laddning: en post äldre än
+   * minnesfönstret påverkar ingen grind.
+   * @private
+   */
+  _loadQuayLedger() {
+    try {
+      if (!this.homey || !this.homey.settings || typeof this.homey.settings.get !== 'function') {
+        return;
+      }
+      const stored = this.homey.settings.get('quay_stable_ledger');
+      if (!stored || typeof stored !== 'object') return;
+      const now = Date.now();
+      let restored = 0;
+      for (const [mmsi, e] of Object.entries(stored)) {
+        if (!e || !Number.isFinite(e.stillAt)) continue;
+        if (now - e.stillAt > QUAY_DEPARTURE_GATE.MEMORY_MS) continue;
+        this._quayStableLedger.set(String(mmsi), {
+          stillAt: e.stillAt,
+          lat: Number.isFinite(e.lat) ? e.lat : null,
+          lon: Number.isFinite(e.lon) ? e.lon : null,
+          // Rörelseräknaren återställs ALDRIG: "två på varandra följande
+          // rörelsefixar" är ett påstående om den här sessionens observationer.
+          movingFixes: 0,
+        });
+        restored++;
+      }
+      if (restored > 0) {
+        this.log(`⚓ [QUAY_LEDGER] Återställde ${restored} kajstabila fartyg (överlever omstart)`);
+      }
+    } catch (error) {
+      this.error('[QUAY_LEDGER] Kunde inte läsa kajbokföringen:', error.message || error);
+    }
+  }
+
+  /**
+   * V1: skriv kajbokföringen till settings — STRYPT skrivtakt.
+   *
+   * Samma flash-slitagehänsyn som F4-L:s TTL-förnyelse (Fable-granskningen
+   * 2026-07-10b): en skrivning per stillasample hade blivit ~480/dygn och
+   * kajliggare. En hel blob var 15:e minut är 96 skrivningar/dygn TOTALT,
+   * oavsett antal fartyg, och 15 minuters inaktualitet är ofarlig mot ett
+   * minnesfönster på två timmar.
+   * @param {boolean} [force] - skriv nu (onUninit)
+   * @private
+   */
+  _persistQuayLedger(force = false) {
+    try {
+      if (!this.homey || !this.homey.settings || typeof this.homey.settings.set !== 'function') {
+        return;
+      }
+      const now = Date.now();
+      if (!force && now - (this._quayLedgerPersistedAt || 0) < QUAY_DEPARTURE_GATE.PERSIST_INTERVAL_MS) {
+        return;
+      }
+      this._quayLedgerPersistedAt = now;
+      const blob = {};
+      for (const [mmsi, e] of this._quayStableLedger.entries()) {
+        if (!e || !Number.isFinite(e.stillAt) || e.stillAt <= 0) continue;
+        if (now - e.stillAt > QUAY_DEPARTURE_GATE.MEMORY_MS) continue;
+        blob[mmsi] = { stillAt: e.stillAt, lat: e.lat, lon: e.lon };
+      }
+      this.homey.settings.set('quay_stable_ledger', blob);
+    } catch (error) {
+      this.error('[QUAY_LEDGER] Kunde inte skriva kajbokföringen:', error.message || error);
+    }
+  }
+
+  /**
+   * V1: kräver den här kajavgången ännu korroborering vid trigger-punkten?
+   * Returnerar null när grinden INTE ska ingripa (ingen färsk kajhistorik,
+   * eller redan korroborerad), annars ett skäl-objekt för loggen.
+   *
+   * Korroborering: MIN_MOVING_FIXES på varandra följande rörelsefixar ELLER
+   * NET_APPROACH_M netto-närmande mot punkten sedan kajläget. Båda vägarna är
+   * uppfyllda vid nästa fix för en äkta insegling (≥130 m per pollcykel i 4
+   * knop), så en verklig kajavgång FÖRDRÖJS en fix — den förloras aldrig
+   * (dedup-nyckeln sätts inte vid skip).
+   * @param {Object} vessel - Fartygsobjekt
+   * @param {Object} tp - Trigger-punkten (TRIGGER_POINTS-post)
+   * @returns {{stillAgoS:number, movingFixes:number, approachM:number|null}|null}
+   * @private
+   */
+  _quayDepartureNeedsProof(vessel, tp) {
+    if (!this._quayStableLedger) return null; // ingen bokföring = ingen kajhistorik
+    const entry = this._quayStableLedger.get(String(vessel.mmsi));
+    if (!entry || !Number.isFinite(entry.stillAt) || entry.stillAt <= 0) return null;
+    const stillAgoMs = Date.now() - entry.stillAt;
+    if (stillAgoMs > QUAY_DEPARTURE_GATE.MEMORY_MS) return null; // historiken utgången
+
+    let approachM = null;
+    if (Number.isFinite(entry.lat) && Number.isFinite(entry.lon)
+        && Number.isFinite(vessel.lat) && Number.isFinite(vessel.lon)) {
+      const anchorDist = geometry.calculateDistance(entry.lat, entry.lon, tp.lat, tp.lon);
+      const nowDist = geometry.calculateDistance(vessel.lat, vessel.lon, tp.lat, tp.lon);
+      if (Number.isFinite(anchorDist) && Number.isFinite(nowDist)) {
+        approachM = anchorDist - nowDist;
+        if (approachM >= QUAY_DEPARTURE_GATE.NET_APPROACH_M) return null; // (b) uppfylld
+      }
+    }
+    // (a) RÖRELSEBENET ÄR RIKTNINGSKÄNSLIGT (granskningsrunda 2, 2026-08-03).
+    // Tidigare räckte två rörelsefixar oavsett vart båten tog vägen, och
+    // eftersom benen är ett ELLER band netto-kravet aldrig — grinden blev en
+    // enpolls fördröjning. Nattens fantom överlevde inte på V1 utan på FP8:
+    // PRICKBJORNs cog rullade in i sydbandet på nästa fix. Låg den kvar i
+    // östbandet hade rörelsebenet öppnat medan båten gick BORT (119→143 m).
+    // Kravet är därför: rörelse OCH ingen netto-reträtt från punkten.
+    if (entry.movingFixes >= QUAY_DEPARTURE_GATE.MIN_MOVING_FIXES
+        && (approachM === null || approachM >= 0)) {
+      return null; // (a) uppfylld
+    }
+    return {
+      stillAgoS: Math.round(stillAgoMs / 1000),
+      movingFixes: entry.movingFixes,
+      approachM: approachM === null ? null : Math.round(approachM),
+    };
+  }
+
   _loadLastKnownPositions() {
     try {
       if (!this.homey || !this.homey.settings || typeof this.homey.settings.get !== 'function') {
@@ -1215,6 +1416,14 @@ class AISBridgeApp extends Homey.App {
         const d = geometry.calculateDistance(vessel.lat, vessel.lon, tp.lat, tp.lon);
         return d !== null && d <= FLOW_CONSTANTS.FLOW_TRIGGER_DISTANCE_THRESHOLD;
       });
+    // V1 (granskningsrunda 2, 2026-08-03): bokför kajstabiliteten ÄVEN här.
+    // Bokföringen låg bara i _onVesselUpdated, men just den fartygsklass
+    // grinden riktar sig mot producerar mest ENTERED-tickar: kajliggarna
+    // kring Kanalinfarten ligger >600 m från närmaste bro ⇒ 120 s timeout mot
+    // Class B:s 180 s rapportkadens, så de återföds oupphörligt (PRICKBJORN
+    // 72 ENTERED/REMOVED-cykler på tio timmar). Utan detta anrop sågs deras
+    // stillhet aldrig, och grinden var inert för exakt sin målgrupp.
+    this._noteQuayStability(vessel);
     if (vessel.targetBridge || enteredNearTriggerPoint) {
       await this._triggerBoatNearFlow(vessel);
     }
@@ -1424,6 +1633,11 @@ class AISBridgeApp extends Homey.App {
           }
         }
       }
+      // V1 (A/B-natten 2026-08-03): bokför kajstabiliteten FÖRE notisvägen —
+      // grinden i _getFlowTriggerCandidates läser bokföringen inklusive
+      // AKTUELL fix, så "två på varandra följande rörelsefixar" räknas rätt.
+      this._noteQuayStability(vessel);
+
       const shouldTriggerProximity = vessel.currentBridge
         || vessel.targetBridge
         || vessel._finalTargetBridge
@@ -2620,6 +2834,21 @@ class AISBridgeApp extends Homey.App {
         lon: vesselPatch.lon,
         sog: vesselPatch.sog,
         cog: vesselPatch.cog,
+        // V3 (A/B-natten 2026-08-03): FÄLTLISTOFFER NR 13 — navStatus bars av
+        // vesselPatch (förtöjningsdetekteringens lager 3) men fångades inte.
+        // Följden: 0 av 371 aisstream-rader i A/B-korpusarna bar fältet medan
+        // AISHub-generatorn skrev det för 793 av 1014 poster, så arm B fick
+        // ett förtöjningslager arm A strukturellt inte kunde ha. Artefakten
+        // var bevisligen inert den natten (två oberoende kontrollkörningar)
+        // men ogiltigförklarar varje A/B i förtöjnings-/"inväntar"-dimensionen.
+        // replayRunner läser redan s.navStatus, så nyinspelade korpusar får
+        // lagret utan ändring där; de 15 låsta saknar fältet som förut (→ null)
+        // och är oberörda. Fler beslutsrelevanta fält finns inte att hämta:
+        // vesselPatch bär i övrigt bara name/fixTs/fixFeed (fångade) och
+        // feedSwitch, som är muxens LEVERANSHÄRLEDDA flagga — den ska räknas
+        // om av fusionspolicyn vid replay, inte frysas in i korpusen. Heading
+        // finns inte i pipelinen alls (AISStreamClient emitterar det inte).
+        navStatus: vesselPatch.navStatus,
         shipName: vesselPatch.name,
         aisTimestamp: message.timestamp || null,
         // Etapp 0: fixtid/källa i inspelningen — aisTimestamp förblir
@@ -5425,14 +5654,39 @@ class AISBridgeApp extends Homey.App {
             // notisen någon minut senare när target/rörelse etableras —
             // dedup-nyckeln sätts inte vid skip, så notisen fördröjs, inte
             // förloras. Sydgrenens LYS-klass (exit) berörs inte.
-            const transitIndication = !!vessel.targetBridge
-              || (Number.isFinite(vessel.sog) && vessel.sog >= 1.0);
+            const hasTarget = !!vessel.targetBridge;
+            const movingNow = Number.isFinite(vessel.sog)
+              && vessel.sog >= QUAY_DEPARTURE_GATE.TRANSIT_SOG_KN;
+            const transitIndication = hasTarget || movingNow;
             if (!transitIndication) {
               this.debug(
                 `🚪 [TRIGGER_POINT_SKIP_IDLE] ${vessel.mmsi}: ${this._getDirectionString(vessel)} at ${tp.name} `
                 + `without transit indication (no target, sog=${vessel.sog}) - no candidate`,
               );
               continue;
+            }
+            // V1 (A/B-natten 2026-08-03, PRICKBJORN 07:19:11): sog-benet ovan
+            // är ETT momentant prov. För en båt med FÄRSK kajstabil historik
+            // är det inget transitbevis — fantomen fyrade på sog exakt 1,0
+            // efter 9 h 41 min vid kaj och 3 m förflyttning, varefter båten
+            // gick BORT från punkten. Kravet gäller BARA den klassen (bokförd
+            // stillhet inom MEMORY_MS) och BARA när targetBridge saknas:
+            // målbrotilldelningen har egna förtöjnings- och kajvobbelvakter
+            // (den blockerade PRICKBJORN korrekt sex loggrader före notisen),
+            // så en båt med target är redan korroborerad. Fartyg i transit
+            // utan kajhistorik (TIM/TIDAN/JUNO-klassen) passerar oförändrat.
+            if (!hasTarget) {
+              const unproven = this._quayDepartureNeedsProof(vessel, tp);
+              if (unproven) {
+                this.log(
+                  `🚪 [TRIGGER_POINT_SKIP_QUAY] ${vessel.mmsi}: kajstabil för ${unproven.stillAgoS}s sedan `
+                  + `vid ${tp.name} — kajavgång utan korroborering (rörelsefixar=${unproven.movingFixes}/`
+                  + `${QUAY_DEPARTURE_GATE.MIN_MOVING_FIXES}, netto mot punkten=`
+                  + `${unproven.approachM === null ? 'okänt' : `${unproven.approachM}m`}/`
+                  + `${QUAY_DEPARTURE_GATE.NET_APPROACH_M}m, sog=${vessel.sog}) - ingen kandidat`,
+                );
+                continue;
+              }
             }
           }
           candidates.push({
@@ -7044,6 +7298,30 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * FYND 17: matar AISHub PIPELINEN, eller är den bara mätinstrument?
+   * Speglar muxens egen regel (_hubFeedsPipeline): lägena 'both'/'aishub'
+   * matar, 'shadow' gör det inte, och utan username degraderas allt till
+   * ren aisstream (konfigmatrisen i _applyAisSourceConfig). Läses ur settings
+   * — samma mönster som _startConnection redan använder — så app-lagret inte
+   * behöver ett nytt kontraktsfält från muxen.
+   * @returns {boolean}
+   * @private
+   */
+  _hubFeedsPipeline() {
+    try {
+      if (!this.homey || !this.homey.settings || typeof this.homey.settings.get !== 'function') {
+        return false;
+      }
+      const rawSource = String(this.homey.settings.get('ais_source') || 'aisstream');
+      const aishubUsername = String(this.homey.settings.get('aishub_username') || '').trim();
+      return !!aishubUsername && (rawSource === 'both' || rawSource === 'aishub');
+    } catch (error) {
+      this.error('[AIS_SOURCE] Kunde inte läsa källäget:', error.message || error);
+      return false;
+    }
+  }
+
+  /**
    * Etapp 2 ([FEED_SILENT], slutplanen §7): en KONFIGURERAD källa som inte
    * levererat en enda accepterad position på 15 min medan den andra flödar
    * är en tyst död — logga (rate-limitat 1/15 min) + notis (1/24h per källa).
@@ -7080,13 +7358,26 @@ class AISBridgeApp extends Homey.App {
       );
     }
     if (hSilence > SILENT_MS && sSilence < FRESH_MS && (h.uptime || 0) > SILENT_MS) {
-      logLimited('aishub', `AISHub har inte levererat på ${Math.round(hSilence / 60000)} min medan aisstream flödar`);
-      this._notifyConnectionIssue(
-        'AIS Tracker: AISHub har inte levererat några positioner på 15 min '
-        + 'medan AISstream flödar — kontrollera användarnamnet och din '
-        + 'stationsstatus på aishub.net.',
-        'aishub:silent',
+      // FYND 17 (A/B-natten 2026-08-03): NOTISEN gatas på att hubben faktiskt
+      // matar pipelinen. I skuggläge är AISHub ett MÄTINSTRUMENT — dess
+      // tystnad påverkar varken brotext eller notiser, och en pushnotis
+      // ("kontrollera användarnamnet") vore ren brusdebitering för en användare
+      // som medvetet kör utvärdering. Loggraden behålls i BÅDA lägena: den är
+      // exakt vad en skuggkörning ska mäta.
+      const hubFeedsPipeline = this._hubFeedsPipeline();
+      logLimited(
+        'aishub',
+        `AISHub har inte levererat på ${Math.round(hSilence / 60000)} min medan aisstream flödar`
+        + `${hubFeedsPipeline ? '' : ' (skuggläge — påverkar inte notiser/brotext, ingen användarnotis)'}`,
       );
+      if (hubFeedsPipeline) {
+        this._notifyConnectionIssue(
+          'AIS Tracker: AISHub har inte levererat några positioner på 15 min '
+          + 'medan AISstream flödar — kontrollera användarnamnet och din '
+          + 'stationsstatus på aishub.net.',
+          'aishub:silent',
+        );
+      }
     }
   }
 
@@ -7147,6 +7438,21 @@ class AISBridgeApp extends Homey.App {
     if (keysToRemove.length > 0) {
       keysToRemove.forEach((key) => this._triggeredBoatNearKeys.delete(key));
       this.debug(`🧹 [CLEANUP] Removed ${keysToRemove.length} stale boat_near triggers`);
+    }
+
+    // V1: kajstabil historik äldre än minnesfönstret påverkar ingen grind —
+    // släpp den så kartan inte växer med gamla mmsi:n (kajliggarnas churn ger
+    // annars en post per fartyg som aldrig städas när båten lämnat området).
+    if (this._quayStableLedger && this._quayStableLedger.size > 0) {
+      const quayNow = Date.now();
+      const expiredQuay = [];
+      for (const [mmsi, entry] of this._quayStableLedger.entries()) {
+        const ts = entry && Number.isFinite(entry.stillAt) ? entry.stillAt : 0;
+        if (quayNow - ts > QUAY_DEPARTURE_GATE.MEMORY_MS && !activeMmsis.has(mmsi)) {
+          expiredQuay.push(mmsi);
+        }
+      }
+      expiredQuay.forEach((mmsi) => this._quayStableLedger.delete(mmsi));
     }
   }
 
@@ -7380,6 +7686,11 @@ class AISBridgeApp extends Homey.App {
     if (this._microGraceBatches) this._microGraceBatches.clear();
     if (this._inFlightUpdates) this._inFlightUpdates.clear();
     if (this._rerunNeeded) this._rerunNeeded.clear();
+    // V1: skriv kajbokföringen innan den släpps — den ska överleva omstarten
+    // (granskningsrunda 2: en omstart 5 s före kajavgången återskapade
+    // PRICKBJORN-fantomen exakt).
+    this._persistQuayLedger(true);
+    if (this._quayStableLedger) this._quayStableLedger.clear();
 
     // Clear all vessel service timers
     if (this.vesselDataService) {

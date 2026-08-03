@@ -16,8 +16,14 @@ AISStreamClient (oförändrad)            AISHubClient (lib/connection/AISHubCli
 AISSourceMultiplexer (lib/connection/AISSourceMultiplexer.js)
    • ais_source='aisstream' (default): REN PASS-THROUGH — dagens beteende exakt
    • 'shadow': AISHub mäts (🔭 SHADOW_COMPARE var 5:e min), påverkar ALDRIG pipelinen
-   • 'both':  FixFusionPolicy F1-F5 (per-källa-monotoni, korskälle-innehållsdedup,
-              åldersgrind, klockskevsklamp, feedSwitch-flagga)
+   • 'both':  FixFusionPolicy F1-F6 (per-källa-monotoni, korskälle-innehållsdedup
+              på AVSTÅND, åldersgrind, klockskevsklamp, feedSwitch-flagga och
+              F6: asymmetrisk stale-grind — en AISHub-fix måste vara STRIKT
+              nyare än senast accepterade fix, aisstream berörs aldrig)
+              + F6b: hubbens fixTs lyfts in i Homeys klockdomän innan F6
+              jämför (klampad till ≤ 0 ⇒ no-op vid friska klockor)
+              + 📊 [FUSION_HEALTH] var 5:e min (accepted/rejected/byReason +
+                hubLagMin/hubOffset — klockregimen)
    • 'aishub': solo-poll
    ▼ samma nio events som AISStreamClient (isConnected är en LEVANDE GETTER;
      getConnectionStats() bär perFeed — feed-vakten läser ALDRIG aggregatet)
@@ -50,19 +56,82 @@ Moduler (ansvar / ägda tillstånd / in-ut):
   (ERROR-gren FÖRE formkontroll, FORMAT/RECORDS-assertioner, sentinelparitet med
   AISStreamClient, TIME→fixTs utan `new Date(str)`). Emitterar samma eventyta;
   positionen bär `fixTs`/`fixFeed:'aishub'`/`fixTsQuality:'true-fix'`.
+  **Auth-cooldown (V6, A/B-natten 2026-08-03):** `AUTH_FAIL_STOP` (5) raka
+  HTTP 401/403 PAUSAR kedjan `AUTH_COOLDOWN_MS` (6 h) i stället för att sätta
+  `_stopped = true` — det gamla beteendet var ett dödläge (ingen kodväg
+  återupplivade klienten utan appomstart/username-byte, så ett övergående 403
+  slog ut andrakällan för processens livstid). Pausen kontrolleras i `_poll`
+  (inte bara i schemaläggningen) så `forceReschedule`/feed-vakten aldrig kan
+  bryta den, ett välformat svar upphäver den, och EN användarnotis går ut per
+  episod. Läget syns i `getConnectionStats().authCooldownMsLeft` och i
+  `[AISHUB_HEALTH]` (`authCooldownMinLeft=`). Enda vägen till `_stopped` är
+  `disconnect()` (muxens teardown/onUninit).
 - **AISSourceMultiplexer** (lib/connection/AISSourceMultiplexer.js, etapp 2):
   fan-in — app.js vet aldrig att fler än en källa finns. Äger stream-barnet
   (alltid) + hub-barnet (vid konfiguration), aggregerad flankemission
   (connected/disconnected på aggregatets 0→1/1→0, aldrig per barnhändelse —
   Bug#12), namnnormalisering på båda källorna ('Unknown'-sentinelen bevaras
   EXAKT), `applySourceConfig` (idempotent), `_ingestFromFeed` (replay-/testingång),
-  skuggjämförelsen och fusionsstate. Klockdomänsinvarianten: `vessel.timestamp`
-  förblir MOTTAGNINGSTID (TTL/stale/passage-ID); `fixTs` (fixtid) används enbart
-  för fysik-dt inom samma källa (GPSJumpAnalyzer/gaten/kajvobbelvakten, etapp 0).
+  skuggjämförelsen och fusionsstate. **Källstämpeln kommer från ROUTINGEN:**
+  `_onChildMessage(feed, msg)` skriver `fixFeed = feed` på meddelandet innan
+  det går vidare (alla vägar), och fusionspolicyn får källan som PARAMETER, inte
+  ur nyttolasten — ett tappat fält (fältprov 3-klassen) kan alltså inte längre
+  tyst avväpna F1/F6, segmentbevisets källgrind eller fysik-dt:t.
+
+  **Klockdomänsinvarianten (uppdaterad 2026-08-03):** `vessel.timestamp` förblir
+  MOTTAGNINGSTID (TTL/stale/passage-ID). `fixTs` (fixtid) används dels för
+  fysik-dt (GPSJumpAnalyzer/gaten/kajvobbelvakten, etapp 0), dels — sedan F6 —
+  som fusionens ACCEPT-kriterium för AISHub-fixar. Den senare är en
+  KORSDOMÄNJÄMFÖRELSE (hubbens true-fix mot ett `lastAcceptedFixTs` som normalt
+  är aisstreams mottagningsstämpel) och därför VILLKORAD, inte fri:
+  - Jämförelsen är ENSIDIG. aisstream mäts aldrig mot en hub-stämpel — det hade
+    kunnat svälta huvudkällan.
+  - Hubbens stämpel lyfts först in i Homeys klockdomän av **F6b**
+    (`FixFusionPolicy.observeClock`). Offseten skattas ur två fysiskt grundade
+    bevis: leveransbeviset (`now − fixTs` kan inte vara negativt) och medianen
+    av korskällepar (samma rapport från båda källorna). Korrigeringen är klampad
+    till ≤ 0 ⇒ EXAKT noll när klockorna går rätt ⇒ facit oberört. Utan F6b var
+    F6 bara giltig åt ett håll: en hubklocka 30 s FÖRE återskapade
+    målbrodubbletterna, och > `FUTURE_CLAMP_MS` klampade F4a varje hub-fix till
+    `now` och stängde av grinden helt.
+  - Regimen redovisas i `[FUSION_HEALTH]` (`hubLagMinMs`, `hubOffsetMs`,
+    `hubAheadSamples`) — en skev får inte kunna yttra sig som bara "färre
+    avslag".
+
+  Regeln för när fixtids-dt är giltig ägs av **`GPSJumpAnalyzer.fixDtMs`**
+  (enda platsen — VDS och GPSJumpGateService anropar den): samma källa alltid;
+  KORSKÄLLA sedan V8 (A/B-natten 2026-08-03) också, men bara när separationen
+  är ≥ `FUSION.CROSS_FEED_MIN_FIX_DT_MS`, **VIDGAR** mottagningsseparationen och
+  ligger inom `FUSION.CROSS_FEED_MAX_FIX_DT_EXCESS_MS` från den. Vidgningskravet
+  är riktningsbestämt av fysiken: hubbens pollfördröjning pressar ihop
+  leveranserna (JUNO: mottaget 17 s isär, fixarna 51 s isär ⇒ 28,6 kn implicerat
+  mot 9,4 verkliga), medan den motsatta riktningen skulle KRYMPA fönstret och
+  göra varje fysikgrind mer tillåtande än före V8. Utan användbar separation
+  returneras null ⇒ anroparen behåller mottagningstidsuttrycket.
+
+  **Skuggmätningen är ett INSTRUMENT, och instrumentet kalibrerades om
+  2026-08-03** (fynd 12–16 ur A/B-natten — mätfel, inte pipelinefel, men de gav
+  fel underlag för GO-beslutet): positionsindexet skrivs numera av BÅDA källorna
+  så `raceMedianMs` alls kan bli positiv (förut skrev bara aisstream-grenen ⇒
+  103/103 fönster negativa ⇒ talet mätte pollintervallet); parningen slår upp
+  3×3-grannrutor och avgör på AVSTÅND (`PAIR_MATCH_DIST_M`) eftersom den
+  avrundade rutnyckeln tappade 15,1 % av de äkta paren på rutgränser; ett
+  race-sampel kräver dessutom SAMMA-RAPPORT-bevis (`PAIR_SAME_REPORT_MS`) och
+  motparten KONSUMERAS ur indexet, annars parades en stillaliggande båts
+  återkommande koordinat mot en helt annan, äldre rapport; `LAST_SEEN_TTL_MS`
+  är 4 h och varje prunad post räknas som `silenceCensored*` i
+  SHADOW_COMPARE-raden — förut censurerades nattens 120-minutersglapp tyst och
+  maxSilence lästes som ett sanningsenligt maxvärde; och `_pct` använder
+  nearest-rank (returnerade förut MAXVÄRDET vid exakt n=10, precis vid
+  tröskeln `MIN_SAMPLES_FOR_P90`).
 - **app.js (AISBridgeApp)**: orkestrering, Flow-kort, UI-publicering, notisdedupe
   (per källa/felklass sedan etapp 2: `_notifyConnectionIssue(msg, feedKey)`),
   persistens, monitoring (inkl. per-feed-watchdog `_checkAISFeedHealth` +
-  `[FEED_SILENT]`-korsvakt + muxens `pruneFusionState`). Äger `_triggeredBoatNearKeys` (session-Set, :181),
+  `[FEED_SILENT]`-korsvakt + muxens `pruneFusionState`). Korsvaktens
+  AISHub-NOTIS gatas sedan fynd 17 (A/B-natten 2026-08-03) på `_hubFeedsPipeline()`
+  (`ais_source` ∈ {both, aishub} + username) — i skuggläge loggas tystnaden men
+  ingen användarnotis skickas, eftersom hubben då varken påverkar brotext eller
+  notiser. Äger `_triggeredBoatNearKeys` (session-Set, :181),
   `_persistentRecentTriggers` (2h-Map, :189), `_knownVesselNames` (namncache,
   :204–207), `_lastKnownPositions` (6h-Map för återfödda båtar, :214–216, §3/§6),
   `_vesselRemovalTimers`, `_processingRemoval`, coalescing-tillstånd (:2139–2251,
@@ -211,7 +280,39 @@ Kandidatval: tröskel 300 m (FLOW_TRIGGER_DISTANCE_THRESHOLD). Källor i ordning
 distansberäkning). Finns target-kandidat: target dominerar, MEN target +
 current/nearest/just-passed får båda trigga när de är olika broar (Fix 7,
 Järnvägs/Strids-överlappet; :4120–4146). Sjätte source-värdet
-`passage-fallback` sätts av fallback-vägen. Dedup-lagren:
+`passage-fallback` sätts av fallback-vägen.
+
+**Trigger-punktens två grenar.** Sydgående kräver kanalrelevans (FP8:
+passerade broar/målbro eller episodstart norr om punkten). Nord/okänd kräver
+transitindikation: målbro ELLER `sog ≥ QUAY_DEPARTURE_GATE.TRANSIT_SOG_KN`
+(FP9). **Kajavgångskorroborering (V1, A/B-natten 2026-08-03):** sog-benet
+räcker inte för ett fartyg med FÄRSK kajstabil historik — kring Kanalinfarten
+ligger kajliggare permanent inne i 300 m-zonen och ETT momentant brusprov
+(PRICKBJORN 07:19:11, sog exakt 1,0, 3 m förflyttning, cog i östbandet ⇒
+'unknown') gav en fantomnotis för en båt som sedan gick BORT från punkten.
+Klassen avkrävs `MIN_MOVING_FIXES` på varandra följande rörelsefixar (OCH ingen
+netto-reträtt från punkten) ELLER `NET_APPROACH_M` netto-närmande. Riktnings-
+kravet på rörelsebenet är inte kosmetiskt: utan det öppnade grinden även när
+båten gick BORT, och fantomen överlevde bara för att dess cog råkade rulla in i
+sydbandet på nästa fix. Ett sampel i dödbandet mellan `MOVEMENT_PROOF_SOG_KN`
+och `TRANSIT_SOG_KN` NOLLSTÄLLER räknaren — annars var "på varandra följande"
+inte sant för kajvobbelns naturliga profil (1,2 / 0,7 / 1,1 kn).
+Bokföringen är app-lokal (`_quayStableLedger`, `_noteQuayStability` i BÅDE
+`_onVesselUpdated` OCH `_onVesselEntered` före notisvägen) eftersom kajliggarna
+återföds oupphörligt — 72 ENTERED/REMOVED-cykler på tio timmar — och ett
+vessel-scopat minne hade nollats varje gång; utan ENTERED-anropet var grinden
+dessutom inert för just den klass den riktar sig mot (>600 m till närmaste bro
+⇒ 120 s timeout mot Class B:s 180 s kadens ⇒ nästan varje fix blir en ENTERED).
+Minnesfönstret `MEMORY_MS` är 2 h (nattens värsta observerade sändaruppehåll
+för en kajliggare i rent aisstream-läge) och bokföringen PERSISTERAS strypt
+(`quay_stable_ledger`, en blob var 15:e minut + vid onUninit) — en appomstart 5 s
+före kajavgången återskapade annars fantomen exakt. Den inlärda kajkartan (F4-L)
+räknas som stillasample för en långsam båt som ligger på en känd kajplats.
+Målbro-benet är orört (målbrotilldelningen har egna förtöjnings-/kajvobbel-
+vakter), och fartyg utan kajhistorik prövas exakt som förut. Dedup-nyckeln
+sätts inte vid skip: notisen fördröjs en fix, den förloras inte.
+
+Dedup-lagren:
 
 1. **Session-Set** `_triggeredBoatNearKeys` ("mmsi:Bro", :4429–4432). Rensas vid
    journey-reset/NEW_JOURNEY (`_clearBoatNearTriggers`:4588; `clearPersistent=true`
@@ -305,6 +406,35 @@ konsumeras av replay-invarianterna (INV-11, inferens-särskiljning).
   latch-clear (:618–654) ankras passagen ENDAST om fartyget bytt sida om bron
   relativt entry (`hasChangedBridgeSide`, geometry.js:443; :636–644) —
   samma-sida-utglidning ankrar ingen passage (:645–649).
+  **SEGMENTBEVIS (V2, A/B-natten 2026-08-03, `_noteUnderBridgeLineCross`):**
+  entry↔exit-jämförelsen ser bara ändpunkterna, och vid tät sampling
+  (dubbelkälla ~68 s) kan LATCH-fixen redan ligga bortom brolinjen — då är båda
+  "sidorna" den bortre och en äkta passage lästes som kö-drift (TIM 2026-08-02:
+  −68 m → +16 m → +123 m; både Olidebron och Järnvägsbron åts upp och
+  Klaffbron-ETA:n klättrade 12→17 min i `progressive_route`). Varje
+  konsekutivfix-segment under zonbesöket prövas därför mot brolinjen; korsar
+  ett segment entydigt KORRIGERAS `_underBridgeEntryLat/Lon` till segmentets
+  startpunkt (den sida båten kom ifrån) och bron stämplas i
+  `_underBridgeCrossedBridge`. **Beslutet fattas fortfarande av entry↔exit —
+  beviset flyttar bara ankaret.** Det är vad som gör kanteffekterna ofarliga:
+  korrigeringen sker EN gång per zonbesök, så en U-sväng (AKIRA-låset) eller
+  kajbrus tvärs linjen ger fortfarande samma sida ut ⇒ ingen ankring. Samma
+  nettokrav gäller `geometry` METHOD 1, som läser stämpeln + ankaret
+  (`zoneCrossProven`) som alternativ till sitt tvåsampels-`sideFlipped`;
+  metoderna 4/5/6 är oförändrade.
+  Fyra spärrar: inget bevis på en GPS-hoppstick (hoppet ÄR annars "sidbytet" —
+  flaggan skickas ned i `_isUnderBridge`), inget bevis när BÅDA samplen är
+  bevisat stillaliggande med jitter-liten rörelse (CG2-1-spegeln), segment
+  ≤ `UNDER_BRIDGE_CROSS_SEGMENT_MAX_M` (glapp hanteras av inferensvägarna), och
+  en KÄLLGRIND: beviset gäller bara när andrakällan MATAR fartyget
+  (`_secondSourceFixAt` inom `UNDER_BRIDGE_CROSS_PROOF_FEED_TTL_MS`) — inte
+  "detta segment innehöll en hub-fix", som gjorde fixen latensberoende eftersom
+  fusionens F6 äter just de släpande hub-fixarna. Grinden är en
+  UTRULLNINGSSPÄRR, inte fysik: rotorsaken är källneutral (5 äkta men tappade
+  passager i de låsta korpusarna) och en breddning kräver golden-omlåsning,
+  dvs. ett användarbeslut. **Doktrinnotering:** `fixFeed` är därmed inte längre
+  enbart metadata utan ett beslutsrelevant fält i statuslagret — det är också
+  därför muxen stämplar det ur routingen.
 - PassageLatchService blockerar retrograda statusar efter registrerad passage
   (radlista i §1); latchar rensas vid removal (VDS:740–742).
 
@@ -396,6 +526,7 @@ Flaggor (bärs av `_createVesselObject`-fältlistan, §8a): `_etaIsExtrapolated`
 | `persistent_recent_triggers` | `_loadPersistentTriggers`:411 | `_persistRecentTriggers`:505 | 2h-notisdedupe `{ "mmsi:Bro": {t, dir} }` |
 | `known_vessel_names` | `_loadVesselNames`:529 | `_persistVesselNames`:561 | B1-namncache `{ mmsi: {name, t} }`, 30 d TTL, max 200 poster (äldst-först-eviction); skrivs via `_rememberVesselName`:593 bara vid nytt/ändrat namn eller >24 h sedan sist |
 | `last_known_positions` | `_loadLastKnownPositions`:615 | `_persistLastKnownPositions`:646 | `{ mmsi: {lat, lon, t} }`, 6 h TTL; skrivs vid removal (:1084–1090); begränsar skipped-bridges-scenario A för återfödda båtar (§3) |
+| `quay_stable_ledger` | `_loadQuayLedger` | `_persistQuayLedger` (STRYPT: max var 15:e min + tvingad vid `onUninit`) | V1-kajavgångsgrindens historik `{ mmsi: {stillAt, lat, lon} }`, TTL = `QUAY_DEPARTURE_GATE.MEMORY_MS` (2 h); rörelseräknaren `movingFixes` persisteras ALDRIG (den är ett påstående om innevarande sessions observationer). Utan persistensen återskapade en appomstart 5 s före kajavgången PRICKBJORN-fantomen exakt |
 
 Mönstret (mall för framtida cacher): ladda i konstruktorn med expiry-filter och
 guards; **write-through vid varje mutation**; rollback vid misslyckad operation
@@ -412,9 +543,12 @@ B2-feedstall-watchdogen (:5282, def :5112).
 intervall (:5328–5347); **destroy-kedjan** passageLatchService/routeOrderValidator/
 gpsJumpGateService `.destroy()` (:5353–5359); självtest-timern (:5362–5365);
 coalescing-/immediate-/watchdog-timers + mappar (:5368–5392); `VDS.clearAllTimers()`
-(:5395); `aisClient.disconnect()` (:5400); slutlig flush av ENBART
+(:5395); `aisClient.disconnect()` (:5400); slutlig flush av
 `persistent_recent_triggers` (:5406 — namncachen och last_known_positions litar
-på write-through + monitoring); removeAllListeners + lyssnare av (:5411–5435).
+på write-through + monitoring) och av `quay_stable_ledger` (V1: skrivtakten är
+strypt till 15 min, så utan tvingad flush hade upp till en kvarts kajhistorik
+gått förlorad i just den omstart grinden ska överleva); removeAllListeners +
+lyssnare av (:5411–5435).
 
 ## 7. Replay-/testharnessen (tests/replay-validation/)
 
@@ -495,7 +629,10 @@ micro-graces kritisk-övergångsterm läste `_criticalTransitionHoldUntil`/
 `_zoneTransitions` ur projektionen som saknar fälten (alltid false);
 `_hasCriticalZoneTransitions` slår nu upp det levande objektet via
 `getVessel(mmsi)`. Fältlistan bär numera även `_underBridgeFrozenAccMs`,
-`_underBridgeEntryLat/Lon`, `_pendingTarget` och `lastCoordinationLevel`;
+`_underBridgeEntryLat/Lon`, `_underBridgePrevLat/Lon/Sog`,
+`_underBridgeCrossedBridge`, `_secondSourceFixAt` (segmentbeviset — utan arv
+nollas det av varje meddelande och fixen vore död i produktion),
+`_pendingTarget` och `lastCoordinationLevel`;
 snapshotten bär även `_moored`/`_hasMovementProof` (exit-fallbackens gates).
 **REGEL: varje nytt fält som konsumeras efter removal eller över
 meddelandegränser MÅSTE läggas till i BÅDA fältlistorna — och läses fältet i
@@ -531,11 +668,29 @@ fryser för sog=null (extrapolering utan känd fart vore gissning); första
 post-gap-ETA:n bär en cykels förgapsoptimism (alternativet gav korpusbelagd
 fatal sågtand 2→32 min — prövad och återtagen 2026-07-06).
 
+**Öppna A/B-fynd som MEDVETET står kvar efter härdningsetappen 2026-08-03**
+(fullständig motivering i `docs/aishub-etapp5-harderingen-2026-08-03.md` §5):
+`FEED_WATCHDOG` mäter AGGREGERAD tystnad (20 min) och kan strukturellt inte se
+per-fartygs-degradering (fynd 10); exit-failsafens 25-minutersgräns ger
+antingen värdelöst sena notiser eller tysta missar (fynd 11); Stallbackabrons
+brokoordinat ligger ~196–220 m vid sidan av farleden (fynd 18, ej verifierad
+mot kartkälla); och målbrons `distance_fallback` (confidence 0,50) är en
+otestad felmod för ett fartyg som stannar ~12 m från bron (fynd 19). Samtliga
+rör facit-låsta beslutsvägar eller kräver kalibrerdata som inte finns — de ska
+mätas i nästa A/B, inte gissas fram.
+
 **Replay-fångsten kräver debug_level='full'** (sedan 2026-07-06):
 `[AIS_REPLAY_SAMPLE]`-raderna loggas inte längre i normal drift (spammade
 Homey-loggen med varje AIS-meddelande i produktion). run-with-logs.sh varnar
 aktivt om jsonl-filen är tom efter 2 min. **Fältprov utan debug_level=full ger
-en oanalyserbar körning.**
+en oanalyserbar körning.** Fångstens fältlista (V3, A/B-natten 2026-08-03):
+mmsi/msgType/lat/lon/sog/cog/**navStatus**/shipName/aisTimestamp/fixTs/feed/
+receivedAt. navStatus saknades tidigare — förtöjningsdetekteringens lager 3
+fanns då bara i AISHub-genererade korpusrader, vilket ogiltigförklarade varje
+A/B-jämförelse i förtöjnings-/"inväntar"-dimensionen. De 15 låsta korpusarna
+saknar fältet som förut (→ null) och är oberörda; `replayRunner` läser redan
+`s.navStatus`. Muxens `feedSwitch` fångas medvetet INTE: den är leverans-
+härledd och ska räknas om av fusionspolicyn vid replay, inte frysas in.
 
 Åtgärdat sedan 2026-07-03: "Fem lager"-kommentaren rättad (constants.js:193);
 MessageBuilder/ETAFormatter/StallbackabronHelper raderade — noll levande

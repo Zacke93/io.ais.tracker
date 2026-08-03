@@ -19,8 +19,15 @@
  * varje avvikelse betyder att F-reglerna läcker (ekon som refreshar
  * livstecken, dubbletter som når pipelinen, källbyten som stör tallyn).
  *
+ * LATENSPASSET (V4, A/B-natten 2026-08-03): deliveryDelayMs skjuter fram
+ * hub-postens LEVERANSTID (aisTimestamp) utan att röra fixTs — exakt den
+ * asymmetri en släpande andrakälla ger i drift. Nattens latenstest visade att
+ * +30 s räckte för dubbelnotiser på målbro och +60 s gav sju dubbletter,
+ * varav en 152 m EFTER passagen, medan den observerade latensen samma natt
+ * hade p90 62,3 s — felmoden låg alltså INOM källans egen spridning.
+ *
  * Användning (CLI):
- *   node tests/replay-validation/makeFusionCorpus.js <in.jsonl> <ut.jsonl>
+ *   node tests/replay-validation/makeFusionCorpus.js <in.jsonl> <ut.jsonl> [delayMs]
  */
 
 const fs = require('fs');
@@ -30,6 +37,9 @@ const DEFAULTS = {
   pollOffsetMs: 32500,
   spreadMs: 150,
   maxFixAgeMs: 10 * 60 * 1000,
+  // V4: 0 = leverans i pollögonblicket (drift utan lagg). > 0 fördröjer
+  // ENBART leveransen; fixTs behåller pollens ögonblicksbild.
+  deliveryDelayMs: 0,
 };
 
 /**
@@ -75,7 +85,10 @@ function makeFusionCorpus(samples, opts = {}) {
         cog: f.cog,
         navStatus: f.navStatus,
         shipName: f.shipName || 'Unknown',
-        aisTimestamp: pollAt + idx * cfg.spreadMs, // mottagningstid (poll + spridning)
+        // Mottagningstid (poll + spridning + ev. leveranslagg). Klockdomän-
+        // doktrinen: DETTA fält är mottagningstid, fixTs nedan är fixtid —
+        // latenspasset skjuter bara det förra.
+        aisTimestamp: pollAt + idx * cfg.spreadMs + cfg.deliveryDelayMs,
         fixTs: f.fixTs ?? f.aisTimestamp, // ÄKTA fixtid = streamens stämpel
         feed: 'aishub',
       });
@@ -91,15 +104,16 @@ function makeFusionCorpus(samples, opts = {}) {
 module.exports = { makeFusionCorpus };
 
 if (require.main === module) {
-  const [, , inPath, outPath] = process.argv;
+  const [, , inPath, outPath, delayArg] = process.argv;
   if (!inPath || !outPath) {
-    process.stderr.write('Usage: node makeFusionCorpus.js <in.jsonl> <ut.jsonl>\n');
+    process.stderr.write('Usage: node makeFusionCorpus.js <in.jsonl> <ut.jsonl> [delayMs]\n');
     process.exit(1);
   }
+  const deliveryDelayMs = Number(delayArg) || 0;
   const samples = fs.readFileSync(inPath, 'utf8').trim().split('\n')
     .filter(Boolean)
     .map((l) => JSON.parse(l));
-  const { merged, hubCount } = makeFusionCorpus(samples);
+  const { merged, hubCount } = makeFusionCorpus(samples, { deliveryDelayMs });
   fs.writeFileSync(outPath, `${merged.map((s) => JSON.stringify(s)).join('\n')}\n`);
-  process.stdout.write(`fusionskorpus: ${samples.length} original + ${hubCount} aishub-ekon → ${outPath}\n`);
+  process.stdout.write(`fusionskorpus: ${samples.length} original + ${hubCount} aishub-ekon (leveranslagg ${deliveryDelayMs} ms) → ${outPath}\n`);
 }

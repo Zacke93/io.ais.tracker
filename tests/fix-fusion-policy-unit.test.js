@@ -1,7 +1,8 @@
 'use strict';
 
 const {
-  createState, normalizeFixTs, shouldAccept, applyAccept, pruneStates,
+  createState, createClockState, observeClock,
+  normalizeFixTs, shouldAccept, applyAccept, pruneStates,
 } = require('../lib/connection/FixFusionPolicy');
 const { AIS_CONFIG } = require('../lib/constants');
 
@@ -92,29 +93,34 @@ describe('F1: monoton spärr PER KÄLLA — aldrig korskälla, endast true-fix',
     expect(shouldAccept(state, backstep, NOW + 1000, CFG).accept).toBe(true);
   });
 
-  test('KRITISKT (V1-C3): aisstream-receipt avvisar ALDRIG en äldre AISHub-true-fix', () => {
+  test('V1-C3 LEVER: F1 blockerar aldrig korskälla — när aisstream tystnat flödar hubbens äkta fixar in', () => {
+    // Ursprungsgarantin (planens kärnbugg): en domänBLANDAD monotoni hade
+    // svält AISHub, eftersom aisstreams mottagningsstämpel nästan alltid är
+    // högre än hubbens äkta fixtid. F1 är därför per källa — och det är
+    // exakt när aisstream tiger som hubben ska bära fartyget.
     const state = createState();
-    // aisstream levererar med mottagningstid = nu.
     const stream = msg({
-      fixFeed: 'aisstream', fixTs: NOW, lat: 58.2901, lon: 12.2901,
+      fixFeed: 'aisstream', fixTs: NOW - 300000, lat: 58.2901, lon: 12.2901,
     });
-    const r1 = shouldAccept(state, stream, NOW, CFG);
+    const r1 = shouldAccept(state, stream, NOW - 300000, CFG);
     expect(r1.accept).toBe(true);
-    applyAccept(state, stream, r1.fixTs, NOW);
+    applyAccept(state, stream, r1.fixTs, NOW - 300000);
 
-    // AISHub-pollen 5 s senare bär en 40 s gammal ÄKTA fixtid — lägre än
-    // aisstreams mottagningsstämpel men fortfarande färsk information.
-    // Domänblandad monotoni hade svält AISHub här (planens kärnbugg).
+    // 5 min senare: aisstream har inte hörts av, hubbens poll bär en 40 s
+    // gammal ÄKTA fixtid — färsk information, långt nyare än allt appen har.
     const hub = msg({
-      fixFeed: 'aishub', fixTs: NOW - 40000, lat: 58.2903, lon: 12.2903,
+      fixFeed: 'aishub', fixTsQuality: 'true-fix', fixTs: NOW - 40000, lat: 58.2903, lon: 12.2903,
     });
-    const r2 = shouldAccept(state, hub, NOW + 5000, CFG);
-    expect(r2.accept).toBe(true);
+    expect(shouldAccept(state, hub, NOW, CFG).accept).toBe(true);
   });
 
-  test('spegelvänt: AISHub-fix först, sedan aisstream med lägre stämpel — accepteras', () => {
+  test('ASYMMETRIN: AISHub-fix först, sedan aisstream med LÄGRE stämpel — accepteras (F6 rör aldrig huvudkällan)', () => {
+    // Klockskevsskyddet: hade F6 varit symmetrisk kunde en hub-stämpel från
+    // en server vars klocka går före ha svält aisstream helt.
     const state = createState();
-    const hub = msg({ fixFeed: 'aishub', fixTs: NOW, lat: 58.2901 });
+    const hub = msg({
+      fixFeed: 'aishub', fixTsQuality: 'true-fix', fixTs: NOW, lat: 58.2901,
+    });
     const r1 = shouldAccept(state, hub, NOW, CFG);
     applyAccept(state, hub, r1.fixTs, NOW);
 
@@ -122,6 +128,118 @@ describe('F1: monoton spärr PER KÄLLA — aldrig korskälla, endast true-fix',
       fixFeed: 'aisstream', fixTs: NOW - 20000, lat: 58.2905, lon: 12.2905,
     });
     expect(shouldAccept(state, stream, NOW + 1000, CFG).accept).toBe(true);
+  });
+});
+
+describe('F6: asymmetrisk stale-grind — en släpande hub-fix får aldrig backa fartyget', () => {
+  // A/B-NATTEN 2026-08-03 (fynd 6/V4): F1:s monotoni är per källa och F5
+  // flaggar utan att blockera, så en AISHub-fix som levererades EFTER en
+  // färskare aisstream-fix flyttade fartyget ~200 m bakåt och lät det närma
+  // sig bron en gång till. +30 s leveranslatens gav TIDAN@Klaffbron ×3 och
+  // +60 s sju dubbletter, varav en 152 m EFTER passagen — samtidigt som
+  // nattens egen hub-latens hade p90 62 s. F6 stänger klassen helt.
+  //
+  // TESTET NEDAN ERSÄTTER det gamla 'KRITISKT (V1-C3)'-fallet, som låste
+  // fast precis det beteende fältmätningen fällde (hub-fix äldre än senast
+  // accepterade fix ⇒ accepterad). V1-C3:s ÄKTA garanti — att F1 aldrig
+  // blockerar korskälla — testas fortfarande, se F1-sviten ovan.
+  test('hub-fix äldre än senast accepterade fix ⇒ stale_cross_fix', () => {
+    const state = createState();
+    const stream = msg({
+      fixFeed: 'aisstream', fixTs: NOW, lat: 58.2901, lon: 12.2901,
+    });
+    const r1 = shouldAccept(state, stream, NOW, CFG);
+    applyAccept(state, stream, r1.fixTs, NOW);
+
+    const laggingHub = msg({
+      fixFeed: 'aishub', fixTsQuality: 'true-fix', fixTs: NOW - 40000, lat: 58.2903, lon: 12.2903,
+    });
+    expect(shouldAccept(state, laggingHub, NOW + 5000, CFG))
+      .toEqual({ accept: false, reason: 'stale_cross_fix' });
+  });
+
+  test('hub-fix med EXAKT samma fixtid som senast accepterade ⇒ avvisas (kravet är STRIKT nyare)', () => {
+    const state = createState();
+    const stream = msg({ fixFeed: 'aisstream', fixTs: NOW, lat: 58.2901 });
+    const r1 = shouldAccept(state, stream, NOW, CFG);
+    applyAccept(state, stream, r1.fixTs, NOW);
+
+    const hub = msg({
+      fixFeed: 'aishub', fixTsQuality: 'true-fix', fixTs: NOW, lat: 58.2907, lon: 12.2907,
+    });
+    expect(shouldAccept(state, hub, NOW + 5000, CFG).reason).toBe('stale_cross_fix');
+  });
+
+  test('hub-fix NYARE än senast accepterade ⇒ accepteras (täckningsvinsten är kvar)', () => {
+    const state = createState();
+    const stream = msg({ fixFeed: 'aisstream', fixTs: NOW, lat: 58.2901 });
+    const r1 = shouldAccept(state, stream, NOW, CFG);
+    applyAccept(state, stream, r1.fixTs, NOW);
+
+    const hub = msg({
+      fixFeed: 'aishub', fixTsQuality: 'true-fix', fixTs: NOW + 20000, lat: 58.2907, lon: 12.2907,
+    });
+    expect(shouldAccept(state, hub, NOW + 25000, CFG).accept).toBe(true);
+  });
+
+  test('LATENSSCENARIOT: en hel poll av släpande hub-fixar sväljs, den färska kedjan fortsätter', () => {
+    // Rekonstruktion av +60 s-fallet: aisstream matar var 10:e sekund medan
+    // hubbens poll levererar 60 s gamla ögonblicksbilder av samma resa.
+    const state = createState();
+    let t = NOW;
+    for (let i = 0; i < 6; i++) {
+      const stream = msg({
+        fixFeed: 'aisstream', fixTs: t, lat: 58.2901 + i * 0.001, lon: 12.2901,
+      });
+      const r = shouldAccept(state, stream, t, CFG);
+      expect(r.accept).toBe(true);
+      applyAccept(state, stream, r.fixTs, t);
+      t += 10000;
+    }
+    // Hubbens poll landar nu med fixar från resans BÖRJAN (bakom fartyget).
+    for (let i = 0; i < 3; i++) {
+      const hub = msg({
+        fixFeed: 'aishub',
+        fixTsQuality: 'true-fix',
+        fixTs: NOW + i * 10000,
+        lat: 58.2901 + i * 0.001,
+        lon: 12.2901,
+      });
+      expect(shouldAccept(state, hub, t, CFG).accept).toBe(false);
+    }
+    // …men nästa ÄKTA nya hub-fix (nyare än allt vi har) släpps in.
+    const fresh = msg({
+      fixFeed: 'aishub', fixTsQuality: 'true-fix', fixTs: t, lat: 58.2971, lon: 12.2901,
+    });
+    expect(shouldAccept(state, fresh, t, CFG).accept).toBe(true);
+  });
+
+  test('GAP-FALLET (JUNO 06:05-06:25): under aisstream-tystnad accepteras hub-fix efter hub-fix', () => {
+    // Nattens största vinst: aisstream tappade fartyget i 20 minuter medan
+    // AISHub gav 15 fixar. F6:s ribba står stilla när aisstream tiger, så
+    // varje ny poll-fix passerar — täckningen får INTE offras för V4-fixen.
+    const state = createState();
+    const stream = msg({ fixFeed: 'aisstream', fixTs: NOW, lat: 58.2901 });
+    const r1 = shouldAccept(state, stream, NOW, CFG);
+    applyAccept(state, stream, r1.fixTs, NOW);
+
+    let accepted = 0;
+    for (let i = 1; i <= 15; i++) {
+      const deliveredAt = NOW + i * 65000;
+      const hub = msg({
+        fixFeed: 'aishub',
+        fixTsQuality: 'true-fix',
+        fixTs: deliveredAt - 30000, // 30 s gammal vid leverans, men alltid ny
+        lat: 58.2901 + i * 0.0005,
+        lon: 12.2901,
+      });
+      const r = shouldAccept(state, hub, deliveredAt, CFG);
+      if (r.accept) {
+        accepted++;
+        applyAccept(state, hub, r.fixTs, deliveredAt);
+      }
+    }
+    expect(accepted).toBe(15);
   });
 });
 
@@ -198,6 +316,49 @@ describe('F2: korskälle-suppression på INNEHÅLL — samma källa berörs aldr
 
     const hubMoved = msg({ fixFeed: 'aishub', fixTs: NOW + 5000, lat: 58.2902 });
     expect(shouldAccept(state, hubMoved, NOW + 10000, CFG).accept).toBe(true);
+  });
+
+  test('FYND 16: dubblett som STRADDLAR en toFixed(5)-rutgräns fångas nu (avståndsjämförelse)', () => {
+    // Den gamla strängnyckeln band positionen till en 1,11 × 0,59 m-ruta:
+    // 58.290004 och 58.290006 ligger 0,22 m isär (mindre än AIS-fältets egen
+    // upplösning) men avrundas till olika rutor ⇒ dubbletten slapp igenom.
+    // 42 av 278 bevisade samma-rapport-par (15,1 %) missades så i A/B-natten.
+    const state = createState();
+    const stream = msg({ fixFeed: 'aisstream', fixTs: NOW, lat: 58.290004 });
+    const r1 = shouldAccept(state, stream, NOW, CFG);
+    applyAccept(state, stream, r1.fixTs, NOW);
+    expect((58.290004).toFixed(5)).not.toBe((58.290006).toFixed(5)); // olika rutor
+
+    const hubEcho = msg({
+      fixFeed: 'aishub', fixTsQuality: 'true-fix', fixTs: NOW - 5000, lat: 58.290006,
+    });
+    expect(shouldAccept(state, hubEcho, NOW + 30000, CFG))
+      .toEqual({ accept: false, reason: 'cross_feed_duplicate' });
+  });
+
+  test('FYND 16: marginalen sväljer aldrig en ÄKTA förflyttning (10 m ⇒ ingen suppression)', () => {
+    const state = createState();
+    const stream = msg({ fixFeed: 'aisstream', fixTs: NOW });
+    const r1 = shouldAccept(state, stream, NOW, CFG);
+    applyAccept(state, stream, r1.fixTs, NOW);
+
+    const hubMoved = msg({
+      fixFeed: 'aishub',
+      fixTsQuality: 'true-fix',
+      fixTs: NOW + 5000,
+      lat: 58.29 + 10 / 111320, // 10 m norrut
+    });
+    expect(shouldAccept(state, hubMoved, NOW + 10000, CFG).accept).toBe(true);
+  });
+
+  test('trasiga koordinater kastar inte (null-avstånd ⇒ ingen innehållsmatch)', () => {
+    const state = createState();
+    const stream = msg({ fixFeed: 'aisstream', fixTs: NOW });
+    const r1 = shouldAccept(state, stream, NOW, CFG);
+    applyAccept(state, stream, r1.fixTs, NOW);
+
+    const broken = msg({ fixFeed: 'aishub', fixTs: NOW + 5000, lat: undefined });
+    expect(() => shouldAccept(state, broken, NOW + 10000, CFG)).not.toThrow();
   });
 });
 
@@ -310,5 +471,136 @@ describe('state-hushållning: pruneStates (TTL + LRU-tak)', () => {
     const map = new Map([['tom', createState()]]);
     pruneStates(map, NOW, CFG);
     expect(map.size).toBe(0);
+  });
+
+  test('FYND 15: taket evicterar ÄLDST ANVÄNDA, inte först insatta', () => {
+    // Buggen: Map-ordningen är insättningsordning, så keys().next() slängde
+    // det fartyg som spårats LÄNGST — typiskt det mest aktiva — medan en
+    // nyss insatt kajliggare fick ligga kvar.
+    const map = new Map();
+    for (let i = 0; i < CFG.STATE_MAX_ENTRIES + 1; i++) {
+      const s = createState();
+      // Först insatt = mest aktiv (senast accepterade fix), sist insatt = kall.
+      s.lastAcceptedTs = i === 0 ? NOW : NOW - 1000 - i;
+      map.set(`mmsi${i}`, s);
+    }
+    pruneStates(map, NOW, CFG);
+    expect(map.size).toBe(CFG.STATE_MAX_ENTRIES);
+    expect(map.has('mmsi0')).toBe(true); // den aktiva överlever
+    expect(map.has(`mmsi${CFG.STATE_MAX_ENTRIES}`)).toBe(false); // kallast åkte
+  });
+});
+
+describe('F6b: klockoffsetkompensation (granskningsrunda 2, 2026-08-03)', () => {
+  const hub = (fixTs, extra = {}) => msg({
+    fixFeed: 'aishub', fixTsQuality: 'true-fix', fixTs, ...extra,
+  });
+
+  test('frisk klocka (alla leveranslag ≥ 0) ⇒ offset EXAKT 0 — bit-identiskt beteende', () => {
+    const clock = createClockState();
+    for (let i = 0; i < 20; i++) {
+      // Leveranslagg 30 s, som nattens median.
+      observeClock(clock, null, hub(NOW - 30000 + i), 'aishub', NOW + i, CFG);
+    }
+    expect(clock.hubOffsetMs).toBe(0);
+    expect(clock.hubAheadSamples).toBe(0);
+  });
+
+  test('LEVERANSBEVISET: en fix som postdaterar sin egen leverans är skevbevis', () => {
+    const clock = createClockState();
+    // Hubbens klocka går 45 s före: fixTs ligger 45 s efter mottagningen.
+    observeClock(clock, null, hub(NOW + 45000), 'aishub', NOW, CFG);
+    expect(clock.hubAheadSamples).toBe(1);
+    expect(clock.hubOffsetMs).toBe(-45000);
+  });
+
+  test('KORSKÄLLEBEVISET: medianen av samma-rapport-par avslöjar skev som latensen döljer', () => {
+    // Hubben släpar 60 s OCH går 60 s före ⇒ leveranslaggen ser normal ut
+    // (60 − 60 = 0 … alltså ingen negativ lag) och bevis A ser ingenting.
+    // Men aisstream-mottagningen av SAMMA rapport ligger 58 s FÖRE hubbens
+    // påstådda fixtid, vilket bara en klockskev kan förklara.
+    const clock = createClockState();
+    const SKEW = 60000;
+    for (let i = 0; i < CFG.CLOCK_PAIR_MIN_SAMPLES; i++) {
+      const t = NOW + i * 1000;
+      const state = createState();
+      const streamMsg = msg({ fixTs: t, fixTsQuality: 'receipt' });
+      applyAccept(state, streamMsg, t, t, 'aisstream');
+      // Hubbens eko: samma innehåll, fixTs = emissionen + skev (2 s pushlatens).
+      observeClock(clock, state, hub(t - 2000 + SKEW), 'aishub', t + 60000, CFG);
+    }
+    expect(clock.hubAheadSamples).toBe(0); // bevis A ser inget
+    expect(clock.hubOffsetMs).toBe(-(SKEW - 2000)); // bevis B fångar det
+  });
+
+  test('för få par ⇒ korskällebeviset används inte (ingen kompensation på gissningar)', () => {
+    const clock = createClockState();
+    const t = NOW;
+    const state = createState();
+    applyAccept(state, msg({ fixTs: t }), t, t, 'aisstream');
+    observeClock(clock, state, hub(t + 58000), 'aishub', t + 60000, CFG);
+    expect(clock.pairLags.length).toBe(1);
+    expect(clock.hubOffsetMs).toBe(0);
+  });
+
+  test('F6 fyrar igen under skev: den kompenserade stämpeln är äldre än senast accepterade', () => {
+    const state = createState();
+    // aisstream-fix accepterad NOW.
+    const s1 = shouldAccept(state, msg({ fixTs: NOW }), NOW, CFG, { feed: 'aisstream' });
+    expect(s1.accept).toBe(true);
+    applyAccept(state, msg({ fixTs: NOW }), s1.fixTs, NOW, 'aisstream');
+    // Släpande hub-fix (äkta fixtid 40 s FÖRE) men hubklockan går 60 s före ⇒
+    // rå fixTs ser 20 s NYARE ut än aisstreams mottagning. ANNAN position så
+    // F2:s innehållsdedup inte hinner före (det är F6 som prövas här).
+    const stale = hub(NOW - 40000 + 60000, { lat: 58.2915 });
+    const raw = shouldAccept(state, { ...stale }, NOW + 30000, CFG, { feed: 'aishub' });
+    expect(raw.accept).toBe(true); // utan kompensation slinker den igenom
+    const fixed = shouldAccept(state, { ...stale }, NOW + 30000, CFG, {
+      feed: 'aishub', hubOffsetMs: -60000,
+    });
+    expect(fixed).toEqual({ accept: false, reason: 'stale_cross_fix' });
+  });
+
+  test('F4a-klampad hub-fix AVVISAS i stället för att frias (grinden stängde av sig själv)', () => {
+    const state = createState();
+    applyAccept(state, msg({ fixTs: NOW }), NOW, NOW, 'aisstream');
+    // Utan kompensation: fixTs 5 min i framtiden ⇒ F4a klampar till now ⇒
+    // per konstruktion nyare än allt ⇒ hade friat ovillkorligt.
+    const v = shouldAccept(state, hub(NOW + 300000, { lat: 58.2915 }), NOW, CFG, { feed: 'aishub' });
+    expect(v).toEqual({ accept: false, reason: 'hub_clock_skew' });
+  });
+
+  test('aisstream berörs ALDRIG av F6/F6b (huvudkällan kan inte svältas)', () => {
+    const state = createState();
+    applyAccept(state, msg({ fixTs: NOW + 60000 }), NOW + 60000, NOW, 'aisstream');
+    const v = shouldAccept(state, msg({ fixTs: NOW }), NOW, CFG, {
+      feed: 'aisstream', hubOffsetMs: -60000,
+    });
+    expect(v.accept).toBe(true);
+    expect(v.fixTs).toBe(NOW); // ingen korrigering på receipt-källan
+  });
+});
+
+describe('Routad källa: fixFeed i nyttolasten får inte kunna avväpna grindarna', () => {
+  test('ctx.feed vinner över ett TAPPAT fixFeed — F6 fyrar ändå', () => {
+    const state = createState();
+    applyAccept(state, msg({ fixTs: NOW }), NOW, NOW, 'aisstream');
+    const tappad = msg({ fixTs: NOW - 60000, fixTsQuality: 'true-fix', lat: 58.2915 });
+    delete tappad.fixFeed;
+    // Gammal semantik (härled ur nyttolasten): släpps igenom.
+    expect(shouldAccept(state, { ...tappad }, NOW, CFG).accept).toBe(true);
+    // Ny semantik: routingen är sanningen.
+    expect(shouldAccept(state, { ...tappad }, NOW, CFG, { feed: 'aishub' }))
+      .toEqual({ accept: false, reason: 'stale_cross_fix' });
+  });
+
+  test('applyAccept bokför på den ROUTADE källan (F1:s hink blir aldrig undefined)', () => {
+    const state = createState();
+    const tappad = msg({ fixTs: NOW });
+    delete tappad.fixFeed;
+    applyAccept(state, tappad, NOW, NOW, 'aishub');
+    expect(state.lastFixTs.aishub).toBe(NOW);
+    expect(state.lastFeed).toBe('aishub');
+    expect(Object.prototype.hasOwnProperty.call(state.lastFixTs, 'undefined')).toBe(false);
   });
 });

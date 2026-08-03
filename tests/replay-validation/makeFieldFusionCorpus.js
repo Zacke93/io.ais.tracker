@@ -26,6 +26,7 @@
 
 const fs = require('fs');
 const path = require('path');
+
 const aishubParser = require(path.resolve(__dirname, '../../lib/utils/aishubParser'));
 const { AIS_CONFIG } = require(path.resolve(__dirname, '../../lib/constants'));
 
@@ -53,7 +54,9 @@ function extractFieldStreams(logPath) {
           stream.push({ ...s, feed: s.feed || 'aisstream' });
           stats.replaySamples++;
         }
-      } catch (e) { stats.parseFailures++; }
+      } catch (e) {
+        stats.parseFailures++;
+      }
       continue;
     }
     const res = RESPONSE_RE.exec(line);
@@ -64,7 +67,9 @@ function extractFieldStreams(logPath) {
           hubRaw.push(sample);
           stats.responseSamples++;
         }
-      } catch (e) { stats.parseFailures++; }
+      } catch (e) {
+        stats.parseFailures++;
+      }
     }
   }
 
@@ -82,7 +87,9 @@ function extractFieldStreams(logPath) {
     for (const rec of parsed.records) {
       if (rec.lat < SOUTH || rec.lat > NORTH || rec.lon < WEST || rec.lon > EAST) continue;
       const last = dedup.get(rec.mmsi);
-      if (Number.isFinite(last) && rec.fixTs <= last) { stats.hubDupes++; continue; }
+      if (Number.isFinite(last) && rec.fixTs <= last) {
+        stats.hubDupes++; continue;
+      }
       dedup.set(rec.mmsi, rec.fixTs);
       hub.push({
         mmsi: rec.mmsi,
