@@ -171,8 +171,11 @@ describe('Etapp 2: källneutrala felhanterare', () => {
 describe('Etapp 2 (V1-C2): per-feed-watchdogen — aggregatet får aldrig maskera', () => {
   const MIN = 60 * 1000;
 
-  function makeWatchdogApp(perFeed, { apiKey = 'KEY' } = {}) {
-    const app = makeApp({ ais_api_key: apiKey });
+  // FYND 17 (A/B-natten 2026-08-03): källäget ingår numera i fixturen —
+  // [FEED_SILENT]-NOTISEN om AISHub kräver att hubben faktiskt matar
+  // pipelinen ('both'/'aishub' + username), inte bara att klienten finns.
+  function makeWatchdogApp(perFeed, { apiKey = 'KEY', source = null, username = null } = {}) {
+    const app = makeApp({ ais_api_key: apiKey, ais_source: source, aishub_username: username });
     app.aisClient = {
       isConnected: true,
       getConnectionStats: jest.fn().mockReturnValue({
@@ -257,26 +260,44 @@ describe('Etapp 2 (V1-C2): per-feed-watchdogen — aggregatet får aldrig masker
     expect(app.aisClient.kickAishub).not.toHaveBeenCalled();
   });
 
-  test('[FEED_SILENT]: konfigurerad källa tyst 20 min medan den andra flödar ⇒ logg + notis per källa', () => {
-    const app = makeWatchdogApp({
-      aisstream: {
-        configured: true, isConnected: true, timeSinceLastMessage: 30 * 1000, uptime: 60 * MIN, lastMessageTime: Date.now() - 30 * 1000,
-      },
-      aishub: {
-        configured: true,
-        isConnected: true,
-        timeSinceLastMessage: 20 * MIN,
-        uptime: 60 * MIN,
-        lastMessageTime: Date.now() - 20 * MIN,
-        lastOkResponseAt: Date.now() - 5000, // servern svarar (tomma svep) men inga accepterade positioner
-        lastPollStartedAt: Date.now() - 5000,
-      },
-    });
+  // FYND 17: testet löd tidigare "konfigurerad källa … ⇒ logg + notis" och
+  // körde med TOM settings-store — dvs. det låste fast exakt hålet fyndet
+  // beskriver (notis om en hubb som bara går i SKUGGLÄGE och därför varken
+  // påverkar brotext eller notiser). Fixturen är nu koherent: läget 'both'
+  // med username, precis som produktionen kräver för att hubben ska mata
+  // pipelinen. Skuggfallet har fått ett eget test nedan.
+  const silentPerFeed = () => ({
+    aisstream: {
+      configured: true, isConnected: true, timeSinceLastMessage: 30 * 1000, uptime: 60 * MIN, lastMessageTime: Date.now() - 30 * 1000,
+    },
+    aishub: {
+      configured: true,
+      isConnected: true,
+      timeSinceLastMessage: 20 * MIN,
+      uptime: 60 * MIN,
+      lastMessageTime: Date.now() - 20 * MIN,
+      lastOkResponseAt: Date.now() - 5000, // servern svarar (tomma svep) men inga accepterade positioner
+      lastPollStartedAt: Date.now() - 5000,
+    },
+  });
+
+  test('[FEED_SILENT]: pipeline-matande källa tyst 20 min medan den andra flödar ⇒ logg + notis per källa', () => {
+    const app = makeWatchdogApp(silentPerFeed(), { source: 'both', username: 'hubuser' });
     app._notifyConnectionIssue = jest.fn();
     app._checkAISFeedHealth();
     expect(app._notifyConnectionIssue).toHaveBeenCalledWith(expect.stringContaining('AISHub'), 'aishub:silent');
     const silentLogs = app.log.mock.calls.map((c) => c.join(' ')).filter((l) => l.includes('[FEED_SILENT]'));
     expect(silentLogs.length).toBe(1);
+  });
+
+  test('FYND 17: samma tystnad i SKUGGLÄGE ⇒ logg men INGEN användarnotis', () => {
+    const app = makeWatchdogApp(silentPerFeed(), { source: 'shadow', username: 'hubuser' });
+    app._notifyConnectionIssue = jest.fn();
+    app._checkAISFeedHealth();
+    expect(app._notifyConnectionIssue).not.toHaveBeenCalled();
+    const silentLogs = app.log.mock.calls.map((c) => c.join(' ')).filter((l) => l.includes('[FEED_SILENT]'));
+    expect(silentLogs.length).toBe(1);
+    expect(silentLogs[0]).toContain('skuggläge');
   });
 
   test('legacy-stubbar utan perFeed ⇒ exakt dagens plattlogik (bakåtkontraktet)', () => {

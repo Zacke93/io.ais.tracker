@@ -203,12 +203,17 @@ describe('GPSJumpGateService — gate-livscykel och kandidathantering', () => {
     });
 
     test('bekräftelsen är märkt med bro, passageResult och confirmedAt', () => {
+      const registeredAt = now;
       svc.registerCandidatePassage('265024', 'Klaffbron', PASSAGE, BASE_VESSEL);
       advance(6_000);
 
       const [confirmed] = svc.confirmStableCandidates('265024', BASE_VESSEL);
       // G-1 (Fable 2026-07-10b): vesselState (registrerings-snapshotten)
       // följer numera med så konsumenten kan köra sidokontraktet.
+      // Etapp 0 + granskningsrunda 2 (2026-08-03): snapshotten bär även
+      // fixTs/fixFeed (fysikfönstrets fixseparation) och timestamp
+      // (MOTTAGNINGSTIDEN — korskälle-dt får bara VIDGA den, se
+      // GPSJumpAnalyzer.fixDtMs). BASE_VESSEL saknar fixfälten ⇒ undefined.
       expect(confirmed).toEqual({
         bridgeName: 'Klaffbron',
         passageResult: PASSAGE,
@@ -218,6 +223,9 @@ describe('GPSJumpGateService — gate-livscykel och kandidathantering', () => {
           lon: BASE_VESSEL.lon,
           cog: BASE_VESSEL.cog,
           sog: BASE_VESSEL.sog,
+          fixTs: undefined,
+          fixFeed: undefined,
+          timestamp: registeredAt,
         },
       });
     });

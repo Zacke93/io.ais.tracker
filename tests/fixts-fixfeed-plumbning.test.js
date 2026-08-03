@@ -103,7 +103,17 @@ describe('Etapp 0: GPSJumpAnalyzer räknar dt på fixtid inom samma källa', () 
     expect(result.reason).toBe('medium_movement');
   });
 
-  test('medium-grenen: OLIKA källor → fallback till mottagningstid → suspect (negativ kontroll)', () => {
+  // UPPDATERAT 2026-08-03 (V8, A/B-nattkörningen): testet låste tidigare fast
+  // att OLIKA källor faller tillbaka på MOTTAGNINGSTID. Det var etapp 0:s
+  // medvetet konservativa startläge, men A/B-natten visade att det är fel
+  // beteende: 49 % av uppdateringarna i 'both'-läget är korskällepar, och
+  // fallbacken gav upp till 3× överskattad fart (JUNO 28,6 kn mot 9,4) plus
+  // en verklig falsk positionUncertain. Båda källornas fixTs approximerar
+  // emissionstid, så separationen mellan dem ÄR giltig fysik-dt. Testet
+  // vänds därför till att låsa det NYA kontraktet; den ursprungliga
+  // negativa kontrollen (fallback vid oanvändbar separation) finns kvar
+  // nedan och i tests/korskalla-fixdt-v8.test.js.
+  test('medium-grenen: OLIKA källor med framåt fixseparation → fixtids-dt (V8)', () => {
     const analyzer = new GPSJumpAnalyzer(makeLogger());
     const now = Date.now();
     const oldVessel = {
@@ -111,6 +121,22 @@ describe('Etapp 0: GPSJumpAnalyzer räknar dt på fixtid inom samma källa', () 
     };
     const currentVessel = {
       sog: 3, cog: 0, timestamp: now, fixTs: now, fixFeed: 'aisstream',
+    };
+    const result = analyzer.analyzeMovement('265001111', NEW_POS, OLD_POS, currentVessel, oldVessel);
+    expect(result.action).toBe('accept');
+    expect(result.reason).toBe('medium_movement');
+  });
+
+  test('medium-grenen: OLIKA källor med BAKÅT fixseparation → fallback till mottagningstid → suspect (negativ kontroll)', () => {
+    const analyzer = new GPSJumpAnalyzer(makeLogger());
+    const now = Date.now();
+    // Släpande hub-fix som landar EFTER en färsk aisstream-fix: fixTs går
+    // bakåt ⇒ ingen användbar korskälleseparation ⇒ dagens beteende gäller.
+    const oldVessel = {
+      sog: 3, cog: 0, timestamp: now - 1000, fixTs: now, fixFeed: 'aisstream',
+    };
+    const currentVessel = {
+      sog: 3, cog: 0, timestamp: now, fixTs: now - 180000, fixFeed: 'aishub',
     };
     const result = analyzer.analyzeMovement('265001111', NEW_POS, OLD_POS, currentVessel, oldVessel);
     expect(result.action).toBe('accept_with_caution');

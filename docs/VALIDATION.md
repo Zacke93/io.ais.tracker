@@ -23,9 +23,9 @@ Eller stegen var för sig:
 
 | Steg | Kommando | Grönt betyder |
 |---|---|---|
-| Enhetstester | `npm test 2>&1 \| tail -5` (**pipa alltid** — annars ENOSPC) | 900+ tester passerar |
+| Enhetstester | `npm test 2>&1 \| tail -5` (**pipa alltid** — annars ENOSPC) | 1400+ tester passerar (1433 efter härdningsetappen 2026-08-03) |
 | | ⚠️ **Pipe-fällan** (ChatGPT-granskningen 2026-07-10, B1): pipens exitkod är `tail`:s (≈alltid 0) — LÄS `Tests:`-raden, lita inte på `$?`. `npm run validate` är immun: den skriver jest-utdatan till en tempfil och propagerar jest:s riktiga exitkod. | |
-| Korpusarna | `npm run replay:all` | 11 låsta korpusar (~150 h verklig AIS) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + exakt (mmsi,bro,riktning)-fördelning + EXAKT bridge_text-transitionsström (golden-text/) + alla invarianter |
+| Korpusarna | `npm run replay:all` | 15 låsta korpusar (~239,5 h verklig AIS) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + exakt (mmsi,bro,riktning)-fördelning + EXAKT bridge_text-transitionsström (golden-text/) + alla invarianter |
 | Syntetiska | `npm run replay:synthetic` | 44 scenarier (gap, U-svängar, GPS-hopp, kajliggare, sog=null, omstart, 2h-prune-stillaliggare …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. |
 | Soaken | `node tests/replay-validation/runSoak.js` | 72 h blandtrafik: 0 processfel, inga läckor, fatala invarianter rena |
 | Lint | `npx eslint <ändrade filer>` (per fil — OneDrive gör helträd långsamt) | 0 fel |
@@ -41,13 +41,61 @@ kadensdisciplinen: aldrig < 61 s mellan poll-starter över 24 h simulerad tid).
 syntetisk AISHub-skuggström ur varje låst korpus (makeFusionCorpus: 65s-poll-
 snapshots av senast kända fix, re-leveranser, 150 ms-spridning) och kör den
 genom AISSourceMultiplexer i 'both'-läge (`REPLAY_FUSION=1` — muxen sitter PÅ
-RIKTIGT i vägen, F1-F5 aktiva). Kontraktet: eftersom ekona bara upprepar redan
+RIKTIGT i vägen, F1-F6 aktiva). Kontraktet: eftersom ekona bara upprepar redan
 levererad information ska notisantal, (mmsi,bro)-multiset och riktnings-
 multiset vara EXAKT parentkorpusens facit, och grinden asserterar dessutom
 att fusionen var aktiv (accepted > 0, alla ekon svalda: rejected > 0).
 Golden-text hoppas medvetet över (ekon förskjuter publiceringstidpunkter utan
 att ändra innehållsbeslut). Kör grinden efter varje ändring i FixFusionPolicy,
 AISSourceMultiplexer eller fixTs-plumbningen — utöver ordinarie batteri.
+
+**Latenspasset (V4, A/B-natten 2026-08-03):** grinden kör numera ALLTID två
+pass — normal leverans och +60 s LEVERANSLAGG på hub-strömmen (`aisTimestamp`
+skjuts, `fixTs` orörd; `FUSION_PASS=normal|latency` kör ett enskilt pass vid
+felsökning). Motivet: nattens latenstest gav +30 s ⇒ dubbelnotiser på målbro
+och +60 s ⇒ sju dubbletter, varav en 152 m EFTER passagen, medan källans egen
+observerade latens hade p90 62,3 s — felmoden låg alltså INOM normal drift.
+Kravet är EXAKT samma facit i båda passen och noll dubbletter, plus att F6
+faktiskt fyrade (`stale_cross_fix > 0`) i latenspasset: utan F6 släpps 9-624
+släpande hub-fixar per korpus in i pipelinen, så noll träffar betyder att
+grinden slutat pröva något. `tests/fusionsgrind-latenspass-v4.test.js` vaktar
+kopplingen (lagget flyttar bara mottagningstid; båda passen deklarerade).
+
+**Fältkorpusen (granskningsrunda 2, 2026-08-03):** de syntetiska ekona ovan
+sväljs till 100 % (ekot bär moderfixens fixTs), så grinden bevisade bara att
+F-reglerna BLOCKERAR — muxens accept-väg, StatusServices segmentbevis,
+korskälle-fysik-dt:t och klockkompensationen var oexekverade i hela batteriet.
+`replay:fusion` kör därför även `corpora-data/ais-fusion-20260803-nattkorning.jsonl`
+— A/B-nattens B-arm med 1014 ÄKTA AISHub-poster, där ~650-720 hub-fixar faktiskt
+ACCEPTERAS — i fem varianter: som levererad, +30 s och +60 s leveranslagg, samt
+TVÅ klockskevsvarianter (hubklockan 60 s respektive 5 min FÖRE Homeys). Kravet:
+samma 24 notisnycklar, noll dubbletter, noll notis för 265012090 (kajvobbel-
+fantomen), TIM:s Olidebron- OCH Järnvägsbron-passager kvar i
+`intermediatePassages`, och `accepted` > antalet aisstream-rader (annars är
+accept-vägen oexekverad och passet bevisar ingenting). Skevvarianterna är de
+enda som kan fälla F6b — `makeFusionCorpus` och `shiftFeedDelivery` härleder
+båda ekots fixTs ur korpusstämplarna och är per konstruktion blinda för
+fixtidsskev.
+
+**Så kör du grinden** (den ingår MEDVETET inte i `npm run validate` — den tar
+lika lång tid som hela korpusbatteriet; kör den separat efter varje ändring i
+fusions-/fixTs-/andrakällelogiken, och alltid före en A/B- eller
+aktiveringsomgång):
+
+```bash
+npm run replay:fusion                       # 15 korpusar × 2 pass + fältkorpusens 5 varianter
+FUSION_PASS=latency npm run replay:fusion   # ENBART latenspasset (felsökning)
+FUSION_PASS=normal  npm run replay:fusion   # ENBART normalpasset (felsökning)
+```
+
+⚠️ Med `FUSION_PASS` satt hoppas **fältkorpusen över helt** — det är den enda
+delen som exekverar accept-vägen, så en grön `FUSION_PASS=…`-körning är inget
+kvitto. Slutkontroll körs alltid utan variabeln. Exit-koden är 0 endast om
+samtliga pass OCH samtliga fältvarianter håller kontraktet; slutraderna ska
+lyda "Fusionsgrinden grön i 2 pass" + "Fältkorpusen grön i 5 varianter".
+Latenspasset jämför dessutom mellanbro-/målbropassagerna mot NORMALPASSETS
+register (pelare 1-regression: nattens B+30 s gav identiskt notismultiset
+medan `212571000|Järnvägsbron` föll ur `intermediatePassages`).
 
 **Rött är alltid på riktigt.** Batteriet har inga kända flakiga tester.
 Om en låst korpus avviker har du en regression i pelarna — börja där.
