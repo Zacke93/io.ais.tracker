@@ -147,6 +147,24 @@ async function main() {
   // notiser samlas över ALLA kortinstanser (mocken skapar nytt kort per app).
   const boatNearCards = [];
 
+  // ---- ÖPPNINGSVARNINGAR (etapp 6, 2026-08-03) ----
+  // HELT SEPARAT dimension: notificationCount och alla befintliga fält är
+  // ORÖRDA. Fångsten sker på KORTNIVÅ (bridge_opening_soon-kortets
+  // triggerCalls) av samma skäl som boat_near fångas där: det är den enda
+  // punkten som bevisar att HELA produktionsvägen gick igenom — servicens
+  // avfyrning, app.js engångs-dedup, tokenbygget och kortanropet. En fångst
+  // på servicens callback hade varit blind för dedup-/leveransbuggar.
+  const openingCards = [];
+  // Servicens EGNA avfyrningar (före app-sidans dedup/kortleverans). Skillnaden
+  // mot kortnivån är diagnostik: fires > kortanrop ⇒ en varning tappades på
+  // vägen (dedup som spärrade fel, saknat kort, kastande tokenbygge).
+  let openingServiceFires = 0;
+  // Täckningsspåret: vilka fartyg en varning FAKTISKT täckte ('fired' = med i
+  // avfyrningen, 'absorbed' = anslöt till en redan avfyrad öppning, dvs.
+  // konvojtäckning). O1-klassificeringen skiljer på dem.
+  const openingCoverage = [];
+  const coverageRe = /\[OPENING_COVERAGE\] (\d+): (\S+) täckt av (\S+) \((\w+)\)/;
+
   // ---- Fånga bridge_text-övergångar via RIKTIGA publiceringsvägen ----
   const bridgeTextLog = [];
   let lastBridgeText = null;
@@ -180,6 +198,21 @@ async function main() {
     instance._lastConnectionLost = null;
     instance._lastConnectionStatus = 'connected';
     boatNearCards.push(instance._boatNearTrigger);
+    // Etapp 6: samma kortinsamling för öppningsvarningarna (mocken skapar ett
+    // nytt kort per app-instans, så ctrl:'restart' måste samla över alla).
+    if (instance._bridgeOpeningTrigger) openingCards.push(instance._bridgeOpeningTrigger);
+
+    // Servicens avfyrningsräknare. Wrappern ligger på METODEN (inte på en
+    // bind:ad referens) eftersom app.js medvetet registrerar callbacken som
+    // arrow — `(payload) => this._onBridgeOpeningWarning(payload)` — just för
+    // att harnessen ska kunna hänga sig på här.
+    if (typeof instance._onBridgeOpeningWarning === 'function') {
+      const origOpeningWarning = instance._onBridgeOpeningWarning.bind(instance);
+      instance._onBridgeOpeningWarning = (payload) => {
+        openingServiceFires++;
+        return origOpeningWarning(payload);
+      };
+    }
 
     const origUpdateCap = instance._updateDeviceCapability.bind(instance);
     instance._updateDeviceCapability = (capability, value) => {
@@ -214,6 +247,19 @@ async function main() {
           // no-target-markören (2026-07-03): en mållös båts målbropassage är
           // korrekt intermediate-bokförd — INV-13 undantar dem.
           noTarget: line.includes('no-target'),
+        });
+      }
+      // Etapp 6: täckningsraden ur BridgeOpeningService (via app._onBridge-
+      // OpeningCoverage). Ren diagnostik för O1 — påverkar ingen produktlogik.
+      const cm = line.match(coverageRe);
+      if (cm) {
+        openingCoverage.push({
+          t: Date.now(),
+          iso: new Date(Date.now()).toISOString(),
+          mmsi: cm[1],
+          bridge: cm[2],
+          eventId: cm[3],
+          reason: cm[4],
         });
       }
       return origAppLog(...args);
@@ -428,6 +474,43 @@ async function main() {
       error: c.error || null,
     }));
 
+  // ---- Samla ÖPPNINGSVARNINGAR (etapp 6, 2026-08-03) ----
+  // Egen dimension, egna fält. Notisfångsten ovan är ORÖRD.
+  const openingWarnings = openingCards
+    .flatMap((card) => (card && card.triggerCalls ? card.triggerCalls : []))
+    .map((c) => {
+      const tokens = c.tokens || {};
+      const state = c.state || {};
+      return {
+        t: c.timestamp ? Date.parse(c.timestamp) : null,
+        iso: c.timestamp || null,
+        bridge: tokens.bridge_name,
+        direction: tokens.direction,
+        // Kontraktsnamnet är etaMin (boat_near använder eta) — -1 är samma
+        // "okänd"-sentinel som notistokenen bär.
+        etaMin: Number.isFinite(tokens.eta_minutes) ? tokens.eta_minutes : null,
+        vesselCount: Number.isFinite(tokens.vessel_count) ? tokens.vessel_count : null,
+        leadVessel: tokens.vessel_name,
+        // firedBy: 'fix' = ett AIS-meddelande gjorde deadline förfallen,
+        // 'deadline' = 30 s-tick:et avfyrade i radiotystnad. O1 rapporterar
+        // fördelningen — en korpus där INGEN varning kommer från deadline-
+        // motorn har inte prövat äggklockan.
+        firedBy: state.firedBy || null,
+        eventId: state.eventId || null,
+        leadMmsi: state.mmsi || null,
+        mmsis: Array.isArray(state.mmsis) ? state.mmsis : [],
+        distance: Number.isFinite(state.distance) ? state.distance : null,
+        // Etapp 6-granskningen: den tidigaste förfallotiden bland de armar
+        // som utlöste. O1:s avfyrningsfönster-grind mäter t − dueMs och
+        // fäller en varning som gått ut FÖRE sin egen deadline (eller mer än
+        // ett tick efter den) — kontraktet "avfyra så sent garantin tillåter".
+        dueMs: Number.isFinite(state.dueMs) ? state.dueMs : null,
+        success: c.success,
+        error: c.error || null,
+      };
+    })
+    .sort((a, b) => (a.t || 0) - (b.t || 0));
+
   // ---- Berika notiser med fartygets position (2026-07-03) ----
   // Närmast föregående + nästa sample för samma mmsi (fake-klockan lägger
   // notis-t och aisTimestamp på samma tidslinje). Ger INV-11 (distans-
@@ -502,6 +585,16 @@ async function main() {
     // Etapp 3: muxens fusionsstate — ALLTID tal (soak-kravet V1-M10).
     fusionStateSize: app.aisClient && app.aisClient._fusionStates
       ? sizeOf(app.aisClient._fusionStates) ?? 0 : 0,
+    // Etapp 6: öppningsarmar/-händelser. Efter 40 min efterspel MÅSTE båda
+    // vara 0 — ARM_STALE_TTL_MS är 30 min och tick():en i 30 s-watchdogen
+    // prunar dem. En arm som överlever sitt fartyg är en läcka (och skulle
+    // dessutom kunna varna för en öppning som aldrig kommer). ALLTID tal, av
+    // samma skäl som fusionStateSize (R2-3: icke-finit = tyst inaktiverad
+    // kontroll i soaken).
+    openingArms: app.bridgeOpeningService && typeof app.bridgeOpeningService.getStats === 'function'
+      ? (app.bridgeOpeningService.getStats().armed ?? 0) : 0,
+    openingEvents: app.bridgeOpeningService && typeof app.bridgeOpeningService.getStats === 'function'
+      ? (app.bridgeOpeningService.getStats().openEvents ?? 0) : 0,
     heapUsedMB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
   };
 
@@ -520,6 +613,18 @@ async function main() {
       && typeof app.aisClient.getConnectionStats === 'function')
       ? app.aisClient.getConnectionStats().fusion
       : null,
+    // Etapp 6 (2026-08-03): öppningsvarningarnas EGNA fält. Allt ovan är
+    // oförändrat — det additiva lagret får inte kunna flytta ett enda
+    // befintligt facit.
+    openingWarnings,
+    openingWarningCount: openingWarnings.length,
+    openingServiceFires,
+    openingCoverage,
+    // Öppningsservicens sluttillstånd: armar/händelser ska vara städade efter
+    // 40 min efterspel (soak-kravet — en arm får aldrig överleva sitt fartyg).
+    openingStats: (app.bridgeOpeningService
+      && typeof app.bridgeOpeningService.getStats === 'function')
+      ? app.bridgeOpeningService.getStats() : null,
     firstNameSeen,
     firstSampleMs: samples.length > 0 ? samples[0].aisTimestamp : null,
     targetPassages,

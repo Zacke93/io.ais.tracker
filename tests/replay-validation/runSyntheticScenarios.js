@@ -47,19 +47,45 @@ const northSecondsToFraction = (frac, speedKn) => Math.round((frac * METRICS.tot
  *  - minNotifiedBridges: dessa broar MÅSTE ha fått notis
  *  - forbiddenNotifiedBridges: dessa broar får INTE ha fått notis
  *  - maxNotifiedPerBridge: {bro: N} — max antal notiser per bro (dubblettvakt)
+ *
+ * ÖPPNINGSVARNINGAR (etapp 6, 2026-08-03) — egen, additiv dimension:
+ *  - expectedOpenings: dessa målbroar MÅSTE ha fått minst en öppningsvarning,
+ *    och varningen måste ligga FÖRE broens passage (annars är den värdelös).
+ *  - forbiddenOpeningBridges: dessa broar får INTE ha varnats (fantomtaket).
+ *  - zeroOpeningWarnings: inga öppningsvarningar alls får ha gått ut.
+ *  - maxOpeningsPerBridge: {bro: N} — "EN varning per förestående öppning".
+ *  - deadlineFiredOpenings: dessa broars varning MÅSTE ha kommit ur tick-
+ *    motorn (firedBy='deadline'), inte ur ett inkommande fix — beviset för
+ *    att äggklockan fungerar i radiotystnad.
  */
 const SCENARIOS = [
   {
     name: 'ren-nord-normal',
     seed: 11,
     vessels: [{ mmsi: '901000001', direction: 'north', speedKn: 4.5 }],
-    expect: { minTargetPassages: 2, minNotifiedBridges: ['Klaffbron', 'Stridsbergsbron'] },
+    // Etapp 6: normalresan är öppningslagrets referensfall — BÅDA målbroarna
+    // ska förvarnas, och EXAKT en gång var ("en varning per förestående
+    // öppning"). Går maxgränsen sönder har hysteresen/händelsestädningen
+    // börjat generera dubbelvarningar för samma anflygning.
+    expect: {
+      minTargetPassages: 2,
+      minNotifiedBridges: ['Klaffbron', 'Stridsbergsbron'],
+      expectedOpenings: ['Klaffbron', 'Stridsbergsbron'],
+      maxOpeningsPerBridge: { Klaffbron: 1, Stridsbergsbron: 1 },
+    },
   },
   {
     name: 'ren-syd-normal',
     seed: 12,
     vessels: [{ mmsi: '901000002', direction: 'south', speedKn: 4.5 }],
-    expect: { minTargetPassages: 2, minNotifiedBridges: ['Klaffbron', 'Stridsbergsbron'] },
+    // Spegelfallet: målbrokedjan (ARM_NEXT_TARGET) måste fungera lika bra
+    // söderut som norrut — nordspegeln har fällt tidigare granskningar.
+    expect: {
+      minTargetPassages: 2,
+      minNotifiedBridges: ['Klaffbron', 'Stridsbergsbron'],
+      expectedOpenings: ['Klaffbron', 'Stridsbergsbron'],
+      maxOpeningsPerBridge: { Klaffbron: 1, Stridsbergsbron: 1 },
+    },
   },
   {
     name: 'långsam-gles-rapportering',
@@ -75,7 +101,14 @@ const SCENARIOS = [
     vessels: [{
       mmsi: '901000004', direction: 'north', speedKn: 7.5, reportIntervalS: 30,
     }],
-    expect: { minTargetPassages: 2 },
+    // 7,5 kn ligger i den snabba svansen (dig3: p99 = 6,97 kn) — det är HÄR
+    // FIRE_EXPECTED_ETA-grenen ska bära, eftersom deadline-grenens ~926 m
+    // bara är ~3,2 min förvarning i den farten.
+    expect: {
+      minTargetPassages: 2,
+      expectedOpenings: ['Klaffbron', 'Stridsbergsbron'],
+      maxOpeningsPerBridge: { Klaffbron: 1, Stridsbergsbron: 1 },
+    },
   },
   {
     name: 'glapp-över-målbro (SILJA-klassen)',
@@ -83,7 +116,14 @@ const SCENARIOS = [
     vessels: [{
       mmsi: '901000005', direction: 'north', speedKn: 4.5, gap: { atFraction: 0.36, durationS: 480 },
     }],
-    expect: { minNotifiedBridges: ['Klaffbron'] }, // failsafen ska rädda notisen trots glapp
+    // Etapp 6: 8 min radiotystnad ÖVER målbron — deadline-motorns kärnfall.
+    // Varningen måste ha gått ut FÖRE passagen trots att inget fix landade
+    // på slutsträckan (mätt: Klaffbron varnad 06:13, passerad 06:28).
+    expect: {
+      minNotifiedBridges: ['Klaffbron'], // failsafen ska rädda notisen trots glapp
+      expectedOpenings: ['Klaffbron', 'Stridsbergsbron'],
+      maxOpeningsPerBridge: { Klaffbron: 1, Stridsbergsbron: 1 },
+    },
   },
   {
     name: 'glapp-15min-mitt-i (sandwich-klassen)',
@@ -99,7 +139,14 @@ const SCENARIOS = [
     vessels: [{
       mmsi: '901000007', direction: 'north', speedKn: 4.0, stop: { atFraction: 0.34, durationS: 720 },
     }],
-    expect: { minTargetPassages: 2 }, // ren stillhet får ALDRIG demotera
+    // Etapp 6, PRODUKTPRINCIPENS UNDANTAG: en båt som stannar NÄRA bron
+    // VÄNTAR på öppningen — stoppet får aldrig avväpna, och det får inte
+    // heller generera en ANDRA varning när hon startar igen.
+    expect: {
+      minTargetPassages: 2, // ren stillhet får ALDRIG demotera
+      expectedOpenings: ['Klaffbron', 'Stridsbergsbron'],
+      maxOpeningsPerBridge: { Klaffbron: 1, Stridsbergsbron: 1 },
+    },
   },
   {
     name: 'kajliggare-40min (kajbuggen)',
@@ -107,7 +154,9 @@ const SCENARIOS = [
     vessels: [{
       mmsi: '901000008', direction: 'north', speedKn: 0, jitterM: 2, moorAt: { ...QUAY, durationS: 2400, navStatus: null },
     }],
-    expect: { zeroNotifications: true, noVesselText: true },
+    // Etapp 6, FANTOMTAKETS golv: en kajliggare som aldrig avgår får ALDRIG
+    // beväpnas (rörelsebevis + V1-kajbokföringen). Noll varningar, alltid.
+    expect: { zeroNotifications: true, noVesselText: true, zeroOpeningWarnings: true },
   },
   {
     name: 'kajliggare-avgår-norrut',
@@ -166,7 +215,14 @@ const SCENARIOS = [
         mmsi: '901000017', direction: 'north', speedKn: 4.2, startOffsetS: 120,
       },
     ],
-    expect: { minTargetPassages: 4 },
+    // Etapp 6, KONVOJKRAVET: två båtar i tät följd delar EN öppning per bro —
+    // precis nattens 06:11:51-fall (JUNO:s data täckte SALTYX). En varning per
+    // BÅT vore en dubbelvarning för samma broöppning.
+    expect: {
+      minTargetPassages: 4,
+      expectedOpenings: ['Klaffbron', 'Stridsbergsbron'],
+      maxOpeningsPerBridge: { Klaffbron: 1, Stridsbergsbron: 1 },
+    },
   },
   // === Utökning 2026-07-01 (testaudit DEL D + N1/S-F3/S-F4/S-F7-klasserna) ===
   {
@@ -224,7 +280,9 @@ const SCENARIOS = [
     vessels: [{
       mmsi: '901000022', direction: 'north', speedKn: 0, jitterM: 2, moorAt: { ...QUAY, durationS: 2400, navStatus: 5 },
     }],
-    expect: { zeroNotifications: true, noVesselText: true },
+    // Etapp 6: navStatus=5 (moored) ⇒ vessel._moored ⇒ beväpningsgrindens
+    // första lager stänger. Noll öppningsvarningar.
+    expect: { zeroNotifications: true, noVesselText: true, zeroOpeningWarnings: true },
   },
   {
     // GPS-outlier som TELEPORTERAR över Klaffbron (en sample, +300 m i
@@ -238,7 +296,13 @@ const SCENARIOS = [
       speedKn: 4.5,
       gpsJump: { atFraction: Math.max(0, FRAC_KLAFFBRON - 150 / METRICS.total), offsetM: 300 },
     }],
-    expect: { minTargetPassages: 2 },
+    // Etapp 6: teleporten får inte fabricera en EXTRA öppningsvarning (falsk
+    // linjekorsning ⇒ falsk passage ⇒ ny händelse). En per bro, som normalt.
+    expect: {
+      minTargetPassages: 2,
+      expectedOpenings: ['Klaffbron', 'Stridsbergsbron'],
+      maxOpeningsPerBridge: { Klaffbron: 1, Stridsbergsbron: 1 },
+    },
   },
   {
     // RC3-klassen proaktivt: sog-kollaps till 0,6 kn genom själva
@@ -261,7 +325,15 @@ const SCENARIOS = [
     vessels: [{
       mmsi: '901000025', direction: 'north', speedKn: 0.8, reportIntervalS: 300,
     }],
-    expect: { minTargetPassages: 2 },
+    // Etapp 6, KRYPFARTENS PRÖVNING: 0,8 kn i 5-minuterskadens betyder att
+    // deadline-motorn måste hålla armen levande i ~50 min utan att
+    // ARM_STALE_TTL:n (30 min utan OBSERVATION — inte utan rörelse) släpper
+    // den, och att den långa transiten inte får generera en andra varning.
+    expect: {
+      minTargetPassages: 2,
+      expectedOpenings: ['Klaffbron', 'Stridsbergsbron'],
+      maxOpeningsPerBridge: { Klaffbron: 1, Stridsbergsbron: 1 },
+    },
   },
   {
     // Varje meddelande levereras DUBBELT (multi-mottagare/AISstream-dubbletter)
@@ -271,7 +343,13 @@ const SCENARIOS = [
     vessels: [{
       mmsi: '901000026', direction: 'north', speedKn: 4.5, duplicateEvery: 1,
     }],
-    expect: { minTargetPassages: 2 },
+    // Etapp 6: dubbellevererade meddelanden får inte ge dubbla varningar —
+    // varje sample kör observeVessel två gånger med IDENTISK fysik.
+    expect: {
+      minTargetPassages: 2,
+      expectedOpenings: ['Klaffbron', 'Stridsbergsbron'],
+      maxOpeningsPerBridge: { Klaffbron: 1, Stridsbergsbron: 1 },
+    },
   },
   {
     // 35-min-gap i målbrozonen: fartyget stale-raderas (30 min) och återföds
@@ -553,6 +631,15 @@ const SCENARIOS = [
       minTargetPassages: 2,
       noUnknownTokens: true,
       minNotifiedBridges: ['Klaffbron', 'Järnvägsbron', 'Stridsbergsbron', 'Stallbackabron'],
+      // ÖPPNINGSDIMENSIONEN (etapp 6-granskningen): omstarten är det ENDA
+      // scenario som prövar v1-beslutet "inga armar över omstart", och det
+      // saknade taket. Reproducerat hål: den nya instansen beväpnade om och
+      // varnade OM — TVÅ "Stridsbergsbron öppnar snart" fem minuter isär för
+      // EN öppning. Kortkontraktet säger EN varning per förestående öppning,
+      // och en Homey-app startas om vid varje appuppdatering.
+      // Vakten är app.js persistenta öppningsdedup (bro|mmsi|riktning).
+      expectedOpenings: ['Klaffbron', 'Stridsbergsbron'],
+      maxOpeningsPerBridge: { Klaffbron: 1, Stridsbergsbron: 1 },
     },
   },
   // === Utökning 2026-07-06 (helgranskningens teststärkning) ===
@@ -577,6 +664,12 @@ const SCENARIOS = [
       minTargetPassages: 2,
       noUnknownTokens: true,
       minNotifiedBridges: ['Klaffbron', 'Stridsbergsbron'],
+      // Etapp 6: den fartgivarlösa klassen har fällt fyra granskningsrundor.
+      // Deadline-motorn är per konstruktion sog-oberoende (ren avståndsformel
+      // med DEADLINE_MAX_SPEED_KN) — det ska synas som FULL öppningstäckning
+      // här, inte som tystnad.
+      expectedOpenings: ['Klaffbron', 'Stridsbergsbron'],
+      maxOpeningsPerBridge: { Klaffbron: 1, Stridsbergsbron: 1 },
     },
   },
   {
@@ -602,7 +695,11 @@ const SCENARIOS = [
         navStatus: null, // Class B — förtöjningen måste bevisas av rörelselagren
       },
     }],
-    expect: { zeroNotifications: true, noVesselText: true },
+    // Etapp 6: den här kajliggaren ligger INOM en trigger-punkts
+    // ledger-radie — det är alltså V1-kajbokföringen (inte bara
+    // rörelsebeviset) som måste hålla henne obeväpnad genom hela
+    // removal-cykeln. PRICKBJORN-klassen i syntetisk form.
+    expect: { zeroNotifications: true, noVesselText: true, zeroOpeningWarnings: true },
   },
   {
     // GPS-hopp VID notisgränsen (helgranskningen 2026-07-06, Fix 5-gaten):
@@ -627,6 +724,10 @@ const SCENARIOS = [
     expect: {
       minTargetPassages: 2,
       minNotifiedBridges: ['Klaffbron', 'Stridsbergsbron'],
+      // Etapp 6: 500 m-hoppet får varken fabricera en extra varning (falsk
+      // närhet ⇒ ny händelse) eller strypa den äkta.
+      expectedOpenings: ['Klaffbron', 'Stridsbergsbron'],
+      maxOpeningsPerBridge: { Klaffbron: 1, Stridsbergsbron: 1 },
     },
   },
   {
@@ -714,6 +815,22 @@ const SCENARIOS = [
     expect: {
       minNotifiedBridges: ['Järnvägsbron', 'Stridsbergsbron', 'Stallbackabron'],
       forbiddenNotifiedBridges: ['Klaffbron'],
+      // ÖPPNINGSVARNINGARNA (etapp 6) — KLASSNINGSBESLUT, se rapporten:
+      // Klaffbron FÅR varnas här, och det är INTE en kajvobbel. AKIRA gör en
+      // ÄKTA avgång (5,0 kn) från en kajplats mitt i farleden, 500 m norr om
+      // Klaffbron, med bron som målbro — exakt "båt som vänder EFTER sista
+      // fixen mitt i beväpnad approach", produktprincipens ACCEPTERADE
+      // falsklarmsklass. Kajgrinden ÄR verksam här sedan etapp 6-granskningen
+      // (öppningslagret bokför numera också målbroarnas närområden), men den
+      // släpper henne på rätt grund: 5,0 kn ligger över
+      // BRIDGE_OPENING.QUAY_TRANSIT_PROOF_SOG_KN, dvs. medianfarten för en
+      // ÄKTA anflygning — AKIRA-fältfallets 1,1 kn gör det inte.
+      // Det som däremot ALDRIG får hända är att
+      // U-svängen + krypfarten norrut genererar en ANDRA Klaffbron-varning —
+      // det vore vobbeln som betalar sig. Taket är därför 1, och den
+      // NOTIS-dimension som redan är låst (forbiddenNotifiedBridges) är
+      // oförändrad.
+      maxOpeningsPerBridge: { Klaffbron: 1 },
     },
   },
   {
@@ -743,6 +860,13 @@ const SCENARIOS = [
     }],
     expect: {
       minNotifiedBridges: ['Stridsbergsbron', 'Järnvägsbron', 'Klaffbron'],
+      // Etapp 6: reborn-fallet får inte varna två gånger för samma öppning.
+      // Fartyget stale-raderas ur VesselDataService mitt i tystnaden — armen
+      // lever kvar i servicens EGEN Map (det är hela poängen med att inte
+      // hänga armarna på vessel-objektet) och återfödelsen får därför inte
+      // seeda en ny händelse för en bro som redan varnats.
+      expectedOpenings: ['Stridsbergsbron'],
+      maxOpeningsPerBridge: { Stridsbergsbron: 1, Klaffbron: 1 },
     },
   },
   {
@@ -797,6 +921,12 @@ const SCENARIOS = [
     }],
     expect: {
       minNotifiedBridges: ['Stridsbergsbron'],
+      // Etapp 6, VÄNTZONSUNDANTAGET i renodlad form: 35 min stillastående
+      // 74 m från målbron, med FÄRSKA rapporter hela tiden. Det är
+      // normalfallet för en öppning — armen får varken avväpnas (stoppet är
+      // långt INNANFÖR DISARM_MOORED_MIN_DISTANCE_M = 600 m) eller varna om.
+      expectedOpenings: ['Stridsbergsbron'],
+      maxOpeningsPerBridge: { Stridsbergsbron: 1, Klaffbron: 1 },
     },
   },
   {
@@ -826,6 +956,52 @@ const SCENARIOS = [
     expect: {
       minNotifiedBridges: ['Klaffbron', 'Stridsbergsbron', 'Stallbackabron'],
       maxNotifiedPerBridge: { Stallbackabron: 1, Stridsbergsbron: 1, Klaffbron: 1 },
+      // Etapp 6: 2h20 stillaliggande EFTER båda målbroarna. Öppningslagret
+      // ska ha gjort sitt (en varning per målbro, före passagen) och sedan
+      // vara helt tyst — armarna prunas av ARM_STALE_TTL och den långa
+      // stillheten får aldrig seeda en ny händelse. Stallbackabron kan per
+      // konstruktion aldrig varnas (den är ingen målbro och öppnar aldrig).
+      expectedOpenings: ['Klaffbron', 'Stridsbergsbron'],
+      maxOpeningsPerBridge: { Klaffbron: 1, Stridsbergsbron: 1 },
+      forbiddenOpeningBridges: ['Stallbackabron'],
+    },
+  },
+  // === Utökning etapp 6 (2026-08-03) — deadline-motorn i HELKEDJA ===
+  {
+    // ÄGGKLOCKANS KÄRNFALL, användarens uttalade designkrav: sista fixet
+    // långt ute, sedan TOTAL radiotystnad — varningen ska ändå gå ut, driven
+    // av 30 s-watchdogen och ingenting annat.
+    //
+    // Geometrin är vald så att avfyrningen GARANTERAT sker under tystnaden:
+    // hon tystnar 2000 m söder om Klaffbron i 3,0 kn. Deadline-fysiken ger
+    // 2000 m / 10 kn = 389 s till "tidigast möjliga ankomst" och varningen
+    // ska gå 180 s före den, dvs. ~209 s EFTER sista fixet — medan
+    // FIRE_EXPECTED_ETA-grenen (3,0 kn ⇒ 21 min kvar) är långt ifrån att
+    // lösa ut. Hade hon tystnat på 700 m hade varningen redan gått ut på
+    // sitt sista fix och scenariot bevisat fel sak.
+    //
+    // Ingen passage detekteras (hon syns aldrig mer), så det här är också
+    // fantomtakets ACCEPTERADE klass i renodlad form: en äkta beväpnad
+    // anflygning som tystnar. Enhetstesterna på servicen (O4) täcker
+    // grenarna isolerat; det här beviset går genom HELA kedjan — app.js
+    // observeVessel, watchdogen, avfyrningsvägen och Homey-kortet.
+    name: 'tyst-från-2000m (deadline i total radiotystnad)',
+    seed: 56,
+    vessels: [{
+      mmsi: '901000056',
+      name: 'SYNT-TYST',
+      direction: 'north',
+      speedKn: 3.0,
+      gap: {
+        atFraction: (METRICS.cum[2] - 2000) / METRICS.total,
+        durationS: 99999, // aldrig mer — sändaren är död
+      },
+    }],
+    expect: {
+      noTargetPassages: true,
+      expectedOpenings: ['Klaffbron'],
+      maxOpeningsPerBridge: { Klaffbron: 1, Stridsbergsbron: 1 },
+      deadlineFiredOpenings: ['Klaffbron'],
     },
   },
 ];
@@ -897,11 +1073,85 @@ function checkExpectations(scenario, result) {
       }
     }
   }
+  // ---------------------------------------------------------------------
+  // ÖPPNINGSVARNINGAR (etapp 6, 2026-08-03) — additiv dimension
+  // ---------------------------------------------------------------------
+  const openings = result.openingWarnings || [];
+  // Servicen kan avfyra utan att kortet nås (dedup som spärrar fel, saknat
+  // kort, kastande tokenbygge). Skillnaden är alltid en bugg i leveransvägen.
+  if (Number.isFinite(result.openingServiceFires)
+      && result.openingServiceFires !== openings.length) {
+    problems.push(`ÖPPNINGSLEVERANS: servicen avfyrade ${result.openingServiceFires} men kortet fick ${openings.length}`);
+  }
+  const failedOpenings = openings.filter((w) => w.success === false);
+  if (failedOpenings.length > 0) {
+    problems.push(`ÖPPNINGSVARNING KASTADE: ${failedOpenings[0].error || 'okänt fel'}`);
+  }
+  // Armarna får aldrig överleva efterspelet (30 min TTL < 40 min efterspel).
+  const leaks = result.leakDiagnostics || {};
+  if (Number.isFinite(leaks.openingArms) && leaks.openingArms !== 0) {
+    problems.push(`${leaks.openingArms} öppningsarmar kvar efter efterspel`);
+  }
+  if (e.zeroOpeningWarnings && openings.length > 0) {
+    problems.push(`oväntade öppningsvarningar: ${openings.map((w) => `${w.bridge}@${w.iso}`).join(',')}`);
+  }
+  if (e.forbiddenOpeningBridges) {
+    const warned = new Set(openings.map((w) => w.bridge));
+    for (const bridge of e.forbiddenOpeningBridges) {
+      if (warned.has(bridge)) {
+        const w = openings.find((x) => x.bridge === bridge);
+        problems.push(`FÖRBJUDEN ÖPPNINGSVARNING för ${bridge} (${w.iso}, ledande ${w.leadVessel}, d=${w.distance} m, ${w.firedBy})`);
+      }
+    }
+  }
+  if (e.expectedOpenings) {
+    for (const bridge of e.expectedOpenings) {
+      const forBridge = openings.filter((w) => w.bridge === bridge);
+      if (forBridge.length === 0) {
+        problems.push(`SAKNAD ÖPPNINGSVARNING för ${bridge}`);
+        continue;
+      }
+      // En varning EFTER passagen är värdelös — kravet är förvarning.
+      const firstPassage = passages
+        .filter((p) => p.bridge === bridge)
+        .reduce((min, p) => (min === null || p.t < min ? p.t : min), null);
+      if (firstPassage !== null && !forBridge.some((w) => Number.isFinite(w.t) && w.t < firstPassage)) {
+        problems.push(`ÖPPNINGSVARNING FÖR SENT för ${bridge}: alla varningar ligger EFTER passagen ${new Date(firstPassage).toISOString()}`);
+      }
+    }
+  }
+  if (e.maxOpeningsPerBridge) {
+    const counts = {};
+    for (const w of openings) counts[w.bridge] = (counts[w.bridge] || 0) + 1;
+    for (const [bridge, maxN] of Object.entries(e.maxOpeningsPerBridge)) {
+      if ((counts[bridge] || 0) > maxN) {
+        problems.push(`ÖPPNINGSDUBBLETT: ${bridge} fick ${counts[bridge]} varningar (max ${maxN})`);
+      }
+    }
+  }
+  if (e.deadlineFiredOpenings) {
+    for (const bridge of e.deadlineFiredOpenings) {
+      const forBridge = openings.filter((w) => w.bridge === bridge);
+      if (!forBridge.some((w) => w.firedBy === 'deadline')) {
+        problems.push(`ÄGGKLOCKAN TYST för ${bridge}: `
+          + `${forBridge.length ? forBridge.map((w) => `${w.iso}/${w.firedBy}`).join(', ') : 'ingen varning alls'} `
+          + '— ingen varning kom ur tick-motorn');
+      }
+    }
+  }
+
   // B1-kontrakt (2026-07-03): token-fallbacken är "Okänd båt" — den råa
   // aisstream-platshållaren "Unknown" får ALDRIG nå en notis.
   if (e.noUnknownTokens) {
     const raw = notifications.filter((n) => n.name === 'Unknown');
     if (raw.length > 0) problems.push(`"Unknown" läckte till ${raw.length} notistokens`);
+    // B1 GÄLLER ALLA KORT (etapp 6-granskningen): kontraktet inspekterade bara
+    // boat_near, så det nya kortets vessel_name var helt undantaget — och det
+    // levererade den råa aisstream-platshållaren "Unknown" i skarpa korpusar.
+    const rawOpen = (result.openingWarnings || []).filter((w) => w.leadVessel === 'Unknown');
+    if (rawOpen.length > 0) {
+      problems.push(`"Unknown" läckte till ${rawOpen.length} öppningsvarningars vessel_name`);
+    }
   }
   // B1-namnbackfill: notiser EFTER given scenariosekund ska bära riktigt namn.
   if (e.namedNoticesAfterS != null && Number.isFinite(result.firstSampleMs)) {
@@ -936,7 +1186,9 @@ for (const scenario of SCENARIOS) {
       console.log(`  ⚠️ ${scenario.name}: ${warns.length} WARN — ${warns.slice(0, 2).join('; ')}${warns.length > 2 ? ' …' : ''}`);
     }
     if (problems.length === 0) {
-      outcome = `✅ ${scenario.name.padEnd(38)} samples=${sampleCount}, passager=${(result.targetPassages || []).length}, notiser=${result.notificationCount}`;
+      outcome = `✅ ${scenario.name.padEnd(38)} samples=${sampleCount}, `
+        + `passager=${(result.targetPassages || []).length}, notiser=${result.notificationCount}, `
+        + `öppningar=${result.openingWarningCount ?? 0}`;
     } else {
       failed = true;
       outcome = `❌ ${scenario.name.padEnd(38)} ${problems.join('; ')}`;

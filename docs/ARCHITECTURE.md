@@ -34,8 +34,13 @@ VesselDataService (lib/services/VesselDataService.js)
 app.js händelsehanterare (_onVesselEntered:804, _onVesselUpdated:858, _onVesselRemoved:1074)
    ├─→ StatusService.analyzeVesselStatus (status/ETA) ── status:changed → _onVesselStatusChanged:1282
    ├─→ ProximityService.analyzeVesselProximity (avstånd/zoner)
-   ├─→ boat_near-Flow-vägarna (§3)
+   ├─→ boat_near-Flow-vägarna (§3)            [REAKTIVT: kräver fix inne i 300 m]
+   ├─→ BridgeOpeningService.observe (§3)      [PROAKTIVT: beväpning från 2500 m]
    └─→ _updateUI → coalescing → _processUIUpdate:2393 → bridge_text-capability + global token
+
+30 s-watchdogen (_initializeCoalescingSystem)
+   └─→ BridgeOpeningService.tick() → deadline-motorn → onWarning → bridge_opening_soon
+       (FÖRE watchdogens tomkanals-retur — annars dör äggklockan när den behövs)
 ```
 
 Moduler (ansvar / ägda tillstånd / in-ut):
@@ -171,6 +176,15 @@ Moduler (ansvar / ägda tillstånd / in-ut):
   nyss passerad bro (`lastPassedBridge`, >50 m) sätts inte om (:58–69); Regel 2:
   CLEAR >600 m (:70–78). Ingen Regel 3 (ersatt av omräkningen, :79).
 - **BridgeTextService**: ren funktion vessels→text (§5).
+- **BridgeOpeningService** (lib/services/BridgeOpeningService.js, etapp 6
+  2026-08-03): det PROAKTIVA lagret bakom `bridge_opening_soon` (§3). Äger
+  beväpning, bro-centrerade öppningshändelser och deadline-motorn. Ren service
+  utan Homey-importer och **utan egna timers** — `tick()` drivs av den befintliga
+  30 s-watchdogen. Läser bara BEFINTLIGA vessel-fält och håller armarna i egen
+  Map (inget nytt fält på fartygsobjektet ⇒ fältlist-fällan undveks; armen
+  överlever att fartyget timeout:as, vilket är hela designfallet). In: observation
+  per fix + tick. Ut: `onWarning`/`onCoverage`-callbacks till app.js. Rör INTE
+  boat_near, bridge_text eller något befintligt facit.
 - **Utils**: `geometry` (haversine, distancePointToSegmentM, hasChangedBridgeSide),
   `CountTextHelper`, `etaValidation` (isValidETA, formatETABroOpeningClause =
   SSOT för ETA-klausulen), `PassageWindowManager`, `GPSJumpAnalyzer`.
@@ -337,6 +351,53 @@ bridge"-flow fyrar max EN gång per BRO och resa (upp till 6 för full genomresa
 — run-listenern (:4743–4758) släpper `'any'` rakt igenom; per-resa-gaten (F7,
 mmsi:any-nyckeln) togs bort 2026-07-02 (användarbeslut). distance/source
 konsumeras av replay-invarianterna (INV-11, inferens-särskiljning).
+
+### bridge_opening_soon — det PROAKTIVA lagret (etapp 6, 2026-08-03)
+
+Andra flow-kortet på app-nivå, **helt additivt**: rör varken boat_near-dedupen,
+bridge_text eller något befintligt facit. boat_near är REAKTIVT (notisen kräver
+ett fix inne i 300 m-zonen) och tappar därför exakt de öppningar där båten
+tystnar på slutsträckan. Det här lagret varnar per **MÅLBRO** i stället för per
+båt.
+
+- **Ägare:** `lib/services/BridgeOpeningService.js` (ren service, inga
+  Homey-importer, allt injicerat). Läser BEFINTLIGA vessel-fält (`targetBridge`,
+  `_hasMovementProof`, `_moored`, `_routeDirection`, `_finalTargetDirection`,
+  `passedAt`, `etaMinutes`) och skapar **inga nya** — armarna lever i servicens
+  egen Map, inte på fartygsobjektet (fältlist-fällans 14:e potentiella offer
+  undveks medvetet; armen överlever dessutom att fartyget timeout:as, vilket är
+  hela designfallet).
+- **Injektioner från app.js** (`onInit`, :410): `getDirection` →
+  `_getDirectionString`, `isQuayWobbler` → `_isBridgeOpeningQuayWobbler`,
+  `getVesselName` → `_lookupVesselName` (B1), `onWarning` →
+  `_onBridgeOpeningWarning`, `onCoverage` → `_onBridgeOpeningCoverage`.
+  Matningen sker i `_observeBridgeOpening` (:1218) från `_onVesselEntered`/
+  `_onVesselUpdated`, direkt efter `_noteQuayStability`.
+- **TICK-DOKTRINEN:** servicen äger **INGA timers**. `tick()` anropas från den
+  BEFINTLIGA 30 s-watchdogen i `_initializeCoalescingSystem`, och anropet MÅSTE
+  ligga FÖRE watchdogens tomkanals-retur — annars dör deadline-motorn exakt när
+  den behövs (båten timeout:ad, kanalen tom).
+- **KLOCKDOMÄNEN:** armens ankare är `min(fixTs, timestamp)` (fysik/fusion,
+  §mux) — inte mottagningstiden. Ankaret klampas åt båda håll: framtid ⇒ `now`,
+  äldre än `BRIDGE_OPENING.MAX_FIX_ANCHOR_AGE_MS` (12 min = fusionens
+  åldersgrind) ⇒ `now − 12 min`.
+- **Tre mekanismer:** (a) bro-centrerade öppningshändelser — flera samtidiga
+  händelser per bro, medlemskap per arm mot dig9:s konvojfönster; (b) deadline
+  ("äggklockan") — tidigast möjliga ankomst = `avstånd / DEADLINE_MAX_SPEED_KN`
+  från FIXETS tid, minus `WARNING_LEAD_MS`; (c) tidig beväpning (2500 m), sen
+  avfyrning. **Tystnad avväpnar aldrig** — bara motbevis (passage, U-sväng,
+  förtöjning >600 m, bron bakom fartyget, hysteresrelease >3000 m).
+- **Konvojtäckningen är TIDSBEGRÄNSAD:** en absorberad arm släpps igen om
+  öppningen hon knöts till passerat utan henne (`referenceArrival +
+  CONVOY_WINDOW_MS`), och kan då seeda en egen varning. Utan det blev en
+  absorberad båt permanent tystad.
+- **Dedup i TVÅ lager (app.js):** `_firedOpeningEvents` (eventId, sessionslokal)
+  och `persistent_opening_warnings` (`bro|mmsi|riktning`, 10 min, ÖVER omstart
+  — v1 persisterar inga armar, så en omstart mitt i en anflygning varnade annars
+  om för samma öppning).
+- **Grindar:** `npm run replay:openings` (O1 täckning / O2 fantomtak /
+  O3 nattkontroll), `opening-distribution.json` (O5, bro:riktning-multiset per
+  korpus, jämförs i `runAllCorpora`), INV-21 (WARN).
 
 ### Övriga Flow-/notisytor
 
@@ -527,6 +588,17 @@ Flaggor (bärs av `_createVesselObject`-fältlistan, §8a): `_etaIsExtrapolated`
 | `known_vessel_names` | `_loadVesselNames`:529 | `_persistVesselNames`:561 | B1-namncache `{ mmsi: {name, t} }`, 30 d TTL, max 200 poster (äldst-först-eviction); skrivs via `_rememberVesselName`:593 bara vid nytt/ändrat namn eller >24 h sedan sist |
 | `last_known_positions` | `_loadLastKnownPositions`:615 | `_persistLastKnownPositions`:646 | `{ mmsi: {lat, lon, t} }`, 6 h TTL; skrivs vid removal (:1084–1090); begränsar skipped-bridges-scenario A för återfödda båtar (§3) |
 | `quay_stable_ledger` | `_loadQuayLedger` | `_persistQuayLedger` (STRYPT: max var 15:e min + tvingad vid `onUninit`) | V1-kajavgångsgrindens historik `{ mmsi: {stillAt, lat, lon} }`, TTL = `QUAY_DEPARTURE_GATE.MEMORY_MS` (2 h); rörelseräknaren `movingFixes` persisteras ALDRIG (den är ett påstående om innevarande sessions observationer). Utan persistensen återskapade en appomstart 5 s före kajavgången PRICKBJORN-fantomen exakt |
+| `persistent_opening_warnings` | `_loadPersistentOpeningWarnings` | `_persistOpeningWarnings` (vid varje avfyrning; ~230 st per 250 h data) | Etapp 6: öppningsvarningarnas dedup ÖVER omstart, `{ "Bro\|mmsi\|riktning": t }`, fönster = `BRIDGE_OPENING.CONVOY_WINDOW_MS` (10 min). Riktningsledet gör att en U-svängares RETURPASSAGE (en äkta ny öppning) aldrig tystas |
+
+**Kajbokföringens TVÅ kartor.** `_quayStableLedger` (persisterad, ovan) bokför
+bara inom `QUAY_DEPARTURE_GATE.LEDGER_RADIUS_M` från en TRIGGER-punkt, och det
+finns exakt en (Kanalinfarten). Öppningslagret har därför en EGEN,
+sessionslokal karta — `_openingQuayLedger` — med samma regler
+(`_noteQuayLedgerEntry` är gemensam) men referenspunkterna trigger-punkter PLUS
+målbroarna: Kanalinfarten ligger 1982 m från Klaffbron och 3197 m från
+Stridsbergsbron, så V1-kartan gjorde kajvobbel-grinden strukturellt neutral vid
+exakt de två broar öppningslagret varnar för. Kartorna hålls åtskilda så
+boat_near-grinden och dess facit står byte-identiska.
 
 Mönstret (mall för framtida cacher): ladda i konstruktorn med expiry-filter och
 guards; **write-through vid varje mutation**; rollback vid misslyckad operation
@@ -564,12 +636,15 @@ Permanent valideringsverktyg — kör den RIKTIGA appen mot inspelad AIS-jsonl.
 - `corpora.js`: **8 låsta korpusar (~101,5 h** = 4+41+1+4+19+11+2+19,5) med
   `expectedNotifications` + motiverad `note` vid omlåsning = **facit**;
   `corpora-distribution.json` låser fördelningen per fartyg+bro. Data i `../logs/`.
-- `invariants.js`: facit-OBEROENDE sanningskontroller **INV-1…INV-18**. Fatala:
+- `invariants.js`: facit-OBEROENDE sanningskontroller **INV-1…INV-21**. Fatala:
   INV-1…14 + INV-16 (`validateInvariants`; INV-8 namnkvalitet/INV-11
   distansrimlighet/INV-16 ETA-fysik <30 kn SKÄRPTES från WARN 2026-07-03). WARN:
-  INV-15/17/18 (`validateWarnInvariants`, kalibrerade: INV-15 riktning-vs-geografi
-  ~220 m (0,002°); INV-17 textflappbudget max(40, 24×antal fartyg)/h; INV-18
-  mjuk ETA-monotoni ≥8 min inom 15 min).
+  INV-15/17/18/19/20/21 (`validateWarnInvariants`, kalibrerade: INV-15
+  riktning-vs-geografi ~220 m (0,002°); INV-17 textflappbudget max(40, 24×antal
+  fartyg)/h; INV-18 mjuk ETA-monotoni ≥8 min inom 15 min; **INV-21 (etapp 6)
+  öppningsvarning efter passage** — varning för en bro där en av varningens EGNA
+  medlemmar redan registrerats som passerad; returresor undantas via
+  journey-reset, och regeln är tyst över samtliga korpusar + soaken).
 - `scenarioGenerator.js` + `runSyntheticScenarios.js`: seedade syntetiska resor
   genom riktig brogeometri — **35 scenarier**; `nameFromS` (:139–142) simulerar
   sen namn-backfill: "Unknown" sänds tills t ≥ nameFromS s (VALEN-klassen).
@@ -577,9 +652,24 @@ Permanent valideringsverktyg — kör den RIKTIGA appen mot inspelad AIS-jsonl.
   avbrott + 2 äkta restarts); bedömer STABILITET (0 processfel, inga läckor,
   fatala invarianter rena, ≥5 notiser/fullbordad resa) — inte facit. Körs
   manuellt (`node tests/replay-validation/runSoak.js`; medvetet inget npm-script).
-- Körs: `npm run replay:all` / `npm run replay:synthetic` — eller hela kedjan
-  med `npm run validate` (jest + korpusar + scenarier) resp.
-  `npm run validate:full` (+ soaken). Praktisk körbok: `docs/VALIDATION.md`.
+- `runOpeningGates.js` (etapp 6): **`npm run replay:openings`** — det proaktiva
+  lagrets egen sanning, mätt mot RÅDATA i stället för mot en inspelning.
+  O1 täckning (varje målbropassage ska ha en varning FÖRE; varje miss klassas,
+  OKLASSAD = rött; konvojtäckning underkänns om bron bevisligen öppnat och
+  stängt emellan), O2 fantomtak (varning utan passage inom 20 min klassas mot
+  rådata; KAJVOBBEL/UTANFÖR_HORISONTEN = rött; SEN_PASSAGE klassas också),
+  O3 nattkontrollen (A/B-nattens två armar), plus avfyrningsfönstret
+  (`t − dueMs` inom ett par tick) och ledtidsgolvet.
+- `opening-distribution.json` (etapp 6, O5): multiset `bro:riktning → antal` per
+  korpus för öppningsvarningarna — samma roll för `bridge_opening_soon` som
+  `corpora-direction-distribution.json` har för boat_near. Jämförs i
+  `runAllCorpora`; regenereras BARA med `REGEN_DISTRIBUTIONS=1` från en grön
+  körning. Saknas filen skriver grinden en högljudd rad (dimensionen är då
+  olåst).
+- Körs: `npm run replay:all` / `npm run replay:synthetic` /
+  `npm run replay:openings` — eller hela kedjan med `npm run validate`
+  (jest + korpusar + scenarier) resp. `npm run validate:full` (+ soaken).
+  Praktisk körbok: `docs/VALIDATION.md`.
 
 **Teststärkningen 2026-07-06** (helgranskningens sista insats):
 - 38 syntetiska scenarier (+3: `fartgivarlös-genomresa` med sog=null —

@@ -151,6 +151,90 @@
             }
           }
         ]
+      },
+      {
+        "id": "bridge_opening_soon",
+        "title": {
+          "en": "Bridge opening ahead",
+          "sv": "Broöppning på väg"
+        },
+        "titleFormatted": {
+          "en": "[[bridge]] opening ahead",
+          "sv": "Broöppning på väg vid [[bridge]]"
+        },
+        "hint": {
+          "en": "Fires once per upcoming opening of Klaffbron or Stridsbergsbron. The warning is sent before the earliest possible arrival, so it still arrives in time if the vessel's AIS transmitter goes quiet on the final approach. That safety margin makes it EARLY rather than late: measured over ~240 h of real traffic the lead time is a median of 17 minutes (shortest 2.5 minutes, longest well over an hour for slow vessels). Use the eta_minutes token for the expected arrival; -1 means unknown. Vessels arriving in the same opening share one warning.",
+          "sv": "Utlöses en gång per förestående öppning av Klaffbron eller Stridsbergsbron. Varningen skickas före tidigast möjliga ankomst, så den kommer fram i tid även om båtens AIS-sändare tystnar på slutsträckan. Den säkerhetsmarginalen gör varningen TIDIG snarare än sen: mätt över ~240 h verklig trafik är förvarningen i median 17 minuter (kortast 2,5 minuter, längst över en timme för långsamma båtar). Använd eta_minutes-token för den förväntade ankomsten; -1 betyder okänd. Båtar som anländer i samma öppning delar på en varning."
+        },
+        "args": [
+          {
+            "name": "bridge",
+            "type": "dropdown",
+            "title": {
+              "en": "Bridge",
+              "sv": "Bro"
+            },
+            "values": [
+              {
+                "id": "any",
+                "title": {
+                  "en": "Any bridge",
+                  "sv": "Alla broar"
+                }
+              },
+              {
+                "id": "klaffbron",
+                "title": "Klaffbron"
+              },
+              {
+                "id": "stridsbergsbron",
+                "title": "Stridsbergsbron"
+              }
+            ]
+          }
+        ],
+        "tokens": [
+          {
+            "name": "bridge_name",
+            "type": "string",
+            "title": {
+              "en": "Bridge",
+              "sv": "Bro"
+            }
+          },
+          {
+            "name": "vessel_name",
+            "type": "string",
+            "title": {
+              "en": "Leading vessel",
+              "sv": "Ledande fartyg"
+            }
+          },
+          {
+            "name": "direction",
+            "type": "string",
+            "title": {
+              "en": "Direction",
+              "sv": "Riktning"
+            }
+          },
+          {
+            "name": "eta_minutes",
+            "type": "number",
+            "title": {
+              "en": "ETA (minutes, -1 = unknown)",
+              "sv": "Beräknad ankomst (minuter, -1 = okänd)"
+            }
+          },
+          {
+            "name": "vessel_count",
+            "type": "number",
+            "title": {
+              "en": "Number of vessels",
+              "sv": "Antal båtar"
+            }
+          }
+        ]
       }
     ],
     "conditions": [

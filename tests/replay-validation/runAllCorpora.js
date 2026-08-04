@@ -39,6 +39,29 @@ const directionDistribution = fs.existsSync(DIRECTION_FILE)
 // regenerera MEDVETET med REGEN_DISTRIBUTIONS=1 från en GRÖN körning och
 // GRANSKA diffen som vid facit-omlåsning (facit-fällans regler gäller).
 const GOLDEN_DIR = path.join(__dirname, 'golden-text');
+// ÖPPNINGSFACIT (etapp 6, 2026-08-03, O5): multiset:en av bro:riktning per
+// korpus + antal, för det PROAKTIVA lagrets varningar. Samma roll för
+// bridge_opening_soon som corpora-direction-distribution.json har för
+// boat_near — utan den kan en tappad eller uppfunnen öppningsvarning inte
+// upptäckas av någon gate (notisfacit och golden-text är per konstruktion
+// blinda för den nya dimensionen).
+//
+// FILEN SKA FINNAS (etapp 6-granskningen). Bootstrap-läget var tidigare
+// "saknas hela filen ⇒ kör öppningsdelen informativt", och eftersom filen
+// aldrig genererades var HELA dimensionen olåst utan ett ord i utskriften —
+// exakt det hål R2-1 en gång stängde för fördelningsfacit, återinfört en nivå
+// upp. Saknas filen nu skriver grinden en HÖGLJUDD rad (och regenerering är
+// den enda tillåtna vägen: REGEN_DISTRIBUTIONS=1 från en grön körning).
+// Finns filen men saknar en LÅST korpus är det ett HÅRT fel.
+const OPENING_FILE = path.join(__dirname, 'opening-distribution.json');
+const openingDistribution = fs.existsSync(OPENING_FILE)
+  ? JSON.parse(fs.readFileSync(OPENING_FILE, 'utf8'))
+  : null;
+if (!openingDistribution && process.env.REGEN_DISTRIBUTIONS !== '1') {
+  console.log('⚠️ ÖPPNINGSFACIT SAKNAS (opening-distribution.json) — den nya '
+    + 'dimensionen är OLÅST i den här körningen. Regenerera med '
+    + 'REGEN_DISTRIBUTIONS=1 från en grön körning.');
+}
 const REGEN = process.env.REGEN_DISTRIBUTIONS === '1';
 
 const RUNNER = path.join(__dirname, 'replayRunner.js');
@@ -58,6 +81,19 @@ let failed = false;
 const rows = [];
 const regeneratedDirections = {};
 const regeneratedGolden = {};
+const regeneratedOpenings = {};
+
+/** Multiset av öppningsvarningar: "Bro:riktning" → antal. */
+function openingKeys(result) {
+  const acc = {};
+  for (const w of (result.openingWarnings || [])) {
+    const k = `${w.bridge}:${w.direction || 'unknown'}`;
+    acc[k] = (acc[k] || 0) + 1;
+  }
+  const sorted = {};
+  for (const k of Object.keys(acc).sort((a, b) => a.localeCompare(b))) sorted[k] = acc[k];
+  return sorted;
+}
 
 for (const corpus of corpora) {
   let result;
@@ -127,6 +163,26 @@ for (const corpus of corpora) {
     }
   } else if (corpus.locked && !REGEN) {
     problems.push('RIKTNINGSPOST SAKNAS i corpora-direction-distribution.json — regenerera med REGEN_DISTRIBUTIONS=1 från grön körning');
+  }
+
+  // O5 (etapp 6, 2026-08-03): öppningsfacit — bro:riktning-multiset.
+  // Fusionskorpusar valideras mot PARENTENS facit av samma skäl som
+  // notisfördelningen: kontraktet är "identiskt utfall".
+  if (corpus.locked && openingDistribution) {
+    const expected = openingDistribution[distKey];
+    if (!expected) {
+      problems.push(`ÖPPNINGSPOST SAKNAS i opening-distribution.json (distKey=${distKey}) — öppningsgaten kan inte köras`);
+    } else {
+      const actual = openingKeys(result);
+      const allKeys = new Set([...Object.keys(expected), ...Object.keys(actual)]);
+      const diffs = [];
+      for (const k of [...allKeys].sort()) {
+        const e = expected[k] || 0;
+        const a = actual[k] || 0;
+        if (e !== a) diffs.push(`${k}: ${a} (facit ${e})`);
+      }
+      if (diffs.length) problems.push(`ÖPPNINGSFÖRDELNING AVVIKER: ${diffs.join(', ')}`);
+    }
   }
 
   // TA1 (2026-07-10): golden bridge_text — hela transitionsströmmen jämförs.
@@ -201,6 +257,7 @@ for (const corpus of corpora) {
     regeneratedDirections[corpus.id] = sortedAcc;
     regeneratedGolden[corpus.id] = (result.bridgeTextTransitions || [])
       .map((t) => ({ iso: t.iso, text: t.text }));
+    regeneratedOpenings[corpus.id] = openingKeys(result);
   }
 
   // WARN-invarianter (fas 0.4, 2026-07-03): informativa tills B1–B8 landat —
@@ -226,7 +283,8 @@ for (const corpus of corpora) {
     id: corpus.id,
     status,
     detail: `${`notiser=${notifications}${corpus.expectedNotifications !== null ? `/${corpus.expectedNotifications}` : ''}, `
-      + `övergångar=${(result.bridgeTextTransitions || []).length}, `}${
+      + `övergångar=${(result.bridgeTextTransitions || []).length}, `
+      + `öppningsvarningar=${result.openingWarningCount ?? 0}, `}${
       problems.length ? problems.join('; ') : 'rent'}`,
   });
 }
@@ -261,6 +319,11 @@ if (REGEN) {
     );
   }
   console.log(`📝 REGEN: golden-text skriven till golden-text/ (${lockedIds.length} korpusar).`);
+  // O5: öppningsfacit skrivs i SAMMA regen-svep och med samma villkor (endast
+  // från en helt grön körning). Det är den enda vägen filen ska skapas —
+  // aldrig för hand.
+  fs.writeFileSync(OPENING_FILE, `${JSON.stringify(regeneratedOpenings, null, 2)}\n`);
+  console.log(`📝 REGEN: öppningsfacit skrivet till ${path.basename(OPENING_FILE)} (${lockedIds.length} korpusar).`);
 }
 
 console.log('✅ Alla låsta korpusar matchar facit.');
