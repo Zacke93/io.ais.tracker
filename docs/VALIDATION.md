@@ -15,7 +15,7 @@ för att fungera utan att någon minns historiken. Arkitekturen står i
 ## Batteriet — kör ALLTID allt efter varje ändring i status-/notis-/text-/livscykellogik
 
 ```bash
-npm run validate          # jest + korpusar + syntetiska scenarier (~3 min)
+npm run validate          # jest + korpusar + syntetiska scenarier + öppningsgrindarna (~3 min)
 npm run validate:full     # ovan + 72h-soaken (~10 min) — före commit/publicering
 ```
 
@@ -23,10 +23,11 @@ Eller stegen var för sig:
 
 | Steg | Kommando | Grönt betyder |
 |---|---|---|
-| Enhetstester | `npm test 2>&1 \| tail -5` (**pipa alltid** — annars ENOSPC) | 1400+ tester passerar (1433 efter härdningsetappen 2026-08-03) |
+| Enhetstester | `npm test 2>&1 \| tail -5` (**pipa alltid** — annars ENOSPC) | 1400+ tester passerar (1551 i 103 sviter efter öppningsetappen 2026-08-03) |
 | | ⚠️ **Pipe-fällan** (ChatGPT-granskningen 2026-07-10, B1): pipens exitkod är `tail`:s (≈alltid 0) — LÄS `Tests:`-raden, lita inte på `$?`. `npm run validate` är immun: den skriver jest-utdatan till en tempfil och propagerar jest:s riktiga exitkod. | |
 | Korpusarna | `npm run replay:all` | 15 låsta korpusar (~239,5 h verklig AIS) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + exakt (mmsi,bro,riktning)-fördelning + EXAKT bridge_text-transitionsström (golden-text/) + alla invarianter |
-| Syntetiska | `npm run replay:synthetic` | 44 scenarier (gap, U-svängar, GPS-hopp, kajliggare, sog=null, omstart, 2h-prune-stillaliggare …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. |
+| Syntetiska | `npm run replay:synthetic` | 45 scenarier (gap, U-svängar, GPS-hopp, kajliggare, sog=null, omstart, 2h-prune-stillaliggare …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. |
+| Öppningsgrindarna | `npm run replay:openings` | ETAPP 6: det proaktiva lagret (`bridge_opening_soon`). **O1** varje målbropassage i alla 16 korpusar har en öppningsvarning FÖRE passagen — varje miss klassad mot rådata (oklassad = rött); en KONVOJTÄCKNING underkänns om bron bevisligen öppnat och stängt för någon annan emellan. **O2** varje varning utan passage inom 20 min klassas mot rådata (KAJVOBBEL och UTANFÖR_HORISONTEN = rött; avbruten approach, gles anflygning och garantipris = accepterade) — även SEN_PASSAGE-hinken klassas. **O3** A/B-nattens båda armar: 6/6 öppningar varnade före, konvojen som EN varning, boat_near byte-identisk med nattens facit. Dessutom **avfyrningsfönstret** (`t − dueMs` inom två tick — kontraktet "avfyra så sent som garantin tillåter") och **ledtidsgolvet** (hårt golv 60 s; tunnare än utlovade 150 s rapporteras). |
 | Soaken | `node tests/replay-validation/runSoak.js` | 72 h blandtrafik: 0 processfel, inga läckor, fatala invarianter rena |
 | Lint | `npx eslint <ändrade filer>` (per fil — OneDrive gör helträd långsamt) | 0 fel |
 
@@ -127,6 +128,15 @@ Korpusarnas facit ÄR sanningen tills du bevisat motsatsen i rådata. Om en
    golden-filerna som vilken facit-omlåsning som helst (git diff visar
    exakt vilka texter som ändrats).
 
+5. **Öppningsfacit** (etapp 6, O5): multiseten `bro:riktning → antal` per korpus
+   för `bridge_opening_soon` (`opening-distribution.json`). Notisfacit,
+   riktningsfacit och golden-text är per konstruktion BLINDA för den
+   dimensionen — utan filen kan en tappad eller uppdiktad öppningsvarning inte
+   upptäckas av någon gate. Skrivs i SAMMA regen-svep och med samma villkor:
+   `REGEN_DISTRIBUTIONS=1 npm run replay:all`, aldrig för hand. Saknas filen
+   skriver `replay:all` en högljudd rad; saknas en LÅST korpus i den är det ett
+   hårt fel.
+
 Exempel på att fällan fungerar: helgranskningens ETA-gap-omordning gav
 "ärligare" värden men korpusbelagd fatal sågtand (2→32 min i texten) —
 batteriet fällde den, fixen togs tillbaka.
@@ -137,7 +147,9 @@ batteriet fällde den, fixen togs tillbaka.
 grammatik (INV-1), notisdubbletter/tokens (INV-2), **räkningsbaserade INV-5/7**
 (varje registrerad målbropassage kräver sin EGEN notis i tid — även
 returpassagen av samma bro), sluttext (INV-6), namn (INV-8), distans (INV-11),
-läckage (INV-12), ETA-fysik (INV-16). WARN (informativa): INV-15/17/18.
+läckage (INV-12), ETA-fysik (INV-16). WARN (informativa): INV-15/17/18/19/20
+samt **INV-21** (etapp 6: öppningsvarning EFTER registrerad målbropassage för
+samma händelse — tyst över samtliga korpusar och soaken i dag).
 Domarlogiken har EGNA enhetstester i `tests/replay-invariants-unit.test.js` —
 ändrar du en invariant, uppdatera dem.
 
@@ -145,6 +157,33 @@ Kända legitima WARN: 2 st INV-18 i soaken (Strids 19→27 min vid modellerad
 inbromsning; var 3 före Fable-granskningen 2026-07-10b — E-1-fixen tog en) —
 dokumenterade, ignorera. Korpusnivå: INV-18 i 19h/13,5h + INV-15 i 21h
 (AKIRA, dokumenterad i corpora.js) är förexisterande och informativa.
+
+## Täckningskartan — diagnosverktyg, INTE en gate
+
+`tests/replay-validation/coverageMap.js` (etapp 6) svarar på frågan **var längs
+farleden, och för vilken källa, tappar vi båtarna?** Notislöftet kan aldrig bli
+bättre än mottagningen; kartan är underlaget som deadline-motorns trösklar
+härleddes ur. Den fäller ingenting och ingår därför inte i `npm run validate`.
+
+```bash
+node tests/replay-validation/coverageMap.js                      # alla korpusar
+node tests/replay-validation/coverageMap.js --corpus 20260803-natt   # en korpus
+node tests/replay-validation/coverageMap.js extra.jsonl --md /tmp/x.md
+```
+
+Utdata: `docs/coverage-map-2026-08-03.json` (maskinläsbar) +
+`docs/coverage-map-2026-08-03.md` (segmenttabell, heatmap, verdikt).
+
+Metod: farleden modelleras som en centerlinje (Kanalinfarten → Olidebron →
+Klaffbron → Järnvägsbron → Stridsbergsbron → Stallbackabron), varje fix
+projiceras på den (meter längs farleden + lateralt avstånd) och 100 m-segmenten
+räknar transitfixar, glapp, **mörka passager** (traversering utan en enda fix)
+och blackouts (>120 s i rörelse) **per källa**.
+
+⚠️ **Klockdomänen** (ARCHITECTURE §mux): kartan körs i FIXTIDSDOMÄNEN
+(`fixTs ?? aisTimestamp`) — "när hörde mottagarnätet båten". Mäter man AISHub i
+leveransdomänen blir allt 65 s-kvantiserat: det är pollkadensen, inte antennen.
+Leveranslatensen redovisas separat. Läser du om kartan, läs den siffran först.
 
 ## Fältprov / ny korpus (så samlas verklighet in)
 

@@ -12,6 +12,12 @@
  *          tyst vakuös. Vakten låser att (a) produktionskällan fortfarande
  *          emitterar exakt de strängfragment harnessen förväntar sig och
  *          (b) harnessens regexar matchar rader byggda på det formatet.
+ *   TE18 — (etapp 6, 2026-08-03) samma vakt för ÖPPNINGSLAGRETS logg-koppling:
+ *          replayRunner fångar täckningsraden [OPENING_COVERAGE] med regex, och
+ *          hela O1:s konvojklassificering vilar på den. Formuleras raden om,
+ *          eller flyttas den till debug-nivån (som är AVSTÄNGD som standard i
+ *          replayen), blir openingCoverage tomt och "täckt via konvoj" ser ut
+ *          som en MISS i varje korpus.
  *   TE17 — invariants.js PROXIMITY_SOURCES måste täcka VARJE source-värde
  *          som app.js kan sätta på en notis (utom 'passage-fallback' som är
  *          medvetet undantagen från 400 m-/fartfysik-kontrollerna). En NY
@@ -72,6 +78,32 @@ describe('TE15: replayRunners logg-regexar är i synk med produktionens loggstr�
       // Markören måste förekomma i produktionskoden (app.js eller VDS)
       expect(appSrc.includes(`[${marker}]`) || vdsSrc.includes(`[${marker}]`)).toBe(true);
     }
+  });
+});
+
+describe('TE18: öppningslagrets logg-koppling (etapp 6)', () => {
+  test('[OPENING_COVERAGE]: produktionen emitterar formatet och regexen fångar det', () => {
+    // (a) produktionskällan innehåller exakt strängfragmentet
+    expect(appSrc).toMatch(/\[OPENING_COVERAGE\] \$\{info\.mmsi\}: \$\{info\.bridge\} täckt av \$\{info\.eventId\} \(\$\{info\.reason\}\)/);
+    // (b) harness-regexen matchar en rad byggd på det formatet
+    const re = extractRunnerRegex('coverageRe');
+    const sample = '🛡️ [OPENING_COVERAGE] 265576720: Klaffbron täckt av Klaffbron#6 (absorbed)';
+    const m = sample.match(re);
+    expect(m).not.toBeNull();
+    expect(m[1]).toBe('265576720');
+    expect(m[2]).toBe('Klaffbron');
+    expect(m[3]).toBe('Klaffbron#6');
+    expect(m[4]).toBe('absorbed');
+    // (c) raden loggas på LOG-nivån — instrumenteringen lyssnar bara på .log,
+    //     och debug är avstängd som standard i replayen.
+    expect(appSrc).toMatch(/this\.log\(\s*\n?\s*`🛡️ \[OPENING_COVERAGE\]/);
+  });
+
+  test('replayRunner samlar öppningskortet över ALLA app-instanser (ctrl:restart)', () => {
+    // Mocken skapar ett NYTT kort per app-instans. Sparas bara den första
+    // instansens kort tappas varje varning efter en omstart tyst.
+    expect(runnerSrc).toMatch(/openingCards\.push\(instance\._bridgeOpeningTrigger\)/);
+    expect(runnerSrc).toMatch(/const openingWarnings = openingCards/);
   });
 });
 

@@ -1,0 +1,82 @@
+{
+  "20260525": {
+    "Klaffbron:northbound": 2,
+    "Klaffbron:southbound": 3,
+    "Stridsbergsbron:northbound": 2,
+    "Stridsbergsbron:southbound": 3
+  },
+  "20260601-41h": {
+    "Klaffbron:northbound": 8,
+    "Klaffbron:southbound": 5,
+    "Stridsbergsbron:northbound": 8,
+    "Stridsbergsbron:southbound": 6
+  },
+  "20260610-förfix": {},
+  "20260611-4h": {
+    "Stridsbergsbron:northbound": 1
+  },
+  "20260610-19h": {
+    "Klaffbron:northbound": 8,
+    "Stridsbergsbron:northbound": 7
+  },
+  "20260702-11h": {
+    "Klaffbron:northbound": 3,
+    "Klaffbron:southbound": 3,
+    "Stridsbergsbron:northbound": 2,
+    "Stridsbergsbron:southbound": 3
+  },
+  "20260702-2h": {
+    "Klaffbron:northbound": 2,
+    "Klaffbron:southbound": 3,
+    "Stridsbergsbron:northbound": 3,
+    "Stridsbergsbron:southbound": 1
+  },
+  "20260702-19h": {
+    "Klaffbron:northbound": 5,
+    "Klaffbron:southbound": 3,
+    "Stridsbergsbron:northbound": 4,
+    "Stridsbergsbron:southbound": 2
+  },
+  "20260707-14h": {
+    "Klaffbron:northbound": 5,
+    "Klaffbron:southbound": 7,
+    "Stridsbergsbron:northbound": 6,
+    "Stridsbergsbron:southbound": 5
+  },
+  "20260708-21h": {
+    "Klaffbron:northbound": 5,
+    "Klaffbron:southbound": 6,
+    "Stridsbergsbron:northbound": 5,
+    "Stridsbergsbron:southbound": 5
+  },
+  "20260710-13h": {
+    "Klaffbron:northbound": 4,
+    "Klaffbron:southbound": 6,
+    "Stridsbergsbron:northbound": 5,
+    "Stridsbergsbron:southbound": 5
+  },
+  "20260711-7h": {
+    "Klaffbron:northbound": 1,
+    "Klaffbron:southbound": 2,
+    "Stridsbergsbron:northbound": 1,
+    "Stridsbergsbron:southbound": 2
+  },
+  "20260711-16h": {
+    "Klaffbron:northbound": 3,
+    "Klaffbron:southbound": 5,
+    "Stridsbergsbron:northbound": 3,
+    "Stridsbergsbron:southbound": 2
+  },
+  "20260712-25h": {
+    "Klaffbron:northbound": 8,
+    "Klaffbron:southbound": 8,
+    "Stridsbergsbron:northbound": 8,
+    "Stridsbergsbron:southbound": 6
+  },
+  "20260713-41h": {
+    "Klaffbron:northbound": 13,
+    "Klaffbron:southbound": 14,
+    "Stridsbergsbron:northbound": 11,
+    "Stridsbergsbron:southbound": 11
+  }
+}

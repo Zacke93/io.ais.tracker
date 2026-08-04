@@ -15,7 +15,7 @@
  * bridgeTextTransitions { t, iso, text }, firstNameSeen { mmsi: ts }.
  */
 
-const { validateInvariants } = require('./replay-validation/invariants');
+const { validateInvariants, validateWarnInvariants } = require('./replay-validation/invariants');
 
 const T0 = new Date('2026-07-06T10:00:00Z').getTime();
 
@@ -333,5 +333,79 @@ describe('INV-3/16 FP8-kalibreringen (2026-07-13, korpus 20260712-25h)', () => {
       ],
     });
     expect(validateInvariants(flapping).some((x) => x.includes('SÅGTAND'))).toBe(true);
+  });
+});
+
+// ===========================================================================
+// INV-21 (etapp 6, 2026-08-03) — ÖPPNINGSVARNING EFTER PASSAGE
+// ===========================================================================
+// Öppningsvarningen ska FÖRVARNA. Går den ut efter att en av dess egna
+// medlemmar redan registrerats som passerad varnar den för en öppning som
+// redan skett — användaren står vid en bro som just stängt. Regeln är den
+// oberoende kontrollen av öppningshändelsens egen spärr (event.lastPassageAt).
+describe('INV-21 öppningsvarning efter passage (WARN)', () => {
+  const opening = (tOffsetS, overrides = {}) => ({
+    t: T0 + tOffsetS * 1000,
+    iso: new Date(T0 + tOffsetS * 1000).toISOString(),
+    bridge: 'Klaffbron',
+    direction: 'northbound',
+    etaMin: 5,
+    vesselCount: 1,
+    leadVessel: 'TESTBÅT',
+    leadMmsi: '265000001',
+    mmsis: ['265000001'],
+    firedBy: 'deadline',
+    eventId: 'Klaffbron#1',
+    ...overrides,
+  });
+
+  test('varning FÖRE passagen ger inget utslag', () => {
+    const result = baseResult({
+      openingWarnings: [opening(-300)],
+      targetPassages: [passage({ t: T0 })],
+    });
+    expect(validateWarnInvariants(result).filter((x) => x.includes('INV-21'))).toEqual([]);
+  });
+
+  test('varning EFTER passagen flaggas', () => {
+    const result = baseResult({
+      openingWarnings: [opening(210)],
+      targetPassages: [passage({ t: T0 })],
+    });
+    const hits = validateWarnInvariants(result).filter((x) => x.includes('INV-21'));
+    expect(hits).toHaveLength(1);
+    expect(hits[0]).toMatch(/Klaffbron/);
+    expect(hits[0]).toMatch(/265000001/);
+  });
+
+  test('en passage från en TIDIGARE resa (>30 min bakåt) flaggar inte', () => {
+    // Kanalens turbåtar gör samma resa varje dag. Utan fönstret gav regeln
+    // 11 falska utslag över korpusarna och ett (1) äkta.
+    const result = baseResult({
+      openingWarnings: [opening(3 * 3600)],
+      targetPassages: [passage({ t: T0 })],
+    });
+    expect(validateWarnInvariants(result).filter((x) => x.includes('INV-21'))).toEqual([]);
+  });
+
+  test('en ANNAN båts passage av samma bro flaggar inte', () => {
+    const result = baseResult({
+      openingWarnings: [opening(210)],
+      targetPassages: [passage({ t: T0, mmsi: '265999999' })],
+    });
+    expect(validateWarnInvariants(result).filter((x) => x.includes('INV-21'))).toEqual([]);
+  });
+
+  test('en annan BRO:s passage flaggar inte', () => {
+    const result = baseResult({
+      openingWarnings: [opening(210)],
+      targetPassages: [passage({ t: T0, bridge: 'Stridsbergsbron' })],
+    });
+    expect(validateWarnInvariants(result).filter((x) => x.includes('INV-21'))).toEqual([]);
+  });
+
+  test('utan öppningsdimension är regeln tyst (bakåtkompatibel)', () => {
+    const result = baseResult({ targetPassages: [passage({ t: T0 })] });
+    expect(validateWarnInvariants(result).filter((x) => x.includes('INV-21'))).toEqual([]);
   });
 });

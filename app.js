@@ -22,6 +22,9 @@ const BridgeTextService = require('./lib/services/BridgeTextService');
 const ProximityService = require('./lib/services/ProximityService'); // Avstånd till broar
 const StatusService = require('./lib/services/StatusService'); // Båtstatus (waiting, under-bridge, etc.)
 
+// PROAKTIVA VARNINGAR: bro-centrerade öppningshändelser (etapp 6, 2026-08-03)
+const BridgeOpeningService = require('./lib/services/BridgeOpeningService'); // Beväpning + deadline-motor
+
 // KOORDINATION: Hanterar GPS-hopp och systemkoordinering
 const SystemCoordinator = require('./lib/services/SystemCoordinator');
 const PassageLatchService = require('./lib/services/PassageLatchService'); // Förhindrar status-hopp vid bropassage
@@ -53,6 +56,7 @@ const {
   MOORING_DETECTION, // Förtöjningsdetektering (rörelsebevis-trösklar)
   QUAY_DEPARTURE_GATE, // V1: korroboreringskrav för kajavgång i trigger-punktzon
   AIS_CONFIG, // Etapp 2: AISHub-vaktens trösklar (AIS_CONFIG.AISHUB)
+  BRIDGE_OPENING, // Etapp 6: öppningsvarningarnas trösklar (konvojfönster m.m.)
 } = require('./lib/constants');
 
 // Lägsta fart (knop) där COG är tillförlitlig för riktningsbestämning. Under
@@ -251,6 +255,52 @@ class AISBridgeApp extends Homey.App {
     this._quayLedgerPersistedAt = 0;
     this._loadQuayLedger();
 
+    // --- ÖPPNINGSLAGRETS KAJHISTORIK (etapp 6-granskningen 2026-08-04) ---
+    // SAMMA regler som V1-kartan ovan (_noteQuayLedgerEntry är gemensam), men
+    // referenspunkterna är trigger-punkterna PLUS målbroarna. Skälet är mätt:
+    // Kanalinfarten→Klaffbron = 1982 m och →Stridsbergsbron = 3197 m, så V1:s
+    // 500 m-radie gjorde kajvobbel-grinden strukturellt neutral vid exakt de
+    // två broar öppningslagret varnar för. EGEN karta, inte en breddning av
+    // V1: boat_near-grinden och dess facit ska stå byte-identiska.
+    // Session-lokal (ingen settings-persistens): den bredare kartan får inte
+    // öka skrivtakten mot flashen, och en omstart följs av färska fix.
+    this._openingQuayLedger = new Map();
+
+    // --- ÖPPNINGSVARNINGARNAS ENGÅNGS-DEDUP (etapp 6, 2026-08-03) ---
+    // eventId ("Klaffbron#7") → avfyrningstid. BridgeOpeningService avfyrar
+    // redan EN gång per öppningshändelse; kartan här är app-sidans hängslen
+    // (samma filosofi som _triggeredBoatNearKeys mot _persistentRecentTriggers)
+    // och gör avfyrningsvägen idempotent även om servicen någon gång skulle
+    // återanropa callbacken. MEDVETET INTE PERSISTERAD: v1-beslutet är att
+    // armarna inte överlever en omstart (boat_near-lagret är oförändrad
+    // fallback), och en dedup-nyckel utan sin arm hade bara kunnat SPÄRRA en
+    // varning som den nya sessionen behöver — fel riktning mot produkt-
+    // principen "missad öppning är värre än falsklarm". eventSeq nollställs
+    // vid omstart, så nycklarna vore dessutom tvetydiga.
+    this._firedOpeningEvents = new Map();
+    // Städas i _pruneDedupCaches; fönstret är tilltaget mot CONVOY_WINDOW_MS
+    // (10 min) så en händelse aldrig kan hinna glömmas medan den lever.
+    this._OPENING_DEDUP_TTL_MS = 60 * 60 * 1000; // 1 timme
+
+    // --- ÖPPNINGSVARNINGARNAS PERSISTENTA DEDUP (etapp 6-granskningen) ---
+    // "bro|mmsi|riktning" → avfyrningstid, ÖVER omstart (samma mönster och
+    // samma skäl som _persistentRecentTriggers har för boat_near).
+    // Reproducerat hål: v1-beslutet "inga armar över omstart" betyder att en
+    // omstart mitt i en anflygning beväpnar OCH VARNAR OM från noll — det
+    // syntetiska omstartsscenariot gav TVÅ "Stridsbergsbron öppnar snart"
+    // fem minuter isär för EN öppning, och en Homey-app startas om vid varje
+    // appuppdatering. eventId dög inte som nyckel (eventSeq nollställs), men
+    // bro+båt+riktning är stabil över omstarter.
+    // RIKTNINGEN är med av samma skäl som i boat_near-dedupen: en U-svängares
+    // RETURPASSAGE av samma bro är en äkta, ny öppning och får inte tystas.
+    this._persistentOpeningWarnings = new Map();
+    // Fönstret är dig9:s egen definition av "samma öppning" (CONVOY_WINDOW_MS).
+    // Bredare hade tystat legitima omvarningar: en konvojtäckt båt släpps
+    // tidigast referensankomst + 10 min (BridgeOpeningService._releaseStranded-
+    // Arms), så gränsen kan per konstruktion inte äta en sådan.
+    this._OPENING_PERSIST_WINDOW_MS = BRIDGE_OPENING.CONVOY_WINDOW_MS;
+    this._loadPersistentOpeningWarnings();
+
     // --- UI UPPDATERINGS-STATE ---
     // SYFTE: Spåra om en UI-uppdatering redan är schemalagd (förhindrar duplikat)
     this._uiUpdateScheduled = false;
@@ -371,6 +421,35 @@ class AISBridgeApp extends Homey.App {
         this.vesselDataService,
         this.passageLatchService,
       );
+
+      // BridgeOpeningService (etapp 6, 2026-08-03): PROAKTIVA öppnings-
+      // varningar. Lagret är HELT ADDITIVT — det läser samma vessel-objekt som
+      // boat_near-vägen men rör varken dess dedup, dess grindar eller
+      // bridge_text. Servicen äger inga timers; deadline-utvärderingen drivs
+      // av 30 s-watchdogen i _initializeCoalescingSystem.
+      //
+      // ALLA fyra beroenden är INJICERADE i stället för duplicerade — järnregel
+      // 4 (återanvänd maskinen):
+      //  - getDirection  → appens _getDirectionString (samma riktningstoken som
+      //                    boat_near, inklusive dess COG-fallback och band)
+      //  - isQuayWobbler → V1-kajbokföringen via _quayDepartureNeedsProof
+      //  - getVesselName → den PERSISTENTA namncachen (_lookupVesselName),
+      //                    samma källa boat_near-tokenen använder. B1 (2026-07-03,
+      //                    användarbeslut): "Unknown" är aisstreams platshållare,
+      //                    inte ett namn, och får aldrig nå en token.
+      //  - logger        → app-instansen (log/error/debug, samma debug_level)
+      //  - onWarning     → ARROW, inte bind: replay-harnessen monkey-patchar
+      //                    _onBridgeOpeningWarning EFTER onInit för att fånga
+      //                    openingWarnings[], och en bind:ad referens hade
+      //                    frusit originalet och gjort fångsten blind.
+      this.bridgeOpeningService = new BridgeOpeningService({
+        logger: this,
+        onWarning: (payload) => this._onBridgeOpeningWarning(payload),
+        onCoverage: (info) => this._onBridgeOpeningCoverage(info),
+        getDirection: (vessel) => this._getDirectionString(vessel),
+        isQuayWobbler: (vessel) => this._isBridgeOpeningQuayWobbler(vessel),
+        getVesselName: (mmsi) => this._lookupVesselName(mmsi),
+      });
 
       // --- STEG 6: CONNECTION SERVICES ---
       // Etapp 2 (2026-08-02): this.aisClient är ALLTID en AISSourceMultiplexer.
@@ -725,6 +804,64 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * Etapp 6: ladda öppningsvarningarnas persistenta dedup från settings.
+   * Samma defensiva mönster som _loadPersistentTriggers; poster äldre än
+   * fönstret filtreras bort direkt vid inläsning.
+   * @private
+   */
+  _loadPersistentOpeningWarnings() {
+    try {
+      if (!this.homey || !this.homey.settings || typeof this.homey.settings.get !== 'function') {
+        return;
+      }
+      const stored = this.homey.settings.get('persistent_opening_warnings');
+      if (!stored || typeof stored !== 'object') return;
+      const now = Date.now();
+      const windowMs = this._OPENING_PERSIST_WINDOW_MS || BRIDGE_OPENING.CONVOY_WINDOW_MS;
+      let loaded = 0;
+      for (const [key, ts] of Object.entries(stored)) {
+        if (Number.isFinite(ts) && now - ts < windowMs) {
+          this._persistentOpeningWarnings.set(key, ts);
+          loaded++;
+        }
+      }
+      if (loaded > 0) {
+        this.log(`🌉 [OPENING_DEDUP] Återställde ${loaded} öppningsvarningar (överlever omstart)`);
+      }
+    } catch (error) {
+      this.error('[OPENING_DEDUP] Kunde inte läsa öppningsdedupen:', error.message || error);
+    }
+  }
+
+  /**
+   * Etapp 6: skriv öppningsvarningarnas dedup till settings. Skrivs bara vid
+   * en faktisk avfyrning (~230 över 250 h korpusdata) — ingen skrivtakt att
+   * strypa, till skillnad från kajbokföringen.
+   * @private
+   */
+  _persistOpeningWarnings() {
+    try {
+      if (!this.homey || !this.homey.settings || typeof this.homey.settings.set !== 'function') {
+        return;
+      }
+      if (!this._persistentOpeningWarnings) return;
+      const now = Date.now();
+      const windowMs = this._OPENING_PERSIST_WINDOW_MS || BRIDGE_OPENING.CONVOY_WINDOW_MS;
+      const blob = {};
+      for (const [key, ts] of [...this._persistentOpeningWarnings.entries()]) {
+        if (!Number.isFinite(ts) || now - ts >= windowMs) {
+          this._persistentOpeningWarnings.delete(key);
+          continue;
+        }
+        blob[key] = ts;
+      }
+      this.homey.settings.set('persistent_opening_warnings', blob);
+    } catch (error) {
+      this.error('[OPENING_DEDUP] Kunde inte skriva öppningsdedupen:', error.message || error);
+    }
+  }
+
+  /**
    * B1 (2026-07-03): ladda persistent mmsi→namn-cache från settings.
    * Samma defensiva mönster som _loadPersistentTriggers; poster äldre än
    * TTL:n (30 dagar) filtreras bort vid inläsning.
@@ -949,12 +1086,33 @@ class AISBridgeApp extends Homey.App {
     // Lat init (samma mönster som _feedSilentLogTimes): direktanropande
     // enhetstester bygger app-objekt utan konstruktorn.
     if (!this._quayStableLedger) this._quayStableLedger = new Map();
+    if (!this._openingQuayLedger) this._openingQuayLedger = new Map();
     const mmsi = String(vessel.mmsi);
-    const nearTriggerPoint = Object.values(TRIGGER_POINTS).some((tp) => {
-      const d = geometry.calculateDistance(vessel.lat, vessel.lon, tp.lat, tp.lon);
+    const nearPoint = (points) => points.some((p) => {
+      const d = geometry.calculateDistance(vessel.lat, vessel.lon, p.lat, p.lon);
       return Number.isFinite(d) && d <= QUAY_DEPARTURE_GATE.LEDGER_RADIUS_M;
     });
-    if (!nearTriggerPoint) {
+    const triggerPoints = Object.values(TRIGGER_POINTS);
+    // ÖPPNINGSLAGRETS EGEN RÄCKVIDD (etapp 6-granskningen): V1-bokföringen
+    // täcker BARA trigger-punkternas närområde, och det finns exakt en
+    // (Kanalinfarten). Klaffbron ligger 1982 m därifrån och Stridsbergsbron
+    // 3197 m — kajvobbel-predikatet var alltså strukturellt NEUTRALT vid
+    // båda målbroarna, precis där en kajliggare är farligast (AKIRA
+    // 2026-07-08: ETT sampel på 1,1 kn 396 m från Klaffbron gav en
+    // öppningsvarning; hon guppade vid kajen och gick sedan norrut BORT från
+    // bron). Öppningslagret bokför därför också målbroarnas närområden — i en
+    // EGEN karta, så boat_near-grinden (och dess facit) står helt orörd.
+    const openingPoints = [
+      ...triggerPoints,
+      ...Object.values(BRIDGES).filter((b) => b && TARGET_BRIDGES.includes(b.name)),
+    ];
+    if (nearPoint(openingPoints)) {
+      this._noteQuayLedgerEntry(this._openingQuayLedger, mmsi, vessel);
+    } else {
+      this._openingQuayLedger.delete(mmsi);
+    }
+
+    if (!nearPoint(triggerPoints)) {
       // Ute ur närområdet = i transit: släpp bokföringen (bounded minne, och
       // en återkomst prövas som förut tills nytt stillasample bokförts).
       this._quayStableLedger.delete(mmsi);
@@ -991,6 +1149,56 @@ class AISBridgeApp extends Homey.App {
     }
     this._quayStableLedger.set(mmsi, entry);
     this._persistQuayLedger();
+  }
+
+  /**
+   * Etapp 6: EN bokföringsregel, två kartor. Exakt samma stillasample-,
+   * dödbands- och rörelseräkningslogik som V1-bokföringen ovan — utbruten så
+   * öppningslagrets vidare geografiska räckvidd inte kan förändra en enda
+   * boat_near-grind. Ingen parallell sanning byggs: reglerna är desamma, bara
+   * referenspunkterna skiljer.
+   * @param {Map} ledger - kartan som ska uppdateras
+   * @param {string} mmsi
+   * @param {Object} vessel
+   * @private
+   */
+  _noteQuayLedgerEntry(ledger, mmsi, vessel) {
+    const sog = Number.isFinite(vessel.sog) ? vessel.sog : null;
+    const entry = ledger.get(mmsi) || {
+      // bandSince = när fartyget kom in i kajbandet den här vistelsen. Posten
+      // raderas när hon lämnar bandet, så värdet är alltid "sedan hon kom hit".
+      // MÄTS INTE som en stilla-streak: en kajvobbels egna 1,1-knopsryck hade
+      // då nollställt klockan om och om igen (AKIRA 2026-07-08), vilket är
+      // precis den profil grinden ska fånga.
+      stillAt: 0, bandSince: Date.now(), lat: null, lon: null, movingFixes: 0, moving: true,
+    };
+    const onLearnedQuay = sog !== null && sog < QUAY_DEPARTURE_GATE.TRANSIT_SOG_KN
+      && this._isNearLearnedMooringSpot(vessel.lat, vessel.lon);
+    if (vessel._moored === true || onLearnedQuay
+        || (sog !== null && sog < MOORING_DETECTION.MOVEMENT_PROOF_SOG_KN)) {
+      // ANKARET SÄTTS VID KAJVISTELSENS BÖRJAN, inte vid dess senaste
+      // stillasample. V1-kartan flyttar ankaret framåt vid varje stillasample,
+      // och det GYNNAR kajvobblaren: hennes egen drift kryper mot bron och
+      // nollar netto-benet gång på gång, medan en äkta avgång som börjar med
+      // några långsamma sampel (265819940 2026-07-12: 369→256→225 m i 0–1,8 kn)
+      // aldrig får tillgodoräkna sig sitt 144 m närmande. Ankaret hålls
+      // därför fast under hela vistelsen; en ny vistelse (efter rörelse eller
+      // efter att minnesfönstret löpt ut) sätter ett nytt.
+      const staleAnchor = !Number.isFinite(entry.lat)
+        || (entry.stillAt > 0 && Date.now() - entry.stillAt > QUAY_DEPARTURE_GATE.MEMORY_MS);
+      if (entry.moving || staleAnchor) {
+        entry.lat = vessel.lat;
+        entry.lon = vessel.lon;
+      }
+      entry.stillAt = Date.now();
+      entry.movingFixes = 0;
+      entry.moving = false;
+    } else if (sog !== null) {
+      if (sog >= QUAY_DEPARTURE_GATE.TRANSIT_SOG_KN) entry.movingFixes += 1;
+      else entry.movingFixes = 0;
+      entry.moving = true;
+    }
+    ledger.set(mmsi, entry);
   }
 
   /**
@@ -1078,13 +1286,17 @@ class AISBridgeApp extends Homey.App {
    * knop), så en verklig kajavgång FÖRDRÖJS en fix — den förloras aldrig
    * (dedup-nyckeln sätts inte vid skip).
    * @param {Object} vessel - Fartygsobjekt
-   * @param {Object} tp - Trigger-punkten (TRIGGER_POINTS-post)
+   * @param {Object} tp - Referenspunkten (TRIGGER_POINTS-post för notisvägen,
+   *   målbron för öppningslagret)
+   * @param {Map} [ledger] - bokföringen att läsa. Default är V1:s
+   *   trigger-punktskarta (notisvägen); öppningslagret skickar sin egen.
    * @returns {{stillAgoS:number, movingFixes:number, approachM:number|null}|null}
    * @private
    */
-  _quayDepartureNeedsProof(vessel, tp) {
-    if (!this._quayStableLedger) return null; // ingen bokföring = ingen kajhistorik
-    const entry = this._quayStableLedger.get(String(vessel.mmsi));
+  _quayDepartureNeedsProof(vessel, tp, ledger = null) {
+    const book = ledger || this._quayStableLedger;
+    if (!book) return null; // ingen bokföring = ingen kajhistorik
+    const entry = book.get(String(vessel.mmsi));
     if (!entry || !Number.isFinite(entry.stillAt) || entry.stillAt <= 0) return null;
     const stillAgoMs = Date.now() - entry.stillAt;
     if (stillAgoMs > QUAY_DEPARTURE_GATE.MEMORY_MS) return null; // historiken utgången
@@ -1115,6 +1327,130 @@ class AISBridgeApp extends Homey.App {
       movingFixes: entry.movingFixes,
       approachM: approachM === null ? null : Math.round(approachM),
     };
+  }
+
+  /**
+   * Etapp 6: kajvobbel-predikatet som BridgeOpeningService beväpningsgrind
+   * frågar. ÅTERANVÄNDER V1-bokföringens REGLER rakt av (_noteQuayLedgerEntry
+   * + _quayDepartureNeedsProof) — ingen parallell kajdetektering byggs.
+   *
+   * RÄCKVIDDEN är öppningslagrets egen (_openingQuayLedger): V1-kartan bokför
+   * bara trigger-punkternas närområde, och Klaffbron/Stridsbergsbron ligger
+   * 1982 respektive 3197 m därifrån. Predikatet var därför strukturellt
+   * NEUTRALT vid båda målbroarna innan etapp 6-granskningen — se
+   * _noteQuayStability för mätningen och AKIRA-fallet.
+   *
+   * SKILLNADEN mot notisvägen är REFERENSPUNKTEN, och den är avsiktlig:
+   * boat_near-grinden mäter netto-närmandet mot TRIGGER-PUNKTEN (det är den
+   * notisen handlar om), medan en arm handlar om MÅLBRON. Mäts armen mot
+   * trigger-punkten får man ett garanterat fel: en båt som lämnar kajen vid
+   * Kanalinfarten och går norrut mot Klaffbron rör sig BORT från punkten, så
+   * netto-benet blir negativt och rörelsebenets "ingen netto-reträtt"-krav
+   * faller — grinden hade då dömt en fullt äkta avgång som kajvobbel hela
+   * vägen fram till bron. Med målbron som referens säger predikatet exakt det
+   * armen behöver veta: har båten faktiskt närmat sig bron sedan hon senast
+   * låg kajstilla?
+   *
+   * FAIL-OPEN vid fel/okänd målbro (returnerar false ⇒ får beväpnas). Produkt-
+   * principen är att en missad öppning är värre än ett falsklarm, så en
+   * trasig grind ska släppa igenom — inte spärra.
+   * @param {Object} vessel - Fartygsobjekt
+   * @returns {boolean} true = obekräftad kajavgång (beväpna INTE)
+   * @private
+   */
+  _isBridgeOpeningQuayWobbler(vessel) {
+    try {
+      if (!vessel || typeof vessel.targetBridge !== 'string') return false;
+      // EN FIX PÅ MEDIANFARTEN FÖR EN ÄKTA ANFLYGNING ÄR TRANSITBEVIS I SIG.
+      // Kajerna vid målbroarna ligger 200–400 m från bron och hela förloppet
+      // avgång→passage tar ~5 min, så V1-grindens "fördröj en fix" kostar där
+      // hela varningen (mätt: 265726650 och 265819940 hann passera innan
+      // nästa fix). Se BRIDGE_OPENING.QUAY_TRANSIT_PROOF_SOG_KN för
+      // härledningen — AKIRA-klassens 1,1 kn ligger en faktor 2,8 under.
+      if (Number.isFinite(vessel.sog) && vessel.sog >= BRIDGE_OPENING.QUAY_TRANSIT_PROOF_SOG_KN) {
+        return false;
+      }
+      // Lat init (samma mönster som _noteQuayStability): direktanropande
+      // enhetstester bygger app-objekt utan konstruktorn, och en `undefined`
+      // karta hade tyst fallit tillbaka på V1:s trigger-punktskarta — precis
+      // den blindhet fixen finns för.
+      if (!this._openingQuayLedger) this._openingQuayLedger = new Map();
+      // ...OCH BARA EN VERKLIG KAJVISTELSE RÄKNAS. V1-bokföringen godtar ETT
+      // stillasample som "kajstabil historik" — rätt vid Kanalinfarten, fel
+      // vid målbroarna, där ett kort stopp i farleden är normalt (ELFKUNGEN
+      // 2026-07-07: en enda 0,1-knopsfix 160 m från Stridsbergsbron mitt i en
+      // 7,8-knopsresa gjorde henne till "kajliggare" och tog hela hennes
+      // Klaffbron-öppning). Se BRIDGE_OPENING.QUAY_STAY_MIN_MS.
+      const openingEntry = this._openingQuayLedger.get(String(vessel.mmsi));
+      const stayMs = openingEntry && Number.isFinite(openingEntry.bandSince)
+        ? Date.now() - openingEntry.bandSince : 0;
+      if (stayMs < BRIDGE_OPENING.QUAY_STAY_MIN_MS) return false;
+      const bridge = Object.values(BRIDGES).find((b) => b && b.name === vessel.targetBridge);
+      if (!bridge || !Number.isFinite(bridge.lat) || !Number.isFinite(bridge.lon)) return false;
+      return this._quayDepartureNeedsProof(vessel, bridge, this._openingQuayLedger) !== null;
+    } catch (error) {
+      this.error('[BRIDGE_OPENING] Kajvobbel-predikatet kastade:', error.message || error);
+      return false;
+    }
+  }
+
+  /**
+   * Etapp 6: mata BridgeOpeningService ur det BEFINTLIGA vessel-flödet.
+   * Anropas från _onVesselEntered och _onVesselUpdated direkt efter
+   * _noteQuayStability — dvs. efter att _analyzeVesselPosition satt målbro,
+   * status, ETA och ev. passage-ankring, så armen ser samma sanning som
+   * notisvägen.
+   *
+   * ORDNINGEN ÄR VIKTIG (observeVessel FÖRE passage-svepet): observeVessel
+   * upptäcker själv en färsk passage via vessel.passedAt och spärrar då
+   * ÅTERBEVÄPNING av samma bro i samma meddelande (servicens disarmedNow).
+   * Körs notePassage först är armen redan borta när observeVessel läser
+   * vessel.targetBridge, och en målbro som ännu inte hunnit rulla fram hade
+   * kunnat beväpnas om direkt efter sin egen passage.
+   *
+   * Passage-svepet efter är hängslen för de vägar där armen aldrig fanns
+   * (inferens-/backfill-registrerade passager, fartyg som beväpnades först
+   * efter bron): det stänger öppningshändelsen även då.
+   * @param {Object} vessel - Fartygsobjekt
+   * @private
+   */
+  _observeBridgeOpening(vessel) {
+    if (!this.bridgeOpeningService || !vessel) return;
+    try {
+      this.bridgeOpeningService.observeVessel(vessel);
+
+      // Färska passage-ankringar (samma 2000 ms-fönster som BUG C och
+      // MULTI_PASSAGE_FALLBACK använder för "registrerad denna tick").
+      const anchored = (vessel.passedAt && typeof vessel.passedAt === 'object') ? vessel.passedAt : null;
+      if (!anchored) return;
+      const now = Date.now();
+      for (const [bridgeName, ts] of Object.entries(anchored)) {
+        if (!Number.isFinite(ts) || now - ts >= 2000) continue;
+        if (!TARGET_BRIDGES.includes(bridgeName)) continue;
+        this.bridgeOpeningService.notePassage(vessel.mmsi, bridgeName);
+      }
+    } catch (error) {
+      // CRASH PROTECTION: det additiva lagret får aldrig stoppa notisvägen
+      // eller bridge_text. Svälj-fällan: felet loggas, inte tystas.
+      this.error(`[BRIDGE_OPENING] observeVessel misslyckades för ${vessel.mmsi}:`, error.message || error);
+    }
+  }
+
+  /**
+   * Etapp 6: diagnostiksignal från BridgeOpeningService — ett fartyg blev
+   * TÄCKT av en öppningsvarning ('fired' = varningen gick ut med båten som
+   * medlem, 'absorbed' = hon anslöt till en redan avfyrad öppning, dvs.
+   * konvojtäckning). Ren logg: O1-klassificeringen i replay-harnessen läser
+   * raden för att skilja egen avfyrning från konvojtäckning. Får ALDRIG
+   * påverka produktlogik.
+   * @param {{mmsi:string, bridge:string, eventId:string, reason:string}} info
+   * @private
+   */
+  _onBridgeOpeningCoverage(info) {
+    if (!info) return;
+    this.log(
+      `🛡️ [OPENING_COVERAGE] ${info.mmsi}: ${info.bridge} täckt av ${info.eventId} (${info.reason})`,
+    );
   }
 
   _loadLastKnownPositions() {
@@ -1424,6 +1760,13 @@ class AISBridgeApp extends Homey.App {
     // 72 ENTERED/REMOVED-cykler på tio timmar). Utan detta anrop sågs deras
     // stillhet aldrig, och grinden var inert för exakt sin målgrupp.
     this._noteQuayStability(vessel);
+    // Etapp 6: beväpna/uppdatera öppningsarmarna på SAMMA fix som notisvägen
+    // ser. ENTERED-vägen är inte valfri: en båt som återföds efter timeout
+    // (Class B:s 180 s-kadens mot 120 s-timeouten) levererar merparten av sina
+    // observationer som ENTERED, och utan detta anrop hade just den trafiken
+    // aldrig beväpnats. VILLKORSLÖST (till skillnad från notisvägen ovan) —
+    // servicen har sina egna grindar och bryr sig bara om målbroar.
+    this._observeBridgeOpening(vessel);
     if (vessel.targetBridge || enteredNearTriggerPoint) {
       await this._triggerBoatNearFlow(vessel);
     }
@@ -1637,6 +1980,9 @@ class AISBridgeApp extends Homey.App {
       // grinden i _getFlowTriggerCandidates läser bokföringen inklusive
       // AKTUELL fix, så "två på varandra följande rörelsefixar" räknas rätt.
       this._noteQuayStability(vessel);
+      // Etapp 6: se _onVesselEntered — samma anrop, samma plats i kedjan
+      // (efter _analyzeVesselPosition och kajbokföringen, före notisvägen).
+      this._observeBridgeOpening(vessel);
 
       const shouldTriggerProximity = vessel.currentBridge
         || vessel.targetBridge
@@ -5049,6 +5395,156 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * ==========================================================================
+   * ÖPPNINGSVARNING — AVFYRNINGSVÄGEN (etapp 6, 2026-08-03)
+   * ==========================================================================
+   *
+   * Callback från BridgeOpeningService när en öppningshändelse ska varnas.
+   * SYNKRON med flit: servicen anropar callbacken inuti sin tick-/fix-loop
+   * utan att await:a, så en async metod hade lämnat en icke-hanterad rejection
+   * bakom sig vid varje fel (och servicens try/catch hade inte sett den).
+   * Metoden gör därför allt beslutsarbete synkront och lämnar över själva
+   * kortanropet till en fire-and-forget-kedja med egen .catch().
+   *
+   * @param {Object} payload - {t, eventId, bridge, direction, etaMinutes,
+   *   vesselCount, leadVessel, leadMmsi, firedBy, mmsis, distanceM}
+   * @private
+   */
+  _onBridgeOpeningWarning(payload) {
+    try {
+      if (!payload || typeof payload.bridge !== 'string' || !payload.eventId) return;
+
+      // ENGÅNGS-DEDUP PER ÖPPNINGSHÄNDELSE. Servicen avfyrar redan en gång per
+      // händelse — det här är app-sidans hängslen på exakt samma ställe som
+      // boat_near har sina (_triggeredBoatNearKeys sitter i avfyrningsvägen,
+      // inte i kandidatlogiken), så en framtida ändring i servicen inte kan
+      // spamma Homey-flödet.
+      if (this._firedOpeningEvents && this._firedOpeningEvents.has(payload.eventId)) {
+        this.debug(`🔁 [OPENING_DEDUP] ${payload.eventId}: varning redan skickad — hoppar över`);
+        return;
+      }
+
+      // PERSISTENT DEDUP ÖVER OMSTART. eventId nollställs vid omstart, så
+      // hängslena ovan är blinda för exakt det fall v1-beslutet skapar: den
+      // nya sessionen beväpnar om och varnar om för en öppning som redan
+      // varnats. Nyckeln är bro|mmsi|riktning — stabil över omstarter, och
+      // riktningsledet gör att en U-svängares RETURPASSAGE (en äkta ny
+      // öppning) aldrig kan tystas. Varningen släpps igenom så snart NÅGON
+      // medlem är ny: en tillkommen båt är ny information för användaren.
+      const warnDir = String(payload.direction || 'unknown');
+      const warnMembers = Array.isArray(payload.mmsis) && payload.mmsis.length
+        ? payload.mmsis.map(String)
+        : [String(payload.leadMmsi || '')];
+      const openWindowMs = this._OPENING_PERSIST_WINDOW_MS || BRIDGE_OPENING.CONVOY_WINDOW_MS;
+      const openNow = Date.now();
+      const openKey = (mmsi) => `${payload.bridge}|${mmsi}|${warnDir}`;
+      if (this._persistentOpeningWarnings) {
+        const allSeen = warnMembers.every((mmsi) => {
+          const ts = this._persistentOpeningWarnings.get(openKey(mmsi));
+          return Number.isFinite(ts) && openNow - ts < openWindowMs;
+        });
+        if (allSeen) {
+          this.log(
+            `🔁 [OPENING_DEDUP_PERSIST] ${payload.eventId}: samtliga ${warnMembers.length} båt(ar) `
+            + `redan varnade för ${payload.bridge} (${warnDir}) inom ${Math.round(openWindowMs / 60000)} min `
+            + '— hoppar över (omstartsdubblett)',
+          );
+          return;
+        }
+      }
+
+      // Samma testgrind som boat_near (_triggerBoatNearFlow): mock-korten
+      // orkar inte med riktiga tokens i alla enhetssviter. Replayen och O4:s
+      // gate-tester kringgår den precis som notisvägens tester gör
+      // (NODE_ENV='production' + __TEST_MODE__ undefined) och kör därmed EXAKT
+      // produktionens väg. Dedup-nyckeln sätts INTE här — en skippad testkörning
+      // ska inte kunna spärra en riktig varning.
+      if (process.env.NODE_ENV === 'test' || global.__TEST_MODE__) {
+        this.debug(`🧪 [TEST] Hoppar över bridge_opening_soon för ${payload.bridge}`);
+        return;
+      }
+
+      if (!this._bridgeOpeningTrigger || typeof this._bridgeOpeningTrigger.trigger !== 'function') {
+        this.error(`❌ [OPENING_TRIGGER] bridge_opening_soon-kortet saknas — ${payload.bridge} kan inte varnas`);
+        return;
+      }
+
+      // TOKENS i boat_near-stil. eta_minutes bär samma -1-sentinel för okänd
+      // ETA som boat_near (flow-byggare känner igen kontraktet), och värdet är
+      // den FÖRVÄNTADE ankomsten — inte deadline-motorns pessimistiska fysik,
+      // som skulle visa en orimligt tidig siffra för användaren.
+      const etaMinutes = Number.isFinite(payload.etaMinutes) && payload.etaMinutes >= 0
+        ? Math.round(payload.etaMinutes)
+        : -1;
+      // B1 (användarbeslut 2026-07-03) — SAMMA kedja som boat_near-tokenen:
+      // servicen levererar antingen ett riktigt namn eller null, och den råa
+      // platshållaren "Unknown" spärras även här (hängslen: den kan bara nå
+      // hit om servicens filter kringgås). Namncachen frågas som sista utväg,
+      // exakt som i _triggerBoatNearFlowBest.
+      const rawLeadName = typeof payload.leadVessel === 'string' ? payload.leadVessel.trim() : '';
+      const leadName = rawLeadName && rawLeadName !== 'Unknown' ? rawLeadName : null;
+      const tokens = {
+        bridge_name: String(payload.bridge),
+        vessel_name: leadName || this._lookupVesselName(payload.leadMmsi) || 'Okänd båt',
+        direction: String(payload.direction || 'unknown'),
+        eta_minutes: etaMinutes,
+        vessel_count: Number.isFinite(payload.vesselCount) ? payload.vesselCount : 1,
+      };
+      const state = {
+        bridge: BRIDGE_NAME_TO_ID[payload.bridge] || payload.bridge,
+        eventId: payload.eventId,
+        firedBy: payload.firedBy === 'deadline' ? 'deadline' : 'fix',
+        mmsi: payload.leadMmsi || null,
+        mmsis: Array.isArray(payload.mmsis) ? [...payload.mmsis] : [],
+        distance: Number.isFinite(payload.distanceM) ? payload.distanceM : null,
+        // Diagnostik (läses av O1:s avfyrningsfönster-grind, inte av
+        // run-listenern): den tidigaste förfallotiden bland de armar som
+        // utlöste. Gör kontraktet "avfyra så SENT som garantin tillåter"
+        // mätbart — utan den kan en regression flytta alla varningar en timme
+        // tidigare utan att någon grind rodnar.
+        dueMs: Number.isFinite(payload.dueMs) ? payload.dueMs : null,
+      };
+
+      // Nyckeln sätts FÖRE anropet: kortet är fire-and-forget och ett
+      // misslyckat anrop får inte leda till en andra varning för samma
+      // öppning (dubbelnotis är värre än ingen andra chans — nästa öppning
+      // får en egen händelse).
+      if (this._firedOpeningEvents) this._firedOpeningEvents.set(payload.eventId, Date.now());
+      if (this._persistentOpeningWarnings) {
+        for (const mmsi of warnMembers) {
+          if (mmsi) this._persistentOpeningWarnings.set(openKey(mmsi), openNow);
+        }
+        this._persistOpeningWarnings();
+      }
+
+      this._triggerBridgeOpeningFlow(tokens, state).catch((error) => {
+        this.error(
+          `❌ [OPENING_TRIGGER_ERROR] ${payload.eventId}: bridge_opening_soon misslyckades —`,
+          error.message || error,
+        );
+      });
+    } catch (error) {
+      this.error('[BRIDGE_OPENING] Avfyrningsvägen kastade:', error.message || error);
+    }
+  }
+
+  /**
+   * Levererar bridge_opening_soon till Homey. Egen metod (spegling av
+   * _triggerBoatNearFlowBest) så replay/tester kan instrumentera exakt ett
+   * ställe.
+   * @private
+   */
+  async _triggerBridgeOpeningFlow(tokens, state) {
+    await this._bridgeOpeningTrigger.trigger(tokens, state);
+    this.log(
+      `✅ [OPENING_TRIGGER_SUCCESS] ${state.eventId}: bridge_opening_soon avfyrad för ${tokens.bridge_name} `
+      + `(${tokens.vessel_count} båt(ar), ledande ${tokens.vessel_name}, `
+      + `eta=${tokens.eta_minutes === -1 ? 'okänd' : `${tokens.eta_minutes} min`}, `
+      + `${tokens.direction}, källa ${state.firedBy})`,
+    );
+  }
+
+  /**
    * Trigger boat near flow card (with deduplication)
    * @private
    */
@@ -6746,6 +7242,39 @@ class AISBridgeApp extends Homey.App {
         });
       }
 
+      // --- ÖPPNINGSVARNINGEN (etapp 6, 2026-08-03) ---
+      // Eget app-nivåkort, registrerat EFTER boat_near så listener-ordningen
+      // på kortinstanserna är stabil (flera enhetssviter stubbar
+      // getTriggerCard till EN delad mock och läser runListeners[0] =
+      // boat_near). Kortet är helt additivt: boat_near-kortet, dess listener
+      // och dess dedup rörs inte.
+      this._bridgeOpeningTrigger = this.homey.flow.getTriggerCard('bridge_opening_soon');
+      if (!this._bridgeOpeningTrigger) {
+        // Inte kritiskt på samma sätt som boat_near: öppningsvarningen är ett
+        // EXTRA lager ovanpå en oförändrad notisväg. Logga och fortsätt.
+        this.error('⚠️ [FLOW_SETUP] bridge_opening_soon-kortet saknas — öppningsvarningar kan inte levereras');
+      } else {
+        this.log('✅ [FLOW_SUCCESS] bridge_opening_soon trigger initierad');
+        this._bridgeOpeningTrigger.registerRunListener(async (args, state) => {
+          try {
+            const selectedBridge = this._normalizeBridgeArgument(args?.bridge);
+            const stateBridge = this._normalizeBridgeArgument(state?.bridge);
+            // Samma "alla broar"-semantik som boat_near: dedupen sitter
+            // UPPSTRÖMS (en avfyrning per öppningshändelse), så varje anrop
+            // som når hit är redan en unik händelse.
+            if (selectedBridge === 'any') return true;
+            if (!selectedBridge || !stateBridge) {
+              this.debug('❌ [OPENING_RUN_LISTENER] Saknad bro i args/state — avvisar');
+              return false;
+            }
+            return selectedBridge === stateBridge;
+          } catch (error) {
+            this.error('❌ [OPENING_RUN_LISTENER] Fel vid matchning av bridge_opening_soon:', error);
+            return false;
+          }
+        });
+      }
+
       // Condition cards
       const boatRecentCondition = this.homey.flow.getConditionCard('boat_at_bridge');
       boatRecentCondition.registerRunListener(async (args) => {
@@ -7454,6 +7983,35 @@ class AISBridgeApp extends Homey.App {
       }
       expiredQuay.forEach((mmsi) => this._quayStableLedger.delete(mmsi));
     }
+    // Etapp 6: samma städning för öppningslagrets bredare kajkarta.
+    if (this._openingQuayLedger && this._openingQuayLedger.size > 0) {
+      const quayNow = Date.now();
+      const expired = [];
+      for (const [mmsi, entry] of this._openingQuayLedger.entries()) {
+        const ts = entry && Number.isFinite(entry.stillAt) ? entry.stillAt : 0;
+        if (quayNow - ts > QUAY_DEPARTURE_GATE.MEMORY_MS && !activeMmsis.has(mmsi)) {
+          expired.push(mmsi);
+        }
+      }
+      expired.forEach((mmsi) => this._openingQuayLedger.delete(mmsi));
+    }
+
+    // Etapp 6: öppningshändelsernas engångsnycklar. TTL:n (1 h) är sex gånger
+    // konvojfönstret — en händelse kan aldrig hinna glömmas medan den lever,
+    // och kartan kan inte växa obundet över en drift på veckor.
+    if (this._firedOpeningEvents && this._firedOpeningEvents.size > 0) {
+      const openingNow = Date.now();
+      // Fallback: direktanropande enhetstester bygger app-objekt utan onInit
+      // (samma mönster som _noteQuayStabilitys lata Map-init). Utan den blir
+      // jämförelsen mot undefined alltid false och städningen tyst död.
+      const openingTtl = Number.isFinite(this._OPENING_DEDUP_TTL_MS)
+        ? this._OPENING_DEDUP_TTL_MS : 60 * 60 * 1000;
+      for (const [eventId, firedAt] of [...this._firedOpeningEvents.entries()]) {
+        if (openingNow - firedAt > openingTtl) {
+          this._firedOpeningEvents.delete(eventId);
+        }
+      }
+    }
   }
 
   /**
@@ -7564,6 +8122,25 @@ class AISBridgeApp extends Homey.App {
 
     // Self-healing watchdog (minimal overhead)
     this._watchdogTimer = setInterval(() => {
+      // ETAPP 6: DEADLINE-MOTORNS ENDA KLOCKA ("äggklockan").
+      // Ligger FÖRE tomkanals-returen nedan och i sin EGEN try/catch, av två
+      // skäl som båda är regressioner i vardande:
+      //  (1) En arm överlever sitt fartyg. Exakt det fall lagret finns för —
+      //      båten tystnar på slutsträckan och timeout:as ur
+      //      VesselDataService — ger vessels.length === 0, och en tick efter
+      //      returen hade aldrig körts. Garantin hade brustit precis i sitt
+      //      designfall.
+      //  (2) Ett kastande självläkningsblock får inte äta deadline-tickarna
+      //      (och tvärtom): separata try/catch håller de två oberoende.
+      // TICK-DOKTRINEN (järnregel 2): ingen setTimeout per båt. Intervallet är
+      // 30 s och WARNING_LEAD_MS = 180 s = sex tickar, så ±1 tick jitter kan
+      // aldrig äta marginalen. Replayens fake-klocka stegar i samma 30 s-chunkar
+      // ⇒ deterministiska avfyrningstider.
+      try {
+        if (this.bridgeOpeningService) this.bridgeOpeningService.tick();
+      } catch (error) {
+        this.error('[BRIDGE_OPENING] tick misslyckades:', error.message || error);
+      }
       try {
         // Only run watchdog if we have vessels — UTOM när en dedup-cache
         // står i felsentinel (null): Fable-granskningen 2026-07-10b
@@ -7640,7 +8217,12 @@ class AISBridgeApp extends Homey.App {
     // per onInit-cykel.
     // ChatGPT-granskning 2 (CG2-17, 2026-07-11): systemCoordinator tillagd —
     // dess 2 s-debounce-timers saknade annars destroy-väg.
-    for (const svc of [this.passageLatchService, this.routeOrderValidator, this.gpsJumpGateService, this.statusService, this.systemCoordinator]) {
+    // Etapp 6: bridgeOpeningService äger INGA timers (tick-driven via
+    // watchdogen) — destroy() släpper armar/händelser så en återanvänd
+    // app-instans inte startar med gammalt beväpningstillstånd. Det är samma
+    // v1-beslut som i servicens huvud: armarna överlever inte en omstart,
+    // boat_near-lagret är oförändrad fallback.
+    for (const svc of [this.passageLatchService, this.routeOrderValidator, this.gpsJumpGateService, this.statusService, this.systemCoordinator, this.bridgeOpeningService]) {
       try {
         if (svc && typeof svc.destroy === 'function') svc.destroy();
       } catch (error) {
@@ -7691,6 +8273,9 @@ class AISBridgeApp extends Homey.App {
     // PRICKBJORN-fantomen exakt).
     this._persistQuayLedger(true);
     if (this._quayStableLedger) this._quayStableLedger.clear();
+    if (this._openingQuayLedger) this._openingQuayLedger.clear();
+    // Etapp 6: engångsnycklarna följer armarna — ingen av delarna persisteras.
+    if (this._firedOpeningEvents) this._firedOpeningEvents.clear();
 
     // Clear all vessel service timers
     if (this.vesselDataService) {

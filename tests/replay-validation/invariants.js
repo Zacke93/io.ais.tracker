@@ -47,6 +47,11 @@
  *        för proximity-notiser.
  */
 
+// Etapp 6: armens maximala livslängd efter sitt sista fix. INV-21 använder
+// den som fönster — en öppningsvarning kan aldrig vila på en observation
+// äldre än så, och en passage längre bakåt tillhör därför en ANNAN resa.
+const { BRIDGE_OPENING } = require('../../lib/constants');
+
 const COUNT_WORDS = '(En|Två|Tre|Fyra|Fem|Sex|Sju|Åtta|Nio|Tio|[2-9]\\d?)';
 const TARGET = '(Klaffbron|Stridsbergsbron)';
 const ETA_CLAUSE = '(beräknad broöppning (strax|om (cirka )?([1-9]\\d{0,2}) minuter)|ETA okänd|inväntar broöppning)';
@@ -523,6 +528,12 @@ function validateInvariants(result) {
  * INV-20 Målbro-flapp (2026-07-10, TB7): "på väg mot X" försvinner och
  *        återkommer inom 3 min utan målbropassage — target-thrash. WARN
  *        tills korpuskalibrerad.
+ * INV-21 Öppningsvarning efter passage (etapp 6, 2026-08-03): en varning för
+ *        en bro där en av varningens EGNA medlemmar redan registrerats som
+ *        passerad varnar för en öppning som redan skett. Returresor (journey-
+ *        reset mellan passagen och varningen) undantas — de är äkta nya
+ *        öppningar. WARN tills den varit tyst över samtliga korpusar +
+ *        syntetiska + soaken.
  */
 function validateWarnInvariants(result) {
   const warnings = [];
@@ -671,6 +682,54 @@ function validateWarnInvariants(result) {
           if (!passageInWindow) {
             warnings.push(`INV-20 MÅLBRO-FLAPP: "${bridge}" försvann och återkom i texten inom ${Math.round(windowMs / 1000)}s utan passage (${a.iso})`);
           }
+        }
+      }
+    }
+  }
+
+  // INV-21 (etapp 6, 2026-08-03): ÖPPNINGSVARNING EFTER PASSAGE.
+  // En öppningsvarning ska förvarna om en FÖRESTÅENDE öppning. Går varningen
+  // ut efter att en av dess EGNA medlemmar redan registrerats som passerad
+  // vid samma bro, varnar den för en öppning som redan skett — användaren
+  // står vid en bro som just stängt. Regeln träffar exakt den bugg-klass
+  // öppningshändelsens spärr (`event.lastPassageAt`) finns för, och är
+  // därmed dess oberoende kontroll.
+  //
+  // WARN, inte fatal (etapp 6-granskningen omkalibrerade motiveringen):
+  // regeln är TYST över samtliga 15 korpusar sedan förstabeväpningens
+  // geometriska passagespärr landade. Kvar finns EN legitim utslagskälla, och
+  // den är inte millisekundsrastrering utan RETURRESAN: soakens U-svängare
+  // passerar Klaffbron norrut, vänder, och varnas SÖDERUT 8 minuter senare
+  // inför sin returpassage av samma bro. Det är en helt äkta ny öppning.
+  // Den undantas nedan via JOURNEY-RESET:en, inte via ett tidsfönster — en
+  // U-sväng ÄR en journey-reset i appens egen bokföring.
+  {
+    const openings = result.openingWarnings || [];
+    const resets = result.journeyResets || [];
+    for (const w of openings) {
+      if (!Number.isFinite(w.t) || !w.bridge) continue;
+      let members = Array.isArray(w.mmsis) ? w.mmsis : [];
+      if (members.length === 0 && w.leadMmsi) members = [w.leadMmsi];
+      for (const p of targetPassages) {
+        if (p.bridge !== w.bridge) continue;
+        if (!members.includes(String(p.mmsi))) continue;
+        // RETURRESE-UNDANTAGET: har fartyget fått en journey-reset MELLAN
+        // passagen och varningen är det en ny resa, och varningen gäller en
+        // ny (äkta) öppning av samma bro.
+        const newJourney = resets.some((r) => String(r.mmsi) === String(p.mmsi)
+          && r.t > p.t && r.t <= w.t);
+        if (newJourney) continue;
+        // FÖNSTRET: bara passager inom armens maximala livslängd bakåt.
+        // Kanalens turbåtar (t.ex. 265573130) gör samma resa varje dag —
+        // en passage timmar eller dygn tidigare tillhör en HELT ANNAN resa
+        // och säger ingenting om den här varningen. Utan fönstret gav
+        // regeln 11 sådana falska utslag över korpusarna och ett (1) äkta.
+        if (p.t <= w.t && w.t - p.t <= BRIDGE_OPENING.ARM_STALE_TTL_MS) {
+          warnings.push(
+            `INV-21 ÖPPNINGSVARNING EFTER PASSAGE: ${w.bridge} varnades ${w.iso || new Date(w.t).toISOString()} `
+            + `(${w.eventId || 'utan händelse-id'}) men medlemmen ${p.mmsi} passerade redan ${p.iso}`,
+          );
+          break;
         }
       }
     }
