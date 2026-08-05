@@ -55,6 +55,7 @@ const {
   TARGET_BRIDGES, // Bug #4: används för att harmonisera BRIDGE_TEXT_BUG-check
   MOORING_DETECTION, // Förtöjningsdetektering (rörelsebevis-trösklar)
   QUAY_DEPARTURE_GATE, // V1: korroboreringskrav för kajavgång i trigger-punktzon
+  CONNECTION_ALERT, // B2: eskalerande källdödslarm (1h/4h-trappan)
   AIS_CONFIG, // Etapp 2: AISHub-vaktens trösklar (AIS_CONFIG.AISHUB)
   BRIDGE_OPENING, // Etapp 6: öppningsvarningarnas trösklar (konvojfönster m.m.)
 } = require('./lib/constants');
@@ -2952,6 +2953,27 @@ class AISBridgeApp extends Homey.App {
         this._connectionIssueNotifiedAt.set(feedKey, prev);
       }
       this.error('[AIS_CONNECTION] Failed to create timeline notification:', error.message || error);
+    }
+  }
+
+  /**
+   * B2 (etapp 7, 2026-08-05): eskalerande tystnadsnotiser. Basnotisen (egen
+   * nyckel) fyras av anroparen; den här går trappan CONNECTION_ALERT och
+   * fyrar EN notis per uppnådd nivå — dedup-nyckeln bär nivåetiketten
+   * (`<basKey>:1h`, `<basKey>:4h`), så 24h-dedupen i _notifyConnectionIssue
+   * ger exakt en notis per nivå och dygn i stället för total tystnad efter
+   * basnotisen (both-dygn 1: 4,5 h källdöd → noll signal efter en tidigare
+   * ofarlig blink bränt den enda nyckeln).
+   * @param {string} baseKey - dedup-basnyckel, t.ex. 'feeds:silent'
+   * @param {number} silenceMs - uppmätt tystnad
+   * @param {(label: string) => string} msgForLabel - notistext per nivå
+   * @private
+   */
+  _escalateSilenceNotices(baseKey, silenceMs, msgForLabel) {
+    for (const step of CONNECTION_ALERT.ESCALATION_STEPS) {
+      if (silenceMs >= step.ms) {
+        this._notifyConnectionIssue(msgForLabel(step.label), `${baseKey}:${step.label}`);
+      }
     }
   }
 
@@ -7863,10 +7885,9 @@ class AISBridgeApp extends Homey.App {
     const FRESH_MS = 2 * 60 * 1000;
     const s = perFeed.aisstream;
     const h = perFeed.aishub;
-    if (!s || !h || !s.configured || !h.configured) return;
 
-    const sSilence = Number.isFinite(s.timeSinceLastMessage) ? s.timeSinceLastMessage : Infinity;
-    const hSilence = Number.isFinite(h.timeSinceLastMessage) ? h.timeSinceLastMessage : Infinity;
+    const sSilence = (s && Number.isFinite(s.timeSinceLastMessage)) ? s.timeSinceLastMessage : Infinity;
+    const hSilence = (h && Number.isFinite(h.timeSinceLastMessage)) ? h.timeSinceLastMessage : Infinity;
 
     if (!this._feedSilentLogTimes) this._feedSilentLogTimes = new Map();
     const logLimited = (feed, message) => {
@@ -7875,6 +7896,36 @@ class AISBridgeApp extends Homey.App {
       this._feedSilentLogTimes.set(feed, Date.now());
       this.log(`⚠️ [FEED_SILENT] ${message}`);
     };
+
+    // B2 (etapp 7, 2026-08-05): TOTALTYSTNADSGRENEN — körs FÖRE tvåkälls-
+    // guarden nedan. Both-dygn 1 visade hålet: båda korstystnadsgrenarna
+    // kräver en FRISK granne, så "alla källor tysta" (och hela enkälleläget)
+    // var de enda scenarierna helt utan signal — appen var i praktiken blind
+    // utan att säga det. Relevanta källor = de som MATAR PIPELINEN: aisstream
+    // när den är konfigurerad, AISHub endast i both/aishub (skuggläget är ett
+    // mätinstrument — fynd 17-principen). Varje källa måste ha haft chansen
+    // (upptid > fönstret) innan den döms, precis som grenarna nedan.
+    const relevant = [];
+    if (s && s.configured) relevant.push({ name: 'aisstream', st: s, sil: sSilence });
+    if (h && h.configured && this._hubFeedsPipeline()) relevant.push({ name: 'aishub', st: h, sil: hSilence });
+    if (relevant.length > 0
+        && relevant.every((r) => r.sil > SILENT_MS && (r.st.uptime || 0) > SILENT_MS)) {
+      const minSil = Math.min(...relevant.map((r) => r.sil));
+      logLimited('feeds-total', `INGEN aktiv AIS-källa har levererat på ${Math.round(minSil / 60000)} min (${relevant.map((r) => r.name).join('+')}) — appen är blind`);
+      this._notifyConnectionIssue(
+        'AIS Tracker: ingen AIS-källa har levererat positioner på 15 minuter '
+        + '— broöppningsvakten är i praktiken blind. Vakterna försöker '
+        + 'återansluta automatiskt; kontrollera nätverket om det består.',
+        'feeds:silent',
+      );
+      this._escalateSilenceNotices('feeds:silent', minSil, (label) => (
+        `AIS Tracker: fortfarande INGEN AIS-data efter ${label} — `
+        + 'broöppningsvakten är blind. Kontrollera nätverk, AISstream-nyckeln '
+        + 'och AISHub-status på aishub.net.'
+      ));
+    }
+
+    if (!s || !h || !s.configured || !h.configured) return;
 
     // Källan måste ha haft chansen (upptid > fönstret) innan den döms.
     if (sSilence > SILENT_MS && hSilence < FRESH_MS && (s.uptime || 0) > SILENT_MS) {
@@ -7885,6 +7936,13 @@ class AISBridgeApp extends Homey.App {
         + 'försöker återansluta automatiskt.',
         'aisstream:silent',
       );
+      // B2: eskalering — both-dygn 1:s 4,5 h-avbrott gav EN blink-bränd notis
+      // och sedan tystnad; nu bryter 1h- och 4h-nivåerna igenom per dygn.
+      this._escalateSilenceNotices('aisstream:silent', sSilence, (label) => (
+        `AIS Tracker: AISstream har varit tyst i över ${label} medan AISHub `
+        + 'flödar — appen kör på halverad redundans. Vakterna fortsätter '
+        + 'återansluta; kontrollera din AISstream-nyckel om det består.'
+      ));
     }
     if (hSilence > SILENT_MS && sSilence < FRESH_MS && (h.uptime || 0) > SILENT_MS) {
       // FYND 17 (A/B-natten 2026-08-03): NOTISEN gatas på att hubben faktiskt
@@ -7906,6 +7964,14 @@ class AISBridgeApp extends Homey.App {
           + 'stationsstatus på aishub.net.',
           'aishub:silent',
         );
+        // B2: eskalering — AISHub bär ~75 % av datat i both-läge; ett långt
+        // hub-avbrott är den farligaste oprövade riktningen och ska inte
+        // tystna efter basnotisen.
+        this._escalateSilenceNotices('aishub:silent', hSilence, (label) => (
+          `AIS Tracker: AISHub har varit tyst i över ${label} medan AISstream `
+          + 'flödar — appen kör på halverad redundans. Kontrollera användarnamn '
+          + 'och stationsstatus på aishub.net.'
+        ));
       }
     }
   }

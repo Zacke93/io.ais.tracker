@@ -385,10 +385,17 @@ describe('FEL 4 (CLABBYDOO): exit-fallbackens stale-gard lever och mäter positi
 });
 
 describe('FEL 9 (CLABBYDOO): N7-kajvakten med 100 m avgångsmarginal', () => {
-  test('första sample 67 m bortom kapseln räknas som kajstart med marginalen', () => {
+  test('CLABBYDOO:s avgångspunkt räknas som kajstart — numera direktträff i gästhamnskapseln', () => {
     const svc = makeRealVDS();
     const first = { lat: 58.28704, lon: 12.28614 }; // CLABBYDOO:s första sample
-    expect(svc.isNearMooringZone(first.lat, first.lon)).toBe(false); // utan marginal
+    // B3 (etapp 7, 2026-08-05): punkten låg "67 m bortom" den GAMLA enda
+    // kapseln — men den ÄR gästhamnens östkant (stillhetsklustrets lon-p95),
+    // och den nya datahärledda gästhamnskapseln täcker den direkt. Gamla
+    // asserten (utan marginal ⇒ false) låste den gamla zonens utsträckning,
+    // inte N7-kontraktet; kajstart-klassningen för CLABBYDOO är OFÖRÄNDRAD
+    // (marginalvägen gav redan true). Farledspunktstestet nedan förblir
+    // det negativa fallet.
+    expect(svc.isNearMooringZone(first.lat, first.lon)).toBe(true); // direktträff (B3)
     expect(svc.isNearMooringZone(first.lat, first.lon, 100)).toBe(true); // med marginal
   });
 

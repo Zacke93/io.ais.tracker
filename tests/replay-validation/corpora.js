@@ -36,7 +36,12 @@ module.exports = [
     note: 'Ursprungskorpus. OMLÅST 29→30 (2026-06-11): prod MISSADE AURANA@Klaffbron '
       + '(målbro!) — failsafen ströps av RC3-buggen (prodlogg 07:47:41: "estimated '
       + '472s... sog=3.7kn" med momentan inbromsningsfart). Den 30:e notisen är '
-      + 'den rättade missen. Facit-fällan in action: gamla 29 kodifierade buggen.',
+      + 'den rättade missen. Facit-fällan in action: gamla 29 kodifierade buggen. '
+      + 'GOLDEN OMLÅST (2026-08-06, B3 gästhamnskapseln): två gästhamnsvobblare '
+      + '(244236598 sog 0–1,2 + 244870852 sog 0, båda 100 % i kapseln 10:10–10:40) '
+      + 'störde texten kring 10:26–10:28; med kapseln demoteras de och den äkta '
+      + 'Klaffbron-båtens text renderas rent ("strax" 10:26:43 i st f "ETA okänd" '
+      + '10:27:56). Notis-/fördelnings-/riktningsfacit ORÖRDA (30/30).',
   },
   {
     id: '20260601-41h',
@@ -44,7 +49,7 @@ module.exports = [
     appLog: path.join(LOGS_DIR, 'app-20260601-231305.log'),
     hours: 41,
     locked: true,
-    expectedNotifications: 86,
+    expectedNotifications: 84,
     note: '41h-korpusen. 75/75 inkl. per-fartyg+bro-fördelning validerat 2026-06-09 '
       + '(prod-loggens 75:e är null-attribuerad — samma notis, 211355290@Stallbackabron). '
       + 'OMLÅST 75→77 (2026-07-01, S-F3 + previousTarget-fixen): BÅDA nya är RÄTTADE '
@@ -92,7 +97,17 @@ module.exports = [
       + '08:53:55 507 m NORR om punkten i 4,5 kn/cog 213 (aktiv transit) → removal. '
       + 'Gamla gaten krävde _finalTargetDirection+_finalTargetBridge (avslutad resa) '
       + '— mållösa transitörer miste exit-notisen strukturellt (samma klass som '
-      + 'SY FREYJA-fixen tog i svepet).',
+      + 'SY FREYJA-fixen tog i svepet). '
+      + 'OMLÅST 86→84 (2026-08-06, B3 gästhamnskapseln): BRANIF:s (211112870) två '
+      + 'FÖDELSEINFERENS-notiser @Klaffbron+@Olidebron är BORTTAGNA fantomer. '
+      + 'Rådata: född 58.28808/12.28768 (ÖSTRA stranden, 125 m från gästhamns- '
+      + 'linjen = inom N7-kajstartsmarginalen, långt öster om farleden ~12.2850) '
+      + 'i 4,6 kn cog 36 — NOLL sampel söder om Klaffbron. F8-beslutet 2026-07-03 '
+      + 'accepterade inferensen för att "kaj-alternativet inte kunde uteslutas"; '
+      + 'B3-kapseln (datahärledd ur fältdygnen 2026-08-04/05) STYRKER nu kaj- '
+      + 'alternativet, så N7-kajvakten undertrycker inferensen — samma EUGENIE-/ '
+      + 'kajavgångsklass som both-dygn 1 fällde. Järnvägsbron-notisen (äkta '
+      + 'gap-korsning med sampel på båda sidor) är OFÖRÄNDRAT kvar.',
   },
   {
     id: '20260610-förfix',
@@ -460,7 +475,14 @@ module.exports = [
       + '95 s senare är re-accelerationen. Ärlig färsk-data-rättelse — '
       + 'textbaserat oskiljbar från SOKERI-signaturen (studsdiskriminatorn '
       + 'antar färskt belagt ursprungsvärde). Undantagen är EXAKTA strängar; '
-      + 'varje NY sågtand/oscillation fäller korpusen med full styrka.',
+      + 'varje NY sågtand/oscillation fäller korpusen med full styrka. '
+      + 'GOLDEN OMLÅST (2026-08-06, B3 gästhamnskapseln): PILGRIM (211110880) '
+      + 'anlände i 6 kn, förtöjde i gästhamnen (sog 0,1 i kapseln 13:20–13:45 '
+      + 'den 14:e) men behöll måltexten — "En båt på väg mot Stridsbergsbron, '
+      + 'om 13 min" som FÖRTÖJD är exakt fantomklassen från both-dygn 1 '
+      + '(ANDREA/CARAT). Med kapseln demoteras hon och Strids-klausulen försvinner '
+      + 'ur texterna kring 13:30–13:39. Notis-/fördelnings-/riktningsfacit ORÖRDA '
+      + '(164/164).',
     knownInvariantExceptions: [
       'ETA-SÅGTAND UPP: 2026-07-15T08:48:51.405Z Stridsbergsbron 8→14',
       'ETA-OSCILLATION: 2026-07-15T08:50:22.118Z Stridsbergsbron 8→14→9',
