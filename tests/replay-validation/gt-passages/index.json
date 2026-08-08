@@ -1,0 +1,125 @@
+{
+ "generated": "makeGtPassages.js",
+ "corpora": [
+  {
+   "id": "20260525",
+   "jsonl": "ais-replay-20260525-231934.jsonl",
+   "crossings": 29,
+   "inferred": 1
+  },
+  {
+   "id": "20260601-41h",
+   "jsonl": "ais-replay-20260601-231305.jsonl",
+   "crossings": 83,
+   "inferred": 14
+  },
+  {
+   "id": "20260610-förfix",
+   "jsonl": "ais-replay-20260610-001053.jsonl",
+   "crossings": 0,
+   "inferred": 0
+  },
+  {
+   "id": "20260611-4h",
+   "jsonl": "ais-replay-20260611-115443.jsonl",
+   "crossings": 3,
+   "inferred": 0
+  },
+  {
+   "id": "20260610-19h",
+   "jsonl": "ais-replay-20260610-012751.jsonl",
+   "crossings": 46,
+   "inferred": 9
+  },
+  {
+   "id": "20260702-11h",
+   "jsonl": "ais-replay-20260702-010825.jsonl",
+   "crossings": 25,
+   "inferred": 12
+  },
+  {
+   "id": "20260702-2h",
+   "jsonl": "ais-replay-20260702-132758.jsonl",
+   "crossings": 26,
+   "inferred": 5
+  },
+  {
+   "id": "20260702-19h",
+   "jsonl": "ais-replay-20260702-174109.jsonl",
+   "crossings": 47,
+   "inferred": 5
+  },
+  {
+   "id": "20260707-14h",
+   "jsonl": "ais-replay-20260707-092154.jsonl",
+   "crossings": 60,
+   "inferred": 19
+  },
+  {
+   "id": "20260708-21h",
+   "jsonl": "ais-replay-20260708-001857.jsonl",
+   "crossings": 48,
+   "inferred": 19
+  },
+  {
+   "id": "20260710-13h",
+   "jsonl": "ais-replay-20260710-015254.jsonl",
+   "crossings": 71,
+   "inferred": 16
+  },
+  {
+   "id": "20260711-7h",
+   "jsonl": "ais-replay-20260711-134232.jsonl",
+   "crossings": 11,
+   "inferred": 5
+  },
+  {
+   "id": "20260711-16h",
+   "jsonl": "ais-replay-20260711-232958.jsonl",
+   "crossings": 39,
+   "inferred": 13
+  },
+  {
+   "id": "20260712-25h",
+   "jsonl": "ais-replay-20260712-174434.jsonl",
+   "crossings": 65,
+   "inferred": 19
+  },
+  {
+   "id": "20260713-41h",
+   "jsonl": "ais-replay-20260713-221737.jsonl",
+   "crossings": 128,
+   "inferred": 38
+  },
+  {
+   "id": "20260804-17h",
+   "jsonl": "ais-20260804-17h-dag.jsonl",
+   "crossings": 93,
+   "inferred": 19
+  },
+  {
+   "id": "20260804-both-21h",
+   "jsonl": "ais-20260804-both-21h.jsonl",
+   "crossings": 144,
+   "inferred": 16
+  },
+  {
+   "id": "20260806-42h",
+   "jsonl": "ais-20260806-42h.jsonl",
+   "crossings": 130,
+   "inferred": 15
+  },
+  {
+   "id": "20260803-natt",
+   "jsonl": "ais-fusion-20260803-nattkorning.jsonl",
+   "crossings": 25,
+   "inferred": 2
+  },
+  {
+   "id": "20260803-natt-aisstream",
+   "jsonl": "ais-aisstream-20260803-nattkorning.jsonl",
+   "crossings": 20,
+   "inferred": 7
+  }
+ ]
+}

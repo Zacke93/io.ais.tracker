@@ -11,6 +11,35 @@
  * facit från en buggig körning är "vad prod gjorde", inte "vad som är rätt").
  *
  * VIKTIGT vid omlåsning: motivera ändringen i `note` med datum + varför.
+ *
+ * ── FÄLTEN ──────────────────────────────────────────────────────────────────
+ *
+ * `locked`            — se ovan. Styr ALLA fem facitdimensionerna på en gång.
+ * `expectedNotifications` — notisantalet (pelare 2).
+ * `knownInvariantExceptions` — EXAKTA utslagssträngar (prefixmatch) som är
+ *                     rådataverifierat designenliga; varje post MÅSTE motiveras
+ *                     i `note`. Se FP9 2026-07-18.
+ * `fusionOf`          — korpusen är en fusionsvariant av en annan; validering
+ *                     sker mot PARENTENS fördelnings-/riktningsfacit.
+ *
+ * `lockOpenings: false` (A9a, etapp 7 2026-08-08) — LÅS ALLT UTOM
+ *                     ÖPPNINGSDIMENSIONEN. `runAllCorpora` (a) hoppar
+ *                     öppningspost-jämförelsen och (b) EXKLUDERAR korpusen ur
+ *                     REGEN-skrivningen av `opening-distribution.json`; A8(iv):s
+ *                     complete-vakt känner till undantaget och kräver alltså
+ *                     inte en öppningspost för just den korpusen.
+ *                     MOTIV: en körning kan vara pelare 1+2-verifierad medan
+ *                     öppningsmotorn ännu bär en KÄND, öppen defekt. Låser man
+ *                     öppningsmultiseten då förevigas defekten som facit (exakt
+ *                     facit-fällan, en dimension upp). Fältet är ALLTID
+ *                     tillfälligt: noten ska namnge vilken fix som får ta bort
+ *                     det, och när den landat körs REGEN om utan flaggan.
+ *                     Frånvarande fält = öppningsdimensionen är låst (default).
+ * `pollEraMinutes`    — AISHub-API:ets `interval=`-parameter (datafönstret,
+ *                     INTE pollfrekvensen) när korpusen spelades in. Ren
+ *                     metadata: den som kalibrerar fixåldersgrindar måste veta
+ *                     vilken epok datat kommer ifrån. Saknas fältet är korpusen
+ *                     inspelad i aisstream-eran (ingen poll alls).
  */
 
 const path = require('path');
@@ -487,5 +516,186 @@ module.exports = [
       'ETA-SÅGTAND UPP: 2026-07-15T08:48:51.405Z Stridsbergsbron 8→14',
       'ETA-OSCILLATION: 2026-07-15T08:50:22.118Z Stridsbergsbron 8→14→9',
     ],
+  },
+  {
+    id: '20260804-17h',
+    jsonl: path.join(CORPORA_DATA_DIR, 'ais-20260804-17h-dag.jsonl'),
+    appLog: path.join(LOGS_DIR, 'app-20260804-024200.log'),
+    hours: 17,
+    locked: true,
+    expectedNotifications: 116,
+    note: 'KORPUS #16 — A/B-dagskörningen 2026-08-04, A-ARMEN (enbart aisstream), '
+      + '682 sampel / 17,0 h. Det är körningen som fällde GO-BESLUTET för '
+      + 'source=both (docs/ab2-dagskorningen-GO-2026-08-04.md): alla P1–P4 '
+      + 'uppfyllda, P1 11/0 med p=9,8e-4 över 13 varianter. LÅST 116 (2026-08-08, '
+      + 'etapp 7 A9b) = FÄLTET EXAKT: 116 notiser med BYTE-IDENTISKT '
+      + '(mmsi,bro)-multiset mot field-facit/20260804-17h/field-notif.txt, och '
+      + '40 öppningsvarningar mot fältets 40 [OPENING_TRIGGER_SUCCESS] '
+      + '(app-20260804-024200.log). Ingen diff mot prod = inget att '
+      + 'rådataverifiera; facit ÄR fältutfallet. '
+      + 'VÄRDE: första korpusen från etapp 6-eran där bridge_opening_soon var '
+      + 'AKTIV i drift — de 249 öppningsvarningarna i den gamla basen är '
+      + 'retro-replayade på för-etapp-6-data, dessa 40 avfyrades på riktigt. '
+      + 'Fältfacit (notiser/texter/öppningar) i field-facit/20260804-17h/; '
+      + 'rådatafacit i gt-passages/20260804-17h.json (93 korsningar, 19 inferred). '
+      + 'Källa: aisstream-eran ⇒ inget pollEraMinutes. '
+      + 'KÄNT INVARIANTUTSLAG (1 st, rådataverifierat — SANKTIONERAT DESIGNVAL): '
+      + 'INV-2 NOTIS-DUBBLETT 265576720@Kanalinfarten. Detta är F-17-klassen som '
+      + 'ANVÄNDARBESLUT U5 (2026-08-08) uttryckligen behåller: ankomstnotis + '
+      + 'passagenotis vid lång väntetid är TVÅ händelser, inte en dubblett. '
+      + 'Rådata (ais-20260804-17h-dag.jsonl): 13:28:19.388Z 293 m från punkten i '
+      + '1,9 kn cog 72,6 = ankomsten (riktning ännu unknown); därefter FÖRTÖJD '
+      + '13:36–15:41 på 132–159 m (sog 0, navStatus 5 från 13:47) — 2 h 5 min; '
+      + 'sedan 15:45:08.689Z 20 m i 4,1 kn cog 18,1 = utfarten norrut, följd av '
+      + 'hela nordtransiten (Olide→Klaff→Jvb→Strids→Stallbacka). Två fysiskt '
+      + 'skilda händelser åtskilda av två timmars förtöjning. Utslaget är '
+      + 'PERMANENT så länge U5 står fast.',
+    knownInvariantExceptions: [
+      'NOTIS-DUBBLETT: 265576720:Kanalinfarten × 2 utan journey-reset emellan',
+    ],
+  },
+  {
+    id: '20260804-both-21h',
+    jsonl: path.join(CORPORA_DATA_DIR, 'ais-20260804-both-21h.jsonl'),
+    appLog: path.join(LOGS_DIR, 'app-20260804-224222.log'),
+    hours: 21,
+    locked: true,
+    lockOpenings: false,
+    expectedNotifications: 152,
+    note: 'KORPUS #17 — BÅDE-DYGN 1 (2026-08-04/05, source=both), 2 748 sampel / '
+      + '21,2 h: 691 aisstream + 2 057 ÄKTA AISHub-poster. Enda korpusen med '
+      + 'BÅDA källorna live i samma inspelning (fusionskorpusarna är syntetiska '
+      + 'ekon). Redundansen bar ett 4,5 h äkta aisstream-avbrott — två transiter '
+      + 'gick fram på AISHub ensam. Se docs/both-dygn1-2026-08-05.md. '
+      + 'LÅST 152 (2026-08-08, etapp 7 A9b): fältet sände 153, replayen ger 152, '
+      + 'och multiset-diffen är EXAKT EN post — 265662320|Klaffbron. '
+      + 'DEN 153:e ÄR EN VARMSTARTSDELTA, INTE EN MISS, och appens egen logg '
+      + 'bevisar det: 22:44:30.026Z `[FALLBACK_BOAT_NEAR] 265662320: Passage of '
+      + 'Klaffbron detected without prior proximity trigger (distance=409m)`, '
+      + 'avfyrad 2 min 8 s efter appstart på JEANNELLEs ALLRA FÖRSTA sampel '
+      + '(22:44:30.011Z, sog 0, förtöjd i gästhamnen 409 m från bron). Två rader '
+      + 'ovanför står varifrån slutsatsen kom: `[PERSISTENT_DEDUP_SAME_DIR_LATE] '
+      + '265662320:Kanalinfarten: entry 327 min old` — appen bar PERSISTERAT '
+      + 'tillstånd från 5,5 h FÖRE inspelningens början. Replayen startar från '
+      + 'kall cache och kan per konstruktion inte återskapa ett förflutet den '
+      + 'aldrig såg. Samma klass som ELFKUNGENs omstarts-dedup i 20260702-2h, '
+      + 'med omvänt tecken. (Notisen är dessutom `passage-inferred` på 409 m — '
+      + 'C13/U7:s klass.) '
+      + 'lockOpenings: false — CARAT-FANTOMERNA får INTE förevigas som '
+      + 'öppningsfacit. 211452170/CARAT låg i praktiken stilla hela natten '
+      + '(70 sampel, sog median 0,7 / max 7,4) och FÄLTET varnade för henne TRE '
+      + 'gånger: Stridsbergsbron#5 00:19:14 (eta=33 min), Stridsbergsbron#8 '
+      + '01:34:35 (eta=75 min) och Klaffbron#9 03:52:55 (eta=26 min) — alla tre '
+      + 'beväpnade med en deadline SOM REDAN PASSERAT (`deadline om −72 s`, '
+      + '`−87 s`, `−157 s`; M1-/D8-klassen) på en båt i 0,4–1,6 kn. '
+      + 'ÖPPNINGSDIMENSIONEN ÄR DESSUTOM DEN ENDA SOM INTE ÄR FÄLTIDENTISK: '
+      + 'replayen ger 34 av fältets 35 varningar, och den enda som saknas är '
+      + 'just CARAT@Stridsbergsbron 01:34:35 (dubbelvarningen). Att låsa '
+      + 'multiseten nu vore att skriva in två fantomer OCH ett utfall som '
+      + 'skiljer sig från fältet. Öppningsdimensionen låses när C8 landat: ta '
+      + 'bort flaggan och kör REGEN_DISTRIBUTIONS=1. Alla ÖVRIGA fyra '
+      + 'dimensioner är låsta som vanligt. '
+      + 'OBS: den ursprungliga planformuleringen "CARAT-fantomvarningen '
+      + '05:18:31" är INTE verifierbar — det finns ingen öppningsvarning alls '
+      + 'i fältloggen mellan 04:42 och 06:42. Tidsstämpeln är rättad ovan mot '
+      + 'field-facit/20260804-both-21h/field-openings.txt. '
+      + 'Fältfacit i field-facit/20260804-both-21h/ (field-texts REGENERERAD ur '
+      + '[UI_UPDATE]-raderna, A8(i) — den levererade extraktionen tappade '
+      + 'fallback-klassen "3 båtar är i närheten av…", 318 → 321 rader; metoden '
+      + 'står i field-facit/README.md). Rådatafacit i '
+      + 'gt-passages/20260804-both-21h.json (144 korsningar, 16 inferred). '
+      + 'AISHub-benet tillhör 10-minuterseran (interval=10) — men korpusen är '
+      + 'BLANDAD, så pollEraMinutes sätts inte; #18 är erans referenspunkt. '
+      + '── SEX KÄNDA INVARIANTUTSLAG, alla rådataverifierade 2026-08-08. TVÅ '
+      + 'KLASSER, och skillnaden är avgörande: '
+      + '[A] SANKTIONERAT DESIGNVAL — permanent tills beslutet ändras: '
+      + '(1) INV-2 NOTIS-DUBBLETT 219031446@Stridsbergsbron = F-17/U5-klassen. '
+      + 'Rådata: ankomst 01:04:08.700Z på 290 m i 1,5 kn (notis 1) → STILLASTÅENDE '
+      + 'på 143–149 m från bron 01:08:39–03:17:34 (sog 0 i 2 h 9 min, brokö) → '
+      + 'notis 2 03:19:05.996Z på 63 m → passage 03:20:11.437Z. Ankomstnotisen är '
+      + 'förvarningen, passagenotisen bekräftelsen. '
+      + '(2) INV-10 STRAX-ZOMBIE 01:59:48.635Z (69 min) = SAMMA fartyg och SAMMA '
+      + 'väntan. ANVÄNDARBESLUT U6 (2026-08-08): "strax" behålls oförändrat även '
+      + 'vid lång kö — texten är sakligt sann (båten står vid bron och väntar på '
+      + 'öppning) och felvisningstiden klassas som sanktionerad, inte som defekt. '
+      + '(3) INV-3 ETA-SÅGTAND 09:56:02.055Z Klaffbron 12→27 = NORDIC SOLA-klassen '
+      + '(samma prejudikat som 20260713-41h). Rådata: Klaffbron-gruppens båtar låg '
+      + '880–1 041 m ut i 0,2–0,4 kn (LA FEMME 09:55:31 sog 0,3 @984 m; YOLO 2 '
+      + '09:54:00 sog 0,2 @1010 m; DIONE 09:57:39 sog 0,2 @1041 m) — en progressiv '
+      + 'ETA på nästan noll fart växer ÄRLIGT. Textbaserat oskiljbar från '
+      + 'SOKERI-signaturen, därav utslaget. '
+      + '[B] ÖPPEN DEFEKT — TILLFÄLLIGA undantag som SKA tas bort när fixen landar '
+      + '(de förevigar INGET beteende: strängarna är tidsstämpelexakta och tystar '
+      + 'exakt tre händelser; varje NYTT utslag fäller korpusen med full styrka): '
+      + '(4+5) COUNT-DEGRADERING 08:27:26.096Z och 08:28:26.908Z — texten '
+      + '"3 båtar är i närheten av Stridsbergsbron" är `_generateSafeFallbackText` '
+      + 'inklämd mellan "Fyra båtar … strax" och "Tre båtar … strax". Rotorsak: '
+      + 'C1(c) ([err]-kedjan, fallback vid renderable=0). Tas bort av C1. '
+      + '(6) INV-14 DEFAULT-FLASH 04:40:11.113Z — "Inga båtar" i 140 s mellan två '
+      + '"En båt på väg mot Klaffbron"-texter utan mellanliggande passage. '
+      + 'Rotorsak: C1. Tas bort av C1. '
+      + 'VARNING TILL FRAMTIDA GRANSKARE: när C1/C2 landar ÄNDRAS golden-texten '
+      + 'här ändå (REGEN krävs) — passa då på att RENSA de undantag som blivit '
+      + 'döda. Ett dött undantag är inte farligt men det ljuger om nuläget.',
+    knownInvariantExceptions: [
+      'NOTIS-DUBBLETT: 219031446:Stridsbergsbron × 2 utan journey-reset emellan',
+      'ETA-SÅGTAND UPP: 2026-08-05T09:56:02.055Z Klaffbron 12→27 på 30s',
+      'COUNT-DEGRADERING: 2026-08-05T08:27:26.096Z "3 båtar är i närheten av Stridsbergsbron" inklämd (69s)',
+      'COUNT-DEGRADERING: 2026-08-05T08:28:26.908Z "3 båtar är i närheten av Stridsbergsbron" inklämd (39s)',
+      'DEFAULT-FLASH: 2026-08-05T04:40:11.113Z "Inga båtar" inklämd (140s) mellan två "En … Klaffbron"-texter utan passage',
+      'STRAX-ZOMBIE: 2026-08-05T01:59:48.635Z "En båt på väg mot Stridsbergsbron, beräknad broöppning strax" stod 69 min utan Stridsbergsbron-passage',
+    ],
+  },
+  {
+    id: '20260806-42h',
+    jsonl: path.join(CORPORA_DATA_DIR, 'ais-20260806-42h.jsonl'),
+    appLog: path.join(LOGS_DIR, 'app-20260806-005440.log'),
+    hours: 42,
+    locked: false,
+    lockOpenings: false,
+    pollEraMinutes: 10,
+    expectedNotifications: 135,
+    note: 'KORPUS #18 — 42h-FÄLTPROVET 2026-08-06/07 (AISHub ENSAM; aisstream var '
+      + 'tyst hela körningen), 3 922 sampel / 41,8 h. Se '
+      + 'FALTRAPPORT-42h-2026-08-08.md. '
+      + 'MEDVETET OLÅST — DIRIGENTBESLUT 2026-08-08. Motiveringen i sin helhet: '
+      + '(a) FÖRSTA korpusen med `feed`-fältet och AISHubs pollsnapshots. De 15 '
+      + 'gamla låsta är ALLA från aisstream-eran, så ingen av dem prövar den '
+      + 'ström appen numera faktiskt körs på; kadensen är 2,6× tätare '
+      + '(per-fartygs-gap p50 139 s mot 360 s i 20260713-41h). '
+      + '(b) TROHETEN ÄR DEN HÖGSTA HITTILLS: 135/135 notiser med BYTE-IDENTISKT '
+      + '(mmsi,bro)-multiset mot field-facit/20260806-42h/field-notif.txt och '
+      + '36/36 öppningar mot fältets 36 avfyrningar; replayen är deterministisk '
+      + '(verifierad byte-identisk vid omkörning). Datat duger alltså — det är '
+      + 'inte kvaliteten som hindrar låsning. '
+      + '(c) MEN SEX FATALA INVARIANTBROTT (INV-2 ×2, INV-3, INV-10, INV-14, '
+      + 'INV-13) vars rotorsaker är ÖPPNA DEFEKTER: INV-13 ligger nedströms D1 '
+      + '(F-14, 2h-backstoppen bokför en målbropassage som mellanbro) och '
+      + 'INV-2-dubbletterna är F-17. Låses posten NU fäller de runAllCorpora, och '
+      + 'A8(iv):s REGEN-vakt skriver då inte facit för NÅGON korpus ⇒ hela '
+      + 'omlåsningsvägen slås ut mitt under fas C. Ett lås nu skulle dessutom '
+      + 'koda in "vad prod gjorde" i stället för "vad som är rätt". '
+      + '(d) expectedNotifications 135 — INTE 132. ANVÄNDARBESLUT U5 2026-08-08: '
+      + 'ankomstnotis + passagenotis vid långa väntetider är AVSIKTLIGA, inte '
+      + 'dubbletter. Ankomstnotisen är äkta förvarning, passagenotisen bekräftar. '
+      + 'F-17 är därmed ett DOKUMENTERAT DESIGNVAL, inte en fix (D9 utgår). '
+      + 'Framtida granskare ska alltså INTE "rätta" siffran till 132. '
+      + '(e) pollEraMinutes: 10 — korpusen är SISTA REFERENSPUNKTEN för '
+      + '10-minuterseran innan B4 flippar `interval=` till 3. '
+      + '(f) INV-10-utslaget (den 152,9 min långa "strax"-episoden) är '
+      + 'U1-sanktionerat per ANVÄNDARBESLUT U6: texten är sakligt sann (båten '
+      + 'står vid bron och väntar) och de 256 felvisningsminuterna klassas som '
+      + 'sanktionerade, inte som defekt. Utslaget behöver en '
+      + 'knownInvariantException OAVSETT när korpusen låses — den skrivs när '
+      + 'strängen är stabil (fas C rör INV-10:s väg via C11/C11b). '
+      + 'lockOpenings: false av samma skäl som #17 plus att öppningsfacit för en '
+      + 'olåst korpus vore meningslöst. '
+      + 'VILLKOR FÖRE SKARP LÅSNING: fas C landad (C0b, C4b, C7b, C1d, C8, C11, '
+      + 'C13) · invariantutslagen fixade eller bärande rådataverifierade '
+      + 'undantagssträngar · gt-passages regenererad med den korrigerade '
+      + 'geometrin (A2 — REDAN GJORT: gt-passages/20260806-42h.json, 130 '
+      + 'korsningar varav 15 inferred; den gamla fältfilen i field-facit/ saknar '
+      + '12 gap-korsningar och har 17 falska Kanalinfarts-intrång). '
+      + 'Fältfacit i field-facit/20260806-42h/.',
   },
 ];

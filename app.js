@@ -70,6 +70,22 @@ const MIN_VIABLE_SPEED_KN = PASSAGE_TIMING.MINIMUM_VIABLE_SPEED;
 // återpubliceras som "validated fallback" EFTER reconnect.
 const STALE_DATA_OVERRIDE_TEXT = 'AIS-anslutning saknas — data kan vara inaktuell';
 
+// A7(a) (etapp 7, 2026-08-08): skrivtakt för källornas tystnadsbokföring
+// ('feed_silence_ledger'). Bokföringen LÄSES bara i ett enda fall — källan har
+// inte levererat något sedan processtart, och då mäts tystnaden i timmar
+// (42h-fältprovet: 3 009 min = 50 h, felrapporterad som 120 min). En skrivning
+// per watchdog-tick vore 1 440/dygn, dvs. samma flash-slitage som C3 jagar; EN
+// blob för båda källorna var 60:e minut ger 24 skrivningar/dygn och ≤60 min
+// upplösning på ett mått som redovisas i timmar. Vid varje strike skrivs den
+// dessutom FORCE (sällan, och exakt när sanningen behöver överleva omstarten).
+const FEED_SILENCE_PERSIST_INTERVAL_MS = 60 * 60 * 1000;
+
+// A14 (etapp 7, 2026-08-08): kadens för process-minnesraden. Speglar
+// VesselDataServices egen MEMORY_STATS-cykel (_cleanupValidationTimer = 10 min)
+// så de två serierna kan läsas parvis i fältloggen. Monitoring-loopen går varje
+// minut, därför struppas raden här i stället för i loopen.
+const PROCESS_MEMORY_STATS_INTERVAL_MS = 10 * 60 * 1000;
+
 /**
  * =============================================================================
  * AIS BRIDGE APP - HUVUDKLASS
@@ -2938,14 +2954,32 @@ class AISBridgeApp extends Homey.App {
       const DEDUPE_MS = 24 * 60 * 60 * 1000;
       const now = Date.now();
       if (prev && now - prev < DEDUPE_MS) {
+        // A13: även den tysta grenen ska gå att läsa ur loggen — "gick notisen
+        // iväg?" ska aldrig mer vara obesvarbar (fältprovet 2026-08-08).
+        this.debug(
+          `🔕 [AIS_CONNECTION] Timeline-notis dedupad (nyckel '${feedKey}', `
+          + `${Math.round((now - prev) / 60000)} min sedan förra) — 24h-fönstret gäller`,
+        );
         return;
       }
       if (!this.homey || !this.homey.notifications
           || typeof this.homey.notifications.createNotification !== 'function') {
+        // A13 (etapp 7, 2026-08-08): SVÄLJ-FÄLLAN i den ENDA kanal som når en
+        // användare utan loggåtkomst. Grenen returnerade tyst — en Homey utan
+        // notifications-API gav noll spår av att notisen aldrig skickades.
+        this.error(
+          `[AIS_CONNECTION] Timeline-notis kunde INTE skickas (nyckel '${feedKey}'): `
+          + `Homeys notifications-API saknas. Meddelande: ${String(message).slice(0, 120)}`,
+        );
         return;
       }
       this._connectionIssueNotifiedAt.set(feedKey, now);
       await this.homey.notifications.createNotification({ excerpt: message });
+      // A13: kvittot. Loggas EFTER await — före det vet vi inte att den gick.
+      this.log(
+        `🔔 [AIS_CONNECTION] Timeline-notis skickad (nyckel '${feedKey}'): `
+        + `${String(message).slice(0, 120)}`,
+      );
     } catch (error) {
       if (prev === undefined) {
         this._connectionIssueNotifiedAt.delete(feedKey);
@@ -5525,6 +5559,20 @@ class AISBridgeApp extends Homey.App {
         // mätbart — utan den kan en regression flytta alla varningar en timme
         // tidigare utan att någon grind rodnar.
         dueMs: Number.isFinite(payload.dueMs) ? payload.dueMs : null,
+        // A8(iii)/H-4 (etapp 7, 2026-08-08): armens URSPRUNGLIGA förfallotid,
+        // fryst vid beväpningen och ALDRIG omskriven av eligibleAt-ombindningen
+        // (BridgeOpeningService:899-913). Skillnaden dueMs − originalDueMs ÄR
+        // uppskjutningen, och utan den kan H-4-serien inte skilja "varningen kom
+        // när den skulle" från "varningen sköts upp". Fasgrind A fann att fältet
+        // aldrig nådde harnessen: BridgeOpeningService satte det och
+        // replayRunner läste det, men den här state-listan tappade det i mitten
+        // ⇒ 365 av 365 varningar rapporterade "originalDueMs saknas".
+        originalDueMs: Number.isFinite(payload.originalDueMs) ? payload.originalDueMs : null,
+        // Fixens ålder vid avfyrningen (B2d, instrumentdelen). Fältprovet:
+        // Klaffbron#32 avfyrade "eta=1 min" på 1 209 m byggt på ett 854 s
+        // gammalt fix — det implicerar 39 knop. Grinden som ska sätta
+        // eta_minutes=-1 är fas B; här exponeras enbart måttet.
+        fixAgeMs: Number.isFinite(payload.fixAgeMs) ? payload.fixAgeMs : null,
       };
 
       // Nyckeln sätts FÖRE anropet: kortet är fire-and-forget och ett
@@ -7667,6 +7715,163 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * A7(a) (etapp 7, 2026-08-08): tystnadsbokföringen — senaste meddelandetid
+   * och konfigurationstidpunkt PER KÄLLA, persisterad över processomstart.
+   *
+   * MOTIV (F-18, 42h-fältprovet): 20 av 21 watchdog-strikes ljög. Strike 21
+   * påstod "no messages for 120 min" när den verkliga tystnaden var 3 009 min
+   * (50 h) — tystnaden började dagen FÖRE körningen. Klientens
+   * timeSinceLastMessage nollställs av processomstarten (null = "aldrig fått
+   * något"), och Math.min-klampen mot socketens uptime maskerade resten.
+   * Bokföringen är appens EGET minne av när flödet senast levde.
+   *
+   * Lat init (samma mönster som _noteQuayStabilitys Map-init): direktanropande
+   * enhetstester bygger app-objekt utan onInit.
+   * @returns {Object<string, {lastMessageAt?: number, configuredSince?: number}>}
+   * @private
+   */
+  _getFeedSilenceLedger() {
+    if (this._feedSilenceLedger) return this._feedSilenceLedger;
+    this._feedSilenceLedger = {};
+    try {
+      if (this.homey && this.homey.settings && typeof this.homey.settings.get === 'function') {
+        const raw = this.homey.settings.get('feed_silence_ledger');
+        // Defensivt: settings kan bära vad som helst (gamla format, stubbar
+        // som returnerar en sträng för ALLA nycklar) — läs bara giltiga tal.
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+          for (const [feed, entry] of Object.entries(raw)) {
+            if (!entry || typeof entry !== 'object') continue;
+            const clean = {};
+            if (Number.isFinite(entry.lastMessageAt)) clean.lastMessageAt = entry.lastMessageAt;
+            if (Number.isFinite(entry.configuredSince)) clean.configuredSince = entry.configuredSince;
+            this._feedSilenceLedger[feed] = clean;
+          }
+        }
+      }
+    } catch (error) {
+      this.error('[FEED_WATCHDOG] Kunde inte läsa tystnadsbokföringen:', error.message || error);
+    }
+    return this._feedSilenceLedger;
+  }
+
+  /**
+   * A7(a): skriv tystnadsbokföringen — STRYPT skrivtakt (samma flash-hänsyn
+   * som _persistQuayLedger). Se FEED_SILENCE_PERSIST_INTERVAL_MS för
+   * härledningen av intervallet.
+   * @param {boolean} [force] - skriv nu (används vid strike, där sanningen
+   *   måste överleva den omanslutning/omstart som just ska ske)
+   * @private
+   */
+  _persistFeedSilenceLedger(force = false) {
+    try {
+      if (!this._feedSilenceLedgerDirty && !force) return;
+      if (!this.homey || !this.homey.settings || typeof this.homey.settings.set !== 'function') {
+        return;
+      }
+      const now = Date.now();
+      if (!force && now - (this._feedSilenceLedgerPersistedAt || 0) < FEED_SILENCE_PERSIST_INTERVAL_MS) {
+        return;
+      }
+      this._feedSilenceLedgerPersistedAt = now;
+      this._feedSilenceLedgerDirty = false;
+      // FÄRSK BLOB, aldrig den levande kartan (samma mönster som
+      // _persistQuayLedger). Att dela referensen hade låtit varje senare
+      // mutation smyga in i "det persisterade" utan skrivning — precis den
+      // delade-referens-fälla som passedBridges-läxan handlade om.
+      const blob = {};
+      for (const [feed, entry] of Object.entries(this._getFeedSilenceLedger())) {
+        if (!entry) continue;
+        const clean = {};
+        if (Number.isFinite(entry.lastMessageAt)) clean.lastMessageAt = entry.lastMessageAt;
+        if (Number.isFinite(entry.configuredSince)) clean.configuredSince = entry.configuredSince;
+        blob[feed] = clean;
+      }
+      this.homey.settings.set('feed_silence_ledger', blob);
+    } catch (error) {
+      this.error('[FEED_WATCHDOG] Kunde inte skriva tystnadsbokföringen:', error.message || error);
+    }
+  }
+
+  /**
+   * A7(a): bokför en observation av en källa. Monotont — lastMessageAt kan
+   * bara gå framåt, så en omstart eller en klientnollställning aldrig raderar
+   * kunskapen om när flödet senast levde. configuredSince nollställs när
+   * källan avkonfigureras (då är "sedan konfiguration" ett nytt fönster).
+   * @param {string} feedKey - 'aisstream' | 'aishub' | 'aggregate' (legacy)
+   * @param {object} feedStats - perFeed-posten (eller platta stats i legacy)
+   * @param {number} now
+   * @private
+   */
+  _noteFeedObservation(feedKey, feedStats, now = Date.now()) {
+    const ledger = this._getFeedSilenceLedger();
+    if (!ledger[feedKey]) ledger[feedKey] = {};
+    const entry = ledger[feedKey];
+
+    if (feedStats && feedStats.configured === false) {
+      if (entry.configuredSince !== undefined) {
+        delete entry.configuredSince;
+        this._feedSilenceLedgerDirty = true;
+      }
+    } else if (!Number.isFinite(entry.configuredSince)) {
+      entry.configuredSince = now;
+      this._feedSilenceLedgerDirty = true;
+    }
+
+    const live = feedStats && Number.isFinite(feedStats.lastMessageTime)
+      ? feedStats.lastMessageTime : null;
+    if (live !== null && (!Number.isFinite(entry.lastMessageAt) || live > entry.lastMessageAt)) {
+      entry.lastMessageAt = live;
+      this._feedSilenceLedgerDirty = true;
+    }
+
+    this._persistFeedSilenceLedger(false);
+  }
+
+  /**
+   * A7(a): de TRE storheterna för watchdog-loggen. Att bara logga
+   * sinceMessage separat räcker inte: i never-delivered-fallet är
+   * timeSinceLastMessage null ⇒ "Infinity" skrevs och sanningen syntes
+   * ingenstans. Därför redovisas sinceMessage (klientens ELLER bokföringens,
+   * det som är sanning), uptime (socketens ålder) och sinceConfigured
+   * (hur länge källan varit påslagen) var för sig.
+   * @param {string} feedKey
+   * @param {object} feedStats
+   * @param {number} [now]
+   * @returns {{sinceMessageMs: number|null, uptimeMs: number,
+   *   sinceConfiguredMs: number|null, fromLedger: boolean, text: string}}
+   * @private
+   */
+  _describeFeedSilence(feedKey, feedStats, now = Date.now()) {
+    const entry = this._getFeedSilenceLedger()[feedKey] || {};
+    const live = feedStats && Number.isFinite(feedStats.lastMessageTime)
+      ? feedStats.lastMessageTime : null;
+    const stored = Number.isFinite(entry.lastMessageAt) ? entry.lastMessageAt : null;
+    let best = null;
+    if (live !== null && stored !== null) best = Math.max(live, stored);
+    else if (live !== null) best = live;
+    else if (stored !== null) best = stored;
+
+    const sinceMessageMs = best !== null ? Math.max(0, now - best) : null;
+    const uptimeMs = feedStats && Number.isFinite(feedStats.uptime) ? feedStats.uptime : 0;
+    const sinceConfiguredMs = Number.isFinite(entry.configuredSince)
+      ? Math.max(0, now - entry.configuredSince) : null;
+    const fromLedger = best !== null && best === stored && (live === null || stored > live);
+
+    const min = (ms) => Math.round(ms / 60000);
+    const text = `${sinceMessageMs === null
+      ? 'sinceMessage=aldrig (källan har inte levererat ett enda meddelande)'
+      : `sinceMessage=${min(sinceMessageMs)} min${fromLedger
+        ? ` (bokförd, senast ${new Date(best).toISOString()} — spänner över omstart)` : ''}`
+    }, uptime=${min(uptimeMs)} min, ${sinceConfiguredMs === null
+      ? 'sinceConfigured=okänd'
+      : `sinceConfigured=${min(sinceConfiguredMs)} min`}`;
+
+    return {
+      sinceMessageMs, uptimeMs, sinceConfiguredMs, fromLedger, text,
+    };
+  }
+
+  /**
    * B2-fix (2026-06-09): stale-feed-watchdog. Ping/pong i AISStreamClient
    * fångar död TCP-socket, men INTE fallet "socket lever, pong svarar, men
    * inga AIS-meddelanden" (tappad subscription, misslyckad subscribe-send,
@@ -7686,6 +7891,17 @@ class AISBridgeApp extends Homey.App {
       }
 
       const stats = this.aisClient.getConnectionStats();
+
+      // A7(a): bokför observationen PER KÄLLA innan någon gren dömer. Görs
+      // varje tick (inte bara vid strike) — det är den friska tiden som ger
+      // bokföringen sitt värde när källan sedan tystnar över en omstart.
+      const observedAt = Date.now();
+      if (stats.perFeed) {
+        this._noteFeedObservation('aisstream', stats.perFeed.aisstream, observedAt);
+        this._noteFeedObservation('aishub', stats.perFeed.aishub, observedAt);
+      } else {
+        this._noteFeedObservation('aggregate', stats, observedAt);
+      }
 
       // Etapp 2 (V1-C2/V3-C2): med muxens perFeed-uppslag körs vakten PER
       // KÄLLA. Aggregatets timeSinceLastMessage=min hade annars hållits
@@ -7737,14 +7953,22 @@ class AISBridgeApp extends Homey.App {
         return;
       }
 
+      // A7(a): TRE storheter i loggen. Klampen ovan (silenceMs) styr
+      // fortfarande INGRIPANDET — den redovisas som "ingreppsklocka" så det
+      // syns att den är ett skyddsvillkor, inte ett tystnadsmått.
       this.log(
-        `🐕 [FEED_WATCHDOG] No AIS messages for ${Math.round(silenceMs / 60000)} min while connected — `
+        '🐕 [FEED_WATCHDOG] No AIS messages while connected — '
+        + `${this._describeFeedSilence('aggregate', stats).text} `
+        + `(ingreppsklocka ${Math.round(silenceMs / 60000)} min) — `
         + `forcing reconnect + resubscribe (strike ${strikes + 1}, next threshold `
         + `${Math.round(Math.min(staleBase * 2 ** (strikes + 1), 2 * 60 * 60 * 1000) / 60000)} min; `
         + 'harmless if the canal is just quiet)',
       );
+      this._persistFeedSilenceLedger(true); // sanningen ska överleva omanslutningen
       this._feedWatchdogStrikes = strikes + 1;
-      this.aisClient.reconnectWithKey(apiKey).catch((err) => {
+      // A7(b): skälet följer med till klienten, som annars alltid loggar
+      // "updated API key" — 21 watchdog-omanslutningar såg ut som nyckelbyten.
+      this.aisClient.reconnectWithKey(apiKey, 'watchdog').catch((err) => {
         this.error('[FEED_WATCHDOG] Forced reconnect failed:', err);
       });
     } catch (error) {
@@ -7756,6 +7980,11 @@ class AISBridgeApp extends Homey.App {
    * Etapp 2: aisstream-grenen av feed-vakten — EXAKT dagens B2/RC-S2-logik
    * men läst ur perFeed.aisstream (aldrig aggregatet). Gatad på ais_api_key
    * precis som förut; reconnectWithKey-vägen är härdad i klienten.
+   *
+   * Etapp 7 (A7): egen strike-räknare (_aisstreamWatchdogStrikes, se A7(c)),
+   * loggen redovisar tre storheter i stället för den klampade siffran (A7(a))
+   * och omanslutningen bär skälet 'watchdog' (A7(b)). TRÖSKLARNA OCH
+   * INGRIPANDET ÄR OFÖRÄNDRADE — silenceMs (min:ad mot uptime) styr än.
    * @param {object} feedStats - stats.perFeed.aisstream
    * @private
    */
@@ -7771,12 +8000,19 @@ class AISBridgeApp extends Homey.App {
     const staleBase = UI_CONSTANTS.STALE_FEED_RECONNECT_MS || 20 * 60 * 1000;
     if (silenceMs < staleBase) {
       if (sinceMessage < staleBase) {
-        this._feedWatchdogStrikes = 0;
+        this._aisstreamWatchdogStrikes = 0;
       }
       return;
     }
 
-    const strikes = this._feedWatchdogStrikes || 0;
+    // A7(c) (etapp 7, 2026-08-08): EGEN strike-räknare. Den flata legacy-vägen
+    // och den här skrev tidigare BÅDA på _feedWatchdogStrikes. I produktion
+    // körs bara en av dem (perFeed-dispatchen returnerar), men en delad
+    // räknare är en osynlig koppling mellan två backoff-trappor: minsta
+    // framtida ändring som låter båda vägarna köras (eller ett test som
+    // blandar dem) hade gett en trappa som hoppar steg. AISHub har redan
+    // _aishubWatchdogStrikes — nu har varje källa sin egen.
+    const strikes = this._aisstreamWatchdogStrikes || 0;
     const staleLimit = Math.min(staleBase * 2 ** strikes, 2 * 60 * 60 * 1000);
     if (silenceMs < staleLimit) {
       return;
@@ -7787,12 +8023,17 @@ class AISBridgeApp extends Homey.App {
       return;
     }
 
+    // A7(a): TRE storheter; klampen (silenceMs) redovisas som ingreppsklocka.
     this.log(
-      `🐕 [FEED_WATCHDOG] aisstream: no messages for ${Math.round(silenceMs / 60000)} min while connected — `
+      '🐕 [FEED_WATCHDOG] aisstream: no messages while connected — '
+      + `${this._describeFeedSilence('aisstream', feedStats).text} `
+      + `(ingreppsklocka ${Math.round(silenceMs / 60000)} min) — `
       + `forcing reconnect + resubscribe (strike ${strikes + 1}; harmless if the canal is just quiet)`,
     );
-    this._feedWatchdogStrikes = strikes + 1;
-    this.aisClient.reconnectWithKey(String(apiKey).trim()).catch((err) => {
+    this._persistFeedSilenceLedger(true); // sanningen ska överleva omanslutningen
+    this._aisstreamWatchdogStrikes = strikes + 1;
+    // A7(b): watchdog-skälet skiljs från nyckelbyte i klientens logg.
+    this.aisClient.reconnectWithKey(String(apiKey).trim(), 'watchdog').catch((err) => {
       this.error('[FEED_WATCHDOG] Forced reconnect failed:', err);
     });
   }
@@ -8081,6 +8322,103 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * A1 (etapp 7, 2026-08-08): namncachens TTL-städning (30 dagar) — extraherad
+   * ur monitoring-loopens setInterval-kropp.
+   *
+   * TEST_MODE-HÅLET: loopen sätts aldrig upp i test-/replayläge (_setupMonitoring
+   * returnerar tidigt), så ALLT som låg inline i dess kropp var otestbart och
+   * åldrades aldrig i regressionsskyddet. Samma motiv som CG2-10 gav
+   * _pruneDedupCaches. Innehållet är oförändrat rad för rad — enda skillnaden är
+   * att det nu går att anropa (jest + replay i tick-takt).
+   * @private
+   */
+  _pruneVesselNameCache() {
+    // B1 (2026-07-03): rensa namncache-poster äldre än TTL:n (30 dagar).
+    if (!this._knownVesselNames) return;
+    const nameNow = Date.now();
+    const nameExpired = [];
+    for (const [mmsi, entry] of this._knownVesselNames.entries()) {
+      if (!entry || !Number.isFinite(entry.t) || nameNow - entry.t >= this._VESSEL_NAME_TTL_MS) {
+        nameExpired.push(mmsi);
+      }
+    }
+    if (nameExpired.length > 0) {
+      nameExpired.forEach((mmsi) => this._knownVesselNames.delete(mmsi));
+      this._persistVesselNames();
+      this.debug(`🧹 [CLEANUP] Removed ${nameExpired.length} expired vessel name cache entries`);
+    }
+  }
+
+  /**
+   * A1 (etapp 7, 2026-08-08): loggdedupen för avvisade AIS-meddelanden —
+   * extraherad ur monitoring-loopen (se _pruneVesselNameCache för motivet).
+   *
+   * Produktionsredo (2026-07-03): _aisRejectLogTimes växte obegränsat — en post
+   * per unikt avvisat mmsi, aldrig städad. Poster äldre än 1 h släpps.
+   * @private
+   */
+  _pruneAisRejectLogTimes() {
+    if (!this._aisRejectLogTimes || this._aisRejectLogTimes.size === 0) return;
+    const rejNow = Date.now();
+    for (const [mmsi, ts] of this._aisRejectLogTimes.entries()) {
+      if (!Number.isFinite(ts) || rejNow - ts > 60 * 60 * 1000) {
+        this._aisRejectLogTimes.delete(mmsi);
+      }
+    }
+  }
+
+  /**
+   * A1 (etapp 7, 2026-08-08): TTL-städning av sista-kända-positioner —
+   * extraherad ur monitoring-loopen (se _pruneVesselNameCache för motivet).
+   *
+   * F2-följdfix (2026-07-03). Persistensen skrivs bara när något faktiskt
+   * försvann (oförändrat villkor).
+   * @private
+   */
+  _pruneLastKnownPositionsTtl() {
+    if (!this._lastKnownPositions || this._lastKnownPositions.size === 0) return;
+    const posNow = Date.now();
+    const posTtl = this._LAST_KNOWN_POSITION_TTL_MS || 6 * 60 * 60 * 1000;
+    let posExpired = 0;
+    for (const [mmsi, entry] of this._lastKnownPositions.entries()) {
+      if (!entry || !Number.isFinite(entry.t) || posNow - entry.t >= posTtl) {
+        this._lastKnownPositions.delete(mmsi);
+        posExpired++;
+      }
+    }
+    if (posExpired > 0) this._persistLastKnownPositions();
+  }
+
+  /**
+   * A14 (etapp 7, 2026-08-08): V8-heapen och RSS i loggen.
+   *
+   * 42h-fältprovet innehöll NOLL heap-/RSS-observationer — "ingen minnesläcka"
+   * kunde bara beläggas för appens egna kartor (VesselDataServices MEMORY_STATS
+   * räknar fartyg), aldrig för processens faktiska minne. Raden är rent
+   * additiv, struppad till samma 10-minuterskadens som MEMORY_STATS i
+   * VesselDataService så serierna kan läsas parvis, och gör nästa fältdygn
+   * avgörande i stället för indicerande.
+   * @private
+   */
+  _logProcessMemoryStats() {
+    try {
+      if (typeof process === 'undefined' || typeof process.memoryUsage !== 'function') return;
+      const now = Date.now();
+      if (now - (this._processMemoryStatsLoggedAt || 0) < PROCESS_MEMORY_STATS_INTERVAL_MS) return;
+      this._processMemoryStatsLoggedAt = now;
+      const mem = process.memoryUsage();
+      const mb = (bytes) => (Number.isFinite(bytes) ? (bytes / (1024 * 1024)).toFixed(1) : '?');
+      this.debug(
+        `📊 [MEMORY_STATS] process: heapUsed=${mb(mem.heapUsed)} MB, `
+        + `heapTotal=${mb(mem.heapTotal)} MB, rss=${mb(mem.rss)} MB, `
+        + `external=${mb(mem.external)} MB`,
+      );
+    } catch (error) {
+      this.error('[MEMORY_STATS] Kunde inte läsa processens minnesanvändning:', error.message || error);
+    }
+  }
+
+  /**
    * Setup monitoring
    * @private
    */
@@ -8099,26 +8437,19 @@ class AISBridgeApp extends Homey.App {
         this.debug(`📊 [MONITORING] Tracking ${vesselCount} vessels`);
       }
 
+      // A1 (etapp 7, 2026-08-08): ANROPSORDNINGEN ÄR KONTRAKTET. Blocken nedan
+      // låg tidigare inline i den här kroppen och var därmed onåbara för jest
+      // och replay (loopen är TEST_MODE-gatad ovan). De är extraherade rad för
+      // rad — samma ordning, samma villkor, noll beteendediff — så att
+      // regressionsskyddet kan driva dem. Ordningen bevakas av
+      // etapp7-a-app-diagnostik.test.js.
+
       // Dedup-städningen (persistent 2h-map + sessionsnycklar) — extraherad
-      // till egen metod (CG2-10) så ordningskontraktet kan enhetstestas
-      // (monitoring-loopen är TEST_MODE-gatad och nås aldrig av jest).
+      // till egen metod (CG2-10) så ordningskontraktet kan enhetstestas.
       this._pruneDedupCaches();
 
-      // B1 (2026-07-03): rensa namncache-poster äldre än TTL:n (30 dagar).
-      if (this._knownVesselNames) {
-        const nameNow = Date.now();
-        const nameExpired = [];
-        for (const [mmsi, entry] of this._knownVesselNames.entries()) {
-          if (!entry || !Number.isFinite(entry.t) || nameNow - entry.t >= this._VESSEL_NAME_TTL_MS) {
-            nameExpired.push(mmsi);
-          }
-        }
-        if (nameExpired.length > 0) {
-          nameExpired.forEach((mmsi) => this._knownVesselNames.delete(mmsi));
-          this._persistVesselNames();
-          this.debug(`🧹 [CLEANUP] Removed ${nameExpired.length} expired vessel name cache entries`);
-        }
-      }
+      // B1 (2026-07-03): namncachens TTL (30 dagar).
+      this._pruneVesselNameCache();
 
       // Produktionsredo (2026-07-03): SystemCoordinators 1h-städning av
       // koordinationstillstånd anropades ALDRIG i produktion (bara i tester)
@@ -8132,31 +8463,11 @@ class AISBridgeApp extends Homey.App {
         }
       }
 
-      // Produktionsredo (2026-07-03): _aisRejectLogTimes (loggdedup för
-      // avvisade AIS-meddelanden) växte obegränsat — en post per unikt
-      // avvisat mmsi, aldrig städad. Rensa poster äldre än 1 h.
-      if (this._aisRejectLogTimes && this._aisRejectLogTimes.size > 0) {
-        const rejNow = Date.now();
-        for (const [mmsi, ts] of this._aisRejectLogTimes.entries()) {
-          if (!Number.isFinite(ts) || rejNow - ts > 60 * 60 * 1000) {
-            this._aisRejectLogTimes.delete(mmsi);
-          }
-        }
-      }
+      // Produktionsredo (2026-07-03): loggdedupen för avvisade AIS-meddelanden.
+      this._pruneAisRejectLogTimes();
 
       // F2-följdfix (2026-07-03): rensa sista-kända-positioner äldre än TTL:n.
-      if (this._lastKnownPositions && this._lastKnownPositions.size > 0) {
-        const posNow = Date.now();
-        const posTtl = this._LAST_KNOWN_POSITION_TTL_MS || 6 * 60 * 60 * 1000;
-        let posExpired = 0;
-        for (const [mmsi, entry] of this._lastKnownPositions.entries()) {
-          if (!entry || !Number.isFinite(entry.t) || posNow - entry.t >= posTtl) {
-            this._lastKnownPositions.delete(mmsi);
-            posExpired++;
-          }
-        }
-        if (posExpired > 0) this._persistLastKnownPositions();
-      }
+      this._pruneLastKnownPositionsTtl();
 
       // B2-fix (2026-06-09): stale-data-watchdog — upptäcker "ansluten men
       // döv" (tappad subscription, server slutat skicka) som ping/pong inte
@@ -8168,6 +8479,10 @@ class AISBridgeApp extends Homey.App {
       if (this.aisClient && typeof this.aisClient.pruneFusionState === 'function') {
         this.aisClient.pruneFusionState();
       }
+
+      // A14 (etapp 7): process-minnesraden SIST — ren observation, egen
+      // 10-minutersstrupning, får aldrig påverka städningarnas ordning.
+      this._logProcessMemoryStats();
     }, UI_CONSTANTS.MONITORING_INTERVAL_MS); // Every minute
   }
 

@@ -1,0 +1,189 @@
+2026-08-04T00:42:13.094Z Inga båtar är i närheten av Klaffbron eller Stridsbergsbron
+2026-08-04T00:42:13.970Z Inga båtar är i närheten av Klaffbron eller Stridsbergsbron
+2026-08-04T00:44:39.404Z En båt på väg mot Stridsbergsbron, beräknad broöppning om 10 minuter
+2026-08-04T00:46:08.494Z En båt på väg mot Stridsbergsbron, beräknad broöppning om 11 minuter
+2026-08-04T00:47:08.620Z En båt på väg mot Stridsbergsbron, beräknad broöppning om 12 minuter
+2026-08-04T00:48:08.480Z En båt på väg mot Stridsbergsbron, beräknad broöppning om 8 minuter
+2026-08-04T00:50:08.270Z En båt på väg mot Stridsbergsbron, beräknad broöppning om 4 minuter
+2026-08-04T00:52:18.741Z En båt på väg mot Klaffbron, beräknad broöppning om 5 minuter
+2026-08-04T00:53:38.087Z En båt på väg mot Klaffbron, beräknad broöppning om 4 minuter
+2026-08-04T00:55:38.034Z En båt på väg mot Klaffbron, beräknad broöppning strax
+2026-08-04T01:01:13.174Z Inga båtar är i närheten av Klaffbron eller Stridsbergsbron
+2026-08-04T07:03:00.965Z En båt på väg mot Klaffbron, beräknad broöppning om 9 minuter
+2026-08-04T07:04:02.259Z En båt på väg mot Klaffbron, beräknad broöppning om 8 minuter
+2026-08-04T07:09:18.832Z En båt på väg mot Klaffbron, beräknad broöppning om cirka 3 minuter
+2026-08-04T07:09:42.854Z En båt på väg mot Klaffbron, beräknad broöppning om cirka 2 minuter
+2026-08-04T07:12:48.910Z En båt på väg mot Klaffbron, ETA okänd
+2026-08-04T07:20:00.997Z En båt på väg mot Stridsbergsbron, beräknad broöppning om 7 minuter
+2026-08-04T07:21:40.274Z Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 7 minuter
+2026-08-04T07:24:34.993Z Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 11 minuter
+2026-08-04T07:25:07.534Z Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 12 minuter
+2026-08-04T07:28:07.050Z Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 9 minuter
+2026-08-04T07:38:19.504Z Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 12 minuter
+2026-08-04T07:40:47.948Z Två båtar på väg mot Stridsbergsbron, ETA okänd
+2026-08-04T07:53:19.828Z En båt på väg mot Stridsbergsbron, ETA okänd
+2026-08-04T07:53:34.620Z En båt på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T07:54:37.729Z Två båtar på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T07:57:36.885Z En båt på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T07:59:40.878Z En båt på väg mot Klaffbron, beräknad broöppning om 8 minuter; En båt på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T08:02:10.365Z En båt på väg mot Klaffbron, beräknad broöppning om 10 minuter; En båt på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T08:04:07.231Z En båt på väg mot Klaffbron, beräknad broöppning om 10 minuter
+2026-08-04T08:07:20.031Z En båt på väg mot Klaffbron, beräknad broöppning om cirka 5 minuter
+2026-08-04T08:08:20.031Z En båt på väg mot Klaffbron, beräknad broöppning om cirka 4 minuter
+2026-08-04T08:09:09.582Z En båt på väg mot Klaffbron, beräknad broöppning om cirka 3 minuter
+2026-08-04T08:09:50.053Z En båt på väg mot Klaffbron, beräknad broöppning om cirka 2 minuter
+2026-08-04T08:12:20.068Z En båt på väg mot Klaffbron, ETA okänd
+2026-08-04T08:19:08.914Z En båt på väg mot Stridsbergsbron, beräknad broöppning om 6 minuter
+2026-08-04T08:24:20.185Z En båt på väg mot Stridsbergsbron, beräknad broöppning om cirka 2 minuter
+2026-08-04T08:24:32.780Z En båt på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T08:29:20.371Z Inga båtar är i närheten av Klaffbron eller Stridsbergsbron
+2026-08-04T08:29:43.900Z En båt på väg mot Stridsbergsbron, beräknad broöppning om 15 minuter
+2026-08-04T08:34:50.607Z En båt på väg mot Stridsbergsbron, beräknad broöppning om cirka 10 minuter
+2026-08-04T08:35:50.615Z En båt på väg mot Stridsbergsbron, beräknad broöppning om cirka 9 minuter
+2026-08-04T08:36:50.656Z En båt på väg mot Stridsbergsbron, beräknad broöppning om cirka 8 minuter
+2026-08-04T08:37:34.839Z En båt på väg mot Stridsbergsbron, beräknad broöppning om cirka 7 minuter
+2026-08-04T08:38:50.722Z En båt på väg mot Stridsbergsbron, beräknad broöppning om cirka 6 minuter
+2026-08-04T08:39:50.747Z En båt på väg mot Stridsbergsbron, ETA okänd
+2026-08-04T08:44:40.719Z En båt på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T09:06:51.665Z En båt på väg mot Stridsbergsbron, ETA okänd
+2026-08-04T09:10:09.096Z Inga båtar är i närheten av Klaffbron eller Stridsbergsbron
+2026-08-04T09:23:41.087Z En båt på väg mot Klaffbron, beräknad broöppning om 14 minuter
+2026-08-04T09:26:42.557Z En båt på väg mot Klaffbron, beräknad broöppning om 19 minuter
+2026-08-04T09:28:42.423Z En båt på väg mot Klaffbron, beräknad broöppning om 13 minuter
+2026-08-04T09:38:48.224Z En båt på väg mot Klaffbron, ETA okänd
+2026-08-04T09:41:00.878Z Två båtar på väg mot Klaffbron, beräknad broöppning om 5 minuter
+2026-08-04T09:42:00.893Z Två båtar på väg mot Klaffbron, beräknad broöppning om 4 minuter
+2026-08-04T09:46:02.190Z Två båtar på väg mot Klaffbron, beräknad broöppning strax
+2026-08-04T09:54:11.947Z En båt på väg mot Klaffbron, beräknad broöppning strax; En båt på väg mot Stridsbergsbron, beräknad broöppning om 7 minuter
+2026-08-04T09:59:23.198Z En båt på väg mot Klaffbron, beräknad broöppning strax; En båt på väg mot Stridsbergsbron, beräknad broöppning om cirka 2 minuter
+2026-08-04T10:00:12.863Z En båt på väg mot Klaffbron, beräknad broöppning strax; En båt på väg mot Stridsbergsbron, beräknad broöppning om 8 minuter
+2026-08-04T10:02:02.458Z Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 6 minuter
+2026-08-04T10:03:05.888Z En båt på väg mot Klaffbron, beräknad broöppning om 11 minuter; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 6 minuter
+2026-08-04T10:04:02.667Z En båt på väg mot Klaffbron, beräknad broöppning om 11 minuter; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 5 minuter
+2026-08-04T10:04:06.218Z En båt på väg mot Klaffbron, beräknad broöppning om 10 minuter; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 5 minuter
+2026-08-04T10:05:23.368Z En båt på väg mot Klaffbron, beräknad broöppning om 10 minuter; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om cirka 2 minuter
+2026-08-04T10:07:53.400Z En båt på väg mot Klaffbron, beräknad broöppning om 10 minuter; Två båtar på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T10:11:23.466Z En båt på väg mot Klaffbron, beräknad broöppning om cirka 5 minuter; Två båtar på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T10:11:35.307Z En båt på väg mot Klaffbron, beräknad broöppning om 3 minuter; Två båtar på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T10:16:47.042Z En båt på väg mot Klaffbron, ETA okänd; Två båtar på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T10:17:23.593Z En båt på väg mot Klaffbron, ETA okänd; Två båtar på väg mot Stridsbergsbron, ETA okänd
+2026-08-04T10:23:05.892Z Tre båtar på väg mot Stridsbergsbron, beräknad broöppning om 5 minuter
+2026-08-04T10:25:23.710Z Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 5 minuter
+2026-08-04T10:27:40.837Z Tre båtar på väg mot Stridsbergsbron, beräknad broöppning om 3 minuter
+2026-08-04T10:28:23.749Z Tre båtar på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T10:29:31.052Z Två båtar på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T10:35:06.721Z En båt på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T10:39:53.820Z Inga båtar är i närheten av Klaffbron eller Stridsbergsbron
+2026-08-04T11:10:53.520Z En båt på väg mot Stridsbergsbron, beräknad broöppning om 13 minuter
+2026-08-04T11:11:53.344Z En båt på väg mot Stridsbergsbron, beräknad broöppning om 12 minuter
+2026-08-04T11:12:39.412Z Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 12 minuter
+2026-08-04T11:13:37.799Z Tre båtar på väg mot Stridsbergsbron, beräknad broöppning om 12 minuter
+2026-08-04T11:15:39.733Z Tre båtar på väg mot Stridsbergsbron, beräknad broöppning om 9 minuter
+2026-08-04T11:16:53.023Z Tre båtar på väg mot Stridsbergsbron, beräknad broöppning om 7 minuter
+2026-08-04T11:17:53.302Z Tre båtar på väg mot Stridsbergsbron, beräknad broöppning om 6 minuter
+2026-08-04T11:20:21.422Z Tre båtar på väg mot Stridsbergsbron, beräknad broöppning om 5 minuter
+2026-08-04T11:22:21.239Z Tre båtar på väg mot Stridsbergsbron, beräknad broöppning om 3 minuter
+2026-08-04T11:22:39.727Z Fyra båtar på väg mot Stridsbergsbron, beräknad broöppning om 3 minuter
+2026-08-04T11:25:55.484Z Fyra båtar på väg mot Stridsbergsbron, beräknad broöppning om cirka 2 minuter
+2026-08-04T11:26:11.439Z Fem båtar på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T11:26:48.978Z En båt på väg mot Klaffbron, beräknad broöppning om 5 minuter; Fyra båtar på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T11:28:48.743Z En båt på väg mot Klaffbron, beräknad broöppning om 4 minuter; Fyra båtar på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T11:29:39.844Z Två båtar på väg mot Klaffbron, beräknad broöppning om 4 minuter; Tre båtar på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T11:29:48.913Z Två båtar på väg mot Klaffbron, beräknad broöppning om 3 minuter; Tre båtar på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T11:35:21.778Z En båt på väg mot Klaffbron, beräknad broöppning om 4 minuter; Tre båtar på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T11:38:25.833Z En båt på väg mot Klaffbron, beräknad broöppning strax; Tre båtar på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T11:38:38.652Z Tre båtar på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T11:41:25.978Z Två båtar på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T11:51:24.205Z Tre båtar på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T11:54:56.232Z Två båtar på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T12:01:08.088Z Tre båtar på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T12:04:08.247Z En båt på väg mot Klaffbron, beräknad broöppning om 15 minuter; Två båtar på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T12:11:26.734Z En båt på väg mot Klaffbron, beräknad broöppning om 15 minuter; Två båtar på väg mot Stridsbergsbron, ETA okänd
+2026-08-04T12:16:10.744Z En båt på väg mot Klaffbron, beräknad broöppning om 11 minuter; Två båtar på väg mot Stridsbergsbron, ETA okänd
+2026-08-04T12:21:27.039Z En båt på väg mot Klaffbron, beräknad broöppning om cirka 6 minuter; Två båtar på väg mot Stridsbergsbron, ETA okänd
+2026-08-04T12:21:57.053Z En båt på väg mot Klaffbron, beräknad broöppning om cirka 5 minuter; Två båtar på väg mot Stridsbergsbron, ETA okänd
+2026-08-04T12:22:40.411Z En båt på väg mot Klaffbron, beräknad broöppning om 5 minuter; Två båtar på väg mot Stridsbergsbron, ETA okänd
+2026-08-04T12:25:27.116Z En båt på väg mot Klaffbron, beräknad broöppning om 5 minuter; En båt på väg mot Stridsbergsbron, ETA okänd
+2026-08-04T12:26:27.143Z En båt på väg mot Klaffbron, beräknad broöppning om 5 minuter
+2026-08-04T12:32:27.305Z En båt på väg mot Klaffbron, beräknad broöppning strax
+2026-08-04T12:33:08.802Z En båt på väg mot Klaffbron, beräknad broöppning om 5 minuter
+2026-08-04T12:36:08.370Z En båt på väg mot Klaffbron, beräknad broöppning om 3 minuter
+2026-08-04T12:42:11.196Z En båt på väg mot Klaffbron, beräknad broöppning om 10 minuter
+2026-08-04T12:52:27.638Z En båt på väg mot Klaffbron, ETA okänd
+2026-08-04T13:07:27.767Z Inga båtar är i närheten av Klaffbron eller Stridsbergsbron
+2026-08-04T13:30:15.946Z En båt på väg mot Stridsbergsbron, beräknad broöppning om 12 minuter
+2026-08-04T13:31:47.879Z Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 12 minuter
+2026-08-04T13:33:14.581Z Tre båtar på väg mot Stridsbergsbron, beräknad broöppning om 12 minuter
+2026-08-04T13:35:29.062Z Tre båtar på väg mot Stridsbergsbron, beräknad broöppning om cirka 6 minuter
+2026-08-04T13:36:28.585Z Fyra båtar på väg mot Stridsbergsbron, beräknad broöppning om cirka 5 minuter
+2026-08-04T13:37:16.078Z Fyra båtar på väg mot Stridsbergsbron, beräknad broöppning om 4 minuter
+2026-08-04T13:40:16.751Z Fyra båtar på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T13:42:54.845Z Fem båtar på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T13:57:59.549Z Fyra båtar på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T13:58:41.707Z En båt på väg mot Klaffbron, beräknad broöppning om 8 minuter; Tre båtar på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T13:58:59.004Z Två båtar på väg mot Klaffbron, beräknad broöppning om 7 minuter; Två båtar på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T13:59:13.655Z Tre båtar på väg mot Klaffbron, beräknad broöppning om 4 minuter; En båt på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T14:00:43.555Z Fyra båtar på väg mot Klaffbron, beräknad broöppning om 4 minuter
+2026-08-04T14:03:59.708Z Fyra båtar på väg mot Klaffbron, beräknad broöppning om cirka 2 minuter
+2026-08-04T14:08:42.951Z Fyra båtar på väg mot Klaffbron, beräknad broöppning strax
+2026-08-04T14:17:10.287Z Tre båtar på väg mot Klaffbron, beräknad broöppning strax
+2026-08-04T14:19:22.559Z Två båtar på väg mot Klaffbron, beräknad broöppning strax
+2026-08-04T14:20:43.701Z En båt på väg mot Klaffbron, beräknad broöppning om 4 minuter
+2026-08-04T14:24:30.107Z En båt på väg mot Klaffbron, ETA okänd
+2026-08-04T14:35:23.992Z En båt på väg mot Klaffbron, ETA okänd; En båt på väg mot Stridsbergsbron, beräknad broöppning om 13 minuter
+2026-08-04T14:37:23.791Z En båt på väg mot Klaffbron, ETA okänd; En båt på väg mot Stridsbergsbron, beräknad broöppning om 11 minuter
+2026-08-04T14:39:30.436Z En båt på väg mot Stridsbergsbron, beräknad broöppning om 11 minuter
+2026-08-04T14:42:29.080Z En båt på väg mot Klaffbron, beräknad broöppning om 24 minuter; En båt på väg mot Stridsbergsbron, beräknad broöppning om cirka 6 minuter
+2026-08-04T14:43:22.751Z En båt på väg mot Klaffbron, beräknad broöppning om 24 minuter; En båt på väg mot Stridsbergsbron, beräknad broöppning om 5 minuter
+2026-08-04T14:46:24.609Z En båt på väg mot Klaffbron, beräknad broöppning om 24 minuter; En båt på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T14:52:30.685Z En båt på väg mot Klaffbron, ETA okänd; En båt på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T14:59:24.001Z En båt på väg mot Klaffbron, ETA okänd; En båt på väg mot Stridsbergsbron, ETA okänd
+2026-08-04T15:01:13.767Z Två båtar på väg mot Klaffbron, beräknad broöppning om 19 minuter; En båt på väg mot Stridsbergsbron, ETA okänd
+2026-08-04T15:02:26.384Z Tre båtar på väg mot Klaffbron, beräknad broöppning om 5 minuter
+2026-08-04T15:07:30.935Z Två båtar på väg mot Klaffbron, beräknad broöppning om 5 minuter
+2026-08-04T15:12:29.081Z Två båtar på väg mot Klaffbron, beräknad broöppning om 12 minuter
+2026-08-04T15:13:31.033Z Två båtar på väg mot Klaffbron, beräknad broöppning om cirka 7 minuter
+2026-08-04T15:13:32.159Z Två båtar på väg mot Klaffbron, beräknad broöppning om 8 minuter
+2026-08-04T15:18:37.941Z Två båtar på väg mot Klaffbron, beräknad broöppning om cirka 2 minuter
+2026-08-04T15:19:24.016Z En båt på väg mot Klaffbron, beräknad broöppning om cirka 2 minuter
+2026-08-04T15:21:31.073Z En båt på väg mot Klaffbron, ETA okänd
+2026-08-04T15:21:42.081Z En båt på väg mot Klaffbron, beräknad broöppning strax
+2026-08-04T15:27:42.606Z En båt på väg mot Stridsbergsbron, beräknad broöppning om 14 minuter
+2026-08-04T15:29:51.616Z En båt på väg mot Stridsbergsbron, beräknad broöppning om 13 minuter
+2026-08-04T15:35:01.323Z En båt på väg mot Stridsbergsbron, beräknad broöppning om cirka 8 minuter
+2026-08-04T15:36:01.410Z En båt på väg mot Stridsbergsbron, beräknad broöppning om cirka 7 minuter
+2026-08-04T15:36:02.587Z En båt på väg mot Stridsbergsbron, beräknad broöppning om 10 minuter
+2026-08-04T15:41:31.634Z En båt på väg mot Stridsbergsbron, beräknad broöppning om cirka 5 minuter
+2026-08-04T15:41:48.977Z En båt på väg mot Stridsbergsbron, beräknad broöppning om cirka 4 minuter
+2026-08-04T15:42:13.827Z En båt på väg mot Stridsbergsbron, beräknad broöppning om 7 minuter
+2026-08-04T15:46:13.320Z En båt på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T15:48:10.062Z En båt på väg mot Klaffbron, beräknad broöppning om 8 minuter
+2026-08-04T15:54:01.980Z En båt på väg mot Klaffbron, beräknad broöppning om cirka 2 minuter
+2026-08-04T15:55:29.334Z En båt på väg mot Klaffbron, beräknad broöppning strax
+2026-08-04T16:03:03.950Z En båt på väg mot Klaffbron, beräknad broöppning strax; En båt på väg mot Stridsbergsbron, beräknad broöppning om 12 minuter
+2026-08-04T16:04:05.026Z En båt på väg mot Klaffbron, beräknad broöppning strax; En båt på väg mot Stridsbergsbron, beräknad broöppning om 11 minuter
+2026-08-04T16:04:47.699Z Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 6 minuter
+2026-08-04T16:09:32.453Z Två båtar på väg mot Stridsbergsbron, beräknad broöppning om cirka 6 minuter
+2026-08-04T16:10:02.472Z Två båtar på väg mot Stridsbergsbron, beräknad broöppning om cirka 2 minuter
+2026-08-04T16:11:02.494Z Två båtar på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T16:12:32.536Z Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 4 minuter
+2026-08-04T16:12:39.588Z En båt på väg mot Stridsbergsbron, beräknad broöppning om 4 minuter
+2026-08-04T16:15:32.601Z En båt på väg mot Stridsbergsbron, ETA okänd
+2026-08-04T16:25:24.044Z Inga båtar är i närheten av Klaffbron eller Stridsbergsbron
+2026-08-04T16:33:04.487Z En båt på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T16:49:03.726Z En båt på väg mot Stridsbergsbron, ETA okänd
+2026-08-04T16:57:33.988Z En båt på väg mot Stridsbergsbron, beräknad broöppning strax
+2026-08-04T17:10:28.418Z En båt på väg mot Klaffbron, beräknad broöppning om 3 minuter
+2026-08-04T17:11:43.388Z Två båtar på väg mot Klaffbron, beräknad broöppning om 3 minuter
+2026-08-04T17:13:58.941Z Två båtar på väg mot Klaffbron, beräknad broöppning om 4 minuter
+2026-08-04T17:17:04.484Z Tre båtar på väg mot Klaffbron, beräknad broöppning om 4 minuter
+2026-08-04T17:24:04.625Z Tre båtar på väg mot Klaffbron, beräknad broöppning om 5 minuter
+2026-08-04T17:24:34.629Z Tre båtar på väg mot Klaffbron, beräknad broöppning om cirka 3 minuter
+2026-08-04T17:25:04.646Z Tre båtar på väg mot Klaffbron, beräknad broöppning om cirka 2 minuter
+2026-08-04T17:27:11.620Z Tre båtar på väg mot Klaffbron, beräknad broöppning strax
+2026-08-04T17:28:11.230Z Två båtar på väg mot Klaffbron, beräknad broöppning om cirka 2 minuter; En båt på väg mot Stridsbergsbron, beräknad broöppning om 8 minuter
+2026-08-04T17:28:34.722Z Två båtar på väg mot Klaffbron, ETA okänd; En båt på väg mot Stridsbergsbron, beräknad broöppning om 8 minuter
+2026-08-04T17:33:34.848Z Två båtar på väg mot Klaffbron, ETA okänd; En båt på väg mot Stridsbergsbron, beräknad broöppning om cirka 2 minuter
+2026-08-04T17:36:04.902Z Två båtar på väg mot Klaffbron, ETA okänd; En båt på väg mot Stridsbergsbron, ETA okänd
+2026-08-04T17:38:05.358Z En båt på väg mot Klaffbron, ETA okänd; En båt på väg mot Stridsbergsbron, ETA okänd
+2026-08-04T17:39:04.945Z En båt på väg mot Stridsbergsbron, ETA okänd

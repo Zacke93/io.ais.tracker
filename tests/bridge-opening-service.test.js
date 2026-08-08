@@ -17,6 +17,11 @@
  * Utöver O4 låses kärnsemantiken: konvojen (EN varning), passage-invarianten
  * (ingen varning efter passage i samma händelse), klockdomänen (fixTs ankrar
  * fysiken), fartgivarlösa båtar, idempotent tick och svälj-fällan.
+ *
+ * Etapp 7 fas A (2026-08-08): payloadens MÄTINSTRUMENT — originalDueMs
+ * (A8(iii), armens frysta ursprungsdeadline) och fixAgeMs (B2d, åldern på det
+ * fix varningen vilar på). Båda är rent additiva och får aldrig röra en
+ * beslutsväg; sviten låser både att de finns och att de INTE skrivs om.
  */
 
 global.__TEST_MODE__ = true;
@@ -705,6 +710,149 @@ describe('BridgeOpeningService', () => {
       expect(Number.isFinite(w.dueMs)).toBe(true);
       expect(w.t).toBeGreaterThanOrEqual(w.dueMs);
       expect(w.t - w.dueMs).toBeLessThanOrEqual(2 * BRIDGE_OPENING.TICK_INTERVAL_MS);
+    });
+  });
+
+  // =========================================================================
+  // MÄTINSTRUMENTEN I PAYLOADEN — etapp 7 fas A (A8(iii) + B2d)
+  //
+  // BÅDA är RENT ADDITIVA: de exponerar tal, de ändrar ingen beslutsväg.
+  // originalDueMs = armens fireDueMs vid BEVÄPNINGEN, fryst en gång och
+  // aldrig omskriven — referensen som gör H-4:s sista-påminnelse-mått
+  // räknebart när dueMs binds om mot eligibleAt. fixAgeMs = åldern på det fix
+  // varningen faktiskt vilar på (fältets Klaffbron#32: 854 s ⇒ 39 knop).
+  // =========================================================================
+  describe('mätinstrument i payloaden (A8(iii) originalDueMs + B2d fixAgeMs)', () => {
+    it('(a) originalDueMs sätts vid beväpningen och ÄR armens första deadline', () => {
+      svc.observeVessel(makeVessel({ distanceM: 2200, sog: 7 }));
+      const arm = svc._arms.get('265999001::Klaffbron');
+
+      expect(Number.isFinite(arm.originalDueMs)).toBe(true);
+      expect(arm.originalDueMs).toBe(arm.fireDueMs);
+      // Samma pessimistiska fysik som deadline-motorn: fixets ankare +
+      // d / DEADLINE_MAX_SPEED_KN − WARNING_LEAD_MS (2200 m/10 kn ⇒ +248 s,
+      // vilket ligger före snabbbåtsgrenens +311 s och alltså vinner min()).
+      const deadline = arm.anchorMs
+        + (arm.distanceM / (BRIDGE_OPENING.DEADLINE_MAX_SPEED_KN * 0.514444)) * 1000
+        - BRIDGE_OPENING.WARNING_LEAD_MS;
+      expect(arm.originalDueMs).toBeCloseTo(deadline, 0);
+    });
+
+    it('(b) originalDueMs skrivs ALDRIG om — nytt fix, absorption eller konvojsläpp', () => {
+      svc.observeVessel(makeVessel({ mmsi: 'LEAD', distanceM: 700, sog: 6 }));
+      expect(warnFor('Klaffbron')).toHaveLength(1);
+
+      // FOLLOWER absorberas av LEADs redan avfyrade händelse: warnedAt sätts
+      // och eligibleAt binds om — referensen ska stå still.
+      svc.observeVessel(makeVessel({ mmsi: 'FOLLOWER', distanceM: 900, sog: 5 }));
+      const follower = svc._arms.get('FOLLOWER::Klaffbron');
+      const frozen = follower.originalDueMs;
+      expect(Number.isFinite(frozen)).toBe(true);
+      expect(follower.absorbedAt).not.toBeNull();
+      expect(follower.originalDueMs).toBe(frozen);
+
+      // Ett NYTT fix närmare bron flyttar fireDueMs — men inte referensen.
+      advance(60000);
+      svc.observeVessel(makeVessel({ mmsi: 'FOLLOWER', distanceM: 400, sog: 5 }));
+      expect(follower.fireDueMs).not.toBe(frozen);
+      expect(follower.originalDueMs).toBe(frozen);
+
+      // Konvojtäckningen löper ut ⇒ armen släpps, får en EGEN händelse, ett
+      // NYTT eligibleAt och en egen varning (_releaseStrandedArms).
+      advance(2 * BRIDGE_OPENING.CONVOY_WINDOW_MS);
+      const klaff = warnFor('Klaffbron');
+      expect(klaff.length).toBeGreaterThanOrEqual(2);
+      const own = klaff[klaff.length - 1];
+      expect(own.mmsis).toContain('FOLLOWER');
+      expect(svc._arms.get('FOLLOWER::Klaffbron').originalDueMs).toBe(frozen);
+      expect(own.originalDueMs).toBe(frozen);
+      // …och det är precis den skillnaden instrumentet finns för: dueMs är
+      // ombunden till släpptidpunkten, ursprungsdeadlinen är det inte.
+      expect(own.dueMs).toBeGreaterThan(own.originalDueMs);
+    });
+
+    it('(c) payloaden bär originalDueMs vid sidan av dueMs', () => {
+      svc.observeVessel(makeVessel({ distanceM: 2200, sog: 7 }));
+      const frozen = svc._arms.get('265999001::Klaffbron').originalDueMs;
+
+      advance(10 * 60 * 1000);
+      const w = warnFor('Klaffbron')[0];
+      expect(w.originalDueMs).toBe(frozen);
+      expect(w.firedBy).toBe('deadline');
+      // EN händelse, ETT medlemskap, ingen ombindning ⇒ serierna sammanfaller
+      // exakt. Varje framtida avvikelse är en ombindning, inte brus.
+      expect(w.dueMs).toBe(w.originalDueMs);
+    });
+
+    it('(c) täckningsraderna bär armens originalDueMs (per fartyg)', () => {
+      svc.destroy();
+      warnings = [];
+      const coverage = [];
+      svc = makeService({ onCoverage: (info) => coverage.push(info) });
+      startTicker(svc);
+
+      svc.observeVessel(makeVessel({ mmsi: 'LEAD', distanceM: 700, sog: 6 }));
+      svc.observeVessel(makeVessel({ mmsi: 'FOLLOWER', distanceM: 900, sog: 5 }));
+
+      const rows = coverage.filter((c) => c.bridge === 'Klaffbron');
+      const fired = rows.find((c) => c.reason === 'fired' && c.mmsi === 'LEAD');
+      const absorbed = rows.find((c) => c.reason === 'absorbed' && c.mmsi === 'FOLLOWER');
+      expect(fired).toBeDefined();
+      expect(absorbed).toBeDefined();
+      expect(Number.isFinite(fired.originalDueMs)).toBe(true);
+      expect(fired.originalDueMs).toBe(svc._arms.get('LEAD::Klaffbron').originalDueMs);
+      expect(absorbed.originalDueMs).toBe(svc._arms.get('FOLLOWER::Klaffbron').originalDueMs);
+    });
+
+    it('(d) fixAgeMs är 0 när ett färskt fix fyrar direkt', () => {
+      svc.observeVessel(makeVessel({ distanceM: 700, sog: 6 }));
+      const w = warnFor('Klaffbron')[0];
+      expect(w).toBeDefined();
+      expect(w.firedBy).toBe('fix');
+      expect(w.fixAgeMs).toBe(0);
+    });
+
+    it('(d) fixAgeMs mäter fixets ålder VID AVFYRNINGEN, inte vid fixet', () => {
+      const fixAt = Date.now();
+      svc.observeVessel(makeVessel({ distanceM: 1600, sog: 7 }));
+      expect(warnFor('Klaffbron')).toHaveLength(0);
+
+      advance(180000); // deadline-motorn fyrar i tystnad vid +150 s
+      const w = warnFor('Klaffbron')[0];
+      expect(w.firedBy).toBe('deadline');
+      expect(Number.isFinite(w.fixAgeMs)).toBe(true);
+      expect(w.fixAgeMs).toBe(w.t - fixAt);
+      expect(w.fixAgeMs).toBeGreaterThan(0);
+    });
+
+    it('(d) fixAgeMs rapporterar SANN ålder även när deadline-ankaret klampats', () => {
+      // Fältfallet Klaffbron#32 (2026-08-07T13:46:58.924Z): kortet lovade "om
+      // 1 minut" på d=1209 m byggt på ett 854 s gammalt fix — 39 knop.
+      const now = Date.now();
+      svc.observeVessel(makeVessel({
+        distanceM: 1209, sog: 6, fixTs: now - 854000, timestamp: now,
+      }));
+      const w = warnFor('Klaffbron')[0];
+      expect(w).toBeDefined();
+      expect(w.fixAgeMs).toBe(854000);
+      // …och varför anchorMs INTE duger som mätpunkt: den är klampad till
+      // MAX_FIX_ANCHOR_AGE_MS (720 s) och hade underrapporterat med 134 s.
+      const arm = svc._arms.get('265999001::Klaffbron');
+      expect(now - arm.anchorMs).toBe(BRIDGE_OPENING.MAX_FIX_ANCHOR_AGE_MS);
+      expect(w.fixAgeMs).toBeGreaterThan(BRIDGE_OPENING.MAX_FIX_ANCHOR_AGE_MS);
+    });
+
+    it('instrumenten är additiva — payloadens beslutsbärande fält är oförändrade', () => {
+      svc.observeVessel(makeVessel({ distanceM: 700, sog: 6, etaMinutes: 4 }));
+      const w = warnFor('Klaffbron')[0];
+      expect(w.etaMinutes).toBe(4);
+      expect(w.vesselCount).toBe(1);
+      expect(w.direction).toBe('northbound');
+      expect(w.firedBy).toBe('fix');
+      expect(Number.isFinite(w.dueMs)).toBe(true);
+      // Instrumenten ligger BREDVID kontraktet, aldrig i stället för det.
+      expect(Object.prototype.hasOwnProperty.call(w, 'originalDueMs')).toBe(true);
+      expect(Object.prototype.hasOwnProperty.call(w, 'fixAgeMs')).toBe(true);
     });
   });
 

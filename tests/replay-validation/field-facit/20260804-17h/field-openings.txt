@@ -1,0 +1,278 @@
+2026-08-04T00:44:38.960Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 314036000 (WILSON ROTTERDAM): beväpnad mot Stridsbergsbron d=1814 m sog=9.4 dir=south deadline om 173 s
+2026-08-04T00:47:08.577Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 314036000 (WILSON ROTTERDAM): beväpnad mot Klaffbron d=2395 m sog=7.9 dir=south deadline om 285 s
+2026-08-04T00:48:12.840Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 314036000: Stridsbergsbron täckt av Stridsbergsbron#1 (fired)
+2026-08-04T00:48:12.842Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Stridsbergsbron: öppningsvarning (1 båt(ar), ledande WILSON ROTTERDAM d=932 m, eta=9 min, southbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T00:48:12.853Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Stridsbergsbron#1: bridge_opening_soon avfyrad för Stridsbergsbron (1 båt(ar), ledande WILSON ROTTERDAM, eta=9 min, southbound, källa deadline)
+2026-08-04T00:52:12.953Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 314036000: Klaffbron täckt av Klaffbron#2 (fired)
+2026-08-04T00:52:12.954Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Klaffbron: öppningsvarning (1 båt(ar), ledande WILSON ROTTERDAM d=1658 m, eta=5 min, southbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T00:52:12.964Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Klaffbron#2: bridge_opening_soon avfyrad för Klaffbron (1 båt(ar), ledande WILSON ROTTERDAM, eta=5 min, southbound, källa deadline)
+2026-08-04T00:52:18.581Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 314036000 (WILSON ROTTERDAM): Stridsbergsbron avväpnad — passage (d=441 m, varning redan skickad, armad 460 s)
+2026-08-04T00:58:28.634Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 314036000 (WILSON ROTTERDAM): Klaffbron avväpnad — passage (d=91 m, varning redan skickad, armad 680 s)
+2026-08-04T07:03:00.933Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 265032980 (VERA - CB 365): beväpnad mot Klaffbron d=1708 m sog=6.2 dir=north deadline om 152 s
+2026-08-04T07:06:18.698Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 265032980: Klaffbron täckt av Klaffbron#3 (fired)
+2026-08-04T07:06:18.699Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Klaffbron: öppningsvarning (1 båt(ar), ledande VERA - CB 365 d=1518 m, eta=6 min, northbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T07:06:18.711Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Klaffbron#3: bridge_opening_soon avfyrad för Klaffbron (1 båt(ar), ledande VERA - CB 365, eta=6 min, northbound, källa deadline)
+2026-08-04T07:20:00.835Z [log] [AISBridgeApp] [DEBUG] 🔄 [BRIDGE_OPENING_CLEAR] 265032980: Clearing stale bridge opening for Klaffbron (vessel 703m away, >300m threshold)
+2026-08-04T07:20:00.838Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 265032980 (VERA - CB 365): Klaffbron avväpnad — passage (d=1518 m, varning redan skickad, armad 1020 s)
+2026-08-04T07:20:00.839Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 265032980 (VERA - CB 365): beväpnad mot Stridsbergsbron d=517 m sog=0.9 dir=north deadline om -79 s
+2026-08-04T07:20:00.839Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 265032980: Stridsbergsbron täckt av Stridsbergsbron#4 (fired)
+2026-08-04T07:20:00.856Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Stridsbergsbron#4: bridge_opening_soon avfyrad för Stridsbergsbron (1 båt(ar), ledande VERA - CB 365, eta=7 min, northbound, källa fix)
+2026-08-04T07:21:40.233Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 265757790 (CARMEN VAXHOLM): beväpnad mot Stridsbergsbron d=495 m sog=1.5 dir=north deadline om -84 s
+2026-08-04T07:21:40.234Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 265757790: Stridsbergsbron täckt av Stridsbergsbron#4 (absorbed)
+2026-08-04T07:36:49.437Z [log] [AISBridgeApp] [DEBUG] 🔁 [OPENING_RECOVER] 265757790 (CARMEN VAXHOLM): konvojtäckningen vid Stridsbergsbron löpte ut (Stridsbergsbron#4) men båten är kvar beväpnad d=391 m — prövas som EGEN öppning
+2026-08-04T07:36:49.437Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 265757790: Stridsbergsbron täckt av Stridsbergsbron#5 (fired)
+2026-08-04T07:36:49.438Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Stridsbergsbron: öppningsvarning (1 båt(ar), ledande CARMEN VAXHOLM d=391 m, eta=0 min, northbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T07:36:49.448Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Stridsbergsbron#5: bridge_opening_soon avfyrad för Stridsbergsbron (1 båt(ar), ledande CARMEN VAXHOLM, eta=0 min, northbound, källa deadline)
+2026-08-04T07:57:36.846Z [log] [AISBridgeApp] [DEBUG] 🔄 [BRIDGE_OPENING_CLEAR] 265032980: Clearing stale bridge opening for Stridsbergsbron (vessel 580m away, >300m threshold)
+2026-08-04T07:57:36.848Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 265032980 (VERA - CB 365): Stridsbergsbron avväpnad — passage (d=127 m, varning redan skickad, armad 2256 s)
+2026-08-04T07:59:40.434Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 265530660 (LOVA): beväpnad mot Klaffbron d=1184 m sog=6 dir=north deadline om 50 s
+2026-08-04T07:59:40.434Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 265530660 (LOVA): beväpnad mot Stridsbergsbron d=2390 m sog=6 dir=north deadline om 284 s
+2026-08-04T08:00:49.884Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 265530660: Klaffbron täckt av Klaffbron#6 (fired)
+2026-08-04T08:00:49.884Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Klaffbron: öppningsvarning (1 båt(ar), ledande LOVA d=1184 m, eta=7 min, northbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T08:00:49.893Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Klaffbron#6: bridge_opening_soon avfyrad för Klaffbron (1 båt(ar), ledande LOVA, eta=7 min, northbound, källa deadline)
+2026-08-04T08:04:07.178Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 265757790 (CARMEN VAXHOLM): Stridsbergsbron avväpnad — passage (d=40 m, varning redan skickad, armad 2547 s)
+2026-08-04T08:05:49.949Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 265530660: Stridsbergsbron täckt av Stridsbergsbron#7 (fired)
+2026-08-04T08:05:49.950Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Stridsbergsbron: öppningsvarning (1 båt(ar), ledande LOVA d=1939 m, eta=10 min, northbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T08:05:49.961Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Stridsbergsbron#7: bridge_opening_soon avfyrad för Stridsbergsbron (1 båt(ar), ledande LOVA, eta=10 min, northbound, källa deadline)
+2026-08-04T08:19:08.751Z [log] [AISBridgeApp] [DEBUG] 🔄 [BRIDGE_OPENING_CLEAR] 265530660: Clearing stale bridge opening for Klaffbron (vessel 769m away, >300m threshold)
+2026-08-04T08:19:08.755Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 265530660 (LOVA): Klaffbron avväpnad — passage (d=739 m, varning redan skickad, armad 1168 s)
+2026-08-04T08:26:31.950Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 265530660 (LOVA): Stridsbergsbron avväpnad — passage (d=61 m, varning redan skickad, armad 1612 s)
+2026-08-04T08:44:40.557Z [log] [AISBridgeApp] [DEBUG] 🔄 [BRIDGE_OPENING_CLEAR] 258322930: Clearing stale bridge opening for Stallbackabron (vessel 2052m away, >300m threshold)
+2026-08-04T08:44:40.560Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 258322930 (WILMA V): beväpnad mot Stridsbergsbron d=262 m sog=1.8 dir=south deadline om -162 s
+2026-08-04T08:44:40.561Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 258322930 (WILMA V): beväpnad mot Klaffbron d=1478 m sog=1.8 dir=south deadline om 107 s
+2026-08-04T08:44:40.562Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 258322930: Stridsbergsbron täckt av Stridsbergsbron#8 (fired)
+2026-08-04T08:44:40.582Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Stridsbergsbron#8: bridge_opening_soon avfyrad för Stridsbergsbron (1 båt(ar), ledande WILMA V, eta=2 min, southbound, källa fix)
+2026-08-04T08:46:50.926Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 258322930: Klaffbron täckt av Klaffbron#9 (fired)
+2026-08-04T08:46:50.927Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Klaffbron: öppningsvarning (1 båt(ar), ledande WILMA V d=1478 m, eta=24 min, southbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T08:46:50.937Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Klaffbron#9: bridge_opening_soon avfyrad för Klaffbron (1 båt(ar), ledande WILMA V, eta=24 min, southbound, källa deadline)
+2026-08-04T09:10:08.920Z [log] [AISBridgeApp] [DEBUG] 🔄 [BRIDGE_OPENING_CLEAR] 258322930: Clearing stale bridge opening for Järnvägsbron (vessel 1299m away, >300m threshold)
+2026-08-04T09:10:08.925Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 258322930 (WILMA V): Stridsbergsbron avväpnad — passage (d=100 m, varning redan skickad, armad 1528 s)
+2026-08-04T09:10:08.926Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 258322930 (WILMA V): Klaffbron avväpnad — passage (d=1317 m, varning redan skickad, armad 1528 s)
+2026-08-04T09:23:41.051Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 265597580 (okänt namn): beväpnad mot Klaffbron d=1887 m sog=4.5 dir=north deadline om 187 s
+2026-08-04T09:31:22.225Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 265597580: Klaffbron täckt av Klaffbron#10 (fired)
+2026-08-04T09:31:22.225Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Klaffbron: öppningsvarning (1 båt(ar), ledande BARAVI d=1604 m, eta=10 min, northbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T09:31:22.235Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Klaffbron#10: bridge_opening_soon avfyrad för Klaffbron (1 båt(ar), ledande BARAVI, eta=10 min, northbound, källa deadline)
+2026-08-04T09:41:00.842Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 265822250 (CYGNUS): beväpnad mot Klaffbron d=644 m sog=4 dir=north deadline om -55 s
+2026-08-04T09:41:00.842Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 265822250 (CYGNUS): beväpnad mot Stridsbergsbron d=1844 m sog=4 dir=north deadline om 178 s
+2026-08-04T09:41:00.842Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 265822250: Klaffbron täckt av Klaffbron#10 (absorbed)
+2026-08-04T09:45:52.688Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 265822250: Stridsbergsbron täckt av Stridsbergsbron#11 (fired)
+2026-08-04T09:45:52.688Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Stridsbergsbron: öppningsvarning (1 båt(ar), ledande CYGNUS d=1695 m, eta=17 min, northbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T09:45:52.703Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Stridsbergsbron#11: bridge_opening_soon avfyrad för Stridsbergsbron (1 båt(ar), ledande CYGNUS, eta=17 min, northbound, källa deadline)
+2026-08-04T09:49:13.545Z [log] [AISBridgeApp] [DEBUG] 🔄 [BRIDGE_OPENING_CLEAR] 265597580: Clearing stale bridge opening for Olidebron (vessel 1156m away, >300m threshold)
+2026-08-04T09:51:22.885Z [log] [AISBridgeApp] [DEBUG] 🔁 [OPENING_RECOVER] 265822250 (CYGNUS): konvojtäckningen vid Klaffbron löpte ut (Klaffbron#10) men båten är kvar beväpnad d=282 m — prövas som EGEN öppning
+2026-08-04T09:51:22.885Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 265822250: Klaffbron täckt av Klaffbron#12 (fired)
+2026-08-04T09:51:22.886Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Klaffbron: öppningsvarning (1 båt(ar), ledande CYGNUS d=282 m, eta=0 min, northbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T09:51:22.897Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Klaffbron#12: bridge_opening_soon avfyrad för Klaffbron (1 båt(ar), ledande CYGNUS, eta=0 min, northbound, källa deadline)
+2026-08-04T09:54:11.900Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 265597580 (BARAVI): Klaffbron avväpnad — passage (d=216 m, varning redan skickad, armad 1831 s)
+2026-08-04T09:54:11.901Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 265597580 (BARAVI): beväpnad mot Stridsbergsbron d=1137 m sog=5.4 dir=north deadline om 41 s
+2026-08-04T09:54:11.901Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 265597580: Stridsbergsbron täckt av Stridsbergsbron#11 (absorbed)
+2026-08-04T10:02:02.282Z [log] [AISBridgeApp] [DEBUG] 🔄 [BRIDGE_OPENING_CLEAR] 265822250: Clearing stale bridge opening for Klaffbron (vessel 688m away, >300m threshold)
+2026-08-04T10:02:02.285Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 265822250 (CYGNUS): Klaffbron avväpnad — passage (d=86 m, varning redan skickad, armad 1261 s)
+2026-08-04T10:03:05.582Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 265573130 (ELFKUNGEN): beväpnad mot Klaffbron d=2048 m sog=6 dir=north deadline om 218 s
+2026-08-04T10:08:23.352Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 265573130: Klaffbron täckt av Klaffbron#13 (fired)
+2026-08-04T10:08:23.353Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Klaffbron: öppningsvarning (1 båt(ar), ledande ELFKUNGEN d=1529 m, eta=8 min, northbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T10:08:23.368Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Klaffbron#13: bridge_opening_soon avfyrad för Klaffbron (1 båt(ar), ledande ELFKUNGEN, eta=8 min, northbound, källa deadline)
+2026-08-04T10:11:35.259Z [log] [AISBridgeApp] [DEBUG] 🔄 [BRIDGE_OPENING_CLEAR] 265573130: Clearing stale bridge opening for Olidebron (vessel 787m away, >300m threshold)
+2026-08-04T10:11:35.262Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 265573130 (ELFKUNGEN): beväpnad mot Stridsbergsbron d=1790 m sog=6.2 dir=north deadline om 168 s
+2026-08-04T10:12:53.451Z [log] [AISBridgeApp] [DEBUG] 🔁 [OPENING_RECOVER] 265597580 (BARAVI): konvojtäckningen vid Stridsbergsbron löpte ut (Stridsbergsbron#11) men båten är kvar beväpnad d=744 m — prövas som EGEN öppning
+2026-08-04T10:12:53.452Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 265597580: Stridsbergsbron täckt av Stridsbergsbron#15 (fired)
+2026-08-04T10:12:53.452Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Stridsbergsbron: öppningsvarning (1 båt(ar), ledande BARAVI d=744 m, eta=0 min, northbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T10:12:53.464Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Stridsbergsbron#15: bridge_opening_soon avfyrad för Stridsbergsbron (1 båt(ar), ledande BARAVI, eta=0 min, northbound, källa deadline)
+2026-08-04T10:14:23.477Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 265573130: Stridsbergsbron täckt av Stridsbergsbron#14 (fired)
+2026-08-04T10:14:23.478Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Stridsbergsbron: öppningsvarning (1 båt(ar), ledande ELFKUNGEN d=1790 m, eta=7 min, northbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T10:14:23.490Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Stridsbergsbron#14: bridge_opening_soon avfyrad för Stridsbergsbron (1 båt(ar), ledande ELFKUNGEN, eta=7 min, northbound, källa deadline)
+2026-08-04T10:23:05.725Z [log] [AISBridgeApp] [DEBUG] 🔄 [BRIDGE_OPENING_CLEAR] 265573130: Clearing stale bridge opening for Klaffbron (vessel 768m away, >300m threshold)
+2026-08-04T10:23:05.727Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 265573130 (ELFKUNGEN): Klaffbron avväpnad — passage (d=588 m, varning redan skickad, armad 1200 s)
+2026-08-04T10:29:31.011Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 265822250 (CYGNUS): Stridsbergsbron avväpnad — passage (d=174 m, varning redan skickad, armad 2910 s)
+2026-08-04T10:35:06.558Z [log] [AISBridgeApp] [DEBUG] 🔄 [BRIDGE_OPENING_CLEAR] 265573130: Clearing stale bridge opening for Stridsbergsbron (vessel 1232m away, >300m threshold)
+2026-08-04T10:35:06.561Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 265573130 (ELFKUNGEN): Stridsbergsbron avväpnad — passage (d=453 m, varning redan skickad, armad 1411 s)
+2026-08-04T10:37:12.349Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 265597580 (BARAVI): Stridsbergsbron avväpnad — passage (d=29 m, varning redan skickad, armad 2580 s)
+2026-08-04T11:10:53.489Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 219036470 (BOBLEN): beväpnad mot Stridsbergsbron d=2447 m sog=6.5 dir=south deadline om 296 s
+2026-08-04T11:12:38.510Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 211125350 (PACIFIC): beväpnad mot Stridsbergsbron d=2326 m sog=6.3 dir=south deadline om 272 s
+2026-08-04T11:14:37.840Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 219031577 (TRUNTEN): beväpnad mot Stridsbergsbron d=2493 m sog=5.5 dir=south deadline om 305 s
+2026-08-04T11:15:39.691Z [log] [AISBridgeApp] [DEBUG] 🔄 [BRIDGE_OPENING_CLEAR] 211125350: Clearing stale bridge opening for Stallbackabron (vessel 560m away, >300m threshold)
+2026-08-04T11:16:25.177Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 219036470: Stridsbergsbron täckt av Stridsbergsbron#16 (fired)
+2026-08-04T11:16:25.177Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 211125350: Stridsbergsbron täckt av Stridsbergsbron#16 (fired)
+2026-08-04T11:16:25.177Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 219031577: Stridsbergsbron täckt av Stridsbergsbron#16 (fired)
+2026-08-04T11:16:25.177Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Stridsbergsbron: öppningsvarning (3 båt(ar), ledande PACIFIC d=1764 m, eta=9 min, southbound, utlöst av deadline, 1/3 förfallna)
+2026-08-04T11:16:25.453Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Stridsbergsbron#16: bridge_opening_soon avfyrad för Stridsbergsbron (3 båt(ar), ledande PACIFIC, eta=9 min, southbound, källa deadline)
+2026-08-04T11:17:53.262Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 219036470 (BOBLEN): beväpnad mot Klaffbron d=2340 m sog=6.3 dir=south deadline om 275 s
+2026-08-04T11:18:40.498Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 211125350 (PACIFIC): beväpnad mot Klaffbron d=2418 m sog=6.2 dir=south deadline om 290 s
+2026-08-04T11:22:39.306Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 211488730 (PILLE): beväpnad mot Stridsbergsbron d=1309 m sog=5.7 dir=south deadline om 74 s
+2026-08-04T11:23:55.326Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 211488730: Stridsbergsbron täckt av Stridsbergsbron#18 (fired)
+2026-08-04T11:23:55.326Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Stridsbergsbron: öppningsvarning (1 båt(ar), ledande PILLE d=1309 m, eta=18 min, southbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T11:23:55.709Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Stridsbergsbron#18: bridge_opening_soon avfyrad för Stridsbergsbron (1 båt(ar), ledande PILLE, eta=18 min, southbound, källa deadline)
+2026-08-04T11:24:25.331Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 219036470: Klaffbron täckt av Klaffbron#17 (fired)
+2026-08-04T11:24:25.332Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 211125350: Klaffbron täckt av Klaffbron#17 (fired)
+2026-08-04T11:24:25.332Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Klaffbron: öppningsvarning (2 båt(ar), ledande BOBLEN d=1646 m, eta=9 min, southbound, utlöst av deadline, 1/2 förfallna)
+2026-08-04T11:24:25.741Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Klaffbron#17: bridge_opening_soon avfyrad för Klaffbron (2 båt(ar), ledande BOBLEN, eta=9 min, southbound, källa deadline)
+2026-08-04T11:26:10.997Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 211488728 (okänt namn): beväpnad mot Stridsbergsbron d=602 m sog=13 dir=south deadline om -210 s
+2026-08-04T11:26:10.997Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 211488728 (okänt namn): beväpnad mot Klaffbron d=1820 m sog=13 dir=south deadline om -28 s
+2026-08-04T11:26:10.998Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 211488728: Stridsbergsbron täckt av Stridsbergsbron#16 (absorbed)
+2026-08-04T11:26:10.998Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 211488728: Klaffbron täckt av Klaffbron#17 (absorbed)
+2026-08-04T11:26:48.811Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 219036470 (BOBLEN): Stridsbergsbron avväpnad — passage (d=428 m, varning redan skickad, armad 955 s)
+2026-08-04T11:29:38.595Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 211488730 (PILLE): beväpnad mot Klaffbron d=1480 m sog=1.3 dir=south deadline om 108 s
+2026-08-04T11:29:38.883Z [log] [AISBridgeApp] [DEBUG] 🔄 [BRIDGE_OPENING_CLEAR] 219031577: Clearing stale bridge opening for Stallbackabron (vessel 2100m away, >300m threshold)
+2026-08-04T11:29:38.886Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 219031577 (TRUNTEN): beväpnad mot Klaffbron d=1428 m sog=1.3 dir=south deadline om 98 s
+2026-08-04T11:29:39.681Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 211125350 (PACIFIC): Stridsbergsbron avväpnad — passage (d=816 m, varning redan skickad, armad 1021 s)
+2026-08-04T11:31:25.599Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 211488730: Klaffbron täckt av Klaffbron#19 (fired)
+2026-08-04T11:31:25.600Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 219031577: Klaffbron täckt av Klaffbron#19 (fired)
+2026-08-04T11:31:25.600Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Klaffbron: öppningsvarning (2 båt(ar), ledande TRUNTEN d=1428 m, eta=34 min, southbound, utlöst av deadline, 1/2 förfallna)
+2026-08-04T11:31:25.859Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Klaffbron#19: bridge_opening_soon avfyrad för Klaffbron (2 båt(ar), ledande TRUNTEN, eta=34 min, southbound, källa deadline)
+2026-08-04T11:34:25.677Z [log] [AISBridgeApp] [DEBUG] 🔁 [OPENING_RECOVER] 211488728 (okänt namn): konvojtäckningen vid Stridsbergsbron löpte ut (Stridsbergsbron#16) men båten är kvar beväpnad d=602 m — prövas som EGEN öppning
+2026-08-04T11:34:25.680Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 211488728: Stridsbergsbron täckt av Stridsbergsbron#20 (fired)
+2026-08-04T11:34:25.681Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Stridsbergsbron: öppningsvarning (1 båt(ar), ledande okänt namn d=602 m, eta=0 min, southbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T11:34:26.066Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Stridsbergsbron#20: bridge_opening_soon avfyrad för Stridsbergsbron (1 båt(ar), ledande Okänd båt, eta=0 min, southbound, källa deadline)
+2026-08-04T11:35:21.614Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 219036470 (BOBLEN): Klaffbron avväpnad — passage (d=316 m, varning redan skickad, armad 1048 s)
+2026-08-04T11:38:38.484Z [log] [AISBridgeApp] [DEBUG] 🔄 [BRIDGE_OPENING_CLEAR] 211125350: Clearing stale bridge opening for Klaffbron (vessel 302m away, >300m threshold)
+2026-08-04T11:38:38.486Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 211125350 (PACIFIC): Klaffbron avväpnad — passage (d=374 m, varning redan skickad, armad 1198 s)
+2026-08-04T11:42:25.935Z [log] [AISBridgeApp] [DEBUG] 🔁 [OPENING_RECOVER] 211488728 (okänt namn): konvojtäckningen vid Klaffbron löpte ut (Klaffbron#17) men båten är kvar beväpnad d=1820 m — prövas som EGEN öppning
+2026-08-04T11:42:25.936Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 211488728: Klaffbron täckt av Klaffbron#21 (fired)
+2026-08-04T11:42:25.936Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Klaffbron: öppningsvarning (1 båt(ar), ledande okänt namn d=1820 m, eta=0 min, southbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T11:42:26.313Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Klaffbron#21: bridge_opening_soon avfyrad för Klaffbron (1 båt(ar), ledande Okänd båt, eta=0 min, southbound, källa deadline)
+2026-08-04T11:51:24.179Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 265573130 (ELFKUNGEN): beväpnad mot Stridsbergsbron d=1903 m sog=7.7 dir=south deadline om 190 s
+2026-08-04T11:54:56.168Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 265573130: Stridsbergsbron täckt av Stridsbergsbron#22 (fired)
+2026-08-04T11:54:56.169Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Stridsbergsbron: öppningsvarning (1 båt(ar), ledande ELFKUNGEN d=1903 m, eta=8 min, southbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T11:54:56.507Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Stridsbergsbron#22: bridge_opening_soon avfyrad för Stridsbergsbron (1 båt(ar), ledande ELFKUNGEN, eta=8 min, southbound, källa deadline)
+2026-08-04T11:56:26.198Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 211488728 (okänt namn): Stridsbergsbron avväpnad — stale (d=602 m, varning redan skickad, armad 1815 s)
+2026-08-04T11:56:26.198Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 211488728 (okänt namn): Klaffbron avväpnad — stale (d=1820 m, varning redan skickad, armad 1815 s)
+2026-08-04T11:57:53.515Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 265573130 (ELFKUNGEN): beväpnad mot Klaffbron d=1596 m sog=6.3 dir=south deadline om 130 s
+2026-08-04T11:57:53.516Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 265573130: Klaffbron täckt av Klaffbron#19 (absorbed)
+2026-08-04T11:59:56.358Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 219031577 (TRUNTEN): Stridsbergsbron avväpnad — stale (d=212 m, varning redan skickad, armad 2719 s)
+2026-08-04T11:59:56.358Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 219031577 (TRUNTEN): Klaffbron avväpnad — stale (d=1428 m, varning redan skickad, armad 1817 s)
+2026-08-04T12:04:08.192Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 211488730 (PILLE): Stridsbergsbron avväpnad — passage (d=111 m, varning redan skickad, armad 2489 s)
+2026-08-04T12:15:26.802Z [log] [AISBridgeApp] [DEBUG] 🔁 [OPENING_RECOVER] 265573130 (ELFKUNGEN): konvojtäckningen vid Klaffbron löpte ut (Klaffbron#19) men båten är kvar beväpnad d=1333 m — prövas som EGEN öppning
+2026-08-04T12:15:26.805Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 265573130: Klaffbron täckt av Klaffbron#23 (fired)
+2026-08-04T12:15:26.806Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Klaffbron: öppningsvarning (1 båt(ar), ledande ELFKUNGEN d=1333 m, eta=9 min, southbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T12:15:27.198Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Klaffbron#23: bridge_opening_soon avfyrad för Klaffbron (1 båt(ar), ledande ELFKUNGEN, eta=9 min, southbound, källa deadline)
+2026-08-04T12:22:40.369Z [log] [AISBridgeApp] [DEBUG] 🔄 [BRIDGE_OPENING_CLEAR] 211488730: Clearing stale bridge opening for Järnvägsbron (vessel 602m away, >300m threshold)
+2026-08-04T12:30:27.231Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 265573130 (ELFKUNGEN): Stridsbergsbron avväpnad — stale (d=115 m, varning redan skickad, armad 2343 s)
+2026-08-04T12:30:27.232Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 265573130 (ELFKUNGEN): Klaffbron avväpnad — stale (d=1333 m, varning redan skickad, armad 1954 s)
+2026-08-04T13:12:27.959Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 211488730 (PILLE): Klaffbron avväpnad — stale (d=390 m, varning redan skickad, armad 6169 s)
+2026-08-04T13:30:15.915Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 219020486 (ATHENA): beväpnad mot Stridsbergsbron d=1927 m sog=7.6 dir=south deadline om 195 s
+2026-08-04T13:33:58.982Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 219020486: Stridsbergsbron täckt av Stridsbergsbron#24 (fired)
+2026-08-04T13:33:58.983Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Stridsbergsbron: öppningsvarning (1 båt(ar), ledande ATHENA d=1927 m, eta=8 min, southbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T13:33:59.367Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Stridsbergsbron#24: bridge_opening_soon avfyrad för Stridsbergsbron (1 båt(ar), ledande ATHENA, eta=8 min, southbound, källa deadline)
+2026-08-04T13:36:28.148Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 211452170 (okänt namn): beväpnad mot Stridsbergsbron d=1718 m sog=6.1 dir=south deadline om 154 s
+2026-08-04T13:37:14.680Z [log] [AISBridgeApp] [DEBUG] 🔄 [BRIDGE_OPENING_CLEAR] 269123420: Clearing stale bridge opening for Stallbackabron (vessel 569m away, >300m threshold)
+2026-08-04T13:37:14.683Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 269123420 (PAPOU): beväpnad mot Stridsbergsbron d=1754 m sog=6.4 dir=south deadline om 161 s
+2026-08-04T13:37:14.683Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 269123420: Stridsbergsbron täckt av Stridsbergsbron#24 (absorbed)
+2026-08-04T13:37:16.033Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 219020486 (ATHENA): beväpnad mot Klaffbron d=1677 m sog=2.2 dir=south deadline om 146 s
+2026-08-04T13:39:29.069Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 211452170: Stridsbergsbron täckt av Stridsbergsbron#25 (fired)
+2026-08-04T13:39:29.071Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Stridsbergsbron: öppningsvarning (1 båt(ar), ledande okänt namn d=1718 m, eta=12 min, southbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T13:39:29.469Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Stridsbergsbron#25: bridge_opening_soon avfyrad för Stridsbergsbron (1 båt(ar), ledande Okänd båt, eta=12 min, southbound, källa deadline)
+2026-08-04T13:39:59.068Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 219020486: Klaffbron täckt av Klaffbron#26 (fired)
+2026-08-04T13:39:59.069Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Klaffbron: öppningsvarning (1 båt(ar), ledande ATHENA d=1677 m, eta=22 min, southbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T13:39:59.459Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Klaffbron#26: bridge_opening_soon avfyrad för Klaffbron (1 båt(ar), ledande ATHENA, eta=22 min, southbound, källa deadline)
+2026-08-04T13:40:44.054Z [log] [AISBridgeApp] [DEBUG] 🔄 [BRIDGE_OPENING_CLEAR] 211100280: Clearing stale bridge opening for Stallbackabron (vessel 1077m away, >300m threshold)
+2026-08-04T13:40:44.056Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 211100280 (ORCA): beväpnad mot Stridsbergsbron d=1233 m sog=6.5 dir=south deadline om 60 s
+2026-08-04T13:40:44.056Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 211100280 (ORCA): beväpnad mot Klaffbron d=2452 m sog=6.5 dir=south deadline om 297 s
+2026-08-04T13:40:44.056Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 211100280: Stridsbergsbron täckt av Stridsbergsbron#24 (absorbed)
+2026-08-04T13:40:44.057Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 211100280: Klaffbron täckt av Klaffbron#26 (absorbed)
+2026-08-04T13:42:30.065Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 211452170 (okänt namn): beväpnad mot Klaffbron d=1793 m sog=6.1 dir=south deadline om 169 s
+2026-08-04T13:42:30.066Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 211452170: Klaffbron täckt av Klaffbron#26 (absorbed)
+2026-08-04T13:42:54.777Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 211695990 (okänt namn): beväpnad mot Stridsbergsbron d=417 m sog=3.9 dir=south deadline om -99 s
+2026-08-04T13:42:54.777Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 211695990 (okänt namn): beväpnad mot Klaffbron d=1634 m sog=3.9 dir=south deadline om 138 s
+2026-08-04T13:42:54.778Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 211695990: Stridsbergsbron täckt av Stridsbergsbron#24 (absorbed)
+2026-08-04T13:42:54.778Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 211695990: Klaffbron täckt av Klaffbron#26 (absorbed)
+2026-08-04T13:46:46.763Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 269123420 (PAPOU): beväpnad mot Klaffbron d=1503 m sog=1.3 dir=south deadline om 112 s
+2026-08-04T13:49:48.377Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 269123420: Klaffbron täckt av Klaffbron#27 (fired)
+2026-08-04T13:49:48.702Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Klaffbron#27: bridge_opening_soon avfyrad för Klaffbron (1 båt(ar), ledande PAPOU, eta=14 min, southbound, källa fix)
+2026-08-04T13:51:59.351Z [log] [AISBridgeApp] [DEBUG] 🔁 [OPENING_RECOVER] 269123420 (PAPOU): konvojtäckningen vid Stridsbergsbron löpte ut (Stridsbergsbron#24) men båten är kvar beväpnad d=278 m — prövas som EGEN öppning
+2026-08-04T13:51:59.351Z [log] [AISBridgeApp] [DEBUG] 🔁 [OPENING_RECOVER] 211100280 (ORCA): konvojtäckningen vid Stridsbergsbron löpte ut (Stridsbergsbron#24) men båten är kvar beväpnad d=374 m — prövas som EGEN öppning
+2026-08-04T13:51:59.351Z [log] [AISBridgeApp] [DEBUG] 🔁 [OPENING_RECOVER] 211695990 (okänt namn): konvojtäckningen vid Stridsbergsbron löpte ut (Stridsbergsbron#24) men båten är kvar beväpnad d=417 m — prövas som EGEN öppning
+2026-08-04T13:51:59.351Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 269123420: Stridsbergsbron täckt av Stridsbergsbron#25 (absorbed)
+2026-08-04T13:51:59.352Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 211100280: Stridsbergsbron täckt av Stridsbergsbron#25 (absorbed)
+2026-08-04T13:51:59.352Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 211695990: Stridsbergsbron täckt av Stridsbergsbron#25 (absorbed)
+2026-08-04T13:58:41.653Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 269123420 (PAPOU): Stridsbergsbron avväpnad — passage (d=278 m, varning redan skickad, armad 1287 s)
+2026-08-04T13:58:58.960Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 211452170 (okänt namn): Stridsbergsbron avväpnad — passage (d=180 m, varning redan skickad, armad 1351 s)
+2026-08-04T13:59:13.475Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 219020486 (ATHENA): Stridsbergsbron avväpnad — passage (d=91 m, varning redan skickad, armad 1738 s)
+2026-08-04T14:00:43.510Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 211100280 (ORCA): Stridsbergsbron avväpnad — passage (d=283 m, varning redan skickad, armad 1199 s)
+2026-08-04T14:01:59.590Z [log] [AISBridgeApp] [DEBUG] 🔁 [OPENING_RECOVER] 211695990 (okänt namn): konvojtäckningen vid Stridsbergsbron löpte ut (Stridsbergsbron#25) men båten är kvar beväpnad d=417 m — prövas som EGEN öppning
+2026-08-04T14:01:59.590Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 211695990: Stridsbergsbron täckt av Stridsbergsbron#28 (fired)
+2026-08-04T14:01:59.591Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Stridsbergsbron: öppningsvarning (1 båt(ar), ledande okänt namn d=417 m, eta=0 min, southbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T14:01:59.947Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Stridsbergsbron#28: bridge_opening_soon avfyrad för Stridsbergsbron (1 båt(ar), ledande Okänd båt, eta=0 min, southbound, källa deadline)
+2026-08-04T14:08:42.513Z [log] [AISBridgeApp] [DEBUG] 🔄 [BRIDGE_OPENING_CLEAR] 269123420: Clearing stale bridge opening for Järnvägsbron (vessel 742m away, >300m threshold)
+2026-08-04T14:11:59.835Z [log] [AISBridgeApp] [DEBUG] 🔁 [OPENING_RECOVER] 211100280 (ORCA): konvojtäckningen vid Klaffbron löpte ut (Klaffbron#26) men båten är kvar beväpnad d=782 m — prövas som EGEN öppning
+2026-08-04T14:11:59.835Z [log] [AISBridgeApp] [DEBUG] 🔁 [OPENING_RECOVER] 211452170 (CARAT): konvojtäckningen vid Klaffbron löpte ut (Klaffbron#26) men båten är kvar beväpnad d=679 m — prövas som EGEN öppning
+2026-08-04T14:11:59.835Z [log] [AISBridgeApp] [DEBUG] 🔁 [OPENING_RECOVER] 211695990 (okänt namn): konvojtäckningen vid Klaffbron löpte ut (Klaffbron#26) men båten är kvar beväpnad d=1634 m — prövas som EGEN öppning
+2026-08-04T14:11:59.835Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 211100280: Klaffbron täckt av Klaffbron#27 (absorbed)
+2026-08-04T14:11:59.836Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 211452170: Klaffbron täckt av Klaffbron#27 (absorbed)
+2026-08-04T14:11:59.836Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 211695990: Klaffbron täckt av Klaffbron#27 (absorbed)
+2026-08-04T14:12:59.861Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 211695990 (okänt namn): Stridsbergsbron avväpnad — stale (d=417 m, varning redan skickad, armad 1805 s)
+2026-08-04T14:12:59.861Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 211695990 (okänt namn): Klaffbron avväpnad — stale (d=1634 m, varning redan skickad, armad 1805 s)
+2026-08-04T14:13:59.897Z [log] [AISBridgeApp] [DEBUG] 🔁 [OPENING_RECOVER] 211100280 (ORCA): konvojtäckningen vid Klaffbron löpte ut (Klaffbron#27) men båten är kvar beväpnad d=305 m — prövas som EGEN öppning
+2026-08-04T14:13:59.897Z [log] [AISBridgeApp] [DEBUG] 🔁 [OPENING_RECOVER] 211452170 (CARAT): konvojtäckningen vid Klaffbron löpte ut (Klaffbron#27) men båten är kvar beväpnad d=679 m — prövas som EGEN öppning
+2026-08-04T14:13:59.898Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 211100280: Klaffbron täckt av Klaffbron#29 (fired)
+2026-08-04T14:13:59.898Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 211452170: Klaffbron täckt av Klaffbron#29 (fired)
+2026-08-04T14:13:59.898Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Klaffbron: öppningsvarning (2 båt(ar), ledande ORCA d=305 m, eta=3 min, southbound, utlöst av deadline, 2/2 förfallna)
+2026-08-04T14:14:00.145Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Klaffbron#29: bridge_opening_soon avfyrad för Klaffbron (2 båt(ar), ledande ORCA, eta=3 min, southbound, källa deadline)
+2026-08-04T14:17:10.244Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 269123420 (PAPOU): Klaffbron avväpnad — passage (d=231 m, varning redan skickad, armad 1823 s)
+2026-08-04T14:20:43.537Z [log] [AISBridgeApp] [DEBUG] 🔄 [BRIDGE_OPENING_CLEAR] 211100280: Clearing stale bridge opening for Klaffbron (vessel 343m away, >300m threshold)
+2026-08-04T14:20:43.539Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 211100280 (ORCA): Klaffbron avväpnad — passage (d=305 m, varning redan skickad, armad 2399 s)
+2026-08-04T14:29:30.132Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 219020486 (ATHENA): Klaffbron avväpnad — stale (d=714 m, varning redan skickad, armad 3134 s)
+2026-08-04T14:31:42.519Z [log] [AISBridgeApp] [DEBUG] 🔄 [BRIDGE_OPENING_CLEAR] 269123420: Clearing stale bridge opening for Olidebron (vessel 359m away, >300m threshold)
+2026-08-04T14:36:23.546Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 219035849 (MISTY): beväpnad mot Stridsbergsbron d=2421 m sog=6.6 dir=south deadline om 291 s
+2026-08-04T14:40:45.647Z [log] [AISBridgeApp] [DEBUG] 🔄 [BRIDGE_OPENING_CLEAR] 211100280: Clearing stale bridge opening for Olidebron (vessel 856m away, >300m threshold)
+2026-08-04T14:42:00.424Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 219035849: Stridsbergsbron täckt av Stridsbergsbron#30 (fired)
+2026-08-04T14:42:00.425Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Stridsbergsbron: öppningsvarning (1 båt(ar), ledande MISTY d=2216 m, eta=7 min, southbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T14:42:00.737Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Stridsbergsbron#30: bridge_opening_soon avfyrad för Stridsbergsbron (1 båt(ar), ledande MISTY, eta=7 min, southbound, källa deadline)
+2026-08-04T14:43:22.703Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 219035849 (MISTY): beväpnad mot Klaffbron d=2186 m sog=6.9 dir=south deadline om 245 s
+2026-08-04T14:49:00.527Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 219035849: Klaffbron täckt av Klaffbron#31 (fired)
+2026-08-04T14:49:00.527Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Klaffbron: öppningsvarning (1 båt(ar), ledande MISTY d=1414 m, eta=14 min, southbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T14:49:00.909Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Klaffbron#31: bridge_opening_soon avfyrad för Klaffbron (1 båt(ar), ledande MISTY, eta=14 min, southbound, källa deadline)
+2026-08-04T15:01:13.347Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 231915000 (KOLLAND): beväpnad mot Klaffbron d=2050 m sog=3.6 dir=north deadline om 218 s
+2026-08-04T15:02:26.219Z [log] [AISBridgeApp] [DEBUG] 🔄 [BRIDGE_OPENING_CLEAR] 219035849: Clearing stale bridge opening for Järnvägsbron (vessel 600m away, >300m threshold)
+2026-08-04T15:02:26.222Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 219035849 (MISTY): Stridsbergsbron avväpnad — passage (d=71 m, varning redan skickad, armad 1563 s)
+2026-08-04T15:05:00.836Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 231915000: Klaffbron täckt av Klaffbron#32 (fired)
+2026-08-04T15:05:00.836Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Klaffbron: öppningsvarning (1 båt(ar), ledande KOLLAND d=2050 m, eta=15 min, northbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T15:05:01.222Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Klaffbron#32: bridge_opening_soon avfyrad för Klaffbron (1 båt(ar), ledande KOLLAND, eta=15 min, northbound, källa deadline)
+2026-08-04T15:12:30.955Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 211452170 (CARAT): Klaffbron avväpnad — stale (d=444 m, varning redan skickad, armad 5401 s)
+2026-08-04T15:13:32.119Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 231915000 (KOLLAND): beväpnad mot Stridsbergsbron d=1940 m sog=2.8 dir=north deadline om 197 s
+2026-08-04T15:17:00.989Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 231915000: Stridsbergsbron täckt av Stridsbergsbron#33 (fired)
+2026-08-04T15:17:00.990Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Stridsbergsbron: öppningsvarning (1 båt(ar), ledande KOLLAND d=1940 m, eta=19 min, northbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T15:17:01.375Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Stridsbergsbron#33: bridge_opening_soon avfyrad för Stridsbergsbron (1 båt(ar), ledande KOLLAND, eta=19 min, northbound, källa deadline)
+2026-08-04T15:27:42.567Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 231915000 (KOLLAND): Klaffbron avväpnad — passage (d=23 m, varning redan skickad, armad 1589 s)
+2026-08-04T15:32:31.143Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 219035849 (MISTY): Klaffbron avväpnad — stale (d=381 m, varning redan skickad, armad 2948 s)
+2026-08-04T15:47:22.914Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 231915000 (KOLLAND): Stridsbergsbron avväpnad — passage (d=158 m, varning redan skickad, armad 2031 s)
+2026-08-04T15:48:10.016Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 265576720 (JUNO): beväpnad mot Klaffbron d=1531 m sog=6 dir=north deadline om 118 s
+2026-08-04T15:50:31.821Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 265576720: Klaffbron täckt av Klaffbron#34 (fired)
+2026-08-04T15:50:31.821Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Klaffbron: öppningsvarning (1 båt(ar), ledande JUNO d=1407 m, eta=6 min, northbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T15:50:32.210Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Klaffbron#34: bridge_opening_soon avfyrad för Klaffbron (1 båt(ar), ledande JUNO, eta=6 min, northbound, källa deadline)
+2026-08-04T15:55:29.295Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 265576720 (JUNO): beväpnad mot Stridsbergsbron d=1552 m sog=2.8 dir=north deadline om 122 s
+2026-08-04T15:59:02.065Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 265576720: Stridsbergsbron täckt av Stridsbergsbron#35 (fired)
+2026-08-04T15:59:02.065Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Stridsbergsbron: öppningsvarning (1 båt(ar), ledande JUNO d=1322 m, eta=6 min, northbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T15:59:02.453Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Stridsbergsbron#35: bridge_opening_soon avfyrad för Stridsbergsbron (1 båt(ar), ledande JUNO, eta=6 min, northbound, källa deadline)
+2026-08-04T16:00:22.960Z [log] [AISBridgeApp] [DEBUG] 🔄 [BRIDGE_OPENING_CLEAR] 231915000: Clearing stale bridge opening for Stallbackabron (vessel 420m away, >300m threshold)
+2026-08-04T16:03:03.920Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 265625860 (okänt namn): beväpnad mot Stridsbergsbron d=2325 m sog=6.6 dir=south deadline om 272 s
+2026-08-04T16:04:47.535Z [log] [AISBridgeApp] [DEBUG] 🔄 [BRIDGE_OPENING_CLEAR] 265576720: Clearing stale bridge opening for Klaffbron (vessel 760m away, >300m threshold)
+2026-08-04T16:04:47.537Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 265576720 (JUNO): Klaffbron avväpnad — passage (d=110 m, varning redan skickad, armad 998 s)
+2026-08-04T16:08:02.327Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 265625860: Stridsbergsbron täckt av Stridsbergsbron#36 (fired)
+2026-08-04T16:08:02.328Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Stridsbergsbron: öppningsvarning (1 båt(ar), ledande okänt namn d=2128 m, eta=8 min, southbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T16:08:02.649Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Stridsbergsbron#36: bridge_opening_soon avfyrad för Stridsbergsbron (1 båt(ar), ledande Okänd båt, eta=8 min, southbound, källa deadline)
+2026-08-04T16:10:04.229Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 265625860 (ADA): beväpnad mot Klaffbron d=2132 m sog=6.6 dir=south deadline om 234 s
+2026-08-04T16:12:39.422Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 265576720 (JUNO): Stridsbergsbron avväpnad — passage (d=460 m, varning redan skickad, armad 1030 s)
+2026-08-04T16:14:02.531Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 265625860: Klaffbron täckt av Klaffbron#37 (fired)
+2026-08-04T16:14:02.531Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Klaffbron: öppningsvarning (1 båt(ar), ledande ADA d=2132 m, eta=6 min, southbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T16:14:04.071Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Klaffbron#37: bridge_opening_soon avfyrad för Klaffbron (1 båt(ar), ledande ADA, eta=6 min, southbound, källa deadline)
+2026-08-04T16:22:08.130Z [log] [AISBridgeApp] [DEBUG] 🔄 [BRIDGE_OPENING_CLEAR] 265576720: Clearing stale bridge opening for Stallbackabron (vessel 352m away, >300m threshold)
+2026-08-04T17:10:28.258Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 265625860 (ADA): Stridsbergsbron avväpnad — passage (d=59 m, varning redan skickad, armad 4044 s)
+2026-08-04T17:11:42.964Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 265788210 (EUGENIE): beväpnad mot Klaffbron d=1885 m sog=5.6 dir=north deadline om 186 s
+2026-08-04T17:15:04.379Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 265788210: Klaffbron täckt av Klaffbron#38 (fired)
+2026-08-04T17:15:04.379Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Klaffbron: öppningsvarning (1 båt(ar), ledande EUGENIE d=1885 m, eta=8 min, northbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T17:15:04.693Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Klaffbron#38: bridge_opening_soon avfyrad för Klaffbron (1 båt(ar), ledande EUGENIE, eta=8 min, northbound, källa deadline)
+2026-08-04T17:17:04.250Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 265662320 (JEANNELLE): beväpnad mot Klaffbron d=1603 m sog=2.3 dir=north deadline om 132 s
+2026-08-04T17:17:04.250Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 265662320: Klaffbron täckt av Klaffbron#38 (absorbed)
+2026-08-04T17:19:10.412Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 265788210 (EUGENIE): beväpnad mot Stridsbergsbron d=2398 m sog=5.8 dir=north deadline om 286 s
+2026-08-04T17:21:33.153Z [log] [AISBridgeApp] [DEBUG] 🔄 [BRIDGE_OPENING_CLEAR] 265662320: Clearing stale bridge opening for Olidebron (vessel 405m away, >300m threshold)
+2026-08-04T17:21:33.155Z [log] [AISBridgeApp] [DEBUG] 🎯 [OPENING_ARM] 265662320 (JEANNELLE): beväpnad mot Stridsbergsbron d=2181 m sog=5.2 dir=north deadline om 244 s
+2026-08-04T17:24:04.563Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 265788210: Stridsbergsbron täckt av Stridsbergsbron#39 (fired)
+2026-08-04T17:24:04.563Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 265662320: Stridsbergsbron täckt av Stridsbergsbron#39 (fired)
+2026-08-04T17:24:04.564Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Stridsbergsbron: öppningsvarning (2 båt(ar), ledande JEANNELLE d=1905 m, eta=9 min, northbound, utlöst av deadline, 1/2 förfallna)
+2026-08-04T17:24:04.837Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Stridsbergsbron#39: bridge_opening_soon avfyrad för Stridsbergsbron (2 båt(ar), ledande JEANNELLE, eta=9 min, northbound, källa deadline)
+2026-08-04T17:28:11.189Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 265788210 (EUGENIE): Klaffbron avväpnad — passage (d=110 m, varning redan skickad, armad 988 s)
+2026-08-04T17:33:04.788Z [log] [AISBridgeApp] [DEBUG] 🔁 [OPENING_RECOVER] 265662320 (JEANNELLE): konvojtäckningen vid Klaffbron löpte ut (Klaffbron#38) men båten är kvar beväpnad d=703 m — prövas som EGEN öppning
+2026-08-04T17:33:04.789Z [log] [AISBridgeApp] 🛡️ [OPENING_COVERAGE] 265662320: Klaffbron täckt av Klaffbron#40 (fired)
+2026-08-04T17:33:04.789Z [log] [AISBridgeApp] ⏰ [OPENING_DEADLINE] Klaffbron: öppningsvarning (1 båt(ar), ledande JEANNELLE d=703 m, eta=0 min, northbound, utlöst av deadline, 1/1 förfallna)
+2026-08-04T17:33:05.194Z [log] [AISBridgeApp] ✅ [OPENING_TRIGGER_SUCCESS] Klaffbron#40: bridge_opening_soon avfyrad för Klaffbron (1 båt(ar), ledande JEANNELLE, eta=0 min, northbound, källa deadline)
+2026-08-04T17:44:04.964Z [log] [AISBridgeApp] [DEBUG] 🔓 [OPENING_DISARM] 265625860 (ADA): Klaffbron avväpnad — stale (d=382 m, varning redan skickad, armad 5641 s)

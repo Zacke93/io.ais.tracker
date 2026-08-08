@@ -535,11 +535,44 @@ function validateInvariants(result) {
  *        öppningar. WARN tills den varit tyst över samtliga korpusar +
  *        syntetiska + soaken.
  */
-function validateWarnInvariants(result) {
+/**
+ * Rådatafacit (A2) för den korpus resultatet kommer ur.
+ *
+ * Uppslaget går via gt-passages/index.json (jsonl-basename → korpus-id), så en
+ * anropare som bara har `result.jsonl` ändå hittar rätt facit utan att
+ * runAllCorpora behöver ändras. Returnerar null när facit saknas — då mäter
+ * INV-21 mot appens egna passager exakt som förut, och det ska den göra
+ * högljutt i rapporten, inte tyst (en vakuös invariant är farligare än ingen).
+ * `INV21_GT=0` stänger av uppslaget helt (felsökning/bisektion).
+ * @param {object} result - replay-resultatet
+ * @returns {object[]|null} rådatafacit
+ */
+function resolveGtPassages(result) {
+  if (process.env.INV21_GT === '0') return null;
+  const jsonl = result && result.jsonl;
+  if (!jsonl) return null;
+  try {
+    /* eslint-disable global-require */
+    const { idForJsonl, loadGtPassages } = require('./makeGtPassages');
+    /* eslint-enable global-require */
+    const id = idForJsonl(jsonl);
+    return id ? loadGtPassages(id) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function validateWarnInvariants(result, gtPassagesArg = null) {
   const warnings = [];
   const notifications = result.notifications || [];
   const transitions = result.bridgeTextTransitions || [];
   const targetPassages = result.targetPassages || [];
+  // A3 (etapp 7, 2026-08-08): rådatafacit när det finns. Anropare som redan
+  // vet vilken korpus det gäller skickar in listan; övriga får den upplöst ur
+  // result.jsonl via gt-passages/index.json. null ⇒ EXAKT dagens beteende
+  // (appens egna passager) — så syntetiska scenarier och enhetstester, som
+  // saknar korpus-id, är oförändrade.
+  const gtPassages = gtPassagesArg || resolveGtPassages(result);
 
   for (const n of notifications) {
     // INV-15: riktning-vs-geografi. Kalibrerad 2026-07-03 (fas 6-uppföljning):
@@ -703,14 +736,38 @@ function validateWarnInvariants(result) {
   // inför sin returpassage av samma bro. Det är en helt äkta ny öppning.
   // Den undantas nedan via JOURNEY-RESET:en, inte via ett tidsfönster — en
   // U-sväng ÄR en journey-reset i appens egen bokföring.
+  //
+  // A3-SKÄRPNINGEN (etapp 7): fönstret mäts mot RÅDATANS passagetid när
+  // rådatafacit finns. Appens egen registrering ligger typiskt efter den
+  // verkliga korsningen (och saknas helt för ~10 % av passagerna) — mätt mot
+  // den kunde regeln aldrig se en varning som gick ut mellan den verkliga
+  // korsningen och appens bokföring. `inferred`-poster UTESLUTS: deras
+  // tidpunkt är ett fönster, och ett fönster kan inte jämföras med en
+  // varningstid utan att uppfinna precision som inte finns.
   {
     const openings = result.openingWarnings || [];
     const resets = result.journeyResets || [];
+    const passageSource = gtPassages
+      ? gtPassages
+        .filter((g) => g.kind !== 'zone' && g.inferred !== true)
+        .map((g) => ({
+          t: g.t,
+          iso: g.iso || new Date(Math.round(g.t)).toISOString(),
+          mmsi: String(g.mmsi),
+          bridge: g.bridge,
+          // Osäkerhetsfönstret följer med i utslaget: korsningstiden är
+          // interpolerad mellan två sampel, och en granskare måste kunna se
+          // hur brett fönstret var innan hen dömer varningen.
+          window: Number.isFinite(g.tFrom) && Number.isFinite(g.tTo)
+            ? `${new Date(g.tFrom).toISOString()}–${new Date(g.tTo).toISOString()}`
+            : null,
+        }))
+      : targetPassages;
     for (const w of openings) {
       if (!Number.isFinite(w.t) || !w.bridge) continue;
       let members = Array.isArray(w.mmsis) ? w.mmsis : [];
       if (members.length === 0 && w.leadMmsi) members = [w.leadMmsi];
-      for (const p of targetPassages) {
+      for (const p of passageSource) {
         if (p.bridge !== w.bridge) continue;
         if (!members.includes(String(p.mmsi))) continue;
         // RETURRESE-UNDANTAGET: har fartyget fått en journey-reset MELLAN
@@ -727,7 +784,8 @@ function validateWarnInvariants(result) {
         if (p.t <= w.t && w.t - p.t <= BRIDGE_OPENING.ARM_STALE_TTL_MS) {
           warnings.push(
             `INV-21 ÖPPNINGSVARNING EFTER PASSAGE: ${w.bridge} varnades ${w.iso || new Date(w.t).toISOString()} `
-            + `(${w.eventId || 'utan händelse-id'}) men medlemmen ${p.mmsi} passerade redan ${p.iso}`,
+            + `(${w.eventId || 'utan händelse-id'}) men medlemmen ${p.mmsi} passerade redan ${p.iso}`
+            + `${p.window ? ` [rådatafacit, sampelfönster ${p.window}]` : ''}`,
           );
           break;
         }

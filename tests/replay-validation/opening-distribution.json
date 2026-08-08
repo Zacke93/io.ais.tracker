@@ -78,5 +78,11 @@
     "Klaffbron:southbound": 14,
     "Stridsbergsbron:northbound": 11,
     "Stridsbergsbron:southbound": 11
+  },
+  "20260804-17h": {
+    "Klaffbron:northbound": 9,
+    "Klaffbron:southbound": 11,
+    "Stridsbergsbron:northbound": 9,
+    "Stridsbergsbron:southbound": 11
   }
 }

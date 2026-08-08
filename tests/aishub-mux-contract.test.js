@@ -3,6 +3,8 @@
 const fs = require('fs');
 const path = require('path');
 const AISSourceMultiplexer = require('../lib/connection/AISSourceMultiplexer');
+const AISStreamClient = require('../lib/connection/AISStreamClient');
+const { AIS_CONFIG } = require('../lib/constants');
 
 /**
  * Etapp 2 (2026-08-02): AISSourceMultiplexer — kontraktet mot app.js.
@@ -513,6 +515,177 @@ describe('A/B-natten 2026-08-03: mätinstrumentet (fynd 12/13/14/16) och fusions
   });
 });
 
+describe('Etapp 7 fas A: fusionsinstrumenten (A4 byReasonAll, A5 per-avvisning, A7b/A7d)', () => {
+  let mux;
+  let logger;
+
+  const settle = async (source) => {
+    mux.applySourceConfig({ source, apiKey: null, aishubUsername: 'testuser' });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  };
+
+  const lines = (fn, tag) => fn.mock.calls.map((c) => c.join(' ')).filter((l) => l.includes(tag));
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-08-02T12:00:00.000Z'));
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    logger = makeLogger();
+    mux = new AISSourceMultiplexer(logger, makeStore());
+  });
+
+  afterEach(() => {
+    if (mux) mux.disconnect();
+    mux = null;
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
+
+  /**
+   * En hub-fix som faller på FLERA grindar samtidigt: gammal (F4b), identiskt
+   * innehåll med den nyss accepterade aisstream-fixen (F2) och äldre än senast
+   * accepterade fix (F6). shouldAccept ser bara den första.
+   */
+  const ingestMultiGateReject = (mmsi = '265001111') => {
+    const now = Date.now();
+    mux._ingestFromFeed('aisstream', msg({ mmsi, timestamp: now, fixTs: now }));
+    mux._ingestFromFeed('aishub', msg({
+      mmsi,
+      fixFeed: 'aishub',
+      fixTsQuality: 'true-fix',
+      fixTs: now - (AIS_CONFIG.FUSION.MAX_FIX_AGE_MS + 1000),
+      timestamp: now,
+    }));
+  };
+
+  test('A4: byReason bär FÖRSTA grinden, byReasonAll bär SAMTLIGA', async () => {
+    await settle('both');
+    ingestMultiGateReject();
+
+    const { fusion } = mux.getConnectionStats();
+    expect(fusion.accepted).toBe(1);
+    expect(fusion.rejected).toBe(1);
+    // Primärserien RÖRS INTE (runFusionCorpora läser den som grindvillkor).
+    expect(fusion.byReason).toEqual({ fix_too_old: 1 });
+    // Hela profilen: samma meddelande hade fällts av tre grindar.
+    expect(fusion.byReasonAll).toEqual({
+      fix_too_old: 1,
+      cross_feed_duplicate: 1,
+      stale_cross_fix: 1,
+    });
+  });
+
+  test('A4: en ACCEPTERAD fix bidrar ALDRIG till byReasonAll (accept ⇒ tom profil)', async () => {
+    await settle('both');
+    const now = Date.now();
+    mux._ingestFromFeed('aisstream', msg({ timestamp: now, fixTs: now }));
+    mux._ingestFromFeed('aisstream', msg({
+      mmsi: '265002222', lat: 58.3, timestamp: now, fixTs: now,
+    }));
+    const { fusion } = mux.getConnectionStats();
+    expect(fusion.accepted).toBe(2);
+    expect(fusion.rejected).toBe(0);
+    expect(fusion.byReasonAll).toEqual({});
+  });
+
+  test('A4: [FUSION_HEALTH] redovisar byReasonAll i FÖNSTERdelen', async () => {
+    await settle('both');
+    ingestMultiGateReject();
+    jest.advanceTimersByTime(5 * 60 * 1000);
+
+    const health = lines(logger.log, '[FUSION_HEALTH]');
+    expect(health).toHaveLength(1);
+    expect(health[0]).toContain('byReason={"fix_too_old":1}');
+    expect(health[0]).toMatch(/byReasonAll=\{[^}]*"cross_feed_duplicate":1[^}]*\}/);
+    expect(health[0]).toMatch(/byReasonAll=\{[^}]*"stale_cross_fix":1[^}]*\}/);
+  });
+
+  test('A5: [FUSION_REJECT] skriver mmsi, HELA skällistan, fixålder och avstånd', async () => {
+    await settle('both');
+    ingestMultiGateReject();
+
+    const rejects = lines(logger.debug, '[FUSION_REJECT]');
+    expect(rejects).toHaveLength(1);
+    expect(rejects[0]).toContain('265001111');
+    expect(rejects[0]).toContain('feed=aishub');
+    expect(rejects[0]).toContain('skäl=[fix_too_old,cross_feed_duplicate,stale_cross_fix]');
+    expect(rejects[0]).toContain(`fixålder=${(AIS_CONFIG.FUSION.MAX_FIX_AGE_MS + 1000) / 1000}s`);
+    expect(rejects[0]).toContain('avstånd_från_senast_accepterade=0m');
+  });
+
+  test('A5: rate-limit 1/mmsi/5 min — och taket 200 tömmer kartan (samma mönster som FUSION_SWITCH)', async () => {
+    await settle('both');
+    ingestMultiGateReject();
+    ingestMultiGateReject();
+    expect(lines(logger.debug, '[FUSION_REJECT]')).toHaveLength(1);
+
+    jest.advanceTimersByTime(5 * 60 * 1000 + 1);
+    ingestMultiGateReject();
+    expect(lines(logger.debug, '[FUSION_REJECT]')).toHaveLength(2);
+
+    // Maptaket: 201 distinkta fartyg ⇒ kartan har rensats minst en gång och
+    // kan aldrig växa obegränsat (minnesskyddet, inte en logikgräns).
+    for (let i = 0; i < 201; i++) ingestMultiGateReject(`26590${1000 + i}`);
+    expect(mux._fusionRejectLogTimes.size).toBeLessThanOrEqual(200);
+  });
+
+  test('A7(d): skevlegenden skrivs BARA när hubLagMin < 0 (fältet visade den vid hubLagMinMs=859)', async () => {
+    await settle('both');
+    const now = Date.now();
+    // Frisk klocka: hub-fixen är 30 s GAMMAL vid leverans ⇒ positivt lag.
+    mux._ingestFromFeed('aishub', msg({
+      fixFeed: 'aishub', fixTsQuality: 'true-fix', fixTs: now - 30000, timestamp: now,
+    }));
+    jest.advanceTimersByTime(5 * 60 * 1000);
+
+    const health = lines(logger.log, '[FUSION_HEALTH]');
+    expect(health).toHaveLength(1);
+    expect(health[0]).toContain('hubLagMinMs=30000');
+    expect(health[0]).not.toContain('hubLagMin < 0');
+    // A12:s räknare finns alltid med (0 = inga artefakter, inte "ingen grind").
+    expect(health[0]).toContain('hubPairsDroppedStale=0');
+  });
+
+  test('A7(d): legenden ÅTERKOMMER när klockan faktiskt går före (lag < 0)', async () => {
+    await settle('both');
+    const now = Date.now();
+    // Hubbens stämpel postdaterar sin egen leverans ⇒ fysiskt omöjligt utan skev.
+    mux._ingestFromFeed('aishub', msg({
+      fixFeed: 'aishub', fixTsQuality: 'true-fix', fixTs: now + 45000, timestamp: now,
+    }));
+    jest.advanceTimersByTime(5 * 60 * 1000);
+
+    const health = lines(logger.log, '[FUSION_HEALTH]');
+    expect(health).toHaveLength(1);
+    expect(health[0]).toContain('hubLagMinMs=-45000');
+    expect(health[0]).toContain('hubLagMin < 0 ⇒ AISHub-klockan går FÖRE Homeys');
+  });
+
+  test('A7(b): muxen vidarebefordrar orsaken till stream-barnet', async () => {
+    const spy = jest.spyOn(mux._streamClient, 'reconnectWithKey').mockResolvedValue(undefined);
+    await mux.reconnectWithKey('KEY', 'watchdog');
+    expect(spy).toHaveBeenCalledWith('KEY', 'watchdog');
+  });
+
+  test('A7(b): AISStreamClient skriver orsaken i KLARTEXT (21 fältrader ljög om nyckelbyte)', async () => {
+    const client = new AISStreamClient(logger);
+    client.connect = jest.fn().mockResolvedValue(undefined);
+
+    await client.reconnectWithKey('KEY');
+    await client.reconnectWithKey('KEY', 'watchdog');
+
+    const rows = lines(logger.log, '[AIS_CLIENT] Reconnecting');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toContain('reason=key-update');
+    expect(rows[1]).toContain('reason=watchdog');
+    // Den gamla texten fick ALDRIG stå kvar oförändrad — den var påståendet
+    // som visade sig falskt i 100 % av fallen.
+    expect(rows.join(' ')).not.toContain('updated API key');
+  });
+});
+
 describe('Etapp 2: applySourceConfig — idempotens, fallback och barnhantering', () => {
   let mux;
 
@@ -616,7 +789,8 @@ describe('Etapp 2: övriga styrytevägar (kontraktstäckning)', () => {
     const disconnectSpy = jest.spyOn(mux._streamClient, 'disconnect').mockImplementation(() => {});
 
     await mux.reconnectWithKey('NYCKEL');
-    expect(reconnectSpy).toHaveBeenCalledWith('NYCKEL');
+    // A7(b): orsaken följer med — utan argument är det ett nyckelbyte.
+    expect(reconnectSpy).toHaveBeenCalledWith('NYCKEL', 'key-update');
     expect(mux._streamActive).toBe(true);
 
     await mux.reconnectWithKey('   ');
