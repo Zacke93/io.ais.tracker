@@ -9,7 +9,8 @@
  *    BridgeRegistry + ProximityService
  *  - broöppningsfönstrets avståndsventil, utgång och ETA-hantering
  *  - ETA-vägarna (delegering till ProgressiveETACalculator, 0.1-regeln under
- *    målbron, bevarad ETA under annan bro — teleportfixen 2026-07-02b)
+ *    målbron, bevarad ETA under annan bro — teleportfixen 2026-07-02b,
+ *    B1/F13-förkontrollen: mållöst fartyg ⇒ kalkylatorn anropas inte alls)
  *  - osäkra positioner → StatusStabilizer (GPS-hopp håller föregående status,
  *    uncertain kräver konsistens)
  *  - _isActuallyApproaching-metoderna (kurs/avstånd/fartfallback) via
@@ -496,6 +497,72 @@ describe('StatusService — beteende', () => {
       };
 
       expect(statusService.calculateETA(vessel, prox)).toBeNull();
+    });
+
+    // ---- B1/F13: målbro-FÖRKONTROLLEN (etapp 7, fältprovet 42h 2026-08-08) ----
+    // Fältet loggade 5 945 [ETA_VALIDATION]-rader på 41,8 h, SAMTLIGA med
+    // targetBridge=null, plus lika många [ETA_CALC_V2]-rader om en beräkning
+    // som aldrig påbörjades (~3 400 rader/dygn ren logsvälta). Gaten sitter på
+    // anropsplatsen; testerna låser BÅDA riktningarna — utan målbro får
+    // kalkylatorn inte anropas, MED målbro måste den fortfarande anropas
+    // (annars är fixen en tyst ETA-blackout i stället för en logbesparing).
+    test.each([
+      ['null', null],
+      ['undefined', undefined],
+      ['tom sträng', ''],
+    ])('utan målbro (%s) hoppas kalkylatorn helt och ETA blir null', (_label, target) => {
+      const vessel = makeVessel({ targetBridge: target });
+      placeAt(vessel, BRIDGES.klaffbron, 400);
+      const prox = proximityService.analyzeVesselProximity(vessel);
+      const calc = jest.fn().mockReturnValue(4.2); // skulle svarat ETA om den anropats
+      statusService.progressiveETACalculator = { calculateProgressiveETA: calc };
+      statusService.logger.debug.mockClear();
+
+      expect(statusService.calculateETA(vessel, prox)).toBeNull();
+      expect(calc).not.toHaveBeenCalled();
+      // Logvinsten är HELA fixens syfte: varken kalkylatorns valideringsrad
+      // eller "beräkningen misslyckades" får skrivas för ett mållöst fartyg.
+      const etaLines = statusService.logger.debug.mock.calls
+        .filter(([msg]) => typeof msg === 'string' && /ETA_VALIDATION|ETA_CALC_V2/.test(msg));
+      expect(etaLines).toEqual([]);
+      // Svälj-fällan: gaten får inte tysta ett fel på vägen.
+      expect(statusService.logger.error).not.toHaveBeenCalled();
+    });
+
+    test('MED målbro anropas kalkylatorn fortfarande — exakt en gång', () => {
+      const vessel = makeVessel({ targetBridge: 'Klaffbron' });
+      placeAt(vessel, BRIDGES.klaffbron, 400);
+      const prox = proximityService.analyzeVesselProximity(vessel);
+      const calc = jest.fn().mockReturnValue(4.2);
+      statusService.progressiveETACalculator = { calculateProgressiveETA: calc };
+
+      expect(statusService.calculateETA(vessel, prox)).toBe(4.2);
+      expect(calc).toHaveBeenCalledTimes(1);
+      expect(calc).toHaveBeenCalledWith(vessel, prox);
+    });
+
+    test('ekvivalensbevis: RIKTIGA kalkylatorn svarar också null utan målbro', () => {
+      const vessel = makeVessel({ targetBridge: null });
+      placeAt(vessel, BRIDGES.klaffbron, 400);
+      const prox = proximityService.analyzeVesselProximity(vessel);
+
+      // Ingen mock här — förkontrollen får bara hoppa över ett anrop som ändå
+      // hade svarat null. Faller DETTA test har kalkylatorn fått en väg för
+      // mållösa fartyg, och då är gaten en beteendeändring som måste omprövas.
+      expect(statusService.progressiveETACalculator.calculateProgressiveETA(vessel, prox))
+        .toBeNull();
+    });
+
+    test('null-fartyg ger null utan krasch och utan kalkylatoranrop', () => {
+      // Före B1 nådde ett null-fartyg fallback-loggens vessel.mmsi och kastade
+      // TypeError (kalkylatorn hade redan svarat null) — förkontrollen svarar
+      // samma null i stället.
+      const calc = jest.fn();
+      statusService.progressiveETACalculator = { calculateProgressiveETA: calc };
+
+      expect(() => statusService.calculateETA(null, null)).not.toThrow();
+      expect(statusService.calculateETA(undefined, null)).toBeNull();
+      expect(calc).not.toHaveBeenCalled();
     });
 
     test('under mellanbro (≠ målbron) bevaras ETA mot målet i stället för 0.1', () => {

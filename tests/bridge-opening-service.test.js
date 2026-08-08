@@ -22,13 +22,19 @@
  * (A8(iii), armens frysta ursprungsdeadline) och fixAgeMs (B2d, åldern på det
  * fix varningen vilar på). Båda är rent additiva och får aldrig röra en
  * beslutsväg; sviten låser både att de finns och att de INTE skrivs om.
+ *
+ * Etapp 7 fas B (2026-08-08): B2d-GRINDEN — ett fix äldre än STALE_ETA_HARD
+ * får inte bära en ankomstsiffra (payloadens etaMinutes = null ⇒ tokenens
+ * eta_minutes = -1, samma okänd-sentinel som boat_near; översättningen låses i
+ * tests/bridge-opening-app-integration.test.js). Grinden rör ENDAST tokenen —
+ * expectedArrivalMs, fireDueMs och konvojgrupperingen står still.
  */
 
 global.__TEST_MODE__ = true;
 
 const BridgeOpeningService = require('../lib/services/BridgeOpeningService');
 const geometry = require('../lib/utils/geometry');
-const { BRIDGES, BRIDGE_OPENING } = require('../lib/constants');
+const { BRIDGES, BRIDGE_OPENING, UI_CONSTANTS } = require('../lib/constants');
 
 const T0 = 1_700_000_000_000;
 const KLAFF = BRIDGES.klaffbron;
@@ -853,6 +859,121 @@ describe('BridgeOpeningService', () => {
       // Instrumenten ligger BREDVID kontraktet, aldrig i stället för det.
       expect(Object.prototype.hasOwnProperty.call(w, 'originalDueMs')).toBe(true);
       expect(Object.prototype.hasOwnProperty.call(w, 'fixAgeMs')).toBe(true);
+    });
+  });
+
+  // =========================================================================
+  // B2d — ETA-TOKENENS ÅLDERSGRIND (etapp 7 fas B, 2026-08-08)
+  //
+  // Fältprovet: Klaffbron#32 (2026-08-07T13:46:58.924Z) lovade "om 1 minut" på
+  // d=1209 m byggt på ett 854 s gammalt fix — 39 knop. Grinden sätter tokenen
+  // till okänd (payloadens etaMinutes = null ⇒ eta_minutes = -1) när fixet är
+  // äldre än UI:ts BEFINTLIGA STALE_ETA_HARD, samma tröskel som brotexten
+  // redan använder för att sluta lita på en ETA. Mätt över alla korpusar
+  // träffar den 21 av 365 varningar, och ingen av dem hade en token inom
+  // ±3 min av rådatafacit.
+  //
+  // AVGRÄNSNINGEN ÄR HELA POÄNGEN: avfyrningstiden och konvojgrupperingen
+  // (expectedArrivalMs → fireDueMs/referenceArrivalMs) rörs INTE — en ändring
+  // där flyttar öppningsfacit.
+  // =========================================================================
+  describe('B2d: ETA-tokenen tystnar när fixet är för gammalt', () => {
+    const HARD = UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS;
+
+    it('FÄLTFALLET Klaffbron#32: 854 s gammalt fix ⇒ okänd ETA i stället för "om 1 minut"', () => {
+      const now = Date.now();
+      svc.observeVessel(makeVessel({
+        distanceM: 1209, sog: 6, fixTs: now - 854000, timestamp: now,
+      }));
+
+      const w = warnFor('Klaffbron')[0];
+      expect(w).toBeDefined();
+      // Varningen GÅR UT som förut — det är bara ankomstlöftet som tystnar.
+      expect(w.etaMinutes).toBeNull();
+      // …och skälet är avläsbart i samma payload (instrumentet bakom grinden).
+      expect(w.fixAgeMs).toBe(854000);
+      expect(w.fixAgeMs).toBeGreaterThan(HARD);
+      // Svälj-fällan: en tyst token får aldrig komma ur en svald krasch.
+      expect(logger.error).not.toHaveBeenCalled();
+      // Loggraden skiljer "ingen prognos" från "prognos förkastad som gammal".
+      const logged = logger.log.mock.calls.map((c) => c.join(' ')).join('\n');
+      expect(logged).toContain('eta=okänd (fix 854 s > 600 s)');
+    });
+
+    it('FÄRSKT fix ⇒ tokenen är OFÖRÄNDRAD (appens egen ETA går rakt igenom)', () => {
+      svc.observeVessel(makeVessel({ distanceM: 700, sog: 6, etaMinutes: 4 }));
+      const w = warnFor('Klaffbron')[0];
+      expect(w.etaMinutes).toBe(4);
+      expect(w.fixAgeMs).toBe(0);
+    });
+
+    it('GRÄNSEN går exakt vid STALE_ETA_HARD — 600 000 ms behåller siffran', () => {
+      const now = Date.now();
+      svc.observeVessel(makeVessel({
+        distanceM: 2400, sog: 5, fixTs: now - HARD, timestamp: now,
+      }));
+
+      const w = warnFor('Klaffbron')[0];
+      expect(w).toBeDefined();
+      expect(w.fixAgeMs).toBe(HARD);
+      // Ankomstprognosen: ankaret (now − 600 s) + 2400 m / 5 kn = +933 s
+      // ⇒ 333 s kvar vid avfyrningen ⇒ 6 min avrundat. Grinden är strikt "över
+      // tröskeln", så exakt på gränsen står siffran kvar.
+      expect(w.etaMinutes).toBe(6);
+    });
+
+    it('EN MILLISEKUND över gränsen ⇒ samma fixtur tappar siffran', () => {
+      const now = Date.now();
+      svc.observeVessel(makeVessel({
+        distanceM: 2400, sog: 5, fixTs: now - (HARD + 1), timestamp: now,
+      }));
+
+      const w = warnFor('Klaffbron')[0];
+      expect(w).toBeDefined();
+      expect(w.fixAgeMs).toBe(HARD + 1);
+      expect(w.etaMinutes).toBeNull();
+    });
+
+    it('grinden rör ENDAST tokenen — avfyrning, deadline och konvojreferens står still', () => {
+      const now = Date.now();
+      svc.observeVessel(makeVessel({
+        distanceM: 1209, sog: 6, fixTs: now - 854000, timestamp: now,
+      }));
+
+      const w = warnFor('Klaffbron')[0];
+      const arm = svc._arms.get('265999001::Klaffbron');
+      // Fysiken är räknad ur det KLAMPADE ankaret precis som förut (klampningen
+      // är _refreshArms, inte grindens): ankare + armens avstånd / 6 kn.
+      const expectedArrival = arm.anchorMs + (arm.distanceM / (6 * 0.514444)) * 1000;
+      expect(arm.expectedArrivalMs).toBeCloseTo(expectedArrival, 0);
+      // Konvojgrupperingens referens = medlemmarnas tidigaste förväntade
+      // ankomst. Den ÄR armens värde här, alltså oberörd av tokengrinden.
+      const event = svc._events.get('Klaffbron').find((e) => e.id === w.eventId);
+      expect(event.referenceArrivalMs).toBe(arm.expectedArrivalMs);
+      // Avfyrningskontraktet: samma väg, samma tidpunkt, samma diagnostik.
+      expect(w.firedBy).toBe('fix');
+      expect(w.distanceM).toBe(Math.round(arm.distanceM));
+      expect(w.vesselCount).toBe(1);
+      expect(Number.isFinite(w.dueMs)).toBe(true);
+      expect(w.t).toBeGreaterThanOrEqual(w.dueMs);
+    });
+
+    it('konvojsläppet: en arm som fyrar 20 min efter sitt sista fix får okänd ETA', () => {
+      // Den vanligaste vägen till ett gammalt fix i fält är inte en gammal
+      // leverans utan TYSTNAD: armen absorberas av konvojen, täckningen löper
+      // ut och hon fyrar sin egen varning långt efter sitt sista livstecken.
+      svc.observeVessel(makeVessel({ mmsi: 'LEAD', distanceM: 700, sog: 6 }));
+      svc.observeVessel(makeVessel({ mmsi: 'FOLLOWER', distanceM: 900, sog: 5 }));
+      expect(warnFor('Klaffbron')).toHaveLength(1);
+      expect(warnFor('Klaffbron')[0].etaMinutes).not.toBeNull();
+
+      advance(2 * BRIDGE_OPENING.CONVOY_WINDOW_MS); // 20 min utan ett enda fix
+      const klaff = warnFor('Klaffbron');
+      expect(klaff.length).toBeGreaterThanOrEqual(2);
+      const own = klaff[klaff.length - 1];
+      expect(own.mmsis).toContain('FOLLOWER');
+      expect(own.fixAgeMs).toBeGreaterThan(HARD);
+      expect(own.etaMinutes).toBeNull();
     });
   });
 
