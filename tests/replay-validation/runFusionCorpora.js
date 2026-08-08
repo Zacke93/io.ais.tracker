@@ -114,12 +114,14 @@ function checkCorpus(corpus, pass) {
   const distKey = corpus.fusionOf || corpus.id;
   let result;
   let hubCount = 0;
+  const fusionMeta = { retaggedParent: 0 };
   try {
     const samples = fs.readFileSync(corpus.jsonl, 'utf8').trim().split('\n')
       .filter(Boolean)
       .map((l) => JSON.parse(l));
     const fusion = makeFusionCorpus(samples, { deliveryDelayMs: pass.deliveryDelayMs });
     hubCount = fusion.hubCount;
+    fusionMeta.retaggedParent = fusion.retaggedParent || 0;
     const fusionPath = path.join(TMP_DIR, `${corpus.id}-fusion-${pass.id}.jsonl`);
     fs.writeFileSync(fusionPath, `${fusion.merged.map((s) => JSON.stringify(s)).join('\n')}\n`);
     result = runFusion(fusionPath);
@@ -128,6 +130,11 @@ function checkCorpus(corpus, pass) {
   }
 
   const problems = [];
+  // A9c (etapp 7): parentens ev. `feed`-taggar skrivs om till aisstream i
+  // makeFusionCorpus — annars hamnar parent och skugga i samma F1-hink och
+  // provet slutar pröva F6 (se den funktionens huvudkommentar). Räknaren
+  // rapporteras så att omtaggningen aldrig kan ske i det tysta.
+  const { retaggedParent } = fusionMeta;
   const notifications = result.notificationCount;
   const processErrors = result.processErrors || 0;
   if (processErrors > 0) problems.push(`${processErrors} processfel`);
@@ -212,7 +219,8 @@ function checkCorpus(corpus, pass) {
     detail: `notiser=${notifications}/${corpus.expectedNotifications}, ekon=${hubCount} `
       + `(svalda=${fusion.rejected}, accepterade=${fusion.accepted}, feedSwitch=${fusion.feedSwitches}`
       + `${pass.deliveryDelayMs > 0 ? `, F6-svalda=${byReason.stale_cross_fix ?? 0}` : ''})`
-      + `, passager=${passages.intermediate.length}+${passages.target.length}`,
+      + `, passager=${passages.intermediate.length}+${passages.target.length}`
+      + `${retaggedParent ? `, parent omtaggad→aisstream: ${retaggedParent} rader` : ''}`,
   };
 }
 

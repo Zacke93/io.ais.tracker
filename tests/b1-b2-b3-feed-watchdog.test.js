@@ -72,16 +72,18 @@ describe('B2: stale-feed-watchdog (_checkAISFeedHealth)', () => {
 
   const MIN = 60 * 1000;
 
+  // A7(b) (etapp 7, 2026-08-08): omanslutningen bär numera skälet 'watchdog'
+  // så klientens logg slutar kalla varje tvingad omanslutning "updated API key".
   test('tyst >20 min på etablerad anslutning → tvingad omanslutning', () => {
     const app = makeApp({ timeSinceLastMessage: 25 * MIN, uptime: 60 * MIN });
     app._checkAISFeedHealth();
-    expect(app.aisClient.reconnectWithKey).toHaveBeenCalledWith('KEY');
+    expect(app.aisClient.reconnectWithKey).toHaveBeenCalledWith('KEY', 'watchdog');
   });
 
   test('aldrig fått meddelande (null) men uppe >20 min → omanslutning', () => {
     const app = makeApp({ timeSinceLastMessage: null, uptime: 25 * MIN });
     app._checkAISFeedHealth();
-    expect(app.aisClient.reconnectWithKey).toHaveBeenCalledWith('KEY');
+    expect(app.aisClient.reconnectWithKey).toHaveBeenCalledWith('KEY', 'watchdog');
   });
 
   test('nyligen omansluten (kort uptime) → fullt nytt fönster, ingen ny omanslutning', () => {

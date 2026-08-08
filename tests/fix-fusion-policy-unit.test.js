@@ -2,7 +2,7 @@
 
 const {
   createState, createClockState, observeClock,
-  normalizeFixTs, shouldAccept, applyAccept, pruneStates,
+  normalizeFixTs, shouldAccept, classifyAll, applyAccept, pruneStates,
 } = require('../lib/connection/FixFusionPolicy');
 const { AIS_CONFIG } = require('../lib/constants');
 
@@ -602,5 +602,161 @@ describe('Routad källa: fixFeed i nyttolasten får inte kunna avväpna grindarn
     expect(state.lastFixTs.aishub).toBe(NOW);
     expect(state.lastFeed).toBe('aishub');
     expect(Object.prototype.hasOwnProperty.call(state.lastFixTs, 'undefined')).toBe(false);
+  });
+});
+
+describe('A4 (etapp 7): classifyAll — hela avslagsprofilen, utan sidoeffekter', () => {
+  const hub = (fixTs, extra = {}) => msg({
+    fixFeed: 'aishub', fixTsQuality: 'true-fix', fixTs, ...extra,
+  });
+
+  test('shouldAccept ger FÖRSTA grinden — classifyAll ger alla tre som höll', () => {
+    const state = createState();
+    const stream = msg({ fixTs: NOW });
+    const v = shouldAccept(state, stream, NOW, CFG, { feed: 'aisstream' });
+    applyAccept(state, stream, v.fixTs, NOW, 'aisstream');
+
+    // Samma innehåll som den nyss accepterade aisstream-fixen (F2), äldre än
+    // MAX_FIX_AGE_MS (F4b) och äldre än senast accepterade fix (F6).
+    const gammal = hub(NOW - CFG.MAX_FIX_AGE_MS - 1000);
+    expect(shouldAccept(state, { ...gammal }, NOW, CFG, { feed: 'aishub' }))
+      .toEqual({ accept: false, reason: 'fix_too_old' });
+
+    const all = classifyAll(state, { ...gammal }, NOW, CFG, { feed: 'aishub' });
+    expect(all.accept).toBe(false);
+    expect(all.reasons).toEqual(['fix_too_old', 'cross_feed_duplicate', 'stale_cross_fix']);
+  });
+
+  test('hub_clock_skew OCH stale_cross_fix redovisas båda (F6:s tidiga return döljer den andra)', () => {
+    const state = createState();
+    applyAccept(state, msg({ fixTs: NOW }), NOW, NOW, 'aisstream');
+    const framtid = hub(NOW + 300000, { lat: 58.2915 }); // annan position ⇒ inte F2
+    expect(shouldAccept(state, { ...framtid }, NOW, CFG, { feed: 'aishub' }))
+      .toEqual({ accept: false, reason: 'hub_clock_skew' });
+    expect(classifyAll(state, { ...framtid }, NOW, CFG, { feed: 'aishub' }).reasons)
+      .toEqual(['hub_clock_skew', 'stale_cross_fix']);
+  });
+
+  test('SIDOEFFEKTSFRI: varken msg.clockSkew eller statet rörs', () => {
+    const state = createState();
+    applyAccept(state, msg({ fixTs: NOW }), NOW, NOW, 'aisstream');
+    const before = JSON.stringify(state);
+    const m = hub(NOW + 300000); // skulle ha F4a-klampats av shouldAccept
+    classifyAll(state, m, NOW, CFG, { feed: 'aishub' });
+    expect(m.clockSkew).toBeUndefined(); // flaggan ägs av shouldAccept-vägen
+    expect(JSON.stringify(state)).toBe(before);
+  });
+
+  test('en REDAN satt clockSkew-flagga syns även för classifyAll (samma sanning som F6 ser)', () => {
+    const state = createState();
+    const m = hub(NOW, { clockSkew: true });
+    expect(classifyAll(state, m, NOW, CFG, { feed: 'aishub' }).reasons).toEqual(['hub_clock_skew']);
+  });
+
+  test('INVARIANTEN accept ⇔ shouldAccept: muxen får bara räkna byReasonAll i reject-grenen', () => {
+    // Sveper de fyra grindarnas gränsfall + rena accepter. Bryter invarianten
+    // skulle byReasonAll och byReason mäta olika populationer och fönster-
+    // deltat i [FUSION_HEALTH] bli oläsbart.
+    const scenarier = [
+      ['ren accept (aisstream)', 'aisstream', () => createState(), msg({ fixTs: NOW })],
+      ['ren accept (aishub)', 'aishub', () => createState(), hub(NOW - 5000)],
+      ['F4b precis inom gränsen', 'aishub', () => createState(), hub(NOW - CFG.MAX_FIX_AGE_MS + 1000)],
+      ['F4b precis utanför', 'aishub', () => createState(), hub(NOW - CFG.MAX_FIX_AGE_MS - 1)],
+      ['F1 re-levererad pollfix', 'aishub', () => {
+        const s = createState();
+        applyAccept(s, hub(NOW - 30000), NOW - 30000, NOW, 'aishub');
+        return s;
+      }, hub(NOW - 30000)],
+      ['F2 korskälle-eko', 'aishub', () => {
+        const s = createState();
+        applyAccept(s, msg({ fixTs: NOW }), NOW, NOW, 'aisstream');
+        return s;
+      }, hub(NOW)],
+      ['F6 släpande hub-fix', 'aishub', () => {
+        const s = createState();
+        applyAccept(s, msg({ fixTs: NOW }), NOW, NOW, 'aisstream');
+        return s;
+      }, hub(NOW - 40000, { lat: 58.2915 })],
+      ['F5 källbyte (flagga, aldrig avslag)', 'aishub', () => {
+        const s = createState();
+        applyAccept(s, msg({ fixTs: NOW - 1000 }), NOW - 1000, NOW - 1000, 'aisstream');
+        return s;
+      }, hub(NOW + 1000, { lat: 58.2955 })],
+    ];
+
+    for (const [namn, feed, mkState, m] of scenarier) {
+      const all = classifyAll(mkState(), { ...m }, NOW, CFG, { feed });
+      const one = shouldAccept(mkState(), { ...m }, NOW, CFG, { feed });
+      expect([namn, all.accept]).toEqual([namn, one.accept]);
+      // Och när den avvisar: shouldAccepts skäl är FÖRSTA posten i profilen.
+      if (!one.accept) expect([namn, all.reasons[0]]).toEqual([namn, one.reason]);
+      else expect([namn, all.reasons]).toEqual([namn, []]);
+    }
+  });
+});
+
+describe('A12 (F-22): samma-rapport-grind på F6b:s korskällebevis', () => {
+  const hub = (fixTs, extra = {}) => msg({
+    fixFeed: 'aishub', fixTsQuality: 'true-fix', fixTs, ...extra,
+  });
+
+  /** aisstream-mottagning av en kajliggares rapport vid tiden t. */
+  const stateWithStreamContent = (t) => {
+    const s = createState();
+    applyAccept(s, msg({ fixTs: t, fixTsQuality: 'receipt' }), t, t, 'aisstream');
+    return s;
+  };
+
+  test('kajliggarpar UTAN samma-rapport-bevis räknas inte längre (och kan inte svälta hubben)', () => {
+    const clock = createClockState();
+    for (let i = 0; i < CFG.CLOCK_PAIR_MIN_SAMPLES; i++) {
+      const t = NOW + i * 1000;
+      // Hubbens post gäller en HELT ANNAN rapport från samma stillaliggande
+      // båt: identisk position/fart/kurs men fixtiden ligger 120 s bort.
+      // Leveranslaggen är positiv (80 s) så bevis A ser ingenting.
+      observeClock(clock, stateWithStreamContent(t), hub(t + 120000), 'aishub', t + 200000, CFG);
+    }
+    expect(clock.pairLags).toHaveLength(0);
+    expect(clock.pairsDroppedStale).toBe(CFG.CLOCK_PAIR_MIN_SAMPLES);
+    // FÖRE A12: medianen hade blivit −120 s ⇒ varje hub-fix åldrad två minuter
+    // extra. Vid |offset| > MAX_FIX_AGE_MS blir det total hubblackout.
+    expect(clock.hubOffsetMs).toBe(0);
+  });
+
+  test('gränsen är 90 s: precis på den räknas paret, en millisekund utanför faller det', () => {
+    const på = createClockState();
+    const utanför = createClockState();
+    observeClock(på, stateWithStreamContent(NOW), hub(NOW + 90000), 'aishub', NOW + 200000, CFG);
+    observeClock(utanför, stateWithStreamContent(NOW), hub(NOW + 90001), 'aishub', NOW + 200000, CFG);
+    expect(på.pairLags).toHaveLength(1);
+    expect(på.pairsDroppedStale).toBe(0);
+    expect(utanför.pairLags).toHaveLength(0);
+    expect(utanför.pairsDroppedStale).toBe(1);
+  });
+
+  test('grinden BLINDAR INTE F6b: en äkta skev strax under gränsen kompenseras fortfarande', () => {
+    const clock = createClockState();
+    const SKEW = 89000; // |pairLag| = 87 s < 90 s
+    for (let i = 0; i < CFG.CLOCK_PAIR_MIN_SAMPLES; i++) {
+      const t = NOW + i * 1000;
+      // 2 s pushlatens, 120 s leveranslagg ⇒ bevis A ser inget (lag > 0).
+      observeClock(clock, stateWithStreamContent(t), hub(t - 2000 + SKEW), 'aishub', t + 120000, CFG);
+    }
+    expect(clock.pairLags).toHaveLength(CFG.CLOCK_PAIR_MIN_SAMPLES);
+    expect(clock.hubOffsetMs).toBe(-(SKEW - 2000));
+  });
+
+  test('skev ÖVER gränsen fångas av LEVERANSBEVISET — bevisen överlappar där grinden biter', () => {
+    const clock = createClockState();
+    const SKEW = 150000;
+    for (let i = 0; i < CFG.CLOCK_PAIR_MIN_SAMPLES; i++) {
+      const t = NOW + i * 1000;
+      observeClock(clock, stateWithStreamContent(t), hub(t - 2000 + SKEW), 'aishub', t + 60000, CFG);
+    }
+    expect(clock.pairLags).toHaveLength(0); // |pairLag| = 148 s ⇒ grindat
+    // En enda fix med LÅG leveranslatens räcker för bevis A (nattens minsta
+    // observerade latens var 414 ms, p10 3,9 s): min(now − fixTs) = latens − skev.
+    observeClock(clock, null, hub(NOW + 60000 + SKEW), 'aishub', NOW + 60000 + 3000, CFG);
+    expect(clock.hubOffsetMs).toBe(-(SKEW - 3000));
   });
 });

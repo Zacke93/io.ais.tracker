@@ -41,6 +41,7 @@ const {
   BRIDGES, TARGET_BRIDGES, BRIDGE_OPENING, MOORING_DETECTION, QUAY_DEPARTURE_GATE,
 } = require('../../lib/constants');
 const geometry = require('../../lib/utils/geometry');
+const { loadGtPassages } = require('./makeGtPassages');
 
 const RUNNER = path.join(__dirname, 'replayRunner.js');
 
@@ -329,12 +330,51 @@ function classifyMiss(passage, samples, windowStartMs) {
 }
 
 /**
+ * A3 (etapp 7, 2026-08-08): MÅLBROPASSAGERNA UR RÅDATAFACIT.
+ *
+ * Appens egna passageregistreringar delar grindarnas blindfläck — 42h-provet
+ * mätte 96 registrerade mot 107 verkliga, och blindheterna är KORRELERADE:
+ * O1, INV-5, INV-13 och INV-21 är blinda för exakt samma 10 %. En grind som
+ * mäter appen mot appen kan aldrig upptäcka den klassen. Här läses i stället
+ * rådatafacit (A2, makeGtPassages.js) när det finns.
+ *
+ * `inferred`-poster (korsning bevisad, TIDPUNKT bara ett fönster) räknas i
+ * TÄCKNINGENS NÄMNARE men utesluts ur varje TIDSFÖNSTERMÄTNING — man kan inte
+ * mäta förvarningsmarginal mot en tid man inte känner. Differensen mellan
+ * serierna ÄR källtystnadsmåttet.
+ * @param {object} job - körningens jobb (id + jsonl)
+ * @returns {object[]|null} målbropassager ur rådatafacit, eller null
+ */
+function gtTargetPassages(job) {
+  const gt = loadGtPassages(job.gtId || job.id);
+  if (!gt) return null;
+  return gt
+    .filter((g) => g.kind !== 'zone' && TARGET_BRIDGES.includes(g.bridge))
+    .map((g) => ({
+      t: g.t,
+      iso: g.iso || new Date(Math.round(g.t)).toISOString(),
+      mmsi: String(g.mmsi),
+      bridge: g.bridge,
+      inferred: g.inferred === true,
+      tFrom: g.tFrom ?? null,
+      tTo: g.tTo ?? null,
+      source: 'gt',
+    }))
+    .sort((a, b) => a.t - b.t);
+}
+
+/**
  * O1 för EN körning. Matchar varje målbropassage mot en varning före den, i
  * resefönstret (mellan föregående passage av samma bro och den här) så att en
  * tur-och-retur-resa inte kan återanvända sin första varning.
+ * @param {object} result - replay-resultatet
+ * @param {Map} samples - rå sampel per mmsi
+ * @param {object[]|null} gtPassages - rådatafacit; null ⇒ appens egna passager
  */
-function analyseCoverage(result, samples) {
-  const passages = [...(result.targetPassages || [])].sort((a, b) => a.t - b.t);
+function analyseCoverage(result, samples, gtPassages = null) {
+  const passages = gtPassages
+    ? [...gtPassages].sort((a, b) => a.t - b.t)
+    : [...(result.targetPassages || [])].sort((a, b) => a.t - b.t);
   const warnings = result.openingWarnings || [];
   const coverage = result.openingCoverage || [];
   const prevByKey = new Map();
@@ -662,18 +702,163 @@ function analysePhantoms(result, samples) {
 }
 
 // ---------------------------------------------------------------------------
+// A8(iii) — SISTA-PÅMINNELSE-SERIEN (etapp 7, 2026-08-08)
+// ---------------------------------------------------------------------------
+
+/**
+ * Gruppera varningarna i FYSISKA ÖPPNINGAR och mät påminnelsebeteendet.
+ *
+ * Semantiken är användarens (U2): en öppningshändelse avgränsas av den FÖRSTA
+ * FAKTISKA PASSAGEN — båtar som väntar tillhör samma händelse hur länge de än
+ * väntar, båtar som anländer efter passagen tillhör nästa. Kontraktet är EN
+ * varning per öppning; serien mäter hur långt ifrån det vi ligger, per bro:
+ *   - antal varningar per öppning (kontraktsbrottet, C8:s kvot),
+ *   - intervallen mellan dem (är det påminnelser eller dubbletter?),
+ *   - ÅLDERN på den sista varningen när passagen sker (blir förvarningen
+ *     inaktuell innan bron öppnar?).
+ *
+ * `originalDueMs` (H-4, läggs till av öppningsservicen i P-OA) visar hur mycket
+ * eligibleAt-ombindningen sköt fram avfyrningen. Saknas fältet rapporteras det
+ * som okänt — serien får aldrig krascha på en payload som ännu inte landat.
+ * @param {object[]} runs - körningarna
+ */
+function reportReminderSeries(runs) {
+  console.log('--- H-4: SISTA-PÅMINNELSE-SERIEN (per FYSISK öppning; U2 kräver exakt EN varning) ---\n');
+  let openings = 0;
+  let multi = 0;
+  let noPassage = 0;
+  let inferredEnd = 0;
+  const perOpening = [];
+  const gapsBetween = [];
+  const lastAges = [];
+  const rebindDeltas = [];
+  let rebindKnown = 0;
+  let rebindMissing = 0;
+  const rows = [];
+
+  for (const run of runs) {
+    if (run.error) continue;
+    // Sanningen om passagerna: rådatafacit när det finns, annars appens egna
+    // (samma fallback som O1b, tydligt markerad i raden nedan).
+    const gtP = run.gt ? run.gt.passages : null;
+    const passages = gtP || (run.result.targetPassages || []);
+    const warnings = [...(run.result.openingWarnings || [])]
+      .filter((w) => Number.isFinite(w.t)).sort((a, b) => a.t - b.t);
+    for (const w of warnings) {
+      if (Number.isFinite(w.originalDueMs) && Number.isFinite(w.t)) {
+        rebindKnown++;
+        rebindDeltas.push(w.t - w.originalDueMs);
+      } else rebindMissing++;
+    }
+    let corpusOpenings = 0;
+    let corpusMulti = 0;
+    for (const bridge of TARGET_BRIDGES) {
+      const bw = warnings.filter((w) => w.bridge === bridge);
+      const bp = passages.filter((p) => p.bridge === bridge).sort((a, b) => a.t - b.t);
+      let i = 0;
+      while (i < bw.length) {
+        const start = bw[i];
+        const passage = bp.find((p) => p.t >= start.t);
+        // Alla varningar fram till (och med) passagen tillhör samma öppning.
+        const end = passage ? passage.t : Infinity;
+        const group = [];
+        while (i < bw.length && bw[i].t <= end) {
+          group.push(bw[i]);
+          i++;
+        }
+        openings++;
+        corpusOpenings++;
+        perOpening.push(group.length);
+        if (group.length > 1) {
+          multi++;
+          corpusMulti++;
+          for (let k = 1; k < group.length; k++) gapsBetween.push(group[k].t - group[k - 1].t);
+        }
+        // ÅLDERSMÅTTET är en tidsfönstermätning ⇒ `inferred`-passager utesluts
+        // (A3(b)): deras tidpunkt är ett fönster, inte en klockslag. De
+        // avgränsar däremot öppningen som vanligt — korsningen ÄR bevisad.
+        if (passage && passage.inferred) inferredEnd++;
+        else if (passage) lastAges.push(passage.t - group[group.length - 1].t);
+        else noPassage++;
+      }
+    }
+    if (corpusOpenings) {
+      rows.push(`  ${run.job.id.padEnd(26)} ${String(corpusOpenings).padStart(3)} öppningar, `
+        + `${corpusMulti} med >1 varning${gtP ? ' (rådatafacit)' : ' (appens passager — gt saknas)'}`);
+    }
+  }
+  for (const r of rows) console.log(r);
+  if (openings === 0) {
+    console.log('  (inga öppningsvarningar i körningen)\n');
+    return;
+  }
+  const maxPer = Math.max(...perOpening);
+  console.log(`\n  SUMMA: ${openings} fysiska öppningar, ${multi} med fler än en varning `
+    + `(${((100 * multi) / openings).toFixed(1)} %), max ${maxPer} varningar på samma öppning, `
+    + `kvot ${(perOpening.reduce((a, b) => a + b, 0) / openings).toFixed(2)} varningar/öppning `
+    + '(U2-kontraktet: 1,00)');
+  if (gapsBetween.length) {
+    const s = [...gapsBetween].sort((a, b) => a - b);
+    console.log(`  INTERVALL mellan varningar i samma öppning: median ${mins(median(gapsBetween))}, `
+      + `min ${mins(s[0])}, max ${mins(s[s.length - 1])} (${gapsBetween.length} extravarningar)`);
+  }
+  if (lastAges.length) {
+    const s = [...lastAges].sort((a, b) => a - b);
+    console.log(`  ÅLDER på sista varningen vid passagen: median ${mins(median(lastAges))}, `
+      + `min ${mins(s[0])}, max ${mins(s[s.length - 1])}`);
+  }
+  if (noPassage) console.log(`  ${noPassage} öppningar utan efterföljande passage (O2:s fantomhink äger dem)`);
+  if (inferredEnd) {
+    console.log(`  ${inferredEnd} öppningar avslutades av en \`inferred\` passage — uteslutna ur åldersmåttet `
+      + '(korsningen är bevisad, tidpunkten bara ett fönster)');
+  }
+  if (rebindKnown) {
+    const s = [...rebindDeltas].sort((a, b) => a - b);
+    console.log(`  eligibleAt-OMBINDNING (originalDueMs): ${rebindKnown} varningar, `
+      + `median ${mins(median(rebindDeltas))}, max ${mins(s[s.length - 1])} efter ursprunglig deadline`);
+  }
+  if (rebindMissing) {
+    console.log(`  ℹ️ originalDueMs saknas i ${rebindMissing} varningar — payloadfältet (H-4) `
+      + 'läggs till av öppningsservicen; serien rapporterar det som okänt tills dess.');
+  }
+  console.log('');
+}
+
+// ---------------------------------------------------------------------------
 // KÖRNINGSPLAN
 // ---------------------------------------------------------------------------
 
 const JOB_LIST = [
+  // A9a (etapp 7, 2026-08-08): `locked` FÖLJER MED från corpora.js.
+  //
+  // Hålet fältprovet hittade: den här listan tog ALLA korpuslistans poster och
+  // varje utslag satte `failed`. En OLÅST korpus — vars hela poäng är att den
+  // bär kända, ännu ofixade defekter — kunde alltså fälla öppningsgrindarna,
+  // trots att `runAllCorpora` sedan dag ett behandlar samma korpus informativt.
+  // Två grindar med motsatt doktrin om samma post är en fälla: den olåsta
+  // korpusen blir omöjlig att checka in, och frestelsen blir att i stället
+  // "tysta" fyndet.
+  //
+  // VALT: kör korpusen (mätvärdet är hela skälet att ta in #18 — 36 fältavfyrade
+  // öppningar i AISHub-eran), men låt utslagen vara INFORMATIVA. Alternativet —
+  // ett rent `.filter(c => c.locked)` — hade tagit bort både bruset OCH
+  // mätningen, och det är mätningen fas C behöver. Varje utslag skrivs ut i sin
+  // helhet, märkt OLÅST, och summeras i en egen slutrad så att ingenting kan
+  // gömma sig i informativitet.
+  //
+  // KRAV VID NY KANDIDAT (planens formulering): O1/O2 ska TORRKÖRAS mot posten
+  // innan den läggs in i corpora.js — utfallet är underlag för låsningsbeslutet,
+  // oavsett `locked`-värde.
   ...corpora.map((c) => ({
-    id: c.id, jsonl: c.jsonl, fusion: false, hours: c.hours,
+    id: c.id, jsonl: c.jsonl, fusion: false, hours: c.hours, locked: c.locked !== false,
   })),
   // Korpus 16: A/B-nattens B-arm (äkta AISHub + aisstream). Körs i FUSIONS-
   // läge — det är den enda korpus där andrakällan faktiskt accepteras, och
   // öppningslagret måste bevisas i just den kedjan.
   {
-    id: '20260803-natt (fusion)', jsonl: NIGHT_FUSION, fusion: true, hours: 9,
+    // gtId: rådatafacit ligger under korpusens id utan lägesmarkören — natten
+    // är EN inspelning, oavsett vilken arm som spelas upp.
+    id: '20260803-natt (fusion)', gtId: '20260803-natt', jsonl: NIGHT_FUSION, fusion: true, hours: 9, locked: true,
   },
 ];
 
@@ -702,6 +887,15 @@ async function main() {
   });
 
   let failed = false;
+  // A9a: utslag från OLÅSTA korpusar fäller inte grinden — de bokförs här och
+  // skrivs ut som egen slutrad. `gateFail` är den ENDA vägen ett korpusutslag
+  // får sätta `failed`, så doktrinen kan inte glida isär rad för rad igen.
+  const unlockedFindings = [];
+  const gateFail = (job, what) => {
+    if (job && job.locked === false) unlockedFindings.push(`${job.id}: ${what}`);
+    else failed = true;
+  };
+  const tagFor = (job) => (job && job.locked === false ? 'ℹ️ OLÅST' : '❌');
 
   // ---- O1 ----------------------------------------------------------------
   console.log('--- O1: ÖPPNINGSTÄCKNING (varje målbropassage ska ha en varning FÖRE) ---\n');
@@ -711,9 +905,30 @@ async function main() {
   let totalPassages = 0;
   let totalCovered = 0;
   let thinLeads = 0;
+  // A3: rådataserien bokförs parallellt med appserien. GRINDEN ligger kvar på
+  // appserien i fas A (planens "instrument före produkt" — fas A får inte
+  // ändra utfallet av någon grind); OPENING_GT_STRICT=1 flyttar den till
+  // rådataserien när fas C har åtgärdat fyndlistan.
+  const gtTotals = {
+    passages: 0,
+    covered: 0,
+    inferred: 0,
+    misses: 0,
+    unclassified: 0,
+    detected: 0,
+    undetectedInferred: 0,
+    corpora: 0,
+  };
+  const gtLeads = [];
+  const gtMissByClass = new Map();
+  // De normalsamplade passager appen ALDRIG bokförde — fyndklassen (till
+  // skillnad från `inferred`, där källan var tyst och appen inte KUNDE se dem).
+  const gtUndetectedNormal = [];
 
   for (const run of runs) {
     if (run.error) {
+      // KRASCH är fatal även för en OLÅST korpus: en jsonl som inte går att
+      // replaya är ett harness-/datafel, inte ett beteendeutslag.
       failed = true;
       o1Rows.push({ id: run.job.id, status: '💥 KRASCH', detail: run.error });
       continue;
@@ -726,8 +941,42 @@ async function main() {
     const leads = covered.map((c) => c.leadMs);
     allLeads.push(...leads);
     const unclassified = misses.filter((m) => !m.accepted);
-    if (unclassified.length) failed = true;
+    if (unclassified.length) gateFail(run.job, `${unclassified.length} oklassad(e) O1-miss(ar)`);
     for (const m of misses) missByClass.set(m.klass, (missByClass.get(m.klass) || 0) + 1);
+
+    // ---- A3: SAMMA MÄTNING MOT RÅDATAFACIT ----------------------------------
+    const gtPassages = gtTargetPassages(run.job);
+    run.gt = null;
+    if (gtPassages) {
+      const g = analyseCoverage(run.result, samples, gtPassages);
+      run.gt = g;
+      gtTotals.corpora++;
+      gtTotals.passages += g.passages.length;
+      gtTotals.covered += g.covered.length;
+      gtTotals.inferred += g.passages.filter((p) => p.inferred).length;
+      gtTotals.misses += g.misses.length;
+      gtTotals.unclassified += g.misses.filter((m) => !m.accepted).length;
+      // TIDSFÖNSTERMÄTNINGEN utesluter `inferred` (planens A3(b)).
+      for (const c of g.covered) if (!c.passage.inferred) gtLeads.push(c.leadMs);
+      for (const m of g.misses) gtMissByClass.set(m.klass, (gtMissByClass.get(m.klass) || 0) + 1);
+      // DETEKTIONSGRAD (A3(c), separat serie): hur många av rådatans passager
+      // registrerade appen själv? Matchning: samma mmsi + bro, appens tid
+      // inom rådatans tidsfönster ± ett konvojfönster (rastrering + appens
+      // egen fördröjning mellan korsning och registrering).
+      // UNIONEN target ∪ intermediate: en målbrokorsning som bokförts som
+      // INTERMEDIATE (mållös båt, U-svängskorrigerad resa — INV-13:s klass) ÄR
+      // detekterad. Räknas bara den ena listan blir detektionsgraden konstlat
+      // låg och fyndlistan förorenad med designenliga förlopp.
+      const appP = [...(run.result.targetPassages || []), ...(run.result.intermediatePassages || [])];
+      for (const p of g.passages) {
+        const from = (p.tFrom ?? p.t) - BRIDGE_OPENING.CONVOY_WINDOW_MS;
+        const to = (p.tTo ?? p.t) + BRIDGE_OPENING.CONVOY_WINDOW_MS;
+        if (appP.some((a) => String(a.mmsi) === p.mmsi && a.bridge === p.bridge
+          && a.t >= from && a.t <= to)) gtTotals.detected++;
+        else if (p.inferred) gtTotals.undetectedInferred++;
+        else gtUndetectedNormal.push({ id: run.job.id, p });
+      }
+    }
 
     const byFired = (run.result.openingWarnings || []).reduce((acc, w) => {
       acc[w.firedBy || 'okänd'] = (acc[w.firedBy || 'okänd'] || 0) + 1;
@@ -740,26 +989,26 @@ async function main() {
     const fires = run.result.openingServiceFires;
     const delivered = (run.result.openingWarnings || []).length;
     if (Number.isFinite(fires) && fires !== delivered) {
-      failed = true;
-      console.log(`  ❌ ÖPPNINGSLEVERANS ${run.job.id}: servicen avfyrade ${fires} men kortet fick ${delivered}`);
+      gateFail(run.job, `ÖPPNINGSLEVERANS ${fires}≠${delivered}`);
+      console.log(`  ${tagFor(run.job)} ÖPPNINGSLEVERANS ${run.job.id}: servicen avfyrade ${fires} men kortet fick ${delivered}`);
     }
     // Armarna får aldrig överleva efterspelet (ARM_STALE_TTL 30 min < 40 min).
     const leaks = run.result.leakDiagnostics || {};
     if (Number.isFinite(leaks.openingArms) && leaks.openingArms !== 0) {
-      failed = true;
-      console.log(`  ❌ ÖPPNINGSLÄCKA ${run.job.id}: ${leaks.openingArms} armar kvar efter efterspelet`);
+      gateFail(run.job, `ÖPPNINGSLÄCKA ${leaks.openingArms} armar`);
+      console.log(`  ${tagFor(run.job)} ÖPPNINGSLÄCKA ${run.job.id}: ${leaks.openingArms} armar kvar efter efterspelet`);
     }
     const badWarnings = (run.result.openingWarnings || []).filter((w) => w.success === false);
     if (badWarnings.length) {
-      failed = true;
-      console.log(`  ❌ ÖPPNINGSVARNING KASTADE ${run.job.id}: ${badWarnings[0].error}`);
+      gateFail(run.job, `ÖPPNINGSVARNING KASTADE: ${badWarnings[0].error}`);
+      console.log(`  ${tagFor(run.job)} ÖPPNINGSVARNING KASTADE ${run.job.id}: ${badWarnings[0].error}`);
     }
     // AVFYRNINGSFÖNSTRET: mekanism (c) — "avfyra så SENT som garantin tillåter".
     const badFire = analyseFireWindow(run.result);
     if (badFire.length) {
-      failed = true;
+      gateFail(run.job, `${badFire.length} avfyrningsfönsterbrott`);
       for (const b of badFire) {
-        console.log(`  ❌ AVFYRNINGSFÖNSTER ${run.job.id}: ${b.w.bridge} ${b.w.iso} `
+        console.log(`  ${tagFor(run.job)} AVFYRNINGSFÖNSTER ${run.job.id}: ${b.w.bridge} ${b.w.iso} `
           + `(${b.w.eventId}) — ${b.why}`);
       }
     }
@@ -777,9 +1026,9 @@ async function main() {
     const tooLate = covered.filter((c) => c.leadMs < leadHardFloorMs);
     const thin = covered.filter((c) => c.leadMs >= leadHardFloorMs && c.leadMs < leadPromiseMs);
     if (tooLate.length) {
-      failed = true;
+      gateFail(run.job, `${tooLate.length} varning(ar) under ledtidsgolvet`);
       for (const c of tooLate) {
-        console.log(`  ❌ LEDTIDSGOLV ${run.job.id}: ${c.passage.mmsi} @ ${c.passage.bridge} `
+        console.log(`  ${tagFor(run.job)} LEDTIDSGOLV ${run.job.id}: ${c.passage.mmsi} @ ${c.passage.bridge} `
           + `${c.passage.iso} varnades bara ${secs(c.leadMs)} före (hårt golv ${secs(leadHardFloorMs)})`);
       }
     }
@@ -791,11 +1040,14 @@ async function main() {
     const convoyCovered = covered.filter((c) => c.via === 'konvoj').length;
 
     let o1Status = '✅ FULL TÄCKNING';
-    if (unclassified.length) o1Status = '❌ OKLASSAD MISS';
+    if (unclassified.length) o1Status = `${tagFor(run.job)} OKLASSAD MISS`;
     else if (misses.length) o1Status = '⚠️ KLASSAD MISS';
     o1Rows.push({
       id: run.job.id,
       status: o1Status,
+      gt: run.gt
+        ? `${run.gt.covered.length}/${run.gt.passages.length}`
+        : 'gt saknas',
       detail: `${covered.length}/${passages.length} passager varnade`
         + `${convoyCovered ? ` (varav ${convoyCovered} via konvoj)` : ''}`
         + `, ledtid median ${leads.length ? mins(median(leads)) : '—'} / min ${leads.length ? mins(Math.min(...leads)) : '—'}`
@@ -804,13 +1056,16 @@ async function main() {
     });
 
     for (const m of misses) {
-      const tag = m.accepted ? 'ℹ️ KLASSAD MISS ' : '❌ OKLASSAD MISS';
+      const tag = m.accepted ? 'ℹ️ KLASSAD MISS ' : `${tagFor(run.job)} OKLASSAD MISS`;
       console.log(`  ${tag} ${run.job.id} — ${m.passage.mmsi} @ ${m.passage.bridge} ${m.passage.iso}`);
       console.log(`      klass: ${m.klass}`);
       console.log(`      bevis: ${m.bevis}`);
     }
   }
-  for (const r of o1Rows) console.log(`  ${r.status.padEnd(18)} ${r.id.padEnd(26)} ${r.detail}`);
+  for (const r of o1Rows) {
+    console.log(`  ${r.status.padEnd(18)} ${r.id.padEnd(26)} ${r.detail}`
+      + `${r.gt ? ` | rådatafacit ${r.gt}` : ''}`);
+  }
   console.log('');
   console.log(`  SUMMA: ${totalCovered}/${totalPassages} målbropassager varnade i tid `
     + `(${totalPassages ? ((100 * totalCovered) / totalPassages).toFixed(1) : '0'} %)`);
@@ -824,6 +1079,55 @@ async function main() {
     console.log(`  MISSKLASSER: ${[...missByClass].map(([k, v]) => `${k}=${v}`).join(', ')}`);
   }
   console.log('');
+
+  // ---- A3: RÅDATASERIEN (separat rapporterad, planens A3(c)) --------------
+  if (gtTotals.corpora === 0) {
+    console.log('  ⚠️ RÅDATAFACIT SAKNAS för samtliga korpusar — kör '
+      + '`node tests/replay-validation/makeGtPassages.js` (A2). Serien ovan mäter appen mot appen.\n');
+  } else {
+    const gtStrict = process.env.OPENING_GT_STRICT === '1';
+    console.log('--- O1b: TÄCKNING MOT RÅDATAFACIT (A2) — appens egna passager är INTE sanningen ---\n');
+    console.log(`  TÄCKNING: ${gtTotals.covered}/${gtTotals.passages} rådataverifierade målbropassager `
+      + `varnade (${gtTotals.passages ? ((100 * gtTotals.covered) / gtTotals.passages).toFixed(1) : '0'} %) `
+      + `i ${gtTotals.corpora} korpusar; ${gtTotals.inferred} av nämnaren är \`inferred\` `
+      + '(korsning bevisad, tidpunkt = fönster)');
+    console.log(`  DETEKTIONSGRAD: appen registrerade själv ${gtTotals.detected}/${gtTotals.passages} `
+      + `(${gtTotals.passages ? ((100 * gtTotals.detected) / gtTotals.passages).toFixed(1) : '0'} %) — `
+      + `differensen ${gtTotals.passages - gtTotals.detected} passager ÄR källtystnadsmåttet, `
+      + 'och exakt den blindfläck O1/INV-5/INV-13/INV-21 delar med appen');
+    console.log(`     därav ${gtTotals.undetectedInferred} \`inferred\` (korsning under källtystnad — appen `
+      + `KUNDE inte se dem) och ${gtTotals.passages - gtTotals.detected - gtTotals.undetectedInferred} `
+      + 'normalsamplade (fyndklass: passagen fanns i strömmen men bokfördes aldrig)');
+    for (const u of gtUndetectedNormal) {
+      console.log(`     • ${u.id} — ${u.p.mmsi} @ ${u.p.bridge} ${u.p.iso} (rådatakorsning utan `
+        + 'TARGET/INTERMEDIATE_PASSAGE_RECORDED i appen)');
+    }
+    if (gtLeads.length) {
+      const s = [...gtLeads].sort((a, b) => a - b);
+      console.log(`  LEDTID (endast icke-inferred, ${gtLeads.length} poster): median ${mins(median(gtLeads))}, `
+        + `min ${mins(s[0])}, p10 ${mins(s[Math.floor(s.length * 0.1)])}, max ${mins(s[s.length - 1])}`);
+    }
+    if (gtMissByClass.size) {
+      console.log(`  MISSKLASSER: ${[...gtMissByClass].map(([k, v]) => `${k}=${v}`).join(', ')}`);
+    }
+    if (gtTotals.unclassified) {
+      console.log(`  ${gtStrict ? '❌' : 'ℹ️'} ${gtTotals.unclassified} OKLASSAD(E) MISS(AR) i rådataserien `
+        + `${gtStrict ? '— GRINDEN ÄR RÖD' : '— fyndlista för fas C (grinden ligger kvar på appserien i fas A; '
+          + 'OPENING_GT_STRICT=1 flyttar den hit)'}`);
+      for (const run of runs) {
+        if (!run.gt) continue;
+        for (const m of run.gt.misses.filter((x) => !x.accepted)) {
+          console.log(`     ${run.job.id} — ${m.passage.mmsi} @ ${m.passage.bridge} ${m.passage.iso}`
+            + `${m.passage.inferred ? ' [inferred]' : ''}: ${m.bevis}`);
+        }
+      }
+      if (gtStrict) failed = true;
+    }
+    console.log('');
+  }
+
+  // ---- A8(iii): SISTA-PÅMINNELSE-SERIEN -----------------------------------
+  reportReminderSeries(runs);
 
   // ---- O2 ----------------------------------------------------------------
   console.log('--- O2: FANTOMTAK (varning utan passage klassas mot rådata) ---\n');
@@ -844,12 +1148,12 @@ async function main() {
     for (const l of latePassages) allDelays.push(l.delayMs);
     const red = phantoms.filter((p) => !p.accepted);
     const redLate = latePassages.filter((l) => !l.accepted);
-    if (red.length || redLate.length) failed = true;
+    if (red.length || redLate.length) gateFail(run.job, `${red.length} röd(a) fantom(er) + ${redLate.length} röd(a) sen(a) passage(r)`);
     for (const p of phantoms) phantomByClass.set(p.klass, (phantomByClass.get(p.klass) || 0) + 1);
     for (const l of latePassages) phantomByClass.set(l.klass, (phantomByClass.get(l.klass) || 0) + 1);
 
     let o2Status = '✅ INGA FANTOMER';
-    if (red.length || redLate.length) o2Status = '❌ RÖD FANTOM';
+    if (red.length || redLate.length) o2Status = `${tagFor(run.job)} RÖD FANTOM`;
     else if (phantoms.length) o2Status = '⚠️ ACCEPTERADE';
     o2Rows.push({
       id: run.job.id,
@@ -859,7 +1163,7 @@ async function main() {
         + `av ${warnings} varningar`,
     });
     for (const p of phantoms) {
-      const tag = p.accepted ? 'ℹ️ ACCEPTERAD  ' : '❌ RÖD FANTOM  ';
+      const tag = p.accepted ? 'ℹ️ ACCEPTERAD  ' : `${tagFor(run.job)} RÖD FANTOM  `;
       console.log(`  ${tag} ${run.job.id} — ${p.warning.bridge} ${p.warning.iso} `
         + `(ledande ${p.warning.leadVessel}/${p.warning.leadMmsi}, d=${p.warning.distance} m, ${p.warning.firedBy})`);
       console.log(`      klass: ${p.klass}`);
@@ -868,7 +1172,7 @@ async function main() {
     // SENA PASSAGER klassas nu MOT RÅDATA (kontraktets O2). Bara de RÖDA
     // skrivs ut i sin helhet; de accepterade summeras i klasstabellen.
     for (const l of redLate) {
-      console.log(`  ❌ RÖD SEN     ${run.job.id} — ${l.warning.bridge} ${l.warning.iso} `
+      console.log(`  ${tagFor(run.job)} RÖD SEN     ${run.job.id} — ${l.warning.bridge} ${l.warning.iso} `
         + `(ledande ${l.warning.leadVessel}/${l.warning.leadMmsi}, d=${l.warning.distance} m, ${l.warning.firedBy})`);
       console.log(`      klass: ${l.klass} (passage efter ${mins(l.delayMs)})`);
       console.log(`      bevis: ${l.bevis}`);
@@ -887,6 +1191,16 @@ async function main() {
     console.log(`  FANTOMKLASSER: ${[...phantomByClass].map(([k, v]) => `${k}=${v}`).join(', ')}`);
   }
   console.log('');
+
+  // ---- A9a: OLÅSTA KORPUSARS FYND ----------------------------------------
+  // De fäller inte grinden, men de får inte heller försvinna i logglängden.
+  // Raden är fyndlistan för den korpus som väntar på skarp låsning.
+  if (unlockedFindings.length) {
+    console.log(`--- OLÅSTA KORPUSAR: ${unlockedFindings.length} utslag (INFORMATIVA — fäller inte grinden) ---\n`);
+    for (const f of unlockedFindings) console.log(`  ℹ️ ${f}`);
+    console.log('\n  Dessa MÅSTE vara åtgärdade eller bära rådataverifierad motivering '
+      + 'innan korpusen sätts locked: true.\n');
+  }
 
   // ---- O3 ----------------------------------------------------------------
   if (missingNight.length > 0) {

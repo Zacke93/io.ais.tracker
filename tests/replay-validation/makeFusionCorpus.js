@@ -43,19 +43,66 @@ const DEFAULTS = {
 };
 
 /**
- * @param {Array<object>} samples - Parsade korpusrader (kronologiska)
- * @param {object} [opts]
- * @returns {{merged: Array<object>, hubCount: number}}
+ * PARENTSTRÖMMENS KÄLLTAGG (A9c, etapp 7 — 2026-08-08).
+ *
+ * PROBLEMET som korpus #18 blottade: konstruktionen bygger på att parenten är
+ * FÖRSTAKÄLLAN och skuggan ANDRAKÄLLAN. De 15 gamla korpusarna saknar
+ * `feed`-fältet helt och tolkas därför som aisstream (replayRunner:389), så
+ * antagandet höll av en tillfällighet. En AISHub-era-korpus bär `feed:"aishub"`
+ * på VARJE rad — och då hamnar både parent och skugga i SAMMA hink:
+ *   - F1 (monoton spärr PER KÄLLA) avvisar alla 10 086 ekon som
+ *     `stale_or_duplicate_fix` INNAN F6 ens prövas;
+ *   - `byReason.stale_cross_fix` blir 0;
+ *   - latenspassets grind (runFusionCorpora: "F6 fyrade ALDRIG") fäller
+ *     korpusen — inte för att koden är trasig utan för att provet inte längre
+ *     PRÖVAR något. En grön rad hade varit ett falskt kvitto, en röd rad är ett
+ *     falskt larm; båda är värdelösa.
+ *
+ * ÅTGÄRDEN: parentens rader taggas om till förstakällan `aisstream`; skuggan
+ * förblir `aishub`. Det återställer exakt den tvåkälliga geometri provet är
+ * skrivet för. Mätt på #18: `stale_cross_fix` 0 → 2 361, 135 notiser och 36
+ * öppningar oförändrade.
+ *
+ * NOLL-DIFF FÖR DE 15 GAMLA (fas A är grön): omtaggningen rör ENDAST rader som
+ * HAR ett `feed`-fält skilt från 'aisstream'. En rad utan fältet lämnas orörd —
+ * inget fält läggs till — så de gamla korpusarnas sammanslagna jsonl är
+ * byte-identisk med före ändringen.
+ *
+ * ALTERNATIVET `skipFusion: true` valdes bort: det hade tagit bort provet i
+ * stället för att laga det, och just AISHub-eran är den enda ström appen
+ * numera faktiskt körs på.
+ *
+ * OBS: detta gäller den SYNTETISKA korpusen. FÄLTKORPUSEN (A/B-nattens B-arm)
+ * har äkta rader från båda källorna och byggs INTE av den här funktionen —
+ * dess källtaggar är observationer och får aldrig skrivas om.
+ * @param {Array<object>} samples - parentens rader
+ * @returns {{rows: Array<object>, retagged: number}} omtaggad parent
  */
-function makeFusionCorpus(samples, opts = {}) {
+function retagParentAsPrimary(samples) {
+  let retagged = 0;
+  const rows = samples.map((s) => {
+    if (!s || typeof s.feed !== 'string' || s.feed === 'aisstream') return s;
+    retagged++;
+    return { ...s, feed: 'aisstream' };
+  });
+  return { rows, retagged };
+}
+
+/**
+ * @param {Array<object>} samples0 - Parsade korpusrader (kronologiska)
+ * @param {object} [opts] - överskrivningar av DEFAULTS
+ * @returns {{merged: Array<object>, hubCount: number, retaggedParent: number}} fusionskorpus
+ */
+function makeFusionCorpus(samples0, opts = {}) {
   const cfg = { ...DEFAULTS, ...opts };
+  const { rows: samples, retagged: retaggedParent } = retagParentAsPrimary(samples0);
   const positional = samples.filter((s) => !s.ctrl
     && s.mmsi != null
     && Number.isFinite(s.aisTimestamp)
     && Number.isFinite(s.lat)
     && Number.isFinite(s.lon));
   if (positional.length === 0) {
-    return { merged: [...samples], hubCount: 0 };
+    return { merged: [...samples], hubCount: 0, retaggedParent };
   }
 
   const firstTs = positional[0].aisTimestamp;
@@ -98,10 +145,10 @@ function makeFusionCorpus(samples, opts = {}) {
 
   const merged = [...samples, ...hubSamples]
     .sort((a, b) => (a.aisTimestamp || 0) - (b.aisTimestamp || 0));
-  return { merged, hubCount: hubSamples.length };
+  return { merged, hubCount: hubSamples.length, retaggedParent };
 }
 
-module.exports = { makeFusionCorpus };
+module.exports = { makeFusionCorpus, retagParentAsPrimary };
 
 if (require.main === module) {
   const [, , inPath, outPath, delayArg] = process.argv;
@@ -113,7 +160,8 @@ if (require.main === module) {
   const samples = fs.readFileSync(inPath, 'utf8').trim().split('\n')
     .filter(Boolean)
     .map((l) => JSON.parse(l));
-  const { merged, hubCount } = makeFusionCorpus(samples, { deliveryDelayMs });
+  const { merged, hubCount, retaggedParent } = makeFusionCorpus(samples, { deliveryDelayMs });
   fs.writeFileSync(outPath, `${merged.map((s) => JSON.stringify(s)).join('\n')}\n`);
-  process.stdout.write(`fusionskorpus: ${samples.length} original + ${hubCount} aishub-ekon (leveranslagg ${deliveryDelayMs} ms) → ${outPath}\n`);
+  process.stdout.write(`fusionskorpus: ${samples.length} original + ${hubCount} aishub-ekon `
+    + `(leveranslagg ${deliveryDelayMs} ms${retaggedParent ? `, ${retaggedParent} parentrader omtaggade till aisstream` : ''}) → ${outPath}\n`);
 }

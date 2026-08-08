@@ -134,6 +134,30 @@ async function main() {
     ? (...args) => process.stderr.write(`${args.join(' ')}\n`)
     : () => {};
 
+  // ---- A8(ii): GLOBAL_TOKEN_TIMEOUT-BRUSET (etapp 7, 2026-08-08) ----
+  // 162 av fältprovets "fel" var den här raden, och alla var HARNESSARTEFAKTER:
+  // fejkklockan stegar i 30 s-språng, så publiceringsbanans 10-sekunderstimer
+  // förfaller mitt i ett tick trots att mockens setValue redan svarat. Bruset
+  // dränkte äkta stderr-fynd i varje korpuskörning.
+  //
+  // VIKTIGT — svälj-fällan: raden RÄKNAS, den försvinner inte. Antalet
+  // rapporteras som `suppressedTokenTimeouts` i resultatet, och matchningen är
+  // EXAKT (hela raden, inte en prefix/regex). Ändras texten i app.js:5267
+  // slutar filtret matcha och bruset kommer TILLBAKA högljutt — det är
+  // avsiktligt: filtret får aldrig tysta en NY felrad som råkar likna den här.
+  // Produktkoden känner inte till harnessbruset (tick-interfolieringen rörs
+  // inte, planens A8(ii)).
+  const TOKEN_TIMEOUT_LINE = '[APP ERROR] ⏱️ [GLOBAL_TOKEN_TIMEOUT] setValue svarade inte inom 10 s — släpper publiceringsbanan, hash nollad';
+  let suppressedTokenTimeouts = 0;
+  const origError = console.error;
+  console.error = (...args) => {
+    if (args.join(' ') === TOKEN_TIMEOUT_LINE) {
+      suppressedTokenTimeouts++;
+      return;
+    }
+    origError(...args);
+  };
+
   // Notiser måste få avfyras precis som i produktion. _triggerBoatNearFlow
   // skippar tyst vid __TEST_MODE__, och notiserna avfyras i ICKE-AWAITADE
   // async-lyssnare. VIKTIGT (regression 2026-07-03, scenario 34): onInit
@@ -189,6 +213,24 @@ async function main() {
   const intermediatePassages = [];
   const intermediateRe = /\[INTERMEDIATE_PASSAGE_RECORDED\] (\d+): Recorded passage of intermediate bridge (\S+)/;
 
+  // ---- A6: PRE-FUSIONSFÅNGST (etapp 7, 2026-08-08) ----
+  // Fusionsgrindarna (F1-F6) mäts i dag bara som AGGREGAT (accepted/rejected/
+  // byReason). När en fix försvinner går det inte att svara på frågan "kom den
+  // fram till muxen, och varför föll den?" — och därmed inte att skilja
+  // KÄLLTYSTNAD från FUSIONSAVVISNING. Här bokförs varje meddelande som når
+  // muxens fusionsingång, före beslutet, med det beslut det sedan fick.
+  //
+  // Verdikt/skäl läses ur muxens EGNA räknare (diff före/efter) i stället för
+  // att policyn körs en gång till — en parallell sanning hade kunnat gå isär
+  // med produktionens (samma princip som coverageMaps självkontroll mot
+  // geometry). Tom i bypass-läge: utan REPLAY_FUSION=1 passerar inget genom
+  // fusionen alls.
+  const preFusionLog = [];
+  // Tak: en 72h-soak i fusionsläge skulle annars kunna växa loggen obegränsat
+  // och spränga stdout-flushen (soak-lärdomen 2026-07-03). Överskottet räknas.
+  const PRE_FUSION_MAX = 100000;
+  let preFusionDropped = 0;
+
   // ---- Instrumentera en app-instans (körs igen efter ctrl:'restart') ----
   const instrumentApp = (instance) => {
     // KRITISKT: replayen ska spegla en ANSLUTEN drift. Utan detta är
@@ -223,6 +265,42 @@ async function main() {
       }
       return origUpdateCap(capability, value);
     };
+
+    // A6: wrappern sitter på muxens _fuseAndEmit — fusionens ENDA ingång i
+    // 'both'-läget. Instrumenteringen körs om vid ctrl:'restart' (nya
+    // instansen får ny mux), och `_gtInstrumented` hindrar dubbelwrappning om
+    // instrumentApp någon gång skulle köras två gånger på samma instans
+    // (dubbelclear-läxan i loggformat: en dubbel wrapper hade räknat allt två
+    // gånger och sett ut som dubbel trafik).
+    const mux = instance.aisClient;
+    if (mux && typeof mux._fuseAndEmit === 'function' && !mux._gtPreFusionInstrumented) {
+      mux._gtPreFusionInstrumented = true;
+      const origFuse = mux._fuseAndEmit.bind(mux);
+      mux._fuseAndEmit = (feed, msg) => {
+        const stats = mux._fusionStats || {};
+        const beforeRejected = stats.rejected || 0;
+        const beforeReasons = { ...(stats.byReason || {}) };
+        const out = origFuse(feed, msg);
+        const rejected = (stats.rejected || 0) > beforeRejected;
+        const reasons = [];
+        if (rejected) {
+          for (const [k, v] of Object.entries(stats.byReason || {})) {
+            if (v !== (beforeReasons[k] || 0)) reasons.push(k);
+          }
+        }
+        if (preFusionLog.length < PRE_FUSION_MAX) {
+          preFusionLog.push({
+            t: Date.now(),
+            feed,
+            mmsi: String(msg && msg.mmsi),
+            fixTs: msg && Number.isFinite(msg.fixTs) ? msg.fixTs : null,
+            verdict: rejected ? 'reject' : 'accept',
+            reasons,
+          });
+        } else preFusionDropped++;
+        return out;
+      };
+    }
 
     const origAppLog = instance.log.bind(instance);
     instance.log = (...args) => {
@@ -505,6 +583,12 @@ async function main() {
         // fäller en varning som gått ut FÖRE sin egen deadline (eller mer än
         // ett tick efter den) — kontraktet "avfyra så sent garantin tillåter".
         dueMs: Number.isFinite(state.dueMs) ? state.dueMs : null,
+        // A8(iii)/H-4: förfallotiden FÖRE eligibleAt-ombindningen. Utan den går
+        // det inte att skilja "varningen kom när den skulle" från "varningen
+        // sköts upp av en ombindning". Fältet läggs till av öppningsservicen
+        // (P-OA) — saknas det är värdet null och sista-påminnelse-serien
+        // rapporterar det som okänt i stället för att kasta.
+        originalDueMs: Number.isFinite(state.originalDueMs) ? state.originalDueMs : null,
         success: c.success,
         error: c.error || null,
       };
@@ -551,6 +635,7 @@ async function main() {
 
   // Återställ
   console.log = origLog;
+  console.error = origError;
 
   // ---- Läckagediagnostik (soak-kontroll, tillagd 2026-06-09) ----
   // Efter hela korpusen + 40 min efterspel ska alla per-fartygs-strukturer
@@ -625,6 +710,13 @@ async function main() {
     openingStats: (app.bridgeOpeningService
       && typeof app.bridgeOpeningService.getStats === 'function')
       ? app.bridgeOpeningService.getStats() : null,
+    // A6 (etapp 7): fusionens ingång, meddelande för meddelande. Tom i
+    // bypass-läge (inget passerar fusionen då) — det är inte ett fel.
+    preFusionLog,
+    preFusionCount: preFusionLog.length,
+    preFusionDropped,
+    // A8(ii): harnessbrus som filtrerats bort, RÄKNAT (aldrig svalt).
+    suppressedTokenTimeouts,
     firstNameSeen,
     firstSampleMs: samples.length > 0 ? samples[0].aisTimestamp : null,
     targetPassages,

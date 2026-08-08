@@ -52,7 +52,9 @@ const GOLDEN_DIR = path.join(__dirname, 'golden-text');
 // exakt det hål R2-1 en gång stängde för fördelningsfacit, återinfört en nivå
 // upp. Saknas filen nu skriver grinden en HÖGLJUDD rad (och regenerering är
 // den enda tillåtna vägen: REGEN_DISTRIBUTIONS=1 från en grön körning).
-// Finns filen men saknar en LÅST korpus är det ett HÅRT fel.
+// Finns filen men saknar en LÅST korpus är det ett HÅRT fel — utom för en
+// korpus med `lockOpenings: false` (A9a), där dimensionen är MEDVETET olåst
+// och posten därför varken jämförs eller skrivs.
 const OPENING_FILE = path.join(__dirname, 'opening-distribution.json');
 const openingDistribution = fs.existsSync(OPENING_FILE)
   ? JSON.parse(fs.readFileSync(OPENING_FILE, 'utf8'))
@@ -79,6 +81,8 @@ function runCorpus(corpus) {
 
 let failed = false;
 const rows = [];
+// A8(ii): summeras över korpusarna och skrivs ut sist — se kvittot vid rapporten.
+let totalSuppressedTokenTimeouts = 0;
 const regeneratedDirections = {};
 const regeneratedGolden = {};
 const regeneratedOpenings = {};
@@ -110,6 +114,7 @@ for (const corpus of corpora) {
   // `(...|| []).length` gav alltid undefined → krascher i _processAISMessage
   // flaggades ALDRIG av gaten (död kontroll sedan dag 1).
   const processErrors = result.processErrors || 0;
+  totalSuppressedTokenTimeouts += result.suppressedTokenTimeouts || 0;
   const leaks = result.leakDiagnostics || {};
   const vesselsLeft = leaks.vessels;
 
@@ -165,13 +170,28 @@ for (const corpus of corpora) {
     problems.push('RIKTNINGSPOST SAKNAS i corpora-direction-distribution.json — regenerera med REGEN_DISTRIBUTIONS=1 från grön körning');
   }
 
+  // A9a (etapp 7, 2026-08-08): `lockOpenings: false` låser ALLT UTOM
+  // öppningsdimensionen. Se corpora.js-huvudkommentaren — en körning kan vara
+  // pelare 1+2-verifierad medan öppningsmotorn bär en KÄND öppen defekt
+  // (#17: CARAT-fantomvarningen 05:18:31), och då får multiseten inte
+  // förevigas. Frånvarande fält ⇒ dimensionen är låst som förut.
+  const openingsLocked = corpus.lockOpenings !== false;
+
   // O5 (etapp 6, 2026-08-03): öppningsfacit — bro:riktning-multiset.
   // Fusionskorpusar valideras mot PARENTENS facit av samma skäl som
   // notisfördelningen: kontraktet är "identiskt utfall".
-  if (corpus.locked && openingDistribution) {
+  if (corpus.locked && openingsLocked && openingDistribution) {
     const expected = openingDistribution[distKey];
     if (!expected) {
-      problems.push(`ÖPPNINGSPOST SAKNAS i opening-distribution.json (distKey=${distKey}) — öppningsgaten kan inte köras`);
+      // Saknad post är ett HÅRT fel i normalläge (R2-1-lärdomen: en gate som
+      // tyst hoppas över är farligare än ingen gate). I REGEN-läget är den
+      // däremot det NORMALA startläget för en nyinlagd korpus — samma
+      // undantag som riktnings- och golden-facit redan har. Skyddet mot att
+      // REGEN skriver halvfärdigt facit ligger i complete-vakten (A8(iv))
+      // längst ned, inte här.
+      if (!REGEN) {
+        problems.push(`ÖPPNINGSPOST SAKNAS i opening-distribution.json (distKey=${distKey}) — öppningsgaten kan inte köras`);
+      }
     } else {
       const actual = openingKeys(result);
       const allKeys = new Set([...Object.keys(expected), ...Object.keys(actual)]);
@@ -257,7 +277,9 @@ for (const corpus of corpora) {
     regeneratedDirections[corpus.id] = sortedAcc;
     regeneratedGolden[corpus.id] = (result.bridgeTextTransitions || [])
       .map((t) => ({ iso: t.iso, text: t.text }));
-    regeneratedOpenings[corpus.id] = openingKeys(result);
+    // A9a: en korpus med `lockOpenings: false` EXKLUDERAS ur öppningsfacit —
+    // annars skriver REGEN in exakt den multiset flaggan finns för att undvika.
+    if (openingsLocked) regeneratedOpenings[corpus.id] = openingKeys(result);
   }
 
   // WARN-invarianter (fas 0.4, 2026-07-03): informativa tills B1–B8 landat —
@@ -297,33 +319,81 @@ for (const row of rows) {
 }
 console.log('');
 
+// A8(ii)-KVITTOT (dirigentens QC efter fasgrind A, 2026-08-08): filtret i
+// replayRunner sväljer GLOBAL_TOKEN_TIMEOUT-raden och räknar den i
+// `suppressedTokenTimeouts` — men fältet hade NOLL läsare, så 2 697 rader
+// försvann ur utskriften utan att någon rad nämnde det. Det är svälj-fällan i
+// harnessens egen skepnad: "räknat men osynligt" är inte räknat.
+// Summan skrivs ALLTID ut när den är > 0, så att en plötslig förändring
+// (t.ex. att bruset flyttar sig till en ny kodväg) syns direkt.
+if (totalSuppressedTokenTimeouts > 0) {
+  console.log(`  ℹ️ ${totalSuppressedTokenTimeouts} GLOBAL_TOKEN_TIMEOUT-rader undertryckta av `
+    + 'harness-filtret (fake-timer-artefakt, 0 i fält — se replayRunner.js A8(ii)).');
+  console.log('');
+}
+
 if (failed) {
   console.log('❌ MINST EN LÅST KORPUS AVVIKER — regression i pelarna.');
   process.exit(1);
 }
 
 if (REGEN) {
-  const lockedIds = corpora.filter((c) => c.locked).map((c) => c.id);
-  const complete = lockedIds.every((id) => regeneratedDirections[id]);
-  if (!complete) {
-    console.log('❌ REGEN avbruten: minst en låst korpus var inte grön — riktningsfacit skrivs ALDRIG från en bruten körning.');
+  const lockedCorpora = corpora.filter((c) => c.locked);
+  const lockedIds = lockedCorpora.map((c) => c.id);
+
+  // A8(iv) COMPLETE-VAKTEN (etapp 7, 2026-08-08).
+  //
+  // Den gamla vakten kontrollerade ENBART riktningsfacit och skrev sedan alla
+  // tre filerna. Golden- och öppningsskrivningen läste därför obevakade
+  // uppslag: `JSON.stringify(undefined)` ger `undefined` (inte ett kast), så
+  // ett hål i insamlingen hade skrivit den fyra tecken långa strängen
+  // "undefined" som golden-fil — en tyst facitförstörelse som ingen gate kan
+  // upptäcka i efterhand eftersom den ERSÄTTER sanningen. Nu måste SAMTLIGA
+  // dimensioner finnas för SAMTLIGA låsta korpusar innan NÅGON fil skrivs.
+  //
+  // Två dokumenterade undantag, båda strukturella och inte "hål":
+  //   - `fusionOf` ⇒ ingen golden (hub-ekon förskjuter publiceringstidpunkter
+  //     utan att ändra innehållsbesluten; jämförelsen hoppas medvetet ovan).
+  //   - `lockOpenings: false` (A9a) ⇒ ingen öppningspost.
+  const missingFacit = [];
+  for (const c of lockedCorpora) {
+    if (!regeneratedDirections[c.id]) {
+      missingFacit.push(`${c.id}: riktningsfacit (korpusen var inte grön)`);
+      continue;
+    }
+    if (!c.fusionOf && !regeneratedGolden[c.id]) missingFacit.push(`${c.id}: golden-text`);
+    if (c.lockOpenings !== false && !regeneratedOpenings[c.id]) missingFacit.push(`${c.id}: öppningsfacit`);
+  }
+  if (missingFacit.length) {
+    console.log('❌ REGEN AVBRUTEN — facit skrivs ALDRIG halvfärdigt. Saknas:');
+    for (const m of missingFacit) console.log(`   • ${m}`);
+    console.log('   (riktning + golden + öppningar måste vara kompletta för SAMTLIGA låsta '
+      + 'korpusar; undantag: fusionOf saknar golden, lockOpenings:false saknar öppningspost.)');
     process.exit(1);
   }
+
+  const goldenIds = lockedCorpora.filter((c) => !c.fusionOf).map((c) => c.id);
+  const openingIds = lockedCorpora.filter((c) => c.lockOpenings !== false).map((c) => c.id);
+  const skippedOpenings = lockedIds.filter((id) => !openingIds.includes(id));
+
   fs.writeFileSync(DIRECTION_FILE, `${JSON.stringify(regeneratedDirections, null, 2)}\n`);
   console.log(`📝 REGEN: riktningsfacit skrivet till ${path.basename(DIRECTION_FILE)} (${lockedIds.length} korpusar).`);
   if (!fs.existsSync(GOLDEN_DIR)) fs.mkdirSync(GOLDEN_DIR);
-  for (const id of lockedIds) {
+  for (const id of goldenIds) {
     fs.writeFileSync(
       path.join(GOLDEN_DIR, `${id}.json`),
       `${JSON.stringify(regeneratedGolden[id], null, 1)}\n`,
     );
   }
-  console.log(`📝 REGEN: golden-text skriven till golden-text/ (${lockedIds.length} korpusar).`);
+  console.log(`📝 REGEN: golden-text skriven till golden-text/ (${goldenIds.length} korpusar).`);
   // O5: öppningsfacit skrivs i SAMMA regen-svep och med samma villkor (endast
   // från en helt grön körning). Det är den enda vägen filen ska skapas —
   // aldrig för hand.
   fs.writeFileSync(OPENING_FILE, `${JSON.stringify(regeneratedOpenings, null, 2)}\n`);
-  console.log(`📝 REGEN: öppningsfacit skrivet till ${path.basename(OPENING_FILE)} (${lockedIds.length} korpusar).`);
+  console.log(`📝 REGEN: öppningsfacit skrivet till ${path.basename(OPENING_FILE)} (${openingIds.length} korpusar).`);
+  if (skippedOpenings.length) {
+    console.log(`   ℹ️ lockOpenings:false — ingen öppningspost skrevs för: ${skippedOpenings.join(', ')}`);
+  }
 }
 
 console.log('✅ Alla låsta korpusar matchar facit.');

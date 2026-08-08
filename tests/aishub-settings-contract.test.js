@@ -211,7 +211,8 @@ describe('Etapp 2 (V1-C2): per-feed-watchdogen — aggregatet får aldrig masker
       },
     });
     app._checkAISFeedHealth();
-    expect(app.aisClient.reconnectWithKey).toHaveBeenCalledWith('KEY');
+    // A7(b) (etapp 7): skälet följer med omanslutningen.
+    expect(app.aisClient.reconnectWithKey).toHaveBeenCalledWith('KEY', 'watchdog');
   });
 
   test('nyligen omansluten aisstream (kort uptime) ⇒ fullt nytt fönster (RC-S1-kontraktet per feed)', () => {
@@ -308,7 +309,7 @@ describe('Etapp 2 (V1-C2): per-feed-watchdogen — aggregatet får aldrig masker
       reconnectWithKey: jest.fn().mockResolvedValue(undefined),
     };
     app._checkAISFeedHealth();
-    expect(app.aisClient.reconnectWithKey).toHaveBeenCalledWith('KEY');
+    expect(app.aisClient.reconnectWithKey).toHaveBeenCalledWith('KEY', 'watchdog');
   });
 });
 

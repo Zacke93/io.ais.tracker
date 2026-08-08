@@ -1,0 +1,36 @@
+2026-08-05T23:20:53.254Z Stridsbergsbron#1 Stridsbergsbron boats=1 lead=TIDAN eta=5 min southbound deadline
+2026-08-05T23:26:23.207Z Klaffbron#2 Klaffbron boats=1 lead=TIDAN eta=5 min southbound deadline
+2026-08-06T01:11:24.983Z Stridsbergsbron#3 Stridsbergsbron boats=1 lead=NOSSAN eta=5 min southbound deadline
+2026-08-06T01:16:55.061Z Klaffbron#4 Klaffbron boats=1 lead=NOSSAN eta=5 min southbound deadline
+2026-08-06T07:59:04.356Z Klaffbron#5 Klaffbron boats=2 lead=PILLE eta=4 min southbound fix
+2026-08-06T08:10:31.201Z Stridsbergsbron#6 Stridsbergsbron boats=1 lead=UTOPIA eta=8 min northbound deadline
+2026-08-06T10:06:03.342Z Stridsbergsbron#7 Stridsbergsbron boats=2 lead=S/V REBEL eta=7 min southbound deadline
+2026-08-06T10:09:33.135Z Klaffbron#8 Klaffbron boats=2 lead=ELFKUNGEN eta=6 min northbound deadline
+2026-08-06T10:23:33.450Z Stridsbergsbron#9 Stridsbergsbron boats=1 lead=ELFKUNGEN eta=0 min northbound deadline
+2026-08-06T10:25:33.518Z Klaffbron#10 Klaffbron boats=1 lead=SKYBIRD eta=63 min southbound deadline
+2026-08-06T11:53:04.895Z Stridsbergsbron#11 Stridsbergsbron boats=1 lead=ELFKUNGEN eta=5 min southbound deadline
+2026-08-06T11:58:34.992Z Klaffbron#12 Klaffbron boats=1 lead=ELFKUNGEN eta=8 min southbound deadline
+2026-08-06T14:33:37.759Z Klaffbron#13 Klaffbron boats=1 lead=ATHENA eta=8 min northbound deadline
+2026-08-06T14:45:07.882Z Stridsbergsbron#14 Stridsbergsbron boats=1 lead=ATHENA eta=11 min northbound deadline
+2026-08-06T16:32:09.405Z Stridsbergsbron#15 Stridsbergsbron boats=1 lead=ANDREA eta=10 min southbound deadline
+2026-08-06T18:37:41.352Z Klaffbron#16 Klaffbron boats=1 lead=ANDREA eta=11 min southbound deadline
+2026-08-06T19:36:12.549Z Klaffbron#17 Klaffbron boats=1 lead=MONIKA eta=10 min northbound deadline
+2026-08-06T19:47:42.665Z Stridsbergsbron#18 Stridsbergsbron boats=1 lead=MONIKA eta=13 min northbound deadline
+2026-08-07T08:44:41.922Z Klaffbron#19 Klaffbron boats=1 lead=S/V REBEL eta=2 min southbound fix
+2026-08-07T09:06:55.009Z Stridsbergsbron#20 Stridsbergsbron boats=5 lead=MISTRAL eta=8 min southbound deadline
+2026-08-07T09:13:55.117Z Klaffbron#21 Klaffbron boats=5 lead=MISTRAL eta=16 min southbound deadline
+2026-08-07T10:11:26.086Z Klaffbron#22 Klaffbron boats=1 lead=ELFKUNGEN eta=7 min northbound deadline
+2026-08-07T10:17:56.156Z Stridsbergsbron#23 Stridsbergsbron boats=1 lead=ELFKUNGEN eta=7 min northbound deadline
+2026-08-07T10:49:52.621Z Stridsbergsbron#24 Stridsbergsbron boats=1 lead=MARY eta=8 min southbound fix
+2026-08-07T11:00:56.975Z Klaffbron#25 Klaffbron boats=1 lead=MARY eta=46 min southbound deadline
+2026-08-07T11:41:57.432Z Klaffbron#26 Klaffbron boats=1 lead=ELFKUNGEN eta=25 min northbound deadline
+2026-08-07T12:03:27.557Z Stridsbergsbron#27 Stridsbergsbron boats=1 lead=MS JUTLAND eta=6 min southbound deadline
+2026-08-07T12:14:58.863Z Klaffbron#28 Klaffbron boats=2 lead=FILOU eta=9 min southbound fix
+2026-08-07T13:16:58.747Z Stridsbergsbron#29 Stridsbergsbron boats=3 lead=DORY MAN eta=6 min southbound deadline
+2026-08-07T13:23:47.699Z Klaffbron#30 Klaffbron boats=2 lead=DORY MAN eta=13 min southbound fix
+2026-08-07T13:33:28.805Z Stridsbergsbron#31 Stridsbergsbron boats=1 lead=MARY eta=8 min northbound deadline
+2026-08-07T13:46:58.924Z Klaffbron#32 Klaffbron boats=1 lead=LENYA eta=1 min southbound deadline
+2026-08-07T15:20:00.768Z Klaffbron#33 Klaffbron boats=1 lead=VALKYRIA eta=7 min northbound deadline
+2026-08-07T15:24:00.820Z Stridsbergsbron#34 Stridsbergsbron boats=1 lead=VALKYRIA eta=9 min northbound deadline
+2026-08-07T15:57:01.196Z Stridsbergsbron#35 Stridsbergsbron boats=1 lead=FARUREJ eta=8 min southbound deadline
+2026-08-07T16:05:31.315Z Klaffbron#36 Klaffbron boats=1 lead=FARUREJ eta=10 min southbound deadline
