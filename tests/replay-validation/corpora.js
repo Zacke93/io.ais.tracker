@@ -70,7 +70,8 @@ module.exports = [
       + '(244236598 sog 0–1,2 + 244870852 sog 0, båda 100 % i kapseln 10:10–10:40) '
       + 'störde texten kring 10:26–10:28; med kapseln demoteras de och den äkta '
       + 'Klaffbron-båtens text renderas rent ("strax" 10:26:43 i st f "ETA okänd" '
-      + '10:27:56). Notis-/fördelnings-/riktningsfacit ORÖRDA (30/30).',
+      + '10:27:56). Notis-/fördelnings-/riktningsfacit ORÖRDA (30/30).'
+      + 'GOLDEN OMLÅST (2026-08-09, C0b zon-lokal kögrace): 74 → 72 övergångar. Rådataverifierat: MARIANNE (244236598) och JOSEPHINE (244870852) låg BÅDA i gästhamnskapseln 10:10–10:27 (MARIANNE sog 0–0,2 på 3–9 m från kapsellinjen från 10:12:51, JOSEPHINE sog 0 vid 10:11:43 och 10:26:43) — texten "Två båtar på väg mot Klaffbron" räknade alltså två FÖRTÖJDA båtar. Det gamla 600 m-köundantaget (VesselDataService: zoneMinStillMs 3 → 15 min när targetBridge ≤ 600 m) gällde globalt och träffade gästhamnen, som ligger 354–411 m från Klaffbron. Med queueGraceMs=0 på gästhamnsposten demoteras de efter 3 min. Notis-/fördelnings-/riktnings-/öppningsfacit ORÖRDA (30/30).',
   },
   {
     id: '20260601-41h',
@@ -511,7 +512,8 @@ module.exports = [
       + 'om 13 min" som FÖRTÖJD är exakt fantomklassen från both-dygn 1 '
       + '(ANDREA/CARAT). Med kapseln demoteras hon och Strids-klausulen försvinner '
       + 'ur texterna kring 13:30–13:39. Notis-/fördelnings-/riktningsfacit ORÖRDA '
-      + '(164/164).',
+      + '(164/164).'
+      + 'GOLDEN OMLÅST (2026-08-09, C0b zon-lokal kögrace): 269 → 267 övergångar. Klaffbron-klausulen försvinner ur elva texter 12:07–12:27 för en båt som låg still i gästhamnen; Stridsbergs-klausulen är ORÖRD i varje rad, vilket visar att ingreppet är zon-lokalt och inte rör den äkta trafiken. Notis-/fördelnings-/riktnings-/öppningsfacit ORÖRDA (164/164).',
     knownInvariantExceptions: [
       'ETA-SÅGTAND UPP: 2026-07-15T08:48:51.405Z Stridsbergsbron 8→14',
       'ETA-OSCILLATION: 2026-07-15T08:50:22.118Z Stridsbergsbron 8→14→9',
@@ -549,7 +551,8 @@ module.exports = [
       + 'sedan 15:45:08.689Z 20 m i 4,1 kn cog 18,1 = utfarten norrut, följd av '
       + 'hela nordtransiten (Olide→Klaff→Jvb→Strids→Stallbacka). Två fysiskt '
       + 'skilda händelser åtskilda av två timmars förtöjning. Utslaget är '
-      + 'PERMANENT så länge U5 står fast.',
+      + 'PERMANENT så länge U5 står fast.'
+      + 'GOLDEN OMLÅST (2026-08-09, C0b zon-lokal kögrace): 190 → 188 övergångar — korpusens STÖRSTA enskilda spöktextvinst, 25 minuter. Rådataverifierat: PILLE (211488730) låg sog=0 med **navStatus=null** 14–15 m från gästhamnskapselns linje vid 12:33:08, 12:36:08 och 12:42:11. Utan navStatus biter den vanliga förtöjningsdetekteringen inte, och det gamla 600 m-köundantaget krävde 15 min stillhet — hon hann bara 9 min innan hon slutade sända. Följd: "En båt på väg mot Klaffbron, om 10 minuter" stod 12:42:11 → "ETA okänd" 12:52:37 → borta först 13:07:37. Med queueGraceMs=0 demoteras hon 12:42:41. Fallet är samtidigt belägg för att C9 (förtöjd utan navStatus) behövs: 76 % av fältprovets fartyg saknade navStatus helt. Notis-/fördelnings-/riktnings-/öppningsfacit ORÖRDA (116/116).',
     knownInvariantExceptions: [
       'NOTIS-DUBBLETT: 265576720:Kanalinfarten × 2 utan journey-reset emellan',
     ],
