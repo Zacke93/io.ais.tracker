@@ -2836,7 +2836,14 @@ class AISBridgeApp extends Homey.App {
     this._isConnected = true;
     // Bug #12: clear disconnect timestamp so bridge text resumes normal operation
     this._lastConnectionLost = null;
-    this._updateDeviceCapability('connection_status', 'connected');
+    // B2c (etapp 7, 2026-08-08): ALLA tre skrivvägarna måste vara eniga om
+    // värdemängden. Den här skriver utanför _updateUI:s flankcache — skrev den
+    // 'connected' medan cachen stod på 'degraded' fastnade enheten på fel
+    // värde tills degraderingen växlade igen (flanken hade inget att skriva).
+    this._updateDeviceCapability(
+      'connection_status',
+      this._connectionFeedDegraded ? 'degraded' : 'connected',
+    );
 
     // P8-fix (2026-06-09): tvinga en bridge_text-synk efter (åter)anslutning.
     // Under avbrottet kan texten ha frusits (Bug#12-guard) eller hållits kvar
@@ -3004,11 +3011,51 @@ class AISBridgeApp extends Homey.App {
    * @private
    */
   _escalateSilenceNotices(baseKey, silenceMs, msgForLabel) {
+    // B2e (etapp 7, 2026-08-08): trappan får ALDRIG gå på en sentinel. I fältet
+    // gav timeSinceLastMessage=null ⇒ Infinity, som uppfyller varje steg ⇒ bas,
+    // 1h och 4h fyrade i samma millisekund och brände alla tre 24h-nycklarna.
+    // Anroparna mäter numera observerad tystnad (ändlig per konstruktion) —
+    // vakten här är andra linjen så en framtida anropare inte kan återinföra
+    // kollapsen.
+    if (!Number.isFinite(silenceMs)) {
+      this.error(
+        `[AIS_CONNECTION] Eskaleringen avbröts: ogiltigt tystnadsmått för '${baseKey}' `
+        + `(${String(silenceMs)}) — trappan kräver ett uppmätt värde`,
+      );
+      return;
+    }
     for (const step of CONNECTION_ALERT.ESCALATION_STEPS) {
       if (silenceMs >= step.ms) {
         this._notifyConnectionIssue(msgForLabel(step.label), `${baseKey}:${step.label}`);
       }
     }
+  }
+
+  /**
+   * B2c (etapp 7, 2026-08-08): spegla DEGRADERAT läge i connection_status.
+   *
+   * Flanken skrivs bara vid äkta växling (samma värde-dedup som övriga
+   * kanaler). Vid frånkopplat aggregat skrivs ingenting: 'disconnected' äger
+   * fältet vid fullt avbrott, precis som förut — men flaggan sätts ändå, så
+   * _updateUI:s ordinarie statusrad skriver 'degraded' i samma sekund
+   * anslutningen är tillbaka utan att larmet behöver fyra om.
+   * @param {boolean} degraded
+   * @private
+   */
+  _applyConnectionDegradedState(degraded) {
+    const next = !!degraded;
+    if (next === !!this._connectionFeedDegraded) return;
+    this._connectionFeedDegraded = next;
+    if (!this._isConnected) return;
+    const value = next ? 'degraded' : 'connected';
+    if (this._lastConnectionStatus === value) return;
+    this._lastConnectionStatus = value;
+    this._updateDeviceCapability('connection_status', value);
+    this.log(
+      `🌐 [CONNECTION_STATUS] ${value} — ${next
+        ? 'en konfigurerad AIS-källa är tyst medan den andra flödar (halverad redundans)'
+        : 'båda konfigurerade AIS-källor levererar igen'}`,
+    );
   }
 
   /**
@@ -3939,7 +3986,14 @@ class AISBridgeApp extends Homey.App {
       }
 
       // Update connection status only if changed
-      const currentConnectionStatus = this._isConnected ? 'connected' : 'disconnected';
+      // B2c (etapp 7, 2026-08-08): tre lägen. Utan det här ledet hade
+      // _applyConnectionDegradedState skrivit 'degraded' och nästa UI-cykel
+      // (som går på varje fartygsuppdatering) omedelbart klubbat tillbaka
+      // 'connected' — flankvakten här är därför ENDA stället som får äga
+      // sanningen om värdet. Full frånkoppling vinner alltid: då är appen inte
+      // degraderad, den är nere.
+      const connectedValue = this._connectionFeedDegraded ? 'degraded' : 'connected';
+      const currentConnectionStatus = this._isConnected ? connectedValue : 'disconnected';
       if (currentConnectionStatus !== this._lastConnectionStatus) {
         this._lastConnectionStatus = currentConnectionStatus;
         this._updateDeviceCapability('connection_status', currentConnectionStatus);
@@ -7812,9 +7866,19 @@ class AISBridgeApp extends Homey.App {
         delete entry.configuredSince;
         this._feedSilenceLedgerDirty = true;
       }
-    } else if (!Number.isFinite(entry.configuredSince)) {
-      entry.configuredSince = now;
-      this._feedSilenceLedgerDirty = true;
+      // B2f: observationsfönstret hör till EN konfigurationsperiod — en källa
+      // som slås av och på igen börjar om (annars ärver den nya perioden ett
+      // gammalt ankare och kan dömas i samma sekund den startar).
+      delete entry.observedSince;
+    } else {
+      if (!Number.isFinite(entry.configuredSince)) {
+        entry.configuredSince = now;
+        this._feedSilenceLedgerDirty = true;
+      }
+      // B2e/B2f: sätt observationsankaret här också (INTE persisterat — se
+      // _observedFeedSilence), så det finns från första hälsotick även om
+      // korstystnadsgrenen skulle hoppas över i den här ticken.
+      this._anchorFeedObservation(entry, feedStats, now);
     }
 
     const live = feedStats && Number.isFinite(feedStats.lastMessageTime)
@@ -7872,6 +7936,88 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * B2e/B2f (etapp 7, 2026-08-08): sätt/förläng OBSERVATIONSANKARET för en
+   * källa — tidpunkten från vilken appen kan hävda oavbruten bevakning.
+   *
+   * Ankaret är MEDVETET INTE PERSISTERAT (_persistFeedSilenceLedger skriver
+   * bara lastMessageAt + configuredSince, så fältet faller bort av sig självt
+   * vid omstart). Skälet är eskaleringstrappan: mäts tystnaden från ett
+   * ankare som ÖVERLEVER omstart blir observerad tystnad direkt flera timmar
+   * vid appstart mitt i ett avbrott, och bas + 1h + 4h fyrar i samma
+   * millisekund — exakt den kollaps B2e finns för att eliminera. Den
+   * persisterade sanningen om långa avbrott lever kvar i A7:s
+   * _describeFeedSilence (watchdog-loggen), där den hör hemma.
+   *
+   * Socketens öppningstid används bara som GOLV (den kan aldrig ligga före
+   * processens start), så ett flappande uttag kan inte förkorta fönstret —
+   * det var precis F-10:s fel att grinden läste uptime rakt av.
+   * @param {{observedSince?: number}} entry - bokföringsposten för källan
+   * @param {object} feedStats
+   * @param {number} now
+   * @private
+   */
+  _anchorFeedObservation(entry, feedStats, now) {
+    const uptimeMs = feedStats && Number.isFinite(feedStats.uptime)
+      ? Math.max(0, feedStats.uptime) : 0;
+    const candidates = [now];
+    if (Number.isFinite(entry.observedSince)) candidates.push(entry.observedSince);
+    if (uptimeMs > 0) candidates.push(now - uptimeMs);
+    entry.observedSince = Math.min(...candidates);
+    return entry.observedSince;
+  }
+
+  /**
+   * B2e/B2f: OBSERVERAD tystnad per källa — larmets enda mått.
+   *
+   * observedMs = now − max(senaste meddelande, observationsankaret). Alltid
+   * ett ÄNDLIGT tal: fältprovet visade att sentinelen (timeSinceLastMessage
+   * null ⇒ Infinity) både skrev "Infinity min" i 153 loggrader och uppfyllde
+   * BÅDA eskaleringsstegen samtidigt. Ankaret ger i stället en riktig klocka
+   * även för en källa som aldrig levererat: "så länge har vi tittat".
+   *
+   * sinceMessageMs är den ANDRA storheten: null när källan aldrig levererat.
+   * Den används för FÄRSKHETSSIDAN (grannen "flödar"), där null aldrig får
+   * räknas som färsk — en nystartad källa som inte sagt något är inte frisk.
+   * @param {string} feedKey - 'aisstream' | 'aishub'
+   * @param {object} feedStats - perFeed-posten
+   * @param {number} [now]
+   * @returns {{observedMs: number, sinceMessageMs: number|null, observedSince: number}}
+   * @private
+   */
+  _observedFeedSilence(feedKey, feedStats, now = Date.now()) {
+    if (!feedStats) return { observedMs: 0, sinceMessageMs: null, observedSince: now };
+
+    const ledger = this._getFeedSilenceLedger();
+    if (!ledger[feedKey]) ledger[feedKey] = {};
+    const entry = ledger[feedKey];
+
+    // En AVKONFIGURERAD källa har inget observationsfönster och ska inte
+    // heller lämna ett ankare efter sig i bokföringen.
+    const configured = feedStats.configured !== false;
+    const anchor = configured
+      ? this._anchorFeedObservation(entry, feedStats, now)
+      : now;
+
+    // Senaste meddelandet: klientens absoluta stämpel, dess relativa mått och
+    // bokföringens minne — SENASTE av dem är sanningen (bokföringen kan bara
+    // vara nyare om klientens fält nollats).
+    const known = [];
+    if (Number.isFinite(feedStats.lastMessageTime)) known.push(feedStats.lastMessageTime);
+    if (Number.isFinite(feedStats.timeSinceLastMessage)) {
+      known.push(now - Math.max(0, feedStats.timeSinceLastMessage));
+    }
+    if (Number.isFinite(entry.lastMessageAt)) known.push(entry.lastMessageAt);
+    const lastMessageAt = known.length ? Math.max(...known) : null;
+
+    const silenceStart = lastMessageAt !== null ? Math.max(anchor, lastMessageAt) : anchor;
+    return {
+      observedMs: Math.max(0, now - silenceStart),
+      sinceMessageMs: lastMessageAt !== null ? Math.max(0, now - lastMessageAt) : null,
+      observedSince: anchor,
+    };
+  }
+
+  /**
    * B2-fix (2026-06-09): stale-feed-watchdog. Ping/pong i AISStreamClient
    * fångar död TCP-socket, men INTE fallet "socket lever, pong svarar, men
    * inga AIS-meddelanden" (tappad subscription, misslyckad subscribe-send,
@@ -7885,7 +8031,6 @@ class AISBridgeApp extends Homey.App {
   _checkAISFeedHealth() {
     try {
       if (!this.aisClient
-          || !this.aisClient.isConnected
           || typeof this.aisClient.getConnectionStats !== 'function') {
         return;
       }
@@ -7901,6 +8046,21 @@ class AISBridgeApp extends Homey.App {
         this._noteFeedObservation('aishub', stats.perFeed.aishub, observedAt);
       } else {
         this._noteFeedObservation('aggregate', stats, observedAt);
+      }
+
+      // B2g(1) (etapp 7, 2026-08-08): BLINDHETSGRENEN KÖRS OAVSETT AGGREGATETS
+      // LÄGE. Ingången returnerade tidigare när aggregatet var frånkopplat, så
+      // _checkCrossFeedSilence nåddes ALDRIG vid ett äkta totalavbrott (båda
+      // källorna nere) — flaggskeppslarmet "appen är blind" kunde bara fyra i
+      // läget "ansluten men döv", precis tvärtemot avsikten. Bokföringen ovan
+      // körs nu också i frånkopplat läge; annars saknar en källa som är död
+      // från appstart helt observationsfönster och kan aldrig dömas.
+      // INGRIPANDENA (omanslutning/kick) ligger kvar bakom isConnected: vid
+      // frånkopplat aggregat äger klientens egen flank/backoff återanslutningen
+      // — vakten ska inte konkurrera med den.
+      if (!this.aisClient.isConnected) {
+        if (stats.perFeed) this._checkCrossFeedSilence(stats.perFeed);
+        return;
       }
 
       // Etapp 2 (V1-C2/V3-C2): med muxens perFeed-uppslag körs vakten PER
@@ -8117,18 +8277,45 @@ class AISBridgeApp extends Homey.App {
    * Etapp 2 ([FEED_SILENT], slutplanen §7): en KONFIGURERAD källa som inte
    * levererat en enda accepterad position på 15 min medan den andra flödar
    * är en tyst död — logga (rate-limitat 1/15 min) + notis (1/24h per källa).
-   * Mäts på lastMessageTime (emissionsdriven = accepted, aldrig records).
+   *
+   * MÅTTET (B2e/B2f, 2026-08-08): OBSERVERAD tystnad per källa, se
+   * _observedFeedSilence. Grunddatat är fortfarande lastMessageTime
+   * (emissionsdriven = accepted, aldrig records) — men klämt mot
+   * observationsfönstret, så varken sentinelen (Infinity) eller socketens
+   * uptime kan styra larmet längre.
    * @param {object} perFeed - stats.perFeed
    * @private
    */
   _checkCrossFeedSilence(perFeed) {
     const SILENT_MS = 15 * 60 * 1000;
     const FRESH_MS = 2 * 60 * 1000;
+    const now = Date.now();
     const s = perFeed.aisstream;
     const h = perFeed.aishub;
 
-    const sSilence = (s && Number.isFinite(s.timeSinceLastMessage)) ? s.timeSinceLastMessage : Infinity;
-    const hSilence = (h && Number.isFinite(h.timeSinceLastMessage)) ? h.timeSinceLastMessage : Infinity;
+    // B2e/B2f (etapp 7, 2026-08-08): måttet är OBSERVERAD tystnad, inte
+    // klientens timeSinceLastMessage-sentinel och inte socketens uptime.
+    //  • F-9: null ⇒ Infinity uppfyllde BÅDA eskaleringsstegen ⇒ bas + 1h + 4h
+    //    fyrade i samma millisekund 15 min efter appstart och brände alla tre
+    //    24h-nycklarna; en ÄKTA fyratimmarstystnad senare samma dygn hade då
+    //    gett noll notis.
+    //  • F-10: (uptime > fönstret) läste SOCKETENS ålder, som nollställs vid
+    //    varje forcerad omanslutning ⇒ en källa som flappade snabbare än 15 min
+    //    kunde aldrig dömas (12 episoder / ~200 min loggmörker i fältprovet).
+    //    Observationsankaret nollställs inte av omanslutning, så grinden
+    //    "källan måste ha haft chansen" ligger nu INBYGGD i måttet:
+    //    observedMs ≤ now − ankaret, alltså kan observedMs > 15 min aldrig
+    //    inträffa förrän vi bevakat källan i 15 min.
+    const sObs = this._observedFeedSilence('aisstream', s, now);
+    const hObs = this._observedFeedSilence('aishub', h, now);
+    const sSilence = sObs.observedMs;
+    const hSilence = hObs.observedMs;
+    // FÄRSKHETSSIDAN är asymmetrisk med flit: "grannen flödar" kräver ett
+    // faktiskt levererat meddelande (sinceMessageMs), aldrig ett ungt
+    // observationsfönster — annars skulle en nystartad, aldrig levererande
+    // källa räknas som frisk granne.
+    const sFresh = sObs.sinceMessageMs !== null && sObs.sinceMessageMs < FRESH_MS;
+    const hFresh = hObs.sinceMessageMs !== null && hObs.sinceMessageMs < FRESH_MS;
 
     if (!this._feedSilentLogTimes) this._feedSilentLogTimes = new Map();
     const logLimited = (feed, message) => {
@@ -8145,12 +8332,19 @@ class AISBridgeApp extends Homey.App {
     // utan att säga det. Relevanta källor = de som MATAR PIPELINEN: aisstream
     // när den är konfigurerad, AISHub endast i both/aishub (skuggläget är ett
     // mätinstrument — fynd 17-principen). Varje källa måste ha haft chansen
-    // (upptid > fönstret) innan den döms, precis som grenarna nedan.
+    // (bevakad längre än fönstret) innan den döms, precis som grenarna nedan.
+    //
+    // B2g(2) (2026-08-08): upptidsvillkoret är BORTA ur every(). Det gjorde att
+    // EN ENDA flappande källa avväpnade hela larmet — under 503-stormen översteg
+    // aisstreams upptid aldrig 34,6 s, så hade AISHub fallit samtidigt (vilket
+    // är precis vad ett nätavbrott gör) hade "appen är blind" varit strukturellt
+    // omöjlig. Observationsankaret bär grinden i stället, per källa.
+    const hubFeedsPipeline = this._hubFeedsPipeline();
     const relevant = [];
     if (s && s.configured) relevant.push({ name: 'aisstream', st: s, sil: sSilence });
-    if (h && h.configured && this._hubFeedsPipeline()) relevant.push({ name: 'aishub', st: h, sil: hSilence });
+    if (h && h.configured && hubFeedsPipeline) relevant.push({ name: 'aishub', st: h, sil: hSilence });
     if (relevant.length > 0
-        && relevant.every((r) => r.sil > SILENT_MS && (r.st.uptime || 0) > SILENT_MS)) {
+        && relevant.every((r) => r.sil > SILENT_MS)) {
       const minSil = Math.min(...relevant.map((r) => r.sil));
       logLimited('feeds-total', `INGEN aktiv AIS-källa har levererat på ${Math.round(minSil / 60000)} min (${relevant.map((r) => r.name).join('+')}) — appen är blind`);
       this._notifyConnectionIssue(
@@ -8166,10 +8360,25 @@ class AISBridgeApp extends Homey.App {
       ));
     }
 
-    if (!s || !h || !s.configured || !h.configured) return;
+    const bothConfigured = !!(s && h && s.configured && h.configured);
+    const streamSilentHubFresh = bothConfigured && sSilence > SILENT_MS && hFresh;
+    const hubSilentStreamFresh = bothConfigured && hSilence > SILENT_MS && sFresh;
 
-    // Källan måste ha haft chansen (upptid > fönstret) innan den döms.
-    if (sSilence > SILENT_MS && hSilence < FRESH_MS && (s.uptime || 0) > SILENT_MS) {
+    // B2c (etapp 7, 2026-08-08, användarbeslut U8): DEGRADERAT LÄGE PÅ ENHETEN.
+    // Fältprovet: capabilityn stod på "connected" i 41,8 h medan halva
+    // källparet var dött — aggregatet är streamOk||hubOk och flanken emitteras
+    // bara 0→1/1→0, så EN källas död var per konstruktion osynlig.
+    // Villkoret är EXAKT korstystnadsvillkoret nedan, plus kravet att den
+    // levande källan matar pipelinen: i skuggläge är en tyst hub inget
+    // användaren ska se (fynd 17), och en tyst aisstream med bara en
+    // skugghub kvar är BLIND (totalgrenen ovan), inte degraderad.
+    this._applyConnectionDegradedState(
+      hubFeedsPipeline && (streamSilentHubFresh || hubSilentStreamFresh),
+    );
+
+    if (!bothConfigured) return;
+
+    if (streamSilentHubFresh) {
       logLimited('aisstream', `aisstream har inte levererat på ${Math.round(sSilence / 60000)} min medan AISHub flödar`);
       this._notifyConnectionIssue(
         'AIS Tracker: AISstream har inte levererat några positioner på 15 min '
@@ -8185,14 +8394,13 @@ class AISBridgeApp extends Homey.App {
         + 'återansluta; kontrollera din AISstream-nyckel om det består.'
       ));
     }
-    if (hSilence > SILENT_MS && sSilence < FRESH_MS && (h.uptime || 0) > SILENT_MS) {
+    if (hubSilentStreamFresh) {
       // FYND 17 (A/B-natten 2026-08-03): NOTISEN gatas på att hubben faktiskt
       // matar pipelinen. I skuggläge är AISHub ett MÄTINSTRUMENT — dess
       // tystnad påverkar varken brotext eller notiser, och en pushnotis
       // ("kontrollera användarnamnet") vore ren brusdebitering för en användare
       // som medvetet kör utvärdering. Loggraden behålls i BÅDA lägena: den är
       // exakt vad en skuggkörning ska mäta.
-      const hubFeedsPipeline = this._hubFeedsPipeline();
       logLimited(
         'aishub',
         `AISHub har inte levererat på ${Math.round(hSilence / 60000)} min medan aisstream flödar`

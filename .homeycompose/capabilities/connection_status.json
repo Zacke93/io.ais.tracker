@@ -17,10 +17,17 @@
       }
     },
     {
-      "id": "connected", 
+      "id": "connected",
       "title": {
         "en": "Connected",
         "sv": "Uppkopplad"
+      }
+    },
+    {
+      "id": "degraded",
+      "title": {
+        "en": "Degraded",
+        "sv": "Degraderad"
       }
     }
   ]
