@@ -2,6 +2,7 @@
 
 jest.mock('homey');
 
+const v8 = require('v8');
 const AISBridgeApp = require('../app');
 const { UI_CONSTANTS } = require('../lib/constants');
 
@@ -19,6 +20,12 @@ const { UI_CONSTANTS } = require('../lib/constants');
  * A13 — notisvägens observerbarhet (F-15): projektets egen svälj-fälla i den
  *       enda kanal som når en användare utan loggåtkomst.
  * A14 — heapUsed/RSS i loggen (V8-heapen var helt omätt i 42h-fältprovet).
+ * KX-3 — A14:s andra halvlek: raden var 100 % död på Homey Pro eftersom
+ *        process.memoryUsage() kastar ENOENT (uv_resident_set_memory ⇒ /proc)
+ *        i containern. V8-heapen är nu primärkälla, rss är best-effort med
+ *        exakt ETT [err] per appstart. OBS: de gamla A14-testerna körde den
+ *        ÄKTA process.memoryUsage() och var därför plattformsblinda — de nya
+ *        testerna nedan mockar båda källorna explicit.
  */
 
 const MIN = 60 * 1000;
@@ -542,6 +549,10 @@ describe('A13: _notifyConnectionIssue säger om notisen gick iväg', () => {
 // A14: heapUsed/RSS
 // =============================================================================
 describe('A14: MEMORY_STATS bär processens minne', () => {
+  // De två testerna här kör den ÄKTA process.memoryUsage()/v8 på dev-/CI-
+  // plattformen — ett röktest för att raden alls produceras. De är
+  // plattformsberoende och kan per konstruktion inte se Homey Pro-containern;
+  // det gör KX-3-sviten längre ned.
   test('raden innehåller heapUsed och rss', () => {
     const app = riggApp();
     app._logProcessMemoryStats();
@@ -567,5 +578,222 @@ describe('A14: MEMORY_STATS bär processens minne', () => {
     app._logProcessMemoryStats();
     const rows2 = app.debug.mock.calls.map((c) => c.join(' ')).filter((l) => l.includes('[MEMORY_STATS]'));
     expect(rows2).toHaveLength(2);
+  });
+});
+
+// =============================================================================
+// KX-3 (fältprov 2026-08-09): minnesmätaren på Homey Pro
+//
+// Fältbevis: 4/4 försök gav `[err] ... ENOENT: no such file or directory,
+// uv_resident_set_memory` (10 min isär ⇒ ~144/dygn) och NOLL mätvärden.
+// Rotorsak: process.memoryUsage() räknar rss via libuv/proc INNAN V8-fälten
+// fylls i ⇒ hela anropet kastar och även heapUsed går förlorad.
+// =============================================================================
+describe('KX-3: MEMORY_STATS överlever Homey Pro-containern', () => {
+  const MB = 1024 * 1024;
+
+  // V8-fixtur med värden som inte kan förväxlas med process.memoryUsage()
+  // nedan — så testet bevisar VILKEN källa raden läser ur.
+  const heapFixture = () => ({
+    used_heap_size: 12 * MB,
+    total_heap_size: 20 * MB,
+    heap_size_limit: 128 * MB,
+    external_memory: 1.5 * MB,
+  });
+
+  // Felet Homey Pro faktiskt kastar (fältloggen, rad 87/814/3536/6601).
+  const enoentFel = () => Object.assign(
+    new Error('ENOENT: no such file or directory, uv_resident_set_memory'),
+    { code: 'ENOENT', errno: -2, syscall: 'uv_resident_set_memory' },
+  );
+
+  const mätrader = (app) => app.debug.mock.calls
+    .map((c) => c.join(' '))
+    .filter((l) => l.includes('[MEMORY_STATS] process:'));
+
+  const släppKadensen = (app) => {
+    app._processMemoryStatsLoggedAt = Date.now() - 10 * MIN - 1000;
+  };
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test('normalfallet: V8-heapen är källan, rss följer med som best-effort', () => {
+    const app = riggApp();
+    jest.spyOn(v8, 'getHeapStatistics').mockReturnValue(heapFixture());
+    jest.spyOn(process, 'memoryUsage').mockReturnValue({
+      rss: 42 * MB, heapTotal: 999 * MB, heapUsed: 998 * MB, external: 7 * MB,
+    });
+
+    app._logProcessMemoryStats();
+
+    const rader = mätrader(app);
+    expect(rader).toHaveLength(1);
+    expect(rader[0]).toContain('heapUsed=12.0 MB');
+    expect(rader[0]).toContain('heapTotal=20.0 MB');
+    expect(rader[0]).toContain('heapLimit=128.0 MB');
+    expect(rader[0]).toContain('external=1.5 MB');
+    expect(rader[0]).toContain('rss=42.0 MB');
+    // Heapen får INTE komma från process.memoryUsage (998/999 = fällan).
+    expect(rader[0]).not.toContain('998');
+    expect(rader[0]).not.toContain('999');
+    expect(app.error).not.toHaveBeenCalled();
+  });
+
+  test('ENOENT på rss ⇒ exakt ETT [err] per appstart, heapraden fortsätter', () => {
+    const app = riggApp();
+    jest.spyOn(v8, 'getHeapStatistics').mockReturnValue(heapFixture());
+    const memSpy = jest.spyOn(process, 'memoryUsage').mockImplementation(() => {
+      throw enoentFel();
+    });
+
+    app._logProcessMemoryStats();
+    släppKadensen(app);
+    app._logProcessMemoryStats();
+    släppKadensen(app);
+    app._logProcessMemoryStats();
+
+    // Serien lever: tre mätvärden i stället för fältprovets noll.
+    const rader = mätrader(app);
+    expect(rader).toHaveLength(3);
+    rader.forEach((rad) => {
+      expect(rad).toContain('heapUsed=12.0 MB');
+      expect(rad).toContain('rss=n/a');
+    });
+
+    // Felkanalen: EN rad, med förklaring — inte 144/dygn.
+    expect(app.error).toHaveBeenCalledTimes(1);
+    const felrad = app.error.mock.calls[0].join(' ');
+    expect(felrad).toContain('uv_resident_set_memory');
+    expect(felrad).toContain('rss stängs av för den här processen');
+
+    // Permanent avstängning: försöket görs inte om efter första ENOENT.
+    expect(memSpy).toHaveBeenCalledTimes(1);
+    expect(app._processRssUnavailable).toBe(true);
+  });
+
+  test('avstängningen kvarstår för instansen men nollställs vid ny appstart', () => {
+    const app = riggApp();
+    jest.spyOn(v8, 'getHeapStatistics').mockReturnValue(heapFixture());
+    const memSpy = jest.spyOn(process, 'memoryUsage').mockImplementation(() => {
+      throw enoentFel();
+    });
+
+    app._logProcessMemoryStats();
+    expect(memSpy).toHaveBeenCalledTimes(1);
+
+    // 100 kadenser till på samma instans ⇒ inget nytt försök, inget nytt fel.
+    for (let i = 0; i < 100; i += 1) {
+      släppKadensen(app);
+      app._logProcessMemoryStats();
+    }
+    expect(memSpy).toHaveBeenCalledTimes(1);
+    expect(app.error).toHaveBeenCalledTimes(1);
+    expect(mätrader(app)).toHaveLength(101);
+
+    // Ny appinstans = ny appstart ⇒ flaggan är borta och försöket görs om
+    // (miljön kan ha ändrats mellan starterna).
+    const app2 = riggApp();
+    app2._logProcessMemoryStats();
+    expect(memSpy).toHaveBeenCalledTimes(2);
+    expect(app2.error).toHaveBeenCalledTimes(1);
+  });
+
+  test('transient fel (ej ENOENT/ENOSYS) loggas EN gång men försöket görs om', () => {
+    const app = riggApp();
+    jest.spyOn(v8, 'getHeapStatistics').mockReturnValue(heapFixture());
+    const memSpy = jest.spyOn(process, 'memoryUsage').mockImplementation(() => {
+      throw Object.assign(new Error('EAGAIN: resource temporarily unavailable'), { code: 'EAGAIN' });
+    });
+
+    app._logProcessMemoryStats();
+    släppKadensen(app);
+    app._logProcessMemoryStats();
+
+    expect(memSpy).toHaveBeenCalledTimes(2); // ingen permanent avstängning
+    expect(app._processRssUnavailable).toBeFalsy();
+    expect(app.error).toHaveBeenCalledTimes(1); // men bara ETT [err]
+    expect(app.error.mock.calls[0].join(' ')).toContain('görs om vid nästa kadens');
+    const uppföljning = app.debug.mock.calls
+      .map((c) => c.join(' '))
+      .filter((l) => l.includes('rss kunde fortfarande inte läsas'));
+    expect(uppföljning).toHaveLength(1);
+  });
+
+  test('ENOSYS behandlas som permanent miljöbrist, precis som ENOENT', () => {
+    const app = riggApp();
+    jest.spyOn(v8, 'getHeapStatistics').mockReturnValue(heapFixture());
+    jest.spyOn(process, 'memoryUsage').mockImplementation(() => {
+      throw Object.assign(new Error('ENOSYS: function not implemented'), { code: 'ENOSYS' });
+    });
+
+    app._logProcessMemoryStats();
+
+    expect(app._processRssUnavailable).toBe(true);
+    expect(app.error).toHaveBeenCalledTimes(1);
+    expect(mätrader(app)[0]).toContain('rss=n/a');
+  });
+
+  test('fel utan .code klassas ändå på meddelandet (reservdetektering)', () => {
+    const app = riggApp();
+    jest.spyOn(v8, 'getHeapStatistics').mockReturnValue(heapFixture());
+    jest.spyOn(process, 'memoryUsage').mockImplementation(() => {
+      throw new Error('ENOENT: no such file or directory, uv_resident_set_memory');
+    });
+
+    app._logProcessMemoryStats();
+
+    expect(app._processRssUnavailable).toBe(true);
+    expect(app.error).toHaveBeenCalledTimes(1);
+  });
+
+  test('båda källorna döda ⇒ ingen rad, EN förklaring per källa, strupningen håller', () => {
+    const app = riggApp();
+    jest.spyOn(v8, 'getHeapStatistics').mockImplementation(() => {
+      throw new Error('ingen v8');
+    });
+    jest.spyOn(process, 'memoryUsage').mockImplementation(() => {
+      throw enoentFel();
+    });
+
+    app._logProcessMemoryStats();
+    expect(mätrader(app)).toHaveLength(0);
+    // En [err] per källa — tyst död är förbjuden, spam likaså.
+    expect(app.error).toHaveBeenCalledTimes(2);
+    const fel = app.error.mock.calls.map((c) => c.join(' '));
+    expect(fel.some((f) => f.includes('V8:s heapstatistik är inte tillgänglig'))).toBe(true);
+    expect(fel.some((f) => f.includes('uv_resident_set_memory'))).toBe(true);
+
+    // Omedelbart nytt anrop (loopen tickar varje minut) ⇒ struppat, inget
+    // nytt fel. Stämpeln sätts FÖRE mätningen, just för detta.
+    app._logProcessMemoryStats();
+    expect(app.error).toHaveBeenCalledTimes(2);
+
+    // Även efter 20 kadenser står felräkningen still.
+    for (let i = 0; i < 20; i += 1) {
+      släppKadensen(app);
+      app._logProcessMemoryStats();
+    }
+    expect(app.error).toHaveBeenCalledTimes(2);
+  });
+
+  test('kadensen är oförändrad 10 min även med mockade källor', () => {
+    const app = riggApp();
+    jest.spyOn(v8, 'getHeapStatistics').mockReturnValue(heapFixture());
+    jest.spyOn(process, 'memoryUsage').mockReturnValue({ rss: 42 * MB });
+
+    app._logProcessMemoryStats();
+    app._logProcessMemoryStats();
+    app._logProcessMemoryStats();
+    expect(mätrader(app)).toHaveLength(1);
+
+    app._processMemoryStatsLoggedAt = Date.now() - 10 * MIN + 5000; // 9:55 in
+    app._logProcessMemoryStats();
+    expect(mätrader(app)).toHaveLength(1);
+
+    släppKadensen(app);
+    app._logProcessMemoryStats();
+    expect(mätrader(app)).toHaveLength(2);
   });
 });

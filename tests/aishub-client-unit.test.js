@@ -189,6 +189,40 @@ describe('Etapp 1: AISHubClient poll-disciplin', () => {
     await jest.advanceTimersByTimeAsync(30 * 60 * 1000);
     expect(calls.length).toBe(at);
   });
+
+  // P1 (söndagsfältet 2026-08-09): kallstartsklampen bor i connect(), men det
+  // är HÄR rate-limiten ägs — svepet prövar båda sidorna av kontraktet för
+  // varje möjlig ålder på en efterlämnad C3c-reservation. Fältet gav 637 s
+  // blindstart (övre sidan); en klamp som går för långt bryter 61s-regeln
+  // (undre sidan). Åldrarna spänner hela fönstret [0, 10 min] plus en utlöpt.
+  test('KALLSTARTSKLAMPEN: aldrig blind > 76 s, aldrig tätare än 61 s — svep över alla reservationsåldrar', async () => {
+    const agesMs = [0, 1000, 30000, 61000, 300000, 599000, 600000, 605000];
+    for (const ageMs of agesMs) {
+      const base = Date.now();
+      const prevPollAt = base - ageMs;
+      const store = makeStore({
+        [CFG.LAST_POLL_SETTINGS_KEY]: prevPollAt + CFG.LAST_POLL_PERSIST_INTERVAL_MS,
+      });
+      const c = new AISHubClient(makeLogger(), store);
+      const calls = [];
+      c._httpGet = jest.fn(async () => {
+        calls.push(Date.now());
+        return { statusCode: 200, body: okSweepBody([]) };
+      });
+      // eslint-disable-next-line no-await-in-loop
+      await c.connect('testuser');
+      // eslint-disable-next-line no-await-in-loop
+      await jest.advanceTimersByTimeAsync(CFG.MIN_POLL_SPACING_MS + CFG.START_JITTER_MAX_MS + 1000);
+
+      // ÖVRE SIDAN: appen får aldrig vara blind längre än spärren + jittret.
+      expect(calls.length).toBeGreaterThanOrEqual(1);
+      expect(calls[0] - base)
+        .toBeLessThanOrEqual(CFG.MIN_POLL_SPACING_MS + CFG.START_JITTER_MAX_MS);
+      // UNDRE SIDAN: mätt mot den VERKLIGA föregående pollen, inte reservationen.
+      expect(calls[0] - prevPollAt).toBeGreaterThanOrEqual(CFG.MIN_POLL_SPACING_MS);
+      c.disconnect();
+    }
+  });
 });
 
 describe('Etapp 1: AISHubClient anslutningssemantik och felmatris', () => {
@@ -521,6 +555,35 @@ describe('Etapp 1: AISHubClient emission, dedup och boxfilter', () => {
     expect(messages[1].fixTs).toBe(Date.UTC(2026, 7, 2, 12, 1, 30));
     expect(client.getConnectionStats().counters.dupes).toBe(1);
     expect(client.getConnectionStats().dedupSize).toBe(1); // aldrig null (soak-kravet)
+  });
+
+  test('P3: lastOkResponseAt följer SVARET (även rena dupe-svep och tomma svep) — lastMessageTime följer emissionen', async () => {
+    // Söndagsfältet 2026-08-09 (KX-1): app-lagrets färskhetsmått för en
+    // POLLANDE källa måste kunna skilja "källan svarar" från "källan levererade
+    // ett NYTT fix". Flyttas den här stämpeln in i emissionsloopen (dit
+    // lastMessageTime hör) återuppstår flappen i connection_status — därför är
+    // kontraktet låst här, vid grunddatat.
+    const t = '2026-08-02 12:00:30 GMT';
+    collect([
+      { statusCode: 200, body: okSweepBody([makeRecord({ TIME: t })]) }, // ny fix
+      { statusCode: 200, body: okSweepBody([makeRecord({ TIME: t })]) }, // ENBART dupe
+      { statusCode: 200, body: okSweepBody([]) }, // tomt svep (nattkanal)
+    ]);
+    await client.connect('testuser');
+    await jest.advanceTimersByTimeAsync(5 * 1000); // poll 1
+    const afterAccepted = client.getConnectionStats();
+    expect(afterAccepted.lastOkResponseAt).not.toBeNull();
+
+    await jest.advanceTimersByTimeAsync(65 * 1000); // poll 2: allt dedupas
+    const afterDupes = client.getConnectionStats();
+    expect(afterDupes.lastOkResponseAt).toBeGreaterThan(afterAccepted.lastOkResponseAt);
+    expect(afterDupes.lastMessageTime).toBe(afterAccepted.lastMessageTime);
+
+    await jest.advanceTimersByTimeAsync(65 * 1000); // poll 3: tomt svep
+    const afterEmpty = client.getConnectionStats();
+    expect(afterEmpty.lastOkResponseAt).toBeGreaterThan(afterDupes.lastOkResponseAt);
+    expect(afterEmpty.lastMessageTime).toBe(afterAccepted.lastMessageTime);
+    expect(afterEmpty.counters.emptySweeps).toBe(1);
   });
 
   test('BOXFILTER (bälte+hängslen): position utanför BOUNDING_BOX emitteras inte', async () => {

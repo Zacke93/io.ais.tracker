@@ -27,6 +27,17 @@
  *   9.  B2g: totaltystnadsgrenen nåddes aldrig vid ett äkta totalavbrott, och
  *       en enda flappande källa avväpnade hela larmet
  *   10. B2c: connection_status speglar degraderat läge (enum + skrivväg)
+ *
+ * SÖNDAGSFÄLTET 2026-08-09 (P3) fällde B2c:s FÄRSKHETSSIDA. Enheten skrev
+ * "connected — båda konfigurerade AIS-källor levererar igen" kl 09:47:03 mitt
+ * i aisstreams totala tystnad, och tillbaka till degraded 09:49:03. Orsak:
+ * hFresh mätte ACCEPTERADE emissioner mot 2 min, men AISHubs 65s-poll dedupar
+ * oförändrade poster ⇒ 130-210 s mellan accepterade är NORMALDRIFT. P3-blocket
+ * längst ned låser de tre delarna av fixen:
+ *   11. pollkällans färskhet mäts på senaste VÄLFORMADE SVAR (FRESH_POLL_MS)
+ *   12. asymmetrisk hysteres: degraderat släpps bara av att den TYSTA källan
+ *       levererar igen — aldrig av att grannens färskhet dippar
+ *   13. startgrinden: 'connected' kräver en accepterad position i pipelinen
  */
 
 process.env.NODE_ENV = 'test';
@@ -35,6 +46,7 @@ global.__TEST_MODE__ = true;
 const fs = require('fs');
 const path = require('path');
 const AISBridgeApp = require('../app');
+const { AIS_CONFIG } = require('../lib/constants');
 
 const MIN = 60 * 1000;
 
@@ -224,6 +236,11 @@ function makeHealthApp({
   };
   app._updateDeviceCapability = jest.fn();
   app._isConnected = isConnected;
+  // P3-STARTGRINDEN (2026-08-09): blocken nedan modellerar en app som REDAN
+  // tagit emot data (källorna bär lastMessageTime, fartyg spåras). Utan den
+  // här markeringen håller startgrinden tillbaka varje 'connected'-skrivning
+  // — grinden har egna prov i P3-blocket längst ned.
+  app._pipelineEverDelivered = true;
   app.aisClient = {
     isConnected,
     getConnectionStats: jest.fn(),
@@ -629,5 +646,371 @@ describe('B2c: connection_status speglar degraderat läge (användarbeslut U8)',
     expect(readJson('package.json').version).toBe(version);
     expect(readJson('.homeycompose/app.json').version).toBe(version);
     expect(version).toBe('5.4.0');
+  });
+});
+
+// ===========================================================================
+// SÖNDAGSFÄLTET 2026-08-09 — P3: CONNECTION_STATUS-SANNINGEN
+// ===========================================================================
+
+describe('P3: pollkällans färskhet + hysteres + startgrind', () => {
+  const MINUTE_TICK_MS = 60 * 1000; // monitoring-loopens takt (hälsotickens)
+
+  /**
+   * FÄLTETS RÅDATA (app-20260809-112256.log, 09:33-09:56): glappen mellan
+   * AISHubs ACCEPTERADE emissioner under normaldrift, medan varje poll
+   * svarade välformat (HTTP 200, records=4). Fem av dem överstiger den gamla
+   * FRESH_MS-tröskeln på 120 s — det var där enheten flippade till 'connected'.
+   */
+  const FIELD_ACCEPT_GAPS_MS = [134440, 131403, 133161, 134817, 206916];
+  const HUB_POLL_MS = AIS_CONFIG.AISHUB.POLL_INTERVAL_MS; // 65 s
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-08-09T09:33:00.000Z'));
+  });
+  afterEach(() => jest.useRealTimers());
+
+  const statusWrites = (app) => app._updateDeviceCapability.mock.calls
+    .filter((c) => c[0] === 'connection_status')
+    .map((c) => c[1]);
+
+  /**
+   * Fältriggen: aisstream har ALDRIG levererat (socketen lever, 429-flappar),
+   * AISHub pollar oavbrutet med välformade svar men släpper igenom accepterade
+   * positioner enligt fältets glapp. `state` gör körningen styrbar:
+   *   • streamLastMessageAt — sätt för att låta aisstream vakna
+   *   • hubPollsFrozenAt    — frys pollklockan (hubben slutar svara)
+   */
+  function fieldRig({ streamSilentAtStart = 16 * MIN } = {}) {
+    const app = makeHealthApp();
+    const t0 = Date.now();
+    const accepts = [t0];
+    FIELD_ACCEPT_GAPS_MS.reduce((acc, gap) => {
+      const next = acc + gap;
+      accepts.push(next);
+      return next;
+    }, t0);
+    const state = { streamLastMessageAt: null, hubPollsFrozenAt: null };
+    const acceptAges = []; // ålder på senaste ACCEPTERADE emission vid varje tick
+
+    app.aisClient.getConnectionStats.mockImplementation(() => {
+      const now = Date.now();
+      const lastAccept = accepts.filter((t) => t <= now).pop() ?? null;
+      acceptAges.push(now - lastAccept);
+      const lastPollAt = state.hubPollsFrozenAt !== null
+        ? state.hubPollsFrozenAt
+        : t0 + Math.floor((now - t0) / HUB_POLL_MS) * HUB_POLL_MS;
+      return {
+        isConnected: true,
+        perFeed: {
+          aisstream: {
+            configured: true,
+            isConnected: true,
+            lastMessageTime: state.streamLastMessageAt,
+            timeSinceLastMessage: state.streamLastMessageAt
+              ? now - state.streamLastMessageAt : null,
+            // Socketen har levt (utan att leverera) sedan före t0.
+            uptime: (now - t0) + streamSilentAtStart,
+          },
+          aishub: {
+            configured: true,
+            isConnected: true,
+            lastMessageTime: lastAccept,
+            timeSinceLastMessage: now - lastAccept,
+            uptime: (now - t0) + 60 * MIN,
+            // FIXENS GRUNDDATA: senaste VÄLFORMADE SVAR (oavsett dedup).
+            lastOkResponseAt: lastPollAt,
+          },
+        },
+      };
+    });
+    return {
+      app, t0, state, acceptAges,
+    };
+  }
+
+  const tickMinutes = (app, minutes) => {
+    for (let i = 0; i < minutes; i++) {
+      jest.advanceTimersByTime(MINUTE_TICK_MS);
+      app._checkAISFeedHealth();
+    }
+  };
+
+  test('FLAPP-SCENARIOT: 130-210 s mellan accepterade ⇒ STABIL degraded, aldrig "connected"', async () => {
+    const { app, acceptAges } = fieldRig();
+    app._checkAISFeedHealth(); // t0: aisstream redan tyst 16 min ⇒ degraderas
+    await microFlush();
+    expect(statusWrites(app)).toEqual(['degraded']);
+
+    tickMinutes(app, 25); // hela fältfönstret, en hälsotick i minuten
+    await microFlush();
+
+    // KÄRNAN: EN skrivning totalt. Före fixen skrev samma sekvens
+    // degraded → connected → degraded → … i cykler.
+    expect(statusWrites(app)).toEqual(['degraded']);
+    expect(app._connectionFeedDegraded).toBe(true);
+    expect(app._lastConnectionStatus).toBe('degraded');
+    // VAKT: provet är bara skarpt om någon tick verkligen landade i ett glapp
+    // > gamla FRESH_MS (2 min) sedan senaste ACCEPTERADE emission.
+    expect(Math.max(...acceptAges)).toBeGreaterThan(2 * MIN);
+    // …och HELA korstystnadsgrenen måste köra varje tick. Fältets starkaste
+    // fingeravtryck var att dedupraden för 'aisstream:silent' SAKNADES på
+    // exakt de två ticksen 09:47:03 och 09:48:03 — grenen (logg + notis +
+    // eskalering) var avväpnad, inte bara capability-skrivningen. En rad per
+    // tick efter den första (som skickade basnotisen).
+    expect(sentKeys(app)).toContain('aisstream:silent');
+    const dedupRader = app.debug.mock.calls
+      .map((c) => c.join(' '))
+      .filter((l) => l.includes("nyckel 'aisstream:silent',"));
+    // KX-14 (fältprovet 2026-08-09): raden STRYPS numera till var 5:e minut
+    // (1 440 → ~288 rader/dygn). Beviset ovan får INTE försvinna med den —
+    // det flyttar bara från radantalet till KONTROLLRÄKNAREN: 25 ticks ⇒
+    // rader vid kontroll 1, 6, 11, 16, 21 och räknaren står på 25.
+    expect(dedupRader).toHaveLength(5);
+    expect(dedupRader.map((l) => l.match(/kontroll #(\d+)/)[1])).toEqual(['1', '6', '11', '16', '21']);
+    expect(app._connectionIssueDedupCount.get('aisstream:silent')).toBe(25);
+  });
+
+  test('KX-14: en avväpnad korstystnadsgren syns i kontrollräknaren trots strypningen', async () => {
+    // Fältets starkaste fingeravtryck var att dedupraden SAKNADES på exakt två
+    // ticks. Med 5-minutersstrypningen finns ingen rad per tick att sakna —
+    // beviset måste därför bäras av räknaren. Här hoppas två ticks över
+    // (grenen kördes inte) och serien avslöjar det.
+    const { app } = fieldRig();
+    app._checkAISFeedHealth(); // basnotisen går iväg
+    await microFlush();
+
+    tickMinutes(app, 3);
+    // Två "avväpnade" minuter: klockan går, men grenen körs aldrig.
+    jest.advanceTimersByTime(2 * MINUTE_TICK_MS);
+    tickMinutes(app, 3);
+    await microFlush();
+
+    const dedupRader = app.debug.mock.calls
+      .map((c) => c.join(' '))
+      .filter((l) => l.includes("nyckel 'aisstream:silent',"));
+    // 8 minuter har passerat men bara 6 kontroller kördes ⇒ raden vid
+    // 5-minutersgränsen (minut 6) bär #4, inte #6. Skillnaden är exakt de två
+    // tappade ticksen.
+    expect(dedupRader.map((l) => l.match(/kontroll #(\d+)/)[1])).toEqual(['1', '4']);
+    expect(app._connectionIssueDedupCount.get('aisstream:silent')).toBe(6);
+  });
+
+  test('SLÄPP-SCENARIOT: aisstream levererar igen ⇒ connected (och först då)', async () => {
+    const { app, state } = fieldRig();
+    app._checkAISFeedHealth();
+    tickMinutes(app, 10);
+    await microFlush();
+    expect(statusWrites(app)).toEqual(['degraded']);
+
+    state.streamLastMessageAt = Date.now(); // den TYSTA källan vaknar
+    tickMinutes(app, 1);
+    await microFlush();
+
+    expect(statusWrites(app)).toEqual(['degraded', 'connected']);
+    expect(app._connectionFeedDegraded).toBe(false);
+    expect(app._connectionDegradedSilentFeed).toBeNull();
+    // Texten är sann per konstruktion: den tysta källan HAR levererat.
+    expect(logText(app)).toContain('båda konfigurerade AIS-källor levererar igen');
+  });
+
+  test('HYSTERESEN: grannens färskhet dippar (pollklockan fryser) ⇒ degraded HÅLLS', async () => {
+    const { app, state } = fieldRig();
+    app._checkAISFeedHealth();
+    await microFlush();
+    expect(statusWrites(app)).toEqual(['degraded']);
+
+    // Hubben slutar svara helt — dess färskhet faller långt under tröskeln.
+    // Före fixen släpptes degraderingen av EXAKT detta (läget blev sämre).
+    state.hubPollsFrozenAt = Date.now();
+    tickMinutes(app, 12);
+    await microFlush();
+
+    expect(statusWrites(app)).toEqual(['degraded']);
+    expect(app._connectionFeedDegraded).toBe(true);
+    expect(app._connectionDegradedSilentFeed).toBe('aisstream');
+  });
+
+  test('POLLKLOCKAN: 205 s sedan svar (12 min sedan accepterad) ⇒ frisk granne; 260 s ⇒ inte', () => {
+    const now = Date.now();
+    const hub = (okAgeMs) => ({
+      configured: true,
+      isConnected: true,
+      lastMessageTime: now - 12 * MIN, // dedupade svep: inga NYA fix på 12 min
+      timeSinceLastMessage: 12 * MIN,
+      uptime: 60 * MIN,
+      lastOkResponseAt: now - okAgeMs,
+    });
+    const stream = {
+      configured: true,
+      isConnected: true,
+      lastMessageTime: now - 20 * MIN,
+      timeSinceLastMessage: 20 * MIN,
+      uptime: 60 * MIN,
+    };
+
+    // 205 s < 3 pollcykler (210 s) ⇒ källan svarar ⇒ halverad redundans.
+    const fresh = makeApp();
+    fresh._checkCrossFeedSilence({ aisstream: stream, aishub: hub(205 * 1000) });
+    expect(fresh._connectionFeedDegraded).toBe(true);
+
+    // 260 s ⇒ fyra uteblivna pollar: hubben svarar inte längre, och eftersom
+    // ingen degradering var satt sedan tidigare finns inget att hålla kvar.
+    const stale = makeApp();
+    stale._checkCrossFeedSilence({ aisstream: stream, aishub: hub(260 * 1000) });
+    expect(stale._connectionFeedDegraded).toBeFalsy();
+  });
+
+  test('TOM KANAL: hubben svarar men levererar inget ⇒ loggraden påstår inte "flödar"', () => {
+    const now = Date.now();
+    const app = makeApp();
+    app._checkCrossFeedSilence({
+      aisstream: {
+        configured: true, isConnected: true, lastMessageTime: now - 20 * MIN, timeSinceLastMessage: 20 * MIN, uptime: 60 * MIN,
+      },
+      aishub: {
+        configured: true,
+        isConnected: true,
+        lastMessageTime: now - 40 * MIN, // nattkanal: inga fartyg i bbox
+        timeSinceLastMessage: 40 * MIN,
+        uptime: 60 * MIN,
+        lastOkResponseAt: now - 10 * 1000, // …men pollen svarar välformat
+      },
+    });
+    const rader = logText(app);
+    expect(rader).toContain('AISHub svarar men inte levererar något');
+    expect(rader).not.toContain('medan AISHub flödar');
+    // Totalgrenen äger scenariot och ska ha sagt det rakt ut.
+    expect(rader).toContain('appen är blind');
+  });
+
+  test('ALDRIG SVARAT (lastOkResponseAt null) är ingen frisk granne', () => {
+    const now = Date.now();
+    const app = makeApp();
+    app._checkCrossFeedSilence({
+      aisstream: {
+        configured: true, isConnected: true, lastMessageTime: now - 20 * MIN, timeSinceLastMessage: 20 * MIN, uptime: 60 * MIN,
+      },
+      aishub: {
+        configured: true, isConnected: false, lastMessageTime: null, timeSinceLastMessage: null, uptime: 60 * MIN, lastOkResponseAt: null,
+      },
+    });
+    expect(app._connectionFeedDegraded).toBeFalsy();
+  });
+
+  test('DIMENSIONERINGEN: 3 pollcykler täcker fältets värsta accepterade-glapp', () => {
+    const { POLL_INTERVAL_MS, POLL_JITTER_MS, SILENT_FEED_MS } = AIS_CONFIG.AISHUB;
+    const freshPollMs = 3 * (POLL_INTERVAL_MS + POLL_JITTER_MS);
+    // Härledningen ska hålla mot RÅDATAT, inte bara mot sig själv.
+    expect(freshPollMs).toBeGreaterThan(Math.max(...FIELD_ACCEPT_GAPS_MS)); // 210 000 > 206 916
+    // Klienten ger upp först (sätter sig 'disconnected' vid SILENT_FEED_MS) —
+    // vi får aldrig döma en källa som klienten själv anser levande.
+    expect(freshPollMs).toBeGreaterThanOrEqual(SILENT_FEED_MS);
+  });
+});
+
+describe('P3: startgrinden — "connected" kräver en accepterad position', () => {
+  const validFix = {
+    mmsi: '265533390', lat: 58.2818, lon: 12.2861, sog: 4.3, cog: 39.1, timestamp: Date.now(),
+  };
+
+  const gateApp = () => {
+    const app = makeHealthApp();
+    app._pipelineEverDelivered = false; // kallstart: pipelinen har sett noll
+    // Samma boot-tillstånd som onInit sätter i produktion (annars ser första
+    // gatade skrivningen ut som en flank i provet).
+    app._lastConnectionStatus = 'disconnected';
+    app.vesselDataService = { updateVessel: jest.fn().mockReturnValue(null) };
+    return app;
+  };
+
+  const statusWrites = (app) => app._updateDeviceCapability.mock.calls
+    .filter((c) => c[0] === 'connection_status')
+    .map((c) => c[1]);
+
+  test('FÄLTFALLET: handskakning utan en enda position ⇒ INTE "connected"', () => {
+    const app = gateApp();
+    app._onAISConnected();
+
+    expect(statusWrites(app)).not.toContain('connected');
+    expect(app._lastConnectionStatus).not.toBe('connected');
+    expect(app.connectionStatusValue()).toBe('disconnected');
+    expect(logText(app)).toContain('startgrinden');
+  });
+
+  test('första accepterade positionen öppnar grinden — och skriver statusen själv', () => {
+    const app = gateApp();
+    app._onAISConnected();
+    expect(statusWrites(app)).not.toContain('connected');
+
+    app._processAISMessage({ ...validFix, timestamp: Date.now() });
+    expect(app._pipelineEverDelivered).toBe(true);
+    expect(app.connectionStatusValue()).toBe('connected');
+    // Flanken får inte vänta på nästa UI-cykel: ett fartyg utanför
+    // bevakningsområdet ger varken vessel-event eller watchdog-cykel.
+    expect(statusWrites(app)).toEqual(['connected']);
+    expect(app._lastConnectionStatus).toBe('connected');
+
+    // Andra positionen skriver inte om (flanken är engångs).
+    app._processAISMessage({ ...validFix, timestamp: Date.now() });
+    expect(statusWrites(app)).toEqual(['connected']);
+  });
+
+  test('AVVISAT meddelande öppnar INTE grinden (0,0-artefakten)', () => {
+    const app = gateApp();
+    app._processAISMessage({
+      mmsi: '265533390', lat: 0, lon: 0, sog: 0, cog: 0,
+    });
+    expect(app._pipelineEverDelivered).toBe(false);
+    expect(app.connectionStatusValue()).toBe('disconnected');
+  });
+
+  test('"degraded" gatas INTE — halverad redundans ska synas direkt', async () => {
+    const app = gateApp();
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-08-09T09:33:00.000Z'));
+    try {
+      const now = () => Date.now();
+      app.aisClient.getConnectionStats.mockImplementation(() => ({
+        isConnected: true,
+        perFeed: {
+          aisstream: {
+            configured: true, isConnected: true, lastMessageTime: null, timeSinceLastMessage: null, uptime: 60 * MIN,
+          },
+          aishub: {
+            configured: true,
+            isConnected: true,
+            lastMessageTime: now() - 3 * MIN,
+            timeSinceLastMessage: 3 * MIN,
+            uptime: 60 * MIN,
+            lastOkResponseAt: now() - 10 * 1000,
+          },
+        },
+      }));
+
+      app._checkAISFeedHealth();
+      jest.advanceTimersByTime(16 * MIN);
+      app._checkAISFeedHealth();
+      await Promise.resolve();
+
+      expect(statusWrites(app)).toContain('degraded');
+      expect(statusWrites(app)).not.toContain('connected');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('KX-10: connect/disconnect håller flankcachen i synk med enheten', () => {
+    const app = makeHealthApp(); // pipelinen har levererat (helper-default)
+    app._lastConnectionStatus = 'connected';
+
+    app._onAISDisconnected({ code: 1006, reason: '' });
+    expect(app._lastConnectionStatus).toBe('disconnected');
+    expect(statusWrites(app)).toEqual(['disconnected']);
+
+    app._onAISConnected();
+    expect(app._lastConnectionStatus).toBe('connected');
+    expect(statusWrites(app)).toEqual(['disconnected', 'connected']);
   });
 });

@@ -74,8 +74,15 @@ class BridgeStatusDevice extends Homey.Device {
       // B2c (etapp 7, 2026-08-08): tre lägen — en enhet som paras medan halva
       // källparet är dött ska inte visa "Uppkopplad" tills nästa flank. Samma
       // uttryck som appens _updateUI-flank (frånkoppling vinner över degraderat).
+      // P3 (2026-08-09): uttrycket bor numera i appen (connectionStatusValue),
+      // som också bär STARTGRINDEN — en enhet som paras under startblindheten
+      // ska inte visa "Uppkopplad" innan en enda position passerat pipelinen.
+      // Fallbacken behålls för appstubbar utan metoden (äldre tester/mockar).
       const connectedValue = this.homey.app._connectionFeedDegraded ? 'degraded' : 'connected';
-      const statusValue = this.homey.app._isConnected ? connectedValue : 'disconnected';
+      const fallbackStatus = this.homey.app._isConnected ? connectedValue : 'disconnected';
+      const statusValue = typeof this.homey.app.connectionStatusValue === 'function'
+        ? this.homey.app.connectionStatusValue()
+        : fallbackStatus;
       await this.setCapabilityValue('connection_status', statusValue);
       this.log(`Initial connection status: ${statusValue}`);
 

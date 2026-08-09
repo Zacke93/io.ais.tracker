@@ -316,6 +316,63 @@ describe('StatusService — beteende', () => {
     });
   });
 
+  // ---- BT-9 (fältprov 2026-08-09): observabilitet, ingen beteendeändring ----
+  // [STATUS_WAITING]-raden namngav ALLTID målbron. I fältloggen stod därför
+  // "Setting waiting status at Klaffbron" på raden direkt efter
+  // "220m from intermediate bridge \"Olidebron\"" (~40 gånger, AKLEJA) — en
+  // triage-läsare drog slutsatsen att båten väntade vid en bro 1161 m bort.
+  // Testerna låser att raden namnger den bro väntstatusen FAKTISKT avser och
+  // att målbron följer med i parentes bara när de skiljer sig.
+  describe('BT-9: STATUS_WAITING-loggens bronamn', () => {
+    const waitingLines = () => statusService.logger.debug.mock.calls
+      .map(([msg]) => msg)
+      .filter((msg) => typeof msg === 'string' && msg.includes('[STATUS_WAITING]'));
+
+    test('mellanbro-väntan namnger MELLANBRON med målbron i parentes', () => {
+      const vessel = makeVessel({ targetBridge: 'Stridsbergsbron' });
+      placeAt(vessel, BRIDGES.jarnvagsbron, 250); // mellanbrogrenen (~480 m till målet)
+      statusService.logger.debug.mockClear();
+
+      const { result } = analyze(vessel);
+
+      expect(result.status).toBe('waiting'); // beteendet oförändrat
+      expect(waitingLines()).toHaveLength(1);
+      expect(waitingLines()[0]).toContain('Setting waiting status at Järnvägsbron (mål: Stridsbergsbron)');
+      // Regressionsvakt mot den gamla formuleringen: målbron får inte stå
+      // som väntplats.
+      expect(waitingLines()[0]).not.toMatch(/waiting status at Stridsbergsbron/);
+      expect(statusService.logger.error).not.toHaveBeenCalled(); // svälj-fällan
+    });
+
+    test('målbro-väntan namnger målbron UTAN parentes', () => {
+      const vessel = makeVessel(); // målbro Klaffbron
+      placeAt(vessel, BRIDGES.klaffbron, 250);
+      statusService.logger.debug.mockClear();
+
+      const { result } = analyze(vessel);
+
+      expect(result.status).toBe('waiting');
+      expect(waitingLines()).toHaveLength(1);
+      expect(waitingLines()[0]).toContain('Setting waiting status at Klaffbron');
+      expect(waitingLines()[0]).not.toContain('(mål:');
+    });
+
+    test('stämpeln nollställs mellan anrop — en mellanbro läcker inte till nästa målbrovänt', () => {
+      // Utan nollställningen i _isWaiting kunde ett gammalt mellanbronamn
+      // stå kvar och namnge fel bro i en senare tick.
+      const intermediate = makeVessel({ targetBridge: 'Stridsbergsbron' });
+      placeAt(intermediate, BRIDGES.jarnvagsbron, 250);
+      analyze(intermediate);
+      expect(statusService._lastWaitingBridgeName).toBe('Järnvägsbron');
+
+      const enRoute = makeVessel({ mmsi: 265123001, targetBridge: 'Klaffbron' });
+      placeAt(enRoute, BRIDGES.klaffbron, 2000); // långt utanför alla väntzoner
+      analyze(enRoute);
+
+      expect(statusService._lastWaitingBridgeName).toBeNull();
+    });
+  });
+
   describe('FIX U: tvingad waiting vid nära bro-par', () => {
     test('aktiv force-flagga inom 500 m ger omedelbar waiting och konsumerar flaggan', () => {
       const vessel = makeVessel({
