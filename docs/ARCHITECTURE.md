@@ -769,6 +769,30 @@ otestad felmod för ett fartyg som stannar ~12 m från bron (fynd 19). Samtliga
 rör facit-låsta beslutsvägar eller kräver kalibrerdata som inte finns — de ska
 mätas i nästa A/B, inte gissas fram.
 
+**ETAPP 7 (2026-08-08/09) — status på de öppna A/B-fynden ovan:**
+- **Fynd 18 (Stallbackakoordinaten) är UTREtt men UPPSKJUTET.** Rätt värde är härlett tolv
+  oberoende gånger (`lon: 12.317971`; 42h-fältprovets egen median 12.318344, n=19). Felet är
+  bekräftat: appens rapporterade Stallbacka-avstånd är systematiskt fel med **median +174 m**.
+  Fixen backades ändå — den är netto negativ i nuvarande form: **−3 äkta notiser** (terminalfixar
+  på 295–300 m från gamla punkten men 324–327 m från den rätta, utan senare sampel) och **+2
+  fantomer** från en kajplats som den rätta punkten drar in i notisringen. Hela härledningen,
+  villkoren och revert-kriteriet står vid koordinaten i `lib/constants.js`. Förutsättningar:
+  C9b (jittertålig stillhetsdetektering) + bro-lokal notisradie.
+- **Fynd 10 (per-fartygs-degradering)** kvarstår, men watchdogloggen ljuger inte längre om
+  varaktighet: A7 loggar `sinceMessage`, `uptime` och `sinceConfigured` var för sig. I fält sa
+  20 av 21 strikes fel tid — strike 21 påstod 120 min när sanningen var 3 009.
+- **Källdödslarmet mäter nu OBSERVERAD tystnad**, `now − max(lastMessageTime,
+  observationsankare)`, i stället för klientens `timeSinceLastMessage`-sentinel och socketens
+  uptime. Ankaret är medvetet **icke-persisterat** (ett persisterat ankare återinför kollapsen vid
+  omstart mitt i ett avbrott). `connection_status` har värdet `degraded` sedan v5.4.0.
+- **MOORING_ZONES bär `queueGraceMs`** (C0b): köundantaget som höjer stillhetskravet 3 → 15 min är
+  zon-lokalt, inte avståndsbaserat. Zonernas broavstånd **överlappar** (kajzonen 161–320 m,
+  gästhamnen 319–446 m), så ingen avståndströskel kan separera dem.
+- **Riktningslåset kräver rörelsebevis** (C4b): `_routeDirection` skrivs bara om från COG när
+  `sog ≥ FIX_D_MIN_SOG`. Målbrologiken förkastade redan sådana COG; låset gjorde det inte.
+- **Rådatafacit (`gt-passages/`) läser farledspolylinjen, aldrig `BRIDGES`-koordinaten** — annars
+  bygger facit in exakt den buggklass fynd 18 rättar.
+
 **Replay-fångsten kräver debug_level='full'** (sedan 2026-07-06):
 `[AIS_REPLAY_SAMPLE]`-raderna loggas inte längre i normal drift (spammade
 Homey-loggen med varje AIS-meddelande i produktion). run-with-logs.sh varnar

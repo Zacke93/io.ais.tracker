@@ -58,6 +58,8 @@ const {
   CONNECTION_ALERT, // B2: eskalerande källdödslarm (1h/4h-trappan)
   AIS_CONFIG, // Etapp 2: AISHub-vaktens trösklar (AIS_CONFIG.AISHUB)
   BRIDGE_OPENING, // Etapp 6: öppningsvarningarnas trösklar (konvojfönster m.m.)
+  PROTECTION_ZONE_RADIUS, // C1b: samma radie som BRIDGE_OPENING-hållningens säkerhetsventil
+  UNDER_BRIDGE_CLEAR_DISTANCE, // C1b/C2: hysteresens släppavstånd för under-bridge
 } = require('./lib/constants');
 
 // Lägsta fart (knop) där COG är tillförlitlig för riktningsbestämning. Under
@@ -85,6 +87,45 @@ const FEED_SILENCE_PERSIST_INTERVAL_MS = 60 * 60 * 1000;
 // så de två serierna kan läsas parvis i fältloggen. Monitoring-loopen går varje
 // minut, därför struppas raden här i stället för i loopen.
 const PROCESS_MEMORY_STATS_INTERVAL_MS = 10 * 60 * 1000;
+
+// C1b (etapp 7, 2026-08-09): summeringsvalidatorns avståndsgräns för status
+// 'under-bridge'. Basvärdet är UNDER_BRIDGE_CLEAR_DISTANCE (70 m — hysteresens
+// släppavstånd) + 30 m GPS-marginal = 100 m, dvs. exakt det gamla hårdkodade
+// talet; ingen beteendeändring i det normala fallet.
+const UNDER_BRIDGE_VALIDATION_MAX_M = UNDER_BRIDGE_CLEAR_DISTANCE + 30;
+
+// C1b: MEN under BRIDGE_OPENING-hållningen (StatusService._handleBridgeOpening,
+// "Holding under-bridge state for …") behåller appen MEDVETET under-bridge tills
+// båten är längre bort än PROTECTION_ZONE_RADIUS — hållningens EGEN
+// säkerhetsventil ([BRIDGE_OPENING_CLEAR] vid >300 m). Validatorn dömde alltså
+// hållningens design som inkonsistens. MÄTT över samtliga 18 korpusar (~320 h):
+// 500 utslag på >100 m, varav 497 (99,4 %) inne i en aktiv hållning och
+// SAMTLIGA av dem ≤ 299 m; de 3 utan hållning låg alla på 182 m och rör
+// grinden inte alls. Gränsen höjs därför bara för hold-klassade lägen — inte
+// svepande.
+const UNDER_BRIDGE_HOLD_VALIDATION_MAX_M = PROTECTION_ZONE_RADIUS;
+
+// C2 (etapp 7, 2026-08-09): avstånd till MÅLBRON där ETA-clampen släpps.
+// Värdet är MÄTDRIVET, inte valt: planens förslag 150 m prövades mot 182
+// clamp-publiceringar med känd faktisk passagetid och gav Δ −8,8 min i
+// totalfel; 70 m gav Δ −27,2 min och är dessutom den enda tröskel med en
+// härledning — UNDER_BRIDGE_CLEAR_DISTANCE är appens EGEN gräns för "båten är
+// vid bron" (under-bridge sätts vid ≤50 m och släpps först vid ≥70 m). 150 m
+// släppte även en krypande båt 140 m ut i 1,0 knop (BEAUTYFIELD, 20260707-14h)
+// vars färska värde var MER fel än det clampade. Sweepen: 70 → −27,2,
+// 100/120 → −13,5, 150 → −8,8, 200 → −11,1, 250 → −0,4, 300 → +32,2.
+const ETA_CLAMP_RELEASE_DISTANCE_M = UNDER_BRIDGE_CLEAR_DISTANCE;
+
+// C3b (etapp 7, 2026-08-09): skrivtakt för sista-kända-positioner
+// ('last_known_positions'). Samma flash-slitagehänsyn och samma 15 min som
+// _persistQuayLedger (QUAY_DEPARTURE_GATE.PERSIST_INTERVAL_MS), men EGEN
+// konstant eftersom storheterna skiljer sig: kajbokföringens minne är 2 h,
+// den här kartans TTL är _LAST_KNOWN_POSITION_TTL_MS = 6 h, så 15 minuters
+// inaktualitet är ännu ofarligare här (och laddningen TTL-kontrollerar ändå
+// varje post). Mätt i 42h-fältprovet: 2 528 removals ⇒ 2 528 write-through-
+// skrivningar; över hela regressionskorpusen 7 253 skrivningar = 74 % av
+// SAMTLIGA settings-skrivningar.
+const LAST_KNOWN_PERSIST_INTERVAL_MS = 15 * 60 * 1000;
 
 /**
  * =============================================================================
@@ -1497,11 +1538,21 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
-   * SPIKEN-vaktens persistens: skriv mappen till settings. Anropas vid
-   * mutation (removal) — låg frekvens, write-through är billigt.
+   * SPIKEN-vaktens persistens: skriv mappen till settings.
+   *
+   * C3b (etapp 7, 2026-08-09): STRYPT SKRIVTAKT. Kommentaren "låg frekvens,
+   * write-through är billigt" var fältfalsifierad — anropet ligger
+   * VILLKORSLÖST i _onVesselRemoved, och 42h-provet gav 2 528 removals
+   * (2 permanent förtöjda båtar stod för 66 % av churnen). Mönstret är
+   * _persistQuayLedgers: en hel blob var 15:e minut, oavsett antal fartyg,
+   * plus force vid onUninit. Se LAST_KNOWN_PERSIST_INTERVAL_MS för
+   * härledningen; kartans egen TTL är 6 h och laddningen TTL-kontrollerar
+   * varje post, så 15 minuters inaktualitet kan inte återuppliva en utgången
+   * position.
+   * @param {boolean} [force] - skriv nu (onUninit)
    * @private
    */
-  _persistLastKnownPositions() {
+  _persistLastKnownPositions(force = false) {
     try {
       if (!this.homey || !this.homey.settings || typeof this.homey.settings.set !== 'function') {
         return;
@@ -1509,6 +1560,11 @@ class AISBridgeApp extends Homey.App {
       if (!this._lastKnownPositions) {
         return;
       }
+      const now = Date.now();
+      if (!force && now - (this._lastKnownPositionsPersistedAt || 0) < LAST_KNOWN_PERSIST_INTERVAL_MS) {
+        return;
+      }
+      this._lastKnownPositionsPersistedAt = now;
       const serialized = {};
       for (const [mmsi, entry] of this._lastKnownPositions.entries()) {
         serialized[mmsi] = entry;
@@ -3442,11 +3498,57 @@ class AISBridgeApp extends Homey.App {
     const sameTarget = vessel._etaPublishTarget === vessel.targetBridge;
     vessel._etaPublishTarget = vessel.targetBridge;
 
+    // C2 (etapp 7, 2026-08-09): SLÄPPGRIND VID MÅLBRON.
+    // Clampen är ett SÅGTANDSSKYDD, inte ett tak. När båten faktiskt är framme
+    // vid sin målbro är den färska beräkningen alltid sannare än en baslinje
+    // från föregående burst — annars publiceras 17,7 minuter (dämpat mot
+    // baslinjen 27,6) medan den färska beräkningen säger 0,2, båten ligger
+    // 34 m från bron och passerar 2,0 minuter senare (20260713-41h,
+    // 219029305 @ 2026-07-15T08:54:50).
+    //
+    // MÄTT över samtliga 18 korpusar (~320 h): 206 clamp-händelser, 182 med
+    // känd faktisk målbropassage efteråt. Mot RÄTT felmått
+    // (|publicerad − faktisk passagetid|, inte |publicerad − färsk|) sjunker
+    // totalfelet 3 844,1 → 3 816,9 min.
+    //
+    // PLANENS TREDJE VILLKOR `status === 'under-bridge'` ÄR MEDVETET
+    // UTELÄMNAT: statusen sätts även under MELLANBROAR, där båten fortfarande
+    // är 1–2 km från målet och den färska beräkningen är som mest instabil.
+    // Att släppa där ÖKADE totalfelet med 199,2 minuter i samma mätning
+    // (28 fall, hjälpte 14 / skadade 14 men med kraftigt negativ nettosumma).
+    // "Under MÅLbron" är däremot exakt vad avståndsbenet nu uttrycker, eftersom
+    // ETA_CLAMP_RELEASE_DISTANCE_M ÄR under-bridge-hysteresens släppavstånd.
+    let distToTargetM = null;
+    if (vessel.targetBridge && this.bridgeRegistry
+        && Number.isFinite(vessel.lat) && Number.isFinite(vessel.lon)) {
+      const targetObj = this.bridgeRegistry.getBridgeByName(vessel.targetBridge);
+      if (targetObj && Number.isFinite(targetObj.lat) && Number.isFinite(targetObj.lon)) {
+        distToTargetM = geometry.calculateDistance(
+          vessel.lat, vessel.lon, targetObj.lat, targetObj.lon,
+        );
+      }
+    }
+    const nearTarget = Number.isFinite(distToTargetM)
+      && distToTargetM <= ETA_CLAMP_RELEASE_DISTANCE_M;
+    const atTargetBridge = vessel._isImminentAtTargetBridge === true || nearTarget;
+    if (atTargetBridge && Number.isFinite(freshETA) && published !== null && sameTarget
+        && published >= 3) {
+      this.debug(
+        `🪜 [ETA_CLAMP_RELEASE] ${vessel.mmsi}: släpper clampen vid ${vessel.targetBridge} `
+        // Skriv vilken av grinderna som faktiskt bar beslutet — inte "avstånd"
+        // när värdet i själva verket kom från imminent-flaggan.
+        + `(${vessel._isImminentAtTargetBridge === true ? 'imminent-flaggan' : `${Math.round(distToTargetM)} m`}) `
+        + `— publicerar färsk ${freshETA.toFixed(1)} i stället för att dämpa mot ${published.toFixed(1)}`,
+      );
+    }
+
     if (!Number.isFinite(freshETA) || published === null || !sameTarget
         // I "strax"-bandet (<3 min) släpps clampen: texten är binär där
         // (strax/om N) och ett golv på +3 skulle SKAPA artificiella
         // "om 3 minuter" för båtar som verkligen är strax framme.
-        || published < 3) {
+        || published < 3
+        // C2: samma släpp när båten är framme vid målbron.
+        || atTargetBridge) {
       vessel._etaPublishedValue = Number.isFinite(freshETA) ? freshETA : null;
       vessel._etaPublishedAtMs = Date.now();
       // Helkodsgranskning 2026-06-13: nolla även burst-tillståndet i släpp-
@@ -3784,6 +3886,8 @@ class AISBridgeApp extends Homey.App {
 
       // Generate bridge text with BULLETPROOF error handling
       let bridgeText;
+      // C1a (etapp 7, 2026-08-09): sätts av PASSED_HOLD_UI-grenen nedan.
+      let isHoldReplay = false;
       try {
         bridgeText = this.bridgeTextService.generateBridgeText(relevantVessels);
         this.debug(`📱 [_actuallyUpdateUI] Generated bridge text: "${bridgeText}"`);
@@ -3836,14 +3940,12 @@ class AISBridgeApp extends Homey.App {
             && this._lastBridgeText !== BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE
             && this._lastBridgeText !== STALE_DATA_OVERRIDE_TEXT
             && Array.isArray(relevantVessels)) {
-          const recentTargetPassage = relevantVessels.some((v) => v
-            && v.lastPassedBridge
-            && TARGET_BRIDGES.includes(v.lastPassedBridge)
-            && Number.isFinite(v.lastPassedBridgeTime)
-            && (Date.now() - v.lastPassedBridgeTime) < PASSAGE_TIMING.PASSED_HOLD_MS);
-          if (recentTargetPassage) {
+          // C1c (2026-08-09): predikatet är utbrutet till _hasRecentTargetPassage
+          // så nödfallbacken kan ställa EXAKT samma fråga (delad SSOT).
+          if (this._hasRecentTargetPassage(relevantVessels)) {
             this.debug('🌉 [PASSED_HOLD_UI] Behåller förra texten — båt i passed-fönstret vid målbro (broöppningen pågår; undviker falskt "Inga båtar")');
             bridgeText = this._lastBridgeText;
+            isHoldReplay = true;
           }
         }
       } catch (bridgeTextError) {
@@ -3854,7 +3956,35 @@ class AISBridgeApp extends Homey.App {
       }
 
       // ENHANCED: Summary validation and sanity checks
-      const validationResult = this._validateBridgeTextSummary(bridgeText, relevantVessels, snapshot);
+      //
+      // C1a (etapp 7, 2026-08-09): en HOLD-REPLAY av förra texten valideras
+      // inte om. Texten godkändes redan när den publicerades; att döma om den
+      // mot en fartygsmängd som textmotorn just förklarat orenderbar är
+      // strukturellt garanterat fel — count-checken jämför "Två båtar" mot
+      // renderable=0 och larmar kritiskt. Utfallet var en ren no-op: RC-B-
+      // grenen valde _lastBridgeText, dvs. EXAKT den text som redan låg i
+      // bridgeText. Mätt över samtliga 18 korpusar (~320 h, 49 208
+      // valideringsanrop): 17 underkännanden, varav 12 av just den här
+      // klassen — i ALLA 12 var fallbacktexten byte-identisk med indata.
+      // Larmet var alltså 100 % brus. Korpus #18:s 92 hold-passager (fält-
+      // loggen räknade 94) undgick larmet enbart på aritet — alla nämnde EN
+      // båt ⇒ |1−0| ≤ 1; vid TVÅ båtar smäller det, vilket är precis vad
+      // korpus #17 visar. Hoppet gäller ENBART den här grenen — GPS-hold,
+      // feed-stale-vakten och den vanliga vägen valideras som förut.
+      let validationResult;
+      if (isHoldReplay) {
+        validationResult = {
+          isValid: true,
+          reason: null,
+          shouldUseFallback: false,
+          fallbackText: null,
+          checks: [],
+          skipped: 'passed-hold-replay',
+        };
+        this.debug('⏭️ [SUMMARY_VALIDATION_SKIP] Hold-replay av redan validerad text — summeringsvalideringen hoppas (C1a)');
+      } else {
+        validationResult = this._validateBridgeTextSummary(bridgeText, relevantVessels, snapshot);
+      }
       if (!validationResult.isValid) {
         // Observabilitet (2026-06-11): valideringsfall var debug-loggade →
         // i flertrafik-scenarier degraderades texten utan spår i prodloggen.
@@ -4081,6 +4211,30 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * C1c (etapp 7, 2026-08-09): DELAT predikat — ligger minst en båt i
+   * passed-fönstret vid en MÅLBRO just nu?
+   *
+   * Bruten ur PASSED_HOLD_UI-grenen i _actuallyUpdateUI. Samma fråga ställs på
+   * två ställen (visningshållningen och nödfallbacken) och måste ge samma svar
+   * — annars kan fallbacken publicera DEFAULT ("Inga båtar…") i exakt det
+   * fönster hållningen finns till för att skydda (IMPERATOR-/BALTIC
+   * JONGLEUR-klassen: målbropassage nollar targetBridge medan båten är UNDER
+   * bron).
+   * @param {Array} vessels - fartygsprojektioner
+   * @returns {boolean}
+   * @private
+   */
+  _hasRecentTargetPassage(vessels) {
+    if (!Array.isArray(vessels)) return false;
+    const now = Date.now();
+    return vessels.some((v) => v
+      && v.lastPassedBridge
+      && TARGET_BRIDGES.includes(v.lastPassedBridge)
+      && Number.isFinite(v.lastPassedBridgeTime)
+      && (now - v.lastPassedBridgeTime) < PASSAGE_TIMING.PASSED_HOLD_MS);
+  }
+
+  /**
    * Validate bridge text summary against actual vessel states
    * ENHANCED: Summary generation sanity checks
    * @param {string} bridgeText - Generated bridge text
@@ -4271,12 +4425,29 @@ class AISBridgeApp extends Homey.App {
         }
       }
 
-      if (vessel.status === 'under-bridge' && Number.isFinite(nearestDist) && nearestDist > 100) {
-        inconsistencies.push(`${vessel.mmsi} status='under-bridge' but ${nearestDist.toFixed(0)}m from nearest bridge`);
+      // C1b (etapp 7, 2026-08-09): 100 m-talet var hårdkodat och MÄTBART FEL i
+      // ett läge — under BRIDGE_OPENING-hållningen håller StatusService kvar
+      // under-bridge tills båten är >PROTECTION_ZONE_RADIUS bort. Döm mot
+      // hållningens EGEN gräns när hållningen är aktiv, mot 100 m annars.
+      const holdActive = Number.isFinite(vessel._bridgeOpeningUntil)
+        && vessel._bridgeOpeningUntil > Date.now();
+      const underBridgeMaxM = holdActive
+        ? UNDER_BRIDGE_HOLD_VALIDATION_MAX_M
+        : UNDER_BRIDGE_VALIDATION_MAX_M;
+      if (vessel.status === 'under-bridge' && Number.isFinite(nearestDist) && nearestDist > underBridgeMaxM) {
+        // Skriv vilken gräns som faktiskt tillämpades — en rad som påstår fel
+        // källa vilseleder nästa fältläsare.
+        inconsistencies.push(
+          `${vessel.mmsi} status='under-bridge' but ${nearestDist.toFixed(0)}m from nearest bridge `
+          + `(gräns ${underBridgeMaxM}m${holdActive ? ', broöppningshållning aktiv' : ''})`,
+        );
       }
 
       if (vessel.etaMinutes !== null && vessel.etaMinutes !== undefined) {
-        const underTargetBridge = vessel.status === 'under-bridge' && distToTarget <= 100;
+        // Oförändrat värde (100 m) — bara magiska talet ersatt av konstanten.
+        // Frågan här är en ANNAN: är bron man är under MÅLbron?
+        const underTargetBridge = vessel.status === 'under-bridge'
+          && distToTarget <= UNDER_BRIDGE_VALIDATION_MAX_M;
         if (underTargetBridge && vessel.etaMinutes > 1) {
           inconsistencies.push(`${vessel.mmsi} status='under-bridge' at target but ETA=${vessel.etaMinutes.toFixed(1)}min`);
         }
@@ -4546,6 +4717,25 @@ class AISBridgeApp extends Homey.App {
     // som motsäger texten). Räkna och representera samma mängd som motorn
     // (R2/A3R2-3: renderable, INTE ETA-gatade sanitized).
     if (renderableVessels.length === 0) {
+      // C1c (etapp 7, 2026-08-09): renderbara=0 är INTE alltid "inga båtar".
+      // Ligger en båt i passed-fönstret vid en MÅLBRO är hon osynlig för
+      // textmotorn (targetBridge nollas vid målbropassage) samtidigt som
+      // broöppningen pågår — exakt det fönster PASSED_HOLD_UI skyddar en
+      // nivå upp. Att nödfallbacken då publicerar DEFAULT vore att riva
+      // hållningen bakvägen. Samma undantag som hållningen och
+      // RC-B-fallbacken: frånkopplingstexten återpubliceras ALDRIG (BT-F5).
+      // MÄTNOT: vägen nåddes 0 gånger i samtliga 18 korpusar (~320 h) —
+      // fixen är LATENT och bevisas av syntetiskt scenario, inte av fältdata.
+      if (this._hasRecentTargetPassage(vessels)
+          && this._lastBridgeText
+          && this._lastBridgeText !== BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE
+          && this._lastBridgeText !== STALE_DATA_OVERRIDE_TEXT) {
+        this.debug(
+          '🌉 [FALLBACK_PASSED_HOLD] Nödfallback: 0 renderbara men båt i passed-fönstret '
+          + 'vid målbro — behåller senaste texten i stället för DEFAULT (C1c)',
+        );
+        return this._lastBridgeText;
+      }
       return BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE;
     }
     const vesselCount = renderableVessels.length;
@@ -6730,6 +6920,31 @@ class AISBridgeApp extends Homey.App {
       return;
     }
 
+    // C5 (etapp 7, 2026-08-09): planens ≥2-SAMPELGRIND ÄR MEDVETET INTE
+    // INFÖRD — den är rådatafalsifierad. Mätt över samtliga 18 korpusar hade
+    // "kräv ≥2 positionssampel i spårhistoriken" tagit bort 191 av 337
+    // failsafe-notiser (56,7 %), däribland 7 av de 9 som 42h-fältprovet
+    // rådataverifierade som ÄKTA gap-passager. Orsaken är strukturell:
+    // gap-passager upptäcks per definition på episodens FÖRSTA sampel, och
+    // beviset kommer från den PERSISTERADE sista kända positionen
+    // (_lastKnownPositions), inte från spårhistoriken. Även det namngivna
+    // fallet — SIESTA 211671350 i korpus #17 — är rådataverifierat ÄKTA: hon
+    // låg 08:51:11 på 58.27444/12.27807 (söder om Klaffbron), var AIS-tyst i
+    // 3 h 35 min och dök upp 12:26:35 på 58.30750/12.31284 (norr om
+    // Stridsbergsbron). Alla tre inferrade korsningar SKEDDE. Defekten är att
+    // notisen kommer 1,9–3,1 km för sent — den RETROAKTIVA klassen, som ägs
+    // av C13/U7:s avståndsgrind, inte av en sampelräknare.
+    // Raden nedan gör klassen mätbar i fält utan att röra beteendet.
+    const singleSampleEpisode = !(vessel.lastPosition
+      && Number.isFinite(vessel.lastPosition.lat)
+      && Number.isFinite(vessel.lastPosition.lon));
+    if (singleSampleEpisode) {
+      this.debug(
+        `📍 [FALLBACK_SINGLE_SAMPLE] ${vessel.mmsi}: ${bridgeName}-failsafe på episodens FÖRSTA `
+        + `positionssampel (${Math.round(distance)}m) — passagen vilar på persisterad/inferrad `
+        + 'evidens, inte på spårhistorik',
+      );
+    }
     this.log(
       `⚠️ [FALLBACK_BOAT_NEAR] ${vessel.mmsi}: Passage of ${bridgeName} detected `
       + `without prior proximity trigger (distance=${Math.round(distance)}m) — firing failsafe`,
@@ -8861,6 +9076,12 @@ class AISBridgeApp extends Homey.App {
     // (granskningsrunda 2: en omstart 5 s före kajavgången återskapade
     // PRICKBJORN-fantomen exakt).
     this._persistQuayLedger(true);
+    // C3b (etapp 7, 2026-08-09): sista-kända-positionerna skrivs numera strypt
+    // (15 min) — utan en force-flush här kunde upp till 15 minuters removals
+    // gå förlorade vid en kontrollerad omstart, och SPIKEN-vaktens
+    // inferensfönster föll då tillbaka på gissning i stället för belagd
+    // evidens. Anropet SAKNADES helt före den här etappen.
+    this._persistLastKnownPositions(true);
     if (this._quayStableLedger) this._quayStableLedger.clear();
     if (this._openingQuayLedger) this._openingQuayLedger.clear();
     // Etapp 6: engångsnycklarna följer armarna — ingen av delarna persisteras.

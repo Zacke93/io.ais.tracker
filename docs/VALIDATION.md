@@ -141,6 +141,53 @@ Exempel på att fällan fungerar: helgranskningens ETA-gap-omordning gav
 "ärligare" värden men korpusbelagd fatal sågtand (2→32 min i texten) —
 batteriet fällde den, fixen togs tillbaka.
 
+## Verkanskontrollen (etapp 7, 2026-08-09)
+
+En grön grind betyder att fixen inte gick sönder — **inte** att den gör något.
+Efter varje fix, mät och skriv ut i klartext:
+
+> Hur många notiser, öppningsvarningar eller brotexter ändras faktiskt?
+
+**Noll är ett giltigt svar och ska redovisas som sådant.** C9 (förtöjd utan
+navStatus) landade med korrekt design, enhetstester och noll observerbar effekt
+i 320 timmar korpusdata — 'stale'-hinken var identisk med och utan fixen, och
+den enda avväpningen följdes av ombeväpning 68 sekunder senare. Utan
+verkanskontrollen hade den bokförts som en seger.
+
+Två skäl till att en fix kan sakna verkan i replay men behövas i drift:
+- **Klassen kräver beteende korpusarna inte innehåller.** C9 förutsätter att
+  fartyget fortsätter rapportera medan det ligger stilla. Fältet gör det (13 av
+  51 avväpningar via ren TTL i 42h-provet); i korpusarna tystnar båtarna i
+  stället, och TTL hinner först.
+- **En tröskel uppströms neutraliserar den.** C9:s stillhetsklocka nollas vid
+  `sog ≥ 0,5 kn`, och kajvobbel överskrider det (VIRGO: 4 av 19 kajsampel på
+  0,5 / 2,1 / 2,9 kn).
+
+Båda är legitima skäl att behålla fixen — men de ska stå skrivna, i koden och i
+commit-meddelandet, annars tror nästa läsare att problemet är löst.
+
+## Förarbete åldras
+
+Ett beslutsunderlag som byggdes mot en tidigare datamängd kan vara osant i dag.
+C0 (Stallbacka-koordinaten) förbereddes i tolv omgångar och byggde på en
+provkörning från 2026-08-06. Korpus #17 skapades efteråt och innehöll en tredje
+förlorad notis (SIESTA) som ingen kunde se då — och förarbetets bärande premiss,
+"+2 återvunna äkta passager", visade sig vara två *fantomer* från en kajplats.
+
+**Verifiera premisserna mot nuvarande data innan du genomför en förberedd fix**,
+särskilt om nya korpusar tillkommit sedan förarbetet skrevs.
+
+## Noter är permanent minne
+
+Sifferpåståenden i `corpora.js`-noter blir projektets sanning. Läs **hela**
+fönstret innan du skriver ett intervall — fem imprecisioner i en omlåsningsnot
+(avståndsintervall, sog-utslag, COG-spann, fönsterstorlek, minsta avstånd)
+härrörde alla från att siffrorna lästs ur ett urval sampel. Ingen rörde
+substansen, men alla hade blivit permanenta.
+
+Samma sak gäller loggrader: en rad som påstår fel *källa* för ett värde
+vilseleder nästa fältläsare lika effektivt som ett fel värde.
+
 ## Invarianterna — facit-oberoende sanningar
 
 `tests/replay-validation/invariants.js` körs på varje replay. Fatala:
