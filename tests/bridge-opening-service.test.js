@@ -77,6 +77,11 @@ function makeVessel(overrides = {}) {
     _finalTargetDirection: overrides._finalTargetDirection ?? null,
     _hasMovementProof: overrides._hasMovementProof === undefined ? true : overrides._hasMovementProof,
     _moored: overrides._moored === true,
+    // C9: VesselDataService stillhetsklocka. null = "rör sig / okänt"; ett
+    // millisekundvärde = "står stilla sedan dess". Samma fält som kajzonslagret
+    // och 2h-backstopen läser — servicen skriver den ALDRIG.
+    _stationarySince: overrides._stationarySince === undefined ? null : overrides._stationarySince,
+    navStatus: overrides.navStatus === undefined ? null : overrides.navStatus,
     etaMinutes: overrides.etaMinutes ?? null,
     passedAt: overrides.passedAt || {},
     passedBridges: overrides.passedBridges || [],
@@ -974,6 +979,221 @@ describe('BridgeOpeningService', () => {
       expect(own.mmsis).toContain('FOLLOWER');
       expect(own.fixAgeMs).toBeGreaterThan(HARD);
       expect(own.etaMinutes).toBeNull();
+    });
+  });
+
+  // =========================================================================
+  // C9 — FÖRTÖJD UTAN navStatus (etapp 7 fas C, 2026-08-09)
+  //
+  // Fältprovet 42 h: 22 av 29 fartyg (76 %) saknade navStatus i SAMTLIGA
+  // sampel, och i de 15 aisstream-inspelade korpusarna saknas fältet hos 100 %
+  // av fartygen — ändå kom 2 064 av 2 069 MOORED-klassningar från navstatus.
+  // För en båt utan navstatus utanför en känd MOORING_ZONE är 2h-backstopen
+  // enda vägen till `_moored`, alltså längre än hela armens livslängd.
+  // Disarm-ben 3 får därför en ANDRA bevisväg: stillhet över tid ur appens
+  // BEFINTLIGA klocka `_stationarySince` (ingen ny sanning, inget nytt fält).
+  //
+  // TRE SAKER LÅSES HÄR, och de är alla motbevisbara:
+  //  (1) 600 m-golvet ÄGER — väntarskyddet rörs inte.
+  //  (2) återbeväpningsspegeln i _canArm finns (utan den blir fixen en
+  //      fantomfabrik i stället för en fantomgrind).
+  //  (3) endast OVARNADE armar släpps — annars föds dubbletter (U2-brott).
+  // =========================================================================
+  describe('C9: stillhet över tid avväpnar bortom 600 m (båt utan navStatus)', () => {
+    const STILL = BRIDGE_OPENING.ARM_STALE_TTL_MS; // 30 min, se _hasStillnessEvidence
+    const FLOOR = BRIDGE_OPENING.DISARM_MOORED_MIN_DISTANCE_M; // 600 m
+
+    /**
+     * Ett stillasampel utan navStatus. `stillSince` är VesselDataService egen
+     * klocka — servicen läser den, den skrivs aldrig här.
+     */
+    const stillVessel = (distanceM, stillSince, extra = {}) => makeVessel({
+      distanceM,
+      sog: 0,
+      _stationarySince: stillSince,
+      navStatus: null, // hela poängen: fältet finns inte i meddelandet
+      ...extra,
+    });
+
+    /**
+     * Håll båten stilla i `minutes` minuter med 60 s kadens — TÄTARE än
+     * deadlinen (d / 10 kn − 180 s ≈ 286 s vid 2400 m), precis som fältets
+     * AISHub-kadens. Det är den enda trafikbild där en OVARNAD arm kan
+     * överleva länge: varje nytt fix flyttar ankaret och skjuter deadlinen
+     * framför sig. Fältfixturen är ANDREA (219031446, korpus #18) som låg
+     * still 100 min på 1392 m från Klaffbron utan att någonsin fyra.
+     */
+    const holdStill = (instance, distanceM, minutes, stillSince) => {
+      for (let i = 0; i < minutes; i++) {
+        advance(60000);
+        instance.observeVessel(stillVessel(distanceM, stillSince));
+      }
+    };
+
+    it('BORTOM golvet: 30 min stillhet utan navStatus avväpnar — och ingen varning går ut', () => {
+      // Beväpnas som en äkta anflygning (rörelsebevis + fart), stannar sedan.
+      svc.observeVessel(makeVessel({ distanceM: 2400, sog: 5 }));
+      expect(svc.getStats().armedByBridge.Klaffbron).toBe(1);
+      const stillSince = Date.now();
+
+      holdStill(svc, 2400, 29, stillSince);
+      expect(svc.getStats().armedByBridge.Klaffbron).toBe(1); // 29 min < 30 min
+      expect(warnings).toHaveLength(0);
+
+      holdStill(svc, 2400, 1, stillSince); // 30 min jämnt
+      expect(svc.getStats().armed).toBe(0);
+
+      // …och hon kan inte fyra i efterhand via deadline-motorn.
+      advance(30 * 60 * 1000);
+      expect(warnings).toHaveLength(0);
+      const disarms = logger.debug.mock.calls.map((c) => c.join(' '))
+        .filter((s) => s.includes('[OPENING_DISARM]'));
+      expect(disarms.join('\n')).toContain('avväpnad — still');
+    });
+
+    it('INNANFÖR golvet: samma stillhet 400 m ut avväpnar ALDRIG (hon väntar)', () => {
+      svc.observeVessel(makeVessel({ distanceM: 2200, sog: 5 }));
+      advance(60000);
+      svc.observeVessel(makeVessel({ distanceM: 400, sog: 4 }));
+      expect(warnFor('Klaffbron')).toHaveLength(1);
+
+      // Två timmar stilla 400 m från bron — köskyddet ska bära hela vägen.
+      holdStill(svc, 400, 120, Date.now());
+      expect(svc.getStats().armedByBridge.Klaffbron).toBe(1);
+      expect(warnFor('Klaffbron')).toHaveLength(1);
+    });
+
+    it('GOLVET GÄLLER ÄVEN BEVÄPNINGEN: en väntare 400 m ut som stått i timmar får armeras', () => {
+      // Ingen arm finns ännu (appomstart, sent tilldelad målbro, eller en arm
+      // som släppts av out_of_range). Stillhetsbeviset är uppfyllt — men hon
+      // står i KÖN vid bron, och då äger golvet. Utan golvet i _canArm hade
+      // väntaren aldrig kunnat beväpnas och hennes öppning blivit ovarnad.
+      svc.observeVessel(stillVessel(400, Date.now() - 3 * 60 * 60 * 1000));
+      expect(svc.getStats().armedByBridge.Klaffbron).toBe(1);
+      expect(warnFor('Klaffbron')).toHaveLength(1);
+    });
+
+    it('GRÄNSERNA är exakta: 600 m + en meter avväpnar, 600 m gör det inte', () => {
+      const probe = (distanceM) => {
+        const s = makeService();
+        s.observeVessel(makeVessel({ distanceM: 2400, sog: 5 }));
+        const stillSince = Date.now();
+        advance(STILL);
+        s.observeVessel(stillVessel(distanceM, stillSince));
+        const { armed } = s.getStats();
+        s.destroy();
+        return armed;
+      };
+      expect(probe(FLOOR)).toBe(1); // exakt på golvet = väntare
+      expect(probe(FLOOR + 1)).toBe(0); // en meter utanför = förtöjd
+    });
+
+    it('TIDEN är exakt: en millisekund under tröskeln behåller armen', () => {
+      svc.observeVessel(makeVessel({ distanceM: 1500, sog: 5 }));
+      const stillSince = Date.now();
+      holdStill(svc, 1500, 29, stillSince);
+      expect(svc.getStats().armed).toBe(1);
+
+      advance(60000 - 1); // 29 min 59,999 s stillhet
+      svc.observeVessel(stillVessel(1500, stillSince));
+      expect(svc.getStats().armed).toBe(1);
+
+      advance(1); // exakt 30 min
+      svc.observeVessel(stillVessel(1500, stillSince));
+      expect(svc.getStats().armed).toBe(0);
+    });
+
+    it('ÅTERBEVÄPNINGSSPEGELN: en still båt beväpnas inte om på nästa fix', () => {
+      // Utan spegeln i _canArm hade fix N avväpnat och fix N+1 beväpnat om med
+      // ett FÄRSKT ankare — och den nya armens deadline (1500 m / 10 kn − 180 s
+      // ≈ 112 s) hinner förfalla innan nästa fix vid AISHubs kadens ⇒ fantom.
+      svc.observeVessel(makeVessel({ distanceM: 1500, sog: 5 }));
+      const stillSince = Date.now();
+      holdStill(svc, 1500, 30, stillSince);
+      expect(svc.getStats().armed).toBe(0);
+
+      for (let i = 0; i < 6; i++) {
+        advance(3 * 60 * 1000); // 3 min > deadlinen för 1500 m
+        svc.observeVessel(stillVessel(1500, stillSince));
+        expect(svc.getStats().armed).toBe(0);
+      }
+      expect(warnings).toHaveLength(0);
+    });
+
+    it('AVGÅNGEN ÄR GRATIS: första rörelsefixet beväpnar om och varningen går ut', () => {
+      svc.observeVessel(makeVessel({ distanceM: 1300, sog: 5 }));
+      const stillSince = Date.now();
+      holdStill(svc, 1300, 30, stillSince);
+      expect(svc.getStats().armed).toBe(0);
+      expect(warnings).toHaveLength(0);
+
+      // Hon lägger ut: VesselDataService nollar klockan på ETT sampel
+      // ≥ MOVEMENT_PROOF_SOG_KN (0,5 kn) — vi speglar det med _stationarySince
+      // = null, exakt som fältet ser ut i produktionsobjektet.
+      advance(60000);
+      svc.observeVessel(makeVessel({ distanceM: 1300, sog: 3 }));
+      expect(svc.getStats().armedByBridge.Klaffbron).toBe(1);
+
+      // Deadline: 1300 m / 10 kn − 180 s ≈ 73 s ⇒ varningen kommer på nästa tick.
+      advance(120000);
+      expect(warnFor('Klaffbron')).toHaveLength(1);
+    });
+
+    it('EN REDAN VARNAD ARM släpps ALDRIG av stillheten (dubblettspärren)', () => {
+      // Fältfixturen 230167390 @ Klaffbron 2026-07-10: varnad 11:03:17 på
+      // 1373 m, stilla i 30 min, passage 11:49:37. Utan villkoret beväpnades
+      // hon om vid avgången och fyrade en ANDRA varning 11:35:04 för SAMMA
+      // öppning (mätt: +5 varningar över de 18 korpusarna, 0 med villkoret).
+      svc.observeVessel(makeVessel({ distanceM: 1373, sog: 4 }));
+      advance(120000);
+      expect(warnFor('Klaffbron')).toHaveLength(1);
+
+      holdStill(svc, 1373, 40, Date.now());
+      expect(svc.getStats().armedByBridge.Klaffbron).toBe(1); // 40 min stilla, kvar
+      // Hon lägger ut och närmar sig — fortfarande EN varning för öppningen.
+      advance(60000);
+      svc.observeVessel(makeVessel({ distanceM: 400, sog: 4 }));
+      expect(warnFor('Klaffbron')).toHaveLength(1);
+    });
+
+    it('en fartgivarlös båt (sog=null) täcks av samma klocka', () => {
+      // Null-sog-vägen i _updateMooringEvidence härleder stillheten ur
+      // POSITIONEN och matar samma fält. Servicen ser ingen skillnad — vilket
+      // är hela poängen med att läsa klockan i stället för farten.
+      svc.observeVessel(makeVessel({ distanceM: 1800, sog: 5 }));
+      const stillSince = Date.now();
+      for (let i = 0; i < 30; i++) {
+        advance(60000);
+        svc.observeVessel(makeVessel({
+          distanceM: 1800, sog: null, _stationarySince: stillSince,
+        }));
+      }
+      expect(svc.getStats().armed).toBe(0);
+      advance(30 * 60 * 1000);
+      expect(warnings).toHaveLength(0);
+    });
+
+    it('en trasig klocka (NaN/sträng/framtid) kan inte avväpna', () => {
+      for (const bad of [NaN, 'igår', {}, Infinity, Date.now() + 3600000]) {
+        const s = makeService();
+        s.observeVessel(makeVessel({ distanceM: 1800, sog: 5 }));
+        advance(60000);
+        s.observeVessel(makeVessel({ distanceM: 1800, sog: 0, _stationarySince: bad }));
+        expect(s.getStats().armed).toBe(1);
+        s.destroy();
+      }
+      expect(logger.error).not.toHaveBeenCalled();
+    });
+
+    it('`_moored`-benet är oförändrat — det fyrar fortfarande utan stillhetsklocka', () => {
+      svc.observeVessel(makeVessel({ distanceM: 2200, sog: 5 }));
+      advance(60000);
+      // Ingen stillhetsklocka alls, men appens klassning säger förtöjd.
+      svc.observeVessel(makeVessel({ distanceM: 2100, sog: 0, _moored: true }));
+      expect(svc.getStats().armed).toBe(0);
+      const disarms = logger.debug.mock.calls.map((c) => c.join(' '))
+        .filter((s) => s.includes('[OPENING_DISARM]'));
+      expect(disarms.join('\n')).toContain('avväpnad — moored');
     });
   });
 
