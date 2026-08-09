@@ -228,6 +228,132 @@ describe('BridgeOpeningService', () => {
       advance(60000);
       expect(warnings).toHaveLength(1);
     });
+
+    // C7 punkt i (etapp 7 fas C, 2026-08-09) — BENORDNINGEN.
+    it('U-svängen prövas FÖRE det geometriska benet — ingen FALSK passage bokförs', () => {
+      // Båt söder om Klaffbron på nordlig kurs; hon vänder utan att korsa.
+      // Med U-svängsbenet EFTER det geometriska benet såg "bron ligger bakom
+      // henne i hennes NYA (sydliga) riktning" ut som en fullbordad passage,
+      // och _recordPassage dödade hennes öppningshändelse för alla andra båtar.
+      svc.observeVessel(makeVessel({
+        mmsi: 'UTURN', name: 'AKIRA', distanceM: 2200, sog: 5,
+      }));
+      svc.observeVessel(makeVessel({
+        mmsi: 'WAITER', name: 'B', distanceM: 2400, sog: 5,
+      }));
+      const { eventId } = svc._arms.get('UTURN::Klaffbron');
+      expect(svc._arms.get('WAITER::Klaffbron').eventId).toBe(eventId);
+
+      advance(60000);
+      svc.observeVessel(makeVessel({
+        mmsi: 'UTURN', name: 'AKIRA', distanceM: 2300, sog: 5, _routeDirection: 'south',
+      }));
+
+      const disarms = logger.debug.mock.calls.map((c) => c.join(' '))
+        .filter((s) => s.includes('[OPENING_DISARM]') && s.includes('UTURN'));
+      expect(disarms.join('\n')).toContain('avväpnad — uturn');
+      expect(disarms.join('\n')).not.toContain('avväpnad — passage');
+      // Ingen falsk passage på händelsen ⇒ den lever och kan varna B.
+      const event = svc._events.get('Klaffbron').find((e) => e.id === eventId);
+      expect(event.lastPassageAt).toBeNull();
+      advance(20 * 60 * 1000);
+      expect(warnFor('Klaffbron')).toHaveLength(1);
+      expect(warnFor('Klaffbron')[0].leadMmsi).toBe('WAITER');
+    });
+
+    it('en ÄKTA passage etiketteras fortfarande som passage (benordningen döljer inget)', () => {
+      svc.observeVessel(makeVessel({ mmsi: 'REAL', distanceM: 700, sog: 6 }));
+      expect(svc.getStats().armed).toBe(2); // Klaffbron + kedjearmen
+      advance(60000);
+      // Korsad bro: NORR om Klaffbron, OFÖRÄNDRAD nordlig riktning.
+      svc.observeVessel(makeVessel({
+        mmsi: 'REAL', distanceM: 200, bearing: 40, sog: 6,
+      }));
+      const disarms = logger.debug.mock.calls.map((c) => c.join(' '))
+        .filter((s) => s.includes('[OPENING_DISARM]') && s.includes('REAL') && s.includes('Klaffbron'));
+      expect(disarms.join('\n')).toContain('avväpnad — passage');
+    });
+  });
+
+  // =========================================================================
+  // C7b/F-4: FRYST ARM — observationen som inte kunde tillämpas
+  // =========================================================================
+  describe('C7b: fryst arm får inte fyra på motsagd fysik', () => {
+    // Rådata: ELFKUNGEN/265573130 @ Klaffbron, korpus #18 2026-08-07.
+    // 11:34:26 armad d=2085 dir=north → 11:35:33 vänder → 11:37:49 d=2191
+    // (sista fix med målbro) → 11:38:56 appen släpper målbron → 11:41:57
+    // VARNING på det frysta d=2191 → 11:42:22 sog=0, förtöjd 2 261 m bort.
+    it('målbron släppt + fixen fortsätter komma ⇒ deadline-varningen uteblir', () => {
+      svc.observeVessel(makeVessel({
+        mmsi: 'FROZEN', name: 'ELFKUNGEN', distanceM: 2100, sog: 3,
+      }));
+      expect(svc.getStats().armed).toBe(1);
+      expect(warnings).toHaveLength(0);
+
+      // Appen släpper målbron; båten SÄNDER fortfarande (avståndet växer).
+      advance(90000);
+      svc.observeVessel(makeVessel({
+        mmsi: 'FROZEN', name: 'ELFKUNGEN', distanceM: 2200, sog: 1, targetBridge: null,
+      }));
+      expect(svc.getStats().armed).toBe(1); // tappad målbro avväpnar ALDRIG
+      advance(60000);
+      svc.observeVessel(makeVessel({
+        mmsi: 'FROZEN', name: 'ELFKUNGEN', distanceM: 2260, sog: 0, targetBridge: null,
+      }));
+
+      // Deadlinen (d/10 kn − 180 s ≈ 245 s) förfaller under den här väntan.
+      advance(15 * 60 * 1000);
+      expect(warnFor('Klaffbron')).toHaveLength(0);
+    });
+
+    it('TYSTNAD är fortfarande inget motbevis — deadline-motorn fyrar utan nya fix', () => {
+      svc.observeVessel(makeVessel({ mmsi: 'SILENT', distanceM: 2100, sog: 3 }));
+      // Inga fler fix alls: ingen observation kan vara "otillämpad".
+      advance(15 * 60 * 1000);
+      expect(warnFor('Klaffbron')).toHaveLength(1);
+      expect(warnFor('Klaffbron')[0].firedBy).toBe('deadline');
+    });
+
+    it('återtagen målbro lyfter suspensionen direkt — hon varnas med FÄRSK fysik', () => {
+      svc.observeVessel(makeVessel({ mmsi: 'BACK', distanceM: 2100, sog: 3 }));
+      advance(90000);
+      svc.observeVessel(makeVessel({
+        mmsi: 'BACK', distanceM: 2200, sog: 1, targetBridge: null,
+      }));
+      advance(10 * 60 * 1000);
+      expect(warnFor('Klaffbron')).toHaveLength(0);
+
+      // Hon vänder tillbaka och appen ger henne målbron igen.
+      svc.observeVessel(makeVessel({ mmsi: 'BACK', distanceM: 1200, sog: 5 }));
+      advance(60000);
+      const w = warnFor('Klaffbron');
+      expect(w).toHaveLength(1);
+      expect(w[0].distanceM).toBeLessThan(1300);
+    });
+
+    it('en fryst arm styr varken ledande båt, antal eller täckning i en ANNAN båts varning', () => {
+      // Fryst arm NÄRMAST bron — utan medlemsfiltret hade hon blivit `lead`.
+      svc.observeVessel(makeVessel({
+        mmsi: 'FROZEN', name: 'ELFKUNGEN', distanceM: 1400, sog: 3,
+      }));
+      advance(30000);
+      svc.observeVessel(makeVessel({
+        mmsi: 'FROZEN', name: 'ELFKUNGEN', distanceM: 1450, sog: 1, targetBridge: null,
+      }));
+      // Äkta anflygning som driver samma händelse.
+      svc.observeVessel(makeVessel({
+        mmsi: 'REALBOAT', name: 'MOKENDEIST', distanceM: 1600, sog: 5,
+      }));
+      advance(10 * 60 * 1000);
+
+      const w = warnFor('Klaffbron');
+      expect(w).toHaveLength(1);
+      expect(w[0].leadMmsi).toBe('REALBOAT');
+      expect(w[0].mmsis).toEqual(['REALBOAT']);
+      expect(w[0].vesselCount).toBe(1);
+      // Den frysta armen bär ingen täckning — hon kan varnas när hon är färsk.
+      expect(svc._arms.get('FROZEN::Klaffbron').warnedAt).toBeNull();
+    });
   });
 
   // =========================================================================
@@ -433,13 +559,68 @@ describe('BridgeOpeningService', () => {
         mmsi: '222', name: 'B', distanceM: 2400, sog: 5,
       }));
       expect(warnings).toHaveLength(0);
+      const passedEventId = svc._arms.get('111::Klaffbron').eventId;
+      expect(svc._arms.get('222::Klaffbron').eventId).toBe(passedEventId);
 
       // A passerar innan någon deadline hunnit förfalla (konstruerat fall).
       svc.notePassage('111', 'Klaffbron');
       const passageAt = Date.now();
 
       advance(20 * 60 * 1000);
-      for (const w of warnings) expect(w.t).toBeLessThan(passageAt);
+      // WARN-INVARIANTEN: den PASSERADE händelsen får aldrig avfyra — varken
+      // före eller efter. Ingen varning bär dess id.
+      for (const w of warnFor('Klaffbron')) {
+        if (w.t >= passageAt) expect(w.eventId).not.toBe(passedEventId);
+      }
+      expect(warnings.some((w) => w.eventId === passedEventId)).toBe(false);
+    });
+
+    // C7 punkt ii (etapp 7 fas C, 2026-08-09) — U2:s andra halva.
+    it('U2: den O-VARNADE medlemmen är NÄSTA öppning, inte gisslan hos den passerade', () => {
+      svc.observeVessel(makeVessel({
+        mmsi: '111', name: 'A', distanceM: 2400, sog: 5,
+      }));
+      svc.observeVessel(makeVessel({
+        mmsi: '222', name: 'B', distanceM: 2400, sog: 5,
+      }));
+      const passedEventId = svc._arms.get('111::Klaffbron').eventId;
+
+      svc.notePassage('111', 'Klaffbron');
+      // Frisläppningen sker i samma utvärdering som passagen bokförs.
+      expect(svc._arms.get('222::Klaffbron').eventId).not.toBe(passedEventId);
+      expect(svc._arms.get('222::Klaffbron').releasedFrom.has(passedEventId)).toBe(true);
+      expect(svc._arms.get('222::Klaffbron').warnedAt).toBeNull();
+
+      advance(20 * 60 * 1000);
+      // B får sin EGEN varning för sin EGEN öppning — förut var hon permanent
+      // död (spent-städ, värdvägran och avfyrspärr hänger alla på lastPassageAt).
+      const own = warnFor('Klaffbron');
+      expect(own).toHaveLength(1);
+      expect(own[0].leadMmsi).toBe('222');
+      expect(own[0].mmsis).toEqual(['222']);
+      expect(own[0].eventId).not.toBe(passedEventId);
+    });
+
+    it('U2: en VARNAD medlem släpps ALDRIG av passagen — det vore en andrapåminnelse', () => {
+      // Konvoj: LEAD driver avfyrningen, FOLLOWER absorberas och är därmed
+      // täckt. När LEAD passerar får FOLLOWER inte en andra varning.
+      svc.observeVessel(makeVessel({
+        mmsi: 'FOLLOWER', name: 'F', distanceM: 1500, sog: 5,
+      }));
+      svc.observeVessel(makeVessel({
+        mmsi: 'LEAD', name: 'L', distanceM: 700, sog: 6,
+      }));
+      expect(warnFor('Klaffbron')).toHaveLength(1);
+      const firedEventId = warnFor('Klaffbron')[0].eventId;
+      expect(svc._arms.get('FOLLOWER::Klaffbron').warnedAt).not.toBeNull();
+
+      svc.notePassage('LEAD', 'Klaffbron');
+      expect(svc._arms.get('FOLLOWER::Klaffbron').eventId).toBe(firedEventId);
+      expect(svc._arms.get('FOLLOWER::Klaffbron').releasedFrom.has(firedEventId)).toBe(false);
+
+      // Den tidsbegränsade konvojtäckningen (_releaseStrandedArms) äger
+      // fortsättningen — men inte via passage-frisläppningen.
+      expect(warnFor('Klaffbron')).toHaveLength(1);
     });
 
     it('en båt vars ankomst ligger långt bortom konvojfönstret får en EGEN varning', () => {
