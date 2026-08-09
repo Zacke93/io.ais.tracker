@@ -776,7 +776,7 @@ module.exports = [
       + '(per-fartygs-gap p50 139 s mot 360 s i 20260713-41h). '
       + '(b) TROHETEN ÄR DEN HÖGSTA HITTILLS: 135/135 notiser med BYTE-IDENTISKT '
       + '(mmsi,bro)-multiset mot field-facit/20260806-42h/field-notif.txt och '
-      + '36/36 öppningar mot fältets 36 avfyrningar; replayen är deterministisk '
+      + '36/36 öppningar mot fältets 36 avfyrningar VID INSPELNINGEN. ⚠️ UPPDATERAT 2026-08-09: koden ger sedan C4b (36567f0) **35** öppningsvarningar och **134** notiser. Öppningsdeltat 36→35 är samma rot som notisdeltat 135→134 i punkt (g) — C4b tog bort MARY-fantomen Stridsbergsbron#31, en varning för en bro hon passerat 108 min tidigare. Punkt (g) dokumenterade notisdeltat men glömde öppningsdeltat i samma commit. Båda reconcilieras när #18 låses skarpt; replayen är deterministisk '
       + '(verifierad byte-identisk vid omkörning). Datat duger alltså — det är '
       + 'inte kvaliteten som hindrar låsning. '
       + '(c) MEN SEX FATALA INVARIANTBROTT (INV-2 ×2, INV-3, INV-10, INV-14, '
