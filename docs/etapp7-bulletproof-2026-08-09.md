@@ -190,6 +190,63 @@ andra *efter* passagen och räknades därför som separat händelse.
 
 ---
 
+## 6b. Fas C-III — [err]-kedjan, skyddszonen, churnen (`3aa8616`)
+
+**Fem av tolv punkter genomfördes INTE.** Det är avsnittets viktigaste innehåll.
+
+| Punkt | Utfall |
+|---|---|
+| **C5** | 🛑 **Rådatafalsifierad.** Planens design hade tagit bort **191 av 337 failsafe-notiser (57 %)**, inklusive 7 av de 9 i #18 som fältrapporten certifierat som äkta. Orsaken är strukturell: en gap-passage upptäcks per definition på episodens **första** sampel, och beviset kommer från persisterad `_lastKnownPositions` — inte spårhistoriken. Planen antog fel plats för beviset |
+| **C3a** | 🛑 **Stoppad.** Golden rörde sig i två låsta korpusar; agenten vägrade tvinga fram omlåsning |
+| **F12** | 🛑 Mätbart **skadlig**: 31 nya osanningar, 0 borttagna defekter |
+| **F9** | 🛑 Strukturellt oförmögen: 0 av 498 täckningsrader, och `_emitCoverage` saknar fartygsobjektet |
+| **C1c** | ⚠️ **Latent** — noll utlösningar i 320 h |
+
+🔴 **STRUKTURFYND UR C3a: brotextens tidslinje är taktad av fartygs-churn.** Varje
+`vessel:removed` schemalägger en UI-uppdatering. Uppmätt: "scheduling deferred UI update" gick
+1 121 → 355 i both-21h när churnen minskade — vilket flyttar **andra** båtars texter till andra
+tick med andra ETA-ögonblicksbilder. **Ingen churn-reducerande fix kan därför vara byte-identisk
+mot golden.** Tre av planens fyra C3a-bevislager är dessutom mätt verkningslösa: `MOORING_ZONES`
+kan aldrig binda (max 320,3/445,7 m ⇒ alltid ≤ 600 m), lärd kajplats gav 0 färre borttagningar,
+rå navstatus 0 extra träffar.
+
+**Det som landade:** C1a (−12 [err]-par, alla med fallbacktext byte-identisk med indata, dvs.
+100 % brus) · C1b (497 av 500 utslag låg i aktiv hållning; degraderingstid 38,4 s → **0,36 s**) ·
+C1d (**−33,7 min falsk "Inga båtar"-text**, noll notiser/öppningar rörda — rotorsaken var att
+skyddszonen valde *närmaste* bro även när den var passerad) · C2 (206 → 181 clamp-händelser, en
+enda användarsynlig token) · **C3b −87,3 %** och **C3c −89,6 %** av settings-skrivningarna.
+
+⚠️ **C2:s riktning kan inte avgöras.** Mot appens detekterade passagetid är den en förbättring
+(1,16 → 0,84 min), mot den fysiskt interpolerade korsningen en försämring (0,12 → 1,88).
+Sampelgapet 69,5 s är större än effekten. Clampen som helhet behålls — den var bättre i 99 fall
+och sämre i 83.
+
+## 6c. Fas C-IV — öppningskontraktet (`39f6573`)
+
+🔴 **U2-SEMANTIKEN OCH DEADLINE-GARANTIN ÄR ÖMSESIDIGT OFÖRENLIGA.** U2 gör varje icke-ledande
+båt till medlem i den o-passerade händelsen, så hennes varning skjuts till `firstPassageAt + K`.
+Deadline-garantin räknas **per arm** och förfaller medan hon är täckt. Grinden mätte det exakt:
+`LEDTIDSGOLV` 18/22/29/41 s mot golvet 60 s, `AVFYRNINGSFÖNSTER` 92/94/214 s mot taket 60 s —
+noll sådana brott i baslinjen.
+
+**C8 byggdes, mättes och återkallades.** Kontraktet *är* nåbart: kvot 1,242 → **0,957**,
+öppningar med >1 varning 79 → 20, totalt −22,3 % varningar. Men ovarnade öppningar går
+**26 → 32** och O1-täckningen **332/333 → 329/333**. En kontraktsvinst som kostar sex ovarnade
+öppningar är en försämring för pelare 3.
+
+**Levererat:** C7 (i) benordning — sex falska `_recordPassage`-anrop eliminerade (latent
+händelseförgiftning), noll varningar rörda · C7 (ii) frisläppning — **0 träffar i 319,5 h**,
+klassen finns inte, levererad som C8:s förutsättning · C7b/F-4 — **−1 fantom, +1 äkta varning**
+i samma öppning (ELFKUNGEN-fantomen ut, MOKENDEIST med 27,2 min ledtid in).
+
+🛑 **C7b/F-5 återkallad.** Klassen har två exemplar i 318 h; fysiskt möjlig förvarning **66 s**
+respektive **negativ**, mot garantifönstrets 210 s. De 66 sekunderna vilar på en enda observation.
+
+⚠️ **Metodfynd:** "Fältprovets 1,33" kan inte reproduceras (facitet regenererades i fas A) —
+H-4:s **1,34** är det verifierade talet. **Kvoten ensam duger inte som acceptanskriterium:** #18
+har kvot 1,00 bara för att sex nollor kompenserar sex överskott. RECOVER-vägen ger 5 räddningar
+mot 15 dubbletter och 20 fantomer — att ta bort den kostar fem äkta öppningar.
+
 ## 7. Användarbeslut som styrde etappen
 
 | # | Beslut | Följd |

@@ -3622,6 +3622,39 @@ class AISBridgeApp extends Homey.App {
     const bridgeKey = this._determineBridgeKey();
     this.debug(`🔄 [COALESCING] Scheduling coalesced update: ${reason} (lane: ${bridgeKey}, significance: ${significance})`);
 
+    // ---- C12 (etapp 7 fas C-V): KOALESCERINGEN ÄR MEDVETET INTE UTVIDGAD —
+    // ÅTERKALLAD EFTER MÄTNING. Läs detta innan du "rättar" fönstren nedan ----
+    // Fyndet är sant: fönstren 15/25/40 ms är alla KORTARE än AISHubs
+    // batchspridning (`AIS_CONFIG.AISHUB.EMIT_SPREAD_MS` = 150 ms,
+    // AISHubClient:647), så koalescering av en polls batch är strukturellt
+    // omöjlig — inte bara sällsynt. Mätt i korpus #18 (42 h ren AISHub-drift):
+    // 8 959 av 9 660 grace-batchar bar exakt ETT event, och en flerpostspoll
+    // gav 2,69 publiceringscykler i snitt (max 10).
+    //
+    // Ett glidande fönster på spridning + marginal PRÖVADES och nådde sitt
+    // mål: grace-cykler per flerpostspoll 2,29 → 1,02, totalt −15 %
+    // UI-cykler, och notis-/öppnings-/passagefacit ORÖRT i samtliga 18
+    // korpusar (~320 h). Det föll ändå, på brotexten:
+    //   • +1 falsk DEFAULT-flash < 5 min (14 → 15 över korpusarna) —
+    //     20260702-2h fick "Inga båtar är i närheten…" i 30 s där baslinjen
+    //     gick rakt igenom.
+    //   • 3 av 18 korpusar bröt planens egen renhetsregel (en kvarvarande
+    //     text får inte ändra BÅTANTAL eller BRO): 20260804-both-21h fick en
+    //     antalsstuds 4→5→4 där "Fem båtar på väg mot Klaffbron" stod i 30 s
+    //     (10:15:46,520) utan motsvarighet i baslinjen, och 20260713-41h fick
+    //     ett NYTT mellansteg 150 ms före sluttexten (13:19:32,346 → ,496 där
+    //     baslinjen publicerade allt i EN cykel) — alltså exakt det fladder
+    //     fixen skulle ta bort.
+    // Rotorsaken är att publiceringstiden är en INDATA till texten: ETA:ns
+    // burst-clamp (`_etaPublishedAtMs`) och 30-sekunderstakten gör att varje
+    // förskjutning omfördelar vilket tillstånd som hamnar i vilken cykel.
+    // Därför är det INTE en kalibreringsfråga: minsta möjliga fönster
+    // (spridning + 5 ms) gav BYTE-IDENTISKT utfall med spridning + 50 ms —
+    // samma tre skelettbrott, samma extra DEFAULT-flash.
+    // Vinsten är kosmetisk (17 textflappar per 42 h), priset ligger på
+    // pelare 1. Att sänka EMIT_SPREAD_MS i stället är ingen väg: korpusarna
+    // bär den inspelade spridningen, så ändringen vore omätbar i replay.
+
     // Dynamic micro-grace period based on significance
     let gracePeriod;
     if (significance === 'high') {
@@ -6945,6 +6978,36 @@ class AISBridgeApp extends Homey.App {
         + 'evidens, inte på spårhistorik',
       );
     }
+    // C13/U7 (etapp 7, 2026-08-09): AVSTÅNDSGRINDEN ÄR MEDVETET INTE INFÖRD —
+    // ÅTERKALLAD EFTER MÄTNING. Användarbeslutet ville tysta den retroaktiva
+    // notisen (9 av 135 i korpus #18, upp till 2 294 m förbi bron). Båda
+    // kandidatformerna mättes över samtliga 18 korpusar (~320 h, 337
+    // passage-fallback-notiser, 1 048 rådataverifierade korsningar i A2-facit):
+    //
+    //  FORM (b) "tysta bara när en ANNAN notis för samma passage redan gått
+    //  ut": 0 träffar av 337. Formen ÄR redan implementerad — det är
+    //  _persistentDedupCheck ovan (raden med retroactiveSource: true, dvs.
+    //  FP9/RONJA-gaten + AKIRA-gaten). I 42h-fältloggen blockerade den 104
+    //  kandidater via FALLBACK_TRIGGER_PERSISTENT_DEDUP + 3 via
+    //  PERSISTENT_DEDUP_SAME_DIR_LATE, och de 3 senare var exakt de
+    //  ÖVERFLÖDIGA medlemmarna i C13:s egna skurar (NIGE-O och AGULHAS @
+    //  Stridsbergsbron — de hade redan fått target-notis 09:15/09:14). De 9
+    //  som blev kvar är per konstruktion residualen som formen inte kan nå:
+    //  var och en är den ENDA notisen för sin korsning.
+    //
+    //  FORM (a) ren avståndströskel: varje tröskel byter notis mot
+    //  TÄCKNINGSMISS 1:1, eftersom ingen av de 337 är redundant. >2 000 m tar
+    //  23 notiser i 11 korpusar (10 av dem LÅSTA) och ger 22 nya korsningar
+    //  utan notis; >3 000 m tar 4 och ger 3. Distansen är dessutom fel storhet:
+    //  korrelationen mot faktisk försening är r = 0,28 (n = 237) — DIANA låg
+    //  2 057 m ut men bara 11 min efter korsningen, medan ELFKUNGEN @
+    //  Kanalinfarten låg 302 m ut och 319 min efter.
+    //
+    // Kravet "en borttagen notis som var den enda för sin passage = STOPP"
+    // träffar alltså BÅDA formerna. Klassen är verklig men ägs av en
+    // tidsstorhet (försening mot ankrad korsningstid), inte av distans — och
+    // den vägen är D4:s (Math.max(anchoredTs, detectionTs) neutraliserar i dag
+    // FALLBACK_TIME_SINCE_PASSAGE_MAX_S), som är RÖD och ligger i fas D.
     this.log(
       `⚠️ [FALLBACK_BOAT_NEAR] ${vessel.mmsi}: Passage of ${bridgeName} detected `
       + `without prior proximity trigger (distance=${Math.round(distance)}m) — firing failsafe`,
