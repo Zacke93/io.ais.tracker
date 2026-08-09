@@ -278,6 +278,57 @@ describe('Etapp 2: skuggläget — inte en enda AISHub-fix vidare till pipelinen
       .filter((l) => l.includes('[SHADOW_COMPARE]'))[0];
     expect(report).toContain('maxSilenceAisstreamMs=240000');
     expect(report).toContain('maxSilenceAishubMs=65000');
+    // KX-6: de råa meddelanderäknarna finns i samma rad (2 aisstream, 2 hub).
+    expect(report).toContain('msgsAisstream=2 msgsAishub=2');
+  });
+
+  test('KX-5 (fältprovet 2026-08-09): en ALDRIG levererande källa rapporteras som ALDRIG — inte 0 ms', () => {
+    // Fältet: sju SHADOW_COMPARE-rader i rad med maxSilenceAisstreamMs=0
+    // medan aisstream var helt död (FEED_SILENT 15 min fyrade 241 ms senare).
+    // Nollan är instrumentets mest LUGNANDE värde vid källans totala död.
+    const now = Date.now();
+    mux._ingestFromFeed('aishub', msg({ fixFeed: 'aishub', fixTs: now, timestamp: now }));
+    jest.setSystemTime(now + 60000);
+    mux._ingestFromFeed('aishub', msg({
+      fixFeed: 'aishub', fixTs: now + 60000, timestamp: now + 60000, lat: 58.2903,
+    }));
+
+    jest.advanceTimersByTime(5 * 60 * 1000);
+    const report = logger.log.mock.calls
+      .map((c) => c.join(' '))
+      .filter((l) => l.includes('[SHADOW_COMPARE]'))[0];
+    // 60 s framflyttad klocka + 5 minuters fönster ⇒ 360 s sedan mätstart.
+    expect(report).toContain('maxSilenceAisstreamMs=ALDRIG_sedan_start_360s');
+    expect(report).not.toContain('maxSilenceAisstreamMs=0 ');
+    expect(report).toContain('maxSilenceAishubMs=60000');
+    // KX-6: räknarna gör källdöden avläsbar direkt, utan korsläsning mot
+    // AISHUB_HEALTH ("onlyAisstream=0 AND both=0 AND samples=0" är identiskt
+    // med en lugn kanal där ingen båt rör sig).
+    expect(report).toContain('msgsAisstream=0 msgsAishub=2');
+  });
+
+  test('KX-5: en källa som dör MITT i körningen rapporteras som TYST_Xs — inte 0 ms', () => {
+    // Skärpningen (skeptikern): glappet mäts bara VID ANKOMST, så en källa som
+    // tystnar efter att ha levererat låg kvar på 0 ända tills
+    // LAST_SEEN_TTL_MS (4 h) gav utslag — det VANLIGARE haveriläget hade ett
+    // 4 h brett blint fönster.
+    const now = Date.now();
+    mux._ingestFromFeed('aisstream', msg({ timestamp: now, fixTs: now }));
+    jest.advanceTimersByTime(5 * 60 * 1000); // fönster 1: källan levde
+    jest.advanceTimersByTime(5 * 60 * 1000); // fönster 2: noll sampel
+
+    const reports = logger.log.mock.calls
+      .map((c) => c.join(' '))
+      .filter((l) => l.includes('[SHADOW_COMPARE]') && l.includes('window=5min'));
+    expect(reports).toHaveLength(2);
+    // Fönster 1: källan levde men inget fartyg hann rapportera två gånger.
+    expect(reports[0]).toContain('maxSilenceAisstreamMs=OMÄTT_inget_glapp');
+    expect(reports[0]).toContain('msgsAisstream=1');
+    // Fönster 2: tystnaden är mätt från SENASTE meddelandet (600 s), inte 0.
+    expect(reports[1]).toContain('maxSilenceAisstreamMs=TYST_600s_inget_sampel');
+    expect(reports[1]).toContain('msgsAisstream=0');
+    // Legenden ska följa med raden så ingen läsare tolkar etiketterna fel.
+    expect(reports[1]).toContain('ALDRIG/TYST/OMÄTT = inget glapp gick att mäta');
   });
 
   test('FÄLTPROV 2: GO-kriteriernas råvärden loggas (AISHUB_HEALTH) — fanns i stats men skrevs aldrig', () => {

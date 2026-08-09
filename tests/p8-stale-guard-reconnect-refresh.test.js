@@ -115,6 +115,35 @@ describe('P8: stale-guard vid 0 båtar + UI-refresh vid reconnect', () => {
     expect(app._updateDeviceCapability).toHaveBeenCalledWith('alarm_generic', false);
   });
 
+  // ---- BX-8 (fältprov 2026-08-09): ren observabilitet, inget beteende ----
+  // [VESSEL_REMOVAL_DEBUG] loggade "Current vessel count: 4" och strax efter
+  // "Vessels remaining after removal: 4" — identiska tal i ALLA 20
+  // borttagningar i fältloggen, eftersom BÅDA läste getVesselCount() EFTER
+  // vessels.delete() (BT-F1-semantiken ovan). Vid triage såg det ut som att
+  // raderingen inte fått effekt. Raderna redovisar nu före→efter.
+  test('BX-8: removal-loggen redovisar före→efter, inte samma tal två gånger', async () => {
+    const app = makeApp({ isConnected: true });
+    app.vesselDataService.getVesselCount.mockReturnValue(3); // 3 kvar EFTER delete
+
+    await app._onVesselRemoved(removedEvent);
+
+    const removalLines = app.debug.mock.calls
+      .map(([msg]) => msg)
+      .filter((msg) => typeof msg === 'string' && msg.includes('[VESSEL_REMOVAL_DEBUG]'));
+
+    const countLine = removalLines.find((msg) => msg.includes('Vessel count 4'));
+    expect(countLine).toBeDefined();
+    expect(countLine).toContain('4→3');
+    expect(countLine).toContain(removedEvent.mmsi);
+    // Efter-raden längre ned måste stämma med samma efter-tal.
+    expect(removalLines).toEqual(
+      expect.arrayContaining([expect.stringContaining('Vessel count after removal: 3')]),
+    );
+    // Den gamla vilseledande etiketten får inte finnas kvar.
+    expect(removalLines.filter((msg) => msg.includes('Current vessel count'))).toEqual([]);
+    expect(app.error).not.toHaveBeenCalled(); // svälj-fällan
+  });
+
   test('_onAISConnected tvingar en kritisk UI-uppdatering efter reconnect', () => {
     const app = new AISBridgeApp();
     app.log = jest.fn();

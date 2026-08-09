@@ -2,6 +2,12 @@
 
 const fs = require('fs');
 const path = require('path');
+// KX-3 (fältprov 2026-08-09): V8:s heapstatistik är primärkälla för
+// MEMORY_STATS-raden. Inbyggd modul, kräver ingen /proc-läsning (till skillnad
+// från process.memoryUsage(), se _logProcessMemoryStats) och kan därför inte
+// misslyckas i Homey Pros container. Toppnivå-require: modulen är inbyggd,
+// laddningen är gratis och global-require-regeln gäller i övriga filen.
+const v8 = require('v8');
 const Homey = require('homey');
 
 // =============================================================================
@@ -220,6 +226,18 @@ class AISBridgeApp extends Homey.App {
     // Spårar om vi är anslutna till AISstream.io WebSocket
     this._isConnected = false;
     this._lastConnectionStatus = 'disconnected'; // Cache för att undvika redundanta UI-uppdateringar
+    // P3 (söndagsfältet 2026-08-09): STARTGRINDEN. 'connected' är ett positivt
+    // påstående om att appen ser trafik — och stod i fält på 'connected' under
+    // hela 10 min 38 s startblindhet (noll meddelanden från NÅGON källa, första
+    // AISHub-pollen fördröjd av spärren). Flaggan sätts av den FÖRSTA
+    // accepterade positionen som passerar _processAISMessage och lever sedan
+    // processen ut; boot-värdet 'disconnected' äger fältet fram till dess.
+    this._pipelineEverDelivered = false;
+    this._connectionStartGateLogged = false;
+    // P3: hysteresens ankare — VILKEN källa som var tyst när degraderingen
+    // sattes. Degraderat läge får bara släppas av att just DEN källan levererar
+    // igen (se _checkCrossFeedSilence), aldrig av att grannen blir ofärsk.
+    this._connectionDegradedSilentFeed = null;
     // Review fix M2: seed _lastConnectionLost at boot so the stale-data guard
     // (Bug #12) works correctly even if the AIS client never succeeds in
     // connecting. Cleared on first successful _onAISConnected.
@@ -2224,8 +2242,22 @@ class AISBridgeApp extends Homey.App {
 
     try {
       // DEBUG: Logga current state för troubleshooting
+      // BX-8 (fältprov 2026-08-09, ren observabilitet): raden hette tidigare
+      // "Current vessel count" men mätte i själva verket antalet EFTER
+      // borttagningen — VesselDataService.removeVessel gör vessels.delete()
+      // FÖRE emit('vessel:removed') (se BT-F1-kommentaren vid STEG 5). Den
+      // parades ihop med "Vessels remaining after removal" och gav identiska tal i
+      // alla 20 borttagningar i fältloggen (t.ex. "4" och "4"), vilket vid
+      // triage såg ut som att raderingen inte fått effekt.
+      // Före-talet härleds som efter+1: removeVessel returnerar tidigt när
+      // mmsi saknas i mappen, så exakt EN post hann raderas innan eventet,
+      // och listenern körs synkront (ingen await före denna rad).
       const currentVesselCount = this.vesselDataService.getVesselCount();
-      this.debug(`🔍 [VESSEL_REMOVAL_DEBUG] Current vessel count: ${currentVesselCount}, removing: ${mmsi}`);
+      const vesselCountBeforeRemoval = currentVesselCount + 1;
+      this.debug(
+        `🔍 [VESSEL_REMOVAL_DEBUG] Vessel count ${vesselCountBeforeRemoval}→${currentVesselCount} `
+        + `(removed: ${mmsi})`,
+      );
       this.debug(`🔍 [VESSEL_REMOVAL_DEBUG] Current _lastBridgeText: "${this._lastBridgeText}"`);
 
       // STEG 1: RENSA REMOVAL TIMERS
@@ -2341,7 +2373,8 @@ class AISBridgeApp extends Homey.App {
       // "- 1" dubbelsubtraherade → när näst sista båten togs bort publicerades
       // "Inga båtar..." fast en båt var kvar mitt i resan (replay-verifierat).
       const remainingVesselCount = currentVesselCount;
-      this.debug(`🔍 [VESSEL_REMOVAL_DEBUG] Vessels remaining after removal: ${remainingVesselCount}`);
+      // BX-8: samma tal som efter-siffran i raden ovan — nu konsekvent märkt.
+      this.debug(`🔍 [VESSEL_REMOVAL_DEBUG] Vessel count after removal: ${remainingVesselCount}`);
 
       // Produktionsredo (2026-07-03, CONFIRMED): P8-vakten gäller även
       // "ansluten men döv" — B2-watchdogens eget motiverade fall (socket uppe,
@@ -2892,13 +2925,14 @@ class AISBridgeApp extends Homey.App {
     this._isConnected = true;
     // Bug #12: clear disconnect timestamp so bridge text resumes normal operation
     this._lastConnectionLost = null;
-    // B2c (etapp 7, 2026-08-08): ALLA tre skrivvägarna måste vara eniga om
-    // värdemängden. Den här skriver utanför _updateUI:s flankcache — skrev den
-    // 'connected' medan cachen stod på 'degraded' fastnade enheten på fel
-    // värde tills degraderingen växlade igen (flanken hade inget att skriva).
-    this._updateDeviceCapability(
-      'connection_status',
+    // B2c (etapp 7, 2026-08-08): ALLA skrivvägarna måste vara eniga om
+    // värdemängden. P3 (2026-08-09): och om CACHEN — den här vägen skrev
+    // tidigare utanför flankcachen (KX-10), så en handskakning kunde lämna
+    // cachen kvar på ett annat värde än enhetens. Nu äger
+    // _writeConnectionStatus både värdet, cachen och startgrinden.
+    this._writeConnectionStatus(
       this._connectionFeedDegraded ? 'degraded' : 'connected',
+      'AIS-anslutningen etablerad',
     );
 
     // P8-fix (2026-06-09): tvinga en bridge_text-synk efter (åter)anslutning.
@@ -2930,7 +2964,9 @@ class AISBridgeApp extends Homey.App {
     if (!this._lastConnectionLost) {
       this._lastConnectionLost = Date.now();
     }
-    this._updateDeviceCapability('connection_status', 'disconnected');
+    // P3/KX-10: samma ägare som övriga vägar — cachen får aldrig hävda
+    // 'connected' medan enheten skrivits 'disconnected'.
+    this._writeConnectionStatus('disconnected', `AIS-anslutningen tappad (${code})`);
   }
 
   /**
@@ -3012,6 +3048,8 @@ class AISBridgeApp extends Homey.App {
     // spärrar en ALDRIG levererad notis alla nya försök i 24h (samma
     // F6-rollback-princip som boat_near-triggern). Rollbacken är PER NYCKEL.
     if (!this._connectionIssueNotifiedAt) this._connectionIssueNotifiedAt = new Map();
+    if (!this._connectionIssueDedupCount) this._connectionIssueDedupCount = new Map();
+    if (!this._connectionIssueDedupLoggedAt) this._connectionIssueDedupLoggedAt = new Map();
     const prev = this._connectionIssueNotifiedAt.get(feedKey);
     try {
       const DEDUPE_MS = 24 * 60 * 60 * 1000;
@@ -3019,10 +3057,24 @@ class AISBridgeApp extends Homey.App {
       if (prev && now - prev < DEDUPE_MS) {
         // A13: även den tysta grenen ska gå att läsa ur loggen — "gick notisen
         // iväg?" ska aldrig mer vara obesvarbar (fältprovet 2026-08-08).
-        this.debug(
-          `🔕 [AIS_CONNECTION] Timeline-notis dedupad (nyckel '${feedKey}', `
-          + `${Math.round((now - prev) / 60000)} min sedan förra) — 24h-fönstret gäller`,
-        );
+        // KX-14 (fältprovet 2026-08-09): raden STRYPS till var
+        // DEDUP_LOG_THROTTLE_MS (~288 rader/dygn i stället för 1 440), men
+        // KONTROLLRÄKNAREN skrivs ut kumulativt så A13-observerbarheten
+        // behålls: räknaren ska öka lika mycket som antalet hälsoticks, och
+        // en avväpnad gren syns som ett hopp i serien i stället för som en
+        // saknad rad.
+        const checks = (this._connectionIssueDedupCount.get(feedKey) || 0) + 1;
+        this._connectionIssueDedupCount.set(feedKey, checks);
+        const lastLoggedAt = this._connectionIssueDedupLoggedAt.get(feedKey);
+        const throttleMs = CONNECTION_ALERT.DEDUP_LOG_THROTTLE_MS;
+        if (!Number.isFinite(lastLoggedAt) || now - lastLoggedAt >= throttleMs) {
+          this._connectionIssueDedupLoggedAt.set(feedKey, now);
+          this.debug(
+            `🔕 [AIS_CONNECTION] Timeline-notis dedupad (nyckel '${feedKey}', `
+            + `${Math.round((now - prev) / 60000)} min sedan förra) — 24h-fönstret gäller; `
+            + `kontroll #${checks} (raden loggas var ${Math.round(throttleMs / 60000)}:e min)`,
+          );
+        }
         return;
       }
       if (!this.homey || !this.homey.notifications
@@ -3037,6 +3089,11 @@ class AISBridgeApp extends Homey.App {
         return;
       }
       this._connectionIssueNotifiedAt.set(feedKey, now);
+      // KX-14: en NY notis startar ett nytt dedupfönster ⇒ nollställ
+      // strypningen, så första dedupade kontrollen efter notisen alltid
+      // loggas (annars kunde en gammal stämpel tysta hela nästa dygn).
+      this._connectionIssueDedupCount.delete(feedKey);
+      this._connectionIssueDedupLoggedAt.delete(feedKey);
       await this.homey.notifications.createNotification({ excerpt: message });
       // A13: kvittot. Loggas EFTER await — före det vet vi inte att den gick.
       this.log(
@@ -3088,6 +3145,61 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * P3 (söndagsfältet 2026-08-09): ENDA ÄGAREN av connection_status.
+   *
+   * KX-10: flankcachen _lastConnectionStatus uppdaterades tidigare bara av
+   * _updateUI och _applyConnectionDegradedState, medan _onAISConnected/
+   * _onAISDisconnected/_onAISReconnectNeeded skrev capabilityn RAKT PÅ. I fält
+   * gav det en cache som påstod 'connected' medan enheten fått 'disconnected'
+   * — och eftersom _updateUI bara körs på fartygshändelser läktes desyncen
+   * inte på 8,5 min (ingen data fanns). Alla skrivvägar går nu genom den här
+   * funktionen, som äger både cachen, grinden och loggraden.
+   *
+   * STARTGRINDEN (fix 4): 'connected' är ett POSITIVT PÅSTÅENDE om att appen
+   * ser trafik. I fält stod capabilityn på 'connected' under hela 10 min 38 s
+   * startblindhet — WebSocket-handskakningen hade lyckats (_isConnected=true)
+   * men NOLL meddelanden hade passerat pipelinen från någon källa. Grinden
+   * håller därför tillbaka 'connected' till den första accepterade positionen;
+   * boot-värdet 'disconnected' äger fältet till dess. 'degraded' släpps
+   * igenom: det är ingen lugnande utsaga, och det är per konstruktion sant
+   * (en granne som svarar + en tyst källa) även innan pipelinen fått något.
+   * @param {'disconnected'|'connected'|'degraded'} value
+   * @param {string} reason - vem som skrev och varför (fältgranskningens spår)
+   * @returns {boolean} true om värdet faktiskt skrevs
+   * @private
+   */
+  _writeConnectionStatus(value, reason) {
+    let next = value;
+    if (value === 'connected' && !this._pipelineEverDelivered) {
+      next = 'disconnected';
+      if (!this._connectionStartGateLogged) {
+        this._connectionStartGateLogged = true;
+        this.log(
+          "🚦 [CONNECTION_STATUS] startgrinden: 'connected' hålls tillbaka — ingen "
+          + 'accepterad AIS-position har passerat pipelinen sedan appstart',
+        );
+      }
+    }
+    if (this._lastConnectionStatus === next) return false;
+    this._lastConnectionStatus = next;
+    this._updateDeviceCapability('connection_status', next);
+    this.log(`🌐 [CONNECTION_STATUS] ${next} — ${reason}`);
+    return true;
+  }
+
+  /**
+   * Det värde connection_status SKA ha just nu, med startgrinden pålagd.
+   * Delas av _updateUI och enhetens paringsväg (drivers/bridge_status/device.js)
+   * så en enhet som paras under startblindheten inte visar "Uppkopplad".
+   * @returns {'disconnected'|'connected'|'degraded'}
+   */
+  connectionStatusValue() {
+    if (!this._isConnected) return 'disconnected';
+    if (this._connectionFeedDegraded) return 'degraded';
+    return this._pipelineEverDelivered ? 'connected' : 'disconnected';
+  }
+
+  /**
    * B2c (etapp 7, 2026-08-08): spegla DEGRADERAT läge i connection_status.
    *
    * Flanken skrivs bara vid äkta växling (samma värde-dedup som övriga
@@ -3103,14 +3215,14 @@ class AISBridgeApp extends Homey.App {
     if (next === !!this._connectionFeedDegraded) return;
     this._connectionFeedDegraded = next;
     if (!this._isConnected) return;
-    const value = next ? 'degraded' : 'connected';
-    if (this._lastConnectionStatus === value) return;
-    this._lastConnectionStatus = value;
-    this._updateDeviceCapability('connection_status', value);
-    this.log(
-      `🌐 [CONNECTION_STATUS] ${value} — ${next
+    // P3: loggraden får bara påstå något som faktiskt skrevs — går skrivningen
+    // inte fram (startgrinden eller värde-dedupen) ska ingen text hävda att
+    // "båda källorna levererar igen".
+    this._writeConnectionStatus(
+      next ? 'degraded' : 'connected',
+      next
         ? 'en konfigurerad AIS-källa är tyst medan den andra flödar (halverad redundans)'
-        : 'båda konfigurerade AIS-källor levererar igen'}`,
+        : 'båda konfigurerade AIS-källor levererar igen',
     );
   }
 
@@ -3216,7 +3328,9 @@ class AISBridgeApp extends Homey.App {
       // evighetsloop — klienten emittade reconnect-needed, vi gjorde inget,
       // användaren fick aldrig veta varför appen stod still.
       this.error('⚠️ [AIS_CONNECTION] Kan inte återansluta — ingen API-nyckel konfigurerad.');
-      this._updateDeviceCapability('connection_status', 'disconnected');
+      // P3/KX-10: via den enda ägaren, annars glider cachen ifrån enheten
+      // (cachen stod kvar på 'connected' medan enheten fick 'disconnected').
+      this._writeConnectionStatus('disconnected', 'ingen API-nyckel konfigurerad');
       this._notifyConnectionIssue(
         'AIS Tracker: ingen API-nyckel är konfigurerad — appen tar inte emot '
         + 'båtdata. Lägg in din AISstream.io-nyckel i appens inställningar.',
@@ -3279,6 +3393,25 @@ class AISBridgeApp extends Homey.App {
           );
         }
         return; // Ogiltigt meddelande, skippa processning
+      }
+
+      // P3 (söndagsfältet 2026-08-09): STARTGRINDENS KVITTO. Här — och bara
+      // här — har en accepterad position bevisligen passerat pipelinen. Före
+      // detta ögonblick vet appen ingenting om trafikläget, och capabilityn får
+      // inte påstå 'connected' (fältet: 10 min 38 s "Uppkopplad" med noll
+      // meddelanden från någon källa). Sätts efter valideringen, så avvisade
+      // meddelanden inte öppnar grinden.
+      if (!this._pipelineEverDelivered) {
+        this._pipelineEverDelivered = true;
+        // FLANKEN MÅSTE SKRIVA SJÄLV: statusen får inte vänta på nästa
+        // UI-cykel. En position för ett fartyg som aldrig blir en vessel (utom
+        // bevakningsområdet) ger varken vessel-event eller watchdog-cykel
+        // (watchdogen returnerar vid 0 båtar), och capabilityn hade då kunnat
+        // ligga kvar på 'disconnected' medan data faktiskt flödar.
+        this._writeConnectionStatus(
+          this.connectionStatusValue(),
+          'första accepterade positionen passerade pipelinen',
+        );
       }
 
       // STEG 2: NORMALISERA MMSI TILL STRING
@@ -4155,13 +4288,12 @@ class AISBridgeApp extends Homey.App {
       // 'connected' — flankvakten här är därför ENDA stället som får äga
       // sanningen om värdet. Full frånkoppling vinner alltid: då är appen inte
       // degraderad, den är nere.
-      const connectedValue = this._connectionFeedDegraded ? 'degraded' : 'connected';
-      const currentConnectionStatus = this._isConnected ? connectedValue : 'disconnected';
-      if (currentConnectionStatus !== this._lastConnectionStatus) {
-        this._lastConnectionStatus = currentConnectionStatus;
-        this._updateDeviceCapability('connection_status', currentConnectionStatus);
-        this.debug(`🌐 [CONNECTION_STATUS] Changed to: ${currentConnectionStatus}`);
-      }
+      // P3 (2026-08-09): värdet + startgrinden + cachen ägs av
+      // _writeConnectionStatus (connectionStatusValue speglar samma regel för
+      // enhetens paringsväg). Skrivningen är fortfarande flankdedupad — det är
+      // funktionen som gör det — så en UI-cykel per fartygsuppdatering
+      // fortsätter kosta noll capability-skrivningar när läget är oförändrat.
+      this._writeConnectionStatus(this.connectionStatusValue(), 'UI-cykelns statusflank');
 
       // ENHANCED: Update alarm_generic - should match bridge text state
       // With improved generation, default text should only appear when no relevant vessels exist
@@ -8567,6 +8699,26 @@ class AISBridgeApp extends Homey.App {
   _checkCrossFeedSilence(perFeed) {
     const SILENT_MS = 15 * 60 * 1000;
     const FRESH_MS = 2 * 60 * 1000;
+    // FRESH_POLL_MS (P3, söndagsfältet 2026-08-09): färskhetsmåttet för en
+    // POLLANDE källa. FRESH_MS (2 min) är dimensionerat för en STRÖM och mäter
+    // senaste ACCEPTERADE emission — men AISHub pollar var 65:e s (+0-5 s
+    // jitter) och dedupar oförändrade poster, så ett svep utan nytt fix ger
+    // regelmässigt 130-210 s mellan accepterade emissioner (fältet: 134,4 /
+    // 131,4 / 133,2 / 134,8 / 206,9 s på 22,6 min hubdrift). Måttet gjorde
+    // därmed en FRISK hubb periodiskt "ofärsk" ⇒ degraderingsvillkoret föll ⇒
+    // enheten skrev 'connected' ("båda källorna levererar igen") mitt i
+    // aisstreams totala tystnad, i 2 min 0 s, om och om igen.
+    //
+    // HÄRLEDNING: minsta glapp mellan två pollSTARTER är POLL_INTERVAL_MS
+    // (65 s); värsta glapp är POLL_INTERVAL_MS + POLL_JITTER_MS (70 s). Ett
+    // fönster måste tåla att EN poll uteblir helt (nätfel, backoff-tick) utan
+    // att döma källan ⇒ 3 hela pollcykler = 3 × 70 s = 210 s. Talet räknas ur
+    // konstanterna så en kadensändring flyttar tröskeln med sig. Kalibreringen
+    // hänger ihop med klientens egen anslutningssemantik: AISHubClient sätter
+    // sig själv 'disconnected' när senaste välformade svar är äldre än
+    // SILENT_FEED_MS (200 s) — vi släpper alltså färskheten strax EFTER att
+    // källan själv gett upp, aldrig före.
+    const FRESH_POLL_MS = 3 * (AIS_CONFIG.AISHUB.POLL_INTERVAL_MS + AIS_CONFIG.AISHUB.POLL_JITTER_MS);
     const now = Date.now();
     const s = perFeed.aisstream;
     const h = perFeed.aishub;
@@ -8593,7 +8745,23 @@ class AISBridgeApp extends Homey.App {
     // observationsfönster — annars skulle en nystartad, aldrig levererande
     // källa räknas som frisk granne.
     const sFresh = sObs.sinceMessageMs !== null && sObs.sinceMessageMs < FRESH_MS;
-    const hFresh = hObs.sinceMessageMs !== null && hObs.sinceMessageMs < FRESH_MS;
+    // P3/KX-1: AISHubs färskhet mäts på SENASTE VÄLFORMADE SVAR (HTTP 200 +
+    // parsbart kuvert, oavsett dedup och oavsett om svepet var tomt), inte på
+    // senaste accepterade emission. Distinktionen är hela fyndet: "källan
+    // svarar" ≠ "källan levererade nyss ett NYTT unikt fix". Tystnadssidan
+    // (hSilence) är oförändrat emissionsdriven — en hubb som svarar men aldrig
+    // levererar ska fortfarande dömas tyst av grenarna nedan.
+    //  • null = hubben har ALDRIG svarat ⇒ inte färsk (en nystartad källa som
+    //    inte sagt något är inte en frisk granne — samma regel som sFresh).
+    //  • undefined = perFeed-posten saknar fältet (legacy-stubbar,
+    //    pass-through-paritet) ⇒ fall tillbaka på emissionsmåttet, som förut.
+    const hubPollClock = !!h && h.lastOkResponseAt !== undefined;
+    const hubPollAgeMs = Number.isFinite(h && h.lastOkResponseAt)
+      ? Math.max(0, now - h.lastOkResponseAt)
+      : null;
+    const hFresh = hubPollClock
+      ? (hubPollAgeMs !== null && hubPollAgeMs < FRESH_POLL_MS)
+      : (hObs.sinceMessageMs !== null && hObs.sinceMessageMs < FRESH_MS);
 
     if (!this._feedSilentLogTimes) this._feedSilentLogTimes = new Map();
     const logLimited = (feed, message) => {
@@ -8650,14 +8818,49 @@ class AISBridgeApp extends Homey.App {
     // levande källan matar pipelinen: i skuggläge är en tyst hub inget
     // användaren ska se (fynd 17), och en tyst aisstream med bara en
     // skugghub kvar är BLIND (totalgrenen ovan), inte degraderad.
-    this._applyConnectionDegradedState(
-      hubFeedsPipeline && (streamSilentHubFresh || hubSilentStreamFresh),
-    );
+    //
+    // P3 (2026-08-09): ASYMMETRISK HYSTERES. Villkoret ovan är en KONJUNKTION
+    // av två källors tillstånd, så det föll också när den FRISKA grannen
+    // tillfälligt blev ofärsk — degraderingen släpptes alltså av att läget
+    // blivit SÄMRE, och enheten skrev sitt mest lugnande värde precis när båda
+    // flödena var tysta. FLANKVILLKORET är därför riktat:
+    //   • SÄTTS av villkoret ovan (oförändrat), och minns VILKEN källa som var
+    //     den tysta.
+    //   • SLÄPPS bara av att just DEN källan levererar igen (dess observerade
+    //     tystnad har fallit under SILENT_MS) — eller av att paret upphör att
+    //     vara ett par (avkonfigurerad källa / hubben slutar mata pipelinen).
+    // Följden: en dipp i grannens färskhet kan aldrig påstå återhämtning, och
+    // texten "båda konfigurerade AIS-källor levererar igen" blir sann per
+    // konstruktion (den tysta källan MÅSTE ha levererat inom 15 min).
+    const degradeNow = hubFeedsPipeline && (streamSilentHubFresh || hubSilentStreamFresh);
+    let degraded = degradeNow;
+    if (degradeNow) {
+      this._connectionDegradedSilentFeed = streamSilentHubFresh ? 'aisstream' : 'aishub';
+    } else if (this._connectionFeedDegraded) {
+      const held = this._connectionDegradedSilentFeed;
+      const heldSilence = held === 'aisstream' ? sSilence : hSilence;
+      // Paret måste fortfarande finnas för att "halverad redundans" ska betyda
+      // något; annars är läget en ren enkällskonfiguration (eller skuggläge)
+      // och degraderingen ska släppas.
+      const stillPaired = bothConfigured && hubFeedsPipeline;
+      degraded = !!held && stillPaired && Number.isFinite(heldSilence) && heldSilence > SILENT_MS;
+    }
+    if (!degraded) this._connectionDegradedSilentFeed = null;
+    this._applyConnectionDegradedState(degraded);
 
     if (!bothConfigured) return;
 
     if (streamSilentHubFresh) {
-      logLimited('aisstream', `aisstream har inte levererat på ${Math.round(sSilence / 60000)} min medan AISHub flödar`);
+      // P3 (2026-08-09): hFresh betyder numera "hubben SVARAR välformat". Vid
+      // tom kanal (nattetid) kan den svara i timmar utan att leverera en enda
+      // position — och då är "flödar" ett falskt påstående i en loggrad som
+      // nästa fältanalys läser (BT-12-principen: texten får inte påstå mer än
+      // mätningen bär). Totalgrenen ovan äger det scenariot och har redan
+      // skrivit "appen är blind".
+      const hubPhrase = hSilence > SILENT_MS
+        ? 'medan AISHub svarar men inte levererar något'
+        : 'medan AISHub flödar';
+      logLimited('aisstream', `aisstream har inte levererat på ${Math.round(sSilence / 60000)} min ${hubPhrase}`);
       this._notifyConnectionIssue(
         'AIS Tracker: AISstream har inte levererat några positioner på 15 min '
         + 'medan AISHub flödar — anslutningen kan vara halvdöd. Appens vakter '
@@ -8884,23 +9087,119 @@ class AISBridgeApp extends Homey.App {
    * additiv, struppad till samma 10-minuterskadens som MEMORY_STATS i
    * VesselDataService så serierna kan läsas parvis, och gör nästa fältdygn
    * avgörande i stället för indicerande.
+   *
+   * KX-3 (fältprov 2026-08-09): raden var 100 % DÖD på målplattformen.
+   * process.memoryUsage() räknar ut rss via libuv (uv_resident_set_memory,
+   * som läser /proc/self/stat på Linux) INNAN V8-fälten fylls i — i Homey Pros
+   * container är /proc otillgängligt, hela anropet kastar ENOENT, och därmed
+   * gick även heapUsed förlorad. Fältloggen: 4/4 försök gav
+   * `[err] ... ENOENT ... uv_resident_set_memory` (10 min isär, ~144/dygn) och
+   * NOLL mätvärden. Primärkällan är därför nu v8.getHeapStatistics() — ren V8,
+   * rör inte /proc — medan rss hämtas separat som best-effort
+   * (_readProcessRssBestEffort). Kadens och radprefix är oförändrade så att
+   * serien kan läsas parvis med VesselDataServices MEMORY_STATS precis som förr.
    * @private
    */
   _logProcessMemoryStats() {
     try {
-      if (typeof process === 'undefined' || typeof process.memoryUsage !== 'function') return;
       const now = Date.now();
       if (now - (this._processMemoryStatsLoggedAt || 0) < PROCESS_MEMORY_STATS_INTERVAL_MS) return;
       this._processMemoryStatsLoggedAt = now;
-      const mem = process.memoryUsage();
+
       const mb = (bytes) => (Number.isFinite(bytes) ? (bytes / (1024 * 1024)).toFixed(1) : '?');
+
+      // Primärkällan: V8-heapen. Får aldrig fällas av rss-vägen (KX-3).
+      let heap = null;
+      try {
+        if (v8 && typeof v8.getHeapStatistics === 'function') heap = v8.getHeapStatistics();
+      } catch (error) {
+        // Inbyggd modul — hit kommer vi i praktiken aldrig. Heapraden faller
+        // bort, rss nedan kan fortfarande ge en observation. EN förklarande
+        // [err] per appstart: KX-3:s läxa är att en död observationsväg aldrig
+        // får vara tyst OM att den är död (men inte heller spamma om det).
+        heap = null;
+        if (!this._processHeapErrorLogged) {
+          this._processHeapErrorLogged = true;
+          this.error(
+            '[MEMORY_STATS] V8:s heapstatistik är inte tillgänglig:',
+            (error && error.message) || error,
+            '— minnesserien uteblir för den här processen.',
+          );
+        }
+      }
+
+      // Best-effort: processens residenta minne. Egen try/catch + permanent
+      // avstängning vid miljöbrist (se _readProcessRssBestEffort).
+      const rss = this._readProcessRssBestEffort();
+
+      // Ingen av källorna svarade ⇒ ingen rad. (rss-vägen har då redan loggat
+      // sitt ENDA [err]; en tom rad varje 10:e minut vore rent brus.)
+      if (!heap && rss === null) return;
+
       this.debug(
-        `📊 [MEMORY_STATS] process: heapUsed=${mb(mem.heapUsed)} MB, `
-        + `heapTotal=${mb(mem.heapTotal)} MB, rss=${mb(mem.rss)} MB, `
-        + `external=${mb(mem.external)} MB`,
+        `📊 [MEMORY_STATS] process: heapUsed=${mb(heap && heap.used_heap_size)} MB, `
+        + `heapTotal=${mb(heap && heap.total_heap_size)} MB, `
+        + `heapLimit=${mb(heap && heap.heap_size_limit)} MB, `
+        + `external=${mb(heap && heap.external_memory)} MB, `
+        + `rss=${rss === null ? 'n/a' : `${mb(rss)} MB`}`,
       );
     } catch (error) {
       this.error('[MEMORY_STATS] Kunde inte läsa processens minnesanvändning:', error.message || error);
+    }
+  }
+
+  /**
+   * KX-3: rss som best-effort, med engångsloggning och permanent avstängning.
+   *
+   * Homey Pros container saknar /proc ⇒ process.memoryUsage() kastar ENOENT
+   * (syscall uv_resident_set_memory) VARJE gång. Det är en permanent
+   * MILJÖBRIST, inte ett transient fel — 4/4 misslyckanden i fältloggen — och
+   * ingen kadens i världen gör om den till ett mätvärde. Därför:
+   *   • första förekomsten loggas som [err] MED förklaring (en äkta regression
+   *     ska fortfarande synas i felkanalen),
+   *   • ENOENT/ENOSYS sätter en permanent avstängningsflagga på appinstansen,
+   *     som därmed nollställs först vid nästa appstart (ny AISBridgeApp),
+   *   • övriga fel (potentiellt transienta) försöks om vid nästa kadens men
+   *     loggas därefter bara som debug.
+   * Nettot är ≤1 [err] per appstart i stället för ~144/dygn.
+   * @returns {number|null} rss i bytes, eller null när mätningen inte gick
+   * @private
+   */
+  _readProcessRssBestEffort() {
+    if (this._processRssUnavailable) return null;
+    try {
+      if (typeof process === 'undefined' || typeof process.memoryUsage !== 'function') {
+        // Ingen mätbar plattform alls — tyst avstängning, inget felmeddelande
+        // att ge användaren.
+        this._processRssUnavailable = true;
+        return null;
+      }
+      const mem = process.memoryUsage();
+      return mem && Number.isFinite(mem.rss) ? mem.rss : null;
+    } catch (error) {
+      const code = (error && error.code) || '';
+      const message = (error && error.message) || String(error);
+      // Koden är det primära beviset; meddelandesträngen är reserv ifall
+      // plattformen kastar ett fel utan .code (fältloggens rad bar båda:
+      // "ENOENT: no such file or directory, uv_resident_set_memory").
+      const permanent = code === 'ENOENT' || code === 'ENOSYS'
+        || /\b(ENOENT|ENOSYS)\b/.test(message);
+
+      if (!this._processRssErrorLogged) {
+        this._processRssErrorLogged = true;
+        this.error(
+          '[MEMORY_STATS] Kunde inte läsa processens rss:',
+          message,
+          permanent
+            ? '— plattformen saknar stödet (t.ex. /proc i containern); rss stängs av för den här processen, V8-heapen fortsätter loggas.'
+            : '— försöket görs om vid nästa kadens; ytterligare fel loggas som debug.',
+        );
+      } else if (!permanent) {
+        this.debug(`📊 [MEMORY_STATS] rss kunde fortfarande inte läsas: ${message}`);
+      }
+
+      if (permanent) this._processRssUnavailable = true;
+      return null;
     }
   }
 

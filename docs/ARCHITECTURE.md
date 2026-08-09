@@ -129,8 +129,21 @@ Moduler (ansvar / ägda tillstånd / in-ut):
   maxSilence lästes som ett sanningsenligt maxvärde; och `_pct` använder
   nearest-rank (returnerade förut MAXVÄRDET vid exakt n=10, precis vid
   tröskeln `MIN_SAMPLES_FOR_P90`).
+  **NOLLSAMPELFALLET (KX-5/KX-6, fältprovet 2026-08-09)**: glappet kan bara
+  mätas VID ANKOMST av ett nytt sampel, så en källa utan sampel rapporterade
+  `maxSilence*Ms=0` — instrumentets mest lugnande värde vid total källdöd (sju
+  rader i rad medan aisstream var död). Raden bär numera råa räknare
+  (`msgsAisstream`/`msgsAishub`) och tre etiketter i stället för nollan:
+  `ALDRIG_sedan_start_Xs` (aldrig levererat sedan mätstart),
+  `TYST_Xs_inget_sampel` (levererat tidigare, inget i fönstret — täcker även
+  källan som dör mitt i körningen) och `OMÄTT_inget_glapp` (levande källa,
+  inget fartyg rapporterade två gånger). Uppmätta glapp skrivs oförändrat som
+  tal, så `maxSilence*Ms=<tal>` betyder fortfarande exakt vad det gjorde.
 - **app.js (AISBridgeApp)**: orkestrering, Flow-kort, UI-publicering, notisdedupe
-  (per källa/felklass sedan etapp 2: `_notifyConnectionIssue(msg, feedKey)`),
+  (per källa/felklass sedan etapp 2: `_notifyConnectionIssue(msg, feedKey)`;
+  dedupradens debuglogg stryps sedan KX-14 till `DEDUP_LOG_THROTTLE_MS` = 5 min
+  och bär en KUMULATIV kontrollräknare, så en avväpnad gren fortfarande syns
+  som ett hopp i serien i stället för att drunkna i 1 440 rader/dygn),
   persistens, monitoring (inkl. per-feed-watchdog `_checkAISFeedHealth` +
   `[FEED_SILENT]`-korsvakt + muxens `pruneFusionState`). Korsvaktens
   AISHub-NOTIS gatas sedan fynd 17 (A/B-natten 2026-08-03) på `_hubFeedsPipeline()`
