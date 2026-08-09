@@ -127,7 +127,12 @@ describe('Etapp 1: AISHubClient poll-disciplin', () => {
     expect(calls.length).toBe(1);
   });
 
-  test('spärren skrivs till settings FÖRE requesten — vid VARJE poll', async () => {
+  // C3c (etapp 7, 2026-08-09): skrivningen är strypt — men V2-C2-semantiken
+  // ("FÖRE requesten") och den bärande invarianten står kvar. Testet mäter
+  // därför invarianten i stället för skrivtakten: det persisterade värdet får
+  // ALDRIG understiga en verklig polltidpunkt (då hade en omstart kunnat polla
+  // för tidigt). Skrivtakten i sig prövas i etapp7-c3-churn-och-pollspar.test.js.
+  test('spärren är skriven FÖRE requesten och ligger ALDRIG före en verklig poll', async () => {
     const store = makeStore();
     client = new AISHubClient(makeLogger(), store);
     const samples = [];
@@ -139,7 +144,10 @@ describe('Etapp 1: AISHubClient poll-disciplin', () => {
     await jest.advanceTimersByTimeAsync(3 * 70 * 1000);
     expect(samples.length).toBeGreaterThanOrEqual(3);
     for (const s of samples) {
-      expect(s.persisted).toBe(s.at); // skriven i samma tick, före requesten
+      // Skriven i samma tick som pollen startade (aldrig null/odefinierad)…
+      expect(typeof s.persisted).toBe('number');
+      // …och alltid ≥ polltidpunkten: en omstart kan bara vänta för länge.
+      expect(s.persisted).toBeGreaterThanOrEqual(s.at);
     }
   });
 

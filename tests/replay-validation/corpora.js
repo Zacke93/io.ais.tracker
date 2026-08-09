@@ -137,7 +137,26 @@ module.exports = [
       + 'B3-kapseln (datahärledd ur fältdygnen 2026-08-04/05) STYRKER nu kaj- '
       + 'alternativet, så N7-kajvakten undertrycker inferensen — samma EUGENIE-/ '
       + 'kajavgångsklass som both-dygn 1 fällde. Järnvägsbron-notisen (äkta '
-      + 'gap-korsning med sampel på båda sidor) är OFÖRÄNDRAT kvar.',
+      + 'gap-korsning med sampel på båda sidor) är OFÖRÄNDRAT kvar. '
+      + 'GOLDEN OMLÅST (2026-08-09, C1d skyddszonens närmast-bro-val): 164 → 166 '
+      + 'övergångar, FYRA poster, samtliga rådataverifierade mot '
+      + 'ais-replay-20260601-231305.jsonl för 265735370 (AQUILA). BORT: '
+      + '"Inga båtar är i närheten av Klaffbron eller Stridsbergsbron" 13:18:37 '
+      + '— FALSK. IN: "En båt på väg mot Klaffbron, beräknad broöppning om 72 '
+      + 'minuter" 13:17:47, "…ETA okänd" 13:28:07 och DEFAULT 13:29:43. '
+      + 'Rådata: AQUILA kom söderut från Stallbacka-området (13:07:15 sog 7,7), '
+      + 'korsade Stridsbergsbron mellan 13:07:15 och 13:15:45, låg sedan still '
+      + '(sog 0–2,8; nettoförflyttning ~42 m på 28 min) 1 103–1 159 m från '
+      + 'Klaffbron och 141–197 m från den '
+      + 'OPASSERADE Järnvägsbron 13:15:45–13:43:39, korsade Järnvägsbron mellan '
+      + '13:43:39 och 13:52:35 och Klaffbron 13:55:37 (sog 5,0). Hon var alltså '
+      + 'en ÄKTA köare hela fönstret; den gamla texten påstod att inga båtar '
+      + 'fanns. Rotorsak: _isInProtectionZone valde den NÄRMASTE bron '
+      + '(Stridsbergsbron, passerad) framför den opasserade Järnvägsbron, varpå '
+      + 'F21:s bypass frigav målbron. ETA-värdet 72 min är den kända '
+      + 'köfartsöverskattningen (planens C14 — 0,2 kn ⇒ 72 min mot verkliga '
+      + '37,8) och ändras inte av C1d. Notis-/fördelnings-/riktnings-/'
+      + 'öppningsfacit ORÖRDA (84/84, 27 öppningsvarningar).',
   },
   {
     id: '20260610-förfix',
@@ -673,12 +692,67 @@ module.exports = [
       + 'ägs av C11/C11b; utslaget varade 51 s och fällde ingen invariant. '
       + 'VARNING TILL FRAMTIDA GRANSKARE: när C1/C2 landar ÄNDRAS golden-texten '
       + 'här ändå (REGEN krävs) — passa då på att RENSA de undantag som blivit '
-      + 'döda. Ett dött undantag är inte farligt men det ljuger om nuläget.',
+      + 'döda. Ett dött undantag är inte farligt men det ljuger om nuläget. '
+      + '── GOLDEN-TEXT OMLÅST 2026-08-09 (etapp 7 fas C etapp III, C1b — '
+      + 'validatorns under-bridge-gräns). ANTALET ÖVERGÅNGAR ÄR OFÖRÄNDRAT '
+      + '(324); notis- (152), fördelnings-, riktnings- och öppningsfacit (34) '
+      + 'är BYTE-IDENTISKA. (Detta gällde C1b mätt ENSAMT — i det levererade '
+      + 'etapp C-III-trädet ändras ÄVEN 20260601-41h, 164→166 övergångar av '
+      + 'C1d; se den korpusens egen not.) '
+      + 'FYRA radpositioner (163–166) i ETT fönster, 08:27:26–08:28:35, byts: '
+      + '[163] "3 båtar är i närheten av Stridsbergsbron" → "Tre båtar på väg '
+      + 'mot Stridsbergsbron, beräknad broöppning strax"; raden 08:27:56.154Z '
+      + 'försvinner (samma text som 163 ⇒ ingen övergång) och en NY korrekt '
+      + 'rad 08:28:35.485Z "En båt … strax" tillkommer i andra änden. '
+      + 'MOTIV: `_validateStatusConsistency` dömde appens EGEN '
+      + 'BRIDGE_OPENING-hållning som inkonsistens. Hållningen '
+      + '(StatusService: "Holding under-bridge state for …") behåller MEDVETET '
+      + 'status under-bridge tills båten är >PROTECTION_ZONE_RADIUS (300 m) '
+      + 'bort, men validatorns hårdkodade tak var 100 m. '
+      + 'RÅDATAVERIFIERING per post (ais-20260804-both-21h.jsonl; OBS 08:27:26.096 '
+      + 'är UI-/goldenstämpeln — ANYA ELANs sampel är .094 och JEANNELLEs .645 '
+      + '— övriga stämplar är sampelns egna): vid 08:27:26.096 var 265705550 ANYA ELAN 380 på '
+      + 'lat 58.29531/lon 12.29751 = 263 m från Stridsbergsbron (hon var 66 m '
+      + 'söder om bron 08:26:16 och passerade alltså precis) med aktiv '
+      + '30-sekundershållning — 263 < 300, dvs. exakt det hållningen tillåter. '
+      + 'De ÖVRIGA tre båtarna i texten var samtidigt 211347380 ANTJE 44 m '
+      + '(08:27:13.696), 265788210 EUGENIE 21 m (08:27:25.946) och 265662320 '
+      + 'JEANNELLE 306 m på väg in (08:27:25.644, sog 5,9 cog 36,4) ⇒ "Tre '
+      + 'båtar på väg mot Stridsbergsbron, beräknad broöppning strax" är '
+      + 'SAKLIGT SANN, och den var textmotorns egen utdata. Den gamla raden '
+      + 'var `_generateSafeFallbackText`:s beskrivande gren — samma antal (3) '
+      + 'men utan bro-öppningsinformationen. Den nya raden 08:28:35.485Z "En '
+      + 'båt … strax" är också verifierad: då var EUGENIE 250 m norr om bron '
+      + '(passerad), ANTJE 103 m norr (passerad) och endast JEANNELLE 44 m NORR om '
+      + 'brolinjen (nyss passerad) vid '
+      + 'bron på 44 m. Gamla golden hoppade över det tillståndet. '
+      + 'MÄTT VERKAN: degraderingstiden i fönstret går 38,4 s → 0,36 s. '
+      + 'INVARIANTUNDANTAG: de två COUNT-DEGRADERING-strängarna (08:27:26.096Z '
+      + '"69s" och 08:28:26.908Z "39s") är DÖDA och borttagna; kvar är EN, '
+      + '08:28:34.886Z. RÄTTELSE AV DENNA NOTS EGEN TIDIGARE UPPGIFT: '
+      + 'rotorsaken angavs som "C1(c) (fallback vid renderable=0)" — det är '
+      + 'FEL. Mätning över samtliga 18 korpusar visar att renderable=0-grenen '
+      + 'i `_generateSafeFallbackText` nås NOLL gånger; här var renderable=3 '
+      + '(därav "3 båtar"), och det som fällde texten var CHECK 2 '
+      + '(status-inkonsistens), inte count-checken. Punkt (6) i listan ovan, '
+      + 'DEFAULT-FLASH 04:40:11.113Z, är av samma skäl INTE C1:s klass: den '
+      + 'kommer från removal-vägens forcerade DEFAULT ("FORCED bridge text '
+      + 'update to default"), inte från valideringskedjan, och står kvar. '
+      + 'C1a ([err]-kedjans hold-replay) rörde INGEN text i någon korpus — den '
+      + 'tog bort 12 no-op-larmpar (24 loggrader) i just den här korpusen och '
+      + '0 i övriga 17. C2 (ETA-clampens släppgrind) rörde ingen text alls; '
+      + 'dess enda mätbara effekt i hela regressionskorpusen är notistokenen '
+      + 'eta_minutes för 265788210 EUGENIE @Stridsbergsbron 21 m, 0 → 2 min '
+      + '(faktisk passage 1,2 min senare) — notisens (mmsi,bro,riktning) och '
+      + 'antalet är oförändrade och därmed är fördelningsfacit orört.',
     knownInvariantExceptions: [
       'NOTIS-DUBBLETT: 219031446:Stridsbergsbron × 2 utan journey-reset emellan',
       'ETA-SÅGTAND UPP: 2026-08-05T09:56:02.055Z Klaffbron 12→27 på 30s',
-      'COUNT-DEGRADERING: 2026-08-05T08:27:26.096Z "3 båtar är i närheten av Stridsbergsbron" inklämd (69s)',
-      'COUNT-DEGRADERING: 2026-08-05T08:28:26.908Z "3 båtar är i närheten av Stridsbergsbron" inklämd (39s)',
+      // C1b (2026-08-09): de TVÅ gamla strängarna (08:27:26.096Z/69s och
+      // 08:28:26.908Z/39s) är DÖDA och borttagna. Kvar är EN degradering,
+      // 08:28:34.886Z, som varar 0,36 s i den publicerade strömmen (INV-4:s
+      // "69s" är grannspannet t[i+1]−t[i−1], inte textens egen varaktighet).
+      'COUNT-DEGRADERING: 2026-08-05T08:28:34.886Z "3 båtar är i närheten av Stridsbergsbron" inklämd (69s)',
       'DEFAULT-FLASH: 2026-08-05T04:40:11.113Z "Inga båtar" inklämd (140s) mellan två "En … Klaffbron"-texter utan passage',
       'STRAX-ZOMBIE: 2026-08-05T01:59:48.635Z "En båt på väg mot Stridsbergsbron, beräknad broöppning strax" stod 69 min utan Stridsbergsbron-passage',
     ],
