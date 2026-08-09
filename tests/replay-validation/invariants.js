@@ -54,7 +54,16 @@ const { BRIDGE_OPENING } = require('../../lib/constants');
 
 const COUNT_WORDS = '(En|Två|Tre|Fyra|Fem|Sex|Sju|Åtta|Nio|Tio|[2-9]\\d?)';
 const TARGET = '(Klaffbron|Stridsbergsbron)';
-const ETA_CLAUSE = '(beräknad broöppning (strax|om (cirka )?([1-9]\\d{0,2}) minuter)|ETA okänd|inväntar broöppning)';
+// H-3 (etapp 7, 2026-08-09): alternativet `inväntar broöppning` BORTTAGET —
+// det var dött. Variant-1:s enda klausulkälla är formatETABroOpeningClause
+// (etaValidation), som returnerar exakt "beräknad broöppning strax" /
+// "... om (cirka) N minuter" / "ETA okänd"; frasen "inväntar broöppning" lever
+// bara kvar i gamla kommentarer och i konstantnamn (WAITING_SET_DISTANCE).
+// MÄTT före borttagningen: 0 av 2 150 publicerade texter i samtliga 18
+// korpusar (~320 h) och 0 av 17 golden-filer innehöll strängen. Ett dött
+// alternativ i INV-1:s grammatik är en öppen dörr — en framtida regression som
+// råkar producera frasen hade passerat grinden tyst.
+const ETA_CLAUSE = '(beräknad broöppning (strax|om (cirka )?([1-9]\\d{0,2}) minuter)|ETA okänd)';
 const CLAUSE_RES = [
   new RegExp('^Inga båtar är i närheten av Klaffbron eller Stridsbergsbron$'),
   new RegExp(`^En båt på väg mot ${TARGET}, ${ETA_CLAUSE}$`),
