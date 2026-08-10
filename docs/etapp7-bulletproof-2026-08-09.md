@@ -44,7 +44,7 @@ byte-identiska efteråt: facitfilerna fick **382 + 268 + 6 tillägg och noll bor
 | A8 | Token-timeout-filter, REGEN-complete-vakt, `originalDueMs` | |
 | A12 | F6b:s samma-rapport-grind (90 s) | Latent hubsvält vid källåterkomst |
 | A13 | Notisvägen loggar utfall | Utan den kan källdödslarmet **aldrig** fältverifieras |
-| A14 | `heapUsed`/RSS i MEMORY_STATS | Loggen hade noll heap-observationer |
+| A14 | `heapUsed`/RSS i MEMORY_STATS | Loggen hade noll heap-observationer. ⚠️ EFTERSKRIFT (2026-08-10, söndagsfältet KX-3): `process.memoryUsage()` kastar ENOENT (uv_resident_set_memory, /proc otillgängligt) i Homey Pro-containern — A14 levererade i praktiken ALDRIG heap-observationer i fält förrän WS-1/P4 bytte primärkälla till `v8.getHeapStatistics()` |
 
 **Korpusarna blev 18** (~319,5 h): #16 `20260804-17h` (låst 116), #17 `20260804-both-21h`
 (låst 152, `lockOpenings:false`), #18 `20260806-42h` (**medvetet olåst**, se §6).
