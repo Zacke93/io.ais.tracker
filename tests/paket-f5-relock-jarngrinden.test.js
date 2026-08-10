@@ -130,7 +130,9 @@ describe('F5: relockGoldenText:s järngrind (baslinje)', () => {
     const r = runTool({ results: [baseResult()] });
     expect(r.status).toBe(0);
     expect(r.writes).toHaveLength(1);
-    expect(r.writes[0]).toContain(`golden-text/${CORPUS}.json`);
+    // Windows-portabilitet (2026-08-10): WROTE-raden bär en path.join-byggd
+    // sökväg — backslash på Windows. Normalisera före substring-jämförelsen.
+    expect(r.writes[0].replace(/\\/g, '/')).toContain(`golden-text/${CORPUS}.json`);
   }, 30000);
 });
 
