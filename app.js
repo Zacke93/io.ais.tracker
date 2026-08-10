@@ -43,13 +43,22 @@ const AISSourceMultiplexer = require('./lib/connection/AISSourceMultiplexer'); /
 // UTILITIES: Hjälpfunktioner
 const { etaDisplay, formatETABroOpeningClause, etaMinutesForDisplay } = require('./lib/utils/etaValidation');
 const geometry = require('./lib/utils/geometry');
+// Fable-granskningen 2026-08-10 (FG-DIR): riktning-ur-COG som namngiven
+// predikatfamilj i stället för gradliterals. ⚠️ De tre sydpredikaten har
+// MEDVETET olika band (strikt/brett/token) — se modulens huvud innan du byter
+// ett anrop mot ett annat.
+const {
+  isNorthCog, isSouthCogStrict, isSouthCogWide, isSouthCogToken,
+} = require('./lib/utils/cogDirection');
 
 // =============================================================================
 // CONSTANTS: Centraliserade konfigurations-värden
 // =============================================================================
 const {
   BRIDGES, // Bro-positioner och konfiguration
-  COG_DIRECTIONS, // Course Over Ground riktningar (nord/syd)
+  // FG-DIR: COG_DIRECTIONS importeras inte längre här — appens fyra
+  // riktningsställen går via cogDirection-predikaten ovan, som äger
+  // konstantläsningen. Talen bor kvar i lib/constants.js (P5-beslutet).
   UI_CONSTANTS, // UI-uppdatering timeouts
   VALIDATION_CONSTANTS, // Validerings-trösklar
   FLOW_CONSTANTS, // Homey Flow-kort konfiguration
@@ -882,7 +891,7 @@ class AISBridgeApp extends Homey.App {
         && (!Number.isFinite(vessel.sog) || vessel.sog < 2.0)) {
       return null; // COG är vobbel vid väntfart — okänd ⇒ konservativ blockering
     }
-    if (cog >= 315 || cog <= 45) return 'north';
+    if (isNorthCog(cog)) return 'north';
     // Produktionsredo (2026-07-03): sydband 135–314°. Det smala bandet
     // (135–225) lagrade dir=null för SV-kurs (226–314°, normal sydfärd i den
     // NE–SV-orienterade kanalen) → ELFKUNGEN-undantaget (motsatt riktning
@@ -894,7 +903,11 @@ class AISBridgeApp extends Homey.App {
     // bevisats: dedup-bandet är facit-låst (HALIFAX/ELFKUNGEN-serierna) och
     // en harmonisering 314→270 måste i så fall valideras mot de korpusarna,
     // inte antas ur token-empirin.
-    if (cog >= 135 && cog < 315) return 'south';
+    // Fable-granskningen 2026-08-10 (FG-DIR): banden lyfta till den namngivna
+    // predikatfamiljen (lib/utils/cogDirection) — gränserna oförändrade. Att
+    // dedupen använder isSouthCogWide och _getDirectionString isSouthCogToken
+    // syns nu i koden, inte bara i det här kommentarsblocket.
+    if (isSouthCogWide(cog)) return 'south';
     return null;
   }
 
@@ -1994,7 +2007,8 @@ class AISBridgeApp extends Homey.App {
           && Number.isFinite(vessel.sog)
           && vessel.sog >= NEW_JOURNEY_MIN_SOG
           && !this.vesselDataService?.hasGpsJumpHold?.(vessel.mmsi)) {
-        const cogIsNorth = vessel.cog >= 315 || vessel.cog <= 45;
+        // FG-DIR: banden via predikatfamiljen — gränserna oförändrade.
+        const cogIsNorth = isNorthCog(vessel.cog);
         // Helgranskning 2026-07-10 (A1-1): sydbandet var 135–225 (Anomali 7-
         // originalet) medan _dedupDirection/_getDirectionString harmoniserades
         // till 135–315 redan 2026-07-03 — SV-kurs (226–314°) är NORMAL sydfärd
@@ -2002,7 +2016,7 @@ class AISBridgeApp extends Homey.App {
         // söderut med t.ex. cog 250° fick aldrig NEW_JOURNEY → dedup-nycklarna
         // från nordresan blockerade returresans alla notiser (PRICKBJORN-
         // klassen, exakt det detta block finns för att förhindra).
-        const cogIsSouth = vessel.cog >= 135 && vessel.cog < 315;
+        const cogIsSouth = isSouthCogWide(vessel.cog);
         const finalWasNorth = vessel._finalTargetDirection === 'north';
         const newJourneyDetected = (cogIsSouth && finalWasNorth)
           || (cogIsNorth && !finalWasNorth);
@@ -2382,8 +2396,10 @@ class AISBridgeApp extends Homey.App {
       // resenivå-riktningen 'south' är en osedd U-sväng — skippa.
       // Korpusens fyra rådataverifierade äkta exits har cog 212–217 och
       // pending=null — opåverkade.
+      // FG-DIR: nordbandet via predikatet. Number.isFinite-gaten står kvar —
+      // den bär även vessel-null-skyddet (optional chaining kortsluter && ).
       const lastCogIsNorth = Number.isFinite(vessel?.cog)
-        && (vessel.cog >= 315 || vessel.cog <= 45);
+        && isNorthCog(vessel.cog);
       const exitContraEvidence = Boolean(vessel && (vessel._newJourneyPending || lastCogIsNorth));
       if (exitContraEvidence && (completedSouthJourney || targetlessSouthTransit)) {
         this.log(
@@ -2588,10 +2604,12 @@ class AISBridgeApp extends Homey.App {
       // okänd kurs. Inert idag (target-transitionen körs uppströms), men
       // raden ska inte vara den enda i familjen som litar blint på momentan cog.
       const lockedDir = vessel._finalTargetDirection || vessel._routeDirection;
+      // FG-DIR: nordbandet via predikatet (som självt läser COG_DIRECTIONS).
+      // Den explicita finit-gaten står kvar — den är hela poängen med
+      // app-3#1-härdningen ovan och ska synas på raden.
       const isNorthbound = lockedDir
         ? lockedDir === 'north'
-        : (Number.isFinite(vessel.cog)
-          && (vessel.cog >= COG_DIRECTIONS.NORTH_MIN || vessel.cog <= COG_DIRECTIONS.NORTH_MAX));
+        : (Number.isFinite(vessel.cog) && isNorthCog(vessel.cog));
       const terminalBridge = isNorthbound ? 'Stridsbergsbron' : 'Klaffbron';
       const isTerminalTarget = vessel.targetBridge === terminalBridge
         && vessel.passedBridges?.includes(terminalBridge);
@@ -2954,7 +2972,9 @@ class AISBridgeApp extends Homey.App {
     // Resolve travel direction (prefer explicit lock)
     let direction = vessel._finalTargetDirection || null;
     if (!direction && Number.isFinite(vessel.cog)) {
-      const northbound = vessel.cog >= COG_DIRECTIONS.NORTH_MIN || vessel.cog <= COG_DIRECTIONS.NORTH_MAX;
+      // FG-DIR: nordbandet via predikatet. Binärt som förut (allt icke-nord
+      // ⇒ syd) — riktningslåset ovan går före, så detta är sista utvägen.
+      const northbound = isNorthCog(vessel.cog);
       direction = northbound ? 'north' : 'south';
     }
     if (!direction) return false; // Unknown direction → keep vessel
@@ -6378,8 +6398,11 @@ class AISBridgeApp extends Homey.App {
         // Portgissningens ursprungliga gater (P5-banden medvetna).
         if (!Number.isFinite(vessel.sog) || vessel.sog < 2.0) return;
         if (!Number.isFinite(vessel.cog)) return;
-        const cogIsNorth = vessel.cog >= 315 || vessel.cog <= 45;
-        const cogIsSouth = vessel.cog >= 135 && vessel.cog <= 225;
+        // FG-DIR: banden via predikatfamiljen — gränserna oförändrade. Här är
+        // det STRIKTA sydbandet med flit (P5-banden medvetna, se raden ovan):
+        // portgissningen ska avstå vid öst-/västkurs, inte gissa.
+        const cogIsNorth = isNorthCog(vessel.cog);
+        const cogIsSouth = isSouthCogStrict(vessel.cog);
         if (!cogIsNorth && !cogIsSouth) return; // Öster/väster — för osäkert
         direction = cogIsNorth ? 'north' : 'south';
       }
@@ -6889,8 +6912,11 @@ class AISBridgeApp extends Homey.App {
     } else if (Number.isFinite(vessel.maxRecentSpeed)) {
       effectiveTransitSpeed = vessel.maxRecentSpeed;
     }
+    // FG-DIR: sydbandet via predikatet — STRIKT (135–225) oförändrat. Bandet
+    // är ett BEVISKRAV här (båten ska bevisligen vara på väg UT), inte en
+    // riktningsgissning, så den snäva varianten är den rätta.
     const activeSouthTransit = effectiveTransitSpeed >= 3.0
-      && Number.isFinite(vessel.cog) && vessel.cog >= 135 && vessel.cog <= 225
+      && Number.isFinite(vessel.cog) && isSouthCogStrict(vessel.cog)
       && Array.isArray(vessel.passedBridges) && vessel.passedBridges.includes('Olidebron');
     const withinExitRange = Number.isFinite(distance)
       && (distance <= EXIT_FALLBACK_RADIUS
@@ -7916,7 +7942,7 @@ class AISBridgeApp extends Homey.App {
       return 'unknown';
     }
 
-    if (vessel.cog >= COG_DIRECTIONS.NORTH_MIN || vessel.cog <= COG_DIRECTIONS.NORTH_MAX) {
+    if (isNorthCog(vessel.cog)) {
       return 'northbound';
     }
     // Sydband 135–270°: i den NE–SV-orienterade kanalen är sydväst-kurser
@@ -7930,8 +7956,13 @@ class AISBridgeApp extends Homey.App {
     // gående 135–245°; INGEN legitim kanalfärd använder 270–314° (de enda
     // träffarna låg ute på älven söder om punkten, utanför alla zoner).
     // VNV–NV (271–314°) är tvetydigt → 'unknown' är den ärliga tokenen.
-    if (vessel.cog > COG_DIRECTIONS.NORTH_MAX && vessel.cog < COG_DIRECTIONS.NORTH_MIN
-        && vessel.cog >= 135 && vessel.cog <= 270) {
+    // Fable-granskningen 2026-08-10 (FG-DIR): villkoret bar fyra klausuler,
+    // `cog > NORTH_MAX && cog < NORTH_MIN && cog >= 135 && cog <= 270`. De två
+    // första är BEVISLIGT redundanta: 135 > 45 (NORTH_MAX) och 270 < 315
+    // (NORTH_MIN), så 135 ≤ cog ≤ 270 medför båda för varje reellt cog —
+    // sanningsmängden är exakt oförändrad när de faller bort. Kvar står
+    // token-bandet självt, i predikatform.
+    if (isSouthCogToken(vessel.cog)) {
       return 'southbound';
     }
     return 'unknown';
