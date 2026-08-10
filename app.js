@@ -6647,6 +6647,49 @@ class AISBridgeApp extends Homey.App {
     const candidates = [];
     const seen = new Set();
 
+    // C0-förarbetet 2026-08-10 (FG-RAD): BRO-LOKAL notisradie.
+    //
+    // VARFÖR: C0 (Stallbackabrons koordinaträttning) villkoras av att en
+    // bro-lokal radie kan rädda terminalfixarna (LAMANTIJN, EXCALIBUR X119,
+    // SIESTA ligger 295–300 m från dagens punkt men 324–327 m från
+    // konsensuspunkten). Fram till nu var BRIDGES.radius helt OANVÄND av
+    // flow-vägen — notisradien kom uteslutande ur den globala
+    // FLOW_CONSTANTS.FLOW_TRIGGER_DISTANCE_THRESHOLD. Den här funktionen är
+    // kopplingen: radien läses per bro, med den globala tröskeln som
+    // fallback när bron saknar (eller saknar giltig) radius.
+    //
+    // BEVISBART IDENTISK I DAG: alla fem broar har radius: 300 === tröskeln
+    // (låst av A2.1-identitetstestet i
+    // tests/fable-granskningen-2026-08-10-flowradius.test.js). Ändringen är
+    // alltså ren mekanik tills någon MEDVETET sätter en avvikande radie —
+    // och då ska A2.1 uppdateras, inte tas bort.
+    //
+    // EXAKT TVÅ ANROPSSTÄLLEN ÄR BRO-LOKALA, TVÅ FÅR INTE VARA DET:
+    //   • bro-lokala: addCandidate-grinden (target/current/just-passed) och
+    //     nearest-förgrinden nedan. Nearest-grenen MÅSTE med — den är enda
+    //     kandidatkällan för båtar utan target/current (kajavgångs- och
+    //     återfödelseklassen), så en refaktor som bara tar addCandidate
+    //     lämnar halva bro-vägen global.
+    //   • globala: TRIGGER_POINTS-grenens `dist <= threshold` och dess
+    //     distansval. Kanalinfarten är en TRIGGER POINT, INTE en bro — den
+    //     finns inte i bridgeRegistry, så bridgeThreshold() hade fallit
+    //     tillbaka på den globala tröskeln ändå (samma värde, men en lögn i
+    //     koden om var radien bor). TRIGGER_POINTS.kanalinfarten.radius är
+    //     en egen, orörd fråga.
+    // En tidigare sed-prototyp av samma refaktor bytte bara ETT av de fyra
+    // ställena och tappade 26+ notiser i mätningen. Räkna alltid alla fyra.
+    //
+    // MEDVETET KVARLÄMNAD ASYMMETRI (ändra inte i förbifarten): flow-
+    // VILLKORET boat_at_bridge (app.js ~8242/8273/8280) läser fortfarande
+    // den GLOBALA tröskeln. Notisradien blir bro-lokal i den här etappen,
+    // villkorsradien i en senare — ett villkor som svarar "ja" på en annan
+    // radie än notisen fyrade på är en användarsynlig ändring som kräver
+    // egen mätning. Asymmetrin är alltså designbeslut, inte ett förbiseende.
+    const bridgeThreshold = (bridgeName) => {
+      const b = this.bridgeRegistry?.getBridgeByName?.(bridgeName);
+      return Number.isFinite(b?.radius) ? b.radius : threshold;
+    };
+
     const resolveDistance = (bridgeName) => {
       const bridgeData = bridges.find((bridge) => bridge && bridge.name === bridgeName);
       if (bridgeData && Number.isFinite(bridgeData.distance)) {
@@ -6681,7 +6724,8 @@ class AISBridgeApp extends Homey.App {
       }
 
       const distance = resolveDistance(bridgeName);
-      if (!Number.isFinite(distance) || distance > threshold) {
+      // FG-RAD: bro-lokal radie (ställe 1 av 2 — se bridgeThreshold ovan).
+      if (!Number.isFinite(distance) || distance > bridgeThreshold(bridgeName)) {
         this.debug(
           `🚫 [FLOW_TRIGGER_CANDIDATE_SKIP] ${vessel.mmsi}: ${bridgeName} `
           + `distance=${distance != null ? Math.round(distance) : 'unknown'}m (source=${source})`,
@@ -6718,7 +6762,9 @@ class AISBridgeApp extends Homey.App {
       && nearestBridge
       && nearestBridge.name
       && Number.isFinite(nearestBridge.distance)
-      && nearestBridge.distance <= threshold
+      // FG-RAD: bro-lokal radie (ställe 2 av 2 — enda kandidatkällan för båtar
+      // utan target/current, se bridgeThreshold ovan).
+      && nearestBridge.distance <= bridgeThreshold(nearestBridge.name)
     ) {
       addCandidate(nearestBridge.name, 'nearest');
     }
