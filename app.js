@@ -883,11 +883,17 @@ class AISBridgeApp extends Homey.App {
       return null; // COG är vobbel vid väntfart — okänd ⇒ konservativ blockering
     }
     if (cog >= 315 || cog <= 45) return 'north';
-    // Produktionsredo (2026-07-03): sydband 135–314° — harmoniserat med
-    // _getDirectionString. Det smala bandet (135–225) lagrade dir=null för
-    // SV-kurs (226–314°, normal sydfärd i den NE–SV-orienterade kanalen)
-    // → ELFKUNGEN-undantaget (motsatt riktning släpper dedup) slog aldrig
-    // för sådana returresor.
+    // Produktionsredo (2026-07-03): sydband 135–314°. Det smala bandet
+    // (135–225) lagrade dir=null för SV-kurs (226–314°, normal sydfärd i den
+    // NE–SV-orienterade kanalen) → ELFKUNGEN-undantaget (motsatt riktning
+    // släpper dedup) slog aldrig för sådana returresor.
+    // Fable-granskningen 2026-08-10: den gamla formuleringen "harmoniserat
+    // med _getDirectionString" stämde när den skrevs men är FALSK sedan FP8
+    // (2026-07-13) snävade token-bandets topp 314→270 UTAN att röra det här
+    // bandet — funktionerna är alltså MEDVETET kvar isär tills motsatsen
+    // bevisats: dedup-bandet är facit-låst (HALIFAX/ELFKUNGEN-serierna) och
+    // en harmonisering 314→270 måste i så fall valideras mot de korpusarna,
+    // inte antas ur token-empirin.
     if (cog >= 135 && cog < 315) return 'south';
     return null;
   }
