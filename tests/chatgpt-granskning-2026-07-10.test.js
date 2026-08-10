@@ -149,7 +149,10 @@ describe('E1: Valid-fältet i positionsrapporter', () => {
 describe('F1: prenumerations-bbox från constants täcker exit-zonerna', () => {
   // Trösklarna är modul-lokala i VesselLifecycleManager.js — speglas här.
   const KANALINFARTEN_EXIT_LAT = 58.2653;
-  const STALLBACKABRON_EXIT_LAT = 58.3141;
+  // C0 2026-08-10: 58.3141 → 58.3125 (exit-latituden följde brokoordinaten
+  // till konsensuspunkten). Spegeln måste följa produktionskonstanten,
+  // annars prövar F1 att boxen omsluter en tröskel som inte längre finns.
+  const STALLBACKABRON_EXIT_LAT = 58.3125;
 
   test('constants-boxen omsluter båda journey-completion-trösklarna', () => {
     const box = constants.AIS_CONFIG.BOUNDING_BOX;

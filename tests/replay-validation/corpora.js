@@ -429,7 +429,7 @@ module.exports = [
     appLog: path.join(LOGS_DIR, 'app-20260708-001857.log'),
     hours: 21,
     locked: true,
-    expectedNotifications: 55,
+    expectedNotifications: 56,
     note: '21h-körningen 2026-07-08 (tio fartyg, dagtrafik + tyst natt/'
       + 'eftermiddag — fältprov 3: 28 granskare radläste 59 258 rader, se '
       + 'docs/helgranskning-2026-07-06.md §fältprov 3). LÅST 55 (2026-07-08) '
@@ -452,7 +452,22 @@ module.exports = [
       + 'genuint obelagd där (cog 101°, 1,5 kn, inlåst syd sedan '
       + 'kajavgången); korsningsbeviset kom först 07:30 och rättade allt '
       + 'nedströms. Medveten avvägning: låst ruttriktning > momentan COG '
-      + 'för token (replay-fyndet 2026-06-01).',
+      + 'för token (replay-fyndet 2026-06-01). '
+      + 'OMLÅST 55→56 (C0 2026-08-10, koordinatflytten till konsensuspunkten '
+      + 'lat 58.309802 / lon 12.316748 / axisBearing 142, gap 2226 — '
+      + 'docs/c0-matning-2026-08-10.md): +1 265573130/ELFKUNGEN@Stallbackabron '
+      + 'SOUTHBOUND. MEKANISM: notisen EXISTERAR BARA MED KORREKT BROPUNKT — '
+      + 'den gamla (felplacerade) punkten låg 221 m NNV om brolinjen, så '
+      + 'ELFKUNGENs nordkorsning bokfördes aldrig och därmed fanns ingen '
+      + 'riktningsvändning som kunde släppa sydreturen. RÅDATABEVIS ur korpusens '
+      + 'jsonl: hon korsade Stallbackabron NORRUT 11:01–11:02 på lat 58,310525 — '
+      + 'NORR om konsensuspunkten (58,309802) men SÖDER om den gamla punkten '
+      + '(58,311430), dvs. exakt i det band där de två geometrierna säger emot '
+      + 'varandra; därefter tyst till 12:22 och åter SÖDERUT med cog 212,7° i '
+      + '7,7 kn. Sydnotisen fyras 12:22:02 via passage-fallbacken. '
+      + 'Riktningsmultiseten får alltså 265573130:Stallbackabron:southbound = 1 '
+      + '(nordposten är oförändrad). Inga notiser FÖRLORADE i korpusen '
+      + '(saknas=[] i både fördelnings- och riktningsmultiset).',
   },
   {
     id: '20260710-13h',
@@ -616,7 +631,20 @@ module.exports = [
       + '−30,0 s (15:46:19.579 → 15:45:49.579). '
       + '"Inga båtar": 9 övergångar i båda, INGEN senarelagd — tvärtom en '
       + 'TIDIGARELAGD, 09:30:49.579 → 09:30:45.961 (−3,6 s). Korpusen är alltså '
-      + 'undantaget som visar att kostnaden är statistisk, inte absolut.',
+      + 'undantaget som visar att kostnaden är statistisk, inte absolut. '
+      + 'ÖPPNINGSFACIT OMLÅST (C0 2026-08-10, koordinatflytten till '
+      + 'konsensuspunkten lat 58.309802 / lon 12.316748 / axisBearing 142, '
+      + 'gap 2226 — docs/c0-matning-2026-08-10.md): Stridsbergsbron:northbound '
+      + '8 → 9. Notis-/fördelnings-/riktningsfacit ORÖRDA (86/86). '
+      + 'DEN TILLKOMNA VARNINGEN ÄR ÄKTA, rådataverifierad: 265042840/GALADRIEL '
+      + 'varnas 08:45:49 med eta 18 min och passerar Stridsbergsbron ~09:01 — '
+      + 'förvarningen infriades alltså. Baslinjen hade henne inbakad i ett '
+      + 'BIDIREKTIONELLT möte vid bron; med C0:s gap 2226 och den flyttade '
+      + 'punkten delas mötet riktningsriktigt och nordbenet får sin egen '
+      + 'varning i stället för att gömmas i sydbenets. Ingen NY öppning uppfanns '
+      + 'och ingen befintlig försvann — samma trafik, korrekt riktningsbokförd. '
+      + 'MEKANISM: gapet är en term i den progressiva ETA-kedjan, och '
+      + 'konvojklustringen ligger på knivseggen mot CONVOY_WINDOW_MS 600 s.',
   },
   {
     id: '20260713-41h',
@@ -624,7 +652,7 @@ module.exports = [
     appLog: path.join(LOGS_DIR, 'app-20260713-221737.log'),
     hours: 41,
     locked: true,
-    expectedNotifications: 164,
+    expectedNotifications: 165,
     note: '41h-körningen 2026-07-13/15 (34 fartyg, 1355 samples, 388 825 '
       + 'rader — störst hittills; fältprov 9: 130 Opus xhigh-läsare + '
       + 'dirigentens korsningsfacit, se docs/faltprov9-2026-07-18.md). '
@@ -690,7 +718,18 @@ module.exports = [
       + '11:11:50.559 (+15,4 s) och 10:29:49.612 → 10:29:50.559 (+0,9 s), mot 1 '
       + 'tidigarelagd, 15:41:18.104 → 15:41:03.584 (−14,5 s); 13 övergångar i '
       + 'båda versionerna. Rotorsak till både värdeskiftet och tidsskiften: '
-      + 'kajliggarna slutade churna, så ETA-motorn får kontinuerligt underlag.',
+      + 'kajliggarna slutade churna, så ETA-motorn får kontinuerligt underlag. '
+      + 'OMLÅST 164→165 (C0 2026-08-10, koordinatflytten till konsensuspunkten '
+      + 'lat 58.309802 / lon 12.316748 / axisBearing 142, gap 2226 — '
+      + 'docs/c0-matning-2026-08-10.md): +1 210553000/ASPEN@Stallbackabron '
+      + 'NORTHBOUND 2026-07-14 10:38:39. MEKANISM: notisen EXISTERAR BARA MED '
+      + 'KORREKT BROPUNKT — 300 m-ringen låg 221 m NNV om brolinjen och missade '
+      + 'därför farleden där ASPEN faktiskt gick. RÅDATABEVIS ur korpusens jsonl: '
+      + 'full nordtransit (Stridsbergsbron passerad 10:29:09 på 6 m), och vid '
+      + 'notistillfället är avståndet till konsensuspunkten d=269 m — INNANFÖR '
+      + 'ringen — mot 389 m till den gamla punkten, dvs. utanför. Ingen ny '
+      + 'fartygsklass, ingen ny kodväg: samma resa, rätt geometri. Inga notiser '
+      + 'FÖRLORADE i korpusen (saknas=[] i båda multiseten).',
     knownInvariantExceptions: [
       'ETA-SÅGTAND UPP: 2026-07-15T08:48:51.405Z Stridsbergsbron 8→14',
       'ETA-OSCILLATION: 2026-07-15T08:50:22.118Z Stridsbergsbron 8→14→9',
@@ -702,7 +741,7 @@ module.exports = [
     appLog: path.join(LOGS_DIR, 'app-20260804-024200.log'),
     hours: 17,
     locked: true,
-    expectedNotifications: 116,
+    expectedNotifications: 117,
     note: 'KORPUS #16 — A/B-dagskörningen 2026-08-04, A-ARMEN (enbart aisstream), '
       + '682 sampel / 17,0 h. Det är körningen som fällde GO-BESLUTET för '
       + 'source=both (docs/ab2-dagskorningen-GO-2026-08-04.md): alla P1–P4 '
@@ -760,7 +799,31 @@ module.exports = [
       + '−30,0 s × 2 (15:01:43.404 → 15:01:13.359 och 10:17:37.374 → '
       + '10:17:07.374), +24,3 s, −21,4 s, −15,9 s, +15,8 s. '
       + 'PRISET: 1 senarelagd "Inga båtar"-övergång, 17:43:28.829 → .834 '
-      + '(+5 ms, försumbar); 9 övergångar i båda versionerna.',
+      + '(+5 ms, försumbar); 9 övergångar i båda versionerna. '
+      + 'OMLÅST 116→117 (C0 2026-08-10, koordinatflytten till konsensuspunkten '
+      + 'lat 58.309802 / lon 12.316748 / axisBearing 142, gap 2226 — '
+      + 'docs/c0-matning-2026-08-10.md): +1 265032980/VERA-CB365@Stallbackabron '
+      + 'NORTHBOUND 08:05:37. MEKANISM: notisen EXISTERAR BARA MED KORREKT '
+      + 'BROPUNKT. RÅDATABEVIS ur korpusens jsonl: full nordtransit i rak '
+      + 'NO-kurs 43,9° (ingen vobbel, ingen U-sväng), och vid notistillfället är '
+      + 'avståndet till konsensuspunkten d=225 m — INNANFÖR 300 m-ringen — mot '
+      + '365 m till den gamla punkten, dvs. utanför. Inga notiser FÖRLORADE '
+      + '(saknas=[] i båda multiseten). '
+      + 'ÖPPNINGSFACIT OMLÅST i SAMMA flytt: Stridsbergsbron:southbound 11 → 10 '
+      + '(korpusens öppningssumma 40 → 39). DEN FÖRSVUNNA VARNINGEN ÄR EN '
+      + 'RÄTTAD FANTOM, inte en tappad äkta varning — och det är därför noten '
+      + 'ovan ("40 öppningsvarningar mot fältets 40") inte längre gäller rakt av: '
+      + 'fältets 40:e var lika fantomisk som baslinjens. RÅDATABEVIS: baslinjens '
+      + 'kort #28 fyrade 14:02:07, dvs. 84 s EFTER att öppningen redan var '
+      + 'AVSLUTAD, på ett 19 minuter gammalt FRUSET fix och med eta okänd — den '
+      + 'varnade för en öppning som redan skett (INV-21:s klass). Med C0 täcks '
+      + 'samtliga fem konvojbåtar, och två av dem uppgraderas från `absorbed` '
+      + 'till egen räknad täckning; ingen båt blir ovarnad. MEKANISMEN bakom '
+      + 'skiftet är ren kedjeeffekt: gap 2310 → 2226 plus punktflytten ändrar '
+      + 'den progressiva ETA:ns termer med några tiotal sekunder, och '
+      + 'konvojklustringen ligger på knivseggen mot CONVOY_WINDOW_MS 600 s '
+      + '(marginalerna var 2,7 s respektive 43,5 s). Det är alltså samma fysiska '
+      + 'öppning som förut, räknad en gång i stället för två.',
     knownInvariantExceptions: [
       'NOTIS-DUBBLETT: 265576720:Kanalinfarten × 2 utan journey-reset emellan',
     ],

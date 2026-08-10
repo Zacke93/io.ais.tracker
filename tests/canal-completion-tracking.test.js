@@ -67,7 +67,7 @@ describe('Canal completion — northbound vessels', () => {
     expect(manager.shouldEliminateVessel(vessel)).toBe(true);
   });
 
-  test('Anomali 2 — passed Stallbackabron men lat söder om 58.3141 → NOT complete', () => {
+  test('Anomali 2 — passed Stallbackabron men lat söder om 58.3125 → NOT complete', () => {
     // AMELIA-scenariot 2026-04-30 14:23:40: vände norrut vid Stridsbergsbron
     // (lat 58.294) efter att ha passerat Stallbackabron södergående tidigare.
     // lastPassedBridge='Stallbackabron' + _finalTargetDirection='north' (efter
@@ -77,20 +77,24 @@ describe('Canal completion — northbound vessels', () => {
       targetBridge: null,
       lastPassedBridge: 'Stallbackabron',
       cog: 30,
-      lat: 58.294, // söder om 58.3141 — inte verkligen ut ur kanalen
+      lat: 58.294, // söder om 58.3125 — inte verkligen ut ur kanalen
       _finalTargetDirection: 'north',
     };
     expect(manager.hasCompletedJourney(vessel)).toBe(false);
     expect(manager.shouldEliminateVessel(vessel)).toBe(false);
   });
 
-  test('Anomali 2 — passed Stallbackabron + lat exakt 58.3141 → NOT complete (gränsfall)', () => {
+  // C0 2026-08-10: exit-latituden följde med brokoordinaten till
+  // konsensuspunkten (58.3141 → 58.3125, se VesselLifecycleManager). Testet
+  // prövar SAMMA sak som förut — att gränsvärdet är strikt (`>`, inte `>=`) —
+  // bara mot rätt tal. Assertionen är oförändrad.
+  test('Anomali 2 — passed Stallbackabron + lat exakt 58.3125 → NOT complete (gränsfall)', () => {
     const manager = makeManager();
     const vessel = {
       targetBridge: null,
       lastPassedBridge: 'Stallbackabron',
       cog: 30,
-      lat: 58.3141,
+      lat: 58.3125,
       _finalTargetDirection: 'north',
     };
     expect(manager.hasCompletedJourney(vessel)).toBe(false);

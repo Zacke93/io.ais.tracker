@@ -68,12 +68,12 @@
   "text": "Inga båtar är i närheten av Klaffbron eller Stridsbergsbron"
  },
  {
-  "iso": "2026-07-10T07:55:36.960Z",
-  "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 10 minuter"
+  "iso": "2026-07-10T07:55:36.950Z",
+  "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 9 minuter"
  },
  {
   "iso": "2026-07-10T07:56:40.137Z",
-  "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 9 minuter"
+  "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 8 minuter"
  },
  {
   "iso": "2026-07-10T07:57:39.965Z",
@@ -144,7 +144,7 @@
   "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 8 minuter"
  },
  {
-  "iso": "2026-07-10T08:45:21.388Z",
+  "iso": "2026-07-10T08:45:21.393Z",
   "text": "Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 8 minuter"
  },
  {
@@ -152,7 +152,7 @@
   "text": "Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 7 minuter"
  },
  {
-  "iso": "2026-07-10T08:51:28.809Z",
+  "iso": "2026-07-10T08:51:47.207Z",
   "text": "Två båtar på väg mot Stridsbergsbron, beräknad broöppning om cirka 7 minuter"
  },
  {
@@ -241,15 +241,11 @@
  },
  {
   "iso": "2026-07-10T10:34:35.682Z",
-  "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 15 minuter"
+  "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 14 minuter"
  },
  {
   "iso": "2026-07-10T10:35:42.318Z",
   "text": "Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 13 minuter"
- },
- {
-  "iso": "2026-07-10T10:38:35.910Z",
-  "text": "Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 11 minuter"
  },
  {
   "iso": "2026-07-10T10:39:14.805Z",
@@ -260,28 +256,24 @@
   "text": "En båt på väg mot Klaffbron, beräknad broöppning om 14 minuter; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 9 minuter"
  },
  {
-  "iso": "2026-07-10T10:41:35.812Z",
+  "iso": "2026-07-10T10:42:13.002Z",
   "text": "En båt på väg mot Klaffbron, beräknad broöppning om 14 minuter; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 8 minuter"
  },
  {
-  "iso": "2026-07-10T10:43:36.512Z",
-  "text": "En båt på väg mot Klaffbron, beräknad broöppning om 14 minuter; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 7 minuter"
- },
- {
   "iso": "2026-07-10T10:44:17.207Z",
-  "text": "En båt på väg mot Klaffbron, beräknad broöppning om cirka 9 minuter; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 7 minuter"
+  "text": "En båt på väg mot Klaffbron, beräknad broöppning om cirka 9 minuter; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 8 minuter"
  },
  {
   "iso": "2026-07-10T10:44:36.406Z",
-  "text": "En båt på väg mot Klaffbron, beräknad broöppning om cirka 8 minuter; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 6 minuter"
+  "text": "En båt på väg mot Klaffbron, beräknad broöppning om cirka 8 minuter; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 7 minuter"
  },
  {
   "iso": "2026-07-10T10:45:47.207Z",
-  "text": "En båt på väg mot Klaffbron, beräknad broöppning om cirka 7 minuter; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 6 minuter"
+  "text": "En båt på väg mot Klaffbron, beräknad broöppning om cirka 7 minuter; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 7 minuter"
  },
  {
   "iso": "2026-07-10T10:46:47.207Z",
-  "text": "En båt på väg mot Klaffbron, beräknad broöppning om cirka 6 minuter; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 6 minuter"
+  "text": "En båt på väg mot Klaffbron, beräknad broöppning om cirka 6 minuter; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 7 minuter"
  },
  {
   "iso": "2026-07-10T10:47:04.912Z",
@@ -356,28 +348,36 @@
   "text": "En båt på väg mot Klaffbron, beräknad broöppning om 5 minuter; En båt på väg mot Stridsbergsbron, beräknad broöppning strax"
  },
  {
+  "iso": "2026-07-10T11:32:29.324Z",
+  "text": "En båt på väg mot Klaffbron, beräknad broöppning om 5 minuter; Två båtar på väg mot Stridsbergsbron, beräknad broöppning strax"
+ },
+ {
   "iso": "2026-07-10T11:33:17.207Z",
-  "text": "En båt på väg mot Klaffbron, beräknad broöppning om 5 minuter; En båt på väg mot Stridsbergsbron, ETA okänd"
+  "text": "En båt på väg mot Klaffbron, beräknad broöppning om 5 minuter; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 17 minuter"
+ },
+ {
+  "iso": "2026-07-10T11:33:49.228Z",
+  "text": "En båt på väg mot Klaffbron, beräknad broöppning om 5 minuter; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 15 minuter"
  },
  {
   "iso": "2026-07-10T11:34:38.131Z",
-  "text": "En båt på väg mot Klaffbron, beräknad broöppning strax; En båt på väg mot Stridsbergsbron, ETA okänd"
+  "text": "En båt på väg mot Klaffbron, beräknad broöppning strax; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 15 minuter"
  },
  {
   "iso": "2026-07-10T11:34:49.115Z",
-  "text": "En båt på väg mot Klaffbron, beräknad broöppning strax; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 12 minuter"
+  "text": "En båt på väg mot Klaffbron, beräknad broöppning strax; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 14 minuter"
  },
  {
   "iso": "2026-07-10T11:34:54.489Z",
-  "text": "En båt på väg mot Klaffbron, beräknad broöppning strax; Tre båtar på väg mot Stridsbergsbron, beräknad broöppning om 12 minuter"
+  "text": "En båt på väg mot Klaffbron, beräknad broöppning strax; Tre båtar på väg mot Stridsbergsbron, beräknad broöppning om 13 minuter"
  },
  {
   "iso": "2026-07-10T11:35:04.877Z",
-  "text": "Två båtar på väg mot Klaffbron, beräknad broöppning strax; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 12 minuter"
+  "text": "Två båtar på väg mot Klaffbron, beräknad broöppning strax; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 13 minuter"
  },
  {
   "iso": "2026-07-10T11:35:49.095Z",
-  "text": "Två båtar på väg mot Klaffbron, beräknad broöppning strax; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 11 minuter"
+  "text": "Två båtar på väg mot Klaffbron, beräknad broöppning strax; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 12 minuter"
  },
  {
   "iso": "2026-07-10T11:37:54.529Z",
@@ -421,7 +421,7 @@
  },
  {
   "iso": "2026-07-10T11:57:34.401Z",
-  "text": "En båt på väg mot Klaffbron, beräknad broöppning om 14 minuter; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 15 minuter"
+  "text": "En båt på väg mot Klaffbron, beräknad broöppning om 14 minuter; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 14 minuter"
  },
  {
   "iso": "2026-07-10T11:58:53.608Z",
@@ -517,7 +517,7 @@
  },
  {
   "iso": "2026-07-10T12:38:06.526Z",
-  "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 14 minuter"
+  "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 13 minuter"
  },
  {
   "iso": "2026-07-10T12:43:06.332Z",

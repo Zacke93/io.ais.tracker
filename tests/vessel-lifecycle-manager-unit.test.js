@@ -7,7 +7,8 @@ const BridgeRegistry = require('../lib/models/BridgeRegistry');
  * Enhetstester för VesselLifecycleManager.
  *
  * Testar terminal-bro-designen för resefullbordan:
- *  - norrut: Stallbackabron passerad OCH lat > 58.3141 (300 m norr om bron)
+ *  - norrut: Stallbackabron passerad OCH lat > 58.3125 (300 m norr om bron;
+ *    C0 2026-08-10 flyttade både bron och exit-latituden, 58.3141 → 58.3125)
  *  - söderut: Olidebron passerad OCH lat < 58.2653 (300 m söder om Kanalinfarten)
  *  - _finalTargetDirection (låst riktning) prioriteras över drivande COG
  *  - shouldEliminateVessel kräver targetBridge === null (strikt)
@@ -24,7 +25,7 @@ describe('VesselLifecycleManager – resefullbordan och eliminering', () => {
   };
 
   // Exit-latituder från modulen (låsta konstanter)
-  const NORR_OM_STALLBACKA = 58.3200; // > 58.3141
+  const NORR_OM_STALLBACKA = 58.3200; // > 58.3125 (exit-latituden efter C0)
   const SODER_OM_KANALINFARTEN = 58.2600; // < 58.2653
 
   beforeEach(() => {
@@ -92,7 +93,7 @@ describe('VesselLifecycleManager – resefullbordan och eliminering', () => {
   // Norrut: Stallbackabron + exit-latitud
   // -------------------------------------------------------------------
 
-  describe('norrut-fullbordan (Stallbackabron + lat > 58.3141)', () => {
+  describe('norrut-fullbordan (Stallbackabron + lat > 58.3125)', () => {
     test('norrgående båt norr om Stallbackabron-exitzonen elimineras', () => {
       const vessel = makeVessel({
         cog: 10,
@@ -107,7 +108,7 @@ describe('VesselLifecycleManager – resefullbordan och eliminering', () => {
       const vessel = makeVessel({
         cog: 10,
         lastPassedBridge: 'Stallbackabron',
-        lat: 58.3120, // strax norr om bron men söder om 58.3141
+        lat: 58.3120, // strax norr om bron (58.309802) men söder om 58.3125
       });
 
       expect(manager.shouldEliminateVessel(vessel)).toBe(false);

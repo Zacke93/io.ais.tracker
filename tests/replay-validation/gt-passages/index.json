@@ -11,7 +11,7 @@
    "id": "20260601-41h",
    "jsonl": "ais-replay-20260601-231305.jsonl",
    "crossings": 83,
-   "inferred": 14
+   "inferred": 15
   },
   {
    "id": "20260610-förfix",
@@ -34,8 +34,8 @@
   {
    "id": "20260702-11h",
    "jsonl": "ais-replay-20260702-010825.jsonl",
-   "crossings": 25,
-   "inferred": 12
+   "crossings": 27,
+   "inferred": 13
   },
   {
    "id": "20260702-2h",
@@ -52,19 +52,19 @@
   {
    "id": "20260707-14h",
    "jsonl": "ais-replay-20260707-092154.jsonl",
-   "crossings": 60,
+   "crossings": 62,
    "inferred": 19
   },
   {
    "id": "20260708-21h",
    "jsonl": "ais-replay-20260708-001857.jsonl",
-   "crossings": 48,
-   "inferred": 19
+   "crossings": 51,
+   "inferred": 20
   },
   {
    "id": "20260710-13h",
    "jsonl": "ais-replay-20260710-015254.jsonl",
-   "crossings": 71,
+   "crossings": 72,
    "inferred": 16
   },
   {
@@ -76,25 +76,25 @@
   {
    "id": "20260711-16h",
    "jsonl": "ais-replay-20260711-232958.jsonl",
-   "crossings": 39,
+   "crossings": 40,
    "inferred": 13
   },
   {
    "id": "20260712-25h",
    "jsonl": "ais-replay-20260712-174434.jsonl",
-   "crossings": 65,
-   "inferred": 19
+   "crossings": 67,
+   "inferred": 20
   },
   {
    "id": "20260713-41h",
    "jsonl": "ais-replay-20260713-221737.jsonl",
-   "crossings": 128,
+   "crossings": 130,
    "inferred": 38
   },
   {
    "id": "20260804-17h",
    "jsonl": "ais-20260804-17h-dag.jsonl",
-   "crossings": 93,
+   "crossings": 97,
    "inferred": 19
   },
   {
@@ -106,7 +106,7 @@
   {
    "id": "20260806-42h",
    "jsonl": "ais-20260806-42h.jsonl",
-   "crossings": 130,
+   "crossings": 131,
    "inferred": 15
   },
   {
@@ -118,7 +118,7 @@
   {
    "id": "20260803-natt-aisstream",
    "jsonl": "ais-aisstream-20260803-nattkorning.jsonl",
-   "crossings": 20,
+   "crossings": 21,
    "inferred": 7
   }
  ]

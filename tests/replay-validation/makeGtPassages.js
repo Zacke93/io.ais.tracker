@@ -42,13 +42,16 @@
  *      GPS-brus. Och eftersom `inside` initierades till null var facitet blint
  *      för vistelser som PÅGICK vid korpusstart (VALKYRIA, UTOPIA).
  *
- * (iv) ALDRIG `BRIDGES`-KOORDINATEN FÖR GEOMETRI. `BRIDGES.stallbackabron.lon`
- *      är ~221 m fel (rättas i C0). Läser facit den koordinaten bygger det in
- *      exakt den buggklass C0 ska rätta, och facit blir känsligt för C0 (mätt
- *      på den gamla metoden: 137→136 korsningar, tidsskift −62…+44 s,
- *      Stridsbergs axel roterar 3,66°). Broarnas lägen ligger därför FRUSNA
- *      här, som stationer längs farleden (se BRIDGE_STATIONS) — facit är
- *      immunt mot C0 och behöver inte köras om när koordinaten rättas.
+ * (iv) ALDRIG `BRIDGES`-KOORDINATEN FÖR GEOMETRI. Broarnas lägen ligger FRUSNA
+ *      här, som stationer längs farleden (se BRIDGE_STATIONS). Läser facit
+ *      konstanterna i drift ärver det varje koordinatfel de bär, och en
+ *      koordinatändring skriver om facit i samma andetag som den ska prövas
+ *      MOT facit (mätt på den gamla metoden: 137→136 korsningar, tidsskift
+ *      −62…+44 s, Stridsbergs axel roterar 3,66°).
+ *      C0 2026-08-10: Stallbackabrons station räknades om ändå — inte för att
+ *      konstanten flyttade, utan för att det frusna talet självt var härlett
+ *      ur C0-planens SEDAN FALSIFIERADE mål. Se BRIDGE_STATIONS. Det är den
+ *      enda tillåtna anledningen att röra listan: att talet var fel.
  *
  * KLOCKDOMÄNEN: `t` ligger i LEVERANSDOMÄNEN (`aisTimestamp`) — samma tidslinje
  * som replay-harnessens fejkklocka driver, så gt-tider och appens egna
@@ -85,17 +88,20 @@ const corpora = require('./corpora');
  * 4–11 m för de fyra broar vars koordinater är verifierade sedan flera
  * granskningar — polylinjen och brokoordinaterna är alltså samma verklighet.
  *
- * STALLBACKABRON är undantaget och skälet till att listan är frusen:
- *   - nuvarande konstant (lon 12.31456…) → station 5832,9 m, 186 m VID SIDAN
- *     av farleden (koordinaten pekar på mittspannet, inte på underfarten);
- *   - C0:s rättade lon 12.317971 → station 5948,8 m, 5,7 m från farleden;
- *   - 42h-fältprovets 19 transiter (median-lon 12,318344) → station 5961,7 m.
- * Skillnaden mellan de två sanna kandidaterna är 13 m ≈ 4 s färd i 6 kn — långt
- * under sampelavståndet. C0-värdet valdes (härlett + dubbelverifierat mot
- * användarens officiella källa OCH 49 farledskorsningar i 5 korpusar).
- * Kontroll: stationsavstånden blir 1379 / 970 / 256 / 2424 m mot BRIDGE_GAPS
- * 1363 / 960 / 257 / 2310(→2415 i C0) — de tre orörda gapen stämmer på ≤ 1,2 %,
- * och det fjärde bekräftar C0:s andra ändring oberoende.
+ * STALLBACKABRON är undantaget och skälet till att listan är frusen. Talet
+ * stod tidigare på 5948,8 m, härlett ur C0-planens dåvarande mål
+ * lon 12.317971 — ett mål som den oberoende koordinatverifieringen 2026-08-10
+ * FALSIFIERADE (det låg 159,8 m från brolinjen, dvs. AV bron). Stationen är
+ * därför omräknad 2026-08-10 mot den LANDADE konsensuspunkten:
+ *   - gammal konstant (lon 12.31456…, axis 125) → station 5832,9 m, 186 m VID
+ *     SIDAN av farleden (koordinaten pekade på mittspannet, inte underfarten);
+ *   - falsifierat C0-mål (lon 12.317971, axis 125) → station 5948,8 m;
+ *   - LANDAD konsensuspunkt (58.309802 / 12.316748, axis 142) → 5762,0 m,
+ *     14 m från farleden — samma metod, samma polylinje, rätt punkt.
+ * Kontroll: stationsavstånden blir 1379 / 970 / 256 / 2237 m mot BRIDGE_GAPS
+ * 1363 / 960 / 257 / 2226 — samtliga fyra stämmer nu på ≤ 1,2 %, mot tre av
+ * fyra före omräkningen. Facit förblir immunt mot framtida koordinatändringar:
+ * stationen är ett TAL här, inte ett uppslag i BRIDGES.
  *
  * `node makeGtPassages.js --anchor-check` skriver ut differensen mot vad
  * BRIDGES säger just nu (ren diagnostik — påverkar aldrig facit).
@@ -105,7 +111,8 @@ const BRIDGE_STATIONS = [
   { id: 'klaffbron', name: 'Klaffbron', s: 2298.4 },
   { id: 'jarnvagsbron', name: 'Järnvägsbron', s: 3268.4 },
   { id: 'stridsbergsbron', name: 'Stridsbergsbron', s: 3524.8 },
-  { id: 'stallbackabron', name: 'Stallbackabron', s: 5948.8 },
+  // C0 2026-08-10 (se docblocket ovan): 5948,8 → 5762,0.
+  { id: 'stallbackabron', name: 'Stallbackabron', s: 5762.0 },
 ];
 
 /**
@@ -715,9 +722,12 @@ function serialize(passages) {
 
 /**
  * DIAGNOSTIK: vad säger BRIDGES just nu, jämfört med de frusna stationerna?
- * Ren utskrift — rör aldrig facit (krav iv). En stor differens betyder
- * antingen att C0 landat (väntat: Stallbackabron 116 m) eller att någon flyttat
- * en bro utan att uppdatera det här facitet (då ska stationen omprövas).
+ * Ren utskrift — rör aldrig facit (krav iv). Efter C0 (2026-08-10) ligger
+ * SAMTLIGA fem broar inom ±7 m längs farleden och ≤15 m i sidled; en stor
+ * differens betyder därför numera att någon flyttat en bro utan att ompröva
+ * stationen här (skillnaden mot projektionen är metodens egen: stationerna är
+ * skärningar mellan broaxeln och farleden, utskriften är en vinkelrät
+ * projektion av brokoordinaten).
  */
 function anchorCheck() {
   /* eslint-disable global-require */
