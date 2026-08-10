@@ -216,3 +216,213 @@ describe('FG-S1b: statusdödbandet 270–300 m i Stallbacka-fallbacken', () => {
     expect(statusService._isApproaching(vessel, farProximity())).toBe(false);
   });
 });
+
+/**
+ * FG-PB: bortfärdsvakt mot REDAN PASSERAD mellanbro.
+ *
+ * Mellanbrogrenarnas passagespärrar var alla tidsbegränsade (_hasRecentlyPassed
+ * 180 s, intern grace 3 min, passage-cooldown 3 min, passage-latch 10 min TTL)
+ * eller bet bara på FRUSEN position (FP9-retrograden). En LÅNGSAM båt ligger
+ * kvar i bandet 270–550 m BORTOM bron när de löpt ut och fick därför
+ * "närmar sig [bron]" — och under 280 m "inväntar broöppning av [bron]" — för
+ * en bro den redan passerat och rör sig BORT ifrån.
+ *
+ * Vakten är RÖRELSEVILLKORAD, inte en rå passedBridges-spärr: listan rensas
+ * bara vid BEKRÄFTAD vändning (Fix D / re-cross-bevis / NEW_JOURNEY — samtliga
+ * kräver sog ≥ 2,0 kn), så en långsam legitim returresa har bron kvar i listan
+ * hela vägen fram till den nya korsningen och hade blivit statuslös av en
+ * permanent spärr.
+ */
+describe('FG-PB: bortfärdsvakt mot redan passerad mellanbro', () => {
+  let now;
+  let statusService;
+  let proximityService;
+
+  beforeEach(() => {
+    now = 1_700_000_000_000;
+    Date.now = () => now;
+    global.__TEST_MODE__ = true;
+    const logger = makeLogger();
+    const bridgeRegistry = new BridgeRegistry();
+    const systemCoordinator = new SystemCoordinator(logger);
+    statusService = new StatusService(
+      bridgeRegistry, logger, systemCoordinator,
+      { anchorPassageTimestamp: jest.fn() },
+      { shouldBlockStatus: jest.fn().mockReturnValue(false) }, // latch-TTL:n har löpt ut
+    );
+    proximityService = new ProximityService(bridgeRegistry, logger);
+  });
+
+  afterEach(() => {
+    Date.now = REAL_DATE_NOW;
+  });
+
+  const northOf = (bridge, meters) => ({
+    lat: bridge.lat + meters / 111320,
+    lon: bridge.lon,
+  });
+
+  // Nordgående båt NORR om Olidebron som redan passerat den för 10 min sedan:
+  // 180 s-fönstret, grace (3 min), cooldown (3 min) och latchen (10 min) är
+  // alla ute. Färsk position efter passagen ⇒ FP9-retrograden biter inte.
+  // Bäringen till bron är 180° härifrån: cog 20 = BORT, cog 200 = MOT.
+  const makePassedOlidebronVessel = (meters, overrides = {}) => {
+    const pos = northOf(BRIDGES.olidebron, meters);
+    return {
+      mmsi: 265999103,
+      name: 'LÅNGSAMFARAREN',
+      sog: 0.9, // för långsam för Fix D/NEW_JOURNEY-resetten (kräver ≥ 2,0 kn)
+      cog: 20,
+      status: 'en-route',
+      targetBridge: 'Klaffbron',
+      lat: pos.lat,
+      lon: pos.lon,
+      passedBridges: ['Olidebron'],
+      passedAt: { Olidebron: now - 600_000 },
+      lastPassedBridge: 'Olidebron',
+      lastPassedBridgeTime: now - 600_000,
+      lastPositionUpdate: now - 30_000, // färsk position EFTER passagen
+      lastPosition: northOf(BRIDGES.olidebron, meters - 20), // +20 m = bortfärd
+      _lastStatusChangeTime: now - 60_000,
+      ...overrides,
+    };
+  };
+
+  // Samma båt som vänt: kursen mot bron OCH krympande avstånd.
+  const returning = (meters) => ({
+    cog: 200,
+    lastPosition: northOf(BRIDGES.olidebron, meters + 30), // −30 m = närfärd
+  });
+
+  test('BUGGEN: 350 m bortom nyss passerad Olidebron, på väg BORT ⇒ INTE approaching', () => {
+    const vessel = makePassedOlidebronVessel(350);
+    const prox = proximityService.analyzeVesselProximity(vessel);
+
+    // Förutsättningar: mellanbrogrenen är enda vägen och alla tidsspärrar ute.
+    expect(prox.nearestBridge.name).toBe('Olidebron');
+    expect(prox.nearestDistance).toBeGreaterThan(STATUS_HYSTERESIS.WAITING_SET_DISTANCE);
+    expect(prox.nearestDistance).toBeLessThan(STATUS_HYSTERESIS.APPROACHING_SET_DISTANCE);
+    expect(statusService._hasRecentlyPassed(vessel)).toBe(false);
+    expect(statusService._isStaleRepassOfPassedBridge(vessel, 'Olidebron')).toBe(false);
+
+    expect(statusService._isApproaching(vessel, prox)).toBe(false);
+
+    const result = statusService.analyzeVesselStatus(vessel, prox);
+    expect(result.status).toBe('en-route');
+    expect(result.isApproaching).toBe(false);
+    expect(vessel.currentBridge).not.toBe('Olidebron');
+  });
+
+  test('LEGITIM RETURRESA: samma bro i passedBridges men båten närmar sig bevisligen ⇒ approaching', () => {
+    const vessel = makePassedOlidebronVessel(350, returning(350));
+    const prox = proximityService.analyzeVesselProximity(vessel);
+
+    expect(statusService._isDepartingPassedBridge(vessel, 'Olidebron', prox.nearestDistance)).toBe(false);
+
+    const result = statusService.analyzeVesselStatus(vessel, prox);
+    expect(result.status).toBe('approaching');
+    expect(vessel.currentBridge).toBe('Olidebron');
+  });
+
+  test('returresa med ENBART kursbevis (avståndsdelta saknas) släpps också igenom', () => {
+    const vessel = makePassedOlidebronVessel(350, { cog: 200, lastPosition: null });
+    const prox = proximityService.analyzeVesselProximity(vessel);
+
+    expect(statusService._isApproaching(vessel, prox)).toBe(true);
+  });
+
+  test('KVARLIGGARE utan rörelsebevis spärras INTE (status quo, ingen flapp-risk)', () => {
+    // sog under stillaståendetröskeln ⇒ COG är brus och används inte;
+    // oförändrad position ⇒ varken när- eller bortfärdsbevis.
+    const vessel = makePassedOlidebronVessel(350, {
+      sog: 0.05,
+      lastPosition: northOf(BRIDGES.olidebron, 350),
+    });
+    const prox = proximityService.analyzeVesselProximity(vessel);
+
+    expect(statusService._isDepartingPassedBridge(vessel, 'Olidebron', prox.nearestDistance)).toBe(false);
+    expect(statusService._isApproaching(vessel, prox)).toBe(true);
+  });
+
+  test('vakten är NARROW: bro som INTE ligger i passedBridges rörs inte', () => {
+    const vessel = makePassedOlidebronVessel(350, {
+      passedBridges: [],
+      passedAt: {},
+      lastPassedBridge: null,
+      lastPassedBridgeTime: null,
+    });
+    const prox = proximityService.analyzeVesselProximity(vessel);
+
+    expect(statusService._isDepartingPassedBridge(vessel, 'Olidebron', prox.nearestDistance)).toBe(false);
+    expect(statusService._isApproaching(vessel, prox)).toBe(true);
+  });
+
+  test('180 s-fönstret oförändrat: inom fönstret ger "passed", inte approaching', () => {
+    const vessel = makePassedOlidebronVessel(350, {
+      lastPassedBridgeTime: now - 60_000, // 60 s sedan passagen
+    });
+    const prox = proximityService.analyzeVesselProximity(vessel);
+
+    expect(statusService._hasRecentlyPassed(vessel)).toBe(true);
+    expect(statusService._isApproaching(vessel, prox)).toBe(false);
+    expect(statusService.analyzeVesselStatus(vessel, prox).status).toBe('passed');
+  });
+
+  test('FP9-retrograden oförändrad: frusen position spärrar även med närfärdsbevis', () => {
+    const vessel = makePassedOlidebronVessel(350, {
+      ...returning(350),
+      lastPositionUpdate: now - 700_000, // ingen ny position sedan passagen
+      timestamp: now - 700_000,
+    });
+    const prox = proximityService.analyzeVesselProximity(vessel);
+
+    expect(statusService._isStaleRepassOfPassedBridge(vessel, 'Olidebron')).toBe(true);
+    expect(statusService._isApproaching(vessel, prox)).toBe(false);
+  });
+
+  test('SYMMETRI: mellanbro-waiting får samma vakt (250 m, på väg bort ⇒ inte waiting)', () => {
+    const vessel = makePassedOlidebronVessel(250);
+    const prox = proximityService.analyzeVesselProximity(vessel);
+
+    expect(prox.nearestDistance).toBeLessThanOrEqual(STATUS_HYSTERESIS.WAITING_SET_DISTANCE);
+    expect(statusService._isWaiting(vessel, prox)).toBe(false);
+    expect(statusService.analyzeVesselStatus(vessel, prox).status).toBe('en-route');
+  });
+
+  test('SYMMETRI: mellanbro-waiting släpper igenom den legitima returresan', () => {
+    const vessel = makePassedOlidebronVessel(250, returning(250));
+    const prox = proximityService.analyzeVesselProximity(vessel);
+
+    expect(statusService._isWaiting(vessel, prox)).toBe(true);
+    expect(statusService.analyzeVesselStatus(vessel, prox).status).toBe('waiting');
+  });
+
+  test('Stallbacka-fallbacken: bortfärd från passerad Stallbackabron slår fartfallbacken (sog > 2 kn)', () => {
+    const pos = { lat: BRIDGES.stallbackabron.lat - 350 / 111320, lon: BRIDGES.stallbackabron.lon };
+    const vessel = {
+      mmsi: 265999104,
+      name: 'STALLBACKAAVFARAREN',
+      sog: 3.0, // _isActuallyApproaching Method 3 hade annars sagt "annalkande"
+      cog: 180, // bäringen till bron är 0° härifrån ⇒ kursen pekar BORT
+      status: 'en-route',
+      targetBridge: null,
+      lat: pos.lat,
+      lon: pos.lon,
+      passedBridges: ['Stallbackabron'],
+      passedAt: { Stallbackabron: now - 600_000 },
+      lastPassedBridge: 'Stallbackabron',
+      lastPassedBridgeTime: now - 600_000,
+      lastPositionUpdate: now - 30_000,
+      lastPosition: { lat: BRIDGES.stallbackabron.lat - 330 / 111320, lon: BRIDGES.stallbackabron.lon },
+      _lastStatusChangeTime: now - 60_000,
+    };
+    const farProx = {
+      nearestBridge: { id: 'stridsbergsbron', name: 'Stridsbergsbron', distance: 2068 },
+      nearestDistance: 2068,
+      bridgeDistances: {},
+    };
+
+    expect(statusService._isApproaching(vessel, farProx)).toBe(false);
+    expect(statusService.analyzeVesselStatus(vessel, farProx).status).toBe('en-route');
+  });
+});
