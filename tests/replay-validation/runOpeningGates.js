@@ -825,6 +825,105 @@ function reportReminderSeries(runs) {
 }
 
 // ---------------------------------------------------------------------------
+// H-4b — ÖPPNINGSLIGGAREN: 0-RÄKNAREN (etapp 7 fas C-VI, 2026-08-10)
+// ---------------------------------------------------------------------------
+
+/**
+ * RÄKNA FRÅN PASSAGERNA, INTE FRÅN VARNINGARNA.
+ *
+ * H-4-serien ovan går från VARNING → öppning och kan därför per konstruktion
+ * ALDRIG se en öppning som fick noll varningar. Det är exakt det måttet C8 föll
+ * på (26 → 32 ovarnade öppningar), och C-IV:s metodfynd 2 säger det rakt ut:
+ * »kvoten ensam duger inte som acceptanskriterium — korpus #18 har kvot 1,00,
+ * men bara för att sex öppningar med noll varningar exakt kompenserar sex med
+ * för många. >1-räknaren och 0-räknaren måste redovisas var för sig.«
+ *
+ * LIGGAREN. En FYSISK ÖPPNING är en klunga passager vid samma bro inom
+ * CONVOY_WINDOW_MS — dig9:s egen definition, samma som konvojkriteriet och
+ * O1:s konvojtak använder. Varje varning bokförs på den FÖRSTA klunga vars
+ * sista passage ligger vid eller efter varningen; varningar efter den sista
+ * klungan hör till O2:s fantomhink och räknas inte här.
+ *
+ * SANNINGEN är rådatafacit (A2) när det finns, annars appens egna passager —
+ * samma fallback som H-4 och O1b, och den markeras i raden.
+ *
+ * RENT INSTRUMENT: metoden skriver bara ut. Exit-koden ägs av O1/O2/O3.
+ * @param {object[]} runs - körningarna
+ */
+function reportOpeningLedger(runs) {
+  console.log('--- H-4b: ÖPPNINGSLIGGAREN (från PASSAGERNA — 0-räknaren och >1-räknaren var för sig) ---\n');
+  let openings = 0;
+  let zero = 0;
+  let multi = 0;
+  let warningsOnOpenings = 0;
+  let warningsAfterLast = 0;
+  const rows = [];
+
+  for (const run of runs) {
+    if (run.error) continue;
+    const gtP = run.gt ? run.gt.passages : null;
+    const passages = gtP || (run.result.targetPassages || []);
+    const warnings = (run.result.openingWarnings || []).filter((w) => Number.isFinite(w.t));
+    let corpusOpenings = 0;
+    let corpusZero = 0;
+    let corpusMulti = 0;
+    for (const bridge of TARGET_BRIDGES) {
+      const bp = passages.filter((p) => p.bridge === bridge && Number.isFinite(p.t))
+        .sort((a, b) => a.t - b.t);
+      if (bp.length === 0) continue;
+      // (1) Klungor = fysiska öppningar.
+      const clusters = [];
+      for (const p of bp) {
+        const last = clusters[clusters.length - 1];
+        if (last && p.t - last.lastT <= BRIDGE_OPENING.CONVOY_WINDOW_MS) {
+          last.lastT = p.t;
+          last.n++;
+        } else {
+          clusters.push({
+            firstT: p.t, lastT: p.t, n: 1, warnings: 0,
+          });
+        }
+      }
+      // (2) Bokför varningarna på den öppning de FÖRVARNADE.
+      for (const w of warnings.filter((x) => x.bridge === bridge)) {
+        const target = clusters.find((c) => c.lastT >= w.t);
+        if (target) {
+          target.warnings++;
+          warningsOnOpenings++;
+        } else warningsAfterLast++;
+      }
+      for (const c of clusters) {
+        openings++;
+        corpusOpenings++;
+        if (c.warnings === 0) {
+          zero++;
+          corpusZero++;
+        } else if (c.warnings > 1) {
+          multi++;
+          corpusMulti++;
+        }
+      }
+    }
+    if (corpusOpenings) {
+      rows.push(`  ${run.job.id.padEnd(26)} ${String(corpusOpenings).padStart(3)} fysiska öppningar, `
+        + `${String(corpusZero).padStart(2)} OVARNADE, ${String(corpusMulti).padStart(2)} med >1 varning`
+        + `${gtP ? ' (rådatafacit)' : ' (appens passager — gt saknas)'}`);
+    }
+  }
+  for (const r of rows) console.log(r);
+  if (openings === 0) {
+    console.log('  (inga målbropassager i körningen)\n');
+    return;
+  }
+  console.log(`\n  SUMMA: ${openings} fysiska öppningar — ${zero} OVARNADE (0-räknaren), `
+    + `${multi} med >1 varning (>1-räknaren), ${openings - zero - multi} med exakt en`);
+  console.log(`  KVOT: ${((warningsOnOpenings + warningsAfterLast) / openings).toFixed(3)} varningar/öppning `
+    + `(${warningsOnOpenings} bokförda på en öppning + ${warningsAfterLast} efter sista passagen `
+    + '— O2:s fantomhink äger de senare)');
+  console.log('');
+}
+
+// ---------------------------------------------------------------------------
 // KÖRNINGSPLAN
 // ---------------------------------------------------------------------------
 
@@ -1128,6 +1227,9 @@ async function main() {
 
   // ---- A8(iii): SISTA-PÅMINNELSE-SERIEN -----------------------------------
   reportReminderSeries(runs);
+
+  // ---- H-4b: ÖPPNINGSLIGGAREN (0-räknaren) --------------------------------
+  reportOpeningLedger(runs);
 
   // ---- O2 ----------------------------------------------------------------
   console.log('--- O2: FANTOMTAK (varning utan passage klassas mot rådata) ---\n');

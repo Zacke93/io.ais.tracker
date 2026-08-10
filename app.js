@@ -1773,6 +1773,11 @@ class AISBridgeApp extends Homey.App {
     // Skapar ALDRIG vessel (ingen position att skapa från).
     this.aisClient.on('static-name', this._onStaticName.bind(this));
 
+    // BX-1 (söndagsfältet 2026-08-09): livstecken från pollkällan — en
+    // dedupad post med FÄRSK fixtid. Bär ingen position och skapar aldrig ett
+    // fartyg; enda verkan är att ett REDAN SPÅRAT fartygs livsklocka laddas om.
+    this.aisClient.on('vessel:seen', this._onVesselSeen.bind(this));
+
     // error: WebSocket fel
     this.aisClient.on('error', this._onAISError.bind(this));
 
@@ -3011,6 +3016,33 @@ class AISBridgeApp extends Homey.App {
       }
     } catch (error) {
       this.error('[NAME_CACHE] Failed to handle static-name:', error.message || error);
+    }
+  }
+
+  /**
+   * BX-1 (söndagsfältet 2026-08-09) — LIVSTECKEN FRÅN POLLKÄLLAN.
+   *
+   * AISHub levererar samma post i varje poll tills fartyget sänder på nytt.
+   * Klienten dedupar dem, och den dedupade posten kastades tidigare helt —
+   * appen kunde alltså inte skilja "ingen NY position" från "ingen position"
+   * och timeout-raderade fartyg som låg i 21 av 21 pollsvar.
+   *
+   * Handlern rör INGENTING annat än livslängden: ingen position, ingen
+   * status, ingen ETA, ingen klockdomän (vessel.timestamp = mottagningstid
+   * för ett MEDDELANDE och ett livstecken är inget meddelande; fixTs är
+   * fysik och stannar i signalen). Ett okänt mmsi är en no-op — livstecknet
+   * får aldrig kunna återuppliva ett raderat fartyg.
+   *
+   * @param {{mmsi: string, fixTs: number}} data
+   * @private
+   */
+  _onVesselSeen(data) {
+    try {
+      if (!data || !data.mmsi) return;
+      if (!this.vesselDataService || typeof this.vesselDataService.noteVesselSeen !== 'function') return;
+      this.vesselDataService.noteVesselSeen(String(data.mmsi));
+    } catch (error) {
+      this.error('[VESSEL_SEEN] Failed to handle liveness signal:', error.message || error);
     }
   }
 
@@ -7154,6 +7186,101 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * SSOT för "notisen är RETROAKTIV" — båten har REDAN passerat bron när
+   * notisen går ut.
+   *
+   * Uttrycket låg i tre identiska kopior (flip-släppets nedströmskontroll,
+   * huvudvägens persistent-dedup och ETA-nollningen). P8 lägger till en
+   * fjärde konsument — notistexten — och två kopior som glider isär skulle
+   * betyda att dedupen och texten klassar samma notis olika. Därför ETT
+   * ställe. Källorna är oförändrade: 'passage-fallback' (failsafe efter
+   * inferrerad passage) och 'just-passed' (bron båten korsade för < 15 s
+   * sedan, se PASSAGE_TRIGGER_GRACE_MS).
+   *
+   * @param {string} source - kandidatkällan
+   * @returns {boolean} true om notisen avser en redan passerad bro
+   * @private
+   */
+  _isRetroactiveNotificationSource(source) {
+    return source === 'passage-fallback' || source === 'just-passed';
+  }
+
+  /**
+   * ==========================================================================
+   * P8 / U10 (ANVÄNDARBESLUT 2026-08-09): NOTISTEXTEN I PASSERAD-FORM
+   * ==========================================================================
+   *
+   * Bygger boat_near-notisens FÄRDIGA användartext (token `message`).
+   *
+   * BAKGRUND. Kortet har aldrig ägt någon text: appen levererar tokens och
+   * MENINGEN skrivs av användaren i hens egen flow. En RETROAKTIV notis —
+   * avfyrad efter passagen, när båten upptäckts först på andra sidan bron
+   * (upp till 2 294 m förbi i korpus #18, se C13/U7-kommentaren i
+   * _maybeTriggerPassageFallback) — bar exakt samma tokens som en
+   * förvarning. En flow som skriver "X närmar sig Y" blev då direkt osann.
+   *
+   * Beslutet var: BEHÅLL notiserna (C13/U7 mätte fram att varje
+   * bortfiltrering byter notis mot täckningsmiss 1:1 — ingen av de 337
+   * fallback-notiserna över 18 korpusar är redundant) och ändra TEXTEN.
+   * Eftersom ingen text fanns att ändra är `message` dess bärare. Tokenen
+   * är ADDITIV: de fem tidigare tokens är byte-identiska, notisantalet och
+   * dedup-nycklarna är orörda.
+   *
+   * INGEN PARALLELL SANNING. Texten härleds UTESLUTANDE ur de tokens som
+   * redan är beräknade plus källklassen. Den läser aldrig bridge_text,
+   * aldrig vessel.status och räknar aldrig egen ETA — pelare 1 (bridge_text)
+   * och pelare 2 (notisen) förblir helt frikopplade.
+   *
+   * SPRÅKET följer befintliga texter ("närmar sig" finns i konstantfilens
+   * zonbeskrivning, "precis passerat" i JUST_PASSED-faserna) men säger
+   * "beräknad ankomst" — tokenens egen svenska titel — inte "beräknad
+   * broöppning" som bridge_text använder: boat_near avfyrar även för
+   * Stallbackabron som ALDRIG öppnar och för trigger-punkten Kanalinfarten
+   * som inte ens är en bro.
+   *
+   * @param {Object} tokens - de redan byggda safeTokens (vessel_name,
+   *   bridge_name, eta_minutes)
+   * @param {string} source - kandidatkällan
+   * @returns {string} färdig svensk mening utan avslutande punkt
+   * @private
+   */
+  _buildBoatNearMessage(tokens, source) {
+    const name = tokens.vessel_name;
+    const bridge = tokens.bridge_name;
+
+    // PASSERAD-FORM. De två retroaktiva källorna delas MEDVETET i två
+    // meningar. Bara 'passage-fallback' är AIS-tystnadsklassen: passagen
+    // inferreras i efterhand utan någon närhetsnotis före, och avståndet är
+    // begränsat först av FALLBACK_HARD_MAX_DISTANCE (2 000 m).
+    // 'just-passed' är en LIVE-passage — kandidaten läggs bara till inom
+    // PASSAGE_TRIGGER_GRACE_MS (15 s) efter stämpeln och inom notisradien,
+    // dvs. appen såg båten hela vägen. Att skriva "under AIS-tystnad" där
+    // hade varit en osann uppgift i en användarsynlig text.
+    if (source === 'passage-fallback') {
+      return `${name} passerade ${bridge} under AIS-tystnad`;
+    }
+    if (source === 'just-passed') {
+      return `${name} har precis passerat ${bridge}`;
+    }
+
+    // FÖRVARNINGSFORM — samma innebörd som de fem gamla tokens redan bar,
+    // bara satt i en mening.
+    const eta = tokens.eta_minutes;
+    if (!Number.isFinite(eta) || eta < 0) {
+      // -1-sentinelen: ingen ETA-sats alls är ärligare än "okänd".
+      return `${name} närmar sig ${bridge}`;
+    }
+    if (eta === 0) {
+      // 0 ÄR nåbart: isValidETA släpper igenom 0 < eta < 0,5 som
+      // etaMinutesForDisplay avrundar till 0. "om 0 minuter" vore nonsens;
+      // "strax" är ordet bridge_text använder i exakt det bandet.
+      return `${name} närmar sig ${bridge}, beräknad ankomst strax`;
+    }
+    return `${name} närmar sig ${bridge}, beräknad ankomst om ${eta} `
+      + `${eta === 1 ? 'minut' : 'minuter'}`;
+  }
+
+  /**
    * Trigger the boat_near flow for a specific bridge candidate
    * @private
    */
@@ -7273,7 +7400,7 @@ class AISBridgeApp extends Homey.App {
         // #44-/expired-hold-skyddet, och en förlorad nyckel utan post
         // öppnade PILOT-fantomen på nytt efter 2h-prunen.
         if (oppositeDirection) {
-          const retroSrc = source === 'passage-fallback' || source === 'just-passed';
+          const retroSrc = this._isRetroactiveNotificationSource(source);
           const verdict = this._persistentDedupCheck(dedupeKey, vessel, { retroactiveSource: retroSrc });
           if (verdict.blocked) {
             this.log(
@@ -7323,7 +7450,7 @@ class AISBridgeApp extends Homey.App {
       // Fältprov 3: passage-fallback/just-passed är retroaktiva bekräftelser
       // — riktningsflip-undantaget kräver ≥15 min gammal post där (approach-
       // källor, source=current, behåller HALIFAX-semantiken).
-      const isRetroactiveSource = source === 'passage-fallback' || source === 'just-passed';
+      const isRetroactiveSource = this._isRetroactiveNotificationSource(source);
       const mainDedup = this._persistentDedupCheck(dedupeKey, vessel, { retroactiveSource: isRetroactiveSource });
       if (mainDedup.blocked) {
         this.log(
@@ -7379,7 +7506,7 @@ class AISBridgeApp extends Homey.App {
     // är en framräknad "ETA" riktningslöst nonsens — dist/fart mäter tid till
     // en bro båten rör sig BORT ifrån (t.ex. "4 min" 700 m EFTER passagen).
     // -1 (okänd) är det ärliga tokenvärdet.
-    const passedBridgeSource = source === 'passage-fallback' || source === 'just-passed';
+    const passedBridgeSource = this._isRetroactiveNotificationSource(source);
     if (!passedBridgeSource && (!Number.isFinite(eta) || eta < 0)) {
       const dist = candidate.distance;
       const speedMs = (vessel.sog || 0) * 0.5144; // knop → m/s
@@ -7416,6 +7543,16 @@ class AISBridgeApp extends Homey.App {
     // "eta_minutes < 5" är annars sant även när ETA saknas). Semantiken
     // för eta_minutes är OFÖRÄNDRAD (-1 = okänd; korpuslåst i invariants).
     safeTokens.eta_available = safeTokens.eta_minutes >= 0;
+
+    // P8 / U10 (ANVÄNDARBESLUT 2026-08-09): retroaktiv källa ⇒ PASSERAD-form
+    // i den användarsynliga texten. Rent ADDITIVT — de fem tokens ovan är
+    // byte-identiska, och två av dem är dessutom FACITBÄRANDE (korpusarnas
+    // fördelningsmultiset läser bridge_name, riktningsmultiseten läser
+    // direction; se runAllCorpora.js). Antalet notiser och deras dedup-
+    // nycklar är per konstruktion orörda: raderna nedan sitter EFTER samtliga
+    // dedup-/grindbeslut och kan bara lägga till fält på payloaden.
+    safeTokens.already_passed = passedBridgeSource;
+    safeTokens.message = this._buildBoatNearMessage(safeTokens, source);
 
     // ENHANCED DEBUG: Log final tokens and ETA status
     this.debug(`🔍 [FLOW_TRIGGER_SAFE_TOKENS] ${vessel.mmsi}: Safe tokens = ${JSON.stringify(safeTokens)}`);
@@ -8008,6 +8145,8 @@ class AISBridgeApp extends Homey.App {
         direction: 'northbound',
         eta_minutes: 5,
         eta_available: true,
+        already_passed: false,
+        message: 'TEST_VESSEL närmar sig Klaffbron, beräknad ankomst om 5 minuter',
       };
 
       const testState = { bridge: 'klaffbron' };
