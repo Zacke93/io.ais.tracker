@@ -33,7 +33,13 @@ const SNAPSHOT_CONSUMED_FIELDS = [
   '_routeDirection', '_finalTargetBridge', '_finalTargetDirection',
   'lastPassedBridge', 'lastPassedBridgeTime', 'passedBridges',
   'status', 'etaMinutes',
-  'timestamp', 'lastPositionUpdate', '_lastSeen',
+  'timestamp', 'lastPositionUpdate',
+  // F4 (2026-08-10): `_lastSeen` bärs vidare men LÄSES inte längre av någon
+  // åldersgrind — den är en LIVSLÄNGDSKLOCKA (BX-1:s livstecken stämplar den
+  // utan position) och exit-fallbacken mäter numera positionsklockan. Fältet
+  // står kvar i vakten eftersom snapshotten fortfarande måste bära det
+  // (diagnostik i removal-loggarna).
+  '_lastSeen',
   // Helgranskning 2026-07-06 (t-kedjor#1): 6:e offrets fält saknades i
   // vakten — en refaktor som tappade dem ur snapshotten passerade grönt.
   'maxRecentSpeed', // RC3-stale-gatens effektiva fart i exit-fallbacken (app.js ~4379)

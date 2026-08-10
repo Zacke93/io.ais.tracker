@@ -75,8 +75,10 @@ class BridgeStatusDevice extends Homey.Device {
       // källparet är dött ska inte visa "Uppkopplad" tills nästa flank. Samma
       // uttryck som appens _updateUI-flank (frånkoppling vinner över degraderat).
       // P3 (2026-08-09): uttrycket bor numera i appen (connectionStatusValue),
-      // som också bär STARTGRINDEN — en enhet som paras under startblindheten
-      // ska inte visa "Uppkopplad" innan en enda position passerat pipelinen.
+      // som också bär STARTGRINDEN — en enhet som paras innan någon AIS-källa
+      // svarat (öppnad socket / välformat AISHub-svar / accepterad position)
+      // ska inte visa "Uppkopplad". F1 (2026-08-10): grinden mäter KÄLLSVAR,
+      // inte trafik — en tom kanal ger "Uppkopplad", en död kedja gör det inte.
       // Fallbacken behålls för appstubbar utan metoden (äldre tester/mockar).
       const connectedValue = this.homey.app._connectionFeedDegraded ? 'degraded' : 'connected';
       const fallbackStatus = this.homey.app._isConnected ? connectedValue : 'disconnected';
