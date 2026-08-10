@@ -356,7 +356,36 @@ Tokens: `vessel_name` (B1: känt namn → cache-uppslag → "Okänd båt", :4464
 `bridge_name`, `direction` (`_getDirectionString`:4639: låst rutt-riktning
 först, annars COG — 'unknown' vid omätbar fart), `eta_minutes` (target-källa =
 målbro-ETA; övriga = dist/fart mot notisbron; `passage-fallback`/`just-passed`
-⇒ -1; nära+långsam icke-target ⇒ -1; :4477–4501).
+⇒ -1; nära+långsam icke-target ⇒ -1; :4477–4501), `eta_available` (G1,
+2026-07-10: boolean, sant när `eta_minutes ≥ 0` — avväpnar -1-sentinelens
+fotgevär i användarens villkor), `already_passed` och `message` (P8/U10,
+användarbeslut 2026-08-09).
+
+**P8/U10 — retro-notisernas text.** Kortet ägde tidigare INGEN text: appen
+levererade tokens och MENINGEN skrevs av användaren i hens egen flow. En
+RETROAKTIV notis — avfyrad efter passagen, från källorna `passage-fallback`
+(upp till 2 294 m förbi bron i korpus #18) eller `just-passed` — bar exakt
+samma tokens som en förvarning, så en flow som skrev "X närmar sig Y" påstod
+något osant. Beslutet var att BEHÅLLA notiserna (C13/U7 mätte över 18 korpusar
+att varje bortfiltrering byter notis mot täckningsmiss 1:1) och ändra TEXTEN.
+`already_passed` är boolean för den retroaktiva klassen (SSOT
+`_isRetroactiveNotificationSource`, samma predikat som persistent-dedupens
+`retroactiveSource`), och `message` är en färdig svensk mening:
+"X passerade Y under AIS-tystnad" (passage-fallback — klassen där passagen
+inferreras i efterhand), "X har precis passerat Y" (just-passed — LIVE-passage
+inom 15 s grace, där AIS-tystnad hade varit ett osant påstående) och annars
+"X närmar sig Y[, beräknad ankomst …]". `_buildBoatNearMessage` härleder
+texten UTESLUTANDE ur de redan beräknade tokens — den läser aldrig
+bridge_text, så pelare 1 och pelare 2 förblir frikopplade, och den säger
+"beräknad ankomst" i stället för bridge_texts "beräknad broöppning" (kortet
+avfyrar även för Stallbackabron som ALDRIG öppnar och för trigger-punkten
+Kanalinfarten som inte är en bro). Tillägget är rent ADDITIVT: de fem äldre
+tokens är byte-identiska — `bridge_name` och `direction` är dessutom
+FACITBÄRANDE (korpusarnas fördelnings- respektive riktningsmultiset läser
+exakt dem) — och notisantal, dedup-nycklar och trigger-state är orörda.
+Golden-text låser `bridge_text`-capabilityns skrivningar, inte notistexter, så
+dimensionen är per konstruktion blind för `message`; NOLL DIFF över samtliga
+18 korpusar bekräftade det.
 
 **Trigger-state (:4546):** `{ bridge, mmsi, distance: Math.round(d), source }`.
 OBS per-bro-semantik: dedupen sker UPPSTRÖMS per mmsi:bro, så en "Any

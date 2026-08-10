@@ -132,12 +132,18 @@ describe('Flow-kort: tokenkontraktet (låst mot app.js)', () => {
     return card.tokens.map((t) => `${t.name}:${t.type}`).sort();
   };
 
-  test('boat_near-tokens är OFÖRÄNDRADE (heligt kontrakt)', () => {
+  // Kontraktet är "ALDRIG ta bort, ALDRIG döpa om" — listan får BARA växa,
+  // och varje tillägg ska vara ett medvetet beslut som passerar här.
+  // Historik: 5 tokens i v1 → eta_available (G1, 2026-07-10) →
+  // already_passed + message (P8/U10, 2026-08-09).
+  test('boat_near-tokens: inga borttagna, inga omdöpta (heligt kontrakt)', () => {
     expect(tokensOf('boat_near')).toEqual([
+      'already_passed:boolean',
       'bridge_name:string',
       'direction:string',
       'eta_available:boolean',
       'eta_minutes:number',
+      'message:string',
       'vessel_name:string',
     ]);
   });

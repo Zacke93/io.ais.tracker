@@ -167,6 +167,16 @@ class MockFlowCard {
         throw new Error(`Could not trigger Flow card with id "boat_near": Invalid value for token eta_minutes. Expected number but got ${typeof tokens.eta_minutes}`);
       }
 
+      // P8/U10: de additiva tokens typvalideras på samma sätt (Homey kastar
+      // vid typfel oavsett hur nytt tokenet är).
+      if (tokens.message !== undefined && typeof tokens.message !== 'string') {
+        throw new Error(`Could not trigger Flow card with id "boat_near": Invalid value for token message. Expected string but got ${typeof tokens.message}`);
+      }
+
+      if (tokens.already_passed !== undefined && typeof tokens.already_passed !== 'boolean') {
+        throw new Error(`Could not trigger Flow card with id "boat_near": Invalid value for token already_passed. Expected boolean but got ${typeof tokens.already_passed}`);
+      }
+
       // CRITICAL: bridge_name must be defined and not null/undefined
       if (tokens.bridge_name === undefined || tokens.bridge_name === null) {
         throw new Error(`Could not trigger Flow card with id "boat_near": Invalid value for token bridge_name. Expected string but got ${tokens.bridge_name}`);

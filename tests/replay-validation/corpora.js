@@ -156,7 +156,8 @@ module.exports = [
       + 'F21:s bypass frigav målbron. ETA-värdet 72 min är den kända '
       + 'köfartsöverskattningen (planens C14 — 0,2 kn ⇒ 72 min mot verkliga '
       + '37,8) och ändras inte av C1d. Notis-/fördelnings-/riktnings-/'
-      + 'öppningsfacit ORÖRDA (84/84, 27 öppningsvarningar).',
+      + 'öppningsfacit ORÖRDA (84/84, 27 öppningsvarningar). '
+      + 'GOLDEN OMLÅST 166→165 (2026-08-10, P9 kajliggarlivscykeln): en 82 ms-flimmerrad (08:11:43.863 "om cirka 5" följd av .945 "om 4") försvann — churnade kajliggare överlever nu och texten publicerar bara slutvärdet. Notis-/riktnings-/öppningsmultiset verifierade exakta av relockGoldenText.',
   },
   {
     id: '20260610-förfix',
@@ -444,7 +445,8 @@ module.exports = [
       + '(12 notiser = 12 verkliga passager, 0 miss/fantom/dubblett). '
       + 'Körningen som hittade KNIGHT OWL-57-min-fabrikatet (FP6-1, '
       + '_postTransitionStationaryHold) — pelare 1-fixen ändrar text, inte '
-      + 'notiser. Håldetektorn ren.',
+      + 'notiser. Håldetektorn ren. '
+      + 'GOLDEN OMLÅST 25→25 (2026-08-10, P9): identisk textsekvens, enda skillnaden 15 ms på index 17 (16:24:06.159→.144) — schemaläggningsartefakt när kajliggarchurnens UI-omräkningar försvann.',
   },
   {
     id: '20260711-16h',
@@ -460,7 +462,8 @@ module.exports = [
       + 'sydutfarten klev ÖVER 300 m-zonen i ett Class B-glapp (330 m N → '
       + '306 m S, segmentets minsta avstånd 43 m från punkten) och FP7-3-'
       + 'segmentsvepet väcker notisen. Körningen som hittade NICOLINE-101-'
-      + 'min-fabrikatet (FP7-1, armStationaryHold). Håldetektorn ren.',
+      + 'min-fabrikatet (FP7-1, armStationaryHold). Håldetektorn ren. '
+      + 'GOLDEN OMLÅST 64→65 (2026-08-10, P9): +1 rad 10:04:55.298 "Två båtar … om cirka 6 minuter" (15 s livstid, mellan "om 4" och "om 3") — timerdriven extrapolation exakt vid Fix G:s SOFT-gräns (5 min efter QUEEN ELAN GT5:s sista fix 09:59:55.223, verifierat: ingen AIS-post vid 10:04:55). ENDA försämringen i P9-omlåsningen; accepterad som kosmetisk kostnad (cirka-markerad, 15 s) mot att gravvården räddar 2h-backstoppen.',
   },
   {
     id: '20260712-25h',
@@ -485,7 +488,8 @@ module.exports = [
       + 'sannolikt på väg IN). Golden-text bär FP8-3 (IDUN-inräkningen: '
       + '"Fem båtar på väg mot Stridsbergsbron" 08:21 — alla fem rådata-'
       + 'verifierade Strids-passager). SENTA-exiten (timeout-reborn med '
-      + 'lastKnown norr om punkten) är facit-vakt för fönsterkriteriet.',
+      + 'lastKnown norr om punkten) är facit-vakt för fönsterkriteriet. '
+      + 'GOLDEN OMLÅST 141→140 (2026-08-10, P9): −2 flimmerrader, +1 ny 25 ms-rad 12:58:02.774 — samma flimmerklass som 20260601-41h, netto −1.',
   },
   {
     id: '20260713-41h',
@@ -532,7 +536,8 @@ module.exports = [
       + '(ANDREA/CARAT). Med kapseln demoteras hon och Strids-klausulen försvinner '
       + 'ur texterna kring 13:30–13:39. Notis-/fördelnings-/riktningsfacit ORÖRDA '
       + '(164/164).'
-      + 'GOLDEN OMLÅST (2026-08-09, C0b zon-lokal kögrace): 269 → 267 övergångar. Klaffbron-klausulen försvinner ur elva texter 12:07–12:27 för en båt som låg still i gästhamnen; Stridsbergs-klausulen är ORÖRD i varje rad, vilket visar att ingreppet är zon-lokalt och inte rör den äkta trafiken. Notis-/fördelnings-/riktnings-/öppningsfacit ORÖRDA (164/164).',
+      + 'GOLDEN OMLÅST (2026-08-09, C0b zon-lokal kögrace): 269 → 267 övergångar. Klaffbron-klausulen försvinner ur elva texter 12:07–12:27 för en båt som låg still i gästhamnen; Stridsbergs-klausulen är ORÖRD i varje rad, vilket visar att ingreppet är zon-lokalt och inte rör den äkta trafiken. Notis-/fördelnings-/riktnings-/öppningsfacit ORÖRDA (164/164). '
+      + 'GOLDEN OMLÅST 267→265 (2026-08-10, P9): en 2,4 s-flimmerrad 11:09:34.672 bort + ETA-värdeskift (Stridsbergsserien 14/9/8→6, Klaffbron 7→6) av kontinuerligt ETA-underlag när kajliggarna slutade churna.',
     knownInvariantExceptions: [
       'ETA-SÅGTAND UPP: 2026-07-15T08:48:51.405Z Stridsbergsbron 8→14',
       'ETA-OSCILLATION: 2026-07-15T08:50:22.118Z Stridsbergsbron 8→14→9',
@@ -571,7 +576,8 @@ module.exports = [
       + 'hela nordtransiten (Olide→Klaff→Jvb→Strids→Stallbacka). Två fysiskt '
       + 'skilda händelser åtskilda av två timmars förtöjning. Utslaget är '
       + 'PERMANENT så länge U5 står fast.'
-      + 'GOLDEN OMLÅST (2026-08-09, C0b zon-lokal kögrace): 190 → 188 övergångar — korpusens STÖRSTA enskilda spöktextvinst, 25 minuter. Rådataverifierat: PILLE (211488730) låg sog=0 med **navStatus=null** 14–15 m från gästhamnskapselns linje vid 12:33:08, 12:36:08 och 12:42:11. Utan navStatus biter den vanliga förtöjningsdetekteringen inte, och det gamla 600 m-köundantaget krävde 15 min stillhet — hon hann bara 9 min innan hon slutade sända. Följd: "En båt på väg mot Klaffbron, om 10 minuter" stod 12:42:11 → "ETA okänd" 12:52:37 → borta först 13:07:37. Med queueGraceMs=0 demoteras hon 12:42:41. Fallet är samtidigt belägg för att C9 (förtöjd utan navStatus) behövs: 76 % av fältprovets fartyg saknade navStatus helt. Notis-/fördelnings-/riktnings-/öppningsfacit ORÖRDA (116/116).',
+      + 'GOLDEN OMLÅST (2026-08-09, C0b zon-lokal kögrace): 190 → 188 övergångar — korpusens STÖRSTA enskilda spöktextvinst, 25 minuter. Rådataverifierat: PILLE (211488730) låg sog=0 med **navStatus=null** 14–15 m från gästhamnskapselns linje vid 12:33:08, 12:36:08 och 12:42:11. Utan navStatus biter den vanliga förtöjningsdetekteringen inte, och det gamla 600 m-köundantaget krävde 15 min stillhet — hon hann bara 9 min innan hon slutade sända. Följd: "En båt på väg mot Klaffbron, om 10 minuter" stod 12:42:11 → "ETA okänd" 12:52:37 → borta först 13:07:37. Med queueGraceMs=0 demoteras hon 12:42:41. Fallet är samtidigt belägg för att C9 (förtöjd utan navStatus) behövs: 76 % av fältprovets fartyg saknade navStatus helt. Notis-/fördelnings-/riktnings-/öppningsfacit ORÖRDA (116/116). '
+      + 'GOLDEN OMLÅST 188→190 (2026-08-10, P9): ÄKTA FÖRBÄTTRING — JUNO/265576720:s avgång norrut får första textrad 15:45:08 ("om 16 minuter") i st.f. 15:48:10 ("om 8"): +3 min förvarning. Rådataverifierad i korpusens jsonl (still sog 0–0,5 @58.2655 → avgång, sista fix 58.3134 i 8,6 kn); baslinjen FAR_DISTANCE-raderade henne i 3 min 20 s-glappet och kajvobbelvakten höll tillbaka målbron efter återfödelsen — med förtöjningsgrenen överlever hon glappet.',
     knownInvariantExceptions: [
       'NOTIS-DUBBLETT: 265576720:Kanalinfarten × 2 utan journey-reset emellan',
     ],
@@ -640,7 +646,7 @@ module.exports = [
       + 'väntan. ANVÄNDARBESLUT U6 (2026-08-08): "strax" behålls oförändrat även '
       + 'vid lång kö — texten är sakligt sann (båten står vid bron och väntar på '
       + 'öppning) och felvisningstiden klassas som sanktionerad, inte som defekt. '
-      + '(3) INV-3 ETA-SÅGTAND 09:56:02.055Z Klaffbron 12→27 = NORDIC SOLA-klassen '
+      + '(3) INV-3 ETA-SÅGTAND 09:56:02.055Z Klaffbron 12→21 (t.o.m. P9 2026-08-10: 12→27) = NORDIC SOLA-klassen '
       + '(samma prejudikat som 20260713-41h). Rådata: Klaffbron-gruppens båtar låg '
       + '880–1 041 m ut i 0,2–0,4 kn (LA FEMME 09:55:31 sog 0,3 @984 m; YOLO 2 '
       + '09:54:00 sog 0,2 @1010 m; DIONE 09:57:39 sog 0,2 @1041 m) — en progressiv '
@@ -744,10 +750,15 @@ module.exports = [
       + 'dess enda mätbara effekt i hela regressionskorpusen är notistokenen '
       + 'eta_minutes för 265788210 EUGENIE @Stridsbergsbron 21 m, 0 → 2 min '
       + '(faktisk passage 1,2 min senare) — notisens (mmsi,bro,riktning) och '
-      + 'antalet är oförändrade och därmed är fördelningsfacit orört.',
+      + 'antalet är oförändrade och därmed är fördelningsfacit orört. '
+      + 'GOLDEN OMLÅST 324→325 (2026-08-10, P9): en 21 s-rad 00:44:02 bort (Stridsbergsklausulen släpps direkt) + ETA-värdeskift i Klaffbronserien 09:52–10:00 (mindre överslag, t.ex. 5→21 i st.f. 5→27 — se även knownInvariantExceptions-strängen 12→21).',
     knownInvariantExceptions: [
       'NOTIS-DUBBLETT: 219031446:Stridsbergsbron × 2 utan journey-reset emellan',
-      'ETA-SÅGTAND UPP: 2026-08-05T09:56:02.055Z Klaffbron 12→27 på 30s',
+      // P9-omlåsningen (2026-08-10): kajliggarlivscykeln (gravvård + moored-
+      // timeout) ger ETA-serien kontinuerligt underlag — sågtanden är SAMMA
+      // sanktionerade NORDIC SOLA-händelse men toppen sjönk 27 → 21 (mindre
+      // överslag). Strängen är värdeexakt, därav uppdateringen.
+      'ETA-SÅGTAND UPP: 2026-08-05T09:56:02.055Z Klaffbron 12→21 på 30s',
       // C1b (2026-08-09): de TVÅ gamla strängarna (08:27:26.096Z/69s och
       // 08:28:26.908Z/39s) är DÖDA och borttagna. Kvar är EN degradering,
       // 08:28:34.886Z, som varar 0,36 s i den publicerade strömmen (INV-4:s

@@ -46,6 +46,16 @@
       "name": "eta_available",
       "type": "boolean",
       "title": { "en": "ETA available", "sv": "ETA tillgänglig" }
+    },
+    {
+      "name": "already_passed",
+      "type": "boolean",
+      "title": { "en": "Bridge already passed", "sv": "Bron redan passerad" }
+    },
+    {
+      "name": "message",
+      "type": "string",
+      "title": { "en": "Notification text", "sv": "Notistext" }
     }
   ]
 }
