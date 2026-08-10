@@ -20,7 +20,7 @@ const VesselDataService = require('../lib/services/VesselDataService');
 const BridgeRegistry = require('../lib/models/BridgeRegistry');
 const SystemCoordinator = require('../lib/services/SystemCoordinator');
 const geometry = require('../lib/utils/geometry');
-const { MOORING_ZONES } = require('../lib/constants');
+const { MOORING_ZONES, MOORING_DETECTION, BRIDGE_OPENING } = require('../lib/constants');
 
 // Kajzonens mitt (mellan användarens verifierade kajsegment)
 const QUAY = { lat: 58.286059, lon: 12.285651 };
@@ -217,6 +217,450 @@ describe('Förtöjningsdetektering: kajliggare vs äkta broöppningsväntare', (
     });
     expect(vessel._moored).toBe(false); // zonen kräver stillhet
     expect(vessel.targetBridge).toBe('Stridsbergsbron'); // norrgående
+  });
+});
+
+// =============================================================================
+// C9b (C0-förarbetet 2026-08-10, FG-C9b): JITTERTÅLIG STILLHETSKLOCKA
+// =============================================================================
+// Före C9b nollades `_stationarySince` av ETT sog-sampel ≥ MOVEMENT_PROOF_SOG_KN
+// (0,5 kn). Kajvobbel överskrider det: VIRGO (265552100) i korpus
+// 20260710-015254 låg 07:06:57–11:03:53 UTC i ett kajkluster kring
+// 58,31290/12,31903 med max 3,9 m nettoförflyttning, men sände 0,5 kn kl.
+// 09:35:10 — klockan nollades och varken zonlagret, 2h-backstopen eller
+// C9-disarmen nådde sina grindar. C9b mäter i stället rörelse som NETTO-
+// FÖRFLYTTNING ÖVER ETT FÖNSTER från ett ankare som sätts när klockan startar.
+const VIRGO_MMSI = '265552100';
+
+// RÅDATA, ordagrant ur tests/replay-validation/corpora-data/
+// ais-replay-20260710-015254.jsonl (fälten receivedAt/lat/lon/sog).
+// KAJKLUSTRET: samtliga VIRGO-sampel i fönstret 07:06–11:24 UTC som ligger i
+// klustret 58,31290/12,31903. Filen innehåller DESSUTOM en verklig utflykt
+// 07:54:51–09:29:59 (318–365 m norrut, sog upp till 6,8 kn) — den är medvetet
+// utelämnad här och testas separat nedan, eftersom den är ÄKTA rörelse som
+// klockan SKA släppa på. Utan den utflykten är detta VIRGOs sammanhängande
+// kajvistelse, och det är den vistelsen buggen gällde.
+const VIRGO_QUAY_SAMPLES = [
+  {
+    iso: '2026-07-10T07:06:57.463Z', lat: 58.312900, lon: 12.319038, sog: 0,
+  },
+  {
+    iso: '2026-07-10T07:09:58.226Z', lat: 58.312898, lon: 12.319030, sog: 0,
+  },
+  {
+    iso: '2026-07-10T07:15:57.785Z', lat: 58.312910, lon: 12.318990, sog: 0,
+  },
+  {
+    iso: '2026-07-10T07:24:57.963Z', lat: 58.312903, lon: 12.319025, sog: 0,
+  },
+  // KAJVOBBELSPIKEN: 0,5 kn = exakt MOVEMENT_PROOF_SOG_KN, 3,9 m från ankaret.
+  {
+    iso: '2026-07-10T09:35:10.567Z', lat: 58.312900, lon: 12.319105, sog: 0.5,
+  },
+  {
+    iso: '2026-07-10T10:00:53.927Z', lat: 58.312905, lon: 12.319085, sog: 0,
+  },
+  {
+    iso: '2026-07-10T10:06:54.185Z', lat: 58.312905, lon: 12.319078, sog: 0,
+  },
+  {
+    iso: '2026-07-10T10:27:52.732Z', lat: 58.312908, lon: 12.319077, sog: 0,
+  },
+  {
+    iso: '2026-07-10T10:39:54.175Z', lat: 58.312902, lon: 12.319087, sog: 0,
+  },
+  {
+    iso: '2026-07-10T10:42:52.867Z', lat: 58.312903, lon: 12.319082, sog: 0,
+  },
+  {
+    iso: '2026-07-10T10:48:53.796Z', lat: 58.312902, lon: 12.319083, sog: 0,
+  },
+  {
+    iso: '2026-07-10T11:00:54.443Z', lat: 58.312912, lon: 12.319087, sog: 0,
+  },
+  {
+    iso: '2026-07-10T11:03:53.355Z', lat: 58.312908, lon: 12.319088, sog: 0,
+  },
+];
+
+// AVGÅNGEN (samma fil, samma fartyg): 11:24 ligger 29,9 m från ankaret (still-
+// sampel, klockan ska hålla), 11:26 ligger 65,0 m ut och 11:29 277,8 m ut.
+const VIRGO_DEPARTURE_SAMPLES = [
+  {
+    iso: '2026-07-10T11:24:53.970Z', lat: 58.312678, lon: 12.318748, sog: 0,
+  },
+  {
+    iso: '2026-07-10T11:26:11.965Z', lat: 58.313458, lon: 12.318708, sog: 2.9,
+  },
+  {
+    iso: '2026-07-10T11:29:26.203Z', lat: 58.315358, lon: 12.318188, sog: 7.6,
+  },
+];
+
+// UTFLYKTEN (samma fil): första samplet efter kajklustrets fyra första —
+// 325,8 m från ankaret. Äkta rörelse ⇒ klockan MÅSTE släppa.
+const VIRGO_EXCURSION_SAMPLE = {
+  iso: '2026-07-10T07:54:51.005Z', lat: 58.315747, lon: 12.317717, sog: 1.3,
+};
+
+// KAJVOBBELN FÖRE VISTELSEN (samma fil): klockan startar 06:34:00, och 06:41:53
+// kommer en 2,9 kn-spik när ankaret är 7,9 min gammalt OCH båten netto flyttat
+// 58,8 m. Båda C9b-villkoren pekar åt samma håll: släpp.
+const VIRGO_EARLY_WOBBLE = [
+  {
+    iso: '2026-07-10T06:34:00.911Z', lat: 58.313450, lon: 12.318903, sog: 0,
+  },
+  {
+    iso: '2026-07-10T06:40:00.799Z', lat: 58.313087, lon: 12.318905, sog: 0,
+  },
+  {
+    iso: '2026-07-10T06:41:53.306Z', lat: 58.312922, lon: 12.318867, sog: 2.9,
+  },
+];
+
+describe('C9b: jittertålig stillhetsklocka (nettoförflyttning över fönster)', () => {
+  let svc;
+  let mockNow;
+  const realDateNow = Date.now;
+  const logger = {
+    debug: jest.fn(), log: jest.fn(), error: jest.fn(), warn: jest.fn(),
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    // Lättviktsrigg (samma mönster som helkodsgranskning-2026-07.test.js):
+    // _updateMooringEvidence körs direkt, utan timers och utan updateVessel-
+    // pipeline, så att RÅDATANS sog-fält går orört in i klockan.
+    svc = Object.create(VesselDataService.prototype);
+    svc.logger = logger;
+    svc.bridgeRegistry = new BridgeRegistry();
+    mockNow = Date.parse('2026-07-10T07:00:00.000Z');
+    Date.now = () => mockNow;
+  });
+
+  afterEach(() => {
+    Date.now = realDateNow;
+  });
+
+  function makeVessel(first) {
+    return {
+      mmsi: VIRGO_MMSI,
+      lat: first.lat,
+      lon: first.lon,
+      sog: first.sog,
+      navStatus: null,
+      _moored: false,
+      _stationarySince: null,
+      _stillnessAnchor: null,
+      _mooredReleasePending: 0,
+      // VIRGO kom seglande in i korpusen (4,5–7,4 kn) — beviset är redan
+      // klistrat, så rörelsebevisblocken är inte det som testas här.
+      _hasMovementProof: true,
+      _hasCorroboratedMovement: true,
+      _plausibleMovementSeen: true,
+      _firstSeenLat: 58.268382,
+      _firstSeenLon: 12.269893,
+    };
+  }
+
+  function feed(vessel, sample) {
+    mockNow = Date.parse(sample.iso);
+    vessel.lat = sample.lat;
+    vessel.lon = sample.lon;
+    vessel.sog = sample.sog;
+    svc._updateMooringEvidence(vessel, sample.sog);
+    return vessel;
+  }
+
+  test('A1.2 FIXTURDATA: kajklustrets nettoförflyttning är ≤6 m (rådataverifiering)', () => {
+    const a = VIRGO_QUAY_SAMPLES[0];
+    const nets = VIRGO_QUAY_SAMPLES.map(
+      (s) => geometry.calculateDistance(a.lat, a.lon, s.lat, s.lon),
+    );
+    expect(Math.max(...nets)).toBeLessThanOrEqual(6);
+    // ...och spiken är exakt tröskelvärdet, inte något över det.
+    expect(VIRGO_QUAY_SAMPLES.filter((s) => s.sog >= MOORING_DETECTION.MOVEMENT_PROOF_SOG_KN))
+      .toHaveLength(1);
+  });
+
+  test('A1.2 VIRGO: 0,5-spiken mitt i kajvistelsen nollar INTE klockan (≥2 h vid slutet)', () => {
+    const vessel = makeVessel(VIRGO_QUAY_SAMPLES[0]);
+    feed(vessel, VIRGO_QUAY_SAMPLES[0]);
+    const clockStart = vessel._stationarySince;
+    expect(clockStart).toBe(Date.parse(VIRGO_QUAY_SAMPLES[0].iso));
+    expect(vessel._stillnessAnchor).toEqual({
+      lat: VIRGO_QUAY_SAMPLES[0].lat, lon: VIRGO_QUAY_SAMPLES[0].lon, t: clockStart,
+    });
+
+    for (const s of VIRGO_QUAY_SAMPLES.slice(1)) {
+      feed(vessel, s);
+      // Klockan får ALDRIG nollas under vistelsen — och den får inte heller
+      // startas om (samma startvärde hela vägen).
+      expect(vessel._stationarySince).toBe(clockStart);
+      // Stillasampel flyttar INTE ankaret (annars kryper vobbeln med).
+      expect(vessel._stillnessAnchor.t).toBe(clockStart);
+    }
+
+    const stillMs = Date.now() - vessel._stationarySince;
+    expect(stillMs).toBeGreaterThanOrEqual(2 * 60 * 60 * 1000);
+    expect(Math.round(stillMs / 60000)).toBe(237); // 3 h 57 min
+    // Med klockan i gång når 2h-backstopen sin grind — det var precis det som
+    // var omöjligt före C9b.
+    expect(vessel._moored).toBe(true);
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining('[STILLNESS_JITTER_HELD]'));
+    const held = logger.debug.mock.calls
+      .map((c) => c[0]).find((m) => m.includes('[STILLNESS_JITTER_HELD]'));
+    expect(held).toMatch(/netto 3\.9 m/); // nettot står i raden
+    expect(held).toMatch(/ankare 148 min gammalt/); // ankaråldern står i raden
+  });
+
+  test('A1.2b UTFLYKTEN: äkta 326 m-förflyttning släpper klockan direkt', () => {
+    const vessel = makeVessel(VIRGO_QUAY_SAMPLES[0]);
+    for (const s of VIRGO_QUAY_SAMPLES.slice(0, 4)) feed(vessel, s);
+    expect(vessel._stationarySince).not.toBeNull();
+
+    feed(vessel, VIRGO_EXCURSION_SAMPLE); // 325,8 m ⇒ över MOVEMENT_PROOF_NET_M
+    expect(vessel._stationarySince).toBeNull();
+    expect(vessel._stillnessAnchor).toBeNull();
+  });
+
+  test('A1.3 AVGÅNGEN: klockan nollad på FÖRSTA rörelsesamplet (11:26, 65 m)', () => {
+    const vessel = makeVessel(VIRGO_QUAY_SAMPLES[0]);
+    for (const s of VIRGO_QUAY_SAMPLES) feed(vessel, s);
+    expect(vessel._stationarySince).not.toBeNull();
+
+    // 11:24:53 — sog 0, 29,9 m från ankaret: stillasampel, klockan står kvar
+    // och ankaret ligger still (får INTE flyttas fram till avgångspositionen).
+    feed(vessel, VIRGO_DEPARTURE_SAMPLES[0]);
+    expect(vessel._stationarySince).not.toBeNull();
+    expect(vessel._stillnessAnchor.lat).toBe(VIRGO_QUAY_SAMPLES[0].lat);
+
+    // 11:26:11 — sog 2,9 och 65,0 m netto ⇒ släpp OMEDELBART (första
+    // rörelsesamplet, alltså med marginal före kravet "senast på det andra").
+    feed(vessel, VIRGO_DEPARTURE_SAMPLES[1]);
+    expect(vessel._stationarySince).toBeNull();
+    expect(vessel._stillnessAnchor).toBeNull();
+    expect(vessel._moored).toBe(false);
+
+    feed(vessel, VIRGO_DEPARTURE_SAMPLES[2]);
+    expect(vessel._stationarySince).toBeNull();
+  });
+
+  test('A1.5 RANDFALL: spik inom fönstrets första 30 min nollar precis som förr', () => {
+    // Syntetiskt men minimalt: kajklustrets position, klockan startar, och en
+    // 2,1 kn-spik 10 min senare med bara 5 m netto. Nettot är alltså LITET —
+    // det enda som skiljer är ankaråldern (10 min < ARM_STALE_TTL_MS).
+    const base = {
+      iso: '2026-07-10T12:00:00.000Z', lat: 58.312900, lon: 12.319038, sog: 0,
+    };
+    const vessel = makeVessel(base);
+    feed(vessel, base);
+    expect(vessel._stationarySince).not.toBeNull();
+
+    const spike = {
+      iso: '2026-07-10T12:10:00.000Z',
+      lat: base.lat + 5 / 111320,
+      lon: base.lon,
+      sog: 2.1,
+    };
+    feed(vessel, spike);
+    expect(vessel._stationarySince).toBeNull(); // (b): ungt ankare ⇒ som i dag
+    expect(vessel._stillnessAnchor).toBeNull();
+  });
+
+  test('A1.5b SPEGELN: samma spik EFTER 30 min håller klockan', () => {
+    const base = {
+      iso: '2026-07-10T12:00:00.000Z', lat: 58.312900, lon: 12.319038, sog: 0,
+    };
+    const vessel = makeVessel(base);
+    feed(vessel, base);
+    const clockStart = vessel._stationarySince;
+
+    const spike = {
+      iso: new Date(Date.parse(base.iso) + BRIDGE_OPENING.ARM_STALE_TTL_MS + 1000).toISOString(),
+      lat: base.lat + 5 / 111320,
+      lon: base.lon,
+      sog: 2.1,
+    };
+    feed(vessel, spike);
+    expect(vessel._stationarySince).toBe(clockStart);
+    expect(vessel._stillnessAnchor.t).toBe(clockStart);
+  });
+
+  test('A1.5c RÅDATA-RANDFALL: VIRGOs 2,9-spik 06:41 (7,9 min ankare, 58,8 m) släpper', () => {
+    const vessel = makeVessel(VIRGO_EARLY_WOBBLE[0]);
+    feed(vessel, VIRGO_EARLY_WOBBLE[0]);
+    feed(vessel, VIRGO_EARLY_WOBBLE[1]);
+    expect(vessel._stationarySince).toBe(Date.parse(VIRGO_EARLY_WOBBLE[0].iso));
+    feed(vessel, VIRGO_EARLY_WOBBLE[2]);
+    expect(vessel._stationarySince).toBeNull();
+  });
+
+  test('GRÅZONEN OFÖRÄNDRAD: två konsekutiva 0,4-prov släpper även med gammalt ankare', () => {
+    const base = {
+      iso: '2026-07-10T12:00:00.000Z', lat: 58.312900, lon: 12.319038, sog: 0,
+    };
+    const vessel = makeVessel(base);
+    feed(vessel, base);
+    const grey = (offsetMin) => ({
+      iso: new Date(Date.parse(base.iso) + offsetMin * 60000).toISOString(),
+      lat: base.lat,
+      lon: base.lon,
+      sog: 0.4,
+    });
+    feed(vessel, grey(60));
+    expect(vessel._stationarySince).not.toBeNull(); // ett prov räcker inte
+    feed(vessel, grey(65));
+    expect(vessel._stationarySince).toBeNull(); // två i rad = oförändrad hysteres
+  });
+
+  test('GPS-FLAGGAT sampel får aldrig motivera ett håll (S-F5-riktningen)', () => {
+    const base = {
+      iso: '2026-07-10T12:00:00.000Z', lat: 58.312900, lon: 12.319038, sog: 0,
+    };
+    const vessel = makeVessel(base);
+    feed(vessel, base);
+    vessel._gpsJumpDetected = true;
+    feed(vessel, {
+      iso: '2026-07-10T13:00:00.000Z', lat: base.lat, lon: base.lon, sog: 2.1,
+    });
+    expect(vessel._stationarySince).toBeNull();
+  });
+
+  test('RÖRELSEBEVISEN ORÖRDA: ett håll skapar varken proof eller korroborering', () => {
+    const base = {
+      iso: '2026-07-10T12:00:00.000Z', lat: 58.312900, lon: 12.319038, sog: 0,
+    };
+    const vessel = makeVessel(base);
+    vessel._hasMovementProof = false;
+    vessel._hasCorroboratedMovement = false;
+    vessel._plausibleMovementSeen = false;
+    vessel._firstSeenLat = base.lat;
+    vessel._firstSeenLon = base.lon;
+    feed(vessel, base);
+    feed(vessel, {
+      iso: '2026-07-10T13:00:00.000Z', lat: base.lat, lon: base.lon, sog: 2.1,
+    });
+    // C9b rör inte rörelsebeviskedjan: spiken ger proof/plausible precis som
+    // före ändringen, och klockan hålls ändå.
+    expect(vessel._hasMovementProof).toBe(true);
+    expect(vessel._plausibleMovementSeen).toBe(true);
+    expect(vessel._stationarySince).not.toBeNull();
+  });
+
+  test('NULL-SOG-VÄGEN sätter samma fönsterankare (klockans ärliga start)', () => {
+    const base = { lat: 58.312900, lon: 12.319038 };
+    const vessel = makeVessel({ ...base, sog: null });
+    mockNow = Date.parse('2026-07-10T12:00:00.000Z');
+    vessel.sog = null;
+    svc._updateMooringEvidence(vessel, null); // första provet: bara ankare
+    expect(vessel._stationarySince).toBeNull();
+    const nullAnchor = { ...vessel._nullSogStillAnchor };
+
+    mockNow += 20 * 60 * 1000;
+    svc._updateMooringEvidence(vessel, null); // inom jitterradien ⇒ klockan går
+    expect(vessel._stationarySince).toBe(nullAnchor.t);
+    expect(vessel._stillnessAnchor).toEqual(nullAnchor);
+    expect(vessel._stillnessAnchor).not.toBe(vessel._nullSogStillAnchor); // kopia
+  });
+});
+
+describe('C9b: väntarskyddet håller (jittrig äkta väntare 254 m från Klaffbron)', () => {
+  let svc;
+  let mockNow;
+  const realDateNow = Date.now;
+  const logger = {
+    debug: jest.fn(), log: jest.fn(), error: jest.fn(), warn: jest.fn(),
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    global.__TEST_MODE__ = true;
+    mockNow = new Date(2026, 5, 10, 10, 0, 0).getTime();
+    Date.now = () => mockNow;
+    svc = new VesselDataService(logger, new BridgeRegistry(), new SystemCoordinator(logger));
+    svc.app = {
+      gpsJumpGateService: null,
+      passageLatchService: null,
+      routeOrderValidator: null,
+      debug: jest.fn(),
+      log: jest.fn(),
+      error: jest.fn(),
+    };
+  });
+
+  afterEach(() => {
+    svc.clearAllTimers();
+    delete global.__TEST_MODE__;
+    Date.now = realDateNow;
+  });
+
+  test('A1.4: 115 min stilla med sog-spikar 0,6 och 2,2 ⇒ EJ förtöjd, målbron kvar', () => {
+    // Väntpositionen ligger 254,2 m från Klaffbron, utanför alla kajzoner.
+    // Seglar in söderut så målbron tilldelas legitimt.
+    for (const p of [
+      { lat: 58.28950, lon: 12.28950 },
+      { lat: 58.28820, lon: 12.28800 },
+      { lat: 58.28700, lon: 12.28700 },
+    ]) {
+      svc.updateVessel('265000101', {
+        lat: p.lat, lon: p.lon, sog: 4.5, cog: 205, name: 'VÄNTARE',
+      });
+      mockNow += 60 * 1000;
+    }
+    expect(svc.getVessel('265000101').targetBridge).toBe('Klaffbron');
+
+    // 24 sampel × 5 min = 115 min. Spikarna ligger MEDVETET efter fönstrets
+    // 30 min (40 resp. 80 min) — det är där C9b faktiskt håller klockan, och
+    // det är alltså det enda läget där väntaren kan hinna nå 2h-backstopen.
+    let vessel;
+    for (let i = 0; i < 24; i++) {
+      let sog = 0.1;
+      if (i === 8) sog = 0.6;
+      if (i === 16) sog = 2.2;
+      if (i === 23) sog = 0.0;
+      vessel = svc.updateVessel('265000101', {
+        // <10 m nettojitter kring väntpositionen
+        lat: FAIRWAY_HOLD.lat + (i % 2 === 0 ? 0.00004 : -0.00004),
+        lon: FAIRWAY_HOLD.lon,
+        sog,
+        cog: 205,
+        name: 'VÄNTARE',
+      });
+      if (i < 23) mockNow += 5 * 60 * 1000;
+    }
+
+    // C9b:s faktiska verkan: klockan överlevde BÅDA spikarna...
+    expect(Math.round((Date.now() - vessel._stationarySince) / 60000)).toBe(115);
+    // ...men ren stillhet demoterar aldrig under 2h-backstopen.
+    expect(vessel._moored).toBe(false);
+    expect(vessel.targetBridge).toBe('Klaffbron');
+  });
+
+  test('BACKSTOPEN OFÖRÄNDRAD: samma väntare demoteras först bortom 2 h', () => {
+    for (const p of [
+      { lat: 58.28950, lon: 12.28950 },
+      { lat: 58.28820, lon: 12.28800 },
+      { lat: 58.28700, lon: 12.28700 },
+    ]) {
+      svc.updateVessel('265000102', {
+        lat: p.lat, lon: p.lon, sog: 4.5, cog: 205, name: 'VÄNTARE2',
+      });
+      mockNow += 60 * 1000;
+    }
+    let vessel;
+    for (let i = 0; i < 30; i++) { // 145 min
+      vessel = svc.updateVessel('265000102', {
+        lat: FAIRWAY_HOLD.lat + (i % 2 === 0 ? 0.00004 : -0.00004),
+        lon: FAIRWAY_HOLD.lon,
+        sog: i === 8 ? 0.6 : 0.1,
+        cog: 205,
+        name: 'VÄNTARE2',
+      });
+      mockNow += 5 * 60 * 1000;
+    }
+    expect(vessel._moored).toBe(true); // 2h-backstopen, oförändrad
+    expect(vessel.targetBridge).toBeNull();
   });
 });
 
