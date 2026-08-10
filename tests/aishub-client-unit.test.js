@@ -598,6 +598,29 @@ describe('Etapp 1: AISHubClient emission, dedup och boxfilter', () => {
     expect(client.getConnectionStats().counters.outOfBox).toBe(1);
   });
 
+  test('ChatGPT-granskningen 2026-08-10 (fynd 3): framtidsdaterad fixTs droppas vid ingressen och förgiftar ALDRIG dedup-kartan', async () => {
+    // Kalendergiltig men fel epok (~8 år fram): parsern släpper igenom den
+    // (rundturskontrollen fångar bara OGILTIGA kalenderfält), och solo-läget
+    // går förbi fusionens F4a/F4b. Utan grinden hade posten (1) emitterats
+    // nedströms och (2) satt dedup[mmsi] = 2034 ⇒ varje senare äkta fix vore
+    // "äldre" (dupe) och fartyget tyst tills processomstart — TTL-prunen
+    // triggar aldrig på negativ ålder och LRU:n evicterar posten sist.
+    const events = collect([
+      { statusCode: 200, body: okSweepBody([makeRecord({ TIME: '2034-08-02 12:00:00 GMT' })]) },
+      { statusCode: 200, body: okSweepBody([makeRecord()]) }, // äkta fix, SAMMA mmsi
+    ]);
+    await client.connect('testuser');
+    await jest.advanceTimersByTimeAsync(5 * 1000); // poll 1: framtidsposten
+    expect(events.filter((e) => e.type === 'ais-message')).toHaveLength(0);
+    expect(client.getConnectionStats().counters.futureJunk).toBe(1);
+    expect(client._dedup.size).toBe(0); // kärnan: förgiftaren nådde aldrig kartan
+
+    await jest.advanceTimersByTimeAsync(65 * 1000); // poll 2: äkta fixen
+    const msgs = events.filter((e) => e.type === 'ais-message');
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].mmsi).toBe('265001111');
+  });
+
   test('FÄLTPROV 1-FYNDET (sekretess): USERNAME maskeras i AISHUB_RESPONSE_SAMPLE — usernamet ÄR autentiseringen', async () => {
     client = new AISHubClient(
       {

@@ -224,6 +224,10 @@ describe('Etapp 1: TIME → fixTs (aldrig new Date(str), fast epoch — TZ-obero
     ['  2021-07-09 12:08:05 GMT  ', DOC_EPOCH],
     ['1625832485', 1625832485000], // unix-sekundsfallback (format=0-drift)
     [1625832485, 1625832485000], // servern levererar tal
+    // Gränsvärden som ska ÖVERLEVA rundturskontrollen (fynd 3) — skott-
+    // årsdag och årsskiftets sista sekund rullar inte över någonstans.
+    ['2024-02-29 00:00:00 GMT', Date.UTC(2024, 1, 29, 0, 0, 0)],
+    ['2021-12-31 23:59:59 GMT', Date.UTC(2021, 11, 31, 23, 59, 59)],
   ])('parseTimeToMs(%p) → %p', (raw, expected) => {
     expect(parseTimeToMs(raw)).toBe(expected);
     expect(DOC_EPOCH).toBe(1625832485000); // fast epoch-konstant, TZ-bevis
@@ -231,22 +235,19 @@ describe('Etapp 1: TIME → fixTs (aldrig new Date(str), fast epoch — TZ-obero
 
   test.each([
     ['igår', null], ['', null], [null, null], [undefined, null],
-    ['2021-13-45 99:99:99 GMT', null], // regexen matchar men Date.UTC... (se nedan)
+    ['2021-13-45 99:99:99 GMT', null], // kalenderskräp — rundturskontrollen (se nedan)
+    ['2021-02-30 12:00:00 GMT', null], // dag som rullar över månadsgränsen
     ['07-09 12:08', null], // ETA-formatet är INTE en tidsstämpel
     [123, null], // för litet för unix-sekunder
     [1e12, null], // ms-magnitud accepteras inte som sekunder
   ])('oparsbar TIME %p → null', (raw) => {
-    // OBS 2021-13-45: Date.UTC rullar över månader/dagar (returnerar finit
-    // tal) — men regexen kräver \d{2} vilket 99:99:99 uppfyller… värdet blir
-    // ett FINIT men fel epoch. Kontraktet här är att UPPENBART skräp ger
-    // null; siffergiltiga-men-orimliga stämplar fångas av F4a/F4b-grindarna
-    // (framtidsklamp + åldersgrind) i fusionspolicyn.
-    const ms = parseTimeToMs(raw);
-    if (raw === '2021-13-45 99:99:99 GMT') {
-      // dokumenterat beteende: finit men fel — F4-grindarna är försvaret
-      expect(Number.isFinite(ms)).toBe(true);
-    } else {
-      expect(ms).toBeNull();
-    }
+    // ChatGPT-granskningen 2026-08-10 (fynd 3): Date.UTC rullar över ogiltiga
+    // fält och gav tidigare ett FINIT men fel epoch för siffergiltiga-men-
+    // orimliga stämplar. Kontraktet lutade sig på F4a/F4b-grindarna i
+    // fusionspolicyn — som solo-AISHub går FÖRBI (muxens pass-through), och
+    // ett framtidsrullat fixTs kunde där förgifta klientens dedup-karta.
+    // Rundturskontrollen i parsern gör nu ALLT kalenderskräp till
+    // timeParseFail (null) — TIME-larmet ser formatdriften.
+    expect(parseTimeToMs(raw)).toBeNull();
   });
 });
