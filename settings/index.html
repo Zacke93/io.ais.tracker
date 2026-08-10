@@ -89,17 +89,32 @@
 </head>
 
 <body>
+    <!-- Fable-granskningen 2026-08-10 (FG-B3s): sidan hade TVÅ konkurrerande
+         översättningsvägar — data-i18n (Homey-språket) och en inline-tabell på
+         navigator.language (webbläsarspråket) — vilket gav blandspråkig sida när
+         de två skilde sig. Nu gäller Homeys system för ALLT: varje användarsynlig
+         sträng bor i /locales/*.json. Statiska element hämtas deklarativt med
+         data-i18n (homey.js fyller dem vid load), dynamiska strängar via
+         Homey.__() i scriptet. Elementen lämnas TOMMA precis som SDK-exemplet
+         visar — locales/ är enda sanningskällan, ingen engelsk dublett i markupen.
+         HTML får INTE ligga i locale-strängar (odokumenterat om homey.js sätter
+         textContent eller innerHTML), därför står <strong>/<a> kvar som riktig
+         markup med egna data-i18n-fragment runt sig. -->
     <div class="container">
-        <h1>AIS Bridge Settings</h1>
+        <h1 data-i18n="settings.title"><!-- locales: settings.title --></h1>
 
         <div class="field">
-            <label class="label" for="ais_api_key" data-i18n="settings.api_key">AISStream API Key</label>
+            <label class="label" for="ais_api_key" data-i18n="settings.api_key"><!-- locales --></label>
             <!-- ChatGPT-granskningen 2026-07-10 (I2): password-typ (nyckeln är
                  en hemlighet) + generisk placeholder — riktiga aisstream-nycklar
-                 är 40 hex-tecken, INTE UUID som gamla platshållaren antydde. -->
-            <input class="input" id="ais_api_key" type="password" placeholder="Your aisstream.io API key" />
-            <p class="description" data-i18n="settings.api_key_description">
-                Get your key at <a href="https://aisstream.io" target="_blank">https://aisstream.io</a>
+                 är 40 hex-tecken, INTE UUID som gamla platshållaren antydde.
+                 FG-B3s: placeholder är ett attribut, inte elementinnehåll — det
+                 dokumenterade data-i18n fyller innehåll, så placeholdern sätts
+                 med Homey.__() i scriptet nedan. -->
+            <input class="input" id="ais_api_key" type="password" />
+            <p class="description">
+                <span data-i18n="settings.api_key_description"><!-- locales --></span>
+                <a href="https://aisstream.io" target="_blank">aisstream.io</a>
             </p>
         </div>
 
@@ -108,68 +123,66 @@
              Whitelist-validering i scriptet: klistrad URL eller &/?/mellanslag
              hade annars förstört ALLA efterföljande query-parametrar. -->
         <div class="field">
-            <label class="label" for="aishub_username" id="lbl-aishub-username">AISHub username (optional)</label>
-            <input class="input" id="aishub_username" type="text" placeholder="Your aishub.net username" />
-            <p class="description" id="desc-aishub-username">
-                Requires an AISHub membership with your own NMEA station
-                (&ge;10 vessels/7 days, &ge;90% uptime). Max 1 request/minute —
-                use one username on ONE device only.
+            <label class="label" for="aishub_username" data-i18n="settings.aishub_username"><!-- locales --></label>
+            <input class="input" id="aishub_username" type="text" />
+            <p class="description">
+                <span data-i18n="settings.aishub_username_description"><!-- locales --></span>
                 <a href="https://www.aishub.net" target="_blank">aishub.net</a>
             </p>
         </div>
 
         <!-- Källvalet är ett rent beteendeval (samma precedens som debug_level:
              bara här, inte i manifestet). 'aisstream' FÖRST så pre-load-
-             renderingen är korrekt för befintliga användare. -->
+             renderingen är korrekt för befintliga användare. value-attributen är
+             beteendebärande (ALLOWED_SOURCES) och ÖVERSÄTTS INTE — bara etiketten. -->
         <div class="field">
-            <label class="label" for="ais_source" id="lbl-ais-source">AIS data source</label>
+            <label class="label" for="ais_source" data-i18n="settings.ais_source"><!-- locales --></label>
             <select class="input" id="ais_source">
-                <option value="aisstream" id="opt-src-aisstream">AISstream only (default)</option>
-                <option value="shadow" id="opt-src-shadow">Shadow mode — AISHub measures only</option>
-                <option value="both" id="opt-src-both">Both — dual-source fusion</option>
-                <option value="aishub" id="opt-src-aishub">AISHub only</option>
+                <option value="aisstream" data-i18n="settings.ais_source_aisstream"><!-- locales --></option>
+                <option value="shadow" data-i18n="settings.ais_source_shadow"><!-- locales --></option>
+                <option value="both" data-i18n="settings.ais_source_both"><!-- locales --></option>
+                <option value="aishub" data-i18n="settings.ais_source_aishub"><!-- locales --></option>
             </select>
-            <p class="description" id="desc-ais-source">
-                Shadow mode polls AISHub and logs a freshness/coverage comparison
-                (SHADOW_COMPARE) without affecting bridge status. Switch to
-                "Both" after reviewing at least 48 h of shadow data.
-            </p>
+            <p class="description" data-i18n="settings.ais_source_description"><!-- locales --></p>
         </div>
 
         <div class="field">
-            <label class="label" for="debug_level" data-i18n="settings.debug_level">Debug Level</label>
+            <label class="label" for="debug_level" data-i18n="settings.debug_level"><!-- locales --></label>
             <select class="input" id="debug_level">
-                <option value="off">Off - No debug logging</option>
-                <option value="basic">Basic - Essential information only</option>
-                <option value="detailed">Detailed - Smart logic and boat analysis</option>
-                <option value="full">Full - All AIS data and processing</option>
+                <option value="off" data-i18n="settings.debug_level_off"><!-- locales --></option>
+                <option value="basic" data-i18n="settings.debug_level_basic"><!-- locales --></option>
+                <option value="detailed" data-i18n="settings.debug_level_detailed"><!-- locales --></option>
+                <option value="full" data-i18n="settings.debug_level_full"><!-- locales --></option>
             </select>
-            <p class="description" data-i18n="settings.debug_level_description">
-                Choose debug level for troubleshooting. Higher levels provide more detailed logs but may impact performance.
-            </p>
+            <p class="description" data-i18n="settings.debug_level_description"><!-- locales --></p>
         </div>
 
         <div id="status" class="status"></div>
 
         <div class="buttons">
-            <button id="save" class="btn btn-primary" data-i18n="settings.save">Save Settings</button>
+            <button id="save" class="btn btn-primary" data-i18n="settings.save"><!-- locales --></button>
         </div>
 
-        <!-- ChatGPT-granskningen 2026-07-10 (H2): engelska som basspråk
-             (Homey-riktlinjen kräver engelska och avråder från sporadiska
-             språkblandningar); svensk översättning appliceras via I18N-
-             tabellen i scriptet nedan när webview-språket är svenska. -->
+        <!-- FG-B3s: instruktionsblockets listrader bestod av "<strong>etikett</strong>
+             brödtext" (och en länk). Eftersom locale-strängar hålls HTML-fria är
+             varje rad uppdelad i två nycklar — etikett + text — med markupen kvar
+             i HTML:en. Länktexterna är domännamn och översätts inte. -->
         <div class="instructions">
-            <h3 id="instr-title">📋 Connection status</h3>
-            <p id="instr-intro">After saving your API key:</p>
+            <h3 data-i18n="settings.instructions_title"><!-- locales --></h3>
+            <p data-i18n="settings.instructions_intro"><!-- locales --></p>
             <ul>
-                <li id="instr-valid"><strong>✅ Valid key:</strong> the app connects within a few seconds</li>
-                <li id="instr-invalid"><strong>❌ Invalid key:</strong> you get a timeline notification after repeated failed attempts</li>
-                <li id="instr-help"><strong>🔧 Troubleshooting:</strong> check your key at <a href="https://aisstream.io" target="_blank">aisstream.io</a></li>
-                <li id="instr-aishub"><strong>📡 AISHub:</strong> the first poll starts within ~1 minute; look for AISHUB_POLL / SHADOW_COMPARE lines in the app log</li>
+                <li><strong data-i18n="settings.instructions_valid_label"><!-- locales --></strong>
+                    <span data-i18n="settings.instructions_valid_text"><!-- locales --></span></li>
+                <li><strong data-i18n="settings.instructions_invalid_label"><!-- locales --></strong>
+                    <span data-i18n="settings.instructions_invalid_text"><!-- locales --></span></li>
+                <li><strong data-i18n="settings.instructions_help_label"><!-- locales --></strong>
+                    <span data-i18n="settings.instructions_help_text"><!-- locales --></span>
+                    <a href="https://aisstream.io" target="_blank">aisstream.io</a></li>
+                <li><strong data-i18n="settings.instructions_aishub_label"><!-- locales --></strong>
+                    <span data-i18n="settings.instructions_aishub_text"><!-- locales --></span></li>
             </ul>
-            <p><em id="instr-footer">The connection status is shown on the "Bridge Status" device in your home.</em></p>
-            <p class="attribution" id="attribution">AIS data: AISHub (aishub.net) and aisstream.io</p>
+            <p><em data-i18n="settings.instructions_footer"><!-- locales --></em></p>
+            <p class="attribution" data-i18n="settings.attribution"><!-- locales --></p>
         </div>
     </div>
 
@@ -187,77 +200,16 @@
             const AISHUB_USERNAME_RE = /^[A-Za-z0-9._-]{3,64}$/;
             const ALLOWED_SOURCES = ['aisstream', 'shadow', 'both', 'aishub'];
 
-            // ChatGPT-granskningen 2026-07-10 (H2): engelska är basspråket i
-            // markupen; svenska appliceras här när webview-språket är svenskt.
-            // navigator.language följer telefonens språk — ingen Homey-API-
-            // beroende detektering som kan kasta.
-            const I18N = {
-                en: {
-                    stillLoading: '⏳ Settings are still loading — try again in a moment.',
-                    keyTooShort: '❌ The API key looks too short. Check your key from aisstream.io',
-                    badUsername: '❌ The AISHub username may only contain letters, digits, dot, underscore and dash (3-64 characters). Enter the username only — not a URL.',
-                    sourceNeedsUsername: '❌ That source mode requires an AISHub username. Fill it in first, or keep "AISstream only".',
-                    saving: 'Saving settings...',
-                    saveDebugError: 'Error saving debug level: ',
-                    saveError: 'Error saving: ',
-                    saved: '✅ Settings saved!',
-                    savedConnecting: '✅ Settings saved! The app is now trying to connect...',
-                    savedKeyRemoved: '✅ Settings saved! API key removed — the AIS stream will disconnect.',
-                },
-                sv: {
-                    stillLoading: '⏳ Inställningarna laddas fortfarande — försök igen strax.',
-                    keyTooShort: '❌ API-nyckeln verkar för kort. Kontrollera din nyckel från aisstream.io',
-                    badUsername: '❌ AISHub-användarnamnet får bara innehålla bokstäver, siffror, punkt, understreck och bindestreck (3-64 tecken). Ange bara användarnamnet — inte en URL.',
-                    sourceNeedsUsername: '❌ Det källäget kräver ett AISHub-användarnamn. Fyll i det först, eller behåll "Enbart AISstream".',
-                    saving: 'Sparar inställningar...',
-                    saveDebugError: 'Fel vid sparande av debug-nivå: ',
-                    saveError: 'Fel vid sparande: ',
-                    saved: '✅ Inställningar sparade!',
-                    savedConnecting: '✅ Inställningar sparade! Appen försöker nu ansluta...',
-                    savedKeyRemoved: '✅ Inställningar sparade! API-nyckeln togs bort — AIS-strömmen kopplas ner.',
-                    instrTitle: '📋 Anslutningsstatus',
-                    instrIntro: 'Efter att du sparat din API-nyckel:',
-                    instrValid: '<strong>✅ Giltig nyckel:</strong> appen ansluter inom några sekunder',
-                    instrInvalid: '<strong>❌ Ogiltig nyckel:</strong> du får en notis i tidslinjen efter upprepade misslyckade försök',
-                    instrHelp: '<strong>🔧 Felsökning:</strong> kontrollera nyckeln på <a href="https://aisstream.io" target="_blank">aisstream.io</a>',
-                    instrAishub: '<strong>📡 AISHub:</strong> första pollen startar inom ~1 minut; leta efter AISHUB_POLL/SHADOW_COMPARE-rader i appens logg',
-                    instrFooter: 'Anslutningsstatusen visas i enheten "Bridge Status" i ditt hem.',
-                    attribution: 'AIS-data: AISHub (aishub.net) och aisstream.io',
-                    lblAishubUsername: 'AISHub-användarnamn (valfritt)',
-                    descAishubUsername: 'Kräver AISHub-medlemskap med egen NMEA-station (≥10 fartyg/7 dygn, ≥90 % upptid). Max 1 anrop/minut — använd ett användarnamn på EN enhet. <a href="https://www.aishub.net" target="_blank">aishub.net</a>',
-                    lblAisSource: 'AIS-datakälla',
-                    descAisSource: 'Skuggläget pollar AISHub och loggar en färskhets-/täckningsjämförelse (SHADOW_COMPARE) utan att påverka brostatus. Byt till "Båda" först efter minst 48 h granskad skuggdata.',
-                    optSrcAisstream: 'Enbart AISstream (standard)',
-                    optSrcShadow: 'Skuggläge — AISHub mäter bara',
-                    optSrcBoth: 'Båda — dubbelkälla med fusion',
-                    optSrcAishub: 'Enbart AISHub',
-                },
-            };
-            let lang = 'en';
-            try {
-                if (String(navigator.language || '').toLowerCase().indexOf('sv') === 0) lang = 'sv';
-            } catch (e) { /* behåll engelska */ }
-            const t = function (key) {
-                return (I18N[lang] && I18N[lang][key]) || I18N.en[key] || key;
-            };
-            if (lang === 'sv') {
-                document.getElementById('instr-title').textContent = t('instrTitle');
-                document.getElementById('instr-intro').textContent = t('instrIntro');
-                document.getElementById('instr-valid').innerHTML = t('instrValid');
-                document.getElementById('instr-invalid').innerHTML = t('instrInvalid');
-                document.getElementById('instr-help').innerHTML = t('instrHelp');
-                document.getElementById('instr-aishub').innerHTML = t('instrAishub');
-                document.getElementById('instr-footer').textContent = t('instrFooter');
-                document.getElementById('attribution').textContent = t('attribution');
-                document.getElementById('lbl-aishub-username').textContent = t('lblAishubUsername');
-                document.getElementById('desc-aishub-username').innerHTML = t('descAishubUsername');
-                document.getElementById('lbl-ais-source').textContent = t('lblAisSource');
-                document.getElementById('desc-ais-source').textContent = t('descAisSource');
-                document.getElementById('opt-src-aisstream').textContent = t('optSrcAisstream');
-                document.getElementById('opt-src-shadow').textContent = t('optSrcShadow');
-                document.getElementById('opt-src-both').textContent = t('optSrcBoth');
-                document.getElementById('opt-src-aishub').textContent = t('optSrcAishub');
-            }
+            // Fable-granskningen 2026-08-10 (FG-B3s): ersätter den gamla
+            // inline-I18N-tabellen från ChatGPT-granskningen 2026-07-10 (H2).
+            // Den valde språk på navigator.language (webbläsarspråket) medan
+            // data-i18n-elementen följde HOMEY-språket → blandspråkig sida.
+            // Nu gäller Homeys system för allt: Homey.__(nyckel [, tokens])
+            // slår upp i /locales/<homey-språk>.json, med __token__-syntax för
+            // interpolation. Inget navigator.language-beroende kvar.
+            // Placeholders är attribut och nås inte av data-i18n — de sätts här.
+            apiKeyInput.placeholder = Homey.__('settings.api_key_placeholder');
+            aishubUsernameInput.placeholder = Homey.__('settings.aishub_username_placeholder');
 
             // Senast sparade värden — ALLA fyra nycklar skrivs ENDAST vid
             // faktisk ändring (motivet från I2-granskningen gäller varje
@@ -324,7 +276,7 @@
             // Save settings
             saveButton.addEventListener('click', function () {
                 if (pending > 0) {
-                    showStatus(t('stillLoading'), 'info');
+                    showStatus(Homey.__('settings.status_still_loading'), 'info');
                     return;
                 }
                 const apiKey = apiKeyInput.value.trim();
@@ -341,23 +293,26 @@
                 // Validera bara när en NY, icke-tom nyckel angetts. Debug-nivån
                 // ska kunna sparas utan API-nyckel.
                 if (apiKeyChanged && apiKey && apiKey.length < 20) {
-                    showStatus(t('keyTooShort'), 'error');
+                    showStatus(Homey.__('settings.status_key_too_short'), 'error');
                     return;
                 }
                 if (aishubUsername && !AISHUB_USERNAME_RE.test(aishubUsername)) {
-                    showStatus(t('badUsername'), 'error');
+                    showStatus(Homey.__('settings.status_bad_username'), 'error');
                     return;
                 }
                 if (aisSource !== 'aisstream' && !aishubUsername) {
-                    showStatus(t('sourceNeedsUsername'), 'error');
+                    showStatus(Homey.__('settings.status_source_needs_username'), 'error');
                     return;
                 }
 
-                showStatus(t('saving'), 'info');
+                showStatus(Homey.__('settings.status_saving'), 'info');
 
                 Homey.set('debug_level', debugLevel, function (err) {
                     if (err) {
-                        showStatus(t('saveDebugError') + err.message, 'error');
+                        // FG-B3s: felsträngen interpoleras med Homeys __token__-
+                        // syntax i stället för konkatenering. String() bevarar
+                        // exakt tidigare utfall även när err.message saknas.
+                        showStatus(Homey.__('settings.status_save_debug_error', { error: String(err.message) }), 'error');
                         return;
                     }
 
@@ -385,15 +340,15 @@
                         },
                     ], function (err2) {
                         if (err2) {
-                            showStatus(t('saveError') + err2.message, 'error');
+                            showStatus(Homey.__('settings.status_save_error', { error: String(err2.message) }), 'error');
                             return;
                         }
                         if (apiKeyChanged && !apiKey) {
-                            showStatus(t('savedKeyRemoved'), 'success');
+                            showStatus(Homey.__('settings.status_saved_key_removed'), 'success');
                         } else if (apiKeyChanged || usernameChanged || sourceChanged) {
-                            showStatus(t('savedConnecting'), 'success');
+                            showStatus(Homey.__('settings.status_saved_connecting'), 'success');
                         } else {
-                            showStatus(t('saved'), 'success');
+                            showStatus(Homey.__('settings.status_saved'), 'success');
                         }
                     });
                 });
