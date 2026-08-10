@@ -157,7 +157,8 @@ module.exports = [
       + 'köfartsöverskattningen (planens C14 — 0,2 kn ⇒ 72 min mot verkliga '
       + '37,8) och ändras inte av C1d. Notis-/fördelnings-/riktnings-/'
       + 'öppningsfacit ORÖRDA (84/84, 27 öppningsvarningar). '
-      + 'GOLDEN OMLÅST 166→165 (2026-08-10, P9 kajliggarlivscykeln): en 82 ms-flimmerrad (08:11:43.863 "om cirka 5" följd av .945 "om 4") försvann — churnade kajliggare överlever nu och texten publicerar bara slutvärdet. Notis-/riktnings-/öppningsmultiset verifierade exakta av relockGoldenText.',
+      + 'GOLDEN OMLÅST 166→165 (2026-08-10, P9 kajliggarlivscykeln): en 82 ms-flimmerrad (08:11:43.863 "om cirka 5" följd av .945 "om 4") försvann — churnade kajliggare överlever nu och texten publicerar bara slutvärdet. Notis-/riktnings-/öppningsmultiset verifierade exakta av relockGoldenText. '
+      + 'GOLDEN OMLÅST 165→165 (2026-08-10, P10C bäringsvillkoret): AMALIA II/265759700 (8,4 kn sydgående, sista fix 08:16:56 195 m S om = FÖRBI Stallbackabron, 30,5 min tyst; verklig Stridsbergsbropassage ~08:26) släpps 08:32:06 i st.f. 08:37:07 — golden visade "på väg mot Stridsbergsbron" ~11 min EFTER verklig passage, nu ~6. Samma bakom-bro-klass som SABETH/AKLEJA; text-multiset ±2 rader, alla övriga multiset exakta.',
   },
   {
     id: '20260610-förfix',
@@ -207,7 +208,8 @@ module.exports = [
       + 'BÅDA korsade i samma bevisade 42-min-gap 08:04→08:46 '
       + '(58.27445→58.30655 spänner 58.2841 och 58.2916); gamla '
       + '2000 m-taket ströp dem (2139/1600+ m) medan grannbron i samma '
-      + 'fönster notifierades — inkonsekvensen som fältprov 4 blottlade.',
+      + 'fönster notifierades — inkonsekvensen som fältprov 4 blottlade. '
+      + 'GOLDEN OMLÅST 99→99 (2026-08-10, P10C bäringsvillkoret på 20-min-nivån): SABETH/211478350 (5,5 kn, 260 m N om redan passerad Olidebron, sedan 41 min AIS-tyst; interpolerat passerade hon Klaffbron ~08:17) släpps nu 08:20:05 (15 min) i st.f. 08:25:04 (20 min) — ~5 min bevisad spöktext "på väg mot Klaffbron" bort. Notis-/riktnings-/öppningsmultiset verifierade exakta av relockGoldenText.',
   },
   {
     id: '20260702-11h',
