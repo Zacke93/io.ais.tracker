@@ -472,18 +472,22 @@ describe('CG2-7: _getEffectiveSpeed skiljer saknad fart från rapporterad stillh
 // =============================================================================
 // CG2-17: SystemCoordinator-shutdownhygien
 // =============================================================================
-describe('CG2-17: SystemCoordinator.destroy städar debounce-timers', () => {
-  test('destroy clearar timers och tömmer tillståndet', () => {
+// Fable-granskningen 2026-08-10 (FG-D1): debounce-maskineriet som CG2-17
+// ursprungligen städade är borttaget (noll konsumenter). Kontraktet som
+// onUninit-kedjan faktiskt behöver — destroy() tömmer tillståndet och lämnar
+// inga timers — låses fortfarande här.
+describe('CG2-17: SystemCoordinator.destroy tömmer tillståndet', () => {
+  test('destroy tömmer tillståndet utan överlevande timers', () => {
     jest.useFakeTimers();
     try {
       const sc = new SystemCoordinator(makeLogger());
-      sc._activateBridgeTextDebounce('265003001', Date.now());
-      sc._activateBridgeTextDebounce('265003002', Date.now());
-      expect(sc.bridgeTextDebounce.size).toBe(2);
+      sc.coordinatePositionUpdate('265003001', { isGPSJump: true, movementDistance: 900 }, {}, {});
+      sc.coordinatePositionUpdate('265003002', { isGPSJump: true, movementDistance: 900 }, {}, {});
+      expect(sc.vesselCoordinationState.size).toBe(2);
 
       sc.destroy();
-      expect(sc.bridgeTextDebounce.size).toBe(0);
       expect(sc.vesselCoordinationState.size).toBe(0);
+      expect(sc.globalSystemState.recentJumpers.size).toBe(0);
       expect(jest.getTimerCount()).toBe(0); // inga överlevande callbacks
     } finally {
       jest.useRealTimers();

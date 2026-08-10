@@ -683,6 +683,37 @@ describe('Etapp 1: AISHubClient emission, dedup och boxfilter', () => {
     expect(client._dedup.has(`2650100${CFG.DEDUP_MAX_ENTRIES - 1}`)).toBe(false);
   });
 
+  test('FG-B3 (Fable-granskningen 2026-08-10): invalidPosition/invalidRecord summeras ur svepet', async () => {
+    // Parsern räknade redan de här två droppen, men klienten vidarebefordrade
+    // dem inte. En server som börjar leverera trasiga positioner/poster syntes
+    // därför som records=3 accepted=0 med SAMTLIGA felräknare på noll — ett
+    // totalt datastopp utan en enda avläsbar orsak.
+    const events = collect([{
+      statusCode: 200,
+      body: okSweepBody([
+        makeRecord({ LATITUDE: null }), // null-fällan ⇒ NaN, aldrig "ekvatorn"
+        makeRecord({ MMSI: 265002222, LATITUDE: 120 }), // utanför ±90
+        'inte-ens-ett-objekt', // trasig post i postlistan
+      ]),
+    }]);
+    await client.connect('testuser');
+    await jest.advanceTimersByTimeAsync(5 * 1000); // exakt EN poll
+
+    const stats = client.getConnectionStats();
+    expect(stats.counters.invalidPosition).toBe(2);
+    expect(stats.counters.invalidRecord).toBe(1);
+    // Kärnan: inget släpptes igenom, och nu SYNS varför.
+    expect(events.filter((e) => e.type === 'ais-message')).toHaveLength(0);
+    expect(stats.counters.accepted).toBe(0);
+
+    // Räknarna är LIVSTIDStotaler och ackumuleras över svep (samma semantik
+    // som invalidMmsi bredvid dem i _counters).
+    await jest.advanceTimersByTimeAsync(65 * 1000);
+    const after = client.getConnectionStats();
+    expect(after.counters.invalidPosition).toBe(4);
+    expect(after.counters.invalidRecord).toBe(2);
+  });
+
   test('reconnectWithKey är en no-op (ingen extra poll, ingen krasch)', async () => {
     collect([{ statusCode: 200, body: okSweepBody([]) }]);
     await client.connect('testuser');

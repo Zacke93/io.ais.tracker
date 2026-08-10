@@ -43,6 +43,19 @@ class BridgeStatusDevice extends Homey.Device {
       }
 
       // 3) Lägg in den här instansen i appens Set
+      // Fable-granskningen 2026-08-10 (FG-E5): SYSR2-1-spärren ovan täckte bara
+      // FÖRSTA await-punkten (_ensureAppReady). Capability-migreringen mellan
+      // den och hit awaitar en gång per saknad capability — raderas enheten där
+      // hann onDeleted köra removeDevice som no-op, och raden nedan
+      // återregistrerade zombien permanent (exakt SYS-1-klassen: varje
+      // skrivning rejectar → hash-null varje cykel → error-storm tills
+      // appomstart). Spärren måste därför upprepas omedelbart före varje
+      // sidoeffekt som lämnar spår utanför instansen.
+      if (this._deleted) {
+        this.log('Device deleted during capability migration — aborting initialization');
+        return;
+      }
+
       this.log('Adding device to app._devices collection');
       this.homey.app.addDevice(this);
 
@@ -97,7 +110,22 @@ class BridgeStatusDevice extends Homey.Device {
       // A5-fix: _updateActiveBridgesTag fanns inte i app.js — rätt väg är
       // appens ordinarie UI-pipeline (_updateUI). Timern spåras så
       // onDeleted kan rensa den om enheten tas bort inom sekunden.
+      // Fable-granskningen 2026-08-10 (FG-E5): onDeletes städning bygger på att
+      // fältet redan BÄR timern. Raderas enheten under någon av awaitarna
+      // ovan (setCapabilityValue ×3, setStoreValue) läste onDeleted ett null
+      // fält och skapades timern EFTERÅT — en föräldralös timer som nollar
+      // appens dedup-cacher och kör _updateUI för en enhet som inte längre
+      // finns. Skapa den aldrig efter raderingen.
+      if (this._deleted) {
+        this.log('Device deleted during init writes — skipping post-init UI timer');
+        return;
+      }
+
       this._initUpdateTimeout = setTimeout(() => {
+        // FG-E5: stänger fönstret MELLAN skapandet och onDeleteds clearTimeout —
+        // en redan schemalagd callback får aldrig röra appens dedup-cacher för
+        // en raderad enhet.
+        if (this._deleted) return;
         this._initUpdateTimeout = null;
         if (typeof this.homey.app?._updateUI === 'function') {
           this.log('Forcing UI update after device creation');
