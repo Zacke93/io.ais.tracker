@@ -95,6 +95,25 @@ const FEED_SILENCE_PERSIST_INTERVAL_MS = 60 * 60 * 1000;
 // minut, därför struppas raden här i stället för i loopen.
 const PROCESS_MEMORY_STATS_INTERVAL_MS = 10 * 60 * 1000;
 
+// Fable-granskningen 2026-08-10 (FG-A4): debug()-kanalens uppslagstabell och
+// mönster är NU modulkonstanter. De byggdes tidigare om vid VARJE anrop —
+// objektliteral + array med nio taggar + new RegExp(...) som dessutom
+// kompilerade om mönstret varje gång. debug() är gemensam loggkanal för ~537
+// anropsställen (app.js plus samtliga services via this.logger) och anropas
+// flera gånger per fartyg och AIS-meddelande, dvs. tiotusentals gånger per
+// timme i drift — och allokeringen skedde FÖRE nivåfiltret, alltså även för
+// rader som sedan kastades. Värdena är konstanta över processens livstid;
+// beteendet är byte-identiskt.
+const DEBUG_LEVELS = { basic: 1, detailed: 2, full: 3 };
+// Meddelanden med dessa taggar är "basic" (visas så snart debug inte är off).
+const DEBUG_BASIC_TAGS = [
+  'UI_UPDATE', 'TARGET_BRIDGE_PASSED', 'TARGET_TRANSITION', 'JOURNEY_COMPLETED',
+  'BRIDGE_OPENING', 'INTERMEDIATE_PASSAGE', 'VESSEL_ENTERED', 'VESSEL_REMOVED', 'STATUS_CHANGED',
+];
+const DEBUG_BASIC_PATTERN = new RegExp(DEBUG_BASIC_TAGS.map((t) => `\\[${t}\\]`).join('|'));
+// Råflödes-/analysrader kräver 'full'. Hoistad av samma skäl som ovan.
+const DEBUG_FULL_PATTERN = /\[AIS_RAW\]|\[POSITION_ANALYSIS\]|\[PROXIMITY_ANALYSIS\]|\[ETA_CALC\]|\[COALESCING\]|\[SNAPSHOT\]/;
+
 // C1b (etapp 7, 2026-08-09): summeringsvalidatorns avståndsgräns för status
 // 'under-bridge'. Basvärdet är UNDER_BRIDGE_CLEAR_DISTANCE (70 m — hysteresens
 // släppavstånd) + 30 m GPS-marginal = 100 m, dvs. exakt det gamla hårdkodade
@@ -463,6 +482,15 @@ class AISBridgeApp extends Homey.App {
       if (!validation.valid) {
         this.error('Bridge configuration invalid:', validation.errors);
         throw new Error('Invalid bridge configuration');
+      }
+      // Fable-granskningen 2026-08-10 (FG-A8): validation.warnings var SKRIV-BARA
+      // — validatorn fyllde fältet men ingen i hela repot läste det. Sex
+      // varningsproducerande kontroller (bl.a. udda broradier och lucklösa
+      // ruttordningar) var därmed döda skyddsnät: de kunde aldrig nå en
+      // människa. En rad vid start gör dem observerbara utan att göra dem
+      // blockerande — errors kastar fortfarande, warnings loggas bara.
+      if (validation.warnings && validation.warnings.length > 0) {
+        this.log('⚠️ [BRIDGE_REGISTRY] Konfigurationsvarningar:', validation.warnings);
       }
 
       // --- STEG 3: VESSEL DATA SERVICE ---
@@ -2424,8 +2452,12 @@ class AISBridgeApp extends Homey.App {
       } else if (remainingVesselCount === 0) {
         // CRITICAL: Force bridge text update to default when no vessels remain
         this.debug('🔄 [VESSEL_REMOVAL_DEBUG] Last vessel removed - forcing bridge text to default');
-        // eslint-disable-next-line global-require
-        const { BRIDGE_TEXT_CONSTANTS } = require('./lib/constants');
+        // Fable-granskningen 2026-08-10 (FG-A7): den lokala require:n här
+        // SKUGGADE modultoppens identiska destrukturation av
+        // BRIDGE_TEXT_CONSTANTS (se filtoppen) — samma modul, samma objekt,
+        // bara en extra cache-slagning per sista-båt-borttagning plus en
+        // eslint-disable som dolde att raden var onödig. Blocket läser nu
+        // modultoppens binding.
         const defaultMessage = BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE;
         this.debug(`🔄 [VESSEL_REMOVAL_DEBUG] Default message: "${defaultMessage}"`);
 
@@ -4316,9 +4348,13 @@ class AISBridgeApp extends Homey.App {
         if (forceUpdateDueToTime && !textActuallyChanged) {
           this.debug('⏰ [SNAPSHOT_PROCESS] Forcing update due to time passage (ETA changes)');
         }
-        if (hasPassedVessels && timeSinceLastUpdate > 60000 && !textActuallyChanged) {
-          this.debug('🚫 [PASSAGE_DUPLICATION] Prevented force update of "passed" vessels message - would create duplicate');
-        }
+        // Fable-granskningen 2026-08-10 (FG-A6): här låg en [PASSAGE_DUPLICATION]-
+        // debugrad som var BEVISLIGT onåbar. Härledning: inne i blocket medför
+        // !textActuallyChanged att forceUpdateDueToTime===true, och
+        // forceUpdateDueToTime kräver per definition !hasPassedVessels — dess
+        // villkor kunde alltså aldrig uppfyllas samtidigt. Raden loggade
+        // dessutom "Prevented ..." mitt i den gren som faktiskt SKRIVER, så om
+        // den någonsin hade fyrat vore den direkt vilseledande i fältloggen.
         this.debug('✅ [SNAPSHOT_PROCESS] Bridge text changed - updating devices');
         this._lastBridgeText = bridgeText;
         this._lastBridgeTextHash = bridgeTextHash;
@@ -5896,23 +5932,11 @@ class AISBridgeApp extends Homey.App {
     }
   }
 
-  /**
-   * Clear bridge text references to specific vessel (currently triggers general UI update)
-   * @param {string} mmsi - Vessel MMSI to clear references for
-   * @private
-   * @deprecated This method currently only triggers a general UI update.
-   * Consider implementing specific vessel reference clearing if needed.
-   */
-  async _clearBridgeText(mmsi) {
-    if (!mmsi || typeof mmsi !== 'string') {
-      this.debug(`⚠️ [CLEAR_BRIDGE_TEXT] Invalid MMSI provided: ${mmsi}`);
-      return;
-    }
-
-    // Implementation would clear any specific references
-    // For now, just trigger a general UI update
-    this._updateUI('normal', `clear-bridge-text-${mmsi}`);
-  }
+  // Fable-granskningen 2026-08-10 (FG-A5): _clearBridgeText togs bort. Metoden
+  // var @deprecated-märkt, hade NOLL anropsställen i hela repot (produktion,
+  // tester, drivers) och gjorde i praktiken bara ett vanligt _updateUI-anrop
+  // bakom ett vilseledande namn — den "rensade" ingenting. Att låta den ligga
+  // kvar inbjuder till framtida anrop som tror att den städar vesselreferenser.
 
   /**
    * Trigger boat_near flow card (app-level)
@@ -8758,6 +8782,12 @@ class AISBridgeApp extends Homey.App {
       // den enda detektorn för "aisstream-socket lever men levererar noll"
       // (B2/RC-S2) vore död i dual-läge. Utan perFeed (legacy-stubbar,
       // pass-through-paritet) körs exakt dagens plattlogik nedan.
+      // Fable-granskningen 2026-08-10 (FG-A9): den flata vägen nedan nås ENDAST
+      // av teststubbar utan perFeed — muxen (AISSourceMultiplexer) returnerar
+      // ALLTID perFeed i getConnectionStats(), i alla fyra källlägen. I drift är
+      // _feedWatchdogStrikes därför INTE en tredje aktiv backoff-trappa vid
+      // sidan av _aisstreamWatchdogStrikes/_aishubWatchdogStrikes; den räknas
+      // bara i tester. Läs inte legacy-räknaren som fältevidens.
       if (stats.perFeed) {
         this._checkAisstreamFeedHealthPerFeed(stats.perFeed.aisstream);
         this._checkAishubFeedHealth(stats.perFeed.aishub);
@@ -8838,9 +8868,21 @@ class AISBridgeApp extends Homey.App {
    * @private
    */
   _checkAisstreamFeedHealthPerFeed(feedStats) {
-    if (!feedStats || !feedStats.configured || !feedStats.isConnected) {
+    // Fable-granskningen 2026-08-10 (FG-A2): strike-räknaren nollställs nu vid
+    // AVKONFIGURERING, precis som AISHub-tvillingen redan gjorde. Utan detta
+    // överlevde backoff-tillståndet ett källbyte: en användare som växlar till
+    // 'aishub' medan aisstream stod på strike 3 och sedan tillbaka till
+    // 'aisstream'/'both' ärvde tröskeln 160 min (tak 120) i stället för 20 —
+    // vakten var i praktiken avstängd i två timmar efter bytet, utan att något i
+    // loggen antydde varför.
+    if (!feedStats || !feedStats.configured) {
+      this._aisstreamWatchdogStrikes = 0;
       return;
     }
+    // NEDKOPPLAT läge nollställer INTE — samma semantik som hubgrenens
+    // isConnected-kommentar: klientens egen flank/backoff äger återanslutningen
+    // och vaktens trappa ska inte tappa minnet av en pågående tyst episod.
+    if (!feedStats.isConnected) return;
     const sinceMessage = Number.isFinite(feedStats.timeSinceLastMessage)
       ? feedStats.timeSinceLastMessage
       : Infinity;
@@ -8898,6 +8940,20 @@ class AISBridgeApp extends Homey.App {
    */
   _checkAishubFeedHealth(feedStats) {
     if (!feedStats || !feedStats.configured) {
+      this._aishubWatchdogStrikes = 0;
+      return;
+    }
+    // Fable-granskningen 2026-08-10 (FG-A1): 6h-auth-pausen (HTTP 401/403 ×5 ⇒
+    // AUTH_COOLDOWN_MS) är en AVSIKTLIG paus, inte en död kedja. Under pausen
+    // startas ingen poll, så lastPollStartedAt FRYSER — kedjedöd-grenen nedan
+    // (>11 min) fyrade då varje minut i ~5,8 h med växande strikes, medan
+    // kickAishub() ändå no-op:ade (forceReschedule respekterar cooldownen). Ren
+    // loggsvada plus en falsk strike-trappa som gjorde vakten trubbig i timmar
+    // EFTER att pausen släppt. Klientens kedja lever och bokar själv nästa poll
+    // vid pausens slut — vakten ska varken yla eller eskalera under tiden.
+    // Number.isFinite-ledet gör guarden immun mot stubbar/äldre mux-kontrakt
+    // som saknar fältet: undefined ⇒ oförändrat beteende.
+    if (Number.isFinite(feedStats.authCooldownMsLeft) && feedStats.authCooldownMsLeft > 0) {
       this._aishubWatchdogStrikes = 0;
       return;
     }
@@ -9850,6 +9906,14 @@ class AISBridgeApp extends Homey.App {
     // inferensfönster föll då tillbaka på gissning i stället för belagd
     // evidens. Anropet SAKNADES helt före den här etappen.
     this._persistLastKnownPositions(true);
+    // Fable-granskningen 2026-08-10 (FG-A3): tystnadsbokföringen force-flushades
+    // vid varje strike men ALDRIG vid onUninit. Skrivtakten är strypt till 60
+    // min (FEED_SILENCE_PERSIST_INTERVAL_MS), så en kontrollerad omstart kunde
+    // tappa upp till en timmes lastMessageAt — och bokföringens hela existens
+    // är att spänna över just omstarter (felklass F-18: strike 21 rapporterade
+    // 120 min när sanningen var 3 009 min). Utan flushen kunde efterföljande
+    // instans få ett för ungt ankare och underskatta tystnaden igen.
+    this._persistFeedSilenceLedger(true);
     if (this._quayStableLedger) this._quayStableLedger.clear();
     if (this._openingQuayLedger) this._openingQuayLedger.clear();
     // Etapp 6: engångsnycklarna följer armarna — ingen av delarna persisteras.
@@ -9944,20 +10008,16 @@ class AISBridgeApp extends Homey.App {
     if (!this.debugLevel || this.debugLevel === 'off') return;
 
     // Determine the minimum level needed for this message
-    const levels = { basic: 1, detailed: 2, full: 3 };
-    const currentLevel = levels[this.debugLevel] || 0;
+    // FG-A4: tabellen och mönstren är modulkonstanter (se filtoppen) — de
+    // byggdes förut om vid varje anrop på appens hetaste loggväg.
+    const currentLevel = DEBUG_LEVELS[this.debugLevel] || 0;
 
     // Messages containing these patterns are "basic" (always shown when not off)
     // Everything else requires "detailed", AIS raw data requires "full"
     let requiredLevel = 2; // default: detailed
-    const basicTags = [
-      'UI_UPDATE', 'TARGET_BRIDGE_PASSED', 'TARGET_TRANSITION', 'JOURNEY_COMPLETED',
-      'BRIDGE_OPENING', 'INTERMEDIATE_PASSAGE', 'VESSEL_ENTERED', 'VESSEL_REMOVED', 'STATUS_CHANGED',
-    ];
-    const basicPattern = new RegExp(basicTags.map((t) => `\\[${t}\\]`).join('|'));
-    if (basicPattern.test(message)) {
+    if (DEBUG_BASIC_PATTERN.test(message)) {
       requiredLevel = 1; // basic
-    } else if (/\[AIS_RAW\]|\[POSITION_ANALYSIS\]|\[PROXIMITY_ANALYSIS\]|\[ETA_CALC\]|\[COALESCING\]|\[SNAPSHOT\]/.test(message)) {
+    } else if (DEBUG_FULL_PATTERN.test(message)) {
       requiredLevel = 3; // full
     }
 

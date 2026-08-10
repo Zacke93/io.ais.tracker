@@ -12,15 +12,14 @@ const CAUTION = { isGPSJump: false, movementDistance: 120, action: 'accept_with_
 const LARGE = { isGPSJump: false, movementDistance: 450, action: 'accept' };
 
 /**
- * Beteendetester för SystemCoordinator — koordinationsanalys, debounce-fönster
- * och cleanup-vägarna.
+ * Beteendetester för SystemCoordinator — koordinationsanalys och
+ * cleanup-vägarna.
  *
  * Verkligt kontrakt (från anroparna):
  * - VesselDataService: coordinatePositionUpdate(mmsi, analysis, vessel, old)
  *   och removeVessel(mmsi) vid borttagning.
  * - StatusService: coordinateStatusStabilization(mmsi, stabilizedResult,
- *   positionAnalysis) — läser extendedStabilization/coordinationApplied/
- *   bridgeTextDebounced.
+ *   positionAnalysis) — läser extendedStabilization/coordinationApplied.
  * - GPSJumpGateService: getCoordination(mmsi) — kräver level 'enhanced' eller
  *   'system_wide' OCH protection === true för att gata passage-detektering.
  */
@@ -254,40 +253,15 @@ describe('SystemCoordinator — koordinationsanalys och cleanup', () => {
       expect(sc.vesselCoordinationState.get(MMSI).coordinationActive).toBe(false);
     });
 
-    test('statusändring under aktiv koordination debouncar bridge text', () => {
+    // Fable-granskningen 2026-08-10 (FG-D1): de fyra debounce-testerna här
+    // (bridgeTextDebounced-flaggan, Map-entryn och dess 2 s-timer) låste ett
+    // maskineri utan en enda konsument i produktion — borttagna med koden.
+    test('statusändring under aktiv koordination lämnar inga timers efter sig', () => {
       sc.coordinatePositionUpdate(MMSI, JUMP, {}, {});
 
-      const res = sc.coordinateStatusStabilization(MMSI, { statusChanged: true }, {});
-
-      expect(res.bridgeTextDebounced).toBe(true);
-      expect(sc.bridgeTextDebounce.has(MMSI)).toBe(true);
-    });
-
-    test('statusändring UTAN koordination debouncar inte', () => {
-      const res = sc.coordinateStatusStabilization(MMSI, { statusChanged: true }, {});
-
-      expect(res.bridgeTextDebounced).toBe(false);
-      expect(sc.bridgeTextDebounce.has(MMSI)).toBe(false);
-    });
-
-    test('global koordination debouncar statusändring även utan egen koordination', () => {
-      activateSystemWide();
-
-      const res = sc.coordinateStatusStabilization('265777666', { statusChanged: true }, {});
-
-      expect(res.bridgeTextDebounced).toBe(true);
-    });
-
-    test('debounce-entryn auto-städas av sin timer efter 2 s (ingen minnesläcka)', () => {
-      sc.coordinatePositionUpdate(MMSI, JUMP, {}, {});
       sc.coordinateStatusStabilization(MMSI, { statusChanged: true }, {});
-      // Ny aktivering ersätter den gamla utan dubbla timers
-      sc.coordinateStatusStabilization(MMSI, { statusChanged: true }, {});
-      expect(sc.bridgeTextDebounce.size).toBe(1);
 
-      jest.advanceTimersByTime(2000);
-
-      expect(sc.bridgeTextDebounce.size).toBe(0);
+      expect(jest.getTimerCount()).toBe(0);
     });
   });
 
@@ -313,29 +287,14 @@ describe('SystemCoordinator — koordinationsanalys och cleanup', () => {
       expect(sc.vesselCoordinationState.has(MMSI)).toBe(false);
     });
 
-    test('cleanup rensar utgångna debounces men behåller aktiva', () => {
-      sc.coordinatePositionUpdate('265000AAA', JUMP, {}, {});
-      sc.coordinateStatusStabilization('265000AAA', { statusChanged: true }, {});
-      mockNow += 2001; // A:s debounce har gått ut
-      sc.coordinatePositionUpdate('265000BBB', JUMP, {}, {});
-      sc.coordinateStatusStabilization('265000BBB', { statusChanged: true }, {});
-
-      sc.cleanup();
-
-      expect(sc.bridgeTextDebounce.has('265000AAA')).toBe(false);
-      expect(sc.bridgeTextDebounce.has('265000BBB')).toBe(true);
-    });
-
     test('removeVessel raderar ALLT per-fartygs-tillstånd (vessel_removed-vägen)', () => {
       sc.coordinatePositionUpdate(MMSI, JUMP, {}, {});
       sc.coordinateStatusStabilization(MMSI, { statusChanged: true }, {});
       expect(sc.vesselCoordinationState.has(MMSI)).toBe(true);
-      expect(sc.bridgeTextDebounce.has(MMSI)).toBe(true);
 
       sc.removeVessel(MMSI);
 
       expect(sc.vesselCoordinationState.has(MMSI)).toBe(false);
-      expect(sc.bridgeTextDebounce.has(MMSI)).toBe(false);
       expect(sc.getCoordination(MMSI)).toMatchObject({ coordinationActive: false });
     });
 
@@ -350,8 +309,7 @@ describe('SystemCoordinator — koordinationsanalys och cleanup', () => {
       const status = sc.getCoordinationStatus();
 
       expect(status.activeCoordinations).toBe(1);
-      expect(status.activeDebounces).toBe(1);
-      expect(status.config.bridgeTextDebounceMs).toBe(2000);
+      expect(status.config.gpsEventCooldownMs).toBe(5000);
       expect(status.globalState.unstableGPSCount).toBe(1);
     });
   });

@@ -18,7 +18,7 @@
  *  - zonskydd och zontransitioner (analyzeZoneProtectionNeeds,
  *    hasActiveCriticalTransition, getHighestPriorityTransition)
  *  - waiting-blockerare (passage-cooldown, passage-latch) och väntetimern
- *  - rörelseanalys (isStationary/analyzeMovement) och determineStatus
+ *  - rörelseanalys (isStationary/analyzeMovement)
  *
  * Tidsstyrning: Date.now mockas manuellt och återställs i afterEach.
  */
@@ -974,17 +974,8 @@ describe('StatusService — beteende', () => {
     });
   });
 
-  describe('determineStatus (enkel avståndsmappning)', () => {
-    test.each([
-      [30, 'under-bridge'],
-      [50, 'under-bridge'], // gräns: ≤ UNDER_BRIDGE_SET_DISTANCE
-      [200, 'waiting'],
-      [300, 'waiting'], // gräns: ≤ APPROACH_RADIUS
-      [400, 'approaching'],
-      [500, 'approaching'], // gräns: ≤ APPROACHING_RADIUS
-      [900, 'en-route'],
-    ])('%i m → %s', (distance, expected) => {
-      expect(statusService.determineStatus(makeVessel(), 'Klaffbron', distance)).toBe(expected);
-    });
-  });
+  // Fable-granskningen 2026-08-10 (FG-D3): describe-blocket för determineStatus
+  // borttaget med metoden — den var test-only och låste ett APPROACH_RADIUS-
+  // baserat tröskelschema som produktionens statuslogik (STATUS_HYSTERESIS)
+  // aldrig följt.
 });

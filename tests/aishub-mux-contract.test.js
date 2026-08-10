@@ -984,3 +984,155 @@ describe('Etapp 2: aggregerad flankemission (Bug#12/V1-M7)', () => {
     expect(authArgs).toEqual([['Api Key Is Not Valid', 'aisstream']]);
   });
 });
+
+describe('Fable-granskningen 2026-08-10 (FG-B1/FG-B2): auth-pausen i perFeed och hälsoraden i SOLO-läget', () => {
+  let mux;
+  let logger;
+
+  const healthLines = () => logger.log.mock.calls
+    .map((c) => c.join(' '))
+    .filter((l) => l.includes('[AISHUB_HEALTH]'));
+
+  const linesWith = (tag) => logger.log.mock.calls
+    .map((c) => c.join(' '))
+    .filter((l) => l.includes(tag));
+
+  /**
+   * Sätt källäget, dränera _reconcile-mikrotaskerna (barn/timers skapas först
+   * efter await-gränsen) och NEUTRALISERA hubbens HTTP-väg. Solo-läget är det
+   * enda där poll-kedjan lever samtidigt som testet stegar timers 5 min i
+   * taget — utan mocken hade en äkta request mot ws.php gått iväg.
+   */
+  const settle = async (source) => {
+    mux.applySourceConfig({ source, apiKey: null, aishubUsername: 'testuser' });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    if (mux._hubClient) {
+      mux._hubClient._httpGet = jest.fn(async () => ({
+        statusCode: 200,
+        body: JSON.stringify([
+          {
+            ERROR: false, USERNAME: 'testuser', FORMAT: 'HUMAN', RECORDS: 0,
+          },
+          [],
+        ]),
+      }));
+    }
+  };
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-08-02T12:00:00.000Z'));
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    logger = makeLogger();
+    mux = new AISSourceMultiplexer(logger, makeStore());
+  });
+
+  afterEach(() => {
+    if (mux) mux.disconnect();
+    mux = null;
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
+
+  test('FG-B1: perFeed.aishub BÄR auth-pausen — annars läser feed-vakten en 6h-paus som död kedja', async () => {
+    // Fältet: klienten pausade medvetet 6 h efter AUTH_FAIL_STOP avslag, men
+    // muxens projektion tappade fälten på vägen. app.js:s feed-vakt hade då
+    // ingen möjlighet att skilja pausen från en död källkedja och skrev en
+    // falsk FEED_WATCHDOG-rad + en strike varje minut i ~5,8 h.
+    await settle('aishub');
+    const idle = mux.getConnectionStats().perFeed.aishub;
+    expect(idle.authCooldownUntil).toBeNull();
+    expect(idle.authCooldownMsLeft).toBe(0);
+    expect(idle.backoffMs).toBe(0);
+
+    const until = Date.now() + AIS_CONFIG.AISHUB.AUTH_COOLDOWN_MS;
+    mux._hubClient._authCooldownUntil = until;
+    mux._hubClient._backoffMs = AIS_CONFIG.AISHUB.BACKOFF_MAX_MS;
+
+    const paused = mux.getConnectionStats().perFeed.aishub;
+    expect(paused.authCooldownUntil).toBe(until);
+    expect(paused.authCooldownMsLeft).toBe(AIS_CONFIG.AISHUB.AUTH_COOLDOWN_MS);
+    expect(paused.backoffMs).toBe(AIS_CONFIG.AISHUB.BACKOFF_MAX_MS);
+  });
+
+  test('FG-B1: fälten finns ÄVEN utan hub-barn — en tyst undefined vore samma blindhet igen', () => {
+    const bare = new AISSourceMultiplexer(makeLogger(), makeStore());
+    try {
+      const feed = bare.getConnectionStats().perFeed.aishub;
+      expect(feed.configured).toBe(false);
+      expect(feed.authCooldownUntil).toBeNull();
+      expect(feed.authCooldownMsLeft).toBe(0);
+      expect(feed.backoffMs).toBe(0);
+    } finally {
+      bare.disconnect();
+    }
+  });
+
+  test('FG-B2: solo-aishub skriver [AISHUB_HEALTH] ur EGEN hälsotimer — skuggjämföraren finns inte där', async () => {
+    // Buggen: raden emitterades enbart ur _emitShadowCompare, som bara körs i
+    // shadow/both. I solo — där hubben är ENDA källan — loggades varken
+    // livstidsräknarna eller auth-pausens läge, någonsin.
+    await settle('aishub');
+    expect(mux._shadowTimer).toBeNull(); // ingen skuggväg i solo
+    expect(mux._hubHealthTimer).not.toBeNull();
+    expect(healthLines()).toHaveLength(0);
+
+    jest.advanceTimersByTime(5 * 60 * 1000);
+    expect(healthLines()).toHaveLength(1);
+    expect(healthLines()[0]).toMatch(/polls=\d+/);
+    expect(healthLines()[0]).toMatch(/authCooldownMinLeft=\d+/);
+    // FG-B3: de nya droppräknarna står bredvid invalidMmsi.
+    expect(healthLines()[0]).toMatch(/invalidMmsi=\d+ invalidPosition=\d+ invalidRecord=\d+/);
+
+    jest.advanceTimersByTime(5 * 60 * 1000);
+    expect(healthLines()).toHaveLength(2); // 5-minuterskadens, som skuggtimern
+
+    // Ingen fusion i solo ⇒ solo-timern får ALDRIG dra med _emitFusionHealth.
+    expect(linesWith('[FUSION_HEALTH]')).toHaveLength(0);
+    expect(linesWith('[SHADOW_COMPARE]')).toHaveLength(0);
+  });
+
+  test('FG-B2: hälsotimern städas vid källbyte OCH vid teardown — inga läckande intervals', async () => {
+    await settle('aishub');
+    expect(mux._hubHealthTimer).not.toBeNull();
+
+    // Källbyte till ren pass-through: hub-barnet OCH timern ska bort.
+    await settle('aisstream');
+    expect(mux._hubClient).toBeNull();
+    expect(mux._hubHealthTimer).toBeNull();
+    const afterSwitch = healthLines().length;
+    jest.advanceTimersByTime(30 * 60 * 1000);
+    expect(healthLines()).toHaveLength(afterSwitch); // en städad timer skriver inget
+
+    // Tillbaka till solo och sedan nedstängning (onUninit-vägen).
+    await settle('aishub');
+    expect(mux._hubHealthTimer).not.toBeNull();
+    mux.disconnect();
+    expect(mux._hubHealthTimer).toBeNull();
+    const afterTeardown = healthLines().length;
+    jest.advanceTimersByTime(30 * 60 * 1000);
+    expect(healthLines()).toHaveLength(afterTeardown);
+  });
+
+  test('FG-B2: shadow/both bär raden via SKUGGVÄGEN — exakt EN [AISHUB_HEALTH] per 5-minutersfönster', async () => {
+    // Regressionsspärren mot fixens egen risk: två bärare av samma rad hade
+    // dubblerat hälsologgen i precis de lägen som redan fungerade.
+    await settle('shadow');
+    expect(mux._shadowTimer).not.toBeNull();
+    expect(mux._hubHealthTimer).toBeNull(); // solo-timern MÅSTE stå still här
+
+    jest.advanceTimersByTime(5 * 60 * 1000);
+    expect(healthLines()).toHaveLength(1);
+
+    await settle('both');
+    expect(mux._shadowTimer).not.toBeNull();
+    expect(mux._hubHealthTimer).toBeNull();
+
+    jest.advanceTimersByTime(5 * 60 * 1000);
+    expect(healthLines()).toHaveLength(2);
+    // Bäraren är fortfarande skuggvägen: hälsoraden följer SHADOW_COMPARE 1:1.
+    expect(linesWith('[SHADOW_COMPARE]').filter((l) => l.includes('window=5min'))).toHaveLength(2);
+  });
+});

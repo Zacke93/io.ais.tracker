@@ -484,6 +484,149 @@ describe('A7(c): strike-räknarna är delade per källa', () => {
 });
 
 // =============================================================================
+// Fable-granskningen 2026-08-10 (FG-A1/FG-A2): vaktens nollställningsvillkor
+// =============================================================================
+describe('FG-A1: AISHub-vakten tiger under den AVSIKTLIGA 6h-auth-pausen', () => {
+  const riggHubApp = () => {
+    const app = riggApp(makeSettings({ ais_api_key: 'KEY' }));
+    app.aisClient = {
+      isConnected: true,
+      kickAishub: jest.fn(),
+      reconnectWithKey: jest.fn().mockResolvedValue(undefined),
+    };
+    return app;
+  };
+
+  const hubRows = (app) => app.log.mock.calls
+    .map((c) => c.join(' '))
+    .filter((l) => l.includes('[FEED_WATCHDOG]') && l.includes('aishub:'));
+
+  // Under auth-pausen startas ingen poll ⇒ lastPollStartedAt FRYSER, och
+  // klienten räknar sig som frånkopplad. Kedjedöd-grenens tröskel är
+  // 2×BACKOFF_MAX_MS + 60 s ≈ 11 min; 45 min är långt bortom den.
+  const pausedChain = (extra = {}) => ({
+    configured: true,
+    isConnected: false,
+    lastPollStartedAt: Date.now() - 45 * MIN,
+    lastOkResponseAt: Date.now() - 45 * MIN,
+    ...extra,
+  });
+
+  test('cooldown kvar ⇒ ingen kedjedöd-logg, ingen kick, strikes nollställda', () => {
+    const app = riggHubApp();
+    app._aishubWatchdogStrikes = 4; // falsk trappa byggd innan fixen
+
+    app._checkAishubFeedHealth(pausedChain({ authCooldownMsLeft: 5.8 * 60 * MIN }));
+
+    expect(hubRows(app)).toHaveLength(0);
+    expect(app.aisClient.kickAishub).not.toHaveBeenCalled();
+    expect(app._aishubWatchdogStrikes).toBe(0);
+  });
+
+  test('samma tick var före fixen 348 rader: pausen släppt (0 kvar) ⇒ vakten ingriper igen', () => {
+    const app = riggHubApp();
+
+    app._checkAishubFeedHealth(pausedChain({ authCooldownMsLeft: 0 }));
+
+    const rows = hubRows(app);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toContain('kedjan verkar död');
+    expect(app.aisClient.kickAishub).toHaveBeenCalledTimes(1);
+    expect(app._aishubWatchdogStrikes).toBe(1);
+  });
+
+  test('legacy-stub UTAN authCooldownMsLeft ⇒ exakt oförändrat beteende', () => {
+    const app = riggHubApp();
+
+    app._checkAishubFeedHealth(pausedChain()); // fältet saknas helt
+
+    expect(hubRows(app)).toHaveLength(1);
+    expect(app.aisClient.kickAishub).toHaveBeenCalledTimes(1);
+  });
+
+  test('pausen respekteras hela vägen genom _checkAISFeedHealth-dispatchen', () => {
+    const app = riggHubApp();
+    app._aishubWatchdogStrikes = 3;
+    app.aisClient.getConnectionStats = jest.fn().mockReturnValue({
+      timeSinceLastMessage: 30 * 1000,
+      uptime: 90 * MIN,
+      perFeed: {
+        aisstream: {
+          configured: true,
+          isConnected: true,
+          timeSinceLastMessage: 30 * 1000,
+          uptime: 90 * MIN,
+          lastMessageTime: Date.now() - 30 * 1000,
+        },
+        aishub: pausedChain({ authCooldownMsLeft: 3 * 60 * MIN }),
+      },
+    });
+
+    app._checkAISFeedHealth();
+
+    expect(hubRows(app)).toHaveLength(0);
+    expect(app.aisClient.kickAishub).not.toHaveBeenCalled();
+    expect(app._aishubWatchdogStrikes).toBe(0);
+  });
+});
+
+describe('FG-A2: aisstream-vaktens strikes nollställs vid avkonfigurering', () => {
+  const riggStreamApp = () => {
+    const app = riggApp(makeSettings({ ais_api_key: 'KEY' }));
+    app.aisClient = {
+      isConnected: true,
+      reconnectWithKey: jest.fn().mockResolvedValue(undefined),
+    };
+    return app;
+  };
+
+  test('configured:false ⇒ 0 (källbyte bort och tillbaka ärver inte 120-min-tröskeln)', () => {
+    const app = riggStreamApp();
+    app._aisstreamWatchdogStrikes = 3;
+
+    app._checkAisstreamFeedHealthPerFeed({ configured: false });
+
+    expect(app._aisstreamWatchdogStrikes).toBe(0);
+    expect(app.aisClient.reconnectWithKey).not.toHaveBeenCalled();
+  });
+
+  test('saknad perFeed-post ⇒ 0 (samma semantik som AISHub-tvillingen)', () => {
+    const app = riggStreamApp();
+    app._aisstreamWatchdogStrikes = 5;
+
+    app._checkAisstreamFeedHealthPerFeed(undefined);
+
+    expect(app._aisstreamWatchdogStrikes).toBe(0);
+  });
+
+  test('NEDKOPPLAD men konfigurerad ⇒ trappan bevaras (klientens backoff äger läget)', () => {
+    const app = riggStreamApp();
+    app._aisstreamWatchdogStrikes = 3;
+
+    app._checkAisstreamFeedHealthPerFeed({
+      configured: true, isConnected: false, timeSinceLastMessage: 90 * MIN, uptime: 90 * MIN,
+    });
+
+    expect(app._aisstreamWatchdogStrikes).toBe(3);
+    expect(app.aisClient.reconnectWithKey).not.toHaveBeenCalled();
+  });
+
+  test('efter nollställning startar trappan om på 20 min, inte på 160', () => {
+    const app = riggStreamApp();
+    app._aisstreamWatchdogStrikes = 3; // gammal backoff: tröskel 160 min → tak 120
+
+    app._checkAisstreamFeedHealthPerFeed({ configured: false });
+    // Källan sätts på igen och är tyst i 21 min — precis över basen.
+    app._checkAisstreamFeedHealthPerFeed({
+      configured: true, isConnected: true, timeSinceLastMessage: null, uptime: 21 * MIN, lastMessageTime: null,
+    });
+
+    expect(app.aisClient.reconnectWithKey).toHaveBeenCalledTimes(1);
+    expect(app._aisstreamWatchdogStrikes).toBe(1);
+  });
+});
+
+// =============================================================================
 // A13: notisvägens observerbarhet
 // =============================================================================
 describe('A13: _notifyConnectionIssue säger om notisen gick iväg', () => {
