@@ -62,6 +62,7 @@ const {
   MOORING_DETECTION, // Förtöjningsdetektering (rörelsebevis-trösklar)
   QUAY_DEPARTURE_GATE, // V1: korroboreringskrav för kajavgång i trigger-punktzon
   CONNECTION_ALERT, // B2: eskalerande källdödslarm (1h/4h-trappan)
+  FEED_SILENCE, // U12: skyddsnätet för TOM KANAL (källorna svarar, noll data)
   AIS_CONFIG, // Etapp 2: AISHub-vaktens trösklar (AIS_CONFIG.AISHUB)
   BRIDGE_OPENING, // Etapp 6: öppningsvarningarnas trösklar (konvojfönster m.m.)
   PROTECTION_ZONE_RADIUS, // C1b: samma radie som BRIDGE_OPENING-hållningens säkerhetsventil
@@ -3087,7 +3088,8 @@ class AISBridgeApp extends Homey.App {
    *        (etapp 2, V1-M6): en GLOBAL skalär lät ett AISHub-fel tysta ett
    *        aisstream-nyckelfel i ett helt dygn. Nycklar: 'aisstream:auth',
    *        'aisstream:server', 'aisstream:net', 'aisstream:nokey',
-   *        'aishub:auth', 'aishub:server', 'aishub:silent', 'config:fallback' …
+   *        'aishub:auth', 'aishub:server', 'aishub:silent', 'feeds:silent',
+   *        'feeds:empty:4h' (U12), 'config:fallback' …
    * @private
    */
   async _notifyConnectionIssue(message, feedKey = 'global') {
@@ -8970,6 +8972,11 @@ class AISBridgeApp extends Homey.App {
    * (emissionsdriven = accepted, aldrig records) — men klämt mot
    * observationsfönstret, så varken sentinelen (Infinity) eller socketens
    * uptime kan styra larmet längre.
+   *
+   * TOTALGRENEN (U12, användarbeslut 2026-08-10): "appen är blind" kräver ÄKTA
+   * BLINDHET — ingen pipeline-matande källa SVARAR ens. En tom kanal (källorna
+   * svarar, noll data) är normaldrift nattetid och fångas i stället av den
+   * grova 4h-grenen 'feeds:empty:4h'. Se villkoret längre ned.
    * @param {object} perFeed - stats.perFeed
    * @private
    */
@@ -9087,25 +9094,98 @@ class AISBridgeApp extends Homey.App {
     // aisstreams upptid aldrig 34,6 s, så hade AISHub fallit samtidigt (vilket
     // är precis vad ett nätavbrott gör) hade "appen är blind" varit strukturellt
     // omöjlig. Observationsankaret bär grinden i stället, per källa.
+    //
+    // U12 (användarbeslut 2026-08-10): "LEVERERAR INTE" ≠ "SVARAR INTE".
+    // F1 skilde de två begreppen på hubbsidan men lät totalgrenen döma på
+    // enbart leverans — och i Trollhätte kanal är noll fartyg i bboxen
+    // NORMALDRIFT nattetid (korpusbanken: värsta normala trafikuppehåll 198,7
+    // min, se FEED_SILENCE-härledningen). Larmet "appen är blind" fyrade
+    // därför varje lugn natt, brände sina 24h-nycklar i förskott och blev
+    // precis den falsklarmskälla som gör att ett ÄKTA avbrott ignoreras.
+    //
+    // TVÅ GRENAR I STÄLLET FÖR EN:
+    //  • ÄKTA BLINDHET — INGEN relevant källa SVARAR ens. Då är B2:s
+    //    existensberättigande (both-dygn 1: 4,5 h källdöd utan en enda signal)
+    //    intakt: notis + hela eskaleringstrappan, precis som förut.
+    //  • TOM KANAL — alla relevanta källor svarar men ingen har levererat på
+    //    FEED_SILENCE.EMPTY_CHANNEL_ALERT_MS (4 h). Grov, EN notis på egen
+    //    nyckel: fångar bbox-/kontofel utan att spamma lugna nätter.
+    //
+    // "SVARAR" per källtyp (bevisad signal, inte gissad):
+    //  • aisstream: SOCKETEN ÄR ÖPPEN (isConnected). En öppen socket som
+    //    aldrig levererar ÄR ett svar — det är aisstreams serverdödsläge, och
+    //    det ägs av korstystnads-/watchdoggrenarna, inte av blindhetslarmet.
+    //    Vid 429-cooldown eller stängd socket sätter klienten isConnected=false
+    //    (AISStreamClient._onClose/_handleRateLimit) ⇒ källan svarar INTE.
+    //  • aishub: POLLKLOCKAN (hubResponding ovan) — senaste välformade svar
+    //    yngre än FRESH_POLL_MS, med F1:s legacy-fallback när fältet saknas.
     const hubFeedsPipeline = this._hubFeedsPipeline();
     const relevant = [];
-    if (s && s.configured) relevant.push({ name: 'aisstream', st: s, sil: sSilence });
-    if (h && h.configured && hubFeedsPipeline) relevant.push({ name: 'aishub', st: h, sil: hSilence });
+    if (s && s.configured) {
+      relevant.push({
+        name: 'aisstream', st: s, sil: sSilence, responding: !!s.isConnected,
+      });
+    }
+    if (h && h.configured && hubFeedsPipeline) {
+      relevant.push({
+        name: 'aishub', st: h, sil: hSilence, responding: hubResponding,
+      });
+    }
     if (relevant.length > 0
         && relevant.every((r) => r.sil > SILENT_MS)) {
       const minSil = Math.min(...relevant.map((r) => r.sil));
-      logLimited('feeds-total', `INGEN aktiv AIS-källa har levererat på ${Math.round(minSil / 60000)} min (${relevant.map((r) => r.name).join('+')}) — appen är blind`);
-      this._notifyConnectionIssue(
-        'AIS Tracker: ingen AIS-källa har levererat positioner på 15 minuter '
-        + '— broöppningsvakten är i praktiken blind. Vakterna försöker '
-        + 'återansluta automatiskt; kontrollera nätverket om det består.',
-        'feeds:silent',
-      );
-      this._escalateSilenceNotices('feeds:silent', minSil, (label) => (
-        `AIS Tracker: fortfarande INGEN AIS-data efter ${label} — `
-        + 'broöppningsvakten är blind. Kontrollera nätverk, AISstream-nyckeln '
-        + 'och AISHub-status på aishub.net.'
-      ));
+      const responding = relevant.filter((r) => r.responding);
+      const notResponding = relevant.filter((r) => !r.responding);
+      const trulyBlind = responding.length === 0;
+      const allResponding = notResponding.length === 0;
+      const names = (list) => list.map((r) => r.name).join('+');
+      // (3) LOGGRADEN SKILJER FALLEN. Formuleringen "svarar men … levererar
+      // inget" är F1:s egen tomkanaldiagnostik (hubPhrase nedan) — samma ord
+      // för samma sak, så en fältanalys kan grep:a EN fras genom hela loggen.
+      // Alla tre lägen loggas: den tysta tredje varianten (någon svarar, någon
+      // inte) ger ingen notis, och då är loggraden dess enda spår.
+      let mode;
+      let totalPhrase;
+      if (trulyBlind) {
+        mode = 'blind';
+        totalPhrase = 'ingen av dem svarar heller — appen är blind';
+      } else if (allResponding) {
+        mode = 'tom-kanal';
+        totalPhrase = `alla källor (${names(responding)}) svarar men levererar inget — kanalen är tom, inte appen blind`;
+      } else {
+        mode = 'delvis';
+        totalPhrase = `${names(responding)} svarar men levererar inget, ${names(notResponding)} svarar inte`;
+      }
+      // STRYPNINGEN GÅR PER LÄGE, inte per gren: ett lägesbyte (tom kanal ⇒
+      // blind) är exakt det ögonblick fältanalysen letar efter, och med en enda
+      // nyckel kunde det tystas i upp till 15 min av den lugna nattens egna
+      // rader. Inom ETT läge är takten oförändrad (1 rad/15 min).
+      logLimited(`feeds-total:${mode}`, `INGEN aktiv AIS-källa har levererat på ${Math.round(minSil / 60000)} min (${names(relevant)}) — ${totalPhrase}`);
+      if (trulyBlind) {
+        this._notifyConnectionIssue(
+          'AIS Tracker: ingen AIS-källa har levererat positioner på 15 minuter '
+          + '— broöppningsvakten är i praktiken blind. Vakterna försöker '
+          + 'återansluta automatiskt; kontrollera nätverket om det består.',
+          'feeds:silent',
+        );
+        this._escalateSilenceNotices('feeds:silent', minSil, (label) => (
+          `AIS Tracker: fortfarande INGEN AIS-data efter ${label} — `
+          + 'broöppningsvakten är blind. Kontrollera nätverk, AISstream-nyckeln '
+          + 'och AISHub-status på aishub.net.'
+        ));
+      } else if (allResponding && minSil >= FEED_SILENCE.EMPTY_CHANNEL_ALERT_MS) {
+        // (2) SKYDDSNÄTET. EN notis, egen nyckel, samma 24h-dedup som övriga —
+        // ingen eskaleringstrappa: nivån ÄR redan trappans grövsta steg, och
+        // en tom kanal behöver en påminnelse, inte en serie. Texten påstår
+        // exakt vad mätningen bär (BT-12): källorna svarar, datat uteblir.
+        // Mätvärdet är OBSERVERAD tystnad, så nyckeln kan aldrig brännas av en
+        // sentinel innan appen faktiskt bevakat kanalen i fyra timmar.
+        this._notifyConnectionIssue(
+          'AIS Tracker: AIS-källorna svarar men ingen båtdata på 4 timmar '
+          + '— kontrollera bevakningsområdet/kontona.',
+          'feeds:empty:4h',
+        );
+      }
     }
 
     const bothConfigured = !!(s && h && s.configured && h.configured);
