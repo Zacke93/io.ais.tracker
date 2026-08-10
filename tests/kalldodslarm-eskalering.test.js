@@ -38,6 +38,19 @@
  *   12. asymmetrisk hysteres: degraderat släpps bara av att den TYSTA källan
  *       levererar igen — aldrig av att grannens färskhet dippar
  *   13. startgrinden: 'connected' kräver en accepterad position i pipelinen
+ *
+ * ADVERSARIELL GRANSKNING 2026-08-10 (F1) fällde två av P3:s tre delar som
+ * SANNINGSPÅSTÅENDEN, och blocken längst ned låser den nya semantiken:
+ *   14. KX-1: 'degraded' + aisstream-notisen kräver att grannen LEVERERAT
+ *       (hSilence <= SILENT_MS), inte bara svarat. En tom natt (båda tysta,
+ *       hubben svarar var 65:e s) skrev annars "halverad redundans" medan
+ *       appen var blind, skickade pushen "medan AISHub flödar" och brände
+ *       alla tre 24h-nycklarna varje lugn natt.
+ *   15. STARTGRINDEN mäter KÄLLSVAR (öppnad socket / välformat AISHub-svar /
+ *       accepterad position), inte trafik: kravet på en position lämnade en
+ *       HELT frisk app på "Frånkopplad" i timmar i en tom kanal, utan timeout
+ *       och utan skyddsnät. Skyddssyftet (död kedja ⇒ aldrig 'connected')
+ *       provas separat.
  */
 
 process.env.NODE_ENV = 'test';
@@ -240,7 +253,9 @@ function makeHealthApp({
   // tagit emot data (källorna bär lastMessageTime, fartyg spåras). Utan den
   // här markeringen håller startgrinden tillbaka varje 'connected'-skrivning
   // — grinden har egna prov i P3-blocket längst ned.
-  app._pipelineEverDelivered = true;
+  // F1 (2026-08-10): grinden mäter numera KÄLLSVAR (öppnad socket / välformat
+  // AISHub-svar / accepterad position), inte trafik — flaggan bytte namn.
+  app._sourceEverResponded = true;
   app.aisClient = {
     isConnected,
     getConnectionStats: jest.fn(),
@@ -910,14 +925,26 @@ describe('P3: pollkällans färskhet + hysteres + startgrind', () => {
   });
 });
 
-describe('P3: startgrinden — "connected" kräver en accepterad position', () => {
+/**
+ * F1 (adversariell granskning 2026-08-10): STARTGRINDEN BYTTE SIGNAL.
+ * P3:s första version krävde en accepterad POSITION — vilket bytte fältets
+ * lögn ("Uppkopplad" under 10 min 38 s startblindhet) mot dess spegelbild:
+ * i en tom kanal (natt, noll sändare i bboxen — AISHubClient dokumenterar det
+ * som normalt) stod enhetens ENDA hälsoindikator på "Frånkopplad" i timmar
+ * med två friska källor, utan timeout och utan skyddsnät.
+ * Grinden mäter därför KÄLLSVAR: öppnad aisstream-socket eller välformat
+ * AISHub-svar (= muxens aggregerade 'connected'-flank) eller en accepterad
+ * position. SKYDDSSYFTET ÄR BEVARAT och provas nedan: en HELT död kedja
+ * svarar aldrig ⇒ 'disconnected' står kvar.
+ */
+describe('P3+F1: startgrinden — "connected" kräver ett bevisat KÄLLSVAR', () => {
   const validFix = {
     mmsi: '265533390', lat: 58.2818, lon: 12.2861, sog: 4.3, cog: 39.1, timestamp: Date.now(),
   };
 
   const gateApp = () => {
     const app = makeHealthApp();
-    app._pipelineEverDelivered = false; // kallstart: pipelinen har sett noll
+    app._sourceEverResponded = false; // kallstart: ingen källa har svarat
     // Samma boot-tillstånd som onInit sätter i produktion (annars ser första
     // gatade skrivningen ut som en flank i provet).
     app._lastConnectionStatus = 'disconnected';
@@ -929,23 +956,54 @@ describe('P3: startgrinden — "connected" kräver en accepterad position', () =
     .filter((c) => c[0] === 'connection_status')
     .map((c) => c[1]);
 
-  test('FÄLTFALLET: handskakning utan en enda position ⇒ INTE "connected"', () => {
+  test('TOM KANAL: handskakning utan en enda position ⇒ "connected" (förbindelsen ÄR uppe)', () => {
     const app = gateApp();
     app._onAISConnected();
 
+    // Muxens flank betyder "minst en pipeline-matande källa har kontakt"
+    // (socket öppen ELLER välformat AISHub-svar) — det är sant, och det är
+    // vad capabilityn påstår.
+    expect(statusWrites(app)).toEqual(['connected']);
+    expect(app._lastConnectionStatus).toBe('connected');
+    expect(app.connectionStatusValue()).toBe('connected');
+    expect(app._sourceEverResponded).toBe(true);
+    // Grinden ska INTE ha loggat att den håller tillbaka något.
+    expect(logText(app)).not.toContain('hålls tillbaka');
+  });
+
+  test('SKYDDSSYFTET: HELT DÖD KEDJA (inget källsvar) ⇒ "connected" hålls tillbaka', () => {
+    const app = gateApp();
+    // Ingen connect-flank, ingen position — men något försöker ändå skriva
+    // det lugnande värdet (t.ex. en UI-cykel eller en framtida self-heal).
+    const wrote = app._writeConnectionStatus('connected', 'UI-cykelns statusflank');
+
+    expect(wrote).toBe(false); // cachen står redan på 'disconnected'
     expect(statusWrites(app)).not.toContain('connected');
-    expect(app._lastConnectionStatus).not.toBe('connected');
+    expect(app._lastConnectionStatus).toBe('disconnected');
     expect(app.connectionStatusValue()).toBe('disconnected');
     expect(logText(app)).toContain('startgrinden');
+    expect(logText(app)).toContain('ingen AIS-källa har svarat sedan appstart');
+  });
+
+  test('LOGGRADEN MOTSÄGER SIG INTE när grinden ingriper (fynd 37)', () => {
+    const app = gateApp();
+    app._lastConnectionStatus = 'degraded'; // ⇒ skrivningen går fram som flank
+    app._writeConnectionStatus('connected', 'båda konfigurerade AIS-källor levererar igen');
+
+    const rad = logText(app).split('\n').find((l) => l.includes('🌐 [CONNECTION_STATUS]'));
+    expect(rad).toContain('disconnected');
+    // Kärnan: raden får inte sluta i ett påstående som motsäger värdet.
+    expect(rad).toContain("men startgrinden höll tillbaka 'connected'");
   });
 
   test('första accepterade positionen öppnar grinden — och skriver statusen själv', () => {
     const app = gateApp();
-    app._onAISConnected();
-    expect(statusWrites(app)).not.toContain('connected');
+    // Ingen connect-flank i det här provet: replay-riggar och en framtida
+    // källa utan 'connected'-event når hit ändå.
+    expect(statusWrites(app)).toEqual([]);
 
     app._processAISMessage({ ...validFix, timestamp: Date.now() });
-    expect(app._pipelineEverDelivered).toBe(true);
+    expect(app._sourceEverResponded).toBe(true);
     expect(app.connectionStatusValue()).toBe('connected');
     // Flanken får inte vänta på nästa UI-cykel: ett fartyg utanför
     // bevakningsområdet ger varken vessel-event eller watchdog-cykel.
@@ -962,8 +1020,22 @@ describe('P3: startgrinden — "connected" kräver en accepterad position', () =
     app._processAISMessage({
       mmsi: '265533390', lat: 0, lon: 0, sog: 0, cog: 0,
     });
-    expect(app._pipelineEverDelivered).toBe(false);
+    expect(app._sourceEverResponded).toBe(false);
     expect(app.connectionStatusValue()).toBe('disconnected');
+  });
+
+  test('KÄLLSVEP: connection_status skrivs bara av _writeConnectionStatus', () => {
+    // KX-10-invarianten är bara sann så länge ingen råskrivning smyger tillbaka
+    // (fyndet: _startConnections tomnyckelgren skrev förbi flankcachen).
+    const src = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+    const rawWrites = src.split('\n')
+      .map((line, i) => ({ line: line.trim(), n: i + 1 }))
+      .filter((r) => r.line.includes("_updateDeviceCapability('connection_status'"));
+    expect(rawWrites).toHaveLength(1);
+    // …och den enda raden ligger INUTI _writeConnectionStatus.
+    const owner = src.slice(src.indexOf('  _writeConnectionStatus(value, reason) {'));
+    expect(owner.slice(0, owner.indexOf('\n  }\n')))
+      .toContain("this._updateDeviceCapability('connection_status', next);");
   });
 
   test('"degraded" gatas INTE — halverad redundans ska synas direkt', async () => {
@@ -1012,5 +1084,218 @@ describe('P3: startgrinden — "connected" kräver en accepterad position', () =
     app._onAISConnected();
     expect(app._lastConnectionStatus).toBe('connected');
     expect(statusWrites(app)).toEqual(['disconnected', 'connected']);
+  });
+
+  test('KX-10-spegeln: tomnyckelgrenen skriver genom ägaren (cachen kan aldrig glida)', async () => {
+    const app = makeHealthApp({ source: 'aisstream', aishubUsername: '' });
+    app.homey.settings.set('ais_api_key', '');
+    app._lastConnectionStatus = 'connected'; // som efter en tidigare uppkoppling
+    // Grenen är gatad på test-läget — båda spärrarna måste släppas för att den
+    // ska gå att pröva alls (och återställas direkt efteråt).
+    process.env.NODE_ENV = 'production';
+    global.__TEST_MODE__ = false;
+    try {
+      await app._startConnection();
+    } finally {
+      process.env.NODE_ENV = 'test';
+      global.__TEST_MODE__ = true;
+    }
+
+    expect(app._lastConnectionStatus).toBe('disconnected'); // cachen FÖLJDE med
+    expect(statusWrites(app)).toEqual(['disconnected']);
+    expect(logText(app)).toContain('ingen API-nyckel och ingen AISHub-källa konfigurerad');
+  });
+});
+
+// ===========================================================================
+// F1 (adversariell granskning 2026-08-10) — KX-1: DEGRADED KRÄVER BEVISAD
+// ASYMMETRI. En tom natt (båda källorna tysta, hubben SVARAR) är inte
+// halverad redundans; den är precis vad totalgrenen redan säger.
+// ===========================================================================
+
+describe('F1/KX-1: "degraded" och notisen kräver att grannen LEVERERAR', () => {
+  const statusWrites = (app) => app._updateDeviceCapability.mock.calls
+    .filter((c) => c[0] === 'connection_status')
+    .map((c) => c[1]);
+  const notisTexter = (app) => app.homey.notifications.createNotification.mock.calls
+    .map((c) => c[0].excerpt);
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-08-10T02:00:00.000Z')); // natt
+  });
+  afterEach(() => jest.useRealTimers());
+
+  /**
+   * Nattkanalen: AISHub svarar välformat var 65:e s (ERROR:false, 0 poster —
+   * AISHubClient stämplar lastOkResponseAt FÖRE records===0-returen), men
+   * ingen av källorna har levererat en position. `hubDeliveredMsAgo = null`
+   * = hubben har aldrig levererat under fönstret.
+   */
+  const nattPerFeed = ({
+    streamSilentMs = 20 * MIN,
+    hubDeliveredMsAgo = 40 * MIN,
+    hubOkAgeMs = 10 * 1000,
+    // Observationsfönstret KLÄMMER tystnaden (_observedFeedSilence): en källa
+    // kan aldrig dömas för längre tystnad än vi bevakat den. Fönstret måste
+    // därför vara vidare än den tystnad provet vill mäta.
+    uptimeMs = 6 * 60 * MIN,
+  } = {}) => {
+    const now = Date.now();
+    return {
+      aisstream: {
+        configured: true,
+        isConnected: true,
+        lastMessageTime: now - streamSilentMs,
+        timeSinceLastMessage: streamSilentMs,
+        uptime: uptimeMs,
+      },
+      aishub: {
+        configured: true,
+        isConnected: true,
+        lastMessageTime: hubDeliveredMsAgo === null ? null : now - hubDeliveredMsAgo,
+        timeSinceLastMessage: hubDeliveredMsAgo,
+        uptime: uptimeMs,
+        lastOkResponseAt: now - hubOkAgeMs,
+      },
+    };
+  };
+
+  test('TOM NATT: ingen degradering, ingen aisstream-notis, nycklarna OBRÄNDA', async () => {
+    const app = makeHealthApp();
+    app._checkCrossFeedSilence(nattPerFeed());
+    await microFlush();
+
+    // (1) Enheten påstår inte "halverad redundans" när appen är blind.
+    expect(app._connectionFeedDegraded).toBeFalsy();
+    expect(statusWrites(app)).not.toContain('degraded');
+    // (2) Ingen av de tre 24h-nycklarna bränns ⇒ en ÄKTA halvdöd socket nästa
+    //     förmiddag får fortfarande sin notis (F-9-klassen).
+    expect(sentKeys(app)).not.toContain('aisstream:silent');
+    expect(sentKeys(app)).not.toContain('aisstream:silent:1h');
+    expect(sentKeys(app)).not.toContain('aisstream:silent:4h');
+    // (3) Ingen användarsynlig text påstår att hubben flödar.
+    expect(notisTexter(app).join('\n')).not.toContain('medan AISHub flödar');
+    // (4) SANNINGEN ägs av totalgrenen — den ska ha fyrat, både i logg och notis.
+    expect(logText(app)).toContain('appen är blind');
+    expect(sentKeys(app)).toContain('feeds:silent');
+    // (5) Loggens diagnostikrad finns kvar och är villkorad (P3:s hubPhrase).
+    expect(logText(app)).toContain('AISHub svarar men inte levererar något');
+    expect(logText(app)).not.toContain('medan AISHub flödar');
+  });
+
+  test('HELA TOMNATTSKEDJAN: källsvar ⇒ "connected", och natten ändrar inget', async () => {
+    const app = makeHealthApp();
+    app._sourceEverResponded = false; // kallstart
+    app._lastConnectionStatus = 'disconnected';
+
+    app._onAISConnected(); // socket öppnad / välformat AISHub-svar
+    expect(statusWrites(app)).toEqual(['connected']);
+
+    // Sex timmar tom kanal: en hälsokontroll i timmen.
+    for (let i = 0; i < 6; i++) {
+      jest.advanceTimersByTime(60 * MIN);
+      app._checkCrossFeedSilence(nattPerFeed({
+        streamSilentMs: (i + 1) * 60 * MIN,
+        hubDeliveredMsAgo: (i + 1) * 60 * MIN,
+        uptimeMs: 12 * 60 * MIN,
+      }));
+    }
+    await microFlush();
+
+    // ENDA skrivningen är den sanna: förbindelsen är uppe.
+    expect(statusWrites(app)).toEqual(['connected']);
+    expect(app._connectionFeedDegraded).toBeFalsy();
+    expect(sentKeys(app).filter((k) => k.startsWith('aisstream:'))).toEqual([]);
+  });
+
+  test('TOM NATT i 5 h: eskaleringsnycklarna för aisstream förblir obrända', async () => {
+    const app = makeHealthApp();
+    // 5 h tystnad på BÅDA källorna, hubben svarar hela tiden.
+    app._checkCrossFeedSilence(nattPerFeed({
+      streamSilentMs: 5 * 60 * MIN,
+      hubDeliveredMsAgo: 5 * 60 * MIN,
+    }));
+    await microFlush();
+
+    expect(sentKeys(app).filter((k) => k.startsWith('aisstream:'))).toEqual([]);
+    // Totalgrenens trappa ÄGER läget och går hela vägen (bas + 1h + 4h).
+    expect(sentKeys(app)).toEqual(
+      expect.arrayContaining(['feeds:silent', 'feeds:silent:1h', 'feeds:silent:4h']),
+    );
+  });
+
+  test('ÄKTA HALVDÖD: hubben LEVERERAR ⇒ degraded + notis med "medan AISHub flödar"', async () => {
+    const app = makeHealthApp();
+    // Samma tysta aisstream — men nu har hubben levererat inom SILENT_MS.
+    app._checkCrossFeedSilence(nattPerFeed({ hubDeliveredMsAgo: 3 * MIN }));
+    await microFlush();
+
+    expect(app._connectionFeedDegraded).toBe(true);
+    expect(app._connectionDegradedSilentFeed).toBe('aisstream');
+    expect(statusWrites(app)).toEqual(['degraded']);
+    expect(sentKeys(app)).toContain('aisstream:silent');
+    // TEXTEN: byte-identisk med den tidigare hårdkodade formuleringen.
+    expect(notisTexter(app)).toContain(
+      'AIS Tracker: AISstream har inte levererat några positioner på 15 min '
+      + 'medan AISHub flödar — anslutningen kan vara halvdöd. Appens vakter '
+      + 'försöker återansluta automatiskt.',
+    );
+    expect(logText(app)).toContain('medan AISHub flödar');
+    // Totalgrenen ska INTE ha fyrat: hubben levererar, appen är inte blind.
+    expect(logText(app)).not.toContain('appen är blind');
+  });
+
+  test('ESKALERINGSTEXTEN härleds ur mätningen (BT-12) och fyrar bara med leveransbevis', async () => {
+    const app = makeHealthApp();
+    app._checkCrossFeedSilence(nattPerFeed({
+      streamSilentMs: 70 * MIN,
+      hubDeliveredMsAgo: 2 * MIN,
+    }));
+    await microFlush();
+
+    expect(sentKeys(app)).toContain('aisstream:silent:1h');
+    expect(notisTexter(app)).toContain(
+      'AIS Tracker: AISstream har varit tyst i över 1h medan AISHub flödar '
+      + '— appen kör på halverad redundans. Vakterna fortsätter återansluta; '
+      + 'kontrollera din AISstream-nyckel om det består.',
+    );
+  });
+
+  test('GRÄNSEN: hubbens leveransbevis håller till SILENT_MS, inte längre', () => {
+    const nyss = makeHealthApp();
+    nyss._checkCrossFeedSilence(nattPerFeed({ hubDeliveredMsAgo: 15 * MIN }));
+    expect(nyss._connectionFeedDegraded).toBe(true); // 15 min = precis inom
+
+    const forSent = makeHealthApp();
+    forSent._checkCrossFeedSilence(nattPerFeed({ hubDeliveredMsAgo: 15 * MIN + 1 }));
+    expect(forSent._connectionFeedDegraded).toBeFalsy(); // en ms över ⇒ tyst
+  });
+
+  test('UNGT FÖNSTER: en hubb som ALDRIG levererat är ingen frisk granne', () => {
+    const app = makeHealthApp();
+    // Nykonfigurerad hub (kort uptime, aldrig levererat) som svarar välformat.
+    const pf = nattPerFeed({ hubDeliveredMsAgo: null });
+    pf.aishub.uptime = 30 * 1000;
+    app._checkCrossFeedSilence(pf);
+    expect(app._connectionFeedDegraded).toBeFalsy();
+  });
+
+  test('HYSTERESEN ÖVERLEVER: satt degradering hålls när hubben sedan också tystnar', async () => {
+    const app = makeHealthApp();
+    app._checkCrossFeedSilence(nattPerFeed({ hubDeliveredMsAgo: 3 * MIN }));
+    await microFlush();
+    expect(statusWrites(app)).toEqual(['degraded']);
+
+    // Hubben slutar leverera (kanalen tömdes) — appen är nu blind. Att SLÄPPA
+    // degraderingen hade skrivit 'connected', appens mest lugnande värde, i
+    // exakt det ögonblicket. Den hålls därför kvar; totalgrenen bär sanningen.
+    jest.advanceTimersByTime(30 * MIN);
+    app._checkCrossFeedSilence(nattPerFeed({ streamSilentMs: 50 * MIN, hubDeliveredMsAgo: 33 * MIN }));
+    await microFlush();
+
+    expect(statusWrites(app)).toEqual(['degraded']); // ingen 'connected'
+    expect(app._connectionFeedDegraded).toBe(true);
+    expect(logText(app)).toContain('appen är blind');
   });
 });

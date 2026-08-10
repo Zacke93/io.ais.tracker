@@ -226,13 +226,22 @@ class AISBridgeApp extends Homey.App {
     // Spårar om vi är anslutna till AISstream.io WebSocket
     this._isConnected = false;
     this._lastConnectionStatus = 'disconnected'; // Cache för att undvika redundanta UI-uppdateringar
-    // P3 (söndagsfältet 2026-08-09): STARTGRINDEN. 'connected' är ett positivt
-    // påstående om att appen ser trafik — och stod i fält på 'connected' under
-    // hela 10 min 38 s startblindhet (noll meddelanden från NÅGON källa, första
-    // AISHub-pollen fördröjd av spärren). Flaggan sätts av den FÖRSTA
-    // accepterade positionen som passerar _processAISMessage och lever sedan
-    // processen ut; boot-värdet 'disconnected' äger fältet fram till dess.
-    this._pipelineEverDelivered = false;
+    // P3 (söndagsfältet 2026-08-09) + F1 (adversariell granskning 2026-08-10):
+    // STARTGRINDEN. 'connected' fick inte skrivas innan appen bevisligen hade
+    // KONTAKT (fältet: capabilityn stod på 'connected' under hela 10 min 38 s
+    // startblindhet). P3:s första version krävde en accepterad POSITION — men
+    // det gjorde 'connected' till ett påstående om TRAFIK, och en tom kanal
+    // (nattetid, noll sändare i bboxen — AISHubClient dokumenterar det som
+    // normalt) lämnade då enhetens enda hälsoindikator på "Frånkopplad" i
+    // timmar med allt friskt, utan timeout och utan skyddsnät.
+    // SIGNALEN ÄR DÄRFÖR KÄLLSVAR, inte trafik: flaggan sätts av det första
+    // beviset att en pipeline-matande källa svarat (aisstream: öppnad socket,
+    // AISHub: välformat HTTP-svar — muxens aggregerade 'connected'-flank är
+    // exakt den disjunktionen) eller av den första accepterade positionen
+    // (som bevisar samma sak). Den lever sedan processen ut; boot-värdet
+    // 'disconnected' äger fältet fram till dess, så en HELT död kedja
+    // fortfarande aldrig kan visa "Uppkopplad".
+    this._sourceEverResponded = false;
     this._connectionStartGateLogged = false;
     // P3: hysteresens ankare — VILKEN källa som var tyst när degraderingen
     // sattes. Degraderat läge får bara släppas av att just DEN källan levererar
@@ -2930,6 +2939,13 @@ class AISBridgeApp extends Homey.App {
     this._isConnected = true;
     // Bug #12: clear disconnect timestamp so bridge text resumes normal operation
     this._lastConnectionLost = null;
+    // F1 (2026-08-10): STARTGRINDENS KÄLLSVARSBEVIS. Muxens aggregerade
+    // 'connected'-flank är per konstruktion "minst en PIPELINE-MATANDE källa
+    // har kontakt": _computeConnected = (aisstream-socket öppen) ELLER
+    // (AISHub-klienten flankad upp, vilket bara _handleGoodEnvelope gör —
+    // dvs. ett välformat HTTP-svar). En skugghub räknas inte (matar inte
+    // pipelinen), så flanken kan inte öppna grinden på en mätinstrumentkälla.
+    this._noteSourceResponded();
     // B2c (etapp 7, 2026-08-08): ALLA skrivvägarna måste vara eniga om
     // värdemängden. P3 (2026-08-09): och om CACHEN — den här vägen skrev
     // tidigare utanför flankcachen (KX-10), så en handskakning kunde lämna
@@ -3187,14 +3203,22 @@ class AISBridgeApp extends Homey.App {
    * inte på 8,5 min (ingen data fanns). Alla skrivvägar går nu genom den här
    * funktionen, som äger både cachen, grinden och loggraden.
    *
-   * STARTGRINDEN (fix 4): 'connected' är ett POSITIVT PÅSTÅENDE om att appen
-   * ser trafik. I fält stod capabilityn på 'connected' under hela 10 min 38 s
+   * STARTGRINDEN (fix 4, omdefinierad av F1 2026-08-10): 'connected' får inte
+   * skrivas innan appen bevisligen har KONTAKT med en pipeline-matande källa.
+   * I fält stod capabilityn på 'connected' under hela 10 min 38 s
    * startblindhet — WebSocket-handskakningen hade lyckats (_isConnected=true)
-   * men NOLL meddelanden hade passerat pipelinen från någon källa. Grinden
-   * håller därför tillbaka 'connected' till den första accepterade positionen;
-   * boot-värdet 'disconnected' äger fältet till dess. 'degraded' släpps
-   * igenom: det är ingen lugnande utsaga, och det är per konstruktion sant
-   * (en granne som svarar + en tyst källa) även innan pipelinen fått något.
+   * men NOLL meddelanden hade passerat pipelinen från någon källa.
+   *
+   * SIGNALEN ÄR KÄLLSVAR, INTE TRAFIK. P3:s första version krävde en accepterad
+   * position, vilket bytte en lögn mot dess spegelbild: i en tom kanal (natt,
+   * inga sändare i bboxen) stod enhetens enda hälsoindikator på "Frånkopplad"
+   * i timmar med två friska källor — utan timeout, utan skyddsnät och per
+   * konstruktion oskiljbar från ett verkligt avbrott. Grinden öppnas därför av
+   * _noteSourceResponded (socket öppnad / välformat AISHub-svar / accepterad
+   * position). En HELT död kedja svarar aldrig ⇒ 'disconnected' står kvar,
+   * vilket var grindens skyddssyfte. 'degraded' släpps igenom: det är ingen
+   * lugnande utsaga, och det är per konstruktion sant (en granne som LEVERERAR
+   * + en tyst källa) även innan pipelinen fått något.
    * @param {'disconnected'|'connected'|'degraded'} value
    * @param {string} reason - vem som skrev och varför (fältgranskningens spår)
    * @returns {boolean} true om värdet faktiskt skrevs
@@ -3202,33 +3226,57 @@ class AISBridgeApp extends Homey.App {
    */
   _writeConnectionStatus(value, reason) {
     let next = value;
-    if (value === 'connected' && !this._pipelineEverDelivered) {
+    let gateHeld = false;
+    if (value === 'connected' && !this._sourceEverResponded) {
       next = 'disconnected';
+      gateHeld = true;
       if (!this._connectionStartGateLogged) {
         this._connectionStartGateLogged = true;
         this.log(
           "🚦 [CONNECTION_STATUS] startgrinden: 'connected' hålls tillbaka — ingen "
-          + 'accepterad AIS-position har passerat pipelinen sedan appstart',
+          + 'AIS-källa har svarat sedan appstart (ingen öppnad socket, inget '
+          + 'välformat AISHub-svar, ingen accepterad position)',
         );
       }
     }
     if (this._lastConnectionStatus === next) return false;
     this._lastConnectionStatus = next;
     this._updateDeviceCapability('connection_status', next);
-    this.log(`🌐 [CONNECTION_STATUS] ${next} — ${reason}`);
+    // F1: loggraden får ALDRIG bli självmotsägande. Anroparens `reason`
+    // beskriver sitt EGET beslut ("båda konfigurerade AIS-källor levererar
+    // igen"); skrevs ett annat värde än det begärda måste raden säga varför,
+    // annars läser nästa fältanalys "disconnected — …levererar igen".
+    const suffix = gateHeld
+      ? " — men startgrinden höll tillbaka 'connected' (ingen AIS-källa har svarat sedan appstart)"
+      : '';
+    this.log(`🌐 [CONNECTION_STATUS] ${next} — ${reason}${suffix}`);
+    return true;
+  }
+
+  /**
+   * F1 (2026-08-10): STARTGRINDENS KVITTO — en pipeline-matande källa har
+   * bevisligen SVARAT. Latchas en gång per process (grinden kan bara öppnas;
+   * "ser data NU" ägs av _isConnected och av tystnadsgrenarna, inte av den
+   * här flaggan).
+   * @returns {boolean} true om det här anropet öppnade grinden
+   * @private
+   */
+  _noteSourceResponded() {
+    if (this._sourceEverResponded) return false;
+    this._sourceEverResponded = true;
     return true;
   }
 
   /**
    * Det värde connection_status SKA ha just nu, med startgrinden pålagd.
    * Delas av _updateUI och enhetens paringsväg (drivers/bridge_status/device.js)
-   * så en enhet som paras under startblindheten inte visar "Uppkopplad".
+   * så en enhet som paras innan någon källa svarat inte visar "Uppkopplad".
    * @returns {'disconnected'|'connected'|'degraded'}
    */
   connectionStatusValue() {
     if (!this._isConnected) return 'disconnected';
     if (this._connectionFeedDegraded) return 'degraded';
-    return this._pipelineEverDelivered ? 'connected' : 'disconnected';
+    return this._sourceEverResponded ? 'connected' : 'disconnected';
   }
 
   /**
@@ -3427,14 +3475,12 @@ class AISBridgeApp extends Homey.App {
         return; // Ogiltigt meddelande, skippa processning
       }
 
-      // P3 (söndagsfältet 2026-08-09): STARTGRINDENS KVITTO. Här — och bara
-      // här — har en accepterad position bevisligen passerat pipelinen. Före
-      // detta ögonblick vet appen ingenting om trafikläget, och capabilityn får
-      // inte påstå 'connected' (fältet: 10 min 38 s "Uppkopplad" med noll
-      // meddelanden från någon källa). Sätts efter valideringen, så avvisade
-      // meddelanden inte öppnar grinden.
-      if (!this._pipelineEverDelivered) {
-        this._pipelineEverDelivered = true;
+      // P3 (söndagsfältet 2026-08-09): STARTGRINDENS ANDRA ÖPPNARE. En
+      // accepterad position bevisar källsvar lika starkt som handskakningen —
+      // och den här vägen är oberoende av muxens flank (replay/testriggar och
+      // en framtida källa utan 'connected'-event når hit ändå). Sätts efter
+      // valideringen, så avvisade meddelanden inte öppnar grinden.
+      if (this._noteSourceResponded()) {
         // FLANKEN MÅSTE SKRIVA SJÄLV: statusen får inte vänta på nästa
         // UI-cykel. En position för ett fartyg som aldrig blir en vessel (utom
         // bevakningsområdet) ger varken vessel-event eller watchdog-cykel
@@ -6110,11 +6156,16 @@ class AISBridgeApp extends Homey.App {
       // F5: don't fire notifications on stale/frozen vessel data. If we haven't
       // received an AIS message for this vessel in a long time, the feed may be
       // half-open (see F1) or the vessel is gone — a "boat near" notification
-      // would be false. Gate on AIS-RECEIPT time (vessel.timestamp/_lastSeen),
-      // NOT position-change time, so a legitimately waiting boat (still
-      // transmitting every ≤3 min) is never blocked. Vessels without a
-      // timestamp (e.g. some unit-test fixtures) are treated as fresh.
-      const lastAisMs = vessel.timestamp || vessel._lastSeen || 0;
+      // would be false. Gate on POSITIONSKLOCKAN (max(timestamp,
+      // lastPositionUpdate)); timestamp dominerar, så en legitimt väntande båt
+      // (sänder var ≤3:e min) blockeras aldrig av att positionen står stilla.
+      // Vessels without a timestamp (e.g. some unit-test fixtures) are treated
+      // as fresh.
+      // F4 (2026-08-10): `vessel._lastSeen` låg tidigare som ||-fallback här.
+      // Den är en LIVSLÄNGDSKLOCKA som BX-1:s livstecken stämplar utan
+      // position — källans cache ska inte kunna hålla en notisgrind öppen.
+      // (I praktiken var grenen död: timestamp sätts för varje sampel.)
+      const lastAisMs = this._lastConfirmedPositionMs(vessel);
       if (lastAisMs && (Date.now() - lastAisMs) > UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS) {
         this.debug(
           `🛡️ [FLOW_TRIGGER_STALE] ${vessel.mmsi}: skipping — last AIS `
@@ -6763,10 +6814,17 @@ class AISBridgeApp extends Homey.App {
     // (max-klockan). Den gamla kommentaren "timestamp uppdateras av namn-
     // meddelanden" är föråldrad: _onStaticName sätter numera bara vessel.name
     // — timestamp stämplas enbart i _createVesselObject (positionsmeddelanden).
+    // F4 (2026-08-10, adversariell granskning): grinden mäter POSITIONENS
+    // ålder och läser därför POSITIONSKLOCKAN. `vessel._lastSeen` låg tidigare
+    // med i max-uttrycket, men det fältet är en LIVSLÄNGDSKLOCKA som BX-1:s
+    // livstecken stämplar HELT UTAN position (källan rapporterar bara att
+    // fartyget fortfarande syns). En kajliggare vars sista riktiga fix var
+    // 28 min gammal kunde därmed se ut som 23 min och släppa igenom exakt den
+    // F63/CLABBYDOO-notis grinden infördes för att stoppa. Felet var bundet
+    // till SEEN_MAX_FIX_AGE_MS (365 s) men gränsen är rådatakalibrerad
+    // (25 min > 20-min-removal-timern) och ska inte glida.
     const EXIT_FALLBACK_MAX_POSITION_AGE_MS = 25 * 60 * 1000;
-    const lastAisMs = Math.max(
-      vessel.timestamp || 0, vessel.lastPositionUpdate || 0, vessel._lastSeen || 0,
-    );
+    const lastAisMs = this._lastConfirmedPositionMs(vessel);
     if (!lastAisMs || (Date.now() - lastAisMs) > EXIT_FALLBACK_MAX_POSITION_AGE_MS) {
       this.debug(
         `🛡️ [EXIT_TRIGGER_STALE] ${vessel.mmsi}: skipping exit fallback — last position `
@@ -6929,7 +6987,22 @@ class AISBridgeApp extends Homey.App {
     // 800 m kräver ≥5,2 kn). Exit-fallet ÄR detektionsögonblicket: vi fick
     // veta om den missade utfarten NU (removal). Positionens ålder vaktas
     // separat av F63-/RC3-gaterna ovan.
-    await this._triggerBoatNearFlowFallback(vessel, 'Kanalinfarten', { detectionTs: Date.now() });
+    // F6 (2026-08-10, adversariell granskning): EGEN källsträng. Exit-vägen
+    // är INTE en passage-failsafe — den avfyrar med båten fortfarande NORR
+    // om punkten (raden `vessel.lat < kanalinfarten.lat` ovan returnerar
+    // annars), Kanalinfarten bokförs aldrig i passedBridges/passedAt, och
+    // ingen position på södra sidan har någonsin observerats. Med den ärvda
+    // taggen 'passage-fallback' renderade P8:s textbyggare meningen
+    // "<namn> passerade Kanalinfarten under AIS-tystnad" — ett påstående om
+    // en passage appen aldrig sett, och för Olidebrons kajklass (~520 m norr
+    // om punkten, F5-B-kommentaren ovan) direkt osant. Taggen är INTERN
+    // (bara texten och loggarna skiljer sig); dedup-, ETA- och
+    // already_passed-semantiken är oförändrad via
+    // _isRetroactiveNotificationSource.
+    await this._triggerBoatNearFlowFallback(vessel, 'Kanalinfarten', {
+      detectionTs: Date.now(),
+      source: 'exit-fallback',
+    });
   }
 
   /**
@@ -7172,16 +7245,23 @@ class AISBridgeApp extends Homey.App {
     // tidsstorhet (försening mot ankrad korsningstid), inte av distans — och
     // den vägen är D4:s (Math.max(anchoredTs, detectionTs) neutraliserar i dag
     // FALLBACK_TIME_SINCE_PASSAGE_MAX_S), som är RÖD och ligger i fas D.
+    // F6 (2026-08-10): källan är 'passage-fallback' för alla anropare UTOM
+    // exit-vägen, som skickar 'exit-fallback' (se _triggerExitPointFallback).
+    // Default-värdet bevarar samtliga befintliga vägar byte-identiskt.
+    const notificationSource = options.source === 'exit-fallback' ? 'exit-fallback' : 'passage-fallback';
     this.log(
-      `⚠️ [FALLBACK_BOAT_NEAR] ${vessel.mmsi}: Passage of ${bridgeName} detected `
-      + `without prior proximity trigger (distance=${Math.round(distance)}m) — firing failsafe`,
+      notificationSource === 'exit-fallback'
+        ? `⚠️ [FALLBACK_BOAT_NEAR] ${vessel.mmsi}: Outbound vessel lost at ${bridgeName} `
+          + `(distance=${Math.round(distance)}m) — firing exit failsafe`
+        : `⚠️ [FALLBACK_BOAT_NEAR] ${vessel.mmsi}: Passage of ${bridgeName} detected `
+          + `without prior proximity trigger (distance=${Math.round(distance)}m) — firing failsafe`,
     );
 
     await this._triggerBoatNearFlowForBridge(vessel, {
       name: bridgeName,
       id: bridgeId,
       distance,
-      source: 'passage-fallback',
+      source: notificationSource,
     });
   }
 
@@ -7193,16 +7273,28 @@ class AISBridgeApp extends Homey.App {
    * huvudvägens persistent-dedup och ETA-nollningen). P8 lägger till en
    * fjärde konsument — notistexten — och två kopior som glider isär skulle
    * betyda att dedupen och texten klassar samma notis olika. Därför ETT
-   * ställe. Källorna är oförändrade: 'passage-fallback' (failsafe efter
-   * inferrerad passage) och 'just-passed' (bron båten korsade för < 15 s
-   * sedan, se PASSAGE_TRIGGER_GRACE_MS).
+   * ställe. Källorna: 'passage-fallback' (failsafe efter inferrerad passage),
+   * 'just-passed' (bron båten korsade för < 15 s sedan, se
+   * PASSAGE_TRIGGER_GRACE_MS) och — sedan F6 (2026-08-10) — 'exit-fallback'.
+   *
+   * VARFÖR 'exit-fallback' KLASSAS SOM RETROAKTIV. Notisen avfyras vid
+   * REMOVAL, dvs. tidigast ~20 min efter sista AIS-position, om en sydgående
+   * transitör i rörelse (rörelsebevis + sydgate) tystnade 400–800 m NORR om
+   * Kanalinfarten. Den är alltså per konstruktion ingen förvarning: ETA vore
+   * riktningslöst nonsens (E-F3/N9) och dedupen ska ha samma retroaktiva
+   * semantik som exit-vägens egna _persistentDedupCheck-anrop redan begär
+   * explicit (retroactiveSource: true). Tokenvärdena är därmed BYTE-
+   * IDENTISKA med före F6 — bara `message` (och loggtexten) skiljer sig, för
+   * själva PASSAGEN är obevisad och får inte påstås. Se
+   * _buildBoatNearMessage.
    *
    * @param {string} source - kandidatkällan
    * @returns {boolean} true om notisen avser en redan passerad bro
    * @private
    */
   _isRetroactiveNotificationSource(source) {
-    return source === 'passage-fallback' || source === 'just-passed';
+    return source === 'passage-fallback' || source === 'just-passed'
+      || source === 'exit-fallback';
   }
 
   /**
@@ -7248,8 +7340,9 @@ class AISBridgeApp extends Homey.App {
     const name = tokens.vessel_name;
     const bridge = tokens.bridge_name;
 
-    // PASSERAD-FORM. De två retroaktiva källorna delas MEDVETET i två
-    // meningar. Bara 'passage-fallback' är AIS-tystnadsklassen: passagen
+    // PASSERAD-FORM. De retroaktiva källorna delas MEDVETET i var sin
+    // mening (F6 2026-08-10: tre stycken, se exit-grenen nedan).
+    // Bara 'passage-fallback' är AIS-tystnadsklassen: passagen
     // inferreras i efterhand utan någon närhetsnotis före, och avståndet är
     // begränsat först av FALLBACK_HARD_MAX_DISTANCE (2 000 m).
     // 'just-passed' är en LIVE-passage — kandidaten läggs bara till inom
@@ -7261,6 +7354,23 @@ class AISBridgeApp extends Homey.App {
     }
     if (source === 'just-passed') {
       return `${name} har precis passerat ${bridge}`;
+    }
+    // F6 (2026-08-10, adversariell granskning): EXIT-FALLBACKEN HAR EGEN
+    // MENING. Den ärvde tidigare 'passage-fallback' och påstod därmed
+    // "passerade Kanalinfarten under AIS-tystnad" om en båt vars passage
+    // aldrig observerats: exit-notisen avfyras med sista kända position
+    // NORR om punkten (gaten `vessel.lat < kanalinfarten.lat` returnerar
+    // annars), och Kanalinfarten bokförs aldrig i passedBridges/passedAt.
+    // Skillnaden mot passage-fallbacken är just bevisläget — där finns en
+    // observerad position på ANDRA sidan bron, här finns ingen alls.
+    //
+    // Meningen påstår därför bara det gaterna faktiskt belägger: båten var
+    // i rörelse (rörelsebevis + _moored=false), sydgående (låst sydriktning
+    // eller cog 135–225° i F5-B-bandet) inom 400–800 m norr om utfarten,
+    // och AIS-kontakten bröts (notisen avfyras vid removal). Om hon HANN ut
+    // vet appen inte — och skriver det inte.
+    if (source === 'exit-fallback') {
+      return `${name} var på väg ut ur kanalen vid ${bridge} när AIS-kontakten bröts`;
     }
 
     // FÖRVARNINGSFORM — samma innebörd som de fem gamla tokens redan bar,
@@ -7551,6 +7661,13 @@ class AISBridgeApp extends Homey.App {
     // direction; se runAllCorpora.js). Antalet notiser och deras dedup-
     // nycklar är per konstruktion orörda: raderna nedan sitter EFTER samtliga
     // dedup-/grindbeslut och kan bara lägga till fält på payloaden.
+    // F6 (2026-08-10): 'exit-fallback' bär already_passed=true som de andra
+    // retroaktiva källorna. Tokenens funktion är "detta är INGEN förvarning"
+    // (ETA:n är -1 av samma skäl) — och exit-notisen går ut tidigast ~20 min
+    // efter sista positionen, om en båt som bevisligen var på väg ut. Att
+    // hon HANN ut är sannolikt men obevisat, och den nyansen bärs av
+    // `message`, inte av booleanen (som annars hade bytt betydelse för
+    // befintliga flows).
     safeTokens.already_passed = passedBridgeSource;
     safeTokens.message = this._buildBoatNearMessage(safeTokens, source);
 
@@ -7607,9 +7724,14 @@ class AISBridgeApp extends Homey.App {
       // hennes AKTUELLA målbro — för en failsafe-notis om en annan/passerad
       // bro blev loggen missvisande ("under-bridge" @854 m). Märk fallback-
       // notiser som passage-inferred i stället.
-      const logStatus = source === 'passage-fallback' && distance > 300
-        ? 'passage-inferred'
-        : vessel.status;
+      // F6 (2026-08-10): exit-fallbacken har samma problem som B8 beskriver
+      // (status mot MÅLBRON är missvisande i en failsafe-logg) men är ingen
+      // inferrerad passage — den får därför sin egen etikett.
+      let logStatus = vessel.status;
+      if (distance > 300) {
+        if (source === 'passage-fallback') logStatus = 'passage-inferred';
+        else if (source === 'exit-fallback') logStatus = 'exit-inferred';
+      }
       this.log(
         `✅ [FLOW_TRIGGER_SUCCESS] ${mmsiLabel}: boat_near fired for ${bridgeName} `
         + `(ID=${bridgeId}, distance=${Math.round(distance)}m, status=${logStatus})`,
@@ -8146,8 +8268,13 @@ class AISBridgeApp extends Homey.App {
         eta_minutes: 5,
         eta_available: true,
         already_passed: false,
-        message: 'TEST_VESSEL närmar sig Klaffbron, beräknad ankomst om 5 minuter',
       };
+      // F1 (2026-08-10): message BYGGS av produktionens egen byggare i stället
+      // för att hårdkodas. En literal här gjorde självtestet grönt mot en
+      // mening produktionen inte längre producerar om _buildBoatNearMessage
+      // ändras — självtestets hela syfte är att pröva den riktiga vägen.
+      // Byte-identisk med den tidigare literalen för dessa tokens.
+      testTokens.message = this._buildBoatNearMessage(testTokens, 'target');
 
       const testState = { bridge: 'klaffbron' };
 
@@ -8212,7 +8339,18 @@ class AISBridgeApp extends Homey.App {
 
         // B3-fix (2026-06-09): synliggör för användaren att appen inte tar
         // emot data — tidigare loggades detta bara och appen såg "frisk" ut.
-        this._updateDeviceCapability('connection_status', 'disconnected');
+        // F1 (2026-08-10): via den ENDA ÄGAREN. Den råa capability-skrivningen
+        // rörde inte flankcachen; i dag är raden bara nåbar vid boot (cachen
+        // står redan på 'disconnected'), men invarianten var inte
+        // konstruktionsmässigt garanterad — ett andra anrop av _startConnection
+        // (omkonfiguration/self-heal) medan cachen stod på 'connected' hade
+        // gett enheten 'disconnected' med cachen kvar på 'connected', och
+        // nästa _writeConnectionStatus('connected') hade dedupats bort ⇒
+        // permanent "Frånkopplad" med allt friskt. Det är exakt KX-10.
+        this._writeConnectionStatus(
+          'disconnected',
+          'ingen API-nyckel och ingen AISHub-källa konfigurerad',
+        );
         if (process.env.NODE_ENV !== 'development') {
           this._notifyConnectionIssue(
             'AIS Tracker: ingen API-nyckel är konfigurerad — appen tar inte emot '
@@ -8898,9 +9036,34 @@ class AISBridgeApp extends Homey.App {
     const hubPollAgeMs = Number.isFinite(h && h.lastOkResponseAt)
       ? Math.max(0, now - h.lastOkResponseAt)
       : null;
-    const hFresh = hubPollClock
+    // "SVARAR" — pollklockan är färsk (kontakt bevisad, dedup irrelevant).
+    const hubResponding = hubPollClock
       ? (hubPollAgeMs !== null && hubPollAgeMs < FRESH_POLL_MS)
       : (hObs.sinceMessageMs !== null && hObs.sinceMessageMs < FRESH_MS);
+    // "LEVERERAR" (F1/KX-1, adversariell granskning 2026-08-10): P3 gjorde
+    // hFresh till ENBART "svarar", och då blev en TOM NATT (noll fartyg i
+    // bboxen, hubben svarar ERROR:false/0 poster var 65:e s) oskiljbar från
+    // halverad redundans: degradeNow=true, capabilityn 'degraded' ("halverad
+    // redundans") och pushnotisen "medan AISHub flödar" — samtidigt som
+    // totalgrenen ovan korrekt skrev "appen är blind". Dessutom brändes alla
+    // tre 24h-nycklarna (aisstream:silent + :1h + :4h) varje lugn natt, så en
+    // ÄKTA halvdöd socket nästa förmiddag hade gett noll signal (F-9-klassen).
+    //
+    // KRAVET ÄR DÄRFÖR BEVISAD ASYMMETRI: den "friska" grannen måste själv ha
+    // LEVERERAT ett meddelande, inte bara svarat.
+    // HÄRLEDNING AV TRÖSKELN: grannen räknas som levererande exakt när den
+    // INTE själv skulle dömas tyst av grenarna nedan (> SILENT_MS, 15 min) —
+    // samma konstant på båda sidor, alltså inget glapp där en källa vore både
+    // "tyst" och "frisk granne". FRESH_POLL_MS (210 s) duger INTE som
+    // leveransmått: en förtöjd Class A/B-sändare rapporterar var 3:e min och
+    // pollkvantiseringen (65 s) lägger till upp till en cykel, så normaldrift
+    // hade flaggats som leveransstopp. sinceMessageMs !== null krävs för att
+    // ett UNGT observationsfönster (källa nyss konfigurerad, aldrig levererat)
+    // inte ska räknas som frisk granne — samma regel som sFresh redan har.
+    // Notera att villkoret är STRIKT STARKARE än hSilence <= SILENT_MS
+    // (observedMs ≤ sinceMessageMs per konstruktion i _observedFeedSilence).
+    const hubDelivering = hObs.sinceMessageMs !== null && hObs.sinceMessageMs <= SILENT_MS;
+    const hFresh = hubResponding && hubDelivering;
 
     if (!this._feedSilentLogTimes) this._feedSilentLogTimes = new Map();
     const logLimited = (feed, message) => {
@@ -8946,6 +9109,12 @@ class AISBridgeApp extends Homey.App {
     }
 
     const bothConfigured = !!(s && h && s.configured && h.configured);
+    // F1: TVÅ nivåer på aisstream-grenen. Den svagare (hubben SVARAR) bär bara
+    // LOGGRADEN — den är fältdiagnostik och skiljer "hubben är borta" från
+    // "hubben svarar men kanalen är tom". Den starkare (hubben LEVERERAR)
+    // bär allt som påstår halverad redundans: degraderingen, notisen och
+    // eskaleringstrappan.
+    const streamSilentHubResponding = bothConfigured && sSilence > SILENT_MS && hubResponding;
     const streamSilentHubFresh = bothConfigured && sSilence > SILENT_MS && hFresh;
     const hubSilentStreamFresh = bothConfigured && hSilence > SILENT_MS && sFresh;
 
@@ -8971,6 +9140,17 @@ class AISBridgeApp extends Homey.App {
     // Följden: en dipp i grannens färskhet kan aldrig påstå återhämtning, och
     // texten "båda konfigurerade AIS-källor levererar igen" blir sann per
     // konstruktion (den tysta källan MÅSTE ha levererat inom 15 min).
+    //
+    // F1 (2026-08-10): SÄTTNINGEN kräver numera BEVISAD ASYMMETRI — grannen
+    // måste ha levererat (hubDelivering/sFresh), inte bara svarat. En tom natt
+    // (båda tysta, hubben svarar) sätter alltså aldrig degraderat läge.
+    // KVARSTÅENDE MEDVETET VAL: en degradering som SATTES medan grannen
+    // levererade hålls kvar även om grannen sedan också tystnar (båda tysta).
+    // Att släppa den där hade skrivit 'connected' — appens mest lugnande värde
+    // — i exakt det ögonblick den är blind (P3:s ursprungliga fältfel). Med
+    // enumet {disconnected, connected, degraded} är 'degraded' det minst
+    // felaktiga värdet i det läget; SANNINGEN om blindheten ägs av
+    // totalgrenen ovan (loggrad + 'feeds:silent'-notis med eskalering).
     const degradeNow = hubFeedsPipeline && (streamSilentHubFresh || hubSilentStreamFresh);
     let degraded = degradeNow;
     if (degradeNow) {
@@ -8989,30 +9169,37 @@ class AISBridgeApp extends Homey.App {
 
     if (!bothConfigured) return;
 
-    if (streamSilentHubFresh) {
+    if (streamSilentHubResponding) {
       // P3 (2026-08-09): hFresh betyder numera "hubben SVARAR välformat". Vid
       // tom kanal (nattetid) kan den svara i timmar utan att leverera en enda
       // position — och då är "flödar" ett falskt påstående i en loggrad som
       // nästa fältanalys läser (BT-12-principen: texten får inte påstå mer än
       // mätningen bär). Totalgrenen ovan äger det scenariot och har redan
       // skrivit "appen är blind".
-      const hubPhrase = hSilence > SILENT_MS
-        ? 'medan AISHub svarar men inte levererar något'
-        : 'medan AISHub flödar';
+      const hubPhrase = hubDelivering
+        ? 'medan AISHub flödar'
+        : 'medan AISHub svarar men inte levererar något';
       logLimited('aisstream', `aisstream har inte levererat på ${Math.round(sSilence / 60000)} min ${hubPhrase}`);
-      this._notifyConnectionIssue(
-        'AIS Tracker: AISstream har inte levererat några positioner på 15 min '
-        + 'medan AISHub flödar — anslutningen kan vara halvdöd. Appens vakter '
-        + 'försöker återansluta automatiskt.',
-        'aisstream:silent',
-      );
-      // B2: eskalering — both-dygn 1:s 4,5 h-avbrott gav EN blink-bränd notis
-      // och sedan tystnad; nu bryter 1h- och 4h-nivåerna igenom per dygn.
-      this._escalateSilenceNotices('aisstream:silent', sSilence, (label) => (
-        `AIS Tracker: AISstream har varit tyst i över ${label} medan AISHub `
-        + 'flödar — appen kör på halverad redundans. Vakterna fortsätter '
-        + 'återansluta; kontrollera din AISstream-nyckel om det består.'
-      ));
+      // F1: NOTISERNA är gatade på leveransbeviset — och deras text HÄRLEDS ur
+      // samma mätning som loggraden i stället för att hårdkoda "flödar". Båda
+      // delarna behövs: grinden hindrar att en tom natt bränner 24h-nycklarna,
+      // och den härledda frasen gör att en framtida uppluckring av grinden inte
+      // kan återinföra ett falskt påstående i en användarsynlig text (BT-12).
+      if (streamSilentHubFresh) {
+        this._notifyConnectionIssue(
+          'AIS Tracker: AISstream har inte levererat några positioner på 15 min '
+          + `${hubPhrase} — anslutningen kan vara halvdöd. Appens vakter `
+          + 'försöker återansluta automatiskt.',
+          'aisstream:silent',
+        );
+        // B2: eskalering — both-dygn 1:s 4,5 h-avbrott gav EN blink-bränd notis
+        // och sedan tystnad; nu bryter 1h- och 4h-nivåerna igenom per dygn.
+        this._escalateSilenceNotices('aisstream:silent', sSilence, (label) => (
+          `AIS Tracker: AISstream har varit tyst i över ${label} `
+          + `${hubPhrase} — appen kör på halverad redundans. Vakterna fortsätter `
+          + 'återansluta; kontrollera din AISstream-nyckel om det består.'
+        ));
+      }
     }
     if (hubSilentStreamFresh) {
       // FYND 17 (A/B-natten 2026-08-03): NOTISEN gatas på att hubben faktiskt

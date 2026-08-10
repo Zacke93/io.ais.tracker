@@ -779,6 +779,41 @@ describe('Etapp 2: applySourceConfig — idempotens, fallback och barnhantering'
     expect(mux._hubClient).toBeNull();
   });
 
+  test('F2-4: ändrad källkonfiguration (användarhandling) upphäver stream-barnets rate-limit-paus', () => {
+    // Fyndet: en 429 är IP-/kvotbunden, men användaren ser bara att appen står
+    // still. Byter hen nyckel/källa i inställningarna får ingreppet inte mötas
+    // av upp till 20 minuters tyst cooldown — då drar hen slutsatsen att även
+    // den nya konfigurationen är trasig. Automatvägarna (watchdog) rör aldrig
+    // applySourceConfig och behåller pausen.
+    const logger = makeLogger();
+    mux = new AISSourceMultiplexer(logger, makeStore());
+    jest.spyOn(mux._streamClient, 'connect').mockResolvedValue(undefined);
+    mux._streamClient._rateLimitedUntil = Date.now() + 15 * 60 * 1000;
+
+    mux.applySourceConfig({ source: 'both', apiKey: 'NYCKEL', aishubUsername: 'testuser' });
+
+    expect(mux._streamClient._rateLimitedUntil).toBe(0);
+    const rows = logger.log.mock.calls
+      .map((c) => c.map(String).join(' '))
+      .filter((l) => l.includes('upphävd av användaringrepp'));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toContain('source-config');
+  });
+
+  test('F2-4: oförändrad konfiguration (no-op-grinden) rör INTE pausen', () => {
+    // Idempotensgrinden är själva skyddet: en upprepad settings-write eller
+    // en periodisk omapplicering får aldrig fungera som cooldown-kringgång.
+    mux = new AISSourceMultiplexer(makeLogger(), makeStore());
+    jest.spyOn(mux._streamClient, 'connect').mockResolvedValue(undefined);
+    mux.applySourceConfig({ source: 'shadow', apiKey: null, aishubUsername: 'testuser' });
+    const until = Date.now() + 15 * 60 * 1000;
+    mux._streamClient._rateLimitedUntil = until;
+
+    mux.applySourceConfig({ source: 'shadow', apiKey: null, aishubUsername: 'testuser' });
+
+    expect(mux._streamClient._rateLimitedUntil).toBe(until);
+  });
+
   test('kickAishub når hub-barnets forceReschedule', () => {
     mux = new AISSourceMultiplexer(makeLogger(), makeStore());
     mux.applySourceConfig({ source: 'shadow', apiKey: null, aishubUsername: 'testuser' });

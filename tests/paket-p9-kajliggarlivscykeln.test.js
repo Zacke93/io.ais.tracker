@@ -19,6 +19,13 @@
  *      trots att ⚓ [MOORED] loggades 6 ms före ⏱️ [PROXIMITY_TIMEOUT]).
  *  (c) GRAVVÅRDEN   — beteendeackumulatorerna överlever en kortvarig
  *      felaktig radering, så 2h-backstoppen blir NÅBAR igen (BX-2).
+ *
+ * F3 (adversariella eftergranskningen 2026-08-10) skärpte (c) på fyra punkter,
+ * alla prövade nedan: graven bär BEVIS men inte SLUTSATSEN `_moored` (som
+ * härleds om på återfödelsens första sampel), den ges bara åt kadensglappets
+ * felraderingar (inte åt STALE_AIS-tystnad), den konsumeras först efter
+ * positionskontrollen, och den bär den fartgivarlösa klassens stillhetsankare
+ * så sog=null-båtar kan både klassas om OCH släppas på sitt första sampel.
  */
 
 const AISHubClient = require('../lib/connection/AISHubClient');
@@ -180,7 +187,12 @@ describe('P9(a): dedupad post med FÄRSK fix är ett livstecken', () => {
     expect(flags.indexOf(false)).toBeGreaterThan(flags.lastIndexOf(true));
   });
 
-  test('framtida skräpklocka räknas INTE som livstecken (absolutbeloppet)', async () => {
+  // F4 (2026-08-10): villkoret är inte längre ett absolutbelopp utan ensidigt
+  // bakåt med ett klockskevstak framåt (SEEN_MAX_FUTURE_SKEW_MS = 120 s).
+  // Fallet nedan (+30 min) faller på taket precis som det föll på
+  // absolutbeloppet — se tests/paket-f4-livstecknets-konsumenter.test.js för
+  // gränsfallen mellan de två villkoren.
+  test('framtida skräpklocka räknas INTE som livstecken (framtidstaket)', async () => {
     const client1 = new AISHubClient(makeLogger(), makeStore());
     client = client1;
     // Två poster med samma mmsi i SAMMA svep: den andra har äldre fixTs och
@@ -571,19 +583,20 @@ describe('P9(c): gravvården — beteendebevis över en kortvarig radering', () 
     return stationarySince;
   }
 
-  test('KÄRNAN: återfödelse PÅ PLATS ärver stillhetsklockan och förtöjningen', () => {
+  test('KÄRNAN: återfödelse PÅ PLATS ärver stillhetsklockan (klassningen härleds om)', () => {
     const mmsi = '265573130';
     const stationarySince = seedAndRemove(mmsi);
     expect(svc.vessels.has(mmsi)).toBe(false);
     expect(svc._vesselGraves.has(mmsi)).toBe(true);
 
     jest.advanceTimersByTime(3 * 60 * 1000); // återföds 3 min senare
+    // NAVSTAT 5 följer med varje AISHub-svep för en kajliggare (se quayRecord
+    // överst i filen) — det är den ordinarie vägen tillbaka till ⚓ [MOORED].
     const reborn = svc._createVesselObject(mmsi, {
-      lat: POS.lat + 0.0002, lon: POS.lon, sog: 0, cog: 0,
+      lat: POS.lat + 0.0002, lon: POS.lon, sog: 0, cog: 0, navStatus: 5,
     }, undefined);
 
     expect(reborn._stationarySince).toBe(stationarySince);
-    expect(reborn._moored).toBe(true);
     expect(reborn._hasMovementProof).toBe(true);
     expect(reborn._hasCorroboratedMovement).toBe(true);
     expect(reborn._firstSeenLat).toBe(58.2600);
@@ -591,6 +604,32 @@ describe('P9(c): gravvården — beteendebevis över en kortvarig radering', () 
     expect(reborn._trackingEpisodeStartTs).toBe(stationarySince);
     // Graven konsumeras — en grav får inte överleva sin egen båt.
     expect(svc._vesselGraves.has(mmsi)).toBe(false);
+
+    // F3: KLASSNINGEN ärvs INTE rakt av. Innan det nya samplet är bedömt är
+    // fartyget oklassat — annars kunde en båt som lagt ut bära _moored=true
+    // (och därmed vara utestängd från målbro/notiser/bridge_text) genom hela
+    // sitt första sampel.
+    expect(reborn._moored).toBe(false);
+    // …men den ordinarie vägen härleder om den på SAMMA tick ur den ärvda
+    // klockan (updateVessel anropar _updateMooringEvidence direkt efter
+    // _createVesselObject).
+    svc._updateMooringEvidence(reborn, 0);
+    expect(reborn._moored).toBe(true);
+    expect(reborn._stationarySince).toBe(stationarySince); // klockan orörd
+  });
+
+  test('F3 EN TICK: klassningen är tillbaka innan något annat lager hinner läsa den', () => {
+    // Hårda kravet formulerat som appen faktiskt kör den: hela vägen genom
+    // updateVessel (inte _createVesselObject isolerat). Efter ETT meddelande
+    // ska en stillaliggare vara klassad igen.
+    const mmsi = '265573130';
+    seedAndRemove(mmsi);
+    jest.advanceTimersByTime(3 * 60 * 1000);
+    const v = svc.updateVessel(mmsi, {
+      lat: POS.lat, lon: POS.lon, sog: 0, cog: 0, navStatus: 5,
+    });
+    expect(v._moored).toBe(true);
+    expect(svc.vessels.get(mmsi)._moored).toBe(true);
   });
 
   test('2h-BACKSTOPPEN ÄR NÅBAR IGEN (BX-2:s kärnpåstående)', () => {
@@ -672,8 +711,13 @@ describe('P9(c): gravvården — beteendebevis över en kortvarig radering', () 
     const grave = svc._vesselGraves.get(mmsi);
     expect(Object.keys(grave.fields).sort()).toEqual([
       '_firstSeenLat', '_firstSeenLon', '_hasCorroboratedMovement', '_hasMovementProof',
-      '_moored', '_stationarySince', '_trackingEpisodeStartTs',
+      '_mooredReleasePending', '_nullSogStillAnchorLat', '_nullSogStillAnchorLon',
+      '_nullSogStillAnchorT', '_stationarySince', '_trackingEpisodeStartTs',
     ]);
+    // F3-KONTRAKTET: graven bär BEVIS, inte SLUTSATSER. _moored är en slutsats
+    // av bevisen och ska härledas om — den får inte ens finnas i nyttolasten
+    // (ett fält i graven är förr eller senare ett fält som skrivs).
+    expect('_moored' in grave.fields).toBe(false);
     // FP9-läxan: passedBridges DELAS by reference. Graven får därför inte
     // hålla någon referens alls till fartygets arrayer/objekt.
     for (const v of Object.values(grave.fields)) {
@@ -713,14 +757,18 @@ describe('P9(c): gravvården — beteendebevis över en kortvarig radering', () 
 
   test('FÄLTLIST-FÄLLAN: de ärvda fälten överlever nästa _createVesselObject', () => {
     const mmsi = '265573130';
-    const stationarySince = seedAndRemove(mmsi);
+    const stationarySince = seedAndRemove(mmsi, { _mooredReleasePending: 1 });
     jest.advanceTimersByTime(60 * 1000);
     const reborn = svc._createVesselObject(mmsi, {
-      lat: POS.lat, lon: POS.lon, sog: 0, cog: 0,
+      lat: POS.lat, lon: POS.lon, sog: 0, cog: 0, navStatus: 5,
     }, undefined);
+    expect(reborn._mooredReleasePending).toBe(1); // släpp-hysteresen ärvd (F3)
+    // Den omhärledda klassningen ska bära vidare precis som den ärvda gjorde.
+    svc._updateMooringEvidence(reborn, 0);
+    expect(reborn._moored).toBe(true);
     // Nästa ordinarie sampel (med oldVessel) får inte tappa arvet.
     const next = svc._createVesselObject(mmsi, {
-      lat: POS.lat, lon: POS.lon, sog: 0, cog: 0,
+      lat: POS.lat, lon: POS.lon, sog: 0, cog: 0, navStatus: 5,
     }, reborn);
     expect(next._stationarySince).toBe(stationarySince);
     expect(next._moored).toBe(true);
@@ -731,17 +779,294 @@ describe('P9(c): gravvården — beteendebevis över en kortvarig radering', () 
     expect(next._trackingEpisodeStartTs).toBe(stationarySince);
   });
 
-  test('ÄKTA AVGÅNG släpper förtöjningen trots arv (rörelsebevis vinner)', () => {
+  test('ÄKTA AVGÅNG: rörelsen vinner över BÅDE arv och navstatus 5', () => {
     const mmsi = '265573130';
     seedAndRemove(mmsi);
     jest.advanceTimersByTime(60 * 1000);
+    // navStatus 5 ligger kvar i sändarens meddelande (kaptenen glömmer byta) —
+    // hade stillheten bestått vore det klassningsgrund. Nu gör den inte det.
     const reborn = svc._createVesselObject(mmsi, {
-      lat: POS.lat, lon: POS.lon, sog: 3.5, cog: 20,
+      lat: POS.lat, lon: POS.lon, sog: 3.5, cog: 20, navStatus: 5,
     }, undefined);
-    expect(reborn._moored).toBe(true); // ärvt
-    svc._updateMooringEvidence(reborn, 3.5); // men samplet visar fart
+    expect(reborn._moored).toBe(false); // F3: inget arv av klassningen
+    svc._updateMooringEvidence(reborn, 3.5); // samplet visar fart
     expect(reborn._stationarySince).toBeNull();
     expect(reborn._moored).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // F3 (eftergranskningen 2026-08-10): gravgate, konsumtionsordning,
+  // bevisriktning och den FARTGIVARLÖSA klassen (sog=null)
+  // -------------------------------------------------------------------------
+
+  test('F3 GRAVGATE: STALE_AIS-radering (30 min äkta tystnad) gravläggs INTE', () => {
+    const mmsi = '265573130';
+    const silent = 31 * 60 * 1000; // förbi STALE_AIS_TIMEOUT_MS (30 min)
+    svc.vessels.set(mmsi, {
+      mmsi,
+      lat: POS.lat,
+      lon: POS.lon,
+      sog: 0,
+      status: 'en-route',
+      timestamp: Date.now() - silent,
+      lastPositionUpdate: Date.now() - silent,
+      _stationarySince: Date.now() - 90 * 60 * 1000,
+      _moored: true,
+    });
+    svc.removeVessel(mmsi, 'timeout');
+    expect(svc._vesselGraves.has(mmsi)).toBe(false);
+    // Loggen ska visa VARFÖR (tystnadsklassen), inte bara att graven saknas.
+    expect(logger.log.mock.calls.map((c) => String(c[0])).some((l) => l.includes('[STALE_AIS]')))
+      .toBe(true);
+
+    // …och en återfödelse bygger därmed från noll: klockan får inte räkna en
+    // period appen aldrig observerade.
+    jest.advanceTimersByTime(60 * 1000);
+    const reborn = svc._createVesselObject(mmsi, {
+      lat: POS.lat, lon: POS.lon, sog: 0, cog: 0, navStatus: 5,
+    }, undefined);
+    expect(reborn._stationarySince).toBeNull();
+    svc._updateMooringEvidence(reborn, 0);
+    // Navstatuslagret kräver stillhetsKLOCKA — första samplet startar den bara.
+    expect(reborn._stationarySince).toBe(Date.now());
+  });
+
+  test('F3 GRAVGATE: 120 s-kadensglappet (färsk AIS) gravläggs som förut', () => {
+    const mmsi = '265573130';
+    svc.vessels.set(mmsi, {
+      mmsi,
+      lat: POS.lat,
+      lon: POS.lon,
+      sog: 0,
+      status: 'en-route',
+      // Klass B-kadensen: senaste meddelandet är 2,5 min gammalt — långt inom
+      // STALE_AIS-gränsen, exakt den felradering graven finns för.
+      timestamp: Date.now() - 150 * 1000,
+      lastPositionUpdate: Date.now() - 150 * 1000,
+      _stationarySince: Date.now() - 90 * 60 * 1000,
+    });
+    svc.removeVessel(mmsi, 'timeout');
+    expect(svc._vesselGraves.has(mmsi)).toBe(true);
+  });
+
+  test('F3 KONSUMTIONSORDNING: ogiltig position bränner inte graven', () => {
+    const mmsi = '265573130';
+    const stationarySince = seedAndRemove(mmsi);
+    expect(svc._vesselGraves.has(mmsi)).toBe(true);
+
+    // Ett skräpanrop (position utanför jordens giltiga intervall ⇒ lat/lon
+    // nollas av valideringen i _createVesselObject).
+    const junk = svc._createVesselObject(mmsi, {
+      lat: 999, lon: 999, sog: 0, cog: 0,
+    }, undefined);
+    expect(junk._stationarySince).toBeNull(); // inget ärvdes
+    expect(svc._vesselGraves.has(mmsi)).toBe(true); // …men beviset finns kvar
+
+    // Nästa, korrekta sampel får sitt arv.
+    const reborn = svc._createVesselObject(mmsi, {
+      lat: POS.lat, lon: POS.lon, sog: 0, cog: 0, navStatus: 5,
+    }, undefined);
+    expect(reborn._stationarySince).toBe(stationarySince);
+    expect(svc._vesselGraves.has(mmsi)).toBe(false); // NU konsumeras den
+  });
+
+  test('F3 KONSUMTIONSORDNING: för långt bort konsumerar graven (båten LEVDE)', () => {
+    const mmsi = '265573130';
+    seedAndRemove(mmsi);
+    jest.advanceTimersByTime(60 * 1000);
+    svc._createVesselObject(mmsi, {
+      lat: POS.lat + 500 / 111320, lon: POS.lon, sog: 5, cog: 20,
+    }, undefined);
+    expect(svc._vesselGraves.has(mmsi)).toBe(false);
+  });
+
+  test('F3 BEVISRIKTNING: graven kan bara ADDERA rörelsebevis, aldrig sänka', () => {
+    const mmsi = '265573130';
+    seedAndRemove(mmsi, { _hasMovementProof: false, _hasCorroboratedMovement: false });
+    jest.advanceTimersByTime(60 * 1000);
+    const vessel = { mmsi, lat: POS.lat, lon: POS.lon };
+    // Simulera en anropsväg som redan hunnit bevisa rörelse (app-lagrets
+    // REBORN_MOVEMENT_PROOF sätter exakt de här flaggorna).
+    vessel._hasMovementProof = true;
+    vessel._hasCorroboratedMovement = true;
+    svc._applyGraveInheritance(mmsi, vessel);
+    expect(vessel._hasMovementProof).toBe(true);
+    expect(vessel._hasCorroboratedMovement).toBe(true);
+  });
+
+  test('F3 EPISODANKARET: _firstSeen* + _trackingEpisodeStartTs skrivs bara ihop', () => {
+    const mmsi = '265573130';
+    seedAndRemove(mmsi, { _trackingEpisodeStartTs: null });
+    jest.advanceTimersByTime(60 * 1000);
+    const reborn = svc._createVesselObject(mmsi, {
+      lat: POS.lat, lon: POS.lon, sog: 0, cog: 0,
+    }, undefined);
+    // Halvt ankare (position ur graven, tid ur återfödelsen) vore en tredje,
+    // påhittad episod — N7-kajvakten och INFERRED_PASSAGE_SKIP läser dem ihop.
+    expect(reborn._firstSeenLat).toBeCloseTo(POS.lat, 6);
+    expect(reborn._firstSeenLon).toBeCloseTo(POS.lon, 6);
+    expect(reborn._trackingEpisodeStartTs).toBe(Date.now());
+  });
+});
+
+// ===========================================================================
+// (c) F3: DEN FARTGIVARLÖSA KLASSEN (sog=null) ÖVER EN GRAV
+// ===========================================================================
+describe('P9(c)/F3: fartgivarlös kajliggare (sog=null) återföds', () => {
+  let svc;
+  let logger;
+  const POS = { lat: 58.26622, lon: 12.26541 }; // ELFKUNGENs position
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-08-09T09:33:41.000Z'));
+    logger = makeLogger();
+    svc = new VesselDataService(logger, new BridgeRegistry(), new SystemCoordinator(logger));
+    svc.app = { gpsJumpGateService: null, passageLatchService: null, routeOrderValidator: null };
+    svc.vesselLifecycleManager.shouldEliminateVessel = () => false;
+  });
+
+  afterEach(() => {
+    svc.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  /**
+   * Fartgivarlös kajliggare: ALLA prover sog=null (76 % av fartygen i
+   * fältproven saknar fartgivare). Stillheten är positionshärledd — ankaret
+   * plus jitterradien, se _updateMooringEvidence V2-1.
+   */
+  function seedNullSogAndRemove(mmsi, overrides = {}) {
+    const anchorT = Date.now() - 50 * 60 * 1000;
+    svc.vessels.set(mmsi, {
+      mmsi,
+      lat: POS.lat,
+      lon: POS.lon,
+      sog: null,
+      cog: null,
+      navStatus: 5,
+      status: 'en-route',
+      timestamp: Date.now(),
+      lastPositionUpdate: Date.now(),
+      _stationarySince: anchorT,
+      _nullSogStillAnchor: { lat: POS.lat, lon: POS.lon, t: anchorT },
+      _moored: true,
+      _firstSeenLat: POS.lat,
+      _firstSeenLon: POS.lon,
+      _trackingEpisodeStartTs: anchorT,
+      ...overrides,
+    });
+    svc.removeVessel(mmsi, 'timeout');
+    return anchorT;
+  }
+
+  test('ANKARET ärvs som skalärer och sätts ihop igen (inga delade referenser)', () => {
+    const mmsi = '265573130';
+    const anchorT = seedNullSogAndRemove(mmsi);
+    const grave = svc._vesselGraves.get(mmsi);
+    expect(grave.fields._nullSogStillAnchorLat).toBeCloseTo(POS.lat, 6);
+    expect(grave.fields._nullSogStillAnchorT).toBe(anchorT);
+    for (const v of Object.values(grave.fields)) {
+      expect(typeof v === 'object' && v !== null).toBe(false); // FP9-läxan
+    }
+
+    jest.advanceTimersByTime(4 * 60 * 1000);
+    const reborn = svc._createVesselObject(mmsi, {
+      lat: POS.lat, lon: POS.lon, sog: null, cog: null, navStatus: 5,
+    }, undefined);
+    expect(reborn._nullSogStillAnchor).toEqual({ lat: POS.lat, lon: POS.lon, t: anchorT });
+    // Fältlist-fällan: ankaret måste överleva nästa objektombyggnad också.
+    const next = svc._createVesselObject(mmsi, {
+      lat: POS.lat, lon: POS.lon, sog: null, cog: null, navStatus: 5,
+    }, reborn);
+    expect(next._nullSogStillAnchor).toEqual({ lat: POS.lat, lon: POS.lon, t: anchorT });
+  });
+
+  test('KÄRNAN (sog=null): klassningen är tillbaka på FÖRSTA samplet', () => {
+    const mmsi = '265573130';
+    const anchorT = seedNullSogAndRemove(mmsi);
+    jest.advanceTimersByTime(4 * 60 * 1000);
+    const reborn = svc._createVesselObject(mmsi, {
+      lat: POS.lat + 0.00005, lon: POS.lon, sog: null, cog: null, navStatus: 5,
+    }, undefined); // ~6 m GPS-jitter: väl inom NULL_SOG_STILL_RADIUS_M
+    expect(reborn._moored).toBe(false); // ingen ärvd klassning
+    // Före F3 tog det här samplet `if (!anchor)`-grenen och RETURNERADE utan
+    // klassning — med ärvt ankare prövas jitterradien direkt.
+    svc._updateMooringEvidence(reborn, null);
+    expect(reborn._stationarySince).toBe(anchorT); // klockan orörd
+    expect(reborn._moored).toBe(true);
+  });
+
+  test('SLÄPPBAR: verklig avgång (>50 m) släpper på samma första sampel', () => {
+    const mmsi = '265573130';
+    seedNullSogAndRemove(mmsi);
+    jest.advanceTimersByTime(4 * 60 * 1000);
+    // 80 m norrut: förbi MOVEMENT_PROOF_NET_M men långt inom gravens 200 m —
+    // exakt bandet där det gamla arvet gav "evigt förtöjd fartgivarlös".
+    const reborn = svc._createVesselObject(mmsi, {
+      lat: POS.lat + 80 / 111320, lon: POS.lon, sog: null, cog: null, navStatus: 5,
+    }, undefined);
+    svc._updateMooringEvidence(reborn, null);
+    expect(reborn._moored).toBe(false);
+    expect(reborn._stationarySince).toBeNull();
+    // Nytt ankare på den nya positionen — nästa stillhet börjar ärligt om.
+    expect(reborn._nullSogStillAnchor.lat).toBeCloseTo(POS.lat + 80 / 111320, 6);
+    expect(reborn._nullSogStillAnchor.t).toBe(Date.now());
+  });
+
+  test('MELLANBANDET 40–49 m: klockan nollas, klassningen står kvar avstängd', () => {
+    const mmsi = '265573130';
+    seedNullSogAndRemove(mmsi);
+    jest.advanceTimersByTime(4 * 60 * 1000);
+    const reborn = svc._createVesselObject(mmsi, {
+      lat: POS.lat + 45 / 111320, lon: POS.lon, sog: null, cog: null, navStatus: 5,
+    }, undefined);
+    svc._updateMooringEvidence(reborn, null);
+    expect(reborn._stationarySince).toBeNull(); // V1-4: bevisad förflyttning
+    expect(reborn._moored).toBe(false);
+  });
+
+  test('BACKSTOPPEN förblir nåbar för den fartgivarlösa utan navstatus', () => {
+    // ELFKUNGENs faktiska klass: NAVSTAT 15 (blint navstatuslager), 2 km från
+    // alla kajzoner, ingen fartgivare. Enda vägen till ⚓ [MOORED] är klockan.
+    const mmsi = '265573130';
+    const start = Date.now() - (MOORING_DETECTION.MAX_STATIONARY_WAIT_MS + 5 * 60 * 1000);
+    seedNullSogAndRemove(mmsi, {
+      navStatus: 15,
+      _moored: false,
+      _stationarySince: start,
+      _nullSogStillAnchor: { lat: POS.lat, lon: POS.lon, t: start },
+    });
+    jest.advanceTimersByTime(3 * 60 * 1000);
+    const reborn = svc._createVesselObject(mmsi, {
+      lat: POS.lat, lon: POS.lon, sog: null, cog: null, navStatus: 15,
+    }, undefined);
+    svc._updateMooringEvidence(reborn, null);
+    expect(reborn._moored).toBe(true);
+    expect(logger.log.mock.calls.map((c) => String(c[0])).some((l) => l.includes('backstop')))
+      .toBe(true);
+  });
+
+  test('ÄRLIGHETSTESTET: utan navstatus/zon/2h är hon INTE förtöjd på tick 1', () => {
+    // F3:s medvetna pris. Klassningen är en SLUTSATS: kan den inte bevisas på
+    // det nya samplet finns den inte. Klockan lever vidare, så backstoppen
+    // fyrar när tiden är inne — det är BX-2:s faktiska räddning (ELFKUNGEN).
+    const mmsi = '265573130';
+    const start = Date.now() - 30 * 60 * 1000; // 30 min: långt under 2h
+    seedNullSogAndRemove(mmsi, {
+      navStatus: 15,
+      _stationarySince: start,
+      _nullSogStillAnchor: { lat: POS.lat, lon: POS.lon, t: start },
+    });
+    jest.advanceTimersByTime(3 * 60 * 1000);
+    const reborn = svc._createVesselObject(mmsi, {
+      lat: POS.lat, lon: POS.lon, sog: null, cog: null, navStatus: 15,
+    }, undefined);
+    svc._updateMooringEvidence(reborn, null);
+    expect(reborn._moored).toBe(false);
+    // Men klockan är ärvd — backstoppen är nåbar, inte nollställd.
+    expect(reborn._stationarySince).toBe(start);
+    expect(Date.now() - reborn._stationarySince).toBeGreaterThan(30 * 60 * 1000);
   });
 });
 
@@ -765,6 +1090,10 @@ describe('P9: kedjan (c)→(b) stänger churnen utan AISHub', () => {
       ...pos,
       sog: 0,
       cog: 0,
+      // VIRGOs faktiska AISHub-post bär NAVSTAT 5 i varje svep (quayRecord
+      // överst i filen) — det är hennes ordinarie väg till ⚓ [MOORED], både
+      // före raderingen och på återfödelsens första sampel.
+      navStatus: 5,
       status: 'en-route',
       timestamp: Date.now(),
       lastPositionUpdate: Date.now(),
@@ -776,8 +1105,13 @@ describe('P9: kedjan (c)→(b) stänger churnen utan AISHub', () => {
     svc.removeVessel(mmsi, 'timeout');
 
     jest.advanceTimersByTime(180 * 1000); // nästa klass B-slot
-    const reborn = svc._createVesselObject(mmsi, { ...pos, sog: 0, cog: 0 }, undefined);
+    const reborn = svc._createVesselObject(mmsi, {
+      ...pos, sog: 0, cog: 0, navStatus: 5,
+    }, undefined);
+    // F3: klassningen är INTE ärvd — den härleds om ur den ärvda klockan här.
+    expect(reborn._moored).toBe(false);
     svc._updateMooringEvidence(reborn, 0);
+    expect(reborn._moored).toBe(true);
     const dist = geometry.calculateDistance(pos.lat, pos.lon, 58.284095, 12.283930);
     expect(dist).toBeGreaterThan(600); // fältets geometri: >600 m ⇒ FAR_DISTANCE
     const timeout = prox.calculateProximityTimeout(reborn, { nearestDistance: dist });

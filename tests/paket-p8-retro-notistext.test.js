@@ -5,6 +5,7 @@ jest.mock('homey');
 const fs = require('fs');
 const path = require('path');
 const AISBridgeApp = require('../app');
+const { TRIGGER_POINTS } = require('../lib/constants');
 
 /**
  * =============================================================================
@@ -249,7 +250,7 @@ describe('P8: _buildBoatNearMessage randfall', () => {
 
   test('texten säger ALDRIG "broöppning" (Stallbackabron öppnar aldrig, '
     + 'Kanalinfarten är ingen bro)', () => {
-    for (const source of ['target', 'current', 'nearest', 'just-passed', 'passage-fallback']) {
+    for (const source of ['target', 'current', 'nearest', 'just-passed', 'passage-fallback', 'exit-fallback']) {
       expect(app._buildBoatNearMessage(t(5), source)).not.toMatch(/broöppning/);
     }
   });
@@ -325,9 +326,12 @@ describe('P8: dedup-nycklar och notisantal oförändrade', () => {
 describe('P8: _isRetroactiveNotificationSource är ETT ställe', () => {
   const app = makeApp();
 
-  test('exakt de två retroaktiva källorna klassas som passerade', () => {
+  test('exakt de retroaktiva källorna klassas som passerade', () => {
     expect(app._isRetroactiveNotificationSource('passage-fallback')).toBe(true);
     expect(app._isRetroactiveNotificationSource('just-passed')).toBe(true);
+    // F6 (2026-08-10): exit-fallbacken är retroaktiv för DEDUP/ETA/token —
+    // notisen avfyras vid removal, aldrig som förvarning. Bara TEXTEN skiljer.
+    expect(app._isRetroactiveNotificationSource('exit-fallback')).toBe(true);
     for (const s of ['target', 'current', 'nearest', 'trigger-point', undefined, null, '']) {
       expect(app._isRetroactiveNotificationSource(s)).toBe(false);
     }
@@ -364,5 +368,159 @@ describe('P8: kortet deklarerar de nya tokens (sv + en)', () => {
     expect(compose.tokens.slice(0, 5).map((t) => t.name)).toEqual([
       'bridge_name', 'vessel_name', 'direction', 'eta_minutes', 'eta_available',
     ]);
+  });
+});
+
+// =============================================================================
+// 7. F6 (2026-08-10) — EXIT-FALLBACKEN LJUGER INTE OM EN PASSAGE
+// =============================================================================
+/**
+ * FYNDET (adversariell granskning 2026-08-10). Exit-fallbacken vid
+ * Kanalinfarten ärvde källsträngen 'passage-fallback' och fick därmed P8:s
+ * mening "<namn> passerade Kanalinfarten under AIS-tystnad". Men exit-vägen
+ * avfyrar med båtens SISTA KÄNDA POSITION NORR om punkten (gaten
+ * `vessel.lat < kanalinfarten.lat` returnerar annars), Kanalinfarten bokförs
+ * aldrig i passedBridges/passedAt, och ingen position söder om punkten har
+ * observerats. Passagen är alltså inte inferrerad ur ett positionsbevis (som
+ * i passage-fallbacken) utan helt oobserverad — och för Olidebrons kajklass
+ * (~520 m norr om punkten, F5-B-bandet) direkt osann.
+ *
+ * FIXEN är intern: egen källsträng 'exit-fallback' + egen mening. Allt annat
+ * — dedup-nycklar, notisantal, de sju tokens UTOM `message` — är
+ * byte-identiskt, vilket testerna nedan låser explicit.
+ */
+describe('F6: exit-fallbacken har egen källa och egen mening', () => {
+  const tp = TRIGGER_POINTS.kanalinfarten;
+
+  // Samma IN-AXXI-snapshot som F5-B-sviten (faltprov-5-20260710.test.js):
+  // ~546 m norr om punkten, 6,5 kn sydgående, Olidebron passerad.
+  const exitSnapshot = (overrides = {}) => ({
+    mmsi: '244130745',
+    name: 'IN-AXXI',
+    lat: 58.27213,
+    lon: 12.2744,
+    sog: 6.5,
+    cog: 214,
+    passedBridges: ['Klaffbron', 'Olidebron'],
+    timestamp: Date.now(),
+    lastPositionUpdate: Date.now(),
+    _moored: false,
+    _hasMovementProof: true,
+    _finalTargetDirection: 'south',
+    ...overrides,
+  });
+
+  const makeExitApp = () => {
+    const app = makeApp();
+    // _triggerBoatNearFlowFallback körs på RIKTIGT här — vi vill se hela
+    // kedjan exit → fallback → flow-kortet, inte bara anropsargumenten.
+    app._boatNearTrigger = { trigger: jest.fn().mockResolvedValue(undefined) };
+    return app;
+  };
+
+  test('hela kedjan: exit-notisen påstår INTE en passage', async () => {
+    const app = makeExitApp();
+    await app._triggerExitPointFallback(exitSnapshot());
+
+    expect(app._triggerBoatNearFlowBest).toHaveBeenCalledTimes(1);
+    const [tokens, state] = app._triggerBoatNearFlowBest.mock.calls[0];
+
+    expect(tokens.message)
+      .toBe('IN-AXXI var på väg ut ur kanalen vid Kanalinfarten när AIS-kontakten bröts');
+    // Det osanna påståendet får inte återuppstå i någon form.
+    expect(tokens.message).not.toMatch(/passerade/);
+    expect(tokens.message).not.toMatch(/närmar sig/);
+    expect(state.source).toBe('exit-fallback');
+  });
+
+  test('övriga tokens är BYTE-IDENTISKA med den ärvda källan (bara texten skiljer)', async () => {
+    const app = makeExitApp();
+    await app._triggerExitPointFallback(exitSnapshot());
+    const [tokens] = app._triggerBoatNearFlowBest.mock.calls[0];
+
+    expect(tokens.bridge_name).toBe('Kanalinfarten'); // facitbärare
+    expect(tokens.direction).toBe('northbound'); // mockad — värdet är oförändrat
+    expect(tokens.vessel_name).toBe('IN-AXXI');
+    expect(tokens.eta_minutes).toBe(-1); // retroaktiv källa ⇒ ingen ETA (E-F3/N9)
+    expect(tokens.eta_available).toBe(false);
+    // Tokenens funktion är "detta är ingen förvarning" — oförändrad.
+    expect(tokens.already_passed).toBe(true);
+  });
+
+  test('dedup-nycklarna är oförändrade (mmsi:Kanalinfarten, form {t,dir})', async () => {
+    const app = makeExitApp();
+    await app._triggerExitPointFallback(exitSnapshot());
+
+    expect([...app._triggeredBoatNearKeys]).toEqual(['244130745:Kanalinfarten']);
+    const entry = app._persistentRecentTriggers.get('244130745:Kanalinfarten');
+    expect(Object.keys(entry).sort()).toEqual(['dir', 't']);
+  });
+
+  test('EN notis per exit — andra anropet dedupas bort precis som förut', async () => {
+    const app = makeExitApp();
+    await app._triggerExitPointFallback(exitSnapshot());
+    await app._triggerExitPointFallback(exitSnapshot());
+
+    expect(app._triggerBoatNearFlowBest).toHaveBeenCalledTimes(1);
+  });
+
+  test('basradien (≤400 m) får samma mening — hela exit-vägen, inte bara F5-B', async () => {
+    const app = makeExitApp();
+    // ~330 m norr om punkten
+    await app._triggerExitPointFallback(exitSnapshot({
+      lat: tp.lat + 0.003, lon: tp.lon, sog: 1.2,
+    }));
+
+    const [tokens] = app._triggerBoatNearFlowBest.mock.calls[0];
+    expect(tokens.message).toMatch(/^IN-AXXI var på väg ut ur kanalen vid Kanalinfarten/);
+  });
+
+  test('ÖVRIGA fallback-anropare är orörda — passage-fallback behåller text och källa', async () => {
+    const app = makeExitApp();
+    const vessel = {
+      mmsi: '265777777',
+      name: 'DIANA',
+      lat: 58.28,
+      lon: 12.29,
+      sog: 5,
+      timestamp: Date.now(),
+      lastPositionUpdate: Date.now(),
+    };
+
+    // Samma anrop som passagesvepet gör (ingen options.source).
+    await app._triggerBoatNearFlowFallback(vessel, 'Klaffbron');
+
+    const [tokens, state] = app._triggerBoatNearFlowBest.mock.calls[0];
+    expect(state.source).toBe('passage-fallback');
+    expect(tokens.message).toBe('DIANA passerade Klaffbron under AIS-tystnad');
+  });
+
+  test('flow-självtestet bygger sin mening med produktionens byggare (ingen literal)', async () => {
+    // F6-fyndets andra halva: självtestet hårdkodade P8-meningen och gick
+    // därför grönt mot en sträng produktionen inte längre producerar om
+    // _buildBoatNearMessage formuleras om. Testet nedan är BETEENDEBASERAT:
+    // ändras byggaren ändras självtestets token i samma andetag.
+    const app = makeApp();
+    const trigger = jest.fn().mockResolvedValue(undefined);
+    app._boatNearTrigger = { trigger };
+    app.homey = { flow: { getConditionCard: jest.fn(() => null) } };
+
+    await app._testTriggerFunctionality();
+
+    expect(trigger).toHaveBeenCalledTimes(1);
+    const [tokens] = trigger.mock.calls[0];
+    expect(tokens.message).toBe(app._buildBoatNearMessage(tokens, 'target'));
+    // Och meningen är den produktionen faktiskt bygger för dessa tokens.
+    expect(tokens.message).toBe('TEST_VESSEL närmar sig Klaffbron, beräknad ankomst om 5 minuter');
+  });
+
+  test('textbyggaren direkt: exit-formen är sin egen, inte passage-formens', () => {
+    const app = makeApp();
+    const tokens = { vessel_name: 'MOSHE', bridge_name: 'Kanalinfarten', eta_minutes: -1 };
+
+    expect(app._buildBoatNearMessage(tokens, 'exit-fallback'))
+      .toBe('MOSHE var på väg ut ur kanalen vid Kanalinfarten när AIS-kontakten bröts');
+    expect(app._buildBoatNearMessage(tokens, 'exit-fallback'))
+      .not.toBe(app._buildBoatNearMessage(tokens, 'passage-fallback'));
   });
 });

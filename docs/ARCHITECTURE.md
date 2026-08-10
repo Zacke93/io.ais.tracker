@@ -297,7 +297,15 @@ FALLBACK_HARD_MAX_DISTANCE (:4327); vid `inferredFlush` ERSÄTTS taket av
 (`passedAt[bro]`/detectionTs, max-väljare för "när VI fick veta") > 300 s ⇒
 skip; annars skattning distans/maxRecentSpeed (RC3) > 300 s ⇒ skip (:4335–4394)
 → (4) **low-sog**: ≤0.5 kn utan tidsreferens och >500 m ⇒ skip (:4395–4405).
-Passerar allt → `_triggerBoatNearFlowForBridge` med `source: 'passage-fallback'`.
+Passerar allt → `_triggerBoatNearFlowForBridge` med `source: 'passage-fallback'`
+— UTOM när anroparen skickar `options.source: 'exit-fallback'`, vilket bara
+Kanalinfartens exit-väg (`_triggerExitPointFallback`) gör. **F6 (2026-08-10):**
+exit-vägen ärvde tidigare passage-taggen och fick därmed P8-meningen
+"X passerade Kanalinfarten under AIS-tystnad" — ett påstående om en passage
+appen aldrig sett: notisen avfyras med sista kända position NORR om punkten
+och Kanalinfarten bokförs aldrig i `passedBridges`/`passedAt`. Taggen är
+INTERN: dedup, ETA (-1) och `already_passed` är oförändrade via
+`_isRetroactiveNotificationSource`; bara `message` och två loggrader skiljer.
 
 ### Kandidatval (:4022), dedup-lagren och tokens (`_triggerBoatNearFlowForBridge`:4424)
 
@@ -306,8 +314,9 @@ Kandidatval: tröskel 300 m (FLOW_TRIGGER_DISTANCE_THRESHOLD). Källor i ordning
 `nearest` (endast om inga andra) → `trigger-point` (Kanalinfarten, egen
 distansberäkning). Finns target-kandidat: target dominerar, MEN target +
 current/nearest/just-passed får båda trigga när de är olika broar (Fix 7,
-Järnvägs/Strids-överlappet; :4120–4146). Sjätte source-värdet
-`passage-fallback` sätts av fallback-vägen.
+Järnvägs/Strids-överlappet; :4120–4146). Sjätte och sjunde source-värdet —
+`passage-fallback` respektive `exit-fallback` (F6, 2026-08-10) — sätts av
+fallback-vägen; ingen av dem är en proximity-källa (se §8d).
 
 **Trigger-punktens två grenar.** Sydgående kräver kanalrelevans (FP8:
 passerade broar/målbro eller episodstart norr om punkten). Nord/okänd kräver
@@ -355,8 +364,9 @@ Dedup-lagren:
 Tokens: `vessel_name` (B1: känt namn → cache-uppslag → "Okänd båt", :4464),
 `bridge_name`, `direction` (`_getDirectionString`:4639: låst rutt-riktning
 först, annars COG — 'unknown' vid omätbar fart), `eta_minutes` (target-källa =
-målbro-ETA; övriga = dist/fart mot notisbron; `passage-fallback`/`just-passed`
-⇒ -1; nära+långsam icke-target ⇒ -1; :4477–4501), `eta_available` (G1,
+målbro-ETA; övriga = dist/fart mot notisbron; de retroaktiva källorna
+`passage-fallback`/`just-passed`/`exit-fallback` ⇒ -1; nära+långsam
+icke-target ⇒ -1; :4477–4501), `eta_available` (G1,
 2026-07-10: boolean, sant när `eta_minutes ≥ 0` — avväpnar -1-sentinelens
 fotgevär i användarens villkor), `already_passed` och `message` (P8/U10,
 användarbeslut 2026-08-09).
@@ -372,8 +382,13 @@ att varje bortfiltrering byter notis mot täckningsmiss 1:1) och ändra TEXTEN.
 `_isRetroactiveNotificationSource`, samma predikat som persistent-dedupens
 `retroactiveSource`), och `message` är en färdig svensk mening:
 "X passerade Y under AIS-tystnad" (passage-fallback — klassen där passagen
-inferreras i efterhand), "X har precis passerat Y" (just-passed — LIVE-passage
-inom 15 s grace, där AIS-tystnad hade varit ett osant påstående) och annars
+inferreras i efterhand ur en observerad position på ANDRA sidan bron),
+"X har precis passerat Y" (just-passed — LIVE-passage inom 15 s grace, där
+AIS-tystnad hade varit ett osant påstående), "X var på väg ut ur kanalen vid Y
+när AIS-kontakten bröts" (exit-fallback, F6 2026-08-10 — här finns INGET
+passagebevis alls: sista position ligger norr om Kanalinfarten, så meningen
+påstår bara det gaterna belägger — rörelse, sydgående kurs/riktning inom
+400–800 m norr om utfarten, och kontaktförlust) och annars
 "X närmar sig Y[, beräknad ankomst …]". `_buildBoatNearMessage` härleder
 texten UTESLUTANDE ur de redan beräknade tokens — den läser aldrig
 bridge_text, så pelare 1 och pelare 2 förblir frikopplade, och den säger
@@ -779,10 +794,14 @@ eller via levande uppslag.** Vaktlistan `SNAPSHOT_CONSUMED_FIELDS`
 
 **(d) Source-fältlistan för Flow-state.** Trigger-state är
 `{ bridge, mmsi, distance, source }` (app.js:4546) med source-värdena
-`target | current | nearest | just-passed | trigger-point | passage-fallback`
-(§3). Replay-invarianterna och run-listenern (:4743) konsumerar dessa — nya
-source-värden/state-fält måste synkas med invariants.js, annars felklassas
-notiser i valideringen.
+`target | current | nearest | just-passed | trigger-point | passage-fallback |
+exit-fallback` (§3). Replay-invarianterna och run-listenern (:4743) konsumerar
+dessa — nya source-värden/state-fält måste synkas med invariants.js, annars
+felklassas notiser i valideringen. `passage-fallback` och `exit-fallback` står
+MEDVETET utanför `PROXIMITY_SOURCES` (400 m-regeln och fartfysiken i
+INV-11/INV-16 gäller inte inferens-/exitklassen); vakten TE17 i
+`tests/harness-vakter.test.js` låser att undantagslistan och produktionens
+källsträngar hålls i synk åt BÅDA håll.
 
 ## 9. Granskningsfynd (kvarvarande avvikelser i KODEN)
 
@@ -855,3 +874,68 @@ SystemCoordinator, ingen publik `hasActiveCoordination`; helgranskningen
 2026-07-06 raderade även `test-integration-complete.js` (stale API-referenser,
 homeyignorerad), `.eslintrc.json` (död konfig — `.eslintrc.js` har företräde)
 och ProximityServices oanvända `getProtectionZoneStatus`/`getUnderBridgeStatus`.
+
+## 10. Söndagsfältet 2026-08-09/10 (commits a9f2a20, ce6a946, b1a7ba3 + WS-3)
+
+Första fältkörningen av 5.4.0 (33 min logg + settings-arkeologi; aisstream
+serverdött med 429-storm, AISHub-solo) gav 23 skeptikerbekräftade fynd som
+åtgärdades i tre vågor samma natt. Mekanikändringarna i korthet:
+
+**Källkedjan.** `AISHubClient.connect()` bär kallstartsklampen (en persisterad
+C3c-reservation i framtiden adopteras och klampas — blindstartsfönstret föll
+från ≤11 min till ≤76 s). `AISStreamClient` är 429-medveten: dedikerad
+cooldown (15 min + jitter, `Retry-After` respekteras strikt parsad, cooldownen
+är GOLV — aldrig tak — mot fastrappan), och ping-vakten avväpnas av
+leveransbevis (en socket som bevisligen levererar meddelanden termineras inte
+för utebliven pong). Aktivt nyckel-/källbyte bryter cooldownen; watchdogen gör
+det inte.
+
+**connection_status-semantiken** (B2c fullbordad): `degraded` kräver BEVISAD
+ASYMMETRI — den friska källan måste själv LEVERERA (silence ≤ 15 min), inte
+bara svara. En tom nattkanal (båda svarar, ingen levererar) är `connected`,
+och totaltystnadsgrenen äger blindhetslarmet. Startgrinden håller tillbaka
+`connected` tills minst ETT välformat källsvar setts (`_sourceEverResponded`);
+`_writeConnectionStatus` är enda skrivvägen. Degradering som satts med
+levererande granne släpps INTE när grannen också tystnar (dokumenterat val:
+`connected` vore lögn; ett fjärde enumvärde kräver capability-bump).
+
+**Kajliggarlivscykeln (P9).** Tre samverkande mekanismer stänger churnen
+(fältet: 20 raderingar/19 återfödelser av tre SÄNDANDE kajliggare på 22 min):
+(a) LIVSTECKNET — en dedupad AISHub-post vars fixTs är färsk (< 365 s,
+härledd 180+65+120) emitterar `vessel:seen`; `noteVesselSeen` laddar om
+cleanup-timern med dess BASNIVÅ (engångsförlängningar som passage-grace
+ratchetas aldrig in) och kan bara skjuta UPP döden, aldrig korta ett liv.
+OBS: mekanismen är strukturellt osynlig i replay (harnessen kringgår
+AISHubClient) — fältverifieras via `[AISHUB_POLL] seen=`-kvoten och
+`💓 [VESSEL_SEEN]`-rader. (b) MOORED-TIMEOUTEN — förtöjd/inlärd kajplats ger
+proximity-timeout ≥ 10 min (3 × klass B-kadens + 60 s) i stället för
+FAR_DISTANCE 2 min. (c) GRAVVÅRDEN — vid kadensglapp-radering (INTE
+STALE_AIS-backstoppens 30 min) sparas beteendeackumulatorerna
+(`_stationarySince`, släpp-hysteresen, rörelsebevisen, `_firstSeen*`) i en
+TTL-grav (15 min, 200 m-radien, max 50) och ärvs vid återfödelse på platsen.
+`_moored` ärvs ALDRIG — klassningen härleds om av `_updateMooringEvidence` på
+första ticket ur den ärvda klockan (2h-backstoppen förblir nåbar).
+`_lastSeen` är LIVSLÄNGDS-klocka; varje POSITIONSåldersgrind läser
+positionsklockan (`_lastConfirmedPositionMs`) — klassningen står vid fältet.
+
+**Textpelaren.** staleDisplay-trappans 20-minutersnivå (mitt-i-passage) kräver
+nu att bron ligger FRAMFÖR fartyget relativt `_routeDirection` (bäring — inte
+fart — är diskriminanten; PAX-fallet fällde farttaket), med undantag för
+under-bridge-bandet ≤ 70 m. Riktningslös båt behåller nivån.
+
+**Notispelarna.** `boat_near` bär två ADDITIVA tokens: `message` (färdig
+svensk mening; `passage-fallback` ⇒ "passerade X under AIS-tystnad",
+`exit-fallback` ⇒ egen lämnade-området-mening — exit-vägen vilar ALDRIG på
+passagebevis, `just-passed` ⇒ "har precis passerat X") och `already_passed`
+(bool). Befintliga flows måste själva lägga in `message`-tokenen för att se
+U10-texten. U9-räddningsventilen (öppningsmotorn) ligger HEL men AVSTÄNGD
+bakom `BRIDGE_OPENING.U9_RESCUE_COVERAGE=false` — mätningen falsifierade
+väg (b): bred täckning + individuella deadlines splittrar äkta konvojer.
+H-4b-öppningsliggaren i `runOpeningGates` redovisar >1-/0-räknarna separat.
+
+**Kända latenta klasser efter natten:** avgångs-ETA räknas på
+igångsättningsfart (ANYA ELAN: "om 23 min" för verklig 10,5 — churnen
+maskerade klassen tidigare; framtida accelerationsmedveten ETA), server-
+stängda-men-levererande sockets kan fortfarande ge ~1 handskakning/min
+(appens egen orsak är fixad), och `max-reconnects-reached` fyrar inte under
+permanent 429 (cooldown-grenen rör inte räknaren).

@@ -108,7 +108,13 @@ describe('TE18: öppningslagrets logg-koppling (etapp 6)', () => {
 });
 
 describe('TE17: PROXIMITY_SOURCES täcker alla notiskällor app.js kan emittera', () => {
-  test('varje source-literal i app.js (utom passage-fallback) finns i invariants-settet', () => {
+  // F6 (2026-08-10): 'exit-fallback' tillkom som EGEN källsträng för
+  // Kanalinfartens exit-notis (tidigare ärvde den 'passage-fallback'). Den är
+  // undantagen på exakt samma grund som sin föregångare — 400–800 m radie och
+  // upp till 25 min gammal position — och notismängden är oförändrad.
+  const NON_PROXIMITY_SOURCES = new Set(['passage-fallback', 'exit-fallback']);
+
+  test('varje source-literal i app.js (utom fallback-källorna) finns i invariants-settet', () => {
     // Extrahera settet ur invariants.js
     const setMatch = invariantsSrc.match(/PROXIMITY_SOURCES = new Set\(\[([^\]]+)\]\)/);
     expect(setMatch).not.toBeNull();
@@ -121,7 +127,15 @@ describe('TE17: PROXIMITY_SOURCES täcker alla notiskällor app.js kan emittera'
     for (const m of appSrc.matchAll(/source:\s*'([a-z-]+)'/g)) found.add(m[1]);
 
     expect(found.size).toBeGreaterThanOrEqual(3); // sanity: svepet hittar källor
-    const unguarded = [...found].filter((s) => s !== 'passage-fallback' && !guarded.has(s));
+    const unguarded = [...found].filter((s) => !NON_PROXIMITY_SOURCES.has(s) && !guarded.has(s));
     expect(unguarded).toEqual([]);
+  });
+
+  test('undantagslistan är inte tom-checkad bort — båda fallback-källorna finns i app.js', () => {
+    // Vakten mot att undantaget överlever sin källa: raderas 'exit-fallback'
+    // ur produktionen ska raden här falla, inte tyst vitlista ett dött värde.
+    for (const s of NON_PROXIMITY_SOURCES) {
+      expect(appSrc.includes(`'${s}'`)).toBe(true);
+    }
   });
 });

@@ -455,6 +455,13 @@ function validateInvariants(result) {
   // en äkta närzons-källa som tidigare undgick både INV-11:s 400 m-gräns
   // och INV-16:s fartfysik. Empiriskt verifierad ren över 8/8 korpusar +
   // 38 syntetiska scenarier vid tillägget.
+  // F6 (2026-08-10): 'exit-fallback' är MEDVETET utanför settet, precis som
+  // 'passage-fallback'. Den avfyras 400–800 m från Kanalinfarten på en upp
+  // till 25 min gammal position (EXIT_FALLBACK_EXTENDED_RADIUS/F63-gaten) —
+  // 400 m-regeln och fartfysiken gäller inte den klassen. Källsträngen är ny
+  // sedan F6; notiserna är exakt desamma som när de bar 'passage-fallback'
+  // och undantogs på samma grund. Vakten TE17 (harness-vakter.test.js)
+  // speglar undantaget.
   const PROXIMITY_SOURCES = new Set(['target', 'current', 'nearest', 'trigger-point', 'just-passed']);
   const PLACEHOLDER_NAMES = new Set(['Unknown', 'Okänd båt']);
   const firstNameSeen = result.firstNameSeen || {};

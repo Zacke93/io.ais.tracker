@@ -286,3 +286,22 @@ Leveranslatensen redovisas separat. Läser du om kartan, läs den siffran först
 
 `npm run test:coverage` (pipa!). Trösklarna i `tests/jest.config.js` är ett
 GOLV som aldrig sänks — höj dem när ny täckning landat.
+
+## Omlåsning av golden-text: relockGoldenText
+
+`node tests/replay-validation/relockGoldenText.js <korpusId...>` är den ENDA
+sanktionerade vägen att skriva om golden-text för redan låsta korpusar
+(tillkom 2026-08-10; ersätter sessionsberoende engångsskript). Verktyget kör
+replayn per korpus och skriver golden ENDAST om ALLA övriga dimensioner är
+exakta: processfel 0, fartygsläcka 0, notisantal, fördelnings-/riktnings-/
+öppningsmultiset (samma fält och form som runAllCorpora), och varje fatalt
+invariantutslag prefixmatchar korpusens `knownInvariantExceptions`.
+Validering och skrivning är TVÅ faser — en abort lämnar aldrig facit
+halvskrivet. Nya korpusar bootstrappas fortfarande via REGEN_DISTRIBUTIONS=1
+från grön körning — relockGoldenText vägrar korpusar utan befintliga poster.
+
+**Dirigentläxan (2026-08-10):** LCS-diffa gamla mot nya goldens SJÄLV innan
+omlåsning och skriv noten mot den FAKTISKA diffen (antal borttagna/tillagda
+med livslängder, tidsskift, systematisk kostnad) — implementatörens
+diffsammanfattning är otillräcklig som enda underlag (CRITICAL-fyndet i
+adversariella granskningen 2026-08-10: selektiva noter på 7 korpusar).
