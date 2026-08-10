@@ -692,7 +692,10 @@ describe('⚠️ DOKUMENTATIONSTEST: Anomali 9 — Skipped bridges fallback efte
       { name: 'Klaffbron', lat: 58.284095 },
       { name: 'Järnvägsbron', lat: 58.291640 },
       { name: 'Stridsbergsbron', lat: 58.293524 },
-      { name: 'Stallbackabron', lat: 58.311430 },
+      // C0 2026-08-10: spegeln följer BRIDGES.stallbackabron.lat (58.311430 →
+      // 58.309802). Talet är en KOPIA av produktionskonstanten och måste
+      // följa med, annars dokumenterar testet en bro som inte finns.
+      { name: 'Stallbackabron', lat: 58.309802 },
     ];
 
     let minLat;
@@ -948,11 +951,17 @@ describe('Anomali 5 fix — Fix D sog-tröskel mot COG-noise', () => {
 });
 
 describe('Anomali 2 fix — STALLBACKABRON_EXIT_LAT symmetri', () => {
+  const { BRIDGES } = require('../lib/constants');
+
   test('konstant matchar södermotsvarigheten i ungefärlig 300m-buffer', () => {
-    // Stallbackabron 58.31142992293701, +0.0027 deg ≈ 300m i lat
+    // C0 2026-08-10: brokoordinaten flyttades till konsensuspunkten och
+    // exit-latituden följde med (58.31143/58.3141 → 58.309802/58.3125).
+    // Bufferten — det testet faktiskt prövar — är oförändrad ~300 m, och
+    // latituden läses nu ur BRIDGES så spegeln inte kan glida isär igen.
+    // Stallbackabron 58.309802, +0.0027 deg ≈ 300m i lat
     // Kanalinfarten 58.268, -0.0027 deg = 58.2653 (befintlig konstant)
-    const STALLBACKABRON_LAT = 58.31142992293701;
-    const STALLBACKABRON_EXIT_LAT = 58.3141;
+    const STALLBACKABRON_LAT = BRIDGES.stallbackabron.lat;
+    const STALLBACKABRON_EXIT_LAT = 58.3125;
     const buffer = STALLBACKABRON_EXIT_LAT - STALLBACKABRON_LAT;
     // Bör vara ~0.0027 (motsvarande 300m)
     expect(buffer).toBeGreaterThan(0.002);

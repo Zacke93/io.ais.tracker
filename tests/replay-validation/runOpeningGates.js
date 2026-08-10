@@ -51,6 +51,35 @@ const RUNNER = path.join(__dirname, 'replayRunner.js');
 // A/B-nattens original — night-fusion.jsonl ÄR redan
 // corpora-data/ais-fusion-20260803-nattkorning.jsonl (samma sha256).
 // OPENING_AB_DIR pekar om hela uppsättningen för felsökning mot originalen.
+//
+// ── C0-OMBASERINGEN 2026-08-10 (night-facit/, 4 värden) ────────────────────
+// .txt-facitfilerna kan inte bära kommentarer, så noten står här — i den enda
+// fil som läser dem. C0 flyttade Stallbackabron till den verifierade
+// konsensuspunkten (58.309802/12.316748, gap 2226; se BRIDGES.stallbackabron).
+// Nattens A-arm bär därför FYRA omräknade värden, alla rådataverifierade mot
+// ais-aisstream-20260803-nattkorning.jsonl och alla MER korrekta än förut.
+// Multiseten (mmsi, bro) är BYTE-IDENTISKA: 22 notiser före som efter, inga
+// tillkomna, inga borta — det är enbart avståndsfältet och två ETA-minuter
+// som rört sig.
+//   field-notif.txt (avståndsfältet mäts mot bropunkten och kan inte överleva
+//   en punktflytt):
+//     • 231907000|Stallbackabron 276 → 193. Fartygets position i notisticket
+//       är 58.30847/12.31463; haversine till konsensuspunkten = 192,7 m.
+//       (Mot den gamla punkten låg samma position på 329 m, dvs. UTANFÖR
+//       300 m-ringen — notisen fyrade förr på ett senare sampel.)
+//     • 265576720|Stallbackabron 218 → 190. Position 58.31131/12.31829,
+//       haversine till konsensuspunkten = 190,1 m.
+//   field-texts.txt (progressiv ETA läser BÅDE bropunkten och gapet; samma
+//   klass som de 14 omlåsta golden-texterna, index 37–38 av 45 — antalet
+//   övergångar är oförändrat och ingen annan rad rör sig):
+//     • 05:54:47 "om 9 minuter" → "om 8". JUNO (265576720) 190 m från
+//       Stallbackabron i 9,4 kn (4,836 m/s): 190/4,836 + 2226/4,836 = 499,6 s
+//       = 8,3 min. Gamla kedjan räknade 218/4,836 + 2310/4,836 = 522,7 s
+//       = 8,7 min → 9. Kontroll mot fysiken: fågelvägen till Stridsbergsbron
+//       är 2 415 m, dvs. 8,3 min i den farten — den NYA siffran är den sanna.
+//     • 05:56:38 "om 8 minuter" → "om 7". Samma fartyg 30 s senare, 2 022 m
+//       från Stridsbergsbron i 9,7 kn = 6,8 min → 7. Gamla värdet var
+//       pessimistiskt av exakt samma två skäl (fel bropunkt + för långt gap).
 const AB_DIR = process.env.OPENING_AB_DIR || null;
 const NIGHT_DIR = path.join(__dirname, 'night-facit');
 const CORPORA_DATA = path.join(__dirname, 'corpora-data');

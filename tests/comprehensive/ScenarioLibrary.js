@@ -22,9 +22,27 @@ class ScenarioLibrary {
    * @param {string} bridgeName - Bridge name
    * @param {number} distanceMeters - Distance from bridge
    * @param {string} direction - 'north' or 'south'
+   * @param {number} canalAngleDeg - Farledens bäring från nord i just det
+   *   avsnittet. Default 25 = oförändrat beteende för samtliga anrop som
+   *   inte uttryckligen anger något annat.
+   *
+   *   C0 2026-08-10: Stallbackabron flyttade till konsensuspunkten
+   *   (lon 12.316748, ~250 m öster om den gamla), och därmed hamnade de två
+   *   NORDLIGA stegen 600 m och 450 m utanför AIS_CONFIG.BOUNDING_BOX.EAST
+   *   (12.32) med 25°-modellen — lon 12.3211 respektive 12.3200. Utanför
+   *   boxen filtreras samplet bort i VesselDataService, targetBridge blir
+   *   null och scenariot mäter ingenting.
+   *
+   *   ÅTGÄRDEN BEVARAR AVSTÅNDEN (och därmed statusbanden 480/270/50 m som
+   *   hela scenariot testar) och ändrar bara BÄRINGEN för just de stegen.
+   *   Vinkeln är inte vald på fri hand: farledens egna noder
+   *   (coverageMap.FAIRWAY_CENTERLINE) svänger norr om Stallbackabron från
+   *   ~29° vid bron till 15,2–15,5° i de två följande benen, så 15° är
+   *   MER trogen den verkliga farleden där än de 25° modellen använder som
+   *   global schablon.
    * @returns {Object} {lat, lon}
    */
-  static _calculatePosition(bridgeName, distanceMeters, direction = 'south') {
+  static _calculatePosition(bridgeName, distanceMeters, direction = 'south', canalAngleDeg = 25) {
     const bridgeId = bridgeName.toLowerCase().replace(/bron$/, 'bron');
     const bridge = BRIDGES[bridgeId];
     if (!bridge) throw new Error(`Bridge ${bridgeName} not found`);
@@ -33,8 +51,8 @@ class ScenarioLibrary {
     const latOffset = distanceMeters / 111000;
     const lonOffset = distanceMeters / (111000 * Math.cos(bridge.lat * Math.PI / 180));
 
-    // Canal angle: NNE-SSW (approximately 25 degrees from north)
-    const canalAngle = 25;
+    // Canal angle: NNE-SSW (approximately 25 degrees from north by default)
+    const canalAngle = canalAngleDeg;
     const radians = (canalAngle * Math.PI) / 180;
 
     if (direction === 'south') {
@@ -79,7 +97,10 @@ class ScenarioLibrary {
             vessels: [{
               mmsi: '246924000',
               name: 'LAURIERBORG',
-              ...this._calculatePosition('stallbackabron', 600, 'north'),
+              // 15° i stället för schablonens 25° — se _calculatePosition (C0).
+              // Avståndet 600 m (utanför APPROACHING_SET_DISTANCE 480) är det
+              // som steget testar och är OFÖRÄNDRAT.
+              ...this._calculatePosition('stallbackabron', 600, 'north', 15),
               sog: 5.2,
               cog: 205,
             }],
@@ -90,7 +111,8 @@ class ScenarioLibrary {
             vessels: [{
               mmsi: '246924000',
               name: 'LAURIERBORG',
-              ...this._calculatePosition('stallbackabron', 450, 'north'),
+              // 15° av samma skäl som steg 1; 450 m (innanför 480) oförändrat.
+              ...this._calculatePosition('stallbackabron', 450, 'north', 15),
               sog: 5.2,
               cog: 205,
             }],
@@ -476,7 +498,9 @@ class ScenarioLibrary {
             vessels: [{
               mmsi: '246924000',
               name: 'STALLTEST',
-              ...this._calculatePosition('stallbackabron', 450, 'north'),
+              // 15° i stället för schablonens 25° — se _calculatePosition (C0).
+              // Avståndet 450 m är oförändrat; bara bäringen flyttas in i boxen.
+              ...this._calculatePosition('stallbackabron', 450, 'north', 15),
               sog: 5.2,
               cog: 205,
             }],

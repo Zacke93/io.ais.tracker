@@ -8,8 +8,8 @@
 231907000|Klaffbron|198
 231907000|Järnvägsbron|193
 231907000|Stridsbergsbron|282
-231907000|Stallbackabron|276
-265576720|Stallbackabron|218
+231907000|Stallbackabron|193
+265576720|Stallbackabron|190
 265576720|Stridsbergsbron|215
 265576720|Järnvägsbron|38
 219001291|Olidebron|178
