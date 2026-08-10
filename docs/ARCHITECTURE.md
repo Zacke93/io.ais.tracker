@@ -892,12 +892,26 @@ det inte.
 
 **connection_status-semantiken** (B2c fullbordad): `degraded` kräver BEVISAD
 ASYMMETRI — den friska källan måste själv LEVERERA (silence ≤ 15 min), inte
-bara svara. En tom nattkanal (båda svarar, ingen levererar) är `connected`,
-och totaltystnadsgrenen äger blindhetslarmet. Startgrinden håller tillbaka
+bara svara. En tom nattkanal (båda svarar, ingen levererar) är `connected`.
+Startgrinden håller tillbaka
 `connected` tills minst ETT välformat källsvar setts (`_sourceEverResponded`);
 `_writeConnectionStatus` är enda skrivvägen. Degradering som satts med
 levererande granne släpps INTE när grannen också tystnar (dokumenterat val:
 `connected` vore lögn; ett fjärde enumvärde kräver capability-bump).
+
+**Källdödslarmet efter U12** (användarbeslut 2026-08-10). Totaltystnadsgrenen
+skiljer nu SVAR från LEVERANS, precis som `degraded` gör. `feeds:silent` +
+1h/4h-trappan kräver ÄKTA BLINDHET: ingen konfigurerad, pipeline-matande källa
+SVARAR ens (aisstream = socketen nere/429-cooldown, `perFeed.aisstream
+.isConnected`; AISHub = pollklockan ofärsk, `lastOkResponseAt` äldre än
+`FRESH_POLL_MS`). Svarar någon källa är grenen tyst — en tom kanal är
+normaldrift nattetid (korpusbanken: värsta normala trafikuppehåll 198,7 min
+över 336,6 h). Skyddsnätet är en egen, grov gren: alla källor svarar men noll
+data på `FEED_SILENCE.EMPTY_CHANNEL_ALERT_MS` (4 h) ⇒ EN notis på nyckeln
+`feeds:empty:4h` (24h-dedup, ingen trappa) som fångar bbox-/kontofel.
+Loggraden i totalgrenen skiljer de tre lägena (blind / tom-kanal / delvis) och
+struparen går PER LÄGE, så ett lägesbyte alltid syns direkt. Statusvärdet
+(`connected`/`degraded`) berörs inte av U12.
 
 **Kajliggarlivscykeln (P9).** Tre samverkande mekanismer stänger churnen
 (fältet: 20 raderingar/19 återfödelser av tre SÄNDANDE kajliggare på 22 min):

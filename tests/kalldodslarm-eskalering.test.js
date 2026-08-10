@@ -51,6 +51,21 @@
  *       HELT frisk app på "Frånkopplad" i timmar i en tom kanal, utan timeout
  *       och utan skyddsnät. Skyddssyftet (död kedja ⇒ aldrig 'connected')
  *       provas separat.
+ *
+ * ANVÄNDARBESLUT U12 (2026-08-10) drar samma gräns i TOTALGRENEN. F1 skilde
+ * "svarar" från "levererar" på hubbsidan, men "appen är blind" dömde fortfarande
+ * på ren leverans — och en tom kanal är NORMALDRIFT nattetid (korpusbanken:
+ * värsta normala trafikuppehåll 198,7 min över 336,6 h inspelad drift). Larmet
+ * fyrade alltså varje lugn natt och brände sina 24h-nycklar i förskott:
+ *   16. feeds:silent + eskaleringen kräver ÄKTA BLINDHET — ingen konfigurerad
+ *       källa SVARAR ens (aisstream: socketen nere/429-cooldown; aishub:
+ *       pollklockan ofärsk). Svarande källor ⇒ grenen är TYST.
+ *   17. SKYDDSNÄTET: alla källor svarar men noll data på 4 h ⇒ EN notis på egen
+ *       nyckel ('feeds:empty:4h', FEED_SILENCE.EMPTY_CHANNEL_ALERT_MS) — fångar
+ *       bbox-/kontofel utan att spamma lugna nätter.
+ * TOM NATT-familjen längst ned är omskriven efter U12; dess SKYDDSSYFTE (äkta
+ * blindhet larmar, och larmar direkt även efter en tyst natt) är kvar och
+ * skärpt.
  */
 
 process.env.NODE_ENV = 'test';
@@ -59,7 +74,8 @@ global.__TEST_MODE__ = true;
 const fs = require('fs');
 const path = require('path');
 const AISBridgeApp = require('../app');
-const { AIS_CONFIG } = require('../lib/constants');
+const AISStreamClient = require('../lib/connection/AISStreamClient');
+const { AIS_CONFIG, CONNECTION_ALERT, FEED_SILENCE } = require('../lib/constants');
 
 const MIN = 60 * 1000;
 
@@ -298,6 +314,13 @@ const feedSilentLines = (app) => logText(app).split('\n').filter((l) => l.includ
 
 /** En hub som aldrig svarat kan inte vara ansluten (_flankUp kräver ett OK-svar). */
 const deadHub = (extra = {}) => perFeedEntry({ isConnected: false, ...extra });
+/**
+ * U12: en aisstream som inte SVARAR — socketen är nere (nätfel, 429-cooldown,
+ * ogiltig nyckel). Det är den enda källformen som får utlösa "appen är blind";
+ * en ÖPPEN socket som aldrig levererar räknas som ett svar (aisstreams
+ * serverdödsläge ägs av korstystnads-/watchdoggrenarna).
+ */
+const deadStream = (extra = {}) => perFeedEntry({ isConnected: false, ...extra });
 
 describe('B2e: eskaleringstrappan kollapsar inte (F-9)', () => {
   beforeEach(() => {
@@ -308,10 +331,12 @@ describe('B2e: eskaleringstrappan kollapsar inte (F-9)', () => {
 
   test('ALDRIG levererat (timeSinceLastMessage null) → observerad tystnad, aldrig "Infinity"', async () => {
     const app = makeHealthApp();
+    // U12: BÅDA källorna är svarslösa — annars äger tomkanalgrenen läget och
+    // eskaleringstrappan berörs aldrig. Provet gäller MÅTTET, inte grinden.
     const stats = () => ({
       isConnected: true,
       perFeed: {
-        aisstream: perFeedEntry({ uptime: Date.now() - Date.parse('2026-08-08T00:00:00.000Z') }),
+        aisstream: deadStream({ uptime: Date.now() - Date.parse('2026-08-08T00:00:00.000Z') }),
         aishub: deadHub({ uptime: Date.now() - Date.parse('2026-08-08T00:00:00.000Z') }),
       },
     });
@@ -335,7 +360,7 @@ describe('B2e: eskaleringstrappan kollapsar inte (F-9)', () => {
     app.aisClient.getConnectionStats.mockImplementation(() => ({
       isConnected: true,
       perFeed: {
-        aisstream: perFeedEntry({ uptime: 5 * MIN }), // kort uptime: irrelevant nu
+        aisstream: deadStream({ uptime: 5 * MIN }), // kort uptime: irrelevant nu
         aishub: deadHub({ uptime: 5 * MIN }),
       },
     }));
@@ -369,7 +394,7 @@ describe('B2e: eskaleringstrappan kollapsar inte (F-9)', () => {
     });
     app.aisClient.getConnectionStats.mockImplementation(() => ({
       isConnected: true,
-      perFeed: { aisstream: perFeedEntry({}), aishub: deadHub() },
+      perFeed: { aisstream: deadStream(), aishub: deadHub() },
     }));
 
     app._checkAISFeedHealth();
@@ -384,7 +409,7 @@ describe('B2e: eskaleringstrappan kollapsar inte (F-9)', () => {
     const app = makeHealthApp();
     app.aisClient.getConnectionStats.mockImplementation(() => ({
       isConnected: true,
-      perFeed: { aisstream: perFeedEntry({}), aishub: deadHub() },
+      perFeed: { aisstream: deadStream(), aishub: deadHub() },
     }));
     app._checkAISFeedHealth();
     app._persistFeedSilenceLedger(true);
@@ -503,12 +528,16 @@ describe('B2g: totaltystnadsgrenen är nåbar och kan inte avväpnas', () => {
     expect(logText(app)).toContain('70 min');
   });
 
-  test('(c) EN FLAPPANDE + EN DÖD → en enda ung socket avväpnar inte larmet', async () => {
+  test('(c) EN FLAPPANDE (nere just nu) + EN DÖD → en ung socket avväpnar inte larmet', async () => {
     const app = makeHealthApp();
     app.aisClient.getConnectionStats.mockImplementation(() => ({
       isConnected: true, // "ansluten men döv" — aggregatet ser friskt ut
+      // 503-stormens signatur: socketen är alltid nyfödd (max 34,6 s upptid).
+      // U12 flyttar frågan från UPPTID till SVAR — här är socketen NERE i
+      // mätögonblicket (mellan två flappar), alltså äkta blindhet. Att uptime
+      // är 30 s får fortfarande inte rädda källan: B2g(2):s hela poäng.
       perFeed: {
-        aisstream: perFeedEntry({ uptime: 30 * 1000 }), // flappar, aldrig levererat
+        aisstream: deadStream({ uptime: 30 * 1000 }),
         aishub: deadHub({ uptime: 90 * MIN }), // död, aldrig levererat
       },
     }));
@@ -521,12 +550,44 @@ describe('B2g: totaltystnadsgrenen är nåbar och kan inte avväpnas', () => {
     expect(sentKeys(app)).toContain('feeds:silent');
   });
 
+  test('(c2) U12-SPEGELN: samma flapp men socketen UPPE ⇒ tyst tills 4h-nätet', async () => {
+    const app = makeHealthApp();
+    app.aisClient.getConnectionStats.mockImplementation(() => ({
+      isConnected: true,
+      perFeed: {
+        // Socketen är öppen i mätögonblicket = källan SVARAR. Enligt U12 är
+        // det inte blindhet utan aisstreams serverdödsläge — det ägs av
+        // watchdogen/korstystnadsgrenarna, inte av "appen är blind".
+        aisstream: perFeedEntry({ uptime: 30 * 1000 }),
+        aishub: {
+          configured: true,
+          isConnected: true,
+          lastMessageTime: null, // tom kanal: hubben levererar aldrig …
+          timeSinceLastMessage: null,
+          uptime: 90 * MIN,
+          lastOkResponseAt: Date.now(), // … men pollen svarar välformat
+        },
+      },
+    }));
+
+    app._checkAISFeedHealth();
+    jest.advanceTimersByTime(20 * MIN);
+    app._checkAISFeedHealth();
+    await microFlush();
+    expect(sentKeys(app)).toHaveLength(0); // ingen notis under 4 h
+
+    jest.advanceTimersByTime(4 * 60 * MIN);
+    app._checkAISFeedHealth();
+    await microFlush();
+    expect(sentKeys(app)).toEqual(['feeds:empty:4h']); // skyddsnätet fångar
+  });
+
   test('(d) enkälleläge: aisstream ensam och död från start → blindhetslarmet fyrar', async () => {
     const app = makeHealthApp({ source: 'aisstream', aishubUsername: '' });
     app.aisClient.getConnectionStats.mockImplementation(() => ({
       isConnected: true,
       perFeed: {
-        aisstream: perFeedEntry({ uptime: 40 * MIN }),
+        aisstream: deadStream({ uptime: 40 * MIN }), // "död" = socketen nere
         aishub: deadHub({ configured: false }),
       },
     }));
@@ -896,8 +957,12 @@ describe('P3: pollkällans färskhet + hysteres + startgrind', () => {
     const rader = logText(app);
     expect(rader).toContain('AISHub svarar men inte levererar något');
     expect(rader).not.toContain('medan AISHub flödar');
-    // Totalgrenen äger scenariot och ska ha sagt det rakt ut.
-    expect(rader).toContain('appen är blind');
+    // U12: totalgrenen loggar fortfarande läget — men den påstår INTE blindhet
+    // när båda källorna svarar. Diagnostiken finns kvar, sanningspåståendet
+    // bytte innebörd (och notisen uteblir helt före 4h-nätet).
+    expect(rader).toContain('kanalen är tom, inte appen blind');
+    expect(rader).not.toContain('— ingen av dem svarar heller');
+    expect(sentKeys(app)).toHaveLength(0);
   });
 
   test('ALDRIG SVARAT (lastOkResponseAt null) är ingen frisk granne', () => {
@@ -1176,9 +1241,13 @@ describe('F1/KX-1: "degraded" och notisen kräver att grannen LEVERERAR', () => 
     expect(sentKeys(app)).not.toContain('aisstream:silent:4h');
     // (3) Ingen användarsynlig text påstår att hubben flödar.
     expect(notisTexter(app).join('\n')).not.toContain('medan AISHub flödar');
-    // (4) SANNINGEN ägs av totalgrenen — den ska ha fyrat, både i logg och notis.
-    expect(logText(app)).toContain('appen är blind');
-    expect(sentKeys(app)).toContain('feeds:silent');
+    // (4) U12: INGEN notis alls — varken korstystnadsgrenen ELLER totalgrenen.
+    //     Båda källorna SVARAR, alltså är appen inte blind; den ser en tom
+    //     kanal. Sanningen ligger i loggen tills 4h-nätet tar över.
+    expect(sentKeys(app)).toHaveLength(0);
+    expect(notisCount(app)).toBe(0);
+    expect(logText(app)).not.toContain('appen är blind');
+    expect(logText(app)).toContain('kanalen är tom, inte appen blind');
     // (5) Loggens diagnostikrad finns kvar och är villkorad (P3:s hubPhrase).
     expect(logText(app)).toContain('AISHub svarar men inte levererar något');
     expect(logText(app)).not.toContain('medan AISHub flödar');
@@ -1209,20 +1278,21 @@ describe('F1/KX-1: "degraded" och notisen kräver att grannen LEVERERAR', () => 
     expect(sentKeys(app).filter((k) => k.startsWith('aisstream:'))).toEqual([]);
   });
 
-  test('TOM NATT i 5 h: eskaleringsnycklarna för aisstream förblir obrända', async () => {
+  test('TOM NATT i 5 h: ENDAST skyddsnätet fyrar — inga aisstream-/feeds:silent-nycklar', async () => {
     const app = makeHealthApp();
     // 5 h tystnad på BÅDA källorna, hubben svarar hela tiden.
     app._checkCrossFeedSilence(nattPerFeed({
       streamSilentMs: 5 * 60 * MIN,
       hubDeliveredMsAgo: 5 * 60 * MIN,
+      uptimeMs: 8 * 60 * MIN, // observationsfönstret måste rymma 5 h
     }));
     await microFlush();
 
     expect(sentKeys(app).filter((k) => k.startsWith('aisstream:'))).toEqual([]);
-    // Totalgrenens trappa ÄGER läget och går hela vägen (bas + 1h + 4h).
-    expect(sentKeys(app)).toEqual(
-      expect.arrayContaining(['feeds:silent', 'feeds:silent:1h', 'feeds:silent:4h']),
-    );
+    // U12: blindhetsnycklarna rörs INTE (det var hela poängen) — men den grova
+    // 4h-grenen har fyrat exakt en gång, för kanalen har varit tom för länge.
+    expect(sentKeys(app)).toEqual(['feeds:empty:4h']);
+    expect(notisCount(app)).toBe(1);
   });
 
   test('ÄKTA HALVDÖD: hubben LEVERERAR ⇒ degraded + notis med "medan AISHub flödar"', async () => {
@@ -1296,6 +1366,213 @@ describe('F1/KX-1: "degraded" och notisen kräver att grannen LEVERERAR', () => 
 
     expect(statusWrites(app)).toEqual(['degraded']); // ingen 'connected'
     expect(app._connectionFeedDegraded).toBe(true);
+    // U12: totalgrenen säger fortfarande sanningen om läget — men båda källorna
+    // SVARAR, så sanningen är "tom kanal", inte "blind app".
+    expect(logText(app)).toContain('kanalen är tom, inte appen blind');
+    expect(sentKeys(app)).not.toContain('feeds:silent');
+  });
+});
+
+// ===========================================================================
+// ANVÄNDARBESLUT U12 (2026-08-10) — TOM KANAL ≠ BLIND APP
+//
+// Totalgrenen dömde på LEVERANS. I Trollhätte kanal är noll fartyg i bboxen
+// normaldrift nattetid (korpusbanken 2026-08-10: 336,6 h inspelad drift, värsta
+// normala trafikuppehåll 198,7 min natten 2026-07-08 02:52–06:11 UTC), så
+// "appen är blind" fyrade varje lugn natt och brände sina 24h-nycklar i
+// förskott — samma F-9-klass larmet självt finns för att förhindra.
+//
+// EFTER U12 finns TVÅ grenar:
+//   • ÄKTA BLINDHET  — ingen konfigurerad källa SVARAR (aisstream: socketen
+//     nere/429-cooldown; aishub: pollklockan ofärsk) ⇒ 'feeds:silent' + trappan.
+//   • TOM KANAL      — alla svarar men noll data på 4 h ⇒ EN notis på egen
+//     nyckel 'feeds:empty:4h'. Ingen trappa: nivån ÄR trappans grövsta steg.
+// B2:s existensberättigande (both-dygn 1: 4,5 h källdöd utan en enda signal)
+// provas oförändrat nedan — och skärpt: det måste larma OMEDELBART även efter
+// en tyst natt, alltså får natten aldrig bränna blindhetsnycklarna.
+// ===========================================================================
+
+describe('U12: "appen är blind" kräver ÄKTA blindhet — tom kanal fångas av 4h-nätet', () => {
+  const EMPTY_TEXT = 'AIS Tracker: AIS-källorna svarar men ingen båtdata på 4 timmar '
+    + '— kontrollera bevakningsområdet/kontona.';
+  const notisTexter = (app) => app.homey.notifications.createNotification.mock.calls
+    .map((c) => c[0].excerpt);
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-08-10T22:00:00.000Z')); // natt
+  });
+  afterEach(() => jest.useRealTimers());
+
+  /**
+   * Kanalrigg med EN ratt per källa: SVARAR den? Ingen av källorna levererar
+   * någonsin en position — det är exakt vad en tom kanal (och ett bbox-fel)
+   * ser ut som. Rattarna kan vridas mitt i en körning, så natt→blindhet kan
+   * spelas upp i ETT app-objekt med sitt riktiga observationsankare.
+   */
+  function channelRig({
+    stream = true, hub = true, source = 'both', aishubUsername = 'station',
+  } = {}) {
+    const app = makeHealthApp({ source, aishubUsername });
+    const t0 = Date.now();
+    const state = { stream, hub, hubFrozenAt: null };
+    app.aisClient.getConnectionStats.mockImplementation(() => {
+      const now = Date.now();
+      // Pollklockan följer hubbens svarsratt: så länge den svarar är senaste
+      // välformade svar färskt (65 s-kadensen), annars fryser klockan där den
+      // slutade svara — precis som AISHubClient._lastOkResponseAt gör i fält.
+      if (!state.hub && state.hubFrozenAt === null) state.hubFrozenAt = now;
+      if (state.hub) state.hubFrozenAt = null;
+      return {
+        isConnected: state.stream || state.hub,
+        perFeed: {
+          aisstream: {
+            configured: true,
+            isConnected: state.stream,
+            lastMessageTime: null,
+            timeSinceLastMessage: null,
+            uptime: now - t0,
+          },
+          aishub: {
+            configured: aishubUsername !== '',
+            isConnected: state.hub,
+            lastMessageTime: null,
+            timeSinceLastMessage: null,
+            uptime: now - t0,
+            lastOkResponseAt: state.hub ? now : state.hubFrozenAt,
+          },
+        },
+      };
+    });
+    return { app, state, t0 };
+  }
+
+  const tick = async (app, minutes) => {
+    jest.advanceTimersByTime(minutes * MIN);
+    app._checkAISFeedHealth();
+    await microFlush();
+  };
+
+  test('TOM NATT under 4 h: INGEN notis alls — varken blindhet eller skyddsnät', async () => {
+    const { app } = channelRig();
+    app._checkAISFeedHealth(); // t0: ankaret sätts
+    for (let h = 0; h < 3; h++) await tick(app, 60); // 3 h tom kanal
+    await tick(app, 59); // 3 h 59 min — en minut under tröskeln
+
+    expect(sentKeys(app)).toHaveLength(0);
+    expect(notisCount(app)).toBe(0);
+    expect(logText(app)).not.toContain('appen är blind');
+    expect(logText(app)).toContain('kanalen är tom, inte appen blind');
+  });
+
+  test('4 h tom kanal ⇒ EXAKT EN notis med exakt text, och den upprepas inte', async () => {
+    const { app } = channelRig();
+    app._checkAISFeedHealth();
+    await tick(app, 4 * 60); // 4 h jämnt = tröskeln nådd
+
+    expect(sentKeys(app)).toEqual(['feeds:empty:4h']);
+    expect(notisTexter(app)).toEqual([EMPTY_TEXT]);
+
+    // Skyddsnätet är GROVT: ingen trappa, ingen upprepning inom 24h-fönstret.
+    for (let h = 0; h < 6; h++) await tick(app, 60);
+    expect(notisCount(app)).toBe(1);
+    expect(sentKeys(app)).toEqual(['feeds:empty:4h']);
+  });
+
+  test('ÄKTA BLINDHET (ingen källa svarar): feeds:silent + hela trappan, som förut', async () => {
+    const { app } = channelRig({ stream: false, hub: false });
+    app._checkAISFeedHealth();
+
+    await tick(app, 16);
+    expect(sentKeys(app)).toEqual(['feeds:silent']);
     expect(logText(app)).toContain('appen är blind');
+    expect(logText(app)).toContain('ingen av dem svarar heller');
+
+    await tick(app, 45); // 61 min
+    expect(sentKeys(app)).toEqual(['feeds:silent', 'feeds:silent:1h']);
+
+    await tick(app, 180); // 4 h 1 min
+    expect(sentKeys(app)).toEqual(['feeds:silent', 'feeds:silent:1h', 'feeds:silent:4h']);
+    // Grenarna är ömsesidigt uteslutande — blindhet larmar aldrig som tom kanal.
+    expect(sentKeys(app)).not.toContain('feeds:empty:4h');
+  });
+
+  test('TOM NATT FÖLJD AV ÄKTA BLINDHET: larmet fyrar OMEDELBART, nycklarna obrända', async () => {
+    const { app, state } = channelRig();
+    app._checkAISFeedHealth();
+    for (let h = 0; h < 3; h++) await tick(app, 60); // 3 h lugn natt
+
+    // KÄRNAN I U12: natten får inte ha bränt EN ENDA blindhetsnyckel.
+    expect(sentKeys(app)).toHaveLength(0);
+
+    // Kl 01:00 dör nätet: socketen faller och pollen slutar svara.
+    state.stream = false;
+    state.hub = false;
+    await tick(app, 1);
+    // Ännu inte: pollklockan är färsk i FRESH_POLL_MS (210 s) efter sista
+    // välformade svaret — hubben har inte HUNNIT sluta svara. Fönstret är
+    // P3:s och rörs inte av U12.
+    expect(sentKeys(app)).toHaveLength(0);
+
+    await tick(app, 4); // pollklockan har hunnit bli ofärsk ⇒ äkta blindhet
+
+    // KÄRNAN: ingen ny 15-minutersklocka. Tystnaden är redan 3 h, så basen OCH
+    // 1h-nivån fyrar direkt — hade natten bränt nycklarna vore det här tyst.
+    expect(sentKeys(app)).toEqual(['feeds:silent', 'feeds:silent:1h']);
+    expect(notisTexter(app)[0]).toContain('broöppningsvakten är i praktiken blind');
+    expect(logText(app)).toContain('appen är blind');
+  });
+
+  test('429-COOLDOWN räknas som icke-svarande (enkälleläge ⇒ blindhetslarm)', async () => {
+    // Klientkontraktet först: en 429 stänger socketen OCH sätter cooldown, så
+    // isConnected=false är den bevisade signalen app-lagret läser via perFeed.
+    const logger = { log: jest.fn(), debug: jest.fn(), error: jest.fn() };
+    const client = new AISStreamClient(logger);
+    client.isConnected = true; // socketen levde när servern sade 429
+    const socket = { terminate: jest.fn() };
+    client.ws = socket;
+    client._onUnexpectedResponse(socket, {}, { statusCode: 429, headers: {}, resume: jest.fn() });
+    client._onClose(1006, '');
+    expect(client.isConnected).toBe(false);
+    expect(client.getConnectionStats().rateLimitMsLeft).toBeGreaterThan(0);
+    client.disconnect();
+
+    // Och app-lagret: aisstream ensam i cooldown ⇒ ingen källa svarar ⇒ blind.
+    const { app } = channelRig({ stream: false, source: 'aisstream', aishubUsername: '' });
+    app._checkAISFeedHealth();
+    await tick(app, 16);
+    expect(sentKeys(app)).toContain('feeds:silent');
+  });
+
+  test('DELVIS SVARANDE (en uppe, en nere, noll data): ingen notis — men loggen namnger båda', async () => {
+    const { app } = channelRig({ stream: false, hub: true });
+    app._checkAISFeedHealth();
+    await tick(app, 5 * 60); // 5 h: över BÅDA trösklarna
+
+    // Varken blindhet (hubben svarar) eller tom-kanal-nätet (alla svarar inte).
+    expect(sentKeys(app)).toHaveLength(0);
+    const rad = logText(app).split('\n').find((l) => l.includes('INGEN aktiv AIS-källa'));
+    expect(rad).toContain('aishub svarar men levererar inget');
+    expect(rad).toContain('aisstream svarar inte');
+    expect(rad).not.toContain('appen är blind');
+  });
+
+  test('SKUGGLÄGE: skugghubben räknas inte som svarande källa (fynd 17-principen)', async () => {
+    // Hubben svarar men matar inte pipelinen ⇒ relevanta källor = aisstream
+    // ensam. Är den nere är appen blind, oavsett hur pigg mätinstrumentet är.
+    const { app } = channelRig({ stream: false, hub: true, source: 'shadow' });
+    app._checkAISFeedHealth();
+    await tick(app, 16);
+    expect(sentKeys(app)).toContain('feeds:silent');
+  });
+
+  test('KONSTANTEN: 4h-nivån ligger över fältets värsta uppehåll och speglar trappan', () => {
+    const { EMPTY_CHANNEL_ALERT_MS } = FEED_SILENCE;
+    // Härledningens undre gräns: värsta NORMALA trafikuppehåll i korpusbanken
+    // (198,7 min, 2026-07-08). Under det larmar en lugn natt igen.
+    expect(EMPTY_CHANNEL_ALERT_MS).toBeGreaterThan(198.7 * 60 * 1000);
+    // …och nivån är trappans grövsta steg, inte en tredje tidsskala.
+    const grovsta = CONNECTION_ALERT.ESCALATION_STEPS[CONNECTION_ALERT.ESCALATION_STEPS.length - 1];
+    expect(EMPTY_CHANNEL_ALERT_MS).toBe(grovsta.ms);
   });
 });
