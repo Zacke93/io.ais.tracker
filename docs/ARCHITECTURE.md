@@ -129,6 +129,19 @@ Moduler (ansvar / ägda tillstånd / in-ut):
   maxSilence lästes som ett sanningsenligt maxvärde; och `_pct` använder
   nearest-rank (returnerade förut MAXVÄRDET vid exakt n=10, precis vid
   tröskeln `MIN_SAMPLES_FOR_P90`).
+  **TIDSBASERNA STÅR UTSKRIVNA I RADERNA (K32 k, 2026-08-21).** Båda
+  mätraderna bär mått på två olika skalor, och den som läste dem som EN skala
+  drog fel slutsats: `[SHADOW_COMPARE]` säger nu att `window=5min` gäller
+  räknarna och paren, medan `maxSilence*` mäts per MMSI mot `_shadowLastSeen`
+  som ÖVERLEVER fönsterbyten (prunas först vid `LAST_SEEN_TTL_MS`) — ett glapp
+  kan spänna flera fönster, vilket är varför fältprov 2 kunde mäta 669 007 ms i
+  ett enda femminutersfönster och varför 32 min på en femminutersrad inte är ett
+  trasigt instrument. `[FUSION_HEALTH]` delar på samma sätt sitt klockblock i
+  `klocka/<N>min glidande fönster` (`hubLagMin`/`hubLagMedian`/`hubOffsetMs`,
+  räknade ur `FUSION.CLOCK_OFFSET_WINDOW_MS` = 30 min och därmed
+  återhämtningsbara) och `klocka/livstid (nollställs aldrig)`
+  (`hubAheadSamples`, `hubPairsDroppedStale`) — fönsterlängden HÄRLEDS ur
+  konstanten i stället för att skrivas som en siffra som kan glida isär.
   **NOLLSAMPELFALLET (KX-5/KX-6, fältprovet 2026-08-09)**: glappet kan bara
   mätas VID ANKOMST av ett nytt sampel, så en källa utan sampel rapporterade
   `maxSilence*Ms=0` — instrumentets mest lugnande värde vid total källdöd (sju
@@ -205,7 +218,7 @@ Moduler (ansvar / ägda tillstånd / in-ut):
 
 ## 2. Geografin (lib/constants.js)
 
-Broar i `BRIDGES` (:151–187), syd→nord (`BRIDGE_SEQUENCE` :255–261):
+Broar i `BRIDGES` (:245–325), syd→nord (`BRIDGE_SEQUENCE` :573–579):
 
 | Bro | lat | lon | radius | axisBearing | Roll |
 |---|---|---|---|---|---|
@@ -213,23 +226,50 @@ Broar i `BRIDGES` (:151–187), syd→nord (`BRIDGE_SEQUENCE` :255–261):
 | Klaffbron | 58.284096 | 12.283930 | 300 | 130 | **MÅLBRO** |
 | Järnvägsbron | 58.291640 | 12.292025 | 300 | 130 | mellanbro |
 | Stridsbergsbron | 58.293524 | 12.294566 | 300 | 130 | **MÅLBRO** |
-| Stallbackabron | 58.311430 | 12.314564 | 300 | 125 | hög bro, öppnas aldrig |
+| Stallbackabron | 58.309802 | 12.316748 | 300 | 142 | hög bro, öppnas aldrig |
 
-- `TARGET_BRIDGES = ['Klaffbron', 'Stridsbergsbron']` (:234); `INTERMEDIATE_BRIDGES` (:237).
+- **Stallbackabrons rad flyttades i C0 (commit 4362da7, 2026-08-10)** — tabellen
+  bar fram till fältprov 10 (K32 l) de gamla värdena 58.311430/12.314564 med
+  axisBearing 125. Den punkten satt 221–228 m NNV LÄNGS bron, mitt över det 486 m
+  breda vattenspannet, medan farleden går under bron ~55 m från östra stranden —
+  därav att appen rapporterade `distance=207 m` för AGULHAS när hon låg 10 m från
+  bron. Nya punkten är konsensus av fem oberoende indikatorer inom 30 m
+  (OSM/OpenSeaMaps-nod med källa Ufs 2011:342, ledverkens mittlinje,
+  farledsprickarnas parvisa mittpunkter, täckningskartans centerlinje,
+  AIS-medianen av korpusbankens passager n=34); 142 är den uppmätta broaxeln vid
+  farledsspannet (142,4°). Mätt utfall över ~320 h låst korpusdata: **+3 äkta
+  notiser, −0 förlorade** (hela underlaget i `docs/c0-matning-2026-08-10.md`).
+  Radien 300 BEHÅLLS — 350-frågan är stängd genom användarbeslut samma dag.
+  C0-planens äldre mål `lon 12.317971` (gap 2415) föll i samma verifiering: det
+  låg 159,8 m AV bron. **Punkt, axel, `BRIDGE_GAPS`, `EXPECTED_DISTANCES`
+  (BridgeRegistry) och `STALLBACKABRON_EXIT_LAT` (58.3125,
+  VesselLifecycleManager) flyttas ALLTID i samma commit** — helgranskningens
+  invariant låser gapet till haversine ±10 m.
+- `TARGET_BRIDGES = ['Klaffbron', 'Stridsbergsbron']` (:537); `INTERMEDIATE_BRIDGES` (:540).
 - **Kanalinfarten** är INGEN bro utan trigger-punkt (`TRIGGER_POINTS.kanalinfarten`,
-  :117–124: 58.268003/12.269365, radius 300 m) — triggar boat_near men ingår inte
+  :176–183: 58.268003/12.269365, radius 300 m) — triggar boat_near men ingår inte
   i brotext/status; ej i BridgeRegistry, uppslag direkt i TRIGGER_POINTS
   (app.js:3938/4108/4156/4255/4892).
-- `BRIDGE_GAPS` (:250–255): olide–klaff 1363 m, klaff–järnväg 960 m,
-  järnväg–strids 257 m (kortast, kritisk timing), strids–stallbacka 2310 m.
+- `BRIDGE_GAPS` (:556–567): olide–klaff 1363 m, klaff–järnväg 960 m,
+  järnväg–strids 257 m (kortast, kritisk timing), strids–stallbacka **2226 m**
+  (C0: haversine mot konsensuspunkten är 2226,2 m — 2310 hörde till den gamla
+  koordinaten och 2415 till C0-planens övergivna mål; båda övergivna med den
+  punkt de räknades mot).
   (Haversine bro-till-bro; 950/420-datafelen rättades i helgranskningen
   2026-07-06 — denna rad släpade efter till 2026-07-10.)
-- `MOORING_ZONES` (:216–227): kapsel (centrumlinje + 30 m halvbredd) för "Kajen
-  norr om Klaffbron" (190–295 m från bron, mitt i väntzonen). `MOORING_DETECTION`
-  (:204–210): STATIONARY 0.3 kn, MOVEMENT_PROOF 0.5 kn/50 m, navstatus 1/5,
+- `MOORING_ZONES` (:403–458): TVÅ kapslar (centrumlinje + halvbredd), båda norr
+  om Klaffbron: "Kajen norr om Klaffbron" (30 m halvbredd, 190–295 m från bron,
+  mitt i väntzonen, `queueGraceMs` 15 min) och "Gästhamnen norr om Klaffbron"
+  (35 m, `queueGraceMs` 0 — B3, 2026-08-06). `MOORING_DETECTION`
+  (:342–355): STATIONARY 0.3 kn, MOVEMENT_PROOF 0.5 kn/50 m, navstatus 1/5,
   2h-backstop.
-- Stallbackabron-specialregler i `STALLBACKABRON_SPECIAL` (:343–348): aldrig
-  "inväntar broöppning"; egen status `stallbacka-waiting`.
+- Stallbackabron-specialreglerna har INGET konstantobjekt längre:
+  `STALLBACKABRON_SPECIAL` raderades 2026-08-10 (Fable-granskningen FG-E1 — noll
+  referenser, och tre av fälten var hårdkodade `true`). Specialfallet — aldrig
+  "inväntar broöppning", egen status `stallbacka-waiting` — implementeras via
+  strängjämförelsen `'Stallbackabron'` i app.js, StatusService,
+  VesselDataService, PassageLatchService, RouteOrderValidator,
+  VesselLifecycleManager och geometry.
 
 ## 3. Dataflödet AIS→notis (boat_near)
 
@@ -345,7 +385,13 @@ för en kajliggare i rent aisstream-läge) och bokföringen PERSISTERAS strypt
 före kajavgången återskapade annars fantomen exakt. Den inlärda kajkartan (F4-L)
 räknas som stillasample för en långsam båt som ligger på en känd kajplats.
 Målbro-benet är orört (målbrotilldelningen har egna förtöjnings-/kajvobbel-
-vakter), och fartyg utan kajhistorik prövas exakt som förut. Dedup-nyckeln
+vakter), och fartyg utan kajhistorik prövas exakt som förut.
+**Söktermer i fält (K32 a, 2026-08-21):** målbrogrindens loggrad hette förut
+"quay wobble, blocking target assignment" men fyrade på ren sydtransit i 4,6 kn,
+så frasen dög inte som verktyg. Den heter numera "utan nordprogress"
+(TARGET_ASSIGNMENT), och `grep "quay wobble"` träffar därmed ENBART den ÄKTA
+kajvobbelvakten i reborn-grenen. Läser du en logg från före 2026-08-21 gäller
+det omvända. Dedup-nyckeln
 sätts inte vid skip: notisen fördröjs en fix, den förloras inte.
 
 Dedup-lagren:
@@ -363,7 +409,11 @@ Dedup-lagren:
 
 Tokens: `vessel_name` (B1: känt namn → cache-uppslag → "Okänd båt", :4464),
 `bridge_name`, `direction` (`_getDirectionString`:4639: låst rutt-riktning
-först, annars COG — 'unknown' vid omätbar fart), `eta_minutes` (target-källa =
+först, annars COG — 'unknown' vid omätbar fart; sedan K30 2026-08-21 är
+riktningen den ENDA kvarvarande källan till `unknown` i loggen — `[BRIDGE_TEXT_FILTER]`
+skriver numera `passed-recent-window` där den förr skrev `unknown` på reason-fältet,
+och det fältet stod för 96 av fältprov 10:s 104 unknown-rader och ledde
+riktningsutredningen fel), `eta_minutes` (target-källa =
 målbro-ETA; övriga = dist/fart mot notisbron; de retroaktiva källorna
 `passage-fallback`/`just-passed`/`exit-fallback` ⇒ -1; nära+långsam
 icke-target ⇒ -1; :4477–4501), `eta_available` (G1,
@@ -454,7 +504,21 @@ båt.
   om för samma öppning).
 - **Grindar:** `npm run replay:openings` (O1 täckning / O2 fantomtak /
   O3 nattkontroll), `opening-distribution.json` (O5, bro:riktning-multiset per
-  korpus, jämförs i `runAllCorpora`), INV-21 (WARN).
+  korpus, jämförs i `runAllCorpora`), INV-21 (WARN), och — före varje
+  korpuslåsning — fassvepet `npm run replay:phase` (VALIDATION.md §Fältprov,
+  steg 4), som gatar öppningsdimensionen `Bro#n → ledande/riktning/eta/källa`
+  mot fasförskjuten korpusstart.
+- **KÄND DEFEKT, EJ ÅTGÄRDAD (K20, fältprov 10 2026-08-19):** ett fix avfyrar
+  direkt (`_evaluateBridge(..., 'fix', ...)`) mitt i AISHub-pollens utspridning
+  (`EMIT_SPREAD_MS` 150 ms), och `_fire` väljer ledande båt på armarnas LAGRADE
+  `distanceM` — som kan vara olika gamla. I 19/8-korpusen valde basreplayn
+  TONGA:s 69 s gamla 1308 m fast hennes EGEN rad 149 ms senare i samma poll gav
+  1165 m: fel ledande båt, och därmed fel riktning och fel ETA på kortet. Följd:
+  öppningsdimensionen är KLOCKFASKÄNSLIG — 5–20 s förskjuten korpusstart byter
+  kortets samtliga fält (boat_near-nyckelmultiseten var däremot exakt i alla
+  fasvarianter). Fixen — uppdatera alla armar ur den aktuella pollbatchen INNAN
+  ledaren väljs, eller välj ledaren på färskaste fix per fartyg — flyttar
+  öppningsfacit och hör därför hemma i en egen, mätt commit (H-4b-liggaren).
 
 ### Övriga Flow-/notisytor
 
@@ -690,9 +754,38 @@ Permanent valideringsverktyg — kör den RIKTIGA appen mot inspelad AIS-jsonl.
   :329–354; firstNameSeen :358–365) för INV-8/11/15. `ctrl:'restart'` = äkta
   processomstart (:246–264): `onUninit()` → `new AISBridgeApp()` → `onInit()`;
   persistensen återläses ur samma mock-settings; notiser samlas över instanserna.
-- `corpora.js`: **8 låsta korpusar (~101,5 h** = 4+41+1+4+19+11+2+19,5) med
+- `corpora.js`: **17 låsta korpusar (~277,5 h)** + en olåst 42h-körning, med
   `expectedNotifications` + motiverad `note` vid omlåsning = **facit**;
-  `corpora-distribution.json` låser fördelningen per fartyg+bro. Data i `../logs/`.
+  `corpora-distribution.json` låser fördelningen per fartyg+bro. Räkna aldrig
+  siffran ur den här raden — den ändras vid varje låsning; `npm run replay:all`
+  skriver ut den aktuella. Jsonl:erna ligger byte-exakt i `corpora-data/`
+  (20 filer = de 18 korpusposterna + fusionsparet); `appLog`-fälten pekar på det
+  externa arkivet `../logs/` och konsumeras aldrig av harnessen.
+- `checkReplayIntegrity.js` (K24, 2026-08-21): bevisar att en fångad jsonl bär
+  HELA loggens facit — en rad per `[AIS_REPLAY_SAMPLE]`, samma ordning, hel
+  sista rad. Fristående node-skript utan beroenden; `--corpora` sveper alla
+  korpusfiler, `--dir` en katalog. Verdikt **OK/DELVIS/FEL/OKÄNT** (källogg
+  saknas ⇒ aldrig OK; DELVIS = härledd tvåkällig korpus där bara den loggbara
+  delen GÅR att mäta — `ais-fusion-*.jsonl`, vars aishub-rader är parseade ur
+  `[AISHUB_RESPONSE_SAMPLE]`-kuvert utan 1:1-relation — exitkod 0, med den mätta
+  andelen utskriven i verdiktraden). Loggen strömmas med `StringDecoder`, annars
+  hade ett å/ä/ö på en läsbitsgräns gett en falsk FEL-dom på en hel korpus.
+  Kallas av `run-with-logs.sh` och är grind 1 i körbokens fältprovsdel;
+  domarlogiken är enhetstestad i `tests/replay-integrity.test.js`.
+- `runPhaseSweep.js` (K20, 2026-08-21, `npm run replay:phase`): **grind 2** före
+  korpuslåsning. Replayn ankrar fejkklockan i korpusens FÖRSTA sampel, så det
+  ankaret är datats enda fas-knapp; svepet kör en bas plus en variant per
+  fasoffset (default −2,5/−5/−11,52/−15/−20/−25 s) där EN temporär kopia har
+  ankarradens `aisTimestamp` OCH `fixTs` skiftade lika mycket — ren fas, bevarad
+  fix-ålder, korpusfilen orörd. Fyra dimensioner FÄLLER (notiser
+  `mmsi:bro:riktning`, passager `mmsi:bro`, öppningar `Bro#n` →
+  ledande/riktning/eta/källa, brotextmultiset dedupad i följd); notisernas
+  ETA-token och ren ordningsomkastning i brotexten rapporteras men fäller inte.
+  Accepterad känslighet skrivs i `phase-sweep-exceptions.json` (motivering +
+  datum obligatoriska, annars exit 2). Utan argument sveper skriptet de OLÅSTA
+  korpusarna. Fältmätning 2026-08-21: pelare 2 är fas-robust (notis- och
+  passagemultiset identiska i alla varianter, både på 19/8-korpusen och den
+  olåsta 42h-körningen) — öppningsmotorn och ETA-texten är knivseggarna.
 - `invariants.js`: facit-OBEROENDE sanningskontroller **INV-1…INV-21**. Fatala:
   INV-1…14 + INV-16 (`validateInvariants`; INV-8 namnkvalitet/INV-11
   distansrimlighet/INV-16 ETA-fysik <30 kn SKÄRPTES från WARN 2026-07-03). WARN:
@@ -824,21 +917,27 @@ fatal sågtand 2→32 min — prövad och återtagen 2026-07-06).
 `FEED_WATCHDOG` mäter AGGREGERAD tystnad (20 min) och kan strukturellt inte se
 per-fartygs-degradering (fynd 10); exit-failsafens 25-minutersgräns ger
 antingen värdelöst sena notiser eller tysta missar (fynd 11); Stallbackabrons
-brokoordinat ligger ~196–220 m vid sidan av farleden (fynd 18, ej verifierad
-mot kartkälla); och målbrons `distance_fallback` (confidence 0,50) är en
-otestad felmod för ett fartyg som stannar ~12 m från bron (fynd 19). Samtliga
+brokoordinat låg ~196–220 m vid sidan av farleden (fynd 18 — **STÄNGT
+2026-08-10 av C0**, se §2 och bulleten nedan); och målbrons `distance_fallback`
+(confidence 0,50) är en otestad felmod för ett fartyg som stannar ~12 m från
+bron (fynd 19). Samtliga
 rör facit-låsta beslutsvägar eller kräver kalibrerdata som inte finns — de ska
 mätas i nästa A/B, inte gissas fram.
 
 **ETAPP 7 (2026-08-08/09) — status på de öppna A/B-fynden ovan:**
-- **Fynd 18 (Stallbackakoordinaten) är UTREtt men UPPSKJUTET.** Rätt värde är härlett tolv
-  oberoende gånger (`lon: 12.317971`; 42h-fältprovets egen median 12.318344, n=19). Felet är
-  bekräftat: appens rapporterade Stallbacka-avstånd är systematiskt fel med **median +174 m**.
-  Fixen backades ändå — den är netto negativ i nuvarande form: **−3 äkta notiser** (terminalfixar
-  på 295–300 m från gamla punkten men 324–327 m från den rätta, utan senare sampel) och **+2
-  fantomer** från en kajplats som den rätta punkten drar in i notisringen. Hela härledningen,
-  villkoren och revert-kriteriet står vid koordinaten i `lib/constants.js`. Förutsättningar:
-  C9b (jittertålig stillhetsdetektering) + bro-lokal notisradie.
+- **Fynd 18 (Stallbackakoordinaten) är STÄNGT — C0 landade 2026-08-10 (commit 4362da7).**
+  Felet var bekräftat (appens Stallbacka-avstånd systematiskt fel, **median +174 m**), men BÅDA
+  etapp 7:s premisser föll: kandidatvärdet `lon: 12.317971` (härlett tolv oberoende gånger;
+  42h-fältprovets median 12.318344, n=19) låg enligt Fable-granskningens oberoende
+  koordinatverifiering 159,8 m AV brolinjen, så etapp 7:s revert-mätning (**−3 äkta notiser / +2
+  fantomer**) gällde ett falsifierat mål. Konsensuspunkten 58.309802/12.316748 med axel 142 mättes
+  i stället REN: **+3 äkta notiser, −0 förlorade** över ~320 h låst korpusdata, med båda
+  öppningsskiftena utredda (20260712-25h Strids:northbound 8→9 = ÄKTA tillkommen varning,
+  GALADRIEL; 20260804-17h Strids:southbound 11→10 = RÄTTAD FANTOM). Förutsättningarna som stod
+  här (C9b + bro-lokal notisradie) behövdes alltså inte: radiefrågan avgjordes i samma beslut —
+  300 behålls, 350 är stängt, och FG-RAD-mekanismen ligger kvar neutral och testlåst som
+  beredskap. Härledningen står vid koordinaten i `lib/constants.js`, mätningen i
+  `docs/c0-matning-2026-08-10.md`. Detta stycke bar de gamla värdena till fältprov 10 (K32 l).
 - **Fynd 10 (per-fartygs-degradering)** kvarstår, men watchdogloggen ljuger inte längre om
   varaktighet: A7 loggar `sinceMessage`, `uptime` och `sinceConfigured` var för sig. I fält sa
   20 av 21 strikes fel tid — strike 21 påstod 120 min när sanningen var 3 009.
@@ -857,15 +956,41 @@ mätas i nästa A/B, inte gissas fram.
 **Replay-fångsten kräver debug_level='full'** (sedan 2026-07-06):
 `[AIS_REPLAY_SAMPLE]`-raderna loggas inte längre i normal drift (spammade
 Homey-loggen med varje AIS-meddelande i produktion). run-with-logs.sh varnar
-aktivt om jsonl-filen är tom efter 2 min. **Fältprov utan debug_level=full ger
-en oanalyserbar körning.** Fångstens fältlista (V3, A/B-natten 2026-08-03):
+aktivt efter 2 min och skiljer sedan K24 på "loggen saknar sampel" (fel
+`debug_level`) och "loggen har sampel men jsonl:en är tom" (trasig fångstväg).
+**Fältprov utan debug_level=full ger en oanalyserbar körning.**
+Fångstens fältlista (V3, A/B-natten 2026-08-03):
 mmsi/msgType/lat/lon/sog/cog/**navStatus**/shipName/aisTimestamp/fixTs/feed/
 receivedAt. navStatus saknades tidigare — förtöjningsdetekteringens lager 3
 fanns då bara i AISHub-genererade korpusrader, vilket ogiltigförklarade varje
-A/B-jämförelse i förtöjnings-/"inväntar"-dimensionen. De 15 låsta korpusarna
+A/B-jämförelse i förtöjnings-/"inväntar"-dimensionen. De då 15 låsta korpusarna
 saknar fältet som förut (→ null) och är oberörda; `replayRunner` läser redan
 `s.navStatus`. Muxens `feedSwitch` fångas medvetet INTE: den är leverans-
 härledd och ska räknas om av fusionspolicyn vid replay, inte frysas in.
+
+**Fångstvägen och dess grind (K24, fältprov 10 — 2026-08-21):** jsonl:en HÄRLEDS
+numera ur apploggen (`grep`+`sed` till EOF var 5:e minut och en sista gång i
+nedstängningen, installerad med temp + `mv`) i stället för att skrivas i en
+processubstitution som skalet aldrig väntade in. Den gamla vägen var
+blockbuffrad: nattkörningen 2026-08-19 fick 24 576 byte = exakt 6×4096 och 99
+hela rader mot loggens 146 sampel — 32 % av rådatafacit borta utan ett enda
+varningsspår. Nu gäller `jsonl ⊆ logg` per konstruktion, och filen kan alltid
+byggas om i efterhand. Håldetektorn i summaryn räknar därför numera BÅDA
+delarna (tidshål i loggen + jsonl-rader mot sampelrader) och avslutar med ett
+samlat verdikt — `Logg-integritet: OK|FEL` — som körboken kräver för
+korpuslåsning; `checkReplayIntegrity.js` kör samma kontrakt fristående
+(rad-för-rad-jämförelse, `--corpora` över alla låsta korpusar). Appens egen
+`AIS_REPLAY_CAPTURE_FILE`-väg finns kvar men pekar på en SEPARAT fil —
+`homey app run` kör appen på Homey-enheten och skalets env följer inte med dit,
+så två skrivare mot samma sökväg vore ren risk utan vinst. Retroaktiv kontroll
+2026-08-21: alla 20 jsonl-filer i `corpora-data/` (de 17 låsta korpusarna, den
+olåsta 42h-körningen och fusionsparet) är HELA — 14 836 rader, `OK 19, DELVIS 1,
+FEL 0, OKÄNT 0` (DELVIS = fusionskorpusen, vars aishub-del inte är loggbar; se
+§7). Ingen låst korpus har tagits in trunkerad. Nedstängningen är omskriven i
+samma runda: pipelinen körs i BAKGRUNDEN och väntas in med `wait`, eftersom bash
+servar en trappad signal först när förgrundskommandot är klart — med den
+oändliga pipelinen i förgrunden sköts `INT`/`TERM`/`HUP`-trap:en upp i evighet
+och körningen gick varken att stoppa eller avsluta med summary.
 
 Åtgärdat sedan 2026-07-03: "Fem lager"-kommentaren rättad (constants.js:193);
 MessageBuilder/ETAFormatter/StallbackabronHelper raderade — noll levande
@@ -878,8 +1003,27 @@ och ProximityServices oanvända `getProtectionZoneStatus`/`getUnderBridgeStatus`
 ## 10. Söndagsfältet 2026-08-09/10 (commits a9f2a20, ce6a946, b1a7ba3 + WS-3)
 
 Första fältkörningen av 5.4.0 (33 min logg + settings-arkeologi; aisstream
-serverdött med 429-storm, AISHub-solo) gav 23 skeptikerbekräftade fynd som
+serverdött med 429-storm i JUST DEN körningen, AISHub-solo — se källägesnoten
+nedan innan siffran generaliseras) gav 23 skeptikerbekräftade fynd som
 åtgärdades i tre vågor samma natt. Mekanikändringarna i korthet:
+
+**KÄLLÄGET — aisstream är INTERMITTENT, inte serverdöd** (rättat av fältprov
+10, K23, 2026-08-19). Premissen "aisstream är död sedan ~5 aug" har styrt hur
+flera körningar tolkats och den är motbevisad: nattloggen 18→19/8 bär **52 av
+146 accepterade sampel med `feed=aisstream`**, med EGEN msgType
+(PositionReport/StandardClassBPositionReport mot hubbens AISHubPosition) och
+14–15 koordinatdecimaler mot hubbens 4–5 — alltså äkta aisstream-trafik, inte
+felmärkta hub-ekon. Fusionen arbetade skarpt (53 korskälleavslag), FEED_SILENT
+fyrade 0 gånger, och 21 av 25 skuggfönster hade `msgsAisstream > 0`. Källan
+tystnade först vid **morgonstarten 19/8** (sista sampel efter 06:14:28Z; i
+dygnsloggen därefter 1 skuggfönster av 178). Loggarna 6/8, 10/8 och 16/8 har
+noll aisstream — mönstret är alltså AVBROTT OCH ÅTERKOMST, inte en död server.
+Två följder för analysarbetet: (1) en logg från AISHub-eran får aldrig antas
+vara "AISHub-solo" utan att `feed=`-fördelningen faktiskt räknats; (2)
+nattloggen 18→19/8 är tvärtom det enda fältmaterial som övar fusionens
+ACCEPT-väg (F1/F4a/F4b/F6/F6b) och skuggmätarna, lager som annars bara ses i
+syntetiska ekon. Källvalet `both` påverkas inte — appen plockar upp flödet
+automatiskt när det återkommer.
 
 **Källkedjan.** `AISHubClient.connect()` bär kallstartsklampen (en persisterad
 C3c-reservation i framtiden adopteras och klampas — blindstartsfönstret föll
@@ -901,10 +1045,10 @@ levererande granne släpps INTE när grannen också tystnar (dokumenterat val:
 
 **Källdödslarmet efter U12** (användarbeslut 2026-08-10). Totaltystnadsgrenen
 skiljer nu SVAR från LEVERANS, precis som `degraded` gör. `feeds:silent` +
-1h/4h-trappan kräver ÄKTA BLINDHET: ingen konfigurerad, pipeline-matande källa
-SVARAR ens (aisstream = socketen nere/429-cooldown, `perFeed.aisstream
-.isConnected`; AISHub = pollklockan ofärsk, `lastOkResponseAt` äldre än
-`FRESH_POLL_MS`). Svarar någon källa är grenen tyst — en tom kanal är
+eskaleringstrappan (se nästa stycke) kräver ÄKTA BLINDHET: ingen konfigurerad,
+pipeline-matande källa SVARAR ens (aisstream = socketen nere/429-cooldown,
+`perFeed.aisstream.isConnected`; AISHub = pollklockan ofärsk, `lastOkResponseAt`
+äldre än `FRESH_POLL_MS`). Svarar någon källa är grenen tyst — en tom kanal är
 normaldrift nattetid (korpusbanken: värsta normala trafikuppehåll 198,7 min
 över 336,6 h). Skyddsnätet är en egen, grov gren: alla källor svarar men noll
 data på `FEED_SILENCE.EMPTY_CHANNEL_ALERT_MS` (4 h) ⇒ EN notis på nyckeln
@@ -912,6 +1056,75 @@ data på `FEED_SILENCE.EMPTY_CHANNEL_ALERT_MS` (4 h) ⇒ EN notis på nyckeln
 Loggraden i totalgrenen skiljer de tre lägena (blind / tom-kanal / delvis) och
 struparen går PER LÄGE, så ett lägesbyte alltid syns direkt. Statusvärdet
 (`connected`/`degraded`) berörs inte av U12.
+
+**B2-eskaleringstrappan efter K22** (användarbeslut 2026-08-20, ur fältprov 10).
+`CONNECTION_ALERT.ESCALATION_STEPS` går nu **15 min (basnotisen, =
+korstystnadsfönstret) → 1 h → 4 h → 1 dygn**. Varje nivå bär sin egen
+dedup-nyckel (`<basnyckel>:<etikett>`, t.ex. `aisstream:silent:1 dygn`), och
+eftersom `_notifyConnectionIssue` dedupar per nyckel i 24 h ger trappan högst EN
+notis per nivå och dygn — en påminnelse, inte en serie. Dygnssteget tillkom
+därför att 19/8 gick dygnets sista notis 10:15:03, varefter appen körde 10 h
+51 min på halverad redundans utan en enda ny signal medan den UPPMÄTTA tystnaden
+växte till 886 min: ett 4-timmarsavbrott och ett 15-timmarsavbrott var
+oskiljbara på enheten, vilket är precis vad trappan finns för att förhindra.
+24 h är härlett som nästa begripliga tidsskala ovanför 4 h (886 min föll mitt
+emellan) OCH som exakt dedupfönstrets längd, så steget kan strukturellt inte
+fyra oftare än en gång per dygn av oavbrutet avbrott.
+
+**Texterna anger den MÄTTA tystnaden** (K22, landat 2026-08-21) — BT-12, samma
+princip som redan styrde `hubPhrase`: texten får inte påstå mer än mätningen
+bär. Fältprov 10 visade en hårdkodad "på 15 min" i notisen bredvid en loggrad
+som interpolerade det mätta värdet, och systerloggen 2026-08-11 gav skadefallet:
+mätt 1456 min → notis "på 15 min" 24 ms senare, ~97× underskattning, utan
+mellanliggande omstart. **EN formaterare — `_formatSilence(ms)` (app.js:3274) —
+äger varje tidsfras i varje larmtext.** Den används av SAMTLIGA fyra basnotiser
+(`feeds:silent`, `feeds:empty:4h` — som hårdkodade "på 4 timmar" oavsett om
+kanalen varit tom i 4 eller 20 h — `aisstream:silent` och `aishub:silent`) OCH av
+eskaleringstexterna; hårdkodningen kunde bara uppstå för att varje notistext
+skrev sin egen siffra, så en enda formaterare är själva fixen.
+
+Skalorna är `N min` (< 60 hela min), `N h` (< 24 hela h) och `N dygn`, alla tre
+**GOLVADE** (`Math.floor`, dirigentbeslut 2026-08-21). Golvet är BT-12 taget åt
+båda hållen: symmetrisk avrundning gjorde 90 min till "2 h" och 36 h till
+"2 dygn" — tolv timmar som aldrig mätts, i en mening som säger "i över". Med
+golv är varje siffra en SANN UNDRE GRÄNS och prepositionerna ("på N", "i över
+N") sanna i bokstavlig mening; priset är en underdrift på under en enhet
+(59 min 36 s ⇒ "59 min"), som prepositionen täcker. Gränserna prövas på det
+golvade värdet, så "60 min" och "24 h" är strukturellt omöjliga utfall och
+"0 dygn" kan inte uppstå (dygnsgrenen nås först vid ≥ 24 h). Under en minut ger
+"0 min" — onåbart i produktion, eftersom varje anropare gatar på minst
+korstystnadsfönstret. Ett icke-ändligt mått ger `okänd tid`, aldrig "NaN min".
+Loggraderna avrundar fortfarande (`Math.round(ms / 60000)`): de är
+fältdiagnostik och greppmönster, inte påståenden till en användare.
+
+I trappan bär **NYCKELN** stegets etikett (`<basnyckel>:1h` / `:4h` /
+`:1 dygn` — dedupens identitet får inte flyta), medan **TEXTEN bär den UPPMÄTTA
+tystnaden**, inte stegets tröskel (skärpt 2026-08-21 efter granskning).
+Motivet: ett 25-timmarsavbrott som upptäcks sent — appstart efter avbrottet,
+eller ett dedupfönster som armar om — skrev annars "har varit tyst i över 1 h",
+samma underskattningsklass som K22 rättar för basnotiserna, bara 24× i stället
+för 97×. AVVÄGNINGEN: fyrar flera steg i SAMMA tick får notiserna nu identisk
+text och skiljs bara av dedup-nyckeln. Det är avsiktligt — en sann siffra i
+varje notis väger tyngre än att kunna skilja två notiser åt i den enda
+situation där de krockar; i normal drift korsas stegen ett i taget och siffran
+växer monotont. Trappan mäter OBSERVERAD tystnad och är sentinelsäkrad (B2e:
+icke-ändligt mått ⇒ avbruten eskalering med felrad, annars brände `Infinity`
+alla nivåer i samma millisekund). Låst av `tests/k22-larmtext.test.js`
+(formateringens gränser, BT-12-invarianten "aldrig mer än mätningen bär", och
+att trappans text följer mätningen och inte tröskeln).
+
+**`FEED_SILENCE.EMPTY_CHANNEL_ALERT_MS` (4 h) speglar 4h-STEGET, inte trappans
+topp** (användarbeslut 2026-08-21). Efter dygnssteget är 4 h ett MELLANSTEG, och
+tom-kanal-nätet följer medvetet mellansteget: dess egen härledning handlar om
+TRAFIKUPPEHÅLL på timskala (korpusbankens värsta normala uppehåll 198,7 min), en
+skala som inte blir mer sann av att trappan fått ett dygnssteg ovanför. Larmens
+tidsskalor ska fortfarande gå att läsa som EN trappa. Kopplingen är låst av
+invarianttestet i `tests/kalldodslarm-eskalering.test.js` ("KONSTANTEN: 4h-nivån
+ligger över fältets värsta uppehåll och speglar trappans 4h-steg"), som sedan K22
+slår upp 4h-steget **vid namn** (`label === '4h'`) i stället för att ta trappans
+sista element — den gamla formuleringen gjorde varje nytt, grövre steg till ett
+rött test i stället för till en beteendefråga. Ett extra led låser att trappan
+har ett grövre steg OVANFÖR 4 h, så dygnssteget inte kan tas bort i tysthet.
 
 **Kajliggarlivscykeln (P9).** Tre samverkande mekanismer stänger churnen
 (fältet: 20 raderingar/19 återfödelser av tre SÄNDANDE kajliggare på 22 min):

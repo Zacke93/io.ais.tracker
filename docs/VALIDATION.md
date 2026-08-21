@@ -25,11 +25,29 @@ Eller stegen var för sig:
 |---|---|---|
 | Enhetstester | `npm test 2>&1 \| tail -5` (**pipa alltid** — annars ENOSPC) | 1400+ tester passerar (1551 i 103 sviter efter öppningsetappen 2026-08-03) |
 | | ⚠️ **Pipe-fällan** (ChatGPT-granskningen 2026-07-10, B1): pipens exitkod är `tail`:s (≈alltid 0) — LÄS `Tests:`-raden, lita inte på `$?`. `npm run validate` är immun: den skriver jest-utdatan till en tempfil och propagerar jest:s riktiga exitkod. | |
-| Korpusarna | `npm run replay:all` | 15 låsta korpusar (~239,5 h verklig AIS) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + exakt (mmsi,bro,riktning)-fördelning + EXAKT bridge_text-transitionsström (golden-text/) + alla invarianter |
+| Korpusarna | `npm run replay:all` | 17 låsta korpusar (~277,5 h verklig AIS — siffran ändras vid varje låsning; skriptets egen utskrift är den aktuella) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + exakt (mmsi,bro,riktning)-fördelning + EXAKT bridge_text-transitionsström (golden-text/) + alla invarianter |
 | Syntetiska | `npm run replay:synthetic` | 45 scenarier (gap, U-svängar, GPS-hopp, kajliggare, sog=null, omstart, 2h-prune-stillaliggare …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. |
-| Öppningsgrindarna | `npm run replay:openings` | ETAPP 6: det proaktiva lagret (`bridge_opening_soon`). **O1** varje målbropassage i alla 16 korpusar har en öppningsvarning FÖRE passagen — varje miss klassad mot rådata (oklassad = rött); en KONVOJTÄCKNING underkänns om bron bevisligen öppnat och stängt för någon annan emellan. **O2** varje varning utan passage inom 20 min klassas mot rådata (KAJVOBBEL och UTANFÖR_HORISONTEN = rött; avbruten approach, gles anflygning och garantipris = accepterade) — även SEN_PASSAGE-hinken klassas. **O3** A/B-nattens båda armar: 6/6 öppningar varnade före, konvojen som EN varning, boat_near byte-identisk med nattens facit. Dessutom **avfyrningsfönstret** (`t − dueMs` inom två tick — kontraktet "avfyra så sent som garantin tillåter") och **ledtidsgolvet** (hårt golv 60 s; tunnare än utlovade 150 s rapporteras). |
+| Öppningsgrindarna | `npm run replay:openings` | ETAPP 6: det proaktiva lagret (`bridge_opening_soon`). **O1** varje målbropassage i SAMTLIGA korpusar (låsta som olåsta — antalet står i skriptets utskrift, inte här) har en öppningsvarning FÖRE passagen — varje miss klassad mot rådata (oklassad = rött); en KONVOJTÄCKNING underkänns om bron bevisligen öppnat och stängt för någon annan emellan. **O2** varje varning utan passage inom 20 min klassas mot rådata (KAJVOBBEL och UTANFÖR_HORISONTEN = rött; avbruten approach, gles anflygning och garantipris = accepterade) — även SEN_PASSAGE-hinken klassas. **O3** A/B-nattens båda armar: 6/6 öppningar varnade före, konvojen som EN varning, boat_near byte-identisk med nattens facit. Dessutom **avfyrningsfönstret** (`t − dueMs` inom två tick — kontraktet "avfyra så sent som garantin tillåter") och **ledtidsgolvet** (hårt golv 60 s; tunnare än utlovade 150 s rapporteras). |
 | Soaken | `node tests/replay-validation/runSoak.js` | 72 h blandtrafik: 0 processfel, inga läckor, fatala invarianter rena |
 | Lint | `npx eslint <ändrade filer>` (per fil — OneDrive gör helträd långsamt) | 0 fel |
+
+**Korpuslåsningens två grindar** — `node tests/replay-validation/checkReplayIntegrity.js`
+(jsonl mot logg) och `npm run replay:phase` (fassvepet) — ingår MEDVETET inte i
+`npm run validate`: de prövar en FÄLTKÖRNING, inte en kodändring, och körs före
+varje låsning. Fullständiga kommandon och grindkriterier i §Fältprov / ny
+korpus, steg 3 och 4. Integritetskontrollens egen domarlogik är enhetstestad i
+`tests/replay-integrity.test.js` (körs med `npm test`); dess REGRESSIONSFALL kör
+mot fixturer i repot (sökvägen står i testfilens huvud), inte mot fältfiler i
+`~/.ais-tracker-logs` — de senare byggs om av just det `grep | sed`-kommando
+steg 2 rekommenderar, och då hade ett grönt test blivit rött av att projektet
+gjorde vad körboken säger.
+
+⚠️ **Ett bart `npm run replay:phase` är FÖRVÄNTAT rött** tills den olåsta
+`20260806-42h` är avgjord efter K20a (gula paketet): standardsvepet tar just de
+OLÅSTA korpusarna, och den bär 101 odokumenterade fasavvikelser i öppnings- och
+brotextdimensionerna. Rött där är alltså en ÄRLIG mätning, inte en trasig
+grind — men lägg därför aldrig kommandot i `npm run validate`/CI, och kör
+rökprov mot en NAMNGIVEN korpus (`npm run replay:phase -- <jsonl>`).
 
 **Nätisolering (etapp 1, 2026-08-02):** replay-harnessen och RealAppTestRunner
 stubbar `https` med en KASTANDE stub — batteriet kan aldrig göra äkta anrop
@@ -137,6 +155,16 @@ Korpusarnas facit ÄR sanningen tills du bevisat motsatsen i rådata. Om en
    skriver `replay:all` en högljudd rad; saknas en LÅST korpus i den är det ett
    hårt fel.
 
+6. **Fas-känsliga utfall** (K20, 2026-08-21): innan du felsöker en flyttad
+   siffra i en AISHub-korpus — pröva om utfallet ens är stabilt. Replayn ankrar
+   klockan i korpusens första sampel, och en förskjutning på 5–20 s räckte i
+   19/8-korpusen för att byta ledande båt, riktning och ETA i en
+   öppningsvarning. Ett värde som vippar av ren fas är en knivsegg, inte ett
+   facit: fassvepet (§Fältprov, steg 4) avgör vilket, och en dimension som
+   visat sig fas-känslig ska bära det skriftligt — i korpusens `note` som
+   permanent minne OCH i `tests/replay-validation/phase-sweep-exceptions.json`
+   som grindens egen kvittens — innan den används som bevis mot en fix.
+
 Exempel på att fällan fungerar: helgranskningens ETA-gap-omordning gav
 "ärligare" värden men korpusbelagd fatal sågtand (2→32 min i texten) —
 batteriet fällde den, fixen togs tillbaka.
@@ -173,6 +201,11 @@ C0 (Stallbacka-koordinaten) förbereddes i tolv omgångar och byggde på en
 provkörning från 2026-08-06. Korpus #17 skapades efteråt och innehöll en tredje
 förlorad notis (SIESTA) som ingen kunde se då — och förarbetets bärande premiss,
 "+2 återvunna äkta passager", visade sig vara två *fantomer* från en kajplats.
+Läxan gäller även när fixen till sist landar: C0 genomfördes 2026-08-10, men mot
+en ANNAN punkt än förarbetets (konsensuspunkten 58.309802/12.316748, inte
+`lon 12.317971` som föll på 159,8 m AV brolinjen) och med ett annat mätutfall
+(+3 äkta notiser / −0 förlorade). Se ARCHITECTURE §2 och
+`docs/c0-matning-2026-08-10.md`.
 
 **Verifiera premisserna mot nuvarande data innan du genomför en förberedd fix**,
 särskilt om nya korpusar tillkommit sedan förarbetet skrevs.
@@ -234,25 +267,246 @@ Leveranslatensen redovisas separat. Läser du om kartan, läs den siffran först
 
 ## Fältprov / ny korpus (så samlas verklighet in)
 
+**Två grindar står mellan en fältkörning och en låst korpus: steg 3
+(logg-integriteten) och steg 4 (fassvepet).** Båda är OBLIGATORISKA före
+låsning, båda kan köras i efterhand på en färdig körning, och båda ger grönt
+bara på mätning — aldrig på att körningen "såg bra ut". Skälet är fältprov 10:
+en trunkerad korpus och en knivseggsartefakt ser båda ut som giltigt facit
+efteråt.
+
 1. Sätt appens inställning **`debug_level` = `full`** — annars loggas inga
-   `[AIS_REPLAY_SAMPLE]`-rader och jsonl-filen blir TOM (skriptet varnar
-   högljutt efter 2 min).
+   `[AIS_REPLAY_SAMPLE]`-rader och jsonl-filen blir TOM. `[REPLAY-VAKT]` larmar
+   efter 2 min och skiljer sedan K24 på de två felen: `Inga
+   [AIS_REPLAY_SAMPLE]-rader efter 2 minuter!` (fel `debug_level`) och `Loggen
+   har N sampel men jsonl-filen är TOM!` (fångstvägen skriver inte) — förr sa
+   vakten alltid det första.
 2. `./run-with-logs.sh` — kör ~1 dygn. Live-loggen skrivs LOKALT
    (`~/.ais-tracker-logs/`, immunt mot OneDrive-synkstall — fältprov 4 tappade
    4 min loggrader när tee-röret skrev direkt i molnmappen) och synkas till
    `logs/` var 10:e minut + vid avslut. Ger `logs/app-*.log` +
    `logs/ais-replay-*.jsonl`.
-3. **Kontrollera logg-integriteten**: summaryn (`bridge-text-summary-*.md`)
-   har sektionen "Logg-integritet (håldetektor)". Står det TIDSHÅL där är
-   körningen OFULLSTÄNDIG — den kan analyseras som fältbevis men får ALDRIG
-   korpuslåsas (facit i hålet är overifierbart; jsonl:en saknar samples).
+   **Sedan K24 (2026-08-21) är loggen den ENDA strömmen och synken atomisk**
+   (skrivning till temp + `mv`, aldrig `cp -f` som trunkerar målet först):
+   jsonl:en HÄRLEDS ur loggen var 5:e minut och en sista gång i
+   nedstängningen — som numera fångar Ctrl+C, `kill` och stängd terminal
+   (`INT`/`TERM`/`HUP`), inte bara normalt avslut. jsonl ⊆ logg gäller därför
+   per konstruktion, och filen kan alltid byggas om i efterhand:
+   ```bash
+   LC_ALL=C grep 'AIS_REPLAY_SAMPLE' app-<ts>.log \
+     | sed 's/^.*AIS_REPLAY_SAMPLE\] //' > ny.jsonl
+   ```
+   Intervallet är MÄTT, inte valt på känsla: ombyggnaden är en full `grep`+`sed`
+   över HELA loggen (~50 MB/s uppmätt), så var 60:e sekund kostade ~3,6 min
+   CPU/dygn på en 15 MB-logg och ~29 min på en 70 MB-logg — på samma maskin som
+   ska mata tee-röret, och det var just ett stallat rör som kostade fältprov 4
+   fyra minuters loggrader. Priset för 300 s är enbart bekvämlighet: **bara ett
+   hårdstopp som INTE går att trappa** (SIGKILL, strömavbrott) kan lämna jsonl:en
+   upp till fem minuter efter loggen, och då är loggen ändå hel — kommandot ovan
+   återställer facit. Vid Ctrl+C, `kill` och stängd terminal byggs filen om en
+   sista gång innan skriptet dör.
+3. **GRIND 1 — logg-integriteten.** Summaryn (`bridge-text-summary-*.md`) har
+   sektionen "Logg-integritet (tidshål + replay-fångst)" med TVÅ delar och ett
+   samlat verdikt:
+   - **Tidshål** — luckor >180 s i loggens tidsstämplar (watchdogen skriver var
+     ~90 s, så ett hål = tappade loggrader). Grönt:
+     `✅ Inga tidshål >180 s — loggens tidslinje är obruten.`
+   - **Replay-fångst (jsonl mot logg)** — undersektionen jämför antalet
+     KOMPLETTA jsonl-rader mot antalet `[AIS_REPLAY_SAMPLE]`-rader i loggen och
+     kontrollerar att filen slutar med radbrytning och att sista raden är ett
+     helt JSON-objekt. Färre rader = tappat facit, fler = dubbelskrivning; båda
+     fäller. (Innan K24 mätte grinden ENBART tidshål trots att den här körboken
+     redan angav "jsonl:en saknar samples" som dess syfte — nattkörningen
+     2026-08-19 hade obruten tidslinje men bar 99 av loggens 146 sampel.)
+
+   **Vad grinden bevisar — och vad den INTE bevisar.** Sedan K24 härleds jsonl:en
+   ur loggen och byggs om i förgrunden direkt före mätningen, så
+   `jsonl-rader == loggens sampel` gäller i normalfallet per KONSTRUKTION. Den
+   historiska trunkeringsvektorn (den blockbuffrade processubstitutionen) är
+   alltså borta av design, inte av grinden — behåll ändå grinden som
+   defence-in-depth, men läs den för vad den mäter:
+   - **Fångar:** trasig extraktion (fel `debug_level` ⇒ noll `AIS_REPLAY_SAMPLE`
+     i loggen; ändrad `grep`/`sed` ⇒ fel radantal), en avbruten slutkörning
+     (ombyggnaden eller dess `mv` gick inte igenom), en avhuggen fil (sista
+     raden saknar radbrytning eller är inte ett helt JSON-objekt) och
+     dubbelskrivning (fler jsonl-rader än sampel).
+   - **Fångar INTE:** att LOGGEN i sin tur fick appens sista rader. Tappar
+     `tee` rörbuffertens svans vid en hård stopp förlorar logg OCH jsonl exakt
+     samma svans — håldetektorn mäter luckor MELLAN rader, aldrig en kapad
+     ände, och verdiktet blir grönt. Den säger heller ingenting om DATAT: att
+     körningen har täckning, rätt källa eller stabilt utfall är steg 4:s och
+     analysens sak, inte grindens.
+
+   Sista raden i sektionen är verdiktet och det är det som gäller:
+   `✅ **Logg-integritet: OK** … (korpuslåsning tillåten)` mot
+   `🚨 **Logg-integritet: FEL** — körningen är OFULLSTÄNDIG: **korpuslåsning EJ
+   tillåten**` (då skriker skriptet dessutom `🚨🚨 [INTEGRITET]` i terminalen).
+   En fälld körning får analyseras som fältbevis — den får aldrig bli facit.
    Skriptet larmar också live om loggfilen slutar växa >3 min.
-4. Analysera: jämför loggens notiser/texter mot förväntat beteende;
-   replaya jsonl:en: `node tests/replay-validation/replayRunner.js <jsonl>`.
-5. Lås som korpus (KRÄVER "Logg-integritet: OK" från steg 3): post i
-   `corpora.js` (id, jsonl-sökväg, timmar, facit-antal, locked: true,
-   motiveringskommentar) + fördelningsmultiset i
-   `corpora-distribution.json` (genereras från en verifierad körning).
+
+   Kontrollen är fristående och kan köras när som helst, utan fältrigg:
+   ```bash
+   node tests/replay-validation/checkReplayIntegrity.js <jsonl> [logg]
+   node tests/replay-validation/checkReplayIntegrity.js --corpora      # alla filer i corpora-data/
+   node tests/replay-validation/checkReplayIntegrity.js --dir <katalog>
+   ```
+   **`--dir` plockar bara upp korpuskandidater:** filtret kräver
+   `ais-replay-*.jsonl` och hoppar över `*.appside.jsonl`. Appens EGEN fångstväg
+   (`AIS_REPLAY_CAPTURE_FILE`, satt i `run-with-logs.sh`) skriver
+   `ais-replay-<ts>.appside.jsonl` i SAMMA katalog; den filen är inget facit,
+   men matchar både `.jsonl`-mönstret och tidsstämpelregexet och skulle annars
+   paras mot `app-<ts>.log` och rapporteras som FEL fast den aldrig var en
+   låsningskandidat. `--corpora` behåller det breda filtret — där är katalogen
+   (`corpora-data/`) kontrollerad.
+
+   Loggen paras ihop via filnamnets tidsstämpel, annars via sha256 (hel fil
+   respektive aisstream-delen). Exitkod **0 = OK** (och **0 = DELVIS**, se
+   nedan), **1 = FEL** (bekräftad avvikelse), **2 = anropsfel**, **3 = OKÄNT** —
+   källoggen hittades inte, och då säger verktyget "källogg saknas" i stället
+   för att gissa. **OKÄNT är inte grönt:** en jsonl utan parbar logg måste
+   beläggas på annat sätt innan den låses.
+
+   **DELVIS** (exitkod 0) betyder att den loggbara delen är komplett och
+   byte-identisk, men att resten av filen inte GÅR att mäta mot loggen. Det
+   gäller de härledda tvåkälliga korpusarna (`ais-fusion-*.jsonl`): aisstream-
+   raderna finns som `[AIS_REPLAY_SAMPLE]` i loggen och jämförs rad för rad,
+   medan aishub-raderna är parseade ur `[AISHUB_RESPONSE_SAMPLE]`-kuvert där ett
+   svar bär många fartygsrader — ingen 1:1-relation, alltså inget att jämföra
+   mot. Verdiktraden skriver ut exakt hur mycket som mätts, t.ex. `☑️ VERDIKT:
+   DELVIS verifierad (aisstream-delen 371/371 mot logg; aishub-delen 1014 ej
+   loggbar)`. Läs DELVIS som "så långt mätningen räcker" — inte som OK.
+
+   Skalgrinden i `run-with-logs.sh` är den BINDANDE (den fungerar utan node);
+   finns node körs `checkReplayIntegrity.js --brief` som tillägg och jämför
+   dessutom rad för rad. Retroaktiv körning 2026-08-21: **alla 20 jsonl-filer
+   i `corpora-data/` hela** (de 17 låsta korpusarna, den olåsta 42h-körningen och
+   fusionsparet; 14 836 rader) — sammanfattningen lyder `20 filer — OK 19,
+   DELVIS 1, FEL 0, OKÄNT 0, ANROPSFEL 0`, där DELVIS-filen är
+   `ais-fusion-20260803-nattkorning.jsonl`. Ingen redan låst korpus har tagits
+   in trunkerad.
+4. **Analysera + GRIND 2 (fassvepet).** Jämför först loggens notiser/texter mot
+   förväntat beteende och replaya jsonl:en:
+   `node tests/replay-validation/replayRunner.js <jsonl>`.
+   Kör sedan **fassvepet** (K20, fältprov 10): replayn ankrar klockan i
+   korpusens FÖRSTA sampel (`replayRunner.js`), så starttiden avgör var varje
+   tick faller. Svepet spelar upp samma korpus igen med ENBART starttiden
+   förskjuten och jämför utfallen:
+   ```bash
+   npm run replay:phase                  # standardsvep: alla OLÅSTA korpusar i corpora.js
+   npm run replay:phase -- <jsonl> [...] # en eller flera namngivna korpusfiler
+   node tests/replay-validation/runPhaseSweep.js --help
+   ```
+   Utan argument sveper skriptet varje korpus i `corpora.js` som har
+   `locked: false` — exakt de körningar som står näst i tur att låsas. Finns
+   ingen olåst korpus kör det den MINSTA LÅSTA som självtest av grinden och
+   säger det rakt ut. ⚠️ **Just därför är ett bart `npm run replay:phase`
+   FÖRVÄNTAT rött** så länge `20260806-42h` är olåst och oavgjord (K20a, gula
+   paketet): den bär 101 odokumenterade fasavvikelser i öppnings- och
+   brotextdimensionerna. Rött är där en ärlig mätning, inte en trasig grind —
+   men grinden ska av samma skäl ALDRIG läggas i `npm run validate`/CI, och
+   rökprov körs mot en NAMNGIVEN korpus (`npm run replay:phase -- <jsonl>`). Flaggor: `--offsets=-20,-11.52,-5` (fasoffsets i SEKUNDER,
+   decimaler ok; default `-2.5,-5,-11.52,-15,-20,-25`, kan också sättas med
+   `PHASE_SWEEP_OFFSETS`), `--id=<korpus-id>` (nyckel för undantagsuppslagningen),
+   `--exceptions=<fil>` och `--keep-temp`. **Exitkod 0 = grönt, 1 = fas-känsligt eller OMÄTT (ingen fasvariant kunde köras)
+   utan dokumenterat undantag, 2 = anropsfel** (trasig flagga, saknad fil,
+   ogiltig undantagsfil) — samma skala som steg 3, men utan OKÄNT-nivå: en
+   variant som inte går att köra är ett HÅRT fel, och en offset som inte ryms i
+   korpusens första gap rapporteras separat som "ej tillämpbar" och räknas
+   aldrig som godkänd. **En körning där INGEN fasvariant kunde köras räknas som
+   OMÄTT — rött, aldrig grönt** (samma anda som steg 3:s OKÄNT: en grind får
+   inte döma på en mätning som uteblev). Det kan hända med egna, positiva
+   offsets på en korpus vars första gap är kortare än offseten. Kostnad: ~1,2 s per replay på ett dygnsfältprov (hela
+   svepet ~9 s), 19 s för den största korpusen (42 h, 3922 sampel).
+
+   Varje variant är en TEMPORÄR kopia av korpusen där bara ankarraden är utbytt
+   — `aisTimestamp`, `fixTs` OCH `receivedAt` skiftas lika mycket, så fixens
+   ÅLDER bevaras och varianten blir en ren fasförskjutning (skiftas bara
+   `aisTimestamp` mäter man fas och datafärskhet samtidigt). `receivedAt`
+   skiftas med i fasvarianten trots att det är verifierat 2026-08-21 att
+   replayvägen inte LÄSER fältet (app.js skriver det, ingen läsare finns) — det
+   görs för renhetens skull, så att svepet inte blir tyst fel den dag
+   leveranslatensen (`receivedAt − aisTimestamp`) börjar konsumeras. Fältet kan
+   vara ISO-sträng i korpusarna; typen bevaras vid skiftet. **Korpusfilen rörs
+   aldrig.** Grinden är definierad av vad den MÄTER, inte av skriptet: saknas
+   skriptet i din checkout kör du samma sak för hand — flytta den TIDIGASTE
+   `aisTimestamp` i jsonl:en (och `fixTs`/`receivedAt` på samma rad, om fälten
+   finns) −5 s, −11,52 s respektive −20 s, exakt en ändrad rad per variant,
+   replaya varje variant och jämför mot basreplayn.
+
+   **Offsettecknet och RUTNÄTET.** Defaultoffsets är negativa därför att ett
+   POSITIVT skift äter av korpusens första gap (en offset som inte ryms
+   rapporteras "ej tillämpbar"). Ekvivalensen gäller ett rutnät i taget: mot
+   **30 s-rutnätet** (watchdogen/öppningsticket, `BRIDGE_OPENING.TICK_INTERVAL_MS`)
+   är `+δ` samma fas som `−(30−δ)`; mot **60 s-monitoringloopen**
+   (`UI_CONSTANTS.MONITORING_INTERVAL_MS`) gäller i stället `−(60−δ)`. 60 s är
+   en harmonisk av 30 s i PERIOD men inte i FAS, så +5 s täcks av −25 s på
+   30 s-rutnätet och av −55 s på 60 s-loopen. Vill du täcka BÅDA: kör båda
+   värdena (`--offsets=-25,-55`).
+
+   **Grönt** = alla FYRA gatande dimensionerna är identiska i samtliga
+   fasvarianter — notismultiseten (`mmsi:bro:riktning`, samma nyckel som
+   `corpora-direction-distribution.json`), målbropassagerna (`mmsi:bro`),
+   öppningsvarningarna (`Bro#n` → ledande/riktning/eta/källa) och
+   **brotextmultiseten** (dedupad i följd) — ELLER varje avvikelse täcks av en
+   post i `phase-sweep-exceptions.json`. Utfallet hänger då inte på var klockan
+   råkade ankras och korpusen är säker att låsa. Två saker rapporteras men
+   FÄLLER inte: notisernas ETA-token (`mmsi:bro:eta=<token>` — K20:s tredje
+   utfall, inte en facitdimension men värd att se vandra) och brotexter som är
+   samma multiset i annan ORDNING (tick-brus). Hårda fel som inte kan undantas:
+   en variant som kraschar, en variant med fler processfel än basen, och en
+   variant vars sampelantal skiljer sig från basens — då har skiftet ändrat mer
+   än fasen.
+
+   **Rött** = minst en gatande dimension byter värde mellan varianterna. Så såg
+   19/8-korpusen ut: en 11,52-sekunders förskjutning bytte ledande båt,
+   riktning och ETA i brons första öppningsvarning (fältet:
+   TONGA/southbound/eta 8/deadline — basreplayn: BALTIC JONGLEUR/northbound/
+   eta 11/fix), och ett notis-token vandrade 2 → 4 min på identiska data.
+   Notisernas NYCKELmultiset och målbropassagerna var däremot exakt i alla
+   varianter — samma signatur som på den olåsta 42h-korpusen, där alla 101
+   avvikelser låg i öppningar och brotext. Pelare 2 är alltså fas-robust;
+   öppningsmotorn och ETA-texten är knivseggarna.
+   (⚠️ Svepet numrerar varningarna PER BRO — `Stridsbergsbron#1` är brons
+   första varning. Appens eget `eventId` är en GLOBAL räknare och kallar samma
+   varning `Stridsbergsbron#2`; det id:t skrivs ut som `[app-id …]` på varje
+   diffrad så den går att grepa fram i apploggen. **Ett undantag skrivs mot
+   svepets ordningsnyckel, inte mot app-id:t.**)
+
+   Rött stoppar inte låsningen automatiskt — men det tvingar fram ett val, och
+   valet ska stå skrivet:
+   - **Antingen** bevisa i rådata vilket utfall som är sant (fältets EGEN logg
+     är facit — fasvarianten som återger fältet exakt visar att fältutfallet låg
+     på en knivsegg, inte att replayn har fel) och låsa den dimensionen därefter;
+   - **eller** dokumentera den fas-känsliga dimensionen som ett känt undantag.
+     **Undantaget ska in i `tests/replay-validation/phase-sweep-exceptions.json`
+     — det är den ENDA fil som gör GRINDEN grön.** (`note`,
+     `knownInvariantExceptions` och `lockOpenings: false` i `corpora.js` styr
+     korpuskörningen och är fortfarande rätt ställe för invariantsträngar
+     respektive en vippande öppningsdimension, men de påverkar inte fassvepets
+     exitkod — utan en post här är `npm run replay:phase` rött för alltid och
+     nästa läsare tror att korpusen är otillåten att låsa.) Formen:
+     ```json
+     { "<korpus-id eller jsonl-filnamn>": {
+         "oppningar": [ { "utfall": "Stridsbergsbron#1",
+                          "motivering": "K20: ledande båt väljs på armavstånd av olika ålder …",
+                          "datum": "2026-08-21" } ] } }
+     ```
+     `utfall` matchas som PREFIX mot avvikelsens nyckel (samma konvention som
+     `knownInvariantExceptions`); `"*"` matchar hela dimensionen. `motivering`
+     (minst 10 tecken) och `datum` är OBLIGATORISKA — saknas de vägrar skriptet
+     köra (exit 2), eftersom ett omotiverat undantag är en tyst avstängd grind.
+     En post som inte längre matchar rapporteras som `⚠️ OANVÄNT UNDANTAG` och
+     ska städas bort. Namnge alltid fartyg, bro, dimension och vilka fasvärden
+     som växlar utfallet, och skriv samma sak i korpusens `note` — noter är
+     permanent minne (se avsnittet ovan). Gäller känsligheten bara
+     öppningsdimensionen kan korpusen dessutom låsas med `lockOpenings: false`
+     tills den underliggande defekten är åtgärdad (K20:s produktdel: ledande båt
+     väljs på armavstånd av olika ålder mitt i pollbatchen) — fältet är ALLTID
+     tillfälligt och noten ska namnge vilken fix som tar bort det.
+5. Lås som korpus (KRÄVER `Logg-integritet: OK` från steg 3 OCH ett grönt eller
+   skriftligt motiverat fassvep från steg 4): post i `corpora.js` (id,
+   jsonl-sökväg, timmar, facit-antal, locked: true, motiveringskommentar) +
+   fördelningsmultiset i `corpora-distribution.json` (genereras från en
+   verifierad körning).
 
 ## Kända fällor för den som skriver nya tester
 
