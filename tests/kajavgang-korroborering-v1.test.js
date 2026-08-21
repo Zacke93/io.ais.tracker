@@ -16,7 +16,12 @@ const TP = TRIGGER_POINTS.kanalinfarten;
  * (östbandet ⇒ riktning 'unknown'), båten hade flyttat 3 m — notisen fyrade,
  * och därefter ökade avståndet monotont 119 → 143 → 179 → 297 → 387 → 401 m.
  * Sex loggrader före notisen skrev appen själv "quay wobble, blocking target
- * assignment"; de TRE nästföljande fixarna blockerades korrekt av FP8 (cog
+ * assignment" (loggtexten omskriven 2026-08-21, K32a — den grinden loggar
+ * numera "Söder om kanalinfarten utan nordprogress ... blockerar
+ * målbrotilldelning", VesselDataService ~:2909; sök på "utan nordprogress".
+ * Frasen "quay wobble" finns kvar i produktionskoden men pekar sedan dess
+ * ENBART på reborn-vakten ~:2871, som är en annan mekanism än denna);
+ * de TRE nästföljande fixarna blockerades korrekt av FP8 (cog
  * hade då hunnit in i sydbandet). Fönstret där båda villkoren höll var ≤ 66 s
  * — glesa aisstream missade det, 2,7× tätare dubbelkälla träffade det.
  *
