@@ -43,6 +43,38 @@ den som facit låser man in exakt de felen.
 `20260804-both-21h/` saknar `gt-passages.json` helt — fältanalysen producerade
 aldrig en. A2-facit finns (`gt-passages/20260804-both-21h.json`, 144 korsningar).
 
+## ⚠️ RIKTNINGEN I LOGGRADERNA BYTTE SPRÅK 2026-08-21 (F5/A3)
+
+De befintliga tre katalogerna är extraherade ur loggar från **före**
+språkbytet och bär därför de INTERNA riktningsorden
+`northbound`/`southbound`/`unknown` (t.ex. `field-openings.txt`:
+`… eta=5 min southbound deadline`). Från och med 2026-08-21 skriver appen
+**användarens svenska token** i samma loggrader, eftersom raderna loggar
+`tokens.direction`:
+
+| app.js | Loggrad | Riktningsfältet |
+|---|---|---|
+| `:6455` | `✅ [OPENING_TRIGGER_SUCCESS] … eta=X min, <riktning>, källa <fix\|deadline>` | `tokens.direction` ⇒ `norrut`/`söderut`/`okänd`/**`båda`** |
+| `:8129` | `🚀 [FLOW_TRIGGER_ATTEMPT] … direction=<riktning>, ETA=…` | `safeTokens.direction` ⇒ `norrut`/`söderut`/`okänd` |
+
+**Konsekvenser för nästa fältfacit-läggare:**
+
+1. En ny `field-openings.txt` blir INTE textuellt jämförbar med de tre
+   befintliga. Det är ingen riktningsregression — det är ett språkbyte. Jämför
+   semantiskt (översätt med `lib/utils/directionTokens.js`), inte med `diff`.
+2. `båda` är ett NYTT värde som saknar motsvarighet i de gamla filerna:
+   öppningskortet bär numera HÄNDELSENS riktning (K13b), och en mötande konvoj
+   som förr loggades som ledarens `southbound` loggas nu `båda`. Två filer kan
+   alltså skilja sig i riktning utan att en enda båt bytt kurs.
+3. Inget skript parsar riktningen ur loggen i dag (`runOpeningGates.js` och
+   `checkReplayIntegrity.js` rör den inte), så inget går sönder — men den som
+   bygger ett nytt extraktionsskript måste välja vokabulär MEDVETET.
+4. `corpora.js`-noten om #18 som räknar `[OPENING_TRIGGER_SUCCESS]` räknar
+   RADER, inte riktningar, och är opåverkad.
+
+De persistenta dedup-nycklarna (`bro|mmsi|riktning`) och alla facitfiler är
+och förblir INTERNA — se ARCHITECTURE.md §Riktningsvokabulären.
+
 ## `field-texts.txt` — extraktionsmetoden (A8(i))
 
 **UI_HEAD:** texten användaren ser ändras på exakt två ställen i `app.js`, och
