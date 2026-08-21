@@ -1,0 +1,32 @@
+{
+  "_om": "Kända fas-känsliga utfall för fassvepet (runPhaseSweep.js, K20/fältprov 10). Grinden går RÖTT så snart en korpus utfall ändras av att bara starttiden flyttas. En post här gör utfallet grönt IGEN — men bara det namngivna utfallet, bara för den namngivna korpusen, och bara med skriven motivering. Filen är projektets permanenta minne av knivseggar, samma roll som knownInvariantExceptions i corpora.js.",
+  "_format": {
+    "<korpus-id ur corpora.js, eller jsonl-filnamnet>": {
+      "<dimension>": [
+        {
+          "utfall": "prefix mot avvikelsens nyckel, eller \"*\" för hela dimensionen",
+          "motivering": "varför utfallet FÅR vippa — rådatabeviset eller den kända defekten (OBLIGATORISK, minst 10 tecken)",
+          "datum": "ÅÅÅÅ-MM-DD när undantaget skrevs (OBLIGATORISKT)"
+        }
+      ]
+    }
+  },
+  "_dimensioner": {
+    "notiser": "nyckel mmsi:bro:riktning — samma multiset som corpora-direction-distribution.json",
+    "passager": "nyckel mmsi:bro — målbropassagerna",
+    "oppningar": "nyckel Bro#n = n:te ÖPPNINGSVARNINGEN vid den bron (svepets egen ordningsnyckel, INTE appens globala eventId — det följer med i utskriften som app-id). Värdet bär ledande båt, riktning, ETA och källa.",
+    "brotext": "nyckel = själva brotexten (multiset, dedupad i följd)"
+  },
+  "_exempel_ej_aktivt": {
+    "20260819-081250": {
+      "oppningar": [
+        {
+          "utfall": "Stridsbergsbron#1",
+          "motivering": "EXEMPEL, EJ AKTIVT (nyckeln börjar med _ och läses aldrig). K20:s knivsegg: ledande båt väljs på armavstånd av olika ålder mitt i pollbatchen (BridgeOpeningService.js:253/1390), så fas -11,52 s ger TONGA/southbound/eta 8 (= fältets egen logg) medan basen ger BALTIC JONGLEUR/northbound/eta 11. Posten tas bort när produktdefekten är åtgärdad.",
+          "datum": "2026-08-21"
+        }
+      ]
+    }
+  },
+  "_status": "Inga AKTIVA undantag 2026-08-21. Nycklar som börjar med _ läses aldrig som korpusar."
+}
