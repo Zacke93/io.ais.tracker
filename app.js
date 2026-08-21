@@ -3147,7 +3147,9 @@ class AISBridgeApp extends Homey.App {
    *        aisstream-nyckelfel i ett helt dygn. Nycklar: 'aisstream:auth',
    *        'aisstream:server', 'aisstream:net', 'aisstream:nokey',
    *        'aishub:auth', 'aishub:server', 'aishub:silent', 'feeds:silent',
-   *        'feeds:empty:4h' (U12), 'config:fallback' …
+   *        'feeds:empty:4h' (U12), 'config:fallback' … samt eskaleringstrappans
+   *        nivånycklar '<bas>:1h', '<bas>:4h', '<bas>:1 dygn' (K22) — se
+   *        _escalateSilenceNotices, som bygger dem av stegets etikett.
    * @private
    */
   async _notifyConnectionIssue(message, feedKey = 'global') {
@@ -3219,16 +3221,99 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * K22 (fältprov 10, 2026-08-19): EN formaterare för tystnad i användartext.
+   *
+   * Fyndet: loggraden interpolerade den MÄTTA tystnaden medan notistexten
+   * hårdkodade "på 15 min" — systerloggen 2026-08-11 skrev 1456 min och 24 ms
+   * senare fick användaren "på 15 min" (underskattning ~97 ggr). Det bryter
+   * kodens egen BT-12-princip: en text får inte påstå mer (eller mindre) än
+   * mätningen bär. Hårdkodningen kunde bara uppstå för att varje notistext
+   * skrev sin egen siffra; därför finns nu EN funktion som alla går genom.
+   *
+   * HÄRLEDNING AV SKALORNA: notisen läses på en telefon, inte i en logg —
+   * "886 min" kräver huvudräkning medan "15 h" läses direkt. Enheten byts
+   * därför när den grövre blir läsbar, och alltid på det GOLVADE värdet så
+   * att "60 min" och "24 h" aldrig kan skrivas ut:
+   *   < 60 hela min  → "N min"   (0 min … 59 min)
+   *   < 24 hela h    → "N h"     (1 h … 23 h)
+   *   annars         → "N dygn"  (1 dygn, 2 dygn …)
+   * "dygn" har samma form i singular och plural på svenska, så ingen
+   * pluralhantering behövs ("1 dygn", "2 dygn").
+   *
+   * VARFÖR GOLV (Math.floor) PÅ ALLA TRE SKALORNA — motiveringen står här så
+   * att nästa granskare inte behöver öppna punkten igen (dirigentbeslut
+   * 2026-08-21, efter granskningen av K22:s första version): BT-12 säger att
+   * en text aldrig får påstå MER än mätningen bär. Symmetrisk avrundning bröt
+   * den regeln åt det grova hållet — 90 min blev "2 h" (+33 %) och 36 h blev
+   * "2 dygn" (+50 %, tolv timmar som aldrig mätts). Det är samma defektklass
+   * som K22 finns till för att utrota, bara mildare. Med golv är varje
+   * utskriven siffra en SANN UNDRE GRÄNS, och då blir prepositionerna som
+   * redan står i texterna ("i över N", "på N") sanna i bokstavlig mening.
+   * Priset är en underdrift på under en enhet (59 min 36 s skrivs "59 min"),
+   * och just den täcker prepositionen. Gränserna prövas på det GOLVADE
+   * värdet ⇒ "60 min" och "24 h" är strukturellt omöjliga, och dygnsgrenen
+   * nås först när hours >= 24 ⇒ "0 dygn" kan inte uppstå (därför behövs
+   * ingen Math.max(1, …)-korrigering).
+   *
+   * UNDER EN MINUT ⇒ "0 min", inte "under 1 min" (medvetet val): golvet är
+   * fortfarande en sann undre gräns, formen "N enhet" håller för HELA
+   * värdemängden (ett formsvep i k22-larmtext.test.js låser det), och grenen
+   * är onåbar i produktion — varje anropare gatar på SILENT_MS eller en
+   * trappnivå, dvs. kvartar eller timmar. Ett specialfall hade varit en andra
+   * formateringsregel att hålla i synk utan att någon användare ser den.
+   *
+   * LOGGRADERNA avrundar fortfarande (Math.round(ms / 60000) i _checkCrossFeedSilence):
+   * de är fältdiagnostik och greppmönster, inte påståenden till en användare,
+   * och rörs inte här. Skillnaden kan därför bli en minut i ett gränsfall
+   * (47 min 40 s ⇒ logg "48 min", notis "47 min") — båda är härledda ur SAMMA
+   * mätning, vilket var hela K22-fyndets kärna.
+   * @param {number} ms - uppmätt tystnad i millisekunder
+   * @returns {string} tidsfras utan preposition, t.ex. "16 min" / "3 h" / "2 dygn"
+   * @private
+   */
+  _formatSilence(ms) {
+    // Andra linjens vakt: sentinelvärden (Infinity/NaN/null) får ALDRIG bli
+    // "NaN min" i en användartext. Anroparna mäter observerad tystnad som är
+    // ändlig per konstruktion (_observedFeedSilence), och _escalateSilenceNotices
+    // avbryter dessutom på icke-ändliga mått — den här grenen ska aldrig nås,
+    // men om den nås ska texten vara ärlig i stället för trasig.
+    if (!Number.isFinite(ms) || ms < 0) return 'okänd tid';
+    const minutes = Math.floor(ms / 60000);
+    if (minutes < 60) return `${minutes} min`;
+    const hours = Math.floor(ms / (60 * 60 * 1000));
+    if (hours < 24) return `${hours} h`;
+    return `${Math.floor(ms / (24 * 60 * 60 * 1000))} dygn`;
+  }
+
+  /**
    * B2 (etapp 7, 2026-08-05): eskalerande tystnadsnotiser. Basnotisen (egen
    * nyckel) fyras av anroparen; den här går trappan CONNECTION_ALERT och
    * fyrar EN notis per uppnådd nivå — dedup-nyckeln bär nivåetiketten
-   * (`<basKey>:1h`, `<basKey>:4h`), så 24h-dedupen i _notifyConnectionIssue
-   * ger exakt en notis per nivå och dygn i stället för total tystnad efter
-   * basnotisen (both-dygn 1: 4,5 h källdöd → noll signal efter en tidigare
-   * ofarlig blink bränt den enda nyckeln).
+   * (`<basKey>:1h`, `<basKey>:4h`, `<basKey>:1 dygn`), så 24h-dedupen i
+   * _notifyConnectionIssue ger exakt en notis per nivå och dygn i stället för
+   * total tystnad efter basnotisen (both-dygn 1: 4,5 h källdöd → noll signal
+   * efter en tidigare ofarlig blink bränt den enda nyckeln).
+   *
+   * K22 (2026-08-21, skärpt efter samma dags granskning): NYCKELN bär
+   * etiketten (`step.label`, oförändrad och unik per steg) — TEXTEN bär den
+   * UPPMÄTTA tystnaden, `_formatSilence(silenceMs)`. Första versionen
+   * formaterade `step.ms`, och då sa ett 25-timmarsavbrott som upptäcktes sent
+   * "har varit tyst i över 1 h": exakt den underskattningsklass K22 finns till
+   * för att utrota, bara 24× i stället för 97×. Dessutom slipper etikettformen
+   * "1h" hamna i löptext.
+   *
+   * AVVÄGNINGEN (skriven här så nästa granskare inte öppnar punkten igen):
+   * fyrar flera steg i SAMMA tick — appstart efter ett långt avbrott, eller
+   * dedupfönstret som armar om — får notiserna nu IDENTISK text och skiljs
+   * bara av dedup-nyckeln. Det är avsiktligt: en sann siffra i varje notis
+   * väger tyngre än att kunna skilja två notiser åt i den enda situation där
+   * de krockar. I normal drift korsas stegen ett i taget (timmar isär) och
+   * siffran växer monotont: "i över 1 h" → "i över 4 h" → "i över 1 dygn".
    * @param {string} baseKey - dedup-basnyckel, t.ex. 'feeds:silent'
-   * @param {number} silenceMs - uppmätt tystnad
-   * @param {(label: string) => string} msgForLabel - notistext per nivå
+   * @param {number} silenceMs - uppmätt tystnad; DET är siffran texten bär
+   * @param {(tidsfras: string) => string} msgForLabel - notistext per nivå;
+   *        får den uppmätta tystnadens tidsfras ("47 min", "1 dygn"), aldrig
+   *        etiketten ("1h") och aldrig stegets tröskel
    * @private
    */
   _escalateSilenceNotices(baseKey, silenceMs, msgForLabel) {
@@ -3247,7 +3332,7 @@ class AISBridgeApp extends Homey.App {
     }
     for (const step of CONNECTION_ALERT.ESCALATION_STEPS) {
       if (silenceMs >= step.ms) {
-        this._notifyConnectionIssue(msgForLabel(step.label), `${baseKey}:${step.label}`);
+        this._notifyConnectionIssue(msgForLabel(this._formatSilence(silenceMs)), `${baseKey}:${step.label}`);
       }
     }
   }
@@ -4371,9 +4456,6 @@ class AISBridgeApp extends Homey.App {
       const forceUpdateDueToTime = timeSinceLastUpdate > 60000 && relevantVessels.length > 0 && !hasPassedVessels;
 
       if (textActuallyChanged || forceUpdateDueToTime) {
-        if (forceUpdateDueToTime && !textActuallyChanged) {
-          this.debug('⏰ [SNAPSHOT_PROCESS] Forcing update due to time passage (ETA changes)');
-        }
         // Fable-granskningen 2026-08-10 (FG-A6): här låg en [PASSAGE_DUPLICATION]-
         // debugrad som var BEVISLIGT onåbar. Härledning: inne i blocket medför
         // !textActuallyChanged att forceUpdateDueToTime===true, och
@@ -4381,7 +4463,30 @@ class AISBridgeApp extends Homey.App {
         // villkor kunde alltså aldrig uppfyllas samtidigt. Raden loggade
         // dessutom "Prevented ..." mitt i den gren som faktiskt SKRIVER, så om
         // den någonsin hade fyrat vore den direkt vilseledande i fältloggen.
-        this.debug('✅ [SNAPSHOT_PROCESS] Bridge text changed - updating devices');
+        //
+        // K33 (fältprov 10, 2026-08-19): "Bridge text changed" skrevs OVILLKORLIGT
+        // i det här blocket — även när minutforceringen ensam öppnade det. Fältet:
+        // rad 89409 jämförde hash 406317646 mot 406317646 och rad 89411 påstod två
+        // ms senare att texten ändrats, varefter samma tick landade i
+        // "[UI_REFRESH] ... (unchanged)". 16 av 20 enhetsskrivningar i ett intervall
+        // var identisk text, så påståendet var falskt i majoriteten av fallen och
+        // gjorde loggen oanvändbar som ändringshistorik. FREKVENSEN ÄR ORÖRD (C3a:
+        // varje churn-reducering flyttar golden-text) — bara raden är villkorad, och
+        // den gamla ⏰-raden är uppgången i else-grenen så tomgången inte får två
+        // rader för samma händelse.
+        //
+        // FRASVALET "oförändrad", inte "unchanged" (granskningen 2026-08-21): den
+        // engelska frasen är UPPTAGEN av en annan händelse — `📱 [UI_UPDATE] Bridge
+        // text unchanged xN (last 60s)` i else-grenen längre ned, som loggar att
+        // INGEN skrivning skedde alls. Raden här loggar motsatsen (enheten SKRIVS,
+        // men med samma text). Med samma ordval hade en fältanalys som greppar
+        // "Bridge text unchanged" dubbelräknat två olika händelser; svenskan
+        // separerar dem utan att röra den befintliga, greppade taggen.
+        if (textActuallyChanged) {
+          this.debug('✅ [SNAPSHOT_PROCESS] Bridge text changed - updating devices');
+        } else {
+          this.debug(`⏰ [SNAPSHOT_PROCESS] Bridge text oförändrad (hash ${bridgeTextHash}) — enhetsskrivning per schema (minutforcering, ETA changes)`);
+        }
         this._lastBridgeText = bridgeText;
         this._lastBridgeTextHash = bridgeTextHash;
         this._lastBridgeTextUpdate = Date.now();
@@ -6176,7 +6281,16 @@ class AISBridgeApp extends Homey.App {
       // aldrig avfyra boat_near. Hängslen utöver target-demotionen — täcker
       // även framtida kandidatvägar som inte kräver targetBridge.
       if (vessel._moored) {
-        this.debug(`⚓ [FLOW_TRIGGER_SKIP] ${vessel.mmsi}: Vessel is moored/anchored - no notification`);
+        // K32(j) (fältprov 10): raden namnger nu KÄLLAN till bedömningen. I
+        // fältloggen stod "moored/anchored" bredvid ett status=en-route för
+        // samma mmsi i samma millisekund, och det såg ut som en motsägelse —
+        // men det är två olika fält: _moored är förtöjningsdetekteringens flagga
+        // och status är brotextens tillstånd. Båda skrivs ut så att läsaren ser
+        // att de kan skilja sig utan att någon av dem är fel.
+        this.debug(
+          `⚓ [FLOW_TRIGGER_SKIP] ${vessel.mmsi}: Vessel is moored/anchored `
+          + `(_moored=true, status=${vessel.status || 'okänd'}) - no notification`,
+        );
         return;
       }
 
@@ -6982,7 +7096,11 @@ class AISBridgeApp extends Homey.App {
     // (var 2:e timme via persistent-dedup-fönstret). Snapshotten bär numera
     // _moored/_hasMovementProof (fältlistan uppdaterad).
     if (vessel._moored === true) {
-      this.debug(`⚓ [EXIT_TRIGGER_SKIP] ${vessel.mmsi}: moored/anchored — no exit notification`);
+      // K32(j): samma tvåfältsklarhet som i boat_near-vägen ovan.
+      this.debug(
+        `⚓ [EXIT_TRIGGER_SKIP] ${vessel.mmsi}: moored/anchored `
+        + `(_moored=true, status=${vessel.status || 'okänd'}) — no exit notification`,
+      );
       return;
     }
     if (vessel._hasMovementProof !== true) {
@@ -9301,26 +9419,33 @@ class AISBridgeApp extends Homey.App {
       // rader. Inom ETT läge är takten oförändrad (1 rad/15 min).
       logLimited(`feeds-total:${mode}`, `INGEN aktiv AIS-källa har levererat på ${Math.round(minSil / 60000)} min (${names(relevant)}) — ${totalPhrase}`);
       if (trulyBlind) {
+        // K22: siffran HÄRLEDS ur samma mätning som loggraden ovan (minSil) —
+        // den hårdkodade "15 minuter" var korstystnadsFÖNSTRET, inte det
+        // uppmätta avbrottet, och blev därför en grov underskattning så fort
+        // 24h-dedupen armade om mitt i ett långt avbrott.
         this._notifyConnectionIssue(
-          'AIS Tracker: ingen AIS-källa har levererat positioner på 15 minuter '
+          `AIS Tracker: ingen AIS-källa har levererat positioner på ${this._formatSilence(minSil)} `
           + '— broöppningsvakten är i praktiken blind. Vakterna försöker '
           + 'återansluta automatiskt; kontrollera nätverket om det består.',
           'feeds:silent',
         );
-        this._escalateSilenceNotices('feeds:silent', minSil, (label) => (
-          `AIS Tracker: fortfarande INGEN AIS-data efter ${label} — `
+        this._escalateSilenceNotices('feeds:silent', minSil, (tidsfras) => (
+          `AIS Tracker: fortfarande INGEN AIS-data efter ${tidsfras} — `
           + 'broöppningsvakten är blind. Kontrollera nätverk, AISstream-nyckeln '
           + 'och AISHub-status på aishub.net.'
         ));
       } else if (allResponding && minSil >= FEED_SILENCE.EMPTY_CHANNEL_ALERT_MS) {
         // (2) SKYDDSNÄTET. EN notis, egen nyckel, samma 24h-dedup som övriga —
-        // ingen eskaleringstrappa: nivån ÄR redan trappans grövsta steg, och
-        // en tom kanal behöver en påminnelse, inte en serie. Texten påstår
-        // exakt vad mätningen bär (BT-12): källorna svarar, datat uteblir.
-        // Mätvärdet är OBSERVERAD tystnad, så nyckeln kan aldrig brännas av en
-        // sentinel innan appen faktiskt bevakat kanalen i fyra timmar.
+        // ingen eskaleringstrappa: en tom kanal behöver en påminnelse, inte en
+        // serie. Nivån speglar trappans 4h-STEG (efter K22:s dygnssteg är 4 h
+        // ett mellansteg, inte trappans topp — se FEED_SILENCE i constants.js).
+        // Texten påstår exakt vad mätningen bär (BT-12): källorna svarar,
+        // datat uteblir. Mätvärdet är OBSERVERAD tystnad, så nyckeln kan aldrig
+        // brännas av en sentinel innan appen faktiskt bevakat kanalen i fyra
+        // timmar — och K22: siffran är den MÄTTA tystnaden, inte tröskeln, så
+        // ett dygns tom kanal inte längre rapporteras som "på 4 timmar".
         this._notifyConnectionIssue(
-          'AIS Tracker: AIS-källorna svarar men ingen båtdata på 4 timmar '
+          `AIS Tracker: AIS-källorna svarar men ingen båtdata på ${this._formatSilence(minSil)} `
           + '— kontrollera bevakningsområdet/kontona.',
           'feeds:empty:4h',
         );
@@ -9404,17 +9529,23 @@ class AISBridgeApp extends Homey.App {
       // delarna behövs: grinden hindrar att en tom natt bränner 24h-nycklarna,
       // och den härledda frasen gör att en framtida uppluckring av grinden inte
       // kan återinföra ett falskt påstående i en användarsynlig text (BT-12).
+      // K22 (2026-08-21): BÅDA de påståenden notisen bär härleds nu — grannens
+      // tillstånd (hubPhrase) OCH tystnadens längd (_formatSilence). Den senare
+      // var hårdkodad "på 15 min" bredvid en loggrad som skrev det mätta
+      // värdet; samma tick kunde alltså logga 886 min och notisera 15 min.
       if (streamSilentHubFresh) {
         this._notifyConnectionIssue(
-          'AIS Tracker: AISstream har inte levererat några positioner på 15 min '
+          `AIS Tracker: AISstream har inte levererat några positioner på ${this._formatSilence(sSilence)} `
           + `${hubPhrase} — anslutningen kan vara halvdöd. Appens vakter `
           + 'försöker återansluta automatiskt.',
           'aisstream:silent',
         );
         // B2: eskalering — both-dygn 1:s 4,5 h-avbrott gav EN blink-bränd notis
-        // och sedan tystnad; nu bryter 1h- och 4h-nivåerna igenom per dygn.
-        this._escalateSilenceNotices('aisstream:silent', sSilence, (label) => (
-          `AIS Tracker: AISstream har varit tyst i över ${label} `
+        // och sedan tystnad; nu bryter 1h-, 4h- och dygnsnivåerna igenom per
+        // dygn (K22 2026-08-20: 19/8 gick 10 h 51 min utan signal efter
+        // 4h-notisen medan tystnaden växte till 886 min).
+        this._escalateSilenceNotices('aisstream:silent', sSilence, (tidsfras) => (
+          `AIS Tracker: AISstream har varit tyst i över ${tidsfras} `
           + `${hubPhrase} — appen kör på halverad redundans. Vakterna fortsätter `
           + 'återansluta; kontrollera din AISstream-nyckel om det består.'
         ));
@@ -9433,8 +9564,9 @@ class AISBridgeApp extends Homey.App {
         + `${hubFeedsPipeline ? '' : ' (skuggläge — påverkar inte notiser/brotext, ingen användarnotis)'}`,
       );
       if (hubFeedsPipeline) {
+        // K22: mätt tystnad, inte korstystnadsfönstret — se aisstream-tvillingen.
         this._notifyConnectionIssue(
-          'AIS Tracker: AISHub har inte levererat några positioner på 15 min '
+          `AIS Tracker: AISHub har inte levererat några positioner på ${this._formatSilence(hSilence)} `
           + 'medan AISstream flödar — kontrollera användarnamnet och din '
           + 'stationsstatus på aishub.net.',
           'aishub:silent',
@@ -9442,8 +9574,8 @@ class AISBridgeApp extends Homey.App {
         // B2: eskalering — AISHub bär ~75 % av datat i both-läge; ett långt
         // hub-avbrott är den farligaste oprövade riktningen och ska inte
         // tystna efter basnotisen.
-        this._escalateSilenceNotices('aishub:silent', hSilence, (label) => (
-          `AIS Tracker: AISHub har varit tyst i över ${label} medan AISstream `
+        this._escalateSilenceNotices('aishub:silent', hSilence, (tidsfras) => (
+          `AIS Tracker: AISHub har varit tyst i över ${tidsfras} medan AISstream `
           + 'flödar — appen kör på halverad redundans. Kontrollera användarnamn '
           + 'och stationsstatus på aishub.net.'
         ));

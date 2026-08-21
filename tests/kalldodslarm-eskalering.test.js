@@ -179,8 +179,9 @@ describe('B2: totaltystnadsgrenen ("appen är blind")', () => {
 
     expect(notisCount(app)).toBe(1); // endast 1h-nivån — basen är dedupad
     expect(sentKeys(app)).toContain('feeds:silent:1h');
+    // K22: nyckeln bär etiketten '1h', texten den UPPMÄTTA tystnaden, golvad (här '1 h').
     expect(app.homey.notifications.createNotification.mock.calls[0][0].excerpt)
-      .toContain('1h');
+      .toContain('efter 1 h');
   });
 
   test('rollback vid leveransfel: nyckeln släpps och nästa kontroll försöker igen', async () => {
@@ -1305,9 +1306,11 @@ describe('F1/KX-1: "degraded" och notisen kräver att grannen LEVERERAR', () => 
     expect(app._connectionDegradedSilentFeed).toBe('aisstream');
     expect(statusWrites(app)).toEqual(['degraded']);
     expect(sentKeys(app)).toContain('aisstream:silent');
-    // TEXTEN: byte-identisk med den tidigare hårdkodade formuleringen.
+    // TEXTEN: K22 (2026-08-21) — siffran är den MÄTTA tystnaden (riggens
+    // streamSilentMs = 20 min), inte det tidigare hårdkodade "15 min" som var
+    // korstystnadsFÖNSTRET. Fyndet: fältet loggade 886 min och notiserade 15.
     expect(notisTexter(app)).toContain(
-      'AIS Tracker: AISstream har inte levererat några positioner på 15 min '
+      'AIS Tracker: AISstream har inte levererat några positioner på 20 min '
       + 'medan AISHub flödar — anslutningen kan vara halvdöd. Appens vakter '
       + 'försöker återansluta automatiskt.',
     );
@@ -1325,8 +1328,9 @@ describe('F1/KX-1: "degraded" och notisen kräver att grannen LEVERERAR', () => 
     await microFlush();
 
     expect(sentKeys(app)).toContain('aisstream:silent:1h');
+    // NYCKELN bär etiketten ('1h'), TEXTEN den UPPMÄTTA tystnaden, golvad ('1 h' här) — K22 (finputs 2026-08-21: mätningen styr, inte tröskeln).
     expect(notisTexter(app)).toContain(
-      'AIS Tracker: AISstream har varit tyst i över 1h medan AISHub flödar '
+      'AIS Tracker: AISstream har varit tyst i över 1 h medan AISHub flödar '
       + '— appen kör på halverad redundans. Vakterna fortsätter återansluta; '
       + 'kontrollera din AISstream-nyckel om det består.',
     );
@@ -1393,7 +1397,10 @@ describe('F1/KX-1: "degraded" och notisen kräver att grannen LEVERERAR', () => 
 // ===========================================================================
 
 describe('U12: "appen är blind" kräver ÄKTA blindhet — tom kanal fångas av 4h-nätet', () => {
-  const EMPTY_TEXT = 'AIS Tracker: AIS-källorna svarar men ingen båtdata på 4 timmar '
+  // K22 (2026-08-21): siffran är MÄTT, inte tröskeln. Provet nedan kör exakt
+  // 4 h tom kanal, så mätning och tröskel sammanfaller där — men vid ett dygns
+  // tom kanal skriver notisen numera "1 dygn" i stället för "4 timmar".
+  const EMPTY_TEXT = 'AIS Tracker: AIS-källorna svarar men ingen båtdata på 4 h '
     + '— kontrollera bevakningsområdet/kontona.';
   const notisTexter = (app) => app.homey.notifications.createNotification.mock.calls
     .map((c) => c[0].excerpt);
@@ -1566,13 +1573,27 @@ describe('U12: "appen är blind" kräver ÄKTA blindhet — tom kanal fångas av
     expect(sentKeys(app)).toContain('feeds:silent');
   });
 
-  test('KONSTANTEN: 4h-nivån ligger över fältets värsta uppehåll och speglar trappan', () => {
+  test('KONSTANTEN: 4h-nivån ligger över fältets värsta uppehåll och speglar trappans 4h-steg', () => {
     const { EMPTY_CHANNEL_ALERT_MS } = FEED_SILENCE;
     // Härledningens undre gräns: värsta NORMALA trafikuppehåll i korpusbanken
     // (198,7 min, 2026-07-08). Under det larmar en lugn natt igen.
     expect(EMPTY_CHANNEL_ALERT_MS).toBeGreaterThan(198.7 * 60 * 1000);
-    // …och nivån är trappans grövsta steg, inte en tredje tidsskala.
+    // …och nivån är ETT AV TRAPPANS STEG, inte en tredje tidsskala.
+    //
+    // K22 (2026-08-21): invarianten låste tidigare "trappans SISTA steg". Det
+    // var samma påstående så länge trappan slutade vid 4 h — men när
+    // dygnssteget lades till blev formuleringen ett påstående om trappans TOPP
+    // i stället för om kopplingen som faktiskt är avsedd. Tom-kanal-nätets
+    // härledning (trafikuppehåll på TIMSKALA, värsta normala 198,7 min) hör
+    // ihop med 4h-steget och ingenting annat; att flytta nätet till 24 h vore
+    // en beteendeändring utöver K22 och är därför uttryckligen inte gjort.
+    // Invarianten pekar nu ut steget VID NAMN, så trappan kan växa i båda
+    // ändar utan att låset varken faller falskt eller tystnar.
+    const fyraTim = CONNECTION_ALERT.ESCALATION_STEPS.find((s) => s.label === '4h');
+    expect(fyraTim).toBeDefined();
+    expect(EMPTY_CHANNEL_ALERT_MS).toBe(fyraTim.ms);
+    // …och 4 h är numera ett MELLANSTEG: dygnssteget ligger ovanför.
     const grovsta = CONNECTION_ALERT.ESCALATION_STEPS[CONNECTION_ALERT.ESCALATION_STEPS.length - 1];
-    expect(EMPTY_CHANNEL_ALERT_MS).toBe(grovsta.ms);
+    expect(grovsta.ms).toBeGreaterThan(fyraTim.ms);
   });
 });
