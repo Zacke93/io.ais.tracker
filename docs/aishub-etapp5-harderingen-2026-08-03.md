@@ -253,9 +253,14 @@ Kanalinfarten ligger fem kajliggare PERMANENT inne i 300 m-zonen
 brusprov. PRICKBJORN 07:19:11: sog EXAKT 1,0, cog 128,7° (östbandet ⇒
 'unknown', där FP8:s kanalhistorikkrav aldrig aktiveras), 3 m förflyttning;
 båten gick sedan BORT (119→143→179→297→387→401 m). Appen skrev själv "quay
-wobble, blocking target assignment" sex rader tidigare. Fönstret där båda
-villkoren höll var ≤ 66 s brett — gles aisstream missade det, tät dubbelkälla
-träffar det.
+wobble, blocking target assignment" sex rader tidigare (CITATSYNK 2026-08-21:
+loggraden DÖPTES OM i K32a och heter numera "Söder om kanalinfarten utan
+nordprogress … blockerar målbrotilldelning", `VesselDataService.js` — sök på
+"utan nordprogress" i loggar från 2026-08-21 och framåt; `grep "quay wobble"`
+träffar där bara den ÄKTA kajvobbelvakten i reborn-grenen. Citatet står kvar
+här därför att rapporten är daterad bevisföring och ska återge fältloggens
+ordalydelse). Fönstret där båda villkoren höll var ≤ 66 s brett — gles
+aisstream missade det, tät dubbelkälla träffar det.
 **Fix:** fartyg med FÄRSK kajstabil historik (bokförd i `_quayStableLedger`)
 avkrävs korroborering på sog-benet: `MIN_MOVING_FIXES` (2) på varandra följande
 rörelsefixar OCH ingen netto-reträtt, ELLER `NET_APPROACH_M` (40 m)

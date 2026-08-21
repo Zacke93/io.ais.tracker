@@ -9,6 +9,14 @@ Svar och kodkommentarer på svenska.
 - Full validering: jest + `npm run replay:all`, `replay:synthetic`, `replay:openings`
 - **Windows-fallgrop:** `npm run validate` är POSIX-only (subshell + `$TMPDIR`) —
   kör jest och replay-skripten var för sig istället.
+- Korpuslåsningens grindar (ingår MEDVETET inte i `validate` — de prövar en
+  fältkörning, inte en kodändring): `node tests/replay-validation/checkReplayIntegrity.js`
+  (jsonl mot logg) och `npm run replay:phase` (fassvepet). Kriterier i
+  `docs/VALIDATION.md` §Fältprov, steg 3 och 4.
+  - Ett bart `npm run replay:phase` sveper de OLÅSTA korpusarna och är
+    **FÖRVÄNTAT rött** tills `20260806-42h` avgjorts efter K20a (gula paketet).
+    Lägg det därför ALDRIG i `npm run validate`/CI; kör rökprov mot en
+    NAMNGIVEN korpus: `npm run replay:phase -- <jsonl>`.
 - Lint: `npm run lint`
 
 ## Struktur (stabila delar)
