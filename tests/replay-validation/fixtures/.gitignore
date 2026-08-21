@@ -1,0 +1,6 @@
+# Repots .gitignore:7 utesluter *.log — men de här två loggfilerna är FACIT,
+# inte körningsutdata. Utan undantaget hade de aldrig committats, och hela
+# poängen med fixturerna (regressionen ska INTE bero på ~/.ais-tracker-logs)
+# hade fallit på första färska klon: testet skulle söka en fil som inte finns.
+# Nästlade .gitignore-regler vinner över förälderns för filer i den här katalogen.
+!*.log
