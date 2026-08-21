@@ -80,6 +80,24 @@ const AISBridgeApp = require(path.join(ROOT, 'app'));
 const realSetImmediate = setImmediate;
 const drain = () => new Promise((resolve) => realSetImmediate(resolve));
 
+// ---- RIKTNINGSADAPTERN (F5, 2026-08-21) ----
+// Flow-tokenen `direction` är SVENSK sedan användarbeslut F5/A3 ('norrut',
+// 'söderut', 'okänd', 'båda'). Harnessens riktningsnycklar är däremot FACIT:
+// corpora-direction-distribution.json, opening-distribution.json, INV-2:s
+// giltighetslista och INV-15/INV-19 är alla låsta mot de INTERNA orden. Ett
+// SPRÅKBYTE ÄR INGEN BETEENDEÄNDRING och får därför inte kosta en enda
+// omlåsning — adaptern översätter tillbaka här, på det ENDA ställe där
+// harnessen läser tokenen (notiser + öppningsvarningar nedan). Samtliga
+// nedströmskonsumenter (runAllCorpora, runFusionCorpora, runPhaseSweep,
+// relockGoldenText, invariants) läser resultatets `direction` och ärver
+// därmed översättningen utan egen kod.
+//
+// Icke-strängar (undefined när tokenen saknas) passerar ORÖRDA: INV-2 fäller
+// en notis vars riktning inte står i sin vitlista, och den grinden ska
+// fortsätta se ett saknat värde som saknat — inte som ett städat 'unknown'.
+const { fromUserDirection } = require(path.join(ROOT, 'lib', 'utils', 'directionTokens'));
+const internalDirection = (value) => (typeof value === 'string' ? fromUserDirection(value) : value);
+
 async function main() {
   const jsonlPath = process.argv[2];
   const mmsiFilter = process.argv[3] || null;
@@ -538,7 +556,8 @@ async function main() {
       // (INV-7) och journey-reset-medveten dubbletthantering (INV-2).
       t: c.timestamp ? Date.parse(c.timestamp) : null,
       bridge: c.tokens && c.tokens.bridge_name,
-      direction: c.tokens && c.tokens.direction,
+      // F5: översätts tillbaka till internt värde — se riktningsadaptern.
+      direction: internalDirection(c.tokens && c.tokens.direction),
       eta: c.tokens && c.tokens.eta_minutes,
       // Harness-fördjupning (2026-07-03): namn + distans + källa fångas för
       // invarianterna INV-8 (namnkvalitet) och INV-11 (distansrimlighet, där
@@ -563,7 +582,8 @@ async function main() {
         t: c.timestamp ? Date.parse(c.timestamp) : null,
         iso: c.timestamp || null,
         bridge: tokens.bridge_name,
-        direction: tokens.direction,
+        // F5: samma adapter som notisvägen — facitnycklarna är interna.
+        direction: internalDirection(tokens.direction),
         // Kontraktsnamnet är etaMin (boat_near använder eta) — -1 är samma
         // "okänd"-sentinel som notistokenen bär.
         etaMin: Number.isFinite(tokens.eta_minutes) ? tokens.eta_minutes : null,

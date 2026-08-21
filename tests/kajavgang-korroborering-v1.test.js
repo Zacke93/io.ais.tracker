@@ -84,7 +84,15 @@ describe('V1: kajavgång vid trigger-punkt kräver korroborering', () => {
     expect(loggedWith(app.log, 'TRIGGER_POINT_SKIP_QUAY')).toBe(true);
   });
 
-  test('korroborering (a): andra rörelsefixen i rad släpper igenom kandidaten', () => {
+  // K4 (fältprov 10, 2026-08-21): testet HETTE tidigare "korroborering (a):
+  // andra rörelsefixen i rad släpper igenom kandidaten" och lät två
+  // rörelsefixar med ~6,7 m netto öppna grinden. Precis den semantiken bar
+  // LADYBIRD-fantomen (31 m nosning ⇒ 300 m-notis med "ankomst om 8
+  // minuter"), och ANVÄNDARBESLUT F3 lade därför ett minsta netto-närmande på
+  // ben (a). Kontraktet är delat i två tester: den lilla nosningen ska
+  // BLOCKERAS, och ben (a):s kvarvarande egna fall — "netto okänt" — ska
+  // fortsatt släppa på rörelsefixarna.
+  test('K4: två rörelsefixar med litet KÄNT netto räcker inte längre (LADYBIRD-klassen)', () => {
     const app = makeApp();
     app._noteQuayStability({
       mmsi: '265012090', lat: QUAY_LAT, lon: QUAY_LON, sog: 0, _moored: true,
@@ -96,11 +104,30 @@ describe('V1: kajavgång vid trigger-punkt kräver korroborering', () => {
     expect(app._getFlowTriggerCandidates(first, proximityData)
       .some((c) => c.name === 'Kanalinfarten')).toBe(false);
 
-    // Andra rörelsefixen — fortfarande liten förflyttning, men nu TVÅ i rad.
+    // Andra rörelsefixen — TVÅ i rad, men nettot mot punkten är ~6,7 m, dvs.
+    // långt under NET_APPROACH_M (40 m); ben (a) kräver dessutom approachM === null (okänt netto).
     const second = { ...first, lat: QUAY_LAT + 0.00006 };
     app._noteQuayStability(second);
+    expect(app._quayStableLedger.get('265012090').movingFixes).toBe(2);
     expect(app._getFlowTriggerCandidates(second, proximityData)
+      .some((c) => c.name === 'Kanalinfarten')).toBe(false);
+    expect(loggedWith(app.log, 'TRIGGER_POINT_SKIP_QUAY')).toBe(true);
+  });
+
+  test('K4: ben (a) släpper fortfarande när nettot är OKÄNT (ankaret saknar koordinater)', () => {
+    // Bokföringen kan sakna position (t.ex. en post som återställts ur
+    // settings-blobben utan koordinater). Då finns ingen geometri att kräva,
+    // och rörelsefixarna är allt grinden har — semantiken är oförändrad.
+    const app = makeApp();
+    app._quayStableLedger.set('265012093', {
+      stillAt: Date.now() - 60 * 1000, lat: null, lon: null, movingFixes: 2,
+    });
+    const vessel = {
+      mmsi: '265012093', ...southOfTp(150), sog: 1.2, cog: 128.7, targetBridge: null,
+    };
+    expect(app._getFlowTriggerCandidates(vessel, proximityData)
       .some((c) => c.name === 'Kanalinfarten')).toBe(true);
+    expect(loggedWith(app.log, 'TRIGGER_POINT_SKIP_QUAY')).toBe(false);
   });
 
   test('korroborering (b): netto-närmande ≥ NET_APPROACH_M släpper igenom på FÖRSTA fixen', () => {

@@ -13,6 +13,12 @@ const AISBridgeApp = require('../app');
  *   Fix 3: sydgående båt med SV-kurs (COG 226.7°) fick 'unknown'.
  * Fixarna: route-direction primärt + SOG-gate + breddat sydband; och token-ETA
  * mot den NOTIFIERADE brons avstånd för icke-target-kandidater.
+ *
+ * F5 (ANVÄNDARBESLUT 2026-08-21): riktningen som ANVÄNDAREN läser är svensk
+ * ('norrut'/'söderut'/'okänd'). _getDirectionString är oförändrad och svarar
+ * fortfarande på INTERNT språk — översättningen sker i tokenbygget, se
+ * lib/utils/directionTokens.js. Blocket nedan låser därför den interna
+ * funktionen; tokenblocket längre ned låser de svenska värdena.
  */
 describe('Notis-token: riktning (_getDirectionString)', () => {
   let app;
@@ -88,7 +94,7 @@ describe('Notis-token: ETA mot den notifierade bron (_triggerBoatNearFlowForBrid
     expect(fired[0].eta_minutes).not.toBe(68);
     // Stillaliggande vid mellanbro → -1 (okänd), ärligare än 68
     expect(fired[0].eta_minutes).toBe(-1);
-    expect(fired[0].direction).toBe('southbound'); // route-dir, ej brus-COG
+    expect(fired[0].direction).toBe('söderut'); // route-dir (F5: svensk token), ej brus-COG
   });
 
   test('målbro-notis BEHÅLLER vessel.etaMinutes (source=target)', async () => {
@@ -113,5 +119,30 @@ describe('Notis-token: ETA mot den notifierade bron (_triggerBoatNearFlowForBrid
     expect(fired).toHaveLength(1);
     expect(fired[0].eta_minutes).toBeLessThan(5);
     expect(fired[0].eta_minutes).toBeGreaterThanOrEqual(0);
+  });
+
+  // F5 (ANVÄNDARBESLUT 2026-08-21): tokenvokabulären är LÅST här. Användarens
+  // egna Flows villkorar på de exakta strängarna — glider de är varje sådan
+  // Flow tyst trasig, utan felmeddelande.
+  test('F5: de tre tokenvärdena är exakt norrut / söderut / okänd', async () => {
+    const cases = [
+      [{
+        mmsi: '301', name: 'N', sog: 5, cog: 20,
+      }, 'norrut'],
+      [{
+        mmsi: '302', name: 'S', sog: 5, cog: 200,
+      }, 'söderut'],
+      [{
+        mmsi: '303', name: 'U', sog: 5, cog: 90,
+      }, 'okänd'],
+    ];
+    for (const [vessel, expected] of cases) {
+      fired.length = 0;
+      // eslint-disable-next-line no-await-in-loop
+      await app._triggerBoatNearFlowForBridge(vessel, {
+        name: 'Klaffbron', id: 'klaffbron', distance: 250, source: 'target',
+      });
+      expect(fired[0].direction).toBe(expected);
+    }
   });
 });

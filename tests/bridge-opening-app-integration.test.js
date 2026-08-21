@@ -226,10 +226,14 @@ describe('Etapp 6: avfyrningsvägen _onBridgeOpeningWarning', () => {
     const calls = card.getTriggerCalls();
     expect(calls).toHaveLength(1);
     expect(calls[0].success).toBe(true);
+    // F5 (2026-08-21): tokenen är SVENSK. payloadFor() ovan bär det INTERNA
+    // 'northbound' (servicens payload är orörd av språkbytet); app.js:6376
+    // översätter en enda gång via toUserDirection. Facitnyckeln förblir
+    // intern — harnessen översätter tillbaka (replayRunner.js:83-99).
     expect(calls[0].tokens).toEqual({
       bridge_name: 'Klaffbron',
       vessel_name: 'JUNO',
-      direction: 'northbound',
+      direction: 'norrut',
       eta_minutes: 4,
       vessel_count: 2,
     });
@@ -315,7 +319,8 @@ describe('Etapp 6: avfyrningsvägen _onBridgeOpeningWarning', () => {
       await Promise.resolve();
     });
     expect(card.getTriggerCalls()).toHaveLength(2);
-    expect(card.getTriggerCalls()[1].tokens.direction).toBe('southbound');
+    // F5: payloadens interna 'southbound' → användartokenen 'söderut'.
+    expect(card.getTriggerCalls()[1].tokens.direction).toBe('söderut');
   });
 
   test('B1: platshållaren "Unknown" når ALDRIG vessel_name-tokenen', async () => {
