@@ -71,7 +71,26 @@ module.exports = [
       + 'störde texten kring 10:26–10:28; med kapseln demoteras de och den äkta '
       + 'Klaffbron-båtens text renderas rent ("strax" 10:26:43 i st f "ETA okänd" '
       + '10:27:56). Notis-/fördelnings-/riktningsfacit ORÖRDA (30/30).'
-      + 'GOLDEN OMLÅST (2026-08-09, C0b zon-lokal kögrace): 74 → 72 övergångar. Rådataverifierat: MARIANNE (244236598) och JOSEPHINE (244870852) låg BÅDA i gästhamnskapseln 10:10–10:27 (MARIANNE sog 0–0,2 på 3–9 m från kapsellinjen från 10:12:51, JOSEPHINE sog 0 vid 10:11:43 och 10:26:43) — texten "Två båtar på väg mot Klaffbron" räknade alltså två FÖRTÖJDA båtar. Det gamla 600 m-köundantaget (VesselDataService: zoneMinStillMs 3 → 15 min när targetBridge ≤ 600 m) gällde globalt och träffade gästhamnen, som ligger 354–411 m från Klaffbron. Med queueGraceMs=0 på gästhamnsposten demoteras de efter 3 min. Notis-/fördelnings-/riktnings-/öppningsfacit ORÖRDA (30/30).',
+      + 'GOLDEN OMLÅST (2026-08-09, C0b zon-lokal kögrace): 74 → 72 övergångar. Rådataverifierat: MARIANNE (244236598) och JOSEPHINE (244870852) låg BÅDA i gästhamnskapseln 10:10–10:27 (MARIANNE sog 0–0,2 på 3–9 m från kapsellinjen från 10:12:51, JOSEPHINE sog 0 vid 10:11:43 och 10:26:43) — texten "Två båtar på väg mot Klaffbron" räknade alltså två FÖRTÖJDA båtar. Det gamla 600 m-köundantaget (VesselDataService: zoneMinStillMs 3 → 15 min när targetBridge ≤ 600 m) gällde globalt och träffade gästhamnen, som ligger 354–411 m från Klaffbron. Med queueGraceMs=0 på gästhamnsposten demoteras de efter 3 min. Notis-/fördelnings-/riktnings-/öppningsfacit ORÖRDA (30/30).'
+      + 'GOLDEN OMLÅST (2026-08-21, K12 hållningshybriden, gula paketet batch 2): 68 → 68 övergångar, '
+      + '0 texter ändrade, 0 poster till eller från — ENDAST 3 tidsstämplar på texten "Inga båtar är '
+      + 'i närheten av Klaffbron eller Stridsbergsbron", som publiceras 30–90 s TIDIGARE. MEKANISM: '
+      + 'PASSED_HOLD_UI återspeglade den FRAMÅTSYFTANDE texten i hela PASSED_HOLD_MS (150 s) efter en '
+      + 'målbropassage; K12 gör tiden till TAK och beviset till GOLV — hållningen släpps när fartyget '
+      + 'är ≥ 100 m bortom brolinjen på färdriktningens sida, under gång och med VÄXANDE avstånd. Nya '
+      + 'svarsmängden är en delmängd av den gamla: hållningen kan bara KORTAS, aldrig förlängas, och '
+      + 'K12 kan inte hitta på en text — den publicerar motorns egen redan beräknade text tidigare. '
+      + 'RÅDATAVERIFIERAT post för post mot korpusens egen jsonl (offset = meter längs kanalaxeln '
+      + 'från brolinjen, positivt norrut): idx10 01:39:58.842 → 01:39:08.980 (−50 s), NORDIC SOLA '
+      + '258715000 passerade Klaffbron 01:37:08 (offset −42 m) och låg vid den NYA publiceringen på '
+      + 'offset −252 m i 3,8 kn med avståndet 48 → 289 m växande. idx17 05:28:58.842 → 05:27:28.842 '
+      + '(−90 s), DIANA 265576710 passerade Klaffbron 05:26:00 (offset −129 m), vid 05:27:00 offset '
+      + '−318 m i 6,5 kn, 154 → 362 m. idx67 15:38:28.842 → 15:37:58.842 (−30 s), ORANESS 220018000 '
+      + 'passerade Stridsbergsbron före 15:35:45 (offset +104 m), vid 15:37:45 offset +512 m i 7,3 '
+      + 'kn, 104 → 514 m. I alla tre sa den hållna texten "En båt på väg mot X, beräknad broöppning '
+      + 'strax" om en båt som redan passerat och gick DÄRIFRÅN — påståendet "Inga båtar" var alltså '
+      + 'sant redan vid den nya tidpunkten. Notis-, fördelnings-, riktnings- och öppningsfacit ORÖRDA '
+      + '(30/30 notiser, 10 öppningsvarningar).',
   },
   {
     id: '20260601-41h',
@@ -199,7 +218,33 @@ module.exports = [
       + 'övergångar berörs (13 i båda versionerna) och ingen annan rad flyttar '
       + 'sig — den enda post LCS bokför som tidsskift (−247,1 s) är just den '
       + 'omflyttade "Två båtar … Klaffbron strax"-raden ovan. '
-      + 'Samma bakom-bro-klass som SABETH/AKLEJA; alla övriga multiset exakta.',
+      + 'Samma bakom-bro-klass som SABETH/AKLEJA; alla övriga multiset exakta.'
+      + 'GOLDEN OMLÅST (2026-08-21, K12 hållningshybriden, gula paketet batch 2): 164 → 164 '
+      + 'övergångar, 0 texter ändrade, 0 poster till eller från — ENDAST 5 tidsstämplar på texten '
+      + '"Inga båtar är i närheten av Klaffbron eller Stridsbergsbron", som publiceras 30–146 s '
+      + 'TIDIGARE. MEKANISM: PASSED_HOLD_UI återspeglade den FRAMÅTSYFTANDE texten i hela '
+      + 'PASSED_HOLD_MS (150 s) efter en målbropassage; K12 gör tiden till TAK och beviset till GOLV '
+      + '— hållningen släpps när fartyget är ≥ 100 m bortom brolinjen på färdriktningens sida, under '
+      + 'gång och med VÄXANDE avstånd. Nya svarsmängden är en delmängd av den gamla: hållningen kan '
+      + 'bara KORTAS, aldrig förlängas, och K12 kan inte hitta på en text — den publicerar motorns '
+      + 'egen redan beräknade text tidigare. RÅDATAVERIFIERAT: idx28 07:35:07.016 → 07:33:07.016 '
+      + '(−120 s) LECKO 244063000 Stridsbergsbron offset +184 m, 5,4 kn, 125 → 184 m. idx39 '
+      + '10:14:37.016 → 10:13:37.016 (−60 s) OSPREY 265035480 Klaffbron offset −655 m, 5,5 kn, 386 → '
+      + '723 m. idx57 13:58:37.016 → 13:57:07.016 (−90 s) AQUILA 265735370 Klaffbron offset −346 m, '
+      + '5,1 kn, 169 → 394 m. idx89 23:00:37.016 → 22:58:11.257 (−146 s, korpusbankens största flytt) '
+      + 'WILSON LEITH 311001804 passerade Klaffbron 22:57:40 (offset −97 m) och låg vid 22:58:11 på '
+      + 'offset −159 m i 4,5 kn med 117 → 188 m; vid den GAMLA publiceringen 23:00:22 var hon redan '
+      + '478 m bort. idx102 02:07:37.016 → 02:07:07.016 (−30 s) ELISE 305170000 Stridsbergsbron '
+      + 'offset +937 m, 8,7 kn, 427 → 945 m. ÖPPNINGSFACIT OMLÅST (2026-08-21, K13b — händelsens '
+      + 'riktning når Flow-tokenen): Klaffbron:northbound 8 → 7 + Klaffbron:mixed 0 → 1, '
+      + 'Stridsbergsbron:southbound 6 → 5 + Stridsbergsbron:mixed 0 → 1. ANTALET öppningsvarningar är '
+      + 'OFÖRÄNDRAT (27) och inga andra fält rör sig — bara riktningstokenen. De två händelserna är '
+      + 'rådataverifierat MÖTEN: Klaffbron#22 08:18:06.976 täcker EBONITA PRINCESS 40 (265580000, lat '
+      + '58.26841 → 58.30741 = +4342 m NORRUT, cog 14°) och AIR (265671650, 58.31619 → 58.28363 = '
+      + '−3624 m SÖDERUT, cog 113°); Stridsbergsbron#23 08:22:36.976 täcker EBONITA PRINCESS 40 '
+      + '(norrut) och PALOMA (265682580, −4429 m SÖDERUT, cog 213°). Det gamla enkelriktade värdet '
+      + 'var halva sanningen — ledarens riktning, inte händelsens. Notis-/fördelnings-/riktningsfacit '
+      + 'ORÖRDA (84/84).',
   },
   {
     id: '20260610-förfix',
@@ -317,7 +362,17 @@ module.exports = [
       + '58.310→58.270 (Strids/Jvb/Klaff/Olide korsade), sista sample 09:15:39 '
       + '316 m NORR om punkten i 4,9 kn/cog 212 → removal. MOSHE var återfödd '
       + 'MÅLLÖS (target aldrig satt) — gamla gaten krävde avslutad resa '
-      + '(_finalTargetDirection) och strök hennes exit strukturellt.',
+      + '(_finalTargetDirection) och strök hennes exit strukturellt.'
+      + 'ÖPPNINGSFACIT OMLÅST (2026-08-21, K13b — händelsens riktning når Flow-tokenen, gula paketet '
+      + 'batch 2): Klaffbron:northbound 3 → 2 + Klaffbron:mixed 0 → 1. ANTALET öppningsvarningar är '
+      + 'OFÖRÄNDRAT (11); endast riktningstokenen ändras. Klaffbron#8 09:19:19.821 är '
+      + 'rådataverifierat ett MÖTE: MARLIN (265571760, lat 58.27174 → 58.27920 = +830 m NORRUT, cog '
+      + '32°) och NO LIMIT (211380900, 58.31562 → 58.29437 = −2366 m SÖDERUT, cog 221°) — varningen '
+      + 'täckte båda, men tokenen bar bara ledarens riktning. FASSVEPT 2026-08-21: värdet "mixed" '
+      + 'står still i samtliga sex fasvarianter (−2,5 till −25 s) trots att LEDANDE BÅT och ETA '
+      + 'vippar i samma händelse (MARLIN/eta 7 → NO LIMIT/eta 16) — händelseriktningen vilar på hela '
+      + 'medlemsmängdens låsta ruttriktningar och är därför robustare än ledarvalet. Notis-, '
+      + 'fördelnings-, riktnings- och golden-facit ORÖRDA (32/32 notiser, 50 övergångar).',
   },
   {
     id: '20260702-2h',
@@ -346,7 +401,20 @@ module.exports = [
       + 'OMLÅST 32→33 (2026-07-10, fältprov 5 F5-B — IN-AXXI-klassen): '
       + '+265558470/PAX@Kanalinfarten — rådataverifierad: kontinuerlig '
       + 'sydresa, sista sample 12:44:16 @482 m i 6,0 kn/cog 211 med '
-      + 'Olidebron passerad; gamla 400 m-exitgaten strök den äkta exiten.',
+      + 'Olidebron passerad; gamla 400 m-exitgaten strök den äkta exiten.'
+      + 'GOLDEN OMLÅST (2026-08-21, K12 hållningshybriden, gula paketet batch 2): 37 → 37 övergångar, '
+      + '0 texter ändrade, 0 poster till eller från — ENDAST 1 tidsstämpel på texten "Inga båtar är i '
+      + 'närheten av Klaffbron eller Stridsbergsbron", som publiceras 90 s TIDIGARE. MEKANISM: '
+      + 'PASSED_HOLD_UI återspeglade den FRAMÅTSYFTANDE texten i hela PASSED_HOLD_MS (150 s) efter en '
+      + 'målbropassage; K12 gör tiden till TAK och beviset till GOLV — hållningen släpps när fartyget '
+      + 'är ≥ 100 m bortom brolinjen på färdriktningens sida, under gång och med VÄXANDE avstånd. Nya '
+      + 'svarsmängden är en delmängd av den gamla: hållningen kan bara KORTAS, aldrig förlängas, och '
+      + 'K12 kan inte hitta på en text — den publicerar motorns egen redan beräknade text tidigare. '
+      + 'RÅDATAVERIFIERAT: idx36 13:38:48.654 → 13:37:18.654, YEMANJA II 257904890 passerade '
+      + 'Stridsbergsbron mellan 13:34:45 (offset −46 m) och 13:36:14 (offset +101 m) och låg vid den '
+      + 'nya publiceringen 13:37:15 på offset +235 m i 4,6 kn med avståndet 102 → 236 m växande. Den '
+      + 'hållna texten "En båt på väg mot Stridsbergsbron, beräknad broöppning strax" var alltså '
+      + 'redan falsk. Notis-, fördelnings-, riktnings- och öppningsfacit ORÖRDA (33/33).',
   },
   {
     id: '20260702-19h',
@@ -372,7 +440,25 @@ module.exports = [
       + 'OMLÅST 54→55 (2026-07-10, fältprov 5 F5-B — IN-AXXI-klassen): '
       + '+265741640@Kanalinfarten — rådataverifierad: kontinuerlig sydresa '
       + '(alla fem broar redan i fördelningen), sista sample 17:10:51 @477 m '
-      + 'i 5,0 kn/cog 214; gamla 400 m-exitgaten strök den äkta exiten.',
+      + 'i 5,0 kn/cog 214; gamla 400 m-exitgaten strök den äkta exiten.'
+      + 'GOLDEN OMLÅST (2026-08-21, K12 hållningshybriden, gula paketet batch 2): 80 → 80 övergångar, '
+      + '0 texter ändrade, 0 poster till eller från — ENDAST 2 tidsstämplar på texten "Inga båtar är '
+      + 'i närheten av Klaffbron eller Stridsbergsbron", som publiceras 60–90 s TIDIGARE. MEKANISM: '
+      + 'PASSED_HOLD_UI återspeglade den FRAMÅTSYFTANDE texten i hela PASSED_HOLD_MS (150 s) efter en '
+      + 'målbropassage; K12 gör tiden till TAK och beviset till GOLV — hållningen släpps när fartyget '
+      + 'är ≥ 100 m bortom brolinjen på färdriktningens sida, under gång och med VÄXANDE avstånd. Nya '
+      + 'svarsmängden är en delmängd av den gamla: hållningen kan bara KORTAS, aldrig förlängas, och '
+      + 'K12 kan inte hitta på en text — den publicerar motorns egen redan beräknade text tidigare. '
+      + 'BÅDA POSTERNA ÄR GAP-INFERRERADE PASSAGER — den klass där hållningen skadar mest, eftersom '
+      + 'lastPassedBridgeTime stämplas vid gap-flushen och 150 s-klockan därför startar långt EFTER '
+      + 'den verkliga korsningen. idx12 17:08:49.745 → 17:07:49.745 (−60 s): VALEN 265741640 hade ett '
+      + 'AIS-gap 16:53:20 → 17:06:18 (12,97 min); hon gick in i gapet 935 m NORR om Klaffbron och kom '
+      + 'ut 860 m SÖDER om den. Vid den nya publiceringen 17:07:49 låg hon på offset −1095 m i 4,5 kn '
+      + 'med avståndet 943 → 1174 m växande — medan skylten sa "En båt på väg mot Klaffbron, ETA '
+      + 'okänd" om en båt en dryg kilometer bort på väg därifrån. idx64 08:45:19.745 → 08:43:49.745 '
+      + '(−90 s): 244100668, samma klass — gap 08:32:30 → 08:42:32 (10,0 min), in 295 m norr om '
+      + 'Klaffbron och ut 775 m söder; vid 08:43:32 offset −908 m, 4,3 kn, 854 → 995 m. Notis-, '
+      + 'fördelnings-, riktnings- och öppningsfacit ORÖRDA (55/55).',
   },
   {
     id: '20260707-14h',
@@ -421,7 +507,22 @@ module.exports = [
       + '(546 m) och 265083240 (409 m). Fältprov 2-notens "LYS@Kanalinfarten '
       + 'INTE facit" beskrev dåvarande gate-beteende (mållösa nådde aldrig '
       + 'exit-vägen), inte en dom över den fysiska händelsen — HÄVD med '
-      + 'detta rådatabelägg.',
+      + 'detta rådatabelägg.'
+      + 'GOLDEN OMLÅST (2026-08-21, K12 hållningshybriden, gula paketet batch 2): 111 → 111 '
+      + 'övergångar, 0 texter ändrade, 0 poster till eller från — ENDAST 2 tidsstämplar på texten '
+      + '"Inga båtar är i närheten av Klaffbron eller Stridsbergsbron", som publiceras 33–79 s '
+      + 'TIDIGARE. MEKANISM: PASSED_HOLD_UI återspeglade den FRAMÅTSYFTANDE texten i hela '
+      + 'PASSED_HOLD_MS (150 s) efter en målbropassage; K12 gör tiden till TAK och beviset till GOLV '
+      + '— hållningen släpps när fartyget är ≥ 100 m bortom brolinjen på färdriktningens sida, under '
+      + 'gång och med VÄXANDE avstånd. Nya svarsmängden är en delmängd av den gamla: hållningen kan '
+      + 'bara KORTAS, aldrig förlängas, och K12 kan inte hitta på en text — den publicerar motorns '
+      + 'egen redan beräknade text tidigare. RÅDATAVERIFIERAT: idx65 11:43:11.910 → 11:41:52.673 (−79 '
+      + 's) BEAUTYFIELD 265689820 Klaffbron offset −763 m, 5,6 kn, 578 → 841 m. idx91 17:20:41.910 → '
+      + '17:20:08.942 (−33 s) IMPERATOR 257141000 passerade Stridsbergsbron 17:18:08 (offset +22 m) '
+      + 'och låg 17:20:08 på offset +448 m i 7,2 kn med 24 → 448 m. IMPERATOR är samma fartyg som gav '
+      + 'C1c-hållningen dess namn — hon visar nu båda sidorna av regeln: hållningen behövs UNDER '
+      + 'bron, men inte 448 m bortom den. Notis-, fördelnings-, riktnings- och öppningsfacit ORÖRDA '
+      + '(74/74).',
   },
   {
     id: '20260708-21h',
@@ -467,7 +568,24 @@ module.exports = [
       + '7,7 kn. Sydnotisen fyras 12:22:02 via passage-fallbacken. '
       + 'Riktningsmultiseten får alltså 265573130:Stallbackabron:southbound = 1 '
       + '(nordposten är oförändrad). Inga notiser FÖRLORADE i korpusen '
-      + '(saknas=[] i både fördelnings- och riktningsmultiset).',
+      + '(saknas=[] i både fördelnings- och riktningsmultiset).'
+      + 'GOLDEN OMLÅST (2026-08-21, K12 hållningshybriden, gula paketet batch 2): 90 → 90 övergångar, '
+      + '0 texter ändrade, 0 poster till eller från — ENDAST 1 tidsstämpel på texten "Inga båtar är i '
+      + 'närheten av Klaffbron eller Stridsbergsbron", som publiceras 30 s TIDIGARE. MEKANISM: '
+      + 'PASSED_HOLD_UI återspeglade den FRAMÅTSYFTANDE texten i hela PASSED_HOLD_MS (150 s) efter en '
+      + 'målbropassage; K12 gör tiden till TAK och beviset till GOLV — hållningen släpps när fartyget '
+      + 'är ≥ 100 m bortom brolinjen på färdriktningens sida, under gång och med VÄXANDE avstånd. Nya '
+      + 'svarsmängden är en delmängd av den gamla: hållningen kan bara KORTAS, aldrig förlängas, och '
+      + 'K12 kan inte hitta på en text — den publicerar motorns egen redan beräknade text tidigare. '
+      + 'RÅDATAVERIFIERAT: idx15 06:32:35.501 → 06:32:05.501, JUNO 265576720 passerade Klaffbron '
+      + '06:29:48 (offset −84 m) och låg vid den nya publiceringen 06:31:47 på offset −478 m i 7,2 kn '
+      + 'med avståndet 100 → 533 m växande. Den hållna texten "En båt på väg mot Klaffbron, beräknad '
+      + 'broöppning om 3 minuter" pekade alltså framåt mot en bro båten redan lämnat. ÖPPNINGSFACIT '
+      + 'OMLÅST (2026-08-21, K13b): Klaffbron:northbound 5 → 4 + Klaffbron:mixed 0 → 1. ANTALET '
+      + 'öppningsvarningar OFÖRÄNDRAT (21). Klaffbron#14 09:44:05.461 är rådataverifierat ett MÖTE: '
+      + 'SISU (219032725, lat 58.27091 → 58.28181 = +1214 m NORRUT, cog 41°) och 211228640 (58.30042 '
+      + '→ 58.28339 = −1896 m SÖDERUT, cog 212°). Notis-, fördelnings- och riktningsfacit ORÖRDA '
+      + '(56/56).',
   },
   {
     id: '20260710-13h',
@@ -513,7 +631,22 @@ module.exports = [
       + 'mellanvärde. Utan flappen renderas nästa tick 12:48:17 där '
       + 'exhausted-kedjan (IMMINENT_SET_EXHAUSTED @311s → 90 s strax → '
       + 'ETA okänd @12:50:06) äger — samma regelverk, notiserna 80/80 '
-      + 'byte-identiska.',
+      + 'byte-identiska.'
+      + 'GOLDEN OMLÅST (2026-08-21, K12 hållningshybriden, gula paketet batch 2): 134 → 134 '
+      + 'övergångar, 0 texter ändrade, 0 poster till eller från — ENDAST 1 tidsstämpel på texten '
+      + '"Inga båtar är i närheten av Klaffbron eller Stridsbergsbron", som publiceras 30 s TIDIGARE. '
+      + 'MEKANISM: PASSED_HOLD_UI återspeglade den FRAMÅTSYFTANDE texten i hela PASSED_HOLD_MS (150 '
+      + 's) efter en målbropassage; K12 gör tiden till TAK och beviset till GOLV — hållningen släpps '
+      + 'när fartyget är ≥ 100 m bortom brolinjen på färdriktningens sida, under gång och med VÄXANDE '
+      + 'avstånd. Nya svarsmängden är en delmängd av den gamla: hållningen kan bara KORTAS, aldrig '
+      + 'förlängas, och K12 kan inte hitta på en text — den publicerar motorns egen redan beräknade '
+      + 'text tidigare. RÅDATAVERIFIERAT: idx128 12:30:47.207 → 12:30:17.207, HELGE 244750397 '
+      + 'passerade Klaffbron mellan 12:23:53 (offset +328 m) och 12:28:04 (offset −251 m) och låg vid '
+      + 'den nya publiceringen 12:30:14 på offset −509 m i 4,0 kn med avståndet 288 → 566 m växande. '
+      + 'VERKANSKONTROLL: korpusen har TVÅ hållningssläpp men bara EN flyttad golden-post — det andra '
+      + '(265606970 vid Stridsbergsbron) inföll när motorns nya text var identisk med den hållna, så '
+      + 'ingen publicering flyttades. Ett släpp som inte ändrar texten är per konstruktion osynligt i '
+      + 'facit. Notis-, fördelnings-, riktnings- och öppningsfacit ORÖRDA (80/80).',
   },
   {
     id: '20260711-7h',
@@ -644,7 +777,20 @@ module.exports = [
       + 'varning i stället för att gömmas i sydbenets. Ingen NY öppning uppfanns '
       + 'och ingen befintlig försvann — samma trafik, korrekt riktningsbokförd. '
       + 'MEKANISM: gapet är en term i den progressiva ETA-kedjan, och '
-      + 'konvojklustringen ligger på knivseggen mot CONVOY_WINDOW_MS 600 s.',
+      + 'konvojklustringen ligger på knivseggen mot CONVOY_WINDOW_MS 600 s.'
+      + 'GOLDEN OMLÅST (2026-08-21, K12 hållningshybriden, gula paketet batch 2): 139 → 139 '
+      + 'övergångar, 0 texter ändrade, 0 poster till eller från — ENDAST 1 tidsstämpel på texten '
+      + '"Inga båtar är i närheten av Klaffbron eller Stridsbergsbron", som publiceras 30 s TIDIGARE. '
+      + 'MEKANISM: PASSED_HOLD_UI återspeglade den FRAMÅTSYFTANDE texten i hela PASSED_HOLD_MS (150 '
+      + 's) efter en målbropassage; K12 gör tiden till TAK och beviset till GOLV — hållningen släpps '
+      + 'när fartyget är ≥ 100 m bortom brolinjen på färdriktningens sida, under gång och med VÄXANDE '
+      + 'avstånd. Nya svarsmängden är en delmängd av den gamla: hållningen kan bara KORTAS, aldrig '
+      + 'förlängas, och K12 kan inte hitta på en text — den publicerar motorns egen redan beräknade '
+      + 'text tidigare. RÅDATAVERIFIERAT: idx77 11:13:49.579 → 11:13:19.579, MILES2GO 211840280 — '
+      + 'gap-inferrerad passage: AIS-gap 10:57:34 → 11:11:10 (13,6 min), in 293 m NORR om Klaffbron '
+      + 'och ut 809 m SÖDER. Vid 11:13:11 låg hon på offset −1055 m i 2,2 kn med avståndet 890 → 1137 '
+      + 'm växande, medan den hållna texten sa "En båt på väg mot Klaffbron, ETA okänd". Notis-, '
+      + 'fördelnings-, riktnings- och öppningsfacit ORÖRDA (86/86).',
   },
   {
     id: '20260713-41h',
@@ -729,7 +875,26 @@ module.exports = [
       + 'notistillfället är avståndet till konsensuspunkten d=269 m — INNANFÖR '
       + 'ringen — mot 389 m till den gamla punkten, dvs. utanför. Ingen ny '
       + 'fartygsklass, ingen ny kodväg: samma resa, rätt geometri. Inga notiser '
-      + 'FÖRLORADE i korpusen (saknas=[] i båda multiseten).',
+      + 'FÖRLORADE i korpusen (saknas=[] i båda multiseten).'
+      + 'GOLDEN OMLÅST (2026-08-21, K12 hållningshybriden, gula paketet batch 2): 270 → 270 '
+      + 'övergångar, 0 texter ändrade, 0 poster till eller från — ENDAST 1 tidsstämpel på texten '
+      + '"Inga båtar är i närheten av Klaffbron eller Stridsbergsbron", som publiceras 30 s TIDIGARE. '
+      + 'MEKANISM: PASSED_HOLD_UI återspeglade den FRAMÅTSYFTANDE texten i hela PASSED_HOLD_MS (150 '
+      + 's) efter en målbropassage; K12 gör tiden till TAK och beviset till GOLV — hållningen släpps '
+      + 'när fartyget är ≥ 100 m bortom brolinjen på färdriktningens sida, under gång och med VÄXANDE '
+      + 'avstånd. Nya svarsmängden är en delmängd av den gamla: hållningen kan bara KORTAS, aldrig '
+      + 'förlängas, och K12 kan inte hitta på en text — den publicerar motorns egen redan beräknade '
+      + 'text tidigare. RÅDATAVERIFIERAT: idx10 01:12:50.559 → 01:12:20.559, NORFJELL 257076850 '
+      + 'passerade Klaffbron mellan 01:06:41 (offset +154 m) och 01:09:57 (offset −157 m) och låg vid '
+      + 'den nya publiceringen 01:11:57 på offset −349 m i 3,7 kn med avståndet 183 → 392 m växande. '
+      + 'ÖPPNINGSFACIT OMLÅST (2026-08-21, K13b): Stridsbergsbron:southbound 11 → 9 + '
+      + 'Stridsbergsbron:mixed 0 → 2. ANTALET öppningsvarningar OFÖRÄNDRAT (49). Båda händelserna är '
+      + 'rådataverifierade MÖTEN: Stridsbergsbron#16 11:00:20.519 täcker 265718550 (lat 58.26566 → '
+      + '58.29057 = +2773 m NORRUT, cog 16°) och SILVERTASS 265663660 (58.31502 → 58.29442 = −2293 m '
+      + 'SÖDERUT, cog 213°); Stridsbergsbron#33 08:28:42.712 täcker NORDIC SOLA 258715000 (+2776 m '
+      + 'NORRUT, cog 6°) och 211617280 (−394 m SÖDERUT, cog 203°). FASSVEPT 2026-08-21: ingen av de '
+      + 'två händelserna avviker i NÅGON fasvariant (−2,5 till −25 s) — värdet är fas-invariant. '
+      + 'Notis-, fördelnings- och riktningsfacit ORÖRDA (165/165).',
     knownInvariantExceptions: [
       'ETA-SÅGTAND UPP: 2026-07-15T08:48:51.405Z Stridsbergsbron 8→14',
       'ETA-OSCILLATION: 2026-07-15T08:50:22.118Z Stridsbergsbron 8→14→9',
@@ -823,7 +988,21 @@ module.exports = [
       + 'den progressiva ETA:ns termer med några tiotal sekunder, och '
       + 'konvojklustringen ligger på knivseggen mot CONVOY_WINDOW_MS 600 s '
       + '(marginalerna var 2,7 s respektive 43,5 s). Det är alltså samma fysiska '
-      + 'öppning som förut, räknad en gång i stället för två.',
+      + 'öppning som förut, räknad en gång i stället för två.'
+      + 'GOLDEN OMLÅST (2026-08-21, K12 hållningshybriden, gula paketet batch 2): 192 → 192 '
+      + 'övergångar, 0 texter ändrade, 0 poster till eller från — ENDAST 1 tidsstämpel på texten '
+      + '"Inga båtar är i närheten av Klaffbron eller Stridsbergsbron", som publiceras 90 s TIDIGARE. '
+      + 'MEKANISM: PASSED_HOLD_UI återspeglade den FRAMÅTSYFTANDE texten i hela PASSED_HOLD_MS (150 '
+      + 's) efter en målbropassage; K12 gör tiden till TAK och beviset till GOLV — hållningen släpps '
+      + 'när fartyget är ≥ 100 m bortom brolinjen på färdriktningens sida, under gång och med VÄXANDE '
+      + 'avstånd. Nya svarsmängden är en delmängd av den gamla: hållningen kan bara KORTAS, aldrig '
+      + 'förlängas, och K12 kan inte hitta på en text — den publicerar motorns egen redan beräknade '
+      + 'text tidigare. RÅDATAVERIFIERAT: idx75 10:40:07.374 → 10:38:37.374, 265597580 — '
+      + 'gap-inferrerad passage: AIS-gap 10:29:40 → 10:37:12 (7,5 min), in 27 m SÖDER om '
+      + 'Stridsbergsbron och ut 977 m NORR. Vid 10:38:12 låg hon på offset +1095 m i 4,2 kn med '
+      + 'avståndet 976 → 1094 m växande, medan den hållna texten sa "En båt på väg mot '
+      + 'Stridsbergsbron, beräknad broöppning strax" om en båt över en kilometer bortom bron. Notis-, '
+      + 'fördelnings-, riktnings- och öppningsfacit ORÖRDA (117/117).',
     knownInvariantExceptions: [
       'NOTIS-DUBBLETT: 265576720:Kanalinfarten × 2 utan journey-reset emellan',
     ],
@@ -1072,7 +1251,42 @@ module.exports = [
       + 'NETTOBEDÖMNING: 70 s tidigare förvarning till priset av en överskattad '
       + 'första-ETA. ACCEPTERAD med denna dokumentation. Ska ETA-svagheten '
       + 'åtgärdas är rätt ställe en fart-/etableringsgrind uppströms '
-      + 'ETA-motorn — inte kajliggarlivscykeln, som bara gjorde den synlig.',
+      + 'ETA-motorn — inte kajliggarlivscykeln, som bara gjorde den synlig.'
+      + 'GOLDEN OMLÅST (2026-08-21, K12 hållningshybriden, gula paketet batch 2): 334 → 334 '
+      + 'övergångar, 0 texter ändrade, 0 poster till eller från — ENDAST 6 tidsstämplar på texten '
+      + '"Inga båtar är i närheten av Klaffbron eller Stridsbergsbron", som publiceras 60–90 s '
+      + 'TIDIGARE. MEKANISM: PASSED_HOLD_UI återspeglade den FRAMÅTSYFTANDE texten i hela '
+      + 'PASSED_HOLD_MS (150 s) efter en målbropassage; K12 gör tiden till TAK och beviset till GOLV '
+      + '— hållningen släpps när fartyget är ≥ 100 m bortom brolinjen på färdriktningens sida, under '
+      + 'gång och med VÄXANDE avstånd. Nya svarsmängden är en delmängd av den gamla: hållningen kan '
+      + 'bara KORTAS, aldrig förlängas, och K12 kan inte hitta på en text — den publicerar motorns '
+      + 'egen redan beräknade text tidigare. RÅDATAVERIFIERAT: idx27 00:10:48.635 → 00:09:48.635 TIM '
+      + '212571000 Klaffbron offset −148 m, 3,4 kn, 108 → 176 m. idx56 03:22:48.635 → 03:21:18.635 '
+      + 'ANDREA 219031446 Stridsbergsbron offset +302 m, 5,6 kn, 65 → 302 m. idx98 06:56:18.635 → '
+      + '06:54:48.635 ADA 265625860 Klaffbron offset −470 m, 5,1 kn, 286 → 524 m. idx175 08:31:18.635 '
+      + '→ 08:30:18.635 JEANNELLE 265662320 (offset +198 m, 4,7 kn, 44 → 198 m) och EUGENIE 265788210 '
+      + '(offset +422 m, 6,0 kn, 250 → 424 m), båda Stridsbergsbron. idx300 12:55:18.635 → '
+      + '12:53:48.635 ARESTEL 265700360 Stridsbergsbron offset +522 m, 5,8 kn, 343 → 524 m. idx333 '
+      + '15:32:18.635 → 15:30:48.635 ANNA 265651340 Klaffbron — gap-inferrerad passage (gap 15:13:29 '
+      + '→ 15:29:25, 15,9 min, in 1156 m norr och ut 754 m söder), vid 15:30:35 offset −1020 m i 5,1 '
+      + 'kn med 832 → 1103 m. RIKTNINGSFACIT OMLÅST (2026-08-21, K1 Kanalinfart-regeln): '
+      + '211718360:Kanalinfarten:unknown → :northbound och 219031446:Kanalinfarten:unknown → '
+      + ':northbound. ANTALET notiser är OFÖRÄNDRAT (152/152) — bara riktningstokenen. ORSAK: '
+      + '_getDirectionString svarar "unknown" i COG-dödbandet 46–134°, och farleden in mot '
+      + 'Kanalinfarten löper ENE, så första in-zon-samplet hamnar nästan alltid där. RÅDATABEVIS att '
+      + '"northbound" är sant: MS JUTLAND 211718360 notifierades 23:44:11.408 (cog 58,4°, sog 3,5 kn, '
+      + '256 m från punkten) och gick därefter lat 58.26622 → 58.31320 (+5230 m NORRUT), passerade '
+      + 'Klaffbron 00:00:48 på 32 m och fortsatte genom kanalen; ANDREA 219031446 notifierades '
+      + '00:37:19.001 (cog 52,9°, sog 3,1 kn, 193 m) och gick 58.26661 → 58.31321 (+5188 m NORRUT), '
+      + 'Klaffbron 00:52:59 på 77 m. Ingen av dem vände. FASSVEPT 2026-08-21: notismultisetet '
+      + '(mmsi:bro:riktning) avviker i INGEN fasvariant (−2,5 till −25 s) i denna korpus — '
+      + 'riktningsvärdet är ingen knivsegg. MEDVETET ORÖRDA: bankens övriga sju '
+      + 'Kanalinfarten:unknown-poster (20260712-25h 219034975, 20260713-41h 258715000, 20260804-17h '
+      + '265576720 + 265597580, samt 265565830, 265573130 och 265810170 i denna korpus) saknar '
+      + 'antingen östbands-cog eller bevisad nordprogress ≥ 0,25 m/s och ska förbli "unknown" — '
+      + 'regeln är avsiktligt konservativ och återvinner 2 av dem, inte alla. Att någon av de sju '
+      + 'flyttar sig är ett REGRESSIONSTECKEN. Fördelnings- och öppningsfacit ORÖRDA (korpusen har '
+      + 'lockOpenings: false, så dess tre mixed-händelser bokförs inte).',
     knownInvariantExceptions: [
       'NOTIS-DUBBLETT: 219031446:Stridsbergsbron × 2 utan journey-reset emellan',
       // P9-omlåsningen (2026-08-10): kajliggarlivscykeln (gravvård + moored-
