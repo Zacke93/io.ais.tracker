@@ -48,8 +48,14 @@ const geometry = require('./lib/utils/geometry');
 // MEDVETET olika band (strikt/brett/token) — se modulens huvud innan du byter
 // ett anrop mot ett annat.
 const {
-  isNorthCog, isSouthCogStrict, isSouthCogWide, isSouthCogToken,
+  isNorthCog, isSouthCogStrict, isSouthCogWide, isSouthCogToken, COG_BANDS,
 } = require('./lib/utils/cogDirection');
+// F5/A3 (ANVÄNDARBESLUT 2026-08-21): riktningen som användaren LÄSER är
+// svensk ('norrut'/'söderut'/'okänd'/'båda'), riktningen koden RESONERAR med
+// är intern ('northbound'/'southbound'/'unknown'/'mixed'). Översättningen har
+// exakt EN adress — se modulhuvudet innan du skriver en riktningssträng
+// någonstans i den här filen.
+const { toUserDirection, INTERNAL_TO_USER } = require('./lib/utils/directionTokens');
 
 // =============================================================================
 // CONSTANTS: Centraliserade konfigurations-värden
@@ -1413,11 +1419,11 @@ class AISBridgeApp extends Homey.App {
    * Returnerar null när grinden INTE ska ingripa (ingen färsk kajhistorik,
    * eller redan korroborerad), annars ett skäl-objekt för loggen.
    *
-   * Korroborering: MIN_MOVING_FIXES på varandra följande rörelsefixar ELLER
-   * NET_APPROACH_M netto-närmande mot punkten sedan kajläget. Båda vägarna är
-   * uppfyllda vid nästa fix för en äkta insegling (≥130 m per pollcykel i 4
-   * knop), så en verklig kajavgång FÖRDRÖJS en fix — den förloras aldrig
-   * (dedup-nyckeln sätts inte vid skip).
+   * Korroborering: NET_APPROACH_M netto-närmande mot punkten sedan kajläget
+   * (ben b) ELLER MIN_MOVING_FIXES på varandra följande rörelsefixar när
+   * nettot är OKÄNT (ben a). En äkta insegling uppfyller (b) vid nästa fix
+   * (≥130 m per pollcykel i 4 knop), så en verklig kajavgång FÖRDRÖJS en fix
+   * — den förloras aldrig (dedup-nyckeln sätts inte vid skip).
    * @param {Object} vessel - Fartygsobjekt
    * @param {Object} tp - Referenspunkten (TRIGGER_POINTS-post för notisvägen,
    *   målbron för öppningslagret)
@@ -1450,9 +1456,28 @@ class AISBridgeApp extends Homey.App {
     // enpolls fördröjning. Nattens fantom överlevde inte på V1 utan på FP8:
     // PRICKBJORNs cog rullade in i sydbandet på nästa fix. Låg den kvar i
     // östbandet hade rörelsebenet öppnat medan båten gick BORT (119→143 m).
-    // Kravet är därför: rörelse OCH ingen netto-reträtt från punkten.
+    // Kravet blev därför: rörelse OCH ingen netto-reträtt från punkten.
+    // K4 (fältprov 10, 2026-08-19/20 — ANVÄNDARBESLUT F3): "ingen
+    // netto-reträtt" (approachM >= 0) var för svagt. LADYBIRD nosade ut 31 m
+    // på 137 s från kajen väster om punkten, öppnade grinden och fick en
+    // 300 m-notis med "ankomst om 8 minuter" — vände vid 230 m och förtöjde
+    // 423 m VÄSTER om Kanalinfarten.
+    //
+    // BENET BÄR EXAKT ETT FALL: "netto okänt" (2026-08-22, granskarfynd).
+    // K4 lade först ett eget golv på 70 m här, men ett KÄNT netto kan aldrig
+    // nå den här raden med ett värde ≥ 40 — ben (b) ovan har redan
+    // returnerat. Grenen var alltså onåbar som numerisk tröskel, och
+    // konstanten (MIN_NET_APPROACH_M) beskrev en spärr koden inte kunde
+    // utöva. Villkoret säger nu vad som faktiskt gäller: när
+    // bokföringsankaret saknar koordinater finns ingen geometri att kräva,
+    // och rörelsefixarna är allt grinden har. LADYBIRD-bandet (0–39 m KÄNT
+    // netto) blockeras av att den här grenen kräver approachM === null.
+    // Sanningsmängden är BYTE-IDENTISK med K4:s förkastade 70-metersvariant;
+    // mot COMMITTAD HEAD (`approachM === null || approachM >= 0`) är den
+    // STRIKT STRÄNGARE — bandet 0–39 m KÄNT netto blockeras, vilket är hela
+    // poängen.
     if (entry.movingFixes >= QUAY_DEPARTURE_GATE.MIN_MOVING_FIXES
-        && (approachM === null || approachM >= 0)) {
+        && approachM === null) {
       return null; // (a) uppfylld
     }
     return {
@@ -4639,11 +4664,161 @@ class AISBridgeApp extends Homey.App {
   _hasRecentTargetPassage(vessels) {
     if (!Array.isArray(vessels)) return false;
     const now = Date.now();
-    return vessels.some((v) => v
-      && v.lastPassedBridge
-      && TARGET_BRIDGES.includes(v.lastPassedBridge)
-      && Number.isFinite(v.lastPassedBridgeTime)
-      && (now - v.lastPassedBridgeTime) < PASSAGE_TIMING.PASSED_HOLD_MS);
+    // K12 (fältprov 10, 2026-08-19/20 — ANVÄNDARBESLUT A2): HYBRID. Tiden är
+    // taket, beviset är golvet. TONGA passerade Klaffbron 10:10:34,9 och
+    // hållningen återspelade den FRAMÅTSYFTANDE texten "…beräknad broöppning
+    // strax" i 149,8 s — till 10:13:34,8, då hon låg 467 m SÖDER om bron och
+    // gick därifrån i 4,6 kn. Tre sådana fönster under dygnet (10:10, 12:18,
+    // 16:13), 129–178 s vardera. Hållningen får därför släppas i FÖRTID när
+    // utfärden är bevisad (se _passedHoldDepartureProven) — men aldrig
+    // förlängas: fönstervillkoret nedan är oförändrat och gäller alltid.
+    const inWindow = new Set();
+    let holding = false;
+    for (const v of vessels) {
+      if (!v || !v.lastPassedBridge) continue;
+      if (!TARGET_BRIDGES.includes(v.lastPassedBridge)) continue;
+      if (!Number.isFinite(v.lastPassedBridgeTime)) continue;
+      if ((now - v.lastPassedBridgeTime) >= PASSAGE_TIMING.PASSED_HOLD_MS) continue;
+      inWindow.add(String(v.mmsi));
+      // Bokföringen (avståndsserien) måste ske för ALLA båtar i fönstret, inte
+      // bara fram till den första som håller — därför en loop och inte .some().
+      if (this._passedHoldDepartureProven(v)) continue;
+      holding = true;
+    }
+    // BOUNDED MINNE: bara båtar som just nu ligger i passed-fönstret behåller
+    // sin distanspost. Kartan kan därför aldrig växa förbi antalet båtar i
+    // fönstret (i praktiken 0–2).
+    if (this._passedHoldDistances) {
+      for (const key of [...this._passedHoldDistances.keys()]) {
+        if (!inWindow.has(key)) this._passedHoldDistances.delete(key);
+      }
+    }
+    return holding;
+  }
+
+  /**
+   * K12: har fartyget BEVISLIGT lämnat den passerade målbron, så
+   * visningshållningen kan släppas före tidstaket?
+   *
+   * TRE VILLKOR, alla nödvändiga:
+   *  (1) BORTOM BROLINJEN på färdriktningens sida med minst
+   *      PASSAGE_TIMING.PASSED_HOLD_RELEASE_BEYOND_M (mätt längs kanalaxeln,
+   *      se _alongCanalOffsetM). Kravet på SIDA är det som skiljer en utfärd
+   *      från en båt som ligger kvar på ingångssidan — t.ex. efter en
+   *      felankrad passage (K16-klassen) eller en U-sväng tillbaka.
+   *  (2) UNDER GÅNG: sog >= PASSAGE_TIMING.MINIMUM_VIABLE_SPEED. En båt som
+   *      ligger STILL bortom bron (bron kan mycket väl stå öppen för henne)
+   *      ska hållas kvar — och utan fartkravet hade hennes GPS-jitter kunnat
+   *      fabricera "avståndet ökade" i villkor (3).
+   *  (3) AVSTÅNDET TILL BRON HAR ÖKAT mellan två på varandra följande fixar.
+   *      Serien lagras i en app-lokal karta (mmsi → {distM, prevDistM, …}) och
+   *      INTE som ett nytt vessel-fält: projektionen i
+   *      _findRelevantBoatsForBridgeText är en egen fältlista, och ett nytt
+   *      fartygsfält hade krävt att både den och _createVesselObject
+   *      uppdaterades (fältlist-fällan).
+   *
+   * Predikatet är RENT SLÄPPANDE: allt som inte kan bevisas ger false, dvs.
+   * hållningen behålls precis som i dag.
+   * @param {Object} vessel - fartygsprojektion ur _findRelevantBoatsForBridgeText
+   * @returns {boolean} true = utfärden är bevisad, hållningen får släppas
+   * @private
+   */
+  _passedHoldDepartureProven(vessel) {
+    if (!vessel || !this.bridgeRegistry
+        || typeof this.bridgeRegistry.getBridgeByName !== 'function') return false;
+    const bridge = this.bridgeRegistry.getBridgeByName(vessel.lastPassedBridge);
+    if (!bridge || !Number.isFinite(bridge.lat) || !Number.isFinite(bridge.lon)) return false;
+    if (!Number.isFinite(vessel.lat) || !Number.isFinite(vessel.lon)) return false;
+    const distM = geometry.calculateDistance(vessel.lat, vessel.lon, bridge.lat, bridge.lon);
+    if (!Number.isFinite(distM)) return false;
+
+    if (!this._passedHoldDistances) this._passedHoldDistances = new Map();
+    const key = String(vessel.mmsi);
+    const stored = this._passedHoldDistances.get(key);
+    // FIXSTÄMPELN är nyckeln till att båda anropsställena (hållningen och
+    // nödfallbacken, C1c) får SAMMA svar i samma UI-cykel: utan den hade det
+    // andra anropet jämfört samplet med sig självt och alltid sagt "ökade
+    // inte". Samma fix ⇒ posten lämnas orörd.
+    let posTs = null;
+    if (Number.isFinite(vessel.lastPositionUpdate)) posTs = vessel.lastPositionUpdate;
+    else if (Number.isFinite(vessel.timestamp)) posTs = vessel.timestamp;
+    let entry;
+    if (!stored || stored.bridge !== bridge.name) {
+      entry = {
+        bridge: bridge.name, distM, posTs, prevDistM: null, releaseLogged: false,
+      };
+    } else if (posTs === null || stored.posTs === null || posTs !== stored.posTs) {
+      entry = {
+        bridge: bridge.name,
+        distM,
+        posTs,
+        prevDistM: stored.distM,
+        releaseLogged: stored.releaseLogged,
+      };
+    } else {
+      entry = stored;
+    }
+    this._passedHoldDistances.set(key, entry);
+
+    // (1) bortom brolinjen, på färdriktningens sida
+    const dir = vessel._finalTargetDirection || vessel._routeDirection || null;
+    if (dir !== 'north' && dir !== 'south') return false;
+    const beyondM = this._alongCanalOffsetM(vessel.lat, vessel.lon, bridge);
+    if (!Number.isFinite(beyondM)) return false;
+    const clearM = PASSAGE_TIMING.PASSED_HOLD_RELEASE_BEYOND_M;
+    const beyondFarSide = dir === 'north' ? beyondM >= clearM : beyondM <= -clearM;
+    if (!beyondFarSide) return false;
+
+    // (2) under gång
+    if (!Number.isFinite(vessel.sog) || vessel.sog < PASSAGE_TIMING.MINIMUM_VIABLE_SPEED) return false;
+
+    // (3) avståndet till bron har ökat sedan föregående fix
+    if (!Number.isFinite(entry.prevDistM) || entry.distM <= entry.prevDistM) return false;
+
+    if (!entry.releaseLogged) {
+      entry.releaseLogged = true;
+      this.debug(
+        `🌉 [PASSED_HOLD_RELEASE] ${key}: bevisad utfärd från ${bridge.name} `
+        + `(${Math.round(Math.abs(beyondM))} m bortom brolinjen ${dir === 'north' ? 'norrut' : 'söderut'}, `
+        + `avstånd ${Math.round(entry.prevDistM)}→${Math.round(entry.distM)} m, sog ${vessel.sog}) `
+        + '— hållningen släpps före tidstaket',
+      );
+    }
+    return true;
+  }
+
+  /**
+   * K12: SIGNERAT avstånd från brolinjen längs kanalaxeln, positivt NORR om
+   * bron. Samma projektion som geometry.hasChangedBridgeSide /
+   * isDecisivelyOppositeBridgeSide använder för sidbytesfrågan — men här
+   * behövs BELOPPET (hur långt bortom linjen), inte bara tecknet, och den
+   * ligger därför här i stället för som en fjärde variant i geometry.
+   * @param {number} lat
+   * @param {number} lon
+   * @param {Object} bridge - {lat, lon, axisBearing?}
+   * @returns {number|null} meter norr om brolinjen (negativt = söder), null
+   *   när geometrin inte går att avgöra
+   * @private
+   */
+  _alongCanalOffsetM(lat, lon, bridge) {
+    if (!bridge || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    if (!Number.isFinite(bridge.lat) || !Number.isFinite(bridge.lon)) return null;
+    const bridgeBearing = Number.isFinite(bridge.axisBearing) ? bridge.axisBearing : 125;
+    const perpBearing = ((bridgeBearing - 90) * Math.PI) / 180;
+    const latScale = 111320;
+    const lonScale = 111320 * Math.cos((bridge.lat * Math.PI) / 180);
+    const proj = (lat - bridge.lat) * latScale * Math.cos(perpBearing)
+      + (lon - bridge.lon) * lonScale * Math.sin(perpBearing);
+    if (!Number.isFinite(proj)) return null;
+    // TECKENNORMERING: projektionens nordkomponent är cos(perpBearing). Med
+    // broarnas axisBearing 130° (perp 40°) är den positiv, men tecknet får
+    // inte HÄNGA på att axeln råkar ligga där — en axel förbi 180° hade vänt
+    // projektionen utan att geografin vände. Normeras därför explicit.
+    const northComponent = Math.cos(perpBearing);
+    // Toleransen, inte === 0: Math.cos(Math.PI / 2) ger 6,1e-17 i IEEE-754, så
+    // en exakt jämförelse hade sluppit igenom just det fall vakten finns för.
+    if (Math.abs(northComponent) < 1e-6) return null; // rent öst-västlig axel: norr/söder odefinierat
+    return northComponent > 0 ? proj : -proj;
   }
 
   /**
@@ -6186,7 +6361,36 @@ class AISBridgeApp extends Homey.App {
       const tokens = {
         bridge_name: String(payload.bridge),
         vessel_name: leadName || this._lookupVesselName(payload.leadMmsi) || 'Okänd båt',
-        direction: String(payload.direction || 'unknown'),
+        // K13b + F5 (ANVÄNDARBESLUT 2026-08-21): KORTET BESKRIVER ÖPPNINGEN,
+        // INTE LEDAREN. `payload.eventDirection` (BridgeOpeningService, _eventDirection)
+        // mäts på HELA medlemsmängden — samma lista som vessel_count och
+        // mmsis — och blir 'mixed' när öppningen täcker MÖTANDE båtar. Den
+        // klassen fanns i fältprov 10 (Stridsbergsbron#2 09:12:03: BALTIC
+        // JONGLEUR norrut + TONGA söderut) och kortet påstod då 'southbound',
+        // dvs. halva sanningen. toUserDirection ger 'båda'.
+        //
+        // null ⇒ INGEN UPPGIFT (ingen medlem har hunnit låsa ruttriktning) —
+        // då faller vi tillbaka på ledarens `direction`, som har en egen
+        // COG-fallback. Det är kontraktet servicen själv föreskriver
+        // (_eventDirection-docblocket i BridgeOpeningService: "en läsare som vill ha
+        // en riktning när eventDirection är null ska falla tillbaka på
+        // direction"). `??` och inte `||`: 'mixed' är ett giltigt värde och
+        // får inte kunna falla igenom, och tomma strängar finns inte i någon
+        // av vokabulärerna.
+        //
+        // ⚠️ `warnDir` ovan (den PERSISTENTA dedup-nyckeln bro|mmsi|riktning)
+        // är MEDVETET orörd och fortsatt intern — den lever i settings över
+        // omstarter, och ett språkbyte där hade gjort varje lagrad nyckel
+        // omatchbar och släppt fram dubbelvarningar efter uppdateringen.
+        //
+        // Vakten (allowMissing): en payload UTAN riktning är ett legitimt
+        // "ingen uppgift" och ska bli 'okänd' tyst — men en STRÄNG som inte
+        // står i den interna vokabulären är en regression och loggas.
+        direction: toUserDirection(this._assertInternalDirection(
+          payload.eventDirection ?? payload.direction,
+          '_onBridgeOpeningWarning',
+          { allowMissing: true },
+        )),
         eta_minutes: etaMinutes,
         vessel_count: Number.isFinite(payload.vesselCount) ? payload.vesselCount : 1,
       };
@@ -6956,7 +7160,13 @@ class AISBridgeApp extends Homey.App {
                   + `vid ${tp.name} — kajavgång utan korroborering (rörelsefixar=${unproven.movingFixes}/`
                   + `${QUAY_DEPARTURE_GATE.MIN_MOVING_FIXES}, netto mot punkten=`
                   + `${unproven.approachM === null ? 'okänt' : `${unproven.approachM}m`}/`
-                  + `${QUAY_DEPARTURE_GATE.NET_APPROACH_M}m, sog=${vessel.sog}) - ingen kandidat`,
+                  // Raden namnger grindens FAKTISKA kontrakt (omlåsarens och
+                  // fältläsarens grep-mönster): ett känt netto måste nå
+                  // NET_APPROACH_M, och rörelsefixarna bär bara fallet där
+                  // nettot är okänt. Se konstantens härledning.
+                  + `${QUAY_DEPARTURE_GATE.NET_APPROACH_M}m krävs `
+                  + '(rörelsefixarna räcker bara när nettot är okänt)'
+                  + `, sog=${vessel.sog}) - ingen kandidat`,
                 );
                 continue;
               }
@@ -7801,7 +8011,20 @@ class AISBridgeApp extends Homey.App {
     const tokens = {
       vessel_name: knownName || this._lookupVesselName(vessel.mmsi) || 'Okänd båt',
       bridge_name: bridgeName,
-      direction: this._getDirectionString(vessel),
+      // F5/A3 (ANVÄNDARBESLUT 2026-08-21): tokenen är SVENSK från och med här.
+      // Kedjan är två steg med var sitt ansvar:
+      //   1. _getNotificationDirection ger det INTERNA värdet, inklusive K1:s
+      //      Kanalinfartsregel (unknown → northbound på bevisad nordprogress).
+      //   2. toUserDirection översätter till 'norrut'/'söderut'/'okänd'.
+      // Interna jämförelser längre upp i filen (skip-grinden, dedupen, de
+      // persistenta {t,dir}-posterna) läser _getDirectionString/_dedupDirection
+      // direkt och rörs INTE av språkbytet.
+      // Vakten loggar (och bara loggar) om steg 1 någon gång returnerar ett
+      // ord som inte står i vokabulären — se _assertInternalDirection.
+      direction: toUserDirection(this._assertInternalDirection(
+        this._getNotificationDirection(vessel, candidate),
+        '_triggerBoatNearFlowForBridge',
+      )),
     };
 
     // ETA-token för notisen.
@@ -7863,7 +8086,11 @@ class AISBridgeApp extends Homey.App {
     const safeTokens = {
       vessel_name: String(tokens.vessel_name || 'Okänd båt'),
       bridge_name: String(tokens.bridge_name),
-      direction: String(tokens.direction || 'unknown'),
+      // F5: fallbacken måste vara SVENSK — ett tomt/saknat värde här hade
+      // annars läckt ut det interna ordet 'unknown' i användarens Flow.
+      // toUserDirection är idempotent, så den redan översatta strängen ovan
+      // passerar oförändrad (se lib/utils/directionTokens.js).
+      direction: toUserDirection(tokens.direction),
     };
 
     safeTokens.eta_minutes = Number.isFinite(tokens.eta_minutes)
@@ -8130,6 +8357,175 @@ class AISBridgeApp extends Homey.App {
       return 'southbound';
     }
     return 'unknown';
+  }
+
+  /**
+   * ==========================================================================
+   * K1 — KANALINFART-REGELN (fältprov 10, 2026-08-19; ANVÄNDARBESLUT A3)
+   * ==========================================================================
+   *
+   * RIKTNINGEN FÖR EN NOTIS-TOKEN, med ett zon-LOKALT undantag för
+   * trigger-punkten Kanalinfarten. Allt annat lämnas till
+   * _getDirectionString.
+   *
+   * PROBLEMET (rådataverifierat, tre instanser samma dygn): farleden in mot
+   * Kanalinfarten löper ENE (uppmätt spårbäring 60–72°) och svänger upp mot
+   * ~32° först ~166 m från punkten, medan 300 m-radien nås ~140 m längre
+   * sydväst. Det FÖRSTA in-zon-samplet — det som utlöser notisen — ligger
+   * därför nästan alltid i COG-dödbandet 46–134°, som _getDirectionString
+   * MEDVETET svarar 'unknown' på (öst-kurs säger inget om nord/syd i en
+   * NE–SV-orienterad kanal). Fältdygnet: LADYBIRD 06:53:38 (cog 74,2°),
+   * BALTIC JONGLEUR 08:51:50 (cog 60,4°), NAVEN 15:36:22 (cog 55,7°) — alla
+   * fick 'unknown', och båtarna självläkte 66–68 s senare när kursen föll
+   * under 45°. Över fyra fältdygn: 13/25 inkommande fick 'unknown', 0/48
+   * sydgående (de bär ruttlås från genomförd transit).
+   *
+   * LÖSNINGEN: när kursen inte kan avgöra saken frågar vi GEOGRAFIN i
+   * stället. Nordprogressen (VesselDataService._northProgressMps, stashad på
+   * fartyget vid varje positionsuppdatering) är tidsnormaliserad
+   * nordKOMPONENT i m/s och mäter precis det tokenen påstår: att båten gör
+   * väg norrut. Ribban är samma NORTH_PROGRESS_MIN_MPS (0,25 m/s) som
+   * kajvobbelgrinden redan dömer kajliggare på — INGET nytt kalibrerat tal.
+   *
+   * FÄLTFACIT — RÄKNAT PÅ FIXKLOCKAN (rättat 2026-08-21, granskarfynd):
+   * talen nedan var tidigare räknade på MOTTAGNINGSseparationen, men
+   * _northProgressMps delar med FIXseparationen (GPSJumpAnalyzer.fixDtMs)
+   * när den finns — det är hela V8-regeln. Rådata ur
+   * ~/.ais-tracker-logs/ais-replay-20260819-081250.jsonl (samma feed
+   * 'aishub' i alla tre fallen, så fixDtMs är fixTs-deltat rakt av):
+   *   BALTIC JONGLEUR  Δlat 0,00029° / Δfix 70 s = 0,461 m/s  ⇒ norrut
+   *   NAVEN            Δlat 0,00037° / Δfix 68 s = 0,606 m/s  ⇒ norrut
+   *   LADYBIRD         Δlat 0,00003° / Δfix 29 s = 0,115 m/s  ⇒ okänd
+   * LADYBIRD är regelns enda kända falskpositiv-kandidat (hon vände om vid
+   * 230 m och förtöjde 423 m VÄSTER om punkten) och ligger på 46 % av
+   * ribban — MARGINALEN ÄR 2,2×, inte 5× som mottagningsklockan påstod. Det
+   * är den siffra en framtida sänkning av NORTH_PROGRESS_MIN_MPS måste vägas
+   * mot; appens egen loggrad i skarp replay bekräftar 0,461 och 0,606.
+   *
+   * ⚠️ REGELN GISSAR ALDRIG 'southbound'. Ett felaktigt syd-värde är inte
+   * kosmetiskt: TRIGGER_POINT_SKIP-grinden (i _getFlowTriggerCandidates) läser _getDirectionString
+   * och RADERAR sydgående kandidater utan kanalhistorik. Regeln kan därför
+   * bara flytta 'unknown' → 'northbound', aldrig åt något annat håll.
+   *
+   * ⚠️ AVGRÄNSNING: bara TOKENEN. _getDirectionString självt, skip-grinden,
+   * målbrotilldelningen och samtliga dedup-vägar (_dedupDirection, de
+   * persistenta {t,dir}-posterna) är ORÖRDA — de har egna beviskrav och egna
+   * facitlås.
+   *
+   * ⚠️ FÄRSKHETSKRAVET (granskarfynd 2026-08-21): beviset måste komma från
+   * DEN POSITION SOM BÄR NOTISEN. Stashen är därför ett par
+   * `{ mps, ts }` där ts är max(lastPositionUpdate, timestamp) för det
+   * meddelande mätningen gjordes på (VesselDataService), och regeln kräver
+   * att ts är exakt det senaste meddelandets stämpel. Utan kravet kunde beviset frysa:
+   * `_northProgressMps` returnerar null när fixseparationen är ≤ 0, och
+   * GPSJumpAnalyzer.fixDtMs ger 0 — inte null — när två meddelanden från
+   * SAMMA feed bär identisk fixTs. En "vet inte"-mätning skriver aldrig över,
+   * så ett gammalt nordbevis hade kunnat bäras godtyckligt länge medan
+   * fartyget stod stilla eller bytte färdriktning (exakt den tysta-
+   * transponder-klass K18 finns för: fältets 35 och 36 minuter).
+   * OMLEVERANSFALLET (stängt 2026-08-22 efter granskarsond): en BYTE-IDENTISK
+   * omleverans av samma fix fryser lastPositionUpdate (uppdateras bara när
+   * positionen ändras, se _createVesselObject i VesselDataService) OCH ger
+   * ingen ny mätning (fixDt = 0) — men mottagningstiden `timestamp` avancerar
+   * vid varje meddelande. Eftersom ts stämplas som max(lastPositionUpdate,
+   * timestamp) halkar stashen efter redan vid första omleveransen och regeln
+   * faller till 'okänd'. Ett omlevererat fix är INTE ett stillhetsbevis (samma
+   * ord som VesselDataService:s stash-kommentar); varken FLOW_TRIGGER_STALE
+   * eller STALE_AIS-backstoppen biter i den klassen (båda domineras av
+   * mottagningsklockan), så färskheten måste bäras här.
+   *
+   * @param {Object} vessel - Fartygsobjekt
+   * @param {Object} candidate - Notiskandidaten {name, source, ...}
+   * @returns {string} 'northbound' | 'southbound' | 'unknown' (INTERNT värde —
+   *   översättningen till användarens svenska token sker i anropet)
+   * @private
+   */
+  _getNotificationDirection(vessel, candidate) {
+    const direction = this._getDirectionString(vessel);
+    if (direction !== 'unknown') return direction;
+
+    // Zon-LOKALT: bara trigger-punkten Kanalinfarten, bara när kandidaten
+    // faktiskt ÄR punkten (källan 'trigger-point'). Exit-fallbacken fyrar
+    // också på Kanalinfarten men är retroaktiv och sydgående per definition
+    // — den ska inte kunna få en nordgissning.
+    const entry = TRIGGER_POINTS && TRIGGER_POINTS.kanalinfarten;
+    if (!entry || !candidate || candidate.source !== 'trigger-point'
+        || candidate.name !== entry.name) {
+      return direction;
+    }
+
+    // ÖSTBANDET 46–134°: härlett ur cogDirection-familjens egna gränser
+    // (> NORTH_MAX 45 och < SOUTH_MIN 135) i stället för kopierade gradtal —
+    // banden får aldrig kunna glida isär. Det är exakt det hål
+    // _getDirectionString lämnar öppet på infartssidan. Det ANDRA hålet
+    // (271–314°, VNV–NV) lämnas MEDVETET orört: FP8 visade att ingen legitim
+    // kanalfärd använder det bandet, så en nordregel där hade saknat fältfall.
+    if (!Number.isFinite(vessel.cog)
+        || vessel.cog <= COG_BANDS.NORTH_MAX
+        || vessel.cog >= COG_BANDS.SOUTH_MIN) {
+      return direction;
+    }
+
+    // FÄRSKHETEN: paret {mps, ts} måste höra till DET MEDDELANDE som bär
+    // notisen. ts stämplas i VesselDataService som max(lastPositionUpdate,
+    // timestamp) — så även en byte-identisk omleverans (ingen ny mätning, men
+    // ny mottagningstid) gör beviset gammalt och regeln faller till 'okänd'.
+    const progress = vessel._lastNorthProgress;
+    const northMps = progress && Number.isFinite(progress.mps) ? progress.mps : null;
+    const senasteMeddelandeTs = Math.max(
+      Number.isFinite(vessel.lastPositionUpdate) ? vessel.lastPositionUpdate : 0,
+      Number.isFinite(vessel.timestamp) ? vessel.timestamp : 0,
+    );
+    if (northMps === null
+        || progress.ts !== senasteMeddelandeTs
+        || northMps < VesselDataService.NORTH_PROGRESS_MIN_MPS) {
+      return direction;
+    }
+
+    this.debug(
+      `🧭 [NOTIF_DIR_CANAL_ENTRY] ${vessel.mmsi}: cog ${vessel.cog}° ligger i dödbandet `
+      + `${COG_BANDS.NORTH_MAX + 1}–${COG_BANDS.SOUTH_MIN - 1}° vid ${entry.name}, men nordprogressen `
+      + `${northMps.toFixed(3)} m/s ≥ ${VesselDataService.NORTH_PROGRESS_MIN_MPS} m/s bevisar färd norrut `
+      + '— notis-token unknown → northbound',
+    );
+    return 'northbound';
+  }
+
+  /**
+   * TOKEN-VAKTEN: fäller ett internt riktningsvärde som inte står i
+   * vokabulären (granskarfynd 2026-08-21).
+   *
+   * toUserDirection SVÄLJER medvetet skräp och svarar 'okänd' — ett engelskt
+   * ord får aldrig läcka ut i användarens Flow. Priset är att en framtida
+   * stavfelsretur inne i _getDirectionString/_getNotificationDirection
+   * ('northboud') blir en tyst degradering: adaptern i replayRunner översätter
+   * 'okänd' → 'unknown' och INV-2:s giltighetslista (invariants.js:139)
+   * godkänner det. Före språkbytet hade samma typo fällt INV-2 i varje korpus.
+   * Vakten återställer skyddsnätet utan att ändra tokenvärdet: den LOGGAR bara
+   * (this.error ⇒ syns i fältloggen och i harnessens felräknare).
+   *
+   * Uppslaget går via hasOwnProperty — INTERNAL_TO_USER är visserligen fryst,
+   * men `'constructor' in obj` är sant via prototypkedjan och ska inte kunna
+   * räknas som en giltig riktning.
+   *
+   * @param {*} internal - Det interna riktningsvärdet, före översättningen
+   * @param {string} where - Anropsstället (syns i loggraden)
+   * @param {{allowMissing?: boolean}} [options] - allowMissing: null/undefined
+   *   är ett legitimt "ingen uppgift" hos anroparen (öppningskortets payload)
+   * @returns {*} internal, oförändrat
+   * @private
+   */
+  _assertInternalDirection(internal, where, options = {}) {
+    if (options.allowMissing && (internal === null || internal === undefined)) {
+      return internal;
+    }
+    if (!Object.prototype.hasOwnProperty.call(INTERNAL_TO_USER, internal)) {
+      this.error(
+        `[DIR_TOKEN] ogiltig intern riktning: ${JSON.stringify(internal)} (${where}) `
+        + '— tokenen blir \'okänd\'',
+      );
+    }
+    return internal;
   }
 
   /**
@@ -8491,7 +8887,9 @@ class AISBridgeApp extends Homey.App {
       const testTokens = {
         vessel_name: 'TEST_VESSEL',
         bridge_name: 'Klaffbron',
-        direction: 'northbound',
+        // F5: självtestet ska pröva PRODUKTIONENS kontrakt — en engelsk
+        // riktning här hade testat en token appen inte längre skickar.
+        direction: toUserDirection('northbound'),
         eta_minutes: 5,
         eta_available: true,
         already_passed: false,
@@ -9940,6 +10338,25 @@ class AISBridgeApp extends Homey.App {
       // mönster som övriga kartor; ofarlig no-op i pass-through-läget).
       if (this.aisClient && typeof this.aisClient.pruneFusionState === 'function') {
         this.aisClient.pruneFusionState();
+      }
+
+      // K18 DEL 2 (fältprov 10, 2026-08-19/20): 30-minutersbackstoppen för
+      // tyst transponder får en DRIVKRAFT. Grenen ligger kvar i removeVessel
+      // — svepet gör den bara nåbar utan att en cleanup-timer först måste
+      // brinna ned (fältet skrev "35 minutes" och "36 minutes" mot en
+      // 30-minuterströskel). Med loopens 60 s-kadens fyrar backstoppen vid
+      // 30–31 min i stället för 34–36. Placeringen är MEDVETET den här
+      // loopen och inte 30-sekunderswatchdogen i _initializeCoalescingSystem:
+      // watchdogen är ogated och DRIVS i replay (fakeklockan stegar i samma
+      // 30 s-chunkar), så en tvångsraderare där hade flyttat korpusutfall.
+      // Egen try/catch: ett kastande svep får inte äta resten av städningen.
+      try {
+        if (this.vesselDataService
+            && typeof this.vesselDataService.sweepStaleVessels === 'function') {
+          this.vesselDataService.sweepStaleVessels();
+        }
+      } catch (error) {
+        this.error('[STALE_AIS_SWEEP] svepet misslyckades:', error.message || error);
       }
 
       // A14 (etapp 7): process-minnesraden SIST — ren observation, egen

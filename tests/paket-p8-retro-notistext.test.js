@@ -184,8 +184,17 @@ describe('P8: icke-retroaktiv notis är oförändrad', () => {
     // bridge_name och direction läses av korpusarnas fördelnings- respektive
     // riktningsmultiset (runAllCorpora.js) — minsta värdeändring hade fällt
     // 17 låsta korpusar.
+    //
+    // F5 (2026-08-21): tokenen är SVENSK sedan språkbytet, men facitnyckeln
+    // är fortfarande INTERN. Harnessen översätter tillbaka i riktnings-
+    // adaptern (tests/replay-validation/replayRunner.js:83-99, tillämpad på
+    // :560 för notiser och :586 för öppningsvarningar) via fromUserDirection.
+    // Riv därför ALDRIG adaptern för att "förenkla" — utan den skriver
+    // språkbytet om riktningsmultisetet i 17 låsta korpusar. Assertionen
+    // nedan låser ANVÄNDARVÄRDET; det interna ordet låses av adaptern och av
+    // tests/k13b-bada-token.test.js.
     expect(tokens.bridge_name).toBe('Klaffbron');
-    expect(tokens.direction).toBe('northbound');
+    expect(tokens.direction).toBe('norrut');
     expect(tokens.vessel_name).toBe('ALICE');
     expect(tokens.eta_minutes).toBe(6);
     expect(tokens.eta_available).toBe(true);
@@ -439,7 +448,10 @@ describe('F6: exit-fallbacken har egen källa och egen mening', () => {
     const [tokens] = app._triggerBoatNearFlowBest.mock.calls[0];
 
     expect(tokens.bridge_name).toBe('Kanalinfarten'); // facitbärare
-    expect(tokens.direction).toBe('northbound'); // mockad — värdet är oförändrat
+    // F5: tokenen är svensk; det interna 'northbound' som mocken sätter
+    // översätts av toUserDirection i publiceringsvägen (värdet är i sak
+    // oförändrat — bara vokabulären bytte).
+    expect(tokens.direction).toBe('norrut');
     expect(tokens.vessel_name).toBe('IN-AXXI');
     expect(tokens.eta_minutes).toBe(-1); // retroaktiv källa ⇒ ingen ETA (E-F3/N9)
     expect(tokens.eta_available).toBe(false);

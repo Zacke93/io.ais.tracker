@@ -9,8 +9,8 @@
     "sv": "Broöppning på väg vid [[bridge]]"
   },
   "hint": {
-    "en": "Fires once per upcoming opening of Klaffbron or Stridsbergsbron. The warning is sent before the earliest possible arrival, so it still arrives in time if the vessel's AIS transmitter goes quiet on the final approach. That safety margin makes it EARLY rather than late: measured over ~240 h of real traffic the lead time is a median of 17 minutes (shortest 2.5 minutes, longest well over an hour for slow vessels). Use the eta_minutes token for the expected arrival; -1 means unknown. Vessels arriving in the same opening share one warning.",
-    "sv": "Utlöses en gång per förestående öppning av Klaffbron eller Stridsbergsbron. Varningen skickas före tidigast möjliga ankomst, så den kommer fram i tid även om båtens AIS-sändare tystnar på slutsträckan. Den säkerhetsmarginalen gör varningen TIDIG snarare än sen: mätt över ~240 h verklig trafik är förvarningen i median 17 minuter (kortast 2,5 minuter, längst över en timme för långsamma båtar). Använd eta_minutes-token för den förväntade ankomsten; -1 betyder okänd. Båtar som anländer i samma öppning delar på en varning."
+    "en": "Fires once per upcoming opening of Klaffbron or Stridsbergsbron. The warning is sent before the earliest possible arrival, so it still arrives in time if the vessel's AIS transmitter goes quiet on the final approach. That safety margin makes it EARLY rather than late: measured over ~240 h of real traffic the lead time is a median of 17 minutes (shortest 2.5 minutes, longest well over an hour for slow vessels). Use the eta_minutes token for the expected arrival; -1 means unknown. Vessels arriving in the same opening share one warning; the direction token then describes the whole opening and reads norrut, söderut or båda (both) when the opening covers vessels meeting each other.",
+    "sv": "Utlöses en gång per förestående öppning av Klaffbron eller Stridsbergsbron. Varningen skickas före tidigast möjliga ankomst, så den kommer fram i tid även om båtens AIS-sändare tystnar på slutsträckan. Den säkerhetsmarginalen gör varningen TIDIG snarare än sen: mätt över ~240 h verklig trafik är förvarningen i median 17 minuter (kortast 2,5 minuter, längst över en timme för långsamma båtar). Använd eta_minutes-token för den förväntade ankomsten; -1 betyder okänd. Båtar som anländer i samma öppning delar på en varning; riktnings-token beskriver då hela öppningen och står som norrut, söderut eller båda när öppningen täcker mötande båtar."
   },
   "args": [
     {
@@ -60,8 +60,8 @@
       "name": "direction",
       "type": "string",
       "title": {
-        "en": "Direction",
-        "sv": "Riktning"
+        "en": "Direction (norrut/söderut/båda/okänd)",
+        "sv": "Riktning (norrut/söderut/båda/okänd)"
       }
     },
     {

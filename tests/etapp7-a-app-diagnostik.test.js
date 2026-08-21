@@ -157,7 +157,7 @@ describe('A1: ANROPSORDNINGEN i monitoring-loopen är ett kontrakt', () => {
 
   const riggLoopApp = () => {
     const app = riggApp();
-    app.vesselDataService = { getVesselCount: () => 3 };
+    app.vesselDataService = { getVesselCount: () => 3, sweepStaleVessels: jest.fn() };
     app.systemCoordinator = { cleanup: jest.fn() };
     app.aisClient = { pruneFusionState: jest.fn() };
     app._pruneDedupCaches = jest.fn();
@@ -185,6 +185,9 @@ describe('A1: ANROPSORDNINGEN i monitoring-loopen är ett kontrakt', () => {
       app._pruneLastKnownPositionsTtl,
       app._checkAISFeedHealth,
       app.aisClient.pruneFusionState,
+      // K18 del 2 (fältprov 10): STALE_AIS-svepet ligger näst sist — efter
+      // städningarna, före minnesraden som A14 kräver ska vara sist.
+      app.vesselDataService.sweepStaleVessels,
       app._logProcessMemoryStats,
     ];
     sequence.forEach((fn) => expect(fn).toHaveBeenCalledTimes(1));
