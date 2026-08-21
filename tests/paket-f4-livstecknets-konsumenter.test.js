@@ -382,8 +382,13 @@ describe('F4(2): kontraktet "kan bara skjuta upp döden, aldrig korta ett liv"',
   test('RIKTNING B (kortar aldrig): 30 min kvar + 2 min basnivå ⇒ utgången rörs inte', () => {
     svc.scheduleCleanup(MMSI, TIMEOUT_SETTINGS.ACTIVE_JOURNEY_MIN); // 30 min, bas
     svc.scheduleCleanup(MMSI, TIMEOUT_SETTINGS.FAR_DISTANCE); // vägras av BUG 6-guarden
-    // Basnivån är fortfarande 30 min (den korta schemaläggningen nådde aldrig
-    // fram) — och kvarvarande-ledet skyddar oavsett.
+    // K18 (2026-08-21) — ENDAST KOMMENTAREN RÄTTAD, ingen assertion rörd.
+    // Stod tidigare: "Basnivån är fortfarande 30 min (den korta
+    // schemaläggningen nådde aldrig fram)". Det var en beskrivning av
+    // ratchetbuggen, inte av kontraktet: sedan basskrivningen flyttats in i
+    // vaktens retur är basnivån här 120 s. Testets PÅSTÅENDE — att UTGÅNGEN
+    // aldrig kortas — bärs helt av kvarvarande-ledet i noteVesselSeen och är
+    // oförändrat sant (körningen nedan är grön i båda världarna).
     const expiryBefore = svc._cleanupExpiryTimes.get(MMSI);
     jest.advanceTimersByTime(60 * 1000);
     expect(svc.noteVesselSeen(MMSI)).toBe(true);
