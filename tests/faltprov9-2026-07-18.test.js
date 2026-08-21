@@ -516,7 +516,7 @@ describe('FP9 FIX H\': target söder om kanalinfarten kräver nordprogress (HEY 
     });
     const vessel = quayVessel({ sog: 1.0 }); // spiken som förr kvalade
     expect(svc._shouldAssignTargetBridge(vessel, oldVessel)).toBe(false);
-    expect(logger.debug.mock.calls.some((c) => String(c[0]).includes('quay wobble'))).toBe(true);
+    expect(logger.debug.mock.calls.some((c) => String(c[0]).includes('utan nordprogress'))).toBe(true);
   });
 
   test('äkta inkommande (4,6 kn norrut) släpps av vakten', () => {
@@ -528,9 +528,9 @@ describe('FP9 FIX H\': target söder om kanalinfarten kräver nordprogress (HEY 
     });
     const vessel = quayVessel({ sog: 4.6, cog: 30 });
     // Vakten släpper; helhetsutfallet avgörs av resten av valideringen —
-    // kravet här är att quay wobble-blocket INTE fällde henne.
+    // kravet här är att nordprogress-grinden INTE fällde henne.
     svc._shouldAssignTargetBridge(vessel, oldVessel);
-    expect(logger.debug.mock.calls.some((c) => String(c[0]).includes('quay wobble'))).toBe(false);
+    expect(logger.debug.mock.calls.some((c) => String(c[0]).includes('utan nordprogress'))).toBe(false);
   });
 
   test('ny vessel UTAN lastKnown-post (äkta första kontakt, HERALD-klassen) prövas inte', () => {
@@ -539,7 +539,7 @@ describe('FP9 FIX H\': target söder om kanalinfarten kräver nordprogress (HEY 
     // TP"-varianten fällde hans golden och ÅTERKALLADES.
     const vessel = quayVessel({ sog: 7.5 });
     svc._shouldAssignTargetBridge(vessel, null);
-    expect(logger.debug.mock.calls.some((c) => String(c[0]).includes('quay wobble'))).toBe(false);
+    expect(logger.debug.mock.calls.some((c) => String(c[0]).includes('utan nordprogress'))).toBe(false);
   });
 
   test('reborn PÅ PLATS (färsk lastKnown <200 m, HEY JOE 15:04/16:49) nekas target', () => {
@@ -573,7 +573,7 @@ describe('FP9 FIX H\': target söder om kanalinfarten kräver nordprogress (HEY 
     });
     const vessel = quayVessel({ lat: 58.2830, sog: 0.3 });
     svc._shouldAssignTargetBridge(vessel, oldVessel);
-    expect(logger.debug.mock.calls.some((c) => String(c[0]).includes('quay wobble'))).toBe(false);
+    expect(logger.debug.mock.calls.some((c) => String(c[0]).includes('utan nordprogress'))).toBe(false);
   });
 });
 

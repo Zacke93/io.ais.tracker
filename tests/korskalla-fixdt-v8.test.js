@@ -348,9 +348,13 @@ describe('V8: nordprogressgrinden söder om Kanalinfarten (TIM-fallet)', () => {
     };
   }
 
-  function blockedForWobble(logger) {
+  // K32(a) (2026-08-21): grindens loggrad hette förr "quay wobble, blocking
+  // target assignment" men fälldes även för rena sydtransiter; etiketten är
+  // omskriven till "Söder om kanalinfarten utan nordprogress ... blockerar
+  // målbrotilldelning". Villkoret som testas är oförändrat.
+  function blockedByNorthGate(logger) {
     return logger.debug.mock.calls
-      .some((args) => String(args[0]).includes('quay wobble, blocking target assignment'));
+      .some((args) => String(args[0]).includes('utan nordprogress'));
   }
 
   test('korskälla: äkta fixseparation (33 s) avslöjar 0,15 m/s och BLOCKERAR', () => {
@@ -361,7 +365,7 @@ describe('V8: nordprogressgrinden söder om Kanalinfarten (TIM-fallet)', () => {
       oldFeed: 'aishub', curFeed: 'aisstream', oldFixTs: now - 33000, curFixTs: now,
     });
     expect(service._shouldAssignTargetBridge(vessel, oldVessel)).toBe(false);
-    expect(blockedForWobble(logger)).toBe(true);
+    expect(blockedByNorthGate(logger)).toBe(true);
   });
 
   test('negativ kontroll: samma par utan fixtid ⇒ mottagnings-dt (19 s) ⇒ INTE blockerad av grinden', () => {
@@ -374,7 +378,7 @@ describe('V8: nordprogressgrinden söder om Kanalinfarten (TIM-fallet)', () => {
       oldFeed: 'aishub', curFeed: 'aisstream', oldFixTs: null, curFixTs: now,
     });
     service._shouldAssignTargetBridge(vessel, oldVessel);
-    expect(blockedForWobble(logger)).toBe(false);
+    expect(blockedByNorthGate(logger)).toBe(false);
   });
 
   test('negativ kontroll: korskälla med BAKÅT separation ⇒ dagens mottagnings-dt gäller', () => {
@@ -385,7 +389,7 @@ describe('V8: nordprogressgrinden söder om Kanalinfarten (TIM-fallet)', () => {
       oldFeed: 'aisstream', curFeed: 'aishub', oldFixTs: now, curFixTs: now - 33000,
     });
     service._shouldAssignTargetBridge(vessel, oldVessel);
-    expect(blockedForWobble(logger)).toBe(false);
+    expect(blockedByNorthGate(logger)).toBe(false);
   });
 
   test('SAMMA källa: oförändrat beteende (fixseparationen gällde redan i etapp 0)', () => {
@@ -396,6 +400,6 @@ describe('V8: nordprogressgrinden söder om Kanalinfarten (TIM-fallet)', () => {
       oldFeed: 'aisstream', curFeed: 'aisstream', oldFixTs: now - 33000, curFixTs: now,
     });
     expect(service._shouldAssignTargetBridge(vessel, oldVessel)).toBe(false);
-    expect(blockedForWobble(logger)).toBe(true);
+    expect(blockedByNorthGate(logger)).toBe(true);
   });
 });
