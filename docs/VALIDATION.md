@@ -146,6 +146,13 @@ Korpusarnas facit ÄR sanningen tills du bevisat motsatsen i rådata. Om en
    golden-filerna som vilken facit-omlåsning som helst (git diff visar
    exakt vilka texter som ändrats).
 
+   **Riktningsnycklarna är INTERNA trots att tokenen är svensk** (F5,
+   2026-08-21): `replayRunner.js:83–99` översätter tillbaka med
+   `fromUserDirection` innan facit läses. Ett SPRÅKBYTE är ingen
+   beteendeändring och får inte kosta en omlåsning — river du adaptern
+   flyttas riktningsmultisetet i 17 korpusar utan att en enda båt har bytt
+   kurs.
+
 5. **Öppningsfacit** (etapp 6, O5): multiseten `bro:riktning → antal` per korpus
    för `bridge_opening_soon` (`opening-distribution.json`). Notisfacit,
    riktningsfacit och golden-text är per konstruktion BLINDA för den
@@ -510,6 +517,17 @@ efteråt.
 
 ## Kända fällor för den som skriver nya tester
 
+- **`sweepStaleVessels` (K18 del 2) ligger UTANFÖR allt replay-facit — medvetet
+  dirigentbeslut 2026-08-22.** Svepet drivs av `_setupMonitoring`-loopen i app.js,
+  som returnerar tidigt i testläge (`__TEST_MODE__`), så ingen av de 17 låsta
+  korpusarna, öppningsgrindarna, fassvepet eller syntetiken kan någonsin fälla en
+  regression där. Enhetstesterna i `tests/k18-stale-sweep.test.js` bär hela
+  bevisbördan, och varje framtida ändring av svepet kräver egna enhetstester +
+  ett fältdygn. Alternativet (att låta replayRunner driva svepet) skulle flytta
+  borttagningar 4–6 min tidigare i flera korpusar och är därför en EGEN
+  omlåsning om den någonsin görs — smyg aldrig in den i en annan batch.
+
+
 - **Fältlistorna (3 st!):** `_createVesselObject` (VDS), `vesselSnapshot`
   (VDS, removal) och BridgeText-PROJEKTIONEN (`app.js
   _findRelevantBoatsForBridgeText`). Nio historiska offer. Vakter:
@@ -535,6 +553,21 @@ efteråt.
   assertions vara vakuösa (två vägar ger samma tidsstämpel). Diskriminera
   via loggutslag eller tvinga den gren som ska testas (mönster:
   ELIMINATION_PROTECTION-testet i bug-fixes-regression).
+- **Riktnings-token-fällan (F5, 2026-08-21):** appen har TVÅ
+  riktningsvokabulärer — interna ord (`northbound`/`southbound`/`unknown`/
+  `mixed`) i all logik, svenska (`norrut`/`söderut`/`okänd`/`båda`) i
+  Flow-tokenen. **En ny notisväg ska hämta riktningen med
+  `_getNotificationDirection` och ALLTID passera `toUserDirection`
+  (`lib/utils/directionTokens.js`) innan värdet läggs i en token** — det är
+  den enda översättningspunkten, och ett kringgående läcker antingen ett
+  engelskt ord i användarens Flow eller ett svenskt ord i en facitnyckel.
+  Assertera i testet på ANVÄNDARvärdet (`toBe('norrut')`), aldrig på det
+  interna. Motsatt håll gäller lika hårt: persistenta dedup-nycklar
+  (`bro|mmsi|riktning`, boat_near-dedupens `{t, dir}`) och varje intern
+  jämförelse ska STÅ KVAR på interna ord — de lever i `homey.settings` över
+  omstarter. Harnessen översätter tillbaka i riktningsadaptern
+  (`replayRunner.js:83–99`), så facitfilerna är och förblir interna; se
+  ARCHITECTURE.md §Riktningsvokabulären.
 
 ## Coverage-spärren
 

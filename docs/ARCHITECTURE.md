@@ -366,13 +366,31 @@ räcker inte för ett fartyg med FÄRSK kajstabil historik — kring Kanalinfart
 ligger kajliggare permanent inne i 300 m-zonen och ETT momentant brusprov
 (PRICKBJORN 07:19:11, sog exakt 1,0, 3 m förflyttning, cog i östbandet ⇒
 'unknown') gav en fantomnotis för en båt som sedan gick BORT från punkten.
-Klassen avkrävs `MIN_MOVING_FIXES` på varandra följande rörelsefixar (OCH ingen
-netto-reträtt från punkten) ELLER `NET_APPROACH_M` netto-närmande. Riktnings-
-kravet på rörelsebenet är inte kosmetiskt: utan det öppnade grinden även när
-båten gick BORT, och fantomen överlevde bara för att dess cog råkade rulla in i
-sydbandet på nästa fix. Ett sampel i dödbandet mellan `MOVEMENT_PROOF_SOG_KN`
-och `TRANSIT_SOG_KN` NOLLSTÄLLER räknaren — annars var "på varandra följande"
-inte sant för kajvobbelns naturliga profil (1,2 / 0,7 / 1,1 kn).
+Klassen avkrävs `NET_APPROACH_M` (40 m) netto-närmande mot punkten sedan
+kajläget — ben (b) — ELLER, när nettot är OKÄNT (bokföringsankaret saknar
+koordinater), `MIN_MOVING_FIXES` på varandra följande rörelsefixar — ben (a).
+Riktningskravet på rörelsebenet är inte kosmetiskt: utan det öppnade grinden
+även när båten gick BORT, och fantomen överlevde bara för att dess cog råkade
+rulla in i sydbandet på nästa fix. Ett sampel i dödbandet mellan
+`MOVEMENT_PROOF_SOG_KN` och `TRANSIT_SOG_KN` NOLLSTÄLLER räknaren — annars var
+"på varandra följande" inte sant för kajvobbelns naturliga profil
+(1,2 / 0,7 / 1,1 kn). **K4-GOLVET (F3, fältprov 10; slutlig form 2026-08-22):**
+ben (a) krävde tidigare bara "ingen netto-reträtt" (`approachM >= 0`), och 31 m
+nosning räckte för en 300 m-notis (LADYBIRD 06:53:38). K4 lade först ett eget
+golv (70 m) på ben (a), men den grenen var ONÅBAR — ben (b) returnerar redan
+vid 40 m, så ett känt netto kan aldrig nå den. Konstanten `MIN_NET_APPROACH_M`
+är därför borttagen och ben (a) prövar `approachM === null`; sanningsmängden är
+byte-identisk med den förkastade 70-metersvarianten men STRIKT STRÄNGARE än
+HEAD:s `approachM >= 0` — bandet 0–39 m känt netto blockeras (LADYBIRD-klassen).
+Golvet stannade på 40 m efter rådatamätning: av 14
+grindkonsultationer i hela korpusbanken (netto 40–253 m) ligger exakt två i
+bandet 40–69 m, och båda är verifierade ÄKTA inseglare (ELFKUNGEN 265573130,
+40,4 m, korpus 20260804-both-21h; MONIKA 304482000, 42,0 m, korpus
+20260806-42h — båda passerade Olidebron och en MÅLBRO enligt `gt-passages/`).
+Ett 70-metersgolv hade fällt noll fantomer men krympt deras förvarning
+262→149 m respektive 249→171 m. **Öppningslagret ärver samma predikat** via
+`_isBridgeOpeningQuayWobbler`, så en framtida höjning kostar potentiellt en
+ÖPPNINGSvarning — dyrare än en notis.
 Bokföringen är app-lokal (`_quayStableLedger`, `_noteQuayStability` i BÅDE
 `_onVesselUpdated` OCH `_onVesselEntered` före notisvägen) eftersom kajliggarna
 återföds oupphörligt — 72 ENTERED/REMOVED-cykler på tio timmar — och ett
@@ -446,8 +464,12 @@ bridge_text, så pelare 1 och pelare 2 förblir frikopplade, och den säger
 avfyrar även för Stallbackabron som ALDRIG öppnar och för trigger-punkten
 Kanalinfarten som inte är en bro). Tillägget är rent ADDITIVT: de fem äldre
 tokens är byte-identiska — `bridge_name` och `direction` är dessutom
-FACITBÄRANDE (korpusarnas fördelnings- respektive riktningsmultiset läser
-exakt dem) — och notisantal, dedup-nycklar och trigger-state är orörda.
+FACITBÄRANDE, `direction` numera **VIA ADAPTERN** (F5, 2026-08-21:
+tokenen är svensk, korpusarnas riktningsmultiset är internt, och
+`tests/replay-validation/replayRunner.js:83–99` översätter tillbaka med
+`fromUserDirection` innan facit läses — se §Riktningsvokabulären; river du
+adaptern kostar språkbytet en omlåsning av 17 korpusar) — och notisantal,
+dedup-nycklar och trigger-state är orörda.
 Golden-text låser `bridge_text`-capabilityns skrivningar, inte notistexter, så
 dimensionen är per konstruktion blind för `message`; NOLL DIFF över samtliga
 18 korpusar bekräftade det.
@@ -458,6 +480,130 @@ bridge"-flow fyrar max EN gång per BRO och resa (upp till 6 för full genomresa
 — run-listenern (:4743–4758) släpper `'any'` rakt igenom; per-resa-gaten (F7,
 mmsi:any-nyckeln) togs bort 2026-07-02 (användarbeslut). distance/source
 konsumeras av replay-invarianterna (INV-11, inferens-särskiljning).
+
+### Riktningsvokabulären — två språk, EN översättningspunkt (F5/A3, 2026-08-21)
+
+Riktningen finns i **två vokabulärer** och de får aldrig blandas:
+
+| internt (koden resonerar) | användare (Flow-token) | var |
+|---|---|---|
+| `northbound` | `norrut` | boat_near + bridge_opening_soon |
+| `southbound` | `söderut` | boat_near + bridge_opening_soon |
+| `unknown` | `okänd` | boat_near (öppningskortet når det via payloadens fallback) |
+| `mixed` | `båda` | ENDAST bridge_opening_soon (mötande konvoj, K13b) |
+
+**EN översättningspunkt: `lib/utils/directionTokens.js`.** `toUserDirection`
+(internt → svenskt) anropas från exakt fyra ställen i app.js — `:6386`
+(öppningskortet), `:8021` (boat_near-tokenen), `:8090` (`safeTokens`, idempotent
+andrapass) och `:8881` (exit-fallbackens litteral). `fromUserDirection` (svenskt
+→ internt) har EN anropare i drift: harnessens riktningsadapter
+(`replayRunner.js:98`). Ingen annan fil får BYGGA en riktnings-token ur en egen
+svensk sträng — loggtexter är fria (t.ex. K12:s `app.js:4779`), tokens är det
+inte.
+
+- **Asymmetrin i fallbackarna är medveten.** `toUserDirection` matar en
+  ANVÄNDARSYNLIG token ⇒ okänd indata blir `okänd` (ett engelskt ord får aldrig
+  läcka ut i någons Flow). `fromUserDirection` matar FACITNYCKLAR ⇒ okänd indata
+  returneras ORÖRD, så INV-2 (`invariants.js:139`) fortsätter kunna fälla skräp.
+- **Sväljningen har en vakt.** Att `toUserDirection` städar bort skräp gör en
+  framtida stavfelsretur inne i riktningskedjan tyst (`'northboud'` → `okänd` →
+  adaptern → `unknown` → INV-2 godkänner). `app.js:_assertInternalDirection`
+  prövar därför värdet mot `INTERNAL_TO_USER` (`hasOwnProperty`, aldrig
+  prototypkedjan) FÖRE översättningen och skriver `this.error('[DIR_TOKEN] …')`.
+  Vakten LOGGAR — den ändrar aldrig tokenvärdet.
+- **De persistenta dedup-nycklarna står KVAR på interna ord** och ska så
+  förbli: öppningsvarningarnas `bro|mmsi|riktning` (`app.js:6312`) och
+  boat_near-dedupens `{t, dir}`-poster (`app.js:8156`, `dir` från
+  `_dedupDirection`) lever i `homey.settings` ÖVER omstarter — ett språkbyte
+  där hade gjort varje lagrad nyckel omatchbar och släppt fram dubbelvarningar
+  efter uppdateringen. Samma sak gäller varje intern jämförelse
+  (`=== 'southbound'`, skip-grinden, målbrotilldelningen).
+- **Facit är internt, tokenen svensk.** `replayRunner.js:83–99` definierar
+  adaptern; den tillämpas på notisernas `direction` (`:560`) och
+  öppningsvarningarnas (`:586`). Alla nedströmskonsumenter (runAllCorpora,
+  runFusionCorpora, runPhaseSweep, relockGoldenText, invariants) ärver
+  översättningen. **River du adaptern kostar språkbytet en omlåsning av 17
+  korpusar.**
+
+**K1 — Kanalinfart-regeln (`_getNotificationDirection`, app.js:8437).** Farleden
+in mot trigger-punkten löper ENE, så det FÖRSTA in-zon-samplet ligger nästan
+alltid i COG-dödbandet 46–134° som `_getDirectionString` medvetet svarar
+`unknown` på (13/25 inkommande över fyra fältdygn). Regeln flyttar `unknown` →
+`northbound` när ALLA villkor håller:
+
+1. `_getDirectionString` gav `unknown` (ruttlåset är fortsatt primärt),
+2. kandidaten ÄR trigger-punkten: `source === 'trigger-point'` OCH
+   `name === TRIGGER_POINTS.kanalinfarten.name` (exit-/passage-fallback
+   undantas — de är retroaktiva och sydgående per definition),
+3. cog ligger i östbandet, härlett ur `COG_BANDS` (`> NORTH_MAX`,
+   `< SOUTH_MIN`) — aldrig kopierade gradtal,
+4. nordprogressen `vessel._lastNorthProgress.mps >=
+   VesselDataService.NORTH_PROGRESS_MIN_MPS` (0,25 m/s — samma ribba som
+   kajvobbelgrinden, inget nytt kalibrerat tal), och
+5. **FÄRSKHET:** `_lastNorthProgress.ts === vessel.lastPositionUpdate`, dvs.
+   mätningen kommer från just den position som bär notisen. Utan kravet kunde
+   beviset frysa (en "vet inte"-mätning skriver aldrig över, och
+   `GPSJumpAnalyzer.fixDtMs` ger 0 — inte null — vid identisk fixTs från samma
+   feed).
+
+Regeln kan BARA ge `northbound`, aldrig `southbound`: ett felaktigt sydvärde
+aktiverar TRIGGER_POINT_SKIP-grinden och RADERAR kandidater som i dag går fram.
+Fältfacit på FIXklockan: BALTIC JONGLEUR 0,461 m/s och NAVEN 0,606 ⇒ norrut,
+LADYBIRD 0,115 (46 % av ribban, marginal 2,2×) ⇒ `okänd` står kvar — hon vände
+vid 230 m och förtöjde 423 m väster om punkten.
+
+**K13b — `båda`.** Öppningskortet beskriver ÖPPNINGEN, inte ledaren:
+`payload.eventDirection` mäts på HELA medlemsmängden och blir `mixed` vid en
+mötande konvoj. `??` (inte `||`) skyddar `mixed` mot fallbacken; `null` =
+ingen medlem har låst ruttriktning ⇒ ledarens `direction` bär tokenen.
+
+**K4 — kajgrindens nettogolv:** se §Trigger-punktens två grenar ovan (ETT golv,
+`NET_APPROACH_M` 40 m; ben (a) bär bara "netto okänt").
+
+**K12 — passed-hold-hybriden (`_hasRecentTargetPassage`, app.js:4661).** Tiden
+är TAKET, beviset är GOLVET: fönstervillkoret (`PASSED_HOLD_MS`) är oförändrat,
+men hållningen får släppas i FÖRTID när utfärden är BEVISAD
+(`_passedHoldDepartureProven`) — tre nödvändiga villkor: (1) bortom brolinjen
+på färdriktningens sida med minst `PASSED_HOLD_RELEASE_BEYOND_M` (100 m, mätt
+längs kanalaxeln), (2) sog ≥ `MINIMUM_VIABLE_SPEED` (en stillaliggande båt
+bortom bron hålls kvar — bron kan stå öppen för henne, och utan fartkravet
+kunde GPS-jitter fabricera villkor 3), (3) avståndet till bron ökade mellan två
+på varandra följande fixar. Serien lagras i en APP-LOKAL karta
+(`_passedHoldDistances`, bounded till båtarna i fönstret) — inte som ett nytt
+vessel-fält, eftersom `_findRelevantBoatsForBridgeText` har en egen fältlista
+(fältlist-fällan). Predikatet är rent SLÄPPANDE: allt obevisat ⇒ hållningen
+behålls, så ändringen kan bara KORTA en hållning, aldrig förlänga.
+
+**K18 del 2 — stale-svepet (`VesselDataService.sweepStaleVessels`).**
+30-minutersbackstoppen är en GREN inne i `removeVessel` och kunde bara
+utvärderas när en cleanup-timer redan brunnit ned; fältdygnet skrev själv "35
+minutes" och "36 minutes" mot en 30-minuterströskel. Svepet FLYTTAR INTE grenen
+— det gör den NÅBAR: hälsoticket (60 s) anropar `removeVessel(mmsi, 'timeout')`
+för fartyg där `max(timestamp, lastPositionUpdate)` passerat
+`STALE_AIS_TIMEOUT_MS`, och grenen sätter `staleAisForcedRemoval` själv, så
+gravgate, protection-bypass och completed-bokföring behåller exakt dagens
+semantik. VILKA som tas bort är oförändrat, bara NÄR (30–31 min i stället för
+34–36). **Ingen injicerbar klocka:** svepet och grenen läser BÅDA `Date.now()`
+— en `now`-parameter gick isär från grenen och kunde få svepet att FÖRLÄNGA ett
+fartygs liv via protection-zonen. Tester styr tiden med `jest.setSystemTime`.
+
+**K20a — batch-settle på ledarvalet (`_leadIsUnsettled`,
+BridgeOpeningService:1631).** Ett fix avfyrar direkt mitt i AISHub-pollens
+utspridning (`EMIT_SPREAD_MS` 150 ms) och `_fire` väljer ledande båt på
+armarnas LAGRADE `distanceM` — som kan vara olika gamla (K20-defekten). Grinden
+SKJUTER UPP avfyrningen ett tick när alla fyra leden håller: (1) `firedBy ===
+'fix'`, (2) `_observationGapMs <= BATCH_SETTLE_MS` (2 × `EMIT_SPREAD_MS` =
+300 ms — 53 % av AISHub-luckorna ligger under 300 ms mot 0,28 % av
+aisstream-luckorna, och gränsen ligger 217× under pollperioden så den kan aldrig
+spänna två poller), (3) ledaren uppdaterades i DETTA meddelande
+(`lead.lastSeenAt === now`) och (4) ledaren är inte själv förfallen. Måttet
+`_observationGapMs` skrivs BARA i `observeVessel` och sätts till `Infinity` i
+`notePassage`, så batchledet är explicit inert i passagevägen. Ledarvalet är
+rått `arm.distanceM` i `_leadOf`, delat av `_fire` och grinden — ingen
+projektion. Garantin: händelsen står kvar orörd (`firedAt = null`) och prövas
+igen vid nästa utvärdering; enda undantaget är om en medlems målbropassage
+registreras inne i fönstret, och då är varningen ändå obsolet enligt
+avfyrspärren (`BridgeOpeningService:1018`).
 
 ### bridge_opening_soon — det PROAKTIVA lagret (etapp 6, 2026-08-03)
 
