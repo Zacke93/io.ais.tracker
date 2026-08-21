@@ -6,14 +6,20 @@
  * TVÅ kirurgiska fynd i BridgeOpeningService, båda rådataverifierade mot
  * huvudloggen app-20260819-081250.log innan en rad kod ändrades.
  *
- * ⛔ K20a ÄR ÅTERKALLAD (dirigentbeslut 2026-08-21) och testas därför INTE här.
+ * ⛔ K20a-PROJEKTIONEN ÄR ÅTERKALLAD (dirigentbeslut 2026-08-21).
  *    Ledarprojektionen (_leadDistanceM) valde rätt båt i fältfallet men FEL i
  *    2 av 2 observerbara korpusfall — 20260525 Stridsbergsbron#7 flyttade
  *    ledarskapet från MARIANNE (korsade 09:48:26,601) till JOSEPHINE (09:48:38,858)
  *    och eta-tokenen 8 → 14 min mot sant 7,5, och 20260804-both-21h Klaffbron#27
  *    flyttade det från BLADE (korsade 12:10:24,796) till ELFKUNGEN, som U-svängde
- *    vid Olidebron och ALDRIG nådde Klaffbron. Ledarvalet är återställt till
- *    HEAD:s rå `arm.distanceM`-reduce; en egen kontraktsvakt längst ned låser det.
+ *    vid Olidebron och ALDRIG nådde Klaffbron. Ledarvalet är och förblir HEAD:s
+ *    rå `arm.distanceM`-reduce (numera i _leadOf); kontraktsvakten längst ned
+ *    låser det.
+ *
+ *    K20 löstes i stället som en TIDSFRÅGA, inte en modellfråga: grinden
+ *    _leadIsUnsettled skjuter upp en fix-utlöst avfyrning som annars hade valt
+ *    ledande båt mitt i ett halvt tillämpat AISHub-pollsvep. Den lösningen har
+ *    en egen svit — tests/k20a-ledarval.test.js — och testas inte här.
  *
  * K14  KONVOJTÄCKNINGEN ANKRADES I LEDARENS PROGNOS, INTE I PASSAGEN.
  *      Klaffbron#6 avfyrade 15:47:09,414 med NAVENs prognos 15:57:32,649 ⇒
@@ -370,12 +376,18 @@ describe('öppningsmotorn — fältprov 10 (K14 / K13b)', () => {
       expect(w.vesselCount).toBe(1);
     });
 
-    it('ledarvalet är HEAD:s råa armavstånd — ingen projektion (K20a återkallad)', () => {
+    it('ledarvalet är HEAD:s råa armavstånd — ingen projektion (K20a-projektionen återkallad)', () => {
       // REGRESSIONSVAKT mot att ledarprojektionen smyger tillbaka. Scenen är
       // fältets pollrace: TONGA bär ett 60 s gammalt fix på 1308 m, BALTIC
       // JONGLEUR ett färskt på 1277 m. K20a hade valt TONGA (normerat 1153 m);
-      // HEAD väljer BALTIC JONGLEUR på rått avstånd, och det är det utfall
+      // vi väljer BALTIC JONGLEUR på rått avstånd, och det är det utfall
       // korpusfacit vilar på.
+      //
+      // BATCHGRINDEN ÄNDRAR INTE DET HÄR SVARET, och det är själva poängen med
+      // den: avfyrningen sker på ett TICK (advance nedan), där grinden per
+      // konstruktion är inert, och observationerna ligger 50–60 s isär — inget
+      // pollsvep pågår. Kommer ingen färskare rad är utfallet exakt HEAD:s.
+      // Fallet där en färskare rad FINNS ligger i tests/k20a-ledarval.test.js.
       expect(svc._leadDistanceM).toBeUndefined();
       svc.observeVessel(makeVessel({
         mmsi: 'TONGA', name: 'TONGA', distanceM: 2400, sog: 4.6,
