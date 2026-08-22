@@ -355,3 +355,193 @@ describe('J5: minimiurvalet styr STORLEKEN, inte existensen', () => {
     expect(FULLT_TAK).toBeGreaterThan(TUNT_TAK); // regimerna kan skiljas åt
   });
 });
+
+/**
+ * L21 (helkodsgranskning runda 3, 2026-08-22) — PARFÖNSTRET MÅSTE ÅLDRAS ÄVEN
+ * NÄR AISSTREAM ÄR TYST.
+ *
+ * Åldrandet låg bara i pushClockSample, alltså bara på det som PUSHAS.
+ * hubLags pushas per hubbmeddelande och självprunade därför; pairLags pushas
+ * ENBART när ett korskällepar bildas, vilket kräver att aisstream levererar.
+ * När aisstream tystnar — fältläget sedan serverdöden ~2026-08-05 — frös
+ * parfönstret fast och en NEGATIV parmedian fortsatte styra hubOffsetMs långt
+ * utanför CLOCK_OFFSET_WINDOW_MS (30 min).
+ *
+ * Testerna kör den RIKTIGA muxen i 'both' och den riktiga bokföringen
+ * (applyAccept skriver lastContent för aisstream, observeClock läser den) —
+ * inga handsatta klockstate.
+ */
+describe('L21: pairLags åldras oberoende av om nya par bildas', () => {
+  // Fönstret som löftena vilar på: lib/constants.js CLOCK_OFFSET_WINDOW_MS.
+  const FONSTER_MS = CFG.CLOCK_OFFSET_WINDOW_MS;
+  // Parmedianen som fryser fast. −60 s ligger innanför pargrinden (90 s) så
+  // paren bokförs, och är samtidigt grundare än FUTURE_CLAMP_MS (120 s) —
+  // alltså kan BEVIS A inte ensamt förklara offseten i det här scenariot.
+  const PARLAGG_MS = -60 * 1000;
+  const MMSI = '265004444';
+
+  /** Samma fysiska rapport, sedd av aisstream (mottagningsstämplad). */
+  function streamMsg(now) {
+    return {
+      mmsi: MMSI,
+      msgType: 'PositionReport',
+      lat: 58.29,
+      lon: 12.29,
+      sog: 5,
+      cog: 25,
+      navStatus: null,
+      shipName: 'PARBEVIS',
+      timestamp: now,
+      fixTs: now,
+      fixFeed: 'aisstream',
+      fixTsQuality: 'receipt',
+    };
+  }
+
+  /** Hubbens eko av EXAKT samma rapport, med hubbklockans egen stämpel. */
+  function hubEko(now, fixTs) {
+    return {
+      ...streamMsg(now), msgType: 'AISHubPosition', fixTs, fixFeed: 'aishub', fixTsQuality: 'true-fix',
+    };
+  }
+
+  let mux;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-08-02T12:00:00.000Z'));
+  });
+
+  afterEach(() => {
+    if (mux) mux.disconnect();
+    mux = null;
+    jest.useRealTimers();
+  });
+
+  /**
+   * Fyller parfönstret med CLOCK_PAIR_MIN_SAMPLES + 2 par à PARLAGG_MS genom
+   * hela muxen, och lämnar tillbaka den (aisstream tystnar sedan).
+   */
+  function fyllParfonstret() {
+    const m = new AISSourceMultiplexer(makeLogger(), makeStore());
+    m._config.source = 'both';
+    const t0 = Date.now();
+    for (let i = 0; i < CFG.CLOCK_PAIR_MIN_SAMPLES + 2; i++) {
+      const now = t0 + i * 60000;
+      jest.setSystemTime(now);
+      m._ingestFromFeed('aisstream', streamMsg(now));
+      // pairLag = aisstreams mottagning − hubbens fixTs.
+      m._ingestFromFeed('aishub', hubEko(now, now - PARLAGG_MS));
+    }
+    return m;
+  }
+
+  test('FRYSNINGEN: par 3 h gamla styr inte längre offseten när aisstream tystnat', () => {
+    mux = fyllParfonstret();
+    // Utgångsläget (oförändrat av fixen): medianen −60 s äger offseten.
+    expect(mux._fusionClock.pairLags.length)
+      .toBeGreaterThanOrEqual(CFG.CLOCK_PAIR_MIN_SAMPLES);
+    expect(mux._fusionClock.hubOffsetMs).toBe(PARLAGG_MS);
+
+    // TRE TIMMAR SENARE, aisstream nere: bara hubben levererar, helt normala
+    // fixar (30 s leveranslagg). Sex gånger fönstret har passerat.
+    const senare = Date.now() + 3 * 3600000; // 6× CLOCK_OFFSET_WINDOW_MS
+    jest.setSystemTime(senare);
+    mux._ingestFromFeed('aishub', {
+      ...hubEko(senare, senare - LEVERANSLAGG_MS), mmsi: '265007777', lat: 58.3,
+    });
+
+    // FÖRE FIXEN: pairLags hade kvar alla 12 (äldsta 180 min = 6× fönstret)
+    // och hubOffsetMs stod kvar på −60 000.
+    expect(mux._fusionClock.pairLags).toHaveLength(0);
+    expect(mux._fusionClock.hubOffsetMs).toBe(0);
+  });
+
+  test('UPPMÄTT SKADA: en laglig 700 s gammal hubbfix avvisades fix_too_old', () => {
+    const { createState, shouldAccept } = require('../lib/connection/FixFusionPolicy');
+    mux = fyllParfonstret();
+    const senare = Date.now() + 3 * 3600000;
+    jest.setSystemTime(senare);
+    mux._ingestFromFeed('aishub', {
+      ...hubEko(senare, senare - LEVERANSLAGG_MS), mmsi: '265007777', lat: 58.3,
+    });
+
+    // 700 s < F4b:s budget MAX_FIX_AGE_MS (720 s) ⇒ fixen ÄR laglig.
+    const gammal = { ...hubEko(senare, senare - 700000), mmsi: '265008888', lat: 58.31 };
+    const verdikt = shouldAccept(createState(), gammal, senare, CFG, {
+      feed: 'aishub', hubOffsetMs: mux._fusionClock.hubOffsetMs,
+    });
+    expect(verdikt.accept).toBe(true);
+    // …och den emitteras med sin EGNA stämpel, inte backdaterad 60 s.
+    expect(verdikt.fixTs).toBe(senare - 700000);
+
+    // KONTRAST: med den frysta offseten (som HEAD behöll) åldras samma fix
+    // 60 s extra ⇒ 760 s > 720 s ⇒ hela hubbkällan tystnar.
+    const medFrusen = shouldAccept(createState(), gammal, senare, CFG, {
+      feed: 'aishub', hubOffsetMs: PARLAGG_MS,
+    });
+    expect(medFrusen.accept).toBe(false);
+    expect(medFrusen.reason).toBe('fix_too_old');
+  });
+
+  test('EXAKT GRÄNS: ett par precis inom fönstret överlever, ett millisekund utanför gör det inte', () => {
+    const {
+      createClockState, createState, observeClock, applyAccept,
+    } = require('../lib/connection/FixFusionPolicy');
+    const t0 = Date.now();
+
+    /** @returns {number} antal par kvar efter att `dt` ms förflutit utan ny push */
+    const kvarEfter = (dt) => {
+      const clock = createClockState();
+      const state = createState();
+      for (let i = 0; i < CFG.CLOCK_PAIR_MIN_SAMPLES + 2; i++) {
+        applyAccept(state, streamMsg(t0), t0, t0, 'aisstream');
+        observeClock(clock, state, hubEko(t0, t0 - PARLAGG_MS), 'aishub', t0, CFG);
+      }
+      const antalFore = clock.pairLags.length;
+      // Ett hubbmeddelande UTAN matchande aisstream-innehåll ⇒ ingen ny push.
+      observeClock(clock, createState(), hubEko(t0 + dt, t0 + dt - LEVERANSLAGG_MS),
+        'aishub', t0 + dt, CFG);
+      return { antalFore, antalEfter: clock.pairLags.length, offset: clock.hubOffsetMs };
+    };
+
+    const inom = kvarEfter(FONSTER_MS);
+    expect(inom.antalFore).toBe(CFG.CLOCK_PAIR_MIN_SAMPLES + 2);
+    // `at < cutoff` är STRIKT: exakt på fönsterkanten sparas posten.
+    expect(inom.antalEfter).toBe(inom.antalFore);
+    expect(inom.offset).toBe(PARLAGG_MS);
+
+    const utanfor = kvarEfter(FONSTER_MS + 1);
+    expect(utanfor.antalEfter).toBe(0);
+    expect(utanfor.offset).toBe(0);
+  });
+
+  test('SEMANTISKT NEUTRALT när par bildas normalt: samma fönster, samma offset', () => {
+    // Pruningen är idempotent och körs med SAMMA `now` som pushen, så
+    // prune→push→prune ger exakt samma fönster som push→prune. Ett sammanhållet
+    // parflöde ska alltså vara bit-identiskt med HEAD.
+    mux = fyllParfonstret();
+    expect(mux._fusionClock.pairLags).toHaveLength(CFG.CLOCK_PAIR_MIN_SAMPLES + 2);
+    expect(mux._fusionClock.pairLags.every((s) => s.v === PARLAGG_MS)).toBe(true);
+    expect(mux._fusionClock.hubOffsetMs).toBe(PARLAGG_MS);
+    // hubLags åldras precis som förut (den självprunade redan via pushen).
+    expect(mux._fusionClock.hubLags).toHaveLength(CFG.CLOCK_PAIR_MIN_SAMPLES + 2);
+  });
+
+  test('BEVIS A rörs inte: hubLags prunas fortfarande på exakt samma villkor', () => {
+    const { createClockState, observeClock } = require('../lib/connection/FixFusionPolicy');
+    const t0 = Date.now();
+    const clock = createClockState();
+    for (let i = 0; i < 5; i++) {
+      const now = t0 + i * 60000;
+      observeClock(clock, null, hubEko(now, now - LEVERANSLAGG_MS), 'aishub', now, CFG);
+    }
+    expect(clock.hubLags).toHaveLength(5);
+    // Ett meddelande så långt efter att ÄVEN det yngsta gamla samplet
+    // (t0 + 4 × 60 s) faller utanför fönstret ⇒ bara det egna står kvar.
+    const langtSenare = t0 + 4 * 60000 + FONSTER_MS + 1;
+    observeClock(clock, null, hubEko(langtSenare, langtSenare - LEVERANSLAGG_MS),
+      'aishub', langtSenare, CFG);
+    expect(clock.hubLags).toHaveLength(1);
+  });
+});

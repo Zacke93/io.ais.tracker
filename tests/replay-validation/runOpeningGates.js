@@ -471,16 +471,50 @@ function analyseCoverage(result, samples, gtPassages = null) {
 }
 
 /**
- * AVFYRNINGSFÖNSTRET — kontraktets mekanism (c): "avfyra så SENT som garantin
- * tillåter". Servicen skickar med `dueMs` (den tidigaste förfallotiden bland
- * de armar som utlöste); avfyrningen ska alltså ligga i [dueMs, dueMs + ett
- * tick]. Utan den här grinden kunde en regression flytta SAMTLIGA varningar
- * en timme tidigare utan att någon grind rodnade — ledtiden mättes men
- * grindades inte.
+ * AVFYRNINGSFÖNSTRET — grinden mäter TICK-RASTRERING, inte ledtid.
+ *
+ * Servicen skickar med `dueMs` (den tidigaste förfallotiden bland de armar som
+ * utlöste) och grinden prövar att avfyrningen ligger i [dueMs, dueMs + två
+ * tick]. Det den DÄRMED bevakar är att tick-loopen faktiskt tickar: ett tappat
+ * eller strypt tick skjuter avfyrningen bortom taket och syns direkt.
+ *
+ * ⚠️ VAD DEN INTE GÖR (L13, helkodsgranskning runda 3, 2026-08-22 — docblocket
+ * påstod förut motsatsen): den fångar INTE en regression som flyttar samtliga
+ * varningar tidigare. Grinden är SJÄLVUPPFYLLANDE åt det hållet, för `dueMs`
+ * härleds ur exakt de tal som beslutar avfyrningen. `dueMs` är min över de
+ * förfallna armarna av max(fireDueMs, eligibleAt); avfyrning KRÄVER att
+ * fireDueMs har passerat (due-filtret i BridgeOpeningService._evaluateBridge),
+ * och eligibleAt sätts till `now` vid varje händelseknytning — inklusive den
+ * som sker i samma _evaluateBridge-anrop som avfyrningen. Alltså är dueMs ≤ t
+ * per konstruktion och den negativa grenen strukturellt onåbar i dag.
+ * MUTATIONSBEVIS (utan repoändring, preload som höjer WARNING_LEAD_MS): +60 s
+ * och +120 s flyttar varje varning 60–300 s tidigare i fem korpusar och den
+ * här grinden ger NOLL brott i samtliga. Ledtiden MÄTS (O1 skriver ut
+ * fördelningen) men är inte LÅST.
+ *
+ * DEN NEGATIVA GRENEN STÅR ÄNDÅ KVAR och är inte död vikt: den vaktar en
+ * regression i due-filtret. Släpper någon fram en arm vars fireDueMs ännu inte
+ * passerat — eller börjar eligibleAt sättas framåt i tiden — blir delta
+ * negativt och grinden rodnar. Uppmätt i dag: 0 av 80 varningar (fem korpusar)
+ * och 0 av 367 i granskningens svep.
+ *
+ * BYT INTE dueMs MOT originalDueMs. Det ser ut som fixen men rödfärgar ett
+ * grönt HEAD: originalDueMs är armens FRYSTA ursprungsdeadline, och H-4 mäter
+ * legitim deadlineförflyttning upp till ~29,6 min när ett närmare fix binder om
+ * fireDueMs. Mätt över samma fem korpusar: t − originalDueMs har p50 72 s, p90
+ * 580 s och max 28,8 min, och en grind på det talet hade fällt 43 av 80
+ * varningar — alltså larm på normal drift.
+ *
+ * LEDTIDSFÖRDELNINGEN ÄR OLÅST — förslag, inte gjort i den här rundan: lås
+ * facit på serien t − originalDueMs per korpus, så en formeländring i
+ * WARNING_LEAD_MS syns som ett fördelningsbrott. Det skapar NYTT facit som
+ * måste rådataverifieras en gång, och hör därför till en egen låsningsrunda.
  *
  * TOLERANSEN är ett tick-intervall plus en tick till: avfyrningen sker i
  * 30 s-loopen, och ett meddelande som landar mellan två tick förskjuter
- * utvärderingen med upp till ett helt intervall.
+ * utvärderingen med upp till ett helt intervall. BASLINJE för tick-rastreringen
+ * (mätt 2026-08-22 över 80 varningar i fem korpusar): min 0 s, p50 11,1 s,
+ * p90 25,4 s, max 29,2 s mot taket 60 s — full mäthöjd kvar för ett tappat tick.
  */
 const FIRE_WINDOW_SLACK_MS = 2 * BRIDGE_OPENING.TICK_INTERVAL_MS;
 
@@ -1131,7 +1165,10 @@ async function main() {
       gateFail(run.job, `ÖPPNINGSVARNING KASTADE: ${badWarnings[0].error}`);
       console.log(`  ${tagFor(run.job)} ÖPPNINGSVARNING KASTADE ${run.job.id}: ${badWarnings[0].error}`);
     }
-    // AVFYRNINGSFÖNSTRET: mekanism (c) — "avfyra så SENT som garantin tillåter".
+    // AVFYRNINGSFÖNSTRET: TICK-RASTRERING (tappat/strypt tick) plus den
+    // negativa vakten på due-filtret. Den mäter INTE ledtid — se docblocket
+    // vid FIRE_WINDOW_SLACK_MS för mutationsbeviset och för varför
+    // originalDueMs inte får bytas in här.
     const badFire = analyseFireWindow(run.result);
     if (badFire.length) {
       gateFail(run.job, `${badFire.length} avfyrningsfönsterbrott`);

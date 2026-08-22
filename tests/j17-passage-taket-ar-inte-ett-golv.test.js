@@ -3,9 +3,17 @@
 /**
  * J17 — KARAKTERISERINGSTEST AV ETT KÄNT FEL SOM STÅR KVAR MEDVETET.
  *
- * FILNAMNET är kvar från den fix som ÅTERKALLADES (helkodsgranskning runda 2c,
- * 2026-08-22). Testet låser MOTSATSEN till namnet: passage-grenen i
- * ProximityService.calculateProximityTimeout är ett TAK på 65 s, inte ett golv.
+ * FILNAMNET SÄGER VAD TESTET LÅSER: passage-grenen i
+ * ProximityService.calculateProximityTimeout är ett TAK på 65 s — inte ett golv.
+ *
+ * (L37, helkodsgranskning runda 3, 2026-08-22: den här headern påstod tidigare
+ * att filnamnet var kvar från den ÅTERKALLADE fixen och att testet låste
+ * MOTSATSEN till sitt namn. Bådadera var sant om det GAMLA namnet
+ * "j17-passage-golv-inte-tak", men filen döptes om i runda 2c och namn och
+ * innehåll säger sedan dess samma sak. Samma runda rättade den kvarvarande
+ * pekaren till det gamla namnet i lib/services/ProximityService.js — den
+ * pekade på en fil som aldrig funnits i git, vilket är precis den klass av
+ * falsk pekare som gav AKIRA-regressionen i fixrunda 2b.)
  *
  * FELET (obestritt): `Math.max(remainingTime, 65000)` med
  * `remainingTime = 65000 − timeSincePassed` är KONSTANT 65 000 ms, och den
