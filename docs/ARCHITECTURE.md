@@ -1427,6 +1427,166 @@ FÖRSTA FAKTISKA PASSAGEN, och en båt som anländer efter den plus
 `CONVOY_WINDOW_MS` är NÄSTA öppning — men aldrig en andrapåminnelse för samma
 öppning.
 
+### Helkodsgranskning runda 2 (2026-08-22) — uppskjutet med diagnos
+
+Runda 2 (13 paketgranskare, 80 skeptiker, HEAD 480b78f) bekräftade 24 fynd;
+16 åtgärdades i fixrunda 2/2b/2c (J1 J2 J20 J4+J5 J12 J18 J22 J30 J9 J15 J21
+J6+J35 J14-doc J28 J29 J38 — se handoff-2026-08-21/helkodsgranskning-
+runda2.md, hkfix2-rapport.md, hkfix2b-rapport.md, hkfix2c-rapport.md); J10
+och J17 ÅTERSTÄLLDA med diagnos (nedan), J32 löst som KOMMENTARFEL (koden stod
+rätt). Fixrunda 2 och 2b UNDERKÄNDES av granskarna (2: J15 första varianten
+dödade post-gap-omvarningen, J10 avslöjade klämkedjan; 2b: J17 återuppväckte
+AKIRA-spöket och bar 6 av 7 omlåsningar, J32 harnessrastrerades till +30 s)
+och rättades i 2b/2c — samma läxa som runda 1: varje fixvåg bär egna fel. Rundans HUVUDSIGNAL: 4 av runda 1:s 12 fixar
+bar egna fel (H14 → J1, H1 → J2, H19 → J20, H24 → J4/J5) och tre lämnade
+ospeglade syskon (H22 → J21, H34 → J6, H38 → J38). Varje fix i fixrunda 2
+kräver därför ett redovisat SYSTERSTÄLLESVEP (grep-bevis per fix).
+
+**Omätta beteendeändringar från fixrunda 2 (FÄLTPROVSCHECKLISTA — noll
+korpustäckning, vilar på enhetstest genom riktig pipeline + mutationsprov).**
+Varje punkt bär sitt loggmönster; fältprov 11 ska bekräfta att (a) mönstret
+uppträder när klassen finns och (b) utfallet är sant mot rådata:
+- J1 (removal-snapshotens U-svängsflagga per värde): 0 fall av pending vid
+  removal i 18 korpusar. Mönster: `EXIT_TRIGGER_DEDUPE_EXPIRED_HOLD … reversal
+  pending` / `EXIT_TRIGGER_SKIP_REVERSAL` på removal-vägen (var onåbara före).
+- J2 (`_deriveAssignmentDirection`: COG → ruttlås → slutlås → bronamn): låset
+  skilde sig från bronamnet 0 gånger i banken. Mönster: `ROUTE_LOCK_KEEP` kan
+  inte längre skriva "källa målbro-fallback"; `TARGET_CHANGE … ACCELERATED` för
+  COG-lös båt med lås ska följa låset.
+- J9 (S-3-spärren geometrisk + fail-closed): `UNDER_BRIDGE_TIMEOUT`-grenen
+  loggas 0 gånger i replay — onåbar där. Mönster: spärren HÅLLS i bandet
+  50–70 m efter passage (förr släpptes den rutinmässigt) — bevaka att ingen båt
+  fastnar utanför under-bro-latchen (se J9-kommentaren i StatusService).
+- J28 (syntetisk hållning nollar episodfälten): no-op i banken.
+- J30 (omätbar feedtystnad = tyst): harnessen fryser klientens stats ⇒ BÅDA
+  P8-vakterna omätbara i replay. Mönster: `FEED_SILENCE_UNMEASURABLE` (ny rad)
+  följd av att senaste texten behålls i stället för "Inga båtar".
+- J6/J35 (aisstream COG-/NAVSTAT-normalisering via `aisFieldNormalization`):
+  replay anropar aldrig `_extractAISData`. Mönster: F2-paritet — samma
+  fysiska rapport från båda källorna ska ge `cross_feed_duplicate`, inte två
+  accepterade fixar; navStatus 15 skriver aldrig över känt 1/5.
+- J38 (svaljloggens strypning): ingen korpus bär ett kastande fält. Mönster:
+  högst en `BRIDGE_TEXT_SWALLOWED`-rad per minut och signatur, "undertryckta: N".
+- J18 (latchens riktning ur COG när anroparen saknar riktning): 0 träffar i
+  alla 18 korpusar OCH 0 i synth — fältprov 11 är första gången beteendet
+  ses. Mönster: `PASSAGE_LATCH … källa=cog`. Styr om reversal-grenen
+  blockerar inväntar/närmar sig i 10 min ⇒ pelare 1.
+- J29 (P2R2-4-kontrollen före nyckelradering på expired-vägen): grenen nås
+  6 gånger i banken men den persistenta grinden svarar aldrig blockerad ⇒
+  den ändrade effekten (sessionsnyckeln överlever) inträffar aldrig i replay.
+- J12 (`_clearTargetGrace` på alla målbytesvägar): nådd 20 gånger i banken,
+  bevisat inert mot facit. Mönster: `TARGET_GRACE … Starting 60s grace period`
+  där det förr stod `TARGET_CHANGE … none` med flersiffrig grace.
+- J20 (maxRecentSpeed null): 0 i korpus, 50 träffar i synth (sog=null-
+  scenariot) — synth-täckt, inte omätt.
+- J4+J5 är MÄTTA via fusionsgrinden (tunna-urvalsgrenen nås 11 130 gånger,
+  grinden grön) — står medvetet INTE på listan.
+- J15 boot-fönstret (omstartsdedup): synth-täckt sedan 2c, ingen korpus
+  startar om. Mönster: `OPENING_DEDUP_PERSIST … (omstartsskydd)`.
+- J22 (`hasArmingMovementEvidence` i `_canArm`): MÄTT (3 enkelsampelsfantomer
+  bort, 0 äkta), men klassen är sällsynt — bevaka `OPENING_ARM_SKIP`-raden
+  (eller motsvarande) för fartyg med ett enda sampel.
+
+**Kvar, medvetet:**
+
+- **J17 — `ProximityService.calculateProximityTimeout`, passed-grenen** står
+  KVAR som på HEAD, MEDVETET. Grenen returnerar `Math.max(remainingTime, 65000)`
+  där `remainingTime ≤ 65000` ⇒ ett KONSTANT 65 s-TAK (inte golv) i första
+  minuten efter en passage, före alla närhetsklassers golv; K18-basnivån bokförs
+  då som 65 s < AISHub-kadensen 70 s (livstecken kan inte bära den — en båt som
+  passerar och tystnar i exakt den minuten kan dö mitt i aktiv resa och
+  återfödas). Fixrunda 2 gjorde grenen till ett äkta golv (sist) — MEN taket är
+  i dag den mekanism som håller SR2-3 (2026-07-11): AKIRA 257605080 i
+  20260707-14h (kajbåt 0,1 kn, 409 m N om passerade Klaffbron, tystnar) levde
+  6,5 min på HEAD och 25 min med J17 ⇒ "Fyra båtar på väg mot Stridsbergsbron"
+  i 19 min (F4-I-spökklassen som noten själv namnger som borttagen); samma
+  klass MISTY i 20260804-17h. C11b/U1-vakten på nearStationary-grenen räcker
+  INTE (kö-klassen ger samma 25 min via opassrad Järnvägsbron 568 m). Kravet
+  på en framtida fix: en KLASSREGEL för passerat-och-stannat (retention +
+  staleDisplay) som mäts mot 14h/17h med SR2-3 intakt — inte det oavsiktliga
+  taket och inte ett nakent golv. J17 visade sig också vara lastbärande för
+  6 av fixrunda 2:s 7 omlåsningar (5–10 ms-skift + "om 6→7 min" i 2h) —
+  alla återställda i 2c.
+- **J32 — micro-grace-fönstret** (`_shouldApplyMicroGrace`): KODEN står som på
+  HEAD (`hasCriticalTransitions ? 3000 : 5000`); KOMMENTAREN var felet.
+  micro-grace är en 200 ms PAUS före publicering; kritiska under-bro-
+  övergångar får ett KORTARE berättigandefönster (3 s) så de publiceras
+  opausat snabbare. Fixrunda 2:s "rättning" till 5 000 lade en paus på
+  kritiska övergångar i bandet 3–5 s (bakvänt) och harnessen rastrerade den
+  till +30 s i fyra goldens + en fasberoende knivseggsrad i 2h — allt
+  återställt i 2c.
+- **J15 boot-fönstret (avvägning, skriven):** en post som överlevt en omstart
+  dedupar till avfyrning + CONVOY_WINDOW + ETA (kapat 1 h); en AVBRUTEN
+  anflygning före omstarten lämnar posten kvar tills dess (nollas bara av
+  passage), så en äkta ANDRA öppning för samma båt/bro/riktning inom fönstret
+  efter en omstart kan tystas. Sällsynt × sällsynt (71 AVBRUTEN_APPROACH i
+  grindarna, men omstart mitt i är Homey-uppdateringens ögonblick).
+  Alternativ som står öppna: nolla nyckeln även när armen släpps, eller binda
+  fönstret till händelsens deadline. Synth-scenariot "omstart-mitt-i-passage"
+  flyttades i 2c så grinden faktiskt provar boot-fönstret (tidigare dött:
+  hela dedupen kunde kopplas bort utan rött).
+- **J21:s systerställe rad ~833** (`ETA_GROWTH_CAP`:s `isStationary` prövar
+  nakna 0,8 medan rad ~562 nu prövar MOVEMENT_SOG_KNOTS 1,0): i bandet
+  0,80–0,99 säger de motsatt sak (golvet släpps medan tillväxtklamman står
+  av). Befolkat band (116 sampel/58 mmsi). Eget litet paket med A/B mot
+  measure:eta — får inte smygas in.
+- **J10 — K19:s systerställe i `SystemCoordinator.coordinatePositionUpdate`
+  (naket `movementDistance > 300` ⇒ `large_movement` ⇒ `coordinationActive` ⇒
+  PROTECTION CONDITION 5)** står KVAR som naket 300 m-tal, MEDVETET. Fixrunda 2
+  tidsnormaliserade grinden (rätt i sig: 7,5 % av bankens segment passerade
+  300 m, 100 % under 10 kn), men i 20260712-25h tog det bort en OAVSIKTLIG
+  dämpning som dolde ett befintligt fel: FRAM 211864690 stannade 16:42:53 på
+  886 m från Stridsbergsbron (sog 0, > 4 h, passerade aldrig) och fick 16:45:25
+  texten "om 10 minuter". Rå-ETA var 11,5 min (passagegolvet 2,5 kn på varm
+  buffert); med färskhetsregel J10b (två slöa sampel i svansen ⇒ inget golv)
+  blev rå-ETA 26,1 — men PUBLICERAT stod på 9,85 i båda fallen: raden ägs av
+  klämkedjan `ETA_MONOTONIC → ETA_ABSOLUTE_CLAMP → ETA_GROWTH_CAP + EMA`. J10b
+  mättes dessutom SÄMRE (`measure:eta` median 2,30 → 2,38, ≤ 2 min 47,8 → 47,1 %,
+  5 låsta goldens rörda) och drogs tillbaka. Beslut: SystemCoordinator = HEAD
+  (diff = kommentarer), 25h-raden "Inga båtar" = sant. ÖPPET FYND till nästa
+  granskning: *klämkedjan låser en nyss stannad båts publicerade ETA* — kräver
+  egen mätd design i K6-familjen (ETA-etappen), inte kirurgi. K19:s EGEN grind i
+  VDS går nu via `lib/utils/movementPlausibility` (byte-identiskt i 18 korpusar);
+  SystemCoordinator-stället är en namngiven kvarvarande kopia i hjälparens docblock.
+- **J13+J33 — konvojbindningens värdval** (`BridgeOpeningService._bindLooseArms`
+  ~:1070): (a) en arm som `_releaseStrandedArms` just släppt återabsorberas i
+  SAMMA utvärdering av en ANNAN redan avfyrad händelse (10 av 56 RECOVER i
+  korpusbanken, kedja i tre led) — RECOVER-loggradens löfte om egen händelse
+  håller inte i 18 % av fallen; (b) `find` tar FÖRSTA matchande händelsen i
+  skapandeordning, inte den med närmaste referensankomst. Båda är äkta, men
+  den uppmätta "fixen" (kräv `host.firedAt` nyare än armens senaste släpp +
+  närmaste värd) flyttar öppningsfacit i ≥ 6 korpusar och varnings-/öppnings-
+  kvoten BORT från U2:s 1,00 (364 → 368 varningar). Det är ett SEMANTIKVAL
+  (vad en släppt arm ska få binda till), inte kirurgi — hör ihop med H28
+  (konvojkonvention) och H29/H30 (release-vägen) ovan: ETT användarbeslut +
+  ETT omlåsningsprotokoll med O1/O2-mätning för hela konvojfamiljen.
+- **J14 — `notePassage` bokför inte armlösa båtars passager** (`_recordPassage`
+  returnerar utan arm). Valet är MEDLEMSKRAV: en öppningshändelse stängs av
+  sina medlemmars passager. app.js-kommentaren i `_observeBridgeOpening` som
+  lovade "hängslen" för armlösa vägar var osann och är omskriven (fixrunda 2).
+  U2-tolkningen "första FAKTISKA passagen oavsett medlemskap" är det
+  alternativa valet — tas i samma beslut som J13+J33.
+- **J19 — F6b-offseten är inte domäninvariant**: `applyAccept` lagrar den
+  KORRIGERADE stämpeln; när offseten först blir negativ jämförs nya stämplar
+  mot referenser lagrade med offset 0, så F1/F6 kan avvisa 1–2 färska hubbfixar
+  tills råtiden hunnit ikapp. Självläkande inom 1–2 pollar; skeptikerna mätte
+  ingen användarsynlig effekt. Fix (spara råstämpel vid sidan av) vid nästa
+  fusionsetapp.
+- **J11 (osäker)** — mellanbrons bokföring gatas på ankarvakten
+  (`_anchorPassageTimestamp`) medan systermetoden
+  `registerConfirmedIntermediatePassage` bytte till PROCESSED-vakten. 837
+  anrop i 20 korpusar, 0 `false` — asymmetrin är verifierad, nåbarheten inte.
+- **J26 (osäker)** — `_aishubWatchdogStrikes` delas mellan kedjedöds- och
+  tystnadsgrenen; skeptikerna fick motsatt resultat om ett smalt fönster
+  (HTTP 500-storm minut 4–7 ⇒ 1–2 uteblivna tvingade omförsök). Ofarligt i
+  mätt drift; egen räknare per gren vid nästa vaktöversyn.
+- **Dementerade i runda 2** (ska inte återuppstå utan nytt bevis): J3 (SOG-
+  grinden: namnhalvan hårdblockerad, negativ SOG onåbar), J7, J8 (`_isApproaching`-
+  spärrarnas räckvidd — konsekvensen dementerad), J16 (tomkanalslarmet i
+  både-läge), J23/J24/J25/J40 (H16 höll helt), J27, J31, J34 (K20a mäter
+  bakåt BY DESIGN), J36, J37, J39.
+
+
 ## 10. Söndagsfältet 2026-08-09/10 (commits a9f2a20, ce6a946, b1a7ba3 + WS-3)
 
 Första fältkörningen av 5.4.0 (33 min logg + settings-arkeologi; aisstream
