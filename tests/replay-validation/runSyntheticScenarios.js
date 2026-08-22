@@ -38,6 +38,48 @@ const FRAC_STRIDSBERG = METRICS.cum[4] / METRICS.total;
 /** Sekunder tills en norrgående båt (speedKn) når given ruttandel. */
 const northSecondsToFraction = (frac, speedKn) => Math.round((frac * METRICS.total) / (speedKn * 0.5144));
 
+// ---------------------------------------------------------------------------
+// omstart-mitt-i-passage (härdad 2026-08-22, fixrunda 2b-granskningen)
+// ---------------------------------------------------------------------------
+// Scenariot ska pröva den PERSISTENTA öppningsdedupen över en processomstart.
+// Granskaren mutationsbevisade att den gamla placeringen (~200 m norr om
+// Klaffbron) gjorde grinden DÖD: Klaffbron-varningen var redan nollad av
+// passagen och Stridsbergsvarningen hade inte hunnit avfyras, så det fanns
+// ingen post att deduplicera — hela dedupen kunde kopplas bort utan att
+// scenariot blev rött. Omstarten flyttas därför till en punkt där en LEVANDE
+// post finns, och sen nog för att det är J15:s BOOT-fönster (expiresAt =
+// avfyrning + konvojfönstret + ETA) som spärrar — inte det smalare
+// in-session-fönstret (avfyrning + CONVOY_WINDOW_MS = 10 min).
+//
+// MÄTT i dagens träd (alla tider räknat från resans första sampel):
+//   12,0 min  Klaffbron-varning (deadline, eta 8)
+//   19,0 min  Klaffbron-passage  ⇒ dedup-nyckeln nollas
+//   20,0 min  Stridsbergsbron-varning (deadline, eta 7)
+//             ⇒ in-session-fönstret går ut 30,0 min, expiresAt 37,0 min
+//   31,0 min  OMSTARTEN — 11 min efter varningen: EFTER in-session-fönstret,
+//             FÖRE expiresAt. Den nya instansen beväpnar om och avfyrar en
+//             andra gång; bara boot-fönstret kan tysta den.
+//   35,0 min  Stridsbergsbron-passage ⇒ nyckeln nollas
+// Marginalerna (1 min efter 30, 6 min före 37, 4 min före passagen) är
+// avsiktligt tilltagna — se saktafarts-zonen nedan.
+// BLIR SCENARIOT RÖTT PÅ "0 tystade": kör med REPLAY_VERBOSE=1 och läs
+// OPENING_DEDUP_PERSIST-raden. Har boot-fönstret krympt (kortare publicerad
+// ETA ⇒ mindre expiresAt) hamnar omstarten UTANFÖR det — då är det fönstret
+// som ändrats, och tiderna ovan ska mätas om, inte tas bort.
+const OMSTART_STRIDSBERG_WARNING_S = 20 * 60;
+const OMSTART_RESTART_S = OMSTART_STRIDSBERG_WARNING_S + 11 * 60;
+// Utan inbromsning ligger Stridsbergsbron-passagen 26,5 min in i resan, dvs.
+// FÖRE en omstart 11 min efter varningen — passagen skulle då ha nollat
+// nyckeln och grinden vore lika död som förut. Saktafartszonen (2,0 kn från
+// 300 m norr om Klaffbron till 50 m norr om Stridsbergsbron) sträcker ut
+// anflygningen till 15 min utan att båten någonsin blir stillaliggande, så
+// rörelsebeviset och målbrokedjan är oförändrade.
+const OMSTART_SLOW_ZONE = {
+  fromFraction: FRAC_KLAFFBRON + 300 / METRICS.total,
+  toFraction: FRAC_STRIDSBERG + 50 / METRICS.total,
+  speedKn: 2.0,
+};
+
 /**
  * Kurerad scenariomatris. Förväntningar:
  *  - minTargetPassages: minst N detekterade målbro-passager (detektering + INV-5 ⇒ notiser)
@@ -57,6 +99,12 @@ const northSecondsToFraction = (frac, speedKn) => Math.round((frac * METRICS.tot
  *  - deadlineFiredOpenings: dessa broars varning MÅSTE ha kommit ur tick-
  *    motorn (firedBy='deadline'), inte ur ett inkommande fix — beviset för
  *    att äggklockan fungerar i radiotystnad.
+ *  - suppressedOpeningFires: N — hur många av servicens avfyrningar som
+ *    MÅSTE ha tystats av app-sidans dedup (openingServiceFires − kort).
+ *    Standard 0: varje avfyrning ska nå kortet, allt annat är en bugg i
+ *    leveransvägen. Sätts bara i scenarier där tystnaden ÄR kontraktet
+ *    (omstart-mitt-i-passage), och då som ett EXAKT tal — en dedup som
+ *    slutar spärra ger 0 och en som spärrar för brett ger 2.
  */
 const SCENARIOS = [
   {
@@ -607,13 +655,13 @@ const SCENARIOS = [
   },
   {
     // Äkta processomstart (fas 7, 2026-07-03): ctrl:'restart' river appen och
-    // skapar en NY instans mot samma settings-store mitt i resan (strax efter
+    // skapar en NY instans mot samma settings-store mitt i resan (efter
     // Klaffbron-passagen). Testar load/save-cykeln i HELKEDJAN: den
     // persistenta 2h-dedupen laddas om och måste blockera återfödelse-
     // inferensens omnotiser för redan notifierade broar (Kanalinfarten/
-    // Olidebron/Klaffbron ligger bakom den återfödda båten) — dubbletter
-    // fälls av fatala INV-2. Post-restart-broarna (Jvb/Strids/Stallbacka)
-    // ska notifieras normalt.
+    // Olidebron/Klaffbron/Järnvägsbron ligger bakom den återfödda båten) —
+    // dubbletter fälls av fatala INV-2. Post-restart-broarna (Strids/
+    // Stallbacka) ska notifieras normalt.
     name: 'omstart-mitt-i-passage',
     seed: 45,
     vessels: [{
@@ -621,11 +669,16 @@ const SCENARIOS = [
       name: 'SYNT-OMSTART',
       direction: 'north',
       speedKn: 5.0,
+      // Se OMSTART_SLOW_ZONE ovan: sträcker ut Stridsbergs-anflygningen så
+      // att omstarten ryms EFTER in-session-fönstret men FÖRE passagen.
+      slowZone: OMSTART_SLOW_ZONE,
     }],
     events: [{
       ctrl: 'restart',
-      // ~200 m norr om Klaffbron: restid = distans / (5,0 kn × 0,5144 m/s)
-      atOffsetS: Math.round((METRICS.cum[2] + 200) / (5.0 * 0.5144)),
+      // 11 min efter Stridsbergsbron-varningen (härledningen i
+      // OMSTART_RESTART_S ovan) — speglar en Homey-appuppdatering mitt i en
+      // pågående anflygning.
+      atOffsetS: OMSTART_RESTART_S,
     }],
     expect: {
       minTargetPassages: 2,
@@ -640,6 +693,12 @@ const SCENARIOS = [
       // Vakten är app.js persistenta öppningsdedup (bro|mmsi|riktning).
       expectedOpenings: ['Klaffbron', 'Stridsbergsbron'],
       maxOpeningsPerBridge: { Klaffbron: 1, Stridsbergsbron: 1 },
+      // TVÅSIDIGT KONTRAKT (2026-08-22): den nya instansen MÅSTE försöka
+      // varna igen (annars provas dedupen inte alls) och exakt EN avfyrning
+      // MÅSTE tystas. maxOpeningsPerBridge ensam faller bara åt ena hållet;
+      // det här talet fäller även motsatsen — en omstart som inte beväpnar
+      // om ger 0 tystade och gör scenariot rött i stället för falskt grönt.
+      suppressedOpeningFires: 1,
     },
   },
   // === Utökning 2026-07-06 (helgranskningens teststärkning) ===
@@ -1078,10 +1137,18 @@ function checkExpectations(scenario, result) {
   // ---------------------------------------------------------------------
   const openings = result.openingWarnings || [];
   // Servicen kan avfyra utan att kortet nås (dedup som spärrar fel, saknat
-  // kort, kastande tokenbygge). Skillnaden är alltid en bugg i leveransvägen.
-  if (Number.isFinite(result.openingServiceFires)
-      && result.openingServiceFires !== openings.length) {
-    problems.push(`ÖPPNINGSLEVERANS: servicen avfyrade ${result.openingServiceFires} men kortet fick ${openings.length}`);
+  // kort, kastande tokenbygge). Skillnaden är normalt en bugg i leveransvägen
+  // — men i omstartsscenariot ÄR tystnaden kontraktet, och då mäts den som ett
+  // exakt tal i stället för att undantas (2026-08-22, fixrunda 2b-granskningen).
+  if (Number.isFinite(result.openingServiceFires)) {
+    const expectedSuppressed = Number.isFinite(e.suppressedOpeningFires) ? e.suppressedOpeningFires : 0;
+    const suppressed = result.openingServiceFires - openings.length;
+    if (suppressed !== expectedSuppressed) {
+      problems.push(expectedSuppressed === 0
+        ? `ÖPPNINGSLEVERANS: servicen avfyrade ${result.openingServiceFires} men kortet fick ${openings.length}`
+        : `ÖPPNINGSDEDUP: servicen avfyrade ${result.openingServiceFires}, kortet fick ${openings.length} `
+          + `⇒ ${suppressed} tystade (förväntat exakt ${expectedSuppressed})`);
+    }
   }
   const failedOpenings = openings.filter((w) => w.success === false);
   if (failedOpenings.length > 0) {

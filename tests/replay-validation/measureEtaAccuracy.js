@@ -11,8 +11,11 @@
  * ändrar ingen produktkod — det kör replayharnessen och räknar.
  *
  * ANVÄNDNING
- *   npm run measure:eta                        # alla LÅSTA korpusar → default-utkatalog
+ *   npm run measure:eta                        # alla LÅSTA korpusar →
+ *                                              #   <os.tmpdir()>/ais-tracker-eta
+ *                                              #   (%TEMP% på Windows)
  *   npm run measure:eta -- <utkatalog>         # egen utkatalog
+ *   npm run measure:eta -- --out=<utkatalog>   # samma sak, namngiven flagga
  *   npm run measure:eta -- --corpus=20260806-42h,20260804-17h
  *   npm run measure:eta -- --include-unlocked  # ta med olåsta korpusar också
  *   npm run measure:eta -- --label="HEAD före K6"
@@ -23,7 +26,9 @@
  *   eta-accuracy.txt   — läsbar rapport (samma tal)
  *
  * ARBETSGÅNGEN FÖR EN ETA-ÄNDRING (t.ex. K6-memoiseringen)
- *   1. Kör på HEAD FÖRE ändringen → spara som baslinje.
+ *   1. Kör på HEAD FÖRE ändringen → spara som baslinje. Ge den en EGEN
+ *      --out=<katalog>: defaultkatalogen är EN fast plats som skrivs över av
+ *      nästa körning, så en baslinje som lämnas där överlever inte steg 3.
  *   2. Gör ändringen.
  *   3. Kör igen till en ANNAN katalog och jämför `total`-blocken.
  *      Sjunkande median/p90 |fel| och en bias närmare 0 = ändringen förbättrar.
@@ -89,6 +94,7 @@
 
 const { spawn } = require('child_process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 // ---------------------------------------------------------------------------
@@ -135,11 +141,15 @@ const ROOT = path.resolve(HERE, '..', '..');
 const RUNNER = path.join(HERE, 'replayRunner.js');
 const GT_DIR = path.join(HERE, 'gt-passages');
 
-const DEFAULT_OUT_DIR = path.join(
-  '/private/tmp/claude-502',
-  '-Users-Zamo0004-Library-CloudStorage-OneDrive-Privat-Bro-ppning-Homey-AIS-Tracker-VC-02',
-  'a2be7cbc-1795-48f7-8bfc-4d0155a46920', 'scratchpad', 'rod', 'eta-baseline',
-);
+// Utkatalog när --out saknas. Måste vara PORTABEL: mätharnessen är ett
+// permanent valideringsverktyg som körs på både Mac och Windows-jobbdatorn.
+// Fram till 2026-08-22 stod här en hårdkodad absolut macOS-sökväg med ett
+// Claude-sessions-UUID i; på Windows (och på vilken annan Mac som helst)
+// skapade mkdirSync tyst en bogus katalog i stället för att skriva dit någon
+// letade. os.tmpdir() löser %TEMP% respektive $TMPDIR och ligger utanför
+// repot, så inget behöver gitignoreras. --out=<katalog> (eller ett bart
+// positionsargument) styr fortfarande allt.
+const DEFAULT_OUT_DIR = path.join(os.tmpdir(), 'ais-tracker-eta');
 
 // Dubbelkörningsfönstret. Härledning: i replayRunner ligger meddelandevägens
 // och snapshotvägens ETA-beräkning i SAMMA sampelsteg — mellan dem tickar
