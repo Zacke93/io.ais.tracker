@@ -1599,7 +1599,56 @@ module.exports = [
         + 'HEAD (se ARCHITECTURE §9) och golden-filen är BYTE-IDENTISK med 480b78f — '
         + 'relockGoldenText skrev om den och diffen mot HEAD blev 0 rader. Notis- och '
         + 'fördelningsfacit ORÖRDA (152/152 notiser); öppningsfacit gäller inte '
-        + '(lockOpenings:false).',
+        + '(lockOpenings:false).'
+        + ' ── GOLDEN-TEXT OMLÅST 2026-08-22 (helkodsgranskning runda 3, fynd L5 — '
+        + 'kö-zonsgrenen raderar nu nådafristen). 333 → 335 övergångar. Notis- (152/152), '
+        + 'fördelnings- och riktningsfacit BYTE-IDENTISKA; öppningsvarningarna (34) och '
+        + 'HELA runOpeningGates-utfallet byte-identiskt; targetPassages (42), '
+        + 'intermediatePassages (58) och journeyResets (13) byte-identiska. '
+        + 'ATTRIBUTION (omlåsarens EGEN isolering, inte implementatörens sammanfattning): '
+        + 'HEAD + ENBART lib/services/VesselDataService.js ger exakt samma 335 rader som '
+        + 'hela leveransen; SAMMA träd med L5:s två nya _clearTargetGrace-anrop '
+        + 'neutraliserade ger 333 rader BYTE-IDENTISKA med gamla golden. L5 äger alltså '
+        + '100 % av rörelsen — L1, L2-snapshot, L3, L14, L19, L20, L21, L23, L34 och L37 '
+        + 'rör noll rader. '
+        + 'DEN FAKTISKA DIFFEN (LCS, inte implementatörens sammanfattning): 30 rader i ETT '
+        + 'fönster, 04:40:11–05:27:48, för ETT fartyg — 211452170 CARAT. 15 borttagna, '
+        + '15 tillagda. Strömmen är identisk t.o.m. [74] 04:37:00 och återförenas vid '
+        + '05:28:48 "ETA okänd". '
+        + '(a) TVÅ falska "Inga båtar"-episoder FÖRSVINNER: 04:40:11 (140 s) och '
+        + '04:54:30 (420 s). Den senare syntes ALDRIG som invariantutslag — INV-14 hoppar '
+        + 'flashar över 300 s (invariants.js "if (flashSpan > 300) continue"), så halva '
+        + 'defekten var osynlig för grinden. '
+        + '(b) EN NY, KORTARE episod tillkommer: 04:47:31 (107 s). Netto i fönstret '
+        + '559 → 107 s falskt "Inga båtar" (−81 %), episoder 2 → 1. Över HELA korpusen: '
+        + 'DEFAULT-text 24 494 → 24 042 s, episoder 12 → 11. '
+        + '(c) ETA-SERIEN SKIFTAR som följd av att målsessionens gränser flyttar: '
+        + '05:01:30 19→14, 05:06:14 26→18, 05:10:32 15→13, 05:15:48 cirka 10→cirka 7, '
+        + '05:23:48 cirka 4→cirka 2. Raderna 05:24:18 (cirka 3) och 05:24:48 (cirka 2) '
+        + 'utgår och "strax" flyttar 05:27:48 → 05:26:48, dvs. 60 s TIDIGARE. '
+        + 'RÅDATAVERIFIERING (ais-20260804-both-21h.jsonl, 21 CARAT-sampel 04:29:04– '
+        + '05:18:31): hon låg i gästhamnen 401–427 m NORR om Klaffbron i en ruta på '
+        + 'cirka 25 m (N–S) × 36 m (Ö–V), sog 0,1–1,5 kn, COG-vobbel 12,1°–358,1°, '
+        + 'navStatus null. Avståndet till Klaffbron VÄXTE (413 → 427 m) — hon närmade sig '
+        + 'aldrig och passerade aldrig (avgick söderut först 06:53). Varje ändrad '
+        + 'tidsstämpel utom timer-tickarna (…635Z) motsvarar ett CARAT-sampel + 25 ms. '
+        + 'LOGGBEVIS vid divergenspunkten (REPLAY_VERBOSE=1, REPLAY_DEBUG_LEVEL=full): '
+        + 'HEAD "[TARGET_CHANGE] 211452170: Klaffbron → none | Reason: MOVING_AWAY | '
+        + 'Grace period: 1550s" blir med L5 "[TARGET_GRACE] Starting 60s grace period". '
+        + 'ÄRLIG AVGRÄNSNING — VAD OMLÅSNINGEN INTE PÅSTÅR: den nya texten är INTE sann. '
+        + 'CARAT låg förtöjd; "En båt på väg mot Klaffbron … strax" är samma spöktext '
+        + '(B3/C0b, gästhamnskajen) som RESTPOSTEN i C4b-noten ovan redan beskriver och '
+        + 'som ägs av C11/C11b. L5 skapar inte påståendet — det stod redan före och efter '
+        + 'flashen — den tar bort HÅL i ett påstående som redan står. Priset är att '
+        + 'spöktexten nu är obruten och att "strax" står 60 s längre (21 759 → 21 819 s '
+        + 'över korpusen) för en båt som avgår först 85 min senare. '
+        + 'measure:eta: TOTALT median 2,31 → 2,32, ≤2 min 47,7 → 47,6 %; hela rörelsen '
+        + 'ligger i denna korpus (mätta 385 → 388, p90 50,5 → 86,1 min) och är just de '
+        + 'tre extra CARAT-spökpåståendena. Ingen ÄKTA anflygning berörs. '
+        + 'MOTIV TILL LÅSET ÄNDÅ: flashen är projektets egen kodifierade defektklass '
+        + '(INV-14) och stod redan i listan nedan som ÖPPEN DEFEKT som SKA tas bort när '
+        + 'fixen landar; spöktexten är en dokumenterad, separat ägd restpost. Rörelsen '
+        + 'går alltså mot facit på den dimension som mäts och rör ingen annan.',
     knownInvariantExceptions: [
       'NOTIS-DUBBLETT: 219031446:Stridsbergsbron × 2 utan journey-reset emellan',
       // P9-omlåsningen (2026-08-10): kajliggarlivscykeln (gravvård + moored-
@@ -1612,7 +1661,15 @@ module.exports = [
       // 08:28:34.886Z, som varar 0,36 s i den publicerade strömmen (INV-4:s
       // "69s" är grannspannet t[i+1]−t[i−1], inte textens egen varaktighet).
       'COUNT-DEGRADERING: 2026-08-05T08:28:34.886Z "3 båtar är i närheten av Stridsbergsbron" inklämd (69s)',
-      'DEFAULT-FLASH: 2026-08-05T04:40:11.113Z "Inga båtar" inklämd (140s) mellan två "En … Klaffbron"-texter utan passage',
+      // L5-omlåsningen (2026-08-22, helkodsgranskning runda 3): flashen är INTE
+      // borta — den är FLYTTAD och KORTAD. HEAD släppte CARATs mål 04:40:11 med
+      // en 1 550 s gammal nådafrist (kö-zonsgrenen raderade den aldrig); med L5
+      // startar en FÄRSK 60 s-frist där i stället, och släppet inträffar först
+      // 04:47:31 (LOW_SPEED, förfluten frist 440 s). Strängen är värde- OCH
+      // tidsstämpelexakt, därav bytet. Rotorsaken för den KVARVARANDE flashen
+      // är fortfarande öppen (den gamla noten gissade C1; för 04:40:11 var
+      // mekanismen bevisligen den orensade fristen, inte C1).
+      'DEFAULT-FLASH: 2026-08-05T04:47:31.513Z "Inga båtar" inklämd (107s) mellan två "En … Klaffbron"-texter utan passage',
       'STRAX-ZOMBIE: 2026-08-05T01:59:48.635Z "En båt på väg mot Stridsbergsbron, beräknad broöppning strax" stod 69 min utan Stridsbergsbron-passage',
     ],
   },
