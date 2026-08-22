@@ -36,6 +36,8 @@
  *   3. K19 GENOM RIKTIG PIPELINE: två VesselDataService.updateVessel över
  *      AISHub-kadens, inga handsatta fält.
  *   4. Att SystemCoordinators gren är avsiktligt naken (karakterisering).
+ *   5. GOLVVAKTEN (L20, runda 3): ett ogiltigt golvargument gör grinden
+ *      STRÄNGARE, aldrig osynlig. Modulen föll förut tyst öppen på NaN.
  */
 
 jest.mock('homey');
@@ -462,5 +464,109 @@ describe('J10/K19 (4): SystemCoordinators gren är AVSIKTLIGT naken', () => {
       '265111226', { isGPSJump: false, action: 'accept', movementDistance: 299 }, {}, {},
     );
     expect(rec.reason).toBe('normal_operation');
+  });
+});
+
+describe('J10/K19 (5): GOLVVAKTEN — ett ogiltigt golv stänger grinden, öppnar den inte', () => {
+  // L20 (helkodsgranskning runda 3, 2026-08-22). Golvargumentet validerades
+  // inte: Math.max(undefined, fysiskt) = NaN, och `förflyttning > NaN` är
+  // ALLTID falsk ⇒ grinden försvann TYST. Nod-probe mot produktionsmodulen
+  // före fixen: 100 km på 1 sekund med odefinierat golv bedömdes RIMLIG, med
+  // golvet 200 orimlig. Två planerade konsumenter står på tur (J10 golv 300,
+  // GPSJumpGateService golv 200), så vakten ska stå INNAN de kopplas in.
+  const nu = 1_700_000_000_000;
+  // 100 km på 1 sekund — 194 400 kn. Ingen tänkbar formel får kalla det rimligt.
+  const OMOJLIG_M = 100000;
+  const v = { sog: 5, timestamp: nu, lastPositionUpdate: nu };
+  const o = { sog: 5, timestamp: nu - 1000, lastPositionUpdate: nu - 1000 };
+  // Samma äldre sampel UTAN tidsstämpel ⇒ tidsbasvakten ger dtSource 'none'
+  // och den tidiga returen lämnar tillbaka golvet orört. Det är den ANDRA
+  // fail-open-vägen: där räckte undefined för att öppna grinden helt utan
+  // NaN-aritmetik.
+  const oUtanTid = { sog: 5 };
+
+  test.each([
+    ['undefined', undefined],
+    ['NaN', NaN],
+  ])('EXAKT det ogiltiga golvet (%s) ⇒ 100 km på 1 s är ORIMLIG, inte rimlig', (_namn, golv) => {
+    const medTid = assessMovement(OMOJLIG_M, v, o, golv);
+    expect(Number.isFinite(medTid.allowedM)).toBe(true); // före fixen: NaN
+    expect(medTid.implausible).toBe(true); // före fixen: false
+
+    // Andra vägen: ingen giltig tidsbas ⇒ tidiga returen.
+    const utanTid = assessMovement(OMOJLIG_M, v, oUtanTid, golv);
+    expect(utanTid.dtSource).toBe('none');
+    expect(utanTid.allowedM).toBe(0); // före fixen: undefined/NaN
+    expect(utanTid.implausible).toBe(true); // före fixen: false
+  });
+
+  test('FAIL-CLOSED, inte ett gissat standardgolv: taket blir det rent fysikaliska', () => {
+    // Vakten sätter 0, alltså strängast möjliga variant av SAMMA regel —
+    // maxfart × tid × marginal utan golv. Ett gissat standardgolv (t.ex. 200)
+    // hade dolt felkopplingen i stället för att visa den.
+    const fysiskt = 5 * 1852 * (1000 / 3600000) * MOVEMENT_MARGIN_FACTOR;
+    expect(allowedMovement(v, o, undefined).allowedM).toBeCloseTo(fysiskt, 9);
+    expect(allowedMovement(v, o, undefined).allowedM).toBe(allowedMovement(v, o, 0).allowedM);
+  });
+
+  test('NULL VAR REDAN OFARLIGT och ändras inte: Math.max koercerar det till 0', () => {
+    // Skrivet uttryckligen — L20:s titel talar om "ogiltigt golv", men det är
+    // BARA undefined och NaN som öppnade grinden. null betedde sig som 0 både
+    // före och efter fixen, och det ska synas att den slutsatsen är prövad.
+    expect(allowedMovement(v, o, null).allowedM).toBe(allowedMovement(v, o, 0).allowedM);
+    expect(assessMovement(OMOJLIG_M, v, o, null).implausible).toBe(true);
+    // Även på den tidsbaslösa vägen: `x > null` är `x > 0`.
+    expect(assessMovement(OMOJLIG_M, v, oUtanTid, null).implausible).toBe(true);
+  });
+
+  test('NEGATIVA GOLV normaliseras till 0 — ett negativt tak betyder ingenting', () => {
+    // Utan vakten gav den tidsbaslösa vägen allowedM = −50, dvs. VARJE
+    // förflyttning (även 0 m) blev orimlig. Fail-closed, men på ett värde utan
+    // innebörd; 0 är samma riktning med ett tal som går att resonera om.
+    expect(allowedMovement(v, oUtanTid, -50).allowedM).toBe(0);
+    expect(assessMovement(0, v, oUtanTid, -50).implausible).toBe(false);
+    expect(assessMovement(1, v, oUtanTid, -50).implausible).toBe(true);
+  });
+
+  test('STRÄNGT TALKRAV: ett numeriskt STRÄNG-golv räknas som ogiltigt', () => {
+    // Före fixen koercerade Math.max('200', x) tyst. Vakten kräver ett äkta
+    // tal, så en anropare som skickar konfigsträngar får se det direkt
+    // (grinden blir strängare) i stället för att flyta med i tysthet.
+    expect(allowedMovement(v, oUtanTid, '200').allowedM).toBe(0);
+    expect(allowedMovement(v, o, '200').allowedM).toBe(allowedMovement(v, o, 0).allowedM);
+  });
+
+  test('REGRESSIONSVAKT: allowedM är ALLTID ett finit tal — hela golvsvepet', () => {
+    // Den generella formen av felet: vilken väg som helst som låter ett
+    // icke-tal nå Math.max ger NaN, och NaN gör grinden osynlig. Svepet täcker
+    // båda tidsbasvägarna och alla golvformer som setts i granskningen.
+    const golv = [0, 1, 200, 300, null, undefined, NaN, -50, '200', Infinity, -Infinity, {}];
+    const parList = [
+      [v, o], [v, oUtanTid], [{ sog: null, timestamp: nu }, { sog: null, timestamp: nu - 152000 }],
+    ];
+    for (const g of golv) {
+      for (const [ny, gammal] of parList) {
+        const r = assessMovement(OMOJLIG_M, ny, gammal, g);
+        expect(Number.isFinite(r.allowedM)).toBe(true);
+        expect(r.implausible).toBe(true); // 100 km på ≤ 152 s: aldrig rimligt
+      }
+    }
+  });
+
+  test('PRODUKTIONSNEUTRALT: giltiga golv ger EXAKT samma tak som före vakten', () => {
+    // Enda levande anroparen skickar literalen 200
+    // (VesselDataService._detectGPSEventProtection). Referensimplementationen
+    // överst i filen är K19:s kopia ORDAGRANT — vakten får inte flytta ett
+    // enda av dess svar för ett giltigt golv.
+    for (const golv of [0, 1, 200, 300, 1000]) {
+      for (const dt of [-60000, 0, 1, 1000, 10000, KADENS_MS, 570000]) {
+        for (const sog of [null, 0, 5.2, 12]) {
+          const ny = { sog, timestamp: nu, lastPositionUpdate: nu };
+          const gammal = { sog, timestamp: nu - dt, lastPositionUpdate: nu - dt };
+          expect(allowedMovement(ny, gammal, golv).allowedM)
+            .toBe(k19Referens(ny, gammal, golv));
+        }
+      }
+    }
   });
 });
