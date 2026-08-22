@@ -989,14 +989,17 @@ Flaggor (bärs av `_createVesselObject`-fältlistan, §8a): `_etaIsExtrapolated`
 | `known_vessel_names` | `_loadVesselNames`:529 | `_persistVesselNames`:561 | B1-namncache `{ mmsi: {name, t} }`, 30 d TTL, max 200 poster (äldst-först-eviction); skrivs via `_rememberVesselName`:593 bara vid nytt/ändrat namn eller >24 h sedan sist |
 | `last_known_positions` | `_loadLastKnownPositions`:615 | `_persistLastKnownPositions`:646 | `{ mmsi: {lat, lon, t} }`, 6 h TTL; skrivs vid removal (:1084–1090); begränsar skipped-bridges-scenario A för återfödda båtar (§3) |
 | `quay_stable_ledger` | `_loadQuayLedger` | `_persistQuayLedger` (STRYPT: max var 15:e min + tvingad vid `onUninit`) | V1-kajavgångsgrindens historik `{ mmsi: {stillAt, lat, lon} }`, TTL = `QUAY_DEPARTURE_GATE.MEMORY_MS` (2 h); rörelseräknaren `movingFixes` persisteras ALDRIG (den är ett påstående om innevarande sessions observationer). Utan persistensen återskapade en appomstart 5 s före kajavgången PRICKBJORN-fantomen exakt |
-| `persistent_opening_warnings` | `_loadPersistentOpeningWarnings` | `_persistOpeningWarnings` (vid varje avfyrning; ~230 st per 250 h data) | Etapp 6: öppningsvarningarnas dedup ÖVER omstart, `{ "Bro\|mmsi\|riktning": t }`, fönster = `BRIDGE_OPENING.CONVOY_WINDOW_MS` (10 min). Riktningsledet gör att en U-svängares RETURPASSAGE (en äkta ny öppning) aldrig tystas |
+| `persistent_opening_warnings` | `_loadPersistentOpeningWarnings` | `_persistOpeningWarnings` (vid varje avfyrning + vid konsumtion) | Etapp 6 + J15 (2026-08-22): öppningsvarningarnas dedup ÖVER omstart, `{ "Bro\|mmsi\|riktning": {firedAt, expiresAt} }`. TVÅDELAT läsfönster (`_openingDedupActiveUntil`): post skriven i DENNA session dedupar till firedAt + `CONVOY_WINDOW_MS` (10 min, som förr); post LADDAD VID BOOT dedupar till expiresAt = firedAt + 10 min + ETA (kapat `_OPENING_PERSIST_MAX_MS`) — omstartsskyddet. TRE konsumtionsvägar nollar nyckeln: bekräftad passage i `_observeBridgeOpening`, gap-inferrerad passage och backfill (L19). Riktningsledet gör att en U-svängares RETURPASSAGE aldrig tystas. Känd avvägning: avbruten anflygning före omstart (§9) |
 
 **Kajbokföringens TVÅ kartor.** `_quayStableLedger` (persisterad, ovan) bokför
 bara inom `QUAY_DEPARTURE_GATE.LEDGER_RADIUS_M` från en TRIGGER-punkt, och det
 finns exakt en (Kanalinfarten). Öppningslagret har därför en EGEN,
-sessionslokal karta — `_openingQuayLedger` — med samma regler
-(`_noteQuayLedgerEntry` är gemensam) men referenspunkterna trigger-punkter PLUS
-målbroarna: Kanalinfarten ligger 1982 m från Klaffbron och 3197 m från
+sessionslokal karta — `_openingQuayLedger` — som delar RUTINEN
+(`_noteQuayLedgerEntry`) och stillasample-/dödbandsvillkoren men har SKILD
+ANKARREGEL (L40, 2026-08-22): V1-kartan flyttar ankaret vid varje stillasample,
+öppningskartan håller ankaret från kajvistelsens BÖRJAN — en harmonisering åt
+V1-hållet ger MISSAD öppningsvarning för långsam äkta avgång. Referenspunkterna
+är trigger-punkter PLUS målbroarna: Kanalinfarten ligger 1982 m från Klaffbron och 3197 m från
 Stridsbergsbron, så V1-kartan gjorde kajvobbel-grinden strukturellt neutral vid
 exakt de två broar öppningslagret varnar för. Kartorna hålls åtskilda så
 boat_near-grinden och dess facit står byte-identiska.
@@ -1585,6 +1588,86 @@ uppträder när klassen finns och (b) utfallet är sant mot rådata:
   spärrarnas räckvidd — konsekvensen dementerad), J16 (tomkanalslarmet i
   både-läge), J23/J24/J25/J40 (H16 höll helt), J27, J31, J34 (K20a mäter
   bakåt BY DESIGN), J36, J37, J39.
+
+
+### Helkodsgranskning runda 3 (2026-08-22, HEAD 53f02a2) — uppskjutet med diagnos
+
+Runda 3 (13 paketgranskare, 80 skeptiker): 40 kandidater → 12 bekräftade (0 critical,
+4 major, 8 minor), 24 dementerade, 1 osäker. Torrare än runda 2 — men 5 av runda 2:s 16
+fixar bar egna fel (L1 J22×graven, L2 J20×H19, L5 J12 kö-zonen, L19 J15-syskon, L6 J30),
+och två fynd satt i ny kod/kommentar (L20, L37). Fixrunda 3 åtgärdar L3 L1 L5 L2 L14 L19
+L20 L21 L23 L37 L13-doc L34 L40-doc; L9 som MÄTT försök — se handoff-2026-08-21/
+helkodsgranskning-runda3.md och hkfix3-rapport.md.
+
+**Kvar, medvetet:**
+
+- **L9 — `isCompletedTimeout` utan terminalpositionskontroll: ÅTERKALLAD PÅ MÄTNING
+  (fixrunda 3).** Mekanismen är äkta (timeout + Olidebron/Stallbackabron i passedBridges
+  ⇒ `_completedJourneys` ⇒ 10-min reentry-block även för en båt som vänder INNANFÖR
+  utfarten ⇒ missad boat_near/bridge_opening_soon). Två varianter mättes i isolerat
+  träd över 18 korpusar (krav på `hasCompletedJourney` resp. enbart latitudgrindarna —
+  IDENTISKA siffror, kostnaden sitter i latitudgrinden): VESSEL_REENTRY_BLOCK 116 → 66
+  och JOURNEY_RESET 31 → 13 (vinsten), men GRAVE_INHERIT 1615 → 1650 (+35 i fem
+  korpusar) och VESSEL_REMOVED 2468 → 2496 — rad ~1004 gatar gravläggningen på
+  icke-isCompletedTimeout, så åtstramningen flyttar kajliggare till graven och
+  återöppnar P9-churnen. Notis-/öppningsmultiset oförändrade. Acceptanskrav (a)
+  (ingen churn-ökning) föll ⇒ återkallad; karakteriseringstest låser dagens beteende.
+  Krav på en framtida fix: koppla isär "avslutad resa" från "gravläggs inte" (t.ex.
+  terminalzon-grind BARA för reentry-blocket, inte för gravvården) och mät churn + reentry
+  tillsammans.
+- **L5:s TREDJE systerställe — `TARGET_PROTECTION_ACTIVE`** (VDS ~:619, else-grenen
+  när målbroskyddet är aktivt) hoppar över HELA grace-blocket (skapande OCH
+  radering); en post från före skyddet åldras hela vistelsen. Mätt i fixrunda 3:
+  rör 20260601-41h (161→163 övergångar) och tar tillbaka both-21h (335→333) —
+  kräver egen rådataverifiering ⇒ eget fynd nästa runda. J12:s kravlista är
+  därmed FEM anropsställen, inte fyra.
+- **L5:s avvägning (dirigentbeslut, fixrunda 3):** CARAT 211452170 i both-21h:
+  kö-grenen raderar grace-posten ⇒ den falska "Inga båtar"-flashen 04:40:11
+  (559 s) blir 04:47:31 (107 s), DEFAULT-episoder 12→11, DEFAULT-tid 24 494→24 042 s
+  — men "strax"-spöktexten för samma båt blir obruten och 60 s längre (21 759→
+  21 819 s; measure:eta i korpusen 385→388 påståenden, p90 50→86 min). Accepterat:
+  kortare falsk DEFAULT väger tyngre än 60 s på ett spöke som redan står 6 h.
+  ROTORSAKEN ÄR ÖPPEN — **kajvobblare med brusig fartgivare**: sog-brus 0,1–1,5 kn
+  nollar stillhetsklockan så CARAT aldrig klassas förtöjd och 2h-backstoppen är
+  onåbar för klassen (hon ligger 401–436 m N om Klaffbron hela natten, avgår
+  06:53). Eget fynd nästa runda; koppla till C11/C11b.
+- **L3:s smala restvariant:** startar under-bro-latchen med en position som redan
+  är äldre än UNDER_BRIDGE_FRESH_MS blir freezeAnchorMs < _underBridgeSince,
+  Math.max nollar och ackumulatorn står på 0 tills ett färskt sampel kommer
+  (kräver _underBridgeSince satt från timerpass med gammal position). Självläker;
+  om den mäts i fält: ankra på max(freezeAnchorMs, _underBridgeSince).
+- **L14 gjordes i MINIMAL variant** (zombie-/färskhetspredikaten kopierade i
+  `_generateSafeFallbackText`, inte utbrutna till delad hjälpare; under-målbron-
+  dominansen och zombie-uteslutning ur ledarvalet speglas inte). Städetapp:
+  bryt ut `isZombie`/`hasFreshPosition` till lib/utils och låt båda anropa.
+- **L6 — P8-texthållningens bortre gräns (ANVÄNDARBESLUT).** När tystnadsmåttet är
+  omätbart (J30) ELLER mätbart > 5 min håller BÅDA P8-vakterna senaste positiva
+  brotext UTAN bortre gräns (pre-existerande doktrin: "vi VET inte att kanalen är tom").
+  J30 breddade bara ingången (omätbart = tyst). Alternativ: (a) tak — efter
+  STALE_FEED_RECONNECT_MS utan mätbart livstecken degradera till
+  STALE_DATA_OVERRIDE_TEXT (larmet följer med); (b) låt hubbklienten skilja
+  "ansluten men aldrig levererat" från "lyckad tom poll" så det omätbara läget inte
+  omfattar en frisk tom kanal. Triggern är smal (klientombyggnad mitt i en positiv text).
+  Inget ändrat — beslutet är användarens (designdoktrin, inte bugg).
+- **L4 (osäker)** — GPS-outliergrenen i ProgressiveETACalculator (~:966) saknar
+  30-sekundersgrinden och kan frysa en stannad båts ETA via `_underBridgeLatched`;
+  bedöms om EFTER L3 (frysackumulatorn), som styr latchens verkliga livslängd.
+- **L39 — DÖD KOD:** skyddszonens uppskovsblock i `_handleTargetBridgeTransition`
+  (VDS ~:3887) nås aldrig (0 av 122 i fält, 0 i testsviten, 0 i instrumenterad replay
+  över 54 000 updateVessel-anrop) — `_pendingTarget` konsumeras alltid i samma tick.
+  Tidigare beskrivning i §4 ("uppskov i skyddszonen") gäller alltså inte en levande
+  väg. Ta bort eller väck i eget paket; ändra inte premisser på den.
+- **L15 = H13** (båtantalet läses före exit-notisens await) — känd backlogg, 0 race-
+  träffar i 4 671 fältborttagningar.
+- **L29** — `_recordZoneTransition` armerar kritisk hållning inifrån predikaten
+  (ospeglat S-3-syskon); enda konsument är micro-grace, kostnad ≤ 200 ms. Städetapp.
+- **L13** — O1:s avfyrningsfönstergrind mäter tick-rastrering, inte ledtid (dueMs
+  härleds ur samma tal som beslutar avfyrningen). Docblocket rättat i fixrunda 3;
+  ledtidsfördelningen per korpus (t − originalDueMs) är OLÅST — separat facitlåsning.
+- **Dementerade i runda 3** (återuppstår bara med nytt bevis): L7 (echo-gaten har tak
+  via dataIsFreshEnough), L8, L10, L11 (J4: bypass-stämpeln blir inte F1/F6-referens
+  på det sätt kandidaten påstod), L12, L16, L17, L18, L22, L24, L25, L26, L27, L28,
+  L30, L31, L32 (känt), L33, L35, L36, L38.
 
 
 ## 10. Söndagsfältet 2026-08-09/10 (commits a9f2a20, ce6a946, b1a7ba3 + WS-3)
