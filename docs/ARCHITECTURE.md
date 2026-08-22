@@ -158,7 +158,27 @@ Moduler (ansvar / ägda tillstånd / in-ut):
   och bär en KUMULATIV kontrollräknare, så en avväpnad gren fortfarande syns
   som ett hopp i serien i stället för att drunkna i 1 440 rader/dygn),
   persistens, monitoring (inkl. per-feed-watchdog `_checkAISFeedHealth` +
-  `[FEED_SILENT]`-korsvakt + muxens `pruneFusionState`). Korsvaktens
+  `[FEED_SILENT]`-korsvakt + muxens `pruneFusionState`). Totaltystnadsgrenens
+  SVARSSIDA är fönstermätt för BÅDA källorna sedan H18-rundan (2026-08-22):
+  hubben via pollklockan (`lastOkResponseAt` < `FRESH_POLL_MS`, 210 s) och
+  aisstream via en svarsklocka i tystnadsbokföringen (senast observerade
+  STABILA socket, samma fönster) — den var tidigare ett ögonblicksprov av
+  `isConnected`, och EN tick i reconnect-backoff samtidigt med ett hubbglapp
+  räckte för "appen är blind" + brända 24h-nycklar. Klockan stämplas bara av
+  en socket äldre än fönstret, så en flappande källa (503-stormens 34,6 s)
+  inte kan avväpna larmet, och den persisteras aldrig. **BEGRÄNSNING, ärligt
+  utskriven (granskarfynd, fixrunda 1b):** H18 täcker RECONNECT-BLINKEN EFTER
+  EN STABIL ANSLUTNING, inte aisstreams PERMANENTA serverdöd. Klockan stämplas
+  bara av en socket som varit uppe minst 210 s; är källan borta (läget sedan
+  ~5 augusti 2026) blir `isConnected` aldrig sant så länge, klockan sätts
+  ALDRIG, och ett ~3,5-minuters hubbglapp ger fortfarande `trulyBlind` +
+  brända 24h-nycklar — precis som före fixen. Alternativet (låt en
+  KONFIGURERAD men permanent nere aisstream inte ensam göra läget blint när
+  hubben levererat inom `SILENT_MS`, samma asymmetri som `hubDelivering` redan
+  bär) är MEDVETET INTE gjort: det rör larmets grundsemantik, kräver egen
+  fältmätning och omprövning av de låsta nattproven i
+  `kalldodslarm-eskalering.test.js`. Det står som framtida punkt i docblocket.
+  Korsvaktens
   AISHub-NOTIS gatas sedan fynd 17 (A/B-natten 2026-08-03) på `_hubFeedsPipeline()`
   (`ais_source` ∈ {both, aishub} + username) — i skuggläge loggas tystnaden men
   ingen användarnotis skickas, eftersom hubben då varken påverkar brotext eller
@@ -295,11 +315,33 @@ namncachen från typ 5/24-namn och uppdaterar levande "Unknown"-fartyg på plats
 3. **Backfill** — `_onVesselUpdated` :1025–1032: `vessel._passageBackfills[]`
    (fylls av RC9-/gap-inferens i VDS, `registerConfirmedIntermediatePassage`
    VDS:3437–3486) töms och varje bro begärs via `_triggerBoatNearFlowFallback`.
-4. **Exit/removal** — `_onVesselRemoved` (:1074) → gate :1132–1142 (giltiga
-   koordinater + `_finalTargetDirection === 'south'` + `_finalTargetBridge`) →
-   `_triggerExitPointFallback` (:4155–4220: F63-stale ≤25 min på
-   `lastPositionUpdate`, ≤400 m från Kanalinfarten, norr om punkten, session- +
-   persistent-dedupe) → `_triggerBoatNearFlowFallback(vessel, 'Kanalinfarten')`.
+4. **Exit/removal** — `_onVesselRemoved` → Kanalinfarten-exitgaten (blocket runt
+   `completedSouthJourney`, direkt efter `STEG 2: RENSA BOAT_NEAR TRIGGERS`).
+   *(SYMBOLNAMN, INTE RADNUMMER: de här hänvisningarna skrevs om 2026-08-22 och
+   radnumren i samma fil glider med varje insättning — symbolerna gör det
+   inte.)* Sydgaten är TVÅDELAD:
+   `completedSouthJourney` (`_finalTargetDirection === 'south'` +
+   `_finalTargetBridge`) ELLER `targetlessSouthTransit` (mållös sydfärd med
+   `_routeDirection === 'south'` + bokförd bropassage ELLER färskt
+   notisbevis, `hasNotifiedRealBridge`). **H19 (2026-08-22)**:
+   notisbeviset är numera tidsbundet (persistent post inom 2h-fönstret) och
+   riktningsprövat (post märkt `dir: 'north'` diskvalificeras) — tidigare
+   räckte vilken nyckel som helst ur 6h-retentionen, även från en tidigare
+   resa. Ovanpå det ligger motbevisgaten `exitContraEvidence`:
+   TIDSBUNDEN obekräftad reversal (`_pendingReversalActive`, H14 — predikatet
+   är sedan fixrunda 1b ENDA läsvägen: expired-släppet och dess `holdReason` i
+   notisvägen läste tidigare rå truthiness, och åldringen `_ageOutPendingReversal`
+   är GEMENSAM för `_onVesselUpdated` och `_onVesselEntered`, så flaggan inte
+   kan överleva i en ingång som saknar åldring) eller
+   entydigt nordlig sista-kurs (`lastCogIsNorth`) ⇒ ingen exit-notis
+   (`EXIT_TRIGGER_SKIP_REVERSAL`). Därefter
+   `_triggerExitPointFallback` (F63-stale ≤25 min på
+   `lastPositionUpdate`/`timestamp`, ≤400 m från Kanalinfarten — 800 m vid
+   aktiv sydtransit (F5-B), norr om punkten, ej `_moored`, `_hasMovementProof`,
+   **H19**: fart i NUET ≥ `MIN_VIABLE_SPEED_KN` när farten är känd
+   (`EXIT_TRIGGER_SKIP_STATIONARY`), session- + persistent-dedupe) →
+   `_triggerBoatNearFlowFallback(vessel, 'Kanalinfarten')` med källan
+   `exit-fallback` (F6 — texten påstår ingen passage).
 
 ### `_checkSkippedBridgesFallback` (app.js:3810)
 
@@ -359,7 +401,9 @@ Järnvägs/Strids-överlappet; :4120–4146). Sjätte och sjunde source-värdet 
 fallback-vägen; ingen av dem är en proximity-källa (se §8d).
 
 **Trigger-punktens två grenar.** Sydgående kräver kanalrelevans (FP8:
-passerade broar/målbro eller episodstart norr om punkten). Nord/okänd kräver
+passerade broar/målbro eller EPISODstart norr om punkten med marginalen
+`TRIGGER_POINT_SIDE_MARGIN_DEG`, 0,0009° ≈ 100 m — samma konstant som
+`_hasPassedTriggerPoint` läser sedan fixrunda 1b). Nord/okänd kräver
 transitindikation: målbro ELLER `sog ≥ QUAY_DEPARTURE_GATE.TRANSIT_SOG_KN`
 (FP9). **Kajavgångskorroborering (V1, A/B-natten 2026-08-03):** sog-benet
 räcker inte för ett fartyg med FÄRSK kajstabil historik — kring Kanalinfarten
@@ -434,7 +478,8 @@ och det fältet stod för 96 av fältprov 10:s 104 unknown-rader och ledde
 riktningsutredningen fel), `eta_minutes` (target-källa =
 målbro-ETA; övriga = dist/fart mot notisbron; de retroaktiva källorna
 `passage-fallback`/`just-passed`/`exit-fallback` ⇒ -1; nära+långsam
-icke-target ⇒ -1; :4477–4501), `eta_available` (G1,
+icke-target ⇒ -1; sedan H16 även trigger-punkten BAKOM båten ⇒ -1;
+:4477–4501), `eta_available` (G1,
 2026-07-10: boolean, sant när `eta_minutes ≥ 0` — avväpnar -1-sentinelens
 fotgevär i användarens villkor), `already_passed` och `message` (P8/U10,
 användarbeslut 2026-08-09).
@@ -457,7 +502,9 @@ när AIS-kontakten bröts" (exit-fallback, F6 2026-08-10 — här finns INGET
 passagebevis alls: sista position ligger norr om Kanalinfarten, så meningen
 påstår bara det gaterna belägger — rörelse, sydgående kurs/riktning inom
 400–800 m norr om utfarten, och kontaktförlust) och annars
-"X närmar sig Y[, beräknad ankomst …]". `_buildBoatNearMessage` härleder
+"X har passerat Y" (H16, 2026-08-22 — trigger-punkten ligger BAKOM båten;
+se nedan) och annars "X närmar sig Y[, beräknad ankomst …]".
+`_buildBoatNearMessage` härleder
 texten UTESLUTANDE ur de redan beräknade tokens — den läser aldrig
 bridge_text, så pelare 1 och pelare 2 förblir frikopplade, och den säger
 "beräknad ankomst" i stället för bridge_texts "beräknad broöppning" (kortet
@@ -473,6 +520,39 @@ dedup-nycklar och trigger-state är orörda.
 Golden-text låser `bridge_text`-capabilityns skrivningar, inte notistexter, så
 dimensionen är per konstruktion blind för `message`; NOLL DIFF över samtliga
 18 korpusar bekräftade det.
+
+**H16 (2026-08-22) — redan-passerad-vakt för trigger-punkten.** Exit-vägen
+(`_triggerExitPointFallback`) har alltid haft vakten "söder om punkten =
+redan passerad"; LIVE-vägen saknade den, för kandidatpushen prövar bara
+avstånd och FP8/FP9-gaterna — aldrig vilken SIDA av Kanalinfarten båten är
+på. En sydgående som lämnat punkten fick därför förvarningstext och en ETA
+räknad som dist/fart mot en punkt hon rör sig BORT ifrån (13 uppmätta
+fältinstanser över ~320 h; 6 över de fyra tätaste korpusarna, 113–299 m).
+`_hasPassedTriggerPoint` klassar notisen som passerad när (a) segmentsvepet
+observerat genomkorsningen i sampelparet, (b) sydgående SÖDER om punkten med
+RESESTART norr om den ELLER minst en passerad bro (alla broar ligger norr
+om punkten), eller (c) nordgående NORR om punkten med resestart söder om
+den. **Två rättelser i fixrunda 1b (2026-08-22, granskarfynd):**
+latitudjämförelserna i (b) och (c) bär nu marginalen
+`TRIGGER_POINT_SIDE_MARGIN_DEG` (0,0009° ≈ 100 m) — samma konstant som
+FP8-gaten i `_getFlowTriggerCandidates` läser, tidigare en naken literal där
+och helt frånvarande här, vilket lät några meters GPS-brus göra en vobblande
+kajliggare till "har passerat Kanalinfarten". Och ankaret är RESEANKARET
+(`VesselDataService.getJourneyOriginLat` → `_journeyStartLat` med
+`_firstSeenLat` som fallback), inte episodankaret: en kajvändare i samma
+spårningsepisod bedömdes annars mot UTRESANS startpunkt. FP8-gaten läser
+MEDVETET kvar episodankaret — dess fråga är "började den här EPISODEN uppe i
+kanalen eller är detta en kajstartare i zonen", och till skillnad från den
+här vakten avgör den om en KANDIDAT ÖVER HUVUD TAGET FINNS (notisantal ⇒
+facit), så ett byte kräver egen fältmätning. Motiveringen står i koden vid
+båda ställena. Beviskravet är strängare än "fel sida" med flit: korpusmätningen visar
+liggplatser på BÅDA sidor (2 115 respektive 3 717 stillaliggande
+positionsrapporter inom 300 m), och en kajstartare som lägger ut från sin
+egen sida har inte passerat något — 5 av 5 nordgående kandidater i mätningen
+var just den klassen och vakten avstod korrekt. Flaggan styr ENBART `eta`
+(-1), `already_passed` och `message`. KÄLLSTRÄNGEN är orörd (`trigger-point`
+bär dedupens semantik och är låst i paket-p8) och DISTANSEN är orörd
+(INV-11:s 400 m-gräns läser den i svepfallet).
 
 **Trigger-state (:4546):** `{ bridge, mmsi, distance: Math.round(d), source }`.
 OBS per-bro-semantik: dedupen sker UPPSTRÖMS per mmsi:bro, så en "Any
@@ -730,8 +810,27 @@ båt.
   och NEW_JOURNEY via publika `clearTargetProtection`
   (anrop app.js:944 — annars RESTORE:ar skyddet gamla resans bro).
   **RC9-origin-vakten** `_targetOriginSideOk` (:3501, används :3469/:3652):
-  `_firstSeenLat` måste ligga på rätt sida om target för färdriktningen —
-  stoppar fabricerad "bortom target"-inferens efter U-sväng.
+  RESEANKARET måste ligga på rätt sida om target för färdriktningen — stoppar
+  fabricerad "bortom target"-inferens efter U-sväng.
+  **H12 (2026-08-22) — RESEANKARE, inte episodankare.** Vakten (och
+  Järnvägsbro-backfillens S-F6-villkor) läste tidigare EPISODANKARET
+  `_firstSeenLat`, som skrivs EN gång per spårningsepisod och aldrig nollställs.
+  På RETURBENET (kajvändning i MOORING_ZONES norr om Klaffbron, U-sväng i samma
+  episod) pekade det på UTRESANS start, dvs. fel sida av den NYA resans målbro
+  ⇒ `MISSED_TARGET_ORIGIN_SKIP` + `STALE_TARGET_CLEARED` i stället för
+  `MISSED_TARGET_INFERRED`, tomt `_passageBackfills` och målbron aldrig bokförd.
+  Båda vakterna läser nu `_journeyOriginLat` (fältet `_journeyStartLat`, med
+  `_firstSeenLat` som FALLBACK; publik läsare `getJourneyOriginLat`). Ankaret
+  skrivs av TVÅ vägar med olika kontrakt: `_anchorJourneyOrigin` HÅRT vid äkta
+  resegränser (bekräftad reversal, app-lagrets NEW_JOURNEY via publika
+  `anchorJourneyOrigin`) och `_extendJourneyOrigin` MONOTONT vid måltilldelning
+  (**H12-B** — måltilldelningen är ingen bevisad resegräns): behåll det
+  extremaste av utgångsvärdet och tilldelningsläget i färdriktningen
+  (nordresa ⇒ sydligast, sydresa ⇒ nordligast). Utgångsvärdet är reseankaret och
+  när det saknas EPISODANKARET (**H12-B2**), så det första ankaret aldrig kan
+  hamna FRAMFÖR episodstarten och origin-vakterna aldrig blir strängare än före
+  H12. Returbenet ankras ändå om: i den NYA riktningen är kajläget per
+  definition det extremaste.
 - U-sväng: Fix D (VDS:137–265, sog ≥ 2.0 :149, 2-observations-debounce
   `_fixDPendingReversal` :196–231) nollar target mitt i resan; journey-reset
   rensar båda dedup-lagren (app.js:738–741). Post-resa: NEW_JOURNEY
@@ -826,7 +925,15 @@ Flaggor (bärs av `_createVesselObject`-fältlistan, §8a): `_etaIsExtrapolated`
   av uttömningen (`_etaExhaustedAtMs`, ZWERK-tidslocket 2026-07-03 — därefter
   "ETA okänd"). Echo-gate/imminent-hold: GPS-osäkert sampel behåller föregående
   imminent-läge ENDAST om datat är färskt ≤10 min (F40-gränsen; :3429–3442);
-  per-tick-nollningen sker :3441. **B6**: vid TARGET_END nollas
+  per-tick-nollningen sker :3441. **H17 (2026-08-22):** 90 s-taket prövas
+  numera FÖRE hållningen — hållningen hoppar över HELA återhärledningen, så
+  en exhausted-seedad flagga (`_imminentFromExhausted`) kringgick taket och
+  stod till STALE_ETA_HARD (10 min) medan osäkra sampel stämplade om
+  positionsklockan. Nu släcks den flaggan när
+  `IMMINENT_EXHAUSTED_MAX_AGE_MS` (90 s; modulkonstant DELAD med
+  SET-grenen) passerat, och saknad `_etaExhaustedAtMs` räknas som utgången
+  (HARD-nollningen får inte frysa flaggan). Hållningen som sådan står kvar
+  och ren närhetsbevisad imminent (≤300 m) berörs inte. **B6**: vid TARGET_END nollas
   imminent/exhausted/`_etaExhaustedAtMs` även i VDS (VDS:2476–2484, ovan).
 
 ## 5. bridge_text-pipelinen
@@ -1130,6 +1237,28 @@ inte outlier-skyddet.
 (tidsnormaliserat gps-event-ben). Mätharnessen `npm run measure:eta` är
 permanent — se docs/VALIDATION.md.
 
+**FÄLTVALIDERINGENS REGEL: kasta det KORRUPTA FÄLTET, aldrig positionen
+(H34 — DIRIGENTBESLUT 2026-08-22).** *Var beslutet togs:* granskningsunderlaget
+(fältprov 10:s helkodsgranskning 2026-08-22) klassade H34 som BESLUTSBEROENDE
+("BESLUT om fuzzfacit"); DIRIGENTEN lade det ändå i FIXRUNDA 1:s paket TROTS
+beslutsflaggan, och den handlingen ÄR beslutet. Noten är spåret.
+
+En COG utanför 0–360 (eller icke-finit)
+fällde tidigare HELA positionsrapporten i `_validateAISMessage` (app.js) och
+båten blev OSYNLIG i både bridge_text och notiser trots fullt giltig position.
+Beslutet: `cog = null` ("kurs okänd") och positionen behålls — EXAKT samma
+regel som SOG-sentinelen 102,3 fick i A2-2 (osynliga-båtar-incidenten,
+helgranskningen 2026-07-06) och som 0,0-garden bygger på. Klassen är inte
+hypotetisk: rå AIS-COG kodas i tiondels grader (0–3599) och råvärden 3601–4095
+avkodas till 360,1–409,5°. `null` är ett kontrakt hela riktningskedjan redan
+bär (360-sentinelen, 837 gånger i fältloggarna) och som aldrig fabricerar en
+riktning. Samma normalisering på parsersidan (`lib/utils/aishubParser.js`), så
+källparitet råder. **TESTLÅS SOM LOSSADES, med spår:** `cog: 720` och
+`cog: -10` flyttades ut ur `GARBAGE_MESSAGES` i `tests/ais-input-fuzz.test.js`
+— de är efter beslutet GILTIGA positionsrapporter med okänd kurs, inte skräp.
+Facitpåverkan är noll av konstruktion: 0 av 14 836 cog-fält i korpusdata ligger
+utanför 0–360 (1 373 null, 0 exakt 360).
+
 ## 9. Granskningsfynd (kvarvarande avvikelser i KODEN)
 
 §9.1–9.4 från helrevisionen 2026-07-05 var redan åtgärdade i koden när
@@ -1233,6 +1362,70 @@ SystemCoordinator, ingen publik `hasActiveCoordination`; helgranskningen
 2026-07-06 raderade även `test-integration-complete.js` (stale API-referenser,
 homeyignorerad), `.eslintrc.json` (död konfig — `.eslintrc.js` har företräde)
 och ProximityServices oanvända `getProtectionZoneStatus`/`getUnderBridgeStatus`.
+
+**H29/H30 — armklasser utan släppväg (bekräftat 2026-08-22, fix ÅTERKALLAD
+samma dag):** Två armklasser i `BridgeOpeningService` kan bli beväpnade utan att
+någon släppväg äger dem, och båda är fältbelagda. (i) EN MEDLEM VID AVFYRNINGEN
+får `warnedAt` av `_fire` (:1652) men varken `absorbedAt` eller `coverUntilMs` —
+absorptionen sätts i `_bindLooseArms`, inte i avfyrningen. Hon faller därför
+genom BÅDA släppvägarna: `_releasePassedEventArms` (:1363) hoppar över varje arm
+med `warnedAt !== null`, och `_releaseStrandedArms` (:1306) prövar bara armar med
+`absorbedAt !== null` och finit `coverUntilMs`. Hennes täckning har alltså ingen
+utgång alls, och hennes EGEN öppning blir aldrig varnad. Fältbevis: YOLO 2
+(265819150) @ Stridsbergsbron 2026-08-05 passerade 9 min efter händelsens första
+passage utan ny varning; ANTJE (211347380) satt bunden 50,6 min; S/V REBEL blev
+nära-miss och räddades enbart av att hon tystnade (`ARM_STALE_TTL_MS`). (ii) EN
+FRYST ARM (C7b, `_hasUnappliedObservation`) utesluts ur `members` (:1025) och får
+därför ingen `warnedAt` — men behåller sitt `eventId`. Efter upptining hoppar
+avfyrspärren över henne (händelsen bär redan `firedAt`), `_bindLooseArms` rör
+bara armar med `eventId === null`, och `_releaseStrandedArms` kräver
+`absorbedAt`: permanent gisslan. Fältbevis: ELFKUNGEN @ Klaffbron nr 27,
+21,7 min.
+
+En fix för båda låg i arbetsträdet 2026-08-22 och ÅTERKALLADES samma dag
+(arbetsträdet återställt till HEAD, `tests/h29-h30-armslapp.test.js` raderad).
+Den släppte den varnade medlemmen på REN TIDSLOGIK — `max(firedAt,
+firstPassageAt) + CONVOY_WINDOW_MS`, formeln lånad från `_bindLooseArms` — utan
+någon bevisprövning, och det höll inte i fält. Tre orsaker: (a) armobjektet bär
+ingen position alls (`grep` på `arm.lat`/`arm.lon` ger 0 träffar), så
+`_bridgeIsBehind` (:460) — vakten som finns för exakt den här klassen — inte gick
+att tillämpa vid släppet; (b) `_evaluateBridge` kör släppet (:985), bindningen
+(:1001) och avfyrningen (:1036) i SAMMA anrop, så ingen ny observation krävdes
+mellan släppt och varnad igen, och släppet nollade `warnedAt`/`eventId` men
+lämnade `fireDueMs` orörd — en släppt arm var därför förfallen i samma
+millisekund hon släpptes och avfyrade i nästa tick; (c) fel systerställe lånat:
+det äkta är `_rescueCoveredArms` (:1217), som bär tre grindar släppet saknade
+(krav på finit `earliestArrivalMs` och `expectedArrivalMs`, `now`-mot-`dueMs`,
+och ledtidsgolvet 2 × `TICK_INTERVAL_MS`). UPPMÄTT FÖLJD: 12 av 13 nya
+öppningsvarningar avfyrades på ett läge som var 10,5–28,7 min gammalt (median
+16,6 min); VIRGO och PILGRIM varnades 5,4 respektive 6,9 min EFTER sin egen
+passage enligt icke-inferrat rådatafacit, utan att någonsin korsa bron en andra
+gång; H-4b:s >1-räknare försämrades 79 → 87 medan 0-räknaren bara förbättrades
+24 → 21; och `replay:openings` gick från exit 0 till exit 1.
+
+KRAV PÅ ETT NYTT FÖRSÖK (ingen av punkterna är valfri). Armen måste bära sitt
+SENAST KÄNDA LÄGE: `lastSeenAt` finns redan (:527/:633, skrivs bara av
+`_refreshArm` och är därmed tiden för senast TILLÄMPADE fix), men `lat`/`lon`
+saknas och måste sättas i både `_arm` och `_refreshArm`. Släppet måste sedan
+kräva (1) att bron INTE ligger bakom armen — `_bridgeIsBehind` mot det nya
+lägesfältet; ligger den bakom ska armen AVVÄPNAS, inte släppas; (2) FÄRSKHET,
+dvs. `lastSeenAt` nyare än händelsens `firstPassageAt` — annars är passagen
+obevittnad och släppet vilar på gissning. Färskheten räcker INTE ensam: en
+förtöjd men sändande båt förnyar `lastSeenAt` i evighet (det är samma klocka
+`ARM_STALE_TTL_MS` mäts mot), så lägesvillkoret måste bära lika mycket som
+klockan. Vidare (3) samma grindar som `_rescueCoveredArms` (finit ankomstfysik
+plus ledtidsgolv), och (4) en NY deadline i stället för den ärvda, förfallna
+`fireDueMs`. TESTKRAVET ÄR NEGATIVT: den återkallade sviten låste fixens NYTTA
+men aldrig dess KOSTNAD (H29-mutationen fällde bara 1 av 10 tester, att jämföra
+med H22:s 13 av 19), så ett nytt försök ska bära rött-utan-vakt-tester för VIRGO
+(265552100 @ Stridsbergsbron 2026-07-10, passage 11:52:51, återkallad varning
+11:58:17, deadline-grenen) och PILGRIM (211110880 @ Stridsbergsbron 2026-07-14,
+passage 12:30:25, återkallad varning 12:37:19, fix-grenen): båtar som korsar bron
+under tystnad utan att `notePassage` anropas, och som därför INTE får en andra
+varning. U2-SEMANTIKEN är oförändrad och styr utfallet: en öppning lever till
+FÖRSTA FAKTISKA PASSAGEN, och en båt som anländer efter den plus
+`CONVOY_WINDOW_MS` är NÄSTA öppning — men aldrig en andrapåminnelse för samma
+öppning.
 
 ## 10. Söndagsfältet 2026-08-09/10 (commits a9f2a20, ce6a946, b1a7ba3 + WS-3)
 
