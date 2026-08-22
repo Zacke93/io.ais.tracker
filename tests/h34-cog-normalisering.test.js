@@ -98,3 +98,85 @@ describe('H34: korrupt COG nollas — positionen överlever', () => {
     expect(message.lat).toBe(58.29);
   });
 });
+
+/**
+ * =============================================================================
+ * J35-APP (helkodsgranskning runda 2, 2026-08-22)
+ * =============================================================================
+ * SAMMA FUNKTION, SAMMA KONTRAKT, SAMMA RIGG — därför bor testet här och inte
+ * i en egen fil: J35 är H34:s syskon i _processAISMessage. NAVSTAT 15 betyder
+ * "undefined" i AIS-specen och saneras sedan länge till null i
+ * lib/utils/aishubParser.js, men app.js normalisering accepterade 0–15.
+ *
+ * VARFÖR DET SPELAR ROLL: VesselDataService slår ihop med nullish-operatorn
+ * (data.navStatus ?? oldVessel.navStatus). Ett 15 ERSATTE alltså ett känt 1
+ * (ankrad) eller 5 (förtöjd), MOORED_NAV_STATUSES slutade matcha, och
+ * förtöjningsdetekteringens lager 3 föll bort för en kajförtöjd Class A-båt —
+ * hon räknades som VÄNTANDE tills kajzonslagret (≥3 min stillhet) hann ikapp.
+ * Samma felmod som falsk "inväntar broöppning".
+ */
+describe('J35-APP: NAVSTAT 15 saneras även på appens ingång', () => {
+  test('navStatus 15 ⇒ null (nullish-sammanslagningen behåller kända 1/5)', () => {
+    const app = makeApp();
+    app._processAISMessage({
+      ...POSITION, sog: 0.1, cog: 90, navStatus: 15,
+    });
+
+    const [, patch] = app.vesselDataService.updateVessel.mock.calls[0];
+    expect(patch.navStatus).toBeNull();
+    expect(patch.lat).toBe(58.29); // fältet kastas, aldrig positionen
+  });
+
+  test('DE SEMANTISKA STATUSARNA ÄR ORÖRDA: 0–14 passerar', () => {
+    for (const navStatus of [0, 1, 5, 8, 14]) {
+      const app = makeApp();
+      app._processAISMessage({
+        ...POSITION, sog: 0.1, cog: 90, navStatus,
+      });
+      const [, patch] = app.vesselDataService.updateVessel.mock.calls[0];
+      expect(patch.navStatus).toBe(navStatus);
+    }
+  });
+
+  test('skräpvärden blir null utan att fälla rapporten', () => {
+    for (const navStatus of [16, -1, 3.5, NaN, 'moored', null, undefined]) {
+      const app = makeApp();
+      app._processAISMessage({
+        ...POSITION, sog: 0.1, cog: 90, navStatus,
+      });
+      expect(app.vesselDataService.updateVessel).toHaveBeenCalledTimes(1);
+      const [, patch] = app.vesselDataService.updateVessel.mock.calls[0];
+      expect(patch.navStatus).toBeNull();
+    }
+  });
+
+  test('KÄLLPARITETEN ÄR MÄTBAR: app.js svarar identiskt med hubbparserns regel', () => {
+    // Det var glidningen mellan ingångarna som VAR felet. Testet kör hela
+    // AISHub-envelopen genom parsern och jämför fält för fält, i stället för
+    // att lita på att två literaler råkar vara lika.
+    const { parseEnvelope } = require('../lib/utils/aishubParser');
+    for (const navStatus of [0, 1, 5, 14, 15, 16]) {
+      const app = makeApp();
+      app._processAISMessage({
+        ...POSITION, sog: 0.1, cog: 90, navStatus,
+      });
+      const [, patch] = app.vesselDataService.updateVessel.mock.calls[0];
+
+      const parsed = parseEnvelope(JSON.stringify([
+        { ERROR: false },
+        [{
+          MMSI: POSITION.mmsi,
+          TIME: '2026-08-22 10:00:00 GMT',
+          LATITUDE: POSITION.lat,
+          LONGITUDE: POSITION.lon,
+          COG: 90,
+          SOG: 0.1,
+          NAVSTAT: navStatus,
+          NAME: 'PARITET',
+        }],
+      ]));
+      expect(parsed.kind).toBe('data');
+      expect(patch.navStatus).toBe(parsed.records[0].navStatus);
+    }
+  });
+});
