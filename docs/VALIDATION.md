@@ -31,6 +31,10 @@ Eller stegen var för sig:
 | Soaken | `node tests/replay-validation/runSoak.js` | 72 h blandtrafik: 0 processfel, inga läckor, fatala invarianter rena |
 | Lint | `npx eslint <ändrade filer>` (per fil — OneDrive gör helträd långsamt) | 0 fel |
 
+**Rör ändringen ETA-vägen?** Då räcker inte batteriet: facit säger bara att
+texten är OFÖRÄNDRAD, inte att siffran är SANN. Mät med `npm run measure:eta`
+mot baslinjen — se §ETA-mätharnessen, och läs ARCHITECTURE §8 (e) K6 först.
+
 **Korpuslåsningens två grindar** — `node tests/replay-validation/checkReplayIntegrity.js`
 (jsonl mot logg) och `npm run replay:phase` (fassvepet) — ingår MEDVETET inte i
 `npm run validate`: de prövar en FÄLTKÖRNING, inte en kodändring, och körs före
@@ -271,6 +275,108 @@ och blackouts (>120 s i rörelse) **per källa**.
 (`fixTs ?? aisTimestamp`) — "när hörde mottagarnätet båten". Mäter man AISHub i
 leveransdomänen blir allt 65 s-kvantiserat: det är pollkadensen, inte antennen.
 Leveranslatensen redovisas separat. Läser du om kartan, läs den siffran först.
+
+## ETA-mätharnessen — diagnosverktyg, INTE en gate (röda etappen 2026-08-22)
+
+`tests/replay-validation/measureEtaAccuracy.js` svarar på frågan **hur fel är
+ETA-siffran vi faktiskt PUBLICERAR?** Facit kan bara säga att texten är
+oförändrad; det säger ingenting om huruvida "om 8 minuter" var sant. Harnessen
+fäller ingenting och ingår därför inte i `npm run validate`.
+
+```bash
+npm run measure:eta -- <utkatalog>                       # alla låsta korpusar
+npm run measure:eta -- <utkatalog> --label="efter X"     # namnge körningen
+npm run measure:eta -- <utkatalog> --corpus=20260713-41h # en korpus
+npm run measure:eta -- <utkatalog> --include-unlocked    # ta med olåsta
+```
+
+**Storheten**: publicerat värde − (nästa faktiska brolinjekorsning för samma
+mmsi+bro − påståendets tid). Positivt = för pessimistisk, negativt = för
+optimistisk. Sanningen hämtas ur `gt-passages/` och **endast `kind=line`** —
+inferred-korsningar och Kanalinfartens zonbesök hålls utanför felstatistiken.
+Tre påståendetyper mäts: brotextens "beräknad broöppning om [cirka] N minuter",
+`boat_near`-tokenens `eta_minutes` och `bridge_opening_soon`-kortets
+`eta_minutes`. "strax" mäts separat som ett LÖFTE (utlovar < 3 min) och blandas
+aldrig in i felstatistiken. Körtid ~30 s för hela baslinjen; utdatan är
+deterministisk (bit-identisk JSON bortsett från `meta.generatedAt`).
+
+**BASLINJEN — HEAD `a451f75`, 2026-08-22, 17 låsta korpusar (~330 h):**
+
+| Mått | Värde |
+|---|---|
+| Påståenden totalt / mätbara | **2 583 / 1 729** (oattribuerade: 0) |
+| Median absolutfel | **2,37 min** |
+| p90 absolutfel | **34,45 min** |
+| Bias | **−15,42 min** (appen är systematiskt FÖR OPTIMISTISK) |
+| Andel ≤ 2 min | **47,3 %** |
+| Jämförbar delmängd (passage inom 60 min, n=1 648) | median 2,03 · p90 24,91 · bias −5,08 · 49,6 % ≤ 2 min |
+| Sämst bro | Stridsbergsbron (median 5,33 · 32,2 % ≤ 2 min) |
+| Bäst bro | Stallbackabron (median 0,23 · 98,8 % ≤ 2 min) |
+| Dubbelkörningar (K6) | 3 885 `[ETA_CALC_V2]`-rader, **1 824 par < 200 ms ⇒ 93,9 %** |
+
+Råfilerna ligger i `handoff-2026-08-21/eta-baseline-2026-08-22/`
+(`eta-accuracy.json` + `eta-accuracy.txt` + `LÄS-MIG-baslinjen.md`).
+Mätarens rena delar (textparser, utpekning, statistik, parräkning) är
+enhetstestade i `tests/eta-accuracy-unit.test.js` (33 tester, körs med
+`npm test`).
+
+### Vad K25 gjorde — det arbetade exemplet på varför bandet, inte summan
+
+Mätning av arbetsträdet (K25 + K19, K6 backad) mot baslinjen ovan, samma
+17 korpusar:
+
+| Påståendetyp | Band | Före | Efter |
+|---|---|---|---|
+| brotext | sanning < 5 min (n=192) | Σ 477,28 · median 1,29 · 65,1 % ≤ 2 | **bit-identiskt** |
+| brotext | sanning < 10 min (n=470) | Σ 1 101,89 · median 1,30 · 66,0 % ≤ 2 | **bit-identiskt** |
+| öppningskort | båda banden | — | **bit-identiskt** |
+| notis | sanning < 5 min (n=349) | Σ 279,90 · 90,0 % ≤ 2 · bias +0,46 | Σ **264,46** (−5,5 %) · **91,4 %** · bias **+0,39** |
+| notis | sanning < 10 min (n=381) | Σ 425,03 · 84,0 % ≤ 2 · bias +0,18 | Σ **406,01** (−4,5 %) · **84,8 %** · bias **+0,05** |
+| notis | TOTALT (alla n) | n=428 · Σ 2 452,43 | n=**431** · Σ **2 533,68** ⟵ **SER SÄMRE UT** |
+
+Sista raden är hela poängen. K25 gör tre notiser MÄTBARA som inte var det förut
+(DELFIN, SILVERTASS, ADA — tokens som tidigare bar ett saknat/föråldrat värde
+bär nu fixets ETA). Alla tre har sanning 16–42 min, alltså långt utanför det
+band användaren står i, och deras fel dominerar totalsumman. **Varje operativt
+band blev bättre samtidigt som totalen blev sämre.** Mät bandet.
+
+De enda spåren efter K25 i brotexten är TRE påståenden vars TIDSSTÄMPEL flyttar
+5 ms (IN-AXXI 20260710-13h 07:55:36.950→.945, VIRGO samma korpus
+11:34:54.489→.484, HEY JOE 20260713-41h 12:11:09.945→.940) — identisk text,
+identiskt publicerat värde, identiskt fel. ALLA TRE är golden-transitioner
+(20260710-13h idx 17 OCH idx 92, 20260713-41h idx 118 — två korpusar, två
+golden-filer) och låstes om 2026-08-22 med not i corpora.js. Riktningen är
+5 ms TIDIGARE (fick .945, väntade .950): micro-grace 15 ms → 10 ms när den
+köade notisen låter high-signifikansen ansluta till en redan öppnad batch.
+
+### REGELN: varje ändring i ETA-vägen MÄTS mot baslinjen
+
+Rör en ändring `StatusService.calculateETA`, `ProgressiveETACalculator`,
+`_reconcilePublishedETA`, extrapolationen eller `_positionUpdatedSinceLastETA`
+gäller följande — det är läxan från K6 (ARCHITECTURE §8 (e)):
+
+1. **Mät i banden `sanning < 5 min` och `sanning < 10 min`.** Det är banden
+   användaren står vid bron och tittar på.
+2. **ALDRIG totalsumman som acceptanskriterium.** 87 % av felmassan ligger över
+   20 min (förtöjda/väntande båtar appen fortsätter räkna ned för), så en äkta
+   regression i det operativa bandet drunknar. K6:s rena memo förbättrade
+   totalsumman och försämrade bandet < 5 min med 11,4 % samtidigt.
+3. **Acceptansmåtten är median absolutfel, andel ≤ 2 min och bias** — aldrig
+   summan av absolutfel. Summan **byter tecken beroende på parningstolerans**:
+   samma ändring gav +4,08 % på den parade delmängden och −0,9 % på den oparade,
+   eftersom de poster som bara finns i den ena körningen i snitt var sämre.
+4. **Redovisa BÅDA populationerna** (parad och oparad) med n för var och en.
+   Annars kan en framtida omlåsare visa vilket tecken som helst genom att välja
+   parningstolerans.
+5. **Räkna textövergångarna.** Harnessen väger varje PUBLICERING lika och tar
+   ingen hänsyn till hur länge ett värde stod kvar — en ändring som halverar
+   antalet övergångar kan se neutral ut trots att användaren ser fel siffra
+   dubbelt så länge. K6 tappade 63 brotextövergångar (2 163 → 2 100) utan att
+   felmåttet fångade det. **Känd begränsning; ett tidsviktat parallellmått
+   saknas.**
+6. `measure:eta` **ersätter inte** `npm run replay:all` — den mäter en annan
+   sak. Facit säger *"texten är oförändrad"*, harnessen säger *"siffran är
+   sann"*. Båda krävs.
 
 ## Fältprov / ny korpus (så samlas verklighet in)
 

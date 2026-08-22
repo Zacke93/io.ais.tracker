@@ -698,17 +698,37 @@ båt.
 - **`_pendingTarget`**: target-byte fångat i 300 m-skyddszonen skjuts upp
   (`{source, next, since}`) tills zonen lämnats/grace löpt ut (:2229–2263;
   sätts :2358–2370, :3172–3176; rensas vid moored-demote :132).
-- **Target-protection** (`_checkTargetBridgeProtection`, VDS:3963–4058).
-  Aktivering (:3989–4007) om något av: ≤300 m från target; GPS-event
-  (jump/osäker/rörelse >200 m, :4064–4081); manöver (COG-ändring >45° ELLER
-  fartändring >2 kn, :4092–4109); passage <60 s; koordination aktiv. Aktiv
-  protection ÅTERSTÄLLER targetBridge om något ändrat den (:4047–4054).
-  Deaktivering (`_shouldDeactivateProtection`:4161): **B3** — skyddad bro i
-  `passedBridges` ⇒ OMEDELBART (:4172–4176); >5 min alltid; >500 m + inga event
+- **Target-protection** (`_checkTargetBridgeProtection`, VDS). *Radnumren i det
+  här stycket är MEDVETET ersatta av metodnamn: de gamla (3963–4058, 3989–4007,
+  4064–4081, 4092–4109, 4161) hade drivit ~2 000 rader fel och pekade på
+  orelaterad kod — granskningen 2026-08-22.*
+  Aktivering om något av: ≤300 m från target; GPS-event
+  (`_detectGPSEventProtection`: `_gpsJumpDetected`, `_positionUncertain`, ELLER
+  förflyttning över det **tidsnormaliserade** taket
+  `max(200 m, maxfart × dt × 2,0)` — K19 2026-08-22, se nedan); manöver
+  (`_detectManeuverProtection`: COG-ändring >45° ELLER fartändring >2 kn);
+  passage <60 s; koordination aktiv. Aktiv protection ÅTERSTÄLLER targetBridge
+  om något ändrat den.
+  **K19 (2026-08-22)**: rörelsebenet var ett naket `movementDistance > 200`
+  utan tidsnormalisering — systerhålet till GJ-1 i
+  `GPSJumpGateService._isVesselStable`. Vid AISHubs kadens (fix-Δ p50 152 s)
+  motsvarar 200 m bara 2,6 kn, alltså vanlig kanalfart: benet slog till 836
+  gånger över korpusarna, 835 av dem fartkonsistenta enligt GPSJumpAnalyzers
+  eget kriterium. Nu: tillåten förflyttning = maxfart × förfluten tid ×
+  2,0-marginalen, med **200 m som GOLV** (`Math.max`) ⇒ grinden kan bara bli
+  strängare, aldrig slappare. Tidsbasen är fixklockan
+  (`GPSJumpAnalyzer.fixDtMs`) med mottagnings-Δ som fallback — och den fallbacken
+  kräver att BÅDA sidorna har tidsstämpel, annars gäller golvet (utan den vakten
+  blev dt hela epoken och grinden fail-open). Fartgolv: 1 kn när båda samplen
+  har sog, 5 kn när EN sida saknar sog (GJ-2/G-2-läxan). Andrahandseffekt, mätt:
+  gps-event var den DOMINERANDE släppmekanismen för protection, så skydden som
+  ändå aktiveras lever längre (andel som når 5 min-taket 50 % → 63 %).
+  Deaktivering (`_shouldDeactivateProtection`): **B3** — skyddad bro i
+  `passedBridges` ⇒ OMEDELBART; >5 min alltid; >500 m + inga event
   + >1 min; GPS löst + >30 s; koordination löst + >15 s. Släpps även vid
-  inferens (`'missed-target-inferred'` :3481, `'inferred-passage'` :3547), Fix D
-  (:238–239) och NEW_JOURNEY via publika `clearTargetProtection` (:4217–4220,
-  anrop app.js:944 — annars RESTORE:ar skyddet gamla resans bro).
+  inferens (`'missed-target-inferred'`, `'inferred-passage'`), Fix D
+  och NEW_JOURNEY via publika `clearTargetProtection`
+  (anrop app.js:944 — annars RESTORE:ar skyddet gamla resans bro).
   **RC9-origin-vakten** `_targetOriginSideOk` (:3501, används :3469/:3652):
   `_firstSeenLat` måste ligga på rätt sida om target för färdriktningen —
   stoppar fabricerad "bortom target"-inferens efter U-sväng.
@@ -782,6 +802,13 @@ båt.
    (:1660–1665).
 
 ### ETA-extrapoleringens tillstånd (app.js `_reevaluateVesselStatuses`, :3262–3531)
+
+> **ETA-vägen körs TVÅ gånger per AIS-fix** (meddelandevägen + snapshot-vägen)
+> och det är i dag oavsiktligt BÄRANDE, inte bara slöseri. Rör inte
+> `StatusService.calculateETA`, `ProgressiveETACalculator` eller
+> `_positionUpdatedSinceLastETA` utan att först läsa **§8 (e) K6** och mäta med
+> `npm run measure:eta` (docs/VALIDATION.md §ETA-mätharnessen).
+
 
 Flaggor (bärs av `_createVesselObject`-fältlistan, §8a): `_etaIsExtrapolated`,
 `_etaExtrapolationExhausted`, `_etaExhaustedAtMs`, `_etaExtrapolationBaseMs/Value`,
@@ -1041,6 +1068,67 @@ MEDVETET utanför `PROXIMITY_SOURCES` (400 m-regeln och fartfysiken i
 INV-11/INV-16 gäller inte inferens-/exitklassen); vakten TE17 i
 `tests/harness-vakter.test.js` låser att undantagslistan och produktionens
 källsträngar hålls i synk åt BÅDA håll.
+
+**(e) K6 — ETA-dubbelkörningen (fältprov 10): UPPMÄTT OCH UPPSKJUTEN
+2026-08-22.** ETA-pipelinen körs TVÅ gånger för samma AIS-fix: meddelandevägen
+beräknar och sätter sedan ovillkorligt `vessel._positionUpdatedSinceLastETA`,
+och snapshot-vägen konsumerar flaggan och räknar om SAMMA position ~30 ms
+senare. Båda anropen går rakt in i `ProgressiveETACalculator` och MUTERAR dess
+historik. Mätt över 17 låsta korpusar (~330 h): 3 885 `[ETA_CALC_V2]`-rader,
+1 824 par inom <200 ms för samma mmsi ⇒ **93,9 % av alla ETA-beräkningar är
+dubbelkörningar**; 1 113 par ändrade värdet och pass 2 SÄNKTE i 900 av dem
+(80,9 %) — dubbel-EMA-signaturen (effektiv alfa 1−(1−0,4)² = 0,64 i stället för
+avsedda 0,4).
+
+*Det uppenbara botemedlet gör skada.* Ett rent memo per fix (idempotent
+`calculateETA`) byggdes, mättes och **backades ut** samma dag. Diagnosen, som
+tre oberoende granskare reproducerade: **dubbelkörningen är oavsiktligt
+bärande.** Två mekanismer, båda i `ProgressiveETACalculator`:
+1. **`ETA_GAP_RESET` tömmer fartbufferten och dess sampelnycklar.** I
+   dubbelkörningen pushade pass 2 om samma sampel direkt efter reseten, så
+   passagefartsgolvet 2,5 kn levde vidare. Med memot står bufferten tom till
+   nästa fix och ett enda långsamt sampel ger golvet 0,5 kn — **fem gångers
+   rå-ETA**.
+2. **Outliergrindens dramatiska grenar kräver `timeDelta < 30 s`.** Vid ~70 s
+   pollkadens var det i praktiken bara pass 2 som kunde uppfylla det. Utan
+   dubbelkörningen slocknar skyddet: `[ETA_OUTLIER]` går 264 → 79 globalt,
+   `dramatic_decrease` 56 → 5, och F74-capen i `_getFallbackETA` följer med.
+
+Uppmätta följder av det rena memot: **+11,4 % absolutfel i bandet sanning
+< 5 min** (16 bättre mot 55 sämre, publicerat HÖGRE i 66 poster mot lägre i 5),
++4,1 % i bandet < 10 min, **63 färre brotextövergångar** (2 163 → 2 100 — texten
+uppdateras både senare OCH mer sällan), en **NY hård invariantsågtand** (LINNEA
+265764760 vid Klaffbron 2026-07-15: HEAD publicerade 4 mot sanning 4,76, memot
+ger 4 → 8 → 14 mot sanning 3,24) och de två redan kända 41h-svängningarna
+förvärrade från 8→14 till 10→16. Och memot är **inte** en biverkningsfri cache:
+i 20260713-41h gav **18,8 % av de gemensamma fixarna en annan rå-ETA**
+(`[ETA_RAW]`, medelavvikelse 4,11 min, enskilda hopp 3,0 → 16,3 och 8,5 → 26,4).
+Att höja `emaAlpha` 0,40 → 0,64 botar **aggregatet** (bandets z-värde 3,35 → 0,80,
+övergångsantalet återställt) men **inte svansen**: LINNEA-brottet är
+bit-identiskt kvar.
+
+**KRAV PÅ EN FRAMTIDA ETA-ETAPP** (ingen av delarna får gå in ensam):
+- `ETA_GAP_RESET` måste etablera sin nya baslinje från **senast publicerade
+  värde**, inte från ingenting — det är den skyddseffekt pass 2 råkade ge.
+- Outliergrindens 30 s-fönster måste bli **kadensrelativt**, inte absolut, så
+  skyddet lever vid 70 s pollkadens utan en andra körning.
+- `emaAlpha` kalibreras **efter** de två ovan, aldrig före — annars kalibreras
+  alfa för att kompensera något den inte orsakar.
+- **ACCEPTANS**: median absolutfel, andel ≤ 2 min och bias i banden **sanning
+  < 5 min och < 10 min**. **ALDRIG totalsumman** — 87 % av felmassan ligger över
+  20 min, och summamåttet byter dessutom tecken beroende på parningstolerans
+  (parad delmängd +4,08 % vs oparad −0,9 % för exakt samma ändring).
+
+**K8 STRUKEN som eget fynd**: biasen "publicerat > rätt" är **EMA-inneboende**,
+inte en följd av dubbelkörningen. Kvot publicerat-högre/lägre 1,98:1 före och
+1,93:1 efter borttagen dubbelkörning (och före-populationen är dessutom
+förorenad — pass 2 har mindre eftersläpning kvar, så den äkta före-kvoten är
+högre). Ska biasen bort är alfa eller en icke-eftersläpande utjämnare knappen,
+inte outlier-skyddet.
+
+**K25 gick in** (notis-tokenen byggs efter ETA-omräkningen) och **K19 gick in**
+(tidsnormaliserat gps-event-ben). Mätharnessen `npm run measure:eta` är
+permanent — se docs/VALIDATION.md.
 
 ## 9. Granskningsfynd (kvarvarande avvikelser i KODEN)
 
