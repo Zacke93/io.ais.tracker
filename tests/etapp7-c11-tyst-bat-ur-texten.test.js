@@ -65,13 +65,30 @@ describe('C11: imminent-flaggan kräver FÄRSK position vid konsumtionen', () =>
     expect(text).not.toContain('strax');
   });
 
-  test('gränsen ÄR STALE_ETA_HARD — exakt på gränsen färsk, 1 ms över stale', () => {
+  test('gränsen ÄR STALE_ETA_HARD — exakt på gränsen färsk, 1 s över stale', () => {
     // Mutationsbevis: flyttas grinden ens en millisekund byter båda raderna
     // svar. Talet härleds ur UI_CONSTANTS, aldrig ur en lokal kopia.
-    const at = svc().generateBridgeText([vessel({ timestamp: Date.now() - HARD })]);
-    const over = svc().generateBridgeText([vessel({ timestamp: Date.now() - HARD - 1000 })]);
-    expect(at).toContain('strax');
-    expect(over).toContain('ETA okänd');
+    //
+    // FLAKE-FIXEN (granskningen 2026-08-22): testet byggde tidsstämpeln ur en
+    // EGEN Date.now() och lät sedan tjänsten läsa klockan PÅ NYTT. Grinden är
+    // `(Date.now() - lastHeard) <= staleHardMs`, så exakt-på-gränsen höll bara
+    // när båda avläsningarna hamnade i SAMMA millisekund — uppmätt ~0,1 %
+    // flipp, och det var det ENDA röda i `npm run validate` under full
+    // parallell svit. Klockan FRYSES nu runt båda anropen, så gränsen prövas
+    // deterministiskt. Grinden i BridgeTextService är ORÖRD (fortfarande <=),
+    // och mutationsstyrkan är oförändrad: med `<` blir `at` stale och testet
+    // faller.
+    jest.useFakeTimers();
+    try {
+      const now = Date.parse('2026-08-22T10:00:00.000Z');
+      jest.setSystemTime(now);
+      const at = svc().generateBridgeText([vessel({ timestamp: now - HARD })]);
+      const over = svc().generateBridgeText([vessel({ timestamp: now - HARD - 1000 })]);
+      expect(at).toContain('strax');
+      expect(over).toContain('ETA okänd');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   test('lastPositionUpdate räknas också (F4-E:s bekräftade-position-klocka)', () => {

@@ -168,6 +168,44 @@ const ETA_CLAMP_RELEASE_DISTANCE_M = UNDER_BRIDGE_CLEAR_DISTANCE;
 // SAMTLIGA settings-skrivningar.
 const LAST_KNOWN_PERSIST_INTERVAL_MS = 15 * 60 * 1000;
 
+// Helkodsgranskning 2026-08-22 (H14): livslängden för en OBEKRÄFTAD
+// U-svängsflagga (_newJourneyPending). Talet är OFÖRÄNDRAT — det är samma
+// 15 min som bekräftelsegrenen i _onVesselUpdated redan använde som lokal
+// PENDING_MAX_AGE_MS; det som ändras är att KONSUMENTERNA nu läser samma
+// gräns i stället för rå truthiness. Härledningen bakom 15 min: flaggan
+// bevisar en OBSERVERAD kursvändning, och en vändning som inte bekräftas
+// av ett andra nordligt sampel inom ett kvart är per definition en wobble
+// (N6-debouncens hela premiss). Utan tidsgräns i konsumtionen överlevde
+// flaggan hela resan (den nollställs bara INNE i bekräftelsegrenens yttre
+// villkor, som kräver sog >= 2 kn + finit cog) och tystade exit-notisen
+// vid Kanalinfarten timmar senare — EXIT_TRIGGER_SKIP_REVERSAL.
+const NEW_JOURNEY_PENDING_MAX_AGE_MS = 15 * 60 * 1000;
+
+// Helkodsgranskning 2026-08-22 (H17): TAKET FÖR "STRAX" PÅ UTTÖMD
+// EXTRAPOLERING. Talet är OFÖRÄNDRAT — det är B4:s (F10) egna 90 s, som
+// tidigare låg inbakat som `90 * 1000` i imminent-SET-grenen. Härledningen
+// står kvar där den hör hemma (ZWERK/PHILULA: fruset "strax" i 2–5 min på
+// en extrapolation byggd på >=5 min gammal fart; 90 s täcker det ärliga
+// fönstret "hon BORDE vara framme nu"). Konstanten finns för att TVÅ
+// ställen nu måste dela exakt samma gräns: SET-grenen och echo-hållningens
+// släppvillkor — glider de isär återuppstår H17 tyst.
+const IMMINENT_EXHAUSTED_MAX_AGE_MS = 90 * 1000;
+
+// Helkodsgranskning 2026-08-22, fixrunda 1b (H16-resten): SIDOMARGINALEN FÖR
+// TRIGGER-PUNKTENS LATITUDJÄMFÖRELSER. Talet är OFÖRÄNDRAT — det är exakt de
+// 0,0009° som FP8-gaten i _getFlowTriggerCandidates redan krävde för samma
+// bedömning ("låg episodstarten NORR om punkten?"). Härledningen: 0,0009°
+// latitud ≈ 100 m (1° ≈ 111 320 m ⇒ 0,0009° ≈ 100,2 m), dvs. samma
+// storleksordning som UNDER_BRIDGE_CLEAR_DISTANCE och klart över AIS-brusets
+// typiska spridning för en liggande båt. VARFÖR EN DELAD KONSTANT: H16:s
+// redan-passerad-vakt jämförde RAKT mot punktens latitud medan systerstället
+// krävde marginalen. Mätning i korpusdatan visar liggplatser på BÅDA sidor
+// om linjen (2 115 stillaliggande rapporter norr, 3 717 söder, inom 300 m),
+// så några meters GPS-brus kring linjen räckte för att en kajliggare skulle
+// klassas som "har passerat Kanalinfarten" utan att ha passerat något.
+// Glider de två ställena isär återuppstår exakt den asymmetrin tyst.
+const TRIGGER_POINT_SIDE_MARGIN_DEG = 0.0009;
+
 /**
  * =============================================================================
  * AIS BRIDGE APP - HUVUDKLASS
@@ -718,7 +756,18 @@ class AISBridgeApp extends Homey.App {
         );
       }
 
-      this.aisClient.applySourceConfig({ source, apiKey: apiKey || null, aishubUsername: aishubUsername || null });
+      // Helkodsgranskning 2026-08-22 (H5): de trimmade strängarna skickas
+      // ORÖRDA. `|| null` gjorde en TÖMD nyckel/username till muxens
+      // "behåll förra värdet"-signal (applySourceConfig: `cfg.apiKey != null
+      // ? String(cfg.apiKey).trim() : this._config.apiKey`) — den effektiva
+      // konfignyckeln blev OFÖRÄNDRAD, idempotensgrinden gjorde hela anropet
+      // till en no-op och den ÅTERKALLADE credentialen fortsatte användas
+      // (strömmen levde vidare, tvärtemot inställningssidans besked i
+      // locales/sv.json). Tom sträng är muxens RENSNING: apiKey blir null,
+      // aisstream-barnet rivs och AISHub körs solo (degraderingsnotisen ovan).
+      // "Behåll"-semantiken behövs aldrig härifrån — _applyAisSourceConfig
+      // läser ALLTID alla tre inställningarna innan den anropar.
+      this.aisClient.applySourceConfig({ source, apiKey, aishubUsername });
 
       // Etapp 3 (V1-m6): kadensmedvetet gate-fönster — när en pollande
       // källa matar PIPELINEN (both/aishub) måste GPS-gaten spänna över
@@ -1911,6 +1960,19 @@ class AISBridgeApp extends Homey.App {
   async _onVesselEntered({ mmsi, vessel }) {
     this.debug(`🆕 [VESSEL_ENTERED] New vessel: ${mmsi}`);
 
+    // STEG 0 (H14-resten, fixrunda 1b 2026-08-22): SAMMA ÅLDRING SOM
+    // UPDATED-VÄGEN. Åldringen låg bara i _onVesselUpdated, medan den här
+    // vägen går rakt på _triggerBoatNearFlow (STEG 3) och
+    // _checkSkippedBridgesFallback (STEG 3b) — båda konsumerar
+    // U-svängsflaggan. I DAG är fältet null vid ENTERED av konstruktion
+    // (_createVesselObject ärver det ur oldVessel, och oldVessel är per
+    // definition null när eventet är 'entered'), så anropet är ett
+    // NO-OP-försvar på djupet: det tar bort beroendet av att den
+    // inärvningsdetaljen aldrig ändras. Fällan är känd i projektet —
+    // fältlist-offren har uppstått exakt när en väg antagit något om en
+    // annans fältinitiering.
+    this._ageOutPendingReversal(vessel, mmsi);
+
     // STEG 1: INITIERA MÅLBRO
     // Beräknar vilken bro båten är på väg mot baserat på position och COG
     await this._initializeTargetBridge(vessel);
@@ -1999,6 +2061,12 @@ class AISBridgeApp extends Homey.App {
     try {
       this.debug(`📝 [VESSEL_UPDATED] Vessel: ${mmsi}`);
 
+      // STEG 0 (H14, helkodsgranskning 2026-08-22): ÅLDRA UT en obekräftad
+      // U-svängsflagga FÖRE all annan behandling. Se _ageOutPendingReversal —
+      // ÅLDRINGEN ÄR GEMENSAM för UPDATED- och ENTERED-vägen sedan fixrunda
+      // 1b, så flaggan inte kan överleva i en väg som saknar den.
+      this._ageOutPendingReversal(vessel, mmsi);
+
       // STEG 1: HANTERA MÅLBRO-ÄNDRINGAR
       // Om målbron har ändrats, rensa ETA-historik (gamla ETA-beräkningar är inte längre relevanta)
       if (oldVessel && vessel.targetBridge !== oldVessel.targetBridge) {
@@ -2062,11 +2130,10 @@ class AISBridgeApp extends Homey.App {
           // minnet att nollas i samma tick som proximityn körde → omedelbar
           // dubblettnotis för bron båten just notifierats för.
           const pending = vessel._newJourneyPending;
-          const PENDING_MAX_AGE_MS = 15 * 60 * 1000;
           const pendingConfirmed = pending
             && pending.dir === newDir
             && Number.isFinite(pending.time)
-            && (Date.now() - pending.time) < PENDING_MAX_AGE_MS;
+            && (Date.now() - pending.time) < NEW_JOURNEY_PENDING_MAX_AGE_MS;
           if (!pendingConfirmed) {
             vessel._newJourneyPending = { dir: newDir, time: Date.now() };
             this.debug(
@@ -2083,6 +2150,17 @@ class AISBridgeApp extends Homey.App {
             vessel._finalTargetBridge = null;
             vessel._finalTargetDirection = null;
             vessel._newJourneyPending = null;
+            // H12-B (fixrunda 1b 2026-08-22): ANKRA OM RESEANKARET HÄR.
+            // NEW_JOURNEY är per definition en äkta resegräns — den gamla
+            // resan slutar i EXAKT den här punkten. Utan anropet låg
+            // _journeyStartLat kvar på förra resans värde tills nästa
+            // måltilldelning råkade sträcka det, och origin-vakterna
+            // (_targetOriginSideOk, Järnvägsbro-backfillen,
+            // _hasPassedTriggerPoint) bedömde returbenet mot UTRESANS start.
+            // HÅRT ankare (skriver alltid över) — samma väg som
+            // _confirmDirectionReversal använder internt, så det finns EN
+            // sanningskälla. No-op om positionen inte är finit.
+            this.vesselDataService.anchorJourneyOrigin?.(vessel, 'new-journey');
             // N6: uppdatera ruttriktningen så direction-token i kommande
             // notiser speglar den NYA resan (inte kvarvarande gamla låset).
             vessel._routeDirection = newDir;
@@ -2264,6 +2342,59 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * H14-resten (fixrunda 1b 2026-08-22): GEMENSAM ÅLDRING av den obekräftade
+   * U-svängsflaggan. Rensar `_newJourneyPending` ur SJÄLVA fartygsobjektet så
+   * snart TTL:n (NEW_JOURNEY_PENDING_MAX_AGE_MS) löpt ut.
+   *
+   * VARFÖR EN EGEN METOD: nollställningen låg ursprungligen bara inne i
+   * bekräftelsegrenens yttre villkor (ingen targetBridge +
+   * _finalTargetDirection satt + finit cog/sog + sog >= 2 kn + ingen
+   * GPS-hold) — sjönk farten under 2 kn eller föll cog bort nåddes grenen
+   * aldrig, och flaggan ärvdes vidare av VARJE AIS-rad (VesselDataService
+   * `_createVesselObject`) och in i removal-snapshotten. H14 lyfte den till
+   * en STEG 0-åldring, men bara i `_onVesselUpdated`; `_onVesselEntered` gick
+   * rakt på notisvägen utan den. Nu delar båda ingångarna exakt samma kod, så
+   * ingen konsument nedströms behöver känna till TTL:n.
+   *
+   * @param {Object} vessel - fartygsobjektet (muteras)
+   * @param {string} mmsi - för loggraden
+   * @returns {boolean} true om en utgången flagga rensades
+   * @private
+   */
+  _ageOutPendingReversal(vessel, mmsi) {
+    if (!vessel || !vessel._newJourneyPending) return false;
+    if (this._pendingReversalActive(vessel)) return false;
+    this.debug(
+      `⏳ [NEW_JOURNEY_PENDING_EXPIRED] ${mmsi}: obekräftad reversal `
+      + `(${vessel._newJourneyPending.dir || 'okänd riktning'}) äldre än `
+      + `${Math.round(NEW_JOURNEY_PENDING_MAX_AGE_MS / 60000)} min — släpper flaggan`,
+    );
+    vessel._newJourneyPending = null;
+    return true;
+  }
+
+  /**
+   * H14 (helkodsgranskning 2026-08-22): är den obekräftade U-svängsflaggan
+   * fortfarande AKTUELL? Konsumenterna läste tidigare rå truthiness, medan
+   * PENDING_MAX_AGE_MS bara tillämpades vid BEKRÄFTELSEN — en flagga satt på
+   * en enda nordlig blipp kunde därför blockera exit-notisen timmar senare
+   * (reproducerat: nordlig blipp 2,5 kn + 40 min sydfärd i 1,2 kn ⇒ ingen
+   * Kanalinfarten-notis vid removal).
+   * ICKE-FINIT time räknas som INAKTIV: en post utan läsbar tidsstämpel bär
+   * inget bevis alls, och att låta den blockera vore samma tysta fällning
+   * som fyndet gäller (NaN blockerade i den gamla koden).
+   * @param {Object} vessel - Fartygsobjekt eller removal-snapshot
+   * @returns {boolean} True om flaggan är satt OCH yngre än TTL:n
+   * @private
+   */
+  _pendingReversalActive(vessel) {
+    const pending = vessel && vessel._newJourneyPending;
+    if (!pending || typeof pending !== 'object') return false;
+    if (!Number.isFinite(pending.time)) return false;
+    return (Date.now() - pending.time) < NEW_JOURNEY_PENDING_MAX_AGE_MS;
+  }
+
+  /**
    * ==========================================================================
    * VESSEL REMOVED HANDLER
    * ==========================================================================
@@ -2402,6 +2533,28 @@ class AISBridgeApp extends Homey.App {
       // Kanalinfarten själv räknas inte (det är notisen vi prövar).
       // Bokföringen rörs INTE (bevisprincipen/svepets inferensfrihet är
       // facit-låst design) — endast exit-gatens bevisunderlag breddas.
+      // H19 (helkodsgranskning 2026-08-22): den PERSISTENTA halvan av
+      // beviset var både TIDLÖS och RIKTNINGSLÖS — svepet accepterade vilken
+      // nyckel som helst ur 6h-retentionen, alltså även en NORDGÅENDE
+      // entry-notis från en HELT ANNAN resa. Verifierat: en 3 h (och en
+      // 5,5 h) gammal Klaffbron-post med dir='north' gav exit-notis för en
+      // båt på 0,2–0,4 kn, med texten "var på väg ut ur kanalen när
+      // AIS-kontakten bröts" — bevisligen osant. Två krav sluter luckan:
+      //  (1) FÄRSKHET: posten måste ligga inom 2h-blockfönstret
+      //      (_PERSISTENT_DEDUP_WINDOW_MS) räknat från removal. Det är
+      //      appens EGNA mått på "samma resa" (samma fönster som dedupen
+      //      använder för att avgöra om en notis rör samma passage), och en
+      //      äkta kanaltransit från bronotisen till utfarten tar tiotals
+      //      minuter — aldrig timmar. Retentionen (6 h) finns för
+      //      samma-riktnings-gaten, inte som transitbevis.
+      //  (2) RIKTNING: en post märkt 'north' bevisar MOTSATSEN till en
+      //      sydgående utfart och diskvalificeras. dir=null släpps igenom —
+      //      COG-dödbandet lämnar en stor andel poster omärkta (13 av 25 i
+      //      fältprov 10) och de är ofta äkta.
+      // Sessionshalvan lämnas orörd (nycklarna har ingen tidsstämpel), men
+      // den är i praktiken tom i just den gren beviset behövs: STEG 2 ovan
+      // rensar sessionsnycklarna när passedBridges är tom.
+      const TRANSIT_EVIDENCE_MAX_AGE_MS = this._PERSISTENT_DEDUP_WINDOW_MS || 2 * 60 * 60 * 1000;
       const hasNotifiedRealBridge = (() => {
         if (!vessel) return false;
         const prefix = `${vessel.mmsi}:`;
@@ -2410,8 +2563,15 @@ class AISBridgeApp extends Homey.App {
           if (isRealBridgeKey(key)) return true;
         }
         if (this._persistentRecentTriggers) {
-          for (const key of this._persistentRecentTriggers.keys()) {
-            if (isRealBridgeKey(key)) return true;
+          const now = Date.now();
+          for (const [key, entry] of this._persistentRecentTriggers.entries()) {
+            if (!isRealBridgeKey(key)) continue;
+            // Legacy-posterna är rena tal (bara tidsstämpel, ingen riktning).
+            const ts = typeof entry === 'number' ? entry : (entry && entry.t);
+            if (!Number.isFinite(ts) || (now - ts) >= TRANSIT_EVIDENCE_MAX_AGE_MS) continue;
+            const storedDir = (entry && typeof entry === 'object') ? entry.dir : null;
+            if (storedDir === 'north') continue;
+            return true;
           }
         }
         return false;
@@ -2434,11 +2594,16 @@ class AISBridgeApp extends Homey.App {
       // den bär även vessel-null-skyddet (optional chaining kortsluter && ).
       const lastCogIsNorth = Number.isFinite(vessel?.cog)
         && isNorthCog(vessel.cog);
-      const exitContraEvidence = Boolean(vessel && (vessel._newJourneyPending || lastCogIsNorth));
+      // H14 (2026-08-22): pending-halvan TIDSBINDS. Flaggan nollställs bara
+      // inne i bekräftelsegrenens yttre villkor (sog >= 2 kn + finit cog),
+      // så en båt som saktade in efter EN nordlig blipp bar motbeviset
+      // vidare hela resan och miste sin exit-notis tyst.
+      const pendingReversal = this._pendingReversalActive(vessel);
+      const exitContraEvidence = Boolean(vessel && (pendingReversal || lastCogIsNorth));
       if (exitContraEvidence && (completedSouthJourney || targetlessSouthTransit)) {
         this.log(
           `🚫 [EXIT_TRIGGER_SKIP_REVERSAL] ${mmsi}: sydgaten uppfylld men `
-          + `${vessel._newJourneyPending ? 'reversal pending' : `sista kursen nordlig (${Math.round(vessel.cog)}°)`} — ingen exit-notis`,
+          + `${pendingReversal ? 'reversal pending' : `sista kursen nordlig (${Math.round(vessel.cog)}°)`} — ingen exit-notis`,
         );
       }
       if (vessel
@@ -3963,15 +4128,25 @@ class AISBridgeApp extends Homey.App {
     }
 
     if (message.cog !== undefined && message.cog !== null) {
+      // H34 (helkodsgranskning 2026-08-22): en COG utanför 0–360 fällde HELA
+      // positionsrapporten → fartyget blev OSYNLIGT i bridge_text och notiser
+      // trots fullt giltig position. Det är exakt samma felmod som
+      // SOG-sentinelen 102.3 (A2-2, osynliga-båtar-incidenten) och 0,0-garden
+      // finns för: kasta det KORRUPTA FÄLTET, aldrig positionen. Klassen är
+      // inte hypotetisk — rå AIS-COG kodas i tiondels grader (0–3599) och
+      // råvärden 3601–4095 avkodas till 360,1–409,5°, alltså strax utanför
+      // intervallet från en trasig eller ofullständigt normaliserad källa.
+      // Tolkningen är den konservativa: null = "kurs okänd", ett kontrakt
+      // hela riktningskedjan redan bär (360-sentinelen nedan, 837 gånger i
+      // fältloggarna) och som aldrig fabricerar en riktning.
       if (!Number.isFinite(message.cog) || message.cog < 0 || message.cog > 360) {
-        this.debug(`⚠️ [AIS_VALIDATION] Invalid COG: ${message.cog}`);
-        return false;
-      }
-      // AIS-spec (ITU-R M.1371): giltig COG är 0–359,9° — värdet 360 är
-      // sentinelen "kurs ej tillgänglig". Gamla normaliseringen 360→0
-      // FABRICERADE en nordkurs som matade riktnings-/mållogiken; rätt
-      // tolkning är okänd kurs (null).
-      if (message.cog === 360) {
+        this.debug(`🔄 [AIS_VALIDATION] Invalid COG: ${message.cog} → null (okänd kurs, position behålls)`);
+        message.cog = null;
+      } else if (message.cog === 360) {
+        // AIS-spec (ITU-R M.1371): giltig COG är 0–359,9° — värdet 360 är
+        // sentinelen "kurs ej tillgänglig". Gamla normaliseringen 360→0
+        // FABRICERADE en nordkurs som matade riktnings-/mållogiken; rätt
+        // tolkning är okänd kurs (null).
         message.cog = null;
         this.debug('🔄 [AIS_VALIDATION] COG 360° = "not available" → null (okänd kurs)');
       }
@@ -5916,6 +6091,25 @@ class AISBridgeApp extends Homey.App {
         // _positionUncertain och sedan TYSTNAT sitt gamla "strax" i upp till
         // 20–25 min (tills STALE-removal) — echo-gaten är till för sekunders
         // eko-flapp, inte som evig frysning av stale data.
+        // H17 (helkodsgranskning 2026-08-22): B4/F10:s 90 s-tak på uttömd
+        // "strax" satt BARA i SET-grenen längre ned. Echo-hållningen här
+        // hoppar över HELA återhärledningen, så en flagga som seedats av den
+        // uttömda grenen (_imminentFromExhausted) levde vidare tills
+        // färskhetsgränsen STALE_ETA_HARD föll — "beräknad broöppning strax"
+        // i upp till 10,5 min på en gissning som fick leva 90 s. Ett accepterat
+        // osäkert sampel stämplar dessutom om positionsklockan, så
+        // dataIsFreshEnough höll hållningen vid liv hur länge som helst.
+        // Taket prövas därför FÖRE hållningen.
+        // SAKNAD STÄMPEL = UTGÅNGEN: ETA-blocket ovan nollar _etaExhaustedAtMs
+        // i samma andetag som _etaExtrapolationExhausted, och utan den regeln
+        // hade en nollad stämpel frusit flaggan igen. (SET-grenens `: 0`-
+        // fallback betyder "nyss uttömd" och hör hemma där — den får aldrig
+        // styra ett SLÄPP.)
+        const exhaustedImminentAgeMs = Number.isFinite(vessel._etaExhaustedAtMs)
+          ? Date.now() - vessel._etaExhaustedAtMs
+          : Number.POSITIVE_INFINITY;
+        const exhaustedImminentExpired = vessel._imminentFromExhausted === true
+          && exhaustedImminentAgeMs > IMMINENT_EXHAUSTED_MAX_AGE_MS;
         const holdImminentForUncertain = (vessel._positionUncertain === true
           || vessel._gpsJumpDetected === true)
           && vessel.targetBridge
@@ -5928,6 +6122,25 @@ class AISBridgeApp extends Homey.App {
         const wasImminent = vessel._isImminentAtTargetBridge === true;
         if (!holdImminentForUncertain) {
           vessel._isImminentAtTargetBridge = false;
+        } else if (exhaustedImminentExpired) {
+          // H17: hållningen står KVAR (echo-gaten äger fortfarande beslutet
+          // att inte härleda om från en osäker position) — men den uttömda
+          // flaggan släcks, för B4/F10:s tak äger sanningen även här. Nästa
+          // rena sampel härleder om som vanligt. _imminentFromExhausted
+          // nollas i samma andetag så raden loggas EN gång per uttömning.
+          vessel._isImminentAtTargetBridge = false;
+          vessel._imminentFromExhausted = false;
+          // ÅLDERN SKRIVS ALDRIG SOM "Infinity" (F-9-läxan: sentinelen skrev
+          // 153 loggrader med Infinity i fältprovet) — saknad stämpel är ett
+          // eget, läsbart fall.
+          const alderText = Number.isFinite(exhaustedImminentAgeMs)
+            ? `i ${Math.round(exhaustedImminentAgeMs / 1000)}s`
+            : 'utan uttömningsstämpel (nollad av ETA-blocket)';
+          this.debug(
+            `🛡️ [IMMINENT_HOLD_EXPIRED] ${vessel.mmsi}: target=${vessel.targetBridge}, `
+            + `uttömd "strax" hölls av GPS-osäkerhet ${alderText} `
+            + `> ${IMMINENT_EXHAUSTED_MAX_AGE_MS / 1000}s — släpps`,
+          );
         }
         if (vessel.targetBridge && !holdImminentForUncertain) {
           const ageS = Math.round(ageMs / 1000);
@@ -5997,7 +6210,7 @@ class AISBridgeApp extends Homey.App {
                   ? Date.now() - vessel._etaExhaustedAtMs
                   : 0;
                 if (vessel._etaExtrapolationExhausted === true && distToTarget <= 500
-                    && exhaustedAgeMs <= 90 * 1000) {
+                    && exhaustedAgeMs <= IMMINENT_EXHAUSTED_MAX_AGE_MS) {
                   vessel._isImminentAtTargetBridge = true;
                   vessel._imminentFromExhausted = true; // A3R2-1: ingen hysteres
                   this.log(
@@ -7238,11 +7451,37 @@ class AISBridgeApp extends Homey.App {
           // utfart, LYS-klassen). Nordgående/okänd riktning berörs inte —
           // förvarning för inkommande båtar är punktens syfte. Exit-fallbacken
           // (removal-vägen) är en annan väg och har egna beviskrav.
+          //
+          // MARGINALEN (fixrunda 1b 2026-08-22): de 0,0009° låg som en naken
+          // literal här och SAKNADES helt i systerstället
+          // _hasPassedTriggerPoint. Båda läser nu TRIGGER_POINT_SIDE_MARGIN_DEG.
+          // Talet är oförändrat — bytet är rent mekaniskt.
+          //
+          // MEDVETET EPISODANKARE, INTE RESEANKARE (granskarfynd, samma runda).
+          // _hasPassedTriggerPoint bytte till reseankaret (getJourneyOriginLat)
+          // eftersom den frågan är "kom hon från andra sidan PÅ DEN HÄR RESAN".
+          // HÄR är frågan en annan: "började den här SPÅRNINGSEPISODEN uppe i
+          // kanalen, eller är det en kajstartare i zonen?" — och för den frågan
+          // är episodankaret storheten. Två skäl till att INTE byta:
+          //  (1) SEMANTIKEN. Gaten skiljer på "hon fanns här redan innan" och
+          //      "hon dök upp vid kajen". Reseankaret är MONOTONT utsträckt i
+          //      färdriktningen (_extendJourneyOrigin: sydresa ⇒ nordligaste
+          //      punkten) och skrivs om vid varje bekräftad reversal, så det
+          //      kan hamna norr om punkten utan att episoden började där.
+          //  (2) KOSTNADEN. Till skillnad från _hasPassedTriggerPoint, som bara
+          //      styr eta/already_passed/message, avgör den här gaten om en
+          //      KANDIDAT ÖVER HUVUD TAGET FINNS ⇒ notisantal ⇒ facit. Ett byte
+          //      hade systematiskt VIDGAT sydgrenen (reseankaret ligger per
+          //      konstruktion norr om eller på episodankaret för en sydresa)
+          //      och kräver därför en egen fältmätning, inte en följdändring.
+          // Skulle mätningen någon gång göras: bytet är en rad, och båda
+          // ställena delar redan marginalkonstanten.
           if (this._getDirectionString(vessel) === 'southbound') {
             const hasCanalHistory = (Array.isArray(vessel.passedBridges) && vessel.passedBridges.length > 0)
               || !!vessel.targetBridge
               || !!vessel._finalTargetBridge
-              || (Number.isFinite(vessel._firstSeenLat) && vessel._firstSeenLat > tp.lat + 0.0009);
+              || (Number.isFinite(vessel._firstSeenLat)
+                && vessel._firstSeenLat > tp.lat + TRIGGER_POINT_SIDE_MARGIN_DEG);
             if (!hasCanalHistory) {
               this.debug(
                 `🚪 [TRIGGER_POINT_SKIP] ${vessel.mmsi}: southbound at ${tp.name} without canal history `
@@ -7447,6 +7686,33 @@ class AISBridgeApp extends Homey.App {
       this.debug(`🏃 [EXIT_TRIGGER_SKIP] ${vessel.mmsi}: no movement proof — no exit notification`);
       return;
     }
+    // H19 (helkodsgranskning 2026-08-22): NUETS rörelse — inte bara det
+    // KLISTRADE beviset. _hasMovementProof ovan sätts EN gång och sitter
+    // sedan kvar i timmar, och rörelsekravet "sog ≥ 2 kn" fanns bara INNE i
+    // sessionsnyckel-grenen nedan. En båt UTAN Kanalinfarten-sessionsnyckel
+    // (den mållösa klassen — och STEG 2 i _onVesselRemoved rensar dessutom
+    // sessionsnycklarna när passedBridges är tom) nådde därför aldrig något
+    // rörelsekrav alls: en stillaliggande båt på 0,2 kn fick notisen
+    // "… var på väg ut ur kanalen när AIS-kontakten bröts", ett påstående
+    // som sista samplet motsäger.
+    // TRÖSKELN är appens egen: MIN_VIABLE_SPEED_KN (PASSAGE_TIMING.
+    // MINIMUM_VIABLE_SPEED = 0,5 kn) är gränsen under vilken COG räknas som
+    // brus och båten som stillaliggande — exakt premissen för notistextens
+    // riktningspåstående. Den är MEDVETET lägre än sessionsgrenens 2 kn:
+    // basradiens korpuslåsta äkta utfarter går ned till 1,2 kn (F5-B-
+    // sviten), medan de verifierade falska låg på 0,2–0,4 kn. Sessionsgrenens
+    // strängare 2 kn-krav för expired-släpp står kvar oförändrat.
+    // FARTGIVARLÖSA: samma regel som F5-B-radien (A1R2-1) — sog om finit,
+    // annars maxRecentSpeed. Saknas BÅDA finns ingen fartkunskap alls och
+    // grinden avstår (CLABBYDOO-klassens snapshots utan fartfält).
+    const exitSpeedKnown = Number.isFinite(vessel.sog) || Number.isFinite(vessel.maxRecentSpeed);
+    if (exitSpeedKnown && effectiveTransitSpeed < MIN_VIABLE_SPEED_KN) {
+      this.debug(
+        `🛑 [EXIT_TRIGGER_SKIP_STATIONARY] ${vessel.mmsi}: ${effectiveTransitSpeed.toFixed(1)} kn `
+        + `< ${MIN_VIABLE_SPEED_KN} kn i sista samplet — ingen exit-notis (stillaliggande)`,
+      );
+      return;
+    }
     // Bara om vesseln är norr om Kanalinfarten (lat > tp.lat) — då har hon ännu
     // inte passerat söderut, men förväntas göra det. Söder om → redan passerad.
     if (vessel.lat < kanalinfarten.lat) {
@@ -7491,8 +7757,12 @@ class AISBridgeApp extends Homey.App {
       const alreadyPassedThisJourney = Array.isArray(vessel.passedBridges)
         && vessel.passedBridges.includes('Kanalinfarten')
         && !freshlyRecrossed;
+      // H14 (2026-08-22): tidsbunden pending — en obekräftad flagga som
+      // aldrig hann nollställas (farten sjönk under 2 kn) blockerade annars
+      // släppet för alltid.
+      const pendingReversal = this._pendingReversalActive(vessel);
       const expiredRelease = !persisted && !oppositeDirection
-        ? (curDir !== null && movingNow && !vessel._newJourneyPending && !alreadyPassedThisJourney)
+        ? (curDir !== null && movingNow && !pendingReversal && !alreadyPassedThisJourney)
         : false;
       if (oppositeDirection || (!persisted && expiredRelease)) {
         // P2R2-4-spegeln (R2 2026-07-11): behåll nyckeln om persistentgaten
@@ -7515,7 +7785,7 @@ class AISBridgeApp extends Homey.App {
       } else if (!persisted) {
         this.log(
           `🚫 [EXIT_TRIGGER_DEDUPE_EXPIRED_HOLD] ${vessel.mmsi}: Kanalinfarten dedup expired but `
-          + `${vessel._newJourneyPending ? 'reversal pending' : 'no movement evidence (stationary vessel — no new passage)'} — keeping block`,
+          + `${pendingReversal ? 'reversal pending' : 'no release evidence (sog < 2 kn, okänd riktning eller redan passerad)'} — keeping block`,
         );
         return;
       } else {
@@ -7860,6 +8130,98 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * H16 (helkodsgranskning 2026-08-22): REDAN-PASSERAD-VAKT FÖR
+   * TRIGGER-PUNKTEN — live-vägens motsvarighet till exit-vägens
+   * `vessel.lat < kanalinfarten.lat`-retur.
+   *
+   * MEKANISMEN. Kandidatpushen i _getFlowTriggerCandidates prövar avstånd
+   * och FP8/FP9-gaterna, ALDRIG vilken sida av punkten båten är på. En
+   * sydgående som redan lämnat Kanalinfarten fick därför förvarningstext
+   * ("närmar sig") och en ETA räknad som avstånd/fart mot en punkt hon rör
+   * sig BORT ifrån. Exit-vägen har haft vakten hela tiden; det här är
+   * systerstället.
+   *
+   * BEVISKRAVET är medvetet strängare än "fel sida". Mätning i korpusdatan:
+   * 2 115 stillaliggande positionsrapporter (sog < 0,5) ligger NORR om
+   * punkten och 3 717 SÖDER om den, inom 300 m — det finns alltså
+   * liggplatser på BÅDA sidor, och en kajstartare som lägger ut FRÅN den
+   * sida hon redan står på har aldrig passerat något. Vakten kräver därför
+   * att båten bevisligen kommit från andra sidan:
+   *   (a) SVEPET: segmentsvepet i _onVesselUpdated kräver crossedLatitude,
+   *       dvs. genomkorsningen är OBSERVERAD i just detta sampelpar. Fältet
+   *       är transient (ingen fältlistpost — det byggs bort vid nästa
+   *       update), så det kan inte bära ett gammalt bevis.
+   *   (b) SYDGÅENDE söder om punkten: RESANS START låg norr om punkten
+   *       (med marginal, se nedan) ELLER minst en bro är passerad på resan
+   *       (SAMTLIGA broar ligger norr om Kanalinfarten ⇒ hon kom uppifrån).
+   *       Det andra benet fångar den återfödda båten vars ankare hamnat
+   *       söder om punkten.
+   *   (c) NORDGÅENDE norr om punkten: resans start låg söder om punkten
+   *       (med samma marginal). Ingen bro-motsvarighet finns här — infarten
+   *       har inget bevisande landmärke söderut.
+   * Okänd riktning ⇒ false: då vet appen inte vilken sida som är "bakom".
+   *
+   * TVÅ RÄTTELSER I FIXRUNDA 1B (2026-08-22), båda ur granskningen:
+   *  1. MARGINALEN. Jämförelsen gick RAKT mot punktens latitud medan
+   *     systerstället — FP8-gaten i _getFlowTriggerCandidates — kräver
+   *     0,0009° (≈100 m) för exakt samma bedömning. Eftersom det finns
+   *     liggplatser på BÅDA sidor om linjen (mätningen ovan) räckte några
+   *     meters GPS-brus för att en kajliggare som vobblar söderut skulle få
+   *     already_passed=true, eta=-1 och texten "har passerat Kanalinfarten"
+   *     utan att ha passerat något. Båda ställena läser nu samma namngivna
+   *     konstant TRIGGER_POINT_SIDE_MARGIN_DEG, så de inte kan glida isär.
+   *  2. ANKARET. Vakten läste `_firstSeenLat`, som är ett EPISODANKARE
+   *     (skrivs en gång per spårningsepisod, nollställs aldrig). En
+   *     kajvändare eller U-svängare i SAMMA episod bedömdes därför mot
+   *     UTRESANS startpunkt. Nu läses RESEANKARET via VesselDataService
+   *     `getJourneyOriginLat` (_journeyStartLat, med _firstSeenLat som
+   *     fallback) — samma storhet frågan gäller: kom hon FRÅN andra sidan
+   *     av punkten PÅ DEN HÄR RESAN?
+   *
+   * Flaggan styr ENBART eta (-1), already_passed och notistexten. Källan
+   * ('trigger-point') och distansen är orörda: källsträngen bär dedupens
+   * retroaktiv-semantik (och dess värde är låst i paket-p8-testet), och
+   * distansen läses av INV-11:s 400 m-gräns i svepfallet.
+   *
+   * @param {Object} vessel - fartyget (live-objektet)
+   * @param {Object} candidate - notiskandidaten {name, id, source, distance}
+   * @param {string} direction - INTERN riktning från _getNotificationDirection
+   * @returns {boolean} true om punkten ligger BAKOM båten
+   * @private
+   */
+  _hasPassedTriggerPoint(vessel, candidate, direction) {
+    if (!vessel || !candidate || candidate.source !== 'trigger-point') return false;
+    const entry = (candidate.id && TRIGGER_POINTS[candidate.id])
+      || Object.values(TRIGGER_POINTS).find((tp) => tp.name === candidate.name);
+    if (!entry || !Number.isFinite(entry.lat)) return false;
+
+    // (a) Observerad genomkorsning i detta sampelpar.
+    const sweep = vessel._tpSweepCandidate;
+    if (sweep && sweep.name === candidate.name) return true;
+
+    if (!Number.isFinite(vessel.lat)) return false;
+    // RESEANKARET, inte episodankaret (H12-B, fixrunda 1b 2026-08-22).
+    // getJourneyOriginLat ger _journeyStartLat med _firstSeenLat som fallback
+    // — samma prioritetsordning som VesselDataService egna origin-vakter, och
+    // enda sanningskällan för fallbacken (kopiera den inte hit).
+    const originLat = this.vesselDataService?.getJourneyOriginLat?.(vessel);
+    let startLat = null;
+    if (Number.isFinite(originLat)) startLat = originLat;
+    else if (Number.isFinite(vessel._firstSeenLat)) startLat = vessel._firstSeenLat;
+    // (b) Sydgående SÖDER om punkten.
+    if (direction === 'southbound' && vessel.lat < entry.lat) {
+      const cameFromNorth = (startLat !== null && startLat > entry.lat + TRIGGER_POINT_SIDE_MARGIN_DEG)
+        || (Array.isArray(vessel.passedBridges) && vessel.passedBridges.length > 0);
+      return cameFromNorth;
+    }
+    // (c) Nordgående NORR om punkten.
+    if (direction === 'northbound' && vessel.lat > entry.lat) {
+      return startLat !== null && startLat < entry.lat - TRIGGER_POINT_SIDE_MARGIN_DEG;
+    }
+    return false;
+  }
+
+  /**
    * ==========================================================================
    * P8 / U10 (ANVÄNDARBESLUT 2026-08-09): NOTISTEXTEN I PASSERAD-FORM
    * ==========================================================================
@@ -7898,7 +8260,7 @@ class AISBridgeApp extends Homey.App {
    * @returns {string} färdig svensk mening utan avslutande punkt
    * @private
    */
-  _buildBoatNearMessage(tokens, source) {
+  _buildBoatNearMessage(tokens, source, passedTriggerPoint = false) {
     const name = tokens.vessel_name;
     const bridge = tokens.bridge_name;
 
@@ -7933,6 +8295,17 @@ class AISBridgeApp extends Homey.App {
     // vet appen inte — och skriver det inte.
     if (source === 'exit-fallback') {
       return `${name} var på väg ut ur kanalen vid ${bridge} när AIS-kontakten bröts`;
+    }
+
+    // H16 (2026-08-22): TRIGGER-PUNKTEN LIGGER BAKOM BÅTEN. Passerad-formen
+    // kommer hit som eget argument därför att KÄLLSTRÄNGEN måste förbli
+    // 'trigger-point' (den bär dedupens semantik och är låst i paket-p8).
+    // _hasPassedTriggerPoint släpper bara igenom fall där båten bevisligen
+    // kommit från andra sidan punkten, så "har passerat" är belagt — till
+    // skillnad från förvarningsformens "närmar sig", som var direkt osann
+    // för en båt på väg bort.
+    if (passedTriggerPoint) {
+      return `${name} har passerat ${bridge}`;
     }
 
     // FÖRVARNINGSFORM — samma innebörd som de fem gamla tokens redan bar,
@@ -8032,6 +8405,13 @@ class AISBridgeApp extends Homey.App {
       //       80 s senare rensade NEW_JOURNEY-bekräftelsen den färska
       //       nyckeln och avfyrade om. Under pending väntar släppet — den
       //       bekräftade reversalen äger notisen (rätt riktning, EN notis).
+      //       H14-resten (fixrunda 1b 2026-08-22): läses via
+      //       _pendingReversalActive, inte rå truthiness. En flagga som
+      //       aldrig bekräftades får inte blockera i evighet — TTL:n hör
+      //       hemma i predikatet, inte i varje konsument (samma byte som
+      //       redan gjorts i exit-vägen och i statusgrenen). Skillnaden är
+      //       teoretisk i dag, eftersom STEG 0-åldringen rensar fältet i
+      //       BÅDA ingångarna, men försvaret på djupet är poängen.
       // ChatGPT-verifieringen 2026-07-10 (C2): "curDir !== null" var inte
       // nog — en LÅST _routeDirection uppfyller det även vid sog 0 (låset
       // är från gamla resan och bevisar ingen NY passage). Intentionen var
@@ -8064,7 +8444,7 @@ class AISBridgeApp extends Homey.App {
         && vessel.passedBridges.includes(bridgeName)
         && !freshlyRecrossed;
       const expiredRelease = !persisted && !oppositeDirection
-        ? (curDir !== null && movingNow && !vessel._newJourneyPending && !alreadyPassedThisJourney)
+        ? (curDir !== null && movingNow && !this._pendingReversalActive(vessel) && !alreadyPassedThisJourney)
         : false;
       if (oppositeDirection || (!persisted && expiredRelease)) {
         // R2 2026-07-11 (P2R2-4): radera INTE nyckeln om persistentgaten
@@ -8092,7 +8472,7 @@ class AISBridgeApp extends Homey.App {
         // Expired men utan rörelsebevis / under pending-reversal / redan
         // passerad på innevarande resa: blockera.
         let holdReason = 'no movement evidence (stationary vessel — no new passage)';
-        if (vessel._newJourneyPending) {
+        if (this._pendingReversalActive(vessel)) {
           holdReason = 'reversal pending (confirmation owns the notification)';
         } else if (alreadyPassedThisJourney) {
           holdReason = 'bridge already passed this journey (no new passage without journey reset)';
@@ -8137,6 +8517,14 @@ class AISBridgeApp extends Homey.App {
     // B1 (2026-07-03, ANVÄNDARBESLUT): fallback "Okänd båt" (svenska, läsbar)
     // när namnet aldrig blivit känt — cachen/statiska rapporter gör fallet
     // sällsynt. "Unknown" var aisstream-platshållaren, inte ett namn.
+    // H16 (2026-08-22): riktningen fångas i en LOKAL konstant. Den läses av
+    // både tokenen och redan-passerad-vakten nedan, och ett andra anrop till
+    // _getNotificationDirection hade dubblerat NOTIF_DIR_CANAL_ENTRY-raden i
+    // fältloggen (K1:s dödbandsregel loggar varje gång den fyrar).
+    const notificationDirection = this._assertInternalDirection(
+      this._getNotificationDirection(vessel, candidate),
+      '_triggerBoatNearFlowForBridge',
+    );
     const knownName = vessel.name && vessel.name !== 'Unknown' ? vessel.name : null;
     const tokens = {
       vessel_name: knownName || this._lookupVesselName(vessel.mmsi) || 'Okänd båt',
@@ -8151,10 +8539,7 @@ class AISBridgeApp extends Homey.App {
       // direkt och rörs INTE av språkbytet.
       // Vakten loggar (och bara loggar) om steg 1 någon gång returnerar ett
       // ord som inte står i vokabulären — se _assertInternalDirection.
-      direction: toUserDirection(this._assertInternalDirection(
-        this._getNotificationDirection(vessel, candidate),
-        '_triggerBoatNearFlowForBridge',
-      )),
+      direction: toUserDirection(notificationDirection),
     };
 
     // ETA-token för notisen.
@@ -8191,7 +8576,16 @@ class AISBridgeApp extends Homey.App {
     // är en framräknad "ETA" riktningslöst nonsens — dist/fart mäter tid till
     // en bro båten rör sig BORT ifrån (t.ex. "4 min" 700 m EFTER passagen).
     // -1 (okänd) är det ärliga tokenvärdet.
-    const passedBridgeSource = this._isRetroactiveNotificationSource(source);
+    // H16 (helkodsgranskning 2026-08-22): trigger-punkten BAKOM båten
+    // behandlas som passerad — samma tre verkningar som en retroaktiv källa
+    // (eta -1, already_passed, passerad-formen i texten) men UTAN att röra
+    // källsträngen. Se _hasPassedTriggerPoint för beviskraven och för
+    // varför källan/distansen måste stå orörda.
+    const passedTriggerPoint = this._hasPassedTriggerPoint(
+      vessel, candidate, notificationDirection,
+    );
+    const passedBridgeSource = this._isRetroactiveNotificationSource(source)
+      || passedTriggerPoint;
     if (!passedBridgeSource && (!Number.isFinite(eta) || eta < 0)) {
       const dist = candidate.distance;
       const speedMs = (vessel.sog || 0) * 0.5144; // knop → m/s
@@ -8248,7 +8642,7 @@ class AISBridgeApp extends Homey.App {
     // `message`, inte av booleanen (som annars hade bytt betydelse för
     // befintliga flows).
     safeTokens.already_passed = passedBridgeSource;
-    safeTokens.message = this._buildBoatNearMessage(safeTokens, source);
+    safeTokens.message = this._buildBoatNearMessage(safeTokens, source, passedTriggerPoint);
 
     // ENHANCED DEBUG: Log final tokens and ETA status
     this.debug(`🔍 [FLOW_TRIGGER_SAFE_TOKENS] ${vessel.mmsi}: Safe tokens = ${JSON.stringify(safeTokens)}`);
@@ -9904,11 +10298,98 @@ class AISBridgeApp extends Homey.App {
     //    (AISStreamClient._onClose/_handleRateLimit) ⇒ källan svarar INTE.
     //  • aishub: POLLKLOCKAN (hubResponding ovan) — senaste välformade svar
     //    yngre än FRESH_POLL_MS, med F1:s legacy-fallback när fältet saknas.
+    // H18 (helkodsgranskning 2026-08-22): AISSTREAM-SIDANS HYSTERES.
+    // Hubbens svarssida är FÖNSTERMÄTT (hubResponding: pollklockan yngre än
+    // FRESH_POLL_MS) medan aisstreams var ett rent ÖGONBLICKSPROV av
+    // socketflaggan. EN tick där socketen låg i reconnect-backoff samtidigt
+    // som hubben missat ~3,5 min pollar räckte därför för trulyBlind: notisen
+    // "appen är blind" + hela eskaleringstrappan, och 24h-nycklarna brändes
+    // så ett ÄKTA totalavbrott samma dygn blev tyst (F-9-klassen). Med
+    // aisstream serverdöd sedan ~5/8 är den falska sidan dessutom permanent.
+    //
+    // MÅTTET ÄR HUBBENS EGET, spegelvänt: en SVARSKLOCKA (senast observerade
+    // öppna socket) plus samma färskhetsfönster. Rapportens formulering var
+    // en `notRespondingSince`-latch satt vid övergången sann→falsk; klockan
+    // är samma mekanik men utan det gränsfall latchen har: när ingen övergång
+    // hunnit observeras (kallstart med nere socket) finns ingen tidpunkt att
+    // räkna från, och att falla tillbaka på observationsankaret hade gett
+    // amnesti åt EN ÄKTA nedsläckning som råkade infalla efter ett uppehåll.
+    // Saknad klocka = källan har aldrig setts svara = svarar inte, precis som
+    // hubbens `lastOkResponseAt === null`.
+    //
+    // SPEGLINGEN ÄR ENSIDIG MED FLIT: hubbens 210 s-fönster ÄR redan
+    // hysteresen och lämnas orörd (att latcha båda hade flyttat det låsta
+    // tom-natt-provet i kalldodslarm-eskalering.test.js).
+    //
+    // FLAPPVAKTEN: klockan stämplas bara av en STABIL anslutning (öppen
+    // socket äldre än samma fönster). En socket som flappar snabbare än
+    // fönstret — 503-stormen 2026-08-08: aisstreams upptid översteg aldrig
+    // 34,6 s — hade annars fått evig amnesti och kunnat avväpna
+    // blindhetslarmet på egen hand, precis den avväpning B2g(2) stängde.
+    // Under flapp är "svarar" oförändrat ögonblicksmätt (öppen socket =
+    // svarar), så bara de nedsläckta tickarna döms.
+    //
+    // Klockan bor i tystnadsbokföringen men är MINNESBASERAD:
+    // _persistFeedSilenceLedger skriver bara lastMessageAt/configuredSince,
+    // och så SKA det vara — efter en omstart finns ingen observerad
+    // anslutning att räkna från.
+    //
+    // ────────────────────────────────────────────────────────────────────
+    // VAD FIXEN INTE TÄCKER (granskarfynd, fixrunda 1b 2026-08-22).
+    // Ärligt utskrivet eftersom både fixrapporten och ARCHITECTURE-texten
+    // lästes som om HELA klassen vore stängd. Den är inte det.
+    //
+    // Klockan stämplas BARA av en socket som varit uppe minst FRESH_POLL_MS
+    // (flappvakten ovan). Vid aisstreams PERMANENTA serverdöd — läget sedan
+    // ~5 augusti 2026, där anslutningen aldrig kommer upp alls eller bara i
+    // sekundlånga stötar — blir `s.isConnected` aldrig sant så länge, och
+    // `lastRespondingAt` sätts därför ALDRIG. streamResponding är då falsk i
+    // varje tick, precis som före fixen, och ett ~3,5-minuters hubbglapp ger
+    // fortfarande trulyBlind + brända 24h-nycklar.
+    //
+    // FIXEN LÖSER ALLTSÅ RECONNECT-BLINKEN EFTER EN STABIL ANSLUTNING —
+    // inte den permanenta döden. Den är rätt fix för den falska positiven
+    // hos en frisk källa som råkar ligga i backoff, och den är verkningslös
+    // för en källa som är borta.
+    //
+    // FRAMTIDA PUNKT (INGEN beteendeändring gjord här, och avsiktligt inte:
+    // den rör blindhetslarmets grundsemantik och behöver egen fältmätning
+    // plus omprövning av de låsta nattproven i
+    // kalldodslarm-eskalering.test.js): låt en KONFIGURERAD men permanent
+    // nere aisstream inte ENSAM göra läget blint när hubben levererat inom
+    // SILENT_MS. Det är samma asymmetri som `hubDelivering` redan bär på
+    // andra sidan — "levererar data" är ett starkare svar än "svarar på
+    // anrop", och en app som får färska fartygsrapporter är per definition
+    // inte blind. Risken som måste mätas först: larmet får då aldrig gå när
+    // EN källa är konfigurerad men död och den andra bara råkar vara tyst
+    // därför att kanalen är tom.
+    // ────────────────────────────────────────────────────────────────────
+    let streamResponding = false;
+    let streamLatchAgeMs = null; // satt bara när KLOCKAN bär svarssidan
+    if (s) {
+      const silenceLedger = this._getFeedSilenceLedger();
+      if (!silenceLedger.aisstream) silenceLedger.aisstream = {};
+      const streamEntry = silenceLedger.aisstream;
+      const streamUptimeMs = Number.isFinite(s.uptime) ? Math.max(0, s.uptime) : 0;
+      if (s.configured === false) {
+        // Avkonfigurerad källa lämnar ingen klocka efter sig (samma regel som
+        // observationsankaret i _observedFeedSilence).
+        delete streamEntry.lastRespondingAt;
+      } else if (s.isConnected) {
+        // Öppen socket = källan SVARAR. Oförändrat.
+        streamResponding = true;
+        if (streamUptimeMs >= FRESH_POLL_MS) streamEntry.lastRespondingAt = now;
+      } else if (Number.isFinite(streamEntry.lastRespondingAt)) {
+        const sinceRespondingMs = now - streamEntry.lastRespondingAt;
+        streamResponding = sinceRespondingMs < FRESH_POLL_MS;
+        if (streamResponding) streamLatchAgeMs = sinceRespondingMs;
+      }
+    }
     const hubFeedsPipeline = this._hubFeedsPipeline();
     const relevant = [];
     if (s && s.configured) {
       relevant.push({
-        name: 'aisstream', st: s, sil: sSilence, responding: !!s.isConnected,
+        name: 'aisstream', st: s, sil: sSilence, responding: streamResponding,
       });
     }
     if (h && h.configured && hubFeedsPipeline) {
@@ -9945,7 +10426,15 @@ class AISBridgeApp extends Homey.App {
       // blind) är exakt det ögonblick fältanalysen letar efter, och med en enda
       // nyckel kunde det tystas i upp till 15 min av den lugna nattens egna
       // rader. Inom ETT läge är takten oförändrad (1 rad/15 min).
-      logLimited(`feeds-total:${mode}`, `INGEN aktiv AIS-källa har levererat på ${Math.round(minSil / 60000)} min (${names(relevant)}) — ${totalPhrase}`);
+      // H18: när aisstreams svarssida BÄRS AV LATCHEN (socketen nere men inom
+      // hysteresfönstret) säger raden det rakt ut — annars hade en fältläsare
+      // läst "svarar" som "socketen är uppe". Frasen läggs SIST så befintliga
+      // grep-mönster i loggen står oförändrade.
+      const latchPhrase = streamLatchAgeMs === null ? ''
+        : ` [aisstream-socketen nere sedan ${Math.round(streamLatchAgeMs / 1000)}s `
+          + `— inom hysteresfönstret ${Math.round(FRESH_POLL_MS / 1000)}s, ännu inte dömd]`;
+      // (streamLatchAgeMs mäts från senast observerade STABILA socket, se H18.)
+      logLimited(`feeds-total:${mode}`, `INGEN aktiv AIS-källa har levererat på ${Math.round(minSil / 60000)} min (${names(relevant)}) — ${totalPhrase}${latchPhrase}`);
       if (trulyBlind) {
         // K22: siffran HÄRLEDS ur samma mätning som loggraden ovan (minSil) —
         // den hårdkodade "15 minuter" var korstystnadsFÖNSTRET, inte det
