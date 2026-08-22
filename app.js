@@ -56,6 +56,11 @@ const {
 // exakt EN adress — se modulhuvudet innan du skriver en riktningssträng
 // någonstans i den här filen.
 const { toUserDirection, INTERNAL_TO_USER } = require('./lib/utils/directionTokens');
+// J35 (helkodsgranskning runda 2, 2026-08-22): AIS-skalärfältens SSOT. Regeln
+// för NAVSTAT bor i EN modul som båda ingångarna (aishubParser, AISStreamClient)
+// och den här sista saneringen i appen anropar — det var glidningen mellan
+// kopiorna som VAR felet.
+const { normalizeNavStatus } = require('./lib/utils/aisFieldNormalization');
 
 // =============================================================================
 // CONSTANTS: Centraliserade konfigurations-värden
@@ -93,6 +98,16 @@ const MIN_VIABLE_SPEED_KN = PASSAGE_TIMING.MINIMUM_VIABLE_SPEED;
 // annars kunde frånkopplingstexten sparas som _lastBridgeText och
 // återpubliceras som "validated fallback" EFTER reconnect.
 const STALE_DATA_OVERRIDE_TEXT = 'AIS-anslutning saknas — data kan vara inaktuell';
+
+// P8-vaktens tystnadsgräns (helkodsgranskning runda 2, J30). Talet fanns i TVÅ
+// exemplar: removal-vägens lokala FEED_SILENT_GUARD_MS och UI-vägens
+// hårdkodade `5 * 60 * 1000`. Det är samma doktrin på båda ställena ("ansluten
+// men döv" ⇒ publicera inte DEFAULT som sanning), och två kopior kan bara
+// glida isär. HÄRLEDNING (produktionsredo 2026-07-03): aisstream levererar
+// normalt flera meddelanden per minut i bevakningsområdet; 5 min utan ETT enda
+// meddelande medan socketen står uppe är en tappad prenumeration, inte en tyst
+// kanal. Samma tal som B2-watchdogens eget motiverade fall.
+const FEED_SILENT_GUARD_MS = 5 * 60 * 1000;
 
 // A7(a) (etapp 7, 2026-08-08): skrivtakt för källornas tystnadsbokföring
 // ('feed_silence_ledger'). Bokföringen LÄSES bara i ett enda fall — källan har
@@ -452,11 +467,58 @@ class AISBridgeApp extends Homey.App {
     // RIKTNINGEN är med av samma skäl som i boat_near-dedupen: en U-svängares
     // RETURPASSAGE av samma bro är en äkta, ny öppning och får inte tystas.
     this._persistentOpeningWarnings = new Map();
-    // Fönstret är dig9:s egen definition av "samma öppning" (CONVOY_WINDOW_MS).
-    // Bredare hade tystat legitima omvarningar: en konvojtäckt båt släpps
-    // tidigast referensankomst + 10 min (BridgeOpeningService._releaseStranded-
-    // Arms), så gränsen kan per konstruktion inte äta en sådan.
+    // VÄRDET ÄR ETT OBJEKT {firedAt, expiresAt, bootLoaded} OCH LÄSFÖNSTRET
+    // VÄLJS PÅ bootLoaded (J15, helkodsgranskning runda 2 + fixrunda 2b,
+    // 2026-08-22). Kartan konsulteras vid VARJE varning — inte bara efter en
+    // omstart — och måste därför svara på TVÅ olika frågor med två olika
+    // fönster:
+    //
+    //  (1) BOOT-LADDAD POST (skriven av en TIDIGARE session) = omstartsskydd.
+    //      Den nya sessionen har inget eget händelseminne (eventSeq nollställs),
+    //      så det som ska dedupas är hela ÅTERSTÅENDE anflygningen fram till
+    //      omstartens nya varning. Kortets egen hint
+    //      (.homeycompose/flow/triggers/bridge_opening_soon.json, mätt över
+    //      ~240 h) anger förvarningen till MEDIAN 17 min och projektets egna
+    //      grindar mäter 19,4 — ett rent CONVOY_WINDOW_MS (10 min) släppte
+    //      därför fram ett ANDRA "öppnar snart" för SAMMA öppning när Homey
+    //      uppdaterade appen 11 min efter varningen. Fönstret är alltså
+    //      expiresAt = avfyrning + CONVOY_WINDOW_MS + max(0, etaMinutes),
+    //      kapat av _OPENING_PERSIST_MAX_MS nedan.
+    //
+    //  (2) IN-SESSION-POST = hängslen på en LEVANDE service. Här äger
+    //      BridgeOpeningService händelsemodellen och avfyrar redan en gång per
+    //      öppning; kartan ska bara fånga en oavsiktlig återanropning inom
+    //      konvojfönstret. Fönstret är därför EXAKT firedAt + CONVOY_WINDOW_MS,
+    //      dvs. oförändrat mot före J15. MÄTT SKÄL, inte försiktighet: med det
+    //      ETA-förlängda fönstret även här tystnade den LEGITIMA omvarningen
+    //      efter lång radiotystnad. Det syntetiska scenariot
+    //      gap-35min-över-Klaffbron (varning 06:38 med ETA ~45 min, 35 min
+    //      radiotystnad, omvarning 07:09 på ett färskt fix 14 min före
+    //      passagen) föll på ÖPPNINGSLEVERANS 3≠2, och 20260707-14h tappade
+    //      HERA II:s omvarning 09:15:08 på 374 m (23 → 22 mot facit).
+    //
+    // LAGRINGSTIDEN är expiresAt för BÅDA sorterna (se _persistOpeningWarnings):
+    // en in-session-post måste ligga kvar bortom sitt egna, smalare läsfönster —
+    // annars finns den inte att ladda när omstarten kommer 11 min senare och
+    // omstartshålet är tillbaka.
+    //
+    // DEGRADERING: en post skriven av en äldre version är ett RENT TAL. Den
+    // läses som utgångstid (fixrunda 2:s form) och behandlas som boot-laddad;
+    // den ÄNNU äldre formen (avfyrningstid) ligger alltid i det FÖRFLUTNA vid
+    // inläsning och faller därmed bort direkt. Båda tolkningarna felar åt det
+    // håll produktprincipen kräver — en missad dedup ger på sin höjd en
+    // dubbelvarning, en felaktig dedup TYSTAR en öppning.
     this._OPENING_PERSIST_WINDOW_MS = BRIDGE_OPENING.CONVOY_WINDOW_MS;
+    // SÄKERHETSTAK för den BOOT-LADDADE utgången. etaMinutes kommer från
+    // öppningsmotorn och är obundet uppåt för en mycket långsam anflygning;
+    // utan tak kunde EN dålig ETA tysta bro+båt+riktning i timmar över en
+    // omstart. Taket är samma tal som den IN-SESSION-dedup som deklarerats ovan
+    // (_OPENING_DEDUP_TTL_MS, 1 h, "tilltaget mot CONVOY_WINDOW_MS så en
+    // händelse aldrig kan hinna glömmas medan den lever") — bortom det är
+    // öppningshändelsen glömd även i den levande sessionen, och en post som
+    // överlever sin egen händelse vaktar ingenting. Binder först vid ETA >
+    // 50 min, dvs. långt bortom mätt median.
+    this._OPENING_PERSIST_MAX_MS = this._OPENING_DEDUP_TTL_MS;
     this._loadPersistentOpeningWarnings();
 
     // --- UI UPPDATERINGS-STATE ---
@@ -625,6 +687,24 @@ class AISBridgeApp extends Homey.App {
         getDirection: (vessel) => this._getDirectionString(vessel),
         isQuayWobbler: (vessel) => this._isBridgeOpeningQuayWobbler(vessel),
         getVesselName: (mmsi) => this._lookupVesselName(mmsi),
+        // J22 (helkodsgranskning runda 2, 2026-08-22): C6:s beväpningsbevis
+        // (VesselDataService.hasArmingMovementEvidence) var skrivet, MÄTT och
+        // dokumenterat för exakt den här grinden — men hade noll konsumenter i
+        // hela trädet, så enkelsampelsfantomerna kunde beväpna som förut.
+        // Injektionen följer isQuayWobbler-mönstret: appen äger kopplingen,
+        // servicen äger beslutet (den prövar predikatet i EN grind, _canArm;
+        // en redan beväpnad arm omprövas aldrig, och exit-/failsafe-vägen läser
+        // det INTE — en utvidgning dit är ett eget beslut). FAIL-OPEN om
+        // predikatet saknas: produkt-
+        // principen är att en missad öppning är värre än ett falsklarm, och en
+        // trasig grind ska släppa igenom — samma doktrin som
+        // _isBridgeOpeningQuayWobbler har i sin catch.
+        hasArmingMovementEvidence: (vessel) => (
+          this.vesselDataService
+            && typeof this.vesselDataService.hasArmingMovementEvidence === 'function'
+            ? this.vesselDataService.hasArmingMovementEvidence(vessel)
+            : true
+        ),
       });
 
       // --- STEG 6: CONNECTION SERVICES ---
@@ -1001,9 +1081,39 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * J15: hur länge en persistent öppningsdedup-post SPÄRRAR en ny varning.
+   * ETT enda ställe som avgör fönstret, så läsningen aldrig kan glida isär
+   * från lagringen. Härledningen står i konstruktorn vid
+   * _persistentOpeningWarnings; kort:
+   *  - bootLoaded (posten skrevs av en TIDIGARE session) ⇒ expiresAt, dvs.
+   *    avfyrning + konvojfönstret + förväntad ETA. Omstartsskydd.
+   *  - in-session ⇒ firedAt + CONVOY_WINDOW_MS, exakt som före J15. Servicen
+   *    lever och äger händelsemodellen; kartan är bara hängslen, och ett
+   *    bredare fönster här tystar den legitima omvarningen efter radiotystnad.
+   * @param {{firedAt:?number, expiresAt:?number, bootLoaded:boolean}|number|null|undefined} entry
+   * @returns {number|null} tidpunkten då spärren släpper, eller null när posten
+   *   inte spärrar alls (saknad/trasig)
+   * @private
+   */
+  _openingDedupActiveUntil(entry) {
+    if (!entry) return null;
+    // Rent tal = post från en äldre version (utgångstid) eller ett direktsatt
+    // värde i ett enhetstest. Behandlas som boot-laddad: talet ÄR fönstret.
+    if (Number.isFinite(entry)) return entry;
+    if (entry.bootLoaded) {
+      return Number.isFinite(entry.expiresAt) ? entry.expiresAt : null;
+    }
+    if (!Number.isFinite(entry.firedAt)) return null;
+    const windowMs = Number.isFinite(this._OPENING_PERSIST_WINDOW_MS)
+      ? this._OPENING_PERSIST_WINDOW_MS
+      : BRIDGE_OPENING.CONVOY_WINDOW_MS;
+    return entry.firedAt + windowMs;
+  }
+
+  /**
    * Etapp 6: ladda öppningsvarningarnas persistenta dedup från settings.
-   * Samma defensiva mönster som _loadPersistentTriggers; poster äldre än
-   * fönstret filtreras bort direkt vid inläsning.
+   * Samma defensiva mönster som _loadPersistentTriggers; poster vars
+   * LAGRINGSTID (expiresAt) passerat filtreras bort direkt vid inläsning.
    * @private
    */
   _loadPersistentOpeningWarnings() {
@@ -1014,13 +1124,30 @@ class AISBridgeApp extends Homey.App {
       const stored = this.homey.settings.get('persistent_opening_warnings');
       if (!stored || typeof stored !== 'object') return;
       const now = Date.now();
-      const windowMs = this._OPENING_PERSIST_WINDOW_MS || BRIDGE_OPENING.CONVOY_WINDOW_MS;
       let loaded = 0;
-      for (const [key, ts] of Object.entries(stored)) {
-        if (Number.isFinite(ts) && now - ts < windowMs) {
-          this._persistentOpeningWarnings.set(key, ts);
-          loaded++;
+      // J15: allt som kommer HÄRIFRÅN är per definition omstartsskydd — det
+      // skrevs av en tidigare session. Posterna märks därför bootLoaded=true
+      // och läses med det ETA-förlängda fönstret (se konstruktorn); en post som
+      // DEN LEVANDE sessionen skriver får aldrig den flaggan.
+      // Prunen mäter LAGRINGSTIDEN (expiresAt) och måste spegla skrivningen —
+      // läste boot fortfarande "now − ts < 10 min" hade posten kastats vid
+      // inläsning och hela omstartsskyddet varit neutraliserat utan att ett
+      // enda test rodnat.
+      for (const [key, raw] of Object.entries(stored)) {
+        let expiresAt = null;
+        let firedAt = null;
+        if (Number.isFinite(raw)) {
+          // Äldre version: ett rent tal läses som utgångstid (degraderingen
+          // härleds i konstruktorn). firedAt är då okänd — boot-vägen läser
+          // ändå bara expiresAt.
+          expiresAt = raw;
+        } else if (raw && typeof raw === 'object') {
+          expiresAt = Number.isFinite(raw.expiresAt) ? raw.expiresAt : null;
+          firedAt = Number.isFinite(raw.firedAt) ? raw.firedAt : null;
         }
+        if (!Number.isFinite(expiresAt) || expiresAt <= now) continue;
+        this._persistentOpeningWarnings.set(key, { firedAt, expiresAt, bootLoaded: true });
+        loaded++;
       }
       if (loaded > 0) {
         this.log(`🌉 [OPENING_DEDUP] Återställde ${loaded} öppningsvarningar (överlever omstart)`);
@@ -1043,14 +1170,28 @@ class AISBridgeApp extends Homey.App {
       }
       if (!this._persistentOpeningWarnings) return;
       const now = Date.now();
-      const windowMs = this._OPENING_PERSIST_WINDOW_MS || BRIDGE_OPENING.CONVOY_WINDOW_MS;
       const blob = {};
-      for (const [key, ts] of [...this._persistentOpeningWarnings.entries()]) {
-        if (!Number.isFinite(ts) || now - ts >= windowMs) {
+      // J15: LAGRINGSTIDEN är expiresAt för BÅDA sorterna, och speglingen mot
+      // inläsningen är obligatorisk — en prune enligt gamla regeln hade tagit
+      // bort posten vid nästa skrivning och tyst återinfört omstartsdubbletten.
+      // Att en IN-SESSION-post ligger kvar bortom sitt smalare LÄSfönster är
+      // hela poängen: det är just den posten som ska finnas att ladda när
+      // omstarten kommer. Formen speglar inläsningen ({firedAt, expiresAt}), så
+      // en post kan läsas med rätt fönster oavsett vilken väg som skrev den.
+      for (const [key, entry] of [...this._persistentOpeningWarnings.entries()]) {
+        let expiresAt = null;
+        let firedAt = null;
+        if (Number.isFinite(entry)) {
+          expiresAt = entry;
+        } else if (entry && typeof entry === 'object') {
+          expiresAt = Number.isFinite(entry.expiresAt) ? entry.expiresAt : null;
+          firedAt = Number.isFinite(entry.firedAt) ? entry.firedAt : null;
+        }
+        if (!Number.isFinite(expiresAt) || expiresAt <= now) {
           this._persistentOpeningWarnings.delete(key);
           continue;
         }
-        blob[key] = ts;
+        blob[key] = { firedAt, expiresAt };
       }
       this.homey.settings.set('persistent_opening_warnings', blob);
     } catch (error) {
@@ -1624,9 +1765,21 @@ class AISBridgeApp extends Homey.App {
    * vessel.targetBridge, och en målbro som ännu inte hunnit rulla fram hade
    * kunnat beväpnas om direkt efter sin egen passage.
    *
-   * Passage-svepet efter är hängslen för de vägar där armen aldrig fanns
-   * (inferens-/backfill-registrerade passager, fartyg som beväpnades först
-   * efter bron): det stänger öppningshändelsen även då.
+   * PASSAGE-SVEPET EFTERÅT — VAD DET FAKTISKT GÖR (J14, helkodsgranskning
+   * runda 2, 2026-08-22). Här stod tidigare att svepet är "hängslen för de
+   * vägar där armen aldrig fanns … det stänger öppningshändelsen även då".
+   * Det LÖFTET ÄR FALSKT: BridgeOpeningService._recordPassage returnerar
+   * direkt när fartyget saknar arm (eller när armens eventId är null), så en
+   * ARMLÖS passage bokförs INTE — händelsen får varken firstPassageAt eller
+   * lastPassageAt, och _rebaseConvoyCoverage körs aldrig. Svepet stänger alltså
+   * bara händelser för fartyg som HADE en arm men vars passage upptäcktes via
+   * inferens/backfill i stället för av observeVessel i samma tick.
+   *
+   * MEDLEMSKRAVET ÄR ETT VAL, inte en glömska: U2 säger att öppningen lever
+   * till första FAKTISKA passagen, men att låta vilken båt som helst stänga en
+   * annans öppningshändelse rör låst öppningsfacit i flera korpusar och kräver
+   * eget beslut (se docs/ARCHITECTURE.md §9). Ändras det ska det ändras i
+   * servicen — inte här.
    * @param {Object} vessel - Fartygsobjekt
    * @private
    */
@@ -1640,10 +1793,35 @@ class AISBridgeApp extends Homey.App {
       const anchored = (vessel.passedAt && typeof vessel.passedAt === 'object') ? vessel.passedAt : null;
       if (!anchored) return;
       const now = Date.now();
+      let openingKeysCleared = 0;
       for (const [bridgeName, ts] of Object.entries(anchored)) {
         if (!Number.isFinite(ts) || now - ts >= 2000) continue;
         if (!TARGET_BRIDGES.includes(bridgeName)) continue;
         this.bridgeOpeningService.notePassage(vessel.mmsi, bridgeName);
+        // J15 (2026-08-22): PASSAGEN KONSUMERAR DEN PERSISTENTA DEDUP-POSTEN.
+        // Posten lever numera till förväntad ankomst + konvojfönstret, alltså
+        // betydligt längre än förut — och en post som överlever sin egen
+        // passage kan TYSTA nästa äkta öppning för samma bro och båt (en
+        // U-svängare som vänder om och kommer tillbaka inom fönstret). Vid
+        // faktisk passage är öppningen förbrukad: allt som står kvar på
+        // bro|mmsi|* ska bort, oavsett vilken riktning varningen bokfördes
+        // med (riktningen kan ha låsts om mellan varning och passage).
+        if (this._persistentOpeningWarnings && this._persistentOpeningWarnings.size > 0) {
+          const prefix = `${bridgeName}|${String(vessel.mmsi)}|`;
+          for (const key of [...this._persistentOpeningWarnings.keys()]) {
+            if (key.startsWith(prefix)) {
+              this._persistentOpeningWarnings.delete(key);
+              openingKeysCleared++;
+            }
+          }
+        }
+      }
+      if (openingKeysCleared > 0) {
+        this.log(
+          `🌉 [OPENING_DEDUP_PASSED] ${vessel.mmsi}: ${openingKeysCleared} öppningsdedup-nyckel(ar) `
+          + 'nollade vid bekräftad passage — nästa öppning kan aldrig tystas av den gamla varningen',
+        );
+        this._persistOpeningWarnings();
       }
     } catch (error) {
       // CRASH PROTECTION: det additiva lagret får aldrig stoppa notisvägen
@@ -2395,6 +2573,97 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * P8-VAKTENS TYSTNADSMÄTNING — GEMENSAM FÖR REMOVAL- OCH UI-VÄGEN.
+   *
+   * Helkodsgranskning runda 2 (J30): båda vakterna satte feedSilentMs=null när
+   * aggregatets timeSinceLastMessage inte var finit, och provade sedan
+   * `feedSilentMs !== null && feedSilentMs > gränsen`. Ett OKÄNT tystnadsmått
+   * blev därmed "INTE tyst" ⇒ vakten föll igenom till DEFAULT-texten och
+   * "Inga båtar…" publicerades som sanning. Samma fil bär motsatt doktrin på
+   * tre andra ställen (null får aldrig räknas som färskt), och läget är nåbart
+   * mot riktig kod: efter källbyte eller byte av aishub-användarnamn återskapas
+   * hubbklienten färsk — isConnected tänds av första OK-pollen medan
+   * lastMessageTime bara bumpas av FÄRSKA poster, så aggregatet ger
+   * isConnected=true och timeSinceLastMessage=null. Sista båten kan då
+   * STALE-timeoutas utan att ett enda meddelande kommit in.
+   *
+   * REGELN EFTER FIXEN:
+   *  - ingen aisClient alls  ⇒ hasStats=false, silent=false. DAGENS beteende
+   *    behålls medvetet: `_isConnected`-ledet är då enda kunskapskällan, och
+   *    P8-sviten låser att en ansluten app utan klientobjekt trycker DEFAULT.
+   *  - mätbart mått         ⇒ silent = mått > FEED_SILENT_GUARD_MS (som förut).
+   *  - OMÄTBART mått OCH klienten säger sig VARA ANSLUTEN ⇒ silent = TRUE.
+   *    Det är precis J30:s läge: "socketen är uppe, men jag kan inte säga när
+   *    jag senast levererade något". Då VET vi inte att kanalen är tom — vi vet
+   *    bara att vi inte vet, och P8:s hela poäng är att okunskap aldrig får
+   *    publiceras som "inga båtar".
+   *  - OMÄTBART mått men klienten är INTE ansluten ⇒ silent = false, dvs.
+   *    dagens beteende. GRÄNSEN ÄR MEDVETEN OCH MÄTT: utan den blir vakten
+   *    permanent armad i varje miljö där klienten aldrig kopplar upp — bl.a.
+   *    replay-harnessen, som matar sampel direkt till _processAISMessage och
+   *    därför alltid har lastMessageTime=null och uptime=0. Uppmätt i isolerad
+   *    A/B över alla 18 korpusar: den ovillkorliga varianten höll t.ex.
+   *    "En båt på väg mot Klaffbron, ETA okänd" i 30 minuter i 20260707-14h
+   *    (DEFAULT sköts från 09:40 till 10:06) och flyttade brotexten i 16 av 18
+   *    korpusar. Ett fruset fartygspåstående är EXAKT den klass pelare 1
+   *    jagar — och en frånkopplad klient har redan sin egen vakt
+   *    (`!this._isConnected` här, plus Bug#12-overriden efter 2 min).
+   *  - stats-anropet kastar ⇒ ingen användbar uppgift alls: dagens beteende,
+   *    men felet loggas (svälj-fällan).
+   *
+   * @param {string} tag - loggetikett för anropsstället (avväpningen ska synas)
+   * @returns {{hasStats: boolean, feedSilentMs: (number|null), silent: boolean,
+   *   unmeasurable: boolean}}
+   * @private
+   */
+  _evaluateFeedSilence(tag) {
+    const hasStats = Boolean(this.aisClient)
+      && typeof this.aisClient.getConnectionStats === 'function';
+    if (!hasStats) {
+      return {
+        hasStats: false, feedSilentMs: null, silent: false, unmeasurable: false,
+      };
+    }
+    let feedStats = null;
+    try {
+      feedStats = this.aisClient.getConnectionStats();
+    } catch (error) {
+      this.log(
+        `🛡️ [FEED_SILENCE_UNMEASURABLE] ${tag}: getConnectionStats kastade `
+        + `(${error && error.message ? error.message : error}) — inget tystnadsmått, `
+        + 'vakten vilar på anslutningsflaggan',
+      );
+      return {
+        hasStats: true, feedSilentMs: null, silent: false, unmeasurable: true,
+      };
+    }
+    if (feedStats && Number.isFinite(feedStats.timeSinceLastMessage)) {
+      const feedSilentMs = feedStats.timeSinceLastMessage;
+      return {
+        hasStats: true,
+        feedSilentMs,
+        silent: feedSilentMs > FEED_SILENT_GUARD_MS,
+        unmeasurable: false,
+      };
+    }
+    // Omätbart. Klientens EGEN anslutningsflagga avgör om okunskapen är den
+    // farliga sorten (ansluten men stum) eller den ofarliga (aldrig uppkopplad).
+    const claimsConnected = Boolean(feedStats && feedStats.isConnected);
+    if (claimsConnected) {
+      // Loggas på log-nivå: utan raden fanns ingen spårbarhet alls för varför
+      // vakten (inte) slog till — precis det J30 pekade ut.
+      this.log(
+        `🛡️ [FEED_SILENCE_UNMEASURABLE] ${tag}: AIS-klienten rapporterar ANSLUTEN men `
+        + 'timeSinceLastMessage saknas — okänt tystnadsmått behandlas som TYST '
+        + '(texten hålls, DEFAULT publiceras inte)',
+      );
+    }
+    return {
+      hasStats: true, feedSilentMs: null, silent: claimsConnected, unmeasurable: true,
+    };
+  }
+
+  /**
    * ==========================================================================
    * VESSEL REMOVED HANDLER
    * ==========================================================================
@@ -2648,17 +2917,12 @@ class AISBridgeApp extends Homey.App {
       // "Inga båtar"-texten stod tills watchdogen tvingade reconnect
       // (20–120 min efter backoff). Första meddelandet efter återhämtning
       // uppdaterar texten precis som _onAISConnected gör efter disconnect.
-      const FEED_SILENT_GUARD_MS = 5 * 60 * 1000;
-      let feedSilentMs = null;
-      if (this.aisClient && typeof this.aisClient.getConnectionStats === 'function') {
-        try {
-          const feedStats = this.aisClient.getConnectionStats();
-          feedSilentMs = Number.isFinite(feedStats.timeSinceLastMessage)
-            ? feedStats.timeSinceLastMessage
-            : null;
-        } catch (_) { /* stats är best-effort */ }
-      }
-      const feedIsSilent = feedSilentMs !== null && feedSilentMs > FEED_SILENT_GUARD_MS;
+      // J30 (helkodsgranskning runda 2): mätningen bor i _evaluateFeedSilence,
+      // gemensamt med UI-vägens spegel. Ett OMÄTBART tystnadsmått räknas nu som
+      // TYST — se helperns docblock.
+      const feedSilence = this._evaluateFeedSilence('VESSEL_REMOVAL_STALE_GUARD');
+      const { feedSilentMs } = feedSilence;
+      const feedIsSilent = feedSilence.silent;
 
       if (remainingVesselCount === 0 && (!this._isConnected || feedIsSilent)) {
         // P8-fix (2026-06-09): det sista fartyget togs bort MEDAN AIS-strömmen
@@ -2666,8 +2930,13 @@ class AISBridgeApp extends Homey.App {
         // ut DEFAULT ("inga båtar...") är en lögn — vi VET inte att kanalen är
         // tom, vi har bara ingen data. Behåll senaste text; _onAISConnected
         // tvingar en färsk uppdatering så fort strömmen är tillbaka.
+        // J30: "0s without messages" var en LÖGN i det omätbara fallet (måttet
+        // saknades, det var inte noll). Raden redovisar nu okunskapen.
+        const silenceLabel = feedSilence.unmeasurable
+          ? 'silent (tystnadsmåttet saknas — behandlas som tyst)'
+          : `silent (${Math.round((feedSilentMs || 0) / 1000)}s without messages)`;
         this.log(
-          `🛡️ [VESSEL_REMOVAL_STALE_GUARD] Last vessel removed while AIS is ${this._isConnected ? `silent (${Math.round((feedSilentMs || 0) / 1000)}s without messages)` : 'disconnected'} — `
+          `🛡️ [VESSEL_REMOVAL_STALE_GUARD] Last vessel removed while AIS is ${this._isConnected ? silenceLabel : 'disconnected'} — `
           + 'keeping last bridge text until data returns',
         );
       } else if (remainingVesselCount === 0) {
@@ -3964,10 +4233,28 @@ class AISBridgeApp extends Homey.App {
       const normalizedCog = Number.isFinite(message.cog) ? message.cog : null;
       // Förtöjningsdetektering lager 3: AIS-navigationsstatus (Class A).
       // null = okänd/saknas (Class B sänder aldrig fältet).
-      const normalizedNavStatus = Number.isInteger(message.navStatus)
-        && message.navStatus >= 0 && message.navStatus <= 15
-        ? message.navStatus
-        : null;
+      //
+      // J35 (helkodsgranskning runda 2, 2026-08-22): ÖVRE GRÄNSEN ÄR 14, INTE
+      // 15 — och den står numera på ETT ställe. AIS-specen definierar 0–14 som
+      // semantiska statusar medan 15 betyder "undefined"; lib/utils/aishubParser.js
+      // mappade därför redan 15 till null medan DEN HÄR vägen accepterade 15 som
+      // ett värde. Eftersom VesselDataService slår ihop med nullish-operatorn
+      // (data.navStatus ?? oldVessel.navStatus) SKREV ett 15 över ett känt 1
+      // (ankrad) eller 5 (förtöjd). Följd: MOORED_NAV_STATUSES matchar inte 15
+      // ⇒ förtöjningsdetekteringens lager 3 föll bort för en kajförtöjd Class
+      // A-båt, och klassningen fick vänta på kajzonslagret (≥3 min stillhet)
+      // eller 2h-backstoppen — under fönstret räknades hon som VÄNTANDE, dvs.
+      // samma felmod som falsk "inväntar broöppning".
+      // SSOT: gränsen (NAV_STATUS_MAX) och regeln ägs av
+      // lib/utils/aisFieldNormalization.js, som BÅDA ingångarna
+      // (lib/utils/aishubParser.js för poll, lib/connection/AISStreamClient.js
+      // för push) anropar. Den här raden är appens sista sanering på den väg som
+      // också bär replay- och testriggarnas meddelanden — den får därför inte
+      // vara en fjärde kopia av samma tal.
+      // KOERCIONEN ÄGS AV ANROPAREN (modulens kontrakt): message.navStatus är
+      // redan typad JSON här, så ingen Number()-konvertering görs — en sträng
+      // är korruption och ska bli null, precis som förut.
+      const normalizedNavStatus = normalizeNavStatus(message.navStatus);
       // Etapp 0 AISHub-förberedelse (2026-08-02): fixtid + källa följer med
       // genom pipelinen som syskonfält. aisstream bär ingen äkta fixtid →
       // identitet: fixTs = klientens mottagningsstämpel (message.timestamp),
@@ -4511,8 +4798,32 @@ class AISBridgeApp extends Homey.App {
     // ENHANCED: Check for critical zone transitions that need stabilization
     const hasCriticalTransitions = this._hasCriticalZoneTransitions(snapshot.relevantVessels);
 
-    // Don't apply micro-grace if too much time has passed (>5s)
-    // EXCEPTION: Allow longer micro-grace for critical transitions (up to 3s hold)
+    // BERÄTTIGANDEFÖNSTRET — läs det som "hur länge är en PAUS berättigad?".
+    // Micro-grace är inte kvarhållning av text utan en 200 ms PAUS före
+    // publicering (se [MICRO_GRACE]-raden i _actuallyUpdateUI: sant villkor
+    // => sleep(200) + ny snapshot). Faller uppdateringen UTANFÖR fönstret
+    // publiceras den alltså OPAUSAT, direkt.
+    //
+    // Därför är 3 s för kritiska övergångar (åker strax under / under bron)
+    // AVSIKTLIGT KORTARE än vanliga 5 s: från 3 s och framåt slipper en
+    // kritisk övergång pausen helt och når UI:t snabbare. En båt som just
+    // gått under bron ska synas nu, inte 200 ms senare. Under 3 s pausas den
+    // fortfarande — det är där termen hasCriticalTransitions i returuttrycket
+    // nedan gör nytta; ovanför 3 s har fönstret redan sagt nej.
+    //
+    // J32 (helkodsgranskning runda 2/2b 2026-08-22): den gamla engelska raden
+    // "EXCEPTION: Allow longer micro-grace for critical transitions" lästes av
+    // runda 2 som ett löfte om ett LÄNGRE fönster, och koden skrevs om till
+    // symmetriska 5 000 ms. KOMMENTAREN var felet, inte koden — "longer
+    // micro-grace" beskrev en paus fönstret aldrig gav. Omskrivningen kostade
+    // 200 ms EXTRA paus på kritiska övergångar i bandet 3–5 s, dvs. att
+    // stabilisera en kritisk övergång genom att FÖRDRÖJA den. I
+    // replay-harnessen (60 ms klocksteg per sampel) rastrerades de 200 ms
+    // dessutom till +30 s och drev in harnessartefakter i fyra goldens plus en
+    // knivseggsrad i 20260712-25h (FRAM 211864690: "beräknad broöppning strax"
+    // flyttades från 7,6 s FÖRE Klaffbron-korsningen till 22,5 s EFTER den).
+    // Dirigentbeslut 2026-08-22: koden står kvar oförändrad, bara kommentaren
+    // rättad. Semantiken låses av tests/j32-micro-grace-fonstret.test.js.
     const timeLimit = hasCriticalTransitions ? 3000 : 5000;
     if (timeSinceLastUpdate > timeLimit) {
       return false;
@@ -4733,19 +5044,19 @@ class AISBridgeApp extends Homey.App {
           && this._lastBridgeText
           && this._lastBridgeText !== BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE
           && this._lastBridgeText !== STALE_DATA_OVERRIDE_TEXT) {
-        let feedSilentMs = null;
-        if (this.aisClient && typeof this.aisClient.getConnectionStats === 'function') {
-          try {
-            const feedStats = this.aisClient.getConnectionStats();
-            feedSilentMs = Number.isFinite(feedStats.timeSinceLastMessage)
-              ? feedStats.timeSinceLastMessage
-              : null;
-          } catch (_) { /* stats är best-effort */ }
-        }
-        const feedIsSilent = feedSilentMs !== null && feedSilentMs > 5 * 60 * 1000;
+        // J30 (helkodsgranskning runda 2): SAMMA mätning som removal-vägen —
+        // gränsen låg tidigare hårdkodad här (5 * 60 * 1000) medan removal-vägen
+        // hade sin egen konstant, och ett omätbart mått avväpnade vakten på
+        // BÅDA ställena. Helpern äger nu både talet och null-doktrinen.
+        const feedSilence = this._evaluateFeedSilence('UI_FEED_STALE_GUARD');
+        const { feedSilentMs } = feedSilence;
+        const feedIsSilent = feedSilence.silent;
         if (!this._isConnected || feedIsSilent) {
+          const silenceLabel = feedSilence.unmeasurable
+            ? 'döv (tystnadsmåttet saknas — behandlas som tyst)'
+            : `döv (${Math.round((feedSilentMs || 0) / 1000)}s utan meddelanden)`;
           this.log(
-            `🛡️ [UI_FEED_STALE_GUARD] 0 båtar men AIS är ${this._isConnected ? `döv (${Math.round((feedSilentMs || 0) / 1000)}s utan meddelanden)` : 'frånkopplad'} — behåller senaste texten`,
+            `🛡️ [UI_FEED_STALE_GUARD] 0 båtar men AIS är ${this._isConnected ? silenceLabel : 'frånkopplad'} — behåller senaste texten`,
           );
           bridgeText = this._lastBridgeText;
         }
@@ -6657,15 +6968,35 @@ class AISBridgeApp extends Homey.App {
       const openNow = Date.now();
       const openKey = (mmsi) => `${payload.bridge}|${mmsi}|${warnDir}`;
       if (this._persistentOpeningWarnings) {
+        // J15: LÄSFÖNSTRET VÄLJS PÅ POSTENS URSPRUNG (_openingDedupActiveUntil).
+        // En BOOT-laddad post spärrar hela den återstående anflygningen — det är
+        // omstartsskyddet. En post som DEN HÄR sessionen skrev spärrar bara
+        // konvojfönstret, så en legitim omvarning på ett färskt fix efter lång
+        // radiotystnad släpps igenom (gap-35min-scenariot, HERA II i 14h).
+        const activeUntil = (mmsi) => this._openingDedupActiveUntil(
+          this._persistentOpeningWarnings.get(openKey(mmsi)),
+        );
         const allSeen = warnMembers.every((mmsi) => {
-          const ts = this._persistentOpeningWarnings.get(openKey(mmsi));
-          return Number.isFinite(ts) && openNow - ts < openWindowMs;
+          const until = activeUntil(mmsi);
+          return Number.isFinite(until) && until > openNow;
         });
         if (allSeen) {
+          const restMin = Math.max(
+            0,
+            Math.round(Math.min(...warnMembers.map((mmsi) => activeUntil(mmsi) - openNow)) / 60000),
+          );
+          // J15: raden ska säga VILKET fönster som spärrade — "omstartsdubblett"
+          // vore osant i det vanligaste fallet nu när in-session-posten har ett
+          // eget, smalare fönster. En BLANDAD medlemsmängd rapporteras som
+          // omstartsskydd: det är den bredare av de två orsakerna.
+          const bootBlockerad = warnMembers.some((mmsi) => {
+            const post = this._persistentOpeningWarnings.get(openKey(mmsi));
+            return !!post && (typeof post !== 'object' || post.bootLoaded === true);
+          });
           this.log(
             `🔁 [OPENING_DEDUP_PERSIST] ${payload.eventId}: samtliga ${warnMembers.length} båt(ar) `
-            + `redan varnade för ${payload.bridge} (${warnDir}) inom ${Math.round(openWindowMs / 60000)} min `
-            + '— hoppar över (omstartsdubblett)',
+            + `redan varnade för ${payload.bridge} (${warnDir}) — dedupen gäller ${restMin} min till `
+            + `— hoppar över (${bootBlockerad ? 'omstartsskydd' : 'konvojfönstret'})`,
           );
           return;
         }
@@ -6772,8 +7103,25 @@ class AISBridgeApp extends Homey.App {
       // får en egen händelse).
       if (this._firedOpeningEvents) this._firedOpeningEvents.set(payload.eventId, Date.now());
       if (this._persistentOpeningWarnings) {
+        // J15: expiresAt är LAGRINGSTID och BOOT-fönster — inte den här
+        // sessionens läsfönster. etaMinutes ovan är redan avrundad och bär
+        // -1-sentinelen för okänd ETA; max(0, …) gör därför att en okänd ETA
+        // landar på ren CONVOY_WINDOW_MS, medan en känd förvarning (median
+        // 17 min) täcker HELA den återstående anflygningen fram till en
+        // omstarts nya varning.
+        const openExpiry = Math.min(
+          openNow + openWindowMs + Math.max(0, etaMinutes) * 60000,
+          openNow + (this._OPENING_PERSIST_MAX_MS || this._OPENING_DEDUP_TTL_MS || 60 * 60 * 1000),
+        );
         for (const mmsi of warnMembers) {
-          if (mmsi) this._persistentOpeningWarnings.set(openKey(mmsi), openNow);
+          // bootLoaded=false: posten tillhör DEN HÄR sessionen och läses med
+          // konvojfönstret (firedAt + CONVOY_WINDOW_MS). Först när en omstart
+          // laddar in den blir expiresAt läsfönster.
+          if (mmsi) {
+            this._persistentOpeningWarnings.set(openKey(mmsi), {
+              firedAt: openNow, expiresAt: openExpiry, bootLoaded: false,
+            });
+          }
         }
         this._persistOpeningWarnings();
       }
@@ -7767,15 +8115,22 @@ class AISBridgeApp extends Homey.App {
       if (oppositeDirection || (!persisted && expiredRelease)) {
         // P2R2-4-spegeln (R2 2026-07-11): behåll nyckeln om persistentgaten
         // nedströms blockerar flippen (samma vakt som huvudvägen).
-        if (oppositeDirection) {
-          const verdict = this._persistentDedupCheck(dedupeKey, vessel, { retroactiveSource: true });
-          if (verdict.blocked) {
-            this.debug(
-              `🚫 [EXIT_TRIGGER_DEDUPE] ${vessel.mmsi}: flip blocked downstream by persistent gate `
-              + `(${verdict.minutesSince} min) — keeping session key`,
-            );
-            return;
-          }
+        //
+        // J29-SPEGELN (helkodsgranskning runda 2, 2026-08-22): vakten gällde
+        // BARA flip-grenen — precis som i huvudvägen. Exit-vägens egen
+        // persistentgrind nedanför (EXIT_TRIGGER_PERSISTENT_DEDUPE, alltid
+        // retroactiveSource: true) kan blockera även ett EXPIRED-släpp via
+        // 6h-gaten PERSISTENT_DEDUP_SAME_DIR_LATE. Nyckeln försvann då medan
+        // posten levde kvar, och när posten sedan prunades av retentionen
+        // fanns ingen av de två spärrarna. Kontrollen körs nu för BÅDA
+        // släppvägarna, med exakt samma källklassning som gaten nedanför.
+        const verdict = this._persistentDedupCheck(dedupeKey, vessel, { retroactiveSource: true });
+        if (verdict.blocked) {
+          this.debug(
+            `🚫 [EXIT_TRIGGER_DEDUPE] ${vessel.mmsi}: ${oppositeDirection ? 'flip' : 'expired release'} `
+            + `blocked downstream by persistent gate (${verdict.minutesSince} min) — keeping session key`,
+          );
+          return;
         }
         this._triggeredBoatNearKeys.delete(dedupeKey);
         this.log(
@@ -8451,16 +8806,28 @@ class AISBridgeApp extends Homey.App {
         // nedströms ändå blockerar (60-min-retroaktivgaten) — nyckeln bär
         // #44-/expired-hold-skyddet, och en förlorad nyckel utan post
         // öppnade PILOT-fantomen på nytt efter 2h-prunen.
-        if (oppositeDirection) {
-          const retroSrc = this._isRetroactiveNotificationSource(source);
-          const verdict = this._persistentDedupCheck(dedupeKey, vessel, { retroactiveSource: retroSrc });
-          if (verdict.blocked) {
-            this.log(
-              `🚫 [FLOW_TRIGGER_DEDUPE] ${vessel.mmsi}: flip for "${bridgeName}" blocked downstream `
-              + `by persistent gate (${verdict.minutesSince} min) — keeping session key`,
-            );
-            return;
-          }
+        //
+        // J29 (helkodsgranskning runda 2, 2026-08-22): skyddet gällde BARA
+        // flip-grenen. Expired-grenen (ingen färsk post + expiredRelease)
+        // raderade nyckeln OVILLKORLIGT och lät först DÄREFTER F34-blocket
+        // nedanför fråga. Blockerar F34 då via 6h-gaten
+        // (PERSISTENT_DEDUP_SAME_DIR_LATE, retroaktiv källa i samma riktning)
+        // försvinner sessionsnyckeln medan POSTEN lever kvar — och med nyckeln
+        // försvinner även #44-skyddet alreadyPassedThisJourney för alla senare
+        // försök. När posten sedan prunas av 6h-retentionen finns INGEN av de
+        // två spärrarna kvar. Kontrollen körs därför för BÅDA släppvägarna,
+        // FÖRE raderingen; samma villkor och samma källklassning som F34
+        // använder nedströms, så utfallet i just den här ticken är oförändrat
+        // (ingen notis i båda fallen) — det enda som ändras är att nyckeln
+        // överlever.
+        const retroSrc = this._isRetroactiveNotificationSource(source);
+        const verdict = this._persistentDedupCheck(dedupeKey, vessel, { retroactiveSource: retroSrc });
+        if (verdict.blocked) {
+          this.log(
+            `🚫 [FLOW_TRIGGER_DEDUPE] ${vessel.mmsi}: ${oppositeDirection ? 'flip' : 'expired release'} for `
+            + `"${bridgeName}" blocked downstream by persistent gate (${verdict.minutesSince} min) — keeping session key`,
+          );
+          return;
         }
         this._triggeredBoatNearKeys.delete(dedupeKey);
         this.log(
