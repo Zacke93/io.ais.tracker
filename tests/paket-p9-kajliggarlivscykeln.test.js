@@ -709,10 +709,21 @@ describe('P9(c): gravvården — beteendebevis över en kortvarig radering', () 
     const mmsi = '265573130';
     seedAndRemove(mmsi, { targetBridge: 'Klaffbron', status: 'waiting' });
     const grave = svc._vesselGraves.get(mmsi);
+    // L1 (helkodsgranskning RUNDA 3, 2026-08-22): listan utökad med
+    // _plausibleMovementSeen + _corroboratedMovementPending. MOTIVERING PER
+    // FÄLT — båda är BEVIS, inte slutsatser, och hör därmed hemma i graven
+    // enligt F3-kontraktet: _plausibleMovementSeen är den andra halvan av
+    // hasArmingMovementEvidence() (predikatet J22 kopplade in i öppnings-
+    // motorns _canArm) och _corroboratedMovementPending är C6:s hysteres-
+    // räknare, syskon till _mooredReleasePending som redan står i listan.
+    // Granskning 3 lade även _movementProofPending (syskonräknaren för
+    // _hasMovementProof) — samma roll, samma skäl.
+    // Utan dem var beväpningen permanent spärrad efter en återfödelse.
     expect(Object.keys(grave.fields).sort()).toEqual([
-      '_firstSeenLat', '_firstSeenLon', '_hasCorroboratedMovement', '_hasMovementProof',
-      '_mooredReleasePending', '_nullSogStillAnchorLat', '_nullSogStillAnchorLon',
-      '_nullSogStillAnchorT', '_stationarySince', '_trackingEpisodeStartTs',
+      '_corroboratedMovementPending', '_firstSeenLat', '_firstSeenLon',
+      '_hasCorroboratedMovement', '_hasMovementProof', '_mooredReleasePending',
+      '_movementProofPending', '_nullSogStillAnchorLat', '_nullSogStillAnchorLon', '_nullSogStillAnchorT',
+      '_plausibleMovementSeen', '_stationarySince', '_trackingEpisodeStartTs',
     ]);
     // F3-KONTRAKTET: graven bär BEVIS, inte SLUTSATSER. _moored är en slutsats
     // av bevisen och ska härledas om — den får inte ens finnas i nyttolasten
