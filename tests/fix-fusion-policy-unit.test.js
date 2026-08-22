@@ -506,11 +506,24 @@ describe('F6b: klockoffsetkompensation (granskningsrunda 2, 2026-08-03)', () => 
     expect(clock.hubAheadSamples).toBe(0);
   });
 
-  test('LEVERANSBEVISET: en fix som postdaterar sin egen leverans är skevbevis', () => {
+  test('H24: EN framtidsdaterad post är INTE skevbevis (bevis A kräver korroborering)', () => {
     const clock = createClockState();
-    // Hubbens klocka går 45 s före: fixTs ligger 45 s efter mottagningen.
+    // Bruten transponder: fixTs ligger 45 s efter sin egen leverans — men
+    // bara för DET fartyget. Före H24 satte den ensam den GLOBALA offseten.
     observeClock(clock, null, hub(NOW + 45000), 'aishub', NOW, CFG);
-    expect(clock.hubAheadSamples).toBe(1);
+    expect(clock.hubAheadSamples).toBe(1); // syns i [FUSION_HEALTH] …
+    expect(clock.hubOffsetMs).toBe(0); // … men driver ingen kompensation
+  });
+
+  test('LEVERANSBEVISET: skev som TRE fartyg är överens om kompenseras', () => {
+    const clock = createClockState();
+    // Hubbens klocka går 45 s före: fixTs ligger 45 s efter mottagningen för
+    // SAMTLIGA fartyg — det ÄR signaturen för en serverskev (till skillnad
+    // från den ensamma trasiga sändaren ovan).
+    for (const mmsi of ['265001111', '265002222', '265003333']) {
+      observeClock(clock, null, hub(NOW + 45000, { mmsi }), 'aishub', NOW, CFG);
+    }
+    expect(clock.hubAheadSamples).toBe(3);
     expect(clock.hubOffsetMs).toBe(-45000);
   });
 
@@ -754,9 +767,14 @@ describe('A12 (F-22): samma-rapport-grind på F6b:s korskällebevis', () => {
       observeClock(clock, stateWithStreamContent(t), hub(t - 2000 + SKEW), 'aishub', t + 60000, CFG);
     }
     expect(clock.pairLags).toHaveLength(0); // |pairLag| = 148 s ⇒ grindat
-    // En enda fix med LÅG leveranslatens räcker för bevis A (nattens minsta
-    // observerade latens var 414 ms, p10 3,9 s): min(now − fixTs) = latens − skev.
-    observeClock(clock, null, hub(NOW + 60000 + SKEW), 'aishub', NOW + 60000 + 3000, CFG);
+    // Fixar med LÅG leveranslatens bär bevis A (nattens minsta observerade
+    // latens var 414 ms, p10 3,9 s): min(now − fixTs) = latens − skev.
+    // H24: skattningen kräver numera att FLERA fartyg visar samma försprång —
+    // en äkta serverskev gör det per definition (jfr den ensamma trasiga
+    // sändaren, som inte längre får svälta hubben).
+    for (const mmsi of ['265004444', '265005555', '265006666']) {
+      observeClock(clock, null, hub(NOW + 60000 + SKEW, { mmsi }), 'aishub', NOW + 60000 + 3000, CFG);
+    }
     expect(clock.hubOffsetMs).toBe(-(SKEW - 3000));
   });
 });
