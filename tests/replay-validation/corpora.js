@@ -646,7 +646,27 @@ module.exports = [
       + 'VERKANSKONTROLL: korpusen har TVÅ hållningssläpp men bara EN flyttad golden-post — det andra '
       + '(265606970 vid Stridsbergsbron) inföll när motorns nya text var identisk med den hållna, så '
       + 'ingen publicering flyttades. Ett släpp som inte ändrar texten är per konstruktion osynligt i '
-      + 'facit. Notis-, fördelnings-, riktnings- och öppningsfacit ORÖRDA (80/80).',
+      + 'facit. Notis-, fördelnings-, riktnings- och öppningsfacit ORÖRDA (80/80).'
+      + ' GOLDEN OMLÅST (2026-08-22, K25 notis-token efter ETA-omräkningen, röda etappen): 134 → 134 '
+      + 'övergångar, 0 texter ändrade, 0 poster till eller från — ENDAST 2 tidsstämplar, båda 5 ms '
+      + 'TIDIGARE: idx 17 07:55:36.950 → .945 (IN-AXXI 244130745, en-route → stallbacka-waiting) och '
+      + 'idx 92 11:34:54.489 → .484 (VIRGO 265552100, samma statusövergång). MEKANISM (rådataverifierad '
+      + 'i replayns egen debuglogg, tidsstämplad med fejkklockan): K25 köar den statusdrivna boat_near-'
+      + 'notisen tills fixets ETA är skriven, så STEG 2-4 i _onVesselStatusChanged — där status-change-'
+      + 'uppdateringen schemaläggs med significance high — körs EFTER ETA-blocket i stället för före det. '
+      + 'Anropsordningen in i _scheduleUIUpdate kastas därmed om: förut startade high ett FÄRSKT micro-'
+      + 'grace-fönster (gracePeriod 15 ms) som den efterföljande moderate bara anslöt till (publicering '
+      + 'T+15); nu startar moderate fönstret (25 ms) och high ansluter till en BEFINTLIG batch, vilket '
+      + 'utlöser den reducerade grace-perioden 10 ms (publicering T+10). 15 - 10 = 5 ms. RÅDATABEVIS vid '
+      + 'T = 07:55:36.935: UTAN K25 loggas Scheduling status-change (high) FÖRST, sedan Added to existing '
+      + 'batch (latest: moderate) och Micro-grace period expired @ .950; MED K25 loggas BOAT_NEAR_AWAIT_ETA '
+      + 'plus Scheduling vessel-significant-change (moderate) först, sedan Added to existing batch '
+      + '(latest: high) och High significance event triggered early processing @ .945. Identisk kedja för '
+      + 'VIRGO (T = 11:34:54.474) och för HEY JOE 211881090 i 20260713-41h. A/B-PROV: med K25 '
+      + 'neutraliserad i minnet (prototyp-patch i en förladdning, repot orört) är hela golden-arrayen '
+      + '134/134 BYTE-IDENTISK med det gamla facit — K25 är alltså ensam orsak. Rå textdiff av golden-'
+      + 'filen: 2 rader ändrade, båda iso-fältet, 0 text-rader. Notis-, fördelnings-, riktnings- och '
+      + 'öppningsfacit ORÖRDA (80/80, 20 öppningsvarningar).',
   },
   {
     id: '20260711-7h',
@@ -894,7 +914,18 @@ module.exports = [
       + 'SÖDERUT, cog 213°); Stridsbergsbron#33 08:28:42.712 täcker NORDIC SOLA 258715000 (+2776 m '
       + 'NORRUT, cog 6°) och 211617280 (−394 m SÖDERUT, cog 203°). FASSVEPT 2026-08-21: ingen av de '
       + 'två händelserna avviker i NÅGON fasvariant (−2,5 till −25 s) — värdet är fas-invariant. '
-      + 'Notis-, fördelnings- och riktningsfacit ORÖRDA (165/165).',
+      + 'Notis-, fördelnings- och riktningsfacit ORÖRDA (165/165).'
+      + ' GOLDEN OMLÅST (2026-08-22, K25 notis-token efter ETA-omräkningen, röda etappen): 270 → 270 '
+      + 'övergångar, 0 texter ändrade, 0 poster till eller från — ENDAST 1 tidsstämpel, 5 ms TIDIGARE: '
+      + 'idx 118 12:11:09.945 → .940 (HEY JOE 211881090, en-route → stallbacka-waiting). SAMMA MEKANISM '
+      + 'som i 20260710-13h (se den notens K25-stycke): den köade boat_near-notisen flyttar status-change-'
+      + 'uppdateringens schemaläggning till EFTER ETA-blocket, så micro-grace-fönstret startas av moderate '
+      + '(25 ms) och high ansluter till en befintlig batch → reducerad grace 10 ms i stället för färsk '
+      + '15 ms. RÅDATABEVIS vid T = 12:11:09.930: Scheduling vessel-significant-change (moderate) först, '
+      + 'sedan Added to existing batch (latest: high) och High significance event triggered early '
+      + 'processing @ .940. A/B-PROV: med K25 neutraliserad i minnet är golden-arrayen 270/270 BYTE-'
+      + 'IDENTISK med det gamla facit. Rå textdiff: 1 rad ändrad, iso-fältet, 0 text-rader. Notis-, '
+      + 'fördelnings-, riktnings- och öppningsfacit ORÖRDA (165/165, 49 öppningsvarningar).',
     knownInvariantExceptions: [
       'ETA-SÅGTAND UPP: 2026-07-15T08:48:51.405Z Stridsbergsbron 8→14',
       'ETA-OSCILLATION: 2026-07-15T08:50:22.118Z Stridsbergsbron 8→14→9',
