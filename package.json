@@ -10,6 +10,7 @@
     "replay:synthetic": "node tests/replay-validation/runSyntheticScenarios.js",
     "replay:openings": "node tests/replay-validation/runOpeningGates.js",
     "replay:phase": "node tests/replay-validation/runPhaseSweep.js",
+    "measure:eta": "node tests/replay-validation/measureEtaAccuracy.js",
     "validate": "(jest --config tests/jest.config.js --silent > \"${TMPDIR:-/tmp}/ais-jest-validate.log\" 2>&1; ec=$?; tail -5 \"${TMPDIR:-/tmp}/ais-jest-validate.log\"; exit $ec) && node tests/replay-validation/runAllCorpora.js && node tests/replay-validation/runSyntheticScenarios.js && node tests/replay-validation/runOpeningGates.js",
     "validate:full": "npm run validate && node tests/replay-validation/runSoak.js",
     "test:watch": "jest --config tests/jest.config.js --watch",
