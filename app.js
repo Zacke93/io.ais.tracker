@@ -429,8 +429,12 @@ class AISBridgeApp extends Homey.App {
     this._loadQuayLedger();
 
     // --- ÖPPNINGSLAGRETS KAJHISTORIK (etapp 6-granskningen 2026-08-04) ---
-    // SAMMA regler som V1-kartan ovan (_noteQuayLedgerEntry är gemensam), men
-    // referenspunkterna är trigger-punkterna PLUS målbroarna. Skälet är mätt:
+    // SAMMA RUTIN som V1-kartan ovan (_noteQuayLedgerEntry är gemensam) och
+    // samma stillasample-/dödbandsvillkor, men ANKARREGELN skiljer sig
+    // avsiktligt: öppningskartan håller ankaret från kajvistelsens början
+    // medan V1 flyttar det vid varje stillasample (L40, runda 3 — se
+    // rutinens docblock för mätningen bakom skillnaden). Dessutom är
+    // referenspunkterna trigger-punkterna PLUS målbroarna. Skälet är mätt:
     // Kanalinfarten→Klaffbron = 1982 m och →Stridsbergsbron = 3197 m, så V1:s
     // 500 m-radie gjorde kajvobbel-grinden strukturellt neutral vid exakt de
     // två broar öppningslagret varnar för. EGEN karta, inte en breddning av
@@ -1490,11 +1494,34 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
-   * Etapp 6: EN bokföringsregel, två kartor. Exakt samma stillasample-,
-   * dödbands- och rörelseräkningslogik som V1-bokföringen ovan — utbruten så
-   * öppningslagrets vidare geografiska räckvidd inte kan förändra en enda
-   * boat_near-grind. Ingen parallell sanning byggs: reglerna är desamma, bara
-   * referenspunkterna skiljer.
+   * Etapp 6: EN bokföringsrutin, två kartor — utbruten så öppningslagrets
+   * vidare geografiska räckvidd inte kan förändra en enda boat_near-grind.
+   *
+   * L40 (helkodsgranskning runda 3, 2026-08-22) — DOCBLOCKET VAR OSANT. Här
+   * stod att logiken är "exakt samma" som V1-bokföringen i _noteQuayStability
+   * och att "ingen parallell sanning byggs". STILLASAMPEL-VILLKORET och
+   * DÖDBANDET är mycket riktigt identiska (samma _moored/onLearnedQuay/
+   * STATIONARY-trippel, samma TRANSIT_SOG_KN-räkning), men ANKARREGELN
+   * SKILJER SIG AVSIKTLIGT och det är hela poängen med den här rutinen:
+   *
+   *   • V1-kartan (_noteQuayStability) flyttar `lat/lon` framåt vid VARJE
+   *     stillasample. Ankaret är alltså "senast sedda stillaposition".
+   *   • Den här rutinen sätter ankaret vid KAJVISTELSENS BÖRJAN och håller
+   *     det fast hela vistelsen (`entry.moving || staleAnchor`), plus två
+   *     fält V1 inte har: `bandSince` (när fartyget kom in i kajbandet) och
+   *     `moving` (vistelsens rörelseflagga, som styr ankarbytet).
+   *
+   * VARFÖR SKILLNADEN MÅSTE BESTÅ: netto-benet i _quayDepartureNeedsProof
+   * mäts från ankaret. Med V1:s framflyttade ankare nollas benet av
+   * kajvobbelns egen drift gång på gång, medan en ÄKTA avgång som börjar med
+   * några långsamma sampel (265819940 2026-07-12: 369→256→225 m i 0–1,8 kn)
+   * aldrig får tillgodoräkna sig sitt 144 m närmande. En harmonisering åt
+   * V1-hållet ger alltså MISSAD öppningsvarning för en långsam äkta avgång —
+   * inte färre fantomer. Se även raden i stillasample-grenen nedan.
+   *
+   * Det som INTE byggs parallellt är kajDETEKTERINGEN: båda kartorna frågar
+   * samma _moored-klassning, samma inlärda kajkarta och samma dödband; det är
+   * bara ankarets livslängd och referenspunkterna som skiljer.
    * @param {Map} ledger - kartan som ska uppdateras
    * @param {string} mmsi
    * @param {Object} vessel
@@ -1688,8 +1715,14 @@ class AISBridgeApp extends Homey.App {
 
   /**
    * Etapp 6: kajvobbel-predikatet som BridgeOpeningService beväpningsgrind
-   * frågar. ÅTERANVÄNDER V1-bokföringens REGLER rakt av (_noteQuayLedgerEntry
+   * frågar. ÅTERANVÄNDER V1-bokföringens RUTINER rakt av (_noteQuayLedgerEntry
    * + _quayDepartureNeedsProof) — ingen parallell kajdetektering byggs.
+   *
+   * L40 (runda 3, 2026-08-22): "rakt av" gäller kajDETEKTERINGEN (samma
+   * _moored-klassning, samma inlärda kajkarta, samma dödband) — INTE
+   * ankarregeln. Öppningskartan håller ankaret från kajvistelsens början,
+   * V1-kartan flyttar det vid varje stillasample; skillnaden är avsiktlig och
+   * härledd i _noteQuayLedgerEntry:s docblock.
    *
    * RÄCKVIDDEN är öppningslagrets egen (_openingQuayLedger): V1-kartan bokför
    * bara trigger-punkternas närområde, och Klaffbron/Stridsbergsbron ligger
@@ -1798,36 +1831,82 @@ class AISBridgeApp extends Homey.App {
         if (!Number.isFinite(ts) || now - ts >= 2000) continue;
         if (!TARGET_BRIDGES.includes(bridgeName)) continue;
         this.bridgeOpeningService.notePassage(vessel.mmsi, bridgeName);
-        // J15 (2026-08-22): PASSAGEN KONSUMERAR DEN PERSISTENTA DEDUP-POSTEN.
-        // Posten lever numera till förväntad ankomst + konvojfönstret, alltså
-        // betydligt längre än förut — och en post som överlever sin egen
-        // passage kan TYSTA nästa äkta öppning för samma bro och båt (en
-        // U-svängare som vänder om och kommer tillbaka inom fönstret). Vid
-        // faktisk passage är öppningen förbrukad: allt som står kvar på
-        // bro|mmsi|* ska bort, oavsett vilken riktning varningen bokfördes
-        // med (riktningen kan ha låsts om mellan varning och passage).
-        if (this._persistentOpeningWarnings && this._persistentOpeningWarnings.size > 0) {
-          const prefix = `${bridgeName}|${String(vessel.mmsi)}|`;
-          for (const key of [...this._persistentOpeningWarnings.keys()]) {
-            if (key.startsWith(prefix)) {
-              this._persistentOpeningWarnings.delete(key);
-              openingKeysCleared++;
-            }
-          }
-        }
+        openingKeysCleared += this._consumeOpeningDedupForPassage(vessel.mmsi, bridgeName);
       }
       if (openingKeysCleared > 0) {
-        this.log(
-          `🌉 [OPENING_DEDUP_PASSED] ${vessel.mmsi}: ${openingKeysCleared} öppningsdedup-nyckel(ar) `
-          + 'nollade vid bekräftad passage — nästa öppning kan aldrig tystas av den gamla varningen',
-        );
-        this._persistOpeningWarnings();
+        this._logOpeningDedupConsumed(vessel.mmsi, openingKeysCleared, 'bekräftad passage');
       }
     } catch (error) {
       // CRASH PROTECTION: det additiva lagret får aldrig stoppa notisvägen
       // eller bridge_text. Svälj-fällan: felet loggas, inte tystas.
       this.error(`[BRIDGE_OPENING] observeVessel misslyckades för ${vessel.mmsi}:`, error.message || error);
     }
+  }
+
+  /**
+   * J15 (2026-08-22): PASSAGEN KONSUMERAR DEN PERSISTENTA DEDUP-POSTEN.
+   * Posten lever numera till förväntad ankomst + konvojfönstret, alltså
+   * betydligt längre än förut — och en post som överlever sin egen passage kan
+   * TYSTA nästa äkta öppning för samma bro och båt (en U-svängare som vänder om
+   * och kommer tillbaka inom fönstret). Vid faktisk passage är öppningen
+   * förbrukad: allt som står kvar på bro|mmsi|* ska bort, oavsett vilken
+   * riktning varningen bokfördes med (riktningen kan ha låsts om mellan varning
+   * och passage).
+   *
+   * L19 (helkodsgranskning runda 3, 2026-08-22) — UTBRUTEN TILL EGEN METOD.
+   * OBS (granskning 3): BridgeOpeningService.notePassage anropas fortfarande
+   * BARA från 2000 ms-fönstret i _observeBridgeOpening; för de inferrerade
+   * vägarna städas armen INDIREKT via observeVessels disarm-svep (passedAt
+   * nyare än armedAt ⇒ _recordPassage + _disarm). Medvetet — inget dubbelanrop.
+   * Rensningen låg inne i _observeBridgeOpening bakom 2000 ms-färskhetsgrinden,
+   * och den grinden är strukturellt onåbar för GAP-INFERRERADE passager:
+   * _observeBridgeOpening anropas FÖRE _checkSkippedBridgesFallback i BÅDA
+   * ingångarna (entered- och updated-vägen), medan applyInferredPassage
+   * stämplar passedAt först därefter. Nästa _observeBridgeOpening kommer 70 s
+   * eller mer senare, då 2000 ms-fönstret sedan länge löpt ut — så posten hade
+   * ingen konsumtionsväg alls på den vägen (enda andra raderingen är
+   * utgångsprunen i _persistOpeningWarnings). Efter en omstart inom fönstret
+   * laddas posten som bootLoaded och kunde tysta en helt ny ÄKTA öppning.
+   *
+   * Metoden ändrar INGET i sak för notePassage-vägen: samma prefixsvep, samma
+   * nycklar. Den gör bara rensningen anropbar från de vägar som bokför en
+   * passage utan att gå genom 2000 ms-fönstret.
+   *
+   * @param {string|number} mmsi
+   * @param {string} bridgeName - måste vara en MÅLBRO (öppningsdedupen bokför
+   *   inga andra); anroparen filtrerar.
+   * @returns {number} antal raderade nycklar
+   * @private
+   */
+  _consumeOpeningDedupForPassage(mmsi, bridgeName) {
+    if (!this._persistentOpeningWarnings || this._persistentOpeningWarnings.size === 0) return 0;
+    const prefix = `${bridgeName}|${String(mmsi)}|`;
+    let cleared = 0;
+    for (const key of [...this._persistentOpeningWarnings.keys()]) {
+      if (key.startsWith(prefix)) {
+        this._persistentOpeningWarnings.delete(key);
+        cleared++;
+      }
+    }
+    return cleared;
+  }
+
+  /**
+   * L19: gemensam loggrad + persistering för de tre konsumtionsvägarna
+   * (bekräftad passage, gap-inferrerad passage, backfill). `källa` skrivs ut så
+   * fältloggen visar VILKEN väg som förbrukade posten.
+   * @param {string|number} mmsi
+   * @param {number} cleared
+   * @param {string} source
+   * @private
+   */
+  _logOpeningDedupConsumed(mmsi, cleared, source) {
+    if (!cleared) return;
+    this.log(
+      `🌉 [OPENING_DEDUP_PASSED] ${mmsi}: ${cleared} öppningsdedup-nyckel(ar) `
+      + `nollade vid ${source} — nästa öppning kan aldrig tystas av den gamla varningen`,
+    );
+    this._persistOpeningWarnings();
   }
 
   /**
@@ -2503,9 +2582,21 @@ class AISBridgeApp extends Homey.App {
       if (Array.isArray(vessel._passageBackfills) && vessel._passageBackfills.length > 0) {
         const backfills = vessel._passageBackfills;
         vessel._passageBackfills = [];
+        let backfillKeysCleared = 0;
         for (const backfillBridge of backfills) {
           // eslint-disable-next-line no-await-in-loop
           await this._triggerBoatNearFlowFallback(vessel, backfillBridge);
+          // L19 (runda 3, 2026-08-22): samma konsumtion som den observerade
+          // och den gap-inferrerade passagen. Backfill-vägen bokför passager
+          // som aldrig gått genom ordinarie detektering, så 2000 ms-fönstret i
+          // _observeBridgeOpening kan inte ha sett dem heller. Öppningen är
+          // förbrukad även här. Endast målbroar bokförs i öppningsdedupen.
+          if (TARGET_BRIDGES.includes(backfillBridge)) {
+            backfillKeysCleared += this._consumeOpeningDedupForPassage(vessel.mmsi, backfillBridge);
+          }
+        }
+        if (backfillKeysCleared > 0) {
+          this._logOpeningDedupConsumed(vessel.mmsi, backfillKeysCleared, 'backfillad passage');
         }
       }
 
@@ -2611,6 +2702,13 @@ class AISBridgeApp extends Homey.App {
    *  - stats-anropet kastar ⇒ ingen användbar uppgift alls: dagens beteende,
    *    men felet loggas (svälj-fällan).
    *
+   * L34 (helkodsgranskning runda 3, 2026-08-22) — ANROPSKONTRAKTET.
+   * Mätningen har en LOGGBIVERKAN (raden nedan) som påstår vad som händer med
+   * brotexten. Anropa därför BARA från ett ställe där utfallet silent=true
+   * faktiskt HÅLLER texten — dvs. där vakten kan verka. Removal-vägen kallade
+   * tidigare helpern på VARJE borttagning, även när båtar återstod och ingen
+   * text alls hölls; då var raden osann. Se _onVesselRemoved.
+   *
    * @param {string} tag - loggetikett för anropsstället (avväpningen ska synas)
    * @returns {{hasStats: boolean, feedSilentMs: (number|null), silent: boolean,
    *   unmeasurable: boolean}}
@@ -2628,10 +2726,11 @@ class AISBridgeApp extends Homey.App {
     try {
       feedStats = this.aisClient.getConnectionStats();
     } catch (error) {
-      this.log(
-        `🛡️ [FEED_SILENCE_UNMEASURABLE] ${tag}: getConnectionStats kastade `
-        + `(${error && error.message ? error.message : error}) — inget tystnadsmått, `
-        + 'vakten vilar på anslutningsflaggan',
+      this._logFeedSilenceUnmeasurable(
+        `${tag}:throw`,
+        (suffix) => `🛡️ [FEED_SILENCE_UNMEASURABLE] ${tag}: getConnectionStats kastade `
+          + `(${error && error.message ? error.message : error}) — inget tystnadsmått, `
+          + `vakten vilar på anslutningsflaggan${suffix}`,
       );
       return {
         hasStats: true, feedSilentMs: null, silent: false, unmeasurable: true,
@@ -2652,15 +2751,62 @@ class AISBridgeApp extends Homey.App {
     if (claimsConnected) {
       // Loggas på log-nivå: utan raden fanns ingen spårbarhet alls för varför
       // vakten (inte) slog till — precis det J30 pekade ut.
-      this.log(
-        `🛡️ [FEED_SILENCE_UNMEASURABLE] ${tag}: AIS-klienten rapporterar ANSLUTEN men `
-        + 'timeSinceLastMessage saknas — okänt tystnadsmått behandlas som TYST '
-        + '(texten hålls, DEFAULT publiceras inte)',
+      // L34: formuleringen säger nu vad mätningen GÖR (armerar vakten) i
+      // stället för att lova ett utfall helpern inte äger. Anropskontraktet
+      // ovan garanterar att den armerade vakten faktiskt håller texten.
+      this._logFeedSilenceUnmeasurable(
+        `${tag}:connected`,
+        (suffix) => `🛡️ [FEED_SILENCE_UNMEASURABLE] ${tag}: AIS-klienten rapporterar ANSLUTEN men `
+          + 'timeSinceLastMessage saknas — okänt tystnadsmått behandlas som TYST '
+          + `⇒ vakten armerad (anroparen håller senaste texten i stället för DEFAULT)${suffix}`,
       );
     }
     return {
       hasStats: true, feedSilentMs: null, silent: claimsConnected, unmeasurable: true,
     };
+  }
+
+  /**
+   * L34 (helkodsgranskning runda 3, 2026-08-22): STRYPNING av
+   * FEED_SILENCE_UNMEASURABLE.
+   *
+   * Raden är ett uttalat fältprovsmönster (den förklarar varför P8-vakten slog
+   * till utan mätbar tystnad) och får därför inte försvinna — men det omätbara
+   * läget är KLIBBIGT: `lastMessageTime` nollställs aldrig, så varje anrop
+   * under samma tillstånd producerade en ny identisk rad. Uppmätt storleks-
+   * ordning 5–60 rader per konfigändring; efter L34:s anropsvillkor i
+   * _onVesselRemoved är taket lägre, men mönstret är detsamma.
+   *
+   * STRYPNINGEN BEVARAR MÖNSTRET: räknaren `undertryckta` skrivs ut kumulativt
+   * i nästa släppta rad, precis som KX-14 gör för timeline-dedupen, så en
+   * fältanalys kan fortfarande se HUR MÅNGA gånger läget inträffade.
+   *
+   * FÖNSTRET är 60 s — samma storleksordning som de anropande vakternas egen
+   * takt (removal-cykler och 30 s-watchdogen) och tillräckligt för att ett
+   * pågående tillstånd ska kosta ~1 rad/min i stället för en rad per händelse.
+   *
+   * @param {string} key - `${tag}:throw` eller `${tag}:connected` — de två
+   *   omätbara lägena stryps var för sig så ett kast aldrig döljer det
+   *   anslutna-men-stumma läget (och tvärtom).
+   * @param {function(string): string} build - bygger raden; får ett suffix med
+   *   undertryckt-räknaren (tom sträng när inget undertryckts).
+   * @private
+   */
+  _logFeedSilenceUnmeasurable(key, build) {
+    const THROTTLE_MS = 60 * 1000;
+    if (!this._feedSilenceLogState) this._feedSilenceLogState = new Map();
+    const now = Date.now();
+    const state = this._feedSilenceLogState.get(key) || { lastLoggedAt: 0, suppressed: 0 };
+    if (state.lastLoggedAt && now - state.lastLoggedAt < THROTTLE_MS) {
+      state.suppressed += 1;
+      this._feedSilenceLogState.set(key, state);
+      return;
+    }
+    const suffix = state.suppressed > 0
+      ? ` [+${state.suppressed} undertryckta rader sedan förra, strypning ${THROTTLE_MS / 1000}s]`
+      : '';
+    this._feedSilenceLogState.set(key, { lastLoggedAt: now, suppressed: 0 });
+    this.log(build(suffix));
   }
 
   /**
@@ -2920,9 +3066,20 @@ class AISBridgeApp extends Homey.App {
       // J30 (helkodsgranskning runda 2): mätningen bor i _evaluateFeedSilence,
       // gemensamt med UI-vägens spegel. Ett OMÄTBART tystnadsmått räknas nu som
       // TYST — se helperns docblock.
-      const feedSilence = this._evaluateFeedSilence('VESSEL_REMOVAL_STALE_GUARD');
-      const { feedSilentMs } = feedSilence;
-      const feedIsSilent = feedSilence.silent;
+      // L34 (runda 3, 2026-08-22): MÄT BARA NÄR VAKTEN KAN VERKA. Anropet låg
+      // före den här grenen och kördes alltså på VARJE borttagning — även när
+      // båtar återstod, då vakten är irrelevant (else-grenarna nedan skriver
+      // DEFAULT eller schemalägger en vanlig UI-cykel). Helperns egen
+      // FEED_SILENCE_UNMEASURABLE-rad påstår att texten hålls, vilket i den
+      // situationen var osant, och det klibbiga omätbara läget (lastMessageTime
+      // nollställs aldrig) gav en rad per borttagning. Villkoret nedan är
+      // OFÖRÄNDRAT i sak: feedIsSilent läses bara i just den gren som kräver
+      // remainingVesselCount === 0.
+      const feedSilence = remainingVesselCount === 0
+        ? this._evaluateFeedSilence('VESSEL_REMOVAL_STALE_GUARD')
+        : null;
+      const feedSilentMs = feedSilence ? feedSilence.feedSilentMs : null;
+      const feedIsSilent = feedSilence ? feedSilence.silent : false;
 
       if (remainingVesselCount === 0 && (!this._isConnected || feedIsSilent)) {
         // P8-fix (2026-06-09): det sista fartyget togs bort MEDAN AIS-strömmen
@@ -4917,7 +5074,12 @@ class AISBridgeApp extends Homey.App {
       // Generate bridge text with BULLETPROOF error handling
       let bridgeText;
       // C1a (etapp 7, 2026-08-09): sätts av PASSED_HOLD_UI-grenen nedan.
+      // L23 (helkodsgranskning runda 3, 2026-08-22): sätts numera av BÅDA
+      // hållningsgrenarna — GPS-hold (F29) och passed-hold. Se respektive gren.
+      // Källan bokförs separat så loggen fortfarande visar VILKEN hållning som
+      // hoppade valideringen (C1a-radens diagnosvärde får inte tunnas ut).
       let isHoldReplay = false;
+      let holdReplaySource = null;
       try {
         bridgeText = this.bridgeTextService.generateBridgeText(relevantVessels);
         this.debug(`📱 [_actuallyUpdateUI] Generated bridge text: "${bridgeText}"`);
@@ -4943,15 +5105,27 @@ class AISBridgeApp extends Homey.App {
             // anslutning saknas" i ~2 s EFTER lyckad återanslutning när den
             // enda båten var kortvarigt GPS-hållen.
             && this._lastBridgeText !== STALE_DATA_OVERRIDE_TEXT
-            && Array.isArray(relevantVessels)
-            && this.vesselDataService
-            && typeof this.vesselDataService.hasGpsJumpHold === 'function') {
-          const hasHeldActiveVessel = relevantVessels.some((v) => v
-            && TARGET_BRIDGES.includes(v.targetBridge)
-            && this.vesselDataService.hasGpsJumpHold(v.mmsi));
+            && Array.isArray(relevantVessels)) {
+          // L23 (runda 3): frågan är utbruten till _hasGpsHeldTargetVessel så
+          // nödfallbacken kan ställa EXAKT samma fråga (delad SSOT, precis som
+          // C1c gjorde för passed-hold). Predikatet bär också de gamla
+          // vesselDataService-/API-vakterna.
+          const hasHeldActiveVessel = this._hasGpsHeldTargetVessel(relevantVessels);
           if (hasHeldActiveVessel) {
             this.debug('🛡️ [GPS_HOLD_UI] Behåller förra texten — aktiv båt är kortvarigt GPS-hållen (undviker DEFAULT-flimmer)');
             bridgeText = this._lastBridgeText;
+            // L23 (helkodsgranskning runda 3, 2026-08-22): SAMMA HÅLL-REPLAY,
+            // SAMMA UNDANTAG. Den här grenen är strukturellt identisk med
+            // passed-hold nedan (återpublicerar en REDAN VALIDERAD text) men
+            // saknade C1a-flaggan. Count-validatorn filtrerar bort GPS-hållna
+            // båtar, så texten dömdes mot renderbart antal noll: två hållna
+            // målbåtar gav kritiskt underkännande + SUMMARY_VALIDATION-error
+            // trots att RC-B-grenen valde exakt samma text tillbaka (ren
+            // no-op, 100 % brus — precis den mätning C1a bygger på). Vid tre
+            // hållna blev även status-checken kritisk och nödfallbacken kunde
+            // publicera DEFAULT mitt i hållningen.
+            isHoldReplay = true;
+            holdReplaySource = 'gps-hold-replay';
           }
         }
 
@@ -4972,10 +5146,18 @@ class AISBridgeApp extends Homey.App {
             && Array.isArray(relevantVessels)) {
           // C1c (2026-08-09): predikatet är utbrutet till _hasRecentTargetPassage
           // så nödfallbacken kan ställa EXAKT samma fråga (delad SSOT).
+          // L23 (runda 3): grenen kan FÖREGRIPAS av F29 ovan — den satte redan
+          // bridgeText till _lastBridgeText, så DEFAULT-villkoret ovan är
+          // falskt när en båt är GPS-hållen samtidigt som en annan ligger i
+          // passed-fönstret. Utfallet är detsamma (samma text hålls, samma
+          // C1a-hopp), men PASSED_HOLD_UI-raden uteblir; källan i loggen blir
+          // då 'gps-hold-replay'. Ingen omordning görs: den hade flyttat
+          // publiceringsögonblick i låst facit utan att ändra utfallet.
           if (this._hasRecentTargetPassage(relevantVessels)) {
             this.debug('🌉 [PASSED_HOLD_UI] Behåller förra texten — båt i passed-fönstret vid målbro (broöppningen pågår; undviker falskt "Inga båtar")');
             bridgeText = this._lastBridgeText;
             isHoldReplay = true;
+            holdReplaySource = 'passed-hold-replay';
           }
         }
       } catch (bridgeTextError) {
@@ -4999,8 +5181,16 @@ class AISBridgeApp extends Homey.App {
       // Larmet var alltså 100 % brus. Korpus #18:s 92 hold-passager (fält-
       // loggen räknade 94) undgick larmet enbart på aritet — alla nämnde EN
       // båt ⇒ |1−0| ≤ 1; vid TVÅ båtar smäller det, vilket är precis vad
-      // korpus #17 visar. Hoppet gäller ENBART den här grenen — GPS-hold,
-      // feed-stale-vakten och den vanliga vägen valideras som förut.
+      // korpus #17 visar.
+      //
+      // L23 (helkodsgranskning runda 3, 2026-08-22) — HOPPET GÄLLER BÅDA
+      // HÅLLNINGSGRENARNA. Här stod tidigare att GPS-hold "valideras som
+      // förut"; den meningen beskrev en asymmetri utan sakskäl. F29-grenen
+      // återspelar SAMMA redan validerade text mot SAMMA orenderbara mängd
+      // (count-validatorn filtrerar bort GPS-hållna båtar precis som
+      // targetlösa), så argumentet ovan gäller ordagrant även den. Feed-stale-
+      // vakten och den vanliga vägen valideras däremot som förut: feed-vakten
+      // ligger EFTER valideringen och har ingen egen replay att hoppa.
       let validationResult;
       if (isHoldReplay) {
         validationResult = {
@@ -5009,9 +5199,12 @@ class AISBridgeApp extends Homey.App {
           shouldUseFallback: false,
           fallbackText: null,
           checks: [],
-          skipped: 'passed-hold-replay',
+          skipped: holdReplaySource || 'hold-replay',
         };
-        this.debug('⏭️ [SUMMARY_VALIDATION_SKIP] Hold-replay av redan validerad text — summeringsvalideringen hoppas (C1a)');
+        this.debug(
+          '⏭️ [SUMMARY_VALIDATION_SKIP] Hold-replay av redan validerad text — '
+          + `summeringsvalideringen hoppas (C1a, källa=${holdReplaySource || 'hold-replay'})`,
+        );
       } else {
         validationResult = this._validateBridgeTextSummary(bridgeText, relevantVessels, snapshot);
       }
@@ -5261,6 +5454,36 @@ class AISBridgeApp extends Homey.App {
    */
   _sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * L23 (helkodsgranskning runda 3, 2026-08-22): DELAT predikat — är minst en
+   * båt med giltig MÅLBRO just nu GPS-hållen?
+   *
+   * Exakt samma konstruktion och skäl som C1c:s _hasRecentTargetPassage:
+   * frågan ställs på TVÅ ställen (F29:s visningshållning i _processUIUpdate och
+   * nödfallbackens renderbara-noll-gren) och måste ge samma svar. Annars kan
+   * nödfallbacken publicera DEFAULT ("Inga båtar…") i exakt det fönster
+   * hållningen finns till för att skydda — en båt som filtreras bort av
+   * BridgeTextService hold-filter är osynlig för textmotorn men fortfarande
+   * på väg mot sin bro.
+   *
+   * FAIL-SAFE: saknas vesselDataService eller hold-API:t svarar predikatet
+   * false ⇒ ingen hållning, dvs. dagens beteende. (Samma vakt som F29 hade
+   * inbyggd i sitt villkor; den bor nu här så båda anroparna ärver den.)
+   * @param {Array} vessels - fartygsprojektioner
+   * @returns {boolean}
+   * @private
+   */
+  _hasGpsHeldTargetVessel(vessels) {
+    if (!Array.isArray(vessels)) return false;
+    if (!this.vesselDataService
+        || typeof this.vesselDataService.hasGpsJumpHold !== 'function') {
+      return false;
+    }
+    return vessels.some((v) => v
+      && TARGET_BRIDGES.includes(v.targetBridge)
+      && this.vesselDataService.hasGpsJumpHold(v.mmsi));
   }
 
   /**
@@ -5929,13 +6152,24 @@ class AISBridgeApp extends Homey.App {
       // RC-B-fallbacken: frånkopplingstexten återpubliceras ALDRIG (BT-F5).
       // MÄTNOT: vägen nåddes 0 gånger i samtliga 18 korpusar (~320 h) —
       // fixen är LATENT och bevisas av syntetiskt scenario, inte av fältdata.
-      if (this._hasRecentTargetPassage(vessels)
+      // L23 (helkodsgranskning runda 3, 2026-08-22): SPEGLA GPS-HOLD-FRÅGAN.
+      // Den andra vägen till renderbara=0 med aktiv trafik är GPS-hållningen —
+      // filtret några rader upp tar bort exakt de båtarna, och F29 håller
+      // texten för dem en nivå upp av samma skäl som C1c gör för passed-hold.
+      // Utan den här grenen kunde nödfallbacken publicera DEFAULT och riva
+      // F29:s hållning bakvägen, i just det läge hållningen finns för.
+      // Villkoren på _lastBridgeText är identiska (BT-F5: frånkopplingstexten
+      // återpubliceras aldrig).
+      const passedHold = this._hasRecentTargetPassage(vessels);
+      const gpsHold = !passedHold && this._hasGpsHeldTargetVessel(vessels);
+      if ((passedHold || gpsHold)
           && this._lastBridgeText
           && this._lastBridgeText !== BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE
           && this._lastBridgeText !== STALE_DATA_OVERRIDE_TEXT) {
         this.debug(
-          '🌉 [FALLBACK_PASSED_HOLD] Nödfallback: 0 renderbara men båt i passed-fönstret '
-          + 'vid målbro — behåller senaste texten i stället för DEFAULT (C1c)',
+          `🌉 [FALLBACK_${passedHold ? 'PASSED' : 'GPS'}_HOLD] Nödfallback: 0 renderbara men `
+          + `${passedHold ? 'båt i passed-fönstret vid målbro (C1c)' : 'aktiv båt är GPS-hållen (L23)'}`
+          + ' — behåller senaste texten i stället för DEFAULT',
         );
         return this._lastBridgeText;
       }
@@ -5994,12 +6228,45 @@ class AISBridgeApp extends Homey.App {
     // onåbara — exakt kombinationen etaMinutes=null + imminent=true sätts av
     // uttömd extrapolering, och huvudmotorn visar då "strax". Anropa
     // hjälparen även när ETA saknas men imminent är satt.
-    const hasEtaClause = Number.isFinite(firstVessel.etaMinutes)
-      || firstVessel._isImminentAtTargetBridge === true;
+    // L14 (helkodsgranskning runda 3, 2026-08-22): NÖDFALLBACKEN MÅSTE BÄRA
+    // TEXTMOTORNS EGNA ETA-GRINDAR. Klausulen byggdes direkt ur fartyget utan
+    // vare sig B6:s zombie-filter eller C11:s färskhetskrav, trots att
+    // kontraktet i lib/utils/etaValidation.js (~rad 136) uttryckligen säger att
+    // imminent-grenen övertrumfar även ogiltig ETA och att varje ny anropare
+    // måste bära samma grind. Reproducerat: fartyg 60 m norr om Klaffbron med
+    // Klaffbron redan i passedBridges gav motorn "…, ETA okänd" men fallbacken
+    // "…, beräknad broöppning strax". Zombie + imminent SAMMANFALLER vid varje
+    // målbropassage (pending-target släpps först vid 300 m medan bron redan
+    // lagts i passedBridges, och imminent sätts vid högst 300 m).
+    //
+    // SPEGLINGEN ÄR ORDAGRANN mot BridgeTextService._buildGroupPhrase:
+    //  • isZombie: målbron ligger i passedBridges ⇒ varken imminent-vägen
+    //    eller nedräknings-ETA:n får driva klausulen (båda hör till en passage
+    //    som redan hänt).
+    //  • hasFreshPosition: imminent-flaggan får inte KONSUMERAS av en båt vars
+    //    position är äldre än STALE_ETA_HARD_THRESHOLD_MS. lastHeard === 0
+    //    (fixturer utan tidsstämplar) räknas som färskt — samma undantag som
+    //    motorn, annars tappar varje tidsstämpellös projektion sitt "strax".
+    // MINIMAL VARIANT MEDVETET VALD: den delade hjälparen som granskningen
+    // föreslår kräver ändring i BridgeTextService (annat paketägarskap) — se
+    // rapportens förslag utanför ägarskapet.
+    const targetIsZombie = Boolean(firstVessel.targetBridge)
+      && Array.isArray(firstVessel.passedBridges)
+      && firstVessel.passedBridges.includes(firstVessel.targetBridge);
+    const lastHeardMs = Math.max(firstVessel.timestamp || 0, firstVessel.lastPositionUpdate || 0);
+    const positionIsFresh = lastHeardMs > 0
+      ? (Date.now() - lastHeardMs) <= UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS
+      : true;
+    const imminentEligible = firstVessel._isImminentAtTargetBridge === true
+      && !targetIsZombie && positionIsFresh;
+    // Zombiens nedräkning hör till den redan skedda passagen — motorn nollar
+    // lead:ens ETA på exakt samma sätt (leadIsZombie ⇒ null).
+    const etaForClause = targetIsZombie ? null : firstVessel.etaMinutes;
+    const hasEtaClause = Number.isFinite(etaForClause) || imminentEligible;
     const etaSuffix = hasEtaClause
-      ? `, ${formatETABroOpeningClause(firstVessel.etaMinutes, {
-        extrapolated: firstVessel._etaIsExtrapolated === true,
-        imminent: firstVessel._isImminentAtTargetBridge === true,
+      ? `, ${formatETABroOpeningClause(etaForClause, {
+        extrapolated: !targetIsZombie && firstVessel._etaIsExtrapolated === true,
+        imminent: imminentEligible,
       })}`
       : '';
 
@@ -7398,6 +7665,29 @@ class AISBridgeApp extends Homey.App {
             && Math.abs(rebornDLat) >= REBORN_PROOF_MIN_DELTA_LAT) {
           vessel._hasMovementProof = true;
           vessel._movementProofPending = false;
+          // L1-SYSTERSTÄLLET (helkodsgranskning runda 3, 2026-08-22) —
+          // BEVISET MÅSTE VARA FULLSTÄNDIGT, ANNARS SPÄRRAR DET SIG SJÄLVT.
+          // Raden ovan satte bara det KLISTRANDE _hasMovementProof, och det
+          // fältet är villkoret som STÄNGER positionsgrenen i
+          // VesselDataService._updateMooringEvidence (hela lager 1-blocket
+          // ligger inne i `if (!vessel._hasMovementProof)`). Positionsgrenen är
+          // enda vägen till _hasCorroboratedMovement för en FARTGIVARLÖS båt
+          // (C6-blocket kräver finit sog), och _plausibleMovementSeen kräver
+          // finit sog i sitt eget villkor. Följden: efter det här beviset kan
+          // hasArmingMovementEvidence() ALDRIG mer bli sann för henne, och
+          // J22:s beväpningsgrind i BridgeOpeningService._canArm spärrar
+          // bridge_opening_soon för hennes målbro permanent.
+          //
+          // HOPPVEKTORN ÄR ETT RIMLIGT RÖRELSEBEVIS I C6:s MENING: ≥500 m
+          // mellan två OBSERVERADE positioner är per konstruktion inte
+          // GPS-jitter (jämför MOVEMENT_PROOF_NET_M 50 m och jitterradien
+          // 40 m), och sträckan tillryggalades under removal-gapet, alltså i
+          // en fart appens deadline-motor räknar med. Sätt därför samma
+          // klistrande sidobokföring som _updateMooringEvidence sätter för ett
+          // rimligt sog-sampel — inte det HÅRDARE _hasCorroboratedMovement,
+          // som är reserverat för två konsekutiva observationer.
+          // Speglar A-VDS:s L1-fix (graven ärver samma fält additivt).
+          vessel._plausibleMovementSeen = true;
           this.log(
             `🏃 [REBORN_MOVEMENT_PROOF] ${vessel.mmsi}: Reborn displacement `
             + `${Math.round(Math.abs(rebornDLat) * 111320)}m (last known → current) proves movement`,
@@ -7589,12 +7879,28 @@ class AISBridgeApp extends Homey.App {
     // bedömer varje bro, och i färdriktningsordning så transitionskedjan
     // följer resan (Klaff→Strids för norrgående; Strids→Jvb→Klaff söderut).
     if (scenario === 'large-jump' && typeof this.vesselDataService?.applyInferredPassage === 'function') {
+      let inferredKeysCleared = 0;
       for (const bridgeName of passedBridges) {
         try {
           this.vesselDataService.applyInferredPassage(vessel, oldVessel, bridgeName);
+          // L19 (helkodsgranskning runda 3, 2026-08-22): den GAP-INFERRERADE
+          // passagen måste konsumera sin öppningsdedup-post precis som den
+          // observerade gör. _observeBridgeOpening kör FÖRE det här svepet i
+          // båda ingångarna och rensar bara passager yngre än 2000 ms —
+          // applyInferredPassage stämplar passedAt först här, så nästa
+          // observation (≥70 s senare) hittar aldrig posten inom fönstret och
+          // den överlevde till sin utgång. Efter en omstart inom fönstret
+          // laddades den som bootLoaded och kunde tysta en ny ÄKTA öppning.
+          // Bara MÅLBROAR bokförs i öppningsdedupen; mellanbroar filtreras.
+          if (TARGET_BRIDGES.includes(bridgeName)) {
+            inferredKeysCleared += this._consumeOpeningDedupForPassage(vessel.mmsi, bridgeName);
+          }
         } catch (err) {
           this.error(`[SKIPPED_BRIDGES_TRANSITION] Error for ${bridgeName}:`, err);
         }
+      }
+      if (inferredKeysCleared > 0) {
+        this._logOpeningDedupConsumed(vessel.mmsi, inferredKeysCleared, 'gap-inferrerad passage');
       }
     }
 
@@ -8051,8 +8357,17 @@ class AISBridgeApp extends Homey.App {
     // sviten), medan de verifierade falska låg på 0,2–0,4 kn. Sessionsgrenens
     // strängare 2 kn-krav för expired-släpp står kvar oförändrat.
     // FARTGIVARLÖSA: samma regel som F5-B-radien (A1R2-1) — sog om finit,
-    // annars maxRecentSpeed. Saknas BÅDA finns ingen fartkunskap alls och
-    // grinden avstår (CLABBYDOO-klassens snapshots utan fartfält).
+    // annars maxRecentSpeed. Saknas BÅDA finns ingen FARTkunskap alls; då
+    // mäter grinden stillheten ur POSITIONEN i stället (se L2 nedan).
+    //
+    // BIFYND L2 (runda 3, 2026-08-22) om andra ledet: `maxRecentSpeed`-halvan
+    // är DÖD I PRODUKTION. maxRecentSpeed blir finit först när minst ett finit
+    // sog-prov gått in i speedHistory (_calculateMaxRecentSpeed filtrerar bort
+    // null), och `vessel.sog` är KLISTRANDE (VesselDataService ~:4349 ärver
+    // gammal sog när provet saknar fältet) — alltså medför finit maxRecentSpeed
+    // alltid finit sog. Ledet står ändå kvar: det är ingen felkälla, och
+    // enhetstester konstruerar snapshots med sog=null + finit maxRecentSpeed
+    // för att låsa A1R2-1-kontraktet.
     const exitSpeedKnown = Number.isFinite(vessel.sog) || Number.isFinite(vessel.maxRecentSpeed);
     if (exitSpeedKnown && effectiveTransitSpeed < MIN_VIABLE_SPEED_KN) {
       this.debug(
@@ -8060,6 +8375,54 @@ class AISBridgeApp extends Homey.App {
         + `< ${MIN_VIABLE_SPEED_KN} kn i sista samplet — ingen exit-notis (stillaliggande)`,
       );
       return;
+    }
+    if (!exitSpeedKnown) {
+      // L2 (helkodsgranskning RUNDA 3, 2026-08-22) — MÄT STILLHET NÄR FARTEN
+      // ÄR OKÄND, AVSTÅ INTE. J20:s null ("okänt", korrekt i sak) gjorde
+      // `exitSpeedKnown` falsk för HELA den fartgivarlösa klassen, och därmed
+      // hoppades stillhetsvillkoret ÖVER i stället för att blockera — exakt
+      // den felklass H19 stängde återuppstod: en båt som legat still i 18 min
+      // 320 m från Kanalinfarten fick "… var på väg ut ur kanalen när
+      // AIS-kontakten bröts" plus 2h persistent dedup som tystade hennes
+      // ÄKTA utfart. Snapshotten bär numera positionshärledd stillhet
+      // (VesselDataService lägger `_stationarySince` i removal-snapshoten), så
+      // grinden har något att mäta med.
+      //
+      // VARFÖR `_stationarySince` OCH INGET ANNAT:
+      //  • _hasCorroboratedMovement duger INTE som diskriminator — den sätts
+      //    av samma positionsgren även för en båt som senare lagt sig still,
+      //    och den klistrar. Den är sann för stillaliggaren.
+      //  • `_nullSogStillAnchorT` duger INTE heller: ankaret STÄMPLAS OM vid
+      //    varje bevisad förflyttning, så en båt i FÄRD har alltid ett färskt
+      //    ankare — det mäter "senaste ankarbyte", inte stillhet.
+      //  • `_stationarySince` sätts bara när positionen stannat INOM
+      //    jitterradien (MOORING_DETECTION.NULL_SOG_STILL_RADIUS_M) och nollas
+      //    vid varje bruten ankarradie. Finit värde = bevisad positionsstillhet.
+      //
+      // TIDSKRAVET ÄR SAMMA TRÖSKEL SOM FINIT-HALVAN, uttryckt i geometri:
+      // en båt som håller MIN_VIABLE_SPEED_KN (0,5 kn = 0,2572 m/s) lämnar
+      // jitterradien (40 m) på 155,5 s. Har positionen stått kvar inom radien
+      // LÄNGRE än så kan hon omöjligt ha hållit den farten — de två halvorna
+      // av grinden prövar alltså exakt samma påstående, en via fartgivaren och
+      // en via positionen. Kortare stillhet lämnas orörd (fail-open): då kan
+      // ett enstaka sampel inne i radien mitt i en långsam färd inte fälla en
+      // äkta utfart. CLABBYDOO-klassen (snapshot helt utan stillhetsfält)
+      // avstår som förut.
+      const KN_TO_MPS = 0.5144;
+      const EXIT_STILLNESS_MIN_MS = Math.round(
+        (MOORING_DETECTION.NULL_SOG_STILL_RADIUS_M / (MIN_VIABLE_SPEED_KN * KN_TO_MPS)) * 1000,
+      );
+      const stillSince = Number.isFinite(vessel._stationarySince) ? vessel._stationarySince : null;
+      const stillForMs = stillSince === null ? null : Date.now() - stillSince;
+      if (Number.isFinite(stillForMs) && stillForMs >= EXIT_STILLNESS_MIN_MS) {
+        this.debug(
+          `🛑 [EXIT_TRIGGER_SKIP_STATIONARY] ${vessel.mmsi}: fart okänd (fartgivarlös) men `
+          + `positionen stilla i ${Math.round(stillForMs / 1000)}s `
+          + `(≥ ${Math.round(EXIT_STILLNESS_MIN_MS / 1000)}s inom `
+          + `${MOORING_DETECTION.NULL_SOG_STILL_RADIUS_M}m) — ingen exit-notis (stillaliggande)`,
+        );
+        return;
+      }
     }
     // Bara om vesseln är norr om Kanalinfarten (lat > tp.lat) — då har hon ännu
     // inte passerat söderut, men förväntas göra det. Söder om → redan passerad.
