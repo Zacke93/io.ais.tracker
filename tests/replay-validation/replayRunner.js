@@ -559,6 +559,20 @@ async function main() {
       // F5: översätts tillbaka till internt värde — se riktningsadaptern.
       direction: internalDirection(c.tokens && c.tokens.direction),
       eta: c.tokens && c.tokens.eta_minutes,
+      // Harness-fördjupning (2026-08-22, granskarfynd): pelare 2:s ANVÄNDAR-
+      // SYNLIGA halva. H16 bytte notistexten från "närmar sig" till "har
+      // passerat" för sju notiser utan att någon automatisk grind kunde se
+      // det — eta fångades, men message/already_passed gjorde det inte.
+      // BARA HARNESS: ingen facitdimension nycklar på fälten (runAllCorpora
+      // och relockGoldenText bygger mmsi:bro[:riktning], runPhaseSweep
+      // dessutom mmsi:bro:eta), så A/B kan nu MÄTA texten utan att något
+      // låst facit rubbas. Fältnamnen följer runnerns egen konvention
+      // (tokens.already_passed ⇒ alreadyPassed, precis som eta_minutes ⇒ eta
+      // och bridge_name ⇒ bridge).
+      message: (c.tokens && c.tokens.message) || null,
+      alreadyPassed: c.tokens && typeof c.tokens.already_passed === 'boolean'
+        ? c.tokens.already_passed
+        : null,
       // Harness-fördjupning (2026-07-03): namn + distans + källa fångas för
       // invarianterna INV-8 (namnkvalitet) och INV-11 (distansrimlighet, där
       // source särskiljer inferens-/fallbacknotiser från proximity).

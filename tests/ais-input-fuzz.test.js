@@ -47,12 +47,12 @@ describe('Fuzz: korrupt AIS-data når aldrig pelarna', () => {
     // positionen är giltig och farten normaliseras till null (samma
     // försvar-på-djupet som 0,0-garden; osynliga-båtar-klassen). Det fallet
     // täcks av egna tester nedan.
-    {
-      mmsi: '265001111', lat: 58.29, lon: 12.29, cog: 720,
-    }, // ogiltig kurs
-    {
-      mmsi: '265001111', lat: 58.29, lon: 12.29, cog: -10,
-    },
+    // OBS (helkodsgranskning 2026-08-22, H34): cog utanför 0–360 (720, -10,
+    // 361–409,5 från råvärden 3601–4095) är inte längre skräp som fäller
+    // meddelandet — SAMMA behandling som sog över SOG_MAX fick i A2-2:
+    // positionen är giltig och kursen normaliseras till null ("okänd"), i
+    // stället för att göra fartyget osynligt i bridge_text och notiser.
+    // Fallen har egna tester i tests/h34-cog-normalisering.test.js.
     {
       mmsi: '265001111', lat: 58.29, lon: 12.29, shipName: 12345,
     }, // fel namntyp
