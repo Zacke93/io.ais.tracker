@@ -132,8 +132,20 @@ describe('Etapp 6: onInit kopplar in BridgeOpeningService', () => {
     dirSpy.mockRestore();
 
     // isQuayWobbler → V1-kajbokföringen
+    // J22 (helkodsgranskning runda 2, 2026-08-22): _canArm har numera EN grind
+    // till FÖRE kajvobblargrinden — C6:s beväpningsbevis, injicerat av samma
+    // onInit-block. Testfartyget måste därför bära bevisfältet, annars faller
+    // det på den nya grinden och kajspionen nås aldrig. Fältet är sant i det
+    // ÄKTA fallet grinden är byggd för (rimligt rörelsesampel sett), så
+    // assertionen nedan mäter fortfarande exakt det den alltid mätt:
+    // kajvobblargrinden ensam fäller beväpningen.
     const quaySpy = jest.spyOn(app, '_isBridgeOpeningQuayWobbler').mockReturnValue(true);
-    expect(svc._canArm({ _moored: false, _hasMovementProof: true, targetBridge: 'Klaffbron' }, 500)).toBe(false);
+    expect(svc._canArm({
+      _moored: false,
+      _hasMovementProof: true,
+      _plausibleMovementSeen: true,
+      targetBridge: 'Klaffbron',
+    }, 500)).toBe(false);
     expect(quaySpy).toHaveBeenCalled();
     quaySpy.mockRestore();
 
