@@ -26,7 +26,7 @@ Eller stegen var för sig:
 | Enhetstester | `npm test 2>&1 \| tail -5` (**pipa alltid** — annars ENOSPC) | 1400+ tester passerar (1551 i 103 sviter efter öppningsetappen 2026-08-03) |
 | | ⚠️ **Pipe-fällan** (ChatGPT-granskningen 2026-07-10, B1): pipens exitkod är `tail`:s (≈alltid 0) — LÄS `Tests:`-raden, lita inte på `$?`. `npm run validate` är immun: den skriver jest-utdatan till en tempfil och propagerar jest:s riktiga exitkod. | |
 | Korpusarna | `npm run replay:all` | 17 låsta korpusar (~277,5 h verklig AIS — siffran ändras vid varje låsning; skriptets egen utskrift är den aktuella) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + exakt (mmsi,bro,riktning)-fördelning + EXAKT bridge_text-transitionsström (golden-text/) + alla invarianter |
-| Syntetiska | `npm run replay:synthetic` | 45 scenarier (gap, U-svängar, GPS-hopp, kajliggare, sog=null, omstart, 2h-prune-stillaliggare …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. |
+| Syntetiska | `npm run replay:synthetic` | 45 scenarier (gap, U-svängar, GPS-hopp, kajliggare, sog=null, omstart, 2h-prune-stillaliggare …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
 | Öppningsgrindarna | `npm run replay:openings` | ETAPP 6: det proaktiva lagret (`bridge_opening_soon`). **O1** varje målbropassage i SAMTLIGA korpusar (låsta som olåsta — antalet står i skriptets utskrift, inte här) har en öppningsvarning FÖRE passagen — varje miss klassad mot rådata (oklassad = rött); en KONVOJTÄCKNING underkänns om bron bevisligen öppnat och stängt för någon annan emellan. **O2** varje varning utan passage inom 20 min klassas mot rådata (KAJVOBBEL och UTANFÖR_HORISONTEN = rött; avbruten approach, gles anflygning och garantipris = accepterade) — även SEN_PASSAGE-hinken klassas. **O3** A/B-nattens båda armar: 6/6 öppningar varnade före, konvojen som EN varning, boat_near byte-identisk med nattens facit. Dessutom **avfyrningsfönstret** (`t − dueMs` inom två tick — kontraktet "avfyra så sent som garantin tillåter") och **ledtidsgolvet** (hårt golv 60 s; tunnare än utlovade 150 s rapporteras). |
 | Soaken | `node tests/replay-validation/runSoak.js` | 72 h blandtrafik: 0 processfel, inga läckor, fatala invarianter rena |
 | Lint | `npx eslint <ändrade filer>` (per fil — OneDrive gör helträd långsamt) | 0 fel |
@@ -48,7 +48,7 @@ gjorde vad körboken säger.
 
 ⚠️ **Ett bart `npm run replay:phase` är FÖRVÄNTAT rött** tills den olåsta
 `20260806-42h` är avgjord efter K20a (gula paketet): standardsvepet tar just de
-OLÅSTA korpusarna, och den bär 101 odokumenterade fasavvikelser i öppnings- och
+OLÅSTA korpusarna, och den bär 117 odokumenterade fasavvikelser (HEAD 480b78f mäter samma 117 — talet drev från 101 sedan K20a; skriptets egen utskrift är den aktuella siffran) i öppnings- och
 brotextdimensionerna. Rött där är alltså en ÄRLIG mätning, inte en trasig
 grind — men lägg därför aldrig kommandot i `npm run validate`/CI, och kör
 rökprov mot en NAMNGIVEN korpus (`npm run replay:phase -- <jsonl>`).
@@ -249,6 +249,40 @@ inbromsning; var 3 före Fable-granskningen 2026-07-10b — E-1-fixen tog en) �
 dokumenterade, ignorera. Korpusnivå: INV-18 i 19h/13,5h + INV-15 i 21h
 (AKIRA, dokumenterad i corpora.js) är förexisterande och informativa.
 
+## Syntetiska scenarier — placeringen ÄR testet
+
+`tests/replay-validation/runSyntheticScenarios.js` matar `scenarioGenerator.js`
+resor genom replayharnessen och dömer med invarianterna plus scenariospecifika
+förväntningar. `ctrl:'restart'` (och `disconnect`/`reconnect`) läggs in som
+egna rader i sampelströmmen och konsumeras av `replayRunner`; `restart` river
+appen med `onUninit()` och bygger en NY instans mot SAMMA settings-store, så
+allt som ska överleva en omstart prövas på riktigt (namncachen, boat_near-
+dedupen, öppningsdedupen).
+
+**FÄLLAN — en ctrl-rad på fel sekund gör grinden tyst i stället för grön.**
+`omstart-mitt-i-passage` låg fram till 2026-08-22 ~200 m norr om Klaffbron.
+Där fanns ingen post att deduplicera: Klaffbron-varningens nyckel var redan
+nollad av passagen och Stridsbergsvarningen hade inte hunnit avfyras.
+Mutationsprov: hela den persistenta öppningsdedupen kunde kopplas bort
+(`app.js _openingDedupActiveUntil` → `null`) utan att scenariot blev rött —
+`maxOpeningsPerBridge` kunde alltså aldrig falla. Omstarten ligger nu **11 min
+efter den första Stridsbergsbron-varningen**, vilket är EFTER in-session-
+fönstret (avfyrning + `CONVOY_WINDOW_MS`) men FÖRE `expiresAt`, så det är
+J15:s boot-fönster som spärrar. En saktafartszon (2,0 kn mellan broarna)
+sträcker ut anflygningen så att omstarten ryms före passagen. Härledningen med
+mätta tider står i filens egen kommentar (`OMSTART_RESTART_S`).
+
+**Kontraktet är tvåsidigt.** `maxOpeningsPerBridge` fäller bara dubbletten;
+`suppressedOpeningFires: N` kräver dessutom att EXAKT N av servicens
+avfyrningar tystades av app-sidans dedup (`openingServiceFires` − levererade
+kort). Utan det talet blir en omstart som slutar beväpna om — alltså en
+förlorad andra varning — falskt grön. Standardvärdet är 0 för alla andra
+scenarier: varje avfyrning ska nå kortet.
+
+**Skriver du om ett scenario: mutationsbevisa det.** Kör den vakt scenariot
+påstår sig pröva i en isolerad kopia, koppla bort den, och kontrollera att
+scenariot blir RÖTT. Blir det grönt är kontraktet dekoration.
+
 ## Täckningskartan — diagnosverktyg, INTE en gate
 
 `tests/replay-validation/coverageMap.js` (etapp 6) svarar på frågan **var längs
@@ -284,11 +318,21 @@ oförändrad; det säger ingenting om huruvida "om 8 minuter" var sant. Harnesse
 fäller ingenting och ingår därför inte i `npm run validate`.
 
 ```bash
-npm run measure:eta -- <utkatalog>                       # alla låsta korpusar
+npm run measure:eta                                      # alla låsta korpusar
+npm run measure:eta -- <utkatalog>                       # egen utkatalog
 npm run measure:eta -- <utkatalog> --label="efter X"     # namnge körningen
 npm run measure:eta -- <utkatalog> --corpus=20260713-41h # en korpus
 npm run measure:eta -- <utkatalog> --include-unlocked    # ta med olåsta
 ```
+
+**Utkatalogen**: utan argument skrivs `eta-accuracy.json`/`.txt` till
+`<os.tmpdir()>/ais-tracker-eta` (`%TEMP%\ais-tracker-eta` på Windows-
+jobbdatorn) — skriptet skriver ut de fullständiga sökvägarna sist i körningen.
+Fram till 2026-08-22 stod här en hårdkodad absolut macOS-sökväg med ett
+sessions-UUID i; på varje annan maskin skapade den tyst en bogus katalog i
+stället för att skriva dit någon letade. Defaultkatalogen är EN fast plats som
+skrivs över av nästa körning: en baslinje som ska sparas ska alltid ha en egen
+`--out=<katalog>` (eller ett bart positionsargument).
 
 **Storheten**: publicerat värde − (nästa faktiska brolinjekorsning för samma
 mmsi+bro − påståendets tid). Positivt = för pessimistisk, negativt = för
@@ -513,7 +557,7 @@ efteråt.
    ingen olåst korpus kör det den MINSTA LÅSTA som självtest av grinden och
    säger det rakt ut. ⚠️ **Just därför är ett bart `npm run replay:phase`
    FÖRVÄNTAT rött** så länge `20260806-42h` är olåst och oavgjord (K20a, gula
-   paketet): den bär 101 odokumenterade fasavvikelser i öppnings- och
+   paketet): den bär 117 odokumenterade fasavvikelser (HEAD 480b78f mäter samma 117 — talet drev från 101 sedan K20a; skriptets egen utskrift är den aktuella siffran) i öppnings- och
    brotextdimensionerna. Rött är där en ärlig mätning, inte en trasig grind —
    men grinden ska av samma skäl ALDRIG läggas i `npm run validate`/CI, och
    rökprov körs mot en NAMNGIVEN korpus (`npm run replay:phase -- <jsonl>`). Flaggor: `--offsets=-20,-11.52,-5` (fasoffsets i SEKUNDER,
