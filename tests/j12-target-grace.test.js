@@ -12,15 +12,22 @@
  * `_clearStaleTargetBeyond`.
  *
  * FELFALLET (reproducerat nedan genom den riktiga pipelinen): en kö vid bron
- * skapar posten — kö-zonsvakten håller kvar målet och posten lever vidare —
- * passagen föräldralöser den, och när samma bro blir mål igen efter en U-sväng
- * ger FÖRSTA valideringsmissen `TARGET_CHANGE → "none"` med en frist på över
- * tusen sekunder i stället för en ny 60 s-frist. Båten faller ur brotexten
- * ("Inga båtar") tills ACCELERATED hinner återtilldela — en flappande
- * brotextcykel per drabbad resa.
+ * skapar posten, passagen föräldralöser den, och när samma bro blir mål igen
+ * efter en U-sväng ger FÖRSTA valideringsmissen `TARGET_CHANGE → "none"` med
+ * en frist på över tusen sekunder i stället för en ny 60 s-frist. Båten faller
+ * ur brotexten ("Inga båtar") tills ACCELERATED hinner återtilldela — en
+ * flappande brotextcykel per drabbad resa.
  *
  * INGEN TIDSGRÄNS ÄNDRAS av fixen; posten får bara samma livslängd som den
  * målbro den gäller.
+ *
+ * L5 (helkodsgranskning RUNDA 3, 2026-08-22) — FJÄRDE ANROPSSTÄLLET. J12:s
+ * egen fixtext namngav FYRA ställen och implementerade tre. Det fjärde är
+ * kö-zonsgrenen (TARGET_QUEUE_ZONE), som håller kvar målet men lät posten stå
+ * kvar och åldras; systerstället är skyddszonsgrenen (PROTECTION_ZONE_SAVE),
+ * som hoppade över hela grace-blocket. Steg (4) nedan LÅSTE tidigare att
+ * posten LEVER genom kö-grenen — den assertionen är medvetet vänd, se
+ * motiveringen på plats.
  */
 
 jest.mock('homey');
@@ -113,11 +120,26 @@ describe('J12: grace-posten släpps när målbron släpps', () => {
     expect(graceKeys(svc)).toEqual([`${mmsi}:Klaffbron`]);
     expect(loggedLines().some((l) => l.includes('Starting 60s grace period'))).toBe(true);
 
-    // (4) Kö-zonsvakten håller kvar målet när fristen löpt ut — posten lever
-    //     alltså vidare fram till passagen, precis som i fältet.
+    // (4) Kö-zonsvakten håller kvar målet när fristen löpt ut.
+    //     VÄND ASSERTION (L5, 2026-08-22): raden låste tidigare
+    //     `toEqual([`${mmsi}:Klaffbron`])`, alltså att posten LEVER genom
+    //     kö-grenen. Just det var felet: posten fortsatte åldras under hela
+    //     köandet, så första missen EFTER att köundantaget upphörde tog målet i
+    //     samma tick i stället för efter en ny 60 s-frist (fältfallet CARAT
+    //     211452170, 1550 s förfluten frist ⇒ "Inga båtar" i 139 s). Kö-grenen
+    //     RADERAR nu posten; målet hålls fortfarande kvar, vilket raden under
+    //     kontrollerar via TARGET_QUEUE_ZONE-loggen.
     step(-0.00434, 1.0, 30, 70000);
     expect(loggedLines().some((l) => l.includes('TARGET_QUEUE_ZONE'))).toBe(true);
-    expect(graceKeys(svc)).toEqual([`${mmsi}:Klaffbron`]);
+    expect(graceKeys(svc)).toEqual([]);
+    expect(svc.vessels.get(mmsi).targetBridge).toBe('Klaffbron');
+
+    // (4b) L5-KÄRNAN: nästa valideringsmiss startar en FÄRSK 60 s-frist i
+    //      stället för att ta målet med en minuter gammal. Utan raderingen i
+    //      kö-grenen loggades "TARGET_CHANGE → none | Grace period: 210s" här.
+    const afterQueue = step(-0.00433, 1.2, 30, 70000);
+    expect(afterQueue.targetBridge).toBe('Klaffbron');
+    expect(loggedLines().some((l) => l.includes('"Klaffbron" → "none"'))).toBe(false);
 
     // (5) PASSAGEN (riktig detektering): Klaffbron → Stridsbergsbron.
     const afterPassage = step(+0.00090, 3.0, 30, 70000);
