@@ -435,6 +435,15 @@ class AISBridgeApp extends Homey.App {
     // Detta kan orsaka crashes och inkonsekvent state
     this._processingRemoval = new Set(); // Set med MMSI som håller på att tas bort
 
+    // --- K25: NOTIS-TOKEN EFTER ETA-OMRÄKNINGEN ---
+    // SYFTE: boat_near-tokenens eta_minutes ska bära DET AKTUELLA fixets ETA,
+    // inte förra tickets. Se _onVesselStatusChanged STEG 1 och
+    // _flushDeferredStatusBoatNear för mekanismen och fältbeviset (NAVEN).
+    // _etaSettlingMmsi är satt exakt medan meddelandevägens statusanalys och
+    // ETA-block körs för ett fartyg; kön håller de notiser som väntar på det.
+    this._etaSettlingMmsi = null;
+    this._deferredStatusBoatNear = [];
+
     // =========================================================================
     // STEG 3: SETUP SETTINGS LISTENER
     // =========================================================================
@@ -2596,7 +2605,43 @@ class AISBridgeApp extends Homey.App {
     );
 
     if (shouldTriggerBoatNear) {
-      await this._triggerBoatNearFlow(vessel); // Specific bridge trigger
+      // K25 (fältprov 10, 2026-08-19, NAVEN 231920000 @ 15:54:28):
+      // notis-tokenens eta_minutes bar FÖRRA tickets värde.
+      // Kedjan: StatusService.analyzeVesselStatus emittar 'status:changed'
+      // INIFRÅN sig själv (StatusService.emit i analyzeVesselStatus, båda
+      // grenarna: FIX U-forceringen och den ordinarie ändringsdetekteringen)
+      // — alltså FÖRE anroparen
+      // hunnit både skriva vessel.status (app.js STEG 7) och räkna om ETA:n
+      // för det nya fixet (ETA-blocket i _analyzeVesselPosition). Handlern
+      // nedan kör synkront ända
+      // fram till tokenbygget, så tokenen läste vessel.etaMinutes från
+      // föregående pollcykel. Fältbevis, samma millisekundfönster:
+      //   .827 STATUS_CHANGE approaching → waiting
+      //   .828 Safe tokens eta_minutes=4     (beräknat 70 s / 339 m tidigare)
+      //   .835 ETA_RAW 1,8min → EMA 3,0min   (DETTA fix, 7 ms EFTER tokenen)
+      //   verklig passage 2,24 min senare ⇒ tokenen låg ~79 % för högt.
+      // 6 av 10 målbronotiser i dygnet bar samma fördröjning.
+      //
+      // FIXEN: när emitten kommer inifrån meddelandevägens analys (då och
+      // endast då är ETA:n för fixet ännu inte skriven) köas notisen och
+      // avfyras av _flushDeferredStatusBoatNear direkt efter ETA-blocket —
+      // med vessel.status OCH vessel.etaMinutes uppdaterade för samma fix.
+      // Await:en behålls (kön returnerar ett löfte som resolvas när notisen
+      // gått igenom), så STEG 2–4 nedan kör i OFÖRÄNDRAD ordning relativt
+      // notisen. Snapshot-vägen (_reevaluateVesselStatuses) köar INTE: där
+      // har meddelandevägen redan skrivit etaMinutes för samma fix.
+      // FACIT: notismultiseten är nycklad på (mmsi, bro) resp.
+      // (mmsi, bro, riktning) — eta_minutes ingår inte, och varken antalet
+      // notiser eller dedup-nycklarna påverkas (samma anrop, samma tick).
+      // MEN K25 ÄR INTE HELT FACITNEUTRAL (mätt i granskningen 2026-08-22):
+      // den köade notisen resolvas via en mikrotask, så STEG 2–4 i den här
+      // handlern kör EFTER hela ETA-blocket i stället för mitt i det. Det
+      // flyttar TIDSSTÄMPELN på TRE golden-poster 5 ms TIDIGARE —
+      // 20260710-13h idx 17 och idx 92 samt 20260713-41h idx 118 (omlåsta
+      // 2026-08-22, micro-grace 15→10 ms) — medan TEXTEN är identisk. Brotexten är
+      // oförändrad i hela korpussamlingen (0 av 470 poster i bandet ändrade)
+      // och antalet textövergångar står still (2163 = 2163).
+      await this._triggerBoatNearFlowAfterETASettles(vessel); // Specific bridge trigger
     }
 
     // STEG 2: RENSA TRIGGERS NÄR BÅT LÄMNAR OMRÅDET
@@ -2693,6 +2738,69 @@ class AISBridgeApp extends Homey.App {
       this._updateUI(priority, reason);
     } else {
       this.debug(`❌ [UI_UPDATE_SKIP] ${vessel.mmsi}: Skipping _updateUI() for status change ${oldStatus} → ${newStatus}`);
+    }
+  }
+
+  /**
+   * K25: avfyra statusdriven boat_near först när fixets ETA är skriven.
+   * Se _onVesselStatusChanged STEG 1 för fyndet och härledningen.
+   *
+   * ⚠️ VAD K25 LOVAR — OCH INTE (granskningen, röda etappen 2026-08-22): kön
+   * synkroniserar tokenen mot samma UNDERLIGGANDE storhet som brotexten
+   * (vessel.etaMinutes för AKTUELLT fix). Den gör INTE de två ytorna
+   * teckenidentiska: brotexten går genom imminent-overriden i
+   * lib/utils/etaValidation.js ("strax" under 3 min, Fix H) medan tokenen
+   * avrundar minutvärdet. Vid NAVEN 2026-08-19T15:54:28.824Z bar tokenen
+   * FÖRE K25 värdet 4 (förra fixets 3,8) och EFTER K25 värdet 3 (fixets egna
+   * 3,0) mot sanning 2,24 min; brotexten växlade till "strax" 25–45 ms senare.
+   * Divergensen siffra↔"strax" är olika RENDERINGSREGEL (imminent-overriden),
+   * inte olika underliggande värde, och kvarstår. Vill man ha teckenidentitet
+   * är åtgärden att låta tokenen gå genom etaValidation, inte att köa hårdare.
+   * @param {Object} vessel - Fartygsobjekt
+   * @returns {Promise<void>} Löftet resolvas när notisvägen körts klart
+   * @private
+   */
+  async _triggerBoatNearFlowAfterETASettles(vessel) {
+    // Emitten kom INTE inifrån meddelandevägens analys för just detta fartyg
+    // (snapshot-vägen, eller en framtida anropare) ⇒ vessel.etaMinutes är
+    // redan skriven för aktuellt fix. Kör som förut.
+    // SMALT UNDANTAG, KÄNT OCH OÅTGÄRDAT (granskningen 2026-08-22): hoppade
+    // meddelandevägen över sitt ETA-block för fixet (positionUncertain,
+    // gpsJumpDetected eller en status utanför ETA-listan) och snapshot-vägen
+    // sedan byter till en ETA-status och räknar om, byggs tokenen fortfarande
+    // före den omräkningen. Residualen är smal och oförändrad mot HEAD; att
+    // stänga den kräver samma markör runt snapshot-vägens statusanalys och
+    // ETA-block, vilket är en egen ändring med egen facitmätning.
+    if (this._etaSettlingMmsi !== String(vessel.mmsi)) {
+      await this._triggerBoatNearFlow(vessel);
+      return;
+    }
+    this.debug(
+      `⏳ [BOAT_NEAR_AWAIT_ETA] ${vessel.mmsi}: köar notisen tills fixets ETA räknats `
+      + '(tokenen ska bära DETTA fixets vessel.etaMinutes, inte förra tickets)',
+    );
+    // Lat initiering: fälten sätts i onInit, och flera tester bygger appen
+    // utan att köra den (new AISBridgeApp() / Object.create(prototype)).
+    if (!this._deferredStatusBoatNear) this._deferredStatusBoatNear = [];
+    await new Promise((resolve, reject) => {
+      this._deferredStatusBoatNear.push({ vessel, resolve, reject });
+    });
+  }
+
+  /**
+   * K25: töm kön av statusdrivna boat_near-notiser. Anropas SYNKRONT direkt
+   * efter meddelandevägens ETA-block (och från dess finally, så en köad notis
+   * aldrig kan gå förlorad om analysen kastar).
+   * @private
+   */
+  _flushDeferredStatusBoatNear() {
+    if (!this._deferredStatusBoatNear || this._deferredStatusBoatNear.length === 0) return;
+    const queued = this._deferredStatusBoatNear;
+    this._deferredStatusBoatNear = [];
+    for (const item of queued) {
+      // Anropas SYNKRONT: _triggerBoatNearFlow bygger tokens innan sitt
+      // första await, så tokenen ser den nyss skrivna vessel.etaMinutes.
+      this._triggerBoatNearFlow(item.vessel).then(item.resolve, item.reject);
     }
   }
 
@@ -2877,6 +2985,14 @@ class AISBridgeApp extends Homey.App {
       // target — inte ångra avsiktliga transitioner.
       const targetAfterTransitions = vessel.targetBridge;
 
+      // K25: markera att fixets ETA ännu inte är skriven. analyzeVesselStatus
+      // nedan emittar 'status:changed' INIFRÅN sig själv, och handlerns
+      // boat_near-notis läser vessel.etaMinutes — utan markören hade den läst
+      // förra tickets värde (se _onVesselStatusChanged STEG 1). Markören
+      // rensas och kön töms av _flushDeferredStatusBoatNear nedan, både på
+      // den normala vägen och i catch-grenen.
+      this._etaSettlingMmsi = String(vessel.mmsi);
+
       // STEG 6: STATUS ANALYSIS
       // Analysera och bestäm status baserat på position och proximity
       const statusResult = this.statusService.analyzeVesselStatus(vessel, proximityData, positionAnalysis);
@@ -2945,6 +3061,12 @@ class AISBridgeApp extends Homey.App {
       // frusen position (flip-flop-motorn i förfix-loggen).
       vessel._positionUpdatedSinceLastETA = positionFresh;
 
+      // K25: ETA:n för fixet är skriven — släpp fram de notiser som köades av
+      // statusändringen ovan. Synkront, i samma tick, så tokenen bär exakt den
+      // minutsiffra brotexten kommer att visa.
+      this._etaSettlingMmsi = null;
+      this._flushDeferredStatusBoatNear();
+
       // 7. Schedule appropriate cleanup timeout
       const timeout = this.proximityService.calculateProximityTimeout(vessel, proximityData);
       this.vesselDataService.scheduleCleanup(vessel.mmsi, timeout);
@@ -2958,6 +3080,14 @@ class AISBridgeApp extends Homey.App {
     } catch (error) {
       this.error(`Error analyzing vessel position for ${vessel.mmsi}:`, error);
       // Continue with next vessel - don't crash
+    } finally {
+      // K25: en köad notis får ALDRIG bli kvarliggande. Kastar analysen mellan
+      // statusemitten och ETA-blocket är kön fortfarande full — då avfyras den
+      // här, med förra tickets ETA (exakt dagens beteende) i stället för att
+      // notisen tystnar och löftet i _triggerBoatNearFlowAfterETASettles
+      // hänger. På den normala vägen är kön redan tömd ⇒ no-op.
+      this._etaSettlingMmsi = null;
+      this._flushDeferredStatusBoatNear();
     }
   }
 
