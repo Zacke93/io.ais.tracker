@@ -454,7 +454,13 @@ så frasen dög inte som verktyg. Den heter numera "utan nordprogress"
 (TARGET_ASSIGNMENT), och `grep "quay wobble"` träffar därmed ENBART den ÄKTA
 kajvobbelvakten i reborn-grenen. Läser du en logg från före 2026-08-21 gäller
 det omvända. Dedup-nyckeln
-sätts inte vid skip: notisen fördröjs en fix, den förloras inte.
+sätts inte vid skip: notisen fördröjs en fix, den förloras inte. **Löftet gäller LEVANDE
+zonnärvaro.** En SVEPKANDIDAT (FP7-3, `_tpSweepCandidate` lever exakt en tick och bärs inte av
+fältlistan) kunde förr dö på FP9/V1-skippen utan återkomst (N20, runda 5) — sedan fixrunda 5
+räknas ett matchande segmentsvep som transitbevis i nordgrenen (segmentet ÄR transitbevis:
+båda ändpunkter utanför zonen, latituden korsad). Failsafens förtöjningsretur (large-jump) är
+OFÖRÄNDRAD — N20:s andra ben återkallades i 5b (ventilen infördes tillsammans med att target-
+gaten togs bort; klassen 'förtöjd + oflaggat stort hopp' är öppen tills fältbevis finns).
 
 Dedup-lagren:
 
@@ -1740,6 +1746,87 @@ M28 (dirigenten, fixrunda 4): skuggparningens färskhetsval läste `best.storedA
   nollar under-bro-klockan per timerpass).
 - Dementerade i runda 4: M3, M13 (mux.connect reconcilerar korrekt), M14, M17, M19, M20,
   M23, M31, M32, M38, M39, M40.
+
+
+### Helkodsgranskning runda 5 (2026-08-23, HEAD 2c67a13) — läge, dementeringar, stoppkriterium
+
+Runda 5 (13 paketgranskare, 80 skeptiker): 40 kandidater → 12 bekräftade (0 critical; 5 major:
+N2 pre-ex ACCELERATED-ticken utan passagedetektering, N11 M11:s frysta kajankare, N13 M11:s
+prune-klocka, N21 hold-hybriden återspelar fel bros text, N20 svepkandidaten förloras), 5 osäkra,
+23 dementerade. Fixrunda 5 åtgärdar N7 N8 N25 (M1:s tre systrar) N13 N11 N5 N10 N29 N30 och
+prövar N2/N21/N20 som MÄTTA försök (handoff-2026-08-21/helkodsgranskning-runda5.md, hkfix5-
+rapport.md). Trend (bekräftade/runda): 12 → 24 → 12 → 12 → 12 (~17 råa) — konvergens i ALLVAR
+(0 critical), inte i antal. Fixvågens egen felfrekvens runda 4: 3 nya defekter/11 fixar (27 %).
+
+**Fixrunda 5 — läge (2026-08-23):** levererat N7 (gråzonen 0,3–0,49 kn frågar nu
+_stillnessJitterHolds — ERSÄTTER runda 4:s medvetna "gråzonen orörd"; två brusprov på moget
+ankare utan netto HÅLLS), N8 (null-sog-avgången nollar ankaret), N25 (GPS-flaggat prov river
+inte ett moget ankare; kassering bara vid netto ≥ 50 m), N2 (ACCELERATED-tickens eget segment
+prövas mot mellanbroarna — 5 rådataverifierade passager, notisantal oförändrat, detektionsgrad
+342→343/402; KVAR), N11 (laddningen ogiltigförklarar kajankarets geometri, behåller klockorna),
+N13 (delad ttl-klocka stillAt→bandSince i prune/persist/load), N5 (GPS-flaggade sampel skiftar
+inte prevFix), N10 (AISHub-vakten körs även när aggregatet är frånkopplat), N29 (egen dedupnyckel
+för skuggnotisen), N30 (AISHubClient: settings-läsning skyddad i connect; armeringsögonblick i
+perFeed), N21 (hållningarna kräver att den bevarade texten nämner en bro hållningen handlar om —
+nästa målbro härleds ur passagehistorikens geografi; fail-open utan positionsbevis; två golden-
+rader i both-21h rådataverifierade). N20: SVEPBENET levererat (ett matchande segmentsvep räknas
+som transitbevis i nordgrenen); FAILSAFE-BENET (observerat latitudhopp passerar förtöjnings-
+returen i large-jump-failsafen) ÅTERKALLAT i 5b — det fällde det låsta fälttestet
+"förtöjd båt är undantagen" (korrigeringar-2026-07-02b) och har noll uppmätt effekt i banken;
+klassen "förtöjd + oflaggat stort hopp" är ÖPPEN tills fältbevis finns.
+
+**Öppet efter fixrunda 5/5b (dokumenterat, ej kod):** N13:s FJÄRDE klocka — bandgränsens
+hysteres i `_noteQuayStability` (~1562) läser stillAt rakt av (en post med bara bandSince faller
+på FÖRSTA fixen utanför bandet; blocket körs i replay ⇒ egen facitmätning krävs); N5:s syster —
+ankarSKRIVNINGEN i `_noteQuayLedgerEntry`/`_noteQuayStability` tar GPS-flaggade sampel (en flaggad
+utflykt > 100 m med lågt sog kan plantera ankaret fel — samma skadeklass som N5 via annat fält);
+N29 täcker bara skuggläget (both-grenens lugnande besked delar fortfarande nyckel med det
+alarmerande); BOS `_hasStillnessEvidence`-docblocket beskriver nu M1/N7-regeln (klockan behålls
+så länge nettot från ett moget ankare < 50 m ⇒ en avgång i 0,4–1 kn håller avväpningen kvar i
+minuter — ombeväpningen kan behöva eget rörelsevillkor). N21:s innehållsgata: strängmatchning
+av bronamn (alla 569 golden-texter nämner en målbro); nästa målbro ur passagehistorikens geografi,
+fail-open utan positionsbevis; nya loggrader `PASSED_HOLD_UI_SKIP`/`GPS_HOLD_UI_SKIP`. N30: C-agentens
+`pollChainArmedAt` i perFeed + app.js-fallback (5b); `_readLastPollAt` try/catch så `connect`
+aldrig kastar före schemaläggningen.
+
+**Fixrunda 5b (2026-08-23, GODKÄNT m. anmärkningar):** N20 ben b återkallat (failsafen
+kodidentisk med HEAD); gråzonstestet i `tests/moored-vessel-detection.test.js` ("GRÅZONEN
+OFÖRÄNDRAD", runda 4-låst) OMLÅST OCH DELAT i "UNGT ANKARE ⇒ släpper som förr" + "MOGET ANKARE ⇒
+hålls (N7)" med motivering per rad; N30:s app-fallback (`pollChainArmedAt` när
+`lastPollStartedAt` saknas, strikt underordnad, `tests/n30-app-fallback.test.js`); N29b:
+both-grenens lugnande besked fick egen nyckel `aisstream:nokey:both` (`BOTH_NOKEY_NOTICE_KEY`) —
+`aisstream:nokey` bärs nu bara av de två alarmerande avsändarna. MÄTHYGIEN för nästa läsare:
+`npm run replay:all` skriver "AVVIKELSE olåst 20260806-42h" (134/135 notiser, 2 dubbletter
+Stridsbergsbron, ETA-sågtand, 2 DEFAULT-FLASH) och bart `replay:phase` sveper de OLÅSTA
+korpusarna (117 avvikelser) — BÅDA RÖDA REDAN PÅ HEAD, ingen regression; rökprovet är det
+NAMNGIVNA fassvepet på minsta låsta korpus (20260611-4h).
+
+**VIKTIGT — dementerat med mätning (återuppstår bara med nytt bevis):** N1 (M1 "släpper inte
+förtöjd vid rapporterad fart" — blockregionen ligger innanför projektets egen 40 m-gräns; första
+avgångssamplet släpper vid ≥ 50 m netto = ≤ 1 poll), N3 (M2 "underkänner avgångsfixet" — samma
+40 m-gräns; öppningsgrinden grön), N4 (mottagningsklockan över källgränsen), N6 (M1 inert för
+återfödda = M15, känd), N9 (C9-avväpningen onåbar efter M1), N12 (0 av 268 849 predikatanrop),
+N14 (0 av 12 964 observationer), N16, N17 (klientens råa dedup skuggar fusionen), N18, N19
+(M16:s återkallade regression skulle återinföras), N22 (0 av 5 321 anrop), N24, N26, N28, N31,
+N32, N33, N35, N36, N37, N39, N40.
+
+**Osäkra (kvar):** N15 (M8-taket nollställs av K6-dubbelkörningens andra kalkyl — mät när K6
+tas), N23 (M11:s hysteres över en avfärd med EN utanförfix), N27 (GPS-gatens kurstolerans i
+mottagningsdomänen), N34 (RouteOrderValidator läser bara momentan COG ⇒ ordningsvakten faller
+bort vid okänd riktning — reproducerad, minor), N38 (gps_coordination_active fyrar av under-bro-
+latchen, inte GPS ⇒ M8 kalibrerad mot fel population — diagnostik).
+
+**Syntesens stoppkriterium (tre villkor över två på varandra följande rundor):** (1) 0 critical
+och 0 major i kod rundan själv ändrade (major = reproducerad genom produktionsvägen med rådata-/
+korpusbelagt fel utfall); (2) fixvågens felfrekvens < 10 %, mätt av nästa rundas granskning av
+just den vågen; (3) varje landad fix bär ett UTTÖMMANDE systerställesvep (alla läs-/skrivställen
+för det ändrade predikatet, beslut per ställe). Status efter runda 5: EJ uppfyllt (N11 major i
+M11:s kod; 27 %; N7/N8/N13 var missade systrar). METODLÄXA: de fyra pre-existerande majors som
+överlevt fyra rundor delar form — tillstånd som lever exakt EN tick eller EN gren (else-if-kedja
+som hoppar över detektering; flagga utanför fältlistan; håll utan innehållskoppling; vakt oarmerad
+före första pollen) — och syns bara när man följer ETT meddelande genom hela kedjan. Därför: efter
+fixrunda 5 körs en SYSTERSTÄLLESRUNDA (mekanisk enumerering av varje anrops-/skrivställe för de
+predikat runda 4–5 rört) + "följ ett meddelande"-pass i stället för en sjätte bred runda.
 
 
 ## 10. Söndagsfältet 2026-08-09/10 (commits a9f2a20, ce6a946, b1a7ba3 + WS-3)
