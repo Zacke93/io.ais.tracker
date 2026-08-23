@@ -30,6 +30,8 @@ Svar och kodkommentarer på svenska.
 
 ## Regler och fallgropar
 
+- `npm test` kör med `--detectOpenHandles`: en läckt äkta timer ger evig häng i
+  stället för ett rött test. Hänger sviten — leta öppet handtag, vänta inte ut den.
 - Använd inte `git stash` — det förstör LF-radslut i repot.
 - Brotexterna följer exakt format (se `docs/bridgeTextFormat.md`) och valideras
   av tester — ändra aldrig textformat utan att köra brotext-testerna.
