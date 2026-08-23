@@ -61,6 +61,11 @@ const { toUserDirection, INTERNAL_TO_USER } = require('./lib/utils/directionToke
 // och den här sista saneringen i appen anropar — det var glidningen mellan
 // kopiorna som VAR felet.
 const { normalizeNavStatus } = require('./lib/utils/aisFieldNormalization');
+// M2 (helkodsgranskning RUNDA 4, 2026-08-23): kajgrindens enkelsampel-undantag
+// får inte öppnas av ETT brusigt sog-värde. Modulen är DELAD med
+// tests/replay-validation/runOpeningGates.js (som ärvde samma defekt genom sin
+// hårdkodade UNDERWAY_SOLO_SOG_KN) — se modulens docblock för API-kontraktet.
+const { explainTransitCorroboration } = require('./lib/utils/quayTransitProof');
 
 // =============================================================================
 // CONSTANTS: Centraliserade konfigurations-värden
@@ -220,6 +225,31 @@ const IMMINENT_EXHAUSTED_MAX_AGE_MS = 90 * 1000;
 // klassas som "har passerat Kanalinfarten" utan att ha passerat något.
 // Glider de två ställena isär återuppstår exakt den asymmetrin tyst.
 const TRIGGER_POINT_SIDE_MARGIN_DEG = 0.0009;
+
+// M2b (helkodsgranskning RUNDA 4b, 2026-08-23): NOLLSÄKER MÄTVÄRDESFORMATERING
+// FÖR LOGGRADER SOM LIGGER INNE I ETT FAIL-OPEN-TRY.
+//
+// VARFÖR: `_isBridgeOpeningQuayWobbler` är fail-open by design — dess catch
+// returnerar false, vilket betyder "INTE kajvobblare", vilket i sin tur
+// TILLÅTER beväpning. Doktrinen är rätt (en missad broöppning är värre än ett
+// falsklarm) och behålls, men den gör varje kast inne i try:t till ett TYST
+// AVSLAG PÅ SKYDDET. M2:s egen debugrad formaterade tre mätvärden ur
+// quayTransitProof rått (`proof.impliedKn.toFixed(2)`); returvägen
+// `reason: 'no_speed'` ger `corroborated: false` med ALLA tre mätvärden null,
+// och `null.toFixed` kastar TypeError. Den vägen är onåbar från dagens enda
+// anropare (den kräver finit sog), men "onåbar i dag" är exakt den premiss som
+// brustit förut i det här projektet när en andra anropare tillkommit — och
+// priset här är att skyddet stängs av utan ett spår i loggen.
+// Hjälparen gör raden strukturellt okastbar; catchen loggar på error-nivå så
+// ett fail-open-avslag ALDRIG blir tyst.
+/**
+ * @param {number|null|undefined} value
+ * @param {number} [digits=0]
+ * @returns {string} avrundat tal, eller 'okänt' när värdet inte är finit
+ */
+function fmtMeasure(value, digits = 0) {
+  return Number.isFinite(value) ? value.toFixed(digits) : 'okänt';
+}
 
 /**
  * =============================================================================
@@ -439,9 +469,22 @@ class AISBridgeApp extends Homey.App {
     // 500 m-radie gjorde kajvobbel-grinden strukturellt neutral vid exakt de
     // två broar öppningslagret varnar för. EGEN karta, inte en breddning av
     // V1: boat_near-grinden och dess facit ska stå byte-identiska.
-    // Session-lokal (ingen settings-persistens): den bredare kartan får inte
-    // öka skrivtakten mot flashen, och en omstart följs av färska fix.
+    // M11 (helkodsgranskning RUNDA 4, 2026-08-23) — KARTAN PERSISTERAS NU.
+    // Här stod tidigare "session-lokal (ingen settings-persistens): … en
+    // omstart följs av färska fix". Det ANDRA ledet var falskt: grinden
+    // tillåter beväpning så länge `stayMs` från `bandSince` understiger
+    // QUAY_STAY_MIN_MS (5 min), och `bandSince` sätts när POSTEN skapas — en
+    // omstart nollställde alltså en kajvistelse på timmar och gjorde
+    // kajvobbelgrinden BLIND i fem minuter. Reproducerat end-to-end: fem
+    // AIS-meddelanden på identisk position 400 m söder om Klaffbron med
+    // sog-brus 0,1–1,3 kn gav ett avfyrat Flow-kort ~1 min efter boot.
+    // Skrivtakten är V1-kartans egen (QUAY_DEPARTURE_GATE.PERSIST_INTERVAL_MS,
+    // 15 min) och delar dessutom dess strypklocka — se _persistQuayLedger, som
+    // skriver BÅDA blobbarna i samma svep. Kostnaden mot flashen blir därmed
+    // 2 skrivningar per 15 min TOTALT (192/dygn) i stället för 96, oavsett
+    // antal fartyg, mot ett minnesfönster på två timmar.
     this._openingQuayLedger = new Map();
+    this._loadOpeningQuayLedger();
 
     // --- ÖPPNINGSVARNINGARNAS ENGÅNGS-DEDUP (etapp 6, 2026-08-03) ---
     // eventId ("Klaffbron#7") → avfyrningstid. BridgeOpeningService avfyrar
@@ -831,11 +874,35 @@ class AISBridgeApp extends Homey.App {
           + 'vidare med enbart AISstream tills du fyllt i det i inställningarna.',
           'config:fallback',
         );
-      } else if ((source === 'both' || source === 'shadow') && !apiKey && aishubUsername) {
+      } else if (source === 'both' && !apiKey && aishubUsername) {
         this.log(`⚠️ [AIS_SOURCE] ais_source='${source}' utan aisstream-nyckel — kör enbart AISHub`);
         this._notifyConnectionIssue(
           'AIS Tracker: ingen AISstream-nyckel är konfigurerad — appen kör '
           + 'enbart AISHub tills nyckeln finns i inställningarna.',
+          'aisstream:nokey',
+        );
+      } else if (source === 'shadow' && !apiKey && aishubUsername) {
+        // M37 (helkodsgranskning RUNDA 4, 2026-08-23) — SKUGGLÄGE ÄR INTE
+        // "kör enbart AISHub". Grenen delades tidigare med 'both', och texten
+        // var FALSK för skuggläget: muxen kastar VARJE hubbfix i 'shadow'
+        // (AISSourceMultiplexer: "aldrig vidare — beviset ska vara rent") och
+        // _hubFeedsPipeline är falskt. Utan aisstream-nyckel finns alltså
+        // INGEN källa som matar brotext eller notiser — appen är helt blind,
+        // medan användaren fick beskedet att AISHub bar henne.
+        // NÅBARHETEN ÄR HÖG: inställningssidan REKOMMENDERAR själv skuggläge i
+        // minst 48 h och kräver bara username för icke-aisstream-källor, så en
+        // användare som följer appens egen rekommendation utan aisstream-nyckel
+        // hamnar exakt här. Mätt: 8 h gav noll notiser.
+        // Skuggtelemetrin startas ändå (se _startConnection) — det är
+        // sourceWantsHub-kontraktet, och att riva den vore att byta en tyst
+        // död app mot en tyst död mätning.
+        this.log('⚠️ [AIS_SOURCE] ais_source=\'shadow\' utan aisstream-nyckel — INGEN källa matar '
+          + 'brotext/notiser (skuggläget kastar varje hubbfix); endast skuggtelemetri körs');
+        this._notifyConnectionIssue(
+          'AIS Tracker: skuggläge utan AISstream-nyckel — ingen källa matar '
+          + 'brotexten eller notiserna, appen är alltså utan båtdata. AISHub '
+          + 'används bara för jämförelsemätning i skuggläge. Lägg in din '
+          + 'AISstream.io-nyckel, eller byt källa till AISHub i inställningarna.',
           'aisstream:nokey',
         );
       }
@@ -1451,13 +1518,53 @@ class AISBridgeApp extends Homey.App {
     if (nearPoint(openingPoints)) {
       this._noteQuayLedgerEntry(this._openingQuayLedger, mmsi, vessel);
     } else {
-      this._openingQuayLedger.delete(mmsi);
+      // M11 (RUNDA 4) — HYSTERES VID BANDGRÄNSEN. Ett OVILLKORLIGT delete här
+      // gav samma femminutersblindhet som en omstart, UTAN omstart: ETT enda
+      // fix utanför 500 m raderade posten, nästa fix skapade en ny med
+      // `bandSince = nu`, och en uppmätt 115-minutersvistelse blev 0. En
+      // kajliggares GPS-drift och de glesa positionsrapporterna gör exakt den
+      // profilen vanlig precis på gränsen.
+      //
+      // TOLERANSEN ÄR EN (1) FIX, inte obegränsad tid. Nivån är projektets
+      // egen och redan härledda: QUAY_DEPARTURE_GATE.MIN_MOVING_FIXES säger
+      // att ETT enstaka prov aldrig är bevis och att TVÅ PÅ VARANDRA FÖLJANDE
+      // är det (granskningsrunda 2:s dödbandsläxa). Samma regel åt andra
+      // hållet: ett utfall ur bandet är ett brusprov, två i följd är en
+      // avfärd. Räknaren nollställs av varje fix INNE i bandet
+      // (_noteQuayLedgerEntry).
+      //
+      // MÄTT VARFÖR TAKET BEHÖVS (20260804-both-21h): utan det behöll ANYA
+      // ELAN 380 (265705550) sin post genom en TVÅFIXARS utflykt till 591 och
+      // 517 m, och hennes ankare från väntläget 100 m från Klaffbron gjorde
+      // återkomsten till "netto-reträtt −271 m" — hon förlorade sitt
+      // medlemskap i Klaffbron-öppningen 07:49 (kortet fyrade ändå, med
+      // LAURIERBORG som lead). Med taket är den korpusen byte-identisk.
+      const kept = this._openingQuayLedger.get(mmsi);
+      if (kept) {
+        kept.outOfBandFixes = (kept.outOfBandFixes || 0) + 1;
+        const stillAt = Number.isFinite(kept.stillAt) ? kept.stillAt : 0;
+        // En post UTAN stillasample (stillAt = 0) bär ingen grindkraft alls —
+        // _quayDepartureNeedsProof returnerar null på den — och släpps direkt,
+        // precis som förut.
+        const historyExpired = stillAt <= 0 || Date.now() - stillAt > QUAY_DEPARTURE_GATE.MEMORY_MS;
+        if (kept.outOfBandFixes >= QUAY_DEPARTURE_GATE.MIN_MOVING_FIXES || historyExpired) {
+          this._openingQuayLedger.delete(mmsi);
+        }
+      }
     }
 
     if (!nearPoint(triggerPoints)) {
       // Ute ur närområdet = i transit: släpp bokföringen (bounded minne, och
       // en återkomst prövas som förut tills nytt stillasample bokförts).
       this._quayStableLedger.delete(mmsi);
+      // M11 (RUNDA 4): skrivningen längst ned nås aldrig på den här vägen, och
+      // det är EXAKT målbrofallet — Kanalinfarten ligger 1982 m från Klaffbron
+      // och 3197 m från Stridsbergsbron, så ett fartyg som kajligger vid en
+      // MÅLBRO passerar alltid här. Utan raden hade öppningsblobben i
+      // praktiken aldrig skrivits och persistensen varit tyst död kod.
+      // Anropet är strypt internt (PERSIST_INTERVAL_MS) — kostnaden per
+      // positionsuppdatering är en klockjämförelse.
+      this._persistQuayLedger();
       return;
     }
 
@@ -1530,13 +1637,37 @@ class AISBridgeApp extends Homey.App {
   _noteQuayLedgerEntry(ledger, mmsi, vessel) {
     const sog = Number.isFinite(vessel.sog) ? vessel.sog : null;
     const entry = ledger.get(mmsi) || {
+      // M11 (RUNDA 4): posten kan komma från settings (_loadOpeningQuayLedger)
+      // — fältlistan nedan är därför också laddningens kontrakt.
       // bandSince = när fartyget kom in i kajbandet den här vistelsen. Posten
-      // raderas när hon lämnar bandet, så värdet är alltid "sedan hon kom hit".
+      // raderas när hon BEVISLIGEN lämnat bandet (M11: två fix i följd
+      // utanför), så värdet är alltid "sedan hon kom hit".
       // MÄTS INTE som en stilla-streak: en kajvobbels egna 1,1-knopsryck hade
       // då nollställt klockan om och om igen (AKIRA 2026-07-08), vilket är
       // precis den profil grinden ska fånga.
-      stillAt: 0, bandSince: Date.now(), lat: null, lon: null, movingFixes: 0, moving: true,
+      stillAt: 0,
+      bandSince: Date.now(),
+      lat: null,
+      lon: null,
+      movingFixes: 0,
+      moving: true,
+      prevFix: null,
+      lastFix: null,
+      outOfBandFixes: 0,
     };
+    // M11: varje fix INNE i bandet nollar bandgränsens toleransräknare — den
+    // mäter "på varandra följande" utfall, precis som movingFixes.
+    entry.outOfBandFixes = 0;
+    // M2 (RUNDA 4): FÖREGÅENDE FIX, för korroboreringen av enkelsampel-beviset
+    // i _isBridgeOpeningQuayWobbler. Bokförs HÄR — inte på vessel-objektet —
+    // därför att kajliggarna kring bokföringspunkterna återföds oupphörligt
+    // (PRICKBJORN: 72 ENTERED/REMOVED-cykler på tio timmar) och ett
+    // vessel-scopat minne hade nollställts vid varje återfödelse. Samma skäl
+    // som hela kajbokföringen ligger på app-nivå, plus att fältlist-fällan
+    // (_createVesselObject + snapshot + grav) undviks helt.
+    // Skiftet sker FÖRE stillasample-/dödbandsgrenarna nedan: `prevFix` ska
+    // alltid vara fixen FÖRE den som just kom in.
+    const shiftedPrevFix = entry.lastFix || null;
     const onLearnedQuay = sog !== null && sog < QUAY_DEPARTURE_GATE.TRANSIT_SOG_KN
       && this._isNearLearnedMooringSpot(vessel.lat, vessel.lon);
     if (vessel._moored === true || onLearnedQuay
@@ -1563,6 +1694,17 @@ class AISBridgeApp extends Homey.App {
       else entry.movingFixes = 0;
       entry.moving = true;
     }
+    // M2: skiftet fullbordas. `prevFix` = fixen före den här; `lastFix` = den
+    // här. Fixtid/källa följer med därför att korroboreringen mäter fysik och
+    // bara får använda fixklockan inom samma källa (GPSJumpAnalyzer-regeln).
+    entry.prevFix = shiftedPrevFix;
+    entry.lastFix = {
+      lat: Number.isFinite(vessel.lat) ? vessel.lat : null,
+      lon: Number.isFinite(vessel.lon) ? vessel.lon : null,
+      ts: Number.isFinite(vessel.timestamp) ? vessel.timestamp : null,
+      fixTs: Number.isFinite(vessel.fixTs) ? vessel.fixTs : null,
+      feed: typeof vessel.fixFeed === 'string' ? vessel.fixFeed : null,
+    };
     ledger.set(mmsi, entry);
   }
 
@@ -1635,8 +1777,94 @@ class AISBridgeApp extends Homey.App {
         blob[mmsi] = { stillAt: e.stillAt, lat: e.lat, lon: e.lon };
       }
       this.homey.settings.set('quay_stable_ledger', blob);
+
+      // M11 (RUNDA 4): öppningslagrets EGEN karta skrivs i samma svep, under
+      // samma strypklocka. EGEN nyckel — kartorna har olika referenspunkter
+      // och olika ankarregel (se _noteQuayLedgerEntry) och får aldrig blandas.
+      // bandSince är det fält HELA fixen handlar om: utan det nollställs en
+      // kajvistelse på timmar av varje omstart och grinden är blind i 5 min.
+      const openingBlob = {};
+      for (const [mmsi, e] of (this._openingQuayLedger || new Map()).entries()) {
+        if (!e || !Number.isFinite(e.bandSince)) continue;
+        // TTL:n mäts på stillasamplet när ett sådant finns (det är den klocka
+        // grinden faktiskt läser). Har posten ännu inget stillasample bär den
+        // ingen grindkraft, men bandSince är fortfarande värd att bevara —
+        // då gäller bandvistelsens egen ålder mot samma fönster.
+        const ttlClock = Number.isFinite(e.stillAt) && e.stillAt > 0 ? e.stillAt : e.bandSince;
+        if (now - ttlClock > QUAY_DEPARTURE_GATE.MEMORY_MS) continue;
+        openingBlob[mmsi] = {
+          bandSince: e.bandSince,
+          stillAt: Number.isFinite(e.stillAt) ? e.stillAt : 0,
+          lat: e.lat,
+          lon: e.lon,
+          moving: e.moving !== false,
+        };
+      }
+      this.homey.settings.set('opening_quay_ledger', openingBlob);
     } catch (error) {
       this.error('[QUAY_LEDGER] Kunde inte skriva kajbokföringen:', error.message || error);
+    }
+  }
+
+  /**
+   * M11 (helkodsgranskning RUNDA 4, 2026-08-23): läs öppningslagrets
+   * kajbokföring ur settings.
+   *
+   * SPEGLAR _loadQuayLedger men mot en EGEN nyckel, och återställer ett fält
+   * V1-kartan inte har: `bandSince`. Det är den enda klocka
+   * _isBridgeOpeningQuayWobbler har för "har hon uppehållit sig vid kajen
+   * ≥ QUAY_STAY_MIN_MS?", och den var strikt sessionslokal — en Homey-app
+   * startas om vid varje appuppdatering och varje omstart av enheten, och
+   * varje sådan omstart gjorde en pågående kajvistelse på timmar till noll.
+   *
+   * TVÅ FÄLT ÅTERSTÄLLS MEDVETET INTE:
+   *  • `movingFixes` — precis som i V1: "två på varandra följande
+   *    rörelsefixar" är ett påstående om DEN HÄR sessionens observationer.
+   *  • `prevFix`/`lastFix` (M2:s korroborering) — ett fix från före omstarten
+   *    kan inte tidsjämföras mot det första fixet efter den utan att blanda
+   *    in nedtiden. Saknat prevFix betyder fail-open i quayTransitProof, dvs.
+   *    exakt dagens beteende tills nästa fixpar bokförts.
+   * @private
+   */
+  _loadOpeningQuayLedger() {
+    try {
+      if (!this.homey || !this.homey.settings || typeof this.homey.settings.get !== 'function') {
+        return;
+      }
+      const stored = this.homey.settings.get('opening_quay_ledger');
+      if (!stored || typeof stored !== 'object') return;
+      const now = Date.now();
+      let restored = 0;
+      for (const [mmsi, e] of Object.entries(stored)) {
+        if (!e || !Number.isFinite(e.bandSince)) continue;
+        const stillAt = Number.isFinite(e.stillAt) && e.stillAt > 0 ? e.stillAt : 0;
+        const ttlClock = stillAt > 0 ? stillAt : e.bandSince;
+        if (now - ttlClock > QUAY_DEPARTURE_GATE.MEMORY_MS) continue;
+        this._openingQuayLedger.set(String(mmsi), {
+          stillAt,
+          bandSince: e.bandSince,
+          lat: Number.isFinite(e.lat) ? e.lat : null,
+          lon: Number.isFinite(e.lon) ? e.lon : null,
+          movingFixes: 0,
+          // Rörelseflaggan styr ANKARBYTET och måste återställas exakt: med
+          // `moving: false` behåller nästa stillasample ankaret från
+          // vistelsens början (rätt när hon låg still vid nedstängningen),
+          // med `true` sätts ett nytt (rätt när hon var i rörelse).
+          moving: e.moving !== false,
+          prevFix: null,
+          lastFix: null,
+          outOfBandFixes: 0,
+        });
+        restored++;
+      }
+      if (restored > 0) {
+        this.log(
+          `⚓ [OPENING_QUAY_LEDGER] Återställde ${restored} kajvistelser vid målbroarna `
+          + '(bandSince överlever omstart)',
+        );
+      }
+    } catch (error) {
+      this.error('[OPENING_QUAY_LEDGER] Kunde inte läsa öppningslagrets kajbokföring:', error.message || error);
     }
   }
 
@@ -1751,27 +1979,66 @@ class AISBridgeApp extends Homey.App {
   _isBridgeOpeningQuayWobbler(vessel) {
     try {
       if (!vessel || typeof vessel.targetBridge !== 'string') return false;
+      // Lat init (samma mönster som _noteQuayStability): direktanropande
+      // enhetstester bygger app-objekt utan konstruktorn, och en `undefined`
+      // karta hade tyst fallit tillbaka på V1:s trigger-punktskarta — precis
+      // den blindhet fixen finns för.
+      if (!this._openingQuayLedger) this._openingQuayLedger = new Map();
+      const openingEntry = this._openingQuayLedger.get(String(vessel.mmsi));
       // EN FIX PÅ MEDIANFARTEN FÖR EN ÄKTA ANFLYGNING ÄR TRANSITBEVIS I SIG.
       // Kajerna vid målbroarna ligger 200–400 m från bron och hela förloppet
       // avgång→passage tar ~5 min, så V1-grindens "fördröj en fix" kostar där
       // hela varningen (mätt: 265726650 och 265819940 hann passera innan
       // nästa fix). Se BRIDGE_OPENING.QUAY_TRANSIT_PROOF_SOG_KN för
       // härledningen — AKIRA-klassens 1,1 kn ligger en faktor 2,8 under.
+      //
+      // M2 (helkodsgranskning RUNDA 4, 2026-08-23) — MEN VÄRDET MÅSTE VARA
+      // KORROBORERAT. Kortslutningen låg FÖRE kajvistelsekravet och före
+      // _quayDepartureNeedsProof, så ETT brusigt fartvärde öppnade hela
+      // skyddet. CARAT (211452170, korpus 20260804-both-21h) rapporterade
+      // 2026-08-05T03:54:04Z 7,4 kn medan positionen flyttat sig 52,2 m på
+      // 69 s (implicerat 1,47 kn) — resultatet blev en bridge_opening_soon
+      // 2 h 58 min före hennes verkliga passage. Prövningen ligger i den
+      // DELADE modulen lib/utils/quayTransitProof.js, som grindfilen speglar;
+      // den är fail-open (saknad/gammal föregående fix ⇒ kortslutningen
+      // behålls, annars dör 265726650:s äkta varning på 70 min glapp).
+      //
+      // FÖREGÅENDE FIX bärs av öppningslagrets POST, inte av vessel-objektet
+      // — fältlist-fällan gäller alltså inte här: inget nytt fält behöver in i
+      // _createVesselObject, removal-snapshotten eller graven. Se
+      // _noteQuayLedgerEntry för bokföringen.
       if (Number.isFinite(vessel.sog) && vessel.sog >= BRIDGE_OPENING.QUAY_TRANSIT_PROOF_SOG_KN) {
-        return false;
+        const proof = explainTransitCorroboration({
+          sogKn: vessel.sog,
+          prevFix: openingEntry ? openingEntry.prevFix : null,
+          curFix: {
+            lat: vessel.lat,
+            lon: vessel.lon,
+            ts: vessel.timestamp,
+            fixTs: vessel.fixTs,
+            feed: vessel.fixFeed,
+          },
+        });
+        if (proof.corroborated) return false;
+        // M2b: mätvärdena formateras nollsäkert (fmtMeasure) — se hjälparens
+        // härledning. `reason` skrivs ut därför att den är det ENDA fältet som
+        // alltid är satt: i returvägen `no_speed` är alla tre mätvärden null
+        // och raden hade annars sagt "okänt/okänt/okänt" utan att förklara
+        // varför beviset underkändes.
+        const dtSec = Number.isFinite(proof.dtMs) ? proof.dtMs / 1000 : null;
+        this.debug(
+          `⚓ [OPENING_QUAY_SOG_UNCORROBORATED] ${vessel.mmsi}: sog ${vessel.sog} kn men `
+          + `positionen flyttade ${fmtMeasure(proof.netM)} m på ${fmtMeasure(dtSec)}s `
+          + `(implicerat ${fmtMeasure(proof.impliedKn, 2)} kn, orsak ${proof.reason}) `
+          + '— enkelsampel-beviset underkänt, kajgrinden prövas som vanligt',
+        );
       }
-      // Lat init (samma mönster som _noteQuayStability): direktanropande
-      // enhetstester bygger app-objekt utan konstruktorn, och en `undefined`
-      // karta hade tyst fallit tillbaka på V1:s trigger-punktskarta — precis
-      // den blindhet fixen finns för.
-      if (!this._openingQuayLedger) this._openingQuayLedger = new Map();
       // ...OCH BARA EN VERKLIG KAJVISTELSE RÄKNAS. V1-bokföringen godtar ETT
       // stillasample som "kajstabil historik" — rätt vid Kanalinfarten, fel
       // vid målbroarna, där ett kort stopp i farleden är normalt (ELFKUNGEN
       // 2026-07-07: en enda 0,1-knopsfix 160 m från Stridsbergsbron mitt i en
       // 7,8-knopsresa gjorde henne till "kajliggare" och tog hela hennes
       // Klaffbron-öppning). Se BRIDGE_OPENING.QUAY_STAY_MIN_MS.
-      const openingEntry = this._openingQuayLedger.get(String(vessel.mmsi));
       const stayMs = openingEntry && Number.isFinite(openingEntry.bandSince)
         ? Date.now() - openingEntry.bandSince : 0;
       if (stayMs < BRIDGE_OPENING.QUAY_STAY_MIN_MS) return false;
@@ -1779,6 +2046,14 @@ class AISBridgeApp extends Homey.App {
       if (!bridge || !Number.isFinite(bridge.lat) || !Number.isFinite(bridge.lon)) return false;
       return this._quayDepartureNeedsProof(vessel, bridge, this._openingQuayLedger) !== null;
     } catch (error) {
+      // FAIL-OPEN BEHÅLLS MEDVETET (M2b, RUNDA 4b): `false` = "inte kajvobblare"
+      // = beväpning TILLÅTS. Produktprincipen är att en missad broöppning är
+      // värre än ett falsklarm, så ett trasigt skydd ska släppa igenom — men
+      // det får aldrig ske TYST. Raden ligger därför på ERROR-nivå (inte
+      // debug), och mätvärdesformateringen i predikatet är nollsäker
+      // (fmtMeasure) så själva loggningen inte kan bli det som utlöser
+      // avslaget. STRÄNGEN ÄR LÅST av tests/bridge-opening-app-integration
+      // .test.js (~rad 656) — ändra den inte utan att uppdatera det testet.
       this.error('[BRIDGE_OPENING] Kajvobbel-predikatet kastade:', error.message || error);
       return false;
     }
@@ -8408,12 +8683,49 @@ class AISBridgeApp extends Homey.App {
       // ett enstaka sampel inne i radien mitt i en långsam färd inte fälla en
       // äkta utfart. CLABBYDOO-klassen (snapshot helt utan stillhetsfält)
       // avstår som förut.
+      //
+      // M5 ÄR EN ÖPPEN DESIGNFRÅGA — INTE STÄNGD (dirigentbeslut, fixrunda 4b
+      // 2026-08-23). Runda 4 lyfte prövningen UT ur `if (!exitSpeedKnown)` för
+      // att också fånga kajliggare med brusig fartgivare (VIRGO 265552100 låg
+      // 4 timmar vid kaj med 3,9 m netto men sände 0,5 kn mitt i vistelsen).
+      // Den halvan är ÅTERTAGEN här, av två skäl som båda mättes fram:
+      //  1) INERT BY CONSTRUCTION. Diskriminatorn var nettot från
+      //     `_stillnessAnchor`, men det enda objekt den här grinden någonsin
+      //     får är REMOVAL-SNAPSHOTTEN, och snapshotten bär `_stationarySince`
+      //     men INTE `_stillnessAnchor`. `netFromAnchorM` var alltså alltid
+      //     null, fart-känd-halvan tog aldrig sitt skip, och koden var död i
+      //     produktion (uppmätt: noll rörelse i samtliga 18 korpusar).
+      //  2) BETYDELSEN HAR BYTT. M1 (samma leverans) gör ankaret ÄLDRE — det
+      //     beskriver numera VISTELSENS ålder, inte klockans. Att bära in
+      //     fältet i snapshotten hade därför aktiverat en gren med en annan
+      //     innebörd än den som prövades.
+      // OLÖST FRÅGA SOM MÅSTE AVGÖRAS FÖRST: ska en ÄKTA avgång som lägger ut
+      // i ~1,2 kn och tystnar INOM 50 m från ankaret tystas eller ge notis?
+      // Kravet "skippa vid netto < MOVEMENT_PROOF_NET_M" och kravet "den
+      // avgången ska ge notis" kan inte båda hålla. Beslutet, och en ON/OFF-
+      // mätning över alla 18 korpusar, krävs innan `_stillnessAnchor` bärs in
+      // i removal-snapshotten (fältlist-fällan: _createVesselObject +
+      // snapshotten + graven). Se docs/ARCHITECTURE.md §9.
+      // KVAR STÅR ALLTSÅ L2:s kontrakt: prövningen gäller BARA den
+      // fartgivarlösa halvan. Är sog finit äger H19-raden ovanför beslutet.
+      //
+      // M4 (RUNDA 4) — KLOCKDOMÄNEN. `Date.now()` här är REMOVAL-ögonblicket
+      // medan `_stationarySince` stämplas vid sista POSITIONEN; hela
+      // rensningstimeouten (10–20 min i exit-bandet) ligger emellan. Tystnaden
+      // ensam översteg alltså tröskeln och villkoret degenererade till
+      // "_stationarySince är finit över huvud taget" — fail-open-löftet i
+      // stycket ovan var onåbart. Måttet läser därför POSITIONSKLOCKAN, exakt
+      // som F63-grinden 140 rader upp gör (och F63 garanterar dessutom att
+      // positionen är högst 25 min gammal). Klämt till ≥ 0: en snapshot där
+      // ankartiden ligger efter positionsstämpeln får ge 0, aldrig negativt.
       const KN_TO_MPS = 0.5144;
       const EXIT_STILLNESS_MIN_MS = Math.round(
         (MOORING_DETECTION.NULL_SOG_STILL_RADIUS_M / (MIN_VIABLE_SPEED_KN * KN_TO_MPS)) * 1000,
       );
       const stillSince = Number.isFinite(vessel._stationarySince) ? vessel._stationarySince : null;
-      const stillForMs = stillSince === null ? null : Date.now() - stillSince;
+      const positionMs = this._lastConfirmedPositionMs(vessel);
+      const stillForMs = (stillSince === null || !positionMs)
+        ? null : Math.max(0, positionMs - stillSince);
       if (Number.isFinite(stillForMs) && stillForMs >= EXIT_STILLNESS_MIN_MS) {
         this.debug(
           `🛑 [EXIT_TRIGGER_SKIP_STATIONARY] ${vessel.mmsi}: fart okänd (fartgivarlös) men `
@@ -10208,6 +10520,18 @@ class AISBridgeApp extends Homey.App {
       const aishubUsername = String(this.homey.settings.get('aishub_username') || '').trim();
       const rawSource = String(this.homey.settings.get('ais_source') || 'aisstream');
       const sourceWantsHub = ['shadow', 'both', 'aishub'].includes(rawSource) && !!aishubUsername;
+      // M37 (RUNDA 4): "muxen ska STARTA hubben" och "hubben MATAR pipelinen"
+      // är två olika påståenden, och skuggläget skiljer dem åt. sourceWantsHub
+      // står orört (det är kontraktet i tests/aishub-settings-contract.test.js
+      // — skuggtelemetrin kräver att connect() körs), men BLINDHETEN ska mätas
+      // på den andra frågan: i 'shadow' kastar muxen varje hubbfix, så utan
+      // aisstream-nyckel matar ingenting brotext eller notiser.
+      // SSOT, INTE EN TREDJE KOPIA: predikatet ägs redan av
+      // _hubFeedsPipeline() (FYND 17), som speglar muxens egen regel. Att
+      // skriva om villkoret här hade skapat exakt den glidning mellan kopior
+      // som M2 och M37 båda handlar om.
+      const hubFeedsPipeline = this._hubFeedsPipeline();
+      const blindWithoutKey = !apiKey && !hubFeedsPipeline;
 
       // Källmedveten tomnyckelgren (etapp 2): utan aisstream-nyckel OCH utan
       // konfigurerad AISHub-källa är appen datalös — exakt dagens beteende.
@@ -10245,8 +10569,42 @@ class AISBridgeApp extends Homey.App {
         return;
       }
 
+      // M37 (RUNDA 4): SKUGGLÄGE UTAN NYCKEL ÄR OCKSÅ DATALÖST. Grenen ovan
+      // hoppades över (sourceWantsHub är sann för shadow), så varken
+      // connection_status eller datalös-notisen nådde användaren — trots att
+      // muxen kastar varje hubbfix i skuggläge och appen alltså är helt blind.
+      // Skillnaden mot grenen ovan är att vi INTE returnerar: hubben ska
+      // fortsatt startas för skuggtelemetrin (sourceWantsHub-kontraktet).
+      // STATUSSKRIVNINGEN ÄR SANN OCH STABIL: muxens _computeConnected kräver
+      // _hubFeedsPipeline() för att räkna hubben som uppkopplad, så ingen
+      // senare 'connected'-flank kan skriva över den här i skuggläge.
+      // Notisnyckeln är densamma som _applyAisSourceConfig använder, så
+      // användaren får EN timeline-rad per dygn — inte två.
+      if (blindWithoutKey) {
+        this.log('⚠️ [AIS_CONNECTION] Skuggläge utan AISstream-nyckel — ingen källa matar '
+          + 'brotext/notiser; startar hubben enbart för skuggtelemetrin');
+        this._writeConnectionStatus(
+          'disconnected',
+          'skuggläge utan AISstream-nyckel — ingen källa matar pipelinen',
+        );
+        if (process.env.NODE_ENV !== 'development') {
+          this._notifyConnectionIssue(
+            'AIS Tracker: skuggläge utan AISstream-nyckel — ingen källa matar '
+            + 'brotexten eller notiserna, appen är alltså utan båtdata. AISHub '
+            + 'används bara för jämförelsemätning i skuggläge. Lägg in din '
+            + 'AISstream.io-nyckel, eller byt källa till AISHub i inställningarna.',
+            'aisstream:nokey',
+          );
+        }
+      }
+
       if (!apiKey) {
-        this.log('🌐 [AIS_CONNECTION] Ingen AISstream-nyckel — startar enbart AISHub-källan');
+        // M37: texten var falsk för skuggläge — där startas hubben men matar
+        // ingenting. Villkoret säger nu vad som faktiskt händer.
+        this.log(hubFeedsPipeline
+          ? '🌐 [AIS_CONNECTION] Ingen AISstream-nyckel — startar enbart AISHub-källan'
+          : '🌐 [AIS_CONNECTION] Ingen AISstream-nyckel — startar AISHub-källan för SKUGGMÄTNING '
+            + '(den matar inte brotext eller notiser)');
       } else {
         this.log('🌐 [AIS_CONNECTION] Starting AIS stream connection...');
       }
