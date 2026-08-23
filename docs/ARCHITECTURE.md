@@ -54,7 +54,7 @@ Moduler (ansvar / ägda tillstånd / in-ut):
   (typ 5/24-namn, :362–373)/auth-error/error/reconnect-needed/max-reconnects-reached.
 - **AISHubClient** (lib/connection/AISHubClient.js, etapp 1 2026-08-02): pollande
   klient mot AISHubs webservice. HÅRD kadensdisciplin (max 1 request/minut per
-  username — kontraktsbrott ⇒ tomt svar/indragen access): EN setTimeout-kedja,
+  username — kontraktsbrott ⇒ tomt svar/indragen access): EN setTimeout-kedja, — SEDAN M12 (2026-08-23) TVÅ timerhandtag: kadenskedjan (`_pollTimer`) OCH pollens ABSOLUTA deadline (`inFlightDeadlineTimer`, ≈ 2×HTTP_TIMEOUT_MS + pollintervall) som nollar `_inFlight` om ett trickle-svar aldrig settlar; en generationsräknare (`pollGen`) ogiltigförklarar sena settlingar; feed-vaktens `forceReschedule` bryter ett inaktuellt single-flight när now − senaste poll > chainDeadMs; `disconnect` river båda timrarna.
   single-flight, ombokning i `finally` (en missad ombokning = död kedja),
   persisterad spärr (`aishub_last_poll_at`) som överlever omstart, backoff
   65→130→260→300 s som ALDRIG kortar kadensen. Parsning i `lib/utils/aishubParser.js`
@@ -990,11 +990,12 @@ Flaggor (bärs av `_createVesselObject`-fältlistan, §8a): `_etaIsExtrapolated`
 | `last_known_positions` | `_loadLastKnownPositions`:615 | `_persistLastKnownPositions`:646 | `{ mmsi: {lat, lon, t} }`, 6 h TTL; skrivs vid removal (:1084–1090); begränsar skipped-bridges-scenario A för återfödda båtar (§3) |
 | `quay_stable_ledger` | `_loadQuayLedger` | `_persistQuayLedger` (STRYPT: max var 15:e min + tvingad vid `onUninit`) | V1-kajavgångsgrindens historik `{ mmsi: {stillAt, lat, lon} }`, TTL = `QUAY_DEPARTURE_GATE.MEMORY_MS` (2 h); rörelseräknaren `movingFixes` persisteras ALDRIG (den är ett påstående om innevarande sessions observationer). Utan persistensen återskapade en appomstart 5 s före kajavgången PRICKBJORN-fantomen exakt |
 | `persistent_opening_warnings` | `_loadPersistentOpeningWarnings` | `_persistOpeningWarnings` (vid varje avfyrning + vid konsumtion) | Etapp 6 + J15 (2026-08-22): öppningsvarningarnas dedup ÖVER omstart, `{ "Bro\|mmsi\|riktning": {firedAt, expiresAt} }`. TVÅDELAT läsfönster (`_openingDedupActiveUntil`): post skriven i DENNA session dedupar till firedAt + `CONVOY_WINDOW_MS` (10 min, som förr); post LADDAD VID BOOT dedupar till expiresAt = firedAt + 10 min + ETA (kapat `_OPENING_PERSIST_MAX_MS`) — omstartsskyddet. TRE konsumtionsvägar nollar nyckeln: bekräftad passage i `_observeBridgeOpening`, gap-inferrerad passage och backfill (L19). Riktningsledet gör att en U-svängares RETURPASSAGE aldrig tystas. Känd avvägning: avbruten anflygning före omstart (§9) |
+| `opening_quay_ledger` | `_loadOpeningQuayLedger` | `_persistQuayLedger` (samma strypta 15-min-klocka som V1-kartan + tvingad flush i `onUninit`; skrivtakt ~96→192/dygn) | M11 (2026-08-23): öppningslagrets kajbokföring `{ mmsi: {bandSince, stillAt, lat, lon, moving} }`, TTL = `QUAY_DEPARTURE_GATE.MEMORY_MS`. Utan persistens var kajvobbelgrinden BLIND 5 min efter varje omstart (bandSince sessionslokal) och efter ETT fix utanför 500 m-bandet; nu hysteres (en tolererad fix, `MIN_MOVING_FIXES`-härledd) + persistens. `movingFixes`, `prevFix`, `lastFix` persisteras ALDRIG (påståenden om innevarande session) |
 
 **Kajbokföringens TVÅ kartor.** `_quayStableLedger` (persisterad, ovan) bokför
 bara inom `QUAY_DEPARTURE_GATE.LEDGER_RADIUS_M` från en TRIGGER-punkt, och det
-finns exakt en (Kanalinfarten). Öppningslagret har därför en EGEN,
-sessionslokal karta — `_openingQuayLedger` — som delar RUTINEN
+finns exakt en (Kanalinfarten). Öppningslagret har därför en EGEN karta —
+`_openingQuayLedger` (sedan M11 PERSISTERAD, se tabellen) — som delar RUTINEN
 (`_noteQuayLedgerEntry`) och stillasample-/dödbandsvillkoren men har SKILD
 ANKARREGEL (L40, 2026-08-22): V1-kartan flyttar ankaret vid varje stillasample,
 öppningskartan håller ankaret från kajvistelsens BÖRJAN — en harmonisering åt
@@ -1668,6 +1669,77 @@ helkodsgranskning-runda3.md och hkfix3-rapport.md.
   via dataIsFreshEnough), L8, L10, L11 (J4: bypass-stämpeln blir inte F1/F6-referens
   på det sätt kandidaten påstod), L12, L16, L17, L18, L22, L24, L25, L26, L27, L28,
   L30, L31, L32 (känt), L33, L35, L36, L38.
+
+
+### Helkodsgranskning runda 4 (2026-08-23, HEAD 0b72310) — läge och uppskjutet
+
+Runda 4 (13 paketgranskare, 80 skeptiker): 40 kandidater → 12 bekräftade (2 critical,
+BÅDA pre-existerande: M1 C9b-rotorsaken för kajvobblaren, M2 kajgrindens enkelsampel-
+undantag), 3 osäkra, 12 dementerade, 13 bekräftade under 12-taket. Trend (bekräftade per
+runda): 12 → 24 → 12 → 12 — loopen konvergerar i ALLVAR (runda 3:s kod införde inga
+critical; regressionstakt ~17 %/våg) men inte i ANTAL: granskarna vänder nya stenar
+utanför diffen varje runda. Två mätinstrument visade sig partiska: öppningsgrinden ärvde
+produktionens 3,13 kn-kortslutning (M2) och INV-14 tystnade när en falsk "Inga båtar"-
+episod växte förbi 300 s (M24) — båda rättas i fixrunda 4 (handoff-2026-08-21/
+helkodsgranskning-runda4.md, hkfix4-rapport.md).
+
+**Fixrunda 4/4b — läge (2026-08-23):** levererat M24 (INV-14W, synth-WARN-baslinjen
+5 → 8: navstatus-flap-väntare 540 s, ankrad gles sändare 1440 s, återfödd-i-kö HERA 900 s),
+M1 (IHÅLLANDE stillhetsankare: raderas bara vid äkta avgång ≥ MOVEMENT_PROOF_NET_M
+eller GPS-flaggat prov ⇒ ankarålder mäter VISTELSENS ålder, inte klockans; CARAT
+förtöjd 04:29 i st.f. aldrig; 74 min spöktext bort), M2 (kajgrindens enkelsampel-undantag
+kräver korroborerad transit via `lib/utils/quayTransitProof.js`, delad med öppnings-
+grinden; fantomvarningen 03:54 bort), M6 (skyddsgrenen STÄMPLAR OM nådafristen),
+M11 (persistens + hysteres), M12 (AISHubClient: ABSOLUT deadline på _inFlight ≈
+2×HTTP_TIMEOUT + pollintervall; forceReschedule bryter inaktuellt _inFlight), M37
+(sann text för skuggläge utan nyckel), M4 (exit-grindens stillhet i FIX-domänen), M9
+(idle-decayns golv harmoniserat med imminent-radien + hysteres via flaggan: 'strax'
+utanför 300 m blir 'om 3 minuter' — 17 tidigare omätbara påståenden, alla närmare
+sanningen). DELVIS: M8 (GPS-fallback-taket 3 i följd stoppar obegränsad serie men INTE
+den isolerade första träffen — LA FEMME-klassen kräver annan konstruktion; taket räknas
+i beräkningscykler ⇒ K6:s dubbelkörning gör det ≈ 1,5 fältsampel — mät om när K6 tas)
+och M16 — ÅTERKALLAD i 4c: korroboreringen gav noll facitrörelse OCH slog ut L5:s
+kö-zonsvakt för klassen 0,5–2,0 kn (finit-vägens systerstämpel mäter mot föregående
+prov ⇒ 7–46 m/steg ⇒ aldrig 50 m ⇒ recentlyActive aldrig sann; mätt: köare i 1,5 kn
+behåller målbron 600 s på HEAD, 120 s med M16) — lastActiveTime stämplas som på HEAD,
+karaktäriseringstest låser 600 s-beteendet; en framtida korroborering måste ge BÅDA
+stämplarna ett ackumulerande ankare och mätas i 10–60 s-kadens. M9b läser imminent-
+flaggan EN svepning gammal (flaggan skrivs i `_reevaluateVesselStatuses` efter ETA-
+beräkningen): läckande riktning = cykeln efter att båten lämnat 350 m-bandet kan ge
+'strax' en tick; mätt 0 på banken; ofarligt eftersom den tvingade decayn inte tas när
+avståndet krymper > 20 m/cykel. ÖPPNINGSGRINDENS `classifyMiss` (4b): rörelsebeviset har
+TRE led (position ≥ MOVEMENT_PROOF_NET_M från första horisontsampel; ETABLERAD
+STILLHETSVISTELSE ≥ ARM_STALE_TTL_MS inom 50 m + ett tätt fixpar med implicerad fart
+< 0,5 kn ⇒ sog-spikar är jitter; korroborering ur `quayTransitProof`) — OBS: grindens
+grönhet för CARAT vilar på det ANDRA ledet, en efterhandsregel produkten inte har;
+korroboreringsledet är inert på dagens bank. Ompröva vid nästa korpustillskott. ÖPPET/KOPPLAT: M5 (stillhetsprövning i fart-
+känd-grenen) — removal-snapshotten bär inte `_stillnessAnchor`, och M1 ändrade
+ankarets betydelse; designfrågan 'äkta avgång som tystnar inom 50 m' måste avgöras
+innan fältet bärs in (halvan borttagen i 4b, bokförd här). Mätinstrument rättade:
+öppningsgrindens `classifyMiss` korroborerar rörelsebevis (4b), INV-14W synlig.
+M28 (dirigenten, fixrunda 4): skuggparningens färskhetsval läste `best.storedAt`
+(finns inte ⇒ första rutan i svepordningen vann); nu `best.side.storedAt`, låst av
+`tests/m28-skuggparning-farskhet.test.js`; fixLag-medianen byter tecken (−7 396 →
++12 051 ms), 71 → 79 par — skuggmätaren visar rätt riktning.
+
+**Kvar efter fixrunda 4 (12 bekräftade under taket + osäkra; M28 åtgärdad — se läget ovan):**
+- M33 (major): jitter-grinden för segmentbeviset (StatusService ~1138) kräver finit sog
+  < 0,3 i BÅDA samplen — ett brusigt sampel kopplar bort hela CG2-1-spegeln ⇒ kajliggare
+  kan få korsningsbevis. 0 fältfall; eget paket med C9b-kopplingen.
+- M36 = H10 (runda 1, aldrig åtgärdad): 40–49 m-bandet i null-sog-vägen returnerar utan
+  `_classifyMooring` ⇒ `_moored` kan inte släppas för den klassen.
+- M7 (under-bro-hysteresen 50–70 m kollapsar för REDAN passerad bro), M15 (graven bär
+  inte `_stillnessAnchor`), M18 (gpsEventDetected skrivs över varje tick ⇒ 30 s-släppet
+  dött), M10 (GPSJumpAnalyzer dömer rörelse LÅNGSAMMARE än rapporterad fart som GPS-fel;
+  okänd fart ⇒ 0), M34 (koordinationsflaggan parkeras utan timer), M21 (nödfallbackens
+  bro ≠ ETA-klausulens bro), M22 (moored-benet i `_disarmEvidence` utan warnedAt-vakt),
+  M25 (StatusStabilizer fönsterläcka), M27 (F6b konsumerar inte parbeviset), M29 (auth-
+  klassningen på ordet "invalid" pausar AISHub 6 h vid parameterfel).
+- Osäkra: M35 (graven återställer episod- men inte reseankaret), M30 (REBORN_MOVEMENT_PROOF
+  delar ut `_plausibleMovementSeen` på ren distans), M26 (kvarhängande GPS-hoppflagga
+  nollar under-bro-klockan per timerpass).
+- Dementerade i runda 4: M3, M13 (mux.connect reconcilerar korrekt), M14, M17, M19, M20,
+  M23, M31, M32, M38, M39, M40.
 
 
 ## 10. Söndagsfältet 2026-08-09/10 (commits a9f2a20, ce6a946, b1a7ba3 + WS-3)
