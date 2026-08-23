@@ -947,13 +947,52 @@ function classifyLatePassage(warning, passage, samples) {
  *                  varningen låg tidigare än kontraktsfönstret. Rapporteras
  *                  med fördröjning så tidigheten kan granskas.
  *   FANTOM       — ingen passage alls; klassas mot rådata.
+ *
+ * S14 (systerställesrundan 2026-08-23): PASSAGESERIEN ÄR VALFRI. Utan
+ * `gtPassages` mäts appen mot APPENS EGNA passager — exakt den blindfläck O1
+ * hade före A3: en varning som appen själv bokfört som passage kallas
+ * BEKRÄFTAD även när rådatafacit säger något annat, och O2 äger exitkoden för
+ * röda fantomer. Med `gtPassages` (gtTargetPassages, dvs. A2:s rådatafacit
+ * filtrerat på målbroar) körs SAMMA klassificerare mot rådataserien —
+ * O1b:s mönster, rapporterat som en egen O2b-rubrik BREDVID O2.
+ *
+ * TVÅ VILLKOR som följer av facitets egen semantik:
+ *  (a) `inferred`-poster (korsningen bevisad, TIDPUNKTEN bara ett fönster
+ *      tFrom–tTo) får ALDRIG bära hinkindelningen. Hinkarna ÄR en
+ *      tidsfönstermätning (20 min / 120 min) och en tid man inte känner kan
+ *      inte jämföras med ett fönster — samma uteslutning som A3(b) och INV-21
+ *      redan gör. En varning vars första möjliga korsning är `inferred`
+ *      hamnar därför i den EGNA hinken INFERRERAD_TID: varken bekräftad, sen
+ *      eller fantom. Tas de med får man falska «farliga byten» direkt
+ *      (mätt i rundan: 3 av 4 vilade på inferrerade poster).
+ *  (b) facitserien innehåller bara MÅLBROAR (gtTargetPassages filtrerar på
+ *      TARGET_BRIDGES). Det är också det som behåller INV-13:s klass: en
+ *      målbrokorsning som appen bokförde som INTERMEDIATE finns i facit
+ *      oavsett hur appen bokförde den, så designenliga förlopp blir inte
+ *      falska fantomer i rådataserien heller.
+ * @param {object} result - replay-resultatet
+ * @param {Map} samples - rå sampel per mmsi
+ * @param {object[]|null} gtPassages - rådatafacit (målbroar); null ⇒ appserien
+ * @returns {object} confirmed, latePassages, phantoms, inferredTime, byWarning
  */
-function analysePhantoms(result, samples) {
+function analysePhantoms(result, samples, gtPassages = null) {
   const warnings = result.openingWarnings || [];
-  const targetP = result.targetPassages || [];
-  const interP = result.intermediatePassages || [];
+  // APPSERIEN: unionen target ∪ intermediate. En målbrokorsning som bokförts
+  // som INTERMEDIATE (mållös båt, U-svängskorrigerad resa) är fortfarande en
+  // verklig broöppning — INV-13:s klass. Räkna den, annars blir designenliga
+  // förlopp falska fantomer.
+  const series = gtPassages
+    ? [...gtPassages]
+    : [...(result.targetPassages || []), ...(result.intermediatePassages || [])];
   const phantoms = [];
   const latePassages = [];
+  // Varningar vars enda möjliga korsning är `inferred` — hålls UTANFÖR de tre
+  // hinkarna (villkor (a) ovan). Tom i appserien: appens egna passager har
+  // ingen `inferred`-flagga.
+  const inferredTime = [];
+  // Per-varningsetikett så O2b kan diffa hinkarna mot O2 utan att köra om
+  // klassificeraren en tredje gång.
+  const byWarning = [];
   let confirmed = 0;
   for (const w of warnings) {
     const members = new Set([
@@ -964,27 +1003,57 @@ function analysePhantoms(result, samples) {
     for (const c of (result.openingCoverage || [])) {
       if (c.eventId === w.eventId) members.add(String(c.mmsi));
     }
-    // En målbrokorsning som bokförts som INTERMEDIATE (mållös båt,
-    // U-svängskorrigerad resa) är fortfarande en verklig broöppning — INV-13:s
-    // klass. Räkna den, annars blir designenliga förlopp falska fantomer.
-    const after = [...targetP, ...interP]
-      .filter((p) => p.bridge === w.bridge && members.has(String(p.mmsi)) && p.t >= w.t)
+    const mine = series.filter((p) => p.bridge === w.bridge && members.has(String(p.mmsi)));
+    const after = mine
+      .filter((p) => p.inferred !== true && p.t >= w.t)
       .sort((a, b) => a.t - b.t);
     const first = after[0];
-    if (first && first.t - w.t <= PHANTOM_WINDOW_MS) {
+    // En inferrerad korsning vars FÖNSTER kan ligga före den första säkra
+    // passagen gör hinken omätbar: bron öppnades bevisligen, men när vet vi
+    // inte, och just den ordningen är det hinkarna avgörs av.
+    // Övre gränsen är LATE_PASSAGE_WINDOW_MS: börjar fönstret EFTER hela
+    // mätfönstret kan korsningen omöjligt ha avgjort någon hink, och då ska
+    // varningen klassas som vanligt (annars göms äkta fantomer i den omätbara
+    // hinken).
+    const blindLimit = Math.min(
+      first ? first.t : Infinity,
+      w.t + LATE_PASSAGE_WINDOW_MS,
+    );
+    const blind = mine.find((p) => p.inferred === true
+      && (p.tTo ?? p.t) >= w.t
+      && (p.tFrom ?? p.t) <= blindLimit);
+    if (blind) {
+      inferredTime.push({ warning: w, passage: blind });
+      byWarning.push({
+        warning: w, hink: 'INFERRERAD_TID', klass: 'INFERRERAD_TID', accepted: null,
+      });
+    } else if (first && first.t - w.t <= PHANTOM_WINDOW_MS) {
       confirmed++;
+      byWarning.push({
+        warning: w, hink: 'BEKRÄFTAD', klass: 'BEKRÄFTAD', accepted: true,
+      });
     } else if (first && first.t - w.t <= LATE_PASSAGE_WINDOW_MS) {
-      latePassages.push({
+      const late = {
         warning: w,
         passage: first,
         delayMs: first.t - w.t,
         ...classifyLatePassage(w, first, samples),
+      };
+      latePassages.push(late);
+      byWarning.push({
+        warning: w, hink: 'SEN_PASSAGE', klass: late.klass, accepted: late.accepted,
       });
     } else {
-      phantoms.push({ warning: w, ...classifyPhantom(w, samples) });
+      const ph = { warning: w, ...classifyPhantom(w, samples) };
+      phantoms.push(ph);
+      byWarning.push({
+        warning: w, hink: 'FANTOM', klass: ph.klass, accepted: ph.accepted,
+      });
     }
   }
-  return { confirmed, latePassages, phantoms };
+  return {
+    confirmed, latePassages, phantoms, inferredTime, byWarning,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1247,6 +1316,120 @@ const JOB_LIST = [
   },
 ];
 
+/**
+ * O2b (S14, systerställesrundan 2026-08-23) — FANTOMTAKET MOT RÅDATAFACIT.
+ *
+ * Samma klassificerare som O2, men passageserien är A2:s rådatafacit i stället
+ * för appens egna bokföringar. Skälet är O1b:s: appens passageregistreringar
+ * delar grindarnas blindfläck (42h-provet: 96 registrerade mot 107 verkliga),
+ * så en varning kan kallas BEKRÄFTAD av appens egen bokföring medan rådatan
+ * inte känner någon korsning. Serierna redovisas BREDVID varandra, aldrig i
+ * stället för varandra — annars blir jämförelser mot äldre körningsloggar
+ * omöjliga.
+ *
+ * INFORMATIV I DEN HÄR ETAPPEN: O2b rör INTE exitkoden. Grinden ligger kvar på
+ * appserien precis som O1:s täckning gör i fas A ("instrument före produkt" —
+ * ett nytt mått får inte flytta ett grindutfall samma dag det införs).
+ * Uppmätt vid införandet: 0 röda i BÅDA serierna, medan 118 av 360 varningar
+ * byter hink — 98 av dem in i INFERRERAD_TID (omätbar tid, villkor (a)) och
+ * bara EN åt det farliga hållet (JAATTEN II @ Stridsbergsbron i 20260708-21h,
+ * samma fall INV-21 redan fäller). Rundans egen förmätning utan
+ * inferrerad-uteslutningen gav 78 byten och 4 farliga; skillnaden ÄR villkor
+ * (a):s verkan och siffrorna är därför inte jämförbara rakt av. När fas C är
+ * klar flyttas exitkoden hit av OPENING_GT_STRICT, likadant som O1b:s
+ * oklassade missar.
+ * @param {object[]} runs - körningarna (kräver run.gtPassages och run.o2App)
+ * @returns {void}
+ */
+function reportGtPhantoms(runs) {
+  const withGt = runs.filter((r) => !r.error && r.gtPassages && r.analysis);
+  if (withGt.length === 0) {
+    console.log('  ⚠️ RÅDATAFACIT SAKNAS för samtliga korpusar — O2b hoppas över '
+      + '(kör `node tests/replay-validation/makeGtPassages.js`, A2).\n');
+    return;
+  }
+  console.log('--- O2b: FANTOMTAK MOT RÅDATAFACIT (A2) — appens egna passager är INTE sanningen ---\n');
+  const rows = [];
+  const byClass = new Map();
+  const switches = new Map();
+  const dangerous = [];
+  const reds = [];
+  const delays = [];
+  let warningsTot = 0;
+  let confirmedTot = 0;
+  let lateTot = 0;
+  let phantomTot = 0;
+  let inferredTot = 0;
+  for (const run of withGt) {
+    const gt = analysePhantoms(run.result, run.analysis.samples, run.gtPassages);
+    const warnings = (run.result.openingWarnings || []).length;
+    warningsTot += warnings;
+    confirmedTot += gt.confirmed;
+    lateTot += gt.latePassages.length;
+    phantomTot += gt.phantoms.length;
+    inferredTot += gt.inferredTime.length;
+    for (const l of gt.latePassages) delays.push(l.delayMs);
+    for (const x of [...gt.phantoms, ...gt.latePassages]) {
+      byClass.set(x.klass, (byClass.get(x.klass) || 0) + 1);
+      if (!x.accepted) reds.push({ id: run.job.id, x });
+    }
+    // HINKDIFFEN mot appserien: nyckeln är varningens identitet, inte dess
+    // ordning (en varning kan byta plats mellan serierna).
+    const keyOf = (e) => `${e.warning.eventId}|${e.warning.t}|${e.warning.leadMmsi}`;
+    const appLabels = new Map(((run.o2App && run.o2App.byWarning) || []).map((e) => [keyOf(e), e]));
+    for (const e of gt.byWarning) {
+      const a = appLabels.get(keyOf(e));
+      if (!a || a.hink === e.hink) continue;
+      const k = `${a.hink}→${e.hink}`;
+      switches.set(k, (switches.get(k) || 0) + 1);
+      // FARLIGT håll: appen sade att öppningen kom INOM kontraktsfönstret,
+      // rådatan säger något svagare. INFERRERAD_TID räknas INTE hit — där är
+      // korsningen bevisad och bara tidpunkten okänd, dvs. ett OMÄTBART fall,
+      // inte ett motsägande. Räknas den som farlig får man i dag 18 falsklarm
+      // i stället för det enda äkta (JAATTEN II @ Stridsbergsbron), precis den
+      // förorening villkor (a) finns för att undvika.
+      if (a.hink === 'BEKRÄFTAD' && (e.hink === 'FANTOM' || e.hink === 'SEN_PASSAGE')) {
+        dangerous.push({ id: run.job.id, e, from: a.hink });
+      }
+    }
+    rows.push({
+      id: run.job.id,
+      detail: `${gt.confirmed} bekräftade ≤20 min, ${gt.latePassages.length} sena passager, `
+        + `${gt.phantoms.length} utan passage, ${gt.inferredTime.length} inferrerade (utan hink) `
+        + `av ${warnings} varningar`,
+    });
+  }
+  for (const r of rows) console.log(`  ℹ️ ${r.id.padEnd(26)} ${r.detail}`);
+  console.log('');
+  console.log(`  SUMMA (rådataserien): ${confirmedTot}/${warningsTot} varningar bekräftade inom 20 min, `
+    + `${lateTot} bekräftade senare, ${phantomTot} utan passage, ${inferredTot} utan mätbar hink `
+    + '(`inferred`: korsning bevisad, tidpunkt = fönster)');
+  if (delays.length) {
+    const sorted = [...delays].sort((a, b) => a - b);
+    console.log(`  SENA PASSAGER: median ${mins(median(delays))}, max ${mins(sorted[sorted.length - 1])}`);
+  }
+  if (byClass.size) {
+    console.log(`  FANTOMKLASSER: ${[...byClass].map(([k, v]) => `${k}=${v}`).join(', ')}`);
+  }
+  const switchTot = [...switches.values()].reduce((a, b) => a + b, 0);
+  console.log(`  HINKBYTEN mot O2 (appserien): ${switchTot} av ${warningsTot} varningar`
+    + `${switchTot ? ` — ${[...switches].map(([k, v]) => `${k}=${v}`).join(', ')}` : ''}`);
+  for (const d of dangerous) {
+    console.log(`     • FARLIGT HÅLL ${d.id} — ${d.e.warning.bridge} ${d.e.warning.iso} `
+      + `(ledande ${d.e.warning.leadVessel}/${d.e.warning.leadMmsi}): appserien ${d.from}, `
+      + `rådataserien ${d.e.hink}${d.e.klass && d.e.klass !== d.e.hink ? ` (${d.e.klass})` : ''}`);
+  }
+  for (const r of reds) {
+    console.log(`  ℹ️ RÖD I RÅDATASERIEN ${r.id} — ${r.x.warning.bridge} ${r.x.warning.iso} `
+      + `(ledande ${r.x.warning.leadVessel}/${r.x.warning.leadMmsi})`);
+    console.log(`      klass: ${r.x.klass}`);
+    console.log(`      bevis: ${r.x.bevis}`);
+  }
+  console.log('  ℹ️ INFORMATIV: O2b ändrar INTE exitkoden i den här etappen — grinden ligger kvar på '
+    + 'appserien (O2). OPENING_GT_STRICT flyttar den hit först när fas C är klar, likadant som O1b.');
+  console.log('');
+}
+
 async function main() {
   const missingNight = [NIGHT_FUSION, NIGHT_AISSTREAM, FIELD_NOTIF, FIELD_TEXTS, GT_PASSAGES]
     .filter((p) => !fs.existsSync(p));
@@ -1332,6 +1515,8 @@ async function main() {
     // ---- A3: SAMMA MÄTNING MOT RÅDATAFACIT ----------------------------------
     const gtPassages = gtTargetPassages(run.job);
     run.gt = null;
+    // S14: O2b kör SAMMA facitserie som O1b — den plockas en gång här.
+    run.gtPassages = gtPassages;
     if (gtPassages) {
       const g = analyseCoverage(run.result, samples, gtPassages);
       run.gt = g;
@@ -1531,7 +1716,10 @@ async function main() {
 
   for (const run of runs) {
     if (run.error) continue;
-    const { confirmed, latePassages, phantoms } = analysePhantoms(run.result, run.analysis.samples);
+    const appSeries = analysePhantoms(run.result, run.analysis.samples);
+    // S14: etiketterna sparas så O2b kan diffa hinkarna mot appserien.
+    run.o2App = appSeries;
+    const { confirmed, latePassages, phantoms } = appSeries;
     const warnings = (run.result.openingWarnings || []).length;
     totalWarnings += warnings;
     totalConfirmed += confirmed;
@@ -1582,6 +1770,9 @@ async function main() {
     console.log(`  FANTOMKLASSER: ${[...phantomByClass].map(([k, v]) => `${k}=${v}`).join(', ')}`);
   }
   console.log('');
+
+  // ---- O2b: SAMMA FANTOMMÄTNING MOT RÅDATAFACIT (S14) ---------------------
+  reportGtPhantoms(runs);
 
   // ---- A9a: OLÅSTA KORPUSARS FYND ----------------------------------------
   // De fäller inte grinden, men de får inte heller försvinna i logglängden.
@@ -1768,6 +1959,7 @@ module.exports = {
   approachEvidence,
   analyseCoverage,
   analysePhantoms,
+  reportGtPhantoms,
   analyseFireWindow,
   loadSamples,
   MIN_WARNABLE_MS,
