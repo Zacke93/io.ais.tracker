@@ -332,7 +332,16 @@ describe('V1 (granskningsrunda 2): hålen som gjorde grinden nästan verkningsl�
         mmsi: '265012090', lat: QUAY_LAT, lon: QUAY_LON, sog: 0, _moored: true,
       });
     }
-    expect(writes).toBe(1); // en skrivning, resten strypta av intervallet
+    // M11 (helkodsgranskning RUNDA 4, 2026-08-23) — 1 → 2. Raden låste
+    // ANTALET settings-anrop, inte strypningen, och en strypt skrivCYKEL
+    // skriver numera TVÅ nycklar: V1-kartan (quay_stable_ledger) och
+    // öppningslagrets EGEN karta (opening_quay_ledger). Den senare bär
+    // `bandSince` — kajvistelsens klocka, som var strikt sessionslokal och
+    // därför nollställdes av varje appomstart (5 min blind kajvobbelgrind).
+    // TESTETS SYFTE ÄR ORÖRT: 50 stillasampel ger fortfarande EN cykel, inte
+    // 50 — raden nedan visar att båda nycklarna kommer från samma cykel.
+    expect(writes).toBe(2); // två nycklar × EN cykel, resten strypta av intervallet
+    expect([...store.keys()].sort()).toEqual(['opening_quay_ledger', 'quay_stable_ledger']);
   });
 });
 
