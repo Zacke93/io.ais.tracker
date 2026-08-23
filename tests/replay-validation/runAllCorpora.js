@@ -252,6 +252,28 @@ for (const corpus of corpora) {
     console.log(`\n  ℹ️ ${corpus.id}: ${knownHits.length} KÄNDA invariantutslag (rådataverifierade, se corpora.js):`);
     for (const v of knownHits) console.log(`     ${v}`);
   }
+  // M24 (helkodsgranskning runda 4, 2026-08-23): OANVÄNDA UNDANTAG.
+  // Ett knownInvariantException är en tyst amnesti för EN namngiven, rådata-
+  // verifierad utslagssträng. Slutar strängen matcha — för att defekten fixats
+  // (då ska posten pensioneras) ELLER för att utslaget bytt tidsstämpel eller
+  // värde (då ska posten UPPDATERAS, annars är amnestin borta och nästa
+  // körning fäller på något ingen väntade sig) — hade ingenting sagt det förut.
+  // Undantagslistan kunde alltså tyst växa sig full av döda strängar, precis
+  // som INV-14 tyst tappade sina längsta spann.
+  //
+  // WARN, aldrig fällande: en post som blivit oanvänd är oftast GODA nyheter
+  // (defekten är borta) och ska inte kunna stoppa en grön körning. Mätt på
+  // HEAD 0b72310: 0 oanvända över samtliga 18 korpusar, dvs. kontrollen är
+  // tyst i dag och talar först när något faktiskt ändrats.
+  const unusedExceptions = knownExceptions.filter(
+    (k) => !invariantViolations.some((v) => v.startsWith(k)),
+  );
+  if (unusedExceptions.length > 0) {
+    console.log(`\n  ⚠️ ${corpus.id}: ${unusedExceptions.length} OANVÄNT knownInvariantException `
+      + '(matchar inget utslag längre — pensionera posten om defekten är fixad, '
+      + 'uppdatera strängen om utslaget bytt värde/tidsstämpel):');
+    for (const k of unusedExceptions) console.log(`     ${k}`);
+  }
   for (const v of liveViolations.slice(0, 5)) {
     problems.push(`INVARIANT: ${v}`);
   }
@@ -286,8 +308,33 @@ for (const corpus of corpora) {
   // rapporteras men fäller ALDRIG körningen. Skärps i fas 6.
   const warns = validateWarnInvariants(result);
   if (warns.length > 0) {
-    const shown = warns.slice(0, 8);
-    console.log(`\n  ⚠️ ${corpus.id}: ${warns.length} WARN-invariantutslag:`);
+    // M24 (runda 4, 2026-08-23): visningstaket var KLASSBLINT — `slice(0, 8)`
+    // tog de åtta FÖRSTA raderna, så en klass med få utslag kunde försvinna
+    // helt bakom en mängd rader från en pratsam granne. Mätt på 20260804-both-21h:
+    // INV-18 har 7 utslag och INV-14W 3, och den gamla ordningen visade 7 + 1
+    // och gömde de två sista bakom "+2 fler" — det vill säga exakt de långa
+    // spann (3506 s, 2794 s) som M24 finns för att göra synliga. Samma
+    // defektform som M24 självt: ett tak som tystar instrumentet.
+    // Raderna väljs därför RUNDGÅNGSVIS över klasserna, så ingen klass kan bli
+    // helt osynlig; budgeten är oförändrad och en klassöversikt skrivs alltid
+    // ut i sin helhet.
+    const byClass = new Map();
+    for (const w of warns) {
+      const cls = (w.match(/^INV-\d+W?/) || ['ÖVRIGT'])[0];
+      if (!byClass.has(cls)) byClass.set(cls, []);
+      byClass.get(cls).push(w);
+    }
+    const summary = [...byClass.entries()].map(([c, l]) => `${c}×${l.length}`).join(', ');
+    console.log(`\n  ⚠️ ${corpus.id}: ${warns.length} WARN-invariantutslag (${summary}):`);
+    const WARN_ROW_BUDGET = 8;
+    const queues = [...byClass.values()].map((l) => [...l]);
+    const shown = [];
+    while (shown.length < WARN_ROW_BUDGET && queues.some((q) => q.length > 0)) {
+      for (const q of queues) {
+        if (shown.length >= WARN_ROW_BUDGET) break;
+        if (q.length > 0) shown.push(q.shift());
+      }
+    }
     for (const w of shown) console.log(`     ${w}`);
     if (warns.length > shown.length) console.log(`     ... +${warns.length - shown.length} fler`);
   }
