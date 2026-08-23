@@ -43,6 +43,11 @@
  *        till mellanbro på returresan (t.ex. Stridsbergsbron för södergående
  *        som redan passerat den norrut före vändningen), samt no-target-
  *        markerade passager (mållös båt har inget target att transitera).
+ * INV-14 DEFAULT-flash: "Inga båtar" inklämd mellan två texter med SAMMA
+ *        signatur (samma målbro + samma antal-ord) utan passage emellan =
+ *        ett fartyg doldes felaktigt. Fatal upp till DEFAULT_FLASH_FATAL_MAX_S;
+ *        längre spann rapporteras av INV-14W i WARN-lagret (M24 2026-08-23 —
+ *        de gick tidigare TYST, så en VÄXANDE falsk episod sänkte mätvärdet).
  * INV-16 ETA-fysik (skärpt 2026-07-03): implicerad fart distans/ETA < 30 kn
  *        för proximity-notiser.
  */
@@ -106,6 +111,65 @@ function countMentioned(text) {
     m = re.exec(text);
   }
   return total;
+}
+
+// M24 (helkodsgranskning runda 4, 2026-08-23): DEFAULT-sandwichens gräns
+// mellan FÄLLANDE (INV-14) och VARNANDE (INV-14W) klass — EN definition, delad
+// av båda, just för att de aldrig ska kunna glida isär. Härledning: 300 s är
+// INV-14:s ursprungliga tak från 2026-07-02 och rör INTE facit; det som är nytt
+// är att spann ÖVER taket inte längre försvinner tyst. Mätt före fixen: en
+// falsk "Inga båtar"-episod som VÄXER förbi taket fick INV-14 att rapportera
+// FÄRRE brott (60/200/299 s ⇒ 1 brott, 301/360/900/3600 s ⇒ 0) — grinden var
+// alltså inverterad på precis den defektklass den finns för.
+const DEFAULT_FLASH_FATAL_MAX_S = 300;
+
+/**
+ * M24: ENDA enumeratorn av DEFAULT-sandwichar — en "Inga båtar" inklämd mellan
+ * två texter med SAMMA signatur (samma målbro + samma antal-ord) utan att någon
+ * målbropassage registrerats emellan. INV-14 (fällande, spann ≤ taket) och
+ * INV-14W (varnande, spann > taket) läser BÅDA härifrån. Delningen är själva
+ * poängen: två kopior av signaturlogiken kan drifta isär och återöppna hålet
+ * M24 stänger, där ett helt band av spann faller mellan grindarna och blir
+ * osynligt.
+ *
+ * Semantiken är byte-identisk med den gamla inline-loopen (samma ordning, samma
+ * regex, samma passagevillkor) — bara taket har flyttats ut till anroparen.
+ *
+ * @param {object[]} transitions - bridgeTextTransitions ({t, iso, text})
+ * @param {object[]} targetPassages - appens egna registrerade målbropassager
+ * @returns {object[]} {iso, spanS, bridge, count, fromT, toT} i textordning
+ */
+function collectDefaultSandwiches(transitions, targetPassages) {
+  const out = [];
+  const clauseSig = (text) => {
+    const m = new Map();
+    for (const clause of text.split('; ')) {
+      const p = clause.match(new RegExp(`^(\\S+) båt(?:ar)? på väg mot ${TARGET}`));
+      if (p) m.set(p[2], p[1]);
+    }
+    return m;
+  };
+  for (let i = 1; i < transitions.length - 1; i++) {
+    if (transitions[i].text !== DEFAULT_MESSAGE) continue;
+    const prev = transitions[i - 1];
+    const next = transitions[i + 1];
+    // Mät DEFAULT-textens EGEN varaktighet — en "Inga båtar" som ersätts av
+    // samma signatur var retroaktivt onödig (fartyget fanns kvar).
+    const spanS = (next.t - transitions[i].t) / 1000;
+    const before = clauseSig(prev.text);
+    const after = clauseSig(next.text);
+    for (const [bridge, count] of before) {
+      if (after.get(bridge) !== count) continue;
+      const passageBetween = targetPassages.some(
+        (p) => p.bridge === bridge && p.t >= prev.t && p.t <= next.t,
+      );
+      if (passageBetween) continue;
+      out.push({
+        iso: transitions[i].iso, spanS, bridge, count, fromT: prev.t, toT: next.t,
+      });
+    }
+  }
+  return out;
 }
 
 function validateInvariants(result) {
@@ -347,33 +411,9 @@ function validateInvariants(result) {
   // flappade "på väg mot Klaffbron"↔"Inga båtar". INV-4 ser bara
   // 90 s-sandwichar med generisk text — den här klassen är längre och går
   // hela vägen till DEFAULT.
-  for (let i = 1; i < transitions.length - 1; i++) {
-    if (transitions[i].text !== DEFAULT_MESSAGE) continue;
-    const prev = transitions[i - 1];
-    const next = transitions[i + 1];
-    // Mät DEFAULT-textens egen varaktighet — en "Inga båtar" som ersätts av
-    // samma signatur inom 5 min var retroaktivt onödig (fartyget fanns kvar).
-    const flashSpan = (next.t - transitions[i].t) / 1000;
-    if (flashSpan > 300) continue;
-    const clauseSig = (text) => {
-      const m = new Map();
-      for (const clause of text.split('; ')) {
-        const p = clause.match(new RegExp(`^(\\S+) båt(?:ar)? på väg mot ${TARGET}`));
-        if (p) m.set(p[2], p[1]);
-      }
-      return m;
-    };
-    const before = clauseSig(prev.text);
-    const after = clauseSig(next.text);
-    for (const [bridge, count] of before) {
-      if (after.get(bridge) !== count) continue;
-      const passageBetween = targetPassages.some(
-        (p) => p.bridge === bridge && p.t >= prev.t && p.t <= next.t,
-      );
-      if (!passageBetween) {
-        violations.push(`DEFAULT-FLASH: ${transitions[i].iso} "Inga båtar" inklämd (${Math.round(flashSpan)}s) mellan två "${count} … ${bridge}"-texter utan passage`);
-      }
-    }
+  for (const s of collectDefaultSandwiches(transitions, targetPassages)) {
+    if (s.spanS > DEFAULT_FLASH_FATAL_MAX_S) continue;
+    violations.push(`DEFAULT-FLASH: ${s.iso} "Inga båtar" inklämd (${Math.round(s.spanS)}s) mellan två "${s.count} … ${s.bridge}"-texter utan passage`);
   }
 
   // INV-6: sluttext — 0 fartyg kvar efter efterspelet ⇒ sista texten DEFAULT.
@@ -529,6 +569,11 @@ function validateInvariants(result) {
  * utslag över 8 korpusar + 32 syntetiska. Kvar som WARN (kända, dokumenterade
  * heuristikbrister — omprövas per körning):
  *
+ * INV-14W Lång DEFAULT-sandwich (M24, 2026-08-23): samma signaturbevis som
+ *        INV-14 men för spann ÖVER DEFAULT_FLASH_FATAL_MAX_S, som grinden
+ *        tidigare hoppade över TYST — en falsk "Inga båtar" som VÄXTE förbi
+ *        taket sänkte alltså brottsantalet. WARN pga att de längsta spannen
+ *        (timmar) är legitimt tomma perioder; bunden mot rådatafacit.
  * INV-15 Riktning-vs-geografi: notisens direction ska stämma med fartygets
  *        faktiska lat-rörelse runt notisögonblicket. WARN pga legitima
  *        momentana backningar (kö-drift vid väntan: PHILULA@Jvb −120 m) och
@@ -733,6 +778,48 @@ function validateWarnInvariants(result, gtPassagesArg = null) {
           }
         }
       }
+    }
+  }
+
+  // INV-14W (M24, helkodsgranskning runda 4, 2026-08-23): DEN LÅNGA
+  // DEFAULT-SANDWICHEN. INV-14 fäller bara spann ≤ DEFAULT_FLASH_FATAL_MAX_S
+  // och GICK TIDIGARE TYST över allt längre — så en regression som FÖRLÄNGER en
+  // falsk "Inga båtar"-episod förbi taket FÖRBÄTTRADE mätvärdet medan pelare 1
+  // försämrades. Instrumentet pekade alltså åt fel håll på projektets egen
+  // kodifierade defektklass (NO LIMIT-klassen). Här rapporteras de långa
+  // spannen i stället för att tigas ihjäl.
+  //
+  // WARN och inte fatal, av två skäl: (a) taket får INTE tas bort rakt av —
+  // mätt över de 18 korpusarna går utslagen 3 → 17 om det stryks, och de
+  // längsta spannen (upp till 15 h) är legitimt tomma perioder där en HELT
+  // ANNAN båt senare råkar ge samma signatur; (b) WARN fäller aldrig, så
+  // violation-facit och samtliga golden-filer står orörda.
+  //
+  // IDENTITETSBINDNINGEN, och dess ärliga gräns: den riktiga diskriminatorn
+  // vore fartygets MMSI, men bridgeTextTransitions bär bara {t, iso, text} —
+  // texten har ingen identitet. Bindningen sker därför mot RÅDATAFACIT precis
+  // som INV-21: har en VERKLIG passage av samma bro skett i glappet, så
+  // avslutades den tidigare resan där och klausulen efteråt tillhör ett annat
+  // fartyg. Mätt: filtret tar bort 2 av 14 (20260707-14h 1745 s och
+  // 20260713-41h 55 475 s). Saknas rådatafacit (syntetiska scenarier, soaken)
+  // rapporteras spannet ändå — WARN, så priset för en falsk varnare är noll.
+  // SPANNLÄNGDEN STÅR I UTSLAGET just för att en granskare ska kunna triagera:
+  // ett spann strax över taket är misstänkt, ett spann på timmar är normalt.
+  {
+    const gtReal = gtPassages
+      ? gtPassages.filter((g) => g.kind !== 'zone' && g.inferred !== true)
+      : null;
+    for (const s of collectDefaultSandwiches(transitions, targetPassages)) {
+      if (s.spanS <= DEFAULT_FLASH_FATAL_MAX_S) continue; // ägs av INV-14 (fatal)
+      const realCrossing = gtReal
+        && gtReal.some((g) => g.bridge === s.bridge && g.t >= s.fromT && g.t <= s.toT);
+      if (realCrossing) continue;
+      warnings.push(
+        `INV-14W LÅNG DEFAULT-SANDWICH: ${s.iso} "Inga båtar" inklämd `
+        + `${Math.round(s.spanS)}s (${(s.spanS / 60).toFixed(1)} min) mellan två `
+        + `"${s.count} … ${s.bridge}"-texter utan passage`
+        + `${gtReal ? '' : ' [utan rådatafacit — identitetsbindning ej körd]'}`,
+      );
     }
   }
 

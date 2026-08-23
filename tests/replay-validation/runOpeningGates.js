@@ -41,6 +41,20 @@ const {
   BRIDGES, TARGET_BRIDGES, BRIDGE_OPENING, MOORING_DETECTION, QUAY_DEPARTURE_GATE,
 } = require('../../lib/constants');
 const geometry = require('../../lib/utils/geometry');
+// M2 (helkodsgranskning RUNDA 4, 2026-08-23): SAMMA modul som produktionens
+// kajgrind i app.js använder. Grinden hade en EGEN kopia av regeln och ärvde
+// därmed exakt den defekt den skulle upptäcka — replay:openings kunde
+// strukturellt inte se felmoden "ett brusigt sog-värde öppnar hela skyddet".
+const {
+  isCorroboratedTransit, MAX_PREV_FIX_AGE_MS, KN_TO_MPS,
+} = require('../../lib/utils/quayTransitProof');
+// Granskning 4c: TVÅ knopomräkningar, MEDVETET. KN_TO_MPS (0,5144) är modulens —
+// används BARA i korroboreringsledet så grinden speglar quayTransitProof exakt.
+// Deadline-jämförelserna mot BRIDGE_OPENING.DEADLINE_MAX_SPEED_KN (rörelsebevisets
+// effektivfart och O2:s GARANTIPRIS) ska i stället spegla BridgeOpeningService,
+// som räknar med SI-talet 0,514444. Skillnaden är 0,0086 % och mätt utslag 0 —
+// men de två ställena ska inte kunna glida var för sig.
+const KN_TO_MPS_BOS = 0.514444;
 const { loadGtPassages } = require('./makeGtPassages');
 
 const RUNNER = path.join(__dirname, 'replayRunner.js');
@@ -142,7 +156,11 @@ const UNDERWAY_MIN_FIXES = QUAY_DEPARTURE_GATE.MIN_MOVING_FIXES;
 // median 3,13 kn, p90 5,24. BRANIF-fallets 4,6 kn ligger över medianen; en
 // kajvobblare ligger per definition under TRANSIT_SOG_KN större delen av
 // tiden. Medianen är alltså den naturliga skiljelinjen och är MÄTT, inte vald.
-const UNDERWAY_SOLO_SOG_KN = 3.13;
+//
+// M2 (RUNDA 4, 2026-08-23): talet var HÅRDKODAT till 3,13 här samtidigt som
+// produktionen läser BRIDGE_OPENING.QUAY_TRANSIT_PROOF_SOG_KN — två kopior av
+// samma mätning som kan glida isär utan att något larmar. Nu EN källa.
+const UNDERWAY_SOLO_SOG_KN = BRIDGE_OPENING.QUAY_TRANSIT_PROOF_SOG_KN;
 // KAJBANDET. En kajvobblare är per definition VID EN KAJ. Rörelsebeviset
 // ovan är nödvändigt men inte tillräckligt för att döma RÖTT: mätt över
 // korpusarna finns en hel klass av GLESA men fullt gångna fartyg 1,4–1,6 km
@@ -153,12 +171,30 @@ const UNDERWAY_SOLO_SOG_KN = 3.13;
 // V1-kajbokföringen (och öppningslagrets egen karta) använder för "vid kaj".
 // AKIRA:s hela vobbel låg på 396–410 m; de tre ovan på 1417–1559 m.
 const QUAY_BAND_M = QUAY_DEPARTURE_GATE.LEDGER_RADIUS_M;
-// Rörelsebeviset i O1:s missklassning är appens (MOORING_DETECTION) — exakt
-// den grind BridgeOpeningService._canArm läser via vessel._hasMovementProof.
+// RÖRELSEBEVISET I O1:s MISSKLASSNING. Tröskeln är appens egen
+// (MOORING_DETECTION.MOVEMENT_PROOF_SOG_KN) — samma tal som sätter det
+// klistrande vessel._hasMovementProof.
+//
+// M2b (RUNDA 4, 2026-08-23): KOMMENTAREN HÄR PÅSTOD ATT GRINDEN "SPEGLAR
+// _hasMovementProof". Det stämde bokstavligt men var vilseledande, för appen
+// BEVÄPNAR inte på den flaggan ensam. _canArm kräver HELA kedjan:
+// _hasMovementProof OCH C6:s _hasArmingMovementEvidence OCH att stillhets-
+// beviset inte håller (C9b/M1:s jittertåliga ankare) OCH att kajgrinden
+// _isBridgeOpeningQuayWobbler (M2:s korroborering) släpper igenom. En grind
+// som bara läser tröskeln är alltså SVAGARE än produkten och dömer appen för
+// att ha låtit bli att beväpna på just den kajbrusevidens som O2 i samma
+// körning kallar KAJVOBBEL-fantom. Se classifyMiss för speglingen.
 const MOVE_SOG_KN = MOORING_DETECTION.MOVEMENT_PROOF_SOG_KN;
-// Positionsbaserat rörelsebevis för fartgivarlösa (sog === null): samma
-// storleksordning som GPS-bruset ×2,5.
-const MOVE_POS_M = 50;
+// Positionsbaserat rörelsebevis: appens EGEN nettotröskel
+// (MOORING_DETECTION.MOVEMENT_PROOF_NET_M) — samma tal och samma mening som
+// rörelsebevisets positionsgren, C9b:s "äkta avgång släpper ankaret" och
+// null-sog-vägens V1-1-släpp. Var hårdkodat 50 här; nu EN källa.
+const MOVE_POS_M = MOORING_DETECTION.MOVEMENT_PROOF_NET_M;
+// Knop → m/s: IMPORTERAD ur quayTransitProof (4c), inte en egen literal. Den
+// lokala kopian stod på 0,514444 medan modulen räknar med appens 0,5144 — två
+// sidor som ska spegla PRECIS samma regel (modulens korroborering respektive
+// stillnessStay nedan) räknade alltså om knop olika. Utslag 0 på dagens bank,
+// men det är samma felklass M2 finns för att avskaffa, i miniatyr.
 
 const TARGET_BRIDGE_POS = new Map();
 for (const b of Object.values(BRIDGES)) {
@@ -252,6 +288,74 @@ async function mapPool(items, limit, fn) {
 // ---------------------------------------------------------------------------
 
 /**
+ * ETABLERAD STILLHETSVISTELSE — grindens spegel av appens C9b/M1-ankare.
+ *
+ * VARFÖR (M2b, helkodsgranskning RUNDA 4, 2026-08-23): en brusig fartgivare
+ * vid kaj rapporterar 0,5–7,4 kn utan att båten flyttar sig. Produkten har
+ * hela tre lager mot exakt det (C9b:s jittertåliga stillhetsklocka, M1:s
+ * ihållande ankare, M2:s korroborering av kajgrindens enkelsampel-undantag),
+ * men O1:s missklassning hade inget — den tog FÖRSTA sampel över 0,5 kn som
+ * "i rörelse". Följden var ett självmotsägande par verdikt om samma sampel:
+ * O2 kallade en varning på kajbruset KAJVOBBEL-fantom (rött) medan O1 kallade
+ * frånvaron av samma varning OKLASSAD miss (också rött).
+ *
+ * REGELN ÄR APPENS EGEN (_stillnessJitterHolds, VesselDataService):
+ *   (a) ankaret = första sampel i horisonten; vistelsen består så länge
+ *       nettoförflyttningen från ankaret är < MOVE_POS_M
+ *       (MOORING_DETECTION.MOVEMENT_PROOF_NET_M) — passeras tröskeln är det
+ *       en ÄKTA avgång och ankaret släpps på det samplet ("återkomsten är
+ *       gratis"),
+ *   (b) vistelsen ska vara ETABLERAD: minst BRIDGE_OPENING.ARM_STALE_TTL_MS
+ *       (30 min) lång — exakt appens villkor (2). 30 minuter inom 50 m är en
+ *       medelfart på 0,05 kn; det är ingen anflygning i någon fart.
+ *
+ * ETT TREDJE LED, som appen inte behöver men grinden måste ha: vistelsen ska
+ * vara MOTBEVISAD PÅ ETT MÄTBART GLAPP, inte på en tystnad. Minst ett par av
+ * varandra följande fixar inne i vistelsen ska ligga högst MAX_PREV_FIX_AGE_MS
+ * isär (quayTransitProof:s egen kadensregel) och visa en implicerad fart under
+ * MOVE_SOG_KN. Utan det ledet hade 265726650-klassen fallit: TVÅ fixar med
+ * 70 minuters tystnad emellan och 14 m netto ser ut som en stillhetsvistelse,
+ * men positionsdeltat säger ingenting om vad båten gjorde däremellan (hon kan
+ * ha gått ut och kommit tillbaka). Samma fail-open-riktning som modulen.
+ *
+ * GRINDEN DÖMER I EFTERHAND. Appen prövar villkor (b) online och kan därför
+ * inte hålla de första 30 minuterna av en vistelse; grinden ser hela spåret
+ * och tillämpar verdiktet på HELA vistelsen. Skillnaden är avsiktlig och går
+ * bara åt ett håll: den kan flytta en miss från OKLASSAD till en accepterad
+ * klass, aldrig tvärtom.
+ * @param {object[]} inHorizon - {s, d, prev} i tidsordning, s = sampel
+ * @returns {{established: boolean, spanMs: number, contradiction: object|null}}
+ */
+function stillnessStay(inHorizon) {
+  const origin = inHorizon[0].s;
+  let lastInside = origin.aisTimestamp;
+  let contradiction = null;
+  for (const { s, prev } of inHorizon) {
+    const net = geometry.calculateDistance(origin.lat, origin.lon, s.lat, s.lon);
+    if (Number.isFinite(net) && net >= MOVE_POS_M) break; // äkta avgång
+    lastInside = s.aisTimestamp;
+    if (!prev) continue;
+    const dtMs = s.aisTimestamp - prev.aisTimestamp;
+    if (!(dtMs > 0) || dtMs > MAX_PREV_FIX_AGE_MS) continue;
+    const step = geometry.calculateDistance(prev.lat, prev.lon, s.lat, s.lon);
+    if (!Number.isFinite(step)) continue;
+    const impliedKn = (step / (dtMs / 1000)) / KN_TO_MPS;
+    if (impliedKn < MOVE_SOG_KN
+      && (contradiction === null || impliedKn < contradiction.impliedKn)) {
+      contradiction = {
+        t: s.aisTimestamp, dtMs, step, impliedKn,
+      };
+    }
+  }
+  const spanMs = lastInside - origin.aisTimestamp;
+  return {
+    established: spanMs >= BRIDGE_OPENING.ARM_STALE_TTL_MS && contradiction !== null,
+    spanMs,
+    contradiction,
+  };
+}
+
+/**
  * Klassificera en MISS mot rådata.
  *
  * Tre ACCEPTERADE klasser (alla mätbara i jsonl:en, ingen av dem en ursäkt):
@@ -267,15 +371,53 @@ async function mapPool(items, limit, fn) {
  *                           marginalen. Beväpningsgrindens rörelsekrav —
  *                           nattens NANNA/SALTYX-klass.
  * Allt annat är OKLASSAD och RÖTT.
+ *
+ * RÖRELSEBEVISET HAR TRE LED (M2b, RUNDA 4, 2026-08-23). Grinden ska svara på
+ * frågan "kunde en GILTIG varning ha gått ut i tid?", och en varning är giltig
+ * bara om O2 i samma körning accepterar den. Därför måste beviskravet här
+ * spegla HELA appens beväpningskedja, inte bara tröskeln
+ * MOORING_DETECTION.MOVEMENT_PROOF_SOG_KN:
+ *   1. POSITIONEN. Nettoförflyttning ≥ MOVE_POS_M från första sampel i
+ *      horisonten är rörelsebevis i sig — appens egen MOVEMENT_PROOF_NET_M,
+ *      och det enda beviset en fartgivarlös båt kan lämna.
+ *   2. STILLHETSVISTELSEN (C9b/M1). Sitter samplet inne i en ETABLERAD
+ *      stillhetsvistelse är sog-spiken jitter, inte rörelse — se
+ *      stillnessStay ovan.
+ *   3. KORROBORERINGEN (M2). Ett rått fartvärde får bära beviset först när
+ *      fartygets EGEN förflyttning inte motsäger det, prövat i den DELADE
+ *      modulen lib/utils/quayTransitProof.js — samma anrop som O2:s
+ *      approachEvidence och som produktionens kajgrind i app.js.
+ * Utan led 2 och 3 var grinden svagare än produkten: CARAT (211452170, korpus
+ * 20260804-both-21h) låg 00:04–06:49 inom 43 m av sin första position, 384–435
+ * m från Klaffbron, med en givare som rapporterade 0,5–7,4 kn. Hennes ALLRA
+ * FÖRSTA horisontsampel (00:04:32, sog 1,0) räknades som "i rörelse", och
+ * missen 6 h 49 min senare blev OKLASSAD — trots att hennes sista fix före
+ * passagen (06:48:58, 409 m, sog 0,5) ligger inne i vistelsen och nästa fix
+ * (06:53:35) redan är 112 m förbi bron. Avgången skedde i ett rapportglapp på
+ * 4 min 37 s; ingen varning var möjlig, och klassen är RÖRELSEBEVIS_FÖR_SENT.
  */
 function classifyMiss(passage, samples, windowStartMs) {
-  const list = (samples.get(String(passage.mmsi)) || [])
-    .filter((s) => s.aisTimestamp <= passage.t
-      && (windowStartMs === null || s.aisTimestamp > windowStartMs));
+  // M2b: FÖREGÅENDE FIX bärs per sampel och hämtas ur HELA den tidsordnade
+  // serien, inte ur det filtrerade fönstret (samma lärdom som approachEvidence
+  // i O2). Vid fönstrets första sampel ligger föregående fix per definition
+  // UTANFÖR fönstret; en fönsterlokal granne hade jämfört mot fel sampel —
+  // eller mot inget alls, vilket är fail-open åt fel håll.
+  const series = samples.get(String(passage.mmsi)) || [];
+  const list = [];
+  const prevOf = new Map();
+  for (let i = 0; i < series.length; i++) {
+    const s = series[i];
+    if (!(s.aisTimestamp <= passage.t)) continue;
+    if (windowStartMs !== null && !(s.aisTimestamp > windowStartMs)) continue;
+    list.push(s);
+    prevOf.set(s, i > 0 ? series[i - 1] : null);
+  }
   const inHorizon = [];
   for (const s of list) {
     const d = distTo(s, passage.bridge);
-    if (d !== null && d <= BRIDGE_OPENING.ARM_MAX_DISTANCE_M) inHorizon.push({ s, d });
+    if (d !== null && d <= BRIDGE_OPENING.ARM_MAX_DISTANCE_M) {
+      inHorizon.push({ s, d, prev: prevOf.get(s) || null });
+    }
   }
   if (inHorizon.length === 0) {
     const nearest = list.reduce((best, s) => {
@@ -308,7 +450,7 @@ function classifyMiss(passage, samples, windowStartMs) {
   // fortare är utanför den populationen och KAN inte varnas med utlovad
   // marginal — det är fysik, inte bugg. Mätt: 218023240 @ Stridsbergsbron
   // 2026-07-14 gick 2197 m på 210 s = 20,3 kn (sog-rapport 33,2 kn).
-  const veffKn = seenMs > 0 ? (first.d / (seenMs / 1000)) / 0.514444 : null;
+  const veffKn = seenMs > 0 ? (first.d / (seenMs / 1000)) / KN_TO_MPS_BOS : null;
   if (veffKn !== null && veffKn > BRIDGE_OPENING.DEADLINE_MAX_SPEED_KN) {
     return {
       klass: 'SNABBARE_ÄN_DEADLINE_TAKET',
@@ -319,33 +461,70 @@ function classifyMiss(passage, samples, windowStartMs) {
     };
   }
 
-  // Rörelsebeviset: första sampel i horisonten med fart ELLER positionsdelta.
+  // RÖRELSEBEVISET — tre led, se docblocket ovan. Ordningen inne i ett sampel
+  // spelar ingen roll för TIDPUNKTEN (samma sampel, samma aisTimestamp), bara
+  // för texten: positionen prövas först eftersom den är det starkaste beviset
+  // och det enda en fartgivarlös båt kan lämna.
   let moveAt = null;
   let moveWhy = '';
   const origin = first.s;
-  for (const { s, d } of inHorizon) {
-    const sog = Number.isFinite(s.sog) ? s.sog : null;
-    if (sog !== null && sog >= MOVE_SOG_KN) {
-      moveAt = s.aisTimestamp;
-      moveWhy = `sog=${sog.toFixed(1)} kn vid ${Math.round(d)} m`;
-      break;
-    }
+  const stay = stillnessStay(inHorizon);
+  for (const { s, d, prev } of inHorizon) {
+    // (1) POSITIONEN — appens MOVEMENT_PROOF_NET_M. Släpper också C9b-ankaret.
     const moved = geometry.calculateDistance(origin.lat, origin.lon, s.lat, s.lon);
     if (Number.isFinite(moved) && moved >= MOVE_POS_M) {
       moveAt = s.aisTimestamp;
-      moveWhy = `positionsdelta ${Math.round(moved)} m (fartgivarlös) vid ${Math.round(d)} m`;
+      // Etiketten skiljer de två populationerna åt i utskriften: en
+      // fartgivarlös båt KAN inte lämna något annat bevis, medan en båt med
+      // givare som når hit har fått sitt fartvärde underkänt av led 2/3.
+      moveWhy = `positionsdelta ${Math.round(moved)} m från första sampel vid ${Math.round(d)} m`
+        + `${Number.isFinite(s.sog) ? '' : ' (fartgivarlös)'}`;
       break;
     }
+    const sog = Number.isFinite(s.sog) ? s.sog : null;
+    if (sog === null || sog < MOVE_SOG_KN) continue;
+    // (2) C9b/M1 — sog-spik utan nettoförflyttning i en etablerad vistelse är
+    // jitter. Appens STILLNESS_JITTER_HELD, i grindens efterhandsform.
+    if (stay.established) continue;
+    // (3) M2 — ett rått fartvärde bär beviset först när fartygets egen
+    // förflyttning inte motsäger det. SAMMA delade modul som O2 och app.js;
+    // fail-open när förflyttningen inte går att mäta (saknad/gammal
+    // föregående fix), annars hade den glesa men äkta klassen dömts fel.
+    if (!isCorroboratedTransit({
+      sogKn: sog,
+      prevFix: prev
+        ? {
+          lat: prev.lat, lon: prev.lon, ts: prev.aisTimestamp, fixTs: prev.fixTs, feed: prev.feed,
+        }
+        : null,
+      curFix: {
+        lat: s.lat, lon: s.lon, ts: s.aisTimestamp, fixTs: s.fixTs, feed: s.feed,
+      },
+    })) continue;
+    moveAt = s.aisTimestamp;
+    moveWhy = `sog=${sog.toFixed(1)} kn vid ${Math.round(d)} m (korroborerad av egen förflyttning)`;
+    break;
   }
+  // Vistelsen skrivs ut i KLARTEXT i varje bevissträng den påverkar — annars
+  // går grindens beslut inte att granska i efterhand, och hela filens princip
+  // är att klassningen ska gå att pröva mot rådata utan att köra om den.
+  const stayNote = stay.established
+    ? `; etablerad stillhetsvistelse ${mins(stay.spanMs)} inom ${MOVE_POS_M} m av första sampel `
+      + `(${iso(stay.contradiction.t)}: ${Math.round(stay.contradiction.step)} m på `
+      + `${secs(stay.contradiction.dtMs)} = ${stay.contradiction.impliedKn.toFixed(2)} kn) — `
+      + 'sog-spikarna inne i den är jitter (appens C9b/M1)'
+    : '';
   if (moveAt === null || passage.t - moveAt < MIN_WARNABLE_MS) {
     return {
       klass: 'RÖRELSEBEVIS_FÖR_SENT',
       accepted: true,
-      bevis: moveAt === null
-        ? `inget rörelsebevis alls i horisonten (${inHorizon.length} sampel, alla under `
-          + `${MOVE_SOG_KN} kn och inom ${MOVE_POS_M} m) — kajliggarprofil ända fram till passagen`
+      bevis: (moveAt === null
+        ? `inget rörelsebevis alls i horisonten (${inHorizon.length} sampel, ingen `
+          + `nettoförflyttning ≥ ${MOVE_POS_M} m från första sampel) — kajliggarprofil `
+          + 'ända fram till passagen'
         : `första rörelsebeviset ${iso(moveAt)} (${moveWhy}) — endast `
-          + `${secs(passage.t - moveAt)} före passagen, garantifönstret kräver ${secs(MIN_WARNABLE_MS)}`,
+          + `${secs(passage.t - moveAt)} före passagen, garantifönstret kräver ${secs(MIN_WARNABLE_MS)}`)
+        + stayNote,
     };
   }
 
@@ -354,7 +533,7 @@ function classifyMiss(passage, samples, windowStartMs) {
     accepted: false,
     bevis: `sedd inom horisonten från ${iso(first.s.aisTimestamp)} (${Math.round(first.d)} m, `
       + `${secs(seenMs)} före passagen) och i rörelse från ${iso(moveAt)} (${moveWhy}) — `
-      + 'varningen hade kunnat gå ut i tid men uteblev',
+      + `varningen hade kunnat gå ut i tid men uteblev${stayNote}`,
   };
 }
 
@@ -558,9 +737,20 @@ function approachEvidence(warning, samples) {
   ]);
   let best = null;
   for (const mmsi of members) {
-    const list = (samples.get(mmsi) || []).filter(
-      (s) => s.aisTimestamp >= warning.t - APPROACH_LOOKBACK_MS && s.aisTimestamp <= warning.t,
-    );
+    // M2: fönstret bär FÖREGÅENDE fix ur HELA den tidsordnade listan, inte ur
+    // det filtrerade fönstret. Korroboreringen mäter förflyttning mellan två
+    // på varandra följande fixar — vid fönstrets första sampel ligger
+    // föregående fix per definition UTANFÖR fönstret, och en fönsterlokal
+    // granne hade jämfört mot fel sampel (eller inget alls).
+    const allSamples = samples.get(mmsi) || [];
+    const windowed = [];
+    for (let idx = 0; idx < allSamples.length; idx++) {
+      const s = allSamples[idx];
+      if (s.aisTimestamp >= warning.t - APPROACH_LOOKBACK_MS && s.aisTimestamp <= warning.t) {
+        windowed.push({ s, prev: idx > 0 ? allSamples[idx - 1] : null });
+      }
+    }
+    const list = windowed.map((x) => x.s);
     if (list.length === 0) continue;
     let firstD = null;
     let minD = Infinity;
@@ -569,7 +759,14 @@ function approachEvidence(warning, samples) {
     let maxMove = 0;
     let underwayFixes = 0;
     let inHorizon = 0;
-    for (const s of list) {
+    // M2: enkelsampel-beviset räknas i TVÅ storheter — hur många sampel som
+    // NÅR tröskeln, och hur många av dem som också är KORROBORERADE av
+    // fartygets egen förflyttning. Skillnaden mellan dem är precis den falska
+    // rörelseklassning som fällde CARAT.
+    let soloSogFixes = 0;
+    let soloProofFixes = 0;
+    for (let i = 0; i < windowed.length; i++) {
+      const { s, prev } = windowed[i];
       const d = distTo(s, warning.bridge);
       if (d === null) continue;
       if (firstD === null) firstD = d;
@@ -579,6 +776,24 @@ function approachEvidence(warning, samples) {
       const sog = Number.isFinite(s.sog) ? s.sog : null;
       if (sog !== null && (maxSog === null || sog > maxSog)) maxSog = sog;
       if (sog !== null && sog >= UNDERWAY_SOG_KN) underwayFixes++;
+      if (sog !== null && sog >= UNDERWAY_SOLO_SOG_KN) {
+        soloSogFixes++;
+        // SAMMA prövning som produktionens kajgrind, ur den DELADE modulen.
+        // Fail-open där förflyttningen inte går att mäta (saknad/gammal
+        // föregående fix) — annars dör 265726650:s äkta varning, som vilar på
+        // ETT sampel efter 70 minuters tystnad.
+        if (isCorroboratedTransit({
+          sogKn: sog,
+          prevFix: prev
+            ? {
+              lat: prev.lat, lon: prev.lon, ts: prev.aisTimestamp, fixTs: prev.fixTs, feed: prev.feed,
+            }
+            : null,
+          curFix: {
+            lat: s.lat, lon: s.lon, ts: s.aisTimestamp, fixTs: s.fixTs, feed: s.feed,
+          },
+        })) soloProofFixes++;
+      }
       const moved = geometry.calculateDistance(list[0].lat, list[0].lon, s.lat, s.lon);
       if (Number.isFinite(moved) && moved > maxMove) maxMove = moved;
     }
@@ -593,6 +808,8 @@ function approachEvidence(warning, samples) {
       maxSog,
       maxMove,
       underwayFixes,
+      soloSogFixes,
+      soloProofFixes,
       inHorizon,
     };
     // ÄKTA ANFLYGNING kräver (a) att fartyget någon gång varit INNE i
@@ -603,10 +820,14 @@ function approachEvidence(warning, samples) {
     // konjunktion) eller ett ensamt sampel över den uppmätta medianfarten för
     // äkta anflygningar.
     cand.nearEnough = cand.inHorizon > 0;
+    // M2: det ensamma sampel-benet kräver KORROBORERING. Tidigare räckte
+    // `maxSog >= UNDERWAY_SOLO_SOG_KN`, dvs. ETT rått fartvärde någonstans i
+    // fönstret — samma enkelsampel-genväg som produktionens kajgrind hade, så
+    // grinden kunde per konstruktion inte se felmoden den skulle mäta.
     cand.moving = cand.net >= GENUINE_APPROACH_M
       || cand.maxMove >= GENUINE_APPROACH_M
       || cand.underwayFixes >= UNDERWAY_MIN_FIXES
-      || (cand.maxSog !== null && cand.maxSog >= UNDERWAY_SOLO_SOG_KN);
+      || cand.soloProofFixes > 0;
     // KAJVOBBELNS TVÅ SIGNATURER (utan rörelsebevis i övrigt):
     //  (a) hon lämnade aldrig kajbandet vid bron, eller
     //  (b) hon nådde aldrig ens appens egen transitgräns — provably stilla.
@@ -641,6 +862,8 @@ function classifyPhantom(warning, samples) {
     + `${Math.round(best.minD)} m (netto-närmande ${Math.round(best.net)} m), `
     + `maxfart ${best.maxSog === null ? 'okänd (fartgivarlös)' : `${best.maxSog.toFixed(1)} kn`}, `
     + `${best.underwayFixes} fix ≥${UNDERWAY_SOG_KN} kn, `
+    + `${best.soloProofFixes}/${best.soloSogFixes} fix ≥${UNDERWAY_SOLO_SOG_KN} kn `
+    + 'KORROBORERADE av egen förflyttning, '
     + `positionsförflyttning ${Math.round(best.maxMove)} m, `
     + `${best.atQuay ? `HELA fönstret inom kajbandet ${QUAY_BAND_M} m` : `ute i farleden (max ${Math.round(best.maxD)} m)`}`;
 
@@ -689,7 +912,7 @@ function classifyLatePassage(warning, passage, samples) {
   // fartyget faktiskt hade när varningen gick ut.
   const dist = Number.isFinite(warning.distance) ? warning.distance : best.minD;
   const travelS = (passage.t - warning.t) / 1000;
-  const veffKn = travelS > 0 ? (dist / travelS) / 0.514444 : null;
+  const veffKn = travelS > 0 ? (dist / travelS) / KN_TO_MPS_BOS : null;
   if (veffKn !== null && veffKn < BRIDGE_OPENING.DEADLINE_MAX_SPEED_KN) {
     return {
       klass: 'GARANTIPRIS',
@@ -1539,6 +1762,7 @@ if (require.main === module) {
 
 module.exports = {
   classifyMiss,
+  stillnessStay,
   classifyPhantom,
   classifyLatePassage,
   approachEvidence,
