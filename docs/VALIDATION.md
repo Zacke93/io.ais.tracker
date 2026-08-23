@@ -238,7 +238,7 @@ vilseleder nästa fältläsare lika effektivt som ett fel värde.
 grammatik (INV-1), notisdubbletter/tokens (INV-2), **räkningsbaserade INV-5/7**
 (varje registrerad målbropassage kräver sin EGEN notis i tid — även
 returpassagen av samma bro), sluttext (INV-6), namn (INV-8), distans (INV-11),
-läckage (INV-12), ETA-fysik (INV-16). WARN (informativa): INV-15/17/18/19/20
+läckage (INV-12), ETA-fysik (INV-16). WARN (informativa): INV-14W/15/17/18/19/20
 samt **INV-21** (etapp 6: öppningsvarning EFTER registrerad målbropassage för
 samma händelse — tyst över samtliga korpusar och soaken i dag).
 Domarlogiken har EGNA enhetstester i `tests/replay-invariants-unit.test.js` —
@@ -742,3 +742,24 @@ omlåsning och skriv noten mot den FAKTISKA diffen (antal borttagna/tillagda
 med livslängder, tidsskift, systematisk kostnad) — implementatörens
 diffsammanfattning är otillräcklig som enda underlag (CRITICAL-fyndet i
 adversariella granskningen 2026-08-10: selektiva noter på 7 korpusar).
+
+
+## Tillägg 2026-08-23 (helkodsgranskning runda 4, fixrunda 4/4b/4c)
+
+- **INV-14W (WARN):** INV-14 fäller bara inklämda DEFAULT-episoder ≤ 300 s; längre spann
+  rapporteras nu som WARN-klassen INV-14W (spannlängd + bro) i stället för att tystas
+  (M24). `runAllCorpora` varnar även för OANVÄNDA `knownInvariantExceptions`.
+- **Syntetiska scenarier — känd WARN-baslinje är 8** (5 gamla + 3 INV-14W:
+  navstatus-flap-väntare 540 s, ankrad gles sändare 1440 s, återfödd-i-kö HERA-klassen
+  900 s). Fler än 8 = rapportera.
+- **O1:s missklassificerare (`classifyMiss`)** kräver nu KORROBORERAT rörelsebevis i tre
+  led (position ≥ MOVEMENT_PROOF_NET_M från första horisontsampel; etablerad stillhets-
+  vistelse ≥ ARM_STALE_TTL_MS inom 50 m + tätt fixpar med implicerad fart < 0,5 kn ⇒
+  sog-spikar är jitter; korroborering ur `lib/utils/quayTransitProof.js` som även
+  app.js och O2 använder). Bevissträngen skriver "etablerad stillhetsvistelse …" resp.
+  "korroborerad av egen förflyttning". Grönheten för CARAT (both-21h) vilar på
+  vistelseledet — en grindregel produkten inte har; ompröva vid nästa korpustillskott.
+- **Batteri:** steg 8 ska köra det NAMNGIVNA rökprovet (minsta låsta korpus); ett bart
+  `npm run replay:phase` är dokumenterat rött (117 avvikelser, HEAD lika) tills 42h låses.
+- **Mäthygien:** ARM-jämförelser görs i TVÅ isolerade träd (git archive HEAD resp. rsync
+  av arbetsträdet); påståendet "HEAD var redan röd" ska styrkas med loggfil från HEAD-trädet.
