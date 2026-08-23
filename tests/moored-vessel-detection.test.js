@@ -465,7 +465,16 @@ describe('C9b: jittertålig stillhetsklocka (nettoförflyttning över fönster)'
     };
     feed(vessel, spike);
     expect(vessel._stationarySince).toBeNull(); // (b): ungt ankare ⇒ som i dag
-    expect(vessel._stillnessAnchor).toBeNull();
+    // M1 (RUNDA 4, 2026-08-23) — ENDA ÄNDRADE RADEN I DEN HÄR SVITEN, och den
+    // låste det FELAKTIGA beteendet: raden krävde att ankaret nollades TILLSAMMANS
+    // med klockan. Just den kopplingen ÄR fyndet — ankarets ålder blev då per
+    // konstruktion identisk med klockans, och C9b:s 30-minutersvillkor kunde
+    // aldrig uppfyllas av en båt vars givare brusar oftare än så (CARAT-klassen).
+    // KLOCKANS beteende (raden ovan) är oförändrat och testets namn gäller
+    // fortfarande. ANKARET ska däremot överleva: nettot är 5 m, alltså långt
+    // under MOVEMENT_PROOF_NET_M, och provet är inte GPS-flaggat — ingen av de
+    // två invalideringsgrunderna föreligger. Se _stillnessAnchorInvalidated().
+    expect(vessel._stillnessAnchor).toEqual({ lat: base.lat, lon: base.lon, t: Date.parse(base.iso) });
   });
 
   test('A1.5b SPEGELN: samma spik EFTER 30 min håller klockan', () => {
