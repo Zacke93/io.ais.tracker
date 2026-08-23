@@ -1801,6 +1801,74 @@ Stridsbergsbron, ETA-sågtand, 2 DEFAULT-FLASH) och bart `replay:phase` sveper d
 korpusarna (117 avvikelser) — BÅDA RÖDA REDAN PÅ HEAD, ingen regression; rökprovet är det
 NAMNGIVNA fassvepet på minsta låsta korpus (20260611-4h).
 
+**SYSTERSTÄLLESRUNDAN (2026-08-23, efter fixrunda 5b, HEAD ecc93e6 — mekanisk enumerering av 8
+predikatfamiljer + 3 "följ ett meddelande"-spår → dedup 30 → 14 kombinerade skeptiker på critical/major
+(bantad av budgetskäl; 16 minor/info OPRÖVADE) → syntes).** 13 BEKRÄFTADE (7 major, 6 minor, 0 critical),
+S9 dementerad. Git blame: NOLL av de 13 ligger i kod skriven av fixrunda 4–5b (första gången i loopen);
+men S2/S3/S8/S12 är missade SYSTERSTÄLLEN till N5/N20a/M1-familjen/N29 (4/13 = 31 % på vidaste läsningen
+⇒ villkor (3) "uttömmande systerställesvep" fortfarande ej uppfyllt). INGEN KOD ÄNDRAD — fixplan nedan är
+överlämningen (se `handoff-2026-08-21/systerstallesrundan-rapport.md` för bevis/repro per fynd):
+- **S4 (major, pelare 2) app.js ~8683:** kandidatordningen pushar target/current FÖRE just-passed och
+  seen-mängden blockerar andra pushen ⇒ en NYSS PASSERAD bro får källan current/target ⇒ tokenet säger
+  "närmar sig" (35 notiser i låsta korpusar). FIX: rör INTE ordningen (källsträngen bär dedupen) —
+  boolean bredvid passedTriggerPoint enligt H16-mönstret; noll ändring i notis-/bro-/riktningsmultiset.
+- **S10 (major, pelare 2) VDS ~367 + app.js ~10253:** tokenet läser _finalTargetDirection/_routeDirection
+  FÖRE levande kurs; Fix D:s tvåobservationsdebounce ⇒ första samplet efter vändning bär gamla låset
+  (ELFKUNGEN: norrut-token i 6 kn söderut, both-21h). FIX i notisvägen: färsk pending-reversal + bron
+  bakom fartyget ⇒ avstå/okänd. FACIT: minst en låst post (both-21h ELFKUNGEN Klaffbron) — BESLUT.
+- **S6 (major, pelare 2) app.js ~8065:** RC-S3:s rörelsebevis godtar ETT brusprov (_hasMovementProof
+  sätts av ett sog ≥ 0,5) ⇒ förtöjd båt 63 m från Klaffbron får notis efter 4 min OCH tystar den äkta
+  passagen i 2 h (dedupposten). FIX: blockera så länge nettot från satt stillhetsankare < MOVEMENT_PROOF_NET_M
+  (mutation "kräv korroborerat" FALLER 5 korpusar — välj inte den). Kräver rådataverifiering av en extra
+  Kanalinfarten-notis.
+- **S2 (major, pelare 2+3) app.js ~2005 — N5:s syster:** _quayDepartureNeedsProof mäter netto från
+  bokföringsankaret till en GPS-flaggad RÅ position ⇒ ett osäkert sampel "bevisar" avgång. FIX: nettot =
+  null när samplet är GPS-flaggat (N11-mönstret). Noll uppmätt i banken.
+- **S5 (major, pelare 2 riktningstoken) VDS ~3448:** _northProgressMps returnerar null utan oldVessel;
+  stashen skrivs bara vid mätning, graven bär inte nordprogressen ⇒ K1-Kanalinfartsregeln oftast UTAN
+  bevis vid trigger-punkten efter återfödelse. FIX: andra basposition ur app._lastKnownPositions (egen
+  tidsdomän), maxålder + fartspärr. FACIT: 2 poster i corpora-direction-distribution (unknown→northbound,
+  258715000 41h m.fl.) — rådataverifiering.
+- **S1 (major, alla pelare) GPSJumpGateService ~305:** shouldBlockPassageDetection blockerar bara
+  enhanced/system_wide; SystemCoordinator ger moderate för uncertain_position (accept_with_caution 100–500 m)
+  ⇒ skenbar rörelse kan bokföra passage. FIX (snäv): blockera även moderate+protection när sog finit < 0,5.
+  Noll uppmätt; tvåstegsbekräftelsen räddar kandidaten.
+- **S12 (major, infra) app.js ~12059 — N29:s syster:** aisstream-tystnadsnotisen saknar hubFeedsPipeline-
+  termen som hubbgrenen (fynd 17) har ⇒ skuggläge får falskt lugnande "halverad redundans" samtidigt som
+  blindhetslarmet. FIX: spegla fynd 17 + skuggparentes i loggraden. Noll facitrisk.
+- **S3 (minor, pelare 2) app.js ~8834 — N20a:s syster:** V1-kajgrinden raden under FP9 gör continue på
+  matchande segmentsvep utan dedupnyckel ⇒ Kanalinfarten-notisen förloras (LATENT: grinden har aldrig
+  blockerat i banken). FIX: en rad, samma härledning; n20-testets block b2 omlåses.
+- **S7 (minor, pelare 3) app.js ~2153:** kajvobbelbokföringen täcker 500 m, beväpningen 2500 m ⇒ kajliggare
+  i 500–2500 m-bandet har ingen post, predikatet svarar falskt. FIX: bokför i bandet runt målbroarna med
+  LÄNGRE vistelsekrav (ARM_STALE_TTL_MS). Omätt ⇒ mät O1/O2 ON/OFF.
+- **S8 (minor, pelare 1+3) VDS ~3002:** stillhetsklockan seedas olika (null-sog: ankartid; finit: nu).
+  Kandidatens fix MOTBEVISAD (river skyddet); mätt variant = backdatering vid moget jitterhåll — replay
+  IDENTISK mot HEAD men 3 karakteriseringstester (M1 kö-nåden, N8, N25) måste omlåsas — BESLUT.
+- **S11 (minor, pelare 3) app.js ~7835 + BOS ~1793:** dedupnyckeln bro|mmsi|riktning stämplas med
+  LEDARENS riktning för alla medlemmar (mötande konvoj). FIX additivt fält medlemsriktningar i payloaden
+  (hör till konvojbeslutet); k13b-testet låser ledarnyckeln.
+- **S13 (minor, pelare 3) app.js ~7977:** J15:s openExpiry byggs ur ETA-TOKENEN (noll vid stale fix,
+  ser inte köande) ⇒ för kort omstartsskydd (127/366 varningar i banken utanför). FIX: bär armens
+  förväntade ankomsttid i payloaden; halva B redan bokförd (J15-avvägningen).
+- **S14 (minor, mätinstrument) runOpeningGates ~951:** O2:s fantomklassificering matchar mot appens EGNA
+  passager, ingen rådataserie (O1b/H-4 har). FIX: O2b med facitargument bredvid O2, inferrerade poster
+  aldrig i hinkindelningen.
+- **OPRÖVADE (budget) S15–S30:** bl.a. S15 N25:s nettoingång på flaggad position (VDS ~3041), S16 N11:s
+  docblock falsifierad (ankaret fryser även i levande session — 191 fall, värst 1033 m/5 h; bankens
+  verdikt gynnar HEAD), S17 två textreplay-vägar utan BT-F5-undantag (5580/6359), S19 scenario A saknar
+  L19-konsumtion, S20 nådafristblocket körs efter TARGET_END i samma tick (nyckel "mmsi:null", 12/28
+  starter i tre korpusar; mutation byte-identisk), S21 M6 vs S-F8, S22 _targetRemovalGrace saknas i
+  leakDiagnostics, S23 fem riktningsgrenar utan syskonens vakt, S24 absorberade medlemmar utan dedup-
+  post, S25 N20:s korridor vs förtöjd-retur, S26 fynd 17 vs aishub:auth/server, S27 notistoken kringgår
+  ETA-skydd, S28 removal-snapshot saknar lastPosition/_trackingEpisodeStartTs, S29 INV-grammatik utan
+  riktningssuffix, S30 DEBUG_FULL_PATTERN ETA_CALC ≠ ETA_CALC_V2. Dessutom E6:s inerta systerställen
+  (TARGET_PENDING_RESOLVED utan gap-kedja: 16 fall, A/B byte-identisk = kostnadsfri härdning).
+- **Syntesens rekommendation:** fixrunda 6 i 8 paket (A kajgrindfamiljen S2+S3+S7+S6-ankarbenet
+  TILLSAMMANS; B S4+S10 tokensanning; C S11+S13 payload; D S1; E S5; F S8; G S12; H S14) följd av en
+  SMAL verifieringsrunda mot bara paketens kod + systerställen, budgetbox för S15–S30 — INTE en sjätte
+  bred runda. Därefter fältprov 11.
+
 **VIKTIGT — dementerat med mätning (återuppstår bara med nytt bevis):** N1 (M1 "släpper inte
 förtöjd vid rapporterad fart" — blockregionen ligger innanför projektets egen 40 m-gräns; första
 avgångssamplet släpper vid ≥ 50 m netto = ≤ 1 poll), N3 (M2 "underkänner avgångsfixet" — samma
