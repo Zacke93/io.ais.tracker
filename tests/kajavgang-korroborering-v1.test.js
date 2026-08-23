@@ -517,8 +517,54 @@ describe('FYND 17: AISHub-tystnadsnotisen kräver att hubben matar pipelinen', (
     expect(app._notifyConnectionIssue).not.toHaveBeenCalled();
   });
 
-  test('aisstream-tystnad notifieras i BÅDA lägena (aisstream matar alltid pipelinen)', () => {
+  /**
+   * OMLÅST AV S12 (systerställesrundan 2026-08-23). Blocket hette förut
+   * "aisstream-tystnad notifieras i BÅDA lägena (aisstream matar alltid
+   * pipelinen)" och låste att `aisstream:silent` går ut i SKUGGLÄGE.
+   *
+   * VARFÖR DET UTFALLET INTE FICK STÅ KVAR: premissen "aisstream matar alltid
+   * pipelinen" är sann, men NOTISENS TEXT handlar inte om aisstream ensam —
+   * den påstår "medan AISHub flödar … appen kör på halverad redundans". I
+   * skuggläge kastar muxen varje hubbfix (_hubFeedsPipeline falskt) medan
+   * perFeed behåller hubbens råvärden, så färskhetstermen `hFresh` var sann
+   * trots att appen inte fick en enda position. Notisen var alltså LUGNANDE i
+   * exakt det ögonblick appen var HELT blind, och med socketen nere i 5 h gick
+   * sex notiser ut i samma tick: tre om blindhet och tre om halverad redundans.
+   * Tvillinggrenen för AISHub har gatat på samma term sedan fynd 17; det här
+   * är dess spegel.
+   *
+   * SIGNALEN FÖRSVINNER INTE — DEN BYTER ÄGARE: i skuggläge äger totalgrenen
+   * sanningen (feeds:silent när ingen konfigurerad källa svarar, feeds:empty:4h
+   * när de svarar men kanalen är tom). Testet låser nu båda halvorna: ingen
+   * lugnande redundanstext, men en signal om blindheten.
+   *
+   * KVARSTÅENDE, RAPPORTERAT TILL DIRIGENTEN: glappet 15 min–4 h med socketen
+   * UPPE och tyst kanal saknar signal i skuggläge. Alternativet (behåll
+   * grenen men härled texten ur hubFeedsPipeline och stryk redundanspåståendet)
+   * är ett eget beslut och togs inte här.
+   */
+  test('S12: skuggläge ⇒ ingen lugnande aisstream-notis, men blindheten signaleras', () => {
     const app = makeSilenceApp('shadow');
+    app._checkCrossFeedSilence({
+      aisstream: {
+        configured: true, timeSinceLastMessage: 20 * 60 * 1000, uptime: 60 * 60 * 1000,
+      },
+      aishub: {
+        configured: true, timeSinceLastMessage: 30 * 1000, uptime: 60 * 60 * 1000,
+      },
+    });
+    expect(app._notifyConnectionIssue).not.toHaveBeenCalledWith(
+      expect.anything(),
+      'aisstream:silent',
+    );
+    expect(app._notifyConnectionIssue).toHaveBeenCalledWith(
+      expect.stringContaining('ingen AIS-källa'),
+      'feeds:silent',
+    );
+  });
+
+  test("KONTROLLARM 'both': samma tystnad ⇒ notisen är sann och går ut som förut", () => {
+    const app = makeSilenceApp('both');
     app._checkCrossFeedSilence({
       aisstream: {
         configured: true, timeSinceLastMessage: 20 * 60 * 1000, uptime: 60 * 60 * 1000,

@@ -32,6 +32,19 @@ jest.mock('homey');
  *
  * ORDNINGEN ÄR INTE KOSMETISK: 'homey' måste hämtas FÖRE '../app' (annars
  * automockar jest kortet och appen bootar utan flow-kort).
+ *
+ * PRÖVAD MOT S13 (systerställesrundan 2026-08-23) — TALEN STÅR KVAR, MEDVETET.
+ * S13 bytte LAGRINGSTIDENS källa: utgången är numera det STÖRSTA av dagens
+ * uttryck (konvojfönstret + ETA-tokenen) och armens FÖRVÄNTADE ankomst +
+ * konvojfönstret, fortfarande kapat av _OPENING_PERSIST_MAX_MS. Den här
+ * sviten skickar payloads UTAN `expectedArrivalMs` — precis som en äldre
+ * BridgeOpeningService — och då står dagens uttryck ensamt kvar. Att talen
+ * "10 + 15 min", "DEDUPEN ÄR INTE EVIG" (26 min) och settings-blobens
+ * utgångstid förblir EXAKT desamma är alltså inte ett förbiseende utan
+ * S13:s uppgraderingsgräns, och den är själva bevisningen för att gamla
+ * poster fortsätter matcha. Den NYA formen (med fältet) låses i
+ * tests/s13-oppningsutgang-forvantad-ankomst.test.js, och det TVÅDELADE
+ * LÄSFÖNSTRET — J15b:s egen halva — rörs inte av S13 över huvud taget.
  */
 const { __mockHomey: mockHomey } = require('homey');
 const AISBridgeApp = require('../app');
