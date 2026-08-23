@@ -26,6 +26,13 @@ jest.mock('homey');
  *   4. den PERSISTENTA dedup-nyckeln (bro|mmsi|riktning) är MEDVETET kvar på
  *      interna ord — den lever i settings över omstarter och ett språkbyte
  *      hade gjort varje lagrad nyckel omatchbar.
+ *
+ * TILLÄGG 2026-08-23 (S11, systerställesrundan): riktningsledet i nyckeln togs
+ * ur LEDARENS token för samtliga medlemmar. Servicen skickar numera
+ * `memberDirections` (mmsi → riktning, samma källa som `eventDirection`) och
+ * app.js använder medlemmens egen riktning med ledarens som fallback. Sviten
+ * låser BÅDA formerna: utan fältet exakt dagens nycklar (uppgraderingsgränsen),
+ * med fältet en nyckel per medlems verkliga håll.
  */
 
 const { __mockHomey: mockHomey } = require('homey');
@@ -198,11 +205,39 @@ describe('K13b — bridge_opening_soon: riktningstokenen beskriver ÖPPNINGEN', 
     await fireAndRead(mixedFieldPayload({ eventId: 'Stridsbergsbron#5' }));
 
     const keys = [...app._persistentOpeningWarnings.keys()];
-    // Nyckeln byggs av payload.direction (ledarens INTERNA värde) — den lever
-    // i settings över omstarter, och ett språkbyte där hade gjort varje lagrad
-    // nyckel omatchbar och släppt fram dubbelvarningar efter uppdateringen.
+    // OMLÅST 2026-08-23 (S11, systerställesrundan) — TALEN ÄR OFÖRÄNDRADE,
+    // MOTIVERINGEN ÄR NY. Testpayloaden här saknar `memberDirections`, och
+    // FALLBACKEN i app.js ger då EXAKT dagens nycklar: ledarens interna token
+    // för samtliga medlemmar. Det testet låser är alltså numera TVÅ saker —
+    // dels att nyckeln förblir intern (K13b:s ursprungliga poäng), dels att en
+    // payload UTAN det nya fältet är byte-identisk med före S11. Det är
+    // uppgraderingsgränsen: poster skrivna av en äldre version måste fortsätta
+    // matcha. PER-MEDLEMSNYCKELN (fixens egen effekt) låses i
+    // tests/s11-medlemsriktning-dedupnyckel.test.js — och att den NYA formen
+    // gäller när fältet finns låses i det andra testet direkt nedanför, så
+    // ingen av de två semantikerna kan tyst falla bort.
     expect(keys).toContain('Stridsbergsbron|211495920|southbound');
     expect(keys).toContain('Stridsbergsbron|304028000|southbound');
+    for (const key of keys) {
+      expect(key).not.toMatch(/norrut|söderut|okänd|båda/);
+    }
+  });
+
+  test('S11: med memberDirections bär varje medlem SIN EGEN riktning i nyckeln', async () => {
+    app = await bootApp();
+    // Samma fältfall, men med servicens nya payloadfält. Ledaren TONGA går
+    // söderut och BALTIC JONGLEUR norrut — nyckeln får inte stämpla båda med
+    // ledarens håll (missad dedup vid ledarbyte, falsk dedup på returresan).
+    await fireAndRead(mixedFieldPayload({
+      eventId: 'Stridsbergsbron#10',
+      memberDirections: { 211495920: 'southbound', 304028000: 'northbound' },
+    }));
+
+    const keys = [...app._persistentOpeningWarnings.keys()];
+    expect(keys).toContain('Stridsbergsbron|211495920|southbound');
+    expect(keys).toContain('Stridsbergsbron|304028000|northbound');
+    expect(keys).not.toContain('Stridsbergsbron|304028000|southbound');
+    // Orden är fortfarande interna — nyckeln lever i settings över omstarter.
     for (const key of keys) {
       expect(key).not.toMatch(/norrut|söderut|okänd|båda/);
     }

@@ -42,6 +42,15 @@ jest.mock('homey');
  * MUTATIONSPROV (körs manuellt): ta bort `|| !!sweep` ur transitIndication ⇒
  * svep-testet nedan blir rött. Ändra failsafens `if (vessel._moored) return;`
  * till ben b:s villkor ⇒ det första testet i N20 (c) blir rött.
+ *
+ * S3 (systerställesrundan 2026-08-23) BYGGDE VIDARE PÅ BEN A och tog samma
+ * beslut i V1-KAJGRINDEN, ett par rader längre ned i samma loop. Blocket
+ * N20 (b2) nedan låste tidigare motsatsen som ett medvetet gränsfall och är
+ * OMLÅST — motiveringen står rad för rad i blockets egen docblock.
+ * MUTATIONSPROV FÖR S3 (kört mot HEAD d767d4a): återställ `if (!hasTarget)`
+ * i _getFlowTriggerCandidates ⇒ första testet i N20 (b2) blir rött, medan
+ * blockets två kontrollarmar (kajavgång utan svep, svep för fel punkt) förblir
+ * gröna — de mäter att V1-grinden lever.
  */
 
 const AISBridgeApp = require('../app');
@@ -167,23 +176,41 @@ describe('N20 (b): FP9-grinden får inte döda svepkandidaten', () => {
   });
 });
 
-describe('N20 (b2): RESTFALLET — svep INNE i bokföringsbandet', () => {
+describe('N20 (b2): RESTFALLET — svep INNE i bokföringsbandet (OMLÅST av S3)', () => {
   /**
-   * MÄTT EFTER FIXEN (och medvetet låst som gränsfall, inte som önskeläge):
-   * ligger svepets ändpunkter INNE i bokföringsbandet (500 m) blir varje fix
-   * med sog < MOVEMENT_PROOF_SOG_KN ett stillasample i V1-kartan, som flyttar
-   * ankaret till AKTUELL position. Netto-närmandet blir då 0 m och
-   * _quayDepartureNeedsProof (V1:s kajgrind, ett annat och äldre skydd)
-   * skippar kandidaten — nu med loggraden TRIGGER_POINT_SKIP_QUAY i stället
-   * för TRIGGER_POINT_SKIP_IDLE. FP9-gaten släpper alltså igenom svepet, men
-   * kajgrinden avgör.
+   * OMLÅSNING (S3, systerställesrundan 2026-08-23) — MOTSATT UTFALL LÅST HÄR
+   * FRAM TILL DENNA COMMIT. Blocket låste tidigare att svepkandidaten DOG i
+   * V1-kajgrinden och kallade det ett medvetet gränsfall utanför N20:s
+   * omfattning. Systerställesrundan mätte om det och underkände avgränsningen,
+   * rad för rad:
    *
-   * ATT LÅTA SVEPET RÄKNAS ÄVEN DÄR ÄR EN EGEN, MÄTT ÄNDRING och ligger
-   * utanför N20:s beslutade omfattning (syntesens fixförslag namnger
-   * nordgrenen och failsafen). Testet finns för att restfallet inte ska tros
-   * vara stängt.
+   *  1. GRINDENS LÖFTE HÖLL INTE. V1-grindens `continue` sätter — precis som
+   *     FP9-grindens — ingen dedupnyckel, och avgränsningen vilade på att
+   *     notisen då bara FÖRDRÖJS. För ett svep är det falskt: flaggan
+   *     `_tpSweepCandidate` skrivs på ETT ställe, finns inte i
+   *     _createVesselObject:s fältlista och lever EN tick. Båten har redan
+   *     korsat punkten och nästa segment korsar den inte igen ⇒ notisen
+   *     uteblir HELT. Det är samma bortfall som N20 ben a stängde i FP9-grinden.
+   *  2. MEKANISKA PÅSTÅENDET I DEN GAMLA TEXTEN VAR FÖR BRETT. "Netto-
+   *     närmandet blir då 0 m" gäller den geometri blocket råkade välja (båda
+   *     ändpunkterna inne i 500 m-bandet ⇒ varje stillasample flyttar V1-kartans
+   *     ankare fram). Ligger ankaret längre bort — t.ex. 480 m syd med aktuell
+   *     fix 320 m norr — ger benet netto 160 m och kandidaten LEVER redan på
+   *     HEAD. Grinden var alltså aldrig en generell spärr för svep, bara för
+   *     just den här delmängden, och avgränsningen skyddade inget mönster.
+   *  3. BEVISSTYRKAN ÄR OFÖRÄNDRAD. Svepet kräver BÅDA ändpunkterna utanför
+   *     300 m-zonen, KORSAD latitud mellan dem och ett minsta segmentavstånd
+   *     inne i zonen — strängare än både sog-benet (ett momentant prov) och
+   *     V1:s netto-ben. De två fältfall V1 finns för kan per geometri inte
+   *     producera ett svep: PRICKBJORN förflyttade sig 3 m, LADYBIRD 31 m.
+   *  4. MÄTT FACITPÅVERKAN. 18 svepgeometrier i banken, noll faktiska
+   *     notisbortfall på ~320 h ⇒ fixen väntas ADDERA noll notiser i låst
+   *     facit. Den kan aldrig ta bort en notis.
+   *
+   * KVAR ATT BEVAKA: grinden ska fortfarande fälla en kajavgång UTAN svep.
+   * Kontrollarmen nedan låser det (PRICKBJORN-profilen, sog 1,0 inne i zonen).
    */
-  test('CALIMA-nära geometri: kajgrinden avgör, och det syns i loggen', () => {
+  test('S3: svep INNE i bandet ⇒ kandidaten överlever kajgrinden', () => {
     const app = makeApp();
     const prev = { lat: TP.lat - 330 / 111320, lon: lonAt(TP.lat, 40) };
     const cur = { lat: TP.lat + 306 / 111320, lon: lonAt(TP.lat, 40) };
@@ -193,11 +220,50 @@ describe('N20 (b2): RESTFALLET — svep INNE i bokföringsbandet', () => {
     });
     app._noteQuayStability(vessel);
 
-    expect(kanalCandidate(app, vessel)).toBeNull();
-    expect(app.log).toHaveBeenCalledWith(expect.stringContaining('TRIGGER_POINT_SKIP_QUAY'));
+    // Premissen som gjorde bortfallet PERMANENT: fixen ligger utanför zonen,
+    // så svepet är kandidatens enda väg in — nästa tick finns ingen flagga.
+    expect(geometry.calculateDistance(cur.lat, cur.lon, TP.lat, TP.lon)).toBeGreaterThan(ZONE);
+    const candidate = kanalCandidate(app, vessel);
+    expect(candidate).not.toBeNull();
+    expect(candidate.distance).toBe(40); // segmentets minsta avstånd
+    expect(app.log).not.toHaveBeenCalledWith(
+      expect.stringContaining('TRIGGER_POINT_SKIP_QUAY'),
+    );
     expect(app.debug).not.toHaveBeenCalledWith(
       expect.stringContaining('TRIGGER_POINT_SKIP_IDLE'),
     );
+  });
+
+  test('KONTROLLARMEN: V1-grinden lever — kajavgång UTAN svep skippas som förut', () => {
+    const app = makeApp();
+    // PRICKBJORN-profilen: kajstabil historik, sedan ETT momentant prov på
+    // exakt TRANSIT_SOG_KN inne i zonen. Utan svep är det inget transitbevis.
+    const kaj = { lat: TP.lat - 200 / 111320, lon: lonAt(TP.lat, 20) };
+    app._noteQuayStability(sweepingVessel({ lat: kaj.lat, lon: kaj.lon, _tpSweepCandidate: null }));
+    const vessel = sweepingVessel({
+      lat: kaj.lat,
+      lon: kaj.lon,
+      sog: QUAY_DEPARTURE_GATE.TRANSIT_SOG_KN, // klarar FP9-benet, inte V1
+      _tpSweepCandidate: null,
+    });
+
+    expect(kanalCandidate(app, vessel)).toBeNull();
+    expect(app.log).toHaveBeenCalledWith(expect.stringContaining('TRIGGER_POINT_SKIP_QUAY'));
+  });
+
+  test('SVEPET MÅSTE MATCHA PUNKTEN: en flagga för en annan punkt hjälper inte', () => {
+    const app = makeApp();
+    const kaj = { lat: TP.lat - 200 / 111320, lon: lonAt(TP.lat, 20) };
+    app._noteQuayStability(sweepingVessel({ lat: kaj.lat, lon: kaj.lon, _tpSweepCandidate: null }));
+    const vessel = sweepingVessel({
+      lat: kaj.lat,
+      lon: kaj.lon,
+      sog: QUAY_DEPARTURE_GATE.TRANSIT_SOG_KN,
+      _tpSweepCandidate: { name: 'Någon annan punkt', distance: 40 },
+    });
+
+    expect(kanalCandidate(app, vessel)).toBeNull();
+    expect(app.log).toHaveBeenCalledWith(expect.stringContaining('TRIGGER_POINT_SKIP_QUAY'));
   });
 });
 
