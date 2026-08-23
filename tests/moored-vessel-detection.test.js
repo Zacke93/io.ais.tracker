@@ -505,22 +505,87 @@ describe('C9b: jittertålig stillhetsklocka (nettoförflyttning över fönster)'
     expect(vessel._stationarySince).toBeNull();
   });
 
-  test('GRÅZONEN OFÖRÄNDRAD: två konsekutiva 0,4-prov släpper även med gammalt ankare', () => {
+  // ── GRÅZONEN 0,3–0,49 kn — OMLÅST AV N7 (helkodsgranskning RUNDA 5, 2026-08-23)
+  //
+  // HÄR STOD ETT TEST: 'GRÅZONEN OFÖRÄNDRAD: två konsekutiva 0,4-prov släpper
+  // även med gammalt ankare'. Dess sista rad löd
+  //   expect(vessel._stationarySince).toBeNull(); // två i rad = oförändrad hysteres
+  // efter ett par 0,4-prov på ett 60 min gammalt ankare, och namnet
+  // ("OFÖRÄNDRAD") låste RUNDA 4:s medvetna avgränsning: M1 grindade BARA
+  // grenen sog ≥ MOVEMENT_PROOF_SOG_KN och lät gråzonen vara.
+  //
+  // VARFÖR RADEN FALLER. Avgränsningen var BAKVÄND, inte neutral: ett SVAGARE
+  // rörelseindicium (0,3–0,49 kn) släppte en etablerad kajliggare som ett
+  // STARKARE (≥ 0,5 kn) höll kvar. N7 ger grenen samma prövning som
+  // grannargrenen — _stillnessJitterHolds — så samma tre villkor (moget ankare
+  // ≥ ARM_STALE_TTL_MS, ren position, netto < MOVEMENT_PROOF_NET_M) avgör i
+  // BÅDA grenarna. Ingen ny konstant, ingen ny tröskel.
+  //
+  // VAD SOM INTE FALLER — och därför fortfarande låses, nu i två tester:
+  //  • Tvåsamplingshysteresen: ETT gråzonsprov räcker aldrig (_mooredReleasePending).
+  //  • UNGT ankare (< 30 min): släpper precis som förr. Det är den HALVA av den
+  //    gamla assertionen som fortfarande är sann, och den har fått eget test.
+  //  • Netto ≥ 50 m: släpper även på ett moget ankare (villkor 3 i hållet).
+  //  • Gråzonen skriver ALDRIG ankaret (låses i m1-ihallande-stillhetsankare).
+  // Fixens egen svit: n7-grazonens-jitterhall.test.js.
+
+  test('GRÅZONEN, UNGT ANKARE: två konsekutiva 0,4-prov släpper precis som förr', () => {
     const base = {
       iso: '2026-07-10T12:00:00.000Z', lat: 58.312900, lon: 12.319038, sog: 0,
     };
     const vessel = makeVessel(base);
     feed(vessel, base);
+    // 10 resp. 15 min ⇒ ankaret är YNGRE än BRIDGE_OPENING.ARM_STALE_TTL_MS
+    // (30 min), så villkor (2) i jitterhållet faller och grenen beter sig
+    // exakt som före N7. Detta är den bevarade halvan av det gamla testet.
     const grey = (offsetMin) => ({
       iso: new Date(Date.parse(base.iso) + offsetMin * 60000).toISOString(),
       lat: base.lat,
       lon: base.lon,
       sog: 0.4,
     });
-    feed(vessel, grey(60));
+    feed(vessel, grey(10));
     expect(vessel._stationarySince).not.toBeNull(); // ett prov räcker inte
-    feed(vessel, grey(65));
+    feed(vessel, grey(15));
     expect(vessel._stationarySince).toBeNull(); // två i rad = oförändrad hysteres
+    // Släppet rör inte ankaret — bara klockan (M1:s arbetsdelning).
+    expect(vessel._stillnessAnchor)
+      .toEqual({ lat: base.lat, lon: base.lon, t: Date.parse(base.iso) });
+  });
+
+  test('GRÅZONEN, MOGET ANKARE: jitterhållet håller klockan (N7) — men bara utan netto', () => {
+    const base = {
+      iso: '2026-07-10T12:00:00.000Z', lat: 58.312900, lon: 12.319038, sog: 0,
+    };
+    const grey = (offsetMin, latOffsetM = 0) => ({
+      iso: new Date(Date.parse(base.iso) + offsetMin * 60000).toISOString(),
+      lat: base.lat + latOffsetM / 111320,
+      lon: base.lon,
+      sog: 0.4,
+    });
+
+    // (a) OMLÅSNINGEN: moget ankare (60 min) + noll netto ⇒ klockan BEHÅLLS.
+    // Före N7 nollades den här, trots att ett STARKARE 0,5-prov på samma
+    // ankare hölls av C9b/M1.
+    const held = makeVessel(base);
+    feed(held, base);
+    const clockStart = held._stationarySince;
+    feed(held, grey(60));
+    expect(held._stationarySince).toBe(clockStart); // ett prov räcker inte
+    feed(held, grey(65));
+    expect(held._stationarySince).toBe(clockStart); // ⇐ omlåst rad (var toBeNull)
+    expect(held._stillnessAnchor).toEqual({ lat: base.lat, lon: base.lon, t: clockStart });
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining('[STILLNESS_JITTER_HELD]'));
+
+    // (b) HYSTERESEN OCH VILLKOR (3) ÄR ORÖRDA: samma par prov, men med
+    // nettoförflyttning över MOVEMENT_PROOF_NET_M, släpper som förut — även
+    // med moget ankare. N7 gör alltså gråzonen jittertålig, inte blind.
+    const released = makeVessel(base);
+    feed(released, base);
+    feed(released, grey(60, 25));
+    expect(released._stationarySince).not.toBeNull();
+    feed(released, grey(65, 65));
+    expect(released._stationarySince).toBeNull();
   });
 
   test('GPS-FLAGGAT sampel får aldrig motivera ett håll (S-F5-riktningen)', () => {
