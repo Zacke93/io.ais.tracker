@@ -27,6 +27,12 @@ jest.mock('homey');
  * shadow. `sourceWantsHub` står ORÖRT — skuggtelemetrin ska fortsatt startas
  * (kontraktet i tests/aishub-settings-contract.test.js: connect(null) körs).
  *
+ * N29-TILLÄGGET (RUNDA 5, 2026-08-23): skuggbeskedet fick också en EGEN
+ * dedupnyckel. Med M37:s delade 'aisstream:nokey' kunde en enda tidigare
+ * nokey-notis (boot utan källa, eller both-grenens degradering) tysta hela
+ * blindhetsbeskedet i 24 h. Nyckelvalen är låsta i testerna nedan; hela
+ * dedupmekaniken prövas i tests/n29-skuggnotisens-dedupnyckel.test.js.
+ *
  * MUTATIONSPROV (körs manuellt): slå ihop grenarna igen
  * (`(source === 'both' || source === 'shadow')`) ⇒ texttestet nedan faller.
  * Ta bort `blindWithoutKey`-blocket i _startConnection ⇒ status- och
@@ -57,8 +63,14 @@ function makeApp(settings = {}) {
   return app;
 }
 
+// N29 (RUNDA 5): skugglägets besked har EGEN dedupnyckel. Raden låste tidigare
+// den DELADE nyckeln — och det var precis defekten: 'aisstream:nokey' bär
+// boot-vägens och both-grenens motsatta texter, och 24h-dedupen släpper bara
+// igenom den FÖRSTA per nyckel. Hjälparen tar därför båda nycklarna; VILKEN som
+// gäller för vilket läge låses av testerna nedan.
+const NOKEY_KEYS = ['aisstream:nokey', 'aisstream:nokey:shadow'];
 const notifiedText = (app) => app._notifyConnectionIssue.mock.calls
-  .filter((c) => c[1] === 'aisstream:nokey')
+  .filter((c) => NOKEY_KEYS.includes(c[1]))
   .map((c) => String(c[0]))
   .join(' | ');
 
@@ -69,7 +81,9 @@ describe('M37 (a): _applyAisSourceConfig skiljer shadow från both', () => {
     app._notifyConnectionIssue = jest.fn();
     app._applyAisSourceConfig();
 
-    expect(app._notifyConnectionIssue).toHaveBeenCalledWith(expect.any(String), 'aisstream:nokey');
+    // N29: nyckeln är skugglägets EGEN (se konstanten i app.js) — med den
+    // delade nyckeln tystades det här beskedet av ett tidigare, motsatt.
+    expect(app._notifyConnectionIssue).toHaveBeenCalledWith(expect.any(String), 'aisstream:nokey:shadow');
     const text = notifiedText(app);
     expect(text).toContain('skuggläge');
     expect(text).toContain('utan båtdata');
@@ -85,8 +99,17 @@ describe('M37 (a): _applyAisSourceConfig skiljer shadow från both', () => {
     app._notifyConnectionIssue = jest.fn();
     app._applyAisSourceConfig();
 
-    expect(notifiedText(app)).toContain('enbart AISHub');
-    expect(notifiedText(app)).not.toContain('skuggläge');
+    // OMLÅST RAD (N29b, fixrunda 5b, 2026-08-23). Låste förut att both-grenen
+    // låg KVAR på 'aisstream:nokey' (N29 flyttade bara skuggläget). Granskaren i
+    // runda 5/5b visade att samma mekanism levde kvar här: det LUGNANDE "kör
+    // enbart AISHub" delade dygnsfönster med de två ALARMERANDE "tar inte emot
+    // båtdata"-avsändarna. Både-grenen har nu EGEN nyckel (BOTH_NOKEY_NOTICE_KEY);
+    // 'aisstream:nokey' bärs bara av de alarmerande. Se n29-testets N29b-block.
+    const bothCall = app._notifyConnectionIssue.mock.calls.find((c) => c[1] === 'aisstream:nokey:both');
+    expect(bothCall).toBeDefined();
+    expect(bothCall[0]).toContain('enbart AISHub');
+    expect(bothCall[0]).not.toContain('skuggläge');
+    expect(app._notifyConnectionIssue).not.toHaveBeenCalledWith(expect.any(String), 'aisstream:nokey');
   });
 
   test('SHADOW MED nyckel ⇒ ingen notis alls (normalläget)', () => {
@@ -128,9 +151,12 @@ describe('M37 (b): _startConnection släpper fram datalös-larmet för shadow', 
       'disconnected',
       expect.stringContaining('skuggläge'),
     );
+    // N29: samma egna nyckel som _applyAisSourceConfig använder — skugglägets
+    // två avsändare delar EN nyckel (en timeline-rad per dygn), men delar den
+    // inte längre med de motsatta nokey-texterna.
     expect(app._notifyConnectionIssue).toHaveBeenCalledWith(
       expect.stringContaining('skuggläge'),
-      'aisstream:nokey',
+      'aisstream:nokey:shadow',
     );
     // Loggraden om "enbart AISHub-källan" är falsk i skuggläge.
     const logs = app.log.mock.calls.map((c) => String(c[0])).join(' | ');
