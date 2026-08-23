@@ -22,10 +22,26 @@
  *
  * FIXEN skiljer klocka från ankare: klockan nollas av varje obesvarat
  * rörelsesampel som förr, medan ankaret — den PLATS vistelsen mäts ifrån —
- * bara kastas vid ÄKTA avgång (≥ MOVEMENT_PROOF_NET_M netto) eller vid ett
- * GPS-flaggat prov. Se `_stillnessAnchorInvalidated`.
+ * kastas i EXAKT TVÅ fall: när det saknas (eller är omätbart) och när nettot
+ * från det når MOVEMENT_PROOF_NET_M (äkta avgång). Se
+ * `_stillnessAnchorInvalidated`, som numera tar ETT argument.
  *
- * GRÅZONEN 0,3–0,5 kn RÖRS INTE (eget karakteriseringstest nedan).
+ * ⚠️ RÄTTAT 2026-08-23 (N25, RUNDA 5). Stycket ovan hade ett TREDJE led —
+ * "eller vid ett GPS-flaggat prov" — och det stämmer inte längre: N25 tog bort
+ * både ledet och predikatets gpsSuspect-parameter. Ledet skyddade ingenting
+ * (villkor (1) i `_stillnessJitterHolds` nollar ändå klockan på ett flaggat
+ * prov, så ingen målbro kan demoteras av det) men kostade 30 minuters
+ * ommognad per flaggat prov, eftersom ankaret sedan M1 bär VISTELSENS ålder
+ * och inte klockans — uppmätt i pipelinen: förtöjd efter 34 min blev 70 min.
+ * Filens EGEN omlåsta assertion (~:442/453) låser numera motsatsen: ett
+ * flaggat prov VID ankaret (netto 0 m) BEHÅLLER ankaret, och ~:468 vaktar att
+ * signaturen inte får tillbaka en andra parameter. Pipelinebeviset ligger i
+ * n25-gps-flaggat-stillhetsankare.test.js.
+ *
+ * GRÅZONEN 0,3–0,5 kn rörde M1 inte. N7 (RUNDA 5, 2026-08-23) gjorde det:
+ * grenen frågar numera _stillnessJitterHolds innan den nollar KLOCKAN — men
+ * skriver fortfarande aldrig ankaret, vilket karakteriseringstestet nedan
+ * ("GRÅZONEN … ankaret rörs aldrig") låser. Se n7-grazonens-jitterhall.test.js.
  */
 
 jest.mock('homey');
@@ -385,7 +401,13 @@ describe('M1: ihållande stillhetsankare', () => {
     expect(v._stillnessAnchor.t).toBe(ank0.t);
   });
 
-  test('GRÅZONEN 0,3–0,5 kn är orörd: två prover nollar klockan, ankaret rörs aldrig', () => {
+  test('GRÅZONEN 0,3–0,5 kn med UNGT ankare: två prover nollar klockan, ankaret rörs aldrig', () => {
+    // N7 (RUNDA 5, 2026-08-23) lade till ett jitterhåll i den här grenen, men
+    // hållet kräver ett ankare som är minst ARM_STALE_TTL_MS (30 min) gammalt.
+    // Ankaret nedan är 1–2 minuter gammalt, så grenen beter sig EXAKT som före
+    // N7 — det är den halvan det här testet låser. Den mogna halvan låses i
+    // n7-grazonens-jitterhall.test.js. Ankaret skrivs aldrig i grenen, varken
+    // före eller efter N7.
     const svc = makeVDS();
     const mmsi = '265900003';
     NOW += 60000;
@@ -412,21 +434,37 @@ describe('M1: ihållande stillhetsankare', () => {
     expect(svc.vessels.get(mmsi)._stillnessAnchor).toEqual(ank);
   });
 
-  test('_stillnessAnchorInvalidated: saknat ankare, GPS-flagga och 50 m kastar — jitter gör det inte', () => {
+  test('_stillnessAnchorInvalidated: saknat ankare och 50 m kastar — jitter och GPS-flagga gör det inte', () => {
     const svc = makeVDS();
     const v = { lat: QUAY.lat, lon: QUAY.lon, _stillnessAnchor: null };
-    expect(svc._stillnessAnchorInvalidated(v, false)).toBe(true); // saknat
+    expect(svc._stillnessAnchorInvalidated(v)).toBe(true); // saknat
     v._stillnessAnchor = { lat: QUAY.lat, lon: QUAY.lon, t: NOW - 60 * 60 * 1000 };
-    expect(svc._stillnessAnchorInvalidated(v, true)).toBe(true); // GPS-flaggat
-    expect(svc._stillnessAnchorInvalidated(v, false)).toBe(false); // 0 m jitter
+    // OMLÅST RAD (N7/N8/N25-leveransen, RUNDA 5, 2026-08-23). Raden löd
+    // `expect(svc._stillnessAnchorInvalidated(v, true)).toBe(true); // GPS-flaggat`
+    // och låste M1:s tredje led. N25 tog bort ledet: efter M1 bär ankaret
+    // VISTELSENS ålder, så ett enda GPS-flaggat prov kostade 30 minuters
+    // ommognad (uppmätt i pipelinen: förtöjd 34 min → 70 min) medan
+    // skyddsvärdet var NOLL — _stillnessJitterHolds returnerar redan falskt på
+    // sitt eget villkor (1) för samma prov, så klockan nollas ändå och ingen
+    // målbro kan demoteras av ett flaggat prov. Predikatet tar därför ingen
+    // gpsSuspect-parameter längre; raden nedan prövar att ett flaggat prov VID
+    // ankaret (netto 0 m) numera behåller ankaret. Se n25-gps-flaggat-
+    // stillhetsankare.test.js för pipelinebeviset.
+    expect(svc._stillnessAnchorInvalidated(v)).toBe(false); // 0 m jitter, flagga eller ej
     // Strax UNDER tröskeln behålls, PÅ tröskeln kastas (samma gräns som
     // villkor 3 i _stillnessJitterHolds och som rörelsebeviset).
     v.lat = QUAY.lat + (NET_M - 5) / M_PER_DEG_LAT;
-    expect(svc._stillnessAnchorInvalidated(v, false)).toBe(false);
+    expect(svc._stillnessAnchorInvalidated(v)).toBe(false);
     v.lat = QUAY.lat + (NET_M + 5) / M_PER_DEG_LAT;
-    expect(svc._stillnessAnchorInvalidated(v, false)).toBe(true);
+    expect(svc._stillnessAnchorInvalidated(v)).toBe(true);
     // Ogiltig position ⇒ omätbart netto ⇒ konservativt kast.
     v.lat = null;
-    expect(svc._stillnessAnchorInvalidated(v, false)).toBe(true);
+    expect(svc._stillnessAnchorInvalidated(v)).toBe(true);
+    // SIGNATURVAKT: en kvarglömd andra parameter får inte kunna smyga tillbaka
+    // gpsSuspect-ledet. Anropas predikatet med flaggan sann ska svaret bero på
+    // GEOMETRIN, inte på flaggan.
+    v.lat = QUAY.lat;
+    expect(svc._stillnessAnchorInvalidated(v, true)).toBe(false);
+    expect(svc._stillnessAnchorInvalidated.length).toBe(1);
   });
 });

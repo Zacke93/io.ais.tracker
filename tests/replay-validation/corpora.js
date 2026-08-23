@@ -625,7 +625,26 @@ module.exports = [
       + 'och låg 17:20:08 på offset +448 m i 7,2 kn med 24 → 448 m. IMPERATOR är samma fartyg som gav '
       + 'C1c-hållningen dess namn — hon visar nu båda sidorna av regeln: hållningen behövs UNDER '
       + 'bron, men inte 448 m bortom den. Notis-, fördelnings-, riktnings- och öppningsfacit ORÖRDA '
-      + '(74/74).',
+      + '(74/74). '
+      + 'GOLDEN OMLÅST (2026-08-23, N2 — mellanbrodetektering i ACCELERATED-ticken, '
+      + 'helkodsgranskning runda 5): 111 → 111 övergångar, EXAKT 1 rad ändrad. idx101 '
+      + '2026-07-07T20:24:35.988Z "En båt på väg mot Stridsbergsbron, beräknad broöppning om 10 '
+      + 'minuter" → "om 9 minuter". MEKANISM: i ACCELERATED-ticken 20:24:25.921 satte HEAD först '
+      + 'målbron (TARGET_CHANGE none→Stridsbergsbron, Reason ACCELERATED) och bokförde '
+      + 'Stallbackabron-passagen FÖRST därefter (gate-confirmed, samma millisekund). Statusen blev '
+      + 'därför stallbacka-waiting och ETA:n räknades progressive_route MED Stallbackabron kvar i '
+      + 'rutten = 10,3 min; statusbytet till passed svaldes av 5-sekundersdebouncen (loggrad '
+      + 'STATUS_DEBOUNCE). Med N2 bokförs passagen FÖRE måltilldelningen (markören no-target), '
+      + 'statusen blir under-bridge och ETA:n tar ETA_POST_PASSAGE → direct_fallback = 8,7 min. '
+      + 'RÅDATABEVIS: gt-passages 304028000 BALTIC JONGLEUR Stallbackabron kind=line, '
+      + 'inferred=false, t=20:23:40.819, sampelpar 20:19:26.029 (1046 m före) → 20:24:25.921 (185 '
+      + 'm efter), offP 14 m / offQ 1 m. Hon hade alltså passerat bron 55 s före texten — HEAD:s '
+      + 'väntestatus och rutt genom samma bro var falska. ÄRLIG AVGRÄNSNING: sanningen (nästa '
+      + 'Stridsbergsbron-korsning 20:35:54.475) är 11,31 min, så siffran flyttar 1,00 min BORT '
+      + 'från sanningen (fel −1,31 → −2,31), och öppningskortet 20:29:41.870 går 6 → 5 mot '
+      + 'sanningen 6,21 (fel −0,21 → −1,21). Det är ETA-modellens kända optimism (ingen väntetid '
+      + 'vid målbron), inte bokföringen. Notis-, fördelnings-, riktnings- och öppningsfacit ORÖRDA '
+      + '(74/74 notiser, 23 öppningsvarningar).',
   },
   {
     id: '20260708-21h',
@@ -790,7 +809,21 @@ module.exports = [
         + 'inget textinnehåll rördes. Med båda koderna på HEAD (se ARCHITECTURE §9) uppstår '
         + 'inget av skiften och golden-filen är BYTE-IDENTISK med 480b78f — relockGoldenText '
         + 'skrev om den och diffen mot HEAD blev 0 rader. Notis-, fördelnings-, riktnings- och '
-        + 'öppningsfacit ORÖRDA (80/80 notiser, 20 öppningsvarningar).',
+        + 'öppningsfacit ORÖRDA (80/80 notiser, 20 öppningsvarningar). '
+        + 'GOLDEN OMLÅST (2026-08-23, N2, runda 5): 132 → 132 övergångar, 0 texter ändrade, 0 '
+        + 'poster till eller från — ENDAST 2 tidsstämplar +15 ms (idx17 07:55:36.945 → .960, '
+        + 'IN-AXXI/Stridsbergsbron "om 9 minuter"; idx90 11:34:54.484 → .499, VIRGO-raden). '
+        + 'MEKANISM: N2 bokför Stallbackabron-passagen på ACCELERATED-tickens EGET segment i '
+        + 'stället för i efterblocket. Passagen fanns i BÅDA armarna på samma millisekund (endast '
+        + 'markören noTarget false→true skiljer), så det enda observerbara är att publiceringen i '
+        + 'ticken sker 15 ms senare på replayns klocka. RÅDATABEVIS: gt-passages 244130745 IN-AXXI '
+        + 'Stallbackabron kind=line inferred=false t=07:55:09.077 (sampel 835 m före / 110 m '
+        + 'efter) och 265552100 VIRGO Stallbackabron kind=line inferred=false t=11:34:20.386 (668 '
+        + 'm före / 102 m efter). Publicerad ETA, sanning och fel är IDENTISKA i båda armarna '
+        + '(measure:eta-parning: pub 9 mot sanning 9,83 respektive pub 13 mot sanning 17,95) — '
+        + 'omlåsningen bär alltså ingen informationsskillnad och är bokförd som mätartefakt, inte '
+        + 'som beteendeändring. Notis-, fördelnings-, riktnings- och öppningsfacit ORÖRDA (80/80 '
+        + 'notiser, 20 öppningsvarningar).',
   },
   {
     id: '20260711-7h',
@@ -981,6 +1014,27 @@ module.exports = [
       + 'Stridsbergsbron, låg stilla i över fyra timmar och aldrig korsade bron. J10 är '
       + 'återställd till HEAD i 2c (se ARCHITECTURE §9), den falska raden finns inte, och '
       + 'antalet står kvar på HEAD-värdet 136. Notis-, fördelnings-, riktnings- och '
+      + 'öppningsfacit ORÖRDA (86/86 notiser, 31 öppningsvarningar). '
+      + 'GOLDEN OMLÅST (2026-08-23, N2, runda 5): 136 → 136 övergångar, EXAKT 1 rad ändrad. idx2 '
+      + '2026-07-12T16:04:25.933Z "En båt på väg mot Klaffbron, beräknad broöppning om cirka 2 '
+      + 'minuter" → "En båt på väg mot Klaffbron, ETA okänd". MEKANISM: HEAD bokförde ALDRIG '
+      + 'BLADE:s (265637230) korsningar av Stridsbergsbron och Järnvägsbron — ACCELERATED-ticken '
+      + '15:59:25.770 satte målbron Klaffbron utan att pröva sitt eget segment mot någon brolinje, '
+      + 'och nästa segment spände inte broarna. Följden syns i verbosloggen: 16:04:25.933 skriver '
+      + 'HEAD INTERMEDIATE_WAITING_HYSTERESIS (85 m från mellanbron Järnvägsbron) och '
+      + 'STATUS_WAITING (väntar vid Järnvägsbron, mål Klaffbron) — appen påstår att båten VÄNTAR '
+      + 'vid en bro hon passerat 6 minuter tidigare, och cirka-2-minuterssiffran härleds ur det '
+      + 'falska läget. Med N2 bokförs båda passagerna i ACCELERATED-ticken, PASSAGE_LATCH '
+      + 'blockerar den retrograda väntestatusen (Blocking retrograde status waiting for '
+      + 'Järnvägsbron, passed 300s ago) och läget blir ärligt en-route med 300 s gammal fix och '
+      + 'uttömd extrapolering ⇒ ETA okänd. RÅDATABEVIS: gt-passages 265637230 BLADE '
+      + 'Stridsbergsbron kind=line inferred=false t=15:55:15.552 och Järnvägsbron kind=line '
+      + 'inferred=false t=15:58:23.814, båda i sampelparet 15:53:55.479 → 15:59:25.770 (gapS 330, '
+      + 'offP 19 m / offQ 6 m). Samma post är O1:s enda normalsamplade fyndklass i hela banken: '
+      + 'detektionsgraden går 342/402 → 343/402 och normalsamplade missar 2 → 1. Raden lever 15 ms '
+      + '— nästa rad 16:04:25.948 är broöppning strax i BÅDA armarna — och är därmed osynlig i '
+      + 'dagens publiceringskadens; sanningen (Klaffbron 16:04:53.453) är 0,46 min, så HEAD:s '
+      + 'cirka 2 minuter var dessutom 1,54 min fel. Notis-, fördelnings-, riktnings- och '
       + 'öppningsfacit ORÖRDA (86/86 notiser, 31 öppningsvarningar).',
   },
   {
@@ -1151,7 +1205,29 @@ module.exports = [
         + 'KVAR: J22 sitter i BridgeOpeningService._canArm, är oberoende av J17/J32 och dess '
         + 'rådatabevis (två sampel, 33,2/21,7 kn, ingen brolinje korsad) gäller oförändrat — '
         + 'körningen 2026-08-22 ger fortfarande 48 öppningsvarningar. Notis-, fördelnings- och '
-        + 'riktningsfacit ORÖRDA (165/165 notiser).',
+        + 'riktningsfacit ORÖRDA (165/165 notiser). '
+        + 'GOLDEN OMLÅST (2026-08-23, N2, runda 5): 270 → 270 övergångar, 2 rader ändrade. idx150 '
+        + '2026-07-14T13:08:31.377Z och idx151 13:10:45.908Z: "Tre båtar på väg mot Klaffbron, '
+        + 'beräknad broöppning om 5 minuter" → "om 3 minuter" (Stridsbergsbron-satsen oförändrad). '
+        + 'MEKANISM: HEAD bokförde aldrig HEY JOE:s (211881090) Järnvägsbron-passage och räknade '
+        + 'ETA:n progressive_route med nearest=Järnvägsbron = 7,3 min, dvs. RUTT GENOM EN BRO HON '
+        + 'REDAN PASSERAT. Minutsiffran ägdes då av PILGRIM (211110880) på 5 min. Med N2 bokförs '
+        + 'passagen i ACCELERATED-ticken, ETA_POST_PASSAGE slår till (nearest jarnvagsbron was '
+        + 'just passed → direct calculation to klaffbron), HEY JOE får direct_fallback 3,1 min och '
+        + 'blir ledande. RÅDATABEVIS: gt-passages 211881090 HEY JOE Järnvägsbron kind=line '
+        + 'inferred=false t=13:06:17.537, sampelpar 13:06:06.901 (31 m före) → 13:08:31.352 (386 m '
+        + 'efter), gapS 144, offP 11 m / offQ 7 m. LEDARBYTET ÄR EN FÖRBÄTTRING: PILGRIM korsade '
+        + 'Järnvägsbron 13:05:24.642 och blev sedan liggande — hennes nästa Klaffbron-korsning '
+        + 'ligger 2026-07-15T06:54:37.725, alltså 17,8 timmar senare (measure:eta klassar HEAD:s '
+        + 'påstående som inferred med sanning 1066 min), medan HEY JOE korsade Klaffbron '
+        + '13:17:07.761. HEAD pekade minuten på en båt som stannade; efter fixen pekar den på den '
+        + 'båt som faktiskt kom. ÄRLIG AVGRÄNSNING: HEY JOE:s egen siffra går längre FRÅN '
+        + 'sanningen — notisen 13:11:01.046 går 5 → 3 mot 6,11 min och öppningskortet 13:08:31.352 '
+        + 'går 7 → 3 mot 8,61 min. Hon gick 579 m på 8,6 min (ca 2,2 kn) i väntan på att Klaffbron '
+        + 'skulle öppna; modellen räknar ren transit. Öppningsvarningens avfyrningstid och dueMs '
+        + 'är OFÖRÄNDRADE (13:08:31.352) — bara visad etaMin rör sig, så O1-garantin är orörd. '
+        + 'Notis-, fördelnings-, riktnings- och öppningsfacit ORÖRDA (165/165 notiser, 48 '
+        + 'öppningsvarningar).',
     knownInvariantExceptions: [
       'ETA-SÅGTAND UPP: 2026-07-15T08:48:51.405Z Stridsbergsbron 8→14',
       'ETA-OSCILLATION: 2026-07-15T08:50:22.118Z Stridsbergsbron 8→14→9',
@@ -1844,7 +1920,32 @@ module.exports = [
         + 'MÄTT VERKAN AV M2b PÅ FACIT: noll. Exakt EN post byter klass i hela '
         + 'banken (denna); O1b OKLASSAD står kvar på 7 med samma sju poster, '
         + 'och O2/O3/H-4/U2 är byte-identiska. Övriga bevissträngar ändrar '
-        + 'bara ordval (tillägget "korroborerad av egen förflyttning").',
+        + 'bara ordval (tillägget "korroborerad av egen förflyttning"). '
+        + 'GOLDEN OMLÅST (2026-08-23, N21 — hållningens innehållsgata, runda 5): 313 → 313 '
+        + 'övergångar, 0 texter ändrade, 0 poster till eller från — ENDAST 2 tidsstämplar på "Inga '
+        + 'båtar är i närheten av Klaffbron eller Stridsbergsbron", båda TIDIGARE. idx29 '
+        + '00:09:48.635 → 00:08:48.635 (−60,0 s) och idx216 10:26:18.635 → 10:26:00.645 (−18,0 s). '
+        + 'MEKANISM: passed-hold återspeglade senaste texten enbart på att NÅGON båt låg i '
+        + 'passagefönstret, utan att pröva att texten rör den bro hållningen handlar om. N21 '
+        + 'kräver innehållsträff; loggen skriver PASSED_HOLD_UI_SKIP (hållning avstådd, senaste '
+        + 'texten nämner inte Klaffbron). Raden förekommer EXAKT två gånger i hela korpusen — '
+        + 'samma två index, ingen tredje beröringspunkt. RÅDATABEVIS idx29: MS JUTLAND (211718360) '
+        + 'korsade Stridsbergsbron 00:07:22.934 (gt kind=line, inferred=false) och i samma tick '
+        + 'skriver appen PASSED_HOLD_RELEASE (bevisad utfärd 207 m bortom brolinjen norrut, '
+        + 'avstånd 101→208 m, sog 6,8). Enda kvarvarande hållaren var TIM (212571000), UNDER '
+        + 'KLAFFBRON (1 m) efter sin korsning 00:08:00.722 söderut — terminal passage utan nästa '
+        + 'målbro. HEAD publicerade därför "En båt på väg mot Stridsbergsbron, beräknad broöppning '
+        + 'strax" i ytterligare 60 s efter att den enda Stridsbergsbron-båten lämnat bron i 6,8 '
+        + 'kn. RÅDATABEVIS idx216: ELFKUNGEN (265573130) korsade Klaffbron NORRUT 10:15:12.558 och '
+        + 'vände; hennes nästa korsning är Klaffbron SÖDERUT 10:36:35.638, hon nådde alltså aldrig '
+        + 'Stridsbergsbron. 10:26:00 har hon targetBridge=null och filtreras ur brotexten, motorn '
+        + 'genererar "Inga båtar", medan hållaren är DIONE (219025537) som passerat Klaffbron '
+        + 'söderut 136,9 s tidigare — också terminal. HEAD höll kvar "En båt på väg mot '
+        + 'Stridsbergsbron, beräknad broöppning om 10 minuter" i 18 s till. Båda hållna texterna '
+        + 'var alltså spöktexter om fel bro. INVARIANTER: INV-14 (fatal) 0 i båda armarna, '
+        + 'WARN-tabellen rad för rad identisk (INV-18×7, INV-14W×3); INV-14W-utslaget flyttar bara '
+        + 'stämpel 10:26:18.635/2794 s → 10:26:00.645/2812 s. Notis-, fördelnings-, riktnings- och '
+        + 'öppningsfacit ORÖRDA (152/152 notiser, 33 öppningsvarningar).',
     knownInvariantExceptions: [
       'NOTIS-DUBBLETT: 219031446:Stridsbergsbron × 2 utan journey-reset emellan',
       // P9-omlåsningen (2026-08-10): kajliggarlivscykeln (gravvård + moored-
