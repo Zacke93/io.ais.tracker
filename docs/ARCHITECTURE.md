@@ -503,7 +503,9 @@ att varje bortfiltrering byter notis mot täckningsmiss 1:1) och ändra TEXTEN.
 "X passerade Y under AIS-tystnad" (passage-fallback — klassen där passagen
 inferreras i efterhand ur en observerad position på ANDRA sidan bron),
 "X har precis passerat Y" (just-passed — LIVE-passage inom 15 s grace, där
-AIS-tystnad hade varit ett osant påstående), "X var på väg ut ur kanalen vid Y
+AIS-tystnad hade varit ett osant påstående; sedan S4/fixrunda 6 även när källan är
+current/target/nearest men appen själv bokfört bron som passerad inom nådan — källsträngen
+orörd, eta=-1, already_passed sant), "X var på väg ut ur kanalen vid Y
 när AIS-kontakten bröts" (exit-fallback, F6 2026-08-10 — här finns INGET
 passagebevis alls: sista position ligger norr om Kanalinfarten, så meningen
 påstår bara det gaterna belägger — rörelse, sydgående kurs/riktning inom
@@ -626,7 +628,7 @@ alltid i COG-dödbandet 46–134° som `_getDirectionString` medvetet svarar
 4. nordprogressen `vessel._lastNorthProgress.mps >=
    VesselDataService.NORTH_PROGRESS_MIN_MPS` (0,25 m/s — samma ribba som
    kajvobbelgrinden, inget nytt kalibrerat tal), och
-5. **FÄRSKHET:** `_lastNorthProgress.ts === vessel.lastPositionUpdate`, dvs.
+5. **FÄRSKHET:** `_lastNorthProgress.ts === max(vessel.lastPositionUpdate, vessel.timestamp)` (S5-not: nordprogressen har sedan fixrunda 6 TVÅ baskällor — ordinarie oldVessel, och vid ÅTERFÖDELSE utan oldVessel posten i `app._lastKnownPositions` via `_rebirthNorthBase`, maxålder VESSEL_GRAVE.TTL_MS, fartspärr, mottagningsklockan), dvs.
    mätningen kommer från just den position som bär notisen. Utan kravet kunde
    beviset frysa (en "vet inte"-mätning skriver aldrig över, och
    `GPSJumpAnalyzer.fixDtMs` ger 0 — inte null — vid identisk fixTs från samma
@@ -734,7 +736,7 @@ båt.
   och `persistent_opening_warnings` (`bro|mmsi|riktning`, 10 min, ÖVER omstart
   — v1 persisterar inga armar, så en omstart mitt i en anflygning varnade annars
   om för samma öppning).
-- **Grindar:** `npm run replay:openings` (O1 täckning / O2 fantomtak /
+- **Grindar:** `npm run replay:openings` (O1 täckning / O2 fantomtak / O2b fantomer mot rådatafacit, informativ (S14) /
   O3 nattkontroll), `opening-distribution.json` (O5, bro:riktning-multiset per
   korpus, jämförs i `runAllCorpora`), INV-21 (WARN), och — före varje
   korpuslåsning — fassvepet `npm run replay:phase` (VALIDATION.md §Fältprov,
@@ -995,7 +997,7 @@ Flaggor (bärs av `_createVesselObject`-fältlistan, §8a): `_etaIsExtrapolated`
 | `known_vessel_names` | `_loadVesselNames`:529 | `_persistVesselNames`:561 | B1-namncache `{ mmsi: {name, t} }`, 30 d TTL, max 200 poster (äldst-först-eviction); skrivs via `_rememberVesselName`:593 bara vid nytt/ändrat namn eller >24 h sedan sist |
 | `last_known_positions` | `_loadLastKnownPositions`:615 | `_persistLastKnownPositions`:646 | `{ mmsi: {lat, lon, t} }`, 6 h TTL; skrivs vid removal (:1084–1090); begränsar skipped-bridges-scenario A för återfödda båtar (§3) |
 | `quay_stable_ledger` | `_loadQuayLedger` | `_persistQuayLedger` (STRYPT: max var 15:e min + tvingad vid `onUninit`) | V1-kajavgångsgrindens historik `{ mmsi: {stillAt, lat, lon} }`, TTL = `QUAY_DEPARTURE_GATE.MEMORY_MS` (2 h); rörelseräknaren `movingFixes` persisteras ALDRIG (den är ett påstående om innevarande sessions observationer). Utan persistensen återskapade en appomstart 5 s före kajavgången PRICKBJORN-fantomen exakt |
-| `persistent_opening_warnings` | `_loadPersistentOpeningWarnings` | `_persistOpeningWarnings` (vid varje avfyrning + vid konsumtion) | Etapp 6 + J15 (2026-08-22): öppningsvarningarnas dedup ÖVER omstart, `{ "Bro\|mmsi\|riktning": {firedAt, expiresAt} }`. TVÅDELAT läsfönster (`_openingDedupActiveUntil`): post skriven i DENNA session dedupar till firedAt + `CONVOY_WINDOW_MS` (10 min, som förr); post LADDAD VID BOOT dedupar till expiresAt = firedAt + 10 min + ETA (kapat `_OPENING_PERSIST_MAX_MS`) — omstartsskyddet. TRE konsumtionsvägar nollar nyckeln: bekräftad passage i `_observeBridgeOpening`, gap-inferrerad passage och backfill (L19). Riktningsledet gör att en U-svängares RETURPASSAGE aldrig tystas. Känd avvägning: avbruten anflygning före omstart (§9) |
+| `persistent_opening_warnings` | `_loadPersistentOpeningWarnings` | `_persistOpeningWarnings` (vid varje avfyrning + vid konsumtion) | Etapp 6 + J15 (2026-08-22): öppningsvarningarnas dedup ÖVER omstart, `{ "Bro\|mmsi\|riktning": {firedAt, expiresAt} }`. TVÅDELAT läsfönster (`_openingDedupActiveUntil`): post skriven i DENNA session dedupar till firedAt + `CONVOY_WINDOW_MS` (10 min, som förr); post LADDAD VID BOOT dedupar till expiresAt = firedAt + 10 min + ETA (kapat `_OPENING_PERSIST_MAX_MS`) — omstartsskyddet. TRE konsumtionsvägar nollar nyckeln: bekräftad passage i `_observeBridgeOpening`, gap-inferrerad passage och backfill (L19). Riktningsledet gör att en U-svängares RETURPASSAGE aldrig tystas; sedan S11 (fixrunda 6) är riktningsledet MEDLEMMENS egen låsta riktning (`memberDirections` i payloaden), ledarens bara som fallback. Sedan S13 härleds expiresAt inte ur ETA-tokenen utan ur max(dagens uttryck, armens förväntade ankomst `expectedArrivalMs` — MAX över medlemmarna), fortfarande kapat. Känd avvägning: avbruten anflygning före omstart (§9) |
 | `opening_quay_ledger` | `_loadOpeningQuayLedger` | `_persistQuayLedger` (samma strypta 15-min-klocka som V1-kartan + tvingad flush i `onUninit`; skrivtakt ~96→192/dygn) | M11 (2026-08-23): öppningslagrets kajbokföring `{ mmsi: {bandSince, stillAt, lat, lon, moving} }`, TTL = `QUAY_DEPARTURE_GATE.MEMORY_MS`. Utan persistens var kajvobbelgrinden BLIND 5 min efter varje omstart (bandSince sessionslokal) och efter ETT fix utanför 500 m-bandet; nu hysteres (en tolererad fix, `MIN_MOVING_FIXES`-härledd) + persistens. `movingFixes`, `prevFix`, `lastFix` persisteras ALDRIG (påståenden om innevarande session) |
 
 **Kajbokföringens TVÅ kartor.** `_quayStableLedger` (persisterad, ovan) bokför
@@ -1137,7 +1139,7 @@ Permanent valideringsverktyg — kör den RIKTIGA appen mot inspelad AIS-jsonl.
 **(a) De två explicita fältlistorna.** Vesselobjektet BYGGS OM vid varje
 AIS-meddelande (`_createVesselObject`, VDS:2633–2865) och SNAPSHOT:as vid removal
 (`vesselSnapshot`, VDS:625–664). Fält som inte uttryckligen kopieras **raderas
-tyst**. NIO kända offer: (1) `passedAt` m.fl. i `_createVesselObject`
+tyst**. TIO kända offer: (1) `passedAt` m.fl. i `_createVesselObject`
 (2026-06-13, VDS:2725–2730); (2) ålderfälten `timestamp`/`lastPositionUpdate`/
 `_lastSeen` i snapshotten — gjorde F63-exit-vakten till död kod (CLABBYDOO,
 VDS:648–655); (3) `_isImminentAtTargetBridge` (echo-flappen, VDS:2740–2746);
@@ -1168,7 +1170,7 @@ snapshotten bär även `_moored`/`_hasMovementProof` (exit-fallbackens gates).
 meddelandegränser MÅSTE läggas till i BÅDA fältlistorna — och läses fältet i
 publiceringsvägen även i PROJEKTIONEN (app.js `_findRelevantBoatsForBridgeText`)
 eller via levande uppslag.** Vaktlistan `SNAPSHOT_CONSUMED_FIELDS`
-(tests/namnkedjan-b1.test.js) ska täcka varje fält fallbackvägen läser.
+(tests/namnkedjan-b1.test.js) ska täcka varje fält fallbackvägen läser. (10) `_fixDPendingReversal` (Fix D:s väntande riktningsvändning) saknas i graven ⇒ S10-vakten i notisvägen (fixrunda 6) är inert för en återfödd båt — fail-open, en notis kan gå ut med gammalt riktningslås men ingen förloras.
 
 **(b) OneDrive gör lint långsamt.** Kör eslint per fil, inte över hela trädet.
 
@@ -1868,6 +1870,63 @@ men S2/S3/S8/S12 är missade SYSTERSTÄLLEN till N5/N20a/M1-familjen/N29 (4/13 =
   TILLSAMMANS; B S4+S10 tokensanning; C S11+S13 payload; D S1; E S5; F S8; G S12; H S14) följd av en
   SMAL verifieringsrunda mot bara paketens kod + systerställen, budgetbox för S15–S30 — INTE en sjätte
   bred runda. Därefter fältprov 11.
+
+**FIXRUNDA 6 LIGHT (2026-08-23, användarbeslut vid 75 % budget: paket A–H utom S8; S10+S6 godkända;
+ingen ny loop efteråt).** Landat (bytidentiskt facit där inget annat sägs): **S1** GPSJumpGateService —
+`shouldBlockPassageDetection` blockerar nu även koordinationsnivå moderate+protection när fartyget har finit
+sog < MOVEMENT_PROOF_SOG_KN (helper `_blocksUncertainPositionOnStillVessel`; tvåstegsbekräftelsen räddar
+äkta passage; latent i banken). **S14** runOpeningGates — O2b (fantomklassificering mot gt-passages, fjärde
+hink INFERRERAD_TID, `reportGtPhantoms`) INFORMATIV bredvid O2, exitkoden oförändrad tills OPENING_GT_STRICT.
+**S5** VDS — `_rebirthNorthBase`: nordprogressens andra basposition ur `app._lastKnownPositions` när
+oldVessel saknas (maxålder VESSEL_GRAVE.TTL_MS, fartspärr via movementPlausibility golv 0; mottagnings-
+klockan medvetet — posten bär ingen fixTs); FACIT: exakt 2 riktningsposter unknown→northbound (258715000
+41h, 265576720 17h), notisantal oförändrat. **S2** app.js ~2003 — `_quayDepartureNeedsProof` beräknar inte
+netto-benet på GPS-flaggat sampel (null; N11-mönstret) OCH ben (a) räknar inte "okänt p.g.a. flagga" som
+"ingen geometri" (granskarfynd: annars öppnade ett flaggat sampel LADYBIRD-klassen) — en fix fördröjning,
+aldrig förlorad notis. **S3** app.js ~8902 — V1-kajgrinden hoppas över
+vid matchande segmentsvep (N20a-härledningen). **S6 ÅTERKALLAD** (granskare 2, egen tidsmätning): grinden "ingen
+notis så länge nettot från stillhetsankaret < 50 m" tog bort NOLL fantomer i banken men sköt 12 FÖRVARNINGAR
+till efter passagen (ELFKUNGEN 169 m före → 1825 m förbi; RONJA 82 m före → 201 min senare) — notisens TID/
+KÄLLA bärs av inget facit. Rotorsaken (brusprov ⇒ fantom + dedup-post som tystar äkta passage) är ÄKTA och
+ÖPPEN; smalare variant måste kräva kajzonsnärhet/avståndsgolv och mätas på notistid+källa. M5-frågan
+därmed fortfarande öppen för båda vägarna. **S12** app.js ~12156 — aisstream-tystnads-
+notisen + eskaleringstrappan villkoras på hubFeedsPipeline (fynd 17 speglat) + skuggparentes i loggraden;
+**S12b** (dirigent): glappet i skuggläge (socket uppe, tyst kanal, hubben ser trafik ⇒ U12:s "tom natt"
+utesluten) stängt med en SANN blindhetstext på egen nyckel `aisstream:silent:shadow` (N29-doktrinen);
+socketen nere ägs av totalgrenen (feeds:silent) — ingen dubblett. Eskaleringstrappan förblir both-only.
+`tests/kajavgang-korroborering-v1.test.js` FYND 17-blocket omlåst av S12 (förstärkt) — GODKÄNT av dirigenten. **S7 ÅTERKALLAD** (byggd + mätt ON/OFF): bokföring i 500–2500 m-bandet med 30-min-krav tog bort
+en LÅST öppningspost (AKIRA 257605080 2026-07-08 07:20 Klaffbron southbound, eventId 8 — harnessen klassar
+den själv som AVBRUTEN_APPROACH, netto 13 m, 1,5 kn) ⇒ enligt rundans villkor "flyttad låst öppningspost"
+återkallad trots att O1 inte sjönk och O2 förbättrades; kod+test i sessionens scratch `hkfix6/app1/s7-
+aterkallad/` — USER-BESLUT om posten är fel i sak. **S8** hoppad (minor, replay-identisk). **S4** app.js
+`_triggerBoatNearFlowForBridge` — kandidatordningen ORÖRD (källsträngen bär dedupen); boolean enligt H16-
+mönstret: bro som appen själv bokfört som passerad inom nådan ⇒ already_passed sant + "precis passerat"-
+texten trots källa current/target, och eta nollas explicit (kontraktet eta=-1 även för 'target'-källan —
+granskarfynd); 109–122 notiser byter text/ETA över 20 korpusar, notisantal/bro/riktning/källa/distans
+identiska. OBS: notistext, ETA-sentinel och already_passed bärs av INGEN facitdimension — ändringen är
+omätt av batteriet och vilar på fixens härledning + measure:eta (notiskanalen 2537→2003 summa|f|).
+FIX_D_PENDING_MAX_AGE_MS är nu EN konstant i lib/constants.js (delad av Fix D-blocket och S10-vakten). **S10** notisvägen — smal vakt: Fix D:s färska
+pending-reversal (15-min TTL) motsäger tokenriktningen OCH den notifierade bron ligger bakom fartyget på
+levande kurs ⇒ avstå; FACIT: ELFKUNGEN 265573130 2026-08-05 12:28:49 Klaffbron northbound (127 m SÖDER
+om bron, sog 6,0, cog 188,8 — fantom, användargodkänd) försvinner (both-21h 152→151, distribution Klaffbron
+3→2, riktning 2→1); HAJH-LAIF 265800960 Järnvägsbron i 20260702-2h SKJUTS UPP 11:55→12:25 (till det ögonblick
+hon återupptar nordfärden; samma bro/riktning, multiset still). Inert för återfödd båt (graven bär inte
+pendingflaggan — fail-open). **S11** BOS payload `memberDirections` {mmsi→north|south|null} additivt ur
+samma källa som eventDirection; app.js bygger dedupnyckeln av medlemmens egen riktning, ledarens som fallback
+(k13b-testet omlåst m. motivering). **S13** BOS bär armens förväntade ankomsttid (MAX över medlemmarna —
+eftersläntrarens skydd för alla; per-medlem vore exaktare) och app.js bildar openExpiry ur den (kap 1 h) i
+stället för ETA-tokenen; breddar boot-fönstret åt samma håll som J15-avvägningen (en äkta andra öppning
+inom fönstret tystas) — DIRIGENTBEDÖMNING: accepterat, eftersom tokenen systematiskt underskattade (127/288
+= 44 % varningar utanför skyddet) och fönstret fortfarande är kapat; uppmätt förlängning: längre i ~hälften
+av avfyrningarna (both-21h 20/33 max +31 min; 42h 16/35 max +30 min; 41h 20/48 max +7 min; 1–2 slår i
+1h-taket); fältprov 11 mäter. S11 ENGÅNGSEFFEKT vid uppgradering: poster skrivna av tidigare version
+matchar inte för medlemmar med egen låst riktning (5 i both-21h, 2 i 41h) ⇒ ett extra öppningskort kan gå
+ut en gång per berörd medlem efter uppdateringen. ÖPPET: S2 ben b
+(bandbeslut/V1-radering på samma flagga), S10 för återfödd båt (graven bär inte `_fixDPendingReversal` —
+fältlistoffer nr 10, fail-open), S10:s trigger-punktsgren bara enhetstestad (0 träffar i banken), HARNESS-
+BLINDFLÄCK: notisens TID/KÄLLA/TEXT/already_passed bärs av ingen facitdimension (replayRunner fångar
+message/alreadyPassed) — nästa harness-etapp bör lägga en informativ diffrapport (O2b-mönstret) i
+runAllCorpora; docs/VALIDATION.md:s O2b-cell skriven av S14-agenten = godkänd av dirigenten.
 
 **VIKTIGT — dementerat med mätning (återuppstår bara med nytt bevis):** N1 (M1 "släpper inte
 förtöjd vid rapporterad fart" — blockregionen ligger innanför projektets egen 40 m-gräns; första
