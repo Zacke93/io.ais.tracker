@@ -28,6 +28,12 @@ jest.mock('homey');
  * _noteQuayStability (som i sin tur bokför via _noteQuayLedgerEntry), och
  * grinden frågas via den riktiga _isBridgeOpeningQuayWobbler.
  *
+ * N5-TILLÄGGET (RUNDA 5, 2026-08-23): korroboreringen får bara läsa RENA
+ * fixar. _noteQuayLedgerEntry bokför inte längre lastFix för ett GPS-flaggat
+ * sampel, så prevFix aldrig kan vara en position appen själv dömt osäker.
+ * Beviset vägras däremot ALDRIG på flaggan — modulens fail-open-doktrin står
+ * orörd. Egen svit: tests/n5-prevfix-ren.test.js.
+ *
  * MUTATIONSPROV (körs manuellt): flytta tillbaka kortslutningen så den blir
  * ovillkorlig — `if (Number.isFinite(vessel.sog) && vessel.sog >= TRÖSKELN)
  * return false;` — och CARAT-fallet nedan blir false (beväpning tillåten).
@@ -75,6 +81,31 @@ const sample = (pos, sog, ts) => ({
   fixTs: ts,
   fixFeed: 'aishub',
   targetBridge: 'Klaffbron',
+});
+
+describe('M2/N5: flaggan vägrar aldrig beviset (fail-open-doktrinen)', () => {
+  const REAL_NOW = Date.now;
+  afterEach(() => {
+    Date.now = REAL_NOW;
+  });
+
+  test('GPS-flaggat AKTUELLT sampel prövas som vanligt mot ren prevFix', () => {
+    let now = new Date(2026, 7, 5, 4, 0, 0).getTime();
+    Date.now = () => now;
+    const app = makeApp();
+    // Två rena fixar 65 s isär, 140 m förflyttning ⇒ ~4,2 kn implicerat.
+    app._noteQuayStability(sample(CARAT_QUAY, 4.0, now));
+    now += 65 * 1000;
+    const moving = {
+      ...sample(CARAT_NOISE, 4.0, now),
+      lat: CARAT_QUAY.lat - 140 / 111320,
+      _gpsJumpDetected: true, // flaggan sitter på DEN HÄR fixen
+    };
+    app._noteQuayStability(moving);
+    // Kortslutningen får fortfarande bäras av det korroborerade fartvärdet —
+    // hade N5 lagt till "vägra beviset vid flagga" hade den här varnat fel väg.
+    expect(app._isBridgeOpeningQuayWobbler(moving)).toBe(false);
+  });
 });
 
 describe('M2 (a): den delade modulen quayTransitProof', () => {

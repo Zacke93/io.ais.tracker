@@ -114,6 +114,27 @@ const STALE_DATA_OVERRIDE_TEXT = 'AIS-anslutning saknas — data kan vara inaktu
 // kanal. Samma tal som B2-watchdogens eget motiverade fall.
 const FEED_SILENT_GUARD_MS = 5 * 60 * 1000;
 
+// N29 (helkodsgranskning RUNDA 5, 2026-08-23): EGEN DEDUPNYCKEL FÖR
+// SKUGGLÄGETS DATALÖSHET. M37:s nya notis delade nyckel ('aisstream:nokey')
+// med både boot-vägens "ingen API-nyckel" och 'both'-grenens "appen kör enbart
+// AISHub" — och _notifyConnectionIssue släpper igenom exakt EN text per nyckel
+// per dygn. Texterna säger MOTSATTA saker (den ena lovar att AISHub bär appen,
+// den andra att ingen källa alls matar brotext eller notiser), så en användare
+// som bootar utan nyckel och sedan väljer skuggläge — inställningssidans EGEN
+// rekommendation — brände nyckeln på fel besked och fick aldrig veta att appen
+// blivit blind. Nyckeln är GEMENSAM för skugglägets två avsändare
+// (_applyAisSourceConfig och _startConnection) så användaren fortfarande får
+// EN timeline-rad per dygn, inte två.
+const SHADOW_NOKEY_NOTICE_KEY = 'aisstream:nokey:shadow';
+// N29b (fixrunda 5b, 2026-08-23) — SAMMA MEKANISM FÖR BOTH-GRENEN. Källvalet
+// 'both' utan aisstream-nyckel ger ett LUGNANDE besked ("kör enbart AISHub"),
+// medan "ingen nyckel alls" (två avsändare) ger ett ALARMERANDE ("tar inte
+// emot båtdata"). Delade de nyckeln 'aisstream:nokey' tystade det lugnande
+// beskedet det alarmerande i ett dygn (boot i both + AISHub-namnet tas bort
+// inom 24 h ⇒ användaren får aldrig veta). Texter som säger motsatta saker
+// får inte dela dygnsfönster — egen nyckel, precis som skuggläget.
+const BOTH_NOKEY_NOTICE_KEY = 'aisstream:nokey:both';
+
 // A7(a) (etapp 7, 2026-08-08): skrivtakt för källornas tystnadsbokföring
 // ('feed_silence_ledger'). Bokföringen LÄSES bara i ett enda fall — källan har
 // inte levererat något sedan processtart, och då mäts tystnaden i timmar
@@ -879,7 +900,7 @@ class AISBridgeApp extends Homey.App {
         this._notifyConnectionIssue(
           'AIS Tracker: ingen AISstream-nyckel är konfigurerad — appen kör '
           + 'enbart AISHub tills nyckeln finns i inställningarna.',
-          'aisstream:nokey',
+          BOTH_NOKEY_NOTICE_KEY,
         );
       } else if (source === 'shadow' && !apiKey && aishubUsername) {
         // M37 (helkodsgranskning RUNDA 4, 2026-08-23) — SKUGGLÄGE ÄR INTE
@@ -903,7 +924,7 @@ class AISBridgeApp extends Homey.App {
           + 'brotexten eller notiserna, appen är alltså utan båtdata. AISHub '
           + 'används bara för jämförelsemätning i skuggläge. Lägg in din '
           + 'AISstream.io-nyckel, eller byt källa till AISHub i inställningarna.',
-          'aisstream:nokey',
+          SHADOW_NOKEY_NOTICE_KEY,
         );
       }
 
@@ -1668,6 +1689,20 @@ class AISBridgeApp extends Homey.App {
     // Skiftet sker FÖRE stillasample-/dödbandsgrenarna nedan: `prevFix` ska
     // alltid vara fixen FÖRE den som just kom in.
     const shiftedPrevFix = entry.lastFix || null;
+    // N5 (helkodsgranskning RUNDA 5, 2026-08-23) — PREVFIX MÅSTE VARA REN.
+    // Korroboreringen (quayTransitProof) prövar ett ensamt fartvärde mot
+    // fartygets EGEN förflyttning sedan föregående fix. Bokfördes ett
+    // GPS-FLAGGAT sampel som lastFix blev nästa fix jämförd mot en position
+    // appen själv redan dömt som osäker: en flaggad 250 m-utflykt följd av en
+    // ren återkomstfix VID kajen ger implicerat ~7 kn ⇒ predikatet svarar
+    // "consistent" ⇒ kajgrinden kortsluts och bridge_opening_soon beväpnas med
+    // ankaravstånd 0 m. Systerställena i VesselDataService gatar alla på
+    // flaggan; det nya anropsstället gjorde det inte.
+    // BARA SKIFTET HOPPAS ÖVER — beviset vägras aldrig på flaggan (det vore
+    // fail-closed mot modulens uttalade doktrin och hade dödat äkta
+    // varningar). Utfallet är fail-open-säkert: prevFix blir äldre, och en för
+    // gammal prevFix ger 'prev_fix_stale' ⇒ kortslutningen behålls som förut.
+    const gpsSuspect = vessel._gpsJumpDetected === true || vessel._positionUncertain === true;
     const onLearnedQuay = sog !== null && sog < QUAY_DEPARTURE_GATE.TRANSIT_SOG_KN
       && this._isNearLearnedMooringSpot(vessel.lat, vessel.lon);
     if (vessel._moored === true || onLearnedQuay
@@ -1697,14 +1732,20 @@ class AISBridgeApp extends Homey.App {
     // M2: skiftet fullbordas. `prevFix` = fixen före den här; `lastFix` = den
     // här. Fixtid/källa följer med därför att korroboreringen mäter fysik och
     // bara får använda fixklockan inom samma källa (GPSJumpAnalyzer-regeln).
-    entry.prevFix = shiftedPrevFix;
-    entry.lastFix = {
-      lat: Number.isFinite(vessel.lat) ? vessel.lat : null,
-      lon: Number.isFinite(vessel.lon) ? vessel.lon : null,
-      ts: Number.isFinite(vessel.timestamp) ? vessel.timestamp : null,
-      fixTs: Number.isFinite(vessel.fixTs) ? vessel.fixTs : null,
-      feed: typeof vessel.fixFeed === 'string' ? vessel.fixFeed : null,
-    };
+    // N5: ett GPS-flaggat sampel bokförs INTE som fix — kartans fixpar förblir
+    // det senaste RENA paret. Resten av posten (ankare, klockor, räknare)
+    // uppdateras som förut: den här fixen ändrar bara vad korroboreringen får
+    // mäta emot, ingenting annat.
+    if (!gpsSuspect) {
+      entry.prevFix = shiftedPrevFix;
+      entry.lastFix = {
+        lat: Number.isFinite(vessel.lat) ? vessel.lat : null,
+        lon: Number.isFinite(vessel.lon) ? vessel.lon : null,
+        ts: Number.isFinite(vessel.timestamp) ? vessel.timestamp : null,
+        fixTs: Number.isFinite(vessel.fixTs) ? vessel.fixTs : null,
+        feed: typeof vessel.fixFeed === 'string' ? vessel.fixFeed : null,
+      };
+    }
     ledger.set(mmsi, entry);
   }
 
@@ -1750,6 +1791,36 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * N13 (helkodsgranskning RUNDA 5, 2026-08-23): ÖPPNINGSLAGRETS TTL-KLOCKA —
+   * EN sanning för de tre ställen som mäter en posts ålder (persist, load,
+   * prune).
+   *
+   * M11 införde tvåklocksregeln (stillAt när ett stillasample finns, annars
+   * bandSince) i persistensen och laddningen, men PRUNE-blocket i
+   * monitoringloopen läste kvar rakt på `entry.stillAt` med 0 som reserv. En
+   * post som ännu bara hunnit få `bandSince` — kajliggaren vars brusprofil
+   * saknar ett enda stillasample — fick därför stämpeln 0, alltså "äldre än
+   * hela minnesfönstret", och raderades vid FÖRSTA städtick där mmsi:t inte
+   * råkade vara aktivt. Nästa fix skapade en ny post med `bandSince = nu`, och
+   * kajvobbelgrinden — som mäter vistelsen på just bandSince — blev blind i
+   * fem minuter. Exakt den blindhet M11 byggdes för att stänga, fast utan
+   * omstart.
+   *
+   * V1-KARTAN (_quayStableLedger) ANROPAR MEDVETET INTE HIT: dess poster har
+   * inget bandSince alls och skapas aldrig utan stillasample, så de är redan
+   * konsistenta på stillAt. Att dela predikatet dit hade varit en tyst
+   * utvidgning av en annan karta med andra referenspunkter.
+   * @param {Object} entry - post i _openingQuayLedger
+   * @returns {number} klockan postens ålder ska mätas mot (0 = ingen klocka)
+   * @private
+   */
+  _openingLedgerTtlClock(entry) {
+    if (!entry) return 0;
+    if (Number.isFinite(entry.stillAt) && entry.stillAt > 0) return entry.stillAt;
+    return Number.isFinite(entry.bandSince) ? entry.bandSince : 0;
+  }
+
+  /**
    * V1: skriv kajbokföringen till settings — STRYPT skrivtakt.
    *
    * Samma flash-slitagehänsyn som F4-L:s TTL-förnyelse (Fable-granskningen
@@ -1790,11 +1861,17 @@ class AISBridgeApp extends Homey.App {
         // grinden faktiskt läser). Har posten ännu inget stillasample bär den
         // ingen grindkraft, men bandSince är fortfarande värd att bevara —
         // då gäller bandvistelsens egen ålder mot samma fönster.
-        const ttlClock = Number.isFinite(e.stillAt) && e.stillAt > 0 ? e.stillAt : e.bandSince;
+        // N13 (RUNDA 5): regeln bor i _openingLedgerTtlClock, delad med
+        // laddningen och prunen — den senare hade en egen, motsatt tolkning.
+        const ttlClock = this._openingLedgerTtlClock(e);
         if (now - ttlClock > QUAY_DEPARTURE_GATE.MEMORY_MS) continue;
         openingBlob[mmsi] = {
           bandSince: e.bandSince,
           stillAt: Number.isFinite(e.stillAt) ? e.stillAt : 0,
+          // N11 (RUNDA 5): geometrin och rörelseflaggan skrivs kvar som
+          // DIAGNOSTIK (blobben är läsbar i Homeys settings vid felsökning) men
+          // återställs medvetet ALDRIG — _loadOpeningQuayLedger ogiltigförklarar
+          // dem. Läs härledningen där innan någon "lagar" laddningen.
           lat: e.lat,
           lon: e.lon,
           moving: e.moving !== false,
@@ -1817,7 +1894,12 @@ class AISBridgeApp extends Homey.App {
    * startas om vid varje appuppdatering och varje omstart av enheten, och
    * varje sådan omstart gjorde en pågående kajvistelse på timmar till noll.
    *
-   * TVÅ FÄLT ÅTERSTÄLLS MEDVETET INTE:
+   * FYRA FÄLT ÅTERSTÄLLS MEDVETET INTE (N11, RUNDA 5, lade till geometrin):
+   *  • `lat`/`lon` + `moving` — ankaret och rörelseflaggan är den föregående
+   *    sessionens GEOGRAFI. Se den härledande kommentaren vid skrivningen
+   *    nedan: ett återställt ankare kan aldrig bytas ut medan båten ligger
+   *    still, så det fryser på förra kajen och ger både falsk och blockerad
+   *    öppningsvarning. Ogiltigförklarad geometri ⇒ okänt netto ⇒ rörelsebenet.
    *  • `movingFixes` — precis som i V1: "två på varandra följande
    *    rörelsefixar" är ett påstående om DEN HÄR sessionens observationer.
    *  • `prevFix`/`lastFix` (M2:s korroborering) — ett fix från före omstarten
@@ -1838,19 +1920,43 @@ class AISBridgeApp extends Homey.App {
       for (const [mmsi, e] of Object.entries(stored)) {
         if (!e || !Number.isFinite(e.bandSince)) continue;
         const stillAt = Number.isFinite(e.stillAt) && e.stillAt > 0 ? e.stillAt : 0;
-        const ttlClock = stillAt > 0 ? stillAt : e.bandSince;
+        // N13 (RUNDA 5): samma delade klocka som persist och prune.
+        const ttlClock = this._openingLedgerTtlClock(e);
         if (now - ttlClock > QUAY_DEPARTURE_GATE.MEMORY_MS) continue;
         this._openingQuayLedger.set(String(mmsi), {
           stillAt,
           bandSince: e.bandSince,
-          lat: Number.isFinite(e.lat) ? e.lat : null,
-          lon: Number.isFinite(e.lon) ? e.lon : null,
+          // N11 (helkodsgranskning RUNDA 5, 2026-08-23) — KLOCKORNA ÖVERLEVER,
+          // GEOMETRIN GÖR DET INTE. Här återställdes tidigare ankaret (lat/lon)
+          // och `moving: e.moving !== false`, och kombinationen FRÖS ankaret på
+          // FÖRRA kajen: _noteQuayLedgerEntry flyttar ankaret bara när
+          // `entry.moving` är sant eller ankaret är inaktuellt, och stillAt
+          // förnyas av VARJE stillasample — så inaktualitet kan aldrig inträffa
+          // för en båt som ligger still. En levande session kan inte hamna där
+          // (mellanliggande transitfixar sätter moving och ankrar om); det är
+          // unikt för en post som laddas i läge "stilla".
+          //
+          // SKADAN ÄR TVÅSIDIG (reproducerad genom produktionsmetoderna): låg
+          // hon vid en kaj 459 m SÖDER om målbron vid nedstängningen och vid en
+          // kaj 120 m NORR om den efter 40 min nedtid, gav det frysta ankaret
+          // netto-närmande +339 m ⇒ grinden svarade FALSKT ⇒ beväpning släpptes
+          // igenom ⇒ falsk bridge_opening_soon 120 m från bron. Åt motsatt håll
+          // blev nettot negativt och HELA den äkta avgången blockerades från
+          // 420 m ned till ~80 m.
+          //
+          // FIXEN OGILTIGFÖRKLARAR GEOMETRIN i stället för att gissa: utan
+          // koordinater blir netto-benet OKÄNT (inte falskt), rörelsebenet tar
+          // över — det är exakt det fall ben (a) i _quayDepartureNeedsProof
+          // bär — och FÖRSTA stillasamplet ankrar om på den VERKLIGA positionen
+          // (staleAnchor är sant när lat saknas). `moving: true` säger samma
+          // sak om rörelseflaggan: sessionens observation följer inte med över
+          // en omstart, precis som movingFixes/prevFix/lastFix inte gör det.
+          // Klockorna (stillAt/bandSince) återställs oförändrat — de är M11:s
+          // hela vinst och bär ingen geografisk gissning.
+          lat: null,
+          lon: null,
           movingFixes: 0,
-          // Rörelseflaggan styr ANKARBYTET och måste återställas exakt: med
-          // `moving: false` behåller nästa stillasample ankaret från
-          // vistelsens början (rätt när hon låg still vid nedstängningen),
-          // med `true` sätts ett nytt (rätt när hon var i rörelse).
-          moving: e.moving !== false,
+          moving: true,
           prevFix: null,
           lastFix: null,
           outOfBandFixes: 0,
@@ -4167,6 +4273,12 @@ class AISBridgeApp extends Homey.App {
    *        (etapp 2, V1-M6): en GLOBAL skalär lät ett AISHub-fel tysta ett
    *        aisstream-nyckelfel i ett helt dygn. Nycklar: 'aisstream:auth',
    *        'aisstream:server', 'aisstream:net', 'aisstream:nokey',
+   *        'aisstream:nokey:shadow' (N29 — skugglägets EGEN, se
+   *        SHADOW_NOKEY_NOTICE_KEY: texten säger motsatsen till de andra
+   *        nokey-texterna och får därför inte dela dygnsfönster med dem),
+   *        'aisstream:nokey:both' (N29b — both-grenens lugnande "kör enbart
+   *        AISHub", se BOTH_NOKEY_NOTICE_KEY; 'aisstream:nokey' bärs nu BARA
+   *        av de två alarmerande "tar inte emot båtdata"-avsändarna),
    *        'aishub:auth', 'aishub:server', 'aishub:silent', 'feeds:silent',
    *        'feeds:empty:4h' (U12), 'config:fallback' … samt eskaleringstrappans
    *        nivånycklar '<bas>:1h', '<bas>:4h', '<bas>:1 dygn' (K22) — se
@@ -5385,8 +5497,18 @@ class AISBridgeApp extends Homey.App {
           // nödfallbacken kan ställa EXAKT samma fråga (delad SSOT, precis som
           // C1c gjorde för passed-hold). Predikatet bär också de gamla
           // vesselDataService-/API-vakterna.
-          const hasHeldActiveVessel = this._hasGpsHeldTargetVessel(relevantVessels);
-          if (hasHeldActiveVessel) {
+          // N21 (helkodsgranskning RUNDA 5, 2026-08-23) — HÅLLNINGEN GATAS PÅ
+          // INNEHÅLL. Grenen frågade tidigare bara "är NÅGON målbåt hållen?"
+          // och återspelade sedan senaste texten oavsett vad den handlade om.
+          // Kopplingen mellan den båt som MOTIVERAR hållningen och den text
+          // som VISAS saknades helt — och utan den skyddar hållningen inte
+          // "resan som pågår" utan bara "att det står något". Kravet är därför
+          // att texten nämner målbron för minst en hållen båt; annars gäller
+          // DEFAULT precis som förut (hållningen är ett undantag, inte en
+          // rättighet). Se _holdTextConcernsBridge för fältbeviset.
+          const heldBridges = this._gpsHeldTargetBridges(relevantVessels);
+          if (heldBridges.length > 0
+              && this._holdTextConcernsBridge(this._lastBridgeText, heldBridges)) {
             this.debug('🛡️ [GPS_HOLD_UI] Behåller förra texten — aktiv båt är kortvarigt GPS-hållen (undviker DEFAULT-flimmer)');
             bridgeText = this._lastBridgeText;
             // L23 (helkodsgranskning runda 3, 2026-08-22): SAMMA HÅLL-REPLAY,
@@ -5401,6 +5523,12 @@ class AISBridgeApp extends Homey.App {
             // publicera DEFAULT mitt i hållningen.
             isHoldReplay = true;
             holdReplaySource = 'gps-hold-replay';
+          } else if (heldBridges.length > 0) {
+            // N21: hållningen fanns men texten rörde en annan bro — DEFAULT
+            // går ut som förut. Raden är diagnosen (annars är avslaget osynligt).
+            this.debug(
+              `🛡️ [GPS_HOLD_UI_SKIP] Hållning avstådd — senaste texten nämner inte ${heldBridges.join('/')}`,
+            );
           }
         }
 
@@ -5428,11 +5556,22 @@ class AISBridgeApp extends Homey.App {
           // C1a-hopp), men PASSED_HOLD_UI-raden uteblir; källan i loggen blir
           // då 'gps-hold-replay'. Ingen omordning görs: den hade flyttat
           // publiceringsögonblick i låst facit utan att ändra utfallet.
-          if (this._hasRecentTargetPassage(relevantVessels)) {
+          // N21 (RUNDA 5): SAMMA INNEHÅLLSGATA som GPS-grenen ovan, och det är
+          // HÄR fältbeviset uppstod: 2026-08-05T10:26:00.657Z höll den här
+          // grenen kvar "En båt på väg mot Stridsbergsbron … om 10 minuter" i
+          // 19,1 s medan den enda passagen i fönstret var Klaffbron. Texten
+          // måste nämna den passerade målbron för minst en båt i fönstret.
+          const passedBridges = this._recentTargetPassageBridges(relevantVessels);
+          if (passedBridges.length > 0
+              && this._holdTextConcernsBridge(this._lastBridgeText, passedBridges)) {
             this.debug('🌉 [PASSED_HOLD_UI] Behåller förra texten — båt i passed-fönstret vid målbro (broöppningen pågår; undviker falskt "Inga båtar")');
             bridgeText = this._lastBridgeText;
             isHoldReplay = true;
             holdReplaySource = 'passed-hold-replay';
+          } else if (passedBridges.length > 0) {
+            this.debug(
+              `🌉 [PASSED_HOLD_UI_SKIP] Hållning avstådd — senaste texten nämner inte ${passedBridges.join('/')}`,
+            );
           }
         }
       } catch (bridgeTextError) {
@@ -5751,14 +5890,69 @@ class AISBridgeApp extends Homey.App {
    * @private
    */
   _hasGpsHeldTargetVessel(vessels) {
-    if (!Array.isArray(vessels)) return false;
+    return this._gpsHeldTargetBridges(vessels).length > 0;
+  }
+
+  /**
+   * N21 (helkodsgranskning RUNDA 5, 2026-08-23): VILKA målbroar motiverar en
+   * GPS-hållning just nu? Uppräknaren bakom _hasGpsHeldTargetVessel.
+   *
+   * Hållningen finns för att skydda EN pågående resa mot ETT DEFAULT-flimmer.
+   * Predikatet svarade tidigare bara "någon båt är hållen", och texten som
+   * återspelades kunde handla om en helt annan bro (se den härledande
+   * kommentaren vid hållningsgrenen i _processUIUpdate). Genom att lämna ut
+   * BRONAMNEN kan båda anropsställena ställa den enda fråga som gör
+   * återspelningen sann: rör den bevarade texten den bro hållningen gäller?
+   * @param {Array} vessels - fartygsprojektioner
+   * @returns {string[]} unika målbronamn (samma form som systerrutinen
+   *   _recentTargetPassageBridges: en mängd broar, inte en lista per båt)
+   * @private
+   */
+  _gpsHeldTargetBridges(vessels) {
+    if (!Array.isArray(vessels)) return [];
     if (!this.vesselDataService
         || typeof this.vesselDataService.hasGpsJumpHold !== 'function') {
-      return false;
+      return [];
     }
-    return vessels.some((v) => v
-      && TARGET_BRIDGES.includes(v.targetBridge)
-      && this.vesselDataService.hasGpsJumpHold(v.mmsi));
+    const bridges = vessels
+      .filter((v) => v
+        && TARGET_BRIDGES.includes(v.targetBridge)
+        && this.vesselDataService.hasGpsJumpHold(v.mmsi))
+      .map((v) => v.targetBridge);
+    // Unik mängd, som systerrutinen _recentTargetPassageBridges. Båda
+    // anropsställena frågar "rör texten NÅGON av de här broarna?" och
+    // _hasGpsHeldTargetVessel frågar bara om mängden är tom — ingen läsare
+    // räknar båtar, så dubbletter bar aldrig information och gjorde bara
+    // loggraden svårläst när två båtar höll samma målbro.
+    return [...new Set(bridges)];
+  }
+
+  /**
+   * N21: NÄMNER DEN BEVARADE TEXTEN NÅGON AV DE BROAR SOM MOTIVERAR
+   * HÅLLNINGEN?
+   *
+   * FÄLTBEVISET (2026-08-05T10:26:00.657Z, logs/app-20260804-224222.log):
+   * textmotorn genererade "Inga båtar", PASSED_HOLD_UI höll kvar "En båt på
+   * väg mot Stridsbergsbron, beräknad broöppning om 10 minuter" och släppte
+   * först 10:26:19.748 — 19,1 sekunder FEL BRO för användaren. Enda passagen i
+   * hela 150-sekundersfönstret var 219025537 vid KLAFFBRON 10:23:43.765.
+   * Hållningen skyddade alltså en Klaffbro-öppning genom att visa en text om
+   * Stridsbergsbron.
+   *
+   * MATCHNINGEN ÄR EN REN INNEHÅLLSFRÅGA (delsträng). Den är tillräcklig och
+   * inte trubbig: samtliga 569 distinkta texter i golden-text/ nämner minst en
+   * målbro vid namn, och en text som nämner BÅDA broarna rör per definition
+   * också den hållna. Faller frågan gäller DEFAULT som förut — hållningen
+   * förlänger aldrig en text den inte kan svara för.
+   * @param {string} text - texten som skulle återspelas (_lastBridgeText)
+   * @param {string[]} bridgeNames - broar som motiverar hållningen
+   * @returns {boolean}
+   * @private
+   */
+  _holdTextConcernsBridge(text, bridgeNames) {
+    if (typeof text !== 'string' || text === '') return false;
+    if (!Array.isArray(bridgeNames) || bridgeNames.length === 0) return false;
+    return bridgeNames.some((name) => typeof name === 'string' && name !== '' && text.includes(name));
   }
 
   /**
@@ -5776,7 +5970,28 @@ class AISBridgeApp extends Homey.App {
    * @private
    */
   _hasRecentTargetPassage(vessels) {
-    if (!Array.isArray(vessels)) return false;
+    return this._recentTargetPassageBridges(vessels).length > 0;
+  }
+
+  /**
+   * N21 (RUNDA 5): VILKA broar får en passed-hållning återspela text om?
+   * Uppräknaren bakom _hasRecentTargetPassage — se _holdTextConcernsBridge för
+   * varför bronamnet behövs och _gpsHeldTargetBridges för systerfrågan.
+   *
+   * Tom lista = ingen hållning (ingen båt i fönstret, eller alla har bevisad
+   * utfärd enligt K12). Icke-tom lista = hållning ÄR motiverad, och listan är
+   * de bronamn texten måste nämna minst ett av. Se insamlingen nedan för
+   * varför den passerade bron inte räcker som enda svar.
+   *
+   * BOKFÖRINGEN (K12:s avståndsserie) ligger kvar HÄR och körs för ALLA båtar
+   * i fönstret, precis som förut: den är beroende av att varje anrop ser hela
+   * mängden, och båda anroparna går via den här rutinen.
+   * @param {Array} vessels - fartygsprojektioner
+   * @returns {string[]} bronamn som en hållen text legitimt kan handla om
+   * @private
+   */
+  _recentTargetPassageBridges(vessels) {
+    if (!Array.isArray(vessels)) return [];
     const now = Date.now();
     // K12 (fältprov 10, 2026-08-19/20 — ANVÄNDARBESLUT A2): HYBRID. Tiden är
     // taket, beviset är golvet. TONGA passerade Klaffbron 10:10:34,9 och
@@ -5787,7 +6002,7 @@ class AISBridgeApp extends Homey.App {
     // utfärden är bevisad (se _passedHoldDepartureProven) — men aldrig
     // förlängas: fönstervillkoret nedan är oförändrat och gäller alltid.
     const inWindow = new Set();
-    let holding = false;
+    const holdingBridges = [];
     for (const v of vessels) {
       if (!v || !v.lastPassedBridge) continue;
       if (!TARGET_BRIDGES.includes(v.lastPassedBridge)) continue;
@@ -5797,7 +6012,31 @@ class AISBridgeApp extends Homey.App {
       // Bokföringen (avståndsserien) måste ske för ALLA båtar i fönstret, inte
       // bara fram till den första som håller — därför en loop och inte .some().
       if (this._passedHoldDepartureProven(v)) continue;
-      holding = true;
+      // N21 (RUNDA 5) — VILKA BROAR FÅR TEXTEN HANDLA OM? Den passerade bron
+      // räcker INTE som enda svar, och det är MÄTT: i det syntetiska
+      // teleport-scenariot passerar en NORDGÅENDE båt Klaffbron medan texten
+      // säger "på väg mot Stridsbergsbron" — texten handlar om SAMMA båt och
+      // är SANN (det är hennes nästa målbro), men nämner inte den passerade
+      // bron. Ett rent "nämn den passerade bron"-krav avslog hållningen där
+      // och gav en falsk "Inga båtar" i 60 s (INV-14 DEFAULT-FLASH) — precis
+      // den skada hållningen finns för att förhindra.
+      //
+      // Mängden är därför: den PASSERADE bron plus hennes NÄSTA målbro i
+      // färdriktningen (se _nextTargetBridgeAfterPassage). Är riktningen okänd
+      // faller vi tillbaka på BÅDA målbroarna, dvs. dagens beteende — en
+      // felaktigt AVSLAGEN hållning kostar en DEFAULT-flash i pelare 1, medan
+      // en felaktigt BEHÅLLEN hållning bara betyder oförändrat läge.
+      holdingBridges.push(v.lastPassedBridge);
+      const next = this._nextTargetBridgeAfterPassage(v);
+      if (next) holdingBridges.push(next);
+      else if (this._passageDirectionFromHistory(v) === null) {
+        // INGET POSITIONSBEVIS för färdriktningen ⇒ vi kan inte veta vilken
+        // bro texten borde handla om. FAIL-OPEN: acceptera båda målbroarna,
+        // dvs. dagens beteende. En felaktigt AVSLAGEN hållning kostar en
+        // DEFAULT-flash i pelare 1 (mätt i teleport-scenariot); en felaktigt
+        // BEHÅLLEN kostar ingenting nytt.
+        TARGET_BRIDGES.forEach((name) => holdingBridges.push(name));
+      }
     }
     // BOUNDED MINNE: bara båtar som just nu ligger i passed-fönstret behåller
     // sin distanspost. Kartan kan därför aldrig växa förbi antalet båtar i
@@ -5807,7 +6046,82 @@ class AISBridgeApp extends Homey.App {
         if (!inWindow.has(key)) this._passedHoldDistances.delete(key);
       }
     }
-    return holding;
+    return [...new Set(holdingBridges)];
+  }
+
+  /**
+   * N21 (RUNDA 5): vilken MÅLBRO är näst på tur för en båt som just passerat
+   * en målbro?
+   *
+   * Härleds ur GEOGRAFIN, inte ur en ordnad lista: målbroarnas latituder
+   * (BRIDGES) avgör vilken som ligger framför i färdriktningen. Redan
+   * passerade broar räknas inte — en terminal passage (sydgående som passerat
+   * Klaffbron, nordgående som passerat Stridsbergsbron) har ingen nästa bro,
+   * och det är precis den klass C1c:s hållning finns för.
+   * @param {Object} vessel - fartygsprojektion
+   * @returns {string|null} bronamn, eller null när ingen nästa målbro finns
+   * @private
+   */
+  _nextTargetBridgeAfterPassage(vessel) {
+    if (!vessel || !TARGET_BRIDGES.includes(vessel.lastPassedBridge)) return null;
+    const dir = this._passageDirectionFromHistory(vessel);
+    if (dir !== 'north' && dir !== 'south') return null;
+    const byName = (name) => Object.values(BRIDGES).find((b) => b && b.name === name) || null;
+    const passed = byName(vessel.lastPassedBridge);
+    if (!passed || !Number.isFinite(passed.lat)) return null;
+    const next = TARGET_BRIDGES
+      .filter((name) => name !== vessel.lastPassedBridge)
+      .map(byName)
+      .find((b) => b && Number.isFinite(b.lat)
+        && (dir === 'north' ? b.lat > passed.lat : b.lat < passed.lat));
+    if (!next) return null;
+    if (Array.isArray(vessel.passedBridges) && vessel.passedBridges.includes(next.name)) return null;
+    return next.name;
+  }
+
+  /**
+   * N21 (RUNDA 5): färdriktningen läst ur PASSAGEHISTORIKEN, inte ur
+   * riktningslåset.
+   *
+   * VARFÖR INTE LÅSET: det syntetiska scenariot "teleport-över-Klaffbron"
+   * (en GPS-outlier som teleporterar 300 m framåt och tillbaka) VÄNDER
+   * riktningslåset i exakt den tick hållningen prövas — appens egen loggrad
+   * säger "söderut" för en nordgående båt. Ett riktningsberoende villkor som
+   * läser låset blir därmed fel precis i den störning det ska tåla, och en
+   * nordgående båt som passerat Klaffbron dömdes som terminal ⇒ hållningen
+   * avslogs ⇒ falsk "Inga båtar" i 60 s (INV-14).
+   *
+   * PASSAGEHISTORIKEN ÄR POSITIONSBEVIS: två faktiskt passerade broar med
+   * kända latituder ger riktningen på det SENASTE benet, och ett enstaka
+   * brusigt sampel kan inte skriva om den.
+   *
+   * LÅSET ANVÄNDS INTE ENS SOM RESERV, och det är MÄTT: i teleport-scenariot
+   * står låset på "söderut" för en nordgående båt OCH passagelistan är TÖMD
+   * (den falska linjekorsningen utlöser en resereset). Enda överlevande fältet
+   * är lastPassedBridge. Ett latch-beroende svar hade där gett "terminal
+   * passage" och avslagit en fullt korrekt hållning. Utan positionsbevis
+   * svarar rutinen därför null, och anroparen FAIL-OPENAR (hållningen behålls
+   * som i dag). Priset är att gatan inte griper in för en båt utan
+   * passagehistorik — och det är rätt pris: fältfallets båtar har alltid
+   * transiterat kanalen och har 2–4 passager bakom sig.
+   * @param {Object} vessel - fartygsprojektion
+   * @returns {'north'|'south'|null} null = inget positionsbevis
+   * @private
+   */
+  _passageDirectionFromHistory(vessel) {
+    if (!vessel) return null;
+    const names = Array.isArray(vessel.passedBridges) ? vessel.passedBridges : [];
+    const lats = names
+      .map((name) => Object.values(BRIDGES).find((b) => b && b.name === name))
+      .map((b) => (b && Number.isFinite(b.lat) ? b.lat : null))
+      .filter((lat) => lat !== null);
+    // Senaste benet först: en U-sväng senare i resan ska inte dömas av
+    // resans början (samma princip som reseankarets omskrivning vid reversal).
+    for (let i = lats.length - 1; i > 0; i--) {
+      const delta = lats[i] - lats[i - 1];
+      if (Math.abs(delta) > 1e-6) return delta > 0 ? 'north' : 'south';
+    }
+    return null;
   }
 
   /**
@@ -6435,8 +6749,18 @@ class AISBridgeApp extends Homey.App {
       // F29:s hållning bakvägen, i just det läge hållningen finns för.
       // Villkoren på _lastBridgeText är identiska (BT-F5: frånkopplingstexten
       // återpubliceras aldrig).
-      const passedHold = this._hasRecentTargetPassage(vessels);
-      const gpsHold = !passedHold && this._hasGpsHeldTargetVessel(vessels);
+      // N21 (RUNDA 5): SPEGLAR INNEHÅLLSGATAN. Nödfallbacken måste ställa exakt
+      // samma fråga som hållningen en nivå upp — annars återuppstår asymmetrin
+      // C1c/L23 byggdes för att stänga, fast åt andra hållet: fallbacken hade
+      // hållit kvar en text om fel bro i just det läge hållningen avstår.
+      // ORDNINGEN ÄR OFÖRÄNDRAD (passed före gps), men gps-frågan prövas nu
+      // även när passed-fönstret finns men dess text INTE rör den passerade
+      // bron — annars hade den innehållsgatade passed-hållningen kunnat äta
+      // upp en giltig gps-hållning.
+      const passedBridges = this._recentTargetPassageBridges(vessels);
+      const passedHold = this._holdTextConcernsBridge(this._lastBridgeText, passedBridges);
+      const gpsHold = !passedHold
+        && this._holdTextConcernsBridge(this._lastBridgeText, this._gpsHeldTargetBridges(vessels));
       if ((passedHold || gpsHold)
           && this._lastBridgeText
           && this._lastBridgeText !== BRIDGE_TEXT_CONSTANTS.DEFAULT_MESSAGE
@@ -7858,6 +8182,29 @@ class AISBridgeApp extends Homey.App {
     // MOSHE-missen men i failsafe-lagret; distans-/tidsgaterna i
     // _triggerBoatNearFlowFallback (2000 m/300 s) begränsar redan kandidaterna
     // till broar båten rimligen just passerat. Förtöjda båtar exkluderas.
+    //
+    // N20 BEN B PRÖVADES OCH ÅTERKALLADES (helkodsgranskning RUNDA 5,
+    // 2026-08-23). Benet lät ett observerat latitudhopp > 0,005° (~550 m) slå
+    // förtöjningsklassningen: isLargeJump beräknades FÖRE den här returen och
+    // villkoret blev `_moored && !isLargeJump`. Motivet var att ett sådant hopp
+    // per konstruktion inte är GPS-jitter (jämför MOVEMENT_PROOF_NET_M 50 m och
+    // jitterradien 40 m), så en fartgivarlös båt som felklassats förtöjd inte
+    // ska tappa BÅDA vägarna till notisen i samma tick.
+    //
+    // SKÄLEN ATT ÅTERKALLA, i vikt: (1) den här returen är inte en godtycklig
+    // gate utan den kompenserande säkerhetsventil som infördes i SAMMA commit
+    // som TOG BORT target-gaten ovan — att öppna den ger tillbaka en
+    // falsklarmsyta i pelare 2 som medvetet stängdes. (2) Benet hade NOLL
+    // uppmätt verkan i banken: 0 nya notiser i 18 korpusar (~320 h), alltså
+    // obevisad vinst mot mätbar risk. (3) Det fällde det låsta fältfallet i
+    // tests/korrigeringar-korning-2026-07-02b.test.js (SY FREYJA, ~845 m
+    // latitudhopp på en förtöjd båt ⇒ två nya fallback-notiser).
+    //
+    // KLASSEN "förtöjd + oflaggat stort hopp" ÄR ALLTSÅ FORTFARANDE ÖPPEN och
+    // väntar på FÄLTBEVIS: ett verkligt fall där en förtöjningsklassad båt
+    // hoppar över en bro utan att någon annan väg fångar notisen. Kommer det,
+    // återuppta benet MED omlåsning av fältfallet — inte tyst. N20 BEN A
+    // (segmentsvepet som transitbevis i nordgrenen) står kvar och är opåverkat.
     if (vessel._moored) return;
     if (this.vesselDataService?.hasGpsJumpHold?.(vessel.mmsi)) return;
     if (!this.bridgeRegistry) return;
@@ -8432,7 +8779,25 @@ class AISBridgeApp extends Homey.App {
             const hasTarget = !!vessel.targetBridge;
             const movingNow = Number.isFinite(vessel.sog)
               && vessel.sog >= QUAY_DEPARTURE_GATE.TRANSIT_SOG_KN;
-            const transitIndication = hasTarget || movingNow;
+            // N20 (helkodsgranskning RUNDA 5, 2026-08-23) — SVEPET ÄR I SIG
+            // TRANSITBEVIS. FP9-gatens löfte ("notisen fördröjs, inte förloras
+            // — dedup-nyckeln sätts inte vid skip", ARCHITECTURE rad 457) håller
+            // för en LEVANDE zonnärvaro: nästa fix inne i zonen prövas på nytt.
+            // Det håller INTE för en svepkandidat. `_tpSweepCandidate` skrivs på
+            // exakt ETT ställe (_onVesselUpdated) och finns inte i
+            // _createVesselObject:s fältlista, så flaggan lever EN tick — och
+            // båten har då redan korsat punkten. Nästa segment korsar inte igen
+            // ⇒ Kanalinfarten-notisen uteblir HELT, inte "senare".
+            // KORRIDOREN är smal (sog under ~0,5 kn, SOG-sentinel eller
+            // förtöjd) men gaten dödar just den, för sog-benet är dess enda
+            // rörelsebevis.
+            // ATT SVEPET RÄKNAS ÄR INGEN UPPMJUKNING: dess villkor är strängare
+            // än sog-benets — BÅDA ändpunkterna utanför 300 m-zonen, latituden
+            // KORSAD mellan dem och segmentets minsta avstånd inne i zonen. Det
+            // är en OBSERVERAD genomkorsning, medan sog ≥ 1,0 bara är ett
+            // momentant prov. Samma bevis används redan som passagebevis i
+            // _hasPassedTriggerPoint (ben a).
+            const transitIndication = hasTarget || movingNow || !!sweep;
             if (!transitIndication) {
               this.debug(
                 `🚪 [TRIGGER_POINT_SKIP_IDLE] ${vessel.mmsi}: ${this._getDirectionString(vessel)} at ${tp.name} `
@@ -10580,6 +10945,10 @@ class AISBridgeApp extends Homey.App {
       // senare 'connected'-flank kan skriva över den här i skuggläge.
       // Notisnyckeln är densamma som _applyAisSourceConfig använder, så
       // användaren får EN timeline-rad per dygn — inte två.
+      // N29 (RUNDA 5): den nyckeln är numera SKUGGLÄGETS EGEN
+      // (SHADOW_NOKEY_NOTICE_KEY). Delad med 'aisstream:nokey' tystade
+      // boot-vägens/both-grenens motsatta besked hela dygnet — se konstantens
+      // härledning högst upp i filen.
       if (blindWithoutKey) {
         this.log('⚠️ [AIS_CONNECTION] Skuggläge utan AISstream-nyckel — ingen källa matar '
           + 'brotext/notiser; startar hubben enbart för skuggtelemetrin');
@@ -10593,7 +10962,7 @@ class AISBridgeApp extends Homey.App {
             + 'brotexten eller notiserna, appen är alltså utan båtdata. AISHub '
             + 'används bara för jämförelsemätning i skuggläge. Lägg in din '
             + 'AISstream.io-nyckel, eller byt källa till AISHub i inställningarna.',
-            'aisstream:nokey',
+            SHADOW_NOKEY_NOTICE_KEY,
           );
         }
       }
@@ -10983,7 +11352,26 @@ class AISBridgeApp extends Homey.App {
       // frånkopplat aggregat äger klientens egen flank/backoff återanslutningen
       // — vakten ska inte konkurrera med den.
       if (!this.aisClient.isConnected) {
-        if (stats.perFeed) this._checkCrossFeedSilence(stats.perFeed);
+        if (stats.perFeed) {
+          // N10 (helkodsgranskning RUNDA 5, 2026-08-23) — HUBBGRENEN ÄR INTE
+          // AGGREGATETS. Muxens isConnected kräver att hubben matar PIPELINEN
+          // (_hubFeedsPipeline: 'both'/'aishub'), så i SKUGGLÄGE utan
+          // aisstream-nyckel är aggregatet permanent frånkopplat — och då
+          // nåddes _checkAishubFeedHealth ALDRIG. M12:s andra försvarslinje
+          // (kedjedödskick + tystnadskick, som väcker en poll-kedja vars timer
+          // dött) var alltså strukturellt död i exakt det läge M37 nyss gjorde
+          // förstklassigt. Mätt: 45 min död kedja gav 0 kickar i shadow mot 1
+          // i both.
+          // GRENEN ÄGER SINA EGNA GRINDAR (configured, auth-cooldown, samt
+          // isConnected för tystnadsbenet) och ingriper bara med
+          // forceReschedule, som ovillkorligt respekterar den persisterade
+          // 61-sekundersspärren — den kan varken bryta kadensen eller
+          // konkurrera med klientens egen backoff.
+          // AISSTREAM-GRENEN LIGGER KVAR bakom aggregatgrinden: där äger
+          // klientens flank/backoff återanslutningen (kommentaren ovan).
+          this._checkAishubFeedHealth(stats.perFeed.aishub);
+          this._checkCrossFeedSilence(stats.perFeed);
+        }
         return;
       }
 
@@ -11174,11 +11562,41 @@ class AISBridgeApp extends Homey.App {
 
     // Död kedja: ingen poll ens STARTAD på > 2×backoff-tak + marginal.
     const chainDeadMs = 2 * cfg.BACKOFF_MAX_MS + 60 * 1000; // 11 min
+    // N30 (helkodsgranskning RUNDA 5, 2026-08-23) — VAKTEN MÅSTE VARA ARMERAD
+    // FÖRE FÖRSTA POLLEN. Grenen läste bara lastPollStartedAt, som är null
+    // ända tills en poll faktiskt startat. Fönstret mellan connect() och första
+    // pollen var därför en BLIND FLÄCK i BÅDA vaktens grenar: kedjedödsgrenen
+    // saknade klocka och tystnadsgrenen returnerar på isConnected (hubben
+    // räknas ansluten först efter ett lyckat svar). En kedja som dog just där
+    // — connect körde, men ingen timer överlevde ned till första _poll — var
+    // alltså osynlig i EVIGHET, inte i 11 minuter. Klienten stämplar nu
+    // armeringsögonblicket och muxen projicerar det som pollChainArmedAt.
+    //
+    // FALLBACKEN ÄR STRIKT UNDERORDNAD: har en poll någonsin startat är
+    // lastPollStartedAt den sannare klockan (armeringen är då gammal och hade
+    // gett en falsk kick vid varje långlivad, frisk kedja). Båda leden går via
+    // Number.isFinite, så äldre mux-kontrakt och teststubbar utan fältet ger
+    // chainClock = null ⇒ EXAKT samma beteende som förut.
+    //
+    // AUTH-PAUSEN ÄR REDAN AVKLARAD OVAN (FG-A1-returen), så fallbacken kan
+    // inte yla under en avsiktlig 6h-paus.
     const lastPollStart = feedStats.lastPollStartedAt;
-    if (Number.isFinite(lastPollStart) && now - lastPollStart > chainDeadMs) {
+    let chainClock = null;
+    let chainClockFromArming = false;
+    if (Number.isFinite(lastPollStart)) {
+      chainClock = lastPollStart;
+    } else if (Number.isFinite(feedStats.pollChainArmedAt)) {
+      chainClock = feedStats.pollChainArmedAt;
+      chainClockFromArming = true;
+    }
+    if (Number.isFinite(chainClock) && now - chainClock > chainDeadMs) {
+      const deadMin = Math.round((now - chainClock) / 60000);
       this.log(
-        `🐕 [FEED_WATCHDOG] aishub: ingen poll startad på ${Math.round((now - lastPollStart) / 60000)} min `
-        + '— kedjan verkar död, tvingar omschemaläggning (spärren respekteras)',
+        chainClockFromArming
+          ? `🐕 [FEED_WATCHDOG] aishub: ingen poll startad på ${deadMin} min sedan kedjan armerades `
+            + '— kedjan verkar död före sin första poll, tvingar omschemaläggning (spärren respekteras)'
+          : `🐕 [FEED_WATCHDOG] aishub: ingen poll startad på ${deadMin} min `
+            + '— kedjan verkar död, tvingar omschemaläggning (spärren respekteras)',
       );
       this._aishubWatchdogStrikes = (this._aishubWatchdogStrikes || 0) + 1;
       this.aisClient.kickAishub();
@@ -11766,7 +12184,11 @@ class AISBridgeApp extends Homey.App {
       const quayNow = Date.now();
       const expired = [];
       for (const [mmsi, entry] of this._openingQuayLedger.entries()) {
-        const ts = entry && Number.isFinite(entry.stillAt) ? entry.stillAt : 0;
+        // N13 (RUNDA 5): DELAD KLOCKA. Raden läste tidigare entry.stillAt med
+        // 0 som reserv — en post med bara bandSince blev därmed omedelbart
+        // "utgången" och grinden tappade en kajvistelse på timmar utan att en
+        // enda sekund hade gått. Se _openingLedgerTtlClock.
+        const ts = this._openingLedgerTtlClock(entry);
         if (quayNow - ts > QUAY_DEPARTURE_GATE.MEMORY_MS && !activeMmsis.has(mmsi)) {
           expired.push(mmsi);
         }

@@ -24,6 +24,17 @@ jest.mock('homey');
  * nivån är QUAY_DEPARTURE_GATE.MIN_MOVING_FIXES, projektets egen regel att ett
  * enstaka prov aldrig är bevis och två i följd är det.
  *
+ * N11-TILLÄGGET (RUNDA 5, 2026-08-23): laddningen återställer KLOCKORNA men
+ * ogiltigförklarar GEOMETRIN (lat/lon = null, moving = true). Ett återställt
+ * ankare kunde aldrig bytas ut medan båten låg still och frös därför på förra
+ * kajen. Omstartstestet nedan är oförändrat — vinsten (bandSince) sitter i
+ * klockan, inte i koordinaterna.
+ *
+ * N13-TILLÄGGET (RUNDA 5): TTL:n mäts på en DELAD hjälpare
+ * (_openingLedgerTtlClock) i persist, load OCH prune. Prunen läste tidigare
+ * bara stillAt och raderade en post som ännu bara hunnit få bandSince — se
+ * tests/n13-oppningslager-ttlklocka.test.js.
+ *
  * MUTATIONSPROV (körs manuellt): ta bort `this._loadOpeningQuayLedger()` ur
  * konstruktorn ⇒ omstartsfallet nedan blir false (beväpning tillåten). Sänk
  * toleransen till 1 (`>= 1`) ⇒ enfixfallet blir false. Höj den till 3 ⇒
@@ -169,7 +180,7 @@ describe('M11 (a): omstart mitt i en kajvistelse', () => {
     expect(app._openingQuayLedger.has('211452170')).toBe(false);
   });
 
-  test('SESSIONSPÅSTÅENDEN ÅTERSTÄLLS INTE: movingFixes, prevFix, lastFix', () => {
+  test('SESSIONSPÅSTÅENDEN ÅTERSTÄLLS INTE: movingFixes, prevFix, lastFix, GEOMETRIN', () => {
     const { settings, store } = makeSettingsStore();
     store.set('opening_quay_ledger', {
       211452170: {
@@ -187,6 +198,17 @@ describe('M11 (a): omstart mitt i en kajvistelse', () => {
     expect(entry.prevFix).toBeNull();
     expect(entry.lastFix).toBeNull();
     expect(entry.outOfBandFixes).toBe(0);
+    // N11 (RUNDA 5): ankaret och rörelseflaggan hör till samma klass av
+    // sessionspåståenden. Återställda gav de ett FRYST ankare — posten laddas
+    // med moving=false, och _noteQuayLedgerEntry byter då aldrig ankare medan
+    // hon ligger still, så det pekade på förra kajen hur länge som helst
+    // (falsk ELLER blockerad öppningsvarning; se n11-kajankaret-fryser.test.js).
+    // Klockorna är M11:s vinst och återställs oförändrat.
+    expect(entry.lat).toBeNull();
+    expect(entry.lon).toBeNull();
+    expect(entry.moving).toBe(true);
+    expect(entry.bandSince).toBeGreaterThan(0);
+    expect(entry.stillAt).toBeGreaterThan(0);
   });
 
   test('SKRIVVÄGEN LEVER vid MÅLBRO: blobben skrivs trots att V1-vägen returnerar tidigt', () => {

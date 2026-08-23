@@ -66,7 +66,10 @@ describe('Etapp 2: _applyAisSourceConfig läser settings och applicerar på muxe
     app.aisClient = { applySourceConfig: jest.fn() };
     app._notifyConnectionIssue = jest.fn();
     app._applyAisSourceConfig();
-    expect(app._notifyConnectionIssue).toHaveBeenCalledWith(expect.any(String), 'aisstream:nokey');
+    // OMLÅST RAD (N29b, fixrunda 5b, 2026-08-23): nyckeln var 'aisstream:nokey'.
+    // Både-grenens lugnande besked fick EGEN nyckel så det inte tystar det
+    // alarmerande "tar inte emot båtdata" inom samma dygn (BOTH_NOKEY_NOTICE_KEY).
+    expect(app._notifyConnectionIssue).toHaveBeenCalledWith(expect.any(String), 'aisstream:nokey:both');
     // Konfigurationen appliceras ändå — degradering, inte block.
     expect(app.aisClient.applySourceConfig).toHaveBeenCalled();
   });
