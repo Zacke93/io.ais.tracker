@@ -6,3 +6,6 @@ logs/
 coverage/
 *.log
 .vscode/
+
+# Lokal dirigentmapp (LORDAGSKORNINGEN, handoff, FALTRAPPORT, loggarkiv) — aldrig i repot
+/dirigent/
