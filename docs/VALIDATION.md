@@ -133,7 +133,9 @@ Korpusarnas facit ÄR sanningen tills du bevisat motsatsen i rådata. Om en
    sampel för sampel. Harnessen läser `tests/replay-validation/corpora-data/`
    (byte-exakta repo-kopior sedan 2026-07-10 — replay:all fungerar i ren
    checkout); appens fullständiga körloggar (`app-*.log`) för djupare
-   rotorsaksanalys ligger kvar i det externa arkivet `../logs/`. Ny korpus:
+   rotorsaksanalys ligger kvar i det externa arkivet `../logs/` (på Macen:
+   repots git-ignorerade `dirigent/logs/` — en mapp per repo sedan
+   2026-09-01; harnessen provar båda). Ny korpus:
    kopiera jsonl:en OFÖRÄNDRAD till corpora-data/ (samma bytes = samma facit).
 3. Endast om rådatan BEVISAR att det nya utfallet är korrekt (t.ex. en notis
    som produktionsversionen bevisligen missade) får facit låsas om — och då
@@ -506,6 +508,9 @@ efteråt.
    node tests/replay-validation/checkReplayIntegrity.js --corpora      # alla filer i corpora-data/
    node tests/replay-validation/checkReplayIntegrity.js --dir <katalog>
    ```
+   Utelämnad logg (och `--corpora`) matchas via tidsstämpel eller sha256 mot
+   loggarkivet: `--log-dir`-kataloger, sedan `../logs/`, `dirigent/logs/`
+   och `~/.ais-tracker-logs/` — de som finns.
    **`--dir` plockar bara upp korpuskandidater:** filtret kräver
    `ais-replay-*.jsonl` och hoppar över `*.appside.jsonl`. Appens EGEN fångstväg
    (`AIS_REPLAY_CAPTURE_FILE`, satt i `run-with-logs.sh`) skriver
