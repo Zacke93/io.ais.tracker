@@ -38,3 +38,6 @@ jsconfig.json
 
 # Build artifacts
 .homeybuild/
+
+# Lokal dirigentmapp (handoff-rapporter, loggarkiv) — inte del av appen
+dirigent/
