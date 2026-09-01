@@ -72,6 +72,11 @@ const READ_CHUNK = 4 * 1024 * 1024;
 const DEFAULT_LOG_DIRS = [
   // Repots synkade loggmapp (run-with-logs.sh slutsynk).
   path.resolve(__dirname, '../../../logs'),
+  // Macens loggarkiv sedan 2026-09-01 (en mapp per repo): dirigentfilerna,
+  // inkl. logs/, ligger i repots git-ignorerade dirigent/ i stället för
+  // bredvid repot. Utan kandidaten hittar --corpora och jsonl-utan-logg
+  // ingenting där och rapporterar "logg saknas" om ett arkiv på 100+ filer.
+  path.resolve(__dirname, '../../dirigent/logs'),
   // Live-mappen (F4-A: live-loggen skrivs lokalt, immunt mot OneDrive-stall).
   path.join(process.env.HOME || process.env.USERPROFILE || '', '.ais-tracker-logs'),
 ];

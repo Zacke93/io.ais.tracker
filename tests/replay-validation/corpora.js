@@ -42,9 +42,20 @@
  *                     inspelad i aisstream-eran (ingen poll alls).
  */
 
+const fs = require('fs');
 const path = require('path');
 
-const LOGS_DIR = path.resolve(__dirname, '../../../logs');
+// Det externa loggarkivet: `<repo>/../logs` (hem-PC:n, OneDrive-layouten)
+// eller `<repo>/dirigent/logs` (Macen sedan 2026-09-01 — en mapp per repo,
+// dirigentfilerna i repots git-ignorerade dirigent/). Första befintliga
+// vinner; saknas båda behålls den klassiska sökvägen så pekarna förblir
+// läsbara. Påverkar ENBART appLog-pekarna nedan (dokumentära, aldrig lästa
+// av harnessen).
+const LOGS_DIR_CANDIDATES = [
+  path.resolve(__dirname, '../../../logs'),
+  path.resolve(__dirname, '../../dirigent/logs'),
+];
+const LOGS_DIR = LOGS_DIR_CANDIDATES.find((d) => fs.existsSync(d)) || LOGS_DIR_CANDIDATES[0];
 
 // ChatGPT-granskningen 2026-07-10 (B3): de låsta korpusarnas jsonl (~0,5 MB
 // totalt) är byte-exakta kopior committade I repot — replay:all fungerar nu
