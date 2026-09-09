@@ -90,6 +90,27 @@ describe('RE-CROSS: bro i passedBridges kan ge nytt korsningsbevis', () => {
 
   const JVB_LAT = 58.29164;
 
+  test.each(['_positionUncertain', '_gpsJumpDetected'])('rent återhämtningsfix efter %s bevisar ingen vändning', (flag) => {
+    const vessel = {
+      mmsi: '265992001',
+      lat: JVB_LAT - 150 / 111320,
+      lon: 12.2939,
+      sog: 4.5,
+      cog: 20,
+      targetBridge: 'Stridsbergsbron',
+      _routeDirection: 'north',
+      passedBridges: ['Klaffbron', 'Järnvägsbron'],
+    };
+    const previous = { ...vessel, lat: JVB_LAT + 100 / 111320, [flag]: true };
+    const reset = jest.fn();
+    svc.on('vessel:journey-reset', reset);
+    svc._handleIntermediateBridgePassage(vessel, previous);
+    expect(reset).not.toHaveBeenCalled();
+    expect(vessel._routeDirection).toBe('north');
+    expect(vessel.targetBridge).toBe('Stridsbergsbron');
+    expect(vessel.passedBridges).toContain('Järnvägsbron');
+  });
+
   test('mållös kajvändare: sydgående återkorsning av Jvb (i passedBridges) → reversal + journey-reset + ny registrering', () => {
     const resets = [];
     svc.on('vessel:journey-reset', (e) => resets.push(e));

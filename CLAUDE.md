@@ -7,16 +7,21 @@ Svar och kodkommentarer på svenska.
 
 - Test: `npm test` (jest via `tests/jest.config.js`)
 - Full validering: jest + `npm run replay:all`, `replay:synthetic`, `replay:openings`
+- Inför fältprov: även `npm run replay:monitoring` (72 h med minutstädning,
+  omstarter och kontroll av kvarlämnade timers; ingår i `validate:full`).
+- Fältjämförelse: `npm run replay:field -- <app.log> <ais.jsonl> [utkatalog]`
+  (integritet, notistext/ETA/källa/tid; informativ, efterspel redovisas separat).
 - **Windows-fallgrop:** `npm run validate` är POSIX-only (subshell + `$TMPDIR`) —
   kör jest och replay-skripten var för sig istället.
 - Korpuslåsningens grindar (ingår MEDVETET inte i `validate` — de prövar en
   fältkörning, inte en kodändring): `node tests/replay-validation/checkReplayIntegrity.js`
   (jsonl mot logg) och `npm run replay:phase` (fassvepet). Kriterier i
   `docs/VALIDATION.md` §Fältprov, steg 3 och 4.
-  - Ett bart `npm run replay:phase` sveper de OLÅSTA korpusarna och är
-    **FÖRVÄNTAT rött** tills `20260806-42h` avgjorts efter K20a (gula paketet).
-    Lägg det därför ALDRIG i `npm run validate`/CI; kör rökprov mot en
-    NAMNGIVEN korpus: `npm run replay:phase -- <jsonl>`.
+  - Ett bart `npm run replay:phase` sveper olåsta korpusar, annars hela banken. UI-klockan
+    följer fasta halvminuter och konvojernas täckning har egna deadlines;
+    startberoende utfall ska undersökas, inte förväntas eller undantas.
+    Kör namngivna korpusar med `npm run replay:phase -- <jsonl>` och även
+    `REPLAY_MONITORING=1` när ändringen rör tidsstyrning eller livscykel.
 - Lint: `npm run lint`
 
 ## Struktur (stabila delar)

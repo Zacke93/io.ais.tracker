@@ -157,7 +157,7 @@ describe('Förtöjningsdetektering: kajliggare vs äkta broöppningsväntare', (
     expect(vessel.targetBridge).toBe('Klaffbron');
   });
 
-  test('LAGER 5: stilla i farleden >2h → backstop demoterar till slut', () => {
+  test('Belagd brokö med färska positioner har ingen tvåtimmarsgräns', () => {
     sailInSouthbound('265000005');
 
     let vessel;
@@ -167,8 +167,8 @@ describe('Förtöjningsdetektering: kajliggare vs äkta broöppningsväntare', (
       });
       tick(3);
     }
-    expect(vessel._moored).toBe(true);
-    expect(vessel.targetBridge).toBeNull();
+    expect(vessel._moored).toBe(false);
+    expect(vessel.targetBridge).toBe('Klaffbron');
   });
 
   test('LAGER 3: deklarerad navstatus moored + stillhet → demoteras direkt', () => {
@@ -711,7 +711,7 @@ describe('C9b: väntarskyddet håller (jittrig äkta väntare 254 m från Klaffb
     expect(vessel.targetBridge).toBe('Klaffbron');
   });
 
-  test('BACKSTOPEN OFÖRÄNDRAD: samma väntare demoteras först bortom 2 h', () => {
+  test('Belagd väntare med positionsjitter behåller bron även bortom två timmar', () => {
     for (const p of [
       { lat: 58.28950, lon: 12.28950 },
       { lat: 58.28820, lon: 12.28800 },
@@ -733,8 +733,8 @@ describe('C9b: väntarskyddet håller (jittrig äkta väntare 254 m från Klaffb
       });
       mockNow += 5 * 60 * 1000;
     }
-    expect(vessel._moored).toBe(true); // 2h-backstopen, oförändrad
-    expect(vessel.targetBridge).toBeNull();
+    expect(vessel._moored).toBe(false); // riktig kö, fortfarande färsk
+    expect(vessel.targetBridge).toBe('Klaffbron');
   });
 });
 

@@ -66,6 +66,10 @@
           "en": "Boat near [[bridge]]",
           "sv": "Båt nära [[bridge]]"
         },
+        "hint": {
+          "en": "Each boat triggers once per visit at each bridge or Kanalinfarten. A new visit requires a confirmed departure and return. Use Notification text for a ready-made message, including waiting at a bridge or passages detected after an AIS gap. Waiting has no minute estimate. Check ETA available before comparing the arrival time: -1 means unknown. The estimate does not include queueing or waiting for other bridge openings. Any bridge matches each bridge along the journey. Direction values are norrut, söderut or okänd.",
+          "sv": "Varje båt ger en träff per besök vid respektive bro eller Kanalinfarten. Ny träff kräver bekräftad utfärd och återkomst. Använd Notistext för en färdig mening, även vid väntan på broöppning eller passager upptäckta efter AIS-tystnad. Väntan visas utan minutprognos. Kontrollera ETA tillgänglig innan du jämför ankomsttiden: -1 betyder okänd. Prognosen inkluderar inte kötid eller väntan på andra broöppningar. Alla broar ger träff vid varje bro längs resan. Riktningen anges som norrut, söderut eller okänd."
+        },
         "args": [
           {
             "name": "bridge",
@@ -179,8 +183,8 @@
           "sv": "Broöppning på väg vid [[bridge]]"
         },
         "hint": {
-          "en": "Fires once per upcoming opening of Klaffbron or Stridsbergsbron. The warning is sent before the earliest possible arrival, so it still arrives in time if the vessel's AIS transmitter goes quiet on the final approach. That safety margin makes it EARLY rather than late: measured over ~240 h of real traffic the lead time is a median of 17 minutes (shortest 2.5 minutes, longest well over an hour for slow vessels). Use the eta_minutes token for the expected arrival; -1 means unknown. Vessels arriving in the same opening share one warning; the direction token then describes the whole opening and reads norrut, söderut or båda (both) when the opening covers vessels meeting each other.",
-          "sv": "Utlöses en gång per förestående öppning av Klaffbron eller Stridsbergsbron. Varningen skickas före tidigast möjliga ankomst, så den kommer fram i tid även om båtens AIS-sändare tystnar på slutsträckan. Den säkerhetsmarginalen gör varningen TIDIG snarare än sen: mätt över ~240 h verklig trafik är förvarningen i median 17 minuter (kortast 2,5 minuter, längst över en timme för långsamma båtar). Använd eta_minutes-token för den förväntade ankomsten; -1 betyder okänd. Båtar som anländer i samma öppning delar på en varning; riktnings-token beskriver då hela öppningen och står som norrut, söderut eller båda när öppningen täcker mötande båtar."
+          "en": "Warns of an expected opening at Klaffbron or Stridsbergsbron. Each vessel is warned once per arrival. Several new vessels can share a notification; a vessel already warned for the same arrival is not included again. The name, count and direction describe the vessels in this notification. Direction reads norrut, söderut or båda (both). The ETA belongs to its leading vessel; -1 means unknown, including confirmed queues or AIS positions too old for a forecast. The warning may arrive early. Late or missing AIS positions can limit advance warning. The app estimates vessel arrivals and does not measure whether the bridge is open.",
+          "sv": "Varnar för väntad broöppning vid Klaffbron eller Stridsbergsbron. Varje båt varnas en gång per ankomst. Flera nytillkomna båtar kan dela en notis; en båt som redan varnats för samma ankomst räknas inte med igen. Namn, antal och riktning gäller båtarna i den här notisen. Riktningen anges som norrut, söderut eller båda. Prognosen gäller notisens ledande båt; -1 betyder okänd, bland annat vid bekräftad kö eller för gammal AIS-position. Varningen kan komma tidigt. Sena eller uteblivna AIS-positioner kan begränsa förvarningen. Appen beräknar båtarnas ankomst och mäter inte om bron är öppen."
         },
         "args": [
           {
@@ -222,8 +226,8 @@
             "name": "vessel_name",
             "type": "string",
             "title": {
-              "en": "Leading vessel",
-              "sv": "Ledande fartyg"
+              "en": "Leading vessel in notification",
+              "sv": "Ledande båt i notisen"
             }
           },
           {
@@ -246,8 +250,8 @@
             "name": "vessel_count",
             "type": "number",
             "title": {
-              "en": "Number of vessels",
-              "sv": "Antal båtar"
+              "en": "Number of vessels in notification",
+              "sv": "Antal båtar i notisen"
             }
           }
         ]

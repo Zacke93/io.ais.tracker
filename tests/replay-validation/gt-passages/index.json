@@ -110,6 +110,12 @@
    "inferred": 15
   },
   {
+   "id": "20260823-24h",
+   "jsonl": "ais-replay-20260823-185834.jsonl",
+   "crossings": 23,
+   "inferred": 6
+  },
+  {
    "id": "20260803-natt",
    "jsonl": "ais-fusion-20260803-nattkorning.jsonl",
    "crossings": 25,
@@ -120,6 +126,12 @@
    "jsonl": "ais-aisstream-20260803-nattkorning.jsonl",
    "crossings": 21,
    "inferred": 7
+  },
+  {
+   "id": "20260907-31h",
+   "jsonl": "ais-replay-20260907-022832.jsonl",
+   "crossings": 24,
+   "inferred": 0
   }
  ]
 }

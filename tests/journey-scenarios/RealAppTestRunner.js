@@ -506,11 +506,12 @@ class RealAppTestRunner {
   }
 
   /**
-   * Generate bridge text for a specific vessel configuration (for golden snapshot testing)
-   * This method:
-   * 1. Clears all vessels from app state
-   * 2. Processes provided vessels as AIS messages
-   * 3. Returns the resulting bridge text
+   * Generera en oberoende ögonblicksbild från angivna fartyg.
+   * Varje anrop får en ny app; runRealJourney behåller däremot samma app
+   * genom hela resan. Enbart removeVessel räcker inte som teståterställning:
+   * dess asynkrona utfartsnotis kan ännu pågå när nästa snapshot återskapar
+   * samma MMSI, och då skyddar appen korrekt den återfödda båtens historik.
+   * Snapshoternas gamla ETA-minne ska inte följa med till nästa testposition.
    * @param {Array} vessels - Array of vessel objects with {mmsi, name, lat, lon, sog, cog}
    * @returns {Promise<string>} Generated bridge text
    */
@@ -519,16 +520,11 @@ class RealAppTestRunner {
       throw new Error('App not initialized. Call initializeApp() first.');
     }
 
-    // Clear all existing vessels to ensure clean state
-    const existingVessels = this.app.vesselDataService.getAllVessels();
-    for (const vessel of existingVessels) {
-      this.app.vesselDataService.removeVessel(vessel.mmsi, 'snapshot-cleanup');
-    }
-
-    // Reset phase tracking state to prevent cross-scenario interference
-    if (this.app.bridgeTextService && typeof this.app.bridgeTextService.resetPhaseTracking === 'function') {
-      this.app.bridgeTextService.resetPhaseTracking();
-    }
+    // Stäng även den gamla appens timers och livscykel innan nästa
+    // fristående position matas in. Inga artificiella AIS-förflyttningar
+    // mellan snapshoternas koordinater eller antagna restider behövs.
+    await this.cleanup();
+    await this.initializeApp();
 
     // Invalidate bridge text cache so empty-vessel scenarios regenerate from fresh state
     this._bridgeTextCache = null;

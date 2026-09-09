@@ -28,5 +28,5 @@
       ]
     }
   },
-  "_status": "Inga AKTIVA undantag 2026-08-21. Nycklar som börjar med _ läses aldrig som korpusar."
+  "_status": "2026-09-08: inga aktiva undantag. Fasta halvminuter för UI och exakt konvojdeadline tar bort startberoendet, inklusive PHOENIX. Rådatans färskhetsgräns är oförändrad."
 }

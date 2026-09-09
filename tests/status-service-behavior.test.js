@@ -374,6 +374,52 @@ describe('StatusService — beteende', () => {
   });
 
   describe('FIX U: tvingad waiting vid nära bro-par', () => {
+    test.each([false, true])('PHOENIX: bokförd parbro får inte tvinga väntan (öppningsfönster=%s)', (openingActive) => {
+      const vessel = makeVessel({
+        lat: 58.29125,
+        lon: 12.29145,
+        cog: 220,
+        sog: 6,
+        targetBridge: 'Klaffbron',
+        status: 'passed',
+        passedBridges: ['Stridsbergsbron', 'Järnvägsbron'],
+        lastPassedBridge: 'Järnvägsbron',
+        lastPassedBridgeTime: T0 - 34_000,
+        _bridgeOpeningUntil: openingActive ? T0 + 10_000 : null,
+        _bridgeOpeningBridgeName: openingActive ? 'Järnvägsbron' : null,
+        _forceWaitingAtBridge: {
+          bridge: 'Järnvägsbron',
+          until: T0 + 56_000,
+          triggeredBy: 'passage_Stridsbergsbron',
+        },
+      });
+      const onChange = jest.fn();
+      statusService.on('status:changed', onChange);
+
+      const { result } = analyze(vessel);
+
+      expect(vessel._forceWaitingAtBridge).toBeNull();
+      expect(result.statusReason).not.toBe('FIX_U_forced_waiting_close_bridge_pair');
+      expect(vessel._lastWaitingShownAt?.['Järnvägsbron']).toBeUndefined();
+      expect(onChange.mock.calls.some(([event]) => event.reason === 'FIX_U_forced_waiting_close_bridge_pair')).toBe(false);
+      if (!openingActive) expect(result.status).toBe('passed');
+    });
+
+    test('parbron förblir passerad även om en senare bro redan bokförts', () => {
+      const vessel = makeVessel({
+        passedBridges: ['Stridsbergsbron', 'Järnvägsbron', 'Klaffbron'],
+        lastPassedBridge: 'Klaffbron',
+        lastPassedBridgeTime: T0 - 1000,
+        _forceWaitingAtBridge: { bridge: 'Järnvägsbron', until: T0 + 10_000 },
+      });
+      placeAt(vessel, BRIDGES.jarnvagsbron, 200);
+
+      const { result } = analyze(vessel);
+
+      expect(vessel._forceWaitingAtBridge).toBeNull();
+      expect(result.statusReason).not.toBe('FIX_U_forced_waiting_close_bridge_pair');
+    });
+
     test('aktiv force-flagga inom 500 m ger omedelbar waiting och konsumerar flaggan', () => {
       const vessel = makeVessel({
         targetBridge: 'Stridsbergsbron',

@@ -6,17 +6,19 @@
  * This test suite validates ALL bridge text scenarios using:
  * - Real app logic (via RealAppTestRunner) - NO mock logic
  * - Golden snapshots (pre-generated expected outputs)
- * - 20 curated scenarios covering all critical paths
+ * - 20 grupper av oberoende positionsbilder med varsin färsk app
  * - Sequential execution (no parallelism to avoid race conditions)
  * - Fail-fast on first mismatch with detailed diff
  *
  * TEST COVERAGE:
- * - Core Journeys (4): Complete canal passages N→S and S→N
+ * - Core Journeys (4): Positionsbilder längs kanalen N→S och S→N
  * - Status Transitions (6): Critical state changes and boundaries
  * - Multi-Vessel (5): 2-5 boats in various configurations
  * - Edge Cases (5): Boundary conditions and special scenarios
  *
  * TOTAL: 20 scenarios covering 53 individual waypoints
+ * Sammanhängande resor med bevarat fartygsminne prövas separat i
+ * stateful-journeys.test.js och replay-korpusarna.
  */
 
 const fs = require('fs');

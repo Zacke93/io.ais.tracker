@@ -38,16 +38,13 @@
  *   PÅSTÅENDE = varje ETA-siffra appen publicerar, av tre slag:
  *     (a) brotext — "beräknad broöppning om [cirka] N minuter" per målbro,
  *         hämtad ur bridgeTextTransitions (den RIKTIGA publiceringsvägen).
- *         Texten nämner inget fartygsnamn. Båten pekas ut i två steg:
- *         i.  appens EGEN filterrad (VesselDataService:1990,
- *             "[BRIDGE_TEXT_FILTER] <mmsi>/<namn>: Included in bridge text
- *             (<status>, target=<bro>)") ger den exakta gruppen bakom
- *             frasen; passet godtas bara när gruppstorleken stämmer med
- *             textens räkneord ("En båt"/"Två båtar"/…). Är gruppen EN båt
- *             är identiteten därmed bevisad ('grupp-ensam').
- *         ii. i flerbåtsgrupper väljs ledaren med appens egen regel (lägst
- *             giltig etaMinutes — BridgeTextService._selectLeadVessel),
- *             rekonstruerad ur [ETA_CALC_V2]/[POSITION_ANALYSIS].
+ *         Texten nämner inget fartygsnamn. Den skrivskyddade förladdningen
+ *         fångar därför BridgeTextService:s faktiska ledarval, formaterings-
+ *         argument och returtext. Exakt text/tid måste matcha publiceringen.
+ *         Det inkluderar extrapolering, köurval och hållet textunderlag som
+ *         inte går att återskapa ur gamla [ETA_CALC_V2]-loggrader.
+ *         Gruppdominant "strax" kan styras av en annan båt än ETA-ledaren;
+ *         utan entydigt MMSI redovisas den därför separat och omätt.
  *         Utpekningsmixen redovisas som `textAttribution`; ett påstående
  *         som INTE kunde knytas till ett mmsi lämnas OMÄTT (status
  *         'oattribuerad') i stället för att gissa.
@@ -75,10 +72,11 @@
  *   barnprocessen (ETA_MEASURE_STAMP=1) och prefixar varje stderr-rad med
  *   "@<Date.now()>\t". Eftersom @sinonjs/fake-timers byter ut globala Date
  *   EFTER förladdningen läser hooken FEJKklockan — alltså exakt den tid appen
- *   själv såg. Ingen produktkod och ingen harnesskod ändras.
- *   MÄTKONTROLL: REPLAY_VERBOSE + REPLAY_DEBUG_LEVEL=full ger BIT-IDENTISKT
- *   replayresultat (verifierat på 20260806-42h, 2026-08-22) — mätningen stör
- *   alltså inte det den mäter.
+ *   själv såg. Textfångsten bär också sin egen exakta klocka och är aktiv
+ *   även med --no-stamp. Ingen produktkod eller replayRunner ändras.
+ *   MÄTKONTROLL (2026-09-09): alla 20 korpusar ger samma replayresultat
+ *   med och utan mätfångst. Endast processens varierande heapUsedMB undantas;
+ *   text, händelser, processfel och timerstädning jämförs exakt.
  *
  * K6-BEVISET (dubbelkörningsfrekvensen)
  *   Räknar par av [ETA_CALC_V2]/[ETA_START] för SAMMA mmsi inom < 200 ms
@@ -99,7 +97,7 @@ const path = require('path');
 
 // ---------------------------------------------------------------------------
 // FÖRLADDNINGSLÄGET (--require): tidsstämpla stderr med FEJKKLOCKANS Date.now.
-// Måste ligga FÖRST och vara helt bieffektsfri i övrigt.
+// Normal require utan mätflaggor installerar inga hooks.
 // ---------------------------------------------------------------------------
 function installStderrTimestamper() {
   const origWrite = process.stderr.write.bind(process.stderr);
@@ -129,8 +127,88 @@ function installStderrTimestamper() {
   };
 }
 
-if (process.env.ETA_MEASURE_STAMP === '1' && require.main !== module) {
-  installStderrTimestamper();
+/**
+ * Skrivskyddad mätning av textmotorns verkliga val. En ETA-beräkningslogg
+ * saknar senare extrapolering, köurval och hållet presentationsunderlag.
+ * Originalmetoderna körs exakt en gång; inga fartyg eller appfält skrivs.
+ * Frasen och hela returtexten binds till samma synkrona renderingsanrop.
+ */
+function installBridgeTextCapture(BridgeTextService, emit) {
+  const proto = BridgeTextService.prototype;
+  const originals = {};
+  const contexts = new WeakMap();
+  for (const name of ['generateBridgeText', '_buildGroupPhrase', '_selectLeadVessel', '_formatETAAsBroOpening']) {
+    originals[name] = proto[name];
+  }
+  proto.generateBridgeText = function measuredText(...args) {
+    const previous = contexts.get(this);
+    const context = { groups: [], group: null };
+    contexts.set(this, context);
+    try {
+      const text = originals.generateBridgeText.apply(this, args);
+      try {
+        emit({ t: Date.now(), text, groups: context.groups });
+      } catch (_) { /* en trasig mätmottagare får inte ändra appens returtext */ }
+      return text;
+    } finally {
+      if (previous) contexts.set(this, previous);
+      else contexts.delete(this);
+    }
+  };
+  proto._buildGroupPhrase = function measuredGroup(...args) {
+    const [vessels, bridge] = args;
+    const context = contexts.get(this);
+    if (!context) return originals._buildGroupPhrase.apply(this, args);
+    const previous = context.group;
+    const group = {
+      bridge, members: [], mmsi: null, eta: null,
+    };
+    context.group = group;
+    try {
+      const phrase = originals._buildGroupPhrase.apply(this, args);
+      try {
+        group.members = vessels.map((v) => String(v.mmsi));
+      } catch (_) { /* oläsbar identitet lämnas obestyrkt */ }
+      group.phrase = phrase;
+      context.groups.push(group);
+      return phrase;
+    } finally {
+      context.group = previous;
+    }
+  };
+  proto._selectLeadVessel = function measuredLead(...args) {
+    const lead = originals._selectLeadVessel.apply(this, args);
+    const group = contexts.get(this)?.group;
+    if (group) {
+      try {
+        group.mmsi = lead?.mmsi ? String(lead.mmsi) : null;
+      } catch (_) { /* oläsbar identitet lämnas obestyrkt */ }
+    }
+    return lead;
+  };
+  proto._formatETAAsBroOpening = function measuredClause(...args) {
+    const clause = originals._formatETAAsBroOpening.apply(this, args);
+    const group = contexts.get(this)?.group;
+    if (group) {
+      [group.eta, group.extrapolated, group.imminent] = args;
+    }
+    return clause;
+  };
+  return () => {
+    for (const [name, original] of Object.entries(originals)) proto[name] = original;
+  };
+}
+
+if (require.main !== module) {
+  if (process.env.ETA_MEASURE_STAMP === '1') installStderrTimestamper();
+  if (process.env.ETA_MEASURE_CAPTURE === '1') {
+    // eslint-disable-next-line global-require
+    const BridgeTextService = require('../../lib/services/BridgeTextService');
+    installBridgeTextCapture(BridgeTextService, (rendering) => {
+      process.stderr.write(`[ETA_MEASURE_RENDER] ${JSON.stringify(rendering)}\n`);
+    });
+    process.stderr.write('[ETA_MEASURE_CAPTURE_READY]\n');
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -306,6 +384,8 @@ function makeStderrCollector() {
   const etaCalcs = []; // [ETA_CALC_V2] (alla, även null)
   const etaStarts = [];
   const outliers = [];
+  const renderings = [];
+  let renderCapture = false;
   let smoothingLines = 0;
   let seq = 0;
   let anchorMs = null; // fallback när --no-stamp används
@@ -328,6 +408,20 @@ function makeStderrCollector() {
       stamped += 1;
     } else {
       unstamped += 1;
+    }
+    if (rest === '[ETA_MEASURE_CAPTURE_READY]') {
+      renderCapture = true;
+      return;
+    }
+    const rendered = rest.match(/^\[ETA_MEASURE_RENDER\] (\{.*\})$/);
+    if (rendered) {
+      try {
+        const r = JSON.parse(rendered[1]);
+        if (Number.isFinite(r.t) && typeof r.text === 'string' && Array.isArray(r.groups)) {
+          renderings.push(r);
+        }
+      } catch (_) { /* oläsbar proveniens får aldrig bli ett gissat mätvärde */ }
+      return;
     }
     const sample = rest.match(RE_SAMPLE);
     if (sample) {
@@ -428,7 +522,15 @@ function makeStderrCollector() {
     etaStarts.sort((a, b) => (a.t - b.t) || (a.seq - b.seq));
     outliers.sort((a, b) => (a.t - b.t) || (a.seq - b.seq));
     return {
-      events, etaCalcs, etaStarts, outliers, smoothingLines, stamped, unstamped,
+      events,
+      etaCalcs,
+      etaStarts,
+      outliers,
+      smoothingLines,
+      stamped,
+      unstamped,
+      renderings,
+      renderCapture,
     };
   }
 
@@ -440,8 +542,7 @@ function makeStderrCollector() {
 // ---------------------------------------------------------------------------
 function runCorpus(corpus, opts) {
   return new Promise((resolve, reject) => {
-    const args = [];
-    if (opts.stamp) args.push('--require', __filename);
+    const args = ['--require', __filename];
     args.push(RUNNER, corpus.jsonl);
     const child = spawn(process.execPath, args, {
       cwd: ROOT,
@@ -450,6 +551,7 @@ function runCorpus(corpus, opts) {
         REPLAY_VERBOSE: '1',
         REPLAY_DEBUG_LEVEL: 'full',
         ETA_MEASURE_STAMP: opts.stamp ? '1' : '0',
+        ETA_MEASURE_CAPTURE: '1',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -497,7 +599,12 @@ function runCorpus(corpus, opts) {
         reject(new Error(`replayRunner kraschade för ${corpus.id}: ${json.fatal}`));
         return;
       }
-      resolve({ replay: json, debug: collector.result(), exitCode: code });
+      const debug = collector.result();
+      if (!debug.renderCapture) {
+        reject(new Error(`Textens mätfångst installerades inte för ${corpus.id}`));
+        return;
+      }
+      resolve({ replay: json, debug, exitCode: code });
     });
   });
 }
@@ -547,7 +654,8 @@ function hasZoneAfter(gt, mmsi, bridge, t) {
 }
 
 // ---------------------------------------------------------------------------
-// Ledarrekonstruktion för brotextens påståenden
+// Historisk loggrekonstruktion: behålls för jämförelse av gamla mätningar.
+// CLI kräver nu direkt renderingsfångst; dessa uppskattningar ersätter den aldrig.
 // ---------------------------------------------------------------------------
 function applyEvent(state, ev) {
   if (ev.kind === 'remove') {
@@ -679,7 +787,43 @@ function attributeClaim({
 // sanning ur fel fartygs passagetid.
 const TRUSTED_ATTRIBUTION = new Set([
   'grupp-ensam', 'grupp-ledare', 'ledare', 'värde', 'värde-tvetydig',
+  'renderad-ledare',
 ]);
+
+/**
+ * Matcha bara faktisk returtext vid publiceringens exakta fejkklockslag.
+ * Ett övergivet renderingsförslag, en äldre lika text eller två olika
+ * ledare i samma millisekund får inte frikännas genom att gissa på logg-ETA.
+ */
+function attributeRenderedClaim(renderings, transition, phrase) {
+  const absent = { mmsi: null, confidence: 'rendering-saknas', candidates: 0 };
+  const matches = renderings.filter((r) => r.t === transition.t && r.text === transition.text);
+  if (!matches.length) return absent;
+  const choices = [];
+  for (const rendering of matches) {
+    const groups = rendering.groups.filter((g) => g && g.bridge === phrase.bridge
+      && Array.isArray(g.members) && g.members.length === phrase.count
+      && transition.text.split(';').some((part) => part.trim() === g.phrase));
+    if (groups.length !== 1) return absent;
+    const group = groups[0];
+    if (!group.mmsi || !group.members.includes(group.mmsi)) return absent;
+    // En annan gruppmedlems närhet kan styra "strax". Formateraren anger
+    // dominansen men inte dess MMSI; den utpekas därför inte som ETA-ledaren.
+    if (group.imminent && group.members.length > 1) {
+      choices.push({ mmsi: null, confidence: 'renderad-gruppdominans', candidates: group.members.length });
+    } else {
+      choices.push({
+        mmsi: group.mmsi, confidence: 'renderad-ledare', candidates: group.members.length, eta: group.eta,
+      });
+    }
+  }
+  const first = choices[0];
+  if (choices.some((c) => c.mmsi !== first.mmsi || c.confidence !== first.confidence)) {
+    return { mmsi: null, confidence: 'rendering-tvetydig', candidates: first.candidates };
+  }
+  // Identiteten kan vara entydig trots två olika oavrundade ETA-värden.
+  return { ...first, eta: choices.every((c) => c.eta === first.eta) ? first.eta : undefined };
+}
 
 // ---------------------------------------------------------------------------
 // K6: dubbelkörningsfrekvens
@@ -793,6 +937,11 @@ function collectClaims(corpus, run, gt) {
   let pass = null;
   let si = 0;
   const stream = debug.events;
+  const renderingsByTime = new Map();
+  for (const rendering of debug.renderings || []) {
+    if (!renderingsByTime.has(rendering.t)) renderingsByTime.set(rendering.t, []);
+    renderingsByTime.get(rendering.t).push(rendering);
+  }
   for (const tr of transitions) {
     while (si < stream.length && stream[si].t <= tr.t) {
       if (stream[si].kind === 'filterpass') pass = stream[si];
@@ -804,15 +953,17 @@ function collectClaims(corpus, run, gt) {
       if (phrase.clause === 'okänd') {
         textStats.unknown += 1; continue;
       }
-      const att = attributeClaim({
-        state,
-        pass,
-        bridge: phrase.bridge,
-        count: phrase.count,
-        minutes: phrase.minutes,
-        approx: phrase.approx,
-        t: tr.t,
-      });
+      const att = debug.renderCapture
+        ? attributeRenderedClaim(renderingsByTime.get(tr.t) || [], tr, phrase)
+        : attributeClaim({
+          state,
+          pass,
+          bridge: phrase.bridge,
+          count: phrase.count,
+          minutes: phrase.minutes,
+          approx: phrase.approx,
+          t: tr.t,
+        });
       if (phrase.clause === 'strax') {
         const sc = textStats.straxByConfidence;
         sc[att.confidence] = (sc[att.confidence] || 0) + 1;
@@ -1177,7 +1328,7 @@ function renderText(report) {
   for (const [k, v] of Object.entries(report.total.textAttribution)) {
     L.push(`     ${k.padEnd(18)} ${v}`);
   }
-  L.push('  utpekning för "strax" (ledarregeln enbart — ingen siffra att matcha):');
+  L.push('  utpekning för "strax" (gruppdominans utan entydig båt hålls omätt):');
   for (const [k, v] of Object.entries(report.total.straxAttribution)) {
     L.push(`     ${k.padEnd(18)} ${v}`);
   }
@@ -1325,6 +1476,10 @@ async function main() {
 }
 
 module.exports = {
+  installBridgeTextCapture,
+  makeStderrCollector,
+  collectClaims,
+  attributeRenderedClaim,
   parseBridgeTextClaims,
   attributeLead,
   attributeClaim,

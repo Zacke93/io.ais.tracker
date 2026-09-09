@@ -12,6 +12,7 @@
  * Resultformatet speglar replayRunner:s utdata: notifications bär
  * { mmsi, bridge, direction, eta, success, t, name, distance, source },
  * targetPassages { mmsi, bridge, t, iso }, journeyResets { mmsi, t },
+ * visitReentries { mmsi, bridge, t } för observerad återkomst till området,
  * bridgeTextTransitions { t, iso, text }, firstNameSeen { mmsi: ts }.
  */
 
@@ -67,6 +68,36 @@ describe('Invariant-domaren: grundläge', () => {
       targetPassages: [passage({ t: T0 })],
     });
     expect(validateInvariants(result)).toEqual([]);
+  });
+});
+
+describe('Vänttextens grammatik och struktur', () => {
+  const violationsFor = (text) => validateInvariants(baseResult({
+    bridgeTextTransitions: [{ t: T0, iso: new Date(T0).toISOString(), text }],
+  }));
+  test.each([
+    'En båt väntar vid Stridsbergsbron',
+    'Två båtar väntar vid Järnvägsbron på väg mot Klaffbron',
+    'En båt väntar vid Järnvägsbron på väg mot Stridsbergsbron; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 5 minuter',
+  ])('accepterar faktiska grupper utan dubbelräkning: %s', (text) => {
+    expect(violationsFor(text)).toEqual([]);
+  });
+  test.each([
+    'En båt väntar vid Stridsbergsbron, beräknad broöppning om 3 minuter',
+    'En båt väntar vid Okändbron',
+    'En båt väntar vid Stridsbergsbron; Två båtar väntar vid Stridsbergsbron',
+    'En båt väntar vid Stridsbergsbron; En båt väntar vid Klaffbron',
+  ])('avvisar fel text eller dubblerad grupp: %s', (text) => {
+    expect(violationsFor(text).length).toBeGreaterThan(0);
+  });
+  test('upptäcker att en bekräftad kö felaktigt försvinner till default', () => {
+    const transitions = [
+      'En båt väntar vid Järnvägsbron på väg mot Stridsbergsbron',
+      'Inga båtar är i närheten av Klaffbron eller Stridsbergsbron',
+      'En båt väntar vid Järnvägsbron på väg mot Stridsbergsbron',
+    ].map((text, i) => ({ text, t: T0 + i * 30000, iso: new Date(T0 + i * 30000).toISOString() }));
+    expect(validateInvariants(baseResult({ bridgeTextTransitions: transitions }))
+      .some((v) => v.startsWith('DEFAULT-FLASH'))).toBe(true);
   });
 });
 
@@ -137,6 +168,60 @@ describe('INV-2 dubblettskydd med journey-reset-undantag', () => {
     });
     const v = validateInvariants(result);
     expect(v.some((x) => x.includes('NOTIS-DUBBLETT'))).toBe(false);
+  });
+});
+
+describe('INV-2: observerad återkomst gäller bara nästa notis för samma fartyg och område', () => {
+  const noticeTimes = [T0, T0 + 10 * 60000, T0 + 20 * 60000];
+  const reentry = (t, extra = {}) => ({
+    mmsi: '265000001', bridge: 'Klaffbron', t, ...extra,
+  });
+
+  test('tre samriktade notiser med två mellanliggande återkomster är tre legitima besök', () => {
+    const result = baseResult({
+      notifications: noticeTimes.map((t) => notis({ t })),
+      visitReentries: [reentry(T0 + 5 * 60000), reentry(T0 + 15 * 60000)],
+    });
+    expect(validateInvariants(result)).toEqual([]);
+  });
+
+  test('återkomst och efterföljande notis får ha samma tidsstämpel', () => {
+    const result = baseResult({
+      notifications: noticeTimes.map((t) => notis({ t })),
+      visitReentries: [reentry(noticeTimes[1]), reentry(noticeTimes[2])],
+    });
+    expect(validateInvariants(result)).toEqual([]);
+  });
+
+  test.each([
+    ['annat fartyg', reentry(T0 + 5 * 60000, { mmsi: '265000002' })],
+    ['annan bro', reentry(T0 + 5 * 60000, { bridge: 'Stridsbergsbron' })],
+    ['före föregående notis', reentry(T0 - 1)],
+    ['samtidigt med föregående notis', reentry(T0)],
+    ['efter nästa notis', reentry(noticeTimes[1] + 1)],
+    ['icke-finit tid', reentry(NaN)],
+  ])('återkomst för %s legitimerar inte dubbletten', (label, event) => {
+    const result = baseResult({
+      notifications: noticeTimes.slice(0, 2).map((t) => notis({ t })),
+      visitReentries: [event],
+    });
+    expect(validateInvariants(result)).toEqual([
+      expect.stringContaining('NOTIS-DUBBLETT'),
+    ]);
+  });
+
+  test.each([
+    ['en återkomst', [reentry(T0 + 5 * 60000)]],
+    ['två likadana vittnen', [reentry(T0 + 5 * 60000), reentry(T0 + 5 * 60000)]],
+    ['återkomst på andra notisens tidsstämpel', [reentry(noticeTimes[1])]],
+  ])('%s kan inte legitimera tre notiser', (label, visitReentries) => {
+    const result = baseResult({
+      notifications: noticeTimes.map((t) => notis({ t })),
+      visitReentries,
+    });
+    expect(validateInvariants(result)).toEqual([
+      expect.stringContaining('NOTIS-DUBBLETT'),
+    ]);
   });
 });
 

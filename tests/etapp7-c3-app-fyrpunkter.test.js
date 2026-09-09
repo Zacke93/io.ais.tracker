@@ -65,7 +65,7 @@ const makeSnapshot = (vessels) => ({
 // =============================================================================
 // C1a — hold-replay hoppar summeringsvalideringen
 // =============================================================================
-describe('C1a: hold-replay av redan validerad text valideras inte om', () => {
+describe('Bekräftad passage avslutar brotexten och går genom normal validering', () => {
   let app;
 
   beforeEach(() => {
@@ -75,7 +75,7 @@ describe('C1a: hold-replay av redan validerad text valideras inte om', () => {
     app.bridgeTextService = { generateBridgeText: jest.fn(() => DEFAULT) };
   });
 
-  test('TVÅ båtar i hållen text + 0 renderbara ⇒ INGET valideringslarm (no-op-larmet borta)', async () => {
+  test('Förra textens två båtar ersätts av default efter sista passagen', async () => {
     app._lastBridgeText = 'Två båtar på väg mot Stridsbergsbron, beräknad broöppning strax';
     const spy = jest.spyOn(app, '_validateBridgeTextSummary');
 
@@ -86,14 +86,14 @@ describe('C1a: hold-replay av redan validerad text valideras inte om', () => {
       lastPassedBridgeTime: Date.now() - 10 * 1000,
     }]));
 
-    expect(app.debug).toHaveBeenCalledWith(expect.stringContaining('PASSED_HOLD_UI'));
-    expect(app.debug).toHaveBeenCalledWith(expect.stringContaining('SUMMARY_VALIDATION_SKIP'));
-    expect(spy).not.toHaveBeenCalled();
+    expect(app.debug).not.toHaveBeenCalledWith(expect.stringContaining('PASSED_HOLD_UI'));
+    expect(app.debug).not.toHaveBeenCalledWith(expect.stringContaining('SUMMARY_VALIDATION_SKIP'));
+    expect(spy).toHaveBeenCalledTimes(1);
     // SVÄLJ-FÄLLAN: [err]-paret är exakt två app.error-anrop. Noll är kravet.
     expect(app.error).not.toHaveBeenCalled();
     const published = app._updateDeviceCapability.mock.calls
       .filter((c) => c[0] === 'bridge_text').map((c) => c[1]);
-    expect(published).not.toContain(DEFAULT);
+    expect(published).toContain(DEFAULT);
     expect(published).toContain(app._lastBridgeText);
   });
 
@@ -112,7 +112,7 @@ describe('C1a: hold-replay av redan validerad text valideras inte om', () => {
     expect(res.isValid).toBe(false);
     expect(res.reason).toContain('vessels provided');
     // …och fallbacken var byte-identisk med indata = ren no-op.
-    expect(res.fallbackText).toBe(app._lastBridgeText);
+    expect(res.fallbackText).toBe(DEFAULT);
   });
 
   test('UTAN hold (mellanbropassage) körs valideringen som förut — hoppet är inte svepande', async () => {
@@ -130,7 +130,7 @@ describe('C1a: hold-replay av redan validerad text valideras inte om', () => {
     expect(app.debug).not.toHaveBeenCalledWith(expect.stringContaining('SUMMARY_VALIDATION_SKIP'));
   });
 
-  test('NEGATIV KONTROLL (korpus #18): hållen text med EN båt publiceras oförändrad', async () => {
+  test('En ensam passerad båt tas också bort direkt', async () => {
     // Fältprovets 94 hold-passager nämnde alla EN båt och undgick larmet på
     // aritet. C1a får inte ändra utfallet för dem.
     app._lastBridgeText = 'En båt på väg mot Klaffbron, beräknad broöppning strax';
@@ -144,7 +144,7 @@ describe('C1a: hold-replay av redan validerad text valideras inte om', () => {
 
     const published = app._updateDeviceCapability.mock.calls
       .filter((c) => c[0] === 'bridge_text').map((c) => c[1]);
-    expect(published).toContain('En båt på väg mot Klaffbron, beräknad broöppning strax');
+    expect(published).toContain(DEFAULT);
     expect(app.error).not.toHaveBeenCalled();
   });
 });
@@ -209,12 +209,20 @@ describe('C1b: under-bridge-gränsen följer BRIDGE_OPENING-hållningens egen ve
     expect(app._validateStatusConsistency([vesselAt(90, null)]).passed).toBe(true);
     expect(app._validateStatusConsistency([vesselAt(90, Date.now() + 20 * 1000)]).passed).toBe(true);
   });
+
+  test('tre båtar i strax-bandet behåller detaljerad brotext utan falskt statusfel', () => {
+    const boats = [1.6, 1.8, 2.9].map((etaMinutes, i) => ({
+      ...vesselAt(30, null), mmsi: String(265700000 + i), targetBridge: 'Klaffbron', etaMinutes,
+    }));
+    expect(app._validateStatusConsistency(boats).passed).toBe(true);
+    expect(app._validateStatusConsistency(boats.map((v) => ({ ...v, etaMinutes: 3 }))).passed).toBe(false);
+  });
 });
 
 // =============================================================================
 // C1c — nödfallbacken faller inte till DEFAULT i passed-fönstret
 // =============================================================================
-describe('C1c: _generateSafeFallbackText håller texten under målbropassagen', () => {
+describe('Nödfallbacken återupplivar inte en passerad båt', () => {
   let app;
 
   beforeEach(() => {
@@ -229,11 +237,11 @@ describe('C1c: _generateSafeFallbackText håller texten under målbropassagen', 
     lastPassedBridgeTime: Date.now() - ageMs,
   });
 
-  test('0 renderbara + färsk målbropassage ⇒ senaste texten, inte DEFAULT', () => {
+  test('0 renderbara efter färsk passage ger default', () => {
     app._lastBridgeText = 'En båt på väg mot Klaffbron, beräknad broöppning strax';
     const out = app._generateSafeFallbackText([passedVessel(10 * 1000)], 'trasig text');
-    expect(out).toBe(app._lastBridgeText);
-    expect(app.debug).toHaveBeenCalledWith(expect.stringContaining('FALLBACK_PASSED_HOLD'));
+    expect(out).toBe(DEFAULT);
+    expect(app.debug).not.toHaveBeenCalledWith(expect.stringContaining('FALLBACK_PASSED_HOLD'));
   });
 
   test('passed-fönstret utgånget ⇒ DEFAULT (ingen zombie-text)', () => {
@@ -254,12 +262,6 @@ describe('C1c: _generateSafeFallbackText håller texten under målbropassagen', 
     expect(app._generateSafeFallbackText([passedVessel(10 * 1000)], null)).toBe(DEFAULT);
   });
 
-  test('_hasRecentTargetPassage är EN sanning för båda konsumenterna', () => {
-    expect(app._hasRecentTargetPassage([passedVessel(10 * 1000)])).toBe(true);
-    expect(app._hasRecentTargetPassage([passedVessel(PASSAGE_TIMING.PASSED_HOLD_MS + 1)])).toBe(false);
-    expect(app._hasRecentTargetPassage(null)).toBe(false);
-    expect(app._hasRecentTargetPassage([])).toBe(false);
-  });
 });
 
 // =============================================================================

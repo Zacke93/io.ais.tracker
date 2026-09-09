@@ -5,6 +5,10 @@
     "en": "Boat near [[bridge]]",
     "sv": "Båt nära [[bridge]]"
   },
+  "hint": {
+    "en": "Each boat triggers once per visit at each bridge or Kanalinfarten. A new visit requires a confirmed departure and return. Use Notification text for a ready-made message, including waiting at a bridge or passages detected after an AIS gap. Waiting has no minute estimate. Check ETA available before comparing the arrival time: -1 means unknown. The estimate does not include queueing or waiting for other bridge openings. Any bridge matches each bridge along the journey. Direction values are norrut, söderut or okänd.",
+    "sv": "Varje båt ger en träff per besök vid respektive bro eller Kanalinfarten. Ny träff kräver bekräftad utfärd och återkomst. Använd Notistext för en färdig mening, även vid väntan på broöppning eller passager upptäckta efter AIS-tystnad. Väntan visas utan minutprognos. Kontrollera ETA tillgänglig innan du jämför ankomsttiden: -1 betyder okänd. Prognosen inkluderar inte kötid eller väntan på andra broöppningar. Alla broar ger träff vid varje bro längs resan. Riktningen anges som norrut, söderut eller okänd."
+  },
   "args": [
     {
       "name": "bridge",

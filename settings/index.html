@@ -219,6 +219,10 @@
             let storedApiKey = '';
             let storedAishubUsername = '';
             let storedAisSource = 'aisstream';
+            let storedDebugLevel = 'basic';
+            let loadFailed = false;
+            let saving = false;
+            let statusTimer = null;
 
             // Helgranskning 2026-07-06 (kontrakt-homey#1): spara-knappen får
             // inte skriva förrän ALLT laddats — annars skrivs select-defaults
@@ -226,9 +230,13 @@
             // en boolean nu när fyra nycklar laddas parallellt.
             let pending = 4;
             saveButton.disabled = true;
-            const loaded = function () {
+            const loaded = function (err) {
+                if (err) {
+                    loadFailed = true;
+                    showStatus(Homey.__('settings.status_load_error'), 'error', true);
+                }
                 pending--;
-                if (pending === 0) saveButton.disabled = false;
+                if (pending === 0 && !loadFailed) saveButton.disabled = false;
             };
 
             Homey.get('ais_api_key', function (err, apiKey) {
@@ -236,29 +244,28 @@
                     storedApiKey = String(apiKey).trim();
                     apiKeyInput.value = storedApiKey;
                 }
-                loaded();
+                loaded(err);
             });
             Homey.get('aishub_username', function (err, username) {
                 if (!err && username) {
                     storedAishubUsername = String(username).trim();
                     aishubUsernameInput.value = storedAishubUsername;
                 }
-                loaded();
+                loaded(err);
             });
             Homey.get('ais_source', function (err, source) {
                 if (!err && source && ALLOWED_SOURCES.indexOf(String(source)) !== -1) {
                     storedAisSource = String(source);
                 }
                 aisSourceSelect.value = storedAisSource;
-                loaded();
+                loaded(err);
             });
             Homey.get('debug_level', function (err, debugLevel) {
                 if (!err && debugLevel) {
-                    debugLevelSelect.value = debugLevel;
-                } else {
-                    debugLevelSelect.value = 'basic'; // Default to basic
+                    storedDebugLevel = String(debugLevel);
                 }
-                loaded();
+                debugLevelSelect.value = storedDebugLevel;
+                loaded(err);
             });
 
             // Sekventiell skrivkedja: skriv nästa nyckel ENDAST om den ändrats.
@@ -267,7 +274,7 @@
                 if (!next) { done(null); return; }
                 if (!next.changed) { saveChanged(pairs, done); return; }
                 Homey.set(next.key, next.value, function (err) {
-                    if (err) { done(err); return; }
+                    if (err) { done(err, next.key); return; }
                     next.commit();
                     saveChanged(pairs, done);
                 });
@@ -275,10 +282,15 @@
 
             // Save settings
             saveButton.addEventListener('click', function () {
+                if (loadFailed) {
+                    showStatus(Homey.__('settings.status_load_error'), 'error', true);
+                    return;
+                }
                 if (pending > 0) {
                     showStatus(Homey.__('settings.status_still_loading'), 'info');
                     return;
                 }
+                if (saving) return;
                 const apiKey = apiKeyInput.value.trim();
                 const aishubUsername = aishubUsernameInput.value.trim();
                 const aisSource = ALLOWED_SOURCES.indexOf(aisSourceSelect.value) !== -1
@@ -305,63 +317,75 @@
                     return;
                 }
 
+                // En enda sparning åt gången: annars kan två skrivkedjor
+                // blanda användarnamn, källval och API-nyckel från olika klick.
+                saving = true;
+                saveButton.disabled = true;
+                const inputs = [apiKeyInput, aishubUsernameInput, aisSourceSelect, debugLevelSelect];
+                inputs.forEach(function (input) { input.disabled = true; });
                 showStatus(Homey.__('settings.status_saving'), 'info');
 
-                Homey.set('debug_level', debugLevel, function (err) {
-                    if (err) {
-                        // FG-B3s: felsträngen interpoleras med Homeys __token__-
-                        // syntax i stället för konkatenering. String() bevarar
-                        // exakt tidigare utfall även när err.message saknas.
-                        showStatus(Homey.__('settings.status_save_debug_error', { error: String(err.message) }), 'error');
+                saveChanged([
+                    {
+                        key: 'debug_level',
+                        value: debugLevel,
+                        changed: debugLevel !== storedDebugLevel,
+                        commit: function () { storedDebugLevel = debugLevel; },
+                    },
+                    {
+                        key: 'aishub_username',
+                        value: aishubUsername,
+                        changed: usernameChanged,
+                        commit: function () { storedAishubUsername = aishubUsername; },
+                    },
+                    {
+                        key: 'ais_source',
+                        value: aisSource,
+                        changed: sourceChanged,
+                        commit: function () { storedAisSource = aisSource; },
+                    },
+                    {
+                        // Sist: ais_api_key — skrivningen triggar käll-
+                        // omkonfigurationen i appen, så username/källval
+                        // ska redan vara på plats när den landar.
+                        key: 'ais_api_key',
+                        value: apiKey,
+                        changed: apiKeyChanged,
+                        commit: function () { storedApiKey = apiKey; },
+                    },
+                ], function (err2, failedKey) {
+                    saving = false;
+                    saveButton.disabled = false;
+                    inputs.forEach(function (input) { input.disabled = false; });
+                    if (err2) {
+                        const errorKey = failedKey === 'debug_level'
+                            ? 'settings.status_save_debug_error' : 'settings.status_save_error';
+                        showStatus(Homey.__(errorKey, { error: String(err2.message || err2) }), 'error');
                         return;
                     }
-
-                    saveChanged([
-                        {
-                            key: 'aishub_username',
-                            value: aishubUsername,
-                            changed: usernameChanged,
-                            commit: function () { storedAishubUsername = aishubUsername; },
-                        },
-                        {
-                            key: 'ais_source',
-                            value: aisSource,
-                            changed: sourceChanged,
-                            commit: function () { storedAisSource = aisSource; },
-                        },
-                        {
-                            // Sist: ais_api_key — skrivningen triggar käll-
-                            // omkonfigurationen i appen, så username/källval
-                            // ska redan vara på plats när den landar.
-                            key: 'ais_api_key',
-                            value: apiKey,
-                            changed: apiKeyChanged,
-                            commit: function () { storedApiKey = apiKey; },
-                        },
-                    ], function (err2) {
-                        if (err2) {
-                            showStatus(Homey.__('settings.status_save_error', { error: String(err2.message) }), 'error');
-                            return;
-                        }
-                        if (apiKeyChanged && !apiKey) {
-                            showStatus(Homey.__('settings.status_saved_key_removed'), 'success');
-                        } else if (apiKeyChanged || usernameChanged || sourceChanged) {
-                            showStatus(Homey.__('settings.status_saved_connecting'), 'success');
-                        } else {
-                            showStatus(Homey.__('settings.status_saved'), 'success');
-                        }
-                    });
+                    if (apiKeyChanged && !apiKey) {
+                        showStatus(Homey.__('settings.status_saved_key_removed'), 'success');
+                    } else if (apiKeyChanged || usernameChanged || sourceChanged) {
+                        showStatus(Homey.__('settings.status_saved_connecting'), 'success');
+                    } else {
+                        showStatus(Homey.__('settings.status_saved'), 'success');
+                    }
                 });
             });
 
             // Helper for status messages
-            function showStatus(message, type) {
+            function showStatus(message, type, persistent) {
+                if (statusTimer !== null) {
+                    clearTimeout(statusTimer);
+                    statusTimer = null;
+                }
                 statusDiv.textContent = message;
                 statusDiv.className = 'status ' + type;
                 statusDiv.style.display = 'block';
 
-                if (type !== 'info') {
-                    setTimeout(function () {
+                if (type !== 'info' && !persistent) {
+                    statusTimer = setTimeout(function () {
+                        statusTimer = null;
                         statusDiv.style.display = 'none';
                     }, 5000);
                 }

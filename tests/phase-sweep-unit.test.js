@@ -25,6 +25,24 @@ const sweep = require('./replay-validation/runPhaseSweep');
 
 const SCRIPT = path.join(__dirname, 'replay-validation', 'runPhaseSweep.js');
 
+test('fasvarianten bevarar inspelat startminne och flyttar bara startklockan', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ais-state-phase-'));
+  try {
+    const file = path.join(dir, 'input.jsonl');
+    fs.writeFileSync(file, JSON.stringify({ mmsi: '265000001', aisTimestamp: 1000000 }));
+    const state = { version: 1, capturedAt: 999000, settings: { learned_mooring_spots: [{ lat: 58.26, lon: 12.26, t: 900000 }] } };
+    fs.writeFileSync(path.join(dir, 'input.state.json'), JSON.stringify(state));
+    const output = path.join(dir, 'variant.jsonl');
+    expect(sweep.writePhaseVariant(sweep.readCorpus(file), -5000, output).ok).toBe(true);
+    const restored = JSON.parse(fs.readFileSync(path.join(dir, 'variant.state.json'), 'utf8'));
+    expect(restored.settings).toEqual(state.settings);
+    expect(restored.capturedAt).toBe(994000);
+    expect(JSON.parse(fs.readFileSync(output, 'utf8')).aisTimestamp).toBe(995000);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 /** En sammanfattning i det skick sweepCorpus lämnar den. */
 function summaryOf(over = {}) {
   return {
@@ -98,6 +116,14 @@ describe('matchException — prefix och wildcard', () => {
   const entries = [
     { utfall: 'Stridsbergsbron#', motivering: 'knivsegg i ledande båt', datum: '2026-08-21' },
   ];
+
+  test('snävt undantag gäller bara uppmätt antalsskillnad och angivna faser', () => {
+    const limited = [{ utfall: 'ETA okänd', detalj: 'bas 2 → variant 3', faser: [-20, -25] }];
+    expect(sweep.matchException(limited, 'ETA okänd', 'bas 2 → variant 3', -20)).toBe(limited[0]);
+    expect(sweep.matchException(limited, 'ETA okänd', 'bas 2 → variant 4', -20)).toBeNull();
+    expect(sweep.matchException(limited, 'ETA okänd', 'bas 2 → variant 3', -15)).toBeNull();
+    expect(sweep.matchException(limited, 'ETA okänd')).toBeNull();
+  });
 
   test('utfall matchas som PREFIX mot avvikelsens nyckel', () => {
     expect(matchKey(entries, 'Stridsbergsbron#2')).toBe(entries[0]);
