@@ -47,6 +47,8 @@ const distribution = require(path.join(BASE, 'corpora-distribution.json'));
 const directions = require(path.join(BASE, 'corpora-direction-distribution.json'));
 const openings = require(path.join(BASE, 'opening-distribution.json'));
 const { validateInvariants } = require(path.join(BASE, 'invariants'));
+const { openingDeliveryFailures } = require('./openingDelivery');
+const { eventFacitFailures } = require('./eventFacit');
 
 const TARGETS = process.argv.slice(2);
 if (TARGETS.length === 0) {
@@ -89,6 +91,14 @@ for (const id of TARGETS) {
     process.exit(1);
   }
   const result = JSON.parse(m[1]);
+  const deliveryErrors = openingDeliveryFailures(result);
+  if (deliveryErrors.length) abort(id, deliveryErrors.join('; '));
+  if (corpus.lockEvents) {
+    const eventPath = path.join(BASE, 'golden-events', `${id}.json`);
+    if (!fs.existsSync(eventPath)) abort(id, 'GOLDEN-EVENTS saknas');
+    const differences = eventFacitFailures(result, JSON.parse(fs.readFileSync(eventPath, 'utf8')));
+    if (differences.length) abort(id, differences.join('; '));
+  }
   // Icke-fusionskorpus (gaten ovan) ⇒ distKey === id; skrivsättet behålls
   // identiskt med runAllCorpora:130 så att de inte kan glida isär.
   const distKey = corpus.fusionOf || corpus.id;

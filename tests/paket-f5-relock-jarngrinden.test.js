@@ -90,6 +90,8 @@ function baseResult() {
     notificationCount: 0,
     notifications: [],
     openingWarnings: [],
+    openingServiceFires: 0,
+    openingSuppressions: [],
     bridgeTextTransitions: JSON.parse(JSON.stringify(goldenTransitions)),
   };
 }
@@ -137,6 +139,13 @@ describe('F5: relockGoldenText:s järngrind (baslinje)', () => {
 });
 
 describe('F5: grinden fäller det runAllCorpora fäller på', () => {
+  test('serviceavfyrning utan kort eller belagd dedup ⇒ ABORT utan skrivning', () => {
+    const res = { ...baseResult(), openingServiceFires: 1 };
+    const r = runTool({ results: [res] });
+    expect(r.status).toBe(1);
+    expect(r.writes).toHaveLength(0);
+    expect(r.out).toContain('ÖPPNINGSLEVERANS');
+  });
   test('processfel > 0 ⇒ ABORT utan skrivning', () => {
     const res = baseResult();
     res.processErrors = 3;

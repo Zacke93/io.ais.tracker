@@ -334,8 +334,19 @@ describe('K20a-redo — ledarvalet får inte avgöras mitt i ett pollsvep', () =
     const b = { distanceM: 1277, sog: 0, rawAnchorMs: T0 };
     expect(svc._leadOf([a, b])).toBe(b);
     expect(svc._leadOf([b, a])).toBe(b);
-    // …och _fire läser SAMMA funktion, så de två kan inte glida isär.
-    expect(svc._fire.toString()).toContain('_leadOf(members)');
+    // Kontrollera även det verkliga kortet. Interna hjälpanrop kan flyttas
+    // utan att kontraktet ändras; källkodens stavning är inget beteendebevis.
+    const far = {
+      ...a, mmsi: 'RAW_FAR', name: 'LÄNGRE BORT', expectedArrivalMs: T0 + 60000,
+    };
+    const near = {
+      ...b, mmsi: 'RAW_NEAR', name: 'NÄRMARE', expectedArrivalMs: T0 + 600000,
+    };
+    svc._fire({ id: 'raw-distance#1', bridge: KLAFF.name }, [far, near], [far], 'fix', T0);
+    expect(warnFor(KLAFF.name)).toHaveLength(1);
+    expect(warnFor(KLAFF.name)[0]).toMatchObject({
+      leadMmsi: 'RAW_NEAR', leadVessel: 'NÄRMARE', distanceM: 1277, etaMinutes: 10,
+    });
   });
 
   it('BATCHFÖNSTRET är härlett ur EMIT_SPREAD_MS, inte gissat', () => {

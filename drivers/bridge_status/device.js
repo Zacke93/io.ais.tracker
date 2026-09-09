@@ -106,48 +106,7 @@ class BridgeStatusDevice extends Homey.Device {
 
       this.log('Device initialization complete');
 
-      /* --------- Tvinga en uppdatering efter 1 s ----------- */
-      // A5-fix: _updateActiveBridgesTag fanns inte i app.js — rätt väg är
-      // appens ordinarie UI-pipeline (_updateUI). Timern spåras så
-      // onDeleted kan rensa den om enheten tas bort inom sekunden.
-      // Fable-granskningen 2026-08-10 (FG-E5): onDeletes städning bygger på att
-      // fältet redan BÄR timern. Raderas enheten under någon av awaitarna
-      // ovan (setCapabilityValue ×3, setStoreValue) läste onDeleted ett null
-      // fält och skapades timern EFTERÅT — en föräldralös timer som nollar
-      // appens dedup-cacher och kör _updateUI för en enhet som inte längre
-      // finns. Skapa den aldrig efter raderingen.
-      if (this._deleted) {
-        this.log('Device deleted during init writes — skipping post-init UI timer');
-        return;
-      }
-
-      this._initUpdateTimeout = setTimeout(() => {
-        // FG-E5: stänger fönstret MELLAN skapandet och onDeleteds clearTimeout —
-        // en redan schemalagd callback får aldrig röra appens dedup-cacher för
-        // en raderad enhet.
-        if (this._deleted) return;
-        this._initUpdateTimeout = null;
-        if (typeof this.homey.app?._updateUI === 'function') {
-          this.log('Forcing UI update after device creation');
-          try {
-            // Fable-granskningen 2026-07-10b (SYS-3/P1-5): init-skrivningarna
-            // ovan går UTANFÖR appens serialiserade skrivkedja och kan lägga
-            // en stale text OVANPÅ en nyare push (pariringsrace) — och
-            // hash-/värde-dedupen skrev då aldrig om. Nolla dedup-cacherna
-            // före den forcerade cykeln så den ordinarie kedjan garanterat
-            // skriver om text + larm med FÄRSKT värde till alla enheter.
-            // R2 2026-07-11 (SYSR2-3): även connection_status — den tredje
-            // kanalen skrevs också direkt (rad ~69) och en stale
-            // direktskrivning frös annars tills nästa äkta transition.
-            this.homey.app._lastBridgeTextHash = null;
-            this.homey.app._lastBridgeAlarm = null;
-            this.homey.app._lastConnectionStatus = null;
-            this.homey.app._updateUI('critical', 'device-init');
-          } catch (err) {
-            this.error('Post-init UI update failed:', err);
-          }
-        }
-      }, 1000);
+      this._scheduleInitialSync();
     } catch (err) {
       this.error('Failed to initialize device:', err);
       // ChatGPT-granskningen 2026-07-10 (I1): synliggör felet i stället för
@@ -173,10 +132,62 @@ class BridgeStatusDevice extends Homey.Device {
       } catch (addErr) {
         this.error('Failed to register device for recovery:', addErr);
       }
-      if (typeof this.setUnavailable === 'function') {
-        this.setUnavailable('Initialization failed — recovering automatically').catch(() => {});
+      if (!this._deleted && typeof this.setUnavailable === 'function') {
+        // Slutför statusändringen före återhämtningen så ett sent SDK-svar
+        // inte återställer unavailable efter en lyckad synkning.
+        try {
+          await this.setUnavailable('Initialization failed — recovering automatically');
+        } catch (_) { /* UI-synkningen får ändå försöka återställa enheten. */ }
       }
+      this._scheduleInitialSync();
     }
+  }
+
+  /** Synka även efter initfel; tom kanal ger annars ingen ny skrivning. */
+  _scheduleInitialSync() {
+    /* --------- Tvinga en uppdatering efter 1 s ----------- */
+    // A5-fix: _updateActiveBridgesTag fanns inte i app.js — rätt väg är
+    // appens ordinarie UI-pipeline (_updateUI). Timern spåras så
+    // onDeleted kan rensa den om enheten tas bort inom sekunden.
+    // Fable-granskningen 2026-08-10 (FG-E5): onDeletes städning bygger på att
+    // fältet redan BÄR timern. Raderas enheten under någon av awaitarna
+    // ovan (setCapabilityValue ×3, setStoreValue) läste onDeleted ett null
+    // fält och skapades timern EFTERÅT — en föräldralös timer som nollar
+    // appens dedup-cacher och kör _updateUI för en enhet som inte längre
+    // finns. Skapa den aldrig efter raderingen.
+    if (this._deleted || this.homey.app?._shuttingDown) {
+      this.log('Device deleted during init writes — skipping post-init UI timer');
+      return;
+    }
+
+    if (this._initUpdateTimeout) clearTimeout(this._initUpdateTimeout);
+    this._initUpdateTimeout = setTimeout(() => {
+      // FG-E5: stänger fönstret MELLAN skapandet och onDeleteds clearTimeout —
+      // en redan schemalagd callback får aldrig röra appens dedup-cacher för
+      // en raderad enhet.
+      this._initUpdateTimeout = null;
+      if (this._deleted || this.homey.app?._shuttingDown) return;
+      if (typeof this.homey.app?._updateUI === 'function') {
+        this.log('Forcing UI update after device creation');
+        try {
+          // Fable-granskningen 2026-07-10b (SYS-3/P1-5): init-skrivningarna
+          // ovan går UTANFÖR appens serialiserade skrivkedja och kan lägga
+          // en stale text OVANPÅ en nyare push (pariringsrace) — och
+          // hash-/värde-dedupen skrev då aldrig om. Nolla dedup-cacherna
+          // före den forcerade cykeln så den ordinarie kedjan garanterat
+          // skriver om text + larm med FÄRSKT värde till alla enheter.
+          // R2 2026-07-11 (SYSR2-3): även connection_status — den tredje
+          // kanalen skrevs också direkt (rad ~69) och en stale
+          // direktskrivning frös annars tills nästa äkta transition.
+          this.homey.app._lastBridgeTextHash = null;
+          this.homey.app._lastBridgeAlarm = null;
+          this.homey.app._lastConnectionStatus = null;
+          this.homey.app._updateUI('critical', 'device-init');
+        } catch (err) {
+          this.error('Post-init UI update failed:', err);
+        }
+      }
+    }, 1000);
   }
 
   /* ---------------------------------------------------

@@ -375,7 +375,7 @@ describe('M1: ihållande stillhetsankare', () => {
     svc.updateVessel(mmsi, {
       mmsi, lat: QUAY.lat, lon: QUAY.lon, sog: 0.1, cog: 10, name: 'BLAND', timestamp: NOW,
     });
-    const ank0 = svc.vessels.get(mmsi)._stillnessAnchor;
+    const ank0 = { ...svc.vessels.get(mmsi)._stillnessAnchor };
     expect(ank0.t).toBeLessThanOrEqual(t0 + 60000);
     NOW += 60000;
     svc.updateVessel(mmsi, {
@@ -383,9 +383,16 @@ describe('M1: ihållande stillhetsankare', () => {
     });
     expect(svc.vessels.get(mmsi)._stationarySince).toBeNull();
 
-    // (2) Lång tystnad i fartgivaren: två sog=null-prov inom jitterradien
-    //     startar klockan igen via positionsvägen — 40 minuter senare.
-    NOW += 40 * 60 * 1000;
+    // (2) Positionerna fortsätter komma under de 40 minuterna. Full AIS-
+    // tystnad över 30 min avslutar livscykeln och är ett separat kontrakt
+    // (runtime-expired-ingest). Här prövas bara bytet till okänd fart i en
+    // pågående vistelse; ankaret ska vara äldre än den nya null-sog-klockan.
+    for (let minute = 5; minute <= 40; minute += 5) {
+      NOW += 5 * 60 * 1000;
+      svc.updateVessel(mmsi, {
+        mmsi, lat: QUAY.lat, lon: QUAY.lon, sog: 1.2, cog: 10, name: 'BLAND', timestamp: NOW,
+      });
+    }
     svc.updateVessel(mmsi, {
       mmsi, lat: QUAY.lat, lon: QUAY.lon, sog: null, cog: 10, name: 'BLAND', timestamp: NOW,
     });

@@ -12,9 +12,9 @@
  *
  * INV-1  Grammatik: varje publicerad text matchar Variant-1-grammatiken;
  *        inga trasiga tokens (undefined/NaN/null/[object Object]).
- * INV-2  Notiskvalitet: giltiga tokens; (mmsi,bro)-dubbletter är brott UTOM
- *        när en journey-reset (U-sväng/NEW_JOURNEY/re-entry) ligger mellan
- *        dem — då är det en legitim ANDRA passage av samma bro.
+ * INV-2  Notiskvalitet: giltiga tokens; nya notiser för samma (mmsi,bro)
+ *        kräver observerad områdesåterkomst mellan notiserna eller stöd
+ *        i de äldre reglerna för journey-reset/riktningsbevisad retur.
  * INV-3  ETA-sågtand: upp-hopp ≥6 min inom ≤120 s i operativa bandet, och
  *        oscillation X→Y→X′ inom 240 s.
  * INV-4  Count-degradering: generisk "är i närheten"-text inklämd mellan
@@ -27,7 +27,7 @@
  *        registreringen — "klockan får inte ringa efter att tåget gått".
  * INV-8  Namnkvalitet (skärpt 2026-07-03): notis med platshållarnamn trots
  *        att riktigt namn förekommit i strömmen före notisögonblicket.
- * INV-9  Klausulstruktur: max EN klausul per målbro i samma text; Klaffbron
+ * INV-9  Klausulstruktur: en klausul per rörelse-/väntgrupp; Klaffbron
  *        före Stridsbergsbron; rimlighetstak på antal (≤15).
  * INV-10 Strax-zombie: en "strax"-text som står orörd >35 min utan att någon
  *        målbropassage sker för bron är en fastfrusen lögn.
@@ -69,10 +69,12 @@ const TARGET = '(Klaffbron|Stridsbergsbron)';
 // alternativ i INV-1:s grammatik är en öppen dörr — en framtida regression som
 // råkar producera frasen hade passerat grinden tyst.
 const ETA_CLAUSE = '(beräknad broöppning (strax|om (cirka )?([1-9]\\d{0,2}) minuter)|ETA okänd)';
+const WAIT_CLAUSE = new RegExp(`^(En båt|${COUNT_WORDS} båtar) väntar vid (?<waitingAt>Klaffbron|Stridsbergsbron|Olidebron|Järnvägsbron)(?: på väg mot (?<target>Klaffbron|Stridsbergsbron))?$`);
 const CLAUSE_RES = [
   new RegExp('^Inga båtar är i närheten av Klaffbron eller Stridsbergsbron$'),
   new RegExp(`^En båt på väg mot ${TARGET}, ${ETA_CLAUSE}$`),
   new RegExp(`^${COUNT_WORDS} båtar på väg mot ${TARGET}, ${ETA_CLAUSE}$`),
+  WAIT_CLAUSE,
   new RegExp(`^${COUNT_WORDS} båtar? är i närheten av (broarna|${TARGET})$`),
   // INV-1-skärpning (2026-07-01): nödfallbacken måste peka på en KÄND bro —
   // "En båt 250m från null" passerade tidigare.
@@ -87,6 +89,12 @@ const TARGET_BRIDGES = ['Klaffbron', 'Stridsbergsbron'];
 
 /** Extrahera {bridge, eta, approx} ur en klausul ("strax" → 0.5, "okänd" → null). */
 function parseClause(clause) {
+  const waiting = clause.match(WAIT_CLAUSE);
+  if (waiting) {
+    return {
+      bridge: waiting.groups.target || waiting.groups.waitingAt, eta: null, approx: false, waitingAt: waiting.groups.waitingAt,
+    };
+  }
   const m = clause.match(new RegExp(`på väg mot ${TARGET}, ${ETA_CLAUSE}`));
   if (!m) return null;
   const bridge = m[1];
@@ -144,8 +152,12 @@ function collectDefaultSandwiches(transitions, targetPassages) {
   const clauseSig = (text) => {
     const m = new Map();
     for (const clause of text.split('; ')) {
-      const p = clause.match(new RegExp(`^(\\S+) båt(?:ar)? på väg mot ${TARGET}`));
-      if (p) m.set(p[2], p[1]);
+      const parsed = parseClause(clause);
+      if (!parsed) continue;
+      const count = countMentioned(clause);
+      const previous = m.get(parsed.bridge);
+      const total = count + (previous?.total || 0);
+      m.set(parsed.bridge, { total, word: previous ? String(total) : clause.split(' ')[0] });
     }
     return m;
   };
@@ -159,13 +171,13 @@ function collectDefaultSandwiches(transitions, targetPassages) {
     const before = clauseSig(prev.text);
     const after = clauseSig(next.text);
     for (const [bridge, count] of before) {
-      if (after.get(bridge) !== count) continue;
+      if (after.get(bridge)?.total !== count.total) continue;
       const passageBetween = targetPassages.some(
         (p) => p.bridge === bridge && p.t >= prev.t && p.t <= next.t,
       );
       if (passageBetween) continue;
       out.push({
-        iso: transitions[i].iso, spanS, bridge, count, fromT: prev.t, toT: next.t,
+        iso: transitions[i].iso, spanS, bridge, count: count.word, fromT: prev.t, toT: next.t,
       });
     }
   }
@@ -177,6 +189,7 @@ function validateInvariants(result) {
   const transitions = result.bridgeTextTransitions || [];
   const notifications = result.notifications || [];
   const journeyResets = result.journeyResets || [];
+  const visitReentries = Array.isArray(result.visitReentries) ? result.visitReentries : [];
   const targetPassages = result.targetPassages || [];
   const intermediatePassages = result.intermediatePassages || [];
 
@@ -193,9 +206,10 @@ function validateInvariants(result) {
     }
   }
 
-  // INV-2: notistokens giltiga + (mmsi,bro)-dubbletter utan mellanliggande
-  // journey-reset. En bekräftad U-sväng/re-entry mellan två notiser för samma
-  // nyckel legitimerar den andra (fysiskt två passager av samma bro).
+  // INV-2: notistokens giltiga + en notis per sammanhängande områdesbesök.
+  // Ett observerat återbesök gäller bara det aktuella parets fartyg och bro.
+  // Äldre journey-reset-/riktningsregler består för resultat och historiska
+  // passage-fallbacks som saknar områdesbokföring.
   const byKey = new Map();
   for (const n of notifications) {
     if (!n.mmsi || !/^\d+$/.test(String(n.mmsi))) violations.push(`NOTIS ogiltig mmsi: ${JSON.stringify(n)}`);
@@ -217,12 +231,20 @@ function validateInvariants(result) {
       const resetBetween = journeyResets.some(
         (r) => r.mmsi === mmsi && r.t >= prevT && r.t <= curT,
       );
+      // Observationen sker före Flow-anropet på samma AIS-fix och kan därför
+      // ha exakt nästa notis tidsstämpel. Strikt > prevT gör att den aldrig
+      // kan legitimera ytterligare en notis i nästa par.
+      const reentryBetween = visitReentries.some(
+        (r) => r && String(r.mmsi) === mmsi && r.bridge === sorted[i].bridge
+          && Number.isFinite(r.t) && r.t > prevT && r.t <= curT,
+      );
       // Riktningsmedvetenhet (2026-07-02b): två notiser för samma nyckel i
       // MOTSATT riktning är en fysisk RETURPASSAGE (per-bro-semantiken:
       // varje transit ska notifiera) — legitim även utan reset-event, för
       // Fix D bekräftar inte alla U-svängar (t.ex. vändning FÖRE målbron
       // där ruttriktningen hinner låsas om av annan mekanism). Dubblett-
-      // skyddet består i SAMMA riktning: där krävs journey-reset.
+      // skyddet består i SAMMA riktning: där krävs journey-reset eller
+      // den observerade områdesåterkomsten ovan.
       //
       // Testauditen 2026-07-10 (TB5): undantaget var en öppen dörr — en
       // serie N,S,N,S,… godkändes helt (varje konsekutivt par "motsatt"),
@@ -238,11 +260,11 @@ function validateInvariants(result) {
         && prevDir !== curDir;
       const physicallyPlausibleReturn = oppositeDirections
         && (curT - prevT) >= 5 * 60 * 1000;
-      if (!resetBetween && !physicallyPlausibleReturn) {
+      if (!reentryBetween && !resetBetween && !physicallyPlausibleReturn) {
         const flipNote = oppositeDirections
           ? ` (riktningsflip inom ${Math.round((curT - prevT) / 1000)}s — fysiskt orimlig retur)`
           : '';
-        violations.push(`NOTIS-DUBBLETT: ${k} × ${list.length} utan journey-reset emellan${flipNote}`);
+        violations.push(`NOTIS-DUBBLETT: ${k} × ${list.length} utan observerad återkomst eller journey-reset emellan${flipNote}`);
         break;
       }
     }
@@ -430,19 +452,19 @@ function validateInvariants(result) {
   // INV-9: klausulstruktur — max en klausul per målbro, Klaffbron först,
   // rimlighetstak på totalantal.
   for (const t of transitions) {
-    if (!/på väg mot/.test(t.text)) continue;
+    if (!/på väg mot|väntar vid/.test(t.text)) continue;
     const clauses = t.text.split('; ');
     const bridgesSeen = [];
+    const groupsSeen = new Set();
     for (const clause of clauses) {
-      const m = clause.match(new RegExp(`på väg mot ${TARGET}`));
-      if (m) bridgesSeen.push(m[1]);
+      const parsed = parseClause(clause);
+      if (!parsed) continue;
+      bridgesSeen.push(parsed.bridge);
+      const key = `${parsed.bridge}:${parsed.waitingAt || 'moving'}`;
+      if (groupsSeen.has(key)) violations.push(`DUBBEL MÅLBRO-KLAUSUL: ${t.iso} "${t.text}"`);
+      groupsSeen.add(key);
     }
-    const dupBridge = bridgesSeen.find((b, i) => bridgesSeen.indexOf(b) !== i);
-    if (dupBridge) {
-      violations.push(`DUBBEL MÅLBRO-KLAUSUL: ${t.iso} "${t.text}"`);
-    }
-    if (bridgesSeen.length === 2
-        && bridgesSeen[0] === 'Stridsbergsbron' && bridgesSeen[1] === 'Klaffbron') {
+    if (bridgesSeen.some((bridge, i) => bridge === 'Klaffbron' && bridgesSeen.slice(0, i).includes('Stridsbergsbron'))) {
       violations.push(`FEL KLAUSULORDNING: ${t.iso} "${t.text}" (Klaffbron ska stå först)`);
     }
     const mentioned = countMentioned(t.text);
@@ -480,8 +502,15 @@ function validateInvariants(result) {
   // INV-12: läckage — alla per-fartygs-strukturer ska vara tomma efter
   // efterspelet. Medvetna undantag: triggeredBoatNearKeys (BUG 7 bevarar
   // dedup-nycklar vid timeout-removal), persistentRecentTriggers (2h TTL
-  // by design), heapUsedMB (mätvärde, ej räknare).
-  const LEAK_EXCEPTIONS = new Set(['triggeredBoatNearKeys', 'persistentRecentTriggers', 'heapUsedMB']);
+  // by design), triggerPointVisits (besöksminne som överlever AIS-tystnad),
+  // heapUsedMB (mätvärde, ej räknare). Besöksminnet har ett eget kontrakt:
+  // högst 2048 poster, inte tomhet efter 40 min utan radiosändning.
+  if (Object.prototype.hasOwnProperty.call(leaks, 'triggerPointVisits')
+      && (!Number.isInteger(leaks.triggerPointVisits)
+        || leaks.triggerPointVisits < 0 || leaks.triggerPointVisits > 2048)) {
+    violations.push(`BESÖKSMINNE: triggerPointVisits=${leaks.triggerPointVisits} (ska vara heltal 0–2048)`);
+  }
+  const LEAK_EXCEPTIONS = new Set(['triggeredBoatNearKeys', 'persistentRecentTriggers', 'triggerPointVisits', 'heapUsedMB']);
   for (const [field, value] of Object.entries(leaks)) {
     if (LEAK_EXCEPTIONS.has(field)) continue;
     if (Number.isFinite(value) && value !== 0) {

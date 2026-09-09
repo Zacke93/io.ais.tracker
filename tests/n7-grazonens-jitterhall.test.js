@@ -184,16 +184,22 @@ describe('N7: gråzonens jitterhåll (0,3–0,49 kn)', () => {
     expect(e2._moored).toBe(false);
   });
 
-  test('UNGT ANKARE (< 30 min) ⇒ gråzonsparet släpper som före N7', () => {
+  test('UNGT ANKARE vid redan bevisad kajförtöjning ⇒ gråzonsparet håller utan förflyttning', () => {
     const svc = makeVDS();
     const mmsi = '265907003';
-    // 20 minuters vistelse: ankaret är omoget, villkor (2) i hållet faller.
+    // Inför fältprov 2026-09-06: N7:s gamla avgränsning släppte även en
+    // REDAN bevisad kajvistelse. DORY MAN:s rådata visar samma fel på
+    // 0,6-knopsgrenen: återinförd målbro trots bara några meters jitter.
+    // Zonens stillhetskrav räcker nu som bevis för detta håll; 30 minuter
+    // krävs fortfarande utanför en redan klassad kajförtöjning.
     laggTillKajs(svc, mmsi, 20);
     const fore = svc.vessels.get(mmsi);
+    expect(fore._moored).toBe(true);
     expect(NOW - fore._stillnessAnchor.t).toBeLessThan(ARM_STALE_TTL_MS);
     grazonsprov(svc, mmsi, 0);
     const e2 = grazonsprov(svc, mmsi, 0);
-    expect(e2._stationarySince).toBeNull();
+    expect(e2._stationarySince).toBe(fore._stationarySince);
+    expect(e2._moored).toBe(true);
   });
 
   test('HYSTERESEN ÄR OFÖRÄNDRAD: ett ensamt gråzonsprov nollar aldrig, och räknaren nollställs av ett stillasampel', () => {

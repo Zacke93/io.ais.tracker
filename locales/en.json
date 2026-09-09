@@ -33,6 +33,7 @@
     "instructions_footer": "The connection status is shown on the \"Bridge Status\" device in your home.",
     "attribution": "AIS data: AISHub (aishub.net) and aisstream.io",
     "status_still_loading": "⏳ Settings are still loading — try again in a moment.",
+    "status_load_error": "❌ Settings could not be loaded. Close and reopen this page before saving.",
     "status_key_too_short": "❌ The API key looks too short. Check your key from aisstream.io",
     "status_bad_username": "❌ The AISHub username may only contain letters, digits, dot, underscore and dash (3-64 characters). Enter the username only — not a URL.",
     "status_source_needs_username": "❌ That source mode requires an AISHub username. Fill it in first, or keep \"AISstream only\".",

@@ -38,10 +38,17 @@ app.js händelsehanterare (_onVesselEntered:804, _onVesselUpdated:858, _onVessel
    ├─→ BridgeOpeningService.observe (§3)      [PROAKTIVT: beväpning från 2500 m]
    └─→ _updateUI → coalescing → _processUIUpdate:2393 → bridge_text-capability + global token
 
-30 s-watchdogen (_initializeCoalescingSystem)
-   └─→ BridgeOpeningService.tick() → deadline-motorn → onWarning → bridge_opening_soon
-       (FÖRE watchdogens tomkanals-retur — annars dör äggklockan när den behövs)
+Watchdogen på fasta halvminuter (_initializeCoalescingSystem)
+   ├─→ BridgeOpeningService.tick() (reservsvep, även när kanalen är tom)
+   └─→ UI-uppdatering och självläkning
+BridgeOpeningService: gemensam timer för nästa deadline/utgången konvojtäckning
+   └─→ onWarning → bridge_opening_soon
 ```
+
+Tidsstyrningen ovan gäller sedan 2026-09-08. Förbrukad ankomstprognos efter
+mer än fem minuters AIS-tystnad ger okänd ETA i öppningskortet. Full loggning
+bevarar även avvisade AISstream-fixar i `AIS_SOURCE_REJECT_SAMPLE`; dessa
+diagnostikrader påverkar varken livstecken eller appens replayindata.
 
 Moduler (ansvar / ägda tillstånd / in-ut):
 
@@ -877,6 +884,16 @@ båt.
   nettokrav gäller `geometry` METHOD 1, som läser stämpeln + ankaret
   (`zoneCrossProven`) som alternativ till sitt tvåsampels-`sideFlipped`;
   metoderna 4/5/6 är oförändrade.
+  **Epsilonbekräftelse (P1, 2026-09-06):** ett verkligt teckenbyte vars
+  slutpunkt ligger i ±10 m-bandet sparas som `_underBridgePendingCross`.
+  Kandidaten ändrar inget passagebeslut förrän en ny fix bevisar entydigt
+  motsatta sidor mot startpunkten. Båda farterna måste vara minst 0,3 kn i
+  varje segment, hela spåret högst 400 m och kandidaten högst 2 minuter.
+  GPS-hopp/osäker position, stillhet, källgrind, nytt zonbesök och brobyte
+  bryter kedjan. Fältlistan bevarar kandidaten över AIS-objektbyten.
+  Råfallen PRIMA LADY 2026-08-24 och ANDREA 2026-08-05 återfår Olidebron;
+  deras växande bakåtben i Klaffbron-ETA:n försvinner. U-svängens nettokrav
+  och samtliga befintliga passagegrindar består.
   Fyra spärrar: inget bevis på en GPS-hoppstick (hoppet ÄR annars "sidbytet" —
   flaggan skickas ned i `_isUnderBridge`), inget bevis när BÅDA samplen är
   bevisat stillaliggande med jitter-liten rörelse (CG2-1-spegeln), segment
@@ -903,10 +920,31 @@ båt.
 3. **Navstatus**: 1 (ankar)/5 (förtöjd) + stillaliggande (:1666–1668).
 4. **Kajzon**: stationär i MOORING_ZONE kräver stillhetsTID — 3 min normalt,
    **15 min** för trolig köare (target inom 600 m + rörelsebevis) (:1681–1696).
-5. **2h-backstop**: stationär > MAX_STATIONARY_WAIT_MS (:1698–1702).
+5. **2h-backstop**: stationär > MAX_STATIONARY_WAIT_MS. Sedan 2026-09-06
+   undantas styrkt, fortsatt färsk brokö enligt kontraktet nedan.
    Släpp-hysteres: tydlig avgång (≥0.5 kn) direkt; gråzon kräver 2 prover
    (`_mooredReleasePending`, :1638–1653); navstatus-flap ensam släpper inte
    (:1660–1665).
+
+**Lång brokö (användarval 2026-09-06).** VDS bokför högst fyra
+`_bridgeQueueApproaches` i den levande resan. Minst 50 m nettoförflyttning
+mot samma öppningsbara bro, från samma sida och resriktning, krävs för
+bekräftelse; fartspikar och återlevererade fixtider räcker inte. Posten
+undantar tvåtimmarsklassningen och den separata tiominutersdemoteringen
+bara vid bekräftad `waitingAtBridge`, före brolinjen, inom väntans befintliga
+350 m-gräns, med färsk position och utan GPS-osäkerhet, förtöjningsstatus
+eller känd kaj. Det gäller också väntan vid Järnvägsbron på väg mot Klaffbron
+och Olidebron söderut efter sista målbron. Uppgiften bevaras av den explicita
+fältlistan, rensas vid ny resa/riktningsbyte/passage och sparas inte i grav.
+
+Färskhet använder `max(timestamp, lastPositionUpdate)` inom tio minuter;
+`_lastSeen` är inget positionsbevis. AISHubs `fixTs` måste dessutom vara
+inom dess befintliga ålders- och klockskevsgränser. Nya rapporter på samma
+koordinater håller väntan levande. Gammal eller GPS-osäker information
+skapar inte i sig en klistrande förtöjning. RC7:s 25-minutersvisningsgräns
+och borttagning/stale-svep efter cirka 30 minuter gäller fortfarande.
+En båt som först observeras stilla utan anflygning får inget obegränsat
+köundantag. Se [fältprovskörboken](infor-faltprov-2026-09-06.md).
 
 ### ETA-extrapoleringens tillstånd (app.js `_reevaluateVesselStatuses`, :3262–3531)
 
@@ -1042,16 +1080,19 @@ Permanent valideringsverktyg — kör den RIKTIGA appen mot inspelad AIS-jsonl.
   och timers (`clock.tick(gap)` mellan samples, :89–92, :214–215); setImmediate/
   nextTick hålls äkta. Init KRÄVER `__TEST_MODE__=true` (:95; av före uppspelning
   :206–207). Notisfångsten bär name/distance/source (:307–327) +
-  positionsberikning (närmaste sampel före/efter per mmsi → vesselLat/Lon/LatNext
-  :329–354; firstNameSeen :358–365) för INV-8/11/15. `ctrl:'restart'` = äkta
+  positionen vid det verkliga SDK-kortanropet för INV-8/11/15, även när
+  removal skickar ett fallback-kort. Framtida sampel används inte som då känd
+  position. `ctrl:'restart'` = äkta
   processomstart (:246–264): `onUninit()` → `new AISBridgeApp()` → `onInit()`;
   persistensen återläses ur samma mock-settings; notiser samlas över instanserna.
-- `corpora.js`: **17 låsta korpusar (~277,5 h)** + en olåst 42h-körning, med
+- `corpora.js`: **20 låsta korpusar (374,1 h)**, inklusive 42h-körningen, med
   `expectedNotifications` + motiverad `note` vid omlåsning = **facit**;
-  `corpora-distribution.json` låser fördelningen per fartyg+bro. Räkna aldrig
+  `corpora-distribution.json` låser fördelningen per fartyg+bro. Samtliga 20
+  låser även öppningar; sju har fullständiga `golden-events` för att upptäcka
+  ändrade tider, ETA-token, medlemmar och passageposter. Räkna aldrig
   siffran ur den här raden — den ändras vid varje låsning; `npm run replay:all`
-  skriver ut den aktuella. Jsonl:erna ligger byte-exakt i `corpora-data/`
-  (20 filer = de 18 korpusposterna + fusionsparet); `appLog`-fälten pekar på det
+  skriver ut den aktuella. Jsonl:erna ligger byte-exakt i `corpora-data/`;
+  `appLog`-fälten pekar på det
   externa arkivet `../logs/` och konsumeras aldrig av harnessen.
 - `checkReplayIntegrity.js` (K24, 2026-08-21): bevisar att en fångad jsonl bär
   HELA loggens facit — en rad per `[AIS_REPLAY_SAMPLE]`, samma ordning, hel
@@ -1074,8 +1115,8 @@ Permanent valideringsverktyg — kör den RIKTIGA appen mot inspelad AIS-jsonl.
   ledande/riktning/eta/källa, brotextmultiset dedupad i följd); notisernas
   ETA-token och ren ordningsomkastning i brotexten rapporteras men fäller inte.
   Accepterad känslighet skrivs i `phase-sweep-exceptions.json` (motivering +
-  datum obligatoriska, annars exit 2). Utan argument sveper skriptet de OLÅSTA
-  korpusarna. Fältmätning 2026-08-21: pelare 2 är fas-robust (notis- och
+  datum obligatoriska, annars exit 2). Utan argument sveper skriptet de olåsta
+  korpusarna, annars hela banken. Historisk fältmätning 2026-08-21: pelare 2 var fas-robust (notis- och
   passagemultiset identiska i alla varianter, både på 19/8-korpusen och den
   olåsta 42h-körningen) — öppningsmotorn och ETA-texten är knivseggarna.
 - `invariants.js`: facit-OBEROENDE sanningskontroller **INV-1…INV-21**. Fatala:
@@ -1162,7 +1203,7 @@ micro-graces kritisk-övergångsterm läste `_criticalTransitionHoldUntil`/
 `_hasCriticalZoneTransitions` slår nu upp det levande objektet via
 `getVessel(mmsi)`. Fältlistan bär numera även `_underBridgeFrozenAccMs`,
 `_underBridgeEntryLat/Lon`, `_underBridgePrevLat/Lon/Sog`,
-`_underBridgeCrossedBridge`, `_secondSourceFixAt` (segmentbeviset — utan arv
+`_underBridgeCrossedBridge`, `_underBridgePendingCross`, `_secondSourceFixAt` (segmentbeviset — utan arv
 nollas det av varje meddelande och fixen vore död i produktion),
 `_pendingTarget` och `lastCoordinationLevel`;
 snapshotten bär även `_moored`/`_hasMovementProof` (exit-fallbackens gates).
@@ -2115,6 +2156,34 @@ U10-texten. U9-räddningsventilen (öppningsmotorn) ligger HEL men AVSTÄNGD
 bakom `BRIDGE_OPENING.U9_RESCUE_COVERAGE=false` — mätningen falsifierade
 väg (b): bred täckning + individuella deadlines splittrar äkta konvojer.
 H-4b-öppningsliggaren i `runOpeningGates` redovisar >1-/0-räknarna separat.
+
+**Väntnotis (användarbeslut 2026-09-06).** `StatusService` sätter
+`waitingAtBridge` till den bekräftade väntbron före `status:changed` och
+nollar fältet vid annan slutstatus. Debounce/stabilisering håller även
+brobindningen; `VesselDataService` bevarar den mellan AIS-fix och rensar vid
+reserensning. `boat_near` använder väntformen bara när notisens bro matchar
+fältet och är öppningsbar: ”X inväntar broöppning vid Y”, `eta_minutes=-1`,
+`eta_available=false`. Ingen separat fartgräns införs för texten.
+Passerad-formerna har företräde. Intern målbro-ETA, `bridge_text`,
+öppningsvarningar och notisernas urval/deduplicering behåller sina regler.
+”Alla broar” matchar varje brohändelse, även flera broar för samma fartyg.
+
+**AISHub-cache (2026-09-06).** Råa fixar äldre än befintliga
+`MAX_FIX_AGE_MS` (12 minuter) stoppas före dedup och omprövas vid faktisk
+emission efter batchfördröjning. Samma gamla `TIME` får därmed inte förnya
+VDS:s positionsklocka när dedup-TTL löpt ut, även i solo-AISHub. Nya fixtider
+med oförändrade koordinater godtas. Friska HTTP-svar bevarar pollhälsan;
+`staleFixes` och `AISHUB_STALE_EMIT` visar varför en position inte skickas
+vidare. Fusionens separata klockkorrigering och framåtgräns består.
+
+**Sena Homey-svar (2026-09-06).** Skrivköer binds till `_runtimeLifecycle`.
+Gamla köade enhetsskrivningar startar inte efter ny init, och redan skickade
+skrivningar som landar sent kompenseras med senast önskat värde. Global
+token återanvänds via SDK:s `getToken`; en sen `createToken` efter timeout
+återvinns i aktuell livscykel. Senaste önskade tokenvärde registreras före
+asynkron init, så en äldre fortsättning inte skriver över ett nyare beslut.
+Regressionerna kontrollerar faktiska slutvärden, inklusive flera enheter
+och synkrona SDK-fel. Se [fältprovskörboken](infor-faltprov-2026-09-06.md).
 
 **Kända latenta klasser efter natten:** avgångs-ETA räknas på
 igångsättningsfart (ANYA ELAN: "om 23 min" för verklig 10,5 — churnen

@@ -23,7 +23,7 @@
     {
       "step": 5,
       "description": "Just passed Stallbackabron (80m south)",
-      "expectedText": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 14 minuter"
+      "expectedText": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 13 minuter"
     },
     {
       "step": 6,
@@ -43,7 +43,7 @@
     {
       "step": 9,
       "description": "Just passed Stridsbergsbron (80m south)",
-      "expectedText": "En båt på väg mot Klaffbron, beräknad broöppning om 8 minuter"
+      "expectedText": "En båt på väg mot Klaffbron, beräknad broöppning om 7 minuter"
     },
     {
       "step": 10,
@@ -85,7 +85,7 @@
     {
       "step": 5,
       "description": "Just passed Klaffbron (80m north)",
-      "expectedText": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 9 minuter"
+      "expectedText": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 8 minuter"
     },
     {
       "step": 6,
@@ -107,7 +107,7 @@
     {
       "step": 1,
       "description": "Fast vessel 800m from Klaffbron",
-      "expectedText": "En båt på väg mot Klaffbron, beräknad broöppning om 8 minuter"
+      "expectedText": "En båt på väg mot Klaffbron, beräknad broöppning om 3 minuter"
     },
     {
       "step": 2,
@@ -192,7 +192,7 @@
     {
       "step": 4,
       "description": "Just passed Stallbackabron (80m south)",
-      "expectedText": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 14 minuter"
+      "expectedText": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 13 minuter"
     }
   ],
   "Intermediate bridge: Olidebron messages": [

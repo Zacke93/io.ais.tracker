@@ -13,7 +13,10 @@
  * En @sinonjs/fake-timers-klocka driver BÅDE Date.now OCH setTimeout/setInterval.
  * Mellan två samples stegas klockan fram till nästa samples aisTimestamp med
  * clock.tick(gap) — då fyrar appens RIKTIGA cleanup-/STALE_AIS-/protection-/
- * monitoring-timrar precis som i drift. I v1 mockades bara Date.now medan
+ * timrar. Monitoring är normalt avstängt; REPLAY_MONITORING=1 aktiverar
+ * dessutom produktionens minutloop (städning och stale-svep). Källorna är
+ * oanslutna testklienter: läget mäter inte nätkontakt eller källhälsa.
+ * I v1 mockades bara Date.now medan
  * setTimeout var äkta och aldrig hann lösa ut → fartyg städades aldrig → replayen
  * ÖVER-producerade fantomnotiser för fartyg som produktion korrekt tagit bort.
  *
@@ -96,6 +99,7 @@ const drain = () => new Promise((resolve) => realSetImmediate(resolve));
 // en notis vars riktning inte står i sin vitlista, och den grinden ska
 // fortsätta se ett saknat värde som saknat — inte som ett städat 'unknown'.
 const { fromUserDirection } = require(path.join(ROOT, 'lib', 'utils', 'directionTokens'));
+const { loadState } = require(path.join(ROOT, 'lib', 'utils', 'replayStartupState'));
 const internalDirection = (value) => (typeof value === 'string' ? fromUserDirection(value) : value);
 
 async function main() {
@@ -106,6 +110,11 @@ async function main() {
     process.exit(1);
   }
 
+  const statePath = process.env.REPLAY_INITIAL_STATE || jsonlPath.replace(/\.jsonl$/, '.state.json');
+  const initialState = fs.existsSync(statePath) ? JSON.parse(fs.readFileSync(statePath, 'utf8')) : null;
+  if (process.env.REPLAY_INITIAL_STATE && !initialState) throw new Error(`Starttillstånd saknas: ${statePath}`);
+  const initialSettings = initialState ? loadState(initialState) : {};
+
   let samples = fs.readFileSync(jsonlPath, 'utf8').trim().split('\n')
     .filter(Boolean)
     .map((l) => JSON.parse(l));
@@ -115,13 +124,29 @@ async function main() {
     process.stdout.write(`__REPLAY_JSON__${JSON.stringify({ error: 'no samples', mmsiFilter })}__END__\n`);
     return;
   }
+  if (initialState && initialState.capturedAt > samples[0].aisTimestamp) throw new Error('Starttillståndet är nyare än AIS-körningen');
 
   // ---- Fake-klocka: driver BÅDE Date OCH setTimeout/setInterval ----
   // setImmediate hålls äkta (draineras manuellt). nextTick lämnas äkta.
   const clock = FakeTimers.install({
-    now: samples[0].aisTimestamp,
+    now: initialState ? initialState.capturedAt : samples[0].aisTimestamp,
     toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
   });
+  const monitoringEnabled = process.env.REPLAY_MONITORING === '1';
+  const runtimeDiagnostics = {
+    monitoringEnabled,
+    monitoringStarts: 0,
+    staleSweeps: 0,
+    shutdownErrors: 0,
+    timersAfterRestartShutdown: [],
+    timersAfterShutdown: null,
+  };
+  const startMonitoring = (instance) => {
+    if (!monitoringEnabled) return;
+    instance._setupMonitoring();
+    if (!instance._monitoringInterval) throw new Error('Replay begärde monitoring men ingen minutloop startade');
+    runtimeDiagnostics.monitoringStarts++;
+  };
 
   // ---- Init app ----
   global.__TEST_MODE__ = true; // hindrar monitoring-intervall under init
@@ -135,7 +160,7 @@ async function main() {
   // Fältprov 6 (2026-07-11): REPLAY_DEBUG_LEVEL=full exponerar appens
   // debug-rader (ETA-kedjan m.m.) i verbose-läget — rotorsaksdiagnos av
   // golden-diffar kräver dem. Default 'off' är oförändrad.
-  mockHomey.app.settings = { debug_level: process.env.REPLAY_DEBUG_LEVEL || 'off', ais_api_key: null };
+  mockHomey.app.settings = { ...initialSettings, debug_level: process.env.REPLAY_DEBUG_LEVEL || 'off', ais_api_key: null };
   mockHomey.settings = {
     get: (k) => mockHomey.app.settings[k] || null,
     set: (k, v) => {
@@ -201,6 +226,7 @@ async function main() {
   // mot kortnivån är diagnostik: fires > kortanrop ⇒ en varning tappades på
   // vägen (dedup som spärrade fel, saknat kort, kastande tokenbygge).
   let openingServiceFires = 0;
+  const openingSuppressions = [];
   // Täckningsspåret: vilka fartyg en varning FAKTISKT täckte ('fired' = med i
   // avfyrningen, 'absorbed' = anslöt till en redan avfyrad öppning, dvs.
   // konvojtäckning). O1-klassificeringen skiljer på dem.
@@ -222,6 +248,9 @@ async function main() {
   // mellanbro-registreringar (INV-13: en målbro som loggas som INTERMEDIATE
   // är en tyst degraderad målbropassage — osynlig för INV-5:s regex).
   const journeyResets = [];
+  // En återkomst till samma område behöver inte starta om hela resan.
+  // Fångas direkt ur den riktiga besöksservicen och binds till båt + plats.
+  const visitReentries = [];
   // Fältprov 3 (2026-07-08): TARGET_RECALC (bekräftad riktningsreversal —
   // COG-debounce ELLER broskorsningsbevis) räknas som journey-reset: den
   // legitimerar returnotiser (INV-2) och U-svängskorrigerade målbro-som-
@@ -249,8 +278,30 @@ async function main() {
   const PRE_FUSION_MAX = 100000;
   let preFusionDropped = 0;
 
+  // Antal råa rader som redan nått inmatningen, inte bara fake-klockan.
+  let inputCursor = 0;
+
   // ---- Instrumentera en app-instans (körs igen efter ctrl:'restart') ----
   const instrumentApp = (instance) => {
+    if (instance._triggerPointVisits) {
+      const tracker = instance._triggerPointVisits;
+      const observe = tracker.observe.bind(tracker);
+      tracker.observe = (vessel, pointName) => {
+        const result = observe(vessel, pointName);
+        if (result.reentered) {
+          visitReentries.push({ t: Date.now(), mmsi: String(vessel.mmsi), bridge: pointName });
+        }
+        return result;
+      };
+    }
+    if (monitoringEnabled) {
+      const service = instance.vesselDataService;
+      const sweep = service.sweepStaleVessels.bind(service);
+      service.sweepStaleVessels = (...args) => {
+        runtimeDiagnostics.staleSweeps++;
+        return sweep(...args);
+      };
+    }
     // KRITISKT: replayen ska spegla en ANSLUTEN drift. Utan detta är
     // stale-guarden armad från första samplet och _processUIUpdate skulle
     // override:a texten till "AIS saknas".
@@ -258,6 +309,38 @@ async function main() {
     instance._lastConnectionLost = null;
     instance._lastConnectionStatus = 'connected';
     boatNearCards.push(instance._boatNearTrigger);
+    // Frys positionen VID KORTANROPET. Under timerdräneringen kan fake-now
+    // redan vara nästa råposts tid innan den posten matats in (ORCA 4 aug).
+    // Exit-fallback kan bära en borttagen båt, så använd metodens eget fartyg
+    // under dess synkrona kortanrop, med VDS som fallback för direktanrop.
+    const nearCard = instance._boatNearTrigger;
+    let triggerVessel = null;
+    const triggerBest = instance._triggerBoatNearFlowBest.bind(instance);
+    instance._triggerBoatNearFlowBest = (tokens, state, vessel) => {
+      const previous = triggerVessel;
+      triggerVessel = vessel;
+      try {
+        return triggerBest(tokens, state, vessel);
+      } finally {
+        triggerVessel = previous;
+      }
+    };
+    const nearTrigger = nearCard.trigger.bind(nearCard);
+    nearCard.trigger = (tokens, state) => {
+      const vessel = triggerVessel || instance.vesselDataService.getVessel(state?.mmsi);
+      const position = {
+        lat: Number.isFinite(vessel?.lat) ? vessel.lat : null,
+        lon: Number.isFinite(vessel?.lon) ? vessel.lon : null,
+        nextSampleIndex: inputCursor,
+      };
+      const callIndex = nearCard.triggerCalls.length;
+      try {
+        return nearTrigger(tokens, state);
+      } finally {
+        // Homey-mocken bokför både godkända och nekade anrop synkront.
+        if (nearCard.triggerCalls[callIndex]) nearCard.triggerCalls[callIndex].vesselPosition = position;
+      }
+    };
     // Etapp 6: samma kortinsamling för öppningsvarningarna (mocken skapar ett
     // nytt kort per app-instans, så ctrl:'restart' måste samla över alla).
     if (instance._bridgeOpeningTrigger) openingCards.push(instance._bridgeOpeningTrigger);
@@ -270,7 +353,9 @@ async function main() {
       const origOpeningWarning = instance._onBridgeOpeningWarning.bind(instance);
       instance._onBridgeOpeningWarning = (payload) => {
         openingServiceFires++;
-        return origOpeningWarning(payload);
+        const result = origOpeningWarning(payload);
+        if (result?.suppressed === 'same-arrival') openingSuppressions.push(result);
+        return result;
       };
     }
 
@@ -363,6 +448,8 @@ async function main() {
   };
 
   await app.onInit();
+  const openingWarningsAtStartup = [...(app._persistentOpeningWarnings || new Map()).entries()]
+    .map(([key, entry]) => ({ key, firedAt: entry.firedAt }));
   await drain();
   instrumentApp(app);
 
@@ -382,12 +469,13 @@ async function main() {
   // Init klar — nu släpps TEST_MODE så notiserna avfyras som i produktion.
   global.__TEST_MODE__ = undefined;
   process.env.NODE_ENV = 'production';
+  startMonitoring(app);
 
   // ---- Spela upp samples kronologiskt med fake-klockan ----
   let processErrors = 0;
   for (const s of samples) {
     // 1) Stega klockan fram till samplets tid → fyrar cleanup/STALE_AIS/
-    //    protection/monitoring-timrar som förfaller i gapet (precis som drift).
+    //    protection-timrar i gapet, och monitoring när det uttryckligen aktiverats.
     // Korpus #9 (2026-07-08, ILLUSION-fönstret): CHUNKA stora gap i 30 s-steg
     // med drain per steg. Ett synkront 30-min-tick körde annars ALLA
     // reevaluerings-timers i klump och deras UI-publiceringar flushades
@@ -406,6 +494,7 @@ async function main() {
     }
     // eslint-disable-next-line no-await-in-loop
     await drain(); // flush microtasks/async-lyssnare från ev. timer-callbacks
+    inputCursor += 1;
 
     // 1b) Anslutningshändelser (2026-07-01): ctrl-samples simulerar avbrott/
     //     återanslutning mitt i korpusen — testar stale-guarden ("AIS-
@@ -449,10 +538,12 @@ async function main() {
         // TE16: kastande onUninit är en äkta regression (timer-/cleanup-
         // vägen) — räkna, svälj inte.
         processErrors++;
+        runtimeDiagnostics.shutdownErrors++;
         console.error(`[REPLAY] processfel i onUninit vid restart: ${e.message || e}`);
       }
       // eslint-disable-next-line no-await-in-loop
       await drain();
+      runtimeDiagnostics.timersAfterRestartShutdown.push(clock.countTimers());
       // Samma initdans som vid start: onInit under __TEST_MODE__=true.
       global.__TEST_MODE__ = true;
       app = new AISBridgeApp();
@@ -464,6 +555,7 @@ async function main() {
       instrumentApp(app);
       enableFusionRouting(app); // fusion-läget överlever ctrl:'restart'
       global.__TEST_MODE__ = undefined;
+      startMonitoring(app);
       continue;
     }
 
@@ -583,6 +675,7 @@ async function main() {
       mmsi: c.state && c.state.mmsi,
       success: c.success,
       error: c.error || null,
+      vesselPosition: c.vesselPosition || null,
     }));
 
   // ---- Samla ÖPPNINGSVARNINGAR (etapp 6, 2026-08-03) ----
@@ -629,31 +722,26 @@ async function main() {
     })
     .sort((a, b) => (a.t || 0) - (b.t || 0));
 
-  // ---- Berika notiser med fartygets position (2026-07-03) ----
-  // Närmast föregående + nästa sample för samma mmsi (fake-klockan lägger
-  // notis-t och aisTimestamp på samma tidslinje). Ger INV-11 (distans-
-  // rimlighet) och INV-15 (riktning-vs-geografi) något att räkna på.
+  // Positionen är den frysta observation kortanropet faktiskt hade. Nästa
+  // råa position väljs bland ännu inte inmatade rader, även om fake-now
+  // redan hunnit till samma tidsstämpel under dräneringen av en äldre timer.
   const posByMmsi = new Map();
-  for (const s of samples) {
-    if (s.ctrl || typeof s.lat !== 'number') continue;
-    const key = String(s.mmsi);
+  for (const [index, sample] of samples.entries()) {
+    if (sample.ctrl || typeof sample.lat !== 'number') continue;
+    const key = String(sample.mmsi);
     if (!posByMmsi.has(key)) posByMmsi.set(key, []);
-    posByMmsi.get(key).push(s);
+    posByMmsi.get(key).push({ index, lat: sample.lat });
   }
-  for (const n of notifications) {
-    let before = null;
-    let after = null;
-    if (Number.isFinite(n.t)) {
-      for (const s of posByMmsi.get(String(n.mmsi)) || []) {
-        if (s.aisTimestamp <= n.t) before = s;
-        else {
-          after = s; break;
-        }
-      }
-    }
-    n.vesselLat = before ? before.lat : null;
-    n.vesselLon = before ? before.lon : null;
-    n.vesselLatNext = after ? after.lat : null;
+  for (const notification of notifications) {
+    const position = notification.vesselPosition;
+    const after = Number.isInteger(position?.nextSampleIndex)
+      ? (posByMmsi.get(String(notification.mmsi)) || [])
+        .find((sample) => sample.index >= position.nextSampleIndex)
+      : null;
+    notification.vesselLat = position?.lat ?? null;
+    notification.vesselLon = position?.lon ?? null;
+    notification.vesselLatNext = after?.lat ?? null;
+    delete notification.vesselPosition;
   }
 
   // Första tidpunkt per mmsi där ett riktigt namn (≠Unknown) förekom i
@@ -689,6 +777,7 @@ async function main() {
     logRepeatCount: sizeOf(vds._logRepeatCount),
     triggeredBoatNearKeys: sizeOf(app._triggeredBoatNearKeys),
     persistentRecentTriggers: sizeOf(app._persistentRecentTriggers),
+    triggerPointVisits: sizeOf(app._triggerPointVisits?._entries),
     vesselRemovalTimers: sizeOf(app._vesselRemovalTimers),
     processingRemoval: sizeOf(app._processingRemoval),
     gpsGateGatedVessels: app.gpsJumpGateService
@@ -720,9 +809,15 @@ async function main() {
   const result = {
     jsonl: path.basename(jsonlPath),
     mmsiFilter,
+    initialState: {
+      source: initialState ? 'recorded' : 'empty',
+      capturedAt: initialState?.capturedAt || null,
+      settingsKeys: Object.keys(initialSettings),
+    },
     sampleCount: samples.length,
     vessels: [...new Set(samples.map((s) => `${s.mmsi}:${s.shipName}`))],
     processErrors,
+    runtimeDiagnostics,
     bridgeTextTransitions: bridgeTextLog,
     notifications,
     notificationCount: notifications.length,
@@ -738,6 +833,8 @@ async function main() {
     openingWarnings,
     openingWarningCount: openingWarnings.length,
     openingServiceFires,
+    openingSuppressions,
+    openingWarningsAtStartup,
     openingCoverage,
     // Öppningsservicens sluttillstånd: armar/händelser ska vara städade efter
     // 40 min efterspel (soak-kravet — en arm får aldrig överleva sitt fartyg).
@@ -755,6 +852,7 @@ async function main() {
     firstSampleMs: samples.length > 0 ? samples[0].aisTimestamp : null,
     targetPassages,
     journeyResets,
+    visitReentries,
     intermediatePassages,
     leakDiagnostics,
   };
@@ -766,7 +864,15 @@ async function main() {
   // fick trunkerad JSON utan markörslut. Callbacken garanterar flush.
   try {
     await app.onUninit();
-  } catch (_) { /* ignore */ }
+    await drain();
+  } catch (error) {
+    // Ett fel vid sista nedstängningen ska synas lika tydligt som ett fel
+    // vid ctrl:restart; den gamla catchen dolde just slutstädningens fel.
+    runtimeDiagnostics.shutdownErrors++;
+    result.processErrors++;
+    console.error(`[REPLAY] slutstädningen misslyckades: ${error.message || error}`);
+  }
+  runtimeDiagnostics.timersAfterShutdown = clock.countTimers();
   clock.uninstall();
   process.stdout.write(`__REPLAY_JSON__${JSON.stringify(result)}__END__\n`, () => process.exit(0));
 }

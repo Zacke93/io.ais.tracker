@@ -17,6 +17,8 @@ const fs = require('fs');
 const path = require('path');
 const corpora = require('./corpora');
 const { validateInvariants, validateWarnInvariants } = require('./invariants');
+const { openingDeliveryFailures } = require('./openingDelivery');
+const { eventFacitFailures } = require('./eventFacit');
 // Fördelningsfacit (2026-07-01): totalsumman räcker inte — en missad notis +
 // en fantomnotis ger samma summa (kompenserande fel). Multiset:en av
 // (mmsi,bro)-par låses per korpus; regenerera MEDVETET (med motivering i
@@ -118,7 +120,15 @@ for (const corpus of corpora) {
   const leaks = result.leakDiagnostics || {};
   const vesselsLeft = leaks.vessels;
 
-  const problems = [];
+  const problems = openingDeliveryFailures(result);
+  if (corpus.lockEvents) {
+    const eventPath = path.join(__dirname, 'golden-events', `${corpus.id}.json`);
+    if (!fs.existsSync(eventPath)) {
+      problems.push(`GOLDEN-EVENTS SAKNAS: ${corpus.id}`);
+    } else {
+      problems.push(...eventFacitFailures(result, JSON.parse(fs.readFileSync(eventPath, 'utf8'))));
+    }
+  }
   if (processErrors > 0) problems.push(`${processErrors} processfel`);
   if (vesselsLeft !== 0) problems.push(`${vesselsLeft} fartyg kvar efter efterspel`);
   if (corpus.locked && notifications !== corpus.expectedNotifications) {

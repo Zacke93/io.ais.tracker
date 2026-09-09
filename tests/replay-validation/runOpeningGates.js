@@ -36,11 +36,14 @@
 const { execFile } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { openingDeliveryFailures } = require('./openingDelivery');
 const corpora = require('./corpora');
 const {
   BRIDGES, TARGET_BRIDGES, BRIDGE_OPENING, MOORING_DETECTION, QUAY_DEPARTURE_GATE,
 } = require('../../lib/constants');
 const geometry = require('../../lib/utils/geometry');
+const { isNorthCog, isSouthCogStrict } = require('../../lib/utils/cogDirection');
+const { beforeBridge } = require('../../lib/utils/bridgeQueue');
 // M2 (helkodsgranskning RUNDA 4, 2026-08-23): SAMMA modul som produktionens
 // kajgrind i app.js använder. Grinden hade en EGEN kopia av regeln och ärvde
 // därmed exakt den defekt den skulle upptäcka — replay:openings kunde
@@ -56,6 +59,7 @@ const {
 // men de två ställena ska inte kunna glida var för sig.
 const KN_TO_MPS_BOS = 0.514444;
 const { loadGtPassages } = require('./makeGtPassages');
+const { loadAdditionalPassageEvidence } = require('./loadPassageEvidence');
 
 const RUNNER = path.join(__dirname, 'replayRunner.js');
 
@@ -149,7 +153,8 @@ const UNDERWAY_SOG_KN = QUAY_DEPARTURE_GATE.TRANSIT_SOG_KN;
 // RÖDA klassen i praktiken onåbar: AKIRA (257605080, 2026-07-08) guppade vid
 // kajen 400–660 m från Klaffbron, fick ETT sampel på 1,1 kn och gick sedan
 // NORRUT bort från bron — och grinden stämplade henne "äkta anflygning".
-// Kravet speglar nu V1:s egen konjunktion.
+// Två sådana fartvärden behöver dessutom samma mätbara nettoavgång
+// som kajgrinden (NET_APPROACH_M); upprepade brusvärden är inget avgångsbevis.
 const UNDERWAY_MIN_FIXES = QUAY_DEPARTURE_GATE.MIN_MOVING_FIXES;
 // Ett ENSAMT sampel får bära beviset först vid en fart ingen kajliggare kan
 // visa. dig3 mätte den effektiva anflygningsfarten över 1798 sampel:
@@ -167,9 +172,11 @@ const UNDERWAY_SOLO_SOG_KN = BRIDGE_OPENING.QUAY_TRANSIT_PROOF_SOG_KN;
 // ut i farleden (IDUN 2,2 kn, LAMANTIJN 2,9 kn, DIAMOND 2,1 kn — ETT eller
 // TVÅ sampel var) som inte är kajliggare och inte får fälla grinden. Röd
 // KAJVOBBEL kräver därför också att SAMTLIGA sampel låg inom
-// QUAY_DEPARTURE_GATE.LEDGER_RADIUS_M från bron — samma radie som
+// QUAY_DEPARTURE_GATE.LEDGER_RADIUS_M från NÅGON målbro — samma radie som
 // V1-kajbokföringen (och öppningslagrets egen karta) använder för "vid kaj".
 // AKIRA:s hela vobbel låg på 396–410 m; de tre ovan på 1417–1559 m.
+// Kajläget följer platsen, inte vilken bro kortet varnar för: CARAT låg
+// 404–435 m från Klaffbron men fick ett Stridskort 814 m från målbron.
 const QUAY_BAND_M = QUAY_DEPARTURE_GATE.LEDGER_RADIUS_M;
 // RÖRELSEBEVISET I O1:s MISSKLASSNING. Tröskeln är appens egen
 // (MOORING_DETECTION.MOVEMENT_PROOF_SOG_KN) — samma tal som sätter det
@@ -358,7 +365,7 @@ function stillnessStay(inHorizon) {
 /**
  * Klassificera en MISS mot rådata.
  *
- * Tre ACCEPTERADE klasser (alla mätbara i jsonl:en, ingen av dem en ursäkt):
+ * ACCEPTERADE klasser kräver mätbara hinder i jsonl:en:
  *   TYST_I_HORISONTEN     — inget enda sampel inom ARM_MAX_DISTANCE_M före
  *                           passagen. Fartyget var tyst i ALLA källor på hela
  *                           anflygningen; det finns ingen observation att
@@ -370,6 +377,8 @@ function stillnessStay(inHorizon) {
  *                           (kajliggarprofil) tills det var för sent för
  *                           marginalen. Beväpningsgrindens rörelsekrav —
  *                           nattens NANNA/SALTYX-klass.
+ *   RIKTNINGSBEVIS_FÖR_SENT — tidigare rörelse avsåg motsatt/okänd riktning;
+ *                           rätt anflygning blev belagd först för sent.
  * Allt annat är OKLASSAD och RÖTT.
  *
  * RÖRELSEBEVISET HAR TRE LED (M2b, RUNDA 4, 2026-08-23). Grinden ska svara på
@@ -434,7 +443,9 @@ function classifyMiss(passage, samples, windowStartMs) {
 
   const first = inHorizon[0];
   const seenMs = passage.t - first.s.aisTimestamp;
-  if (seenMs < MIN_WARNABLE_MS) {
+  // Inferred ger ett korsningsfönster. Dess interpolerade punkt får varken
+  // bevisa sen ankomst eller en för hög effektiv fart i en MISS-klassning.
+  if (!passage.inferred && seenMs < MIN_WARNABLE_MS) {
     return {
       klass: 'FÖRST_SEDD_FÖR_NÄRA',
       accepted: true,
@@ -451,7 +462,7 @@ function classifyMiss(passage, samples, windowStartMs) {
   // marginal — det är fysik, inte bugg. Mätt: 218023240 @ Stridsbergsbron
   // 2026-07-14 gick 2197 m på 210 s = 20,3 kn (sog-rapport 33,2 kn).
   const veffKn = seenMs > 0 ? (first.d / (seenMs / 1000)) / KN_TO_MPS_BOS : null;
-  if (veffKn !== null && veffKn > BRIDGE_OPENING.DEADLINE_MAX_SPEED_KN) {
+  if (!passage.inferred && veffKn !== null && veffKn > BRIDGE_OPENING.DEADLINE_MAX_SPEED_KN) {
     return {
       klass: 'SNABBARE_ÄN_DEADLINE_TAKET',
       accepted: true,
@@ -514,7 +525,7 @@ function classifyMiss(passage, samples, windowStartMs) {
       + `${secs(stay.contradiction.dtMs)} = ${stay.contradiction.impliedKn.toFixed(2)} kn) — `
       + 'sog-spikarna inne i den är jitter (appens C9b/M1)'
     : '';
-  if (moveAt === null || passage.t - moveAt < MIN_WARNABLE_MS) {
+  if (moveAt === null || (!passage.inferred && passage.t - moveAt < MIN_WARNABLE_MS)) {
     return {
       klass: 'RÖRELSEBEVIS_FÖR_SENT',
       accepted: true,
@@ -528,13 +539,72 @@ function classifyMiss(passage, samples, windowStartMs) {
     };
   }
 
+  // Rörelse är inte samma sak som rätt anflygningsriktning. En nordgående
+  // utfärd efter förra passagen får inte bli sydreturens bevis, och en kort
+  // sidomanöver vid kajen säger inget om vilken bro båten kommer att välja.
+  const directionEvidence = directedApproachEvidence(passage, inHorizon);
+  if (directionEvidence && (directionEvidence.t === null
+      || (!passage.inferred && passage.t - directionEvidence.t < MIN_WARNABLE_MS))) {
+    return {
+      klass: 'RIKTNINGSBEVIS_FÖR_SENT',
+      accepted: true,
+      bevis: directionEvidence.t === null
+        ? `ingen observerad anflygning ${directionEvidence.label} före passagen; `
+          + 'tidigare rörelse avser motsatt eller obelagd riktning'
+        : `första belagda anflygningen ${directionEvidence.label} ${iso(directionEvidence.t)} `
+          + `(${directionEvidence.why}) — endast ${secs(passage.t - directionEvidence.t)} före passagen, `
+          + `garantifönstret kräver ${secs(MIN_WARNABLE_MS)}`,
+    };
+  }
+
+  const seenNote = passage.inferred
+    ? 'korsningens exakta tid är okänd'
+    : `${secs(seenMs)} före passagen`;
+  const directionNote = directionEvidence
+    ? `; riktning ${directionEvidence.label} belagd ${iso(directionEvidence.t)} (${directionEvidence.why})`
+    : '';
   return {
     klass: 'OKLASSAD',
     accepted: false,
     bevis: `sedd inom horisonten från ${iso(first.s.aisTimestamp)} (${Math.round(first.d)} m, `
-      + `${secs(seenMs)} före passagen) och i rörelse från ${iso(moveAt)} (${moveWhy}) — `
-      + `varningen hade kunnat gå ut i tid men uteblev${stayNote}`,
+      + `${seenNote}) och i rörelse från ${iso(moveAt)} (${moveWhy}) — `
+      + `ingen rådatastödd förklaring till utebliven varning${stayNote}${directionNote}`,
   };
+}
+
+/** Oberoende riktningsbevis ur rådata; ett app-ruttlås kan inte frikänna sig självt. */
+function directedApproachEvidence(passage, inHorizon) {
+  const dir = { nord: 'north', syd: 'south' }[passage.dir] || null;
+  if (!dir) return null; // Appserien/äldre facit saknar riktning: inga nya undantag.
+  const bridge = Object.values(BRIDGES).find((b) => b.name === passage.bridge);
+  if (!bridge) return null;
+  let originLat = null;
+  for (const { s, prev } of inHorizon) {
+    for (const lat of [prev?.lat, s.lat]) {
+      if (!Number.isFinite(lat)) continue;
+      if (originLat === null) originLat = lat;
+      else originLat = dir === 'north' ? Math.min(originLat, lat) : Math.max(originLat, lat);
+    }
+    if (!beforeBridge(s, bridge, dir)) continue;
+    const axialM = originLat === null ? null : (s.lat - originLat) * 111320;
+    // En tydlig förflyttning längs kanalen är riktning även när återkomstens
+    // aktuella fart är noll. 200 m är grindens befintliga anflygningsbevis;
+    // BLADE:s pendling på 46 m söderut och 21 m tillbaka räcker inte. Många
+    // små steg åt samma håll måste däremot räknas; ett 200 m-krav PER fix
+    // skulle felaktigt frikänna missar för tätt rapporterande båtar utan COG.
+    const deltaMatches = Number.isFinite(axialM)
+      && (dir === 'north' ? axialM >= GENUINE_APPROACH_M : axialM <= -GENUINE_APPROACH_M);
+    const cogMatches = Number.isFinite(s.sog) && s.sog >= MOVE_SOG_KN
+      && (dir === 'north' ? isNorthCog(s.cog) : isSouthCogStrict(s.cog));
+    if (!deltaMatches && !cogMatches) continue;
+    return {
+      t: s.aisTimestamp,
+      label: dir === 'north' ? 'norrut' : 'söderut',
+      why: deltaMatches ? `${Math.round(Math.abs(axialM))} m positionsbevis längs kanalen`
+        : `kurs ${s.cog.toFixed(1)}°, fart ${s.sog.toFixed(1)} kn`,
+    };
+  }
+  return { t: null, label: dir === 'north' ? 'norrut' : 'söderut' };
 }
 
 /**
@@ -556,7 +626,7 @@ function classifyMiss(passage, samples, windowStartMs) {
 function gtTargetPassages(job) {
   const gt = loadGtPassages(job.gtId || job.id);
   if (!gt) return null;
-  return gt
+  return loadAdditionalPassageEvidence(job.gtId || job.id, gt)
     .filter((g) => g.kind !== 'zone' && TARGET_BRIDGES.includes(g.bridge))
     .map((g) => ({
       t: g.t,
@@ -564,11 +634,61 @@ function gtTargetPassages(job) {
       mmsi: String(g.mmsi),
       bridge: g.bridge,
       inferred: g.inferred === true,
+      dir: g.dir || null,
       tFrom: g.tFrom ?? null,
       tTo: g.tTo ?? null,
       source: 'gt',
+      ...(g.timingEvidence ? { timingEvidence: g.timingEvidence } : {}),
     }))
     .sort((a, b) => a.t - b.t);
+}
+
+/**
+ * Rådatans ändpunkter avgränsar även korta korsningar vars `t` interpoleras.
+ * En inferred-post utan båda ändpunkterna får aldrig bli ett punktbevis.
+ */
+function passageTimeBounds(p) {
+  if (Number.isFinite(p.tFrom) && Number.isFinite(p.tTo) && p.tFrom <= p.tTo) {
+    return { from: p.tFrom, to: p.tTo };
+  }
+  if (!p.inferred && p.tFrom == null && p.tTo == null && Number.isFinite(p.t)) {
+    return { from: p.t, to: p.t };
+  }
+  return null;
+}
+
+/**
+ * Skilj en belagd tidsseparation från en ordning som bara följer interpolationen.
+ * Båda utesluts konservativt ur säker konvojtäckning; här redovisas bevisstyrkan.
+ */
+function priorConvoyEvidence(p, warning, absorbedAt, intervening) {
+  const ownBounds = passageTimeBounds(p);
+  const interveningPassages = intervening.map((q) => {
+    const bounds = passageTimeBounds(q);
+    return {
+      passage: q,
+      separationProven: !!(ownBounds && bounds && bounds.from > warning.t
+        && bounds.to < ownBounds.from - BRIDGE_OPENING.CONVOY_WINDOW_MS),
+    };
+  });
+  return {
+    warning,
+    absorbedAt,
+    separationProven: interveningPassages.some((q) => q.separationProven),
+    interveningPassages,
+  };
+}
+
+function describePriorConvoyEvidence(evidence) {
+  return evidence.map((e) => {
+    const conclusion = e.separationProven
+      ? `en annan båts hela korsningsfönster ligger mer än ${mins(BRIDGE_OPENING.CONVOY_WINDOW_MS)} `
+        + 'före denna passage; samma konvoj kan inte säkerställas'
+      : 'korsningsfönstren bevisar inte separata öppningar; konvojtillhörigheten är också okänd';
+    return `; tidigare konvojvarning ${iso(e.warning.t)} `
+      + `(ansluten ${iso(e.absorbedAt)}) finns, men ${conclusion}`;
+  })
+    .join('');
 }
 
 /**
@@ -588,57 +708,77 @@ function analyseCoverage(result, samples, gtPassages = null) {
   const prevByKey = new Map();
   const covered = [];
   const misses = [];
+  const uncertain = [];
 
   for (const p of passages) {
     const key = `${p.mmsi}:${p.bridge}`;
     const windowStart = prevByKey.has(key) ? prevByKey.get(key) : null;
     prevByKey.set(key, p.t);
-    const inWindow = (t) => Number.isFinite(t) && t < p.t && (windowStart === null || t > windowStart);
+    // En inferred-korsning har ingen känd punktstämpel. En varning inne i
+    // rådatans lucka kan vara före ELLER efter korsningen och måste visas
+    // som okänd, inte som säker täckning eller en bevisat sen varning.
+    const latestPassage = p.inferred && Number.isFinite(p.tTo) ? p.tTo : p.t;
+    const inWindow = (t) => Number.isFinite(t) && t < latestPassage && (windowStart === null || t > windowStart);
+    const certainlyBefore = (w) => !p.inferred || (Number.isFinite(p.tFrom) && w.t <= p.tFrom);
 
     // (1) Varningen tog henne som MEDLEM.
     let hit = null;
     let via = null;
+    const consider = (w, how) => {
+      if (hit === null || (certainlyBefore(w) && !certainlyBefore(hit))
+          || (certainlyBefore(w) === certainlyBefore(hit) && w.t > hit.t)) {
+        hit = w; via = how;
+      }
+    };
     for (const w of warnings) {
       if (w.bridge !== p.bridge || !inWindow(w.t)) continue;
       const members = Array.isArray(w.mmsis) ? w.mmsis : [];
       if (members.includes(String(p.mmsi)) || String(w.leadMmsi) === String(p.mmsi)) {
-        if (hit === null || w.t > hit.t) {
-          hit = w; via = 'fired';
-        }
+        consider(w, 'fired');
       }
     }
     // (2) KONVOJTÄCKNING: hon anslöt till en redan avfyrad öppning. Varningen
     //     som täcker henne är den händelsens — ledtiden mäts från DEN.
     //
-    //     KONVOJTAKET (etapp 6-granskningen): en absorption fick tidigare
-    //     räknas som täckning UTAN tak. Grinden rapporterade därför "FULL
-    //     TÄCKNING" för precis den missklass lagret finns för: 211690580
-    //     @ Klaffbron 2026-07-10 varnades 10:42:47 och passerade 11:44:04 —
-    //     61 minuter senare, med två ANDRA båtars passager emellan, dvs.
-    //     bron hade bevisligen öppnat och stängt två gånger utan förvarning.
-    //
-    //     KRITERIET ÄR EN AVSLUTAD MELLANLIGGANDE ÖPPNING, inte en klocka:
-    //     en absorption underkänns om någon ANNAN båt passerat samma bro
-    //     efter varningen och mer än CONVOY_WINDOW_MS före den här passagen.
-    //     Då har bron bevisligen öppnat och STÄNGT emellan, och varningen
-    //     tillhörde den öppningen. En äkta konvoj (passager inom
-    //     konvojfönstret) påverkas inte — det är per dig9 samma öppning.
-    const otherOpeningBetween = (t) => passages.some((q) => q !== p && q.bridge === p.bridge
+    //     En mellanliggande båtpassage mer än ett konvojfönster före denna
+    //     utesluter återbruk av den äldre varningen. Vid inferred-passager kan
+    //     interpolerade punkter antyda en sådan separation utan att hela
+    //     rådatafönstren bevisar den. Även då krävs fortsatt osäker klassning:
+    //     vi kan varken bevisa samma konvoj eller att bron stängde emellan.
+    const otherPassagesBetween = (t) => passages.filter((q) => q !== p && q.bridge === p.bridge
       && String(q.mmsi) !== String(p.mmsi)
       && q.t > t && q.t < p.t - BRIDGE_OPENING.CONVOY_WINDOW_MS);
-    if (hit === null) {
+    const earlierConvoyWarnings = [];
+    if (hit === null || !certainlyBefore(hit)) {
       for (const c of coverage) {
         if (c.bridge !== p.bridge || String(c.mmsi) !== String(p.mmsi) || !inWindow(c.t)) continue;
         const w = warnings.find((x) => x.eventId === c.eventId);
         if (!w || !inWindow(w.t)) continue;
-        if (c.reason === 'absorbed' && otherOpeningBetween(w.t)) continue;
-        if (hit === null || w.t > hit.t) {
-          hit = w; via = c.reason === 'absorbed' ? 'konvoj' : 'fired';
+        if (c.reason === 'absorbed') {
+          const intervening = otherPassagesBetween(w.t);
+          if (intervening.length) {
+            if (p.inferred && certainlyBefore(w)) {
+              earlierConvoyWarnings.push(priorConvoyEvidence(p, w, c.t, intervening));
+            }
+            continue;
+          }
         }
+        consider(w, c.reason === 'absorbed' ? 'konvoj' : 'fired');
       }
     }
 
-    if (hit) {
+    if (hit && !certainlyBefore(hit)) {
+      uncertain.push({
+        passage: p,
+        warning: hit,
+        via,
+        klass: 'TIDPUNKT_OKÄND',
+        ...(earlierConvoyWarnings.length ? { earlierConvoyWarnings } : {}),
+        bevis: `varning ${iso(hit.t)} ligger i korsningsfönstret `
+          + `${Number.isFinite(p.tFrom) ? iso(p.tFrom) : 'okänd start'}–${iso(latestPassage)}; `
+          + `rådata kan inte visa om varningen kom före eller efter passagen${describePriorConvoyEvidence(earlierConvoyWarnings)}`,
+      });
+    } else if (hit) {
       covered.push({
         passage: p, warning: hit, via, leadMs: p.t - hit.t,
       });
@@ -646,7 +786,9 @@ function analyseCoverage(result, samples, gtPassages = null) {
       misses.push({ passage: p, ...classifyMiss(p, samples, windowStart) });
     }
   }
-  return { passages, covered, misses };
+  return {
+    passages, covered, misses, uncertain,
+  };
 }
 
 /**
@@ -727,8 +869,9 @@ function analyseFireWindow(result) {
  *
  * GLESHETSFÄLLAN, uttrycklig: nettonärmandet är noll så snart fartyget bara
  * levererat ETT fix i fönstret. Därför får ett enskilt fix över appens egen
- * transitgräns (UNDERWAY_SOG_KN) räknas som fullgott rörelsebevis i sig — en
- * båt i 4,6 kn ÄR under gång, hur glest hon än rapporterar.
+ * höga solotröskel (UNDERWAY_SOLO_SOG_KN) bära rörelsebeviset när egen
+ * färsk förflyttning inte motsäger det. Två lägre fartvärden måste däremot
+ * stödjas av nettoavgång över kajgrindens befintliga brusgolv.
  */
 function approachEvidence(warning, samples) {
   const members = new Set([
@@ -816,9 +959,10 @@ function approachEvidence(warning, samples) {
     // beväpningshorisonten — utan det benet accepterade grinden en varning
     // för ett fartyg 12 km bort, dvs. hela regressionsklassen "beväpnar mot
     // fel bro" hade passerat tyst — OCH (b) ett rörelsebevis som håller:
-    // mätbart närmande, mätbar förflyttning, IHÅLLANDE fart (V1:s egen
-    // konjunktion) eller ett ensamt sampel över den uppmätta medianfarten för
-    // äkta anflygningar.
+    // mätbart närmande, mätbar förflyttning, upprepad lägre fart MED
+    // nettoavgång, eller ett ensamt korroborerat sampel över solotröskeln.
+    // CARATs två 1,0/1,6-knopsfixar flyttade bara positionen 32 m: samma
+    // kajbrus blir inte rörelsebevis bara för att fartgivaren upprepar det.
     cand.nearEnough = cand.inHorizon > 0;
     // M2: det ensamma sampel-benet kräver KORROBORERING. Tidigare räckte
     // `maxSog >= UNDERWAY_SOLO_SOG_KN`, dvs. ETT rått fartvärde någonstans i
@@ -826,7 +970,8 @@ function approachEvidence(warning, samples) {
     // grinden kunde per konstruktion inte se felmoden den skulle mäta.
     cand.moving = cand.net >= GENUINE_APPROACH_M
       || cand.maxMove >= GENUINE_APPROACH_M
-      || cand.underwayFixes >= UNDERWAY_MIN_FIXES
+      || (cand.underwayFixes >= UNDERWAY_MIN_FIXES
+        && cand.maxMove >= QUAY_DEPARTURE_GATE.NET_APPROACH_M)
       || cand.soloProofFixes > 0;
     // KAJVOBBELNS TVÅ SIGNATURER (utan rörelsebevis i övrigt):
     //  (a) hon lämnade aldrig kajbandet vid bron, eller
@@ -835,7 +980,11 @@ function approachEvidence(warning, samples) {
     // 1,4–1,6 km ut (IDUN 2,2 kn, LAMANTIJN 2,9 kn, DIAMOND 2,1 kn — ETT
     // eller TVÅ sampel var). Utan (b) hade en båt som ligger still 800 m ut i
     // 30 sampel à 0,2 kn sluppit igenom bara för att hon låg utanför bandet.
-    cand.atQuay = cand.maxD <= QUAY_BAND_M;
+    cand.quayBridge = [...TARGET_BRIDGE_POS.keys()].find((bridgeName) => list.every((s) => {
+      const d = distTo(s, bridgeName);
+      return d !== null && d <= QUAY_BAND_M;
+    })) || null;
+    cand.atQuay = cand.quayBridge !== null;
     cand.stationary = cand.maxSog !== null && cand.maxSog < UNDERWAY_SOG_KN;
     cand.genuine = cand.nearEnough
       && (cand.moving || !(cand.atQuay || cand.stationary));
@@ -857,6 +1006,9 @@ function classifyPhantom(warning, samples) {
         + `${mins(APPROACH_LOOKBACK_MS)} före varningen — varningen vilar på ingenting`,
     };
   }
+  const quayLocation = best.atQuay
+    ? `HELA fönstret inom kajbandet ${QUAY_BAND_M} m vid ${best.quayBridge}`
+    : `utanför målbroarnas kajband (maxavstånd till målbron ${Math.round(best.maxD)} m)`;
   const bevis = `${best.mmsi}: ${best.samples} sampel (${best.inHorizon} inom `
     + `${BRIDGE_OPENING.ARM_MAX_DISTANCE_M} m), avstånd ${Math.round(best.firstD)}→`
     + `${Math.round(best.minD)} m (netto-närmande ${Math.round(best.net)} m), `
@@ -865,7 +1017,7 @@ function classifyPhantom(warning, samples) {
     + `${best.soloProofFixes}/${best.soloSogFixes} fix ≥${UNDERWAY_SOLO_SOG_KN} kn `
     + 'KORROBORERADE av egen förflyttning, '
     + `positionsförflyttning ${Math.round(best.maxMove)} m, `
-    + `${best.atQuay ? `HELA fönstret inom kajbandet ${QUAY_BAND_M} m` : `ute i farleden (max ${Math.round(best.maxD)} m)`}`;
+    + `${quayLocation}`;
 
   if (!best.nearEnough) return { klass: 'UTANFÖR_HORISONTEN', accepted: false, bevis };
   if (!best.moving && (best.atQuay || best.stationary)) {
@@ -1483,6 +1635,7 @@ async function main() {
     inferred: 0,
     misses: 0,
     unclassified: 0,
+    uncertain: 0,
     detected: 0,
     undetectedInferred: 0,
     corpora: 0,
@@ -1526,6 +1679,7 @@ async function main() {
       gtTotals.inferred += g.passages.filter((p) => p.inferred).length;
       gtTotals.misses += g.misses.length;
       gtTotals.unclassified += g.misses.filter((m) => !m.accepted).length;
+      gtTotals.uncertain += g.uncertain.length;
       // TIDSFÖNSTERMÄTNINGEN utesluter `inferred` (planens A3(b)).
       for (const c of g.covered) if (!c.passage.inferred) gtLeads.push(c.leadMs);
       for (const m of g.misses) gtMissByClass.set(m.klass, (gtMissByClass.get(m.klass) || 0) + 1);
@@ -1556,11 +1710,9 @@ async function main() {
     // är alltid en bugg i app.js avfyrningsväg (dedup som spärrar fel, saknat
     // kort, kastande tokenbygge) — och den är osynlig för både täcknings- och
     // fantomanalysen, som bara ser det kortet fick.
-    const fires = run.result.openingServiceFires;
-    const delivered = (run.result.openingWarnings || []).length;
-    if (Number.isFinite(fires) && fires !== delivered) {
-      gateFail(run.job, `ÖPPNINGSLEVERANS ${fires}≠${delivered}`);
-      console.log(`  ${tagFor(run.job)} ÖPPNINGSLEVERANS ${run.job.id}: servicen avfyrade ${fires} men kortet fick ${delivered}`);
+    for (const problem of openingDeliveryFailures(run.result)) {
+      gateFail(run.job, problem);
+      console.log(`  ${tagFor(run.job)} ${run.job.id}: ${problem}`);
     }
     // Armarna får aldrig överleva efterspelet (ARM_STALE_TTL 30 min < 40 min).
     const leaks = run.result.leakDiagnostics || {};
@@ -1664,13 +1816,13 @@ async function main() {
       + `varnade (${gtTotals.passages ? ((100 * gtTotals.covered) / gtTotals.passages).toFixed(1) : '0'} %) `
       + `i ${gtTotals.corpora} korpusar; ${gtTotals.inferred} av nämnaren är \`inferred\` `
       + '(korsning bevisad, tidpunkt = fönster)');
-    console.log(`  DETEKTIONSGRAD: appen registrerade själv ${gtTotals.detected}/${gtTotals.passages} `
+    console.log(`  DETEKTIONSGRAD I PASSAGELOGGAR: ${gtTotals.detected}/${gtTotals.passages} `
       + `(${gtTotals.passages ? ((100 * gtTotals.detected) / gtTotals.passages).toFixed(1) : '0'} %) — `
-      + `differensen ${gtTotals.passages - gtTotals.detected} passager ÄR källtystnadsmåttet, `
-      + 'och exakt den blindfläck O1/INV-5/INV-13/INV-21 delar med appen');
-    console.log(`     därav ${gtTotals.undetectedInferred} \`inferred\` (korsning under källtystnad — appen `
-      + `KUNDE inte se dem) och ${gtTotals.passages - gtTotals.detected - gtTotals.undetectedInferred} `
-      + 'normalsamplade (fyndklass: passagen fanns i strömmen men bokfördes aldrig)');
+      + `${gtTotals.passages - gtTotals.detected} saknar matchande mål-/mellanbropost. `
+      + 'Efterhandsnotiser via passage-fallback ingår inte i detta mått.');
+    console.log(`     Saknade poster: ${gtTotals.undetectedInferred} märkta \`inferred\` i facit och `
+      + `${gtTotals.passages - gtTotals.detected - gtTotals.undetectedInferred} utan den märkningen. `
+      + 'Äldre omärkta facitposter kan också vara interpolerade; rådatagranskning krävs.');
     for (const u of gtUndetectedNormal) {
       console.log(`     • ${u.id} — ${u.p.mmsi} @ ${u.p.bridge} ${u.p.iso} (rådatakorsning utan `
         + 'TARGET/INTERMEDIATE_PASSAGE_RECORDED i appen)');
@@ -1682,6 +1834,27 @@ async function main() {
     }
     if (gtMissByClass.size) {
       console.log(`  MISSKLASSER: ${[...gtMissByClass].map(([k, v]) => `${k}=${v}`).join(', ')}`);
+    }
+    for (const run of runs) {
+      for (const p of run.gtPassages || []) {
+        if (!p.timingEvidence) continue;
+        const e = p.timingEvidence;
+        console.log(`  KOMPLETTERAT RÅDATABEVIS: ${run.job.id} — ${p.mmsi} @ ${p.bridge}: `
+          + `${iso(e.originalFrom)}–${iso(e.originalTo)} snävas till ${iso(p.tFrom)}–${iso(p.tTo)} `
+          + `med observationstider från ${e.source.feed}; appens replayindata är oförändrade.`);
+      }
+    }
+    if (gtTotals.uncertain) {
+      console.log(`  TIDPUNKT_OKÄND: ${gtTotals.uncertain} varning(ar) ligger inne i ett AIS-glapp med `
+        + 'bevisad korsning. De räknas varken som säker förvarning eller som bevisad miss.');
+      for (const run of runs) {
+        for (const u of run.gt?.uncertain || []) {
+          console.log(`     ${run.job.id} — ${u.passage.mmsi} @ ${u.passage.bridge}: ${u.bevis}`);
+        }
+      }
+      // Ett strikt certifieringsläge får inte bli grönt genom att räkna
+      // okända tidpunkter som godkända förvarningar.
+      if (gtStrict) failed = true;
     }
     if (gtTotals.unclassified) {
       console.log(`  ${gtStrict ? '❌' : 'ℹ️'} ${gtTotals.unclassified} OKLASSAD(E) MISS(AR) i rådataserien `
@@ -1804,7 +1977,11 @@ async function main() {
     console.log('❌ ÖPPNINGSGRINDARNA RÖDA — se klassningarna ovan.');
     process.exit(1);
   }
-  console.log('✅ Öppningsgrindarna gröna: full klassad täckning, inga kajvobbel-fantomer, natten intakt.');
+  console.log('✅ Standardgrindarna för öppningar godkända: appserien klassad, inga kajvobbel-fantomer, natten intakt.');
+  if (gtTotals.unclassified || gtTotals.uncertain) {
+    console.log(`⚠️ Rådatafacit är inte fullt godkänt: ${gtTotals.unclassified} oklassade missar `
+      + `och ${gtTotals.uncertain} varningar med okänd ordning mot passagen kvarstår (se ovan).`);
+  }
   process.exit(0);
 }
 
@@ -1952,6 +2129,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  gtTargetPassages,
   classifyMiss,
   stillnessStay,
   classifyPhantom,

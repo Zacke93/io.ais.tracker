@@ -1,14 +1,17 @@
 #!/bin/bash
 
-# Robust path handling: anchor logs relative to this script's directory,
-# resolving to an absolute path so messages never show ".." and work from any CWD.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOGS_DIR="$(cd "$SCRIPT_DIR/../logs" && pwd 2>/dev/null || true)"
-if [ -z "$LOGS_DIR" ]; then
-  # Create logs dir if it did not exist and resolve absolute path
-  mkdir -p "$SCRIPT_DIR/../logs"
-  LOGS_DIR="$(cd "$SCRIPT_DIR/../logs" && pwd)"
+# Välj samma befintliga arkiv som replayverktygen, oberoende av aktuell katalog.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || exit 1
+if [ -d "$SCRIPT_DIR/../logs" ]; then
+  LOGS_DIR="$SCRIPT_DIR/../logs"
+elif [ -d "$SCRIPT_DIR/dirigent/logs" ]; then
+  LOGS_DIR="$SCRIPT_DIR/dirigent/logs"
+else
+  # Ny installation: behåll det ursprungliga arkivet bredvid repot.
+  LOGS_DIR="$SCRIPT_DIR/../logs"
+  mkdir -p "$LOGS_DIR" || exit 1
 fi
+LOGS_DIR="$(cd "$LOGS_DIR" && pwd)" || exit 1
 
 # FÄLTPROV 4-FIX (2026-07-09, F4-A — ANVÄNDARBESLUT): live-loggen skrivs LOKALT,
 # inte direkt i OneDrive-mappen. Körningen 20260708-224444 tappade ~4 minuter
@@ -124,6 +127,17 @@ rebuild_replay_jsonl() {
     else
         rm -f "$tmp" 2>/dev/null || true
     fi
+    # Starttillståndet har en egen fil: AIS-jsonl förblir råa, oförändrade fix.
+    # Första booten är facit för denna körnings början.
+    local state_tmp
+    state_tmp="$LIVE_DIR/.ais-state-$TIMESTAMP.tmp.$$.$RANDOM"
+    LC_ALL=C grep -m 1 'AIS_REPLAY_STATE]' "$LOGFILE" 2>/dev/null \
+      | sed 's/^.*AIS_REPLAY_STATE\] //' > "$state_tmp" 2>/dev/null
+    if [ -s "$state_tmp" ]; then
+        mv -f "$state_tmp" "${AIS_REPLAY_FILE%.jsonl}.state.json" 2>/dev/null || true
+    fi
+    rm -f "$state_tmp" 2>/dev/null || true
+
 }
 
 echo "Startar app — live-loggar skrivs LOKALT (immunt mot OneDrive-stall):"
@@ -232,6 +246,7 @@ HOLE_GUARD_PID=$!
     if [ $((ticks % 2)) -eq 0 ]; then
       sync_file "$LOGFILE" "$FINAL_LOGFILE" || true
       sync_file "$AIS_REPLAY_FILE" "$FINAL_REPLAY" || true
+      sync_file "${AIS_REPLAY_FILE%.jsonl}.state.json" "${FINAL_REPLAY%.jsonl}.state.json" || true
     fi
   done
 ) &
@@ -517,6 +532,7 @@ EOL
     # tidigare arbetsflöden förväntar sig. K24: atomiskt (se sync_file).
     sync_file "$LOGFILE" "$FINAL_LOGFILE" || echo "⚠️ Kunde inte synka $FINAL_LOGFILE"
     sync_file "$AIS_REPLAY_FILE" "$FINAL_REPLAY" || echo "⚠️ Kunde inte synka $FINAL_REPLAY"
+    sync_file "${AIS_REPLAY_FILE%.jsonl}.state.json" "${FINAL_REPLAY%.jsonl}.state.json" || true
     sync_file "$BRIDGE_TEXT_SUMMARY" "$FINAL_SUMMARY" || echo "⚠️ Kunde inte synka $FINAL_SUMMARY"
     # Temp-filerna städas av cleanup_run_tempfiles direkt efter den här
     # funktionen (finish_run), så att även en halvvägs avbruten summary städas.

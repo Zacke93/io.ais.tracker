@@ -174,6 +174,17 @@ const MAX_IMPLIED_KN = 40;
  */
 const INFERRED_GAP_S = 900;
 
+// P9 (fältprov 11): PHOENIX stod stilla vid ena ändpunkten av ett 721 s
+// korsningsglapp. Konstant fart ger då en påhittad punktstämpel. Vid glesa
+// par (> 120 s) med stillhet (< 0,5 kn) i NÅGON ändpunkt vet vi inte när
+// väntan/accelerationen låg: behåll korsningen, men mät bara tidsfönstret.
+// 120 s begränsar det korta undantagets hela tidsosäkerhet till ETA-mätarens
+// befintliga tvåminutersband. Tät korsning behåller därför punktstämpeln;
+// ett enskilt nollvärde kan då inte förskjuta sanningen mer än två minuter.
+// Frusna mätkonstanter: facitet får inte ändras när produktens trösklar ändras.
+const STOPPED_ENDPOINT_GAP_S = 120;
+const STOPPED_ENDPOINT_SOG_KN = 0.5;
+
 /**
  * RÖRELSEBEVIS FÖR ETT KANALINFARTS-BESÖK (krav iii). Ett besök räknas bara om
  * fartyget faktiskt FÄRDADES: någon fix ≥ 2 kn (coverageMap.TRANSIT_SOG_KN —
@@ -405,7 +416,10 @@ function interpolate(p, q, sBridge) {
 function makeCrossing(station, p, q, list) {
   const cross = interpolate(p, q, station.s);
   const gapS = Math.round((q.t - p.t) / 1000);
-  const inferred = gapS > INFERRED_GAP_S;
+  const stoppedEndpoint = [p, q].some((s) => Number.isFinite(s.sog)
+    && s.sog >= 0 && s.sog < STOPPED_ENDPOINT_SOG_KN);
+  const sparseStop = (q.t - p.t) / 1000 > STOPPED_ENDPOINT_GAP_S && stoppedEndpoint;
+  const inferred = gapS > INFERRED_GAP_S || sparseStop;
   return {
     mmsi: p.mmsi,
     name: nameAt(list, cross.t),
@@ -419,6 +433,7 @@ function makeCrossing(station, p, q, list) {
     tFrom: p.t,
     tTo: q.t,
     inferred,
+    ...(sparseStop ? { inferredReason: 'sparse-stopped-endpoint' } : {}),
     tFix: cross.tFix,
     dir: q.s > p.s ? 'nord' : 'syd',
     gapS,

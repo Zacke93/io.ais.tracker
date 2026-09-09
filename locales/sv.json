@@ -33,6 +33,7 @@
     "instructions_footer": "Anslutningsstatusen visas i enheten \"Bridge Status\" i ditt hem.",
     "attribution": "AIS-data: AISHub (aishub.net) och aisstream.io",
     "status_still_loading": "⏳ Inställningarna laddas fortfarande — försök igen strax.",
+    "status_load_error": "❌ Inställningarna kunde inte läsas. Stäng och öppna sidan igen innan du sparar.",
     "status_key_too_short": "❌ API-nyckeln verkar för kort. Kontrollera din nyckel från aisstream.io",
     "status_bad_username": "❌ AISHub-användarnamnet får bara innehålla bokstäver, siffror, punkt, understreck och bindestreck (3-64 tecken). Ange bara användarnamnet — inte en URL.",
     "status_source_needs_username": "❌ Det källäget kräver ett AISHub-användarnamn. Fyll i det först, eller behåll \"Enbart AISstream\".",

@@ -478,6 +478,9 @@ describe('V2 — fältlistan bär segmentbeviset över objektombyggnaden', () =>
         _underBridgePrevLon: 12.2740,
         _underBridgePrevSog: 3.4,
         _underBridgeCrossedBridge: 'Olidebron',
+        _underBridgePendingCross: {
+          bridge: 'Olidebron', lat: 58.2718, lon: 12.2740, at: 1_700_000_000_000,
+        },
         _secondSourceFixAt: 1_700_000_000_000,
       };
       const rebuilt = svc._createVesselObject('212571000', {
@@ -491,6 +494,7 @@ describe('V2 — fältlistan bär segmentbeviset över objektombyggnaden', () =>
       expect(rebuilt._underBridgePrevLon).toBe(12.2740);
       expect(rebuilt._underBridgePrevSog).toBe(3.4);
       expect(rebuilt._underBridgeCrossedBridge).toBe('Olidebron');
+      expect(rebuilt._underBridgePendingCross).toEqual(oldVessel._underBridgePendingCross);
       expect(rebuilt._secondSourceFixAt).toBe(1_700_000_000_000);
     } finally {
       svc.clearAllTimers();

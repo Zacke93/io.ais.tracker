@@ -332,7 +332,7 @@ describe('K18(2): monitoring-loopen är drivkraften', () => {
     // (1) Svepet ligger i monitoring-kroppen …
     expect(monitoring).toContain('sweepStaleVessels();');
     // (2) … och INTE i watchdogens (den kropp som DRIVS i replay).
-    expect(coalescing).toContain('_watchdogTimer = setInterval(');
+    expect(coalescing).toContain('_watchdogTimer = setTimeout(');
     expect(coalescing).not.toContain('sweepStaleVessels');
     // (3) EN ENDA DRIVKRAFT: samtliga omnämnanden i app.js ligger inne i
     //     monitoring-kroppen. Flyttas svepet någon annanstans faller den här

@@ -33,7 +33,14 @@ const os = require('os');
 const path = require('path');
 const { generateScenario, buildPath, pathMetrics } = require('./scenarioGenerator');
 const { validateInvariants, validateWarnInvariants } = require('./invariants');
-const { MOORING_ZONES } = require('../../lib/constants');
+const { MOORING_ZONES, BRIDGES, TRIGGER_POINTS } = require('../../lib/constants');
+
+const args = process.argv.slice(2);
+if (args.some((arg) => arg !== '--monitoring')) {
+  console.error('Användning: node runSoak.js [--monitoring]');
+  process.exit(2);
+}
+if (args.includes('--monitoring')) process.env.REPLAY_MONITORING = '1';
 
 const RUNNER = path.join(__dirname, 'replayRunner.js');
 const QUAY = {
@@ -153,10 +160,27 @@ try {
 // ---- Döm ----
 const problems = [];
 const leaks = result.leakDiagnostics || {};
+const runtime = result.runtimeDiagnostics || {};
+
+// Nu mäts även själva nedstängningen. Noll fartyg före shutdown utesluter
+// inte en kvarlämnad global intervaltimer efter shutdown.
+if (runtime.timersAfterShutdown !== 0
+    || !Array.isArray(runtime.timersAfterRestartShutdown)
+    || runtime.timersAfterRestartShutdown.some((count) => count !== 0)
+    || runtime.shutdownErrors !== 0) {
+  problems.push(`NEDSTÄNGNING: ${JSON.stringify(runtime)}`);
+}
+if (process.env.REPLAY_MONITORING === '1') {
+  const expectedStarts = 1 + scenario.events.filter((event) => event.ctrl === 'restart').length;
+  if (runtime.monitoringEnabled !== true || runtime.monitoringStarts !== expectedStarts
+      || !Number.isFinite(runtime.staleSweeps) || runtime.staleSweeps < SOAK_HOURS * 60) {
+    problems.push(`MONITORING OMÄTT/OFULLSTÄNDIG: ${JSON.stringify(runtime)}`);
+  }
+}
 
 if ((result.processErrors || 0) > 0) problems.push(`${result.processErrors} processfel`);
 
-const LEAK_EXCEPTIONS = new Set(['triggeredBoatNearKeys', 'persistentRecentTriggers', 'heapUsedMB']);
+const LEAK_EXCEPTIONS = new Set(['triggeredBoatNearKeys', 'persistentRecentTriggers', 'triggerPointVisits', 'heapUsedMB']);
 for (const [field, value] of Object.entries(leaks)) {
   if (LEAK_EXCEPTIONS.has(field)) continue;
   // Helgranskning 2026-07-06 (harness-corpora#R2-3): icke-finita värden
@@ -169,8 +193,9 @@ for (const [field, value] of Object.entries(leaks)) {
   }
 }
 // Dedup-mappen (2h-TTL): TTL-städningen bor i appens MONITORING-loop, som
-// replay-harnessen medvetet aldrig startar (feed-hälsokollen skulle annars
-// slåss med den manuella matningen). I replay prunas mappen därför BARA vid
+// replay-harnessen normalt inte startar (anslutna källor simuleras inte).
+// REPLAY_MONITORING=1 kör även minutloopen med oanslutna testklienter.
+// I standardläget prunas mappen därför BARA vid
 // ctrl:'restart' (expiry-filtret i _loadPersistentTriggers — verifierat:
 // körningen ackumulerar ~200 nycklar totalt men slutar på ~66 = resorna
 // efter sista omstarten vid 52h). Produktionsbeteendet (per-minut-städning)
@@ -178,6 +203,13 @@ for (const [field, value] of Object.entries(leaks)) {
 // 10 resor à 6 broar efter sista omstarten + marginal.
 if (Number.isFinite(leaks.persistentRecentTriggers) && leaks.persistentRecentTriggers > 100) {
   problems.push(`persistentRecentTriggers=${leaks.persistentRecentTriggers} efter 72h (växer bortom restart-prunade nivån)`);
+}
+
+// Pågående besök överlever AIS-tystnad och omstart. Högst en post per
+// simulerat fartyg OCH plats; saknad diagnostik är också fel.
+const maxVisits = vessels.length * (Object.keys(BRIDGES).length + Object.keys(TRIGGER_POINTS).length);
+if (!Number.isFinite(leaks.triggerPointVisits) || leaks.triggerPointVisits > maxVisits) {
+  problems.push(`triggerPointVisits=${leaks.triggerPointVisits} (högst ${maxVisits} besök möjliga)`);
 }
 
 const invariantViolations = validateInvariants(result);
@@ -220,7 +252,9 @@ console.log(`\nNotiser: ${result.notificationCount} (golv ${minExpected})`);
 console.log(`Per bro (golv ${perBridgeFloor}): ${perBridgeSummary}`);
 console.log(`Textövergångar: ${(result.bridgeTextTransitions || []).length}`);
 console.log(`Målbropassager: ${(result.targetPassages || []).length}`);
+console.log(`Driftsloop och nedstängning: ${JSON.stringify(runtime)}`);
 console.log(`heapUsedMB: ${leaks.heapUsedMB} | persistentRecentTriggers: ${leaks.persistentRecentTriggers} | triggeredBoatNearKeys: ${leaks.triggeredBoatNearKeys}`);
+console.log(`Kvarvarande besöksminnen: ${leaks.triggerPointVisits}`);
 if (warns.length > 0) {
   console.log(`\n⚠️ ${warns.length} WARN-invariantutslag (informativa):`);
   for (const w of warns.slice(0, 6)) console.log(`   ${w}`);
@@ -233,8 +267,7 @@ if (problems.length > 0) {
   process.exit(1);
 }
 // Formulering rättad 2026-07-10 (andra granskningsrundan): dedup-nycklarna
-// är MEDVETET undantagna tomhetskravet (se motiveringen vid LEAK_EXCEPTIONS
-// ovan — de ska överleva per design och vaktas av 100-taket i stället).
+// är MEDVETET undantagna tomhetskravet och kontrolleras mot scenariots gränser.
 console.log('\n✅ 72h-soaken stabil: 0 processfel, per-fartygs-strukturer tomma '
-  + '(dedup-nycklar medvetet undantagna — vaktade av 100-taket), inga fatala invariantutslag.');
+  + '(notisminnen kontrollerade separat), inga fatala invariantutslag.');
 process.exit(0);

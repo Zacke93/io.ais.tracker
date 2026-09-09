@@ -16,6 +16,7 @@ const { execFileSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { openingDeliveryFailures } = require('./openingDelivery');
 const {
   generateScenario, buildPath, pathMetrics, pointAt, BASE_TIME_MS,
 } = require('./scenarioGenerator');
@@ -414,7 +415,7 @@ const SCENARIOS = [
       // resten av resan (Stridsbergsbron) kan levereras normalt.
       gap: { atFraction: Math.max(0, FRAC_KLAFFBRON - 1200 / METRICS.total), durationS: 2100 },
     }],
-    expect: { minTargetPassages: 1, minNotifiedBridges: ['Stridsbergsbron'] },
+    expect: { suppressedOpeningFires: 1, minTargetPassages: 1, minNotifiedBridges: ['Stridsbergsbron'] },
   },
   {
     // Out-of-order-leverans: EN fördröjd gammal position (400 m bakom) mitt
@@ -479,7 +480,7 @@ const SCENARIOS = [
     // från bron — LOW_SPEED-grace — så bara Stridsbergsbron blir en formell
     // målbropassage; Klaffbron-notisen räddas av failsafe-kedjan vid
     // avgången. INV-14 vaktar att parkeringen inte ger DEFAULT-flappar.)
-    expect: { minTargetPassages: 1, minNotifiedBridges: ['Klaffbron', 'Stridsbergsbron'] },
+    expect: { suppressedOpeningFires: 2, minTargetPassages: 1, minNotifiedBridges: ['Klaffbron', 'Stridsbergsbron'] },
   },
   {
     // MOSHE-klassen: södergående båt stale-raderas i 35-min-gap som spänner
@@ -821,6 +822,7 @@ const SCENARIOS = [
       },
     }],
     expect: {
+      suppressedOpeningFires: 1,
       minNotifiedBridges: ['Stridsbergsbron', 'Järnvägsbron', 'Klaffbron'],
     },
   },
@@ -1150,6 +1152,7 @@ function checkExpectations(scenario, result) {
           + `⇒ ${suppressed} tystade (förväntat exakt ${expectedSuppressed})`);
     }
   }
+  problems.push(...openingDeliveryFailures(result));
   const failedOpenings = openings.filter((w) => w.success === false);
   if (failedOpenings.length > 0) {
     problems.push(`ÖPPNINGSVARNING KASTADE: ${failedOpenings[0].error || 'okänt fel'}`);

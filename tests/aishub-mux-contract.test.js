@@ -1,5 +1,14 @@
 'use strict';
 
+// Kontraktet matar källmeddelanden självt. En polltimer får aldrig öppna
+// riktig TLS mot AISHub när testet går igenom flera femminutersfönster.
+// HTTP-transporten och dess lokala servrar prövas i klientens egna tester.
+jest.mock('https', () => ({
+  get: jest.fn(() => {
+    throw new Error('Nätanrop är avstängda i mux-kontraktstester');
+  }),
+}));
+
 const fs = require('fs');
 const path = require('path');
 const AISSourceMultiplexer = require('../lib/connection/AISSourceMultiplexer');

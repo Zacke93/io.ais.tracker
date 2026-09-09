@@ -4,10 +4,11 @@
  * FASSVEPET — stående grind före korpuslåsning (K20, fältprov 10, 2026-08-21).
  *
  * VARFÖR: replayRunner.js ankrar fejkklockan i korpusens FÖRSTA sampel
- * (`FakeTimers.install({ now: samples[0].aisTimestamp })`, ~rad 104). Allt som
- * drivs av appens EGNA periodiska timrar — 30 s-watchdogen, öppningsmotorns
- * tick, coalescing-fönstren — faller därför på ett rutnät vars fas bestäms av
- * exakt en tidsstämpel i jsonl:en. Fältprov 10 visade att utfallet hänger på
+ * (`FakeTimers.install({ now: samples[0].aisTimestamp })`, ~rad 104).
+ * Tidigare följde UI-watchdogen detta startrutnät. Sedan 2026-09-08 går den
+ * på fasta halvminuter, och konvojtäckning löper ut på en egen deadline.
+ * Svepet vaktar att starttid och minutstädning inte återinför beroendet.
+ * Fältprov 10 visade ursprungligen att utfallet hängde på
  * den fasen: en förskjutning av starttiden med 11,52 s bytte LEDANDE BÅT,
  * riktning och ETA i Stridsbergsbron#2 (fältet: TONGA/southbound/eta 8/deadline
  * — basreplayn: BALTIC JONGLEUR/northbound/eta 11/fix) och lät ett notis-token
@@ -19,7 +20,7 @@
  * skrivit ned varför (rådatabevis eller ett motiverat undantag).
  *
  * ANVÄNDNING
- *   npm run replay:phase                     # standardsvep (alla OLÅSTA korpusar)
+ *   npm run replay:phase                     # olåsta korpusar, annars hela banken
  *   npm run replay:phase -- <jsonl> [...]    # en eller flera enskilda körningar
  *   node tests/replay-validation/runPhaseSweep.js <jsonl> --offsets=-20,-11.52,-5
  *
@@ -61,12 +62,11 @@ const DEFAULT_EXCEPTIONS_FILE = path.join(__dirname, 'phase-sweep-exceptions.jso
  *     värde som återgav fältets Stridsbergsbron-varning exakt. De ligger kvar
  *     oförändrade så skriptet och körboken mäter samma sak.
  *
- * (2) Appen har TVÅ periodiska rutnät, och det är värt att hålla isär dem:
- *     watchdogen — och därmed öppningsmotorns deadline-tick
- *     (BRIDGE_OPENING.TICK_INTERVAL_MS = 30 s, lib/constants.js) — tickar var
- *     30:e sekund, medan monitoringloopen (UI_CONSTANTS.MONITORING_INTERVAL_MS
- *     = 60 s) går var 60:e. 60 s är en harmonisk av 30 s i PERIOD, men INTE i
- *     fas (granskningsfynd 2026-08-21). Tre extra värden
+ * (2) Ursprungligen hade både 30 s-watchdogen och 60 s-monitoringloopen
+ *     startberoende fas. Watchdogen följer nu absoluta halvminuter;
+ *     monitoringloopen (UI_CONSTANTS.MONITORING_INTERVAL_MS = 60 s) utgår
+ *     fortfarande från init och prövas med REPLAY_MONITORING=1.
+ *     Perioderna kan dela frekvens utan att dela fas. Tre extra värden
  *     (−2,5 / −15 / −25) fyller luckorna så att svepet prövar hela 30 s-varvet
  *     i stället för tre punkter på det.
  *
@@ -79,7 +79,8 @@ const DEFAULT_EXCEPTIONS_FILE = path.join(__dirname, 'phase-sweep-exceptions.jso
  *     de går att ERSÄTTA — men bara ett rutnät i taget: mot 30 s-rutnätet
  *     (watchdog/öppningstick) är +δ samma fas som −(30−δ), mot 60 s-loopen
  *     gäller −(60−δ). +5 s täcks alltså av −25 s på 30 s-rutnätet och av −55 s
- *     på 60 s-loopen; vill man täcka BÅDA får man köra båda värdena.
+ *     på 60 s-loopen; vill man täcka BÅDA får man köra båda värdena. Den
+ *     fasta watchdogen ska numera ge samma utfall oavsett dessa offsets.
  *
  * Kostnad: en replay av 19/8-dygnet tar ~1,2 s, så bas + sex varianter landar
  * på ~8,4 s; 42h-korpusen (störst, 3922 sampel) tog 18,9 s. Prestandataket
@@ -172,8 +173,10 @@ function readCorpus(jsonlPath) {
   }
   if (parsed.length === 0) throw new Error(`${path.basename(jsonlPath)}: inga sampel`);
   const anchors = parsed.filter((p) => p.obj.aisTimestamp === minTs).map((p) => p.index);
+  const statePath = process.env.REPLAY_INITIAL_STATE || jsonlPath.replace(/\.jsonl$/, '.state.json');
+  const initialState = fs.existsSync(statePath) ? JSON.parse(fs.readFileSync(statePath, 'utf8')) : null;
   return {
-    lines, parsed, minTs, nextTs, anchors, sampleCount: parsed.length,
+    lines, parsed, minTs, nextTs, anchors, sampleCount: parsed.length, initialState,
   };
 }
 
@@ -272,6 +275,13 @@ function writePhaseVariant(corpus, shiftMs, outPath) {
     return JSON.stringify(obj);
   });
   fs.writeFileSync(outPath, out.join('\n'), 'utf8');
+  if (corpus.initialState) {
+    // Samma faktiska startminne i alla armar. Bara startögonblicket följer
+    // fasen; tidigare observationer och varningar skrivs inte om.
+    fs.writeFileSync(outPath.replace(/\.jsonl$/, '.state.json'), JSON.stringify({
+      ...corpus.initialState, capturedAt: corpus.initialState.capturedAt + shiftMs,
+    }));
+  }
   return {
     ok: true,
     changedLines: corpus.anchors.length,
@@ -294,6 +304,11 @@ function runReplay(jsonlPath) {
   const t0 = Date.now();
   const stdout = execFileSync('node', [RUNNER, jsonlPath], {
     encoding: 'utf8',
+    env: {
+      ...process.env,
+      REPLAY_INITIAL_STATE: fs.existsSync(jsonlPath.replace(/\.jsonl$/, '.state.json'))
+        ? jsonlPath.replace(/\.jsonl$/, '.state.json') : process.env.REPLAY_INITIAL_STATE || '',
+    },
     maxBuffer: MAX_BUFFER,
     timeout: RUN_TIMEOUT_MS,
   });
@@ -504,6 +519,13 @@ function loadExceptions(file) {
           throw new Error(`Undantag "${corpusKey}.${dim}.${e.utfall}": "datum" saknas eller `
             + 'har fel format (ÅÅÅÅ-MM-DD)');
         }
+        if (e.detalj !== undefined && (typeof e.detalj !== 'string' || !e.detalj)) {
+          throw new Error(`Undantag "${corpusKey}.${dim}": ogiltig detalj`);
+        }
+        if (e.faser !== undefined && (!Array.isArray(e.faser) || e.faser.length === 0
+            || e.faser.some((phase) => !Number.isFinite(phase)))) {
+          throw new Error(`Undantag "${corpusKey}.${dim}": ogiltiga faser`);
+        }
       }
     }
   }
@@ -538,9 +560,11 @@ function exceptionsFor(exceptions, corpusId, jsonlPath) {
   return { key: null, dims: {}, warning };
 }
 
-function matchException(entries, key) {
+function matchException(entries, key, detail, phase) {
   if (!Array.isArray(entries)) return null;
-  return entries.find((e) => e.utfall === '*' || key.startsWith(e.utfall)) || null;
+  return entries.find((e) => (e.utfall === '*' || key.startsWith(e.utfall))
+    && (e.detalj === undefined || e.detalj === detail)
+    && (e.faser === undefined || e.faser.includes(phase))) || null;
 }
 
 // ---------------------------------------------------------------------------
@@ -715,7 +739,7 @@ function sweepCorpus(jsonlPath, corpusId, offsets, exceptions, opts) {
         const marker = dim.gate ? '🚨' : 'ℹ️';
         console.log(`     ${marker} ${dim.label}: ${diffs.length} avvikelse(r)`);
         for (const d of diffs.slice(0, MAX_DIFF_ROWS)) {
-          const hit = dim.gate ? matchException(exEntries, d.key) : null;
+          const hit = dim.gate ? matchException(exEntries, d.key, d.detail, off.s) : null;
           if (hit) {
             summary.known.push({
               label, dim: dim.id, key: d.key, entry: hit,
@@ -734,7 +758,7 @@ function sweepCorpus(jsonlPath, corpusId, offsets, exceptions, opts) {
         }
         if (diffs.length > MAX_DIFF_ROWS) {
           for (const d of diffs.slice(MAX_DIFF_ROWS)) {
-            const hit = dim.gate ? matchException(exEntries, d.key) : null;
+            const hit = dim.gate ? matchException(exEntries, d.key, d.detail, off.s) : null;
             if (hit) {
               summary.known.push({
                 label, dim: dim.id, key: d.key, entry: hit,
@@ -844,8 +868,8 @@ function main() {
 
   // Vilka korpusar? Utan argument sveps de OLÅSTA posterna i corpora.js — det
   // är exakt de körningar som står näst i tur att låsas, och grinden finns för
-  // låsningsögonblicket. Finns ingen olåst korpus körs den MINSTA låsta som
-  // självtest av grinden (och det sägs rakt ut).
+  // låsningsögonblicket. När alla är låsta prövas hela banken; det tidigare
+  // minsta självtestet gav bara tom kanal och skyddade ingen brotext.
   const targets = [];
   if (files.length > 0) {
     for (const f of files) {
@@ -863,16 +887,13 @@ function main() {
       for (const c of unlocked) targets.push({ jsonl: path.resolve(c.jsonl), id: c.id });
       console.log(`Standardsvep: ${unlocked.length} OLÅST(A) korpus(ar) i corpora.js.`);
     } else {
-      const locked = corpora.filter((c) => c.locked && fs.existsSync(c.jsonl))
-        .map((c) => ({ c, size: fs.statSync(c.jsonl).size }))
-        .sort((a, b) => a.size - b.size);
+      const locked = corpora.filter((c) => c.locked && fs.existsSync(c.jsonl));
       if (locked.length === 0) {
         console.error('🚨 Hittade ingen korpusfil att svepa.');
         process.exit(2);
       }
-      targets.push({ jsonl: path.resolve(locked[0].c.jsonl), id: locked[0].c.id });
-      console.log('Standardsvep: ingen OLÅST korpus finns — kör den MINSTA LÅSTA '
-        + `(${locked[0].c.id}) som självtest av grinden.`);
+      for (const c of locked) targets.push({ jsonl: path.resolve(c.jsonl), id: c.id });
+      console.log(`Standardsvep: ingen OLÅST korpus finns — kör hela banken (${locked.length} LÅSTA korpusar).`);
     }
   }
 

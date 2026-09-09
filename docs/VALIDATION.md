@@ -5,35 +5,83 @@ handboken för att köra, tolka och underhålla valideringsbatteriet — utforma
 för att fungera utan att någon minns historiken. Arkitekturen står i
 `ARCHITECTURE.md`; textformatet i `bridgeTextFormat.md`.
 
+Aktuellt inför fältprov 2026-09-09: bankens 20 körningar är låsta i text,
+närnotiser och öppningar. Sju har dessutom fulla händelsereferenser
+(`golden-events/`): tid, bro, riktning, ETA, text, källa och öppningsmedlemmar.
+Det omfattar AKIRA, KNIGHT OWL/CALIMA, IDUN, CARAT samt de tre senaste
+låsta fältkörningarna. Tidigare undantag för CARAT-korpusens öppningar är borttaget.
+UI-uppdateringarna följer nu fasta halvminuter och utgången konvojtäckning
+schemaläggs vid sin egen sluttid. PHOENIX fasundantag är borttaget; samma
+AIS-glapp ska ge samma text i alla startfaser. Alla 20 körningar har klarat
+sex ändrade startlägen både med och utan monitoring. 42-timmarskörningens
+UTOPIA-fall har ett exakt rådatabelagt invariantundantag: 25-minutersgränsen
+löper ut före nästa mottagna position. Ett separat test vaktar båda sidor
+om tidsgränsen; AIS-tysta båtar visas inte längre för att göra testet grönt.
+Kompletterande AISHub-råposter i `passage-evidence/` kan snäva oberoende
+passagefönster; de ändrar aldrig appens replayindata eller uppfinner en
+exakt passagetid. Källhashar och observationstider kontrolleras separat.
+
+Stallbackas passagebevis och prognosens återstående rutt testas separat:
+en färsk återkomst efter AIS-glapp får rätt avstånd utan ärvd passage.
+GPS-hopp, råklockor, tre timmars färsk kö och byte av närmaste bro har egna
+motprov. Det exakta EUGENIE→ANTJE-undantaget gäller ett verkligt ledarbyte
+när den gamla prognosen åldras ut; andra minuthopp är fortfarande fällande.
+Strikt rådatakontroll har 21 historiska tidsordningar som inte kan avgöras
+med sparade positioner. De är inte säkert verifierade genom en låst replay.
+
+Ett blandat öppningskort presenterar endast ännu inte varnade ankomster.
+Fryst medlemsunderlag ger rätt ledare, antal, riktning och ETA; intern
+konvojtäckning och deadlines bevaras. ANYA/ANTJE samt FILOU/MS JUTLAND och
+MARY/DORY MAN är granskade och låsta i de fulla händelsereferenserna.
+Fältjämförelsen läser även verkliga leveransloggar med `eta=okänd`.
+
+Nya fältprov fångar icke-hemligt startminne i `AIS_REPLAY_STATE` och en separat
+`ais-replay-<tid>.state.json`. Replay läser den automatiskt bredvid AIS-filen,
+alternativt via `REPLAY_INITIAL_STATE`. Fasvarianter behåller samma minne.
+API-nycklar och konton ingår inte. Äldre inspelningar saknar startminnet:
+deras referenser bygger på granskad replay från tomt minne. En låst referens
+är ett regressionsskydd, inte ett bevis på faktisk telefonleverans.
+
 ## De två pelarna (vad allt vaktar)
 
 1. **bridge_text** är alltid korrekt och aktuell — aldrig spöktext, frusen
    nedräkning eller falskt "Inga båtar".
-2. **boat_near** avfyras exakt EN gång per fartyg+bro-passage — ingen missad,
-   ingen dubblett.
+2. **boat_near** avfyras en gång per sammanhängande besök för varje båt och
+   punkt. Stopp eller passage inom samma område ger ingen extra notis;
+   observerad utfärd och återkomst tillåter en ny. Gäller alla sex punkter.
 
 ## Batteriet — kör ALLTID allt efter varje ändring i status-/notis-/text-/livscykellogik
 
 ```bash
 npm run validate          # jest + korpusar + syntetiska scenarier + öppningsgrindarna (~3 min)
-npm run validate:full     # ovan + 72h-soaken (~10 min) — före commit/publicering
+npm run validate:full     # ovan + 72h-soak utan/med monitoring — före commit/publicering
 ```
 
 Eller stegen var för sig:
 
 | Steg | Kommando | Grönt betyder |
 |---|---|---|
-| Enhetstester | `npm test 2>&1 \| tail -5` (**pipa alltid** — annars ENOSPC) | 1400+ tester passerar (1551 i 103 sviter efter öppningsetappen 2026-08-03) |
-| | ⚠️ **Pipe-fällan** (ChatGPT-granskningen 2026-07-10, B1): pipens exitkod är `tail`:s (≈alltid 0) — LÄS `Tests:`-raden, lita inte på `$?`. `npm run validate` är immun: den skriver jest-utdatan till en tempfil och propagerar jest:s riktiga exitkod. | |
-| Korpusarna | `npm run replay:all` | 17 låsta korpusar (~277,5 h verklig AIS — siffran ändras vid varje låsning; skriptets egen utskrift är den aktuella) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + exakt (mmsi,bro,riktning)-fördelning + EXAKT bridge_text-transitionsström (golden-text/) + alla invarianter |
+| Enhetstester | `npm test > /tmp/ais-jest.log 2>&1` (läs sedan slutraderna) | Alla tester passerar, exitkod 0 och inga öppna handtag. Aktuellt antal står i körningens sammanfattning. Omdirigeringen bevarar Jest:s exitkod; en pipe till `tail` gör inte det. |
+| Korpusarna | `npm run replay:all` | 20 låsta korpusar (374,1 h; skriptets utskrift är aktuell) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + exakt (mmsi,bro,riktning)-fördelning + EXAKT bridge_text-transitionsström (golden-text/) + alla invarianter |
 | Syntetiska | `npm run replay:synthetic` | 45 scenarier (gap, U-svängar, GPS-hopp, kajliggare, sog=null, omstart, 2h-prune-stillaliggare …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
 | Öppningsgrindarna | `npm run replay:openings` | ETAPP 6: det proaktiva lagret (`bridge_opening_soon`). **O1** varje målbropassage i SAMTLIGA korpusar (låsta som olåsta — antalet står i skriptets utskrift, inte här) har en öppningsvarning FÖRE passagen — varje miss klassad mot rådata (oklassad = rött); en KONVOJTÄCKNING underkänns om bron bevisligen öppnat och stängt för någon annan emellan. **O2** varje varning utan passage inom 20 min klassas mot rådata (KAJVOBBEL och UTANFÖR_HORISONTEN = rött; avbruten approach, gles anflygning och garantipris = accepterade) — även SEN_PASSAGE-hinken klassas. **O2b** (S14, 2026-08-23) SAMMA fantommätning mot RÅDATAFACIT (A2, `gt-passages`) i stället för appens egna passager — O1b:s mönster: appens passageregistreringar delar grindarnas blindfläck, så en varning kan kallas BEKRÄFTAD av appens egen bokföring medan rådatan inte känner korsningen. Serierna redovisas BREDVID varandra (annars går körningsloggar inte att jämföra bakåt). `inferred`-poster (korsning bevisad, tidpunkt = fönster) bär ALDRIG hinkindelningen utan hamnar i egen hink INFERRERAD_TID — hinkarna ÄR en tidsfönstermätning. **O2b är INFORMATIV: den ändrar inte exitkoden** (grinden ligger kvar på appserien precis som O1:s täckning i fas A); `OPENING_GT_STRICT` flyttar den hit när fas C är klar. Vid införandet: 0 röda i BÅDA serierna, 118 av 360 varningar byter hink (98 blir omätbara `inferred`) och EN varning byter åt det farliga hållet (JAATTEN II @ Stridsbergsbron i 20260708-21h — samma fall INV-21 redan fäller). **O3** A/B-nattens båda armar: 6/6 öppningar varnade före, konvojen som EN varning, boat_near byte-identisk med nattens facit. Dessutom **avfyrningsfönstret** (`t − dueMs` inom två tick — kontraktet "avfyra så sent som garantin tillåter") och **ledtidsgolvet** (hårt golv 60 s; tunnare än utlovade 150 s rapporteras). |
 | Soaken | `node tests/replay-validation/runSoak.js` | 72 h blandtrafik: 0 processfel, inga läckor, fatala invarianter rena |
-| Lint | `npx eslint <ändrade filer>` (per fil — OneDrive gör helträd långsamt) | 0 fel |
+| Driftens minutloop | `npm run replay:monitoring` | Samma 72 h med riktig monitoring/stale-städning även efter omstarter; samtliga timers avvecklade efter shutdown |
+| Lint | `npm run lint` | 0 fel |
 
 **Rör ändringen ETA-vägen?** Då räcker inte batteriet: facit säger bara att
 texten är OFÖRÄNDRAD, inte att siffran är SANN. Mät med `npm run measure:eta`
 mot baslinjen — se §ETA-mätharnessen, och läs ARCHITECTURE §8 (e) K6 först.
+
+**Monitoring i replay (2026-09-06).** Standardkörningen behåller sin
+etablerade timeruppsättning. `REPLAY_MONITORING=1` startar dessutom den
+riktiga minutloopen efter init och efter varje `ctrl:restart`, vilket mäter
+TTL-städning och `sweepStaleVessels` i driftens ordning. Det fungerar även
+med `replay:field`; jämför utfallet separat från standardens facit.
+`runtimeDiagnostics` visar att loopen verkligen startat/körts och antalet
+timers efter varje omstart och avslut. Slutstädningsfel räknas som processfel.
+Källorna är oanslutna testklienter: läget mäter inte nätkontakt eller
+källhälsa. De kontrolleras av klient-/hälso-/sockettesterna och fältprovet.
 
 **Korpuslåsningens två grindar** — `node tests/replay-validation/checkReplayIntegrity.js`
 (jsonl mot logg) och `npm run replay:phase` (fassvepet) — ingår MEDVETET inte i
@@ -46,12 +94,11 @@ mot fixturer i repot (sökvägen står i testfilens huvud), inte mot fältfiler 
 steg 2 rekommenderar, och då hade ett grönt test blivit rött av att projektet
 gjorde vad körboken säger.
 
-⚠️ **Ett bart `npm run replay:phase` är FÖRVÄNTAT rött** tills den olåsta
-`20260806-42h` är avgjord efter K20a (gula paketet): standardsvepet tar just de
-OLÅSTA korpusarna, och den bär 117 odokumenterade fasavvikelser (HEAD 480b78f mäter samma 117 — talet drev från 101 sedan K20a; skriptets egen utskrift är den aktuella siffran) i öppnings- och
-brotextdimensionerna. Rött där är alltså en ÄRLIG mätning, inte en trasig
-grind — men lägg därför aldrig kommandot i `npm run validate`/CI, och kör
-rökprov mot en NAMNGIVEN korpus (`npm run replay:phase -- <jsonl>`).
+**Fassvepet ska hålla även när starttiden ändras.** Standardsvepet tar de
+olåsta korpusarna och, när alla är låsta, hela banken. Namngivna filer prövas med
+`npm run replay:phase -- <jsonl> [...]`. Kör även med `REPLAY_MONITORING=1`
+vid ändrad tidsstyrning. Ett rött utfall ska undersökas mot rådata; facit
+eller undantag får inte ändras enbart för att göra grinden grön.
 
 **Nätisolering (etapp 1, 2026-08-02):** replay-harnessen och RealAppTestRunner
 stubbar `https` med en KASTANDE stub — batteriet kan aldrig göra äkta anrop
@@ -346,7 +393,17 @@ Tre påståendetyper mäts: brotextens "beräknad broöppning om [cirka] N minut
 aldrig in i felstatistiken. Körtid ~30 s för hela baslinjen; utdatan är
 deterministisk (bit-identisk JSON bortsett från `meta.generatedAt`).
 
-**BASLINJEN — HEAD `a451f75`, 2026-08-22, 17 låsta korpusar (~330 h):**
+Aktuell utpekning (2026-09-09): brotext mäts mot textmotorns faktiska
+ledarval och returtext vid publiceringens exakta tid. Tidigare rekonstruktion
+ur ETA-loggar kunde välja fel båt efter extrapolering; 105 MMSI-val rättas
+i banken. Alla 1 862 numeriska textfraser har direkt renderingsbevis.
+196 gruppstyrda "strax" hålls omätta eftersom en annan gruppmedlems närhet
+kan styra formuleringen. Mätfångsten ger identiska appresultat i alla 20
+korpusar (endast varierande `heapUsedMB` undantas), med 17 egna tester i
+`tests/eta-accuracy-rendered.test.js`. Historiska mätningar nedan använder
+den äldre utpekningen och är inte direkt jämförbara med den rättade mätaren.
+
+**HISTORISK BASLINJE — HEAD `a451f75`, 2026-08-22, 17 låsta korpusar (~330 h):**
 
 | Mått | Värde |
 |---|---|
@@ -425,6 +482,44 @@ gäller följande — det är läxan från K6 (ARCHITECTURE §8 (e)):
    sann"*. Båda krävs.
 
 ## Fältprov / ny korpus (så samlas verklighet in)
+
+**Hel-loggsjämförelse (2026-09-06):**
+
+```bash
+npm run replay:field -- dirigent/logs/app-20260823-185834.log \
+  dirigent/logs/ais-replay-20260823-185834.jsonl /tmp/ais-field-report
+```
+
+Rapporten läser HELA loggen, kontrollerar replay-integritet och tidshål och
+kör den riktiga replayharnessen. `field-report.json` visar varje par av
+notiser (text, ETA, källa, riktning, avrundat avstånd och tidsdiff),
+öppningsvarningar, brotextantal, rådatafacit, källtäckning och ETA-påståenden.
+`field-report.txt` summerar. Notisens försökstid jämförs; fältets separata
+`successAt` visar leveranskvittensen. Misslyckade/okvitterade försök redovisas
+separat. Efterspel EFTER sista loggtiden blandas aldrig med observerat fält:
+23/8 ger sju öppningsvarningar före stopp och en åttonde efteråt.
+
+Rapporten är **informativ**, inte en låsningsgrind: även fatala invarianter
+redovisas utan att ändra exitkod (integritetsfel/processkrasch ger däremot
+felkod). DIANAs två Kanalinfarten-notiser ligger kvar synligt som
+invariantutslag. Monitoring/stale-svepet, avvisade fusionsfixar, livstecken
+och initial settings-persistens återspelas fortfarande inte.
+
+**P9: gt-punktens precision.** Nygenererat rådatafacit märker korsningspar
+med glapp >120 s och SOG <0,5 kn i någon ändpunkt som `inferred` med orsaken
+`sparse-stopped-endpoint`. En linjär tidsstämpel kan inte avgöra när båten
+väntade; korsningen är kvar och endast fönstret får användas i ETA-mätning.
+Tätare par lämnas eftersom hela deras tidsosäkerhet ryms inom två minuter.
+Saknad/ogiltig SOG är inte stillhetsbevis. I 23/8 får PHOENIX samma fönster
+14:50:18–15:02:19 UTC vid både Stridsbergsbron och Järnvägsbron; 23
+korsningar/zonbesök kvar, 4→6 inferred. Regeln ändrar inga produktbeslut.
+
+**Historiska gt-filer är ännu inte omlåsta.** Mätning 2026-09-06 visar att
+en nygenerering av de 20 befintliga korpusarna skulle flytta ytterligare
+71 punktposter till intervall, med oförändrade korsningsantal. `--check`
+kan därför rapportera skillnader tills dessa granskas separat. Befintliga
+öppnings-/ETA-grindar läser fortfarande det tidigare incheckade facitet;
+deras gröna resultat bevisar inte att den historiska tidsosäkerheten är löst.
 
 **Två grindar står mellan en fältkörning och en låst korpus: steg 3
 (logg-integriteten) och steg 4 (fassvepet).** Båda är OBLIGATORISKA före
@@ -549,23 +644,21 @@ efteråt.
    förväntat beteende och replaya jsonl:en:
    `node tests/replay-validation/replayRunner.js <jsonl>`.
    Kör sedan **fassvepet** (K20, fältprov 10): replayn ankrar klockan i
-   korpusens FÖRSTA sampel (`replayRunner.js`), så starttiden avgör var varje
-   tick faller. Svepet spelar upp samma korpus igen med ENBART starttiden
-   förskjuten och jämför utfallen:
+   korpusens FÖRSTA sampel (`replayRunner.js`). UI-watchdogen följer fasta
+   halvminuter och öppningsmotorn sina deadlines, medan exempelvis
+   minutstädningen fortfarande startas vid init. Svepet spelar upp samma
+   korpus med ENBART starttiden förskjuten och jämför utfallen:
    ```bash
-   npm run replay:phase                  # standardsvep: alla OLÅSTA korpusar i corpora.js
+   npm run replay:phase                  # olåsta korpusar, annars hela banken
    npm run replay:phase -- <jsonl> [...] # en eller flera namngivna korpusfiler
    node tests/replay-validation/runPhaseSweep.js --help
    ```
    Utan argument sveper skriptet varje korpus i `corpora.js` som har
    `locked: false` — exakt de körningar som står näst i tur att låsas. Finns
-   ingen olåst korpus kör det den MINSTA LÅSTA som självtest av grinden och
-   säger det rakt ut. ⚠️ **Just därför är ett bart `npm run replay:phase`
-   FÖRVÄNTAT rött** så länge `20260806-42h` är olåst och oavgjord (K20a, gula
-   paketet): den bär 117 odokumenterade fasavvikelser (HEAD 480b78f mäter samma 117 — talet drev från 101 sedan K20a; skriptets egen utskrift är den aktuella siffran) i öppnings- och
-   brotextdimensionerna. Rött är där en ärlig mätning, inte en trasig grind —
-   men grinden ska av samma skäl ALDRIG läggas i `npm run validate`/CI, och
-   rökprov körs mot en NAMNGIVEN korpus (`npm run replay:phase -- <jsonl>`). Flaggor: `--offsets=-20,-11.52,-5` (fasoffsets i SEKUNDER,
+   ingen olåst korpus kör det hela den låsta banken och säger det rakt ut.
+   De tidigare startberoende UI-tickarna och sena
+   konvojfrisläppen är rättade; gamla röda fasresultat är ingen förväntad
+   baslinje. Flaggor: `--offsets=-20,-11.52,-5` (fasoffsets i SEKUNDER,
    decimaler ok; default `-2.5,-5,-11.52,-15,-20,-25`, kan också sättas med
    `PHASE_SWEEP_OFFSETS`), `--id=<korpus-id>` (nyckel för undantagsuppslagningen),
    `--exceptions=<fil>` och `--keep-temp`. **Exitkod 0 = grönt, 1 = fas-känsligt eller OMÄTT (ingen fasvariant kunde köras)
@@ -764,7 +857,8 @@ adversariella granskningen 2026-08-10: selektiva noter på 7 korpusar).
   app.js och O2 använder). Bevissträngen skriver "etablerad stillhetsvistelse …" resp.
   "korroborerad av egen förflyttning". Grönheten för CARAT (both-21h) vilar på
   vistelseledet — en grindregel produkten inte har; ompröva vid nästa korpustillskott.
-- **Batteri:** steg 8 ska köra det NAMNGIVNA rökprovet (minsta låsta korpus); ett bart
-  `npm run replay:phase` är dokumenterat rött (117 avvikelser, HEAD lika) tills 42h låses.
+- **Historiskt fasfel, rättat 2026-09-08:** absoluta UI-tick och egna konvojdeadlines
+  ersätter startberoendet. Ett bart `npm run replay:phase` prövar nu hela den låsta banken;
+  även körningen med `REPLAY_MONITORING=1` ska vara grön före fältprov.
 - **Mäthygien:** ARM-jämförelser görs i TVÅ isolerade träd (git archive HEAD resp. rsync
   av arbetsträdet); påståendet "HEAD var redan röd" ska styrkas med loggfil från HEAD-trädet.

@@ -1,10 +1,20 @@
-# Bridge Text Format — Variant-1 (v3.0)
+# Brotext — rörelse och bekräftad väntan
 
 ## Designprincip
 
-Bridge text producerar **en enda fras per målbro-grupp**. Inga faser (inväntar / Broöppning pågår / precis passerat). Inga mellanbroar i texten. Hela utdata är en ren funktion av vessel-listan vid ett givet ögonblick — inga timers, ingen state mellan anrop.
+Brotexten grupperar båtar efter målbro och faktisk väntplats. Båtar under gång
+får en ankomstprognos. En bekräftad kö får vänttext utan minuter. Samma båt
+räknas en gång. Texten bygger på AIS; appen känner inte brons öppningsläge.
 
-Detta är den enda modell som är matematiskt bevisbart 100% konsekvent: *en* regel, *ingen* kompressionsrisk mellan tätt spaced events, *inga* faser att hoppa över.
+Väntan kräver färska positionsrapporter över minst en minut, stillhet och
+belagd anflygning mot en ännu opasserad bro. En ensam position eller statusnamnet
+`waiting` räcker inte. Färsk kö kan ligga kvar över två timmar. När positionerna
+upphör gäller ordinarie åldringsregler; en avstängd AIS hålls inte kvar för evigt.
+
+```
+En båt väntar vid Stridsbergsbron
+En båt väntar vid Järnvägsbron på väg mot Klaffbron
+```
 
 ## Grundformat
 
@@ -14,10 +24,15 @@ Detta är den enda modell som är matematiskt bevisbart 100% konsekvent: *en* re
 
 - **Antal**: Svenskt räkneord för 1–10 (`En`, `Två`, `Tre`, `Fyra`, `Fem`, `Sex`, `Sju`, `Åtta`, `Nio`, `Tio`). För ≥11: siffra.
 - **båt/båtar**: Singular vid antal = 1, annars plural.
-- **målbro**: `Klaffbron` eller `Stridsbergsbron` (de enda broar som någonsin nämns i texten).
+- **målbro**: `Klaffbron` eller `Stridsbergsbron`. En väntplats kan även vara Olidebron eller Järnvägsbron.
 - **etaKlausul**: Se nedan.
 
 ## ETA-klausul
+
+Tiden bygger på fartygens AIS-positioner och fart. Kötid och väntan på andra
+broöppningar kan förlänga tiden; appen mäter inte brons faktiska öppningsläge.
+Flow-tokenen `eta_minutes` avser beräknad ankomst. Brotextens formulering
+”beräknad broöppning” följer formatet nedan och ska läsas som en prognos.
 
 Beräknas från gruppens ledande båt — den båt i gruppen med lägst giltig `etaMinutes`. Om ingen båt har giltig ETA, fallback till båten med lägst `distanceToCurrent`; annars första båten.
 
@@ -39,9 +54,12 @@ från bron och korrigerades uppåt 67 s senare. "Strax" reserveras för färsk
 data/imminent; extrapolationen säger ärligt "cirka". (Exhausted-vägen går via
 imminent-flaggan och behåller strax.)*
 
-**Imminent-flaggan vinner över allt.** När en båt är inom 300 m från sin målbro tvingas "strax" oavsett ETA-värde — även för en stillastående/saktande båt som väntar, eller en Class A-båt vars 30 s-tick hoppar över ETA<3-zonen. Flaggan (`_isImminentAtTargetBridge`) sätts i `app.js` efter skydd (targetBridge satt, AIS färsk, ej GPS-jump-hold) och aggregeras över hela målbro-gruppen.
+**Bekräftad väntan går före ETA.** För båtar under gång kan imminent-flaggan
+ge ”strax” inom 300 m från målbron. Flaggan kräver färsk position och skydd
+mot GPS-störningar; den gäller bara gruppen som är under gång.
 
-**Inget tak på ETA-värdet.** Stora värden (40, 80, 120 minuter) visas verbatim — ETA-pipelinen ger trovärdiga värden även för stillastående båtar, så att visa 72 minuter ärligt är bättre än att klampa till en fras som lovar något annat.
+**Inget presentationsmässigt tak på giltig ETA.** Höga prognoser kan visas för
+båtar under gång. En bekräftat stillastående kö får ingen minutprognos.
 
 **Strax-tröskeln är 3 min** (justerad från 1 min efter produktionsanalys april 2026). Med tidigare 1-min-tröskel hoppade Class B AIS (30 s intervall) ofta över den ~30 m breda strax-zonen. Med 3-min-tröskel blir zonen ~460 m vid 5 knop och praktiskt taget alla båtar får "strax" under sin passage.
 
@@ -53,7 +71,8 @@ imminent-flaggan och behåller strax.)*
 
 ## Semikolon-separering
 
-När båtar åker mot båda målbroar visas en fras per målbro, separerade med `"; "`. Klaffbron-frasen kommer alltid före Stridsbergsbron-frasen i utdata, oavsett input-ordning.
+Klausuler separeras med `"; "`. Klaffbrons grupper kommer före Stridsbergsbrons.
+En målbro kan ha både en väntgrupp och en separat grupp under gång.
 
 ```
 En båt på väg mot Klaffbron, beräknad broöppning om 3 minuter; En båt på väg mot Stridsbergsbron, beräknad broöppning om 8 minuter
@@ -61,10 +80,11 @@ En båt på väg mot Klaffbron, beräknad broöppning om 3 minuter; En båt på 
 
 ## Multi-vessel inom samma målbro
 
-Båtar aggregeras till en fras med räkneord. ETA = gruppens ledande båt (närmaste i tid).
+Båtar med samma mål och väntplats aggregeras med räkneord. Båtar under gång
+grupperas separat; deras ETA kommer från den ledande båten (närmaste i tid).
 
 ```
-Två båtar på väg mot Klaffbron, beräknad broöppning om 2 minuter
+Två båtar på väg mot Klaffbron, beräknad broöppning om 3 minuter
 Tre båtar på väg mot Stridsbergsbron, beräknad broöppning strax
 Tio båtar på väg mot Klaffbron, beräknad broöppning om 5 minuter
 11 båtar på väg mot Klaffbron, beräknad broöppning om 7 minuter
@@ -86,13 +106,17 @@ Variant-1 har ingen egen logik för passage-detektion eller post-passage-text. A
 
 1. När en båt passerar en målbro, uppdaterar `VesselDataService` dess `targetBridge` till nästa målbro i riktning.
 2. Nästa `generateBridgeText()`-anrop returnerar naturligt en fras för nya målbron.
-3. När båten passerat sista målbron i sin riktning, tas den bort från systemet.
+3. Efter bekräftad passage av sista målbron tas båten omedelbart bort ur brotexten.
+   Den kan fortfarande spåras för notiser vid övriga broar och Kanalinfarten.
 
 Ingen "precis passerat"-text visas — båten övergår direkt till nästa målbro-fras (eller försvinner).
 
 ## Mellanbroar (Olidebron, Järnvägsbron, Stallbackabron)
 
-**Nämns aldrig i texten, oavsett status.** Detta är avsiktligt för systematisk konsekvens. Passage av mellanbroar detekteras och spåras av `VesselDataService` (för korrekt sekvens-validering och nästa-mål-tilldelning), men visas inte för användaren.
+Olidebron och Järnvägsbron nämns när båten bekräftat väntar där på väg mot
+sin målbro. Stallbackabron är fast och får ingen vänttext om broöppning.
+`boat_near` kan notifiera alla fem broar och Kanalinfarten, oavsett vilka
+broar användaren för tillfället valt i sina Flow-kort.
 
 ## Implementationsreferens
 
