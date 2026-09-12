@@ -10,7 +10,9 @@ const corpora = require('./replay-validation/corpora');
 const ROOT = path.join(__dirname, '..');
 const EUGENIE = '265788210';
 const ANTJE = '211347380';
-const T = Date.parse('2026-08-05T08:00:23.583Z');
+const T = Date.parse('2026-08-05T07:56:30.040Z');
+const EXPIRED_T = Date.parse('2026-08-05T08:01:30.040Z');
+const MOVING_T = Date.parse('2026-08-05T08:07:02.169Z');
 const TARGET = 'Stridsbergsbron';
 
 describe('ETA-mätaren läser textmotorns verkliga val utan omräkning', () => {
@@ -218,25 +220,38 @@ describe('Verkliga EUGENIE/ANTJE-fältet attribueras till rätt publicerande bå
     expect(measured.replay.runtimeDiagnostics.timersAfterShutdown).toBe(0);
   });
 
-  test('den historiska gissningen väljer ANTJE men verkliga sjuan bärs av EUGENIE', () => {
-    const find = (rows) => rows.find((c) => c.kind === 'brotext' && c.t === T && c.bridge === TARGET);
+  test('verkliga EUGENIE leder extrapoleringen; låg fart får ingen ny prognos efter utgången', () => {
+    const find = (rows, t = T) => rows.find((c) => c.kind === 'brotext' && c.t === t && c.bridge === TARGET);
+    // Råfixarna är samma som i eta-forward-field: EUGENIE senast 07:51
+    // med 1,6 kn. ANTJE stannar under 1 kn tills en ny rörelsefix 08:07.
+    // Loggens äldre kalkylatorvärde missar EUGENIEs publicerade nedräkning.
     expect(find(legacyClaims)).toMatchObject({
-      published: 7, mmsi: ANTJE, attribution: 'grupp-ledare', leadEta: 15.3,
+      published: 11, mmsi: ANTJE, attribution: 'grupp-ledare',
     });
     expect(find(claims)).toMatchObject({
-      published: 7, mmsi: EUGENIE, attribution: 'renderad-ledare', leadEta: 7.46, approx: true,
+      published: 11, mmsi: EUGENIE, attribution: 'renderad-ledare', candidates: 2, approx: true,
     });
-    const replacement = claims.find((c) => c.kind === 'brotext'
-      && c.t === Date.parse('2026-08-05T08:01:30.040Z') && c.bridge === TARGET);
-    expect(replacement).toMatchObject({
-      published: 15, mmsi: ANTJE, attribution: 'renderad-ledare', leadEta: 15.13, approx: false,
-    });
+    expect(find(claims).leadEta).toBeGreaterThanOrEqual(11);
+    expect(find(claims).leadEta).toBeLessThan(12);
     expect(find(claims).truth).not.toBe(find(legacyClaims).truth);
+
+    // Efter tio minuter tystnar EUGENIEs prognos. En färsk 0,6-knopsfix
+    // från ANTJE får inte återuppliva den tidigare utgångna lågfartsprognosen.
+    const expired = measured.replay.bridgeTextTransitions.find((r) => r.t === EXPIRED_T);
+    expect(expired.text).toContain('Två båtar på väg mot Stridsbergsbron, ETA okänd');
+    expect(find(claims, EXPIRED_T)).toBeUndefined();
+    expect(find(claims, MOVING_T)).toMatchObject({
+      published: 13, mmsi: ANTJE, attribution: 'renderad-ledare', candidates: 2, approx: false,
+    });
   });
 
   test('alla numeriska textpåståenden i fältet har direkt renderingsbevis', () => {
     const texts = claims.filter((c) => c.kind === 'brotext');
-    expect(texts.length).toBeGreaterThan(300);
+    // Kön och inaktuella lågfartsprognoser har inga minutsiffror. Jämför
+    // mot det som faktiskt publicerats, inte ett historiskt antal siffror.
+    const numericClauses = measured.replay.bridgeTextTransitions.flatMap((tr) => tr.text.split('; '))
+      .filter((text) => /beräknad broöppning om (?:cirka )?\d+ minut/.test(text));
+    expect(texts).toHaveLength(numericClauses.length);
     expect(new Set(texts.map((c) => c.attribution))).toEqual(new Set(['renderad-ledare']));
   });
 
@@ -245,7 +260,9 @@ describe('Verkliga EUGENIE/ANTJE-fältet attribueras till rätt publicerande bå
       replay: { bridgeTextTransitions: measured.replay.bridgeTextTransitions.filter((tr) => tr.t === T) },
       debug: { ...measured.debug, renderings: [] },
     }, { index: new Map() }).claims;
-    expect(missing).toHaveLength(1);
-    expect(missing[0]).toMatchObject({ mmsi: null, attribution: 'rendering-saknas', status: 'oattribuerad' });
+    expect(missing.filter((claim) => claim.bridge === TARGET)).toHaveLength(1);
+    for (const claim of missing) {
+      expect(claim).toMatchObject({ mmsi: null, attribution: 'rendering-saknas', status: 'oattribuerad' });
+    }
   });
 });

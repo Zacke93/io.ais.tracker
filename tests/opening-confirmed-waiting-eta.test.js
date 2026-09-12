@@ -57,8 +57,6 @@ describe('Öppningskortets ETA följer bekräftad brokö', () => {
 
   test.each([
     ['egen målbro', 100, 'Stridsbergsbron', 0.1],
-    ['föregående mellanbro', 402, 'Järnvägsbron', 0.1],
-    ['kö med okänd fart', 402, 'Järnvägsbron', null],
   ])('%s ger okänd ETA utan ändrad varning eller reservprognos', (_label, distance, bridge, sog) => {
     const vessel = confirmWait(boat(distance, { sog }), bridge);
     expect(waitingBridge(vessel)).toBe(bridge);
@@ -85,10 +83,63 @@ describe('Öppningskortets ETA följer bekräftad brokö', () => {
     expect(arm.fireDueMs).toBeLessThan(START);
   });
 
+  test.each([0.1, null])('kö vid föregående bro med fart %s pausar varningen; tystnad ger reservvarning', (sog) => {
+    service.observeVessel(confirmWait(boat(402, { sog }), 'Järnvägsbron'));
+    expect(warning).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(5 * 60000 - 1);
+    expect(warning).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(1);
+    expect(warning).toHaveBeenCalledTimes(1);
+    expect(warning.mock.calls[0][0]).toMatchObject({ etaMinutes: null, firedBy: 'deadline' });
+  });
+
+  test('fortsatt färsk kö i tre timmar ger ingen varning för nästa bro eller timerläcka', () => {
+    const vessel = confirmWait(boat(402), 'Järnvägsbron');
+    for (let minute = 0; minute < 180; minute++) {
+      service.observeVessel({ ...vessel, timestamp: Date.now(), fixTs: Date.now() });
+      jest.advanceTimersByTime(60000);
+    }
+    expect(warning).not.toHaveBeenCalled();
+    expect(jest.getTimerCount()).toBe(1);
+    service.observeVessel(boat(100, { sog: 4, passedBridges: ['Järnvägsbron'], etaMinutes: 2 }));
+    expect(warning).toHaveBeenCalledTimes(1);
+  });
+
+  test('tät rörlig följare delar varningen även strax före mellanbron', () => {
+    service.observeVessel(boat(150, { mmsi: '265000001', sog: 4.2, passedBridges: ['Järnvägsbron'] }));
+    expect(warning).toHaveBeenCalledTimes(1);
+    const follower = boat(410, {
+      sog: 4.2,
+      passedBridges: ['Klaffbron'],
+      _bridgeQueueApproaches: { Järnvägsbron: { confirmedAt: START - 180000, direction: 'north' } },
+    });
+    service.observeVessel(follower);
+    jest.advanceTimersByTime(60000);
+    service.observeVessel(boat(280, { sog: 4.2, passedBridges: ['Järnvägsbron'] }));
+    expect(warning).toHaveBeenCalledTimes(1);
+  });
+
+  test.each(['avstånd', 'gammal ledarposition', 'motsatt riktning'])('%s räcker inte som konvojbevis över mellanbron', (reason) => {
+    service.observeVessel(boat(reason === 'motsatt riktning' ? -150 : 150, {
+      mmsi: '265000001',
+      sog: 4.2,
+      passedBridges: ['Järnvägsbron'],
+      _routeDirection: reason === 'motsatt riktning' ? 'south' : 'north',
+    }));
+    expect(warning).toHaveBeenCalledTimes(1);
+    if (reason === 'gammal ledarposition') jest.advanceTimersByTime(2 * 60000);
+    service.observeVessel(boat(reason === 'avstånd' ? 850 : 510, {
+      sog: 4.2, passedBridges: ['Klaffbron'],
+    }));
+    expect(warning).toHaveBeenCalledTimes(1);
+    service.observeVessel(boat(150, { sog: 4.2, passedBridges: ['Järnvägsbron'] }));
+    expect(warning).toHaveBeenCalledTimes(2);
+  });
+
   test.each([
-    ['verklig transit trots waiting-status', { sog: 4.3, etaMinutes: 2 }, 2],
-    ['aktuell nollprognos under transit', { sog: 4.3, etaMinutes: 0 }, 0],
-    ['ensamt stillhetsprov', { _stationarySince: START }, 4],
+    ['verklig transit efter mellanbron trots waiting-status', { sog: 4.3, etaMinutes: 2, passedBridges: ['Järnvägsbron'] }, 2],
+    ['aktuell nollprognos under transit efter mellanbron', { sog: 4.3, etaMinutes: 0, passedBridges: ['Järnvägsbron'] }, 0],
+    ['ensamt stillhetsprov utan tidigare bro', { _stationarySince: START, passedBridges: ['Järnvägsbron'] }, 4],
     ['status utan belagd anflygning', { _bridgeQueueApproaches: {} }, 4],
   ])('%s behåller tillgängliga minuter', (_label, extra, expected) => {
     const vessel = confirmWait(boat(), 'Järnvägsbron');
@@ -104,6 +155,8 @@ describe('Öppningskortets ETA följer bekräftad brokö', () => {
   test('bekräftad kö läses även innan gammal approaching-status uppdaterats', () => {
     service.observeVessel(confirmWait(boat(402, { status: 'approaching' }), 'Järnvägsbron'));
 
+    expect(warning).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(5 * 60000);
     expect(warning).toHaveBeenCalledTimes(1);
     expect(warning.mock.calls[0][0].etaMinutes).toBeNull();
   });
@@ -178,7 +231,7 @@ describe('Öppningskortets ETA följer bekräftad brokö', () => {
     expect(next.fireDueMs).toBe(next.originalDueMs);
   });
 
-  test('en väntande konvojmedlem tar inte bort den rörliga ledarens egen prognos', () => {
+  test('en båt i kö vid föregående bro varnas inte bort som medlem i den rörliga ledarens konvoj', () => {
     service.destroy();
     configure({ WARNING_LEAD_MS: 0, FIRE_EXPECTED_ETA_MS: 0 });
     service.observeVessel(boat(400, {
@@ -191,12 +244,12 @@ describe('Öppningskortets ETA följer bekräftad brokö', () => {
     jest.advanceTimersByTime(Math.ceil(lead.fireDueMs) - Date.now());
 
     expect(warning).toHaveBeenCalledTimes(1);
-    expect(warning.mock.calls[0][0]).toMatchObject({ leadMmsi: '265111111', vesselCount: 2, etaMinutes: 5 });
-    expect(warning.mock.calls[0][0].mmsis).toEqual(expect.arrayContaining(['265111111', MMSI]));
+    expect(warning.mock.calls[0][0]).toMatchObject({ leadMmsi: '265111111', vesselCount: 1, etaMinutes: 5 });
+    expect(warning.mock.calls[0][0].mmsis).toEqual(['265111111']);
   });
 });
 
-test('KNIGHTs verkliga öppningskort har okänd ETA vid bekräftad kö, med samma tid och medlemmar', () => {
+test('KNIGHTs verkliga kö skjuter upp varningen; gles AIS har en reservväg med okänd ETA', () => {
   const replayDir = path.join(__dirname, 'replay-validation');
   const output = execFileSync(process.execPath, [
     path.join(replayDir, 'replayRunner.js'),
@@ -214,9 +267,8 @@ test('KNIGHTs verkliga öppningskort har okänd ETA vid bekräftad kö, med samm
   const warnings = result.openingWarnings.filter((entry) => entry.mmsis.includes(MMSI));
   expect(warnings).toHaveLength(1);
   expect(warnings[0]).toMatchObject({
-    t: Date.parse('2026-07-12T08:23:01.404Z'),
+    t: Date.parse('2026-07-12T08:28:01.404Z'),
     etaMin: -1,
-    eventId: 'Stridsbergsbron#2',
     bridge: 'Stridsbergsbron',
     mmsis: [MMSI],
     vesselCount: 1,

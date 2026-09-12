@@ -2453,8 +2453,8 @@
       "t": 1785934221699,
       "bridge": "Stridsbergsbron",
       "direction": "northbound",
-      "eta": 1,
-      "message": "ARESTEL närmar sig Stridsbergsbron, beräknad ankomst om 1 minut",
+      "eta": 3,
+      "message": "ARESTEL närmar sig Stridsbergsbron, beräknad ankomst om 3 minuter",
       "alreadyPassed": false,
       "name": "ARESTEL",
       "distance": 126,
@@ -2742,21 +2742,21 @@
       "error": null
     },
     {
-      "t": 1785886907762,
-      "iso": "2026-08-04T23:41:47.762Z",
+      "t": 1785887011475,
+      "iso": "2026-08-04T23:43:31.475Z",
       "bridge": "Klaffbron",
       "direction": "southbound",
-      "etaMin": 8,
+      "etaMin": 7,
       "vesselCount": 1,
       "leadVessel": "TIM",
-      "firedBy": "deadline",
+      "firedBy": "fix",
       "eventId": "Klaffbron#2",
       "leadMmsi": "212571000",
       "mmsis": [
         "212571000"
       ],
-      "distance": 1280,
-      "dueMs": 1785886907761.2231,
+      "distance": 890,
+      "dueMs": 1785887011475,
       "originalDueMs": 1785886744646.0525,
       "success": true,
       "error": null
@@ -2782,11 +2782,11 @@
       "error": null
     },
     {
-      "t": 1785888106288,
-      "iso": "2026-08-05T00:01:46.288Z",
+      "t": 1785888254517,
+      "iso": "2026-08-05T00:04:14.517Z",
       "bridge": "Stridsbergsbron",
       "direction": "northbound",
-      "etaMin": 6,
+      "etaMin": 4,
       "vesselCount": 1,
       "leadVessel": "MS JUTLAND",
       "firedBy": "deadline",
@@ -2795,8 +2795,8 @@
       "mmsis": [
         "211718360"
       ],
-      "distance": 1138,
-      "dueMs": 1785888106287.2866,
+      "distance": 594,
+      "dueMs": 1785888254517,
       "originalDueMs": 1785887795004.9897,
       "success": true,
       "error": null
@@ -2810,7 +2810,7 @@
       "vesselCount": 1,
       "leadVessel": "ANDREA",
       "firedBy": "deadline",
-      "eventId": "Klaffbron#5",
+      "eventId": "Klaffbron#6",
       "leadMmsi": "219031446",
       "mmsis": [
         "219031446"
@@ -2822,22 +2822,22 @@
       "error": null
     },
     {
-      "t": 1785891242842,
-      "iso": "2026-08-05T00:54:02.842Z",
+      "t": 1785891781678,
+      "iso": "2026-08-05T01:03:01.678Z",
       "bridge": "Stridsbergsbron",
       "direction": "northbound",
-      "etaMin": 7,
+      "etaMin": 5,
       "vesselCount": 1,
       "leadVessel": "ANDREA",
-      "firedBy": "deadline",
-      "eventId": "Stridsbergsbron#6",
+      "firedBy": "fix",
+      "eventId": "Stridsbergsbron#7",
       "leadMmsi": "219031446",
       "mmsis": [
         "219031446"
       ],
-      "distance": 1290,
-      "dueMs": 1785891242841.4302,
-      "originalDueMs": 1785890987380.2559,
+      "distance": 338,
+      "dueMs": 1785891781678,
+      "originalDueMs": 1785891002000,
       "success": true,
       "error": null
     },
@@ -2850,7 +2850,7 @@
       "vesselCount": 1,
       "leadVessel": "MISTY",
       "firedBy": "fix",
-      "eventId": "Klaffbron#7",
+      "eventId": "Klaffbron#8",
       "leadMmsi": "219035849",
       "mmsis": [
         "219035849"
@@ -2870,7 +2870,7 @@
       "vesselCount": 1,
       "leadVessel": "ANYA ELAN 380",
       "firedBy": "deadline",
-      "eventId": "Klaffbron#8",
+      "eventId": "Klaffbron#10",
       "leadMmsi": "265705550",
       "mmsis": [
         "265705550"
@@ -2882,103 +2882,142 @@
       "error": null
     },
     {
-      "t": 1785913856896,
-      "iso": "2026-08-05T07:10:56.896Z",
+      "t": 1785914250000,
+      "iso": "2026-08-05T07:17:30.000Z",
       "bridge": "Stridsbergsbron",
       "direction": "northbound",
-      "etaMin": 16,
+      "etaMin": -1,
       "vesselCount": 1,
       "leadVessel": "ANYA ELAN 380",
       "firedBy": "deadline",
-      "eventId": "Stridsbergsbron#9",
+      "eventId": "Stridsbergsbron#11",
       "leadMmsi": "265705550",
       "mmsis": [
         "265705550"
       ],
-      "distance": 1378,
-      "dueMs": 1785913856895.7395,
-      "originalDueMs": 1785913746760.5874,
+      "distance": 1314,
+      "dueMs": 1785914250000,
+      "originalDueMs": 1785913768000,
       "success": true,
       "error": null
     },
     {
-      "t": 1785914952549,
-      "iso": "2026-08-05T07:29:12.549Z",
+      "t": 1785915188201,
+      "iso": "2026-08-05T07:33:08.201Z",
       "bridge": "Klaffbron",
       "direction": "northbound",
-      "etaMin": 10,
+      "etaMin": 11,
       "vesselCount": 1,
       "leadVessel": "ANTJE",
       "firedBy": "deadline",
-      "eventId": "Klaffbron#10",
+      "eventId": "Klaffbron#13",
       "leadMmsi": "211347380",
       "mmsis": [
         "211347380"
       ],
-      "distance": 1438,
-      "dueMs": 1785914952548.1711,
+      "distance": 1352,
+      "dueMs": 1785915188200.947,
       "originalDueMs": 1785914715867.7202,
       "success": true,
       "error": null
     },
     {
-      "t": 1785915265548,
-      "iso": "2026-08-05T07:34:25.548Z",
+      "t": 1785915401333,
+      "iso": "2026-08-05T07:36:41.333Z",
+      "bridge": "Stridsbergsbron",
+      "direction": "southbound",
+      "etaMin": 6,
+      "vesselCount": 1,
+      "leadVessel": "LAURIERBORG",
+      "firedBy": "deadline",
+      "eventId": "Stridsbergsbron#15",
+      "leadMmsi": "246924000",
+      "mmsis": [
+        "246924000"
+      ],
+      "distance": 666,
+      "dueMs": 1785915401333,
+      "originalDueMs": 1785914999159.459,
+      "success": true,
+      "error": null
+    },
+    {
+      "t": 1785915869970,
+      "iso": "2026-08-05T07:44:29.970Z",
+      "bridge": "Klaffbron",
+      "direction": "southbound",
+      "etaMin": 7,
+      "vesselCount": 1,
+      "leadVessel": "LAURIERBORG",
+      "firedBy": "fix",
+      "eventId": "Klaffbron#16",
+      "leadMmsi": "246924000",
+      "mmsis": [
+        "246924000"
+      ],
+      "distance": 919,
+      "dueMs": 1785915869970,
+      "originalDueMs": 1785915429000,
+      "success": true,
+      "error": null
+    },
+    {
+      "t": 1785916094000,
+      "iso": "2026-08-05T07:48:14.000Z",
       "bridge": "Stridsbergsbron",
       "direction": "northbound",
-      "etaMin": 19,
+      "etaMin": -1,
       "vesselCount": 1,
       "leadVessel": "ANTJE",
-      "firedBy": "fix",
-      "eventId": "Stridsbergsbron#11",
+      "firedBy": "deadline",
+      "eventId": "Stridsbergsbron#17",
       "leadMmsi": "211347380",
       "mmsis": [
         "211347380"
       ],
-      "distance": 2283,
-      "dueMs": 1785915265548,
-      "originalDueMs": 1785915219365.1772,
+      "distance": 1373,
+      "dueMs": 1785916094000,
+      "originalDueMs": 1785915493000,
       "success": true,
       "error": null
     },
     {
-      "t": 1785916140697,
-      "iso": "2026-08-05T07:49:00.697Z",
+      "t": 1785916874313,
+      "iso": "2026-08-05T08:01:14.313Z",
       "bridge": "Klaffbron",
       "direction": "southbound",
-      "etaMin": -1,
-      "vesselCount": 2,
+      "etaMin": 0,
+      "vesselCount": 1,
       "leadVessel": "ANYA ELAN 380",
       "firedBy": "deadline",
-      "eventId": "Klaffbron#12",
+      "eventId": "Klaffbron#18",
       "leadMmsi": "265705550",
       "mmsis": [
-        "246924000",
         "265705550"
       ],
       "distance": 217,
-      "dueMs": 1785916140697,
-      "originalDueMs": 1785915425886.9333,
+      "dueMs": 1785916874313,
+      "originalDueMs": 1785915490033.3994,
       "success": true,
       "error": null
     },
     {
-      "t": 1785918033169,
-      "iso": "2026-08-05T08:20:33.169Z",
+      "t": 1785918268000,
+      "iso": "2026-08-05T08:24:28.000Z",
       "bridge": "Stridsbergsbron",
       "direction": "northbound",
-      "etaMin": 13,
+      "etaMin": -1,
       "vesselCount": 1,
       "leadVessel": "EUGENIE",
-      "firedBy": "fix",
-      "eventId": "Stridsbergsbron#14",
+      "firedBy": "deadline",
+      "eventId": "Stridsbergsbron#20",
       "leadMmsi": "265788210",
       "mmsis": [
         "265788210"
       ],
       "distance": 695,
-      "dueMs": 1785918033169,
-      "originalDueMs": 1785917923090.9768,
+      "dueMs": 1785918268000,
+      "originalDueMs": 1785918268000,
       "success": true,
       "error": null
     },
@@ -2991,7 +3030,7 @@
       "vesselCount": 3,
       "leadVessel": "LA FEMME",
       "firedBy": "deadline",
-      "eventId": "Stridsbergsbron#15",
+      "eventId": "Stridsbergsbron#21",
       "leadMmsi": "219033332",
       "mmsis": [
         "219033332",
@@ -3013,7 +3052,7 @@
       "vesselCount": 1,
       "leadVessel": "SIESTA",
       "firedBy": "deadline",
-      "eventId": "Klaffbron#16",
+      "eventId": "Klaffbron#23",
       "leadMmsi": "211671350",
       "mmsis": [
         "211671350"
@@ -3025,63 +3064,82 @@
       "error": null
     },
     {
-      "t": 1785920099089,
-      "iso": "2026-08-05T08:54:59.089Z",
+      "t": 1785920126000,
+      "iso": "2026-08-05T08:55:26.000Z",
       "bridge": "Stridsbergsbron",
       "direction": "northbound",
-      "etaMin": 12,
+      "etaMin": -1,
       "vesselCount": 1,
       "leadVessel": "SIESTA",
       "firedBy": "deadline",
-      "eventId": "Stridsbergsbron#17",
+      "eventId": "Stridsbergsbron#24",
       "leadMmsi": "211671350",
       "mmsis": [
         "211671350"
       ],
       "distance": 2331,
-      "dueMs": 1785920099088.2632,
-      "originalDueMs": 1785920081072.9536,
+      "dueMs": 1785920126000,
+      "originalDueMs": 1785920095000,
       "success": true,
       "error": null
     },
     {
-      "t": 1785920993919,
-      "iso": "2026-08-05T09:09:53.919Z",
-      "bridge": "Klaffbron",
-      "direction": "southbound",
-      "etaMin": 13,
-      "vesselCount": 2,
-      "leadVessel": "LA FEMME",
-      "firedBy": "deadline",
-      "eventId": "Klaffbron#18",
-      "leadMmsi": "219033332",
-      "mmsis": [
-        "219033332",
-        "265819150"
-      ],
-      "distance": 1333,
-      "dueMs": 1785920993919,
-      "originalDueMs": 1785920068896.349,
-      "success": true,
-      "error": null
-    },
-    {
-      "t": 1785920993919,
-      "iso": "2026-08-05T09:09:53.919Z",
+      "t": 1785920577000,
+      "iso": "2026-08-05T09:02:57.000Z",
       "bridge": "Klaffbron",
       "direction": "southbound",
       "etaMin": -1,
       "vesselCount": 1,
       "leadVessel": "DIONE",
       "firedBy": "deadline",
-      "eventId": "Klaffbron#19",
+      "eventId": "Klaffbron#25",
       "leadMmsi": "219025537",
       "mmsis": [
         "219025537"
       ],
       "distance": 1478,
-      "dueMs": 1785920993919,
-      "originalDueMs": 1785920144133.5103,
+      "dueMs": 1785920577000,
+      "originalDueMs": 1785920188334,
+      "success": true,
+      "error": null
+    },
+    {
+      "t": 1785920830053,
+      "iso": "2026-08-05T09:07:10.053Z",
+      "bridge": "Klaffbron",
+      "direction": "southbound",
+      "etaMin": -1,
+      "vesselCount": 1,
+      "leadVessel": "LA FEMME",
+      "firedBy": "deadline",
+      "eventId": "Klaffbron#26",
+      "leadMmsi": "219033332",
+      "mmsis": [
+        "219033332"
+      ],
+      "distance": 1279,
+      "dueMs": 1785920830053,
+      "originalDueMs": 1785920101000,
+      "success": true,
+      "error": null
+    },
+    {
+      "t": 1785921931359,
+      "iso": "2026-08-05T09:25:31.359Z",
+      "bridge": "Klaffbron",
+      "direction": "southbound",
+      "etaMin": -1,
+      "vesselCount": 1,
+      "leadVessel": "YOLO 2",
+      "firedBy": "deadline",
+      "eventId": "Klaffbron#27",
+      "leadMmsi": "265819150",
+      "mmsis": [
+        "265819150"
+      ],
+      "distance": 1408,
+      "dueMs": 1785921931359,
+      "originalDueMs": 1785920282000,
       "success": true,
       "error": null
     },
@@ -3094,7 +3152,7 @@
       "vesselCount": 1,
       "leadVessel": "ELFKUNGEN",
       "firedBy": "deadline",
-      "eventId": "Klaffbron#20",
+      "eventId": "Klaffbron#29",
       "leadMmsi": "265573130",
       "mmsis": [
         "265573130"
@@ -3106,21 +3164,21 @@
       "error": null
     },
     {
-      "t": 1785924833857,
-      "iso": "2026-08-05T10:13:53.857Z",
+      "t": 1785925322000,
+      "iso": "2026-08-05T10:22:02.000Z",
       "bridge": "Stridsbergsbron",
       "direction": "northbound",
-      "etaMin": 6,
+      "etaMin": -1,
       "vesselCount": 1,
       "leadVessel": "ELFKUNGEN",
       "firedBy": "deadline",
-      "eventId": "Stridsbergsbron#21",
+      "eventId": "Stridsbergsbron#30",
       "leadMmsi": "265573130",
       "mmsis": [
         "265573130"
       ],
-      "distance": 1810,
-      "dueMs": 1785924833856.4377,
+      "distance": 1004,
+      "dueMs": 1785925322000,
       "originalDueMs": 1785924755474.016,
       "success": true,
       "error": null
@@ -3134,7 +3192,7 @@
       "vesselCount": 3,
       "leadVessel": "CHARLYS DREAM",
       "firedBy": "deadline",
-      "eventId": "Stridsbergsbron#22",
+      "eventId": "Stridsbergsbron#31",
       "leadMmsi": "211644790",
       "mmsis": [
         "211644790",
@@ -3151,18 +3209,15 @@
       "t": 1785929137294,
       "iso": "2026-08-05T11:25:37.294Z",
       "bridge": "Klaffbron",
-      "direction": "mixed",
+      "direction": "northbound",
       "etaMin": 11,
-      "vesselCount": 4,
+      "vesselCount": 1,
       "leadVessel": "S/Y THELMA",
       "firedBy": "deadline",
-      "eventId": "Klaffbron#23",
+      "eventId": "Klaffbron#33",
       "leadMmsi": "265565830",
       "mmsis": [
-        "265565830",
-        "211644790",
-        "265614200",
-        "265805640"
+        "265565830"
       ],
       "distance": 1360,
       "dueMs": 1785929137293.4,
@@ -3171,22 +3226,82 @@
       "error": null
     },
     {
-      "t": 1785929510100,
-      "iso": "2026-08-05T11:31:50.100Z",
+      "t": 1785929594000,
+      "iso": "2026-08-05T11:33:14.000Z",
       "bridge": "Stridsbergsbron",
       "direction": "northbound",
-      "etaMin": 11,
+      "etaMin": -1,
       "vesselCount": 1,
       "leadVessel": "S/Y THELMA",
       "firedBy": "deadline",
-      "eventId": "Stridsbergsbron#24",
+      "eventId": "Stridsbergsbron#34",
       "leadMmsi": "265565830",
       "mmsis": [
         "265565830"
       ],
       "distance": 2038,
-      "dueMs": 1785929510099.4202,
-      "originalDueMs": 1785929408813.4531,
+      "dueMs": 1785929594000,
+      "originalDueMs": 1785929413000,
+      "success": true,
+      "error": null
+    },
+    {
+      "t": 1785929810000,
+      "iso": "2026-08-05T11:36:50.000Z",
+      "bridge": "Klaffbron",
+      "direction": "southbound",
+      "etaMin": -1,
+      "vesselCount": 1,
+      "leadVessel": "CHARLYS DREAM",
+      "firedBy": "deadline",
+      "eventId": "Klaffbron#35",
+      "leadMmsi": "211644790",
+      "mmsis": [
+        "211644790"
+      ],
+      "distance": 1307,
+      "dueMs": 1785929810000,
+      "originalDueMs": 1785929211000,
+      "success": true,
+      "error": null
+    },
+    {
+      "t": 1785930197000,
+      "iso": "2026-08-05T11:43:17.000Z",
+      "bridge": "Klaffbron",
+      "direction": "southbound",
+      "etaMin": -1,
+      "vesselCount": 1,
+      "leadVessel": "ELIZABETH GREENWOOD",
+      "firedBy": "deadline",
+      "eventId": "Klaffbron#36",
+      "leadMmsi": "265805640",
+      "mmsis": [
+        "265805640"
+      ],
+      "distance": 1329,
+      "dueMs": 1785930197000,
+      "originalDueMs": 1785929306912.2183,
+      "success": true,
+      "error": null
+    },
+    {
+      "t": 1785930608000,
+      "iso": "2026-08-05T11:50:08.000Z",
+      "bridge": "Klaffbron",
+      "direction": "southbound",
+      "etaMin": -1,
+      "vesselCount": 1,
+      "leadVessel": "CAVAT",
+      "firedBy": "deadline",
+      "eventId": "Klaffbron#37",
+      "leadMmsi": "265614200",
+      "mmsis": [
+        "265614200"
+      ],
+      "distance": 1291,
+      "dueMs": 1785930608000,
+      "originalDueMs": 1785929285000,
       "success": true,
       "error": null
     },
@@ -3199,7 +3314,7 @@
       "vesselCount": 2,
       "leadVessel": "BLADE",
       "firedBy": "deadline",
-      "eventId": "Klaffbron#25",
+      "eventId": "Klaffbron#40",
       "leadMmsi": "265637230",
       "mmsis": [
         "265573130",
@@ -3212,63 +3327,102 @@
       "error": null
     },
     {
-      "t": 1785931700953,
-      "iso": "2026-08-05T12:08:20.953Z",
+      "t": 1785931797000,
+      "iso": "2026-08-05T12:09:57.000Z",
       "bridge": "Stridsbergsbron",
       "direction": "mixed",
-      "etaMin": 8,
-      "vesselCount": 3,
-      "leadVessel": "BLADE",
+      "etaMin": 12,
+      "vesselCount": 2,
+      "leadVessel": "WANDA",
       "firedBy": "deadline",
-      "eventId": "Stridsbergsbron#26",
-      "leadMmsi": "265637230",
+      "eventId": "Stridsbergsbron#39",
+      "leadMmsi": "211133370",
       "mmsis": [
         "211133370",
-        "265573130",
-        "265637230"
+        "265573130"
       ],
-      "distance": 1683,
-      "dueMs": 1785931700952.2922,
-      "originalDueMs": 1785931641567.5332,
+      "distance": 1431,
+      "dueMs": 1785931797000,
+      "originalDueMs": 1785931648000,
       "success": true,
       "error": null
     },
     {
-      "t": 1785932336365,
-      "iso": "2026-08-05T12:18:56.365Z",
+      "t": 1785932052380,
+      "iso": "2026-08-05T12:14:12.380Z",
+      "bridge": "Stridsbergsbron",
+      "direction": "northbound",
+      "etaMin": 7,
+      "vesselCount": 1,
+      "leadVessel": "BLADE",
+      "firedBy": "deadline",
+      "eventId": "Stridsbergsbron#41",
+      "leadMmsi": "265637230",
+      "mmsis": [
+        "265637230"
+      ],
+      "distance": 700,
+      "dueMs": 1785932052380,
+      "originalDueMs": 1785931675000,
+      "success": true,
+      "error": null
+    },
+    {
+      "t": 1785932425861,
+      "iso": "2026-08-05T12:20:25.861Z",
       "bridge": "Klaffbron",
       "direction": "southbound",
-      "etaMin": 7,
+      "etaMin": 6,
       "vesselCount": 1,
       "leadVessel": "WANDA",
       "firedBy": "deadline",
-      "eventId": "Klaffbron#27",
+      "eventId": "Klaffbron#42",
       "leadMmsi": "211133370",
       "mmsis": [
         "211133370"
       ],
-      "distance": 1396,
-      "dueMs": 1785932336364.8606,
-      "originalDueMs": 1785932166095.5884,
+      "distance": 929,
+      "dueMs": 1785932425860.0635,
+      "originalDueMs": 1785932186000,
       "success": true,
       "error": null
     },
     {
-      "t": 1785933155179,
-      "iso": "2026-08-05T12:32:35.179Z",
-      "bridge": "Stridsbergsbron",
+      "t": 1785932819654,
+      "iso": "2026-08-05T12:26:59.654Z",
+      "bridge": "Klaffbron",
       "direction": "northbound",
-      "etaMin": 5,
+      "etaMin": 6,
       "vesselCount": 1,
       "leadVessel": "ARESTEL",
       "firedBy": "deadline",
-      "eventId": "Stridsbergsbron#28",
+      "eventId": "Klaffbron#43",
       "leadMmsi": "265700360",
       "mmsis": [
         "265700360"
       ],
-      "distance": 1230,
-      "dueMs": 1785933155178.859,
+      "distance": 1063,
+      "dueMs": 1785932819653.7014,
+      "originalDueMs": 1785932705175.316,
+      "success": true,
+      "error": null
+    },
+    {
+      "t": 1785933917627,
+      "iso": "2026-08-05T12:45:17.627Z",
+      "bridge": "Stridsbergsbron",
+      "direction": "northbound",
+      "etaMin": -1,
+      "vesselCount": 1,
+      "leadVessel": "ARESTEL",
+      "firedBy": "deadline",
+      "eventId": "Stridsbergsbron#44",
+      "leadMmsi": "265700360",
+      "mmsis": [
+        "265700360"
+      ],
+      "distance": 376,
+      "dueMs": 1785933917627,
       "originalDueMs": 1785933021768.5896,
       "success": true,
       "error": null
@@ -3282,7 +3436,7 @@
       "vesselCount": 1,
       "leadVessel": "PLAYTIME",
       "firedBy": "deadline",
-      "eventId": "Stridsbergsbron#29",
+      "eventId": "Stridsbergsbron#45",
       "leadMmsi": "265763070",
       "mmsis": [
         "265763070"
@@ -3294,22 +3448,22 @@
       "error": null
     },
     {
-      "t": 1785939263194,
-      "iso": "2026-08-05T14:14:23.194Z",
+      "t": 1785939705000,
+      "iso": "2026-08-05T14:21:45.000Z",
       "bridge": "Klaffbron",
       "direction": "southbound",
-      "etaMin": 15,
+      "etaMin": -1,
       "vesselCount": 1,
       "leadVessel": "PLAYTIME",
       "firedBy": "deadline",
-      "eventId": "Klaffbron#30",
+      "eventId": "Klaffbron#46",
       "leadMmsi": "265763070",
       "mmsis": [
         "265763070"
       ],
-      "distance": 1411,
-      "dueMs": 1785939263193.6184,
-      "originalDueMs": 1785939097995.5962,
+      "distance": 1363,
+      "dueMs": 1785939705000,
+      "originalDueMs": 1785939105000,
       "success": true,
       "error": null
     },
@@ -3322,7 +3476,7 @@
       "vesselCount": 1,
       "leadVessel": "ANNA",
       "firedBy": "deadline",
-      "eventId": "Stridsbergsbron#31",
+      "eventId": "Stridsbergsbron#47",
       "leadMmsi": "265651340",
       "mmsis": [
         "265651340"
@@ -3334,22 +3488,22 @@
       "error": null
     },
     {
-      "t": 1785941786994,
-      "iso": "2026-08-05T14:56:26.994Z",
+      "t": 1785942237000,
+      "iso": "2026-08-05T15:03:57.000Z",
       "bridge": "Klaffbron",
       "direction": "southbound",
-      "etaMin": 14,
+      "etaMin": -1,
       "vesselCount": 1,
       "leadVessel": "ANNA",
       "firedBy": "deadline",
-      "eventId": "Klaffbron#32",
+      "eventId": "Klaffbron#48",
       "leadMmsi": "265651340",
       "mmsis": [
         "265651340"
       ],
-      "distance": 1543,
-      "dueMs": 1785941786993.3755,
-      "originalDueMs": 1785941674330.7437,
+      "distance": 1401,
+      "dueMs": 1785942237000,
+      "originalDueMs": 1785941696000,
       "success": true,
       "error": null
     }
@@ -3357,14 +3511,27 @@
   "openingSuppressions": [
     {
       "suppressed": "same-arrival",
-      "t": 1785917557762,
-      "eventId": "Stridsbergsbron#13",
+      "t": 1785915265548,
+      "eventId": "Stridsbergsbron#14",
       "bridge": "Stridsbergsbron",
       "members": [
         {
           "mmsi": "265705550",
           "key": "Stridsbergsbron|265705550|northbound",
-          "firedAt": 1785913856896
+          "firedAt": 1785914250000
+        }
+      ]
+    },
+    {
+      "suppressed": "same-arrival",
+      "t": 1785917557762,
+      "eventId": "Stridsbergsbron#19",
+      "bridge": "Stridsbergsbron",
+      "members": [
+        {
+          "mmsi": "265705550",
+          "key": "Stridsbergsbron|265705550|northbound",
+          "firedAt": 1785914250000
         }
       ]
     }

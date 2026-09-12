@@ -1,30 +1,27 @@
 {
   "20260525": {
     "Klaffbron:northbound": 2,
-    "Klaffbron:southbound": 3,
+    "Klaffbron:southbound": 4,
     "Stridsbergsbron:northbound": 2,
     "Stridsbergsbron:southbound": 3
   },
   "20260601-41h": {
-    "Klaffbron:mixed": 1,
-    "Klaffbron:northbound": 7,
-    "Klaffbron:southbound": 4,
-    "Stridsbergsbron:mixed": 1,
-    "Stridsbergsbron:northbound": 8,
-    "Stridsbergsbron:southbound": 5
+    "Klaffbron:northbound": 8,
+    "Klaffbron:southbound": 5,
+    "Stridsbergsbron:northbound": 9,
+    "Stridsbergsbron:southbound": 6
   },
   "20260610-förfix": {},
   "20260611-4h": {
     "Stridsbergsbron:northbound": 1
   },
   "20260610-19h": {
-    "Klaffbron:northbound": 8,
-    "Stridsbergsbron:northbound": 7
+    "Klaffbron:northbound": 9,
+    "Stridsbergsbron:northbound": 9
   },
   "20260702-11h": {
-    "Klaffbron:mixed": 1,
-    "Klaffbron:northbound": 2,
-    "Klaffbron:southbound": 3,
+    "Klaffbron:northbound": 3,
+    "Klaffbron:southbound": 4,
     "Stridsbergsbron:northbound": 2,
     "Stridsbergsbron:southbound": 3
   },
@@ -37,26 +34,26 @@
   "20260702-19h": {
     "Klaffbron:northbound": 5,
     "Klaffbron:southbound": 3,
-    "Stridsbergsbron:northbound": 4,
+    "Stridsbergsbron:northbound": 5,
     "Stridsbergsbron:southbound": 2
   },
   "20260707-14h": {
-    "Klaffbron:northbound": 5,
+    "Klaffbron:northbound": 6,
     "Klaffbron:southbound": 6,
-    "Stridsbergsbron:northbound": 6,
+    "Stridsbergsbron:northbound": 8,
     "Stridsbergsbron:southbound": 5
   },
   "20260708-21h": {
     "Klaffbron:mixed": 1,
     "Klaffbron:northbound": 4,
     "Klaffbron:southbound": 4,
-    "Stridsbergsbron:northbound": 4,
+    "Stridsbergsbron:northbound": 6,
     "Stridsbergsbron:southbound": 5
   },
   "20260710-13h": {
     "Klaffbron:northbound": 4,
-    "Klaffbron:southbound": 6,
-    "Stridsbergsbron:northbound": 5,
+    "Klaffbron:southbound": 7,
+    "Stridsbergsbron:northbound": 6,
     "Stridsbergsbron:southbound": 5
   },
   "20260711-7h": {
@@ -73,27 +70,33 @@
   },
   "20260712-25h": {
     "Klaffbron:northbound": 8,
-    "Klaffbron:southbound": 8,
+    "Klaffbron:southbound": 9,
+    "Stridsbergsbron:mixed": 1,
     "Stridsbergsbron:northbound": 9,
-    "Stridsbergsbron:southbound": 6
+    "Stridsbergsbron:southbound": 5
   },
   "20260713-41h": {
-    "Klaffbron:northbound": 13,
-    "Klaffbron:southbound": 10,
-    "Stridsbergsbron:mixed": 2,
-    "Stridsbergsbron:northbound": 11,
-    "Stridsbergsbron:southbound": 9
+    "Klaffbron:northbound": 14,
+    "Klaffbron:southbound": 12,
+    "Stridsbergsbron:northbound": 15,
+    "Stridsbergsbron:southbound": 11
   },
   "20260804-17h": {
-    "Klaffbron:northbound": 9,
-    "Klaffbron:southbound": 10,
-    "Stridsbergsbron:northbound": 9,
+    "Klaffbron:northbound": 8,
+    "Klaffbron:southbound": 14,
+    "Stridsbergsbron:northbound": 10,
     "Stridsbergsbron:southbound": 9
   },
+  "20260804-both-21h": {
+    "Klaffbron:northbound": 9,
+    "Klaffbron:southbound": 13,
+    "Stridsbergsbron:mixed": 1,
+    "Stridsbergsbron:northbound": 10,
+    "Stridsbergsbron:southbound": 6
+  },
   "20260806-42h": {
-    "Klaffbron:mixed": 1,
-    "Klaffbron:northbound": 5,
-    "Klaffbron:southbound": 11,
+    "Klaffbron:northbound": 6,
+    "Klaffbron:southbound": 18,
     "Stridsbergsbron:northbound": 6,
     "Stridsbergsbron:southbound": 10
   },
@@ -109,12 +112,10 @@
     "Stridsbergsbron:northbound": 2,
     "Stridsbergsbron:southbound": 2
   },
-  "20260804-both-21h": {
-    "Klaffbron:mixed": 1,
-    "Klaffbron:northbound": 7,
-    "Klaffbron:southbound": 8,
-    "Stridsbergsbron:mixed": 1,
-    "Stridsbergsbron:northbound": 9,
-    "Stridsbergsbron:southbound": 5
+  "20260909-80h": {
+    "Klaffbron:northbound": 2,
+    "Klaffbron:southbound": 3,
+    "Stridsbergsbron:northbound": 2,
+    "Stridsbergsbron:southbound": 2
   }
 }

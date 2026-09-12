@@ -14,14 +14,16 @@ const ANTJE = '211347380';
 const LAST_EUGENIE = Date.parse('2026-08-05T07:51:14.911Z');
 const NEXT_EUGENIE = Date.parse('2026-08-05T08:11:32.565Z');
 const FRESH_ANTJE = Date.parse('2026-08-05T08:00:23.558Z');
-const OLD_TEXT = FRESH_ANTJE + 25;
+const MOVING_ANTJE = Date.parse('2026-08-05T08:07:02.144Z');
+const OLD_TEXT = Date.parse('2026-08-05T08:00:30.040Z');
 const NEW_TEXT = Date.parse('2026-08-05T08:01:30.040Z');
-const REVIEWED_JUMP = 'ETA-SÅGTAND UPP: 2026-08-05T08:01:30.040Z Stridsbergsbron 7→15 på 66s';
+const MOVING_TEXT = MOVING_ANTJE + 25;
+const RETIRED_JUMP = 'ETA-SÅGTAND UPP: 2026-08-05T08:01:30.040Z Stridsbergsbron 7→15 på 66s';
 
 // Hela fältkedjan kör riktig app. Skrivskyddad avläsning av det verkliga
 // textfiltret visar vilken båt som bar prognosen före/efter överlämningen.
 // Ingen ETA, medlemslista, tid eller livscykel tillförs i produktvägen.
-describe('Rättad ruttdistans: verklig ledarväxling när tidigare ETA åldras ut', () => {
+describe('Rättad ruttdistans: utgången ETA och verklig återkomst', () => {
   let directory;
   let result;
   let snapshots;
@@ -39,9 +41,10 @@ describe('Rättad ruttdistans: verklig ledarväxling när tidigare ETA åldras u
       VDS.prototype.getVesselsForBridgeText = function (...args) {
         const vessels = original.apply(this, args);
         const now = Date.now();
-        if (now >= ${OLD_TEXT} && now <= ${NEW_TEXT + 1}) {
+        if (now >= ${OLD_TEXT} && now <= ${MOVING_TEXT + 1}) {
           rows.push({ t: now, members: vessels.filter(v => v.targetBridge === 'Stridsbergsbron').map(v => ({
             mmsi: String(v.mmsi), eta: v.etaMinutes, timestamp: v.timestamp,
+            fixTs: v.fixTs, fixFeed: v.fixFeed, lat: v.lat, lon: v.lon, sog: v.sog,
             extrapolated: v._etaIsExtrapolated === true,
           })) });
         }
@@ -72,7 +75,7 @@ describe('Rättad ruttdistans: verklig ledarväxling när tidigare ETA åldras u
 
   afterAll(() => fs.rmSync(directory, { recursive: true, force: true }));
 
-  test('råfixarna visar tyst EUGENIE och färsk ANTJE vid överlämningen', () => {
+  test('råfixarna skiljer EUGENIEs tystnad från ANTJEs färska låg fart och senare rörelse', () => {
     const eugenie = raw.filter((r) => String(r.mmsi) === EUGENIE);
     const index = eugenie.findIndex((r) => r.aisTimestamp === LAST_EUGENIE);
     expect(index).toBeGreaterThanOrEqual(0);
@@ -86,29 +89,61 @@ describe('Rättad ruttdistans: verklig ledarväxling när tidigare ETA åldras u
       .toMatchObject({
         lat: 58.28796, lon: 12.2877, sog: 0.6, fixTs: Date.parse('2026-08-05T08:00:09Z'),
       });
+    const lowSpeed = raw.filter((r) => String(r.mmsi) === ANTJE
+      && r.aisTimestamp >= Date.parse('2026-08-05T07:52:21.554Z') && r.aisTimestamp < MOVING_ANTJE);
+    expect(lowSpeed.map((r) => r.sog)).toEqual([0.9, 0.4, 0.6, 0.7]);
+    // Den första lågfartspositionen hinner bli mer än fem minuter gammal
+    // innan nästa fix. Ingen rörelsefix däremellan kan släppa spärren.
+    expect(lowSpeed[1].aisTimestamp - lowSpeed[0].aisTimestamp).toBeGreaterThan(5 * 60000);
   });
 
-  test('samma två båtar består när gamla 7 släcks och färska ANTJE 15 tar över', () => {
+  test('samma två båtar består när 7 blir okänd; ANTJE tar över först med färsk rörelse', () => {
     const before = snapshots.find((s) => s.t === OLD_TEXT);
     const after = snapshots.find((s) => s.t === NEW_TEXT);
+    const moving = snapshots.find((s) => s.t === MOVING_TEXT);
     expect(before).toBeDefined();
     expect(after).toBeDefined();
+    expect(moving).toBeDefined();
     const ids = (s) => s.members.map((v) => v.mmsi).sort();
     expect(ids(before)).toEqual([ANTJE, EUGENIE].sort());
     expect(ids(after)).toEqual(ids(before));
+    expect(ids(moving)).toEqual(ids(before));
     const oldLead = before.members.find((v) => v.mmsi === EUGENIE);
     expect(Math.round(oldLead.eta)).toBe(7);
     expect(oldLead.extrapolated).toBe(true);
-    expect(after.members.find((v) => v.mmsi === EUGENIE).eta).toBeNull();
-    const nextLead = after.members.find((v) => v.mmsi === ANTJE);
-    expect(Math.round(nextLead.eta)).toBe(15);
-    expect(nextLead.extrapolated).toBe(false);
-    expect(nextLead.timestamp).toBe(FRESH_ANTJE);
-    expect(nextLead.eta).toBe(before.members.find((v) => v.mmsi === ANTJE).eta);
+    expect(oldLead.timestamp).toBe(LAST_EUGENIE);
+    const expired = after.members.find((v) => v.mmsi === EUGENIE);
+    expect(expired.eta).toBeNull();
+    expect(expired.timestamp).toBe(oldLead.timestamp);
+    expect(expired.fixTs).toBe(oldLead.fixTs);
+    const slow = after.members.find((v) => v.mmsi === ANTJE);
+    expect(slow).toMatchObject({ eta: null, sog: 0.6, timestamp: FRESH_ANTJE });
+    expect(before.members.find((v) => v.mmsi === ANTJE).eta).toBeNull();
+
+    const resumed = moving.members.find((v) => v.mmsi === ANTJE);
+    const rawMovement = raw.find((r) => String(r.mmsi) === ANTJE && r.aisTimestamp === MOVING_ANTJE);
+    expect(rawMovement).toMatchObject({
+      lat: 58.28845, lon: 12.28779, sog: 1.9, fixTs: Date.parse('2026-08-05T08:06:10Z'),
+    });
+    expect(resumed).toMatchObject({
+      timestamp: MOVING_ANTJE,
+      fixTs: rawMovement.fixTs,
+      fixFeed: 'aishub',
+      lat: rawMovement.lat,
+      lon: rawMovement.lon,
+      sog: rawMovement.sog,
+      extrapolated: false,
+    });
+    expect(resumed.eta).toBeGreaterThan(0);
+    expect(moving.members.find((v) => v.mmsi === EUGENIE).eta).toBeNull();
     expect(result.bridgeTextTransitions.find((r) => r.t === OLD_TEXT).text)
       .toContain('Två båtar på väg mot Stridsbergsbron, beräknad broöppning om cirka 7 minuter');
     expect(result.bridgeTextTransitions.find((r) => r.t === NEW_TEXT).text)
-      .toContain('Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 15 minuter');
+      .toContain('Två båtar på väg mot Stridsbergsbron, ETA okänd');
+    expect(result.bridgeTextTransitions.find((r) => r.t === MOVING_TEXT).text)
+      .toContain(`Två båtar på väg mot Stridsbergsbron, beräknad broöppning om ${Math.round(resumed.eta)} minuter`);
+    expect(result.bridgeTextTransitions.filter((r) => r.t >= NEW_TEXT && r.t < MOVING_TEXT)
+      .every((r) => r.text.includes('Två båtar på väg mot Stridsbergsbron, ETA okänd'))).toBe(true);
     expect(result.processErrors).toBe(0);
     expect(result.runtimeDiagnostics.timersAfterShutdown).toBe(0);
   });
@@ -166,14 +201,24 @@ describe('Rättad ruttdistans: verklig ledarväxling när tidigare ETA åldras u
     expect(gap.runtimeDiagnostics.timersAfterShutdown).toBe(0);
   }, 25000);
 
-  test('manifestet godtar exakt det granskade utfallet och inga flyttade/större hopp', () => {
-    expect(validateInvariants(result)).toContain(REVIEWED_JUMP);
-    expect(job.knownInvariantExceptions).toContain(REVIEWED_JUMP);
-    const accepted = (message) => job.knownInvariantExceptions.some((known) => message.startsWith(known));
-    expect(accepted(REVIEWED_JUMP)).toBe(true);
-    expect(accepted(REVIEWED_JUMP.replace('7→15', '7→16'))).toBe(false);
-    expect(accepted(REVIEWED_JUMP.replace('08:01:30.040', '08:01:30.041'))).toBe(false);
-    expect(accepted(REVIEWED_JUMP.replace('Stridsbergsbron', 'Klaffbron'))).toBe(false);
-    expect(accepted(REVIEWED_JUMP.replace('66s', '65s'))).toBe(false);
+  test('det pensionerade 7→15-undantaget kan inte dölja ett återinfört prognoshopp', () => {
+    expect(validateInvariants(result)).toEqual([]);
+    const known = job.knownInvariantExceptions || [];
+    expect(known).not.toContain(RETIRED_JUMP);
+    const returnedJump = {
+      ...result,
+      bridgeTextTransitions: [
+        { t: NEW_TEXT - 66000, iso: new Date(NEW_TEXT - 66000).toISOString(), text: 'Två båtar på väg mot Stridsbergsbron, beräknad broöppning om cirka 7 minuter' },
+        { t: NEW_TEXT, iso: new Date(NEW_TEXT).toISOString(), text: 'Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 15 minuter' },
+        ...result.bridgeTextTransitions.slice(-1),
+      ],
+    };
+    expect(validateInvariants(returnedJump)).toContain(RETIRED_JUMP);
+    const accepted = (message) => known.some((exception) => message.startsWith(exception));
+    expect(accepted(RETIRED_JUMP)).toBe(false);
+    expect(accepted(RETIRED_JUMP.replace('7→15', '7→16'))).toBe(false);
+    expect(accepted(RETIRED_JUMP.replace('08:01:30.040', '08:01:30.041'))).toBe(false);
+    expect(accepted(RETIRED_JUMP.replace('Stridsbergsbron', 'Klaffbron'))).toBe(false);
+    expect(accepted(RETIRED_JUMP.replace('66s', '65s'))).toBe(false);
   });
 });

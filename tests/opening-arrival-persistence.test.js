@@ -113,6 +113,31 @@ describe('En öppningsvarning per faktisk ankomst, även över AIS-tystnad och o
     await warn(); fix(200); fix(750); fix(210); fix(760);
     expect(app._persistentOpeningWarnings.has(key)).toBe(true);
   });
+  test('belagt kajstopp överlever omstart; först verklig avgång frigör ny ankomst', async () => {
+    await warn();
+    const atQuay = { lat: 58.28729833333333, lon: 12.285721666666666, sog: 0.5 };
+    fix(0, atQuay);
+    fix(0, { lat: 58.28701, lon: 12.28536, sog: 0.4 });
+    expect(app._persistentOpeningWarnings.get(key).quayStop.confirmed).toBe(true);
+    await app.onUninit(); now += 15 * 3600000; await boot(true);
+    fix(0, { lat: 58.28692, lon: 12.28581, sog: 2.4 });
+    expect(app._persistentOpeningWarnings.has(key)).toBe(true);
+    fix(0, { lat: 58.28634, lon: 12.28526, sog: 2.5 });
+    expect(app._persistentOpeningWarnings.has(key)).toBe(false);
+    await warn({ eventId: 'Klaffbron#2' });
+    expect(app._bridgeOpeningTrigger.getTriggerCalls()).toHaveLength(1);
+  });
+  test.each([{}, { _gpsJumpDetected: true }, { _positionUncertain: true }])(
+    'ensam kajfix eller osäkert stopp ger inget nytt ankomstbevis: %j', async (extra) => {
+      await warn();
+      fix(0, {
+        lat: 58.28729833333333, lon: 12.285721666666666, sog: 0.5, ...extra,
+      });
+      now += 15 * 3600000;
+      fix(0, { lat: 58.28634, lon: 12.28526, sog: 2.5 });
+      expect(app._persistentOpeningWarnings.has(key)).toBe(true);
+    },
+  );
   test('gammalt lagringsformat migreras utan att uppfinna obegränsat skydd', async () => {
     app._persistentOpeningWarnings.clear();
     homey.app.settings.persistent_opening_warnings = {

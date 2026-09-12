@@ -13,9 +13,8 @@ const ROOT = path.join(__dirname, '..');
 const job = corpora.find((entry) => entry.id === '20260804-both-21h');
 const ANYA = '265705550';
 const ANTJE = '211347380';
-const FIRST = Date.parse('2026-08-05T07:10:56.896Z');
+const FIRST = Date.parse('2026-08-05T07:17:30.000Z');
 const SECOND = Date.parse('2026-08-05T07:34:25.548Z');
-const EVENT = 'Stridsbergsbron#11';
 
 describe('ANYA/ANTJE: nytillkomna båten får sitt kort utan att ANYA upprepas', () => {
   let result;
@@ -55,36 +54,35 @@ describe('ANYA/ANTJE: nytillkomna båten får sitt kort utan att ANYA upprepas',
       && p.t >= FIRST && p.t <= SECOND)).toEqual([]);
   });
 
-  test('ANTJE får 19 minuter och sina egna mätvärden på den ursprungliga deadlinen', () => {
+  test('ANTJE får en egen senare reservvarning med okänd ETA; ANYA upprepas inte', () => {
     const warnings = result.openingWarnings.filter((w) => w.bridge === 'Stridsbergsbron');
     expect(warnings.find((w) => w.t === FIRST)).toMatchObject({
       leadMmsi: ANYA, leadVessel: 'ANYA ELAN 380', mmsis: [ANYA], vesselCount: 1,
     });
-    expect(warnings.find((w) => w.eventId === EVENT)).toMatchObject({
-      t: SECOND,
+    expect(warnings.find((w) => w.mmsis.includes(ANTJE))).toMatchObject({
+      t: Date.parse('2026-08-05T07:48:14.000Z'),
       leadMmsi: ANTJE,
       leadVessel: 'ANTJE',
       mmsis: [ANTJE],
       vesselCount: 1,
       direction: 'northbound',
-      etaMin: 19,
-      distance: 2283,
-      firedBy: 'fix',
-      dueMs: SECOND,
-      originalDueMs: 1785915219365.1772,
+      etaMin: -1,
+      distance: 1373,
+      firedBy: 'deadline',
+      dueMs: Date.parse('2026-08-05T07:48:14.000Z'),
       success: true,
     });
     expect(warnings.filter((w) => w.mmsis.includes(ANYA))).toHaveLength(1);
   });
 
-  test('kortfångst, konvoj och fysisk förvarning bevaras utan extra suppression', () => {
-    expect(result.openingWarnings).toHaveLength(31);
+  test('båda ankomsterna varnas före passage med var sitt kvitterat kort', () => {
+    expect(result.openingWarnings).toHaveLength(39);
     expect(result.notificationCount).toBe(151);
-    expect(result.openingSuppressions.some((entry) => entry.eventId === EVENT)).toBe(false);
-    expect(result.openingCoverage.filter((entry) => entry.eventId === EVENT && entry.reason === 'fired')
-      .map((entry) => entry.mmsi).sort()).toEqual([ANYA, ANTJE].sort());
-    expect(result.openingCoverage.filter((entry) => entry.eventId === EVENT && entry.reason === 'absorbed')
-      .map((entry) => entry.mmsi)).toEqual(['246924000']);
+    for (const mmsi of [ANYA, ANTJE]) {
+      const cards = result.openingWarnings.filter((entry) => entry.bridge === 'Stridsbergsbron' && entry.mmsis.includes(mmsi));
+      expect(cards).toHaveLength(1);
+      expect(cards[0].success).toBe(true);
+    }
     expect(openingDeliveryFailures(result)).toEqual([]);
     const analysis = analyseCoverage(result, loadSamples(job.jsonl), gtTargetPassages(job));
     expect(analysis.misses.filter((miss) => [ANYA, ANTJE].includes(miss.passage.mmsi))).toEqual([]);

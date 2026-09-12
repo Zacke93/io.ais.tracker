@@ -196,7 +196,7 @@ describe('Riktiga fältbeslut: AKIRA lämnar norrut och ATHENA lämnar söderut'
     return { result, observations: observe ? JSON.parse(fs.readFileSync(trace, 'utf8')) : [] };
   }
 
-  test.each([false, true])('AKIRAs nordvarning täcker den verkliga konvojen, monitoring=%s', (monitoring) => {
+  test.each([false, true])('AKIRA och båtar som fortfarande har tidigare broar framför sig får varsin ankomstvarning, monitoring=%s', (monitoring) => {
     const { result, observations } = replay(path.join(replayDir, 'corpora-data/ais-replay-20260708-001857.jsonl'), monitoring, true);
     const departure = Date.parse('2026-07-08T07:05:13.717Z');
     expect(observations.filter((row) => row.t < departure && row.target)).toEqual([]);
@@ -206,11 +206,11 @@ describe('Riktiga fältbeslut: AKIRA lämnar norrut och ATHENA lämnar söderut'
       t: departure, bridge: 'Stridsbergsbron', direction: 'northbound', success: true,
     });
     for (const mmsi of ['219009353', '257919970']) {
-      const coverage = result.openingCoverage.find((row) => row.mmsi === mmsi && row.eventId === opening.eventId);
+      const ownWarnings = result.openingWarnings.filter((row) => row.bridge === 'Stridsbergsbron' && row.mmsis.includes(mmsi));
       const passage = result.targetPassages.find((row) => row.mmsi === mmsi && row.bridge === 'Stridsbergsbron');
-      expect(coverage).toMatchObject({ reason: 'absorbed', bridge: 'Stridsbergsbron' });
-      expect(coverage.t).toBeLessThan(passage.t);
-      expect(opening.t).toBeLessThan(passage.t);
+      expect(ownWarnings).toHaveLength(1);
+      expect(ownWarnings[0].t).toBeLessThan(passage.t);
+      expect(ownWarnings[0].t).toBeGreaterThan(opening.t);
     }
     expect(result.openingSuppressions.some((row) => row.eventId === opening.eventId)).toBe(false);
     expect(result.notifications).toHaveLength(54);

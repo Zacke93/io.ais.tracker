@@ -44,7 +44,7 @@ const AISSourceMultiplexer = require('./lib/connection/AISSourceMultiplexer'); /
 // UTILITIES: Hjälpfunktioner
 const { etaDisplay, formatETABroOpeningClause, etaMinutesForDisplay } = require('./lib/utils/etaValidation');
 const geometry = require('./lib/utils/geometry');
-const { waitingBridge, hasFreshPosition } = require('./lib/utils/bridgeQueue');
+const { waitingBridge, queueBridge, hasFreshPosition } = require('./lib/utils/bridgeQueue');
 const { selectSettings } = require('./lib/utils/replayStartupState');
 // Fable-granskningen 2026-08-10 (FG-DIR): riktning-ur-COG som namngiven
 // predikatfamilj i stället för gradliterals. ⚠️ De tre sydpredikaten har
@@ -338,6 +338,11 @@ function fmtMeasure(value, digits = 0) {
  * 5. Trigga Homey Flow-kort för automationer
  */
 class AISBridgeApp extends Homey.App {
+  // Sena AIS-/Flow-fortsättningar äger bara den appstart som tog emot arbetet.
+  _isCurrentRuntime(lifecycle) {
+    return !this._shuttingDown && this._runtimeLifecycle === lifecycle;
+  }
+
   /**
    * INITIALISERING AV APPEN
    *
@@ -1254,6 +1259,19 @@ class AISBridgeApp extends Homey.App {
           for (const field of ['closestDistance', 'lastFixTs', 'awayFixTs']) {
             if (Number.isFinite(raw[field]) && raw[field] >= 0) entry[field] = raw[field];
           }
+          const stop = raw.quayStop;
+          if (stop && Number.isFinite(geometry.calculateDistance(stop.lat, stop.lon, stop.lat, stop.lon))
+              && Number.isFinite(stop.firstFixTs) && stop.firstFixTs >= 0
+              && Number.isFinite(stop.lastFixTs) && stop.lastFixTs >= stop.firstFixTs
+              && stop.lastFixTs <= Date.now() + AIS_CONFIG.AISHUB.SEEN_MAX_FUTURE_SKEW_MS) {
+            entry.quayStop = {
+              lat: stop.lat,
+              lon: stop.lon,
+              firstFixTs: stop.firstFixTs,
+              lastFixTs: stop.lastFixTs,
+              confirmed: stop.confirmed === true,
+            };
+          }
           this._persistentOpeningWarnings.set(key, entry);
         } else {
           const expiresAt = Number.isFinite(raw) ? raw : raw?.expiresAt;
@@ -1299,6 +1317,34 @@ class AISBridgeApp extends Homey.App {
       if (!bridge) continue;
       const distance = geometry.calculateDistance(vessel.lat, vessel.lon, bridge.lat, bridge.lon);
       if (!Number.isFinite(distance)) continue;
+      const atQuay = this.vesselDataService?.isNearMooringZone?.(vessel.lat, vessel.lon) === true;
+      const stop = entry.quayStop;
+      const movedFromStop = stop && geometry.calculateDistance(stop.lat, stop.lon, vessel.lat, vessel.lon);
+      if (stop?.confirmed && !atQuay && movedFromStop >= 50 && Number.isFinite(vessel.sog) && vessel.sog >= 0.5) {
+        this._persistentOpeningWarnings.delete(key);
+        this.bridgeOpeningService?.restartArrival?.(vessel.mmsi, bridgeName);
+        this.log(`🌉 [OPENING_QUAY_DEPARTURE] ${mmsi}: belagd avgång efter kajstopp — ny ankomst till ${bridgeName}`);
+        dirty = true;
+        continue;
+      }
+      // Två separata långsamma fix vid en känd kaj styrker stoppet. Det
+      // avslutas först av verklig avgång utanför kajzonen, aldrig av tid.
+      if (atQuay && Number.isFinite(vessel.sog) && vessel.sog <= 0.5) {
+        if (!stop || movedFromStop >= 50
+            || (!stop.confirmed && fixTs - stop.lastFixTs > UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS)) {
+          entry.quayStop = {
+            lat: vessel.lat, lon: vessel.lon, firstFixTs: fixTs, lastFixTs: fixTs, confirmed: false,
+          };
+          dirty = true;
+        } else if (!stop.confirmed) {
+          stop.lastFixTs = fixTs;
+          stop.confirmed = fixTs - stop.firstFixTs >= 30000;
+          dirty = true;
+        }
+      } else if (stop && !stop.confirmed) {
+        delete entry.quayStop;
+        dirty = true;
+      }
       entry.lastFixTs = fixTs;
       entry.closestDistance = Math.min(entry.closestDistance ?? Infinity, distance);
       if (distance >= entry.closestDistance + 350 && Number.isFinite(vessel.sog) && vessel.sog >= 0.5) {
@@ -2716,6 +2762,8 @@ class AISBridgeApp extends Homey.App {
    * @private
    */
   async _onVesselEntered({ mmsi, vessel }) {
+    const lifecycle = this._runtimeLifecycle;
+    if (!this._isCurrentRuntime(lifecycle)) return;
     this.debug(`🆕 [VESSEL_ENTERED] New vessel: ${mmsi}`);
     this._observeTriggerPointVisits(vessel);
 
@@ -2735,10 +2783,12 @@ class AISBridgeApp extends Homey.App {
     // STEG 1: INITIERA MÅLBRO
     // Beräknar vilken bro båten är på väg mot baserat på position och COG
     await this._initializeTargetBridge(vessel);
+    if (!this._isCurrentRuntime(lifecycle)) return;
 
     // STEG 2: ANALYSERA INITIAL POSITION
     // Beräknar avstånd till broar och initial status
     await this._analyzeVesselPosition(vessel);
+    if (!this._isCurrentRuntime(lifecycle)) return;
 
     // STEG 3: TRIGGA BOAT_NEAR FLOW
     // ChatGPT-granskning 2 (CG2-2, 2026-07-11): grinden utökad med
@@ -2777,6 +2827,7 @@ class AISBridgeApp extends Homey.App {
     this._observeBridgeOpening(vessel);
     if (vessel.targetBridge || enteredNearTriggerPoint) {
       await this._triggerBoatNearFlow(vessel);
+      if (!this._isCurrentRuntime(lifecycle)) return;
     }
 
     // STEG 3b: ANOMALI 13 v2 (2026-05-19) — kör skipped-bridges-fallback även för NEW_VESSEL.
@@ -2789,6 +2840,7 @@ class AISBridgeApp extends Homey.App {
     } catch (err) {
       this.error(`[SKIPPED_BRIDGES_CHECK] Error for ${mmsi}:`, err);
     }
+    if (!this._isCurrentRuntime(lifecycle)) return;
 
     // STEG 4: UPPDATERA UI
     this._updateUI('normal', `vessel-entered-${mmsi}`);
@@ -2817,6 +2869,8 @@ class AISBridgeApp extends Homey.App {
    * @private
    */
   async _onVesselUpdated({ mmsi, vessel, oldVessel }) {
+    const lifecycle = this._runtimeLifecycle;
+    if (!this._isCurrentRuntime(lifecycle)) return;
     try {
       this.debug(`📝 [VESSEL_UPDATED] Vessel: ${mmsi}`);
       this._observeTriggerPointVisits(vessel);
@@ -2942,6 +2996,7 @@ class AISBridgeApp extends Homey.App {
       // STEG 2: ANALYSERA POSITION OCH STATUS
       // Beräknar nya avstånd, status, ETA baserat på uppdaterad position
       await this._analyzeVesselPosition(vessel);
+      if (!this._isCurrentRuntime(lifecycle)) return;
 
       // STEG 2b: TRIGGA FLOW CARDS VID PROXIMITY
       // Anropa vid varje positionsuppdatering — dedup-systemet
@@ -3017,6 +3072,7 @@ class AISBridgeApp extends Homey.App {
         || vessel._tpSweepCandidate;
       if (shouldTriggerProximity) {
         await this._triggerBoatNearFlow(vessel);
+        if (!this._isCurrentRuntime(lifecycle)) return;
       }
 
       // Anomali 9 fix (2026-05-07): kolla om broar har hoppats över via STALE_AIS
@@ -3027,6 +3083,7 @@ class AISBridgeApp extends Homey.App {
       } catch (err) {
         this.error(`[SKIPPED_BRIDGES_CHECK] Error for ${mmsi}:`, err);
       }
+      if (!this._isCurrentRuntime(lifecycle)) return;
 
       // BUG C fix (2026-04-27): fallback-trigger för passage detekterad utan proximity.
       // S/Y ROSE 13:58:17: Klaffbron-passage upptäcktes via trajectory_based_passage
@@ -3044,6 +3101,7 @@ class AISBridgeApp extends Homey.App {
           || vessel.lastPassedBridgeTime !== oldVessel?.lastPassedBridgeTime);
       if (justRegisteredPassage) {
         await this._triggerBoatNearFlowFallback(vessel, vessel.lastPassedBridge);
+        if (!this._isCurrentRuntime(lifecycle)) return;
       }
 
       // FP9 (2026-07-18, NORFJELL 01:01): multi-passage i SAMMA tick —
@@ -3074,6 +3132,7 @@ class AISBridgeApp extends Homey.App {
           );
           // eslint-disable-next-line no-await-in-loop
           await this._triggerBoatNearFlowFallback(vessel, anchoredBridge, { detectionTs: Date.now() });
+          if (!this._isCurrentRuntime(lifecycle)) return;
         }
       }
 
@@ -3089,6 +3148,7 @@ class AISBridgeApp extends Homey.App {
         for (const backfillBridge of backfills) {
           // eslint-disable-next-line no-await-in-loop
           await this._triggerBoatNearFlowFallback(vessel, backfillBridge);
+          if (!this._isCurrentRuntime(lifecycle)) return;
           // L19 (runda 3, 2026-08-22): samma konsumtion som den observerade
           // och den gap-inferrerade passagen. Backfill-vägen bokför passager
           // som aldrig gått genom ordinarie detektering, så 2000 ms-fönstret i
@@ -3712,6 +3772,8 @@ class AISBridgeApp extends Homey.App {
   async _onVesselStatusChanged({
     vessel, oldStatus, newStatus, reason,
   }) {
+    const lifecycle = this._runtimeLifecycle;
+    if (!this._isCurrentRuntime(lifecycle)) return;
     this.debug(`🔄 [STATUS_CHANGED] Vessel ${vessel.mmsi}: ${oldStatus} → ${newStatus} (${reason})`);
 
     // STEG 1: TRIGGA FLOW CARDS VID 300M ZON (WAITING STATUS)
@@ -3759,6 +3821,7 @@ class AISBridgeApp extends Homey.App {
       // oförändrad i hela korpussamlingen (0 av 470 poster i bandet ändrade)
       // och antalet textövergångar står still (2163 = 2163).
       await this._triggerBoatNearFlowAfterETASettles(vessel); // Specific bridge trigger
+      if (!this._isCurrentRuntime(lifecycle)) return;
     }
 
     // STEG 2: RENSA TRIGGERS NÄR BÅT LÄMNAR OMRÅDET
@@ -6801,6 +6864,7 @@ class AISBridgeApp extends Homey.App {
             // (_createVesselObject) — en tyst transponder fryser båda
             // klockorna och degraderingen slår som förut.
             const ageMs = Date.now() - this._lastConfirmedPositionMs(vessel);
+            const queueAhead = queueBridge(vessel);
             if (ageMs > UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS) {
               if (vessel.etaMinutes !== null) {
                 this.debug(
@@ -6821,6 +6885,21 @@ class AISBridgeApp extends Homey.App {
               vessel._etaPublishedValue = null; // RC4: "okänd" = ny baslinje
               // Anomali 3: rensa exhausted-flagga vid HARD-zon. Vid >10 min stale
               // är data för gammal för att lita på att båten fortfarande är vid bron.
+              vessel._etaExtrapolationExhausted = false;
+              vessel._etaExhaustedAtMs = null;
+            } else if (ageMs > UI_CONSTANTS.STALE_ETA_SOFT_THRESHOLD_MS
+                && (!Number.isFinite(vessel.sog) || vessel.sog < 1.0
+                  || (queueAhead && queueAhead.name !== vessel.targetBridge))) {
+              // En gammal låg fart kan varken ge framdrift eller lova att
+              // samma minuter fortfarande återstår efter ett hamnstopp.
+              // Behåll spärren även vid nästa stillastående fix. Annars
+              // når den redan nollade ETA:n aldrig tiominutersgrenens hold.
+              if (vessel.etaMinutes !== null) {
+                this.statusService.armStationaryETAHold(String(vessel.mmsi), 'eta_stale_soft');
+              }
+              vessel.etaMinutes = null;
+              vessel._etaIsExtrapolated = false;
+              vessel._etaPublishedValue = null;
               vessel._etaExtrapolationExhausted = false;
               vessel._etaExhaustedAtMs = null;
             } else if (ageMs > UI_CONSTANTS.STALE_ETA_SOFT_THRESHOLD_MS
@@ -7001,7 +7080,8 @@ class AISBridgeApp extends Homey.App {
               // 90 s-tak kringgicks och falskt "strax" stod till HARD
               // (10 min). Med limit 300 för exhausted-seedad faller bandet
               // alltid in i >limit-grenen där 90 s-taket äger.
-              const imminentLimitM = (wasImminent && vessel._imminentFromExhausted !== true)
+              const imminentLimitM = ((wasImminent && vessel._imminentFromExhausted !== true)
+                || waitingBridge(vessel) === vessel.targetBridge)
                 ? 350 : 300;
               if (!Number.isFinite(distToTarget)) {
                 this.debug(
@@ -7028,7 +7108,9 @@ class AISBridgeApp extends Homey.App {
                 const exhaustedAgeMs = Number.isFinite(vessel._etaExhaustedAtMs)
                   ? Date.now() - vessel._etaExhaustedAtMs
                   : 0;
+                const precedingQueue = queueBridge(vessel);
                 if (vessel._etaExtrapolationExhausted === true && distToTarget <= 500
+                    && (!precedingQueue || precedingQueue.name === vessel.targetBridge)
                     && exhaustedAgeMs <= IMMINENT_EXHAUSTED_MAX_AGE_MS) {
                   vessel._isImminentAtTargetBridge = true;
                   vessel._imminentFromExhausted = true; // A3R2-1: ingen hysteres
@@ -7177,7 +7259,8 @@ class AISBridgeApp extends Homey.App {
       this.debug(`🔍 [_updateUIIfNeeded] ${vessel.mmsi}: ${key}: "${oldVal}" → "${newVal}" (changed: ${changed})`);
     });
 
-    const hasSignificantChange = significantChanges.some((key) => vessel[key] !== oldVessel?.[key]);
+    const hasSignificantChange = significantChanges.some((key) => vessel[key] !== oldVessel?.[key])
+      || waitingBridge(vessel) !== waitingBridge(oldVessel);
 
     this.debug(`🔍 [_updateUIIfNeeded] ${vessel.mmsi}: hasSignificantChange=${hasSignificantChange}`);
 
@@ -7795,6 +7878,8 @@ class AISBridgeApp extends Homey.App {
    * @private
    */
   async _triggerBoatNearFlow(vessel) {
+    const lifecycle = this._runtimeLifecycle;
+    if (!this._isCurrentRuntime(lifecycle)) return;
     // Skip flow triggers entirely during tests to avoid mock token errors
     if (process.env.NODE_ENV === 'test' || global.__TEST_MODE__) {
       this.debug(`🧪 [TEST] Skipping boat_near flow trigger for ${vessel.mmsi}`);
@@ -7913,6 +7998,7 @@ class AISBridgeApp extends Homey.App {
 
       for (const candidate of candidates) {
         await this._triggerBoatNearFlowForBridge(vessel, candidate);
+        if (!this._isCurrentRuntime(lifecycle)) return;
       }
 
     } catch (error) {
@@ -7937,6 +8023,8 @@ class AISBridgeApp extends Homey.App {
    * @private
    */
   async _checkSkippedBridgesFallback(vessel, oldVessel) {
+    const lifecycle = this._runtimeLifecycle;
+    if (!this._isCurrentRuntime(lifecycle)) return;
     if (!Number.isFinite(vessel.lat) || !Number.isFinite(vessel.lon)) return;
     // Fältprov 3 (2026-07-08): svepet anropas från både entered- och
     // updated-vägen och kunde köra TVÅ gånger för samma AIS-position —
@@ -8352,6 +8440,7 @@ class AISBridgeApp extends Homey.App {
       } catch (err) {
         this.error(`[SKIPPED_BRIDGES_FALLBACK] Error for ${bridgeName}:`, err);
       }
+      if (!this._isCurrentRuntime(lifecycle)) return;
     }
   }
 
@@ -9735,6 +9824,8 @@ class AISBridgeApp extends Homey.App {
    * @private
    */
   async _triggerBoatNearFlowForBridge(vessel, candidate) {
+    const lifecycle = this._runtimeLifecycle;
+    if (!this._isCurrentRuntime(lifecycle)) return;
     const {
       name: bridgeName, id: bridgeId, distance, source,
     } = candidate;
@@ -10057,7 +10148,12 @@ class AISBridgeApp extends Homey.App {
     // Väntan saknar minutprognos även i numeriska tokens. Avstånd/fart får
     // inte fylla tillbaka en ETA: appen vet inte när bron faktiskt öppnar.
     if (justPassedBridge || waitingAtBridge) eta = null;
-    if (!passedBridgeSource && !waitingAtBridge && (!Number.isFinite(eta) || eta < 0)) {
+    // En uttryckligt spärrad målprognos får inte återuppstå genom distans/fart.
+    // Holden bekräftar inte väntan; den färdiga texten får bara sakna minuter.
+    const targetETAHeld = bridgeName === vessel.targetBridge
+      && this.statusService?.hasStationaryETAHold?.(vessel.mmsi);
+    if (!passedBridgeSource && !waitingAtBridge && !targetETAHeld
+        && (!Number.isFinite(eta) || eta < 0)) {
       const dist = candidate.distance;
       const speedMs = (vessel.sog || 0) * 0.5144; // knop → m/s
       // För en icke-målbro där båten är nära OCH knappt rör sig (precis vid /
@@ -10167,6 +10263,7 @@ class AISBridgeApp extends Homey.App {
       await this._triggerBoatNearFlowBest(safeTokens, {
         bridge: bridgeId, mmsi: vessel.mmsi, distance: Math.round(distance), source,
       }, vessel);
+      if (!this._isCurrentRuntime(lifecycle)) return;
 
       // B8 (körning 2026-07-03, F6): vessel.status beskriver båtens läge mot
       // hennes AKTUELLA målbro — för en failsafe-notis om en annan/passerad
@@ -10187,6 +10284,7 @@ class AISBridgeApp extends Homey.App {
 
       this.debug(`🔒 [FLOW_TRIGGER_DEDUPE_SET] ${vessel.mmsi}: Added "${dedupeKey}" to dedupe set (total keys: ${this._triggeredBoatNearKeys.size})`);
     } catch (triggerError) {
+      if (!this._isCurrentRuntime(lifecycle)) return;
       if (this._triggerPointVisits?.rollback(mmsiLabel, ownVisitEntry, bridgeName)) this._persistTriggerPointVisits();
       // DIVR2-3 (R2 2026-07-11): rulla bara tillbaka VÅRT tillstånd — har
       // ett mellanliggande släpp skrivit en nyare post under awaiten äger

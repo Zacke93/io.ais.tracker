@@ -273,7 +273,7 @@ describe('KNIGHT OWLs riktiga rådata genom app, notiser och öppningsmotor', ()
     const result = replay('field', raw);
     expect(warnings(result)).toHaveLength(1);
     expect(warnings(result)[0]).toMatchObject({
-      bridge: 'Stridsbergsbron', t: CONFIRMED, direction: 'northbound', success: true, etaMin: -1,
+      bridge: 'Stridsbergsbron', t: CONFIRMED + 5 * 60000, direction: 'northbound', success: true, etaMin: -1,
     });
     expect(result.bridgeTextTransitions).toContainEqual({
       t: CONFIRMED + 25,
@@ -311,7 +311,7 @@ describe('KNIGHT OWLs riktiga rådata genom app, notiser och öppningsmotor', ()
       ...row, ...([ARRIVAL, CONFIRMED].includes(row.aisTimestamp) ? { sog: null } : {}),
     }]));
     expect(warnings(result)).toHaveLength(1);
-    expect(warnings(result)[0]).toMatchObject({ t: CONFIRMED, bridge: 'Stridsbergsbron', success: true });
+    expect(warnings(result)[0]).toMatchObject({ t: CONFIRMED + 5 * 60000, bridge: 'Stridsbergsbron', success: true });
   });
   test('omstart mellan kandidat och bekräftelse återupplivar inte gammalt resebevis', () => {
     const result = replay('restart', [...raw, { ctrl: 'restart', aisTimestamp: ARRIVAL + 5 * 60000 }]);

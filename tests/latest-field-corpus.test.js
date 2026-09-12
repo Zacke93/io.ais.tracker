@@ -114,7 +114,7 @@ describe('Fältdygn 23–24 augusti: rådatabelagd täckning genom hela appen', 
       expect(first.t - before.aisTimestamp).toBeGreaterThan(10 * 60000);
       expect(after.aisTimestamp - first.t).toBeLessThan(10000);
       const next = variant.bridgeTextTransitions[variant.bridgeTextTransitions.indexOf(first) + 1];
-      expect(next.text).toBe('En båt väntar vid Stridsbergsbron');
+      expect(next.text).toBe('En båt på väg mot Stridsbergsbron, beräknad broöppning strax');
       expect(next.t - first.t).toBeLessThanOrEqual(30000);
       expect(variant.notifications).toEqual(replay.notifications);
       expect(variant.targetPassages).toEqual(replay.targetPassages);

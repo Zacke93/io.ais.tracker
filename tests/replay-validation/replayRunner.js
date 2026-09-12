@@ -78,6 +78,8 @@ Module.prototype.require = function requireOverride(id) {
 const mockHomeyModule = require(path.join(ROOT, 'tests', '__mocks__', 'homey'));
 const mockHomey = mockHomeyModule.__mockHomey;
 const AISBridgeApp = require(path.join(ROOT, 'app'));
+const { waitingBridge } = require('../../lib/utils/bridgeQueue');
+const { UI_CONSTANTS, AIS_CONFIG } = require('../../lib/constants');
 
 // Äkta setImmediate (sparas innan klockan installeras) för microtask-dränering.
 const realSetImmediate = setImmediate;
@@ -235,6 +237,8 @@ async function main() {
 
   // ---- Fånga bridge_text-övergångar via RIKTIGA publiceringsvägen ----
   const bridgeTextLog = [];
+  const confirmedTargetWaits = [];
+  const lastTargetWait = new Map();
   let lastBridgeText = null;
 
   // ---- Fånga MÅLBRO-passager för journey-invarianten (2026-06-11) ----
@@ -283,6 +287,25 @@ async function main() {
 
   // ---- Instrumentera en app-instans (körs igen efter ctrl:'restart') ----
   const instrumentApp = (instance) => {
+    const generateText = instance.bridgeTextService.generateBridgeText.bind(instance.bridgeTextService);
+    instance.bridgeTextService.generateBridgeText = (vessels, ...args) => {
+      const text = generateText(vessels, ...args);
+      for (const vessel of vessels || []) {
+        const bridge = waitingBridge(vessel);
+        if (!bridge || bridge !== vessel.targetBridge) continue;
+        const confirmed = Math.max(vessel.timestamp || 0, vessel.lastPositionUpdate || 0);
+        const until = Math.min(confirmed + UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS,
+          vessel.fixFeed === 'aishub' ? vessel.fixTs + AIS_CONFIG.AISHUB.MAX_FIX_AGE_MS : Infinity);
+        const last = lastTargetWait.get(bridge);
+        if (last && last.until >= Date.now()) last.until = Math.max(last.until, until);
+        else {
+          const wait = { bridge, from: Date.now(), until };
+          confirmedTargetWaits.push(wait);
+          lastTargetWait.set(bridge, wait);
+        }
+      }
+      return text;
+    };
     if (instance._triggerPointVisits) {
       const tracker = instance._triggerPointVisits;
       const observe = tracker.observe.bind(tracker);
@@ -819,6 +842,7 @@ async function main() {
     processErrors,
     runtimeDiagnostics,
     bridgeTextTransitions: bridgeTextLog,
+    confirmedTargetWaits,
     notifications,
     notificationCount: notifications.length,
     // Etapp 3: fusionsstatistik (REPLAY_FUSION-grinden asserterar att F1-F5

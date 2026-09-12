@@ -473,7 +473,10 @@ function crossingsForVessel(list) {
         const prev = list[i - 1];
         const relPrev = prev.s - station.s;
         if (relPrev !== 0 && rel !== 0 && (relPrev < 0) !== (rel < 0)) {
-          const dtS = (cur.t - prev.t) / 1000;
+          // Förflyttningen skedde mellan AIS-fixarna. Pollens leveranslagg
+          // får inte göra en normal källväxling till ett falskt GPS-hopp.
+          // Korsningens t/tFrom/tTo behåller leveransklockan för jämförelser.
+          const dtS = ((cur.tFix ?? cur.t) - (prev.tFix ?? prev.t)) / 1000;
           const moved = calculateDistance(prev.lat, prev.lon, cur.lat, cur.lon);
           const impliedKn = dtS > 0 ? (moved / dtS) / 0.514444 : Infinity;
           straddle = impliedKn > MAX_IMPLIED_KN ? null : { p: prev, q: cur };
