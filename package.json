@@ -23,6 +23,11 @@
   "dependencies": {
     "ws": "^8.21.0"
   },
+  "overrides": {
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "9.0.9"
+    }
+  },
   "devDependencies": {
     "@sinonjs/fake-timers": "^10.3.0",
     "@types/homey": "npm:homey-apps-sdk-v3-types@^0.3.12",

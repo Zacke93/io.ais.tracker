@@ -5,13 +5,13 @@
    "id": "20260525",
    "jsonl": "ais-replay-20260525-231934.jsonl",
    "crossings": 29,
-   "inferred": 1
+   "inferred": 4
   },
   {
    "id": "20260601-41h",
    "jsonl": "ais-replay-20260601-231305.jsonl",
    "crossings": 83,
-   "inferred": 15
+   "inferred": 20
   },
   {
    "id": "20260610-förfix",
@@ -35,25 +35,25 @@
    "id": "20260702-11h",
    "jsonl": "ais-replay-20260702-010825.jsonl",
    "crossings": 27,
-   "inferred": 13
+   "inferred": 15
   },
   {
    "id": "20260702-2h",
    "jsonl": "ais-replay-20260702-132758.jsonl",
    "crossings": 26,
-   "inferred": 5
+   "inferred": 7
   },
   {
    "id": "20260702-19h",
    "jsonl": "ais-replay-20260702-174109.jsonl",
    "crossings": 47,
-   "inferred": 5
+   "inferred": 8
   },
   {
    "id": "20260707-14h",
    "jsonl": "ais-replay-20260707-092154.jsonl",
    "crossings": 62,
-   "inferred": 19
+   "inferred": 20
   },
   {
    "id": "20260708-21h",
@@ -65,49 +65,49 @@
    "id": "20260710-13h",
    "jsonl": "ais-replay-20260710-015254.jsonl",
    "crossings": 72,
-   "inferred": 16
+   "inferred": 25
   },
   {
    "id": "20260711-7h",
    "jsonl": "ais-replay-20260711-134232.jsonl",
    "crossings": 11,
-   "inferred": 5
+   "inferred": 6
   },
   {
    "id": "20260711-16h",
    "jsonl": "ais-replay-20260711-232958.jsonl",
    "crossings": 40,
-   "inferred": 13
+   "inferred": 17
   },
   {
    "id": "20260712-25h",
    "jsonl": "ais-replay-20260712-174434.jsonl",
    "crossings": 67,
-   "inferred": 20
+   "inferred": 34
   },
   {
    "id": "20260713-41h",
    "jsonl": "ais-replay-20260713-221737.jsonl",
    "crossings": 130,
-   "inferred": 38
+   "inferred": 49
   },
   {
    "id": "20260804-17h",
    "jsonl": "ais-20260804-17h-dag.jsonl",
    "crossings": 97,
-   "inferred": 19
+   "inferred": 25
   },
   {
    "id": "20260804-both-21h",
    "jsonl": "ais-20260804-both-21h.jsonl",
-   "crossings": 144,
-   "inferred": 16
+   "crossings": 145,
+   "inferred": 22
   },
   {
    "id": "20260806-42h",
    "jsonl": "ais-20260806-42h.jsonl",
    "crossings": 131,
-   "inferred": 15
+   "inferred": 18
   },
   {
    "id": "20260823-24h",
@@ -116,22 +116,28 @@
    "inferred": 6
   },
   {
+   "id": "20260907-31h",
+   "jsonl": "ais-replay-20260907-022832.jsonl",
+   "crossings": 24,
+   "inferred": 0
+  },
+  {
+   "id": "20260909-80h",
+   "jsonl": "ais-replay-20260909-073207.jsonl",
+   "crossings": 24,
+   "inferred": 1
+  },
+  {
    "id": "20260803-natt",
    "jsonl": "ais-fusion-20260803-nattkorning.jsonl",
    "crossings": 25,
-   "inferred": 2
+   "inferred": 3
   },
   {
    "id": "20260803-natt-aisstream",
    "jsonl": "ais-aisstream-20260803-nattkorning.jsonl",
    "crossings": 21,
    "inferred": 7
-  },
-  {
-   "id": "20260907-31h",
-   "jsonl": "ais-replay-20260907-022832.jsonl",
-   "crossings": 24,
-   "inferred": 0
   }
  ]
 }

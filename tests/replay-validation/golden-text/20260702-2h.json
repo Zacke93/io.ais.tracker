@@ -28,18 +28,6 @@
   "text": "Tre båtar på väg mot Stridsbergsbron, beräknad broöppning om 6 minuter"
  },
  {
-  "iso": "2026-07-02T12:00:19.329Z",
-  "text": "Tre båtar på väg mot Stridsbergsbron, beräknad broöppning om cirka 2 minuter"
- },
- {
-  "iso": "2026-07-02T12:01:00.040Z",
-  "text": "Tre båtar på väg mot Stridsbergsbron, beräknad broöppning strax"
- },
- {
-  "iso": "2026-07-02T12:03:00.040Z",
-  "text": "Tre båtar på väg mot Stridsbergsbron, beräknad broöppning om 6 minuter"
- },
- {
   "iso": "2026-07-02T12:05:30.040Z",
   "text": "Tre båtar på väg mot Stridsbergsbron, beräknad broöppning om cirka 2 minuter"
  },
@@ -53,26 +41,10 @@
  },
  {
   "iso": "2026-07-02T12:14:00.040Z",
-  "text": "En båt på väg mot Klaffbron, beräknad broöppning om cirka 5 minuter; Två båtar på väg mot Stridsbergsbron, beräknad broöppning strax"
- },
- {
-  "iso": "2026-07-02T12:15:00.040Z",
-  "text": "En båt på väg mot Klaffbron, beräknad broöppning om cirka 4 minuter; Två båtar på väg mot Stridsbergsbron, beräknad broöppning strax"
- },
- {
-  "iso": "2026-07-02T12:16:00.040Z",
-  "text": "En båt på väg mot Klaffbron, beräknad broöppning om cirka 3 minuter; Två båtar på väg mot Stridsbergsbron, beräknad broöppning strax"
- },
- {
-  "iso": "2026-07-02T12:16:18.779Z",
-  "text": "En båt på väg mot Klaffbron, beräknad broöppning om cirka 2 minuter; Två båtar på väg mot Stridsbergsbron, beräknad broöppning strax"
+  "text": "En båt på väg mot Klaffbron, ETA okänd; Två båtar på väg mot Stridsbergsbron, beräknad broöppning strax"
  },
  {
   "iso": "2026-07-02T12:18:00.040Z",
-  "text": "En båt på väg mot Klaffbron, beräknad broöppning om cirka 2 minuter; Två båtar på väg mot Stridsbergsbron, ETA okänd"
- },
- {
-  "iso": "2026-07-02T12:19:00.040Z",
   "text": "En båt på väg mot Klaffbron, ETA okänd; Två båtar på väg mot Stridsbergsbron, ETA okänd"
  },
  {
@@ -140,7 +112,7 @@
   "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 3 minuter"
  },
  {
-  "iso": "2026-07-02T13:10:30.040Z",
+  "iso": "2026-07-02T13:05:30.040Z",
   "text": "En båt på väg mot Stridsbergsbron, ETA okänd"
  },
  {

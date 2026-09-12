@@ -100,6 +100,10 @@ const RUNNER = path.join(__dirname, 'replayRunner.js');
 //       pessimistiskt av exakt samma två skäl (fel bropunkt + för långt gap).
 const AB_DIR = process.env.OPENING_AB_DIR || null;
 const NIGHT_DIR = path.join(__dirname, 'night-facit');
+// Omlåst 2026-09-12: JUNOs sista rena fix 06:05:18.716 ligger före
+// Järnvägsbron. Efter fem minuters tystnad visas ETA okänd vid Klaffbron
+// direkt, utan den gamla extrapolerade mellanraden "om cirka 2 minuter".
+// Övriga texter och nattens samtliga närnotiser är oförändrade.
 const CORPORA_DATA = path.join(__dirname, 'corpora-data');
 const pick = (abName, repoPath) => (AB_DIR && fs.existsSync(path.join(AB_DIR, abName))
   ? path.join(AB_DIR, abName) : repoPath);

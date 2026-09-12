@@ -124,6 +124,12 @@ function checkCorpus(corpus, pass) {
     fusionMeta.retaggedParent = fusion.retaggedParent || 0;
     const fusionPath = path.join(TMP_DIR, `${corpus.id}-fusion-${pass.id}.jsonl`);
     fs.writeFileSync(fusionPath, `${fusion.merged.map((s) => JSON.stringify(s)).join('\n')}\n`);
+    // Samma startminne som originalkörningen. Annars blir till exempel ett
+    // pågående kanalbesök ett nytt besök bara för att fusionen testas.
+    const statePath = corpus.jsonl.replace(/\.jsonl$/, '.state.json');
+    if (fs.existsSync(statePath)) {
+      fs.writeFileSync(fusionPath.replace(/\.jsonl$/, '.state.json'), fs.readFileSync(statePath));
+    }
     result = runFusion(fusionPath);
   } catch (err) {
     return { crash: String(err.message || err).slice(0, 160) };

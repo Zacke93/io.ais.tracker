@@ -78,7 +78,13 @@ const CORPORA_DATA_DIR = path.resolve(__dirname, 'corpora-data');
 // Flerbrosegment bokförs nu i färdordning. De 30 tillkommande Järnvägsposterna
 // jämfört med den isolerade riktningsfixen stöds alla av rådatakorsningar;
 // detta sista steg ändrar inga texter, målpassager eller kortanrop.
-const SEPTEMBER_REVIEW = '2026-09-08: textfacit omlåst för bekräftad väntan utan minuter, '
+const SEPTEMBER_REVIEW = '2026-09-12: omlåst efter granskning av hela bankens renderunderlag och råpassager. '
+  + 'Bekräftad väntan direkt vid målbron behåller strax; väntan vid tidigare bro saknar minuter. '
+  + 'Fem minuter gammal låg fart/mellanbroposition ger okänd ETA och skydd mot ny prognos vid stilla återkomst. '
+  + 'Öppningsvarningar inväntar slutsträckan vid färsk tidigare-bro-position; tät fysisk konvoj kan dela varning. '
+  + 'Samtliga tidigare mål-/mellanpassager och närnotisernas broar/riktningar bevaras. '
+  + 'MARYs extra Klaffvarning 7/8 följer belagt hamnstopp och verklig avgång 13:18 UTC. '
+  + '2026-09-08: textfacit omlåst för bekräftad väntan utan minuter, '
   + 'omedelbar borttagning efter passage och fasta halvminutsuppdateringar. '
   + 'Notisnycklar och riktningar bevaras; timerstyrda tider följer den nya absoluta klockan. '
   + 'Textdeltan har granskats mot rådata, även med tät timerdränering vid passage. '
@@ -112,7 +118,11 @@ module.exports = [
       + 'störde texten kring 10:26–10:28; med kapseln demoteras de och den äkta '
       + 'Klaffbron-båtens text renderas rent ("strax" 10:26:43 i st f "ETA okänd" '
       + '10:27:56). Notis-/fördelnings-/riktningsfacit ORÖRDA (30/30).'
-      + ' GOLDEN OMLÅST (2026-08-09, C0b zon-lokal kögrace): 74 → 72 övergångar. Rådataverifierat: MARIANNE (244236598) och JOSEPHINE (244870852) låg BÅDA i gästhamnskapseln 10:10–10:27 (MARIANNE sog 0–0,2 på 3–9 m från kapsellinjen från 10:12:51, JOSEPHINE sog 0 vid 10:11:43 och 10:26:43) — texten "Två båtar på väg mot Klaffbron" räknade alltså två FÖRTÖJDA båtar. Det gamla 600 m-köundantaget (VesselDataService: zoneMinStillMs 3 → 15 min när targetBridge ≤ 600 m) gällde globalt och träffade gästhamnen, som ligger 354–411 m från Klaffbron. Med queueGraceMs=0 på gästhamnsposten demoteras de efter 3 min. Notis-/fördelnings-/riktnings-/öppningsfacit ORÖRDA (30/30).'
+      + ' GOLDEN OMLÅST (2026-08-09, C0b zon-lokal kögrace): 74 → 72 övergångar. Rådataverifierat: MARIANNE (244236598) och JOSEPHINE (244870852) låg BÅDA i '
+      + 'gästhamnskapseln 10:10–10:27 (MARIANNE sog 0–0,2 på 3–9 m från kapsellinjen från 10:12:51, JOSEPHINE sog 0 vid 10:11:43 och 10:26:43) — texten "Två båtar '
+      + 'på väg mot Klaffbron" räknade alltså två FÖRTÖJDA båtar. Det gamla 600 m-köundantaget (VesselDataService: zoneMinStillMs 3 → 15 min när targetBridge ≤ 600 '
+      + 'm) gällde globalt och träffade gästhamnen, som ligger 354–411 m från Klaffbron. Med queueGraceMs=0 på gästhamnsposten demoteras de efter 3 min. '
+      + 'Notis-/fördelnings-/riktnings-/öppningsfacit ORÖRDA (30/30).'
       + ' GOLDEN OMLÅST (2026-08-21, K12 hållningshybriden, gula paketet batch 2): 68 → 68 övergångar, '
       + '0 texter ändrade, 0 poster till eller från — ENDAST 3 tidsstämplar på texten "Inga båtar är '
       + 'i närheten av Klaffbron eller Stridsbergsbron", som publiceras 30–90 s TIDIGARE. MEKANISM: '
@@ -1178,7 +1188,9 @@ module.exports = [
       + '(ANDREA/CARAT). Med kapseln demoteras hon och Strids-klausulen försvinner '
       + 'ur texterna kring 13:30–13:39. Notis-/fördelnings-/riktningsfacit ORÖRDA '
       + '(164/164).'
-      + ' GOLDEN OMLÅST (2026-08-09, C0b zon-lokal kögrace): 269 → 267 övergångar. Klaffbron-klausulen försvinner ur elva texter 12:07–12:27 för en båt som låg still i gästhamnen; Stridsbergs-klausulen är ORÖRD i varje rad, vilket visar att ingreppet är zon-lokalt och inte rör den äkta trafiken. Notis-/fördelnings-/riktnings-/öppningsfacit ORÖRDA (164/164). '
+      + ' GOLDEN OMLÅST (2026-08-09, C0b zon-lokal kögrace): 269 → 267 övergångar. Klaffbron-klausulen försvinner ur elva texter 12:07–12:27 för en båt som låg '
+      + 'still i gästhamnen; Stridsbergs-klausulen är ORÖRD i varje rad, vilket visar att ingreppet är zon-lokalt och inte rör den äkta trafiken. '
+      + 'Notis-/fördelnings-/riktnings-/öppningsfacit ORÖRDA (164/164). '
       + 'GOLDEN OMLÅST 267→265 (2026-08-10, P9 kajliggarlivscykeln). '
       + 'HELA DIFFEN mot 5799b7a, LCS + multiset (F7 2026-08-10). '
       + 'RÄTTELSE AV DENNA NOTS EGEN TIDIGARE UPPGIFT: den sade "ETA-värdeskift '
@@ -1386,7 +1398,12 @@ module.exports = [
       + '12:43:34.756 vid 301,6 m kvarstår: efter utfärd till 5091 m korsar '
       + 'segmentet från 3310 m norr till söder punkten på 102,9 m under ett 43-min AIS-gap. '
       + 'Alla brotexter, öppningsvarningar och bropassager är oförändrade.'
-      + ' GOLDEN OMLÅST (2026-08-09, C0b zon-lokal kögrace): 190 → 188 övergångar — korpusens STÖRSTA enskilda spöktextvinst, 25 minuter. Rådataverifierat: PILLE (211488730) låg sog=0 med **navStatus=null** 14–15 m från gästhamnskapselns linje vid 12:33:08, 12:36:08 och 12:42:11. Utan navStatus biter den vanliga förtöjningsdetekteringen inte, och det gamla 600 m-köundantaget krävde 15 min stillhet — hon hann bara 9 min innan hon slutade sända. Följd: "En båt på väg mot Klaffbron, om 10 minuter" stod 12:42:11 → "ETA okänd" 12:52:37 → borta först 13:07:37. Med queueGraceMs=0 demoteras hon 12:42:41. Fallet är samtidigt belägg för att C9 (förtöjd utan navStatus) behövs: 76 % av fältprovets fartyg saknade navStatus helt. Notis-/fördelnings-/riktnings-/öppningsfacit ORÖRDA (116/116). '
+      + ' GOLDEN OMLÅST (2026-08-09, C0b zon-lokal kögrace): 190 → 188 övergångar — korpusens STÖRSTA enskilda spöktextvinst, 25 minuter. Rådataverifierat: PILLE '
+      + '(211488730) låg sog=0 med **navStatus=null** 14–15 m från gästhamnskapselns linje vid 12:33:08, 12:36:08 och 12:42:11. Utan navStatus biter den vanliga '
+      + 'förtöjningsdetekteringen inte, och det gamla 600 m-köundantaget krävde 15 min stillhet — hon hann bara 9 min innan hon slutade sända. Följd: "En båt på väg '
+      + 'mot Klaffbron, om 10 minuter" stod 12:42:11 → "ETA okänd" 12:52:37 → borta först 13:07:37. Med queueGraceMs=0 demoteras hon 12:42:41. Fallet är samtidigt '
+      + 'belägg för att C9 (förtöjd utan navStatus) behövs: 76 % av fältprovets fartyg saknade navStatus helt. Notis-/fördelnings-/riktnings-/öppningsfacit ORÖRDA '
+      + '(116/116). '
       + 'GOLDEN OMLÅST 188→190 (2026-08-10, P9 kajliggarlivscykeln). '
       + 'HUVUDPOSTEN ÄR EN ÄKTA FÖRBÄTTRING: JUNO/265576720:s avgång norrut får '
       + 'första textrad 15:45:08 ("om 16 minuter") i st.f. 15:48:10 ("om 8"): '
@@ -1604,9 +1621,10 @@ module.exports = [
       + '07:10:56 och har varken passerat eller lämnat ankomsten. Tid och intern täckning består. '
       + 'CARATs kajkort är borttaget. JEANNELLE täcks av EUGENIEs verkliga kort 08:20:33; '
       + 'båtarnas oberoende råkorsningsfönster överlappar 08:27–08:28. '
-      + 'RUTTDISTANS 2026-09-09: INV-3 7→15 kl 08:01:30 är EUGENIEs tio minuter gamla '
-      + 'ETA som släcks och färska ANTJE som tar över. Båda båtarna består; '
-      + 'råfixar, verklig appväg och det exakta undantaget låses i eta-forward-field.test.js. '
+      + 'ETA 2026-09-12: EUGENIEs prognos släcks 08:01:30 efter tio minuter. '
+      + 'ANTJEs färska 0,6 kn återväcker ingen utgången prognos; först rörelsefixen '
+      + '08:07 ger nya minuter. Båtarna består och det tidigare 7→15-undantaget är borttaget. '
+      + 'Råfixar och hela förloppet låses i eta-forward-field.test.js. '
       + 'KAJLIGGARE 2026-09-09: CARATs råfixar 00:04–06:48 visar samma kajplats. '
       + 'Ren positionsstillhet motsäger nytt mål även vid återkomst efter AIS-glapp; '
       + 'en ensam fartspik ger inte mål eller öppningskort. Verklig avgång 06:53 släpper skyddet. '
@@ -2189,10 +2207,6 @@ module.exports = [
         + 'INGEN fasvariant, alltså är riktningsvärdet ingen knivsegg. Korpusens sedan '
         + 'tidigare kända fasberoende (108 avvikelser i oppningar + brotext) är OFÖRÄNDRAT '
         + 'mot HEAD — samma tal i båda armarna.',
-    // Exakt rådatabelagd ledarväxling; andra nivåer/tider förblir fällande.
-    knownInvariantExceptions: [
-      'ETA-SÅGTAND UPP: 2026-08-05T08:01:30.040Z Stridsbergsbron 7→15 på 66s',
-    ],
   },
   {
     id: '20260806-42h',
@@ -2244,7 +2258,10 @@ module.exports = [
       + '(per-fartygs-gap p50 139 s mot 360 s i 20260713-41h). '
       + '(b) TROHETEN ÄR DEN HÖGSTA HITTILLS: 135/135 notiser med BYTE-IDENTISKT '
       + '(mmsi,bro)-multiset mot field-facit/20260806-42h/field-notif.txt och '
-      + '36/36 öppningar mot fältets 36 avfyrningar VID INSPELNINGEN. ⚠️ UPPDATERAT 2026-08-09: koden ger sedan C4b (36567f0) **35** öppningsvarningar och **134** notiser. Öppningsdeltat 36→35 är samma rot som notisdeltat 135→134 i punkt (g) — C4b tog bort MARY-fantomen Stridsbergsbron#31, en varning för en bro hon passerat 108 min tidigare. Punkt (g) dokumenterade notisdeltat men glömde öppningsdeltat i samma commit. Båda reconcilieras när #18 låses skarpt; replayen är deterministisk '
+      + '36/36 öppningar mot fältets 36 avfyrningar VID INSPELNINGEN. ⚠️ UPPDATERAT 2026-08-09: koden ger sedan C4b (36567f0) **35** öppningsvarningar och **134** '
+      + 'notiser. Öppningsdeltat 36→35 är samma rot som notisdeltat 135→134 i punkt (g) — C4b tog bort MARY-fantomen Stridsbergsbron#31, en varning för en bro hon '
+      + 'passerat 108 min tidigare. Punkt (g) dokumenterade notisdeltat men glömde öppningsdeltat i samma commit. Båda reconcilieras när #18 låses skarpt; replayen '
+      + 'är deterministisk '
       + '(verifierad byte-identisk vid omkörning). Datat duger alltså — det är '
       + 'inte kvaliteten som hindrar låsning. '
       + '(c) MEN SEX FATALA INVARIANTBROTT (INV-2 ×2, INV-3, INV-10, INV-14, '
@@ -2347,7 +2364,9 @@ module.exports = [
       + 'binder intervallet till råa AIS-fixar. Ingen annan text, notis, passage eller öppning undantas. '
       + 'Fältet hade 24 notiser; dagens 23 följer användarens en-per-besök-regel. Åttonde öppningsvarningen '
       + 'ligger i simulerat efterspel efter fältstoppet. Startinställningar saknas i inspelningen: detta är '
-      + 'en granskad referens från tomt minne, inte en exakt rekonstruktion av alla då inlärda kajplatser.',
+      + 'en granskad referens från tomt minne, inte en exakt rekonstruktion av alla då inlärda kajplatser. '
+      + 'Omlåst 2026-09-12: 79 textövergångar, där PHOENIXs färska målbroväntan behåller strax. '
+      + 'Alla notiser, öppningar och passager har granskats på nytt.',
   },
   {
     id: '20260907-31h',
@@ -2371,6 +2390,28 @@ module.exports = [
       + 'Startinställningarna spelades inte in i fältet: referensen är granskad replay från tomt minne, '
       + 'inte ett påstående om exakt återgivning av Homeys då inlärda kajplatser. '
       + 'Loggens avbrott följer användarens Homey-uppdatering 09:05. '
-      + 'field-september-readiness.test.js prövar dessutom fyra timmars fortsatt färsk kö och därefter AIS-tystnad.',
+      + 'field-september-readiness.test.js prövar dessutom fyra timmars fortsatt färsk kö och därefter AIS-tystnad. '
+      + 'Omlåst 2026-09-12: 75 textövergångar med bättre köbevis och uppdatering vid avgång. '
+      + 'Alla närnotiser och passager är kvar; nästa bros öppningsvarning skjuts upp under bekräftad kö.',
+  },
+  {
+    id: '20260909-80h',
+    jsonl: path.join(CORPORA_DATA_DIR, 'ais-replay-20260909-073207.jsonl'),
+    appLog: path.join(LOGS_DIR, 'app-20260909-073207.log'),
+    hours: 80.54,
+    locked: true,
+    lockOpenings: true,
+    lockEvents: true,
+    expectedNotifications: 23,
+    note: 'Låst 2026-09-12: samtliga 1905 AIS-poster är byteidentiska med fältloggen; '
+      + 'inspelade startinställningar följer med. Sex fasvarianter med monitoring passerar. '
+      + '23 närnotiser, nio öppningsvarningar, åtta målpassager och tolv mellanpassager. '
+      + 'Rådatafacit innehåller 24 korsningar/zonbesök. TINY varnas för Stridsbergsbron '
+      + 'först på slutsträckan efter Järnvägsbron; väntan före mellanbron visas utan minuter. '
+      + 'ELFKUNGEN får även Stallbackas retur-notis efter belagd utfärd. EMBLAs belagda '
+      + 'hamnstopp och verkliga avgång ger en ny Klaffvarning följande morgon. '
+      + 'Straxtestet skiljer färsk väntan vid målbron från gammal position före mellanbron. '
+      + 'Texter och fullständiga händelser är låsta; septembertesterna prövar dessutom '
+      + 'långvarig kö, källbyte, GPS-osäkerhet, tystnad och frånvaro av timerläckor.',
   },
 ];

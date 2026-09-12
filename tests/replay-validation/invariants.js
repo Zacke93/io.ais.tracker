@@ -473,9 +473,9 @@ function validateInvariants(result) {
     }
   }
 
-  // INV-10: strax-zombie — en "strax"-text som står orörd >35 min utan att
-  // någon målbropassage sker för bron under fönstret är en fastfrusen lögn
-  // (35 min > STALE_AIS 30 min + marginal, så legitima väntare hinner städas).
+  // INV-10: långvarig strax behöver antingen passage eller fortsatt färsk
+  // väntan direkt vid målbron. Användaren tillåter den senare utan tidsgräns;
+  // en timer eller samma gamla AIS-fix kan inte förlänga evidensintervallet.
   const STRAX_ZOMBIE_MS = 35 * 60 * 1000;
   const runEnd = transitions.length > 0 ? transitions[transitions.length - 1].t : 0;
   for (let i = 0; i < transitions.length; i++) {
@@ -493,7 +493,10 @@ function validateInvariants(result) {
       const passageInWindow = targetPassages.some(
         (p) => p.bridge === bridge && p.t >= t.t && p.t <= t.t + stoodMs,
       );
-      if (!passageInWindow) {
+      const confirmedWait = (result.confirmedTargetWaits || []).some((wait) => wait.bridge === bridge
+        && Number.isFinite(wait.from) && Number.isFinite(wait.until)
+        && wait.from <= t.t + 10 * 60000 && wait.until >= nextT);
+      if (!passageInWindow && !confirmedWait) {
         violations.push(`STRAX-ZOMBIE: ${t.iso} "${t.text}" stod ${Math.round(stoodMs / 60000)} min utan ${bridge}-passage`);
       }
     }

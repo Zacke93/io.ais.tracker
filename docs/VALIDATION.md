@@ -514,12 +514,13 @@ Saknad/ogiltig SOG är inte stillhetsbevis. I 23/8 får PHOENIX samma fönster
 14:50:18–15:02:19 UTC vid både Stridsbergsbron och Järnvägsbron; 23
 korsningar/zonbesök kvar, 4→6 inferred. Regeln ändrar inga produktbeslut.
 
-**Historiska gt-filer är ännu inte omlåsta.** Mätning 2026-09-06 visar att
-en nygenerering av de 20 befintliga korpusarna skulle flytta ytterligare
-71 punktposter till intervall, med oförändrade korsningsantal. `--check`
-kan därför rapportera skillnader tills dessa granskas separat. Befintliga
-öppnings-/ETA-grindar läser fortfarande det tidigare incheckade facitet;
-deras gröna resultat bevisar inte att den historiska tidsosäkerheten är löst.
+**Historiska gt-filer granskade och omlåsta 2026-09-12.** De 71 punktposterna
+är nu intervall, med oförändrade korsningar och tidsfönster. Ytterligare 57
+redan osäkra poster har fått uttrycklig orsak. Fartgrinden använder fixens
+tid i stället för leveranstiden: CHARLYS DREAMs Klaffpassage 5/8 och
+ELFKUNGENs Järnvägspassage 10/9 försvinner därmed inte vid källbyte. Råfixarna
+visar normal förflyttning, trots mycket korta leveransgap. `--check` prövar
+att samtliga incheckade filer stämmer med generatorn.
 
 **Två grindar står mellan en fältkörning och en låst korpus: steg 3
 (logg-integriteten) och steg 4 (fassvepet).** Båda är OBLIGATORISKA före

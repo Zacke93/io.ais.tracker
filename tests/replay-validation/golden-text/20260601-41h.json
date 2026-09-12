@@ -96,11 +96,7 @@
   "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 7 minuter"
  },
  {
-  "iso": "2026-06-02T07:21:53.631Z",
-  "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 5 minuter"
- },
- {
-  "iso": "2026-06-02T07:23:53.585Z",
+  "iso": "2026-06-02T07:18:03.564Z",
   "text": "En båt väntar vid Järnvägsbron på väg mot Stridsbergsbron"
  },
  {
@@ -208,6 +204,14 @@
   "text": "En båt på väg mot Klaffbron, ETA okänd"
  },
  {
+  "iso": "2026-06-02T13:17:47.023Z",
+  "text": "En båt väntar vid Järnvägsbron på väg mot Klaffbron"
+ },
+ {
+  "iso": "2026-06-02T13:28:00.040Z",
+  "text": "En båt på väg mot Klaffbron, ETA okänd"
+ },
+ {
   "iso": "2026-06-02T13:29:43.808Z",
   "text": "En båt väntar vid Järnvägsbron på väg mot Klaffbron"
  },
@@ -306,6 +310,10 @@
  {
   "iso": "2026-06-02T17:54:25.862Z",
   "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 80 minuter"
+ },
+ {
+  "iso": "2026-06-02T17:59:30.040Z",
+  "text": "En båt på väg mot Stridsbergsbron, ETA okänd"
  },
  {
   "iso": "2026-06-02T17:59:53.845Z",
@@ -477,10 +485,6 @@
  },
  {
   "iso": "2026-06-03T06:39:58.441Z",
-  "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 3 minuter"
- },
- {
-  "iso": "2026-06-03T06:41:28.995Z",
   "text": "En båt väntar vid Järnvägsbron på väg mot Stridsbergsbron"
  },
  {
@@ -576,7 +580,7 @@
   "text": "En båt på väg mot Klaffbron, beräknad broöppning om 6 minuter; Fyra båtar på väg mot Stridsbergsbron, beräknad broöppning strax"
  },
  {
-  "iso": "2026-06-03T08:22:00.040Z",
+  "iso": "2026-06-03T08:21:30.948Z",
   "text": "En båt på väg mot Klaffbron, beräknad broöppning om 6 minuter; En båt väntar vid Järnvägsbron på väg mot Stridsbergsbron; Tre båtar på väg mot Stridsbergsbron, beräknad broöppning strax"
  },
  {
@@ -656,11 +660,11 @@
   "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 4 minuter"
  },
  {
-  "iso": "2026-06-03T11:44:00.040Z",
+  "iso": "2026-06-03T11:39:00.040Z",
   "text": "En båt på väg mot Stridsbergsbron, ETA okänd"
  },
  {
-  "iso": "2026-06-03T11:46:30.040Z",
+  "iso": "2026-06-03T11:46:01.962Z",
   "text": "En båt väntar vid Järnvägsbron på väg mot Stridsbergsbron"
  },
  {

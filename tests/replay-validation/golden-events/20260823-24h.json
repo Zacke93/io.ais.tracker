@@ -426,7 +426,7 @@
       "vesselCount": 1,
       "leadVessel": "TANGELA",
       "firedBy": "deadline",
-      "eventId": "Klaffbron#1",
+      "eventId": "Klaffbron#2",
       "leadMmsi": "265070060",
       "mmsis": [
         "265070060"
@@ -438,21 +438,21 @@
       "error": null
     },
     {
-      "t": 1787560607106,
-      "iso": "2026-08-24T08:36:47.106Z",
+      "t": 1787560737000,
+      "iso": "2026-08-24T08:38:57.000Z",
       "bridge": "Stridsbergsbron",
       "direction": "northbound",
-      "etaMin": 8,
+      "etaMin": -1,
       "vesselCount": 1,
       "leadVessel": "TANGELA",
       "firedBy": "deadline",
-      "eventId": "Stridsbergsbron#2",
+      "eventId": "Stridsbergsbron#3",
       "leadMmsi": "265070060",
       "mmsis": [
         "265070060"
       ],
       "distance": 1801,
-      "dueMs": 1787560607105.5676,
+      "dueMs": 1787560737000,
       "originalDueMs": 1787560468251.523,
       "success": true,
       "error": null
@@ -466,7 +466,7 @@
       "vesselCount": 1,
       "leadVessel": "PHOENIX",
       "firedBy": "deadline",
-      "eventId": "Stridsbergsbron#3",
+      "eventId": "Stridsbergsbron#4",
       "leadMmsi": "276015380",
       "mmsis": [
         "276015380"
@@ -478,21 +478,21 @@
       "error": null
     },
     {
-      "t": 1787581327228,
-      "iso": "2026-08-24T14:22:07.228Z",
+      "t": 1787581573000,
+      "iso": "2026-08-24T14:26:13.000Z",
       "bridge": "Klaffbron",
       "direction": "southbound",
-      "etaMin": 13,
+      "etaMin": -1,
       "vesselCount": 1,
       "leadVessel": "PHOENIX",
       "firedBy": "deadline",
-      "eventId": "Klaffbron#4",
+      "eventId": "Klaffbron#5",
       "leadMmsi": "276015380",
       "mmsis": [
         "276015380"
       ],
-      "distance": 1514,
-      "dueMs": 1787581327227.395,
+      "distance": 1438,
+      "dueMs": 1787581573000,
       "originalDueMs": 1787581153011.0254,
       "success": true,
       "error": null
@@ -506,7 +506,7 @@
       "vesselCount": 1,
       "leadVessel": "PRIMA LADY",
       "firedBy": "deadline",
-      "eventId": "Klaffbron#5",
+      "eventId": "Klaffbron#7",
       "leadMmsi": "230693000",
       "mmsis": [
         "230693000"
@@ -518,22 +518,22 @@
       "error": null
     },
     {
-      "t": 1787588333018,
-      "iso": "2026-08-24T16:18:53.018Z",
+      "t": 1787589310138,
+      "iso": "2026-08-24T16:35:10.138Z",
       "bridge": "Stridsbergsbron",
       "direction": "northbound",
-      "etaMin": 9,
+      "etaMin": 3,
       "vesselCount": 1,
       "leadVessel": "PRIMA LADY",
-      "firedBy": "deadline",
-      "eventId": "Stridsbergsbron#6",
+      "firedBy": "fix",
+      "eventId": "Stridsbergsbron#8",
       "leadMmsi": "230693000",
       "mmsis": [
         "230693000"
       ],
-      "distance": 1168,
-      "dueMs": 1787588333017.241,
-      "originalDueMs": 1787587905712.9033,
+      "distance": 272,
+      "dueMs": 1787589310138,
+      "originalDueMs": 1787587910000,
       "success": true,
       "error": null
     },
@@ -546,7 +546,7 @@
       "vesselCount": 1,
       "leadVessel": "DIANA",
       "firedBy": "deadline",
-      "eventId": "Klaffbron#7",
+      "eventId": "Klaffbron#10",
       "leadMmsi": "265576710",
       "mmsis": [
         "265576710"
@@ -558,22 +558,22 @@
       "error": null
     },
     {
-      "t": 1787590733913,
-      "iso": "2026-08-24T16:58:53.913Z",
+      "t": 1787590830000,
+      "iso": "2026-08-24T17:00:30.000Z",
       "bridge": "Stridsbergsbron",
       "direction": "northbound",
-      "etaMin": 6,
+      "etaMin": -1,
       "vesselCount": 1,
       "leadVessel": "DIANA",
       "firedBy": "deadline",
-      "eventId": "Stridsbergsbron#8",
+      "eventId": "Stridsbergsbron#11",
       "leadMmsi": "265576710",
       "mmsis": [
         "265576710"
       ],
       "distance": 1975,
-      "dueMs": 1787590733912.2195,
-      "originalDueMs": 1787590677079.5159,
+      "dueMs": 1787590830000,
+      "originalDueMs": 1787590680000,
       "success": true,
       "error": null
     }

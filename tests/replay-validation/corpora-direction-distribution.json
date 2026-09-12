@@ -1266,5 +1266,30 @@
     "275491000:Olidebron:southbound": 1,
     "275491000:Stallbackabron:southbound": 1,
     "275491000:Stridsbergsbron:southbound": 1
+  },
+  "20260909-80h": {
+    "265566930:Järnvägsbron:southbound": 1,
+    "265566930:Kanalinfarten:southbound": 1,
+    "265566930:Klaffbron:southbound": 1,
+    "265566930:Olidebron:southbound": 1,
+    "265566930:Stallbackabron:southbound": 1,
+    "265566930:Stridsbergsbron:southbound": 1,
+    "265573130:Järnvägsbron:northbound": 1,
+    "265573130:Järnvägsbron:southbound": 1,
+    "265573130:Kanalinfarten:southbound": 1,
+    "265573130:Klaffbron:northbound": 1,
+    "265573130:Klaffbron:southbound": 1,
+    "265573130:Olidebron:northbound": 1,
+    "265573130:Olidebron:southbound": 1,
+    "265573130:Stallbackabron:northbound": 1,
+    "265573130:Stallbackabron:southbound": 1,
+    "265573130:Stridsbergsbron:northbound": 1,
+    "265573130:Stridsbergsbron:southbound": 1,
+    "265679440:Järnvägsbron:northbound": 1,
+    "265679440:Kanalinfarten:northbound": 1,
+    "265679440:Klaffbron:northbound": 1,
+    "265679440:Olidebron:northbound": 1,
+    "265679440:Stallbackabron:northbound": 1,
+    "265679440:Stridsbergsbron:northbound": 1
   }
 }

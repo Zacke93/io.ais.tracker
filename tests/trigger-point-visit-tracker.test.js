@@ -48,6 +48,35 @@ describe('Broar och Kanalinfarten: ett notifierat besök tills verklig utfärd o
     expect(observe(420)).toEqual({ changed: true, reentered: false });
   }
 
+  test.each(Object.values(BRIDGES))('%s: passage, fortsatt utfärd och retur efter AIS-glapp ger nytt besök', (point) => {
+    tracker.reserve(pointFix(point, -115), point.name);
+    now += 60000;
+    tracker.observe(pointFix(point, 314, { passedBridges: [point.name] }), point.name);
+    now += 60000;
+    tracker.observe(pointFix(point, 424, { passedBridges: [point.name] }), point.name);
+    const restored = new TriggerPointVisitTracker({ now: () => now });
+    restored.loadSnapshot(tracker.exportSnapshot());
+    now += 67 * 60000;
+    expect(restored.observe(pointFix(point, 214, { _routeDirection: 'south', sog: 8 }), point.name).reentered).toBe(true);
+    expect(restored.reserve(pointFix(point, 214), point.name)).not.toBeNull();
+  });
+
+  test.each([
+    ['utan passage', -115, {}],
+    ['väntan på samma sida trots gammal passagebokföring', 115, { passedBridges: ['Stallbackabron'] }],
+    ['osäkert utfärdsprov', -115, { passedBridges: ['Stallbackabron'], _positionUncertain: true }],
+  ])('%s kan inte låsa upp besöket efter bara en yttre fix', (_label, start, extra) => {
+    const point = BRIDGES.stallbackabron;
+    tracker.reserve(pointFix(point, start), point.name);
+    now += 60000;
+    tracker.observe(pointFix(point, 314, extra), point.name);
+    now += 60000;
+    tracker.observe(pointFix(point, 424, extra), point.name);
+    now += 67 * 60000;
+    expect(tracker.observe(pointFix(point, 214), point.name).reentered).toBe(false);
+    expect(tracker.holds(MMSI, point.name)).toBe(true);
+  });
+
   test('långt hamnstopp och rörelse inom området behåller samma besök', () => {
     const own = tracker.reserve(fix());
     expect(own).not.toBeNull();
