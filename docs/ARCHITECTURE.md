@@ -1542,24 +1542,29 @@ uppträder när klassen finns och (b) utfallet är sant mot rådata:
 
 **Kvar, medvetet:**
 
-- **J17 — `ProximityService.calculateProximityTimeout`, passed-grenen** står
-  KVAR som på HEAD, MEDVETET. Grenen returnerar `Math.max(remainingTime, 65000)`
-  där `remainingTime ≤ 65000` ⇒ ett KONSTANT 65 s-TAK (inte golv) i första
-  minuten efter en passage, före alla närhetsklassers golv; K18-basnivån bokförs
-  då som 65 s < AISHub-kadensen 70 s (livstecken kan inte bära den — en båt som
-  passerar och tystnar i exakt den minuten kan dö mitt i aktiv resa och
-  återfödas). Fixrunda 2 gjorde grenen till ett äkta golv (sist) — MEN taket är
-  i dag den mekanism som håller SR2-3 (2026-07-11): AKIRA 257605080 i
-  20260707-14h (kajbåt 0,1 kn, 409 m N om passerade Klaffbron, tystnar) levde
-  6,5 min på HEAD och 25 min med J17 ⇒ "Fyra båtar på väg mot Stridsbergsbron"
-  i 19 min (F4-I-spökklassen som noten själv namnger som borttagen); samma
-  klass MISTY i 20260804-17h. C11b/U1-vakten på nearStationary-grenen räcker
-  INTE (kö-klassen ger samma 25 min via opassrad Järnvägsbron 568 m). Kravet
-  på en framtida fix: en KLASSREGEL för passerat-och-stannat (retention +
-  staleDisplay) som mäts mot 14h/17h med SR2-3 intakt — inte det oavsiktliga
-  taket och inte ett nakent golv. J17 visade sig också vara lastbärande för
-  6 av fixrunda 2:s 7 omlåsningar (5–10 ms-skift + "om 6→7 min" i 2h) —
-  alla återställda i 2c.
+- **J17 — avgränsat rättad 2026-09-18.** `ProximityService.calculateProximityTimeout`
+  behåller 65 s-basnivån första minuten efter en passage när färska transitbevis
+  saknas. `scheduleCleanup` förkortar aldrig en redan beviljad timer och skyddar
+  passagevisningen; den tidigare beskrivningen av ett generellt dödligt 65–70 s
+  pollglapp var därför missvisande. Det reproducerade felet var utebliven
+  **förnyelse**: efter ett 19-minuters AIS-glapp bokfördes Olidebron med 3 kn
+  råfart och Klaffbron framför båten, men ursprungstimern gick ut elva minuter
+  efter den färska passagen. Texten blev "Inga båtar" en minut före nästa fix.
+  Nu förnyas resan bara vid bokförd passage, rent accepterat positionssegment
+  ≥50 m, råfart ≥befintliga transitgränsen 1 kn och en opasserad målbro framför
+  i den kända ruttriktningen. Låg/okänd råfart och GPS-osäkra positioner får
+  fortfarande den korta basnivån; visningens tidsgränser är oförändrade.
+
+  Avgränsningen bevarar SR2-3: ett tidigare försök att göra 65 s till ett
+  ovillkorligt golv förlängde AKIRA 257605080 i `20260707-14h` (0,1 kn, 409 m
+  norr om passerade Klaffbron) från 6,5 till 25 minuter och gav spöktext även
+  för MISTY i `20260804-17h`. Närhetsfiltret ensamt räcker inte — kö-klassen
+  kunde fortfarande ge 25 minuter via opasserade Järnvägsbron 568 m bort.
+  Den nya regeln ger exakt oförändrade texter/tider, notiser, passager och
+  öppningar i båda hela korpusarna. `tests/j17-continuing-passage-retention.test.js`
+  prövar den fortsatta resan och båda råfältstoppen med/utan minutstädning;
+  `tests/j17-passage-taket-ar-inte-ett-golv.test.js` låser kvarvarande basnivå
+  för objekt utan dessa transitbevis.
 - **J32 — micro-grace-fönstret** (`_shouldApplyMicroGrace`): KODEN står som på
   HEAD (`hasCriticalTransitions ? 3000 : 5000`); KOMMENTAREN var felet.
   micro-grace är en 200 ms PAUS före publicering; kritiska under-bro-

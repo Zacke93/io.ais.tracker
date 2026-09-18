@@ -2866,7 +2866,7 @@
       "iso": "2026-08-05T07:04:53.887Z",
       "bridge": "Klaffbron",
       "direction": "northbound",
-      "etaMin": 8,
+      "etaMin": 9,
       "vesselCount": 1,
       "leadVessel": "ANYA ELAN 380",
       "firedBy": "deadline",
@@ -2906,7 +2906,7 @@
       "iso": "2026-08-05T07:33:08.201Z",
       "bridge": "Klaffbron",
       "direction": "northbound",
-      "etaMin": 11,
+      "etaMin": 25,
       "vesselCount": 1,
       "leadVessel": "ANTJE",
       "firedBy": "deadline",
@@ -2942,6 +2942,26 @@
       "error": null
     },
     {
+      "t": 1785915603342,
+      "iso": "2026-08-05T07:40:03.342Z",
+      "bridge": "Klaffbron",
+      "direction": "southbound",
+      "etaMin": 5,
+      "vesselCount": 1,
+      "leadVessel": "ANYA ELAN 380",
+      "firedBy": "fix",
+      "eventId": "Klaffbron#16",
+      "leadMmsi": "265705550",
+      "mmsis": [
+        "265705550"
+      ],
+      "distance": 371,
+      "dueMs": 1785915603342,
+      "originalDueMs": 1785915490033.3994,
+      "success": true,
+      "error": null
+    },
+    {
       "t": 1785915869970,
       "iso": "2026-08-05T07:44:29.970Z",
       "bridge": "Klaffbron",
@@ -2950,7 +2970,7 @@
       "vesselCount": 1,
       "leadVessel": "LAURIERBORG",
       "firedBy": "fix",
-      "eventId": "Klaffbron#16",
+      "eventId": "Klaffbron#17",
       "leadMmsi": "246924000",
       "mmsis": [
         "246924000"
@@ -2970,7 +2990,7 @@
       "vesselCount": 1,
       "leadVessel": "ANTJE",
       "firedBy": "deadline",
-      "eventId": "Stridsbergsbron#17",
+      "eventId": "Stridsbergsbron#18",
       "leadMmsi": "211347380",
       "mmsis": [
         "211347380"
@@ -2978,26 +2998,6 @@
       "distance": 1373,
       "dueMs": 1785916094000,
       "originalDueMs": 1785915493000,
-      "success": true,
-      "error": null
-    },
-    {
-      "t": 1785916874313,
-      "iso": "2026-08-05T08:01:14.313Z",
-      "bridge": "Klaffbron",
-      "direction": "southbound",
-      "etaMin": 0,
-      "vesselCount": 1,
-      "leadVessel": "ANYA ELAN 380",
-      "firedBy": "deadline",
-      "eventId": "Klaffbron#18",
-      "leadMmsi": "265705550",
-      "mmsis": [
-        "265705550"
-      ],
-      "distance": 217,
-      "dueMs": 1785916874313,
-      "originalDueMs": 1785915490033.3994,
       "success": true,
       "error": null
     },
@@ -3048,7 +3048,7 @@
       "iso": "2026-08-05T08:49:52.553Z",
       "bridge": "Klaffbron",
       "direction": "northbound",
-      "etaMin": 10,
+      "etaMin": 11,
       "vesselCount": 1,
       "leadVessel": "SIESTA",
       "firedBy": "deadline",
@@ -3210,7 +3210,7 @@
       "iso": "2026-08-05T11:25:37.294Z",
       "bridge": "Klaffbron",
       "direction": "northbound",
-      "etaMin": 11,
+      "etaMin": 15,
       "vesselCount": 1,
       "leadVessel": "S/Y THELMA",
       "firedBy": "deadline",

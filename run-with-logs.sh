@@ -114,15 +114,17 @@ sync_file() {
 # LC_ALL=C: samma läxa som summaryn nedan (fältprov 1) — GNU grep under
 # UTF-8-locale kan hoppa över rader med ogiltiga byte-sekvenser.
 rebuild_replay_jsonl() {
-    local tmp grep_status
+    local tmp
+    local -a extract_status
     [ -f "$LOGFILE" ] || return 0
     tmp="$LIVE_DIR/.ais-replay-$TIMESTAMP.jsonl.tmp.$$.$RANDOM"
     LC_ALL=C grep 'AIS_REPLAY_SAMPLE' "$LOGFILE" 2>/dev/null \
       | sed 's/^.*AIS_REPLAY_SAMPLE\] //' > "$tmp" 2>/dev/null
-    grep_status=${PIPESTATUS[0]}
+    extract_status=("${PIPESTATUS[@]}")
     # grep 1 = "inga träffar än" (normalt de första minuterna) och ska ge en
-    # tom fil; allt >1 är ett riktigt läsfel och får INTE skriva över facit.
-    if [ "$grep_status" -le 1 ]; then
+    # tom fil. Både läsningen och sed-skrivningen måste lyckas: ett diskfel
+    # efter grep kan annars ersätta en hel fil med ett atomiskt bytt fragment.
+    if [ "${extract_status[0]}" -le 1 ] && [ "${extract_status[1]}" -eq 0 ]; then
         mv -f "$tmp" "$AIS_REPLAY_FILE" 2>/dev/null || rm -f "$tmp" 2>/dev/null || true
     else
         rm -f "$tmp" 2>/dev/null || true
@@ -133,11 +135,45 @@ rebuild_replay_jsonl() {
     state_tmp="$LIVE_DIR/.ais-state-$TIMESTAMP.tmp.$$.$RANDOM"
     LC_ALL=C grep -m 1 'AIS_REPLAY_STATE]' "$LOGFILE" 2>/dev/null \
       | sed 's/^.*AIS_REPLAY_STATE\] //' > "$state_tmp" 2>/dev/null
-    if [ -s "$state_tmp" ]; then
+    extract_status=("${PIPESTATUS[@]}")
+    if [ "${extract_status[0]}" -eq 0 ] && [ "${extract_status[1]}" -eq 0 ] && [ -s "$state_tmp" ]; then
         mv -f "$state_tmp" "${AIS_REPLAY_FILE%.jsonl}.state.json" 2>/dev/null || true
     fi
     rm -f "$state_tmp" 2>/dev/null || true
 
+}
+
+# Varje stat-försök behöver en egen fångst. GNU tolkar BSD:s -f som
+# filsystemsstatus och kan skriva text till stdout ÄVEN när anropet misslyckas.
+file_mtime() {
+    local mtime
+    if mtime=$(stat -f %m "$1" 2>/dev/null) || mtime=$(stat -c %Y "$1" 2>/dev/null); then
+        case "$mtime" in ''|*[!0-9]*) return 1 ;; esac
+        printf '%s\n' "$mtime"
+    else
+        return 1
+    fi
+}
+
+# Kalenderdagar gör även helt saknade dygn synliga. POSIX awk saknar en
+# portabel mktime, så räkna gregorianska dagar med sekelskiftets skottårsregel.
+find_log_holes() {
+    LC_ALL=C grep -oE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}' "$1" | \
+      awk -F'[T:]' '
+        function calendar_day(date, parts, year, month, previous_year) {
+          split(date, parts, "-");
+          year = parts[1] + 0; month = parts[2] + 0; previous_year = year - 1;
+          return 365*previous_year + int(previous_year/4) - int(previous_year/100) \
+            + int(previous_year/400) + month_start[month] + parts[3] \
+            + (month > 2 && year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
+        }
+        BEGIN { split("0 31 59 90 120 151 181 212 243 273 304 334", month_start, " "); }
+        {
+          tabs = calendar_day($1)*86400 + $2*3600 + $3*60 + $4;
+          if (prevt != "" && tabs - prevt > 180)
+            printf "- HÅL: %s → %s (%.0f s utan loggrader)\n", prev, $0, tabs - prevt;
+          prevt = tabs; prev = $0;
+        }'
 }
 
 echo "Startar app — live-loggar skrivs LOKALT (immunt mot OneDrive-stall):"
@@ -196,7 +232,7 @@ REPLAY_GUARD_PID=$!
     kill -0 "$MAIN_PID" 2>/dev/null || exit 0
     if [ -f "$LOGFILE" ]; then
       NOW=$(date +%s)
-      MTIME=$(stat -f %m "$LOGFILE" 2>/dev/null || stat -c %Y "$LOGFILE" 2>/dev/null || echo "$NOW")
+      MTIME=$(file_mtime "$LOGFILE") || MTIME=$NOW
       AGE=$((NOW - MTIME))
       if [ "$AGE" -gt 180 ]; then
         echo ""
@@ -419,20 +455,7 @@ EOL
     # replay-fångst och ett samlat verdikt.
     echo "## Logg-integritet (tidshål + replay-fångst)" >> "$BRIDGE_TEXT_SUMMARY"
     echo "" >> "$BRIDGE_TEXT_SUMMARY"
-    # Fältprov 2 (2026-08-02): den gamla awk:en jämförde ENDAST rader inom
-    # samma datum (`if (prevd == d && ...)`), så varje hål som spände över
-    # midnatt rapporterades aldrig — och ett 48h-fältprov passerar midnatt
-    # två gånger. Dagsräknaren nedan ger en monoton sekundskala över
-    # dygnsgränser (loggen är kronologisk, så varje datumbyte = +1 dygn).
-    HOLES=$(grep -oE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}' "$LOGFILE" | \
-      awk -F'[T:]' '{
-        t = $2*3600 + $3*60 + $4; d = $1;
-        if (prevd != "" && d != prevd) daycount++;
-        tabs = t + daycount*86400;
-        if (prevt != "" && tabs - prevt > 180)
-          printf "- HÅL: %s → %s (%d s utan loggrader)\n", prev, $0, tabs - prevt;
-        prevt = tabs; prevd = d; prev = $0;
-      }')
+    HOLES=$(find_log_holes "$LOGFILE")
     INTEGRITY_FAIL=0
     if [ -n "$HOLES" ]; then
         INTEGRITY_FAIL=1

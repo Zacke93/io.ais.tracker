@@ -6,6 +6,7 @@ const AISStreamClient = require('../lib/connection/AISStreamClient');
 const GPSJumpGateService = require('../lib/services/GPSJumpGateService');
 const GPSJumpAnalyzer = require('../lib/utils/GPSJumpAnalyzer');
 const ProgressiveETACalculator = require('../lib/services/ProgressiveETACalculator');
+const BridgeRegistry = require('../lib/models/BridgeRegistry');
 const VesselDataService = require('../lib/services/VesselDataService');
 const AISBridgeApp = require('../app');
 
@@ -286,7 +287,7 @@ describe('S-F5: GPS-flaggade prover förgiftar inte rörelsebeviset', () => {
 
 describe('E-F1: ETA-gap-reset tömmer även hastighetsbufferten', () => {
   test('förgapsfarter medlas inte in i första post-gap-ETA:n', () => {
-    const calc = new ProgressiveETACalculator(makeLogger(), { getBridgeByName: () => null });
+    const calc = new ProgressiveETACalculator(makeLogger(), new BridgeRegistry());
     const mmsi = '265000012';
     // Varm buffert med höga farter + gammal historik (>3 min)
     calc._speedBuffers.set(mmsi, [5.0, 5.0, 5.0]);
@@ -311,7 +312,6 @@ describe('N1: bekräftad U-sväng mitt i resan emittar journey-reset', () => {
     // syd-observationer (Anomali 18-debouncen), bekräftelse → reset + emit.
     global.__TEST_MODE__ = true;
     try {
-      const BridgeRegistry = require('../lib/models/BridgeRegistry');
       const SystemCoordinator = require('../lib/services/SystemCoordinator');
       const { BRIDGES } = require('../lib/constants');
       const svc = new VesselDataService(makeLogger(), new BridgeRegistry(), new SystemCoordinator(makeLogger()));

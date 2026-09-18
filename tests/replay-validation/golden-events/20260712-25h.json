@@ -1518,11 +1518,11 @@
       "bridge": "Kanalinfarten",
       "direction": "southbound",
       "eta": -1,
-      "message": "SENTA passerade Kanalinfarten under AIS-tystnad",
+      "message": "SENTA har passerat Kanalinfarten",
       "alreadyPassed": true,
       "name": "SENTA",
-      "distance": 355,
-      "source": "passage-fallback",
+      "distance": 74,
+      "source": "trigger-point",
       "stateBridge": "kanalinfarten",
       "mmsi": "230198250",
       "success": true,
@@ -1598,7 +1598,7 @@
       "iso": "2026-07-13T07:07:49.967Z",
       "bridge": "Klaffbron",
       "direction": "northbound",
-      "etaMin": 10,
+      "etaMin": 20,
       "vesselCount": 1,
       "leadVessel": "IDUN",
       "firedBy": "deadline",
@@ -2497,6 +2497,13 @@
       "mmsi": "230198250",
       "bridge": "Järnvägsbron",
       "noTarget": false
+    },
+    {
+      "t": 1783958509998,
+      "iso": "2026-07-13T16:01:49.998Z",
+      "mmsi": "230198250",
+      "bridge": "Olidebron",
+      "noTarget": true
     }
   ]
 }

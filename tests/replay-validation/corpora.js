@@ -78,7 +78,16 @@ const CORPORA_DATA_DIR = path.resolve(__dirname, 'corpora-data');
 // Flerbrosegment bokförs nu i färdordning. De 30 tillkommande Järnvägsposterna
 // jämfört med den isolerade riktningsfixen stöds alla av rådatakorsningar;
 // detta sista steg ändrar inga texter, målpassager eller kortanrop.
-const SEPTEMBER_REVIEW = '2026-09-12: omlåst efter granskning av hela bankens renderunderlag och råpassager. '
+const SEPTEMBER_REVIEW = '2026-09-18: berörda text-/händelsefacit omlåsta efter fryst A/B av hela banken. '
+  + 'Mellanbrons väntetak får inte kapa målbrons ETA; bevisad avgång släpper gammal väntprognos. '
+  + 'Alla närnotisnycklar/riktningar och säkra råförvarningar består. Två äldre närnotisers '
+  + 'minutprognoser ändras (PRIMA/OLA); fartutjämningens kvarvarande fel redovisas öppet. '
+  + 'Rättade konvojprognoser grupperar om JAATTEN/AVALON och SISU/SOLANDE; '
+  + 'CYGNUS behåller BARAVI-täckning utan ett extra kort. J17 bevarar ANTARES/SENTAs '
+  + 'rådatabelagda Olidepassager; SENTAs Kanalinfartsnotis får direkt segmentkälla. '
+  + 'Ingen rådata, oberoende passagefacit, testgräns eller invariantregel är lättad. '
+  + 'Full motivering och prognosmått: docs/faltgranskning-2026-09-18.md. '
+  + '2026-09-12: omlåst efter granskning av hela bankens renderunderlag och råpassager. '
   + 'Bekräftad väntan direkt vid målbron behåller strax; väntan vid tidigare bro saknar minuter. '
   + 'Fem minuter gammal låg fart/mellanbroposition ger okänd ETA och skydd mot ny prognos vid stilla återkomst. '
   + 'Öppningsvarningar inväntar slutsträckan vid färsk tidigare-bro-position; tät fysisk konvoj kan dela varning. '
@@ -2413,5 +2422,40 @@ module.exports = [
       + 'Straxtestet skiljer färsk väntan vid målbron från gammal position före mellanbron. '
       + 'Texter och fullständiga händelser är låsta; septembertesterna prövar dessutom '
       + 'långvarig kö, källbyte, GPS-osäkerhet, tystnad och frånvaro av timerläckor.',
+  },
+  {
+    id: '20260917-7h',
+    jsonl: path.join(CORPORA_DATA_DIR, 'ais-replay-20260917-121704.jsonl'),
+    appLog: path.join(LOGS_DIR, 'app-20260917-121704.log'),
+    hours: 7.25,
+    locked: true,
+    lockOpenings: true,
+    lockEvents: true,
+    expectedNotifications: 14,
+    note: 'Låst 2026-09-18 efter granskning av alla 65645 loggrader och bytekontroll av 618 AIS-poster. '
+      + 'Inspelat startminne följer med. Oberoende rådatafacit: 14 korsningar/zonbesök, varav ett tidsintervall. '
+      + '14 närnotiser, sex öppningsvarningar, fyra målpassager och 66 textövergångar återger fältet. '
+      + 'Sex fasvarianter passerar både med och utan monitoring. DORINDAs två olika målbrovarningar '
+      + 'följer deadlineprincipen vid AIS-tystnad; ingen målpassage fabriceras efter sista fixen. '
+      + 'INV-14W är granskad: DORINDA försvinner efter tystnad och SUSANNE tillkommer 106 minuter '
+      + 'senare; texten Inga båtar mellan olika fartyg är korrekt. Se docs/faltgranskning-2026-09-18.md.',
+  },
+  {
+    id: '20260917-16h',
+    jsonl: path.join(CORPORA_DATA_DIR, 'ais-replay-20260917-194542.jsonl'),
+    appLog: path.join(LOGS_DIR, 'app-20260917-194542.log'),
+    hours: 16.23,
+    locked: true,
+    lockOpenings: true,
+    lockEvents: true,
+    expectedNotifications: 38,
+    note: 'Låst 2026-09-18 efter granskning av alla 121809 loggrader och bytekontroll av 838 AIS-poster. '
+      + 'Inspelat startminne följer med. Oberoende rådatafacit: 38 korsningar/zonbesök, varav ett tidsintervall. '
+      + '38 närnotiser, 14 öppningsvarningar och tolv målpassager. Fältets 129 textövergångar '
+      + 'återges; den 130:e är uttryckligen efterspel efter loggstoppet. Sex fasvarianter passerar '
+      + 'med och utan monitoring. KAPERENs Klaffpassage upptäcks efter AIS-glappet och får en '
+      + 'retroaktiv notis. INV-18 vid 09:38–09:43 UTC beror på olika ETA-bärare: KAPERENs '
+      + 'kortvariga extrapolerade strax följs av SYBIL OF WIVENHOEs längre prognos. '
+      + 'Ingen notis eller passage undantas. Se docs/faltgranskning-2026-09-18.md.',
   },
 ];

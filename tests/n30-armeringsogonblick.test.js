@@ -199,6 +199,10 @@ describe('N30-B: armeringsögonblicket', () => {
   });
 
   test('armeringen sätts FÖRE resten av connect — vakten ser kedjan även om något kastar', async () => {
+    // Fallet behöver ingen bestämd jittertid. Även stackspårens source-map-
+    // sortering använder Math.random; konstant noll ger kvadratisk rekursion
+    // på instrumenterad kod och kan krascha själva täckningsmätningen.
+    Math.random.mockRestore();
     client = new AISHubClient(logger, makeStore());
     // Simulerar VILKET som helst framtida kast mellan armeringen och
     // schemaläggningen (det historiska var settings.get; raden är nu skyddad,

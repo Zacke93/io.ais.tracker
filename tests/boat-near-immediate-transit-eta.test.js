@@ -97,11 +97,20 @@ describe('notis vid omedelbar målbroankomst', () => {
   });
 
   test.each([
-    ['osäker position', { _positionUncertain: true }],
+    ['fysiskt orimlig position', { _positionUncertain: true, _positionAnalysis: { reason: 'medium_movement_speed_mismatch' } }],
     ['GPS-hopp', { _gpsJumpDetected: true }],
-    ['förtöjd', { _moored: true }],
-  ])('%s kan inte lösa ut det nya ankomstlöftet', async (_label, overrides) => {
-    expect((await send(vessel(overrides))).eta_minutes).toBe(3);
+  ])('%s får inte avfyra ett ankomstlöfte före ett rent fix', async (_label, overrides) => {
+    await app._triggerBoatNearFlowForBridge(vessel(overrides), candidate());
+    expect(app._triggerBoatNearFlowBest).not.toHaveBeenCalled();
+    expect(app._triggeredBoatNearKeys.size).toBe(0);
+  });
+
+  test('förtöjd status kan inte lösa ut det nya omedelbara ankomstlöftet', async () => {
+    expect((await send(vessel({ _moored: true }))).eta_minutes).toBe(3);
+  });
+
+  test('allmän osäkerhet efter rimligt AIS-glapp behåller vanlig ETA utan omedelbart ankomstlöfte', async () => {
+    expect((await send(vessel({ _positionUncertain: true, _positionAnalysis: { reason: 'uncertain_movement' } }))).eta_minutes).toBe(3);
   });
 
   test('för gammal position får inte användas som nära ankomstbevis', async () => {

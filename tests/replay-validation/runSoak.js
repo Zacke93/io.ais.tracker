@@ -80,7 +80,7 @@ vessels.push({
 
 // 36 genomresor: 12 per dygn dagtid (var ~90:e min 06–24), färre nattetid.
 // Varierad fart, riktning växlar, var 4:e får ett AIS-gap, var 6:e ett
-// köstopp söder om Klaffbron, var 9:e en U-sväng efter halva rutten.
+// stopp under resan, var 9:e en U-sväng efter halva rutten.
 let journeyIdx = 0;
 for (let day = 0; day < 3; day++) {
   for (let slot = 0; slot < 12; slot++) {
@@ -100,8 +100,9 @@ for (let day = 0; day < 3; day++) {
       v.gap = { atFraction: 0.45, durationS: 720 };
     }
     if (journeyIdx % 6 === 0) {
-      // 20-min köstopp strax söder om Klaffbron (norrgående referensram:
-      // för södergående blir det norr om — båda tränar väntlogiken)
+      // Dessa resor är södergående (%6 är alltid jämnt). Generatorn mäter
+      // bråkdelen från resans start: stoppet hamnar cirka en kilometer före
+      // Stridsbergsbron, utanför brokön. Det prövar stopp och återavgång.
       v.stop = { atFraction: (METRICS.cum[2] - 350) / METRICS.total, durationS: 1200 };
     }
     if (journeyIdx % 9 === 0) {

@@ -3,8 +3,10 @@
 ## Designprincip
 
 Brotexten grupperar båtar efter målbro och faktisk väntplats. Båtar under gång
-får en ankomstprognos. En bekräftad kö får vänttext utan minuter. Samma båt
-räknas en gång. Texten bygger på AIS; appen känner inte brons öppningsläge.
+får en ankomstprognos. En bekräftad kö vid en tidigare bro får vänttext utan
+minuter. Bekräftad väntan direkt vid målbron behåller ”beräknad broöppning
+strax” enligt beslutet 2026-09-12. Samma båt räknas en gång. Texten bygger
+på AIS; appen känner inte brons öppningsläge.
 
 Väntan kräver färska positionsrapporter över minst en minut, stillhet och
 belagd anflygning mot en ännu opasserad bro. En ensam position eller statusnamnet
@@ -12,7 +14,7 @@ belagd anflygning mot en ännu opasserad bro. En ensam position eller statusnamn
 upphör gäller ordinarie åldringsregler; en avstängd AIS hålls inte kvar för evigt.
 
 ```
-En båt väntar vid Stridsbergsbron
+En båt på väg mot Stridsbergsbron, beräknad broöppning strax
 En båt väntar vid Järnvägsbron på väg mot Klaffbron
 ```
 
@@ -54,12 +56,14 @@ från bron och korrigerades uppåt 67 s senare. "Strax" reserveras för färsk
 data/imminent; extrapolationen säger ärligt "cirka". (Exhausted-vägen går via
 imminent-flaggan och behåller strax.)*
 
-**Bekräftad väntan går före ETA.** För båtar under gång kan imminent-flaggan
-ge ”strax” inom 300 m från målbron. Flaggan kräver färsk position och skydd
-mot GPS-störningar; den gäller bara gruppen som är under gång.
+**Bekräftad väntan vid en tidigare bro går före ETA.** Vid själva målbron
+får bekräftad väntan i stället ge ”strax”. För båtar under gång kan
+imminent-flaggan ge ”strax” inom 300 m från målbron. Flaggan kräver färsk
+position och skydd mot GPS-störningar.
 
 **Inget presentationsmässigt tak på giltig ETA.** Höga prognoser kan visas för
-båtar under gång. En bekräftat stillastående kö får ingen minutprognos.
+båtar under gång. En bekräftat stillastående kö vid en tidigare bro får ingen
+minutprognos.
 
 **Strax-tröskeln är 3 min** (justerad från 1 min efter produktionsanalys april 2026). Med tidigare 1-min-tröskel hoppade Class B AIS (30 s intervall) ofta över den ~30 m breda strax-zonen. Med 3-min-tröskel blir zonen ~460 m vid 5 knop och praktiskt taget alla båtar får "strax" under sin passage.
 
@@ -80,8 +84,10 @@ En båt på väg mot Klaffbron, beräknad broöppning om 3 minuter; En båt på 
 
 ## Multi-vessel inom samma målbro
 
-Båtar med samma mål och väntplats aggregeras med räkneord. Båtar under gång
-grupperas separat; deras ETA kommer från den ledande båten (närmaste i tid).
+Båtar med samma mål och väntplats vid en tidigare bro aggregeras med räkneord.
+Båtar under gång grupperas separat; deras ETA kommer från den ledande båten
+(närmaste i tid). Bekräftad väntan vid målbron ingår i målgruppen och ger
+gruppen ”strax”.
 
 ```
 Två båtar på väg mot Klaffbron, beräknad broöppning om 3 minuter

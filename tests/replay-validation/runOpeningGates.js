@@ -104,6 +104,11 @@ const NIGHT_DIR = path.join(__dirname, 'night-facit');
 // Järnvägsbron. Efter fem minuters tystnad visas ETA okänd vid Klaffbron
 // direkt, utan den gamla extrapolerade mellanraden "om cirka 2 minuter".
 // Övriga texter och nattens samtliga närnotiser är oförändrade.
+// Omlåst 2026-09-18 efter målbrobindningen av väntans ETA-tak: A-armen
+// får 45 i stället för 44 texter. TIM före Olide får 16 min till Klaff
+// (råpassagefönstret ger 14,93–16,04 min kvar); TIDAN får 15→14→13 i
+// stället för 12→13. Alla 22 närnotiser är identiska. Båtantal, målbroar,
+// fysiskt passagefacit och O3:s krav består. Se fältgranskningens rapport.
 const CORPORA_DATA = path.join(__dirname, 'corpora-data');
 const pick = (abName, repoPath) => (AB_DIR && fs.existsSync(path.join(AB_DIR, abName))
   ? path.join(AB_DIR, abName) : repoPath);
@@ -409,7 +414,7 @@ function stillnessStay(inHorizon) {
  * (06:53:35) redan är 112 m förbi bron. Avgången skedde i ett rapportglapp på
  * 4 min 37 s; ingen varning var möjlig, och klassen är RÖRELSEBEVIS_FÖR_SENT.
  */
-function classifyMiss(passage, samples, windowStartMs) {
+function classifyMiss(passage, samples, windowStartMs, includeWindowStart = false) {
   // M2b: FÖREGÅENDE FIX bärs per sampel och hämtas ur HELA den tidsordnade
   // serien, inte ur det filtrerade fönstret (samma lärdom som approachEvidence
   // i O2). Vid fönstrets första sampel ligger föregående fix per definition
@@ -421,7 +426,8 @@ function classifyMiss(passage, samples, windowStartMs) {
   for (let i = 0; i < series.length; i++) {
     const s = series[i];
     if (!(s.aisTimestamp <= passage.t)) continue;
-    if (windowStartMs !== null && !(s.aisTimestamp > windowStartMs)) continue;
+    if (windowStartMs !== null
+        && !(includeWindowStart ? s.aisTimestamp >= windowStartMs : s.aisTimestamp > windowStartMs)) continue;
     list.push(s);
     prevOf.set(s, i > 0 ? series[i - 1] : null);
   }
@@ -661,6 +667,19 @@ function passageTimeBounds(p) {
   return null;
 }
 
+/** En varning i ett korsningsfönster tillhör ännu den resan, inte nästa retur. */
+function firstPossiblePassage(passages, t) {
+  return passages.find((p) => {
+    const bounds = passageTimeBounds(p);
+    return !bounds || t <= bounds.to;
+  });
+}
+
+function certainlyBeforePassage(p, t) {
+  const bounds = passageTimeBounds(p);
+  return !!bounds && (bounds.from === bounds.to ? t < bounds.from : t <= bounds.from);
+}
+
 /**
  * Skilj en belagd tidsseparation från en ordning som bara följer interpolationen.
  * Båda utesluts konservativt ur säker konvojtäckning; här redovisas bevisstyrkan.
@@ -710,20 +729,29 @@ function analyseCoverage(result, samples, gtPassages = null) {
   const warnings = result.openingWarnings || [];
   const coverage = result.openingCoverage || [];
   const prevByKey = new Map();
+  const byMember = new Map();
+  for (const p of passages) {
+    const key = `${p.mmsi}:${p.bridge}`;
+    if (!byMember.has(key)) byMember.set(key, []);
+    byMember.get(key).push(p);
+  }
   const covered = [];
   const misses = [];
   const uncertain = [];
 
   for (const p of passages) {
     const key = `${p.mmsi}:${p.bridge}`;
-    const windowStart = prevByKey.has(key) ? prevByKey.get(key) : null;
-    prevByKey.set(key, p.t);
-    // En inferred-korsning har ingen känd punktstämpel. En varning inne i
-    // rådatans lucka kan vara före ELLER efter korsningen och måste visas
-    // som okänd, inte som säker täckning eller en bevisat sen varning.
-    const latestPassage = p.inferred && Number.isFinite(p.tTo) ? p.tTo : p.t;
-    const inWindow = (t) => Number.isFinite(t) && t < latestPassage && (windowStart === null || t > windowStart);
-    const certainlyBefore = (w) => !p.inferred || (Number.isFinite(p.tFrom) && w.t <= p.tFrom);
+    const previous = prevByKey.get(key);
+    const previousBounds = previous ? passageTimeBounds(previous) : null;
+    const windowStart = previous ? (previousBounds?.to ?? previous.t) : null;
+    prevByKey.set(key, p);
+    // Även korta råkorsningar har intervall. En varning i det föregående
+    // fönstret får inte lånas av returresan bara för att interpolerat t ligger
+    // före varningen. Utan intervallgränser kan ordningen inte säkerställas.
+    const bounds = passageTimeBounds(p);
+    const inWindow = (t) => Number.isFinite(t) && (!bounds || t < bounds.to)
+      && firstPossiblePassage(byMember.get(key), t) === p;
+    const certainlyBefore = (w) => certainlyBeforePassage(p, w.t);
 
     // (1) Varningen tog henne som MEDLEM.
     let hit = null;
@@ -779,7 +807,7 @@ function analyseCoverage(result, samples, gtPassages = null) {
         klass: 'TIDPUNKT_OKÄND',
         ...(earlierConvoyWarnings.length ? { earlierConvoyWarnings } : {}),
         bevis: `varning ${iso(hit.t)} ligger i korsningsfönstret `
-          + `${Number.isFinite(p.tFrom) ? iso(p.tFrom) : 'okänd start'}–${iso(latestPassage)}; `
+          + `${bounds ? iso(bounds.from) : 'okänd start'}–${bounds ? iso(bounds.to) : 'okänt slut'}; `
           + `rådata kan inte visa om varningen kom före eller efter passagen${describePriorConvoyEvidence(earlierConvoyWarnings)}`,
       });
     } else if (hit) {
@@ -787,7 +815,10 @@ function analyseCoverage(result, samples, gtPassages = null) {
         passage: p, warning: hit, via, leadMs: p.t - hit.t,
       });
     } else {
-      misses.push({ passage: p, ...classifyMiss(p, samples, windowStart) });
+      // Slutfixet ligger redan bortom föregående korsning och får bära ny
+      // riktning/rörelse. En interpolerad periodgräns får inte kasta bort det.
+      const includeStart = !!previousBounds && previousBounds.from < previousBounds.to;
+      misses.push({ passage: p, ...classifyMiss(p, samples, windowStart, includeStart) });
     }
   }
   return {
@@ -1217,28 +1248,98 @@ function analysePhantoms(result, samples, gtPassages = null) {
 // ---------------------------------------------------------------------------
 
 /**
- * Gruppera varningarna i FYSISKA ÖPPNINGAR och mät påminnelsebeteendet.
+ * Gemensam medlemsbokföring för H-4/H-4b. Tidsklungorna är PASSAGEGRUPPER;
+ * AIS visar inte när bron faktiskt öppnar eller stänger.
  *
- * Semantiken är användarens (U2): en öppningshändelse avgränsas av den FÖRSTA
- * FAKTISKA PASSAGEN — båtar som väntar tillhör samma händelse hur länge de än
- * väntar, båtar som anländer efter passagen tillhör nästa. Kontraktet är EN
- * varning per öppning; serien mäter hur långt ifrån det vi ligger, per bro:
- *   - antal varningar per öppning (kontraktsbrottet, C8:s kvot),
- *   - intervallen mellan dem (är det påminnelser eller dubbletter?),
- *   - ÅLDERN på den sista varningen när passagen sker (blir förvarningen
- *     inaktuell innan bron öppnar?).
- *
- * `originalDueMs` (H-4, läggs till av öppningsservicen i P-OA) visar hur mycket
- * eligibleAt-ombindningen sköt fram avfyrningen. Saknas fältet rapporteras det
- * som okänt — serien får aldrig krascha på en payload som ännu inte landat.
- * @param {object[]} runs - körningarna
+ * En varning måste nämna den passerande båten, direkt eller via samma events
+ * registrerade konvojanslutning. Den får bara bindas till båtens första
+ * möjliga passage efter varningen. Därmed kan en varning utan egen passage
+ * varken lånas av nästa, orelaterade båt eller återanvändas vid en returresa.
+ * Även korta rådataintervall har okänd ordning om varningen ligger i glappet.
  */
+function analyseOpeningGroups(result, passages) {
+  const groups = [];
+  const byMember = new Map();
+  const passageGroups = new Map();
+  for (const bridge of TARGET_BRIDGES) {
+    const bp = passages.filter((p) => p.bridge === bridge && Number.isFinite(p.t))
+      .sort((a, b) => a.t - b.t);
+    let group = null;
+    for (const p of bp) {
+      if (!group || p.t - group.lastT > BRIDGE_OPENING.CONVOY_WINDOW_MS) {
+        group = {
+          bridge, firstT: p.t, lastT: p.t, passages: [], bindings: [], warnings: [], uncertainWarnings: [],
+        };
+        groups.push(group);
+      }
+      group.lastT = p.t;
+      group.passages.push(p);
+      passageGroups.set(p, group);
+      const key = `${bridge}:${p.mmsi}`;
+      if (!byMember.has(key)) byMember.set(key, []);
+      byMember.get(key).push(p);
+    }
+  }
+
+  const warnings = [...(result.openingWarnings || [])]
+    .filter((w) => TARGET_BRIDGES.includes(w.bridge) && Number.isFinite(w.t))
+    .sort((a, b) => a.t - b.t);
+  const unattachedWarnings = [];
+  for (const warning of warnings) {
+    const witnesses = [];
+    const members = new Set([...(Array.isArray(warning.mmsis) ? warning.mmsis : []), warning.leadMmsi]
+      .filter((mmsi) => mmsi != null).map(String));
+    for (const mmsi of members) witnesses.push({ mmsi, t: warning.t, absorbed: false });
+    for (const c of (result.openingCoverage || [])) {
+      if (warning.eventId == null || c.eventId !== warning.eventId || c.bridge !== warning.bridge
+          || c.mmsi == null || !Number.isFinite(c.t) || c.t < warning.t
+          || !['fired', 'absorbed'].includes(c.reason)) continue;
+      witnesses.push({ mmsi: String(c.mmsi), t: c.t, absorbed: c.reason === 'absorbed' });
+    }
+    const matches = new Map();
+    for (const witness of witnesses) {
+      const own = byMember.get(`${warning.bridge}:${witness.mmsi}`) || [];
+      const passage = firstPossiblePassage(own, warning.t);
+      if (!passage) continue;
+      const bounds = passageTimeBounds(passage);
+      // En senare konvojanslutning får inte flytta en gammal varning förbi
+      // medlemmens första passage och därmed täcka en senare returresa.
+      if (bounds && witness.t > bounds.to) continue;
+      let certain = certainlyBeforePassage(passage, warning.t) && certainlyBeforePassage(passage, witness.t);
+      if (witness.absorbed) {
+        // En äldre händelses konvojanslutning bevisar inte samma öppning om
+        // en mellanliggande passage ligger mer än ett konvojfönster tidigare.
+        // Interpolerade punkter räcker heller inte för ett säkert frikännande.
+        const intervening = passages.some((p) => p !== passage && p.bridge === passage.bridge
+          && String(p.mmsi) !== String(passage.mmsi) && p.t > warning.t
+          && p.t < passage.t - BRIDGE_OPENING.CONVOY_WINDOW_MS);
+        if (intervening) certain = false;
+      }
+      const group = passageGroups.get(passage);
+      if (!matches.has(group)) matches.set(group, { warning, certainPassages: [], uncertainPassages: [] });
+      const match = matches.get(group);
+      const matchedPassages = certain ? match.certainPassages : match.uncertainPassages;
+      if (!matchedPassages.includes(passage)) matchedPassages.push(passage);
+    }
+    if (matches.size === 0) unattachedWarnings.push(warning);
+    for (const [group, match] of matches) {
+      group.bindings.push(match);
+      // En varning kan bära flera konvojmedlemmar men räknas en gång per grupp.
+      if (match.certainPassages.length) group.warnings.push(warning);
+      else group.uncertainWarnings.push(warning);
+    }
+  }
+  return { groups, warnings, unattachedWarnings };
+}
+
+/** Mät sista medlemsvarningen. O1/O2/O3 äger fortfarande grindarnas exitkod. */
 function reportReminderSeries(runs) {
-  console.log('--- H-4: SISTA-PÅMINNELSE-SERIEN (per FYSISK öppning; U2 kräver exakt EN varning) ---\n');
+  console.log('--- H-4: SISTA-PÅMINNELSE-SERIEN (medlemsbundna PASSAGEGRUPPER; fysisk brostatus okänd) ---\n');
   let openings = 0;
   let multi = 0;
   let noPassage = 0;
   let inferredEnd = 0;
+  let uncertain = 0;
   const perOpening = [];
   const gapsBetween = [];
   const lastAges = [];
@@ -1253,8 +1354,8 @@ function reportReminderSeries(runs) {
     // (samma fallback som O1b, tydligt markerad i raden nedan).
     const gtP = run.gt ? run.gt.passages : null;
     const passages = gtP || (run.result.targetPassages || []);
-    const warnings = [...(run.result.openingWarnings || [])]
-      .filter((w) => Number.isFinite(w.t)).sort((a, b) => a.t - b.t);
+    const { groups, warnings, unattachedWarnings } = analyseOpeningGroups(run.result, passages);
+    noPassage += unattachedWarnings.length;
     for (const w of warnings) {
       if (Number.isFinite(w.originalDueMs) && Number.isFinite(w.t)) {
         rebindKnown++;
@@ -1263,64 +1364,54 @@ function reportReminderSeries(runs) {
     }
     let corpusOpenings = 0;
     let corpusMulti = 0;
-    for (const bridge of TARGET_BRIDGES) {
-      const bw = warnings.filter((w) => w.bridge === bridge);
-      const bp = passages.filter((p) => p.bridge === bridge).sort((a, b) => a.t - b.t);
-      let i = 0;
-      while (i < bw.length) {
-        const start = bw[i];
-        const passage = bp.find((p) => p.t >= start.t);
-        // Alla varningar fram till (och med) passagen tillhör samma öppning.
-        const end = passage ? passage.t : Infinity;
-        const group = [];
-        while (i < bw.length && bw[i].t <= end) {
-          group.push(bw[i]);
-          i++;
+    let corpusUncertain = 0;
+    for (const group of groups) {
+      uncertain += group.uncertainWarnings.length;
+      corpusUncertain += group.uncertainWarnings.length;
+      if (!group.warnings.length) continue;
+      openings++;
+      corpusOpenings++;
+      perOpening.push(group.warnings.length);
+      if (group.warnings.length > 1) {
+        multi++;
+        corpusMulti++;
+        for (let k = 1; k < group.warnings.length; k++) {
+          gapsBetween.push(group.warnings[k].t - group.warnings[k - 1].t);
         }
-        openings++;
-        corpusOpenings++;
-        perOpening.push(group.length);
-        if (group.length > 1) {
-          multi++;
-          corpusMulti++;
-          for (let k = 1; k < group.length; k++) gapsBetween.push(group[k].t - group[k - 1].t);
-        }
-        // ÅLDERSMÅTTET är en tidsfönstermätning ⇒ `inferred`-passager utesluts
-        // (A3(b)): deras tidpunkt är ett fönster, inte en klockslag. De
-        // avgränsar däremot öppningen som vanligt — korsningen ÄR bevisad.
-        if (passage && passage.inferred) inferredEnd++;
-        else if (passage) lastAges.push(passage.t - group[group.length - 1].t);
-        else noPassage++;
       }
+      const lastWarning = group.warnings[group.warnings.length - 1];
+      const binding = group.bindings.find((b) => b.warning === lastWarning);
+      const passage = [...binding.certainPassages].sort((a, b) => a.t - b.t)[0];
+      if (passage.inferred) inferredEnd++;
+      else lastAges.push(passage.t - lastWarning.t);
     }
-    if (corpusOpenings) {
-      rows.push(`  ${run.job.id.padEnd(26)} ${String(corpusOpenings).padStart(3)} öppningar, `
-        + `${corpusMulti} med >1 varning${gtP ? ' (rådatafacit)' : ' (appens passager — gt saknas)'}`);
+    if (corpusOpenings || warnings.length) {
+      rows.push(`  ${run.job.id.padEnd(26)} ${String(corpusOpenings).padStart(3)} passagegrupper med belagd förvarning, `
+        + `${corpusMulti} med >1; ${corpusUncertain} osäkra kopplingar, ${unattachedWarnings.length} oanknutna varningar`
+        + `${gtP ? ' (rådatafacit)' : ' (appens passager — gt saknas)'}`);
     }
   }
   for (const r of rows) console.log(r);
-  if (openings === 0) {
-    console.log('  (inga öppningsvarningar i körningen)\n');
-    return;
-  }
-  const maxPer = Math.max(...perOpening);
-  console.log(`\n  SUMMA: ${openings} fysiska öppningar, ${multi} med fler än en varning `
-    + `(${((100 * multi) / openings).toFixed(1)} %), max ${maxPer} varningar på samma öppning, `
-    + `kvot ${(perOpening.reduce((a, b) => a + b, 0) / openings).toFixed(2)} varningar/öppning `
-    + '(U2-kontraktet: 1,00)');
+  if (openings) {
+    const maxPer = Math.max(...perOpening);
+    console.log(`\n  SUMMA: ${openings} passagegrupper med belagd förvarning, ${multi} med fler än en `
+      + `(${((100 * multi) / openings).toFixed(1)} %), max ${maxPer} belagda förvarningar per grupp, `
+      + `kvot ${(perOpening.reduce((a, b) => a + b, 0) / openings).toFixed(2)} belagda förvarningar/grupp`);
+  } else console.log('  (inga passagegrupper med belagd förvarning)');
   if (gapsBetween.length) {
     const s = [...gapsBetween].sort((a, b) => a - b);
-    console.log(`  INTERVALL mellan varningar i samma öppning: median ${mins(median(gapsBetween))}, `
+    console.log(`  INTERVALL mellan belagda förvarningar i samma passagegrupp: median ${mins(median(gapsBetween))}, `
       + `min ${mins(s[0])}, max ${mins(s[s.length - 1])} (${gapsBetween.length} extravarningar)`);
   }
   if (lastAges.length) {
     const s = [...lastAges].sort((a, b) => a - b);
-    console.log(`  ÅLDER på sista varningen vid passagen: median ${mins(median(lastAges))}, `
+    console.log(`  UPPSKATTAD ÅLDER på sista medlemsvarningen vid dess passage: median ${mins(median(lastAges))}, `
       + `min ${mins(s[0])}, max ${mins(s[s.length - 1])}`);
   }
-  if (noPassage) console.log(`  ${noPassage} öppningar utan efterföljande passage (O2:s fantomhink äger dem)`);
+  if (noPassage) console.log(`  ${noPassage} oanknutna varningar — saknar efterföljande medlemsbelagd passage`);
+  if (uncertain) console.log(`  ${uncertain} medlemskopplingar med okänd ordning/konvoj — uteslutna ur säkra antal`);
   if (inferredEnd) {
-    console.log(`  ${inferredEnd} öppningar avslutades av en \`inferred\` passage — uteslutna ur åldersmåttet `
+    console.log(`  ${inferredEnd} sista medlemsvarningar har en \`inferred\` passage — uteslutna ur åldersmåttet `
       + '(korsningen är bevisad, tidpunkten bara ett fönster)');
   }
   if (rebindKnown) {
@@ -1340,97 +1431,67 @@ function reportReminderSeries(runs) {
 // ---------------------------------------------------------------------------
 
 /**
- * RÄKNA FRÅN PASSAGERNA, INTE FRÅN VARNINGARNA.
- *
- * H-4-serien ovan går från VARNING → öppning och kan därför per konstruktion
- * ALDRIG se en öppning som fick noll varningar. Det är exakt det måttet C8 föll
- * på (26 → 32 ovarnade öppningar), och C-IV:s metodfynd 2 säger det rakt ut:
- * »kvoten ensam duger inte som acceptanskriterium — korpus #18 har kvot 1,00,
- * men bara för att sex öppningar med noll varningar exakt kompenserar sex med
- * för många. >1-räknaren och 0-räknaren måste redovisas var för sig.«
- *
- * LIGGAREN. En FYSISK ÖPPNING är en klunga passager vid samma bro inom
- * CONVOY_WINDOW_MS — dig9:s egen definition, samma som konvojkriteriet och
- * O1:s konvojtak använder. Varje varning bokförs på den FÖRSTA klunga vars
- * sista passage ligger vid eller efter varningen; varningar efter den sista
- * klungan hör till O2:s fantomhink och räknas inte här.
- *
- * SANNINGEN är rådatafacit (A2) när det finns, annars appens egna passager —
- * samma fallback som H-4 och O1b, och den markeras i raden.
- *
- * RENT INSTRUMENT: metoden skriver bara ut. Exit-koden ägs av O1/O2/O3.
- * @param {object[]} runs - körningarna
+ * Samma medlemsbokföring som H-4, men även grupper utan belagd förvarning.
+ * Noll, en, flera och okänt antal redovisas var för sig. Osäker ordning får
+ * aldrig döljas som vare sig en säker miss eller en säker dubblett.
  */
 function reportOpeningLedger(runs) {
-  console.log('--- H-4b: ÖPPNINGSLIGGAREN (från PASSAGERNA — 0-räknaren och >1-räknaren var för sig) ---\n');
+  console.log('--- H-4b: PASSAGELIGGAREN (medlemsbundna grupper; fysisk brostatus okänd) ---\n');
   let openings = 0;
   let zero = 0;
   let multi = 0;
+  let single = 0;
+  let unknown = 0;
   let warningsOnOpenings = 0;
-  let warningsAfterLast = 0;
+  let uncertainWarnings = 0;
+  let unattached = 0;
   const rows = [];
 
   for (const run of runs) {
     if (run.error) continue;
     const gtP = run.gt ? run.gt.passages : null;
     const passages = gtP || (run.result.targetPassages || []);
-    const warnings = (run.result.openingWarnings || []).filter((w) => Number.isFinite(w.t));
-    let corpusOpenings = 0;
+    const { groups, unattachedWarnings } = analyseOpeningGroups(run.result, passages);
+    unattached += unattachedWarnings.length;
     let corpusZero = 0;
     let corpusMulti = 0;
-    for (const bridge of TARGET_BRIDGES) {
-      const bp = passages.filter((p) => p.bridge === bridge && Number.isFinite(p.t))
-        .sort((a, b) => a.t - b.t);
-      if (bp.length === 0) continue;
-      // (1) Klungor = fysiska öppningar.
-      const clusters = [];
-      for (const p of bp) {
-        const last = clusters[clusters.length - 1];
-        if (last && p.t - last.lastT <= BRIDGE_OPENING.CONVOY_WINDOW_MS) {
-          last.lastT = p.t;
-          last.n++;
-        } else {
-          clusters.push({
-            firstT: p.t, lastT: p.t, n: 1, warnings: 0,
-          });
-        }
-      }
-      // (2) Bokför varningarna på den öppning de FÖRVARNADE.
-      for (const w of warnings.filter((x) => x.bridge === bridge)) {
-        const target = clusters.find((c) => c.lastT >= w.t);
-        if (target) {
-          target.warnings++;
-          warningsOnOpenings++;
-        } else warningsAfterLast++;
-      }
-      for (const c of clusters) {
-        openings++;
-        corpusOpenings++;
-        if (c.warnings === 0) {
-          zero++;
-          corpusZero++;
-        } else if (c.warnings > 1) {
-          multi++;
-          corpusMulti++;
-        }
+    let corpusUnknown = 0;
+    for (const group of groups) {
+      openings++;
+      warningsOnOpenings += group.warnings.length;
+      uncertainWarnings += group.uncertainWarnings.length;
+      if (group.warnings.length > 1) {
+        multi++;
+        corpusMulti++;
+      } else if (group.uncertainWarnings.length) {
+        unknown++;
+        corpusUnknown++;
+      } else if (group.warnings.length === 1) single++;
+      else {
+        zero++;
+        corpusZero++;
       }
     }
-    if (corpusOpenings) {
-      rows.push(`  ${run.job.id.padEnd(26)} ${String(corpusOpenings).padStart(3)} fysiska öppningar, `
-        + `${String(corpusZero).padStart(2)} OVARNADE, ${String(corpusMulti).padStart(2)} med >1 varning`
+    if (groups.length || unattachedWarnings.length) {
+      rows.push(`  ${run.job.id.padEnd(26)} ${String(groups.length).padStart(3)} passagegrupper, `
+        + `${String(corpusZero).padStart(2)} utan kopplad varning, ${String(corpusMulti).padStart(2)} med >1 belagd förvarning, `
+        + `${corpusUnknown} med okänt antal; ${unattachedWarnings.length} oanknutna varningar`
         + `${gtP ? ' (rådatafacit)' : ' (appens passager — gt saknas)'}`);
     }
   }
   for (const r of rows) console.log(r);
   if (openings === 0) {
     console.log('  (inga målbropassager i körningen)\n');
-    return;
+  } else {
+    console.log(`\n  SUMMA: ${openings} passagegrupper — ${zero} utan kopplad varning (0-räknaren), `
+      + `${multi} med >1 belagd förvarning (>1-räknaren), ${single} med exakt en, ${unknown} med okänt antal`);
+    console.log(`  KVOT: ${(warningsOnOpenings / openings).toFixed(3)} belagda förvarningar/passagegrupp `
+      + `(${warningsOnOpenings} säkra medlemskopplingar)`);
   }
-  console.log(`\n  SUMMA: ${openings} fysiska öppningar — ${zero} OVARNADE (0-räknaren), `
-    + `${multi} med >1 varning (>1-räknaren), ${openings - zero - multi} med exakt en`);
-  console.log(`  KVOT: ${((warningsOnOpenings + warningsAfterLast) / openings).toFixed(3)} varningar/öppning `
-    + `(${warningsOnOpenings} bokförda på en öppning + ${warningsAfterLast} efter sista passagen `
-    + '— O2:s fantomhink äger de senare)');
+  console.log(`  UTANFÖR SÄKRA ANTAL: ${uncertainWarnings} medlemskopplingar med okänd ordning/konvoj, `
+    + `${unattached} oanknutna varningar utan efterföljande medlemsbelagd passage`);
+  console.log(`  Grupperna följer uppskattade passagetider inom ${mins(BRIDGE_OPENING.CONVOY_WINDOW_MS)}; `
+    + 'antal fysiska broöppningar kan inte fastställas från AIS.');
   console.log('');
 }
 
@@ -2143,6 +2204,9 @@ module.exports = {
   analysePhantoms,
   reportGtPhantoms,
   analyseFireWindow,
+  analyseOpeningGroups,
+  reportReminderSeries,
+  reportOpeningLedger,
   loadSamples,
   MIN_WARNABLE_MS,
   PHANTOM_WINDOW_MS,

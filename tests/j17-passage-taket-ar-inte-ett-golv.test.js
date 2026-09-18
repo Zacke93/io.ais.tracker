@@ -1,36 +1,22 @@
 'use strict';
 
 /**
- * J17 — KARAKTERISERINGSTEST AV ETT KÄNT FEL SOM STÅR KVAR MEDVETET.
+ * J17 — karakterisering av passed-klassen UTAN färska transitbevis.
  *
- * FILNAMNET SÄGER VAD TESTET LÅSER: passage-grenen i
- * ProximityService.calculateProximityTimeout är ett TAK på 65 s — inte ett golv.
+ * Basnivån är fortfarande 65 s under första minuten. scheduleCleanup
+ * förkortar inte redan beviljade timers och skyddar passagevisningen, så
+ * resultatet är inte en generell 65-sekundersgräns för fartygets livslängd.
  *
- * (L37, helkodsgranskning runda 3, 2026-08-22: den här headern påstod tidigare
- * att filnamnet var kvar från den ÅTERKALLADE fixen och att testet låste
- * MOTSATSEN till sitt namn. Bådadera var sant om det GAMLA namnet
- * "j17-passage-golv-inte-tak", men filen döptes om i runda 2c och namn och
- * innehåll säger sedan dess samma sak. Samma runda rättade den kvarvarande
- * pekaren till det gamla namnet i lib/services/ProximityService.js — den
- * pekade på en fil som aldrig funnits i git, vilket är precis den klass av
- * falsk pekare som gav AKIRA-regressionen i fixrunda 2b.)
+ * Sedan 2026-09-18 får en bokförd passage med rent positionssegment,
+ * färsk råfart i transit och nästa målbro framför sig förnya den vanliga
+ * aktiva resans livslängd. Den klassen prövas i
+ * tests/j17-continuing-passage-retention.test.js med hela appens timers.
+ * Objekten nedan saknar dessa bevis och behåller därför sin korta basnivå.
  *
- * FELET (obestritt): `Math.max(remainingTime, 65000)` med
- * `remainingTime = 65000 − timeSincePassed` är KONSTANT 65 000 ms, och den
- * tidiga returen ligger FÖRE alla golv (närhetsklass, waiting, fast,
- * ACTIVE_JOURNEY_MIN, moored) och överskriver dem. K18-basnivån blir därmed
- * 65 000 ms = AISHUB_POLL_INTERVAL_MS, så ett livstecken kan inte bära
- * fartyget över ett pollglapp.
- *
- * VARFÖR DET ÄNDÅ STÅR KVAR: taket är i dag den mekanism som håller SR2-3
- * (låst 2026-07-11). Flyttas raden sist som ett äkta golv återuppstår
- * AKIRA-spöket i 20260707-14h (idx 25: "Fyra båtar…" i st.f. facits "Tre
- * båtar … strax") och samma klass i 20260804-17h (MISTY). En framtida fix
- * kräver en KLASSREGEL för passerat-och-stannat (retention + staleDisplay),
- * mätt mot 14h och 17h med SR2-3 intakt — se kommentaren vid grenen.
- *
- * DETTA TEST SKA DÄRFÖR FALLA om någon flyttar/mjukar upp grenen utan att
- * först landa klassregeln och mäta om korpusarna.
+ * Avgränsningen skyddar den historiskt uppmätta spökregressionen: att flytta
+ * returen sist som ett ovillkorligt golv förlängde AKIRA 20260707-14h från
+ * 6,5 till 25 minuter och gav motsvarande spöktext för MISTY 20260804-17h.
+ * Båda verkliga stoppen ingår nu även i det nya integrationstestet.
  */
 
 const ProximityService = require('../lib/services/ProximityService');
@@ -42,8 +28,8 @@ const logger = {
 };
 const prox = () => new ProximityService(new BridgeRegistry(), logger);
 
-describe('J17 (känt fel, låst): passage-grenen är ett TAK på 65 s', () => {
-  test('inom fönstret returneras 65 000 ms i ALLA 32 klasskombinationer', () => {
+describe('J17: utan färska transitbevis har passage-grenen basnivån 65 s', () => {
+  test('utan transitbevis returneras 65 000 ms i alla 32 klasskombinationer', () => {
     const p = prox();
     let n = 0;
     for (const nearestDistance of [120, 400, 800, Number.NaN]) {
@@ -57,7 +43,7 @@ describe('J17 (känt fel, låst): passage-grenen är ett TAK på 65 s', () => {
               { ...bas, status: 'passed', lastPassedBridgeTime: Date.now() - 5000 },
               { nearestDistance },
             );
-            expect(passerad).toBe(65000); // TAKET: klassen spelar ingen roll
+            expect(passerad).toBe(65000); // Enbart fart/mål bevisar ingen fortsatt transit.
             n += 1;
           }
         }
@@ -66,7 +52,7 @@ describe('J17 (känt fel, låst): passage-grenen är ett TAK på 65 s', () => {
     expect(n).toBe(32);
   });
 
-  test('taket ligger UNDER närhetsklassen det överskriver (och på pollperioden)', () => {
+  test('basnivån understiger en vanlig aktiv resas nivå', () => {
     const p = prox();
     const bas = {
       mmsi: '2', lat: 58.2839, lon: 12.2864, sog: 5.2, targetBridge: 'Stridsbergsbron',
@@ -77,8 +63,8 @@ describe('J17 (känt fel, låst): passage-grenen är ett TAK på 65 s', () => {
       { nearestDistance: 120 },
     );
     expect(enRoute).toBe(TIMEOUT_SETTINGS.ACTIVE_JOURNEY_MIN);
-    expect(passerad).toBeLessThan(enRoute); // detta ÄR felet, dokumenterat
-    expect(passerad).toBe(AIS_CONFIG.AISHUB.POLL_INTERVAL_MS); // livstecknet bär inte
+    expect(passerad).toBeLessThan(enRoute); // transitundantaget kräver även positions- och passagebevis
+    expect(passerad).toBe(AIS_CONFIG.AISHUB.POLL_INTERVAL_MS); // befintlig längre timer kan ändå bära livstecknet
   });
 
   test('efter fönstret (>60 s) är grenen utan verkan och golven gäller', () => {

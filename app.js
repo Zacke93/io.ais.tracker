@@ -44,6 +44,7 @@ const AISSourceMultiplexer = require('./lib/connection/AISSourceMultiplexer'); /
 // UTILITIES: Hjälpfunktioner
 const { etaDisplay, formatETABroOpeningClause, etaMinutesForDisplay } = require('./lib/utils/etaValidation');
 const geometry = require('./lib/utils/geometry');
+const GPSJumpAnalyzer = require('./lib/utils/GPSJumpAnalyzer');
 const { waitingBridge, queueBridge, hasFreshPosition } = require('./lib/utils/bridgeQueue');
 const { selectSettings } = require('./lib/utils/replayStartupState');
 // Fable-granskningen 2026-08-10 (FG-DIR): riktning-ur-COG som namngiven
@@ -362,6 +363,7 @@ class AISBridgeApp extends Homey.App {
     // Identiteten gör samtidigt köade skrivningar från förra starten inaktuella.
     this._shuttingDown = false;
     this._runtimeLifecycle = {};
+    this._runtimeStateReady = false;
     const lifecycle = this._runtimeLifecycle;
     const isCurrent = () => !this._shuttingDown && this._runtimeLifecycle === lifecycle;
     this._capWriteValues = new Map();
@@ -642,6 +644,9 @@ class AISBridgeApp extends Homey.App {
     // ETA-block körs för ett fartyg; kön håller de notiser som väntar på det.
     this._etaSettlingMmsi = null;
     this._deferredStatusBoatNear = [];
+    // Först nu tillhör allt inläst persistensminne den här appstarten.
+    // Ett tidigare startfel får inte flusha kvarvarande kartor från förra starten.
+    this._runtimeStateReady = true;
 
     // =========================================================================
     // STEG 3: SETUP SETTINGS LISTENER
@@ -5226,6 +5231,21 @@ class AISBridgeApp extends Homey.App {
     const sameTarget = vessel._etaPublishTarget === vessel.targetBridge;
     vessel._etaPublishTarget = vessel.targetBridge;
 
+    // Kalkylatorn släpper en långsam mellanbros väntbaslinje först när rena
+    // positioner bevisar avgång. Publiceringslagret måste släppa samma gamla
+    // värde; annars kan råa 8 minuter fortfarande visas som 55. Beviset hör
+    // till exakt målbro och fix, konsumeras en gång och tillåter bara sänkning.
+    const waitingRelease = vessel._etaWaitingBaselineRelease;
+    vessel._etaWaitingBaselineRelease = null;
+    const resumedFromWait = waitingRelease
+      && waitingRelease.targetBridge === vessel.targetBridge
+      && Number.isFinite(waitingRelease.positionAt)
+      && waitingRelease.positionAt === (vessel.lastPositionUpdate ?? vessel.timestamp)
+      && hasFreshPosition(vessel) && !vessel._gpsJumpDetected && !vessel._positionUncertain
+      && vessel.lastCoordinationLevel !== 'enhanced'
+      && vessel.lastCoordinationLevel !== 'system_wide'
+      && Number.isFinite(freshETA) && freshETA < published;
+
     // C2 (etapp 7, 2026-08-09): SLÄPPGRIND VID MÅLBRON.
     // Clampen är ett SÅGTANDSSKYDD, inte ett tak. När båten faktiskt är framme
     // vid sin målbro är den färska beräkningen alltid sannare än en baslinje
@@ -5276,7 +5296,7 @@ class AISBridgeApp extends Homey.App {
         // "om 3 minuter" för båtar som verkligen är strax framme.
         || published < 3
         // C2: samma släpp när båten är framme vid målbron.
-        || atTargetBridge) {
+        || atTargetBridge || resumedFromWait) {
       vessel._etaPublishedValue = Number.isFinite(freshETA) ? freshETA : null;
       vessel._etaPublishedAtMs = Date.now();
       // Helkodsgranskning 2026-06-13: nolla även burst-tillståndet i släpp-
@@ -7873,6 +7893,14 @@ class AISBridgeApp extends Homey.App {
     );
   }
 
+  /** Ett utgånget tidslås är inte ett nytt positionsbevis. */
+  _hasUntrustedNotificationPosition(vessel) {
+    // Samma fysiska beviskrav som passagerna. En rimlig förflyttning efter
+    // långt AIS-glapp kan ha allmän osäkerhet och är inte ett GPS-hopp.
+    return GPSJumpAnalyzer.needsPassageConfirmation(vessel)
+      || this.vesselDataService?.hasGpsJumpHold?.(vessel.mmsi) === true;
+  }
+
   /**
    * Trigger boat near flow card (with deduplication)
    * @private
@@ -7940,10 +7968,8 @@ class AISBridgeApp extends Homey.App {
       // A 150-200m GPS glitch can satisfy proximity (<300m) and set a dedup key,
       // which would then block the legitimate trigger when the vessel actually
       // arrives via real position data. Mirrors the filter BridgeTextService uses.
-      if (this.vesselDataService
-          && typeof this.vesselDataService.hasGpsJumpHold === 'function'
-          && this.vesselDataService.hasGpsJumpHold(vessel.mmsi)) {
-        this.debug(`🛡️ [FLOW_TRIGGER_GPS_HOLD] ${vessel.mmsi}: skipping during GPS jump`);
+      if (this._hasUntrustedNotificationPosition(vessel)) {
+        this.debug(`🛡️ [FLOW_TRIGGER_GPS_HOLD] ${vessel.mmsi}: inväntar en säker position efter GPS-störning`);
         return;
       }
 
@@ -9137,7 +9163,7 @@ class AISBridgeApp extends Homey.App {
    */
   async _triggerBoatNearFlowFallback(vessel, bridgeName, options = {}) {
     if (!this._boatNearTrigger) return;
-    if (this.vesselDataService?.hasGpsJumpHold?.(vessel.mmsi)) {
+    if (this._hasUntrustedNotificationPosition(vessel)) {
       this.debug(
         `🛡️ [FALLBACK_TRIGGER_GPS_HOLD] ${vessel.mmsi}: skipping ${bridgeName} fallback during GPS jump`,
       );
@@ -9826,6 +9852,13 @@ class AISBridgeApp extends Homey.App {
   async _triggerBoatNearFlowForBridge(vessel, candidate) {
     const lifecycle = this._runtimeLifecycle;
     if (!this._isCurrentRuntime(lifecycle)) return;
+    // Även direkta kandidater måste vänta på ett rent fix. GPS-holdens 2 s
+    // kunde gå ut före nästa AIS-rapport och då lät UI-timern samma flaggade
+    // hopp skicka en närnotis och spärra den verkliga ankomsten via dedupen.
+    if (this._hasUntrustedNotificationPosition(vessel)) {
+      this.debug(`🛡️ [FLOW_TRIGGER_GPS_HOLD] ${vessel.mmsi}: ingen notis från osäker position`);
+      return;
+    }
     const {
       name: bridgeName, id: bridgeId, distance, source,
     } = candidate;
@@ -12819,6 +12852,9 @@ class AISBridgeApp extends Homey.App {
    * Cleanup on app shutdown
    */
   async onUninit() {
+    // Homey kan begära städning även efter en avbruten start. Ett andra
+    // anrop får varken läsa redan släppta kartor eller skriva tomt kajminne.
+    if (this._shuttingDown) return;
     this.log('🛑 AIS Bridge shutting down...');
 
     // DIV-2 (Fable 2026-07-10b) + A2R2-4 (R2 2026-07-11): clear() avbokar
@@ -12834,13 +12870,13 @@ class AISBridgeApp extends Homey.App {
     // Note: No UI update timers to clean up - using setImmediate which auto-cleans
 
     // RACE CONDITION FIX: Clear all vessel removal timers safely
-    for (const [mmsi, timerId] of this._vesselRemovalTimers) {
+    for (const [mmsi, timerId] of this._vesselRemovalTimers || []) {
       if (timerId) {
         clearTimeout(timerId);
         this.debug(`🧹 [CLEANUP] Cleared removal timer for vessel ${mmsi}`);
       }
     }
-    this._vesselRemovalTimers.clear();
+    this._vesselRemovalTimers?.clear();
     this._vesselRemovalTimers = null; // Prevent memory leak
 
     // RACE CONDITION FIX: Clear processing removal tracking
@@ -12918,13 +12954,13 @@ class AISBridgeApp extends Homey.App {
     // V1: skriv kajbokföringen innan den släpps — den ska överleva omstarten
     // (granskningsrunda 2: en omstart 5 s före kajavgången återskapade
     // PRICKBJORN-fantomen exakt).
-    this._persistQuayLedger(true);
+    if (this._runtimeStateReady) this._persistQuayLedger(true);
     // C3b (etapp 7, 2026-08-09): sista-kända-positionerna skrivs numera strypt
     // (15 min) — utan en force-flush här kunde upp till 15 minuters removals
     // gå förlorade vid en kontrollerad omstart, och SPIKEN-vaktens
     // inferensfönster föll då tillbaka på gissning i stället för belagd
     // evidens. Anropet SAKNADES helt före den här etappen.
-    this._persistLastKnownPositions(true);
+    if (this._runtimeStateReady) this._persistLastKnownPositions(true);
     // Fable-granskningen 2026-08-10 (FG-A3): tystnadsbokföringen force-flushades
     // vid varje strike men ALDRIG vid onUninit. Skrivtakten är strypt till 60
     // min (FEED_SILENCE_PERSIST_INTERVAL_MS), så en kontrollerad omstart kunde
@@ -12932,7 +12968,7 @@ class AISBridgeApp extends Homey.App {
     // är att spänna över just omstarter (felklass F-18: strike 21 rapporterade
     // 120 min när sanningen var 3 009 min). Utan flushen kunde efterföljande
     // instans få ett för ungt ankare och underskatta tystnaden igen.
-    this._persistFeedSilenceLedger(true);
+    if (this._runtimeStateReady && this._feedSilenceLedger) this._persistFeedSilenceLedger(true);
     if (this._quayStableLedger) this._quayStableLedger.clear();
     if (this._openingQuayLedger) this._openingQuayLedger.clear();
     // Etapp 6: engångsnycklarna följer armarna — ingen av delarna persisteras.
@@ -12950,9 +12986,12 @@ class AISBridgeApp extends Homey.App {
 
     // P2-fix: flusha 2h-dedup-kartan en sista gång så en kontrollerad omstart
     // garanterat har färskt tillstånd (write-through täcker normalfallet).
-    this._persistRecentTriggers();
-    this._persistTriggerPointVisits();
-    this._persistOpeningWarnings();
+    if (this._runtimeStateReady) {
+      this._persistRecentTriggers();
+      this._persistTriggerPointVisits();
+      this._persistOpeningWarnings();
+      this._runtimeStateReady = false;
+    }
 
     // B8-hygien (2026-06-09): avregistrera service-/klient-lyssnare. Tjänsterna
     // återskapas visserligen i onInit, men explicit avregistrering gör
@@ -12969,7 +13008,7 @@ class AISBridgeApp extends Homey.App {
     this._eventsHooked = false;
 
     // Remove event listeners
-    if (this.homey && this.homey.settings) {
+    if (this.homey && this.homey.settings && this._onSettingsChanged) {
       this.homey.settings.off('set', this._onSettingsChanged);
     }
 

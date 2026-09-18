@@ -44,9 +44,8 @@
     "Stridsbergsbron:southbound": 5
   },
   "20260708-21h": {
-    "Klaffbron:mixed": 1,
     "Klaffbron:northbound": 4,
-    "Klaffbron:southbound": 4,
+    "Klaffbron:southbound": 5,
     "Stridsbergsbron:northbound": 6,
     "Stridsbergsbron:southbound": 5
   },
@@ -82,7 +81,7 @@
     "Stridsbergsbron:southbound": 11
   },
   "20260804-17h": {
-    "Klaffbron:northbound": 8,
+    "Klaffbron:northbound": 7,
     "Klaffbron:southbound": 14,
     "Stridsbergsbron:northbound": 10,
     "Stridsbergsbron:southbound": 9
@@ -117,5 +116,17 @@
     "Klaffbron:southbound": 3,
     "Stridsbergsbron:northbound": 2,
     "Stridsbergsbron:southbound": 2
+  },
+  "20260917-7h": {
+    "Klaffbron:northbound": 2,
+    "Klaffbron:southbound": 1,
+    "Stridsbergsbron:northbound": 2,
+    "Stridsbergsbron:southbound": 1
+  },
+  "20260917-16h": {
+    "Klaffbron:northbound": 3,
+    "Klaffbron:southbound": 4,
+    "Stridsbergsbron:northbound": 3,
+    "Stridsbergsbron:southbound": 4
   }
 }

@@ -149,7 +149,6 @@ describe('Väntnotis utan minutprognos (användarbeslut 2026-09-06)', () => {
   });
 
   test.each([
-    { _gpsJumpDetected: true },
     { _positionUncertain: true },
     { passedBridges: ['Stridsbergsbron'] },
     { _bridgeOpeningBridgeName: 'Stridsbergsbron', _bridgeOpeningUntil: Date.now() + 60000 },
@@ -157,6 +156,22 @@ describe('Väntnotis utan minutprognos (användarbeslut 2026-09-06)', () => {
     Object.assign(vessel, fields);
     const tokens = await notify();
     expect(tokens.message).not.toContain('inväntar');
+  });
+
+  test('GPS-hopp skjuter upp hela väntnotisen utan att förbruka den riktiga ankomsten', async () => {
+    vessel._gpsJumpDetected = true;
+    await notify();
+    expect(app._triggerBoatNearFlowBest).not.toHaveBeenCalled();
+    expect(app._triggeredBoatNearKeys.size).toBe(0);
+    expect(app._persistentRecentTriggers.size).toBe(0);
+
+    vessel._gpsJumpDetected = false;
+    stopAt('Stridsbergsbron');
+    const tokens = await notify();
+    expect(tokens.message).toBe('PHOENIX inväntar broöppning vid Stridsbergsbron');
+    expect(tokens.eta_available).toBe(false);
+    await notify();
+    expect(app._triggerBoatNearFlowBest).toHaveBeenCalledTimes(1);
   });
 
   test('okänt båtnamn får svensk vänttext och samma deduplicering', async () => {
