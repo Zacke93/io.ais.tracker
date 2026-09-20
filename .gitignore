@@ -6,3 +6,26 @@ logs/
 coverage/
 *.log
 .vscode/
+
+# Lokala inställningar, kontouppgifter och privata nycklar
+.env
+.env.*
+!.env.example
+!.env.*.example
+.npmrc
+.netrc
+.pypirc
+credentials.json
+credentials.*.json
+secrets.json
+secrets.yaml
+secrets.yml
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+*.key
+*.pem
+*.p12
+*.pfx
+*.keystore
