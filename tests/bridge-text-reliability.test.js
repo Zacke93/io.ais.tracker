@@ -1,8 +1,7 @@
 'use strict';
 
 /**
- * Regressionstester för Fix 1, 2, 3, 4, 6 från
- * ~/.claude/plans/quiet-jingling-flamingo.md
+ * Regressionstester för Fix 1, 2, 3, 4, 6 från produktionsanalysen nedan.
  *
  * Härleds från produktionsanalys av loggar 2026-04-19 till 2026-04-26
  * (545 bridge-text-uppdateringar, 15 unika båtar):

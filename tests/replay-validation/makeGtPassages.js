@@ -207,30 +207,24 @@ const INDEX_FILE = path.join(OUT_DIR, 'index.json');
 /**
  * FÄLTKORPUSAR SOM ÄNNU INTE LIGGER I REPOT (A9 checkar in dem).
  * Uppslagsordningen är: (1) corpora.js — så fort A9 lagt in posten hittas
- * jsonl:en där och den här tabellen blir en no-op; (2) $GT_SOURCE_DIR;
- * (3) fältkörningens ursprungliga sökväg. Sista steget är MEDVETET en absolut
- * sökväg till en sessionsmapp: den dokumenterar var datan kom ifrån, och när
- * mappen är borta säger generatorn högt att källan saknas i stället för att
- * tyst hoppa över korpusen.
+ * jsonl:en där och den här tabellen blir en no-op; (2) corpora-data;
+ * (3) $GT_SOURCE_DIR för ett lokalt loggarkiv. Saknad källa redovisas som
+ * saknad även när inget lokalt arkiv har angivits.
  */
-const FIELD_SCRATCH = '/private/tmp/ais-field-data';
 const EXTRA_CORPORA = [
   {
     id: '20260804-17h',
     files: ['ais-replay-20260804-17h.jsonl', 'day-aisstream.jsonl'],
-    fallback: path.join(FIELD_SCRATCH, 'ab2', 'day-aisstream.jsonl'),
     note: 'A/B-dagskörningen 2026-08-04 (GO-beslutet), A-armen aisstream',
   },
   {
     id: '20260804-both-21h',
     files: ['ais-replay-20260804-both-21h.jsonl', 'both-day.jsonl'],
-    fallback: path.join(FIELD_SCRATCH, 'both1', 'both-day.jsonl'),
     note: 'både-dygn 1 (2026-08-04/05), source=both',
   },
   {
     id: '20260806-42h',
     files: ['ais-replay-20260806-42h.jsonl', 'corpus.jsonl'],
-    fallback: path.join(FIELD_SCRATCH, 'faltdygn3', 'corpus.jsonl'),
     note: '42h-fältprovet 2026-08-06/07 (korpus #18-kandidat)',
   },
 ];
@@ -655,10 +649,9 @@ function resolveJobs() {
     const candidates = [
       ...e.files.map((f) => path.join(__dirname, 'corpora-data', f)),
       ...(process.env.GT_SOURCE_DIR ? e.files.map((f) => path.join(process.env.GT_SOURCE_DIR, f)) : []),
-      e.fallback,
     ];
     const hit = candidates.find((p) => fs.existsSync(p));
-    jobs.push({ id: e.id, jsonl: hit || e.fallback, note: e.note });
+    jobs.push({ id: e.id, jsonl: hit || candidates[0], note: e.note });
   }
   return jobs.map((j) => ({ ...j, missing: !fs.existsSync(j.jsonl) }));
 }

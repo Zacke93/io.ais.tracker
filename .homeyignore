@@ -15,6 +15,7 @@ logs/
 .gitignore
 .DS_Store
 run-with-logs.sh
+start-faltprov.cmd
 
 # Documentation - keep some for app store
 CLAUDE.md
@@ -41,3 +42,25 @@ jsconfig.json
 
 # Lokal dirigentmapp (handoff-rapporter, loggarkiv) — inte del av appen
 dirigent/
+
+# Lokala inställningar, kontouppgifter och privata nycklar
+env.json
+.env
+.env.*
+.npmrc
+.netrc
+.pypirc
+credentials.json
+credentials.*.json
+secrets.json
+secrets.yaml
+secrets.yml
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+*.key
+*.pem
+*.p12
+*.pfx
+*.keystore

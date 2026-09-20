@@ -86,5 +86,5 @@ Relevanta filer (absoluta sökvägar):
 - `lib/constants.js` (rader 67, 70, 227-231)
 - `lib/utils/etaValidation.js` (rader 215-218)
 - `lib/services/ProgressiveETACalculator.js` (rader 424, 526-536, 649-660, 699-705)
-- `logs/app-20260525-231934.log` (29 SUCCESS; JOSEPHINE rad 543/547/576; MARIANNE 3 SUCCESS)
-- `logs/ais-replay-20260525-231934.jsonl`
+- `logs/app-20260525-231934.log` (lokalt loggarkiv; 29 SUCCESS; JOSEPHINE rad 543/547/576; MARIANNE 3 SUCCESS)
+- `logs/ais-replay-20260525-231934.jsonl` (lokalt loggarkiv)

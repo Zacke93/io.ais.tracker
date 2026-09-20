@@ -29,8 +29,9 @@ sviten rör sig.
 
 ### `.gitignore` i den här katalogen
 
-Repots `.gitignore:7` utesluter `*.log`. Utan den nästlade `.gitignore`:n med
-`!*.log` hade de två loggfixturerna **aldrig committats** — och då hade hela
+Repots `.gitignore` utesluter `*.log`. Den nästlade `.gitignore`:n gör undantag
+för exakt de två namngivna loggfixturerna; andra loggar ignoreras även här.
+Utan dessa undantag hade fixturerna **aldrig committats** — och då hade hela
 poängen fallit på första färska klon: testet skulle söka en fil som inte finns.
 Verifierat: `git status --porcelain -uall --ignored` visar `??` (spåras) för
 fixturerna och `!!` för en kontroll-`.log` utanför katalogen.

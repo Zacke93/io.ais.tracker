@@ -1,8 +1,7 @@
 'use strict';
 
 /**
- * Regressionstester för Fix 5 och 7 från
- * ~/.claude/plans/quiet-jingling-flamingo.md
+ * Regressionstester för Fix 5 och 7 från produktionsanalysen 2026-04.
  *
  *   Fix 5 — GPS-jump skydd för flow-triggers
  *   Fix 7 — Multi-bridge flow trigger (EKEN-fall: missad Stridsbergsbron-notis)
