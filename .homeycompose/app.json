@@ -4,10 +4,10 @@
     "en": "AIS Tracker",
     "sv": "AIS Spårare"
   },
-
   "version": "0.0.2",
-  "category": ["tools"],
-
+  "category": [
+    "tools"
+  ],
   "icon": "/assets/icon.svg",
   "brandColor": "#000000",
   "images": {
@@ -15,16 +15,12 @@
     "large": "/assets/images/app_large.png",
     "xlarge": "/assets/images/app_xlarge.png"
   },
-
   "author": {
-    "name": "Zacke93",
-    "email": "128399045+Zacke93@users.noreply.github.com"
+    "name": "Zacke93"
   },
-
   "sdk": 3,
   "compatibility": ">=6.0.0",
   "startOnInstall": true,
-
   "settings": [
     {
       "id": "ais_api_key",
@@ -38,5 +34,6 @@
         "sv": "Skapa en på https://aisstream.io"
       }
     }
-  ]
+  ],
+  "support": "https://github.com/Zacke93/io.ais.tracker/issues"
 }

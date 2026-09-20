@@ -1,13 +1,9 @@
-/env.json
-/node_modules/
-/.homeybuild/
-.DS_Store
+
 
 # Lokala inställningar, kontouppgifter och privata nycklar
+env.json
 .env
 .env.*
-!.env.example
-!.env.*.example
 .npmrc
 .netrc
 .pypirc

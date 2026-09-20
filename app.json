@@ -17,8 +17,7 @@
     "xlarge": "/assets/images/app_xlarge.png"
   },
   "author": {
-    "name": "Zacke93",
-    "email": "128399045+Zacke93@users.noreply.github.com"
+    "name": "Zacke93"
   },
   "sdk": 3,
   "compatibility": ">=6.0.0",
@@ -37,6 +36,7 @@
       }
     }
   ],
+  "support": "https://github.com/Zacke93/io.ais.tracker/issues",
   "flow": {
     "conditions": [
       {
