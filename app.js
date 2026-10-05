@@ -852,6 +852,16 @@ class AISBridgeApp extends Homey.App {
    */
   _setupSettingsListener() {
     this._onSettingsChanged = (key, value) => {
+      if (this._shuttingDown) return;
+      // En inställningsändring under token-/Flow-init får inte starta en
+      // källa innan dess event har mottagare. Annars tappas första connected
+      // och positionerna; en frisk källa ger sedan ingen ny anslutningsflank.
+      // _startConnection läser alla aktuella värden när kopplingarna är klara.
+      if (this._eventsHooked === false
+          && ['ais_api_key', 'aishub_username', 'ais_source'].includes(key)) {
+        this.debug(`[SETTINGS] ${key} ändrad under uppstart — används när AIS-mottagarna är klara`);
+        return;
+      }
       if (key === 'debug_level') {
         const newLevel = this.homey.settings.get('debug_level');
         this.log(`🔧 Debug level change received: "${newLevel}" (type: ${typeof newLevel})`);
@@ -1323,18 +1333,28 @@ class AISBridgeApp extends Homey.App {
       const distance = geometry.calculateDistance(vessel.lat, vessel.lon, bridge.lat, bridge.lon);
       if (!Number.isFinite(distance)) continue;
       const atQuay = this.vesselDataService?.isNearMooringZone?.(vessel.lat, vessel.lon) === true;
+      // KINNE 2026-09-21: bekräftat förtöjd i drygt 40 h utanför de ritade
+      // kajzonerna. Öppningsmotorn avväpnade anflygningen, men dess nya kort
+      // vid avgången spärrades av den gamla ankomsten. Läs samma förtöjnings-
+      // klassning och samma avståndsgolv som motorn; ett stopp i brokön är
+      // fortfarande samma ankomst. Enbart navstatus eller tid räcker inte.
+      const atConfirmedMooring = vessel._moored === true
+        && distance > BRIDGE_OPENING.DISARM_MOORED_MIN_DISTANCE_M;
       const stop = entry.quayStop;
       const movedFromStop = stop && geometry.calculateDistance(stop.lat, stop.lon, vessel.lat, vessel.lon);
-      if (stop?.confirmed && !atQuay && movedFromStop >= 50 && Number.isFinite(vessel.sog) && vessel.sog >= 0.5) {
+      if (stop?.confirmed && !atQuay && vessel._moored !== true
+          && movedFromStop >= 50 && Number.isFinite(vessel.sog) && vessel.sog >= 0.5) {
         this._persistentOpeningWarnings.delete(key);
         this.bridgeOpeningService?.restartArrival?.(vessel.mmsi, bridgeName);
         this.log(`🌉 [OPENING_QUAY_DEPARTURE] ${mmsi}: belagd avgång efter kajstopp — ny ankomst till ${bridgeName}`);
         dirty = true;
         continue;
       }
-      // Två separata långsamma fix vid en känd kaj styrker stoppet. Det
-      // avslutas först av verklig avgång utanför kajzonen, aldrig av tid.
-      if (atQuay && Number.isFinite(vessel.sog) && vessel.sog <= 0.5) {
+      // Två separata fix styrker stoppet: långsamt vid känd kaj eller redan
+      // förtöjd-klassad utanför brokön. Okänd fart får användas enbart i det
+      // senare fallet, där förtöjningsdetektorn redan har positionsbevis.
+      // Stoppet avslutas först av verklig avgång, aldrig av tid.
+      if (atConfirmedMooring || (atQuay && Number.isFinite(vessel.sog) && vessel.sog <= 0.5)) {
         if (!stop || movedFromStop >= 50
             || (!stop.confirmed && fixTs - stop.lastFixTs > UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS)) {
           entry.quayStop = {
@@ -2916,20 +2936,26 @@ class AISBridgeApp extends Homey.App {
       // Det tillåter accelerated-target-assignment att tilldela ny målbro.
       //
       // Edge cases hanterade:
-      //   - GPS-jump → blockerad av hasGpsJumpHold (Bug #1-skydd)
-      //   - Wobble nära mål → kräver sog ≥ 2.0kn (mätbar fart)
+      //   - GPS-jump → kräver bekräftad position även efter tidslåsets slut
+      //   - Wobble nära mål → kräver rapporterad sog ≥ 2.0kn (mätbar fart)
       //   - Öster-cog (drift) → kräver cog tydligt N (315-45) eller S (135-314)
       //   - Triggerintegritet → _finalTargetDirection nullas efter rensning
       //     så detta inte triggar igen i nästa tick
       const NEW_JOURNEY_MIN_SOG = 2.0;
+      const journeySog = GPSJumpAnalyzer.positionSog(vessel);
+      const journeyCog = Object.prototype.hasOwnProperty.call(vessel, '_rawPositionCog')
+        ? vessel._rawPositionCog : vessel.cog;
+      // Fart- och kursminnet hör till presentationen. Ett null-fält i nästa
+      // AIS-fix är ingen ny observation som får bekräfta en vändning och
+      // radera passager eller notisdedup från den pågående resan.
       if (!vessel.targetBridge
           && vessel._finalTargetDirection
-          && Number.isFinite(vessel.cog)
-          && Number.isFinite(vessel.sog)
-          && vessel.sog >= NEW_JOURNEY_MIN_SOG
-          && !this.vesselDataService?.hasGpsJumpHold?.(vessel.mmsi)) {
+          && Number.isFinite(journeyCog)
+          && Number.isFinite(journeySog)
+          && journeySog >= NEW_JOURNEY_MIN_SOG
+          && !this._hasUntrustedNotificationPosition(vessel)) {
         // FG-DIR: banden via predikatfamiljen — gränserna oförändrade.
-        const cogIsNorth = isNorthCog(vessel.cog);
+        const cogIsNorth = isNorthCog(journeyCog);
         // Helgranskning 2026-07-10 (A1-1): sydbandet var 135–225 (Anomali 7-
         // originalet) medan _dedupDirection/_getDirectionString harmoniserades
         // till 135–315 redan 2026-07-03 — SV-kurs (226–314°) är NORMAL sydfärd
@@ -2937,7 +2963,7 @@ class AISBridgeApp extends Homey.App {
         // söderut med t.ex. cog 250° fick aldrig NEW_JOURNEY → dedup-nycklarna
         // från nordresan blockerade returresans alla notiser (PRICKBJORN-
         // klassen, exakt det detta block finns för att förhindra).
-        const cogIsSouth = isSouthCogWide(vessel.cog);
+        const cogIsSouth = isSouthCogWide(journeyCog);
         const finalWasNorth = vessel._finalTargetDirection === 'north';
         const newJourneyDetected = (cogIsSouth && finalWasNorth)
           || (cogIsNorth && !finalWasNorth);
@@ -2957,12 +2983,12 @@ class AISBridgeApp extends Homey.App {
             vessel._newJourneyPending = { dir: newDir, time: Date.now() };
             this.debug(
               `⏳ [NEW_JOURNEY_PENDING] ${mmsi}: reversal → ${newDir} observerad `
-              + `(cog=${vessel.cog.toFixed(0)}°) — väntar på bekräftelse innan resan nollställs`,
+              + `(cog=${journeyCog.toFixed(0)}°) — väntar på bekräftelse innan resan nollställs`,
             );
           } else {
             this.log(
               `🔁 [NEW_JOURNEY] ${mmsi}: Direction reversed CONFIRMED from previous journey `
-              + `(${vessel._finalTargetDirection} → ${newDir}, sog=${vessel.sog.toFixed(1)}kn) `
+              + `(${vessel._finalTargetDirection} → ${newDir}, sog=${journeySog.toFixed(1)}kn) `
               + '— resetting passedBridges + dedup keys for fresh trip',
             );
             vessel.passedBridges = [];
@@ -5978,7 +6004,9 @@ class AISBridgeApp extends Homey.App {
    * @private
    */
   _sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+    return new Promise((resolve) => {
+      setTimeout(resolve, ms);
+    });
   }
 
   /**
@@ -7309,14 +7337,22 @@ class AISBridgeApp extends Homey.App {
     if (!this._capWriteChains) this._capWriteChains = new Map();
     if (!this._capWriteValues) this._capWriteValues = new Map();
     this._capWriteValues.set(capability, value);
-    const prev = this._capWriteChains.get(capability) || Promise.resolve();
-    const next = prev.then(() => {
-      if (this._runtimeLifecycle !== lifecycle) return undefined;
+    const chains = this._capWriteChains;
+    const prev = chains.get(capability);
+    let next = prev || Promise.resolve();
+    next = next.then(() => {
+      if (this._shuttingDown || this._runtimeLifecycle !== lifecycle) return undefined;
+      // Ett långsamt men svarande SDK får annars spela upp hela AIS-burstens
+      // gamla texter före aktuellt tillstånd. Bevara första/pågående skrivning
+      // och endast SENASTE väntande brotext. Promise-identiteten skiljer även
+      // A→B→A och flera likadana köposter; värdejämförelse räcker inte.
+      // Övriga capabilitytyper behåller sina ordnade flanker.
+      if (capability === 'bridge_text' && prev && chains.get(capability) !== next) return undefined;
       return this._writeCapabilityWithTimeout(capability, value);
-    });
+    }).catch(() => {});
     // Kedjan får aldrig fastna på ett fel — felen hanteras/loggas i
     // _writeCapabilityToDevices.
-    this._capWriteChains.set(capability, next.catch(() => {}));
+    chains.set(capability, next);
   }
 
   /**
@@ -10932,9 +10968,9 @@ class AISBridgeApp extends Homey.App {
             if (vessel._moored === true) {
               return false;
             }
-            if (this.vesselDataService
-                && typeof this.vesselDataService.hasGpsJumpHold === 'function'
-                && this.vesselDataService.hasGpsJumpHold(vessel.mmsi)) {
+            // Ett utgånget tidslås bekräftar inte GPS-positionen. Samma
+            // beviskrav som närnotiserna gäller även detta flödesvillkor.
+            if (this._hasUntrustedNotificationPosition(vessel)) {
               return false;
             }
             const lastHeardMs = Math.max(vessel.timestamp || 0, vessel.lastPositionUpdate || 0);

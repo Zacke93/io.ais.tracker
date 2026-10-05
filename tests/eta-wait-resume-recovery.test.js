@@ -2,6 +2,7 @@
 
 const { execFileSync } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 const ProgressiveETACalculator = require('../lib/services/ProgressiveETACalculator');
 const BridgeRegistry = require('../lib/models/BridgeRegistry');
 const { BRIDGES, UI_CONSTANTS } = require('../lib/constants');
@@ -67,6 +68,90 @@ describe('ETA återhämtas när en båt lämnar mellanbrons väntan', () => {
     expect(resume(overrides)).toBeGreaterThan(10);
   });
 
+  test('bekräftad passage släpper krypväntan även när ankarets råfart var över en knop', () => {
+    expect(resume({
+      lastPassedBridge: 'Olidebron',
+      lastPassedBridgeTime: Date.now() + 60000,
+    }, { sog: 1.7, _rawPositionSog: 1.7 })).toBe(10);
+  });
+
+  test('entydigt linjekorsningsbevis släpper krypväntan före zonutgången', () => {
+    expect(resume({
+      _underBridgeCrossedBridge: 'Olidebron',
+      _underBridgeEntryLat: waiting.lat,
+      _underBridgeEntryLon: waiting.lon,
+    }, { sog: 1.7, _rawPositionSog: 1.7 })).toBe(10);
+  });
+
+  test.each([
+    ['saknat ankare', { _underBridgeEntryLat: null, _underBridgeEntryLon: null }],
+    ['annan bro', { _underBridgeCrossedBridge: 'Järnvägsbron' }],
+    ['avslutat zonbesök', { _underBridgeLatched: false }],
+    ['återvänd till ingångssidan', { _underBridgeEntryLat: BRIDGES.olidebron.lat + 60 / 111320 }],
+    ['epsilonbandet', { lat: BRIDGES.olidebron.lat + 5 / 111320 }],
+    ['GPS-osäker fix', { _positionUncertain: true }],
+  ])('%s får inte låna ett gammalt linjekorsningsbevis', (_name, overrides) => {
+    expect(resume({
+      _underBridgeCrossedBridge: 'Olidebron',
+      _underBridgeEntryLat: waiting.lat,
+      _underBridgeEntryLon: waiting.lon,
+      ...overrides,
+    }, { sog: 1.7, _rawPositionSog: 1.7 })).toBeGreaterThan(10);
+  });
+
+  test.each([1, 3, 50])('passage registrerad %i ms efter positionsmottagningen räknas i livekedjan', (processingMs) => {
+    calculator._processETAWithProtection({ ...waiting, sog: 1.7, _rawPositionSog: 1.7 }, 90, proximity);
+    jest.advanceTimersByTime(60000);
+    const positionAt = Date.now();
+    jest.advanceTimersByTime(processingMs);
+    const result = calculator._processETAWithProtection({
+      ...waiting,
+      lat: BRIDGES.olidebron.lat + 15 / 111320,
+      sog: 3.7,
+      _rawPositionSog: 3.7,
+      timestamp: positionAt,
+      status: 'under-bridge',
+      waitingAtBridge: null,
+      _underBridgeLatched: true,
+      lastPassedBridge: 'Olidebron',
+      lastPassedBridgeTime: Date.now(),
+    }, 10, proximity);
+    expect(result).toBe(10);
+  });
+
+  test.each([
+    ['utan passage', {}],
+    ['passage av annan bro', { lastPassedBridge: 'Järnvägsbron', passageOffset: 60000 }],
+    ['passage på förra fixet', { lastPassedBridge: 'Olidebron', passageOffset: 0 }],
+    ['passage i framtiden', { lastPassedBridge: 'Olidebron', passageOffset: 60001 }],
+    ['otillförlitlig passagefix', { lastPassedBridge: 'Olidebron', passageOffset: 60000, _gpsJumpDetected: true }],
+    ['saknad råfart på passagefixet', { lastPassedBridge: 'Olidebron', passageOffset: 60000, _rawPositionSog: null }],
+  ])('%s släpper inte krypväntans baslinje', (_name, { passageOffset, ...overrides }) => {
+    expect(resume({
+      ...overrides,
+      lastPassedBridgeTime: Number.isFinite(passageOffset) ? Date.now() + passageOffset : undefined,
+    }, { sog: 1.7, _rawPositionSog: 1.7 })).toBeGreaterThan(10);
+  });
+
+  test('bekräftad passage behåller vanlig utjämning när prognosen inte är en outlier', () => {
+    calculator._processETAWithProtection({ ...waiting, sog: 1.7, _rawPositionSog: 1.7 }, 10, proximity);
+    jest.advanceTimersByTime(60000);
+    const result = calculator._processETAWithProtection({
+      ...waiting,
+      lat: BRIDGES.olidebron.lat + 15 / 111320,
+      sog: 3.7,
+      _rawPositionSog: 3.7,
+      timestamp: Date.now(),
+      status: 'under-bridge',
+      waitingAtBridge: null,
+      _underBridgeLatched: true,
+      lastPassedBridge: 'Olidebron',
+      lastPassedBridgeTime: Date.now(),
+    }, 9, proximity);
+    expect(result).toBeGreaterThan(9);
+    expect(result).toBeLessThan(10);
+  });
+
   test('ett GPS-fel vid väntans ankare får inte bli rörelsebevis', () => {
     expect(resume({}, { _gpsJumpDetected: true })).toBeGreaterThan(10);
   });
@@ -104,5 +189,41 @@ test.each([
   expect(crossing).toBeDefined();
   expect(eta).toBeGreaterThan(0);
   expect(eta).toBeLessThanOrEqual(Math.ceil((crossing.tTo - now) / 60000));
+  expect(result.processErrors).toBe(0);
+}, 40000);
+
+// Bytebevarade fartygsrader ur 21/9-körningen. Korpusen i sin helhet har två
+// bortfall andra dagar och är därför inte låst som ett komplett fältfacit.
+test.each([
+  ['SWIX', 'eta-swix-20260926.jsonl', 0],
+  ['AMELIA', 'eta-amelia-20260927.jsonl', 1],
+])('%s får en aktuell Stridsprognos efter Järnvägsbrons linjekorsning', (_name, fixture, forecastMargin) => {
+  const jsonl = path.join(__dirname, 'fixtures', fixture);
+  const output = execFileSync(process.execPath, [
+    path.join(__dirname, 'replay-validation/replayRunner.js'), jsonl,
+  ], {
+    encoding: 'utf8',
+    timeout: 30000,
+    maxBuffer: 32 * 1024 * 1024,
+    env: {
+      ...process.env, REPLAY_MONITORING: '0', REPLAY_FUSION: '0', REPLAY_VERBOSE: '',
+    },
+  });
+  const result = JSON.parse(output.match(/__REPLAY_JSON__([\s\S]*?)__END__/)[1]);
+  const warning = result.openingWarnings.find((entry) => entry.bridge === 'Stridsbergsbron');
+  const notification = result.notifications.find((entry) => entry.bridge === 'Stridsbergsbron');
+  expect(warning).toBeDefined();
+  expect(notification).toBeDefined();
+  const rows = fs.readFileSync(jsonl, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+  const afterCrossing = rows.find((entry) => entry.lat > BRIDGES.stridsbergsbron.lat
+    && Date.parse(entry.receivedAt) > warning.t);
+  // Den första råfixen bortom målbrolinjen är en säker övre tidsgräns.
+  // Det kräver ingen linjär interpolering genom det två minuter långa glappet.
+  // AMELIA accelererar efter prognosen; en minuts prognosmarginal tillåts.
+  // Regressionen gäller den gamla 11-minutersbaslinjen, inte en ny fartmodell.
+  const upperMinutes = Math.ceil((Date.parse(afterCrossing.receivedAt) - warning.t) / 60000) + forecastMargin;
+  expect(warning.etaMin).toBeGreaterThan(0);
+  expect(warning.etaMin).toBeLessThanOrEqual(upperMinutes);
+  expect(notification.eta).toBeLessThanOrEqual(upperMinutes);
   expect(result.processErrors).toBe(0);
 }, 40000);

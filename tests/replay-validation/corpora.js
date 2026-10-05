@@ -17,6 +17,7 @@
  * `locked`            — se ovan. Styr ALLA fem facitdimensionerna på en gång.
  * `expectedNotifications` — notisantalet (pelare 2).
  * `lockEvents`         — hela händelser i golden-events (tid, text, ETA och medlemmar).
+ * `captureIntegrity`   — incomplete: bevarad regression, aldrig komplett fältfacit.
  * `knownInvariantExceptions` — EXAKTA utslagssträngar (prefixmatch) som är
  *                     rådataverifierat designenliga; varje post MÅSTE motiveras
  *                     i `note`. Se FP9 2026-07-18.
@@ -804,7 +805,11 @@ module.exports = [
     hours: 13.5,
     locked: true,
     expectedNotifications: 80,
-    note: `${SEPTEMBER_REVIEW}13,5h-körningen 2026-07-10 (tolv fartyg, intensiv dagtrafik — `
+    note: 'Omlåst 2026-10-05: PILOT 761 lämnar krypväntan vid Järnvägsbron med bekräftad passage12:14:51.495. '
+      + 'Råfart1,9→4,7kn och fysisk rörelse motbevisar outlier-skyddets gamla väntbaslinje. Klafftext14→9min '
+      + 'och9→7min; nästa5min visas12:16:30.249. Råkorsningsintervall12:21:48.842–12:22:48.797; '
+      + 'textström128→127, oförändrade kort och passager. Se docs/faltgranskning-2026-10-05.md.  '
+      + `${SEPTEMBER_REVIEW}13,5h-körningen 2026-07-10 (tolv fartyg, intensiv dagtrafik — `
       + 'fältprov 5: 50 Opus-max-läsare radläste 123 989 rader, se '
       + 'docs/helgranskning-2026-07-06.md §fältprov 5). LÅST 79 (2026-07-10): '
       + 'prod gav också 79 men med 2 fel + 2 missar som tar ut varandra i '
@@ -1625,7 +1630,11 @@ module.exports = [
     lockOpenings: true,
     lockEvents: true,
     expectedNotifications: 151,
-    note: 'HELT LÅST 2026-09-09: 151 närnotiser och 31 öppningskort, även fulla händelser. '
+    note: 'Omlåst 2026-10-05: enbart BLADEs Stridsnärnotis12:17:29.461 ändras från3 till1min efter bekräftad '
+      + 'Järnvägspassage. Råfixen bortom Stridsbergsbron kommer12:18:37.552, interpolerad korsning48,3s efter '
+      + 'notisen. Samtliga tider, avstånd, medlemmar, kortantal, passager och brotexter består. Se '
+      + 'docs/faltgranskning-2026-10-05.md.  '
+      + 'HELT LÅST 2026-09-09: 151 närnotiser och 31 öppningskort, även fulla händelser. '
       + 'NOTISMEDLEMMAR: 07:34:25 visar ANTJE ensam med egen ETA 19; ANYA varnades '
       + '07:10:56 och har varken passerat eller lämnat ankomsten. Tid och intern täckning består. '
       + 'CARATs kajkort är borttaget. JEANNELLE täcks av EUGENIEs verkliga kort 08:20:33; '
@@ -2232,7 +2241,15 @@ module.exports = [
       'DEFAULT-FLASH: 2026-08-06T08:47:00.040Z "Inga båtar" inklämd (30s) '
         + 'mellan två "En … Stridsbergsbron"-texter utan passage',
     ],
-    note: `${SEPTEMBER_REVIEW}LÅST 2026-09-08: 3922/3922 råposter verifierade mot originalloggen. `
+    note: 'ETA 2026-10-05: MONIKAs Stridsnotis 6/8 19:59:01.823 rättas 4→2 min när statusvägens rena '
+      + 'Järnvägskorsning får släppa väntbaslinjen före zonutgång. Råkorsning 20:00:07.312–20:01:17.114, '
+      + 'interpolerad restid 2,11 min. Enbart notisens ETA/text ändras. '
+      + 'Omlåst 2026-10-05: ATHENAs Stridskort14:49:41.790 på710m byggde på en GPS-underkänd fix14:48:33. Nu '
+      + 'bevaras ren arm tills bekräftad rörelse14:51:57.265 på276m, ETA4→3. '
+      + 'Råkorsning14:53:05.801–14:54:16.146 ger68,5–138,9s förvarning; tunnare marginal redovisas öppet. '
+      + 'GPS-ändringen ensam flyttar denna händelse; antal, närnotiser, passager och brotexter består. Se '
+      + 'docs/faltgranskning-2026-10-05.md.  '
+      + `${SEPTEMBER_REVIEW}LÅST 2026-09-08: 3922/3922 råposter verifierade mot originalloggen. `
       + 'NOTISMEDLEMMAR 2026-09-09: Klaffkorten 7/8 12:14 och 13:18 visar bara nya båtar; '
       + 'tidigare varnade FILOU/MARY återupprepas inte. MS JUTLAND får ETA 15 och DORY MAN ETA 10. '
       + 'Korttider, intern täckning, närnotiser, passager och brotexter är oförändrade. '
@@ -2429,10 +2446,17 @@ module.exports = [
     appLog: path.join(LOGS_DIR, 'app-20260917-121704.log'),
     hours: 7.25,
     locked: true,
+    captureIntegrity: 'incomplete',
     lockOpenings: true,
     lockEvents: true,
     expectedNotifications: 14,
-    note: 'Låst 2026-09-18 efter granskning av alla 65645 loggrader och bytekontroll av 618 AIS-poster. '
+    note: 'Omklassad 2026-10-05: ofullständig fångst, ENBART regressionsreferens för bevarade sampel. '
+      + 'Ett loggblock och minst en emitterad AISHub-fix saknas 17/9 cirka 17:13 UTC; '
+      + 'poll-/hälsoräknarna och saknad UI-version 1001 bevisar bortfallet. Tidigare granskning '
+      + 'likställde felaktigt JSONL = logg med komplett fångst. Befintliga assertions bevaras, '
+      + 'men materialet får inte låsas om eller användas som komplett fältfacit. '
+      + 'Se docs/faltgranskning-2026-10-05.md. Tidigare historik: '
+      + 'Låst 2026-09-18 efter granskning av alla 65645 loggrader och bytekontroll av 618 AIS-poster. '
       + 'Inspelat startminne följer med. Oberoende rådatafacit: 14 korsningar/zonbesök, varav ett tidsintervall. '
       + '14 närnotiser, sex öppningsvarningar, fyra målpassager och 66 textövergångar återger fältet. '
       + 'Sex fasvarianter passerar både med och utan monitoring. DORINDAs två olika målbrovarningar '
@@ -2449,7 +2473,14 @@ module.exports = [
     lockOpenings: true,
     lockEvents: true,
     expectedNotifications: 38,
-    note: 'Låst 2026-09-18 efter granskning av alla 121809 loggrader och bytekontroll av 838 AIS-poster. '
+    note: 'ETA 2026-10-05: VISTENs Stridsnotis 17/9 21:09:21.837 rättas 4→2 min efter rent Järnvägssegment före '
+      + 'zonutgång. Råkorsning 21:10:22.045–21:10:53.801, interpolerad restid 1,50 min. Enbart notisens '
+      + 'ETA/text ändras för VISTEN. SINE BRES får dessutom sin tidigare tappade Järnvägspassage '
+      + 'registrerad 18/9 02:27:17.778: befintligt rå-GT visar korsning 02:26:08.016–02:26:30.446, '
+      + '94 m före till 26 m efter linjen. Endast denna extra mellanpassage läggs till i eventfacit; '
+      + 'rå-GT, övriga passager, notiser, öppningar och texter är orörda av passagerättelsen. '
+      + 'Se docs/faltgranskning-2026-10-05.md. '
+      + 'Låst 2026-09-18 efter granskning av alla 121809 loggrader och bytekontroll av 838 AIS-poster. '
       + 'Inspelat startminne följer med. Oberoende rådatafacit: 38 korsningar/zonbesök, varav ett tidsintervall. '
       + '38 närnotiser, 14 öppningsvarningar och tolv målpassager. Fältets 129 textövergångar '
       + 'återges; den 130:e är uttryckligen efterspel efter loggstoppet. Sex fasvarianter passerar '
@@ -2457,5 +2488,29 @@ module.exports = [
       + 'retroaktiv notis. INV-18 vid 09:38–09:43 UTC beror på olika ETA-bärare: KAPERENs '
       + 'kortvariga extrapolerade strax följs av SYBIL OF WIVENHOEs längre prognos. '
       + 'Ingen notis eller passage undantas. Se docs/faltgranskning-2026-09-18.md.',
+  },
+  {
+    id: '20260918-7h',
+    jsonl: path.join(CORPORA_DATA_DIR, 'ais-replay-20260918-141252.jsonl'),
+    appLog: path.join(LOGS_DIR, 'app-20260918-141252.log'),
+    hours: 6.94,
+    locked: true,
+    lockOpenings: true,
+    lockEvents: true,
+    expectedNotifications: 16,
+    note: 'Låst 2026-10-05 efter granskning av alla 51558 loggrader och bytekontroll av 379 AIS-poster. '
+      + 'Inspelat startminne följer med. Intern källbokföring: 83 bootförankrade AISHub-kontroller '
+      + 'och 82 fusionsfönster utan belagt bortfall; svansen efter sista räknarrapporten är inte '
+      + 'fullständighetsbevisad. Sex fasvarianter passerar med och utan monitoring, utan undantag. '
+      + '16 närnotiser, fyra öppningsvarningar, fem målpassager, sju mellanpassager och 33 texter är låsta. '
+      + 'Rådatafacit har 14 korsningar/zonbesök, inga intervallinferenser. Två ytterligare notiser '
+      + 'gäller SIR HENRYs första fix: observerad Järnvägsnärhet på 39 m och en Klaffnotis på 1002 m '
+      + 'enligt tidigare beslutad Scenario A/F8-kanalportinferens. Den senare är policyinferens, '
+      + 'inte en rådatabevisad passage; ingen motsvarande korsning läggs till i GT. '
+      + 'NINAs Järnvägssegment 17:31:26.104–17:32:34.469 UTC bevaras nu vid byte från passerad '
+      + 'Stridsbergsbro. Mellanpassagen registreras vid zonutgång 17:34:15.400 i stället för '
+      + 'senare backfill vid Klaffbron. Alla fältets notiser, öppningar, målpassager och texter är kvar. '
+      + 'Fem råa målpassager täcks av fyra öppningsgrupper med en varning var; säkra ledtiden till '
+      + 'korsningsfönstrets början är minst 206,449 s. Se docs/faltgranskning-2026-10-05.md.',
   },
 ];

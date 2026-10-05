@@ -62,7 +62,7 @@ Eller stegen var för sig:
 | Steg | Kommando | Grönt betyder |
 |---|---|---|
 | Enhetstester | `npm test > /tmp/ais-jest.log 2>&1` (läs sedan slutraderna) | Alla tester passerar, exitkod 0 och inga öppna handtag. Aktuellt antal står i körningens sammanfattning. Omdirigeringen bevarar Jest:s exitkod; en pipe till `tail` gör inte det. |
-| Korpusarna | `npm run replay:all` | 20 låsta korpusar (374,1 h; skriptets utskrift är aktuell) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + exakt (mmsi,bro,riktning)-fördelning + EXAKT bridge_text-transitionsström (golden-text/) + alla invarianter |
+| Korpusarna | `npm run replay:all` | Samtliga korpusar (aktuellt antal och timmar står i skriptets utskrift) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + exakt (mmsi,bro,riktning)-fördelning + EXAKT bridge_text-transitionsström (golden-text/) + alla invarianter. Ofullständig fångst redovisas separat och får bara utgöra regression för bevarade sampel. |
 | Syntetiska | `npm run replay:synthetic` | 45 scenarier (gap, U-svängar, GPS-hopp, kajliggare, sog=null, omstart, 2h-prune-stillaliggare …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
 | Öppningsgrindarna | `npm run replay:openings` | ETAPP 6: det proaktiva lagret (`bridge_opening_soon`). **O1** varje målbropassage i SAMTLIGA korpusar (låsta som olåsta — antalet står i skriptets utskrift, inte här) har en öppningsvarning FÖRE passagen — varje miss klassad mot rådata (oklassad = rött); en KONVOJTÄCKNING underkänns om bron bevisligen öppnat och stängt för någon annan emellan. **O2** varje varning utan passage inom 20 min klassas mot rådata (KAJVOBBEL och UTANFÖR_HORISONTEN = rött; avbruten approach, gles anflygning och garantipris = accepterade) — även SEN_PASSAGE-hinken klassas. **O2b** (S14, 2026-08-23) SAMMA fantommätning mot RÅDATAFACIT (A2, `gt-passages`) i stället för appens egna passager — O1b:s mönster: appens passageregistreringar delar grindarnas blindfläck, så en varning kan kallas BEKRÄFTAD av appens egen bokföring medan rådatan inte känner korsningen. Serierna redovisas BREDVID varandra (annars går körningsloggar inte att jämföra bakåt). `inferred`-poster (korsning bevisad, tidpunkt = fönster) bär ALDRIG hinkindelningen utan hamnar i egen hink INFERRERAD_TID — hinkarna ÄR en tidsfönstermätning. **O2b är INFORMATIV: den ändrar inte exitkoden** (grinden ligger kvar på appserien precis som O1:s täckning i fas A); `OPENING_GT_STRICT` flyttar den hit när fas C är klar. Vid införandet: 0 röda i BÅDA serierna, 118 av 360 varningar byter hink (98 blir omätbara `inferred`) och EN varning byter åt det farliga hållet (JAATTEN II @ Stridsbergsbron i 20260708-21h — samma fall INV-21 redan fäller). **O3** A/B-nattens båda armar: 6/6 öppningar varnade före, konvojen som EN varning, boat_near byte-identisk med nattens facit. Dessutom **avfyrningsfönstret** (`t − dueMs` inom två tick — kontraktet "avfyra så sent som garantin tillåter") och **ledtidsgolvet** (hårt golv 60 s; tunnare än utlovade 150 s rapporteras). |
 | Soaken | `node tests/replay-validation/runSoak.js` | 72 h blandtrafik: 0 processfel, inga läckor, fatala invarianter rena |
@@ -193,11 +193,21 @@ Korpusarnas facit ÄR sanningen tills du bevisat motsatsen i rådata. Om en
    multiseten låses även (mmsi,bro,riktning)-multiseten
    (`corpora-direction-distribution.json`) och HELA bridge_text-
    transitionsströmmen (`golden-text/<korpus>.json`). Vid en medveten,
-   rådataverifierad beteendeändring: kör
-   `REGEN_DISTRIBUTIONS=1 npm run replay:all` — skriptet vägrar skriva om
-   någon låst korpus inte är grön i övrigt, och du MÅSTE granska diffen i
-   golden-filerna som vilken facit-omlåsning som helst (git diff visar
-   exakt vilka texter som ändrats).
+   rådataverifierad beteendeändring kan en bank utan ofullständiga fångster
+   regenereras med `REGEN_DISTRIBUTIONS=1 npm run replay:all`. Skriptet
+   vägrar skriva om någon låst korpus inte är grön i övrigt, och du MÅSTE
+   granska diffen i golden-filerna som vilken facit-omlåsning som helst
+   (git diff visar exakt vilka texter som ändrats).
+
+   **Upptäckt ofullständig fångst efter låsning (2026-10-05).**
+   `20260917-7h` har `captureIntegrity: 'incomplete'`: ett loggblock och minst
+   en AISHub-fix saknas. Dess gamla assertions ligger kvar som strikt
+   regression för de bevarade sampeln; körningen är inte komplett fältfacit.
+   `replay:all` visar detta uttryckligen. Samlad `REGEN_DISTRIBUTIONS=1`
+   avbryts innan någon skrivning om banken innehåller en sådan korpus.
+   `relockGoldenText.js <id>` kan fortfarande omlåsa andra, verifierade
+   korpusar, men avvisar den ofullständiga. Att låsa upp korpusen för att
+   tysta dess regressioner är inte en reparation av fångsten.
 
    **Riktningsnycklarna är INTERNA trots att tokenen är svensk** (F5,
    2026-08-21): `replayRunner.js:83–99` översätter tillbaka med
@@ -210,10 +220,12 @@ Korpusarnas facit ÄR sanningen tills du bevisat motsatsen i rådata. Om en
    för `bridge_opening_soon` (`opening-distribution.json`). Notisfacit,
    riktningsfacit och golden-text är per konstruktion BLINDA för den
    dimensionen — utan filen kan en tappad eller uppdiktad öppningsvarning inte
-   upptäckas av någon gate. Skrivs i SAMMA regen-svep och med samma villkor:
-   `REGEN_DISTRIBUTIONS=1 npm run replay:all`, aldrig för hand. Saknas filen
-   skriver `replay:all` en högljudd rad; saknas en LÅST korpus i den är det ett
-   hårt fel.
+   upptäckas av någon gate. Befintliga referenser skrivs i SAMMA regen-svep
+   och med samma villkor som ovan: `REGEN_DISTRIBUTIONS=1 npm run replay:all`.
+   En ny korpus får enbart sin nya id-post genom den riktade nyregistreringen
+   nedan. Räkna alltid multiseten från verifierade replayhändelser; skriv inte
+   manuellt valda antal. Saknas filen skriver `replay:all` en högljudd rad;
+   saknas en LÅST korpus i den är det ett hårt fel.
 
 6. **Fas-känsliga utfall** (K20, 2026-08-21): innan du felsöker en flyttad
    siffra i en AISHub-korpus — pröva om utfallet ens är stabilt. Replayn ankrar
@@ -560,8 +572,8 @@ efteråt.
    återställer facit. Vid Ctrl+C, `kill` och stängd terminal byggs filen om en
    sista gång innan skriptet dör.
 3. **GRIND 1 — logg-integriteten.** Summaryn (`bridge-text-summary-*.md`) har
-   sektionen "Logg-integritet (tidshål + replay-fångst)" med TVÅ delar och ett
-   samlat verdikt:
+   sektionen "Logg-integritet (tidshål + replay-fångst)" med tre kontroller och ett
+   samlat verdikt. Replay-kontrollen granskar även källans bokföring:
    - **Tidshål** — luckor >180 s i loggens tidsstämplar (watchdogen skriver var
      ~90 s, så ett hål = tappade loggrader). Grönt:
      `✅ Inga tidshål >180 s — loggens tidslinje är obruten.`
@@ -572,6 +584,14 @@ efteråt.
      fäller. (Innan K24 mätte grinden ENBART tidshål trots att den här körboken
      redan angav "jsonl:en saknar samples" som dess syfte — nattkörningen
      2026-08-19 hade obruten tidslinje men bar 99 av loggens 146 sampel.)
+   - **Intern källbokföring (2026-10-05)** — från observerad boot får
+     `AISHUB_HEALTH.accepted` inte överstiga summan av tidigare
+     `AISHUB_POLL.accepted`. Ett överskott bevisar saknade pollrader även
+     när samma block försvunnit ur både logg och JSONL. Det ger FEL och
+     stoppar korpuslåsning. Omstart, källbyte, delad logg och okänt format
+     redovisas konservativt; ett saknat nollankare blir OKÄNT. Skillnaden
+     mellan fusionens accepted och appens sampel är en separat diagnos,
+     eftersom appen kan avvisa data efter fusion. Den ensam fäller inte.
 
    **Vad grinden bevisar — och vad den INTE bevisar.** Sedan K24 härleds jsonl:en
    ur loggen och byggs om i förgrunden direkt före mätningen, så
@@ -590,6 +610,11 @@ efteråt.
      ände, och verdiktet blir grönt. Den säger heller ingenting om DATAT: att
      körningen har täckning, rätt källa eller stabilt utfall är steg 4:s och
      analysens sak, inte grindens.
+
+   Den interna bokföringen kan bevisa vissa tidigare dolda blockbortfall,
+   men certifierar inte alla loggrader. Sista kontrollerade hälsorapportens
+   tid skrivs ut; svansen därefter är inte fullständighetsbevisad. Ett OK
+   för JSONL-jämförelsen betyder att den matchar den **bevarade** loggen.
 
    Sista raden i sektionen är verdiktet och det är det som gäller:
    `✅ **Logg-integritet: OK** … (korpuslåsning tillåten)` mot
@@ -764,17 +789,57 @@ efteråt.
    fördelningsmultiset i `corpora-distribution.json` (genereras från en
    verifierad körning).
 
+### Riktad nyregistrering när samlad regenerering är spärrad
+
+En verifierad ny körning får tillföras utan att regenerera äldre korpusar.
+Detta användes för `20260918-7h` när den ofullständiga `20260917-7h` redan
+spärrade samlad `REGEN_DISTRIBUTIONS=1`. Förfarandet gäller **endast ett nytt
+korpus-id** och är ingen tillåtelse att ändra befintliga referenser.
+
+1. Bevara JSONL och eventuellt inspelat startminne byteexakt i `corpora-data/`.
+   Dokumentera källfilernas SHA-256. Spara samtidigt SHA-256 för alla äldre
+   golden-/GT-filer och en kopia av befintliga id-poster i delade
+   distributionsfiler och GT-indexet, så oförändrat innehåll kan bevisas.
+2. Kör integritetsgrinden mot hela källoggen och granska vad den faktiskt
+   mäter. Belagt bortfall får inte kringgås. Kör sedan den nya filen både
+   normalt och med `REPLAY_MONITORING=1`, samt namngivna fassvep med alla sex
+   standardförskjutningar i båda lägena. Utred varje skillnad, processfel,
+   invariantutslag eller läcka före låsning.
+3. Jämför notiser, öppningar och passager mot oberoende råkorsningar och
+   observerade närzoner. Särredovisa policyinferenser utan råpassagebevis;
+   lägg aldrig till påhittade GT-korsningar för att få antal att matcha.
+   Skapa ett motiverat regressionstest för de granskade fältfallen.
+4. Generera referenser från den granskade replayn, **endast för det nya id:t**:
+   nyckelmultiset i `corpora-distribution.json`, riktningsmultiset i
+   `corpora-direction-distribution.json`, öppningsmultiset i
+   `opening-distribution.json`, `{iso, text}`-ström i `golden-text/<id>.json`
+   och hela `eventFacit(result)` i `golden-events/<id>.json`. Normal- och
+   monitoringkörningen ska båda klara de nya låsta referenserna.
+   Registrera det nya id:t, låsning och rådatamotivering i `corpora.js`
+   utan att ändra andra korpusars lås eller undantag. Generera GT riktat
+   med `makeGtPassages.js --corpus <id>` och lägg endast den nya filens
+   uppslag i `gt-passages/index.json`; kontrollera med samma kommando plus
+   `--check`.
+5. Granska diffen och verifiera att alla gamla golden-/GT-hashar består och
+   att delade filer endast fått den nya id-posten. Kör det nya fälttestet
+   samt hela standardbanken med `npm run replay:all`. Kravet på monitoring
+   och båda fassvepen ovan gäller det nya materialet; ordinarie
+   72-timmarskontroll med `npm run replay:monitoring` kvarstår.
+   En röd äldre korpus är en regression att utreda, inte skäl för massomlåsning.
+   En ofullständig historisk korpus behåller både sina assertions och sin
+   `captureIntegrity: 'incomplete'`-klassning; regenereringsspärren kvarstår.
+
 ## Kända fällor för den som skriver nya tester
 
-- **`sweepStaleVessels` (K18 del 2) ligger UTANFÖR allt replay-facit — medvetet
-  dirigentbeslut 2026-08-22.** Svepet drivs av `_setupMonitoring`-loopen i app.js,
-  som returnerar tidigt i testläge (`__TEST_MODE__`), så ingen av de 17 låsta
-  korpusarna, öppningsgrindarna, fassvepet eller syntetiken kan någonsin fälla en
-  regression där. Enhetstesterna i `tests/k18-stale-sweep.test.js` bär hela
-  bevisbördan, och varje framtida ändring av svepet kräver egna enhetstester +
-  ett fältdygn. Alternativet (att låta replayRunner driva svepet) skulle flytta
-  borttagningar 4–6 min tidigare i flera korpusar och är därför en EGEN
-  omlåsning om den någonsin görs — smyg aldrig in den i en annan batch.
+- **Standardreplay utan monitoring prövar inte minutstädningen.**
+  `REPLAY_MONITORING=1` aktiverar appens verkliga
+  `_setupMonitoring`-loop i harnessen; `runtimeDiagnostics.staleSweeps`
+  redovisar antalet körda svep. Kör även detta läge och dess fassvep när
+  ändringen rör städning eller livscykel. `replay:monitoring` prövar dessutom
+  72 timmar och omstarter. De riktade `k18-stale-sweep`-testerna behövs
+  fortfarande för felvägar som fältkorpusarna inte täcker. Grönt i enbart
+  standardreplay eller en svepräknare över noll bevisar inte korrekt städning;
+  granska även utfall, kvarvarande fartyg och timers.
 
 
 - **Fältlistorna (3 st!):** `_createVesselObject` (VDS), `vesselSnapshot`
@@ -833,8 +898,10 @@ exakta: processfel 0, fartygsläcka 0, notisantal, fördelnings-/riktnings-/
 öppningsmultiset (samma fält och form som runAllCorpora), och varje fatalt
 invariantutslag prefixmatchar korpusens `knownInvariantExceptions`.
 Validering och skrivning är TVÅ faser — en abort lämnar aldrig facit
-halvskrivet. Nya korpusar bootstrappas fortfarande via REGEN_DISTRIBUTIONS=1
-från grön körning — relockGoldenText vägrar korpusar utan befintliga poster.
+halvskrivet. `relockGoldenText` vägrar korpusar utan befintliga poster.
+Nya korpusar kan genereras från en grön samlad körning när REGEN är tillåten,
+eller enligt den strikt avgränsade **riktade nyregistreringen** ovan när
+ofullständiga historiska fångster spärrar samlad regenerering.
 
 **Dirigentläxan (2026-08-10):** LCS-diffa gamla mot nya goldens SJÄLV innan
 omlåsning och skriv noten mot den FAKTISKA diffen (antal borttagna/tillagda

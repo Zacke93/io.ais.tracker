@@ -77,8 +77,8 @@
       "t": 1789679361837,
       "bridge": "Stridsbergsbron",
       "direction": "northbound",
-      "eta": 4,
-      "message": "VISTEN närmar sig Stridsbergsbron, beräknad ankomst om 4 minuter",
+      "eta": 2,
+      "message": "VISTEN närmar sig Stridsbergsbron, beräknad ankomst om 2 minuter",
       "alreadyPassed": false,
       "name": "VISTEN",
       "distance": 225,
@@ -1091,6 +1091,13 @@
       "iso": "2026-09-18T02:15:56.927Z",
       "mmsi": "304225000",
       "bridge": "Stallbackabron",
+      "noTarget": false
+    },
+    {
+      "t": 1789698437778,
+      "iso": "2026-09-18T02:27:17.778Z",
+      "mmsi": "304225000",
+      "bridge": "Järnvägsbron",
       "noTarget": false
     },
     {

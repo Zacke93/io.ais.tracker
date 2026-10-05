@@ -139,7 +139,9 @@ describe('M12-B: riktiga sockets (trickle / stall / normalsvar)', () => {
       for (const s of sockets) s.destroy();
       sockets.clear();
       server.closeAllConnections();
-      await new Promise((resolve) => server.close(resolve));
+      await new Promise((resolve) => {
+        server.close(resolve);
+      });
       server = null;
     }
   });
@@ -156,7 +158,9 @@ describe('M12-B: riktiga sockets (trickle / stall / normalsvar)', () => {
       sockets.add(s);
       s.on('close', () => sockets.delete(s));
     });
-    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    await new Promise((resolve) => {
+      server.listen(0, '127.0.0.1', resolve);
+    });
     const { port } = server.address();
     getSpy = jest.spyOn(https, 'get').mockImplementation((url, opts, cb) => {
       const rewritten = String(url).replace(/^https:\/\/[^/]+/, `http://127.0.0.1:${port}`);

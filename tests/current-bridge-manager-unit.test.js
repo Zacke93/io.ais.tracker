@@ -172,6 +172,59 @@ describe('CurrentBridgeManager – hysteres för currentBridge', () => {
   // -------------------------------------------------------------------
 
   describe('Regel 0: rensning av passerad bro', () => {
+    test.each([
+      ['söderut', 'Stridsbergsbron', 'Järnvägsbron'],
+      ['norrut', 'Klaffbron', 'Järnvägsbron'],
+    ])('%s: rensar först och väljer nästa närmaste bro i följande pass', (_direction, passed, next) => {
+      const vessel = makeVessel({
+        currentBridge: passed,
+        lastPassedBridge: passed,
+        passedBridges: [passed],
+        distanceToCurrent: 40,
+      });
+      const proximity = makeProximity(next, 19, {
+        bridges: [{ name: passed, distance: 276 }, { name: next, distance: 19 }],
+      });
+
+      expect(manager.updateCurrentBridge(vessel, proximity)).toBe(true);
+
+      expect(vessel.currentBridge).toBeNull();
+      expect(vessel.distanceToCurrent).toBeNull();
+      expect(manager.updateCurrentBridge(vessel, proximity)).toBe(false);
+
+      expect(vessel.currentBridge).toBe(next);
+      expect(vessel.distanceToCurrent).toBe(19);
+      expect(vessel.passedBridges).toEqual([passed]);
+    });
+
+    test.each([null, 501])('rensad bro förblir tom när nästa kandidat saknas eller ligger vid %s m', (distance) => {
+      const vessel = makeVessel({
+        currentBridge: 'Stridsbergsbron',
+        lastPassedBridge: 'Stridsbergsbron',
+        passedBridges: ['Stridsbergsbron'],
+        distanceToCurrent: 700,
+      });
+
+      manager.updateCurrentBridge(vessel, makeProximity(distance === null ? null : 'Järnvägsbron', distance));
+
+      expect(vessel.currentBridge).toBeNull();
+      expect(vessel.distanceToCurrent).toBeNull();
+    });
+
+    test('bekräftad U-sväng tillåter den gamla bron när resehistoriken har återställts', () => {
+      const vessel = makeVessel({
+        currentBridge: 'Klaffbron',
+        lastPassedBridge: 'Klaffbron',
+        passedBridges: [],
+        distanceToCurrent: 200,
+      });
+
+      manager.updateCurrentBridge(vessel, makeProximity('Klaffbron', 120));
+
+      expect(vessel.currentBridge).toBe('Klaffbron');
+      expect(vessel.distanceToCurrent).toBe(120);
+    });
+
     test('rensar currentBridge direkt när bron är passerad och båten > 50 m bort', () => {
       const vessel = makeVessel({
         currentBridge: 'Klaffbron',

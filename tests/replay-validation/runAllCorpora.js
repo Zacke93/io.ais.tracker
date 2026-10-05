@@ -67,6 +67,14 @@ if (!openingDistribution && process.env.REGEN_DISTRIBUTIONS !== '1') {
     + 'REGEN_DISTRIBUTIONS=1 från en grön körning.');
 }
 const REGEN = process.env.REGEN_DISTRIBUTIONS === '1';
+// Ett efteråt upptäckt fångstfel får varken tysta gamla assertions eller
+// gömmas av en massomlåsning. Rena korpusar kan fortfarande omlåsas riktat.
+const incompleteCaptures = corpora.filter((c) => c.captureIntegrity === 'incomplete');
+if (REGEN && incompleteCaptures.length > 0) {
+  console.error(`REGEN AVBRUTEN: ofullständig fångst i ${incompleteCaptures.map((c) => c.id).join(', ')}. `
+    + 'Bevara dess regressionsreferens; omlås endast verifierade korpusar riktat.');
+  process.exit(1);
+}
 
 const RUNNER = path.join(__dirname, 'replayRunner.js');
 
@@ -352,6 +360,7 @@ for (const corpus of corpora) {
   let status;
   if (problems.length === 0) {
     status = corpus.locked ? '✅ OK (låst)' : 'ℹ️ OK (olåst)';
+    if (corpus.captureIntegrity === 'incomplete') status = 'ℹ️ REGRESSION OK';
   } else if (corpus.locked) {
     status = '❌ REGRESSION';
   } else {
@@ -364,7 +373,8 @@ for (const corpus of corpora) {
     detail: `${`notiser=${notifications}${corpus.expectedNotifications !== null ? `/${corpus.expectedNotifications}` : ''}, `
       + `övergångar=${(result.bridgeTextTransitions || []).length}, `
       + `öppningsvarningar=${result.openingWarningCount ?? 0}, `}${
-      problems.length ? problems.join('; ') : 'rent'}`,
+      problems.length ? problems.join('; ') : 'rent'}${corpus.captureIntegrity === 'incomplete'
+      ? '; OFULLSTÄNDIG FÅNGST — endast bevarade sampel kontrollerade, inget komplett fältfacit' : ''}`,
   });
 }
 

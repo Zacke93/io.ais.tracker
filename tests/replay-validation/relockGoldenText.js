@@ -81,6 +81,7 @@ for (const id of TARGETS) {
     process.exit(1);
   }
   if (!corpus.locked) abort(id, 'korpusen är inte låst — golden-text-omlåsning gäller låsta korpusar');
+  if (corpus.captureIntegrity === 'incomplete') abort(id, 'ofullständig fångst — bevarad regression får inte låsas om som fältfacit');
   if (corpus.fusionOf) abort(id, 'fusionskorpus — golden-text valideras inte för fusionOf (se runAllCorpora)');
   const stdout = execFileSync('node', [path.join(BASE, 'replayRunner.js'), corpus.jsonl], {
     encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 10 * 60 * 1000,

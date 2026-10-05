@@ -150,6 +150,12 @@
    "jsonl": "ais-aisstream-20260803-nattkorning.jsonl",
    "crossings": 21,
    "inferred": 7
+  },
+  {
+   "id": "20260918-7h",
+   "jsonl": "ais-replay-20260918-141252.jsonl",
+   "crossings": 14,
+   "inferred": 0
   }
  ]
 }

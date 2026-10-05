@@ -83,7 +83,9 @@ const { UI_CONSTANTS, AIS_CONFIG } = require('../../lib/constants');
 
 // Äkta setImmediate (sparas innan klockan installeras) för microtask-dränering.
 const realSetImmediate = setImmediate;
-const drain = () => new Promise((resolve) => realSetImmediate(resolve));
+const drain = () => new Promise((resolve) => {
+  realSetImmediate(resolve);
+});
 
 // ---- RIKTNINGSADAPTERN (F5, 2026-08-21) ----
 // Flow-tokenen `direction` är SVENSK sedan användarbeslut F5/A3 ('norrut',

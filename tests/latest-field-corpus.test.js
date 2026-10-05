@@ -71,6 +71,43 @@ describe('Fältdygn 23–24 augusti: rådatabelagd täckning genom hela appen', 
     expect(unique(replay.notifications.map(notificationKey))).toEqual(unique(expected));
   });
 
+  test('TANGELAs Järnvägskorsning i AIS-gapet ger passerad-form utan ny ankomstprognos', () => {
+    const crossing = rawPassages.find((passage) => passage.mmsi === '265070060'
+      && passage.bridge === 'Järnvägsbron');
+    expect(crossing).toMatchObject({
+      tFrom: Date.parse('2026-08-24T08:39:47.013Z'),
+      tTo: Date.parse('2026-08-24T08:55:39.347Z'),
+      dir: 'nord',
+      inferred: true,
+      gapS: 952,
+    });
+    const rows = fs.readFileSync(INPUT, 'utf8').trim().split('\n').map(JSON.parse)
+      .filter((row) => row.mmsi === crossing.mmsi);
+    const before = rows.find((row) => row.aisTimestamp === crossing.tFrom);
+    const after = rows.find((row) => row.aisTimestamp === crossing.tTo);
+    expect(before).toMatchObject({ lat: 58.28235, lon: 12.28358 });
+    expect(after).toMatchObject({
+      lat: 58.29179666666666, lon: 12.292286666666666, sog: 2.7, cog: 32.4,
+    });
+    expect(rows[rows.indexOf(after) + 1].lat).toBeGreaterThan(after.lat);
+    // GT:s inferred gäller tidpunkten inom det 952 s långa gapet. Den
+    // råa korsningen är belagd och båten befinner sig redan 23 m norr om
+    // bron. Ett brobyte samma tick får inte hinna skicka "närmar sig"
+    // och därigenom deduplicera bort den korrekta passagebekräftelsen.
+    const notices = replay.notifications.filter((notice) => notice.mmsi === crossing.mmsi
+      && notice.bridge === crossing.bridge);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({
+      t: crossing.tTo,
+      direction: 'northbound',
+      distance: 23,
+      source: 'passage-fallback',
+      eta: -1,
+      alreadyPassed: true,
+      message: 'TANGELA passerade Järnvägsbron under AIS-tystnad',
+    });
+  });
+
   test('samtliga sex målpassager bokförs exakt en gång på rätt fartyg och bro', () => {
     expect(replay.targetPassages.map((p) => `${p.mmsi}|${p.bridge}`).sort()).toEqual([
       '265070060|Klaffbron', '265070060|Stridsbergsbron',

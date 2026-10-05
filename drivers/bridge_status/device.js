@@ -215,7 +215,9 @@ class BridgeStatusDevice extends Homey.Device {
     for (let i = 0; i < 10; i++) {
       if (this.homey.app && this.homey.app._devices) return true;
       this.log(`Waiting for app to be ready (attempt ${i + 1})`);
-      await new Promise((res) => setTimeout(res, 500));
+      await new Promise((res) => {
+        setTimeout(res, 500);
+      });
     }
     throw new Error('App not ready after multiple attempts');
   }

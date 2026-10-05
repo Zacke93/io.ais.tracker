@@ -149,7 +149,7 @@ describe('Passivt kajplatsbevis får motsäga en ny resa utan att återuppliva e
     const t = Date.parse('2026-07-13T08:02:42.751Z');
     const first = sample(raw[0], {
       lat: 58.290535,
-      lon: 12.290996666666666,
+      lon: 12.290996666666667,
       sog: 0,
       cog: null,
       timestamp: t,

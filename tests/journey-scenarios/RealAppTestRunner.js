@@ -477,7 +477,9 @@ class RealAppTestRunner {
   async _wait(ms) {
     const scaled = Math.max(0, Math.round(ms * this._waitMultiplier));
     if (scaled === 0) return Promise.resolve();
-    return new Promise((resolve) => setTimeout(resolve, scaled));
+    return new Promise((resolve) => {
+      setTimeout(resolve, scaled);
+    });
   }
 
   /**

@@ -5,7 +5,11 @@ Svar och kodkommentarer på svenska.
 
 ## Kommandon
 
+- Utvecklingsverktygen kräver Node 20 (≥20.19), Node 22 (≥22.13) eller Node 24+.
+  Kraven gäller npm/Jest/ESLint på utvecklingsdatorn; Homeys körmiljö styrs av SDK:n.
 - Test: `npm test` (jest via `tests/jest.config.js`)
+- Enstaka svit: `npm test -- --runInBand --testPathPatterns=runtime-settings-startup`
+  (Jest 30 använder pluralformen `--testPathPatterns`).
 - Full validering: jest + `npm run replay:all`, `replay:synthetic`, `replay:openings`
 - Inför fältprov: även `npm run replay:monitoring` (72 h med minutstädning,
   omstarter och kontroll av kvarlämnade timers; ingår i `validate:full`).

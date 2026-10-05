@@ -2,7 +2,8 @@
 
 /**
  * checkReplayIntegrity (K24, fältprov 10 — 2026-08-21): bevisar att en
- * replay-jsonl bär HELA loggens facit.
+ * replay-jsonl bär den BEVARADE loggens sampel. Separat källbokföring
+ * kontrollerar om själva loggen visar bevis på bortfall.
  *
  * MOTIV: nattkörningen 2026-08-19 skrev 146 [AIS_REPLAY_SAMPLE] i apploggen
  * men bara 99 hela rader i jsonl:en (24 576 B = exakt 6×4096 — en oflushad
@@ -37,7 +38,7 @@
  *            --json, --quiet
  *
  * Exit-koder (run-with-logs.sh grindar på !== 0):
- *   0 = OK        — allt kontrollerat och komplett
+ *   0 = OK        — jsonl matchar loggen; källbokföringens omfattning anges
  *   0 = DELVIS    — den loggbara delen är komplett, resten går inte att mäta
  *                   (härledd tvåkällig korpus). Grönt, men texten säger hur
  *                   stor del som faktiskt jämförts.
@@ -145,6 +146,191 @@ function readJsonl(filePath) {
 }
 
 /**
+ * Logg och jsonl kan förlora SAMMA block och ändå vara byte-identiska.
+ *
+ * Hårt bevis: AISHUB_POLL.accepted skrivs före batchens emissions-timers;
+ * AISHUB_HEALTH.accepted ökas först när en sådan timer emitterar. Från en
+ * observerad boot får därför antalet emitterade fixar ALDRIG överstiga
+ * summan av de föregående pollradernas accepted. Köade/kasserade batchar,
+ * nätfel, debugnivå, shadow och fusionens avslag kan bara minska vänsterledet.
+ * Ett positivt överskott bevisar saknade pollrader, inte vilka fartyg de bar.
+ *
+ * Däremot är polls minus råsvar INTE bevis (request kan pågå), och fusionens
+ * accepted räknas FÖRE appens avsiktliga valideringsfilter. De måtten är
+ * diagnos, aldrig ensamma en fällande grind. Vid delad logg, omkonfiguration
+ * eller okänd räknarreset saknas nollankaret; då anges OKÄNT. Ingen automatisk
+ * reparation får hitta på de saknade sampelns identitet eller positioner.
+ */
+function createSourceAudit() {
+  const result = {
+    verdict: 'OKÄNT',
+    checkedHubReports: 0,
+    checkedFusionWindows: 0,
+    missingPollEmissionsAtLeast: 0,
+    gaps: [],
+    diagnostics: [],
+    lastHubReport: null,
+    lastFusionReport: null,
+  };
+  const notices = new Set();
+  let boot = null;
+  let source = null;
+  let capture = null;
+  let fileCapture = false;
+  let hubAnchored = false;
+  let declared = 0;
+  let pollRows = 0;
+  let hubPeak = 0;
+  let hubPrevious = null;
+  let fusionPrevious = null;
+  let samples = 0;
+  let validationRejects = 0;
+  let processingErrors = 0;
+  const notice = (key, text) => {
+    if (notices.has(key)) return;
+    notices.add(key);
+    result.diagnostics.push(text);
+  };
+  const counter = (line, name) => {
+    const match = line.match(new RegExp(`\\b${name}=(\\d+)\\b`));
+    return match ? Number(match[1]) : null;
+  };
+
+  return {
+    take(line, lineNumber) {
+      const stamp = line.match(/^(\d{4}-\d{2}-\d{2}T\S+Z)\s/);
+      const at = { line: lineNumber, time: stamp ? stamp[1] : null };
+      if (/(?:^|\] )AIS Bridge starting with modular architecture v[\w.]+$/.test(line)) {
+        boot = at;
+        source = null;
+        capture = null;
+        fileCapture = false;
+        hubAnchored = true;
+        declared = 0;
+        pollRows = 0;
+        hubPeak = 0;
+        hubPrevious = null;
+        fusionPrevious = null;
+        return;
+      }
+      const config = line.match(/\[AIS_MUX\] Källkonfiguration: source=(\w+)/);
+      if (config) {
+        // Ny hubb kan skapas efter ett await; gamla och nya räknare får inte
+        // blandas. Endast första konfigurationen efter boot behåller ankaret.
+        if (source !== null || pollRows > 0 || hubPrevious) {
+          hubAnchored = false;
+          notice('config', 'Källbyte/omkonfiguration: källräknarnas nollankare är OKÄNT efter bytet.');
+        }
+        source = config[1];
+        fusionPrevious = null;
+      }
+      const debug = line.match(/Debug level changed to: (\w+)/);
+      if (debug) {
+        capture = debug[1] === 'full';
+        fusionPrevious = null;
+        if (!capture && !fileCapture) {
+          notice('debug', 'Replay-fångst avstängd under del av loggen: fusion kan inte jämföras där.');
+        }
+      }
+      if (line.includes('AIS Replay initierat (fil + stdout)')) fileCapture = true;
+      if (line.includes('[AIS_REPLAY_SAMPLE]')) samples += 1;
+      if (line.includes('[AIS_VALIDATION_REJECT]')) validationRejects += 1;
+      if (line.includes('Error processing AIS message:')) processingErrors += 1;
+
+      if (line.includes('[AISHUB_POLL]')) {
+        const accepted = counter(line, 'accepted');
+        if (accepted !== null) {
+          declared += accepted;
+          pollRows += 1;
+        } else {
+          hubAnchored = false;
+          notice('poll-format', 'AISHUB_POLL utan läsbart accepted: formatets bokföring är OKÄNT.');
+        }
+      }
+      if (line.includes('[AISHUB_HEALTH]')) {
+        const accepted = counter(line, 'accepted');
+        const polls = counter(line, 'polls');
+        if (accepted !== null) {
+          if (hubPrevious && (accepted < hubPrevious.accepted
+              || (polls !== null && hubPrevious.polls !== null && polls < hubPrevious.polls))) {
+            hubAnchored = false;
+            fusionPrevious = null;
+            notice('reset', 'Källräknare nollställda utan observerad boot: fortsatt källbokföring är OKÄNT.');
+          }
+          const current = {
+            ...at, accepted, polls, declared, pollRows,
+          };
+          if (hubAnchored && pollRows > 0) {
+            result.checkedHubReports += 1;
+            const deficit = accepted - declared;
+            if (deficit > hubPeak) {
+              const missing = deficit - hubPeak;
+              result.missingPollEmissionsAtLeast += missing;
+              result.gaps.push({
+                kind: 'missing_poll_rows',
+                from: hubPrevious || boot,
+                to: current,
+                missingEmissionsAtLeast: missing,
+                cumulativeDeficit: deficit,
+              });
+              hubPeak = deficit;
+            }
+          } else {
+            notice('unanchored', 'AISHub-bokföring OKÄNT: boot/nollankare eller jämförbara AISHUB_POLL-rader saknas.');
+          }
+          hubPrevious = current;
+          result.lastHubReport = at;
+        }
+      }
+      if (line.includes('[FUSION_HEALTH]')) {
+        const total = line.match(/\| totalt: accepted=(\d+)\b/);
+        if (!total) return;
+        const accepted = Number(total[1]);
+        const current = {
+          ...at, accepted, samples, validationRejects, processingErrors,
+        };
+        if (source === 'both' && (capture !== false || fileCapture) && fusionPrevious) {
+          const acceptedDelta = accepted - fusionPrevious.accepted;
+          const sampleDelta = samples - fusionPrevious.samples;
+          if (acceptedDelta < 0) {
+            notice('fusion-reset', 'Fusionens räknare nollställd: jämförelsen börjar om vid nästa hälsorad.');
+          } else {
+            result.checkedFusionWindows += 1;
+            if (acceptedDelta !== sampleDelta) {
+              const filtered = validationRejects > fusionPrevious.validationRejects;
+              const failed = processingErrors > fusionPrevious.processingErrors;
+              result.gaps.push({
+                kind: 'fusion_sample_difference',
+                from: fusionPrevious,
+                to: current,
+                acceptedDelta,
+                sampleDelta,
+                observedValidationReject: filtered,
+                observedProcessingError: failed,
+                captureExplicitlyEnabled: capture === true || fileCapture,
+              });
+            }
+          }
+        } else if (source !== 'both') {
+          notice('fusion-mode', 'Fusionens sampeljämförelse OKÄNT: ett obrutet source=both-intervall är inte belagt.');
+        }
+        fusionPrevious = current;
+        result.lastFusionReport = at;
+      }
+    },
+    finish() {
+      if (result.missingPollEmissionsAtLeast > 0) result.verdict = 'FEL';
+      else if (result.checkedHubReports > 0 && result.diagnostics.length === 0
+          && result.gaps.length === 0) result.verdict = 'OK';
+      if (result.checkedHubReports === 0) {
+        notice('no-measure', 'Loggens interna fullständighet OKÄNT: inga bootförankrade källräknare kunde kontrolleras.');
+      }
+      return result;
+    },
+  };
+}
+
+/**
  * Strömmar loggen och plockar ut sampelraderna i ordning. Läses i bitar —
  * fältloggarna är upp till 70 MB och ska inte tvinga fram en 70 MB-sträng
  * på en gång.
@@ -169,8 +355,12 @@ function readLogSamples(filePath) {
   const samples = [];
   let matched = 0;
   let responses = 0;
+  let lineNumber = 0;
+  const sourceAudit = createSourceAudit();
   const take = (raw) => {
     const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
+    lineNumber += 1;
+    sourceAudit.take(line, lineNumber);
     if (line.indexOf(RESPONSE_MARKER) !== -1) responses += 1;
     if (line.indexOf(SAMPLE_MARKER) === -1) return;
     matched += 1;
@@ -195,7 +385,12 @@ function readLogSamples(filePath) {
     fs.closeSync(fd);
   }
   return {
-    path: filePath, samples, count: matched, responses, bytes: fs.statSync(filePath).size,
+    path: filePath,
+    samples,
+    count: matched,
+    responses,
+    bytes: fs.statSync(filePath).size,
+    sourceAudit: sourceAudit.finish(),
   };
 }
 
@@ -376,6 +571,37 @@ function checkPair(jsonlPath, logPath, opts) {
   }
   result.logSamples = log.count;
   result.logBytes = log.bytes;
+  result.sourceAudit = log.sourceAudit;
+  const audit = log.sourceAudit;
+  result.notes.push(`Loggens interna källbokföring: ${audit.verdict} `
+    + `(${audit.checkedHubReports} bootförankrade AISHub-kontroller, ${audit.checkedFusionWindows} fusionsfönster). `
+    + 'Detta är en separat kontroll från jsonl = bevarad logg.');
+  result.notes.push(...audit.diagnostics);
+  if (audit.lastHubReport) {
+    result.notes.push(`Senast lästa AISHub-räknarrapport: ${audit.lastHubReport.time || `loggrad ${audit.lastHubReport.line}`}; `
+      + 'övriga loggrader och svansen efter sista räknarrapporten är inte fullständighetsbevisade.');
+  }
+  for (const gap of audit.gaps) {
+    const from = gap.from.time || `rad ${gap.from.line}`;
+    const to = gap.to.time || `rad ${gap.to.line}`;
+    if (gap.kind === 'missing_poll_rows') {
+      result.problems.push(`KÄLLOGGEN ÄR OFULLSTÄNDIG: AISHub har emitterat ${gap.to.accepted} fixar `
+        + `men bevarade pollrader sedan boot deklarerar bara ${gap.to.declared}. `
+        + `Minst ${gap.missingEmissionsAtLeast} ytterligare fix(ar) saknar pollbokföring; `
+        + `nytt underskott mellan kontrollpunkterna ${from} och ${to} (loggrader ${gap.from.line}–${gap.to.line}). `
+        + 'Identitet/position kan inte återskapas.');
+    } else {
+      let explanation = 'Inga valideringsavslag/bearbetningsfel observerades, men fusion räknar före appens filter.';
+      if (gap.observedValidationReject) {
+        explanation = 'Valideringsavslag observerade; dessa loggas med frekvensgräns och kan inte räknas exakt.';
+      } else if (gap.observedProcessingError) {
+        explanation = 'Fel före/under appens AIS-bearbetning observerades.';
+      }
+      result.notes.push(`Fusion/sampel OKÄNT ${from}–${to}: accepted ökade ${gap.acceptedDelta}, bevarade sampel ${gap.sampleDelta}. `
+        + `${explanation} ${gap.captureExplicitlyEnabled ? 'Fångst explicit aktiverad.' : 'Fångstläget är inte explicit belagt.'} `
+        + 'Differensen ensam är inget bevis för loggbortfall.');
+    }
+  }
 
   if (log.bytes === 0) {
     result.notes.push('källoggen är 0 byte — själva loggen gick förlorad (icke-atomisk synk?)');
@@ -474,7 +700,7 @@ function formatMarkdown(r, brief) {
   for (const p of r.problems) out.push(`- ⚠️ ${p}`);
   if (r.verdict === 'OK') {
     out.push('');
-    out.push('✅ **Replay-integritet: OK** — jsonl:en bär hela loggens facit.');
+    out.push('✅ **Replay-integritet: OK** — jsonl:en matchar den bevarade loggens sampel. Loggens interna källbokföring redovisas separat ovan.');
   } else if (r.verdict === 'DELVIS') {
     out.push('');
     out.push(`☑️ **Replay-integritet: DELVIS verifierad** (${r.partialNote}) — den loggbara delen är komplett och byte-identisk; resten går inte att mäta mot loggen.`);

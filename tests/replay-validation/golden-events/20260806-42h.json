@@ -1067,8 +1067,8 @@
       "t": 1786046341823,
       "bridge": "Stridsbergsbron",
       "direction": "northbound",
-      "eta": 4,
-      "message": "MONIKA närmar sig Stridsbergsbron, beräknad ankomst om 4 minuter",
+      "eta": 2,
+      "message": "MONIKA närmar sig Stridsbergsbron, beräknad ankomst om 2 minuter",
       "alreadyPassed": false,
       "name": "MONIKA",
       "distance": 233,
@@ -2625,21 +2625,21 @@
       "error": null
     },
     {
-      "t": 1786027781790,
-      "iso": "2026-08-06T14:49:41.790Z",
+      "t": 1786027917265,
+      "iso": "2026-08-06T14:51:57.265Z",
       "bridge": "Stridsbergsbron",
       "direction": "northbound",
-      "etaMin": 4,
+      "etaMin": 3,
       "vesselCount": 1,
       "leadVessel": "ATHENA",
-      "firedBy": "deadline",
+      "firedBy": "fix",
       "eventId": "Stridsbergsbron#18",
       "leadMmsi": "265819940",
       "mmsis": [
         "265819940"
       ],
-      "distance": 710,
-      "dueMs": 1786027781790,
+      "distance": 276,
+      "dueMs": 1786027917265,
       "originalDueMs": 1786027057000,
       "success": true,
       "error": null
