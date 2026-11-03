@@ -142,6 +142,10 @@ const PHANTOM_WINDOW_MS = 20 * 60 * 1000;
 // varningar som fantomer. Passager i intervallet 20–120 min bokförs som
 // SEN_PASSAGE — öppningen kom, varningen var bara tidig — och fördelningen
 // rapporteras så tidigheten går att granska som den produktavvägning den är.
+// MÄTT ORSAK (helgranskningen 2026-11-03): pessimismen förklarar lite av de
+// sena passagerna. Med 6 kn i stället för 10 kn som deadline-fart försvann
+// bara 17 av 118 (stopp och köer efter varningen dominerar), medan 14
+// passager blev oförvarnade och O1 mot rådata föll 391 → 362 av 447.
 const LATE_PASSAGE_WINDOW_MS = 120 * 60 * 1000;
 // Bevis för en ÄKTA anflygning: fartyget ska ha NÄRMAT sig bron mätbart. 200 m
 // är grovt fem gånger GPS-bruset i korpusarna (≤20 m syntetiskt, ≤~40 m i
@@ -2002,7 +2006,7 @@ async function main() {
   if (allDelays.length) {
     const sorted = [...allDelays].sort((a, b) => a - b);
     console.log(`  SENA PASSAGER: median ${mins(median(allDelays))}, max ${mins(sorted[sorted.length - 1])} `
-      + '— deadline-motorns pessimism (10 kn mot uppmätt median 3,13 kn) ligger bakom');
+      + '— främst stopp och köer efter varningen; deadline-farten (10 kn) förklarar en mindre del');
   }
   if (phantomByClass.size) {
     console.log(`  FANTOMKLASSER: ${[...phantomByClass].map(([k, v]) => `${k}=${v}`).join(', ')}`);

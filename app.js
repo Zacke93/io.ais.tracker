@@ -76,6 +76,7 @@ const { explainTransitCorroboration } = require('./lib/utils/quayTransitProof');
 // =============================================================================
 const {
   BRIDGES, // Bro-positioner och konfiguration
+  LARGE_JUMP_LAT_DEG, // scenario B:s hoppgräns (gap-kedjan, BN2)
   // FG-DIR: COG_DIRECTIONS importeras inte längre här — appens fyra
   // riktningsställen går via cogDirection-predikaten ovan, som äger
   // konstantläsningen. Talen bor kvar i lib/constants.js (P5-beslutet).
@@ -517,6 +518,8 @@ class AISBridgeApp extends Homey.App {
 
     // Alla broar och Kanalinfarten: ett notifierat besök upphör efter observerad
     // utfärd och återkomst, även om AIS-spårningen eller appen startar om.
+    // En borttagning med fullbordad resa är också ett utfärdsbevis
+    // (_closeVisitsOnCompletedJourney).
     this._triggerPointVisits = new TriggerPointVisitTracker({ logger: this });
     try {
       this._triggerPointVisits.loadSnapshot(this.homey.settings.get('trigger_point_visits'));
@@ -1223,6 +1226,38 @@ class AISBridgeApp extends Homey.App {
     } catch (error) {
       this.error('[TRIGGER_POINT_VISITS] Failed to persist visits:', error.message || error);
     }
+  }
+
+  /**
+   * Helgranskningen 2026-11-03: stäng fartygets öppna områdesbesök när
+   * borttagningen bär POSITIONSBEVIS för att resan är fullbordad, det vill säga
+   * förbi sista bron i färdriktningen och utanför kanalens utfartslatitud
+   * (VesselLifecycleManager.hasCompletedJourney). Besöksregeln 2026-09-07
+   * kräver faktisk utfärd, och den positionen är en sådan. Tystnad, förtöjning
+   * och timeout utan fullbordad resa stänger fortfarande ingenting.
+   *
+   * Utan detta kunde spåraren aldrig se sina två utfärdsfixar vid resans sista
+   * punkt: elimineringen sker ~300 m bortom den och reentry-blocket kastar
+   * båtens AIS i 10 min. I banken lämnade 69 av 94 nordgående Stallbackanotiser
+   * ett aldrig stängt besök, och i en kedjad replay med det persisterade minnet
+   * tappade HELGE sin Stallbackanotis när hon kom tillbaka tre dygn senare.
+   * @private
+   */
+  _closeVisitsOnCompletedJourney(mmsi, vessel) {
+    const lifecycle = this.vesselDataService?.vesselLifecycleManager;
+    if (!this._triggerPointVisits || !vessel
+        || typeof lifecycle?.hasCompletedJourney !== 'function') return;
+    // Återfödd under en await i borttagningen: det nya spåret äger besöken.
+    if (typeof this.vesselDataService.getVessel === 'function'
+        && this.vesselDataService.getVessel(mmsi)) return;
+    if (!lifecycle.hasCompletedJourney(vessel)) return;
+    const closed = this._triggerPointVisits.closeOpenVisits(mmsi);
+    if (closed.length === 0) return;
+    this.log(
+      `🚪 [TRIGGER_POINT_VISIT_EXIT] ${mmsi}: resan fullbordad (förbi sista bron och `
+      + `utfartslatituden) — öppna besök stängda: ${closed.join(', ')}`,
+    );
+    this._persistTriggerPointVisits();
   }
 
   _observeTriggerPointVisits(vessel) {
@@ -3684,6 +3719,10 @@ class AISBridgeApp extends Homey.App {
         }
         if (!isCurrent()) return;
       }
+
+      // Efter utfartsnotisen: den kan just ha reserverat Kanalinfartens besök,
+      // och även det besöket är avslutat när resan är fullbordad.
+      this._closeVisitsOnCompletedJourney(mmsi, vessel);
 
       // STEG 5: UPPDATERA UI
       // Helkodsgranskning 2026-07-01 (BT-F1): vessels.delete() sker FÖRE
@@ -8197,7 +8236,7 @@ class AISBridgeApp extends Homey.App {
     // antagen start från porten) behåller sog- och cog-gaterna: där finns
     // inget observerat hopp att lita på, bara ett antagande.
     const isLargeJump = oldVessel && Number.isFinite(oldVessel.lat)
-      && Math.abs(vessel.lat - oldVessel.lat) > 0.005;
+      && Math.abs(vessel.lat - oldVessel.lat) > LARGE_JUMP_LAT_DEG;
 
     // Identifiera broar + Kanalinfarten (trigger-point). Anomali 13 (2026-05-16):
     // norrgående NEW_VESSELS som dyker upp norr om Kanalinfartens 300m-zon missade
@@ -9798,6 +9837,57 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * BN2 (helgranskningen 2026-11-03): BRO KORSAD UNDER ETT OBSERVERAT HOPP.
+   *
+   * Närhetsnotisen (STEG 2b) går före _checkSkippedBridgesFallback, som är den
+   * väg som bokför en målbro korsad i glappet. VDS hinner bokföra den första
+   * korsade bron och flytta målet till nästa, som också redan är passerad.
+   * lastPassedBridge pekar då fortfarande på den tidigare bron, så S4 (som
+   * kräver att notisbron är bokförd) slår inte till. Notisen gick ut i
+   * förvarningsform, "närmar sig Stridsbergsbron, beräknad ankomst om 1 minut",
+   * och fallbackens rättelse i samma tick dedupades bort. Samma sak hände en
+   * återfödd båt vars notis gick via statusbytet (FILOU 209 m förbi
+   * Järnvägsbron i 42h, även i fältloggen). I banken gällde det 13 notiser
+   * efter glapp på 7–199 min, 12–240 m förbi bron; rådatans korsning låg i
+   * samtliga före notisfixen.
+   *
+   * Beviset är detsamma som gap-kedjans egna fönster: föregående fix
+   * (vessel.lastPosition) med scenario B:s hopp > 0,005°, eller för en återfödd
+   * båt utan föregående fix en färsk sist känd position med scenario A:s
+   * bevisade fönster (≥ ~100 m). Bron ska ligga strikt mellan positionerna och
+   * hoppet peka i båtens färdriktning. En återresa inom sex timmar har bron
+   * FRAMFÖR sig och behåller förvarningen. Kontrollen görs här, där alla tre
+   * ingångar (STEG 2b, ENTERED och den uppskjutna statusnotisen) möts.
+   * Källsträngen och distansen rörs inte; de bär dedupen och notisantalet.
+   * @private
+   */
+  _hasGapCrossedNotifiedBridge(vessel, candidate, source) {
+    if (!vessel || !candidate?.name || this._isRetroactiveNotificationSource(source)) return false;
+    if (vessel._moored || this.vesselDataService?.hasGpsJumpHold?.(vessel.mmsi)) return false;
+    const bridge = this.bridgeRegistry?.getBridgeByName?.(candidate.name);
+    if (!bridge || !Number.isFinite(bridge.lat) || !Number.isFinite(vessel.lat)) return false;
+    let fromLat = null;
+    if (vessel.lastPosition && Number.isFinite(vessel.lastPosition.lat)) {
+      if (Math.abs(vessel.lat - vessel.lastPosition.lat) > LARGE_JUMP_LAT_DEG) fromLat = vessel.lastPosition.lat;
+    } else {
+      const lastKnown = this._lastKnownPositions?.get(String(vessel.mmsi));
+      if (lastKnown && Number.isFinite(lastKnown.lat) && Number.isFinite(lastKnown.t)
+          && Date.now() - lastKnown.t < this._LAST_KNOWN_POSITION_TTL_MS
+          && Math.abs(vessel.lat - lastKnown.lat) >= 100 / 111320) {
+        fromLat = lastKnown.lat;
+      }
+    }
+    if (fromLat === null) return false;
+    if (!(bridge.lat > Math.min(fromLat, vessel.lat) && bridge.lat < Math.max(fromLat, vessel.lat))) return false;
+    let travel = vessel._routeDirection || null;
+    if (!travel && Number.isFinite(vessel.cog)) {
+      if (isNorthCog(vessel.cog)) travel = 'north';
+      else if (isSouthCogWide(vessel.cog)) travel = 'south';
+    }
+    return (vessel.lat > fromLat && travel === 'north') || (vessel.lat < fromLat && travel === 'south');
+  }
+
+  /**
    * Speglar StatusService:s bekräftade väntbro för just den här notisen.
    * currentBridge kan vara en annan, närmare bro. vessel.status kan ännu
    * vara föregående status när status:changed avfyrar en timer-notis.
@@ -9845,10 +9935,15 @@ class AISBridgeApp extends Homey.App {
    * @param {boolean} [justPassedBridge] - S4: den notifierade BRON passerades
    *   för < PASSAGE_TRIGGER_GRACE_MS sedan trots en icke-retroaktiv källa
    * @param {boolean} [waitingAtBridge] - bekräftad väntan vid den notifierade bron
+   * @param {boolean} [gapCrossedBridge] - BN2: bron korsades i positionens
+   *   observerade hopp men är ännu inte bokförd
    * @returns {string} färdig svensk mening utan avslutande punkt
    * @private
    */
-  _buildBoatNearMessage(tokens, source, passedTriggerPoint = false, justPassedBridge = false, waitingAtBridge = false) {
+  _buildBoatNearMessage(
+    tokens, source, passedTriggerPoint = false, justPassedBridge = false,
+    waitingAtBridge = false, gapCrossedBridge = false,
+  ) {
     const name = tokens.vessel_name;
     const bridge = tokens.bridge_name;
 
@@ -9875,6 +9970,11 @@ class AISBridgeApp extends Homey.App {
     // dedupsemantiken.
     if (justPassedBridge) {
       return `${name} har precis passerat ${bridge}`;
+    }
+    // BN2 (2026-11-03): korsad i positionens observerade hopp. Det är samma
+    // mening som passage-fallbacken hade gett om den inte dedupats bort.
+    if (gapCrossedBridge) {
+      return `${name} passerade ${bridge} under AIS-tystnad`;
     }
     // F6 (2026-08-10, adversariell granskning): EXIT-FALLBACKEN HAR EGEN
     // MENING. Den ärvde tidigare 'passage-fallback' och påstod därmed
@@ -10251,9 +10351,21 @@ class AISBridgeApp extends Homey.App {
         + '— notisen sätts i passerad-form (eta=-1, already_passed=true)',
       );
     }
+    // BN2: bron korsades i det observerade hoppet fram till den här positionen,
+    // men är ännu inte bokförd när notisen byggs. Samma tre verkningar som S4.
+    const gapCrossedBridge = !this._isRetroactiveNotificationSource(source)
+      && !passedTriggerPoint && !justPassedBridge
+      && this._hasGapCrossedNotifiedBridge(vessel, candidate, source);
+    if (gapCrossedBridge) {
+      this.debug(
+        `↩️ [FLOW_TRIGGER_GAP_CROSSED] ${mmsiLabel}: ${bridgeName} ligger mellan föregående och aktuell fix `
+        + `(källa=${source}) — notisen sätts i passerad-form (eta=-1, already_passed=true)`,
+      );
+    }
     const passedBridgeSource = this._isRetroactiveNotificationSource(source)
       || passedTriggerPoint
-      || justPassedBridge;
+      || justPassedBridge
+      || gapCrossedBridge;
     const waitingAtBridge = !passedBridgeSource && this._isWaitingAtNotifiedBridge(vessel, candidate);
     // S4-kontraktet (granskarfynd fixrunda 6): passerad-formen bär ALDRIG en
     // framräknad ETA — även när källsträngen är 'target' och vessel.etaMinutes
@@ -10261,7 +10373,7 @@ class AISBridgeApp extends Homey.App {
     // passerat", eta_available sant) för en nyss passerad MÅLBRO.
     // Väntan saknar minutprognos även i numeriska tokens. Avstånd/fart får
     // inte fylla tillbaka en ETA: appen vet inte när bron faktiskt öppnar.
-    if (justPassedBridge || waitingAtBridge) eta = null;
+    if (justPassedBridge || gapCrossedBridge || waitingAtBridge) eta = null;
     // En uttryckligt spärrad målprognos får inte återuppstå genom distans/fart.
     // Holden bekräftar inte väntan; den färdiga texten får bara sakna minuter.
     const targetETAHeld = bridgeName === vessel.targetBridge
@@ -10324,7 +10436,7 @@ class AISBridgeApp extends Homey.App {
     // befintliga flows).
     safeTokens.already_passed = passedBridgeSource;
     safeTokens.message = this._buildBoatNearMessage(
-      safeTokens, source, passedTriggerPoint, justPassedBridge, waitingAtBridge,
+      safeTokens, source, passedTriggerPoint, justPassedBridge, waitingAtBridge, gapCrossedBridge,
     );
 
     // ENHANCED DEBUG: Log final tokens and ETA status

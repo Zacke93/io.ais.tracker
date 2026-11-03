@@ -268,8 +268,9 @@ describe('O2 analysePhantoms: tre hinkar — bekräftad, sen passage, fantom', (
   });
 
   test('passage efter 45 min = SEN_PASSAGE, inte fantom', () => {
-    // Deadline-motorns pessimism (10 kn mot uppmätt median 3,13 kn) gör att
-    // varningen normalt ligger 3× längre före passagen än ledtiden. Ett
+    // Varningen ligger ofta långt före passagen: stopp och köer efter
+    // varningen dominerar, deadline-motorns pessimism (10 kn) bidrar mindre
+    // (helgranskningen 2026-11-03: 6 kn tog bort 17 av 118 sena). Ett
     // strikt 20-minutersfönster hade dömt hälften av alla KORREKTA varningar
     // som fantomer — mätt: 83 av 236 varningar över de 16 korpusarna.
     const res = {

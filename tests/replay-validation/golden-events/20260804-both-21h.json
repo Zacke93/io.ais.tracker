@@ -635,8 +635,8 @@
       "t": 1785915739149,
       "bridge": "Klaffbron",
       "direction": "southbound",
-      "eta": 4,
-      "message": "ANYA ELAN 380 närmar sig Klaffbron, beräknad ankomst om 4 minuter",
+      "eta": 5,
+      "message": "ANYA ELAN 380 närmar sig Klaffbron, beräknad ankomst om 5 minuter",
       "alreadyPassed": false,
       "name": "ANYA ELAN 380",
       "distance": 217,
@@ -1946,12 +1946,12 @@
       "vesselLatNext": 58.29195
     },
     {
-      "t": 1785932460040,
+      "t": 1785932425332,
       "bridge": "Järnvägsbron",
       "direction": "southbound",
-      "eta": 0,
-      "message": "WANDA närmar sig Järnvägsbron, beräknad ankomst strax",
-      "alreadyPassed": false,
+      "eta": -1,
+      "message": "WANDA har precis passerat Järnvägsbron",
+      "alreadyPassed": true,
       "name": "WANDA",
       "distance": 35,
       "source": "current",
@@ -2453,8 +2453,8 @@
       "t": 1785934221699,
       "bridge": "Stridsbergsbron",
       "direction": "northbound",
-      "eta": 3,
-      "message": "ARESTEL närmar sig Stridsbergsbron, beräknad ankomst om 3 minuter",
+      "eta": 1,
+      "message": "ARESTEL närmar sig Stridsbergsbron, beräknad ankomst om 1 minut",
       "alreadyPassed": false,
       "name": "ARESTEL",
       "distance": 126,
@@ -2942,11 +2942,11 @@
       "error": null
     },
     {
-      "t": 1785915603342,
-      "iso": "2026-08-05T07:40:03.342Z",
+      "t": 1785915480660,
+      "iso": "2026-08-05T07:38:00.660Z",
       "bridge": "Klaffbron",
       "direction": "southbound",
-      "etaMin": 5,
+      "etaMin": 7,
       "vesselCount": 1,
       "leadVessel": "ANYA ELAN 380",
       "firedBy": "fix",
@@ -2955,9 +2955,9 @@
       "mmsis": [
         "265705550"
       ],
-      "distance": 371,
-      "dueMs": 1785915603342,
-      "originalDueMs": 1785915490033.3994,
+      "distance": 517,
+      "dueMs": 1785915480660,
+      "originalDueMs": 1785915401122.024,
       "success": true,
       "error": null
     },
@@ -4132,6 +4132,13 @@
       "t": 1785932423551,
       "iso": "2026-08-05T12:20:23.551Z",
       "mmsi": "211644790",
+      "bridge": "Järnvägsbron",
+      "noTarget": false
+    },
+    {
+      "t": 1785932425332,
+      "iso": "2026-08-05T12:20:25.332Z",
+      "mmsi": "211133370",
       "bridge": "Järnvägsbron",
       "noTarget": false
     },

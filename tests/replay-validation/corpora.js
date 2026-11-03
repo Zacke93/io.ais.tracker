@@ -726,7 +726,12 @@ module.exports = [
     locked: true,
     lockEvents: true,
     expectedNotifications: 54,
-    note: 'KAJSTART 2026-09-09: AKIRAs 13,7 m kajdrift 06:40–06:57 ger inget gissat Klaffmål. '
+    note: 'Omlåst 2026-11-03: enbart SOLANDEs Klaffnotis 10:06:42.741 byter till passerad form ("passerade '
+      + 'Klaffbron under AIS-tystnad", eta −1, already_passed). Föregående fix 09:48:44 låg 1 468 m norr om '
+      + 'bron; rådatans korsning 10:05:50 ligger före notisfixen, som står 75 m söder om linjen. Fallbackens '
+      + 'rättelse i samma tick dedupades bort. Tid, avstånd, källa, antal, kort, passager och brotexter består. '
+      + 'Se docs/helgranskning-2026-11-03.md.  '
+      + 'KAJSTART 2026-09-09: AKIRAs 13,7 m kajdrift 06:40–06:57 ger inget gissat Klaffmål. '
       + 'Den verkliga nordliga avgången 07:05 ger Stridsmål och öppningskort. '
       + 'AVALON och JAATTEN ansluter 07:07/07:13 till samma varnade konvoj; '
       + 'deras separata kort ersätts, medan alla fysiska passager och 54 närnotiser bevaras. '
@@ -1382,7 +1387,11 @@ module.exports = [
     hours: 17,
     locked: true,
     expectedNotifications: 116,
-    note: `${SEPTEMBER_REVIEW}TRUNTEN återkommer efter 31 min 29 s tystnad med låg fart och okänd kurs. `
+    note: 'Omlåst 2026-11-03 (mellanbroreserven): ORCAs segment 13:56:15.903→14:00:43.502 slutar 27 m söder om '
+      + 'Järnvägsbron; rådatans korsning 14:00:31.026. Passagen bokförs vid korsningsfixen och notisen blir '
+      + '"har precis passerat" 14:00:43.502 i stället för "närmar sig …, strax" 14:01:43.833. En textövergång '
+      + 'flyttar 14:04:14.161→14:04:30.040 med samma text. Antal, multiset och övriga texter består.  '
+      + `${SEPTEMBER_REVIEW}TRUNTEN återkommer efter 31 min 29 s tystnad med låg fart och okänd kurs. `
       + 'Utgången resehistorik städas före återkomsten; båten räknas inte mot Strids förrän nytt '
       + 'bevis finns. Detta är samma text som ordinarie monitoring redan gav. '
       + 'KORPUS #16 — A/B-dagskörningen 2026-08-04, A-ARMEN (enbart aisstream), '
@@ -1630,7 +1639,23 @@ module.exports = [
     lockOpenings: true,
     lockEvents: true,
     expectedNotifications: 151,
-    note: 'Omlåst 2026-10-05: enbart BLADEs Stridsnärnotis12:17:29.461 ändras från3 till1min efter bekräftad '
+    note: 'Omlåst 2026-11-03: enbart ARESTELs Stridsnärnotis 12:50:21.699 ändras från 3 till 1 min. Väntan vid '
+      + 'Järnvägsbron flyttas inte längre till målbron ~93 m söder om Järnvägsbron, så väntbaslinjen släpps vid '
+      + 'Järnvägspassagen. Rådatans Stridsbergspassage 12:51:34.277 ligger 72,6 s efter notisen. Tider, avstånd, '
+      + 'källa, antal, öppningskort, passager och brotexter består. Se docs/helgranskning-2026-11-03.md.  '
+      + 'Omlåst 2026-11-03 (U-svängen): ANYA ELAN 380 vänder 07:37:49 (cog 210,9°, 591 m N om Klaffbron) '
+      + 'och närmar sig söderut 591→517→371→217 m i 2,3–2,5 kn. Fix D-bekräftelsen 07:38:00.660 lät tidigare '
+      + '2-READINGS mäta mot det övergivna Stridsmålet, så hon var mållös till 07:40:03: brotexten tappade henne '
+      + 'och Klaffkortet kom 07:40:03 på 371 m, 113 s efter deadline. Nu räknas hon från 07:38:00.685 och kortet '
+      + 'Klaffbron#16 går 07:38:00.660 på 517 m med ETA 7 (Klaffnotisen 07:42:19 4→5 min; fyra textövergångar '
+      + 'byter ETA). Rådatan har ingen Klaffpassage för henne (sista fix 217 m 07:42:19), så ETA-siffrorna kan '
+      + 'inte prövas mot facit. Antal, multiset, passager och övriga poster består.  '
+      + 'Omlåst 2026-11-03 (mellanbroreserven): WANDAs segment 12:17:30.061→12:20:25.332 (470 m, Δlat 0,0034°) '
+      + 'slutar 35 m söder om Järnvägsbron; rådatans korsning 12:20:12.430. Passagen bokförs nu vid '
+      + 'korsningsfixen (+1 mellanpassage) och notisen blir "WANDA har precis passerat Järnvägsbron" 12:20:25.332 '
+      + 'i stället för "närmar sig …, beräknad ankomst strax" 12:21:00.040. Antal, avstånd, källa, kort och '
+      + 'brotexter består.  '
+      + 'Omlåst 2026-10-05: enbart BLADEs Stridsnärnotis12:17:29.461 ändras från3 till1min efter bekräftad '
       + 'Järnvägspassage. Råfixen bortom Stridsbergsbron kommer12:18:37.552, interpolerad korsning48,3s efter '
       + 'notisen. Samtliga tider, avstånd, medlemmar, kortantal, passager och brotexter består. Se '
       + 'docs/faltgranskning-2026-10-05.md.  '
@@ -2241,7 +2266,12 @@ module.exports = [
       'DEFAULT-FLASH: 2026-08-06T08:47:00.040Z "Inga båtar" inklämd (30s) '
         + 'mellan två "En … Stridsbergsbron"-texter utan passage',
     ],
-    note: 'ETA 2026-10-05: MONIKAs Stridsnotis 6/8 19:59:01.823 rättas 4→2 min när statusvägens rena '
+    note: 'Omlåst 2026-11-03: enbart FILOUs Järnvägsnotis 7/8 12:14:58.542 byter till passerad form ("passerade '
+      + 'Järnvägsbron under AIS-tystnad", eta −1, already_passed). Hon återföddes efter 55 min glapp 208 m söder om '
+      + 'bron; rådatans korsning 11:54:03 ligger i glappet, före notisfixen. Fältloggen bar samma felaktiga '
+      + '"om 2 minuter". Tid, avstånd, källa, antal, kort, passager och brotexter består. Se '
+      + 'docs/helgranskning-2026-11-03.md.  '
+      + 'ETA 2026-10-05: MONIKAs Stridsnotis 6/8 19:59:01.823 rättas 4→2 min när statusvägens rena '
       + 'Järnvägskorsning får släppa väntbaslinjen före zonutgång. Råkorsning 20:00:07.312–20:01:17.114, '
       + 'interpolerad restid 2,11 min. Enbart notisens ETA/text ändras. '
       + 'Omlåst 2026-10-05: ATHENAs Stridskort14:49:41.790 på710m byggde på en GPS-underkänd fix14:48:33. Nu '

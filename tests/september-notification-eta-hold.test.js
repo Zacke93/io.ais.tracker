@@ -155,6 +155,10 @@ test('rå PAPOU genom hela appen: 10 min AIS-gap ger ingen ny 12-minutersprognos
   });
 }, 30000);
 
+// Helgranskningen 2026-11-03: väntan vid Järnvägsbron flyttas inte längre
+// till målbron ~93 m söder om Järnvägsbron, så väntbaslinjen släpps när
+// ARESTEL går igenom. Rådatans Stridsbergspassage kommer 12:51:34.277,
+// 72,6 s efter notisen: "om 1 minut" ligger närmare än de tidigare 3.
 test('rå ARESTEL genom hela appen: färsk rörelse behåller sin aktuella prognos', () => {
   const notices = replay('ais-20260804-both-21h.jsonl').notifications
     .filter((n) => n.mmsi === '265700360' && n.bridge === 'Stridsbergsbron');
@@ -163,9 +167,9 @@ test('rå ARESTEL genom hela appen: färsk rörelse behåller sin aktuella progn
     t: 1785934221699,
     distance: 126,
     source: 'target',
-    eta: 3,
+    eta: 1,
     success: true,
-    message: 'ARESTEL närmar sig Stridsbergsbron, beräknad ankomst om 3 minuter',
+    message: 'ARESTEL närmar sig Stridsbergsbron, beräknad ankomst om 1 minut',
     alreadyPassed: false,
   });
 }, 30000);

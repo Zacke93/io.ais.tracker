@@ -123,16 +123,21 @@ describe('Replaypositionen hör till kortanropet och den faktiskt mottagna AIS-r
     });
   });
 
-  test('ORCA vid Järnvägsbron: råfix 14:01:43 har inte nått kortanropet ännu', () => {
+  // Helgranskningen 2026-11-03 (mellanbroreserven): passagen av Järnvägsbron
+  // bokförs nu vid korsningsfixen 14:00:43.502, så notisen går ut där i
+  // passerad form i stället för som timernotis 14:01:43.833 före nästa råfix.
+  // Positionskontraktet är detsamma: kortanropet bär fixen som faktiskt hade
+  // matats in, och nästa råfix 14:01:43 syns bara som vesselLatNext.
+  test('ORCA vid Järnvägsbron: kortanropet bär korsningsfixen, inte nästa råfix 14:01:43', () => {
     const notification = field.notifications.find((n) => n.mmsi === '211100280' && n.bridge === 'Järnvägsbron');
     expect(notification).toMatchObject({
+      t: Date.parse('2026-08-04T14:00:43.502Z'),
       vesselLat: 58.291421666666665,
       vesselLon: 12.291825,
       vesselLatNext: 58.290231666666664,
+      message: 'ORCA har precis passerat Järnvägsbron',
       success: true,
     });
-    expect(notification.t).toBeGreaterThan(Date.parse('2026-08-04T14:00:43.502Z'));
-    expect(notification.t).toBeLessThanOrEqual(Date.parse('2026-08-04T14:01:43.833Z'));
   });
 
   test('instrumenteringen lämnar båda körningarna utan processfel eller kvarvarande timers', () => {

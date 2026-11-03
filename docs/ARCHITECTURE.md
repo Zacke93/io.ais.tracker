@@ -1036,6 +1036,7 @@ Flaggor (bärs av `_createVesselObject`-fältlistan, §8a): `_etaIsExtrapolated`
 | `last_known_positions` | `_loadLastKnownPositions`:615 | `_persistLastKnownPositions`:646 | `{ mmsi: {lat, lon, t} }`, 6 h TTL; skrivs vid removal (:1084–1090); begränsar skipped-bridges-scenario A för återfödda båtar (§3) |
 | `quay_stable_ledger` | `_loadQuayLedger` | `_persistQuayLedger` (STRYPT: max var 15:e min + tvingad vid `onUninit`) | V1-kajavgångsgrindens historik `{ mmsi: {stillAt, lat, lon} }`, TTL = `QUAY_DEPARTURE_GATE.MEMORY_MS` (2 h); rörelseräknaren `movingFixes` persisteras ALDRIG (den är ett påstående om innevarande sessions observationer). Utan persistensen återskapade en appomstart 5 s före kajavgången PRICKBJORN-fantomen exakt |
 | `persistent_opening_warnings` | `_loadPersistentOpeningWarnings` | `_persistOpeningWarnings` (vid varje avfyrning + vid konsumtion) | Etapp 6 + J15 (2026-08-22): öppningsvarningarnas dedup ÖVER omstart, `{ "Bro\|mmsi\|riktning": {firedAt, expiresAt} }`. TVÅDELAT läsfönster (`_openingDedupActiveUntil`): post skriven i DENNA session dedupar till firedAt + `CONVOY_WINDOW_MS` (10 min, som förr); post LADDAD VID BOOT dedupar till expiresAt = firedAt + 10 min + ETA (kapat `_OPENING_PERSIST_MAX_MS`) — omstartsskyddet. TRE konsumtionsvägar nollar nyckeln: bekräftad passage i `_observeBridgeOpening`, gap-inferrerad passage och backfill (L19). Riktningsledet gör att en U-svängares RETURPASSAGE aldrig tystas; sedan S11 (fixrunda 6) är riktningsledet MEDLEMMENS egen låsta riktning (`memberDirections` i payloaden), ledarens bara som fallback. Sedan S13 härleds expiresAt inte ur ETA-tokenen utan ur max(dagens uttryck, armens förväntade ankomst `expectedArrivalMs` — MAX över medlemmarna), fortfarande kapat. Känd avvägning: avbruten anflygning före omstart (§9) |
+| `trigger_point_visits` | konstruktorn (`TriggerPointVisitTracker.loadSnapshot`) | `_persistTriggerPointVisits` (vid varje fasbyte i `observe`, reservation/rollback av notis, stängning vid fullbordad resa och tvingad i `onUninit`) | Besöksregeln 2026-09-07: `{ version: 2, entries: { "mmsi:punkt": {startedAt, lastFixTs, outsideFixTs, exitedAt, lastLat, lastLon, lastPositionTs, arrivalLat, arrivalLon} } }` för alla broar och Kanalinfarten. Ett notifierat besök spärrar nya notiser till observerad utfärd (två rena fixar > 350 m, passage följd av två fixar på bortre sidan, eller positionsbevisad fullbordad resa) och återkomst inom 300 m. Stängda poster gallras efter 6 h; tak 2048 poster |
 | `opening_quay_ledger` | `_loadOpeningQuayLedger` | `_persistQuayLedger` (samma strypta 15-min-klocka som V1-kartan + tvingad flush i `onUninit`; skrivtakt ~96→192/dygn) | M11 (2026-08-23): öppningslagrets kajbokföring `{ mmsi: {bandSince, stillAt, lat, lon, moving} }`, TTL = `QUAY_DEPARTURE_GATE.MEMORY_MS`. Utan persistens var kajvobbelgrinden BLIND 5 min efter varje omstart (bandSince sessionslokal) och efter ETT fix utanför 500 m-bandet; nu hysteres (en tolererad fix, `MIN_MOVING_FIXES`-härledd) + persistens. `movingFixes`, `prevFix`, `lastFix` persisteras ALDRIG (påståenden om innevarande session) |
 
 **Kajbokföringens TVÅ kartor.** `_quayStableLedger` (persisterad, ovan) bokför
@@ -1704,6 +1705,12 @@ helkodsgranskning-runda3.md och hkfix3-rapport.md.
   "ansluten men aldrig levererat" från "lyckad tom poll" så det omätbara läget inte
   omfattar en frisk tom kanal. Triggern är smal (klientombyggnad mitt i en positiv text).
   Inget ändrat — beslutet är användarens (designdoktrin, inte bugg).
+  **Ny mätning (helgranskningen 2026-11-03): triggern är INTE smal.** Det mätbara benet
+  (> 5 min utan positioner) slår till på varje tom nattkanal. I en replay med produktionslikt
+  tystnadsmått hölls 16 av 143 övergångar båttext → DEFAULT (11 %), 4 av dem till körningens
+  slut. Premissen "5 min tystnad = tappad prenumeration" strider mot U12. Rekommendation: låt
+  P8 använda U12:s svarspredikat, så att DEFAULT släpps igenom när en källa svarar och
+  avbrottstexten (D5) gäller vid äkta blindhet. Fortfarande inget ändrat.
 - **L4 (osäker)** — GPS-outliergrenen i ProgressiveETACalculator (~:966) saknar
   30-sekundersgrinden och kan frysa en stannad båts ETA via `_underBridgeLatched`;
   bedöms om EFTER L3 (frysackumulatorn), som styr latchens verkliga livslängd.
@@ -2000,6 +2007,30 @@ som hoppar över detektering; flagga utanför fältlistan; håll utan innehålls
 före första pollen) — och syns bara när man följer ETT meddelande genom hela kedjan. Därför: efter
 fixrunda 5 körs en SYSTERSTÄLLESRUNDA (mekanisk enumerering av varje anrops-/skrivställe för de
 predikat runda 4–5 rört) + "följ ett meddelande"-pass i stället för en sjätte bred runda.
+
+### Helgranskning 2026-11-03 — rättat och beslutspunkter
+
+Underlaget står i `docs/helgranskning-2026-11-03.md`; varje fynd prövades med tre linser
+(produktionsrepro, känt/beslutat, påverkan på rådata och facit). Rättat i koden:
+
+- Målbrogrenens väntehysteres i `_isWaiting` gäller bara väntan vid målbron. Väntan vid
+  Järnvägsbron flyttades annars till Stridsbergsbron ~93 m söder om Järnvägsbron (ARESTEL).
+- `_closeVisitsOnCompletedJourney`: en borttagning med fullbordad resa
+  (`hasCompletedJourney`, positionsbevis) stänger fartygets öppna besök.
+  `TriggerPointVisitTracker.closeOpenVisits` är den enda vägen utanför `observe` som sätter
+  `exitedAt`. Tystnad, förtöjning och timeout stänger fortfarande ingenting.
+- Fix D-bekräftelsen i samma tick skickar `previousTargetInvalid` till ACCELERATED-grenen, så
+  2-READINGS inte mäter mot det övergivna målet (ANYA ELAN).
+- `_hasGapCrossedNotifiedBridge` är en tredje passerad-formsignal bredvid S4 och H16. Bron ska
+  ligga strikt mellan föregående (eller sist kända) och aktuell position i gap-kedjans fönster,
+  och hoppet ska gå i färdriktningen. Källsträng och distans lämnas orörda.
+- Mellanbrons avståndsreserv i `_hasPassedBridge` täcker bandet mellan
+  `UNDER_BRIDGE_CROSS_SEGMENT_MAX_M` och `LARGE_JUMP_LAT_DEG` (den delade hoppgränsen, förut
+  hårdkodad 0,005).
+
+**Beslutspunkter (användarens):** L6/P8 med ny mätning: 11 % av båttext → DEFAULT hålls i
+produktion, se nedan. BN1: utfarter vid boxkanten lämnar besök öppna (VISTEN, REBEL, JUNO). open3:
+ETA utan fixålder (D2). Latenta fynd utan uppmätt effekt är listade i rapporten.
 
 
 ## 10. Söndagsfältet 2026-08-09/10 (commits a9f2a20, ce6a946, b1a7ba3 + WS-3)

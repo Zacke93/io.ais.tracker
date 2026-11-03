@@ -286,6 +286,25 @@ const SCENARIOS = [
     expect: { minTargetPassages: 2, minNotifiedBridges: ['Klaffbron'] },
   },
   {
+    // Helgranskningen 2026-11-03: samma tur-och-retur med GLES AIS (180 s,
+    // 6 kn). Vändningen syns först i två sydliga fixar, och Fix D bekräftar den
+    // ~750 m från det övergivna Stridsmålet. 2-READINGS mätte då "närmar sig"
+    // mot just det målet i samma tick och underkände tilldelningen, så båten
+    // blev mållös och returpassagen av Klaffbron bokfördes som en mållös
+    // mellanbropassage (fältfallet ANYA ELAN 380 i both-21h). Vid 60 s-kadens
+    // syns felet inte, därför fångade scenariot ovan det aldrig.
+    name: 'u-sväng-gles-ais-norr-om-Klaffbron',
+    seed: 91,
+    vessels: [{
+      mmsi: '901000091',
+      direction: 'north',
+      speedKn: 6,
+      reportIntervalS: 180,
+      uTurnAtFraction: (METRICS.cum[2] + 600) / METRICS.total,
+    }],
+    expect: { minTargetPassages: 2 },
+  },
+  {
     // Två båtar möts VID Stridsbergsbron — grupplogik, klausulunikhet (INV-9)
     // och att båda får sina målbropassager/notiser utan korskontaminering.
     name: 'möte-vid-Stridsbergsbron',
