@@ -82,7 +82,9 @@ describe('Inställningssidan: laddningsfel och samtidiga sparningar', () => {
     page.elements.save.click();
     expect(page.elements.save.disabled).toBe(true);
     expect(page.elements.ais_source.disabled).toBe(true);
-    expect(page.homey.set.mock.calls.map(([key]) => key)).toEqual(['aishub_username']);
+    // Värden som får innehåll skrivs före källvalet, så appen aldrig ser ett
+    // ogiltigt mellanläge (helgranskningen 2026-11-03): nyckeln först.
+    expect(page.homey.set.mock.calls.map(([key]) => key)).toEqual(['ais_api_key']);
 
     page.elements.save.click();
     expect(page.homey.set).toHaveBeenCalledTimes(1);
@@ -94,7 +96,7 @@ describe('Inställningssidan: laddningsfel och samtidiga sparningar', () => {
     expect(page.elements.save.disabled).toBe(false);
     expect(page.elements.ais_source.disabled).toBe(false);
     expect(page.homey.set.mock.calls.map(([key]) => key))
-      .toEqual(['aishub_username', 'ais_source', 'ais_api_key']);
+      .toEqual(['ais_api_key', 'aishub_username', 'ais_source']);
   });
 
   test('en delvis misslyckad sparning kan återupptas utan att skriva om redan sparade värden', () => {

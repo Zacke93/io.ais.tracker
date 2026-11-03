@@ -111,6 +111,16 @@ const NOTIFICATION_POINT_NAMES = [
 // annars kunde frånkopplingstexten sparas som _lastBridgeText och
 // återpubliceras som "validated fallback" EFTER reconnect.
 const STALE_DATA_OVERRIDE_TEXT = 'AIS-anslutning saknas — data kan vara inaktuell';
+// Hur länge anslutningen får vara borta innan texten ersätts (INV-B4/D5).
+// En konstant för båda läsarna: stale-vakten i _processUIUpdate och
+// vakthunden som driver cykeln när inga båtar spåras.
+const STALE_DATA_GUARD_MS = 2 * 60 * 1000;
+
+// Tidsgräns för boat_near-kortets trigger()-anrop. Ett Homey-anrop som aldrig
+// svarar får inte låsa anroparen för evigt; ett riktigt svar tar millisekunder.
+// Gränsen ligger över replayharnessens 30 s-klocksteg, så att en fejkad klocka
+// aldrig ger falska timeouts (jfr GLOBAL_TOKEN_TIMEOUT-artefakten).
+const BOAT_NEAR_TRIGGER_TIMEOUT_MS = 60 * 1000;
 
 // P8-vaktens tystnadsgräns (helkodsgranskning runda 2, J30). Talet fanns i TVÅ
 // exemplar: removal-vägens lokala FEED_SILENT_GUARD_MS och UI-vägens
@@ -5801,7 +5811,7 @@ class AISBridgeApp extends Homey.App {
       // mot..." messages even though no new position updates are arriving.
       if (!this._isConnected && this._lastConnectionLost) {
         const disconnectedMs = Date.now() - this._lastConnectionLost;
-        if (disconnectedMs > 2 * 60 * 1000) {
+        if (disconnectedMs > STALE_DATA_GUARD_MS) {
           const overrideText = STALE_DATA_OVERRIDE_TEXT;
           if (bridgeText !== overrideText) {
             this.debug(`🔌 [STALE_DATA_GUARD] AIS disconnected ${Math.round(disconnectedMs / 1000)}s — suppressing bridge text`);
@@ -7646,12 +7656,32 @@ class AISBridgeApp extends Homey.App {
       throw new Error('boat_near trigger card unavailable');
     }
 
+    // Samma skydd som _writeCapabilityWithTimeout och _setGlobalTokenSafe:
+    // ett Homey-anrop som aldrig svarar får inte låsa anroparen. Exit-vägen
+    // awaitar kortet inne i _onVesselRemoved; utan tidsgräns nåddes aldrig
+    // dess finally, MMSI:t låg kvar i _processingRemoval och en återfödd båt
+    // med samma MMSI var osynlig i brotexten tills appen startades om.
+    // Vid timeout behålls dedupen (anropet kan fortfarande landa sent), så
+    // ingen dubblettnotis kan uppstå.
+    let timer = null;
+    const timeout = new Promise((resolve) => {
+      timer = setTimeout(() => {
+        if (!this._shuttingDown) {
+          this.error(`⏱️ [FLOW_TRIGGER_TIMEOUT] ${vessel.mmsi}: boat_near-kortet svarade inte inom `
+            + `${Math.round(BOAT_NEAR_TRIGGER_TIMEOUT_MS / 1000)} s — behåller dedupen och går vidare`);
+        }
+        resolve(undefined);
+      }, BOAT_NEAR_TRIGGER_TIMEOUT_MS);
+      if (timer && typeof timer.unref === 'function') timer.unref();
+    });
     try {
       this.debug(`🔧 [TRIGGER_METHOD] ${vessel.mmsi}: Using app-level boat_near trigger`);
-      return await this._boatNearTrigger.trigger(tokens, state);
+      return await Promise.race([this._boatNearTrigger.trigger(tokens, state), timeout]);
     } catch (error) {
       this.error(`❌ [FLOW_TRIGGER_APP_ERROR] ${vessel.mmsi}: Failed to trigger boat_near card`, error.message || error);
       throw error;
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -12862,9 +12892,18 @@ class AISBridgeApp extends Homey.App {
         const healNeeded = this._lastBridgeTextHash === null
           || this._lastBridgeAlarm === null
           || this._lastConnectionStatus === null;
-        if (vessels.length === 0 && !healNeeded) return;
+        // INV-B4/D5 (docs/reliability-spec.md): vid avbrott > 2 min ska
+        // avbrottstexten visas, aldrig "Inga båtar". Stale-vakten bor i
+        // _processUIUpdate, så vakthunden måste driva en cykel även på tom
+        // kanal — annars stod DEFAULT (eller en P8-hållen båttext med larmet
+        // på) kvar under hela avbrottet. När texten väl publicerats är
+        // villkoret falskt igen, och återanslutningen tvingar en egen cykel.
+        const outageTextDue = !this._isConnected && Boolean(this._lastConnectionLost)
+          && Date.now() - this._lastConnectionLost > STALE_DATA_GUARD_MS
+          && this._lastBridgeText !== STALE_DATA_OVERRIDE_TEXT;
+        if (vessels.length === 0 && !healNeeded && !outageTextDue) return;
 
-        this.debug(`🐕 [WATCHDOG] Running self-healing check (${vessels.length} vessels${healNeeded ? ', heal needed' : ''})`);
+        this.debug(`🐕 [WATCHDOG] Running self-healing check (${vessels.length} vessels${healNeeded ? ', heal needed' : ''}${outageTextDue ? ', outage text due' : ''})`);
         this._scheduleCoalescedUpdate('normal', 'watchdog-self-healing');
       } catch (error) {
         this.error('Error in watchdog:', error);

@@ -325,6 +325,30 @@
                 inputs.forEach(function (input) { input.disabled = true; });
                 showStatus(Homey.__('settings.status_saving'), 'info');
 
+                // Appen omkonfigurerar källorna efter VARJE skriven AIS-nyckel
+                // och varnar för ogiltiga lägen. Ordningen ser till att inget
+                // mellanläge är ogiltigt eller startar en källa i onödan:
+                //  1. tillägg som det nya källvalet BEHÖVER (nyckel för AISstream,
+                //     användarnamn för AISHub) — ett tillägg kan aldrig göra ett
+                //     läge ogiltigt;
+                //  2. källvalet;
+                //  3. övriga tillägg och byten mellan två icke-tomma värden;
+                //  4. tömningar, när källvalet redan står på sitt slutvärde —
+                //     utom en nyckel som töms när AISstream inte körde förut:
+                //     den töms FÖRE källvalet, annars hinner AISstream starta
+                //     med den gamla nyckeln.
+                // Med den gamla ordningen gav t.ex. "Båda" + ny nyckel en falsk
+                // notis om att nyckel saknas, och notisens 24 h-spärr tystade
+                // sedan en äkta.
+                const keyNeeded = aisSource !== 'aishub';
+                const userNeeded = aisSource !== 'aisstream';
+                const keyFirst = apiKeyChanged && storedApiKey === '' && apiKey !== '' && keyNeeded;
+                const userFirst = usernameChanged && storedAishubUsername === '' && aishubUsername !== ''
+                    && userNeeded;
+                const keyClearFirst = apiKeyChanged && apiKey === '' && keyNeeded
+                    && storedAisSource === 'aishub';
+                const commitApiKey = function () { storedApiKey = apiKey; };
+                const commitUsername = function () { storedAishubUsername = aishubUsername; };
                 saveChanged([
                     {
                         key: 'debug_level',
@@ -333,10 +357,10 @@
                         commit: function () { storedDebugLevel = debugLevel; },
                     },
                     {
-                        key: 'aishub_username',
-                        value: aishubUsername,
-                        changed: usernameChanged,
-                        commit: function () { storedAishubUsername = aishubUsername; },
+                        key: 'ais_api_key', value: apiKey, changed: keyFirst || keyClearFirst, commit: commitApiKey,
+                    },
+                    {
+                        key: 'aishub_username', value: aishubUsername, changed: userFirst, commit: commitUsername,
                     },
                     {
                         key: 'ais_source',
@@ -345,13 +369,28 @@
                         commit: function () { storedAisSource = aisSource; },
                     },
                     {
-                        // Sist: ais_api_key — skrivningen triggar käll-
-                        // omkonfigurationen i appen, så username/källval
-                        // ska redan vara på plats när den landar.
                         key: 'ais_api_key',
                         value: apiKey,
-                        changed: apiKeyChanged,
-                        commit: function () { storedApiKey = apiKey; },
+                        changed: apiKeyChanged && !keyFirst && apiKey !== '',
+                        commit: commitApiKey,
+                    },
+                    {
+                        key: 'aishub_username',
+                        value: aishubUsername,
+                        changed: usernameChanged && !userFirst && aishubUsername !== '',
+                        commit: commitUsername,
+                    },
+                    {
+                        key: 'aishub_username',
+                        value: aishubUsername,
+                        changed: usernameChanged && aishubUsername === '',
+                        commit: commitUsername,
+                    },
+                    {
+                        key: 'ais_api_key',
+                        value: apiKey,
+                        changed: apiKeyChanged && apiKey === '' && !keyClearFirst,
+                        commit: commitApiKey,
                     },
                 ], function (err2, failedKey) {
                     saving = false;
