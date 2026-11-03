@@ -1342,7 +1342,8 @@ class AISBridgeApp extends Homey.App {
       if (!bridge) continue;
       const distance = geometry.calculateDistance(vessel.lat, vessel.lon, bridge.lat, bridge.lon);
       if (!Number.isFinite(distance)) continue;
-      const atQuay = this.vesselDataService?.isNearMooringZone?.(vessel.lat, vessel.lon) === true;
+      const quayZone = this.vesselDataService?.getMooringZoneAt?.(vessel.lat, vessel.lon) || null;
+      const atQuay = quayZone !== null;
       // KINNE 2026-09-21: bekräftat förtöjd i drygt 40 h utanför de ritade
       // kajzonerna. Öppningsmotorn avväpnade anflygningen, men dess nya kort
       // vid avgången spärrades av den gamla ankomsten. Läs samma förtöjnings-
@@ -1350,6 +1351,16 @@ class AISBridgeApp extends Homey.App {
       // fortfarande samma ankomst. Enbart navstatus eller tid räcker inte.
       const atConfirmedMooring = vessel._moored === true
         && distance > BRIDGE_OPENING.DISARM_MOORED_MIN_DISTANCE_M;
+      // En kajzon som ligger mitt i brons väntzon bär queueGraceMs
+      // ("Kajen norr om Klaffbron", 15 min): där är ett kort stopp brokö, inte
+      // ett kajstopp. Samma regel som förtöjningsklassningen
+      // (VesselDataService._classifyMooring): köskyddet gäller när bron ligger
+      // inom DISARM_MOORED_MIN_DISTANCE_M. Med en fast 30 s-gräns fick en båt
+      // som väntat ut öppningen vid kajen ett andra kort för samma öppning när
+      // hon lade ut (TIM och CHARLYS DREAM i both-21h, med båten isolerad).
+      const queueGraceMs = !atConfirmedMooring && atQuay
+        && distance <= BRIDGE_OPENING.DISARM_MOORED_MIN_DISTANCE_M
+        && Number(quayZone.queueGraceMs) > 0 ? Number(quayZone.queueGraceMs) : 0;
       const stop = entry.quayStop;
       const movedFromStop = stop && geometry.calculateDistance(stop.lat, stop.lon, vessel.lat, vessel.lon);
       if (stop?.confirmed && !atQuay && vessel._moored !== true
@@ -1365,15 +1376,19 @@ class AISBridgeApp extends Homey.App {
       // senare fallet, där förtöjningsdetektorn redan har positionsbevis.
       // Stoppet avslutas först av verklig avgång, aldrig av tid.
       if (atConfirmedMooring || (atQuay && Number.isFinite(vessel.sog) && vessel.sog <= 0.5)) {
-        if (!stop || movedFromStop >= 50
-            || (!stop.confirmed && fixTs - stop.lastFixTs > UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS)) {
+        // I en közon får ett AIS-glapp inte nollställa stoppet så länge båten
+        // ligger kvar på samma plats: en båt som övernattar vid kajen och
+        // stänger av AIS ska fortfarande kunna bekräfta stoppet nästa morgon.
+        const gapResetsStop = queueGraceMs === 0
+          && fixTs - (stop ? stop.lastFixTs : fixTs) > UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS;
+        if (!stop || movedFromStop >= 50 || (!stop.confirmed && gapResetsStop)) {
           entry.quayStop = {
             lat: vessel.lat, lon: vessel.lon, firstFixTs: fixTs, lastFixTs: fixTs, confirmed: false,
           };
           dirty = true;
         } else if (!stop.confirmed) {
           stop.lastFixTs = fixTs;
-          stop.confirmed = fixTs - stop.firstFixTs >= 30000;
+          stop.confirmed = fixTs - stop.firstFixTs >= Math.max(30000, queueGraceMs);
           dirty = true;
         }
       } else if (stop && !stop.confirmed) {
