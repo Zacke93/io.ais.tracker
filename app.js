@@ -1393,9 +1393,13 @@ class AISBridgeApp extends Homey.App {
         && distance > BRIDGE_OPENING.DISARM_MOORED_MIN_DISTANCE_M;
       // En kajzon som ligger mitt i brons väntzon bär queueGraceMs
       // ("Kajen norr om Klaffbron", 15 min): där är ett kort stopp brokö, inte
-      // ett kajstopp. Samma regel som förtöjningsklassningen
-      // (VesselDataService._classifyMooring): köskyddet gäller när bron ligger
-      // inom DISARM_MOORED_MIN_DISTANCE_M. Med en fast 30 s-gräns fick en båt
+      // ett kajstopp. Regeln liknar förtöjningsklassningens köundantag
+      // (VesselDataService._classifyMooring) men är inte densamma: där gäller
+      // undantaget inom 600 m från MÅLBRON och kräver rörelsebevis, och
+      // navstatus 1/5 klassar förtöjd direkt. Här räcker att kajzonen bär grace
+      // och att ankomstbron (kortets bro) ligger inom
+      // DISARM_MOORED_MIN_DISTANCE_M; inom det avståndet spelar varken navstatus
+      // eller _moored någon roll. Med en fast 30 s-gräns fick en båt
       // som väntat ut öppningen vid kajen ett andra kort för samma öppning när
       // hon lade ut (TIM och CHARLYS DREAM i both-21h, med båten isolerad).
       const queueGraceMs = !atConfirmedMooring && atQuay
@@ -3735,8 +3739,11 @@ class AISBridgeApp extends Homey.App {
         if (!isCurrent()) return;
       }
 
-      // Efter utfartsnotisen: den kan just ha reserverat Kanalinfartens besök,
-      // och även det besöket är avslutat när resan är fullbordad.
+      // Fullbordad resa: stäng båtens besök som fortfarande står öppna. Utfarts-
+      // notisen ovan kan inte ha öppnat något nytt besök i det fallet:
+      // fallbacken avstår söder om Kanalinfarten (lat < 58,268), och en
+      // fullbordad sydresa kräver lat < KANALINFARTEN_EXIT_LAT (58,2653). En
+      // fullbordad nordresa ligger kilometer bortom fallbackens 800 m.
       this._closeVisitsOnCompletedJourney(mmsi, vessel);
 
       // STEG 5: UPPDATERA UI

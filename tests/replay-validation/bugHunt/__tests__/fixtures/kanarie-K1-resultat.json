@@ -1,0 +1,384 @@
+{
+ "_om": {
+  "beskrivning": "Trimmat replayresultat för kanarie K1 (norrut, 5 kn, klass A, 30 s, R0). Taget en gång ur replayRunner vid HEAD 7699cbe; testar domarlogiken, inte appen.",
+  "kanarie": "K1-norr-5kn-A30",
+  "rader": 101,
+  "radHash": "2874d461b49ce502132912f52e89e9eadc4d9ff2c3825b87cbd7be4e2ddd8df8"
+ },
+ "resultat": {
+  "notifications": [
+   {
+    "t": 1784102700521,
+    "bridge": "Kanalinfarten",
+    "direction": "northbound",
+    "eta": 3,
+    "message": "KANARIE 1 närmar sig Kanalinfarten, beräknad ankomst om 3 minuter",
+    "alreadyPassed": false,
+    "name": "KANARIE 1",
+    "distance": 266,
+    "source": "trigger-point",
+    "stateBridge": "kanalinfarten",
+    "mmsi": "265900100",
+    "success": true,
+    "error": null,
+    "vesselLat": 58.26636324007374,
+    "vesselLon": 12.266063821672127,
+    "vesselLatNext": 58.26664060433001
+   },
+   {
+    "t": 1784103030521,
+    "bridge": "Olidebron",
+    "direction": "northbound",
+    "eta": 2,
+    "message": "KANARIE 1 närmar sig Olidebron, beräknad ankomst om 2 minuter",
+    "alreadyPassed": false,
+    "name": "KANARIE 1",
+    "distance": 285,
+    "source": "current",
+    "stateBridge": "olidebron",
+    "mmsi": "265900100",
+    "success": true,
+    "error": null,
+    "vesselLat": 58.27059205828437,
+    "vesselLon": 12.27245634518461,
+    "vesselLatNext": 58.27108847027267
+   },
+   {
+    "t": 1784103630521,
+    "bridge": "Klaffbron",
+    "direction": "northbound",
+    "eta": 2,
+    "message": "KANARIE 1 närmar sig Klaffbron, beräknad ankomst om 2 minuter",
+    "alreadyPassed": false,
+    "name": "KANARIE 1",
+    "distance": 281,
+    "source": "target",
+    "stateBridge": "klaffbron",
+    "mmsi": "265900100",
+    "success": true,
+    "error": null,
+    "vesselLat": 58.281620418113796,
+    "vesselLon": 12.282956172811202,
+    "vesselLatNext": 58.28223542801279
+   },
+   {
+    "t": 1784104200521,
+    "bridge": "Järnvägsbron",
+    "direction": "northbound",
+    "eta": 3,
+    "message": "KANARIE 1 närmar sig Järnvägsbron, beräknad ankomst om 3 minuter",
+    "alreadyPassed": false,
+    "name": "KANARIE 1",
+    "distance": 267,
+    "source": "current",
+    "stateBridge": "jarnvagsbron",
+    "mmsi": "265900100",
+    "success": true,
+    "error": null,
+    "vesselLat": 58.289628760352336,
+    "vesselLon": 12.289520445345131,
+    "vesselLatNext": 58.28997631769119
+   },
+   {
+    "t": 1784104350521,
+    "bridge": "Stridsbergsbron",
+    "direction": "northbound",
+    "eta": 4,
+    "message": "KANARIE 1 närmar sig Stridsbergsbron, beräknad ankomst om 4 minuter",
+    "alreadyPassed": false,
+    "name": "KANARIE 1",
+    "distance": 293,
+    "source": "target",
+    "stateBridge": "stridsbergsbron",
+    "mmsi": "265900100",
+    "success": true,
+    "error": null,
+    "vesselLat": 58.2913543540312,
+    "vesselLon": 12.29173626940659,
+    "vesselLatNext": 58.2917062340195
+   },
+   {
+    "t": 1784105100521,
+    "bridge": "Stallbackabron",
+    "direction": "northbound",
+    "eta": 1,
+    "message": "KANARIE 1 närmar sig Stallbackabron, beräknad ankomst om 1 minut",
+    "alreadyPassed": false,
+    "name": "KANARIE 1",
+    "distance": 276,
+    "source": "current",
+    "stateBridge": "stallbackabron",
+    "mmsi": "265900100",
+    "success": true,
+    "error": null,
+    "vesselLat": 58.307873995132056,
+    "vesselLon": 12.313766853766099,
+    "vesselLatNext": 58.308537340857555
+   }
+  ],
+  "openingWarnings": [
+   {
+    "t": 1784103324891,
+    "iso": "2026-07-15T08:15:24.891Z",
+    "bridge": "Klaffbron",
+    "direction": "northbound",
+    "etaMin": 7,
+    "vesselCount": 1,
+    "leadVessel": "KANARIE 1",
+    "firedBy": "deadline",
+    "eventId": "Klaffbron#2",
+    "leadMmsi": "265900100",
+    "mmsis": [
+     "265900100"
+    ],
+    "distance": 1051,
+    "dueMs": 1784103324890.4902,
+    "originalDueMs": 1784103018859.394,
+    "success": true,
+    "error": null
+   },
+   {
+    "t": 1784104320521,
+    "iso": "2026-07-15T08:32:00.521Z",
+    "bridge": "Stridsbergsbron",
+    "direction": "northbound",
+    "etaMin": 4,
+    "vesselCount": 1,
+    "leadVessel": "KANARIE 1",
+    "firedBy": "fix",
+    "eventId": "Stridsbergsbron#3",
+    "leadMmsi": "265900100",
+    "mmsis": [
+     "265900100"
+    ],
+    "distance": 339,
+    "dueMs": 1784104320521,
+    "originalDueMs": 1784103510521,
+    "success": true,
+    "error": null
+   }
+  ],
+  "openingCoverage": [
+   {
+    "t": 1784103324891,
+    "iso": "2026-07-15T08:15:24.891Z",
+    "mmsi": "265900100",
+    "bridge": "Klaffbron",
+    "eventId": "Klaffbron#2",
+    "reason": "fired"
+   },
+   {
+    "t": 1784104320521,
+    "iso": "2026-07-15T08:32:00.521Z",
+    "mmsi": "265900100",
+    "bridge": "Stridsbergsbron",
+    "eventId": "Stridsbergsbron#3",
+    "reason": "fired"
+   }
+  ],
+  "openingSuppressions": [],
+  "targetPassages": [
+   {
+    "t": 1784103750521,
+    "iso": "2026-07-15T08:22:30.521Z",
+    "mmsi": "265900100",
+    "bridge": "Klaffbron"
+   },
+   {
+    "t": 1784104500521,
+    "iso": "2026-07-15T08:35:00.521Z",
+    "mmsi": "265900100",
+    "bridge": "Stridsbergsbron"
+   }
+  ],
+  "intermediatePassages": [
+   {
+    "t": 1784103180521,
+    "iso": "2026-07-15T08:13:00.521Z",
+    "mmsi": "265900100",
+    "bridge": "Olidebron",
+    "noTarget": false
+   },
+   {
+    "t": 1784104380521,
+    "iso": "2026-07-15T08:33:00.521Z",
+    "mmsi": "265900100",
+    "bridge": "Järnvägsbron",
+    "noTarget": false
+   },
+   {
+    "t": 1784105220521,
+    "iso": "2026-07-15T08:47:00.521Z",
+    "mmsi": "265900100",
+    "bridge": "Stallbackabron",
+    "noTarget": true
+   }
+  ],
+  "bridgeTextTransitions": [
+   {
+    "t": 1784102550536,
+    "iso": "2026-07-15T08:02:30.536Z",
+    "text": "Inga båtar är i närheten av Klaffbron eller Stridsbergsbron"
+   },
+   {
+    "t": 1784102790546,
+    "iso": "2026-07-15T08:06:30.546Z",
+    "text": "En båt på väg mot Klaffbron, beräknad broöppning om 23 minuter"
+   },
+   {
+    "t": 1784102820546,
+    "iso": "2026-07-15T08:07:00.546Z",
+    "text": "En båt på väg mot Klaffbron, beräknad broöppning om 22 minuter"
+   },
+   {
+    "t": 1784102880546,
+    "iso": "2026-07-15T08:08:00.546Z",
+    "text": "En båt på väg mot Klaffbron, beräknad broöppning om 21 minuter"
+   },
+   {
+    "t": 1784102910546,
+    "iso": "2026-07-15T08:08:30.546Z",
+    "text": "En båt på väg mot Klaffbron, beräknad broöppning om 19 minuter"
+   },
+   {
+    "t": 1784102940546,
+    "iso": "2026-07-15T08:09:00.546Z",
+    "text": "En båt på väg mot Klaffbron, beräknad broöppning om 16 minuter"
+   },
+   {
+    "t": 1784102970546,
+    "iso": "2026-07-15T08:09:30.546Z",
+    "text": "En båt på väg mot Klaffbron, beräknad broöppning om 15 minuter"
+   },
+   {
+    "t": 1784103000546,
+    "iso": "2026-07-15T08:10:00.546Z",
+    "text": "En båt på väg mot Klaffbron, beräknad broöppning om 14 minuter"
+   },
+   {
+    "t": 1784103030546,
+    "iso": "2026-07-15T08:10:30.546Z",
+    "text": "En båt på väg mot Klaffbron, beräknad broöppning om 13 minuter"
+   },
+   {
+    "t": 1784103090546,
+    "iso": "2026-07-15T08:11:30.546Z",
+    "text": "En båt på väg mot Klaffbron, beräknad broöppning om 12 minuter"
+   },
+   {
+    "t": 1784103120546,
+    "iso": "2026-07-15T08:12:00.546Z",
+    "text": "En båt på väg mot Klaffbron, beräknad broöppning om 11 minuter"
+   },
+   {
+    "t": 1784103180546,
+    "iso": "2026-07-15T08:13:00.546Z",
+    "text": "En båt på väg mot Klaffbron, beräknad broöppning om 10 minuter"
+   },
+   {
+    "t": 1784103240546,
+    "iso": "2026-07-15T08:14:00.546Z",
+    "text": "En båt på väg mot Klaffbron, beräknad broöppning om 9 minuter"
+   },
+   {
+    "t": 1784103270546,
+    "iso": "2026-07-15T08:14:30.546Z",
+    "text": "En båt på väg mot Klaffbron, beräknad broöppning om 8 minuter"
+   },
+   {
+    "t": 1784103330546,
+    "iso": "2026-07-15T08:15:30.546Z",
+    "text": "En båt på väg mot Klaffbron, beräknad broöppning om 7 minuter"
+   },
+   {
+    "t": 1784103390546,
+    "iso": "2026-07-15T08:16:30.546Z",
+    "text": "En båt på väg mot Klaffbron, beräknad broöppning om 6 minuter"
+   },
+   {
+    "t": 1784103450546,
+    "iso": "2026-07-15T08:17:30.546Z",
+    "text": "En båt på väg mot Klaffbron, beräknad broöppning om 5 minuter"
+   },
+   {
+    "t": 1784103510546,
+    "iso": "2026-07-15T08:18:30.546Z",
+    "text": "En båt på väg mot Klaffbron, beräknad broöppning om 4 minuter"
+   },
+   {
+    "t": 1784103570546,
+    "iso": "2026-07-15T08:19:30.546Z",
+    "text": "En båt på väg mot Klaffbron, beräknad broöppning om 3 minuter"
+   },
+   {
+    "t": 1784103600546,
+    "iso": "2026-07-15T08:20:00.546Z",
+    "text": "En båt på väg mot Klaffbron, beräknad broöppning strax"
+   },
+   {
+    "t": 1784103750546,
+    "iso": "2026-07-15T08:22:30.546Z",
+    "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 9 minuter"
+   },
+   {
+    "t": 1784103780546,
+    "iso": "2026-07-15T08:23:00.546Z",
+    "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 10 minuter"
+   },
+   {
+    "t": 1784103840546,
+    "iso": "2026-07-15T08:24:00.546Z",
+    "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 11 minuter"
+   },
+   {
+    "t": 1784103930546,
+    "iso": "2026-07-15T08:25:30.546Z",
+    "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 10 minuter"
+   },
+   {
+    "t": 1784103990546,
+    "iso": "2026-07-15T08:26:30.546Z",
+    "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 9 minuter"
+   },
+   {
+    "t": 1784104050546,
+    "iso": "2026-07-15T08:27:30.546Z",
+    "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 8 minuter"
+   },
+   {
+    "t": 1784104110546,
+    "iso": "2026-07-15T08:28:30.546Z",
+    "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 7 minuter"
+   },
+   {
+    "t": 1784104170546,
+    "iso": "2026-07-15T08:29:30.546Z",
+    "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 6 minuter"
+   },
+   {
+    "t": 1784104230546,
+    "iso": "2026-07-15T08:30:30.546Z",
+    "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 5 minuter"
+   },
+   {
+    "t": 1784104290546,
+    "iso": "2026-07-15T08:31:30.546Z",
+    "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 4 minuter"
+   },
+   {
+    "t": 1784104350546,
+    "iso": "2026-07-15T08:32:30.546Z",
+    "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning strax"
+   },
+   {
+    "t": 1784104500546,
+    "iso": "2026-07-15T08:35:00.546Z",
+    "text": "Inga båtar är i närheten av Klaffbron eller Stridsbergsbron"
+   }
+  ],
+  "journeyResets": [],
+  "visitReentries": [],
+  "confirmedTargetWaits": [],
+  "processErrors": 0
+ }
+}

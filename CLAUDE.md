@@ -27,6 +27,8 @@ Svar och kodkommentarer på svenska.
     Kör namngivna korpusar med `npm run replay:phase -- <jsonl>` och även
     `REPLAY_MONITORING=1` när ändringen rör tidsstyrning eller livscykel.
 - Lint: `npm run lint`
+- Buggjägaren (rapporterar bara, ingår MEDVETET inte i `validate`): `npm run hunt`, `hunt:quick`,
+  `hunt:night`, `hunt:selftest`, `hunt:repro -- <fynd>`; utdata i git-ignorerade `dirigent/hunt/`. Se `docs/BUGGJAKT.md`.
 
 ## Struktur (stabila delar)
 

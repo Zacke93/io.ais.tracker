@@ -1,0 +1,721 @@
+{
+  "_om": "Beslutsregistret för buggjägaren (BUGGJAKT §7). En maskinläsbar SPEGEL av ägarbesluten: källan är alltid docs/ eller koden, och ett nytt beslut skrivs först där. Motorn ändrar aldrig den här filen. Ett utslag omklassas bara när orakel, klassRegex och predikat alla matchar; ett fatalt invariantutslag (INV-F) omklassas dessutom bara av en post som namnger INV-id:t i gäller.inv (en taggpost utan inv-lista når alla INV-F-fynd, eftersom den aldrig omklassar). Ordningen spelar roll: första matchande post vinner (poster med verkan 'tagg' lägger bara till en tagg). Oanvända poster redovisas i varje rapport så att inga amnestier ligger kvar efter en rättning. Sammanslaget 2026-11-04 ur map-oracles/decision-registry-draft.json och design-mutation/beslutsregister-utkast.json. Integrationen 2026-11-04 lade till KANALINFARTEN-FP8-SYDGRIND (bankkalibreringens enda oregistrerade träff) och utvidgade O1 till kort ledtid och varning efter sann passage för båtar som inte var varningsbara. Rättningsrundan 2026-11-04 (BUGGJAKT §7, listan över registerändringar): KIE-PER-KORPUS kräver samma episod och gäller inte låst bank (M03); D4-RIKTNING-UNKNOWN gäller bara M-FAS-riktningsbyten med ny riktning unknown (M05); fem poster som oraklen tillämpar själva har verkan 'iOraklet' (M12); konvojposternas predikat delar definitioner med T2-oraklet (M04, T-2); nya poster MÄTGRÄNS-INV10-VÄNTKEDJA (T-1) och S10-VÄNDNING-BRON-BAKOM (T-3); efterrättningen samma dag snävade KIE-PER-KORPUS till |δ| + episodens längd + en tick och högst en träff per undantag och variant. Runda 2 samma dag (BUGGJAKT §7, rad 10–14): S10-VÄNDNING-BRON-BAKOM kräver FIX_D_MIN_SOG på zonens första fix och ingen bekräftande zonfix (E1); MÄTGRÄNS-INV10-VÄNTKEDJA godtar inget glapp som innehåller en halvminutstick (E2); KIE-PER-KORPUS tar episodens längd bara ur undantaget och bara för klasser vars tid är episodens slut, så DEFAULT-FLASH jämförs med |δ| + en tick (E3); orakelvakterna pekar på symboler (fil#namn) som laddningen kontrollerar (E5); taggposter når INV-F-fynd (E7). Efterrättningen i runda 2 (rad 15): S10-VÄNDNING-BRON-BAKOM spelar Fix D över fartygets fixar före zonen och godtar inte en färsk pending-flagga eller en reversal som redan bekräftats före zonen.",
+  "version": 1,
+  "poster": [
+    {
+      "id": "STRESS-TÄTHET",
+      "klass": "MÄTGRÄNS",
+      "verkan": "tagg",
+      "datum": "2026-11-04",
+      "källa": "tests/replay-validation/bugHunt/lib/registry.js (predikatet stressDensity); fältets svans enligt docs/BUGGJAKT.md §4.4",
+      "gäller": {
+        "orakel": [
+          "*"
+        ],
+        "klassRegex": ".*"
+      },
+      "predikat": {
+        "namn": "stressDensity",
+        "parametrar": {
+          "kedja": 6,
+          "glappMin": 10,
+          "maxSamtidiga": 9
+        }
+      },
+      "regel": "En värld vars UPPMÄTTA täthet ligger över fältets svans (en kedja med minst 6 korsningar av samma bro och riktning med högst 10 min mellanrum, eller fler än 9 samtidigt rörliga båtar) redovisas i rapportens stressavsnitt. Posten omklassar inte — den taggar."
+    },
+    {
+      "id": "KIE-PER-KORPUS",
+      "klass": "ACCEPTERAD",
+      "datum": "2026-07-18",
+      "källa": "tests/replay-validation/corpora.js:21–23 (knownInvariantExceptions, prefixmatch); tests/replay-validation/runAllCorpora.js:252–262 (FP9)",
+      "gäller": {
+        "orakel": [
+          "INV-F",
+          "M-FAS"
+        ],
+        "inv": [
+          "INV-3",
+          "INV-14"
+        ],
+        "klassRegex": "^INV-"
+      },
+      "predikat": {
+        "namn": "kiePrefix",
+        "parametrar": {
+          "tickS": 30
+        }
+      },
+      "regel": "Korpusens rådataverifierade invariantundantag gäller även fas- och mutantvarianter av SAMMA episod: prefixet (klassen) ska matcha ett knownInvariantException i korpusen, broarna ska vara desamma, fartyget detsamma när undantaget namnger ett, och utslagets tid ska ligga högst |δ| + L + en tick (30 s) från undantagets (δ = variantens fasförskjutning; L = undantagets egen längd för klasser vars tid är episodens slut, ETA-SÅGTAND UPP 'på Ns' och ETA-OSCILLATION 'inom Ns', annars 0). DEFAULT-FLASH:s tid är episodens start (invariants.js:170–180 och :438; ETA-klassernas tid är slutet, :321 och :351), så en flash jämförs start mot start med |δ| + en tick, och utslagets egen längd vidgar aldrig fönstret. Längden får variera (42h-flashen 30 s → 56–60 s vid fasskift, och med δ −7, −11,52 och −20 s börjar den en tick tidigare, 30 s isär). Ett undantag förklarar högst en träff per variant, den närmaste. En ny episod vid samma bro vid en annan tid omfattas inte. På den låsta banken (relation BAS) gäller bara runAllCorpora:s exakta prefixmatch, ingen registeramnesti."
+    },
+    {
+      "id": "INV5-VS-BESÖKSREGEL",
+      "klass": "KONFLIKT",
+      "datum": "2026-11-04",
+      "källa": "docs/VALIDATION.md:296–300 (§Invarianterna: varje målbropassage kräver sin EGEN notis, även returpassagen) mot docs/ARCHITECTURE.md:1040 och lib/services/TriggerPointVisitTracker.js:12–16 (besöksregeln 2026-09-07)",
+      "gäller": {
+        "orakel": [
+          "INV-F"
+        ],
+        "inv": [
+          "INV-5",
+          "INV-7"
+        ],
+        "klassRegex": "^INV-(5|7) "
+      },
+      "predikat": {
+        "namn": "sameVisit",
+        "parametrar": {
+          "utfärdM": 350,
+          "fixar": 2,
+          "radieM": 300
+        }
+      },
+      "regel": "Två registrerade målbropassager inom SAMMA besök (inga två konsekutiva fixar över 350 m mellan dem) ger bara en notis enligt besöksregeln, men INV-5/7 kräver en notis per passage.",
+      "doktriner": [
+        {
+          "text": "Räkningsbaserade INV-5/7: varje registrerad målbropassage kräver sin egen notis i tid — även returpassagen av samma bro.",
+          "källa": "docs/VALIDATION.md:296–300"
+        },
+        {
+          "text": "Besöksregeln 2026-09-07: en notis per (mmsi, punkt) och besök; ny notis kräver faktisk utfärd (två rena fixar över 350 m) och återkomst inom 300 m.",
+          "källa": "lib/services/TriggerPointVisitTracker.js:12–16; docs/ARCHITECTURE.md:1040"
+        }
+      ],
+      "fråga": "En U-sväng inom ungefär 365 m bortom en målbro ger två registrerade målbropassager men bara en notis, eftersom båten aldrig lämnar besöket. Vilken doktrin gäller: en notis per passage (INV-5/7) eller en notis per besök (besöksregeln)?"
+    },
+    {
+      "id": "D1-KAJZON-DEMOTION",
+      "klass": "KONFLIKT",
+      "datum": "2026-11-04",
+      "källa": "lib/constants.js:415–470 (MOORING_ZONES, queueGraceMs) mot docs/reliability-spec.md:83 och :102 (INV-B1/D1)",
+      "gäller": {
+        "orakel": [
+          "INV-F",
+          "T6"
+        ],
+        "inv": [
+          "INV-14"
+        ],
+        "klassRegex": "DEFAULT-FLASH|LIVENESS"
+      },
+      "predikat": {
+        "namn": "mooringCapsuleStationary",
+        "parametrar": {
+          "minStillaMin": 3,
+          "minAvståndM": 600
+        }
+      },
+      "regel": "En båt som står still minst 3 min i en kajkapsel när målbron ligger mer än 600 m bort demoteras enligt zonregeln, vilket kan ge en DEFAULT-flash.",
+      "doktriner": [
+        {
+          "text": "Zonregeln: en stillaliggare i en kajkapsel klassas som förtöjd efter baskravet 3 min; köundantaget (queueGraceMs) gäller bara med målbro inom 600 m.",
+          "källa": "lib/constants.js:415–470"
+        },
+        {
+          "text": "INV-B1/D1: texten visar aldrig DEFAULT när ett relevant fartyg är inom 500 m av en målbro på aktiv resa; stoppad båt behålls som 'på väg mot X'.",
+          "källa": "docs/reliability-spec.md:83, :102"
+        }
+      ],
+      "fråga": "En båt som står still minst 3 min i Kajens kapsel när målbron ligger mer än 600 m bort demoteras och ger en fatal INV-14 (DEFAULT-flash). Är det avsett, eller bryter det mot INV-B1/D1?"
+    },
+    {
+      "id": "OMSTART-DEFAULT-FÖRE-FÖRSTA-FIX",
+      "klass": "KÄND_ÖPPEN",
+      "datum": "2026-11-04",
+      "källa": "app.js:487 (_lastBridgeText lever bara i minnet och börjar tomt vid onInit); beslut saknas (kartläggningen map-faults 2026-11-04)",
+      "gäller": {
+        "orakel": [
+          "INV-F",
+          "T11"
+        ],
+        "inv": [
+          "INV-14"
+        ],
+        "klassRegex": "DEFAULT"
+      },
+      "predikat": {
+        "namn": "defaultUntilFirstFixAfterRestart",
+        "parametrar": {
+          "maxS": 60
+        }
+      },
+      "regel": "Efter en omstart visar enheten DEFAULT tills nästa fix kommer; en DEFAULT-episod från omstarten till högst 60 s efter första fixen är känd men obeslutad.",
+      "fråga": "Är det acceptabelt att brotexten visar DEFAULT efter en omstart tills nästa fix kommer, eller ska senaste text persisteras?"
+    },
+    {
+      "id": "MÄTGRÄNS-INV17-R0",
+      "klass": "MÄTGRÄNS",
+      "datum": "2026-07-03",
+      "källa": "tests/replay-validation/invariants.js:613 och :688–704 (INV-17 textflappbudget, kalibrerad mot fältkadens 2026-07-03)",
+      "gäller": {
+        "orakel": [
+          "INV-W"
+        ],
+        "klassRegex": "^INV-17"
+      },
+      "predikat": {
+        "namn": "profileIs",
+        "parametrar": {
+          "profiler": [
+            "R0"
+          ]
+        }
+      },
+      "regel": "INV-17:s flappbudget är kalibrerad mot fältets kadens; idealradions fasta 30 s-kadens ger fler textbyten per timme utan att något är fel (111 utslag i 53 av 100 R0-världar i prototypen)."
+    },
+    {
+      "id": "MÄTGRÄNS-INV10-VÄNTKEDJA",
+      "klass": "MÄTGRÄNS",
+      "datum": "2026-11-04",
+      "källa": "tests/replay-validation/invariants.js:476–503 (INV-10 godtar bara ETT bekräftat väntintervall som når nästa övergång); tests/replay-validation/replayRunner.js:293–311 (confirmedTargetWaits: ett nytt intervall när nästa textgenerering kommer efter until, alltså vid varje fixglapp); docs/etapp7-plan-2026-08-08.md:15 (U6: 'strax' vid lång väntan är sanktionerat); lib/services/BridgeTextService.js:304–308 (hasFreshPosition: 'strax' kräver färsk position)",
+      "gäller": {
+        "orakel": [
+          "INV-F"
+        ],
+        "inv": [
+          "INV-10"
+        ],
+        "klassRegex": "^INV-10 STRAX-ZOMBIE$"
+      },
+      "predikat": {
+        "namn": "chainedConfirmedWait",
+        "parametrar": {
+          "maxGlappS": 30,
+          "maxSvansS": 30,
+          "startMin": 10,
+          "tickS": 30,
+          "tickFördröjningMs": 40
+        }
+      },
+      "regel": "En 'strax'-text som står länge vid en målbro är sanktionerad medan väntan är färskt bekräftad (U6, INV-10). Harnessen delar den bekräftade väntan i ett intervall per fixglapp, och halvminutstickens text byts upp till en tick efter sista intervallet. När intervallen för bron bildar en kedja med högst 30 s mellan angränsande intervall och ingen halvminutstick inne i något glapp, börjar senast 10 min efter strax-övergången och slutar högst 30 s före nästa övergång, är INV-10:s utslag en mätgräns (F18 i första standardrapporten: glappet 08:59:44,854–08:59:57,860 utan tick, svans 26 s). Ett glapp eller en svans över en tick omfattas inte, och inte heller ett glapp som innehåller en halvminutstick (UI-klockans absoluta halvminuter, app.js:13089–13096, med tickens text inom 40 ms, app.js:5513–5520): där är positionen inte färsk, så en korrekt app byter text vid ticken ('strax' kräver hasFreshPosition), och ett 'strax' som står kvar är just det INV-10 vaktar. Samma granularitet finns i replay:all, där INV-10 körs oförändrad."
+    },
+    {
+      "id": "K20-FASKÄNSLIG-LEDARE",
+      "klass": "KÄND_ÖPPEN",
+      "datum": "2026-08-21",
+      "källa": "docs/ARCHITECTURE.md:752–760 (K20, känd defekt ej åtgärdad); docs/VALIDATION.md:223–232 (Facit-fällan p. 6)",
+      "gäller": {
+        "orakel": [
+          "M-FAS"
+        ],
+        "klassRegex": "^ÖPPNING"
+      },
+      "predikat": {
+        "namn": "leaderOnlyChange",
+        "parametrar": {
+          "maxSpridningMs": 150,
+          "sökfönsterMin": 10
+        }
+      },
+      "regel": "Ledarvalet inom AISHub-pollens 150 ms-spridning kan byta ledare, riktning eller ETA på samma kort beroende på klockfas. Gäller bara parade kortbyten där den alternativa ledaren låg i samma pollkluster — INTE tillagda eller tappade varningar.",
+      "fråga": "Ska ledarvalet inom en AISHub-polls 150 ms-spridning göras fasoberoende (t.ex. batch-settle före avfyrning), eller accepteras knivseggen?"
+    },
+    {
+      "id": "D4-RIKTNING-UNKNOWN",
+      "klass": "DESIGN",
+      "datum": "2026-07-02",
+      "källa": "docs/reliability-spec.md:45 och :105 (D4, reviderad 2026-07-02)",
+      "gäller": {
+        "orakel": [
+          "M-FAS"
+        ],
+        "klassRegex": "^(NOTIS|ÖPPNINGS)RIKTNING BYTT$"
+      },
+      "predikat": {
+        "namn": "directionUnknown",
+        "parametrar": {}
+      },
+      "regel": "'unknown' när riktningen är osäker är aldrig fel. Posten gäller ett parat riktningsbyte i en fasvariant (NOTISRIKTNING BYTT, ÖPPNINGSRIKTNING BYTT) vars nya riktning är unknown (belägg.nyRiktning). En tappad, tillagd eller förskjuten notis omfattas inte, och inte heller en BESTÄMD riktning som motsäger sanningen. T9 tillämpar D4 själv: anspråk med riktningen unknown döms inte (tests/replay-validation/bugHunt/lib/oracles/t9Direction.js:55–58)."
+    },
+    {
+      "id": "BN1-BOXKANT",
+      "klass": "KÄND_ÖPPEN",
+      "datum": "2026-11-03",
+      "källa": "docs/helgranskning-2026-11-03.md:162–172 (beslutspunkt 2, utfarter vid boxkanten)",
+      "gäller": {
+        "orakel": [
+          "T1"
+        ],
+        "klassRegex": "NOTIS-UTEBLIVEN"
+      },
+      "predikat": {
+        "namn": "boxEdgeExit",
+        "parametrar": {
+          "punkter": [
+            "Kanalinfarten",
+            "Stallbackabron"
+          ],
+          "utfärdM": 350,
+          "fixar": 2,
+          "minGlappS": 600
+        }
+      },
+      "regel": "En båt som lämnar bevakningsområdet vid Kanalinfarten eller Stallbackabron utan två fixar bortom 350 m lämnar ett öppet besök och tappar sin första notis vid återkomsten (VISTEN, S/V REBEL, JUNO).",
+      "fråga": "Ska en utåtriktad transit vid ytterpunkterna räknas som utfärd (alternativ a), eller ska bevakningsboxen vidgas vid utfarterna (alternativ b)?"
+    },
+    {
+      "id": "KANALINFARTEN-FP8-SYDGRIND",
+      "klass": "DESIGN",
+      "datum": "2026-08-08",
+      "källa": "docs/ARCHITECTURE.md:410–413 (Trigger-punktens två grenar: sydgående kräver kanalrelevans, FP8); docs/etapp7-plan-2026-08-08.md:485 (FP8:s sydgrind stoppade ANNA och S/Y DESIREE i 42h)",
+      "gäller": {
+        "orakel": [
+          "T1"
+        ],
+        "klassRegex": "NOTIS-UTEBLIVEN"
+      },
+      "predikat": {
+        "namn": "sydgrindUtanKanalrelevans",
+        "parametrar": {
+          "punkt": "Kanalinfarten",
+          "marginalDeg": 0.0009
+        }
+      },
+      "regel": "En sydgående båt vid Kanalinfarten får ingen notis utan kanalrelevans: ingen passerad bro och en episodstart som inte ligger norr om punkten (TRIGGER_POINT_SIDE_MARGIN_DEG 0,0009°). Bankträff: S/Y DESIREE (265731470) i 20260806-42h."
+    },
+    {
+      "id": "SKIPPA-BRO-ÅLDER-17MIN",
+      "klass": "DESIGN",
+      "datum": "2026-08-08",
+      "källa": "tests/replay-validation/runSyntheticScenarios.js:423–426 (gap-35min-över-Klaffbron: notisen är då >17 min gammal = medvetet inte notifierad)",
+      "gäller": {
+        "orakel": [
+          "T1"
+        ],
+        "klassRegex": "NOTIS-UTEBLIVEN"
+      },
+      "predikat": {
+        "namn": "inferenceAge",
+        "parametrar": {
+          "minÅlderMin": 17
+        }
+      },
+      "regel": "En bro som passerats i ett långt glapp notifieras medvetet inte när slutsatsen är äldre än cirka 17 min vid första fixen efter glappet."
+    },
+    {
+      "id": "D3-2H-DEDUP",
+      "klass": "DESIGN",
+      "datum": "2026-06-03",
+      "källa": "docs/reliability-spec.md:49 och :104 (D3, persistent 2 h-dedup över omstart)",
+      "gäller": {
+        "orakel": [
+          "T1",
+          "T11"
+        ],
+        "klassRegex": "NOTIS-UTEBLIVEN|TAPPAD-NOTIS"
+      },
+      "predikat": {
+        "namn": "dedup2h",
+        "parametrar": {
+          "fönsterMin": 120
+        }
+      },
+      "regel": "Samma mmsi:bro i samma riktning notifieras inte igen inom 2 h, även över omstart; motsatt riktning är en ny passage."
+    },
+    {
+      "id": "BESÖKSREGEL-2026-09-07",
+      "klass": "DESIGN",
+      "datum": "2026-09-07",
+      "källa": "lib/services/TriggerPointVisitTracker.js:12–16; docs/ARCHITECTURE.md:1040 (trigger_point_visits, besöksregeln 2026-09-07)",
+      "gäller": {
+        "orakel": [
+          "T1"
+        ],
+        "klassRegex": "NOTIS-UTEBLIVEN"
+      },
+      "predikat": {
+        "namn": "sameVisit",
+        "parametrar": {
+          "utfärdM": 350,
+          "fixar": 2,
+          "radieM": 300
+        }
+      },
+      "regel": "En notis per (mmsi, bro eller Kanalinfarten) och besök. Ny notis kräver faktisk utfärd (två rena fixar över 350 m) och återkomst inom 300 m. Tystnad, förtöjning och timeout stänger inget besök."
+    },
+    {
+      "id": "S10-VÄNDNING-BRON-BAKOM",
+      "klass": "DESIGN",
+      "datum": "2026-08-23",
+      "källa": "docs/ARCHITECTURE.md:1928 (FIXRUNDA 6 LIGHT, användarbeslut 2026-08-23: S10 och S6 godkända); docs/ARCHITECTURE.md:1871–1874 och :1962–1966 (S10 i notisvägen: avstå när Fix D:s färska pending-reversal motsäger tokenriktningen och bron ligger bakom fartyget); app.js:9708–9783 (_fixDReversalContradictsNotification, tre krav) och app.js:10288–10298 (FLOW_TRIGGER_SKIP_PENDING_REVERSAL); lib/services/VesselDataService.js:380–407 och :446–476 (FIX_D_MIN_SOG och blockets yttre villkor, kursbanden mot riktningslåset, pending-flaggan, den bekräftande fixen och nollningen)",
+      "gäller": {
+        "orakel": [
+          "T1"
+        ],
+        "klassRegex": "^NOTIS-UTEBLIVEN$"
+      },
+      "predikat": {
+        "namn": "reversalAwayFromBridge",
+        "parametrar": {
+          "radieM": 300,
+          "maxÅlderMin": 15
+        }
+      },
+      "regel": "S10-vakten avstår från notisen när båten vänder före bron: fixen före besöket hade det gamla kursbandet, och alla fixar inom 300 m under besöket går i det nya bandet med minst MIN_VIABLE_SPEED, med bron bakom sig och inom 15 min (FIX_D_PENDING_MAX_AGE_MS) från den första. Zonens första fix har dessutom minst FIX_D_MIN_SOG (2,0 kn, läst ur VesselDataService.js) och sätter Fix D:s pending-flagga. Det gör den bara när riktningslåset fortfarande är det gamla bandet och ingen färsk flagga redan finns, så predikatet spelar Fix D över fartygets fixar före zonen, med det gamla bandet som lås: en fix med minst FIX_D_MIN_SOG som är omvänd mot låset sätter flaggan, eller bekräftar reversalen och byter lås om en flagga i samma riktning är yngre än 15 min; en fix med minst FIX_D_MIN_SOG som inte är omvänd nollar flaggan; långsammare fixar rör ingenting. Med en färsk flagga bekräftar zonens första fix reversalen och notisen går ut, och efter en reversal som bekräftats före zonen är den inte omvänd och sätter ingen flagga; i båda fallen avstår S10-vakten inte. Ingen senare zonfix har minst FIX_D_MIN_SOG, eftersom en andra omvänd fix med minst den farten bekräftar reversalen och då går notisen ut. Notisen ägs då av den bekräftade reversalen, och kommer ingen fix till inom radien uteblir den. Båten får inte ha korsat bron i besöket. Appen loggar FLOW_TRIGGER_SKIP_PENDING_REVERSAL; predikatet prövar vaktens villkor på raderna eftersom replayresultatet inte bär loggraden (F15 i första standardrapporten)."
+    },
+    {
+      "id": "KAJGRIND-UTAN-RÖRELSEBEVIS",
+      "klass": "DESIGN",
+      "verkan": "iOraklet",
+      "datum": "2026-09-06",
+      "källa": "lib/constants.js:1195–1197 (QUAY_DEPARTURE_GATE.TRANSIT_SOG_KN); docs/ARCHITECTURE.md:913 (Förtöjningslagren)",
+      "gäller": {
+        "orakel": [
+          "T1"
+        ],
+        "klassRegex": "NOTIS-UTEBLIVEN"
+      },
+      "predikat": {
+        "namn": "noMovementProof",
+        "parametrar": {
+          "minSogKn": 1.0,
+          "föreMin": 10
+        }
+      },
+      "regel": "Endast stillaliggande fixar (sog under 1,0 kn) inom radien bevisar ingen anflygning; kajgrinden och förtöjningslagren får tysta notisen.",
+      "orakelvakt": "tests/replay-validation/bugHunt/lib/oracles/t1Notice.js#judgeT1 (förutsättning 3, rörelsebeviset med MOVE_KN: ett besök utan fix med sog ≥ 1,0 kn i [tIn − 10 min; max(tOut, första fixen)] döms inte; räknaren utanRörelsebevis)"
+    },
+    {
+      "id": "U10-BN2-PASSERAD-FORM",
+      "klass": "DESIGN",
+      "verkan": "iOraklet",
+      "datum": "2026-11-03",
+      "källa": "docs/ARCHITECTURE.md:497–510 (P8/U10, retro-notisernas text); docs/helgranskning-2026-11-03.md (BN2)",
+      "gäller": {
+        "orakel": [
+          "T1"
+        ],
+        "klassRegex": "FORM"
+      },
+      "predikat": {
+        "namn": "passedForm",
+        "parametrar": {}
+      },
+      "regel": "Efter ett glapp är passerad form rätt: already_passed = true, eta_minutes = −1 och meningen 'passerade X under AIS-tystnad' / 'har precis passerat X'.",
+      "orakelvakt": "tests/replay-validation/bugHunt/lib/oracles/t1Notice.js#judgeT1 (formkravet FÖRVARNINGSFORM-EFTER-PASSAGE prövas bara när notisen saknar passerad form, alreadyPassed ≠ true)"
+    },
+    {
+      "id": "UNDER-BRO-BANDET-70M",
+      "klass": "DESIGN",
+      "verkan": "iOraklet",
+      "datum": "2026-11-03",
+      "källa": "lib/constants.js:46–47 (UNDER_BRIDGE_SET/CLEAR_DISTANCE 50/70 m); docs/helgranskning-2026-11-03.md (mellanbrons avståndsreserv)",
+      "gäller": {
+        "orakel": [
+          "T1",
+          "T10"
+        ],
+        "klassRegex": "FÖRVARNINGSFORM-EFTER-PASSAGE|MISS|EJ-REGISTRERAD"
+      },
+      "predikat": {
+        "namn": "fixBeyondLine",
+        "parametrar": {
+          "maxM": 70
+        }
+      },
+      "regel": "Inom 70 m bortom linjen räknas båten som under bron. En förvarningsform eller utebliven registrering när appens första fix bortom linjen ligger inom 70 m är inget brott.",
+      "orakelvakt": "tests/replay-validation/bugHunt/lib/oracles/t1Notice.js#judgeT1 (FÖRVARNINGSFORM-EFTER-PASSAGE kräver en fix mer än BEYOND_M = 70 m bortom linjen); tests/replay-validation/bugHunt/lib/oracles/t10Passage.js#decisiveFixAfter (PASSAGE-EJ-REGISTRERAD kräver en beslutsam fix mer än 70 m bortom linjen)"
+    },
+    {
+      "id": "U2-RETURRESA",
+      "klass": "KONFLIKT",
+      "datum": "2026-11-04",
+      "källa": "tests/replay-validation/invariants.js:866–871 (INV-21: returresan är en helt äkta ny öppning) mot docs/etapp7-plan-2026-08-08.md:9 (U2: en varning per öppning, väntande båtar hör till samma händelse)",
+      "gäller": {
+        "orakel": [
+          "T2"
+        ],
+        "klassRegex": "OKLASSAD|MISS"
+      },
+      "predikat": {
+        "namn": "uturnReturnAbsorbed",
+        "parametrar": {}
+      },
+      "regel": "En U-svängares returpassage hör till båtens egen äldre händelse när båten var täckt av händelsen vid utresan (medlem, ledare eller absorberad, även om returen absorberas på nytt) och returen sker inom händelsens konvojfönster [första passage; + CONVOY_WINDOW_MS]; returen får då ingen egen varning. Definitionen delas med T2-oraklet (tests/replay-validation/bugHunt/lib/konvoj.js, returresa).",
+      "doktriner": [
+        {
+          "text": "INV-21-texten: en U-svängares returpassage är en helt äkta ny öppning.",
+          "källa": "tests/replay-validation/invariants.js:866–871"
+        },
+        {
+          "text": "U2: strikt en varning per öppning; händelsen avgränsas av första faktiska passagen och väntande båtar hör till samma händelse.",
+          "källa": "docs/etapp7-plan-2026-08-08.md:9"
+        }
+      ],
+      "fråga": "Ska en U-svängares returpassage vara en ny öppning med egen varning (INV-21), eller får den absorberas i båtens egen äldre händelse (U2)?"
+    },
+    {
+      "id": "U2-VS-DEADLINE",
+      "klass": "KÄND_ÖPPEN",
+      "datum": "2026-08-09",
+      "källa": "docs/etapp7-plan-2026-08-08.md:310–349 (ETAPP C-IV:s utfall: U2 och deadline-garantin är ömsesidigt oförenliga, C8 återkallad)",
+      "gäller": {
+        "orakel": [
+          "T2"
+        ],
+        "klassRegex": "OKLASSAD|LEDTID"
+      },
+      "predikat": {
+        "namn": "crossingWithinEventWindow",
+        "parametrar": {
+          "fönsterMs": 600000
+        }
+      },
+      "regel": "Garantin förfaller medan båten är täckt: en korsning inom [händelsens första passage; + CONVOY_WINDOW_MS] hör till samma öppning enligt U2, när båten var täckt av den äldre händelsen före korsningen (medlem, ledare eller absorberad) och händelsens första passage är en ANNAN båts. Båtens egen utresa före en U-sväng räknas aldrig (den returen är U2-RETURRESA). Definitionen delas med T2-oraklet (tests/replay-validation/bugHunt/lib/konvoj.js, inomHändelsefönster).",
+      "fråga": "U2 mot deadline-garantin (etapp7-plan C-IV, val a/b/c) är fortfarande öppen. Vill du avgöra den, eller ska motorn fortsätta behandla sådana utfall som kända?"
+    },
+    {
+      "id": "J13-J14-KONVOJSEMANTIK",
+      "klass": "KÄND_ÖPPEN",
+      "datum": "2026-08-22",
+      "källa": "docs/ARCHITECTURE.md:1611–1628 (J13+J33 konvojbindningens värdval, J14 notePassage bokför inte armlösa båtars passager)",
+      "gäller": {
+        "orakel": [
+          "T2"
+        ],
+        "klassRegex": "OKLASSAD|LEDTID"
+      },
+      "predikat": {
+        "namn": "nonMemberCrossingBetween",
+        "parametrar": {}
+      },
+      "regel": "En öppning stängs i dag av en MEDLEMS passage; när en båt som inte var täckt av händelsen korsar mellan varningen och passagen, i en händelse som täckte båten och som fortfarande var öppen enligt medlemskravet (ingen täckt båt passerade mer än CONVOY_WINDOW_MS före passagen), är utfallet en känd konsekvens av medlemskravet. Hade en medlem passerat längre tillbaka hade täckningen löpt ut, och då är den uteblivna varningen en kandidat (konvojfönstrets bakkant). Definitionen delas med T2-oraklet (tests/replay-validation/bugHunt/lib/konvoj.js, ickeMedlemEmellan).",
+      "fråga": "Ska en öppning stängas av en medlems passage (dagens medlemskrav) eller av första faktiska passagen oavsett medlemskap?"
+    },
+    {
+      "id": "O1-ACCEPTERADE-MISSKLASSER",
+      "klass": "ACCEPTERAD",
+      "datum": "2026-08-22",
+      "källa": "tests/replay-validation/runOpeningGates.js:421–460 (classifyMiss); utvidgad till T2 LEDTID och T3 VARNING-EFTER-SANN-PASSAGE vid integrationen 2026-11-04 (byggets bankkalibrering)",
+      "gäller": {
+        "orakel": [
+          "T2",
+          "T3"
+        ],
+        "klassRegex": "TYST_I_HORISONTEN|FÖRST_SEDD_FÖR_NÄRA|SNABBARE_ÄN_DEADLINE_TAKET|RÖRELSEBEVIS_FÖR_SENT|RIKTNINGSBEVIS_FÖR_SENT|^LEDTID|^VARNING-EFTER-SANN-PASSAGE"
+      },
+      "predikat": {
+        "namn": "missklassAccepterad",
+        "parametrar": {}
+      },
+      "regel": "Missar som världens egna sampel förklarar (classifyMiss på världens rader) är informationsförlust, inte fel. Samma prov gäller en kort ledtid (T2 LEDTID<60s) och en varning efter sann passage (T3) när båten inte var varningsbar: först sedd för nära, snabbare än deadline-taket eller utan rörelse- eller riktningsbevis i tid."
+    },
+    {
+      "id": "FALSKLARM-AVBRUTEN-GLES",
+      "klass": "ACCEPTERAD",
+      "verkan": "iOraklet",
+      "datum": "2026-08-22",
+      "källa": "tests/replay-validation/runOpeningGates.js:1038–1070 (classifyPhantom: AVBRUTEN_APPROACH, GLES_ANFLYGNING); docs/ARCHITECTURE.md:703 (tystnad avväpnar aldrig)",
+      "gäller": {
+        "orakel": [
+          "T3"
+        ],
+        "klassRegex": "AVBRUTEN_APPROACH|GLES_ANFLYGNING"
+      },
+      "predikat": {
+        "namn": "l0Interruption",
+        "parametrar": {
+          "minStoppMin": 10,
+          "horisontMin": 120
+        }
+      },
+      "regel": "En äkta beväpnad anflygning som stannar, vänder eller tystnar ger ett accepterat falsklarm — men bara när L0 bekräftar avbrottet (U-sväng eller stopp i minst 10 min).",
+      "orakelvakt": "tests/replay-validation/runOpeningGates.js#classifyPhantom (AVBRUTEN_APPROACH och GLES_ANFLYGNING är accepterade); tests/replay-validation/bugHunt/lib/oracles/t2Opening.js#judgePhantom (en accepterad fantom är tyst bara när L0 visar korsning eller avbrott inom 120 min, annars FANTOM-UTAN-AVBROTT)"
+    },
+    {
+      "id": "DEADLINE-10KN-GARANTIPRIS",
+      "klass": "ACCEPTERAD",
+      "verkan": "iOraklet",
+      "datum": "2026-11-03",
+      "källa": "tests/replay-validation/runOpeningGates.js:1082–1112 (GARANTIPRIS); lib/constants.js:1329 (DEADLINE_MAX_SPEED_KN); docs/helgranskning-2026-11-03.md",
+      "gäller": {
+        "orakel": [
+          "T3"
+        ],
+        "klassRegex": ".*"
+      },
+      "predikat": {
+        "namn": "effectiveSpeedBelow",
+        "parametrar": {
+          "maxKn": 10
+        }
+      },
+      "regel": "Tidiga varningar och sena passager med effektiv anflygningsfart under 10 kn är deadline-garantins pris.",
+      "orakelvakt": "tests/replay-validation/runOpeningGates.js#classifyLatePassage (GARANTIPRIS är accepterad när veff < DEADLINE_MAX_SPEED_KN); tests/replay-validation/bugHunt/lib/oracles/t2Opening.js#judgePhantom (en accepterad sen passage ger inget utslag)"
+    },
+    {
+      "id": "FIXD-SLINGA",
+      "klass": "KÄND_ÖPPEN",
+      "datum": "2026-11-04",
+      "källa": "docs/ARCHITECTURE.md:2024–2029 (väntslinga ger accepterat AVBRUTEN_APPROACH-kort, ANYA ELAN i both-21h; slingskydd är ett användarbeslut)",
+      "gäller": {
+        "orakel": [
+          "T3",
+          "T9"
+        ],
+        "klassRegex": ".*"
+      },
+      "predikat": {
+        "namn": "holdPattern",
+        "parametrar": {
+          "minVändningar": 2,
+          "minM": 150,
+          "fönsterMin": 60
+        }
+      },
+      "regel": "En väntslinga med minst två vändningar på minst 150 m inom 60 min kan ge kort och riktning mot motsatt målbro.",
+      "fråga": "Ska väntslingor få ett slingskydd (beväpna först efter nästa fix i samma riktning)?"
+    },
+    {
+      "id": "OMSTART-ARMAR-EJ-PERSISTERADE",
+      "klass": "KOSTNAD",
+      "datum": "2026-08-03",
+      "källa": "docs/trigger-etapp6-oppningsmotorn-2026-08-03.md:260–264 (ingen arm-persistens över omstart i v1); docs/ARCHITECTURE.md:742–745",
+      "gäller": {
+        "orakel": [
+          "T11"
+        ],
+        "klassRegex": "TAPPAD-VARNING"
+      },
+      "predikat": {
+        "namn": "restartWithin",
+        "parametrar": {
+          "föreMin": 30,
+          "efterMin": 0
+        }
+      },
+      "regel": "v1 persisterar inga öppningsarmar; en varning som tappas av en omstart mitt i en anflygning är beslutsenlig och redovisas som kostnad (antal per 100 omstarter)."
+    },
+    {
+      "id": "OMSTART-RESETILLSTÅND",
+      "klass": "KONFLIKT",
+      "datum": "2026-11-04",
+      "källa": "docs/ARCHITECTURE.md:1037 (last_known_positions skrivs bara vid removal) mot docs/reliability-spec.md:104 (D3: dedupen ska överleva omstart)",
+      "gäller": {
+        "orakel": [
+          "T11"
+        ],
+        "klassRegex": "TAPPAD-NOTIS"
+      },
+      "predikat": {
+        "namn": "restartWithin",
+        "parametrar": {
+          "föreMin": 30,
+          "efterMin": 0
+        }
+      },
+      "regel": "Levande fartygs resetillstånd (lastPassedBridge, riktningslåset, senaste position) överlever inte en graciös omstart, så en notis kan tappas efter omstarten.",
+      "doktriner": [
+        {
+          "text": "Persistensen: last_known_positions skrivs vid removal, inte för båtar som fortfarande är i farten.",
+          "källa": "docs/ARCHITECTURE.md:1037"
+        },
+        {
+          "text": "D3: notisdedupen ska överleva omstart — omstarten ska varken ge dubbletter eller tappa beslut.",
+          "källa": "docs/reliability-spec.md:104"
+        }
+      ],
+      "fråga": "Ska levande fartygs resetillstånd (lastPassedBridge, riktningslåset och last_known_positions) överleva en graciös omstart?"
+    },
+    {
+      "id": "LATENT-INBROMSNING",
+      "klass": "KÄND_ÖPPEN",
+      "datum": "2026-11-03",
+      "källa": "docs/helgranskning-2026-11-03.md:177–183 (beslutspunkt 4, latenta fynd utan uppmätt effekt)",
+      "gäller": {
+        "orakel": [
+          "T8"
+        ],
+        "klassRegex": ".*"
+      },
+      "predikat": {
+        "namn": "stillNearBridge",
+        "parametrar": {
+          "minM": 270,
+          "maxM": 350,
+          "maxSogKn": 0.5
+        }
+      },
+      "regel": "Inbromsning efter glapp ger 'om 3–4 minuter' vid målbron; latent och bara syntetiskt belagt (T8 kommer i v1.1).",
+      "fråga": "Ska stillastående 270–350 m före målbron visas som väntan i stället för 'om 3–4 minuter'?"
+    },
+    {
+      "id": "P8-L6-SPÖKTEXT",
+      "klass": "KÄND_ÖPPEN",
+      "datum": "2026-11-03",
+      "källa": "docs/helgranskning-2026-11-03.md:148–161 (beslutspunkt 1, spöktext på tom kanal)",
+      "gäller": {
+        "orakel": [
+          "T5"
+        ],
+        "klassRegex": ".*"
+      },
+      "predikat": {
+        "namn": "aldrig",
+        "parametrar": {}
+      },
+      "regel": "P8-vakten håller senaste båttexten när tystnadsmåttet är omätbart; i standardreplay är vakten omätbar (J30), så posten kan inte matcha i v1.",
+      "fråga": "Ska P8 använda U12:s svarspredikat så att DEFAULT släpps igenom på tom kanal?"
+    },
+    {
+      "id": "MÄTGRÄNS-TOKEN-TIMEOUT",
+      "klass": "MÄTGRÄNS",
+      "datum": "2026-08-08",
+      "källa": "tests/replay-validation/replayRunner.js:181–205 (A8(ii): GLOBAL_TOKEN_TIMEOUT är en artefakt av den synkrona 30 s-ticken)",
+      "gäller": {
+        "orakel": [
+          "H3"
+        ],
+        "klassRegex": ".*"
+      },
+      "predikat": {
+        "namn": "stderrSignature",
+        "parametrar": {
+          "regex": "GLOBAL_TOKEN_TIMEOUT"
+        }
+      },
+      "regel": "GLOBAL_TOKEN_TIMEOUT räknas (suppressedTokenTimeouts) men dömer inte."
+    },
+    {
+      "id": "GPS_JUMP-DIAGNOSTIK",
+      "klass": "DESIGN",
+      "datum": "2026-11-04",
+      "källa": "lib/utils/GPSJumpAnalyzer.js:545 (diagnostikraden [GPS_JUMP]); bankens stderr-baslinje (4 rader på 26 körningar, map-harness)",
+      "gäller": {
+        "orakel": [
+          "H3"
+        ],
+        "klassRegex": ".*"
+      },
+      "predikat": {
+        "namn": "stderrSignature",
+        "parametrar": {
+          "regex": "\\[GPS_JUMP(_DETECTED)?\\]"
+        }
+      },
+      "regel": "GPS-hoppdiagnostiken skrivs på stderr som [APP ERROR] men är avsiktlig diagnostik, inte ett fel."
+    },
+    {
+      "id": "MÄTGRÄNS-FACIT-SIDLED",
+      "klass": "MÄTGRÄNS",
+      "datum": "2026-08-10",
+      "källa": "tests/replay-validation/makeGtPassages.js:134–145 (sidledsgrinden FAIRWAY_MAX_OFFSET_M = 250 m)",
+      "gäller": {
+        "orakel": [
+          "T10",
+          "S-KALIBRERING"
+        ],
+        "klassRegex": ".*"
+      },
+      "predikat": {
+        "namn": "lateralOffset",
+        "parametrar": {
+          "minM": 250,
+          "fönsterMin": 30
+        }
+      },
+      "regel": "Rådatafacitet bokför ingen korsning när en fix i paret ligger mer än 250 m från farleden; en app-passage för en sådan båt kan sakna facitkorsning utan att vara fel (RIB 218023240, fix 877 m utanför farleden)."
+    }
+  ]
+}

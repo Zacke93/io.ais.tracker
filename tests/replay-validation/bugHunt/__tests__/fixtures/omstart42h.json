@@ -1,0 +1,142 @@
+{
+ "_om": "20260806-42h med ctrl:restart 2026-08-07T10:54:22.426Z (map-oracles restart-out 0.75). BridgeOpeningService börjar om _eventSeq i nya instansen, så Klaffbron#4 och Stridsbergsbron#6 förekommer i båda. Utdrag: bara dessa händelser. Kört med replayRunner på HEAD 7699cbe 2026-11-04.",
+ "rader": [
+  {
+   "ctrl": "restart",
+   "aisTimestamp": 1786100062426
+  }
+ ],
+ "resultat": {
+  "jsonl": "r42.jsonl",
+  "initialState": {
+   "source": "empty",
+   "capturedAt": null,
+   "settingsKeys": []
+  },
+  "openingWarnings": [
+   {
+    "t": 1785978634578,
+    "iso": "2026-08-06T01:10:34.578Z",
+    "bridge": "Stridsbergsbron",
+    "direction": "southbound",
+    "etaMin": 5,
+    "vesselCount": 1,
+    "leadVessel": "NOSSAN",
+    "firedBy": "deadline",
+    "eventId": "Stridsbergsbron#3",
+    "leadMmsi": "231906000",
+    "mmsis": [
+     "231906000"
+    ],
+    "distance": 1370,
+    "dueMs": 1785978634577.6582,
+    "originalDueMs": 1785978513086.4585,
+    "success": true,
+    "error": null
+   },
+   {
+    "t": 1785979052621,
+    "iso": "2026-08-06T01:17:32.621Z",
+    "bridge": "Klaffbron",
+    "direction": "southbound",
+    "etaMin": 5,
+    "vesselCount": 1,
+    "leadVessel": "NOSSAN",
+    "firedBy": "fix",
+    "eventId": "Klaffbron#4",
+    "leadMmsi": "231906000",
+    "mmsis": [
+     "231906000"
+    ],
+    "distance": 778,
+    "dueMs": 1785979052621,
+    "originalDueMs": 1785978942000,
+    "success": true,
+    "error": null
+   },
+   {
+    "t": 1786103109631,
+    "iso": "2026-08-07T11:45:09.631Z",
+    "bridge": "Klaffbron",
+    "direction": "southbound",
+    "etaMin": 13,
+    "vesselCount": 1,
+    "leadVessel": "MISTRAL",
+    "firedBy": "deadline",
+    "eventId": "Klaffbron#4",
+    "leadMmsi": "219025192",
+    "mmsis": [
+     "219025192"
+    ],
+    "distance": 1202,
+    "dueMs": 1786103109630.4565,
+    "originalDueMs": 1786103109630.4565,
+    "success": true,
+    "error": null
+   },
+   {
+    "t": 1786104155297,
+    "iso": "2026-08-07T12:02:35.297Z",
+    "bridge": "Stridsbergsbron",
+    "direction": "southbound",
+    "etaMin": 6,
+    "vesselCount": 1,
+    "leadVessel": "MS JUTLAND",
+    "firedBy": "deadline",
+    "eventId": "Stridsbergsbron#6",
+    "leadMmsi": "211718360",
+    "mmsis": [
+     "211718360"
+    ],
+    "distance": 1313,
+    "dueMs": 1786104155296.7896,
+    "originalDueMs": 1786104060290.0767,
+    "success": true,
+    "error": null
+   }
+  ],
+  "openingCoverage": [
+   {
+    "t": 1785978634578,
+    "iso": "2026-08-06T01:10:34.578Z",
+    "mmsi": "231906000",
+    "bridge": "Stridsbergsbron",
+    "eventId": "Stridsbergsbron#3",
+    "reason": "fired"
+   },
+   {
+    "t": 1785979052621,
+    "iso": "2026-08-06T01:17:32.621Z",
+    "mmsi": "231906000",
+    "bridge": "Klaffbron",
+    "eventId": "Klaffbron#4",
+    "reason": "fired"
+   },
+   {
+    "t": 1786103109631,
+    "iso": "2026-08-07T11:45:09.631Z",
+    "mmsi": "219025192",
+    "bridge": "Klaffbron",
+    "eventId": "Klaffbron#4",
+    "reason": "fired"
+   },
+   {
+    "t": 1786103130000,
+    "iso": "2026-08-07T11:45:30.000Z",
+    "mmsi": "211214850",
+    "bridge": "Klaffbron",
+    "eventId": "Klaffbron#4",
+    "reason": "absorbed"
+   },
+   {
+    "t": 1786104155297,
+    "iso": "2026-08-07T12:02:35.297Z",
+    "mmsi": "211718360",
+    "bridge": "Stridsbergsbron",
+    "eventId": "Stridsbergsbron#6",
+    "reason": "fired"
+   }
+  ],
+  "openingSuppressions": []
+ }
+}

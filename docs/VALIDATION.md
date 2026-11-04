@@ -493,6 +493,34 @@ gäller följande — det är läxan från K6 (ARCHITECTURE §8 (e)):
    sak. Facit säger *"texten är oförändrad"*, harnessen säger *"siffran är
    sann"*. Båda krävs.
 
+## Buggjägaren — diagnosverktyg, INTE en gate (2026-11-04)
+
+`tests/replay-validation/bugHunt/hunt.js` letar fel offline ur de 24 låsta
+korpusarna och ur syntetiska världar med facit, så att appen inte behöver köras
+live och felsökas i efterhand. Den **rapporterar bara**: den rättar ingenting,
+låser aldrig om facit, sätter aldrig `REGEN_*` och ändrar inte
+beslutsregistret. Därför ingår den inte i `npm run validate` eller
+`validate:full` — samma skäl som för täckningskartan och korpuslåsningens
+grindar. Exitkoden är 0 när motorn körde klart, även med fynd; 2 vid
+självtest- eller motorfel; 1 vid felaktig användning.
+
+```bash
+npm run hunt:selftest           # fas 0: banken ×2, M-EXAKT, kanarier, rundresa, S-KALIBRERING
+npm run hunt:quick              # ~1,5 min: 300 världar, M-FAS på +7/−11,52 s
+npm run hunt                    # ~5 min: 2 000 världar, sju δ
+npm run hunt:night              # 20 000 världar, 13 δ, även REPLAY_MONITORING=1
+npm run hunt:repro -- <fynd>    # kör om ett sparat fynd mot aktuell HEAD
+```
+
+Utdata hamnar i git-ignorerade `dirigent/hunt/<stämpel>-<sha7>-<profil>-s<seed>/`
+(`rapport.md`, `rapport.json`, `fynd/Fnn-*/`). Ett kort är en **kandidat** tills
+du triagerat det (`docs/BUGGJAKT.md` §15): en bugg rättas separat med vanlig
+validering, ett avsett beteende skrivs först i docs/ och får sedan en post i
+`bugHunt/beslutsregister.json`, ett motorfel rättas i motorn — aldrig i
+registret. Självtestet stoppar jakten (exit 2) om banken inte är byte-identisk,
+om M-EXAKT bryts, om ett instrumentkrav är 0 eller om rundresan inte är
+bitlik; då går inga andra fynd att lita på förrän det är utrett.
+
 ## Fältprov / ny korpus (så samlas verklighet in)
 
 **Hel-loggsjämförelse (2026-09-06):**

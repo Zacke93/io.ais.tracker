@@ -1,0 +1,407 @@
+{
+ "_om": {
+  "beskrivning": "S-KANARIE: fem R0-världar med exakt känt facit. Instrumentkrav stoppar körningen (INSTRUMENT BLINT, exit 2); produktförväntningar ger kortet KANARIE överst i rapporten.",
+  "verktyg": "tests/replay-validation/bugHunt/tools/writeCanaries.js --write",
+  "källa": "orakelkatalogen S-KANARIE (buggjägarens designunderlag 2026-11-04)"
+ },
+ "kanarier": [
+  {
+   "id": "K1-norr-5kn-A30",
+   "beskrivning": "norrut, 5 kn, klass A, 30 s",
+   "radio": {
+    "profil": "R0",
+    "overrides": {},
+    "intervalS": 30
+   },
+   "instrumentkrav": [
+    "notiser > 0",
+    "minst 2 målbropassager per transit",
+    "mellanbropassager > 0",
+    "minst 1 öppningsvarning",
+    "textövergångar > 0"
+   ],
+   "förväntningar": [
+    "exakt en notis per punkt och transit (6 st)",
+    "2 målbropassager per transit",
+    "en varning per målbro; alla målbrokorsningar täckta med ledtid över kanariegolvet max(60 s; WARNING_LEAD_MS − TICK_INTERVAL_MS − kadens − 10 s)",
+    "DEFAULT inom 120 s efter sista målbrokorsningen (uppmätt 21–54 s)"
+   ],
+   "spec": {
+    "version": 1,
+    "generator": "bugHunt/families v1 (kanarie)",
+    "seed": 42,
+    "basSeed": null,
+    "index": null,
+    "familj": "S-KANARIE",
+    "avseddTäthet": "realistisk",
+    "startMs": 1784102400000,
+    "durS": 10800,
+    "era": "aisstream",
+    "night": false,
+    "localHour": 10,
+    "radioSeed": 42,
+    "fokal": {
+     "familj": "S-KANARIE",
+     "mmsis": [
+      "265900100"
+     ],
+     "parametrar": {
+      "id": "K1-norr-5kn-A30"
+     },
+     "nyckel": []
+    },
+    "boats": [
+     {
+      "mmsi": "265900100",
+      "name": "KANARIE 1",
+      "cls": "A",
+      "role": "transit",
+      "dir": "north",
+      "tStartS": 60,
+      "sStart": -350,
+      "sEnd": 7150,
+      "cruiseKn": 5,
+      "v0Kn": 5,
+      "laneM": 0,
+      "queueLaneM": 0,
+      "lateralSigma": 0,
+      "plan": [],
+      "tags": [
+       "klass-A",
+       "norrut",
+       "kanarie"
+      ],
+      "seed": 7,
+      "fokal": true,
+      "fixedIntervalS": 30
+     }
+    ],
+    "events": []
+   }
+  },
+  {
+   "id": "K2-syd-5kn-A30",
+   "beskrivning": "söderut, 5 kn, klass A, 30 s",
+   "radio": {
+    "profil": "R0",
+    "overrides": {},
+    "intervalS": 30
+   },
+   "instrumentkrav": [
+    "notiser > 0",
+    "minst 2 målbropassager per transit",
+    "mellanbropassager > 0",
+    "minst 1 öppningsvarning",
+    "textövergångar > 0"
+   ],
+   "förväntningar": [
+    "exakt en notis per punkt och transit (6 st)",
+    "2 målbropassager per transit",
+    "en varning per målbro; alla målbrokorsningar täckta med ledtid över kanariegolvet max(60 s; WARNING_LEAD_MS − TICK_INTERVAL_MS − kadens − 10 s)",
+    "DEFAULT inom 120 s efter sista målbrokorsningen (uppmätt 21–54 s)"
+   ],
+   "spec": {
+    "version": 1,
+    "generator": "bugHunt/families v1 (kanarie)",
+    "seed": 42,
+    "basSeed": null,
+    "index": null,
+    "familj": "S-KANARIE",
+    "avseddTäthet": "realistisk",
+    "startMs": 1784102400000,
+    "durS": 10800,
+    "era": "aisstream",
+    "night": false,
+    "localHour": 10,
+    "radioSeed": 42,
+    "fokal": {
+     "familj": "S-KANARIE",
+     "mmsis": [
+      "265900100"
+     ],
+     "parametrar": {
+      "id": "K2-syd-5kn-A30"
+     },
+     "nyckel": []
+    },
+    "boats": [
+     {
+      "mmsi": "265900100",
+      "name": "KANARIE 1",
+      "cls": "A",
+      "role": "transit",
+      "dir": "south",
+      "tStartS": 60,
+      "sStart": 7150,
+      "sEnd": -350,
+      "cruiseKn": 5,
+      "v0Kn": 5,
+      "laneM": 0,
+      "queueLaneM": 0,
+      "lateralSigma": 0,
+      "plan": [],
+      "tags": [
+       "klass-A",
+       "söderut",
+       "kanarie"
+      ],
+      "seed": 7,
+      "fokal": true,
+      "fixedIntervalS": 30
+     }
+    ],
+    "events": []
+   }
+  },
+  {
+   "id": "K3-norr-8kn-A30",
+   "beskrivning": "norrut, 8 kn, klass A, 30 s",
+   "radio": {
+    "profil": "R0",
+    "overrides": {},
+    "intervalS": 30
+   },
+   "instrumentkrav": [
+    "notiser > 0",
+    "minst 2 målbropassager per transit",
+    "mellanbropassager > 0",
+    "minst 1 öppningsvarning",
+    "textövergångar > 0"
+   ],
+   "förväntningar": [
+    "exakt en notis per punkt och transit (6 st)",
+    "2 målbropassager per transit",
+    "en varning per målbro; alla målbrokorsningar täckta med ledtid över kanariegolvet max(60 s; WARNING_LEAD_MS − TICK_INTERVAL_MS − kadens − 10 s)",
+    "DEFAULT inom 120 s efter sista målbrokorsningen (uppmätt 21–54 s)"
+   ],
+   "spec": {
+    "version": 1,
+    "generator": "bugHunt/families v1 (kanarie)",
+    "seed": 42,
+    "basSeed": null,
+    "index": null,
+    "familj": "S-KANARIE",
+    "avseddTäthet": "realistisk",
+    "startMs": 1784102400000,
+    "durS": 10800,
+    "era": "aisstream",
+    "night": false,
+    "localHour": 10,
+    "radioSeed": 42,
+    "fokal": {
+     "familj": "S-KANARIE",
+     "mmsis": [
+      "265900100"
+     ],
+     "parametrar": {
+      "id": "K3-norr-8kn-A30"
+     },
+     "nyckel": []
+    },
+    "boats": [
+     {
+      "mmsi": "265900100",
+      "name": "KANARIE 1",
+      "cls": "A",
+      "role": "transit",
+      "dir": "north",
+      "tStartS": 60,
+      "sStart": -350,
+      "sEnd": 7150,
+      "cruiseKn": 8,
+      "v0Kn": 8,
+      "laneM": 0,
+      "queueLaneM": 0,
+      "lateralSigma": 0,
+      "plan": [],
+      "tags": [
+       "klass-A",
+       "norrut",
+       "kanarie"
+      ],
+      "seed": 7,
+      "fokal": true,
+      "fixedIntervalS": 30
+     }
+    ],
+    "events": []
+   }
+  },
+  {
+   "id": "K4-norr-5kn-B60",
+   "beskrivning": "norrut, 5 kn, klass B, 60 s",
+   "radio": {
+    "profil": "R0",
+    "overrides": {
+     "forceClassA": false
+    },
+    "intervalS": 60
+   },
+   "instrumentkrav": [
+    "notiser > 0",
+    "minst 2 målbropassager per transit",
+    "mellanbropassager > 0",
+    "minst 1 öppningsvarning",
+    "textövergångar > 0"
+   ],
+   "förväntningar": [
+    "exakt en notis per punkt och transit (6 st)",
+    "2 målbropassager per transit",
+    "en varning per målbro; alla målbrokorsningar täckta med ledtid över kanariegolvet max(60 s; WARNING_LEAD_MS − TICK_INTERVAL_MS − kadens − 10 s)",
+    "DEFAULT inom 120 s efter sista målbrokorsningen (uppmätt 21–54 s)"
+   ],
+   "spec": {
+    "version": 1,
+    "generator": "bugHunt/families v1 (kanarie)",
+    "seed": 42,
+    "basSeed": null,
+    "index": null,
+    "familj": "S-KANARIE",
+    "avseddTäthet": "realistisk",
+    "startMs": 1784102400000,
+    "durS": 10800,
+    "era": "aisstream",
+    "night": false,
+    "localHour": 10,
+    "radioSeed": 42,
+    "fokal": {
+     "familj": "S-KANARIE",
+     "mmsis": [
+      "265900100"
+     ],
+     "parametrar": {
+      "id": "K4-norr-5kn-B60"
+     },
+     "nyckel": []
+    },
+    "boats": [
+     {
+      "mmsi": "265900100",
+      "name": "KANARIE 1",
+      "cls": "B",
+      "role": "transit",
+      "dir": "north",
+      "tStartS": 60,
+      "sStart": -350,
+      "sEnd": 7150,
+      "cruiseKn": 5,
+      "v0Kn": 5,
+      "laneM": 0,
+      "queueLaneM": 0,
+      "lateralSigma": 0,
+      "plan": [],
+      "tags": [
+       "klass-B",
+       "norrut",
+       "kanarie"
+      ],
+      "seed": 7,
+      "fokal": true,
+      "fixedIntervalS": 60
+     }
+    ],
+    "events": []
+   }
+  },
+  {
+   "id": "K5-konvoj-norr-3min",
+   "beskrivning": "konvojpar norrut, 5 kn, klass A, 30 s, 3 min mellanrum",
+   "radio": {
+    "profil": "R0",
+    "overrides": {},
+    "intervalS": 30
+   },
+   "instrumentkrav": [
+    "notiser > 0",
+    "minst 2 målbropassager per transit",
+    "mellanbropassager > 0",
+    "minst 1 öppningsvarning",
+    "minst 1 openingCoverage med reason absorbed (bara konvojparet)",
+    "textövergångar > 0"
+   ],
+   "förväntningar": [
+    "exakt en notis per punkt och transit (6 st)",
+    "2 målbropassager per transit",
+    "en varning per målbro; alla målbrokorsningar täckta med ledtid över kanariegolvet max(60 s; WARNING_LEAD_MS − TICK_INTERVAL_MS − kadens − 10 s)",
+    "DEFAULT inom 120 s efter sista målbrokorsningen (uppmätt 21–54 s)"
+   ],
+   "spec": {
+    "version": 1,
+    "generator": "bugHunt/families v1 (kanarie)",
+    "seed": 42,
+    "basSeed": null,
+    "index": null,
+    "familj": "S-KANARIE",
+    "avseddTäthet": "realistisk",
+    "startMs": 1784102400000,
+    "durS": 10800,
+    "era": "aisstream",
+    "night": false,
+    "localHour": 10,
+    "radioSeed": 42,
+    "fokal": {
+     "familj": "S-KANARIE",
+     "mmsis": [
+      "265900100",
+      "265900111"
+     ],
+     "parametrar": {
+      "id": "K5-konvoj-norr-3min"
+     },
+     "nyckel": []
+    },
+    "boats": [
+     {
+      "mmsi": "265900100",
+      "name": "KANARIE 1",
+      "cls": "A",
+      "role": "transit",
+      "dir": "north",
+      "tStartS": 60,
+      "sStart": -350,
+      "sEnd": 7150,
+      "cruiseKn": 5,
+      "v0Kn": 5,
+      "laneM": 0,
+      "queueLaneM": 0,
+      "lateralSigma": 0,
+      "plan": [],
+      "tags": [
+       "klass-A",
+       "norrut",
+       "kanarie"
+      ],
+      "seed": 7,
+      "fokal": true,
+      "fixedIntervalS": 30
+     },
+     {
+      "mmsi": "265900111",
+      "name": "KANARIE 2",
+      "cls": "A",
+      "role": "transit",
+      "dir": "north",
+      "tStartS": 240,
+      "sStart": -350,
+      "sEnd": 7150,
+      "cruiseKn": 5,
+      "v0Kn": 5,
+      "laneM": 0,
+      "queueLaneM": 0,
+      "lateralSigma": 0,
+      "plan": [],
+      "tags": [
+       "klass-A",
+       "norrut",
+       "kanarie"
+      ],
+      "seed": 8,
+      "fokal": true,
+      "fixedIntervalS": 30
+     }
+    ],
+    "events": []
+   }
+  }
+ ]
+}

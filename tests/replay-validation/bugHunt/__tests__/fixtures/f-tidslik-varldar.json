@@ -1,0 +1,276 @@
+{
+ "_om": {
+  "beskrivning": "Rättare F, runda 2 (E6): målbåtens rader, världens ctrl-rader, L0:s korsningar och besök för båten och alla levererade notiser för båten i standardvärldarna 856, 86, 783 och 1731 (basSeed 1; radio och monitoring som i sanningsspåret). Tagna en gång vid HEAD 7699cbe: världen byggd med families.sampleWorld och synthCore.materialize (radHash nedan), replayRunner i skrubbad miljö, trimmad till målbåten. T1-domen för båten prövades lika på hela och på trimmade världen, med motorn före och efter E6.",
+  "harness": "tests/replay-validation/replayRunner.js:749–769 (vesselLat/vesselLon/vesselLatNext)"
+ },
+ "världar": [
+  {
+   "värld": 856,
+   "mmsi": "265606311",
+   "bro": "Järnvägsbron",
+   "kort": "F21 (stress)",
+   "väntat": "artefakt",
+   "basSeed": 1,
+   "radio": "R1",
+   "monitoring": false,
+   "seed": 255763617,
+   "radHash": "72519ef9dcbf8eb472243ce7fe974e3c37189d7e59b9c260401f974626f23d54",
+   "rader": [
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.320665119489256,"lon":12.323648316584087,"sog":4.8,"cog":198.5,"navStatus":0,"aisTimestamp":1781177656588,"fixTs":1781177656588,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.31992786227763,"lon":12.32322216605078,"sog":4.9,"cog":203.7,"navStatus":0,"aisTimestamp":1781177692466,"fixTs":1781177692466,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.31844897770515,"lon":12.322157017395712,"sog":4.7,"cog":204.3,"navStatus":0,"aisTimestamp":1781177761313,"fixTs":1781177761313,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.31764632091731,"lon":12.321662773592221,"sog":4.9,"cog":202.7,"navStatus":0,"aisTimestamp":1781177798507,"fixTs":1781177798507,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.314963750799244,"lon":12.320092397162039,"sog":4.9,"cog":200.6,"navStatus":0,"aisTimestamp":1781177924817,"fixTs":1781177924817,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.313628713708574,"lon":12.319313353801997,"sog":4.9,"cog":228.6,"navStatus":0,"aisTimestamp":1781177989458,"fixTs":1781177989458,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.30339515117047,"lon":12.306815362138062,"sog":4.2,"cog":215.3,"navStatus":0,"aisTimestamp":1781178593436,"fixTs":1781178593436,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.3029811694857,"lon":12.30599505040064,"sog":4.2,"cog":212.9,"navStatus":0,"aisTimestamp":1781178617902,"fixTs":1781178617902,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.298829453811116,"lon":12.301095856077941,"sog":4.2,"cog":209.5,"navStatus":0,"aisTimestamp":1781178867604,"fixTs":1781178867604,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.29521502901832,"lon":12.296953784092219,"sog":4,"cog":247.7,"navStatus":0,"aisTimestamp":1781179084467,"fixTs":1781179084467,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.29167663836014,"lon":12.29208896790008,"sog":3.2,"cog":207.5,"navStatus":0,"aisTimestamp":1781179350449,"fixTs":1781179350449,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.29106446326528,"lon":12.291303543483519,"sog":3.1,"cog":214.2,"navStatus":0,"aisTimestamp":1781179397268,"fixTs":1781179397268,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.28930663396404,"lon":12.28906249300549,"sog":3.1,"cog":214.5,"navStatus":0,"aisTimestamp":1781179538321,"fixTs":1781179538321,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.28879293755991,"lon":12.288296137650145,"sog":3.5,"cog":214.4,"navStatus":0,"aisTimestamp":1781179583913,"fixTs":1781179583913,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.287905080836985,"lon":12.287301499980355,"sog":3.4,"cog":213.6,"navStatus":0,"aisTimestamp":1781179650349,"fixTs":1781179650349,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.284789741228536,"lon":12.284305120662749,"sog":3.4,"cog":193.9,"navStatus":0,"aisTimestamp":1781179882115,"fixTs":1781179882115,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.284316697534635,"lon":12.283998402679611,"sog":3.4,"cog":197.4,"navStatus":0,"aisTimestamp":1781179915568,"fixTs":1781179915568,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.2810923525063,"lon":12.282653649939007,"sog":3.7,"cog":199.4,"navStatus":0,"aisTimestamp":1781180108119,"fixTs":1781180108119,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.27941214788137,"lon":12.281657063264156,"sog":3.6,"cog":195.5,"navStatus":0,"aisTimestamp":1781180215257,"fixTs":1781180215257,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.278503615426345,"lon":12.281018278875909,"sog":3.5,"cog":203.1,"navStatus":0,"aisTimestamp":1781180267100,"fixTs":1781180267100,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.27729659675705,"lon":12.280364952345796,"sog":3.5,"cog":198.7,"navStatus":0,"aisTimestamp":1781180345763,"fixTs":1781180345763,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.2768405243357,"lon":12.279959940538872,"sog":3.7,"cog":201.6,"navStatus":0,"aisTimestamp":1781180374415,"fixTs":1781180374415,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.27665427609174,"lon":12.279779225920283,"sog":3.6,"cog":203.9,"navStatus":0,"aisTimestamp":1781180389507,"fixTs":1781180389507,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.273686961113825,"lon":12.276700885321802,"sog":3.9,"cog":213.4,"navStatus":0,"aisTimestamp":1781180586373,"fixTs":1781180586373,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.27343609315136,"lon":12.276226170479568,"sog":3.5,"cog":250,"navStatus":0,"aisTimestamp":1781180606595,"fixTs":1781180606595,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.270592752782825,"lon":12.2723826248332,"sog":2.7,"cog":209.8,"navStatus":0,"aisTimestamp":1781180849060,"fixTs":1781180849060,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.269759423645986,"lon":12.271416237653295,"sog":3.1,"cog":210.6,"navStatus":0,"aisTimestamp":1781180925779,"fixTs":1781180925779,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.26957727002962,"lon":12.271124365181654,"sog":2.9,"cog":213.1,"navStatus":0,"aisTimestamp":1781180940960,"fixTs":1781180940960,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.26847737568808,"lon":12.269758011881793,"sog":2.9,"cog":207.6,"navStatus":0,"aisTimestamp":1781181042494,"fixTs":1781181042494,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.267371862027694,"lon":12.267953623499755,"sog":2.1,"cog":223.4,"navStatus":0,"aisTimestamp":1781181173506,"fixTs":1781181173506,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.266862245935606,"lon":12.266903937340405,"sog":2.2,"cog":222.3,"navStatus":0,"aisTimestamp":1781181245107,"fixTs":1781181245107,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.26569416106077,"lon":12.264366651690208,"sog":2.5,"cog":226.2,"navStatus":0,"aisTimestamp":1781181414297,"fixTs":1781181414297,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.26533905228038,"lon":12.263671612371136,"sog":1.9,"cog":232.1,"navStatus":0,"aisTimestamp":1781181465544,"fixTs":1781181465544,"feed":"aisstream"},
+    {"mmsi":"265606311","msgType":"PositionReport","lat":58.26518220066667,"lon":12.263421262402437,"sog":2,"cog":234,"navStatus":0,"aisTimestamp":1781181484731,"fixTs":1781181484731,"feed":"aisstream"}
+   ],
+   "notiser": [
+    {"t":1781178593436,"bridge":"Stallbackabron","direction":"southbound","eta":-1,"message":"XENIA passerade Stallbackabron under AIS-tystnad","alreadyPassed":true,"source":"passage-fallback","distance":919,"mmsi":"265606311","success":true,"vesselLat":58.30339515117047,"vesselLon":12.306815362138062,"vesselLatNext":58.3029811694857},
+    {"t":1781179084467,"bridge":"Stridsbergsbron","direction":"southbound","eta":2,"message":"XENIA närmar sig Stridsbergsbron, beräknad ankomst om 2 minuter","alreadyPassed":false,"source":"target","distance":234,"mmsi":"265606311","success":true,"vesselLat":58.29521502901832,"vesselLon":12.296953784092219,"vesselLatNext":58.29167663836014},
+    {"t":1781179397268,"bridge":"Järnvägsbron","direction":"southbound","eta":0,"message":"XENIA närmar sig Järnvägsbron, beräknad ankomst strax","alreadyPassed":false,"source":"current","distance":5,"mmsi":"265606311","success":true,"vesselLat":58.29167663836014,"vesselLon":12.29208896790008,"vesselLatNext":58.29106446326528},
+    {"t":1781179882115,"bridge":"Klaffbron","direction":"southbound","eta":1,"message":"XENIA närmar sig Klaffbron, beräknad ankomst om 1 minut","alreadyPassed":false,"source":"target","distance":80,"mmsi":"265606311","success":true,"vesselLat":58.284789741228536,"vesselLon":12.284305120662749,"vesselLatNext":58.284316697534635},
+    {"t":1781180586373,"bridge":"Olidebron","direction":"southbound","eta":1,"message":"XENIA närmar sig Olidebron, beräknad ankomst om 1 minut","alreadyPassed":false,"source":"current","distance":140,"mmsi":"265606311","success":true,"vesselLat":58.273686961113825,"vesselLon":12.276700885321802,"vesselLatNext":58.27343609315136},
+    {"t":1781180925779,"bridge":"Kanalinfarten","direction":"southbound","eta":2,"message":"XENIA närmar sig Kanalinfarten, beräknad ankomst om 2 minuter","alreadyPassed":false,"source":"trigger-point","distance":229,"mmsi":"265606311","success":true,"vesselLat":58.269759423645986,"vesselLon":12.271416237653295,"vesselLatNext":58.26957727002962}
+   ],
+   "sanning": {
+    "L0": {
+     "startMs": 1781176837000,
+     "endMs": 1781185487000,
+     "crossings": [
+      {"mmsi":"265606311","bridge":"Stallbackabron","t":1781178168664.7292,"dir":"syd","kn":4.82},
+      {"mmsi":"265606311","bridge":"Stridsbergsbron","t":1781179191491.4885,"dir":"syd","kn":4.25},
+      {"mmsi":"265606311","bridge":"Järnvägsbron","t":1781179354148.8713,"dir":"syd","kn":3.02},
+      {"mmsi":"265606311","bridge":"Klaffbron","t":1781179930986.6165,"dir":"syd","kn":3.27},
+      {"mmsi":"265606311","bridge":"Olidebron","t":1781180660143.6177,"dir":"syd","kn":3.68}
+     ],
+     "radius": [
+      {"mmsi":"265606311","bridge":"Stallbackabron","tIn":1781178051000,"tOut":1781178307000,"moving":true,"minDistM":17},
+      {"mmsi":"265606311","bridge":"Stridsbergsbron","tIn":1781179054000,"tOut":1781179379000,"moving":true,"minDistM":5},
+      {"mmsi":"265606311","bridge":"Järnvägsbron","tIn":1781179172000,"tOut":1781179532000,"moving":true,"minDistM":0},
+      {"mmsi":"265606311","bridge":"Klaffbron","tIn":1781179751000,"tOut":1781180087000,"moving":true,"minDistM":2},
+      {"mmsi":"265606311","bridge":"Olidebron","tIn":1781180501000,"tOut":1781180862000,"moving":true,"minDistM":8}
+     ],
+     "kVisits": [{"mmsi":"265606311","bridge":"Kanalinfarten","tIn":1781180880000,"tOut":1781181340000,"moving":true,"minDistM":15}]
+    },
+    "L1crossings": [
+     {"mmsi":"265606311","bridge":"Stallbackabron","t":1781178168664.7292,"dir":"syd","kn":4.82,"source":"L1","kind":"line","inferred":false,"gapS":604,"tFrom":1781177989458,"tTo":1781178593436,"tObs":1781178593436,"beforeM":451,"afterM":919},
+     {"mmsi":"265606311","bridge":"Stridsbergsbron","t":1781179191491.4885,"dir":"syd","kn":4.25,"source":"L1","kind":"line","inferred":false,"gapS":266,"tFrom":1781179084467,"tTo":1781179350449,"tObs":1781179350449,"beforeM":234,"afterM":251},
+     {"mmsi":"265606311","bridge":"Järnvägsbron","t":1781179354148.8713,"dir":"syd","kn":3.02,"source":"L1","kind":"line","inferred":false,"gapS":47,"tFrom":1781179350449,"tTo":1781179397268,"tObs":1781179397268,"beforeM":5,"afterM":77},
+     {"mmsi":"265606311","bridge":"Klaffbron","t":1781179930986.6165,"dir":"syd","kn":3.27,"source":"L1","kind":"line","inferred":false,"gapS":193,"tFrom":1781179915568,"tTo":1781180108119,"tObs":1781180108119,"beforeM":25,"afterM":342},
+     {"mmsi":"265606311","bridge":"Olidebron","t":1781180660143.6177,"dir":"syd","kn":3.68,"source":"L1","kind":"line","inferred":false,"gapS":242,"tFrom":1781180606595,"tTo":1781180849060,"tObs":1781180849060,"beforeM":101,"afterM":288}
+    ]
+   }
+  },
+  {
+   "värld": 86,
+   "mmsi": "265316661",
+   "bro": "Olidebron",
+   "kort": "F13 representant (SALTIS)",
+   "väntat": "äkta",
+   "basSeed": 1,
+   "radio": "R1",
+   "monitoring": false,
+   "seed": 607480844,
+   "radHash": "733a799f3052f702dfe9607abc0d60f3b99527c413330ec0440a4e0e235b09d1",
+   "rader": [
+    {"mmsi":"265316661","msgType":"AISHubPosition","lat":58.26555,"lon":12.26443,"sog":3.5,"cog":47,"navStatus":null,"aisTimestamp":1781772579808,"fixTs":1781772554000,"feed":"aishub"},
+    {"mmsi":"265316661","msgType":"AISHubPosition","lat":58.26627,"lon":12.26629,"sog":3.7,"cog":47,"navStatus":null,"aisTimestamp":1781772646290,"fixTs":1781772629000,"feed":"aishub"},
+    {"mmsi":"265316661","msgType":"AISHubPosition","lat":58.27345,"lon":12.27658,"sog":5.7,"cog":49.9,"navStatus":null,"aisTimestamp":1781773052513,"fixTs":1781773038000,"feed":"aishub"},
+    {"mmsi":"265316661","msgType":"AISHubPosition","lat":58.2749,"lon":12.27853,"sog":5.4,"cog":33,"navStatus":null,"aisTimestamp":1781773122244,"fixTs":1781773107000,"feed":"aishub"},
+    {"mmsi":"265316661","msgType":"AISHubPosition","lat":58.2764,"lon":12.2799,"sog":5.6,"cog":15.6,"navStatus":null,"aisTimestamp":1781773187999,"fixTs":1781773170000,"feed":"aishub"},
+    {"mmsi":"265316661","msgType":"AISHubPosition","lat":58.27822,"lon":12.28121,"sog":5.4,"cog":24.9,"navStatus":null,"aisTimestamp":1781773255972,"fixTs":1781773247000,"feed":"aishub"},
+    {"mmsi":"265316661","msgType":"AISHubPosition","lat":58.27958,"lon":12.28208,"sog":5.7,"cog":349.5,"navStatus":null,"aisTimestamp":1781773325194,"fixTs":1781773301000,"feed":"aishub"},
+    {"mmsi":"265316661","msgType":"AISHubPosition","lat":58.28832,"lon":12.288,"sog":3.8,"cog":24.2,"navStatus":null,"aisTimestamp":1781774067259,"fixTs":1781774028000,"feed":"aishub"},
+    {"mmsi":"265316661","msgType":"AISHubPosition","lat":58.28962,"lon":12.28972,"sog":3.5,"cog":30.9,"navStatus":null,"aisTimestamp":1781774133589,"fixTs":1781774122000,"feed":"aishub"},
+    {"mmsi":"265316661","msgType":"AISHubPosition","lat":58.29158,"lon":12.29227,"sog":3.5,"cog":25.3,"navStatus":null,"aisTimestamp":1781774271608,"fixTs":1781774259000,"feed":"aishub"},
+    {"mmsi":"265316661","msgType":"AISHubPosition","lat":58.29326,"lon":12.29472,"sog":6.3,"cog":35.6,"navStatus":null,"aisTimestamp":1781774340434,"fixTs":1781774337000,"feed":"aishub"}
+   ],
+   "notiser": [
+    {"t":1781772646290,"bridge":"Kanalinfarten","direction":"northbound","eta":2,"message":"SALTIS närmar sig Kanalinfarten, beräknad ankomst om 2 minuter","alreadyPassed":false,"source":"trigger-point","distance":264,"mmsi":"265316661","success":true,"vesselLat":58.26627,"vesselLon":12.26629,"vesselLatNext":58.27345},
+    {"t":1781773052513,"bridge":"Olidebron","direction":"unknown","eta":1,"message":"SALTIS närmar sig Olidebron, beräknad ankomst om 1 minut","alreadyPassed":false,"source":"current","distance":116,"mmsi":"265316661","success":true,"vesselLat":58.27345,"vesselLon":12.27658,"vesselLatNext":58.2749},
+    {"t":1781774067259,"bridge":"Klaffbron","direction":"northbound","eta":-1,"message":"SALTIS passerade Klaffbron under AIS-tystnad","alreadyPassed":true,"source":"passage-fallback","distance":527,"mmsi":"265316661","success":true,"vesselLat":58.28832,"vesselLon":12.288,"vesselLatNext":58.28962},
+    {"t":1781774133632,"bridge":"Järnvägsbron","direction":"northbound","eta":2,"message":"SALTIS närmar sig Järnvägsbron, beräknad ankomst om 2 minuter","alreadyPassed":false,"source":"current","distance":262,"mmsi":"265316661","success":true,"vesselLat":58.28962,"vesselLon":12.28972,"vesselLatNext":58.29158},
+    {"t":1781774271608,"bridge":"Stridsbergsbron","direction":"northbound","eta":4,"message":"SALTIS närmar sig Stridsbergsbron, beräknad ankomst om 4 minuter","alreadyPassed":false,"source":"target","distance":254,"mmsi":"265316661","success":true,"vesselLat":58.29158,"vesselLon":12.29227,"vesselLatNext":58.29326}
+   ],
+   "sanning": {
+    "L0": {
+     "startMs": 1781767974000,
+     "endMs": 1781781867000,
+     "crossings": [
+      {"mmsi":"265316661","bridge":"Olidebron","t":1781772998988.328,"dir":"nord","kn":5.23},
+      {"mmsi":"265316661","bridge":"Klaffbron","t":1781773688009.2332,"dir":"nord","kn":1.4},
+      {"mmsi":"265316661","bridge":"Järnvägsbron","t":1781774258461.0454,"dir":"nord","kn":3.7},
+      {"mmsi":"265316661","bridge":"Stridsbergsbron","t":1781774343369.2366,"dir":"nord","kn":6.44},
+      {"mmsi":"265316661","bridge":"Stallbackabron","t":1781774923338.2083,"dir":"nord","kn":7.51}
+     ],
+     "radius": [
+      {"mmsi":"265316661","bridge":"Olidebron","tIn":1781772888000,"tOut":1781773102000,"moving":true,"minDistM":22},
+      {"mmsi":"265316661","bridge":"Klaffbron","tIn":1781773374000,"tOut":1781773908000,"moving":true,"minDistM":19},
+      {"mmsi":"265316661","bridge":"Järnvägsbron","tIn":1781774102000,"tOut":1781774355000,"moving":true,"minDistM":13},
+      {"mmsi":"265316661","bridge":"Stridsbergsbron","tIn":1781774237000,"tOut":1781774421000,"moving":true,"minDistM":21},
+      {"mmsi":"265316661","bridge":"Stallbackabron","tIn":1781774845000,"tOut":1781774994000,"moving":true,"minDistM":6}
+     ],
+     "kVisits": [{"mmsi":"265316661","bridge":"Kanalinfarten","tIn":1781772608000,"tOut":1781772878000,"moving":true,"minDistM":4}]
+    },
+    "L1crossings": [
+     {"mmsi":"265316661","bridge":"Olidebron","t":1781772998988.328,"dir":"nord","kn":5.23,"source":"L1","kind":"line","inferred":false,"gapS":409,"tFrom":1781772646290,"tTo":1781773052513,"tObs":1781773052513,"beforeM":886,"afterM":116},
+     {"mmsi":"265316661","bridge":"Klaffbron","t":1781773688009.2332,"dir":"nord","kn":1.4,"source":"L1","kind":"line","inferred":false,"gapS":727,"tFrom":1781773325194,"tTo":1781774067259,"tObs":1781774067259,"beforeM":514,"afterM":527},
+     {"mmsi":"265316661","bridge":"Järnvägsbron","t":1781774258461.0454,"dir":"nord","kn":3.7,"source":"L1","kind":"line","inferred":false,"gapS":137,"tFrom":1781774133589,"tTo":1781774271608,"tObs":1781774271608,"beforeM":262,"afterM":16}
+    ]
+   }
+  },
+  {
+   "värld": 783,
+   "mmsi": "265805988",
+   "bro": "Olidebron",
+   "kort": "F13 kluster",
+   "väntat": "äkta",
+   "basSeed": 1,
+   "radio": "R1",
+   "monitoring": true,
+   "seed": 1699643201,
+   "radHash": "9899086bebf8d64f552eac55c9780fdf99a1795b117a538fac753a596360d994",
+   "rader": [
+    {"mmsi":"265805988","msgType":"StandardClassBPositionReport","lat":58.26492459363038,"lon":12.263508617730627,"sog":3,"cog":56.3,"navStatus":null,"aisTimestamp":1783680268537,"fixTs":1783680268537,"feed":"aisstream"},
+    {"mmsi":"265805988","msgType":"StandardClassBPositionReport","lat":58.26581970192369,"lon":12.265144835449222,"sog":2.8,"cog":49.8,"navStatus":null,"aisTimestamp":1783680358339,"fixTs":1783680358339,"feed":"aisstream"},
+    {"mmsi":"265805988","msgType":"StandardClassBPositionReport","lat":58.26675893812071,"lon":12.267133263789198,"sog":3.2,"cog":51.6,"navStatus":null,"aisTimestamp":1783680456546,"fixTs":1783680456546,"feed":"aisstream"},
+    {"mmsi":"265805988","msgType":"StandardClassBPositionReport","lat":58.27337057110136,"lon":12.276554055456304,"sog":4.6,"cog":46.2,"navStatus":null,"aisTimestamp":1783680919479,"fixTs":1783680919479,"feed":"aisstream"},
+    {"mmsi":"265805988","msgType":"StandardClassBPositionReport","lat":58.27668601309302,"lon":12.28028509570416,"sog":4.5,"cog":27.1,"navStatus":null,"aisTimestamp":1783681102390,"fixTs":1783681102390,"feed":"aisstream"},
+    {"mmsi":"265805988","msgType":"StandardClassBPositionReport","lat":58.27771706435172,"lon":12.281010017431715,"sog":4.5,"cog":17.6,"navStatus":null,"aisTimestamp":1783681150590,"fixTs":1783681150590,"feed":"aisstream"},
+    {"mmsi":"265805988","msgType":"StandardClassBPositionReport","lat":58.279016008140395,"lon":12.281772439968494,"sog":4.6,"cog":5.8,"navStatus":null,"aisTimestamp":1783681218160,"fixTs":1783681218160,"feed":"aisstream"},
+    {"mmsi":"265805988","msgType":"StandardClassBPositionReport","lat":58.28033101807511,"lon":12.28249952488159,"sog":4.5,"cog":10.4,"navStatus":null,"aisTimestamp":1783681282459,"fixTs":1783681282459,"feed":"aisstream"},
+    {"mmsi":"265805988","msgType":"StandardClassBPositionReport","lat":58.28158618719306,"lon":12.283094630435885,"sog":4.7,"cog":11.6,"navStatus":null,"aisTimestamp":1783681342644,"fixTs":1783681342644,"feed":"aisstream"},
+    {"mmsi":"265805988","msgType":"StandardClassBPositionReport","lat":58.28281164837981,"lon":12.283553862907976,"sog":4.6,"cog":20.6,"navStatus":null,"aisTimestamp":1783681402778,"fixTs":1783681402778,"feed":"aisstream"},
+    {"mmsi":"265805988","msgType":"StandardClassBPositionReport","lat":58.285084537539454,"lon":12.284920491907295,"sog":3.1,"cog":19.8,"navStatus":null,"aisTimestamp":1783681543331,"fixTs":1783681543331,"feed":"aisstream"},
+    {"mmsi":"265805988","msgType":"StandardClassBPositionReport","lat":58.28306017219395,"lon":12.283879717030535,"sog":4.8,"cog":183.8,"navStatus":null,"aisTimestamp":1783681957355,"fixTs":1783681957355,"feed":"aisstream"},
+    {"mmsi":"265805988","msgType":"StandardClassBPositionReport","lat":58.2785279310204,"lon":12.281463360511424,"sog":4.7,"cog":199.6,"navStatus":null,"aisTimestamp":1783682166890,"fixTs":1783682166890,"feed":"aisstream"},
+    {"mmsi":"265805988","msgType":"StandardClassBPositionReport","lat":58.27089787375111,"lon":12.273126457000943,"sog":3.9,"cog":208.1,"navStatus":null,"aisTimestamp":1783682585299,"fixTs":1783682585299,"feed":"aisstream"},
+    {"mmsi":"265805988","msgType":"StandardClassBPositionReport","lat":58.26932777074106,"lon":12.271155272467073,"sog":3.8,"cog":216.1,"navStatus":null,"aisTimestamp":1783682689399,"fixTs":1783682689399,"feed":"aisstream"},
+    {"mmsi":"265805988","msgType":"StandardClassBPositionReport","lat":58.26886634443546,"lon":12.270685786387334,"sog":3.7,"cog":212.9,"navStatus":null,"aisTimestamp":1783682725715,"fixTs":1783682725715,"feed":"aisstream"}
+   ],
+   "notiser": [
+    {"t":1783680456546,"bridge":"Kanalinfarten","direction":"northbound","eta":2,"message":"Okänd båt närmar sig Kanalinfarten, beräknad ankomst om 2 minuter","alreadyPassed":false,"source":"trigger-point","distance":190,"mmsi":"265805988","success":true,"vesselLat":58.26675893812071,"vesselLon":12.267133263789198,"vesselLatNext":58.27337057110136},
+    {"t":1783680919479,"bridge":"Olidebron","direction":"unknown","eta":1,"message":"Okänd båt närmar sig Olidebron, beräknad ankomst om 1 minut","alreadyPassed":false,"source":"current","distance":109,"mmsi":"265805988","success":true,"vesselLat":58.27337057110136,"vesselLon":12.276554055456304,"vesselLatNext":58.27668601309302},
+    {"t":1783681342644,"bridge":"Klaffbron","direction":"northbound","eta":3,"message":"Okänd båt närmar sig Klaffbron, beräknad ankomst om 3 minuter","alreadyPassed":false,"source":"target","distance":283,"mmsi":"265805988","success":true,"vesselLat":58.28158618719306,"vesselLon":12.283094630435885,"vesselLatNext":58.28281164837981},
+    {"t":1783682585299,"bridge":"Olidebron","direction":"southbound","eta":-1,"message":"CORDELIA har precis passerat Olidebron","alreadyPassed":true,"source":"current","distance":236,"mmsi":"265805988","success":true,"vesselLat":58.27089787375111,"vesselLon":12.273126457000943,"vesselLatNext":58.26932777074106},
+    {"t":1783682689399,"bridge":"Kanalinfarten","direction":"southbound","eta":2,"message":"CORDELIA närmar sig Kanalinfarten, beräknad ankomst om 2 minuter","alreadyPassed":false,"source":"trigger-point","distance":181,"mmsi":"265805988","success":true,"vesselLat":58.26932777074106,"vesselLon":12.271155272467073,"vesselLatNext":58.26886634443546}
+   ],
+   "sanning": {
+    "L0": {
+     "startMs": 1783678549000,
+     "endMs": 1783688474000,
+     "crossings": [{"mmsi":"265805988","bridge":"Olidebron","t":1783680871505.2131,"dir":"nord","kn":4.21},{"mmsi":"265805988","bridge":"Klaffbron","t":1783681462498.859,"dir":"nord","kn":4.54},{"mmsi":"265805988","bridge":"Klaffbron","t":1783681914003.353,"dir":"syd","kn":4.32},{"mmsi":"265805988","bridge":"Olidebron","t":1783682465899.26,"dir":"syd","kn":4.86}],
+     "radius": [
+      {"mmsi":"265805988","bridge":"Olidebron","tIn":1783680734000,"tOut":1783680999000,"moving":true,"minDistM":24},
+      {"mmsi":"265805988","bridge":"Klaffbron","tIn":1783681337000,"tOut":1783681657000,"moving":true,"minDistM":21},
+      {"mmsi":"265805988","bridge":"Klaffbron","tIn":1783681778000,"tOut":1783682032000,"moving":true,"minDistM":24},
+      {"mmsi":"265805988","bridge":"Olidebron","tIn":1783682346000,"tOut":1783682618000,"moving":true,"minDistM":24}
+     ],
+     "kVisits": [{"mmsi":"265805988","bridge":"Kanalinfarten","tIn":1783680387000,"tOut":1783680721000,"moving":true,"minDistM":5},{"mmsi":"265805988","bridge":"Kanalinfarten","tIn":1783682632000,"tOut":1783682979000,"moving":true,"minDistM":6}]
+    },
+    "L1crossings": [
+     {"mmsi":"265805988","bridge":"Olidebron","t":1783680871505.2131,"dir":"nord","kn":4.21,"source":"L1","kind":"line","inferred":false,"gapS":463,"tFrom":1783680456546,"tTo":1783680919479,"tObs":1783680919479,"beforeM":813,"afterM":109},
+     {"mmsi":"265805988","bridge":"Klaffbron","t":1783681462498.859,"dir":"nord","kn":4.54,"source":"L1","kind":"line","inferred":false,"gapS":141,"tFrom":1783681402778,"tTo":1783681543331,"tObs":1783681543331,"beforeM":144,"afterM":124},
+     {"mmsi":"265805988","bridge":"Klaffbron","t":1783681914003.353,"dir":"syd","kn":4.32,"source":"L1","kind":"line","inferred":false,"gapS":414,"tFrom":1783681543331,"tTo":1783681957355,"tObs":1783681957355,"beforeM":124,"afterM":115},
+     {"mmsi":"265805988","bridge":"Olidebron","t":1783682465899.26,"dir":"syd","kn":4.86,"source":"L1","kind":"line","inferred":false,"gapS":418,"tFrom":1783682166890,"tTo":1783682585299,"tObs":1783682585299,"beforeM":743,"afterM":236}
+    ]
+   }
+  },
+  {
+   "värld": 1731,
+   "mmsi": "265781143",
+   "bro": "Stridsbergsbron",
+   "kort": "F13 r2 (KAJSA)",
+   "väntat": "äkta",
+   "basSeed": 1,
+   "radio": "R1",
+   "monitoring": true,
+   "seed": 258125569,
+   "radHash": "2a1b1e3f7a0956f7a51120835b12ad97b63e477f8b9dbbc559834318876bcdca",
+   "rader": [
+    {"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.320507391437786,"lon":12.323764383954364,"sog":6.1,"cog":197.8,"navStatus":null,"aisTimestamp":1786699762617,"fixTs":1786699762617,"feed":"aisstream"},
+    {"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.316863946986416,"lon":12.321480342324625,"sog":6.4,"cog":200,"navStatus":null,"aisTimestamp":1786699898354,"fixTs":1786699898354,"feed":"aisstream"},
+    {"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.310983113665266,"lon":12.317914990372632,"sog":6.3,"cog":207.9,"navStatus":null,"aisTimestamp":1786700111411,"fixTs":1786700111411,"feed":"aisstream"},
+    {"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.30725285551401,"lon":12.312905703460007,"sog":5.3,"cog":217.6,"navStatus":null,"aisTimestamp":1786700284175,"fixTs":1786700284175,"feed":"aisstream"},
+    {"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.30254145851313,"lon":12.305562467140412,"sog":5.6,"cog":214.1,"navStatus":null,"aisTimestamp":1786700529036,"fixTs":1786700529036,"feed":"aisstream"},
+    {"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.30125310982868,"lon":12.303907932812432,"sog":5.3,"cog":214.6,"navStatus":null,"aisTimestamp":1786700589418,"fixTs":1786700589418,"feed":"aisstream"},
+    {"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.294211180285,"lon":12.295507424196954,"sog":0,"cog":null,"navStatus":null,"aisTimestamp":1786701206746,"fixTs":1786701206746,"feed":"aisstream"},
+    {"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.29420303814344,"lon":12.295536060563094,"sog":0,"cog":null,"navStatus":null,"aisTimestamp":1786701395018,"fixTs":1786701395018,"feed":"aisstream"},
+    {"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.294201430686286,"lon":12.295524886248142,"sog":0,"cog":123.4,"navStatus":null,"aisTimestamp":1786701570489,"fixTs":1786701570489,"feed":"aisstream"},
+    {"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.294213789615,"lon":12.29543768870877,"sog":0,"cog":4.1,"navStatus":null,"aisTimestamp":1786704216124,"fixTs":1786704216124,"feed":"aisstream"},
+    {"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.2932906737812,"lon":12.294373420319884,"sog":4.3,"cog":211.2,"navStatus":null,"aisTimestamp":1786704405992,"fixTs":1786704405992,"feed":"aisstream"},
+    {"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.290135277735054,"lon":12.290207715306869,"sog":4,"cog":213.6,"navStatus":null,"aisTimestamp":1786704616035,"fixTs":1786704616035,"feed":"aisstream"},
+    {"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.28772845759006,"lon":12.287171765649905,"sog":4.2,"cog":217,"navStatus":null,"aisTimestamp":1786704763134,"fixTs":1786704763134,"feed":"aisstream"},
+    {"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.286700255344336,"lon":12.286129613452458,"sog":4.3,"cog":211.6,"navStatus":null,"aisTimestamp":1786704823213,"fixTs":1786704823213,"feed":"aisstream"},
+    {"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.29015886062168,"lon":12.290360617877964,"sog":2.8,"cog":31.6,"navStatus":null,"aisTimestamp":1786705264010,"fixTs":1786705264010,"feed":"aisstream"},
+    {"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.294651308840876,"lon":12.296350193269237,"sog":5.8,"cog":40.8,"navStatus":null,"aisTimestamp":1786705553613,"fixTs":1786705553613,"feed":"aisstream"},
+    {"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.29562760043728,"lon":12.297708051898514,"sog":6.1,"cog":33.5,"navStatus":null,"aisTimestamp":1786705596748,"fixTs":1786705596748,"feed":"aisstream"}
+   ],
+   "notiser": [
+    {"t":1786700111411,"bridge":"Stallbackabron","direction":"southbound","eta":1,"message":"Okänd båt närmar sig Stallbackabron, beräknad ankomst om 1 minut","alreadyPassed":false,"source":"current","distance":148,"mmsi":"265781143","success":true,"vesselLat":58.310983113665266,"vesselLon":12.317914990372632,"vesselLatNext":58.30725285551401},
+    {"t":1786701206746,"bridge":"Stridsbergsbron","direction":"southbound","eta":1,"message":"Okänd båt närmar sig Stridsbergsbron, beräknad ankomst om 1 minut","alreadyPassed":false,"source":"target","distance":94,"mmsi":"265781143","success":true,"vesselLat":58.294211180285,"vesselLon":12.295507424196954,"vesselLatNext":58.29420303814344},
+    {"t":1786704616035,"bridge":"Järnvägsbron","direction":"southbound","eta":-1,"message":"KAJSA har precis passerat Järnvägsbron","alreadyPassed":true,"source":"current","distance":198,"mmsi":"265781143","success":true,"vesselLat":58.290135277735054,"vesselLon":12.290207715306869,"vesselLatNext":58.28772845759006},
+    {"t":1786705264010,"bridge":"Järnvägsbron","direction":"southbound","eta":2,"message":"KAJSA närmar sig Järnvägsbron, beräknad ankomst om 2 minuter","alreadyPassed":false,"source":"current","distance":191,"mmsi":"265781143","success":true,"vesselLat":58.29015886062168,"vesselLon":12.290360617877964,"vesselLatNext":58.294651308840876},
+    {"t":1786705596748,"bridge":"Stridsbergsbron","direction":"northbound","eta":2,"message":"KAJSA närmar sig Stridsbergsbron, beräknad ankomst om 2 minuter","alreadyPassed":false,"source":"current","distance":297,"mmsi":"265781143","success":true,"vesselLat":58.29562760043728,"vesselLon":12.297708051898514,"vesselLatNext":null}
+   ],
+   "sanning": {
+    "L0": {
+     "startMs": 1786693657000,
+     "endMs": 1786706666000,
+     "crossings": [
+      {"mmsi":"265781143","bridge":"Stallbackabron","t":1786700156086.061,"dir":"syd","kn":6.21},
+      {"mmsi":"265781143","bridge":"Stridsbergsbron","t":1786704398289.2979,"dir":"syd","kn":5.37},
+      {"mmsi":"265781143","bridge":"Järnvägsbron","t":1786704523843.9094,"dir":"syd","kn":3.89},
+      {"mmsi":"265781143","bridge":"Järnvägsbron","t":1786705392872.4822,"dir":"nord","kn":2.9},
+      {"mmsi":"265781143","bridge":"Stridsbergsbron","t":1786705497267.1877,"dir":"nord","kn":5.05},
+      {"mmsi":"265781143","bridge":"Stallbackabron","t":1786706236133.7734,"dir":"nord","kn":5.89}
+     ],
+     "radius": [
+      {"mmsi":"265781143","bridge":"Stallbackabron","tIn":1786700065000,"tOut":1786700263000,"moving":true,"minDistM":2},
+      {"mmsi":"265781143","bridge":"Stridsbergsbron","tIn":1786700844000,"tOut":1786704543000,"moving":true,"minDistM":5},
+      {"mmsi":"265781143","bridge":"Järnvägsbron","tIn":1786704380000,"tOut":1786704662000,"moving":true,"minDistM":7},
+      {"mmsi":"265781143","bridge":"Klaffbron","tIn":1786704832000,"tOut":1786704947000,"moving":true,"minDistM":224},
+      {"mmsi":"265781143","bridge":"Järnvägsbron","tIn":1786705193000,"tOut":1786705512000,"moving":true,"minDistM":4},
+      {"mmsi":"265781143","bridge":"Stridsbergsbron","tIn":1786705365000,"tOut":1786705597000,"moving":true,"minDistM":10},
+      {"mmsi":"265781143","bridge":"Stallbackabron","tIn":1786706136000,"tOut":1786706326000,"moving":true,"minDistM":5}
+     ],
+     "kVisits": []
+    },
+    "L1crossings": [
+     {"mmsi":"265781143","bridge":"Stallbackabron","t":1786700156086.061,"dir":"syd","kn":6.21,"source":"L1","kind":"line","inferred":false,"gapS":173,"tFrom":1786700111411,"tTo":1786700284175,"tObs":1786700284175,"beforeM":148,"afterM":362},
+     {"mmsi":"265781143","bridge":"Stridsbergsbron","t":1786704398289.2979,"dir":"syd","kn":5.37,"source":"L1","kind":"line","inferred":false,"gapS":190,"tFrom":1786704216124,"tTo":1786704405992,"tObs":1786704405992,"beforeM":92,"afterM":28},
+     {"mmsi":"265781143","bridge":"Järnvägsbron","t":1786704523843.9094,"dir":"syd","kn":3.89,"source":"L1","kind":"line","inferred":false,"gapS":210,"tFrom":1786704405992,"tTo":1786704616035,"tObs":1786704616035,"beforeM":229,"afterM":198},
+     {"mmsi":"265781143","bridge":"Järnvägsbron","t":1786705392872.4822,"dir":"nord","kn":2.9,"source":"L1","kind":"line","inferred":false,"gapS":290,"tFrom":1786705264010,"tTo":1786705553613,"tObs":1786705553613,"beforeM":191,"afterM":419},
+     {"mmsi":"265781143","bridge":"Stridsbergsbron","t":1786705497267.1877,"dir":"nord","kn":5.05,"source":"L1","kind":"line","inferred":false,"gapS":290,"tFrom":1786705264010,"tTo":1786705553613,"tObs":1786705553613,"beforeM":448,"afterM":163}
+    ]
+   }
+  }
+ ]
+}

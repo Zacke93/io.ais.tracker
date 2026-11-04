@@ -1,0 +1,106 @@
+{
+ "_om": "Trimmat utdrag ur corpora-data/ais-replay-20260917-194542.state.json (20260917-16h): två poster per karta, alla tre nyckelformerna (mmsi, mmsi:Bro, Bro|mmsi|riktning).",
+ "state": {
+  "version": 1,
+  "capturedAt": 1789667153142,
+  "settings": {
+   "learned_mooring_spots": [
+    {
+     "lat": 58.26758,
+     "lon": 12.2669,
+     "t": 1789647697369
+    },
+    {
+     "lat": 58.26805,
+     "lon": 12.26705,
+     "t": 1789647454888
+    }
+   ],
+   "known_vessel_names": {
+    "211231860": {
+     "name": "FREIHEIT",
+     "t": 1787550438518
+    },
+    "211236030": {
+     "name": "PALOMA",
+     "t": 1787138347879
+    }
+   },
+   "quay_stable_ledger": {
+    "265552060": {
+     "stillAt": 1789665918651,
+     "lat": 58.26803833333334,
+     "lon": 12.267111666666667
+    }
+   },
+   "opening_quay_ledger": {
+    "257942000": {
+     "bandSince": 1789659635159,
+     "stillAt": 1789661607703,
+     "lat": 58.26591,
+     "lon": 12.26521,
+     "moving": true
+    }
+   },
+   "last_known_positions": {
+    "257942000": {
+     "lat": 58.26526666666667,
+     "lon": 12.262300000000002,
+     "t": 1789661802659,
+     "posT": 1789661802550
+    }
+   },
+   "persistent_recent_triggers": {
+    "265614080:Kanalinfarten": {
+     "t": 1789647455095,
+     "dir": "north"
+    },
+    "265614080:Olidebron": {
+     "t": 1789647548131,
+     "dir": "north"
+    }
+   },
+   "trigger_point_visits": {
+    "version": 2,
+    "entries": {
+     "265031670:Stallbackabron": {
+      "startedAt": 1788807708391,
+      "lastFixTs": 1788807888352,
+      "outsideFixTs": 1788807888352,
+      "exitedAt": null,
+      "lastLat": 58.31281166666667,
+      "lastLon": 12.319420000000001,
+      "lastPositionTs": 1788807888357,
+      "arrivalLat": null,
+      "arrivalLon": null
+     },
+     "265679440:Stallbackabron": {
+      "startedAt": 1789058891314,
+      "lastFixTs": 1789059071000,
+      "outsideFixTs": 1789059071000,
+      "exitedAt": null,
+      "lastLat": 58.31293,
+      "lastLon": 12.31884,
+      "lastPositionTs": 1789059109279,
+      "arrivalLat": null,
+      "arrivalLon": null
+     }
+    }
+   },
+   "persistent_opening_warnings": {
+    "Klaffbron|265614080|northbound": {
+     "arrivalActive": true,
+     "firedAt": 1789647838794,
+     "closestDistance": 1058.2006443747937,
+     "lastFixTs": 1789647894000
+    },
+    "Stridsbergsbron|265614080|northbound": {
+     "arrivalActive": true,
+     "firedAt": 1789648194012,
+     "closestDistance": 2260.2787273960525,
+     "lastFixTs": 1789647894000
+    }
+   }
+  }
+ }
+}
