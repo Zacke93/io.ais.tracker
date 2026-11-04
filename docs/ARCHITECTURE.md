@@ -215,7 +215,13 @@ Moduler (ansvar / ägda tillstånd / in-ut):
   debounce-/koordinationsmetoder längre (§9).
 - **GPSJumpGateService**: blockerar passage-detektering under GPS-hopp;
   candidate→confirm, 30 s gate-timeout. Anropas från VDS (:3020–3028,
-  :3695–3703; clearVessel vid removal :736–738).
+  :3695–3703; clearVessel vid removal :736–738). En kandidat släpps när en
+  annan väg bokför samma bros passage (`releaseCandidate`, anropas från VDS
+  `_releaseGateCandidateForBookedBridge` vid de fyra bokföringarna som lägger
+  bron i `passedBridges`). Annars kunde den bekräftas inom TTL:n (20 min) och
+  bokföra bron en gång till, en målbro då som mellanbro (F12/F16 2026-11-04:
+  JOLLY, glappvägen 16:03:34 och grindbekräftelsen 795 s senare). Andra broars
+  kandidater ligger kvar.
 - **PassageLatchService**: latch per båt+bro som blockerar retrograda statusar
   ("tidsresor"); 10 min latch-timeout. Konsumeras av StatusService via
   `shouldBlockStatus` (StatusService.js:772, 846, 912, 960, 1176).
@@ -943,6 +949,46 @@ båt.
   Råfallen PRIMA LADY 2026-08-24 och ANDREA 2026-08-05 återfår Olidebron;
   deras växande bakåtben i Klaffbron-ETA:n försvinner. U-svängens nettokrav
   och samtliga befintliga passagegrindar består.
+  **Uppskjutna pass (F08, 2026-11-04, `_noteDeferredZoneEntryCross`):** vid det
+  nära broparet når passet vid inträdesfixen ofta inte INTERMEDIATE_UNDER.
+  Phase 3-hållningen för den nyss passerade bron returnerar före grenen, FIX U:s
+  tvingade väntan returnerar före hela `_isUnderBridge`, och rensningspasset
+  (CurrentBridgeManager Regel 0) väljer inte nästa bro. Beviset prövades då
+  först i ett senare pass vid samma position, oftast UI-uppdateringen. Om det
+  passet hann före nästa AIS-fix berodde på klockfasen (SINE BRES 20260917-16h
+  tappade Järnvägspassagen 02:27:17 i fasvarianterna δ −2,5/−7 s). Nu prövas
+  inträdessegmentet i det pass som gör uppskjutningen, med samma startpunkt och
+  samma grindar som INTERMEDIATE_UNDER: ≤ `UNDER_BRIDGE_SET_DISTANCE` från bron,
+  inte en passerad eller S-3-spärrad bro och inte Stallbackabron. Föregående
+  observation läses utan att förbrukas. FIX O-spärren (under-bro väntar tills
+  "inväntar" visats) skjuter upp grenen på samma sätt och prövar också beviset.
+  **Beviset sparas till zonbesöket (granskningen 2026-11-04):** det första
+  ordinarie passet efter uppskjutningen startar ofta ett nytt zonbesök vid
+  samma bro och nollar beviset, antingen genom HYSTERESIS_RESET (målbytet i
+  passagepasset sågs aldrig av hållningen eller FIX U) eller genom ett nytt
+  INTERMEDIATE_UNDER med släppt lås. Låg nästa fix kvar i zonen prövades sedan
+  segmentet från föregående observation till den nya fixen, och det kan vara
+  för långt (SINE BRES med en extra fix 45 m söder om linjen: 362 + 45 =
+  407 m > `UNDER_BRIDGE_CROSS_SEGMENT_MAX_M`). Därför sparas beviset i
+  `_underBridgeDeferredProof` (bro, inträdesankare, tid; i VDS fältlista).
+  INTERMEDIATE_UNDER och TARGET_UNDER återställer det när zonbesöket vid samma
+  bro startar, och varje uppskjutande pass återställer det om ett ordinarie
+  pass emellan har nollat det. Posten släpps vid GPS-hopp eller osäker
+  position, när bron är bokförd (eller en passage av den registrerats efter
+  posten), när båten är mer än `UNDER_BRIDGE_CLEAR_DISTANCE` från bron, när ett
+  bevis för en annan bro har satts och efter två minuter. METHOD 1:s
+  nettokrav består, så en båt som vänder i zonen får ingen passage. Basfacit är
+  oförändrat: OSPREY, SINE BRES och NINA B får beviset i meddelandepasset och
+  får det återställt när zonbesöket startar.
+  **Känd lucka (omgranskningen 2026-11-04, eget kort):** METHOD 1 i
+  `detectBridgePassage` (geometry.js) kräver ett steg från en fix högst 50 m
+  från bron till en fix mer än 60 m bort. Har korsningen skett i inträdessteget
+  och ligger nästa fix 50–60 m efter linjen, når inget steg det kravet, och
+  inget steg korsar linjen. Passagen tappas då, i 7699cbe som efter rättningen
+  (SINE BRES med en extra fix 58,8 m söder om linjen 02:26:41,6, alla faser;
+  KÄND LUCKA-testet i `tests/zonintrade-uppskjutet-bevis.test.js`). Med en
+  extra fix på 49 m eller på 60–63 m bokförs passagen. Ingen bankkorpus har
+  fallet.
   Fyra spärrar: inget bevis på en GPS-hoppstick (hoppet ÄR annars "sidbytet" —
   flaggan skickas ned i `_isUnderBridge`), inget bevis när BÅDA samplen är
   bevisat stillaliggande med jitter-liten rörelse (CG2-1-spegeln), segment
@@ -2080,7 +2126,22 @@ Underlaget står i `docs/helgranskning-2026-11-03.md`; varje fynd prövades med 
   (rättningskampanjen 2026-11-04, se U-svängspunkten ovan).
 - `_hasGapCrossedNotifiedBridge` är en tredje passerad-formsignal bredvid S4 och H16. Bron ska
   ligga strikt mellan föregående (eller sist kända) och aktuell position i gap-kedjans fönster,
-  och hoppet ska gå i färdriktningen. Källsträng och distans lämnas orörda.
+  och hoppet ska gå i färdriktningen. Källsträng och distans lämnas orörda. Färdriktningen tas ur
+  ruttlåset, annars ur kursen (nordbandet, det breda sydbandet). När kursen inte säger nord eller
+  syd, alltså i östra dödbandet 46–134° och när kursen saknas (AIS 360 "ej tillgänglig" och
+  ogiltiga värden blir null i `_validateAISMessage`), bär K1:s färska nordprogress riktningen
+  norrut (`_freshNorthProgressMps`, samma kontrakt och ribba som Kanalinfartsregeln; K1 själv
+  gäller fortfarande bara östbandet). Det stänger F13 (2026-11-04, dirigentens JA på R2:s fråga
+  1, som uttryckligen omfattar även saknad kurs och det långa hoppet utan återfödelse): återfödda norrgående båtar med nordostlig kurs (SALTIS 49,9°, en okänd båt 46,2°) fick
+  förvarningsform 107–115 m efter Olidebron, och SALTIS fick samma notis med kursen 360. En
+  sydlig kurs ger fortfarande 'south', så en återresa behåller förvarningen. Nordprogressen mäts
+  över samma hopp som BN2 prövar (från föregående fix, eller från återfödelsens bas). Regeln
+  betyder därför i praktiken "hoppet gick norrut med minst 0,25 m/s": alltid vid ett långt hopp,
+  och vid återfödelse bara med en bas som är högst 15 min gammal. Den ger aldrig 'south': ett
+  hopp söderut med dödbandskurs eller utan kurs behåller förvarningsformen (känd gräns, inget
+  fall i banken). Kantfall: en båt som korsat bron norrut under tystnaden och redan vänt, men
+  har kurs 46–134° eller ingen kurs, får "passerade" i stället för "närmar sig". Påståendet är
+  sant för korsningen under tystnaden; returen får en egen notis enligt U14.
 - Mellanbrons avståndsreserv i `_hasPassedBridge` täcker bandet mellan
   `UNDER_BRIDGE_CROSS_SEGMENT_MAX_M` och `LARGE_JUMP_LAT_DEG` (den delade hoppgränsen, förut
   hårdkodad 0,005).

@@ -765,6 +765,17 @@ efteråt.
    finns) −5 s, −11,52 s respektive −20 s, exakt en ändrad rad per variant,
    replaya varje variant och jämför mot basreplayn.
 
+   **Svepets blinda fläck: fasen mot halvminutsrutnätet.** Eftersom bara
+   ankarraden flyttas ligger alla övriga sampel kvar på samma plats mot de fasta
+   halvminuterna. Buggjägarens M-FAS-relation flyttar i stället HELA korpusen och
+   starttillståndet δ, och det var den som fångade F08 (SINE BRES 20260917-16h
+   tappade Järnvägspassagen vid δ −2,5 och −7 s; omgranskningen fann även −5 s;
+   rättat 2026-11-04). Det fallet är låst i
+   `tests/zonintrade-uppskjutet-bevis.test.js`, som flyttar korpusen på samma
+   sätt, både som den är och med en extra fix inne i brozonen (granskarens prov:
+   två tider och fyra faser). Samma fil visar den kända luckan med en extra fix
+   50–60 m efter linjen (ARCHITECTURE.md, F08), som inte beror på fasen.
+
    **Offsettecknet och RUTNÄTET.** Defaultoffsets är negativa därför att ett
    POSITIVT skift äter av korpusens första gap (en offset som inte ryms
    rapporteras "ej tillämpbar"). Ekvivalensen gäller ett rutnät i taget: mot

@@ -9957,6 +9957,27 @@ class AISBridgeApp extends Homey.App {
       if (isNorthCog(vessel.cog)) travel = 'north';
       else if (isSouthCogWide(vessel.cog)) travel = 'south';
     }
+    // F13 (rättningskampanjen 2026-11-04; dirigentens JA på R2:s fråga 1):
+    // när varken ruttlåset eller kursbanden ger färdriktning återstår två fall,
+    // och i båda säger kursen inget om nord eller syd:
+    //  - kursen ligger i östra dödbandet 46–134°, samma hål som K1 täpper
+    //    till vid Kanalinfarten;
+    //  - kursen saknas: AIS 360 ("ej tillgänglig") och ogiltiga värden blir
+    //    null i _validateAISMessage (omgranskningen av revision 1).
+    // Där får K1:s färska nordprogress över ribban visa färd norrut
+    // (_freshNorthProgressMps, samma kontrakt som K1; K1 själv är orörd och
+    // gäller fortfarande bara östbandet). Utan regeln fick en återfödd båt
+    // utan ruttlås aldrig färdriktning: SALTIS (cog 49,9°) och en okänd båt
+    // (cog 46,2°) fick "närmar sig Olidebron, beräknad ankomst om 1 minut"
+    // 115 m respektive 107 m efter bron, och SALTIS fick samma notis med
+    // kursen 360. En återresa styr fortfarande med kursen: sydlig kurs ger
+    // 'south' ovan och behåller förvarningen för bron framför båten.
+    // OBS: nordprogressen mäts över SAMMA hopp som prövas här (föregående
+    // fix, eller återfödelsens bas). Regeln betyder därför i praktiken
+    // "hoppet gick norrut med minst 0,25 m/s"; vid återfödelse krävs dessutom
+    // en bas som är högst 15 min gammal. Den ger aldrig 'south': ett hopp
+    // söderut med dödbandskurs eller utan kurs behåller förvarningen.
+    if (!travel && this._freshNorthProgressMps(vessel) !== null) travel = 'north';
     return (vessel.lat > fromLat && travel === 'north') || (vessel.lat < fromLat && travel === 'south');
   }
 
@@ -10887,19 +10908,9 @@ class AISBridgeApp extends Homey.App {
       return direction;
     }
 
-    // FÄRSKHETEN: paret {mps, ts} måste höra till DET MEDDELANDE som bär
-    // notisen. ts stämplas i VesselDataService som max(lastPositionUpdate,
-    // timestamp) — så även en byte-identisk omleverans (ingen ny mätning, men
-    // ny mottagningstid) gör beviset gammalt och regeln faller till 'okänd'.
-    const progress = vessel._lastNorthProgress;
-    const northMps = progress && Number.isFinite(progress.mps) ? progress.mps : null;
-    const senasteMeddelandeTs = Math.max(
-      Number.isFinite(vessel.lastPositionUpdate) ? vessel.lastPositionUpdate : 0,
-      Number.isFinite(vessel.timestamp) ? vessel.timestamp : 0,
-    );
-    if (northMps === null
-        || progress.ts !== senasteMeddelandeTs
-        || northMps < VesselDataService.NORTH_PROGRESS_MIN_MPS) {
+    // FÄRSKHETEN: se _freshNorthProgressMps (delad med BN2:s dödbandsregel).
+    const northMps = this._freshNorthProgressMps(vessel);
+    if (northMps === null) {
       return direction;
     }
 
@@ -10910,6 +10921,39 @@ class AISBridgeApp extends Homey.App {
       + '— notis-token unknown → northbound',
     );
     return 'northbound';
+  }
+
+  /**
+   * K1:s nordbevis: den färska nordprogressen i m/s, eller null.
+   *
+   * FÄRSKHETEN: paret {mps, ts} måste höra till DET MEDDELANDE som bär
+   * notisen. ts stämplas i VesselDataService som max(lastPositionUpdate,
+   * timestamp) — så även en byte-identisk omleverans (ingen ny mätning, men
+   * ny mottagningstid) gör beviset gammalt och regeln faller till 'okänd'.
+   * Ribban är NORTH_PROGRESS_MIN_MPS; under den returneras null.
+   *
+   * Två läsare med samma kontrakt: K1:s Kanalinfartsregel
+   * (_getNotificationDirection, bara östbandet 46–134°) och BN2:s
+   * färdriktning när kursen ligger i östbandet eller saknas
+   * (_hasGapCrossedNotifiedBridge, F13). Ett bevis som K1 underkänner kan
+   * därför aldrig bära BN2, och tvärtom.
+   * @param {Object} vessel - Fartygsobjekt
+   * @returns {number|null}
+   * @private
+   */
+  _freshNorthProgressMps(vessel) {
+    const progress = vessel?._lastNorthProgress;
+    const northMps = progress && Number.isFinite(progress.mps) ? progress.mps : null;
+    const senasteMeddelandeTs = Math.max(
+      Number.isFinite(vessel?.lastPositionUpdate) ? vessel.lastPositionUpdate : 0,
+      Number.isFinite(vessel?.timestamp) ? vessel.timestamp : 0,
+    );
+    if (northMps === null
+        || progress.ts !== senasteMeddelandeTs
+        || northMps < VesselDataService.NORTH_PROGRESS_MIN_MPS) {
+      return null;
+    }
+    return northMps;
   }
 
   /**
