@@ -330,7 +330,11 @@
                 // mellanläge är ogiltigt eller startar en källa i onödan:
                 //  1. tillägg som det nya källvalet BEHÖVER (nyckel för AISstream,
                 //     användarnamn för AISHub) — ett tillägg kan aldrig göra ett
-                //     läge ogiltigt;
+                //     läge ogiltigt. Hit hör också ett NYTT användarnamn när den
+                //     lagrade källan är AISstream: där är namnet verkningslöst
+                //     tills källvalet landar, och skrivs det efter källvalet
+                //     hinner AISHub starta med det gamla namnet (granskningen
+                //     av fixvågen 2026-11-04);
                 //  2. källvalet;
                 //  3. övriga tillägg och byten mellan två icke-tomma värden;
                 //  4. tömningar, när källvalet redan står på sitt slutvärde —
@@ -343,8 +347,8 @@
                 const keyNeeded = aisSource !== 'aishub';
                 const userNeeded = aisSource !== 'aisstream';
                 const keyFirst = apiKeyChanged && storedApiKey === '' && apiKey !== '' && keyNeeded;
-                const userFirst = usernameChanged && storedAishubUsername === '' && aishubUsername !== ''
-                    && userNeeded;
+                const userFirst = usernameChanged && aishubUsername !== '' && userNeeded
+                    && (storedAishubUsername === '' || storedAisSource === 'aisstream');
                 const keyClearFirst = apiKeyChanged && apiKey === '' && keyNeeded
                     && storedAisSource === 'aishub';
                 const commitApiKey = function () { storedApiKey = apiKey; };

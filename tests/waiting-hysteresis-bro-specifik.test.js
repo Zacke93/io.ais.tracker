@@ -84,6 +84,23 @@ describe('Väntehysteresen vid målbron är bro-specifik', () => {
     expect(result.waitingAtBridge).toBe('Järnvägsbron');
   });
 
+  // Granskningen av fixvågen 2026-11-04: villkoret ska läsa den BOKFÖRDA
+  // väntbron, inte currentBridge, som kan ha hunnit peka på målbron.
+  test('väntbron avgör, inte currentBridge: väntan vid Järnvägsbron med currentBridge=målbron', () => {
+    const pos = southOf(BRIDGES.jarnvagsbron, 60);
+    const vessel = vesselAt(pos, {
+      status: 'waiting',
+      waitingAtBridge: 'Järnvägsbron',
+      targetBridge: 'Stridsbergsbron',
+      currentBridge: 'Stridsbergsbron',
+      _routeDirection: 'north',
+      passedBridges: ['Olidebron', 'Klaffbron'],
+    });
+    const prox = proximityService.analyzeVesselProximity(vessel);
+    statusService._isWaiting(vessel, prox);
+    expect(statusService._lastWaitingBridgeName).not.toBe('Stridsbergsbron');
+  });
+
   test('väntan vid målbron behåller släppgränsen 350 m (hysteresen består)', () => {
     const pos = southOf(BRIDGES.klaffbron, 320);
     const vessel = vesselAt(pos, {

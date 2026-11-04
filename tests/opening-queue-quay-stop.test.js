@@ -112,6 +112,34 @@ describe('Öppningslagret: kort köstopp vid Kajen är samma ankomst', () => {
     expect(app.bridgeOpeningService.restartArrival).toHaveBeenCalledWith(MMSI, 'Klaffbron');
   });
 
+  // Granskningen av fixvågen 2026-11-04: köskyddet gällde även en båt som
+  // kom från ett BEKRÄFTAT stopp. Efter en natt i Gästhamnen och en kort kö
+  // vid Kajen tystades då morgonens kort av gårdagens ankomst.
+  test('bekräftat stopp i Gästhamnen följt av kort kö vid Kajen ⇒ avgången är en ny ankomst', () => {
+    const gasthamnen = mid(GASTHAMNEN);
+    app._observeOpeningArrivals(fix(gasthamnen, 0.1));
+    jest.setSystemTime(Date.now() + 30000);
+    app._observeOpeningArrivals(fix(gasthamnen, 0.1));
+    expect(app._persistentOpeningWarnings.get(KEY).quayStop.confirmed).toBe(true);
+    // Morgonen: kryper 150 m in i Kajen och köar där i två minuter.
+    jest.setSystemTime(Date.now() + 8 * 60 * 60 * 1000);
+    stopThenDepart(KAJEN, 2 * 60 * 1000);
+    expect(app._persistentOpeningWarnings.has(KEY)).toBe(false);
+    expect(app.bridgeOpeningService.restartArrival).toHaveBeenCalledWith(MMSI, 'Klaffbron');
+  });
+
+  // Köskyddet gäller bara när bron ligger inom DISARM_MOORED_MIN_DISTANCE_M
+  // (600 m), som i förtöjningsklassningen. Kajen ligger 980 m från
+  // Stridsbergsbron: där är ett stopp vid kajen ett besök, inte brokö.
+  test('Kajen mot Stridsbergsbron (bortom 600 m): 60 s stopp räcker, inget köskydd', () => {
+    const STRIDS_KEY = `Stridsbergsbron|${MMSI}|northbound`;
+    app._persistentOpeningWarnings.delete(KEY);
+    app._persistentOpeningWarnings.set(STRIDS_KEY, { arrivalActive: true, firedAt: Date.now() - 60000 });
+    stopThenDepart(KAJEN, 60000);
+    expect(app._persistentOpeningWarnings.has(STRIDS_KEY)).toBe(false);
+    expect(app.bridgeOpeningService.restartArrival).toHaveBeenCalledWith(MMSI, 'Stridsbergsbron');
+  });
+
   test('Gästhamnen: 60 s stopp räcker som förut (HERA II)', () => {
     expect(GASTHAMNEN.queueGraceMs || 0).toBe(0);
     stopThenDepart(GASTHAMNEN, 60000);

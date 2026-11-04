@@ -98,10 +98,13 @@ lokal AIS-mottagare (se rekommendationerna).
   stängda Stallbackabesök stängs, inget låst facit ändras.
 - **U-svängen mätte mot det övergivna målet.** Efter en bekräftad U-sväng
   (Fix D) prövade 2-READINGS samma tick "närmar sig" mot det mål båten just
-  vänt bort från. Valideringen föll alltid, och båten var mållös till nästa
-  fix. ANYA ELAN 380 föll ur brotexten i två minuter, och hennes Klaffkort kom
-  113 s efter deadline. Nu kommer kortet 07:38:00 i stället för 07:40:03. Ett
-  nytt syntetiskt scenario med gles AIS (180 s) låser beteendet.
+  vänt bort från. Låg bekräftelsen mer än 300 m från det målet föll
+  valideringen, och båten var mållös till nästa fix. En gles äkta U-sväng fick
+  då returpassagen bokförd som mållös mellanpassage. Ett nytt syntetiskt
+  scenario med gles AIS (180 s) låser beteendet. *Rättelse 2026-11-04:* fältfallet
+  ANYA ELAN 380 är en väntslinga, ingen U-sväng. Hon korsade aldrig Klaffbron
+  söderut, och hennes Klaffkort är ett accepterat falsklarm (AVBRUTEN_APPROACH)
+  i båda versionerna, nu 2 min tidigare. Se avvägningen nedan.
 - **En bro som korsats i ett AIS-glapp fick förvarningsform.** Notisen sa
   "närmar sig Stridsbergsbron, beräknad ankomst om 1 minut" 160 m efter bron
   (EBONITA, 14,5 min glapp), och rättelsen dedupades bort. Nu gäller passerad
@@ -115,7 +118,8 @@ lokal AIS-mottagare (se rekommendationerna).
   aldrig som passage. Notisen sa "närmar sig … strax" efter korsningen. Fyra
   fall i banken rättas, alla belagda mot rådata: WANDA, ORCA, HELGE och ELISE.
   Bandet är medvetet smalt. Korta segment bokförs vid nästa utgångsfix (låst
-  design), och större hopp bär gap-kedjans form.
+  design) om den ligger mer än 60 m från bron, och större hopp bär
+  gap-kedjans form.
 - **Städning.**
   - Död kod borttagen (`ProximityService.getDistanceToBridge`).
   - Hoppgränsen 0,005° är en delad konstant (`LARGE_JUMP_LAT_DEG`) i stället
@@ -130,7 +134,7 @@ i `tests/replay-validation/corpora.js`.
 | Korpus | Ändring | Rådata |
 | --- | --- | --- |
 | `20260804-both-21h` | ARESTEL Stridsnotis 3 → 1 min | passage 72,6 s efter notisen |
-| `20260804-both-21h` | ANYA ELAN: Klaffkortet 07:40:03 → 07:38:00 (eta 5 → 7), fyra textövergångar byter ETA, Klaffnotisen 4 → 5 min | U-sväng 07:37:49; ingen Klaffpassage i rådata, så ETA-siffrorna går inte att pröva |
+| `20260804-both-21h` | ANYA ELAN: Klaffkortet 07:40:03 → 07:38:00 (eta 5 → 7), fyra textövergångar byter ETA, Klaffnotisen 4 → 5 min | väntslinga, ingen U-sväng: Klaffbron nord 07:14, Järnvägsbron nord 08:24; kortet är ett accepterat falsklarm i båda versionerna |
 | `20260804-both-21h` | WANDA "har precis passerat Järnvägsbron" 12:20:25 (förut "strax" 12:21:00), +1 mellanpassage | korsning 12:20:12 |
 | `20260708-21h` | SOLANDE Klaffnotis i passerad form | korsning 10:05:50, notis 10:06:42 |
 | `20260806-42h` | FILOU Järnvägsnotis i passerad form | korsning 11:54:03 i 55 min glapp |
@@ -178,6 +182,98 @@ samtliga korpusar.
    Inga ändringar gjorda: risken för regression väger tyngre än en omätt
    vinst.
 
+## Granskning av fixvågen (2026-11-04)
+
+Projektets stoppkriterium kräver att nästa runda granskar fixvågen. Vågen
+delades i tre grupper: anslutning och drift, livscykel och status, samt
+passager och notiser. Varje grupp fick två granskare:
+- en som letade efter fel som rättningarna själva infört,
+- en som letade efter samma felklass på andra ställen och efter testluckor,
+  med mutationsprov.
+
+Varje fynd motprövades sedan med två linser: repro genom produktionsvägen,
+respektive känt/beslutat och verklig påverkan. 18 fynd verifierades och 15
+överlevde; två fynd över verifieringstaket var testluckor och prövades direkt
+med mutationer. Det som gällde vågens egna ändringar är rättat; det som fanns
+före vågen, eller är en medveten avvägning, rapporteras här.
+
+### Rättat (fel i vågens egna ändringar)
+
+- **Inställningssidan, gammalt användarnamn.** Ett nytt AISHub-användarnamn
+  vid byte från AISstream skrevs efter källvalet, så AISHub hann starta med
+  det gamla namnet. Det gällde 54 av 729 övergångar och var nytt i vågen.
+  Namnet skrivs nu före källvalet. Det uttömmande testet kontrollerar
+  dessutom att en AISHub-klient som startar i ett mellanläge bär slutlägets
+  namn.
+- **boat_near efter tidsgränsen.** Ett obesvarat kort loggades som
+  `FLOW_TRIGGER_SUCCESS`, och ett sent fel försvann utan spår och utan
+  rollback, så bron var spärrad i 2 h för en notis som aldrig levererats.
+  Nu loggas `FLOW_TRIGGER_UNCONFIRMED`. En sen kvittens loggas som
+  `SUCCESS … late=true`, och ett sent fel rullas tillbaka som ett vanligt fel.
+- **Hävningen av 429-pausen.** Vid källbyte handskakade hävningen även på
+  sparningens mellanlägen (96 av 729 övergångar under en paus). Nu bokas
+  handskakningen 3 s efter hävningen via strömklientens egen timer, så ett
+  mellanläge som rivs eller byter nyckel avbokar den.
+- **Köskyddet vid Kajen.** Det gällde även en båt som kom från ett bekräftat
+  stopp, till exempel efter en natt i Gästhamnen och en kort kö vid Kajen,
+  och då tystades morgonens kort. Efter ett bekräftat stopp gäller nu
+  30 s-regeln som före vågen. Facit är oförändrat.
+- **Testluckor.**
+  - Klockstegstestet prövar 90 s, 3 min, 10 min och 2 h.
+  - Rådatalås finns för sju olåsta BN2- och TP1-rättelser och för
+    kursreserven.
+  - h16-testets källsvep låser vaktkroppen igen.
+  - 600 m-golvet för köskyddet och väntbron (inte `currentBridge`) har egna
+    tester.
+  - Fix D:s samma-tick-släpp prövas för alla tre utlösningsskälen.
+- **Dokumentation.**
+  - BN2:s glapp är 3–199 min, och beviset är rumsligt.
+  - ANYA ELAN är en väntslinga, inte en U-sväng.
+  - Korta segment bokförs bara om utgångsfixen ligger mer än 60 m från bron.
+  - INV-B4 är uppfylld.
+
+### Rapporterat, inte rättat
+
+Följande fanns före vågen eller är medvetna avvägningar. Rättning kräver ditt
+beslut eller en senare runda.
+
+- **Nyckelbyte från AISHub.** Byts nyckeln samtidigt som källan byts från
+  AISHub startar AISstream kort med den gamla nyckeln (28 av 729
+  övergångar, sedan 7dc390f). Det kan ge en vilseledande notis om ogiltig
+  nyckel. Rättning: skriv nyckeln före källvalet när den lagrade källan är
+  AISHub (en rad).
+- **Klocksteg bakåt under en paus.** Ett steg bakåt förlänger aisstreams
+  429-paus och AISHubs auth-paus med hela steget. Rättning: räkna pausernas
+  återstod mot en monoton klocka.
+- **S/V REBEL (42h).**
+  - Felet: avgången från ett bekräftat stopp i Gästhamnen räknas inte när
+    första rörelsefixet ligger i Kajen. Därför uteblev Klaffkortet
+    2026-08-07; passagen kom 08:46:26.
+  - Rättning: räkna rörelse ≥ 50 m från ett bekräftat stopp som avgång även i
+    en annan kajzon. Det ändrar låst facit med ett kort till.
+- **AKIRA, glapp i Gästhamnen.** Ett AIS-glapp nollställer fortfarande ett
+  obekräftat stopp i Gästhamnen. En övernattning med AIS avstängd ger därför
+  inget morgonkort, men bara i kedjade körningar med persisterat minne.
+- **Fix D-avvägningen.**
+  - Nytta: en gles äkta U-sväng får kortet en fix tidigare och returpassagen
+    bokförd.
+  - Kostnad: en väntslinga med två motriktade fixar längre än 300 m från
+    målet ger ett accepterat falsklarm mot motsatt målbro.
+  - Slingskydd kostar nyttan och är ditt beslut.
+- **Besöksstängningen vid fullbordad resa.** Den saknar spårarens
+  50 m-hysteres i bandet 300–350 m norr om Stallbackabron. Fallet är latent,
+  med 0 svävningsfixar på 485 h.
+- **Gap-kedjans scenario A.** Det saknar BN2:s färdriktningskrav. En
+  återresa inom 6 h kan få passerad form för broar framför båten, och de
+  riktiga notiserna dedupas då bort.
+- **Kanalinfarten.** BN2 omfattar den inte, eftersom punkten är H16:s
+  område. En återfödd båt som korsat punkten i glappet får därför
+  fortfarande förvarningsform (NICOLINE i 16h). Rättning: läs punktens
+  latitud med `_notifiedTargetLat`. Det ändrar låst facit.
+- **Korta segment vid Stallbackabron.** De bokförs inte när utgångsfixen
+  ligger 50–60 m från bron (LAURIERBORG). Rättning: låt METHOD 1 bära
+  zonstämpeln till 70 m.
+
 ## Rekommendationer
 
 - **Lokal AIS-mottagare** (till exempel en enkel SDR-mottagare som matar
@@ -198,7 +294,7 @@ Hela batteriet har körts på slutläget med samma kommandon som i
 
 | Steg | Resultat |
 | --- | --- |
-| `npm test` | 331 sviter, 4 545 godkända, 2 överhoppade (kräver privata fältloggar); baslinjen var 320 sviter och 4 504 tester |
+| `npm test` | 334 sviter, 4 571 godkända, 2 överhoppade (kräver privata fältloggar), efter granskningen av fixvågen; baslinjen var 320 sviter och 4 504 tester |
 | `npm run replay:all` (normal och `REPLAY_MONITORING=1`) | 24 korpusar gröna |
 | `npm run replay:synthetic` | 46 scenarier rena, inklusive det nya U-svängsscenariot |
 | `npm run replay:openings` | standardgrindar godkända; 376/378 målbropassager varnade i tid; rådatavarningarna oförändrade mot baslinjen |

@@ -5,8 +5,13 @@
  * 429-paus. Muxen nollade pausflaggan och loggade "upphävd av
  * användaringrepp", men den återanslutningstimer som pausen bokat stod kvar
  * — nästa handskakning kom först när den gamla timern löpte ut (15–20 min,
- * upp till en timme). Nu handskakar muxen direkt när pausen faktiskt hävdes
- * och ingen socket finns. Automatvägarna respekterar fortfarande pausen.
+ * upp till en timme). Nu handskakar muxen när pausen faktiskt hävdes och
+ * ingen socket finns. Automatvägarna respekterar fortfarande pausen.
+ *
+ * Granskningen av fixvågen 2026-11-04: handskakningen bokas 3 s efter
+ * hävningen, inte direkt. Inställningssidan skriver nycklarna en i taget, och
+ * ett mellanläge som rivs eller byter nyckel ska inte hinna handskaka mot
+ * servern som just svarat 429.
  */
 jest.mock('ws', () => {
   const EventEmitter = require('events');
@@ -86,12 +91,26 @@ describe('Muxen: källbyte under aisstreams 429-paus', () => {
     return stream;
   }
 
-  test('användarens källbyte ger en ny handskakning direkt', async () => {
+  test('användarens källbyte ger en ny handskakning när sparningen lagt sig', async () => {
     await rateLimited();
     await jest.advanceTimersByTimeAsync(MIN);
     mux.applySourceConfig({ source: 'both', apiKey: KEY, aishubUsername: 'tester' });
     await jest.advanceTimersByTimeAsync(100);
+    expect(FakeWS.instances).toHaveLength(1);
+    await jest.advanceTimersByTimeAsync(3000);
     expect(FakeWS.instances).toHaveLength(2);
+  });
+
+  test('ett mellanläge som rivs av nästa skrivning handskakar inte', async () => {
+    await rateLimited();
+    await jest.advanceTimersByTimeAsync(MIN);
+    // Sidans ordning för aisstream/K/∅ → aishub/K/tester: användarnamnet först.
+    mux.applySourceConfig({ source: 'aisstream', apiKey: KEY, aishubUsername: 'tester' });
+    await jest.advanceTimersByTimeAsync(400);
+    mux.applySourceConfig({ source: 'aishub', apiKey: KEY, aishubUsername: 'tester' });
+    await jest.advanceTimersByTimeAsync(10 * 1000);
+    expect(FakeWS.instances).toHaveLength(1);
+    expect(mux._streamActive).toBe(false);
   });
 
   test('utan användaringrepp respekteras pausen', async () => {

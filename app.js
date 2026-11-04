@@ -122,6 +122,10 @@ const STALE_DATA_GUARD_MS = 2 * 60 * 1000;
 // Gränsen ligger över replayharnessens 30 s-klocksteg, så att en fejkad klocka
 // aldrig ger falska timeouts (jfr GLOBAL_TOKEN_TIMEOUT-artefakten).
 const BOAT_NEAR_TRIGGER_TIMEOUT_MS = 60 * 1000;
+// Markör för ett kort som inte svarat inom tidsgränsen. Den går via
+// returvärdet: replayharnessen omsluter _triggerBoatNearFlowBest med exakt tre
+// parametrar, och en extra parameter hade inte nått fram.
+const BOAT_NEAR_UNCONFIRMED = Symbol('boat_near-unconfirmed');
 
 // P8-vaktens tystnadsgräns (helkodsgranskning runda 2, J30). Talet fanns i TVÅ
 // exemplar: removal-vägens lokala FEED_SILENT_GUARD_MS och UI-vägens
@@ -1330,6 +1334,7 @@ class AISBridgeApp extends Homey.App {
               firstFixTs: stop.firstFixTs,
               lastFixTs: stop.lastFixTs,
               confirmed: stop.confirmed === true,
+              afterConfirmedStop: stop.afterConfirmedStop === true,
             };
           }
           this._persistentOpeningWarnings.set(key, entry);
@@ -1418,12 +1423,22 @@ class AISBridgeApp extends Homey.App {
           && fixTs - (stop ? stop.lastFixTs : fixTs) > UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS;
         if (!stop || movedFromStop >= 50 || (!stop.confirmed && gapResetsStop)) {
           entry.quayStop = {
-            lat: vessel.lat, lon: vessel.lon, firstFixTs: fixTs, lastFixTs: fixTs, confirmed: false,
+            lat: vessel.lat,
+            lon: vessel.lon,
+            firstFixTs: fixTs,
+            lastFixTs: fixTs,
+            confirmed: false,
+            // Granskningen av fixvågen 2026-11-04: ett nytt stopp som ersätter
+            // ett BEKRÄFTAT stopp (övernattning i Gästhamnen, sedan kö vid
+            // Kajen) är ingen kö efter samma kort. Köskyddet gäller då inte,
+            // och 30 s-regeln från före 74b3a34 bekräftar stoppet som förut.
+            afterConfirmedStop: stop?.confirmed === true || stop?.afterConfirmedStop === true,
           };
           dirty = true;
         } else if (!stop.confirmed) {
           stop.lastFixTs = fixTs;
-          stop.confirmed = fixTs - stop.firstFixTs >= Math.max(30000, queueGraceMs);
+          stop.confirmed = fixTs - stop.firstFixTs
+            >= Math.max(30000, stop.afterConfirmedStop ? 0 : queueGraceMs);
           dirty = true;
         }
       } else if (stop && !stop.confirmed) {
@@ -7710,13 +7725,17 @@ class AISBridgeApp extends Homey.App {
       throw new Error('boat_near trigger card unavailable');
     }
 
-    // Samma skydd som _writeCapabilityWithTimeout och _setGlobalTokenSafe:
+    // Samma princip som _writeCapabilityWithTimeout och _setGlobalTokenSafe:
     // ett Homey-anrop som aldrig svarar får inte låsa anroparen. Exit-vägen
     // awaitar kortet inne i _onVesselRemoved; utan tidsgräns nåddes aldrig
     // dess finally, MMSI:t låg kvar i _processingRemoval och en återfödd båt
     // med samma MMSI var osynlig i brotexten tills appen startades om.
     // Vid timeout behålls dedupen (anropet kan fortfarande landa sent), så
-    // ingen dubblettnotis kan uppstå.
+    // ingen dubblettnotis kan uppstå. Granskningen av fixvågen 2026-11-04:
+    // utfallet efter tidsgränsen ska ändå observeras. Därför returneras en
+    // markör med kortets eget löfte; anroparen loggar FLOW_TRIGGER_UNCONFIRMED
+    // i stället för SUCCESS, en sen kvittens som SUCCESS late=true och ett sent
+    // fel med samma rollback som ett vanligt fel.
     let timer = null;
     const timeout = new Promise((resolve) => {
       timer = setTimeout(() => {
@@ -7724,13 +7743,17 @@ class AISBridgeApp extends Homey.App {
           this.error(`⏱️ [FLOW_TRIGGER_TIMEOUT] ${vessel.mmsi}: boat_near-kortet svarade inte inom `
             + `${Math.round(BOAT_NEAR_TRIGGER_TIMEOUT_MS / 1000)} s — behåller dedupen och går vidare`);
         }
-        resolve(undefined);
+        resolve(BOAT_NEAR_UNCONFIRMED);
       }, BOAT_NEAR_TRIGGER_TIMEOUT_MS);
       if (timer && typeof timer.unref === 'function') timer.unref();
     });
     try {
       this.debug(`🔧 [TRIGGER_METHOD] ${vessel.mmsi}: Using app-level boat_near trigger`);
-      return await Promise.race([this._boatNearTrigger.trigger(tokens, state), timeout]);
+      // Kortet anropas synkront (replayharnessen fångar positionen här).
+      const delivery = Promise.resolve(this._boatNearTrigger.trigger(tokens, state));
+      const outcome = await Promise.race([delivery, timeout]);
+      if (outcome === BOAT_NEAR_UNCONFIRMED) return { [BOAT_NEAR_UNCONFIRMED]: true, delivery };
+      return outcome;
     } catch (error) {
       this.error(`❌ [FLOW_TRIGGER_APP_ERROR] ${vessel.mmsi}: Failed to trigger boat_near card`, error.message || error);
       throw error;
@@ -9848,7 +9871,7 @@ class AISBridgeApp extends Homey.App {
    * och fallbackens rättelse i samma tick dedupades bort. Samma sak hände en
    * återfödd båt vars notis gick via statusbytet (FILOU 209 m förbi
    * Järnvägsbron i 42h, även i fältloggen). I banken gällde det 13 notiser
-   * efter glapp på 7–199 min, 12–240 m förbi bron; rådatans korsning låg i
+   * efter glapp på 3–199 min, 12–240 m förbi bron; rådatans korsning låg i
    * samtliga före notisfixen.
    *
    * Beviset är detsamma som gap-kedjans egna fönster: föregående fix
@@ -9856,7 +9879,10 @@ class AISBridgeApp extends Homey.App {
    * båt utan föregående fix en färsk sist känd position med scenario A:s
    * bevisade fönster (≥ ~100 m). Bron ska ligga strikt mellan positionerna och
    * hoppet peka i båtens färdriktning. En återresa inom sex timmar har bron
-   * FRAMFÖR sig och behåller förvarningen. Kontrollen görs här, där alla tre
+   * FRAMFÖR sig och behåller förvarningen. Beviset är rumsligt och saknar
+   * tidskriterium, precis som passage-fallbackens scenario B: "under
+   * AIS-tystnad" avser att korsningen skedde mellan två rapporter, även vid
+   * normal Class B-kadens (HEY JOE efter 180 s). Kontrollen görs här, där alla tre
    * ingångar (STEG 2b, ENTERED och den uppskjutna statusnotisen) möts.
    * Källsträngen och distansen rörs inte; de bär dedupen och notisantalet.
    * @private
@@ -10466,51 +10492,9 @@ class AISBridgeApp extends Homey.App {
     // nyckel/post rollbacken annars klobbade → dubblettrisk).
     let ownPersistentEntry = null;
     let ownVisitEntry = null;
-    try {
-      // RACE FIX: Sätt dedup-nyckel FÖRE async trigger för att förhindra
-      // att parallella _onVesselUpdated-anrop slipper igenom.
-      this._triggeredBoatNearKeys.add(dedupeKey);
-      ownVisitEntry = this._triggerPointVisits?.reserve(vessel, bridgeName) || null;
-      if (ownVisitEntry) this._persistTriggerPointVisits();
-      // Anomali 9 fix: lagra också i persistent map som inte clearas vid
-      // vessel-removal — för 2h-dedup vid skipped-bridges-fallback.
-      // Defensive: vissa testkonstruktorer hoppar över app-init, så map kan saknas.
-      if (this._persistentRecentTriggers) {
-        // Riktningen lagras så en returresa (motsatt riktning) inom 2h inte
-        // blockeras efter omstart (ELFKUNGEN-fallet 2026-07-02).
-        ownPersistentEntry = { t: Date.now(), dir: this._dedupDirection(vessel) };
-        this._persistentRecentTriggers.set(dedupeKey, ownPersistentEntry);
-        this._persistRecentTriggers(); // P2: överlev omstart
-      }
-
-      // Varje anrop är en deduplicerad per-bro-händelse; "Alla broar" matchar
-      // var och en. mmsi/distance/source låter replay granska fartyg,
-      // distansrimlighet och inferens-notiser.
-      await this._triggerBoatNearFlowBest(safeTokens, {
-        bridge: bridgeId, mmsi: vessel.mmsi, distance: Math.round(distance), source,
-      }, vessel);
-      if (!this._isCurrentRuntime(lifecycle)) return;
-
-      // B8 (körning 2026-07-03, F6): vessel.status beskriver båtens läge mot
-      // hennes AKTUELLA målbro — för en failsafe-notis om en annan/passerad
-      // bro blev loggen missvisande ("under-bridge" @854 m). Märk fallback-
-      // notiser som passage-inferred i stället.
-      // F6 (2026-08-10): exit-fallbacken har samma problem som B8 beskriver
-      // (status mot MÅLBRON är missvisande i en failsafe-logg) men är ingen
-      // inferrerad passage — den får därför sin egen etikett.
-      let logStatus = vessel.status;
-      if (distance > 300) {
-        if (source === 'passage-fallback') logStatus = 'passage-inferred';
-        else if (source === 'exit-fallback') logStatus = 'exit-inferred';
-      }
-      this.log(
-        `✅ [FLOW_TRIGGER_SUCCESS] ${mmsiLabel}: boat_near fired for ${bridgeName} `
-        + `(ID=${bridgeId}, distance=${Math.round(distance)}m, status=${logStatus})`,
-      );
-
-      this.debug(`🔒 [FLOW_TRIGGER_DEDUPE_SET] ${vessel.mmsi}: Added "${dedupeKey}" to dedupe set (total keys: ${this._triggeredBoatNearKeys.size})`);
-    } catch (triggerError) {
-      if (!this._isCurrentRuntime(lifecycle)) return;
+    // Rollbacken av vårt eget tillstånd vid ett fel från kortet. Den används
+    // både för fel inom tidsgränsen och för ett sent fel efter en timeout.
+    const rollbackOwnState = (triggerError, late = false) => {
       if (this._triggerPointVisits?.rollback(mmsiLabel, ownVisitEntry, bridgeName)) this._persistTriggerPointVisits();
       // DIVR2-3 (R2 2026-07-11): rulla bara tillbaka VÅRT tillstånd — har
       // ett mellanliggande släpp skrivit en nyare post under awaiten äger
@@ -10541,15 +10525,81 @@ class AISBridgeApp extends Homey.App {
           + 'was rewritten by a newer notification during the failed trigger — leaving it intact',
         );
       }
+      const lateTag = late ? ' late=true' : '';
       this.error(
         `❌ [FLOW_TRIGGER_ERROR] ${vessel.mmsi}: boat_near failed for ${bridgeName} `
-        + `(ID=${bridgeId}, distance=${Math.round(distance)}m, status=${vessel.status}): ${triggerError.message || triggerError}`,
+        + `(ID=${bridgeId}, distance=${Math.round(distance)}m, status=${vessel.status}): `
+        + `${(triggerError && triggerError.message) || triggerError}${lateTag}`,
       );
       this.error(`❌ [FLOW_TRIGGER_ERROR_TOKENS] Failed tokens: ${JSON.stringify(safeTokens)}`);
       this.error(`❌ [FLOW_TRIGGER_ERROR_STATE] State: { bridge: "${bridgeId}" }`);
-      if (triggerError.stack) {
+      if (triggerError && triggerError.stack) {
         this.error(`❌ [FLOW_TRIGGER_ERROR_STACK] ${triggerError.stack}`);
       }
+    };
+    try {
+      // RACE FIX: Sätt dedup-nyckel FÖRE async trigger för att förhindra
+      // att parallella _onVesselUpdated-anrop slipper igenom.
+      this._triggeredBoatNearKeys.add(dedupeKey);
+      ownVisitEntry = this._triggerPointVisits?.reserve(vessel, bridgeName) || null;
+      if (ownVisitEntry) this._persistTriggerPointVisits();
+      // Anomali 9 fix: lagra också i persistent map som inte clearas vid
+      // vessel-removal — för 2h-dedup vid skipped-bridges-fallback.
+      // Defensive: vissa testkonstruktorer hoppar över app-init, så map kan saknas.
+      if (this._persistentRecentTriggers) {
+        // Riktningen lagras så en returresa (motsatt riktning) inom 2h inte
+        // blockeras efter omstart (ELFKUNGEN-fallet 2026-07-02).
+        ownPersistentEntry = { t: Date.now(), dir: this._dedupDirection(vessel) };
+        this._persistentRecentTriggers.set(dedupeKey, ownPersistentEntry);
+        this._persistRecentTriggers(); // P2: överlev omstart
+      }
+
+      // Varje anrop är en deduplicerad per-bro-händelse; "Alla broar" matchar
+      // var och en. mmsi/distance/source låter replay granska fartyg,
+      // distansrimlighet och inferens-notiser.
+      const outcome = await this._triggerBoatNearFlowBest(safeTokens, {
+        bridge: bridgeId, mmsi: vessel.mmsi, distance: Math.round(distance), source,
+      }, vessel);
+      if (!this._isCurrentRuntime(lifecycle)) return;
+
+      // B8 (körning 2026-07-03, F6): vessel.status beskriver båtens läge mot
+      // hennes AKTUELLA målbro — för en failsafe-notis om en annan/passerad
+      // bro blev loggen missvisande ("under-bridge" @854 m). Märk fallback-
+      // notiser som passage-inferred i stället.
+      // F6 (2026-08-10): exit-fallbacken har samma problem som B8 beskriver
+      // (status mot MÅLBRON är missvisande i en failsafe-logg) men är ingen
+      // inferrerad passage — den får därför sin egen etikett.
+      let logStatus = vessel.status;
+      if (distance > 300) {
+        if (source === 'passage-fallback') logStatus = 'passage-inferred';
+        else if (source === 'exit-fallback') logStatus = 'exit-inferred';
+      }
+      const successLine = `✅ [FLOW_TRIGGER_SUCCESS] ${mmsiLabel}: boat_near fired for ${bridgeName} `
+        + `(ID=${bridgeId}, distance=${Math.round(distance)}m, status=${logStatus})`;
+      if (outcome && outcome[BOAT_NEAR_UNCONFIRMED]) {
+        // Okvitterat efter tidsgränsen: dedupen står kvar (beslutat), men
+        // SUCCESS loggas först när kortet faktiskt svarat. Ett sent fel får
+        // samma rollback som ett fel inom tidsgränsen, så notisen kan försökas
+        // igen i stället för att spärras utan att ha levererats.
+        this.error(
+          `⏳ [FLOW_TRIGGER_UNCONFIRMED] ${mmsiLabel}: boat_near för ${bridgeName} okvitterat efter `
+          + `${Math.round(BOAT_NEAR_TRIGGER_TIMEOUT_MS / 1000)} s — dedupen behålls, sent svar loggas`,
+        );
+        outcome.delivery.then(() => {
+          if (this._isCurrentRuntime(lifecycle)) this.log(`${successLine} late=true`);
+        }, (lateError) => {
+          if (this._isCurrentRuntime(lifecycle)) rollbackOwnState(lateError, true);
+        }).catch((err) => {
+          this.error(`❌ [FLOW_TRIGGER_LATE] ${mmsiLabel}: sent utfall kunde inte hanteras:`, err.message || err);
+        });
+        return;
+      }
+      this.log(successLine);
+
+      this.debug(`🔒 [FLOW_TRIGGER_DEDUPE_SET] ${vessel.mmsi}: Added "${dedupeKey}" to dedupe set (total keys: ${this._triggeredBoatNearKeys.size})`);
+    } catch (triggerError) {
+      if (!this._isCurrentRuntime(lifecycle)) return;
+      rollbackOwnState(triggerError);
     }
   }
 

@@ -154,13 +154,26 @@ describe('Inställningssidan: skrivordningen ger inga falska källnotiser', () =
         // Inget mellanläge får starta en källa som varken start- eller
         // slutläget använder (en onödig AISHub-poll eller AISstream-anslutning).
         const allowedSources = new Set([...activeSources(from), ...activeSources(to)]);
+        let previous = activeSources(from);
         for (const cfg of result.configs) {
-          const blink = [...activeSources(cfg)].filter((feed) => !allowedSources.has(feed));
+          const active = activeSources(cfg);
+          const blink = [...active].filter((feed) => !allowedSources.has(feed));
           if (blink.length) {
             offenders.push({
               from, to, blink, writes: result.writes,
             });
           }
+          // Granskningen av fixvågen 2026-11-04: en AISHub-klient som STARTAR
+          // i ett mellanläge ska bära slutlägets användarnamn. Den motsvarande
+          // AISstream-klassen (gammal nyckel vid byte från 'aishub', 28
+          // övergångar sedan 7dc390f) är rapporterad, inte rättad.
+          if (active.has('aishub') && !previous.has('aishub')
+              && (cfg.aishubUsername ?? '') !== to.aishub_username) {
+            offenders.push({
+              from, to, staleUsername: cfg.aishubUsername, writes: result.writes,
+            });
+          }
+          previous = active;
         }
         checked++;
       }
@@ -185,6 +198,16 @@ describe('Inställningssidan: skrivordningen ger inga falska källnotiser', () =
     );
     expect([...result.notices]).toEqual([]);
     expect(result.writes).toEqual(['ais_api_key', 'aishub_username', 'ais_source']);
+  });
+
+  test('rättat användarnamn + byte från AISstream till "Båda": AISHub startar aldrig med det gamla namnet', () => {
+    const result = runSave(
+      { ais_source: 'aisstream', ais_api_key: KEY_A, aishub_username: 'other-user' },
+      { ais_source: 'both', ais_api_key: KEY_A, aishub_username: 'hub-user' },
+    );
+    expect([...result.notices]).toEqual([]);
+    expect(result.writes).toEqual(['aishub_username', 'ais_source']);
+    expect(result.configs.every((cfg) => cfg.source === 'aisstream' || cfg.aishubUsername === 'hub-user')).toBe(true);
   });
 
   test('byte till AISstream med tömt användarnamn: inget falskt besked om saknat användarnamn', () => {

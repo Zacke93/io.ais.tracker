@@ -1014,7 +1014,8 @@ Flaggor (bärs av `_createVesselObject`-fältlistan, §8a): `_etaIsExtrapolated`
 5. **Publicering** (`_processUIUpdate`:2393): **fel-snapshot-guard** (:2402–2405,
    `snapshot.error` ⇒ behåll förra texten — tom lista pga krasch är "vet ej",
    inte "tom kanal"); F29-vakt (GPS-hållen ensam båt ⇒ behåll förra texten,
-   :2432–2445); **stale-guard**: AIS nere >2 min ⇒ STALE_DATA_OVERRIDE_TEXT
+   :2432–2445); **stale-guard**: AIS nere >2 min (`STALE_DATA_GUARD_MS`, delad med
+   30 s-vakthunden, som sedan 2026-11-03 driver cykeln även vid 0 båtar) ⇒ STALE_DATA_OVERRIDE_TEXT
    ("AIS-anslutning saknas — data kan vara inaktuell", :64, :2476–2485) och
    alarm_generic tvingas AV (C8, :2567–2586); hash-dedupe + 60 s tvångsrefresh
    (ej vid passed-fartyg, :2488–2499); loggtaggar UI_UPDATE vs UI_REFRESH (RC6).
@@ -2020,7 +2021,12 @@ Underlaget står i `docs/helgranskning-2026-11-03.md`; varje fynd prövades med 
   `TriggerPointVisitTracker.closeOpenVisits` är den enda vägen utanför `observe` som sätter
   `exitedAt`. Tystnad, förtöjning och timeout stänger fortfarande ingenting.
 - Fix D-bekräftelsen i samma tick skickar `previousTargetInvalid` till ACCELERATED-grenen, så
-  2-READINGS inte mäter mot det övergivna målet (ANYA ELAN).
+  2-READINGS inte mäter mot det övergivna målet. AVVÄGNING (granskningen av fixvågen
+  2026-11-04): en gles äkta U-sväng får kortet en fix tidigare och returpassagen bokförd, men en
+  väntslinga med två motriktade fixar i ≥ 2 kn längre än 300 m från målet ger nu ett accepterat
+  AVBRUTEN_APPROACH-kort mot motsatt riktnings målbro (förut bara inom 300 m eller vid tre fixar).
+  ANYA ELAN i both-21h är en sådan slinga. Slingskydd (beväpna först efter nästa fix i samma
+  riktning) är ett användarbeslut.
 - `_hasGapCrossedNotifiedBridge` är en tredje passerad-formsignal bredvid S4 och H16. Bron ska
   ligga strikt mellan föregående (eller sist kända) och aktuell position i gap-kedjans fönster,
   och hoppet ska gå i färdriktningen. Källsträng och distans lämnas orörda.

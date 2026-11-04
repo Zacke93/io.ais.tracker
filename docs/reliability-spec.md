@@ -83,7 +83,7 @@ Per målbro-grupp: `"{antal} båt(ar) på väg mot {målbro}, {ETA-klausul}"`. F
 - **INV-B1 (liveness):** texten visar **aldrig** DEFAULT när ett relevant fartyg är inom 500 m av en målbro på aktiv resa. *(Idag bruten: STOPPED→DEFAULT, se D1.)*
 - **INV-B2 (ETA-monotonicitet):** för ett närmande fartyg ökar visad ETA aldrig bakåt (ingen "strax"→"11 min"). ⚖️ **D2**. *(Idag bruten: 2 flippar i loggen.)*
 - **INV-B3 (rätt mål):** texten namnger aldrig en passerad bro som mål; en bekräftad passage flyttar alltid målet. *(Idag bruten: P6, GPS-gate-deadlock.)*
-- **INV-B4 (anslutnings­sanning):** vid avbrott visas avbrottstexten, aldrig DEFAULT. *(Idag bruten: P8.)*
+- **INV-B4 (anslutnings­sanning):** vid avbrott visas avbrottstexten, aldrig DEFAULT. *(Uppfylld genom D5. Sedan helgranskningen 2026-11-03 även på tom kanal: vakthunden driver UI-cykeln utan båtar när avbrottet passerat 2 min.)*
 - **INV-B5 (Variant-1):** inga förbjudna fraser, inga mellanbroar som mål. *(Håller.)*
 
 ---

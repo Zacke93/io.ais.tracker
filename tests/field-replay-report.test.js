@@ -33,6 +33,26 @@ describe('Fältrapporten mäter leverans, innehåll och fältstopp', () => {
     })]);
   });
 
+  // Granskningen av fixvågen 2026-11-04: ett kort som inte svarat inom
+  // tidsgränsen är okvitterat, och en sen kvittens bär sin verkliga tid.
+  test('timeout och UNCONFIRMED är ingen kvittens; sen SUCCESS late=true får sin verkliga tid', () => {
+    const later = '2026-08-24T14:24:13.959Z';
+    const timeoutLines = [
+      safe(3), attempt(3),
+      line('[FLOW_TRIGGER_TIMEOUT] 276015380: boat_near-kortet svarade inte inom 60 s — behåller dedupen och går vidare'),
+      line('[FLOW_TRIGGER_UNCONFIRMED] 276015380: boat_near för Stridsbergsbron okvitterat efter 60 s — dedupen behålls, sent svar loggas'),
+    ];
+    const unconfirmed = parseFieldLog(timeoutLines.join('\n'));
+    expect(unconfirmed.attempts).toBe(1);
+    expect(unconfirmed.notifications).toEqual([]);
+    expect(unconfirmed.undeliveredAttempts).toHaveLength(1);
+    const lateSuccess = `${later} [log] [AISBridgeApp] [FLOW_TRIGGER_SUCCESS] 276015380: boat_near fired for `
+      + 'Stridsbergsbron (ID=stridsbergsbron, distance=227m, status=waiting) late=true';
+    const delivered = parseFieldLog([...timeoutLines, lateSuccess].join('\n'));
+    expect(delivered.undeliveredAttempts).toHaveLength(0);
+    expect(delivered.notifications).toEqual([expect.objectContaining({ successAt: Date.parse(later) })]);
+  });
+
   test('lyckad notis utan parsad försöksrad får aldrig bli tyst tom mätning', () => {
     expect(() => parseFieldLog(success)).toThrow('Kortleverans utan läsbart försök');
   });

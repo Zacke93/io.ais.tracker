@@ -504,11 +504,17 @@ describe('H16-resten: FP8-gaten och vakten kan inte glida isär', () => {
   test('KÄLLSVEP: BÅDA TRIGGER-PUNKTSSTÄLLENA delar konstanten', () => {
     const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'app.js'), 'utf8');
 
-    // Vaktens kropp: två jämförelser, båda mot konstanten.
-    const guard = src.slice(
-      src.indexOf('_hasPassedTriggerPoint(vessel, candidate, direction) {'),
-      src.indexOf('_buildBoatNearMessage(tokens, source, passedTriggerPoint'),
-    );
+    // Vaktens kropp: två jämförelser, båda mot konstanten. Fönstret är exakt
+    // metoden (samma idiom som methodSource i k18-testet). Granskningen av
+    // fixvågen 2026-11-04: den gamla slutmarkören, nästa metods signatur,
+    // försvann när signaturen radbröts; snittet gick då till filens slut och
+    // låste inte längre vaktkroppen. Saknade markörer fäller nu testet.
+    const start = src.indexOf('\n  _hasPassedTriggerPoint(vessel, candidate, direction) {');
+    expect(start).toBeGreaterThan(-1);
+    const end = src.indexOf('\n  /**', start + 1);
+    expect(end).toBeGreaterThan(start);
+    const guard = src.slice(start, end);
+    expect(guard.trimEnd().endsWith('\n  }')).toBe(true);
     expect(guard).toContain('_hasPassedTriggerPoint(vessel, candidate, direction) {');
     expect(guard.match(/TRIGGER_POINT_SIDE_MARGIN_DEG/g) || []).toHaveLength(2);
     expect(guard).not.toContain('0.0009');
