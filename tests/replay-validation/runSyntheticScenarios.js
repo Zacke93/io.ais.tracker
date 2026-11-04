@@ -88,6 +88,8 @@ const OMSTART_SLOW_ZONE = {
  *  - zeroNotifications: inga notiser alls
  *  - noVesselText: ingen "på väg mot"-text får publiceras
  *  - minNotifiedBridges: dessa broar MÅSTE ha fått notis
+ *  - minPassagesPerBridge: {bro: N} — minst N bokförda passager av bron,
+ *    mål- och mellanbropassager sammantaget (R1, returpassagen)
  *  - forbiddenNotifiedBridges: dessa broar får INTE ha fått notis
  *  - maxNotifiedPerBridge: {bro: N} — max antal notiser per bro (dubblettvakt)
  *
@@ -303,6 +305,71 @@ const SCENARIOS = [
       uTurnAtFraction: (METRICS.cum[2] + 600) / METRICS.total,
     }],
     expect: { minTargetPassages: 2 },
+  },
+  {
+    // R1 (rättningskampanjen 2026-11-04, buggjägarens F10/W750): samma glesa
+    // tur-och-retur, men vändningen ligger så nära Klaffbron att Fix D:s
+    // debounce bekräftar den först på fixen BORTOM bron. 7 kn och 240 s ger
+    // en vändfix 592 m norr om Klaffbron (utpassagen bokförs i samma tick,
+    // vändningen blir väntande) och en bekräftelsefix 273 m söder om den.
+    // Förut räknade N1-resetten "framför" från bekräftelsefixen, Klaffbron
+    // stannade i passedBridges och returpassagen bokfördes aldrig. Placeringen
+    // är vald, inte given: samplen ligger på ett fast rutnät från ruttens
+    // start, s = k · Δ med Δ = fart · intervall (här 864 m), och vändningen
+    // sker på första samplet med s ≥ vändandelen. Med Klaffbron vid sK ger
+    // k = ⌈sK / Δ⌉ vändfixen k · Δ − sK norr om bron och bekräftelsefixen
+    // sK − (k − 1) · Δ söder om den. Vändfixen måste ligga > 500 m från
+    // Klaffbron (Fix D:s distansvillkor, målet är ännu Klaffbron i den
+    // ticken). Ändras generatorn eller rutten ska bandet räknas om, inte
+    // förväntan tas bort.
+    name: 'u-sväng-gles-ais-återkorsning-i-debouncen',
+    seed: 92,
+    vessels: [{
+      mmsi: '901000092',
+      direction: 'north',
+      speedKn: 7,
+      reportIntervalS: 240,
+      uTurnAtFraction: (METRICS.cum[2] + 500) / METRICS.total,
+    }],
+    expect: { minTargetPassages: 1, minPassagesPerBridge: { Klaffbron: 2 } },
+  },
+  {
+    // R1, granskningen 2026-11-04: som ovan, men fixet som avslutar
+    // returens korsningssegment är LÅNGSAMT (1,5 kn). Fix D hoppar då över
+    // ticken (< 2 kn) och bekräftar först på nästa fix, vars segment inte
+    // innehåller bron; RE_CROSS_EVIDENCED krävde 2 kn. Nu räcker det att
+    // Fix D:s väntan sattes på segmentets startfix (vändfixen), att
+    // korsningsfixet självt går i minst 1 kn, att segmentet är minst 100 m
+    // och att segmentets nettofart når 2 kn (omgranskningen 2026-11-04,
+    // VesselDataService._slowReCrossEvidence).
+    // Placeringen: Δ = 6,5 kn · 210 s = 702 m. Första samplet norr om
+    // Klaffbron ligger på k · Δ med k = ⌈sK / Δ⌉ = 5, 646 m förbi bron längs
+    // rutten (> 500 m: Fix D:s distansvillkor medan målet ännu är Klaffbron,
+    // så vändfixen blir väntande i samma tick som utpassagen bokförs).
+    // Returens första steg landar på 4 · Δ, 56 m före Klaffbron längs den
+    // nordgående ruttkoordinaten, alltså 54 m SÖDER om bron: på den
+    // sydgående returen är bron redan korsad. Samplet ligger inne i den
+    // långsamma zonen som bara gäller returbenet (afterUTurnOnly). Därmed
+    // är korsningssegmentet 702 m på 210 s (nettofart 6,5 kn), rörelsen
+    // rimlig mot förra fixets fart (ingen GPS-flagga) och positionsbevisets
+    // kedja har bara ETT ben, så ingen annan väg hinner före. Räkna om om
+    // generatorn eller rutten ändras.
+    name: 'u-sväng-långsam-återkorsning-efter-väntan',
+    seed: 93,
+    vessels: [{
+      mmsi: '901000093',
+      direction: 'north',
+      speedKn: 6.5,
+      reportIntervalS: 210,
+      uTurnAtFraction: (METRICS.cum[2] + 100) / METRICS.total,
+      slowZone: {
+        fromFraction: (METRICS.cum[2] - 250) / METRICS.total,
+        toFraction: (METRICS.cum[2] + 60) / METRICS.total,
+        speedKn: 1.5,
+        afterUTurnOnly: true,
+      },
+    }],
+    expect: { minTargetPassages: 1, minPassagesPerBridge: { Klaffbron: 2 } },
   },
   {
     // Två båtar möts VID Stridsbergsbron — grupplogik, klausulunikhet (INV-9)
@@ -1119,6 +1186,17 @@ function checkExpectations(scenario, result) {
   }
   if (e.noTargetPassages && passages.length > 0) {
     problems.push(`oväntade målbro-passager: ${passages.map((p) => p.bridge).join(',')}`);
+  }
+  // R1 (2026-11-04): bokförda passager per bro oavsett slag. En returpassage
+  // efter en bekräftad U-sväng bokförs som mellanbropassage när båten redan
+  // är mållös (samma utfall som RE_CROSS_EVIDENCED), så minTargetPassages
+  // ensam ser den inte.
+  if (e.minPassagesPerBridge) {
+    const all = [...passages, ...(result.intermediatePassages || [])];
+    for (const [bridge, minN] of Object.entries(e.minPassagesPerBridge)) {
+      const n = all.filter((p) => p.bridge === bridge).length;
+      if (n < minN) problems.push(`bokförda passager av ${bridge} ${n} < förväntade ${minN}`);
+    }
   }
   if (e.zeroNotifications && notifications.length > 0) {
     problems.push(`oväntade notiser: ${notifications.map((n) => `${n.mmsi}:${n.bridge}`).join(',')}`);

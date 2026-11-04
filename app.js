@@ -2757,6 +2757,10 @@ class AISBridgeApp extends Homey.App {
           // nycklarna för broar FRAMFÖR båten i nya riktningen. Full rensning
           // dubbelnotifierade nya benets redan avfyrade broar (AKIRA:
           // Järnvägsbron ×2 i replayen av 21h-loggen).
+          // R1 (2026-11-04): listan kan också innehålla en bro BAKOM båten som
+          // Fix D:s eller positionsbevisets bekräftelsesegment korsade i den nya
+          // riktningen. Dess nyckel hör till den gamla resans passage; returen
+          // är inte notifierad ännu, så rensningen dubbelnotifierar ingenting.
           this.log(
             `🔁 [JOURNEY_RESET_DEDUP] ${mmsi}: clearing boat_near dedup keys for `
             + `reversed journey [${bridges.join(', ')}]`,
@@ -8526,12 +8530,33 @@ class AISBridgeApp extends Homey.App {
     // direction-token som 'unknown' i samma millisekund som svepet visste
     // 'north'. Lås bara när riktning saknas — motsägelser mot ett
     // befintligt lås hanteras av korsningsbevis-reversalen i VDS.
+    //
+    // R1 (rättningskampanjen 2026-11-04, F15 IRMA): svepets riktning är
+    // NETTOFÖRFLYTTNINGEN sedan sist kända position. Den är rätt riktning för
+    // svepets EGNA passager (broarna i fönstret korsades netto åt det hållet)
+    // men inte nödvändigtvis färdriktningen nu. Vände båten i glappet (norrut
+    // förbi Olidebron, U-sväng, söderut igen) pekar svepet norrut medan båten
+    // går söderut, och ett kvarstående lås omprövas aldrig: mållös båt ⇒ ingen
+    // Fix D, ingen bokförd bro att korsa igen ⇒ ingen korsningsbevis-reversal.
+    // Låset sätts därför som förut och bär svepets egna notiser och scenario
+    // B:s inferens (SISU-garantin gäller oförändrad), men släpps efter svepet
+    // när den RÖRELSEBEVISADE levande kursen säger motsatsen
+    // (_dedupDirection med requireMovement: Fix D:s band och 2 kn, samma krav
+    // som reborn-grenen i journey-reset-hanteraren). Kursen läses FÖRE låset,
+    // som annars skuggar den. Senare notiser bär då den levande kursens token;
+    // ligger kursen i 271–314° (Fix D:s sydband men tokenbandets dödband, FP8)
+    // blir den tokenen 'unknown' tills kursen är entydig.
+    let sweepLockRelease = null;
     if (!vessel._routeDirection && (direction === 'north' || direction === 'south')) {
+      const liveDirection = this._dedupDirection(vessel, { requireMovement: true });
       vessel._routeDirection = direction;
       this.log(
         `🧭 [SKIPPED_BRIDGES_DIRECTION_LOCK] ${vessel.mmsi}: route direction '${direction}' `
         + 'locked from evidenced sweep window',
       );
+      if (liveDirection && liveDirection !== direction) {
+        sweepLockRelease = { direction, liveDirection };
+      }
     }
 
     // Körning 2026-07-02 (YEMANJA II): failsafen var notis-enbart. När hoppet
@@ -8617,6 +8642,21 @@ class AISBridgeApp extends Homey.App {
         this.error(`[SKIPPED_BRIDGES_FALLBACK] Error for ${bridgeName}:`, err);
       }
       if (!this._isCurrentRuntime(lifecycle)) return;
+    }
+
+    // R1 (F15): svepets egna notiser är skickade med svepets riktning — släpp
+    // nu låset som svepet självt satte om den levande kursen motsäger det.
+    // Bara om låset fortfarande är svepets: en reversal eller ett nytt lås
+    // från VDS under svepet äger riktningen. Avbröts körningen ovan
+    // (runtime-byte) är fartygsobjektet förbrukat och släppet betydelselöst.
+    if (sweepLockRelease && vessel._routeDirection === sweepLockRelease.direction) {
+      vessel._routeDirection = null;
+      this.log(
+        `🧭 [SKIPPED_BRIDGES_DIRECTION_LOCK_RELEASED] ${vessel.mmsi}: sweep window said `
+        + `'${sweepLockRelease.direction}' but movement-proven live course says `
+        + `'${sweepLockRelease.liveDirection}' (cog=${vessel.cog}°, sog=${vessel.sog}) — turned during the gap; `
+        + 'the sweep\'s own notifications carried the sweep direction, route direction left unlocked',
+      );
     }
   }
 

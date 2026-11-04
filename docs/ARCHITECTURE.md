@@ -851,6 +851,55 @@ båt.
   rensar båda dedup-lagren (app.js:738–741). Post-resa: NEW_JOURNEY
   (app.js:897–952, debounce `_newJourneyPending`) nollar passedBridges + dedupe
   + target-protection för returresan.
+- N1-resetten i `_confirmDirectionReversal` släpper broar framför båten i den nya
+  riktningen. R1 (rättningskampanjen 2026-11-04, buggjägarens F10/W750): Fix D och
+  positionsbevisets två ben bekräftar före tickens detektering, ofta på fixen bortom bron
+  båten just korsat tillbaka. De skickar därför bekräftelsesegmentet
+  (`_cleanReCrossSegmentStart`, GPS-rent), och en bro som segmentet korsar i den nya
+  riktningen släpps också. Samma tick bokför returen som mellanbropassage (`no-target`),
+  samma utfall som `RE_CROSS_EVIDENCED`. Korsningsbevisvägarna skickar inget segment;
+  där är bron bakom den nya korsningen och behålls (AKIRA, Järnvägsbron ×2).
+- `RE_CROSS_EVIDENCED` kräver rörelse i nuet: 2 kn, eller ett segment på minst 100 m för
+  fartgivarlösa. R1 (granskningen 2026-11-04): en LÅNGSAM återkorsning direkt efter Fix D:s
+  väntande fix bokförs i korsningsticken när alla fyra villkoren i `_slowReCrossEvidence`
+  håller: (1) väntan i korsningens riktning sattes på segmentets startfix, och startfixet är
+  förra fixet självt (Anomali 18:s två observationer blir två på varandra följande fixar);
+  (2) korsningsfixets EGEN fart (`GPSJumpAnalyzer.positionSog`, inte det framförda värdet) är
+  minst `QUAY_DEPARTURE_GATE.TRANSIT_SOG_KN` (1,0 kn); (3) segmentet är minst 100 m;
+  (4) segmentets nettofart når 2 kn. Omgranskningen 2026-11-04 visade varför alla fyra behövs:
+  med bara "färsk väntan (upp till 15 min) + 100 m" vände en VÄNTANDE båt på ett enda GPS-sprang
+  (AQUILA i 20260601-41h med en inlagd outlier, och två syntetiska väntlägen; fixturerna
+  `tests/fixtures/r1-omgr-*.jsonl` får inte vända). En outlier hos en stillaliggande båt bär
+  båtens verkliga fart nära noll (S-F4), och en väntan med fixar emellan säger inget om rörelsen
+  nu. Kvar som kända luckor (eget öppet kort, U-SVÄNG-LÅNGSAM-ÅTERKORSNING): en tät långsam
+  korsning (segment < 100 m), en långsam vändning utan fix i 2 kn före korsningen, en korsning
+  där båten stannar direkt efter bron (korsningsfixet under 1 kn), en väntan som är äldre än
+  startfixet och två återkorsade broar i samma segment (bara den första bokförs). Där bokförs
+  returen inte; testerna "KÄND LUCKA" i `tests/r1-usvang-aterkorsning-2026-11-04.test.js` visar
+  dagens beteende.
+- **U18 (användarbeslut 2026-11-04): Fix D kräver TVÅ positioner innan appen tror på en
+  vändning, som förut (Anomali 18).** En retur med gles AIS, där den andra omvända positionen
+  kommer först efter korsningen, får därför sin öppningsvarning sent eller inte alls; det är en
+  känd gräns, inte ett fel (sju av buggjägarens U-svängsreturer i F01: värld 18, 134, 188, 227,
+  353, 1181 och 1731: i alla sju kom bara EN omvänd position i minst 2 kn mellan vändningen och
+  korsningen). Under debouncen bär notiser om broar framför båten det gamla låsets riktning
+  (1731: "närmar sig Järnvägsbron" 11:01:04 söderut). U18 gäller öppningsvarningen och
+  riktningen; returens bokföring i de kända luckorna ovan är ett eget öppet kort.
+- **U19 (användarbeslut 2026-11-04): en planerad öppningsvarning skickas även när en
+  obekräftad vändning väntar.** Deadlinemotorn avfyrar som vanligt medan
+  `_fixDPendingReversal` väntar på sin andra observation; varningen hålls inte inne och stryks
+  inte. Ett falsklarm när vändningen var äkta (ZELDA i värld 188: Stridsbergsbron#12 14:54:07,
+  bekräftelsen först 14:54:48) väger lättare än en missad öppning när båten bara svängde till
+  (AIR i 20260601-41h: Klaffbron#29 08:28:43 under en väntan, passage 08:41:02). S10-vakten
+  (notisvägen) är oförändrad och gäller bara notiser om broar bakom båten.
+- Svepets riktningslås (SISU) sätts som förut och bär svepets egna notiser, eftersom
+  broarna i svepfönstret korsades netto åt svepets håll. När den rörelsebevisade levande
+  kursen (`_dedupDirection` med `requireMovement`, Fix D:s band 135–314° söderut och 2 kn)
+  säger motsatsen släpps låset efter svepet (`SKIPPED_BRIDGES_DIRECTION_LOCK_RELEASED`):
+  båten har vänt i glappet (R1, F15 IRMA). Senare notiser bär den levande kursens token.
+  Ligger kursen i 271–314° (Fix D:s sydband men tokenbandets dödband, FP8) blir den tokenen
+  `unknown` tills kursen är entydig. Osäker kurs, fart under 2 kn och samma riktning låser
+  som förut.
 
 ### Passage-latch + under-bridge-hysteres (StatusService)
 
@@ -2026,7 +2075,9 @@ Underlaget står i `docs/helgranskning-2026-11-03.md`; varje fynd prövades med 
   väntslinga med två motriktade fixar i ≥ 2 kn längre än 300 m från målet ger nu ett accepterat
   AVBRUTEN_APPROACH-kort mot motsatt riktnings målbro (förut bara inom 300 m eller vid tre fixar).
   ANYA ELAN i both-21h är en sådan slinga. Slingskydd (beväpna först efter nästa fix i samma
-  riktning) är ett användarbeslut.
+  riktning) är ett användarbeslut. Returpassagen bokfördes bara när bekräftelsen kom före
+  bron; kom den på fixen bortom bron stod bron kvar i `passedBridges` tills R1
+  (rättningskampanjen 2026-11-04, se U-svängspunkten ovan).
 - `_hasGapCrossedNotifiedBridge` är en tredje passerad-formsignal bredvid S4 och H16. Bron ska
   ligga strikt mellan föregående (eller sist kända) och aktuell position i gap-kedjans fönster,
   och hoppet ska gå i färdriktningen. Källsträng och distans lämnas orörda.

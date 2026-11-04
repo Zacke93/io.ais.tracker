@@ -106,8 +106,10 @@ function pointAt(path, metrics, s) {
  *   - ligg still på fast punkt (utanför rutten) i durationS innan ev. rutt körs
  * @param {number[]} [opts.navStatusPattern] - cykliskt navStatus-mönster under stop-fasen
  *   (t.ex. [0,5] = flappar var annan sample) — testar förtöjningslager 3-hysteres
- * @param {{fromFraction:number,toFraction:number,speedKn:number}} [opts.slowZone]
- *   - sänkt fart i ett ruttintervall (RC3-klassen: sog-kollaps vid bron)
+ * @param {{fromFraction:number,toFraction:number,speedKn:number,afterUTurnOnly?:boolean}} [opts.slowZone]
+ *   - sänkt fart i ett ruttintervall (RC3-klassen: sog-kollaps vid bron).
+ *     afterUTurnOnly: zonen gäller bara returbenet efter U-svängen (R1: en
+ *     långsam återkorsning utan att utresans rutnät flyttas)
  * @param {{atFraction:number,backM:number}} [opts.staleEcho] - EN fördröjd
  *   gammal position (backM bakom aktuell) mitt i resan — out-of-order-leverans
  * @param {number} [opts.duplicateEvery] - emittera varje N:e sample dubbelt
@@ -203,6 +205,7 @@ function generateJourney(opts, rnd) {
 
     // Sänkt fart i zon (RC3-klassen: inbromsning genom bropassagen)
     const inSlowZone = opts.slowZone
+      && (!opts.slowZone.afterUTurnOnly || uTurned)
       && frac >= opts.slowZone.fromFraction && frac <= opts.slowZone.toFraction;
     const cruiseKn = inSlowZone ? opts.slowZone.speedKn : opts.speedKn;
     const cruiseMs = cruiseKn * 0.5144;
