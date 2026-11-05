@@ -207,8 +207,18 @@ describe('H S10-VÄNDNING-BRON-BAKOM: Fix D:s pending-flagga och riktningslås f
       lås, minSogKn: 2, maxÅlderMs: 15 * MIN, band,
     });
     const f = (t, cog, sog) => ({ aisTimestamp: t * 1000, cog, sog });
-    // Långsamma fixar och fixar utan kurs rör ingenting.
-    expect(spelaFixD([f(0, 200, 1.9), f(10, NaN, 3), f(20, 200, null)], o('norr'))).toEqual({ lås: 'norr', flagga: null, bekräftad: null });
+    // Långsamma fixar rör ingenting.
+    expect(spelaFixD([f(0, 200, 1.9), f(10, 200, 1.5)], o('norr'))).toEqual({ lås: 'norr', flagga: null, bekräftad: null });
+    // En rad utan kurs eller fart prövas med det senast kända värdet, som i
+    // appen (VesselDataService.js:5286–5287; runda 3, L1): vid 10 s ger kursen
+    // 200° från raden före och 3 kn flaggan, och vid 20 s bekräftar 200° med
+    // farten 3 kn från raden före. Förut hoppades båda raderna över, och
+    // testet låste fast det (granskarens varv s1, nytt problem 1).
+    expect(spelaFixD([f(0, 200, 1.9), f(10, NaN, 3), f(20, 200, null)], o('norr')))
+      .toEqual({ lås: 'söder', flagga: null, bekräftad: { till: 'söder', t: 20000, flaggad: 10000 } });
+    // Utan tidigare värde rör raden ingenting.
+    expect(spelaFixD([f(0, NaN, 3)], o('norr'))).toEqual({ lås: 'norr', flagga: null, bekräftad: null });
+    expect(spelaFixD([f(0, 200, null)], o('norr'))).toEqual({ lås: 'norr', flagga: null, bekräftad: null });
     // Omvänd mot låset sätter flaggan; nästa omvända inom åldern bekräftar.
     expect(spelaFixD([f(0, 200, 2)], o('norr'))).toEqual({ lås: 'norr', flagga: { riktning: 'söder', t: 0 }, bekräftad: null });
     expect(spelaFixD([f(0, 200, 2), f(60, 250, 2.5)], o('norr'))).toEqual({ lås: 'söder', flagga: null, bekräftad: { till: 'söder', t: 60000, flaggad: 0 } });

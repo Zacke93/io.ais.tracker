@@ -99,10 +99,50 @@ const ok = (skäl) => ({ sant: true, skäl });
 const nej = (skäl) => ({ sant: false, skäl });
 const fmtT = (t) => (Number.isFinite(t) ? new Date(Math.round(t)).toISOString().slice(11, 19) : '?');
 
+/** Världens positionsrader per mmsi (sorterade på tid), cachade i kontexten. */
+function perFartyg(ctx) {
+  if (!ctx || !Array.isArray(ctx.rader)) return new Map();
+  if (!ctx.__perMmsi) Object.defineProperty(ctx, '__perMmsi', { value: platser.rowsByMmsi(ctx.rader), enumerable: false });
+  return ctx.__perMmsi;
+}
+
 function rowsOf(ctx, mmsi) {
   if (!ctx || !Array.isArray(ctx.rader) || !mmsi) return [];
-  if (!ctx.__perMmsi) Object.defineProperty(ctx, '__perMmsi', { value: platser.rowsByMmsi(ctx.rader), enumerable: false });
-  return ctx.__perMmsi.get(String(mmsi)) || [];
+  return perFartyg(ctx).get(String(mmsi)) || [];
+}
+
+// Harnessens klocka (replayRunner.js:122–126 och 501–622). Raderna matas i
+// aisTimestamp-ordning (stabil sortering). Före en rad stegas klockan fram
+// till radens tid, om den inte redan har passerat den, och dräneras. Efter
+// varje AIS-rad tickar harnessen 60 ms (clock.tick(60)); styrraderna
+// disconnect, reconnect och restart tickar inte.
+const HARNESS_STYRRADER = Object.freeze(new Set(['disconnect', 'reconnect', 'restart']));
+const HARNESS_TICK_EFTER_RAD_MS = 60;
+
+/**
+ * Harnessens bearbetningstid för varje rad, cachad i kontexten. En rad
+ * bearbetas vid max(radens tid, förra AIS-radens bearbetningstid + 60 ms),
+ * och appen stämplar positionen då (vessel.timestamp = Date.now(),
+ * VesselDataService.js:5291). Dräneringen före bearbetningen sker vid samma
+ * fejkade tid, så en text som publiceras där bygger på läget före raden.
+ * Infört 2026-11-04 (efterrättning R3b) för f40StudsVidNästaFix.
+ * @param {object} ctx - kontexten (rader, med styrraderna)
+ * @returns {Map<object, number>} rad → bearbetningstid (epok-ms)
+ */
+function harnessTider(ctx) {
+  if (!ctx || !Array.isArray(ctx.rader)) return new Map();
+  if (!ctx.__harnessTider) {
+    const ordning = ctx.rader.filter(Boolean).sort((a, b) => (a.aisTimestamp || 0) - (b.aisTimestamp || 0));
+    const tider = new Map();
+    let nu = -Infinity;
+    for (const r of ordning) {
+      if (r.aisTimestamp > nu) nu = r.aisTimestamp;
+      tider.set(r, nu);
+      if (!HARNESS_STYRRADER.has(r.ctrl)) nu += HARNESS_TICK_EFTER_RAD_MS;
+    }
+    Object.defineProperty(ctx, '__harnessTider', { value: tider, enumerable: false });
+  }
+  return ctx.__harnessTider;
 }
 
 function deliveredNotes(ctx, mmsi, bro) {
@@ -259,6 +299,63 @@ function halvminutstickInne(a, b, tickMs, fördröjningMs) {
 }
 
 /**
+ * Fasvariantens förskjutning δ i ms för ett M-FAS-fynd, 0 för andra fynd och
+ * null när δ är tvetydigt. Ett M-FAS-fynds tider, rader och övergångar
+ * ligger i basens tidsram (relations.comparePhase), men varianten kördes med
+ * raderna δ förskjutna, så UI-klockan slog på variantens halvminuter.
+ * @param {object} f - fyndet
+ * @returns {number|null} δ i ms
+ */
+function fasförskjutningMs(f) {
+  const u = (f && f.ursprung) || {};
+  if (u.relation !== 'M-FAS') return 0;
+  const d = Array.isArray(u.deltaS) && u.deltaS.length === 1 ? Number(u.deltaS[0]) : NaN;
+  return Number.isFinite(d) ? Math.round(d * 1000) : null;
+}
+
+/**
+ * halvminutstickInne i en fasvariants klocka: glappet (a, b) ligger i basens
+ * tidsram, ticken räknas på variantens absoluta halvminuter (basens tid +
+ * δ) och returneras i basens tidsram.
+ * @param {number} a - glappets början (basens epok-ms)
+ * @param {number} b - glappets slut (basens epok-ms)
+ * @param {number} tickMs - tickavståndet
+ * @param {number} fördröjningMs - mikrograce efter ticken
+ * @param {number} fasMs - δ i ms (0 utanför M-FAS)
+ * @returns {number|null} tickens tid i basens tidsram
+ */
+function halvminutstickFas(a, b, tickMs, fördröjningMs, fasMs) {
+  const t = halvminutstickInne(a + fasMs, b + fasMs, tickMs, fördröjningMs);
+  return t === null ? null : t - fasMs;
+}
+
+// En klausul med ETA för en målbro, i harnessens textformat (samma grammatik
+// som INV-1 och INV-3 läser, invariants.js:58–106): 'strax' eller "om (cirka)
+// N minuter". "ETA okänd" och väntklausuler bär ingen ETA och hoppas över,
+// som i INV-3.
+const ETA_KLAUSUL_RE = /på väg mot (Klaffbron|Stridsbergsbron), beräknad broöppning (?:(strax)|om (?:cirka )?(\d+) minuter)/;
+
+/**
+ * ETA-serien för en bro ur brotextövergångarna, som INV-3 bygger den
+ * (invariants.js:273–284): en post per publicerad text med en ETA-klausul för
+ * bron.
+ * @param {object[]} övergångar - resultatets bridgeTextTransitions ({t, text})
+ * @param {string} bro - målbron
+ * @returns {{t: number, strax: boolean, eta: number}[]} serien i tidsordning
+ */
+function etaSerie(övergångar, bro) {
+  const ut = [];
+  for (const x of övergångar || []) {
+    if (!x || !Number.isFinite(x.t) || typeof x.text !== 'string') continue;
+    for (const klausul of x.text.split('; ')) {
+      const m = ETA_KLAUSUL_RE.exec(klausul);
+      if (m && m[1] === bro) ut.push({ t: x.t, strax: Boolean(m[2]), eta: m[2] ? 0.5 : Number(m[3]) });
+    }
+  }
+  return ut;
+}
+
+/**
  * Samma episodnyckel för KIE-PER-KORPUS: samma klass, samma broar och samma
  * fartyg när undantaget namnger ett.
  */
@@ -295,12 +392,67 @@ function episodLängdMs(msg) {
 }
 
 /**
+ * Kurs och fart som appen ser dem. En rad utan finit cog eller sog får
+ * fartygets senast kända värde: _createVesselObject sätter
+ * `Number.isFinite(data.sog) ? data.sog : (oldVessel?.sog ?? data.sog)`, och
+ * samma för cog (VesselDataService.js:5286–5287). Fix D-blockets yttre
+ * villkor (:384–392) och S10-vaktens krav 3 (app.js:9745,
+ * _fixDReversalContradictsNotification) prövar sedan vessel.cog och
+ * vessel.sog, alltså det framförda värdet. Saknar alla tidigare rader ett
+ * finit värde förblir det icke-finit, som i appen. Varje ny rad bär
+ * `cogFrån` och `sogFrån`: tiden för raden som värdet fördes fram från, eller
+ * null när raden har ett eget värde. Rader som redan bär fälten behåller dem,
+ * så att en andra framföring inte tappar ursprunget. Framföringen antar, som
+ * spelaFixD i övrigt, att fartyget inte tas bort och skapas om mellan raderna
+ * (då är oldVessel null och inget förs fram).
+ * Rättat 2026-11-04 (runda 3, L1): förut hoppade spelaFixD över raden och
+ * zonkontrollerna dömde den som saknad kurs eller fart.
+ * @param {object[]} fixar - fartygets fixar i tidsordning (aisTimestamp, cog, sog)
+ * @returns {object[]} nya radobjekt med framförda cog och sog
+ */
+function medFramfördKursOchFart(fixar) {
+  let cog = null;
+  let cogT = null;
+  let sog = null;
+  let sogT = null;
+  return fixar.map((r) => {
+    const egenCog = Number.isFinite(r.cog);
+    const egenSog = Number.isFinite(r.sog);
+    const ut = { ...r };
+    if (egenCog) {
+      cog = r.cog;
+      cogT = Number.isFinite(r.cogFrån) ? r.cogFrån : r.aisTimestamp;
+      ut.cogFrån = Number.isFinite(r.cogFrån) ? r.cogFrån : null;
+    } else {
+      ut.cog = cog === null ? r.cog : cog;
+      ut.cogFrån = cog === null ? null : cogT;
+    }
+    if (egenSog) {
+      sog = r.sog;
+      sogT = Number.isFinite(r.sogFrån) ? r.sogFrån : r.aisTimestamp;
+      ut.sogFrån = Number.isFinite(r.sogFrån) ? r.sogFrån : null;
+    } else {
+      ut.sog = sog === null ? r.sog : sog;
+      ut.sogFrån = sog === null ? null : sogT;
+    }
+    return ut;
+  });
+}
+
+/**
  * Fix D:s pending-logik (VesselDataService.js:380–476) spelad över ett
  * fartygs fixar i tidsordning, för S10-predikatet. Harnessen stegar klockan
  * till varje rads aisTimestamp innan raden matas in (replayRunner.js:512–521),
  * så appens Date.now() är radens tid.
- *  - En fix utan finit kurs eller med sog < minSogKn klarar inte Fix
- *    D-blockets yttre villkor (:383–391) och rör varken flaggan eller låset.
+ *  - En rad utan finit kurs eller fart prövas med fartygets senast kända
+ *    värde (medFramfördKursOchFart, VesselDataService.js:5286–5287). Saknas
+ *    ett sådant värde, eller är sog < minSogKn, klarar fixen inte Fix
+ *    D-blockets yttre villkor (:384–392) och rör varken flaggan eller låset.
+ *    Rättat 2026-11-04 (runda 3, L1): förut hoppades varje rad utan finit
+ *    kurs eller fart över, fast appen kör blocket på det framförda värdet
+ *    (granskarens s10h i värld 581: en omvänd rad utan kurs på 2,2 kn
+ *    10:03:51 sätter flaggan med kursen 216° från raden före, och appen
+ *    notifierar 10:06:16).
  *  - En fix vars kurs är omvänd mot riktningslåset (lås norr: det breda
  *    sydbandet, lås söder: nordbandet; :395–407) sätter flaggan. Finns redan
  *    en flagga i samma riktning som är yngre än maxÅlderMs bekräftar fixen i
@@ -326,7 +478,7 @@ function spelaFixD(fixar, {
   let nu = lås;
   let flagga = null;
   let bekräftad = null;
-  for (const r of fixar) {
+  for (const r of medFramfördKursOchFart(fixar)) {
     if (!Number.isFinite(r.cog) || !Number.isFinite(r.sog) || r.sog < minSogKn) continue;
     const b = band(r.cog);
     const omvänd = nu === 'norr' ? b === 'söder' : b === 'norr';
@@ -921,6 +1073,290 @@ const PREDICATES = {
     },
   },
 
+  // U16-F40-STRAX-STUDS (användarbeslut U16 2026-11-04, F18/F19 i
+  // s1-standard-a). Appen visar aldrig 'strax' på en position som är äldre
+  // än STALE_ETA_HARD (600 s): imminent-grinden kräver
+  // dataIsFreshEnough (app.js:7107–7113, "F40 medvetet EJ ändrat"; U1/C11).
+  // När en köande båts enda 'strax'-bärande fix blir för gammal lånar
+  // klausulen nästa båts ETA, och 'strax' kommer tillbaka med båtens nästa
+  // fix. INV-3:s studsdiskriminator (invariants.js:302–319) tolkar studsen
+  // som falsk degradering. Ägaren valde att behålla beteendet (U16).
+  //
+  // Klassen är MÄTGRÄNS (efterrättning R3c, BUGGJAKT §7 rad 21): hoppet vid
+  // båtens nästa rad är en uppskjuten svans i harnessen. Harnessen kör
+  // appens asynkrona UI-arbete först vid sin nästa dränering, en enda
+  // verklig setImmediate efter varje clock.tick (replayRunner.js:86–88 och
+  // 512–521). I värld 1608 räknade UI-cykeln från halvminuten 09:42:00 först
+  // vid dräneringen 09:42:09,998 (ålder 599,7 s, IMMINENT_SET), och dess
+  // omkörning (setImmediate, app.js:6857–6862) kördes först vid dräneringen
+  // före MASEN 2:s rad 09:42:15,101 ("AIS too old (605s > 600s)"). I fält
+  // hade omkörningen gått vid halvminuten med åldern cirka 590 s, och nästa
+  // cykel 09:42:30 hade kommit efter hennes färska rad. Åldern 604,8 s är
+  // harnessens tid.
+  //
+  // Predikatet är medvetet smalt och bundet till den båt som kan ha burit
+  // 'strax'. Det godtar bara studsen vid båtens nästa rad. När klockan når
+  // raden dränerar harnessen väntande UI-arbete före sampelbearbetningen
+  // (replayRunner.js:512–521), och texten som publiceras där bygger på läget
+  // före raden: hoppet (i fullvärlden 1608 IMMINENT_SKIP "AIS too old (605s
+  // > 600s)"). Texten efter sampelbearbetningen bär 'strax' igen:
+  // återgången. Radernas bearbetningstider ger harnessTider. Kraven:
+  //  1. nivån före hoppet och återgången är 'strax' i brons ETA-serie
+  //     (etaSerie, som INV-3 bygger den); för ETA-OSCILLATION är utslagets
+  //     tid återgången, för ETA-SÅGTAND UPP hoppet;
+  //  2. hoppet publicerades exakt när harnessen bearbetade en båts rad,
+  //     högst fönsterMs efter radens tid; bara den båten kan förklara hoppet
+  //     med sin ålder;
+  //  3. båtens föregående fix bearbetades mer än minÅlderS före hoppet: appens
+  //     ålder (Date.now() − vessel.timestamp, VesselDataService.js:5291) mot
+  //     STALE_ETA_HARD, med samma jämförelse som dataIsFreshEnough;
+  //  4. båda fixarna ligger inom radieM från bron (imminent-hysteresens yttre
+  //     gräns, app.js:7210–7212, WAITING_CLEAR_DISTANCE);
+  //  5. ingen belagd textgenerering mellan att åldern passerade minÅlderS
+  //     och hoppet: ingen publicerad brotext och ingen halvminutstick (i
+  //     variantens fas för M-FAS, med textens mikrograce; vakthunden kör en
+  //     UI-cykel vid varje halvminut när det finns båtar). Bar båten 'strax'
+  //     ensam, hade appen tappat det redan där. En annan båts rad däremot
+  //     genererar text bara när uppdateringen är betydande
+  //     (_updateUIIfNeeded), så den räknas inte: i ett AISHub-kluster
+  //     bearbetas ofta andra rader strax före båtens;
+  //  6. ingen av fixarna ligger i en kajkapsel (MOORING_ZONES). En förtöjd
+  //     båt sänder glest, och hennes rad kan sammanfalla med en studs med en
+  //     annan orsak. Appen kan räkna en stillaliggare vid kajen norr om
+  //     Klaffbron som köare i upp till 15 min (queueGraceMs), så en äkta
+  //     studs med bäraren där blir KANDIDAT;
+  //  7. återgången kom efter radens bearbetning och högst fönsterMs efter
+  //     radens tid, och ingen annan båts rad inom straxRadieM från bron
+  //     bearbetades emellan: den hade kunnat bära 'strax' tillbaka. 500 m är
+  //     den vidaste radie där appen sätter 'strax' (den uttömda grenen,
+  //     app.js:7239). Fönstret räknas från radens tid, inte från
+  //     bearbetningen, så att posten aldrig blir bredare än i rundans första
+  //     försök;
+  //  8. ingen styrrad (avbrott, återanslutning, omstart) bearbetades mellan
+  //     båtens förra fix och återgången;
+  //  9. båten kunde bära 'strax' vid sin förra fix: fixen ligger inom
+  //     imminentRadieM (imminent SET, app.js:7210–7212), eller inom radieM
+  //     efter en tidigare fix inom väntRadieM (väntläget, WAITING_SET, som
+  //     ger gränsen 350 m) utan att båten lämnat radieM emellan;
+  // 10. ingen annan båt kunde bära 'strax' vid hoppet: ingen annan båt har
+  //     sin senaste fix före hoppet inom straxRadieM, högst minÅlderS gammal
+  //     (appens klocka), utanför kajkapslarna och på väg mot bron (kursen
+  //     inom ±90° från bäringen till bron, eller saknad kurs inom radieM).
+  //     Den uttömda grenen sätter 'strax' inom 500 m (app.js:7239).
+  // Rättat 2026-11-05 (efterrättning R3c, granskarens slutvarv): förut tog
+  // posten radens båt som bärare utan krav 9 och 10. En B4-studs (ULLA:s
+  // uttömda 'strax' 452 m från Klaffbron, 90 s-taket) med en annan båt Y,
+  // tyst i 605 s på 320 m och aldrig 'strax' i appen, blev då DESIGN, medan
+  // samma körning med Y tyst i 590 s (bitlik apputdata) blev KANDIDAT
+  // (granskarens ce-b och ce-b590).
+  // I minsta repro för F18 kom återgången 25 ms efter raden. I fullvärlden
+  // 1608 kom den 246 ms efter, när tre AISHub-rader 66–109 ms senare, alla
+  // mer än 1 km från bron, hade bearbetats. Rättat 2026-11-04 (efterrättning
+  // R3b, granskarens varv r3): förut räckte vilken båt som helst inom 350 m
+  // med en fix äldre än 600 s, räknad på radtider, och en rad högst 1 s från
+  // hoppet. En förtöjd båt vid kajen norr om Klaffbron, tyst i 605 eller
+  // 720 s och med en rad 35 ms före ULLA:s, gjorde då B4-studsen i F21:s
+  // minsta repro till DESIGN (granskarens u16e2e), och ett hopp 0,8 s efter
+  // båtens färska rad godtogs. Tick-varianten, ETA-hoppet vid 600 s utan
+  // 'strax' och B4:s 90 s-tak på uttömt 'strax' (app.js:257; positionen är
+  // då yngre än 600 s) omfattas inte (BUGGJAKT §7 och §16). På den låsta
+  // banken gäller ingen registeramnesti.
+  f40StudsVidNästaFix: {
+    parametrar: {
+      minÅlderS: C.UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS / 1000,
+      fönsterMs: 1000,
+      radieM: C.STATUS_HYSTERESIS.WAITING_CLEAR_DISTANCE,
+      imminentRadieM: 300,
+      väntRadieM: C.STATUS_HYSTERESIS.WAITING_SET_DISTANCE,
+      straxRadieM: 500,
+      tickS: 30,
+      tickFördröjningMs: 40,
+    },
+    fn(f, ctx, p) {
+      if ((f.ursprung || {}).relation === 'BAS') return nej('låst bank: bara runAllCorpora:s exakta prefixmatch gäller, ingen registeramnesti');
+      if (!f.bro || !Number.isFinite(f.t)) return nej('fyndet saknar bro eller tid');
+      const övergångar = ctx && ctx.resultat && ctx.resultat.bridgeTextTransitions;
+      if (!Array.isArray(övergångar) || !övergångar.length) return nej('saknar brotextövergångarna');
+      if (!Array.isArray(ctx.rader)) return nej('saknar rader');
+      const fas = fasförskjutningMs(f);
+      if (fas === null) return nej('fasvariantens δ är tvetydigt');
+      const fmtMs = (t) => new Date(Math.round(t)).toISOString().slice(11, 23);
+      const s1 = (ms) => (ms / 1000).toFixed(1);
+      const tid = (ms) => (Math.abs(ms) < 1000 ? `${Math.round(ms)} ms` : `${s1(ms)} s`);
+      const nivå = (x) => (x.strax ? 'strax' : `${x.eta} min`);
+      const serie = etaSerie(övergångar, f.bro);
+      const vid = serie.filter((x) => x.t === f.t);
+      if (vid.length !== 1) {
+        return nej(vid.length ? `${vid.length} ETA-klausuler för ${f.bro} vid ${fmtMs(f.t)}; utslagets övergång är tvetydig`
+          : `utslagets övergång ${fmtMs(f.t)} finns inte i ETA-serien för ${f.bro}`);
+      }
+      const k = serie.indexOf(vid[0]);
+      // ETA-OSCILLATION: utslagets tid är återgången, och X→Y→X′ är tre
+      // poster i följd (invariants.js:337–351). ETA-SÅGTAND UPP: utslagets
+      // tid är hoppet, och återgången är nästa post med en annan nivå (en
+      // text som bara ändras i en annan klausul upprepar hoppets nivå).
+      const osc = /ETA-OSCILLATION/.test(f.klass);
+      const före = osc ? serie[k - 2] : serie[k - 1];
+      const hopp = osc ? serie[k - 1] : serie[k];
+      const åter = osc ? serie[k] : serie.slice(k + 1).find((x) => x.strax !== hopp.strax || x.eta !== hopp.eta);
+      if (!före || !hopp || !åter) return nej('ETA-serien saknar nivån före hoppet eller nivån efter');
+      if (!före.strax) return nej(`hoppet ${fmtMs(hopp.t)} går från ${nivå(före)} till ${nivå(hopp)}, inte från strax`);
+      if (hopp.strax) return nej(`nivån ${fmtMs(hopp.t)} är strax; inget hopp bort från strax`);
+      if (!åter.strax) return nej(`nivån efter hoppet ${fmtMs(hopp.t)} (${nivå(hopp)}) är ${nivå(åter)} ${fmtMs(åter.t)}, ingen återgång till strax`);
+      const ålderMs = p.minÅlderS * 1000;
+      const tider = harnessTider(ctx);
+      const per = perFartyg(ctx);
+      const mmsis = [...per.keys()].sort();
+      const avstånd = (r) => platser.distanceToPoint(r, f.bro);
+      // En fix med avstånd, och bearbetningstiden när harnessen bearbetade den senare än radens tid.
+      const fixText = (m, r) => `${m}:s fix ${fmtMs(r.aisTimestamp)} (${Math.round(avstånd(r))} m från ${f.bro}`
+        + `${tider.get(r) !== r.aisTimestamp ? `, bearbetad ${fmtMs(tider.get(r))}` : ''})`;
+      // Krav 2: båten vars rad bearbetades när hoppet publicerades. Två
+      // AIS-rader bearbetas aldrig vid samma tid (60 ms mellan dem).
+      let bärare = null;
+      for (const m of mmsis) {
+        const list = per.get(m);
+        const i = list.findIndex((r) => tider.get(r) === hopp.t);
+        if (i >= 0) {
+          bärare = { mmsi: m, förra: i > 0 ? list[i - 1] : null, nästa: list[i] };
+          break;
+        }
+      }
+      // För skälet: en annan båt inom radieM vars senaste fix före hoppet var
+      // äldre än minÅlderS, med hennes nästa rad närmast hoppet först.
+      const gammalNära = () => {
+        const g = [];
+        for (const m of mmsis) {
+          if (bärare && m === bärare.mmsi) continue;
+          const list = per.get(m);
+          const i = list.findIndex((r) => tider.get(r) > hopp.t);
+          const senast = i < 0 ? list[list.length - 1] : list[i - 1];
+          if (!senast || !(tider.get(senast) < hopp.t) || avstånd(senast) > p.radieM) continue;
+          const å = hopp.t - tider.get(senast);
+          if (å > ålderMs) {
+            g.push({
+              mmsi: m, förra: senast, nästa: i < 0 ? null : list[i], ålder: å,
+            });
+          }
+        }
+        const sen = (c) => (c.nästa ? tider.get(c.nästa) - hopp.t : Infinity);
+        const c = g.sort((a, b) => (sen(a) - sen(b)) || (a.mmsi < b.mmsi ? -1 : 1))[0];
+        if (!c) return '';
+        return `${fixText(c.mmsi, c.förra)} var ${s1(c.ålder)} s gammal, men `
+          + `${c.nästa ? `hennes nästa rad ${fmtMs(c.nästa.aisTimestamp)} bearbetades ${tid(sen(c))} efter hoppet` : 'hon fick ingen ny rad'}`;
+      };
+      if (!bärare) {
+        const g = gammalNära();
+        if (g) return nej(`hoppet ${fmtMs(hopp.t)} publicerades inte när harnessen bearbetade en båts rad: ${g} (studsen ska ligga på båtens nästa rad)`);
+        let äldst = null;
+        for (const m of mmsis) {
+          const senast = per.get(m).filter((r) => tider.get(r) < hopp.t).pop();
+          if (senast && avstånd(senast) <= p.radieM && (!äldst || hopp.t - tider.get(senast) > äldst.ålder)) äldst = { mmsi: m, ålder: hopp.t - tider.get(senast) };
+        }
+        return nej(`hoppet ${fmtMs(hopp.t)} publicerades inte när harnessen bearbetade en båts rad, och ingen båt inom ${p.radieM} m från ${f.bro} `
+          + `hade en fix äldre än ${p.minÅlderS} s${äldst ? ` (äldst var ${äldst.mmsi}:s, ${tid(äldst.ålder)})` : ''}`);
+      }
+      const { mmsi, förra, nästa } = bärare;
+      const vidRad = `hoppet ${fmtMs(hopp.t)} publicerades när harnessen bearbetade ${mmsi}:s rad ${fmtMs(nästa.aisTimestamp)}`;
+      if (!förra) return nej(`${vidRad}, båtens första rad`);
+      if (hopp.t - nästa.aisTimestamp > p.fönsterMs) return nej(`${vidRad}, ${tid(hopp.t - nästa.aisTimestamp)} efter radens tid (högst ${p.fönsterMs} ms)`);
+      // Krav 3: appens ålder, från när fixen bearbetades.
+      const stämpel = tider.get(förra);
+      const ålder = hopp.t - stämpel;
+      const dFörra = avstånd(förra);
+      const dNästa = avstånd(nästa);
+      const fix = fixText(mmsi, förra);
+      if (!(ålder > ålderMs)) {
+        const g = gammalNära();
+        return nej(`${vidRad}, men ${fix} var ${s1(ålder)} s gammal (högst ${p.minÅlderS} s: färsk i appen)${g ? `; ${g}` : ''}`);
+      }
+      const gammal = `${fix} var ${s1(ålder)} s gammal vid hoppet ${fmtMs(hopp.t)}, när hennes nästa rad ${fmtMs(nästa.aisTimestamp)} bearbetades`;
+      // Krav 4.
+      if (dFörra > p.radieM) return nej(`${gammal}, men fixen ligger ${Math.round(dFörra)} m från bron (> ${p.radieM} m)`);
+      if (dNästa > p.radieM) return nej(`${gammal}, men hennes nästa rad ligger ${Math.round(dNästa)} m från bron (> ${p.radieM} m)`);
+      // Krav 5: hoppet är den första textgenereringen efter 600 s-gränsen.
+      const gräns = stämpel + ålderMs;
+      const text = övergångar.find((x) => x && Number.isFinite(x.t) && x.t > gräns && x.t < hopp.t);
+      if (text) {
+        return nej(`${gammal}, men åldern passerade ${p.minÅlderS} s ${fmtMs(gräns)}, och brotexten publicerades ${fmtMs(text.t)}, före hoppet: `
+          + 'bar båten \'strax\' hade appen tappat det där');
+      }
+      const tick = halvminutstickFas(gräns, hopp.t - p.tickFördröjningMs, p.tickS * 1000, p.tickFördröjningMs, fas);
+      if (tick !== null) {
+        return nej(`${gammal}, men åldern passerade ${p.minÅlderS} s ${fmtMs(gräns)}, före halvminutsticken ${fmtMs(tick)}${fas ? ' (variantens fas)' : ''}: `
+          + 'bar båten \'strax\' hade appen tappat det vid ticken');
+      }
+      // Krav 6.
+      const kaj = platser.capsuleOf(förra) || platser.capsuleOf(nästa);
+      if (kaj) return nej(`${gammal}, men båten ligger i kajkapseln '${kaj.name}' (MOORING_ZONES), och en förtöjd båts glesa rader beläggs inte som 'strax'-bärare`);
+      // Krav 7: återgången hör till båtens rad.
+      if (!(åter.t > hopp.t) || åter.t - nästa.aisTimestamp > p.fönsterMs) {
+        return nej(`${gammal}, men återgången till strax ${fmtMs(åter.t)} kom ${tid(åter.t - hopp.t)} efter radens bearbetning `
+          + `(efter den och högst ${p.fönsterMs} ms efter radens tid)`);
+      }
+      const emellan = [];
+      for (const m of mmsis) {
+        if (m === mmsi) continue;
+        for (const r of per.get(m)) {
+          const t = tider.get(r);
+          if (t > hopp.t && t <= åter.t && avstånd(r) <= p.straxRadieM) emellan.push({ m, r, t });
+        }
+      }
+      const annan = emellan.sort((a, b) => (a.t - b.t) || (a.m < b.m ? -1 : 1))[0];
+      if (annan) {
+        return nej(`${gammal}, men ${annan.m}:s rad ${fmtMs(annan.r.aisTimestamp)} (${Math.round(avstånd(annan.r))} m från ${f.bro}) bearbetades ${fmtMs(annan.t)}, `
+          + `mellan båtens rad och återgången till strax ${fmtMs(åter.t)}: återgången kan inte tillskrivas båten`);
+      }
+      // Krav 8.
+      const styr = ctx.rader.filter((r) => r && HARNESS_STYRRADER.has(r.ctrl) && tider.get(r) >= stämpel && tider.get(r) <= åter.t)
+        .sort((a, b) => tider.get(a) - tider.get(b))[0];
+      if (styr) return nej(`${gammal}, men styrraden ${styr.ctrl} ${fmtMs(styr.aisTimestamp)} bearbetades mellan båtens förra fix och återgången`);
+      // Krav 9: båten kunde bära 'strax' vid sin förra fix.
+      const egna = per.get(mmsi);
+      let kunde = dFörra <= p.imminentRadieM;
+      for (let j = egna.indexOf(förra) - 1; !kunde && j >= 0; j--) {
+        const d = avstånd(egna[j]);
+        if (!(d <= p.radieM)) break;
+        if (d <= p.väntRadieM) kunde = true;
+      }
+      if (!kunde) {
+        return nej(`${gammal}, men fixen ligger ${Math.round(dFörra)} m från bron, utanför imminent-radien ${p.imminentRadieM} m, utan någon tidigare fix `
+          + `inom ${p.väntRadieM} m (väntläget) sedan båten senast var längre bort än ${p.radieM} m: båten kunde inte bära 'strax'`);
+      }
+      // Krav 10: ingen annan båt kunde bära 'strax' vid hoppet.
+      const P = platser.POINTS[f.bro];
+      const möjliga = [];
+      for (const m of mmsis) {
+        if (m === mmsi) continue;
+        const sen = per.get(m).filter((r) => tider.get(r) < hopp.t).pop();
+        if (!sen || platser.capsuleOf(sen)) continue;
+        const d = avstånd(sen);
+        const å = hopp.t - tider.get(sen);
+        if (!(d <= p.straxRadieM) || å > ålderMs) continue;
+        const dn = (P.lat - sen.lat) * 111320;
+        const de = (P.lon - sen.lon) * 111320 * Math.cos((sen.lat * Math.PI) / 180);
+        const bäring = ((Math.atan2(de, dn) * 180) / Math.PI + 360) % 360;
+        const mot = Number.isFinite(sen.cog) ? Math.cos(((sen.cog - bäring) * Math.PI) / 180) > 0 : d <= p.radieM;
+        if (mot) {
+          möjliga.push({
+            m, sen, d, å, bäring,
+          });
+        }
+      }
+      const möjlig = möjliga.sort((a, b) => (a.d - b.d) || (a.m < b.m ? -1 : 1))[0];
+      if (möjlig) {
+        const { m, sen, å } = möjlig;
+        const kurs = Number.isFinite(sen.cog) ? `kurs ${sen.cog}° mot bäringen ${Math.round(möjlig.bäring)}° till bron` : `utan kurs inom ${p.radieM} m`;
+        return nej(`${gammal}, men ${fixText(m, sen)} var ${s1(å)} s gammal vid hoppet, utanför kajkapslarna och på väg mot bron (${kurs}): `
+          + `hon kunde också bära 'strax' (inom ${p.straxRadieM} m, högst ${p.minÅlderS} s)`);
+      }
+      return ok(`${fix} var ${s1(ålder)} s gammal vid hoppet ${fmtMs(hopp.t)} (strax → ${nivå(hopp)}; > ${p.minÅlderS} s, STALE_ETA_HARD), som publicerades `
+        + `när harnessen bearbetade hennes nästa rad ${fmtMs(nästa.aisTimestamp)} (${Math.round(dNästa)} m), utan textgenerering sedan åldern passerade `
+        + `${p.minÅlderS} s ${fmtMs(gräns)}; återgången till strax ${fmtMs(åter.t)} kom ${Math.round(åter.t - hopp.t)} ms efter raden, utan någon annan båts rad `
+        + `inom ${p.straxRadieM} m emellan, och ingen annan båt kunde bära strax vid hoppet: F40-studsen i harnessens uppskjutna UI-arbete (U16)`);
+    },
+  },
+
   // S10-VÄNDNING-BRON-BAKOM (triagens T-3, F15). Appens S10-vakt
   // (app.js:9745, _fixDReversalContradictsNotification) avstår från notisen
   // när Fix D:s färska pending-reversal motsäger tokenriktningen och bron
@@ -954,6 +1390,17 @@ const PREDICATES = {
   // 10:03:51 och 1,9 kn i det gamla bandet 10:05:18, som inte nollar
   // flaggan) gav DESIGN fast appen bekräftar reversalen 10:06:16 och
   // notifierar.
+  //
+  // Kurs och fart prövas som appen ser dem: en rad utan finit cog eller sog
+  // får fartygets senast kända värde (medFramfördKursOchFart,
+  // VesselDataService.js:5286–5287). Det gäller spelet före zonen, fixen före
+  // besöket och zonkontrollerna, eftersom både Fix D-blocket och S10-vaktens
+  // krav 3 läser vessel.cog och vessel.sog. Ett framfört värde redovisas i
+  // skälet med tiden det kom från. Rättat 2026-11-04 (runda 3, L1): förut
+  // hoppade spelet över raden och zonkontrollerna dömde den som saknad kurs
+  // eller fart, så granskarens s10h i värld 581 (10:03:51 utan kurs eller
+  // utan fart, med 216° och 2,2 kn från raden före) gav DESIGN fast appen
+  // sätter flaggan där, bekräftar reversalen 10:06:16 och notifierar.
   reversalAwayFromBridge: {
     parametrar: {
       radieM: C.PROTECTION_ZONE_RADIUS,
@@ -975,10 +1422,14 @@ const PREDICATES = {
       const tFörsta = Number.isFinite(b.tFörstaFix) ? b.tFörstaFix : f.t;
       if (!Number.isFinite(tFörsta)) return nej('fyndet saknar tid');
       const tUt = Number.isFinite(b.tOut) ? Math.max(b.tOut, tFörsta) : tFörsta;
-      const list = rowsOf(ctx, f.mmsi);
+      // Appens kurs och fart: rader utan värde får det senast kända (L1).
+      const list = medFramfördKursOchFart(rowsOf(ctx, f.mmsi));
       const i0 = list.findIndex((r) => r.aisTimestamp >= tFörsta);
       if (i0 <= 0) return nej('ingen fix före besöket');
       const före = list[i0 - 1];
+      const fördFrån = (t) => (Number.isFinite(t) ? ` förd fram från ${fmtT(t)}` : '');
+      const kurs = (r) => (Number.isFinite(r.cog) ? `${r.cog}°${fördFrån(r.cogFrån)}` : 'saknas');
+      const fart = (r) => `${r.sog} kn${fördFrån(r.sogFrån)}`;
       const zon = list.filter((r, i) => i >= i0 && r.aisTimestamp <= tUt + p.marginalMin * MIN && platser.distanceToPoint(r, f.bro) <= p.radieM);
       if (!zon.length) return nej(`inga fixar inom ${p.radieM} m`);
       const band = (cog) => {
@@ -991,8 +1442,8 @@ const PREDICATES = {
       const ny = band(z0.cog);
       const gammal = band(före.cog);
       if (!ny || !gammal || ny === gammal) {
-        return nej(`ingen vändning före zonen: kurs ${Number.isFinite(före.cog) ? `${före.cog}°` : 'saknas'} ${fmtT(före.aisTimestamp)}, `
-          + `${Number.isFinite(z0.cog) ? `${z0.cog}°` : 'saknas'} ${fmtT(z0.aisTimestamp)}`);
+        return nej(`ingen vändning före zonen: kurs ${kurs(före)} ${fmtT(före.aisTimestamp)}, `
+          + `${kurs(z0)} ${fmtT(z0.aisTimestamp)}`);
       }
       // Fix D:s tillstånd när zonens första fix kommer: pending-logiken
       // spelad över fartygets alla fixar före den, med det gamla bandet som lås.
@@ -1008,7 +1459,7 @@ const PREDICATES = {
       // predikatet godtar bara den flagga som zonens första fix sätter
       // (medvetet konservativt).
       if (!Number.isFinite(z0.sog) || z0.sog < p.fixDMinSogKn) {
-        const långsam = `zonens första fix ${fmtT(z0.aisTimestamp)} har fart ${z0.sog} kn (< FIX_D_MIN_SOG ${p.fixDMinSogKn} kn)`;
+        const långsam = `zonens första fix ${fmtT(z0.aisTimestamp)} har fart ${fart(z0)} (< FIX_D_MIN_SOG ${p.fixDMinSogKn} kn)`;
         if (färsk) {
           return nej(`${långsam} och sätter ingen egen pending-flagga; flaggan från ${fmtT(färsk.t)} sattes före zonen, `
             + 'och predikatet godtar bara en flagga som zonens första fix sätter');
@@ -1024,23 +1475,23 @@ const PREDICATES = {
       // En färsk flagga från före zonen: zonens första fix bekräftar
       // reversalen i stället för att sätta flaggan, och notisen går ut.
       if (färsk) {
-        return nej(`zonens första fix ${fmtT(z0.aisTimestamp)} (${z0.sog} kn ≥ FIX_D_MIN_SOG ${p.fixDMinSogKn} kn) bekräftar reversalen som flaggades `
+        return nej(`zonens första fix ${fmtT(z0.aisTimestamp)} (${fart(z0)} ≥ FIX_D_MIN_SOG ${p.fixDMinSogKn} kn) bekräftar reversalen som flaggades `
           + `${fmtT(färsk.t)}, ${Math.round((z0.aisTimestamp - färsk.t) / 1000)} s tidigare (inom ${p.maxÅlderMin} min); notisen går ut`);
       }
       for (const z of zon) {
-        if (band(z.cog) !== ny) return nej(`fixen ${fmtT(z.aisTimestamp)} inom radien har kurs ${z.cog}° (inte ${ny}ut)`);
-        if (!Number.isFinite(z.sog) || z.sog < p.minSogKn) return nej(`fixen ${fmtT(z.aisTimestamp)} inom radien har fart ${z.sog} kn (< ${p.minSogKn} kn)`);
+        if (band(z.cog) !== ny) return nej(`fixen ${fmtT(z.aisTimestamp)} inom radien har kurs ${kurs(z)} (inte ${ny}ut)`);
+        if (!Number.isFinite(z.sog) || z.sog < p.minSogKn) return nej(`fixen ${fmtT(z.aisTimestamp)} inom radien har fart ${fart(z)} (< ${p.minSogKn} kn)`);
         if ((ny === 'norr') === (punkt.lat > z.lat)) return nej(`${f.bro} ligger inte bakom fartyget vid ${fmtT(z.aisTimestamp)}`);
         if (z.aisTimestamp - z0.aisTimestamp >= p.maxÅlderMin * MIN) return nej(`fixen ${fmtT(z.aisTimestamp)} ligger ${p.maxÅlderMin} min eller mer efter vändningens första fix`);
         // En senare omvänd fix med sog ≥ FIX_D_MIN_SOG inom TTL bekräftar
         // reversalen, och då går notisen ut (s10two: 10:06:36).
         if (z !== z0 && z.sog >= p.fixDMinSogKn) {
-          return nej(`zonfixen ${fmtT(z.aisTimestamp)} (${z.sog} kn ≥ FIX_D_MIN_SOG ${p.fixDMinSogKn} kn, ${ny}ut) inom ${p.maxÅlderMin} min `
+          return nej(`zonfixen ${fmtT(z.aisTimestamp)} (${fart(z)} ≥ FIX_D_MIN_SOG ${p.fixDMinSogKn} kn, ${ny}ut) inom ${p.maxÅlderMin} min `
             + 'bekräftar reversalen, och då går notisen ut');
         }
       }
       const senare = zon.length > 1 ? `; ${zon.length - 1} senare zonfix(ar) under ${p.fixDMinSogKn} kn bekräftar inte reversalen` : '';
-      return ok(`vändning mellan ${fmtT(före.aisTimestamp)} (kurs ${före.cog}°) och ${fmtT(z0.aisTimestamp)} (kurs ${z0.cog}°, ${z0.sog} kn ≥ FIX_D_MIN_SOG ${p.fixDMinSogKn} kn); `
+      return ok(`vändning mellan ${fmtT(före.aisTimestamp)} (kurs ${kurs(före)}) och ${fmtT(z0.aisTimestamp)} (kurs ${kurs(z0)}, ${fart(z0)} ≥ FIX_D_MIN_SOG ${p.fixDMinSogKn} kn); `
         + `alla ${zon.length} fix(ar) inom ${p.radieM} m går ${ny}ut med ${f.bro} bakom sig${senare}, så S10-vakten avstår (FLOW_TRIGGER_SKIP_PENDING_REVERSAL)`);
     },
   },
@@ -1063,19 +1514,189 @@ function sourceRefs(text) {
   }));
 }
 
+// Ord som kan stå direkt före ett reguljärt uttryck (efter dem är '/' inte
+// division).
+const ORD_FÖRE_REGEX = new Set(['return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'throw', 'case', 'do', 'else', 'yield', 'await']);
+
+/**
+ * Källtexten utan kommentarer. Block- och radkommentarer blir blanksteg, och
+ * radbrytningarna behålls, så att radankrade mönster och radnummer står
+ * kvar. Strängar, mallsträngar (även nästlade `${…}`) och reguljära uttryck
+ * läses som kod, så att ett '//' eller '/*' i dem inte tas för en kommentar.
+ * Om '/' inleder ett reguljärt uttryck avgörs av tecknet eller ordet före,
+ * som i en vanlig JavaScript-lexer. Infört 2026-11-04 (runda 3, L2) för
+ * definesSymbol.
+ * @param {string} text - källtexten
+ * @returns {string} samma text med kommentarerna utblankade
+ */
+function utanKommentarer(text) {
+  const s = String(text || '');
+  const n = s.length;
+  const delar = [];
+  // Stacken håller mallsträngarnas nästling: 'mall' är en mallsträngs
+  // textdel, ett tal klammerdjupet i ett `${…}`-uttryck.
+  const stack = [];
+  // Det senaste icke-blanka kodtecknet och ordet som slutar där avgör om ett
+  // '/' inleder ett reguljärt uttryck. Kommentarer syns inte.
+  let sist = '';
+  let ord = '';
+  const notera = (a, b) => {
+    let k = b - 1;
+    while (k >= a && /\s/.test(s[k])) k--;
+    if (k < a) return;
+    sist = s[k];
+    let m = k + 1;
+    while (m > a && /[\w$]/.test(s[m - 1])) m--;
+    ord = s.slice(m, k + 1);
+  };
+  const KOD = /[/"'`{}]/g;
+  const MALL = /[\\`$]/g;
+  let i = 0;
+  while (i < n) {
+    const topp = stack[stack.length - 1];
+    const re = topp === 'mall' ? MALL : KOD;
+    re.lastIndex = i;
+    const m = re.exec(s);
+    const j = m ? m.index : n;
+    if (j > i) {
+      delar.push(s.slice(i, j));
+      if (topp !== 'mall') notera(i, j);
+      i = j;
+    }
+    if (!m) break;
+    const c = s[j];
+    let k = j + 1;
+    if (topp === 'mall') {
+      if (c === '\\') k = Math.min(n, j + 2);
+      else if (c === '`') {
+        stack.pop();
+        sist = '`';
+        ord = '';
+      } else if (s[j + 1] === '{') {
+        stack.push(0);
+        k = j + 2;
+        sist = '{';
+        ord = '';
+      }
+      delar.push(s.slice(j, k));
+    } else if (c === '/' && (s[j + 1] === '/' || s[j + 1] === '*')) {
+      const slut = s[j + 1] === '/' ? s.indexOf('\n', j) : s.indexOf('*/', j + 2);
+      k = slut < 0 ? n : slut + (s[j + 1] === '/' ? 0 : 2);
+      delar.push(s.slice(j, k).replace(/[^\n]/g, ' '));
+    } else if (c === '"' || c === "'") {
+      while (k < n && s[k] !== c && s[k] !== '\n') k += s[k] === '\\' ? 2 : 1;
+      k = Math.min(n, k + 1);
+      delar.push(s.slice(j, k));
+      sist = c;
+      ord = '';
+    } else if (c === '`') {
+      stack.push('mall');
+      delar.push(c);
+    } else if (c === '/') {
+      if (!sist || /[(,=:[!&|?{};+\-*%<>~^]/.test(sist) || (/[\w$]/.test(sist) && ORD_FÖRE_REGEX.has(ord))) {
+        let klass = false;
+        while (k < n && s[k] !== '\n' && (klass || s[k] !== '/')) {
+          if (s[k] === '\\') k++;
+          else if (s[k] === '[') klass = true;
+          else if (s[k] === ']') klass = false;
+          k++;
+        }
+        k = Math.min(n, k + 1);
+        while (k < n && /[a-z]/i.test(s[k])) k++;
+        sist = ')';
+      } else {
+        sist = '/';
+      }
+      ord = '';
+      delar.push(s.slice(j, k));
+    } else {
+      // '{' eller '}': klammerdjupet i ett `${…}`-uttryck; '}' på djup 0
+      // återgår till mallsträngen.
+      if (typeof topp === 'number') {
+        if (c === '{') stack[stack.length - 1]++;
+        else if (topp === 0) stack.pop();
+        else stack[stack.length - 1]--;
+      }
+      sist = c;
+      ord = '';
+      delar.push(c);
+    }
+    i = k;
+  }
+  return delar.join('');
+}
+
+// En import binder bara ett namn som definieras i en annan fil:
+// `const x = require(…)`, `const { a, b: c } = require(…)` (även över flera
+// rader), `= await import(…)`, `import … from '…'` och `export … from '…'`.
+// En objektegenskap vars värde är en import (`namn: require(…).namn,`, även
+// med värdet på nästa rad, eller `namn: await import(…),`) eller bara ett
+// annat namn (`namn: namn,`, `namn: a.b,`, även med värdet på nästa rad)
+// definierar inte heller egenskapen: den återexporterar något som definieras
+// på annat håll, och definieras namnet i filen hittar de andra mönstren det.
+// Rättat 2026-11-04 (efterrättning R3b, granskarens varv r3, nytt problem 2):
+// förut räknades `judgeT1: require("./t1Notice").judgeT1,` och
+// `judgeT1: judgeT1,` i ett module.exports-objekt som definition. Rättat
+// 2026-11-05 (efterrättning R3c): aliaset med värdet på nästa rad
+// (`judgeT1:\n    judgeImpl,`) räknades som definition.
+const IMPORT_RES = Object.freeze([
+  /\b(?:const|let|var)\s+(?:\{[^}]*\}|\[[^\]]*\]|[A-Za-z_$][\w$]*)\s*=\s*(?:await\s+)?(?:require|import)\s*\(/g,
+  /\bimport\s+(?:[\w$*\s{},]+?\s+from\s+)?(['"])[^'"\n]*\1/g,
+  /\bexport\s+(?:\*(?:\s+as\s+[A-Za-z_$][\w$]*)?|\{[^}]*\})\s*from\s*(['"])[^'"\n]*\1/g,
+  /^[ \t]*[A-Za-z_$][\w$]*\s*:\s*(?:await\s+)?(?:require|import)\s*\(/gm,
+  /^[ \t]*[A-Za-z_$][\w$]*[ \t]*:\s*[A-Za-z_$][\w$]*(?:[ \t]*\.[ \t]*[A-Za-z_$][\w$]*)*[ \t]*(?=,|\}|$)/gm,
+]);
+
 /**
  * Definierar källtexten symbolen? En funktionsdeklaration, en
  * const/let/var/class-deklaration (även inre, som `const judgePhantom =`),
  * en metod eller en objektegenskap (`stressDensity: {`). Ett omnämnande i en
- * kommentar räcker inte.
+ * kommentar räcker inte: block- och radkommentarer tas bort innan
+ * matchningen (utanKommentarer), så en bortkommenterad deklaration eller ett
+ * JSDoc-exempel räknas inte. En import räknas inte heller (IMPORT_RES):
+ * `const judgeT1 = require('./t1Notice').judgeT1;` binder namnet men
+ * definierar det inte i filen, och en egenskap vars värde är en import eller
+ * bara ett annat namn (`judgeT1: judgeT1,`) återexporterar det. Rättat 2026-11-04 (runda 3, L2): förut
+ * matchades den råa källtexten, så granskarens fyra fall
+ * (`// const decisiveFixAfter = null;`, `/* function judgeT1(ctx) { … } *\/`,
+ * en rad `judgeT1: …` i en blockkommentar utan asterisk och en require) gav
+ * sant.
  * @param {string} text - filens innehåll
  * @param {string} symbol - identifieraren
  * @returns {boolean} sant om symbolen definieras
  */
 function definesSymbol(text, symbol) {
+  return definierar(kodFörMatchning(text), symbol);
+}
+
+/** Källtexten som definitionerna matchas mot: utan kommentarer och importer. */
+function kodFörMatchning(text) {
+  let kod = utanKommentarer(text);
+  for (const re of IMPORT_RES) kod = kod.replace(re, (m) => m.replace(/[^\n]/g, ' '));
+  return kod;
+}
+
+/** Definitionsmönstren i definesSymbol, på redan rensad källtext. */
+function definierar(kod, symbol) {
   const s = symbol.replace(/\$/g, '\\$');
   return new RegExp(`(?:\\bfunction\\s*\\*?\\s*${s}\\s*\\(|\\b(?:const|let|var|class)\\s+${s}\\b|^[ \\t]*(?:async\\s+)?${s}\\s*(?:\\([^)\\n]*\\)\\s*\\{|:))`, 'm')
-    .test(text);
+    .test(kod);
+}
+
+// Rensad källtext per fil för hänvisningskontrollen, cachad på sökväg,
+// storlek och ändringstid: registret laddas många gånger per körning och
+// process, och bara filer som citeras med #symbol lexas (i dag motorns tre
+// orakelfiler och runOpeningGates.js, 110 kB). Utfallet beror bara på
+// filens innehåll.
+const RENSAD_KÄLLTEXT = new Map();
+function rensadFil(abs) {
+  const st = fs.statSync(abs);
+  if (!st.isFile()) return '';
+  const c = RENSAD_KÄLLTEXT.get(abs);
+  if (c && c.mtimeMs === st.mtimeMs && c.size === st.size) return c.kod;
+  const kod = kodFörMatchning(fs.readFileSync(abs, 'utf8'));
+  RENSAD_KÄLLTEXT.set(abs, { mtimeMs: st.mtimeMs, size: st.size, kod });
+  return kod;
 }
 
 /**
@@ -1094,8 +1715,8 @@ function checkRefs(e, refs, vad, root, warnings, läst) {
       continue;
     }
     if (r.symbol) {
-      if (!läst.has(abs)) läst.set(abs, fs.statSync(abs).isFile() ? fs.readFileSync(abs, 'utf8') : '');
-      if (!definesSymbol(läst.get(abs), r.symbol)) warnings.push(`${e.id}: ${vad} ${r.fil} definierar inte ${r.symbol}`);
+      if (!läst.has(abs)) läst.set(abs, rensadFil(abs));
+      if (!definierar(läst.get(abs), r.symbol)) warnings.push(`${e.id}: ${vad} ${r.fil} definierar inte ${r.symbol}`);
     } else if (r.rader && r.fil.startsWith(MOTORNS_FILER)) {
       warnings.push(`${e.id}: ${vad} ${r.fil} citeras med rader (${r.rader}); peka på en symbol i motorns egen fil (fil.js#namn), så att hänvisningen inte glider`);
     }
@@ -1327,6 +1948,10 @@ module.exports = {
   episodLängdMs,
   halvminutstickInne,
   spelaFixD,
+  medFramfördKursOchFart,
+  harnessTider,
+  halvminutstickFas,
   sourceRefs,
   definesSymbol,
+  utanKommentarer,
 };
