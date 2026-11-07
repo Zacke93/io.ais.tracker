@@ -517,6 +517,152 @@ gäller följande — det är läxan från K6 (ARCHITECTURE §8 (e)):
    sak. Facit säger *"texten är oförändrad"*, harnessen säger *"siffran är
    sann"*. Båda krävs.
 
+### Familj E (rättningskampanjen 2026-11-04): avgångskontexten mätt enligt REGELN
+
+Ändringen: `ProgressiveETACalculator` räknar inte längre avgångs-ETA på
+igångsättningsfarten efter belagd stillhet. Väntans sampel lämnar
+fartbufferten, och farten räknas på ett golv som följer den uppmätta
+accelerationen ett sampel framåt (dubbla igångsättningsfarten, därefter
+senaste farten plus senaste ökningen, högst 4 kn). Antagandet släpps mjukt när
+farten slutar stiga. ARCHITECTURE §8 (e), "Avgångskontexten gick in", har
+villkoren. Två granskningar formade det, och den andra mätte platåklassen
+nedan.
+
+**Banken.** Baslinje (7699cbe) och efter-körning med samma 24 korpusar, parning
+per korpus, typ, bro och mmsi inom 2 s:
+
+| Band | Population | Före (7699cbe) | Efter |
+|---|---|---|---|
+| sanning < 5 min, alla typer | parad, n = 784 | median 0,47 · 88,9 % ≤ 2 · bias +0,51 | median 0,46 · 89,7 % · bias +0,49 |
+| sanning < 10 min, alla typer | parad, n = 1 295 | median 0,71 · 81,2 % · bias +0,18 | median 0,70 · 81,6 % · bias +0,17 |
+| båda banden | oparad | n = 0 | n = 0 |
+
+Sex parade påståenden ändras, och alla kommer närmare rådatafacit:
+- SKONNERTEN JYLLANDs text, 8 → 3 mot sanning 2,1;
+- PRIMA LADYs text, 7 → 4 mot 3,1;
+- PRIMA LADYs notis och kort, 5 → 3 mot 1,9;
+- OLAs notis och kort, 4 → 1 mot 1,3.
+
+Inget påstående blir sämre. SKONNERTENs notis 07:30:52 i 20260601-41h är 2,
+som på 7699cbe. Första revisionen gav 3 mot sanning 1,4, eftersom EMA:n räknade
+från ett M9-hållet 3,0. V4-principen (ARCHITECTURE §8 (e)) låter EMA:n räkna
+från det ohållna värdet när samplets egen mätning lovar strax, och de två
+M9-raderna i tabellen över återtagna varianter nedan visar mätningen.
+Brotextövergångarna (2 544) och strax-löftet (n 211, 63,0 % ≤ 3 min) är
+oförändrade.
+
+**Platåklassen (andra granskningen).** Banken har bara nio avgångar efter belagd
+stillhet, så klassen mättes syntetiskt:
+- *Geometri:* scenarioGeneratorns kanal. Väntan 480 och 360 m söder om
+  Klaffbron (mål Klaffbron), 120 m söder om Olidebron (mål Klaffbron, 1,5 km)
+  och 200 m söder om Järnvägsbron (mål Stridsbergsbron).
+- *Platåprofiler (18):* igångsättning från 1,0–1,5 kn som planar ut på 2,0,
+  2,5, 3,0 eller 3,5 kn, i långsam, medel och snabb ramp, med jämn fart redan
+  från första samplet, och två med fartbrus.
+- *Kontrollklassen (5 profiler):* F04-klassen, som når 4–6 kn (bland annat
+  ALVA:s 1,6 → 4,0 → 4,4 → 5,0 → 7,4 kn).
+- *AIS-takt:* var 30:e och var 60:e sekund.
+- *Sanning:* linjekorsningen i den genererade geometrin.
+- *Tidsviktat mått:* visad text var 10:e sekund från avgång till korsning.
+  Det är REGELNs punkt 5: ett värde som står kvar länge väger mer.
+- *Uppsteg:* ett minuttal som går upp efter avgången, inklusive steget från
+  väntans prognos.
+
+| Klass | Mått | 7699cbe | Fast golv 4 kn (första revisionen) | Golvet följer accelerationen |
+|---|---|---|---|---|
+| platå (144 fall) | tidsviktat < 5 min: median · ≤ 2 · bias | 1,03 · 87,9 % · +1,07 | 0,72 · 100 % · −0,03 | 0,76 · 98,9 % · +0,64 |
+| | tidsviktat < 10 min | 0,88 · 93,1 % · +0,72 | 0,88 · 92,2 % · −0,00 | 0,80 · 97,7 % · +0,46 |
+| | påståenden < 10 min | 0,67 · 94,4 % · +0,49 | 0,67 · 89,8 % · −0,38 | 0,47 · 97,5 % · +0,11 |
+| | tidsviktade sampel ≥ 2 min för optimistiska (sanning < 10) | 0 | 174 | 23 |
+| | fall med uppsteg / uppsteg / varav ≥ 2 min | 39 / 46 / 27 | 56 / 84 / 35 | 36 / 48 / 13 |
+| kontroll (40 fall) | tidsviktat < 5 min | 2,08 · 46,2 % · +2,13 | 0,90 · 85,9 % · +1,13 | 1,33 · 72,4 % · +1,57 |
+| | tidsviktat < 10 min | 2,32 · 39,4 % · +3,52 | 1,17 · 67,9 % · +1,73 | 1,63 · 59,5 % · +2,28 |
+| | uppsteg | 6 / 6 / 6 | 3 / 3 / 0 | 0 / 0 / 0 |
+
+Granskarens egna fall, minuttalen efter avgången:
+
+| Fall | 7699cbe | Fast golv 4 kn | Golvet följer accelerationen |
+|---|---|---|---|
+| Klaffbron 470 m, 1,2 → 2,4 kn | 5, strax | 5, 4, 3, 4, strax | 5, 4, strax |
+| Klaffbron 480 m, 1,1 → 2,0 kn | 5, strax | 5, 4, 3, 5, strax | 5, strax |
+| fartbrus 2,5 → 2,4 mitt i accelerationen | 5, strax | 5, 4, 5, 4, strax | 5, 4, strax |
+| flyttar sig i kön och blir liggande | 6 står kvar | 5, 4, 5 | 6 står kvar |
+| Järnvägsbron 150 m, 1,0 → 2,0 kn (sanning 6,5) | 5, 4, strax | 3, strax | 5, 4, strax |
+| Olidebron 120 m, 1,0 → 2,0 kn (sanning 24,5) | 19, 24, 30, 28, 21, 19 … | 13, 12, 11, 14, 15, 16 … | 23, 22, 19, 18, 17 … |
+| Olidebron 120 m, 1,2 → 2,5 kn | 19, 22, 21, 18 … | 14, 13, 11, 14, 15, 14 … | 19, 17, 16, 15, 14 … |
+
+De uppsteg som är kvar i platåklassen är av två slag:
+- *Rättelse vid avgången:* väntans prognos räknar redan på rask kanalfart
+  (E-F7:s decaygolv). En långsam båt rättas därför uppåt en gång när den
+  avgår, mest från Olidebron.
+- *Minutsteg vid avrundningen:* dubbleringen i första samplet skjuter över när
+  båten redan går sin marschfart på 2,0–2,5 kn.
+
+Priset är kontrollklassens försiktigare första prognos: ALVA "om 5" mot sanning
+3,1, där det fasta golvet gav "om 4". Nedräkningen går därefter bara nedåt.
+
+Prövat och återtaget (hela sviten, 208 fall):
+
+| Variant | Platå < 5 min | Uppsteg (fall / antal / ≥ 2) | ≥ 2 min för optimistiskt | Kontroll < 5 min | Varför återtagen |
+|---|---|---|---|---|---|
+| Fast golv 4 kn medan farten stiger (första revisionen) | 0,72 · 100 % · −0,03 | 56 / 84 / 35 | 174 | 0,90 · 85,9 % · +1,13 | "om 3" mot sanning 6 och uppsteg när golvet släpps |
+| Golv min(4, 2 × fart) per sampel (granskarens V3) | 0,67 · 99,6 % · +0,35 | 56 / 94 / 29 | 53 | 1,11 · 74,8 % · +1,41 | fler uppsteg än 7699cbe: dubbleringen sent i rampen skjuter över platån |
+| Stigande kräver +0,5 kn per sampel (granskarens V2) | 0,74 · 93,5 % · +0,46 | 80 / 104 / 54 | 83 | 0,90 · 85,9 % · +1,15 | golvet släpps oftare mitt i rampen |
+| Golvet följer accelerationen, släpps direkt | 0,77 · 97,5 % · +0,68 | 45 / 61 / 20 | 23 | 1,34 · 71,7 % · +1,59 | den eftersläpande bufferten höjer prognosen när golvet släpps |
+| … släpps i avståndets takt, utan bandet kring toppfarten | 0,78 · 98,9 % · +0,62 | 22 / 25 / 8 | 38 | 1,34 · 72,0 % · +1,59 | för låg ETA ligger kvar i minuter för en båt i jämn låg fart ("om 3" mot sanning 6,4) |
+| … ett brussampel tolereras innan antagandet släpps | 0,78 · 98,9 % · +0,61 | 37 / 50 / 19 | 38 | 1,34 · 72,0 % · +1,59 | rättelsen kommer ett sampel senare för jämn fart |
+| Vald variant men 2,5 × igångsättningsfarten | 0,61 · 99,9 % · +0,45 | 26 / 41 / 8 | 42 | 1,11 · 84,5 % · +1,32 | nästan dubbelt så många grovt optimistiska sampel |
+| Vald variant men 4 kn i första samplet | 0,72 · 100 % · −0,07 | 42 / 74 / 22 | 174 | 0,90 · 86,5 % · +1,11 | samma optimism som det fasta golvet |
+| Vald variant men tre minuter | 0,77 · 97,5 % · +0,66 | 36 / 53 / 13 | 23 | 1,34 · 71,7 % · +1,59 | golvet släpps mitt i en igångsättning med 60 s-takt |
+| **Vald:** golvet följer accelerationen; högst 0,3 kn över toppfarten, i avståndets takt, aldrig under aktuell fart, fem minuter | 0,76 · 98,9 % · +0,64 | 36 / 48 / 13 | 23 | 1,33 · 72,4 % · +1,57 | — |
+
+Ett band på 20 % i stället för 0,3 kn mättes likvärdigt. Bandet i knop valdes
+eftersom det är samma brusgräns som inbromsningen prövas mot.
+
+Första revisionens varianter, alla mätta mot samma baslinje:
+
+| Variant | Utfall | Varför återtagen |
+|---|---|---|
+| Första prototypen (d1f02ee): jämn fart räknas som acceleration, inget närhets- eller riktningskrav, inget M9 | 7 ändrade, alla bättre, men MARIANNE-raden i 20260525 likvärdig (samma text 55 s tidigare) | fyra nya fatala INV-3 i buggjägarens standardprofil (664, 906, 920, 1113: strax → om 4 → strax) |
+| Utan M9-kravet | 6 ändrade, alla bättre (LECKOs notis 3 → 2 i stället för oförändrad) | värld 595: golvet gav ensamt strax som släpptes till "om 3" (4 → strax → 3) |
+| M9 utan V4-principen (EMA:n räknar från det hållna 3,0) | 7 ändrade, SKONNERTENs notis sämre (2 → 3 mot 1,4) | V4 tar bort priset utan att något annat ändras |
+| V4 utan vakt (EMA:n räknar alltid från det ohållna värdet) | samma bank som vald | ett antagande kan lova strax via utjämningen när nästa mätning inte gör det (enhetstest) |
+| Utan närhetskravet | den valda varianten plus två avgångar: FRAM (20260713-41h, notis 2 → 1, bättre) och MARIANNE (20260525, låst rad likvärdig) | MARIANNE hördes igen 454 m från sin stillhet efter 11 min tystnad — ingen igångsättning, och U13 tillåter inte en likvärdig rad |
+| Tak på tre sampel i igångsättningen | banken oförändrad | syntetisk avgång 450 m före Klaffbron i 1,4 → 3,8 kn: "om 4 → om 3 → om 4" |
+| Eget stillhetsminne utanför fartbufferten, de två senaste stillasamplen räcker: (a) överlever bara gap-reseten, (b) överlever även målbyte och stationär-hold | (a) 23 ändrade: 15 bättre, 8 sämre. (b) 35 ändrade: 18 bättre, 17 sämre. Båda fångar ANTJE (27 → 11 mot 14,7) | (a) ELFKUNGEN ×3 och ANTJEs senare rader blir sämre i låst golden-text. (b) dessutom MOKENDEIST, LA FEMME, YOLO 2:s låsta notis 7 → 2 mot sanning 30 min, och öppningsvarningen Klaffbron#16 i 20260804-both-21h flyttas |
+| De två senaste buffrade samplen räcker (granskarens V1) | fångar NOCHT 12:01 | ELFKUNGENs låsta rad i 20260907-31h blir sämre ("om 11 → om 8" mot 13,1) |
+| Stillhet = alla sampel < 1,0 kn | 15 korpusar flyttas | ny fatal ETA-oscillation i 20260708-21h (AKIRAs kajdrift) |
+| Två sampel < 0,5 kn och resten < 1,0 kn | tio fler förbättrade påståenden | UTOPIA "om cirka 2" → "ETA okänd" 30 s före passagen (42h) och en korrekt "strax" 6 s senare (both-21h) |
+
+**Kvar efter rättningen (oförändrade mot 7699cbe).** Hela klassen i banken är
+87 rörliga sampel (≥ 1,0 kn) efter långsam buffert som avgångskontexten inte
+känner igen. Kolumnen "≥ +3 min" räknar de sampel där ett mätt påstående inom
+tre minuter var minst 3 min för högt:
+
+| Mekanism | Sampel | Med mätta påståenden inom 3 min | ≥ +3 min | Fallen med ≥ +3 min |
+|---|---|---|---|---|
+| tömd buffert (gap-reset, målbyte), högst ett sampel kvar | 32 | 13 | 6 | ANTJE (both-21h 07:31:45) +12,8 · AKIRA (21h 07:20:09) +8,8 · SOLUTION (19h 07:43:48) +3,9 · TINY (80h 16:34:09) +3,8 · NOCHT (41h 11:12:01) +3,8 · MISTRAL (42h 12:13:52) +3,3 |
+| ankomstfarten kvar i bufferten efter en kort väntan | 18 | 8 | 1 | NOCHT (41h 12:01:02, [1,8, 0,3, 0]) +4,1 |
+| krypfart utan stillhet (inget buffrat sampel under 0,5 kn) | 15 | 6 | 1 | NORDIC SOLA (41h 08:48:51, [1, 0,8, 0,8]) +9,5 |
+| startsampel 0,5–0,99 kn före avgångssamplet | 7 | 5 | 2 | UTOPIA (42h 08:03:38, [0,2, 0,3, 0,6]) +6,9 · ANDREA (42h 18:52:22) +4,4 |
+| långsam gång 0,5–0,99 kn i bufferten | 6 | 4 | 1 | ZORA (19h 07:11:17, [0,9, 0,3]) +5,9 |
+| stillhet som aldrig nådde kalkylatorn | 4 | 2 | 1 | PILOT 761 (13h 12:13:45; ingen ETA räknades 11:49–12:13) +11,3 |
+| för långt från stillheten (> 200 m) | 3 | 2 | 0 | — (MARIANNE 20260525, 454 m) |
+| bort från målbron (riktningskravet) | 2 | 0 | 0 | — |
+
+Skälen och vad som krävs för att fånga dem står i ARCHITECTURE §8 (e). Klassen
+hör till ETA-etappen (familj E2 och senare).
+
+*Mätanmärkning.* `measure:eta` tappade renderingsposter
+(`attribution: rendering-saknas`) i slutet av en korpus när maskinen var hårt
+lastad (lastsnitt 16–25 på fyra kärnor). Det gällde 3–38 påståenden i en eller
+två korpusar per körning, och en omkörning gav 0. Orsaken är att
+`replayRunner.js` avslutar med `process.exit` i stdout-callbacken medan
+skrivningar till en stderr-pipe är asynkrona på Linux, så stderr-svansen kan
+slängas. Mätningarna ovan är tagna i körningar med noll saknade renderingar.
+Kontrollera `rendering-saknas` = 0 innan en mätning används, tills harnessen
+tömmer stderr före exit.
+
 ## Buggjägaren — diagnosverktyg, INTE en gate (2026-11-04)
 
 `tests/replay-validation/bugHunt/hunt.js` letar fel offline ur de 24 låsta

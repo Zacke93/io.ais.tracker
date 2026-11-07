@@ -1387,6 +1387,91 @@ inte outlier-skyddet.
 (tidsnormaliserat gps-event-ben). Mätharnessen `npm run measure:eta` är
 permanent — se docs/VALIDATION.md.
 
+**Avgångskontexten gick in (familj E, rättningskampanjen 2026-11-04, F04).**
+En båt som legat still och sätter igång får inte längre sin ETA räknad på
+igångsättningsfarten. `ProgressiveETACalculator._noteDepartureSample` känner
+igen avgången: första sampel med fart ≥ `MOVEMENT_SOG_KNOTS` (1,0 kn) efter
+minst två buffrade sampel, alla under `MOORING_DETECTION.MOVEMENT_PROOF_SOG_KN`
+(0,5 kn), högst `VESSEL_GRAVE.MAX_REBIRTH_DIST_M` (200 m, gravens radie för
+"på plats") från senaste stillasampel och närmare målbron än stillheten. Då
+lämnar väntans sampel fartbufferten. Farten räknas sedan på ett golv som följer
+den UPPMÄTTA accelerationen ett sampel framåt, aldrig på ett antagande om
+marschfarten: dubbla igångsättningsfarten i avgångssamplet
+(`DEPARTURE_FIRST_SAMPLE_GAIN`), därefter senaste farten plus senaste ökningen
+så länge farten stiger, och aldrig över rask kanalfart
+`BRISK_CANAL_SPEED_KNOTS` = 4 kn (samma tal som E-F7:s decaygolv, som läser
+konstanten). När farten slutar stiga dras antagandet tillbaka mjukt
+(`_releaseDepartureFloor`): golvet ligger högst fartbruset
+`DEPARTURE_SPEED_NOISE_KN` (0,3 kn, `STATIONARY_SOG_KN`) över toppfarten,
+sjunker i samma takt som avståndet till målbron krymper och går aldrig under
+aktuell fart. Kontexten slutar när buffertens snitt har hunnit ikapp golvet,
+när farten faller mer än bruset under toppfarten eller under 1 kn, när båten
+inte längre är närmare målbron än stillheten och senast efter 5 min (klass B
+hörs var 60–70:e sekund, och verkliga igångsättningar i banken pågår fyra–fem
+sampel). Golvet får aldrig ensamt lova "strax" (M9-principen, som decaygolvet):
+bestämde golvet farten och hade den uppmätta farten inte gett strax hålls ETA:n
+på 3 min, om inte imminent-flaggan äger klausulen. Det hållna värdet är en spärr
+för presentationen: historiken bär det ohållna bredvid (`m9UnheldETA`), och
+nästa sampels EMA räknar från det när det samplets egen mätning lovar strax
+(V4-principen), annars från det hållna. Felet var en kedja: väntans nollor i
+snittet ([0, 0, 1,6] ⇒ 0,53 kn), gap-reseten EFTER rå-ETA:n (meddelandevägens
+29,5 blev baslinje), outliergrenen som dömde snapshot-vägens 9,8 som
+dramatic_decrease och EMA:n ⇒ "om 27 minuter" för verkliga 3,1 (buggjägarens
+värld 884); nu "om 5 → 4 → 3 → strax". **K6:s krav berörs inte**:
+dubbelkörningen, gap-resetens placering, outliergrindens 30 s-fönster och
+`emaAlpha` är oförändrade, avgången nycklas på fartbuffertens sampelnyckel så
+båda passen ger samma värde, och V4 väljer bara EMA:ns bas efter ett M9-hållet
+värde. Villkoren kom ur två granskningar. Den första: jämn fart räknades som
+acceleration (strax → om 4 → strax i fyra av buggjägarens 2 000
+standardvärldar), en båt som hördes igen 454 m från stillheten efter 11 min
+tystnad räknades som avgång (MARIANNE, 20260525), en båt som vände bort fick
+nedräkning mot bron, och ett tak på tre sampel släppte golvet mitt i
+accelerationen ("om 4 → om 3 → om 4"). Den andra: ett FAST golv på 4 kn medan
+farten steg gav för låg ETA och uppsteg för båtar som planar ut under 4 kn
+("om 3" mot sanning 6 vid Klaffbron, "om 11 → 14 → 16" mot sanning 23 från
+Olidebron), och M9:s hållna 3,0 drog nästa notis uppåt (SKONNERTEN JYLLAND
+20260601-41h: "om 3" mot sanning 1,4). Mätt enligt VALIDATION.md §REGELN
+(§ETA-mätharnessen, "Familj E"): sex låsta rader i tre korpusar flyttas, alla
+rättare, och inget mätt påstående blir sämre. I platåklassen (syntetiska
+avgångar 2,0–3,5 kn från tre platser) minskar de tidsviktade sampel som är minst
+2 min för optimistiska från 174 till 23 och fallen med uppsteg från 56 till 36
+(7699cbe har 39). Priset: en avgång som når 4–6 kn får en försiktigare första
+prognos än med det fasta golvet (ALVA "om 5" mot sanning 3,1 i stället för
+"om 4"); nedräkningen går därefter bara nedåt.
+
+*Kvar utanför klassen (mätt, medvetet):* stillheten läses ur fartbufferten.
+Den får bara sampel när ETA:n räknas, töms av gap-reseten och målbytet och har
+kvar ankomstfarten efter en kort väntan — efter rörelse krävs därför i
+praktiken TRE stillasampel, efter en tömd buffert två. Hela klassen i banken är
+87 rörliga sampel efter långsam buffert som inte känns igen som avgång (tabellen
+per mekanism står i VALIDATION.md "Familj E"). Tolv av dem följs av en prognos
+minst 3 min för hög inom tre minuter: tömd buffert med högst ett sampel kvar
+(ANTJE 211347380 20260804-both-21h 07:31:45 +12,8 min, AKIRA 257605080
+20260708-21h 07:20:09 +8,8, SOLUTION 20260702-19h 07:43:48 +3,9, TINY
+20260909-80h 16:34:09 +3,8, NOCHT 20260601-41h 11:12:01 +3,8, MISTRAL
+20260806-42h 12:13:52 +3,3), ankomstfarten kvar i bufferten (NOCHT 12:01:02
++4,1), krypfart utan stillhet (NORDIC SOLA 258715000 20260713-41h 08:48:51
++9,5), startsampel 0,5–0,99 kn före avgången (UTOPIA 20260806-42h 08:03:38
++6,9, ANDREA 18:52:22 +4,4), långsam gång i bufferten (ZORA 20260702-19h
+07:11:17 +5,9) och stillhet som aldrig nådde kalkylatorn (PILOT 761 265606970
+20260710-13h 12:13:45 +11,3; ingen ETA räknades 11:49–12:13). Två vidgningar
+prövades och återtogs enligt U13: ett eget stillhetsminne utanför bufferten
+(överlever gap-reset, målbyte och stationär-hold) fångar ANTJE men gör 8–17
+mätta påståenden sämre (ELFKUNGEN ×3, ANTJEs senare rader, YOLO 2:s notis
+7 → 2 mot sanning 30 min) och flyttar en öppningsvarning; att låta de två
+senaste buffrade samplen räcka (granskarens V1) fångar NOCHT 12:01 men gör
+ELFKUNGENs låsta rad i 20260907-31h sämre, "om 11 → om 8" mot sanning 13,1.
+PILOT 761 kräver en stillhetssignal från VesselDataService, krypfarten och
+startsamplen en annan stillhetsdefinition än rörelsebeviset — klassen hör till
+ETA-etappen (familj E2 och senare).
+
+Till familj E2 (användarbeslut U20, 2026-11-04): ETA-oscillationen vid
+inbromsning (buggjägarens F06, K6:s dubbla EMA mot den binära
+3-minutersgränsen) och 21h-knivseggen (F07, RC4-clampen mot en extrapolerad
+baslinje). E2 gör om ETA-utjämningen och spärren ovanpå F04-rättningen och
+mäter om E:s sex omlåsta rader och M9/V4-utfallet, eftersom PRIMA LADYs och
+SKONNERTENs värden beror på den dubbla EMA:n.
+
 **FÄLTVALIDERINGENS REGEL: kasta det KORRUPTA FÄLTET, aldrig positionen
 (H34 — DIRIGENTBESLUT 2026-08-22).** *Var beslutet togs:* granskningsunderlaget
 (fältprov 10:s helkodsgranskning 2026-08-22) klassade H34 som BESLUTSBEROENDE
@@ -2341,7 +2426,12 @@ och synkrona SDK-fel. Se [fältprovskörboken](infor-faltprov-2026-09-06.md).
 
 **Kända latenta klasser efter natten:** avgångs-ETA räknas på
 igångsättningsfart (ANYA ELAN: "om 23 min" för verklig 10,5 — churnen
-maskerade klassen tidigare; framtida accelerationsmedveten ETA), server-
+maskerade klassen tidigare; ÅTGÄRDAD 2026-11-04 för avgång efter belagd
+stillhet, se §8 (e) "Avgångskontexten gick in". ANYA ELAN själv faller
+utanför stillhetskravet — 0,7 kn i bufferten före avgången — och är
+oförändrad, liksom resten av den kvarvarande klassen: 87 sampel i åtta
+mekanismer, varav tolv med minst 3 min för hög prognos, som §8 (e) och
+VALIDATION.md "Familj E" redovisar), server-
 stängda-men-levererande sockets kan fortfarande ge ~1 handskakning/min
 (appens egen orsak är fixad), och `max-reconnects-reached` fyrar inte under
 permanent 429 (cooldown-grenen rör inte räknaren).

@@ -160,7 +160,12 @@ module.exports = [
     hours: 41,
     locked: true,
     expectedNotifications: 84,
-    note: `${SEPTEMBER_REVIEW}41h-korpusen. 75/75 inkl. per-fartyg+bro-fördelning validerat 2026-06-09 `
+    note: 'Omlåst 2026-11-04 (familj E, avgångs-ETA): SKONNERTEN JYLLAND 220276000 lämnar stillhet '
+      + '[0,0, 0,1, 0,0] 2026-06-03 07:30:11 i 3,4 kn, 72 m från senaste stillasampel. Golden-text idx 127 '
+      + '"om 8 minuter" → "om 3 minuter" (07:30:11; golvet 4 kn hade lovat strax, M9 håller 3). gt-passages: '
+      + 'korsning av Stridsbergsbron 2,1 min efter 07:30:11 (kind=line) — rättare. Antalet övergångar (178), '
+      + 'notiser (07:30:52 eta 2 som på 7699cbe, V4-principen), kort och passager består. '
+      + `${SEPTEMBER_REVIEW}41h-korpusen. 75/75 inkl. per-fartyg+bro-fördelning validerat 2026-06-09 `
       + '(prod-loggens 75:e är null-attribuerad — samma notis, 211355290@Stallbackabron). '
       + 'OMLÅST 75→77 (2026-07-01, S-F3 + previousTarget-fixen): BÅDA nya är RÄTTADE '
       + 'missar för 265580000 (EBONITA PRINCESS), verifierade mot rå jsonl: '
@@ -2416,7 +2421,12 @@ module.exports = [
     lockOpenings: true,
     lockEvents: true,
     expectedNotifications: 23,
-    note: 'Låst 2026-09-08 efter bytekontroll av samtliga 920 AIS-rader, oberoende rådatafacit och sex fasvarianter. '
+    note: 'Omlåst 2026-11-04 (familj E, avgångs-ETA): PRIMA LADY 230693000 lämnar stillhet [0,4, 0,3, 0,4] '
+      + 'i 1,8 kn, 42 m från senaste stillasampel. Golden-text idx 65 16:34:01 "om 7 minuter" → "om 4 minuter" '
+      + '(golvet 3,6 kn = 2 × 1,8; gt-passages: Stridsbergsbron +3,1 min), golden-events notis 16:35:10 eta 5 → 3 '
+      + 'och öppningskortet Stridsbergsbron#8 etaMin 5 → 3 (gt: +1,9 min) — alla tre rättare. Tid, källa, antal '
+      + 'och passager består. '
+      + 'Låst 2026-09-08 efter bytekontroll av samtliga 920 AIS-rader, oberoende rådatafacit och sex fasvarianter. '
       + '23 boat_near, sex målpassager, åtta öppningsvarningar och 78 textövergångar; fulla händelser är också låsta. '
       + 'DIANAs 2,5 timmar inom Kanalinfarten ger en notis för besöket. Alla fem broar och Kanalinfarten täcks. '
       + 'PHOENIX stod vid Stridsbergsbron med noll fart 14:27:49.423 och 14:38:00.114 UTC: 610,691 s utan ny position. '
@@ -2438,7 +2448,11 @@ module.exports = [
     lockOpenings: true,
     lockEvents: true,
     expectedNotifications: 24,
-    note: 'Låst 2026-09-08 efter integritetskontroll av alla 939 AIS-poster och sex gröna fasvarianter. '
+    note: 'Omlåst 2026-11-04 (familj E, avgångs-ETA): OLA 265031670 lämnar stillhet [0,1, 0,0] i 5,3 kn, '
+      + '145 m från senaste stillasampel. Golden-events notis 18:50:04 eta 4 → 1 ("om 1 minut") och '
+      + 'öppningskortet Stridsbergsbron#11 etaMin 4 → 1; gt-passages: Stridsbergsbron +1,3 min — rättare. '
+      + 'Golden-text, tid, källa och antal består. '
+      + 'Låst 2026-09-08 efter integritetskontroll av alla 939 AIS-poster och sex gröna fasvarianter. '
       + 'Rådatafacit: fyra resor genom sex punkter, 24 korsningar/zonbesök, inga intervallinferenser. '
       + '24 boat_near, åtta öppningsvarningar, åtta mål- och tolv mellanbropassager. '
       + 'Fältets nionde öppningsvarning var ELFKUNGENs upprepade Stridsbergsvarning efter AIS-glapp; '
