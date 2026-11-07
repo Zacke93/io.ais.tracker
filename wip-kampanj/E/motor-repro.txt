@@ -1,0 +1,45 @@
+# hunt.js --repro för alla 25 kort i r1-standard-a
+# 7699cbe: E/tmp/repro-base (första omgången); andra revisionen: E/wt (5febba0 + 5b9ea15), loggar i E/tmp/rev3/repro
+# kort  7699cbe  andra-revisionen
+B01 7699cbe=KVAR revision2=KVAR
+B02 7699cbe=KVAR revision2=KVAR
+F01 7699cbe=KVAR revision2=KVAR
+F02 7699cbe=KVAR revision2=KVAR
+F03 7699cbe=KVAR revision2=KVAR
+F04 7699cbe=KVAR revision2=BORTA
+F05 7699cbe=KVAR revision2=KVAR
+F06 7699cbe=KVAR revision2=KVAR
+F07 7699cbe=KVAR revision2=KVAR
+F08 7699cbe=KVAR revision2=KVAR
+F09 7699cbe=KVAR revision2=KVAR
+F10 7699cbe=KVAR revision2=KVAR
+F11 7699cbe=KVAR revision2=KVAR
+F12 7699cbe=KVAR revision2=KVAR
+F13 7699cbe=KVAR revision2=KVAR
+F14 7699cbe=KVAR revision2=KVAR
+F15 7699cbe=KVAR revision2=KVAR
+F16 7699cbe=KVAR revision2=KVAR
+F17 7699cbe=KVAR revision2=KVAR
+F18 7699cbe=KVAR revision2=KVAR
+F19 7699cbe=KVAR revision2=KVAR
+F20 7699cbe=KVAR revision2=KVAR
+F21 7699cbe=KVAR revision2=KVAR
+F22 7699cbe=KVAR revision2=KVAR
+F23 7699cbe=KVAR revision2=KVAR
+
+## F04 (andra revisionen)
+Repro F04-fatalt-invariantutslag-inv-3-eta-sagtand-upp: värld 884 (seed 165587579), R0, minsta repro
+  rader ur sparad spec: 347 (bitlik mot den sparade radhashen)
+  sparad mekanism: INV-F|INV-3 ETA-SÅGTAND UPP vid Stridsbergsbron [KANDIDAT]
+  utfall mot aktuell HEAD: BORTA (0 utslag i världen)
+
+## F06 (andra revisionen)
+Repro F06-fatalt-invariantutslag-inv-3-eta-oscillation: värld 192 (seed 416745132), R0, minsta repro
+  rader ur sparad spec: 121 (bitlik mot den sparade radhashen)
+  sparad mekanism: INV-F|INV-3 ETA-OSCILLATION vid Klaffbron [KANDIDAT]
+  utfall mot aktuell HEAD: KVAR (1 utslag i världen)
+
+## F07 (andra revisionen)
+Repro F07-fatalt-invariantutslag-inv-3-eta-sagtand-upp-i-fasvarianten-vid-klaffbron: 20260708-21h, δ -11.52 s
+  sparad mekanism: INV-F|INV-3 ETA-SÅGTAND UPP
+  utfall mot aktuell HEAD: KVAR (1 utslag i varianten)

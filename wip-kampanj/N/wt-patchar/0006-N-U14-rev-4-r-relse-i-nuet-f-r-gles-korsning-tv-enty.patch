@@ -1,0 +1,1216 @@
+From 0be75e54f47098915b69e47c6c484e3957ce24e6 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 7 Nov 2026 14:35:14 +0000
+Subject: [PATCH 6/6] =?UTF-8?q?N=20(U14)=20rev=204:=20r=C3=B6relse=20i=20n?=
+ =?UTF-8?q?uet=20f=C3=B6r=20gles-korsning,=20tv=C3=A5=20entydiga=20fixar,?=
+ =?UTF-8?q?=20f=C3=B6rtida=20bokf=C3=B6ring=20vid=20linjen?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Omgranskning 2 (2026-11-07) av revision 3:
+- gles-korsning kräver sog >= 2,0 kn (RE_CROSS/C2), utan fart ett
+  segment på minst 100 m. En väntande båt i 0,5-1 kn med +-15 m brus
+  fick annars en falsk "har precis passerat".
+- ankomstsidan-två-fixar kräver att båda fixarna ligger entydigt på
+  ankomstsidan och att båten var under gång dit även i den förra.
+- passagelogikens förtida returbokföring i en fix inom 30 m på bortre
+  sidan efter bekräftad vändning behålls (_noteFarSideBooking) och
+  släpps bara av två fixar på ankomstsidan; annars missades returen.
+- failsafen prövar returbeviset torrt (dryRun) och släpper besöket
+  först efter sina egna spärrar (TOO_FAR, STALE m.fl.).
+- INV-2:s tidsdom kräver att båten stannar på ankomstsidan; domen
+  ligger i tests/replay-validation/returnReleaseVerdict.js.
+- scenarioGenerator: stopSog; fyra nya syntetiska vakter (65), två
+  fixturer ur granskarens P1, rättad vaktkommentar om INV-7.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ app.js                                        |  40 ++-
+ docs/ARCHITECTURE.md                          |  61 +++--
+ docs/VALIDATION.md                            |  33 ++-
+ lib/services/TriggerPointVisitTracker.js      | 137 +++++++++--
+ .../n-p1-vantar-vid-linjen-ger-upp.jsonl      |  32 +++
+ .../n-p1-vantar-vid-linjen-retur.jsonl        |  34 +++
+ tests/replay-validation/invariants.js         |   5 +-
+ tests/replay-validation/replayRunner.js       |  54 +----
+ .../replay-validation/returnReleaseVerdict.js |  91 +++++++
+ .../runSyntheticScenarios.js                  | 100 +++++++-
+ tests/replay-validation/scenarioGenerator.js  |  11 +-
+ tests/u14-returpassage-notis.test.js          | 227 ++++++++++++++++++
+ 12 files changed, 719 insertions(+), 106 deletions(-)
+ create mode 100644 tests/fixtures/n-p1-vantar-vid-linjen-ger-upp.jsonl
+ create mode 100644 tests/fixtures/n-p1-vantar-vid-linjen-retur.jsonl
+ create mode 100644 tests/replay-validation/returnReleaseVerdict.js
+
+diff --git a/app.js b/app.js
+index c0685f2..10f127e 100755
+--- a/app.js
++++ b/app.js
+@@ -1306,14 +1306,16 @@ class AISBridgeApp extends Homey.App {
+    *
+    * Släppet gör samma städning som en observerad återkomst i
+    * _observeTriggerPointVisits: dedupnyckeln och den persistenta posten för
+-   * just den här båten och bron tas bort.
++   * just den här båten och bron tas bort. Med `dryRun` prövas bara beviset:
++   * besöket, nycklarna och loggen lämnas orörda (failsafen, revision 4).
+    * @param {Object} vessel
+    * @param {string} pointName - brons namn
+    * @param {number} [maxBookingAgeMs] - hur färsk returens bokföring måste vara
++   * @param {{dryRun?: boolean}} [options]
+    * @returns {Object|null} beviset för besöket som avslutades (se releaseReturnPassage)
+    * @private
+    */
+-  _releaseVisitOnReturnPassage(vessel, pointName, maxBookingAgeMs = PASSAGE_TRIGGER_GRACE_MS) {
++  _releaseVisitOnReturnPassage(vessel, pointName, maxBookingAgeMs = PASSAGE_TRIGGER_GRACE_MS, { dryRun = false } = {}) {
+     if (!this._triggerPointVisits || !vessel
+         || this.vesselDataService?.hasGpsJumpHold?.(vessel.mmsi)) return null;
+     const released = this._triggerPointVisits.releaseReturnPassage(vessel, pointName, {
+@@ -1322,8 +1324,10 @@ class AISBridgeApp extends Homey.App {
+       // Glesare kadens än så rymmer inte två fixar till i "precis
+       // passerat"-fönstret: då avgörs ett entydigt korsningssegment direkt.
+       sparseFixGapMs: BRIDGE_TEXT_CONSTANTS.PASSAGE_CLEAR_WINDOW_MS / 2,
++      dryRun,
+     });
+-    if (!released) return null;
++    // Revision 4: torrkörningen (failsafen) städar och loggar inget.
++    if (!released || dryRun) return released;
+     const key = `${vessel.mmsi}:${pointName}`;
+     this._triggeredBoatNearKeys?.delete(key);
+     if (this._persistentRecentTriggers?.delete(key)) this._persistRecentTriggers();
+@@ -9486,11 +9490,21 @@ class AISBridgeApp extends Homey.App {
+     // Om bron triggat senaste 2h enligt persistent map — skippa fallback för att
+     // undvika dubbel-notis.
+     const persistentDedupeKey = `${vessel.mmsi}:${bridgeName}`;
+-    // U14: samma släpp som huvudvägen, före besöksspärren i _persistentDedupCheck.
+-    // Failsafen är returpassagens enda väg när första fixen efter korsningen
+-    // ligger utanför notisradien.
+-    this._releaseVisitOnReturnPassage(vessel, bridgeName);
+-    const fallbackDedup = this._persistentDedupCheck(persistentDedupeKey, vessel, { retroactiveSource: true });
++    // U14: samma släppbevis som huvudvägen, prövat före besöksspärren i
++    // _persistentDedupCheck. Failsafen är returpassagens enda väg när första
++    // fixen efter korsningen ligger utanför notisradien. Revision 4
++    // (omgranskning 2): beviset prövas torrt här och besöket släpps först när
++    // failsafens egna spärrar nedan (TOO_FAR, STALE_POSITION, STALE,
++    // LOW_SOG_FAR) har passerats. Annars förbrukades släppet, besöksskyddet
++    // och den persistenta posten utan att någon notis gick ut. Ett godkänt
++    // bevis ersätter dedupkontrollen: det riktiga släppet tar bort just de
++    // poster den skulle ha blockerat på.
++    const returnProof = this._releaseVisitOnReturnPassage(
++      vessel, bridgeName, PASSAGE_TRIGGER_GRACE_MS, { dryRun: true },
++    );
++    const fallbackDedup = returnProof
++      ? { blocked: false, minutesSince: 0 }
++      : this._persistentDedupCheck(persistentDedupeKey, vessel, { retroactiveSource: true });
+     if (fallbackDedup.blocked) {
+       this.log(
+         `🚫 [FALLBACK_TRIGGER_PERSISTENT_DEDUP] ${vessel.mmsi}: Skipping ${bridgeName} fallback ${
+@@ -9667,6 +9681,16 @@ class AISBridgeApp extends Homey.App {
+     // exit-vägen, som skickar 'exit-fallback' (se _triggerExitPointFallback).
+     // Default-värdet bevarar samtliga befintliga vägar byte-identiskt.
+     const notificationSource = options.source === 'exit-fallback' ? 'exit-fallback' : 'passage-fallback';
++    // U14, revision 4: spärrarna är passerade, nu släpps besöket på riktigt.
++    // Samma tick och samma bevis som torrkörningen ovan; skulle beviset ändå
++    // ha fallit bort (gränsfall på millisekunden) går ingen notis ut.
++    if (returnProof && !this._releaseVisitOnReturnPassage(vessel, bridgeName)) {
++      this.log(
++        `🚫 [FALLBACK_TRIGGER_PERSISTENT_DEDUP] ${vessel.mmsi}: Skipping ${bridgeName} fallback `
++        + '— return-passage proof lapsed, already notified for this visit',
++      );
++      return;
++    }
+     this.log(
+       notificationSource === 'exit-fallback'
+         ? `⚠️ [FALLBACK_BOAT_NEAR] ${vessel.mmsi}: Outbound vessel lost at ${bridgeName} `
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 3ff1a80..7623117 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -498,26 +498,36 @@ Dedup-lagren:
+    - appen har bokfört bron (`lastPassedBridge` eller `passedAt[bro]`, så att en
+      retur över två broar i samma glapp räknas) i en fix där båten INTE låg
+      entydigt på bortre sidan. En bokföring i en fix på bortre sidan absorberas
+-     (`farSideBooking`). Stämplarna jämförs bara med varandra;
++     (`farSideBooking`), utom passagelogikens förtida returbokföring medan båten
++     väntar vid linjen: en fix inom 30 m på bortre sidan efter att ruttriktningen
++     vänt (`_noteFarSideBooking`, revision 4). Den kan bara släppas av två fixar
++     på ankomstsidan (nedan). Stämplarna jämförs bara med varandra;
+    - ruttriktningen (`_routeDirection`) pekar tillbaka, och båten är under gång
+      mot ankomstsidan (rapporterad fart minst `MOVEMENT_PROOF_SOG_KN`, 0,5 kn, och
+      kurs mot ankomstsidan via `geometry.courseBridgeSide`);
+    - positionen bevisar passagen: en korsning är noterad och båten ligger minst
+      30 m ut på ankomstsidan (`UNDER_BRIDGE_CROSS_PROOF_JITTER_M / 2`), med
+-     bokföringen i korsningssegmentet eller två fixar i rad på ankomstsidan (en
+-     bokföring som passagelogiken gjorde redan när en väntande båt nådde
+-     linjen). Vid gles AIS (leveransintervall över halva
+-     `PASSAGE_CLEAR_WINDOW_MS`) räcker i bokföringsticken ett segment från
+-     entydigt bortre sidan till entydigt ankomstsidan, eller till linjen (±10 m)
+-     i transitfart (`BRIDGE_OPENING.QUAY_TRANSIT_PROOF_SOG_KN`, 3,13 kn). En båt
+-     som bromsar in för att vänta vid linjen uppfyller inget av dem;
++     bokföringen i korsningssegmentet eller två fixar i rad ENTYDIGT på
++     ankomstsidan, under gång dit även i den förra (en bokföring som
++     passagelogiken gjorde redan när en väntande båt nådde linjen). Vid gles AIS
++     (leveransintervall över halva `PASSAGE_CLEAR_WINDOW_MS`) räcker i
++     bokföringsticken ett segment från entydigt bortre sidan till entydigt
++     ankomstsidan när båten rör sig i nuet (sog minst 2,0 kn, samma gräns som
++     RE_CROSS och C2; utan fart ett segment på minst 100 m), eller till linjen
++     (±10 m) i transitfart (`BRIDGE_OPENING.QUAY_TRANSIT_PROOF_SOG_KN`, 3,13 kn).
++     En båt som bromsar in för att vänta vid linjen uppfyller inget av dem inom
++     appens brusmodell: kravet på 30 m ut betyder att en båt som i själva verket
++     ligger kvar på bortre sidan bara släpps av ett brus på över 30 m längs
++     kanalaxeln, alltså utöver 60 m mellan två stilla fixar;
+    - **U21** (dirigentens beslut 2026-11-05): notisen kommer högst
+      `STALE_ETA_HARD_THRESHOLD_MS` (10 min) efter den interpolerade korsningen.
+      Annars skickas ingen returnotis.
+ 
+    Appen prövar släppet där notisbeslutet fattas (`_triggerBoatNearFlowForBridge`
+    och failsafen, med S4:s fönster `PASSAGE_TRIGGER_GRACE_MS`, 15 s, som
+-   bokföringsgräns) och i slutet av varje fix (`_confirmReturnPassages`, utan
++   bokföringsgräns; failsafen prövar beviset torrt och släpper besöket först när
++   dess egna spärrar, som `FALLBACK_TRIGGER_TOO_FAR` och `STALE`, är passerade)
++   och i slutet av varje fix (`_confirmReturnPassages`, utan
+    bokföringsgräns; tiden mäts mot korsningen). En retur som bokförs vid linjen
+    får alltså sin notis när en senare fix visar båten tydligt på ankomstsidan.
+    Formen följer beviset (`_returnPassageForm`): "passerade … under AIS-tystnad"
+@@ -526,11 +536,15 @@ Dedup-lagren:
+    passerat". Släppet städar som en observerad återkomst (sessionsnyckel och
+    persistent post för just den bron). Replayharnessen bokför det separat
+    (`visitReturnReleases`, med bevis, korsningstid och dröjsmål) med en
+-   geometrisk dom ur rådatan, och INV-2 fäller ett släpp där båten lämnar bron på
+-   bortre sidan (FALSKT RETURSLÄPP) eller inte ligger på ankomstsidan vid
+-   släppet, i nästa fix eller inom 60 s (FÖR TIDIGT RETURSLÄPP). En båt som
+-   guppar, väntar eller vänder och väntar nära linjen får fortfarande EN notis,
+-   även vid gles AIS och när GPS-bruset ger passagelogiken falska bokföringar.
++   geometrisk dom ur rådatan (`tests/replay-validation/returnReleaseVerdict.js`),
++   och INV-2 fäller ett släpp där båten lämnar bron på bortre sidan (FALSKT
++   RETURSLÄPP) eller inte ligger på ankomstsidan vid släppet, i nästa fix eller
++   inom 60 s, eller inte stannar där (färre än hälften av fixarna efter släppet,
++   nästa fix och 60 s-fönstret, entydigt på ankomstsidan: FÖR TIDIGT RETURSLÄPP).
++   En båt som guppar, väntar eller vänder och väntar nära linjen får fortfarande
++   EN notis, även vid gles AIS, när hennes AIS rapporterar 0,5–1 kn och när
++   GPS-bruset ger passagelogiken falska bokföringar, så länge bruset håller sig
++   inom appens brusmodell (se U14, kvarvarande gränser).
+    Kanalinfarten har ingen brolinje och följer besöksregeln oförändrad.
+ 
+ Tokens: `vessel_name` (B1: känt namn → cache-uppslag → "Okänd båt", :4464),
+@@ -2114,6 +2128,18 @@ passagen; en båt som guppar eller väntar vid bron får fortfarande en notis pe
+   transitfart, och annars väntar beviset på en fix ute på ankomstsidan, utan bokföringsgräns.
+   Samma ändring stänger klassen långsamma returer (under cirka 1,2 kn), där 60 s-fönstret från
+   bokföringen gick ut innan båten var 30 m ut.
++- **Omgranskning 2 (2026-11-07):** en väntande båt vars AIS rapporterar 0,5–1 kn och slumpad
++  kurs fick av ±15 m brus vid gles AIS en falsk "har precis passerat" via en enda gles fix
++  entydigt på ankomstsidan (6 av 360 granskarbanor), eller samma notis 13 min för tidigt.
++  Revision 4: (1) en sådan gles fix räcker bara när båten rör sig i nuet (2,0 kn, appens gräns
++  för korsningsbevis i RE_CROSS och C2); (2) två fixar i rad på ankomstsidan räknas bara när
++  båda ligger entydigt där och båten var under gång dit även i den förra; (3) passagelogikens
++  förtida returbokföring i en fix strax bortom linjen efter vändningen behålls i stället för att
++  absorberas, så att den verkliga returen inte missas när passagelogiken inte bokför igen
++  (granskarens retur-banor: 10 av 360 missade efter (1) ensam, 0 med (3)); (4) failsafen
++  släpper besöket först när dess egna spärrar är passerade; (5) INV-2:s tidsdom kräver att
++  båten stannar på ankomstsidan. Svep (K/N/tmp/r4): granskarens P1 360+360 banor och P2 24
++  banor rätt; långsamma returer 0,7–2,0 kn 120 av 120 med två notiser.
+ - **U21 (användarbeslut 2026-11-04, kväll, med dirigentens gräns 2026-11-05):** ingen sen notis
+   för en returpassage under ett långt AIS-avbrott. En returnotis släpps bara om den kommer högst
+   `STALE_ETA_HARD_THRESHOLD_MS` (10 min) efter den uppskattade korsningen, som interpoleras på
+@@ -2137,7 +2163,12 @@ passagen; en båt som guppar eller väntar vid bron får fortfarande en notis pe
+   fel efter en lång väntan vid linjen, 2 av 36 glesa svepbanor, även på 7699cbe), en båt som
+   efter korsningen ligger kvar inom 30 m från linjen i stillhet längre än U21:s 10 min, och
+   en båt som kommer i transitfart och tvärstannar inom 10 m från linjen just när
+-  passagelogiken bokför (inte sett i 54 sådana svepbanor).
++  passagelogiken bokför (inte sett i 54 sådana svepbanor). **Brus utanför appens
++  brusmodell** (omgranskning 2, P2): med ±30 m per koordinat (upp till 42 m längs
++  kanalaxeln) kan en väntande båt i 0,6–1 kn ibland ligga två fixar i rad över 30 m ut på
++  ankomstsidan. Uppmätt rest i revision 4: 5 av 48 banor vid tät AIS och 2 av 48 vid gles AIS
++  ger ett falskt eller för tidigt släpp (revision 3: 11 och 13), 0 av 192 vid ±20–25 m.
++  Registrerad som känd gräns.
+ 
+ ## 10. Söndagsfältet 2026-08-09/10 (commits a9f2a20, ce6a946, b1a7ba3 + WS-3)
+ 
+diff --git a/docs/VALIDATION.md b/docs/VALIDATION.md
+index 6c5e18f..20956a2 100644
+--- a/docs/VALIDATION.md
++++ b/docs/VALIDATION.md
+@@ -54,8 +54,10 @@ deras referenser bygger på granskad replay från tomt minne. En låst referens
+    positionen bevisar (båten tydligt ute på ankomstsidan och under gång dit),
+    avslutar besöket och får en egen notis även om båten aldrig lämnat området.
+    En båt som vänder och sedan väntar nära linjen får ingen extra notis, inte
+-   heller vid gles AIS, och en returnotis som skulle komma mer än 10 min efter
+-   den uppskattade korsningen skickas inte (U21).
++   heller vid gles AIS eller när hennes AIS rapporterar 0,5–1 kn, så länge
++   GPS-bruset håller sig inom appens brusmodell (två stilla fixar under 60 m
++   isär). En returnotis som skulle komma mer än 10 min efter den uppskattade
++   korsningen skickas inte (U21).
+ 
+ ## Batteriet — kör ALLTID allt efter varje ändring i status-/notis-/text-/livscykellogik
+ 
+@@ -70,7 +72,7 @@ Eller stegen var för sig:
+ |---|---|---|
+ | Enhetstester | `npm test > /tmp/ais-jest.log 2>&1` (läs sedan slutraderna) | Alla tester passerar, exitkod 0 och inga öppna handtag. Aktuellt antal står i körningens sammanfattning. Omdirigeringen bevarar Jest:s exitkod; en pipe till `tail` gör inte det. |
+ | Korpusarna | `npm run replay:all` | Samtliga korpusar (aktuellt antal och timmar står i skriptets utskrift) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + exakt (mmsi,bro,riktning)-fördelning + EXAKT bridge_text-transitionsström (golden-text/) + alla invarianter. Ofullständig fångst redovisas separat och får bara utgöra regression för bevarade sampel. |
+-| Syntetiska | `npm run replay:synthetic` | 61 scenarier (gap, U-svängar även med gles AIS och inom besöket, vändning följd av väntan vid brolinjen även med inbromsning och gles AIS, långsam retur, returer över två broar i samma glapp, GPS-hopp, kajliggare, guppande båt på brolinjen, sog=null, omstart, 2h-prune-stillaliggare …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
++| Syntetiska | `npm run replay:synthetic` | 65 scenarier (gap, U-svängar även med gles AIS och inom besöket, vändning följd av väntan vid brolinjen även med inbromsning, gles AIS och rapporterad fart, långsam retur, returer över två broar i samma glapp, GPS-hopp, kajliggare, guppande båt på brolinjen, sog=null, omstart, 2h-prune-stillaliggare …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
+ | Öppningsgrindarna | `npm run replay:openings` | ETAPP 6: det proaktiva lagret (`bridge_opening_soon`). **O1** varje målbropassage i SAMTLIGA korpusar (låsta som olåsta — antalet står i skriptets utskrift, inte här) har en öppningsvarning FÖRE passagen — varje miss klassad mot rådata (oklassad = rött); en KONVOJTÄCKNING underkänns om bron bevisligen öppnat och stängt för någon annan emellan. **O2** varje varning utan passage inom 20 min klassas mot rådata (KAJVOBBEL och UTANFÖR_HORISONTEN = rött; avbruten approach, gles anflygning och garantipris = accepterade) — även SEN_PASSAGE-hinken klassas. **O2b** (S14, 2026-08-23) SAMMA fantommätning mot RÅDATAFACIT (A2, `gt-passages`) i stället för appens egna passager — O1b:s mönster: appens passageregistreringar delar grindarnas blindfläck, så en varning kan kallas BEKRÄFTAD av appens egen bokföring medan rådatan inte känner korsningen. Serierna redovisas BREDVID varandra (annars går körningsloggar inte att jämföra bakåt). `inferred`-poster (korsning bevisad, tidpunkt = fönster) bär ALDRIG hinkindelningen utan hamnar i egen hink INFERRERAD_TID — hinkarna ÄR en tidsfönstermätning. **O2b är INFORMATIV: den ändrar inte exitkoden** (grinden ligger kvar på appserien precis som O1:s täckning i fas A); `OPENING_GT_STRICT` flyttar den hit när fas C är klar. Vid införandet: 0 röda i BÅDA serierna, 118 av 360 varningar byter hink (98 blir omätbara `inferred`) och EN varning byter åt det farliga hållet (JAATTEN II @ Stridsbergsbron i 20260708-21h — samma fall INV-21 redan fäller). **O3** A/B-nattens båda armar: 6/6 öppningar varnade före, konvojen som EN varning, boat_near byte-identisk med nattens facit. Dessutom **avfyrningsfönstret** (`t − dueMs` inom två tick — kontraktet "avfyra så sent som garantin tillåter") och **ledtidsgolvet** (hårt golv 60 s; tunnare än utlovade 150 s rapporteras). |
+ | Soaken | `node tests/replay-validation/runSoak.js` | 72 h blandtrafik: 0 processfel, inga läckor, fatala invarianter rena |
+ | Driftens minutloop | `npm run replay:monitoring` | Samma 72 h med riktig monitoring/stale-städning även efter omstarter; samtliga timers avvecklade efter shutdown |
+@@ -307,7 +309,10 @@ grammatik (INV-1), notisdubbletter/tokens (INV-2; sedan U14 även
+ FALSKT RETURSLÄPP, när ett returpassagesläpp följs av att båten lämnar bron på
+ bortre sidan enligt replayRunnerns geometriska dom ur rådatan, och sedan
+ omgranskningen 2026-11-05 FÖR TIDIGT RETURSLÄPP, när båten varken vid släppet,
+-i nästa fix eller inom 60 s ligger entydigt på ankomstsidan), **räkningsbaserade INV-5/7**
++i nästa fix eller inom 60 s ligger entydigt på ankomstsidan, eller sedan
++omgranskning 2 (2026-11-07) inte stannar där: färre än hälften av fixarna efter
++släppet, nästa fix och 60 s-fönstret, ligger entydigt på ankomstsidan; domen
++står i `tests/replay-validation/returnReleaseVerdict.js`), **räkningsbaserade INV-5/7**
+ (varje registrerad målbropassage kräver sin EGEN notis i tid — även
+ returpassagen av samma bro; sedan U14, 2026-11-04, är det appens kontrakt och
+ inte längre i konflikt med besöksregeln), sluttext (INV-6), namn (INV-8), distans (INV-11),
+@@ -385,10 +390,22 @@ via benets nya `intervalJitterS`): båten bromsar till 1 kn och stannar 3–6 m
+ 15 min. `ge-upp` fortsätter sedan bort (EN Klaffbronotis krävs), `retur` går tillbaka genom
+ bron (TVÅ krävs, och INV-2 fäller ett för tidigt släpp). Förra revisionen gav en falsk andra
+ notis respektive en 16–17 min för tidig; 7699cbe missar returen. Passagelogikens bokföring vid
+-ankomsten till linjen ger INV-5 i `ge-upp` och INV-7 (SEN) för passage nr 2 i `retur` exakt som
+-på 7699cbe, och vakterna tål just de raderna. **Långsam retur**
+-(`långsam-retur-1kn-genom-Klaffbron (U14-vakt)`): returen i 1 kn bokförs före linjen och är 30 m
+-ut först efter mer än 60 s. Den fäller på 7699cbe och på förra revisionen.
++ankomsten till linjen ger INV-5 i `ge-upp`, som på 7699cbe. I `retur` ger 7699cbe INV-5 MISSAD;
++med U14 kommer notisen vid den verkliga korsningen, och INV-7 (SEN) för passage nr 2 uppstår
++eftersom INV-7 mäter mot bokföringen före korsningen. Vakterna tål just de raderna. **Långsam
++retur** (`långsam-retur-1kn-genom-Klaffbron (U14-vakt)`): returen i 1 kn bokförs före linjen och
++är 30 m ut först efter mer än 60 s. Den fäller på 7699cbe och på förra revisionen.
++
++Omgranskning 2 (2026-11-07) lade till fyra vakter. **Väntan med rapporterad fart**
++(`vänder-bromsar-väntar-6m-gles-…-i-…kn-brus-15m-ge-upp/-retur (U14-vakt)`, benets nya
++`stopSog`): den väntande båtens AIS rapporterar 0,6–1 kn med slumpad kurs och bruset är ±15 m.
++Revision 3 släppte på en enda gles fix entydigt på ankomstsidan och gav en falsk andra notis
++(FALSKT RETURSLÄPP); `retur` prövar att den verkliga returen efter samma väntan får sin notis.
++**Tät AIS med ±30 m brus** (`vänder-bromsar-väntar-3m-tät-10s-i-1kn-brus-30m-ge-upp (U14-vakt)`):
++två fixar i rad på ankomstsidan där den förra låg vid linjen. Bruset ligger delvis utanför appens
++brusmodell, och klassen har en uppmätt rest (registrerad som känd gräns); vakten håller fast det
++fall som revision 4 stänger. Fröna kommer ur ett svep med appens egen generator (144 + 48 banor).
++Alla tre `ge-upp`-vakterna fäller revision 3.
+ 
+ ## Täckningskartan — diagnosverktyg, INTE en gate
+ 
+diff --git a/lib/services/TriggerPointVisitTracker.js b/lib/services/TriggerPointVisitTracker.js
+index d2ebe8a..118cd4d 100644
+--- a/lib/services/TriggerPointVisitTracker.js
++++ b/lib/services/TriggerPointVisitTracker.js
+@@ -32,6 +32,16 @@ const RETURN_MIN_SOG_KN = MOORING_DETECTION.MOVEMENT_PROOF_SOG_KN;
+ // vänta vid linjen (omgranskningens svep: 0,6–1,5 kn) ligger en faktor två
+ // under; en båt i 3–5 kn vid linjen är igenom bron på några sekunder.
+ const RETURN_TRANSIT_SOG_KN = BRIDGE_OPENING.QUAY_TRANSIT_PROOF_SOG_KN;
++// U14-revisionen 4 (omgranskning 2, 2026-11-07): vid gles AIS räcker EN fix
++// entydigt på ankomstsidan (gles-korsning) bara när båten rör sig i nuet.
++// En väntande båt vars AIS rapporterar 0,5–1 kn och slumpad kurs kunde annars
++// få en falsk "har precis passerat" av ±15 m brus. Gränsen är appens egen för
++// rörelse i nuet vid ett korsningsbevis: RE_CROSS i VesselDataService ("Fix
++// D-tröskeln för finit fart", sog ≥ 2,0) och C2-kravet i
++// _triggerBoatNearFlowForBridge (movingNow, sog ≥ 2,0). Saknas fart gäller
++// RE_CROSS:s andra ben: segmentet ska vara klart bortom GPS-bruset (100 m).
++const RETURN_SPARSE_MOVING_SOG_KN = 2.0;
++const RETURN_SPARSE_NO_SOG_SEGMENT_M = 100;
+ 
+ /**
+  * Färdriktningens tecken längs kanalaxeln, i samma tecken som
+@@ -97,11 +107,13 @@ function bookingStamp(vessel, pointName) {
+  * kommer högst 10 min efter den uppskattade korsningen (U21). Bara vid gles
+  * AIS, när ingen bekräftande fix hinner komma inom "precis passerat"-fönstret,
+  * räcker ett segment som går från entydigt bortre sidan till entydigt
+- * ankomstsidan, eller till linjen när båten går i transitfart. En bokföring som gjordes innan korsningssegmentet började
+- * (passagelogiken bokför ibland när en väntande båt når linjen) kräver två
+- * fixar i rad på ankomstsidan. En båt som guppar eller väntar vid bron
+- * uppfyller inte beviset, inte heller när GPS-bruset ger henne falska
+- * bokföringar efter en verklig vändning.
++ * ankomstsidan när båten rör sig i nuet (minst 2 kn), eller till linjen när
++ * båten går i transitfart. En bokföring som gjordes innan korsningssegmentet
++ * började (passagelogiken bokför ibland när en väntande båt når linjen, också
++ * i en fix strax bortom linjen) kräver två fixar i rad entydigt på
++ * ankomstsidan under gång dit. En båt som guppar eller väntar vid bron
++ * uppfyller inte beviset inom appens brusmodell, inte heller när GPS-bruset
++ * ger henne falska bokföringar efter en verklig vändning.
+  */
+ class TriggerPointVisitTracker {
+   constructor({ logger = null, now = () => Date.now() } = {}) {
+@@ -253,6 +265,29 @@ class TriggerPointVisitTracker {
+     entry.returnBookedFixTs = fixTs;
+   }
+ 
++  /**
++   * U14-revisionen 4: en bokföring i en fix entydigt på bortre sidan. Den
++   * absorberas (hör till den notifierade passagen eller en tidigare resa) med
++   * ett undantag: när båten redan har setts på bortre sidan, ruttriktningen
++   * pekar tillbaka (vändningen är bekräftad) och fixen ligger inom
++   * RETURN_CLEAR_M från linjen. Då är det passagelogikens förtida bokföring av
++   * returen medan båten väntar vid linjen (omgranskning 2:s P1-retur:
++   * bokföringen 06:11 på 13,8 m, den verkliga korsningen 06:25). Passagelogiken
++   * bokför inte igen vid den verkliga korsningen, så en absorberad bokföring
++   * gav en missad returnotis (INV-5). Den behålls i stället som returens
++   * bokföring. Eftersom den gjordes före korsningssegmentet kan den bara
++   * släppas med beviset ankomstsidan-två-fixar: en noterad korsning och två
++   * fixar i rad entydigt på ankomstsidan under gång dit, den senare minst
++   * RETURN_CLEAR_M ut.
++   * @private
++   */
++  _noteFarSideBooking(entry, vessel, stamp, fixTs, farOffsetM, firstTime) {
++    if (!firstTime && routeSign(vessel) === -entry.farSign && farOffsetM < RETURN_CLEAR_M) {
++      this._captureReturnBooking(entry, stamp, fixTs);
++    }
++    this._absorbFarSideBooking(entry, stamp, fixTs, farOffsetM);
++  }
++
+   /**
+    * U14: en bokföring som först syns i en fix entydigt på bortre sidan hör till
+    * den notifierade passagen eller till en tidigare resa och absorberas. En
+@@ -274,6 +309,25 @@ class TriggerPointVisitTracker {
+     entry.farSideBookingOffsetM = farOffsetM;
+   }
+ 
++  /**
++   * U14-revisionen 4: en fix på ankomstsidan sammanfattad för beviset
++   * ankomstsidan-två-fixar. `decisive`: över 10 m ut (appens G-1-mått).
++   * `underway`: samma fart- och kurskrav som släppet ställer på den aktuella
++   * fixen (minst RETURN_MIN_SOG_KN och kurs mot ankomstsidan; saknas ett värde
++   * i AIS-rapporten prövas bara det andra).
++   * @private
++   */
++  _arrivalFixState(vessel, point, farSign) {
++    const sog = GPSJumpAnalyzer.positionSog(vessel);
++    const cog = Object.prototype.hasOwnProperty.call(vessel, '_rawPositionCog') ? vessel._rawPositionCog : vessel.cog;
++    const cogKnown = Number.isFinite(cog) && cog >= 0 && cog < 360;
++    return {
++      decisive: geometry.decisiveBridgeSide(vessel, point) === -farSign,
++      underway: (sog === null || sog >= RETURN_MIN_SOG_KN)
++        && (!cogKnown || geometry.courseBridgeSide(cog, point) === -farSign),
++    };
++  }
++
+   /**
+    * U14-revisionen 3 (omgranskningen 2026-11-05): följer en ren fix i ett öppet
+    * brobesök. Appens passagelogik bokför fixen INNAN kroken körs, så en
+@@ -303,8 +357,8 @@ class TriggerPointVisitTracker {
+     };
+     if (geometry.decisiveBridgeSide(vessel, point) === entry.farSign) {
+       const firstTime = entry.farSideSeenAt === null;
++      this._noteFarSideBooking(entry, vessel, stamp, sample.fixTs, offset, firstTime);
+       entry.farSideSeenAt = this._now();
+-      this._absorbFarSideBooking(entry, stamp, sample.fixTs, offset);
+       entry.crossing = null;
+       return firstTime;
+     }
+@@ -315,9 +369,12 @@ class TriggerPointVisitTracker {
+       entry.crossing = null;
+       return false;
+     }
++    const fixState = this._arrivalFixState(vessel, point, entry.farSign);
+     if (entry.crossing) {
+       entry.crossing.arrivalFixes += 1;
+       entry.crossing.lastFixTs = sample.fixTs;
++      entry.crossing.previousArrival = entry.crossing.lastArrival;
++      entry.crossing.lastArrival = fixState;
+       return false;
+     }
+     const previousOffset = entry.farSign * geometry.bridgeLineOffsetM(previousFix, point);
+@@ -327,8 +384,13 @@ class TriggerPointVisitTracker {
+       atMs: previousFix.fixTs + span * (previousOffset / (previousOffset - offset)),
+       fromFixTs: previousFix.fixTs,
+       gapMs: deliveryGapMs,
++      // Korsningssegmentets längd längs kanalaxeln (för AIS utan fart).
++      segmentM: previousOffset - offset,
+       arrivalFixes: 1,
+       lastFixTs: sample.fixTs,
++      // Förra och senaste fixen på ankomstsidan (entydig sida, under gång).
++      previousArrival: null,
++      lastArrival: fixState,
+     };
+     return false;
+   }
+@@ -361,32 +423,48 @@ class TriggerPointVisitTracker {
+    *     a. båten ligger minst RETURN_CLEAR_M (30 m) ut på ankomstsidan och
+    *        bokföringen hör till korsningssegmentet (gjord i segmentets
+    *        startfix eller senare);
+-   *     b. båten ligger minst RETURN_CLEAR_M ut och har legat på ankomstsidan
+-   *        två fixar i rad (bokföringen kan då vara äldre, till exempel en
+-   *        bokföring när en väntande båt nådde linjen);
++   *     b. båten ligger minst RETURN_CLEAR_M ut och har legat ENTYDIGT på
++   *        ankomstsidan två fixar i rad, under gång dit även i den förra
++   *        (revision 4). Bokföringen kan då vara äldre, till exempel en
++   *        bokföring när en väntande båt nådde linjen;
+    *     c. gles AIS (segmentets leveransintervall över sparseFixGapMs), så
+    *        ingen bekräftande fix hinner komma inom notisens tidsfönster: i
+    *        bokföringsticken räcker ett segment från ENTYDIGT bortre sidan
+    *        till ENTYDIGT ankomstsidan (över 10 m från linjen, appens
+-   *        G-1-mått), eller till linjen (inom ±10 m) när båten går i
+-   *        transitfart (RETURN_TRANSIT_SOG_KN, 3,13 kn).
++   *        G-1-mått) när båten rör sig i nuet (RETURN_SPARSE_MOVING_SOG_KN,
++   *        2,0 kn; utan fart ett segment på minst 100 m, revision 4), eller
++   *        till linjen (inom ±10 m) när båten går i transitfart
++   *        (RETURN_TRANSIT_SOG_KN, 3,13 kn).
+    *     Vid tät kadens väntar en bokföring vid linjen alltså på nästa fix,
+-   *     och vid gles kadens gör den det när båten inte är i transitfart.
++   *     och vid gles kadens gör den det när båten inte rör sig i nuet.
+    *     Det är där en båt som bromsar in och stannar vid bron skiljs från en
+    *     som passerar (omgranskningen 2026-11-05: förra revisionens villkor
+-   *     godtog en gles fix inom 10 m på bortre sidan i vilken fart som helst).
++   *     godtog en gles fix inom 10 m på bortre sidan i vilken fart som helst;
++   *     omgranskning 2, 2026-11-07: en väntande båt vars AIS rapporterar
++   *     0,5–1 kn fick en falsk notis av ±15 m brus via gles-korsning).
++   * BRUSMODELLEN. Kraven a och b (minst RETURN_CLEAR_M ut) gör att en båt som
++   * i själva verket ligger kvar på bortre sidan bara kan släppas av ett brus
++   * på över 30 m längs kanalaxeln, alltså utanför appens egen brusmodell
++   * (två stilla fixar under UNDER_BRIDGE_CROSS_PROOF_JITTER_M = 60 m isär är
++   * brus). Krav c förutsätter rörelse i nuet. Brus utanför modellen är en
++   * känd gräns (docs/ARCHITECTURE.md, U14).
+    * En bokföring som görs medan båten ligger på bortre sidan absorberas och
+-   * kan aldrig senare räknas som retur. Positionen måste klara samma
++   * kan aldrig senare räknas som retur, utom passagelogikens förtida
++   * returbokföring vid linjen efter en bekräftad vändning
++   * (_noteFarSideBooking), som bara släpps med krav b. Positionen måste klara samma
+    * renhetskrav som observe (_sample) och får inte vara äldre än besökets
+    * senaste fix. Ett stängt besök (exitedAt) rörs inte; där gäller
+    * återkomstregeln.
+    * @param {Object} vessel - fartyget med tickens passagebokföring
+    * @param {string} pointName - brons namn
+-   * @param {{maxBookingAgeMs: number, maxLatenessMs: number, sparseFixGapMs: number}} limits
++   * @param {{maxBookingAgeMs: number, maxLatenessMs: number, sparseFixGapMs: number,
++   *   dryRun?: boolean}} limits - med dryRun prövas släppet utan att besöket avslutas
+    * @returns {{farSign: number, bookedAt: number, evidence: string, crossedAt: number,
+    *   crossingGapMs: number, latenessMs: number}|null} besöket som avslutades
+    */
+-  releaseReturnPassage(vessel, pointName, { maxBookingAgeMs, maxLatenessMs, sparseFixGapMs } = {}) {
++  releaseReturnPassage(vessel, pointName, {
++    maxBookingAgeMs, maxLatenessMs, sparseFixGapMs, dryRun = false,
++  } = {}) {
+     const point = POINTS.get(pointName);
+     const key = this._key(vessel?.mmsi, pointName);
+     const entry = key === null ? null : this._entries.get(key);
+@@ -396,9 +474,10 @@ class TriggerPointVisitTracker {
+     const now = this._now();
+     const stamp = bookingStamp(vessel, pointName);
+     if (geometry.decisiveBridgeSide(vessel, point) === entry.farSign) {
+-      // En ny bokföring i en fix på bortre sidan: ingen retur.
+-      this._absorbFarSideBooking(entry, stamp, sample.fixTs,
+-        entry.farSign * geometry.bridgeLineOffsetM(vessel, point));
++      // En ny bokföring i en fix på bortre sidan: ingen retur nu (en förtida
++      // returbokföring vid linjen behålls, se _noteFarSideBooking).
++      this._noteFarSideBooking(entry, vessel, stamp, sample.fixTs,
++        entry.farSign * geometry.bridgeLineOffsetM(vessel, point), !Number.isFinite(entry.farSideSeenAt));
+       return null;
+     }
+     if (!Number.isFinite(entry.farSideSeenAt)) return null;
+@@ -445,17 +524,31 @@ class TriggerPointVisitTracker {
+         && geometry.courseBridgeSide(cog, point) !== -entry.farSign) return null;
+     const clear = entry.farSign * geometry.bridgeLineOffsetM(vessel, point) <= -RETURN_CLEAR_M;
+     const transit = sog !== null && sog >= RETURN_TRANSIT_SOG_KN;
++    // Revision 4: två fixar i rad räcker bara när båda ligger ENTYDIGT på
++    // ankomstsidan och båten var under gång dit även i den förra (omgranskning
++    // 2:s förslag). En väntande båt vars brus ger en kort utflykt över linjen
++    // har slumpad kurs och ligger sällan två fixar i rad över 10 m ut.
++    const previousArrival = crossing ? crossing.previousArrival : null;
++    const twoArrivalFixes = Boolean(crossing) && crossing.arrivalFixes >= 2
++      && Boolean(previousArrival) && previousArrival.decisive && previousArrival.underway;
++    // Revision 4: en gles fix entydigt på ankomstsidan kräver rörelse i nuet.
++    const sparseMoving = sog !== null
++      ? sog >= RETURN_SPARSE_MOVING_SOG_KN
++      : Boolean(crossing) && crossing.segmentM >= RETURN_SPARSE_NO_SOG_SEGMENT_M;
+     let evidence = null;
+     if (crossing && clear && bookedInSegment) {
+       evidence = 'ankomstsidan';
+-    } else if (crossing && clear && crossing.arrivalFixes >= 2) {
++    } else if (crossing && clear && twoArrivalFixes) {
+       evidence = 'ankomstsidan-två-fixar';
+     } else if (bookedInSegment && sparseSegment && (!crossing || crossing.arrivalFixes === 1)
+-        && (side === -entry.farSign || (side === 0 && transit))) {
++        && ((side === -entry.farSign && sparseMoving) || (side === 0 && transit))) {
+       evidence = side === 0 ? 'gles-linje-transit' : 'gles-korsning';
+     }
+     if (!evidence) return null;
+-    this._entries.delete(key);
++    // Revision 4: en torrkörning (failsafen prövar sina egna spärrar först)
++    // lämnar besöket orört. Bokföringsstämplarna ovan noteras ändå; de är
++    // desamma som det riktiga släppet i samma tick noterar.
++    if (!dryRun) this._entries.delete(key);
+     return {
+       farSign: entry.farSign,
+       bookedAt,
+diff --git a/tests/fixtures/n-p1-vantar-vid-linjen-ger-upp.jsonl b/tests/fixtures/n-p1-vantar-vid-linjen-ger-upp.jsonl
+new file mode 100644
+index 0000000..9c19cd5
+--- /dev/null
++++ b/tests/fixtures/n-p1-vantar-vid-linjen-ger-upp.jsonl
+@@ -0,0 +1,32 @@
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.27816452201415,"lon":12.279503661438625,"sog":4.564048819243908,"cog":22.792538208143924,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767247200000,"receivedAt":"2026-01-01T06:00:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.279406367594746,"lon":12.280532876861114,"sog":4.418219934729859,"cog":22.919496283123408,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767247260000,"receivedAt":"2026-01-01T06:01:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.280705220666825,"lon":12.281357704207155,"sog":4.551027151755989,"cog":22.23633953575245,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767247320000,"receivedAt":"2026-01-01T06:02:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.28179308817737,"lon":12.282067582907567,"sog":4.484924721810967,"cog":24.145958586784218,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767247380000,"receivedAt":"2026-01-01T06:03:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.282819433382976,"lon":12.282775356168717,"sog":4.402657756628469,"cog":22.1362827738767,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767247440000,"receivedAt":"2026-01-01T06:04:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.2839412042758,"lon":12.283720436676639,"sog":4.5625535718631,"cog":22.971291433742408,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767247500000,"receivedAt":"2026-01-01T06:05:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.28508107065946,"lon":12.285279478530605,"sog":4.42024210691452,"cog":31.197004001432163,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767247560000,"receivedAt":"2026-01-01T06:06:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.28516868998288,"lon":12.285253559519875,"sog":2.9462580319494007,"cog":207.86488920714055,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767247620000,"receivedAt":"2026-01-01T06:07:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.28457603115131,"lon":12.284433344456135,"sog":2.94994941521436,"cog":206.53726056481992,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767247680000,"receivedAt":"2026-01-01T06:08:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.28439111400685,"lon":12.283989888769385,"sog":1.0905427877791225,"cog":209.57000520996098,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767247740000,"receivedAt":"2026-01-01T06:09:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.28399580144747,"lon":12.283925000107706,"sog":0.6865703921299428,"cog":343.013563320972,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767247800000,"receivedAt":"2026-01-01T06:10:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.28413328574544,"lon":12.284210811905945,"sog":0.5395748727954924,"cog":294.8762634177692,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767247860000,"receivedAt":"2026-01-01T06:11:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.28399038724074,"lon":12.283787708158124,"sog":0.555565151805058,"cog":221.2899976624176,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767247920000,"receivedAt":"2026-01-01T06:12:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.2841985858034,"lon":12.283835013037486,"sog":0.6843195235356688,"cog":236.08513363916427,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767247980000,"receivedAt":"2026-01-01T06:13:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.284189369228166,"lon":12.283962160255497,"sog":0.504185872618109,"cog":218.48951445473358,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248040000,"receivedAt":"2026-01-01T06:14:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.28414635459479,"lon":12.283758344119214,"sog":0.6009202596265822,"cog":162.6865367484279,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248100000,"receivedAt":"2026-01-01T06:15:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.284169214404564,"lon":12.28416808464222,"sog":0.6933509496971965,"cog":132.38817185908556,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248160000,"receivedAt":"2026-01-01T06:16:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.28400962700547,"lon":12.283947735120831,"sog":0.5686650564428418,"cog":66.4808381642215,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248220000,"receivedAt":"2026-01-01T06:17:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.2841830302463,"lon":12.283828172784496,"sog":0.6962815868668258,"cog":349.72576353605837,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248280000,"receivedAt":"2026-01-01T06:18:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.28422242654934,"lon":12.283971824802817,"sog":0.6887503037694842,"cog":275.0598902972415,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248340000,"receivedAt":"2026-01-01T06:19:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.28406256356468,"lon":12.283905711151156,"sog":0.5052511436864733,"cog":327.3041567886248,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248400000,"receivedAt":"2026-01-01T06:20:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.28407769430367,"lon":12.283793990442954,"sog":0.5140088555403053,"cog":53.70278591522947,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248460000,"receivedAt":"2026-01-01T06:21:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.284132279964126,"lon":12.283745759167498,"sog":0.5831777766346932,"cog":143.79452921357006,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248520000,"receivedAt":"2026-01-01T06:22:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.284004206378164,"lon":12.2841315661403,"sog":0.6701604158617556,"cog":45.328526807483286,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248580000,"receivedAt":"2026-01-01T06:23:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.28410149958445,"lon":12.28389304831193,"sog":0.5385745992418378,"cog":123.38673510309309,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248640000,"receivedAt":"2026-01-01T06:24:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.28422094900148,"lon":12.284066828626772,"sog":4.411783060943708,"cog":26.938783277136338,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248700000,"receivedAt":"2026-01-01T06:25:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.28517318595491,"lon":12.285287356523032,"sog":4.531390078086406,"cog":28.620038551122946,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248760000,"receivedAt":"2026-01-01T06:26:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.28628895395812,"lon":12.286436257899279,"sog":4.565229652402922,"cog":30.33904221079598,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248820000,"receivedAt":"2026-01-01T06:27:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.28747634554549,"lon":12.28721670568123,"sog":4.566137425554916,"cog":26.632373621531826,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248880000,"receivedAt":"2026-01-01T06:28:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.28834352408802,"lon":12.28865115332856,"sog":4.57680809861049,"cog":26.45392972727592,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248940000,"receivedAt":"2026-01-01T06:29:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.28951024923801,"lon":12.289921568725669,"sog":4.50304263252765,"cog":31.98113575096528,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767249000000,"receivedAt":"2026-01-01T06:30:00.000Z"}
++{"mmsi":"267000301","msgType":"PositionReport","lat":58.29060837019592,"lon":12.290864741889719,"sog":4.548867240268737,"cog":28.20264421201597,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767249060000,"receivedAt":"2026-01-01T06:31:00.000Z"}
+diff --git a/tests/fixtures/n-p1-vantar-vid-linjen-retur.jsonl b/tests/fixtures/n-p1-vantar-vid-linjen-retur.jsonl
+new file mode 100644
+index 0000000..e689342
+--- /dev/null
++++ b/tests/fixtures/n-p1-vantar-vid-linjen-retur.jsonl
+@@ -0,0 +1,34 @@
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.27816452201415,"lon":12.279503661438625,"sog":4.564048819243908,"cog":22.792538208143924,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767247200000,"receivedAt":"2026-01-01T06:00:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.279406367594746,"lon":12.280532876861114,"sog":4.418219934729859,"cog":22.919496283123408,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767247260000,"receivedAt":"2026-01-01T06:01:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.280705220666825,"lon":12.281357704207155,"sog":4.551027151755989,"cog":22.23633953575245,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767247320000,"receivedAt":"2026-01-01T06:02:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.28179308817737,"lon":12.282067582907567,"sog":4.484924721810967,"cog":24.145958586784218,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767247380000,"receivedAt":"2026-01-01T06:03:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.282819433382976,"lon":12.282775356168717,"sog":4.402657756628469,"cog":22.1362827738767,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767247440000,"receivedAt":"2026-01-01T06:04:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.2839412042758,"lon":12.283720436676639,"sog":4.5625535718631,"cog":22.971291433742408,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767247500000,"receivedAt":"2026-01-01T06:05:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.28508107065946,"lon":12.285279478530605,"sog":4.42024210691452,"cog":31.197004001432163,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767247560000,"receivedAt":"2026-01-01T06:06:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.28516868998288,"lon":12.285253559519875,"sog":2.9462580319494007,"cog":207.86488920714055,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767247620000,"receivedAt":"2026-01-01T06:07:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.28457603115131,"lon":12.284433344456135,"sog":2.94994941521436,"cog":206.53726056481992,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767247680000,"receivedAt":"2026-01-01T06:08:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.28439111400685,"lon":12.283989888769385,"sog":1.0905427877791225,"cog":209.57000520996098,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767247740000,"receivedAt":"2026-01-01T06:09:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.28399580144747,"lon":12.283925000107706,"sog":0.6865703921299428,"cog":343.013563320972,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767247800000,"receivedAt":"2026-01-01T06:10:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.28413328574544,"lon":12.284210811905945,"sog":0.5395748727954924,"cog":294.8762634177692,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767247860000,"receivedAt":"2026-01-01T06:11:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.28399038724074,"lon":12.283787708158124,"sog":0.555565151805058,"cog":221.2899976624176,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767247920000,"receivedAt":"2026-01-01T06:12:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.2841985858034,"lon":12.283835013037486,"sog":0.6843195235356688,"cog":236.08513363916427,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767247980000,"receivedAt":"2026-01-01T06:13:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.284189369228166,"lon":12.283962160255497,"sog":0.504185872618109,"cog":218.48951445473358,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248040000,"receivedAt":"2026-01-01T06:14:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.28414635459479,"lon":12.283758344119214,"sog":0.6009202596265822,"cog":162.6865367484279,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248100000,"receivedAt":"2026-01-01T06:15:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.284169214404564,"lon":12.28416808464222,"sog":0.6933509496971965,"cog":132.38817185908556,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248160000,"receivedAt":"2026-01-01T06:16:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.28400962700547,"lon":12.283947735120831,"sog":0.5686650564428418,"cog":66.4808381642215,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248220000,"receivedAt":"2026-01-01T06:17:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.2841830302463,"lon":12.283828172784496,"sog":0.6962815868668258,"cog":349.72576353605837,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248280000,"receivedAt":"2026-01-01T06:18:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.28422242654934,"lon":12.283971824802817,"sog":0.6887503037694842,"cog":275.0598902972415,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248340000,"receivedAt":"2026-01-01T06:19:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.28406256356468,"lon":12.283905711151156,"sog":0.5052511436864733,"cog":327.3041567886248,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248400000,"receivedAt":"2026-01-01T06:20:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.28407769430367,"lon":12.283793990442954,"sog":0.5140088555403053,"cog":53.70278591522947,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248460000,"receivedAt":"2026-01-01T06:21:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.284132279964126,"lon":12.283745759167498,"sog":0.5831777766346932,"cog":143.79452921357006,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248520000,"receivedAt":"2026-01-01T06:22:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.284004206378164,"lon":12.2841315661403,"sog":0.6701604158617556,"cog":45.328526807483286,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248580000,"receivedAt":"2026-01-01T06:23:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.28410149958445,"lon":12.28389304831193,"sog":0.5385745992418378,"cog":123.38673510309309,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248640000,"receivedAt":"2026-01-01T06:24:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.28422094900148,"lon":12.284066828626772,"sog":3.4117830609437076,"cog":206.93878327713628,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248700000,"receivedAt":"2026-01-01T06:25:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.283189584629916,"lon":12.283418022747114,"sog":3.531390078086406,"cog":201.4021370110122,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248760000,"receivedAt":"2026-01-01T06:26:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.282320273731,"lon":12.282703407923114,"sog":3.5652296524029223,"cog":203.12114067068524,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248820000,"receivedAt":"2026-01-01T06:27:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.281522586416266,"lon":12.281620403373132,"sog":3.566137425554916,"cog":199.41447208142108,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248880000,"receivedAt":"2026-01-01T06:28:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.28040468605668,"lon":12.281191295296262,"sog":3.5768080986104906,"cog":199.23602818716518,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767248940000,"receivedAt":"2026-01-01T06:29:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.27958633230456,"lon":12.280598170845089,"sog":3.5030426325276496,"cog":204.76323421085453,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767249000000,"receivedAt":"2026-01-01T06:30:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.27869937436034,"lon":12.279677902504186,"sog":3.548867240268737,"cog":200.98474267190522,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767249060000,"receivedAt":"2026-01-01T06:31:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.277775617516,"lon":12.27898259332136,"sog":3.4822308063972742,"cog":201.5093159891685,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767249120000,"receivedAt":"2026-01-01T06:32:00.000Z"}
++{"mmsi":"268000301","msgType":"PositionReport","lat":58.276908978255676,"lon":12.278264904797348,"sog":3.510773252695799,"cog":200.5367798378711,"navStatus":null,"shipName":"P1PROV","aisTimestamp":1767249180000,"receivedAt":"2026-01-01T06:33:00.000Z"}
+diff --git a/tests/replay-validation/invariants.js b/tests/replay-validation/invariants.js
+index 73250d4..2be3b66 100644
+--- a/tests/replay-validation/invariants.js
++++ b/tests/replay-validation/invariants.js
+@@ -18,7 +18,8 @@
+  *        U14: ett returpassagesläpp vars geometriska dom är 'bortre' (båten
+  *        lämnade bron på bortre sidan) fälls som FALSKT RETURSLÄPP, och ett
+  *        med domen 'för tidig' (båten låg inte entydigt på ankomstsidan vid
+- *        släppet eller inom 60 s efter) som FÖR TIDIGT RETURSLÄPP.
++ *        släppet eller inom 60 s efter, eller stannade inte där: nästa fix
++ *        och minst hälften av samplen inom 60 s) som FÖR TIDIGT RETURSLÄPP.
+  * INV-3  ETA-sågtand: upp-hopp ≥6 min inom ≤120 s i operativa bandet, och
+  *        oscillation X→Y→X′ inom 240 s.
+  * INV-4  Count-degradering: generisk "är i närheten"-text inklämd mellan
+@@ -234,7 +235,7 @@ function validateInvariants(result) {
+     } else if (r && r.verdict === 'för tidig') {
+       violations.push(
+         `FÖR TIDIGT RETURSLÄPP: ${r.mmsi}:${r.bridge} ${new Date(r.t).toISOString()} — båten låg inte `
+-        + 'entydigt på ankomstsidan vid släppet eller inom 60 s efter',
++        + 'entydigt på ankomstsidan vid släppet eller inom 60 s efter, eller stannade inte där',
+       );
+     }
+   }
+diff --git a/tests/replay-validation/replayRunner.js b/tests/replay-validation/replayRunner.js
+index 63ccfb4..4ec0084 100644
+--- a/tests/replay-validation/replayRunner.js
++++ b/tests/replay-validation/replayRunner.js
+@@ -329,7 +329,8 @@ async function main() {
+         const releaseReturnPassage = tracker.releaseReturnPassage.bind(tracker);
+         tracker.releaseReturnPassage = (vessel, pointName, limits) => {
+           const released = releaseReturnPassage(vessel, pointName, limits);
+-          if (released) {
++          // Revision 4: failsafens torrkörning avslutar inget besök.
++          if (released && !limits?.dryRun) {
+             // Revision 3: beviset följer med (bevistyp, interpolerad korsning,
+             // korsningssegmentets längd och notisens dröjsmål efter korsningen),
+             // så att FACIT och vakterna kan läsa U21-gränsen direkt.
+@@ -860,51 +861,16 @@ async function main() {
+     heapUsedMB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+   };
+ 
+-  // U14 (granskningen 2026-11-04): GEOMETRISK DOM över varje returpassagesläpp,
+-  // ur rådatan och oberoende av appens egna kriterier. Domen är var båten först
+-  // syns minst PASSED_HOLD_RELEASE_BEYOND_M (100 m) från brolinjen EFTER
+-  // släppet: 'ankomst' (passagen tillbaka skedde), 'bortre' (hon låg kvar eller
+-  // vände tillbaka; släppet var falskt) eller 'okänd' (spåret når aldrig dit).
+-  // 100 m ligger över både UNDER_BRIDGE_CLEAR_DISTANCE och den dokumenterade
+-  // multipathen vid brolinjen (20–80 m), så ett enskilt brusigt sampel avgör inte.
+-  // Omgranskningen 2026-11-05 lade till TIDEN: ett släpp är 'för tidig' när
+-  // varken släppets fix, nästa fix efter släppet eller något sampel inom
+-  // PASSAGE_CLEAR_WINDOW_MS efter släppet ligger entydigt (över 10 m) på
+-  // ankomstsidan. Ett släpp vid linjen som följs av en väntan på bortre sidan
+-  // och en sen verklig korsning hade annars dömts 'ankomst' fast notisen kom
+-  // minuter före passagen. Nästa fix räknas oavsett kadens: vid AISHub (65 s)
+-  // ligger den utanför fönstret även för en båt som var igenom på sekunder.
++  // U14 (granskningen 2026-11-04, skärpt i omgranskningarna 2026-11-05 och
++  // 2026-11-07): GEOMETRISK DOM över varje returpassagesläpp, ur rådatan och
++  // oberoende av appens egna kriterier (avstånd, tid och att båten stannar på
++  // ankomstsidan). Se returnReleaseVerdict.js.
+   {
+-    const { BRIDGES, PASSAGE_TIMING, BRIDGE_TEXT_CONSTANTS } = require('../../lib/constants');
+-    const geometry = require('../../lib/utils/geometry');
+-    const beyondM = PASSAGE_TIMING.PASSED_HOLD_RELEASE_BEYOND_M;
+-    const windowMs = BRIDGE_TEXT_CONSTANTS.PASSAGE_CLEAR_WINDOW_MS;
+-    const bridgeByName = new Map(Object.values(BRIDGES).map((b) => [b.name, b]));
++    const { judgeReturnRelease } = require('./returnReleaseVerdict');
+     for (const release of visitReturnReleases) {
+-      const bridge = bridgeByName.get(release.bridge);
+-      release.verdict = 'okänd';
+-      if (!bridge || !release.farSign) continue;
+-      let releaseFix = null;
+-      let timely = false;
+-      let nextFixSeen = false;
+-      for (const s of samples) {
+-        if (String(s.mmsi) !== release.mmsi) continue;
+-        if (s.aisTimestamp <= release.t) {
+-          releaseFix = s;
+-          continue;
+-        }
+-        const arrivalSide = geometry.decisiveBridgeSide(s, bridge) === -release.farSign;
+-        if (!nextFixSeen && arrivalSide) timely = true;
+-        nextFixSeen = true;
+-        if (s.aisTimestamp <= release.t + windowMs && arrivalSide) timely = true;
+-        const offset = geometry.bridgeLineOffsetM(s, bridge);
+-        if (!Number.isFinite(offset) || Math.abs(offset) < beyondM) continue;
+-        release.verdict = Math.sign(offset) === release.farSign ? 'bortre' : 'ankomst';
+-        release.verdictT = s.aisTimestamp;
+-        break;
+-      }
+-      if (releaseFix && geometry.decisiveBridgeSide(releaseFix, bridge) === -release.farSign) timely = true;
+-      if (release.verdict !== 'bortre' && !timely) release.verdict = 'för tidig';
++      const { verdict, verdictT } = judgeReturnRelease(release, samples);
++      release.verdict = verdict;
++      if (verdictT !== undefined) release.verdictT = verdictT;
+     }
+   }
+ 
+diff --git a/tests/replay-validation/returnReleaseVerdict.js b/tests/replay-validation/returnReleaseVerdict.js
+new file mode 100644
+index 0000000..921e23e
+--- /dev/null
++++ b/tests/replay-validation/returnReleaseVerdict.js
+@@ -0,0 +1,91 @@
++'use strict';
++
++/**
++ * U14 (granskningen 2026-11-04): GEOMETRISK DOM över ett returpassagesläpp,
++ * ur rådatan och oberoende av appens egna kriterier. replayRunner sätter
++ * domen på varje post i visitReturnReleases, och INV-2 läser den.
++ *
++ * AVSTÅNDET. Domen är var båten först syns minst
++ * PASSED_HOLD_RELEASE_BEYOND_M (100 m) från brolinjen EFTER släppet:
++ * 'ankomst' (passagen tillbaka skedde), 'bortre' (hon låg kvar eller vände
++ * tillbaka; släppet var falskt) eller 'okänd' (spåret når aldrig dit). 100 m
++ * ligger över både UNDER_BRIDGE_CLEAR_DISTANCE och den dokumenterade
++ * multipathen vid brolinjen (20–80 m), så ett enskilt brusigt sampel avgör
++ * inte.
++ *
++ * TIDEN (omgranskningen 2026-11-05). Ett släpp är 'för tidig' när varken
++ * släppets fix, nästa fix efter släppet eller något sampel inom
++ * PASSAGE_CLEAR_WINDOW_MS efter släppet ligger entydigt (över 10 m) på
++ * ankomstsidan. Ett släpp vid linjen som följs av en väntan på bortre sidan
++ * och en sen verklig korsning hade annars dömts 'ankomst' fast notisen kom
++ * minuter före passagen. Nästa fix räknas oavsett kadens: vid AISHub (65 s)
++ * ligger den utanför fönstret även för en båt som var igenom på sekunder.
++ *
++ * ATT STANNA (omgranskning 2, 2026-11-07). Ett brussprång kan lägga själva
++ * släppfixen på ankomstsidan medan båten väntar kvar på bortre sidan
++ * (granskarens retur-i60+0-d3-j15-r06-s2: släppfixen −14,3 m, nästa fix
++ * +5,2 m, korsningen 13 min senare). Domen blir därför också 'för tidig' när
++ * färre än hälften av fixarna efter släppet, räknat över nästa fix och alla
++ * sampel inom PASSAGE_CLEAR_WINDOW_MS, ligger entydigt på ankomstsidan. Vid
++ * gles kadens är det bara nästa fix; vid tät kadens tål domen enstaka
++ * brusiga sampel hos en båt som verkligen är på väg bort från linjen.
++ */
++const { BRIDGES, PASSAGE_TIMING, BRIDGE_TEXT_CONSTANTS } = require('../../lib/constants');
++const geometry = require('../../lib/utils/geometry');
++
++const BEYOND_M = PASSAGE_TIMING.PASSED_HOLD_RELEASE_BEYOND_M;
++const WINDOW_MS = BRIDGE_TEXT_CONSTANTS.PASSAGE_CLEAR_WINDOW_MS;
++const BRIDGE_BY_NAME = new Map(Object.values(BRIDGES).map((b) => [b.name, b]));
++
++/**
++ * @param {{t: number, mmsi: string, bridge: string, farSign: number}} release
++ * @param {Array<{mmsi: string|number, aisTimestamp: number, lat: number, lon: number}>} samples
++ *   jsonl-samplen i tidsordning
++ * @returns {{verdict: 'ankomst'|'bortre'|'okänd'|'för tidig', verdictT: (number|undefined)}}
++ */
++function judgeReturnRelease(release, samples) {
++  const bridge = BRIDGE_BY_NAME.get(release.bridge);
++  if (!bridge || !release.farSign) return { verdict: 'okänd', verdictT: undefined };
++  let verdict = 'okänd';
++  let verdictT;
++  let releaseFix = null;
++  let timely = false;
++  let nextFixSeen = false;
++  let afterSamples = 0;
++  let afterArrival = 0;
++  for (const s of samples) {
++    if (String(s.mmsi) !== String(release.mmsi)) continue;
++    if (s.aisTimestamp <= release.t) {
++      releaseFix = s;
++      continue;
++    }
++    const arrivalSide = geometry.decisiveBridgeSide(s, bridge) === -release.farSign;
++    const inWindow = s.aisTimestamp <= release.t + WINDOW_MS;
++    // Nästa fix räknas alltid, övriga bara inom fönstret.
++    if (!nextFixSeen || inWindow) {
++      afterSamples += 1;
++      if (arrivalSide) {
++        afterArrival += 1;
++        timely = true;
++      }
++    }
++    nextFixSeen = true;
++    if (verdictT === undefined) {
++      const offset = geometry.bridgeLineOffsetM(s, bridge);
++      if (Number.isFinite(offset) && Math.abs(offset) >= BEYOND_M) {
++        verdict = Math.sign(offset) === release.farSign ? 'bortre' : 'ankomst';
++        verdictT = s.aisTimestamp;
++      }
++    }
++    // Avståndsdomen är klar och tidsfönstret passerat: inget mer att läsa.
++    if (verdictT !== undefined && !inWindow) break;
++  }
++  if (releaseFix && geometry.decisiveBridgeSide(releaseFix, bridge) === -release.farSign) timely = true;
++  // Båten stannar på ankomstsidan: minst hälften av fixarna efter släppet
++  // (nästa fix och fönstret) ligger entydigt där.
++  const stays = afterArrival * 2 >= afterSamples;
++  if (verdict !== 'bortre' && !(timely && stays)) verdict = 'för tidig';
++  return { verdict, verdictT };
++}
++
++module.exports = { judgeReturnRelease };
+diff --git a/tests/replay-validation/runSyntheticScenarios.js b/tests/replay-validation/runSyntheticScenarios.js
+index b7a4700..1597396 100644
+--- a/tests/replay-validation/runSyntheticScenarios.js
++++ b/tests/replay-validation/runSyntheticScenarios.js
+@@ -429,10 +429,12 @@ const SCENARIOS = [
+   // notis (FALSKT RETURSLÄPP). 'retur': båten går sedan söderut genom bron;
+   // sanningen är TVÅ passager, förra revisionen gav returnotisen 16–17 min för
+   // tidigt (FÖR TIDIGT RETURSLÄPP) och 7699cbe ingen alls. Passagelogikens
+-  // bokföring vid ankomsten till linjen ger INV-5 i 'ge-upp' och INV-7 (SEN)
+-  // för passage nr 2 i 'retur' exakt som på 7699cbe; felet ligger i
+-  // passagelogiken (bokföringen före den verkliga korsningen), så vakterna tål
+-  // just de raderna och prövar notisen.
++  // bokföring vid ankomsten till linjen ger INV-5 i 'ge-upp', som på 7699cbe.
++  // I 'retur' ger 7699cbe INV-5 (MISSAD: returen får ingen notis); med U14
++  // kommer notisen vid den verkliga korsningen, och INV-7 (SEN) för passage
++  // nr 2 uppstår eftersom INV-7 mäter mot bokföringen, som gjordes före
++  // korsningen. Felet ligger i passagelogiken, så vakterna tål just de
++  // raderna och prövar notisen.
+   ...[
+     ['ge-upp', 35, 10, 6, 2], ['ge-upp', 45, 15, 3, 1],
+     ['retur', 35, 10, 6, 2], ['retur', 45, 15, 3, 1],
+@@ -476,6 +478,96 @@ const SCENARIOS = [
+         toleratedInvariants: [/^MISSAD MÅLBRO-NOTIS: \d{9}:Klaffbron — /],
+       },
+   })),
++  // U14-revisionen 4 (omgranskning 2, 2026-11-07): VÄNTAN MED RAPPORTERAD
++  // FART. Som vakterna ovan, men den väntande båtens AIS rapporterar 0,6–1 kn
++  // och slumpad kurs (stopSog) och bruset är ±15 m. Det räckte för att
++  // revision 3 släppte på EN gles fix entydigt på ankomstsidan
++  // (gles-korsning) och gav en falsk "har precis passerat" (FALSKT
++  // RETURSLÄPP). Revision 4 kräver att båten rör sig i nuet (2,0 kn) för det
++  // beviset. Fröna kommer ur svepet K/N/tmp/r4/scripts/guardFind4.js (G1,
++  // 144 banor: revision 3 gav 2 falska släpp, revision 4 inget). 'retur'
++  // prövar att en verklig retur efter samma väntan fortfarande får sin notis;
++  // INV-7 (SEN) för passage nr 2 kommer av passagelogikens bokföring under
++  // väntan och tolereras som ovan.
++  ...[
++    ['ge-upp', 35, 10, 1.0, 2807, '904000022'],
++    ['ge-upp', 60, 0, 0.6, 2618, '904000062'],
++    ['retur', 60, 0, 0.6, 2619, '904000158'],
++  ].map(([kind, iv, ij, stopSog, seed, mmsi]) => ({
++    name: `vänder-bromsar-väntar-6m-gles-${iv}+${ij}s-i-${stopSog}kn-brus-15m-${kind} (U14-vakt)`,
++    seed,
++    vessels: [{
++      mmsi,
++      name: `VAKT4-${kind}`,
++      jitterM: 15,
++      startS: METRICS.cum[2] - 700,
++      legs: [
++        {
++          toS: METRICS.cum[2] + 150, speedKn: 4.5, intervalS: iv, intervalJitterS: ij,
++        },
++        {
++          toS: METRICS.cum[2] + 30, speedKn: 3, intervalS: iv, intervalJitterS: ij,
++        },
++        {
++          toS: METRICS.cum[2] + 6, speedKn: 1, intervalS: iv, intervalJitterS: ij,
++        },
++        {
++          stopS: 900, stopIntervalS: iv, stopSog, stopCogRandom: true,
++        },
++        kind === 'retur'
++          ? {
++            toS: METRICS.cum[2] - 900, speedKn: 3.5, intervalS: iv, intervalJitterS: ij,
++          }
++          : {
++            toS: METRICS.cum[2] + 900, speedKn: 4.5, intervalS: iv, intervalJitterS: ij,
++          },
++      ],
++    }],
++    expect: kind === 'retur'
++      ? {
++        minNotifiedPerBridge: { Klaffbron: 2 },
++        maxNotifiedPerBridge: { Klaffbron: 2 },
++        toleratedInvariants: [/^SEN MÅLBRO-NOTIS: \S+ \d{9}:Klaffbron — passage nr 2 /],
++      }
++      : {
++        minNotifiedBridges: ['Klaffbron'],
++        maxNotifiedPerBridge: { Klaffbron: 1 },
++        toleratedInvariants: [/^MISSAD MÅLBRO-NOTIS: \d{9}:Klaffbron — /],
++      },
++  })),
++  {
++    // Revision 4, tät AIS (10 s) och ±30 m brus i 1 kn med slumpad kurs
++    // (omgranskning 2:s P2). Revision 3 släppte på två fixar i rad på
++    // ankomstsidan där den förra låg på linjen och kursen var slumpad.
++    // Revision 4 kräver att båda fixarna ligger entydigt på ankomstsidan och
++    // att båten var under gång dit även i den förra. ±30 m per koordinat
++    // ligger delvis UTANFÖR appens brusmodell (två stilla fixar under 60 m
++    // isär är brus), och klassen har en uppmätt rest: 2 av 24 banor i svepet
++    // G2 (K/N/tmp/r4/logs/guards4.log), registrerad som känd gräns. Vakten
++    // håller fast det fall som revision 4 stänger.
++    name: 'vänder-bromsar-väntar-3m-tät-10s-i-1kn-brus-30m-ge-upp (U14-vakt)',
++    seed: 2956,
++    vessels: [{
++      mmsi: '904000088',
++      name: 'VAKT4-ge-upp',
++      jitterM: 30,
++      startS: METRICS.cum[2] - 700,
++      legs: [
++        { toS: METRICS.cum[2] + 150, speedKn: 4.5, intervalS: 10 },
++        { toS: METRICS.cum[2] + 30, speedKn: 3, intervalS: 10 },
++        { toS: METRICS.cum[2] + 3, speedKn: 1, intervalS: 10 },
++        {
++          stopS: 900, stopIntervalS: 10, stopSog: 1, stopCogRandom: true,
++        },
++        { toS: METRICS.cum[2] + 900, speedKn: 4.5, intervalS: 10 },
++      ],
++    }],
++    expect: {
++      minNotifiedBridges: ['Klaffbron'],
++      maxNotifiedPerBridge: { Klaffbron: 1 },
++      toleratedInvariants: [/^MISSAD MÅLBRO-NOTIS: \d{9}:Klaffbron — /],
++    },
++  },
+   {
+     // U14-revisionen 3, omgranskningens b-1.0: LÅNGSAM RETUR. Båten passerar
+     // Klaffbron norrut, vänder 150 m bortom och går tillbaka söderut genom
+diff --git a/tests/replay-validation/scenarioGenerator.js b/tests/replay-validation/scenarioGenerator.js
+index 04e1270..0451695 100644
+--- a/tests/replay-validation/scenarioGenerator.js
++++ b/tests/replay-validation/scenarioGenerator.js
+@@ -273,8 +273,13 @@ function generateJourney(opts, rnd) {
+  * till `toS` (meter längs rutten) i `speedKn`, rapporterar var `intervalS`:e
+  * sekund och kan ha ett AIS-glapp (`gapFromS`–`gapToS`, båten fortsätter).
+  * Ett ben med `stopS` ligger still i så många sekunder och rapporterar var
+- * `stopIntervalS`:e sekund, med sog 0,1 och, med `stopCogRandom`, slumpad
+- * kurs. Brus, tidsbas och jsonl-format är desamma som i generateJourney.
++ * `stopIntervalS`:e sekund, med sog 0,1 (eller `stopSog`) och, med
++ * `stopCogRandom`, slumpad kurs. Brus, tidsbas och jsonl-format är desamma
++ * som i generateJourney.
++ *
++ * Omgranskning 2 (2026-11-07): `stopSog` låter en väntande båts AIS
++ * rapportera fart (fältet visar 0,5–1 kn hos båtar som ligger och väntar vid
++ * en bro). Utan fältet blir farten 0,1 som förut, med samma slumptal.
+  * Scenarier utan `legs` påverkas inte.
+  *
+  * Omgranskningen 2026-11-05: `intervalJitterS` lägger 0–J s slumpad extra tid
+@@ -318,7 +323,7 @@ function generateLegJourney(opts, rnd) {
+       const end = tS + leg.stopS;
+       const stopInterval = leg.stopIntervalS || interval;
+       while (tS < end) {
+-        push(s, 0.1, 1, leg.stopCogRandom ? rnd() * 360 : undefined);
++        push(s, Number.isFinite(leg.stopSog) ? leg.stopSog : 0.1, 1, leg.stopCogRandom ? rnd() * 360 : undefined);
+         tS += stopInterval;
+       }
+       continue;
+diff --git a/tests/u14-returpassage-notis.test.js b/tests/u14-returpassage-notis.test.js
+index 81c5534..4d986cb 100644
+--- a/tests/u14-returpassage-notis.test.js
++++ b/tests/u14-returpassage-notis.test.js
+@@ -420,6 +420,152 @@ describe('TriggerPointVisitTracker: bara en bevisad returpassage avslutar besök
+     expect(result.latenessMs).toBeLessThan(2 * 60000);
+   });
+ 
++  test.each([
++    // Omgranskning 2 (2026-11-07), P1: en väntande båt vars AIS rapporterar
++    // 0,5–1 kn och slumpad kurs fick av ±15 m brus en gles fix entydigt på
++    // ankomstsidan och en falsk "har precis passerat". En gles fix räcker nu
++    // bara när båten rör sig i nuet (RE_CROSS:s och C2:s 2,0 kn).
++    [0.6, null], [1.0, null], [1.9, null], [2.0, 'gles-korsning'], [3, 'gles-korsning'],
++  ])('gles AIS: en fix 15 m ut på ankomstsidan i %s kn släpper bara i rörelse (revision 4)', (sog, evidence) => {
++    outboundAndTurn();
++    observe(-130, northbound, 65);
++    const { vessel } = observe(15, () => ({ ...northbound, sog, ...booked() }), 65);
++    if (evidence) {
++      expect(release(vessel)).toMatchObject({ evidence });
++      return;
++    }
++    expect(release(vessel)).toBeFalsy();
++    expect(release(vessel, CONFIRM)).toBeFalsy();
++    expect(tracker.holds(MMSI, KLAFF.name)).toBe(true);
++    // En verklig långsam retur får notisen vid nästa fix, ute på ankomstsidan.
++    const { vessel: next } = observe(60, {
++      ...northbound, sog, lastPassedBridge: KLAFF.name, lastPassedBridgeTime: vessel.lastPassedBridgeTime,
++    }, 65);
++    expect(release(next, CONFIRM)).toMatchObject({ evidence: 'ankomstsidan' });
++  });
++
++  test.each([
++    // Utan rapporterad fart gäller RE_CROSS:s andra ben: segmentet ska vara
++    // klart bortom GPS-bruset, minst 100 m längs kanalaxeln.
++    ['segment 145 m', -130, 'gles-korsning'],
++    ['segment 75 m', -60, null],
++  ])('gles AIS utan fart: %s', (_label, fromOffset, evidence) => {
++    outboundAndTurn();
++    observe(fromOffset, northbound, 65);
++    const { vessel } = observe(15, () => ({ ...northbound, sog: null, ...booked() }), 65);
++    if (evidence) expect(release(vessel)).toMatchObject({ evidence });
++    else expect(release(vessel)).toBeFalsy();
++  });
++
++  test.each([
++    // Omgranskning 2, P2: tät AIS och ±30 m brus. Två fixar på ankomstsidan
++    // räcker nu bara när båda ligger ENTYDIGT där (över 10 m) och båten var
++    // under gång dit även i den förra.
++    ['förra fixen 4 m ut (inte entydig)', -4, NORTH_COG, 1, null],
++    ['förra fixen med kurs mot bortre sidan', -15, SOUTH_COG, 1, null],
++    ['förra fixen i 0,3 kn', -15, NORTH_COG, 0.3, null],
++    ['båda entydigt ute och under gång', -15, NORTH_COG, 1, 'ankomstsidan-två-fixar'],
++  ])('två fixar på ankomstsidan: %s', (_label, firstOffset, firstCog, firstSog, evidence) => {
++    const arrivalBooking = sparseWaitAtLine();
++    const waitBooking = { lastPassedBridge: KLAFF.name, lastPassedBridgeTime: arrivalBooking };
++    observe(-3, {
++      _routeDirection: 'north', sog: 1, cog: NORTH_COG, ...waitBooking,
++    }, 10);
++    // Fixarna efter korsningen; bokföringen är äldre än korsningssegmentet.
++    const { vessel: first } = observe(-firstOffset, {
++      _routeDirection: 'north', sog: firstSog, cog: firstCog, ...waitBooking,
++    }, 10);
++    expect(release(first, CONFIRM)).toBeFalsy();
++    const { vessel: second } = observe(35, {
++      _routeDirection: 'north', sog: 1, cog: NORTH_COG, ...waitBooking,
++    }, 10);
++    if (evidence) expect(release(second, CONFIRM)).toMatchObject({ evidence, bookedAt: arrivalBooking });
++    else expect(release(second, CONFIRM)).toBeFalsy();
++  });
++
++  /**
++   * Omgranskning 2, P1-retur (granskarens retur-i60+0-d3-j15-r06-s2): båten
++   * vänder, väntar vid linjen och passagelogiken bokför bron i en fix 13,8 m
++   * ut på BORTRE sidan. Vid den verkliga korsningen 13 min senare bokför den
++   * inte igen. Revision 3 absorberade bokföringen och missade returen (INV-5)
++   * när den falska glesa korsningen inte längre släpptes.
++   * @returns {number} bokföringsstämpeln i fixen på bortre sidan
++   */
++  function waitWithFarSideBooking() {
++    outboundAndTurn();
++    observe(-60, { ...northbound, sog: 3 }, 60);
++    observe(-27.5, { ...northbound, sog: 1.1 }, 60);
++    tick(60);
++    const bookingAt = now;
++    const booking = at(-13.8, {
++      ...northbound, sog: 0.54, cog: 115, ...booked(),
++    });
++    tracker.observe(booking, KLAFF.name);
++    expect(release(booking, CONFIRM)).toBeFalsy();
++    for (const [offsetM, cog] of [[14.3, 41], [-5.2, 56], [-9.2, 38], [2.1, 343], [-15.3, 312], [-3.7, 170]]) {
++      const { vessel } = observe(offsetM, {
++        _routeDirection: 'north', sog: 0.6, cog, lastPassedBridge: KLAFF.name, lastPassedBridgeTime: bookingAt,
++      }, 60);
++      expect(release(vessel, CONFIRM)).toBeFalsy();
++    }
++    return bookingAt;
++  }
++
++  test('förtida bokföring på bortre sidan vid linjen efter vändningen behålls och släpps vid den verkliga passagen', () => {
++    const bookingAt = waitWithFarSideBooking();
++    const going = {
++      _routeDirection: 'north', sog: 3.5, cog: NORTH_COG, lastPassedBridge: KLAFF.name, lastPassedBridgeTime: bookingAt,
++    };
++    observe(-15.9, going, 60);
++    const { vessel: first } = observe(96.5, going, 60);
++    expect(release(first, CONFIRM)).toBeFalsy();
++    const { vessel: second } = observe(197.5, going, 60);
++    const result = release(second, CONFIRM);
++    expect(result).toMatchObject({ evidence: 'ankomstsidan-två-fixar', bookedAt: bookingAt });
++    expect(result.crossedAt).toBeLessThan(first.fixTs);
++  });
++
++  test('samma väntan som ger upp på bortre sidan släpps aldrig', () => {
++    const bookingAt = waitWithFarSideBooking();
++    for (const offsetM of [-25, -140, -260, -400]) {
++      const { vessel } = observe(offsetM, {
++        _routeDirection: 'north', sog: 4.5, cog: SOUTH_COG, lastPassedBridge: KLAFF.name, lastPassedBridgeTime: bookingAt,
++      }, 60);
++      expect(release(vessel, CONFIRM)).toBeFalsy();
++    }
++  });
++
++  test.each([
++    // Undantaget gäller bara en bokföring nära linjen efter en BEKRÄFTAD
++    // vändning. Annars absorberas den som förut.
++    ['ruttriktningen pekar fortfarande bort', -13.8, 'south'],
++    ['fixen ligger 45 m ut på bortre sidan', -45, 'north'],
++  ])('bokföring på bortre sidan absorberas när %s', (_label, bookingOffset, route) => {
++    outboundAndTurn();
++    observe(-60, { ...northbound, sog: 3 }, 60);
++    tick(60);
++    const bookingAt = now;
++    tracker.observe(at(bookingOffset, {
++      _routeDirection: route, sog: 0.6, cog: NORTH_COG, ...booked(),
++    }), KLAFF.name);
++    const going = {
++      _routeDirection: 'north', sog: 3.5, cog: NORTH_COG, lastPassedBridge: KLAFF.name, lastPassedBridgeTime: bookingAt,
++    };
++    observe(-15, going, 60);
++    observe(90, going, 60);
++    const { vessel } = observe(190, going, 60);
++    expect(release(vessel, CONFIRM)).toBeFalsy();
++  });
++
++  test('torrkörning: beviset prövas utan att besöket avslutas (failsafen)', () => {
++    outboundAndTurn();
++    const { vessel } = observe(45, () => ({ ...northbound, ...booked() }));
++    expect(release(vessel, { ...LIMITS, dryRun: true })).toMatchObject({ evidence: 'ankomstsidan' });
++    expect(tracker.holds(MMSI, KLAFF.name)).toBe(true);
++    expect(release(vessel)).toMatchObject({ evidence: 'ankomstsidan' });
++    expect(tracker.holds(MMSI, KLAFF.name)).toBe(false);
++  });
++
+   test('långsam retur (1 kn, tät AIS): bokföringen 4,7 m före linjen bekräftas när båten är 30 m ut, efter 60 s', () => {
+     // Omgranskningens b-1.0/b-1.3: förra revisionen räknade 60 s-fönstret från
+     // bokföringen, som gjordes innan båten korsade linjen. Vid 1 kn hinner hon
+@@ -714,6 +860,25 @@ describe('Appens notisbeslut: bevisad retur får egen notis, väntande båt inte
+     expect(calls[1]).toMatchObject({ direction: 'norrut', already_passed: true, message: 'WILMA passerade Klaffbron under AIS-tystnad' });
+   });
+ 
++  test('failsafen släpper inte besöket när dess egna spärrar stoppar notisen (omgranskning 2)', async () => {
++    // Revision 3 släppte besöket före FALLBACK_TRIGGER_TOO_FAR: besöksskyddet,
++    // dedupnyckeln och den persistenta posten försvann och loggen sa
++    // "returpassagen får egen notis", men ingen notis gick ut.
++    const app = await boot();
++    await outboundAndTurn(app);
++    later(540);
++    const far = vesselAt(2100, {
++      ...north, sog: 8, lastPassedBridge: KLAFF.name, lastPassedBridgeTime: Date.now(), passedBridges: [KLAFF.name],
++    });
++    fix(app, far);
++    await app._triggerBoatNearFlowFallback(far, KLAFF.name);
++    expect(klaffCalls(app)).toHaveLength(1);
++    expect(app.log).toHaveBeenCalledWith(expect.stringContaining('FALLBACK_TRIGGER_TOO_FAR'));
++    expect(app.log).not.toHaveBeenCalledWith(expect.stringContaining('TRIGGER_POINT_VISIT_RETURN'));
++    expect(app._triggerPointVisits.holds(MMSI, KLAFF.name)).toBe(true);
++    expect(store.trigger_point_visits.entries[`${MMSI}:${KLAFF.name}`]).toMatchObject({ farSign: -1 });
++  });
++
+   test('M1/M2: failsafen för Klaffbron släpper på passedAt när Järnvägsbron bokfördes sist', async () => {
+     const app = await boot();
+     await outboundAndTurn(app);
+@@ -948,6 +1113,37 @@ describe('INV-2 prövar returpassagesläppen mot geometrin', () => {
+   });
+ });
+ 
++describe('Släppets geometriska dom (returnReleaseVerdict)', () => {
++  // eslint-disable-next-line global-require
++  const { judgeReturnRelease } = require('./replay-validation/returnReleaseVerdict');
++  const T0 = Date.parse('2026-01-01T06:12:00Z');
++  const sample = (offsetM, dtS) => ({ mmsi: MMSI, aisTimestamp: T0 + dtS * 1000, ...posAt(offsetM) });
++  const release = {
++    t: T0, mmsi: MMSI, bridge: KLAFF.name, farSign: 1,
++  };
++
++  test('omgranskning 2: släppfixen ligger på ankomstsidan men båten väntar kvar på bortre sidan', () => {
++    // retur-i60+0-d3-j15-r06-s2 (revision 3): släppfixen −14,3 m, nästa fix
++    // +5,2 m och en väntan norr om linjen; korsningen söderut sker 06:25.
++    const samples = [sample(13.8, -60), sample(-14.3, 0), sample(5.2, 60), sample(9.2, 120), sample(-2.1, 180),
++      sample(15.3, 240), sample(3.7, 360), sample(-96.5, 840), sample(-197.5, 900)];
++    expect(judgeReturnRelease(release, samples).verdict).toBe('för tidig');
++  });
++
++  test('en verklig retur vid tät kadens tål ett brusigt sampel i fönstret', () => {
++    const samples = [sample(5, -10), sample(-31, 0), sample(-8, 10), sample(-45, 20), sample(-52, 30),
++      sample(-61, 40), sample(-70, 50), sample(-79, 60), sample(-120, 90)];
++    expect(judgeReturnRelease(release, samples)).toMatchObject({ verdict: 'ankomst' });
++  });
++
++  test('gles kadens: nästa fix avgör', () => {
++    const away = [sample(15, -65), sample(-40, 0), sample(-150, 65)];
++    expect(judgeReturnRelease(release, away).verdict).toBe('ankomst');
++    const back = [sample(15, -65), sample(-40, 0), sample(4, 65), sample(160, 130)];
++    expect(judgeReturnRelease(release, back).verdict).toBe('bortre');
++  });
++});
++
+ describe('Hela appen på buggjägarens repro och granskningens vakt (replay)', () => {
+   function replay(file, { monitoring = false } = {}) {
+     const env = { ...process.env, NODE_OPTIONS: '', REPLAY_VERBOSE: '' };
+@@ -996,6 +1192,37 @@ describe('Hela appen på buggjägarens repro och granskningens vakt (replay)', (
+     expect(result.processErrors).toBe(0);
+   });
+ 
++  // Omgranskning 2 (2026-11-07), granskarens P1-exempel ur gen.js
++  // (K/N/tmp/rr2/scripts/mk-p1.js, geupp/retur-i60+0-d3-j15-r06-s2): båten
++  // passerar Klaffbron norrut, vänder 150 m bortom, bromsar in och väntar
++  // 15 min 3 m norr om linjen. AIS rapporterar 0,6 kn och slumpad kurs, bruset
++  // är ±15 m och kadensen 60 s. 06:12:00 lägger bruset henne 14,3 m söder om
++  // linjen. Revision 3 släppte där (gles-korsning) och skickade en falsk
++  // "har precis passerat" söderut.
++  test('P1 ge upp: väntan vid linjen i 0,6 kn med ±15 m brus ger en notis', () => {
++    const result = replay(path.join(FIXTURES, 'n-p1-vantar-vid-linjen-ger-upp.jsonl'));
++    expect(result.notifications.filter((n) => n.bridge === KLAFF.name)).toHaveLength(1);
++    expect(result.visitReturnReleases).toEqual([]);
++    expect(validateInvariants(result).filter((v) => /NOTIS-DUBBLETT|RETURSLÄPP/.test(v))).toEqual([]);
++  });
++
++  test('P1 retur: samma väntan följd av en verklig passage söderut får notisen efter korsningen', () => {
++    // Sann korsning 06:25:01,7 (generatorns s-profil). Revision 3 släppte
++    // 06:12:00, 13 min för tidigt. Utan undantaget för den förtida
++    // bokföringen på bortre sidan (06:11:00, 13,8 m norr om linjen) missades
++    // returen helt, eftersom passagelogiken inte bokför igen vid korsningen.
++    const result = replay(path.join(FIXTURES, 'n-p1-vantar-vid-linjen-retur.jsonl'));
++    const notices = result.notifications.filter((n) => n.bridge === KLAFF.name);
++    expect(notices.map((n) => n.direction)).toEqual(['northbound', 'southbound']);
++    const trueCrossing = Date.parse('2026-01-01T06:25:01.666Z');
++    expect(notices[1].t).toBeGreaterThan(trueCrossing);
++    expect(notices[1].t - trueCrossing).toBeLessThan(3 * 60 * 1000);
++    expect(result.visitReturnReleases).toEqual([
++      expect.objectContaining({ bridge: KLAFF.name, verdict: 'ankomst', evidence: 'ankomstsidan-två-fixar' }),
++    ]);
++    expect(validateInvariants(result).filter((v) => /NOTIS-DUBBLETT|RETURSLÄPP|MISSAD/.test(v))).toEqual([]);
++  });
++
+   test('granskningens vakt: vänd 150 m bortom, vänta 10 m från linjen med ±10 m brus, kör vidare', () => {
+     const M = pathMetrics(buildPath());
+     const K = M.cum[2];
+-- 
+2.43.0
+

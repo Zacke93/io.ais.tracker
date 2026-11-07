@@ -1,0 +1,154 @@
+# hunt --profile=standard, seed 1: r1-standard-a (7699cbe) mot andra revisionen (tmp/rev3/standard-ren, f3a2d46, exit 0)
+# kluster: 46 → 46; råa utslag: 420 → 416
+# nya kluster: inga
+# försvunna kluster: inga
+lika   ACCEPTERAD|KIE-PER-KORPUS|INV-F|INV-14 DEFAULT-FLASH
+        r1-standard-a: 1 []
+        andra-rev   : 1 []
+lika   ACCEPTERAD|O1-ACCEPTERADE-MISSKLASSER|T2|LEDTID<Ns|synt
+        r1-standard-a: 16 [167, 339, 442, 677, 785, 874, 1009, 1120, 1157, 1249, 1342, 1619, 1700, 1726, 1924, 1969]
+        andra-rev   : 16 [167, 339, 442, 677, 785, 874, 1009, 1120, 1157, 1249, 1342, 1619, 1700, 1726, 1924, 1969]
+lika   ACCEPTERAD|O1-ACCEPTERADE-MISSKLASSER|T2|LEDTID<Ns|synt|stress
+        r1-standard-a: 1 [128]
+        andra-rev   : 1 [128]
+lika   ACCEPTERAD|O1-ACCEPTERADE-MISSKLASSER|T3|VARNING-EFTER-SANN-PASSAGE|synt
+        r1-standard-a: 11 [182, 413, 526, 531, 579, 740, 777, 935, 1278, 1510, 1603]
+        andra-rev   : 11 [182, 413, 526, 531, 579, 740, 777, 935, 1278, 1510, 1603]
+lika   DESIGN|BESÖKSREGEL-2026-09-07|T1|NOTIS-UTEBLIVEN
+        r1-standard-a: 4 []
+        andra-rev   : 4 []
+lika   DESIGN|BESÖKSREGEL-2026-09-07|T1|NOTIS-UTEBLIVEN|synt
+        r1-standard-a: 1 [1448]
+        andra-rev   : 1 [1448]
+lika   DESIGN|D3-2H-DEDUP|T1|NOTIS-UTEBLIVEN
+        r1-standard-a: 6 []
+        andra-rev   : 6 []
+lika   DESIGN|KANALINFARTEN-FP8-SYDGRIND|T1|NOTIS-UTEBLIVEN
+        r1-standard-a: 1 []
+        andra-rev   : 1 []
+lika   DESIGN|KANALINFARTEN-FP8-SYDGRIND|T1|NOTIS-UTEBLIVEN|synt
+        r1-standard-a: 2 [481, 1986]
+        andra-rev   : 2 [481, 1986]
+lika   DESIGN|S10-VÄNDNING-BRON-BAKOM|T1|NOTIS-UTEBLIVEN|synt
+        r1-standard-a: 2 [215, 581]
+        andra-rev   : 2 [215, 581]
+lika   DESIGN|S10-VÄNDNING-BRON-BAKOM|T1|NOTIS-UTEBLIVEN|synt|stress
+        r1-standard-a: 1 [1818]
+        andra-rev   : 1 [1818]
+lika   KANDIDAT|-|INV-F|INV-13 MÅLBRO SOM MELLANBRO|synt
+        r1-standard-a: 3 [254, 1227, 1731]
+        andra-rev   : 3 [254, 1227, 1731]
+lika   KANDIDAT|-|INV-F|INV-14 DEFAULT-FLASH|synt
+        r1-standard-a: 17 [182, 495, 621, 691, 715, 757, 876, 933, 1024, 1031, 1038, 1199, 1323, 1526, 1590, 1887, 1910]
+        andra-rev   : 17 [182, 495, 621, 691, 715, 757, 876, 933, 1024, 1031, 1038, 1199, 1323, 1526, 1590, 1887, 1910]
+ÄNDRAT KANDIDAT|-|INV-F|INV-3 ETA-OSCILLATION|synt
+        r1-standard-a: 16 [8, 192, 235, 324, 347, 402, 467, 888, 1038, 1058, 1183, 1275, 1318, 1325, 1809, 1963]
+        andra-rev   : 15 [8, 192, 235, 324, 347, 402, 467, 888, 1038, 1058, 1183, 1275, 1318, 1325, 1809]
+lika   KANDIDAT|-|INV-F|INV-3 ETA-OSCILLATION|synt|stress
+        r1-standard-a: 2 [1608, 1907]
+        andra-rev   : 2 [1608, 1907]
+lika   KANDIDAT|-|INV-F|INV-3 ETA-SÅGTAND UPP
+        r1-standard-a: 1 []
+        andra-rev   : 1 []
+ÄNDRAT KANDIDAT|-|INV-F|INV-3 ETA-SÅGTAND UPP|synt
+        r1-standard-a: 31 [5, 60, 117, 246, 310, 340, 343, 368, 690, 765, 783, 884, 950, 957, 996, 999, 1088, 1169, 1214, 1226, 1228, 1241, 1323, 1327, 1453, 1506, 1507, 1521, 1749, 1788, 1955]
+        andra-rev   : 28 [5, 60, 246, 310, 340, 343, 368, 690, 765, 783, 957, 996, 999, 1088, 1169, 1214, 1226, 1228, 1241, 1323, 1327, 1453, 1506, 1507, 1521, 1749, 1788, 1955]
+lika   KANDIDAT|-|INV-F|INV-3 ETA-SÅGTAND UPP|synt|stress
+        r1-standard-a: 2 [1608, 1907]
+        andra-rev   : 2 [1608, 1907]
+lika   KANDIDAT|-|M-FAS|PASSAGENYCKEL TAPPAD
+        r1-standard-a: 1 []
+        andra-rev   : 1 []
+lika   KANDIDAT|-|M-FAS|ÖPPNINGSNYCKEL TILLAGD
+        r1-standard-a: 1 []
+        andra-rev   : 1 []
+lika   KANDIDAT|-|T10|FANTOMPASSAGE(intermediate)|synt
+        r1-standard-a: 1 [254]
+        andra-rev   : 1 [254]
+lika   KANDIDAT|-|T10|PASSAGE-EJ-REGISTRERAD|synt
+        r1-standard-a: 11 [188, 353, 523, 750, 892, 1044, 1558, 1680, 1731, 1927, 1953]
+        andra-rev   : 11 [188, 353, 523, 750, 892, 1044, 1558, 1680, 1731, 1927, 1953]
+lika   KANDIDAT|-|T1|FÖRVARNINGSFORM-EFTER-PASSAGE|synt
+        r1-standard-a: 3 [86, 783, 1731]
+        andra-rev   : 3 [86, 783, 1731]
+lika   KANDIDAT|-|T1|FÖRVARNINGSFORM-EFTER-PASSAGE|synt|stress
+        r1-standard-a: 1 [856]
+        andra-rev   : 1 [856]
+lika   KANDIDAT|-|T2|LEDTID<Ns|synt
+        r1-standard-a: 37 [28, 72, 78, 129, 251, 263, 290, 313, 367, 384, 452, 453, 517, 709, 719, 742, 790, 897, 928, 979, 1038, 1066, 1139, 1246, 1247, 1274, 1282, 1336, 1367, 1384, 1435, 1573, 1694, 1749, 1791, 1899, 1951]
+        andra-rev   : 37 [28, 72, 78, 129, 251, 263, 290, 313, 367, 384, 452, 453, 517, 709, 719, 742, 790, 897, 928, 979, 1038, 1066, 1139, 1246, 1247, 1274, 1282, 1336, 1367, 1384, 1435, 1573, 1694, 1749, 1791, 1899, 1951]
+lika   KANDIDAT|-|T2|LEDTID<Ns|synt|stress
+        r1-standard-a: 1 [47]
+        andra-rev   : 1 [47]
+lika   KANDIDAT|-|T2|ÖPPNING-MISS:OKLASSAD|synt
+        r1-standard-a: 55 [18, 63, 82, 110, 119, 122, 130, 134, 188, 223, 227, 290, 303, 353, 411, 426, 436, 463, 510, 625, 648, 675, 756, 806, 825, 829, 977, 978, 986, 996, 1007, 1011, 1094, 1167, 1181, 1208, 1211, 1288, 1322, 1342, 1349, 1413, 1428, 1476, 1519, 1731, 1837, 1900, 1912, 1913, 1969, 1971, 1987]
+        andra-rev   : 55 [18, 63, 82, 110, 119, 122, 130, 134, 188, 223, 227, 290, 303, 353, 411, 426, 436, 463, 510, 625, 648, 675, 756, 806, 825, 829, 977, 978, 986, 996, 1007, 1011, 1094, 1167, 1181, 1208, 1211, 1288, 1322, 1342, 1349, 1413, 1428, 1476, 1519, 1731, 1837, 1900, 1912, 1913, 1969, 1971, 1987]
+lika   KANDIDAT|-|T2|ÖPPNING-MISS:OKLASSAD|synt|stress
+        r1-standard-a: 5 [104, 416, 856, 1089, 1794]
+        andra-rev   : 5 [104, 416, 856, 1089, 1794]
+lika   KANDIDAT|-|T3|FANTOM-UTAN-AVBROTT|synt
+        r1-standard-a: 2 [227, 1590]
+        andra-rev   : 2 [227, 1590]
+lika   KANDIDAT|-|T3|VARNING-EFTER-SANN-PASSAGE|synt
+        r1-standard-a: 72 [41, 56, 63, 77, 87, 110, 119, 122, 131, 158, 217, 220, 260, 290, 331, 426, 510, 537, 578, 582, 589, 596, 625, 673, 685, 718, 750, 753, 816, 864, 894, 902, 941, 995, 996, 1006, 1031, 1038, 1059, 1131, 1136, 1160, 1167, 1213, 1214, 1241, 1275, 1288, 1337, 1342, 1366, 1414, 1475, 1500, 1519, 1521, 1567, 1590, 1620, 1629, 1643, 1704, 1752, 1759, 1831, 1837, 1905, 1969, 1973, 1975, 1979]
+        andra-rev   : 72 [41, 56, 63, 77, 87, 110, 119, 122, 131, 158, 217, 220, 260, 290, 331, 426, 510, 537, 578, 582, 589, 596, 625, 673, 685, 718, 750, 753, 816, 864, 894, 902, 941, 995, 996, 1006, 1031, 1038, 1059, 1131, 1136, 1160, 1167, 1213, 1214, 1241, 1275, 1288, 1337, 1342, 1366, 1414, 1475, 1500, 1519, 1521, 1567, 1590, 1620, 1629, 1643, 1704, 1752, 1759, 1831, 1837, 1905, 1969, 1973, 1975, 1979]
+lika   KANDIDAT|-|T3|VARNING-EFTER-SANN-PASSAGE|synt|stress
+        r1-standard-a: 3 [1486, 1907]
+        andra-rev   : 3 [1486, 1907]
+lika   KANDIDAT|-|T3|VARNING-PÅ-FRUSET-FIX|synt
+        r1-standard-a: 10 [217, 309, 479, 582, 904, 972, 1369, 1428, 1493, 1960]
+        andra-rev   : 10 [217, 309, 479, 582, 904, 972, 1369, 1428, 1493, 1960]
+lika   KANDIDAT|-|T3|VARNING-PÅ-FRUSET-FIX|synt|stress
+        r1-standard-a: 1 [1907]
+        andra-rev   : 1 [1907]
+lika   KANDIDAT|-|T9|FEL-RIKTNING|synt
+        r1-standard-a: 3 [188, 451]
+        andra-rev   : 3 [188, 451]
+lika   KONFLIKT|D1-KAJZON-DEMOTION|INV-F|INV-14 DEFAULT-FLASH|synt
+        r1-standard-a: 1 [138]
+        andra-rev   : 1 [138]
+lika   KONFLIKT|INV5-VS-BESÖKSREGEL|INV-F|INV-5 MISSAD MÅLBRO-NOTIS|synt
+        r1-standard-a: 32 [40, 140, 152, 161, 191, 289, 339, 406, 429, 487, 510, 575, 579, 608, 681, 713, 825, 995, 1034, 1223, 1259, 1265, 1294, 1351, 1565, 1569, 1910, 1939, 1964, 1977]
+        andra-rev   : 32 [40, 140, 152, 161, 191, 289, 339, 406, 429, 487, 510, 575, 579, 608, 681, 713, 825, 995, 1034, 1223, 1259, 1265, 1294, 1351, 1565, 1569, 1910, 1939, 1964, 1977]
+lika   KONFLIKT|INV5-VS-BESÖKSREGEL|INV-F|INV-5 MISSAD MÅLBRO-NOTIS|synt|stress
+        r1-standard-a: 1 [212]
+        andra-rev   : 1 [212]
+lika   KONFLIKT|U2-RETURRESA|T2|ÖPPNING-MISS:OKLASSAD|synt
+        r1-standard-a: 18 [101, 191, 559, 718, 869, 936, 998, 1064, 1208, 1273, 1316, 1317, 1351, 1360, 1532, 1590, 1763, 1918]
+        andra-rev   : 18 [101, 191, 559, 718, 869, 936, 998, 1064, 1208, 1273, 1316, 1317, 1351, 1360, 1532, 1590, 1763, 1918]
+lika   KÄND_ÖPPEN|BN1-BOXKANT|T1|NOTIS-UTEBLIVEN
+        r1-standard-a: 2 []
+        andra-rev   : 2 []
+lika   KÄND_ÖPPEN|J13-J14-KONVOJSEMANTIK|T2|ÖPPNING-MISS:OKLASSAD|synt
+        r1-standard-a: 3 [859, 1241, 1414]
+        andra-rev   : 3 [859, 1241, 1414]
+lika   KÄND_ÖPPEN|U2-VS-DEADLINE|T2|LEDTID<Ns|synt
+        r1-standard-a: 6 [240, 364, 449, 616, 1148, 1689]
+        andra-rev   : 6 [240, 364, 449, 616, 1148, 1689]
+lika   KÄND_ÖPPEN|U2-VS-DEADLINE|T2|ÖPPNING-MISS:OKLASSAD|synt
+        r1-standard-a: 23 [8, 21, 51, 116, 355, 643, 687, 718, 750, 783, 789, 857, 989, 1165, 1169, 1199, 1214, 1238, 1285, 1478, 1759, 1849, 1928]
+        andra-rev   : 23 [8, 21, 51, 116, 355, 643, 687, 718, 750, 783, 789, 857, 989, 1165, 1169, 1199, 1214, 1238, 1285, 1478, 1759, 1849, 1928]
+lika   KÄND_ÖPPEN|U2-VS-DEADLINE|T2|ÖPPNING-MISS:OKLASSAD|synt|stress
+        r1-standard-a: 5 [856, 1089, 1133, 1813, 1907]
+        andra-rev   : 5 [856, 1089, 1133, 1813, 1907]
+lika   MÄTGRÄNS|MÄTGRÄNS-FACIT-SIDLED|T10|FANTOMPASSAGE(intermediate)
+        r1-standard-a: 2 []
+        andra-rev   : 2 []
+lika   MÄTGRÄNS|MÄTGRÄNS-FACIT-SIDLED|T10|FANTOMPASSAGE(target)
+        r1-standard-a: 1 []
+        andra-rev   : 1 []
+lika   MÄTGRÄNS|MÄTGRÄNS-INV10-VÄNTKEDJA|INV-F|INV-10 STRAX-ZOMBIE|synt
+        r1-standard-a: 1 [1228]
+        andra-rev   : 1 [1228]
+
+# Första revisionen (e949ae1, tmp/rev2/standard) mot andra revisionen
+# kluster: 46 → 46; råa utslag: 416 → 416
+# nya kluster: inga
+# försvunna kluster: inga
+# ändrade kluster: 0
+
+# Första körningen av andra revisionen (tmp/rev3/standard, exit 2 av S-GIT) mot den rena omkörningen
+# kluster: 46 → 46; råa utslag: 416 → 416
+# nya kluster: inga
+# försvunna kluster: inga
+# ändrade kluster: 0

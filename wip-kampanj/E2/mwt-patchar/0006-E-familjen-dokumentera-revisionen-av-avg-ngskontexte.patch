@@ -1,0 +1,171 @@
+From e949ae113d9b38b9b4465ef98d96f4496f675192 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 4 Nov 2026 20:21:54 +0000
+Subject: [PATCH 06/24] =?UTF-8?q?E-familjen:=20dokumentera=20revisionen=20?=
+ =?UTF-8?q?av=20avg=C3=A5ngskontexten=20och=20m=C3=A4tningen?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+ARCHITECTURE §8 (e): villkoren efter granskningen (stigande fart, 3 min,
+200 m från stillheten, riktning, M9), vad som står kvar utanför klassen
+(ANTJE, PILOT 761, NORDIC SOLA, AKIRA och tresampelskravet) och varför
+stillhetsminnet återtogs. VALIDATION §ETA-mätharnessen "Familj E": banden,
+de sju ändrade påståendena, M9-priset och tabellen över återtagna varianter.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/ARCHITECTURE.md | 64 ++++++++++++++++++++++++++++++++------------
+ docs/VALIDATION.md   | 48 ++++++++++++++++++++++-----------
+ 2 files changed, 79 insertions(+), 33 deletions(-)
+
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 99c0b32..a180cb1 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -1296,24 +1296,53 @@ permanent — se docs/VALIDATION.md.
+ En båt som legat still och sätter igång får inte längre sin ETA räknad på
+ igångsättningsfarten. `ProgressiveETACalculator._noteDepartureSample` känner
+ igen avgången: första sampel med fart ≥ `MOVEMENT_SOG_KNOTS` (1,0 kn) efter
+-minst två buffrade sampel under `MOORING_DETECTION.MOVEMENT_PROOF_SOG_KN`
+-(0,5 kn). Då lämnar väntans sampel fartbufferten. Medan båten accelererar
+-(varje nytt sampel minst lika snabbt som det förra, högst tre rörliga sampel,
+-högst tre minuter) räknar `_getEffectiveSpeed` aldrig med lägre fart än rask
+-kanalfart, `BRISK_CANAL_SPEED_KNOTS` = 4 kn — samma tal som E-F7:s decaygolv,
+-som nu läser konstanten. Kontexten upphör så fort båten saktar in eller stannar.
+-Felet var en kedja: väntans nollor i snittet ([0, 0, 1,6] ⇒ 0,53 kn), gap-
+-reseten EFTER rå-ETA:n (meddelandevägens 29,5 blev baslinje), outliergrenen
+-som dömde snapshot-vägens 9,8 som dramatic_decrease och EMA:n ⇒ "om 27 minuter"
+-för verkliga 3,1 (buggjägarens värld 884). **K6:s krav berörs inte**:
+-dubbelkörningen, gap-resetens placering, outliergrindens 30 s-fönster och
+-`emaAlpha` är oförändrade, och avgången nycklas på fartbuffertens sampelnyckel
+-så båda passen ger samma värde. Mätt enligt VALIDATION.md §REGELN: 7 ändrade
+-mätta påståenden, alla närmare rådatafacit (§ETA-mätharnessen, "Familj E").
++minst två buffrade sampel, alla under `MOORING_DETECTION.MOVEMENT_PROOF_SOG_KN`
++(0,5 kn), högst `VESSEL_GRAVE.MAX_REBIRTH_DIST_M` (200 m, gravens radie för
++"på plats") från senaste stillasampel och närmare målbron än stillheten. Då
++lämnar väntans sampel fartbufferten. Medan båten accelererar — varje nytt
++sampel SNABBARE än det förra, högst tre minuter och fortfarande närmare
++målbron än stillheten — räknar `_getEffectiveSpeed` aldrig med lägre fart än
++rask kanalfart, `BRISK_CANAL_SPEED_KNOTS` = 4 kn (samma tal som E-F7:s
++decaygolv, som nu läser konstanten). Golvet får aldrig ensamt lova "strax"
++(M9-principen, som decaygolvet): bestämde golvet farten och hade den uppmätta
++farten inte gett strax hålls ETA:n på 3 min, om inte imminent-flaggan äger
++klausulen. Felet var en kedja: väntans nollor i snittet ([0, 0, 1,6] ⇒
++0,53 kn), gap-reseten EFTER rå-ETA:n (meddelandevägens 29,5 blev baslinje),
++outliergrenen som dömde snapshot-vägens 9,8 som dramatic_decrease och EMA:n
++⇒ "om 27 minuter" för verkliga 3,1 (buggjägarens värld 884). **K6:s krav
++berörs inte**: dubbelkörningen, gap-resetens placering, outliergrindens 30 s-
++fönster och `emaAlpha` är oförändrade, och avgången nycklas på fartbuffertens
++sampelnyckel så båda passen ger samma värde. Villkoren kom ur granskningen av
++första prototypen: jämn fart räknades som acceleration (strax → om 4 → strax i
++fyra av buggjägarens 2 000 standardvärldar), en båt som hördes igen 454 m från
++stillheten efter 11 min tystnad räknades som avgång (MARIANNE, 20260525), en
++båt som vände bort fick nedräkning mot bron, och ett tak på tre sampel släppte
++golvet mitt i accelerationen ("om 4 → om 3 → om 4"). Mätt enligt
++VALIDATION.md §REGELN (§ETA-mätharnessen, "Familj E"): sex låsta rader i tre
++korpusar flyttas, alla rättare; av sju ändrade mätta påståenden blir ett
++olåst sämre (M9-kostnaden, se VALIDATION).
++
++*Kvar utanför klassen (mätt, medvetet):* stillheten läses ur fartbufferten.
++Den får bara sampel när ETA:n räknas, töms av gap-reseten och målbytet och
++har kvar ankomstfarten efter en kort väntan — efter rörelse krävs därför i
++praktiken TRE stillasampel, efter en tömd buffert två. Fyra verkliga avgångar
++i banken visar fortfarande 9–12 min för mycket: ANTJE 211347380
++(20260804-both-21h 07:31:45, bufferten [0,4] efter gap-reseten), PILOT 761
++265606970 (20260710-13h 12:13:45; nollsamplen 12:00–12:04 räknades aldrig av
++kalkylatorn), NORDIC SOLA 258715000 (20260713-41h 08:48:51, krypfart 0,8 kn) och
++AKIRA 257605080 (20260708-21h 07:20:09, ett enda 0,9 kn-sampel 15 min före). Ett
++eget stillhetsminne utanför bufferten (överlever gap-reset, målbyte och
++stationär-hold, nöjer sig med de två senaste stillasamplen) prövades: det
++fångar ANTJE men gör 8–17 mätta påståenden sämre (ELFKUNGEN ×3, ANTJEs senare
++rader, YOLO 2:s notis 7 → 2 mot sanning 30 min) och flyttar en öppningsvarning.
++Det återtogs enligt U13. PILOT 761 kräver en stillhetssignal från
++VesselDataService och NORDIC SOLA/AKIRA en annan stillhetsdefinition än
++rörelsebeviset — båda hör till ETA-etappen.
++
+ Kvar till ETA-etappen: ETA-oscillationen vid inbromsning (buggjägarens F06,
+ K6:s dubbla EMA mot den binära 3-minutersgränsen) och 21h-knivseggen (F07,
+-RC4-clampen mot en extrapolerad baslinje) — se rättningskampanjens DESIGN.md
+-för familj E.
++RC4-clampen mot en extrapolerad baslinje). Båda väntar på ägarbeslut — se
++rättningskampanjens DESIGN.md för familj E.
+ 
+ **FÄLTVALIDERINGENS REGEL: kasta det KORRUPTA FÄLTET, aldrig positionen
+ (H34 — DIRIGENTBESLUT 2026-08-22).** *Var beslutet togs:* granskningsunderlaget
+@@ -2255,7 +2284,8 @@ igångsättningsfart (ANYA ELAN: "om 23 min" för verklig 10,5 — churnen
+ maskerade klassen tidigare; ÅTGÄRDAD 2026-11-04 för avgång efter belagd
+ stillhet, se §8 (e) "Avgångskontexten gick in". ANYA ELAN själv faller
+ utanför stillhetskravet — 0,7 kn i bufferten före avgången — och är
+-oförändrad), server-
++oförändrad, liksom ANTJE, PILOT 761, NORDIC SOLA och AKIRA, som §8 (e)
++redovisar), server-
+ stängda-men-levererande sockets kan fortfarande ge ~1 handskakning/min
+ (appens egen orsak är fixad), och `max-reconnects-reached` fyrar inte under
+ permanent 429 (cooldown-grenen rör inte räknaren).
+diff --git a/docs/VALIDATION.md b/docs/VALIDATION.md
+index 9672d61..926e7df 100644
+--- a/docs/VALIDATION.md
++++ b/docs/VALIDATION.md
+@@ -496,25 +496,41 @@ gäller följande — det är läxan från K6 (ARCHITECTURE §8 (e)):
+ ### Familj E (rättningskampanjen 2026-11-04): avgångskontexten mätt enligt REGELN
+ 
+ Ändringen: `ProgressiveETACalculator` räknar avgångs-ETA på rask kanalfart
+-(4 kn) i stället för igångsättningsfarten, efter belagd stillhet (ARCHITECTURE
+-§8 (e), "Avgångskontexten gick in"). Baslinje och efter-körning med samma
+-24 korpusar, parning per korpus, typ, bro och mmsi inom 2 s:
++(4 kn) i stället för igångsättningsfarten, efter belagd stillhet och bara
++medan båten accelererar mot målbron (ARCHITECTURE §8 (e), "Avgångskontexten
++gick in"). Baslinje och efter-körning med samma 24 korpusar, parning per
++korpus, typ, bro och mmsi inom 2 s:
+ 
+ | Band | Population | Före (7699cbe) | Efter |
+ |---|---|---|---|
+-| sanning < 5 min, alla typer | parad, n = 783 | median 0,47 · 89,0 % ≤ 2 · bias +0,50 | median 0,46 · 89,7 % · bias +0,48 |
+-| sanning < 5 min | oparad | n = 1 (SKONNERTEN "om 8", fel +5,9) | n = 0 |
+-| sanning < 10 min, alla typer | parad, n = 1 294 | median 0,70 · 81,2 % · bias +0,18 | median 0,69 · 81,6 % · bias +0,17 |
+-| sanning < 10 min | oparad | n = 1 (samma post) | n = 0 |
+-
+-Sju parade påståenden ändras och alla sju kommer närmare rådatafacit (LECKO,
+-FRAM, PRIMA LADY ×3, OLA ×2); inget blir sämre. Den oparade posten försvinner
+-därför att texten blir "strax" redan 07:30:11 (korsning +2,1 min).
+-Brotextövergångar 2 544 → 2 543. Strax-löftet oförändrat (n 211, 63,0 % ≤ 3 min).
+-En bredare stillhetsdefinition (två sampel < 0,5 kn och resten < 1,0 kn) gav
+-tio fler förbättrade påståenden men flyttade två rader åt fel håll (UTOPIA
+-"om cirka 2 minuter" → "ETA okänd" 30 s före passagen i 20260806-42h, och en
+-korrekt "strax" 6 s senare i 20260804-both-21h). Den återtogs enligt U13.
++| sanning < 5 min, alla typer | parad, n = 784 | median 0,47 · 88,9 % ≤ 2 · bias +0,51 | median 0,46 · 89,7 % · bias +0,49 |
++| sanning < 10 min, alla typer | parad, n = 1 295 | median 0,71 · 81,2 % · bias +0,18 | median 0,70 · 81,6 % · bias +0,17 |
++| båda banden | oparad | n = 0 | n = 0 |
++
++Sju parade påståenden ändras. Sex kommer närmare rådatafacit (SKONNERTEN
++JYLLANDs text, PRIMA LADY ×3, OLA ×2). Ett blir sämre och ligger utanför låst
++facit: SKONNERTENs notis 07:30:52 i 20260601-41h, eta 2 → 3 mot sanning 1,4
++min. Det är priset för M9-kravet: golvet fick inte ensamt lova "strax" 07:30:11
++(på uppmätta 3,4 kn hade ETA:n varit 3,06 min), så den första prognosen blev
++3,0 och EMA:n bar den till 2,6 i nästa sampel. Brotextövergångarna är
++oförändrade (2 544) och strax-löftet likaså (n 211, 63,0 % ≤ 3 min).
++
++Prövat och återtaget, alla mätta mot samma baslinje:
++
++| Variant | Utfall | Varför återtagen |
++|---|---|---|
++| Första prototypen (d1f02ee): jämn fart räknas som acceleration, inget närhets- eller riktningskrav, inget M9 | 7 ändrade, alla bättre, men MARIANNE-raden i 20260525 likvärdig (samma text 55 s tidigare) | fyra nya fatala INV-3 i buggjägarens standardprofil (664, 906, 920, 1113: strax → om 4 → strax) |
++| Utan M9-kravet | 6 ändrade, alla bättre (LECKOs notis 3 → 2 i stället för oförändrad) | värld 595: golvet gav ensamt strax som släpptes till "om 3" (4 → strax → 3) |
++| Utan närhetskravet | den slutliga varianten plus två avgångar: FRAM (20260713-41h, notis 2 → 1, bättre) och MARIANNE (20260525, låst rad likvärdig) | MARIANNE hördes igen 454 m från sin stillhet efter 11 min tystnad — ingen igångsättning, och U13 tillåter inte en likvärdig rad |
++| Tak på tre sampel i igångsättningen | banken oförändrad | syntetisk avgång 450 m före Klaffbron i 1,4 → 3,8 kn: "om 4 → om 3 → om 4" |
++| Eget stillhetsminne utanför fartbufferten, de två senaste stillasamplen räcker: (a) överlever bara gap-reseten, (b) överlever även målbyte och stationär-hold | (a) 23 ändrade: 15 bättre, 8 sämre. (b) 35 ändrade: 18 bättre, 17 sämre. Båda fångar ANTJE (27 → 11 mot 14,7) | (a) ELFKUNGEN ×3 och ANTJEs senare rader blir sämre i låst golden-text. (b) dessutom MOKENDEIST, LA FEMME, YOLO 2:s låsta notis 7 → 2 mot sanning 30 min, och öppningsvarningen Klaffbron#16 i 20260804-both-21h flyttas |
++| Stillhet = alla sampel < 1,0 kn | 15 korpusar flyttas | ny fatal ETA-oscillation i 20260708-21h (AKIRAs kajdrift) |
++| Två sampel < 0,5 kn och resten < 1,0 kn | tio fler förbättrade påståenden | UTOPIA "om cirka 2" → "ETA okänd" 30 s före passagen (42h) och en korrekt "strax" 6 s senare (both-21h) |
++
++Kvar efter rättningen (oförändrade mot 7699cbe): ANTJE (20260804-both-21h
++07:31:45, "om 27" mot 14,7), PILOT 761 (20260710-13h 12:13:45, "om 19" mot
++8,5), NORDIC SOLA (20260713-41h 08:48:51, "om 14" mot 4,5) och AKIRA
++(20260708-21h 07:20:09, "om 14" mot 5,2). Skälen står i ARCHITECTURE §8 (e).
+ 
+ ## Fältprov / ny korpus (så samlas verklighet in)
+ 
+-- 
+2.43.0
+

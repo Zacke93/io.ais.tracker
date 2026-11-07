@@ -1,0 +1,113 @@
+{
+ "family": "R2: passage och notis (F12, F16, F13, F08), revision 2 efter omgranskning 1 och dirigentens beslut",
+ "summary": "Omgranskningens enda punkt med allvar medel är åtgärdad, och de två låga också. Inget låst facit flyttas.\n\nWorktree var ren när jag började. Inga ocommittade ändringar fanns från ett avbrutet försök, bara de otrackade node_modules och bugHunt.\n\nF13 (medel): en båt som dyker upp igen efter AIS-tystnad och saknar kurs kunde fortfarande få \"närmar sig Olidebron\" fast hon redan passerat bron. AIS 360 betyder \"kurs ej tillgänglig\" och blir null. Jag valde granskarens sätt (a): samma K1-mätning (har båten rört sig norrut?) avgör nu även när kursen saknas, inte bara när kursen pekar österut. K1 själv är orörd. Granskarens SALTIS med kurs 360 eller null får nu \"SALTIS passerade Olidebron under AIS-tystnad\". Banken: regeln slår till 0 gånger och ger 0 skillnader i 48 körningar.\n\nBeslutet gällde ordagrant kursen 46–134°, så dirigenten behöver bekräfta utvidgningen till saknad kurs. Den går att backa med en rad (DESIGN §6).\n\nLåga punkter:\n- Fråga 2 är omskriven till ett beslutat avsnitt med rätt beskrivning av 1227 och 1731. I 1731 hade KAJSA Stridsbergsbron som mål före 44 min tystnad. Appen tog bort henne, och när hon kom tillbaka fick hon Klaffbron.\n- Luckan vid 50–60 m (F08) är en känd lucka utan kodändring. Den är dokumenterad och har ett KÄND LUCKA-test. Med en extra fix på 49 m eller 60–63 m bokför rättningen nu passagen; 7699cbe tappar alla.\n- δ −5 s finns med i test och FACIT.\n\nTvå registerposter föreslås (DESIGN §12). Prototypen är commit c02d88e. Hela batteriet är grönt utom motorkopians b-register-test, som är lika rött i 7699cbe. Motorn ger samma kort som i revision 1.",
+ "rootCause": "Radnummer avser 7699cbe.\n\nF13, nytt i omgranskningen:\n- `_validateAISMessage` gör AIS-kursen 360 (\"ej tillgänglig\") och ogiltiga värden till null (app.js:5296, :5302; 360-värdet finns 837 gånger i fältloggarna, :5292).\n- En båt med föregående fixobjekt får den gamla kursen framförd (VesselDataService.js:5287). En återfödd båt har inget sådant objekt och behåller null.\n- `_hasGapCrossedNotifiedBridge` (app.js:9890) hoppar då över hela kursgrenen (`Number.isFinite(vessel.cog)`), och revision 1:s dödbandsregel låg inne i den grenen. Ingen färdriktning gav svaret false.\n- Granskarens repro (SALTIS, kursen 360 på återfödelsefixen 08:57:32,513) gav \"närmar sig Olidebron, beräknad ankomst om 1 minut\" 116 m efter bron. Sanningen säger korsning 08:56:38,99 norrut, och den färska nordprogressen var 1,97 m/s.\n\nF08, luckan vid 50–60 m (finns före R2):\n- METHOD 1 i detectBridgePassage (geometry.js:586–588) kräver ett steg från en fix högst 50 m från bron till en fix mer än 60 m bort.\n- Har korsningen skett i inträdessteget (B ligger 26 m bortom linjen) och ligger nästa fix 50–60 m bort, når inget steg kravet, och inget steg korsar linjen.\n- Granskarens v4 (58,8 m) tappas i alla 8 faser i 7699cbe, 8318c1a och c02d88e.\n\nOförändrat från revision 1:\n- F12/F16: grindkandidaten släpptes aldrig när glappvägen bokförde bron och bekräftades 795 s senare.\n- F13 i dödbandet: kurs 49,9° ligger varken i nordbandet eller i det breda sydbandet.\n- F08: beviset prövades i fel pass och raderades i nästa zonbesök.",
+ "fix": "Commit c02d88e (förälder 8318c1a).\n\nF13, app._hasGapCrossedNotifiedBridge:\n- Kursgrenen är som i basen: nordbandet ger north och det breda sydbandet south.\n- Efter grenen, om varken ruttlåset eller kursen gav riktning, ger färsk nordprogress riktningen north: `if (!travel && this._freshNorthProgressMps(vessel) !== null) travel = 'north';`.\n- Det täcker både östra dödbandet 46–134° och saknad kurs.\n- Regeln ger aldrig south. Svaret kräver som förut att hoppet gick norrut, så ett hopp söderut kan inte få passerad form av regeln.\n- K1 (_getNotificationDirection) är orörd och gäller bara östbandet. Ett test vaktar det.\n- Docblocket för _freshNorthProgressMps är uppdaterat.\n\nF08:\n- Ingen kodändring. Luckan vid 50–60 m är dokumenterad i ARCHITECTURE.md (F08, \"Känd lucka\") och visas av ett KÄND LUCKA-test i tests/zonintrade-uppskjutet-bevis.test.js. Testet kontrollerar att 58,8 m tappas, att 49,1 m bokförs vid C och att 60,4 m bokförs vid den extra fixen.\n- Fastestet prövar nu också δ −5 s.\n\nDokumentation: BN2-stycket i ARCHITECTURE.md och F08-noten i VALIDATION.md är uppdaterade.\n\nOm dirigenten inte godtar utvidgningen till saknad kurs: flytta raden tillbaka in i kursgrenen (mutant a), och vänd de två nya testerna till KÄND LUCKA.",
+ "functionsTouched": [
+  "app._hasGapCrossedNotifiedBridge (revision 2: nordprogressregeln flyttad ut ur kursgrenen, gäller även saknad kurs)",
+  "app._freshNorthProgressMps (revision 2: endast docblock)",
+  "app._getNotificationDirection (utbrytning i e0e8124; oförändrat beteende, K1 gäller bara östbandet)",
+  "GPSJumpGateService.releaseCandidate (e0e8124, oförändrad)",
+  "VesselDataService._releaseGateCandidateForBookedBridge och dess fyra anrop (e0e8124, oförändrade)",
+  "VesselDataService._createVesselObject fältlista (_underBridgeDeferredProof, 8318c1a, oförändrad)",
+  "StatusService.analyzeVesselStatus, _noteDeferredZoneEntryCross, _restoreDeferredZoneEntryProof, _expireDeferredZoneEntryProof, _isUnderBridge, _readUnderBridgePrevFix, _isUnderBridgeJumpTick (e0e8124/8318c1a, oförändrade i revision 2)",
+  "tests/bn2-dodband-nordprogress.test.js (utan kurs, K1-vakt, SALTIS med kursen 360)",
+  "tests/zonintrade-uppskjutet-bevis.test.js (δ −5 s, KÄND LUCKA 50–60 m)",
+  "tests/fixtures/r2-saltis-utan-kurs.jsonl (ny)"
+ ],
+ "tests": "Tre testfiler med 36 tester, 4 fler än i revision 1.\n\nNytt i revision 2:\n- bn2-dodband-nordprogress.test.js:\n  - utan kurs (null och undefined): passerad form med färsk nordprogress. Med gammal eller för låg nordprogress, med ruttlås söderut eller med hopp söderut blir det ingen passerad form;\n  - K1 ger fortfarande unknown utan kurs;\n  - SALTIS med kursen 360 genom hela appen ger \"passerade Olidebron under AIS-tystnad\".\n- zonintrade-uppskjutet-bevis.test.js:\n  - δ −5 s;\n  - KÄND LUCKA: 49,1 m bokförs vid C, 58,8 m tappas och 60,4 m bokförs vid den extra fixen. Avstånden mäts i testet.\n\nMatris (/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/kampanj/R2/test-matris.txt):\n- 7699cbe: 29 av 36 röda. De 7 gröna är fyra negativa fall, δ 0, K1-vakten och UI-passfallet.\n- e0e8124: 16 röda.\n- 8318c1a: 2 röda, de två nya fallen utan kurs.\n- c02d88e: 0 röda.\n\nKörningarna ligger i test-mot-7699cbe.txt, test-mot-e0e8124.txt, test-mot-8318c1a.txt och test-mot-prototyp.txt, alla i /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/kampanj/R2/.\n\nMutationsprov F13 (/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/kampanj/R2/matningar/mut-f13.txt), alla 4 fångade:\n- (a) regeln tillbaka i kursgrenen: 2 röda;\n- (b) regeln borttagen: 4 röda;\n- (c) north utan nordprogress: 2 röda;\n- (d) hoppets riktning utan nordprogress: 2 röda.\n\nRevision 1:s mutationsprov för F12 (4 av 4) och F08 (13 av 13) gäller oförändrade (matningar/8318c1a/).",
+ "battery": "Allt kört på c02d88e. Loggarna ligger i /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/kampanj/R2/matningar/, och revision 1:s i matningar/8318c1a/.\n\n- npm test: 357 sviter, 4811 godkända, 2 överhoppade och 1 röd (4814 tester). Den röda är motorkopians b-register.test.js (\"STRESS-TÄTHET: källfilen docs/BUGGJAKT.md finns inte\"), lika röd i 7699cbe.\n- npm run lint: rent.\n- replay:all, normalt och med REPLAY_MONITORING=1: alla låsta korpusar gröna. Loggarna är ordagrant lika med revision 1.\n- replay:synthetic: 46 scenarier rena, ordagrant lika med 7699cbe.\n- replay:openings: O1 376/378 och O1b 391/447, ordagrant lika med 7699cbe.\n- replay:monitoring: 216 notiser, 761 övergångar, 72 målpassager, 0 processfel och 0 kvarvarande timrar. Lika med 7699cbe utom heapUsedMB.\n- replay:phase, normalt och med monitoring: 24 korpusar och 168 replayer gröna. Lika med revision 1 utom körtider.\n- Banken rad för rad (snap.js och diffsnap.py): 0 korpusar med skillnad i 48 körningar (bank-snapshot-diff.txt).\n- BN2 i en instrumenterad bankkopia: 26 prövningar med rumsligt bevis. 22 fick riktning ur ruttlåset och 4 ur nordbandet, så regeln slog till 0 gånger (bn2-banken.txt).\n- patch.diff går att applicera på 7699cbe med git apply, och alla 12 filer blir byte-lika med c02d88e.",
+ "facitChanges": [
+  {
+   "corpus": "alla 24 låsta korpusar, normalt och med REPLAY_MONITORING=1",
+   "dimension": "notis, text, öppning, riktning och passager",
+   "change": "ingen förflyttning; ingen omlåsning behövs",
+   "evidence": "snap.js och diffsnap.py på c02d88e: 0 korpusar med skillnad i 48 körningar. replay:all är grönt och ordagrant lika med revision 1; replay:openings är ordagrant lika med 7699cbe.",
+   "verdict": "likvärdig"
+  },
+  {
+   "corpus": "20260917-16h M-FAS δ −2,5, −5 och −7 s (ej låst facit)",
+   "dimension": "passage",
+   "change": "SINE BRES Järnvägspassage 02:27:17,778 bokförs; förut tappad",
+   "evidence": "rå-GT: korsning 02:26:08,016–02:26:30,446, från 94 m före till 26 m efter linjen; bokförd vid samma fix som i basen",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "granskarens prov: 16h med extra fix 45 m söder om linjen 02:26:41,6 och 02:27:05, 8 faser (ej låst facit)",
+   "dimension": "passage",
+   "change": "bokförd 02:27:17,778 i alla faser; förut tappad i alla 8 respektive vid δ −2,5, −5 och −7 s",
+   "evidence": "samma rå-GT; den extra fixen ligger efter korsningen, på linjen B→C",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "eget prov: 16h med extra fix 02:26:41,6 på 49,1 m, δ 0 (ej låst facit)",
+   "dimension": "passage",
+   "change": "bokförd 02:27:17,778 vid C; förut tappad",
+   "evidence": "samma rå-GT; endast mellanpassagen skiljer (fingeravtryck per del)",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "eget prov: 16h med extra fix 02:26:41,6 på 60,4 och 62,9 m, δ 0 (ej låst facit)",
+   "dimension": "passage och notis",
+   "change": "passagen bokförs 02:26:41,600 vid den extra fixen, och notisen där blir \"SINE BRES har precis passerat Järnvägsbron\" i stället för \"närmar sig Järnvägsbron, beräknad ankomst strax\"",
+   "evidence": "rå-GT: korsningen var klar senast 02:26:30,446; den extra fixen ligger 60–63 m efter linjen",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "eget prov och granskarens v4: 16h med extra fix på 50,7, 54,8 och 58,8 m (ej låst facit)",
+   "dimension": "passage",
+   "change": "ingen ändring: passagen tappas som i 7699cbe (känd lucka i METHOD 1)",
+   "evidence": "fingeravtrycket är identiskt med 7699cbe; v4 tappas i alla 8 faser i 7699cbe, 8318c1a och c02d88e",
+   "verdict": "likvärdig"
+  },
+  {
+   "corpus": "syntetisk värld 254, JOLLY (ej låst facit)",
+   "dimension": "passage",
+   "change": "den andra bokföringen av Stridsbergsbron 16:16:49,875 försvinner",
+   "evidence": "L0: en enda korsning 16:01:52 söderut, sedan kö 126 m söder om bron",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "syntetisk värld 86, SALTIS, kurs 49,9° (ej låst facit)",
+   "dimension": "notis",
+   "change": "\"närmar sig Olidebron, om 1 minut\" → \"passerade Olidebron under AIS-tystnad\"",
+   "evidence": "L0: korsning 08:56:38,99 norrut; notisfixen ligger 115 m bortom linjen",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "värld 86 med kursen 360 eller null på återfödelsefixen (granskarens repro, nytt i revision 2)",
+   "dimension": "notis",
+   "change": "\"närmar sig Olidebron, beräknad ankomst om 1 minut\" → \"SALTIS passerade Olidebron under AIS-tystnad\", eta −1, already_passed; i revision 1 var den fortfarande \"närmar sig\"",
+   "evidence": "samma L0-korsning 08:56:38,99 norrut; notisfixen ligger 116 m bortom linjen; nordprogress 1,97 m/s; cmpworld visar att bara den notisen skiljer mot revision 1",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "syntetisk värld 783, okänd båt (ej låst facit)",
+   "dimension": "notis",
+   "change": "förvarningsform → passerad form vid Olidebron",
+   "evidence": "L0: korsning 10:54:31 norrut; notisfixen ligger 107 m bortom linjen",
+   "verdict": "rättare"
+  }
+ ],
+ "engineCheck": "hunt.js --repro för alla kort i r1-standard-a mot c02d88e (/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/kampanj/R2/motor-repro-prototyp.txt) och mot 7699cbe (motor-repro-7699cbe.txt):\n- F08, F12, F13 och F16 går från KVAR till BORTA.\n- Alla andra kort och alla r2 står kvar som KVAR med samma antal utslag. F12/r2 är värld 1227 (registerposten tar den), och F13/r2 är värld 1731 (R1:s rättning tar den).\n- Utfallet är ordagrant lika med e0e8124 och revision 1.\n\nhunt.js --profile=quick --out=K/R2/hunt-quick, jämfört med r1-quick-a (matningar/hunt-quick-jamforelse.txt):\n- Självtestet är grönt.\n- Råa utslag minskar från 69 till 66 och kandidatkluster från 15 till 12. Borta är INV-13 och T10 FANTOMPASSAGE för värld 254 och T1 FÖRVARNINGSFORM för värld 86.\n- Inga nya kluster. Klustren är identiska med revision 1 (tmp/rev2/hunt-quick-8318c1a).\n\nBankspåret, hunt.js --lanes=bank med 7 δ (matningar/bankspar-m-fas.txt):\n- 7699cbe 158 av 168 rena; revision 1 och 2 båda 160 av 168.\n- Bara F08:s kluster (PASSAGENYCKEL TAPPAD, 16h) försvinner. De tre övriga klustren är oförändrade.\n\nProv av de föreslagna predikaten (tmp/rev2/pred/ och tmp/rev2/t10worlds/):\n- målbroEfterLinjen ger sant för 1227 och 1731. Det ger falskt för 254 och för tre avsmalnande sonder.\n- metod1Bandlucka ger sant bara för de tappade 50–60 m-varianterna. Det ger falskt för alla 11 T10 PASSAGE-EJ-REGISTRERAD-utslag i standardkörningen.",
+ "interplay": "- R1 (VDS):\n  - Mina släppanrop ligger textnära R1:s ändringar vid passedBridges.push, men de är semantiskt oberoende.\n  - Nordprogressregeln gäller bara när _routeDirection saknas, så R1:s F15-lås går först.\n  - R1:s designer föreslår också en registerpost för 1227/1731 (K/R1/DESIGN.md §14.5). Dirigenten lägger in EN post. Min är smalare: R1:s räknar en båt som återfödd efter 15 min, och den godtar en första rad inom 100 m från bron även i fart. Varje punkt kan tysta ett äkta INV-13 (DESIGN §12.1).\n  - F13/r2 (värld 1731, T1) tas av R1:s rättning.\n- N: jag rör bara BN2. Kantfallet med en vänd båt som har dödbandskurs eller ingen kurs hör till N:s returnotis (U14).\n- K och K2: en falsk andra bokföring försvinner. Öppningsfacit är oförändrat.\n- E och E2:\n  - Det delade under-bro-tillståndet (AMELIA-släppet) är oförändrat sedan revision 1. Banken visar ingen skillnad.\n  - Revision 2 rör inte ETA-vägen, så E2:s F06/F07-arbete berörs inte.\n- M: inget samspel.",
+ "docs": "I prototypen (c02d88e):\n- docs/ARCHITECTURE.md:\n  - BN2: regeln gäller dödbandet och saknad kurs, ger aldrig south, med kantfallet;\n  - F08: \"Känd lucka\" vid 50–60 m, med testet och kanterna.\n- docs/VALIDATION.md: F08 är låst även vid δ −5 s, och det står var luckan visas.\n\nLeveranser i /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/kampanj/R2/:\n- DESIGN.md: §6 är omskriven till två beslutade avsnitt, §9 har de kända luckorna och §12 registerposterna;\n- FACIT.md;\n- patch.diff;\n- matningar/;\n- motor-repro-prototyp.txt;\n- hunt-quick/;\n- test-matris.txt.\n\nFör dirigenten:\n- skriv beslut 2 i docs/BUGGJAKT.md §7 och lägg in posterna i §12;\n- bekräfta att beslut 1 täcker saknad kurs;\n- lägg upp ett eget kort eller en backloggpost för 50–60 m-luckan (repro: tmp/omgr1/scripts/f08var.js variant v4, eller KÄND LUCKA-testet);\n- uppdatera kampanjens sammanställning;\n- valfritt: lägg in en hänvisning i reliability-review B6.",
+ "registryRequests": [
+  "R2-MÅLBRO-EFTER-LINJEN (dirigentens JA på R2:s fråga 2, värld 1227 och 1731). Klass DESIGN. Orakel INV-F, inv [INV-13], klassRegex ^INV-13 MÅLBRO SOM MELLANBRO$.\n\nKälla:\n- beslutet, skrivs först in i docs/BUGGJAKT.md §7 som U16;\n- lib/services/VesselDataService.js:4263–4271 (inget mål utan rörelsebevis);\n- :4495, :4695–4705 och :4723–4745 (_calculateTargetBridge väljer målbro på latitud mot brons latitud);\n- :84 (STALE_AIS_TIMEOUT_MS), :1237–1248 (STALE_AIS-raderingen gravlägger inte) och :5599 (IDUN);\n- lib/constants.js:356–357 (MOVEMENT_PROOF_SOG_KN 0,5 och MOVEMENT_PROOF_NET_M 50);\n- tests/replay-validation/invariants.js:568–592 (INV-13).\n\nPredikat målbroEfterLinjen med parametrarna rörelseSogKn 0,5, rörelseNettoM 50, livGlappMin 30 och maxEfterMin 10. Värdet 30 står som parameter, eftersom appKonstant inte kan läsa uttrycket 30 * 60 * 1000.\n\nRegel:\n- Utslaget gäller båt V, bro X och registreringstid t.\n- V:s livstid är raderna sedan det senaste glappet på minst 30 min, annars sedan första raden.\n- F är första raden i den sista följden av rader bortom X, mätt på latitud i passagens riktning.\n- Posten gäller när t − F ≤ 10 min och antingen (a) F är livets första rad, eller (b) alla rader i livet före F har finit fart under 0,5 kn, ligger inom 50 m från livets första rad och har ingen kurs mot X (isSouthCogStrict för söderut, isNorthCog för norrut).\n- Gäller aldrig relation BAS.\n\nPrövat (K/R2/tmp/rev2/pred/malbroEfterLinjen.js):\n- sant för 1227 och 1731;\n- falskt för 254;\n- falskt för tre sonder: 1731 med ett glapp på 28,5 min, 1731 med kursen 200° och 1227 med första raden norr om bron.\n\nFöljd: standardkörningen har exakt 3 INV-13-utslag (254, 1227, 1731), och efter R2 och posten finns inga kvar. R1 föreslår en bredare post (K/R1/DESIGN.md §14.5). Lägg in EN, och jag föreslår den här (DESIGN §12.1).",
+  "R2-METOD1-BANDET-50-60M (känd lucka F08, ingen kodändring). Klass KÄND_ÖPPEN. Orakel T10, klassRegex ^PASSAGE-EJ-REGISTRERAD$.\n\nKälla:\n- docs/ARCHITECTURE.md, F08 \"Känd lucka\" (c02d88e);\n- lib/utils/geometry.js:586–588 (METHOD 1: previousDistance <= 50 och currentDistance > 60);\n- KÄND LUCKA-testet i tests/zonintrade-uppskjutet-bevis.test.js.\n\nPredikat metod1Bandlucka med parametrarna närM 50 och fjärrM 60 (literaler i geometry.js).\n\nRegel:\n- Alla båtens rader efter korsningen, till och med första raden mer än 60 m från bron, ligger på bortre sidan.\n- Första raden efter korsningen ligger högst 50 m från bron.\n- Raden närmast före utgången ligger i (50, 60] m.\n\nPrövat (K/R2/tmp/rev2/pred/metod1Bandlucka.js):\n- sant för 16h med en extra fix på 50,7, 54,8 och 58,8 m;\n- falskt för 49,1, 60,4 och 62,9 m och för baskorpusen;\n- falskt för alla 11 T10 PASSAGE-EJ-REGISTRERAD i r1-standard-a (R1:s U-svängsklass).\n\nRekommendation: gör först ett eget kort med reprot (tmp/omgr1/scripts/f08var.js variant v4). Lägg in posten när motorn hittar fallet, inte före, eftersom den annars bara står som oanvänd.",
+  "Ingen post för F13:s kända gräns, hopp söderut med dödbandskurs eller utan kurs. Det finns 0 fall i banken och i motorns körningar, och radion ger inte null-kurs i fart. Hittas fallet blir det T1 FÖRVARNINGSFORM-EFTER-PASSAGE, och det är ett nytt beslut, inte DESIGN.",
+  "U18, U19 och R1:s KÄND LUCKA-fall föreslås av R1:s designer (K/R1/DESIGN.md §14). R2 har inga kort eller funktioner där. F13/r2 (värld 1731) försvinner med R1:s rättning och behöver ingen R2-post."
+ ],
+ "risks": [
+  "F13-utvidgningen till saknad kurs går längre än beslut 1:s ordalydelse (kurs 46–134°), men inte längre än dess skäl. Dirigenten bekräftar den vid integrationen; annars backas en rad (mutant a).",
+  "F13-regeln ger aldrig south. Ett hopp söderut med dödbandskurs eller utan kurs behåller förvarningsformen. Banken har 0 sådana fall.",
+  "Känd lucka F08 vid 50–60 m (METHOD 1) finns kvar, som i 7699cbe. Den behöver ett eget kort.",
+  "Registerposten för 1227/1731 omfattar också en båt som tappar sitt mål när appen tar bort henne efter 30 min tystnad (1731: KAJSA hade Stridsbergsbron som mål före tystnaden). Det är appens dokumenterade beteende och det fall dirigenten godtagit.",
+  "R1 och R2 föreslår var sin post för 1227/1731. Läggs båda in, vinner den som står först, och R1:s bredare predikat kan tysta äkta INV-13-utslag.",
+  "Från revision 1 kvarstår fyra risker: det sparade F08-beviset gäller högst 2 min, det skrivs inte till disk, bekräftelseloopen i STEG 5 kan i teorin bokföra två gånger i samma tick, och E:s AMELIA-släpp kan se beviset ett pass tidigare.",
+  "Motorkopians b-register.test.js är röd i både 7699cbe och prototypen, eftersom docs/BUGGJAKT.md saknas i kopian."
+ ],
+ "commit": "c02d88e (\"R2 revision 2: BN2 även utan kurs, känd lucka vid 50–60 m\") i /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/kampanj/R2/wt. Kedjan är 7699cbe → e0e8124 → 8318c1a → c02d88e. Worktree är detached och ren; commiten är lokal och inte pushad.",
+ "patchPath": "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/kampanj/R2/patch.diff",
+ "status": "klar"
+}

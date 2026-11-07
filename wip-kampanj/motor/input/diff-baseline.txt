@@ -1,0 +1,4 @@
+Files /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/CLAUDE.md and /home/user/io.ais.tracker/CLAUDE.md differ
+Files /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/docs/VALIDATION.md and /home/user/io.ais.tracker/docs/VALIDATION.md differ
+Files /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/package.json and /home/user/io.ais.tracker/package.json differ
+Only in /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation: bugHunt

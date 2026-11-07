@@ -1,0 +1,410 @@
+From c02d88e47528a1bf6de0ccfe711a9b8c42d36fa2 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 4 Nov 2026 21:16:54 +0000
+Subject: [PATCH 3/3] =?UTF-8?q?R2=20revision=202:=20BN2=20=C3=A4ven=20utan?=
+ =?UTF-8?q?=20kurs,=20k=C3=A4nd=20lucka=20vid=2050=E2=80=9360=20m?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Omgranskningen av revision 1 (8318c1a):
+
+- F13 (medel): dödbandsregeln gällde bara en finit kurs 46–134°. En
+  återfödd båt utan kurs (AIS 360 eller ogiltig kurs blir null) fick
+  fortfarande "närmar sig Olidebron" 116 m efter bron. Nu får K1:s färska
+  nordprogress bära färdriktningen även när kursen saknas
+  (_hasGapCrossedNotifiedBridge). K1 själv är orörd. Dirigentens JA på
+  fråga 1 gäller när kursen inte säger nord eller syd.
+- F08 (låg): en extra fix 50–60 m efter linjen bryter METHOD 1 och tappar
+  passagen i både 7699cbe och rättningen. Ingen kodändring; luckan är
+  dokumenterad i ARCHITECTURE.md och visas av ett KÄND LUCKA-test, där
+  kanterna (49 m och 60 m) bokförs.
+- F08: fastestet prövar även δ −5 s, som basen också tappade.
+
+Inget låst facit flyttas: banken är identisk med 7699cbe i 48 körningar.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ app.js                                    | 38 ++++++-----
+ docs/ARCHITECTURE.md                      | 35 +++++++---
+ docs/VALIDATION.md                        | 10 +--
+ tests/bn2-dodband-nordprogress.test.js    | 82 +++++++++++++++++++++--
+ tests/fixtures/r2-saltis-utan-kurs.jsonl  | 11 +++
+ tests/zonintrade-uppskjutet-bevis.test.js | 56 +++++++++++++++-
+ 6 files changed, 192 insertions(+), 40 deletions(-)
+ create mode 100644 tests/fixtures/r2-saltis-utan-kurs.jsonl
+
+diff --git a/app.js b/app.js
+index ddf5054..d5e191c 100755
+--- a/app.js
++++ b/app.js
+@@ -9909,21 +9909,28 @@ class AISBridgeApp extends Homey.App {
+     if (!travel && Number.isFinite(vessel.cog)) {
+       if (isNorthCog(vessel.cog)) travel = 'north';
+       else if (isSouthCogWide(vessel.cog)) travel = 'south';
+-      // F13 (rättningskampanjen 2026-11-04): det enda band som återstår här är
+-      // östra dödbandet 46–134°. Det är samma hål K1 täpper till vid
+-      // Kanalinfarten, och samma bevis gäller: färsk nordprogress över ribban
+-      // visar färd norrut (_freshNorthProgressMps, samma kontrakt som K1).
+-      // Utan regeln fick en återfödd båt utan ruttlås aldrig färdriktning:
+-      // SALTIS (cog 49,9°) och en okänd båt (cog 46,2°) fick "närmar sig
+-      // Olidebron, beräknad ankomst om 1 minut" 115 m respektive 107 m efter
+-      // bron. En återresa styr fortfarande med kursen: sydlig kurs ger
+-      // 'south' ovan och behåller förvarningen för bron framför båten.
+-      // OBS: nordprogressen mäts över SAMMA hopp som prövas här (föregående
+-      // fix, eller återfödelsens bas). I dödbandet betyder regeln därför i
+-      // praktiken "hoppet gick norrut med minst 0,25 m/s"; vid återfödelse
+-      // krävs dessutom en bas som är högst 15 min gammal.
+-      else if (this._freshNorthProgressMps(vessel) !== null) travel = 'north';
+     }
++    // F13 (rättningskampanjen 2026-11-04; dirigentens JA på R2:s fråga 1):
++    // när varken ruttlåset eller kursbanden ger färdriktning återstår två fall,
++    // och i båda säger kursen inget om nord eller syd:
++    //  - kursen ligger i östra dödbandet 46–134°, samma hål som K1 täpper
++    //    till vid Kanalinfarten;
++    //  - kursen saknas: AIS 360 ("ej tillgänglig") och ogiltiga värden blir
++    //    null i _validateAISMessage (omgranskningen av revision 1).
++    // Där får K1:s färska nordprogress över ribban visa färd norrut
++    // (_freshNorthProgressMps, samma kontrakt som K1; K1 själv är orörd och
++    // gäller fortfarande bara östbandet). Utan regeln fick en återfödd båt
++    // utan ruttlås aldrig färdriktning: SALTIS (cog 49,9°) och en okänd båt
++    // (cog 46,2°) fick "närmar sig Olidebron, beräknad ankomst om 1 minut"
++    // 115 m respektive 107 m efter bron, och SALTIS fick samma notis med
++    // kursen 360. En återresa styr fortfarande med kursen: sydlig kurs ger
++    // 'south' ovan och behåller förvarningen för bron framför båten.
++    // OBS: nordprogressen mäts över SAMMA hopp som prövas här (föregående
++    // fix, eller återfödelsens bas). Regeln betyder därför i praktiken
++    // "hoppet gick norrut med minst 0,25 m/s"; vid återfödelse krävs dessutom
++    // en bas som är högst 15 min gammal. Den ger aldrig 'south': ett hopp
++    // söderut med dödbandskurs eller utan kurs behåller förvarningen.
++    if (!travel && this._freshNorthProgressMps(vessel) !== null) travel = 'north';
+     return (vessel.lat > fromLat && travel === 'north') || (vessel.lat < fromLat && travel === 'south');
+   }
+ 
+@@ -10879,7 +10886,8 @@ class AISBridgeApp extends Homey.App {
+    * Ribban är NORTH_PROGRESS_MIN_MPS; under den returneras null.
+    *
+    * Två läsare med samma kontrakt: K1:s Kanalinfartsregel
+-   * (_getNotificationDirection) och BN2:s färdriktning i COG-dödbandet
++   * (_getNotificationDirection, bara östbandet 46–134°) och BN2:s
++   * färdriktning när kursen ligger i östbandet eller saknas
+    * (_hasGapCrossedNotifiedBridge, F13). Ett bevis som K1 underkänner kan
+    * därför aldrig bära BN2, och tvärtom.
+    * @param {Object} vessel - Fartygsobjekt
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 40dcb9d..78fbb6e 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -931,6 +931,15 @@ båt.
+   nettokrav består, så en båt som vänder i zonen får ingen passage. Basfacit är
+   oförändrat: OSPREY, SINE BRES och NINA B får beviset i meddelandepasset och
+   får det återställt när zonbesöket startar.
++  **Känd lucka (omgranskningen 2026-11-04, eget kort):** METHOD 1 i
++  `detectBridgePassage` (geometry.js) kräver ett steg från en fix högst 50 m
++  från bron till en fix mer än 60 m bort. Har korsningen skett i inträdessteget
++  och ligger nästa fix 50–60 m efter linjen, når inget steg det kravet, och
++  inget steg korsar linjen. Passagen tappas då, i 7699cbe som efter rättningen
++  (SINE BRES med en extra fix 58,8 m söder om linjen 02:26:41,6, alla faser;
++  KÄND LUCKA-testet i `tests/zonintrade-uppskjutet-bevis.test.js`). Med en
++  extra fix på 49 m eller på 60–63 m bokförs passagen. Ingen bankkorpus har
++  fallet.
+   Fyra spärrar: inget bevis på en GPS-hoppstick (hoppet ÄR annars "sidbytet" —
+   flaggan skickas ned i `_isUnderBridge`), inget bevis när BÅDA samplen är
+   bevisat stillaliggande med jitter-liten rörelse (CG2-1-spegeln), segment
+@@ -2067,17 +2076,21 @@ Underlaget står i `docs/helgranskning-2026-11-03.md`; varje fynd prövades med
+ - `_hasGapCrossedNotifiedBridge` är en tredje passerad-formsignal bredvid S4 och H16. Bron ska
+   ligga strikt mellan föregående (eller sist kända) och aktuell position i gap-kedjans fönster,
+   och hoppet ska gå i färdriktningen. Källsträng och distans lämnas orörda. Färdriktningen tas ur
+-  ruttlåset, annars ur kursen (nordbandet, det breda sydbandet). I östra dödbandet 46–134° bär
+-  K1:s färska nordprogress riktningen norrut (`_freshNorthProgressMps`, samma kontrakt och ribba
+-  som Kanalinfartsregeln). Det stänger F13 (2026-11-04): återfödda norrgående båtar med
+-  nordostlig kurs (SALTIS 49,9°, en okänd båt 46,2°) fick förvarningsform 107–115 m efter
+-  Olidebron. En sydlig kurs ger fortfarande 'south', så en återresa behåller förvarningen.
+-  Nordprogressen mäts över samma hopp som BN2 prövar (från föregående fix, eller från
+-  återfödelsens bas). I dödbandet betyder regeln därför i praktiken "hoppet gick norrut med
+-  minst 0,25 m/s": alltid vid ett långt hopp, och vid återfödelse bara med en bas som är högst
+-  15 min gammal. Kantfall: en båt som korsat bron norrut under tystnaden och redan vänt, men
+-  har kurs 46–134°, får "passerade" i stället för "närmar sig". Påståendet är sant för
+-  korsningen under tystnaden; returen får en egen notis enligt U14.
++  ruttlåset, annars ur kursen (nordbandet, det breda sydbandet). När kursen inte säger nord eller
++  syd, alltså i östra dödbandet 46–134° och när kursen saknas (AIS 360 "ej tillgänglig" och
++  ogiltiga värden blir null i `_validateAISMessage`), bär K1:s färska nordprogress riktningen
++  norrut (`_freshNorthProgressMps`, samma kontrakt och ribba som Kanalinfartsregeln; K1 själv
++  gäller fortfarande bara östbandet). Det stänger F13 (2026-11-04, dirigentens JA på R2:s fråga
++  1): återfödda norrgående båtar med nordostlig kurs (SALTIS 49,9°, en okänd båt 46,2°) fick
++  förvarningsform 107–115 m efter Olidebron, och SALTIS fick samma notis med kursen 360. En
++  sydlig kurs ger fortfarande 'south', så en återresa behåller förvarningen. Nordprogressen mäts
++  över samma hopp som BN2 prövar (från föregående fix, eller från återfödelsens bas). Regeln
++  betyder därför i praktiken "hoppet gick norrut med minst 0,25 m/s": alltid vid ett långt hopp,
++  och vid återfödelse bara med en bas som är högst 15 min gammal. Den ger aldrig 'south': ett
++  hopp söderut med dödbandskurs eller utan kurs behåller förvarningsformen (känd gräns, inget
++  fall i banken). Kantfall: en båt som korsat bron norrut under tystnaden och redan vänt, men
++  har kurs 46–134° eller ingen kurs, får "passerade" i stället för "närmar sig". Påståendet är
++  sant för korsningen under tystnaden; returen får en egen notis enligt U14.
+ - Mellanbrons avståndsreserv i `_hasPassedBridge` täcker bandet mellan
+   `UNDER_BRIDGE_CROSS_SEGMENT_MAX_M` och `LARGE_JUMP_LAT_DEG` (den delade hoppgränsen, förut
+   hårdkodad 0,005).
+diff --git a/docs/VALIDATION.md b/docs/VALIDATION.md
+index 8bf0c49..aa240dc 100644
+--- a/docs/VALIDATION.md
++++ b/docs/VALIDATION.md
+@@ -717,10 +717,12 @@ efteråt.
+    ankarraden flyttas ligger alla övriga sampel kvar på samma plats mot de fasta
+    halvminuterna. Buggjägarens M-FAS-relation flyttar i stället HELA korpusen och
+    starttillståndet δ, och det var den som fångade F08 (SINE BRES 20260917-16h
+-   tappade Järnvägspassagen vid δ −2,5 och −7 s, rättat 2026-11-04). Det fallet
+-   är låst i `tests/zonintrade-uppskjutet-bevis.test.js`, som flyttar korpusen på
+-   samma sätt, både som den är och med en extra fix inne i brozonen (granskarens
+-   prov: två tider och fyra faser).
++   tappade Järnvägspassagen vid δ −2,5 och −7 s; omgranskningen fann även −5 s;
++   rättat 2026-11-04). Det fallet är låst i
++   `tests/zonintrade-uppskjutet-bevis.test.js`, som flyttar korpusen på samma
++   sätt, både som den är och med en extra fix inne i brozonen (granskarens prov:
++   två tider och fyra faser). Samma fil visar den kända luckan med en extra fix
++   50–60 m efter linjen (ARCHITECTURE.md, F08), som inte beror på fasen.
+ 
+    **Offsettecknet och RUTNÄTET.** Defaultoffsets är negativa därför att ett
+    POSITIVT skift äter av korpusens första gap (en offset som inte ryms
+diff --git a/tests/bn2-dodband-nordprogress.test.js b/tests/bn2-dodband-nordprogress.test.js
+index 892cf25..153f584 100644
+--- a/tests/bn2-dodband-nordprogress.test.js
++++ b/tests/bn2-dodband-nordprogress.test.js
+@@ -23,15 +23,24 @@ const VesselDataService = require('../lib/services/VesselDataService');
+  *    107 m efter bron.
+  * Rättningen låter K1:s färska nordprogress bära färdriktningen i dödbandet,
+  * med samma kontrakt (_freshNorthProgressMps).
++ *
++ * Revision 2 (omgranskningen av revision 1, dirigentens JA på fråga 1): samma
++ * lucka fanns när kursen SAKNAS. AIS 360 ("ej tillgänglig") och ogiltiga
++ * värden blir null i _validateAISMessage, och en återfödd båt utan föregående
++ * fixobjekt behåller null. Med kursen 360 på återfödelsefixen fick SALTIS
++ * fortfarande "närmar sig Olidebron, beräknad ankomst om 1 minut" 116 m efter
++ * bron (granskarens repro, fixturen r2-saltis-utan-kurs.jsonl). Regeln gäller
++ * nu båda fallen där kursen inte säger nord eller syd.
+  */
+ const ROOT = path.resolve(__dirname, '..');
+ const FIXTURE = path.join(__dirname, 'fixtures', 'r2-saltis-dodband.jsonl');
++const FIXTURE_UTAN_KURS = path.join(__dirname, 'fixtures', 'r2-saltis-utan-kurs.jsonl');
+ const OLIDE = BRIDGES.olidebron;
+ const MMSI = '265316661';
+ const clone = (value) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
+ const northOf = (metres) => ({ lat: OLIDE.lat + metres / 111320, lon: OLIDE.lon });
+ 
+-describe('F13: BN2 i östra dödbandet', () => {
++describe('F13: BN2 när kursen inte säger nord eller syd (östra dödbandet eller ingen kurs)', () => {
+   let apps;
+   let savedTestMode;
+ 
+@@ -98,7 +107,7 @@ describe('F13: BN2 i östra dödbandet', () => {
+     jest.useRealTimers();
+   });
+ 
+-  test('färsk nordprogress bär färdriktningen i dödbandet, och bara där', async () => {
++  test('färsk nordprogress bär färdriktningen i dödbandet, men inte mot en sydlig kurs eller ett ruttlås', async () => {
+     const app = await boot();
+     app._lastKnownPositions.set(MMSI, { ...northOf(-720), t: Date.now() - 7 * 60 * 1000 });
+ 
+@@ -119,15 +128,51 @@ describe('F13: BN2 i östra dödbandet', () => {
+       .toBe(false);
+ 
+     // Kursen styr fortfarande: en sydlig kurs är en återresa med bron framför
+-    // båten, och utan kurs finns inget dödband att tolka.
++    // båten.
+     expect(app._hasGapCrossedNotifiedBridge(reborn({ cog: 205 }), candidate, 'current')).toBe(false);
+-    expect(app._hasGapCrossedNotifiedBridge(reborn({ cog: null }), candidate, 'current')).toBe(false);
+ 
+     // Ett ruttlås söderut vinner över nordprogressen.
+     expect(app._hasGapCrossedNotifiedBridge(reborn({ _routeDirection: 'south' }), candidate, 'current'))
+       .toBe(false);
+   });
+ 
++  test('utan kurs (AIS 360 → null) bär färsk nordprogress färdriktningen på samma sätt', async () => {
++    const app = await boot();
++    app._lastKnownPositions.set(MMSI, { ...northOf(-720), t: Date.now() - 7 * 60 * 1000 });
++    const now = Date.now();
++
++    // Revision 2: kursen saknas helt (null eller undefined). Förut false.
++    expect(app._hasGapCrossedNotifiedBridge(reborn({ cog: null }), candidate, 'current')).toBe(true);
++    expect(app._hasGapCrossedNotifiedBridge(reborn({ cog: undefined }), candidate, 'current')).toBe(true);
++
++    // Samma beviskrav som i dödbandet: färskt och över ribban.
++    expect(app._hasGapCrossedNotifiedBridge(
++      reborn({ cog: null, _lastNorthProgress: { mps: 1.968, ts: now - 1 } }), candidate, 'current',
++    )).toBe(false);
++    expect(app._hasGapCrossedNotifiedBridge(
++      reborn({ cog: null, _lastNorthProgress: { mps: VesselDataService.NORTH_PROGRESS_MIN_MPS - 0.01, ts: now } }),
++      candidate, 'current',
++    )).toBe(false);
++    expect(app._hasGapCrossedNotifiedBridge(reborn({ cog: null, _lastNorthProgress: null }), candidate, 'current'))
++      .toBe(false);
++
++    // Ruttlåset går fortfarande först.
++    expect(app._hasGapCrossedNotifiedBridge(
++      reborn({ cog: null, _routeDirection: 'south' }), candidate, 'current',
++    )).toBe(false);
++
++    // Regeln ger aldrig 'south': ett hopp söderut över bron utan kurs (och
++    // därmed utan nordprogress) behåller förvarningen.
++    app._lastKnownPositions.set(MMSI, { ...northOf(720), t: Date.now() - 7 * 60 * 1000 });
++    expect(app._hasGapCrossedNotifiedBridge(
++      reborn({ ...northOf(-115), cog: null, _lastNorthProgress: null }), candidate, 'current',
++    )).toBe(false);
++    // Även om ett felaktigt nordbevis fanns kräver svaret att hoppet gick norrut.
++    expect(app._hasGapCrossedNotifiedBridge(
++      reborn({ ...northOf(-115), cog: null }), candidate, 'current',
++    )).toBe(false);
++  });
++
+   test('K1:s Kanalinfartsregel läser samma färskhetskontrakt', async () => {
+     const app = await boot();
+     const kanal = { name: 'Kanalinfarten', id: 'kanalinfarten', source: 'trigger-point' };
+@@ -135,10 +180,13 @@ describe('F13: BN2 i östra dödbandet', () => {
+     expect(app._getNotificationDirection(
+       reborn({ _lastNorthProgress: { mps: 1.968, ts: Date.now() - 1 } }), kanal,
+     )).toBe('unknown');
++    // K1 själv är orörd (dirigentens beslut): regeln gäller bara östbandet,
++    // så en båt utan kurs får fortfarande 'unknown' vid Kanalinfarten.
++    expect(app._getNotificationDirection(reborn({ cog: null }), kanal)).toBe('unknown');
+   });
+ 
+-  test('SALTIS genom hela appen: Olidebron-notisen går i passerad form', () => {
+-    const out = execFileSync(process.execPath, [path.join(ROOT, 'tests/replay-validation/replayRunner.js'), FIXTURE], {
++  const replay = (fixture) => {
++    const out = execFileSync(process.execPath, [path.join(ROOT, 'tests/replay-validation/replayRunner.js'), fixture], {
+       cwd: ROOT,
+       encoding: 'utf8',
+       maxBuffer: 64 * 1024 * 1024,
+@@ -146,7 +194,11 @@ describe('F13: BN2 i östra dödbandet', () => {
+         ...process.env, NODE_OPTIONS: '', REPLAY_VERBOSE: '', REPLAY_MONITORING: '',
+       },
+     });
+-    const result = JSON.parse(out.match(/__REPLAY_JSON__(.*?)__END__/s)[1]);
++    return JSON.parse(out.match(/__REPLAY_JSON__(.*?)__END__/s)[1]);
++  };
++
++  test('SALTIS genom hela appen: Olidebron-notisen går i passerad form', () => {
++    const result = replay(FIXTURE);
+     const notice = result.notifications.find((n) => n.mmsi === MMSI && n.bridge === 'Olidebron');
+     // Före rättningen: "SALTIS närmar sig Olidebron, beräknad ankomst om 1 minut".
+     expect(notice).toMatchObject({
+@@ -159,4 +211,20 @@ describe('F13: BN2 i östra dödbandet', () => {
+     expect(result.notifications.filter((n) => n.mmsi === MMSI).map((n) => n.bridge))
+       .toEqual(['Kanalinfarten', 'Olidebron', 'Stridsbergsbron', 'Järnvägsbron', 'Klaffbron']);
+   }, 60000);
++
++  test('SALTIS med kursen 360 ("ej tillgänglig") genom hela appen: också passerad form', () => {
++    // Granskarens repro: fixturen är r2-saltis-dodband.jsonl med kursen 360 på
++    // återfödelsefixen 08:57:32,513. Korsningen var 08:56:38 norrut (L0).
++    const result = replay(FIXTURE_UTAN_KURS);
++    const notice = result.notifications.find((n) => n.mmsi === MMSI && n.bridge === 'Olidebron');
++    // Före revision 2: "SALTIS närmar sig Olidebron, beräknad ankomst om 1 minut".
++    expect(notice).toMatchObject({
++      t: Date.parse('2026-06-18T08:57:32.513Z'),
++      eta: -1,
++      alreadyPassed: true,
++      message: 'SALTIS passerade Olidebron under AIS-tystnad',
++    });
++    expect(result.notifications.filter((n) => n.mmsi === MMSI).map((n) => n.bridge))
++      .toEqual(['Kanalinfarten', 'Olidebron', 'Stridsbergsbron', 'Järnvägsbron', 'Klaffbron']);
++  }, 60000);
+ });
+diff --git a/tests/fixtures/r2-saltis-utan-kurs.jsonl b/tests/fixtures/r2-saltis-utan-kurs.jsonl
+new file mode 100644
+index 0000000..777b294
+--- /dev/null
++++ b/tests/fixtures/r2-saltis-utan-kurs.jsonl
+@@ -0,0 +1,11 @@
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.26555,"lon":12.26443,"sog":3.5,"cog":47,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781772579808,"fixTs":1781772554000,"feed":"aishub","receivedAt":"2026-06-18T08:49:39.808Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.26627,"lon":12.26629,"sog":3.7,"cog":47,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781772646290,"fixTs":1781772629000,"feed":"aishub","receivedAt":"2026-06-18T08:50:46.290Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.27345,"lon":12.27658,"sog":5.7,"cog":360,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781773052513,"fixTs":1781773038000,"feed":"aishub","receivedAt":"2026-06-18T08:57:32.513Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.2749,"lon":12.27853,"sog":5.4,"cog":33,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781773122244,"fixTs":1781773107000,"feed":"aishub","receivedAt":"2026-06-18T08:58:42.244Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.2764,"lon":12.2799,"sog":5.6,"cog":15.6,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781773187999,"fixTs":1781773170000,"feed":"aishub","receivedAt":"2026-06-18T08:59:47.999Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.27822,"lon":12.28121,"sog":5.4,"cog":24.9,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781773255972,"fixTs":1781773247000,"feed":"aishub","receivedAt":"2026-06-18T09:00:55.972Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.27958,"lon":12.28208,"sog":5.7,"cog":349.5,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781773325194,"fixTs":1781773301000,"feed":"aishub","receivedAt":"2026-06-18T09:02:05.194Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.29258,"lon":12.29353,"sog":6.6,"cog":27.3,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781774067259,"fixTs":1781774028000,"feed":"aishub","receivedAt":"2026-06-18T09:14:27.259Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.29498,"lon":12.29704,"sog":7.3,"cog":32,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781774133589,"fixTs":1781774122000,"feed":"aishub","receivedAt":"2026-06-18T09:15:33.589Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.29909,"lon":12.30174,"sog":7.3,"cog":19.3,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781774271608,"fixTs":1781774259000,"feed":"aishub","receivedAt":"2026-06-18T09:17:51.608Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.3014,"lon":12.30448,"sog":7.4,"cog":31.1,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781774340434,"fixTs":1781774337000,"feed":"aishub","receivedAt":"2026-06-18T09:19:00.434Z"}
+diff --git a/tests/zonintrade-uppskjutet-bevis.test.js b/tests/zonintrade-uppskjutet-bevis.test.js
+index 2d3514f..dfbe88f 100644
+--- a/tests/zonintrade-uppskjutet-bevis.test.js
++++ b/tests/zonintrade-uppskjutet-bevis.test.js
+@@ -24,8 +24,8 @@ const corpora = require('./replay-validation/corpora');
+  * under-bro-analysen. I basen hann UI-passet efter FIX U köra före nästa fix
+  * och passagen bokfördes 02:27:17. I fasvarianterna δ −2,5 s och −7 s låg
+  * UI-passet kvar bakom en pågående skrivning tills efter fixen 02:27:17, och
+- * passagen tappades (buggjägarens M-FAS, kort F08). Rättningen prövar beviset
+- * i det pass som gör uppskjutningen.
++ * passagen tappades (buggjägarens M-FAS, kort F08; omgranskningen fann samma
++ * sak vid δ −5 s). Rättningen prövar beviset i det pass som gör uppskjutningen.
+  */
+ const ROOT = path.resolve(__dirname, '..');
+ const JVB = BRIDGES.jarnvagsbron;
+@@ -485,7 +485,9 @@ describe('F08: SINE BRES Järnvägspassage oberoende av klockfasen', () => {
+     .filter((p) => p.mmsi === MMSI && p.bridge === 'Järnvägsbron')
+     .map((p) => p.t - Math.round(deltaS * 1000));
+ 
+-  test.each([0, -2.5, -7])('δ = %s s', async (deltaS) => {
++  // Basen tappade passagen vid δ −2,5, −5 och −7 s (buggjägarens M-FAS gav
++  // −2,5 och −7; omgranskningen fann även −5).
++  test.each([0, -2.5, -5, -7])('δ = %s s', async (deltaS) => {
+     const result = await replay(writeVariant(`fas${deltaS}`, corpusRows(), deltaS));
+     expect(jvbPassages(result, deltaS)).toEqual([BOOKED]);
+   }, 120000);
+@@ -531,4 +533,52 @@ describe('F08: SINE BRES Järnvägspassage oberoende av klockfasen', () => {
+     }
+     expect(outcomes).toEqual(variants.map((v) => `${v.tIso} δ ${v.deltaS}: ${new Date(BOOKED).toISOString()}`));
+   }, 300000);
++
++  /**
++   * KÄND LUCKA (omgranskningen av revision 1, låg; ingen kodändring i R2): en
++   * extra fix 50–60 m efter linjen bryter METHOD 1 i detectBridgePassage
++   * (geometry.js). Steget dit från B (26 m) når inte "mer än 60 m", och steget
++   * därifrån till C (108 m) börjar inte "högst 50 m" från bron. Inget steg
++   * efter B korsar linjen, så ingen annan metod bokför heller. Passagen tappas
++   * i alla faser, i både 7699cbe och prototypen. Testet visar dagens beteende
++   * så att luckan syns; den som rättar den vänder mittenfallet.
++   *
++   * Kanterna är regressionsfall för R2: med en extra fix på 49 m bokförs
++   * passagen vid C, och med 60–63 m vid den extra fixen. 7699cbe tappar båda,
++   * eftersom beviset från det uppskjutna passet nollades i nästa zonbesök.
++   */
++  test('KÄND LUCKA: en extra fix 50–60 m efter linjen tappar passagen; kanterna bokförs', async () => {
++    const rows = corpusRows();
++    const rowB = rows.find((r) => r.mmsi === MMSI && r.aisTimestamp === B.t);
++    const rowC = rows.find((r) => r.mmsi === MMSI && r.aisTimestamp === 1789698437778);
++    const tIso = '2026-09-18T02:26:41.600Z';
++    const t = Date.parse(tIso);
++    const cases = [
++      { frac: 0.28, expected: [BOOKED] }, // 49 m: bokförs vid C
++      { frac: 0.40, expected: [] }, // 58,8 m: KÄND LUCKA (granskarens v4)
++      { frac: 0.42, expected: [t] }, // 60,4 m: bokförs vid den extra fixen
++    ];
++    const variants = cases.map(({ frac, expected }) => {
++      const extra = {
++        ...rowB,
++        lat: rowB.lat + (rowC.lat - rowB.lat) * frac,
++        lon: rowB.lon + (rowC.lon - rowB.lon) * frac,
++        sog: 5.4,
++        cog: 213,
++        aisTimestamp: t,
++        fixTs: t,
++        receivedAt: tIso,
++      };
++      const distanceM = geometry.calculateDistance(extra.lat, extra.lon, JVB.lat, JVB.lon);
++      const at = rows.findIndex((r) => Date.parse(r.receivedAt) > t);
++      const withExtra = [...rows.slice(0, at), extra, ...rows.slice(at)];
++      return {
++        frac, expected, distanceM, jsonl: writeVariant(`lucka-${frac}`, withExtra, 0),
++      };
++    });
++    // Bandet mäts, så att testet inte glider om geometrin ändras.
++    expect(variants.map((v) => Math.round(v.distanceM * 10) / 10)).toEqual([49.1, 58.8, 60.4]);
++    const results = await Promise.all(variants.map((v) => replay(v.jsonl)));
++    expect(results.map((result) => jvbPassages(result, 0))).toEqual(variants.map((v) => v.expected));
++  }, 120000);
+ });
+-- 
+2.43.0
+

@@ -1,0 +1,1348 @@
+From 3f793a7092b0c59e3080c1946ca1b16fe9d1f17f Mon Sep 17 00:00:00 2001
+From: N-designer <n@kampanj.local>
+Date: Wed, 4 Nov 2026 18:10:14 +0000
+Subject: [PATCH 1/6] =?UTF-8?q?N=20(U14):=20en=20verklig=20returpassage=20?=
+ =?UTF-8?q?=C3=B6ver=20en=20bro=20f=C3=A5r=20egen=20notis?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Besöksregeln 2026-09-07 höll ett notifierat besök tills båten setts två
+gånger över 350 m från bron. En båt som passerar, vänder inom 350 m och
+passerar tillbaka lämnade aldrig besöket, så returpassagen fick ingen
+notis (kort B01: två bokförda målbropassager, en notis, INV-5).
+
+Besöket minns nu vilken sida av brolinjen den notifierade passagen leder
+till och när båten senast setts entydigt där. I notisbeslutet släpps
+besöket när appen just bokfört en ny passage av samma bro, båten inte
+längre ligger på bortre sidan och ruttriktningen pekar tillbaka. En båt
+som guppar eller väntar vid bron vänder inte ruttriktningen och bokförs
+inte som passerad, så den får fortfarande en notis per besök.
+
+Regressionstest, två syntetiska scenarier (returen inom besöket och en
+guppande båt på linjen) och fixturer ur buggjägarens repro. Docs:
+ARCHITECTURE (dedup-lager 3, persistens, kampanjavsnitt) och VALIDATION.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ app.js                                        |  51 +-
+ docs/ARCHITECTURE.md                          |  44 +-
+ docs/VALIDATION.md                            |  20 +-
+ lib/services/TriggerPointVisitTracker.js      | 108 ++++-
+ lib/utils/geometry.js                         |  52 +-
+ .../n-b01-wilma-retur-inom-besoket.jsonl      | 181 +++++++
+ .../n-w40-xenia-retur-passerad-form.jsonl     |  60 +++
+ tests/replay-validation/replayRunner.js       |  10 +
+ .../runSyntheticScenarios.js                  |  62 +++
+ tests/trigger-point-visit-tracker.test.js     |   5 +-
+ tests/u14-returpassage-notis.test.js          | 458 ++++++++++++++++++
+ 11 files changed, 1023 insertions(+), 28 deletions(-)
+ create mode 100644 tests/fixtures/n-b01-wilma-retur-inom-besoket.jsonl
+ create mode 100644 tests/fixtures/n-w40-xenia-retur-passerad-form.jsonl
+ create mode 100644 tests/u14-returpassage-notis.test.js
+
+diff --git a/app.js b/app.js
+index 3a109b8..dc61173 100755
+--- a/app.js
++++ b/app.js
+@@ -1285,6 +1285,45 @@ class AISBridgeApp extends Homey.App {
+     if (visitsChanged) this._persistTriggerPointVisits();
+   }
+ 
++  /**
++   * U14 (användarbeslut 2026-11-04, kort B01): en VERKLIG passage tillbaka över
++   * en bro får en egen notis, även inom samma besök. INV-5/7 (en notis per
++   * bokförd passage, även returpassagen) är kontraktet; besöksregeln
++   * 2026-09-07 justeras bara för just den passagen.
++   *
++   * Anropas där notisbeslutet fattas (_triggerBoatNearFlowForBridge och
++   * failsafen), alltså efter tickens passagebokföring. Det gäller också
++   * bokföringar som görs i appen själv (GPS-gatens bekräftelse i STEG 5 och
++   * glappinferensen i _checkSkippedBridgesFallback), som sker efter
++   * observationskroken i början av ticken.
++   *
++   * Beviskraven ligger i TriggerPointVisitTracker.releaseReturnPassage.
++   * Bokföringen ska vara färskare än PASSAGE_TRIGGER_GRACE_MS, samma fönster som
++   * S4:s passerade form. Då säger returnotisen "har precis passerat" och inte
++   * "närmar sig". Släppet gör samma städning som en observerad återkomst i
++   * _observeTriggerPointVisits: dedupnyckeln och den persistenta posten för
++   * just den här båten och bron tas bort.
++   * @param {Object} vessel
++   * @param {string} pointName - brons namn
++   * @returns {boolean} true om besöket avslutades
++   * @private
++   */
++  _releaseVisitOnReturnPassage(vessel, pointName) {
++    if (!this._triggerPointVisits || !vessel
++        || this.vesselDataService?.hasGpsJumpHold?.(vessel.mmsi)) return false;
++    if (!this._triggerPointVisits.releaseReturnPassage(vessel, pointName, PASSAGE_TRIGGER_GRACE_MS)) return false;
++    const key = `${vessel.mmsi}:${pointName}`;
++    this._triggeredBoatNearKeys?.delete(key);
++    if (this._persistentRecentTriggers?.delete(key)) this._persistRecentTriggers();
++    this._persistTriggerPointVisits();
++    this.log(
++      `↩️ [TRIGGER_POINT_VISIT_RETURN] ${vessel.mmsi}: ${pointName} passerad tillbaka `
++      + `(bokförd ${Math.round((Date.now() - vessel.lastPassedBridgeTime) / 1000)} s sedan, `
++      + `rutt ${vessel._routeDirection}) — besöket avslutat, returpassagen får egen notis`,
++    );
++    return true;
++  }
++
+   /** Spara den tidsbaserade notisspärren vid mutation och avstängning. */
+   _persistRecentTriggers() {
+     try {
+@@ -9364,6 +9403,10 @@ class AISBridgeApp extends Homey.App {
+     // Om bron triggat senaste 2h enligt persistent map — skippa fallback för att
+     // undvika dubbel-notis.
+     const persistentDedupeKey = `${vessel.mmsi}:${bridgeName}`;
++    // U14: samma släpp som huvudvägen, före besöksspärren i _persistentDedupCheck.
++    // Failsafen är returpassagens enda väg när första fixen efter korsningen
++    // ligger utanför notisradien.
++    this._releaseVisitOnReturnPassage(vessel, bridgeName);
+     const fallbackDedup = this._persistentDedupCheck(persistentDedupeKey, vessel, { retroactiveSource: true });
+     if (fallbackDedup.blocked) {
+       this.log(
+@@ -10077,6 +10120,8 @@ class AISBridgeApp extends Homey.App {
+     // 14h-körningarna hade var sin). Dedup-nyckeln var alltid korrekt.
+     const mmsiLabel = vessel.mmsi;
+ 
++    // U14: en nyss bokförd returpassage avslutar besöket före besöksspärren.
++    this._releaseVisitOnReturnPassage(vessel, bridgeName);
+     if (this._triggerPointVisits?.holds(mmsiLabel, bridgeName)) {
+       this.debug(`[TRIGGER_POINT_VISIT_DEDUP] ${mmsiLabel}: ${bridgeName} redan notifierad för detta besök`);
+       return;
+@@ -10541,7 +10586,11 @@ class AISBridgeApp extends Homey.App {
+       // RACE FIX: Sätt dedup-nyckel FÖRE async trigger för att förhindra
+       // att parallella _onVesselUpdated-anrop slipper igenom.
+       this._triggeredBoatNearKeys.add(dedupeKey);
+-      ownVisitEntry = this._triggerPointVisits?.reserve(vessel, bridgeName) || null;
++      // U14: en notis i passerad form gäller en passage som redan skett; besöket
++      // behöver det för att veta vilken sida av bron som är den bortre.
++      ownVisitEntry = this._triggerPointVisits?.reserve(
++        vessel, bridgeName, { passageBehind: passedBridgeSource },
++      ) || null;
+       if (ownVisitEntry) this._persistTriggerPointVisits();
+       // Anomali 9 fix: lagra också i persistent map som inte clearas vid
+       // vessel-removal — för 2h-dedup vid skipped-bridges-fallback.
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index c9a9361..bac5c0a 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -481,6 +481,26 @@ Dedup-lagren:
+    (motsatt = ny passage, ELFKUNGEN-fallet); riktning saknas ⇒ konservativ
+    blockering. Kontrolleras i huvudvägen (:4448), fallback (:4289) och exit
+    (:4206). Skrivs vid varje mutation (§6), rollback vid triggerfel (:4562–4571).
++3. **Besöksspärren** `TriggerPointVisitTracker` (besöksregeln 2026-09-07, `holds`):
++   en notis per båt och punkt och sammanhängande besök. Besöket slutar vid
++   observerad utfärd och återkomst (§6) och, sedan **U14 (användarbeslut
++   2026-11-04, kort B01)**, vid en verklig passage tillbaka över en bro.
++   Besöket minns vilken sida av brolinjen den notifierade passagen leder till
++   (`farSign`: ankomstsidans motsats vid förvarning, ankomstsidan vid passerad
++   form via `reserve(…, { passageBehind })`) och senaste rena fixen entydigt där
++   (`farSideFixTs`, ±10 m-epsilon via `geometry.decisiveBridgeSide`).
++   `app._releaseVisitOnReturnPassage` anropas överst i
++   `_triggerBoatNearFlowForBridge` och i failsafen före besöksspärren och släpper
++   besöket (`releaseReturnPassage`) bara när alla fyra bevisen finns: bortre sidan
++   sedd, appen har bokfört en ny passage av samma bro efter den observationen och
++   inom `PASSAGE_TRIGGER_GRACE_MS` (15 s), båten är inte längre entydigt på bortre
++   sidan, och ruttriktningen (`_routeDirection`) pekar tillbaka. Släppet städar som
++   en observerad återkomst (sessionsnyckel och persistent post för just den bron)
++   och räknas av replayharnessen som `visitReentries`. Returnotisen får därför
++   passerad form ("har precis passerat", eller failsafens mening när första fixen
++   ligger utanför notisradien). En båt som guppar eller väntar vid bron bokförs
++   inte som passerad och vänder inte ruttriktningen, så den får fortfarande EN
++   notis. Kanalinfarten har ingen brolinje och följer besöksregeln oförändrad.
+ 
+ Tokens: `vessel_name` (B1: känt namn → cache-uppslag → "Okänd båt", :4464),
+ `bridge_name`, `direction` (`_getDirectionString`:4639: låst rutt-riktning
+@@ -1037,7 +1057,7 @@ Flaggor (bärs av `_createVesselObject`-fältlistan, §8a): `_etaIsExtrapolated`
+ | `last_known_positions` | `_loadLastKnownPositions`:615 | `_persistLastKnownPositions`:646 | `{ mmsi: {lat, lon, t} }`, 6 h TTL; skrivs vid removal (:1084–1090); begränsar skipped-bridges-scenario A för återfödda båtar (§3) |
+ | `quay_stable_ledger` | `_loadQuayLedger` | `_persistQuayLedger` (STRYPT: max var 15:e min + tvingad vid `onUninit`) | V1-kajavgångsgrindens historik `{ mmsi: {stillAt, lat, lon} }`, TTL = `QUAY_DEPARTURE_GATE.MEMORY_MS` (2 h); rörelseräknaren `movingFixes` persisteras ALDRIG (den är ett påstående om innevarande sessions observationer). Utan persistensen återskapade en appomstart 5 s före kajavgången PRICKBJORN-fantomen exakt |
+ | `persistent_opening_warnings` | `_loadPersistentOpeningWarnings` | `_persistOpeningWarnings` (vid varje avfyrning + vid konsumtion) | Etapp 6 + J15 (2026-08-22): öppningsvarningarnas dedup ÖVER omstart, `{ "Bro\|mmsi\|riktning": {firedAt, expiresAt} }`. TVÅDELAT läsfönster (`_openingDedupActiveUntil`): post skriven i DENNA session dedupar till firedAt + `CONVOY_WINDOW_MS` (10 min, som förr); post LADDAD VID BOOT dedupar till expiresAt = firedAt + 10 min + ETA (kapat `_OPENING_PERSIST_MAX_MS`) — omstartsskyddet. TRE konsumtionsvägar nollar nyckeln: bekräftad passage i `_observeBridgeOpening`, gap-inferrerad passage och backfill (L19). Riktningsledet gör att en U-svängares RETURPASSAGE aldrig tystas; sedan S11 (fixrunda 6) är riktningsledet MEDLEMMENS egen låsta riktning (`memberDirections` i payloaden), ledarens bara som fallback. Sedan S13 härleds expiresAt inte ur ETA-tokenen utan ur max(dagens uttryck, armens förväntade ankomst `expectedArrivalMs` — MAX över medlemmarna), fortfarande kapat. Känd avvägning: avbruten anflygning före omstart (§9) |
+-| `trigger_point_visits` | konstruktorn (`TriggerPointVisitTracker.loadSnapshot`) | `_persistTriggerPointVisits` (vid varje fasbyte i `observe`, reservation/rollback av notis, stängning vid fullbordad resa och tvingad i `onUninit`) | Besöksregeln 2026-09-07: `{ version: 2, entries: { "mmsi:punkt": {startedAt, lastFixTs, outsideFixTs, exitedAt, lastLat, lastLon, lastPositionTs, arrivalLat, arrivalLon} } }` för alla broar och Kanalinfarten. Ett notifierat besök spärrar nya notiser till observerad utfärd (två rena fixar > 350 m, passage följd av två fixar på bortre sidan, eller positionsbevisad fullbordad resa) och återkomst inom 300 m. Stängda poster gallras efter 6 h; tak 2048 poster |
++| `trigger_point_visits` | konstruktorn (`TriggerPointVisitTracker.loadSnapshot`) | `_persistTriggerPointVisits` (vid varje fasbyte i `observe`, reservation/rollback av notis, stängning vid fullbordad resa och tvingad i `onUninit`) | Besöksregeln 2026-09-07: `{ version: 2, entries: { "mmsi:punkt": {startedAt, lastFixTs, outsideFixTs, exitedAt, lastLat, lastLon, lastPositionTs, arrivalLat, arrivalLon, farSign, farSideFixTs} } }` för alla broar och Kanalinfarten. Ett notifierat besök spärrar nya notiser till observerad utfärd (två rena fixar > 350 m, passage följd av två fixar på bortre sidan, eller positionsbevisad fullbordad resa) och återkomst inom 300 m. U14 (2026-11-04): vid en bro avslutar också en bokförd passage tillbaka besöket (§3, dedup-lager 3); `farSign` och `farSideFixTs` bär det beviset, och första observationen på bortre sidan är ett fasbyte som sparas. Äldre poster utan fälten, eller med skadade värden, får inget returpassagesläpp. Stängda poster gallras efter 6 h; tak 2048 poster |
+ | `opening_quay_ledger` | `_loadOpeningQuayLedger` | `_persistQuayLedger` (samma strypta 15-min-klocka som V1-kartan + tvingad flush i `onUninit`; skrivtakt ~96→192/dygn) | M11 (2026-08-23): öppningslagrets kajbokföring `{ mmsi: {bandSince, stillAt, lat, lon, moving} }`, TTL = `QUAY_DEPARTURE_GATE.MEMORY_MS`. Utan persistens var kajvobbelgrinden BLIND 5 min efter varje omstart (bandSince sessionslokal) och efter ETT fix utanför 500 m-bandet; nu hysteres (en tolererad fix, `MIN_MOVING_FIXES`-härledd) + persistens. `movingFixes`, `prevFix`, `lastFix` persisteras ALDRIG (påståenden om innevarande session) |
+ 
+ **Kajbokföringens TVÅ kartor.** `_quayStableLedger` (persisterad, ovan) bokför
+@@ -2038,6 +2058,28 @@ Underlaget står i `docs/helgranskning-2026-11-03.md`; varje fynd prövades med
+ produktion, se nedan. BN1: utfarter vid boxkanten lämnar besök öppna (VISTEN, REBEL, JUNO). open3:
+ ETA utan fixålder (D2). Latenta fynd utan uppmätt effekt är listade i rapporten.
+ 
++### Rättningskampanjen 2026-11-04 — U14, en notis per passage (kort B01)
++
++Användarbeslutet U14 gör INV-5/7 till kontrakt: en båt som passerar en bro, vänder och passerar
++tillbaka får en notis även för returpassagen. Besöksregeln 2026-09-07 justeras bara för den
++passagen; en båt som guppar eller väntar vid bron får fortfarande en notis per besök.
++
++- **Felet:** en vändning inom 350 m bortom bron stängde aldrig besöket (två fixar över 350 m
++  krävs), så `holds` tystade returpassagen. Buggjägaren fann klassen i 30 världar (B01: WILMA
++  vänder 162 m söder om Klaffbron; felbandet 125–308 m).
++- **Rättningen:** dedup-lager 3 i §3. Släppet sker där notisbeslutet fattas, eftersom både
++  GPS-gatens bekräftelse (STEG 5) och glappinferensen bokför passager efter
++  observationskroken. Kravet på appens egen bokföring gör att en positionsflimrande båt inte kan
++  släppa besöket.
++- **Facit:** tre rådatabelagda returpassager får notis (ELFKUNGEN i 20260712-25h,
++  20260804-both-21h och 20260806-42h); notiserna togs bort av besöksregeln 2026-09-07. Notiserna
++  i `corpora.js` har beläggen.
++- **Kvar, utanför besöksregeln:** en retur som appen inte bokför får ingen notis. Två kända
++  orsaker: Fix D:s återkorsning (familj R1, bokför returen i de flesta fall) och
++  `_anchorPassageTimestamp`s studsvakt, som sväljer en mellanbrobokföring av en retur som
++  korsar inom 3 min efter utpassagen (`REVERSE_RECRROSS_GUARD`, typiskt en snäv U-sväng).
++  INV-5 fäller inte där, eftersom ingen passage registreras.
++
+ 
+ ## 10. Söndagsfältet 2026-08-09/10 (commits a9f2a20, ce6a946, b1a7ba3 + WS-3)
+ 
+diff --git a/docs/VALIDATION.md b/docs/VALIDATION.md
+index e24a1e2..55abc42 100644
+--- a/docs/VALIDATION.md
++++ b/docs/VALIDATION.md
+@@ -47,8 +47,11 @@ deras referenser bygger på granskad replay från tomt minne. En låst referens
+ 1. **bridge_text** är alltid korrekt och aktuell — aldrig spöktext, frusen
+    nedräkning eller falskt "Inga båtar".
+ 2. **boat_near** avfyras en gång per sammanhängande besök för varje båt och
+-   punkt. Stopp eller passage inom samma område ger ingen extra notis;
++   punkt. Stopp eller väntan inom samma område ger ingen extra notis;
+    observerad utfärd och återkomst tillåter en ny. Gäller alla sex punkter.
++   Vid en bro gäller dessutom en notis per passage (U14, användarbeslut
++   2026-11-04): en verklig passage TILLBAKA, som appen själv bokför, avslutar
++   besöket och får en egen notis även om båten aldrig lämnat området.
+ 
+ ## Batteriet — kör ALLTID allt efter varje ändring i status-/notis-/text-/livscykellogik
+ 
+@@ -63,7 +66,7 @@ Eller stegen var för sig:
+ |---|---|---|
+ | Enhetstester | `npm test > /tmp/ais-jest.log 2>&1` (läs sedan slutraderna) | Alla tester passerar, exitkod 0 och inga öppna handtag. Aktuellt antal står i körningens sammanfattning. Omdirigeringen bevarar Jest:s exitkod; en pipe till `tail` gör inte det. |
+ | Korpusarna | `npm run replay:all` | Samtliga korpusar (aktuellt antal och timmar står i skriptets utskrift) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + exakt (mmsi,bro,riktning)-fördelning + EXAKT bridge_text-transitionsström (golden-text/) + alla invarianter. Ofullständig fångst redovisas separat och får bara utgöra regression för bevarade sampel. |
+-| Syntetiska | `npm run replay:synthetic` | 46 scenarier (gap, U-svängar även med gles AIS, GPS-hopp, kajliggare, sog=null, omstart, 2h-prune-stillaliggare …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
++| Syntetiska | `npm run replay:synthetic` | 48 scenarier (gap, U-svängar även med gles AIS och inom besöket, GPS-hopp, kajliggare, guppande båt på brolinjen, sog=null, omstart, 2h-prune-stillaliggare …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
+ | Öppningsgrindarna | `npm run replay:openings` | ETAPP 6: det proaktiva lagret (`bridge_opening_soon`). **O1** varje målbropassage i SAMTLIGA korpusar (låsta som olåsta — antalet står i skriptets utskrift, inte här) har en öppningsvarning FÖRE passagen — varje miss klassad mot rådata (oklassad = rött); en KONVOJTÄCKNING underkänns om bron bevisligen öppnat och stängt för någon annan emellan. **O2** varje varning utan passage inom 20 min klassas mot rådata (KAJVOBBEL och UTANFÖR_HORISONTEN = rött; avbruten approach, gles anflygning och garantipris = accepterade) — även SEN_PASSAGE-hinken klassas. **O2b** (S14, 2026-08-23) SAMMA fantommätning mot RÅDATAFACIT (A2, `gt-passages`) i stället för appens egna passager — O1b:s mönster: appens passageregistreringar delar grindarnas blindfläck, så en varning kan kallas BEKRÄFTAD av appens egen bokföring medan rådatan inte känner korsningen. Serierna redovisas BREDVID varandra (annars går körningsloggar inte att jämföra bakåt). `inferred`-poster (korsning bevisad, tidpunkt = fönster) bär ALDRIG hinkindelningen utan hamnar i egen hink INFERRERAD_TID — hinkarna ÄR en tidsfönstermätning. **O2b är INFORMATIV: den ändrar inte exitkoden** (grinden ligger kvar på appserien precis som O1:s täckning i fas A); `OPENING_GT_STRICT` flyttar den hit när fas C är klar. Vid införandet: 0 röda i BÅDA serierna, 118 av 360 varningar byter hink (98 blir omätbara `inferred`) och EN varning byter åt det farliga hållet (JAATTEN II @ Stridsbergsbron i 20260708-21h — samma fall INV-21 redan fäller). **O3** A/B-nattens båda armar: 6/6 öppningar varnade före, konvojen som EN varning, boat_near byte-identisk med nattens facit. Dessutom **avfyrningsfönstret** (`t − dueMs` inom två tick — kontraktet "avfyra så sent som garantin tillåter") och **ledtidsgolvet** (hårt golv 60 s; tunnare än utlovade 150 s rapporteras). |
+ | Soaken | `node tests/replay-validation/runSoak.js` | 72 h blandtrafik: 0 processfel, inga läckor, fatala invarianter rena |
+ | Driftens minutloop | `npm run replay:monitoring` | Samma 72 h med riktig monitoring/stale-städning även efter omstarter; samtliga timers avvecklade efter shutdown |
+@@ -298,7 +301,8 @@ vilseleder nästa fältläsare lika effektivt som ett fel värde.
+ `tests/replay-validation/invariants.js` körs på varje replay. Fatala:
+ grammatik (INV-1), notisdubbletter/tokens (INV-2), **räkningsbaserade INV-5/7**
+ (varje registrerad målbropassage kräver sin EGEN notis i tid — även
+-returpassagen av samma bro), sluttext (INV-6), namn (INV-8), distans (INV-11),
++returpassagen av samma bro; sedan U14, 2026-11-04, är det appens kontrakt och
++inte längre i konflikt med besöksregeln), sluttext (INV-6), namn (INV-8), distans (INV-11),
+ läckage (INV-12), ETA-fysik (INV-16). WARN (informativa): INV-14W/15/17/18/19/20
+ samt **INV-21** (etapp 6: öppningsvarning EFTER registrerad målbropassage för
+ samma händelse — tyst över samtliga korpusar och soaken i dag).
+@@ -344,6 +348,16 @@ scenarier: varje avfyrning ska nå kortet.
+ påstår sig pröva i en isolerad kopia, koppla bort den, och kontrollera att
+ scenariot blir RÖTT. Blir det grönt är kontraktet dekoration.
+ 
++**U14 (2026-11-04): returpassagen inom besöket.** `u-sväng-inom-besöket-vid-Klaffbron (B01)`
++vänder 200 m bortom Klaffbron, alltså innanför besökets utfärdsgräns (två fixar
++över 350 m). Buggjägaren mätte felet i bandet 125–308 m; bortom 350 m tar
++utfärdsregeln fallet, och scenariot `u-sväng-efter-Klaffbron` vänder 517 m bortom
++bron. Förväntan `minNotifiedPerBridge` kräver två Klaffbronotiser och
++`maxNotifiedPerBridge` högst två. Motvakten `guppar-på-Klaffbrons-linje (U14-vakt)`
++står still på linjen i 40 min med GPS-brus på båda sidor och ska ha EN
++Klaffbronotis. På 7699cbe fäller B01-scenariot (en notis, INV-5), medan
++vakten är grön i båda versionerna.
++
+ ## Täckningskartan — diagnosverktyg, INTE en gate
+ 
+ `tests/replay-validation/coverageMap.js` (etapp 6) svarar på frågan **var längs
+diff --git a/lib/services/TriggerPointVisitTracker.js b/lib/services/TriggerPointVisitTracker.js
+index 858573c..0373b5b 100644
+--- a/lib/services/TriggerPointVisitTracker.js
++++ b/lib/services/TriggerPointVisitTracker.js
+@@ -6,9 +6,27 @@ const {
+ const geometry = require('../utils/geometry');
+ 
+ const POINTS = new Map([...Object.values(BRIDGES), ...Object.values(TRIGGER_POINTS)].map((point) => [point.name, point]));
++// U14 gäller broar: bara en bro har en linje att passera tillbaka över och en
++// passagebokföring (lastPassedBridge). Kanalinfarten följer besöksregeln som förut.
++const BRIDGE_NAMES = new Set(Object.values(BRIDGES).map((bridge) => bridge.name));
+ const DEPARTED_RETENTION_MS = 6 * 60 * 60 * 1000;
+ const MAX_ENTRIES = 2048;
+ 
++/**
++ * Färdriktningens tecken längs kanalaxeln, i samma tecken som
++ * geometry.decisiveBridgeSide: norrut ökar projektionen (+1), söderut (−1).
++ * Bara appens låsta ruttriktning räknas. Den vänder först på bekräftad vändning
++ * (Fix D, NEW_JOURNEY eller korsningsbevis), så en båt som guppar eller ligger
++ * still vid bron kan inte vända den.
++ * @param {Object} vessel
++ * @returns {number} +1, −1 eller 0 (okänd)
++ */
++function routeSign(vessel) {
++  if (vessel?._routeDirection === 'north') return 1;
++  if (vessel?._routeDirection === 'south') return -1;
++  return 0;
++}
++
+ /**
+  * Ett notifierat besök vid en bro eller Kanalinfarten varar tills faktisk utfärd och
+  * återkomst observerats. Tystnad, förtöjning och ny resa är inga utfärdsbevis.
+@@ -22,6 +40,17 @@ const MAX_ENTRIES = 2048;
+  * bortom sista punkten och reentry-blocket kastar båtens AIS i 10 min, så de
+  * två utfärdsfixarna kunde aldrig observeras där. Besöket blev evigt öppet,
+  * och en båt som återvände dagar senare tappade sin första notis.
++ *
++ * U14 (användarbeslut 2026-11-04): en VERKLIG passage tillbaka över en bro
++ * avslutar också besöket, så att returpassagen får en egen notis (INV-5/7, en
++ * notis per passage). Besöket minns vilken sida av brolinjen den notifierade
++ * passagen leder till (farSign) och när båten senast setts entydigt där
++ * (farSideFixTs). Släppet sker i releaseReturnPassage och kräver alla fyra
++ * bevisen: båten har setts på bortre sidan, appen har därefter bokfört en ny
++ * passage av samma bro, båten är inte längre entydigt på bortre sidan och
++ * ruttriktningen pekar tillbaka. En båt som guppar eller väntar vid bron
++ * bokförs inte som passerad och vänder inte ruttriktningen, så den får
++ * fortfarande bara en notis per besök.
+  */
+ class TriggerPointVisitTracker {
+   constructor({ logger = null, now = () => Date.now() } = {}) {
+@@ -105,6 +134,17 @@ class TriggerPointVisitTracker {
+     entry.lastLat = vessel.lat;
+     entry.lastLon = vessel.lon;
+     entry.lastPositionTs = sample.positionTs;
++    // U14: minns senaste rena fixen entydigt på bortre sidan. Positionen räcker
++    // som bevis för att båten kom igenom: utpassagen kan ha skett i ett AIS-glapp
++    // som appen aldrig bokförde (ELFKUNGEN vid Stallbackabron 13/7). Släppet
++    // kräver ändå appens egen bokföring av returen. Första gången är ett fasbyte
++    // som sparas; senare uppdateringar följer med nästa snapshot.
++    let farSideNoted = false;
++    if (entry.exitedAt === null && entry.farSign && BRIDGE_NAMES.has(pointName)
++        && geometry.decisiveBridgeSide(vessel, point) === entry.farSign) {
++      farSideNoted = entry.farSideFixTs === null;
++      entry.farSideFixTs = sample.fixTs;
++    }
+     // Andra rena utanförfixen kan samtidigt bevisa återkomst genom zonen.
+     // ELFKUNGEN vid Stallbackabron: 450 m norr → 1752 m söder. Att först
+     // bara markera utfärd skulle blockera den redan observerade returen.
+@@ -137,21 +177,75 @@ class TriggerPointVisitTracker {
+       entry.outsideFixTs = null;
+       return { changed: true, reentered: false };
+     }
+-    return { changed: false, reentered: false };
++    return { changed: farSideNoted, reentered: false };
++  }
++
++  /**
++   * U14 (användarbeslut 2026-11-04): avslutar ett öppet brobesök när appen
++   * just har bokfört en VERKLIG passage tillbaka över bron. Anropas av appen
++   * i notisbeslutet, efter tickens egen passagebokföring, så att returpassagen
++   * får sin egen notis i samma tick. Alla villkor krävs:
++   *  1. besöket har sett båten entydigt på bortre sidan (farSideFixTs);
++   *  2. appens senaste bokförda passage gäller den här bron, gjordes efter den
++   *     observationen och är högst maxBookingAgeMs gammal;
++   *  3. båten ligger inte längre entydigt på bortre sidan (en dubbel eller sen
++   *     bokföring av utpassagen lämnar henne där);
++   *  4. ruttriktningen pekar tillbaka, bort från bortre sidan.
++   * Positionen måste klara samma renhetskrav som observe (_sample) och får inte
++   * vara äldre än besökets senaste fix. Ett stängt besök (exitedAt) rörs inte;
++   * där gäller återkomstregeln.
++   * @param {Object} vessel - fartyget med tickens passagebokföring
++   * @param {string} pointName - brons namn
++   * @param {number} maxBookingAgeMs - hur färsk bokföringen måste vara
++   * @returns {boolean} true om besöket avslutades
++   */
++  releaseReturnPassage(vessel, pointName, maxBookingAgeMs) {
++    const point = POINTS.get(pointName);
++    const key = this._key(vessel?.mmsi, pointName);
++    const entry = key === null ? null : this._entries.get(key);
++    if (!entry || entry.exitedAt !== null || !BRIDGE_NAMES.has(pointName)
++        || !entry.farSign || !Number.isFinite(entry.farSideFixTs)) return false;
++    const sample = this._sample(vessel, point);
++    if (!sample || sample.fixTs < entry.lastFixTs) return false;
++    const bookedAt = vessel.lastPassedBridgeTime;
++    const now = this._now();
++    if (vessel.lastPassedBridge !== pointName || !Number.isFinite(bookedAt)
++        || bookedAt <= entry.farSideFixTs || now - bookedAt >= maxBookingAgeMs
++        || bookedAt - now > AIS_CONFIG.AISHUB.SEEN_MAX_FUTURE_SKEW_MS) return false;
++    if (geometry.decisiveBridgeSide(vessel, point) === entry.farSign) return false;
++    if (routeSign(vessel) !== -entry.farSign) return false;
++    this._entries.delete(key);
++    return true;
+   }
+ 
+   /**
+    * Reserveras före async Flow-anrop; null innebär att ingen ny post ägs.
+    * En historisk passage-fallback långt utanför området bevisar ingen
+    * pågående vistelse där. Den behåller appens äldre passage-dedup.
++   *
++   * U14: `passageBehind` säger att notisen gäller en passage som redan skett
++   * (passerad form). Då ligger ankomstpositionen på bortre sidan. Annars ligger
++   * den passage notisen gäller framför båten, och bortre sidan är den motsatta.
++   * Ligger ankomsten på linjen (±10 m) går passagen i ruttriktningen.
++   * @param {Object} vessel
++   * @param {string} [pointName]
++   * @param {{passageBehind?: boolean}} [options]
+    */
+-  reserve(vessel, pointName = 'Kanalinfarten') {
++  reserve(vessel, pointName = 'Kanalinfarten', { passageBehind = false } = {}) {
+     const point = POINTS.get(pointName);
+     const key = this._key(vessel?.mmsi, pointName);
+     const sample = key !== null && this._sample(vessel, point);
+     if (!sample || sample.distance > point.radius + 50 || this._entries.has(key)) return null;
+     this._pruneDeparted();
+     this._makeRoom();
++    let farSign = 0;
++    let farSideFixTs = null;
++    if (BRIDGE_NAMES.has(pointName)) {
++      const arrivalSide = geometry.decisiveBridgeSide(vessel, point);
++      if (arrivalSide === 0) farSign = routeSign(vessel);
++      else farSign = passageBehind ? arrivalSide : -arrivalSide;
++      if (passageBehind && arrivalSide !== 0) farSideFixTs = sample.fixTs;
++    }
+     const entry = {
+       startedAt: this._now(),
+       lastFixTs: sample.fixTs,
+@@ -162,6 +256,8 @@ class TriggerPointVisitTracker {
+       lastPositionTs: sample.positionTs,
+       arrivalLat: vessel.lat,
+       arrivalLon: vessel.lon,
++      farSign,
++      farSideFixTs,
+     };
+     this._entries.set(key, entry);
+     return entry;
+@@ -271,6 +367,12 @@ class TriggerPointVisitTracker {
+           || !Number.isFinite(geometry.calculateDistance(entry.lastLat, entry.lastLon, point.lat, point.lon)))) continue;
+       if (entry.exitedAt !== null && now - entry.exitedAt > DEPARTED_RETENTION_MS) continue;
+       const hasArrival = Number.isFinite(geometry.calculateDistance(entry.arrivalLat, entry.arrivalLon, point.lat, point.lon));
++      // U14-fälten är frivilliga. Äldre poster och skadade värden ger inget
++      // returpassagesläpp, alltså samma beteende som före U14.
++      const farSign = BRIDGE_NAMES.has(parts[1]) && (entry.farSign === 1 || entry.farSign === -1)
++        ? entry.farSign : 0;
++      const farSideFixTs = farSign !== 0 && validTime(entry.farSideFixTs) && entry.farSideFixTs <= entry.lastFixTs
++        ? entry.farSideFixTs : null;
+       this._entries.set(key, {
+         startedAt: entry.startedAt,
+         lastFixTs: entry.lastFixTs,
+@@ -281,6 +383,8 @@ class TriggerPointVisitTracker {
+         lastPositionTs: hasPosition ? entry.lastPositionTs : null,
+         arrivalLat: hasArrival ? entry.arrivalLat : null,
+         arrivalLon: hasArrival ? entry.arrivalLon : null,
++        farSign,
++        farSideFixTs,
+       });
+     }
+     return this._entries.size;
+diff --git a/lib/utils/geometry.js b/lib/utils/geometry.js
+index 60b226f..aedf676 100644
+--- a/lib/utils/geometry.js
++++ b/lib/utils/geometry.js
+@@ -483,6 +483,34 @@ function hasChangedBridgeSide(prevPos, currPos, bridge) {
+   return (projPrev < 0 && projCurr > 0) || (projPrev > 0 && projCurr < 0);
+ }
+ 
++/**
++ * U14 (användarbeslut 2026-11-04): på vilken sida om brolinjen ligger en
++ * position, ENTYDIGT? Samma kanalaxelprojektion och samma ±10 m-epsilon som
++ * isDecisivelyOppositeBridgeSide, som numera bygger på den här funktionen, så
++ * "entydig sida" betyder exakt samma sak överallt där den används.
++ * +1 = nordöstra sidan (norrgående färd ökar projektionen), −1 = sydvästra
++ * sidan och 0 = oavgörbart (på linjen, ogiltig position eller ogiltig bro).
++ * @param {Object} pos - {lat, lon}
++ * @param {Object} bridge - {lat, lon, axisBearing?}
++ * @returns {number} +1, −1 eller 0
++ */
++function decisiveBridgeSide(pos, bridge) {
++  if (!pos || !bridge) return 0;
++  if (!Number.isFinite(pos.lat) || !Number.isFinite(pos.lon)
++      || !Number.isFinite(bridge.lat) || !Number.isFinite(bridge.lon)) {
++    return 0;
++  }
++  const bridgeBearing = bridge.axisBearing || 125;
++  const perpBearing = ((bridgeBearing - 90) * Math.PI) / 180;
++  const latScale = 111320;
++  const lonScale = 111320 * Math.cos((bridge.lat * Math.PI) / 180);
++  const proj = (pos.lat - bridge.lat) * latScale * Math.cos(perpBearing)
++    + (pos.lon - bridge.lon) * lonScale * Math.sin(perpBearing);
++  const ON_LINE_EPSILON_M = 10;
++  if (!Number.isFinite(proj) || Math.abs(proj) <= ON_LINE_EPSILON_M) return 0;
++  return proj > 0 ? 1 : -1;
++}
++
+ /**
+  * Fable-granskningen 2026-07-10b (G-1): avgör om två positioner ligger
+  * ENTYDIGT på motsatta sidor om brolinjen (båda >10 m från linjen).
+@@ -498,26 +526,9 @@ function hasChangedBridgeSide(prevPos, currPos, bridge) {
+  * @returns {boolean} True endast vid entydigt motsatta sidor
+  */
+ function isDecisivelyOppositeBridgeSide(posA, posB, bridge) {
+-  if (!posA || !posB || !bridge) return false;
+-  if (!Number.isFinite(posA.lat) || !Number.isFinite(posA.lon)
+-      || !Number.isFinite(posB.lat) || !Number.isFinite(posB.lon)
+-      || !Number.isFinite(bridge.lat) || !Number.isFinite(bridge.lon)) {
+-    return false;
+-  }
+-  const bridgeBearing = bridge.axisBearing || 125;
+-  const perpBearing = ((bridgeBearing - 90) * Math.PI) / 180;
+-  const latScale = 111320;
+-  const lonScale = 111320 * Math.cos((bridge.lat * Math.PI) / 180);
+-  const projA = (posA.lat - bridge.lat) * latScale * Math.cos(perpBearing)
+-    + (posA.lon - bridge.lon) * lonScale * Math.sin(perpBearing);
+-  const projB = (posB.lat - bridge.lat) * latScale * Math.cos(perpBearing)
+-    + (posB.lon - bridge.lon) * lonScale * Math.sin(perpBearing);
+-  if (!Number.isFinite(projA) || !Number.isFinite(projB)) return false;
+-  const ON_LINE_EPSILON_M = 10;
+-  if (Math.abs(projA) <= ON_LINE_EPSILON_M || Math.abs(projB) <= ON_LINE_EPSILON_M) {
+-    return false;
+-  }
+-  return (projA < 0 && projB > 0) || (projA > 0 && projB < 0);
++  const sideA = decisiveBridgeSide(posA, bridge);
++  const sideB = decisiveBridgeSide(posB, bridge);
++  return sideA !== 0 && sideB !== 0 && sideA !== sideB;
+ }
+ 
+ /**
+@@ -797,6 +808,7 @@ module.exports = {
+   hasCrossedBridgeLine,
+   hasCrossedBridgeLineTrajectory,
+   hasChangedBridgeSide,
++  decisiveBridgeSide,
+   isDecisivelyOppositeBridgeSide,
+   pointToTrajectoryDistance,
+   detectBridgePassage,
+diff --git a/tests/fixtures/n-b01-wilma-retur-inom-besoket.jsonl b/tests/fixtures/n-b01-wilma-retur-inom-besoket.jsonl
+new file mode 100644
+index 0000000..e74b67c
+--- /dev/null
++++ b/tests/fixtures/n-b01-wilma-retur-inom-besoket.jsonl
+@@ -0,0 +1,181 @@
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.32075009914919,"lon":12.32379366591585,"sog":4.4,"cog":199.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789434850894,"fixTs":1789434850894,"feed":"aisstream","receivedAt":"2026-09-15T01:14:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.320178662669434,"lon":12.323413766478385,"sog":4.4,"cog":199.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789434880894,"fixTs":1789434880894,"feed":"aisstream","receivedAt":"2026-09-15T01:14:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.31960722618968,"lon":12.32303386704092,"sog":4.4,"cog":199.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789434910894,"fixTs":1789434910894,"feed":"aisstream","receivedAt":"2026-09-15T01:15:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.31903578970993,"lon":12.322653967603454,"sog":4.4,"cog":199.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789434940894,"fixTs":1789434940894,"feed":"aisstream","receivedAt":"2026-09-15T01:15:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.318464353230176,"lon":12.32227406816599,"sog":4.4,"cog":199.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789434970894,"fixTs":1789434970894,"feed":"aisstream","receivedAt":"2026-09-15T01:16:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.317892916750424,"lon":12.321894168728525,"sog":4.4,"cog":199.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435000894,"fixTs":1789435000894,"feed":"aisstream","receivedAt":"2026-09-15T01:16:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.3173196527138,"lon":12.32152441641915,"sog":4.4,"cog":198.7,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435030894,"fixTs":1789435030894,"feed":"aisstream","receivedAt":"2026-09-15T01:17:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.316746178590215,"lon":12.321155830573774,"sog":4.4,"cog":198.7,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435060894,"fixTs":1789435060894,"feed":"aisstream","receivedAt":"2026-09-15T01:17:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.316171929892434,"lon":12.32079203691495,"sog":4.4,"cog":195.6,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435090894,"fixTs":1789435090894,"feed":"aisstream","receivedAt":"2026-09-15T01:18:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.315588860928365,"lon":12.320482813059446,"sog":4.4,"cog":195.6,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435120894,"fixTs":1789435120894,"feed":"aisstream","receivedAt":"2026-09-15T01:18:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.3150057919643,"lon":12.32017358920394,"sog":4.4,"cog":195.6,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435150894,"fixTs":1789435150894,"feed":"aisstream","receivedAt":"2026-09-15T01:19:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.314422593836454,"lon":12.31986526003596,"sog":4.4,"cog":195.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435180894,"fixTs":1789435180894,"feed":"aisstream","receivedAt":"2026-09-15T01:19:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.31383860953285,"lon":12.319562376525031,"sog":4.4,"cog":195.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435210894,"fixTs":1789435210894,"feed":"aisstream","receivedAt":"2026-09-15T01:20:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.31325462522924,"lon":12.319259493014101,"sog":4.4,"cog":195.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435240894,"fixTs":1789435240894,"feed":"aisstream","receivedAt":"2026-09-15T01:20:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.3126743707676,"lon":12.31893421226762,"sog":4.4,"cog":199.9,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435270894,"fixTs":1789435270894,"feed":"aisstream","receivedAt":"2026-09-15T01:21:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.31210537121244,"lon":12.318541347212273,"sog":4.4,"cog":199.9,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435300894,"fixTs":1789435300894,"feed":"aisstream","receivedAt":"2026-09-15T01:21:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.31153637165728,"lon":12.318148482156925,"sog":4.4,"cog":199.9,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435330894,"fixTs":1789435330894,"feed":"aisstream","receivedAt":"2026-09-15T01:22:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.310975368069826,"lon":12.317722396133318,"sog":4.4,"cog":209.3,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435360894,"fixTs":1789435360894,"feed":"aisstream","receivedAt":"2026-09-15T01:22:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.310447494687665,"lon":12.317158663543434,"sog":4.4,"cog":209.3,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435390894,"fixTs":1789435390894,"feed":"aisstream","receivedAt":"2026-09-15T01:23:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.309919621305504,"lon":12.316594930953553,"sog":4.4,"cog":209.3,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435420894,"fixTs":1789435420894,"feed":"aisstream","receivedAt":"2026-09-15T01:23:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30944864475798,"lon":12.316091960283151,"sog":3.8,"cog":209.3,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435450894,"fixTs":1789435450894,"feed":"aisstream","receivedAt":"2026-09-15T01:24:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30902509749146,"lon":12.315474780233869,"sog":3.8,"cog":217.5,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435480894,"fixTs":1789435480894,"feed":"aisstream","receivedAt":"2026-09-15T01:24:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30860197070469,"lon":12.314856386748152,"sog":3.8,"cog":217.5,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435510894,"fixTs":1789435510894,"feed":"aisstream","receivedAt":"2026-09-15T01:25:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30817884391793,"lon":12.314237993262434,"sog":3.8,"cog":217.5,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435540894,"fixTs":1789435540894,"feed":"aisstream","receivedAt":"2026-09-15T01:25:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30776803774151,"lon":12.313590966014722,"sog":3.8,"cog":221.1,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435570894,"fixTs":1789435570894,"feed":"aisstream","receivedAt":"2026-09-15T01:26:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.307365992804414,"lon":12.312923577174969,"sog":3.8,"cog":221.1,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435600894,"fixTs":1789435600894,"feed":"aisstream","receivedAt":"2026-09-15T01:26:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30696394786731,"lon":12.312256188335216,"sog":3.8,"cog":221.1,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435630894,"fixTs":1789435630894,"feed":"aisstream","receivedAt":"2026-09-15T01:27:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.306561647446856,"lon":12.311589363712667,"sog":3.8,"cog":220.7,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435660894,"fixTs":1789435660894,"feed":"aisstream","receivedAt":"2026-09-15T01:27:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30615727319873,"lon":12.310927118994089,"sog":3.8,"cog":220.7,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435690894,"fixTs":1789435690894,"feed":"aisstream","receivedAt":"2026-09-15T01:28:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30575289895061,"lon":12.310264874275513,"sog":3.8,"cog":220.7,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435720894,"fixTs":1789435720894,"feed":"aisstream","receivedAt":"2026-09-15T01:28:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30534852470248,"lon":12.309602629556936,"sog":3.8,"cog":220.7,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435750894,"fixTs":1789435750894,"feed":"aisstream","receivedAt":"2026-09-15T01:29:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30493192595827,"lon":12.308968799692291,"sog":3.8,"cog":218,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435780894,"fixTs":1789435780894,"feed":"aisstream","receivedAt":"2026-09-15T01:29:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.304511282897224,"lon":12.308344370515517,"sog":3.8,"cog":218,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435810894,"fixTs":1789435810894,"feed":"aisstream","receivedAt":"2026-09-15T01:30:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30409063983618,"lon":12.30771994133874,"sog":3.8,"cog":218,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435840894,"fixTs":1789435840894,"feed":"aisstream","receivedAt":"2026-09-15T01:30:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30366578308813,"lon":12.307106173611837,"sog":3.8,"cog":216,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435870894,"fixTs":1789435870894,"feed":"aisstream","receivedAt":"2026-09-15T01:31:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30323419914485,"lon":12.306509427000721,"sog":3.8,"cog":216,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435900894,"fixTs":1789435900894,"feed":"aisstream","receivedAt":"2026-09-15T01:31:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.302802615201585,"lon":12.305912680389604,"sog":3.8,"cog":216,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435930894,"fixTs":1789435930894,"feed":"aisstream","receivedAt":"2026-09-15T01:32:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.302368472288094,"lon":12.305323069167262,"sog":3.8,"cog":212.7,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435960894,"fixTs":1789435960894,"feed":"aisstream","receivedAt":"2026-09-15T01:32:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.301919349317856,"lon":12.30477522807881,"sog":3.8,"cog":212.7,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789435990894,"fixTs":1789435990894,"feed":"aisstream","receivedAt":"2026-09-15T01:33:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30147022634762,"lon":12.304227386990359,"sog":3.8,"cog":212.7,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436020894,"fixTs":1789436020894,"feed":"aisstream","receivedAt":"2026-09-15T01:33:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30102110337738,"lon":12.303679545901907,"sog":3.8,"cog":212.7,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436050894,"fixTs":1789436050894,"feed":"aisstream","receivedAt":"2026-09-15T01:34:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.3005648960699,"lon":12.303153534669253,"sog":3.8,"cog":210.8,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436080894,"fixTs":1789436080894,"feed":"aisstream","receivedAt":"2026-09-15T01:34:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30010660434191,"lon":12.302633946422649,"sog":3.8,"cog":210.8,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436110894,"fixTs":1789436110894,"feed":"aisstream","receivedAt":"2026-09-15T01:35:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29964831261393,"lon":12.302114358176045,"sog":3.8,"cog":210.8,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436140894,"fixTs":1789436140894,"feed":"aisstream","receivedAt":"2026-09-15T01:35:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29918689748567,"lon":12.30160524918245,"sog":3.8,"cog":208.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436170894,"fixTs":1789436170894,"feed":"aisstream","receivedAt":"2026-09-15T01:36:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29871750761579,"lon":12.30112289607275,"sog":3.8,"cog":208.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436200894,"fixTs":1789436200894,"feed":"aisstream","receivedAt":"2026-09-15T01:36:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29824811774591,"lon":12.30064054296305,"sog":3.8,"cog":208.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436230894,"fixTs":1789436230894,"feed":"aisstream","receivedAt":"2026-09-15T01:37:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29777872787604,"lon":12.30015818985335,"sog":3.8,"cog":208.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436260894,"fixTs":1789436260894,"feed":"aisstream","receivedAt":"2026-09-15T01:37:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29731616813402,"lon":12.299652554013667,"sog":3.8,"cog":209.9,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436290894,"fixTs":1789436290894,"feed":"aisstream","receivedAt":"2026-09-15T01:38:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29685386079562,"lon":12.29914605777345,"sog":3.8,"cog":209.9,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436320894,"fixTs":1789436320894,"feed":"aisstream","receivedAt":"2026-09-15T01:38:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29639155345723,"lon":12.298639561533234,"sog":3.8,"cog":209.9,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436350894,"fixTs":1789436350894,"feed":"aisstream","receivedAt":"2026-09-15T01:39:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.295944588073084,"lon":12.29808671452262,"sog":3.8,"cog":214.5,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436380894,"fixTs":1789436380894,"feed":"aisstream","receivedAt":"2026-09-15T01:39:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.295504743476904,"lon":12.29751235434605,"sog":3.8,"cog":214.5,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436410894,"fixTs":1789436410894,"feed":"aisstream","receivedAt":"2026-09-15T01:40:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29506489888072,"lon":12.296937994169479,"sog":3.8,"cog":214.5,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436440894,"fixTs":1789436440894,"feed":"aisstream","receivedAt":"2026-09-15T01:40:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.294631006191615,"lon":12.296347947473405,"sog":3.8,"cog":217.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436470894,"fixTs":1789436470894,"feed":"aisstream","receivedAt":"2026-09-15T01:41:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.294205873465046,"lon":12.295734813501026,"sog":3.8,"cog":217.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436500894,"fixTs":1789436500894,"feed":"aisstream","receivedAt":"2026-09-15T01:41:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.293780740738484,"lon":12.295121679528645,"sog":3.8,"cog":217.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436530894,"fixTs":1789436530894,"feed":"aisstream","receivedAt":"2026-09-15T01:42:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.2933710888511,"lon":12.294530872297612,"sog":2.9,"cog":217.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436560894,"fixTs":1789436560894,"feed":"aisstream","receivedAt":"2026-09-15T01:42:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29306646684239,"lon":12.294099142476123,"sog":2.7,"cog":216.6,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436590894,"fixTs":1789436590894,"feed":"aisstream","receivedAt":"2026-09-15T01:43:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29276154207595,"lon":12.293669051178602,"sog":2.7,"cog":216.6,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436620894,"fixTs":1789436620894,"feed":"aisstream","receivedAt":"2026-09-15T01:43:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29245661730951,"lon":12.293238959881084,"sog":2.7,"cog":216.6,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436650894,"fixTs":1789436650894,"feed":"aisstream","receivedAt":"2026-09-15T01:44:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29215169254308,"lon":12.292808868583563,"sog":2.7,"cog":216.6,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436680894,"fixTs":1789436680894,"feed":"aisstream","receivedAt":"2026-09-15T01:44:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29184676777664,"lon":12.292378777286043,"sog":2.7,"cog":216.6,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436710894,"fixTs":1789436710894,"feed":"aisstream","receivedAt":"2026-09-15T01:45:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29152871435412,"lon":12.29196340415211,"sog":3,"cog":214.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436740894,"fixTs":1789436740894,"feed":"aisstream","receivedAt":"2026-09-15T01:45:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.291190124591175,"lon":12.291522331903835,"sog":3,"cog":214.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436770894,"fixTs":1789436770894,"feed":"aisstream","receivedAt":"2026-09-15T01:46:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29085153482823,"lon":12.29108125965556,"sog":3,"cog":214.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436800894,"fixTs":1789436800894,"feed":"aisstream","receivedAt":"2026-09-15T01:46:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29051294506528,"lon":12.290640187407284,"sog":3,"cog":214.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436830894,"fixTs":1789436830894,"feed":"aisstream","receivedAt":"2026-09-15T01:47:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29017285032425,"lon":12.290203382121662,"sog":3,"cog":213.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436860894,"fixTs":1789436860894,"feed":"aisstream","receivedAt":"2026-09-15T01:47:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28983033004827,"lon":12.289773453791334,"sog":3,"cog":213.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436890894,"fixTs":1789436890894,"feed":"aisstream","receivedAt":"2026-09-15T01:48:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.2894878097723,"lon":12.289343525461005,"sog":3,"cog":213.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436920894,"fixTs":1789436920894,"feed":"aisstream","receivedAt":"2026-09-15T01:48:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28914528949632,"lon":12.288913597130676,"sog":3,"cog":213.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436950894,"fixTs":1789436950894,"feed":"aisstream","receivedAt":"2026-09-15T01:49:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28880276598636,"lon":12.288483678567511,"sog":3,"cog":213.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789436980894,"fixTs":1789436980894,"feed":"aisstream","receivedAt":"2026-09-15T01:49:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28846011112943,"lon":12.28805415669335,"sog":3,"cog":213.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437010894,"fixTs":1789437010894,"feed":"aisstream","receivedAt":"2026-09-15T01:50:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28811745627251,"lon":12.287624634819188,"sog":3,"cog":213.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437040894,"fixTs":1789437040894,"feed":"aisstream","receivedAt":"2026-09-15T01:50:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28777480141559,"lon":12.287195112945026,"sog":3,"cog":213.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437070894,"fixTs":1789437070894,"feed":"aisstream","receivedAt":"2026-09-15T01:51:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.287432146558665,"lon":12.286765591070864,"sog":3,"cog":213.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437100894,"fixTs":1789437100894,"feed":"aisstream","receivedAt":"2026-09-15T01:51:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28707376195963,"lon":12.28638777816359,"sog":3,"cog":206.7,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437130894,"fixTs":1789437130894,"feed":"aisstream","receivedAt":"2026-09-15T01:52:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28670731162777,"lon":12.286036480040112,"sog":3,"cog":206.7,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437160894,"fixTs":1789437160894,"feed":"aisstream","receivedAt":"2026-09-15T01:52:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28634086129592,"lon":12.285685181916634,"sog":3,"cog":206.7,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437190894,"fixTs":1789437190894,"feed":"aisstream","receivedAt":"2026-09-15T01:53:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28597441096406,"lon":12.285333883793156,"sog":3,"cog":206.7,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437220894,"fixTs":1789437220894,"feed":"aisstream","receivedAt":"2026-09-15T01:53:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28559939491341,"lon":12.285021853355774,"sog":3,"cog":198.3,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437250894,"fixTs":1789437250894,"feed":"aisstream","receivedAt":"2026-09-15T01:54:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28520987103641,"lon":12.284776330912043,"sog":3,"cog":198.3,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437280894,"fixTs":1789437280894,"feed":"aisstream","receivedAt":"2026-09-15T01:54:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.2848203471594,"lon":12.284530808468313,"sog":3,"cog":198.3,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437310894,"fixTs":1789437310894,"feed":"aisstream","receivedAt":"2026-09-15T01:55:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.2844308232824,"lon":12.284285286024582,"sog":3,"cog":198.3,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437340894,"fixTs":1789437340894,"feed":"aisstream","receivedAt":"2026-09-15T01:55:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.2840392533318,"lon":12.284053554803629,"sog":3,"cog":193.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437370894,"fixTs":1789437370894,"feed":"aisstream","receivedAt":"2026-09-15T01:56:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28359294548943,"lon":12.283854576945371,"sog":3.3,"cog":193.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437400894,"fixTs":1789437400894,"feed":"aisstream","receivedAt":"2026-09-15T01:56:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28314348128907,"lon":12.283654191884974,"sog":3.3,"cog":193.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437430894,"fixTs":1789437430894,"feed":"aisstream","receivedAt":"2026-09-15T01:57:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28271506985455,"lon":12.283463192799587,"sog":2.3,"cog":193.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437460894,"fixTs":1789437460894,"feed":"aisstream","receivedAt":"2026-09-15T01:57:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28267515205385,"lon":12.283445396207785,"sog":1.4,"cog":13.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437490894,"fixTs":1789437490894,"feed":"aisstream","receivedAt":"2026-09-15T01:58:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28301046996337,"lon":12.283594891316625,"sog":3.1,"cog":13.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437520894,"fixTs":1789437520894,"feed":"aisstream","receivedAt":"2026-09-15T01:58:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.283429969883706,"lon":12.283781917372997,"sog":3.1,"cog":13.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437550894,"fixTs":1789437550894,"feed":"aisstream","receivedAt":"2026-09-15T01:59:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28384946980404,"lon":12.283968943429366,"sog":3.1,"cog":13.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437580894,"fixTs":1789437580894,"feed":"aisstream","receivedAt":"2026-09-15T01:59:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28420949683638,"lon":12.28414578081554,"sog":2,"cog":18.3,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437610894,"fixTs":1789437610894,"feed":"aisstream","receivedAt":"2026-09-15T02:00:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28447826831152,"lon":12.284315191301715,"sog":2,"cog":18.3,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437640894,"fixTs":1789437640894,"feed":"aisstream","receivedAt":"2026-09-15T02:00:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28474703978665,"lon":12.28448460178789,"sog":2,"cog":18.3,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437670894,"fixTs":1789437670894,"feed":"aisstream","receivedAt":"2026-09-15T02:01:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28501581126178,"lon":12.284654012274062,"sog":2,"cog":18.3,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437700894,"fixTs":1789437700894,"feed":"aisstream","receivedAt":"2026-09-15T02:01:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.285284582736914,"lon":12.284823422760237,"sog":2,"cog":18.3,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437730894,"fixTs":1789437730894,"feed":"aisstream","receivedAt":"2026-09-15T02:02:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28555335421205,"lon":12.28499283324641,"sog":2,"cog":18.3,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437760894,"fixTs":1789437760894,"feed":"aisstream","receivedAt":"2026-09-15T02:02:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28581749789238,"lon":12.285183458857393,"sog":2,"cog":26.7,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437790894,"fixTs":1789437790894,"feed":"aisstream","receivedAt":"2026-09-15T02:03:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.286070348621365,"lon":12.285425854562593,"sog":2,"cog":26.7,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437820894,"fixTs":1789437820894,"feed":"aisstream","receivedAt":"2026-09-15T02:03:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28632319935034,"lon":12.285668250267793,"sog":2,"cog":26.7,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437850894,"fixTs":1789437850894,"feed":"aisstream","receivedAt":"2026-09-15T02:04:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.286576050079326,"lon":12.285910645972994,"sog":2,"cog":26.7,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437880894,"fixTs":1789437880894,"feed":"aisstream","receivedAt":"2026-09-15T02:04:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28682890080831,"lon":12.286153041678194,"sog":2,"cog":26.7,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437910894,"fixTs":1789437910894,"feed":"aisstream","receivedAt":"2026-09-15T02:05:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.287081751537286,"lon":12.286395437383394,"sog":2,"cog":26.7,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437940894,"fixTs":1789437940894,"feed":"aisstream","receivedAt":"2026-09-15T02:05:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28733339432696,"lon":12.286641803992458,"sog":2,"cog":33.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789437970894,"fixTs":1789437970894,"feed":"aisstream","receivedAt":"2026-09-15T02:06:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.287569826178235,"lon":12.28693817408563,"sog":2,"cog":33.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438000894,"fixTs":1789438000894,"feed":"aisstream","receivedAt":"2026-09-15T02:06:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28780625802951,"lon":12.287234544178801,"sog":2,"cog":33.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438030894,"fixTs":1789438030894,"feed":"aisstream","receivedAt":"2026-09-15T02:07:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28804268988079,"lon":12.287530914271972,"sog":2,"cog":33.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438060894,"fixTs":1789438060894,"feed":"aisstream","receivedAt":"2026-09-15T02:07:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28827912173207,"lon":12.287827284365145,"sog":2,"cog":33.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438090894,"fixTs":1789438090894,"feed":"aisstream","receivedAt":"2026-09-15T02:08:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.288515553583345,"lon":12.288123654458316,"sog":2,"cog":33.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438120894,"fixTs":1789438120894,"feed":"aisstream","receivedAt":"2026-09-15T02:08:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28875198543462,"lon":12.288420024551488,"sog":2,"cog":33.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438150894,"fixTs":1789438150894,"feed":"aisstream","receivedAt":"2026-09-15T02:09:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28898834760357,"lon":12.288716605096512,"sog":2,"cog":33.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438180894,"fixTs":1789438180894,"feed":"aisstream","receivedAt":"2026-09-15T02:09:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.289224686594,"lon":12.28901325564444,"sog":2,"cog":33.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438210894,"fixTs":1789438210894,"feed":"aisstream","receivedAt":"2026-09-15T02:10:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28946102558442,"lon":12.289309906192365,"sog":2,"cog":33.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438240894,"fixTs":1789438240894,"feed":"aisstream","receivedAt":"2026-09-15T02:10:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28969736457484,"lon":12.289606556740292,"sog":2,"cog":33.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438270894,"fixTs":1789438270894,"feed":"aisstream","receivedAt":"2026-09-15T02:11:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.28993370356527,"lon":12.28990320728822,"sog":2,"cog":33.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438300894,"fixTs":1789438300894,"feed":"aisstream","receivedAt":"2026-09-15T02:11:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29017004255569,"lon":12.290199857836145,"sog":2,"cog":33.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438330894,"fixTs":1789438330894,"feed":"aisstream","receivedAt":"2026-09-15T02:12:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29040520669012,"lon":12.290499839373883,"sog":2,"cog":34.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438360894,"fixTs":1789438360894,"feed":"aisstream","receivedAt":"2026-09-15T02:12:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29063883362655,"lon":12.290804179225193,"sog":2,"cog":34.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438390894,"fixTs":1789438390894,"feed":"aisstream","receivedAt":"2026-09-15T02:13:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29087246056298,"lon":12.291108519076502,"sog":2,"cog":34.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438420894,"fixTs":1789438420894,"feed":"aisstream","receivedAt":"2026-09-15T02:13:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.291106087499415,"lon":12.291412858927812,"sog":2,"cog":34.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438450894,"fixTs":1789438450894,"feed":"aisstream","receivedAt":"2026-09-15T02:14:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29133971443585,"lon":12.291717198779123,"sog":2,"cog":34.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438480894,"fixTs":1789438480894,"feed":"aisstream","receivedAt":"2026-09-15T02:14:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.291573341372285,"lon":12.292021538630433,"sog":2,"cog":34.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438510894,"fixTs":1789438510894,"feed":"aisstream","receivedAt":"2026-09-15T02:15:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29189068803503,"lon":12.292440726077999,"sog":3.5,"cog":36.6,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438540894,"fixTs":1789438540894,"feed":"aisstream","receivedAt":"2026-09-15T02:15:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29228626611041,"lon":12.292998682355861,"sog":3.5,"cog":36.6,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438570894,"fixTs":1789438570894,"feed":"aisstream","receivedAt":"2026-09-15T02:16:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.292681844185786,"lon":12.293556638633724,"sog":3.5,"cog":36.6,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438600894,"fixTs":1789438600894,"feed":"aisstream","receivedAt":"2026-09-15T02:16:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29307742226116,"lon":12.294114594911589,"sog":3.5,"cog":36.6,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438630894,"fixTs":1789438630894,"feed":"aisstream","receivedAt":"2026-09-15T02:17:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29347167140869,"lon":12.294675934249401,"sog":3.5,"cog":37.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438660894,"fixTs":1789438660894,"feed":"aisstream","receivedAt":"2026-09-15T02:17:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29392009241185,"lon":12.295322654988096,"sog":4.1,"cog":37.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438690894,"fixTs":1789438690894,"feed":"aisstream","receivedAt":"2026-09-15T02:18:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.294377927655844,"lon":12.295982953112198,"sog":4.1,"cog":37.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438720894,"fixTs":1789438720894,"feed":"aisstream","receivedAt":"2026-09-15T02:18:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29483689667167,"lon":12.296640263129506,"sog":4.1,"cog":34.5,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438750894,"fixTs":1789438750894,"feed":"aisstream","receivedAt":"2026-09-15T02:19:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29531057546756,"lon":12.29725880485812,"sog":4.1,"cog":34.5,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438780894,"fixTs":1789438780894,"feed":"aisstream","receivedAt":"2026-09-15T02:19:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.295784254263445,"lon":12.297877346586734,"sog":4.1,"cog":34.5,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438810894,"fixTs":1789438810894,"feed":"aisstream","receivedAt":"2026-09-15T02:20:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29625859354711,"lon":12.298493892864403,"sog":4.1,"cog":29.9,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438840894,"fixTs":1789438840894,"feed":"aisstream","receivedAt":"2026-09-15T02:20:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.296756462988455,"lon":12.299039350353867,"sog":4.1,"cog":29.9,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438870894,"fixTs":1789438870894,"feed":"aisstream","receivedAt":"2026-09-15T02:21:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.2972543324298,"lon":12.299584807843331,"sog":4.1,"cog":29.9,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438900894,"fixTs":1789438900894,"feed":"aisstream","receivedAt":"2026-09-15T02:21:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29775220187115,"lon":12.300130265332795,"sog":4.1,"cog":29.9,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438930894,"fixTs":1789438930894,"feed":"aisstream","receivedAt":"2026-09-15T02:22:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29825754854711,"lon":12.300650234216691,"sog":4.1,"cog":28.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438960894,"fixTs":1789438960894,"feed":"aisstream","receivedAt":"2026-09-15T02:22:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29876304533006,"lon":12.301169691411753,"sog":4.1,"cog":28.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789438990894,"fixTs":1789438990894,"feed":"aisstream","receivedAt":"2026-09-15T02:23:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.299268542113005,"lon":12.301689148606815,"sog":4.1,"cog":28.4,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439020894,"fixTs":1789439020894,"feed":"aisstream","receivedAt":"2026-09-15T02:23:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.29976328006506,"lon":12.302244702523758,"sog":4.1,"cog":30.8,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439050894,"fixTs":1789439050894,"feed":"aisstream","receivedAt":"2026-09-15T02:24:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30025682500289,"lon":12.302804259097025,"sog":4.1,"cog":30.8,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439080894,"fixTs":1789439080894,"feed":"aisstream","receivedAt":"2026-09-15T02:24:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30075036994072,"lon":12.303363815670291,"sog":4.1,"cog":30.8,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439110894,"fixTs":1789439110894,"feed":"aisstream","receivedAt":"2026-09-15T02:25:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30123741450853,"lon":12.303943402648029,"sog":4.1,"cog":32.7,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439140894,"fixTs":1789439140894,"feed":"aisstream","receivedAt":"2026-09-15T02:25:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.301721085399556,"lon":12.304533385358669,"sog":4.1,"cog":32.7,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439170894,"fixTs":1789439170894,"feed":"aisstream","receivedAt":"2026-09-15T02:26:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.302204756290585,"lon":12.305123368069308,"sog":4.1,"cog":32.7,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439200894,"fixTs":1789439200894,"feed":"aisstream","receivedAt":"2026-09-15T02:26:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30267849136114,"lon":12.305741055651712,"sog":4.1,"cog":36,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439230894,"fixTs":1789439230894,"feed":"aisstream","receivedAt":"2026-09-15T02:27:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30314327406928,"lon":12.3063837058483,"sog":4.1,"cog":36,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439260894,"fixTs":1789439260894,"feed":"aisstream","receivedAt":"2026-09-15T02:27:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30360805677742,"lon":12.307026356044886,"sog":4.1,"cog":36,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439290894,"fixTs":1789439290894,"feed":"aisstream","receivedAt":"2026-09-15T02:28:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.304066734076656,"lon":12.307684454116623,"sog":4.1,"cog":38,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439320894,"fixTs":1789439320894,"feed":"aisstream","receivedAt":"2026-09-15T02:28:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30451973429624,"lon":12.308356916306996,"sog":4.1,"cog":38,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439350894,"fixTs":1789439350894,"feed":"aisstream","receivedAt":"2026-09-15T02:29:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30497273451583,"lon":12.309029378497371,"sog":4.1,"cog":38,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439380894,"fixTs":1789439380894,"feed":"aisstream","receivedAt":"2026-09-15T02:29:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30541886065754,"lon":12.309717818926634,"sog":4.1,"cog":40.7,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439410894,"fixTs":1789439410894,"feed":"aisstream","receivedAt":"2026-09-15T02:30:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30585434061706,"lon":12.31043100554664,"sog":4.1,"cog":40.7,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439440894,"fixTs":1789439440894,"feed":"aisstream","receivedAt":"2026-09-15T02:30:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30628982057658,"lon":12.311144192166646,"sog":4.1,"cog":40.7,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439470894,"fixTs":1789439470894,"feed":"aisstream","receivedAt":"2026-09-15T02:31:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30672461333098,"lon":12.311858896431302,"sog":4.1,"cog":41.1,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439500894,"fixTs":1789439500894,"feed":"aisstream","receivedAt":"2026-09-15T02:31:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.3071575848017,"lon":12.312577622874112,"sog":4.1,"cog":41.1,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439530894,"fixTs":1789439530894,"feed":"aisstream","receivedAt":"2026-09-15T02:32:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30759055627242,"lon":12.313296349316925,"sog":4.1,"cog":41.1,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439560894,"fixTs":1789439560894,"feed":"aisstream","receivedAt":"2026-09-15T02:32:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.308024604147185,"lon":12.314012574138774,"sog":4.1,"cog":37.5,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439590894,"fixTs":1789439590894,"feed":"aisstream","receivedAt":"2026-09-15T02:33:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30848027914831,"lon":12.314678536354162,"sog":4.1,"cog":37.5,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439620894,"fixTs":1789439620894,"feed":"aisstream","receivedAt":"2026-09-15T02:33:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30893595414944,"lon":12.31534449856955,"sog":4.1,"cog":37.5,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439650894,"fixTs":1789439650894,"feed":"aisstream","receivedAt":"2026-09-15T02:34:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30939162915057,"lon":12.316010460784938,"sog":4.1,"cog":37.5,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439680894,"fixTs":1789439680894,"feed":"aisstream","receivedAt":"2026-09-15T02:34:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.30988744857963,"lon":12.316560572687546,"sog":4.1,"cog":29.3,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439710894,"fixTs":1789439710894,"feed":"aisstream","receivedAt":"2026-09-15T02:35:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.31041869551494,"lon":12.317127908000959,"sog":4.4,"cog":29.3,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439740894,"fixTs":1789439740894,"feed":"aisstream","receivedAt":"2026-09-15T02:35:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.310953726502284,"lon":12.31769928442257,"sog":4.4,"cog":29.3,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439770894,"fixTs":1789439770894,"feed":"aisstream","receivedAt":"2026-09-15T02:36:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.31152075926155,"lon":12.318137702597154,"sog":4.4,"cog":19.9,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439800894,"fixTs":1789439800894,"feed":"aisstream","receivedAt":"2026-09-15T02:36:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.31209747406491,"lon":12.318535894636302,"sog":4.4,"cog":19.9,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439830894,"fixTs":1789439830894,"feed":"aisstream","receivedAt":"2026-09-15T02:37:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.31267418886828,"lon":12.318934086675451,"sog":4.4,"cog":19.9,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439860894,"fixTs":1789439860894,"feed":"aisstream","receivedAt":"2026-09-15T02:37:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.31326235697079,"lon":12.31926350308254,"sog":4.4,"cog":15.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439890894,"fixTs":1789439890894,"feed":"aisstream","receivedAt":"2026-09-15T02:38:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.31385425970563,"lon":12.319570493488534,"sog":4.4,"cog":15.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439920894,"fixTs":1789439920894,"feed":"aisstream","receivedAt":"2026-09-15T02:38:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.31444616244047,"lon":12.319877483894526,"sog":4.4,"cog":15.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439950894,"fixTs":1789439950894,"feed":"aisstream","receivedAt":"2026-09-15T02:39:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.315037229646634,"lon":12.320190261813766,"sog":4.4,"cog":15.6,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789439980894,"fixTs":1789439980894,"feed":"aisstream","receivedAt":"2026-09-15T02:39:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.315628204630556,"lon":12.32050367853511,"sog":4.4,"cog":15.6,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789440010894,"fixTs":1789440010894,"feed":"aisstream","receivedAt":"2026-09-15T02:40:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.31621917665878,"lon":12.32081711354292,"sog":4.4,"cog":18.7,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789440040894,"fixTs":1789440040894,"feed":"aisstream","receivedAt":"2026-09-15T02:40:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.316800426702684,"lon":12.321190697162471,"sog":4.4,"cog":18.7,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789440070894,"fixTs":1789440070894,"feed":"aisstream","receivedAt":"2026-09-15T02:41:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.31738167674659,"lon":12.32156428078202,"sog":4.4,"cog":18.7,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789440100894,"fixTs":1789440100894,"feed":"aisstream","receivedAt":"2026-09-15T02:41:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.31796246869332,"lon":12.321940407890557,"sog":4.4,"cog":19.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789440130894,"fixTs":1789440130894,"feed":"aisstream","receivedAt":"2026-09-15T02:42:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.318541653464315,"lon":12.322325458506835,"sog":4.4,"cog":19.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789440160894,"fixTs":1789440160894,"feed":"aisstream","receivedAt":"2026-09-15T02:42:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.31912083823532,"lon":12.322710509123112,"sog":4.4,"cog":19.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789440190894,"fixTs":1789440190894,"feed":"aisstream","receivedAt":"2026-09-15T02:43:10.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.31970002300633,"lon":12.323095559739391,"sog":4.4,"cog":19.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789440220894,"fixTs":1789440220894,"feed":"aisstream","receivedAt":"2026-09-15T02:43:40.894Z"}
++{"mmsi":"265178387","msgType":"PositionReport","lat":58.32027920777733,"lon":12.323480610355668,"sog":4.4,"cog":19.2,"navStatus":0,"shipName":"WILMA","aisTimestamp":1789440250894,"fixTs":1789440250894,"feed":"aisstream","receivedAt":"2026-09-15T02:44:10.894Z"}
+diff --git a/tests/fixtures/n-w40-xenia-retur-passerad-form.jsonl b/tests/fixtures/n-w40-xenia-retur-passerad-form.jsonl
+new file mode 100644
+index 0000000..1cbc757
+--- /dev/null
++++ b/tests/fixtures/n-w40-xenia-retur-passerad-form.jsonl
+@@ -0,0 +1,60 @@
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.31604,"lon":12.31785,"sog":0.1,"cog":71.1,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790334461867,"fixTs":1790334441000,"feed":"aishub","receivedAt":"2026-09-25T11:07:41.867Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.31598,"lon":12.31785,"sog":0,"cog":null,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790334660149,"fixTs":1790334607000,"feed":"aishub","receivedAt":"2026-09-25T11:11:00.149Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.31601,"lon":12.31783,"sog":0.1,"cog":45.9,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790335071568,"fixTs":1790335034000,"feed":"aishub","receivedAt":"2026-09-25T11:17:51.568Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.31601,"lon":12.31787,"sog":0,"cog":239.4,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790335278251,"fixTs":1790335248000,"feed":"aishub","receivedAt":"2026-09-25T11:21:18.251Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.316,"lon":12.31786,"sog":0,"cog":64.1,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790335479095,"fixTs":1790335431000,"feed":"aishub","receivedAt":"2026-09-25T11:24:39.095Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.316,"lon":12.31784,"sog":0.1,"cog":null,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790335681095,"fixTs":1790335661000,"feed":"aishub","receivedAt":"2026-09-25T11:28:01.095Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.31602,"lon":12.31784,"sog":0,"cog":null,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790335886126,"fixTs":1790335841000,"feed":"aishub","receivedAt":"2026-09-25T11:31:26.126Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.31601,"lon":12.31783,"sog":0,"cog":null,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790336700979,"fixTs":1790336700000,"feed":"aishub","receivedAt":"2026-09-25T11:45:00.979Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.31601,"lon":12.31779,"sog":0,"cog":121,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790336904941,"fixTs":1790336858000,"feed":"aishub","receivedAt":"2026-09-25T11:48:24.941Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.31603,"lon":12.31782,"sog":0.1,"cog":null,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790337111130,"fixTs":1790337089000,"feed":"aishub","receivedAt":"2026-09-25T11:51:51.130Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.31601,"lon":12.31783,"sog":0,"cog":null,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790337314090,"fixTs":1790337289000,"feed":"aishub","receivedAt":"2026-09-25T11:55:14.090Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.316,"lon":12.31785,"sog":0,"cog":null,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790338058917,"fixTs":1790338054000,"feed":"aishub","receivedAt":"2026-09-25T12:07:38.917Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.316,"lon":12.31787,"sog":0,"cog":null,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790338326577,"fixTs":1790338324000,"feed":"aishub","receivedAt":"2026-09-25T12:12:06.577Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.31598,"lon":12.31787,"sog":0,"cog":290.8,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790338531386,"fixTs":1790338528000,"feed":"aishub","receivedAt":"2026-09-25T12:15:31.386Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.31602,"lon":12.31792,"sog":0,"cog":null,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790338734911,"fixTs":1790338718000,"feed":"aishub","receivedAt":"2026-09-25T12:18:54.911Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.31602,"lon":12.31793,"sog":0,"cog":null,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790338935446,"fixTs":1790338931000,"feed":"aishub","receivedAt":"2026-09-25T12:22:15.446Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.31603,"lon":12.31785,"sog":0,"cog":59.9,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790339200280,"fixTs":1790339136000,"feed":"aishub","receivedAt":"2026-09-25T12:26:40.280Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.31598,"lon":12.31783,"sog":0,"cog":260.3,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790339399544,"fixTs":1790339370000,"feed":"aishub","receivedAt":"2026-09-25T12:29:59.544Z"}
++{"mmsi":"265090307","msgType":"AISHubPosition","lat":58.26548,"lon":12.26417,"sog":3.2,"cog":69.2,"navStatus":null,"shipName":"XENIA","aisTimestamp":1790339466648,"fixTs":1790339453000,"feed":"aishub","receivedAt":"2026-09-25T12:31:06.648Z"}
++{"mmsi":"265090307","msgType":"AISHubPosition","lat":58.2662,"lon":12.2656,"sog":3.4,"cog":53.8,"navStatus":null,"shipName":"XENIA","aisTimestamp":1790339531755,"fixTs":1790339522000,"feed":"aishub","receivedAt":"2026-09-25T12:32:11.755Z"}
++{"mmsi":"265090307","msgType":"AISHubPosition","lat":58.26682,"lon":12.26716,"sog":3.2,"cog":45.2,"navStatus":null,"shipName":"XENIA","aisTimestamp":1790339598399,"fixTs":1790339590000,"feed":"aishub","receivedAt":"2026-09-25T12:33:18.399Z"}
++{"mmsi":"265090307","msgType":"AISHubPosition","lat":58.26765,"lon":12.26862,"sog":3.4,"cog":43,"navStatus":null,"shipName":"XENIA","aisTimestamp":1790339667881,"fixTs":1790339666000,"feed":"aishub","receivedAt":"2026-09-25T12:34:27.881Z"}
++{"mmsi":"265090307","msgType":"AISHubPosition","lat":58.26841,"lon":12.26984,"sog":4.4,"cog":24.8,"navStatus":null,"shipName":"XENIA","aisTimestamp":1790339735874,"fixTs":1790339724000,"feed":"aishub","receivedAt":"2026-09-25T12:35:35.874Z"}
++{"mmsi":"265090307","msgType":"AISHubPosition","lat":58.26969,"lon":12.27134,"sog":4.8,"cog":26.7,"navStatus":null,"shipName":"XENIA","aisTimestamp":1790339803027,"fixTs":1790339796000,"feed":"aishub","receivedAt":"2026-09-25T12:36:43.027Z"}
++{"mmsi":"265090307","msgType":"AISHubPosition","lat":58.27087,"lon":12.27301,"sog":4.4,"cog":34.9,"navStatus":null,"shipName":"XENIA","aisTimestamp":1790339869666,"fixTs":1790339865000,"feed":"aishub","receivedAt":"2026-09-25T12:37:49.666Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.31599,"lon":12.31792,"sog":0.3,"cog":119.1,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790339938648,"fixTs":1790339876000,"feed":"aishub","receivedAt":"2026-09-25T12:38:58.648Z"}
++{"mmsi":"265090307","msgType":"AISHubPosition","lat":58.27297,"lon":12.27564,"sog":5.1,"cog":34.9,"navStatus":null,"shipName":"XENIA","aisTimestamp":1790340004669,"fixTs":1790339981000,"feed":"aishub","receivedAt":"2026-09-25T12:40:04.669Z"}
++{"mmsi":"265090307","msgType":"AISHubPosition","lat":58.27375,"lon":12.27669,"sog":5.1,"cog":43,"navStatus":null,"shipName":"XENIA","aisTimestamp":1790340073214,"fixTs":1790340024000,"feed":"aishub","receivedAt":"2026-09-25T12:41:13.214Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.31602,"lon":12.31787,"sog":0.2,"cog":29.8,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790340073287,"fixTs":1790340071000,"feed":"aishub","receivedAt":"2026-09-25T12:41:13.287Z"}
++{"mmsi":"265090307","msgType":"AISHubPosition","lat":58.2756,"lon":12.27906,"sog":5.1,"cog":24.3,"navStatus":null,"shipName":"XENIA","aisTimestamp":1790340142366,"fixTs":1790340120000,"feed":"aishub","receivedAt":"2026-09-25T12:42:22.366Z"}
++{"mmsi":"265090307","msgType":"AISHubPosition","lat":58.27745,"lon":12.28058,"sog":4.9,"cog":24.9,"navStatus":null,"shipName":"XENIA","aisTimestamp":1790340212222,"fixTs":1790340209000,"feed":"aishub","receivedAt":"2026-09-25T12:43:32.222Z"}
++{"mmsi":"265090307","msgType":"AISHubPosition","lat":58.27892,"lon":12.28138,"sog":5.2,"cog":22.5,"navStatus":null,"shipName":"XENIA","aisTimestamp":1790340279034,"fixTs":1790340277000,"feed":"aishub","receivedAt":"2026-09-25T12:44:39.034Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.316,"lon":12.31787,"sog":0,"cog":209.2,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790340279082,"fixTs":1790340264000,"feed":"aishub","receivedAt":"2026-09-25T12:44:39.082Z"}
++{"mmsi":"265090307","msgType":"AISHubPosition","lat":58.28016,"lon":12.28232,"sog":4.8,"cog":17.3,"navStatus":null,"shipName":"XENIA","aisTimestamp":1790340346758,"fixTs":1790340337000,"feed":"aishub","receivedAt":"2026-09-25T12:45:46.758Z"}
++{"mmsi":"265090307","msgType":"AISHubPosition","lat":58.28113,"lon":12.28287,"sog":5,"cog":14.2,"navStatus":null,"shipName":"XENIA","aisTimestamp":1790340412518,"fixTs":1790340381000,"feed":"aishub","receivedAt":"2026-09-25T12:46:52.518Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.31603,"lon":12.31791,"sog":0,"cog":177.3,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790340481678,"fixTs":1790340466000,"feed":"aishub","receivedAt":"2026-09-25T12:48:01.678Z"}
++{"mmsi":"265090307","msgType":"AISHubPosition","lat":58.28517,"lon":12.28491,"sog":3.2,"cog":13.1,"navStatus":null,"shipName":"XENIA","aisTimestamp":1790340615190,"fixTs":1790340586000,"feed":"aishub","receivedAt":"2026-09-25T12:50:15.190Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.316,"lon":12.31788,"sog":0,"cog":133.3,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790340680569,"fixTs":1790340667000,"feed":"aishub","receivedAt":"2026-09-25T12:51:20.569Z"}
++{"mmsi":"265090307","msgType":"AISHubPosition","lat":58.28711,"lon":12.28652,"sog":0.8,"cog":205.4,"navStatus":null,"shipName":"XENIA","aisTimestamp":1790340749700,"fixTs":1790340745000,"feed":"aishub","receivedAt":"2026-09-25T12:52:29.700Z"}
++{"mmsi":"265090307","msgType":"AISHubPosition","lat":58.28623,"lon":12.28576,"sog":4.9,"cog":209.7,"navStatus":null,"shipName":"XENIA","aisTimestamp":1790340818437,"fixTs":1790340809000,"feed":"aishub","receivedAt":"2026-09-25T12:53:38.437Z"}
++{"mmsi":"265090307","msgType":"AISHubPosition","lat":58.28512,"lon":12.28484,"sog":4.6,"cog":207.6,"navStatus":null,"shipName":"XENIA","aisTimestamp":1790340883930,"fixTs":1790340864000,"feed":"aishub","receivedAt":"2026-09-25T12:54:43.930Z"}
++{"mmsi":"265090307","msgType":"AISHubPosition","lat":58.28428,"lon":12.28444,"sog":4.7,"cog":197.9,"navStatus":null,"shipName":"XENIA","aisTimestamp":1790340950291,"fixTs":1790340908000,"feed":"aishub","receivedAt":"2026-09-25T12:55:50.291Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.31602,"lon":12.31782,"sog":0,"cog":null,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790341016213,"fixTs":1790341010000,"feed":"aishub","receivedAt":"2026-09-25T12:56:56.213Z"}
++{"mmsi":"265090307","msgType":"AISHubPosition","lat":58.28204,"lon":12.28331,"sog":5.3,"cog":197.9,"navStatus":null,"shipName":"XENIA","aisTimestamp":1790341016230,"fixTs":1790341002000,"feed":"aishub","receivedAt":"2026-09-25T12:56:56.230Z"}
++{"mmsi":"265090307","msgType":"AISHubPosition","lat":58.28047,"lon":12.2825,"sog":5.3,"cog":187.8,"navStatus":null,"shipName":"XENIA","aisTimestamp":1790341081309,"fixTs":1790341068000,"feed":"aishub","receivedAt":"2026-09-25T12:58:01.309Z"}
++{"mmsi":"265090307","msgType":"AISHubPosition","lat":58.27876,"lon":12.28127,"sog":5.4,"cog":199.2,"navStatus":null,"shipName":"XENIA","aisTimestamp":1790341150178,"fixTs":1790341142000,"feed":"aishub","receivedAt":"2026-09-25T12:59:10.178Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.31604,"lon":12.3179,"sog":0,"cog":78.3,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790341215316,"fixTs":1790341175000,"feed":"aishub","receivedAt":"2026-09-25T13:00:15.316Z"}
++{"mmsi":"265090307","msgType":"AISHubPosition","lat":58.27604,"lon":12.27954,"sog":5.4,"cog":204.7,"navStatus":null,"shipName":"XENIA","aisTimestamp":1790341282939,"fixTs":1790341261000,"feed":"aishub","receivedAt":"2026-09-25T13:01:22.939Z"}
++{"mmsi":"265090307","msgType":"AISHubPosition","lat":58.27438,"lon":12.27767,"sog":5.2,"cog":219.8,"navStatus":null,"shipName":"XENIA","aisTimestamp":1790341347933,"fixTs":1790341339000,"feed":"aishub","receivedAt":"2026-09-25T13:02:27.933Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.31604,"lon":12.31783,"sog":0.1,"cog":null,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790341482547,"fixTs":1790341478000,"feed":"aishub","receivedAt":"2026-09-25T13:04:42.547Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.31599,"lon":12.31782,"sog":0,"cog":302.3,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790341682959,"fixTs":1790341631000,"feed":"aishub","receivedAt":"2026-09-25T13:08:02.959Z"}
++{"mmsi":"265090307","msgType":"AISHubPosition","lat":58.26917,"lon":12.27076,"sog":4.1,"cog":215.7,"navStatus":null,"shipName":"XENIA","aisTimestamp":1790341683039,"fixTs":1790341645000,"feed":"aishub","receivedAt":"2026-09-25T13:08:03.039Z"}
++{"mmsi":"265090307","msgType":"AISHubPosition","lat":58.26779,"lon":12.26885,"sog":3.3,"cog":253.8,"navStatus":null,"shipName":"XENIA","aisTimestamp":1790341751118,"fixTs":1790341744000,"feed":"aishub","receivedAt":"2026-09-25T13:09:11.118Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.316,"lon":12.31788,"sog":0,"cog":42.3,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790341818742,"fixTs":1790341813000,"feed":"aishub","receivedAt":"2026-09-25T13:10:18.742Z"}
++{"mmsi":"265090307","msgType":"AISHubPosition","lat":58.26728,"lon":12.26782,"sog":3.4,"cog":221.9,"navStatus":null,"shipName":"XENIA","aisTimestamp":1790341818837,"fixTs":1790341784000,"feed":"aishub","receivedAt":"2026-09-25T13:10:18.837Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.31599,"lon":12.31788,"sog":0,"cog":274.1,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790342090906,"fixTs":1790342057000,"feed":"aishub","receivedAt":"2026-09-25T13:14:50.906Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.31602,"lon":12.31788,"sog":0,"cog":212,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790342636205,"fixTs":1790342605000,"feed":"aishub","receivedAt":"2026-09-25T13:23:56.205Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.31603,"lon":12.31792,"sog":0.3,"cog":null,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790342838178,"fixTs":1790342825000,"feed":"aishub","receivedAt":"2026-09-25T13:27:18.178Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.31601,"lon":12.31789,"sog":0,"cog":null,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790343040811,"fixTs":1790343036000,"feed":"aishub","receivedAt":"2026-09-25T13:30:40.811Z"}
++{"mmsi":"265090319","msgType":"AISHubPosition","lat":58.31602,"lon":12.31785,"sog":0,"cog":170.3,"navStatus":null,"shipName":"ELSA MARIA","aisTimestamp":1790343308341,"fixTs":1790343274000,"feed":"aishub","receivedAt":"2026-09-25T13:35:08.341Z"}
+diff --git a/tests/replay-validation/replayRunner.js b/tests/replay-validation/replayRunner.js
+index 4a4ced0..b637bd2 100644
+--- a/tests/replay-validation/replayRunner.js
++++ b/tests/replay-validation/replayRunner.js
+@@ -318,6 +318,16 @@ async function main() {
+         }
+         return result;
+       };
++      // U14 (2026-11-04): en bokförd returpassage avslutar också besöket. Den
++      // räknas som återkomst, så INV-2 ser samma besöksgräns som appen.
++      if (typeof tracker.releaseReturnPassage === 'function') {
++        const releaseReturnPassage = tracker.releaseReturnPassage.bind(tracker);
++        tracker.releaseReturnPassage = (vessel, pointName, maxAgeMs) => {
++          const released = releaseReturnPassage(vessel, pointName, maxAgeMs);
++          if (released) visitReentries.push({ t: Date.now(), mmsi: String(vessel.mmsi), bridge: pointName });
++          return released;
++        };
++      }
+     }
+     if (monitoringEnabled) {
+       const service = instance.vesselDataService;
+diff --git a/tests/replay-validation/runSyntheticScenarios.js b/tests/replay-validation/runSyntheticScenarios.js
+index dd50573..46e49b2 100644
+--- a/tests/replay-validation/runSyntheticScenarios.js
++++ b/tests/replay-validation/runSyntheticScenarios.js
+@@ -90,6 +90,8 @@ const OMSTART_SLOW_ZONE = {
+  *  - minNotifiedBridges: dessa broar MÅSTE ha fått notis
+  *  - forbiddenNotifiedBridges: dessa broar får INTE ha fått notis
+  *  - maxNotifiedPerBridge: {bro: N} — max antal notiser per bro (dubblettvakt)
++ *  - minNotifiedPerBridge: {bro: N} — minst N notiser per bro (U14: en notis
++ *    per verklig passage, även returpassagen inom samma besök)
+  *
+  * ÖPPNINGSVARNINGAR (etapp 6, 2026-08-03) — egen, additiv dimension:
+  *  - expectedOpenings: dessa målbroar MÅSTE ha fått minst en öppningsvarning,
+@@ -304,6 +306,55 @@ const SCENARIOS = [
+     }],
+     expect: { minTargetPassages: 2 },
+   },
++  {
++    // U14 (användarbeslut 2026-11-04, kort B01): tur och retur INOM besöket.
++    // Vändningen 200 m bortom Klaffbron ligger innanför besökets utfärdsgräns
++    // (två fixar över 350 m), så besöket stängdes aldrig och returpassagen fick
++    // ingen notis: två bokförda målbropassager men en notis (INV-5). Placeringen
++    // ÄR testet. Buggjägarens gräns för felet var 125–308 m; bortom 350 m tar
++    // utfärdsregeln fallet (scenariot ovan vänder 517 m bortom bron).
++    name: 'u-sväng-inom-besöket-vid-Klaffbron (B01)',
++    seed: 92,
++    vessels: [{
++      mmsi: '901000092',
++      name: 'SYNT-RETUR',
++      direction: 'north',
++      speedKn: 4.5,
++      uTurnAtFraction: (METRICS.cum[2] + 200) / METRICS.total,
++    }],
++    expect: {
++      minTargetPassages: 2,
++      minNotifiedPerBridge: { Klaffbron: 2 },
++      maxNotifiedPerBridge: { Klaffbron: 2 },
++    },
++  },
++  {
++    // U14-vakten: en båt som ligger och guppar PÅ brolinjen i 40 min ska
++    // fortfarande ha EN Klaffbronotis. Stoppet hamnar vid linjen och GPS-bruset
++    // (±30 m) lägger fixarna på båda sidor: mätt −33 till +42 m längs
++    // kanalaxeln, 14 fixar entydigt på ankomstsidan och 27 på bortre sidan.
++    // Varken en bokförd returpassage eller en vänd ruttriktning uppstår, så
++    // besöket ska inte släppas. Scenariot ger en INV-14W-varning (lång
++    // DEFAULT-sandwich medan båten står still vid bron). Den är ett känt
++    // textbeteende för stillaliggare och kommer likadant på 7699cbe; U14 rör
++    // ingen text.
++    name: 'guppar-på-Klaffbrons-linje (U14-vakt)',
++    seed: 93,
++    vessels: [{
++      mmsi: '901000093',
++      name: 'SYNT-GUPP',
++      direction: 'north',
++      speedKn: 4.5,
++      reportIntervalS: 10,
++      jitterM: 30,
++      stop: { atFraction: (METRICS.cum[2] + 10) / METRICS.total, durationS: 2400 },
++      stopReportIntervalS: 30,
++    }],
++    expect: {
++      minNotifiedBridges: ['Klaffbron'],
++      maxNotifiedPerBridge: { Klaffbron: 1 },
++    },
++  },
+   {
+     // Två båtar möts VID Stridsbergsbron — grupplogik, klausulunikhet (INV-9)
+     // och att båda får sina målbropassager/notiser utan korskontaminering.
+@@ -1153,6 +1204,17 @@ function checkExpectations(scenario, result) {
+       }
+     }
+   }
++  // U14 (2026-11-04, B01): minsta antal notiser per bro — en verklig
++  // returpassage inom samma besök ska ha sin egen notis.
++  if (e.minNotifiedPerBridge) {
++    const counts = {};
++    for (const n of notifications) counts[n.bridge] = (counts[n.bridge] || 0) + 1;
++    for (const [bridge, minN] of Object.entries(e.minNotifiedPerBridge)) {
++      if ((counts[bridge] || 0) < minN) {
++        problems.push(`SAKNAD RETURNOTIS: ${bridge} fick ${counts[bridge] || 0} notiser (minst ${minN})`);
++      }
++    }
++  }
+   // ---------------------------------------------------------------------
+   // ÖPPNINGSVARNINGAR (etapp 6, 2026-08-03) — additiv dimension
+   // ---------------------------------------------------------------------
+diff --git a/tests/trigger-point-visit-tracker.test.js b/tests/trigger-point-visit-tracker.test.js
+index 853343e..96d5720 100644
+--- a/tests/trigger-point-visit-tracker.test.js
++++ b/tests/trigger-point-visit-tracker.test.js
+@@ -95,8 +95,11 @@ describe('Broar och Kanalinfarten: ett notifierat besök tills verklig utfärd o
+       now += 8 * 60 * 60 * 1000;
+       const restored = new TriggerPointVisitTracker({ now: () => now });
+       expect(restored.loadSnapshot(tracker.exportSnapshot())).toBe(1);
++      // U14 (2026-11-04): första fixen entydigt på brons bortre sida är ett
++      // fasbyte som sparas (changed). Kanalinfarten saknar brolinje och har inget.
++      const isBridge = Object.values(BRIDGES).some((bridge) => bridge.name === name);
+       expect(restored.observe(pointFix(point, -200, { _routeDirection: 'south', passedBridges: [name] }), name))
+-        .toEqual({ changed: false, reentered: false });
++        .toEqual({ changed: isBridge, reentered: false });
+       expect(restored.holds(MMSI, name)).toBe(true);
+       now += 60000;
+       expect(restored.observe(pointFix(point, 400), name)).toEqual({ changed: true, reentered: false });
+diff --git a/tests/u14-returpassage-notis.test.js b/tests/u14-returpassage-notis.test.js
+new file mode 100644
+index 0000000..aedb228
+--- /dev/null
++++ b/tests/u14-returpassage-notis.test.js
+@@ -0,0 +1,458 @@
++'use strict';
++
++/**
++ * U14 (användarbeslut 2026-11-04, buggjägarens kort B01): EN NOTIS PER PASSAGE,
++ * ÄVEN RETURPASSAGEN.
++ *
++ * Felet: besöksregeln 2026-09-07 håller ett notifierat besök tills båten setts
++ * två gånger över 350 m från bron och sedan kommit tillbaka. En båt som passerar
++ * en bro, vänder inom 350 m och passerar tillbaka lämnar aldrig besöket, så
++ * returpassagen fick ingen notis. B01: WILMA passerar Klaffbron söderut 01:56:10,
++ * vänder 162 m söder om bron och korsar norrut 01:59:54. Appen bokför två
++ * målbropassager men skickar en notis (INV-5).
++ *
++ * Rättningen: besöket minns vilken sida av brolinjen den notifierade passagen
++ * leder till och när båten senast setts entydigt där. När appen sedan bokför en
++ * ny passage av samma bro, båten inte längre ligger entydigt på bortre sidan och
++ * ruttriktningen pekar tillbaka, avslutas besöket i notisbeslutet
++ * (TriggerPointVisitTracker.releaseReturnPassage via
++ * app._releaseVisitOnReturnPassage). En båt som guppar eller väntar vid bron
++ * bokförs inte som passerad och vänder inte ruttriktningen, så den får
++ * fortfarande en notis per besök.
++ *
++ * Fixturerna är buggjägarens minsta repro för B01 (r1-standard-a) och värld 40
++ * ur samma körning (R1, aishub), där XENIA notifieras i passerad form och sedan
++ * vänder tillbaka genom Klaffbron.
++ */
++
++jest.mock('homey');
++
++const path = require('path');
++const { execFileSync } = require('child_process');
++const { __mockHomey: mockHomey } = require('homey');
++const AISBridgeApp = require('../app');
++const TriggerPointVisitTracker = require('../lib/services/TriggerPointVisitTracker');
++const geometry = require('../lib/utils/geometry');
++const { BRIDGES, TRIGGER_POINTS } = require('../lib/constants');
++const { validateInvariants } = require('./replay-validation/invariants');
++
++const ROOT = path.resolve(__dirname, '..');
++const FIXTURES = path.join(__dirname, 'fixtures');
++const KLAFF = BRIDGES.klaffbron;
++const MMSI = '265178387';
++const METRES_PER_LAT_DEGREE = 6371000 * Math.PI / 180;
++const FRESH_MS = 15000;
++const clone = (value) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
++
++describe('geometry.decisiveBridgeSide', () => {
++  const north = (m) => ({ lat: KLAFF.lat + m / METRES_PER_LAT_DEGREE, lon: KLAFF.lon });
++
++  test('nordöstra sidan +1, sydvästra −1, linjen och ogiltigt 0', () => {
++    expect(geometry.decisiveBridgeSide(north(200), KLAFF)).toBe(1);
++    expect(geometry.decisiveBridgeSide(north(-200), KLAFF)).toBe(-1);
++    expect(geometry.decisiveBridgeSide(north(5), KLAFF)).toBe(0);
++    expect(geometry.decisiveBridgeSide({ lat: null, lon: KLAFF.lon }, KLAFF)).toBe(0);
++    expect(geometry.decisiveBridgeSide(north(200), null)).toBe(0);
++  });
++
++  test('isDecisivelyOppositeBridgeSide betyder samma sak som förut', () => {
++    expect(geometry.isDecisivelyOppositeBridgeSide(north(200), north(-200), KLAFF)).toBe(true);
++    expect(geometry.isDecisivelyOppositeBridgeSide(north(200), north(30), KLAFF)).toBe(false);
++    expect(geometry.isDecisivelyOppositeBridgeSide(north(200), north(5), KLAFF)).toBe(false);
++    expect(geometry.isDecisivelyOppositeBridgeSide(null, north(-200), KLAFF)).toBe(false);
++  });
++});
++
++describe('TriggerPointVisitTracker: en verklig returpassage avslutar besöket', () => {
++  let now;
++  let tracker;
++
++  beforeEach(() => {
++    now = Date.parse('2026-09-15T01:53:10Z');
++    tracker = new TriggerPointVisitTracker({ now: () => now });
++  });
++
++  const at = (northM, extra = {}) => ({
++    mmsi: MMSI,
++    lat: KLAFF.lat + northM / METRES_PER_LAT_DEGREE,
++    lon: KLAFF.lon,
++    timestamp: now,
++    lastPositionUpdate: now,
++    fixTs: now,
++    fixFeed: 'aisstream',
++    ...extra,
++  });
++  const tick = (seconds = 30) => {
++    now += seconds * 1000;
++  };
++  const observe = (northM, extra) => {
++    tick();
++    return tracker.observe(at(northM, extra), KLAFF.name);
++  };
++  const release = (vessel) => tracker.releaseReturnPassage(vessel, KLAFF.name, FRESH_MS);
++
++  /**
++   * B01-förloppet: förvarning söderut 200 m norr om bron, passage, vändning
++   * 150 m söder om bron. Returnerar tiden för utpassagens bokföring.
++   */
++  function outboundAndTurn() {
++    expect(tracker.reserve(at(200, { _routeDirection: 'south' }), KLAFF.name)).not.toBeNull();
++    tick();
++    const outboundAt = now;
++    const passed = { lastPassedBridge: KLAFF.name, lastPassedBridgeTime: outboundAt, passedBridges: [KLAFF.name] };
++    tracker.observe(at(5, { ...passed, _routeDirection: 'south' }), KLAFF.name);
++    expect(observe(-60, { ...passed, _routeDirection: 'south' })).toEqual({ changed: true, reentered: false });
++    expect(observe(-150, { ...passed, _routeDirection: 'south' })).toEqual({ changed: false, reentered: false });
++    observe(-110, { ...passed, _routeDirection: 'north' });
++    return outboundAt;
++  }
++
++  test('B01: bokförd passage tillbaka med vänd ruttriktning avslutar besöket', () => {
++    outboundAndTurn();
++    tick();
++    const back = at(25, { lastPassedBridge: KLAFF.name, lastPassedBridgeTime: now, _routeDirection: 'north' });
++    expect(release(back)).toBe(true);
++    expect(tracker.holds(MMSI, KLAFF.name)).toBe(false);
++    expect(tracker.reserve(back, KLAFF.name, { passageBehind: true })).not.toBeNull();
++  });
++
++  test('en bokföring på linjen räcker när båten inte längre är entydigt på bortre sidan', () => {
++    outboundAndTurn();
++    tick();
++    expect(release(at(-8, { lastPassedBridge: KLAFF.name, lastPassedBridgeTime: now, _routeDirection: 'north' })))
++      .toBe(true);
++  });
++
++  test.each([
++    ['ingen ny bokföring, bara utpassagens stämpel', (out) => ({ lastPassedBridgeTime: out, _routeDirection: 'north' })],
++    ['ny bokföring men båten ligger kvar på bortre sidan (dubbel eller sen bokföring)', () => ({ _routeDirection: 'south', northM: -70 })],
++    ['ny bokföring men ruttriktningen pekar fortfarande mot bortre sidan', () => ({ _routeDirection: 'south' })],
++    ['ny bokföring utan ruttriktning', () => ({ _routeDirection: null })],
++    ['bokföringen är äldre än färskhetsfönstret', () => ({ _routeDirection: 'north', ageMs: FRESH_MS })],
++    ['bokföringen gäller en annan bro', () => ({ _routeDirection: 'north', bridge: 'Olidebron' })],
++    ['GPS-osäker position', () => ({ _routeDirection: 'north', _positionUncertain: true })],
++  ])('%s släpper inte besöket', (_label, variant) => {
++    const outboundAt = outboundAndTurn();
++    tick();
++    const v = variant(outboundAt);
++    const vessel = at(v.northM ?? 25, {
++      lastPassedBridge: v.bridge || KLAFF.name,
++      lastPassedBridgeTime: v.lastPassedBridgeTime ?? now - (v.ageMs || 0),
++      _routeDirection: v._routeDirection,
++      _positionUncertain: v._positionUncertain,
++    });
++    expect(release(vessel)).toBe(false);
++    expect(tracker.holds(MMSI, KLAFF.name)).toBe(true);
++  });
++
++  test('bokföring före sista observationen på bortre sidan räknas inte som retur', () => {
++    outboundAndTurn();
++    const farSideSeenAt = now;
++    tick();
++    expect(release(at(25, {
++      lastPassedBridge: KLAFF.name, lastPassedBridgeTime: farSideSeenAt - 1000, _routeDirection: 'north',
++    }))).toBe(false);
++  });
++
++  test('guppar vid linjen: brus över linjen och en falsk bokföring utan vändning ger inget släpp', () => {
++    expect(tracker.reserve(at(200, { _routeDirection: 'south' }), KLAFF.name)).not.toBeNull();
++    for (const northM of [30, -15, 20, -18, 25, -14]) observe(northM, { _routeDirection: 'south', sog: 0.3 });
++    tick();
++    expect(release(at(20, {
++      lastPassedBridge: KLAFF.name, lastPassedBridgeTime: now, _routeDirection: 'south', sog: 0.3,
++    }))).toBe(false);
++    expect(tracker.holds(MMSI, KLAFF.name)).toBe(true);
++  });
++
++  test('notis i passerad form: ankomsten ligger redan på bortre sidan', () => {
++    tick();
++    const arrival = at(-30, { lastPassedBridge: KLAFF.name, lastPassedBridgeTime: now, _routeDirection: 'south' });
++    expect(tracker.reserve(arrival, KLAFF.name, { passageBehind: true })).not.toBeNull();
++    observe(-150, { _routeDirection: 'south' });
++    observe(-120, { _routeDirection: 'north' });
++    tick();
++    expect(release(at(40, { lastPassedBridge: KLAFF.name, lastPassedBridgeTime: now, _routeDirection: 'north' })))
++      .toBe(true);
++  });
++
++  test('samma förlopp utan passageBehind tolkar bortre sidan fel och släpper inte', () => {
++    tick();
++    const arrival = at(-30, { lastPassedBridge: KLAFF.name, lastPassedBridgeTime: now, _routeDirection: 'south' });
++    expect(tracker.reserve(arrival, KLAFF.name)).not.toBeNull();
++    observe(-150, { _routeDirection: 'south' });
++    observe(-120, { _routeDirection: 'north' });
++    tick();
++    expect(release(at(40, { lastPassedBridge: KLAFF.name, lastPassedBridgeTime: now, _routeDirection: 'north' })))
++      .toBe(false);
++  });
++
++  test('ankomst på linjen: bortre sidan tas ur ruttriktningen', () => {
++    expect(tracker.reserve(at(5, { _routeDirection: 'south' }), KLAFF.name)).not.toBeNull();
++    observe(-80, { _routeDirection: 'south' });
++    tick();
++    expect(release(at(30, { lastPassedBridge: KLAFF.name, lastPassedBridgeTime: now, _routeDirection: 'north' })))
++      .toBe(true);
++  });
++
++  test('ett stängt besök rörs inte; där gäller återkomstregeln som förut', () => {
++    expect(tracker.reserve(at(200, { _routeDirection: 'south' }), KLAFF.name)).not.toBeNull();
++    observe(400);
++    observe(420);
++    tick();
++    expect(release(at(25, { lastPassedBridge: KLAFF.name, lastPassedBridgeTime: now, _routeDirection: 'north' })))
++      .toBe(false);
++    expect(observe(200).reentered).toBe(true);
++  });
++
++  test('Kanalinfarten har ingen brolinje och följer besöksregeln oförändrad', () => {
++    const point = TRIGGER_POINTS.kanalinfarten;
++    const atPoint = (northM, extra = {}) => ({
++      ...at(0, extra), lat: point.lat + northM / METRES_PER_LAT_DEGREE, lon: point.lon,
++    });
++    expect(tracker.reserve(atPoint(200, { _routeDirection: 'south' }), point.name)).not.toBeNull();
++    tick();
++    tracker.observe(atPoint(-100, { _routeDirection: 'south' }), point.name);
++    tick();
++    expect(tracker.releaseReturnPassage(atPoint(50, {
++      lastPassedBridge: point.name, lastPassedBridgeTime: now, _routeDirection: 'north',
++    }), point.name, FRESH_MS)).toBe(false);
++    expect(tracker.holds(MMSI, point.name)).toBe(true);
++  });
++
++  test('bortre sidan överlever omstart; saknade eller skadade fält ger inget släpp', () => {
++    outboundAndTurn();
++    const snapshot = tracker.exportSnapshot();
++    const key = `${MMSI}:${KLAFF.name}`;
++    expect(snapshot.entries[key]).toMatchObject({ farSign: -1, farSideFixTs: expect.any(Number) });
++    tick();
++    const back = () => at(25, { lastPassedBridge: KLAFF.name, lastPassedBridgeTime: now, _routeDirection: 'north' });
++
++    const restored = new TriggerPointVisitTracker({ now: () => now });
++    expect(restored.loadSnapshot(clone(snapshot))).toBe(1);
++    expect(restored.releaseReturnPassage(back(), KLAFF.name, FRESH_MS)).toBe(true);
++
++    const damages = [
++      (entry) => {
++        delete entry.farSign;
++        delete entry.farSideFixTs;
++      },
++      (entry) => {
++        entry.farSign = 7;
++      },
++      (entry) => {
++        entry.farSideFixTs = entry.lastFixTs + 1;
++      },
++    ];
++    for (const damage of damages) {
++      const broken = clone(snapshot);
++      damage(broken.entries[key]);
++      const other = new TriggerPointVisitTracker({ now: () => now });
++      expect(other.loadSnapshot(broken)).toBe(1);
++      expect(other.releaseReturnPassage(back(), KLAFF.name, FRESH_MS)).toBe(false);
++      expect(other.holds(MMSI, KLAFF.name)).toBe(true);
++    }
++  });
++});
++
++describe('Appens notisbeslut: returpassagen får egen notis, guppandet inte', () => {
++  let store;
++  let apps;
++  let savedTestMode;
++
++  const boot = async () => {
++    const app = new AISBridgeApp();
++    app.log = jest.fn();
++    app.debug = jest.fn();
++    app.error = jest.fn();
++    app.homey = {
++      ...mockHomey,
++      settings: {
++        get: (key) => clone(store[key]),
++        set: jest.fn((key, value) => {
++          store[key] = clone(value);
++        }),
++        on: jest.fn(),
++        off: jest.fn(),
++      },
++    };
++    await app.onInit();
++    apps.push(app);
++    jest.spyOn(app._boatNearTrigger, 'trigger');
++    return app;
++  };
++
++  const vesselAt = (northM, extra = {}) => ({
++    mmsi: MMSI,
++    name: 'WILMA',
++    lat: KLAFF.lat + northM / 111320,
++    lon: KLAFF.lon,
++    sog: 3,
++    cog: 200,
++    _routeDirection: 'south',
++    _hasMovementProof: true,
++    passedBridges: [],
++    status: 'en-route',
++    timestamp: Date.now(),
++    lastPositionUpdate: Date.now(),
++    fixTs: Date.now(),
++    fixFeed: 'aisstream',
++    ...extra,
++  });
++  const later = (seconds) => jest.setSystemTime(Date.now() + seconds * 1000);
++  const notify = (app, vessel, source = 'current') => app._triggerBoatNearFlowForBridge(vessel, {
++    name: KLAFF.name,
++    id: 'klaffbron',
++    distance: geometry.calculateDistance(vessel.lat, vessel.lon, KLAFF.lat, KLAFF.lon),
++    source,
++  });
++  const klaffCalls = (app) => app._boatNearTrigger.trigger.mock.calls
++    .map(([tokens]) => tokens)
++    .filter((tokens) => tokens.bridge_name === KLAFF.name);
++
++  /** Förvarning söderut och utpassage; båten vänder 150 m söder om bron. */
++  async function outboundAndTurn(app) {
++    await notify(app, vesselAt(200), 'target');
++    expect(klaffCalls(app)).toHaveLength(1);
++    later(150);
++    const passed = { lastPassedBridge: KLAFF.name, lastPassedBridgeTime: Date.now(), passedBridges: [KLAFF.name] };
++    app._observeTriggerPointVisits(vesselAt(5, passed));
++    for (const [northM, route] of [[-60, 'south'], [-150, 'south'], [-110, 'north']]) {
++      later(30);
++      app._observeTriggerPointVisits(vesselAt(northM, { ...passed, _routeDirection: route, cog: route === 'north' ? 20 : 200 }));
++    }
++  }
++
++  beforeEach(() => {
++    jest.useFakeTimers();
++    jest.setSystemTime(new Date('2026-09-15T01:53:10Z'));
++    savedTestMode = global.__TEST_MODE__;
++    global.__TEST_MODE__ = true;
++    store = {};
++    apps = [];
++  });
++
++  afterEach(async () => {
++    for (const app of apps) {
++      // eslint-disable-next-line no-await-in-loop
++      if (!app._shuttingDown) await app.onUninit();
++    }
++    await jest.advanceTimersByTimeAsync(0);
++    expect(jest.getTimerCount()).toBe(0);
++    global.__TEST_MODE__ = savedTestMode;
++    jest.useRealTimers();
++  });
++
++  test('B01: returpassagen inom besöket ger en andra notis i passerad form', async () => {
++    const app = await boot();
++    await outboundAndTurn(app);
++    later(30);
++    const back = vesselAt(18, {
++      _routeDirection: 'north', cog: 18, lastPassedBridge: KLAFF.name, lastPassedBridgeTime: Date.now(), passedBridges: [KLAFF.name],
++    });
++    app._observeTriggerPointVisits(back);
++    await notify(app, back);
++    const calls = klaffCalls(app);
++    expect(calls).toHaveLength(2);
++    expect(calls[1]).toMatchObject({
++      direction: 'norrut', already_passed: true, eta_minutes: -1, message: 'WILMA har precis passerat Klaffbron',
++    });
++    expect(app.log).toHaveBeenCalledWith(expect.stringContaining('[TRIGGER_POINT_VISIT_RETURN]'));
++    // Returnotisen öppnar ett nytt besök vars bortre sida är norr om bron.
++    expect(store.trigger_point_visits.entries[`${MMSI}:${KLAFF.name}`]).toMatchObject({ farSign: 1 });
++    // Samma tick igen ger ingen tredje notis.
++    await notify(app, back);
++    expect(klaffCalls(app)).toHaveLength(2);
++  });
++
++  test('returpassage där första fixen ligger utanför notisradien går via failsafen', async () => {
++    const app = await boot();
++    await outboundAndTurn(app);
++    later(60);
++    const back = vesselAt(345, {
++      _routeDirection: 'north', cog: 20, sog: 7, lastPassedBridge: KLAFF.name, lastPassedBridgeTime: Date.now(), passedBridges: [KLAFF.name],
++    });
++    app._observeTriggerPointVisits(back);
++    await app._triggerBoatNearFlowFallback(back, KLAFF.name);
++    const calls = klaffCalls(app);
++    expect(calls).toHaveLength(2);
++    expect(calls[1]).toMatchObject({
++      direction: 'norrut', already_passed: true, message: 'WILMA passerade Klaffbron under AIS-tystnad',
++    });
++  });
++
++  test('en båt som guppar vid bron och får en falsk bokföring utan vändning får ingen andra notis', async () => {
++    const app = await boot();
++    await notify(app, vesselAt(200), 'target');
++    for (const northM of [30, -15, 20, -18, 25, -14]) {
++      later(30);
++      app._observeTriggerPointVisits(vesselAt(northM, { sog: 0.3 }));
++    }
++    later(30);
++    const bobbing = vesselAt(20, {
++      sog: 0.3, lastPassedBridge: KLAFF.name, lastPassedBridgeTime: Date.now(), passedBridges: [KLAFF.name],
++    });
++    app._observeTriggerPointVisits(bobbing);
++    app._clearBoatNearTriggers(bobbing, true);
++    await notify(app, bobbing);
++    await app._triggerBoatNearFlowFallback(bobbing, KLAFF.name);
++    expect(klaffCalls(app)).toHaveLength(1);
++    expect(app._triggerPointVisits.holds(MMSI, KLAFF.name)).toBe(true);
++  });
++
++  test('vändning utan passage tillbaka (båten väntar på bortre sidan) ger ingen andra notis', async () => {
++    const app = await boot();
++    await outboundAndTurn(app);
++    for (let i = 0; i < 6; i++) {
++      later(60);
++      const waiting = vesselAt(-120, {
++        _routeDirection: 'north', cog: 20, sog: 0.2, lastPassedBridge: KLAFF.name, lastPassedBridgeTime: Date.now() - 240000 - i * 60000,
++      });
++      app._observeTriggerPointVisits(waiting);
++      // eslint-disable-next-line no-await-in-loop
++      await notify(app, waiting);
++    }
++    expect(klaffCalls(app)).toHaveLength(1);
++  });
++});
++
++describe('Hela appen på buggjägarens repro (replay)', () => {
++  function replay(fixture, { monitoring = false } = {}) {
++    const env = { ...process.env, NODE_OPTIONS: '', REPLAY_VERBOSE: '' };
++    if (monitoring) env.REPLAY_MONITORING = '1';
++    else delete env.REPLAY_MONITORING;
++    const out = execFileSync(process.execPath, [
++      path.join(ROOT, 'tests/replay-validation/replayRunner.js'), path.join(FIXTURES, fixture),
++    ], {
++      cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env,
++    });
++    return JSON.parse(out.match(/__REPLAY_JSON__(.*?)__END__/s)[1]);
++  }
++  const iso = (t) => new Date(t).toISOString().slice(11, 19);
++  const inv5 = (result) => validateInvariants(result).filter((v) => /MÅLBRO-NOTIS|NOTIS-DUBBLETT/.test(v));
++
++  test.each([false, true])('B01 WILMA: två passager av Klaffbron ger två notiser (monitoring=%s)', (monitoring) => {
++    const result = replay('n-b01-wilma-retur-inom-besoket.jsonl', { monitoring });
++    const passages = result.targetPassages.filter((p) => p.mmsi === MMSI && p.bridge === KLAFF.name);
++    const notices = result.notifications.filter((n) => n.mmsi === MMSI && n.bridge === KLAFF.name);
++    expect(passages.map((p) => iso(p.t))).toEqual(['01:56:10', '02:00:10']);
++    expect(notices.map((n) => [iso(n.t), n.direction, n.alreadyPassed])).toEqual([
++      ['01:53:10', 'southbound', false],
++      ['02:00:10', 'northbound', true],
++    ]);
++    expect(notices[1].message).toBe('WILMA har precis passerat Klaffbron');
++    expect(result.visitReentries).toContainEqual(expect.objectContaining({ mmsi: MMSI, bridge: KLAFF.name, t: notices[1].t }));
++    expect(inv5(result)).toEqual([]);
++    expect(result.processErrors).toBe(0);
++  });
++
++  test('värld 40 XENIA: notis i passerad form, vändning och retur ger två notiser', () => {
++    const result = replay('n-w40-xenia-retur-passerad-form.jsonl');
++    const notices = result.notifications.filter((n) => n.mmsi === '265090307' && n.bridge === KLAFF.name);
++    expect(notices.map((n) => [iso(n.t), n.direction, n.alreadyPassed])).toEqual([
++      ['12:50:15', 'northbound', true],
++      ['12:56:56', 'southbound', true],
++    ]);
++    expect(inv5(result)).toEqual([]);
++    expect(result.processErrors).toBe(0);
++  });
++});
+-- 
+2.43.0
+

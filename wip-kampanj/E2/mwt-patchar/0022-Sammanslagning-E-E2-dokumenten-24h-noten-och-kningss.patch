@@ -1,0 +1,317 @@
+From f3498bc8c61ceecd2a7feb12e4cc6b92ce2c6bde Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 7 Nov 2026 13:01:16 +0000
+Subject: [PATCH 22/24] =?UTF-8?q?Sammanslagning=20E=20+=20E2:=20dokumenten?=
+ =?UTF-8?q?,=2024h-noten=20och=20=C3=B6kningsseriens=20kommentar?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+ARCHITECTURE §8 (e):
+- E:s "K6:s krav berörs inte" gäller nu bara familj E; E2 gjorde om
+  kraven. Avgången förs vidare en gång per sampel genom både lastKey och
+  ögonblicksbilden av _departures.
+- E:s överlämning "Till familj E2 (U20)" ersätts av en mening i E2:s
+  stycke.
+- Den kvarvarande klassen är ommätt efter sammanslagningen: samma 87
+  sampel, tretton fall på minst +3 min (TINY borta; PILOT 761 06:11:19
+  och ORCA 13:56:15 nya, E2:s FP9-rader).
+- PRIMA LADY 16:34:01 är "om 4" i både E:s andra revision och E2.
+  Facit räknas också mot 7699cbe.
+
+VALIDATION:
+- Nytt avsnitt "Sammanslagningen E + E2": banden mot 7699cbe per typ
+  (parat och oparat), de ändrade påståendena, acceptansfallen och facit
+  (169 rader: 77 rättare, 8 likvärdiga, 60 sämre, 24 utan linjefacit).
+- I "Familj E2" stämmer nu antalet ändrade påståenden med en definition
+  (linjefacit på båda sidor: < 10 min 54/22/1, < 5 min 36/12/1), och
+  talen mot 7699cbe pekar på det nya avsnittet.
+- "Familj E" har fått noten om den ommätta klassen.
+
+corpora.js: 24h-noten säger att idx 65 är 7 → 4 och rättare mot 7699cbe.
+
+ProgressiveETACalculator: kommentaren vid _increaseHoldStreak pekade på
+den obefintliga INCREASE_HOLD_MAX_CONSECUTIVE. Den säger nu att posten är
+tidpunkten för seriens första hållning, och den pekar på
+INCREASE_HOLD_MAX_MS. Koden är oförändrad.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/ARCHITECTURE.md                     | 55 +++++++++-----
+ docs/VALIDATION.md                       | 97 +++++++++++++++++++++---
+ lib/services/ProgressiveETACalculator.js |  7 +-
+ tests/replay-validation/corpora.js       |  6 +-
+ 4 files changed, 128 insertions(+), 37 deletions(-)
+
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index f5d388e..36b25d8 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -1324,11 +1324,15 @@ nästa sampels EMA räknar från det när det samplets egen mätning lovar strax
+ snittet ([0, 0, 1,6] ⇒ 0,53 kn), gap-reseten EFTER rå-ETA:n (meddelandevägens
+ 29,5 blev baslinje), outliergrenen som dömde snapshot-vägens 9,8 som
+ dramatic_decrease och EMA:n ⇒ "om 27 minuter" för verkliga 3,1 (buggjägarens
+-värld 884); nu "om 5 → 4 → 3 → strax". **K6:s krav berörs inte**:
+-dubbelkörningen, gap-resetens placering, outliergrindens 30 s-fönster och
+-`emaAlpha` är oförändrade, avgången nycklas på fartbuffertens sampelnyckel så
+-båda passen ger samma värde, och V4 väljer bara EMA:ns bas efter ett M9-hållet
+-värde. Villkoren kom ur två granskningar. Den första: jämn fart räknades som
++värld 884); nu "om 5 → 4 → 3 → strax". **Familj E rör inte K6:s krav**
++(dubbelkörningen, gap-resetens placering, outliergrindens 30 s-fönster och
++`emaAlpha`); dem gjorde familj E2 om, se "ETA-etappen gick in" nedan. Avgången
++nycklas på fartbuffertens sampelnyckel och förs vidare en gång per sampel: före
++E2 gav båda passen samma värde, och efter E2:s beräkning per fix bär både
++`lastKey` i `_noteDepartureSample` och ögonblicksbilden av `_departures` det
++(vardera räcker ensam, mutationsprövat vid sammanslagningen 2026-11-07). V4
++väljer bara EMA:ns bas efter ett M9-hållet värde; vikten är E2:s
++`EMA_ALPHA_PER_FIX`. Villkoren kom ur två granskningar. Den första: jämn fart räknades som
+ acceleration (strax → om 4 → strax i fyra av buggjägarens 2 000
+ standardvärldar), en båt som hördes igen 454 m från stillheten efter 11 min
+ tystnad räknades som avgång (MARIANNE, 20260525), en båt som vände bort fick
+@@ -1370,18 +1374,18 @@ senaste buffrade samplen räcka (granskarens V1) fångar NOCHT 12:01 men gör
+ ELFKUNGENs låsta rad i 20260907-31h sämre, "om 11 → om 8" mot sanning 13,1.
+ PILOT 761 kräver en stillhetssignal från VesselDataService, krypfarten och
+ startsamplen en annan stillhetsdefinition än rörelsebeviset — klassen hör till
+-ETA-etappen (familj E2 och senare).
+-
+-Till familj E2 (användarbeslut U20, 2026-11-04): ETA-oscillationen vid
+-inbromsning (buggjägarens F06, K6:s dubbla EMA mot den binära
+-3-minutersgränsen) och 21h-knivseggen (F07, RC4-clampen mot en extrapolerad
+-baslinje). E2 gör om ETA-utjämningen och spärren ovanpå F04-rättningen och
+-mäter om E:s sex omlåsta rader och M9/V4-utfallet, eftersom PRIMA LADYs och
+-SKONNERTENs värden beror på den dubbla EMA:n.
++ETA-etappen (familj E2 och senare). Ommätt efter sammanslagningen med E2
++(2026-11-07): samma 87 sampel i samma mekanismer. Avgången prövas i
++`_computeRawETA`, före glappreseten, och bufferten efter reseten är fixets eget
++sampel i båda träden (förut genom pass 2:s omräkning, nu direkt). Fallen med
++minst +3 min blir tretton: TINY faller bort (kortet 6 → 5 mot 2,2), UTOPIA och
++ANDREA går ned till +3,9 och +3,4, och PILOT 761 06:11:19 (notis 5 mot 1,4) och
++ORCA 20260804-17h 13:56:15 (notis 6 mot 2,2) tillkommer — E2:s FP9-rader nedan.
+ 
+ **ETA-etappen gick in (familj E2, rättningskampanjen 2026-11-04, U20: K6, F06,
+-F07; reviderad efter granskningen 2026-11-05).** Stycket ersätter "Kvar till
+-ETA-etappen" ovan. K6:s tre krav gick in tillsammans, i
++F07; reviderad efter granskningen 2026-11-05; sammanslagen med familj E:s
++andra revision 2026-11-07).** Användarbeslut U20 förde ETA-oscillationen vid
++inbromsning (F06) och 21h-knivseggen (F07) från familj E hit. K6:s tre krav gick in tillsammans, i
+ `ProgressiveETACalculator` om inget annat sägs:
+ - *En beräkning per AIS-fix.* `calculateProgressiveETA` minns fixet
+   (`vessel.timestamp`, sampelnyckel och målbro, `_fixIdentity`). Ett nytt anrop
+@@ -1459,15 +1463,23 @@ De oparade populationerna (n 8 → 11 och 21 → 22) blir sämre i median, och i
+ bandet < 5 min även i andel inom 2 min (100 → 81,8 %). LINNEA:s Klaffbronsrader
+ (2026-07-15, "om 4" mot 4,76), 41h-svängningarna (8→14, 8→14→9), SISU och IDUN
+ är oförändrade mot e949ae1. LINNEA:s Stridsbergsbronsrad 09:36:30 går 13 → 14 mot
+-sanning 19,3 min (inferred).
++sanning 19,3 min (inferred). Sammanslagen med familj E:s andra revision
++(VALIDATION.md "Sammanslagningen E + E2") ändras inget mätt påstående mot E2:
++alla 3 110 publicerade värden är lika. Mot 7699cbe, parat, går bandet < 5 min
++(n = 776) från 0,47 · 88,8 % · +0,51 till 0,45 · 90,5 % · +0,44 och bandet
++< 10 min (n = 1 274) från 0,71 · 81,2 % · +0,17 till 0,67 · 82,3 % · +0,11.
+ 
+ *Kvar, medvetet och mätt (ägarfråga, se E2:s DESIGN.md):*
+ - 61 låsta rader blir sämre mot rådata, 22 av dem i bandet sanning < 10 min
+-  (mot 55 rättare). De flesta är enminutsflyttar av öppningskortens etaMin och
++  (mot 55 rättare), räknat mot e949ae1. Mot 7699cbe, med familj E:s sex rader,
++  är det 60 sämre och 77 rättare av 169, och i bandet < 10 min 21 sämre och 61
++  rättare (E2:s FACIT och sammanslagningens FACIT). De flesta är enminutsflyttar av öppningskortens etaMin och
+   notistokenen: de läste förut pass 1:s värde mellan de två passen och läser nu
+   slutvärdet, som ligger 0,3–1 min lägre.
+-- PRIMA LADY, 20260823-24h: familj E:s rad 16:34:01 går från "om 3" till
+-  "om 4" mot sanning 3,1 min (väntefasens platå).
++- PRIMA LADY, 20260823-24h 16:34:01: "om 4" mot sanning 3,1 min. Mot e949ae1
++  ("om 3", golvet 4 kn) är raden sämre, mot 7699cbe ("om 7") rättare. Familj
++  E:s andra revision ger samma "om 4" (golvet 3,6 kn = 2 × 1,8 kn), så
++  sammanslagningen ändrar den inte.
+ - PILOT 761 (13h 06:11:19, notis 2 → 5 mot 1,4) och ORCA (17h 13:56:15, 3 → 6
+   mot 2,2): FP9-taket (rå restid + 3 min) kapade förut pass 1:s glappbaslinje
+   till rå restid, men inte slutvärdet (4,7 mot taket 4,8).
+@@ -2423,8 +2435,9 @@ maskerade klassen tidigare; ÅTGÄRDAD 2026-11-04 för avgång efter belagd
+ stillhet, se §8 (e) "Avgångskontexten gick in". ANYA ELAN själv faller
+ utanför stillhetskravet — 0,7 kn i bufferten före avgången — och är
+ oförändrad, liksom resten av den kvarvarande klassen: 87 sampel i åtta
+-mekanismer, varav tolv med minst 3 min för hög prognos, som §8 (e) och
+-VALIDATION.md "Familj E" redovisar), server-
++mekanismer, varav tolv med minst 3 min för hög prognos på familj E ensam och
++tretton efter sammanslagningen med E2, som §8 (e) och VALIDATION.md "Familj E"
++redovisar), server-
+ stängda-men-levererande sockets kan fortfarande ge ~1 handskakning/min
+ (appens egen orsak är fixad), och `max-reconnects-reached` fyrar inte under
+ permanent 429 (cooldown-grenen rör inte räknaren).
+diff --git a/docs/VALIDATION.md b/docs/VALIDATION.md
+index e86d560..fe52daf 100644
+--- a/docs/VALIDATION.md
++++ b/docs/VALIDATION.md
+@@ -627,7 +627,12 @@ tre minuter var minst 3 min för högt:
+ | bort från målbron (riktningskravet) | 2 | 0 | 0 | — |
+ 
+ Skälen och vad som krävs för att fånga dem står i ARCHITECTURE §8 (e). Klassen
+-hör till ETA-etappen (familj E2 och senare).
++hör till ETA-etappen (familj E2 och senare). Efter sammanslagningen med E2
++(2026-11-07, samma krok och klassning) är det samma 87 sampel i samma
++mekanismer, men fallen med minst +3 min blir tretton: TINY faller bort,
++UTOPIA och ANDREA går ned till +3,9 och +3,4, och PILOT 761 (13h 06:11:19,
++notis 5 mot 1,4, "ankomstfarten kvar") och ORCA (17h 13:56:15, notis 6 mot 2,2,
++"långsam gång") tillkommer. De två är E2:s FP9-rader i ägarfrågan.
+ 
+ *Mätanmärkning.* `measure:eta` tappade renderingsposter
+ (`attribution: rendering-saknas`) i slutet av en korpus när maskinen var hårt
+@@ -670,15 +675,16 @@ median i båda banden och i bandet < 5 min även i andel inom 2 min; i bandet
+ < 10 min blir andelen och biasen bättre. (Den första E2-leveransen påstod att
+ även de oparade banden var lika eller bättre; det stämde inte.)
+ 
+-Mot 7699cbe (E + E2), parat: bandet < 5 min, alla typer (n = 775), går från
+-median 0,47 · 88,8 % · bias +0,51 till 0,45 · 90,5 % · +0,44. Bandet < 10 min
+-(n = 1 273) går från 0,71 · 81,2 % · +0,17 till 0,67 · 82,3 % · +0,11. Oparat:
+-n 8 → 12 (0,42 · 100 % → 0,49 · 83,3 %) och n 21 → 23 (0,66 · 76,2 % → 0,84 ·
+-82,6 %).
++Mot 7699cbe (E + E2) se "Sammanslagningen E + E2" nedan. (Revisionens egna tal
++mot 7699cbe, n = 775 och 1 273, kom från en 7699cbe-körning med ett
++oattribuerat påstående.)
+ 
+ 154 parade påståenden ändras mot e949ae1: 61 blir bättre, 46 sämre, 1 är lika
+-och 46 saknar linjefacit. I bandet < 10 min ändras 99, varav 55 bättre och 27
+-sämre; i bandet < 5 min 62, varav 40 bättre och 14 sämre.
++och 46 saknar linjefacit. Med linjefacit på båda sidor och sanning i bandet är
++det i bandet < 10 min 54 bättre, 22 sämre och 1 lika, och i bandet < 5 min 36
++bättre, 12 sämre och 1 lika. (Revisionen angav 55/27 och 40/14; 40/14 räknade
++in inferred-sanningar, som harnessen håller utanför felstatistiken.
++Sammanslagningens `jamfor.py` ger talen ovan, liksom granskarens räkning.)
+ Brotextövergångarna går 2 544 → 2 547 och öppningsvarningarna 431 → 432.
+ Strax-löftet går från n 211 och 63,0 % inom 3 min till n 208 och 63,9 %.
+ 
+@@ -691,10 +697,14 @@ Namngivna fall:
+   även SISU:s notis 09:55:38 (den första E2-leveransen gav där 2 → 3).
+ - AVALON (21h): "om 18" 07:11:30 mot verkliga 4,5 min blir "om 12"
+   (07:07:13); "om cirka 12" 07:12:30 blir "om cirka 7" mot 3,5 (inferred).
+-- Familj E:s sex rader: fem är oförändrade. PRIMA LADY 16:34:01 går "om 3" →
+-  "om 4" mot sanning 3,1 min och blir sämre.
++- Familj E:s sex rader: mot e949ae1 (E:s första revision) är fem oförändrade,
++  och PRIMA LADY 16:34:01 går "om 3" → "om 4" mot sanning 3,1 min. E:s andra
++  revision ger själv "om 4" (golvet 3,6 kn = 2 × 1,8 kn), så efter
++  sammanslagningen är alla sex lika med E:s andra revision och rättare mot
++  7699cbe.
+ - M9-priset försvinner: SKONNERTENs notis 07:30:52 går 3 → 2 mot sanning
+-  1,4 min.
++  1,4 min. E:s andra revision når samma 2 med V4-principen; i sammanslagningen
++  bär båda.
+ - F06-raderna ur granskningen: NORDIC SOLA (19h 06:17:48), CATHARINA (19h
+   08:12:00) och ELFKUNGEN (13h 12:43:06) har åter "strax" som på e949ae1, liksom
+   tre rader till (11h 09:17:30, 13h 08:24:47, 24h 15:07:16). MALUCA (25h
+@@ -712,7 +722,8 @@ likvärdiga och 61 sämre, medan 24 saknar linjefacit. I bandet sanning < 10 min
+ är 55 rättare och 22 sämre, i bandet < 5 min 33 rättare och 9 sämre. De sämre
+ raderna i bandet < 10 min är listade i E2:s FACIT och lyfts som ägarfråga
+ ("bandförbättring mot radförsämring"). Omlåsningen är en DEMO i E2:s
+-worktree, och dirigenten avgör.
++worktree, och dirigenten avgör. Mot 7699cbe (hela patchen) se
++"Sammanslagningen E + E2" nedan.
+ 
+ Prövat och återtaget, mätt mot samma baslinje (bandet < 5 min, alla typer och
+ hela populationen, om inget annat sägs):
+@@ -742,6 +753,68 @@ hela populationen, om inget annat sägs):
+ | Mötande konvoj: absorption bara med bokförd passage (granskningens förslag "samma riktning eller bevisad passage") | sju korpusar flyttade | för brett |
+ | Mötande konvoj mot tyst motpart utan krav på egen deadline | 14h DESTINY fick ett kort med eta 0 åtta sekunder före korsningen, och AKIRA:s RECOVER-varning flyttades förbi hennes korsning | sämre öppning |
+ 
++### Sammanslagningen E + E2 (2026-11-07): hela ETA-patchen mot 7699cbe
++
++Familj E:s andra revision (golvet som följer accelerationen, V4) lades ovanpå
++E2-revisionen. Koden möts på ett ställe, EMA-raden i
++`_processETAWithProtection`: vikten är E2:s (`GAP_BASELINE_ALPHA` i
++glappsteget, annars `EMA_ALPHA_PER_FIX`) och basen E:s (`emaBase`, V4).
++E:s "samplets egen mätning" heter `ownMeasuredETA`, eftersom E2:s
++`measuredETA` är fixets rå-ETA som outliergrinden bär i historiken.
++
++**Identiskt med E2-revisionen.** Alla 3 110 påståenden i de 24 låsta
++korpusarna har samma publicerade värde som E2-revisionen. Det enda som skiljer
++är PRIMA LADYs oavrundade ledar-ETA 16:34:01 (3,54 → 3,75, båda "om 4"):
++bankens enda avgång under 2 kn, där golvet är 3,6 kn i stället för 4 kn.
++replay:all, replay:synthetic, replay:openings, replay:monitoring och fassvepet
++ger samma utskrift som E2-revisionen. Två körningar av `measure:eta` gav
++identiska påståenden, med 0 oattribuerade.
++
++**Banden mot 7699cbe** (median |fel| · andel ≤ 2 min · bias; parning per
++korpus, typ, bro och mmsi inom 2 s; linjefacit):
++
++| Band | Typ | Population | 7699cbe | E + E2 |
++|---|---|---|---|---|
++| sanning < 5 min | alla | parad, n = 776 | 0,47 · 88,8 % · +0,51 | 0,45 · 90,5 % · +0,44 |
++| sanning < 5 min | brotext | parad, n = 244 | 0,88 · 81,6 % · +0,96 | 0,87 · 82,4 % · +0,91 |
++| sanning < 5 min | notis | parad, n = 500 | 0,38 · 93,6 % · +0,26 | 0,34 · 94,6 % · +0,21 |
++| sanning < 5 min | öppningskort | parad, n = 32 | 1,03 · 68,8 % · +0,96 | 0,98 · 87,5 % · +0,52 |
++| sanning < 10 min | alla | parad, n = 1 274 | 0,71 · 81,2 % · +0,17 | 0,67 · 82,3 % · +0,11 |
++| sanning < 10 min | brotext | parad, n = 643 | 1,01 · 75,6 % · +0,25 | 1,00 · 76,0 % · +0,23 |
++| sanning < 10 min | notis | parad, n = 526 | 0,39 · 90,1 % · +0,07 | 0,38 · 90,9 % · +0,02 |
++| sanning < 10 min | öppningskort | parad, n = 105 | 1,04 · 71,4 % · +0,18 | 1,02 · 78,1 % · −0,15 |
++| sanning < 5 min | alla | oparad | n = 8: 0,42 · 100 % · +0,49 | n = 11: 0,46 · 81,8 % · +0,38 |
++| sanning < 10 min | alla | oparad | n = 21: 0,66 · 76,2 % · +1,08 | n = 22: 0,84 · 81,8 % · −0,37 |
++
++158 parade påståenden ändras: 66 blir bättre, 45 sämre, 1 lika, och 46 saknar
++linjefacit. Med linjefacit och sanning i bandet: < 10 min 59 bättre, 21 sämre
++och 1 lika; < 5 min 41 bättre, 11 sämre och 1 lika. Brotextövergångarna går
++2 544 → 2 547, öppningsvarningarna 431 → 432 och notiserna 1 341 → 1 341.
++Strax-löftet går från n 211 och 63,0 % inom 3 min till n 208 och 63,9 %.
++
++**Acceptansfallen** (KAMPANJ "Familj E2"), mot 7699cbe:
++- LINNEA 265764760: Klaffbronsraderna är oförändrade ("om 4" mot 4,76). Raden
++  vid Stridsbergsbron 09:36:30 går 13 → 14 mot sanning 19,3 min (inferred).
++- 41h-svängningarna är oförändrade: NORDIC SOLA 8 → 14 vid Stridsbergsbron
++  (2026-07-15 08:47) står kvar, och inga nya uppsteg på minst 5 min tillkommer.
++- SISU (21h) och IDUN (25h) är oförändrade.
++- Familj E:s sex rader har E:s värden: SKONNERTEN 8 → 3 (sanning 2,1), PRIMA
++  LADY text 7 → 4 (3,1), notis och kort 5 → 3 (1,9), OLA notis och kort 4 → 1
++  (1,3).
++- M9-priset: SKONNERTENs notis 07:30:52 är 2 mot sanning 1,4, som på 7699cbe.
++- AVALON (21h): "om 18" 07:11:30 mot 4,5 min blir "om 12" från 07:07:13.
++
++**Facit (U13) mot 7699cbe:** 169 låsta rader ändras. Det är E2:s 164 rader mot
++e949ae1 och E:s sex rader, där PRIMA LADYs textrad ingår i båda (7 → 3 → 4).
++Av raderna är 77 rättare, 8 likvärdiga och 60 sämre, och 24 saknar linjefacit.
++I bandet sanning < 10 min är 61 rättare och 21 sämre, i bandet < 5 min 39
++rättare och 8 sämre. De sämre raderna är E2:s ägarfråga; sammanslagningen
++lägger inga nya till. 20260917-7h kan fortfarande inte låsas om (GOLDEN-TEXT
++68 ≠ 69).
++
++Verktyg och rådata: kampanjens `K/E2/matningar/sammanslagning/` (`jamfor.py`,
++`namngivna.py`, `facit_summa.py`, kroken och klassningen).
++
+ ## Fältprov / ny korpus (så samlas verklighet in)
+ 
+ **Hel-loggsjämförelse (2026-09-06):**
+diff --git a/lib/services/ProgressiveETACalculator.js b/lib/services/ProgressiveETACalculator.js
+index e02a4a2..7bbf206 100644
+--- a/lib/services/ProgressiveETACalculator.js
++++ b/lib/services/ProgressiveETACalculator.js
+@@ -330,9 +330,10 @@ class ProgressiveETACalculator {
+     // Nollställs så fort en beräkningscykel INTE gick via gps_coordination_active
+     // (då är serien bruten) och städas tillsammans med fartbuffertarna.
+     this._gpsFallbackStreak = new Map(); // Map<mmsi, number>
+-    // E2-granskningen: dramatic_increase-hållningar i följd per mmsi (samma
+-    // semantik som GPS-serien ovan) — se INCREASE_HOLD_MAX_CONSECUTIVE.
+-    this._increaseHoldStreak = new Map(); // Map<mmsi, number>
++    // E2-granskningen: tidpunkten (ms) för den första dramatic_increase-
++    // hållningen i en obruten serie per mmsi; serien bryts som GPS-serien
++    // ovan, när ett fix inte hålls som ökning — se INCREASE_HOLD_MAX_MS.
++    this._increaseHoldStreak = new Map(); // Map<mmsi, number (ms)>
+ 
+     // Familj E (F04): pågående igångsättning per fartyg — se
+     // DEPARTURE_STILL_SAMPLES högst upp i filen. {atMs, samples, lastKey,
+diff --git a/tests/replay-validation/corpora.js b/tests/replay-validation/corpora.js
+index 3b296e0..b8ef853 100644
+--- a/tests/replay-validation/corpora.js
++++ b/tests/replay-validation/corpora.js
+@@ -2494,7 +2494,11 @@ module.exports = [
+     lockOpenings: true,
+     lockEvents: true,
+     expectedNotifications: 23,
+-    note: 'DEMO-omlåst 2026-11-05 (familj E2 efter granskningen: en beräkning per AIS-fix, F06 med '
++    note: 'Sammanslagningen E + E2 (2026-11-07, mot 7699cbe): golden-text idx 65 PRIMA LADY 16:34:01 '
++      + '"om 7 minuter" → "om 4 minuter" (fel +3,9 → +0,9 mot gt-passages +3,1 min) — rättare. E2:s "sämre" '
++      + 'nedan gäller mot e949ae1:s "om 3"; E:s andra revision ger själv "om 4". Sex ändrade rader mot '
++      + '7699cbe, alla rättare (E:s tre och E2:s tre övriga), se docs/VALIDATION.md "Sammanslagningen E + E2". '
++      + 'DEMO-omlåst 2026-11-05 (familj E2 efter granskningen: en beräkning per AIS-fix, F06 med '
+       + 'marginal, F07, mötande konvoj mot tyst motpart; i E2:s worktree, mot e949ae1): 4 ändrade rader '
+       + '(2 brotextrader, 2 öppningskort). Mot gt-passages och O1/O2: 3 rättare, 1 sämre. Bedömning per '
+       + 'rad i E2:s FACIT.md, mätt enligt docs/VALIDATION.md §ETA-mätharnessen "Familj E2". Dirigenten '
+-- 
+2.43.0
+

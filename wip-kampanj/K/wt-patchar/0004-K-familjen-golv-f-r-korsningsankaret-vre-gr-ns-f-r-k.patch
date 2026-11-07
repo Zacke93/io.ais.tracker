@@ -1,0 +1,834 @@
+From 44bc3c24541df2f681b06adeb7968dbf6860cc18 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 4 Nov 2026 21:41:11 +0000
+Subject: [PATCH 4/9] =?UTF-8?q?K-familjen:=20golv=20f=C3=B6r=20korsningsan?=
+ =?UTF-8?q?karet,=20=C3=B6vre=20gr=C3=A4ns=20f=C3=B6r=20korsningstiden=20o?=
+ =?UTF-8?q?ch=20f=C3=A4llande=20test=20per=20grind?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Revision efter den adversariella granskningen 2026-11-04.
+
+- _anchorFloorHost: en ny båt som bara på grund av korsningsankaret skulle
+  få en egen händelse, men som upptäcks under 2 × TICK före sin ankomst på
+  ett färskt rent fix, absorberas som före rättningen med täckning från
+  bokföringen (buggjägarens värld 227: ZELDA varnades 10 s efter sin
+  returkorsning). Samma golv som räddningsventilen och K2:s returgolv.
+- _crossingUpperBound: notePassage och passagedomen ankrar första passagen
+  i fixets tid när armens eget läge redan låg bortom bron. En projektion ur
+  prognosen gav en andrapåminnelse (opening-updated-host-forecast) och är
+  avvisad.
+- En ny absorption nollställer hållskälen (recoverHeldAt), så att
+  schemaläggaren bokar den nya täckningsgränsen.
+- Under-bron-hållet utan det odokumenterade villkoret rawAnchorMs <
+  expectedArrivalMs (ingen ändring i banken).
+- U17 (ägarbeslut): säkerhetsvarningen för en tyst båt behålls; docblock,
+  ARCHITECTURE.md och U17-kontraktet i testet.
+- 20260712-25h: bedömningen ändrad till likvärdig; omlåsningen kräver
+  ägarens ja enligt U13 (noten i corpora.js).
+- Test som fäller var och en av granskningens överlevande mutationer och
+  revisionens egna (27 mutationer, alla fällda).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/ARCHITECTURE.md                         |  71 +++--
+ lib/services/BridgeOpeningService.js         | 192 +++++++++--
+ tests/k-konvoj-recover-bakkant-glapp.test.js | 317 ++++++++++++++++++-
+ tests/replay-validation/corpora.js           |  25 +-
+ 4 files changed, 532 insertions(+), 73 deletions(-)
+
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index c89e91f..6fb7634 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -748,8 +748,10 @@ båt.
+   är fryst, om ankomstfysik saknas, om hon låg under bron (≤
+   `UNDER_BRIDGE_SET_DISTANCE`, i rörelse) med ankomst inom täckningen, eller om
+   kursen leder bort från bron utanför väntzonen. Första passagens tid är den
+-  interpolerade korsningen (`_crossingEstimate`), inte bokföringstiden; se
+-  §H29/H30 för vad som medvetet inte är grindar.
++  interpolerade korsningen (`_crossingEstimate`), inte bokföringstiden. En ny
++  båt som bara därför får en egen händelse, men som upptäcks under två tick
++  före sin ankomst, absorberas som förut (`_anchorFloorHost`, golvet). Se
++  §H29/H30 för vad som medvetet inte är grindar och för U17.
+ - **Dedup i TVÅ lager (app.js):** `_firedOpeningEvents` (eventId, sessionslokal)
+   och `persistent_opening_warnings` (`bro|mmsi|riktning`, 10 min, ÖVER omstart
+   — v1 persisterar inga armar, så en omstart mitt i en anflygning varnade annars
+@@ -1504,9 +1506,12 @@ samma form: släpp på ren tid och avfyrning på den ärvda deadlinen. Rättning
+   (≤ `UNDER_BRIDGE_SET_DISTANCE`, ≥ `MINIMUM_VIABLE_SPEED`) med förväntad ankomst
+   inom täckningen, eller leder kursen bort från bron (≥ 2 kn, utanför
+   väntzonen), hålls täckningen kvar tills nästa fix (F20, F03, F14).
+-- **(3)** Utan finit ankomstfysik släpps hon inte. **(4)** Bakkanten släpper på
+-  ett färskt fix efter den bokförda första passagen, och deadlinen räknas ur det
+-  fixet (F02, F17, F22, F01:s r2). Bakkanten jämför med täckningsslutet, inte
++- **(3)** Utan finit ankomstfysik släpps hon inte (hängslen: `_canArm` kräver ett
++  finit avstånd, så ingen arm i drift når grenen). **(4)** gäller bakkanten: den
++  släpper på ett färskt, rent fix efter den bokförda första passagen, och
++  deadlinen räknas ur det fixet (F02, F17, F22, F01:s r2). Vid täckningsslut
++  avfyras armen däremot på deadlinen ur sitt senaste tillämpade fix, som för en
++  tyst båt sedan länge har förfallit. Bakkanten jämför med täckningsslutet, inte
+   med U2-fönstret kring passagen. Den varianten mättes: när ledaren passerat
+   senare än sin prognos höll den kvar följarna till täckningsslutet, och de
+   varnades efter sin korsning.
+@@ -1515,27 +1520,38 @@ samma form: släpp på ren tid och avfyrning på den ärvda deadlinen. Rättning
+   korsningen. Interpolationen gäller varje passage med fix på var sin sida om
+   bron, inte bara AIS-glapp: U2 räknar fönstret från passagen, och en variant
+   som bara interpolerade glapp över `STALE_ETA_SOFT_MS` lämnade fler missade
+-  öppningar i buggjägarens standardvärldar (T2 31 mot 26).
+-- **Medvetet inte infört, mätt mot U13:** färskheten i **(2)** (lastSeenAt
+-  nyare än firstPassageAt), en åldersgräns på fixet (`STALE_ETA_HARD_MS`) och
+-  ledtidsgolvet i **(3)** tog i korpusbanken bort 5–16 RECOVER-varningar, och
++  öppningar i buggjägarens standardvärldar (T2 31 mot 26). En fryst arm får
++  bokföringstiden: hennes senaste tillämpade fix är inte nödvändigtvis det
++  senaste före bron. Utan fix bortom bron (`notePassage` med levande arm,
++  passagedomen) används fixets tid bara när armens eget läge redan låg bortom
++  bron; en projektion ur prognosen startade fönstret för tidigt när ledaren
++  väntade och gav en andrapåminnelse (`opening-updated-host-forecast.test.js`).
++- **Korsningsankarets golv** (granskningen, buggjägarens värld 227). Ankaret
++  gjorde att ZELDA:s retur, upptäckt 13 m före Stridsbergsbron och 10 s efter
++  korsningen, fick en egen varning. Hör en ny båt till händelsen mätt mot
++  bokföringen men inte mot korsningen, och ligger hennes ankomst närmare än
++  2 × `TICK_INTERVAL_MS` på ett färskt rent fix, absorberas hon som före
++  rättningen, med täckning från bokföringen. Samma golv som räddningsventilen
++  och K2:s returgolv.
++- **U17 (ägarbeslut 2026-11-04): säkerhetsvarningen för en tyst båt behålls.**
++  Gäller en båt vars senaste position sa att hon skulle hinna igenom den
++  gemensamma öppningen, men där appen inte vet om hon gjorde det. Ingen öppning
++  får missas; F11/F23-klassen godtas som falsklarm av samma slag som
++  AVBRUTEN_APPROACH, och buggjägaren registrerar den som DESIGN med källa U17.
++  Därför är färskheten i **(2)** (lastSeenAt nyare än firstPassageAt), en
++  åldersgräns på fixet (`STALE_ETA_HARD_MS`) och ledtidsgolvet i **(3)** inte
++  införda. Mätt mot U13 tog de i korpusbanken bort 5–16 RECOVER-varningar, och
+   O1 (appserien) fick 3–4 OKLASSADE missar: 20260702-2h 265558470, 20260707-14h
+-  AKIRA, 20260713-41h ELFKUNGEN vid Klaffbron och Stridsbergsbron. Det är
+-  passager som appen bokförde efter ett AIS-glapp, och rådatafacit ger bara ett
+-  inferrerat korsningsfönster (TIDPUNKT_OKÄND). Rådatan kan alltså inte visa att
+-  borttagningen är rättare, och U13 kräver då att den behandlas som regression.
+-  Golvet hade dessutom flyttat en äkta räddning till efter korsningen
+-  (20260804-17h 211100280: rådatans korsning 13:58:29, varningen 13:48:28 blev
+-  14:00:01) och skjutit LYS varning (20260707-14h) in i hennes korsningsfönster.
+-- **Kvar efter rättningen: F11 och F23** (och R1-svansen i F03/F20). Det är en
+-  tyst båt vars prognos låg inom täckningen och som korsade under tystnaden. I
+-  appens data går den inte att skilja från de O1-skyddade bankfallen ovan. Att
+-  stänga klassen kräver ett ägarbeslut: antingen godtas O1-förflyttningar där
+-  rådatan saknar ordning, eller så ankras O1:s appserie i den interpolerade
+-  korsningen för glappassager i stället för i bokföringen.
++  AKIRA, 20260713-41h ELFKUNGEN vid Klaffbron och Stridsbergsbron. Golvet hade
++  dessutom flyttat en äkta räddning till efter korsningen (20260804-17h
++  211100280: rådatans korsning 13:58:29, varningen 13:48:28 blev 14:00:01) och
++  skjutit LYS varning (20260707-14h) in i hennes korsningsfönster. Hållen under
++  bron och för kurs bort är inte en sådan grind: de gäller lägen som säger mer
++  än en prognos (appens egen under-bron-gräns, en kurs bort från bron) och
++  skjuter bara upp släppet till nästa fix.
+ - Negativtesterna för VIRGO och PILGRIM ligger i
+-  `tests/k-konvoj-recover-bakkant-glapp.test.js`, liksom ett
+-  karaktäriseringstest av den kvarvarande klassen.
++  `tests/k-konvoj-recover-bakkant-glapp.test.js`, liksom U17-kontraktet och ett
++  fällande test per grind (granskningens mutationsprov).
+ 
+ ### Helkodsgranskning runda 2 (2026-08-22) — uppskjutet med diagnos
+ 
+@@ -1678,8 +1694,11 @@ uppträder när klassen finns och (b) utfallet är sant mot rådata:
+   (K-familjen 2026-11-04 ändrar inte värdvalet. Den interpolerade första
+   passagen gör dock att en återabsorption ibland ger en täckning som redan har
+   löpt ut, och då prövas armen direkt som egen öppning: 20260712-25h 265806230
+-  varnas 08:30:11 i stället för 08:37:18. F11 och F23 är fortfarande kedjor
+-  i två led.)
++  varnas 08:30:11 i stället för 08:37:18. Rådatan visar bara att den nya
++  varningen aldrig kommer senare, inte att den är rättare, så omlåsningen
++  kräver ägarens ja (U13). Alternativet utan omlåsning — täckningen räknad
++  från bokföringen som förut — beskrivs i kampanjens K-underlag. F11 och F23
++  är fortfarande kedjor i två led.)
+ - **J14 — `notePassage` bokför inte armlösa båtars passager** (`_recordPassage`
+   returnerar utan arm). Valet är MEDLEMSKRAV: en öppningshändelse stängs av
+   sina medlemmars passager. app.js-kommentaren i `_observeBridgeOpening` som
+diff --git a/lib/services/BridgeOpeningService.js b/lib/services/BridgeOpeningService.js
+index 79a69f1..e0c500b 100644
+--- a/lib/services/BridgeOpeningService.js
++++ b/lib/services/BridgeOpeningService.js
+@@ -412,7 +412,11 @@ class BridgeOpeningService {
+     if (!this._targetBridges.has(bridgeName)) return;
+     const now = this._now();
+     const arm = this._arms.get(`${String(mmsi)}::${bridgeName}`);
+-    this._recordPassage(bridgeName, arm, now);
++    // K-familjen (F01): en levande arm här betyder att observeVessel inte
++    // själv såg passagen (t.ex. tidig retur på ett GPS-flaggat fix). Låg
++    // hennes senaste tillämpade läge redan bortom bron är fixets tid en säker
++    // övre gräns för korsningen; annars bokföringen (se _crossingUpperBound).
++    this._recordPassage(bridgeName, arm, now, arm ? this._crossingUpperBound(arm, now) : null);
+     if (arm) this._disarm(arm, 'passage', now);
+     // K20a-grindens BATCHLED ÄR EXPLICIT INERT HÄR (granskningen 2026-08-21).
+     // Utvärderingen nedan är passage-driven, men skickas som 'fix' — och
+@@ -778,6 +782,11 @@ class BridgeOpeningService {
+       lastFixClean: false,
+       // Hållen täckning: när och varför släppvägen senast höll armen kvar efter
+       // täckningsslut. Endast för loggdedup och schemaläggning — ingen fysik.
++      // Gäller bara den täckning hållet prövades mot: nollställs vid varje ny
++      // absorption (_bindLooseArms) och vid släppet (_releaseCoveredArm), så
++      // att en arm som tappat täckningen på en annan väg (restartArrival,
++      // leveransfel, spärren vid en tidigare bro, räddningsventilen) och
++      // absorberas igen får sin nya täckningsgräns bokad av schemaläggaren.
+       recoverHeldAt: null,
+       recoverHoldReason: null,
+       anchorMs: now,
+@@ -1484,7 +1493,9 @@ class BridgeOpeningService {
+         ? null
+         : events.find((e) => !e.deliveryUnavailable && !arm.releasedFrom.has(e.id)
+           && e.firedAt !== null && e.lastPassageAt === null);
+-      const bound = host || wideHost;
++      // K-familjen: korsningsankarets ledtidsgolv (se _anchorFloorHost).
++      const floorHost = host || wideHost ? null : this._anchorFloorHost(arm, events, now);
++      const bound = host || wideHost || floorHost;
+       if (!bound) {
+         const fresh = this._openEvent(bridgeName, now, arm);
+         events.push(fresh);
+@@ -1504,9 +1515,15 @@ class BridgeOpeningService {
+         arm.absorbedAt = now;
+         arm.movingConvoyEventId = bound === convoyHost ? bound.id : null;
+         arm.coveredBeyondWindow = wideHost !== null;
++        // En ny absorption börjar utan hållskäl: hållet gällde en tidigare
++        // täckning (schemaläggaren och loggdedupen läser fälten).
++        arm.recoverHeldAt = null;
++        arm.recoverHoldReason = null;
++        // Golvets värd täcker som före korsningsankaret: från bokföringen.
++        const coverRef = floorHost ? floorHost.firstPassageRegisteredAt : bound.referenceArrivalMs;
+         arm.coverUntilMs = Math.max(
+           bound.firedAt,
+-          Number.isFinite(bound.referenceArrivalMs) ? bound.referenceArrivalMs : 0,
++          Number.isFinite(coverRef) ? coverRef : 0,
+         ) + this.config.CONVOY_WINDOW_MS;
+         this.logger.debug(
+           `🌉 [BRIDGE_OPENING] ${arm.mmsi} (${arm.name || 'okänt namn'}): absorberad av öppning `
+@@ -1519,6 +1536,69 @@ class BridgeOpeningService {
+     return events;
+   }
+ 
++  /**
++   * KORSNINGSANKARETS LEDTIDSGOLV (K-familjen, granskningen 2026-11-04).
++   *
++   * Korsningsankaret (F01, _recordPassage) flyttar en händelses referens-
++   * ankomst från bokföringen till den interpolerade korsningen. En båt som
++   * anländer mer än CONVOY_WINDOW_MS efter KORSNINGEN hör därmed inte längre
++   * till öppningen, och hon får en egen händelse och en egen varning (U2).
++   * Det är hela poängen när varningen kan göra nytta (ULLA i värld 1900 fick
++   * ~5 min). Men upptäcks hon först vid bron hade den egna varningen kommit
++   * med under två tick kvar till ankomsten — och i praktiken efter
++   * korsningen. Buggjägarens värld 227: ZELDA beväpnades för returen 13 m
++   * före Stridsbergsbron, 10 s EFTER sin verkliga korsning; utan golvet gav
++   * ankaret ett nytt T3-utslag (varning efter sann passage) där 7699cbe inte
++   * varnade alls.
++   *
++   * GOLVET. När en egen händelse BARA beror på ankaret — armen hade hört till
++   * en avfyrad händelse mätt mot händelsens BOKFÖRING (firstPassageRegisteredAt,
++   * referensen före K-rättningen) men inte mot korsningen — och hennes
++   * förväntade ankomst ligger närmare än 2 × TICK_INTERVAL_MS, står täckningen
++   * kvar som före rättningen: hon absorberas, med täckning räknad från
++   * bokföringen. Samma golv och samma utfall som räddningsventilen
++   * (_rescueCoveredArms: "stängs ventilen av golvet står den ursprungliga
++   * täckningen kvar") och U15-returens golv (K2). Skälet är också detsamma:
++   * O1 räknar ledtiden mot den SENASTE täckande varningen, så en varning
++   * under golvet hade ersatt en fullgod konvojtäckning med en värdelös
++   * ledtid (LEDTIDSGOLV-brott, runOpeningGates.js).
++   *
++   * BARA PÅ ETT FÄRSKT FIX: armen ska ha tillämpat ett rent fix i just den här
++   * utvärderingen (lastSeenAt === now, lastFixClean, inte fryst). För en tyst
++   * arm säger prognosen inget om när hon kommer, och ett golv där hade varit
++   * KRAV (3):s ledtidsgolv, som är mätt och avvisat (U13) och som U17 inte
++   * godtar (säkerhetsvarningen för en tyst båt behålls). Gäller inte heller en
++   * händelse vars gamla täckning redan har löpt ut (då hade hon släppts direkt).
++   * @private
++   * @param {Object} arm - lös, ovarnad arm utan värd
++   * @param {Object[]} events - brons händelser
++   * @param {number} now
++   * @returns {Object|null} händelsen som täcker henne enligt bokföringen, eller null
++   */
++  _anchorFloorHost(arm, events, now) {
++    if (arm.lastSeenAt !== now || !arm.lastFixClean || this._hasUnappliedObservation(arm)) return null;
++    if (!Number.isFinite(arm.expectedArrivalMs)) return null;
++    const remainingMs = arm.expectedArrivalMs - now;
++    if (remainingMs >= 2 * this.config.TICK_INTERVAL_MS) return null;
++    const W = this.config.CONVOY_WINDOW_MS;
++    const host = events.find((e) => !e.deliveryUnavailable && !arm.releasedFrom.has(e.id)
++      && e.firedAt !== null && Number.isFinite(e.firstPassageRegisteredAt)
++      && Number.isFinite(e.firstPassageAt) && e.firstPassageAt < e.firstPassageRegisteredAt
++      && now <= Math.max(e.firedAt, e.firstPassageRegisteredAt) + W
++      && Math.abs(arm.expectedArrivalMs - e.firstPassageRegisteredAt) <= W);
++    if (!host) return null;
++    this.logger.debug(
++      `⛔ [OPENING_ANCHOR_FLOOR] ${arm.mmsi} (${arm.name || 'okänt namn'}): ${arm.bridge} — en egen `
++      + `händelse berodde bara på korsningsankaret (${host.id}: korsning `
++      + `${new Date(host.firstPassageAt).toISOString()}, bokförd `
++      + `${new Date(host.firstPassageRegisteredAt).toISOString()}) och hade gett `
++      + `${Math.round(remainingMs / 1000)} s till förväntad ankomst (golv `
++      + `${Math.round((2 * this.config.TICK_INTERVAL_MS) / 1000)} s); täckningen räknad från bokföringen `
++      + 'står kvar',
++    );
++    return host;
++  }
++
+   /**
+    * U9 — RÄDDNINGSVENTILEN (användarbeslut 2026-08-09: "garantin står, U2
+    * mjukas").
+@@ -1698,8 +1778,9 @@ class BridgeOpeningService {
+    * tog i korpusbanken bort RECOVER-varningar som öppningsgrinden O1 räknar
+    * som täckning för passager i AIS-glapp, där rådatan inte kan ordna varning
+    * och korsning. U13 kräver då att vi antar regression. Klassen "tyst båt vars
+-   * prognos låg inom täckningen" (F11, F23) står därför kvar — se
+-   * docs/ARCHITECTURE.md §H29/H30.
++   * prognos låg inom täckningen" (F11, F23) står därför kvar, och ägaren har
++   * beslutat att den ska stå kvar (U17, 2026-11-04: säkerhetsvarningen behålls,
++   * ingen öppning får missas) — se docs/ARCHITECTURE.md §H29/H30.
+    *
+    * Gäller ENDAST absorberade armar. En arm som var medlem när varningen gick
+    * ut räknades i vessel_count och ÄR varnad; att varna om henne hade varit
+@@ -1718,7 +1799,8 @@ class BridgeOpeningService {
+       if (verdict.kind === 'passage') {
+         // KRAV (1): bron ligger bakom senaste läget — anflygningen är slut.
+         // Samma utfall som observeVessel:s geometriska ben: bokför och avväpna.
+-        this._recordPassage(arm.bridge, arm, now);
++        // Korsningen skedde före det fixet; dess tid är en övre gräns.
++        this._recordPassage(arm.bridge, arm, now, this._crossingUpperBound(arm, now));
+         this._disarm(arm, 'passage', now);
+         continue;
+       }
+@@ -1770,36 +1852,58 @@ class BridgeOpeningService {
+    * ledtid — ett fall som motorn registrerar som KÄND_ÖPPEN U2-VS-DEADLINE.
+    * Prognosen är den som kortets eta_minutes, O1 och konvojfönstret redan
+    * använder (expectedArrivalMs); ingen ny storhet. Mätt i korpusbanken
+-   * (485 h): bakkanten släpper ingen arm som inte redan släpptes förut —
+-   * noll ändrade varningar — och stänger F22, F02, F17 och F01:s r2.
++   * (485 h): bakkanten ENSAM (bokföringsankrad täckning) ändrar ingen varning.
++   * Tillsammans med korsningsankaret flyttar den en: PRINCESS LIZYMAR
++   * (20260713-41h, 219029305) släpps på fixet 08:33:22 vars färska prognos
++   * 08:39:52,4 låg 1,5 s efter den korsningsankrade täckningen 08:39:50,9 och
++   * varnas 08:34:13,9 med 6 min ledtid. Utan bakkanten hade hon varnats vid
++   * täckningsslutet 08:39:50,9 (eta 0), och på 7699cbe 08:40:41,2. Rådatans
++   * korsning är 08:42:13 (fönstret 08:36:22–08:47:21). Bakkanten stänger
++   * F22, F02, F17 och F01:s r2.
+    *
+    * TÄCKNINGSSLUT. Släpp, utom när:
+    *  (1)  bron ligger BAKOM armens senaste läge ⇒ 'passage' (KRAV 1: avväpna,
+-   *       släpp inte). Kan i dag bara nås om riktningen saknades när fixet
+-   *       tillämpades; grinden står kvar som hängslen;
++   *       släpp inte). Nås när riktningen saknades i det fix som lade henne
++   *       bortom bron (observeVessel:s geometriska ben är då tyst), medan armen
++   *       behållit sin riktning från beväpningen. Korsningen bokförs på fixets
++   *       tid, inte på nu (se _crossingUpperBound);
+    *  (1b) armen är fryst (_hasUnappliedObservation): ett nyare fix har lästs
+-   *       men inte kunnat tillämpas, och fysiken vore redan motsagd (C7b);
++   *       men inte kunnat tillämpas, och fysiken vore redan motsagd (C7b).
++   *       Ingen varning skiljer sig — en fryst arm är ingen medlem och kan
++   *       inte avfyra — men utan hållet släpptes hon och seedade en egen
++   *       händelse på ett motsagt läge, som andra lösa armar sedan kunde
++   *       bindas till. Hållet varar till första tillämpade fix;
+    *  (3)  ankomstfysiken saknas (expectedArrivalMs eller earliestArrivalMs
+-   *       inte finit; KRAV 3:s första led);
++   *       inte finit; KRAV 3:s första led). MEDVETNA HÄNGSLEN: _canArm kräver
++   *       ett finit avstånd och _refreshArm skriver alltid båda tiderna, så
++   *       ingen arm i drift når hit; grenen prövas direkt i enhetstestet;
+    *  (1c) båten låg UNDER BRON vid senaste fixet — inom UNDER_BRIDGE_SET_DISTANCE
+    *       på anflygningssidan, i rörelse (≥ MINIMUM_VIABLE_SPEED) — och hennes
+    *       förväntade ankomst låg inom täckningen. Då har hon med all sannolikhet
+    *       passerat med öppningen; en ny varning vore en varning efter passagen
+    *       (F20: 25 m före linjen i 7 kn, tyst 273 s, varnad 268 s efter
+    *       korsningen). Väntande båtar ligger på köplatserna 56–307 m före bron
+-   *       (BUGGJAKT §4.4) och rörs inte;
++   *       (BUGGJAKT §4.4) och rörs inte. Avståndet är appens egen gräns för
++   *       statusen under bron;
+    *  (1d) kursen leder bort från bron (_courseAway; F14: cog 32,8° för en
+    *       sydgående båt 705 m norr om Klaffbron efter en obekräftad U-sväng).
+-   * Mätt i korpusbanken: grindarna (1)–(1d) håller ingen RECOVER som släpptes
+-   * förut — noll ändrade varningar.
+-   *
+-   * MÄTT OCH AVVISAT (ARCHITECTURE.md:1461–1474 KRAV (2) och golvet i KRAV (3)):
++   * Ett håll skjuter upp släppet till nästa fix, och visar det en anflygning
++   * släpps hon på det fixet. En båt som tystnar för gott i ett hållet läge
++   * får däremot ingen räddningsvarning (avsikten med KRAV 1). Mätt i
++   * korpusbanken: grindarna (1)–(1d) håller ingen RECOVER som släpptes förut —
++   * noll ändrade varningar.
++   *
++   * U17 (ägarbeslut 2026-11-04): säkerhetsvarningen för en TYST båt vars
++   * senaste position sa att hon skulle hinna igenom den gemensamma öppningen
++   * BEHÅLLS (F11/F23-klassen, ett falsklarm av samma slag som
++   * AVBRUTEN_APPROACH). Grindarna ovan gäller lägen som säger mer än en
++   * prognos: bron bakom henne, appens egen under-bron-gräns eller en kurs
++   * bort. MÄTT OCH AVVISAT (ARCHITECTURE.md KRAV (2) och golvet i KRAV (3)):
+    * färskhet mot firstPassageAt, en åldersgräns på fixet (STALE_ETA_HARD_MS)
+    * och ledtidsgolvet 2 × TICK_INTERVAL_MS tog i banken bort 5–16 RECOVER-
+    * varningar, och O1 (appserien) fick 3–4 OKLASSADE missar: passager som
+    * appen bokförde efter ett AIS-glapp och där rådatafacit bara ger ett
+-   * inferrerat korsningsfönster (TIDPUNKT_OKÄND). Enligt U13 är det en
+-   * regression tills rådatan visar motsatsen, och det kan den inte här.
++   * inferrerat korsningsfönster (TIDPUNKT_OKÄND).
+    * @private
+    * @param {Object} arm - absorberad arm
+    * @param {Object|null} event - armens händelse
+@@ -1837,8 +1941,7 @@ class BridgeOpeningService {
+     }
+     if (Number.isFinite(arm.distanceM) && arm.distanceM <= UNDER_BRIDGE_SET_DISTANCE
+         && Number.isFinite(arm.sog) && arm.sog >= PASSAGE_TIMING.MINIMUM_VIABLE_SPEED
+-        && arm.expectedArrivalMs <= arm.coverUntilMs
+-        && Number.isFinite(arm.rawAnchorMs) && arm.rawAnchorMs < arm.expectedArrivalMs) {
++        && arm.expectedArrivalMs <= arm.coverUntilMs) {
+       return {
+         kind: 'hold',
+         reason: `under bron vid senaste fixet (${Math.round(arm.distanceM)} m, ${arm.sog} kn) med ankomst inom täckningen`,
+@@ -2025,11 +2128,18 @@ class BridgeOpeningService {
+    *
+    * Returnerar null — och anroparen faller tillbaka på bokföringstiden — när
+    * underlaget inte bär: okänd riktning, ett fix som inte låg på var sin sida
+-   * om bron, en fryst arm (nyare lästa fix som armen aldrig tog emot kan redan
+-   * ha legat bortom bron) eller orimliga tider. Fel i interpolationen kan gå åt
++   * om bron, en fryst arm eller orimliga tider. Fel i interpolationen kan gå åt
+    * båda håll (en båt som väntade i glappet korsade senare än skattningen),
+    * men bokföringstiden är ALLTID för sen, och ett för sent ankare låter
+    * fönstret svälja nästa öppning — den värsta klassen enligt produktprincipen.
++   *
++   * FRYST ARM (_hasUnappliedObservation) — medvetet bokföringstiden, som före
++   * rättningen. Armen har läst fix som den inte kunde tillämpa, typiskt för att
++   * appen släppte målbron (kajstopp, osäker tilldelning). Hennes senaste
++   * TILLÄMPADE fix är då inte nödvändigtvis det senaste före bron, och
++   * intervallet kan rymma ett stopp som interpolationen inte ser och därför
++   * lägger korsningen mitt i. Mätt i korpusbanken: noll ändrade varningar med
++   * eller utan vakten; enhetstestet låser valet.
+    * Gäller VARJE passage med fix på var sin sida om bron, inte bara AIS-glapp:
+    * U2 räknar fönstret från passagen, och en variant som bara interpolerade
+    * glapp över STALE_ETA_SOFT_MS lämnade fler missade öppningar i buggjägarens
+@@ -2064,6 +2174,42 @@ class BridgeOpeningService {
+     return tBefore + (tAfter - tBefore) * (dBefore / total);
+   }
+ 
++  /**
++   * KORSNINGENS ÖVRE GRÄNS UR ARMENS EGET LÄGE (K-familjen, granskningen
++   * 2026-11-04). För de två vägar som bokför en passage utan att ha fixet efter
++   * korsningen framför sig: släppvägens passagedom (_coverageVerdict
++   * 'passage') och notePassage (appen bokförde passagen men observeVessel såg
++   * den inte, t.ex. vid tidig retur på ett GPS-flaggat fix).
++   *
++   * Ligger armens senaste TILLÄMPADE läge redan bortom bron, skedde korsningen
++   * före det fixet. Fixets tid är då en säker övre gräns — aldrig tidigare än
++   * den verkliga korsningen, alltid tidigare än bokföringen — och används.
++   *
++   * Annars null, och bokföringstiden gäller som före rättningen. MÄTT OCH
++   * AVVISAT: att projicera korsningen ur armens senaste fix FÖRE bron (hennes
++   * prognos, klämd till [fixets tid, now]). En båt som väntar efter sitt
++   * senaste fix korsar långt senare än prognosen, och då startar fönstret för
++   * tidigt: i opening-updated-host-forecast.test.js ("senare faktisk passage
++   * ersätter prognosbegränsningen") passerade ledaren 13 min efter sin senaste
++   * prognos, och följaren som kom 5 min efter den verkliga passagen fick en
++   * andra varning för samma öppning (U2). I korpusbanken ändrade
++   * projektionen ingen varning. Utan ett fix bortom bron finns ingen säker
++   * skattning; interpolationen i observeVessel (_crossingEstimate) kräver ett.
++   * @private
++   * @param {Object} arm - levande arm (före avväpningen)
++   * @param {number} now - bokföringstid
++   * @returns {number|null} korsningens övre gräns (ms) eller null
++   */
++  _crossingUpperBound(arm, now) {
++    const fixMs = arm.rawAnchorMs;
++    if (!Number.isFinite(fixMs) || fixMs > now) return null;
++    const bridge = this._targetBridges.get(arm.bridge);
++    const dir = arm.routeDirection;
++    const beyond = bridge && Number.isFinite(arm.lat)
++      && ((dir === 'north' && arm.lat > bridge.lat) || (dir === 'south' && arm.lat < bridge.lat));
++    return beyond ? fixMs : null;
++  }
++
+   /**
+    * K14 — TÄCKNINGEN ANKRAS I DEN VERKLIGA PASSAGEN, INTE I LEDARENS PROGNOS.
+    * (Fältprov 10, 2026-08-19; syntesens enda nya punkt i konvojfamiljen.)
+diff --git a/tests/k-konvoj-recover-bakkant-glapp.test.js b/tests/k-konvoj-recover-bakkant-glapp.test.js
+index d5ec2c7..31de1c7 100644
+--- a/tests/k-konvoj-recover-bakkant-glapp.test.js
++++ b/tests/k-konvoj-recover-bakkant-glapp.test.js
+@@ -19,13 +19,27 @@
+  *  F14  KURSEN BORT. En båt vars kurs ledde bort från bron (obekräftad
+  *       U-sväng) släpptes och fick en fantomvarning.
+  *
+- * Testerna nedan är röda på 7699cbe (utom karaktäriserings- och
+- * negativtesterna, som vaktar det som MEDVETET står kvar):
++ *  F14-världen 227 (granskningen)  KORSNINGSANKARETS GOLV. Ankaret gav en
++ *       retur som upptäcktes 13 m före bron en egen varning 10 s efter
++ *       korsningen; under 2 × TICK står täckningen kvar som förut.
++ *
++ * Granskningen 2026-11-04 gjorde 17 mutationer av grindarna, och 8 överlevde.
++ * Blocket "grindar som saknade fällande test" längst ned fäller var och en av
++ * dem (kommentaren vid varje test namnger mutationen).
++ *
++ * VILKA SOM ÄR RÖDA PÅ 7699cbe (körda med testfilen kopierad dit, K/tmp/rev):
++ * alla utom de som vaktar beteenden som fanns redan där —
+  *  - KRAV-negativen (ARCHITECTURE.md §H29/H30, "TESTKRAVET ÄR NEGATIVT"):
+- *    VIRGO och PILGRIM korsar under tystnad och får INGEN andra varning.
+- *  - Karaktäriseringen: en tyst båt utanför bron prövas fortfarande vid
+- *    täckningsslutet (F11/F23-klassen). Att ändra det kräver ett beslut:
+- *    korpusbankens O1 räknar de varningarna som täckning (U13).
++ *    VIRGO och PILGRIM korsar under tystnad och får INGEN andra varning;
++ *  - U17-kontraktet (ägarbeslut 2026-11-04): en tyst båt utanför bron prövas
++ *    fortfarande vid täckningsslutet och får sin säkerhetsvarning
++ *    (F11/F23-klassen);
++ *  - två bakkantsfall som 7699cbe redan klarade på annan väg: en prognos
++ *    inom täckningen hör till öppningen, och en följare som inte setts sedan
++ *    bokföringen släpps inte av rebaseringen ensam;
++ *  - golvets motsats: utan flyttat ankare eller med full ledtid gäller
++ *    vanlig medlemsprövning.
++ * Den exakta listan per test står i K/DESIGN.md §7.
+  */
+ 
+ global.__TEST_MODE__ = true;
+@@ -240,9 +254,15 @@ describe('K-familjen: RECOVER-släppet, bakkanten och glappregistreringen', () =
+       svc.observeVessel(boat('FOLLOWER', 2400, 6.9));
+       expect(armOf('FOLLOWER').absorbedAt).toBe(T0);
+       const coverBefore = armOf('FOLLOWER').coverUntilMs;
++      // Ledarens väntfix 20 m före bron: passagen kommer strax efter (notePassage
++      // skattar korsningen ur hennes senaste fix, se _crossingWithoutFixBeyond).
++      advanceTo(T0 + 480 * S);
++      svc.observeVessel(boat('LEAD', 20, 0.5));
+       advanceTo(T0 + 500 * S);
+       svc.notePassage('LEAD', 'Klaffbron');
+-      const windowEnd = T0 + 1100 * S; // max(firedAt, passagen) + CONVOY_WINDOW_MS
++      const event = svc._events.get('Klaffbron').find((e) => e.firstPassageAt !== null);
++      expect(event.firstPassageAt).toBeGreaterThan(T0 + 480 * S);
++      const windowEnd = Math.max(event.firedAt, event.firstPassageAt) + BRIDGE_OPENING.CONVOY_WINDOW_MS;
+       expect(armOf('FOLLOWER').coverUntilMs).toBe(coverBefore);
+       expect(coverBefore).toBeLessThan(windowEnd);
+ 
+@@ -337,21 +357,292 @@ describe('K-familjen: RECOVER-släppet, bakkanten och glappregistreringen', () =
+   // ===========================================================================
+   // KARAKTÄRISERING — det som medvetet står kvar
+   // ===========================================================================
+-  describe('karaktärisering: RECOVER vid täckningsslut för en båt utanför bron', () => {
+-    it('kvar beväpnad 300 m före bron vid täckningsslutet ⇒ egen varning (räddningsvägen består)', () => {
++  describe('U17-kontraktet: RECOVER vid täckningsslut för en tyst båt utanför bron', () => {
++    it('kvar beväpnad 300 m före bron vid täckningsslutet ⇒ egen varning (säkerhetsvarningen behålls)', () => {
+       stageConvoyWithPassage();
+       advanceTo(T0 + 600 * S);
+       svc.observeVessel(boat('FOLLOWER', 300, 4)); // ankomst ~T0+746 s, inom täckningen
+       expect(armOf('FOLLOWER').absorbedAt).toBe(T0);
+       advanceTo(T0 + 900 * S);
+-      // Banken har äkta räddningar av exakt den här formen (20260713-41h
+-      // 219029305, 20260804-17h 211488730): båten var försenad mot prognosen.
+-      // Samma form omfattar också den tysta passagen i F11/F23 — se U13-noten
+-      // i ARCHITECTURE.md §H29/H30. Ändras detta krävs ett ägarbeslut.
++      // U17 (ägarbeslut 2026-11-04): säkerhetsvarningen för en tyst båt vars
++      // senaste position sa att hon skulle hinna igenom den gemensamma
++      // öppningen BEHÅLLS — ingen öppning får missas. Banken har äkta
++      // räddningar av exakt den här formen (20260713-41h 219029305,
++      // 20260804-17h 211488730), och samma form omfattar den tysta passagen i
++      // F11/F23, som motorn registrerar som DESIGN med källa U17.
+       const own = klaff().filter((w) => w.leadMmsi === 'FOLLOWER');
+       expect(own).toHaveLength(1);
+     });
+   });
++
++  // ===========================================================================
++  // KORSNINGSANKARETS LEDTIDSGOLV (granskningen, F14-världen 227)
++  // ===========================================================================
++  describe('korsningsankarets golv: ingen egen varning under två tick som bara ankaret skapat', () => {
++    /**
++     * ORION avfyrar, sista fixet 72 m före bron T0+268 s, AIS-avbrott, och
++     * passagen bokförs först T0+1025 s. Korsningen interpoleras till
++     * ~T0+295,6 s. Returnerar händelsen.
++     */
++    const stageLateBookedPassage = () => {
++      svc.observeVessel(boat('ORION', 900, 5.4));
++      expect(klaff()).toHaveLength(1);
++      advanceTo(T0 + 268 * S);
++      svc.observeVessel(boat('ORION', 72, 5.4));
++      advanceTo(T0 + 1025 * S);
++      svc.observeVessel(boat('ORION', 1900, 5.4, { bearing: 40 }));
++      const event = svc._events.get('Klaffbron').find((e) => e.firstPassageAt !== null);
++      expect(event.firstPassageAt).toBeLessThan(event.firstPassageRegisteredAt);
++      return event;
++    };
++
++    it('ZELDA-klassen: upptäckt 60 m före bron, 23 s kvar ⇒ täckningen från bokföringen står kvar', () => {
++      const event = stageLateBookedPassage();
++      // LATE hörs första gången 60 m före bron i 5 kn: ankomst ~23 s bort.
++      // Mot korsningen (~T0+296 s) ligger hon 753 s efter ⇒ ingen medlem;
++      // mot bokföringen (T0+1025 s) 24 s efter ⇒ medlem, som på 7699cbe.
++      advanceTo(T0 + 1026 * S);
++      svc.observeVessel(boat('LATE', 60, 5));
++      const late = armOf('LATE');
++      expect(late.expectedArrivalMs - Date.now()).toBeLessThan(2 * BRIDGE_OPENING.TICK_INTERVAL_MS);
++      expect(late.eventId).toBe(event.id);
++      expect(late.absorbedAt).toBe(T0 + 1026 * S);
++      expect(late.coverUntilMs).toBe(Math.max(event.firedAt, event.firstPassageRegisteredAt)
++        + BRIDGE_OPENING.CONVOY_WINDOW_MS);
++      expect(debugLines('[OPENING_ANCHOR_FLOOR]')).toHaveLength(1);
++      advanceTo(T0 + 1100 * S);
++      expect(klaff().filter((w) => w.leadMmsi === 'LATE')).toHaveLength(0);
++    });
++
++    it('golvets villkor: färskt rent fix, under två tick, medlem bara mot bokföringen', () => {
++      const event = stageLateBookedPassage();
++      advanceTo(T0 + 1026 * S);
++      const now = Date.now();
++      const W = BRIDGE_OPENING.CONVOY_WINDOW_MS;
++      const events = svc._events.get('Klaffbron');
++      const base = {
++        mmsi: 'X',
++        bridge: 'Klaffbron',
++        lastSeenAt: now,
++        lastObservedAt: null,
++        lastFixClean: true,
++        pendingArrivalObservation: false,
++        expectedArrivalMs: now + 20 * S,
++        releasedFrom: new Set(),
++      };
++      expect(svc._anchorFloorHost(base, events, now)).toBe(event);
++      // U17: en TYST arm (inget fix i den här utvärderingen) får aldrig golvet.
++      expect(svc._anchorFloorHost({ ...base, lastSeenAt: now - 600 * S }, events, now)).toBeNull();
++      expect(svc._anchorFloorHost({ ...base, lastFixClean: false }, events, now)).toBeNull();
++      expect(svc._anchorFloorHost({ ...base, lastObservedAt: now + 1 }, events, now)).toBeNull();
++      // Två tick eller mer kvar: vanlig medlemsprövning, egen varning (U2).
++      expect(svc._anchorFloorHost({ ...base, expectedArrivalMs: now + 2 * BRIDGE_OPENING.TICK_INTERVAL_MS },
++        events, now)).toBeNull();
++      // Inte medlem ens mot bokföringen.
++      expect(svc._anchorFloorHost({ ...base, expectedArrivalMs: event.firstPassageRegisteredAt + W + 1 },
++        events, now)).toBeNull();
++      // Redan släppt ur händelsen.
++      expect(svc._anchorFloorHost({ ...base, releasedFrom: new Set([event.id]) }, events, now)).toBeNull();
++      // Utan flyttat ankare finns inget att återställa.
++      const unmoved = { ...event, firstPassageAt: event.firstPassageRegisteredAt };
++      expect(svc._anchorFloorHost(base, [unmoved], now)).toBeNull();
++      // Den gamla täckningen har redan löpt ut: prognosen ligger fortfarande
++      // inom fönstret mot bokföringen, men en absorption hade släppts direkt.
++      advanceTo(Math.max(event.firedAt, event.firstPassageRegisteredAt) + W + S);
++      const later = Date.now();
++      const stale = { ...base, lastSeenAt: later, expectedArrivalMs: later - 30 * S };
++      expect(Math.abs(stale.expectedArrivalMs - event.firstPassageRegisteredAt)).toBeLessThanOrEqual(W);
++      expect(svc._anchorFloorHost(stale, [event], later)).toBeNull();
++    });
++  });
++
++  // ===========================================================================
++  // KORSNINGSTID UTAN FIX BORTOM BRON (granskningen: notePassage och passagedomen)
++  // ===========================================================================
++  describe('korsningstiden när inget fix bortom bron finns', () => {
++    it('notePassage när armens senaste läge redan låg bortom bron: fixets tid är övre gräns', () => {
++      svc.observeVessel(boat('LEAD', 900, 6));
++      advanceTo(T0 + 200 * S);
++      // 300 m BORTOM bron, men appen saknar riktning i just det fixet, så
++      // observeVessel:s geometriska ben är tyst. Appen bokför passagen senare.
++      svc.observeVessel(boat('LEAD', 300, 6, { bearing: 40, _routeDirection: null }));
++      expect(armOf('LEAD')).toBeDefined();
++      advanceTo(T0 + 260 * S);
++      svc.notePassage('LEAD', 'Klaffbron');
++      const event = svc._events.get('Klaffbron').find((e) => e.firstPassageAt !== null);
++      expect(event.firstPassageAt).toBe(T0 + 200 * S);
++      expect(event.firstPassageRegisteredAt).toBe(T0 + 260 * S);
++    });
++
++    it('notePassage när armens senaste läge låg FÖRE bron: bokföringstiden (ingen säker skattning)', () => {
++      // MÄTT OCH AVVISAT: att projicera korsningen ur hennes prognos. En båt som
++      // väntar efter sitt senaste fix korsar senare, och ett för tidigt fönster
++      // gav en andra varning för samma öppning (opening-updated-host-forecast).
++      svc.observeVessel(boat('ORION', 900, 5.4));
++      advanceTo(T0 + 268 * S);
++      svc.observeVessel(boat('ORION', 72, 5.4));
++      advanceTo(T0 + 1025 * S);
++      svc.notePassage('ORION', 'Klaffbron');
++      const event = svc._events.get('Klaffbron').find((e) => e.firstPassageAt !== null);
++      expect(event.firstPassageAt).toBe(T0 + 1025 * S);
++    });
++
++    it('passagedomen som händelsens första passage ankras i fixets tid, inte i nu', () => {
++      svc.observeVessel(boat('LEAD', 900, 6));
++      svc.observeVessel(boat('FOLLOWER', 2400, 6.9));
++      expect(armOf('FOLLOWER').absorbedAt).toBe(T0);
++      const cover = armOf('FOLLOWER').coverUntilMs; // ledarens prognos + 600 s, ingen passage bokförd
++      advanceTo(T0 + 600 * S);
++      // 300 m BORTOM bron, men utan riktning i just det fixet (se M01 nedan).
++      svc.observeVessel(boat('FOLLOWER', 300, 5, { bearing: 40, _routeDirection: null }));
++      advanceTo(cover + 30 * S);
++      expect(armOf('FOLLOWER')).toBeUndefined();
++      const event = svc._events.get('Klaffbron').find((e) => e.firstPassageAt !== null);
++      expect(event.firstPassageAt).toBe(T0 + 600 * S);
++      expect(event.firstPassageRegisteredAt).toBeGreaterThan(cover);
++    });
++  });
++
++  // ===========================================================================
++  // GRINDAR SOM SAKNADE FÄLLANDE TEST (granskningens mutationer M01–M16)
++  // ===========================================================================
++  describe('grindar som saknade fällande test', () => {
++    it('M01 — KRAV (1): bron bakom senaste läget vid täckningsslut ⇒ passage, ingen andra varning', () => {
++      stageConvoyWithPassage();
++      advanceTo(T0 + 600 * S);
++      // Fixet ligger 300 m BORTOM bron, men appen saknar riktning i just det
++      // fixet: observeVessel:s geometriska ben är tyst, och armen behåller
++      // riktningen från beväpningen.
++      svc.observeVessel(boat('FOLLOWER', 300, 5, { bearing: 40, _routeDirection: null }));
++      expect(armOf('FOLLOWER')).toBeDefined();
++      advanceTo(T0 + 900 * S);
++      expect(armOf('FOLLOWER')).toBeUndefined();
++      expect(debugLines('[OPENING_DISARM]').some((l) => l.includes('FOLLOWER') && l.includes('passage'))).toBe(true);
++      advanceTo(T0 + 1800 * S);
++      expect(klaff()).toHaveLength(1);
++    });
++
++    it('M02 — fryst arm vid täckningsslut: hålls kvar och seedar ingen händelse förrän ett fix kan tillämpas', () => {
++      stageConvoyWithPassage();
++      advanceTo(T0 + 600 * S);
++      // Appen släpper målbron i det här fixet: armen kan inte uppdateras (C7b).
++      svc.observeVessel(boat('FOLLOWER', 300, 4, { targetBridge: null }));
++      expect(svc._hasUnappliedObservation(armOf('FOLLOWER'))).toBe(true);
++      advanceTo(T0 + 900 * S);
++      expect(armOf('FOLLOWER').absorbedAt).toBe(T0);
++      expect(debugLines('[OPENING_RECOVER_HOLD]').some((l) => l.includes('fryst arm'))).toBe(true);
++      expect(debugLines('Öppningshändelse').filter((l) => l.includes('seed FOLLOWER'))).toHaveLength(0);
++      // Första tillämpade fixet avgör: hon närmar sig fortfarande ⇒ egen varning.
++      advanceTo(T0 + 930 * S);
++      svc.observeVessel(boat('FOLLOWER', 250, 4));
++      expect(klaff().filter((w) => w.leadMmsi === 'FOLLOWER')).toHaveLength(1);
++    });
++
++    it('M03 — KRAV (3), första ledet: utan ankomstfysik hålls armen (hängslen, prövas direkt)', () => {
++      stageConvoyWithPassage();
++      const arm = armOf('FOLLOWER');
++      const event = svc._events.get('Klaffbron').find((e) => e.id === arm.eventId);
++      const after = arm.coverUntilMs + 1;
++      expect(svc._coverageVerdict({ ...arm, expectedArrivalMs: null }, event, after))
++        .toEqual({ kind: 'hold', reason: 'ingen ankomstfysik' });
++      expect(svc._coverageVerdict({ ...arm, earliestArrivalMs: Number.NaN }, event, after))
++        .toEqual({ kind: 'hold', reason: 'ingen ankomstfysik' });
++      expect(svc._coverageVerdict(arm, event, after)).toEqual({ kind: 'täckningsslut' });
++    });
++
++    it('M06 — bakkanten släpper bara på ett rent fix', () => {
++      stageConvoyWithPassage();
++      advanceTo(T0 + 270 * S);
++      // Samma prognos som F02-fallet (ankomst efter täckningen), men läget är
++      // osäkert (positionsanalysen tvekar; inget hopp som kräver bekräftelse).
++      svc.observeVessel({ ...boat('FOLLOWER', 1500, 5), _positionUncertain: true });
++      const arm = armOf('FOLLOWER');
++      expect(arm.lastFixClean).toBe(false);
++      expect(arm.expectedArrivalMs).toBeGreaterThan(arm.coverUntilMs);
++      expect(arm.absorbedAt).toBe(T0);
++      // Nästa rena fix med prognos bortom täckningen släpper henne.
++      advanceTo(T0 + 300 * S);
++      svc.observeVessel(boat('FOLLOWER', 1450, 5));
++      expect(armOf('FOLLOWER').absorbedAt).toBeNull();
++    });
++
++    it('M08 — bakkanten släpper inte på ett fix vars kurs leder bort från bron', () => {
++      stageConvoyWithPassage();
++      advanceTo(T0 + 300 * S);
++      // Prognosen ligger bortom täckningen, men kursen 200° leder bort från
++      // bron (obekräftad U-sväng): en egen varning nu vore en fantom.
++      svc.observeVessel(boat('FOLLOWER', 1500, 3, { cog: 200 }));
++      const arm = armOf('FOLLOWER');
++      expect(arm.expectedArrivalMs).toBeGreaterThan(arm.coverUntilMs);
++      expect(arm.absorbedAt).toBe(T0);
++      advanceTo(T0 + 830 * S);
++      expect(klaff()).toHaveLength(1);
++    });
++
++    it('M10 — fryst arm vid passagen: korsningen bokförs på bokföringstiden (frysvakten)', () => {
++      svc.observeVessel(boat('ORION', 900, 5.4));
++      advanceTo(T0 + 268 * S);
++      svc.observeVessel(boat('ORION', 72, 5.4));
++      // Appen tappar målbron medan ORION fortfarande ligger FÖRE bron: fixet
++      // läses men kan inte tillämpas. Hon hade alltså inte passerat T0+500 s.
++      advanceTo(T0 + 500 * S);
++      svc.observeVessel(boat('ORION', 30, 0.4, { targetBridge: null }));
++      expect(svc._hasUnappliedObservation(armOf('ORION'))).toBe(true);
++      advanceTo(T0 + 1025 * S);
++      svc.observeVessel(boat('ORION', 1900, 5.4, { bearing: 40 }));
++      const event = svc._events.get('Klaffbron').find((e) => e.firstPassageAt !== null);
++      // Interpolationen mellan T0+268 s och T0+1025 s hade gett ~T0+296 s,
++      // före ett läge som visade henne kvar före bron.
++      expect(event.firstPassageAt).toBe(T0 + 1025 * S);
++      expect(debugLines('[OPENING_PASSAGE_TIME]')).toHaveLength(0);
++    });
++
++    it('M14 — rebaseringen räknas från korsningen, inte från bokföringen', () => {
++      svc.observeVessel(boat('ORION', 900, 5.4));
++      svc.observeVessel(boat('FOLLOWER', 2400, 6.9)); // absorberad, tyst sedan
++      const before = armOf('FOLLOWER').coverUntilMs; // ORIONs prognos + 600 s
++      advanceTo(T0 + 268 * S);
++      svc.observeVessel(boat('ORION', 72, 5.4));
++      advanceTo(T0 + 400 * S);
++      svc.observeVessel(boat('ORION', 600, 5.4, { bearing: 40 }));
++      const event = svc._events.get('Klaffbron').find((e) => e.firstPassageAt !== null);
++      expect(event.firstPassageAt).toBeCloseTo(T0 + 268 * S + 132 * S * (72 / 672), -2);
++      const rebased = Math.max(event.firedAt, event.firstPassageAt) + BRIDGE_OPENING.CONVOY_WINDOW_MS;
++      expect(rebased).toBeLessThan(before);
++      expect(armOf('FOLLOWER').coverUntilMs).toBe(rebased);
++      // Den tysta följaren prövas vid det tidigare täckningsslutet (U17).
++      advanceTo(T0 + 900 * S);
++      expect(klaff().filter((w) => w.leadMmsi === 'FOLLOWER')).toHaveLength(1);
++    });
++
++    it('en ny absorption börjar utan hållskäl (granskningen: recoverHeldAt)', () => {
++      clearInterval(tickTimer);
++      tickTimer = null;
++      svc.destroy();
++      svc = makeService({ scheduleDeadlines: true });
++      stageConvoyWithPassage(); // händelse 1, FOLLOWER täckt t.o.m. T0+840 s
++      advanceTo(T0 + 300 * S);
++      svc.observeVessel(boat('FOLLOWER', 700, 2.9, { cog: 200 })); // kurs bort
++      svc.tick();
++      advanceTo(T0 + 841 * S);
++      svc.tick();
++      expect(armOf('FOLLOWER').recoverHeldAt).toBe(T0 + 841 * S);
++      // En andra öppning: LEAD2 avfyrar direkt (deadlinen har redan förfallit).
++      advanceTo(T0 + 850 * S);
++      svc.observeVessel(boat('LEAD2', 900, 6));
++      const second = klaff().find((w) => w.leadMmsi === 'LEAD2');
++      expect(second).toBeDefined();
++      // Kajstopp och ny avgång (app.js): täckningen nollställs utan släppvägen.
++      svc.restartArrival('FOLLOWER', 'Klaffbron');
++      advanceTo(T0 + 860 * S);
++      svc.observeVessel(boat('FOLLOWER', 1000, 6)); // ankomst ~T0+1184 s, inom den andra öppningen
++      const arm = armOf('FOLLOWER');
++      expect(arm.eventId).toBe(second.eventId);
++      expect(arm.absorbedAt).toBe(T0 + 860 * S);
++      expect(arm.recoverHeldAt).toBeNull();
++      expect(arm.recoverHoldReason).toBeNull();
++    });
++  });
+ });
+ 
+ // =============================================================================
+diff --git a/tests/replay-validation/corpora.js b/tests/replay-validation/corpora.js
+index fc7585f..9da0ba1 100644
+--- a/tests/replay-validation/corpora.js
++++ b/tests/replay-validation/corpora.js
+@@ -1010,17 +1010,20 @@ module.exports = [
+     locked: true,
+     lockEvents: true,
+     expectedNotifications: 85,
+-    note: 'K-FAMILJEN 2026-11-04 (föreslagen omlåsning, golden-events): '
+-      + 'RECOVER-varningen för 265806230 vid Stridsbergsbron kommer 08:30:11 i stället för 08:37:18. '
+-      + 'Efter släppet ur #10 återabsorberas båten som förut i #9, men #9:s första passage (MALUCA) '
+-      + 'ankras nu i den interpolerade korsningen 08:19:40 i stället för bokföringen 08:27:18, så '
+-      + 'täckningen därifrån har redan löpt ut och hon prövas direkt som egen öppning. '
+-      + 'Rådata: sista fixet 08:24:16 på 587 m i 8,5 kn, nästa 09:22:38; '
+-      + 'gt-passages ger korsningen inferred i fönstret 08:24:16–09:22:38. Båda varningstiderna ligger '
+-      + 'i fönstret (O1b TIDPUNKT_OKÄND, O2 AVBRUTEN_APPROACH i båda), men den tidigare varningen ligger '
+-      + 'före varje korsningstid som den senare ligger före och vilar på ett 6 min gammalt fix i stället '
+-      + 'för 13 min. Två Klaffbron-varningar får nya händelsenummer (#14→#15, #15→#16), annars '
+-      + 'oförändrade. 85 notiser och 32 öppningar oförändrade. Underlag: kampanj/K/FACIT.md. '
++    note: 'K-FAMILJEN 2026-11-04 (föreslagen omlåsning, golden-events; KRÄVER ÄGARENS JA, U13): '
++      + 'RECOVER-varningen för 265806230 (LAENGE LAEUFT) vid Stridsbergsbron kommer 08:30:11 i stället '
++      + 'för 08:37:18. Efter släppet ur #10 återabsorberas båten som förut i #9, men #9:s första passage '
++      + '(MALUCA) ankras nu i den interpolerade korsningen 08:19:40 i stället för bokföringen 08:27:18, '
++      + 'så täckningen därifrån har redan löpt ut och hon prövas direkt som egen öppning. '
++      + 'Rådata: sista fixet 08:24:16 på 590 m norr om bron i 8,5 kn söderut, nästa 09:22:38; '
++      + 'gt-passages ger bara ett inferred fönster 08:24:16–09:22:38 (ingen punkt). Övriga korsningar '
++      + 'vid bron: 08:19–08:25 (MALUCA, IDUN, NICOLINE) och 08:59–09:00 (VENTICELLO, GALADRIEL), ingen '
++      + 'mellan 08:30 och 08:37. Korsade hon med någon av grupperna kom båda varningarna efter respektive '
++      + 'före passagen. O1b TIDPUNKT_OKÄND och O2 AVBRUTEN_APPROACH i båda. BEDÖMNING: likvärdig — den '
++      + 'nya varningen kommer aldrig senare, men rådatan visar inte att den är rättare, så U13 kräver '
++      + 'ägarens uttryckliga ja (kampanjens fråga 2). Svarar ägaren nej används K-alternativet med '
++      + 'täckningen räknad från bokföringen, som lämnar korpusen orörd. Två Klaffbron-varningar får nya '
++      + 'händelsenummer (#14→#15, #15→#16), annars oförändrade. 85 notiser och 32 öppningar oförändrade. '
+       + 'LÅNG KÖ 2026-09-09: IDUNs rena avgång 07:16, 1256 m förflyttning över AIS-glappet '
+       + 'till väntplatsen 08:02 och separat färsk stillhetsbekräftelse 08:21 styrker Järnvägskön. '
+       + 'Nya AIS-positioner håller väntan kvar även över tre timmar; AIS-tystnad förlänger '
+-- 
+2.43.0
+

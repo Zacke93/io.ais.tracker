@@ -1,0 +1,102 @@
+=== tree-e949ae1 gröna 18 röda 15
+  RÖD  avgångskontexten i ProgressiveETACalculator första rörliga sampel efter belagd stillhet räknas på dubbla igångsättningsfarten, inte på igångsättningsf
+  grön avgångskontexten i ProgressiveETACalculator golvet är högst rask kanalfart, 4 kn
+  RÖD  avgångskontexten i ProgressiveETACalculator hel ETA-beräkning: värld 884-läget ger restiden i dubbla igångsättningsfarten, inte 27 minuter
+  RÖD  avgångskontexten i ProgressiveETACalculator golvet följer accelerationen ett sampel framåt så länge farten stiger
+  RÖD  avgångskontexten i ProgressiveETACalculator när farten slutar stiga räknas aktuell fart i stället för det eftersläpande snittet, tills snittet hunnit 
+  RÖD  avgångskontexten i ProgressiveETACalculator jämn låg fart efter avgången skär ned antagandet direkt till bruset över toppfarten (standardvärldarna 664
+  RÖD  avgångskontexten i ProgressiveETACalculator fartbrus inom 0,3 kn under toppfarten släpper inte golvet till snittet
+  grön avgångskontexten i ProgressiveETACalculator en båt som saktar in mer än bruset efter avgången får sitt vanliga snitt (gästhamnsbåten MARIANNE)
+  RÖD  avgångskontexten i ProgressiveETACalculator en båt som stannar igen lämnar kontexten direkt
+  RÖD  avgångskontexten i ProgressiveETACalculator kontexten har en tidsgräns på fem minuter
+  grön avgångskontexten i ProgressiveETACalculator långsam gång (0,5–0,99 kn, kajdrift) är ingen avgång
+  grön avgångskontexten i ProgressiveETACalculator ett ensamt stillasampel är ingen belagd stillhet
+  grön avgångskontexten i ProgressiveETACalculator avgången måste synas på plats: 250 m från stillheten är båten redan på väg (MARIANNE 20260525)
+  grön avgångskontexten i ProgressiveETACalculator en båt som kör bort från målbron efter väntan får ingen avgångskontext
+  RÖD  avgångskontexten i ProgressiveETACalculator golvet släpps om båten vänder och hamnar längre från målbron än stillheten
+  grön avgångskontexten i ProgressiveETACalculator golvet får inte ensamt lova "strax": jämn låg fart 340 m före bron ger 3 min, inte strax
+  grön avgångskontexten i ProgressiveETACalculator imminent-flaggan äger strax: då får golvets ETA gå under 3 min
+  grön avgångskontexten i ProgressiveETACalculator ger även den uppmätta farten strax är det inte golvet som lovar (SKONNERTEN JYLLAND)
+  RÖD  avgångskontexten i ProgressiveETACalculator efter ett M9-hållet värde räknar EMA:n från det ohållna värdet när mätningen själv lovar strax (SKONNERTEN
+  grön avgångskontexten i ProgressiveETACalculator lovar mätningen inte strax räknar EMA:n från det hållna värdet, så antagandet inte kan lova strax via utjä
+  RÖD  avgångskontexten i ProgressiveETACalculator historiken lagrar det publicerade, hållna värdet och det ohållna bredvid (E-F6)
+  grön avgångskontexten i ProgressiveETACalculator städningen följer fartbufferten (clear, svep och destroy)
+  grön avgångs-ETA i hela kedjan (replay av minsta reprots ALVA-rader) första prognosen efter avgången ligger nära rådatans korsning, inte på 27 minuter
+  grön avgångs-ETA i hela kedjan (replay av minsta reprots ALVA-rader) ingen prognos efter avgången överstiger 6 minuter (förr 27 → 22 → 18 → 14)
+  grön avgångs-ETA i hela kedjan (replay av minsta reprots ALVA-rader) passagen och väntetexten före avgången är oförändrade
+  grön buggjägarens standardvärldar efter granskningen (INV-3 med projektets egen validator) värld 664: jämn låg fart från kön ger ingen strax-studs
+  grön buggjägarens standardvärldar efter granskningen (INV-3 med projektets egen validator) värld 595: golvet lovar inte ensamt strax (M9)
+  grön syntetiska avgångar efter väntan söder om Klaffbron (placeringsberoende) stigande fart mot bron: nedräkningen går aldrig upp igen (förr "om 4 → om 3 →
+  grön syntetiska avgångar efter väntan söder om Klaffbron (placeringsberoende) en båt som vänder bort från bron efter väntan får ingen nedräkning mot den
+  RÖD  platåklassen: avgångar som planar ut under 4 kn (andra granskningen) Klaffbron, 480 m söder, 1,1 → 2,0 kn (granskarens platå2): ingen prognos mer än 2
+  RÖD  platåklassen: avgångar som planar ut under 4 kn (andra granskningen) Järnvägsbron mot Stridsbergsbron, 1,0 → 2,0 kn: inget "om 3" mot sanning 6
+  RÖD  platåklassen: avgångar som planar ut under 4 kn (andra granskningen) Olidebron mot Klaffbron, 1,0 → 2,0 kn: första prognosen nära sanningen och sedan 
+  RÖD  platåklassen: avgångar som planar ut under 4 kn (andra granskningen) fartbrus 2,5 → 2,4 mitt i accelerationen ger inget uppsteg (förr "4 → 5 → 4")
+=== tree-7699 gröna 9 röda 24
+  RÖD  avgångskontexten i ProgressiveETACalculator första rörliga sampel efter belagd stillhet räknas på dubbla igångsättningsfarten, inte på igångsättningsf
+  RÖD  avgångskontexten i ProgressiveETACalculator golvet är högst rask kanalfart, 4 kn
+  RÖD  avgångskontexten i ProgressiveETACalculator hel ETA-beräkning: värld 884-läget ger restiden i dubbla igångsättningsfarten, inte 27 minuter
+  RÖD  avgångskontexten i ProgressiveETACalculator golvet följer accelerationen ett sampel framåt så länge farten stiger
+  RÖD  avgångskontexten i ProgressiveETACalculator när farten slutar stiga räknas aktuell fart i stället för det eftersläpande snittet, tills snittet hunnit 
+  RÖD  avgångskontexten i ProgressiveETACalculator jämn låg fart efter avgången skär ned antagandet direkt till bruset över toppfarten (standardvärldarna 664
+  RÖD  avgångskontexten i ProgressiveETACalculator fartbrus inom 0,3 kn under toppfarten släpper inte golvet till snittet
+  RÖD  avgångskontexten i ProgressiveETACalculator en båt som saktar in mer än bruset efter avgången får sitt vanliga snitt (gästhamnsbåten MARIANNE)
+  RÖD  avgångskontexten i ProgressiveETACalculator en båt som stannar igen lämnar kontexten direkt
+  RÖD  avgångskontexten i ProgressiveETACalculator kontexten har en tidsgräns på fem minuter
+  RÖD  avgångskontexten i ProgressiveETACalculator långsam gång (0,5–0,99 kn, kajdrift) är ingen avgång
+  RÖD  avgångskontexten i ProgressiveETACalculator ett ensamt stillasampel är ingen belagd stillhet
+  RÖD  avgångskontexten i ProgressiveETACalculator avgången måste synas på plats: 250 m från stillheten är båten redan på väg (MARIANNE 20260525)
+  RÖD  avgångskontexten i ProgressiveETACalculator en båt som kör bort från målbron efter väntan får ingen avgångskontext
+  RÖD  avgångskontexten i ProgressiveETACalculator golvet släpps om båten vänder och hamnar längre från målbron än stillheten
+  RÖD  avgångskontexten i ProgressiveETACalculator golvet får inte ensamt lova "strax": jämn låg fart 340 m före bron ger 3 min, inte strax
+  RÖD  avgångskontexten i ProgressiveETACalculator imminent-flaggan äger strax: då får golvets ETA gå under 3 min
+  RÖD  avgångskontexten i ProgressiveETACalculator ger även den uppmätta farten strax är det inte golvet som lovar (SKONNERTEN JYLLAND)
+  RÖD  avgångskontexten i ProgressiveETACalculator efter ett M9-hållet värde räknar EMA:n från det ohållna värdet när mätningen själv lovar strax (SKONNERTEN
+  grön avgångskontexten i ProgressiveETACalculator lovar mätningen inte strax räknar EMA:n från det hållna värdet, så antagandet inte kan lova strax via utjä
+  RÖD  avgångskontexten i ProgressiveETACalculator historiken lagrar det publicerade, hållna värdet och det ohållna bredvid (E-F6)
+  RÖD  avgångskontexten i ProgressiveETACalculator städningen följer fartbufferten (clear, svep och destroy)
+  RÖD  avgångs-ETA i hela kedjan (replay av minsta reprots ALVA-rader) första prognosen efter avgången ligger nära rådatans korsning, inte på 27 minuter
+  RÖD  avgångs-ETA i hela kedjan (replay av minsta reprots ALVA-rader) ingen prognos efter avgången överstiger 6 minuter (förr 27 → 22 → 18 → 14)
+  grön avgångs-ETA i hela kedjan (replay av minsta reprots ALVA-rader) passagen och väntetexten före avgången är oförändrade
+  grön buggjägarens standardvärldar efter granskningen (INV-3 med projektets egen validator) värld 664: jämn låg fart från kön ger ingen strax-studs
+  grön buggjägarens standardvärldar efter granskningen (INV-3 med projektets egen validator) värld 595: golvet lovar inte ensamt strax (M9)
+  grön syntetiska avgångar efter väntan söder om Klaffbron (placeringsberoende) stigande fart mot bron: nedräkningen går aldrig upp igen (förr "om 4 → om 3 →
+  grön syntetiska avgångar efter väntan söder om Klaffbron (placeringsberoende) en båt som vänder bort från bron efter väntan får ingen nedräkning mot den
+  grön platåklassen: avgångar som planar ut under 4 kn (andra granskningen) Klaffbron, 480 m söder, 1,1 → 2,0 kn (granskarens platå2): ingen prognos mer än 2
+  grön platåklassen: avgångar som planar ut under 4 kn (andra granskningen) Järnvägsbron mot Stridsbergsbron, 1,0 → 2,0 kn: inget "om 3" mot sanning 6
+  RÖD  platåklassen: avgångar som planar ut under 4 kn (andra granskningen) Olidebron mot Klaffbron, 1,0 → 2,0 kn: första prognosen nära sanningen och sedan 
+  grön platåklassen: avgångar som planar ut under 4 kn (andra granskningen) fartbrus 2,5 → 2,4 mitt i accelerationen ger inget uppsteg (förr "4 → 5 → 4")
+=== ../../wt gröna 33 röda 0
+  grön avgångskontexten i ProgressiveETACalculator första rörliga sampel efter belagd stillhet räknas på dubbla igångsättningsfarten, inte på igångsättningsf
+  grön avgångskontexten i ProgressiveETACalculator golvet är högst rask kanalfart, 4 kn
+  grön avgångskontexten i ProgressiveETACalculator hel ETA-beräkning: värld 884-läget ger restiden i dubbla igångsättningsfarten, inte 27 minuter
+  grön avgångskontexten i ProgressiveETACalculator golvet följer accelerationen ett sampel framåt så länge farten stiger
+  grön avgångskontexten i ProgressiveETACalculator när farten slutar stiga räknas aktuell fart i stället för det eftersläpande snittet, tills snittet hunnit 
+  grön avgångskontexten i ProgressiveETACalculator jämn låg fart efter avgången skär ned antagandet direkt till bruset över toppfarten (standardvärldarna 664
+  grön avgångskontexten i ProgressiveETACalculator fartbrus inom 0,3 kn under toppfarten släpper inte golvet till snittet
+  grön avgångskontexten i ProgressiveETACalculator en båt som saktar in mer än bruset efter avgången får sitt vanliga snitt (gästhamnsbåten MARIANNE)
+  grön avgångskontexten i ProgressiveETACalculator en båt som stannar igen lämnar kontexten direkt
+  grön avgångskontexten i ProgressiveETACalculator kontexten har en tidsgräns på fem minuter
+  grön avgångskontexten i ProgressiveETACalculator långsam gång (0,5–0,99 kn, kajdrift) är ingen avgång
+  grön avgångskontexten i ProgressiveETACalculator ett ensamt stillasampel är ingen belagd stillhet
+  grön avgångskontexten i ProgressiveETACalculator avgången måste synas på plats: 250 m från stillheten är båten redan på väg (MARIANNE 20260525)
+  grön avgångskontexten i ProgressiveETACalculator en båt som kör bort från målbron efter väntan får ingen avgångskontext
+  grön avgångskontexten i ProgressiveETACalculator golvet släpps om båten vänder och hamnar längre från målbron än stillheten
+  grön avgångskontexten i ProgressiveETACalculator golvet får inte ensamt lova "strax": jämn låg fart 340 m före bron ger 3 min, inte strax
+  grön avgångskontexten i ProgressiveETACalculator imminent-flaggan äger strax: då får golvets ETA gå under 3 min
+  grön avgångskontexten i ProgressiveETACalculator ger även den uppmätta farten strax är det inte golvet som lovar (SKONNERTEN JYLLAND)
+  grön avgångskontexten i ProgressiveETACalculator efter ett M9-hållet värde räknar EMA:n från det ohållna värdet när mätningen själv lovar strax (SKONNERTEN
+  grön avgångskontexten i ProgressiveETACalculator lovar mätningen inte strax räknar EMA:n från det hållna värdet, så antagandet inte kan lova strax via utjä
+  grön avgångskontexten i ProgressiveETACalculator historiken lagrar det publicerade, hållna värdet och det ohållna bredvid (E-F6)
+  grön avgångskontexten i ProgressiveETACalculator städningen följer fartbufferten (clear, svep och destroy)
+  grön avgångs-ETA i hela kedjan (replay av minsta reprots ALVA-rader) första prognosen efter avgången ligger nära rådatans korsning, inte på 27 minuter
+  grön avgångs-ETA i hela kedjan (replay av minsta reprots ALVA-rader) ingen prognos efter avgången överstiger 6 minuter (förr 27 → 22 → 18 → 14)
+  grön avgångs-ETA i hela kedjan (replay av minsta reprots ALVA-rader) passagen och väntetexten före avgången är oförändrade
+  grön buggjägarens standardvärldar efter granskningen (INV-3 med projektets egen validator) värld 664: jämn låg fart från kön ger ingen strax-studs
+  grön buggjägarens standardvärldar efter granskningen (INV-3 med projektets egen validator) värld 595: golvet lovar inte ensamt strax (M9)
+  grön syntetiska avgångar efter väntan söder om Klaffbron (placeringsberoende) stigande fart mot bron: nedräkningen går aldrig upp igen (förr "om 4 → om 3 →
+  grön syntetiska avgångar efter väntan söder om Klaffbron (placeringsberoende) en båt som vänder bort från bron efter väntan får ingen nedräkning mot den
+  grön platåklassen: avgångar som planar ut under 4 kn (andra granskningen) Klaffbron, 480 m söder, 1,1 → 2,0 kn (granskarens platå2): ingen prognos mer än 2
+  grön platåklassen: avgångar som planar ut under 4 kn (andra granskningen) Järnvägsbron mot Stridsbergsbron, 1,0 → 2,0 kn: inget "om 3" mot sanning 6
+  grön platåklassen: avgångar som planar ut under 4 kn (andra granskningen) Olidebron mot Klaffbron, 1,0 → 2,0 kn: första prognosen nära sanningen och sedan 
+  grön platåklassen: avgångar som planar ut under 4 kn (andra granskningen) fartbrus 2,5 → 2,4 mitt i accelerationen ger inget uppsteg (förr "4 → 5 → 4")

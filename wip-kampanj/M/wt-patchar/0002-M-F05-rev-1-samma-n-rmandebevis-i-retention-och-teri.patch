@@ -1,0 +1,983 @@
+From c6a765d6856bd97aaf9758f1fa1b83070587e5e9 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 4 Nov 2026 23:07:29 +0000
+Subject: [PATCH 2/3] =?UTF-8?q?M=20(F05)=20rev=201:=20samma=20n=C3=A4rmand?=
+ =?UTF-8?q?ebevis=20i=20retention=20och=20=C3=A5terintr=C3=A4de?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Granskningen av 9c802ed fann två fel:
+
+- Fönstret från nådafristens start kunde underkänna en fix som 7699cbe
+  godkände. En båt som gled bort och sedan vände mot målbron tappade den
+  (15 av 60 slingvarianter sämre).
+- Klassen var inte stängd där ANCHOR_BLOCK inte gäller: krypare som inte
+  passerat någon bro och båtar utan fartgivare (sog=null).
+
+Rättningen:
+
+- _targetApproachEvidence räknar närmandet från den av förra fixen och
+  fönstrets start som ger störst närmande. Fönstret kan bara lägga till
+  godkännanden. Används av 2-READINGS och etiketten i
+  _getTargetRemovalReason.
+- Återinträdesbeviset: tog retentionen bort målbron för att beviset
+  saknades, lägger ACCELERATED tillbaka samma bro först när samma bevis
+  finns, i ett fönster lika långt som nådafristen. Retentionens undantag
+  (målbron inom 300 m, skyddszonen, kö-zonen), bekräftad vändning och
+  meddelandets egen fart på minst FIX_D_MIN_SOG (2,0 kn) hoppar över
+  beviset, så en äkta avgång inte fördröjs.
+- Kö-zonens predikat är utbrutet till _isInTargetQueueZone. Nådafristen
+  och 2-READINGS närzon ligger på modulnivå med oförändrade värden.
+
+Banken är byte-identisk med 7699cbe (24 korpusar, 69 målbyten med
+etiketter), och 72 h-soaken likaså. Två nya syntetiska scenarier för
+syskonen, och regressionstestet har nu 24 test.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/ARCHITECTURE.md                          |  69 ++--
+ docs/VALIDATION.md                            |  31 +-
+ lib/services/VesselDataService.js             | 338 +++++++++++++++---
+ tests/m-krypfart-malbron-2026-11-04.test.js   | 289 ++++++++++++++-
+ .../runSyntheticScenarios.js                  |  45 +++
+ 5 files changed, 677 insertions(+), 95 deletions(-)
+
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 2754b8a..36c60f2 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -776,31 +776,50 @@ båt.
+ 
+ - Tilldelning: `_shouldAssignTargetBridge` (:1753, kräver bl.a. rörelsebevis,
+   ej `_moored`) → `_calculateTargetBridge` (:2026, COG-riktning + position).
+-- Retention: samma `_shouldAssignTargetBridge`, men med förra fixen som
+-  2-READINGS-referens (närmar sig ≥ `MIN_APPROACH_DISTANCE`, 10 m, när målbron
+-  ligger > 300 m bort). Misslyckas valideringen utanför skyddszonen startar en
+-  60 s nådafrist (`_targetRemovalGrace`), och målbron tas bort först när fristen
+-  löpt ut utan lyckad validering. Kö-zonsvakten (≤ 600 m från målbron) och
+-  skyddszonen håller kvar målbron. ACCELERATED-grenen prövar INTE 2-READINGS,
+-  bara fart- och kursgrindarna mot NÄRMASTE bro. **F05 (familj M,
+-  rättningskampanjen 2026-11-04):** kravet per fix var kadensberoende (10 m per
+-  30 s ≈ 0,65 kn, per 10 s ≈ 1,9 kn). En krypare strax förbi en passerad bro
+-  (F21 häver skyddszonen där) eller 300–500 m från närmaste bro tappade därför
+-  målbron efter fristen och fick den tillbaka nästa fix via PROTECTION_ACTIVE
+-  respektive 0,1 kn-grinden: "Inga båtar" inklämt mellan två likadana texter
+-  (INV-14 DEFAULT-FLASH; WILMA 0,5 kn norr om Klaffbron mot Stridsbergsbron).
+-  Medan en nådafrist för målbron lever mäts 2-READINGS nu från fristens
+-  startposition (`vessel._graceApproachRef`, satt av `_stampGraceApproachRef`
+-  när fristen föds och när M6 stämplar om den; läses via
+-  `_graceApproachReference`, som kräver att fristens post lever). Samma 10 m och
+-  60 s, men närmandet får ackumuleras över tvivelsfönstret: en krypare som
+-  närmat sig ≥ 10 m sedan fristen startade godkänns och S-F8 släpper fristen.
+-  Stillaliggande och bortglidande båtar underkänns som förut, och ANCHOR_BLOCK
+-  (FIX B, 0,3 kn efter passage) och fartgrindarna gäller oförändrat. Mätt:
+-  banken byte-identisk (0 av 24 korpusar ändras). Kvar, utanför klassen: en båt
+-  vars fartbrus pendlar kring ANCHOR_BLOCK:s 0,3 kn kan fortfarande tappa och
+-  återfå målbron, eftersom samma tröskel bedöms över fristen i retentionen men
+-  på ett enda fix i tilldelningen. Det kräver ett beslut om hysteres i FIX B.
++- Retention: samma `_shouldAssignTargetBridge`, med 2-READINGS: målbron ska ha
++  närmats ≥ `MIN_APPROACH_DISTANCE` (10 m) när den ligger > 300 m bort.
++  Misslyckas valideringen utanför skyddszonen startar en 60 s nådafrist
++  (`_targetRemovalGrace`), och målbron tas bort först när fristen löpt ut utan
++  lyckad validering. Kö-zonsvakten (≤ 600 m från målbron, `_isInTargetQueueZone`)
++  och skyddszonen håller kvar målbron. ACCELERATED-grenen prövar INTE 2-READINGS,
++  bara fart- och kursgrindarna mot NÄRMASTE bro (ingen fartgräns inom 300 m,
++  0,1 kn vid 300–500 m) och ANCHOR_BLOCK, som bara gäller en båt som passerat en
++  bro och har KÄND fart.
++  **F05 (familj M, rättningskampanjen 2026-11-04): retention och tilldelning
++  dömer med samma närmandebevis** (`_targetApproachEvidence`: ≥ 10 m från förra
++  fixen ELLER fönstrets start, det största närmandet gäller). Två speglade delar:
++  1. *Retentionen.* Kravet per fix var kadensberoende (10 m per 30 s ≈ 0,65 kn,
++     per 10 s ≈ 1,9 kn). Medan en nådafrist lever är fönstrets start fristens
++     startposition (`vessel._graceApproachRef`, satt av `_stampGraceApproachRef`
++     när fristen föds och när M6 stämplar om den; läses via
++     `_graceApproachReference`, som kräver att fristens post lever). Det största
++     närmandet gör att fönstret bara kan LÄGGA TILL godkännanden — med fristens
++     start som enda referens underkändes en båt som gled bort och sedan vände mot
++     målbron (granskningen 2026-11-04, slingsvepet).
++  2. *Återinträdet.* Tog retentionen bort målbron för att beviset saknades
++     (`_armReentryApproachProof`, sätter `vessel._reentryApproachRef`), lägger
++     ACCELERATED tillbaka SAMMA bro först när samma bevis finns
++     (`_reentryNeedsApproachProof`) — i ett fönster lika långt som fristen, som
++     glider i `_maintainReentryApproachProof` och förbrukas med en målbro.
++     Retentionens undantag gäller: målbron inom 300 m, skyddszonen kring en
++     opasserad bro eller målbron (med F21-regeln) och kö-zonen. En bekräftad
++     vändning hoppar över beviset, precis som 2-READINGS, och det gör också
++     meddelandets EGEN fart (`_rawPositionSog`, inte den burna `sog`) på minst
++     `FIX_D_MIN_SOG` (2,0 kn): en avgångs första fix har ofta full fart men
++     oförändrad position, och att vänta på 10 m där fördröjde avgången en fix
++     (72 h-soaken).
++  Etiketten i `_getTargetRemovalReason` mäter med samma bevis som beslutet.
++  Inga nya konstanter: nådafristen (`TARGET_REMOVAL_GRACE_PERIOD`) och närzonen
++  (`TWO_READINGS_NEAR_TARGET_M`) är de gamla talen, flyttade till modulnivå.
++  Felbilden var "Inga båtar" inklämt mellan två likadana texter (INV-14
++  DEFAULT-FLASH): WILMA 0,5 kn norr om Klaffbron (F21 häver skyddszonen vid en
++  passerad bro), krypare 300–500 m från närmaste bro och båtar utan fartgivare.
++  Mätt: banken byte-identisk (24 av 24 korpusar, alla 69 målbyten med
++  etiketter). Kvar: (a) ett brusband kring tröskeln — 10 m per fönster ≈ 0,22 kn
++  vid 30 s, 0,28 kn vid 10 s och 0,16 kn vid 60 s kadens — där GPS-brus avgör
++  utfallet åt båda hållen, och (b) ANCHOR_BLOCK:s 0,3 kn med fartbrus (tröskeln
++  bedöms över fristen i retentionen men per fix i tilldelningen). Båda kräver
++  hysteres, alltså ett ägarbeslut.
+ - Transition: `_applyTargetTransition` (:2392–2627). `previousTarget` läses från
+   det LEVANDE objektet (S-F3-följdfixen, :2402). Vid byte till nästa bro:
+   targetBridge muteras, `_finalTarget*` nollas, **hela ETA-serien nollställs**
+diff --git a/docs/VALIDATION.md b/docs/VALIDATION.md
+index 89b13ee..cfa200e 100644
+--- a/docs/VALIDATION.md
++++ b/docs/VALIDATION.md
+@@ -63,7 +63,7 @@ Eller stegen var för sig:
+ |---|---|---|
+ | Enhetstester | `npm test > /tmp/ais-jest.log 2>&1` (läs sedan slutraderna) | Alla tester passerar, exitkod 0 och inga öppna handtag. Aktuellt antal står i körningens sammanfattning. Omdirigeringen bevarar Jest:s exitkod; en pipe till `tail` gör inte det. |
+ | Korpusarna | `npm run replay:all` | Samtliga korpusar (aktuellt antal och timmar står i skriptets utskrift) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + exakt (mmsi,bro,riktning)-fördelning + EXAKT bridge_text-transitionsström (golden-text/) + alla invarianter. Ofullständig fångst redovisas separat och får bara utgöra regression för bevarade sampel. |
+-| Syntetiska | `npm run replay:synthetic` | 49 scenarier (gap, U-svängar även med gles AIS, GPS-hopp, kajliggare, sog=null, omstart, 2h-prune-stillaliggare, krypfart förbi passerad bro …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
++| Syntetiska | `npm run replay:synthetic` | 51 scenarier (gap, U-svängar även med gles AIS, GPS-hopp, kajliggare, sog=null, omstart, 2h-prune-stillaliggare, krypfart förbi passerad bro …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
+ | Öppningsgrindarna | `npm run replay:openings` | ETAPP 6: det proaktiva lagret (`bridge_opening_soon`). **O1** varje målbropassage i SAMTLIGA korpusar (låsta som olåsta — antalet står i skriptets utskrift, inte här) har en öppningsvarning FÖRE passagen — varje miss klassad mot rådata (oklassad = rött); en KONVOJTÄCKNING underkänns om bron bevisligen öppnat och stängt för någon annan emellan. **O2** varje varning utan passage inom 20 min klassas mot rådata (KAJVOBBEL och UTANFÖR_HORISONTEN = rött; avbruten approach, gles anflygning och garantipris = accepterade) — även SEN_PASSAGE-hinken klassas. **O2b** (S14, 2026-08-23) SAMMA fantommätning mot RÅDATAFACIT (A2, `gt-passages`) i stället för appens egna passager — O1b:s mönster: appens passageregistreringar delar grindarnas blindfläck, så en varning kan kallas BEKRÄFTAD av appens egen bokföring medan rådatan inte känner korsningen. Serierna redovisas BREDVID varandra (annars går körningsloggar inte att jämföra bakåt). `inferred`-poster (korsning bevisad, tidpunkt = fönster) bär ALDRIG hinkindelningen utan hamnar i egen hink INFERRERAD_TID — hinkarna ÄR en tidsfönstermätning. **O2b är INFORMATIV: den ändrar inte exitkoden** (grinden ligger kvar på appserien precis som O1:s täckning i fas A); `OPENING_GT_STRICT` flyttar den hit när fas C är klar. Vid införandet: 0 röda i BÅDA serierna, 118 av 360 varningar byter hink (98 blir omätbara `inferred`) och EN varning byter åt det farliga hållet (JAATTEN II @ Stridsbergsbron i 20260708-21h — samma fall INV-21 redan fäller). **O3** A/B-nattens båda armar: 6/6 öppningar varnade före, konvojen som EN varning, boat_near byte-identisk med nattens facit. Dessutom **avfyrningsfönstret** (`t − dueMs` inom två tick — kontraktet "avfyra så sent som garantin tillåter") och **ledtidsgolvet** (hårt golv 60 s; tunnare än utlovade 150 s rapporteras). |
+ | Soaken | `node tests/replay-validation/runSoak.js` | 72 h blandtrafik: 0 processfel, inga läckor, fatala invarianter rena |
+ | Driftens minutloop | `npm run replay:monitoring` | Samma 72 h med riktig monitoring/stale-städning även efter omstarter; samtliga timers avvecklade efter shutdown |
+@@ -345,16 +345,25 @@ påstår sig pröva i en isolerad kopia, koppla bort den, och kontrollera att
+ scenariot blir RÖTT. Blir det grönt är kontraktet dekoration.
+ 
+ **Krypfartsscenarierna (familj M, rättningskampanjen 2026-11-04, F05) prövar
+-2-READINGS-referensen.** `krypfart-förbi-passerad-Klaffbron`,
+-`krypfart-förbi-passerad-Järnvägsbron-söderut` och
+-`lång-krypfart-Klaffbron-till-Järnvägsbron` kryper i 0,45 kn med 30 s kadens,
+-≈ 7 m per fix. Placeringen är testet. Zonen måste ligga där skyddszonen inte
+-håller målbron, alltså inom 300 m från en PASSERAD bro (F21:s bypass) eller
+-300–500 m från närmaste bro. Målbron måste ligga mer än 300 m bort, annars
+-prövas inte 2-READINGS. Farten (generatorns brus ±0,1 kn) ska ligga över
+-ANCHOR_BLOCK:s 0,3 kn, annars är det FIX B som prövas. Mot `7699cbe` fälls de med
+-INV-14 DEFAULT-FLASH (5, 6 och 16 utslag). Utan rättningen tappas och återfås
+-målbron var 2,5:e minut.
++närmandebeviset i båda vägarna.** Placeringen är testet i alla fem.
++- `krypfart-förbi-passerad-Klaffbron`, `krypfart-förbi-passerad-Järnvägsbron-söderut`
++  och `lång-krypfart-Klaffbron-till-Järnvägsbron` prövar RETENTIONEN: 0,45 kn med
++  30 s kadens, ≈ 7 m per fix. Zonen måste ligga där skyddszonen inte håller
++  målbron, alltså inom 300 m från en PASSERAD bro (F21:s bypass) eller 300–500 m
++  från närmaste bro. Målbron måste ligga mer än 300 m bort, annars prövas inte
++  2-READINGS. Farten (generatorns brus ±0,1 kn) ska ligga över ANCHOR_BLOCK:s
++  0,3 kn, annars är det FIX B som prövas. Mot `7699cbe` fälls de med INV-14
++  DEFAULT-FLASH (5, 6 och 16 utslag).
++- `krypfart-söder-om-Olidebron-ej-passerad` och
++  `sog-null-stopp-norr-om-passerade-Klaffbron` prövar ÅTERINTRÄDET, där
++  ANCHOR_BLOCK inte gäller: en krypare i 0,12 kn som inte passerat någon bro
++  (300–500 m söder om Olidebron, utanför skyddszonen och norr om
++  Kanalinfarten-punkten) respektive en båt utan fartgivare som stannar 60 m norr
++  om passerade Klaffbron i 20 min. Mot `7699cbe` och mot den första prototypen
++  (`9c802ed`) fälls de med 5 respektive 7 DEFAULT-FLASH. Med rättningen är båten
++  dold tills hon gör väg, och varje scenario har därför EN förväntad INV-14W
++  (lång "Inga båtar"-period, informativ) — samma klass som `ankrad-gles-sändare`
++  och `återfödd-i-kö`.
+ 
+ ## Täckningskartan — diagnosverktyg, INTE en gate
+ 
+diff --git a/lib/services/VesselDataService.js b/lib/services/VesselDataService.js
+index 5baeb77..c5dfaf8 100755
+--- a/lib/services/VesselDataService.js
++++ b/lib/services/VesselDataService.js
+@@ -85,6 +85,17 @@ const STALE_AIS_TIMEOUT_MS = 30 * 60 * 1000;
+ // Befintliga completed-minnets 15 min gäller även innan städsvepet hunnit köra.
+ const COMPLETED_JOURNEY_TTL_MS = 15 * 60 * 1000;
+ 
++// F05 (rättningskampanjen 2026-11-04, familj M) — MÅLBRORETENTIONENS NÅDAFRIST
++// (60 s) och TVÅPROVSVALIDERINGENS NÄRZON (300 m). Talen är OFÖRÄNDRADE: det
++// första var en lokal const i retentionsblocket i updateVessel, det andra en
++// literal i 2-READINGS (_shouldAssignTargetBridge) och i dess etikett
++// (_getTargetRemovalReason). Återinträdesbeviset i ACCELERATED-grenen
++// (_reentryNeedsApproachProof) måste pröva EXAKT samma fönster och samma närzon
++// som retentionen — att tilldelning och retention dömde samma båt efter olika
++// mått ÄR F05:s rotorsak. Samma skäl som NORTH_PROGRESS_MIN_MPS ovan.
++const TARGET_REMOVAL_GRACE_PERIOD = 60000;
++const TWO_READINGS_NEAR_TARGET_M = 300;
++
+ /**
+  * VesselDataService - Pure data management for vessels
+  * Handles vessel storage, updates, and lifecycle without business logic
+@@ -584,7 +595,7 @@ class VesselDataService extends EventEmitter {
+           // Apply grace period to prevent quick target removals
+           const graceKey = `${vessel.mmsi}:${vessel.targetBridge}`;
+           const now = Date.now();
+-          const TARGET_REMOVAL_GRACE_PERIOD = 60000; // 60 seconds grace period
++          // 60 s nådafrist: TARGET_REMOVAL_GRACE_PERIOD på modulnivå (F05).
+ 
+           if (!this._targetRemovalGrace) {
+             this._targetRemovalGrace = new Map();
+@@ -613,17 +624,11 @@ class VesselDataService extends EventEmitter {
+             // ↔"Inga båtar" mitt i kön (12-min-paus på 399 m). Äkta ankrare
+             // täcks av förtöjningslagren (zon/navstatus/2h-backstop) och av
+             // att aktivitetsfönstret (20 min) klingar av.
+-            let inQueueZone = false;
+-            if (graceElapsed > TARGET_REMOVAL_GRACE_PERIOD) {
+-              const targetObj = this.bridgeRegistry.getBridgeByName(vessel.targetBridge);
+-              const distToTargetM = targetObj && Number.isFinite(targetObj.lat)
+-                ? geometry.calculateDistance(vessel.lat, vessel.lon, targetObj.lat, targetObj.lon)
+-                : null;
+-              const recentlyActive = Number.isFinite(vessel.lastActiveTime)
+-                && (now - vessel.lastActiveTime) < 20 * 60 * 1000;
+-              inQueueZone = Number.isFinite(distToTargetM) && distToTargetM <= 600
+-                && recentlyActive && vessel._hasMovementProof === true && !vessel._moored;
+-            }
++            // F05 (granskningen 2026-11-04): predikatet är utbrutet ORDAGRANT
++            // till _isInTargetQueueZone, eftersom återinträdesbeviset i
++            // ACCELERATED-grenen måste respektera samma undantag.
++            const inQueueZone = graceElapsed > TARGET_REMOVAL_GRACE_PERIOD
++              && this._isInTargetQueueZone(vessel, vessel.targetBridge, now);
+             if (graceElapsed > TARGET_REMOVAL_GRACE_PERIOD && inQueueZone) {
+               this.logger.debug(
+                 `⏳ [TARGET_QUEUE_ZONE] ${vessel.mmsi}: Keeping target "${vessel.targetBridge}" — `
+@@ -659,6 +664,11 @@ class VesselDataService extends EventEmitter {
+                 + `| Reason: ${reason} | Position: ${vessel.lat.toFixed(6)},${vessel.lon.toFixed(6)} `
+                 + `| Speed: ${vessel.sog}kn | Grace period: ${(graceElapsed / 1000).toFixed(0)}s`,
+               );
++              // F05 (granskningen 2026-11-04): föll borttagningen (också) på
++              // närmandebeviset ska samma bevis krävas innan ACCELERATED får
++              // lägga tillbaka SAMMA bro — se _armReentryApproachProof. Anropas
++              // före raderingen nedan, medan fristens referens ännu gäller.
++              this._armReentryApproachProof(vessel, oldVessel, now);
+               vessel.targetBridge = null;
+               this._targetRemovalGrace.delete(graceKey);
+             } else {
+@@ -831,6 +841,26 @@ class VesselDataService extends EventEmitter {
+       // flödet faller vidare till lagring + emit med oförändrad targetBridge.
+       if (newTargetBridge && (!bridge || !Number.isFinite(bridge.lat) || !Number.isFinite(bridge.lon))) {
+         this.logger.error(`[ERROR] Bridge ${newTargetBridge} not found or has invalid coordinates`);
++      } else if (newTargetBridge
++          // F05 (granskningen 2026-11-04) — ÅTERINTRÄDESBEVISET. Tog retentionen
++          // nyss bort SAMMA bro för att närmandet saknades, kräver tilldelningen
++          // nu samma bevis i stället för att släppa igenom båten på närmaste
++          // bros fartgrindar (det var F05:s flapp). En bekräftad vändning i
++          // tick:en ogiltigförklarar det gamla målet och hoppar över beviset,
++          // precis som 2-READINGS (tredje argumentet ovan).
++          && !(positionDirection !== null || fixDReversalConfirmed)
++          // KÄND fart ≥ FIX_D_MIN_SOG (2,0 kn) i DETTA meddelande är
++          // rörelsebevis i sig — samma ribba som C4b nedan, där kursen får slå
++          // ruttlåset, så kandidatbron ligger i färdriktningen. En avgångs
++          // första fix har ofta full fart men nästan oförändrad position (72 h-
++          // soaken: 4,7 kn och 0 m vid avgången efter 20 min stopp); att vänta
++          // på 10 m där fördröjde en äkta avgång en fix jämfört med 7699cbe.
++          // _rawPositionSog, inte vessel.sog: fältlistan bär senast kända fart
++          // genom null-sampel, och en gammal fart är inget bevis. Under ribban
++          // — krypare, fartbrus kring ANCHOR_BLOCK och sog=null — gäller beviset.
++          && !(Number.isFinite(vessel._rawPositionSog) && vessel._rawPositionSog >= FIX_D_MIN_SOG)
++          && this._reentryNeedsApproachProof(vessel, oldVessel, newTargetBridge, bridge, Date.now())) {
++        // Ingen tilldelning denna tick; hjälparen har loggat varför.
+       } else if (newTargetBridge) {
+         const newTargetDistance = geometry.calculateDistance(
+           vessel.lat, vessel.lon,
+@@ -947,6 +977,10 @@ class VesselDataService extends EventEmitter {
+       this._handleIntermediateBridgePassage(vessel, oldVessel);
+     }
+ 
++    // F05 (granskningen 2026-11-04): återinträdesbevisets livscykel — se
++    // _maintainReentryApproachProof (förbrukas med en målbro, glider annars).
++    this._maintainReentryApproachProof(vessel, Date.now());
++
+     // Store vessel
+     this.vessels.set(mmsi, vessel);
+ 
+@@ -4295,34 +4329,31 @@ class VesselDataService extends EventEmitter {
+       const targetBridge = this.bridgeRegistry.getBridgeByName(oldVessel.targetBridge);
+       if (targetBridge && targetBridge.lat && targetBridge.lon) {
+         // F05 (rättningskampanjen 2026-11-04, familj M) — KRYPFARTENS FLAPP.
+-        // Kravet MIN_APPROACH_DISTANCE (10 m) prövades per FIX, alltså mot ett
+-        // kadensberoende avstånd: vid 30 s kadens underkändes varje båt under
+-        // ≈ 0,65 kn. Tilldelningsvägen (ACCELERATED) prövar inte 2-READINGS alls
+-        // och släpper igenom samma båt inom 300 m från NÄRMASTE bro
+-        // (PROTECTION_ACTIVE). En krypare strax förbi en PASSERAD bro (F21 häver
+-        // skyddszonen där) tappade därför målbron efter nådafristen och fick den
+-        // tillbaka nästa fix — "Inga båtar" inklämt mellan två likadana texter
+-        // (INV-14 DEFAULT-FLASH; WILMA 0,5 kn norr om Klaffbron mot
++        // Kravet MIN_APPROACH_DISTANCE (10 m) prövades bara per FIX, alltså mot
++        // ett kadensberoende avstånd: vid 30 s kadens underkändes varje båt
++        // under ≈ 0,65 kn. Tilldelningsvägen (ACCELERATED) prövar inte
++        // 2-READINGS alls och släpper igenom samma båt inom 300 m från NÄRMASTE
++        // bro (PROTECTION_ACTIVE). En krypare strax förbi en PASSERAD bro (F21
++        // häver skyddszonen där) tappade därför målbron efter nådafristen och
++        // fick den tillbaka nästa fix — "Inga båtar" inklämt mellan två likadana
++        // texter (INV-14 DEFAULT-FLASH; WILMA 0,5 kn norr om Klaffbron mot
+         // Stridsbergsbron, värld 933/757, flappband 0,26–0,59 kn).
+-        // Rättning: medan en nådafrist för målbron lever mäts närmandet från
+-        // fristens STARTPOSITION i stället för från förra fixen. Samma 10 m,
+-        // samma 60 s, samma grindar i övrigt — men beviset får ackumuleras över
+-        // tvivelsfönstret. En stillaliggande båt (ingen nettorörelse) eller en
+-        // som glider bort underkänns precis som förut; en krypare som närmat sig
+-        // ≥ 10 m sedan fristen startade godkänns, och S-F8 släpper fristen.
+-        // Fartgrindarna nedan (närmaste bro) och ANCHOR_BLOCK ovan gäller
+-        // oförändrat, så retentionen blir aldrig generösare än tilldelningen.
++        // Rättning: medan en nådafrist för målbron lever räknas närmandet från
++        // den av två referenser som ger STÖRST närmande — förra fixen (som
++        // förut) eller fristens STARTPOSITION (_targetApproachEvidence). Beviset
++        // får alltså ackumuleras över tvivelsfönstret, och fönstret kan bara
++        // LÄGGA TILL godkännanden: varje fix som godkändes förut godkänns
++        // fortfarande (granskningen 2026-11-04 — med bara fristens start som
++        // referens underkändes en båt som gled bort under fristen och sedan
++        // vände mot målbron, fast hon närmade sig 15 m per fix). Samma 10 m,
++        // samma 60 s, samma grindar i övrigt. En stillaliggande båt eller en
++        // som glider bort underkänns som förut. Spegeln på tilldelningssidan är
++        // återinträdesbeviset (_reentryNeedsApproachProof), som kräver SAMMA
++        // bevis innan en nyss borttagen målbro får läggas tillbaka.
+         const graceRef = this._graceApproachReference(vessel, oldVessel.targetBridge);
+-        const ref = graceRef || oldVessel;
+-        const previousDistance = geometry.calculateDistance(
+-          ref.lat, ref.lon,
+-          targetBridge.lat, targetBridge.lon,
+-        );
+-        const currentDistance = geometry.calculateDistance(
+-          vessel.lat, vessel.lon,
+-          targetBridge.lat, targetBridge.lon,
+-        );
+-        const distanceChange = previousDistance - currentDistance; // Positive = approaching
++        const evidence = this._targetApproachEvidence(vessel, oldVessel, graceRef, targetBridge);
++        const { previousDistance, currentDistance } = evidence;
++        const distanceChange = evidence.change; // Positive = approaching
+ 
+         // Check if vessel is approaching the target bridge
+         const isApproaching = distanceChange > 0;
+@@ -4331,10 +4362,10 @@ class VesselDataService extends EventEmitter {
+           `📏 [2-READINGS] ${vessel.mmsi}: Distance to ${oldVessel.targetBridge}: `
+           + `${previousDistance.toFixed(0)}m → ${currentDistance.toFixed(0)}m `
+           + `(${distanceChange > 0 ? '-' : '+'}${Math.abs(distanceChange).toFixed(0)}m), approaching=${isApproaching}`
+-          + `${graceRef ? ' (referens: nådafristens start)' : ''}`,
++          + `${evidence.source === 'window' ? ' (referens: nådafristens start)' : ''}`,
+         );
+ 
+-        if (!isApproaching && currentDistance > 300) {
++        if (!isApproaching && currentDistance > TWO_READINGS_NEAR_TARGET_M) {
+           this.logger.debug(
+             `🚫 [2-READINGS] ${vessel.mmsi}: Not approaching target bridge ${oldVessel.targetBridge} - `
+             + `distance increasing by ${Math.abs(distanceChange).toFixed(0)}m`,
+@@ -4343,7 +4374,7 @@ class VesselDataService extends EventEmitter {
+         }
+ 
+         // Require minimum distance change to prevent anchored boats from getting/keeping target bridges
+-        if (Math.abs(distanceChange) < constants.MIN_APPROACH_DISTANCE && currentDistance > 300) {
++        if (Math.abs(distanceChange) < constants.MIN_APPROACH_DISTANCE && currentDistance > TWO_READINGS_NEAR_TARGET_M) {
+           this.logger.debug(
+             `🚫 [2-READINGS] ${vessel.mmsi}: Insufficient approach movement to ${oldVessel.targetBridge} - `
+             + `only ${Math.abs(distanceChange).toFixed(0)}m change (min ${constants.MIN_APPROACH_DISTANCE}m required)`,
+@@ -5583,6 +5614,11 @@ class VesselDataService extends EventEmitter {
+       // en återfödd båt har ingen levande frist, och utan frist är fältet
+       // verkningslöst (_graceApproachReference).
+       _graceApproachRef: oldVessel?._graceApproachRef ?? null,
++      // F05 (granskningen 2026-11-04): återinträdesbevisets fönster måste
++      // överleva objektombyggnaden mellan fixarna medan båten är mållös
++      // (_maintainReentryApproachProof tar bort det så fort hon har en
++      // målbro). Graven bär det inte: en återfödd båt är ett nytt besök.
++      _reentryApproachRef: oldVessel?._reentryApproachRef ?? null,
+       _moored: oldVessel?._moored || false,
+       navStatus: data.navStatus ?? oldVessel?.navStatus ?? null,
+ 
+@@ -8039,6 +8075,205 @@ class VesselDataService extends EventEmitter {
+     return ref;
+   }
+ 
++  /**
++   * F05 (rättningskampanjen 2026-11-04, familj M) — NÄRMANDEBEVISET mot en
++   * målbro, EN sanningskälla för tvåprovsvalideringen (2-READINGS i
++   * _shouldAssignTargetBridge), dess etikett (_getTargetRemovalReason) och
++   * återinträdesbeviset (_reentryNeedsApproachProof).
++   *
++   * Närmandet räknas från den av två referenser som ger STÖRST närmande:
++   * förra fixen (`prevFix`, som före F05) och fönstrets startposition
++   * (`windowRef`: nådafristens start eller återinträdesfönstrets start; null =
++   * bara förra fixen). Att ta det största gör att fönstret bara kan LÄGGA TILL
++   * godkännanden — med fönstret ensamt underkändes en båt som gled bort under
++   * fristen och sedan vände mot målbron (granskningen 2026-11-04, slingsvepet:
++   * 15 av 60 varianter blev sämre än 7699cbe).
++   *
++   * @param {Object} vessel - Fartyget (nuvarande position)
++   * @param {Object|null} prevFix - Förra fixen ({lat, lon}) eller null
++   * @param {Object|null} windowRef - Fönstrets startposition ({lat, lon}) eller null
++   * @param {Object} bridge - Målbron ({lat, lon})
++   * @returns {{previousDistance:number, currentDistance:number, change:number, source:string}}
++   *   change > 0 = närmande; source 'fix' eller 'window' (referensen som gav change)
++   * @private
++   */
++  _targetApproachEvidence(vessel, prevFix, windowRef, bridge) {
++    const currentDistance = geometry.calculateDistance(vessel.lat, vessel.lon, bridge.lat, bridge.lon);
++    let previousDistance = prevFix && Number.isFinite(prevFix.lat) && Number.isFinite(prevFix.lon)
++      ? geometry.calculateDistance(prevFix.lat, prevFix.lon, bridge.lat, bridge.lon)
++      : null;
++    let source = 'fix';
++    if (windowRef && Number.isFinite(windowRef.lat) && Number.isFinite(windowRef.lon)) {
++      const windowDistance = geometry.calculateDistance(windowRef.lat, windowRef.lon, bridge.lat, bridge.lon);
++      if (Number.isFinite(windowDistance)
++          && (!Number.isFinite(previousDistance) || windowDistance > previousDistance)) {
++        previousDistance = windowDistance;
++        source = 'window';
++      }
++    }
++    return {
++      previousDistance, currentDistance, change: previousDistance - currentDistance, source,
++    };
++  }
++
++  /**
++   * Kö-zonsvakten (2026-07-02), utbruten ORDAGRANT ur retentionsblocket i
++   * updateVessel (F05, granskningen 2026-11-04) så att återinträdesbeviset kan
++   * respektera samma undantag: en NYSS AKTIV, rörelsebevisad båt inom 600 m från
++   * målbron är en köare, inte en ankrare.
++   *
++   * @param {Object} vessel - Fartyget
++   * @param {string} bridgeName - Målbron som prövas
++   * @param {number} now - Tidpunkt (ms)
++   * @returns {boolean} true om båten ligger i målbrons kö-zon
++   * @private
++   */
++  _isInTargetQueueZone(vessel, bridgeName, now) {
++    const targetObj = this.bridgeRegistry.getBridgeByName(bridgeName);
++    const distToTargetM = targetObj && Number.isFinite(targetObj.lat)
++      ? geometry.calculateDistance(vessel.lat, vessel.lon, targetObj.lat, targetObj.lon)
++      : null;
++    const recentlyActive = Number.isFinite(vessel.lastActiveTime)
++      && (now - vessel.lastActiveTime) < 20 * 60 * 1000;
++    return Number.isFinite(distToTargetM) && distToTargetM <= 600
++      && recentlyActive && vessel._hasMovementProof === true && !vessel._moored;
++  }
++
++  /**
++   * F05 (granskningen 2026-11-04) — BEVÄPNAR återinträdesbeviset när
++   * retentionen tar bort målbron efter nådafristen och närmandebeviset saknas
++   * (samma prov som 2-READINGS: mer än 300 m kvar och under 10 m närmande
++   * från förra fixen eller fristens start). Anropas FÖRE raderingen av
++   * fristens post, så att fristens referens ännu gäller.
++   *
++   * Posten `vessel._reentryApproachRef = {bridge, lat, lon, t}` är
++   * återinträdesfönstrets start: positionen och tiden för borttagningen. Den
++   * lever bara medan båten är mållös: _maintainReentryApproachProof tar bort
++   * den i varje tick där fartyget har en målbro, oavsett väg dit, och låter
++   * annars fönstret glida.
++   *
++   * @param {Object} vessel - Fartyget (har ännu kvar målbron som tas bort)
++   * @param {Object|null} oldVessel - Förra fixen
++   * @param {number} now - Borttagningens tidpunkt (ms)
++   * @private
++   */
++  _armReentryApproachProof(vessel, oldVessel, now) {
++    const bridgeName = vessel && vessel.targetBridge;
++    const bridge = bridgeName ? this.bridgeRegistry.getBridgeByName(bridgeName) : null;
++    if (!bridge || !Number.isFinite(bridge.lat) || !Number.isFinite(bridge.lon)
++        || !Number.isFinite(vessel.lat) || !Number.isFinite(vessel.lon)) {
++      return;
++    }
++    const evidence = this._targetApproachEvidence(
++      vessel, oldVessel, this._graceApproachReference(vessel, bridgeName), bridge,
++    );
++    if (!(evidence.currentDistance > TWO_READINGS_NEAR_TARGET_M)
++        || evidence.change >= constants.MIN_APPROACH_DISTANCE) {
++      return; // borttagningen föll inte på närmandet — inget att spegla
++    }
++    vessel._reentryApproachRef = {
++      bridge: bridgeName, lat: vessel.lat, lon: vessel.lon, t: now,
++    };
++  }
++
++  /**
++   * F05 (granskningen 2026-11-04) — ÅTERINTRÄDESBEVISET i ACCELERATED-grenen.
++   *
++   * Flappens mekanism: retentionen tar bort målbron när närmandebeviset
++   * (2-READINGS, ≥ 10 m mot målbron inom nådafristen) saknas, men tilldelningen
++   * prövar inte 2-READINGS och godkänner samma båt på NÄRMASTE bros
++   * fartgrindar — ingen fartgräns inom 300 m, 0,1 kn vid 300–500 m — och för
++   * okänd fart (sog=null) eller en båt som inte passerat någon bro gäller inte
++   * heller ANCHOR_BLOCK. Samma båt dömdes alltså olika i de två vägarna, och
++   * texten blinkade "Inga båtar" (granskningens syskon: krypare under ≈ 0,22 kn
++   * söder om Olidebron, och sog=null-båtar som stannar eller kryper efter en
++   * passerad bro).
++   *
++   * Regeln: SAMMA bro som retentionen nyss tog bort tilldelas igen först när
++   * SAMMA bevis finns — ≥ MIN_APPROACH_DISTANCE närmande, räknat som i
++   * 2-READINGS från förra fixen eller fönstrets start, i ett fönster lika långt
++   * som nådafristen (TARGET_REMOVAL_GRACE_PERIOD; saknas beviset när fönstret
++   * löpt ut börjar ett nytt där båten är). Därmed har retention och tilldelning
++   * samma tröskel, och en båt som retentionen skulle ta bort igen läggs inte
++   * tillbaka. Undantagen är retentionens egna, så beviset bara gäller där
++   * retentionen själv skulle ha tagit bort målbron:
++   *  - målbron inom 300 m (2-READINGS gäller inte där);
++   *  - skyddszonen kring en opasserad bro eller målbron (PROTECTION_ZONE_SAVE,
++   *    med F21-regeln för passerade broar);
++   *  - kö-zonen (_isInTargetQueueZone).
++   * En annan bro, en ny resa eller en bekräftad vändning berörs inte. Inga nya
++   * konstanter.
++   *
++   * @param {Object} vessel - Fartyget (mållöst)
++   * @param {Object|null} oldVessel - Förra fixen
++   * @param {string} bridgeName - Bron som ACCELERATED vill tilldela
++   * @param {Object} bridge - Brons registerpost ({lat, lon})
++   * @param {number} now - Tidpunkt (ms)
++   * @returns {boolean} true = tilldelningen ska vänta (beviset saknas)
++   * @private
++   */
++  _reentryNeedsApproachProof(vessel, oldVessel, bridgeName, bridge, now) {
++    const ref = vessel && vessel._reentryApproachRef;
++    if (!ref || ref.bridge !== bridgeName || !Number.isFinite(ref.lat) || !Number.isFinite(ref.lon)) {
++      return false;
++    }
++    const evidence = this._targetApproachEvidence(vessel, oldVessel, ref, bridge);
++    if (!(evidence.currentDistance > TWO_READINGS_NEAR_TARGET_M)
++        || evidence.change >= constants.MIN_APPROACH_DISTANCE) {
++      return false;
++    }
++    const probe = { ...vessel, targetBridge: bridgeName };
++    const zone = this._isInProtectionZone(probe);
++    const zoneBridgePassed = zone.isProtected
++      && Array.isArray(vessel.passedBridges)
++      && vessel.passedBridges.includes(zone.bridge)
++      && zone.bridge !== bridgeName;
++    if ((zone.isProtected && !zoneBridgePassed) || this._isInTargetQueueZone(probe, bridgeName, now)) {
++      return false;
++    }
++    const windowAgeMs = Number.isFinite(ref.t) ? now - ref.t : Infinity;
++    this.logger.debug(
++      `🚫 [REENTRY_APPROACH_PROOF] ${vessel.mmsi}: ${bridgeName} togs nyss bort utan närmande — `
++      + `${evidence.previousDistance.toFixed(0)}m → ${evidence.currentDistance.toFixed(0)}m `
++      + `(${evidence.change >= 0 ? '-' : '+'}${Math.abs(evidence.change).toFixed(0)}m, `
++      + `min ${constants.MIN_APPROACH_DISTANCE}m, fönster ${Math.round(windowAgeMs / 1000)}s) — väntar med återtilldelningen`,
++    );
++    return true;
++  }
++
++  /**
++   * F05 (granskningen 2026-11-04) — återinträdesbevisets LIVSCYKEL, körd sist i
++   * varje updateVessel (före lagringen):
++   *  - har fartyget en målbro (oavsett väg dit) är posten förbrukad och tas bort;
++   *  - annars GLIDER fönstret som nådafristen: är det äldre än
++   *    TARGET_REMOVAL_GRACE_PERIOD börjar ett nytt där båten är nu. Beviset
++   *    räknas alltså alltid inom ett fönster lika långt som retentionens, även
++   *    i tick:ar där ACCELERATED-grenen aldrig nådde beviset (t.ex. ANCHOR_BLOCK)
++   *    — annars kunde långsam drift över många minuter samlas till "närmande".
++   *    En GPS-misstänkt position blir aldrig fönstrets start.
++   *
++   * @param {Object} vessel - Fartyget (levande objektet i updateVessel)
++   * @param {number} now - Tidpunkt (ms)
++   * @private
++   */
++  _maintainReentryApproachProof(vessel, now) {
++    const ref = vessel && vessel._reentryApproachRef;
++    if (!ref) {
++      return;
++    }
++    if (vessel.targetBridge) {
++      vessel._reentryApproachRef = null;
++      return;
++    }
++    const expired = !Number.isFinite(ref.t) || now - ref.t > TARGET_REMOVAL_GRACE_PERIOD;
++    if (expired && !vessel._gpsJumpDetected && !vessel._positionUncertain
++        && Number.isFinite(vessel.lat) && Number.isFinite(vessel.lon)) {
++      vessel._reentryApproachRef = {
++        bridge: ref.bridge, lat: vessel.lat, lon: vessel.lon, t: now,
++      };
++    }
++  }
++
+   /**
+    * Check if vessel is near Stallbackabron bridge for bridge text inclusion
+    * @private
+@@ -8161,20 +8396,21 @@ class VesselDataService extends EventEmitter {
+     if (oldVessel && oldVessel.targetBridge && oldVessel.lat && oldVessel.lon) {
+       const targetBridge = this.bridgeRegistry.getBridgeByName(oldVessel.targetBridge);
+       if (targetBridge && targetBridge.lat && targetBridge.lon) {
+-        const previousDistance = geometry.calculateDistance(
+-          oldVessel.lat, oldVessel.lon,
+-          targetBridge.lat, targetBridge.lon,
+-        );
+-        const currentDistance = geometry.calculateDistance(
+-          vessel.lat, vessel.lon,
+-          targetBridge.lat, targetBridge.lon,
++        // F05 (granskningen 2026-11-04): etiketten mäter med SAMMA bevis som
++        // beslutet (2-READINGS: största närmandet från förra fixen eller
++        // nådafristens start). En egen kopia per fix kunde säga emot beslutet
++        // — fältanalyser läser etiketterna (t.ex. "Reason: MOVING_AWAY").
++        const evidence = this._targetApproachEvidence(
++          vessel, oldVessel, this._graceApproachReference(vessel, oldVessel.targetBridge), targetBridge,
+         );
+-        const distanceChange = previousDistance - currentDistance;
++        const { currentDistance } = evidence;
++        const distanceChange = evidence.change;
+ 
+-        if (distanceChange < 0 && currentDistance > 300) {
++        if (distanceChange < 0 && currentDistance > TWO_READINGS_NEAR_TARGET_M) {
+           return 'MOVING_AWAY';
+         }
+-        if (Math.abs(distanceChange) < constants.MIN_APPROACH_DISTANCE && currentDistance > 300) {
++        if (Math.abs(distanceChange) < constants.MIN_APPROACH_DISTANCE
++            && currentDistance > TWO_READINGS_NEAR_TARGET_M) {
+           return 'INSUFFICIENT_MOVEMENT';
+         }
+       }
+diff --git a/tests/m-krypfart-malbron-2026-11-04.test.js b/tests/m-krypfart-malbron-2026-11-04.test.js
+index ddb5077..d1d5c02 100644
+--- a/tests/m-krypfart-malbron-2026-11-04.test.js
++++ b/tests/m-krypfart-malbron-2026-11-04.test.js
+@@ -14,15 +14,26 @@
+  * fick den tillbaka nästa fix. Brotexten föll till "Inga båtar" mellan två
+  * likadana texter (INV-14 DEFAULT-FLASH).
+  *
+- * RÄTTNINGEN. Medan en nådafrist för målbron lever mäts 2-READINGS från
+- * fristens startposition (vessel._graceApproachRef) i stället för från förra
+- * fixen. Samma 10 m och samma 60 s, men beviset får ackumuleras. Stillaliggande
+- * eller bortglidande båtar underkänns som förut, och ANCHOR_BLOCK (FIX B) och
+- * fartgrindarna mot närmaste bro gäller oförändrat.
++ * RÄTTNINGEN har två speglade delar med SAMMA bevis (_targetApproachEvidence):
++ * ≥ 10 m närmande mot målbron, räknat från förra fixen ELLER fönstrets start
++ * (det största närmandet gäller), inom ett fönster lika långt som nådafristen.
++ *  1. Retentionen (2-READINGS): fönstret är nådafristens start
++ *     (vessel._graceApproachRef). Det största närmandet gör att fönstret bara
++ *     kan lägga till godkännanden (granskningen 2026-11-04: med bara fristens
++ *     start underkändes en båt som gled bort och sedan vände mot målbron).
++ *  2. Återinträdet (ACCELERATED): tog retentionen nyss bort målbron för att
++ *     beviset saknades, läggs SAMMA bro tillbaka först när samma bevis finns
++ *     (vessel._reentryApproachRef, fönstret glider med nådafristens längd).
++ *     Retentionens undantag gäller även här: målbron inom 300 m, skyddszonen
++ *     kring en opasserad bro och kö-zonen. Det stänger syskonen där
++ *     ANCHOR_BLOCK inte gäller: båtar som inte passerat någon bro och båtar
++ *     utan fartgivare (sog=null).
+  *
+- * Testen fäller 7699cbe: kryparna tappar målbron (riggen) och fixturen ger
+- * DEFAULT-FLASH 17:19:30. Kontrollerna (stilla, bortglidande, stoppad) är
+- * gröna på båda och visar att rättningen inte håller kvar mål utan närmande.
++ * Testen fäller 7699cbe: kryparna tappar målbron (riggen), syskonen flappar,
++ * etiketten säger emot beslutet och fixturen ger DEFAULT-FLASH 17:19:30.
++ * Vändningstestet fäller i stället den första prototypen (9c802ed). Kontrollerna
++ * (stilla, bortglidande, stoppad, avgång, skyddszon) visar att rättningen
++ * varken håller kvar mål utan närmande eller fördröjer en äkta avgång.
+  *
+  * Fixturen är buggjägarens minsta repro för F05 (värld 933, R0, 112 rader).
+  */
+@@ -104,6 +115,46 @@ function korForbiKlaffbron(mmsi, fas2) {
+ 
+ const krypning = (kn, dtS, antal) => Array.from({ length: antal }, () => ({ ds: kn * KN * dtS, sog: kn, dtS }));
+ 
++/**
++ * Generell rigg längs linjen mellan två broar (s = meter från `fran` mot
++ * `till`, negativt = bortom `fran`). Samma verkliga pipeline: bara updateVessel.
++ * @returns {{svc: object, spar: Array<{s:number, target:(string|null)}>}} utfall per fix
++ */
++function korLangsLinje(mmsi, fran, till, s0, steg) {
++  const A = BRIDGES[fran];
++  const B = BRIDGES[till];
++  const dLat = (B.lat - A.lat) * M_PER_DEG_LAT;
++  const dLon = (B.lon - A.lon) * M_PER_DEG_LAT * Math.cos((A.lat * Math.PI) / 180);
++  const L = Math.hypot(dLat, dLon);
++  const bearing = ((Math.atan2(dLon / L, dLat / L) * 180) / Math.PI + 360) % 360;
++  const at = (s) => ({
++    lat: A.lat + ((s * dLat) / L) / M_PER_DEG_LAT,
++    lon: A.lon + ((s * dLon) / L) / (M_PER_DEG_LAT * Math.cos((A.lat * Math.PI) / 180)),
++  });
++  const svc = makeVDS();
++  let s = s0;
++  const spar = [];
++  const skicka = (sog, dtS, cog) => {
++    NOW += dtS * 1000;
++    const p = at(s);
++    svc.updateVessel(mmsi, {
++      mmsi, lat: p.lat, lon: p.lon, sog, cog: cog ?? bearing, name: 'RIGG', timestamp: NOW,
++    });
++    const v = svc.vessels.get(mmsi);
++    spar.push({ s: Math.round(s), target: v ? (v.targetBridge || null) : 'BORTA' });
++  };
++  skicka(5, 0);
++  for (const x of steg) {
++    s += x.ds;
++    skicka(x.sog, x.dtS ?? 30, x.cog);
++  }
++  return { svc, spar };
++}
++
++/** Antal gånger målbron `bro` kommer TILLBAKA efter att ha tagits bort. */
++const aterkomster = (spar, bro) => spar.filter((x, i) => i > 0 && x.target === bro && spar[i - 1].target !== bro
++  && spar.slice(0, i).some((y) => y.target === bro)).length;
++
+ beforeAll(() => {
+   global.__TEST_MODE__ = true;
+ });
+@@ -203,6 +254,228 @@ describe('F05: nådafristens referensposition', () => {
+   });
+ });
+ 
++describe('F05 (granskningen): beviset är det största närmandet — fönstret tar aldrig bort ett godkännande', () => {
++  test('VÄNDNING: en båt som glider bort under nådafristen och vänder mot målbron behåller den', () => {
++    // Granskarens slingsvep (n5=10, k=3, 1,5 kn): förbi Klaffbron i 5 kn,
++    // sedan en sväng som först för båten 61 m BORT från Stridsbergsbron
++    // och därefter 23 m per fix tillbaka. Den första prototypen mätte bara
++    // från fristens start, där båten ännu var närmare, och tappade målbron
++    // trots 23 m närmande per fix (ACCELERATED lade tillbaka den 30 s
++    // senare). 7699cbe godkände fixen per fix — det gör rättningen också.
++    const v = 23; // 1,5 kn i 30 s
++    const ds = [10, 0, -15, -v, -v, -v, -15, 0, 15, ...Array(10).fill(v)];
++    const cogs = [70, 110, 150, 210, 210, 210, 250, 290, 330, 10, ...Array(9).fill(30.7)];
++    const steg = [];
++    for (let i = 0; i < 10; i++) steg.push({ ds: 77, sog: 5 });
++    for (let i = 0; i < 3; i++) steg.push({ ds: v, sog: 1.5 });
++    ds.forEach((d, i) => steg.push({ ds: d, sog: 1.5, cog: cogs[i] }));
++    const { spar } = korLangsLinje('265000511', 'klaffbron', 'stridsbergsbron', -620, steg);
++    const efterPassagen = spar.slice(spar.findIndex((x) => x.target === 'Stridsbergsbron'));
++    expect(efterPassagen.length).toBeGreaterThan(20);
++    expect(efterPassagen.filter((x) => x.target !== 'Stridsbergsbron')).toEqual([]);
++  });
++
++  test('_targetApproachEvidence väljer referensen med störst närmande och säger vilken', () => {
++    const svc = makeVDS();
++    const strids = BRIDGES.stridsbergsbron;
++    const p = (s) => along(s);
++    // Förra fixen 30 m längre från målbron än nu, fönstrets start 6 m längre.
++    const ev1 = svc._targetApproachEvidence(p(400), p(370), p(394), strids);
++    expect(ev1.source).toBe('fix');
++    expect(ev1.change).toBeCloseTo(30, 0);
++    const ev2 = svc._targetApproachEvidence(p(400), p(397), p(388), strids);
++    expect(ev2.source).toBe('window');
++    expect(ev2.change).toBeCloseTo(12, 0);
++    // Utan fönster gäller förra fixen, som före F05.
++    const ev3 = svc._targetApproachEvidence(p(400), p(397), null, strids);
++    expect(ev3.source).toBe('fix');
++    expect(ev3.change).toBeCloseTo(3, 0);
++  });
++
++  test('ETIKETTEN mäter med samma bevis som beslutet (_getTargetRemovalReason)', () => {
++    // Per fix glider båten 3 m BORT, men sedan fristens start har hon närmat
++    // sig 6 m. Beslutet (största närmandet: +6 m, under 10 m) underkänner för
++    // otillräckligt närmande — då ska etiketten säga INSUFFICIENT_MOVEMENT,
++    // inte MOVING_AWAY som en egen per-fix-kopia gjorde.
++    const svc = makeVDS();
++    const mmsi = '265000512';
++    const nu = along(400);
++    const forra = along(403); // 3 m NÄRMARE målbron än nu: per fix glider hon bort
++    const fristStart = along(394); // 6 m längre bort: sedan fristens start +6 m
++    svc._targetRemovalGrace = new Map([[`${mmsi}:Stridsbergsbron`, NOW - 90000]]);
++    const vessel = {
++      mmsi,
++      lat: nu.lat,
++      lon: nu.lon,
++      sog: 0.8,
++      cog: 30.7,
++      targetBridge: 'Stridsbergsbron',
++      _graceApproachRef: { bridge: 'Stridsbergsbron', lat: fristStart.lat, lon: fristStart.lon },
++    };
++    const oldVessel = {
++      mmsi, lat: forra.lat, lon: forra.lon, sog: 0.8, cog: 30.7, targetBridge: 'Stridsbergsbron',
++    };
++    expect(svc._getTargetRemovalReason(vessel, oldVessel)).toBe('INSUFFICIENT_MOVEMENT');
++  });
++});
++
++describe('F05 (granskningen): återinträdesbeviset stänger syskonen där ANCHOR_BLOCK inte gäller', () => {
++  test('SYSKON (a): krypare 0,15 kn 300–500 m söder om Olidebron (ingen bro passerad) får inte tillbaka Klaffbron utan närmande', () => {
++    // 0,15 kn i 30 s kadens = 2,3 m per fix, 6,9 m per nådafrist. Retentionen
++    // tar bort Klaffbron (1,8 km bort, 2-READINGS); Olidebron ligger 300–500 m
++    // bort, så tilldelningen krävde bara 0,1 kn — och ANCHOR_BLOCK gäller inte
++    // en båt som inte passerat någon bro. Förut: tillbaka nästa fix, flapp.
++    const steg = [];
++    for (let i = 0; i < 8; i++) steg.push({ ds: 77, sog: 5 });
++    for (let i = 0; i < 50; i++) steg.push({ ds: 0.15 * KN * 30, sog: 0.15 });
++    const { spar } = korLangsLinje('265000513', 'olidebron', 'klaffbron', -1100, steg);
++    expect(spar.some((x) => x.target === 'Klaffbron')).toBe(true);
++    const krypet = spar.slice(9);
++    expect(krypet[0].s).toBeLessThan(-300);
++    expect(krypet[krypet.length - 1].s).toBeLessThan(-300);
++    expect(krypet.some((x) => x.target === null)).toBe(true);
++    expect(aterkomster(spar, 'Klaffbron')).toBe(0);
++  });
++
++  test('SYSKON (b): sog=null-båt som stannar 60 m norr om passerade Klaffbron får inte tillbaka Stridsbergsbron under stoppet', () => {
++    // Med känd fart tar ANCHOR_BLOCK hand om stoppet; utan fartgivare gäller
++    // den inte (helgranskningen 2026-07-06), och PROTECTION_ACTIVE (≤ 300 m från
++    // närmaste bro) lade tillbaka målbron nästa fix. Positionsbrus ±2 m.
++    const brus = [0, 2, -1, 1, -2, 2, 0, -1, 1, -2];
++    const fas2 = [{ ds: 100, sog: 2, dtS: 30 }]; // passagen med känd fart, sedan tyst givare
++    let pos = 0;
++    for (let i = 0; i < 40; i++) {
++      const j = brus[i % brus.length];
++      fas2.push({ ds: j - pos, sog: null, dtS: 30 });
++      pos = j;
++    }
++    const { efter } = korForbiKlaffbron('265000514', fas2);
++    const spar = efter.map((e) => ({ s: e.s, target: e.target }));
++    expect(spar.some((x) => x.target === null)).toBe(true);
++    expect(aterkomster(spar, 'Stridsbergsbron')).toBe(0);
++  });
++
++  test("SYSKON (b'): sog=null-krypare 0,15 kn efter passerade Klaffbron flappar inte", () => {
++    const fas2 = [{ ds: 100, sog: 2, dtS: 30 }];
++    for (let i = 0; i < 40; i++) fas2.push({ ds: 0.15 * KN * 30, sog: null, dtS: 30 });
++    const { efter } = korForbiKlaffbron('265000515', fas2);
++    const spar = efter.map((e) => ({ s: e.s, target: e.target }));
++    expect(spar.some((x) => x.target === null)).toBe(true);
++    expect(aterkomster(spar, 'Stridsbergsbron')).toBe(0);
++  });
++
++  test('KONTROLL med svaj som når 10 m: stilla båt (0,4 kn fartbrus) vid passerad bro tappar målbron EN gång och får den inte tillbaka', () => {
++    // Svaj ±5 m längs leden med period 8 fixar: topp till dal 10 m, men inget
++    // fönster på 90 s ger 10 m närmande. Ett för generöst fönster (äldre
++    // referens än fristens eller återinträdets start) skulle hålla kvar eller
++    // lägga tillbaka målbron. På 7699cbe lade ACCELERATED tillbaka den.
++    const fas2 = [{ ds: 100, sog: 2, dtS: 30 }];
++    let pos = 0;
++    for (let i = 0; i < 40; i++) {
++      const svaj = 5 * Math.sin((2 * Math.PI * i) / 8);
++      fas2.push({ ds: svaj - pos, sog: 0.4, dtS: 30 });
++      pos = svaj;
++    }
++    const { efter } = korForbiKlaffbron('265000516', fas2);
++    const spar = efter.map((e) => ({ s: e.s, target: e.target }));
++    expect(spar.some((x) => x.target === null)).toBe(true);
++    expect(aterkomster(spar, 'Stridsbergsbron')).toBe(0);
++  });
++
++  test('KONTROLL: en avgång med KÄND fart får målbron tillbaka direkt, även när första fixen ännu inte flyttat sig', () => {
++    // Stopp i 0 kn 100 m norr om passerade Klaffbron tills målbron tagits
++    // bort (ANCHOR_BLOCK), sedan avgång i 3 kn. Första avgångsfixen har full
++    // fart men samma position (som 72 h-soakens avgångar: 4,7 kn och 0 m).
++    // Känd fart ≥ FIX_D_MIN_SOG (2,0 kn) är rörelsebevis i sig, så rättningen
++    // fördröjer inte avgången jämfört med 7699cbe.
++    const fas2 = [{ ds: 100, sog: 2, dtS: 30 }];
++    for (let i = 0; i < 12; i++) fas2.push({ ds: 0, sog: 0, dtS: 30 });
++    fas2.push({ ds: 0, sog: 3, dtS: 30 });
++    for (let i = 0; i < 3; i++) fas2.push({ ds: 3 * KN * 30, sog: 3, dtS: 30 });
++    const { efter } = korForbiKlaffbron('265000517', fas2);
++    expect(efter.slice(1, 13).some((e) => e.target === null)).toBe(true);
++    expect(efter.slice(13).map((e) => e.target)).toEqual(Array(4).fill('Stridsbergsbron'));
++  });
++
++  test('KONTROLL: en avgång UTAN fartgivare får målbron på första fixen med ≥ 10 m närmande', () => {
++    // Samma stopp med sog=null: här finns bara positionen, och den första
++    // avgångsfixen har flyttat sig 46 m (3 kn i 30 s), så beviset finns direkt.
++    const fas2 = [{ ds: 100, sog: 2, dtS: 30 }];
++    for (let i = 0; i < 12; i++) fas2.push({ ds: 0, sog: null, dtS: 30 });
++    for (let i = 0; i < 4; i++) fas2.push({ ds: 3 * KN * 30, sog: null, dtS: 30 });
++    const { efter } = korForbiKlaffbron('265000521', fas2);
++    expect(efter.slice(1, 13).some((e) => e.target === null)).toBe(true);
++    expect(efter.slice(13).map((e) => e.target)).toEqual(Array(4).fill('Stridsbergsbron'));
++  });
++
++  test('KONTROLL: retentionens skyddszon gäller även återinträdet — kryparen får Klaffbron när hon når 300 m från opasserade Olidebron', () => {
++    // 0,15 kn (2,3 m per fix) från 330 m söder om Olidebron: målbron tas bort
++    // strax utanför skyddszonen. Inne i zonen kring den OPASSERADE Olidebron
++    // hade retentionen behållit Klaffbron (PROTECTION_ZONE_SAVE), så där får
++    // återinträdet inte heller vänta på närmandebeviset.
++    const steg = [];
++    for (let i = 0; i < 10; i++) steg.push({ ds: 77, sog: 5 });
++    for (let i = 0; i < 30; i++) steg.push({ ds: 2.3, sog: 0.15 });
++    const { spar } = korLangsLinje('265000518', 'olidebron', 'klaffbron', -1100, steg);
++    const forstaNull = spar.findIndex((x) => x.target === null);
++    expect(forstaNull).toBeGreaterThan(0);
++    expect(spar[forstaNull].s).toBeLessThan(-300);
++    const inomZonen = spar.findIndex((x, i) => i > forstaNull && x.s > -299);
++    expect(inomZonen).toBeGreaterThan(forstaNull);
++    expect(spar.slice(inomZonen).map((x) => x.target)).toEqual(Array(spar.length - inomZonen).fill('Klaffbron'));
++  });
++});
++
++describe('F05 (granskningen): återinträdesbevisets livscykel', () => {
++  test('beväpnas bara när borttagningen föll på närmandet, förbrukas med en målbro och glider efter nådafristens längd', () => {
++    const svc = makeVDS();
++    const p0 = along(400);
++    const vessel = {
++      mmsi: '265000519', lat: p0.lat, lon: p0.lon, sog: 0.2, targetBridge: 'Stridsbergsbron',
++    };
++    // Beviset fanns (12 m närmande per fix) → ingen beväpning.
++    svc._armReentryApproachProof(vessel, { ...vessel, ...along(388) }, NOW);
++    expect(vessel._reentryApproachRef).toBeUndefined();
++    // Beviset saknades (2 m) → beväpnas på borttagningens position och tid.
++    svc._armReentryApproachProof(vessel, { ...vessel, ...along(398) }, NOW);
++    expect(vessel._reentryApproachRef).toEqual(expect.objectContaining({ bridge: 'Stridsbergsbron', t: NOW }));
++    // Med en målbro (oavsett väg) är posten förbrukad.
++    svc._maintainReentryApproachProof(vessel, NOW + 1000);
++    expect(vessel._reentryApproachRef).toBeNull();
++    // Mållös: fönstret står still till och med 60 s, glider därefter.
++    vessel.targetBridge = null;
++    vessel._reentryApproachRef = {
++      bridge: 'Stridsbergsbron', lat: p0.lat, lon: p0.lon, t: NOW,
++    };
++    svc._maintainReentryApproachProof(vessel, NOW + 60000);
++    expect(vessel._reentryApproachRef.t).toBe(NOW);
++    const p1 = along(404);
++    vessel.lat = p1.lat;
++    vessel.lon = p1.lon;
++    vessel._gpsJumpDetected = true;
++    svc._maintainReentryApproachProof(vessel, NOW + 90000);
++    expect(vessel._reentryApproachRef.t).toBe(NOW); // aldrig en GPS-misstänkt start
++    vessel._gpsJumpDetected = false;
++    svc._maintainReentryApproachProof(vessel, NOW + 90000);
++    expect(vessel._reentryApproachRef).toEqual({
++      bridge: 'Stridsbergsbron', lat: p1.lat, lon: p1.lon, t: NOW + 90000,
++    });
++  });
++
++  test('_isInTargetQueueZone är kö-zonsvaktens predikat ordagrant', () => {
++    const svc = makeVDS();
++    const naraKlaff = along(-400); // 400 m söder om Klaffbron
++    const bas = {
++      mmsi: '265000520', lat: naraKlaff.lat, lon: naraKlaff.lon, lastActiveTime: NOW - 60000, _hasMovementProof: true, _moored: false,
++    };
++    expect(svc._isInTargetQueueZone(bas, 'Klaffbron', NOW)).toBe(true);
++    expect(svc._isInTargetQueueZone({ ...bas, lastActiveTime: NOW - 21 * 60000 }, 'Klaffbron', NOW)).toBe(false);
++    expect(svc._isInTargetQueueZone({ ...bas, _hasMovementProof: false }, 'Klaffbron', NOW)).toBe(false);
++    expect(svc._isInTargetQueueZone({ ...bas, _moored: true }, 'Klaffbron', NOW)).toBe(false);
++    expect(svc._isInTargetQueueZone(bas, 'Stridsbergsbron', NOW)).toBe(false); // > 600 m
++  });
++});
++
+ describe('F05 i hela appen: buggjägarens minsta repro (WILMA, värld 933)', () => {
+   let result;
+   beforeAll(() => {
+diff --git a/tests/replay-validation/runSyntheticScenarios.js b/tests/replay-validation/runSyntheticScenarios.js
+index dc65451..3919bf8 100644
+--- a/tests/replay-validation/runSyntheticScenarios.js
++++ b/tests/replay-validation/runSyntheticScenarios.js
+@@ -473,6 +473,51 @@ const SCENARIOS = [
+     }],
+     expect: { minTargetPassages: 2 },
+   },
++  {
++    // M, granskningens syskon (a): krypare som INTE passerat någon bro, så
++    // ANCHOR_BLOCK gäller inte. 0,12 kn i 30 s kadens, 300–500 m söder om
++    // Olidebron: utanför skyddszonen och 1,8 km från Klaffbron, så retentionen
++    // tar bort målbron (≈ 5,6 m närmande per nådafrist, under 10 m), medan
++    // tilldelningen bara krävde 0,1 kn mot NÄRMASTE bro. Förut tillbaka nästa
++    // fix: 5–7 DEFAULT-FLASH (seed 94–98). Återinträdesbeviset kräver samma
++    // 10 m inom samma fönster, så båten är dold tills hon gör väg — EN lång
++    // "Inga båtar"-period (INV-14W, informativ) i stället för flappen.
++    // Placeringen ÄR testet: 300 m-gränsen och Kanalinfarten-punkten
++    // (FP9-H') ligger strax utanför zonens ändar.
++    name: 'krypfart-söder-om-Olidebron-ej-passerad',
++    seed: 94,
++    vessels: [{
++      mmsi: '901000094',
++      direction: 'north',
++      speedKn: 5.9,
++      reportIntervalS: 30,
++      slowZone: {
++        fromFraction: (METRICS.cum[1] - 500) / METRICS.total,
++        toFraction: (METRICS.cum[1] - 300) / METRICS.total,
++        speedKn: 0.12,
++      },
++    }],
++    expect: { minTargetPassages: 2 },
++  },
++  {
++    // M, granskningens syskon (b): båt UTAN fartgivare (sog=null) som stannar
++    // 60 m norr om passerade Klaffbron i 20 min. Med känd fart håller
++    // ANCHOR_BLOCK henne mållös; okänd fart blockerar inte (helgranskningen
++    // 2026-07-06), och PROTECTION_ACTIVE (≤ 300 m från närmaste bro) lade
++    // tillbaka Stridsbergsbron nästa fix: 7 DEFAULT-FLASH (seed 94–98). Med
++    // återinträdesbeviset beter hon sig som en båt med känd fart.
++    name: 'sog-null-stopp-norr-om-passerade-Klaffbron',
++    seed: 95,
++    vessels: [{
++      mmsi: '901000095',
++      direction: 'north',
++      speedKn: 5.9,
++      reportIntervalS: 30,
++      sogNull: true,
++      stop: { atFraction: (METRICS.cum[2] + 60) / METRICS.total, durationS: 1200 },
++    }],
++    expect: { minTargetPassages: 2 },
++  },
+   {
+     // Varje meddelande levereras DUBBELT (multi-mottagare/AISstream-dubbletter)
+     // — utfallet ska vara identiskt med enkel leverans: inga dubbelnotiser.
+-- 
+2.43.0
+

@@ -1,0 +1,87 @@
+From a675979fc78fb067e677cdf1e8daf4bac20d6a63 Mon Sep 17 00:00:00 2001
+From: R1-designer <r1@kampanj.local>
+Date: Wed, 4 Nov 2026 15:49:45 +0000
+Subject: [PATCH 2/5] =?UTF-8?q?R1:=20dokumentera=20returpassagens=20bokf?=
+ =?UTF-8?q?=C3=B6ring=20och=20svepsl=C3=A5sets=20pr=C3=B6vning?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+ARCHITECTURE.md: N1-resetten och bekräftelsesegmentet, svepslåset mot
+rörelsebevisad kurs. VALIDATION.md: det nya syntetiska scenariot och
+rutnätets placeringskrav.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/ARCHITECTURE.md | 15 ++++++++++++++-
+ docs/VALIDATION.md   | 13 ++++++++++++-
+ 2 files changed, 26 insertions(+), 2 deletions(-)
+
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index c9a9361..34aa9fd 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -851,6 +851,17 @@ båt.
+   rensar båda dedup-lagren (app.js:738–741). Post-resa: NEW_JOURNEY
+   (app.js:897–952, debounce `_newJourneyPending`) nollar passedBridges + dedupe
+   + target-protection för returresan.
++- N1-resetten i `_confirmDirectionReversal` släpper broar framför båten i den nya
++  riktningen. R1 (rättningskampanjen 2026-11-04, buggjägarens F10/W750): Fix D och
++  positionsbevisets två ben bekräftar före tickens detektering, ofta på fixen bortom bron
++  båten just korsat tillbaka. De skickar därför bekräftelsesegmentet
++  (`_cleanReCrossSegmentStart`, GPS-rent), och en bro som segmentet korsar i den nya
++  riktningen släpps också. Samma tick bokför returen som mellanbropassage (`no-target`),
++  samma utfall som `RE_CROSS_EVIDENCED`. Korsningsbevisvägarna skickar inget segment;
++  där är bron bakom den nya korsningen och behålls (AKIRA, Järnvägsbron ×2).
++- Svepets riktningslås (SISU) sätts inte när den rörelsebevisade levande kursen
++  (`_dedupDirection` med `requireMovement`) säger motsatsen. Då har båten vänt i glappet
++  (R1, F15 IRMA). Osäker kurs låser som förut.
+ 
+ ### Passage-latch + under-bridge-hysteres (StatusService)
+ 
+@@ -2026,7 +2037,9 @@ Underlaget står i `docs/helgranskning-2026-11-03.md`; varje fynd prövades med
+   väntslinga med två motriktade fixar i ≥ 2 kn längre än 300 m från målet ger nu ett accepterat
+   AVBRUTEN_APPROACH-kort mot motsatt riktnings målbro (förut bara inom 300 m eller vid tre fixar).
+   ANYA ELAN i both-21h är en sådan slinga. Slingskydd (beväpna först efter nästa fix i samma
+-  riktning) är ett användarbeslut.
++  riktning) är ett användarbeslut. Returpassagen bokfördes bara när bekräftelsen kom före
++  bron; kom den på fixen bortom bron stod bron kvar i `passedBridges` tills R1
++  (rättningskampanjen 2026-11-04, se U-svängspunkten ovan).
+ - `_hasGapCrossedNotifiedBridge` är en tredje passerad-formsignal bredvid S4 och H16. Bron ska
+   ligga strikt mellan föregående (eller sist kända) och aktuell position i gap-kedjans fönster,
+   och hoppet ska gå i färdriktningen. Källsträng och distans lämnas orörda.
+diff --git a/docs/VALIDATION.md b/docs/VALIDATION.md
+index e24a1e2..8d013ae 100644
+--- a/docs/VALIDATION.md
++++ b/docs/VALIDATION.md
+@@ -63,7 +63,7 @@ Eller stegen var för sig:
+ |---|---|---|
+ | Enhetstester | `npm test > /tmp/ais-jest.log 2>&1` (läs sedan slutraderna) | Alla tester passerar, exitkod 0 och inga öppna handtag. Aktuellt antal står i körningens sammanfattning. Omdirigeringen bevarar Jest:s exitkod; en pipe till `tail` gör inte det. |
+ | Korpusarna | `npm run replay:all` | Samtliga korpusar (aktuellt antal och timmar står i skriptets utskrift) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + exakt (mmsi,bro,riktning)-fördelning + EXAKT bridge_text-transitionsström (golden-text/) + alla invarianter. Ofullständig fångst redovisas separat och får bara utgöra regression för bevarade sampel. |
+-| Syntetiska | `npm run replay:synthetic` | 46 scenarier (gap, U-svängar även med gles AIS, GPS-hopp, kajliggare, sog=null, omstart, 2h-prune-stillaliggare …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
++| Syntetiska | `npm run replay:synthetic` | 47 scenarier (gap, U-svängar även med gles AIS, GPS-hopp, kajliggare, sog=null, omstart, 2h-prune-stillaliggare …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
+ | Öppningsgrindarna | `npm run replay:openings` | ETAPP 6: det proaktiva lagret (`bridge_opening_soon`). **O1** varje målbropassage i SAMTLIGA korpusar (låsta som olåsta — antalet står i skriptets utskrift, inte här) har en öppningsvarning FÖRE passagen — varje miss klassad mot rådata (oklassad = rött); en KONVOJTÄCKNING underkänns om bron bevisligen öppnat och stängt för någon annan emellan. **O2** varje varning utan passage inom 20 min klassas mot rådata (KAJVOBBEL och UTANFÖR_HORISONTEN = rött; avbruten approach, gles anflygning och garantipris = accepterade) — även SEN_PASSAGE-hinken klassas. **O2b** (S14, 2026-08-23) SAMMA fantommätning mot RÅDATAFACIT (A2, `gt-passages`) i stället för appens egna passager — O1b:s mönster: appens passageregistreringar delar grindarnas blindfläck, så en varning kan kallas BEKRÄFTAD av appens egen bokföring medan rådatan inte känner korsningen. Serierna redovisas BREDVID varandra (annars går körningsloggar inte att jämföra bakåt). `inferred`-poster (korsning bevisad, tidpunkt = fönster) bär ALDRIG hinkindelningen utan hamnar i egen hink INFERRERAD_TID — hinkarna ÄR en tidsfönstermätning. **O2b är INFORMATIV: den ändrar inte exitkoden** (grinden ligger kvar på appserien precis som O1:s täckning i fas A); `OPENING_GT_STRICT` flyttar den hit när fas C är klar. Vid införandet: 0 röda i BÅDA serierna, 118 av 360 varningar byter hink (98 blir omätbara `inferred`) och EN varning byter åt det farliga hållet (JAATTEN II @ Stridsbergsbron i 20260708-21h — samma fall INV-21 redan fäller). **O3** A/B-nattens båda armar: 6/6 öppningar varnade före, konvojen som EN varning, boat_near byte-identisk med nattens facit. Dessutom **avfyrningsfönstret** (`t − dueMs` inom två tick — kontraktet "avfyra så sent som garantin tillåter") och **ledtidsgolvet** (hårt golv 60 s; tunnare än utlovade 150 s rapporteras). |
+ | Soaken | `node tests/replay-validation/runSoak.js` | 72 h blandtrafik: 0 processfel, inga läckor, fatala invarianter rena |
+ | Driftens minutloop | `npm run replay:monitoring` | Samma 72 h med riktig monitoring/stale-städning även efter omstarter; samtliga timers avvecklade efter shutdown |
+@@ -344,6 +344,17 @@ scenarier: varje avfyrning ska nå kortet.
+ påstår sig pröva i en isolerad kopia, koppla bort den, och kontrollera att
+ scenariot blir RÖTT. Blir det grönt är kontraktet dekoration.
+ 
++**Rutnätet bestämmer var en vändning syns.** Generatorn lägger samplen på ett fast
++rutnät från ruttens start (s = k · fart · intervall) och vänder på första samplet
++efter `uTurnAtFraction`. Returens sampel hamnar därför på samma platser som
++utresans. `u-sväng-gles-ais-återkorsning-i-debouncen` (R1, rättningskampanjen
++2026-11-04) behöver en vändfix mer än 500 m norr om Klaffbron och en
++bekräftelsefix söder om bron. Det ger 7 kn och 240 s: vändfixen hamnar 592 m norr
++om bron och bekräftelsen 273 m söder om den. Scenariot dömer med
++`minPassagesPerBridge`, som räknar mål- och mellanbropassager tillsammans, eftersom
++returen bokförs som mållös mellanbropassage. Mot `7699cbe` fälls det med
++"bokförda passager av Klaffbron 1 < förväntade 2".
++
+ ## Täckningskartan — diagnosverktyg, INTE en gate
+ 
+ `tests/replay-validation/coverageMap.js` (etapp 6) svarar på frågan **var längs
+-- 
+2.43.0
+

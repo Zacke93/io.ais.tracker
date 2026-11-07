@@ -1,0 +1,165 @@
+{
+ "cards": [
+  {
+   "id": "F01",
+   "title": "Öppningsvarning med för kort ledtid före sann passage (T2 LEDTID<60s, Stridsbergsbron söderut)",
+   "verdict": "trolig-bugg",
+   "reproduced": true,
+   "evidence": "hunt:repro: KVAR. Direkt replay är byte-identisk med repro.result.json. Loggen: PELLE absorberas i Stridsbergsbron#1 16:06:55 (d=2461 m, egen deadline om 298 s). Täckningen rebaseras vid TROLLAs registrerade passage till 16:20:48.093 (+600 s). OPENING_RECOVER 16:20:48 (d=195 m) seedar Stridsbergsbron#3, som avfyras direkt på förfallen deadline. L0: TROLLA korsar 16:10:31 och PELLE 16:21:35, alltså +664 s > CONVOY_WINDOW_MS. Hon är därmed nästa öppning enligt U2 (etapp7-plan:9, ARCHITECTURE §9). Ledtiden blir 47 s, under runOpeningGates fatala LEDTIDSGOLV på 60 s. Samma mekanism i regenererad värld 1367 (F-TRANSIT, R0, 58 s).",
+   "note": "Rotorsak: _releaseStrandedArms släpper en absorberad arm först vid täckningsslut (registrerad första passage + 600 s) och avfyrar då direkt utan ledtidsgolv. K14-rebasen släpper aldrig i samma anrop. C-IV-konflikten gäller båtar i samma öppning, och U9-ventilens 2-tickgolv gäller bara coveredBeyondWindow (avstängd). Inget ägarbeslut täcker en sen varning för nästa öppning. Samma familj som F03/F12/F16. ARCHITECTURE:1461 (H29/H30, KRAV PÅ ETT NYTT FÖRSÖK) listar de grindar som saknas. En rättning flyttar konvojfacit och kräver O1/O2-mätning."
+  },
+  {
+   "id": "F02",
+   "title": "Sann målbropassage utan öppningsvarning (T2 OKLASSAD, Stridsbergsbron)",
+   "verdict": "trolig-bugg",
+   "reproduced": true,
+   "evidence": "KVAR, replay byte-identisk. VEGA korsar Stridsbergsbron 11:28:42 under ett ctrl-avbrott på 882 s. Appen bokför passagen först 11:38:05, och _recordPassage sätter firstPassageAt = referenceArrivalMs = registreringstiden. HAVSORN beväpnas 11:38:31 (790 m, deadline −67 s) och absorberas i #1 ('konvoj, täckt t.o.m. 11:48:05'). Hon korsar 11:42:23, alltså 821 s efter VEGAs sanna korsning, utan egen varning. Med den gamla prognosreferensen (11:28:05) hade |Δ| = 859 s > 600 s gett en egen händelse med cirka 230 s ledtid.",
+   "note": "Bryter mot K14:s egen doktrin i BridgeOpeningService ('täckningen ankras i den VERKLIGA passagen', 'aldrig förlänga'), eftersom referensen flyttas 9,4 min framåt efter glappet. Ingen dokumentation täcker det. Möjlig rättning: använd den interpolerade korsningstiden för glappassager. Klustret (36 världar) är heterogent."
+  },
+  {
+   "id": "F03",
+   "title": "Öppningsvarning efter sann passage (T3, Stridsbergsbron söderut)",
+   "verdict": "trolig-bugg",
+   "reproduced": true,
+   "evidence": "KVAR (REPLAY_MONITORING=1), replay byte-identisk. ELSA MARIA absorberas i #1 13:16:55. Täckningen rebaseras till RUNAs registrerade passage 13:18:23 + 600 s = 13:28:23.079. Hennes senaste fix 13:27:55 ligger 21 m före linjen i 7 kn. L0-korsningen sker 13:28:00, +586 s efter RUNA, alltså samma öppning enligt U2. OPENING_RECOVER 13:28:23 (d=23 m) avfyrar #3 22–23 s EFTER korsningen. Passagen bokförs först vid fixen 13:28:25.",
+   "note": "Både en andrapåminnelse för samma öppning (U2: inga andrapåminnelser) och en varning efter passagen. Grunden är samma tidsstyrda RECOVER-släpp som i F01. Etapp 7 mätte RECOVER-vägens 15 dubbletter och 20 fantomer (etapp7-plan:380), men det var en mätning, inget ägarbeslut. En smal vakt (kräv en fix efter täckningsslut eller extrapolera förbi bron) behåller räddningarna. O2b skulle felaktigt kalla varningen AVBRUTEN_APPROACH."
+  },
+  {
+   "id": "F04",
+   "title": "Fatal INV-3 ETA-SÅGTAND UPP (Stridsbergsbron)",
+   "verdict": "trolig-bugg",
+   "reproduced": true,
+   "evidence": "KVAR, replay byte-identisk. ALVA väntar 30 min 238 m före Järnvägsbron. Vid avgången 11:31:47 (sog 1,6) rensar ETA_GAP_RESET historiken (1218 s) och progressive_route ger 29,5 min. Det andra K6-passet ger 9,8 min men stoppas av ETA_OUTLIER (dramatic_decrease), blandas till 23,6 och EMA-glättas till 27,1. Texten går från 'strax' till 'om 27 minuter' 37 s efter BRISENs passage. ALVA korsar 11:34:52, 3 min senare. Serien 0,5→27→…→strax inom 120 s ger fatal INV-3.",
+   "note": "Känd men oåtgärdad klass: 'avgångs-ETA räknas på igångsättningsfart' (ARCHITECTURE:2230), plus K6-kraven för ETA-etappen (ARCHITECTURE §8 e). Inget ägarbeslut accepterar det. Nytt är att klassen ger en fatal invariant i en ren R0-värld. Åtgärden hör till ETA-etappen. Vill du skjuta upp den behövs en registerpost KÄND_ÖPPEN med källa §10."
+  },
+  {
+   "id": "F05",
+   "title": "Sann passage registrerades inte (T10, Klaffbron, krypfart 0,4 kn)",
+   "verdict": "motorartefakt",
+   "reproduced": true,
+   "evidence": "KVAR, men indata är ofysikaliska. radio.js räknar en båt som rörlig först vid |v| ≥ 0,25 m/s (0,486 kn). Under det sätts sog=0 och stillakadens. PELLE rapporteras därför med sog 0 i 23 min medan positionen flyttar 6 m per 30 s. Kontrafaktisk variant med fysisk sog (hunt-triage/variants/F05-sog.jsonl): appen bokför Klaffbronpassagen 07:59:54 (L0 08:00:20) och texterna blir rätt. Gränsens övre kant, 0,49 kn, är radions tröskel, inte appens MOVEMENT_PROOF_SOG_KN.",
+   "note": "Rätta radiomodellen (sog = |v| även under 0,25 m/s) eller begränsa F-KRYP till minst 0,5 kn, och krymp sedan om klustret. Klustret döljer troligen ett verkligt fynd: regenererad värld 750 (R1, GUNHILD) vänder ~240 m norr om Klaffbron. Reverseringen bekräftas först på fixen efter återkorsningen, och JOURNEY_RESET behåller Klaffbron i passedBridges, så den södergående återpassagen bokförs aldrig. Det bör triageras separat."
+  },
+  {
+   "id": "F06",
+   "title": "Fatal INV-3 ETA-OSCILLATION (Klaffbron norrut, inbromsning till 1,1 kn)",
+   "verdict": "trolig-bugg",
+   "reproduced": true,
+   "evidence": "KVAR, replay byte-identisk. XENIA bromsar från 4,5 till 1,1 kn ~340 m före Klaffbron. 11:58:30 (343 m): ETA 3,06 → 2,998 i K6-dubbelkörningens andra pass, alltså under 3 min, och texten blir 'strax' (IMMINENT_SKIP, inte 300 m-regeln). 11:59:00 (322 m): rå ETA 3,9, texten 'om 4 minuter'. 12:00:00 (288 m): Fix H:s imminent-regel inom 300 m ger 'strax' fram till passagen. 0,5→4→0,5 inom 90 s är fatal INV-3. Sann ankomst 12:08:21, alltså 8–10 min bort under hela fladdret.",
+   "note": "Fladdret kommer ur tre saker: 3-minuterströskeln saknar hysteres, K6-dubbelkörningen ger dubbel EMA-eftersläpning, och 300 m-regeln slår till. U1/U6 sanktionerar 'strax' inom 300 m, men inte växlingen. Gräns 0,3–1,1 kn och inget fall i banken, så låg prioritet med en realismreservation. Åtgärden hör till ETA-etappen (K6-kraven), inte till kirurgi."
+  },
+  {
+   "id": "F07",
+   "title": "Fatal INV-14 DEFAULT-FLASH (Klaffbron→Stridsbergsbron, 0,5 kn)",
+   "verdict": "trolig-bugg",
+   "reproduced": true,
+   "evidence": "KVAR, replay byte-identisk. WILMA passerar Klaffbron norrut i 0,5 kn (bokförd 17:16:00) och kvalificerar för målbron Stridsbergsbron eftersom farten är minst 0,5 kn. 2-READINGS kräver dock MIN_APPROACH_DISTANCE 10 m per fix, och hon gör 7,7 m per 30 s. Efter 60 s TARGET_GRACE loggas 'TARGET_CHANGE Stridsbergsbron → none (INSUFFICIENT_MOVEMENT)' 17:19:00. Texten blir 'Inga båtar' 17:19:30. Nästa fix kvalificerar igen och texten blir 'om 76 minuter' 17:20:00. Gräns 0,5–0,63 kn, där 10 m per 30 s motsvarar ≈ 0,65 kn.",
+   "note": "Två grindar säger emot varandra: fartgrinden 0,5 kn och det kadensberoende kravet 10 m per fix. I banken har 38 av 306 fixar i 0,45–0,7 kn högst 40 s kadens, så villkoret finns i fält. Ingen dokumenterad avvägning hittades för MIN_APPROACH_DISTANCE. Jämför K19/J10 om nakna tal mot tidsnormalisering."
+  },
+  {
+   "id": "F08",
+   "title": "Registrerad målbropassage utan sann korsning (T10 FANTOMPASSAGE, Stridsbergsbron)",
+   "verdict": "motorartefakt",
+   "reproduced": true,
+   "evidence": "KVAR i både R1 och R0, men passagen 10:52:48 är ingen fantom. Den är en sen registrering av den verkliga korsningen 10:44:55, och T10-fönstret (tredje fixen före registreringen − 120 s) börjar först 10:45:06/10:46:15. Förseningen orsakas av radiomodellen: RUNA kryper i 0,4 kn och rapporteras med sog=0 och ~200 s stillakadens. Med fysisk sog (hunt-triage/variants/F08-sog.jsonl) bokförs Stridsbergspassagen 10:47:06, på första fixen 17 m bortom linjen.",
+   "note": "Två motorfel. Radions rörelsetröskel är samma som i F05. T10-FANTOMPASSAGE måste skilja sen registrering från fantom, till exempel genom att godta en L0-korsning sedan föregående passage eller beväpning. Ingen appåtgärd behövs."
+  },
+  {
+   "id": "F09",
+   "title": "Fatal INV-3 SÅGTAND UPP i fasvarianten (20260708-21h, δ −11,52 s, Klaffbron)",
+   "verdict": "trolig-bugg",
+   "reproduced": true,
+   "evidence": "hunt:repro: KVAR. bas.jsonl är byte-identisk med den låsta korpusen. Basen: 07:11:00 'cirka 13' → 07:11:30 '18' (Δ5, under INV-3:s Δ≥6, och raden finns i golden-text/20260708-21h.json). Varianten: 'cirka 13' → '19' (Δ6), alltså fatal. Mekanism vid watchdog-ticken: JAATTEN IIs AIS blir 606 s gammal, ETA_STALE_HARD rensar hennes extrapolerade ETA, och gruppen tar AVALONs 17,7 min. Det värdet hålls uppe av ETA_PUBLISH_CLAMP (färsk 13,4/11,9 mot en burst-bas på 30,3 efter 5 min glapp). Facit: AVALON passerar Klaffbron ~07:16 (inferred) och JAATTEN II 07:18:16, så sann ETA är 5–7 min.",
+   "note": "Fasen skapar inte felet. Samma hopp finns i låst golden, och fasen avgör bara om heltalströskeln slår till. ETA-felet är den dokumenterade öppna klämkedjeklassen (ARCHITECTURE:1593 J10, K6-kraven), inte ett beslut. Antingen tas det i ETA-etappen, eller så bokförs knivseggen enligt VALIDATION:230 (K20 p. 6) i korpusens not och i phase-sweep-exceptions.json."
+  },
+  {
+   "id": "F10",
+   "title": "Tappad mellanbropassage i fasvarianten (20260917-16h, δ −2,5/−7 s, Järnvägsbron)",
+   "verdict": "trolig-bugg",
+   "reproduced": true,
+   "evidence": "KVAR. Bas och state är byte-identiska med den låsta korpusen. Basen bokför SINE BRES Järnvägspassage 02:27:17, som lades i låst eventfacit 2026-10-05 (rå-GT: korsning 02:26:08–02:26:30). I varianten bokförs passagen aldrig. Loggarna: i basen kör watchdog-ticken UNDER_BRIDGE_CROSS_PROOF ('entry anchor moved to the near side') före AISHub-fixen 02:27:17, vilket ger traditional_close_passage. I varianten landar ticken så att FIX_U_FORCE_WAITING (26 m) körs i stället, och AISHub-fixen ger NO_PASSAGE (26→108 m).",
+   "note": "Passagedetektionen vid Järnvägsbron beror på tickens fas mot fixarna, och just den klassen skulle 2026-10-05-rättelsen stänga. phase-sweep-exceptions.json har 'inga aktiva undantag' sedan 2026-09-08. runPhaseSweep flyttar bara ankarraden och ser därför inte detta. Ska utredas enligt CLAUDE.md."
+  },
+  {
+   "id": "F11",
+   "title": "Ny öppningsvarning i fasvarianten (20260710-13h, δ −11,52/+15 s, Klaffbron norrut)",
+   "verdict": "trolig-bugg",
+   "reproduced": true,
+   "evidence": "KVAR. Basen är byte-identisk med den låsta korpusen. Diagnossonden hunt-triage/scripts/probe-bind.js ändrar inget beteende, bara loggar. VIRGOs arm är 'blocked by earlier bridge' (Olidebron) fram till hennes fix 05:44. PILOT 761s Klaffbron#2 avfyras 05:43:57,9 i varianten och 05:44:09,5 i basen. I varianten ligger halvminutsticken 05:44:00 mellan avfyrningen och VIRGOs fix. Då läggs #2 i hennes releasedFrom, och vid fixen 05:44:05,98 seedar hon egen händelse #3, som ger en extra varning 05:44:29. I basen finns ingen tick emellan och hon absorberas i #2. Båda passerar Klaffbron inom ~4 min, alltså samma öppning.",
+   "note": "Regeln 'en varning som gick medan båten hölls vid en tidigare bro täcker inte hennes senare ankomst' prövas vid varje utvärdering. Därför blir utfallet klockfasberoende, och varianten bryter U2. Fasgranskningen 2026-09-06 nämner instabilt medlemskap som en modellbegränsning, men det finns ingen undantagspost för 13h. Det är det bankfynd BUGGJAKT §14 förväntade."
+  },
+  {
+   "id": "F12",
+   "title": "Öppningsvarning på fruset fix (T3, Stridsbergsbron söderut)",
+   "verdict": "trolig-bugg",
+   "reproduced": true,
+   "evidence": "KVAR (R1; R0 reproducerar inte), replay byte-identisk. QUESTs (klass B) sista fix är 10:57:52, 1 400 m norr om bron, och sedan är hon tyst till 11:25:43. Armen absorberas i #4 (t.o.m. 11:08:06). OPENING_RECOVER 11:08:06 återabsorberar henne i samma utvärdering i GUNHILDs #5 (t.o.m. 11:17:32). Nästa RECOVER ger egen händelse #6 med förväntad ankomst 11:05:12, och varningen går 11:17:32 på en 20 min gammal fix. L0: QUEST korsar Stridsbergsbron 11:05:52, 11,7 min före varningen.",
+   "note": "Samma RECOVER-familj som F01/F03/F16. Släppet saknar färskhetskravet i ARCHITECTURE:1461 KRAV (2), att lastSeenAt ska vara nyare än firstPassageAt, och har ingen spärr mot ankomst i det förflutna. Återabsorptionen är den dokumenterade öppna J13+J33 (a), men den förklarar inte fantomen. Klass B-glappet på 28 min är fältrimligt."
+  },
+  {
+   "id": "F13",
+   "title": "Fatal INV-13 MÅLBRO SOM MELLANBRO (Stridsbergsbron)",
+   "verdict": "trolig-bugg",
+   "reproduced": true,
+   "evidence": "KVAR (R1), replay byte-identisk. JOLLY (klass B) har 9 min glapp 15:54:26→16:03:34 över bron, och glappvägen bokför målbropassagen 16:03:34 i passerad form. GPSJumpGate höll samtidigt en kandidat och loggar 16:16:49 'Confirmed passage of Stridsbergsbron after 795s stability'. Det ger INTERMEDIATE_PASSAGE_RECORDED (gate-confirmed) medan båten ligger stilla 125 m söder om bron. Följden är fatal INV-13, och 'precis passerat' öppnas igen 13 min efter den verkliga passagen.",
+   "note": "Samma korsning bokförs två gånger: av glappvägen och av GPS-grindens fördröjda bekräftelse. Kandidaten borde släppas när passagen redan är bokförd. Ingen dokumentation accepterar detta; jämför reliability-verdict P6 om grindens bekräftelseväg."
+  },
+  {
+   "id": "F14",
+   "title": "Notis i förvarningsform efter sann passage (T1, Olidebron)",
+   "verdict": "trolig-bugg",
+   "reproduced": true,
+   "evidence": "KVAR (R1), replay byte-identisk. SALTIS (klass B, AISHub) har 6,8 min glapp, tas bort och återföds 08:57:32, 115 m bortom Olidebron med cog 49,9°. Den kursen ligger utanför nordbandet 315–45° i cogDirection.js, och båten har inget ruttlås. BN2 (app.js:9890 _hasGapCrossedNotifiedBridge) kräver färdriktning och ger därför false. Notisen blir 'SALTIS närmar sig Olidebron, beräknad ankomst om 1 minut' med already_passed=false och riktning okänd. I samma tick låser SKIPPED_BRIDGES riktningen 'north' ur svepfönstret, men Olidebron-fallbacken dedupas ('already notified for this visit').",
+   "note": "Ett systerställe till BN2. Det är exakt den klass BN2 skulle stänga (rättelsen dedupas bort), nu för en återfödd båt med nordostlig kurs. 3,6 % av de nordgående bankfixarna vid Kanalinfarten–Olidebron har cog 46–134°. De restfall som helgranskningen listar (Kanalinfarten/NICOLINE, scenario A) täcker inte broarna."
+  },
+  {
+   "id": "F15",
+   "title": "Utebliven notis vid ett observerat besök (T1, Järnvägsbron)",
+   "verdict": "beslut-eller-design",
+   "reproduced": true,
+   "evidence": "KVAR (R1), replay byte-identisk. MASEN vänder 237 m före Järnvägsbron. Den enda fixen inom 300 m (10:06:16, 250 m) kommer efter vändningen, med cog 216° bort från bron. Appen loggar FLOW_TRIGGER_SKIP_PENDING_REVERSAL: Fix D:s färska pending-reversal motsäger tokenriktningen och bron ligger bakom fartyget på levande kurs, så ingen notis skickas.",
+   "note": "S10-vakten är användargodkänd (ARCHITECTURE:1928, FIXRUNDA 6 LIGHT: 'S10+S6 godkända'). T1 saknar undantag för fallet där zonens enda fixar visar en båt på väg bort efter vändning. Föreslå en registerpost (DESIGN, källa §9 S10) i stället för en appändring."
+  },
+  {
+   "id": "F16",
+   "title": "Fantomvarning utan avbrott i sanningen (T3, Klaffbron söderut)",
+   "verdict": "trolig-bugg",
+   "reproduced": true,
+   "evidence": "KVAR (R1, REPLAY_MONITORING=1), replay byte-identisk. ZELDA vänder 11:25:14 ~440 m norr om Klaffbron under avbrottet 11:17:16–11:28:41. Första fixen efter återanslutningen, 11:29:00, ligger 705 m norr om Klaffbron med cog 32,8° (norrut), så bron ligger bakom henne. Täckningen från Klaffbron#2 löper ut 11:32:33, och OPENING_RECOVER (d=699 m) ger en egen söderut-varning, Klaffbron#3. U-svängsavväpningen kommer först vid nästa fix 11:33:29. L0: ingen Klaffbronkorsning inom 120 min.",
+   "note": "Samma RECOVER-familj. Släppet görs för en arm vars senaste fix motsäger anflygningen, men ARCHITECTURE:1461 KRAV (1) säger att en tidsbaserad frisläppning ska avväpna, inte släppa, när bron ligger bakom. Fix D:s tvåfixsbekräftelse förklarar varför armen lever, men inte varför ett nytt kort avfyras."
+  },
+  {
+   "id": "F17",
+   "title": "Riktning som motsäger sanningen (T9, Olidebron/Kanalinfarten)",
+   "verdict": "trolig-bugg",
+   "reproduced": true,
+   "evidence": "KVAR (R1, monitoring), replay byte-identisk. IRMA har 43 min glapp, från 11:22:00 vid Olidebron norrut till 12:05:03 mellan Olidebron och Klaffbron med cog 193,5°. Hon U-svängde 11:48:18 inne i glappet. Som återfödd låser SKIPPED_BRIDGES_DIRECTION_LOCK riktningen 'north' ur svepfönstrets nettoförflyttning, trots den sydliga kursen. Sju sydgående fixar (s 1837→208 m) korrigerar aldrig låset, och Fix D är inte aktiv alls. Notiserna 'har precis passerat Olidebron' (12:11:57) och Kanalinfarten (12:17:41) bär därför riktning norrut, fast appen själv mäter nordprogress −1,09 m/s.",
+   "note": "Att ett låst ruttlås går före momentan COG är en dokumenterad avvägning (korpusnoten 20260708-21h, S10). Avvägningen förutsätter dock att Fix D vänder låset; här omprövas ett svepinfererat lås aldrig mot levande kurs. Kräver en U-sväng inne i ett långt glapp, vilket är sällsynt men möjligt i fält."
+  },
+  {
+   "id": "F18",
+   "title": "Fatal INV-10 STRAX-ZOMBIE (Stridsbergsbron, lång kö)",
+   "verdict": "motorartefakt",
+   "reproduced": true,
+   "evidence": "KVAR (R1; försvinner vid +7 s), replay byte-identisk. JOLLY väntar 186 m norr om bron 08:19–09:20, och R1-fixarna ligger 10–30 min isär. 'strax' står 08:49:44–09:27:30 (38 min). confirmedTargetWaits = [08:49:44–08:59:44] och [08:59:57–09:27:04]. INV-10 kräver ETT väntintervall som täcker fram till nästa övergång. Här delas intervallen av ett fixglapp på 10 min 13 s, och det sista slutar 26 s före halvminutsticken 09:27:30 då 'ETA okänd' publiceras.",
+   "note": "Appen följer U6 (etapp7-plan:15: 'strax' vid lång väntan är sanktionerat) och INV-10:s egen regel om färsk bekräftad väntan utan tidsgräns. Utslaget beror på granulariteten i INV-10 och R1:s okalibrerade stillakadens för klass B. DEFAULT-flashen 08:45:00–08:49:44 i samma värld är U1/C11:s borttagning efter 25 min tystnad, samma klass som KIE-posten i 42h. Åtgärda med tolerans för angränsande intervall och tick-svans, inte i appen."
+  },
+  {
+   "id": "B01",
+   "title": "Konfliktexempel INV5-VS-BESÖKSREGEL (U-sväng 162 m söder om Klaffbron)",
+   "verdict": "beslut-eller-design",
+   "reproduced": true,
+   "evidence": "hunt:repro: KVAR. Replay (monitoring) är byte-identisk. WILMA passerar Klaffbron söderut 01:56:10, vänder och korsar norrut 01:59:54. Appen registrerar två målbropassager men skickar en notis, vilket fäller INV-5.",
+   "note": "Dokumenterad KONFLIKT: VALIDATION.md:296–300 (INV-5/7 kräver en notis per passage, 'även returpassagen') mot besöksregeln 2026-09-07 (TriggerPointVisitTracker.js:12–16). Ägaren behöver avgöra vilken doktrin som gäller."
+  },
+  {
+   "id": "B02",
+   "title": "Konfliktexempel U2-RETURRESA (U-sväng 881 m norr om Stridsbergsbron)",
+   "verdict": "beslut-eller-design",
+   "reproduced": true,
+   "evidence": "KVAR, replay byte-identisk. VEGA passerar Stridsbergsbron norrut 08:26:57 och vänder. 08:32:35 absorberas hon i sin egen äldre händelse #3. Hon korsar söderut 08:35:55 (+538 s) utan egen varning.",
+   "note": "Dokumenterad KONFLIKT: invariants.js:866–871 (INV-21 säger att returen är en äkta ny öppning) mot U2 med konvojfönstret 600 s (etapp7-plan:9). Ägaren behöver avgöra."
+  }
+ ],
+ "summary": "Jag har triagerat alla 18 kandidatkort (F01–F18) och de två konfliktexemplen (B01, B02). Alla 20 reproducerar: hunt:repro ger KVAR, och direktkörning av varje repro.jsonl ger samma resultat som sparad repro.result.json byte för byte (utom heapUsedMB). Bankkorten körde jag som bas och variant; baserna är identiska med de låsta korpusarna.\n\nUtfall: 14 trolig-bugg, 3 beslut-eller-design (F15, B01, B02), 3 motorartefakt (F05, F08, F18) och 0 oklart.\n\n**De viktigaste appfynden**\n- **RECOVER-vägen ger fyra av korten.** `_releaseStrandedArms` släpper absorberade armar på ren tid (registrerad första passage + CONVOY_WINDOW_MS) och avfyrar direkt på förfallen deadline. Det ger:\n  - för kort ledtid för nästa öppning (F01: 47 s, och värld 1367: 58 s);\n  - varning efter en verklig men ännu obevittnad passage (F03);\n  - varning på en 20 min gammal fix (F12);\n  - varning för en båt vars senaste fix visar omvänd kurs (F16).\n\n  ARCHITECTURE:1461 (\"KRAV PÅ ETT NYTT FÖRSÖK\") listar exakt de grindar som saknas.\n- **Glappregistrering flyttar konvojfönstret (F02).** Händelsens referens är passagens registreringstid, så efter ett AIS-avbrott sväljs nästa öppning utan varning.\n- **Fasberoende i låsta korpusar som `runPhaseSweep` inte ser** (inga aktiva undantag finns):\n  - F10 (16h): en tappad mellanbropassage;\n  - F11 (13h): en extra varning som bryter U2;\n  - F09 (21h): en INV-3-knivsegg ovanpå den dokumenterade öppna klämkedjeklassen J10/K6. Samma hopp finns redan i låst golden.\n- **Övriga:**\n  - F13: GPS-grindens fördröjda bekräftelse dubbelbokför en passage;\n  - F14: BN2-lucka för återfödd båt med nordostlig kurs;\n  - F17: ett riktningslås ur svepfönstret omprövas aldrig mot levande kurs;\n  - F07: kadensberoende INSUFFICIENT_MOVEMENT ger DEFAULT-flash;\n  - F04 och F06: ETA-kedjan. F04 är den kända latenta klassen i ARCHITECTURE:2230.\n\n**Motorfel att rätta före nästa körning**\n- **Radiomodellen:** `radio.js` räknar en båt som stilla under |v| < 0,25 m/s. Det ger sog=0 och stillakadens för krypfart under 0,486 kn (F05, F08). F-KRYP drar 0,4–1,5 kn, så en del av familjen blir ofysikalisk. Kontrafaktiska körningar med fysisk sog registrerar passagerna rätt.\n- **T10 FANTOMPASSAGE:** fönstret kallar en sen men verklig registrering för fantom (F08).\n- **INV-10:** väntintervallen delas av fixglapp och en tick-svans, och R1:s stillakadens för klass B är okalibrerad (F18).\n- **Registret och T2-oraklet tillämpar U2-RETURRESA och J13-J14 olika:**\n  - `uturnReturnAbsorbed` kräver en absorbed-rad plus medlemskap i `w.mmsis`;\n  - `nonMemberCrossingBetween` ser bara `w.mmsis`.\n\n  13 instanser i de två T2-kandidatklustren bär därför en orakelförklaring som registret avvisar.\n- **Heterogena kluster:** T10 PASSAGE-EJ-REGISTRERAD representeras av krypartefakten men innehåller värld 750 (R1). Där vänder en båt ~240 m norr om Klaffbron, JOURNEY_RESET behåller bron i passedBridges, och återkorsningen bokförs aldrig. Den bör triageras separat.\n\nJag har inte ändrat något i `/home/user/io.ais.tracker` (`git status` är tom) och inte rättat något. Skript, körningar, kontrafaktiska varianter, regenererade världar och diagnossonden ligger under `/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-triage/`."
+}

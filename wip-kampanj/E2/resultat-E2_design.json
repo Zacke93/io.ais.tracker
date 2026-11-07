@@ -1,0 +1,704 @@
+{
+ "family": "E2",
+ "summary": "ETA-etappen (U20) är byggd ovanpå familj E:s e949ae1. Status: delvis.\n\nK6:s tre krav gick in tillsammans:\n- en beräkning per AIS-fix: ett memo per fix, och ett anrop i ändrat läge räknas om från tillståndet före fixet;\n- glapp-reseten gör fixets värde på den gamla bufferten till baslinje, och fixets färska skattning prövas mot den med vikten 0,4;\n- outlierfönstret är kadensrelativt;\n- vikten 0,64 per fix kalibrerades sist.\n\nDessutom:\n- F06: inbromsningsregeln enligt M9-principen.\n- F07: spärrens baslinje sätts bara från en extrapolering som brotexten faktiskt visar.\n\nResultat:\n- Banden sanning < 5 och < 10 min är lika eller bättre i alla typer, både parat och oparat, mot e949ae1 och mot 7699cbe.\n- LINNEA, 41h-svängningarna, SISU och IDUN är oförändrade.\n- M9-priset (SKONNERTEN) försvinner.\n- F06 och F07 är BORTA i motorn. Övriga kort är KVAR, och quick ger inga nya kort.\n\nVarför delvis: 65 låsta rader blir sämre mot gt-passages (U13), och de räknas som designfel. Av de 64 radbedömda är 54 enminutsflyttar, och 30 har sanning ≥ 20 min. Bland dem finns två rader som uppdraget pekar ut:\n- PRIMA LADY 16:34:01 i 24h, en av E:s sex rader, går från \"om 3\" till \"om 4\" mot sanning 3,1 min;\n- SENTA:s öppning i 25h ger ELAIZA bara 99 s ledtid.\n\nDet mesta förklaras av att e949ae1:s notistoken och öppningsmotor läste pass 1:s värde mellan de två passen. Nu läser de slutvärdet.\n\nGolden-filerna är DEMO-omlåsta i worktreen. 20260917-7h kan inte låsas om (ofullständig fångst) och är den enda röda korpusen i replay:all.\n\nContaineromstart: worktreen hade inga ocommittade ändringar från tidigare försök, bara de otrackade node_modules och bugHunt.",
+ "fix": "**ProgressiveETACalculator.js**\n\nEn beräkning per fix:\n- `calculateProgressiveETA` minns fixet. Identiteten (`_fixIdentity`) är timestamp, sampelnyckel och målbro.\n- Läget (`_fixContext`) är status, väntebro, passerad bro, riktning, GPS-flaggor, koordinationsnivå, imminent och närmaste bro.\n- Samma fix i samma läge ger memovärdet (`[ETA_FIX_MEMO]`).\n- Samma fix i nytt läge räknas om från tillståndet före fixet (`_captureFixState`/`_restoreFixState`, `[ETA_FIX_RECOMPUTE]`).\n- Beräkningen är uppdelad i `_calculateOnce` och `_computeRawETA`.\n\nDel 1, glappet:\n- `_applyGapResetIfNeeded` behåller fixets eget fartsampel i bufferten.\n- I `_processETAWithProtection` blir fixets värde på den gamla bufferten baslinje.\n- Fixets färska skattning går sedan genom hela skyddskedjan med `GAP_BASELINE_ALPHA` 0,4 (`[ETA_GAP_BASELINE]`).\n\nDel 2, outliergrinden:\n- `_outlierWindowMs` = max(30 s, 1,5 × kadensen före fixet). Kadensen är ett glidande medel av intervall utan glapp och uppdateras efter prövningen. Okänd kadens ger 30 s.\n- `_isETAOutlier` mäter ett dramatiskt fall mot (förra − förfluten tid).\n- Två fix i följd bekräftar ett fall: historiken bär `measuredETA` och `heldDecrease`, och resultatet blir `confirmed_decrease`.\n\nDel 3: `EMA_ALPHA_PER_FIX` = 0,64.\n\nF06:\n- `_getEffectiveSpeed` bokför kvoten medelfart/momentanfart under en inbromsning (`_decelRatio`).\n- ETA:n hålls på 3,0 (`[ETA_DECEL_M9]`) när medelfarten ensam lovar strax, momentanfarten ger ≥ 3 min, båten inte är imminent och förra värdet var ≥ 3. Regeln gäller alltså bara ett nytt inträde i strax.\n\nStädning: `_fixMemo`, `_fixCadence` och `_decelRatio` töms i `clearVesselETAHistory`, `_cleanupOldETAHistory` och `destroy`.\n\n**app.js**\n- Ny `_leadsEtaGroup` med samma urval som brotexten.\n- Fix G registrerar en extrapolerad ETA som `_etaPublishedValue` bara när båten leder sin målbros grupp. Annars loggas `[ETA_EXTRAPOLATION_UNSEEN]`.",
+ "functionsTouched": [
+  "ProgressiveETACalculator.calculateProgressiveETA (minne per fix)",
+  "ProgressiveETACalculator._calculateOnce (ny)",
+  "ProgressiveETACalculator._computeRawETA (ny)",
+  "ProgressiveETACalculator._fixIdentity (ny)",
+  "ProgressiveETACalculator._fixContext (ny)",
+  "ProgressiveETACalculator._captureFixState (ny)",
+  "ProgressiveETACalculator._restoreFixState (ny)",
+  "ProgressiveETACalculator._applyGapResetIfNeeded",
+  "ProgressiveETACalculator._processETAWithProtection (glappsteg, kadens, EMA-vikt, measuredETA/heldDecrease, F06-regel)",
+  "ProgressiveETACalculator._isETAOutlier (fall mot förväntat nu, bekräftelse av fall)",
+  "ProgressiveETACalculator._outlierWindowMs (ny)",
+  "ProgressiveETACalculator._getEffectiveSpeed (_decelRatio)",
+  "ProgressiveETACalculator.constructor (EMA_ALPHA_PER_FIX, _fixMemo, _fixCadence, _decelRatio)",
+  "ProgressiveETACalculator.clearVesselETAHistory",
+  "ProgressiveETACalculator._cleanupOldETAHistory",
+  "ProgressiveETACalculator.destroy",
+  "app.js AISBridgeApp._leadsEtaGroup (ny)",
+  "app.js snapshot-vägens Fix G-extrapolering (registrering av _etaPublishedValue)"
+ ],
+ "tests": "**Ny testfil:** `tests/e2-eta-etapp-2026-11-04.test.js` med 17 tester:\n- K6-memot (2);\n- del 1: LINNEA-bufferten och glappets färska skattning (2);\n- del 2: 150 s kadens, 30 s kadens, golvet 30 s, fall mot förväntat nu (NORDIC SAGA), bekräftelse av fall (MOKENDEIST) och BARAVI (6);\n- F06: håll på 3, imminent, väntklämman, värld 192 och värld 286 (5);\n- F07: `_leadsEtaGroup` samt 21h-varianten mot basen (2).\n\n**Fixturer:**\n- `tests/fixtures/e2-f06-xenia-inbromsning-varld192.jsonl`\n- `tests/fixtures/e2-f06-runa-usvang-varld286.jsonl`\n- `tests/fixtures/e2-f07-avalon-21h-bas.jsonl`\n- `tests/fixtures/e2-f07-avalon-21h-variant.jsonl`\n\n**Mot gammal kod:** 12 av 17 röda på e949ae1 och 12 av 17 på 7699cbe. De fem gröna är vakter som ska hålla även där: golvet, BARAVI, imminent, väntklämman och värld 286.\n\n**Justerade tester:**\n- `tests/helkodsgranskning-2026-07.test.js` E-F1: bufferten är `[0.2]`.\n- `tests/m8-gps-outlier-bounded.test.js`: rå-ETA 25, eftersom kadensfönstret äger dramatic_* vid 150 s.",
+ "battery": "- **npm test:** 4 815 gröna, 2 skippade och 1 röd. Den röda är bugHunt/__tests__/b-register, som saknar docs/BUGGJAKT.md i worktreen och fallerar likadant på e949ae1.\n- **replay:all:** efter DEMO-omlåsningen är alla låsta korpusar OK utom 20260917-7h (GOLDEN-TEXT 68 ≠ 69). Korpusen har ofullständig fångst, och relockGoldenText vägrar. Raden är SUSANNE 14:58:43, \"om 15\" → \"om 14\" mot sanning 74 min.\n- **replay:synthetic:** grönt.\n- **replay:openings:** O1/O2/O3 gröna. Nytt mot e949ae1 är TUNN LEDTID i 25h, där ELAIZA varnas 99 s före (25h:s minsta ledtid 8,5 → 1,7 min). Antalet tunna går 7 → 8.\n- **replay:monitoring:** grönt, 72 h stabil.\n- **Fassvep, bart:** OK i 24 korpusar (168 replays).\n- **Fassvep med REPLAY_MONITORING=1** på 25h, 17h, 21h, 42h, 7h och 41h: OK.\n- **lint:** grönt.",
+ "etaMeasurement": "measure:eta på 24 låsta korpusar, med parning per korpus, typ, bro och mmsi inom 2 s. Siffrorna är median, andel ≤ 2 min och bias.\n\n**Parat, e949ae1 → E2:**\n\n| Band | Typ | n | Median | ≤ 2 min | Bias |\n|---|---|---|---|---|---|\n| < 5 min | alla | 776 | 0,46 → 0,45 | 89,6 → 90,5 % | +0,49 → +0,44 |\n| < 5 min | brotext | 244 | 0,87 → 0,87 | 82,4 → 82,4 % | +0,92 → +0,91 |\n| < 5 min | notis | 500 | 0,37 → 0,34 | 94,0 → 94,6 % | +0,26 → +0,21 |\n| < 5 min | kort | 32 | 0,98 → 0,98 | 75,0 → 87,5 % | +0,80 → +0,52 |\n| < 10 min | alla | 1 278 | 0,71 → 0,67 | 81,5 → 82,1 % | +0,17 → +0,13 |\n| < 10 min | brotext | 647 | 1,01 → 1,01 | 75,4 → 75,6 % | +0,27 → +0,26 |\n| < 10 min | notis | 526 | 0,39 → 0,38 | 90,5 → 90,9 % | +0,06 → +0,02 |\n| < 10 min | kort | 105 | 1,03 → 1,02 | 73,3 → 78,1 % | +0,13 → −0,15 |\n\n**Oparat:**\n- < 5 min: n 8 → 13, från 0,42 / 100 % / +0,49 till 0,46 / 92,3 % / −0,05.\n- < 10 min: n 17 → 23, från 0,66 / 94,1 % / −0,04 till 0,84 / 91,3 % / −0,45.\n\n**Mot 7699cbe, parat:**\n- < 5 min, alla: median 0,47 → 0,45, 88,8 → 90,5 %, bias +0,51 → +0,44.\n- < 10 min, alla: median 0,71 → 0,67, 81,0 → 82,1 %, bias +0,19 → +0,13.\n\n**Övrigt:**\n- 109 påståenden ändras: 62 bättre och 46 sämre. I bandet < 10 min ändras 77: 54 bättre och 22 sämre.\n- Textövergångarna går 2 544 → 2 552.\n- Strax-löftet går från n 208 till n 207, och andelen inom 3 min från 62,98 % till 64,25 %.\n\n**Namngivna fall:**\n- LINNEA 265764760 är oförändrad. Det rena memot gav 4 → 8 → 14.\n- 41h-svängningarna 8→14 och 8→14→9 är oförändrade, och de blev inte 10→16.\n- SISU (21h \"om 10\") och IDUN (25h \"om 13\") är oförändrade.\n- Familj E:s sex rader: fem är oförändrade. PRIMA LADY 16:34:01 går \"om 3\" → \"om 4\" mot sanning 3,1 min.\n- M9-priset försvinner: SKONNERTENs notis 07:30:52 går 3 → 2 mot sanning 1,4 min.",
+ "facitChanges": [
+  {
+   "corpus": "20260525",
+   "dimension": "brotext",
+   "change": "15:32:26 Stridsbergsbron ORANESS: om 4 min → om 3 min",
+   "evidence": "gt-passages: korsning 15:35:07 (+2,7 min); fel +1,3 → +0,3 min",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "20260601-41h",
+   "dimension": "brotext",
+   "change": "13:38:38 Klaffbron AQUILA: om 15 min → om 12 min",
+   "evidence": "gt-passages: korsning 13:54:34 (+15,9 min); fel -0,9 → -3,9 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260601-41h",
+   "dimension": "brotext",
+   "change": "11:33:31 Stridsbergsbron NOCHT: om 5 min → om 4 min",
+   "evidence": "gt-passages: korsning 12:02:54 (+29,4 min); fel -24,4 → -25,4 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260601-41h",
+   "dimension": "notis (olåst, mätt)",
+   "change": "07:30:52 Stridsbergsbron SKONNERTEN JYLLAND (M9-priset): eta 3 → 2",
+   "evidence": "gt-passages: korsning +1,4 min (line); fel +1,6 → +0,6 min; 7699cbe hade 2",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "20260610-19h",
+   "dimension": "brotext",
+   "change": "06:17:48 Klaffbron NORDIC SOLA: strax → om 3 min",
+   "evidence": "gt-passages: korsning 06:20:38 (+2,8 min); fel +0,0 → +0,2 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260610-19h",
+   "dimension": "brotext",
+   "change": "08:12:00 Klaffbron CATHARINA (två båtar): strax → om 3 min",
+   "evidence": "gt-passages: korsning 08:14:21 (+2,4 min); fel +0,0 → +0,6 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260610-19h",
+   "dimension": "brotext",
+   "change": "10:45:07 Klaffbron LILLI: om 20 min → om 19 min",
+   "evidence": "gt-passages: korsning 11:20:01 (+34,9 min); fel -14,9 → -15,9 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260610-19h",
+   "dimension": "brotext",
+   "change": "16:31:17 Klaffbron WILHELM THAM (två båtar): om 5 min → om 4 min",
+   "evidence": "gt-passages: korsning 16:35:49 (+4,5 min); fel +0,5 → -0,5 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260702-11h",
+   "dimension": "brotext",
+   "change": "08:33:00 Stridsbergsbron MOSHE: strax → om cirka 2 min",
+   "evidence": "gt-passages: korsning 08:45:08 (+12,1 min, inferred); fel -9,1 → -10,1 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260702-2h",
+   "dimension": "brotext",
+   "change": "13:00:16 Stridsbergsbron YEMANJA II: om 4 min → om 3 min",
+   "evidence": "gt-passages: korsning 13:35:13 (+34,9 min); fel -30,9 → -31,9 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260707-14h",
+   "dimension": "brotext",
+   "change": "08:15:30 Klaffbron AKIRA (flera båtar): om 6 min → om 5 min",
+   "evidence": "gt-passages: korsning 08:26:11 (+10,7 min, inferred); fel -4,7 → -5,7 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260707-14h",
+   "dimension": "brotext",
+   "change": "08:18:00 Klaffbron AKIRA (flera båtar): om 6 min → om 5 min",
+   "evidence": "gt-passages: korsning 08:26:11 (+8,2 min, inferred); fel -2,2 → -3,2 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260708-21h",
+   "dimension": "notis",
+   "change": "06:19:56 Stridsbergsbron JUNO: eta 2 → eta 3",
+   "evidence": "gt-passages: korsning 06:22:18 (+2,4 min); fel -0,4 → +0,6 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260708-21h",
+   "dimension": "notis",
+   "change": "09:48:44 Stridsbergsbron SOLANDE: eta 2 → eta 3",
+   "evidence": "gt-passages: korsning 09:51:33 (+2,8 min, inferred); fel -0,8 → +0,2 min",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "20260710-13h",
+   "dimension": "brotext",
+   "change": "12:43:06 Stridsbergsbron ELFKUNGEN: strax → om 3 min",
+   "evidence": "gt-passages: korsning 12:45:46 (+2,7 min, inferred); fel +0,0 → +0,3 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260711-16h",
+   "dimension": "öppningskort",
+   "change": "09:19:07 Stridsbergsbron: etaMin 3 (fix) → etaMin 2 (fix)",
+   "evidence": "gt-passages: korsning 09:21:14 (+2,1 min); fel +0,9 → -0,1 min",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "20260711-16h",
+   "dimension": "notis",
+   "change": "09:20:08 Stridsbergsbron MINANDRA: eta 2 → eta 1",
+   "evidence": "gt-passages: korsning 09:21:14 (+1,1 min); fel +0,9 → -0,1 min",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "20260712-25h",
+   "dimension": "brotext",
+   "change": "07:42:16 Klaffbron MALUCA (två båtar): strax → om 3 min",
+   "evidence": "gt-passages: korsning 07:45:06 (+2,8 min); fel +0,0 → +0,2 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260712-25h",
+   "dimension": "öppningskort",
+   "change": "Stridsbergsbron SENTA/ELAIZA: #34 15:20:11 etaMin 5 (deadline) → #36 15:27:01 etaMin -1 (deadline, RECOVER)",
+   "evidence": "SENTA absorberas av #33 (täckt till och med 15:27:01.958) eftersom beväpningen 15:15:18 nu läser slutvärdet 11,27 min i stället för e949ae1:s pass 1-värde 11,96 (gräns 11,73). #36 kommer 0,9 min EFTER ELAIZAs korsning 15:26:06 (gt-passages, line); SENTA korsar +0,6 min. TUNN LEDTID 99 s i replay:openings. Kvarstår även med familj K:s patch.",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260713-41h",
+   "dimension": "brotext",
+   "change": "06:53:53 Stridsbergsbron FRAM: om 26 min → om 24 min",
+   "evidence": "gt-passages: korsning 07:31:26 (+37,5 min); fel -11,5 → -13,5 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260713-41h",
+   "dimension": "brotext",
+   "change": "07:17:30 Klaffbron ARVIKA: om cirka 5 min → om cirka 3 min",
+   "evidence": "gt-passages: korsning 07:21:20 (+3,8 min); fel +1,2 → -0,8 min",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "20260713-41h",
+   "dimension": "brotext",
+   "change": "12:02:43 Klaffbron SILVERTASS: om 4 min → om 3 min",
+   "evidence": "gt-passages: korsning dagen efter (+1143,0 min, inferred); fel -1139,0 → -1140,0 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260804-17h",
+   "dimension": "brotext",
+   "change": "07:28:07 Stridsbergsbron CARMEN VAXHOLM: om 21 min → om 17 min",
+   "evidence": "gt-passages: korsning 07:54:52 (+26,8 min); fel -5,8 → -9,8 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260804-17h",
+   "dimension": "brotext",
+   "change": "07:30:33 Stridsbergsbron CARMEN VAXHOLM: om 21 min → om 17 min",
+   "evidence": "gt-passages: korsning 07:54:52 (+24,3 min); fel -3,3 → -7,3 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260804-17h",
+   "dimension": "brotext",
+   "change": "10:08:00 Stridsbergsbron CYGNUS: om 4 min → om 3 min",
+   "evidence": "gt-passages: korsning 10:29:30 (+21,5 min); fel -17,5 → -18,5 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260804-17h",
+   "dimension": "brotext",
+   "change": "10:11:30 Stridsbergsbron CYGNUS: om 4 min → om 3 min",
+   "evidence": "gt-passages: korsning 10:29:30 (+18,0 min); fel -14,0 → -15,0 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260804-17h",
+   "dimension": "brotext",
+   "change": "10:11:35 Stridsbergsbron CYGNUS: om 4 min → om 3 min",
+   "evidence": "gt-passages: korsning 10:29:30 (+17,9 min); fel -13,9 → -14,9 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260804-17h",
+   "dimension": "brotext",
+   "change": "15:55:31 Klaffbron JUNO: strax → om 3 min",
+   "evidence": "gt-passages: korsning 15:58:13 (+2,7 min); fel +0,0 → +0,3 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260804-both-21h",
+   "dimension": "öppningskort",
+   "change": "01:03:01 Stridsbergsbron: etaMin 5 (fix) → 4 (fix)",
+   "evidence": "gt-passages: korsning 03:19:38 (+136,6 min); fel -131,6 → -132,6 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260804-both-21h",
+   "dimension": "öppningskort",
+   "change": "07:04:53 Klaffbron: etaMin 9 (deadline) → 8",
+   "evidence": "gt-passages: korsning 07:14:12 (+9,3 min, inferred); fel -0,3 → -1,3 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260804-both-21h",
+   "dimension": "notis",
+   "change": "07:09:02 Klaffbron ANYA ELAN 380: eta 3 → eta 2",
+   "evidence": "gt-passages: korsning 07:14:12 (+5,2 min, inferred); fel -2,2 → -3,2 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260804-both-21h",
+   "dimension": "öppningskort",
+   "change": "07:44:29 Klaffbron: etaMin 7 (fix) → 6 (fix)",
+   "evidence": "gt-passages: korsning 07:51:07 (+6,6 min); fel +0,4 → -0,6 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260804-both-21h",
+   "dimension": "öppningskort",
+   "change": "08:49:43 Stridsbergsbron: etaMin 8 (deadline) → 7",
+   "evidence": "gt-passages: korsning 09:42:45 (+53,0 min); fel -45,0 → -46,0 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260804-both-21h",
+   "dimension": "öppningskort",
+   "change": "08:49:52 Klaffbron: etaMin 11 (deadline) → 10",
+   "evidence": "gt-passages: korsning 09:48:20 (+58,5 min, inferred); fel -47,5 → -48,5 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260804-both-21h",
+   "dimension": "notis",
+   "change": "09:14:49 Stridsbergsbron YOLO 2: eta 7 → eta 6",
+   "evidence": "gt-passages: korsning 09:44:37 (+29,8 min, inferred); fel -22,8 → -23,8 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260804-both-21h",
+   "dimension": "öppningskort",
+   "change": "10:08:40 Klaffbron: etaMin 7 (deadline) → 6",
+   "evidence": "gt-passages: korsning 10:15:12 (+6,5 min); fel +0,5 → -0,5 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260804-both-21h",
+   "dimension": "brotext",
+   "change": "11:22:19 Klaffbron S/Y THELMA: om 17 min → om 14 min",
+   "evidence": "gt-passages: korsning 11:46:37 (+24,3 min, inferred); fel -7,3 → -10,3 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260804-both-21h",
+   "dimension": "brotext",
+   "change": "11:23:14 Klaffbron S/Y THELMA: om 18 min → om 15 min",
+   "evidence": "gt-passages: korsning 11:46:37 (+23,4 min, inferred); fel -5,4 → -8,4 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260804-both-21h",
+   "dimension": "brotext",
+   "change": "11:23:25 Klaffbron S/Y THELMA: om 18 min → om 15 min",
+   "evidence": "gt-passages: korsning 11:46:37 (+23,2 min, inferred); fel -5,2 → -8,2 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260804-both-21h",
+   "dimension": "brotext",
+   "change": "11:24:32 Klaffbron S/Y THELMA: om 16 min → om 15 min",
+   "evidence": "gt-passages: korsning 11:46:37 (+22,1 min, inferred); fel -6,1 → -7,1 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260804-both-21h",
+   "dimension": "öppningskort",
+   "change": "11:25:37 Klaffbron: etaMin 15 (deadline) → 13",
+   "evidence": "gt-passages: korsning 11:46:37 (+21,0 min, inferred); fel -6,0 → -8,0 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260804-both-21h",
+   "dimension": "brotext",
+   "change": "11:25:40 Klaffbron S/Y THELMA: om 13 min → om 12 min",
+   "evidence": "gt-passages: korsning 11:46:37 (+21,0 min, inferred); fel -8,0 → -9,0 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260804-both-21h",
+   "dimension": "brotext",
+   "change": "11:26:21 Klaffbron S/Y THELMA: om 13 min → om 12 min",
+   "evidence": "gt-passages: korsning 11:46:37 (+20,3 min, inferred); fel -7,3 → -8,3 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260804-both-21h",
+   "dimension": "brotext",
+   "change": "11:26:44 Klaffbron S/Y THELMA: om 10 min → om 9 min",
+   "evidence": "gt-passages: korsning 11:46:37 (+19,9 min, inferred); fel -9,9 → -10,9 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260804-both-21h",
+   "dimension": "brotext",
+   "change": "11:26:50 Klaffbron S/Y THELMA: om 10 min → om 9 min",
+   "evidence": "gt-passages: korsning 11:46:37 (+19,8 min, inferred); fel -9,8 → -10,8 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260804-both-21h",
+   "dimension": "notis",
+   "change": "11:30:11 Stridsbergsbron CAVAT: eta 3 → eta 2",
+   "evidence": "gt-passages: korsning 12:15:45 (+45,6 min); fel -42,6 → -43,6 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260804-both-21h",
+   "dimension": "öppningskort",
+   "change": "12:03:26 Klaffbron: etaMin 7 (deadline) → 6",
+   "evidence": "gt-passages: korsning 12:10:24 (+7,0 min); fel +0,0 → -1,0 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260804-both-21h",
+   "dimension": "notis",
+   "change": "12:08:36 Klaffbron BLADE: eta 3 → eta 2",
+   "evidence": "gt-passages: korsning 12:10:24 (+1,8 min); fel +1,2 → +0,2 min",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "20260804-both-21h",
+   "dimension": "öppningskort",
+   "change": "12:14:12 Stridsbergsbron: etaMin 7 (deadline) → 6",
+   "evidence": "gt-passages: korsning 12:18:17 (+4,1 min); fel +2,9 → +1,9 min",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "20260804-both-21h",
+   "dimension": "öppningskort",
+   "change": "14:07:41 Stridsbergsbron: etaMin 7 (deadline) → 6",
+   "evidence": "gt-passages: korsning 14:30:30 (+22,8 min); fel -15,8 → -16,8 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260806-42h",
+   "dimension": "öppningskort",
+   "change": "Stridsbergsbron: 23:20:24 etaMin 5 (deadline) → 23:20:04 etaMin 5",
+   "evidence": "gt-passages: korsning 23:24:58 (+4,9 min); fel +0,4 → +0,1 min",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "20260806-42h",
+   "dimension": "öppningskort",
+   "change": "Stridsbergsbron: 01:10:34 etaMin 5 (deadline) → 01:10:16 etaMin 5",
+   "evidence": "gt-passages: korsning 01:15:10 (+4,9 min); fel +0,4 → +0,1 min",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "20260806-42h",
+   "dimension": "öppningskort",
+   "change": "10:05:44 Stridsbergsbron: etaMin 8 (deadline) → 7",
+   "evidence": "gt-passages: korsning 10:28:01 (+22,3 min); fel -14,3 → -15,3 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260806-42h",
+   "dimension": "brotext",
+   "change": "10:41:25 Klaffbron S/V REBEL: om 4 min → om 3 min",
+   "evidence": "gt-passages: korsning dagen efter (+1325,0 min); fel -1321,0 → -1322,0 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260806-42h",
+   "dimension": "öppningskort",
+   "change": "11:52:47 Stridsbergsbron: etaMin 6 (deadline) → 5",
+   "evidence": "gt-passages: korsning 11:58:33 (+5,8 min); fel +0,2 → -0,8 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260806-42h",
+   "dimension": "brotext",
+   "change": "16:24:21 Stridsbergsbron ANDREA: om 13 min → om 12 min",
+   "evidence": "gt-passages: korsning 18:36:13 (+131,9 min); fel -118,9 → -119,9 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260806-42h",
+   "dimension": "notis",
+   "change": "18:58:04 Klaffbron ANDREA: eta 4 → eta 3",
+   "evidence": "gt-passages: korsning 19:00:10 (+2,1 min); fel +1,9 → +0,9 min",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "20260806-42h",
+   "dimension": "notis",
+   "change": "19:44:25 Klaffbron MONIKA: eta 4 → eta 3",
+   "evidence": "gt-passages: korsning 19:47:17 (+2,9 min); fel +1,1 → +0,1 min",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "20260806-42h",
+   "dimension": "öppningskort",
+   "change": "19:57:55 Stridsbergsbron: etaMin 6 (deadline) → 5",
+   "evidence": "gt-passages: korsning 20:01:08 (+3,2 min); fel +2,8 → +1,8 min",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "20260806-42h",
+   "dimension": "notis",
+   "change": "09:13:57 Stridsbergsbron AGULHAS: eta 3 → eta 2",
+   "evidence": "gt-passages: korsning 10:05:06 (+51,1 min, inferred); fel -48,1 → -49,1 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260806-42h",
+   "dimension": "notis",
+   "change": "09:17:18 Stridsbergsbron MOKENDEIST: eta 4 → eta 3",
+   "evidence": "gt-passages: korsning 11:43:11 (+145,9 min); fel -141,9 → -142,9 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260806-42h",
+   "dimension": "notis",
+   "change": "10:16:07 Klaffbron ELFKUNGEN: eta 3 → eta 2",
+   "evidence": "gt-passages: korsning 10:17:48 (+1,7 min); fel +1,3 → +0,3 min",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "20260806-42h",
+   "dimension": "brotext",
+   "change": "11:49:03 Klaffbron MISTRAL (flera båtar): om 13 min → om 12 min",
+   "evidence": "gt-passages: korsning 12:24:33 (+35,5 min); fel -22,5 → -23,5 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260806-42h",
+   "dimension": "brotext",
+   "change": "11:51:21 Klaffbron MISTRAL (flera båtar): om 12 min → om 10 min",
+   "evidence": "gt-passages: korsning 12:24:33 (+33,2 min); fel -21,2 → -23,2 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260806-42h",
+   "dimension": "brotext",
+   "change": "11:53:39 Klaffbron MISTRAL: om 12 min → om 10 min",
+   "evidence": "gt-passages: korsning 12:24:33 (+30,9 min); fel -18,9 → -20,9 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260806-42h",
+   "dimension": "notis",
+   "change": "12:22:47 Klaffbron MISTRAL: eta 4 → eta 1",
+   "evidence": "gt-passages: korsning 12:24:33 (+1,8 min); fel +2,2 → -0,8 min",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "20260806-42h",
+   "dimension": "notis",
+   "change": "16:03:02 Stridsbergsbron FARUREJ: eta 3 → eta 2",
+   "evidence": "gt-passages: korsning 16:05:28 (+2,4 min); fel +0,6 → -0,4 min",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "20260823-24h",
+   "dimension": "brotext (familj E:s rad)",
+   "change": "16:34:01 Stridsbergsbron PRIMA LADY: om 3 min → om 4 min (E:s övriga fem rader oförändrade)",
+   "evidence": "gt-passages: korsning 16:37:07 (+3,1 min, line); fel -0,1 → +0,9 min. I väntefasen vid 0,3–0,7 kn verkar klämkedjan nu en gång med vikt 0,64 (platå cirka 7,0 → 5,8 → 4,7) i stället för pass 1 med vikt 0,4 följt av en hållning (6,4 → 5,3 → 4,1).",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260907-31h",
+   "dimension": "notis",
+   "change": "04:06:19 Klaffbron TROUBADOUR: eta 3 → eta 2",
+   "evidence": "gt-passages: korsning 04:08:16 (+1,9 min); fel +1,1 → +0,1 min",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "20260907-31h",
+   "dimension": "notis",
+   "change": "13:25:14 Stridsbergsbron ELFKUNGEN: eta 3 → eta 2",
+   "evidence": "gt-passages: korsning 13:28:16 (+3,0 min); fel -0,0 → -1,0 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260907-31h",
+   "dimension": "öppningskort",
+   "change": "Stridsbergsbron: 15:13:13 etaMin 5 (deadline) → 15:12:51 etaMin 5",
+   "evidence": "gt-passages: korsning 15:19:00 (+6,2 min); fel -0,8 → -1,2 min (22 s längre ledtid)",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260907-31h",
+   "dimension": "brotext",
+   "change": "18:35:19 Stridsbergsbron OLA: om 4 min → om 3 min",
+   "evidence": "gt-passages: korsning 18:51:24 (+16,1 min); fel -12,1 → -13,1 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260909-80h",
+   "dimension": "notis",
+   "change": "15:35:40 Klaffbron TINY: eta 2 → eta 1",
+   "evidence": "gt-passages: korsning 15:40:01 (+4,3 min); fel -2,3 → -3,3 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260909-80h",
+   "dimension": "notis",
+   "change": "16:11:36 Klaffbron ELFKUNGEN: eta 3 → eta 2",
+   "evidence": "gt-passages: korsning 16:12:21 (+0,8 min); fel +2,2 → +1,2 min",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "20260909-80h",
+   "dimension": "öppningskort",
+   "change": "16:34:09 Stridsbergsbron: etaMin 6 (fix) → 5 (fix)",
+   "evidence": "gt-passages: korsning 16:36:21 (+2,2 min); fel +3,8 → +2,8 min",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "20260909-80h",
+   "dimension": "öppningskort",
+   "change": "Stridsbergsbron: 18:00:58 etaMin 5 (deadline) → 18:00:35 etaMin 5",
+   "evidence": "gt-passages: korsning 18:07:43 (+7,1 min); fel -1,8 → -2,1 min (23 s längre ledtid)",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260909-80h",
+   "dimension": "notis",
+   "change": "18:04:58 Stridsbergsbron ELFKUNGEN: eta 2 → eta 1",
+   "evidence": "gt-passages: korsning 18:07:43 (+2,8 min); fel -0,8 → -1,8 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260917-16h",
+   "dimension": "öppningskort",
+   "change": "21:08:40 Stridsbergsbron: etaMin 5 (fix) → 4 (fix)",
+   "evidence": "gt-passages: korsning 21:10:51 (+2,2 min); fel +2,8 → +1,8 min",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "20260917-16h",
+   "dimension": "öppningskort",
+   "change": "00:05:41 Stridsbergsbron: etaMin 4 (deadline) → 3",
+   "evidence": "gt-passages: korsning 00:08:53 (+3,2 min); fel +0,8 → -0,2 min",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "20260917-16h",
+   "dimension": "öppningskort",
+   "change": "Stridsbergsbron: 02:20:08 etaMin 5 (deadline) → 02:19:18 etaMin 5",
+   "evidence": "gt-passages: korsning 02:25:26 (+6,1 min); fel -0,3 → -1,1 min (50 s längre ledtid)",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260917-16h",
+   "dimension": "notis",
+   "change": "02:24:59 Stridsbergsbron SINE BRES: eta 2 → eta 1",
+   "evidence": "gt-passages: korsning 02:25:26 (+0,5 min); fel +1,5 → +0,5 min",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "20260917-16h",
+   "dimension": "öppningskort",
+   "change": "Stridsbergsbron: 02:57:00 etaMin 5 (deadline) → 02:56:30 etaMin 5",
+   "evidence": "gt-passages: korsning 03:01:58 (+5,5 min); fel +0,0 → -0,5 min (30 s längre ledtid)",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260917-16h",
+   "dimension": "öppningskort",
+   "change": "03:03:14 Klaffbron: etaMin 6 (fix) → 5 (fix)",
+   "evidence": "gt-passages: korsning 03:08:47 (+5,6 min); fel +0,4 → -0,6 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260917-16h",
+   "dimension": "notis",
+   "change": "03:07:44 Klaffbron NORDIC SOLA: eta 2 → eta 1",
+   "evidence": "gt-passages: korsning 03:08:47 (+1,1 min); fel +0,9 → -0,1 min",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "20260917-16h",
+   "dimension": "notis",
+   "change": "06:12:20 Klaffbron TUNA: eta 3 → eta 2",
+   "evidence": "gt-passages: korsning 06:14:01 (+1,7 min); fel +1,3 → +0,3 min",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "20260917-16h",
+   "dimension": "notis",
+   "change": "09:19:32 Stridsbergsbron KAPEREN: eta 3 → eta 2",
+   "evidence": "gt-passages: korsning 09:23:38 (+4,1 min); fel -1,1 → -2,1 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260917-7h",
+   "dimension": "öppningskort",
+   "change": "14:38:05 Klaffbron: etaMin 14 (deadline) → 13",
+   "evidence": "gt-passages: korsning 14:52:56 (+14,8 min); fel -0,8 → -1,8 min",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260917-7h",
+   "dimension": "notis",
+   "change": "14:49:11 Klaffbron SUSANNE: eta 5 → eta 4",
+   "evidence": "gt-passages: korsning 14:52:56 (+3,7 min); fel +1,3 → +0,3 min",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "20260917-7h",
+   "dimension": "brotext (fältkorpus, låses inte om)",
+   "change": "14:58:43 Stridsbergsbron SUSANNE (två båtar): om 15 min → om 14 min står kvar",
+   "evidence": "gt-passages: korsning 16:12:48 (+74,1 min); fel -59,1 → -60,1 min. Ofullständig fångst, så relockGoldenText vägrar och replay:all är rött här.",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260917-7h",
+   "dimension": "öppningskort",
+   "change": "16:09:46 Stridsbergsbron: etaMin 6 (deadline) → 5",
+   "evidence": "gt-passages: korsning 16:12:48 (+3,0 min); fel +3,0 → +2,0 min",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "20260917-7h",
+   "dimension": "notis",
+   "change": "16:11:01 Stridsbergsbron SUSANNE: eta 4 → eta 3",
+   "evidence": "gt-passages: korsning 16:12:48 (+1,8 min); fel +2,2 → +1,2 min",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "20260918-7h",
+   "dimension": "öppningskort",
+   "change": "Stridsbergsbron#1: 12:22:43 etaMin 5 (deadline) → 12:21:57 etaMin 5",
+   "evidence": "gt-passages: korsning 12:28:56 (+7,0 min); fel -1,2 → -2,0 min (46 s längre ledtid)",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260918-7h",
+   "dimension": "notis",
+   "change": "12:34:35 Klaffbron WILSON WESER: eta 2 → eta 1",
+   "evidence": "gt-passages: korsning 12:35:31 (+0,9 min); fel +1,1 → +0,1 min",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "20260918-7h",
+   "dimension": "öppningskort",
+   "change": "Stridsbergsbron#3: 17:26:26 etaMin 5 (deadline) → 17:26:18 etaMin 5 (fix)",
+   "evidence": "gt-passages: korsning 17:31:13 (+4,9 min); fel +0,2 → +0,1 min",
+   "verdict": "rättare"
+  }
+ ],
+ "engineCheck": "**hunt:repro, alla 25 kort i hunt-fix/runs/r1-standard-a/fynd, på slutkoden:**\n- F06 är BORTA, med 0 utslag i världen.\n- F07 är BORTA, med 0 utslag i varianten.\n- F04 är BORTA, men det var det redan på e949ae1.\n- Övriga 22 kort är KVAR, med samma utfall som en kontrollkörning på e949ae1.\n\n**hunt --profile=quick --out=K/E2/hunt-quick**, kört med lugnt träd (självtest grönt, determinism 24/24) och jämfört med r1-quick-a och med en quick på e949ae1:\n- Inga nya kort.\n- Borta är bankens F07-knivsegg (KNIVSEGG-kandidaterna går 2 → 1, rena fasvarianter 44 → 45) och R0-utslagen i värld 192 (F06) och F-KÖ 246 (7→14).\n- De INV-3-medlemmar som finns kvar är R1-världarna 8, 235, 5 och 60, och alla fyra finns även på e949ae1.\n- Kortet \"…inv-3-eta-oscillation\" heter nu \"…eta-oscillation-vid-stridsbergsbron\", eftersom Klaffbronsmedlemmen (värld 192) är borta. Det är samma kluster.\n\nEn kandidat på vägen gav en ny R1-oscillation i värld 286 (RUNA, U-sväng, strax → om 3 → strax). Den är rättad i 329b7c3 och finns som regressionstest.",
+ "docs": "**I patchen:**\n- `docs/ARCHITECTURE.md` §8 (e): ett nytt stycke, \"ETA-etappen gick in\", som beskriver K6 del 1–3, F06 och F07 med mekanismer. Där står också det som är kvar: SENTA och pass 1-tidsföljden, PRIMA LADY, J10 (FRAM 25h, oförändrad) och de 65 sämre raderna enligt U13. K6-kraven har fått raden \"KRAVEN GICK IN\". Familj E:s stycke är orört.\n- `docs/VALIDATION.md` §ETA-mätharnessen: ett nytt avsnitt, \"Familj E2\". Det innehåller banden per typ, parat och oparat, mot e949ae1 och 7699cbe, ändrade påståenden, textövergångar, strax-löftet, de namngivna fallen, facit och tabellen över prövade varianter.\n- `tests/replay-validation/corpora.js`: DEMO-noter i 21 korpusar.\n- Kommentarer i koden, på svenska.\n\n**Utanför repot:**\n- `K/E2/DESIGN.md`\n- `K/E2/FACIT.md`, med 161 rader bedömda per korpus mot gt-passages och O1/O2\n- `K/E2/matningar/`, med measure:eta-JSON, band, ändrade påståenden, motorutfall och facitverktygen\n\n**Bör göras vid integrationen:** familj E:s stycke \"Kvar till ETA-etappen … väntar på ägarbeslut\" ska strykas när E:s revision och E2 slås ihop.",
+ "risks": [
+  "U13: 65 låsta rader blir sämre mot rådata. Av de 64 radbedömda är 54 enminutsflyttar, och 30 har sanning ≥ 20 min. Bland dem finns PRIMA LADY 16:34:01, en av familj E:s rader, och SENTA:s öppning i 25h. Raderna är DEMO-omlåsta men får enligt U13 inte låsas om, så dirigenten måste ta ställning.",
+  "SENTA och ELAIZA i 20260712-25h: varningen kommer 0,9 min efter ELAIZAs korsning, med tunn ledtid 99 s. Utfallet beror på K/K2:s konvojfönster (600 s) och RECOVER-släppet, och att undvika det skulle kräva vikten ≤ 0,47.",
+  "Systematisk förskjutning: notistoken och öppningskortens etaMin läser nu slutvärdet i stället för pass 1:s värde och ligger därför ungefär 0,3–1 min lägre vid inflygning. Det är bättre i bandet < 5 min men sämre där appen redan är för optimistisk. PILOT 761 och ORCA hade rätt notis av en slump och blir sämre.",
+  "20260917-7h har ofullständig fångst och kan inte låsas om med verktyget. replay:all förblir rött där tills dirigenten beslutar.",
+  "Memots läge (_fixContext) måste hållas i takt med nya fält som påverkar ETA:n. Ett fält som saknas ger ett gammalt memovärde i ett ändrat läge.",
+  "Bekräftelseregeln kan i teorin släppa en positionsglimt som upprepas i två fix i följd. Det har inte setts i banken eller motorn.",
+  "Varianten där glappsteget släpper en lägre färsk skattning orörd ger klart bättre band men fler sämre rader, och den bryter K6-kravet om baslinjen. Den är återtagen och kan bli en ägarfråga.",
+  "Familj E:s revision pågår parallellt i K/E/wt. ARCHITECTURE §8 (e) och konstantblocket i kalkylatorn kan ge sammanslagningskonflikter, men E:s rader har inte rörts.",
+  "b-register-testet fallerar i worktreen eftersom docs/BUGGJAKT.md saknas. Det gör det även på e949ae1, så det beror inte på E2."
+ ],
+ "commit": "HEAD är 7a80260, detached ovanpå e949ae1.\n\nKod:\n- 3bd8e64 (memo, del 1–3, F06, F07, tester)\n- 77e6774 (kadensen före fixet, golvet 30 s)\n- 6d2aeb2 (fall mot förväntat nu)\n- d37a5fb (två fix bekräftar ett fall)\n- 329b7c3 (F06 bara vid nytt inträde i strax)\n\nÖvrigt:\n- bd73887 (DEMO-omlåsning: golden-text 17, golden-events 11, noter i corpora.js)\n- 90c16ea (dokumentation och viktkommentaren)\n- 7a80260 (facitsiffror i dokumenten)\n\nIngen commit är pushad.",
+ "patchPath": "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/kampanj/E2/patch-e2.diff (git diff e949ae1, 40 filer) och /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/kampanj/E2/patch.diff (git diff 7699cbe, E + E2, 44 filer). Båda är utan bugHunt och node_modules, och git apply --check går igenom på respektive bas.",
+ "status": "delvis"
+}

@@ -1,0 +1,91 @@
+base  zonintrade-uppskjutet-bevis.test.js           20 röda av 26
+      grön: inget bevis vid GPS-osäker fix
+      grön: inget bevis vid för långt segment
+      grön: inget bevis vid redan passerad bro
+      grön: inget bevis vid utanför zonen
+      grön: extra fix inne i zonen, med ett UI-pass vid B före C': utgångsfixen bokför passagen
+      grön: δ = 0 s
+base  bn2-dodband-nordprogress.test.js              4 röda av 5
+      grön: K1:s Kanalinfartsregel läser samma färskhetskontrakt
+base  gps-grind-kandidat-bokford-bro.test.js        5 röda av 5
+e0    zonintrade-uppskjutet-bevis.test.js           14 röda av 26
+      grön: Phase 3-hållningen för Stridsbergsbron: utgångsfixen bokför passagen utan något mellanliggande pass
+      grön: FIX U:s tvingade väntan: utgångsfixen bokför passagen utan något mellanliggande pass
+      grön: rensningspasset (NINA B 20260918-7h): nästa bros inträde prövas i samma pass
+      grön: inget bevis vid GPS-osäker fix
+      grön: inget bevis vid för långt segment
+      grön: inget bevis vid redan passerad bro
+      grön: inget bevis vid utanför zonen
+      grön: extra fix inne i zonen, med ett UI-pass vid B före C': utgångsfixen bokför passagen
+      grön: δ = 0 s
+      grön: δ = -2.5 s
+      grön: δ = -5 s
+      grön: δ = -7 s
+      röd: extra fix inne i zonen, utan UI-pass vid B (förut tappad): utgångsfixen bokför passagen
+      röd: TARGET_UNDER återställer beviset på samma sätt när bron är målbron
+      röd: U-sväng inne i zonen: det återställda beviset ger ingen passage söderut
+      röd: FIX O-spärren prövar inträdesbeviset (passet efter FIX U i samma millisekund)
+      röd: FIX O-spärren återställer ett bevis som ett ordinarie pass har nollat
+      röd: posten släpps när båten har lämnat zonen
+      röd: posten släpps när positionen är GPS-osäker
+      röd: posten släpps när bron är bokförd
+      röd: posten släpps när en passage av bron har registrerats efter posten (listan nollad av en vändning)
+      röd: posten släpps när beviset är äldre än två minuter
+      röd: posten släpps när ett bevis för en annan bro har satts
+      röd: posten följer med när VesselDataService bygger om fartygsobjektet
+      röd: en extra fix inne i zonen: passagen bokförs i alla faser
+      röd: KÄND LUCKA: en extra fix 50–60 m efter linjen tappar passagen; kanterna bokförs
+e0    bn2-dodband-nordprogress.test.js              2 röda av 5
+      grön: färsk nordprogress bär färdriktningen i dödbandet, men inte mot en sydlig kurs eller ett ruttlås
+      grön: K1:s Kanalinfartsregel läser samma färskhetskontrakt
+      grön: SALTIS genom hela appen: Olidebron-notisen går i passerad form
+      röd: utan kurs (AIS 360 → null) bär färsk nordprogress färdriktningen på samma sätt
+      röd: SALTIS med kursen 360 ("ej tillgänglig") genom hela appen: också passerad form
+e0    gps-grind-kandidat-bokford-bro.test.js        0 röda av 5
+      grön: bara den bokförda bron släpps, och den bekräftas aldrig senare
+      grön: målbropassagen i _hasPassedTargetBridge
+      grön: den grindbekräftade mellanbron (registerConfirmedIntermediatePassage)
+      grön: den ordinarie mellanbropassagen (_handleIntermediateBridgePassage)
+      grön: JOLLY: Stridsbergsbron bokförs en gång, som målbro
+r1    bn2-dodband-nordprogress.test.js              2 röda av 5
+      grön: färsk nordprogress bär färdriktningen i dödbandet, men inte mot en sydlig kurs eller ett ruttlås
+      grön: K1:s Kanalinfartsregel läser samma färskhetskontrakt
+      grön: SALTIS genom hela appen: Olidebron-notisen går i passerad form
+      röd: utan kurs (AIS 360 → null) bär färsk nordprogress färdriktningen på samma sätt
+      röd: SALTIS med kursen 360 ("ej tillgänglig") genom hela appen: också passerad form
+r1    gps-grind-kandidat-bokford-bro.test.js        0 röda av 5
+      grön: bara den bokförda bron släpps, och den bekräftas aldrig senare
+      grön: målbropassagen i _hasPassedTargetBridge
+      grön: den grindbekräftade mellanbron (registerConfirmedIntermediatePassage)
+      grön: den ordinarie mellanbropassagen (_handleIntermediateBridgePassage)
+      grön: JOLLY: Stridsbergsbron bokförs en gång, som målbro
+r1    zonintrade-uppskjutet-bevis.test.js           0 röda av 26
+      grön: Phase 3-hållningen för Stridsbergsbron: utgångsfixen bokför passagen utan något mellanliggande pass
+      grön: FIX U:s tvingade väntan: utgångsfixen bokför passagen utan något mellanliggande pass
+      grön: rensningspasset (NINA B 20260918-7h): nästa bros inträde prövas i samma pass
+      grön: inget bevis vid GPS-osäker fix
+      grön: inget bevis vid för långt segment
+      grön: inget bevis vid redan passerad bro
+      grön: inget bevis vid utanför zonen
+      grön: extra fix inne i zonen, med ett UI-pass vid B före C': utgångsfixen bokför passagen
+      grön: extra fix inne i zonen, utan UI-pass vid B (förut tappad): utgångsfixen bokför passagen
+      grön: TARGET_UNDER återställer beviset på samma sätt när bron är målbron
+      grön: U-sväng inne i zonen: det återställda beviset ger ingen passage söderut
+      grön: FIX O-spärren prövar inträdesbeviset (passet efter FIX U i samma millisekund)
+      grön: FIX O-spärren återställer ett bevis som ett ordinarie pass har nollat
+      grön: posten släpps när båten har lämnat zonen
+      grön: posten släpps när positionen är GPS-osäker
+      grön: posten släpps när bron är bokförd
+      grön: posten släpps när en passage av bron har registrerats efter posten (listan nollad av en vändning)
+      grön: posten släpps när beviset är äldre än två minuter
+      grön: posten släpps när ett bevis för en annan bro har satts
+      grön: posten följer med när VesselDataService bygger om fartygsobjektet
+      grön: δ = 0 s
+      grön: δ = -2.5 s
+      grön: δ = -5 s
+      grön: δ = -7 s
+      grön: en extra fix inne i zonen: passagen bokförs i alla faser
+      grön: KÄND LUCKA: en extra fix 50–60 m efter linjen tappar passagen; kanterna bokförs
+rev2  zonintrade-uppskjutet-bevis.test.js           0 röda av 26
+rev2  bn2-dodband-nordprogress.test.js              0 röda av 5
+rev2  gps-grind-kandidat-bokford-bro.test.js        0 röda av 5

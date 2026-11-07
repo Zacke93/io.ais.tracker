@@ -1,0 +1,1843 @@
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index c9a9361..b2a56fe 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -1292,6 +1292,91 @@ inte outlier-skyddet.
+ (tidsnormaliserat gps-event-ben). Mätharnessen `npm run measure:eta` är
+ permanent — se docs/VALIDATION.md.
+ 
++**Avgångskontexten gick in (familj E, rättningskampanjen 2026-11-04, F04).**
++En båt som legat still och sätter igång får inte längre sin ETA räknad på
++igångsättningsfarten. `ProgressiveETACalculator._noteDepartureSample` känner
++igen avgången: första sampel med fart ≥ `MOVEMENT_SOG_KNOTS` (1,0 kn) efter
++minst två buffrade sampel, alla under `MOORING_DETECTION.MOVEMENT_PROOF_SOG_KN`
++(0,5 kn), högst `VESSEL_GRAVE.MAX_REBIRTH_DIST_M` (200 m, gravens radie för
++"på plats") från senaste stillasampel och närmare målbron än stillheten. Då
++lämnar väntans sampel fartbufferten. Farten räknas sedan på ett golv som följer
++den UPPMÄTTA accelerationen ett sampel framåt, aldrig på ett antagande om
++marschfarten: dubbla igångsättningsfarten i avgångssamplet
++(`DEPARTURE_FIRST_SAMPLE_GAIN`), därefter senaste farten plus senaste ökningen
++så länge farten stiger, och aldrig över rask kanalfart
++`BRISK_CANAL_SPEED_KNOTS` = 4 kn (samma tal som E-F7:s decaygolv, som läser
++konstanten). När farten slutar stiga dras antagandet tillbaka mjukt
++(`_releaseDepartureFloor`): golvet ligger högst fartbruset
++`DEPARTURE_SPEED_NOISE_KN` (0,3 kn, `STATIONARY_SOG_KN`) över toppfarten,
++sjunker i samma takt som avståndet till målbron krymper och går aldrig under
++aktuell fart. Kontexten slutar när buffertens snitt har hunnit ikapp golvet,
++när farten faller mer än bruset under toppfarten eller under 1 kn, när båten
++inte längre är närmare målbron än stillheten och senast efter 5 min (klass B
++hörs var 60–70:e sekund, och verkliga igångsättningar i banken pågår fyra–fem
++sampel). Golvet får aldrig ensamt lova "strax" (M9-principen, som decaygolvet):
++bestämde golvet farten och hade den uppmätta farten inte gett strax hålls ETA:n
++på 3 min, om inte imminent-flaggan äger klausulen. Det hållna värdet är en spärr
++för presentationen: historiken bär det ohållna bredvid (`m9UnheldETA`), och
++nästa sampels EMA räknar från det när det samplets egen mätning lovar strax
++(V4-principen), annars från det hållna. Felet var en kedja: väntans nollor i
++snittet ([0, 0, 1,6] ⇒ 0,53 kn), gap-reseten EFTER rå-ETA:n (meddelandevägens
++29,5 blev baslinje), outliergrenen som dömde snapshot-vägens 9,8 som
++dramatic_decrease och EMA:n ⇒ "om 27 minuter" för verkliga 3,1 (buggjägarens
++värld 884); nu "om 5 → 4 → 3 → strax". **K6:s krav berörs inte**:
++dubbelkörningen, gap-resetens placering, outliergrindens 30 s-fönster och
++`emaAlpha` är oförändrade, avgången nycklas på fartbuffertens sampelnyckel så
++båda passen ger samma värde, och V4 väljer bara EMA:ns bas efter ett M9-hållet
++värde. Villkoren kom ur två granskningar. Den första: jämn fart räknades som
++acceleration (strax → om 4 → strax i fyra av buggjägarens 2 000
++standardvärldar), en båt som hördes igen 454 m från stillheten efter 11 min
++tystnad räknades som avgång (MARIANNE, 20260525), en båt som vände bort fick
++nedräkning mot bron, och ett tak på tre sampel släppte golvet mitt i
++accelerationen ("om 4 → om 3 → om 4"). Den andra: ett FAST golv på 4 kn medan
++farten steg gav för låg ETA och uppsteg för båtar som planar ut under 4 kn
++("om 3" mot sanning 6 vid Klaffbron, "om 11 → 14 → 16" mot sanning 23 från
++Olidebron), och M9:s hållna 3,0 drog nästa notis uppåt (SKONNERTEN JYLLAND
++20260601-41h: "om 3" mot sanning 1,4). Mätt enligt VALIDATION.md §REGELN
++(§ETA-mätharnessen, "Familj E"): sex låsta rader i tre korpusar flyttas, alla
++rättare, och inget mätt påstående blir sämre. I platåklassen (syntetiska
++avgångar 2,0–3,5 kn från tre platser) minskar de tidsviktade sampel som är minst
++2 min för optimistiska från 174 till 23 och fallen med uppsteg från 56 till 36
++(7699cbe har 39). Priset: en avgång som når 4–6 kn får en försiktigare första
++prognos än med det fasta golvet (ALVA "om 5" mot sanning 3,1 i stället för
++"om 4"); nedräkningen går därefter bara nedåt.
++
++*Kvar utanför klassen (mätt, medvetet):* stillheten läses ur fartbufferten.
++Den får bara sampel när ETA:n räknas, töms av gap-reseten och målbytet och har
++kvar ankomstfarten efter en kort väntan — efter rörelse krävs därför i
++praktiken TRE stillasampel, efter en tömd buffert två. Hela klassen i banken är
++87 rörliga sampel efter långsam buffert som inte känns igen som avgång (tabellen
++per mekanism står i VALIDATION.md "Familj E"). Tolv av dem följs av en prognos
++minst 3 min för hög inom tre minuter: tömd buffert med högst ett sampel kvar
++(ANTJE 211347380 20260804-both-21h 07:31:45 +12,8 min, AKIRA 257605080
++20260708-21h 07:20:09 +8,8, SOLUTION 20260702-19h 07:43:48 +3,9, TINY
++20260909-80h 16:34:09 +3,8, NOCHT 20260601-41h 11:12:01 +3,8, MISTRAL
++20260806-42h 12:13:52 +3,3), ankomstfarten kvar i bufferten (NOCHT 12:01:02
+++4,1), krypfart utan stillhet (NORDIC SOLA 258715000 20260713-41h 08:48:51
+++9,5), startsampel 0,5–0,99 kn före avgången (UTOPIA 20260806-42h 08:03:38
+++6,9, ANDREA 18:52:22 +4,4), långsam gång i bufferten (ZORA 20260702-19h
++07:11:17 +5,9) och stillhet som aldrig nådde kalkylatorn (PILOT 761 265606970
++20260710-13h 12:13:45 +11,3; ingen ETA räknades 11:49–12:13). Två vidgningar
++prövades och återtogs enligt U13: ett eget stillhetsminne utanför bufferten
++(överlever gap-reset, målbyte och stationär-hold) fångar ANTJE men gör 8–17
++mätta påståenden sämre (ELFKUNGEN ×3, ANTJEs senare rader, YOLO 2:s notis
++7 → 2 mot sanning 30 min) och flyttar en öppningsvarning; att låta de två
++senaste buffrade samplen räcka (granskarens V1) fångar NOCHT 12:01 men gör
++ELFKUNGENs låsta rad i 20260907-31h sämre, "om 11 → om 8" mot sanning 13,1.
++PILOT 761 kräver en stillhetssignal från VesselDataService, krypfarten och
++startsamplen en annan stillhetsdefinition än rörelsebeviset — klassen hör till
++ETA-etappen (familj E2 och senare).
++
++Till familj E2 (användarbeslut U20, 2026-11-04): ETA-oscillationen vid
++inbromsning (buggjägarens F06, K6:s dubbla EMA mot den binära
++3-minutersgränsen) och 21h-knivseggen (F07, RC4-clampen mot en extrapolerad
++baslinje). E2 gör om ETA-utjämningen och spärren ovanpå F04-rättningen och
++mäter om E:s sex omlåsta rader och M9/V4-utfallet, eftersom PRIMA LADYs och
++SKONNERTENs värden beror på den dubbla EMA:n.
++
+ **FÄLTVALIDERINGENS REGEL: kasta det KORRUPTA FÄLTET, aldrig positionen
+ (H34 — DIRIGENTBESLUT 2026-08-22).** *Var beslutet togs:* granskningsunderlaget
+ (fältprov 10:s helkodsgranskning 2026-08-22) klassade H34 som BESLUTSBEROENDE
+@@ -2229,7 +2314,12 @@ och synkrona SDK-fel. Se [fältprovskörboken](infor-faltprov-2026-09-06.md).
+ 
+ **Kända latenta klasser efter natten:** avgångs-ETA räknas på
+ igångsättningsfart (ANYA ELAN: "om 23 min" för verklig 10,5 — churnen
+-maskerade klassen tidigare; framtida accelerationsmedveten ETA), server-
++maskerade klassen tidigare; ÅTGÄRDAD 2026-11-04 för avgång efter belagd
++stillhet, se §8 (e) "Avgångskontexten gick in". ANYA ELAN själv faller
++utanför stillhetskravet — 0,7 kn i bufferten före avgången — och är
++oförändrad, liksom resten av den kvarvarande klassen: 87 sampel i åtta
++mekanismer, varav tolv med minst 3 min för hög prognos, som §8 (e) och
++VALIDATION.md "Familj E" redovisar), server-
+ stängda-men-levererande sockets kan fortfarande ge ~1 handskakning/min
+ (appens egen orsak är fixad), och `max-reconnects-reached` fyrar inte under
+ permanent 429 (cooldown-grenen rör inte räknaren).
+diff --git a/docs/VALIDATION.md b/docs/VALIDATION.md
+index e24a1e2..3b9357a 100644
+--- a/docs/VALIDATION.md
++++ b/docs/VALIDATION.md
+@@ -493,6 +493,152 @@ gäller följande — det är läxan från K6 (ARCHITECTURE §8 (e)):
+    sak. Facit säger *"texten är oförändrad"*, harnessen säger *"siffran är
+    sann"*. Båda krävs.
+ 
++### Familj E (rättningskampanjen 2026-11-04): avgångskontexten mätt enligt REGELN
++
++Ändringen: `ProgressiveETACalculator` räknar inte längre avgångs-ETA på
++igångsättningsfarten efter belagd stillhet. Väntans sampel lämnar
++fartbufferten, och farten räknas på ett golv som följer den uppmätta
++accelerationen ett sampel framåt (dubbla igångsättningsfarten, därefter
++senaste farten plus senaste ökningen, högst 4 kn). Antagandet släpps mjukt när
++farten slutar stiga. ARCHITECTURE §8 (e), "Avgångskontexten gick in", har
++villkoren. Två granskningar formade det, och den andra mätte platåklassen
++nedan.
++
++**Banken.** Baslinje (7699cbe) och efter-körning med samma 24 korpusar, parning
++per korpus, typ, bro och mmsi inom 2 s:
++
++| Band | Population | Före (7699cbe) | Efter |
++|---|---|---|---|
++| sanning < 5 min, alla typer | parad, n = 784 | median 0,47 · 88,9 % ≤ 2 · bias +0,51 | median 0,46 · 89,7 % · bias +0,49 |
++| sanning < 10 min, alla typer | parad, n = 1 295 | median 0,71 · 81,2 % · bias +0,18 | median 0,70 · 81,6 % · bias +0,17 |
++| båda banden | oparad | n = 0 | n = 0 |
++
++Sex parade påståenden ändras, och alla kommer närmare rådatafacit:
++- SKONNERTEN JYLLANDs text, 8 → 3 mot sanning 2,1;
++- PRIMA LADYs text, 7 → 4 mot 3,1;
++- PRIMA LADYs notis och kort, 5 → 3 mot 1,9;
++- OLAs notis och kort, 4 → 1 mot 1,3.
++
++Inget påstående blir sämre. SKONNERTENs notis 07:30:52 i 20260601-41h är 2,
++som på 7699cbe. Första revisionen gav 3 mot sanning 1,4, eftersom EMA:n räknade
++från ett M9-hållet 3,0. V4-principen (ARCHITECTURE §8 (e)) låter EMA:n räkna
++från det ohållna värdet när samplets egen mätning lovar strax, och de två
++M9-raderna i tabellen över återtagna varianter nedan visar mätningen.
++Brotextövergångarna (2 544) och strax-löftet (n 211, 63,0 % ≤ 3 min) är
++oförändrade.
++
++**Platåklassen (andra granskningen).** Banken har bara nio avgångar efter belagd
++stillhet, så klassen mättes syntetiskt:
++- *Geometri:* scenarioGeneratorns kanal. Väntan 480 och 360 m söder om
++  Klaffbron (mål Klaffbron), 120 m söder om Olidebron (mål Klaffbron, 1,5 km)
++  och 200 m söder om Järnvägsbron (mål Stridsbergsbron).
++- *Platåprofiler (18):* igångsättning från 1,0–1,5 kn som planar ut på 2,0,
++  2,5, 3,0 eller 3,5 kn, i långsam, medel och snabb ramp, med jämn fart redan
++  från första samplet, och två med fartbrus.
++- *Kontrollklassen (5 profiler):* F04-klassen, som når 4–6 kn (bland annat
++  ALVA:s 1,6 → 4,0 → 4,4 → 5,0 → 7,4 kn).
++- *AIS-takt:* var 30:e och var 60:e sekund.
++- *Sanning:* linjekorsningen i den genererade geometrin.
++- *Tidsviktat mått:* visad text var 10:e sekund från avgång till korsning.
++  Det är REGELNs punkt 5: ett värde som står kvar länge väger mer.
++- *Uppsteg:* ett minuttal som går upp efter avgången, inklusive steget från
++  väntans prognos.
++
++| Klass | Mått | 7699cbe | Fast golv 4 kn (första revisionen) | Golvet följer accelerationen |
++|---|---|---|---|---|
++| platå (144 fall) | tidsviktat < 5 min: median · ≤ 2 · bias | 1,03 · 87,9 % · +1,07 | 0,72 · 100 % · −0,03 | 0,76 · 98,9 % · +0,64 |
++| | tidsviktat < 10 min | 0,88 · 93,1 % · +0,72 | 0,88 · 92,2 % · −0,00 | 0,80 · 97,7 % · +0,46 |
++| | påståenden < 10 min | 0,67 · 94,4 % · +0,49 | 0,67 · 89,8 % · −0,38 | 0,47 · 97,5 % · +0,11 |
++| | tidsviktade sampel ≥ 2 min för optimistiska (sanning < 10) | 0 | 174 | 23 |
++| | fall med uppsteg / uppsteg / varav ≥ 2 min | 39 / 46 / 27 | 56 / 84 / 35 | 36 / 48 / 13 |
++| kontroll (40 fall) | tidsviktat < 5 min | 2,08 · 46,2 % · +2,13 | 0,90 · 85,9 % · +1,13 | 1,33 · 72,4 % · +1,57 |
++| | tidsviktat < 10 min | 2,32 · 39,4 % · +3,52 | 1,17 · 67,9 % · +1,73 | 1,63 · 59,5 % · +2,28 |
++| | uppsteg | 6 / 6 / 6 | 3 / 3 / 0 | 0 / 0 / 0 |
++
++Granskarens egna fall, minuttalen efter avgången:
++
++| Fall | 7699cbe | Fast golv 4 kn | Golvet följer accelerationen |
++|---|---|---|---|
++| Klaffbron 470 m, 1,2 → 2,4 kn | 5, strax | 5, 4, 3, 4, strax | 5, 4, strax |
++| Klaffbron 480 m, 1,1 → 2,0 kn | 5, strax | 5, 4, 3, 5, strax | 5, strax |
++| fartbrus 2,5 → 2,4 mitt i accelerationen | 5, strax | 5, 4, 5, 4, strax | 5, 4, strax |
++| flyttar sig i kön och blir liggande | 6 står kvar | 5, 4, 5 | 6 står kvar |
++| Järnvägsbron 150 m, 1,0 → 2,0 kn (sanning 6,5) | 5, 4, strax | 3, strax | 5, 4, strax |
++| Olidebron 120 m, 1,0 → 2,0 kn (sanning 24,5) | 19, 24, 30, 28, 21, 19 … | 13, 12, 11, 14, 15, 16 … | 23, 22, 19, 18, 17 … |
++| Olidebron 120 m, 1,2 → 2,5 kn | 19, 22, 21, 18 … | 14, 13, 11, 14, 15, 14 … | 19, 17, 16, 15, 14 … |
++
++De uppsteg som är kvar i platåklassen är av två slag:
++- *Rättelse vid avgången:* väntans prognos räknar redan på rask kanalfart
++  (E-F7:s decaygolv). En långsam båt rättas därför uppåt en gång när den
++  avgår, mest från Olidebron.
++- *Minutsteg vid avrundningen:* dubbleringen i första samplet skjuter över när
++  båten redan går sin marschfart på 2,0–2,5 kn.
++
++Priset är kontrollklassens försiktigare första prognos: ALVA "om 5" mot sanning
++3,1, där det fasta golvet gav "om 4". Nedräkningen går därefter bara nedåt.
++
++Prövat och återtaget (hela sviten, 208 fall):
++
++| Variant | Platå < 5 min | Uppsteg (fall / antal / ≥ 2) | ≥ 2 min för optimistiskt | Kontroll < 5 min | Varför återtagen |
++|---|---|---|---|---|---|
++| Fast golv 4 kn medan farten stiger (första revisionen) | 0,72 · 100 % · −0,03 | 56 / 84 / 35 | 174 | 0,90 · 85,9 % · +1,13 | "om 3" mot sanning 6 och uppsteg när golvet släpps |
++| Golv min(4, 2 × fart) per sampel (granskarens V3) | 0,67 · 99,6 % · +0,35 | 56 / 94 / 29 | 53 | 1,11 · 74,8 % · +1,41 | fler uppsteg än 7699cbe: dubbleringen sent i rampen skjuter över platån |
++| Stigande kräver +0,5 kn per sampel (granskarens V2) | 0,74 · 93,5 % · +0,46 | 80 / 104 / 54 | 83 | 0,90 · 85,9 % · +1,15 | golvet släpps oftare mitt i rampen |
++| Golvet följer accelerationen, släpps direkt | 0,77 · 97,5 % · +0,68 | 45 / 61 / 20 | 23 | 1,34 · 71,7 % · +1,59 | den eftersläpande bufferten höjer prognosen när golvet släpps |
++| … släpps i avståndets takt, utan bandet kring toppfarten | 0,78 · 98,9 % · +0,62 | 22 / 25 / 8 | 38 | 1,34 · 72,0 % · +1,59 | för låg ETA ligger kvar i minuter för en båt i jämn låg fart ("om 3" mot sanning 6,4) |
++| … ett brussampel tolereras innan antagandet släpps | 0,78 · 98,9 % · +0,61 | 37 / 50 / 19 | 38 | 1,34 · 72,0 % · +1,59 | rättelsen kommer ett sampel senare för jämn fart |
++| Vald variant men 2,5 × igångsättningsfarten | 0,61 · 99,9 % · +0,45 | 26 / 41 / 8 | 42 | 1,11 · 84,5 % · +1,32 | nästan dubbelt så många grovt optimistiska sampel |
++| Vald variant men 4 kn i första samplet | 0,72 · 100 % · −0,07 | 42 / 74 / 22 | 174 | 0,90 · 86,5 % · +1,11 | samma optimism som det fasta golvet |
++| Vald variant men tre minuter | 0,77 · 97,5 % · +0,66 | 36 / 53 / 13 | 23 | 1,34 · 71,7 % · +1,59 | golvet släpps mitt i en igångsättning med 60 s-takt |
++| **Vald:** golvet följer accelerationen; högst 0,3 kn över toppfarten, i avståndets takt, aldrig under aktuell fart, fem minuter | 0,76 · 98,9 % · +0,64 | 36 / 48 / 13 | 23 | 1,33 · 72,4 % · +1,57 | — |
++
++Ett band på 20 % i stället för 0,3 kn mättes likvärdigt. Bandet i knop valdes
++eftersom det är samma brusgräns som inbromsningen prövas mot.
++
++Första revisionens varianter, alla mätta mot samma baslinje:
++
++| Variant | Utfall | Varför återtagen |
++|---|---|---|
++| Första prototypen (d1f02ee): jämn fart räknas som acceleration, inget närhets- eller riktningskrav, inget M9 | 7 ändrade, alla bättre, men MARIANNE-raden i 20260525 likvärdig (samma text 55 s tidigare) | fyra nya fatala INV-3 i buggjägarens standardprofil (664, 906, 920, 1113: strax → om 4 → strax) |
++| Utan M9-kravet | 6 ändrade, alla bättre (LECKOs notis 3 → 2 i stället för oförändrad) | värld 595: golvet gav ensamt strax som släpptes till "om 3" (4 → strax → 3) |
++| M9 utan V4-principen (EMA:n räknar från det hållna 3,0) | 7 ändrade, SKONNERTENs notis sämre (2 → 3 mot 1,4) | V4 tar bort priset utan att något annat ändras |
++| V4 utan vakt (EMA:n räknar alltid från det ohållna värdet) | samma bank som vald | ett antagande kan lova strax via utjämningen när nästa mätning inte gör det (enhetstest) |
++| Utan närhetskravet | den valda varianten plus två avgångar: FRAM (20260713-41h, notis 2 → 1, bättre) och MARIANNE (20260525, låst rad likvärdig) | MARIANNE hördes igen 454 m från sin stillhet efter 11 min tystnad — ingen igångsättning, och U13 tillåter inte en likvärdig rad |
++| Tak på tre sampel i igångsättningen | banken oförändrad | syntetisk avgång 450 m före Klaffbron i 1,4 → 3,8 kn: "om 4 → om 3 → om 4" |
++| Eget stillhetsminne utanför fartbufferten, de två senaste stillasamplen räcker: (a) överlever bara gap-reseten, (b) överlever även målbyte och stationär-hold | (a) 23 ändrade: 15 bättre, 8 sämre. (b) 35 ändrade: 18 bättre, 17 sämre. Båda fångar ANTJE (27 → 11 mot 14,7) | (a) ELFKUNGEN ×3 och ANTJEs senare rader blir sämre i låst golden-text. (b) dessutom MOKENDEIST, LA FEMME, YOLO 2:s låsta notis 7 → 2 mot sanning 30 min, och öppningsvarningen Klaffbron#16 i 20260804-both-21h flyttas |
++| De två senaste buffrade samplen räcker (granskarens V1) | fångar NOCHT 12:01 | ELFKUNGENs låsta rad i 20260907-31h blir sämre ("om 11 → om 8" mot 13,1) |
++| Stillhet = alla sampel < 1,0 kn | 15 korpusar flyttas | ny fatal ETA-oscillation i 20260708-21h (AKIRAs kajdrift) |
++| Två sampel < 0,5 kn och resten < 1,0 kn | tio fler förbättrade påståenden | UTOPIA "om cirka 2" → "ETA okänd" 30 s före passagen (42h) och en korrekt "strax" 6 s senare (both-21h) |
++
++**Kvar efter rättningen (oförändrade mot 7699cbe).** Hela klassen i banken är
++87 rörliga sampel (≥ 1,0 kn) efter långsam buffert som avgångskontexten inte
++känner igen. Kolumnen "≥ +3 min" räknar de sampel där ett mätt påstående inom
++tre minuter var minst 3 min för högt:
++
++| Mekanism | Sampel | Med mätta påståenden inom 3 min | ≥ +3 min | Fallen med ≥ +3 min |
++|---|---|---|---|---|
++| tömd buffert (gap-reset, målbyte), högst ett sampel kvar | 32 | 13 | 6 | ANTJE (both-21h 07:31:45) +12,8 · AKIRA (21h 07:20:09) +8,8 · SOLUTION (19h 07:43:48) +3,9 · TINY (80h 16:34:09) +3,8 · NOCHT (41h 11:12:01) +3,8 · MISTRAL (42h 12:13:52) +3,3 |
++| ankomstfarten kvar i bufferten efter en kort väntan | 18 | 8 | 1 | NOCHT (41h 12:01:02, [1,8, 0,3, 0]) +4,1 |
++| krypfart utan stillhet (inget buffrat sampel under 0,5 kn) | 15 | 6 | 1 | NORDIC SOLA (41h 08:48:51, [1, 0,8, 0,8]) +9,5 |
++| startsampel 0,5–0,99 kn före avgångssamplet | 7 | 5 | 2 | UTOPIA (42h 08:03:38, [0,2, 0,3, 0,6]) +6,9 · ANDREA (42h 18:52:22) +4,4 |
++| långsam gång 0,5–0,99 kn i bufferten | 6 | 4 | 1 | ZORA (19h 07:11:17, [0,9, 0,3]) +5,9 |
++| stillhet som aldrig nådde kalkylatorn | 4 | 2 | 1 | PILOT 761 (13h 12:13:45; ingen ETA räknades 11:49–12:13) +11,3 |
++| för långt från stillheten (> 200 m) | 3 | 2 | 0 | — (MARIANNE 20260525, 454 m) |
++| bort från målbron (riktningskravet) | 2 | 0 | 0 | — |
++
++Skälen och vad som krävs för att fånga dem står i ARCHITECTURE §8 (e). Klassen
++hör till ETA-etappen (familj E2 och senare).
++
++*Mätanmärkning.* `measure:eta` tappade renderingsposter
++(`attribution: rendering-saknas`) i slutet av en korpus när maskinen var hårt
++lastad (lastsnitt 16–25 på fyra kärnor). Det gällde 3–38 påståenden i en eller
++två korpusar per körning, och en omkörning gav 0. Orsaken är att
++`replayRunner.js` avslutar med `process.exit` i stdout-callbacken medan
++skrivningar till en stderr-pipe är asynkrona på Linux, så stderr-svansen kan
++slängas. Mätningarna ovan är tagna i körningar med noll saknade renderingar.
++Kontrollera `rendering-saknas` = 0 innan en mätning används, tills harnessen
++tömmer stderr före exit.
++
+ ## Fältprov / ny korpus (så samlas verklighet in)
+ 
+ **Hel-loggsjämförelse (2026-09-06):**
+diff --git a/lib/services/ProgressiveETACalculator.js b/lib/services/ProgressiveETACalculator.js
+index 12bf4c0..b4068e1 100644
+--- a/lib/services/ProgressiveETACalculator.js
++++ b/lib/services/ProgressiveETACalculator.js
+@@ -8,6 +8,7 @@ const {
+   WAITING_STATUS_MAX_ETA_MINUTES,
+   MIN_PASSAGE_ROUTE_SPEED_KNOTS,
+   MOORING_DETECTION,
++  VESSEL_GRAVE,
+ } = require('../constants');
+ const {
+   isValidVesselCoordinates, isValidSpeed, safeDivision, isValidDistance,
+@@ -54,6 +55,124 @@ const GPS_FALLBACK_MAX_CONSECUTIVE = 3;
+ // dublett som en ändring inte hade fått effekt genom. En ny export hade
+ // återskapat den fällan, så talet står lokalt med källhänvisning.
+ const STRAX_THRESHOLD_MINUTES = 3;
++
++// Familj E (rättningskampanjen 2026-11-04, F04): RASK KANALFART. Samma 4 kn som
++// E-F7:s decaygolv i _applyIdleDecay redan räknar med ("under det får decayn
++// aldrig lova"). Talet stod tidigare bara som literal där; nu läser BÅDA
++// ställena samma konstant, så kopplingen syns (samma grepp som H22 gjorde med
++// MOVEMENT_SOG_KNOTS).
++const BRISK_CANAL_SPEED_KNOTS = 4;
++
++// Familj E (F04): AVGÅNGSKONTEXTEN. När en båt som legat still rapporterar sitt
++// första sampel med verklig fart (>= MOVEMENT_SOG_KNOTS) är farten
++// IGÅNGSÄTTNINGSFARTEN: båten accelererar, och restiden till målbron styrs av
++// farten under resten av anloppet, inte av farten i startögonblicket.
++// Två fel samverkade (ARCHITECTURE.md "avgångs-ETA räknas på igångsättnings-
++// fart", ANYA ELAN-klassen; buggjägarens värld 884: "om 27 minuter" för
++// verkliga 3,1):
++//   1. Fartbufferten medlade in väntans 0-sampel: [0, 0, 1,6] ⇒ 0,53 kn ⇒ rå-ETA
++//      29,5 min. Gap-reseten (> 3 min sedan förra beräkningen) tömmer bufferten
++//      först EFTER rå-ETA:n, så meddelandevägens 29,5 blev ny baslinje och
++//      snapshot-vägens bättre 9,8 dömdes som dramatic_decrease mot den
++//      (outlier-blandning 70/30 + EMA ⇒ 27,1).
++//   2. Även en ren buffert [1,6] ger 9,8 min mot verkliga 3,1: farten i
++//      startögonblicket är inte farten under resten av anloppet.
++// Rättningen har tre delar:
++//   a. Väntans sampel lämnar fartbufferten när avgången syns
++//      (_noteDepartureSample), så snittet bara bär genomfartens egna sampel.
++//   b. Ett GOLV för farten som följer den uppmätta accelerationen ett sampel
++//      framåt, aldrig ett antagande om marschfarten:
++//        • i avgångssampelt: dubbla igångsättningsfarten
++//          (DEPARTURE_FIRST_SAMPLE_GAIN) — båten antas vinna lika mycket fart
++//          till nästa sampel som den vann från stillheten till det första;
++//        • medan farten stiger: senaste farten plus senaste ökningen, och
++//          golvet sjunker inte under igångsättningen;
++//        • båda högst rask kanalfart (BRISK_CANAL_SPEED_KNOTS).
++//      När farten slutar stiga dras antagandet tillbaka mjukt
++//      (_releaseDepartureFloor): golvet ligger kvar inom fartbruset
++//      (DEPARTURE_SPEED_NOISE_KN) över toppfarten och sjunker i samma takt som
++//      avståndet till målbron krymper, så att ett tillbakadraget antagande
++//      inte ensamt höjer prognosen. Golvet går aldrig under aktuell fart, och
++//      kontexten slutar när buffertens snitt har hunnit ikapp. Den slutar
++//      direkt om båten stannar (< MOVEMENT_SOG_KNOTS) eller saktar in mer än
++//      fartbruset under toppfarten, och senast efter
++//      DEPARTURE_CONTEXT_MAX_AGE_MS.
++//   c. Golvet får aldrig ENSAMT lova "strax" (M9-principen, samma som
++//      idle-decayns golv): när golvet bestämde farten, den uppmätta farten
++//      inte hade gett strax och imminent-flaggan inte äger klausulen hålls
++//      ETA:n på STRAX_THRESHOLD_MINUTES. Hållet värde är en spärr för
++//      presentationen, inte en mätning: nästa sampels EMA räknar från det
++//      ohållna värdet när det samplets egen mätning lovar strax (V4-principen,
++//      se _processETAWithProtection).
++// VARFÖR INTE 4 KN DIREKT (andra granskningen): ett fast golv på rask
++// kanalfart medan farten steg gav för låg ETA för båtar som planar ut under
++// 4 kn, och texten hoppade upp när golvet släpptes. Granskarens syntetiska
++// avgångar: "om 3" mot sanning 6 vid Klaffbron och "om 11 → 14 → 16" mot sanning
++// 23 från Olidebron. I platåklassen 2,0–3,5 kn från tre platser
++// (docs/VALIDATION.md §ETA-mätharnessen, "Familj E") minskar de tidsviktade
++// sampel som är minst 2 min för optimistiska från 174 till 23, och fallen med
++// uppsteg från 56 till 36 (7699cbe har 39).
++// STILLHETEN MÅSTE VARA BELAGD OCH AVGÅNGEN SYNAS PÅ PLATS:
++//   • minst DEPARTURE_STILL_SAMPLES buffrade sampel, ALLA under
++//     MOORING_DETECTION.MOVEMENT_PROOF_SOG_KN (0,5 kn — projektets
++//     rörelsebevis, "≥ detta någon gång = bevisad rörelse"). Samma krav som
++//     waitingBridge ställer på väntan: en ensam fix är aldrig stillhet.
++//     Bufferten rymmer tre sampel, så efter rörelse krävs i praktiken TRE
++//     stillasampel; efter en tömd buffert (gap-reset, målbyte) räcker två.
++//     Långsam gång (0,5–0,99 kn, kajdrift, krypfart) är ingen väntan.
++//   • avgångssampelt ligger högst VESSEL_GRAVE.MAX_REBIRTH_DIST_M (200 m) från
++//     det senaste stillasamplet. Samma fråga som gravens återfödelse "på
++//     plats" (en kajliggares svaj mot äkta förflyttning), samma svar. En båt
++//     som hörs igen långt från stillheten har redan varit på väg länge
++//     (MARIANNE 20260525: 454 m och 3,8 kn efter 11 min tystnad) — då är
++//     farten inte längre igångsättningsfart.
++//   • avståndet till målbron har minskat sedan stillheten. En båt som vänder
++//     bort från målbron får ingen nedräkning mot den.
++// PRÖVAT OCH ÅTERTAGET (mätt mot 7699cbe, docs/VALIDATION.md §ETA-mätharnessen
++// "Familj E"): stillhet = alla sampel < 1,0 kn (15 korpusar, ny fatal
++// ETA-oscillation i 20260708-21h); golvet även när båten saktar in (4→5-vobbel
++// i 20260525); jämn fart som acceleration (strax → om 4 → strax i fyra av
++// buggjägarens 2000 standardvärldar); ett eget stillhetsminne utanför
++// fartbufferten som överlever gap-reset och målbyte och nöjer sig med de två
++// senaste stillasamplen (fångar ANTJE 20260804-both-21h men gör 8–17 mätta
++// påståenden sämre, bl.a. ELFKUNGEN och en notis för YOLO 2); fast golv på
++// 4 kn medan farten stiger (platåklassen ovan); golvet släppt direkt när
++// farten slutar stiga (fartbrus mitt i accelerationen gav "4 → 5 → 4"); golvet
++// släppt bara i avståndets takt utan bandet kring toppfarten (en båt som höll
++// jämn låg fart fick "om 3" kvar i minuter mot sanning 6).
++// INGET SAMPELTAK: ett första utkast släppte golvet efter tre rörliga sampel
++// (filens "mönster"-enhet). Då innehöll bufferten fortfarande accelerationens
++// låga sampel, och ETA:n hoppade UPP mitt i anloppet (syntetisk avgång 450 m
++// före Klaffbron i 1,4 → 2,0 → 2,6 → 3,2 → 3,8 kn: "om 4 → om 3 → om 4 →
++// strax"). Igångsättningen slutar i stället när farten slutar stiga och
++// bufferten har hunnit ikapp.
++// VARFÖR 5 MIN: en båt med klass B-sändare hörs ungefär var 60–70:e sekund, och
++// verkliga avgångar i banken accelererar under fyra–fem sampel (MS JUTLAND
++// 20260804-both-21h 1,0 → 4,5 kn på 4,5 min, DIANA 20260823-24h 1,9 → 6,0 kn på
++// 3,4 min). Med tre minuter släpptes golvet mitt i en sådan igångsättning.
++// K6 (ARCHITECTURE §8 e) rörs inte: dubbelkörningen, gap-resetens placering,
++// outliergrindens 30 s-fönster och emaAlpha är oförändrade. Avgången nycklas
++// på fartbuffertens sampelnyckel, så de två passen ger samma värde.
++const DEPARTURE_STILL_SAMPLES = 2;
++const DEPARTURE_CONTEXT_MAX_AGE_MS = 5 * 60 * 1000;
++const DEPARTURE_MAX_DISTANCE_FROM_STILL_M = VESSEL_GRAVE.MAX_REBIRTH_DIST_M;
++// Igångsättningen från stillhet antas fortsätta ett sampel till: avgångssampelts
++// fart gånger två (lika mycket fart till, som från stillheten till det första
++// samplet). I bankens rådata är kvoten mellan andra och första rörliga sampel
++// efter stillhet oftast 1,1–2,9 (median ~1,5); dubbleringen ligger i övre
++// kvartilen och golvet blir rask kanalfart först från 2,0 kn.
++const DEPARTURE_FIRST_SAMPLE_GAIN = 2;
++// Fartbruset: samma 0,3 kn som projektets stillhetsgräns (GPS-brusnivån,
++// MOORING_DETECTION.STATIONARY_SOG_KN). Inom bandet kring toppfarten är en
++// skillnad brus — båten har varken slutat accelerera på riktigt eller saktat in.
++const DEPARTURE_SPEED_NOISE_KN = MOORING_DETECTION.STATIONARY_SOG_KN;
++
++// E-F9 (2026-07-01): ett AIS-sampels IDENTITET är position + fart + kurs, inte
++// vessel.timestamp (bearbetningstid — dubbelt levererade identiska ramar fick
++// nya nycklar). Fartbufferten och avgångskontexten nycklar på samma sätt.
++function sampleKeyOf(vessel) {
++  return `${vessel.lat}:${vessel.lon}:${vessel.sog}:${vessel.cog}`;
++}
+ // M9b (fixrunda 4b, 2026-08-23): HÄR STOD TIDIGARE `IMMINENT_RADIUS_M = 300`,
+ // en LOKAL KOPIA av imminent-radien som jämfördes rått mot avståndet nedan.
+ // Kopian var defekt av samma slag som M2 och M37 i samma leverans handlar om:
+@@ -119,6 +238,25 @@ class ProgressiveETACalculator {
+     // (då är serien bruten) och städas tillsammans med fartbuffertarna.
+     this._gpsFallbackStreak = new Map(); // Map<mmsi, number>
+ 
++    // Familj E (F04): pågående igångsättning per fartyg — se
++    // DEPARTURE_STILL_SAMPLES högst upp i filen. {atMs, samples, lastKey,
++    // lastSog, peakSog, floorKn, released, lastDistance, stillLat, stillLon,
++    // floorKey, floorRatio}: när avgången sågs, antal stigande sampel sedan
++    // dess (för loggen), senaste sampelnyckel (samma nyckel som fartbufferten,
++    // så K6-dubbelkörningen inte räknar ett sampel två gånger), senaste
++    // sampelts fart, högsta farten sedan avgången, golvet i knop, om
++    // antagandet har dragits tillbaka (farten har slutat stiga), avståndet
++    // till målbron i senaste samplet (golvet släpps i avståndets takt),
++    // stillhetens position (riktningskravet) samt nyckeln och fartkvoten för
++    // det sampel där golvet senast bestämde farten (M9-kravet). Gap-reseten
++    // rör den INTE: avgången hör till samma sampel som reseten.
++    this._departures = new Map();
++
++    // Familj E (F04): positionen för fartygets senaste buffrade STILLASAMPEL
++    // (< MOVEMENT_PROOF_SOG_KN), för närhetskravet vid avgången. Följer
++    // fartbufferten: skrivs och raderas per nytt sampel och städas med den.
++    this._lastStillSample = new Map(); // Map<mmsi, {lat, lon}>
++
+     // Cleanup timer for ETA history (disabled in test mode to avoid lingering timers)
+     if (process.env.NODE_ENV === 'test' || global.__TEST_MODE__) {
+       this._historyCleanupTimer = null;
+@@ -647,9 +785,36 @@ class ProgressiveETACalculator {
+     // tvåtermsformen behålls tills en egen A/B mot measure:eta motiverar
+     // förenklingen.
+     const vesselIsMoving = avgSpeed >= MOVEMENT_SOG_KNOTS || !allBufferedSlow;
+-    const minRouteSpeed = (hasRecentPassageContext && vesselIsMoving)
++    let minRouteSpeed = (hasRecentPassageContext && vesselIsMoving)
+       ? MIN_PASSAGE_ROUTE_SPEED_KNOTS
+       : 0.5;
++    // Familj E (F04): en båt i avgångskontext accelererar — räkna inte på
++    // igångsättningsfarten utan på avgångsgolvet, som följer den uppmätta
++    // accelerationen ett sampel framåt (se DEPARTURE_STILL_SAMPLES).
++    if (this._inDepartureContext(vessel, actualSpeed)) {
++      const departure = this._departures.get(vessel.mmsi);
++      const measuredSpeed = Math.max(baseSpeed, minRouteSpeed);
++      if (measuredSpeed < departure.floorKn) {
++        this.logger.debug(
++          `🚀 [ETA_DEPARTURE_FLOOR] ${vessel.mmsi}: avgång från stillhet `
++          + `(${actualSpeed.toFixed(1)}kn, snitt ${avgSpeed.toFixed(1)}kn, `
++          + `sampel ${departure.samples} i igångsättningen${departure.released ? ', antagandet släpps' : ''}) — `
++          + `räknar med golvet ${departure.floorKn.toFixed(2)}kn`,
++        );
++        // Golvet BESTÄMDE farten för det här sampelt — M9-kravet i
++        // _processETAWithProtection läser markeringen och kvoten mellan
++        // golvet och den uppmätta farten (rå-ETA:n är omvänt proportionell
++        // mot farten i alla beräkningsvägar).
++        departure.floorKey = sampleKeyOf(vessel);
++        departure.floorRatio = departure.floorKn / measuredSpeed;
++        minRouteSpeed = departure.floorKn;
++      } else if (departure.released) {
++        // Farten har slutat stiga och buffertens snitt har hunnit ikapp
++        // golvet: igångsättningen är över. Båda passen i K6-dubbelkörningen
++        // ger samma fart, eftersom golvet inte längre binder.
++        this._departures.delete(vessel.mmsi);
++      }
++    }
+     const effectiveSpeed = Math.max(baseSpeed, minRouteSpeed);
+ 
+     if (!isValidSpeed(effectiveSpeed) || effectiveSpeed <= 0) {
+@@ -696,9 +861,10 @@ class ProgressiveETACalculator {
+     // (bearbetningstid), så dubbelt levererade identiska AIS-frames fick NYA
+     // nycklar och dubbelpushades (halverad buffertdiversitet), medan hand-
+     // byggda testobjekt utan timestamp gav konstant nyckel som svalde allt.
+-    const sampleKey = `${vessel.lat}:${vessel.lon}:${vessel.sog}:${vessel.cog}`;
++    const sampleKey = sampleKeyOf(vessel);
+     if (this._speedBufferSampleKeys.get(mmsi) !== sampleKey) {
+       this._speedBufferSampleKeys.set(mmsi, sampleKey);
++      this._noteDepartureSample(vessel, buffer, currentSog, sampleKey);
+       buffer.push(currentSog);
+     }
+ 
+@@ -713,6 +879,219 @@ class ProgressiveETACalculator {
+     return sum / buffer.length;
+   }
+ 
++  /**
++   * Familj E (F04): bokför ett NYTT fartsampel mot avgångskontexten. Anropas
++   * bara när sampelnyckeln är ny (samma villkor som pushen i fartbufferten).
++   * Ordningen per sampel:
++   *   1. en pågående igångsättning förs vidare (_advanceDeparture);
++   *   2. ett rörligt sampel efter belagd stillhet, på plats och närmare
++   *      målbron än stillheten, är en avgång: väntans sampel lämnar
++   *      fartbufferten, kontexten börjar och golvet blir dubbla
++   *      igångsättningsfarten (högst rask kanalfart);
++   *   3. positionen för senaste stillasampel bokförs (närhetskravet).
++   * Belagd stillhet = minst DEPARTURE_STILL_SAMPLES buffrade sampel, ALLA
++   * under MOORING_DETECTION.MOVEMENT_PROOF_SOG_KN. Bufferten rymmer tre sampel,
++   * så efter rörelse krävs i praktiken tre stillasampel (ankomstfarten ligger
++   * kvar tills den skjutits ut); efter en tömd buffert räcker två.
++   * @param {Object} vessel - fartyget (position och målbro)
++   * @param {number[]} buffer - fartbufferten FÖRE pushen (töms vid avgång)
++   * @param {number} sog - det nya sampelts fart
++   * @param {string} key - sampelnyckeln
++   * @private
++   */
++  _noteDepartureSample(vessel, buffer, sog, key) {
++    const { mmsi } = vessel;
++    const moving = Number.isFinite(sog) && sog >= MOVEMENT_SOG_KNOTS;
++    const departure = this._departures.get(mmsi);
++    if (departure && departure.lastKey !== key) {
++      this._advanceDeparture(vessel, departure, sog, key);
++    }
++
++    const still = this._lastStillSample.get(mmsi);
++    if (moving && still && buffer.length >= DEPARTURE_STILL_SAMPLES
++        && buffer.every((s) => s < MOORING_DETECTION.MOVEMENT_PROOF_SOG_KN)
++        && this._departsFromStillness(vessel, still)) {
++      const floorKn = Math.min(BRISK_CANAL_SPEED_KNOTS, DEPARTURE_FIRST_SAMPLE_GAIN * sog);
++      this.logger.debug(
++        `🚀 [ETA_DEPARTURE] ${mmsi}: första rörliga sampel (${sog.toFixed(1)}kn) efter stillhet `
++        + `[${buffer.map((s) => s.toFixed(1)).join(', ')}] — väntans sampel lämnar fartbufferten, `
++        + `golv ${floorKn.toFixed(1)}kn`,
++      );
++      buffer.length = 0;
++      this._departures.set(mmsi, {
++        atMs: Date.now(),
++        samples: 1,
++        lastKey: key,
++        lastSog: sog,
++        peakSog: sog,
++        floorKn,
++        released: false,
++        lastDistance: this._getDistanceToTarget(vessel),
++        stillLat: still.lat,
++        stillLon: still.lon,
++        floorKey: null,
++        floorRatio: 1,
++      });
++    }
++
++    if (Number.isFinite(sog) && sog < MOORING_DETECTION.MOVEMENT_PROOF_SOG_KN) {
++      this._lastStillSample.set(mmsi, { lat: vessel.lat, lon: vessel.lon });
++    } else {
++      this._lastStillSample.delete(mmsi);
++    }
++  }
++
++  /**
++   * Familj E (F04): för en pågående igångsättning vidare med ett nytt sampel.
++   *   • Båten har stannat (< MOVEMENT_SOG_KNOTS) eller saktat in mer än
++   *     fartbruset under toppfarten: kontexten slutar, buffertens snitt är
++   *     åter rätt mått.
++   *   • Farten STIGER (strikt, och efter ett tillbakadraget antagande först
++   *     över toppfarten): golvet blir senaste farten plus senaste ökningen —
++   *     ett sampel till av samma acceleration — men aldrig lägre än förut och
++   *     högst rask kanalfart.
++   *   • Annars (jämn fart inom bruset): antagandet dras tillbaka mjukt, se
++   *     _releaseDepartureFloor.
++   * @param {Object} vessel - fartyget i det nya samplet
++   * @param {Object} departure - kontexten i this._departures
++   * @param {number} sog - det nya sampelts fart
++   * @param {string} key - sampelnyckeln
++   * @private
++   */
++  _advanceDeparture(vessel, departure, sog, key) {
++    const moving = Number.isFinite(sog) && sog >= MOVEMENT_SOG_KNOTS;
++    if (!moving || sog < departure.peakSog - DEPARTURE_SPEED_NOISE_KN) {
++      this._departures.delete(vessel.mmsi);
++      return;
++    }
++    const distance = this._getDistanceToTarget(vessel);
++    if (sog > departure.lastSog && (!departure.released || sog > departure.peakSog)) {
++      const gain = sog - departure.lastSog;
++      departure.floorKn = Math.min(BRISK_CANAL_SPEED_KNOTS, Math.max(departure.floorKn, sog + gain));
++      departure.peakSog = Math.max(departure.peakSog, sog);
++      departure.released = false;
++      departure.samples += 1;
++    } else {
++      this._releaseDepartureFloor(departure, sog, distance);
++    }
++    departure.lastKey = key;
++    departure.lastSog = sog;
++    departure.lastDistance = distance;
++  }
++
++  /**
++   * Familj E (F04): farten har slutat stiga — dra tillbaka antagandet om
++   * fortsatt acceleration utan att det ENSAMT höjer prognosen:
++   *   • golvet sjunker högst i samma takt som avståndet till målbron krymper
++   *     (rå-ETA:n = avstånd / fart står då still i stället för att stiga);
++   *   • men ligger aldrig mer än fartbruset (DEPARTURE_SPEED_NOISE_KN) över
++   *     toppfarten — ett större antagande skärs ned direkt, så en båt som
++   *     redan i första samplet hade sin marschfart rättas genast i stället för
++   *     att få för låg ETA i minuter;
++   *   • och aldrig under aktuell fart (den eftersläpande buffertens snitt bär
++   *     fortfarande accelerationens låga sampel).
++   * Kontexten slutar i _getEffectiveSpeed när buffertens snitt har hunnit
++   * ikapp golvet.
++   * @param {Object} departure - kontexten i this._departures
++   * @param {number} sog - aktuell fart
++   * @param {number|null} distance - aktuellt avstånd till målbron (m)
++   * @private
++   */
++  _releaseDepartureFloor(departure, sog, distance) {
++    const shrink = (Number.isFinite(distance) && Number.isFinite(departure.lastDistance)
++      && departure.lastDistance > 0)
++      ? Math.min(1, distance / departure.lastDistance) : 1;
++    departure.floorKn = Math.max(
++      sog,
++      Math.min(departure.floorKn * shrink, departure.peakSog + DEPARTURE_SPEED_NOISE_KN),
++    );
++    departure.released = true;
++  }
++
++  /**
++   * Familj E (F04): syns avgången på platsen där båten låg still, och på väg
++   * mot målbron? Avgångssampelt får ligga högst
++   * DEPARTURE_MAX_DISTANCE_FROM_STILL_M från det senaste stillasamplet, och
++   * avståndet till målbron måste ha minskat sedan dess.
++   * @param {Object} vessel - fartyget i avgångssampelt
++   * @param {{lat: number, lon: number}} still - senaste stillasamplets position
++   * @returns {boolean} sant om sampelt är en avgång från stillheten
++   * @private
++   */
++  _departsFromStillness(vessel, still) {
++    if (!Number.isFinite(still.lat) || !Number.isFinite(still.lon)
++        || !isValidVesselCoordinates(vessel)) return false;
++    const moved = geometry.calculateDistance(still.lat, still.lon, vessel.lat, vessel.lon);
++    if (!Number.isFinite(moved) || moved > DEPARTURE_MAX_DISTANCE_FROM_STILL_M) return false;
++    return this._closerToTargetThan(vessel, still.lat, still.lon);
++  }
++
++  /**
++   * Familj E (F04): är fartyget närmare sin målbro nu än i den givna
++   * positionen? Riktningskravet för avgångskontexten — en båt som vänder bort
++   * från målbron får ingen nedräkning mot den.
++   * @param {Object} vessel - fartyget (aktuell position och målbro)
++   * @param {number} lat - jämförelsepositionens latitud
++   * @param {number} lon - jämförelsepositionens longitud
++   * @returns {boolean} sant om avståndet till målbron har minskat
++   * @private
++   */
++  _closerToTargetThan(vessel, lat, lon) {
++    const target = vessel.targetBridge ? this.bridgeRegistry.getBridgeByName(vessel.targetBridge) : null;
++    if (!target || !Number.isFinite(target.lat) || !Number.isFinite(target.lon)) return false;
++    const now = this._getDistanceToTarget(vessel);
++    const then = geometry.calculateDistance(lat, lon, target.lat, target.lon);
++    return Number.isFinite(now) && Number.isFinite(then) && now < then;
++  }
++
++  /**
++   * Familj E (F04): är fartyget i avgångskontext just nu? Kräver verklig fart
++   * i det aktuella sampelt, högst DEPARTURE_CONTEXT_MAX_AGE_MS sedan avgången
++   * och att båten är närmare målbron än där den låg still. Hur golvet följer
++   * farten prövas per sampel i _advanceDeparture. En utgången kontext städas
++   * här.
++   * @param {Object} vessel - fartyget
++   * @param {number} sog - aktuell fart
++   * @returns {boolean} sant under igångsättningen
++   * @private
++   */
++  _inDepartureContext(vessel, sog) {
++    const departure = this._departures.get(vessel.mmsi);
++    if (!departure) return false;
++    if (Date.now() - departure.atMs > DEPARTURE_CONTEXT_MAX_AGE_MS) {
++      this._departures.delete(vessel.mmsi);
++      return false;
++    }
++    return Number.isFinite(sog) && sog >= MOVEMENT_SOG_KNOTS
++      && this._closerToTargetThan(vessel, departure.stillLat, departure.stillLon);
++  }
++
++  /**
++   * Familj E (F04): bestämde avgångsgolvet farten för det här sampelt? Läses
++   * av M9-kravet i _processETAWithProtection: en antagen fart får aldrig
++   * ensamt lova "strax".
++   * @param {Object} vessel - fartyget
++   * @returns {boolean} sant om golvet bestämde farten för aktuellt sampel
++   * @private
++   */
++  _departureFloorDecided(vessel) {
++    const departure = this._departures.get(vessel.mmsi);
++    return Boolean(departure && departure.floorKey && departure.floorKey === sampleKeyOf(vessel));
++  }
++
++  /**
++   * Familj E (F04): rå-ETA:n räknad på den UPPMÄTTA farten i stället för
++   * golvet, för det sampel där golvet bestämde farten (annars null).
++   * @param {Object} vessel - fartyget
++   * @param {number} rawETA - rå-ETA:n på golvfarten
++   * @returns {number|null} rå-ETA på uppmätt fart, eller null
++   * @private
++   */
++  _departureMeasuredETA(vessel, rawETA) {
++    if (!this._departureFloorDecided(vessel) || !Number.isFinite(rawETA)) return null;
++    return rawETA * this._departures.get(vessel.mmsi).floorRatio;
++  }
++
+   // Fable-granskningen 2026-08-10 (FG-D2): getCalculationStats raderad — noll
+   // anropare i hela repot (inkl. tester), och dessutom trasig: failedCalculations
+   // var en const som aldrig inkrementerades, så "failed" rapporterade alltid 0
+@@ -819,6 +1198,12 @@ class ProgressiveETACalculator {
+ 
+   _processETAWithProtection(vessel, rawETA, proximityData) {
+     const mmsi = vessel.mmsi.toString();
++    // Familj E (F04): rå-ETA:n som den kom in (outlierskyddet nedan kan byta
++    // ut rawETA mot en blandning) — M9-kravet för avgångsgolvet läser den.
++    const departureMeasuredETA = this._departureMeasuredETA(vessel, rawETA);
++    // Sampelts egen MÄTNING (utan avgångsgolvets antagande). Läses av
++    // V4-principen i EMA-steget nedan.
++    const measuredETA = departureMeasuredETA !== null ? departureMeasuredETA : rawETA;
+     // StatusService binder väntestatusen till en bestämd bro. Väntan vid
+     // exempelvis Olidebron får inte kapa restiden till målbron Klaffbron.
+     // Fristående kalkylanrop kan i stället ge den närmaste bron i proximity.
+@@ -1048,9 +1433,22 @@ class ProgressiveETACalculator {
+     // STEP 3: EMA SMOOTHING - Apply exponential moving average
+     let smoothedETA = protectedETA;
+     if (history.length > 0) {
+-      const lastProcessedETA = history[history.length - 1].processedETA;
++      const lastEntry = history[history.length - 1];
++      // Familj E (F04), V4-principen (andra granskningen): ett värde som
++      // M9-kravet höll på strax-tröskeln är en spärr för presentationen, inte
++      // en mätning. Lovar det här samplets egen mätning strax räknar EMA:n från
++      // det OHÅLLNA värdet — annars drog det hållna 3,0 nästa notis uppåt
++      // (SKONNERTEN JYLLAND 20260601-41h 07:30:52: "om 3" mot sanning 1,4 där
++      // 7699cbe sa 2). Lovar mätningen inte strax räknar EMA:n från det hållna
++      // värdet, så antagandet inte via utjämningen kan lova strax i nästa
++      // sampel. Historiken lagrar fortfarande det publicerade värdet
++      // (processedETA, E-F6); alla andra skydd läser det.
++      const emaBase = (Number.isFinite(lastEntry.m9UnheldETA)
++        && Number.isFinite(measuredETA) && measuredETA < STRAX_THRESHOLD_MINUTES)
++        ? lastEntry.m9UnheldETA
++        : lastEntry.processedETA;
+       // EMA formula: new_value = alpha * current + (1 - alpha) * previous
+-      smoothedETA = this._emaAlpha * protectedETA + (1 - this._emaAlpha) * lastProcessedETA;
++      smoothedETA = this._emaAlpha * protectedETA + (1 - this._emaAlpha) * emaBase;
+ 
+       const smoothingApplied = Math.abs(smoothedETA - protectedETA) > 0.1;
+       if (smoothingApplied) {
+@@ -1115,11 +1513,40 @@ class ProgressiveETACalculator {
+     }
+     adjustedETA = Math.min(Math.max(adjustedETA, 0.1), 120); // Final bounds: 0.1min to 2 hours
+ 
++    // Familj E (F04): M9-principen för avgångsgolvet. Golvet är ett
++    // ANTAGANDE om farten båten kommer upp i, inte en mätning — precis som
++    // idle-decayns golv i _applyIdleDecay får det därför aldrig ENSAMT lova
++    // "beräknad broöppning strax". Ensamt = golvet bestämde farten för det här
++    // sampelt och rå-ETA:n på den uppmätta farten hade inte lovat strax. Då
++    // hålls ETA:n på strax-tröskeln, om inte imminent-flaggan äger klausulen.
++    // Utan kravet räknade golvet ned en båt som lämnade kön i jämn låg fart
++    // till "strax" och släppte sedan till "om 4 minuter" (fyra av
++    // buggjägarens 2000 standardvärldar, strax → om 4 → strax). När även den
++    // uppmätta farten ger strax är det inte golvet som lovar, och ETA:n går
++    // igenom (SKONNERTEN JYLLAND 20260601-41h 07:30:52: 238 m från
++    // Stridsbergsbron, rå-ETA 1,9 min på golvet och 2,0 min på uppmätta 3,8 kn).
++    // Det ohållna värdet sparas i historiken (m9UnheldETA) för V4-principen i
++    // EMA-steget; processedETA är det hållna, publicerade värdet.
++    let m9UnheldETA = null;
++    if (departureMeasuredETA !== null
++        && departureMeasuredETA >= STRAX_THRESHOLD_MINUTES
++        && vessel._isImminentAtTargetBridge !== true
++        && adjustedETA < STRAX_THRESHOLD_MINUTES) {
++      this.logger.debug(
++        `🚀 [ETA_DEPARTURE_M9] ${mmsi}: avgångsgolvet bestämde farten — `
++        + `${adjustedETA.toFixed(1)}min hålls på ${STRAX_THRESHOLD_MINUTES}min `
++        + '(antagen fart får inte ensam lova strax)',
++      );
++      m9UnheldETA = adjustedETA;
++      adjustedETA = STRAX_THRESHOLD_MINUTES;
++    }
++
+     // STEP 6: RECORD HISTORY - Store this calculation for future reference
+     this._recordETAHistory(mmsi, {
+       rawETA,
+       protectedETA,
+       processedETA: adjustedETA,
++      m9UnheldETA,
+       timestamp: now,
+       targetBridge: vessel.targetBridge,
+       nearestBridge: proximityData?.nearestBridge || null,
+@@ -1284,7 +1711,7 @@ class ProgressiveETACalculator {
+     // under det får decayn aldrig lova. (<300 m tar Fix H-imminent över.)
+     let decayFloor = 0.5;
+     if (Number.isFinite(currentDistance) && currentDistance > 0) {
+-      const briskMPerMin = 4 * 0.5144 * 60; // ≈123 m/min
++      const briskMPerMin = BRISK_CANAL_SPEED_KNOTS * 0.5144 * 60; // ≈123 m/min
+       // R2 2026-07-11 (ER2-1): 12-taket på golvet var kalibrerat mot den
+       // borttagna WAIT_CAP-12:an — för stallbacka-waiting (målbron ≥2000 m)
+       // är ofattat golv 16–21 min, och taket återinförde exakt det
+@@ -1460,6 +1887,19 @@ class ProgressiveETACalculator {
+       }
+     }
+ 
++    // Familj E (F04): samma städregel för avgångskontexten; stillasamplets
++    // position följer fartbufferten.
++    for (const mmsi of this._departures.keys()) {
++      if (!this._etaHistory.has(mmsi) && !tracked(mmsi)) {
++        this._departures.delete(mmsi);
++      }
++    }
++    for (const mmsi of this._lastStillSample.keys()) {
++      if (!this._speedBuffers.has(mmsi)) {
++        this._lastStillSample.delete(mmsi);
++      }
++    }
++
+     if (cleanedVessels > 0) {
+       this.logger.debug(`🧹 [ETA_HISTORY_CLEANUP] Cleaned history for ${cleanedVessels} vessels`);
+     }
+@@ -1491,6 +1931,11 @@ class ProgressiveETACalculator {
+     // och rå-ETA:n går rakt igenom), så budgeten ska börja om.
+     this._gpsFallbackStreak.delete(mmsi);
+ 
++    // Familj E (F04): avgångskontexten och stillasamplets position följer
++    // fartbufferten — tömd buffert betyder att nästa avgång prövas från början.
++    this._departures.delete(mmsi);
++    this._lastStillSample.delete(mmsi);
++
+     // FP6-1 + FP7-1: äkta BRO-TILL-BRO-målbyten OCH hård-stale-dödförklaring
+     // armerar stationär-holden — se _getEffectiveSpeed. Två vägar rensar
+     // historiken vid samma transition (VDS 'target_transition_X_to_Y' och
+@@ -1552,6 +1997,8 @@ class ProgressiveETACalculator {
+     this._speedBuffers.clear();
+     if (this._speedBufferSampleKeys) this._speedBufferSampleKeys.clear();
+     this._gpsFallbackStreak.clear(); // M8: samma städparitet som FG-D4 kräver
++    this._departures.clear(); // Familj E (F04): samma städparitet
++    this._lastStillSample.clear();
+     this.logger.debug('🧮 [ETA_CALCULATOR_V2] Enhanced ETA calculator destroyed');
+   }
+ }
+diff --git a/tests/e-avgangs-eta-2026-11-04.test.js b/tests/e-avgangs-eta-2026-11-04.test.js
+new file mode 100644
+index 0000000..04fc795
+--- /dev/null
++++ b/tests/e-avgangs-eta-2026-11-04.test.js
+@@ -0,0 +1,663 @@
++'use strict';
++
++/**
++ * Familj E (rättningskampanjen 2026-11-04): AVGÅNGS-ETA (buggjägarens F04).
++ *
++ * En båt som väntat stilla och sätter igång fick sin ETA räknad på
++ * igångsättningsfarten. Fartbufferten medlade dessutom in väntans 0-sampel,
++ * och gap-reseten gjorde meddelandevägens uppblåsta värde till ny baslinje,
++ * så snapshot-vägens bättre värde dömdes som outlier. Minsta repro (värld 884,
++ * ALVA vid Järnvägsbron mot Stridsbergsbron): "om 27 minuter" när båten i
++ * själva verket korsade Stridsbergsbron 3,1 min senare (L0 11:34:52).
++ *
++ * Rättningen (ProgressiveETACalculator): väntans sampel lämnar fartbufferten
++ * när avgången syns, och farten räknas på ett golv som följer den uppmätta
++ * accelerationen ett sampel framåt. Villkoren efter granskningarna:
++ *   • stillheten är belagd (alla buffrade sampel under 0,5 kn, minst två);
++ *   • avgångssampelt ligger högst 200 m från senaste stillasampel ("på
++ *     plats", samma radie som gravens återfödelse) — MARIANNE 20260525;
++ *   • båten är närmare målbron än där den låg still (riktningskravet);
++ *   • golvet är dubbla igångsättningsfarten i avgångssampelt och därefter
++ *     senaste farten plus senaste ökningen, medan farten stiger, högst rask
++ *     kanalfart 4 kn — ett fast golv på 4 kn gav för låg ETA och uppsteg för
++ *     båtar som planar ut under 4 kn (andra granskningen: "om 3" mot sanning
++ *     6 vid Klaffbron, "om 11 → 14 → 16" mot sanning 23 från Olidebron);
++ *   • när farten slutar stiga dras antagandet tillbaka mjukt: golvet ligger
++ *     kvar högst fartbruset 0,3 kn över toppfarten och sjunker i avståndets
++ *     takt, aldrig under aktuell fart; inbromsning mer än bruset eller fart
++ *     under 1 kn avslutar kontexten, och den varar högst 5 min;
++ *   • golvet får aldrig ensamt lova "strax" (M9-principen): bestämde golvet
++ *     farten och hade den uppmätta farten inte gett strax hålls ETA:n på
++ *     3 min, om inte imminent-flaggan äger klausulen (värld 595). Nästa
++ *     sampels EMA räknar från det ohållna värdet när det samplets egen mätning
++ *     lovar strax (V4-principen, SKONNERTEN JYLLAND 20260601-41h).
++ *
++ * Fixturen är minsta reprots ALVA-rader 10:58–11:36 (77 rader). De syntetiska
++ * avgångarna byggs här ur scenarioGeneratorns kanalgeometri (deterministiskt).
++ */
++
++const fs = require('fs');
++const os = require('os');
++const path = require('path');
++const { execFileSync } = require('child_process');
++const BridgeRegistry = require('../lib/models/BridgeRegistry');
++const ProgressiveETACalculator = require('../lib/services/ProgressiveETACalculator');
++const { BRIDGES } = require('../lib/constants');
++const {
++  buildPath, pathMetrics, pointAt, BASE_TIME_MS,
++} = require('./replay-validation/scenarioGenerator');
++
++const ROOT = path.resolve(__dirname, '..');
++const RUNNER = path.join(ROOT, 'tests/replay-validation/replayRunner.js');
++const FIXTURE = path.join(__dirname, 'fixtures', 'e-f04-alva-avgang-jarnvagsbron.jsonl');
++const STRIDS = BRIDGES.stridsbergsbron;
++const M_PER_DEG_LAT = 111320;
++const KN_M_PER_MIN = 1852 / 60;
++
++const logger = {
++  log: jest.fn(), debug: jest.fn(), error: jest.fn(), warn: jest.fn(),
++};
++
++function southOfStrids(metres) {
++  return { lat: STRIDS.lat - metres / M_PER_DEG_LAT, lon: STRIDS.lon };
++}
++
++function vesselAt(metres, sog, extra = {}) {
++  return {
++    mmsi: '265000884',
++    targetBridge: 'Stridsbergsbron',
++    status: 'waiting',
++    ...southOfStrids(metres),
++    sog,
++    cog: 33.4,
++    timestamp: Date.now(),
++    lastPositionUpdate: Date.now(),
++    ...extra,
++  };
++}
++
++function runReplay(jsonlPath) {
++  const env = { ...process.env, NODE_OPTIONS: '', REPLAY_VERBOSE: '' };
++  delete env.REPLAY_MONITORING;
++  const out = execFileSync(process.execPath, [RUNNER, jsonlPath], {
++    cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env,
++  });
++  return JSON.parse(out.match(/__REPLAY_JSON__(.*?)__END__/s)[1]);
++}
++
++describe('avgångskontexten i ProgressiveETACalculator', () => {
++  let calc;
++
++  beforeEach(() => {
++    jest.useFakeTimers({ now: Date.parse('2026-06-22T11:30:00Z') });
++    calc = new ProgressiveETACalculator(logger, new BridgeRegistry());
++  });
++
++  afterEach(() => {
++    calc.destroy();
++    jest.useRealTimers();
++  });
++
++  // Ett sampel = ett nytt fartyg-objekt; samma objekt räknas två gånger för att
++  // spegla K6-dubbelkörningen (meddelandevägen + snapshot-vägen).
++  function sample(metres, sog, { dtS = 30 } = {}) {
++    jest.advanceTimersByTime(dtS * 1000);
++    const v = vesselAt(metres, sog);
++    const first = calc._getEffectiveSpeed(v);
++    const second = calc._getEffectiveSpeed(v);
++    return { first, second, v };
++  }
++
++  // Hel beräkning (rå-ETA + skydden) för ett sampel, två pass som i appen.
++  function eta(metres, sog, { dtS = 30, imminent = false } = {}) {
++    jest.advanceTimersByTime(dtS * 1000);
++    const v = vesselAt(metres, sog, { _isImminentAtTargetBridge: imminent });
++    const pass1 = calc.calculateProgressiveETA(v, null);
++    const pass2 = calc.calculateProgressiveETA(v, null);
++    return { pass1, pass2 };
++  }
++
++  function stillAt(metres) {
++    sample(metres, 0.0);
++    sample(metres - 1, 0.1);
++    sample(metres - 2, 0.0);
++  }
++
++  test('första rörliga sampel efter belagd stillhet räknas på dubbla igångsättningsfarten, inte på igångsättningsfarten', () => {
++    stillAt(485);
++    const { first, second } = sample(476, 1.6);
++    expect(first).toBeCloseTo(3.2, 5); // 2 × 1,6 kn: lika mycket fart till som från stillheten
++    expect(second).toBeCloseTo(3.2, 5); // dubbelkörningen ger samma svar
++    // Väntans sampel har lämnat bufferten: bara avgångssampelt finns kvar.
++    expect(calc._speedBuffers.get('265000884')).toEqual([1.6]);
++    expect(calc._departures.get('265000884').samples).toBe(1);
++  });
++
++  test('golvet är högst rask kanalfart, 4 kn', () => {
++    stillAt(485);
++    expect(sample(476, 2.6).first).toBe(4); // 2 × 2,6 = 5,2 kn kapas till 4
++  });
++
++  test('hel ETA-beräkning: värld 884-läget ger restiden i dubbla igångsättningsfarten, inte 27 minuter', () => {
++    stillAt(485);
++    const { pass1, pass2 } = eta(476, 1.6);
++    const expected = 476 / (3.2 * KN_M_PER_MIN); // 4,8 min
++    expect(pass1).toBeCloseTo(expected, 1);
++    expect(pass2).toBeCloseTo(expected, 1);
++  });
++
++  test('golvet följer accelerationen ett sampel framåt så länge farten stiger', () => {
++    stillAt(485);
++    expect(sample(476, 1.0).first).toBeCloseTo(2.0, 5); // 2 × 1,0
++    expect(sample(466, 1.3).first).toBeCloseTo(2.0, 5); // 1,3 + 0,3 = 1,6: golvet sjunker inte
++    expect(sample(452, 1.6).first).toBeCloseTo(2.0, 5); // 1,6 + 0,3 = 1,9
++    expect(sample(435, 1.9).first).toBeCloseTo(2.2, 5); // 1,9 + 0,3
++    expect(sample(395, 3.0).first).toBeCloseTo(4.0, 5); // 3,0 + 1,1 kapas till rask kanalfart
++    expect(calc._departures.get('265000884').released).toBe(false);
++  });
++
++  test('när farten slutar stiga räknas aktuell fart i stället för det eftersläpande snittet, tills snittet hunnit ikapp', () => {
++    stillAt(485);
++    sample(476, 1.6);
++    sample(460, 3.0);
++    sample(430, 3.9);
++    sample(395, 4.4);
++    // Farten står still på 4,4: antagandet om fortsatt acceleration (4 kn,
++    // under toppfarten) dras tillbaka, men bufferten [3,9, 4,4, 4,4] har
++    // snittet 4,23 — båten går 4,4.
++    expect(sample(360, 4.4).first).toBeCloseTo(4.4, 5);
++    expect(calc._departures.get('265000884').released).toBe(true);
++    // Nästa jämna sampel: snittet 4,4 har hunnit ikapp, kontexten är slut.
++    expect(sample(325, 4.4).first).toBeCloseTo(4.4, 5);
++    expect(calc._departures.has('265000884')).toBe(false);
++  });
++
++  test('jämn låg fart efter avgången skär ned antagandet direkt till bruset över toppfarten (standardvärldarna 664, 906, 920, 1113)', () => {
++    stillAt(485);
++    expect(sample(476, 2.2).first).toBe(4);
++    // Farten steg inte: golvet 4 kn skärs ned till 2,2 + 0,3 kn och sjunker
++    // sedan i avståndets takt mot den uppmätta farten.
++    const steady = sample(460, 2.2).first;
++    expect(steady).toBeCloseTo(2.5, 5);
++    const later = sample(444, 2.2).first;
++    expect(later).toBeLessThan(2.5);
++    expect(later).toBeGreaterThanOrEqual(2.2);
++  });
++
++  test('fartbrus inom 0,3 kn under toppfarten släpper inte golvet till snittet', () => {
++    stillAt(485);
++    sample(476, 1.5);
++    sample(461, 2.5); // golvet 2,5 + 1,0 = 3,5
++    const dip = sample(447, 2.4).first; // brus: golvet högst 2,5 + 0,3
++    expect(dip).toBeCloseTo(2.8, 5);
++    const resumed = sample(432, 3.0).first; // över toppfarten: accelerationen fortsätter
++    expect(resumed).toBeCloseTo(3.6, 5);
++    expect(calc._departures.get('265000884').released).toBe(false);
++  });
++
++  test('en båt som saktar in mer än bruset efter avgången får sitt vanliga snitt (gästhamnsbåten MARIANNE)', () => {
++    stillAt(700);
++    expect(sample(690, 3.8).first).toBe(4);
++    const slower = sample(680, 3.2).first; // 0,6 kn under toppfarten: inbromsning
++    expect(slower).toBeCloseTo((3.8 + 3.2) / 2, 5);
++    expect(calc._departures.has('265000884')).toBe(false);
++  });
++
++  test('en båt som stannar igen lämnar kontexten direkt', () => {
++    stillAt(485);
++    expect(sample(476, 1.6).first).toBeCloseTo(3.2, 5);
++    sample(475, 0.3);
++    expect(calc._departures.has('265000884')).toBe(false);
++  });
++
++  test('kontexten har en tidsgräns på fem minuter', () => {
++    stillAt(485);
++    expect(sample(476, 1.6).first).toBeCloseTo(3.2, 5);
++    const within = sample(470, 2.0, { dtS: 4 * 60 }).first; // stigande inom 5 min
++    expect(within).toBeCloseTo(3.2, 5);
++    const late = sample(466, 2.4, { dtS: 2 * 60 }).first; // 6 min efter avgången
++    expect(late).toBeCloseTo((1.6 + 2.0 + 2.4) / 3, 5);
++    expect(calc._departures.has('265000884')).toBe(false);
++  });
++
++  test('långsam gång (0,5–0,99 kn, kajdrift) är ingen avgång', () => {
++    sample(485, 0.6);
++    sample(484, 0.8);
++    sample(483, 0.9);
++    const eff = sample(480, 1.5).first;
++    expect(calc._departures.has('265000884')).toBe(false);
++    expect(eff).toBeCloseTo((0.8 + 0.9 + 1.5) / 3, 5);
++  });
++
++  test('ett ensamt stillasampel är ingen belagd stillhet', () => {
++    sample(485, 0.0);
++    const eff = sample(480, 2.0).first;
++    expect(calc._departures.has('265000884')).toBe(false);
++    expect(eff).toBeCloseTo(1.0, 5); // snitt av [0, 2]
++  });
++
++  test('avgången måste synas på plats: 250 m från stillheten är båten redan på väg (MARIANNE 20260525)', () => {
++    stillAt(700);
++    // AIS-tystnad, och båten hörs igen 250 m längre fram i 3,8 kn.
++    const eff = sample(448, 3.8, { dtS: 11 * 60 }).first;
++    expect(calc._departures.has('265000884')).toBe(false);
++    expect(eff).toBeLessThan(4);
++  });
++
++  test('en båt som kör bort från målbron efter väntan får ingen avgångskontext', () => {
++    stillAt(485);
++    const eff = sample(495, 1.6).first; // söderut, bort från Stridsbergsbron
++    expect(calc._departures.has('265000884')).toBe(false);
++    expect(eff).toBeLessThan(1);
++  });
++
++  test('golvet släpps om båten vänder och hamnar längre från målbron än stillheten', () => {
++    stillAt(485);
++    expect(sample(476, 1.6).first).toBeCloseTo(3.2, 5);
++    const turned = sample(490, 2.4).first; // stigande fart, men nu söder om stillheten
++    expect(turned).toBeCloseTo((1.6 + 2.4) / 2, 5);
++  });
++
++  test('golvet får inte ensamt lova "strax": jämn låg fart 340 m före bron ger 3 min, inte strax', () => {
++    stillAt(345);
++    const { pass1, pass2 } = eta(340, 2.2);
++    // På 4 kn vore det 340 / 123,5 ≈ 2,8 min (strax); på uppmätta 2,2 kn ≈ 5 min.
++    expect(pass1).toBe(3);
++    expect(pass2).toBe(3);
++  });
++
++  test('imminent-flaggan äger strax: då får golvets ETA gå under 3 min', () => {
++    stillAt(345);
++    const { pass1 } = eta(340, 2.2, { imminent: true });
++    expect(pass1).toBeLessThan(3);
++  });
++
++  test('ger även den uppmätta farten strax är det inte golvet som lovar (SKONNERTEN JYLLAND)', () => {
++    stillAt(165);
++    const { pass1 } = eta(160, 3.8);
++    // 160 m: 1,3 min på 4 kn och 1,4 min på uppmätta 3,8 kn — båda under 3.
++    expect(pass1).toBeLessThan(2);
++  });
++
++  // V4-principen (andra granskningen): M9-hållet 3,0 är en spärr för
++  // presentationen. Historikposten bär det ohållna värdet; nästa sampels EMA
++  // räknar från det när det samplets egen mätning lovar strax, annars från det
++  // hållna värdet. Fartyget är här utan avgångskontext, så rå-ETA:n är mätningen.
++  function heldHistory(unheld) {
++    const t = Date.now();
++    calc._etaHistory.set('265000884', [{
++      rawETA: 2.4,
++      protectedETA: 2.4,
++      processedETA: 3,
++      m9UnheldETA: unheld,
++      timestamp: t - 30000,
++      targetBridge: 'Stridsbergsbron',
++      nearestBridge: null,
++      vesselSpeed: 3.4,
++      distance: null,
++      distanceToTarget: null,
++      vesselStatus: 'en-route',
++      waitingAtBridge: null,
++      position: null,
++    }]);
++  }
++
++  test('efter ett M9-hållet värde räknar EMA:n från det ohållna värdet när mätningen själv lovar strax (SKONNERTEN JYLLAND)', () => {
++    heldHistory(2.6);
++    const v = vesselAt(160, 3.8, { status: 'en-route' });
++    const out = calc._processETAWithProtection(v, 1.93, null);
++    expect(out).toBeCloseTo(0.4 * 1.93 + 0.6 * 2.6, 5); // 2,33 — inte 2,56 från det hållna 3,0
++  });
++
++  test('lovar mätningen inte strax räknar EMA:n från det hållna värdet, så antagandet inte kan lova strax via utjämningen', () => {
++    heldHistory(2.6);
++    const v = vesselAt(300, 3.0, { status: 'en-route' });
++    const out = calc._processETAWithProtection(v, 3.4, null);
++    expect(out).toBeCloseTo(0.4 * 3.4 + 0.6 * 3, 5); // 3,16 ("om 3"); från 2,6 hade det blivit 2,92 (strax)
++    expect(out).toBeGreaterThanOrEqual(3);
++  });
++
++  test('historiken lagrar det publicerade, hållna värdet och det ohållna bredvid (E-F6)', () => {
++    stillAt(345);
++    eta(340, 2.2);
++    const last = calc._etaHistory.get('265000884').slice(-1)[0];
++    expect(last.processedETA).toBe(3);
++    expect(last.m9UnheldETA).toBeLessThan(3);
++  });
++
++  test('städningen följer fartbufferten (clear, svep och destroy)', () => {
++    stillAt(485);
++    sample(476, 1.6);
++    expect(calc._departures.has('265000884')).toBe(true);
++    calc.clearVesselETAHistory('265000884', 'vessel_removed');
++    expect(calc._departures.has('265000884')).toBe(false);
++    expect(calc._lastStillSample.has('265000884')).toBe(false);
++
++    stillAt(485);
++    sample(476, 1.6);
++    calc._etaHistory.delete('265000884');
++    calc._cleanupOldETAHistory();
++    expect(calc._departures.has('265000884')).toBe(false);
++
++    stillAt(485);
++    expect(calc._lastStillSample.has('265000884')).toBe(true);
++    sample(476, 1.6);
++    calc.destroy();
++    expect(calc._departures.size).toBe(0);
++    expect(calc._lastStillSample.size).toBe(0);
++  });
++});
++
++describe('avgångs-ETA i hela kedjan (replay av minsta reprots ALVA-rader)', () => {
++  let result;
++
++  beforeAll(() => {
++    result = runReplay(FIXTURE);
++  });
++
++  // L0-sanningen ur minsta reprots tidslinje: ALVA korsar Stridsbergsbron 11:34:52.
++  const TRUE_CROSSING_MS = Date.parse('2026-06-22T11:34:52Z');
++  const DEPARTURE_MS = Date.parse('2026-06-22T11:31:40Z');
++  const minutesOf = (text) => {
++    const m = text.match(/på väg mot Stridsbergsbron, beräknad broöppning om (\d+) minuter/);
++    return m ? Number(m[1]) : null;
++  };
++
++  test('första prognosen efter avgången ligger nära rådatans korsning, inte på 27 minuter', () => {
++    const after = result.bridgeTextTransitions.filter((t) => t.t >= DEPARTURE_MS && minutesOf(t.text) !== null);
++    expect(after.length).toBeGreaterThan(0);
++    const first = after[0];
++    const truthMin = (TRUE_CROSSING_MS - first.t) / 60000;
++    // Golvet antar dubbla igångsättningsfarten (3,2 kn): "om 5" mot sanning
++    // 3,1 i stället för "om 27" — försiktigt, och nedräkningen går därefter
++    // bara nedåt (4, 3, strax).
++    expect(Math.abs(minutesOf(first.text) - truthMin)).toBeLessThanOrEqual(2);
++  });
++
++  test('ingen prognos efter avgången överstiger 6 minuter (förr 27 → 22 → 18 → 14)', () => {
++    const after = result.bridgeTextTransitions
++      .filter((t) => t.t >= DEPARTURE_MS)
++      .map((t) => minutesOf(t.text))
++      .filter((n) => n !== null);
++    expect(Math.max(...after)).toBeLessThanOrEqual(6);
++  });
++
++  test('passagen och väntetexten före avgången är oförändrade', () => {
++    expect(result.targetPassages.map((p) => p.bridge)).toEqual(['Stridsbergsbron']);
++    expect(result.bridgeTextTransitions.some((t) => t.text === 'En båt väntar vid Järnvägsbron på väg mot Stridsbergsbron'))
++      .toBe(true);
++  });
++});
++
++describe('buggjägarens standardvärldar efter granskningen (INV-3 med projektets egen validator)', () => {
++  // Utdrag (20 min före utslaget till 8 min efter) ur motorns världar, bas-seed 1.
++  //   664: ALVA väntar vid Järnvägsbron och kör iväg i jämn låg fart 2,3 kn.
++  //        Prototypen räknade jämn fart som acceleration: "strax → om 4 → strax".
++  //   595: TROLLA avgår 2,0 → 3,1 → 3,1 kn. Utan M9-kravet gav golvet ensamt
++  //        "strax" som släpptes till "om 3" (4 → strax → 3).
++  const { validateInvariants } = require('./replay-validation/invariants');
++  const etaViolations = (result) => validateInvariants(result)
++    .filter((v) => /ETA-OSCILLATION|ETA-SÅGTAND/.test(v));
++
++  test('värld 664: jämn låg fart från kön ger ingen strax-studs', () => {
++    const result = runReplay(path.join(__dirname, 'fixtures', 'e-w664-alva-jamn-avgang.jsonl'));
++    expect(etaViolations(result)).toEqual([]);
++    expect(result.targetPassages.map((p) => p.bridge)).toContain('Stridsbergsbron');
++  });
++
++  test('värld 595: golvet lovar inte ensamt strax (M9)', () => {
++    const result = runReplay(path.join(__dirname, 'fixtures', 'e-w595-trolla-avgang-m9.jsonl'));
++    expect(etaViolations(result)).toEqual([]);
++  });
++});
++
++describe('syntetiska avgångar efter väntan söder om Klaffbron (placeringsberoende)', () => {
++  // Granskningens prov: en båt kör norrut i 4 kn, väntar 6 min stilla 450 m
++  // söder om Klaffbron (litet positionsbrus, nya sampelnycklar) och sätter
++  // sedan igång. Sampel var 30:e sekund.
++  const P = buildPath();
++  const M = pathMetrics(P);
++  const S_KLAFF = M.cum[2];
++  const NORTH = pointAt(P, M, S_KLAFF - 500).bearing;
++  const KLAFF_RX = /på väg mot Klaffbron, beräknad broöppning (?:om (\d+) minuter?|(strax))/;
++
++  function row(t, s, sog, cog, mmsi, jitter = 0) {
++    const p = pointAt(P, M, s);
++    return {
++      mmsi,
++      msgType: 'StandardClassBPositionReport',
++      lat: p.lat + jitter * 1e-6,
++      lon: p.lon - jitter * 1e-6,
++      sog,
++      cog,
++      navStatus: null,
++      shipName: `SYNT-E-${mmsi.slice(-2)}`,
++      aisTimestamp: t,
++      fixTs: t,
++      feed: 'aisstream',
++      receivedAt: new Date(t).toISOString(),
++    };
++  }
++
++  function departure({
++    mmsi, waitBeforeM, speeds, south = false,
++  }) {
++    const rows = [];
++    let s = S_KLAFF - 1400;
++    let t = BASE_TIME_MS;
++    while (s < S_KLAFF - waitBeforeM - 110) {
++      rows.push(row(t, s, 4.0, NORTH, mmsi));
++      s += 4 * 0.5144 * 30;
++      t += 30000;
++    }
++    rows.push(row(t, S_KLAFF - waitBeforeM - 50, 2.0, NORTH, mmsi)); t += 30000;
++    rows.push(row(t, S_KLAFF - waitBeforeM - 15, 1.0, NORTH, mmsi)); t += 30000;
++    for (let i = 0; i < 12; i++) {
++      rows.push(row(t, S_KLAFF - waitBeforeM, i % 3 === 0 ? 0.1 : 0.0, NORTH, mmsi, i % 4));
++      t += 30000;
++    }
++    const departAtMs = t;
++    let ss = S_KLAFF - waitBeforeM;
++    const cog = south ? (NORTH + 180) % 360 : NORTH;
++    for (const v of speeds) {
++      ss += (south ? -1 : 1) * v * 0.5144 * 30;
++      rows.push(row(t, ss, v, cog, mmsi));
++      t += 30000;
++    }
++    return { rows, departAtMs };
++  }
++
++  function replayRows(name, rows) {
++    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'e-avgang-'));
++    const file = path.join(dir, `${name}.jsonl`);
++    fs.writeFileSync(file, `${rows.map((r) => JSON.stringify(r)).join('\n')}\n`);
++    try {
++      return runReplay(file);
++    } finally {
++      fs.rmSync(dir, { recursive: true, force: true });
++    }
++  }
++
++  // Klaffbron-klausulens minutvärden efter avgången (strax = 0), i tidsordning.
++  function klaffMinutesAfter(result, fromMs) {
++    return result.bridgeTextTransitions
++      .filter((t) => t.t >= fromMs)
++      .map((t) => t.text.match(KLAFF_RX))
++      .filter(Boolean)
++      .map((m) => (m[2] ? 0 : Number(m[1])));
++  }
++
++  const ACCEL = [1.4, 2.0, 2.6, 3.2, 3.8, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0];
++
++  test('stigande fart mot bron: nedräkningen går aldrig upp igen (förr "om 4 → om 3 → om 4")', () => {
++    const { rows, departAtMs } = departure({ mmsi: '901009902', waitBeforeM: 450, speeds: ACCEL });
++    const minutes = klaffMinutesAfter(replayRows('accel', rows), departAtMs);
++    expect(minutes.length).toBeGreaterThan(1);
++    for (let i = 1; i < minutes.length; i++) expect(minutes[i]).toBeLessThanOrEqual(minutes[i - 1]);
++    expect(minutes[minutes.length - 1]).toBe(0);
++  });
++
++  test('en båt som vänder bort från bron efter väntan får ingen nedräkning mot den', () => {
++    const { rows, departAtMs } = departure({
++      mmsi: '901009901', waitBeforeM: 450, speeds: ACCEL, south: true,
++    });
++    const result = replayRows('vand', rows);
++    const before = result.bridgeTextTransitions.filter((t) => t.t < departAtMs && KLAFF_RX.test(t.text));
++    const lastBefore = before[before.length - 1].text.match(KLAFF_RX);
++    const floor = lastBefore[2] ? 0 : Number(lastBefore[1]);
++    const after = klaffMinutesAfter(result, departAtMs);
++    expect(after.every((m) => m >= floor)).toBe(true);
++  });
++});
++
++describe('platåklassen: avgångar som planar ut under 4 kn (andra granskningen)', () => {
++  // Granskarens fall (omgranskning 1) från tre platser. Båten kör i 4 kn mot
++  // väntplatsen, ligger still 6 min (litet positionsbrus) och sätter igång i
++  // en fart som planar ut under rask kanalfart. Sanningen är linjekorsningen
++  // av målbron i den genererade geometrin (sampel k ligger fart_k · 30 s
++  // längre fram). Med ett fast golv på 4 kn medan farten steg blev texten
++  // "5 → 4 → 3 → 5" mot sanning 6 vid Klaffbron, "om 3" mot sanning 6,5 från
++  // Järnvägsbron och "13 → 12 → 11 → 14 → 15 → 16" mot sanning 24 från
++  // Olidebron.
++  const P = buildPath();
++  const M = pathMetrics(P);
++  const S = {
++    olide: M.cum[1], klaff: M.cum[2], jarnv: M.cum[3], strids: M.cum[4],
++  };
++  const KN = 0.5144;
++  const PLACES = {
++    klaff: { anchorS: S.klaff, target: 'Klaffbron', targetS: S.klaff },
++    olide: { anchorS: S.olide, target: 'Klaffbron', targetS: S.klaff },
++    jarnv: { anchorS: S.jarnv, target: 'Stridsbergsbron', targetS: S.strids },
++  };
++
++  function row(t, s, sog, mmsi, jitter = 0) {
++    const p = pointAt(P, M, s);
++    return {
++      mmsi,
++      msgType: 'StandardClassBPositionReport',
++      lat: p.lat + jitter * 1e-6,
++      lon: p.lon - jitter * 1e-6,
++      sog,
++      cog: p.bearing,
++      navStatus: null,
++      shipName: `SYNT-PLATA-${mmsi.slice(-2)}`,
++      aisTimestamp: t,
++      fixTs: t,
++      feed: 'aisstream',
++      receivedAt: new Date(t).toISOString(),
++    };
++  }
++
++  function plateauDeparture({
++    mmsi, place, waitBeforeM, speeds, dtS = 30,
++  }) {
++    const pl = PLACES[place];
++    const rows = [];
++    let s = pl.anchorS - waitBeforeM - 1300;
++    let t = BASE_TIME_MS;
++    while (s < pl.anchorS - waitBeforeM - 110) {
++      rows.push(row(t, s, 4.0, mmsi));
++      s += 4 * KN * 30;
++      t += 30000;
++    }
++    rows.push(row(t, pl.anchorS - waitBeforeM - 50, 2.0, mmsi)); t += 30000;
++    rows.push(row(t, pl.anchorS - waitBeforeM - 15, 1.0, mmsi)); t += 30000;
++    for (let i = 0; i < 12; i++) {
++      rows.push(row(t, pl.anchorS - waitBeforeM, i % 3 === 0 ? 0.1 : 0.0, mmsi, i % 4));
++      t += 30000;
++    }
++    const departAtMs = t;
++    let ss = pl.anchorS - waitBeforeM;
++    let crossingMs = null;
++    t -= dtS * 1000;
++    const advance = (v) => {
++      const before = ss;
++      ss += v * KN * dtS;
++      if (crossingMs === null && before < pl.targetS && ss >= pl.targetS) {
++        crossingMs = t + ((pl.targetS - before) / (ss - before)) * dtS * 1000;
++      }
++      t += dtS * 1000;
++      rows.push(row(t, ss, v, mmsi));
++    };
++    speeds.forEach(advance);
++    while (ss < pl.targetS + 400) advance(speeds[speeds.length - 1]);
++    return {
++      rows, departAtMs, crossingMs, target: pl.target,
++    };
++  }
++
++  function replayRows(name, rows) {
++    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'e-plata-'));
++    const file = path.join(dir, `${name}.jsonl`);
++    fs.writeFileSync(file, `${rows.map((r) => JSON.stringify(r)).join('\n')}\n`);
++    try {
++      return runReplay(file);
++    } finally {
++      fs.rmSync(dir, { recursive: true, force: true });
++    }
++  }
++
++  // Målbroklausulens minuttal (strax = 0) från avgången till korsningen, med
++  // sanningen i minuter vid publiceringen.
++  function claims(result, { target, departAtMs, crossingMs }) {
++    const rx = new RegExp(`på väg mot ${target}, beräknad broöppning (?:(strax)|om (\\d+) minuter?)`);
++    return result.bridgeTextTransitions
++      .filter((tr) => tr.t >= departAtMs - 500 && tr.t < crossingMs)
++      .map((tr) => ({ tr, m: tr.text.match(rx) }))
++      .filter(({ m }) => m)
++      .map(({ tr, m }) => ({
++        t: tr.t, v: m[1] ? 0 : Number(m[2]), truth: (crossingMs - tr.t) / 60000,
++      }));
++  }
++
++  function expectCountdown(list) {
++    for (let i = 1; i < list.length; i++) expect(list[i].v).toBeLessThanOrEqual(list[i - 1].v);
++  }
++
++  test('Klaffbron, 480 m söder, 1,1 → 2,0 kn (granskarens platå2): ingen prognos mer än 2 min för låg och inget uppsteg', () => {
++    const dep = plateauDeparture({
++      mmsi: '901009911', place: 'klaff', waitBeforeM: 480, speeds: [1.1, 1.5, 1.9, 2.0],
++    });
++    const list = claims(replayRows('klaff', dep.rows), dep);
++    expect(list.length).toBeGreaterThan(0);
++    for (const c of list.filter((x) => x.v > 0)) expect(c.v).toBeGreaterThanOrEqual(c.truth - 2);
++    expectCountdown(list);
++  });
++
++  test('Järnvägsbron mot Stridsbergsbron, 1,0 → 2,0 kn: inget "om 3" mot sanning 6', () => {
++    const dep = plateauDeparture({
++      mmsi: '901009912', place: 'jarnv', waitBeforeM: 150, speeds: [1.0, 1.3, 1.6, 1.9, 2.0],
++    });
++    const list = claims(replayRows('jarnv', dep.rows), dep);
++    expect(list.length).toBeGreaterThan(0);
++    for (const c of list.filter((x) => x.v > 0)) expect(c.v).toBeGreaterThanOrEqual(c.truth - 2);
++    expectCountdown(list);
++  });
++
++  test('Olidebron mot Klaffbron, 1,0 → 2,0 kn: första prognosen nära sanningen och sedan bara nedåt', () => {
++    const dep = plateauDeparture({
++      mmsi: '901009913', place: 'olide', waitBeforeM: 120, speeds: [1.0, 1.2, 1.4, 1.6, 1.8, 2.0],
++    });
++    // De första 10 minuterna efter avgången (avgångskontexten varar högst 5).
++    // Senare går texten 6 → 7 när passagegolvet 2,5 kn efter Olidebron löper
++    // ut efter 15 min (E-F5) — samma på 7699cbe och utanför den här rättningen.
++    const list = claims(replayRows('olide', dep.rows), dep)
++      .filter((c) => c.t - dep.departAtMs <= 10 * 60000);
++    expect(list.length).toBeGreaterThan(5);
++    // Väntans prognos före avgången räknar redan på rask kanalfart (E-F7:s
++    // decaygolv), så en långsam båt rättas uppåt en gång vid avgången. Efter
++    // det får nedräkningen inte gå upp (förr 11 → 14 → 15 → 16).
++    expect(Math.abs(list[0].v - list[0].truth)).toBeLessThanOrEqual(2);
++    expectCountdown(list);
++  });
++
++  test('fartbrus 2,5 → 2,4 mitt i accelerationen ger inget uppsteg (förr "4 → 5 → 4")', () => {
++    const dep = plateauDeparture({
++      mmsi: '901009914', place: 'klaff', waitBeforeM: 480, speeds: [1.5, 2.5, 2.4, 3.0, 3.5, 3.4, 4.0, 4.2],
++    });
++    const list = claims(replayRows('brus', dep.rows), dep);
++    expect(list.length).toBeGreaterThan(0);
++    expectCountdown(list);
++  });
++});
+diff --git a/tests/fixtures/e-f04-alva-avgang-jarnvagsbron.jsonl b/tests/fixtures/e-f04-alva-avgang-jarnvagsbron.jsonl
+new file mode 100644
+index 0000000..eab8f49
+--- /dev/null
++++ b/tests/fixtures/e-f04-alva-avgang-jarnvagsbron.jsonl
+@@ -0,0 +1,77 @@
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.287280632352186, "lon": 12.286586094754925, "sog": 4.4, "cog": 26.7, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782125897281, "fixTs": 1782125897281, "feed": "aisstream", "receivedAt": "2026-06-22T10:58:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28779334359622, "lon": 12.287218355785493, "sog": 4.4, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782125927281, "fixTs": 1782125927281, "feed": "aisstream", "receivedAt": "2026-06-22T10:58:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.288303758239856, "lon": 12.287858166516045, "sog": 4.4, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782125957281, "fixTs": 1782125957281, "feed": "aisstream", "receivedAt": "2026-06-22T10:59:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28881417163731, "lon": 12.288497981010263, "sog": 4.4, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782125987281, "fixTs": 1782125987281, "feed": "aisstream", "receivedAt": "2026-06-22T10:59:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28932438581076, "lon": 12.28913839719314, "sog": 4.4, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126017281, "fixTs": 1782126017281, "feed": "aisstream", "receivedAt": "2026-06-22T11:00:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28976391789399, "lon": 12.28969009386024, "sog": 2.4, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126047281, "fixTs": 1782126047281, "feed": "aisstream", "receivedAt": "2026-06-22T11:00:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28984943790197, "lon": 12.289816854912342, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126077281, "fixTs": 1782126077281, "feed": "aisstream", "receivedAt": "2026-06-22T11:01:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28983922065208, "lon": 12.289846316155787, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126107281, "fixTs": 1782126107281, "feed": "aisstream", "receivedAt": "2026-06-22T11:01:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28983191331852, "lon": 12.289867386711457, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126137281, "fixTs": 1782126137281, "feed": "aisstream", "receivedAt": "2026-06-22T11:02:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28982668714473, "lon": 12.289882456283015, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126167281, "fixTs": 1782126167281, "feed": "aisstream", "receivedAt": "2026-06-22T11:02:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28982294940752, "lon": 12.28989323397633, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126197281, "fixTs": 1782126197281, "feed": "aisstream", "receivedAt": "2026-06-22T11:03:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28982027619381, "lon": 12.289900942136624, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126227281, "fixTs": 1782126227281, "feed": "aisstream", "receivedAt": "2026-06-22T11:03:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981836432276, "lon": 12.289906454979995, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126257281, "fixTs": 1782126257281, "feed": "aisstream", "receivedAt": "2026-06-22T11:04:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981699696074, "lon": 12.289910397742064, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126287281, "fixTs": 1782126287281, "feed": "aisstream", "receivedAt": "2026-06-22T11:04:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981601902925, "lon": 12.28991321758868, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126317281, "fixTs": 1782126317281, "feed": "aisstream", "receivedAt": "2026-06-22T11:05:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981531961683, "lon": 12.289915234330955, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126347281, "fixTs": 1782126347281, "feed": "aisstream", "receivedAt": "2026-06-22T11:05:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981481940004, "lon": 12.28991667669643, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126377281, "fixTs": 1782126377281, "feed": "aisstream", "receivedAt": "2026-06-22T11:06:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981446164713, "lon": 12.289917708270067, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126407281, "fixTs": 1782126407281, "feed": "aisstream", "receivedAt": "2026-06-22T11:06:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981420578377, "lon": 12.289918446047132, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126437281, "fixTs": 1782126437281, "feed": "aisstream", "receivedAt": "2026-06-22T11:07:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981402279139, "lon": 12.289918973702143, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126467281, "fixTs": 1782126467281, "feed": "aisstream", "receivedAt": "2026-06-22T11:07:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981389191602, "lon": 12.289919351078757, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126497281, "fixTs": 1782126497281, "feed": "aisstream", "receivedAt": "2026-06-22T11:08:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981379831451, "lon": 12.289919620976901, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126527281, "fixTs": 1782126527281, "feed": "aisstream", "receivedAt": "2026-06-22T11:08:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981373137111, "lon": 12.289919814006904, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126557281, "fixTs": 1782126557281, "feed": "aisstream", "receivedAt": "2026-06-22T11:09:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981368349348, "lon": 12.289919952061137, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126587281, "fixTs": 1782126587281, "feed": "aisstream", "receivedAt": "2026-06-22T11:09:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.2898136492516, "lon": 12.289920050796937, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126617281, "fixTs": 1782126617281, "feed": "aisstream", "receivedAt": "2026-06-22T11:10:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.289813624761955, "lon": 12.28992012141236, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126647281, "fixTs": 1782126647281, "feed": "aisstream", "receivedAt": "2026-06-22T11:10:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981360724706, "lon": 12.28992017191621, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126677281, "fixTs": 1782126677281, "feed": "aisstream", "receivedAt": "2026-06-22T11:11:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981359472049, "lon": 12.289920208036346, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126707281, "fixTs": 1782126707281, "feed": "aisstream", "receivedAt": "2026-06-22T11:11:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.289813585761536, "lon": 12.289920233869315, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126737281, "fixTs": 1782126737281, "feed": "aisstream", "receivedAt": "2026-06-22T11:12:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981357935413, "lon": 12.289920252344944, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126767281, "fixTs": 1782126767281, "feed": "aisstream", "receivedAt": "2026-06-22T11:12:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.289813574771586, "lon": 12.289920265558635, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126797281, "fixTs": 1782126797281, "feed": "aisstream", "receivedAt": "2026-06-22T11:13:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.289813571494165, "lon": 12.28992027500901, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126827281, "fixTs": 1782126827281, "feed": "aisstream", "receivedAt": "2026-06-22T11:13:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981356915017, "lon": 12.289920281767879, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126857281, "fixTs": 1782126857281, "feed": "aisstream", "receivedAt": "2026-06-22T11:14:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981356747375, "lon": 12.289920286601792, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126887281, "fixTs": 1782126887281, "feed": "aisstream", "receivedAt": "2026-06-22T11:14:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981356627479, "lon": 12.289920290058987, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126917281, "fixTs": 1782126917281, "feed": "aisstream", "receivedAt": "2026-06-22T11:15:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981356541729, "lon": 12.289920292531557, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126947281, "fixTs": 1782126947281, "feed": "aisstream", "receivedAt": "2026-06-22T11:15:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.289813564804014, "lon": 12.289920294299929, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782126977281, "fixTs": 1782126977281, "feed": "aisstream", "receivedAt": "2026-06-22T11:16:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.2898135643654, "lon": 12.289920295564661, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127007281, "fixTs": 1782127007281, "feed": "aisstream", "receivedAt": "2026-06-22T11:16:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.289813564051705, "lon": 12.289920296469193, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127037281, "fixTs": 1782127037281, "feed": "aisstream", "receivedAt": "2026-06-22T11:17:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981356382735, "lon": 12.28992029711611, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127067281, "fixTs": 1782127067281, "feed": "aisstream", "receivedAt": "2026-06-22T11:17:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.2898135636669, "lon": 12.289920297578782, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127097281, "fixTs": 1782127097281, "feed": "aisstream", "receivedAt": "2026-06-22T11:18:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.289813563552144, "lon": 12.289920297909683, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127127281, "fixTs": 1782127127281, "feed": "aisstream", "receivedAt": "2026-06-22T11:18:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981356347007, "lon": 12.289920298146342, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127157281, "fixTs": 1782127157281, "feed": "aisstream", "receivedAt": "2026-06-22T11:19:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981356341137, "lon": 12.289920298315598, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127187281, "fixTs": 1782127187281, "feed": "aisstream", "receivedAt": "2026-06-22T11:19:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.289813563369385, "lon": 12.289920298436652, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127217281, "fixTs": 1782127217281, "feed": "aisstream", "receivedAt": "2026-06-22T11:20:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.289813563339365, "lon": 12.289920298523228, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127247281, "fixTs": 1782127247281, "feed": "aisstream", "receivedAt": "2026-06-22T11:20:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.289813563317885, "lon": 12.289920298585146, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127277281, "fixTs": 1782127277281, "feed": "aisstream", "receivedAt": "2026-06-22T11:21:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981356330253, "lon": 12.289920298629431, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127307281, "fixTs": 1782127307281, "feed": "aisstream", "receivedAt": "2026-06-22T11:21:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.289813563291546, "lon": 12.289920298661102, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127337281, "fixTs": 1782127337281, "feed": "aisstream", "receivedAt": "2026-06-22T11:22:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.289813563283694, "lon": 12.289920298683754, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127367281, "fixTs": 1782127367281, "feed": "aisstream", "receivedAt": "2026-06-22T11:22:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.289813563278074, "lon": 12.289920298699954, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127397281, "fixTs": 1782127397281, "feed": "aisstream", "receivedAt": "2026-06-22T11:23:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981356327405, "lon": 12.289920298711541, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127427281, "fixTs": 1782127427281, "feed": "aisstream", "receivedAt": "2026-06-22T11:23:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981356327118, "lon": 12.289920298719826, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127457281, "fixTs": 1782127457281, "feed": "aisstream", "receivedAt": "2026-06-22T11:24:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981356326913, "lon": 12.289920298725754, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127487281, "fixTs": 1782127487281, "feed": "aisstream", "receivedAt": "2026-06-22T11:24:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981356326766, "lon": 12.289920298729992, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127517281, "fixTs": 1782127517281, "feed": "aisstream", "receivedAt": "2026-06-22T11:25:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.289813563266605, "lon": 12.289920298733023, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127547281, "fixTs": 1782127547281, "feed": "aisstream", "receivedAt": "2026-06-22T11:25:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981356326585, "lon": 12.289920298735192, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127577281, "fixTs": 1782127577281, "feed": "aisstream", "receivedAt": "2026-06-22T11:26:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981356326531, "lon": 12.289920298736742, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127607281, "fixTs": 1782127607281, "feed": "aisstream", "receivedAt": "2026-06-22T11:26:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981356326493, "lon": 12.28992029873785, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127637281, "fixTs": 1782127637281, "feed": "aisstream", "receivedAt": "2026-06-22T11:27:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981356326465, "lon": 12.289920298738645, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127667281, "fixTs": 1782127667281, "feed": "aisstream", "receivedAt": "2026-06-22T11:27:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981356326446, "lon": 12.289920298739212, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127697281, "fixTs": 1782127697281, "feed": "aisstream", "receivedAt": "2026-06-22T11:28:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981356326432, "lon": 12.289920298739617, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127727281, "fixTs": 1782127727281, "feed": "aisstream", "receivedAt": "2026-06-22T11:28:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981356326422, "lon": 12.289920298739908, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127757281, "fixTs": 1782127757281, "feed": "aisstream", "receivedAt": "2026-06-22T11:29:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981356326415, "lon": 12.289920298740116, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127787281, "fixTs": 1782127787281, "feed": "aisstream", "receivedAt": "2026-06-22T11:29:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981356326409, "lon": 12.289920298740263, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127817281, "fixTs": 1782127817281, "feed": "aisstream", "receivedAt": "2026-06-22T11:30:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.289813563264055, "lon": 12.28992029874037, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127847281, "fixTs": 1782127847281, "feed": "aisstream", "receivedAt": "2026-06-22T11:30:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.28981356326403, "lon": 12.289920298740446, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127877281, "fixTs": 1782127877281, "feed": "aisstream", "receivedAt": "2026-06-22T11:31:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.289891408848526, "lon": 12.289982896534223, "sog": 1.6, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127907281, "fixTs": 1782127907281, "feed": "aisstream", "receivedAt": "2026-06-22T11:31:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.29022933698928, "lon": 12.290369245348527, "sog": 4, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127937281, "fixTs": 1782127937281, "feed": "aisstream", "receivedAt": "2026-06-22T11:32:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.29073648153255, "lon": 12.291000090186827, "sog": 4.4, "cog": 34.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127967281, "fixTs": 1782127967281, "feed": "aisstream", "receivedAt": "2026-06-22T11:32:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.29124563547733, "lon": 12.291643783848302, "sog": 4.4, "cog": 34.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782127997281, "fixTs": 1782127997281, "feed": "aisstream", "receivedAt": "2026-06-22T11:33:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.29176410941998, "lon": 12.292305191538995, "sog": 5, "cog": 34.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782128027281, "fixTs": 1782128027281, "feed": "aisstream", "receivedAt": "2026-06-22T11:33:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.29246269861202, "lon": 12.29327335535671, "sog": 7.4, "cog": 36.6, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782128057281, "fixTs": 1782128057281, "feed": "aisstream", "receivedAt": "2026-06-22T11:34:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.29331672403573, "lon": 12.294471080141099, "sog": 7.7, "cog": 37.2, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782128087281, "fixTs": 1782128087281, "feed": "aisstream", "receivedAt": "2026-06-22T11:34:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.29424189444366, "lon": 12.295800076068334, "sog": 8.9, "cog": 37.2, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782128117281, "fixTs": 1782128117281, "feed": "aisstream", "receivedAt": "2026-06-22T11:35:17.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.29524629437904, "lon": 12.297184067933427, "sog": 8.9, "cog": 34.5, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782128147281, "fixTs": 1782128147281, "feed": "aisstream", "receivedAt": "2026-06-22T11:35:47.281Z"}
++{"mmsi": "265969679", "msgType": "PositionReport", "lat": 58.29627105165851, "lon": 12.298513804114005, "sog": 8.9, "cog": 29.9, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1782128177281, "fixTs": 1782128177281, "feed": "aisstream", "receivedAt": "2026-06-22T11:36:17.281Z"}
+diff --git a/tests/fixtures/e-w595-trolla-avgang-m9.jsonl b/tests/fixtures/e-w595-trolla-avgang-m9.jsonl
+new file mode 100644
+index 0000000..a6b6f90
+--- /dev/null
++++ b/tests/fixtures/e-w595-trolla-avgang-m9.jsonl
+@@ -0,0 +1,75 @@
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.27540307939061, "lon": 12.278642549203884, "sog": 4.7, "cog": 32.1, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785921181224, "fixTs": 1785921181224, "feed": "aisstream", "receivedAt": "2026-08-05T09:13:01.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.275975561025426, "lon": 12.279190662629174, "sog": 4.7, "cog": 23.8, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785921211224, "fixTs": 1785921211224, "feed": "aisstream", "receivedAt": "2026-08-05T09:13:31.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.276565512163295, "lon": 12.279740366063534, "sog": 4.7, "cog": 23.8, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785921241224, "fixTs": 1785921241224, "feed": "aisstream", "receivedAt": "2026-08-05T09:14:01.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.27716332251659, "lon": 12.28022025642313, "sog": 4.7, "cog": 18.3, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785921271224, "fixTs": 1785921271224, "feed": "aisstream", "receivedAt": "2026-08-05T09:14:31.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.277786080840585, "lon": 12.28061505053257, "sog": 4.7, "cog": 18.3, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785921301224, "fixTs": 1785921301224, "feed": "aisstream", "receivedAt": "2026-08-05T09:15:01.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.27841144422889, "lon": 12.280994835832253, "sog": 4.7, "cog": 18.3, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785921331224, "fixTs": 1785921331224, "feed": "aisstream", "receivedAt": "2026-08-05T09:15:31.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.27903917946683, "lon": 12.28135008013593, "sog": 4.7, "cog": 17.3, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785921361224, "fixTs": 1785921361224, "feed": "aisstream", "receivedAt": "2026-08-05T09:16:01.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.27966533232777, "lon": 12.281724982447884, "sog": 4.7, "cog": 17.3, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785921391224, "fixTs": 1785921391224, "feed": "aisstream", "receivedAt": "2026-08-05T09:16:31.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.280295723993156, "lon": 12.282073925252753, "sog": 4.7, "cog": 17.3, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785921421224, "fixTs": 1785921421224, "feed": "aisstream", "receivedAt": "2026-08-05T09:17:01.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.28091149480375, "lon": 12.28248316117652, "sog": 4.7, "cog": 13.9, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785921451224, "fixTs": 1785921451224, "feed": "aisstream", "receivedAt": "2026-08-05T09:17:31.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.28154629858642, "lon": 12.2828016277067, "sog": 4.7, "cog": 13.9, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785921481224, "fixTs": 1785921481224, "feed": "aisstream", "receivedAt": "2026-08-05T09:18:01.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.282186675702114, "lon": 12.283077339134016, "sog": 4.7, "cog": 13.9, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785921511224, "fixTs": 1785921511224, "feed": "aisstream", "receivedAt": "2026-08-05T09:18:31.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.28282097007334, "lon": 12.283393355929988, "sog": 4.7, "cog": 13.2, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785921541224, "fixTs": 1785921541224, "feed": "aisstream", "receivedAt": "2026-08-05T09:19:01.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.28345524316417, "lon": 12.283717632969356, "sog": 4.7, "cog": 13.2, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785921571224, "fixTs": 1785921571224, "feed": "aisstream", "receivedAt": "2026-08-05T09:19:31.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.284100917531234, "lon": 12.283935893839654, "sog": 4.5, "cog": 13.2, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785921601224, "fixTs": 1785921601224, "feed": "aisstream", "receivedAt": "2026-08-05T09:20:01.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.28455079786215, "lon": 12.284213321471636, "sog": 3.1, "cog": 18.3, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785921631224, "fixTs": 1785921631224, "feed": "aisstream", "receivedAt": "2026-08-05T09:20:31.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.28496235012655, "lon": 12.284459534521686, "sog": 3.1, "cog": 18.3, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785921661224, "fixTs": 1785921661224, "feed": "aisstream", "receivedAt": "2026-08-05T09:21:01.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.28537467490158, "lon": 12.284701312923914, "sog": 3.1, "cog": 18.3, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785921691224, "fixTs": 1785921691224, "feed": "aisstream", "receivedAt": "2026-08-05T09:21:31.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.285805231933594, "lon": 12.284935637556275, "sog": 3.1, "cog": 26.7, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785921721224, "fixTs": 1785921721224, "feed": "aisstream", "receivedAt": "2026-08-05T09:22:01.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.286177713721806, "lon": 12.285353039250674, "sog": 3.1, "cog": 26.7, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785921751224, "fixTs": 1785921751224, "feed": "aisstream", "receivedAt": "2026-08-05T09:22:31.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.28656079915123, "lon": 12.28573041460273, "sog": 3.1, "cog": 26.7, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785921781224, "fixTs": 1785921781224, "feed": "aisstream", "receivedAt": "2026-08-05T09:23:01.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.28693999440387, "lon": 12.286122474490453, "sog": 3.1, "cog": 26.7, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785921811224, "fixTs": 1785921811224, "feed": "aisstream", "receivedAt": "2026-08-05T09:23:31.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.287310721138304, "lon": 12.286546501115122, "sog": 3.1, "cog": 26.7, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785921841224, "fixTs": 1785921841224, "feed": "aisstream", "receivedAt": "2026-08-05T09:24:01.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.287692976007236, "lon": 12.286946707957298, "sog": 3.1, "cog": 33.4, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785921871224, "fixTs": 1785921871224, "feed": "aisstream", "receivedAt": "2026-08-05T09:24:31.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.28806239509609, "lon": 12.28737165149307, "sog": 3.1, "cog": 33.4, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785921901224, "fixTs": 1785921901224, "feed": "aisstream", "receivedAt": "2026-08-05T09:25:01.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.2884336625453, "lon": 12.287791258628452, "sog": 3.1, "cog": 33.4, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785921931224, "fixTs": 1785921931224, "feed": "aisstream", "receivedAt": "2026-08-05T09:25:31.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.288793454088044, "lon": 12.288243997848559, "sog": 3.1, "cog": 33.4, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785921961224, "fixTs": 1785921961224, "feed": "aisstream", "receivedAt": "2026-08-05T09:26:01.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.28916987325139, "lon": 12.288649004841426, "sog": 3.1, "cog": 33.4, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785921991224, "fixTs": 1785921991224, "feed": "aisstream", "receivedAt": "2026-08-05T09:26:31.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.28950223757763, "lon": 12.28918084773202, "sog": 3.1, "cog": 33.4, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785922021224, "fixTs": 1785922021224, "feed": "aisstream", "receivedAt": "2026-08-05T09:27:01.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.28986826134076, "lon": 12.289615634284132, "sog": 3.1, "cog": 33.4, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785922051224, "fixTs": 1785922051224, "feed": "aisstream", "receivedAt": "2026-08-05T09:27:31.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.29023067895256, "lon": 12.290060819104177, "sog": 3.1, "cog": 33.4, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785922081224, "fixTs": 1785922081224, "feed": "aisstream", "receivedAt": "2026-08-05T09:28:01.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.29052301213365, "lon": 12.290469643783563, "sog": 1.3, "cog": 34.4, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785922111224, "fixTs": 1785922111224, "feed": "aisstream", "receivedAt": "2026-08-05T09:28:31.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.290535703454815, "lon": 12.290532475983275, "sog": 0, "cog": 34.4, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785922141224, "fixTs": 1785922141224, "feed": "aisstream", "receivedAt": "2026-08-05T09:29:01.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.29052338442742, "lon": 12.290566705753093, "sog": 0, "cog": 34.4, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785922171224, "fixTs": 1785922171224, "feed": "aisstream", "receivedAt": "2026-08-05T09:29:31.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.29051665041592, "lon": 12.290585416943221, "sog": 0, "cog": 34.4, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785922201224, "fixTs": 1785922201224, "feed": "aisstream", "receivedAt": "2026-08-05T09:30:01.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.29049985445461, "lon": 12.290632086365335, "sog": 0, "cog": 34.4, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785922231224, "fixTs": 1785922231224, "feed": "aisstream", "receivedAt": "2026-08-05T09:30:31.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.290491858401765, "lon": 12.290654304275863, "sog": 0, "cog": 34.4, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785922261224, "fixTs": 1785922261224, "feed": "aisstream", "receivedAt": "2026-08-05T09:31:01.224Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.2904753431296, "lon": 12.290700193772384, "sog": 0, "cog": 34.4, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785922291224, "fixTs": 1785922291224, "feed": "aisstream", "receivedAt": "2026-08-05T09:31:31.224Z"}
++{"mmsi": "265946586", "msgType": "PositionReport", "lat": 58.26499513780465, "lon": 12.263275558455993, "sog": 3.5, "cog": 48.2, "navStatus": 0, "shipName": "ELSA MARIA", "aisTimestamp": 1785922307182, "fixTs": 1785922307182, "feed": "aisstream", "receivedAt": "2026-08-05T09:31:47.182Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.29060212056094, "lon": 12.29077313275994, "sog": 2, "cog": 34.4, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785922321224, "fixTs": 1785922321224, "feed": "aisstream", "receivedAt": "2026-08-05T09:32:01.224Z"}
++{"mmsi": "265946586", "msgType": "PositionReport", "lat": 58.265322135177826, "lon": 12.26397066281133, "sog": 3.5, "cog": 48.2, "navStatus": 0, "shipName": "ELSA MARIA", "aisTimestamp": 1785922337182, "fixTs": 1785922337182, "feed": "aisstream", "receivedAt": "2026-08-05T09:32:17.182Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.29095030028358, "lon": 12.291148557509192, "sog": 3.1, "cog": 34.4, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785922351224, "fixTs": 1785922351224, "feed": "aisstream", "receivedAt": "2026-08-05T09:32:31.224Z"}
++{"mmsi": "265946586", "msgType": "PositionReport", "lat": 58.2656727287491, "lon": 12.264625700655856, "sog": 3.5, "cog": 48.2, "navStatus": 0, "shipName": "ELSA MARIA", "aisTimestamp": 1785922367182, "fixTs": 1785922367182, "feed": "aisstream", "receivedAt": "2026-08-05T09:32:47.182Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.29130948848708, "lon": 12.291603195812462, "sog": 3.1, "cog": 34.4, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785922381224, "fixTs": 1785922381224, "feed": "aisstream", "receivedAt": "2026-08-05T09:33:01.224Z"}
++{"mmsi": "265946586", "msgType": "PositionReport", "lat": 58.265991086446064, "lon": 12.265335475242374, "sog": 3.5, "cog": 48.2, "navStatus": 0, "shipName": "ELSA MARIA", "aisTimestamp": 1785922397182, "fixTs": 1785922397182, "feed": "aisstream", "receivedAt": "2026-08-05T09:33:17.182Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.29167214743615, "lon": 12.292051824490372, "sog": 3.3, "cog": 34.4, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785922411224, "fixTs": 1785922411224, "feed": "aisstream", "receivedAt": "2026-08-05T09:33:31.224Z"}
++{"mmsi": "265946586", "msgType": "PositionReport", "lat": 58.26632107375697, "lon": 12.266025502662366, "sog": 3.5, "cog": 48.2, "navStatus": 0, "shipName": "ELSA MARIA", "aisTimestamp": 1785922427182, "fixTs": 1785922427182, "feed": "aisstream", "receivedAt": "2026-08-05T09:33:47.182Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.29216862956158, "lon": 12.292758721212902, "sog": 5.4, "cog": 36.6, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785922441224, "fixTs": 1785922441224, "feed": "aisstream", "receivedAt": "2026-08-05T09:34:01.224Z"}
++{"mmsi": "265946586", "msgType": "PositionReport", "lat": 58.26663194413739, "lon": 12.266747990765177, "sog": 3.5, "cog": 48.2, "navStatus": 0, "shipName": "ELSA MARIA", "aisTimestamp": 1785922457182, "fixTs": 1785922457182, "feed": "aisstream", "receivedAt": "2026-08-05T09:34:17.182Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.29278688033567, "lon": 12.2935688091079, "sog": 5.4, "cog": 36.6, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785922471224, "fixTs": 1785922471224, "feed": "aisstream", "receivedAt": "2026-08-05T09:34:31.224Z"}
++{"mmsi": "265946586", "msgType": "PositionReport", "lat": 58.26698234582974, "lon": 12.267405245118137, "sog": 3.5, "cog": 43.6, "navStatus": 0, "shipName": "ELSA MARIA", "aisTimestamp": 1785922487182, "fixTs": 1785922487182, "feed": "aisstream", "receivedAt": "2026-08-05T09:34:47.182Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.293408655102624, "lon": 12.294372865222941, "sog": 5.4, "cog": 37.2, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785922501224, "fixTs": 1785922501224, "feed": "aisstream", "receivedAt": "2026-08-05T09:35:01.224Z"}
++{"mmsi": "265946586", "msgType": "PositionReport", "lat": 58.267332481458965, "lon": 12.26805852145821, "sog": 3.5, "cog": 43.6, "navStatus": 0, "shipName": "ELSA MARIA", "aisTimestamp": 1785922517182, "fixTs": 1785922517182, "feed": "aisstream", "receivedAt": "2026-08-05T09:35:17.182Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.294071141754934, "lon": 12.295318408485803, "sog": 6.3, "cog": 37.2, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785922531224, "fixTs": 1785922531224, "feed": "aisstream", "receivedAt": "2026-08-05T09:35:31.224Z"}
++{"mmsi": "265946586", "msgType": "PositionReport", "lat": 58.26767381426773, "lon": 12.268729394498706, "sog": 3.5, "cog": 43.6, "navStatus": 0, "shipName": "ELSA MARIA", "aisTimestamp": 1785922547182, "fixTs": 1785922547182, "feed": "aisstream", "receivedAt": "2026-08-05T09:35:47.182Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.294762265249865, "lon": 12.296340462235678, "sog": 6.3, "cog": 37.2, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785922561224, "fixTs": 1785922561224, "feed": "aisstream", "receivedAt": "2026-08-05T09:36:01.224Z"}
++{"mmsi": "265946586", "msgType": "PositionReport", "lat": 58.26801727444972, "lon": 12.269397007368807, "sog": 3.6, "cog": 43.6, "navStatus": 0, "shipName": "ELSA MARIA", "aisTimestamp": 1785922577182, "fixTs": 1785922577182, "feed": "aisstream", "receivedAt": "2026-08-05T09:36:17.182Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.29548899505911, "lon": 12.297255286764381, "sog": 6.3, "cog": 34.5, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785922591224, "fixTs": 1785922591224, "feed": "aisstream", "receivedAt": "2026-08-05T09:36:31.224Z"}
++{"mmsi": "265946586", "msgType": "PositionReport", "lat": 58.26855155077583, "lon": 12.270094336610791, "sog": 5, "cog": 32.6, "navStatus": 0, "shipName": "ELSA MARIA", "aisTimestamp": 1785922607182, "fixTs": 1785922607182, "feed": "aisstream", "receivedAt": "2026-08-05T09:36:47.182Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.29621510877667, "lon": 12.298185314776228, "sog": 6.3, "cog": 34.5, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785922621224, "fixTs": 1785922621224, "feed": "aisstream", "receivedAt": "2026-08-05T09:37:01.224Z"}
++{"mmsi": "265946586", "msgType": "PositionReport", "lat": 58.26911519670579, "lon": 12.270864482376469, "sog": 5, "cog": 32.6, "navStatus": 0, "shipName": "ELSA MARIA", "aisTimestamp": 1785922637182, "fixTs": 1785922637182, "feed": "aisstream", "receivedAt": "2026-08-05T09:37:17.182Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.29694846377878, "lon": 12.299064923823257, "sog": 6.3, "cog": 29.9, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785922651224, "fixTs": 1785922651224, "feed": "aisstream", "receivedAt": "2026-08-05T09:37:31.224Z"}
++{"mmsi": "265946586", "msgType": "PositionReport", "lat": 58.26972333616424, "lon": 12.271503053433475, "sog": 5, "cog": 32.5, "navStatus": 0, "shipName": "ELSA MARIA", "aisTimestamp": 1785922667182, "fixTs": 1785922667182, "feed": "aisstream", "receivedAt": "2026-08-05T09:37:47.182Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.297705864398914, "lon": 12.29989963966287, "sog": 6.3, "cog": 29.9, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785922681224, "fixTs": 1785922681224, "feed": "aisstream", "receivedAt": "2026-08-05T09:38:01.224Z"}
++{"mmsi": "265946586", "msgType": "PositionReport", "lat": 58.270316713132786, "lon": 12.272184800683453, "sog": 5, "cog": 32.5, "navStatus": 0, "shipName": "ELSA MARIA", "aisTimestamp": 1785922697182, "fixTs": 1785922697182, "feed": "aisstream", "receivedAt": "2026-08-05T09:38:17.182Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.29848383072544, "lon": 12.300654349152456, "sog": 6.3, "cog": 28.4, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785922711224, "fixTs": 1785922711224, "feed": "aisstream", "receivedAt": "2026-08-05T09:38:31.224Z"}
++{"mmsi": "265946586", "msgType": "PositionReport", "lat": 58.270904233010405, "lon": 12.27288405146673, "sog": 5, "cog": 32.5, "navStatus": 0, "shipName": "ELSA MARIA", "aisTimestamp": 1785922727182, "fixTs": 1785922727182, "feed": "aisstream", "receivedAt": "2026-08-05T09:38:47.182Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.29925499143845, "lon": 12.301442157885363, "sog": 6.3, "cog": 28.4, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785922741224, "fixTs": 1785922741224, "feed": "aisstream", "receivedAt": "2026-08-05T09:39:01.224Z"}
++{"mmsi": "265946586", "msgType": "PositionReport", "lat": 58.27146263062712, "lon": 12.273658547225766, "sog": 5, "cog": 36.2, "navStatus": 0, "shipName": "ELSA MARIA", "aisTimestamp": 1785922757182, "fixTs": 1785922757182, "feed": "aisstream", "receivedAt": "2026-08-05T09:39:17.182Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.29999218481926, "lon": 12.302358171071882, "sog": 6.3, "cog": 30.8, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785922771224, "fixTs": 1785922771224, "feed": "aisstream", "receivedAt": "2026-08-05T09:39:31.224Z"}
++{"mmsi": "265946586", "msgType": "PositionReport", "lat": 58.2720309610318, "lon": 12.274413485376364, "sog": 5, "cog": 36.2, "navStatus": 0, "shipName": "ELSA MARIA", "aisTimestamp": 1785922787182, "fixTs": 1785922787182, "feed": "aisstream", "receivedAt": "2026-08-05T09:39:47.182Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.30074349226725, "lon": 12.303212661279554, "sog": 6.3, "cog": 30.8, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785922801224, "fixTs": 1785922801224, "feed": "aisstream", "receivedAt": "2026-08-05T09:40:01.224Z"}
++{"mmsi": "265946586", "msgType": "PositionReport", "lat": 58.27258447309823, "lon": 12.275206934826747, "sog": 5, "cog": 36.2, "navStatus": 0, "shipName": "ELSA MARIA", "aisTimestamp": 1785922817182, "fixTs": 1785922817182, "feed": "aisstream", "receivedAt": "2026-08-05T09:40:17.182Z"}
++{"mmsi": "265946609", "msgType": "PositionReport", "lat": 58.30148523979278, "lon": 12.304104071607755, "sog": 6.3, "cog": 32.7, "navStatus": 0, "shipName": "TROLLA", "aisTimestamp": 1785922831224, "fixTs": 1785922831224, "feed": "aisstream", "receivedAt": "2026-08-05T09:40:31.224Z"}
++{"mmsi": "265946586", "msgType": "PositionReport", "lat": 58.27315084811751, "lon": 12.276094258070959, "sog": 5.4, "cog": 37.4, "navStatus": 0, "shipName": "ELSA MARIA", "aisTimestamp": 1785922847182, "fixTs": 1785922847182, "feed": "aisstream", "receivedAt": "2026-08-05T09:40:47.182Z"}
+diff --git a/tests/fixtures/e-w664-alva-jamn-avgang.jsonl b/tests/fixtures/e-w664-alva-jamn-avgang.jsonl
+new file mode 100644
+index 0000000..124d506
+--- /dev/null
++++ b/tests/fixtures/e-w664-alva-jamn-avgang.jsonl
+@@ -0,0 +1,56 @@
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.2899824027513, "lon": 12.289927160146707, "sog": 2.3, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781834846367, "fixTs": 1781834846367, "feed": "aisstream", "receivedAt": "2026-06-19T02:07:26.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.290184396714714, "lon": 12.29019164880321, "sog": 0.4, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781834876367, "fixTs": 1781834876367, "feed": "aisstream", "receivedAt": "2026-06-19T02:07:56.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29018714988594, "lon": 12.290192085920216, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781834906367, "fixTs": 1781834906367, "feed": "aisstream", "receivedAt": "2026-06-19T02:08:26.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29019713682917, "lon": 12.290163288761605, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781834936367, "fixTs": 1781834936367, "feed": "aisstream", "receivedAt": "2026-06-19T02:08:56.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29019040283839, "lon": 12.290182706094422, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781834966367, "fixTs": 1781834966367, "feed": "aisstream", "receivedAt": "2026-06-19T02:09:26.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.290194330913685, "lon": 12.2901713795649, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781834996367, "fixTs": 1781834996367, "feed": "aisstream", "receivedAt": "2026-06-19T02:09:56.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29017738081518, "lon": 12.290220254847734, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835026367, "fixTs": 1781835026367, "feed": "aisstream", "receivedAt": "2026-06-19T02:10:26.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.290172938949844, "lon": 12.29023306288096, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835056367, "fixTs": 1781835056367, "feed": "aisstream", "receivedAt": "2026-06-19T02:10:56.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.2901832675979, "lon": 12.290203280423075, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835086367, "fixTs": 1781835086367, "feed": "aisstream", "receivedAt": "2026-06-19T02:11:26.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29017657396959, "lon": 12.290222581371477, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835116367, "fixTs": 1781835116367, "feed": "aisstream", "receivedAt": "2026-06-19T02:11:56.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29017537480932, "lon": 12.290226039127026, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835146367, "fixTs": 1781835146367, "feed": "aisstream", "receivedAt": "2026-06-19T02:12:26.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.2901861984756, "lon": 12.290194829293611, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835176367, "fixTs": 1781835176367, "feed": "aisstream", "receivedAt": "2026-06-19T02:12:56.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29018767684918, "lon": 12.290190566431852, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835206367, "fixTs": 1781835206367, "feed": "aisstream", "receivedAt": "2026-06-19T02:13:26.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29019198078618, "lon": 12.29017815611232, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835236367, "fixTs": 1781835236367, "feed": "aisstream", "receivedAt": "2026-06-19T02:13:56.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29020249705592, "lon": 12.290147832650915, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835266367, "fixTs": 1781835266367, "feed": "aisstream", "receivedAt": "2026-06-19T02:14:26.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.290204329094486, "lon": 12.290142550002992, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835296367, "fixTs": 1781835296367, "feed": "aisstream", "receivedAt": "2026-06-19T02:14:56.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.290191002813174, "lon": 12.290180976078684, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835326367, "fixTs": 1781835326367, "feed": "aisstream", "receivedAt": "2026-06-19T02:15:26.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29019236314798, "lon": 12.290177053579447, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835356367, "fixTs": 1781835356367, "feed": "aisstream", "receivedAt": "2026-06-19T02:15:56.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.290191175952984, "lon": 12.29018047683337, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835386367, "fixTs": 1781835386367, "feed": "aisstream", "receivedAt": "2026-06-19T02:16:26.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29019652526606, "lon": 12.290165052192053, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835416367, "fixTs": 1781835416367, "feed": "aisstream", "receivedAt": "2026-06-19T02:16:56.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.290184673349394, "lon": 12.290199226965685, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835446367, "fixTs": 1781835446367, "feed": "aisstream", "receivedAt": "2026-06-19T02:17:26.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.290188901699935, "lon": 12.290187034598274, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835476367, "fixTs": 1781835476367, "feed": "aisstream", "receivedAt": "2026-06-19T02:17:56.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29020654670278, "lon": 12.290136155572146, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835506367, "fixTs": 1781835506367, "feed": "aisstream", "receivedAt": "2026-06-19T02:18:26.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29018381111537, "lon": 12.290201713200906, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835536367, "fixTs": 1781835536367, "feed": "aisstream", "receivedAt": "2026-06-19T02:18:56.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29018312794154, "lon": 12.29020368311948, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835566367, "fixTs": 1781835566367, "feed": "aisstream", "receivedAt": "2026-06-19T02:19:26.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.290174007842914, "lon": 12.290229980748364, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835596367, "fixTs": 1781835596367, "feed": "aisstream", "receivedAt": "2026-06-19T02:19:56.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29016755947604, "lon": 12.29024857449014, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835626367, "fixTs": 1781835626367, "feed": "aisstream", "receivedAt": "2026-06-19T02:20:26.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.290179086666036, "lon": 12.290215336059628, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835656367, "fixTs": 1781835656367, "feed": "aisstream", "receivedAt": "2026-06-19T02:20:56.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29017846443012, "lon": 12.290217130264912, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835686367, "fixTs": 1781835686367, "feed": "aisstream", "receivedAt": "2026-06-19T02:21:26.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29018425564219, "lon": 12.290200431416363, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835716367, "fixTs": 1781835716367, "feed": "aisstream", "receivedAt": "2026-06-19T02:21:56.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29019418945089, "lon": 12.290171787470168, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835746367, "fixTs": 1781835746367, "feed": "aisstream", "receivedAt": "2026-06-19T02:22:26.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29020142009713, "lon": 12.290150938040878, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835776367, "fixTs": 1781835776367, "feed": "aisstream", "receivedAt": "2026-06-19T02:22:56.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29019326083218, "lon": 12.290174465124316, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835806367, "fixTs": 1781835806367, "feed": "aisstream", "receivedAt": "2026-06-19T02:23:26.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29021582783945, "lon": 12.290109393593182, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835836367, "fixTs": 1781835836367, "feed": "aisstream", "receivedAt": "2026-06-19T02:23:56.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29021391505809, "lon": 12.290114909061417, "sog": 0, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835866367, "fixTs": 1781835866367, "feed": "aisstream", "receivedAt": "2026-06-19T02:24:26.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.290232435265395, "lon": 12.29011742796602, "sog": 0.7, "cog": 33.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835896367, "fixTs": 1781835896367, "feed": "aisstream", "receivedAt": "2026-06-19T02:24:56.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.290440601007234, "lon": 12.290371626429694, "sog": 2.3, "cog": 34.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835926367, "fixTs": 1781835926367, "feed": "aisstream", "receivedAt": "2026-06-19T02:25:26.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29068579973033, "lon": 12.29075879343533, "sog": 2.3, "cog": 34.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835956367, "fixTs": 1781835956367, "feed": "aisstream", "receivedAt": "2026-06-19T02:25:56.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29095573123648, "lon": 12.291077237688448, "sog": 2.3, "cog": 34.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781835986367, "fixTs": 1781835986367, "feed": "aisstream", "receivedAt": "2026-06-19T02:26:26.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29119547676891, "lon": 12.291479556982928, "sog": 2.3, "cog": 34.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781836016367, "fixTs": 1781836016367, "feed": "aisstream", "receivedAt": "2026-06-19T02:26:56.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29147976306227, "lon": 12.291758114884102, "sog": 2.3, "cog": 34.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781836046367, "fixTs": 1781836046367, "feed": "aisstream", "receivedAt": "2026-06-19T02:27:26.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29173764502189, "lon": 12.292176667531708, "sog": 3.1, "cog": 34.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781836076367, "fixTs": 1781836076367, "feed": "aisstream", "receivedAt": "2026-06-19T02:27:56.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.292189965977876, "lon": 12.292709000959087, "sog": 4, "cog": 36.6, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781836106367, "fixTs": 1781836106367, "feed": "aisstream", "receivedAt": "2026-06-19T02:28:26.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29266735423818, "lon": 12.293246703343302, "sog": 4, "cog": 36.6, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781836136367, "fixTs": 1781836136367, "feed": "aisstream", "receivedAt": "2026-06-19T02:28:56.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29307934628246, "lon": 12.29395224196992, "sog": 4, "cog": 36.6, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781836166367, "fixTs": 1781836166367, "feed": "aisstream", "receivedAt": "2026-06-19T02:29:26.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29351076962595, "lon": 12.294609628771836, "sog": 4, "cog": 37.2, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781836196367, "fixTs": 1781836196367, "feed": "aisstream", "receivedAt": "2026-06-19T02:29:56.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29400532773963, "lon": 12.295359499105693, "sog": 4.6, "cog": 37.2, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781836226367, "fixTs": 1781836226367, "feed": "aisstream", "receivedAt": "2026-06-19T02:30:26.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.294531402543925, "lon": 12.296066713622144, "sog": 4.6, "cog": 37.2, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781836256367, "fixTs": 1781836256367, "feed": "aisstream", "receivedAt": "2026-06-19T02:30:56.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29506801203582, "lon": 12.296733145377152, "sog": 4.6, "cog": 34.5, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781836286367, "fixTs": 1781836286367, "feed": "aisstream", "receivedAt": "2026-06-19T02:31:26.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29560356129512, "lon": 12.297413105028054, "sog": 4.6, "cog": 34.5, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781836316367, "fixTs": 1781836316367, "feed": "aisstream", "receivedAt": "2026-06-19T02:31:56.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.296136580244045, "lon": 12.29810008024315, "sog": 4.6, "cog": 34.5, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781836346367, "fixTs": 1781836346367, "feed": "aisstream", "receivedAt": "2026-06-19T02:32:26.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.296689352668984, "lon": 12.298694888459115, "sog": 4.6, "cog": 29.9, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781836376367, "fixTs": 1781836376367, "feed": "aisstream", "receivedAt": "2026-06-19T02:32:56.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29722579693133, "lon": 12.299377053609492, "sog": 4.6, "cog": 29.9, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781836406367, "fixTs": 1781836406367, "feed": "aisstream", "receivedAt": "2026-06-19T02:33:26.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.29778595360329, "lon": 12.299980850626005, "sog": 4.6, "cog": 29.9, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781836436367, "fixTs": 1781836436367, "feed": "aisstream", "receivedAt": "2026-06-19T02:33:56.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.298346651332814, "lon": 12.300573927581873, "sog": 4.6, "cog": 28.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781836466367, "fixTs": 1781836466367, "feed": "aisstream", "receivedAt": "2026-06-19T02:34:26.367Z"}
++{"mmsi": "265683708", "msgType": "PositionReport", "lat": 58.298921353312444, "lon": 12.301126959825876, "sog": 4.6, "cog": 28.4, "navStatus": 0, "shipName": "ALVA", "aisTimestamp": 1781836496367, "fixTs": 1781836496367, "feed": "aisstream", "receivedAt": "2026-06-19T02:34:56.367Z"}
+diff --git a/tests/replay-validation/corpora.js b/tests/replay-validation/corpora.js
+index a307dba..ac8dc90 100644
+--- a/tests/replay-validation/corpora.js
++++ b/tests/replay-validation/corpora.js
+@@ -160,7 +160,12 @@ module.exports = [
+     hours: 41,
+     locked: true,
+     expectedNotifications: 84,
+-    note: `${SEPTEMBER_REVIEW}41h-korpusen. 75/75 inkl. per-fartyg+bro-fördelning validerat 2026-06-09 `
++    note: 'Omlåst 2026-11-04 (familj E, avgångs-ETA): SKONNERTEN JYLLAND 220276000 lämnar stillhet '
++      + '[0,0, 0,1, 0,0] 2026-06-03 07:30:11 i 3,4 kn, 72 m från senaste stillasampel. Golden-text idx 127 '
++      + '"om 8 minuter" → "om 3 minuter" (07:30:11; golvet 4 kn hade lovat strax, M9 håller 3). gt-passages: '
++      + 'korsning av Stridsbergsbron 2,1 min efter 07:30:11 (kind=line) — rättare. Antalet övergångar (178), '
++      + 'notiser (07:30:52 eta 2 som på 7699cbe, V4-principen), kort och passager består. '
++      + `${SEPTEMBER_REVIEW}41h-korpusen. 75/75 inkl. per-fartyg+bro-fördelning validerat 2026-06-09 `
+       + '(prod-loggens 75:e är null-attribuerad — samma notis, 211355290@Stallbackabron). '
+       + 'OMLÅST 75→77 (2026-07-01, S-F3 + previousTarget-fixen): BÅDA nya är RÄTTADE '
+       + 'missar för 265580000 (EBONITA PRINCESS), verifierade mot rå jsonl: '
+@@ -2416,7 +2421,12 @@ module.exports = [
+     lockOpenings: true,
+     lockEvents: true,
+     expectedNotifications: 23,
+-    note: 'Låst 2026-09-08 efter bytekontroll av samtliga 920 AIS-rader, oberoende rådatafacit och sex fasvarianter. '
++    note: 'Omlåst 2026-11-04 (familj E, avgångs-ETA): PRIMA LADY 230693000 lämnar stillhet [0,4, 0,3, 0,4] '
++      + 'i 1,8 kn, 42 m från senaste stillasampel. Golden-text idx 65 16:34:01 "om 7 minuter" → "om 4 minuter" '
++      + '(golvet 3,6 kn = 2 × 1,8; gt-passages: Stridsbergsbron +3,1 min), golden-events notis 16:35:10 eta 5 → 3 '
++      + 'och öppningskortet Stridsbergsbron#8 etaMin 5 → 3 (gt: +1,9 min) — alla tre rättare. Tid, källa, antal '
++      + 'och passager består. '
++      + 'Låst 2026-09-08 efter bytekontroll av samtliga 920 AIS-rader, oberoende rådatafacit och sex fasvarianter. '
+       + '23 boat_near, sex målpassager, åtta öppningsvarningar och 78 textövergångar; fulla händelser är också låsta. '
+       + 'DIANAs 2,5 timmar inom Kanalinfarten ger en notis för besöket. Alla fem broar och Kanalinfarten täcks. '
+       + 'PHOENIX stod vid Stridsbergsbron med noll fart 14:27:49.423 och 14:38:00.114 UTC: 610,691 s utan ny position. '
+@@ -2438,7 +2448,11 @@ module.exports = [
+     lockOpenings: true,
+     lockEvents: true,
+     expectedNotifications: 24,
+-    note: 'Låst 2026-09-08 efter integritetskontroll av alla 939 AIS-poster och sex gröna fasvarianter. '
++    note: 'Omlåst 2026-11-04 (familj E, avgångs-ETA): OLA 265031670 lämnar stillhet [0,1, 0,0] i 5,3 kn, '
++      + '145 m från senaste stillasampel. Golden-events notis 18:50:04 eta 4 → 1 ("om 1 minut") och '
++      + 'öppningskortet Stridsbergsbron#11 etaMin 4 → 1; gt-passages: Stridsbergsbron +1,3 min — rättare. '
++      + 'Golden-text, tid, källa och antal består. '
++      + 'Låst 2026-09-08 efter integritetskontroll av alla 939 AIS-poster och sex gröna fasvarianter. '
+       + 'Rådatafacit: fyra resor genom sex punkter, 24 korsningar/zonbesök, inga intervallinferenser. '
+       + '24 boat_near, åtta öppningsvarningar, åtta mål- och tolv mellanbropassager. '
+       + 'Fältets nionde öppningsvarning var ELFKUNGENs upprepade Stridsbergsvarning efter AIS-glapp; '
+diff --git a/tests/replay-validation/golden-events/20260823-24h.json b/tests/replay-validation/golden-events/20260823-24h.json
+index 79396e7..ac6c28b 100644
+--- a/tests/replay-validation/golden-events/20260823-24h.json
++++ b/tests/replay-validation/golden-events/20260823-24h.json
+@@ -365,8 +365,8 @@
+       "t": 1787589310138,
+       "bridge": "Stridsbergsbron",
+       "direction": "northbound",
+-      "eta": 5,
+-      "message": "PRIMA LADY närmar sig Stridsbergsbron, beräknad ankomst om 5 minuter",
++      "eta": 3,
++      "message": "PRIMA LADY närmar sig Stridsbergsbron, beräknad ankomst om 3 minuter",
+       "alreadyPassed": false,
+       "name": "PRIMA LADY",
+       "distance": 272,
+@@ -522,7 +522,7 @@
+       "iso": "2026-08-24T16:35:10.138Z",
+       "bridge": "Stridsbergsbron",
+       "direction": "northbound",
+-      "etaMin": 5,
++      "etaMin": 3,
+       "vesselCount": 1,
+       "leadVessel": "PRIMA LADY",
+       "firedBy": "fix",
+diff --git a/tests/replay-validation/golden-events/20260907-31h.json b/tests/replay-validation/golden-events/20260907-31h.json
+index e61e564..4bcbc64 100644
+--- a/tests/replay-validation/golden-events/20260907-31h.json
++++ b/tests/replay-validation/golden-events/20260907-31h.json
+@@ -401,8 +401,8 @@
+       "t": 1788807004897,
+       "bridge": "Stridsbergsbron",
+       "direction": "northbound",
+-      "eta": 4,
+-      "message": "OLA närmar sig Stridsbergsbron, beräknad ankomst om 4 minuter",
++      "eta": 1,
++      "message": "OLA närmar sig Stridsbergsbron, beräknad ankomst om 1 minut",
+       "alreadyPassed": false,
+       "name": "OLA",
+       "distance": 235,
+@@ -580,7 +580,7 @@
+       "iso": "2026-09-07T18:50:04.897Z",
+       "bridge": "Stridsbergsbron",
+       "direction": "northbound",
+-      "etaMin": 4,
++      "etaMin": 1,
+       "vesselCount": 1,
+       "leadVessel": "OLA",
+       "firedBy": "fix",
+diff --git a/tests/replay-validation/golden-text/20260601-41h.json b/tests/replay-validation/golden-text/20260601-41h.json
+index 597518a..b763640 100644
+--- a/tests/replay-validation/golden-text/20260601-41h.json
++++ b/tests/replay-validation/golden-text/20260601-41h.json
+@@ -509,7 +509,7 @@
+  },
+  {
+   "iso": "2026-06-03T07:30:11.633Z",
+-  "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 8 minuter"
++  "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 3 minuter"
+  },
+  {
+   "iso": "2026-06-03T07:30:52.233Z",
+diff --git a/tests/replay-validation/golden-text/20260823-24h.json b/tests/replay-validation/golden-text/20260823-24h.json
+index e1910c5..aa94985 100644
+--- a/tests/replay-validation/golden-text/20260823-24h.json
++++ b/tests/replay-validation/golden-text/20260823-24h.json
+@@ -261,7 +261,7 @@
+  },
+  {
+   "iso": "2026-08-24T16:34:01.965Z",
+-  "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 7 minuter"
++  "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 4 minuter"
+  },
+  {
+   "iso": "2026-08-24T16:35:10.163Z",

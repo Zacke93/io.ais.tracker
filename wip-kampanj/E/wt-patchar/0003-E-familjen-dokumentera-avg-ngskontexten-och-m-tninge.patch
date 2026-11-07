@@ -1,0 +1,105 @@
+From fa269e27d0979082e8acd932d223bd759dc4484b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 4 Nov 2026 17:33:10 +0000
+Subject: [PATCH 3/9] =?UTF-8?q?E-familjen:=20dokumentera=20avg=C3=A5ngskon?=
+ =?UTF-8?q?texten=20och=20m=C3=A4tningen=20enligt=20REGELN?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+ARCHITECTURE §8 (e): avgångskontexten, att K6:s krav inte berörs och vad
+som står kvar till ETA-etappen (F06, F07). Kända latenta klasser: avgångs-
+ETA:n markerad som åtgärdad för avgång efter belagd stillhet.
+VALIDATION §ETA-mätharnessen: banden < 5 och < 10 min, parad och oparad
+population, textövergångar och den återtagna bredare varianten.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/ARCHITECTURE.md | 28 +++++++++++++++++++++++++++-
+ docs/VALIDATION.md   | 23 +++++++++++++++++++++++
+ 2 files changed, 50 insertions(+), 1 deletion(-)
+
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index c9a9361..99c0b32 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -1292,6 +1292,29 @@ inte outlier-skyddet.
+ (tidsnormaliserat gps-event-ben). Mätharnessen `npm run measure:eta` är
+ permanent — se docs/VALIDATION.md.
+ 
++**Avgångskontexten gick in (familj E, rättningskampanjen 2026-11-04, F04).**
++En båt som legat still och sätter igång får inte längre sin ETA räknad på
++igångsättningsfarten. `ProgressiveETACalculator._noteDepartureSample` känner
++igen avgången: första sampel med fart ≥ `MOVEMENT_SOG_KNOTS` (1,0 kn) efter
++minst två buffrade sampel under `MOORING_DETECTION.MOVEMENT_PROOF_SOG_KN`
++(0,5 kn). Då lämnar väntans sampel fartbufferten. Medan båten accelererar
++(varje nytt sampel minst lika snabbt som det förra, högst tre rörliga sampel,
++högst tre minuter) räknar `_getEffectiveSpeed` aldrig med lägre fart än rask
++kanalfart, `BRISK_CANAL_SPEED_KNOTS` = 4 kn — samma tal som E-F7:s decaygolv,
++som nu läser konstanten. Kontexten upphör så fort båten saktar in eller stannar.
++Felet var en kedja: väntans nollor i snittet ([0, 0, 1,6] ⇒ 0,53 kn), gap-
++reseten EFTER rå-ETA:n (meddelandevägens 29,5 blev baslinje), outliergrenen
++som dömde snapshot-vägens 9,8 som dramatic_decrease och EMA:n ⇒ "om 27 minuter"
++för verkliga 3,1 (buggjägarens värld 884). **K6:s krav berörs inte**:
++dubbelkörningen, gap-resetens placering, outliergrindens 30 s-fönster och
++`emaAlpha` är oförändrade, och avgången nycklas på fartbuffertens sampelnyckel
++så båda passen ger samma värde. Mätt enligt VALIDATION.md §REGELN: 7 ändrade
++mätta påståenden, alla närmare rådatafacit (§ETA-mätharnessen, "Familj E").
++Kvar till ETA-etappen: ETA-oscillationen vid inbromsning (buggjägarens F06,
++K6:s dubbla EMA mot den binära 3-minutersgränsen) och 21h-knivseggen (F07,
++RC4-clampen mot en extrapolerad baslinje) — se rättningskampanjens DESIGN.md
++för familj E.
++
+ **FÄLTVALIDERINGENS REGEL: kasta det KORRUPTA FÄLTET, aldrig positionen
+ (H34 — DIRIGENTBESLUT 2026-08-22).** *Var beslutet togs:* granskningsunderlaget
+ (fältprov 10:s helkodsgranskning 2026-08-22) klassade H34 som BESLUTSBEROENDE
+@@ -2229,7 +2252,10 @@ och synkrona SDK-fel. Se [fältprovskörboken](infor-faltprov-2026-09-06.md).
+ 
+ **Kända latenta klasser efter natten:** avgångs-ETA räknas på
+ igångsättningsfart (ANYA ELAN: "om 23 min" för verklig 10,5 — churnen
+-maskerade klassen tidigare; framtida accelerationsmedveten ETA), server-
++maskerade klassen tidigare; ÅTGÄRDAD 2026-11-04 för avgång efter belagd
++stillhet, se §8 (e) "Avgångskontexten gick in". ANYA ELAN själv faller
++utanför stillhetskravet — 0,7 kn i bufferten före avgången — och är
++oförändrad), server-
+ stängda-men-levererande sockets kan fortfarande ge ~1 handskakning/min
+ (appens egen orsak är fixad), och `max-reconnects-reached` fyrar inte under
+ permanent 429 (cooldown-grenen rör inte räknaren).
+diff --git a/docs/VALIDATION.md b/docs/VALIDATION.md
+index e24a1e2..9672d61 100644
+--- a/docs/VALIDATION.md
++++ b/docs/VALIDATION.md
+@@ -493,6 +493,29 @@ gäller följande — det är läxan från K6 (ARCHITECTURE §8 (e)):
+    sak. Facit säger *"texten är oförändrad"*, harnessen säger *"siffran är
+    sann"*. Båda krävs.
+ 
++### Familj E (rättningskampanjen 2026-11-04): avgångskontexten mätt enligt REGELN
++
++Ändringen: `ProgressiveETACalculator` räknar avgångs-ETA på rask kanalfart
++(4 kn) i stället för igångsättningsfarten, efter belagd stillhet (ARCHITECTURE
++§8 (e), "Avgångskontexten gick in"). Baslinje och efter-körning med samma
++24 korpusar, parning per korpus, typ, bro och mmsi inom 2 s:
++
++| Band | Population | Före (7699cbe) | Efter |
++|---|---|---|---|
++| sanning < 5 min, alla typer | parad, n = 783 | median 0,47 · 89,0 % ≤ 2 · bias +0,50 | median 0,46 · 89,7 % · bias +0,48 |
++| sanning < 5 min | oparad | n = 1 (SKONNERTEN "om 8", fel +5,9) | n = 0 |
++| sanning < 10 min, alla typer | parad, n = 1 294 | median 0,70 · 81,2 % · bias +0,18 | median 0,69 · 81,6 % · bias +0,17 |
++| sanning < 10 min | oparad | n = 1 (samma post) | n = 0 |
++
++Sju parade påståenden ändras och alla sju kommer närmare rådatafacit (LECKO,
++FRAM, PRIMA LADY ×3, OLA ×2); inget blir sämre. Den oparade posten försvinner
++därför att texten blir "strax" redan 07:30:11 (korsning +2,1 min).
++Brotextövergångar 2 544 → 2 543. Strax-löftet oförändrat (n 211, 63,0 % ≤ 3 min).
++En bredare stillhetsdefinition (två sampel < 0,5 kn och resten < 1,0 kn) gav
++tio fler förbättrade påståenden men flyttade två rader åt fel håll (UTOPIA
++"om cirka 2 minuter" → "ETA okänd" 30 s före passagen i 20260806-42h, och en
++korrekt "strax" 6 s senare i 20260804-both-21h). Den återtogs enligt U13.
++
+ ## Fältprov / ny korpus (så samlas verklighet in)
+ 
+ **Hel-loggsjämförelse (2026-09-06):**
+-- 
+2.43.0
+

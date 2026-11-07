@@ -1,0 +1,5 @@
+aa71099 En verklig returpassage över en bro får egen notis (U14)
+e088a51 Krypfart förbi en passerad bro behåller målbron
+2c3f778 Returresan får egen öppningsvarning, och köregeln beror inte på klockfasen
+f198d52 Öppningsvarningar: RECOVER-släppet, konvojbakkanten och passagetiden efter glapp
+8a013d5 Avgångs-ETA följer accelerationen i stället för igångsättningsfarten

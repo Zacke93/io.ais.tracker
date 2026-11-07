@@ -1,0 +1,212 @@
+{
+ "family": "R1 – riktning och vändning (VesselDataService.js och svepslåset i app.js). Kort: F10, W750, U-svängsreturerna i F01 och F15. Revision efter granskningen.",
+ "summary": "Kort sagt: granskningens fel är rättat. Två ägarfrågor står kvar, och fråga 2 förklaras enkelt här först.\n\n**Fråga 2, enkelt förklarat**\n- En båt är på väg mot en bro. Appen har planerat varningen \"bron öppnar snart\".\n- Sedan visar en position att båten har vänt. Appen tror bara på en vändning när två positioner i rad visar den, så den väntar på nästa position.\n- Kommer varningstiden medan appen väntar, går varningen ut ändå, fast båten är på väg bort.\n- Exempel: ZELDA (värld 188) vänder kl. 14:49:38. Varningen \"Stridsbergsbron öppnar snart\" går ut 14:54:07. Nästa position kommer först 14:54:48. ZELDA kom aldrig till bron.\n- Frågan: ska appen hålla inne varningen redan vid den första positionen som visar vändningen?\n  - Ja: färre onödiga varningar. Men om båten bara svängde till och sedan fortsätter mot bron, kan en varning som behövdes utebli.\n  - Nej, som i dag: varningen kommer alltid i tid, ibland i onödan.\n- Min rekommendation är nej. Appens grundregel är att en missad öppning är värre än ett falsklarm.\n\nFråga 1 gäller samma regel för returresor: ska en enda position räcka för att appen ska tro på vändningen? Den gäller sju av F01:s returer. Båda frågorna står i klartext i DESIGN.md §13.\n\n**Vad revisionen gör**\n1. Granskningens medel-fel är rättat. En båt som korsar tillbaka under bron långsammare än 2 knop fick ingen returpassage. Har båten redan visat vändningen i minst 2 knop och sträckan över bron är minst 100 m, bokförs returen nu i samma tick som korsningen. Notisen kommer då i passerad form.\n2. F15: svepets riktningslås gäller under svepet och släpps efteråt. Svepets egna notiser om glappet får därmed alltid rätt riktning, aldrig 'unknown'. Senare notiser följer båtens verkliga kurs.\n3. Ett test visar systerstället med två broar. FACIT-raderna har rätt tider och anger källa.\n\n**Utfall**\n- Inget låst facit flyttas, och banken kör aldrig de nya vägarna.\n- Motorn ger BORTA för F10, F10/r2, F13/r2, F15, F15/r2 och W750. Alla andra kort ger KVAR.\n- Quick-körningen ger inga nya fynd.\n\n**Kvar, och därför status delvis**\n- Två ännu långsammare delfall: täta positioner med kort sträcka över bron, och en långsam vändning utan någon fart på 2 knop. De har tester som visar dagens beteende och föreslås som eget kort.\n- F01:s öppningsvarningar före returen kräver ägarbeslut (fråga 1) eller hör till K2.",
+ "rootCause": "Radnummer gäller 7699cbe. Loggbelägg och fixturer finns i K/R1/tmp/rev2/ och tests/fixtures/.\n\n**(1) F10, W750 och F13/r2 (oförändrat bekräftat)**\n- Fix D:s 2-fixdebounce (VesselDataService.js:440–468) bekräftar på fixen bortom bron, före tickens detektering.\n- N1-resetten i _confirmDirectionReversal släpper bara broar framför båten (aheadInNewDir, rad 6777–6782).\n- RE_CROSS_EVIDENCED kräver reCrossDir !== _routeDirection (rad 6970–6971), och Fix D har redan låst om.\n- Belägg i 353: väntande fix 09:18:24, L0-korsning 09:23:15, CONFIRMED 09:26:25 \"keeping [Klaffbron]\".\n\n**(2) Granskningens fall (bekräftat)**\n- Fixet som avslutar returens korsningssegment går under 2 kn.\n- Fix D-blocket kräver sog ≥ 2 (rad 384–391) och hoppar över ticken.\n- RE_CROSS_EVIDENCED:s rörelsekrav (rad 6951–6957, \"Rörelse i NUET: Fix D-tröskeln för finit fart\") kräver också 2 kn.\n- Bekräftelsen kommer på nästa fix, vars segment inte innehåller bron.\n- Belägg i granskarens variant av 353: väntan 09:18:24 630 m norr om bron i 3,1 kn; fix 09:24:00 150 m söder om bron i 1,5 kn; CONFIRMED 09:26:25 \"keeping [Klaffbron]\".\n- Utfallet är detsamma i 7699cbe och i första prototypen.\n\n**(3) F15 (bekräftat)**\n- app.js:8522–8528 låser _routeDirection ur svepets nettoriktning, och låset omprövas aldrig för en mållös båt.\n- IRMA återföds 12:05:03 med kurs 193,5° men får låset 'north'.\n- Granskningens tillägg stämmer: första prototypens överhoppade lås gav svepets EGEN notis den levande kursens token.\n  - Det blev 'southbound' för en glappassage som gick norrut (f15b).\n  - Det blev 'unknown' vid kurs 290°, eftersom _dedupDirection använder 135–314° och _getDirectionString 135–270° (f15c).",
+ "fix": "**VesselDataService.js**\n- Ny privat hjälpfunktion `_hasFreshFixDPending(vessel, dir)`: sann när _fixDPendingReversal har riktningen dir och är yngre än FIX_D_PENDING_MAX_AGE_MS. Fix D:s pendingConfirmed läser nu samma predikat.\n- `RE_CROSS_EVIDENCED`:\n  - speedMoving är som förut: sog ≥ 2, eller segment ≥ 100 m utan fartgivare.\n  - Nytt: pendingSameDirMoving = !speedMoving && _hasFreshFixDPending(vessel, reCrossDir) && segmentM ≥ 100.\n  - reCrossMoving = speedMoving || pendingSameDirMoving.\n  - Övriga villkor är oförändrade: bron i passedBridges, strikt mellan ändpunkterna, motsatt riktning mot låset, GPS-rena fixar.\n  - Loggraden får tillägget \"(rörelsebevis: Fix D-väntan <dir> + segment <m> m)\".\n  - Väntan är en omvänd kurs i ≥ 2 kn och korsningen en andra observation, alltså Anomali 18:s två. Vobbelskyddet (< 100 m) står kvar.\n- N1-resetten med bekräftelsesegmentet (_confirmDirectionReversal, _cleanReCrossSegmentStart) är oförändrad från första prototypen.\n\n**app.js, _checkSkippedBridgesFallback**\n- liveDirection = _dedupDirection(vessel, { requireMovement: true }) läses före låset.\n- Låset sätts som i 7699cbe, så applyInferredPassage och svepets notisloop körs med svepets riktning.\n- Efter loopen sätts _routeDirection = null och SKIPPED_BRIDGES_DIRECTION_LOCK_RELEASED loggas, om båda villkoren gäller:\n  - den rörelsebevisade kursen säger motsatsen;\n  - låset fortfarande är svepets eget.\n- Inget i notisvägen är ändrat.\n\n**Testinfrastruktur**\n- scenarioGenerator.js: nytt frivilligt fält slowZone.afterUTurnOnly.\n- runSyntheticScenarios.js: nytt scenario u-sväng-långsam-återkorsning-efter-väntan.\n\nIngen ny konstant och ingen ny tröskel har införts.",
+ "functionsTouched": [
+  "VesselDataService._hasFreshFixDPending (ny, privat)",
+  "VesselDataService.updateVessel (Fix D:s pendingConfirmed läser _hasFreshFixDPending)",
+  "VesselDataService._handleIntermediateBridgePassage (rörelsebeviset och loggraden i RE_CROSS_EVIDENCED)",
+  "VesselDataService._confirmDirectionReversal (första prototypen: argumentet reCrossSegmentStart; oförändrad i revisionen)",
+  "VesselDataService._cleanReCrossSegmentStart (första prototypen; oförändrad)",
+  "VesselDataService._updatePositionDirectionEvidence (första prototypen: skickar segmentet; oförändrad)",
+  "AISBridgeApp._checkSkippedBridgesFallback (låset bär svepets egna steg och släpps efteråt)",
+  "app.js vessel:journey-reset-hanteraren (bara kommentar, första prototypen)",
+  "scenarioGenerator.generateJourney (slowZone.afterUTurnOnly)",
+  "runSyntheticScenarios.SCENARIOS (nytt scenario) och checkExpectations (minPassagesPerBridge, första prototypen)"
+ ],
+ "tests": "**tests/r1-usvang-aterkorsning-2026-11-04.test.js, 26 fall (13 nya)**\n- N1-resetten: 6 fall.\n- RE_CROSS med Fix D-väntan: 5 nya fall.\n  - Långsam korsning med väntan reverserar och bokför.\n  - Utan väntan händer inget, som förut.\n  - Ingen reversal vid väntan i fel riktning, för gammal väntan eller GPS-flagga.\n  - Vobbel under 100 m reverserar inte.\n  - Fix D och RE_CROSS läser samma väntepredikat.\n- Svepslåset: 6 fall.\n  - Svepets egen notis bär 'northbound', sedan inget lås och 'southbound'.\n  - Kurs 290°: svepets notis bär 'northbound', sedan 'unknown' (valt beteende).\n  - Ett lås som någon annan satt under svepet släpps inte.\n  - Osäker kurs, låg fart och samma riktning låser som förut.\n- Helapp-replayer: 6 fall, F10 353, F10/r2 1731, F15 451, granskarens långsamma F10-variant och granskarens två F15-varianter.\n- KÄND LUCKA: 3 fall som visar dagens beteende, två broar i samma segment, tät långsam återkorsning och långsam vändning utan 2 kn.\n- Fixturerna ligger i tests/fixtures/r1-*.jsonl.\n\n**Syntetiska scenarier:** u-sväng-långsam-återkorsning-efter-väntan (nytt) och u-sväng-gles-ais-återkorsning-i-debouncen.\n\n**Bevis att den gamla koden fälls** (rena git archive-kopior med testfilen och fixturerna)\n- 7699cbe: 13 av 26 fälls, 11 på beteendet och 2 på att hjälpfunktionerna saknas. Båda R1-scenarierna fälls med \"bokförda passager av Klaffbron 1 < förväntade 2\".\n- 34c2b57, första prototypen: 7 av 26 fälls, alla nya. 6 fälls på beteendet och 1 på hjälpfunktionen. Det nya scenariot fälls.\n- 9ea8de8: 26 av 26 gröna och båda scenarierna gröna.\n\nUtdata: K/R1/tmp/rev2/jest-r1-mot-7699cbe.txt, jest-r1-mot-34c2b57.txt, synth-nyttskript-mot-7699cbe.log och synth-nyttskript-mot-34c2b57.log.",
+ "battery": "Batteriet kördes i K/R1/wt på 9ea8de8. Loggar i K/R1/tmp/rev2/batt/.\n\n- **npm test:** 355 sviter och 4804 tester, varav 4801 gröna, 2 överhoppade och 1 fel.\n  - Felet är den otrackade motorns bugHunt/b-register (\"docs/BUGGJAKT.md finns inte\"). Det fälls likadant på 7699cbe och beror på miljön.\n  - Alla appens sviter är gröna.\n- **npm run replay:all:** ✅, identisk med 7699cbe utom tider.\n- **npm run replay:synthetic:** ✅ 48 scenarier. 46 är identiska med 7699cbe. De två R1-scenarierna fälls på 7699cbe, och det nya fälls även på 34c2b57.\n- **npm run replay:openings:** ✅, identisk.\n- **npm run replay:monitoring:** ✅ 72 h, 0 processfel, alla timers avvecklade.\n- **npm run replay:phase:** ✅ 24 korpusar och 168 replayer, både med och utan REPLAY_MONITORING=1.\n- **npm run lint:** ✅.\n\n**Extra**\n- De 107 jestsviter som rör riktning, RE_CROSS, Fix D-väntan och svepet är gröna (1743 tester).\n- En verbose-skanning av hela banken visar 0 're-crossed', 0 'rörelsebevis: Fix D-väntan' och 0 LOCK_RELEASED, mot 64 vanliga svepslås och 6 reversaler.",
+ "facitChanges": [
+  {
+   "corpus": "banken: alla 24 låsta korpusar",
+   "dimension": "notiser, fördelning, riktning, golden text, öppningar",
+   "change": "ingen ändring, inget omlåst",
+   "evidence": "replay:all och replay:openings identiska med 7699cbe; bankskanning: 0 re-crossed, 0 'rörelsebevis: Fix D-väntan', 0 LOCK_RELEASED",
+   "verdict": "likvärdig"
+  },
+  {
+   "corpus": "buggjägarvärld 188, hel värld (ej låst)",
+   "dimension": "passage",
+   "change": "+ Klaffbron mellanbro 14:54:48 (ZELDA 265806662)",
+   "evidence": "L0: korsar Klaffbron söderut 14:51:24 efter U-sväng 14:45:55",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "buggjägarvärld 353, hel värld (ej låst)",
+   "dimension": "passage",
+   "change": "+ Klaffbron mellanbro 09:26:09 (HAVSORN 265196010)",
+   "evidence": "L0: korsar Klaffbron söderut 09:23:15 efter U-sväng 09:17:47",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "buggjägarvärld 523, hel värld (ej låst)",
+   "dimension": "passage",
+   "change": "+ Klaffbron mellanbro 15:39:24 (265232445)",
+   "evidence": "L0: korsar Klaffbron söderut 15:38:25 efter U-sväng 15:35:16",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "buggjägarvärld 750 / W750, hel värld (ej låst)",
+   "dimension": "passage",
+   "change": "+ Klaffbron mellanbro 09:11:44 (GUNHILD 265739417)",
+   "evidence": "L0: korsar Klaffbron söderut 09:10:01 efter U-sväng 09:07:45",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "buggjägarvärld 892, hel värld (ej låst)",
+   "dimension": "passage",
+   "change": "+ Klaffbron mellanbro 16:48:19 (265133806)",
+   "evidence": "L0: korsar Klaffbron söderut 16:44:59 efter U-sväng 16:39:35",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "buggjägarvärld 1044, hel värld (ej låst)",
+   "dimension": "passage",
+   "change": "+ Klaffbron mellanbro 09:30:40 (265901498)",
+   "evidence": "L0: korsar Klaffbron söderut 09:30:07 efter U-sväng 09:27:10",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "buggjägarvärld 1558, hel värld (ej låst)",
+   "dimension": "passage",
+   "change": "+ Klaffbron mellanbro 13:07:55 (265902319)",
+   "evidence": "L0: korsar Klaffbron söderut 13:07:14 efter U-sväng 13:01:37",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "buggjägarvärld 1680, hel värld (ej låst)",
+   "dimension": "passage",
+   "change": "+ Klaffbron mellanbro 13:03:20 (265670027)",
+   "evidence": "L0: korsar Klaffbron söderut 13:02:42 efter U-sväng 12:59:24",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "buggjägarvärld 1731, hel värld (ej låst)",
+   "dimension": "passage",
+   "change": "+ Järnvägsbron och Stridsbergsbron mellanbro 11:05:53 i färdordning (KAJSA 265781143)",
+   "evidence": "L0: korsar Järnvägsbron norrut 11:03:12 och Stridsbergsbron norrut 11:04:57 efter U-sväng 10:54:40",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "buggjägarvärld 1731, hel värld (ej låst)",
+   "dimension": "notis",
+   "change": "Stridsbergsbron norrut: 'närmar sig … om 2 minuter' 11:06:36 → passerad form 11:05:53",
+   "evidence": "L0-korsningen 11:04:57 låg före båda notistiderna; fixen 11:05:53 ligger 163 m från bron, norr om den",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "buggjägarvärld 1927, hel värld (ej låst)",
+   "dimension": "passage",
+   "change": "+ Klaffbron mellanbro 13:23:34 (265431281)",
+   "evidence": "L0: korsar Klaffbron söderut 13:20:48 efter U-sväng 13:16:59",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "buggjägarvärld 1953, hel värld (ej låst)",
+   "dimension": "passage",
+   "change": "+ Klaffbron mellanbro 02:53:16 (IRMA 265603684)",
+   "evidence": "L0: korsar Klaffbron söderut 02:52:27 efter U-sväng 02:47:45",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "buggjägarvärld 1953, hel värld (ej låst)",
+   "dimension": "notis",
+   "change": "+ Klaffbron söderut i passerad form 02:53:16, 99 m från bron (söder om den)",
+   "evidence": "L0: returpassage 02:52:27. Den enda tidigare Klaffbronotisen, 02:46:59 'passerade Klaffbron under AIS-tystnad' norrut, gällde utresan, som korsade bron 02:41:16 (rättad efter granskningen)",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "buggjägarvärld 18, hel värld (ej låst)",
+   "dimension": "passage",
+   "change": "+ Klaffbron mellanbro 11:54:01 (ALVA 265731767)",
+   "evidence": "L0: korsar Klaffbron söderut 11:46:35 efter U-sväng 11:41:34",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "buggjägarvärld 134, hel värld (ej låst)",
+   "dimension": "passage",
+   "change": "+ Järnvägsbron och Stridsbergsbron mellanbro 11:57:01 (ULLA 265119890)",
+   "evidence": "L0: korsar Järnvägsbron norrut 11:49:53 och Stridsbergsbron norrut 11:51:17 efter U-sväng 11:45:15",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "buggjägarvärld 227, hel värld (ej låst)",
+   "dimension": "passage",
+   "change": "+ Järnvägsbron mellanbro 11:33:29 (ZELDA 265533681)",
+   "evidence": "L0: korsar Järnvägsbron norrut 11:31:33 efter U-sväng 11:25:14",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "buggjägarvärld 451, hel värld (ej låst)",
+   "dimension": "riktning",
+   "change": "Olidebron 'har precis passerat' 12:12:07: northbound → southbound (IRMA 265899297)",
+   "evidence": "L0: korsar Olidebron söderut 12:11:17; fixarna 12:05:13–12:12:07 har kurs 193–208° (tid rättad efter granskningen)",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "buggjägarvärld 451, hel värld (ej låst)",
+   "dimension": "riktning och notis",
+   "change": "Kanalinfarten 12:17:51: northbound 'ankomst om 1 min' → southbound, passerad form",
+   "evidence": "sydgående hela vägen; båten ligger 72 m söder om punkten (58.26735 mot 58.26800) (tid rättad efter granskningen)",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "F15 minsta repro, testets fixtur (ej låst)",
+   "dimension": "riktning och notis",
+   "change": "samma två ändringar 12:11:57 och 12:17:41 (fixen 58.26749)",
+   "evidence": "samma L0 som värld 451",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "granskarens F10-variant, fixtur r1-f10-havsorn-langsam-aterkorsning (ej låst)",
+   "dimension": "passage och notis",
+   "change": "+ Klaffbron mellanbro 09:24:00 och 'har precis passerat Klaffbron' söderut 09:24:00 i passerad form",
+   "evidence": "fixet 09:24:00 ligger 150 m söder om bron; förra fixet 09:18:24 låg 630 m norr om den och satte väntan söderut i 3,1 kn",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "granskarens F15-variant f15b, fixtur r1-f15b-irma-svepnotis (ej låst)",
+   "dimension": "riktning och notis",
+   "change": "svepnotisen 12:05:03 behåller northbound; + Olidebron söderut 12:11:57; Kanalinfarten 12:17:41 northbound 'om 1 min' → southbound passerad form",
+   "evidence": "sista fix före glappet 58.26905 söder om Olidebron (58.27274), nordgående, och återfödd 58.28003: glappassagen gick norrut. Returen söderut ligger mellan fixarna 12:07:36 och 12:11:57",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "granskarens F15-variant f15c, fixtur r1-f15c-irma-kurs290 (ej låst)",
+   "dimension": "riktning",
+   "change": "mot 7699cbe som f15b; mot första prototypen blir svepnotisen 'unknown' → northbound",
+   "evidence": "som f15b; glappassagen av Olidebron gick norrut",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "syntetiska sviten: u-sväng-långsam-återkorsning-efter-väntan (nytt)",
+   "dimension": "passage",
+   "change": "+ Klaffbron mellanbro 06:21:00; WARN INV-18 (ETA-stigning mot Stridsbergsbron) försvinner",
+   "evidence": "generatorns vändning 646 m förbi Klaffbron längs rutten; returens första sampel 56 m före bron i 1,5 kn",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "syntetiska sviten: u-sväng-gles-ais-återkorsning-i-debouncen",
+   "dimension": "passage",
+   "change": "Klaffbron bokförs två gånger (mål 06:16, mellanbro 06:20)",
+   "evidence": "vändning 592 m norr om Klaffbron; returen över bron sker före fixen 06:20",
+   "verdict": "rättare"
+  }
+ ],
+ "engineCheck": "**hunt.js --repro på alla 42 kataloger** (K/R1/tmp/rev2/repro-new.txt)\n- BORTA: F10, F10/r2, F13/r2, F15, F15/r2 och W750.\n- KVAR: övriga 36, bland dem F01, F01/r2, F12, F13, B01 och B02.\n- Utfallet är rad för rad detsamma som för första prototypen. På 7699cbe gav alla KVAR.\n\n**--profile=quick --out=K/R1/hunt-quick mot r1-quick-a**\n- 34 → 33 kluster och 88 → 87 utslag. Det enda som försvinner är T10 PASSAGE-EJ-REGISTRERAD i värld 188.\n- Inga nya kluster och inga nya utslag.\n- Bankspåret, S-KALIBRERING och världarnas radavtryck (3b19a079680f) är identiska.\n- Täckningen visar 8 fler app-passager (3157 → 3165), alltså returerna.\n- Jämfört med första prototypens quick-körning (K/R1/tmp/hunt-quick-34c2b57/) är rapporten identisk.\n\n**Alla 26 återskapade världar**\n- Utfallen är identiska med första prototypen (K/R1/tmp/rev2/worlds-new/).\n- Svepslåsets släpp körs bara i 451, där besöksregeln redan stoppar svepnotisen.\n\nStandardkörningen från förra rundan (46 → 45 kluster och 420 → 406 utslag, inga nya) gäller därför fortfarande.",
+ "interplay": "- **N (U14):**\n  - R1 bokför fler returer, som mellanbropassager med no-target, och rensar returbrons dedup. Besöksregeln rörs inte.\n  - Svepets notiser och deras dedupposter får samma riktning som i 7699cbe. I granskarens F15-varianter släpper riktningsflippen därför returnotisen.\n  - N bör räkna även no-target-returer.\n  - Integrera R1 före N.\n- **R2:**\n  - R2 lägger till _releaseGateCandidateForBookedBridge efter bokföringen i _handleIntermediateBridgePassage och registerConfirmedIntermediatePassage. R1 ändrar rörelsebeviset i RE_CROSS i samma funktion, men kodhunkarna överlappar inte.\n  - Varje retur som R1 bokför släpper då också en kvarliggande grindkandidat.\n  - Efter svepslåsets släpp läser BN2 den levande kursen eller R2:s nordprogress, som för andra olåsta återfödda båtar.\n- **K2:** inget delat. Fem av F01:s returer är K2:s absorptionsfall.\n- **K:** BridgeOpeningService rörs inte.\n- **M och E:** inget delat.\n- **Provad sammanslagning** i en ren kopia av 7699cbe med R1 applicerat:\n  - Koden, testerna och fixturerna från R2, N, K, K2 och E applicerar rent.\n  - Textkrockar finns bara i docs (ARCHITECTURE.md vid helgranskningen 2026-11-03 och VALIDATION.md vid scenarioantalet och §Syntetiska) och i runSyntheticScenarios.js (förväntnings- och scenariolistorna, för N och K2). De slås ihop för hand, och scenarioantalet ska räknas om.",
+ "docs": "**I patchen (commit 9ea8de8)**\n- docs/ARCHITECTURE.md, U-svängspunkten:\n  - rörelsebeviset med Fix D-väntan i RE_CROSS_EVIDENCED;\n  - de kvarvarande delfallen, med hänvisning till KÄND LUCKA-testerna;\n  - svepslåset som bär svepets notiser och släpps efteråt, med bandet 271–314° och den valda tokenen 'unknown'.\n- docs/VALIDATION.md: 46 → 48 scenarier och ett stycke om det nya scenariot och slowZone.afterUTurnOnly.\n\n**Kvar för dirigenten** (motorns register och BUGGJAKT.md ligger utanför min skrivgräns)\n- Markera F10, F10/r2, F13/r2, F15, F15/r2 och W750 som BORTA.\n- Ge F01:s två klasser registerposter eller ägarbeslut.\n- Registrera korten \"två broar i samma segment\", U-SVÄNG-LÅNGSAM-ÅTERKORSNING och \"svepslås med osäker kurs\".\n\nIngen korpusnot behövs, eftersom inget facit flyttas.\n\n**Underlag:** K/R1/DESIGN.md (§0 svarar på granskningen, §13 har ägarfrågorna i klartext) och K/R1/FACIT.md, som nu anger källa per rad.",
+ "risks": [
+  "Rörelsebeviset med Fix D-väntan gäller upp till 15 minuter. En båt som visat en omvänd kurs i 2 kn och sedan korsar bron långsamt mer än 100 m åt samma håll bokförs som retur. Det är en verklig korsning, men tidpunkten kan ligga en bit efter vändningen.",
+  "Latitudbeviset förenklar snedställda brolinjer, precis som aheadInNewDir och RE_CROSS redan gör. Väntan, segmentkravet och GPS-kravet begränsar risken.",
+  "F15: efter ett släppt lås bär senare notiser 'unknown' så länge kursen ligger i 271–314°. Förut bar de svepets riktning, som då var fel om båten vänt.",
+  "Returnotiser som förut stoppades av dedup kan nu gå ut (1953 och granskarens F15-varianter). Det är U14:s avsikt, men tillsammans med N kan notismängden i fält öka.",
+  "Kvar i klassen, med KÄND LUCKA-test och kortförslag: tät långsam återkorsning med segment under 100 m, långsam vändning utan fix i 2 kn, och två återkorsade broar i samma segment. I banken går 3,9 % av linjekorsningarna under 2 kn och 1,1 % har segment under 100 m.",
+  "Under Fix D:s debounce bär en notis om en bro framför båten fortfarande det gamla låsets riktning, till exempel 1731 'närmar sig Järnvägsbron' 11:01:04 southbound, i 7699cbe och i revisionen. Det hör till ägarfråga 1.",
+  "Två ägarbeslut krävs, se DESIGN.md §13. Fråga 1: ska en enda omvänd position räcka? Den gäller sju av F01:s returer. Fråga 2: ska en öppningsvarning hållas inne medan en vändning väntar på bekräftelse? Den gäller ZELDA i värld 188, och min rekommendation är nej."
+ ],
+ "commit": "Fyra lokala commits i K/R1/wt, detached ovanpå 7699cbe. HEAD är 9ea8de8.\n- 89b47dd, a675979 och 34c2b57 är första prototypen.\n- 9ea8de8 är revisionen: kod, tester, fixturer, syntetiskt scenario och dokumentation.\n\nInget har pushats.",
+ "patchPath": "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/kampanj/R1/patch.diff",
+ "status": "delvis"
+}

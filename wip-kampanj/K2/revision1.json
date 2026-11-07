@@ -1,0 +1,106 @@
+{
+ "family": "K2: konvojens medlemskap (B02/U15 returresan och F09 fasberoendet i 13h), revision 2",
+ "summary": "Revision 2 åtgärdar alla granskningens punkter: den höga, båda medel och de tre låga. Ingen låst facit flyttas.\n\nDet avbrutna försöket: worktreen hade ocommittade ändringar från ett försök som avbröts av omstarten cirka 20:40. Jag granskade dem med git diff och behöll och slutförde dem. Skälen:\n- de genomför granskarens förslag;\n- källfilen ändrades 20:25, och försökets fassvep (20:29–20:40, 0 av 696 avvikelser) kördes mot just den koden;\n- testfilen ändrades 20:41, efter omstarten, så jag körde och granskade den test för test.\nAllt är sedan mätt om från grunden.\n\nF09, kön vid en tidigare bro: om en båt i kö släpps ur en annan båts varning avgörs nu bara av hennes egna positioner, aldrig av när halvminutsklockan tickar. 13h avviker i 0 av 45 faser (7699cbe 15, ac7a460 6), och banken i 0 av 696 kombinationer av korpus och fas.\n\nEfter granskningen hittade jag två fasberoenden till som fanns redan i 7699cbe:\n- Släppet när båtens position och varningen kommer i samma millisekund. Det är stängt.\n- Konvojundantaget (en båt som rör sig tätt bakom ledaren räknas till dennes varning) prövas vid första utvärderingen efter varningen. Det står kvar. Två fasoberoende varianter byggdes och mättes. Att avgöra i varningsögonblicket gav en ny miss i buggjägarens värld 276. Att vänta på båtens nästa position gav en dubbelvarning i 19h, och med en reservregel bröt den tio låsta test för fältfallet LIV/JOHANNA. En riktig stängning kräver att en given konvojtäckning kan omprövas mot båtens nästa position. Det hör ihop med familj K:s omprövning av medlemskapet och är överlämnat dit.\n\nB02, returresan: returen täcks inte heller av en annan båts händelse för samma öppning (spegelfallet). 60-sekundersgolvet prövas om vid varje ny position.\n\nResultat:\n- B02 och F09 är BORTA. Övriga 23 kort är KVAR med identiska utslag.\n- Quick ger inga nya kort och inga nya instanser.\n- Tre öppningsvarningar byter tid (13h, 17h och 0525), alla likvärdiga mot rådata.\n\nÄgaren behöver ta ställning till en fråga: ska en retur som upptäcks mindre än 60 s före ankomsten vara utan egen varning? U18 gör sena returer vid gles AIS till en känd gräns, men golvet självt är inte beslutat.",
+ "rootCause": "B02 (värld 1273, minsta repro S/hunt-fix/runs/r1-standard-a/fynd/B02-…/repro.jsonl, verbose mot 7699cbe):\n- 08:24:49 avfyras Stridsbergsbron#3 med VEGA som ledare.\n- 08:27:05 OPENING_DISARM passage.\n- 08:32:35 OPENING_ARM för returen, \"absorberad av öppning Stridsbergsbron#3, täckt t.o.m. 08:37:05\".\n- 08:35:55 korsar VEGA utan egen varning.\nKedjan: _evaluateBridge steg 2 behåller den passerade händelsen i 600 s, _bindLooseArms gör inget undantag för båten som själv passerat, och _belongsToEvent jämför med referenceArrivalMs, som är hennes egen passage.\n\nGranskningens två B02-luckor, båda bekräftade med granskarens sonder (K2/tmp/review/probes):\n- b02-spegel: B:s händelse varnar 65 s efter A:s passage, och B korsar 75 s efter A. A:s retur absorberades i B:s händelse.\n- b02-golv: golvet prövades bara i _arm. En returarm med 58 s prognos som sedan väntade i 5 min fick ingen egen varning.\n\nF09 (20260710-13h): i 7699cbe släppte _bindLooseArms alla avfyrade händelser vid varje utvärdering medan armen var spärrad. En tick mellan PILOT 761:s avfyrning 05:44:09 och VIRGOs fix 05:44:17 gav VIRGO en extra varning för samma öppning. Rådata: korsningarna 05:48:59 och 05:50:20.\n\nGranskningens fynd i ac7a460: villkor (2) använde _heldThrough(arm, now), som gav now medan spärren gällde. En tick mer än 30 s efter VIRGOs #19 släppte därför #19 innan PILOTs fix 11:45:39.622 hann visa konvojen. Följd: varningen 11:54:15 i stället för 12:09:08 vid δ −9, −8, −7, +21, +22 och +23 s.\n\nEgna sonder (K2/tmp/rev3/probes):\n- f09-sammams: villkor (1) krävde blocked && lastSeenAt >= firedAt. När följarens fix kommer före ledarens avfyrning i samma millisekund avgjorde nästa tick (7699cbe och ac7a460: fas 10,5–29 s gav egen varning, fas 0,5–9 s absorption).\n- f09-konvojtick: konvojundantaget prövas vid första utvärderingen efter varningen, eftersom bindningen (steg 3) går före avfyrningen (steg 4). Absorption i 4 av 7 faser i 7699cbe. I banken finns mönstret i 19h ZWERK, 14h AKIRA och 17h CARAT (instrumenterat, CONVOY_ABSORB egenFix=false), utan fasavvikelse eftersom en tick alltid hann emellan.",
+ "fix": "Allt i lib/services/BridgeOpeningService.js.\n\nB02/U15:\n- passedMmsis: bokförs i _recordPassage och skapas i _openEvent.\n- _arm sätter returnAfterPassageAt = _ownPassageAt(arm).\n- _describesPassedOpening är sant om (a) hon passerade i händelsen, (b) varningen gick ut vid eller före hennes passage, eller (c) händelsens firstPassageAt ligger inom CONVOY_WINDOW_MS från hennes passage. (c) är nytt och stänger spegelfallet.\n- _releaseReturnCoverage anropas för varje arm i varje _bindLooseArms:\n  - lägger händelserna som beskriver den passerade öppningen i releasedFrom;\n  - släpper en absorption i en sådan händelse;\n  - golv: om expectedArrivalMs − now < 2×TICK_INTERVAL_MS görs inget, och en OPENING_RETURN-rad loggas en gång. Golvet öppnas bara av ett nytt eget fix.\n\nF09:\n- _noteHoldEnd i _refreshArm skriver heldThroughMs eller silentHoldEndMs, alltid ur hennes egna fixtider.\n- heldSeenOrder och firedOrder tas ur en räknare för bearbetningsordning (_orderSeq), och jämförs i _fixAfterWarning.\n- _releaseWarningsWhileHeld(arm, events, keep, now) släpper W om något av följande gäller:\n  - (1) heldSeenOrder > W.firedOrder;\n  - (2) W.firedAt + TICK_INTERVAL_MS < heldThroughMs;\n  - (3) W.firedAt < _silentHoldEnd.\n- _bindLooseArms: i spärrgrenen är värdmängden konvojvärden och oavfyrade, opasserade händelser, och wideHost bara konvojvärden. Det är samma mängd som i 7699cbe.\n- _sharesMovingConvoy och keepMovingConvoy är oförändrade från 7699cbe.\n\nInga nya konstanter.\n\nrunSyntheticScenarios: openingBeforeEachPassage kräver att varningen täcker just den båten, alltså mmsis/leadMmsi eller openingCoverage mellan passagerna.",
+ "functionsTouched": [
+  "BridgeOpeningService.constructor (_orderSeq)",
+  "BridgeOpeningService._releaseWarningsWhileHeld (ny)",
+  "BridgeOpeningService._fixAfterWarning (ny)",
+  "BridgeOpeningService._holdInEffect (ny)",
+  "BridgeOpeningService._noteHoldEnd (ny)",
+  "BridgeOpeningService._silentHoldEnd (ny)",
+  "BridgeOpeningService._arm",
+  "BridgeOpeningService._ownPassageAt (ny)",
+  "BridgeOpeningService._describesPassedOpening (ny)",
+  "BridgeOpeningService._releaseReturnCoverage (ny)",
+  "BridgeOpeningService._refreshArm",
+  "BridgeOpeningService._bindLooseArms",
+  "BridgeOpeningService._recordPassage",
+  "BridgeOpeningService._openEvent",
+  "BridgeOpeningService._fire (firedOrder)",
+  "runSyntheticScenarios.checkExpectations (openingBeforeEachPassage)"
+ ],
+ "tests": "tests/opening-returresa-och-fasoberoende.test.js har 61 test. Alla är gröna i 5e273df. 7699cbe har 29 röda och ac7a460 14 röda (kopior i K2/tmp/rev3/basetest och K2/tmp/rev3/ac7; utskrifter i jest-basetest.full och jest-ac7.full).\n\nNytt i revisionen:\n- spegelbilden och \"samma öppning syns först efter returarmen\": röda på 7699cbe och ac7a460;\n- \"ledtidsgolvet prövas vid varje fix\": rött på båda;\n- negativa skyddstest: \"första passage mer än 600 s bort täcker returen\" och \"under golvet och framme inom en minut\", gröna på båda;\n- granskarens sond f09-konvojfas som enhetstest i 10 faser: rött på ac7a460 vid fas 6–8 s och på 7699cbe i alla faser;\n- samma millisekund med följarens fix före varningen, 9 faser: rött på båda vid fas 10,5–29 s;\n- samma millisekund med följarens fix efter varningen (AKIRA-regeln): grönt på båda;\n- 17h CARAT (absorberad, sedan spärrad, sedan RECOVER): rött på 7699cbe;\n- skydd för spärrgrenens värdmängd: rött på ac7a460;\n- skydd för ZWERK och för reservvarningens 5 min gamla ledarposition: gröna på båda, de låser de förkastade varianterna;\n- 13h-korpusen jämförd med tid, δ −15…+14 s och −11,52 s (hela 30 s-varvet): rött på båda.\n\nEtt av de röda testen på 7699cbe är negativt (\"en varning efter passagen får täcka returen\"). Antalet varningar är lika, men 7699cbe absorberar i den egna gamla #1, vilket är B02-felet.\n\nSyntetscenariot u-sväng-bortom-Stridsbergsbron är grönt. Med den skärpta kontrollen är det rött på 7699cbe (\"OVARNAD PASSAGE … 06:31:00 … ingen varning som täcker båten\"), och det är det enda röda scenariot där (rev3/synth-base-skarpt.log).",
+ "battery": "Commit 5e273df i K2/wt (loggar i K2/tmp/rev3/final):\n\n- npm test: 4836 godkända, 2 hoppade, 1 röd. Den röda är motorns otrackade kopia bugHunt/__tests__/b-register.test.js (\"källfilen docs/BUGGJAKT.md finns inte\"). Den är lika röd på 7699cbe och hör inte till appen.\n- replay:all: exit 0, alla 24 låsta korpusar matchar facit.\n- cmpall mot 7699cbe vid δ = 0: notiser, passager och brotexter identiska i alla 24 korpusar. Öppningsvarningar identiska i 21; tre byter tid.\n- replay:synthetic: exit 0, 47 scenarier rena.\n- replay:openings: exit 0, O1 376/378 som förut. Diff mot 7699cbe: bara O2 i 13h (8 → 9 bekräftade, GARANTIPRIS 118 → 117) och tiderna för JOSEPHINE och CARAT, båda ACCEPTERAD.\n- replay:monitoring: exit 0, identisk med 7699cbe utom heapUsedMB.\n- replay:phase: exit 0 (24 korpusar, 168 replays).\n- REPLAY_MONITORING=1 runPhaseSweep för 13h, 17h, 0525 och 2h: exit 0.\n- Fassvep med tid över banken (24 korpusar × δ −15…+14): 0 av 696 par (7699cbe 8, ac7a460 3).\n- Fassvep med tid för 13h (δ −15…+29 och −11,52): 0 av 45 (7699cbe 15).\n- lint: exit 0.",
+ "facitChanges": [
+  {
+   "corpus": "alla 24 låsta korpusar",
+   "dimension": "notis, text, riktning, öppningsfördelning, golden-events",
+   "change": "ingen förflyttning: replay:all exit 0, ingen omlåsning, ingen corpora.js-not",
+   "evidence": "replay:all exit 0; replay:openings exit 0, O1 376/378 som förut; cmpall mot 7699cbe: notiser, passager och brotexter identiska i alla 24",
+   "verdict": "likvärdig"
+  },
+  {
+   "corpus": "20260710-13h",
+   "dimension": "öppning (tid, olåst)",
+   "change": "PILOT 761 (265606970), Klaffbron söderut: andra varningen 11:54:15.566 (#20) → 12:09:08.761 (#21). Hon absorberas i VIRGOs #19 vid sitt fix 11:45:39.622. Utfallet gäller nu i alla 45 faser (första K2: 39 av 45).",
+   "evidence": "gt-passages: PILOT 12:22:15.333 och VIRGO 12:21:35.445 (linje), 40 s isär, alltså samma öppning, redan varnad av #19 11:45:06.772. Två varningar i båda versionerna. Ledtid 28,0 → 13,1 min. O2: 8 → 9 bekräftade ≤ 20 min.",
+   "verdict": "likvärdig"
+  },
+  {
+   "corpus": "20260804-17h",
+   "dimension": "öppning (tid, olåst)",
+   "change": "CARAT (211452170), Klaffbron#33: 14:13:54.846 → 14:06:29.249. Spärren medan hon var absorberad i #28 räknas, så PAPOUs #32 täcker henne inte efter RECOVER.",
+   "evidence": "gt-passages: ingen Klaffbronkorsning för CARAT (PAPOU 14:14:40.795, ORCA 14:17:03.552), alltså fantom i båda. O2 ACCEPTERAD i båda.",
+   "verdict": "likvärdig"
+  },
+  {
+   "corpus": "20260525",
+   "dimension": "öppning (tid, olåst)",
+   "change": "JOSEPHINE (244870852), Klaffbron#10 söderut: 09:55:43.440 → 10:06:05.877. Hon absorberas i MARIANNEs #9 vid sitt fix 09:46:43.931; i 7699cbe släppte en tick #9 dessförinnan.",
+   "evidence": "gt-passages Klaffbron: NORDIC SOLA, DIANA, AURANA, ORANESS. Varken JOSEPHINE eller MARIANNE korsade, alltså fantom i båda. O2 ACCEPTERAD i båda (d 1043 m → 470 m). Inga golden-events; antalet är oförändrat.",
+   "verdict": "likvärdig"
+  },
+  {
+   "corpus": "20260702-19h (förkastad variant: konvojgrind vid nästa fix)",
+   "dimension": "öppning (antal)",
+   "change": "+1 Klaffbronvarning för ZWERK (244100668) 08:31:00.550: spärren löpte ut i tystnad och villkor (3) släppte CAVAs #13",
+   "evidence": "gt-passages: ZWERK 08:35:13.386, CAVA 08:35:45.291, 32 s isär, alltså samma öppning. Dubblett enligt U2.",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260707-14h (förkastad variant: grind, med och utan konvojbevis vid tystnad)",
+   "dimension": "öppning (tid)",
+   "change": "AKIRA (257605080), Klaffbron norrut: egen varning 08:24:47.964 → 08:06:43.884",
+   "evidence": "AKIRA 08:26:11.416 (linje). Ledaren GRETA för #2 korsade 08:15:56.165, 615 s före. 7699cbe:s varning ligger i O1b-fönstret 08:13:39–08:37:10 (TIDPUNKT_OKÄND). Varianten förkastades ändå: tio låsta test i opening-shared-queue-convoy (LIV/JOHANNA) blev röda.",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "20260702-2h (förkastad variant: konvojbeslut vid avfyrning, <=)",
+   "dimension": "öppning (tid)",
+   "change": "ELFKUNGEN (265573130): egen varning 12:13:30.246 (#6) → absorberad i PAX #5 12:12:49.134 och RECOVER-varning 12:26:12.664 (#7)",
+   "evidence": "ELFKUNGEN 12:33:53.129, PAX 12:34:07.347, 14 s isär, och två varningar i båda versionerna. Konvojbeviset var PAX exakt 5 min gamla position, med båtarna på varsin sida om Stridsbergsbron. Fel mekanism, därför förkastad.",
+   "verdict": "likvärdig"
+  },
+  {
+   "corpus": "buggjägarens värld 276 R1 (förkastad variant: konvojbeslut vid avfyrning, <)",
+   "dimension": "öppning (miss)",
+   "change": "tre nya instanser i quick: T2 JOLLY 265912288 korsar 13:21:48 utan förvarning, T3 hennes varning 43 s efter korsningen, T2 WILMA 265912437 14:04:15",
+   "evidence": "hunt.js --repro på kortet K2/tmp/rev3/w276: 7699cbe och ac7a460 0 utslag, varianten 3 utslag, slutversionen 0 (BORTA). JOLLY kröp fram och korsade vid en egen öppning 9 min efter CORDELIA.",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260601-41h (förkastad v1-variant: alltid eget fix)",
+   "dimension": "öppning (låst fördelning)",
+   "change": "Klaffbron söderut 5 → 4: PALOMA absorberad i AIRs reservvarning",
+   "evidence": "O1 röd (OKLASSAD MISS). AIR 08:41:02.920; PALOMA inferrerad 08:40:10 med 955 s glapp.",
+   "verdict": "sämre"
+  }
+ ],
+ "engineCheck": "hunt:repro (varje träds egen motorkopia) för alla 25 kort i r1-standard-a mot 5e273df (K2/tmp/rev3/reproall-final.txt):\n- B02 BORTA och F09 BORTA.\n- B01, F01–F08 och F10–F23 KVAR, med utslag identiska med 7699cbe (normaliserad diff av .full-utskrifterna).\n\nU2-RETURRESA-klustret (18 världar, rev3/u2ret-final.txt):\n- 13 BORTA (alla nio R0 samt R1 191, 998, 1351 och 1590).\n- 5 KVAR (1208, 1316, 1317, 936, 1918), som hör till R1/U18.\n- 0 nya utslag, och varje värld är identisk med ac7a460.\n\nQuick (--profile=quick --out=K2/hunt-quick, självtest grönt):\n- Mot r1-quick-a: inga nya kluster och inga nya instanser. Borta: M-FAS-kortet för 13h (quickens F06), U2-RETURRESA w101 och w191, T2 w130 och U2-VS-DEADLINE w116. Kandidatkort 17 → 16.\n- Mot quick-körningen för ac7a460: identisk (32 kluster, 16 kandidater).\n\nDen förkastade varianten med konvojbeslut vid avfyrning gav tre nya instanser i värld 276 (K2/tmp/rev3/hunt-quick-steg5). Det var skälet till att den förkastades. Slutversionen: värld 276 BORTA, 0 utslag.",
+ "interplay": "K, samma fil. Provsammanslagning med git merge-file (bas 7699cbe) mot K/patch.diff och mot K:s ocommittade arbetskopia (K2/tmp/rev3/merge) ger tre konflikter, alla lösta genom att behålla båda sidor:\n\n1. _recordPassage: K:s crossedAt och K2:s passedMmsis.set. Semantiskt jämför (c) K:s firstPassageAt (korsningstid) med hennes passage. Spara därför { registeredAt: now, crossedAt } och använd crossedAt i (c) och registeredAt i (b). Koden finns i DESIGN.md §5.\n2. ARCHITECTURE.md §bridge_opening_soon: K:s omskrivna RECOVER-punkt står direkt före K2:s två punkter. Behåll båda.\n3. wideHost, bara i K:s arbetskopia: behåll K:s floorHost men undanta hållna armar: `floorHost = host || wideHost || blocked ? null : _anchorFloorHost(…)`.\n\nK2:s tre ändrade tider (13h, 17h, 0525) går via RECOVER. Kör cmpall och fassvepet med tid igen efter integrationen.\n\nÖverlämning till K: den kvarvarande konvojvägen stängs genom att given konvojtäckning kan omprövas mot följarens nästa fix, vilket ligger nära F22/F02. Underlag: sonden f09-konvojtick och kortet för värld 276.\n\nR1: de fem KVAR-returerna beror på när returen får målbro och omfattas av U18:s kända gräns.\n\nN (U14): returen får både notis och öppningsvarning. Inga delade funktioner.\n\nR2, M och E: inga delade funktioner.",
+ "docs": "Uppdaterat i 5e273df:\n- docs/ARCHITECTURE.md §bridge_opening_soon:\n  - punkten om returresan: villkor (a)–(c), spegelfallet och golvet vid varje fix;\n  - punkten om F09: villkor (1)–(3), bearbetningsordningen, spärrgrenens värdmängd, mätresultaten och den kvarvarande konvojvägen.\n- docs/VALIDATION.md §Syntetiska scenarier: openingBeforeEachPassage kräver att varningen täcker båten.\n\nAtt uppdatera vid integrationen:\n- ARCHITECTURE.md §H29/H30 \"KRAV PÅ ETT NYTT FÖRSÖK\": U15-undantaget för båtens egen returresa (K redigerar samma avsnitt).\n- invariants.js, INV-21-kommentaren: returresan blir kontrakt.\n- Motorns register och BUGGJAKT.md: U2-RETURRESA är inte längre en konflikt, och de fem KVAR-världarna hör till U18.\n\nLeveranser:\n- /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/kampanj/K2/DESIGN.md\n- /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/kampanj/K2/FACIT.md\n- /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/kampanj/K2/hunt-quick/",
+ "risks": [
+  "Konvojundantaget prövas fortfarande vid första utvärderingen efter varningen. En tick före följarens nästa fix kan då avgöra konvojen på hennes äldre position, som i 7699cbe (sonden f09-konvojtick ger 4 av 7 faser). I bankens svep syns inga avvikelser. Stängs genom omprövning av given konvojtäckning, överlämnat till K.",
+  "Golvet på 60 s är ett undantag från U15 och väntar på ägarens beslut. U18 gör sena returer vid gles AIS till en känd gräns men tar inte ställning till själva golvet.",
+  "Fem R1-returer (1208, 1316, 1317, 936, 1918) förblir utan egen varning tills riktningslogiken ger returen målbro i tid (U18).",
+  "När båtens position och varningen kommer i samma millisekund avgör ordningen i AIS-svepet villkor (1), aldrig tickens fas. Det är avsiktligt och låst av opening-confirmed-waiting-eta. Banken har inga sådana rader.",
+  "Båtar som enligt egen position lämnar kön inom 30 s efter en varning täcks av den om prognosen passar. I banken syns det som tre tidsförskjutningar (13h, 17h, 0525), alla likvärdiga.",
+  "K-integrationen: tidsdomänerna i villkor (c), K:s floorHost för hållna armar och en ny körning av 13h, 17h och 0525 efter K:s RECOVER-grindar.",
+  "passedMmsis bokförs bara för armar som var medlemmar vid passagen. En passage utan arm ger ingen spärr (kantfall)."
+ ],
+ "commit": "5e273df (K2/wt, detached, ovanpå ac7a460 och 7699cbe): \"Rätta K2 efter granskningen: släppet avgörs av båtens egna fix\"",
+ "patchPath": "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/kampanj/K2/patch.diff",
+ "status": "klar"
+}

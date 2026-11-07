@@ -1,0 +1,818 @@
+From 5febba031d04508b37bb7bb8fc71d7c5a85b59b9 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 4 Nov 2026 22:57:22 +0000
+Subject: [PATCH 7/9] =?UTF-8?q?E-familjen:=20avg=C3=A5ngsgolvet=20f=C3=B6l?=
+ =?UTF-8?q?jer=20accelerationen=20och=20sl=C3=A4pps=20mjukt?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Andra granskningen: ett fast golv på 4 kn medan farten steg gav för låg
+ETA och uppsteg för båtar som planar ut under 4 kn ("om 3" mot sanning 6
+vid Klaffbron, "om 11 → 14 → 16" mot sanning 23 från Olidebron).
+
+Golvet följer nu den uppmätta accelerationen ett sampel framåt: dubbla
+igångsättningsfarten i avgångssamplet, därefter senaste farten plus
+senaste ökningen medan farten stiger, högst rask kanalfart 4 kn. När
+farten slutar stiga dras antagandet tillbaka mjukt: golvet ligger högst
+fartbruset 0,3 kn över toppfarten, sjunker i avståndets takt och aldrig
+under aktuell fart. Inbromsning mer än bruset eller fart under 1 kn
+avslutar kontexten, som varar högst 5 min (var 3).
+
+V4-principen för M9: det hållna 3,0 är en spärr för presentationen. Nästa
+samples EMA räknar från det ohållna värdet när det samplets egen mätning
+lovar strax (SKONNERTEN JYLLANDs notis 3 → 2 mot sanning 1,4), annars från
+det hållna värdet. Historiken lagrar fortfarande det publicerade värdet.
+
+Regressionstestet har 33 fall: platåklassen från tre platser, fartbrus,
+V4 och de uppdaterade enhetsfallen. 15 är röda på e949ae1 och 24 på
+7699cbe.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ lib/services/ProgressiveETACalculator.js | 230 +++++++++++++----
+ tests/e-avgangs-eta-2026-11-04.test.js   | 316 ++++++++++++++++++++---
+ 2 files changed, 463 insertions(+), 83 deletions(-)
+
+diff --git a/lib/services/ProgressiveETACalculator.js b/lib/services/ProgressiveETACalculator.js
+index 32aaf4d..b4068e1 100644
+--- a/lib/services/ProgressiveETACalculator.js
++++ b/lib/services/ProgressiveETACalculator.js
+@@ -80,17 +80,38 @@ const BRISK_CANAL_SPEED_KNOTS = 4;
+ // Rättningen har tre delar:
+ //   a. Väntans sampel lämnar fartbufferten när avgången syns
+ //      (_noteDepartureSample), så snittet bara bär genomfartens egna sampel.
+-//   b. Medan igångsättningen pågår räknas farten aldrig lägre än rask
+-//      kanalfart (BRISK_CANAL_SPEED_KNOTS). Igångsättningen pågår så länge
+-//      varje nytt sampel är SNABBARE än det förra (jämn fart är ingen
+-//      acceleration), högst DEPARTURE_CONTEXT_MAX_AGE_MS och bara medan båten
+-//      är närmare målbron än där den låg still. Den upphör direkt om båten
+-//      saktar in, håller farten eller åter rapporterar fart under
+-//      MOVEMENT_SOG_KNOTS.
++//   b. Ett GOLV för farten som följer den uppmätta accelerationen ett sampel
++//      framåt, aldrig ett antagande om marschfarten:
++//        • i avgångssampelt: dubbla igångsättningsfarten
++//          (DEPARTURE_FIRST_SAMPLE_GAIN) — båten antas vinna lika mycket fart
++//          till nästa sampel som den vann från stillheten till det första;
++//        • medan farten stiger: senaste farten plus senaste ökningen, och
++//          golvet sjunker inte under igångsättningen;
++//        • båda högst rask kanalfart (BRISK_CANAL_SPEED_KNOTS).
++//      När farten slutar stiga dras antagandet tillbaka mjukt
++//      (_releaseDepartureFloor): golvet ligger kvar inom fartbruset
++//      (DEPARTURE_SPEED_NOISE_KN) över toppfarten och sjunker i samma takt som
++//      avståndet till målbron krymper, så att ett tillbakadraget antagande
++//      inte ensamt höjer prognosen. Golvet går aldrig under aktuell fart, och
++//      kontexten slutar när buffertens snitt har hunnit ikapp. Den slutar
++//      direkt om båten stannar (< MOVEMENT_SOG_KNOTS) eller saktar in mer än
++//      fartbruset under toppfarten, och senast efter
++//      DEPARTURE_CONTEXT_MAX_AGE_MS.
+ //   c. Golvet får aldrig ENSAMT lova "strax" (M9-principen, samma som
+ //      idle-decayns golv): när golvet bestämde farten, den uppmätta farten
+ //      inte hade gett strax och imminent-flaggan inte äger klausulen hålls
+-//      ETA:n på STRAX_THRESHOLD_MINUTES.
++//      ETA:n på STRAX_THRESHOLD_MINUTES. Hållet värde är en spärr för
++//      presentationen, inte en mätning: nästa sampels EMA räknar från det
++//      ohållna värdet när det samplets egen mätning lovar strax (V4-principen,
++//      se _processETAWithProtection).
++// VARFÖR INTE 4 KN DIREKT (andra granskningen): ett fast golv på rask
++// kanalfart medan farten steg gav för låg ETA för båtar som planar ut under
++// 4 kn, och texten hoppade upp när golvet släpptes. Granskarens syntetiska
++// avgångar: "om 3" mot sanning 6 vid Klaffbron och "om 11 → 14 → 16" mot sanning
++// 23 från Olidebron. I platåklassen 2,0–3,5 kn från tre platser
++// (docs/VALIDATION.md §ETA-mätharnessen, "Familj E") minskar de tidsviktade
++// sampel som är minst 2 min för optimistiska från 174 till 23, och fallen med
++// uppsteg från 56 till 36 (7699cbe har 39).
+ // STILLHETEN MÅSTE VARA BELAGD OCH AVGÅNGEN SYNAS PÅ PLATS:
+ //   • minst DEPARTURE_STILL_SAMPLES buffrade sampel, ALLA under
+ //     MOORING_DETECTION.MOVEMENT_PROOF_SOG_KN (0,5 kn — projektets
+@@ -114,20 +135,37 @@ const BRISK_CANAL_SPEED_KNOTS = 4;
+ // buggjägarens 2000 standardvärldar); ett eget stillhetsminne utanför
+ // fartbufferten som överlever gap-reset och målbyte och nöjer sig med de två
+ // senaste stillasamplen (fångar ANTJE 20260804-both-21h men gör 8–17 mätta
+-// påståenden sämre, bl.a. ELFKUNGEN och en notis för YOLO 2).
++// påståenden sämre, bl.a. ELFKUNGEN och en notis för YOLO 2); fast golv på
++// 4 kn medan farten stiger (platåklassen ovan); golvet släppt direkt när
++// farten slutar stiga (fartbrus mitt i accelerationen gav "4 → 5 → 4"); golvet
++// släppt bara i avståndets takt utan bandet kring toppfarten (en båt som höll
++// jämn låg fart fick "om 3" kvar i minuter mot sanning 6).
+ // INGET SAMPELTAK: ett första utkast släppte golvet efter tre rörliga sampel
+ // (filens "mönster"-enhet). Då innehöll bufferten fortfarande accelerationens
+ // låga sampel, och ETA:n hoppade UPP mitt i anloppet (syntetisk avgång 450 m
+ // före Klaffbron i 1,4 → 2,0 → 2,6 → 3,2 → 3,8 kn: "om 4 → om 3 → om 4 →
+-// strax"). Igångsättningen slutar i stället när farten slutar stiga.
+-// VARFÖR 3 MIN: i 4 kn hinner båten ~370 m; en avgång som fortfarande är lika
+-// långsam efter tre minuter är inte längre en igångsättning.
++// strax"). Igångsättningen slutar i stället när farten slutar stiga och
++// bufferten har hunnit ikapp.
++// VARFÖR 5 MIN: en båt med klass B-sändare hörs ungefär var 60–70:e sekund, och
++// verkliga avgångar i banken accelererar under fyra–fem sampel (MS JUTLAND
++// 20260804-both-21h 1,0 → 4,5 kn på 4,5 min, DIANA 20260823-24h 1,9 → 6,0 kn på
++// 3,4 min). Med tre minuter släpptes golvet mitt i en sådan igångsättning.
+ // K6 (ARCHITECTURE §8 e) rörs inte: dubbelkörningen, gap-resetens placering,
+ // outliergrindens 30 s-fönster och emaAlpha är oförändrade. Avgången nycklas
+ // på fartbuffertens sampelnyckel, så de två passen ger samma värde.
+ const DEPARTURE_STILL_SAMPLES = 2;
+-const DEPARTURE_CONTEXT_MAX_AGE_MS = 3 * 60 * 1000;
++const DEPARTURE_CONTEXT_MAX_AGE_MS = 5 * 60 * 1000;
+ const DEPARTURE_MAX_DISTANCE_FROM_STILL_M = VESSEL_GRAVE.MAX_REBIRTH_DIST_M;
++// Igångsättningen från stillhet antas fortsätta ett sampel till: avgångssampelts
++// fart gånger två (lika mycket fart till, som från stillheten till det första
++// samplet). I bankens rådata är kvoten mellan andra och första rörliga sampel
++// efter stillhet oftast 1,1–2,9 (median ~1,5); dubbleringen ligger i övre
++// kvartilen och golvet blir rask kanalfart först från 2,0 kn.
++const DEPARTURE_FIRST_SAMPLE_GAIN = 2;
++// Fartbruset: samma 0,3 kn som projektets stillhetsgräns (GPS-brusnivån,
++// MOORING_DETECTION.STATIONARY_SOG_KN). Inom bandet kring toppfarten är en
++// skillnad brus — båten har varken slutat accelerera på riktigt eller saktat in.
++const DEPARTURE_SPEED_NOISE_KN = MOORING_DETECTION.STATIONARY_SOG_KN;
+ 
+ // E-F9 (2026-07-01): ett AIS-sampels IDENTITET är position + fart + kurs, inte
+ // vessel.timestamp (bearbetningstid — dubbelt levererade identiska ramar fick
+@@ -202,14 +240,16 @@ class ProgressiveETACalculator {
+ 
+     // Familj E (F04): pågående igångsättning per fartyg — se
+     // DEPARTURE_STILL_SAMPLES högst upp i filen. {atMs, samples, lastKey,
+-    // lastSog, stillLat, stillLon, floorKey, floorRatio}: när avgången sågs,
+-    // antal stigande sampel sedan dess (för loggen), senaste sampelnyckel
+-    // (samma nyckel som fartbufferten, så K6-dubbelkörningen inte räknar ett
+-    // sampel två gånger),
+-    // senaste sampelts fart, stillhetens position (riktningskravet) samt
+-    // nyckeln och fartkvoten för det sampel där golvet senast bestämde farten
+-    // (M9-kravet). Gap-reseten rör den INTE: avgången hör till samma sampel
+-    // som reseten.
++    // lastSog, peakSog, floorKn, released, lastDistance, stillLat, stillLon,
++    // floorKey, floorRatio}: när avgången sågs, antal stigande sampel sedan
++    // dess (för loggen), senaste sampelnyckel (samma nyckel som fartbufferten,
++    // så K6-dubbelkörningen inte räknar ett sampel två gånger), senaste
++    // sampelts fart, högsta farten sedan avgången, golvet i knop, om
++    // antagandet har dragits tillbaka (farten har slutat stiga), avståndet
++    // till målbron i senaste samplet (golvet släpps i avståndets takt),
++    // stillhetens position (riktningskravet) samt nyckeln och fartkvoten för
++    // det sampel där golvet senast bestämde farten (M9-kravet). Gap-reseten
++    // rör den INTE: avgången hör till samma sampel som reseten.
+     this._departures = new Map();
+ 
+     // Familj E (F04): positionen för fartygets senaste buffrade STILLASAMPEL
+@@ -748,25 +788,32 @@ class ProgressiveETACalculator {
+     let minRouteSpeed = (hasRecentPassageContext && vesselIsMoving)
+       ? MIN_PASSAGE_ROUTE_SPEED_KNOTS
+       : 0.5;
+-    // Familj E (F04): en båt i avgångskontext accelererar — räkna med rask
+-    // kanalfart, inte igångsättningsfarten (se DEPARTURE_STILL_SAMPLES).
++    // Familj E (F04): en båt i avgångskontext accelererar — räkna inte på
++    // igångsättningsfarten utan på avgångsgolvet, som följer den uppmätta
++    // accelerationen ett sampel framåt (se DEPARTURE_STILL_SAMPLES).
+     if (this._inDepartureContext(vessel, actualSpeed)) {
+-      if (minRouteSpeed < BRISK_CANAL_SPEED_KNOTS && baseSpeed < BRISK_CANAL_SPEED_KNOTS) {
++      const departure = this._departures.get(vessel.mmsi);
++      const measuredSpeed = Math.max(baseSpeed, minRouteSpeed);
++      if (measuredSpeed < departure.floorKn) {
+         this.logger.debug(
+           `🚀 [ETA_DEPARTURE_FLOOR] ${vessel.mmsi}: avgång från stillhet `
+           + `(${actualSpeed.toFixed(1)}kn, snitt ${avgSpeed.toFixed(1)}kn, `
+-          + `sampel ${this._departures.get(vessel.mmsi).samples} i igångsättningen) — räknar med `
+-          + `rask kanalfart ${BRISK_CANAL_SPEED_KNOTS}kn`,
++          + `sampel ${departure.samples} i igångsättningen${departure.released ? ', antagandet släpps' : ''}) — `
++          + `räknar med golvet ${departure.floorKn.toFixed(2)}kn`,
+         );
+         // Golvet BESTÄMDE farten för det här sampelt — M9-kravet i
+         // _processETAWithProtection läser markeringen och kvoten mellan
+         // golvet och den uppmätta farten (rå-ETA:n är omvänt proportionell
+         // mot farten i alla beräkningsvägar).
+-        const departure = this._departures.get(vessel.mmsi);
+         departure.floorKey = sampleKeyOf(vessel);
+-        departure.floorRatio = BRISK_CANAL_SPEED_KNOTS / Math.max(baseSpeed, minRouteSpeed);
++        departure.floorRatio = departure.floorKn / measuredSpeed;
++        minRouteSpeed = departure.floorKn;
++      } else if (departure.released) {
++        // Farten har slutat stiga och buffertens snitt har hunnit ikapp
++        // golvet: igångsättningen är över. Båda passen i K6-dubbelkörningen
++        // ger samma fart, eftersom golvet inte längre binder.
++        this._departures.delete(vessel.mmsi);
+       }
+-      minRouteSpeed = Math.max(minRouteSpeed, BRISK_CANAL_SPEED_KNOTS);
+     }
+     const effectiveSpeed = Math.max(baseSpeed, minRouteSpeed);
+ 
+@@ -836,11 +883,11 @@ class ProgressiveETACalculator {
+    * Familj E (F04): bokför ett NYTT fartsampel mot avgångskontexten. Anropas
+    * bara när sampelnyckeln är ny (samma villkor som pushen i fartbufferten).
+    * Ordningen per sampel:
+-   *   1. en pågående igångsättning fortsätter bara om farten STIGER (jämn fart
+-   *      är ingen acceleration);
++   *   1. en pågående igångsättning förs vidare (_advanceDeparture);
+    *   2. ett rörligt sampel efter belagd stillhet, på plats och närmare
+    *      målbron än stillheten, är en avgång: väntans sampel lämnar
+-   *      fartbufferten och kontexten börjar;
++   *      fartbufferten, kontexten börjar och golvet blir dubbla
++   *      igångsättningsfarten (högst rask kanalfart);
+    *   3. positionen för senaste stillasampel bokförs (närhetskravet).
+    * Belagd stillhet = minst DEPARTURE_STILL_SAMPLES buffrade sampel, ALLA
+    * under MOORING_DETECTION.MOVEMENT_PROOF_SOG_KN. Bufferten rymmer tre sampel,
+@@ -857,24 +904,18 @@ class ProgressiveETACalculator {
+     const moving = Number.isFinite(sog) && sog >= MOVEMENT_SOG_KNOTS;
+     const departure = this._departures.get(mmsi);
+     if (departure && departure.lastKey !== key) {
+-      if (moving && sog > departure.lastSog) {
+-        departure.samples += 1;
+-        departure.lastKey = key;
+-        departure.lastSog = sog;
+-      } else {
+-        // Båten har slutat accelerera (jämn fart eller inbromsning) eller
+-        // stannat: buffertens snitt är åter rätt mått och golvet ska bort.
+-        this._departures.delete(mmsi);
+-      }
++      this._advanceDeparture(vessel, departure, sog, key);
+     }
+ 
+     const still = this._lastStillSample.get(mmsi);
+     if (moving && still && buffer.length >= DEPARTURE_STILL_SAMPLES
+         && buffer.every((s) => s < MOORING_DETECTION.MOVEMENT_PROOF_SOG_KN)
+         && this._departsFromStillness(vessel, still)) {
++      const floorKn = Math.min(BRISK_CANAL_SPEED_KNOTS, DEPARTURE_FIRST_SAMPLE_GAIN * sog);
+       this.logger.debug(
+         `🚀 [ETA_DEPARTURE] ${mmsi}: första rörliga sampel (${sog.toFixed(1)}kn) efter stillhet `
+-        + `[${buffer.map((s) => s.toFixed(1)).join(', ')}] — väntans sampel lämnar fartbufferten`,
++        + `[${buffer.map((s) => s.toFixed(1)).join(', ')}] — väntans sampel lämnar fartbufferten, `
++        + `golv ${floorKn.toFixed(1)}kn`,
+       );
+       buffer.length = 0;
+       this._departures.set(mmsi, {
+@@ -882,6 +923,10 @@ class ProgressiveETACalculator {
+         samples: 1,
+         lastKey: key,
+         lastSog: sog,
++        peakSog: sog,
++        floorKn,
++        released: false,
++        lastDistance: this._getDistanceToTarget(vessel),
+         stillLat: still.lat,
+         stillLon: still.lon,
+         floorKey: null,
+@@ -896,6 +941,73 @@ class ProgressiveETACalculator {
+     }
+   }
+ 
++  /**
++   * Familj E (F04): för en pågående igångsättning vidare med ett nytt sampel.
++   *   • Båten har stannat (< MOVEMENT_SOG_KNOTS) eller saktat in mer än
++   *     fartbruset under toppfarten: kontexten slutar, buffertens snitt är
++   *     åter rätt mått.
++   *   • Farten STIGER (strikt, och efter ett tillbakadraget antagande först
++   *     över toppfarten): golvet blir senaste farten plus senaste ökningen —
++   *     ett sampel till av samma acceleration — men aldrig lägre än förut och
++   *     högst rask kanalfart.
++   *   • Annars (jämn fart inom bruset): antagandet dras tillbaka mjukt, se
++   *     _releaseDepartureFloor.
++   * @param {Object} vessel - fartyget i det nya samplet
++   * @param {Object} departure - kontexten i this._departures
++   * @param {number} sog - det nya sampelts fart
++   * @param {string} key - sampelnyckeln
++   * @private
++   */
++  _advanceDeparture(vessel, departure, sog, key) {
++    const moving = Number.isFinite(sog) && sog >= MOVEMENT_SOG_KNOTS;
++    if (!moving || sog < departure.peakSog - DEPARTURE_SPEED_NOISE_KN) {
++      this._departures.delete(vessel.mmsi);
++      return;
++    }
++    const distance = this._getDistanceToTarget(vessel);
++    if (sog > departure.lastSog && (!departure.released || sog > departure.peakSog)) {
++      const gain = sog - departure.lastSog;
++      departure.floorKn = Math.min(BRISK_CANAL_SPEED_KNOTS, Math.max(departure.floorKn, sog + gain));
++      departure.peakSog = Math.max(departure.peakSog, sog);
++      departure.released = false;
++      departure.samples += 1;
++    } else {
++      this._releaseDepartureFloor(departure, sog, distance);
++    }
++    departure.lastKey = key;
++    departure.lastSog = sog;
++    departure.lastDistance = distance;
++  }
++
++  /**
++   * Familj E (F04): farten har slutat stiga — dra tillbaka antagandet om
++   * fortsatt acceleration utan att det ENSAMT höjer prognosen:
++   *   • golvet sjunker högst i samma takt som avståndet till målbron krymper
++   *     (rå-ETA:n = avstånd / fart står då still i stället för att stiga);
++   *   • men ligger aldrig mer än fartbruset (DEPARTURE_SPEED_NOISE_KN) över
++   *     toppfarten — ett större antagande skärs ned direkt, så en båt som
++   *     redan i första samplet hade sin marschfart rättas genast i stället för
++   *     att få för låg ETA i minuter;
++   *   • och aldrig under aktuell fart (den eftersläpande buffertens snitt bär
++   *     fortfarande accelerationens låga sampel).
++   * Kontexten slutar i _getEffectiveSpeed när buffertens snitt har hunnit
++   * ikapp golvet.
++   * @param {Object} departure - kontexten i this._departures
++   * @param {number} sog - aktuell fart
++   * @param {number|null} distance - aktuellt avstånd till målbron (m)
++   * @private
++   */
++  _releaseDepartureFloor(departure, sog, distance) {
++    const shrink = (Number.isFinite(distance) && Number.isFinite(departure.lastDistance)
++      && departure.lastDistance > 0)
++      ? Math.min(1, distance / departure.lastDistance) : 1;
++    departure.floorKn = Math.max(
++      sog,
++      Math.min(departure.floorKn * shrink, departure.peakSog + DEPARTURE_SPEED_NOISE_KN),
++    );
++    departure.released = true;
++  }
++
+   /**
+    * Familj E (F04): syns avgången på platsen där båten låg still, och på väg
+    * mot målbron? Avgångssampelt får ligga högst
+@@ -935,8 +1047,9 @@ class ProgressiveETACalculator {
+   /**
+    * Familj E (F04): är fartyget i avgångskontext just nu? Kräver verklig fart
+    * i det aktuella sampelt, högst DEPARTURE_CONTEXT_MAX_AGE_MS sedan avgången
+-   * och att båten är närmare målbron än där den låg still. Att farten stiger
+-   * prövas per sampel i _noteDepartureSample. En utgången kontext städas här.
++   * och att båten är närmare målbron än där den låg still. Hur golvet följer
++   * farten prövas per sampel i _advanceDeparture. En utgången kontext städas
++   * här.
+    * @param {Object} vessel - fartyget
+    * @param {number} sog - aktuell fart
+    * @returns {boolean} sant under igångsättningen
+@@ -955,7 +1068,7 @@ class ProgressiveETACalculator {
+ 
+   /**
+    * Familj E (F04): bestämde avgångsgolvet farten för det här sampelt? Läses
+-   * av M9-kravet i _processETAWithProtection: ett antaget 4 kn får aldrig
++   * av M9-kravet i _processETAWithProtection: en antagen fart får aldrig
+    * ensamt lova "strax".
+    * @param {Object} vessel - fartyget
+    * @returns {boolean} sant om golvet bestämde farten för aktuellt sampel
+@@ -1088,6 +1201,9 @@ class ProgressiveETACalculator {
+     // Familj E (F04): rå-ETA:n som den kom in (outlierskyddet nedan kan byta
+     // ut rawETA mot en blandning) — M9-kravet för avgångsgolvet läser den.
+     const departureMeasuredETA = this._departureMeasuredETA(vessel, rawETA);
++    // Sampelts egen MÄTNING (utan avgångsgolvets antagande). Läses av
++    // V4-principen i EMA-steget nedan.
++    const measuredETA = departureMeasuredETA !== null ? departureMeasuredETA : rawETA;
+     // StatusService binder väntestatusen till en bestämd bro. Väntan vid
+     // exempelvis Olidebron får inte kapa restiden till målbron Klaffbron.
+     // Fristående kalkylanrop kan i stället ge den närmaste bron i proximity.
+@@ -1317,9 +1433,22 @@ class ProgressiveETACalculator {
+     // STEP 3: EMA SMOOTHING - Apply exponential moving average
+     let smoothedETA = protectedETA;
+     if (history.length > 0) {
+-      const lastProcessedETA = history[history.length - 1].processedETA;
++      const lastEntry = history[history.length - 1];
++      // Familj E (F04), V4-principen (andra granskningen): ett värde som
++      // M9-kravet höll på strax-tröskeln är en spärr för presentationen, inte
++      // en mätning. Lovar det här samplets egen mätning strax räknar EMA:n från
++      // det OHÅLLNA värdet — annars drog det hållna 3,0 nästa notis uppåt
++      // (SKONNERTEN JYLLAND 20260601-41h 07:30:52: "om 3" mot sanning 1,4 där
++      // 7699cbe sa 2). Lovar mätningen inte strax räknar EMA:n från det hållna
++      // värdet, så antagandet inte via utjämningen kan lova strax i nästa
++      // sampel. Historiken lagrar fortfarande det publicerade värdet
++      // (processedETA, E-F6); alla andra skydd läser det.
++      const emaBase = (Number.isFinite(lastEntry.m9UnheldETA)
++        && Number.isFinite(measuredETA) && measuredETA < STRAX_THRESHOLD_MINUTES)
++        ? lastEntry.m9UnheldETA
++        : lastEntry.processedETA;
+       // EMA formula: new_value = alpha * current + (1 - alpha) * previous
+-      smoothedETA = this._emaAlpha * protectedETA + (1 - this._emaAlpha) * lastProcessedETA;
++      smoothedETA = this._emaAlpha * protectedETA + (1 - this._emaAlpha) * emaBase;
+ 
+       const smoothingApplied = Math.abs(smoothedETA - protectedETA) > 0.1;
+       if (smoothingApplied) {
+@@ -1384,7 +1513,7 @@ class ProgressiveETACalculator {
+     }
+     adjustedETA = Math.min(Math.max(adjustedETA, 0.1), 120); // Final bounds: 0.1min to 2 hours
+ 
+-    // Familj E (F04): M9-principen för avgångsgolvet. Golvet (4 kn) är ett
++    // Familj E (F04): M9-principen för avgångsgolvet. Golvet är ett
+     // ANTAGANDE om farten båten kommer upp i, inte en mätning — precis som
+     // idle-decayns golv i _applyIdleDecay får det därför aldrig ENSAMT lova
+     // "beräknad broöppning strax". Ensamt = golvet bestämde farten för det här
+@@ -1396,6 +1525,9 @@ class ProgressiveETACalculator {
+     // uppmätta farten ger strax är det inte golvet som lovar, och ETA:n går
+     // igenom (SKONNERTEN JYLLAND 20260601-41h 07:30:52: 238 m från
+     // Stridsbergsbron, rå-ETA 1,9 min på golvet och 2,0 min på uppmätta 3,8 kn).
++    // Det ohållna värdet sparas i historiken (m9UnheldETA) för V4-principen i
++    // EMA-steget; processedETA är det hållna, publicerade värdet.
++    let m9UnheldETA = null;
+     if (departureMeasuredETA !== null
+         && departureMeasuredETA >= STRAX_THRESHOLD_MINUTES
+         && vessel._isImminentAtTargetBridge !== true
+@@ -1405,6 +1537,7 @@ class ProgressiveETACalculator {
+         + `${adjustedETA.toFixed(1)}min hålls på ${STRAX_THRESHOLD_MINUTES}min `
+         + '(antagen fart får inte ensam lova strax)',
+       );
++      m9UnheldETA = adjustedETA;
+       adjustedETA = STRAX_THRESHOLD_MINUTES;
+     }
+ 
+@@ -1413,6 +1546,7 @@ class ProgressiveETACalculator {
+       rawETA,
+       protectedETA,
+       processedETA: adjustedETA,
++      m9UnheldETA,
+       timestamp: now,
+       targetBridge: vessel.targetBridge,
+       nearestBridge: proximityData?.nearestBridge || null,
+diff --git a/tests/e-avgangs-eta-2026-11-04.test.js b/tests/e-avgangs-eta-2026-11-04.test.js
+index c53d5b4..04fc795 100644
+--- a/tests/e-avgangs-eta-2026-11-04.test.js
++++ b/tests/e-avgangs-eta-2026-11-04.test.js
+@@ -11,18 +11,26 @@
+  * själva verket korsade Stridsbergsbron 3,1 min senare (L0 11:34:52).
+  *
+  * Rättningen (ProgressiveETACalculator): väntans sampel lämnar fartbufferten
+- * när avgången syns, och medan båten accelererar räknas farten aldrig lägre
+- * än rask kanalfart, 4 kn. Villkoren efter granskningen:
++ * när avgången syns, och farten räknas på ett golv som följer den uppmätta
++ * accelerationen ett sampel framåt. Villkoren efter granskningarna:
+  *   • stillheten är belagd (alla buffrade sampel under 0,5 kn, minst två);
+  *   • avgångssampelt ligger högst 200 m från senaste stillasampel ("på
+  *     plats", samma radie som gravens återfödelse) — MARIANNE 20260525;
+  *   • båten är närmare målbron än där den låg still (riktningskravet);
+- *   • igångsättningen pågår bara så länge farten STIGER, högst 3 min — jämn
+- *     låg fart är ingen acceleration (strax → om 4 → strax i buggjägarens
+- *     standardvärldar 664, 906, 920 och 1113);
++ *   • golvet är dubbla igångsättningsfarten i avgångssampelt och därefter
++ *     senaste farten plus senaste ökningen, medan farten stiger, högst rask
++ *     kanalfart 4 kn — ett fast golv på 4 kn gav för låg ETA och uppsteg för
++ *     båtar som planar ut under 4 kn (andra granskningen: "om 3" mot sanning
++ *     6 vid Klaffbron, "om 11 → 14 → 16" mot sanning 23 från Olidebron);
++ *   • när farten slutar stiga dras antagandet tillbaka mjukt: golvet ligger
++ *     kvar högst fartbruset 0,3 kn över toppfarten och sjunker i avståndets
++ *     takt, aldrig under aktuell fart; inbromsning mer än bruset eller fart
++ *     under 1 kn avslutar kontexten, och den varar högst 5 min;
+  *   • golvet får aldrig ensamt lova "strax" (M9-principen): bestämde golvet
+  *     farten och hade den uppmätta farten inte gett strax hålls ETA:n på
+- *     3 min, om inte imminent-flaggan äger klausulen (värld 595).
++ *     3 min, om inte imminent-flaggan äger klausulen (värld 595). Nästa
++ *     sampels EMA räknar från det ohållna värdet när det samplets egen mätning
++ *     lovar strax (V4-principen, SKONNERTEN JYLLAND 20260601-41h).
+  *
+  * Fixturen är minsta reprots ALVA-rader 10:58–11:36 (77 rader). De syntetiska
+  * avgångarna byggs här ur scenarioGeneratorns kanalgeometri (deterministiskt).
+@@ -115,64 +123,101 @@ describe('avgångskontexten i ProgressiveETACalculator', () => {
+     sample(metres - 2, 0.0);
+   }
+ 
+-  test('första rörliga sampel efter belagd stillhet räknas i rask kanalfart, inte i igångsättningsfart', () => {
++  test('första rörliga sampel efter belagd stillhet räknas på dubbla igångsättningsfarten, inte på igångsättningsfarten', () => {
+     stillAt(485);
+     const { first, second } = sample(476, 1.6);
+-    expect(first).toBe(4);
+-    expect(second).toBe(4); // dubbelkörningen ger samma svar
++    expect(first).toBeCloseTo(3.2, 5); // 2 × 1,6 kn: lika mycket fart till som från stillheten
++    expect(second).toBeCloseTo(3.2, 5); // dubbelkörningen ger samma svar
+     // Väntans sampel har lämnat bufferten: bara avgångssampelt finns kvar.
+     expect(calc._speedBuffers.get('265000884')).toEqual([1.6]);
+     expect(calc._departures.get('265000884').samples).toBe(1);
+   });
+ 
+-  test('hel ETA-beräkning: värld 884-läget ger ungefär restiden i 4 kn, inte 27 minuter', () => {
++  test('golvet är högst rask kanalfart, 4 kn', () => {
++    stillAt(485);
++    expect(sample(476, 2.6).first).toBe(4); // 2 × 2,6 = 5,2 kn kapas till 4
++  });
++
++  test('hel ETA-beräkning: värld 884-läget ger restiden i dubbla igångsättningsfarten, inte 27 minuter', () => {
+     stillAt(485);
+     const { pass1, pass2 } = eta(476, 1.6);
+-    const expected = 476 / (4 * KN_M_PER_MIN);
+-    expect(pass1).toBeGreaterThan(expected - 0.3);
+-    expect(pass1).toBeLessThan(5);
+-    expect(pass2).toBeLessThan(5);
++    const expected = 476 / (3.2 * KN_M_PER_MIN); // 4,8 min
++    expect(pass1).toBeCloseTo(expected, 1);
++    expect(pass2).toBeCloseTo(expected, 1);
++  });
++
++  test('golvet följer accelerationen ett sampel framåt så länge farten stiger', () => {
++    stillAt(485);
++    expect(sample(476, 1.0).first).toBeCloseTo(2.0, 5); // 2 × 1,0
++    expect(sample(466, 1.3).first).toBeCloseTo(2.0, 5); // 1,3 + 0,3 = 1,6: golvet sjunker inte
++    expect(sample(452, 1.6).first).toBeCloseTo(2.0, 5); // 1,6 + 0,3 = 1,9
++    expect(sample(435, 1.9).first).toBeCloseTo(2.2, 5); // 1,9 + 0,3
++    expect(sample(395, 3.0).first).toBeCloseTo(4.0, 5); // 3,0 + 1,1 kapas till rask kanalfart
++    expect(calc._departures.get('265000884').released).toBe(false);
+   });
+ 
+-  test('golvet gäller så länge farten stiger och släpps när farten slutar stiga', () => {
++  test('när farten slutar stiga räknas aktuell fart i stället för det eftersläpande snittet, tills snittet hunnit ikapp', () => {
+     stillAt(485);
+-    expect(sample(476, 1.6).first).toBe(4);
+-    expect(sample(460, 3.0).first).toBe(4); // snitt 2,3 kn < 4
+-    expect(sample(430, 3.9).first).toBe(4); // snitt 2,8 kn < 4
+-    expect(sample(395, 4.4).first).toBe(4); // fjärde stigande sampel: snitt 3,8 kn < 4
+-    const steady = sample(360, 4.4).first; // farten står still: igångsättningen är över
+-    expect(steady).toBeCloseTo((3.9 + 4.4 + 4.4) / 3, 5);
++    sample(476, 1.6);
++    sample(460, 3.0);
++    sample(430, 3.9);
++    sample(395, 4.4);
++    // Farten står still på 4,4: antagandet om fortsatt acceleration (4 kn,
++    // under toppfarten) dras tillbaka, men bufferten [3,9, 4,4, 4,4] har
++    // snittet 4,23 — båten går 4,4.
++    expect(sample(360, 4.4).first).toBeCloseTo(4.4, 5);
++    expect(calc._departures.get('265000884').released).toBe(true);
++    // Nästa jämna sampel: snittet 4,4 har hunnit ikapp, kontexten är slut.
++    expect(sample(325, 4.4).first).toBeCloseTo(4.4, 5);
+     expect(calc._departures.has('265000884')).toBe(false);
+   });
+ 
+-  test('jämn låg fart efter avgången är ingen acceleration (standardvärldarna 664, 906, 920, 1113)', () => {
++  test('jämn låg fart efter avgången skär ned antagandet direkt till bruset över toppfarten (standardvärldarna 664, 906, 920, 1113)', () => {
+     stillAt(485);
+     expect(sample(476, 2.2).first).toBe(4);
++    // Farten steg inte: golvet 4 kn skärs ned till 2,2 + 0,3 kn och sjunker
++    // sedan i avståndets takt mot den uppmätta farten.
+     const steady = sample(460, 2.2).first;
+-    expect(steady).toBeCloseTo(2.2, 5);
+-    expect(calc._departures.has('265000884')).toBe(false);
++    expect(steady).toBeCloseTo(2.5, 5);
++    const later = sample(444, 2.2).first;
++    expect(later).toBeLessThan(2.5);
++    expect(later).toBeGreaterThanOrEqual(2.2);
++  });
++
++  test('fartbrus inom 0,3 kn under toppfarten släpper inte golvet till snittet', () => {
++    stillAt(485);
++    sample(476, 1.5);
++    sample(461, 2.5); // golvet 2,5 + 1,0 = 3,5
++    const dip = sample(447, 2.4).first; // brus: golvet högst 2,5 + 0,3
++    expect(dip).toBeCloseTo(2.8, 5);
++    const resumed = sample(432, 3.0).first; // över toppfarten: accelerationen fortsätter
++    expect(resumed).toBeCloseTo(3.6, 5);
++    expect(calc._departures.get('265000884').released).toBe(false);
+   });
+ 
+-  test('en båt som saktar in efter avgången får sitt vanliga snitt (gästhamnsbåten MARIANNE)', () => {
++  test('en båt som saktar in mer än bruset efter avgången får sitt vanliga snitt (gästhamnsbåten MARIANNE)', () => {
+     stillAt(700);
+     expect(sample(690, 3.8).first).toBe(4);
+-    const slower = sample(680, 3.6).first;
+-    expect(slower).toBeCloseTo((3.8 + 3.6) / 2, 5);
++    const slower = sample(680, 3.2).first; // 0,6 kn under toppfarten: inbromsning
++    expect(slower).toBeCloseTo((3.8 + 3.2) / 2, 5);
+     expect(calc._departures.has('265000884')).toBe(false);
+   });
+ 
+   test('en båt som stannar igen lämnar kontexten direkt', () => {
+     stillAt(485);
+-    expect(sample(476, 1.6).first).toBe(4);
++    expect(sample(476, 1.6).first).toBeCloseTo(3.2, 5);
+     sample(475, 0.3);
+     expect(calc._departures.has('265000884')).toBe(false);
+   });
+ 
+-  test('kontexten har en tidsgräns på tre minuter', () => {
++  test('kontexten har en tidsgräns på fem minuter', () => {
+     stillAt(485);
+-    expect(sample(476, 1.6).first).toBe(4);
+-    const late = sample(470, 2.0, { dtS: 4 * 60 }).first;
+-    expect(late).toBeCloseTo((1.6 + 2.0) / 2, 5);
++    expect(sample(476, 1.6).first).toBeCloseTo(3.2, 5);
++    const within = sample(470, 2.0, { dtS: 4 * 60 }).first; // stigande inom 5 min
++    expect(within).toBeCloseTo(3.2, 5);
++    const late = sample(466, 2.4, { dtS: 2 * 60 }).first; // 6 min efter avgången
++    expect(late).toBeCloseTo((1.6 + 2.0 + 2.4) / 3, 5);
++    expect(calc._departures.has('265000884')).toBe(false);
+   });
+ 
+   test('långsam gång (0,5–0,99 kn, kajdrift) är ingen avgång', () => {
+@@ -208,9 +253,9 @@ describe('avgångskontexten i ProgressiveETACalculator', () => {
+ 
+   test('golvet släpps om båten vänder och hamnar längre från målbron än stillheten', () => {
+     stillAt(485);
+-    expect(sample(476, 1.6).first).toBe(4);
++    expect(sample(476, 1.6).first).toBeCloseTo(3.2, 5);
+     const turned = sample(490, 2.4).first; // stigande fart, men nu söder om stillheten
+-    expect(turned).toBeLessThan(4);
++    expect(turned).toBeCloseTo((1.6 + 2.4) / 2, 5);
+   });
+ 
+   test('golvet får inte ensamt lova "strax": jämn låg fart 340 m före bron ger 3 min, inte strax', () => {
+@@ -234,6 +279,52 @@ describe('avgångskontexten i ProgressiveETACalculator', () => {
+     expect(pass1).toBeLessThan(2);
+   });
+ 
++  // V4-principen (andra granskningen): M9-hållet 3,0 är en spärr för
++  // presentationen. Historikposten bär det ohållna värdet; nästa sampels EMA
++  // räknar från det när det samplets egen mätning lovar strax, annars från det
++  // hållna värdet. Fartyget är här utan avgångskontext, så rå-ETA:n är mätningen.
++  function heldHistory(unheld) {
++    const t = Date.now();
++    calc._etaHistory.set('265000884', [{
++      rawETA: 2.4,
++      protectedETA: 2.4,
++      processedETA: 3,
++      m9UnheldETA: unheld,
++      timestamp: t - 30000,
++      targetBridge: 'Stridsbergsbron',
++      nearestBridge: null,
++      vesselSpeed: 3.4,
++      distance: null,
++      distanceToTarget: null,
++      vesselStatus: 'en-route',
++      waitingAtBridge: null,
++      position: null,
++    }]);
++  }
++
++  test('efter ett M9-hållet värde räknar EMA:n från det ohållna värdet när mätningen själv lovar strax (SKONNERTEN JYLLAND)', () => {
++    heldHistory(2.6);
++    const v = vesselAt(160, 3.8, { status: 'en-route' });
++    const out = calc._processETAWithProtection(v, 1.93, null);
++    expect(out).toBeCloseTo(0.4 * 1.93 + 0.6 * 2.6, 5); // 2,33 — inte 2,56 från det hållna 3,0
++  });
++
++  test('lovar mätningen inte strax räknar EMA:n från det hållna värdet, så antagandet inte kan lova strax via utjämningen', () => {
++    heldHistory(2.6);
++    const v = vesselAt(300, 3.0, { status: 'en-route' });
++    const out = calc._processETAWithProtection(v, 3.4, null);
++    expect(out).toBeCloseTo(0.4 * 3.4 + 0.6 * 3, 5); // 3,16 ("om 3"); från 2,6 hade det blivit 2,92 (strax)
++    expect(out).toBeGreaterThanOrEqual(3);
++  });
++
++  test('historiken lagrar det publicerade, hållna värdet och det ohållna bredvid (E-F6)', () => {
++    stillAt(345);
++    eta(340, 2.2);
++    const last = calc._etaHistory.get('265000884').slice(-1)[0];
++    expect(last.processedETA).toBe(3);
++    expect(last.m9UnheldETA).toBeLessThan(3);
++  });
++
+   test('städningen följer fartbufferten (clear, svep och destroy)', () => {
+     stillAt(485);
+     sample(476, 1.6);
+@@ -277,7 +368,10 @@ describe('avgångs-ETA i hela kedjan (replay av minsta reprots ALVA-rader)', ()
+     expect(after.length).toBeGreaterThan(0);
+     const first = after[0];
+     const truthMin = (TRUE_CROSSING_MS - first.t) / 60000;
+-    expect(Math.abs(minutesOf(first.text) - truthMin)).toBeLessThanOrEqual(1.5);
++    // Golvet antar dubbla igångsättningsfarten (3,2 kn): "om 5" mot sanning
++    // 3,1 i stället för "om 27" — försiktigt, och nedräkningen går därefter
++    // bara nedåt (4, 3, strax).
++    expect(Math.abs(minutesOf(first.text) - truthMin)).toBeLessThanOrEqual(2);
+   });
+ 
+   test('ingen prognos efter avgången överstiger 6 minuter (förr 27 → 22 → 18 → 14)', () => {
+@@ -415,3 +509,155 @@ describe('syntetiska avgångar efter väntan söder om Klaffbron (placeringsbero
+     expect(after.every((m) => m >= floor)).toBe(true);
+   });
+ });
++
++describe('platåklassen: avgångar som planar ut under 4 kn (andra granskningen)', () => {
++  // Granskarens fall (omgranskning 1) från tre platser. Båten kör i 4 kn mot
++  // väntplatsen, ligger still 6 min (litet positionsbrus) och sätter igång i
++  // en fart som planar ut under rask kanalfart. Sanningen är linjekorsningen
++  // av målbron i den genererade geometrin (sampel k ligger fart_k · 30 s
++  // längre fram). Med ett fast golv på 4 kn medan farten steg blev texten
++  // "5 → 4 → 3 → 5" mot sanning 6 vid Klaffbron, "om 3" mot sanning 6,5 från
++  // Järnvägsbron och "13 → 12 → 11 → 14 → 15 → 16" mot sanning 24 från
++  // Olidebron.
++  const P = buildPath();
++  const M = pathMetrics(P);
++  const S = {
++    olide: M.cum[1], klaff: M.cum[2], jarnv: M.cum[3], strids: M.cum[4],
++  };
++  const KN = 0.5144;
++  const PLACES = {
++    klaff: { anchorS: S.klaff, target: 'Klaffbron', targetS: S.klaff },
++    olide: { anchorS: S.olide, target: 'Klaffbron', targetS: S.klaff },
++    jarnv: { anchorS: S.jarnv, target: 'Stridsbergsbron', targetS: S.strids },
++  };
++
++  function row(t, s, sog, mmsi, jitter = 0) {
++    const p = pointAt(P, M, s);
++    return {
++      mmsi,
++      msgType: 'StandardClassBPositionReport',
++      lat: p.lat + jitter * 1e-6,
++      lon: p.lon - jitter * 1e-6,
++      sog,
++      cog: p.bearing,
++      navStatus: null,
++      shipName: `SYNT-PLATA-${mmsi.slice(-2)}`,
++      aisTimestamp: t,
++      fixTs: t,
++      feed: 'aisstream',
++      receivedAt: new Date(t).toISOString(),
++    };
++  }
++
++  function plateauDeparture({
++    mmsi, place, waitBeforeM, speeds, dtS = 30,
++  }) {
++    const pl = PLACES[place];
++    const rows = [];
++    let s = pl.anchorS - waitBeforeM - 1300;
++    let t = BASE_TIME_MS;
++    while (s < pl.anchorS - waitBeforeM - 110) {
++      rows.push(row(t, s, 4.0, mmsi));
++      s += 4 * KN * 30;
++      t += 30000;
++    }
++    rows.push(row(t, pl.anchorS - waitBeforeM - 50, 2.0, mmsi)); t += 30000;
++    rows.push(row(t, pl.anchorS - waitBeforeM - 15, 1.0, mmsi)); t += 30000;
++    for (let i = 0; i < 12; i++) {
++      rows.push(row(t, pl.anchorS - waitBeforeM, i % 3 === 0 ? 0.1 : 0.0, mmsi, i % 4));
++      t += 30000;
++    }
++    const departAtMs = t;
++    let ss = pl.anchorS - waitBeforeM;
++    let crossingMs = null;
++    t -= dtS * 1000;
++    const advance = (v) => {
++      const before = ss;
++      ss += v * KN * dtS;
++      if (crossingMs === null && before < pl.targetS && ss >= pl.targetS) {
++        crossingMs = t + ((pl.targetS - before) / (ss - before)) * dtS * 1000;
++      }
++      t += dtS * 1000;
++      rows.push(row(t, ss, v, mmsi));
++    };
++    speeds.forEach(advance);
++    while (ss < pl.targetS + 400) advance(speeds[speeds.length - 1]);
++    return {
++      rows, departAtMs, crossingMs, target: pl.target,
++    };
++  }
++
++  function replayRows(name, rows) {
++    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'e-plata-'));
++    const file = path.join(dir, `${name}.jsonl`);
++    fs.writeFileSync(file, `${rows.map((r) => JSON.stringify(r)).join('\n')}\n`);
++    try {
++      return runReplay(file);
++    } finally {
++      fs.rmSync(dir, { recursive: true, force: true });
++    }
++  }
++
++  // Målbroklausulens minuttal (strax = 0) från avgången till korsningen, med
++  // sanningen i minuter vid publiceringen.
++  function claims(result, { target, departAtMs, crossingMs }) {
++    const rx = new RegExp(`på väg mot ${target}, beräknad broöppning (?:(strax)|om (\\d+) minuter?)`);
++    return result.bridgeTextTransitions
++      .filter((tr) => tr.t >= departAtMs - 500 && tr.t < crossingMs)
++      .map((tr) => ({ tr, m: tr.text.match(rx) }))
++      .filter(({ m }) => m)
++      .map(({ tr, m }) => ({
++        t: tr.t, v: m[1] ? 0 : Number(m[2]), truth: (crossingMs - tr.t) / 60000,
++      }));
++  }
++
++  function expectCountdown(list) {
++    for (let i = 1; i < list.length; i++) expect(list[i].v).toBeLessThanOrEqual(list[i - 1].v);
++  }
++
++  test('Klaffbron, 480 m söder, 1,1 → 2,0 kn (granskarens platå2): ingen prognos mer än 2 min för låg och inget uppsteg', () => {
++    const dep = plateauDeparture({
++      mmsi: '901009911', place: 'klaff', waitBeforeM: 480, speeds: [1.1, 1.5, 1.9, 2.0],
++    });
++    const list = claims(replayRows('klaff', dep.rows), dep);
++    expect(list.length).toBeGreaterThan(0);
++    for (const c of list.filter((x) => x.v > 0)) expect(c.v).toBeGreaterThanOrEqual(c.truth - 2);
++    expectCountdown(list);
++  });
++
++  test('Järnvägsbron mot Stridsbergsbron, 1,0 → 2,0 kn: inget "om 3" mot sanning 6', () => {
++    const dep = plateauDeparture({
++      mmsi: '901009912', place: 'jarnv', waitBeforeM: 150, speeds: [1.0, 1.3, 1.6, 1.9, 2.0],
++    });
++    const list = claims(replayRows('jarnv', dep.rows), dep);
++    expect(list.length).toBeGreaterThan(0);
++    for (const c of list.filter((x) => x.v > 0)) expect(c.v).toBeGreaterThanOrEqual(c.truth - 2);
++    expectCountdown(list);
++  });
++
++  test('Olidebron mot Klaffbron, 1,0 → 2,0 kn: första prognosen nära sanningen och sedan bara nedåt', () => {
++    const dep = plateauDeparture({
++      mmsi: '901009913', place: 'olide', waitBeforeM: 120, speeds: [1.0, 1.2, 1.4, 1.6, 1.8, 2.0],
++    });
++    // De första 10 minuterna efter avgången (avgångskontexten varar högst 5).
++    // Senare går texten 6 → 7 när passagegolvet 2,5 kn efter Olidebron löper
++    // ut efter 15 min (E-F5) — samma på 7699cbe och utanför den här rättningen.
++    const list = claims(replayRows('olide', dep.rows), dep)
++      .filter((c) => c.t - dep.departAtMs <= 10 * 60000);
++    expect(list.length).toBeGreaterThan(5);
++    // Väntans prognos före avgången räknar redan på rask kanalfart (E-F7:s
++    // decaygolv), så en långsam båt rättas uppåt en gång vid avgången. Efter
++    // det får nedräkningen inte gå upp (förr 11 → 14 → 15 → 16).
++    expect(Math.abs(list[0].v - list[0].truth)).toBeLessThanOrEqual(2);
++    expectCountdown(list);
++  });
++
++  test('fartbrus 2,5 → 2,4 mitt i accelerationen ger inget uppsteg (förr "4 → 5 → 4")', () => {
++    const dep = plateauDeparture({
++      mmsi: '901009914', place: 'klaff', waitBeforeM: 480, speeds: [1.5, 2.5, 2.4, 3.0, 3.5, 3.4, 4.0, 4.2],
++    });
++    const list = claims(replayRows('brus', dep.rows), dep);
++    expect(list.length).toBeGreaterThan(0);
++    expectCountdown(list);
++  });
++});
+-- 
+2.43.0
+

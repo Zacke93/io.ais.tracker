@@ -1,0 +1,69 @@
+From f8aa77e778b4d6eefdafe4a5f7217b01fbfd1cd6 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 5 Nov 2026 01:58:19 +0000
+Subject: [PATCH 9/9] K-familjen rev 3: dokumentera under-bron-beslutet, stryk
+ K2:s returgolv ur golvets text
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Dirigentens beslut 2026-11-05 om under-bron-hållet står nu i ARCHITECTURE.md.
+K2 har inget returgolv längre (U15 utan golv), så hänvisningen dit är struken.
+Bara kommentarer och dokument.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/ARCHITECTURE.md                 | 8 ++++++--
+ lib/services/BridgeOpeningService.js | 2 +-
+ 2 files changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index a01297d..27ce0ac 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -1508,6 +1508,10 @@ samma form: släpp på ren tid och avfyrning på den ärvda deadlinen. Rättning
+   (≤ `UNDER_BRIDGE_SET_DISTANCE`, ≥ `MINIMUM_VIABLE_SPEED`) med förväntad ankomst
+   inom täckningen, eller leder kursen bort från bron (≥ 2 kn, utanför
+   väntzonen), hålls täckningen kvar tills nästa fix (F20, F03, F14).
++  Under-bron-hållet strider inte mot U17 (dirigentens beslut 2026-11-05): en
++  båt som senast sågs högst 50 m från bron, i rörelse och med ankomst inom
++  täckningen, är vid brolinjen och har i praktiken passerat. Visar nästa
++  position att hon inte har det, släpps hon som förut.
+ - **(3)** Utan finit ankomstfysik släpps hon inte (hängslen: `_canArm` kräver ett
+   finit avstånd, så ingen arm i drift når grenen). **(4)** gäller bakkanten: den
+   släpper på ett färskt, rent fix efter den bokförda första passagen, och
+@@ -1531,7 +1535,7 @@ samma form: släpp på ren tid och avfyrning på den ärvda deadlinen. Rättning
+   slut men inte när båten passerade (likvärdig). I buggjägarens klustervärldar
+   hade den varianten fixat fyra tysta båtar till (331, 510, 790, 1139) men i
+   snabbprofilen gett tre nya varningar efter sann passage eller på fruset fix
+-  (5, 21, 56). Interpolationen gäller varje passage med fix på var sin sida om
++  (5, 21, 56), och i standardprofilen 184 kandidatutslag mot 181. Interpolationen gäller varje passage med fix på var sin sida om
+   bron, inte bara AIS-glapp: U2 räknar fönstret från passagen, och en variant
+   som bara interpolerade glapp över `STALE_ETA_SOFT_MS` lämnade fler missade
+   öppningar i buggjägarens standardvärldar (T2 31 mot 26). Visar fixet före
+@@ -1554,7 +1558,7 @@ samma form: släpp på ren tid och avfyrning på den ärvda deadlinen. Rättning
+   bokföringen men inte mot korsningen, och ligger hennes ankomst närmare än
+   2 × `TICK_INTERVAL_MS` på ett färskt rent fix, absorberas hon som före
+   rättningen, och bakkanten mäter henne mot täckningsslutet i stället för mot
+-  U2-fönstret. Samma golv som räddningsventilen och K2:s returgolv.
++  U2-fönstret. Samma golv som räddningsventilen.
+ - **U17 (ägarbeslut 2026-11-04): säkerhetsvarningen för en tyst båt behålls.**
+   Gäller en båt vars senaste position sa att hon skulle hinna igenom den
+   gemensamma öppningen, men där appen inte vet om hon gjorde det. Ingen öppning
+diff --git a/lib/services/BridgeOpeningService.js b/lib/services/BridgeOpeningService.js
+index 5526b2b..1dd4e5e 100644
+--- a/lib/services/BridgeOpeningService.js
++++ b/lib/services/BridgeOpeningService.js
+@@ -1576,7 +1576,7 @@ class BridgeOpeningService {
+    * för mot U2-fönstret kring korsningen (anchorFloorEventId). Samma golv och
+    * samma utfall som räddningsventilen
+    * (_rescueCoveredArms: "stängs ventilen av golvet står den ursprungliga
+-   * täckningen kvar") och U15-returens golv (K2). Skälet är också detsamma:
++   * täckningen kvar"). Skälet är också detsamma:
+    * O1 räknar ledtiden mot den SENASTE täckande varningen, så en varning
+    * under golvet hade ersatt en fullgod konvojtäckning med en värdelös
+    * ledtid (LEDTIDSGOLV-brott, runOpeningGates.js).
+-- 
+2.43.0
+
