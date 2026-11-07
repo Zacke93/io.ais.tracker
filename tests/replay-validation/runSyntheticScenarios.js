@@ -495,6 +495,149 @@ const SCENARIOS = [
     },
   },
   {
+    // M (rättningskampanjen 2026-11-04, buggjägarens F05): krypfart FÖRBI en
+    // passerad målbro mot nästa målbro långt bort. 0,45 kn i 30 s kadens ger
+    // ≈ 7 m per fix, under 2-READINGS 10 m-krav, och båten ligger inom 300 m
+    // från Klaffbron, som hon redan passerat (F21 häver skyddszonen där).
+    // Förut tappades Stridsbergsbron efter nådafristen och kom tillbaka nästa
+    // fix (PROTECTION_ACTIVE mäter mot närmaste bro): "Inga båtar" inklämt
+    // mellan två likadana texter, INV-14 DEFAULT-FLASH fem gånger. Placeringen
+    // är vald: zonen börjar 150 m före Klaffbron och slutar 250 m efter den,
+    // alltså helt inom bypassens 300 m. Generatorns sog-brus (±0,1 kn) håller
+    // farten över ANCHOR_BLOCK:s 0,3 kn, så det är tvåprovsvalideringen som
+    // prövas och inte FIX B. Ändras rutten eller generatorn ska zonen räknas
+    // om, inte förväntan tas bort.
+    name: 'krypfart-förbi-passerad-Klaffbron',
+    seed: 97,
+    vessels: [{
+      mmsi: '901000097',
+      direction: 'north',
+      speedKn: 5.9,
+      reportIntervalS: 30,
+      slowZone: {
+        fromFraction: (METRICS.cum[2] - 150) / METRICS.total,
+        toFraction: (METRICS.cum[2] + 250) / METRICS.total,
+        speedKn: 0.45,
+      },
+    }],
+    expect: { minTargetPassages: 2 },
+  },
+  {
+    // M, samma klass söderut: krypfart förbi Järnvägsbron mot Klaffbron
+    // (963 m). Stridsbergsbron och Järnvägsbron är båda passerade när zonen
+    // slutar, så ingen opasserad bro framför (C1d:s rang 1) håller skyddet.
+    // Förut sex DEFAULT-FLASH mot Klaffbron. Zonen: 150 m norr om
+    // Järnvägsbron till 300 m söder om den; söderut räknas andelen från
+    // norra änden (1 − s / total).
+    name: 'krypfart-förbi-passerad-Järnvägsbron-söderut',
+    seed: 98,
+    vessels: [{
+      mmsi: '901000098',
+      direction: 'south',
+      speedKn: 5.9,
+      reportIntervalS: 30,
+      slowZone: {
+        fromFraction: 1 - (METRICS.cum[3] + 150) / METRICS.total,
+        toFraction: 1 - (METRICS.cum[3] - 300) / METRICS.total,
+        speedKn: 0.45,
+      },
+    }],
+    expect: { minTargetPassages: 2 },
+  },
+  {
+    // M, 300–500 m-bandet: lång krypning från 150 m före Klaffbron till
+    // 250 m före Järnvägsbron. Mellan broarna finns ingen skyddszon alls, och
+    // tilldelningens fartgrind kräver bara 0,1 kn 300–500 m från närmaste bro.
+    // Förut tappades målbron var 2,5:e minut i en timme (16 DEFAULT-FLASH).
+    name: 'lång-krypfart-Klaffbron-till-Järnvägsbron',
+    seed: 99,
+    vessels: [{
+      mmsi: '901000099',
+      direction: 'north',
+      speedKn: 5.9,
+      reportIntervalS: 30,
+      slowZone: {
+        fromFraction: (METRICS.cum[2] - 150) / METRICS.total,
+        toFraction: (METRICS.cum[3] - 250) / METRICS.total,
+        speedKn: 0.45,
+      },
+    }],
+    expect: { minTargetPassages: 2 },
+  },
+  {
+    // M, granskningens syskon (a): krypare som INTE passerat någon bro, så
+    // ANCHOR_BLOCK gäller inte. 0,12 kn i 30 s kadens, 300–500 m söder om
+    // Olidebron: utanför skyddszonen och 1,8 km från Klaffbron, så retentionen
+    // tar bort målbron (≈ 5,6 m närmande per nådafrist, under 10 m), medan
+    // tilldelningen bara krävde 0,1 kn mot NÄRMASTE bro. Förut tillbaka nästa
+    // fix: 5–7 DEFAULT-FLASH (seed 94–98). Återinträdesbeviset kräver samma
+    // 10 m inom samma fönster, så båten är dold tills hon gör väg — EN lång
+    // "Inga båtar"-period (INV-14W, informativ) i stället för flappen.
+    // Placeringen ÄR testet: 300 m-gränsen och Kanalinfarten-punkten
+    // (FP9-H') ligger strax utanför zonens ändar.
+    name: 'krypfart-söder-om-Olidebron-ej-passerad',
+    seed: 94,
+    vessels: [{
+      mmsi: '901000094',
+      direction: 'north',
+      speedKn: 5.9,
+      reportIntervalS: 30,
+      slowZone: {
+        fromFraction: (METRICS.cum[1] - 500) / METRICS.total,
+        toFraction: (METRICS.cum[1] - 300) / METRICS.total,
+        speedKn: 0.12,
+      },
+    }],
+    expect: { minTargetPassages: 2 },
+  },
+  {
+    // M, granskningens syskon (b): båt UTAN fartgivare (sog=null) som stannar
+    // 60 m norr om passerade Klaffbron i 20 min. Med känd fart håller
+    // ANCHOR_BLOCK henne mållös; okänd fart blockerar inte (helgranskningen
+    // 2026-07-06), och PROTECTION_ACTIVE (≤ 300 m från närmaste bro) lade
+    // tillbaka Stridsbergsbron nästa fix: 7 DEFAULT-FLASH (seed 94–98). Med
+    // återinträdesbeviset beter hon sig som en båt med känd fart.
+    name: 'sog-null-stopp-norr-om-passerade-Klaffbron',
+    seed: 95,
+    vessels: [{
+      mmsi: '901000095',
+      direction: 'north',
+      speedKn: 5.9,
+      reportIntervalS: 30,
+      sogNull: true,
+      stop: { atFraction: (METRICS.cum[2] + 60) / METRICS.total, durationS: 1200 },
+    }],
+    expect: { minTargetPassages: 2 },
+  },
+  {
+    // M rev 3 (omgranskningen 2026-11-05, granskarens klass H): FARTGRINDEN.
+    // 0,65 kn söderut 560–1650 m söder om Stallbackabron, alltså mer än 500 m
+    // från VARJE bro (Stridsbergsbron ligger 2,2 km bort), där tilldelningen
+    // kräver > 0,7 kn. Generatorns fartbrus (±0,1 kn) lägger varannan–var
+    // tredje fix över 0,7 kn. Retentionen tar bort målbron först när grinden
+    // fallerat i mer än nådafristen, men ACCELERATED lade tillbaka den på
+    // nästa ENSTAKA prov över 0,7 kn: 9 DEFAULT-FLASH (7–12 över seed 94–99;
+    // revision 1 av rättningen gav 8, eftersom den bara speglade närmandet). Med
+    // fartprovet (_reentrySpeedProof) läggs samma bro tillbaka först när
+    // grinden HÅLLIT i mer än nådafristen, så båten är dold medan hon kryper
+    // — EN lång "Inga båtar"-period (INV-14W, informativ). Placeringen ÄR
+    // testet: inom 500 m från en bro gäller 0,1 kn-grinden i stället.
+    name: 'fartgrind-krypare-söder-om-Stallbackabron',
+    seed: 96,
+    vessels: [{
+      mmsi: '901000096',
+      direction: 'south',
+      speedKn: 5.9,
+      reportIntervalS: 30,
+      slowZone: {
+        fromFraction: 1 - (METRICS.cum[5] - 560) / METRICS.total,
+        toFraction: 1 - (METRICS.cum[5] - 1650) / METRICS.total,
+        speedKn: 0.65,
+      },
+    }],
+    expect: { minTargetPassages: 2 },
+  },
+  {
     // Varje meddelande levereras DUBBELT (multi-mottagare/AISstream-dubbletter)
     // — utfallet ska vara identiskt med enkel leverans: inga dubbelnotiser.
     name: 'dubblettmeddelanden',

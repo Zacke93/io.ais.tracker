@@ -63,7 +63,7 @@ Eller stegen var för sig:
 |---|---|---|
 | Enhetstester | `npm test > /tmp/ais-jest.log 2>&1` (läs sedan slutraderna) | Alla tester passerar, exitkod 0 och inga öppna handtag. Aktuellt antal står i körningens sammanfattning. Omdirigeringen bevarar Jest:s exitkod; en pipe till `tail` gör inte det. |
 | Korpusarna | `npm run replay:all` | Samtliga korpusar (aktuellt antal och timmar står i skriptets utskrift) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + exakt (mmsi,bro,riktning)-fördelning + EXAKT bridge_text-transitionsström (golden-text/) + alla invarianter. Ofullständig fångst redovisas separat och får bara utgöra regression för bevarade sampel. |
-| Syntetiska | `npm run replay:synthetic` | 48 scenarier (gap, U-svängar även med gles AIS, GPS-hopp, kajliggare, sog=null, omstart, 2h-prune-stillaliggare …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
+| Syntetiska | `npm run replay:synthetic` | 55 scenarier (gap, U-svängar även med gles AIS, GPS-hopp, kajliggare, sog=null, omstart, 2h-prune-stillaliggare, krypfart förbi passerad bro …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
 | Öppningsgrindarna | `npm run replay:openings` | ETAPP 6: det proaktiva lagret (`bridge_opening_soon`). **O1** varje målbropassage i SAMTLIGA korpusar (låsta som olåsta — antalet står i skriptets utskrift, inte här) har en öppningsvarning FÖRE passagen — varje miss klassad mot rådata (oklassad = rött); en KONVOJTÄCKNING underkänns om bron bevisligen öppnat och stängt för någon annan emellan. **O2** varje varning utan passage inom 20 min klassas mot rådata (KAJVOBBEL och UTANFÖR_HORISONTEN = rött; avbruten approach, gles anflygning och garantipris = accepterade) — även SEN_PASSAGE-hinken klassas. **O2b** (S14, 2026-08-23) SAMMA fantommätning mot RÅDATAFACIT (A2, `gt-passages`) i stället för appens egna passager — O1b:s mönster: appens passageregistreringar delar grindarnas blindfläck, så en varning kan kallas BEKRÄFTAD av appens egen bokföring medan rådatan inte känner korsningen. Serierna redovisas BREDVID varandra (annars går körningsloggar inte att jämföra bakåt). `inferred`-poster (korsning bevisad, tidpunkt = fönster) bär ALDRIG hinkindelningen utan hamnar i egen hink INFERRERAD_TID — hinkarna ÄR en tidsfönstermätning. **O2b är INFORMATIV: den ändrar inte exitkoden** (grinden ligger kvar på appserien precis som O1:s täckning i fas A); `OPENING_GT_STRICT` flyttar den hit när fas C är klar. Vid införandet: 0 röda i BÅDA serierna, 118 av 360 varningar byter hink (98 blir omätbara `inferred`) och EN varning byter åt det farliga hållet (JAATTEN II @ Stridsbergsbron i 20260708-21h — samma fall INV-21 redan fäller). **O3** A/B-nattens båda armar: 6/6 öppningar varnade före, konvojen som EN varning, boat_near byte-identisk med nattens facit. Dessutom **avfyrningsfönstret** (`t − dueMs` inom två tick — kontraktet "avfyra så sent som garantin tillåter") och **ledtidsgolvet** (hårt golv 60 s; tunnare än utlovade 150 s rapporteras). |
 | Soaken | `node tests/replay-validation/runSoak.js` | 72 h blandtrafik: 0 processfel, inga läckor, fatala invarianter rena |
 | Driftens minutloop | `npm run replay:monitoring` | Samma 72 h med riktig monitoring/stale-städning även efter omstarter; samtliga timers avvecklade efter shutdown |
@@ -381,6 +381,36 @@ inom konvojfönstret räknat från utresan; på 7699cbe är det rött (returen
 `u-sväng-efter-Klaffbron` och `u-sväng-gles-ais-norr-om-Klaffbron`, som båda
 är röda på 7699cbe (returerna 06:30:00 och 06:27:00 absorberades i utresans
 händelse) och gröna med rättningen.
+
+**Krypfartsscenarierna (familj M, rättningskampanjen 2026-11-04, F05) prövar
+närmandebeviset och fartgrinden i båda vägarna.** Placeringen är testet i alla sex.
+- `krypfart-förbi-passerad-Klaffbron`, `krypfart-förbi-passerad-Järnvägsbron-söderut`
+  och `lång-krypfart-Klaffbron-till-Järnvägsbron` prövar RETENTIONEN: 0,45 kn med
+  30 s kadens, ≈ 7 m per fix. Zonen måste ligga där skyddszonen inte håller
+  målbron, alltså inom 300 m från en PASSERAD bro (F21:s bypass) eller 300–500 m
+  från närmaste bro. Målbron måste ligga mer än 300 m bort, annars prövas inte
+  2-READINGS. Farten (generatorns brus ±0,1 kn) ska ligga över ANCHOR_BLOCK:s
+  0,3 kn, annars är det FIX B som prövas. Mot `7699cbe` fälls de med INV-14
+  DEFAULT-FLASH (5, 6 och 16 utslag).
+- `krypfart-söder-om-Olidebron-ej-passerad` och
+  `sog-null-stopp-norr-om-passerade-Klaffbron` prövar ÅTERINTRÄDET, där
+  ANCHOR_BLOCK inte gäller: en krypare i 0,12 kn som inte passerat någon bro
+  (300–500 m söder om Olidebron, utanför skyddszonen och norr om
+  Kanalinfarten-punkten) respektive en båt utan fartgivare som stannar 60 m norr
+  om passerade Klaffbron i 20 min. Mot `7699cbe` och mot den första prototypen
+  (`9c802ed`) fälls de med 5 respektive 7 DEFAULT-FLASH. Med rättningen är båten
+  dold tills hon gör väg, och varje scenario har därför EN förväntad INV-14W
+  (lång "Inga båtar"-period, informativ) — samma klass som `ankrad-gles-sändare`
+  och `återfödd-i-kö`.
+- `fartgrind-krypare-söder-om-Stallbackabron` (revision 3, granskarens klass H)
+  prövar återinträdets FARTPROV: 0,65 kn söderut 560–1650 m söder om
+  Stallbackabron, alltså mer än 500 m från VARJE bro, där tilldelningen kräver
+  > 0,7 kn. Generatorns fartbrus lägger fixar över 0,7 kn; retentionen tar bort
+  målbron först när grinden fallerat i mer än nådafristen, och samma bro läggs
+  tillbaka först när grinden HÅLLIT lika länge. Mot `7699cbe` 9 DEFAULT-FLASH
+  (7–12 över seed 94–99) och mot revision 1 (`c6a765d`) 8. Med rättningen EN
+  förväntad INV-14W (2550 s). Ligger zonen inom 500 m från en bro prövas
+  0,1 kn-grinden i stället, och scenariot blir verkningslöst.
 
 ## Täckningskartan — diagnosverktyg, INTE en gate
 
@@ -1138,9 +1168,16 @@ adversariella granskningen 2026-08-10: selektiva noter på 7 korpusar).
 - **INV-14W (WARN):** INV-14 fäller bara inklämda DEFAULT-episoder ≤ 300 s; längre spann
   rapporteras nu som WARN-klassen INV-14W (spannlängd + bro) i stället för att tystas
   (M24). `runAllCorpora` varnar även för OANVÄNDA `knownInvariantExceptions`.
-- **Syntetiska scenarier — känd WARN-baslinje är 8** (5 gamla + 3 INV-14W:
-  navstatus-flap-väntare 540 s, ankrad gles sändare 1440 s, återfödd-i-kö HERA-klassen
-  900 s). Fler än 8 = rapportera.
+- **Syntetiska scenarier — känd WARN-baslinje.** På `7699cbe` är den 6: INV-15 ×2
+  (u-sväng-gles-ais-norr-om-Klaffbron, fördröjd-gammal-position), INV-18
+  (återfödd-utflygare-söderut) och 3 INV-14W (navstatus-flap-väntare 600 s, ankrad
+  gles sändare 1440 s, återfödd-i-kö HERA-klassen 900 s). Familj M (F05, 2026-11-05)
+  lägger till 3 INV-14W, en per krypfartsscenario där båten med rätta är dold
+  medan hon kryper: krypfart-söder-om-Olidebron-ej-passerad 2970 s,
+  sog-null-stopp-norr-om-passerade-Klaffbron 1050 s och
+  fartgrind-krypare-söder-om-Stallbackabron 2550 s. Baslinjen är då 9. Fler än
+  baslinjen, eller en annan sammansättning, = rapportera. (Integrationen:
+  summera med de andra familjernas scenarier och WARN-rader.)
 - **O1:s missklassificerare (`classifyMiss`)** kräver nu KORROBORERAT rörelsebevis i tre
   led (position ≥ MOVEMENT_PROOF_NET_M från första horisontsampel; etablerad stillhets-
   vistelse ≥ ARM_STALE_TTL_MS inom 50 m + tätt fixpar med implicerad fart < 0,5 kn ⇒

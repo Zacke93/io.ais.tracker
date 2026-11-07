@@ -860,6 +860,70 @@ båt.
 
 - Tilldelning: `_shouldAssignTargetBridge` (:1753, kräver bl.a. rörelsebevis,
   ej `_moored`) → `_calculateTargetBridge` (:2026, COG-riktning + position).
+- Retention: samma `_shouldAssignTargetBridge`, med 2-READINGS: målbron ska ha
+  närmats ≥ `MIN_APPROACH_DISTANCE` (10 m) när den ligger > 300 m bort.
+  Misslyckas valideringen utanför skyddszonen startar en 60 s nådafrist
+  (`_targetRemovalGrace`), och målbron tas bort först när fristen löpt ut utan
+  lyckad validering. Kö-zonsvakten (≤ 600 m från målbron, `_isInTargetQueueZone`)
+  och skyddszonen håller kvar målbron. ACCELERATED-grenen prövar INTE 2-READINGS,
+  bara fart- och kursgrindarna mot NÄRMASTE bro (ingen fartgräns inom 300 m,
+  0,1 kn vid 300–500 m) och ANCHOR_BLOCK, som bara gäller en båt som passerat en
+  bro och har KÄND fart.
+  **F05 (familj M, rättningskampanjen 2026-11-04): retention och tilldelning
+  dömer med samma närmandebevis** (`_targetApproachEvidence`: ≥ 10 m från förra
+  fixen ELLER fönstrets start, det största närmandet gäller). Två speglade delar:
+  1. *Retentionen.* Kravet per fix var kadensberoende (10 m per 30 s ≈ 0,65 kn,
+     per 10 s ≈ 1,9 kn). Medan en nådafrist lever är fönstrets start fristens
+     startposition (`vessel._graceApproachRef`, satt av `_stampGraceApproachRef`
+     när fristen föds och när M6 stämplar om den; läses via
+     `_graceApproachReference`, som kräver att fristens post lever). Det största
+     närmandet gör att fönstret bara kan LÄGGA TILL godkännanden — med fristens
+     start som enda referens underkändes en båt som gled bort och sedan vände mot
+     målbron (granskningen 2026-11-04, slingsvepet).
+  2. *Återinträdet.* Tog retentionen bort målbron för OTILLRÄCKLIG rörelse
+     (`_armReentryApproachProof`, sätter `vessel._reentryApproachRef`; en tydlig
+     bortrörelse ≥ 10 m beväpnar inte, revision 3), lägger ACCELERATED tillbaka
+     SAMMA bro först när samma bevis finns (`_reentryNeedsProof`) — i ett fönster
+     lika långt som fristen, som glider i `_maintainReentryApproachProof` och
+     förbrukas med en målbro.
+  3. *Fartprovet (revision 3, 2026-11-05).* Retentionen dömer fartgrindarna
+     (0,7 kn > 500 m och 0,1 kn 300–500 m från närmaste bro, utbrutna ordagrant
+     till `_targetSpeedGate`) över TID: målbron tas bort först när valideringen
+     fallerat oavbrutet i mer än fristen. Föll borttagningen på fartgrinden
+     (`_armReentrySpeedProof`; inte när ANCHOR_BLOCK fällde samma prov, där är
+     det FIX B:s per-fix-regel som gäller) läggs samma bro tillbaka först när
+     grinden HÅLLIT oavbrutet i mer än fristen (`vessel._reentrySpeedProof`,
+     loppet räknas i `_maintainReentrySpeedProof`). Förut räckte ett enda
+     fartprov över 0,7 kn (granskarens klasser G och H, 0,6–0,75 kn långt från
+     broar).
+     Retentionens undantag gäller: målbron inom 300 m, skyddszonen kring en
+     opasserad bro eller målbron (med F21-regeln) och kö-zonen. En bekräftad
+     vändning hoppar över beviset, precis som 2-READINGS, och det gör också
+     meddelandets EGEN fart (`_rawPositionSog`, inte den burna `sog`) på minst
+     `FIX_D_MIN_SOG` (2,0 kn): en avgångs första fix har ofta full fart men
+     oförändrad position, och att vänta på 10 m där fördröjde avgången en fix
+     (72 h-soaken).
+  Etiketten i `_getTargetRemovalReason` mäter med samma bevis som beslutet.
+  Inga nya konstanter: nådafristen (`TARGET_REMOVAL_GRACE_PERIOD`) och närzonen
+  (`TWO_READINGS_NEAR_TARGET_M`) är de gamla talen, flyttade till modulnivå.
+  Felbilden var "Inga båtar" inklämt mellan två likadana texter (INV-14
+  DEFAULT-FLASH): WILMA 0,5 kn norr om Klaffbron (F21 häver skyddszonen vid en
+  passerad bro), krypare 300–500 m från närmaste bro och båtar utan fartgivare.
+  Mätt: banken byte-identisk (24 av 24 korpusar, alla 69 målbyten med
+  etiketter). Kända gränser (beslutade 2026-11-05, registreras i motorn; ingen
+  hysteres införs):
+  (a) brusbandet kring varje tröskel — 10 m per fönster ≈ 0,22 kn vid 30 s,
+      0,28 kn vid 10 s och 0,16 kn vid 60 s kadens, och fartgrindens 0,7 kn —
+      där GPS- eller fartbrus avgör utfallet åt båda hållen;
+  (b) ANCHOR_BLOCK:s 0,3 kn med fartbrus (FIX B: bedöms över fristen i
+      retentionen men per fix i tilldelningen, medvetet orört);
+  (c) en sog=null-båt med GPS-brus på ±8 m eller mer kan få ett skenbart
+      närmande på 10 m;
+  (d) PRISET: en avgång under `FIX_D_MIN_SOG` (2,0 kn) kan få målbron senare än
+      förut — en fix om avgångens första fix inte flyttat sig (närmandebeviset),
+      och upp till tre fixar (> 60 s) efter ett stopp mer än 300 m från alla
+      broar utan passerad bro (fartprovet). I svepen 30–60 s, utan ändrade
+      notiser, öppningsvarningar eller passager.
 - Transition: `_applyTargetTransition` (:2392–2627). `previousTarget` läses från
   det LEVANDE objektet (S-F3-följdfixen, :2402). Vid byte till nästa bro:
   targetBridge muteras, `_finalTarget*` nollas, **hela ETA-serien nollställs**
