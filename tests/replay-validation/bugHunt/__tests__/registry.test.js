@@ -275,16 +275,17 @@ describe('buggjägaren: beslutsregistret', () => {
       expect(p(f, warnCtx([['211000010', 500]])).sant).toBe(false);
     });
 
-    test('uturnReturnAbsorbed: U-svängarens retur i egen äldre händelse ⇒ sant; annan båt ⇒ falskt', () => {
+    test('uturnReturnAbsorbed är borttaget (U15): U-svängarens retur i egen äldre händelse är KANDIDAT', () => {
       const { reg } = load();
-      const p = pred(reg, 'uturnReturnAbsorbed');
+      expect(reg.PREDICATES.uturnReturnAbsorbed).toBeUndefined();
       const [, p2] = usvang.resultat.targetPassages;
       const f = {
-        orakel: 'T2', klass: 'OKLASSAD', mmsi: '265025978', bro: 'Klaffbron', t: p2.t,
+        orakel: 'T2', klass: 'ÖPPNING-MISS:OKLASSAD', mmsi: '265025978', bro: 'Klaffbron', t: p2.t,
       };
       const ctx = { rader: usvang.rader, resultat: usvang.resultat };
-      expect(p(f, ctx).sant).toBe(true);
-      expect(p({ ...f, mmsi: '265000000' }, ctx).sant).toBe(false);
+      const c = reg.loadRegistry().classify(f, ctx, { räkna: false });
+      expect(c.klass).toBe('KANDIDAT');
+      expect(c.post).toBeNull();
     });
 
     test('holdPattern: två vändningar ≥ 150 m inom 60 min ⇒ sant; rak transit ⇒ falskt', () => {

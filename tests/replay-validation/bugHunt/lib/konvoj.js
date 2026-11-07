@@ -2,10 +2,11 @@
 
 /**
  * Konvojsemantiken för T2 (BUGGJAKT §6 och §7): EN definition av "täckt av
- * händelsen", "händelsens första passage", "öppen enligt medlemskravet" och
- * "returresa" som både
- * registrets predikat (U2-RETURRESA, U2-VS-DEADLINE, J13-J14-KONVOJSEMANTIK)
- * och T2-oraklets förklaringar använder.
+ * händelsen", "händelsens första passage" och "öppen enligt medlemskravet"
+ * som både registrets predikat (U2-VS-DEADLINE, J13-J14-KONVOJSEMANTIK och
+ * U17:s tystRecoverSammaÖppning) och T2-oraklets förklaringar använder.
+ * Returresan (U2-RETURRESA) togs bort 2026-11-07: U15 besvarade postens
+ * fråga, och en retur utan egen varning är en kandidat.
  *
  * Rättat 2026-11-04 (motorgranskningens M04, triagens T-2). Förut gick
  * definitionerna isär:
@@ -62,6 +63,20 @@ function förstaPassage(w, korsningar, coverage) {
 const vid = (varningar, bro, villkor) => (varningar || []).filter((w) => w.bridge === bro && villkor(w));
 
 /**
+ * Korsade båten själv bron efter varningen w och före korsningen tc? Då är
+ * tc en returresa, och enligt U15 (användarbeslut 2026-11-04, INV-21 är
+ * kontraktet) är returen en egen öppning: händelsen w förklarar den inte.
+ * Infört 2026-11-07 när U2-RETURRESA togs bort. Förut prövades returen mot
+ * U2-RETURRESA först, och U2-VS-DEADLINE och J13 fick aldrig se den; utan
+ * vakten hade J13 räknat båtens egen utresa som händelsens öppna passage
+ * (standardvärld 1316).
+ * @returns {boolean} båten har en egen tidigare korsning i (w.t; tc − 1 s)
+ */
+function egenKorsningEfter(w, { mmsi, bro, tc }, korsningar) {
+  return (korsningar || []).some((k) => k.bridge === bro && same(k.mmsi, mmsi) && k.t >= w.t && k.t < tc - 1000);
+}
+
+/**
  * U2 mot deadline-garantin (U2-VS-DEADLINE): korsningen tc ligger inom
  * [händelsens första passage; + fönsterMs] för en äldre händelse som täckte
  * båten vid tc, och den första passagen är en ANNAN båts. Båtens egen
@@ -81,6 +96,7 @@ function inomHändelsefönster({ mmsi, bro, tc }, {
       otäckta++;
       continue;
     }
+    if (egenKorsningEfter(w, { mmsi, bro, tc }, korsningar)) continue;
     const first = förstaPassage(w, korsningar, coverage);
     if (!first || same(first.mmsi, mmsi)) continue;
     if (tc >= first.t && tc <= first.t + fönsterMs) return { sant: true, w, first };
@@ -110,6 +126,7 @@ function ickeMedlemEmellan({ mmsi, bro, tc }, {
   const korsningenSjälv = (k) => same(k.mmsi, mmsi) && Math.abs(k.t - tc) < 1000;
   for (const w of vid(varningar, bro, (x) => x.t < tc).reverse()) {
     if (!täcktAv(w, mmsi, coverage, tc).sant) continue;
+    if (egenKorsningEfter(w, { mmsi, bro, tc }, korsningar)) continue;
     const förstaTäckta = (korsningar || []).find((k) => k.bridge === bro && k.t >= w.t && k.t < tc && !korsningenSjälv(k)
       && täcktAv(w, k.mmsi, coverage, k.t).sant);
     if (förstaTäckta && tc > förstaTäckta.t + fönsterMs) continue;
@@ -120,42 +137,6 @@ function ickeMedlemEmellan({ mmsi, bro, tc }, {
   return { sant: false };
 }
 
-/**
- * Returresa (U2-RETURRESA): båten korsade bron tidigare (utresan q) i en
- * egen äldre händelse w — varningen kom före utresan och båten var täckt av
- * w vid utresan (medlem, ledare eller absorberad senast då) — och korsningen
- * tc ligger inom händelsens konvojfönster [första passage; + fönsterMs].
- * Medlemskap gäller utan tidsgräns, så en båt som var täckt vid utresan är
- * det också vid returen. Utanför fönstret är doktrinerna överens om att
- * returen är en ny öppning, och då är en utebliven varning ingen konflikt.
- * @returns {{sant: boolean, w?: object, q?: object, first?: object, hur?: string, närmast?: object|null, skäl?: string}} utfall
- */
-function returresa({ mmsi, bro, tc }, {
-  varningar, korsningar, coverage, fönsterMs = CONVOY_WINDOW_MS,
-}) {
-  const egna = (korsningar || []).filter((q) => q.bridge === bro && same(q.mmsi, mmsi) && q.t < tc - 1000);
-  if (!egna.length) {
-    return { sant: false, närmast: null, skäl: 'ingen tidigare egen korsning av bron' };
-  }
-  let närmast = null;
-  for (const w of vid(varningar, bro, (x) => x.t < tc).reverse()) {
-    const q = egna.find((k) => k.t > w.t);
-    if (!q) continue;
-    const täckt = täcktAv(w, mmsi, coverage, q.t);
-    if (!täckt.sant) continue;
-    const first = förstaPassage(w, korsningar, coverage) || q;
-    if (tc <= first.t + fönsterMs) {
-      return {
-        sant: true, w, q, first, hur: täckt.hur,
-      };
-    }
-    if (!närmast) närmast = { w, q, first };
-  }
-  return {
-    sant: false, närmast, skäl: närmast ? 'returen ligger utanför händelsens konvojfönster' : 'ingen egen äldre händelse före utresan',
-  };
-}
-
 module.exports = {
-  CONVOY_WINDOW_MS, täcktAv, förstaPassage, inomHändelsefönster, ickeMedlemEmellan, returresa,
+  CONVOY_WINDOW_MS, täcktAv, förstaPassage, egenKorsningEfter, inomHändelsefönster, ickeMedlemEmellan,
 };

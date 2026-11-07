@@ -137,11 +137,29 @@ describe('M04 och T-2: konvojsemantiken är densamma i registret och T2-oraklet'
     orakel: 'T2', klass, allvar: 5, mmsi, bro: 'Klaffbron', riktning: 'southbound', t: T + dtMin * MIN, belägg: { korsningT: T + dtMin * MIN, ...belägg }, spår: 'synth', nivå: 'R0',
   });
 
-  test('granskarens u2probe: egen retur 7 min efter utresan är KONFLIKT U2-RETURRESA; en båt som aldrig täcktes är KANDIDAT', () => {
+  test('granskarens u2probe efter U15: egen retur 7 min efter utresan är KANDIDAT (returen är en egen öppning); en båt som aldrig täcktes är KANDIDAT', () => {
+    // Registret 2026-11-07 (BUGGJAKT §7 rad 23): U2-RETURRESA är borttagen,
+    // och U2-VS-DEADLINE och J13 räknar aldrig båtens egen äldre händelse
+    // när hon själv korsat bron efter varningen (konvoj.egenKorsningEfter).
     const reg = loadRegistry();
     const ctx = ctxOf([linje(X, 4), linje(Y, 9), linje(X, 11)]);
-    expect(klassa(reg, t2(X, 11), ctx)).toMatchObject({ klass: 'KONFLIKT', post: 'U2-RETURRESA' });
+    const retur = klassa(reg, t2(X, 11), ctx);
+    expect(retur.klass).toBe('KANDIDAT');
+    expect(reg.entry('U2-RETURRESA')).toBeNull();
     expect(klassa(reg, t2(Y, 9), ctx).klass).toBe('KANDIDAT');
+  });
+
+  test('[vakt] U15: en retur förklaras inte heller av U2-VS-DEADLINE eller J13 via båtens egen äldre händelse', () => {
+    const reg = loadRegistry();
+    const konvoj = require('../lib/konvoj');
+    // Y (utanför händelsen) korsade 5 min, X utresa 6 min och retur 9 min:
+    // utan vakten hade J13 räknat Klaffbron#5 som öppen (X:s utresa inom 600 s).
+    const ctx = ctxOf([linje(Y, 5), linje(X, 6), linje(X, 9)]);
+    expect(klassa(reg, t2(X, 9), ctx).klass).toBe('KANDIDAT');
+    const w = ctx.resultat.openingWarnings[0];
+    expect(konvoj.egenKorsningEfter(w, { mmsi: X, bro: 'Klaffbron', tc: T + 9 * MIN }, ctx.gt)).toBe(true);
+    // Motexempel: utan egen tidigare korsning förklarar J13 som förut.
+    expect(klassa(reg, t2(X, 9), ctxOf([linje(Y, 5), linje(X, 9)]))).toMatchObject({ post: 'J13-J14-KONVOJSEMANTIK' });
   });
 
   test('U2-VS-DEADLINE kräver att båten var täckt: absorberad båt inom fönstret är KÄND_ÖPPEN, otäckt är KANDIDAT', () => {
@@ -153,13 +171,12 @@ describe('M04 och T-2: konvojsemantiken är densamma i registret och T2-oraklet'
     expect(klassa(reg, t2(Z, 9), ctxOf(gt)).klass).toBe('KANDIDAT');
   });
 
-  test('en retur utanför händelsens konvojfönster är ingen konflikt, även om appen absorberade den', () => {
+  test('en retur som appen absorberade i båtens egen äldre händelse är KANDIDAT, även utanför konvojfönstret', () => {
     const reg = loadRegistry();
     // X:s utresa 4 min, returen 20 min (16 min senare); X absorberas på nytt 19 min.
     const c = klassa(reg, t2(X, 20), ctxOf([linje(X, 4), linje(X, 20)], [[X, 19]]));
     expect(c.klass).toBe('KANDIDAT');
-    expect(c.närmast).toMatchObject({ post: 'U2-RETURRESA' });
-    expect(c.närmast.skäl).toMatch(/utanför \+600 s/);
+    expect(c.närmast).toMatchObject({ post: 'U2-VS-DEADLINE' });
   });
 
   test('J13 gäller bara en händelse som täckte båten och fortfarande var öppen enligt medlemskravet', () => {
@@ -172,7 +189,7 @@ describe('M04 och T-2: konvojsemantiken är densamma i registret och T2-oraklet'
     // (konvojfönstrets bakkant), så Y:s korsning emellan förklarar inget.
     const bakkant = klassa(reg, t2(Z, 16), ctxOf([linje(X, 4), linje(Y, 8), linje(Z, 16)], [[Z, 2]]));
     expect(bakkant.klass).toBe('KANDIDAT');
-    expect(bakkant.närmast).toMatchObject({ post: 'U2-RETURRESA' });
+    expect(bakkant.närmast).toMatchObject({ post: 'U2-VS-DEADLINE' });
   });
 
   test('oraklets förklaring (explainT2) och registrets klass är desamma', () => {

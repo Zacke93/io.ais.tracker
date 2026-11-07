@@ -29,10 +29,12 @@
  *
  * Förklaringar (registret avgör): accepterade missklasser är tysta
  * (O1-ACCEPTERADE-MISSKLASSER); U2-VS-DEADLINE och J13-J14-KONVOJSEMANTIK
- * (KÄND_ÖPPEN), U2-RETURRESA (KONFLIKT), FIXD-SLINGA (KÄND_ÖPPEN).
- * Konvojförklaringarna använder lib/konvoj.js, samma definitioner av "täckt
- * av händelsen", "händelsens första passage" och "returresa" som registrets
- * predikat (triagens T-2, motorgranskningens M04).
+ * (KÄND_ÖPPEN), FIXD-SLINGA (KÄND_ÖPPEN). Konvojförklaringarna använder
+ * lib/konvoj.js, samma definitioner av "täckt av händelsen" och "händelsens
+ * första passage" som registrets predikat (triagens T-2, motorgranskningens
+ * M04). Returresan (U2-RETURRESA) förklaras inte längre: U15 (2026-11-04)
+ * gör INV-21:s returresa till kontraktet, så en retur utan egen varning är
+ * en kandidat (registret 2026-11-07, BUGGJAKT §7 rad 23).
  *
  * Två beslut tillämpar oraklet själv (registerposterna har verkan iOraklet,
  * M12): en accepterad fantom (AVBRUTEN_APPROACH, GLES_ANFLYGNING) är tyst
@@ -74,7 +76,7 @@ function canaryFloorMs(cadenceS) {
  * Förklaringsvakterna för en T2-passage (miss eller kort ledtid), med
  * konvojsemantiken ur lib/konvoj.js — samma definitioner som registrets
  * predikat — och i registrets ordning med postens klassRegex:
- *   ÖPPNING-MISS:OKLASSAD  U2-RETURRESA, U2-VS-DEADLINE, J13-J14-KONVOJSEMANTIK
+ *   ÖPPNING-MISS:OKLASSAD  U2-VS-DEADLINE, J13-J14-KONVOJSEMANTIK
  *   LEDTID<Ns              U2-VS-DEADLINE, J13-J14-KONVOJSEMANTIK, O1 (varningsbarheten)
  * Rättat 2026-11-04 (triagens T-2): förut räknade oraklet alla
  * täckningsrader som medlemskap och prövade J13 före U2-VS-DEADLINE och O1
@@ -89,17 +91,6 @@ function canaryFloorMs(cadenceS) {
 function explainT2(p, data, { ledtid = false, warnable = null } = {}) {
   // Registret läser korsningstiden ur beläggens ISO-tid (hela ms).
   const k = { mmsi: String(p.mmsi), bro: p.bridge, tc: Math.round(p.t) };
-  if (!ledtid) {
-    const r = konvoj.returresa(k, data);
-    if (r.sant) {
-      return {
-        post: 'U2-RETURRESA',
-        klass: 'KONFLIKT',
-        varför: `returen hör till egen äldre händelse ${r.w.eventId} (${hms(r.w.t)}; ${r.hur} vid utresan ${hms(r.q.t)}), inom första passagen ${hms(r.first.t)} + CONVOY_WINDOW_MS`,
-        eventId: r.w.eventId,
-      };
-    }
-  }
   const u2 = konvoj.inomHändelsefönster(k, data);
   if (u2.sant) {
     return {

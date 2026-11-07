@@ -1,5 +1,5 @@
 {
-  "_om": "Beslutsregistret för buggjägaren (BUGGJAKT §7). En maskinläsbar SPEGEL av ägarbesluten: källan är alltid docs/ eller koden, och ett nytt beslut skrivs först där. Motorn ändrar aldrig den här filen. Ett utslag omklassas bara när orakel, klassRegex och predikat alla matchar; ett fatalt invariantutslag (INV-F) omklassas dessutom bara av en post som namnger INV-id:t i gäller.inv (en taggpost utan inv-lista når alla INV-F-fynd, eftersom den aldrig omklassar). Ordningen spelar roll: första matchande post vinner (poster med verkan 'tagg' lägger bara till en tagg). Oanvända poster redovisas i varje rapport så att inga amnestier ligger kvar efter en rättning. Sammanslaget 2026-11-04 ur map-oracles/decision-registry-draft.json och design-mutation/beslutsregister-utkast.json. Integrationen 2026-11-04 lade till KANALINFARTEN-FP8-SYDGRIND (bankkalibreringens enda oregistrerade träff) och utvidgade O1 till kort ledtid och varning efter sann passage för båtar som inte var varningsbara. Rättningsrundan 2026-11-04 (BUGGJAKT §7, listan över registerändringar): KIE-PER-KORPUS kräver samma episod och gäller inte låst bank (M03); D4-RIKTNING-UNKNOWN gäller bara M-FAS-riktningsbyten med ny riktning unknown (M05); fem poster som oraklen tillämpar själva har verkan 'iOraklet' (M12); konvojposternas predikat delar definitioner med T2-oraklet (M04, T-2); nya poster MÄTGRÄNS-INV10-VÄNTKEDJA (T-1) och S10-VÄNDNING-BRON-BAKOM (T-3); efterrättningen samma dag snävade KIE-PER-KORPUS till |δ| + episodens längd + en tick och högst en träff per undantag och variant. Runda 2 samma dag (BUGGJAKT §7, rad 10–14): S10-VÄNDNING-BRON-BAKOM kräver FIX_D_MIN_SOG på zonens första fix och ingen bekräftande zonfix (E1); MÄTGRÄNS-INV10-VÄNTKEDJA godtar inget glapp som innehåller en halvminutstick (E2); KIE-PER-KORPUS tar episodens längd bara ur undantaget och bara för klasser vars tid är episodens slut, så DEFAULT-FLASH jämförs med |δ| + en tick (E3); orakelvakterna pekar på symboler (fil#namn) som laddningen kontrollerar (E5); taggposter når INV-F-fynd (E7). Efterrättningen i runda 2 (rad 15): S10-VÄNDNING-BRON-BAKOM spelar Fix D över fartygets fixar före zonen och godtar inte en färsk pending-flagga eller en reversal som redan bekräftats före zonen. Runda 3 samma dag (rad 16–18): S10-VÄNDNING-BRON-BAKOM prövar en rad utan kurs eller fart med fartygets senast kända värde, som appen (L1); hänvisningskontrollen tar bort kommentarer och räknar inte importer som definitioner (L2); den nya posten U16-F40-STRAX-STUDS speglar användarbeslutet U16 och registrerar F40-studsen som DESIGN när den sammanfaller med den 'strax'-bärande båtens nästa fix. Efterrättningen i runda 3 (rad 19–20): U16-F40-STRAX-STUDS är bunden till den båt som kan ha burit 'strax' (hoppet när harnessen bearbetar hennes rad, appens ålder från bearbetningen, ingen textgenerering efter 600 s-gränsen, ingen kajkapsel och ingen annan båts rad före återgången); hänvisningskontrollen räknar inte en egenskap vars värde är en import eller ett annat namn som definition.",
+  "_om": "Beslutsregistret för buggjägaren (BUGGJAKT §7). En maskinläsbar SPEGEL av ägarbesluten: källan är alltid docs/ eller koden, och ett nytt beslut skrivs först där. Motorn ändrar aldrig den här filen. Ett utslag omklassas bara när orakel, klassRegex och predikat alla matchar; ett fatalt invariantutslag (INV-F) omklassas dessutom bara av en post som namnger INV-id:t i gäller.inv (en taggpost utan inv-lista når alla INV-F-fynd, eftersom den aldrig omklassar). Ordningen spelar roll: första matchande post vinner (poster med verkan 'tagg' lägger bara till en tagg). Oanvända poster redovisas i varje rapport så att inga amnestier ligger kvar efter en rättning. Sammanslaget 2026-11-04 ur map-oracles/decision-registry-draft.json och design-mutation/beslutsregister-utkast.json. Integrationen 2026-11-04 lade till KANALINFARTEN-FP8-SYDGRIND (bankkalibreringens enda oregistrerade träff) och utvidgade O1 till kort ledtid och varning efter sann passage för båtar som inte var varningsbara. Rättningsrundan 2026-11-04 (BUGGJAKT §7, listan över registerändringar): KIE-PER-KORPUS kräver samma episod och gäller inte låst bank (M03); D4-RIKTNING-UNKNOWN gäller bara M-FAS-riktningsbyten med ny riktning unknown (M05); fem poster som oraklen tillämpar själva har verkan 'iOraklet' (M12); konvojposternas predikat delar definitioner med T2-oraklet (M04, T-2); nya poster MÄTGRÄNS-INV10-VÄNTKEDJA (T-1) och S10-VÄNDNING-BRON-BAKOM (T-3); efterrättningen samma dag snävade KIE-PER-KORPUS till |δ| + episodens längd + en tick och högst en träff per undantag och variant. Runda 2 samma dag (BUGGJAKT §7, rad 10–14): S10-VÄNDNING-BRON-BAKOM kräver FIX_D_MIN_SOG på zonens första fix och ingen bekräftande zonfix (E1); MÄTGRÄNS-INV10-VÄNTKEDJA godtar inget glapp som innehåller en halvminutstick (E2); KIE-PER-KORPUS tar episodens längd bara ur undantaget och bara för klasser vars tid är episodens slut, så DEFAULT-FLASH jämförs med |δ| + en tick (E3); orakelvakterna pekar på symboler (fil#namn) som laddningen kontrollerar (E5); taggposter når INV-F-fynd (E7). Efterrättningen i runda 2 (rad 15): S10-VÄNDNING-BRON-BAKOM spelar Fix D över fartygets fixar före zonen och godtar inte en färsk pending-flagga eller en reversal som redan bekräftats före zonen. Runda 3 samma dag (rad 16–18): S10-VÄNDNING-BRON-BAKOM prövar en rad utan kurs eller fart med fartygets senast kända värde, som appen (L1); hänvisningskontrollen tar bort kommentarer och räknar inte importer som definitioner (L2); den nya posten U16-F40-STRAX-STUDS speglar användarbeslutet U16 och registrerar F40-studsen som DESIGN när den sammanfaller med den 'strax'-bärande båtens nästa fix. Efterrättningen i runda 3 (rad 19–20): U16-F40-STRAX-STUDS är bunden till den båt som kan ha burit 'strax' (hoppet när harnessen bearbetar hennes rad, appens ålder från bearbetningen, ingen textgenerering efter 600 s-gränsen, ingen kajkapsel och ingen annan båts rad före återgången); hänvisningskontrollen räknar inte en egenskap vars värde är en import eller ett annat namn som definition. Registret 2026-11-07 (BUGGJAKT §7, rad 23–31): U2-RETURRESA är borttagen (U15 besvarade frågan, och en retur utan egen varning är en kandidat); nya poster speglar användarbesluten U17, U18 och U19, dirigentens beslut om R2:s fråga 2 och de kända luckorna för K, M och R1 (U1-C11-TYST-FÖRE-DEFAULT, M-BRUSBAND-RÖRELSEBEVIS, R2-MÅLBRO-EFTER-LINJEN, U18-RETUR-BEKRÄFTAD-SENT, U17-TYST-BÅT-RECOVER, K-TYST-BÅT-NÄSTA-ÖPPNING, U19-VARNING-UNDER-VÄNTANDE-VÄNDNING, TVÅ-ÅTERKORSADE-BROAR-I-SAMMA-SEGMENT och U-SVÄNG-LÅNGSAM-ÅTERKORSNING).",
   "version": 1,
   "poster": [
     {
@@ -164,6 +164,67 @@
       },
       "regel": "Efter en omstart visar enheten DEFAULT tills nästa fix kommer; en DEFAULT-episod från omstarten till högst 60 s efter första fixen är känd men obeslutad.",
       "fråga": "Är det acceptabelt att brotexten visar DEFAULT efter en omstart tills nästa fix kommer, eller ska senaste text persisteras?"
+    },
+    {
+      "id": "U1-C11-TYST-FÖRE-DEFAULT",
+      "klass": "DESIGN",
+      "datum": "2026-11-05",
+      "källa": "docs/etapp7-plan-2026-08-08.md:8 (U1: en båt som slutar sända AIS ska tas bort ur texten) och :266–267 (C11 och C11b, staleDisplayLimit-trappan); lib/services/VesselDataService.js#getVesselsForBridgeText (STALE_DISPLAY_DROP: 10 min, 15 min med målbro, 20 min mitt i passage, 25 min nära stilla eller i kö); lib/constants.js:1133 (STALE_ETA_HARD_THRESHOLD_MS, ETA:n nollas: 'ETA okänd'); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 24; familj M:s F05/r2)",
+      "gäller": {
+        "orakel": [
+          "INV-F"
+        ],
+        "inv": [
+          "INV-14"
+        ],
+        "klassRegex": "^INV-14 DEFAULT-FLASH$"
+      },
+      "predikat": {
+        "namn": "tystBärareFörfallen",
+        "parametrar": {}
+      },
+      "regel": "U1/C11: en båt som slutar sända tas bort ur brotexten när hennes tystnad passerar ett steg i STALE_DISPLAY_DROP-trappan (10/15/20/25 min). Var hon den enda bäraren blir texten 'Inga båtar', och den kommer tillbaka när samma eller en annan båt hörs. INV-14 fäller det som DEFAULT-FLASH (familj M:s F05/r2 och klustrets B- och C-världar). Kraven: texten närmast före episoden har för bron exakt klausulen 'En båt på väg mot X, ETA okänd' (ETA:n är nollad av STALE_ETA_HARD, så bärarens position är äldre än 10 min), och en båt vars senaste rad bearbetades p (harnessens klocka, harnessTider) passerar ett steg L i trappan när episoden börjar: t0 − p − L ligger i (0; 30 s + 40 ms], eftersom texten genereras senast vid nästa halvminutstick. Posten kan inte dölja M:s flapp: där sänder båten var 30:e sekund, hennes klausul bär en ETA, och ingen båts tystnad passerar trappan vid episodens start."
+    },
+    {
+      "id": "M-BRUSBAND-RÖRELSEBEVIS",
+      "klass": "KÄND_ÖPPEN",
+      "datum": "2026-11-05",
+      "källa": "docs/ARCHITECTURE.md:913–921 (Target-livscykeln, kända gränser (a)–(c), beslutade 2026-11-05 utan hysteres); tests/m-krypfart-malbron-2026-11-04.test.js; lib/constants.js:148 (MIN_APPROACH_DISTANCE); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 25)",
+      "gäller": {
+        "orakel": [
+          "INV-F"
+        ],
+        "inv": [
+          "INV-14"
+        ],
+        "klassRegex": "^INV-14 DEFAULT-FLASH$"
+      },
+      "predikat": {
+        "namn": "krypbandVidTröskel",
+        "parametrar": {}
+      },
+      "regel": "Familj M:s kända gränser (a)–(c): retention och återinträde kräver samma rörelsebevis, så en båt med jämn fart eller jämnt närmande nära en tröskel avgörs av bruset åt båda hållen, och texten blinkar 'Inga båtar' mellan två likadana texter. Kraven: samma båt bär texten före och efter episoden (episoden börjar när harnessen bearbetar en rad från henne och slutar vid hennes nästa rad, högst 40 ms senare; glappet mellan raderna är högst 2 × hennes mediankadens), och under de 5 minuterna före gäller minst ett av (i) median-sog inom ±0,1 kn från 0,1, 0,3 eller 0,7 kn, (ii) nettonärmande mot bron per TARGET_REMOVAL_GRACE_PERIOD (60 s, läst ur VesselDataService.js) mellan 5 och 15 m (MIN_APPROACH_DISTANCE 10 m), (iii) ingen rad med sog och en positionsspridning över 8 m. Gräns (d), avgångar under 2,0 kn, mäts inte av något orakel och har ingen post. Motorns F-KRYP-familj ger 0,4–1,5 kn, så posten väntas sakna träffar i dagens profiler; träffarna finns i M:s klassvep.",
+      "fråga": "Ska rörelsebeviset få hysteres kring trösklarna (10 m per fönster, 0,1, 0,3 och 0,7 kn), om brusbandets DEFAULT-flash syns i fält?"
+    },
+    {
+      "id": "R2-MÅLBRO-EFTER-LINJEN",
+      "klass": "DESIGN",
+      "datum": "2026-11-04",
+      "källa": "docs/BUGGJAKT.md §7 (dirigentens beslut 2026-11-04 om R2:s fråga 2); lib/services/VesselDataService.js#_calculateTargetBridge (målbron väljs på latitud mot brons latitud); lib/constants.js:356–357 (MOVEMENT_PROOF_SOG_KN 0,5 och MOVEMENT_PROOF_NET_M 50: inget mål utan rörelsebevis); lib/services/VesselDataService.js:84 (STALE_AIS_TIMEOUT_MS, raderingen gravlägger inte); tests/replay-validation/invariants.js:568–593 (INV-13)",
+      "gäller": {
+        "orakel": [
+          "INV-F"
+        ],
+        "inv": [
+          "INV-13"
+        ],
+        "klassRegex": "^INV-13 MÅLBRO SOM MELLANBRO$"
+      },
+      "predikat": {
+        "namn": "målbroEfterLinjen",
+        "parametrar": {}
+      },
+      "regel": "Dirigentens JA på R2:s fråga 2: en båt som får sin målbro först vid eller just efter bron bokför bron som mellanbro, och det är korrekt appbeteende (värld 1227 ELSA MARIA, första raden 11 m bortom Stridsbergsbron; värld 1731 KAJSA, återfödd efter 44 min stilla 92 m norr om bron). Båtens liv räknas från det senaste glappet på minst 30 min (STALE_AIS_TIMEOUT_MS), annars från första raden. F är första raden i livets sista följd av rader bortom bron, mätt på latitud i passagens riktning. Posten gäller när registreringen kom högst 10 min efter F och antingen (a) F är livets första rad, eller (b) alla rader i livet före F har finit fart under 0,5 kn, ligger inom 50 m från livets första rad och har ingen kurs mot bron (sydbandet 135–225° söderut, nordbandet 315–45° norrut). R2:s egentliga dubbelbokföring (värld 254, JOLLY, registrerad 13 min efter första raden bortom bron) omfattas inte. Aldrig på den låsta banken (relation BAS)."
     },
     {
       "id": "MÄTGRÄNS-INV17-R0",
@@ -440,38 +501,10 @@
       "orakelvakt": "tests/replay-validation/bugHunt/lib/oracles/t1Notice.js#judgeT1 (FÖRVARNINGSFORM-EFTER-PASSAGE kräver en fix mer än BEYOND_M = 70 m bortom linjen); tests/replay-validation/bugHunt/lib/oracles/t10Passage.js#decisiveFixAfter (PASSAGE-EJ-REGISTRERAD kräver en beslutsam fix mer än 70 m bortom linjen)"
     },
     {
-      "id": "U2-RETURRESA",
-      "klass": "KONFLIKT",
-      "datum": "2026-11-04",
-      "källa": "tests/replay-validation/invariants.js:866–871 (INV-21: returresan är en helt äkta ny öppning) mot docs/etapp7-plan-2026-08-08.md:9 (U2: en varning per öppning, väntande båtar hör till samma händelse)",
-      "gäller": {
-        "orakel": [
-          "T2"
-        ],
-        "klassRegex": "OKLASSAD|MISS"
-      },
-      "predikat": {
-        "namn": "uturnReturnAbsorbed",
-        "parametrar": {}
-      },
-      "regel": "En U-svängares returpassage hör till båtens egen äldre händelse när båten var täckt av händelsen vid utresan (medlem, ledare eller absorberad, även om returen absorberas på nytt) och returen sker inom händelsens konvojfönster [första passage; + CONVOY_WINDOW_MS]; returen får då ingen egen varning. Definitionen delas med T2-oraklet (tests/replay-validation/bugHunt/lib/konvoj.js, returresa).",
-      "doktriner": [
-        {
-          "text": "INV-21-texten: en U-svängares returpassage är en helt äkta ny öppning.",
-          "källa": "tests/replay-validation/invariants.js:866–871"
-        },
-        {
-          "text": "U2: strikt en varning per öppning; händelsen avgränsas av första faktiska passagen och väntande båtar hör till samma händelse.",
-          "källa": "docs/etapp7-plan-2026-08-08.md:9"
-        }
-      ],
-      "fråga": "Ska en U-svängares returpassage vara en ny öppning med egen varning (INV-21), eller får den absorberas i båtens egen äldre händelse (U2)?"
-    },
-    {
       "id": "U2-VS-DEADLINE",
       "klass": "KÄND_ÖPPEN",
       "datum": "2026-08-09",
-      "källa": "docs/etapp7-plan-2026-08-08.md:310–349 (ETAPP C-IV:s utfall: U2 och deadline-garantin är ömsesidigt oförenliga, C8 återkallad)",
+      "källa": "docs/etapp7-plan-2026-08-08.md:310–349 (ETAPP C-IV:s utfall: U2 och deadline-garantin är ömsesidigt oförenliga, C8 återkallad); docs/ARCHITECTURE.md:763–792 (U15, returresan är en egen öppning)",
       "gäller": {
         "orakel": [
           "T2"
@@ -484,14 +517,14 @@
           "fönsterMs": 600000
         }
       },
-      "regel": "Garantin förfaller medan båten är täckt: en korsning inom [händelsens första passage; + CONVOY_WINDOW_MS] hör till samma öppning enligt U2, när båten var täckt av den äldre händelsen före korsningen (medlem, ledare eller absorberad) och händelsens första passage är en ANNAN båts. Båtens egen utresa före en U-sväng räknas aldrig (den returen är U2-RETURRESA). Definitionen delas med T2-oraklet (tests/replay-validation/bugHunt/lib/konvoj.js, inomHändelsefönster).",
+      "regel": "Garantin förfaller medan båten är täckt: en korsning inom [händelsens första passage; + CONVOY_WINDOW_MS] hör till samma öppning enligt U2, när båten var täckt av den äldre händelsen före korsningen (medlem, ledare eller absorberad) och händelsens första passage är en ANNAN båts. Båtens egen utresa före en U-sväng räknas aldrig, och en händelse vars varning kom före båtens egen tidigare korsning av bron förklarar inte korsningen: enligt U15 är returen en egen öppning (konvoj.egenKorsningEfter, registret 2026-11-07). Definitionen delas med T2-oraklet (tests/replay-validation/bugHunt/lib/konvoj.js, inomHändelsefönster).",
       "fråga": "U2 mot deadline-garantin (etapp7-plan C-IV, val a/b/c) är fortfarande öppen. Vill du avgöra den, eller ska motorn fortsätta behandla sådana utfall som kända?"
     },
     {
       "id": "J13-J14-KONVOJSEMANTIK",
       "klass": "KÄND_ÖPPEN",
       "datum": "2026-08-22",
-      "källa": "docs/ARCHITECTURE.md:1611–1628 (J13+J33 konvojbindningens värdval, J14 notePassage bokför inte armlösa båtars passager)",
+      "källa": "docs/ARCHITECTURE.md:1611–1628 (J13+J33 konvojbindningens värdval, J14 notePassage bokför inte armlösa båtars passager); docs/ARCHITECTURE.md:763–792 (U15, returresan är en egen öppning)",
       "gäller": {
         "orakel": [
           "T2"
@@ -502,7 +535,7 @@
         "namn": "nonMemberCrossingBetween",
         "parametrar": {}
       },
-      "regel": "En öppning stängs i dag av en MEDLEMS passage; när en båt som inte var täckt av händelsen korsar mellan varningen och passagen, i en händelse som täckte båten och som fortfarande var öppen enligt medlemskravet (ingen täckt båt passerade mer än CONVOY_WINDOW_MS före passagen), är utfallet en känd konsekvens av medlemskravet. Hade en medlem passerat längre tillbaka hade täckningen löpt ut, och då är den uteblivna varningen en kandidat (konvojfönstrets bakkant). Definitionen delas med T2-oraklet (tests/replay-validation/bugHunt/lib/konvoj.js, ickeMedlemEmellan).",
+      "regel": "En öppning stängs i dag av en MEDLEMS passage; när en båt som inte var täckt av händelsen korsar mellan varningen och passagen, i en händelse som täckte båten och som fortfarande var öppen enligt medlemskravet (ingen täckt båt passerade mer än CONVOY_WINDOW_MS före passagen), är utfallet en känd konsekvens av medlemskravet. Hade en medlem passerat längre tillbaka hade täckningen löpt ut, och då är den uteblivna varningen en kandidat (konvojfönstrets bakkant). En händelse vars varning kom före båtens egen tidigare korsning av bron förklarar aldrig en retur: enligt U15 är returen en egen öppning (konvoj.egenKorsningEfter, registret 2026-11-07; standardvärld 1316). Definitionen delas med T2-oraklet (tests/replay-validation/bugHunt/lib/konvoj.js, ickeMedlemEmellan).",
       "fråga": "Ska en öppning stängas av en medlems passage (dagens medlemskrav) eller av första faktiska passagen oavsett medlemskap?"
     },
     {
@@ -522,6 +555,82 @@
         "parametrar": {}
       },
       "regel": "Missar som världens egna sampel förklarar (classifyMiss på världens rader) är informationsförlust, inte fel. Samma prov gäller en kort ledtid (T2 LEDTID<60s) och en varning efter sann passage (T3) när båten inte var varningsbar: först sedd för nära, snabbare än deadline-taket eller utan rörelse- eller riktningsbevis i tid."
+    },
+    {
+      "id": "U18-RETUR-BEKRÄFTAD-SENT",
+      "klass": "DESIGN",
+      "datum": "2026-11-04",
+      "källa": "docs/ARCHITECTURE.md:1028–1035 (U18, användarbeslut 2026-11-04: Fix D kräver två positioner, Anomali 18) och :763–792 (U15, returresan är en egen öppning; värld 227); lib/services/VesselDataService.js:385–491 (Fix D: FIX_D_MIN_SOG, kursbanden, pending-flaggan och bekräftelsen); lib/constants.js:1545 (TICK_INTERVAL_MS); docs/BUGGJAKT.md §7 (användarbeslut U18; registerändringarna 2026-11-07, rad 26)",
+      "gäller": {
+        "orakel": [
+          "T2",
+          "T3"
+        ],
+        "klassRegex": "^ÖPPNING-MISS:OKLASSAD$|^LEDTID|^VARNING-EFTER-SANN-PASSAGE$"
+      },
+      "predikat": {
+        "namn": "fixDBekräftarReturSent",
+        "parametrar": {}
+      },
+      "regel": "U18: Fix D tror på en vändning först efter två omvända positioner med minst FIX_D_MIN_SOG (2,0 kn, läst ur VesselDataService.js) inom FIX_D_PENDING_MAX_AGE_MS (15 min). En retur med gles AIS upptäcks därför sent, och det är en känd gräns. Posten är knuten till den mekanismen, inte bara till tiden: båten har en L0-vändning högst 30 min före den sanna korsningen och minst en omvänd fix med FIX_D_MIN_SOG mellan vändningen och korsningen, och Fix D:s bekräftelse, spelad på raderna efter vändningen (spelaFixD), kom sent. För ÖPPNING-MISS:OKLASSAD betyder sent efter korsningen eller aldrig (R1:s sju returer). För LEDTID och VARNING-EFTER-SANN-PASSAGE betyder sent mindre än 2 × TICK_INTERVAL_MS (60 s) före korsningen eller efter den, och dessutom är varningen båtens egen (ledare) och kom högst 60 s efter bekräftelsen. En egen returvarning som kommer senare än så efter bekräftelsen, eller en bekräftelse som kom i tid, förklaras inte av U18 och blir KANDIDAT (K2-granskarens anmärkning om det föreslagna U15-RETUR-SEN, som bara byggde på tid)."
+    },
+    {
+      "id": "U17-TYST-BÅT-RECOVER",
+      "klass": "DESIGN",
+      "datum": "2026-11-04",
+      "källa": "docs/ARCHITECTURE.md:1869–1886 (U17, ägarbeslut 2026-11-04: säkerhetsvarningen för en tyst båt behålls); lib/services/BridgeOpeningService.js#_coverageVerdict (täckningsslutet och RECOVER-släppet); lib/constants.js:1375 (CONVOY_WINDOW_MS); docs/BUGGJAKT.md §7 (användarbeslut U17; registerändringarna 2026-11-07, rad 27)",
+      "gäller": {
+        "orakel": [
+          "T3"
+        ],
+        "klassRegex": "^VARNING-EFTER-SANN-PASSAGE$|^VARNING-PÅ-FRUSET-FIX$"
+      },
+      "predikat": {
+        "namn": "tystRecoverSammaÖppning",
+        "parametrar": {
+          "läge": "samma"
+        }
+      },
+      "regel": "U17: RECOVER-släppets säkerhetsvarning för en tyst båt behålls. Den gäller en båt vars senaste position sa att hon skulle hinna igenom den gemensamma öppningen, men där appen inte vet om hon gjorde det; F11/F23-klassen är ett falsklarm av samma slag som AVBRUTEN_APPROACH. Kraven, alla: (1) båten absorberades vid bron i en levererad händelse E vars varning kom före hennes sanna korsning (den senaste sådana före varningen); (2) fyndets varning leds av henne själv, kom efter absorptionen och avfyrades av ticken i radiotystnad (firedBy 'deadline'), alltså hennes egen RECOVER-händelse; (3) hennes sista rad före varningen kom före hennes sanna korsning; (4) hennes korsning ligger högst CONVOY_WINDOW_MS (600 s) efter E:s första sanna korsning, den första L0-korsningen vid bron efter E:s varning av en båt som var täckt av E vid varningen, hennes egen medräknad. Ingen fixålder. En egen varning som avfyrades av ett fix, en båt som hördes efter korsningen och en varning som leds av någon annan omfattas inte."
+    },
+    {
+      "id": "K-TYST-BÅT-NÄSTA-ÖPPNING",
+      "klass": "KÄND_ÖPPEN",
+      "datum": "2026-11-05",
+      "källa": "docs/ARCHITECTURE.md:1869–1886 (U17) och :1818–1840 (täckningsslutet räknas från bokföringen, dirigentens beslut 2026-11-05, U13); lib/services/BridgeOpeningService.js#_coverageVerdict; lib/constants.js:1375 (CONVOY_WINDOW_MS); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 28)",
+      "gäller": {
+        "orakel": [
+          "T2",
+          "T3"
+        ],
+        "klassRegex": "^LEDTID|^VARNING-EFTER-SANN-PASSAGE$"
+      },
+      "predikat": {
+        "namn": "tystRecoverSammaÖppning",
+        "parametrar": {
+          "läge": "nästa"
+        }
+      },
+      "regel": "K-familjens kvarvarande gräns efter revision 3: villkor (1)–(3) som i U17-TYST-BÅT-RECOVER, men hennes korsning ligger mer än CONVOY_WINDOW_MS (600 s) efter E:s första sanna korsning, så hon hörde enligt U2 till nästa öppning. Hon hölls av E:s täckning till täckningsslutet, som räknas från bokföringen, och hennes egen varning kom på tick efter korsningen (T3) eller mindre än 60 s före den (T2 LEDTID). Det är en verklig sen varning; den kvarstår för att banken inte kan belägga alternativ A (U13).",
+      "fråga": "Ska en tyst konvojmedlem vars korsning ligger efter den gemensamma öppningens konvojfönster släppas på sin senaste prognos före täckningsslutet (K-familjens alternativ A), fast det flyttar en låst rad i banken som rådatan bara visar som likvärdig?"
+    },
+    {
+      "id": "U19-VARNING-UNDER-VÄNTANDE-VÄNDNING",
+      "klass": "ACCEPTERAD",
+      "datum": "2026-11-04",
+      "källa": "docs/ARCHITECTURE.md:1036–1042 (U19, användarbeslut 2026-11-04: en planerad öppningsvarning skickas även när en obekräftad vändning väntar); lib/services/VesselDataService.js:385–491 (Fix D:s pending-flagga och bekräftelse); docs/BUGGJAKT.md §7 (användarbeslut U19; registerändringarna 2026-11-07, rad 29)",
+      "gäller": {
+        "orakel": [
+          "T9",
+          "T3"
+        ],
+        "klassRegex": "^FEL-RIKTNING$|^FANTOM-UTAN-AVBROTT$"
+      },
+      "predikat": {
+        "namn": "väntandeVändningVidVarning",
+        "parametrar": {}
+      },
+      "regel": "U19: en planerad öppningsvarning skickas även när Fix D väntar på den andra observationen av en vändning. Var vändningen äkta blir varningen onödig och riktningen fel; det godtas, eftersom en missad öppning är värre (AIR i 20260601-41h). Kraven: fyndets varning (T9: anspråk med slag 'varning') leds av fyndets båt; Fix D spelat över hennes rader i (t − 15 min; t] med låset i varningens riktning slutar med en flagga i motsatt riktning och ingen bekräftelse; flaggan bekräftas efter varningen (vändningen var äkta); och varningen är inget RECOVER-släpp (ingen absorbed-rad för båten vid bron inom 30 min före varningen). Exempel: ZELDA i värld 188 (Stridsbergsbron#12 14:54:07, flagga 14:49:38, bekräftad 14:54:48) och SALTIS i värld 1590 (Klaffbron 13:35:27, bekräftad 13:36:32)."
     },
     {
       "id": "FALSKLARM-AVBRUTEN-GLES",
@@ -738,6 +847,42 @@
         }
       },
       "regel": "Rådatafacitet bokför ingen korsning när en fix i paret ligger mer än 250 m från farleden; en app-passage för en sådan båt kan sakna facitkorsning utan att vara fel (RIB 218023240, fix 877 m utanför farleden)."
+    },
+    {
+      "id": "TVÅ-ÅTERKORSADE-BROAR-I-SAMMA-SEGMENT",
+      "klass": "KÄND_ÖPPEN",
+      "datum": "2026-11-05",
+      "källa": "docs/ARCHITECTURE.md:1022–1027 (U-svängspunkten, kända luckor); lib/services/VesselDataService.js#_confirmDirectionReversal; tests/r1-usvang-aterkorsning-2026-11-04.test.js (testet 'KÄND LUCKA: två återkorsade broar i samma segment'); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 30)",
+      "gäller": {
+        "orakel": [
+          "T10"
+        ],
+        "klassRegex": "^PASSAGE-EJ-REGISTRERAD$"
+      },
+      "predikat": {
+        "namn": "andraBronISammaSegment",
+        "parametrar": {}
+      },
+      "regel": "R1:s kända lucka 1: RE_CROSS_EVIDENCED bokför bara den första återkorsade bron i ett segment; nästa prövas mot det nya låset och hoppas över. Kraven: korsningen ligger högst 30 min efter en L0-vändning av båten, och mellan samma två på varandra följande rader a och b korsar båten (L0) en annan bro i samma riktning, som appen bokförde inom 1 s från b:s bearbetning (harnessens klocka).",
+      "fråga": "Ska RE_CROSS_EVIDENCED bokföra alla återkorsade broar i segmentet, i den nya riktningens ordning?"
+    },
+    {
+      "id": "U-SVÄNG-LÅNGSAM-ÅTERKORSNING",
+      "klass": "KÄND_ÖPPEN",
+      "datum": "2026-11-05",
+      "källa": "docs/ARCHITECTURE.md:1022–1027 (U-svängspunkten, kända luckor); lib/services/VesselDataService.js#_slowReCrossEvidence (den långsamma vägens fyra villkor och KÄND LUCKA); lib/constants.js:1197 (QUAY_DEPARTURE_GATE.TRANSIT_SOG_KN); tests/r1-usvang-aterkorsning-2026-11-04.test.js (testen 'KÄND LUCKA' och enhetsfallen för den långsamma vägen); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 31)",
+      "gäller": {
+        "orakel": [
+          "T10"
+        ],
+        "klassRegex": "^PASSAGE-EJ-REGISTRERAD$"
+      },
+      "predikat": {
+        "namn": "returUtanRörelsebevis",
+        "parametrar": {}
+      },
+      "regel": "R1:s kända luckor 2–5: en U-svängares återkorsning utan rörelsebevis i korsningsticken bokförs inte (tät långsam korsning under 100 m, långsam vändning utan fix i 2 kn, korsningsfix under 1 kn, väntan äldre än startfixet). Låt a vara båtens sista rad före korsningen och b den första efter. Kraven: korsningen ligger högst 30 min efter en L0-vändning; b:s egen fart är under FIX_D_MIN_SOG (2,0 kn, läst ur VesselDataService.js), eller b saknar fart och segmentet a–b är under 100 m (RE_CROSS_EVIDENCED:s fartkrav); och inte alla den långsamma vägens villkor håller: a omvänd i korsningens band med minst FIX_D_MIN_SOG, b minst TRANSIT_SOG_KN (1,0 kn), segmentet minst 100 m och nettofarten minst FIX_D_MIN_SOG.",
+      "fråga": "Ska en långsam återkorsning bokföras i efterhand när vändningen bekräftas (en kandidat {bro, riktning, tid} som bokförs när en vändning i samma riktning bekräftas och bron ligger bakom båten)?"
     }
   ]
 }
