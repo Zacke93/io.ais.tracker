@@ -89,6 +89,10 @@ function appKonstant(relFil, namn, root = hygiene.REPO_ROOT) {
 // VesselDataService.js) är målbrons nådafrist, fönstret som närmandebeviset
 // mäts över (familj M, F05). Se krypbandVidTröskel.
 //
+// MOVING_SOG_KN (`const MOVING_SOG_KN = 2;`, BridgeOpeningService.js) är
+// farten från vilken _courseAway litar på kursen (K-familjen, F14). Se
+// tystRecoverSammaÖppning.
+//
 // Fältet `predikat` listar de predikat som läser konstanten som standardvärde
 // för `parameter`; laddningen varnar för varje post som använder ett av dem
 // utan ett eget värde när konstanten inte kunde läsas.
@@ -96,7 +100,8 @@ const APPKONSTANTER = Object.freeze([
   {
     namn: 'FIX_D_MIN_SOG',
     fil: 'lib/services/VesselDataService.js',
-    predikat: Object.freeze(['reversalAwayFromBridge', 'fixDBekräftarReturSent', 'väntandeVändningVidVarning', 'returUtanRörelsebevis']),
+    predikat: Object.freeze(['reversalAwayFromBridge', 'fixDBekräftarReturSent', 'väntandeVändningVidVarning', 'returUtanRörelsebevis',
+      'andraBronISammaSegment']),
     parameter: 'fixDMinSogKn',
   },
   {
@@ -105,9 +110,16 @@ const APPKONSTANTER = Object.freeze([
     predikat: Object.freeze(['krypbandVidTröskel']),
     parameter: 'fönsterMs',
   },
+  {
+    namn: 'MOVING_SOG_KN',
+    fil: 'lib/services/BridgeOpeningService.js',
+    predikat: Object.freeze(['tystRecoverSammaÖppning']),
+    parameter: 'rörelseKn',
+  },
 ].map((k) => Object.freeze({ ...k, värde: appKonstant(k.fil, k.namn) })));
 const FIX_D_MIN_SOG = APPKONSTANTER.find((k) => k.namn === 'FIX_D_MIN_SOG').värde;
 const TARGET_REMOVAL_GRACE_PERIOD = APPKONSTANTER.find((k) => k.namn === 'TARGET_REMOVAL_GRACE_PERIOD').värde;
+const MOVING_SOG_KN = APPKONSTANTER.find((k) => k.namn === 'MOVING_SOG_KN').värde;
 
 // ---------------------------------------------------------------------------
 // Hjälpare för predikaten
@@ -536,6 +548,29 @@ function fixDBand(p) {
 /** Radens fixtid (fixTs när raden bär den, annars aisTimestamp). */
 const fixtid = (r) => (Number.isFinite(r.fixTs) ? r.fixTs : r.aisTimestamp);
 
+const KN_TILL_MS = 1852 / 3600;
+
+/** Bäringen (grader, 0 = norr) från en position till en namngiven punkt. */
+function bäringTill(r, namn) {
+  const P = platser.POINTS[namn];
+  const dn = (P.lat - r.lat) * 111320;
+  const de = (P.lon - r.lon) * 111320 * Math.cos((r.lat * Math.PI) / 180);
+  return ((Math.atan2(de, dn) * 180) / Math.PI + 360) % 360;
+}
+
+/**
+ * Leder radens kurs bort från bron så som BridgeOpeningService#_courseAway
+ * dömer den? Bara i rörelse (sog ≥ p.rörelseKn) och utanför väntzonen
+ * (avstånd > p.väntzonM), och skillnaden mellan kursen och bäringen till
+ * bron är över 90°.
+ */
+function kursBort(r, bro, p) {
+  if (!Number.isFinite(r.cog) || !Number.isFinite(r.sog) || r.sog < p.rörelseKn) return false;
+  if (!(platser.distanceToPoint(r, bro) > p.väntzonM)) return false;
+  const diff = Math.abs(((r.cog - bäringTill(r, bro)) % 360 + 540) % 360 - 180);
+  return diff > 90;
+}
+
 /**
  * Den levererade varning som fyndet gäller: belägg.varning (T2, T3) eller
  * belägg.anspråk med slag 'varning' (T9), uppslagen på eventId i
@@ -591,6 +626,38 @@ function förstaBekräftelse(fixar, opts, till) {
     if (fd.bekräftad && fd.bekräftad.till === till) return { t: fd.bekräftad.t, flaggad: fd.bekräftad.flaggad };
   }
   return null;
+}
+
+/**
+ * Gällde R1:s RE_CROSS-väg för en returkorsning k (VesselDataService.js
+ * #_confirmDirectionReversal och #_slowReCrossEvidence)? Båten ska ha
+ * korsat samma bro tidigare i motsatt riktning, före vändningen u (L0), och
+ * Fix D får inte ha bekräftat vändningen senast vid a, båtens sista rad före
+ * korsningen: spelet går över hennes rader från den tidigare korsningen till
+ * och med a med låset i den gamla riktningen. Den första bekräftelsen kommer
+ * alltså vid korsningsfixet b eller senare, som i R1:s luckor. Var vändningen
+ * redan bekräftad var låset det nya, och då ska den vanliga passagelogiken
+ * bokföra korsningen (granskningen av registret 2026-11-07).
+ * @returns {{ut: object}|{fel: string}} den tidigare korsningen, eller skälet
+ */
+function reCrossVägen(ctx, k, u, a, bro, p) {
+  const ut = (((ctx && ctx.sanning) || {}).crossings || []).filter((x) => String(x.mmsi) === k.mmsi && x.bridge === bro
+    && RIKTNINGSORD[x.dir] === motsatt(k.riktning) && Number.isFinite(x.t) && x.t < u.t).sort((x, y) => x.t - y.t).pop();
+  if (!ut) {
+    return { fel: `ingen tidigare L0-korsning av ${bro} ${motsatt(k.riktning)}ut före vändningen ${fmtT(u.t)}: korsningen är ingen återkorsning` };
+  }
+  const opts = {
+    lås: motsatt(k.riktning), minSogKn: p.fixDMinSogKn, maxÅlderMs: p.maxÅlderMin * MIN, band: fixDBand(p),
+  };
+  const fram = rowsOf(ctx, k.mmsi).filter((r) => r.aisTimestamp > ut.t && r.aisTimestamp <= a.aisTimestamp);
+  const bek = förstaBekräftelse(fram, opts, k.riktning);
+  if (bek) {
+    return {
+      fel: `Fix D bekräftade vändningen ${fmtT(bek.t)}, senast vid a ${fmtT(a.aisTimestamp)}: låset var redan ${k.riktning}, `
+        + 'så den vanliga passagelogiken ska bokföra korsningen',
+    };
+  }
+  return { ut };
 }
 
 /** Brotextens klausul för bron (texten delas på ';'). */
@@ -1064,6 +1131,11 @@ const PREDICATES = {
   // en accepterad informationsförlust: antingen bär klassen namnet, eller så
   // har oraklet prövat båtens varningsbarhet och fått en accepterad klass
   // (T2 LEDTID<60s, T3 VARNING-EFTER-SANN-PASSAGE).
+  // Snävat 2026-11-07 (granskningen av registret, mutationsprovet med
+  // under-bron-hållet bortkopplat, standardvärld 777): en T3-varning efter
+  // passagen för en båt som redan var absorberad vid bron före sin korsning
+  // är hennes RECOVER-släpp, inte en första varning som kom sent. Den frågan
+  // ägs av U17 (tystRecoverSammaÖppning), inte av varningsbarheten.
   missklassAccepterad: {
     parametrar: { klasser: ['TYST_I_HORISONTEN', 'FÖRST_SEDD_FÖR_NÄRA', 'SNABBARE_ÄN_DEADLINE_TAKET', 'RÖRELSEBEVIS_FÖR_SENT', 'RIKTNINGSBEVIS_FÖR_SENT'] },
     fn(f, ctx, p) {
@@ -1071,6 +1143,13 @@ const PREDICATES = {
       if (named) return ok(`missklassen ${named} är accepterad`);
       const b = f.belägg || {};
       const prov = [b.varningsbarhet, b.missklass].find((k) => p.klasser.includes(k));
+      const tKors = f.orakel === 'T3' && b.sannPassage ? Date.parse(b.sannPassage.t) : NaN;
+      const täckt = prov && Number.isFinite(tKors) && (((ctx && ctx.resultat && ctx.resultat.openingCoverage) || [])
+        .find((c) => c.reason === 'absorbed' && String(c.mmsi) === String(f.mmsi) && c.bridge === f.bro && Number.isFinite(c.t) && c.t < tKors));
+      if (täckt) {
+        return nej(`båten absorberades i ${täckt.eventId} ${fmtT(täckt.t)}, före sin korsning ${fmtT(tKors)}: varningen efter passagen är ett `
+          + 'RECOVER-släpp (U17), inte en fråga om varningsbarhet');
+      }
       if (prov) return ok(`båten var inte varningsbar: ${prov} (classifyMiss på världens rader)`);
       return nej(`varningsbarheten är ${b.varningsbarhet || b.missklass || 'okänd'} — ingen accepterad missklass`);
     },
@@ -1604,9 +1683,16 @@ const PREDICATES = {
   //  - för ÖPPNING-MISS: först efter korsningen eller aldrig;
   //  - för LEDTID och VARNING-EFTER-SANN-PASSAGE: mindre än tickar ×
   //    TICK_INTERVAL_MS före korsningen eller efter den, och varningen är
-  //    båtens egen (ledare) och kom högst tickar × TICK_INTERVAL_MS efter
-  //    bekräftelsen. En egen varning som kommer senare än så efter en
-  //    bekräftelse i tid förklaras inte av U18 och förblir KANDIDAT.
+  //    båtens egen (ledare) och kom VID bekräftelsen: avfyrad av det
+  //    bekräftande fixet (firedBy 'fix', högst fixToleransMs från radens
+  //    bearbetning i harnessen) eller av första ticken efter det (firedBy
+  //    'deadline', högst tickMs + tickFördröjningMs efter bearbetningen och
+  //    utan egen rad däremellan). En egen varning som kommer senare, till
+  //    exempel vid nästa fix (världarna 936 och 1918), förklaras inte av U18
+  //    och förblir KANDIDAT. Skärpt 2026-11-07 efter granskningen av
+  //    registret: förut godtogs varningen upp till tickar × TICK_INTERVAL_MS
+  //    efter bekräftelsen, och då dolde posten en egen varning vid nästa fix
+  //    när fixen kom inom 60 s (K2-granskarens anmärkning).
   fixDBekräftarReturSent: {
     parametrar: {
       fixDMinSogKn: FIX_D_MIN_SOG,
@@ -1617,6 +1703,8 @@ const PREDICATES = {
       vändningFöreMin: 30,
       tickMs: C.BRIDGE_OPENING.TICK_INTERVAL_MS,
       tickar: 2,
+      fixToleransMs: 1000,
+      tickFördröjningMs: 40,
     },
     fn(f, ctx, p) {
       if (!Number.isFinite(p.fixDMinSogKn)) return nej('FIX_D_MIN_SOG kunde inte läsas ur lib/services/VesselDataService.js');
@@ -1653,11 +1741,19 @@ const PREDICATES = {
       const w = fyndetsVarning(f, ctx);
       if (!w) return nej('varningen saknas i resultatet');
       if (String(w.leadMmsi) !== k.mmsi) return nej(`varningen ${w.eventId} leds av ${w.leadMmsi}, inte av båten själv`);
-      if (w.t < bek.t || w.t > bek.t + gräns) {
-        return nej(`varningen ${w.eventId} ${fmtT(w.t)} kom inte inom ${gräns / 1000} s efter bekräftelsen ${fmtT(bek.t)}: förseningen förklaras inte av U18`);
+      const tider = harnessTider(ctx);
+      const tidFör = (r) => tider.get(r) ?? r.aisTimestamp;
+      const bekRad = efterVändning.find((r) => r.aisTimestamp === bek.t);
+      const pBek = bekRad ? tidFör(bekRad) : bek.t;
+      const vidFixet = w.firedBy === 'fix' && Math.abs(w.t - pBek) <= p.fixToleransMs;
+      const mellan = rowsOf(ctx, k.mmsi).filter((r) => tidFör(r) > pBek && tidFör(r) < w.t);
+      const vidTicken = w.firedBy === 'deadline' && w.t > pBek && w.t - pBek <= p.tickMs + p.tickFördröjningMs && !mellan.length;
+      if (!vidFixet && !vidTicken) {
+        return nej(`varningen ${w.eventId} ${fmtT(w.t)} (${w.firedBy}) kom inte vid det bekräftande fixet ${fmtT(bek.t)} eller första ticken efter det`
+          + `${mellan.length ? ` (egen rad ${fmtT(mellan[0].aisTimestamp)} emellan)` : ''}: förseningen förklaras inte av U18`);
       }
       return ok(`U18: vändningen ${fmtT(u.t)}; Fix D flaggade ${fmtT(bek.flaggad)} och bekräftade ${fmtT(bek.t)}, `
-        + `${Math.round((k.t - bek.t) / 1000)} s före korsningen ${fmtT(k.t)}; egen varning ${w.eventId} ${fmtT(w.t)}`);
+        + `${Math.round((k.t - bek.t) / 1000)} s före korsningen ${fmtT(k.t)}; egen varning ${w.eventId} ${fmtT(w.t)} ${vidFixet ? 'vid fixet' : 'vid första ticken'}`);
     },
   },
 
@@ -1710,26 +1806,68 @@ const PREDICATES = {
   },
 
   // U17 (användarbeslut 2026-11-04) och K-familjens kvarvarande gräns.
-  // RECOVER-släppets säkerhetsvarning för en tyst båt behålls
-  // (BridgeOpeningService.js#_coverageVerdict). Predikatet kräver alla:
-  //  (1) båten absorberades vid bron i en levererad händelse E vars varning
-  //      kom före hennes sanna korsning (den senaste sådana före varningen);
-  //  (2) fyndets varning W leds av henne själv, kom efter absorptionen och
-  //      avfyrades av ticken i radiotystnad (firedBy 'deadline'): hennes egen
-  //      RECOVER-händelse;
-  //  (3) hennes sista rad före W kom före hennes sanna korsning: tyst över
-  //      korsningen, så appen kunde inte veta att hon passerade;
-  //  (4) läge 'samma' (U17): hennes korsning ligger högst fönsterMs efter
-  //      E:s första sanna korsning (första L0-korsningen vid bron efter E:s
-  //      varning av en båt som var täckt av E vid W, hennes egen medräknad).
-  //      Läge 'nästa' (K-TYST-BÅT-NÄSTA-ÖPPNING): mer än fönsterMs efter, så
-  //      hon hörde till nästa öppning enligt U2.
-  // Ingen fixålder (K-familjen revision 3).
+  // RECOVER-släppets säkerhetsvarning för en TYST båt behålls: hon släpps
+  // vid täckningsslutet (BridgeOpeningService.js#_coverageVerdict) och varnas
+  // på ticken. Predikatet speglar släppvägen och kräver alla:
+  //  (1) båten absorberades vid bron i en levererad händelse E före sin sanna
+  //      korsning, och E:s varning kom före korsningen. E är händelsen i den
+  //      sista sådana absorptionen, alltså den som täckte henne när hon
+  //      korsade (granskningen 2026-11-07: en absorption efter korsningen
+  //      gjorde villkor (5) trivialt, standardvärld 1453);
+  //  (2) fyndets varning W leds av henne, kom efter absorptionen och
+  //      avfyrades av ticken (firedBy 'deadline'): hennes egen RECOVER;
+  //  (3) TYST, så att bakkanten inte kunde släppa henne. Bakkanten släpper en
+  //      absorberad båt före täckningsslutet på ett eget fix efter att E:s
+  //      första passage bokfördes, när fixets prognos ligger efter fönstrets
+  //      slut och kursen inte leder bort (_courseAway). Fönstrets slut i appen
+  //      är min(täckningsslutet, max(E, första passagen) + fönsterMs);
+  //      predikatet använder dess tidigaste möjliga värde: min(bokföringen +
+  //      fönsterMs, max(E, första korsningen) + fönsterMs, W − tickMs).
+  //      Bokföringen är den första bokförda passagen vid bron av en båt som
+  //      E täckte, annars E:s första sanna korsning (bokföringen kan inte
+  //      komma före korsningen). Därför gäller för hennes rader efter
+  //      bokföringen och före W, utom rader med kursen bort:
+  //       (3a) ingen rad bearbetades efter fönstrets tidigaste slut (då
+  //            ligger prognosen efter slutet; för T2 LEDTID är det postens
+  //            tystnadsvillkor);
+  //       (3b) restiden till bron med radens egen fart (minst minFartKn) är
+  //            högst maxRestandel av tiden kvar från fixet till fönstrets
+  //            tidigaste slut. Appens prognos (ProgressiveETACalculator) går
+  //            inte att återskapa ur raderna, och i standardkörningen låg
+  //            brotextens ETA upp till 1,3 × den raka restiden. En prognos
+  //            nära fönstrets slut bevisar inte U17:s premiss ("hennes
+  //            senaste position sa att hon skulle hinna") och blir KANDIDAT.
+  //      För T3 gäller dessutom att hennes sista rad före W kom före
+  //      korsningen (tyst över korsningen);
+  //  (4) inget håll vid täckningsslutet gällde hennes sista rad före W: inte
+  //      under bron (högst underBronM från bron i minst minFartKn;
+  //      dirigentens beslut 2026-11-05, hon har i praktiken passerat) och
+  //      inte kursen bort (_courseAway, hållet till nästa fix);
+  //  (5) läge 'samma' (U17): korsningen ligger högst fönsterMs efter E:s
+  //      första sanna korsning av en båt som E täckte när hon korsade, hennes
+  //      egen medräknad. Läge 'nästa' (K-TYST-BÅT-NÄSTA-ÖPPNING): mer än
+  //      fönsterMs efter.
+  // Ingen fixålder (K-familjen revision 3). Villkor (3), (4) och (1):s
+  // absorption före korsningen kom till 2026-11-07 efter granskningens
+  // mutationsprov: med bakkanten bortkopplad i _coverageVerdict tog posterna
+  // 43 nya utslag och med under-bron-hållet bortkopplat 3; nu blir alla
+  // KANDIDAT (BUGGJAKT §7).
   tystRecoverSammaÖppning: {
-    parametrar: { fönsterMs: C.BRIDGE_OPENING.CONVOY_WINDOW_MS, läge: 'samma' },
+    parametrar: {
+      fönsterMs: C.BRIDGE_OPENING.CONVOY_WINDOW_MS,
+      tickMs: C.BRIDGE_OPENING.TICK_INTERVAL_MS,
+      underBronM: C.UNDER_BRIDGE_SET_DISTANCE,
+      minFartKn: C.PASSAGE_TIMING.MINIMUM_VIABLE_SPEED,
+      rörelseKn: MOVING_SOG_KN,
+      väntzonM: C.STATUS_HYSTERESIS.WAITING_CLEAR_DISTANCE,
+      maxRestandel: 0.6,
+      läge: 'samma',
+    },
     fn(f, ctx, p) {
+      if (!Number.isFinite(p.rörelseKn)) return nej('MOVING_SOG_KN kunde inte läsas ur lib/services/BridgeOpeningService.js');
       if (!Array.isArray(ctx.rader) || !f.mmsi || !f.bro) return nej('saknar rader, mmsi eller bro');
       if (p.läge !== 'samma' && p.läge !== 'nästa') return nej(`okänt läge ${p.läge}`);
+      if (!platser.POINTS[f.bro]) return nej(`${f.bro} är ingen bro`);
       const s = ctx.sanning;
       if (!s || !Array.isArray(s.crossings)) return nej('saknar L0');
       const m = String(f.mmsi);
@@ -1740,25 +1878,73 @@ const PREDICATES = {
       const l0 = s.crossings.filter((x) => x.bridge === f.bro && Number.isFinite(x.t)).sort((a, b) => a.t - b.t);
       const kors = f.orakel === 'T2' ? { t: crossingTimeOf(f) } : l0.filter((x) => String(x.mmsi) === m && x.t <= w.t).pop();
       if (!kors || !Number.isFinite(kors.t)) return nej('ingen sann korsning av bron för båten');
-      const sista = rowsOf(ctx, m).filter((r) => r.aisTimestamp <= w.t).pop();
+      // Harnessens bearbetningstid (en tick vid samma tid går före raden) och
+      // kurs och fart som appen ser dem.
+      const tider = harnessTider(ctx);
+      const egna = rowsOf(ctx, m).filter((r) => Number.isFinite(r.lat));
+      const rader = medFramfördKursOchFart(egna).map((r, i) => ({ ...r, p: tider.get(egna[i]) ?? r.aisTimestamp }));
+      const föreW = rader.filter((r) => r.p < w.t);
+      const sista = föreW[föreW.length - 1];
       if (!sista) return nej('ingen rad för båten före varningen');
       if (!(sista.aisTimestamp < kors.t)) return nej(`båtens rad ${fmtT(sista.aisTimestamp)} kom efter korsningen ${fmtT(kors.t)}: hon var inte tyst över korsningen`);
-      const cov = (ctx.resultat && ctx.resultat.openingCoverage) || [];
-      const hosE = deliveredWarnings(ctx, f.bro).filter((e) => e.eventId !== w.eventId && e.t < kors.t
-        && cov.some((c) => c.reason === 'absorbed' && c.eventId === e.eventId && String(c.mmsi) === m && Number.isFinite(c.t) && c.t < w.t));
-      const e = hosE.pop();
-      if (!e) return nej(`båten absorberades inte i någon händelse vid ${f.bro} vars varning kom före hennes korsning ${fmtT(kors.t)}`);
-      const first = l0.find((x) => x.t >= e.t && konvoj.täcktAv(e, x.mmsi, cov, w.t).sant);
-      if (!first) return nej(`ingen sann korsning av en båt i ${e.eventId} efter dess varning`);
+      const res = ctx.resultat || {};
+      const cov = res.openingCoverage || [];
+      const ws = deliveredWarnings(ctx, f.bro);
+      const abs = cov.filter((c) => c.reason === 'absorbed' && String(c.mmsi) === m && c.eventId !== w.eventId && Number.isFinite(c.t)
+        && c.t < kors.t && c.t < w.t && ws.some((e) => e.eventId === c.eventId && e.t < kors.t)).sort((a, b) => a.t - b.t);
+      const a = abs[abs.length - 1];
+      if (!a) return nej(`båten absorberades inte före sin korsning ${fmtT(kors.t)} i någon händelse vid ${f.bro} vars varning kom före korsningen`);
+      const e = ws.find((x) => x.eventId === a.eventId);
+      const first = l0.find((x) => x.t >= e.t && konvoj.täcktAv(e, x.mmsi, cov, x.t).sant);
+      if (!first) return nej(`ingen sann korsning av en båt som ${e.eventId} täckte efter dess varning`);
+      // (4) Hållen vid täckningsslutet.
+      const dSista = platser.distanceToPoint(sista, f.bro);
+      if (dSista <= p.underBronM && Number.isFinite(sista.sog) && sista.sog >= p.minFartKn) {
+        return nej(`hennes sista rad före varningen ${fmtT(sista.aisTimestamp)} låg ${Math.round(dSista)} m från bron i ${sista.sog} kn: `
+          + 'under bron håller appen henne till nästa fix (dirigentens beslut 2026-11-05)');
+      }
+      if (kursBort(sista, f.bro, p)) {
+        return nej(`hennes sista rad före varningen ${fmtT(sista.aisTimestamp)} har kursen ${sista.cog}° bort från bron: appen håller henne till nästa fix`);
+      }
+      // (3) Bakkanten.
+      // Appen får veta om passagen först när den bearbetar ett fix bortom
+      // bron av en båt som E täcker: den bokförda passagen, eller tidigare
+      // båtens första rad efter hennes sanna korsning.
+      const bokförda = [...(res.targetPassages || []), ...(res.intermediatePassages || [])]
+        .filter((x) => x.bridge === f.bro && Number.isFinite(x.t) && x.t >= e.t && konvoj.täcktAv(e, x.mmsi, cov, x.t).sant)
+        .map((x) => ({ t: x.t, hur: `bokföringen ${fmtT(x.t)} (${x.mmsi})` }));
+      for (const x of l0.filter((k) => k.t >= e.t)) {
+        const efter = rowsOf(ctx, x.mmsi).find((r) => r.aisTimestamp > x.t && Number.isFinite(r.lat));
+        const t = efter ? (tider.get(efter) ?? efter.aisTimestamp) : null;
+        if (Number.isFinite(t) && konvoj.täcktAv(e, x.mmsi, cov, t).sant) bokförda.push({ t, hur: `${x.mmsi}:s första rad bortom bron ${fmtT(t)}` });
+      }
+      bokförda.sort((x, y) => x.t - y.t);
+      const bok = bokförda.length ? bokförda[0].t : Infinity;
+      const förstaT = Math.min(first.t, ...pointCrossings(ctx, f.bro).filter((x) => String(x.mmsi) === String(first.mmsi)
+        && Math.abs(x.t - first.t) <= p.fönsterMs).map((x) => x.t));
+      const slut = Math.min(bok + p.fönsterMs, Math.max(e.t, förstaT) + p.fönsterMs, w.t - p.tickMs);
+      const bokTxt = `att appen kunde veta om ${e.eventId}:s första passage (${bokförda.length ? bokförda[0].hur : '—'})`;
+      for (const r of föreW.filter((x) => x.p > bok)) {
+        if (kursBort(r, f.bro, p)) continue;
+        if (r.p >= slut) {
+          return nej(`hennes rad ${fmtT(r.aisTimestamp)} kom efter ${bokTxt} och efter fönstrets tidigaste slut ${fmtT(slut)}: `
+            + 'bakkanten kunde släppa henne, hon var inte tyst');
+        }
+        const restMs = (platser.distanceToPoint(r, f.bro) / (Math.max(Number.isFinite(r.sog) ? r.sog : 0, p.minFartKn) * KN_TILL_MS)) * 1000;
+        const kvarMs = slut - fixtid(r);
+        if (restMs > p.maxRestandel * kvarMs) {
+          return nej(`hennes rad ${fmtT(r.aisTimestamp)} efter ${bokTxt}: restiden ${Math.round(restMs / 1000)} s (${r.sog} kn) är mer än `
+            + `${p.maxRestandel} × de ${Math.round(kvarMs / 1000)} s kvar till fönstrets tidigaste slut ${fmtT(slut)}; bakkanten kan ha släppt henne`);
+        }
+      }
       const efterS = Math.round((kors.t - first.t) / 1000);
       const inom = kors.t - first.t <= p.fönsterMs;
-      const beskr = `tyst sedan ${fmtT(sista.aisTimestamp)}, korsade ${fmtT(kors.t)}, ${efterS} s efter ${e.eventId}:s första sanna korsning `
-        + `${fmtT(first.t)} (${first.mmsi}); egen varning ${w.eventId} ${fmtT(w.t)} på tick`;
+      const beskr = `tyst sedan ${fmtT(sista.aisTimestamp)} (${Math.round(dSista)} m), absorberad i ${e.eventId} ${fmtT(a.t)}, korsade ${fmtT(kors.t)}, `
+        + `${efterS} s efter ${e.eventId}:s första sanna korsning ${fmtT(first.t)} (${first.mmsi}); egen varning ${w.eventId} ${fmtT(w.t)} på tick`;
       if (p.läge === 'samma') return inom ? ok(`U17: ${beskr}, inom ${p.fönsterMs / 1000} s`) : nej(`${beskr}: utanför ${p.fönsterMs / 1000} s (nästa öppning)`);
       return inom ? nej(`${beskr}: inom ${p.fönsterMs / 1000} s (samma öppning, U17)`) : ok(`nästa öppning: ${beskr}, mer än ${p.fönsterMs / 1000} s`);
     },
   },
-
   // R2:s fråga 2 (dirigentens JA 2026-11-04, BUGGJAKT §7): en båt som får
   // sin målbro först vid eller just efter bron (värld 1227 och 1731) bokför
   // bron som mellanbro, och det är korrekt. Appen ger inget mål utan
@@ -1767,7 +1953,12 @@ const PREDICATES = {
   // Livet räknas från det senaste glappet på minst livGlappMin
   // (STALE_AIS_TIMEOUT_MS: raderingen gravlägger inte), annars från första
   // raden. F är första raden i livets sista följd av rader bortom bron
-  // (latitud, i passagens riktning). Sant när registreringen kom högst
+  // (latitud, i passagens riktning). F ska ligga vid eller just efter bron:
+  // högst maxBortomM från bropunkten, appens under-bron-band
+  // (UNDER_BRIDGE_CLEAR_DISTANCE, 70 m: där släpper appen statusen "under
+  // bron", så båten är fortfarande vid bron; skärpt 2026-11-07 efter
+  // granskningen av registret, förut fick F ligga hur långt bortom som
+  // helst). Sant när registreringen kom högst
   // maxEfterMin efter F och antingen (a) F är livets första rad, eller (b)
   // alla rader i livet före F har finit fart under rörelseSogKn, ligger inom
   // rörelseNettoM från livets första rad och har ingen kurs mot bron. Aldrig
@@ -1778,6 +1969,7 @@ const PREDICATES = {
       rörelseNettoM: C.MOORING_DETECTION.MOVEMENT_PROOF_NET_M,
       livGlappMin: 30,
       maxEfterMin: 10,
+      maxBortomM: C.UNDER_BRIDGE_CLEAR_DISTANCE,
       nordFrån: C.COG_DIRECTIONS.NORTH_MIN,
       nordTill: C.COG_DIRECTIONS.NORTH_MAX,
       sydFrån: 135,
@@ -1800,6 +1992,10 @@ const PREDICATES = {
       while (k > 0 && bortom(liv[k - 1])) k--;
       const F = liv[k];
       const före = liv.slice(0, k);
+      const dF = platser.distanceToPoint(F, f.bro);
+      if (!(dF <= p.maxBortomM)) {
+        return nej(`första raden bortom bron ${fmtT(F.aisTimestamp)} ligger ${Math.round(dF)} m från ${f.bro}, mer än ${p.maxBortomM} m: inte vid eller just efter bron`);
+      }
       if (f.t - F.aisTimestamp > p.maxEfterMin * MIN) {
         return nej(`registreringen ${fmtT(f.t)} kom mer än ${p.maxEfterMin} min efter första raden bortom bron ${fmtT(F.aisTimestamp)}`);
       }
@@ -1827,10 +2023,13 @@ const PREDICATES = {
   // långsamma vägen (VesselDataService.js#_slowReCrossEvidence) inte heller
   // håller: inte alla av a omvänd i korsningens band med minst fixDMinSogKn,
   // b minst transitKn, segmentet minst minSegmentM och nettofarten minst
-  // fixDMinSogKn.
+  // fixDMinSogKn. RE_CROSS-vägen ska ha gällt (reCrossVägen, skärpt
+  // 2026-11-07): en tidigare korsning av bron i motsatt riktning, och ingen
+  // Fix D-bekräftelse senast vid a.
   returUtanRörelsebevis: {
     parametrar: {
       fixDMinSogKn: FIX_D_MIN_SOG,
+      maxÅlderMin: C.FIX_D_PENDING_MAX_AGE_MS / MIN,
       transitKn: C.QUAY_DEPARTURE_GATE.TRANSIT_SOG_KN,
       minSegmentM: 100,
       vändningFöreMin: 30,
@@ -1860,7 +2059,10 @@ const PREDICATES = {
       const långsam = Number.isFinite(a.sog) && a.sog >= p.fixDMinSogKn && band(a.cog) === k.riktning
         && Number.isFinite(b.sog) && b.sog >= p.transitKn && segM >= p.minSegmentM && netKn >= p.fixDMinSogKn;
       if (långsam) return nej(`${segment} uppfyller den långsamma vägens fyra villkor`);
-      return ok(`returkorsning ${fmtT(k.t)} efter vändningen ${fmtT(u.t)} utan rörelsebevis: korsningsfixet ${b.sog} kn, ${segment}, startfixet ${a.sog} kn ${a.cog}°`);
+      const väg = reCrossVägen(ctx, k, u, a, f.bro, p);
+      if (väg.fel) return nej(väg.fel);
+      return ok(`returkorsning ${fmtT(k.t)} efter utresan ${fmtT(väg.ut.t)} och vändningen ${fmtT(u.t)} utan rörelsebevis och utan Fix D-bekräftelse före a: `
+        + `korsningsfixet ${b.sog} kn, ${segment}, startfixet ${a.sog} kn ${a.cog}°`);
     },
   },
 
@@ -1869,9 +2071,18 @@ const PREDICATES = {
   // låset. Sant när korsningen ligger högst vändningFöreMin efter en
   // L0-vändning och mellan samma två på varandra följande rader a och b
   // korsar båten (L0) en annan bro i samma riktning, som appen bokförde
-  // inom toleransMs från b:s bearbetning.
+  // inom toleransMs från b:s bearbetning, och RE_CROSS-vägen gällde
+  // (reCrossVägen, skärpt 2026-11-07).
   andraBronISammaSegment: {
-    parametrar: { vändningFöreMin: 30, toleransMs: 1000 },
+    parametrar: {
+      vändningFöreMin: 30,
+      toleransMs: 1000,
+      fixDMinSogKn: FIX_D_MIN_SOG,
+      maxÅlderMin: C.FIX_D_PENDING_MAX_AGE_MS / MIN,
+      nordFrån: C.COG_DIRECTIONS.NORTH_MIN,
+      nordTill: C.COG_DIRECTIONS.NORTH_MAX,
+      sydFrån: 135,
+    },
     fn(f, ctx, p) {
       if (!Array.isArray(ctx.rader) || !f.bro) return nej('saknar rader eller bro');
       const k = fyndetsKorsning(f);
@@ -1890,29 +2101,60 @@ const PREDICATES = {
       const andra = ((ctx.sanning && ctx.sanning.crossings) || []).find((x) => String(x.mmsi) === k.mmsi && x.bridge !== f.bro
         && RIKTNINGSORD[x.dir] === k.riktning && x.t > a.aisTimestamp && x.t < b.aisTimestamp && bokförd.some((y) => y.bridge === x.bridge));
       if (!andra) return nej(`ingen annan återkorsad bro i segmentet ${fmtT(a.aisTimestamp)}–${fmtT(b.aisTimestamp)} som appen bokförde vid ${fmtT(tid)}`);
-      return ok(`segmentet ${fmtT(a.aisTimestamp)}–${fmtT(b.aisTimestamp)} korsar både ${andra.bridge} (bokförd ${fmtT(tid)}) och ${f.bro} ${k.riktning}ut efter vändningen ${fmtT(u.t)}`);
+      const väg = reCrossVägen(ctx, k, u, a, f.bro, p);
+      if (väg.fel) return nej(väg.fel);
+      return ok(`efter utresan ${fmtT(väg.ut.t)}: segmentet ${fmtT(a.aisTimestamp)}–${fmtT(b.aisTimestamp)} korsar både ${andra.bridge} `
+        + `(bokförd ${fmtT(tid)}) och ${f.bro} ${k.riktning}ut efter vändningen ${fmtT(u.t)}`);
     },
   },
 
   // U1/C11 (docs/etapp7-plan-2026-08-08.md:8 och C11/C11b): en båt som slutar
-  // sända tas bort ur brotexten (STALE_DISPLAY_DROP, trappan 10/15/20/25 min
-  // i VesselDataService.js). Familj M:s F05/r2 och klustrets B- och C-världar:
-  // "Inga båtar" när den sista bäraren släpps, och texten kommer tillbaka när
-  // samma eller en annan båt hörs. Predikatet: texten närmast före episoden
-  // har för bron exakt klausulen "En båt på väg mot X, ETA okänd" (ETA:n är
-  // nollad av STALE_ETA_HARD, alltså är bärarens position äldre än 10 min),
-  // och en båt vars senaste rad bearbetades p (harnessens klocka) passerar ett
-  // steg L i trappan vid episodens start: t0 − p − L ligger i (0; tickS +
+  // sända tas bort ur brotexten (STALE_DISPLAY_DROP, trappan i
+  // VesselDataService.js#getVesselsForBridgeText). Familj M:s F05/r2 och
+  // klustrets B- och C-världar: "Inga båtar" när den sista bäraren släpps,
+  // och texten kommer tillbaka när samma eller en annan båt hörs.
+  // Predikatet: texten närmast före episoden har för bron exakt klausulen
+  // "En båt på väg mot X, ETA okänd" (ETA:n är nollad av STALE_ETA_HARD), och
+  // BÄRAREN släpps vid sitt eget trappsteg när episoden börjar. Bäraren är en
+  // båt vars senaste bearbetade rad före episoden har kursen mot X och X som
+  // närmaste målbro framför sig (då har hon målbron X). Hennes steg L följer
+  // trappan för en båt med målbro, ur samma rad (framförd fart):
+  //  - köMin (25 min) när farten är under stillaKn, eller okänd eller under
+  //    köKn inom köM från närmaste bro som appen inte har bokfört som
+  //    passerad för henne (skipPassed; bokförd passage senast vid raden);
+  //  - annars passageMin (20 min) när en sådan bro, eller X, ligger inom
+  //    passageM och framför henne (eller inom underBronM);
+  //  - annars målbroMin (15 min).
+  // Steget ska passeras vid episodens start: t0 − p − L ligger i (0; tickS +
   // tickFördröjningMs], eftersom texten genereras senast vid nästa
-  // halvminutstick. Kan inte dölja M:s flapp, där båten sänder var 30:e s och
+  // halvminutstick (p är radens bearbetning i harnessen). Skärpt 2026-11-07
+  // efter granskningen av registret: förut godtogs trappsteget 10 min och
+  // vilken båts steg som helst, och då kunde posten dölja en regression av
+  // 15-minutersregeln (standardvärld 182 med bäraren tyst i 610 s) eller ta
+  // en annan båts steg av en slump (granskarens basfrekvens: 8,6 % av alla
+  // halvminuter). Kan inte dölja M:s flapp, där båten sänder var 30:e s och
   // hennes klausul bär en ETA.
   tystBärareFörfallen: {
     parametrar: {
-      trappaMin: [C.UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS / MIN, 15, 20, 25], tickS: 30, tickFördröjningMs: 40,
+      målbroMin: 15,
+      passageMin: 20,
+      köMin: 25,
+      stillaKn: 1.5,
+      köKn: 3,
+      köM: 600,
+      passageM: 300,
+      underBronM: C.UNDER_BRIDGE_CLEAR_DISTANCE,
+      nordFrån: C.COG_DIRECTIONS.NORTH_MIN,
+      nordTill: C.COG_DIRECTIONS.NORTH_MAX,
+      sydFrån: 135,
+      tickS: 30,
+      tickFördröjningMs: 40,
     },
     fn(f, ctx, p) {
       if (låstBank(f)) return nej(LÅST_BANK);
       if (!Array.isArray(ctx.rader) || !f.bro || !Number.isFinite(f.t)) return nej('saknar rader, bro eller tid');
+      const X = platser.POINTS[f.bro];
+      if (!X || !platser.TARGET_BRIDGES.includes(f.bro)) return nej(`${f.bro} är ingen målbro`);
       const ep = defaultEpisod(f, ctx);
       if (!ep) return nej('hittar ingen DEFAULT-episod vid fyndets tid');
       const klausul = klausulFör(ep.före.text, f.bro);
@@ -1922,17 +2164,53 @@ const PREDICATES = {
       const tider = harnessTider(ctx);
       const t0 = ep.start.t;
       const marginalMs = p.tickS * 1000 + p.tickFördröjningMs;
+      const band = fixDBand(p);
+      const broar = Object.values(C.BRIDGES).map((b) => b.name).filter((n) => platser.POINTS[n]);
+      const res = ctx.resultat || {};
+      const bokförda = [...(res.targetPassages || []), ...(res.intermediatePassages || [])].filter((x) => Number.isFinite(x.t));
+      const andraSteg = [];
       for (const [mmsi, list] of perFartyg(ctx)) {
-        const sista = list.filter((r) => (tider.get(r) ?? r.aisTimestamp) <= t0).pop();
-        if (!sista) continue;
-        const ålderMs = t0 - (tider.get(sista) ?? sista.aisTimestamp);
-        const steg = p.trappaMin.find((L) => ålderMs - L * MIN > 0 && ålderMs - L * MIN <= marginalMs);
-        if (steg !== undefined) {
-          return ok(`U1/C11: ${mmsi} tyst sedan ${fmtT(sista.aisTimestamp)} (${Math.round(ålderMs / 1000)} s) släpps vid trappans ${steg} min-steg `
-            + `när episoden börjar ${fmtT(t0)}; texten före bar "${klausul}"`);
+        const egna = list.filter((r) => Number.isFinite(r.lat));
+        const bur = medFramfördKursOchFart(egna);
+        let i = -1;
+        for (let k = 0; k < egna.length; k++) if ((tider.get(egna[k]) ?? egna[k].aisTimestamp) <= t0) i = k;
+        if (i < 0) continue;
+        const sista = bur[i];
+        const ålderMs = t0 - (tider.get(egna[i]) ?? egna[i].aisTimestamp);
+        // Bäraren: kursen mot X och X närmaste målbro framför henne.
+        const dir = band(sista.cog);
+        const framför = (b) => (dir === 'söder' ? platser.POINTS[b].lat < sista.lat : platser.POINTS[b].lat > sista.lat);
+        const mål = dir ? platser.TARGET_BRIDGES.filter(framför)
+          .sort((a, b) => platser.distanceToPoint(sista, a) - platser.distanceToPoint(sista, b))[0] : null;
+        // Trappsteget för en båt med målbro.
+        const pSista = tider.get(egna[i]) ?? egna[i].aisTimestamp;
+        const korsade = new Set(bokförda.filter((x) => String(x.mmsi) === mmsi && x.t <= pSista).map((x) => x.bridge));
+        const opasserade = broar.filter((b) => !korsade.has(b)).map((b) => ({ b, d: platser.distanceToPoint(sista, b) })).sort((a, b) => a.d - b.d);
+        const närmast = opasserade[0] || null;
+        const sog = Number.isFinite(sista.sog) ? sista.sog : null;
+        let L = p.målbroMin;
+        if (sog !== null && sog < p.stillaKn) L = p.köMin;
+        else if ((sog === null || sog < p.köKn) && närmast && närmast.d <= p.köM) L = p.köMin;
+        else {
+          const dX = platser.distanceToPoint(sista, f.bro);
+          const q = närmast && närmast.d < dX ? närmast : { b: f.bro, d: dX };
+          const qFramför = !dir || framför(q.b);
+          if (q.d <= p.passageM && (q.d <= p.underBronM || qFramför)) L = p.passageMin;
         }
+        const passerar = ålderMs - L * MIN > 0 && ålderMs - L * MIN <= marginalMs;
+        if (mål !== f.bro) {
+          const steg = [10, p.målbroMin, p.passageMin, p.köMin].find((s) => ålderMs - s * MIN > 0 && ålderMs - s * MIN <= marginalMs);
+          if (steg !== undefined) andraSteg.push(`${mmsi} (${steg} min, inte på väg mot ${f.bro})`);
+          continue;
+        }
+        if (passerar) {
+          return ok(`U1/C11: bäraren ${mmsi} (på väg mot ${f.bro}, ${sog === null ? 'okänd fart' : `${sog} kn`}, ${Math.round(platser.distanceToPoint(sista, f.bro))} m) `
+            + `tyst sedan ${fmtT(sista.aisTimestamp)} (${Math.round(ålderMs / 1000)} s) släpps vid sitt trappsteg ${L} min när episoden börjar ${fmtT(t0)}; `
+            + `texten före bar "${klausul}"`);
+        }
+        andraSteg.push(`bäraren ${mmsi} är tyst i ${Math.round(ålderMs / 1000)} s, inte vid sitt steg ${L} min`);
       }
-      return nej(`ingen båt passerar ett steg i trappan (${p.trappaMin.join('/')} min) inom ${p.tickS} s före ${fmtT(t0)}`);
+      return nej(`ingen bärare på väg mot ${f.bro} passerar sitt trappsteg inom ${p.tickS} s före ${fmtT(t0)}${andraSteg.length ? ` (${andraSteg.join('; ')})` : ''}`);
     },
   },
 
@@ -1940,16 +2218,35 @@ const PREDICATES = {
   // Target-livscykeln, beslutade 2026-11-05 utan hysteres): brusbandet kring
   // rörelsebevisets trösklar. Båten V bär texten före och efter episoden:
   // episoden börjar när harnessen bearbetar en rad från V och slutar när den
-  // bearbetar V:s nästa rad (högst fördröjningMs senare, textens
-  // mikrograce), och glappet mellan raderna är högst 2 × hennes
-  // mediankadens. Sant när dessutom minst ett av följande gäller för hennes
-  // rader de föreMin minuterna före episoden: (i) median-sog inom ±bandKn
-  // från en tröskel i tröskelKn; (ii) nettonärmandet mot bron per fönsterMs
-  // ligger mellan närmandeM / 2 och 1,5 × närmandeM; (iii) ingen rad har sog
-  // och positionsspridningen är över brusM.
+  // bearbetar en senare rad från V (högst fördröjningMs senare, textens
+  // mikrograce), och V sänder hela episoden (inget glapp över 2 × hennes
+  // mediankadens). Sant när dessutom något av följande gäller:
+  //  (i) farten brusar kring en tröskel i den zon där tröskeln gäller och på
+  //      det sätt som M:s rättning dömer den (skärpt 2026-11-07 efter
+  //      granskningen av registret: förut räckte en median i bandet, och då
+  //      träffade posten stillaliggande båtar långt från alla trösklar och
+  //      dolde en regression av fartprovet för krypare i 0,4 och 0,6–0,8 kn):
+  //      - fartgrinden (VesselDataService.js#_targetSpeedGate): 0,7 kn mer än
+  //        500 m och 0,1 kn 300–500 m från närmaste bro i registret, alla
+  //        broar medräknade (K32(c)). Fartprovet dömer över TID: alla hennes
+  //        rader de fönsterMs före episoden ligger under tröskeln, alla rader
+  //        de fönsterMs före episodens slut över den, och episoden är längre
+  //        än fönsterMs;
+  //      - ANCHOR_BLOCK (FIX B): 0,3 kn för en båt med en bokförd passage före
+  //        episoden. Borttagningen dömer över fristen, tilldelningen per fix:
+  //        alla rader de fönsterMs före episoden och fram till slutet ligger
+  //        under tröskeln, och raden som avslutar episoden över den;
+  //      i båda fallen ligger median-sog de föreMin minuterna före episoden
+  //      inom ±bandKn från tröskeln och raderna på båda sidor om den;
+  //  (ii) episoden är en kadens lång (slutar vid hennes nästa rad) och
+  //      nettonärmandet mot bron per fönsterMs ligger mellan närmandeM / 2 och
+  //      1,5 × närmandeM;
+  //  (iii) episoden är en kadens lång, ingen rad har sog och
+  //      positionsspridningen är över brusM.
   krypbandVidTröskel: {
     parametrar: {
-      tröskelKn: [0.1, 0.3, 0.7],
+      fartgrind: [{ kn: 0.7, frånM: 500, tillM: null }, { kn: 0.1, frånM: 300, tillM: 500 }],
+      ankarKn: 0.3,
       bandKn: 0.1,
       närmandeM: C.MIN_APPROACH_DISTANCE,
       fönsterMs: TARGET_REMOVAL_GRACE_PERIOD,
@@ -1964,22 +2261,65 @@ const PREDICATES = {
       const ep = defaultEpisod(f, ctx);
       if (!ep) return nej('hittar ingen DEFAULT-episod vid fyndets tid');
       const tider = harnessTider(ctx);
-      const tidFör = (r) => tider.get(r) ?? r.aisTimestamp;
-      const vid = (t) => (r) => t - tidFör(r) >= 0 && t - tidFör(r) <= p.fördröjningMs;
-      for (const [mmsi, list] of perFartyg(ctx)) {
-        const i0 = list.findIndex(vid(ep.start.t));
-        if (i0 < 0 || i0 + 1 >= list.length || !vid(ep.efter.t)(list[i0 + 1])) continue;
+      const vid = (t, r) => t - r.p >= 0 && t - r.p <= p.fördröjningMs;
+      const res = ctx.resultat || {};
+      const broar = Object.values(C.BRIDGES).map((b) => b.name).filter((n) => platser.POINTS[n]);
+      for (const [mmsi, alla] of perFartyg(ctx)) {
+        const egna = alla.filter((r) => Number.isFinite(r.lat));
+        const list = medFramfördKursOchFart(egna).map((r, k) => ({ ...r, p: tider.get(egna[k]) ?? r.aisTimestamp }));
+        const i0 = list.findIndex((r) => vid(ep.start.t, r));
+        const j = i0 < 0 ? -1 : list.findIndex((r, k) => k > i0 && vid(ep.efter.t, r));
+        if (i0 < 0 || j < 0) continue;
         const före = list.filter((r) => r.aisTimestamp <= list[i0].aisTimestamp && r.aisTimestamp >= list[i0].aisTimestamp - p.föreMin * MIN);
         if (före.length < 3) return nej(`${mmsi} har för få rader före episoden (${före.length})`);
-        const steg = före.slice(1).map((r, i) => r.aisTimestamp - före[i].aisTimestamp).sort((a, b) => a - b);
+        const steg = före.slice(1).map((r, k) => r.aisTimestamp - före[k].aisTimestamp).sort((a, b) => a - b);
         const kadens = steg[Math.floor(steg.length / 2)];
-        if (list[i0 + 1].aisTimestamp - list[i0].aisTimestamp > 2 * kadens) return nej(`${mmsi}: glappet över episoden är större än 2 × kadensen ${Math.round(kadens / 1000)} s`);
+        const glapp = list.slice(i0 + 1, j + 1).find((r, k) => r.aisTimestamp - list[i0 + k].aisTimestamp > 2 * kadens);
+        if (glapp) return nej(`${mmsi}: glappet före ${fmtT(glapp.aisTimestamp)} i episoden är större än 2 × kadensen ${Math.round(kadens / 1000)} s`);
         const sogs = före.map((r) => r.sog).filter(Number.isFinite).sort((a, b) => a - b);
-        if (sogs.length) {
-          const med = sogs[Math.floor(sogs.length / 2)];
-          const tr = p.tröskelKn.find((x) => Math.abs(med - x) <= p.bandKn + 1e-9);
-          if (tr !== undefined) return ok(`(i) ${mmsi} bär texten före och efter episoden; median-sog ${med} kn ligger inom ±${p.bandKn} kn från tröskeln ${tr} kn`);
+        const med = sogs.length ? sogs[Math.floor(sogs.length / 2)] : null;
+        const iBand = (tr) => med !== null && Math.abs(med - tr) <= p.bandKn + 1e-9 && sogs.some((x) => x < tr) && sogs.some((x) => x > tr);
+        const allaUnder = (t0, t1, tr) => {
+          const rs = list.filter((r) => r.p >= t0 && r.p <= t1);
+          return rs.length >= 2 && rs.every((r) => Number.isFinite(r.sog) && r.sog < tr);
+        };
+        const allaÖver = (t0, t1, tr) => {
+          const rs = list.filter((r) => r.p >= t0 && r.p <= t1);
+          return rs.length >= 2 && rs.every((r) => Number.isFinite(r.sog) && r.sog > tr);
+        };
+        const start = list[i0];
+        const slut = list[j];
+        const dNärmast = Math.min(...broar.map((b) => platser.distanceToPoint(start, b)));
+        const skäl = [];
+        for (const g of p.fartgrind) {
+          const iZon = dNärmast > g.frånM && (g.tillM === null || dNärmast <= g.tillM);
+          if (!iZon) {
+            skäl.push(`${g.kn} kn gäller inte ${Math.round(dNärmast)} m från närmaste bro`);
+            continue;
+          }
+          if (!iBand(g.kn)) {
+            skäl.push(`median-sog ${med} kn ligger inte i bandet kring ${g.kn} kn med rader på båda sidor`);
+            continue;
+          }
+          if (!(slut.p - start.p > p.fönsterMs) || !allaUnder(start.p - p.fönsterMs, start.p, g.kn) || !allaÖver(slut.p - p.fönsterMs, slut.p, g.kn)) {
+            skäl.push(`fartprovet vid ${g.kn} kn håller inte över fristen (under före episoden, över före slutet, episoden längre än ${p.fönsterMs / 1000} s)`);
+            continue;
+          }
+          return ok(`(i) ${mmsi} bär texten före och efter episoden; fartgrinden ${g.kn} kn ${Math.round(dNärmast)} m från närmaste bro, median-sog ${med} kn, `
+            + `under grinden ${p.fönsterMs / 1000} s före ${fmtT(start.aisTimestamp)} och över den ${p.fönsterMs / 1000} s före ${fmtT(slut.aisTimestamp)}`);
+        }
+        const passerad = [...(res.targetPassages || []), ...(res.intermediatePassages || [])]
+          .some((x) => String(x.mmsi) === mmsi && Number.isFinite(x.t) && x.t <= start.p);
+        if (!passerad) skäl.push(`ANCHOR_BLOCK (${p.ankarKn} kn) gäller inte utan bokförd passage`);
+        else if (!iBand(p.ankarKn)) skäl.push(`median-sog ${med} kn ligger inte i bandet kring ${p.ankarKn} kn med rader på båda sidor`);
+        else if (!allaUnder(start.p - p.fönsterMs, slut.p - 1, p.ankarKn) || !(Number.isFinite(slut.sog) && slut.sog >= p.ankarKn)) {
+          skäl.push(`ANCHOR_BLOCK vid ${p.ankarKn} kn: inte under tröskeln från ${p.fönsterMs / 1000} s före episoden till slutet, eller slutraden under den`);
         } else {
+          return ok(`(i) ${mmsi} bär texten före och efter episoden; ANCHOR_BLOCK ${p.ankarKn} kn efter en bokförd passage, median-sog ${med} kn, `
+            + `under tröskeln från ${p.fönsterMs / 1000} s före ${fmtT(start.aisTimestamp)} och ${slut.sog} kn vid ${fmtT(slut.aisTimestamp)}`);
+        }
+        if (j !== i0 + 1) return nej(`${mmsi} bär texten men (i) håller inte (${skäl.join('; ')}), och episoden är längre än en kadens`);
+        if (!sogs.length) {
           const lat = före.reduce((s, r) => s + r.lat, 0) / före.length;
           const lon = före.reduce((s, r) => s + r.lon, 0) / före.length;
           const sprid = Math.max(...före.map((r) => platser.distanceM(r.lat, r.lon, lat, lon)));
@@ -1991,9 +2331,9 @@ const PREDICATES = {
         if (perFönster >= p.närmandeM / 2 && perFönster <= 1.5 * p.närmandeM) {
           return ok(`(ii) ${mmsi} bär texten före och efter episoden; nettonärmandet ${perFönster.toFixed(1)} m per ${p.fönsterMs / 1000} s ligger i brusbandet kring ${p.närmandeM} m`);
         }
-        return nej(`${mmsi} bär texten men ligger inte i brusbandet (median-sog ${sogs.length ? sogs[Math.floor(sogs.length / 2)] : '—'} kn, närmande ${perFönster.toFixed(1)} m per fönster)`);
+        return nej(`${mmsi} bär texten men ligger inte i brusbandet (${skäl.join('; ')}; närmande ${perFönster.toFixed(1)} m per fönster)`);
       }
-      return nej('ingen båt bär texten före och efter episoden (episoden börjar och slutar inte vid samma båts två på varandra följande rader)');
+      return nej('ingen båt bär texten före och efter episoden (episoden börjar och slutar inte vid två rader från samma båt)');
     },
   },
 };
