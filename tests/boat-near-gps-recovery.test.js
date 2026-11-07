@@ -148,7 +148,10 @@ describe('Hela resan: GPS-hopp in i notiszonen', () => {
           t: Date.parse('2026-07-13T13:06:20.330Z'), direction: 'southbound', success: true, alreadyPassed: true,
         }),
       ]);
-    expect(result.notificationCount).toBe(85);
+    // U14 (2026-11-04): 85 → 86. ELFKUNGENs returpassage söderut över
+    // Stallbackabron 13/7 (rådata 12:21:51, efter nordpassagen i 77 min glapp)
+    // får sin egen notis 12:26:57. Se korpusnoten för 20260712-25h.
+    expect(result.notificationCount).toBe(86);
     expect(result.processErrors).toBe(0);
     expect(result.runtimeDiagnostics.timersAfterShutdown).toBe(0);
   });

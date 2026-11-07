@@ -15,6 +15,11 @@
  * INV-2  Notiskvalitet: giltiga tokens; nya notiser för samma (mmsi,bro)
  *        kräver observerad områdesåterkomst mellan notiserna eller stöd
  *        i de äldre reglerna för journey-reset/riktningsbevisad retur.
+ *        U14: ett returpassagesläpp vars geometriska dom är 'bortre' (båten
+ *        lämnade bron på bortre sidan) fälls som FALSKT RETURSLÄPP, och ett
+ *        med domen 'för tidig' (båten låg inte entydigt på ankomstsidan vid
+ *        släppet eller inom 60 s efter, eller stannade inte där: nästa fix
+ *        och minst hälften av samplen inom 60 s) som FÖR TIDIGT RETURSLÄPP.
  * INV-3  ETA-sågtand: upp-hopp ≥6 min inom ≤120 s i operativa bandet, och
  *        oscillation X→Y→X′ inom 240 s.
  * INV-4  Count-degradering: generisk "är i närheten"-text inklämd mellan
@@ -190,6 +195,10 @@ function validateInvariants(result) {
   const notifications = result.notifications || [];
   const journeyResets = result.journeyResets || [];
   const visitReentries = Array.isArray(result.visitReentries) ? result.visitReentries : [];
+  // U14 (2026-11-04, granskningen): returpassagesläpp bokförs separat och bär
+  // replayRunnerns geometriska dom ur rådatan ('ankomst', 'bortre', 'okänd'
+  // och, sedan omgranskningen 2026-11-05, 'för tidig').
+  const visitReturnReleases = Array.isArray(result.visitReturnReleases) ? result.visitReturnReleases : [];
   const targetPassages = result.targetPassages || [];
   const intermediatePassages = result.intermediatePassages || [];
 
@@ -210,6 +219,26 @@ function validateInvariants(result) {
   // Ett observerat återbesök gäller bara det aktuella parets fartyg och bro.
   // Äldre journey-reset-/riktningsregler består för resultat och historiska
   // passage-fallbacks som saknar områdesbokföring.
+  // U14 (2026-11-04): ett returpassagesläpp prövas mot geometrin. Lämnar båten
+  // bron på BORTRE sidan efter släppet passerade hon aldrig tillbaka, och
+  // returnotisen var falsk. Ett sådant släpp legitimerar inte heller paret.
+  // Ett släpp som kommer innan båten entydigt ligger på ankomstsidan är en
+  // notis om en passage som ännu inte skett ("har precis passerat" medan hon
+  // väntar på bortre sidan); inte heller det legitimerar paret.
+  const legitimateRelease = (r) => r && r.verdict !== 'bortre' && r.verdict !== 'för tidig';
+  for (const r of visitReturnReleases) {
+    if (r && r.verdict === 'bortre') {
+      violations.push(
+        `FALSKT RETURSLÄPP: ${r.mmsi}:${r.bridge} ${new Date(r.t).toISOString()} — båten lämnade `
+        + 'bron på bortre sidan, ingen verklig passage tillbaka',
+      );
+    } else if (r && r.verdict === 'för tidig') {
+      violations.push(
+        `FÖR TIDIGT RETURSLÄPP: ${r.mmsi}:${r.bridge} ${new Date(r.t).toISOString()} — båten låg inte `
+        + 'entydigt på ankomstsidan vid släppet eller inom 60 s efter, eller stannade inte där',
+      );
+    }
+  }
   const byKey = new Map();
   for (const n of notifications) {
     if (!n.mmsi || !/^\d+$/.test(String(n.mmsi))) violations.push(`NOTIS ogiltig mmsi: ${JSON.stringify(n)}`);
@@ -236,6 +265,9 @@ function validateInvariants(result) {
       // kan legitimera ytterligare en notis i nästa par.
       const reentryBetween = visitReentries.some(
         (r) => r && String(r.mmsi) === mmsi && r.bridge === sorted[i].bridge
+          && Number.isFinite(r.t) && r.t > prevT && r.t <= curT,
+      ) || visitReturnReleases.some(
+        (r) => legitimateRelease(r) && String(r.mmsi) === mmsi && r.bridge === sorted[i].bridge
           && Number.isFinite(r.t) && r.t > prevT && r.t <= curT,
       );
       // Riktningsmedvetenhet (2026-07-02b): två notiser för samma nyckel i

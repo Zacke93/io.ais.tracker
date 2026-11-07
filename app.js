@@ -1285,6 +1285,127 @@ class AISBridgeApp extends Homey.App {
     if (visitsChanged) this._persistTriggerPointVisits();
   }
 
+  /**
+   * U14 (användarbeslut 2026-11-04, kort B01): en VERKLIG passage tillbaka över
+   * en bro får en egen notis, även inom samma besök. INV-5/7 (en notis per
+   * bokförd passage, även returpassagen) är kontraktet; besöksregeln
+   * 2026-09-07 justeras bara för just den passagen.
+   *
+   * Beviskraven ligger i TriggerPointVisitTracker.releaseReturnPassage. Appen
+   * prövar dem på två ställen:
+   *  - där notisbeslutet fattas (_triggerBoatNearFlowForBridge och failsafen),
+   *    med PASSAGE_TRIGGER_GRACE_MS som bokföringsgräns. Det är samma fönster
+   *    som S4:s passerade form, så notisen i samma tick säger "har precis
+   *    passerat" (eller failsafens "under AIS-tystnad") och aldrig "närmar sig";
+   *  - i slutet av varje fix (_confirmReturnPassages), utan bokföringsgräns,
+   *    för en retur som bokfördes medan båten ännu låg vid linjen eller innan
+   *    hon korsade den.
+   * U21 (dirigentens beslut 2026-11-05): notisen får komma högst
+   * STALE_ETA_HARD_THRESHOLD_MS (10 min) efter den uppskattade korsningen,
+   * som interpoleras på glappsegmentet. Annars skickas ingen returnotis.
+   *
+   * Släppet gör samma städning som en observerad återkomst i
+   * _observeTriggerPointVisits: dedupnyckeln och den persistenta posten för
+   * just den här båten och bron tas bort. Med `dryRun` prövas bara beviset:
+   * besöket, nycklarna och loggen lämnas orörda (failsafen, revision 4).
+   * @param {Object} vessel
+   * @param {string} pointName - brons namn
+   * @param {number} [maxBookingAgeMs] - hur färsk returens bokföring måste vara
+   * @param {{dryRun?: boolean}} [options]
+   * @returns {Object|null} beviset för besöket som avslutades (se releaseReturnPassage)
+   * @private
+   */
+  _releaseVisitOnReturnPassage(vessel, pointName, maxBookingAgeMs = PASSAGE_TRIGGER_GRACE_MS, { dryRun = false } = {}) {
+    if (!this._triggerPointVisits || !vessel
+        || this.vesselDataService?.hasGpsJumpHold?.(vessel.mmsi)) return null;
+    const released = this._triggerPointVisits.releaseReturnPassage(vessel, pointName, {
+      maxBookingAgeMs,
+      maxLatenessMs: UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS,
+      // Glesare kadens än så rymmer inte två fixar till i "precis
+      // passerat"-fönstret: då avgörs ett entydigt korsningssegment direkt.
+      sparseFixGapMs: BRIDGE_TEXT_CONSTANTS.PASSAGE_CLEAR_WINDOW_MS / 2,
+      dryRun,
+    });
+    // Revision 4: torrkörningen (failsafen) städar och loggar inget.
+    if (!released || dryRun) return released;
+    const key = `${vessel.mmsi}:${pointName}`;
+    this._triggeredBoatNearKeys?.delete(key);
+    if (this._persistentRecentTriggers?.delete(key)) this._persistRecentTriggers();
+    this._persistTriggerPointVisits();
+    this.log(
+      `↩️ [TRIGGER_POINT_VISIT_RETURN] ${vessel.mmsi}: ${pointName} passerad tillbaka `
+      + `(korsning ${Math.round(released.latenessMs / 1000)} s sedan i ett segment på `
+      + `${Math.round(released.crossingGapMs / 1000)} s, bokförd ${Math.round((Date.now() - released.bookedAt) / 1000)} s sedan, `
+      + `bevis ${released.evidence}, rutt ${vessel._routeDirection}) — besöket avslutat, returpassagen får egen notis`,
+    );
+    return released;
+  }
+
+  /**
+   * U14-revisionen 3 (omgranskningen 2026-11-05): returnotisens form ur
+   * släppets bevis. "passerade … under AIS-tystnad" (samma mening som
+   * failsafen och BN2 ger för en korsning mellan två rapporter) kräver två
+   * saker:
+   *  - korsningen låg i AIS-tystnad: korsningssegmentet är längre än två
+   *    AISHub-pollar (2 × AIS_CONFIG.AISHUB.POLL_INTERVAL_MS, 130 s), alltså
+   *    minst en uteblivna rapport även från det glesaste ordinarie flödet.
+   *    Appens vanliga kadens (Class B 30 s, AISHub 65 s) är ingen tystnad, och
+   *    en vanlig passage vid samma kadens får "har precis passerat" (S4);
+   *  - notisen kommer efter appens "precis passerat"-fönster
+   *    (PASSAGE_CLEAR_WINDOW_MS, 60 s) räknat från den interpolerade
+   *    korsningen.
+   * Annars är formen "har precis passerat". Omgranskningens u21-12 (12 min
+   * tystnad, notisen cirka 9 min efter korsningen) får alltså tystnadens
+   * mening, medan en retur vid AISHub-kadens behåller S4:s mening.
+   * @param {Object|null} released - releaseReturnPassage-beviset
+   * @returns {'live'|'silence'|null} null när inget släpp skett
+   * @private
+   */
+  _returnPassageForm(released) {
+    if (!released) return null;
+    const silence = released.crossingGapMs > 2 * AIS_CONFIG.AISHUB.POLL_INTERVAL_MS
+      && released.latenessMs > BRIDGE_TEXT_CONSTANTS.PASSAGE_CLEAR_WINDOW_MS;
+    return silence ? 'silence' : 'live';
+  }
+
+  /**
+   * U14-revisionen: en retur som appen bokförde medan båten ännu låg vid
+   * brolinjen, eller redan när en väntande båt nådde linjen, bevisas först när
+   * hon ligger tydligt på ankomstsidan, en eller flera fixar senare. Då kan
+   * S4:s 15 s-fönster ha gått ut, och ingen ordinarie väg erbjuder längre bron
+   * som kandidat. Kroken prövar därför fartygets öppna brobesök i slutet av
+   * varje fix. Bokföringens ålder spelar ingen roll här; tiden mäts mot den
+   * interpolerade korsningen (U21, högst 10 min).
+   *
+   * Formen följer beviset (_returnPassageForm): 'just-passed' ("har precis
+   * passerat") eller, för en korsning i AIS-tystnad med notisen efter
+   * "precis passerat"-fönstret, 'passage-fallback' ("passerade … under
+   * AIS-tystnad"), samma mening som failsafen ger i samma läge.
+   * @param {Object} vessel
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _confirmReturnPassages(vessel) {
+    if (!this._triggerPointVisits || !vessel || this._hasUntrustedNotificationPosition(vessel)) return;
+    const lifecycle = this._runtimeLifecycle;
+    for (const bridgeName of this._triggerPointVisits.openBridgeVisits(vessel.mmsi)) {
+      const bridgeId = BRIDGE_NAME_TO_ID[bridgeName];
+      if (!bridgeId) continue;
+      const released = this._releaseVisitOnReturnPassage(vessel, bridgeName, Infinity);
+      if (!released) continue;
+      const bridge = this.bridgeRegistry?.getBridgeByName?.(bridgeName);
+      const distance = bridge ? geometry.calculateDistance(vessel.lat, vessel.lon, bridge.lat, bridge.lon) : null;
+      // eslint-disable-next-line no-await-in-loop
+      await this._triggerBoatNearFlowForBridge(vessel, {
+        name: bridgeName,
+        id: bridgeId,
+        distance: Number.isFinite(distance) ? distance : 0,
+        source: this._returnPassageForm(released) === 'silence' ? 'passage-fallback' : 'just-passed',
+      });
+      if (!this._isCurrentRuntime(lifecycle)) return;
+    }
+  }
+
   /** Spara den tidsbaserade notisspärren vid mutation och avstängning. */
   _persistRecentTriggers() {
     try {
@@ -3276,6 +3397,11 @@ class AISBridgeApp extends Homey.App {
           this._logOpeningDedupConsumed(vessel.mmsi, backfillKeysCleared, 'backfillad passage');
         }
       }
+
+      // U14-revisionen: en retur som bokfördes nära brolinjen får sin notis när
+      // båten bevisligen är ute på ankomstsidan (se _confirmReturnPassages).
+      await this._confirmReturnPassages(vessel);
+      if (!this._isCurrentRuntime(lifecycle)) return;
 
       // STEG 3: UPPDATERA UI OM NÖDVÄNDIGT
       // Intelligent UI-uppdatering som bara sker vid betydelsefulla ändringar
@@ -9411,7 +9537,21 @@ class AISBridgeApp extends Homey.App {
     // Om bron triggat senaste 2h enligt persistent map — skippa fallback för att
     // undvika dubbel-notis.
     const persistentDedupeKey = `${vessel.mmsi}:${bridgeName}`;
-    const fallbackDedup = this._persistentDedupCheck(persistentDedupeKey, vessel, { retroactiveSource: true });
+    // U14: samma släppbevis som huvudvägen, prövat före besöksspärren i
+    // _persistentDedupCheck. Failsafen är returpassagens enda väg när första
+    // fixen efter korsningen ligger utanför notisradien. Revision 4
+    // (omgranskning 2): beviset prövas torrt här och besöket släpps först när
+    // failsafens egna spärrar nedan (TOO_FAR, STALE_POSITION, STALE,
+    // LOW_SOG_FAR) har passerats. Annars förbrukades släppet, besöksskyddet
+    // och den persistenta posten utan att någon notis gick ut. Ett godkänt
+    // bevis ersätter dedupkontrollen: det riktiga släppet tar bort just de
+    // poster den skulle ha blockerat på.
+    const returnProof = this._releaseVisitOnReturnPassage(
+      vessel, bridgeName, PASSAGE_TRIGGER_GRACE_MS, { dryRun: true },
+    );
+    const fallbackDedup = returnProof
+      ? { blocked: false, minutesSince: 0 }
+      : this._persistentDedupCheck(persistentDedupeKey, vessel, { retroactiveSource: true });
     if (fallbackDedup.blocked) {
       this.log(
         `🚫 [FALLBACK_TRIGGER_PERSISTENT_DEDUP] ${vessel.mmsi}: Skipping ${bridgeName} fallback ${
@@ -9588,6 +9728,16 @@ class AISBridgeApp extends Homey.App {
     // exit-vägen, som skickar 'exit-fallback' (se _triggerExitPointFallback).
     // Default-värdet bevarar samtliga befintliga vägar byte-identiskt.
     const notificationSource = options.source === 'exit-fallback' ? 'exit-fallback' : 'passage-fallback';
+    // U14, revision 4: spärrarna är passerade, nu släpps besöket på riktigt.
+    // Samma tick och samma bevis som torrkörningen ovan; skulle beviset ändå
+    // ha fallit bort (gränsfall på millisekunden) går ingen notis ut.
+    if (returnProof && !this._releaseVisitOnReturnPassage(vessel, bridgeName)) {
+      this.log(
+        `🚫 [FALLBACK_TRIGGER_PERSISTENT_DEDUP] ${vessel.mmsi}: Skipping ${bridgeName} fallback `
+        + '— return-passage proof lapsed, already notified for this visit',
+      );
+      return;
+    }
     this.log(
       notificationSource === 'exit-fallback'
         ? `⚠️ [FALLBACK_BOAT_NEAR] ${vessel.mmsi}: Outbound vessel lost at ${bridgeName} `
@@ -10145,6 +10295,9 @@ class AISBridgeApp extends Homey.App {
     // 14h-körningarna hade var sin). Dedup-nyckeln var alltid korrekt.
     const mmsiLabel = vessel.mmsi;
 
+    // U14: en nyss bokförd returpassage avslutar besöket före besöksspärren.
+    // Beviset styr notisens form längre ned (_returnPassageForm).
+    const releasedReturn = this._releaseVisitOnReturnPassage(vessel, bridgeName);
     if (this._triggerPointVisits?.holds(mmsiLabel, bridgeName)) {
       this.debug(`[TRIGGER_POINT_VISIT_DEDUP] ${mmsiLabel}: ${bridgeName} redan notifierad för detta besök`);
       return;
@@ -10437,7 +10590,15 @@ class AISBridgeApp extends Homey.App {
     // JUST PASSERATS men som fick etiketten 'current'/'target'/'nearest' av
     // kandidatordningen. Se _hasJustPassedNotifiedBridge för beviset och för
     // varför källsträngen inte får röras.
-    const justPassedBridge = this._hasJustPassedNotifiedBridge(vessel, candidate, source);
+    // U14: en returpassage som släpptes här är bevisad och har alltid
+    // passerad form, även när S4 inte ser den (M1/M2: bokföringen ligger bara i
+    // passedAt[bro]). Formen följer beviset (_returnPassageForm): korsningen i
+    // ett AIS-glapp och notisen efter "precis passerat"-fönstret ger
+    // "passerade … under AIS-tystnad", annars "har precis passerat".
+    const returnForm = this._returnPassageForm(releasedReturn);
+    const retroactiveSource = this._isRetroactiveNotificationSource(source);
+    const justPassedBridge = (returnForm === 'live' && !retroactiveSource)
+      || (returnForm === null && this._hasJustPassedNotifiedBridge(vessel, candidate, source));
     if (justPassedBridge) {
       this.debug(
         `↩️ [FLOW_TRIGGER_ALREADY_PASSED] ${mmsiLabel}: ${bridgeName} bokfördes som passerad `
@@ -10447,9 +10608,10 @@ class AISBridgeApp extends Homey.App {
     }
     // BN2: bron korsades i det observerade hoppet fram till den här positionen,
     // men är ännu inte bokförd när notisen byggs. Samma tre verkningar som S4.
-    const gapCrossedBridge = !this._isRetroactiveNotificationSource(source)
-      && !passedTriggerPoint && !justPassedBridge
-      && this._hasGapCrossedNotifiedBridge(vessel, candidate, source);
+    const gapCrossedBridge = (returnForm === 'silence' && !retroactiveSource)
+      || (returnForm === null && !retroactiveSource
+        && !passedTriggerPoint && !justPassedBridge
+        && this._hasGapCrossedNotifiedBridge(vessel, candidate, source));
     if (gapCrossedBridge) {
       this.debug(
         `↩️ [FLOW_TRIGGER_GAP_CROSSED] ${mmsiLabel}: ${bridgeName} ligger mellan föregående och aktuell fix `
@@ -10529,8 +10691,12 @@ class AISBridgeApp extends Homey.App {
     // `message`, inte av booleanen (som annars hade bytt betydelse för
     // befintliga flows).
     safeTokens.already_passed = passedBridgeSource;
+    // U14: en returpassage i AIS-tystnad får tystnadens mening även när
+    // källsträngen är 'just-passed'. Bara meningen byter källa; källsträngen
+    // bär dedupsemantiken och står orörd.
     safeTokens.message = this._buildBoatNearMessage(
-      safeTokens, source, passedTriggerPoint, justPassedBridge, waitingAtBridge, gapCrossedBridge,
+      safeTokens, returnForm === 'silence' ? 'passage-fallback' : source,
+      passedTriggerPoint, justPassedBridge, waitingAtBridge, gapCrossedBridge,
     );
 
     // ENHANCED DEBUG: Log final tokens and ETA status
@@ -10609,7 +10775,11 @@ class AISBridgeApp extends Homey.App {
       // RACE FIX: Sätt dedup-nyckel FÖRE async trigger för att förhindra
       // att parallella _onVesselUpdated-anrop slipper igenom.
       this._triggeredBoatNearKeys.add(dedupeKey);
-      ownVisitEntry = this._triggerPointVisits?.reserve(vessel, bridgeName) || null;
+      // U14: en notis i passerad form gäller en passage som redan skett; besöket
+      // behöver det för att veta vilken sida av bron som är den bortre.
+      ownVisitEntry = this._triggerPointVisits?.reserve(
+        vessel, bridgeName, { passageBehind: passedBridgeSource },
+      ) || null;
       if (ownVisitEntry) this._persistTriggerPointVisits();
       // Anomali 9 fix: lagra också i persistent map som inte clearas vid
       // vessel-removal — för 2h-dedup vid skipped-bridges-fallback.

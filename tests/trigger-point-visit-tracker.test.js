@@ -95,8 +95,11 @@ describe('Broar och Kanalinfarten: ett notifierat besök tills verklig utfärd o
       now += 8 * 60 * 60 * 1000;
       const restored = new TriggerPointVisitTracker({ now: () => now });
       expect(restored.loadSnapshot(tracker.exportSnapshot())).toBe(1);
+      // U14 (2026-11-04): första fixen entydigt på brons bortre sida är ett
+      // fasbyte som sparas (changed). Kanalinfarten saknar brolinje och har inget.
+      const isBridge = Object.values(BRIDGES).some((bridge) => bridge.name === name);
       expect(restored.observe(pointFix(point, -200, { _routeDirection: 'south', passedBridges: [name] }), name))
-        .toEqual({ changed: false, reentered: false });
+        .toEqual({ changed: isBridge, reentered: false });
       expect(restored.holds(MMSI, name)).toBe(true);
       now += 60000;
       expect(restored.observe(pointFix(point, 400), name)).toEqual({ changed: true, reentered: false });

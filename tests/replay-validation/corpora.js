@@ -1014,8 +1014,20 @@ module.exports = [
     hours: 25,
     locked: true,
     lockEvents: true,
-    expectedNotifications: 85,
-    note: 'LÅNG KÖ 2026-09-09: IDUNs rena avgång 07:16, 1256 m förflyttning över AIS-glappet '
+    expectedNotifications: 86,
+    note: 'Omlåst 2026-11-04 (U14, kort B01): 85→86. ELFKUNGEN/265573130 får en egen notis för returpassagen '
+      + 'söderut över Stallbackabron 13/7: "passerade Stallbackabron under AIS-tystnad" 12:26:57.910, 1265 m söder '
+      + 'om bron, eta −1, already_passed. Rådatafacit (gt-passages): nordpassagen 11:22:54 är inferred i 77 min '
+      + 'glapp (11:03:29→12:20:57), sydpassagen 12:21:51.259 är observerad (12:20:57 på 223 m norr, 12:26:57 på '
+      + '1270 m söder). Två verkliga passager, och förvarningen 11:02:29 gällde den första. Besöket stängdes '
+      + 'aldrig (fixen 12:20:57 på bortre sidan, ingen utfärd), så returen tystades förut. Appen bokför returen '
+      + '12:26:57 som mellanbropassage; besöket släpps och failsafen notifierar i samma tick. Det är den andra '
+      + 'Stallbackanotisen som 2026-09-07 togs bort nedan, nu i passerad form. Den reviderade bevisregeln '
+      + '(revision 3, 2026-11-05) släpper i samma tick: hon ligger 1230 m ut på ankomstsidan i 8,6 kn, och '
+      + 'notisen kommer 5,1 min efter korsningen interpolerad på glappet (12:21:51.7; U21-gränsen är 10 min). '
+      + 'Brotexter, öppningar och passager '
+      + 'består. Se docs/ARCHITECTURE.md (U14).  '
+      + 'LÅNG KÖ 2026-09-09: IDUNs rena avgång 07:16, 1256 m förflyttning över AIS-glappet '
       + 'till väntplatsen 08:02 och separat färsk stillhetsbekräftelse 08:21 styrker Järnvägskön. '
       + 'Nya AIS-positioner håller väntan kvar även över tre timmar; AIS-tystnad förlänger '
       + 'ingen aktiv resa. Samma 85 närnotiser och 31 öppningar; vänttexten räknar IDUN korrekt. '
@@ -1643,8 +1655,19 @@ module.exports = [
     locked: true,
     lockOpenings: true,
     lockEvents: true,
-    expectedNotifications: 151,
-    note: 'Omlåst 2026-11-03: enbart ARESTELs Stridsnärnotis 12:50:21.699 ändras från 3 till 1 min. Väntan vid '
+    expectedNotifications: 152,
+    note: 'Omlåst 2026-11-04 (U14, kort B01): 151→152. ELFKUNGEN/265573130 får en egen notis för returpassagen '
+      + 'söderut över Klaffbron 5/8: "passerade Klaffbron under AIS-tystnad" 10:38:19.540, 175 m söder om bron, '
+      + 'eta −1, already_passed. Rådatafacit (gt-passages): nordpassagen 10:15:12.558 (observerad), sydpassagen '
+      + 'inferred i 11 min glapp (10:26:00→10:37:11, från 220 m norr till 12 m söder). Två verkliga passager; '
+      + 'den första notifierades 10:15:46 i passerad form. Besöket stängdes aldrig (högst 216 m), så returen '
+      + 'tystades förut. Appen bokför returen 10:38:19 som mellanbropassage; besöket släpps och failsafen '
+      + 'notifierar i samma tick. Det är Klaffnotisen som 2026-09-07 togs bort nedan. Den reviderade bevisregeln '
+      + '(revision 3, 2026-11-05) släpper i samma tick: hon ligger 148 m ut på ankomstsidan i 4,7 kn, och '
+      + 'notisen kommer 2,1 min efter korsningen interpolerad på glappet (10:36:15; U21-gränsen är 10 min). '
+      + 'Brotexter, öppningar och '
+      + 'passager består. Se docs/ARCHITECTURE.md (U14).  '
+      + 'Omlåst 2026-11-03: enbart ARESTELs Stridsnärnotis 12:50:21.699 ändras från 3 till 1 min. Väntan vid '
       + 'Järnvägsbron flyttas inte längre till målbron ~93 m söder om Järnvägsbron, så väntbaslinjen släpps vid '
       + 'Järnvägspassagen. Rådatans Stridsbergspassage 12:51:34.277 ligger 72,6 s efter notisen. Tider, avstånd, '
       + 'källa, antal, öppningskort, passager och brotexter består. Se docs/helgranskning-2026-11-03.md.  '
@@ -2269,14 +2292,24 @@ module.exports = [
     locked: true,
     lockEvents: true,
     pollEraMinutes: 10,
-    expectedNotifications: 130,
+    expectedNotifications: 131,
     // Exakt textheuristiskt falsklarm: sista AIS passerade 25-minutersgränsen.
     // Rådatagap och verklig visningsgräns låses av utopia-stale-display-field.test.js.
     knownInvariantExceptions: [
       'DEFAULT-FLASH: 2026-08-06T08:47:00.040Z "Inga båtar" inklämd (30s) '
         + 'mellan två "En … Stridsbergsbron"-texter utan passage',
     ],
-    note: 'Omlåst 2026-11-03: enbart FILOUs Järnvägsnotis 7/8 12:14:58.542 byter till passerad form ("passerade '
+    note: 'Omlåst 2026-11-04 (U14, kort B01): 130→131. ELFKUNGEN/265573130 får en egen notis för returpassagen '
+      + 'söderut över Klaffbron 7/8: "passerade Klaffbron under AIS-tystnad" 10:39:41.258, 165 m söder om bron, '
+      + 'eta −1, already_passed. Rådatafacit (gt-passages): nordpassagen 10:17:48.001 och sydpassagen 10:38:34.189, '
+      + 'båda observerade (sydpassagen mellan 136 m norr 10:37:28 och 4 m söder 10:38:35). Två verkliga passager; '
+      + 'förvarningen 10:16:07 gällde den första. Besöket stängdes aldrig (högst 245 m), så returen tystades förut. '
+      + 'Appen bokför returen 10:39:41 som mellanbropassage; varken mål- eller nuvarande bro finns kvar i den '
+      + 'ticken, så failsafen notifierar och texten blir dess standardmening. Det är Klaffnotisen som 2026-09-07 '
+      + 'togs bort nedan. Den reviderade bevisregeln (revision 3, 2026-11-05) släpper i samma tick: hon ligger '
+      + '137 m ut på ankomstsidan i 5,7 kn, 1,4 min efter korsningen (10:38:20). Brotexter, öppningar och passager '
+      + 'består. Se docs/ARCHITECTURE.md (U14).  '
+      + 'Omlåst 2026-11-03: enbart FILOUs Järnvägsnotis 7/8 12:14:58.542 byter till passerad form ("passerade '
       + 'Järnvägsbron under AIS-tystnad", eta −1, already_passed). Hon återföddes efter 55 min glapp 208 m söder om '
       + 'bron; rådatans korsning 11:54:03 ligger i glappet, före notisfixen. Fältloggen bar samma felaktiga '
       + '"om 2 minuter". Tid, avstånd, källa, antal, kort, passager och brotexter består. Se '

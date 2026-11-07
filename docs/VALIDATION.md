@@ -47,8 +47,17 @@ deras referenser bygger på granskad replay från tomt minne. En låst referens
 1. **bridge_text** är alltid korrekt och aktuell — aldrig spöktext, frusen
    nedräkning eller falskt "Inga båtar".
 2. **boat_near** avfyras en gång per sammanhängande besök för varje båt och
-   punkt. Stopp eller passage inom samma område ger ingen extra notis;
+   punkt. Stopp eller väntan inom samma område ger ingen extra notis;
    observerad utfärd och återkomst tillåter en ny. Gäller alla sex punkter.
+   Vid en bro gäller dessutom en notis per passage (U14, användarbeslut
+   2026-11-04): en verklig passage TILLBAKA, som appen själv bokför och som
+   positionen bevisar (båten tydligt ute på ankomstsidan och under gång dit),
+   avslutar besöket och får en egen notis även om båten aldrig lämnat området.
+   En båt som vänder och sedan väntar nära linjen får ingen extra notis, inte
+   heller vid gles AIS eller när hennes AIS rapporterar 0,5–1 kn, så länge
+   GPS-bruset håller sig inom appens brusmodell (två stilla fixar under 60 m
+   isär). En returnotis som skulle komma mer än 10 min efter den uppskattade
+   korsningen skickas inte (U21).
 
 ## Batteriet — kör ALLTID allt efter varje ändring i status-/notis-/text-/livscykellogik
 
@@ -63,7 +72,7 @@ Eller stegen var för sig:
 |---|---|---|
 | Enhetstester | `npm test > /tmp/ais-jest.log 2>&1` (läs sedan slutraderna) | Alla tester passerar, exitkod 0 och inga öppna handtag. Aktuellt antal står i körningens sammanfattning. Omdirigeringen bevarar Jest:s exitkod; en pipe till `tail` gör inte det. |
 | Korpusarna | `npm run replay:all` | Samtliga korpusar (aktuellt antal och timmar står i skriptets utskrift) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + exakt (mmsi,bro,riktning)-fördelning + EXAKT bridge_text-transitionsström (golden-text/) + alla invarianter. Ofullständig fångst redovisas separat och får bara utgöra regression för bevarade sampel. |
-| Syntetiska | `npm run replay:synthetic` | 55 scenarier (gap, U-svängar även med gles AIS, GPS-hopp, kajliggare, sog=null, omstart, 2h-prune-stillaliggare, krypfart förbi passerad bro …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
+| Syntetiska | `npm run replay:synthetic` | 74 scenarier (gap, U-svängar även med gles AIS, GPS-hopp, kajliggare, sog=null, omstart, 2h-prune-stillaliggare, krypfart förbi passerad bro …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
 | Öppningsgrindarna | `npm run replay:openings` | ETAPP 6: det proaktiva lagret (`bridge_opening_soon`). **O1** varje målbropassage i SAMTLIGA korpusar (låsta som olåsta — antalet står i skriptets utskrift, inte här) har en öppningsvarning FÖRE passagen — varje miss klassad mot rådata (oklassad = rött); en KONVOJTÄCKNING underkänns om bron bevisligen öppnat och stängt för någon annan emellan. **O2** varje varning utan passage inom 20 min klassas mot rådata (KAJVOBBEL och UTANFÖR_HORISONTEN = rött; avbruten approach, gles anflygning och garantipris = accepterade) — även SEN_PASSAGE-hinken klassas. **O2b** (S14, 2026-08-23) SAMMA fantommätning mot RÅDATAFACIT (A2, `gt-passages`) i stället för appens egna passager — O1b:s mönster: appens passageregistreringar delar grindarnas blindfläck, så en varning kan kallas BEKRÄFTAD av appens egen bokföring medan rådatan inte känner korsningen. Serierna redovisas BREDVID varandra (annars går körningsloggar inte att jämföra bakåt). `inferred`-poster (korsning bevisad, tidpunkt = fönster) bär ALDRIG hinkindelningen utan hamnar i egen hink INFERRERAD_TID — hinkarna ÄR en tidsfönstermätning. **O2b är INFORMATIV: den ändrar inte exitkoden** (grinden ligger kvar på appserien precis som O1:s täckning i fas A); `OPENING_GT_STRICT` flyttar den hit när fas C är klar. Vid införandet: 0 röda i BÅDA serierna, 118 av 360 varningar byter hink (98 blir omätbara `inferred`) och EN varning byter åt det farliga hållet (JAATTEN II @ Stridsbergsbron i 20260708-21h — samma fall INV-21 redan fäller). **O3** A/B-nattens båda armar: 6/6 öppningar varnade före, konvojen som EN varning, boat_near byte-identisk med nattens facit. Dessutom **avfyrningsfönstret** (`t − dueMs` inom två tick — kontraktet "avfyra så sent som garantin tillåter") och **ledtidsgolvet** (hårt golv 60 s; tunnare än utlovade 150 s rapporteras). |
 | Soaken | `node tests/replay-validation/runSoak.js` | 72 h blandtrafik: 0 processfel, inga läckor, fatala invarianter rena |
 | Driftens minutloop | `npm run replay:monitoring` | Samma 72 h med riktig monitoring/stale-städning även efter omstarter; samtliga timers avvecklade efter shutdown |
@@ -296,9 +305,17 @@ vilseleder nästa fältläsare lika effektivt som ett fel värde.
 ## Invarianterna — facit-oberoende sanningar
 
 `tests/replay-validation/invariants.js` körs på varje replay. Fatala:
-grammatik (INV-1), notisdubbletter/tokens (INV-2), **räkningsbaserade INV-5/7**
+grammatik (INV-1), notisdubbletter/tokens (INV-2; sedan U14 även
+FALSKT RETURSLÄPP, när ett returpassagesläpp följs av att båten lämnar bron på
+bortre sidan enligt replayRunnerns geometriska dom ur rådatan, och sedan
+omgranskningen 2026-11-05 FÖR TIDIGT RETURSLÄPP, när båten varken vid släppet,
+i nästa fix eller inom 60 s ligger entydigt på ankomstsidan, eller sedan
+omgranskning 2 (2026-11-07) inte stannar där: färre än hälften av fixarna efter
+släppet, nästa fix och 60 s-fönstret, ligger entydigt på ankomstsidan; domen
+står i `tests/replay-validation/returnReleaseVerdict.js`), **räkningsbaserade INV-5/7**
 (varje registrerad målbropassage kräver sin EGEN notis i tid — även
-returpassagen av samma bro), sluttext (INV-6), namn (INV-8), distans (INV-11),
+returpassagen av samma bro; sedan U14, 2026-11-04, är det appens kontrakt och
+inte längre i konflikt med besöksregeln), sluttext (INV-6), namn (INV-8), distans (INV-11),
 läckage (INV-12), ETA-fysik (INV-16). WARN (informativa): INV-14W/15/17/18/19/20
 samt **INV-21** (etapp 6: öppningsvarning EFTER registrerad målbropassage för
 samma händelse — tyst över samtliga korpusar och soaken i dag).
@@ -411,6 +428,52 @@ närmandebeviset och fartgrinden i båda vägarna.** Placeringen är testet i al
   (7–12 över seed 94–99) och mot revision 1 (`c6a765d`) 8. Med rättningen EN
   förväntad INV-14W (2550 s). Ligger zonen inom 500 m från en bro prövas
   0,1 kn-grinden i stället, och scenariot blir verkningslöst.
+
+**U14 (2026-11-04): returpassagen inom besöket.** `u-sväng-inom-besöket-vid-Klaffbron (B01)`
+vänder 200 m bortom Klaffbron, alltså innanför besökets utfärdsgräns (två fixar
+över 350 m). Buggjägaren mätte felet i bandet 125–308 m; bortom 350 m tar
+utfärdsregeln fallet, och scenariot `u-sväng-efter-Klaffbron` vänder 517 m bortom
+bron. Förväntan `minNotifiedPerBridge` kräver två Klaffbronotiser och
+`maxNotifiedPerBridge` högst två. Motvakten `guppar-på-Klaffbrons-linje (U14-vakt)`
+står still på linjen i 40 min med GPS-brus på båda sidor och ska ha EN
+Klaffbronotis. På 7699cbe fäller B01-scenariot (en notis, INV-5), medan
+vakten är grön i båda versionerna.
+
+Granskningen samma dag lade till sex vakter och två returer. **Vänd och vänta**
+(`vänder-och-väntar-…-från-Klaffbron-brus-… (U14-vakt)`, fem varianter D = 5–30 m från
+linjen och brus J = 10–30 m, samt en med gles AIS): båten passerar Klaffbron, vänder 150 m
+bortom bron, väntar 30 min D m från linjen med slumpad kurs och kör sedan vidare. EN
+Klaffbronotis krävs. Förra U14-prototypen gav 2–3. Passagelogiken bokför ibland en falsk
+passage när bruset för båten till linjen. Det ger INV-5 exakt som på 7699cbe, och scenariot
+tål just den raden med den nya förväntan `toleratedInvariants`, eftersom felet ligger i
+passagelogiken och vakten bara prövar notisen. **Retur över två broar i samma glapp**
+(`retur-över-två-broar-i-samma-glapp-Stridsbergsbron/-Klaffbron (U14-M1/M2)`): båda broarna
+bokförs i samma tick, och returnotisen krävs för båda (`minNotifiedPerBridge`). Båda fäller på
+7699cbe och på förra prototypen. Scenarierna använder generatorns benläge (`legs` i
+`scenarioGenerator.js`), som uttrycker förlopp med flera vändningar och stopp.
+
+Omgranskningen 2026-11-05 lade till fem vakter. **Vänd, bromsa in och vänta med gles AIS**
+(`vänder-bromsar-väntar-…-gles-…-ge-upp/-retur (U14-vakt)`, kadens 35 + 0–10 s och 45 + 0–15 s
+via benets nya `intervalJitterS`): båten bromsar till 1 kn och stannar 3–6 m från linjen i
+15 min. `ge-upp` fortsätter sedan bort (EN Klaffbronotis krävs), `retur` går tillbaka genom
+bron (TVÅ krävs, och INV-2 fäller ett för tidigt släpp). Förra revisionen gav en falsk andra
+notis respektive en 16–17 min för tidig; 7699cbe missar returen. Passagelogikens bokföring vid
+ankomsten till linjen ger INV-5 i `ge-upp`, som på 7699cbe. I `retur` ger 7699cbe INV-5 MISSAD;
+med U14 kommer notisen vid den verkliga korsningen, och INV-7 (SEN) för passage nr 2 uppstår
+eftersom INV-7 mäter mot bokföringen före korsningen. Vakterna tål just de raderna. **Långsam
+retur** (`långsam-retur-1kn-genom-Klaffbron (U14-vakt)`): returen i 1 kn bokförs före linjen och
+är 30 m ut först efter mer än 60 s. Den fäller på 7699cbe och på förra revisionen.
+
+Omgranskning 2 (2026-11-07) lade till fyra vakter. **Väntan med rapporterad fart**
+(`vänder-bromsar-väntar-6m-gles-…-i-…kn-brus-15m-ge-upp/-retur (U14-vakt)`, benets nya
+`stopSog`): den väntande båtens AIS rapporterar 0,6–1 kn med slumpad kurs och bruset är ±15 m.
+Revision 3 släppte på en enda gles fix entydigt på ankomstsidan och gav en falsk andra notis
+(FALSKT RETURSLÄPP); `retur` prövar att den verkliga returen efter samma väntan får sin notis.
+**Tät AIS med ±30 m brus** (`vänder-bromsar-väntar-3m-tät-10s-i-1kn-brus-30m-ge-upp (U14-vakt)`):
+två fixar i rad på ankomstsidan där den förra låg vid linjen. Bruset ligger delvis utanför appens
+brusmodell, och klassen har en uppmätt rest (registrerad som känd gräns); vakten håller fast det
+fall som revision 4 stänger. Fröna kommer ur ett svep med appens egen generator (144 + 48 banor).
+Alla tre `ge-upp`-vakterna fäller revision 3.
 
 ## Täckningskartan — diagnosverktyg, INTE en gate
 

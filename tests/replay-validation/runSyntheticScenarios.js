@@ -92,6 +92,11 @@ const OMSTART_SLOW_ZONE = {
  *    mål- och mellanbropassager sammantaget (R1, returpassagen)
  *  - forbiddenNotifiedBridges: dessa broar får INTE ha fått notis
  *  - maxNotifiedPerBridge: {bro: N} — max antal notiser per bro (dubblettvakt)
+ *  - minNotifiedPerBridge: {bro: N} — minst N notiser per bro (U14: en notis
+ *    per verklig passage, även returpassagen inom samma besök)
+ *  - toleratedInvariants: [RegExp] — fatala invariantrader som scenariot
+ *    medvetet tål. Bara för KÄNDA fel utanför scenariots fråga, med motivering
+ *    vid scenariot (U14-vakterna: passagelogikens falska bokföring vid linjen)
  *
  * ÖPPNINGSVARNINGAR (etapp 6, 2026-08-03) — egen, additiv dimension:
  *  - expectedOpenings: dessa målbroar MÅSTE ha fått minst en öppningsvarning,
@@ -394,6 +399,346 @@ const SCENARIOS = [
       },
     }],
     expect: { minTargetPassages: 1, minPassagesPerBridge: { Klaffbron: 2 } },
+  },
+  {
+    // U14 (användarbeslut 2026-11-04, kort B01): tur och retur INOM besöket.
+    // Vändningen 200 m bortom Klaffbron ligger innanför besökets utfärdsgräns
+    // (två fixar över 350 m), så besöket stängdes aldrig och returpassagen fick
+    // ingen notis: två bokförda målbropassager men en notis (INV-5). Placeringen
+    // ÄR testet. Buggjägarens gräns för felet var 125–308 m; bortom 350 m tar
+    // utfärdsregeln fallet (scenariot ovan vänder 517 m bortom bron).
+    name: 'u-sväng-inom-besöket-vid-Klaffbron (B01)',
+    seed: 92,
+    vessels: [{
+      mmsi: '901000092',
+      name: 'SYNT-RETUR',
+      direction: 'north',
+      speedKn: 4.5,
+      uTurnAtFraction: (METRICS.cum[2] + 200) / METRICS.total,
+    }],
+    expect: {
+      minTargetPassages: 2,
+      minNotifiedPerBridge: { Klaffbron: 2 },
+      maxNotifiedPerBridge: { Klaffbron: 2 },
+    },
+  },
+  {
+    // U14-vakten: en båt som ligger och guppar PÅ brolinjen i 40 min ska
+    // fortfarande ha EN Klaffbronotis. Stoppet hamnar vid linjen och GPS-bruset
+    // (±30 m) lägger fixarna på båda sidor: mätt −33 till +42 m längs
+    // kanalaxeln, 14 fixar entydigt på ankomstsidan och 27 på bortre sidan.
+    // Varken en bokförd returpassage eller en vänd ruttriktning uppstår, så
+    // besöket ska inte släppas. Scenariot ger en INV-14W-varning (lång
+    // DEFAULT-sandwich medan båten står still vid bron). Den är ett känt
+    // textbeteende för stillaliggare och kommer likadant på 7699cbe; U14 rör
+    // ingen text.
+    name: 'guppar-på-Klaffbrons-linje (U14-vakt)',
+    seed: 93,
+    vessels: [{
+      mmsi: '901000093',
+      name: 'SYNT-GUPP',
+      direction: 'north',
+      speedKn: 4.5,
+      reportIntervalS: 10,
+      jitterM: 30,
+      stop: { atFraction: (METRICS.cum[2] + 10) / METRICS.total, durationS: 2400 },
+      stopReportIntervalS: 30,
+    }],
+    expect: {
+      minNotifiedBridges: ['Klaffbron'],
+      maxNotifiedPerBridge: { Klaffbron: 1 },
+    },
+  },
+  // U14-revisionen (granskningen 2026-11-04): VÄND OCH VÄNTA VID LINJEN.
+  // Båten passerar Klaffbron norrut och får sin notis, vänder 150 m bortom
+  // bron, går tillbaka till D m norr om linjen, ligger där i 30 min med
+  // slumpad kurs och GPS-brus ±J m och kör sedan vidare norrut. Sanningen är
+  // EN passage. Passagelogiken bokför ibland en falsk passage när bruset för
+  // positionen till linjen (distance_fallback). Den förra U14-prototypen
+  // gjorde den bokföringen till en andra eller tredje notis; regeln kräver nu
+  // att båten är tydligt ute på ankomstsidan och under gång dit. Den falska
+  // bokföringen ger INV-5 ("2 registrerade passager men 1 notis") exakt som
+  // på 7699cbe. Felet ligger i passagelogiken och tolereras här så att
+  // vakten bara prövar notisen. Granskarens svep 2026-11-04 (seed = 100 +
+  // D + J) med samma frön.
+  ...[
+    [10, 10, 120], [5, 20, 125], [5, 30, 135], [20, 30, 150], [30, 20, 150],
+  ].map(([D, J, seed]) => ({
+    name: `vänder-och-väntar-${D}m-från-Klaffbron-brus-${J}m (U14-vakt)`,
+    seed,
+    vessels: [{
+      mmsi: `9010${String(D).padStart(2, '0')}${String(J).padStart(2, '0')}1`,
+      name: `SVEP-D${D}-J${J}`,
+      jitterM: J,
+      startS: METRICS.cum[2] - 700,
+      legs: [
+        { toS: METRICS.cum[2] + 150, speedKn: 4.5, intervalS: 10 },
+        { toS: METRICS.cum[2] + D, speedKn: 3, intervalS: 10 },
+        { stopS: 1800, stopIntervalS: 30, stopCogRandom: true },
+        { toS: METRICS.cum[2] + 800, speedKn: 4.5, intervalS: 10 },
+      ],
+    }],
+    expect: {
+      minNotifiedBridges: ['Klaffbron'],
+      maxNotifiedPerBridge: { Klaffbron: 1 },
+      toleratedInvariants: [/^MISSAD MÅLBRO-NOTIS: \d{9}:Klaffbron — /],
+    },
+  })),
+  {
+    // Samma vakt med gles AIS (60 s, AISHub-kadens) och ±30 m brus. Vid gles
+    // kadens avgörs en bokföring vid linjen redan i bokföringsticken
+    // (releaseReturnPassage, villkor 6b), så vakten prövar att fart- och
+    // kurskravet fortfarande skiljer en väntande båt från en som passerar.
+    name: 'vänder-och-väntar-5m-från-Klaffbron-gles-AIS (U14-vakt)',
+    seed: 165,
+    vessels: [{
+      mmsi: '902605301',
+      name: 'GLES-D5-J30',
+      jitterM: 30,
+      startS: METRICS.cum[2] - 700,
+      legs: [
+        { toS: METRICS.cum[2] + 150, speedKn: 4.5, intervalS: 60 },
+        { toS: METRICS.cum[2] + 5, speedKn: 3, intervalS: 60 },
+        { stopS: 1800, stopIntervalS: 60, stopCogRandom: true },
+        { toS: METRICS.cum[2] + 800, speedKn: 4.5, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      minNotifiedBridges: ['Klaffbron'],
+      maxNotifiedPerBridge: { Klaffbron: 1 },
+      toleratedInvariants: [/^MISSAD MÅLBRO-NOTIS: \d{9}:Klaffbron — /],
+    },
+  },
+  // U14-revisionen 3 (omgranskningen 2026-11-05): VÄND, BROMSA IN OCH VÄNTA
+  // VID LINJEN MED GLES AIS. Kadensen är 35 + 0–10 s eller 45 + 0–15 s
+  // (Class B med jitter, AISHub). Båten passerar Klaffbron norrut, vänder
+  // 150 m bortom, går tillbaka i 3 kn till 30 m, bromsar till 1 kn fram till
+  // D m norr om linjen och ligger still i 15 min. Förra revisionen godtog en
+  // gles fix som fortfarande låg på bortre sidan inom 10 m från linjen, och
+  // passagelogiken bokför just en sådan fix. 'ge-upp': båten fortsätter sedan
+  // norrut; sanningen är EN passage, förra revisionen gav en falsk andra
+  // notis (FALSKT RETURSLÄPP). 'retur': båten går sedan söderut genom bron;
+  // sanningen är TVÅ passager, förra revisionen gav returnotisen 16–17 min för
+  // tidigt (FÖR TIDIGT RETURSLÄPP) och 7699cbe ingen alls. Passagelogikens
+  // bokföring vid ankomsten till linjen ger INV-5 i 'ge-upp', som på 7699cbe.
+  // I 'retur' ger 7699cbe INV-5 (MISSAD: returen får ingen notis); med U14
+  // kommer notisen vid den verkliga korsningen, och INV-7 (SEN) för passage
+  // nr 2 uppstår eftersom INV-7 mäter mot bokföringen, som gjordes före
+  // korsningen. Felet ligger i passagelogiken, så vakterna tål just de
+  // raderna och prövar notisen.
+  ...[
+    ['ge-upp', 35, 10, 6, 2], ['ge-upp', 45, 15, 3, 1],
+    ['retur', 35, 10, 6, 2], ['retur', 45, 15, 3, 1],
+  ].map(([kind, iv, ij, D, seed]) => ({
+    name: `vänder-bromsar-väntar-${D}m-gles-${iv}+${ij}s-${kind} (U14-vakt)`,
+    seed: 1000 + seed * 97 + D * 7 + iv,
+    vessels: [{
+      mmsi: `9031${String(iv).padStart(2, '0')}${String(D).padStart(2, '0')}${seed}`,
+      name: `VAKT-${kind}`,
+      jitterM: 5,
+      startS: METRICS.cum[2] - 700,
+      legs: [
+        {
+          toS: METRICS.cum[2] + 150, speedKn: 4.5, intervalS: iv, intervalJitterS: ij,
+        },
+        {
+          toS: METRICS.cum[2] + 30, speedKn: 3, intervalS: iv, intervalJitterS: ij,
+        },
+        {
+          toS: METRICS.cum[2] + D, speedKn: 1, intervalS: iv, intervalJitterS: ij,
+        },
+        { stopS: 900, stopIntervalS: iv },
+        kind === 'retur'
+          ? {
+            toS: METRICS.cum[2] - 900, speedKn: 3.5, intervalS: iv, intervalJitterS: ij,
+          }
+          : {
+            toS: METRICS.cum[2] + 900, speedKn: 4.5, intervalS: iv, intervalJitterS: ij,
+          },
+      ],
+    }],
+    expect: kind === 'retur'
+      ? {
+        minNotifiedPerBridge: { Klaffbron: 2 },
+        maxNotifiedPerBridge: { Klaffbron: 2 },
+        toleratedInvariants: [/^SEN MÅLBRO-NOTIS: \S+ \d{9}:Klaffbron — passage nr 2 /],
+      }
+      : {
+        minNotifiedBridges: ['Klaffbron'],
+        maxNotifiedPerBridge: { Klaffbron: 1 },
+        toleratedInvariants: [/^MISSAD MÅLBRO-NOTIS: \d{9}:Klaffbron — /],
+      },
+  })),
+  // U14-revisionen 4 (omgranskning 2, 2026-11-07): VÄNTAN MED RAPPORTERAD
+  // FART. Som vakterna ovan, men den väntande båtens AIS rapporterar 0,6–1 kn
+  // och slumpad kurs (stopSog) och bruset är ±15 m. Det räckte för att
+  // revision 3 släppte på EN gles fix entydigt på ankomstsidan
+  // (gles-korsning) och gav en falsk "har precis passerat" (FALSKT
+  // RETURSLÄPP). Revision 4 kräver att båten rör sig i nuet (2,0 kn) för det
+  // beviset. Fröna kommer ur svepet K/N/tmp/r4/scripts/guardFind4.js (G1,
+  // 144 banor: revision 3 gav 2 falska släpp, revision 4 inget). 'retur'
+  // prövar att en verklig retur efter samma väntan fortfarande får sin notis;
+  // INV-7 (SEN) för passage nr 2 kommer av passagelogikens bokföring under
+  // väntan och tolereras som ovan.
+  ...[
+    ['ge-upp', 35, 10, 1.0, 2807, '904000022'],
+    ['ge-upp', 60, 0, 0.6, 2618, '904000062'],
+    ['retur', 60, 0, 0.6, 2619, '904000158'],
+  ].map(([kind, iv, ij, stopSog, seed, mmsi]) => ({
+    name: `vänder-bromsar-väntar-6m-gles-${iv}+${ij}s-i-${stopSog}kn-brus-15m-${kind} (U14-vakt)`,
+    seed,
+    vessels: [{
+      mmsi,
+      name: `VAKT4-${kind}`,
+      jitterM: 15,
+      startS: METRICS.cum[2] - 700,
+      legs: [
+        {
+          toS: METRICS.cum[2] + 150, speedKn: 4.5, intervalS: iv, intervalJitterS: ij,
+        },
+        {
+          toS: METRICS.cum[2] + 30, speedKn: 3, intervalS: iv, intervalJitterS: ij,
+        },
+        {
+          toS: METRICS.cum[2] + 6, speedKn: 1, intervalS: iv, intervalJitterS: ij,
+        },
+        {
+          stopS: 900, stopIntervalS: iv, stopSog, stopCogRandom: true,
+        },
+        kind === 'retur'
+          ? {
+            toS: METRICS.cum[2] - 900, speedKn: 3.5, intervalS: iv, intervalJitterS: ij,
+          }
+          : {
+            toS: METRICS.cum[2] + 900, speedKn: 4.5, intervalS: iv, intervalJitterS: ij,
+          },
+      ],
+    }],
+    expect: kind === 'retur'
+      ? {
+        minNotifiedPerBridge: { Klaffbron: 2 },
+        maxNotifiedPerBridge: { Klaffbron: 2 },
+        toleratedInvariants: [/^SEN MÅLBRO-NOTIS: \S+ \d{9}:Klaffbron — passage nr 2 /],
+      }
+      : {
+        minNotifiedBridges: ['Klaffbron'],
+        maxNotifiedPerBridge: { Klaffbron: 1 },
+        toleratedInvariants: [/^MISSAD MÅLBRO-NOTIS: \d{9}:Klaffbron — /],
+      },
+  })),
+  {
+    // Revision 4, tät AIS (10 s) och ±30 m brus i 1 kn med slumpad kurs
+    // (omgranskning 2:s P2). Revision 3 släppte på två fixar i rad på
+    // ankomstsidan där den förra låg på linjen och kursen var slumpad.
+    // Revision 4 kräver att båda fixarna ligger entydigt på ankomstsidan och
+    // att båten var under gång dit även i den förra. ±30 m per koordinat
+    // ligger delvis UTANFÖR appens brusmodell (två stilla fixar under 60 m
+    // isär är brus), och klassen har en uppmätt rest: 2 av 24 banor i svepet
+    // G2 (K/N/tmp/r4/logs/guards4.log), registrerad som känd gräns. Vakten
+    // håller fast det fall som revision 4 stänger.
+    name: 'vänder-bromsar-väntar-3m-tät-10s-i-1kn-brus-30m-ge-upp (U14-vakt)',
+    seed: 2956,
+    vessels: [{
+      mmsi: '904000088',
+      name: 'VAKT4-ge-upp',
+      jitterM: 30,
+      startS: METRICS.cum[2] - 700,
+      legs: [
+        { toS: METRICS.cum[2] + 150, speedKn: 4.5, intervalS: 10 },
+        { toS: METRICS.cum[2] + 30, speedKn: 3, intervalS: 10 },
+        { toS: METRICS.cum[2] + 3, speedKn: 1, intervalS: 10 },
+        {
+          stopS: 900, stopIntervalS: 10, stopSog: 1, stopCogRandom: true,
+        },
+        { toS: METRICS.cum[2] + 900, speedKn: 4.5, intervalS: 10 },
+      ],
+    }],
+    expect: {
+      minNotifiedBridges: ['Klaffbron'],
+      maxNotifiedPerBridge: { Klaffbron: 1 },
+      toleratedInvariants: [/^MISSAD MÅLBRO-NOTIS: \d{9}:Klaffbron — /],
+    },
+  },
+  {
+    // U14-revisionen 3, omgranskningens b-1.0: LÅNGSAM RETUR. Båten passerar
+    // Klaffbron norrut, vänder 150 m bortom och går tillbaka söderut genom
+    // bron i 1 kn med tät AIS (10 s). Passagelogiken bokför returen några
+    // meter före linjen; vid 1 kn är båten 30 m ut först mer än 60 s senare.
+    // Förra revisionen räknade sitt 60 s-fönster från bokföringen och missade
+    // returen tyst. INV-7 (SEN) för passage nr 2 kommer av samma bokföring
+    // före korsningen och tolereras som i vakterna ovan.
+    name: 'långsam-retur-1kn-genom-Klaffbron (U14-vakt)',
+    seed: 1311,
+    vessels: [{
+      mmsi: '903100101',
+      name: 'VAKT-LANGSAM',
+      jitterM: 3,
+      startS: METRICS.cum[2] - 700,
+      legs: [
+        { toS: METRICS.cum[2] + 150, speedKn: 4.5, intervalS: 10 },
+        { toS: METRICS.cum[2] + 40, speedKn: 3, intervalS: 10 },
+        { toS: METRICS.cum[2] - 60, speedKn: 1, intervalS: 10 },
+        { toS: METRICS.cum[2] - 900, speedKn: 3.5, intervalS: 10 },
+      ],
+    }],
+    expect: {
+      minNotifiedPerBridge: { Klaffbron: 2 },
+      maxNotifiedPerBridge: { Klaffbron: 2 },
+      toleratedInvariants: [/^SEN MÅLBRO-NOTIS: \S+ \d{9}:Klaffbron — passage nr 2 /],
+    },
+  },
+  {
+    // U14-revisionen, granskningens M1: returen över TVÅ broar i samma
+    // AIS-glapp. Båten går norrut genom Stridsbergsbron, vänder 200 m bortom
+    // och tystnar medan hon passerar tillbaka både Strids- och Järnvägsbron
+    // (257 m isär). Båda bokförs i samma tick, och lastPassedBridge håller bara
+    // den sist stämplade. Släppet läser därför även passedAt[bro]. På 7699cbe
+    // får Stridsbergsbron 2 passager men 1 notis (INV-5).
+    name: 'retur-över-två-broar-i-samma-glapp-Stridsbergsbron (U14-M1)',
+    seed: 301,
+    vessels: [{
+      mmsi: '901000301',
+      name: 'SYNT-M1',
+      jitterM: 3,
+      startS: METRICS.cum[2] - 700,
+      legs: [
+        { toS: METRICS.cum[4] + 200, speedKn: 4.5, intervalS: 10 },
+        {
+          toS: METRICS.cum[2] - 700,
+          speedKn: 4.5,
+          intervalS: 10,
+          gapFromS: METRICS.cum[4] + 120,
+          gapToS: METRICS.cum[3] - 120,
+        },
+      ],
+    }],
+    expect: { minNotifiedPerBridge: { Stridsbergsbron: 2, Järnvägsbron: 2 } },
+  },
+  {
+    // U14-revisionen, granskningens M2: samma sak söderifrån vid Klaffbron.
+    // Båten passerar Klaffbron söderut, vänder 150 m söder om bron och
+    // tystnar medan hon passerar tillbaka Klaffbron och Järnvägsbron. Returen
+    // bokförs ur glappet (SKIPPED_BRIDGES_CHECK) i samma tick som
+    // Järnvägsbron. På 7699cbe får Klaffbron 2 passager men 1 notis (INV-5).
+    name: 'retur-över-två-broar-i-samma-glapp-Klaffbron (U14-M2)',
+    seed: 303,
+    vessels: [{
+      mmsi: '901000303',
+      name: 'SYNT-M2',
+      jitterM: 3,
+      startS: METRICS.cum[4] + 400,
+      legs: [
+        { toS: METRICS.cum[2] - 150, speedKn: 4.5, intervalS: 10 },
+        {
+          toS: METRICS.cum[4] + 600,
+          speedKn: 4,
+          intervalS: 10,
+          gapFromS: METRICS.cum[2] - 100,
+          gapToS: METRICS.cum[3] + 100,
+        },
+      ],
+    }],
+    expect: { minNotifiedPerBridge: { Klaffbron: 2, Järnvägsbron: 2 } },
   },
   {
     // Två båtar möts VID Stridsbergsbron — grupplogik, klausulunikhet (INV-9)
@@ -1398,6 +1743,17 @@ function checkExpectations(scenario, result) {
       }
     }
   }
+  // U14 (2026-11-04, B01): minsta antal notiser per bro — en verklig
+  // returpassage inom samma besök ska ha sin egen notis.
+  if (e.minNotifiedPerBridge) {
+    const counts = {};
+    for (const n of notifications) counts[n.bridge] = (counts[n.bridge] || 0) + 1;
+    for (const [bridge, minN] of Object.entries(e.minNotifiedPerBridge)) {
+      if ((counts[bridge] || 0) < minN) {
+        problems.push(`SAKNAD RETURNOTIS: ${bridge} fick ${counts[bridge] || 0} notiser (minst ${minN})`);
+      }
+    }
+  }
   // ---------------------------------------------------------------------
   // ÖPPNINGSVARNINGAR (etapp 6, 2026-08-03) — additiv dimension
   // ---------------------------------------------------------------------
@@ -1524,7 +1880,8 @@ function checkExpectations(scenario, result) {
     }
   }
 
-  const invariantViolations = validateInvariants(result);
+  const tolerated = Array.isArray(e.toleratedInvariants) ? e.toleratedInvariants : [];
+  const invariantViolations = validateInvariants(result).filter((v) => !tolerated.some((re) => re.test(v)));
   for (const v of invariantViolations.slice(0, 4)) problems.push(`INVARIANT: ${v}`);
   if (invariantViolations.length > 4) problems.push(`... +${invariantViolations.length - 4} fler invariantbrott`);
 

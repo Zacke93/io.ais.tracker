@@ -992,6 +992,24 @@
       "vesselLatNext": 58.2895
     },
     {
+      "t": 1783945617910,
+      "bridge": "Stallbackabron",
+      "direction": "southbound",
+      "eta": -1,
+      "message": "ELFKUNGEN passerade Stallbackabron under AIS-tystnad",
+      "alreadyPassed": true,
+      "name": "ELFKUNGEN",
+      "distance": 1265,
+      "source": "passage-fallback",
+      "stateBridge": "stallbackabron",
+      "mmsi": "265573130",
+      "success": true,
+      "error": null,
+      "vesselLat": 58.300865,
+      "vesselLon": 12.303336666666667,
+      "vesselLatNext": 58.279215
+    },
+    {
       "t": 1783945860313,
       "bridge": "Kanalinfarten",
       "direction": "northbound",

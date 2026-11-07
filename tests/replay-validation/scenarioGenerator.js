@@ -123,6 +123,7 @@ function pointAt(path, metrics, s) {
  * @returns {Array<Object>} samples (jsonl-rader)
  */
 function generateJourney(opts, rnd) {
+  if (Array.isArray(opts.legs)) return generateLegJourney(opts, rnd);
   const path = buildPath();
   const metrics = pathMetrics(path);
   const interval = opts.reportIntervalS || 60;
@@ -264,6 +265,83 @@ function generateJourney(opts, rnd) {
     if (samples.length > 1200) break; // säkerhetsspärr
   }
 
+  return samples;
+}
+
+/**
+ * U14-revisionen (granskningen 2026-11-04): resa i BEN längs kanalens
+ * centrumlinje, för förlopp som den enkla modellen (en vändning, ett stopp)
+ * inte kan uttrycka: vända bortom en bro, gå tillbaka mot linjen, vänta där
+ * med slumpad kurs och sedan fortsätta. Varje ben går från föregående läge
+ * till `toS` (meter längs rutten) i `speedKn`, rapporterar var `intervalS`:e
+ * sekund och kan ha ett AIS-glapp (`gapFromS`–`gapToS`, båten fortsätter).
+ * Ett ben med `stopS` ligger still i så många sekunder och rapporterar var
+ * `stopIntervalS`:e sekund, med sog 0,1 (eller `stopSog`) och, med
+ * `stopCogRandom`, slumpad kurs. Brus, tidsbas och jsonl-format är desamma
+ * som i generateJourney.
+ *
+ * Omgranskning 2 (2026-11-07): `stopSog` låter en väntande båts AIS
+ * rapportera fart (fältet visar 0,5–1 kn hos båtar som ligger och väntar vid
+ * en bro). Utan fältet blir farten 0,1 som förut, med samma slumptal.
+ * Scenarier utan `legs` påverkas inte.
+ *
+ * Omgranskningen 2026-11-05: `intervalJitterS` lägger 0–J s slumpad extra tid
+ * på varje rapportintervall i ett gående ben (Class B med jitter, AISHub).
+ * Ben utan fältet drar inga extra slumptal, så äldre scenarier genereras
+ * byte för byte som förut.
+ * @param {Object} opts - {mmsi, name, startS, legs, jitterM?, startOffsetS?}
+ * @param {Function} rnd - seedad PRNG
+ * @returns {Array<Object>} samples (jsonl-rader)
+ */
+function generateLegJourney(opts, rnd) {
+  const path = buildPath();
+  const metrics = pathMetrics(path);
+  const jitter = opts.jitterM != null ? opts.jitterM : 3;
+  const samples = [];
+  let tS = opts.startOffsetS || 0;
+  let s = opts.startS;
+  const push = (sNow, sog, dir, cogOverride) => {
+    const p = pointAt(path, metrics, sNow);
+    const dLat = ((rnd() * 2 - 1) * jitter) / M_PER_DEG_LAT;
+    const dLon = ((rnd() * 2 - 1) * jitter) / mPerDegLon(p.lat);
+    let cog = Number.isFinite(cogOverride) ? cogOverride : p.bearing;
+    if (!Number.isFinite(cogOverride) && dir < 0) cog = (p.bearing + 180) % 360;
+    const ts = BASE_TIME_MS + Math.round(tS * 1000);
+    samples.push({
+      mmsi: opts.mmsi,
+      msgType: 'PositionReport',
+      lat: p.lat + dLat,
+      lon: p.lon + dLon,
+      sog: Math.max(0, sog + (rnd() * 0.2 - 0.1)),
+      cog: (cog + (rnd() * 6 - 3) + 360) % 360,
+      navStatus: null,
+      shipName: opts.name || `SYNT-${opts.mmsi.slice(-4)}`,
+      aisTimestamp: ts,
+      receivedAt: new Date(ts).toISOString(),
+    });
+  };
+  for (const leg of opts.legs) {
+    const interval = leg.intervalS || 60;
+    if (leg.stopS) {
+      const end = tS + leg.stopS;
+      const stopInterval = leg.stopIntervalS || interval;
+      while (tS < end) {
+        push(s, Number.isFinite(leg.stopSog) ? leg.stopSog : 0.1, 1, leg.stopCogRandom ? rnd() * 360 : undefined);
+        tS += stopInterval;
+      }
+      continue;
+    }
+    const dir = leg.toS >= s ? 1 : -1;
+    const inGap = (x) => Number.isFinite(leg.gapFromS) && Number.isFinite(leg.gapToS)
+      && x >= Math.min(leg.gapFromS, leg.gapToS) && x <= Math.max(leg.gapFromS, leg.gapToS);
+    while ((dir > 0 && s < leg.toS) || (dir < 0 && s > leg.toS)) {
+      if (!inGap(s)) push(s, leg.speedKn, dir);
+      const dt = interval + (leg.intervalJitterS ? rnd() * leg.intervalJitterS : 0);
+      tS += dt;
+      s += dir * leg.speedKn * 0.5144 * dt;
+    }
+    s = leg.toS;
+  }
   return samples;
 }
 

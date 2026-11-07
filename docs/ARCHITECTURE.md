@@ -487,6 +487,71 @@ Dedup-lagren:
    (motsatt = ny passage, ELFKUNGEN-fallet); riktning saknas ⇒ konservativ
    blockering. Kontrolleras i huvudvägen (:4448), fallback (:4289) och exit
    (:4206). Skrivs vid varje mutation (§6), rollback vid triggerfel (:4562–4571).
+3. **Besöksspärren** `TriggerPointVisitTracker` (besöksregeln 2026-09-07, `holds`):
+   en notis per båt och punkt och sammanhängande besök. Besöket slutar vid
+   observerad utfärd och återkomst (§6) och, sedan **U14 (användarbeslut
+   2026-11-04, kort B01, reviderat efter två granskningar)**, vid en bevisad
+   passage tillbaka över en bro. Besöket minns vilken sida av brolinjen den
+   notifierade passagen leder till (`farSign`: ankomstsidans motsats vid
+   förvarning, ankomstsidan vid passerad form via `reserve(…, { passageBehind })`)
+   och när båten senast setts entydigt där (`farSideSeenAt`, ±10 m via
+   `geometry.decisiveBridgeSide`). Därefter följer `observe` varje ren fix: när
+   båtens signerade avstånd till linjen (`geometry.bridgeLineOffsetM`) byter
+   tecken från bortre sidan till ankomstsidan noteras en **korsning**, med tiden
+   interpolerad på segmentet (fixklockan, som `gt-passages`). En fix tillbaka på
+   bortre sidan stryker korsningen. `releaseReturnPassage` släpper besöket bara när
+   allt detta gäller:
+   - appen har bokfört bron (`lastPassedBridge` eller `passedAt[bro]`, så att en
+     retur över två broar i samma glapp räknas) i en fix där båten INTE låg
+     entydigt på bortre sidan. En bokföring i en fix på bortre sidan absorberas
+     (`farSideBooking`), utom passagelogikens förtida returbokföring medan båten
+     väntar vid linjen: en fix inom 30 m på bortre sidan efter att ruttriktningen
+     vänt (`_noteFarSideBooking`, revision 4). Den kan bara släppas av två fixar
+     på ankomstsidan (nedan). Stämplarna jämförs bara med varandra;
+   - ruttriktningen (`_routeDirection`) pekar tillbaka, och båten är under gång
+     mot ankomstsidan (rapporterad fart minst `MOVEMENT_PROOF_SOG_KN`, 0,5 kn, och
+     kurs mot ankomstsidan via `geometry.courseBridgeSide`);
+   - positionen bevisar passagen: en korsning är noterad och båten ligger minst
+     30 m ut på ankomstsidan (`UNDER_BRIDGE_CROSS_PROOF_JITTER_M / 2`), med
+     bokföringen i korsningssegmentet eller två fixar i rad ENTYDIGT på
+     ankomstsidan, under gång dit även i den förra (en bokföring som
+     passagelogiken gjorde redan när en väntande båt nådde linjen). Vid gles AIS
+     (leveransintervall över halva `PASSAGE_CLEAR_WINDOW_MS`) räcker i
+     bokföringsticken ett segment från entydigt bortre sidan till entydigt
+     ankomstsidan när båten rör sig i nuet (sog minst 2,0 kn, samma gräns som
+     RE_CROSS och C2; utan fart ett segment på minst 100 m), eller till linjen
+     (±10 m) i transitfart (`BRIDGE_OPENING.QUAY_TRANSIT_PROOF_SOG_KN`, 3,13 kn).
+     En båt som bromsar in för att vänta vid linjen uppfyller inget av dem inom
+     appens brusmodell: kravet på 30 m ut betyder att en båt som i själva verket
+     ligger kvar på bortre sidan bara släpps av ett brus på över 30 m längs
+     kanalaxeln, alltså utöver 60 m mellan två stilla fixar;
+   - **U21** (dirigentens beslut 2026-11-05): notisen kommer högst
+     `STALE_ETA_HARD_THRESHOLD_MS` (10 min) efter den interpolerade korsningen.
+     Annars skickas ingen returnotis.
+
+   Appen prövar släppet där notisbeslutet fattas (`_triggerBoatNearFlowForBridge`
+   och failsafen, med S4:s fönster `PASSAGE_TRIGGER_GRACE_MS`, 15 s, som
+   bokföringsgräns; failsafen prövar beviset torrt och släpper besöket först när
+   dess egna spärrar, som `FALLBACK_TRIGGER_TOO_FAR` och `STALE`, är passerade)
+   och i slutet av varje fix (`_confirmReturnPassages`, utan
+   bokföringsgräns; tiden mäts mot korsningen). En retur som bokförs vid linjen
+   får alltså sin notis när en senare fix visar båten tydligt på ankomstsidan.
+   Formen följer beviset (`_returnPassageForm`): "passerade … under AIS-tystnad"
+   när korsningen låg i ett segment längre än två AISHub-pollar (130 s) och
+   notisen kommer efter "precis passerat"-fönstret (60 s), annars "har precis
+   passerat". Släppet städar som en observerad återkomst (sessionsnyckel och
+   persistent post för just den bron). Replayharnessen bokför det separat
+   (`visitReturnReleases`, med bevis, korsningstid och dröjsmål) med en
+   geometrisk dom ur rådatan (`tests/replay-validation/returnReleaseVerdict.js`),
+   och INV-2 fäller ett släpp där båten lämnar bron på bortre sidan (FALSKT
+   RETURSLÄPP) eller inte ligger på ankomstsidan vid släppet, i nästa fix eller
+   inom 60 s, eller inte stannar där (färre än hälften av fixarna efter släppet,
+   nästa fix och 60 s-fönstret, entydigt på ankomstsidan: FÖR TIDIGT RETURSLÄPP).
+   En båt som guppar, väntar eller vänder och väntar nära linjen får fortfarande
+   EN notis, även vid gles AIS, när hennes AIS rapporterar 0,5–1 kn och när
+   GPS-bruset ger passagelogiken falska bokföringar, så länge bruset håller sig
+   inom appens brusmodell (se U14, kvarvarande gränser).
+   Kanalinfarten har ingen brolinje och följer besöksregeln oförändrad.
 
 Tokens: `vessel_name` (B1: känt namn → cache-uppslag → "Okänd båt", :4464),
 `bridge_name`, `direction` (`_getDirectionString`:4639: låst rutt-riktning
@@ -1274,7 +1339,7 @@ Flaggor (bärs av `_createVesselObject`-fältlistan, §8a): `_etaIsExtrapolated`
 | `last_known_positions` | `_loadLastKnownPositions`:615 | `_persistLastKnownPositions`:646 | `{ mmsi: {lat, lon, t} }`, 6 h TTL; skrivs vid removal (:1084–1090); begränsar skipped-bridges-scenario A för återfödda båtar (§3) |
 | `quay_stable_ledger` | `_loadQuayLedger` | `_persistQuayLedger` (STRYPT: max var 15:e min + tvingad vid `onUninit`) | V1-kajavgångsgrindens historik `{ mmsi: {stillAt, lat, lon} }`, TTL = `QUAY_DEPARTURE_GATE.MEMORY_MS` (2 h); rörelseräknaren `movingFixes` persisteras ALDRIG (den är ett påstående om innevarande sessions observationer). Utan persistensen återskapade en appomstart 5 s före kajavgången PRICKBJORN-fantomen exakt |
 | `persistent_opening_warnings` | `_loadPersistentOpeningWarnings` | `_persistOpeningWarnings` (vid varje avfyrning + vid konsumtion) | Etapp 6 + J15 (2026-08-22): öppningsvarningarnas dedup ÖVER omstart, `{ "Bro\|mmsi\|riktning": {firedAt, expiresAt} }`. TVÅDELAT läsfönster (`_openingDedupActiveUntil`): post skriven i DENNA session dedupar till firedAt + `CONVOY_WINDOW_MS` (10 min, som förr); post LADDAD VID BOOT dedupar till expiresAt = firedAt + 10 min + ETA (kapat `_OPENING_PERSIST_MAX_MS`) — omstartsskyddet. TRE konsumtionsvägar nollar nyckeln: bekräftad passage i `_observeBridgeOpening`, gap-inferrerad passage och backfill (L19). Riktningsledet gör att en U-svängares RETURPASSAGE aldrig tystas; sedan S11 (fixrunda 6) är riktningsledet MEDLEMMENS egen låsta riktning (`memberDirections` i payloaden), ledarens bara som fallback. Sedan S13 härleds expiresAt inte ur ETA-tokenen utan ur max(dagens uttryck, armens förväntade ankomst `expectedArrivalMs` — MAX över medlemmarna), fortfarande kapat. Känd avvägning: avbruten anflygning före omstart (§9) |
-| `trigger_point_visits` | konstruktorn (`TriggerPointVisitTracker.loadSnapshot`) | `_persistTriggerPointVisits` (vid varje fasbyte i `observe`, reservation/rollback av notis, stängning vid fullbordad resa och tvingad i `onUninit`) | Besöksregeln 2026-09-07: `{ version: 2, entries: { "mmsi:punkt": {startedAt, lastFixTs, outsideFixTs, exitedAt, lastLat, lastLon, lastPositionTs, arrivalLat, arrivalLon} } }` för alla broar och Kanalinfarten. Ett notifierat besök spärrar nya notiser till observerad utfärd (två rena fixar > 350 m, passage följd av två fixar på bortre sidan, eller positionsbevisad fullbordad resa) och återkomst inom 300 m. Stängda poster gallras efter 6 h; tak 2048 poster |
+| `trigger_point_visits` | konstruktorn (`TriggerPointVisitTracker.loadSnapshot`) | `_persistTriggerPointVisits` (vid varje fasbyte i `observe`, reservation/rollback av notis, stängning vid fullbordad resa och tvingad i `onUninit`) | Besöksregeln 2026-09-07: `{ version: 2, entries: { "mmsi:punkt": {startedAt, lastFixTs, outsideFixTs, exitedAt, lastLat, lastLon, lastPositionTs, arrivalLat, arrivalLon, farSign, farSideSeenAt} } }` för alla broar och Kanalinfarten. Ett notifierat besök spärrar nya notiser till observerad utfärd (två rena fixar > 350 m, passage följd av två fixar på bortre sidan, eller positionsbevisad fullbordad resa) och återkomst inom 300 m. U14 (2026-11-04): vid en bro avslutar också en bevisad passage tillbaka besöket (§3, dedup-lager 3); `farSign` och `farSideSeenAt` sparas, och första observationen på bortre sidan är ett fasbyte. Bokföringsstämplarna (`farSideBooking`, `returnBookedAt`), den noterade korsningen och fixens segment gäller bara det levande fartygsobjektet och sparas inte; efter en omstart noteras en korsning på nytt ur den sparade sista fixen. Äldre poster utan fälten, eller med skadade värden, får inget returpassagesläpp. Stängda poster gallras efter 6 h; tak 2048 poster |
 | `opening_quay_ledger` | `_loadOpeningQuayLedger` | `_persistQuayLedger` (samma strypta 15-min-klocka som V1-kartan + tvingad flush i `onUninit`; skrivtakt ~96→192/dygn) | M11 (2026-08-23): öppningslagrets kajbokföring `{ mmsi: {bandSince, stillAt, lat, lon, moving} }`, TTL = `QUAY_DEPARTURE_GATE.MEMORY_MS`. Utan persistens var kajvobbelgrinden BLIND 5 min efter varje omstart (bandSince sessionslokal) och efter ETT fix utanför 500 m-bandet; nu hysteres (en tolererad fix, `MIN_MOVING_FIXES`-härledd) + persistens. `movingFixes`, `prevFix`, `lastFix` persisteras ALDRIG (påståenden om innevarande session) |
 
 **Kajbokföringens TVÅ kartor.** `_quayStableLedger` (persisterad, ovan) bokför
@@ -2462,6 +2527,72 @@ Underlaget står i `docs/helgranskning-2026-11-03.md`; varje fynd prövades med 
 produktion, se nedan. BN1: utfarter vid boxkanten lämnar besök öppna (VISTEN, REBEL, JUNO). open3:
 ETA utan fixålder (D2). Latenta fynd utan uppmätt effekt är listade i rapporten.
 
+### Rättningskampanjen 2026-11-04 — U14, en notis per passage (kort B01)
+
+Användarbeslutet U14 gör INV-5/7 till kontrakt: en båt som passerar en bro, vänder och passerar
+tillbaka får en notis även för returpassagen. Besöksregeln 2026-09-07 justeras bara för den
+passagen; en båt som guppar eller väntar vid bron får fortfarande en notis per besök.
+
+- **Felet:** en vändning inom 350 m bortom bron stängde aldrig besöket (två fixar över 350 m
+  krävs), så `holds` tystade returpassagen. Buggjägaren fann klassen i 30 världar (B01: WILMA
+  vänder 162 m söder om Klaffbron; felbandet 125–308 m).
+- **Rättningen:** dedup-lager 3 i §3. Den första prototypen släppte besöket redan när
+  bokföringen kom och båten låg vid linjen. Granskningen visade att det gjorde passagelogikens
+  falska bokföringar (distance_fallback när GPS-bruset för en väntande båt till linjen) till
+  notiser för en båt som vänt och sedan väntade nära bron: 2–3 notiser i 13 av 30
+  svepkörningar. Beviset kräver nu att båten är tydligt ute på ankomstsidan och under gång dit;
+  vid tät AIS väntar en bokföring vid linjen på nästa fix. Släppet läser även `passedAt[bro]`,
+  eftersom `lastPassedBridge` bara håller den sist stämplade bron när två broar bokförs i
+  samma tick (granskningens M1/M2).
+- **Omgranskningen 2026-11-05:** vid gles AIS (Class B med jitter, AISHub) godtog förra
+  revisionen en fix som fortfarande låg på bortre sidan inom 10 m från linjen. Passagelogiken
+  bokför just en sådan fix, så en båt som vände, bromsade in och stannade vid linjen för att
+  vänta fick en falsk eller 16–17 min för tidig returnotis (9 av 72 respektive 9 av 36 svepbanor).
+  Revision 3 följer korsningen fix för fix (ovan): en gles bokföringsfix vid linjen räcker bara i
+  transitfart, och annars väntar beviset på en fix ute på ankomstsidan, utan bokföringsgräns.
+  Samma ändring stänger klassen långsamma returer (under cirka 1,2 kn), där 60 s-fönstret från
+  bokföringen gick ut innan båten var 30 m ut.
+- **Omgranskning 2 (2026-11-07):** en väntande båt vars AIS rapporterar 0,5–1 kn och slumpad
+  kurs fick av ±15 m brus vid gles AIS en falsk "har precis passerat" via en enda gles fix
+  entydigt på ankomstsidan (6 av 360 granskarbanor), eller samma notis 13 min för tidigt.
+  Revision 4: (1) en sådan gles fix räcker bara när båten rör sig i nuet (2,0 kn, appens gräns
+  för korsningsbevis i RE_CROSS och C2); (2) två fixar i rad på ankomstsidan räknas bara när
+  båda ligger entydigt där och båten var under gång dit även i den förra; (3) passagelogikens
+  förtida returbokföring i en fix strax bortom linjen efter vändningen behålls i stället för att
+  absorberas, så att den verkliga returen inte missas när passagelogiken inte bokför igen
+  (granskarens retur-banor: 10 av 360 missade efter (1) ensam, 0 med (3)); (4) failsafen
+  släpper besöket först när dess egna spärrar är passerade; (5) INV-2:s tidsdom kräver att
+  båten stannar på ankomstsidan. Svep (K/N/tmp/r4): granskarens P1 360+360 banor och P2 24
+  banor rätt; långsamma returer 0,7–2,0 kn 120 av 120 med två notiser.
+- **U21 (användarbeslut 2026-11-04, kväll, med dirigentens gräns 2026-11-05):** ingen sen notis
+  för en returpassage under ett långt AIS-avbrott. En returnotis släpps bara om den kommer högst
+  `STALE_ETA_HARD_THRESHOLD_MS` (10 min) efter den uppskattade korsningen, som interpoleras på
+  glappsegmentet. I 20260708-21h ser appen ELFKUNGENs retur över Stallbackabron när hon hörs
+  igen efter 80 min (`SKIPPED_BRIDGES_CHECK … new-vessel, candidates=[Stallbackabron]`), men
+  returen är bara antagen ur glappet och bokförs inte; den uppskattade korsningen ligger dessutom
+  över en timme bakåt. Besöksregeln stoppar därför failsafen, som beslutet 2026-09-07 säger.
+- **Facit:** tre rådatabelagda returpassager får notis (ELFKUNGEN i 20260712-25h,
+  20260804-both-21h och 20260806-42h); notiserna togs bort av besöksregeln 2026-09-07. Notiserna
+  i `corpora.js` har beläggen.
+- **Kvar, utanför besöksregeln:** en retur som appen inte bokför får ingen notis. Två kända
+  orsaker: Fix D:s återkorsning (familj R1, bokför returen i de flesta fall) och
+  `_anchorPassageTimestamp`s studsvakt, som sväljer en mellanbrobokföring av en retur som
+  korsar inom 3 min efter utpassagen (`REVERSE_RECRROSS_GUARD`, typiskt en snäv U-sväng).
+  INV-5 fäller inte där, eftersom ingen passage registreras. Omvänt ger passagelogikens falska
+  bokföringar vid linjen fortfarande INV-5 ("2 registrerade passager men 1 notis") för en
+  väntande båt, precis som på 7699cbe. Det felet ligger i passagelogiken, inte i notisen.
+  Samma förtidiga bokföring ger INV-7 (SEN MÅLBRO-NOTIS) när båten sedan verkligen korsar:
+  notisen kommer vid den verkliga korsningen, men INV-7 mäter mot bokföringen. Därtill tre
+  kända gränser i notisvägen: en retur där ruttriktningen inte har vänt (RE_CROSS vänder den
+  fel efter en lång väntan vid linjen, 2 av 36 glesa svepbanor, även på 7699cbe), en båt som
+  efter korsningen ligger kvar inom 30 m från linjen i stillhet längre än U21:s 10 min, och
+  en båt som kommer i transitfart och tvärstannar inom 10 m från linjen just när
+  passagelogiken bokför (inte sett i 54 sådana svepbanor). **Brus utanför appens
+  brusmodell** (omgranskning 2, P2): med ±30 m per koordinat (upp till 42 m längs
+  kanalaxeln) kan en väntande båt i 0,6–1 kn ibland ligga två fixar i rad över 30 m ut på
+  ankomstsidan. Uppmätt rest i revision 4: 5 av 48 banor vid tät AIS och 2 av 48 vid gles AIS
+  ger ett falskt eller för tidigt släpp (revision 3: 11 och 13), 0 av 192 vid ±20–25 m.
+  Registrerad som känd gräns.
 
 ## 10. Söndagsfältet 2026-08-09/10 (commits a9f2a20, ce6a946, b1a7ba3 + WS-3)
 

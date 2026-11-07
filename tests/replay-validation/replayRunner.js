@@ -257,6 +257,8 @@ async function main() {
   // En återkomst till samma område behöver inte starta om hela resan.
   // Fångas direkt ur den riktiga besöksservicen och binds till båt + plats.
   const visitReentries = [];
+  // U14: besök som avslutats av en returpassage (releaseReturnPassage).
+  const visitReturnReleases = [];
   // Fältprov 3 (2026-07-08): TARGET_RECALC (bekräftad riktningsreversal —
   // COG-debounce ELLER broskorsningsbevis) räknas som journey-reset: den
   // legitimerar returnotiser (INV-2) och U-svängskorrigerade målbro-som-
@@ -318,6 +320,34 @@ async function main() {
         }
         return result;
       };
+      // U14 (2026-11-04, reviderat efter granskningen): ett returpassagesläpp
+      // avslutar också besöket, men bokförs SEPARAT från observerade
+      // återkomster. Efter körningen får varje släpp en geometrisk dom ur
+      // rådatan (returnReleaseVerdicts nedan), och INV-2 godtar bara släpp som
+      // geometrin inte motsäger.
+      if (typeof tracker.releaseReturnPassage === 'function') {
+        const releaseReturnPassage = tracker.releaseReturnPassage.bind(tracker);
+        tracker.releaseReturnPassage = (vessel, pointName, limits) => {
+          const released = releaseReturnPassage(vessel, pointName, limits);
+          // Revision 4: failsafens torrkörning avslutar inget besök.
+          if (released && !limits?.dryRun) {
+            // Revision 3: beviset följer med (bevistyp, interpolerad korsning,
+            // korsningssegmentets längd och notisens dröjsmål efter korsningen),
+            // så att FACIT och vakterna kan läsa U21-gränsen direkt.
+            visitReturnReleases.push({
+              t: Date.now(),
+              mmsi: String(vessel.mmsi),
+              bridge: pointName,
+              farSign: released.farSign,
+              evidence: released.evidence,
+              crossedAt: released.crossedAt,
+              crossingGapMs: released.crossingGapMs,
+              latenessMs: released.latenessMs,
+            });
+          }
+          return released;
+        };
+      }
     }
     if (monitoringEnabled) {
       const service = instance.vesselDataService;
@@ -831,6 +861,19 @@ async function main() {
     heapUsedMB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
   };
 
+  // U14 (granskningen 2026-11-04, skärpt i omgranskningarna 2026-11-05 och
+  // 2026-11-07): GEOMETRISK DOM över varje returpassagesläpp, ur rådatan och
+  // oberoende av appens egna kriterier (avstånd, tid och att båten stannar på
+  // ankomstsidan). Se returnReleaseVerdict.js.
+  {
+    const { judgeReturnRelease } = require('./returnReleaseVerdict');
+    for (const release of visitReturnReleases) {
+      const { verdict, verdictT } = judgeReturnRelease(release, samples);
+      release.verdict = verdict;
+      if (verdictT !== undefined) release.verdictT = verdictT;
+    }
+  }
+
   const result = {
     jsonl: path.basename(jsonlPath),
     mmsiFilter,
@@ -879,6 +922,7 @@ async function main() {
     targetPassages,
     journeyResets,
     visitReentries,
+    visitReturnReleases,
     intermediatePassages,
     leakDiagnostics,
   };
