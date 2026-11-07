@@ -100,26 +100,20 @@ describe('buggjägaren: beslutsregistret', () => {
     expect(unused.find((u) => u.id === 'P8-L6-SPÖKTEXT').omätbar).toBe(true);
   });
 
-  test('INV5-VS-BESÖKSREGEL matchar U-svängsfixturen men inte en båt med två fixar över 350 m', () => {
-    const { reg, platser } = load();
+  test('INV5-VS-BESÖKSREGEL är borttagen (U14, aa71099): U-svängsfixturens INV-5-utslag blir KANDIDAT, och besöksregeln för T1 står kvar', () => {
+    // U14 gjorde INV-5/7 till kontrakt (en notis per verklig passage, även
+    // returpassagen), och konflikten är avgjord. Fixturen är ett äldre
+    // appresultat med två målbropassager och en notis; i dag är det ett
+    // appfel, och inget i registret får förklara det (BUGGJAKT §7, rad 35).
+    const { reg } = load();
     const r = reg.loadRegistry();
+    expect(r.poster.map((e) => e.id)).not.toContain('INV5-VS-BESÖKSREGEL');
+    expect(r.poster.filter((e) => (e.gäller.inv || []).some((x) => x === 'INV-5' || x === 'INV-7'))).toEqual([]);
     const existing = require('../lib/oracles/existing');
     const inv5 = existing.judgeExisting({ result: usvang.resultat, rows: usvang.rader, gt: [] }).fynd.find((f) => f.inv === 'INV-5');
-    const ctx = { rader: usvang.rader, resultat: usvang.resultat };
-    const hit = r.classify(inv5, ctx);
-    expect(hit).toMatchObject({ klass: 'KONFLIKT', post: 'INV5-VS-BESÖKSREGEL' });
-    // Två konsekutiva fixar > 350 m från Klaffbron mellan passagerna = utfärd.
-    const [p1, p2] = usvang.resultat.targetPassages;
-    const sK = platser.stationS('Klaffbron');
-    const away = [
-      row(platser, '265025978', p1.t + 60000, sK + 600),
-      row(platser, '265025978', p1.t + 90000, sK + 650),
-    ];
-    const rows2 = [...usvang.rader, ...away].sort((a, b) => a.aisTimestamp - b.aisTimestamp);
-    expect(p2.t).toBeGreaterThan(p1.t + 90000);
-    const miss = r.classify(inv5, { rader: rows2, resultat: usvang.resultat });
-    expect(miss.klass).toBe('KANDIDAT');
-    expect(miss.närmast.skäl).toMatch(/utfärd bevisad/);
+    const c = r.classify(inv5, { rader: usvang.rader, resultat: usvang.resultat });
+    expect(c).toMatchObject({ klass: 'KANDIDAT', post: null });
+    expect(r.entry('BESÖKSREGEL-2026-09-07').predikat.namn).toBe('sameVisit');
   });
 
   describe('varje predikat åt båda hållen', () => {

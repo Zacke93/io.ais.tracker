@@ -17,7 +17,11 @@
  * varningar, täckning, passager, brotexter och L0) för en värld i taget.
  * KÄND LUCKA-fallen bygger på R1:s fixturer i tests/fixtures/
  * (r1-kand-lucka-*.jsonl) med handskriven L0, eftersom fixturerna är
- * verkliga rader utan sanning. Inga barnprocesser och inga timers.
+ * verkliga rader utan sanning. U18-fallen står i
+ * fixtures/register-u18-2026-11-07.json: standardkörningen på aa71099 (U14
+ * integrerad, seed 1) med alla båtars rader i fönstret och resultatets
+ * journeyResets, som U18-predikatet läser sedan den andra granskningen
+ * (BUGGJAKT §7, rad 34). Inga barnprocesser och inga timers.
  */
 
 const fs = require('fs');
@@ -26,10 +30,11 @@ const { loadRegistry, PREDICATES, harnessTider } = require('../lib/registry');
 const platser = require('../lib/platser');
 const F = require('./fixtures/kampanj-register-2026-11-07.json');
 const E = require('./fixtures/register-efterratt-2026-11-07.json');
+const G = require('./fixtures/register-u18-2026-11-07.json');
 
 const MIN = 60000;
 const kopia = (x) => JSON.parse(JSON.stringify(x));
-const fall = (k) => kopia(F[k] || E[k]);
+const fall = (k) => kopia(F[k] || E[k] || G[k]);
 const klassa = (reg, f, ctx) => reg.classify(f, ctx, { räkna: false });
 const pred = (namn, extra = {}) => (f, ctx) => PREDICATES[namn].fn(f, ctx, { ...PREDICATES[namn].parametrar, ...extra });
 const prövad = (c, post) => (c.prövade || []).find((p) => p.post === post) || (c.närmast && c.närmast.post === post ? c.närmast : null);
@@ -86,15 +91,87 @@ describe('registret 2026-11-07: posterna finns, laddar utan varningar och U2-RET
 // ---------------------------------------------------------------------------
 
 describe('U18 U18-RETUR-BEKRÄFTAD-SENT: knuten till Fix D:s bekräftelse, inte bara till tiden', () => {
+  const p18 = pred('fixDBekräftarReturSent');
+  const w18Skäl = (k) => {
+    const c = klassa(reg, fall(k).fynd, fall(k).ctx);
+    return { c, skäl: (prövad(c, 'U18-RETUR-BEKRÄFTAD-SENT') || {}).skäl || c.skäl };
+  };
+
   test('[träff] värld 18 (ALVA): OKLASSAD, en omvänd fix 11:42:45 före korsningen 11:46:35, bekräftad först 11:54:01', () => {
     const { fynd, ctx } = fall('w18');
     expect(klassa(reg, fynd, ctx)).toMatchObject({ klass: 'DESIGN', post: 'U18-RETUR-BEKRÄFTAD-SENT' });
   });
 
-  test('[träff] värld 1274 (LEDTID 23 s, K:s F02-r2) och värld 227 (T3 9 s efter korsningen): egen varning vid bekräftelsen', () => {
-    for (const k of ['w1274', 'w227']) {
+  test('[träff] världarna 134, 227 och 1731 (OKLASSAD): båten korsade också Järnvägsbron på returen, men ingen riktningshändelse före korsningen', () => {
+    // Appen bekräftade vändningen vid Fix D:s fix efter korsningen (11:57:01,
+    // 11:33:29 och 11:05:53); ingen rad bortom Järnvägsbron bekräftade den
+    // tidigare (review2). De förblir U18.
+    for (const k of ['w134', 'w227-oklassad', 'w1731-oklassad']) {
       const { fynd, ctx } = fall(k);
-      expect(klassa(reg, fynd, ctx)).toMatchObject({ post: 'U18-RETUR-BEKRÄFTAD-SENT' });
+      const c = klassa(reg, fynd, ctx);
+      expect(c).toMatchObject({ klass: 'DESIGN', post: 'U18-RETUR-BEKRÄFTAD-SENT' });
+      expect(c.skäl).toMatch(/ingen riktningshändelse i appen före korsningen/);
+      const jr = ctx.resultat.journeyResets.filter((x) => x.mmsi === String(fynd.mmsi));
+      expect(jr.length).toBeGreaterThan(0);
+      expect(jr.every((x) => x.t > fynd.t)).toBe(true);
+    }
+  });
+
+  test('[träff] värld 1181: appens återkorsning av Klaffbron bekräftade vid samma fix som Fix D, efter korsningen; U18', () => {
+    const { fynd, ctx } = fall('w1181');
+    expect(klassa(reg, fynd, ctx)).toMatchObject({ post: 'U18-RETUR-BEKRÄFTAD-SENT' });
+  });
+
+  test('[träff] värld 829 (LEDTID 42 s) och 227 (T3, bekräftad 10 s efter korsningen): egen varning vid bekräftelsen', () => {
+    // Riktningshändelsen loggas vid det bekräftande fixets bearbetning
+    // (0 ms) och räknas därför inte som en annan väg.
+    for (const k of ['w829', 'w227']) {
+      const { fynd, ctx } = fall(k);
+      const c = klassa(reg, fynd, ctx);
+      expect(c).toMatchObject({ post: 'U18-RETUR-BEKRÄFTAD-SENT' });
+      expect(c.skäl).toMatch(/utan tidigare riktningshändelse i appen/);
+    }
+    expect(klassa(reg, fall('w227').fynd, fall('w227').ctx).skäl).toMatch(/10 s efter korsningen 11:33:20/);
+  });
+
+  test('[vakt] värld 1274 (LEDTID 23 s, K:s F02-r2): återkorsningen av Järnvägsbron bekräftade vändningen 391 s före korsningen; KANDIDAT', () => {
+    const { c, skäl } = w18Skäl('w1274');
+    expect(c.klass).toBe('KANDIDAT');
+    expect(skäl).toMatch(/riktningshändelse för båten 09:14:21 \(journeyResets\), efter vändningen 09:12:43 och före korsningen 09:20:52, men Fix D bekräftade 09:20:29/);
+    expect(skäl).toMatch(/förklaras inte av U18/);
+  });
+
+  test('[vakt] värld 1317 (OKLASSAD vid Stridsbergsbron): återkorsningen av Järnvägsbron bekräftade 100 s före korsningen; KANDIDAT', () => {
+    const { c, skäl } = w18Skäl('w1317');
+    expect(c.klass).toBe('KANDIDAT');
+    expect(skäl).toMatch(/riktningshändelse för båten 12:33:26 \(journeyResets\), efter vändningen 12:30:36 och före korsningen 12:35:06, men Fix D bekräftade 12:36:07/);
+  });
+
+  test('[vakt] en riktningshändelse före korsningen fäller träffarna; en efter korsningen eller vid det bekräftande fixet gör det inte', () => {
+    const a = fall('w18');
+    a.ctx.resultat.journeyResets.push({ t: a.fynd.t - 2 * MIN, mmsi: String(a.fynd.mmsi) });
+    expect(p18(a.fynd, a.ctx).skäl).toMatch(/riktningshändelse för båten 11:44:35/);
+    const b = fall('w18');
+    b.ctx.resultat.journeyResets.push({ t: b.fynd.t + 1000, mmsi: String(b.fynd.mmsi) });
+    expect(p18(b.fynd, b.ctx).sant).toBe(true);
+    const c = fall('w18');
+    c.ctx.resultat.journeyResets.push({ t: c.fynd.t - 2 * MIN, mmsi: '265000000' });
+    expect(p18(c.fynd, c.ctx).sant).toBe(true);
+    const d = fall('w829');
+    const w = d.ctx.resultat.openingWarnings.find((x) => x.eventId === d.fynd.belägg.varning.eventId);
+    d.ctx.resultat.journeyResets.push({ t: w.t - 30000, mmsi: String(d.fynd.mmsi) });
+    expect(p18(d.fynd, d.ctx).skäl).toMatch(/riktningshändelse för båten 17:01:14/);
+    const e = fall('w829');
+    e.ctx.resultat.journeyResets.push({ t: w.t - 500, mmsi: String(e.fynd.mmsi) });
+    expect(p18(e.fynd, e.ctx).sant).toBe(true);
+  });
+
+  test('[vakt] ett resultat utan journeyResets ger nej', () => {
+    for (const k of ['w18', 'w829']) {
+      const { fynd, ctx } = fall(k);
+      delete ctx.resultat.journeyResets;
+      expect(p18(fynd, ctx)).toMatchObject({ sant: false });
+      expect(p18(fynd, ctx).skäl).toMatch(/saknar appens riktningshändelser/);
     }
   });
 
@@ -113,24 +190,23 @@ describe('U18 U18-RETUR-BEKRÄFTAD-SENT: knuten till Fix D:s bekräftelse, inte 
   });
 
   test('[vakt] en sen varning som inte följer bekräftelsen, en annan båts varning och en korsning utan vändning faller på predikatet', () => {
-    const p = pred('fixDBekräftarReturSent');
-    const a = fall('w1274');
+    const a = fall('w829');
     const w = a.ctx.resultat.openingWarnings.find((x) => x.eventId === a.fynd.belägg.varning.eventId);
     w.t += 90000;
-    expect(p(a.fynd, a.ctx)).toMatchObject({ sant: false });
-    expect(p(a.fynd, a.ctx).skäl).toMatch(/förklaras inte av U18/);
-    const b = fall('w1274');
+    expect(p18(a.fynd, a.ctx)).toMatchObject({ sant: false });
+    expect(p18(a.fynd, a.ctx).skäl).toMatch(/förklaras inte av U18/);
+    const b = fall('w829');
     b.ctx.resultat.openingWarnings.find((x) => x.eventId === b.fynd.belägg.varning.eventId).leadMmsi = '265000000';
-    expect(p(b.fynd, b.ctx).skäl).toMatch(/inte av båten själv/);
+    expect(p18(b.fynd, b.ctx).skäl).toMatch(/inte av båten själv/);
     const c = fall('w18');
     c.ctx.sanning.uturns = [];
-    expect(p(c.fynd, c.ctx).skäl).toMatch(/ingen L0-vändning/);
+    expect(p18(c.fynd, c.ctx).skäl).toMatch(/ingen L0-vändning/);
   });
 
   test('[vakt] ingen omvänd fix med FIX_D_MIN_SOG före korsningen: tvåpositionskravet förklarar inte utslaget', () => {
     const { fynd, ctx } = fall('w18');
     for (const r of ctx.rader) if (r.aisTimestamp > Date.parse('2026-08-05T11:41:34Z') && r.aisTimestamp < fynd.t) r.sog = 1.5;
-    expect(pred('fixDBekräftarReturSent')(fynd, ctx).skäl).toMatch(/ingen omvänd fix/);
+    expect(p18(fynd, ctx).skäl).toMatch(/ingen omvänd fix/);
   });
 
   // Efterrättningen 2026-11-07: varningen ska komma vid det bekräftande
@@ -140,7 +216,7 @@ describe('U18 U18-RETUR-BEKRÄFTAD-SENT: knuten till Fix D:s bekräftelse, inte 
   const w829MedNästaFix = () => {
     const a = fall('w829');
     const w = a.ctx.resultat.openingWarnings.find((x) => x.eventId === a.fynd.belägg.varning.eventId);
-    const rad = a.ctx.rader.find((r) => r.aisTimestamp === w.t);
+    const rad = a.ctx.rader.find((r) => r.aisTimestamp === w.t && r.mmsi === String(a.fynd.mmsi));
     expect(rad).toBeTruthy();
     const ny = {
       ...rad, aisTimestamp: w.t + 29500, lat: rad.lat - 0.0004, fixTs: w.t + 29500,
@@ -158,7 +234,7 @@ describe('U18 U18-RETUR-BEKRÄFTAD-SENT: knuten till Fix D:s bekräftelse, inte 
     w.firedBy = 'fix';
     const c = klassa(reg, fynd, ctx);
     expect(c.post).not.toBe('U18-RETUR-BEKRÄFTAD-SENT');
-    expect(pred('fixDBekräftarReturSent')(fynd, ctx).skäl).toMatch(/17:02:14 \(fix\) kom inte vid det bekräftande fixet 17:01:44 eller första ticken/);
+    expect(p18(fynd, ctx).skäl).toMatch(/17:02:14 \(fix\) kom inte vid det bekräftande fixet 17:01:44 eller första ticken/);
   });
 
   test('[träff] varningen vid första ticken efter det bekräftande fixet (firedBy deadline, 20 s senare, ingen egen rad emellan)', () => {
@@ -166,8 +242,8 @@ describe('U18 U18-RETUR-BEKRÄFTAD-SENT: knuten till Fix D:s bekräftelse, inte 
     const w = a.ctx.resultat.openingWarnings.find((x) => x.eventId === a.fynd.belägg.varning.eventId);
     w.t += 20000;
     w.firedBy = 'deadline';
-    expect(pred('fixDBekräftarReturSent')(a.fynd, a.ctx)).toMatchObject({ sant: true });
-    expect(pred('fixDBekräftarReturSent')(a.fynd, a.ctx).skäl).toMatch(/vid första ticken/);
+    expect(p18(a.fynd, a.ctx)).toMatchObject({ sant: true });
+    expect(p18(a.fynd, a.ctx).skäl).toMatch(/vid första ticken/);
   });
 
   test('[vakt] ticken efter en egen rad, och ett fix som inte är det bekräftande, faller på predikatet', () => {
@@ -176,11 +252,11 @@ describe('U18 U18-RETUR-BEKRÄFTAD-SENT: knuten till Fix D:s bekräftelse, inte 
     } = w829MedNästaFix();
     w.t = bek + 29600;
     w.firedBy = 'deadline';
-    expect(pred('fixDBekräftarReturSent')(fynd, ctx).skäl).toMatch(/egen rad 17:02:14 emellan/);
+    expect(p18(fynd, ctx).skäl).toMatch(/egen rad 17:02:14 emellan/);
     const b = fall('w829');
     const wb = b.ctx.resultat.openingWarnings.find((x) => x.eventId === b.fynd.belägg.varning.eventId);
     wb.t += 5000;
-    expect(pred('fixDBekräftarReturSent')(b.fynd, b.ctx).sant).toBe(false);
+    expect(p18(b.fynd, b.ctx).sant).toBe(false);
   });
 });
 

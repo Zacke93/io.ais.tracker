@@ -360,14 +360,14 @@ function halvminutstickFas(a, b, tickMs, fördröjningMs, fasMs) {
 }
 
 // En klausul med ETA för en målbro, i harnessens textformat (samma grammatik
-// som INV-1 och INV-3 läser, invariants.js:58–106): 'strax' eller "om (cirka)
+// som INV-1 och INV-3 läser, invariants.js:63–111): 'strax' eller "om (cirka)
 // N minuter". "ETA okänd" och väntklausuler bär ingen ETA och hoppas över,
 // som i INV-3.
 const ETA_KLAUSUL_RE = /på väg mot (Klaffbron|Stridsbergsbron), beräknad broöppning (?:(strax)|om (?:cirka )?(\d+) minuter)/;
 
 /**
  * ETA-serien för en bro ur brotextövergångarna, som INV-3 bygger den
- * (invariants.js:273–284): en post per publicerad text med en ETA-klausul för
+ * (invariants.js:305–316): en post per publicerad text med en ETA-klausul för
  * bron.
  * @param {object[]} övergångar - resultatets bridgeTextTransitions ({t, text})
  * @param {string} bro - målbron
@@ -399,10 +399,10 @@ function sammaEpisodnyckel(k, msg) {
 /**
  * Klasser vars ISO-tid är episodens SLUT, med markören för hur länge
  * episoden pågick dessförinnan: ETA-SÅGTAND UPP "på Ns" är tiden från förra
- * publiceringen till språnget (invariants.js:321) och ETA-OSCILLATION
- * "inom Ns" spannet X→Y→X′ (invariants.js:351). DEFAULT-FLASH:s ISO-tid är
+ * publiceringen till språnget (invariants.js:353) och ETA-OSCILLATION
+ * "inom Ns" spannet X→Y→X′ (invariants.js:383). DEFAULT-FLASH:s ISO-tid är
  * i stället STARTEN av "Inga båtar" och "(Ns)" hur länge texten stod
- * (invariants.js:170–180, :438), så dess längd flyttar inte episodens tid.
+ * (invariants.js:175–185, :470), så dess längd flyttar inte episodens tid.
  */
 const SLUTTIDSKLASSER = Object.freeze({
   'ETA-SÅGTAND UPP': /\bpå (\d+(?:[.,]\d+)?)s\b/,
@@ -426,7 +426,7 @@ function episodLängdMs(msg) {
  * fartygets senast kända värde: _createVesselObject sätter
  * `Number.isFinite(data.sog) ? data.sog : (oldVessel?.sog ?? data.sog)`, och
  * samma för cog (VesselDataService.js:5286–5287). Fix D-blockets yttre
- * villkor (:384–392) och S10-vaktens krav 3 (app.js:9745,
+ * villkor (:384–392) och S10-vaktens krav 3 (app.js:9895,
  * _fixDReversalContradictsNotification) prövar sedan vessel.cog och
  * vessel.sog, alltså det framförda värdet. Saknar alla tidigare rader ett
  * finit värde förblir det icke-finit, som i appen. Varje ny rad bär
@@ -472,7 +472,7 @@ function medFramfördKursOchFart(fixar) {
 /**
  * Fix D:s pending-logik (VesselDataService.js:380–476) spelad över ett
  * fartygs fixar i tidsordning, för S10-predikatet. Harnessen stegar klockan
- * till varje rads aisTimestamp innan raden matas in (replayRunner.js:512–521),
+ * till varje rads aisTimestamp innan raden matas in (replayRunner.js:542–551),
  * så appens Date.now() är radens tid.
  *  - En rad utan finit kurs eller fart prövas med fartygets senast kända
  *    värde (medFramfördKursOchFart, VesselDataService.js:5286–5287). Saknas
@@ -626,6 +626,26 @@ function förstaBekräftelse(fixar, opts, till) {
     if (fd.bekräftad && fd.bekräftad.till === till) return { t: fd.bekräftad.t, flaggad: fd.bekräftad.flaggad };
   }
   return null;
+}
+
+/**
+ * Appens bokförda riktningshändelser för en båt: resultatets journeyResets
+ * (replayRunner.js:256–267 och :472–474), alltså raderna [TARGET_RECALC],
+ * [JOURNEY_RESET], [NEW_JOURNEY] och [REENTRY_NEW_JOURNEY] med harnessens
+ * klocka när raden loggades. Varje bekräftad vändning loggar [TARGET_RECALC]
+ * i VesselDataService.js#_confirmDirectionReversal, vilken väg som än
+ * bekräftade den (Fix D:s COG-debounce, återkorsningen RE_CROSS,
+ * korsningsbeviset eller två rena positionsben), och en vändning efter
+ * slutmålet loggar [NEW_JOURNEY] i app.js. Raden säger inte riktningen, så en
+ * händelse räknas som en bekräftelse; i ett amnestipredikat kan det bara göra
+ * posten smalare.
+ * @returns {object[]|null} båtens händelser i tidsordning, eller null när
+ *   resultatet saknar listan
+ */
+function riktningshändelser(ctx, mmsi) {
+  const lista = ctx && ctx.resultat && ctx.resultat.journeyResets;
+  if (!Array.isArray(lista)) return null;
+  return lista.filter((x) => x && String(x.mmsi) === String(mmsi) && Number.isFinite(x.t)).sort((a, b) => a.t - b.t);
 }
 
 /**
@@ -1193,8 +1213,8 @@ const PREDICATES = {
 
   // MÄTGRÄNS-INV10-VÄNTKEDJA (triagens T-1, F18). INV-10 godtar bara ETT
   // bekräftat väntintervall som täcker fram till nästa övergång
-  // (invariants.js:476–503). Harnessen bryter intervallet när nästa
-  // textgenerering kommer efter `until` (replayRunner.js:291–306), det vill
+  // (invariants.js:508–535). Harnessen bryter intervallet när nästa
+  // textgenerering kommer efter `until` (replayRunner.js:293–308), det vill
   // säga vid ett fixglapp, och halvminutstickens text byts upp till en tick
   // efter sista `until`. Predikatet godtar en KEDJA av intervall för bron
   // med högst maxGlappS mellan angränsande intervall, som börjar senast
@@ -1202,9 +1222,9 @@ const PREDICATES = {
   // maxSvansS före nästa övergång. Underlaget är belägg.väntan (existing.js).
   //
   // Inget glapp i kedjan får innehålla en halvminutstick. UI-klockan slår på
-  // absoluta halvminuter (app.js:13089–13096, `30000 − (Date.now() % 30000)`)
+  // absoluta halvminuter (app.js:13259–13266, `30000 − (Date.now() % 30000)`)
   // och tickens text genereras inom mikrograce, högst 40 ms senare
-  // (app.js:5513–5520). Vid en tick inne i glappet är positionen inte färsk,
+  // (app.js:5639–5646). Vid en tick inne i glappet är positionen inte färsk,
   // så 'strax' spärras av hasFreshPosition (BridgeTextService.js:304–308) och
   // en korrekt app byter text där. Står 'strax' kvar över en sådan tick är
   // det just det INV-10 vaktar, inte en mätgräns. Svansen efter kedjans sista intervall
@@ -1251,10 +1271,10 @@ const PREDICATES = {
   // U16-F40-STRAX-STUDS (användarbeslut U16 2026-11-04, F18/F19 i
   // s1-standard-a). Appen visar aldrig 'strax' på en position som är äldre
   // än STALE_ETA_HARD (600 s): imminent-grinden kräver
-  // dataIsFreshEnough (app.js:7107–7113, "F40 medvetet EJ ändrat"; U1/C11).
+  // dataIsFreshEnough (app.js:7233–7239, "F40 medvetet EJ ändrat"; U1/C11).
   // När en köande båts enda 'strax'-bärande fix blir för gammal lånar
   // klausulen nästa båts ETA, och 'strax' kommer tillbaka med båtens nästa
-  // fix. INV-3:s studsdiskriminator (invariants.js:302–319) tolkar studsen
+  // fix. INV-3:s studsdiskriminator (invariants.js:334–351) tolkar studsen
   // som falsk degradering. Ägaren valde att behålla beteendet (U16).
   //
   // Klassen är MÄTGRÄNS (efterrättning R3c, BUGGJAKT §7 rad 21): hoppet vid
@@ -1263,7 +1283,7 @@ const PREDICATES = {
   // verklig setImmediate efter varje clock.tick (replayRunner.js:86–88 och
   // 512–521). I värld 1608 räknade UI-cykeln från halvminuten 09:42:00 först
   // vid dräneringen 09:42:09,998 (ålder 599,7 s, IMMINENT_SET), och dess
-  // omkörning (setImmediate, app.js:6857–6862) kördes först vid dräneringen
+  // omkörning (setImmediate, app.js:6983–6988) kördes först vid dräneringen
   // före MASEN 2:s rad 09:42:15,101 ("AIS too old (605s > 600s)"). I fält
   // hade omkörningen gått vid halvminuten med åldern cirka 590 s, och nästa
   // cykel 09:42:30 hade kommit efter hennes färska rad. Åldern 604,8 s är
@@ -1272,7 +1292,7 @@ const PREDICATES = {
   // Predikatet är medvetet smalt och bundet till den båt som kan ha burit
   // 'strax'. Det godtar bara studsen vid båtens nästa rad. När klockan når
   // raden dränerar harnessen väntande UI-arbete före sampelbearbetningen
-  // (replayRunner.js:512–521), och texten som publiceras där bygger på läget
+  // (replayRunner.js:542–551), och texten som publiceras där bygger på läget
   // före raden: hoppet (i fullvärlden 1608 IMMINENT_SKIP "AIS too old (605s
   // > 600s)"). Texten efter sampelbearbetningen bär 'strax' igen:
   // återgången. Radernas bearbetningstider ger harnessTider. Kraven:
@@ -1286,7 +1306,7 @@ const PREDICATES = {
   //     ålder (Date.now() − vessel.timestamp, VesselDataService.js:5291) mot
   //     STALE_ETA_HARD, med samma jämförelse som dataIsFreshEnough;
   //  4. båda fixarna ligger inom radieM från bron (imminent-hysteresens yttre
-  //     gräns, app.js:7210–7212, WAITING_CLEAR_DISTANCE);
+  //     gräns, app.js:7336–7338, WAITING_CLEAR_DISTANCE);
   //  5. ingen belagd textgenerering mellan att åldern passerade minÅlderS
   //     och hoppet: ingen publicerad brotext och ingen halvminutstick (i
   //     variantens fas för M-FAS, med textens mikrograce; vakthunden kör en
@@ -1304,20 +1324,20 @@ const PREDICATES = {
   //     radens tid, och ingen annan båts rad inom straxRadieM från bron
   //     bearbetades emellan: den hade kunnat bära 'strax' tillbaka. 500 m är
   //     den vidaste radie där appen sätter 'strax' (den uttömda grenen,
-  //     app.js:7239). Fönstret räknas från radens tid, inte från
+  //     app.js:7365). Fönstret räknas från radens tid, inte från
   //     bearbetningen, så att posten aldrig blir bredare än i rundans första
   //     försök;
   //  8. ingen styrrad (avbrott, återanslutning, omstart) bearbetades mellan
   //     båtens förra fix och återgången;
   //  9. båten kunde bära 'strax' vid sin förra fix: fixen ligger inom
-  //     imminentRadieM (imminent SET, app.js:7210–7212), eller inom radieM
+  //     imminentRadieM (imminent SET, app.js:7336–7338), eller inom radieM
   //     efter en tidigare fix inom väntRadieM (väntläget, WAITING_SET, som
   //     ger gränsen 350 m) utan att båten lämnat radieM emellan;
   // 10. ingen annan båt kunde bära 'strax' vid hoppet: ingen annan båt har
   //     sin senaste fix före hoppet inom straxRadieM, högst minÅlderS gammal
   //     (appens klocka), utanför kajkapslarna och på väg mot bron (kursen
   //     inom ±90° från bäringen till bron, eller saknad kurs inom radieM).
-  //     Den uttömda grenen sätter 'strax' inom 500 m (app.js:7239).
+  //     Den uttömda grenen sätter 'strax' inom 500 m (app.js:7365).
   // Rättat 2026-11-05 (efterrättning R3c, granskarens slutvarv): förut tog
   // posten radens båt som bärare utan krav 9 och 10. En B4-studs (ULLA:s
   // uttömda 'strax' 452 m från Klaffbron, 90 s-taket) med en annan båt Y,
@@ -1367,7 +1387,7 @@ const PREDICATES = {
       }
       const k = serie.indexOf(vid[0]);
       // ETA-OSCILLATION: utslagets tid är återgången, och X→Y→X′ är tre
-      // poster i följd (invariants.js:337–351). ETA-SÅGTAND UPP: utslagets
+      // poster i följd (invariants.js:369–383). ETA-SÅGTAND UPP: utslagets
       // tid är hoppet, och återgången är nästa post med en annan nivå (en
       // text som bara ändras i en annan klausul upprepar hoppets nivå).
       const osc = /ETA-OSCILLATION/.test(f.klass);
@@ -1533,10 +1553,10 @@ const PREDICATES = {
   },
 
   // S10-VÄNDNING-BRON-BAKOM (triagens T-3, F15). Appens S10-vakt
-  // (app.js:9745, _fixDReversalContradictsNotification) avstår från notisen
+  // (app.js:9895, _fixDReversalContradictsNotification) avstår från notisen
   // när Fix D:s färska pending-reversal motsäger tokenriktningen och bron
   // ligger bakom fartyget på levande kurs, och loggar
-  // FLOW_TRIGGER_SKIP_PENDING_REVERSAL (app.js:10293). Replayresultatet bär
+  // FLOW_TRIGGER_SKIP_PENDING_REVERSAL (app.js:10446). Replayresultatet bär
   // inte loggraden, så predikatet prövar vaktens villkor på raderna: fixen
   // före besöket låg i det motsatta kursbandet (det gamla riktningslåset),
   // och alla fixar inom radien under besöket har kurs i det nya bandet, fart
@@ -1693,6 +1713,16 @@ const PREDICATES = {
   //    registret: förut godtogs varningen upp till tickar × TICK_INTERVAL_MS
   //    efter bekräftelsen, och då dolde posten en egen varning vid nästa fix
   //    när fixen kom inom 60 s (K2-granskarens anmärkning).
+  // I båda grenarna får vändningen inte ha varit bekräftad på en ANNAN väg
+  // före korsningen: appen får inte ha bokfört någon riktningshändelse för
+  // båten (riktningshändelser, resultatets journeyResets) efter vändningen och
+  // senast vid korsningen, mer än fixToleransMs före det bekräftande fixets
+  // bearbetning. Fix D:s egen bekräftelse loggas vid det fixet och räknas
+  // inte. Skärpt 2026-11-07 efter den andra granskningen (review2): i
+  // världarna 1274 och 1317 bekräftade återkorsningen av Järnvägsbron
+  // vändningen 391 respektive 100 s före korsningen, och målbron hölls tom;
+  // spelet över Fix D ensamt påstod att bekräftelsen kom sent. Ett resultat
+  // utan journeyResets ger nej.
   fixDBekräftarReturSent: {
     parametrar: {
       fixDMinSogKn: FIX_D_MIN_SOG,
@@ -1727,24 +1757,44 @@ const PREDICATES = {
       }
       const bek = förstaBekräftelse(efterVändning.filter((r) => r.aisTimestamp <= k.t + maxÅlderMs), opts, k.riktning);
       const gräns = p.tickar * p.tickMs;
+      const tider = harnessTider(ctx);
+      const tidFör = (r) => tider.get(r) ?? r.aisTimestamp;
+      const bekRad = bek ? efterVändning.find((r) => r.aisTimestamp === bek.t) : null;
+      let pBek = Infinity;
+      if (bek) pBek = bekRad ? tidFör(bekRad) : bek.t;
+      // Bekräftades vändningen på en annan väg än Fix D före korsningen
+      // (granskningen 2026-11-07, review2: världarna 1274 och 1317)? Då kände
+      // appen riktningen, och en sen eller utebliven varning beror inte på U18.
+      const annanVäg = () => {
+        const händelser = riktningshändelser(ctx, k.mmsi);
+        if (!händelser) {
+          return nej('resultatet saknar appens riktningshändelser (journeyResets), så det går inte att visa att '
+            + 'vändningen bara kunde bekräftas av Fix D');
+        }
+        const e = händelser.find((x) => x.t > u.t && x.t <= k.t && x.t < pBek - p.fixToleransMs);
+        if (!e) return null;
+        return nej(`appen bokförde en riktningshändelse för båten ${fmtT(e.t)} (journeyResets), efter vändningen ${fmtT(u.t)} och `
+          + `före korsningen ${fmtT(k.t)}, men Fix D bekräftade ${bek ? fmtT(bek.t) : 'aldrig'}: vändningen var redan bekräftad på `
+          + 'en annan väg (till exempel återkorsningen av en annan bro), så förseningen förklaras inte av U18');
+      };
       if (/^ÖPPNING-MISS/.test(f.klass)) {
         if (bek && bek.t <= k.t) {
           return nej(`Fix D bekräftade vändningen ${fmtT(bek.t)}, före korsningen ${fmtT(k.t)}; en retur som bekräftats före korsningen ska ha egen varning (U15)`);
         }
+        const annan = annanVäg();
+        if (annan) return annan;
         return ok(`U18: vändningen ${fmtT(u.t)}; Fix D flaggade ${fmtT(fd.flagga.t)} men bekräftade ${bek ? fmtT(bek.t) : 'aldrig'}, `
-          + `efter korsningen ${fmtT(k.t)}`);
+          + `efter korsningen ${fmtT(k.t)}; ingen riktningshändelse i appen före korsningen`);
       }
       if (!bek) return nej('Fix D bekräftade aldrig vändningen inom FIX_D_PENDING_MAX_AGE_MS');
       if (k.t - bek.t >= gräns) {
         return nej(`Fix D bekräftade vändningen ${fmtT(bek.t)}, ${Math.round((k.t - bek.t) / 1000)} s före korsningen (≥ ${gräns / 1000} s): upptäckten var inte sen`);
       }
+      const annan = annanVäg();
+      if (annan) return annan;
       const w = fyndetsVarning(f, ctx);
       if (!w) return nej('varningen saknas i resultatet');
       if (String(w.leadMmsi) !== k.mmsi) return nej(`varningen ${w.eventId} leds av ${w.leadMmsi}, inte av båten själv`);
-      const tider = harnessTider(ctx);
-      const tidFör = (r) => tider.get(r) ?? r.aisTimestamp;
-      const bekRad = efterVändning.find((r) => r.aisTimestamp === bek.t);
-      const pBek = bekRad ? tidFör(bekRad) : bek.t;
       const vidFixet = w.firedBy === 'fix' && Math.abs(w.t - pBek) <= p.fixToleransMs;
       const mellan = rowsOf(ctx, k.mmsi).filter((r) => tidFör(r) > pBek && tidFör(r) < w.t);
       const vidTicken = w.firedBy === 'deadline' && w.t > pBek && w.t - pBek <= p.tickMs + p.tickFördröjningMs && !mellan.length;
@@ -1752,8 +1802,9 @@ const PREDICATES = {
         return nej(`varningen ${w.eventId} ${fmtT(w.t)} (${w.firedBy}) kom inte vid det bekräftande fixet ${fmtT(bek.t)} eller första ticken efter det`
           + `${mellan.length ? ` (egen rad ${fmtT(mellan[0].aisTimestamp)} emellan)` : ''}: förseningen förklaras inte av U18`);
       }
+      const läge = bek.t <= k.t ? `${Math.round((k.t - bek.t) / 1000)} s före` : `${Math.round((bek.t - k.t) / 1000)} s efter`;
       return ok(`U18: vändningen ${fmtT(u.t)}; Fix D flaggade ${fmtT(bek.flaggad)} och bekräftade ${fmtT(bek.t)}, `
-        + `${Math.round((k.t - bek.t) / 1000)} s före korsningen ${fmtT(k.t)}; egen varning ${w.eventId} ${fmtT(w.t)} ${vidFixet ? 'vid fixet' : 'vid första ticken'}`);
+        + `${läge} korsningen ${fmtT(k.t)}, utan tidigare riktningshändelse i appen; egen varning ${w.eventId} ${fmtT(w.t)} ${vidFixet ? 'vid fixet' : 'vid första ticken'}`);
     },
   },
 

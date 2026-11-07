@@ -1,5 +1,5 @@
 {
-  "_om": "Beslutsregistret för buggjägaren (BUGGJAKT §7). En maskinläsbar SPEGEL av ägarbesluten: källan är alltid docs/ eller koden, och ett nytt beslut skrivs först där. Motorn ändrar aldrig den här filen. Ett utslag omklassas bara när orakel, klassRegex och predikat alla matchar; ett fatalt invariantutslag (INV-F) omklassas dessutom bara av en post som namnger INV-id:t i gäller.inv (en taggpost utan inv-lista når alla INV-F-fynd, eftersom den aldrig omklassar). Ordningen spelar roll: första matchande post vinner (poster med verkan 'tagg' lägger bara till en tagg). Oanvända poster redovisas i varje rapport så att inga amnestier ligger kvar efter en rättning. Sammanslaget 2026-11-04 ur map-oracles/decision-registry-draft.json och design-mutation/beslutsregister-utkast.json. Integrationen 2026-11-04 lade till KANALINFARTEN-FP8-SYDGRIND (bankkalibreringens enda oregistrerade träff) och utvidgade O1 till kort ledtid och varning efter sann passage för båtar som inte var varningsbara. Rättningsrundan 2026-11-04 (BUGGJAKT §7, listan över registerändringar): KIE-PER-KORPUS kräver samma episod och gäller inte låst bank (M03); D4-RIKTNING-UNKNOWN gäller bara M-FAS-riktningsbyten med ny riktning unknown (M05); fem poster som oraklen tillämpar själva har verkan 'iOraklet' (M12); konvojposternas predikat delar definitioner med T2-oraklet (M04, T-2); nya poster MÄTGRÄNS-INV10-VÄNTKEDJA (T-1) och S10-VÄNDNING-BRON-BAKOM (T-3); efterrättningen samma dag snävade KIE-PER-KORPUS till |δ| + episodens längd + en tick och högst en träff per undantag och variant. Runda 2 samma dag (BUGGJAKT §7, rad 10–14): S10-VÄNDNING-BRON-BAKOM kräver FIX_D_MIN_SOG på zonens första fix och ingen bekräftande zonfix (E1); MÄTGRÄNS-INV10-VÄNTKEDJA godtar inget glapp som innehåller en halvminutstick (E2); KIE-PER-KORPUS tar episodens längd bara ur undantaget och bara för klasser vars tid är episodens slut, så DEFAULT-FLASH jämförs med |δ| + en tick (E3); orakelvakterna pekar på symboler (fil#namn) som laddningen kontrollerar (E5); taggposter når INV-F-fynd (E7). Efterrättningen i runda 2 (rad 15): S10-VÄNDNING-BRON-BAKOM spelar Fix D över fartygets fixar före zonen och godtar inte en färsk pending-flagga eller en reversal som redan bekräftats före zonen. Runda 3 samma dag (rad 16–18): S10-VÄNDNING-BRON-BAKOM prövar en rad utan kurs eller fart med fartygets senast kända värde, som appen (L1); hänvisningskontrollen tar bort kommentarer och räknar inte importer som definitioner (L2); den nya posten U16-F40-STRAX-STUDS speglar användarbeslutet U16 och registrerar F40-studsen som DESIGN när den sammanfaller med den 'strax'-bärande båtens nästa fix. Efterrättningen i runda 3 (rad 19–20): U16-F40-STRAX-STUDS är bunden till den båt som kan ha burit 'strax' (hoppet när harnessen bearbetar hennes rad, appens ålder från bearbetningen, ingen textgenerering efter 600 s-gränsen, ingen kajkapsel och ingen annan båts rad före återgången); hänvisningskontrollen räknar inte en egenskap vars värde är en import eller ett annat namn som definition. Registret 2026-11-07 (BUGGJAKT §7, rad 23–31): U2-RETURRESA är borttagen (U15 besvarade frågan, och en retur utan egen varning är en kandidat); nya poster speglar användarbesluten U17, U18 och U19, dirigentens beslut om R2:s fråga 2 och de kända luckorna för K, M och R1 (U1-C11-TYST-FÖRE-DEFAULT, M-BRUSBAND-RÖRELSEBEVIS, R2-MÅLBRO-EFTER-LINJEN, U18-RETUR-BEKRÄFTAD-SENT, U17-TYST-BÅT-RECOVER, K-TYST-BÅT-NÄSTA-ÖPPNING, U19-VARNING-UNDER-VÄNTANDE-VÄNDNING, TVÅ-ÅTERKORSADE-BROAR-I-SAMMA-SEGMENT och U-SVÄNG-LÅNGSAM-ÅTERKORSNING).",
+  "_om": "Beslutsregistret för buggjägaren (BUGGJAKT §7). En maskinläsbar SPEGEL av ägarbesluten: källan är alltid docs/ eller koden, och ett nytt beslut skrivs först där. Motorn ändrar aldrig den här filen. Ett utslag omklassas bara när orakel, klassRegex och predikat alla matchar; ett fatalt invariantutslag (INV-F) omklassas dessutom bara av en post som namnger INV-id:t i gäller.inv (en taggpost utan inv-lista når alla INV-F-fynd, eftersom den aldrig omklassar). Ordningen spelar roll: första matchande post vinner (poster med verkan 'tagg' lägger bara till en tagg). Oanvända poster redovisas i varje rapport så att inga amnestier ligger kvar efter en rättning. Sammanslaget 2026-11-04 ur map-oracles/decision-registry-draft.json och design-mutation/beslutsregister-utkast.json. Integrationen 2026-11-04 lade till KANALINFARTEN-FP8-SYDGRIND (bankkalibreringens enda oregistrerade träff) och utvidgade O1 till kort ledtid och varning efter sann passage för båtar som inte var varningsbara. Rättningsrundan 2026-11-04 (BUGGJAKT §7, listan över registerändringar): KIE-PER-KORPUS kräver samma episod och gäller inte låst bank (M03); D4-RIKTNING-UNKNOWN gäller bara M-FAS-riktningsbyten med ny riktning unknown (M05); fem poster som oraklen tillämpar själva har verkan 'iOraklet' (M12); konvojposternas predikat delar definitioner med T2-oraklet (M04, T-2); nya poster MÄTGRÄNS-INV10-VÄNTKEDJA (T-1) och S10-VÄNDNING-BRON-BAKOM (T-3); efterrättningen samma dag snävade KIE-PER-KORPUS till |δ| + episodens längd + en tick och högst en träff per undantag och variant. Runda 2 samma dag (BUGGJAKT §7, rad 10–14): S10-VÄNDNING-BRON-BAKOM kräver FIX_D_MIN_SOG på zonens första fix och ingen bekräftande zonfix (E1); MÄTGRÄNS-INV10-VÄNTKEDJA godtar inget glapp som innehåller en halvminutstick (E2); KIE-PER-KORPUS tar episodens längd bara ur undantaget och bara för klasser vars tid är episodens slut, så DEFAULT-FLASH jämförs med |δ| + en tick (E3); orakelvakterna pekar på symboler (fil#namn) som laddningen kontrollerar (E5); taggposter når INV-F-fynd (E7). Efterrättningen i runda 2 (rad 15): S10-VÄNDNING-BRON-BAKOM spelar Fix D över fartygets fixar före zonen och godtar inte en färsk pending-flagga eller en reversal som redan bekräftats före zonen. Runda 3 samma dag (rad 16–18): S10-VÄNDNING-BRON-BAKOM prövar en rad utan kurs eller fart med fartygets senast kända värde, som appen (L1); hänvisningskontrollen tar bort kommentarer och räknar inte importer som definitioner (L2); den nya posten U16-F40-STRAX-STUDS speglar användarbeslutet U16 och registrerar F40-studsen som DESIGN när den sammanfaller med den 'strax'-bärande båtens nästa fix. Efterrättningen i runda 3 (rad 19–20): U16-F40-STRAX-STUDS är bunden till den båt som kan ha burit 'strax' (hoppet när harnessen bearbetar hennes rad, appens ålder från bearbetningen, ingen textgenerering efter 600 s-gränsen, ingen kajkapsel och ingen annan båts rad före återgången); hänvisningskontrollen räknar inte en egenskap vars värde är en import eller ett annat namn som definition. Registret 2026-11-07 (BUGGJAKT §7, rad 23–31): U2-RETURRESA är borttagen (U15 besvarade frågan, och en retur utan egen varning är en kandidat); nya poster speglar användarbesluten U17, U18 och U19, dirigentens beslut om R2:s fråga 2 och de kända luckorna för K, M och R1 (U1-C11-TYST-FÖRE-DEFAULT, M-BRUSBAND-RÖRELSEBEVIS, R2-MÅLBRO-EFTER-LINJEN, U18-RETUR-BEKRÄFTAD-SENT, U17-TYST-BÅT-RECOVER, K-TYST-BÅT-NÄSTA-ÖPPNING, U19-VARNING-UNDER-VÄNTANDE-VÄNDNING, TVÅ-ÅTERKORSADE-BROAR-I-SAMMA-SEGMENT och U-SVÄNG-LÅNGSAM-ÅTERKORSNING). Efterrättningen samma dag (rad 32–33) snävade U17, K-NÄSTA, O1, U18, U1-C11, M-BRUSBAND, R2, TVÅ-BROAR och U-SVÄNG. Den andra granskningen samma dag (rad 34–36, på aa71099): U18-RETUR-BEKRÄFTAD-SENT gäller bara när ingen riktningshändelse i appen (journeyResets) bekräftade vändningen före korsningen och före Fix D; INV5-VS-BESÖKSREGEL är borttagen (U14 avgjorde konflikten, och posten användes inte); radhänvisningarna gäller aa71099.",
   "version": 1,
   "poster": [
     {
@@ -46,13 +46,13 @@
           "tickS": 30
         }
       },
-      "regel": "Korpusens rådataverifierade invariantundantag gäller även fas- och mutantvarianter av SAMMA episod: prefixet (klassen) ska matcha ett knownInvariantException i korpusen, broarna ska vara desamma, fartyget detsamma när undantaget namnger ett, och utslagets tid ska ligga högst |δ| + L + en tick (30 s) från undantagets (δ = variantens fasförskjutning; L = undantagets egen längd för klasser vars tid är episodens slut, ETA-SÅGTAND UPP 'på Ns' och ETA-OSCILLATION 'inom Ns', annars 0). DEFAULT-FLASH:s tid är episodens start (invariants.js:170–180 och :438; ETA-klassernas tid är slutet, :321 och :351), så en flash jämförs start mot start med |δ| + en tick, och utslagets egen längd vidgar aldrig fönstret. Längden får variera (42h-flashen 30 s → 56–60 s vid fasskift, och med δ −7, −11,52 och −20 s börjar den en tick tidigare, 30 s isär). Ett undantag förklarar högst en träff per variant, den närmaste. En ny episod vid samma bro vid en annan tid omfattas inte. På den låsta banken (relation BAS) gäller bara runAllCorpora:s exakta prefixmatch, ingen registeramnesti."
+      "regel": "Korpusens rådataverifierade invariantundantag gäller även fas- och mutantvarianter av SAMMA episod: prefixet (klassen) ska matcha ett knownInvariantException i korpusen, broarna ska vara desamma, fartyget detsamma när undantaget namnger ett, och utslagets tid ska ligga högst |δ| + L + en tick (30 s) från undantagets (δ = variantens fasförskjutning; L = undantagets egen längd för klasser vars tid är episodens slut, ETA-SÅGTAND UPP 'på Ns' och ETA-OSCILLATION 'inom Ns', annars 0). DEFAULT-FLASH:s tid är episodens start (invariants.js:175–185 och :470; ETA-klassernas tid är slutet, :321 och :351), så en flash jämförs start mot start med |δ| + en tick, och utslagets egen längd vidgar aldrig fönstret. Längden får variera (42h-flashen 30 s → 56–60 s vid fasskift, och med δ −7, −11,52 och −20 s börjar den en tick tidigare, 30 s isär). Ett undantag förklarar högst en träff per variant, den närmaste. En ny episod vid samma bro vid en annan tid omfattas inte. På den låsta banken (relation BAS) gäller bara runAllCorpora:s exakta prefixmatch, ingen registeramnesti."
     },
     {
       "id": "U16-F40-STRAX-STUDS",
       "klass": "MÄTGRÄNS",
       "datum": "2026-11-04",
-      "källa": "docs/BUGGJAKT.md §7 (användarbeslut U16 2026-11-04: beteendet behålls, aldrig 'strax' på en position äldre än 10 min; studsen vid båtens nästa rad är MÄTGRÄNS sedan efterrättningen R3c, rad 21); tests/replay-validation/replayRunner.js:86–88 och :512–521 (harnessens dränering: en enda verklig setImmediate efter varje clock.tick, så appens asynkrona UI-arbete körs först vid nästa dränering); app.js:6857–6862 (omkörningen efter en pågående uppdatering schemaläggs med setImmediate);docs/buggjakt-triage-2026-11-04.md beslutsfråga 3 (F40-studsen: DESIGN, MÄTGRÄNS eller hysteres) och §Ägarens beslut 2026-11-04 (U16); docs/helgranskning-2026-07-06.md:271–274 (F40-avvägningen: ETA-hopp vid 600 s-gränsen för väntande glesa sändare, säkerhetsvalet 'aldrig strax på gammal position' står); docs/etapp7-plan-2026-08-08.md:8 (U1), :15 (U6) och :267 (C11: 'strax' kräver färsk signal, positionsålder högst STALE_ETA_HARD); app.js:7107–7113 (imminent-grinden dataIsFreshEnough, 'F40 medvetet EJ ändrat'); app.js:7210–7212 (imminentLimitM: imminent SET inom 300 m, kvar inom 350 m); lib/constants.js:1133 (STALE_ETA_HARD_THRESHOLD_MS); tests/replay-validation/replayRunner.js:122–126 och :501–622 (harnessens klocka: raderna i aisTimestamp-ordning, dränering före raden, clock.tick(60) efter varje AIS-rad); lib/services/VesselDataService.js:5291 (vessel.timestamp = Date.now() när raden bearbetas); app.js:7239 (den uttömda grenen sätter 'strax' inom 500 m); app.js:13089–13096 (UI-klockans absoluta halvminuter); lib/constants.js:415–470 (MOORING_ZONES och kajen norr om Klaffbrons köundantag queueGraceMs)",
+      "källa": "docs/BUGGJAKT.md §7 (användarbeslut U16 2026-11-04: beteendet behålls, aldrig 'strax' på en position äldre än 10 min; studsen vid båtens nästa rad är MÄTGRÄNS sedan efterrättningen R3c, rad 21); tests/replay-validation/replayRunner.js:86–88 och :542–551 (harnessens dränering: en enda verklig setImmediate efter varje clock.tick, så appens asynkrona UI-arbete körs först vid nästa dränering); app.js:6983–6988 (omkörningen efter en pågående uppdatering schemaläggs med setImmediate);docs/buggjakt-triage-2026-11-04.md beslutsfråga 3 (F40-studsen: DESIGN, MÄTGRÄNS eller hysteres) och §Ägarens beslut 2026-11-04 (U16); docs/helgranskning-2026-07-06.md:271–274 (F40-avvägningen: ETA-hopp vid 600 s-gränsen för väntande glesa sändare, säkerhetsvalet 'aldrig strax på gammal position' står); docs/etapp7-plan-2026-08-08.md:8 (U1), :15 (U6) och :267 (C11: 'strax' kräver färsk signal, positionsålder högst STALE_ETA_HARD); app.js:7233–7239 (imminent-grinden dataIsFreshEnough, 'F40 medvetet EJ ändrat'); app.js:7336–7338 (imminentLimitM: imminent SET inom 300 m, kvar inom 350 m); lib/constants.js:1133 (STALE_ETA_HARD_THRESHOLD_MS); tests/replay-validation/replayRunner.js:122–126 och :531–652 (harnessens klocka: raderna i aisTimestamp-ordning, dränering före raden, clock.tick(60) efter varje AIS-rad); lib/services/VesselDataService.js:5291 (vessel.timestamp = Date.now() när raden bearbetas); app.js:7365 (den uttömda grenen sätter 'strax' inom 500 m); app.js:13259–13266 (UI-klockans absoluta halvminuter); lib/constants.js:415–470 (MOORING_ZONES och kajen norr om Klaffbrons köundantag queueGraceMs)",
       "gäller": {
         "orakel": [
           "INV-F"
@@ -68,43 +68,7 @@
           "fönsterMs": 1000
         }
       },
-      "regel": "Användarbeslut U16 (2026-11-04): beteendet behålls. Appen visar aldrig 'strax' på en position som är äldre än STALE_ETA_HARD (10 min; U1/C11 och F40-avvägningen). När en köande båts 'strax'-bärande fix blir äldre än 600 s tappar klausulen 'strax' och lånar nästa båts ETA, och 'strax' kommer tillbaka med båtens nästa fix. INV-3:s studsdiskriminator (invariants.js:302–319) fäller studsen som ETA-OSCILLATION och ETA-SÅGTAND UPP. Posten gäller bara studsen hos den båt som kan ha burit 'strax', när hennes nästa rad bearbetas: harnessen dränerar väntande UI-arbete när klockan når raden, före sampelbearbetningen, och texten där bygger på läget före raden. Den varianten är en mätgräns: harnessen kör appens asynkrona UI-arbete först vid sin nästa dränering (en verklig setImmediate efter varje clock.tick, replayRunner.js:86–88 och 512–521), så hoppet är svansen av en tidigare UI-cykel, i värld 1608 omkörningen (setImmediate, app.js:6857–6862) av halvminutens cykel 09:42:00. I fält hade omkörningen gått vid halvminuten med åldern cirka 590 s. Kraven: nivån före hoppet och återgången är 'strax' i brons ETA-serie; hoppet publicerades exakt när harnessen bearbetade båtens rad (harnessens klocka: en rad bearbetas vid max(radens tid, förra AIS-radens bearbetning + 60 ms)); båtens föregående fix bearbetades mer än 600 s före hoppet (appens ålder, med samma jämförelse som dataIsFreshEnough); båda fixarna ligger inom 350 m från bron (WAITING_CLEAR_DISTANCE) och utanför kajkapslarna (MOORING_ZONES); ingen brotext publicerades och ingen halvminutstick (i variantens fas för M-FAS) föll mellan 600 s-gränsen och hoppet, eftersom appen annars hade tappat 'strax' där om båten bar det; återgången kom efter radens bearbetning och högst 1 s efter radens tid, utan att någon annan båts rad inom 500 m från bron (den vidaste radie där appen sätter 'strax') bearbetades emellan; ingen styrrad (avbrott, återanslutning, omstart) bearbetades mellan båtens förra fix och återgången; båten kunde bära 'strax' vid sin förra fix (fixen inom 300 m, imminent SET, eller inom 350 m efter en tidigare fix inom 270 m, väntläget, utan att båten lämnat 350 m emellan); och ingen annan båt kunde bära 'strax' vid hoppet (ingen annan båt har sin senaste fix före hoppet inom 500 m, högst 600 s gammal i appens klocka, utanför kajkapslarna och på väg mot bron: kursen inom ±90° från bäringen till bron, eller saknad kurs inom 350 m). Tick-varianten, ETA-hoppet vid 600 s utan 'strax' och B4:s 90 s-tak på uttömt 'strax' (positionen är då yngre än 600 s, och uttömningen syns inte i raderna) omfattas inte, inte heller en B4-studs vid en annan båts rad. En äkta studs med bäraren i en kajkapsel blir också KANDIDAT. På den låsta banken (relation BAS) gäller ingen registeramnesti. Snävad i efterrättningarna R3b och R3c, och klassen ändrad från DESIGN till MÄTGRÄNS i R3c (BUGGJAKT §7 rad 19 och 21)."
-    },
-    {
-      "id": "INV5-VS-BESÖKSREGEL",
-      "klass": "KONFLIKT",
-      "datum": "2026-11-04",
-      "källa": "docs/VALIDATION.md:296–300 (§Invarianterna: varje målbropassage kräver sin EGEN notis, även returpassagen) mot docs/ARCHITECTURE.md:1040 och lib/services/TriggerPointVisitTracker.js:12–16 (besöksregeln 2026-09-07)",
-      "gäller": {
-        "orakel": [
-          "INV-F"
-        ],
-        "inv": [
-          "INV-5",
-          "INV-7"
-        ],
-        "klassRegex": "^INV-(5|7) "
-      },
-      "predikat": {
-        "namn": "sameVisit",
-        "parametrar": {
-          "utfärdM": 350,
-          "fixar": 2,
-          "radieM": 300
-        }
-      },
-      "regel": "Två registrerade målbropassager inom SAMMA besök (inga två konsekutiva fixar över 350 m mellan dem) ger bara en notis enligt besöksregeln, men INV-5/7 kräver en notis per passage.",
-      "doktriner": [
-        {
-          "text": "Räkningsbaserade INV-5/7: varje registrerad målbropassage kräver sin egen notis i tid — även returpassagen av samma bro.",
-          "källa": "docs/VALIDATION.md:296–300"
-        },
-        {
-          "text": "Besöksregeln 2026-09-07: en notis per (mmsi, punkt) och besök; ny notis kräver faktisk utfärd (två rena fixar över 350 m) och återkomst inom 300 m.",
-          "källa": "lib/services/TriggerPointVisitTracker.js:12–16; docs/ARCHITECTURE.md:1040"
-        }
-      ],
-      "fråga": "En U-sväng inom ungefär 365 m bortom en målbro ger två registrerade målbropassager men bara en notis, eftersom båten aldrig lämnar besöket. Vilken doktrin gäller: en notis per passage (INV-5/7) eller en notis per besök (besöksregeln)?"
+      "regel": "Användarbeslut U16 (2026-11-04): beteendet behålls. Appen visar aldrig 'strax' på en position som är äldre än STALE_ETA_HARD (10 min; U1/C11 och F40-avvägningen). När en köande båts 'strax'-bärande fix blir äldre än 600 s tappar klausulen 'strax' och lånar nästa båts ETA, och 'strax' kommer tillbaka med båtens nästa fix. INV-3:s studsdiskriminator (invariants.js:334–351) fäller studsen som ETA-OSCILLATION och ETA-SÅGTAND UPP. Posten gäller bara studsen hos den båt som kan ha burit 'strax', när hennes nästa rad bearbetas: harnessen dränerar väntande UI-arbete när klockan når raden, före sampelbearbetningen, och texten där bygger på läget före raden. Den varianten är en mätgräns: harnessen kör appens asynkrona UI-arbete först vid sin nästa dränering (en verklig setImmediate efter varje clock.tick, replayRunner.js:86–88 och 512–521), så hoppet är svansen av en tidigare UI-cykel, i värld 1608 omkörningen (setImmediate, app.js:6983–6988) av halvminutens cykel 09:42:00. I fält hade omkörningen gått vid halvminuten med åldern cirka 590 s. Kraven: nivån före hoppet och återgången är 'strax' i brons ETA-serie; hoppet publicerades exakt när harnessen bearbetade båtens rad (harnessens klocka: en rad bearbetas vid max(radens tid, förra AIS-radens bearbetning + 60 ms)); båtens föregående fix bearbetades mer än 600 s före hoppet (appens ålder, med samma jämförelse som dataIsFreshEnough); båda fixarna ligger inom 350 m från bron (WAITING_CLEAR_DISTANCE) och utanför kajkapslarna (MOORING_ZONES); ingen brotext publicerades och ingen halvminutstick (i variantens fas för M-FAS) föll mellan 600 s-gränsen och hoppet, eftersom appen annars hade tappat 'strax' där om båten bar det; återgången kom efter radens bearbetning och högst 1 s efter radens tid, utan att någon annan båts rad inom 500 m från bron (den vidaste radie där appen sätter 'strax') bearbetades emellan; ingen styrrad (avbrott, återanslutning, omstart) bearbetades mellan båtens förra fix och återgången; båten kunde bära 'strax' vid sin förra fix (fixen inom 300 m, imminent SET, eller inom 350 m efter en tidigare fix inom 270 m, väntläget, utan att båten lämnat 350 m emellan); och ingen annan båt kunde bära 'strax' vid hoppet (ingen annan båt har sin senaste fix före hoppet inom 500 m, högst 600 s gammal i appens klocka, utanför kajkapslarna och på väg mot bron: kursen inom ±90° från bäringen till bron, eller saknad kurs inom 350 m). Tick-varianten, ETA-hoppet vid 600 s utan 'strax' och B4:s 90 s-tak på uttömt 'strax' (positionen är då yngre än 600 s, och uttömningen syns inte i raderna) omfattas inte, inte heller en B4-studs vid en annan båts rad. En äkta studs med bäraren i en kajkapsel blir också KANDIDAT. På den låsta banken (relation BAS) gäller ingen registeramnesti. Snävad i efterrättningarna R3b och R3c, och klassen ändrad från DESIGN till MÄTGRÄNS i R3c (BUGGJAKT §7 rad 19 och 21)."
     },
     {
       "id": "D1-KAJZON-DEMOTION",
@@ -189,7 +153,7 @@
       "id": "M-BRUSBAND-RÖRELSEBEVIS",
       "klass": "KÄND_ÖPPEN",
       "datum": "2026-11-05",
-      "källa": "docs/ARCHITECTURE.md:889–921 (Target-livscykeln: fartprovet över tid och kända gränser (a)–(c), beslutade 2026-11-05 utan hysteres); lib/services/VesselDataService.js#_targetSpeedGate (0,7 kn mer än 500 m och 0,1 kn 300–500 m från närmaste bro, alla broar medräknade) och FIX B (ANCHOR_BLOCK 0,3 kn efter en passage); tests/m-krypfart-malbron-2026-11-04.test.js; lib/constants.js:148 (MIN_APPROACH_DISTANCE); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 25 och 33)",
+      "källa": "docs/ARCHITECTURE.md:954–986 (Target-livscykeln: fartprovet över tid och kända gränser (a)–(c), beslutade 2026-11-05 utan hysteres); lib/services/VesselDataService.js#_targetSpeedGate (0,7 kn mer än 500 m och 0,1 kn 300–500 m från närmaste bro, alla broar medräknade) och FIX B (ANCHOR_BLOCK 0,3 kn efter en passage); tests/m-krypfart-malbron-2026-11-04.test.js; lib/constants.js:148 (MIN_APPROACH_DISTANCE); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 25 och 33)",
       "gäller": {
         "orakel": [
           "INV-F"
@@ -210,7 +174,7 @@
       "id": "R2-MÅLBRO-EFTER-LINJEN",
       "klass": "DESIGN",
       "datum": "2026-11-04",
-      "källa": "docs/BUGGJAKT.md §7 (dirigentens beslut 2026-11-04 om R2:s fråga 2); lib/services/VesselDataService.js#_calculateTargetBridge (målbron väljs på latitud mot brons latitud); lib/constants.js:356–357 (MOVEMENT_PROOF_SOG_KN 0,5 och MOVEMENT_PROOF_NET_M 50: inget mål utan rörelsebevis); lib/services/VesselDataService.js:84 (STALE_AIS_TIMEOUT_MS, raderingen gravlägger inte); tests/replay-validation/invariants.js:568–593 (INV-13); lib/constants.js:47 (UNDER_BRIDGE_CLEAR_DISTANCE 70 m, appens under-bron-band); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 29 och 33)",
+      "källa": "docs/BUGGJAKT.md §7 (dirigentens beslut 2026-11-04 om R2:s fråga 2); lib/services/VesselDataService.js#_calculateTargetBridge (målbron väljs på latitud mot brons latitud); lib/constants.js:356–357 (MOVEMENT_PROOF_SOG_KN 0,5 och MOVEMENT_PROOF_NET_M 50: inget mål utan rörelsebevis); lib/services/VesselDataService.js:84 (STALE_AIS_TIMEOUT_MS, raderingen gravlägger inte); tests/replay-validation/invariants.js:600–625 (INV-13); lib/constants.js:47 (UNDER_BRIDGE_CLEAR_DISTANCE 70 m, appens under-bron-band); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 29 och 33)",
       "gäller": {
         "orakel": [
           "INV-F"
@@ -230,7 +194,7 @@
       "id": "MÄTGRÄNS-INV17-R0",
       "klass": "MÄTGRÄNS",
       "datum": "2026-07-03",
-      "källa": "tests/replay-validation/invariants.js:613 och :688–704 (INV-17 textflappbudget, kalibrerad mot fältkadens 2026-07-03)",
+      "källa": "tests/replay-validation/invariants.js:645 och :720–736 (INV-17 textflappbudget, kalibrerad mot fältkadens 2026-07-03)",
       "gäller": {
         "orakel": [
           "INV-W"
@@ -251,7 +215,7 @@
       "id": "MÄTGRÄNS-INV10-VÄNTKEDJA",
       "klass": "MÄTGRÄNS",
       "datum": "2026-11-04",
-      "källa": "tests/replay-validation/invariants.js:476–503 (INV-10 godtar bara ETT bekräftat väntintervall som når nästa övergång); tests/replay-validation/replayRunner.js:293–311 (confirmedTargetWaits: ett nytt intervall när nästa textgenerering kommer efter until, alltså vid varje fixglapp); docs/etapp7-plan-2026-08-08.md:15 (U6: 'strax' vid lång väntan är sanktionerat); lib/services/BridgeTextService.js:304–308 (hasFreshPosition: 'strax' kräver färsk position)",
+      "källa": "tests/replay-validation/invariants.js:508–535 (INV-10 godtar bara ETT bekräftat väntintervall som når nästa övergång); tests/replay-validation/replayRunner.js:295–313 (confirmedTargetWaits: ett nytt intervall när nästa textgenerering kommer efter until, alltså vid varje fixglapp); docs/etapp7-plan-2026-08-08.md:15 (U6: 'strax' vid lång väntan är sanktionerat); lib/services/BridgeTextService.js:304–308 (hasFreshPosition: 'strax' kräver färsk position)",
       "gäller": {
         "orakel": [
           "INV-F"
@@ -271,13 +235,13 @@
           "tickFördröjningMs": 40
         }
       },
-      "regel": "En 'strax'-text som står länge vid en målbro är sanktionerad medan väntan är färskt bekräftad (U6, INV-10). Harnessen delar den bekräftade väntan i ett intervall per fixglapp, och halvminutstickens text byts upp till en tick efter sista intervallet. När intervallen för bron bildar en kedja med högst 30 s mellan angränsande intervall och ingen halvminutstick inne i något glapp, börjar senast 10 min efter strax-övergången och slutar högst 30 s före nästa övergång, är INV-10:s utslag en mätgräns (F18 i första standardrapporten: glappet 08:59:44,854–08:59:57,860 utan tick, svans 26 s). Ett glapp eller en svans över en tick omfattas inte, och inte heller ett glapp som innehåller en halvminutstick (UI-klockans absoluta halvminuter, app.js:13089–13096, med tickens text inom 40 ms, app.js:5513–5520): där är positionen inte färsk, så en korrekt app byter text vid ticken ('strax' kräver hasFreshPosition), och ett 'strax' som står kvar är just det INV-10 vaktar. Samma granularitet finns i replay:all, där INV-10 körs oförändrad."
+      "regel": "En 'strax'-text som står länge vid en målbro är sanktionerad medan väntan är färskt bekräftad (U6, INV-10). Harnessen delar den bekräftade väntan i ett intervall per fixglapp, och halvminutstickens text byts upp till en tick efter sista intervallet. När intervallen för bron bildar en kedja med högst 30 s mellan angränsande intervall och ingen halvminutstick inne i något glapp, börjar senast 10 min efter strax-övergången och slutar högst 30 s före nästa övergång, är INV-10:s utslag en mätgräns (F18 i första standardrapporten: glappet 08:59:44,854–08:59:57,860 utan tick, svans 26 s). Ett glapp eller en svans över en tick omfattas inte, och inte heller ett glapp som innehåller en halvminutstick (UI-klockans absoluta halvminuter, app.js:13259–13266, med tickens text inom 40 ms, app.js:5639–5646): där är positionen inte färsk, så en korrekt app byter text vid ticken ('strax' kräver hasFreshPosition), och ett 'strax' som står kvar är just det INV-10 vaktar. Samma granularitet finns i replay:all, där INV-10 körs oförändrad."
     },
     {
       "id": "K20-FASKÄNSLIG-LEDARE",
       "klass": "KÄND_ÖPPEN",
       "datum": "2026-08-21",
-      "källa": "docs/ARCHITECTURE.md:752–760 (K20, känd defekt ej åtgärdad); docs/VALIDATION.md:223–232 (Facit-fällan p. 6)",
+      "källa": "docs/ARCHITECTURE.md:817–825 (K20, känd defekt ej åtgärdad); docs/VALIDATION.md:232–241 (Facit-fällan p. 6)",
       "gäller": {
         "orakel": [
           "M-FAS"
@@ -400,7 +364,7 @@
       "id": "BESÖKSREGEL-2026-09-07",
       "klass": "DESIGN",
       "datum": "2026-09-07",
-      "källa": "lib/services/TriggerPointVisitTracker.js:12–16; docs/ARCHITECTURE.md:1040 (trigger_point_visits, besöksregeln 2026-09-07)",
+      "källa": "lib/services/TriggerPointVisitTracker.js:82–86; docs/ARCHITECTURE.md:1105 (trigger_point_visits, besöksregeln 2026-09-07)",
       "gäller": {
         "orakel": [
           "T1"
@@ -421,7 +385,7 @@
       "id": "S10-VÄNDNING-BRON-BAKOM",
       "klass": "DESIGN",
       "datum": "2026-08-23",
-      "källa": "docs/ARCHITECTURE.md:1928 (FIXRUNDA 6 LIGHT, användarbeslut 2026-08-23: S10 och S6 godkända); docs/ARCHITECTURE.md:1871–1874 och :1962–1966 (S10 i notisvägen: avstå när Fix D:s färska pending-reversal motsäger tokenriktningen och bron ligger bakom fartyget); app.js:9708–9783 (_fixDReversalContradictsNotification, tre krav) och app.js:10288–10298 (FLOW_TRIGGER_SKIP_PENDING_REVERSAL); lib/services/VesselDataService.js:380–407 och :446–476 (FIX_D_MIN_SOG och blockets yttre villkor, kursbanden mot riktningslåset, pending-flaggan, den bekräftande fixen och nollningen); lib/services/VesselDataService.js:5286–5287 (_createVesselObject: en rad utan finit sog eller cog får fartygets senast kända värde, och Fix D och S10-vakten prövar det)",
+      "källa": "docs/ARCHITECTURE.md:1993 (FIXRUNDA 6 LIGHT, användarbeslut 2026-08-23: S10 och S6 godkända); docs/ARCHITECTURE.md:1936–1939 och :2027–2031 (S10 i notisvägen: avstå när Fix D:s färska pending-reversal motsäger tokenriktningen och bron ligger bakom fartyget); app.js:9858–9933 (_fixDReversalContradictsNotification, tre krav) och app.js:10441–10451 (FLOW_TRIGGER_SKIP_PENDING_REVERSAL); lib/services/VesselDataService.js:380–407 och :446–476 (FIX_D_MIN_SOG och blockets yttre villkor, kursbanden mot riktningslåset, pending-flaggan, den bekräftande fixen och nollningen); lib/services/VesselDataService.js:5286–5287 (_createVesselObject: en rad utan finit sog eller cog får fartygets senast kända värde, och Fix D och S10-vakten prövar det)",
       "gäller": {
         "orakel": [
           "T1"
@@ -442,7 +406,7 @@
       "klass": "DESIGN",
       "verkan": "iOraklet",
       "datum": "2026-09-06",
-      "källa": "lib/constants.js:1195–1197 (QUAY_DEPARTURE_GATE.TRANSIT_SOG_KN); docs/ARCHITECTURE.md:913 (Förtöjningslagren)",
+      "källa": "lib/constants.js:1195–1197 (QUAY_DEPARTURE_GATE.TRANSIT_SOG_KN); docs/ARCHITECTURE.md:978 (Förtöjningslagren)",
       "gäller": {
         "orakel": [
           "T1"
@@ -464,7 +428,7 @@
       "klass": "DESIGN",
       "verkan": "iOraklet",
       "datum": "2026-11-03",
-      "källa": "docs/ARCHITECTURE.md:497–510 (P8/U10, retro-notisernas text); docs/helgranskning-2026-11-03.md (BN2)",
+      "källa": "docs/ARCHITECTURE.md:562–575 (P8/U10, retro-notisernas text); docs/helgranskning-2026-11-03.md (BN2)",
       "gäller": {
         "orakel": [
           "T1"
@@ -504,7 +468,7 @@
       "id": "U2-VS-DEADLINE",
       "klass": "KÄND_ÖPPEN",
       "datum": "2026-08-09",
-      "källa": "docs/etapp7-plan-2026-08-08.md:310–349 (ETAPP C-IV:s utfall: U2 och deadline-garantin är ömsesidigt oförenliga, C8 återkallad); docs/ARCHITECTURE.md:763–792 (U15, returresan är en egen öppning)",
+      "källa": "docs/etapp7-plan-2026-08-08.md:310–349 (ETAPP C-IV:s utfall: U2 och deadline-garantin är ömsesidigt oförenliga, C8 återkallad); docs/ARCHITECTURE.md:828–857 (U15, returresan är en egen öppning)",
       "gäller": {
         "orakel": [
           "T2"
@@ -524,7 +488,7 @@
       "id": "J13-J14-KONVOJSEMANTIK",
       "klass": "KÄND_ÖPPEN",
       "datum": "2026-08-22",
-      "källa": "docs/ARCHITECTURE.md:1611–1628 (J13+J33 konvojbindningens värdval, J14 notePassage bokför inte armlösa båtars passager); docs/ARCHITECTURE.md:763–792 (U15, returresan är en egen öppning)",
+      "källa": "docs/ARCHITECTURE.md:1676–1693 (J13+J33 konvojbindningens värdval, J14 notePassage bokför inte armlösa båtars passager); docs/ARCHITECTURE.md:828–857 (U15, returresan är en egen öppning)",
       "gäller": {
         "orakel": [
           "T2"
@@ -560,7 +524,7 @@
       "id": "U18-RETUR-BEKRÄFTAD-SENT",
       "klass": "DESIGN",
       "datum": "2026-11-04",
-      "källa": "docs/ARCHITECTURE.md:1028–1035 (U18, användarbeslut 2026-11-04: Fix D kräver två positioner, Anomali 18) och :763–792 (U15, returresan är en egen öppning; värld 227); lib/services/VesselDataService.js:385–491 (Fix D: FIX_D_MIN_SOG, kursbanden, pending-flaggan och bekräftelsen); lib/constants.js:1545 (TICK_INTERVAL_MS); docs/BUGGJAKT.md §7 (användarbeslut U18; registerändringarna 2026-11-07, rad 26 och 33)",
+      "källa": "docs/ARCHITECTURE.md:1093–1100 (U18, användarbeslut 2026-11-04: Fix D kräver två positioner, Anomali 18) och :828–857 (U15, returresan är en egen öppning; värld 227); lib/services/VesselDataService.js:385–491 (Fix D: FIX_D_MIN_SOG, kursbanden, pending-flaggan och bekräftelsen) och #_confirmDirectionReversal ([TARGET_RECALC] för varje väg som bekräftar en vändning); tests/replay-validation/replayRunner.js:256–267 och :472–474 (resultatets journeyResets); lib/constants.js:1545 (TICK_INTERVAL_MS); docs/BUGGJAKT.md §7 (användarbeslut U18; registerändringarna 2026-11-07, rad 26, 33 och 34)",
       "gäller": {
         "orakel": [
           "T2",
@@ -572,13 +536,13 @@
         "namn": "fixDBekräftarReturSent",
         "parametrar": {}
       },
-      "regel": "U18: Fix D tror på en vändning först efter två omvända positioner med minst FIX_D_MIN_SOG (2,0 kn, läst ur VesselDataService.js) inom FIX_D_PENDING_MAX_AGE_MS (15 min). En retur med gles AIS upptäcks därför sent, och det är en känd gräns. Posten är knuten till den mekanismen, inte bara till tiden: båten har en L0-vändning högst 30 min före den sanna korsningen och minst en omvänd fix med FIX_D_MIN_SOG mellan vändningen och korsningen, och Fix D:s bekräftelse, spelad på raderna efter vändningen (spelaFixD), kom sent. För ÖPPNING-MISS:OKLASSAD betyder sent efter korsningen eller aldrig (R1:s sju returer). För LEDTID och VARNING-EFTER-SANN-PASSAGE betyder sent mindre än 2 × TICK_INTERVAL_MS (60 s) före korsningen eller efter den, och dessutom är varningen båtens egen (ledare) och kom VID bekräftelsen: avfyrad av det bekräftande fixet (firedBy 'fix', högst 1 s från radens bearbetning i harnessen) eller av första ticken efter det (firedBy 'deadline', högst TICK_INTERVAL_MS + 40 ms efter bearbetningen och utan egen rad emellan). En egen returvarning som kom senare, till exempel vid nästa fix (världarna 936 och 1918), eller en bekräftelse som kom i tid, förklaras inte av U18 och blir KANDIDAT (K2-granskarens anmärkning om det föreslagna U15-RETUR-SEN, som bara byggde på tid; skärpt 2026-11-07 efter granskningen av registret, förut godtogs varningen upp till 60 s efter bekräftelsen)."
+      "regel": "U18: Fix D tror på en vändning först efter två omvända positioner med minst FIX_D_MIN_SOG (2,0 kn, läst ur VesselDataService.js) inom FIX_D_PENDING_MAX_AGE_MS (15 min). En retur med gles AIS upptäcks därför sent, och det är en känd gräns. Posten är knuten till den mekanismen, inte bara till tiden: båten har en L0-vändning högst 30 min före den sanna korsningen och minst en omvänd fix med FIX_D_MIN_SOG mellan vändningen och korsningen, och Fix D:s bekräftelse, spelad på raderna efter vändningen (spelaFixD), kom sent. För ÖPPNING-MISS:OKLASSAD betyder sent efter korsningen eller aldrig (R1:s sju returer). För LEDTID och VARNING-EFTER-SANN-PASSAGE betyder sent mindre än 2 × TICK_INTERVAL_MS (60 s) före korsningen eller efter den, och dessutom är varningen båtens egen (ledare) och kom VID bekräftelsen: avfyrad av det bekräftande fixet (firedBy 'fix', högst 1 s från radens bearbetning i harnessen) eller av första ticken efter det (firedBy 'deadline', högst TICK_INTERVAL_MS + 40 ms efter bearbetningen och utan egen rad emellan). En egen returvarning som kom senare, till exempel vid nästa fix (världarna 936 och 1918), eller en bekräftelse som kom i tid, förklaras inte av U18 och blir KANDIDAT (K2-granskarens anmärkning om det föreslagna U15-RETUR-SEN, som bara byggde på tid; skärpt 2026-11-07 efter granskningen av registret, förut godtogs varningen upp till 60 s efter bekräftelsen). I båda fallen får vändningen inte ha varit bekräftad på en annan väg före korsningen: appen får inte ha bokfört någon riktningshändelse för båten (resultatets journeyResets; varje bekräftad vändning loggar [TARGET_RECALC], vilken väg som än bekräftade den, och en ny resa efter slutmålet [NEW_JOURNEY]) efter vändningen och senast vid korsningen, mer än 1 s före det bekräftande fixets bearbetning. Annars kände appen riktningen, och en sen eller utebliven varning beror inte på U18 (världarna 1274 och 1317: återkorsningen av Järnvägsbron bekräftade vändningen 391 respektive 100 s före korsningen, och målbron hölls tom; skärpt 2026-11-07 efter den andra granskningen). Ett resultat utan journeyResets ger nej."
     },
     {
       "id": "U17-TYST-BÅT-RECOVER",
       "klass": "DESIGN",
       "datum": "2026-11-04",
-      "källa": "docs/ARCHITECTURE.md:1869–1886 (U17, ägarbeslut 2026-11-04: säkerhetsvarningen för en tyst båt behålls); lib/services/BridgeOpeningService.js#_coverageVerdict (täckningsslutet, bakkanten, hållen under bron (1c) och kursen bort (1d)) och #_courseAway; lib/services/BridgeOpeningService.js:138 (MOVING_SOG_KN); lib/constants.js:46 (UNDER_BRIDGE_SET_DISTANCE), :1065 (MINIMUM_VIABLE_SPEED), :1375 (CONVOY_WINDOW_MS), :1577 (WAITING_CLEAR_DISTANCE); KAMPANJ.md, dirigentens beslut 2026-11-05 (under bron-hållet); docs/BUGGJAKT.md §7 (användarbeslut U17; registerändringarna 2026-11-07, rad 27 och 32)",
+      "källa": "docs/ARCHITECTURE.md:1934–1951 (U17, ägarbeslut 2026-11-04: säkerhetsvarningen för en tyst båt behålls); lib/services/BridgeOpeningService.js#_coverageVerdict (täckningsslutet, bakkanten, hållen under bron (1c) och kursen bort (1d)) och #_courseAway; lib/services/BridgeOpeningService.js:138 (MOVING_SOG_KN); lib/constants.js:46 (UNDER_BRIDGE_SET_DISTANCE), :1065 (MINIMUM_VIABLE_SPEED), :1375 (CONVOY_WINDOW_MS), :1577 (WAITING_CLEAR_DISTANCE); KAMPANJ.md, dirigentens beslut 2026-11-05 (under bron-hållet); docs/BUGGJAKT.md §7 (användarbeslut U17; registerändringarna 2026-11-07, rad 27 och 32)",
       "gäller": {
         "orakel": [
           "T3"
@@ -597,7 +561,7 @@
       "id": "K-TYST-BÅT-NÄSTA-ÖPPNING",
       "klass": "KÄND_ÖPPEN",
       "datum": "2026-11-05",
-      "källa": "docs/ARCHITECTURE.md:1869–1886 (U17) och :1818–1840 (täckningsslutet räknas från bokföringen, dirigentens beslut 2026-11-05, U13); lib/services/BridgeOpeningService.js#_coverageVerdict; lib/constants.js:1375 (CONVOY_WINDOW_MS); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 28 och 32)",
+      "källa": "docs/ARCHITECTURE.md:1934–1951 (U17) och :1883–1905 (täckningsslutet räknas från bokföringen, dirigentens beslut 2026-11-05, U13); lib/services/BridgeOpeningService.js#_coverageVerdict; lib/constants.js:1375 (CONVOY_WINDOW_MS); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 28 och 32)",
       "gäller": {
         "orakel": [
           "T2",
@@ -618,7 +582,7 @@
       "id": "U19-VARNING-UNDER-VÄNTANDE-VÄNDNING",
       "klass": "ACCEPTERAD",
       "datum": "2026-11-04",
-      "källa": "docs/ARCHITECTURE.md:1036–1042 (U19, användarbeslut 2026-11-04: en planerad öppningsvarning skickas även när en obekräftad vändning väntar); lib/services/VesselDataService.js:385–491 (Fix D:s pending-flagga och bekräftelse); docs/BUGGJAKT.md §7 (användarbeslut U19; registerändringarna 2026-11-07, rad 29)",
+      "källa": "docs/ARCHITECTURE.md:1101–1107 (U19, användarbeslut 2026-11-04: en planerad öppningsvarning skickas även när en obekräftad vändning väntar); lib/services/VesselDataService.js:385–491 (Fix D:s pending-flagga och bekräftelse); docs/BUGGJAKT.md §7 (användarbeslut U19; registerändringarna 2026-11-07, rad 29)",
       "gäller": {
         "orakel": [
           "T9",
@@ -637,7 +601,7 @@
       "klass": "ACCEPTERAD",
       "verkan": "iOraklet",
       "datum": "2026-08-22",
-      "källa": "tests/replay-validation/runOpeningGates.js:1038–1070 (classifyPhantom: AVBRUTEN_APPROACH, GLES_ANFLYGNING); docs/ARCHITECTURE.md:703 (tystnad avväpnar aldrig)",
+      "källa": "tests/replay-validation/runOpeningGates.js:1038–1070 (classifyPhantom: AVBRUTEN_APPROACH, GLES_ANFLYGNING); docs/ARCHITECTURE.md:768 (tystnad avväpnar aldrig)",
       "gäller": {
         "orakel": [
           "T3"
@@ -679,7 +643,7 @@
       "id": "FIXD-SLINGA",
       "klass": "KÄND_ÖPPEN",
       "datum": "2026-11-04",
-      "källa": "docs/ARCHITECTURE.md:2024–2029 (väntslinga ger accepterat AVBRUTEN_APPROACH-kort, ANYA ELAN i both-21h; slingskydd är ett användarbeslut)",
+      "källa": "docs/ARCHITECTURE.md:2089–2094 (väntslinga ger accepterat AVBRUTEN_APPROACH-kort, ANYA ELAN i both-21h; slingskydd är ett användarbeslut)",
       "gäller": {
         "orakel": [
           "T3",
@@ -702,7 +666,7 @@
       "id": "OMSTART-ARMAR-EJ-PERSISTERADE",
       "klass": "KOSTNAD",
       "datum": "2026-08-03",
-      "källa": "docs/trigger-etapp6-oppningsmotorn-2026-08-03.md:260–264 (ingen arm-persistens över omstart i v1); docs/ARCHITECTURE.md:742–745",
+      "källa": "docs/trigger-etapp6-oppningsmotorn-2026-08-03.md:260–264 (ingen arm-persistens över omstart i v1); docs/ARCHITECTURE.md:807–810",
       "gäller": {
         "orakel": [
           "T11"
@@ -722,7 +686,7 @@
       "id": "OMSTART-RESETILLSTÅND",
       "klass": "KONFLIKT",
       "datum": "2026-11-04",
-      "källa": "docs/ARCHITECTURE.md:1037 (last_known_positions skrivs bara vid removal) mot docs/reliability-spec.md:104 (D3: dedupen ska överleva omstart)",
+      "källa": "docs/ARCHITECTURE.md:1102 (last_known_positions skrivs bara vid removal) mot docs/reliability-spec.md:104 (D3: dedupen ska överleva omstart)",
       "gäller": {
         "orakel": [
           "T11"
@@ -740,7 +704,7 @@
       "doktriner": [
         {
           "text": "Persistensen: last_known_positions skrivs vid removal, inte för båtar som fortfarande är i farten.",
-          "källa": "docs/ARCHITECTURE.md:1037"
+          "källa": "docs/ARCHITECTURE.md:1102"
         },
         {
           "text": "D3: notisdedupen ska överleva omstart — omstarten ska varken ge dubbletter eller tappa beslut.",
@@ -852,7 +816,7 @@
       "id": "TVÅ-ÅTERKORSADE-BROAR-I-SAMMA-SEGMENT",
       "klass": "KÄND_ÖPPEN",
       "datum": "2026-11-05",
-      "källa": "docs/ARCHITECTURE.md:1022–1027 (U-svängspunkten, kända luckor); lib/services/VesselDataService.js#_confirmDirectionReversal och :385–491 (Fix D); tests/r1-usvang-aterkorsning-2026-11-04.test.js (testet 'KÄND LUCKA: två återkorsade broar i samma segment'); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 30 och 33)",
+      "källa": "docs/ARCHITECTURE.md:1087–1092 (U-svängspunkten, kända luckor); lib/services/VesselDataService.js#_confirmDirectionReversal och :385–491 (Fix D); tests/r1-usvang-aterkorsning-2026-11-04.test.js (testet 'KÄND LUCKA: två återkorsade broar i samma segment'); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 30 och 33)",
       "gäller": {
         "orakel": [
           "T10"
@@ -870,7 +834,7 @@
       "id": "U-SVÄNG-LÅNGSAM-ÅTERKORSNING",
       "klass": "KÄND_ÖPPEN",
       "datum": "2026-11-05",
-      "källa": "docs/ARCHITECTURE.md:1022–1027 (U-svängspunkten, kända luckor); lib/services/VesselDataService.js#_slowReCrossEvidence (den långsamma vägens fyra villkor och KÄND LUCKA) och :385–491 (Fix D); lib/constants.js:1197 (QUAY_DEPARTURE_GATE.TRANSIT_SOG_KN); tests/r1-usvang-aterkorsning-2026-11-04.test.js (testen 'KÄND LUCKA' och enhetsfallen för den långsamma vägen); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 31 och 33)",
+      "källa": "docs/ARCHITECTURE.md:1087–1092 (U-svängspunkten, kända luckor); lib/services/VesselDataService.js#_slowReCrossEvidence (den långsamma vägens fyra villkor och KÄND LUCKA) och :385–491 (Fix D); lib/constants.js:1197 (QUAY_DEPARTURE_GATE.TRANSIT_SOG_KN); tests/r1-usvang-aterkorsning-2026-11-04.test.js (testen 'KÄND LUCKA' och enhetsfallen för den långsamma vägen); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 31 och 33)",
       "gäller": {
         "orakel": [
           "T10"
