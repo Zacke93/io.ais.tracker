@@ -744,7 +744,22 @@ båt.
 - **Konvojtäckningen är TIDSBEGRÄNSAD:** en absorberad arm släpps igen om
   öppningen hon knöts till passerat utan henne (`referenceArrival +
   CONVOY_WINDOW_MS`), och kan då seeda en egen varning. Utan det blev en
-  absorberad båt permanent tystad.
+  absorberad båt permanent tystad. Sedan K-familjen (2026-11-04) avgör
+  `_coverageVerdict` släppet: (a) **bakkanten** — efter händelsens första
+  passage släpps armen redan på det färska, GPS-rena fix vars förväntade
+  ankomst ligger bortom det som slutar först av täckningen (`coverUntilMs`)
+  och U2-fönstret kring den verkliga korsningen, och hon varnas på sin egen
+  deadline ur samma fix; (b) **vid täckningsslut** hålls armen kvar (`OPENING_RECOVER_HOLD`,
+  nästa fix avgör) om bron ligger bakom henne (avväpnas som passage), om armen
+  är fryst, om ankomstfysik saknas, om hon låg under bron (≤
+  `UNDER_BRIDGE_SET_DISTANCE`, i rörelse) med ankomst inom täckningen, eller om
+  kursen leder bort från bron utanför väntzonen. Första passagens tid är den
+  skattade korsningen (`_crossingEstimate`), inte bokföringstiden; den styr
+  medlemskapet och bakkanten. Täckningsslutet räknas fortfarande från
+  bokföringen, så en tyst båt släpps som förut. En ny båt som bara på grund av
+  korsningen får en egen händelse, men som upptäcks under två tick före sin
+  ankomst, absorberas som förut (`_anchorFloorHost`, golvet). Se §H29/H30 för
+  vad som medvetet inte är grindar och för U17.
 - **Dedup i TVÅ lager (app.js):** `_firedOpeningEvents` (eventId, sessionslokal)
   och `persistent_opening_warnings` (`bro|mmsi|riktning`, 10 min, ÖVER omstart
   — v1 persisterar inga armar, så en omstart mitt i en anflygning varnade annars
@@ -1662,6 +1677,88 @@ FÖRSTA FAKTISKA PASSAGEN, och en båt som anländer efter den plus
 `CONVOY_WINDOW_MS` är NÄSTA öppning — men aldrig en andrapåminnelse för samma
 öppning.
 
+**K-familjen (rättningskampanjen 2026-11-04) — KRAVEN tillämpade på
+RECOVER-vägen.** H29:s varnade medlemmar har fortfarande ingen släppväg (fixen är
+inte gjord om). Buggjägarens kort F02, F03, F11, F14, F17, F20, F22, F23 och F01
+gällde i stället `_releaseStrandedArms`, de ABSORBERADE armarnas släpp, som hade
+samma form: släpp på ren tid och avfyrning på den ärvda deadlinen. Rättningen
+(`_coverageVerdict`, `_crossingEstimate`) följer kraven så här:
+- Armen bär `lat`/`lon` ur senaste tillämpade fix. **(1)** Ligger bron bakom
+  läget avväpnas armen som passage. Utvidgat på samma grund: låg hon UNDER bron
+  (≤ `UNDER_BRIDGE_SET_DISTANCE`, ≥ `MINIMUM_VIABLE_SPEED`) med förväntad ankomst
+  inom täckningen, eller leder kursen bort från bron (≥ 2 kn, utanför
+  väntzonen), hålls täckningen kvar tills nästa fix (F20, F03, F14).
+  Under-bron-hållet strider inte mot U17 (dirigentens beslut 2026-11-05): en
+  båt som senast sågs högst 50 m från bron, i rörelse och med ankomst inom
+  täckningen, är vid brolinjen och har i praktiken passerat. Visar nästa
+  position att hon inte har det, släpps hon som förut.
+- **(3)** Utan finit ankomstfysik släpps hon inte (hängslen: `_canArm` kräver ett
+  finit avstånd, så ingen arm i drift når grenen). **(4)** gäller bakkanten: den
+  släpper på ett färskt, rent fix efter den bokförda första passagen, och
+  deadlinen räknas ur det fixet (F02, F17, F22, F01:s r2). Vid täckningsslut
+  avfyras armen däremot på deadlinen ur sitt senaste tillämpade fix, som för en
+  tyst båt sedan länge har förfallit. Bakkanten jämför med det som slutar
+  först av täckningsslutet och U2-fönstret kring korsningen. Att jämföra
+  enbart med U2-fönstret mättes: när ledaren passerat senare än sin prognos
+  höll den kvar följarna till täckningsslutet, och de varnades efter sin
+  korsning. Priset är snabbvärld 295 (R0): HAVSORN släpps på 0,8 s marginal
+  och varnas 28 s före en korsning som ligger inom U2-fönstret efter DAGNY, en
+  andrapåminnelse som bryter mot U2 (KÄND_ÖPPEN U2-VS-DEADLINE). Grinden
+  "släpp bara när den färska deadlinen ligger framåt" tog bort den men gav 5
+  nya utslag.
+- Medlemskapet i konvojfönstret mäts mot den skattade korsningen, inte mot
+  bokföringen (F01). I banken ligger bokföringen median 109 s och p90 625 s
+  efter korsningen. Täckningsslutet, alltså när en tyst båt får sin
+  säkerhetsvarning (U17), räknas däremot från bokföringen som förut (revision
+  3, U13): med täckningen räknad från korsningen flyttade den låsta raden
+  20260712-25h 265806230 08:37:18 → 08:34:15, och rådatan belägger fönstrets
+  slut men inte när båten passerade (likvärdig). I buggjägarens klustervärldar
+  hade den varianten fixat fyra tysta båtar till (331, 510, 790, 1139) men i
+  snabbprofilen gett tre nya varningar efter sann passage eller på fruset fix
+  (5, 21, 56), och i standardprofilen 184 kandidatutslag mot 181. Interpolationen gäller varje passage med fix på var sin sida om
+  bron, inte bara AIS-glapp: U2 räknar fönstret från passagen, och en variant
+  som bara interpolerade glapp över `STALE_ETA_SOFT_MS` lämnade fler missade
+  öppningar i buggjägarens standardvärldar (T2 31 mot 26). Visar fixet före
+  bron en stilla eller köande båt (`waitingAtBridge`, eller sog under
+  `MINIMUM_VIABLE_SPEED`) ligger korsningen inte på den räta linjen utan
+  senare: då gäller max(rät linje, bakåtskattning ur fixet efter bron i dess
+  fart), och utan mätbar fart efter bron den räta linjen (omgranskningen
+  2026-11-05; i snabbprofilens 32 väntefall median −101 s och värst −780 s
+  med linjen, median −1 s och spann −90…+30 s med regeln). En fryst arm får
+  bokföringstiden: hennes senaste tillämpade fix är inte nödvändigtvis det
+  senaste före bron. Låg armens senaste tillämpade läge redan bortom bron
+  används det fixets tid som övre gräns, i `observeVessel` lika väl som i
+  `notePassage` och passagedomen. Utan fix bortom bron (`notePassage` med levande arm,
+  passagedomen) används fixets tid bara när armens eget läge redan låg bortom
+  bron; en projektion ur prognosen startade fönstret för tidigt när ledaren
+  väntade och gav en andrapåminnelse (`opening-updated-host-forecast.test.js`).
+- **Korsningsankarets golv** (granskningen, buggjägarens värld 227). Ankaret
+  gjorde att ZELDA:s retur, upptäckt 13 m före Stridsbergsbron och 10 s efter
+  korsningen, fick en egen varning. Hör en ny båt till händelsen mätt mot
+  bokföringen men inte mot korsningen, och ligger hennes ankomst närmare än
+  2 × `TICK_INTERVAL_MS` på ett färskt rent fix, absorberas hon som före
+  rättningen, och bakkanten mäter henne mot täckningsslutet i stället för mot
+  U2-fönstret. Samma golv som räddningsventilen.
+- **U17 (ägarbeslut 2026-11-04): säkerhetsvarningen för en tyst båt behålls.**
+  Gäller en båt vars senaste position sa att hon skulle hinna igenom den
+  gemensamma öppningen, men där appen inte vet om hon gjorde det. Ingen öppning
+  får missas; F11/F23-klassen godtas som falsklarm av samma slag som
+  AVBRUTEN_APPROACH, och buggjägaren registrerar den som DESIGN med källa U17.
+  Därför är färskheten i **(2)** (lastSeenAt nyare än firstPassageAt), en
+  åldersgräns på fixet (`STALE_ETA_HARD_MS`) och ledtidsgolvet i **(3)** inte
+  införda. Mätt mot U13 tog de i korpusbanken bort 5–16 RECOVER-varningar, och
+  O1 (appserien) fick 3–4 OKLASSADE missar: 20260702-2h 265558470, 20260707-14h
+  AKIRA, 20260713-41h ELFKUNGEN vid Klaffbron och Stridsbergsbron. Golvet hade
+  dessutom flyttat en äkta räddning till efter korsningen (20260804-17h
+  211100280: rådatans korsning 13:58:29, varningen 13:48:28 blev 14:00:01) och
+  skjutit LYS varning (20260707-14h) in i hennes korsningsfönster. Hållen under
+  bron och för kurs bort är inte en sådan grind: de gäller lägen som säger mer
+  än en prognos (appens egen under-bron-gräns, en kurs bort från bron) och
+  skjuter bara upp släppet till nästa fix.
+- Negativtesterna för VIRGO och PILGRIM ligger i
+  `tests/k-konvoj-recover-bakkant-glapp.test.js`, liksom U17-kontraktet och ett
+  fällande test per grind (granskningens mutationsprov).
+
 ### Helkodsgranskning runda 2 (2026-08-22) — uppskjutet med diagnos
 
 Runda 2 (13 paketgranskare, 80 skeptiker, HEAD 480b78f) bekräftade 24 fynd;
@@ -1800,6 +1897,9 @@ uppträder när klassen finns och (b) utfallet är sant mot rådata:
   (vad en släppt arm ska få binda till), inte kirurgi — hör ihop med H28
   (konvojkonvention) och H29/H30 (release-vägen) ovan: ETT användarbeslut +
   ETT omlåsningsprotokoll med O1/O2-mätning för hela konvojfamiljen.
+  (K-familjen 2026-11-04 ändrar inte värdvalet, och täckningen vid en
+  återabsorption räknas från bokföringen som förut: 20260712-25h 265806230
+  varnas fortfarande 08:37:18. F11 och F23 är fortfarande kedjor i två led.)
 - **J14 — `notePassage` bokför inte armlösa båtars passager** (`_recordPassage`
   returnerar utan arm). Valet är MEDLEMSKRAV: en öppningshändelse stängs av
   sina medlemmars passager. app.js-kommentaren i `_observeBridgeOpening` som

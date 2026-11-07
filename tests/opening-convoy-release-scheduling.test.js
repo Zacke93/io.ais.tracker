@@ -32,7 +32,14 @@ describe('Konvojtäckning upphör vid sin egen deadline', () => {
 
   // Riktig absorption och riktig passage förkortar täckningen från
   // prognosens 15 minuter till den faktiska passagens 11 minuter.
-  const prepareRebasedCoverage = () => {
+  //
+  // K-familjen (2026-11-04): följarens färska fix efter passagen avgör nu
+  // OM täckningen gäller. Ligger hennes nya prognos INOM täckningen hör hon
+  // fortfarande till öppningen och prövas först vid täckningsslutet (de här
+  // testerna). Ligger den BORTOM — LA FEMME-fixet nedan, 14,51 min kvar när
+  // täckningen har 2 min kvar — är hon nästa öppning och släpps redan på
+  // fixet (bakkanten, sista testet).
+  const prepareRebasedCoverage = ({ distance = 300, etaMinutes = 1.5 } = {}) => {
     service.observeVessel(boat(LEADER, 800, 5));
     expect(warning).toHaveBeenCalledTimes(1);
     advanceTo(START + 1000);
@@ -43,12 +50,11 @@ describe('Konvojtäckning upphör vid sin egen deadline', () => {
     service.notePassage(LEADER, 'Klaffbron');
     const expiry = followerArm().coverUntilMs;
     expect(expiry).toBeLessThan(predictedExpiry);
-    // Senare färsk position: ETA-tokenen ligger precis över en
-    // avrundningsgräns vid täckningens slut, som LA FEMME i fältprovet.
+    // Senare färsk position med prognos inom täckningen (standard), eller
+    // LA FEMME-prognosen bortom den (anroparens val).
     advanceTo(START + 9 * 60000);
-    service.observeVessel(boat(FOLLOWER, 1332, 14.51));
+    service.observeVessel(boat(FOLLOWER, distance, etaMinutes));
     expect(followerArm().fireDueMs).toBeLessThan(expiry);
-    expect(warning).toHaveBeenCalledTimes(1);
     return expiry;
   };
 
@@ -75,6 +81,7 @@ describe('Konvojtäckning upphör vid sin egen deadline', () => {
     watchdog = setInterval(() => service.tick(), 30000);
     advanceTo(START);
     const expiry = prepareRebasedCoverage();
+    expect(warning).toHaveBeenCalledTimes(1);
 
     advanceTo(Math.floor(expiry));
     expect(warning).toHaveBeenCalledTimes(1);
@@ -83,9 +90,39 @@ describe('Konvojtäckning upphör vid sin egen deadline', () => {
     expect(warning).toHaveBeenCalledTimes(2);
     expect(warning.mock.calls[1][0]).toMatchObject({
       leadMmsi: FOLLOWER,
-      etaMinutes: 13,
+      etaMinutes: 0,
       firedBy: 'deadline',
       t: Math.floor(expiry) + 1,
+    });
+    advanceTo(expiry + 90000);
+    expect(warning).toHaveBeenCalledTimes(2);
+  });
+
+  test.each([0, 2500, 11520, 15000])('bakkanten: watchdogfas %s ms — prognos bortom täckningen släpps på fixet', (phase) => {
+    jest.setSystemTime(START - phase);
+    watchdog = setInterval(() => service.tick(), 30000);
+    advanceTo(START);
+    const expiry = prepareRebasedCoverage({ distance: 1332, etaMinutes: 14.51 });
+
+    // LA FEMME-fixet: 14,51 min kvar när täckningen har 2 min kvar. Hon är
+    // nästa öppning (U2): täckningen släpps redan på fixet, och hon varnas på
+    // sin EGEN deadline ur samma fix (KRAV 4) — före täckningsslutet, inte på
+    // den gamla öppningens klocka, och oberoende av watchdogens fas.
+    const arm = followerArm();
+    expect(arm.absorbedAt).toBeNull();
+    expect(arm.warnedAt).toBeNull();
+    const due = Math.ceil(arm.fireDueMs);
+    expect(due).toBeGreaterThan(Date.now());
+    expect(due).toBeLessThan(expiry);
+    advanceTo(due - 1);
+    expect(warning).toHaveBeenCalledTimes(1);
+    advanceTo(due);
+    expect(warning).toHaveBeenCalledTimes(2);
+    expect(warning.mock.calls[1][0]).toMatchObject({
+      leadMmsi: FOLLOWER,
+      etaMinutes: 13,
+      firedBy: 'deadline',
+      t: due,
     });
     advanceTo(expiry + 90000);
     expect(warning).toHaveBeenCalledTimes(2);
