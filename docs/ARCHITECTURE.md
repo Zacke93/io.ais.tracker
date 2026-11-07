@@ -760,6 +760,69 @@ båt.
   korsningen får en egen händelse, men som upptäcks under två tick före sin
   ankomst, absorberas som förut (`_anchorFloorHost`, golvet). Se §H29/H30 för
   vad som medvetet inte är grindar och för U17.
+- **Returresan är en egen öppning (U15, användarbeslut 2026-11-04):** varje
+  bokförd passage av en beväpnad båt skrivs i servicens returminne
+  (`_passageMemory`, mmsi och bro, skrivs i `_recordPassage` även när armen
+  saknar händelse). Hennes nästa arm mot samma bro är en returarm
+  (`returnAfterPassage`). Ingen avfyrad händelse som beskriver öppningen hon
+  redan passerat får täcka returen, inte ens inom konvojfönstret
+  (`_describesPassedOpening`): (a) hon passerade själv i den, (b) dess
+  referensankomst (första verkliga passagen, annars prognosen när varningen
+  gick ut) ligger inom `CONVOY_WINDOW_MS` från hennes passage, alltså dig9:s
+  definition av samma öppning, eller (c) referensen saknas och varningen gick
+  vid eller före hennes passage. Två händelser kan beskriva samma fysiska
+  öppning: värld 936 (den andra varningen gick före hennes passage) och dess
+  spegelbild (den gick efter, och den andra båten korsar 75 s efter henne).
+  En varning för en SENARE öppning, mer än ett konvojfönster från hennes
+  passage, täcker returen som vanligt (U2), oavsett om den gick före eller
+  efter passagen. `_releaseReturnCoverage` prövar villkoren vid varje värdval i
+  `_bindLooseArms` och släpper också en retur som redan absorberats, så det
+  gäller även när den andra båten korsar först efter att returarmen skapats.
+  Returminnet är frikopplat från händelsestädningen
+  (`_prunePassageMemory`): en post lever minst ett konvojfönster och sedan så
+  länge någon levande händelse beskriver hennes passerade öppning. Förut lästes
+  passagen ur hennes egen händelse, och runt dess städning avgjorde tickens fas
+  (omgranskningen 2026-11-05). Inget ledtidsgolv (dirigentens beslut
+  2026-11-05): returen får sin egen varning även under 2 × `TICK_INTERVAL_MS`
+  före ankomsten. Upptäcks returen först vid eller efter korsningen
+  (värld 227) kommer varningen sent; det är riktningslogikens kända gräns
+  (U18), inte konvojens. En båt som vänder FÖRE bron eller ligger och väntar
+  har ingen passage och stannar i sin öppning (U2: inga andrapåminnelser). En
+  armlös passage bokförs inte, som i resten av öppningslagret. Kontraktet är
+  INV-21:s returresa (`invariants.js`).
+- **"Hölls vid en tidigare bro" avgörs av båtens egna fix (F09, 2026-11-04):**
+  regeln från a8d7b76 (en varning som gick medan båten hölls vid en tidigare
+  bro täcker inte hennes senare ankomst; AKIRA-testet) avgörs vid hennes första
+  egna fix efter varningen, eller när spärren löper ut i tystnad
+  (`_releaseWarningsWhileHeld`). Varningen släpps om (1) ett eget fix efter
+  varningen visade henne hållen, (2) hennes nästa fix kom mer än
+  `TICK_INTERVAL_MS` (30 s) efter varningen medan spärren gällde
+  (`heldThroughMs`, skrivs bara av hennes fix i `_noteHoldEnd`), eller (3)
+  spärren löpte ut i tystnad efter varningen (`_silentHoldEnd`). "Efter
+  varningen" i (1) är bearbetningsordning (`_orderSeq`, `heldSeenOrder` mot
+  `firedOrder`), så ett fix i samma millisekund som varningen får samma svar
+  vid varje utvärdering. Medan spärren gäller kan bara konvojvärden absorbera
+  henne i en avfyrad händelse. Förut släpptes varningen vid varje
+  utvärdering medan spärren gällde, så halvminutstickens fas avgjorde
+  (20260710-13h: VIRGO fick en extra varning i 15 av 45 faser; första
+  K2-versionen gav PILOT 761 en annan varningstid i 6 av 45). Nu avviker 0 av
+  45 faser, och bankens svep (24 korpusar × 30 faser) har 0 avvikelser.
+  **Kvar står** att konvojundantaget (`_sharesMovingConvoy`, oförändrat)
+  prövas vid första utvärderingen efter varningen. Är den en tick före
+  hennes nästa fix avgör hennes fix från före varningen. Att flytta beslutet
+  till varningsögonblicket gav en miss i buggjägarens värld 276, och att
+  vänta på hennes nästa fix bröt den låsta gemensamma brokön
+  (`opening-shared-queue-convoy`). Vägen stängs bäst genom att en given
+  konvojtäckning kan omprövas mot hennes nästa fix. Samspelet med villkor (2)
+  och (3): utan en tick före hennes nästa fix släpper (2) eller (3) varningen
+  vid hennes fix eller när spärren tar slut, och med en sådan tick kan
+  konvojundantaget i stället absorbera henne på det äldre fixet. Granskarens
+  fasfuzz (3 × 3000 köscenarier vid Järnvägsbron, 10 faser) gav 125–151
+  fasberoende scenarier per 3000 på 7699cbe och 25–34 med rättningen, alla via
+  konvojundantaget (0 utan det). 7 av 9000 är fasberoende bara med
+  rättningen, till exempel seed 11 scenario 62: följaren absorberas vid fas
+  3,3–15,5 s och får egen varning vid övriga faser. Restklassen är registrerad
+  för motorn som känd och öppen.
 - **Dedup i TVÅ lager (app.js):** `_firedOpeningEvents` (eventId, sessionslokal)
   och `persistent_opening_warnings` (`bro|mmsi|riktning`, 10 min, ÖVER omstart
   — v1 persisterar inga armar, så en omstart mitt i en anflygning varnade annars

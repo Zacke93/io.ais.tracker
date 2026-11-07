@@ -368,6 +368,20 @@ nettofart är 6,5 kn, så scenariot uppfyller också den avsmalnade regeln efter
 omgranskningen (`VesselDataService._slowReCrossEvidence`). Scenariot fälls både
 mot `7699cbe` och mot R1:s första prototyp (`34c2b57`).
 
+**Varje passage ska ha sin egen förvarning (U15, 2026-11-04).**
+`expectedOpenings` prövar bara brons FÖRSTA passage och kan därför inte se en
+ovarnad returresa. `openingBeforeEachPassage: [bro]` kräver en varning efter
+båtens förra passage av samma bro och före varje ny, och varningen måste
+täcka just den båten: hon är medlem eller ledare i den, eller absorberades i
+dess händelse (`openingCoverage`) mellan passagerna. En annan båts varning
+vid samma bro räcker alltså inte. Scenariot
+`u-sväng-bortom-Stridsbergsbron (B02-returresan)` vänder 880 m bortom bron,
+inom konvojfönstret räknat från utresan; på 7699cbe är det rött (returen
+06:31:00 saknar varning), med U15-rättningen grönt. Samma kontroll ligger på
+`u-sväng-efter-Klaffbron` och `u-sväng-gles-ais-norr-om-Klaffbron`, som båda
+är röda på 7699cbe (returerna 06:30:00 och 06:27:00 absorberades i utresans
+händelse) och gröna med rättningen.
+
 ## Täckningskartan — diagnosverktyg, INTE en gate
 
 `tests/replay-validation/coverageMap.js` (etapp 6) svarar på frågan **var längs

@@ -280,12 +280,15 @@ const SCENARIOS = [
     // Äkta tur-och-retur: U-sväng EFTER Klaffbron → returpassagen av samma
     // bro är en NY passage och ska ge en ANDRA notis (journey-reset-vägen,
     // N1). INV-2:s journey-reset-medvetna dubbletthantering dömer.
+    // U15 (K2, omgranskningen 2026-11-05): returpassagen ska också ha en EGEN
+    // öppningsvarning. På 7699cbe absorberades returen söderut i båtens egen
+    // händelse för utresan (B02), och scenariot såg det inte.
     name: 'u-sväng-efter-Klaffbron',
     seed: 25,
     vessels: [{
       mmsi: '901000018', direction: 'north', speedKn: 4.5, uTurnAtFraction: 0.45,
     }],
-    expect: { minTargetPassages: 2, minNotifiedBridges: ['Klaffbron'] },
+    expect: { minTargetPassages: 2, minNotifiedBridges: ['Klaffbron'], openingBeforeEachPassage: ['Klaffbron'] },
   },
   {
     // Helgranskningen 2026-11-03: samma tur-och-retur med GLES AIS (180 s,
@@ -295,6 +298,8 @@ const SCENARIOS = [
     // blev mållös och returpassagen av Klaffbron bokfördes som en mållös
     // mellanbropassage (fältfallet ANYA ELAN 380 i both-21h). Vid 60 s-kadens
     // syns felet inte, därför fångade scenariot ovan det aldrig.
+    // U15 (K2, omgranskningen 2026-11-05): returpassagen av Klaffbron ska ha
+    // en egen öppningsvarning (på 7699cbe absorberad i utresans händelse).
     name: 'u-sväng-gles-ais-norr-om-Klaffbron',
     seed: 91,
     vessels: [{
@@ -304,7 +309,26 @@ const SCENARIOS = [
       reportIntervalS: 180,
       uTurnAtFraction: (METRICS.cum[2] + 600) / METRICS.total,
     }],
-    expect: { minTargetPassages: 2 },
+    expect: { minTargetPassages: 2, openingBeforeEachPassage: ['Klaffbron'] },
+  },
+  {
+    // K2 / U15 (B02-klassen, rättningskampanjen 2026-11-04): tur-och-retur
+    // genom Stridsbergsbron med vändning 880 m bortom bron. Returen kommer
+    // inom konvojfönstret (600 s) räknat från utresans passage, och förut
+    // absorberades båten då i sin EGEN äldre händelse och passerade tillbaka
+    // utan varning (VEGA, buggjägarens värld 1273). Utfallet beror på var
+    // vändningen sker (motorns gräns 735–954 m för värld 1273; i den här
+    // rutten felar 600–880 m på 7699cbe), därför ett placerat scenario.
+    // U15: returen får en egen bridge_opening_soon före returpassagen.
+    name: 'u-sväng-bortom-Stridsbergsbron (B02-returresan)',
+    seed: 93,
+    vessels: [{
+      mmsi: '901000093',
+      direction: 'north',
+      speedKn: 6.2,
+      uTurnAtFraction: (METRICS.cum[4] + 880) / METRICS.total,
+    }],
+    expect: { minTargetPassages: 4, openingBeforeEachPassage: ['Stridsbergsbron'] },
   },
   {
     // R1 (rättningskampanjen 2026-11-04, buggjägarens F10/W750): samma glesa
@@ -1294,6 +1318,32 @@ function checkExpectations(scenario, result) {
       if ((counts[bridge] || 0) > maxN) {
         problems.push(`ÖPPNINGSDUBBLETT: ${bridge} fick ${counts[bridge]} varningar (max ${maxN})`);
       }
+    }
+  }
+  // U15 (K2, 2026-11-04): VARJE passage av bron ska ha en varning efter
+  // båtens förra passage av samma bro och före den här. expectedOpenings
+  // prövar bara den första passagen och ser därför inte en ovarnad retur.
+  // Varningen måste TÄCKA just den båten (granskningen 2026-11-04): hon är
+  // medlem eller ledare i varningen, eller absorberades i dess händelse
+  // (openingCoverage) efter förra passagen och före den här. Annars hade en
+  // annan båts varning vid samma bro räckt i ett scenario med flera båtar.
+  if (e.openingBeforeEachPassage) {
+    const coverage = result.openingCoverage || [];
+    for (const bridge of e.openingBeforeEachPassage) {
+      const forBridge = openings.filter((w) => w.bridge === bridge && Number.isFinite(w.t));
+      const own = passages.filter((p) => p.bridge === bridge).sort((a, b) => a.t - b.t);
+      own.forEach((p, i) => {
+        const mmsi = String(p.mmsi);
+        const prev = own.slice(0, i).filter((q) => String(q.mmsi) === mmsi).pop();
+        const after = prev ? prev.t : -Infinity;
+        const covers = (w) => (w.mmsis || []).map(String).includes(mmsi) || String(w.leadMmsi) === mmsi
+          || coverage.some((c) => c.bridge === bridge && String(c.mmsi) === mmsi && c.eventId === w.eventId
+            && c.t > after && c.t < p.t);
+        if (!forBridge.some((w) => w.t > after && w.t < p.t && covers(w))) {
+          problems.push(`OVARNAD PASSAGE av ${bridge} ${new Date(p.t).toISOString()} (${p.mmsi}): ingen varning `
+            + `som täcker båten ${prev ? `efter förra passagen ${new Date(prev.t).toISOString()} och ` : ''}före passagen`);
+        }
+      });
     }
   }
   if (e.deadlineFiredOpenings) {
