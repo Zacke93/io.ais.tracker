@@ -401,6 +401,61 @@ F18 och F19 är beslut eller design och står under Beslutsfrågor (punkt 3).
   för F09 även `replay:openings`.
 - **Prioritet:** medel: verklig data i låsta korpusar, men knivseggar.
 
+## Rättningskampanjens utfall (2026-11-07)
+
+Ägaren beslutade 2026-11-04 att felen skulle rättas. Arbetet gjordes familj för familj:
+1. design med prototyp och regressionstest;
+2. adversariell granskning;
+3. revision tills granskningen godkände;
+4. integration med hela batteriet efter varje steg.
+
+Facit låstes om bara där rådatan visar att utfallet blir rättare (U13).
+
+| Commit | Familj | Kort (numrering i tabellerna ovan) | Facit |
+|---|---|---|---|
+| c8a5cb6 | R1: U-svängens återkorsning, svepets riktningslås | F10, W750, F15 | oförändrat |
+| 10d058e | R2: GPS-grindens dubbelbokföring, BN2 utan kurs, Järnvägsbrons passagebevis | F12, F16, F13, F08 | oförändrat |
+| 8a013d5 | E: avgångs-ETA | F04 | 6 rader rättare (41h, 24h, 31h) |
+| f198d52 | K: RECOVER-släppet, bakkanten, passagetiden efter glapp | F01, F02, F03, F14, F17, F20, F21 | oförändrat |
+| 2c3f778 | K2: returresan får egen varning (U15), 13h-fasen | B02, F09 | oförändrat |
+| e088a51 | M: krypfartens målbroflapp | F05 | oförändrat |
+| aa71099 | N: notis per passage (U14) | B01 | 6 rader rättare (25h, both-21h, 42h) |
+| f6f35e6, e6cc0e1, 286fb09 | registret: U17–U19, R2:s fråga 2, kända luckor | F11, F22 (U17) | – |
+
+**Ägarens beslut under kampanjen** (motiv och källor i `docs/ARCHITECTURE.md` och
+`docs/BUGGJAKT.md` §7):
+- U13: omlåsning bara med rådatabelägg.
+- U14: notis även för returpassagen.
+- U15: egen öppningsvarning för returresan.
+- U16: "strax" aldrig på en position äldre än 10 min.
+- U17: säkerhetsvarningen för en tyst båt behålls.
+- U18: två positioner krävs innan en vändning tros.
+- U19: en planerad varning skickas även när en vändning väntar.
+- U20 och U22: ETA-etappen (F06 och F07) prövades men integrerades inte, eftersom 45
+  enskilda ETA-påståenden i banken blev sämre. F06 och F07 står kvar som kända fel.
+- U21: ingen sen returnotis efter ett långt AIS-avbrott.
+
+**Motorn efter kampanjen.** Körningen är `npm run hunt`, standard, seed 1, på aa71099 med
+registret.
+- Utfall: 263 utslag i 46 kluster, varav 10 kandidatkort. Den första rapporten gav
+  22 kandidatkort.
+- Självtestet är grönt.
+- Kvarvarande kandidater:
+  - **ETA (U22, uppskjutna):** INV-3 SÅGTAND och OSCILLATION i idealradio, i banken
+    (21h, fasvariant) och i stress. E2-prototypen sparas för en senare ETA-etapp.
+  - **T2 LEDTID (9 världar):** tre utan täckning eller vändning (263, 290, 313), två
+    returer där den egna varningen kom vid nästa fix (936, 1918) och ett
+    bakkantsfall (979).
+    - Ny mekanism: när en vändning bekräftas via RE_CROSS under en annan bro hålls
+      målbron tom, och varningen kommer sent (1274).
+  - **T2 OKLASSAD (10 världar):** 1208 (NEW_JOURNEY utan målbro i samma tick), 1316
+    (retur utan egen varning) och samma tomma målbro som ovan (1317). Övriga ligger
+    604–619 s efter händelsens första passage.
+  - **T3 (11 världar):** RECOVER-släpp vid täckningsslut som U17 täcker men där
+    restiden är mer än 0,6 av tiden kvar, och därför gränsfall.
+  - **Stress:** ett T2-fall.
+- Beslutskort: D1-KAJZON-DEMOTION (KONFLIKT) är fortfarande öppen.
+
 ## Ägarens beslut 2026-11-04
 
 Ägaren besvarade beslutsfrågorna 1–3 nedan och gav regeln för omlåsning:
