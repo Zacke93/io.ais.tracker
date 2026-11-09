@@ -125,6 +125,12 @@ describe('Lång brokö: motbevis, källtid och resgränser', () => {
     let vessel = queue(BRIDGES.klaffbron, 'south');
     vessel = step(vessel, { lat: 58.2861, lon: 12.2857 });
     vessel = step(vessel, {}, 16);
+    // Brokön följer inte med in i kajzonen (queueBridge ger null där), men
+    // sedan ägarbeslutet U23 (2026-11-09) är hon en köare mot Klaffbron i
+    // Kajens kapsel: zonlagret klassar henne inte, 2 h-backstoppen gör det.
+    expect(service._hasFreshBridgeQueueEvidence(vessel)).toBe(false);
+    expect(vessel._moored).toBe(false);
+    vessel = step(vessel, {}, 106);
     expect(service._hasFreshBridgeQueueEvidence(vessel)).toBe(false);
     expect(vessel._moored).toBe(true);
   });
@@ -237,6 +243,31 @@ describe('Lång brokö: motbevis, källtid och resgränser', () => {
     expect(service._hasFreshBridgeQueueEvidence(vessel)).toBe(false);
     expect(vessel._moored).toBe(false);
     expect(vessel._stationarySince).toBe(now);
+  });
+
+  // Granskningen av familj F (M1 c, 2026-11-09): en fix i en kajkapsel tömde
+  // allt anflygningsbevis, även för en båt i transit. Farledsköaren i värld
+  // 129:s tvilling passerade Gästhamnens kapsel i 4,3 kn, nästa AISHub-fix var
+  // redan stoppet, och beviset kunde aldrig bekräftas igen.
+  const KAJ_MITT = { lat: 58.286060, lon: 12.285651 };
+  test('en båt som går genom en kajkapsel behåller redan bekräftad anflygning', () => {
+    let vessel = seed(BRIDGES.jarnvagsbron, 'north', 900);
+    vessel = step(vessel, { ...point(BRIDGES.jarnvagsbron, 'north', 820), sog: 3 });
+    expect(vessel._bridgeQueueApproaches['Järnvägsbron']?.confirmedAt).toBeTruthy();
+    const { confirmedAt } = vessel._bridgeQueueApproaches['Järnvägsbron'];
+    vessel = step(vessel, { ...KAJ_MITT, sog: 3 });
+    expect(service._findMooringZone(vessel)?.name).toBe('Kajen norr om Klaffbron');
+    expect(vessel._bridgeQueueApproaches['Järnvägsbron']?.confirmedAt).toBe(confirmedAt);
+    expect(vessel._bridgeQueueApproaches['Järnvägsbron'].waitAnchor).toBeNull();
+  });
+
+  test('en båt som saktar in eller stannar i en kajkapsel tappar anflygningen som förut', () => {
+    let vessel = seed(BRIDGES.jarnvagsbron, 'north', 900);
+    vessel = step(vessel, { ...point(BRIDGES.jarnvagsbron, 'north', 820), sog: 3 });
+    expect(vessel._bridgeQueueApproaches['Järnvägsbron']?.confirmedAt).toBeTruthy();
+    vessel = step(vessel, { ...KAJ_MITT, sog: 0.1 });
+    expect(vessel._bridgeQueueApproaches['Järnvägsbron']).toBeUndefined();
+    expect(service._hasFreshBridgeQueueEvidence(vessel)).toBe(false);
   });
 
   test('långsamma delsteg över brolinjen med kvarstående nollfart får inte bli kajvistelse', () => {

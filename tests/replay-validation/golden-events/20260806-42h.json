@@ -2743,6 +2743,26 @@
       "error": null
     },
     {
+      "t": 1786092281473,
+      "iso": "2026-08-07T08:44:41.473Z",
+      "bridge": "Klaffbron",
+      "direction": "southbound",
+      "etaMin": 2,
+      "vesselCount": 1,
+      "leadVessel": "S/V REBEL",
+      "firedBy": "fix",
+      "eventId": "Klaffbron#24",
+      "leadMmsi": "265827650",
+      "mmsis": [
+        "265827650"
+      ],
+      "distance": 249,
+      "dueMs": 1786092281473,
+      "originalDueMs": 1786092073824.2078,
+      "success": true,
+      "error": null
+    },
+    {
       "t": 1786093606003,
       "iso": "2026-08-07T09:06:46.003Z",
       "bridge": "Stridsbergsbron",
@@ -3169,21 +3189,7 @@
       "error": null
     }
   ],
-  "openingSuppressions": [
-    {
-      "suppressed": "same-arrival",
-      "t": 1786092281473,
-      "eventId": "Klaffbron#24",
-      "bridge": "Klaffbron",
-      "members": [
-        {
-          "mmsi": "265827650",
-          "key": "Klaffbron|265827650|southbound",
-          "firedAt": 1786012204153
-        }
-      ]
-    }
-  ],
+  "openingSuppressions": [],
   "targetPassages": [
     {
       "t": 1785972334811,

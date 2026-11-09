@@ -251,6 +251,11 @@ beslut eller en senare runda.
     2026-08-07; passagen kom 08:46:26.
   - Rättning: räkna rörelse ≥ 50 m från ett bekräftat stopp som avgång även i
     en annan kajzon. Det ändrar låst facit med ett kort till.
+  - **Rättat 2026-11-09** (granskningen av familj F, M3): avgången godtas inne
+    i en kajzon med köundantag när båten flyttat minst 50 m från stoppet mot
+    bron (app.js `_observeOpeningArrivals`). REBEL:s kort kommer 08:44:41 vid
+    249 m, 105 s före korsningen; 20260806-42h omlåst (Klaffbron:southbound
+    18 → 19), se noten i corpora.js.
 - **AKIRA, glapp i Gästhamnen.** Ett AIS-glapp nollställer fortfarande ett
   obekräftat stopp i Gästhamnen. En övernattning med AIS avstängd ger därför
   inget morgonkort, men bara i kedjade körningar med persisterat minne.

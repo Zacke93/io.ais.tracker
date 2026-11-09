@@ -290,9 +290,10 @@ Broar i `BRIDGES` (:245–325), syd→nord (`BRIDGE_SEQUENCE` :573–579):
   punkt de räknades mot).
   (Haversine bro-till-bro; 950/420-datafelen rättades i helgranskningen
   2026-07-06 — denna rad släpade efter till 2026-07-10.)
-- `MOORING_ZONES` (:403–458): TVÅ kapslar (centrumlinje + halvbredd), båda norr
+- `MOORING_ZONES` (:403–488): TVÅ kapslar (centrumlinje + halvbredd), båda norr
   om Klaffbron: "Kajen norr om Klaffbron" (30 m halvbredd, 190–295 m från bron,
-  mitt i väntzonen, `queueGraceMs` 15 min) och "Gästhamnen norr om Klaffbron"
+  mitt i väntzonen, `queueGraceMs` Infinity sedan ägarbeslutet U23 2026-11-09,
+  15 min dessförinnan) och "Gästhamnen norr om Klaffbron"
   (35 m, `queueGraceMs` 0 — B3, 2026-08-06). `MOORING_DETECTION`
   (:342–355): STATIONARY 0.3 kn, MOVEMENT_PROOF 0.5 kn/50 m, navstatus 1/5,
   2h-backstop.
@@ -1383,9 +1384,66 @@ båt.
    `_pendingTarget` rensas, protection släpps (VDS:126–135), fartyget behålls.
 3. **Navstatus**: 1 (ankar)/5 (förtöjd) + stillaliggande (:1666–1668).
 4. **Kajzon**: stationär i MOORING_ZONE kräver stillhetsTID — 3 min normalt,
-   **15 min** för trolig köare (target inom 600 m + rörelsebevis) (:1681–1696).
+   zonens `queueGraceMs` för trolig köare (target inom 600 m + rörelsebevis;
+   `_zoneMinStillMs`). Kajen bär sedan **ägarbeslutet U23 (2026-11-09)** ett
+   obegränsat köundantag: en båt på väg mot Klaffbron som stannar vid Kajen
+   behandlas som i resten av väntområdet och klassas aldrig av zonlagret.
+   Inom 300 m från bron (190–300 m, nästan hela kapseln) står hon kvar i
+   texten ("på väg mot Klaffbron, beräknad broöppning strax", enligt
+   imminent-regeln och U6) tills hon kör vidare, sänder navstatus 1/5
+   (lager 3) eller legat still i MAX_STATIONARY_WAIT_MS (lager 5).
+   **Kapselns norra spets (300–320 m) beter sig som farleden på samma
+   avstånd:** målbron släpps efter 20 min stillhet (`_isInTargetQueueZone`,
+   aktivitetsfönstret från valideringskörningen 2026-07-02), och texten visar
+   till dess hennes senaste ETA i stället för "strax", eftersom hon varken har
+   imminent-flaggan (över 300 m) eller bekräftad väntan (`queueBridge` ger
+   null i en kajzon). Utan målbro håller undantaget inte längre, så zonlagret
+   klassar henne efter 3 min. Avgången är ändå samma ankomst, eftersom stoppet
+   minns att klassningen höll henne (`heldAsQueue` nedan): hon behåller sin
+   första varning som farledsköaren på samma avstånd (granskningens prov
+   X3kaj; före L1 kom en ny varning 92 s före korsningen). Bandet 300–500 m
+   är en befintlig lucka mot D1 även i farleden (öppen ägarfråga). Motivet är D1 (docs/reliability-spec.md): utanför kajzonerna tas
+   en väntande båt nära bron aldrig bort, och 15-minutersgissningen gav i
+   buggjägarens provvärldar "Inga båtar" medan en båt väntade 250 m från bron
+   och en ny, sen varning vid avgången (värld 313: 32 s före passagen).
+   Utan undantagets villkor gäller 3 min som förut: norrgående efter Klaffbron
+   med Stridsbergsbron ~980 m bort (ELFKUNGEN, SUSANNE), båtar utan målbro eller
+   rörelsebevis, och hela Gästhamnen (`queueGraceMs` 0, utanför väntzonen).
+   **Öppningslagrets ankomstspärr** (app.js `_observeOpeningArrivals`) följer
+   samma klassning via `VesselDataService.holdsQuayQueue`: så länge köaren
+   hålls är stoppet vid Kajen samma ankomst, och armen lever vidare eftersom
+   målbron står kvar, så den första varningen gäller hela kön. Klassningen
+   är flyktig, men stoppet minns att den höll henne (`quayStop.heldAsQueue`,
+   överlever omstart; granskningen av familj F, L1): efter en omstart eller
+   ett AIS-glapp mitt i kön är hon ny för appen, utan målbro, men stoppet är
+   samma ankomst så länge hon ligger kvar (< 50 m), inte sänder navstatus
+   1/5 och inte legat still i MAX_STATIONARY_WAIT_MS från stoppets första fix
+   — som farledsköaren (prov X2kaj/X5kaj mot X2far/X5far; före L1 ett andra
+   kort 73 s före korsningen). Minnet släpps också när klassningens egen
+   stillhetsklocka (`_stationarySince`) nått MAX_STATIONARY_WAIT_MS, eftersom
+   en ensam fartspik raderar det obekräftade stoppet och startar ett nytt med
+   senare första fix (omgranskningens prov B3); efter en omstart är klockan
+   ny. Släpper klassningen henne genom navstatus eller backstoppen bekräftas
+   stoppet med 30 s-regeln och avgången blir en ny ankomst
+   (`OPENING_QUAY_DEPARTURE`) som förut — efter backstoppen alltså med en sen
+   andra varning (73 s före korsningen i det syntetiska 150-minutersprovet;
+   43 s före M3, samma som på c14938f efter 15 min). Ledtiderna här mäts mot
+   korsningen interpolerad ur fixarna.
+   **Avgång inne i Kajen (M3):** avgången godtas när båten flyttat minst
+   50 m från ett bekräftat stopp mot bron, på en enda fix, om steget sedan
+   föregående fix är rimligt för farten (högst 20 m plus dubbla farten gånger
+   tiden). S/V REBEL i 20260806-42h behöver enfixsregeln: med gles AIS kom
+   nästa fix först efter passagen. Rimlighetskravet gör att ett ensamt
+   GPS-hopp (60 m mot bron i 0,6 kn) inte är en avgång (omgranskningens prov
+   A5). **Priset, ägarens avvägning:** en äkta omförtöjning 100 m mot bron
+   inne i Kajen räknas som avgång, och varningen kommer då 62 min före
+   korsningen (prov A4, navstatus 5, fix var 10:e s). Utan navstatus (A4n0)
+   håller U23 henne som köare på den nya platsen, så den verkliga avgången
+   får ingen egen varning; den tidiga gäller.
 5. **2h-backstop**: stationär > MAX_STATIONARY_WAIT_MS. Sedan 2026-09-06
-   undantas styrkt, fortsatt färsk brokö enligt kontraktet nedan.
+   undantas styrkt, fortsatt färsk brokö enligt kontraktet nedan. Undantaget
+   når aldrig en kajzon: `queueBridge` (lib/utils/bridgeQueue.js) ger null i en
+   MOORING_ZONE, så backstoppen gäller vid Kajen även för U23-köaren.
    Släpp-hysteres: tydlig avgång (≥0.5 kn) direkt; gråzon kräver 2 prover
    (`_mooredReleasePending`, :1638–1653); navstatus-flap ensam släpper inte
    (:1660–1665).
@@ -1400,6 +1458,11 @@ bara vid bekräftad `waitingAtBridge`, före brolinjen, inom väntans befintliga
 eller känd kaj. Det gäller också väntan vid Järnvägsbron på väg mot Klaffbron
 och Olidebron söderut efter sista målbron. Uppgiften bevaras av den explicita
 fältlistan, rensas vid ny resa/riktningsbyte/passage och sparas inte i grav.
+En fix i en kajkapsel skapar aldrig nytt bevis. Sedan 2026-11-09 (granskningen
+av familj F, M1 c) behåller en båt som går genom kapseln i minst 0,5 kn redan
+bekräftat bevis, med väntans ankare nollat; förut tömde en enda transitfix i
+Gästhamnens eller Kajens kapsel beviset, och med AISHub-takt kunde nästa fix
+redan vara stoppet i kön (20260713-41h omlåst 264 → 262 övergångar, se noten).
 
 Färskhet använder `max(timestamp, lastPositionUpdate)` inom tio minuter;
 `_lastSeen` är inget positionsbevis. AISHubs `fixTs` måste dessutom vara
@@ -1912,9 +1975,10 @@ mätas i nästa A/B, inte gissas fram.
   observationsankare)`, i stället för klientens `timeSinceLastMessage`-sentinel och socketens
   uptime. Ankaret är medvetet **icke-persisterat** (ett persisterat ankare återinför kollapsen vid
   omstart mitt i ett avbrott). `connection_status` har värdet `degraded` sedan v5.4.0.
-- **MOORING_ZONES bär `queueGraceMs`** (C0b): köundantaget som höjer stillhetskravet 3 → 15 min är
-  zon-lokalt, inte avståndsbaserat. Zonernas broavstånd **överlappar** (kajzonen 161–320 m,
-  gästhamnen 319–446 m), så ingen avståndströskel kan separera dem.
+- **MOORING_ZONES bär `queueGraceMs`** (C0b): köundantaget som höjer stillhetskravet från 3 min
+  (Kajen: 15 min, obegränsat sedan U23 2026-11-09) är zon-lokalt, inte avståndsbaserat.
+  Zonernas broavstånd **överlappar** (kajzonen 161–320 m, gästhamnen 319–446 m), så ingen
+  avståndströskel kan separera dem.
 - **Riktningslåset kräver rörelsebevis** (C4b): `_routeDirection` skrivs bara om från COG när
   `sog ≥ FIX_D_MIN_SOG`. Målbrologiken förkastade redan sådana COG; låset gjorde det inte.
 - **Rådatafacit (`gt-passages/`) läser farledspolylinjen, aldrig `BRIDGES`-koordinaten** — annars

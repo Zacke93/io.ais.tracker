@@ -78,7 +78,7 @@ Module.prototype.require = function requireOverride(id) {
 const mockHomeyModule = require(path.join(ROOT, 'tests', '__mocks__', 'homey'));
 const mockHomey = mockHomeyModule.__mockHomey;
 const AISBridgeApp = require(path.join(ROOT, 'app'));
-const { waitingBridge } = require('../../lib/utils/bridgeQueue');
+const { waitingBridge, hasFreshPosition } = require('../../lib/utils/bridgeQueue');
 const { UI_CONSTANTS, AIS_CONFIG } = require('../../lib/constants');
 
 // Äkta setImmediate (sparas innan klockan installeras) för microtask-dränering.
@@ -295,7 +295,19 @@ async function main() {
     instance.bridgeTextService.generateBridgeText = (vessels, ...args) => {
       const text = generateText(vessels, ...args);
       for (const vessel of vessels || []) {
-        const bridge = waitingBridge(vessel);
+        // Ägarbeslut U23 (2026-11-09): köaren vid "Kajen norr om Klaffbron" är
+        // bekräftad väntan vid målbron, fast queueBridge ger null i en kajzon
+        // (så att 2 h-backstoppen gäller där). Klassningen läses på den levande
+        // båten, eftersom presentationskopian saknar rörelsebeviset. Beviskraven
+        // är waitingBridge:s: färsk position och stilla i minst en minut. Utan
+        // grenen fällde INV-10 varje "strax" som stod över 35 min vid Kajen och
+        // slutade utan passage, fast farledsköaren med samma text godtas.
+        const live = instance.vesselDataService?.getVessel?.(vessel.mmsi);
+        const quayHeld = !!live && !!vessel.targetBridge
+          && instance.vesselDataService.holdsQuayQueue?.(live, vessel.targetBridge) === true
+          && hasFreshPosition(live) && Number.isFinite(live._stationarySince)
+          && Date.now() - live._stationarySince >= 60000;
+        const bridge = waitingBridge(vessel) || (quayHeld ? vessel.targetBridge : null);
         if (!bridge || bridge !== vessel.targetBridge) continue;
         const confirmed = Math.max(vessel.timestamp || 0, vessel.lastPositionUpdate || 0);
         const until = Math.min(confirmed + UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS,

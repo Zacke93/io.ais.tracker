@@ -1456,6 +1456,7 @@ class AISBridgeApp extends Homey.App {
               lastFixTs: stop.lastFixTs,
               confirmed: stop.confirmed === true,
               afterConfirmedStop: stop.afterConfirmedStop === true,
+              heldAsQueue: stop.heldAsQueue === true,
             };
           }
           this._persistentOpeningWarnings.set(key, entry);
@@ -1513,22 +1514,91 @@ class AISBridgeApp extends Homey.App {
       const atConfirmedMooring = vessel._moored === true
         && distance > BRIDGE_OPENING.DISARM_MOORED_MIN_DISTANCE_M;
       // En kajzon som ligger mitt i brons väntzon bär queueGraceMs
-      // ("Kajen norr om Klaffbron", 15 min): där är ett kort stopp brokö, inte
-      // ett kajstopp. Regeln liknar förtöjningsklassningens köundantag
-      // (VesselDataService._classifyMooring) men är inte densamma: där gäller
-      // undantaget inom 600 m från MÅLBRON och kräver rörelsebevis, och
-      // navstatus 1/5 klassar förtöjd direkt. Här räcker att kajzonen bär grace
-      // och att ankomstbron (kortets bro) ligger inom
-      // DISARM_MOORED_MIN_DISTANCE_M; inom det avståndet spelar varken navstatus
-      // eller _moored någon roll. Med en fast 30 s-gräns fick en båt
-      // som väntat ut öppningen vid kajen ett andra kort för samma öppning när
-      // hon lade ut (TIM och CHARLYS DREAM i both-21h, med båten isolerad).
+      // ("Kajen norr om Klaffbron"): där är ett stopp brokö, inte ett
+      // kajstopp. Med en fast 30 s-gräns fick en båt som väntat ut öppningen
+      // vid kajen ett andra kort för samma öppning när hon lade ut (TIM och
+      // CHARLYS DREAM i both-21h, med båten isolerad). Graceperioden gäller när
+      // ankomstbron (kortets bro) ligger inom DISARM_MOORED_MIN_DISTANCE_M.
+      // En ÄNDLIG grace (Kajens 15 min fram till U23) räknas på stoppets
+      // längd oavsett navstatus och _moored; den obegränsade följer
+      // förtöjningsklassningen (stopGraceMs nedan).
       const queueGraceMs = !atConfirmedMooring && atQuay
         && distance <= BRIDGE_OPENING.DISARM_MOORED_MIN_DISTANCE_M
         && Number(quayZone.queueGraceMs) > 0 ? Number(quayZone.queueGraceMs) : 0;
+      // ÄGARBESLUT U23 (2026-11-09): Kajens köundantag är obegränsat
+      // (queueGraceMs Infinity). Då finns ingen tid som gör kön till ett
+      // kajstopp; spärren följer i stället förtöjningsklassningen. Så länge
+      // den håller båten som köare mot kortets bro (VesselDataService.
+      // holdsQuayQueue: målbron är kortets bro, rörelsebevis, inom 600 m och
+      // inte förtöjd) står hon kvar i texten och stoppet är samma ankomst —
+      // den första varningen gäller hela kön. När klassningen släpper henne
+      // (navstatus 1/5, 2 h-backstoppen, eller ingen målbro) bekräftas stoppet
+      // med 30 s-regeln, och avgången blir en ny ankomst som förut. Ett AIS-
+      // glapp nollställer fortfarande inte stoppet i en kajzon med köundantag
+      // (gapResetsStop nedan), så övernattningen vid Kajen bekräftas nästa
+      // morgon som förut.
       const stop = entry.quayStop;
       const movedFromStop = stop && geometry.calculateDistance(stop.lat, stop.lon, vessel.lat, vessel.lon);
-      if (stop?.confirmed && !atQuay && vessel._moored !== true
+      const holdsQueue = queueGraceMs === Infinity
+        && this.vesselDataService?.holdsQuayQueue?.(vessel, bridgeName) === true;
+      // Granskningen av familj F (L1, 2026-11-09): klassningen är flyktig. Efter
+      // en omstart eller ett AIS-glapp på 25–30 min mitt i kön är köaren ny för
+      // appen — utan målbro och rörelsebevis, och zonlagrets 3 min förtöjer
+      // henne. Stoppet bekräftades då med 30 s-regeln, och avgången gav ett
+      // andra, sent kort (X2kaj/X5kaj: 73 s före korsningen) som farleds-
+      // tvillingen aldrig får. Stoppet minns därför att klassningen höll henne
+      // som köare (heldAsQueue, överlever omstart), och minnet gäller så länge
+      // U23:s tre villkor för att släppa henne inte är uppfyllda: hon ligger
+      // kvar (< 50 m från stoppet), sänder inte navstatus 1/5 och har inte
+      // legat still i MAX_STATIONARY_WAIT_MS räknat från stoppets första fix.
+      // Omgranskningen (revision 2, prov B3): en ensam fartspik vid kajen
+      // raderar det obekräftade stoppet, och nästa fix startar ett nytt med
+      // senare första fix, medan klassningens stillhetsklocka
+      // (_stationarySince) inte startar om. Minnet släpps därför också när
+      // den klockan nått MAX_STATIONARY_WAIT_MS — annars höll det kvar en båt
+      // som 2 h-gränsen redan förtöjt, och avgången blev utan varning. Efter
+      // en omstart är klockan ny, så omstartsfallet påverkas inte.
+      const keptQueue = queueGraceMs === Infinity && !holdsQueue
+        && stop?.heldAsQueue === true && stop.confirmed !== true && movedFromStop < 50
+        && !MOORING_DETECTION.MOORED_NAV_STATUSES.includes(vessel.navStatus)
+        && fixTs - stop.firstFixTs < MOORING_DETECTION.MAX_STATIONARY_WAIT_MS
+        && !(Number.isFinite(vessel._stationarySince)
+          && Date.now() - vessel._stationarySince >= MOORING_DETECTION.MAX_STATIONARY_WAIT_MS);
+      const stopGraceMs = queueGraceMs === Infinity && !holdsQueue && !keptQueue
+        ? 0 : queueGraceMs;
+      // Avgången kräver normalt en fix utanför kajzonerna. Inne i en kajzon med
+      // köundantag ("Kajen norr om Klaffbron", mitt i väntzonen mellan
+      // Gästhamnen och bron) räcker att båten flyttat sig minst 50 m från
+      // stoppet MOT kortets bro — annars kom avgångsbeviset först vid nästa fix,
+      // ofta efter passagen. S/V REBEL (20260806-42h, 2026-08-07) lämnade sitt
+      // bekräftade övernattningsstopp i Gästhamnen; första rörelsefixen låg i
+      // Kajen 249 m från Klaffbron, och fältappens kort 08:44:41 (Klaffbron#19)
+      // spärrades i replayn av gårdagens ankomst (helgranskning-2026-11-03:
+      // "räkna rörelse ≥ 50 m från ett bekräftat stopp som avgång även i en
+      // annan kajzon"). Samma grind gjorde varningen sen för varje båt som
+      // U23 släpper vid Kajen (navstatus, 2 h, omstart, AIS-glapp): 43 → 73 s
+      // före korsningen i de syntetiska proven. Ett bekräftat stopp krävs som
+      // förut, så en köare som klassningen håller berörs inte.
+      //
+      // Omgranskningen av familj F (revision 2, 2026-11-09): en enda fix räcker
+      // som avgång inne i kajzonen, så steget sedan föregående fix måste vara
+      // rimligt för farten (högst 20 m + dubbla farten gånger tiden). Ett ensamt
+      // GPS-hopp på 60 m mot bron i 0,6 kn hos en förtöjd båt gav annars en
+      // falsk varning, och efter 2 h-gränsen förbrukade den ankomsten, så att
+      // den verkliga avgången blev utan varning (granskningens prov A5).
+      // Utanför kajzonerna gäller kravet inte: där bär fixen själv beviset.
+      // Priset för enfixsregeln (ägarens avvägning, docs/ARCHITECTURE.md
+      // §Förtöjningslagren): en äkta omförtöjning 100 m mot bron inne i Kajen
+      // är också en avgång, och varningen kommer då långt före korsningen.
+      const stopDistance = stop && geometry.calculateDistance(stop.lat, stop.lon, bridge.lat, bridge.lon);
+      const prev = vessel.lastPosition;
+      const stepM = prev && geometry.calculateDistance(prev.lat, prev.lon, vessel.lat, vessel.lon);
+      const stepS = Number.isFinite(entry.lastFixTs) ? (fixTs - entry.lastFixTs) / 1000 : null;
+      const plausibleStep = Number.isFinite(stepM) && Number.isFinite(stepS) && stepS > 0
+        && Number.isFinite(vessel.sog) && stepM <= 20 + stepS * vessel.sog * 0.514444 * 2;
+      const leftQuay = !atQuay || (Number(quayZone?.queueGraceMs) > 0 && plausibleStep
+        && Number.isFinite(stopDistance) && stopDistance - distance >= 50);
+      if (stop?.confirmed && leftQuay && vessel._moored !== true
           && movedFromStop >= 50 && Number.isFinite(vessel.sog) && vessel.sog >= 0.5) {
         this._persistentOpeningWarnings.delete(key);
         this.bridgeOpeningService?.restartArrival?.(vessel.mmsi, bridgeName);
@@ -1558,12 +1628,14 @@ class AISBridgeApp extends Homey.App {
             // Kajen) är ingen kö efter samma kort. Köskyddet gäller då inte,
             // och 30 s-regeln från före 74b3a34 bekräftar stoppet som förut.
             afterConfirmedStop: stop?.confirmed === true || stop?.afterConfirmedStop === true,
+            heldAsQueue: holdsQueue,
           };
           dirty = true;
         } else if (!stop.confirmed) {
           stop.lastFixTs = fixTs;
+          if (holdsQueue) stop.heldAsQueue = true;
           stop.confirmed = fixTs - stop.firstFixTs
-            >= Math.max(30000, stop.afterConfirmedStop ? 0 : queueGraceMs);
+            >= Math.max(30000, stop.afterConfirmedStop ? 0 : stopGraceMs);
           dirty = true;
         }
       } else if (stop && !stop.confirmed) {

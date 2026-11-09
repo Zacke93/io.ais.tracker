@@ -96,9 +96,10 @@ describe('B3: gästhamnskapselns geometri (datahärledd)', () => {
 
   test('C0b: köundantaget bärs av zonposterna, inte av en global avståndsgrind', () => {
     // Kontraktet C0b inför: `queueGraceMs` på MOORING_ZONES-posten. Kajzonen
-    // (inne i väntzonen) behåller sina 15 min; gästhamnen (utanför väntzonen)
-    // har inget undantag alls och faller tillbaka på baskravet 3 min.
-    expect(KAJZON.queueGraceMs).toBe(15 * 60 * 1000);
+    // (inne i väntzonen) bär köundantaget — obegränsat sedan ägarbeslutet U23
+    // (2026-11-09; 15 min dessförinnan); gästhamnen (utanför väntzonen) har
+    // inget undantag alls och faller tillbaka på baskravet 3 min.
+    expect(KAJZON.queueGraceMs).toBe(Infinity);
     expect(ZONE.queueGraceMs).toBeFalsy();
 
     // Varje zon som BÄR grace måste också ligga i en väntzon — annars är
@@ -371,14 +372,16 @@ describe('B3: konsumtionen — stillhet krävs, rörelse skyddar', () => {
     expect(mooredRader).toEqual([]);
   });
 
-  test('KÖUNDANTAGET I KAJZONEN: 15-minutersgrenen håller, 3-minutersgrenen gör det inte', () => {
+  test('KÖUNDANTAGET I KAJZONEN: köaren står kvar, och övre änden är 2 h-backstoppen (U23)', () => {
     // F-8b/C0b-vakt (2026-08-08): köundantaget (VesselDataService._classifyMooring,
-    // zoneMinStillMs 3 → 15 min när target + rörelsebevis + ≤600 m) skrevs för
-    // ELFKUNGEN-fallet i KAJZONEN — en köande båt 161–290 m från Klaffbron fick
-    // annars ETT stillasample att demotera henne 4,5 min före passagen.
-    // C0b ska göra undantaget ZON-LOKALT (gästhamnen tappar det), men kajzonens
-    // grace ska stå kvar EXAKT som i dag. Raden fäller varje C0b-variant som
-    // river undantaget brett i stället för per zon.
+    // zoneMinStillMs 3 min → zonens grace när target + rörelsebevis + ≤600 m)
+    // skrevs för ELFKUNGEN-fallet i KAJZONEN — en köande båt 161–290 m från
+    // Klaffbron fick annars ETT stillasample att demotera henne 4,5 min före
+    // passagen. C0b gjorde undantaget ZON-LOKALT (gästhamnen tappade det).
+    // Ägarbeslut U23 (2026-11-09): graceperioden är obegränsad — köaren står
+    // kvar tills hon kör vidare, sänder navstatus 1/5 eller legat still i
+    // MAX_STATIONARY_WAIT_MS. Raden fäller både en variant som river undantaget
+    // och en som åter gör det ändligt.
     const KAJ_MITT = { lat: 58.286060, lon: 12.285651 }; // 240,5 m N Klaffbron
     const anflygning = [
       { lat: 58.28760, lon: 12.28600, sog: 3.4 },
@@ -396,8 +399,10 @@ describe('B3: konsumtionen — stillhet krävs, rörelse skyddar', () => {
     expect(vessel.targetBridge).toBe('Klaffbron');
     expect(vessel._hasMovementProof).toBe(true);
 
-    // Stillhet i kajzonen: 3-minutersgrenen får INTE bita på en köare.
-    for (let min = 1; min <= 14; min++) {
+    // Stillhet i kajzonen: varken 3-minutersgrenen eller den gamla
+    // 15-minutersgränsen får bita på en köare (U23). 119 min = sista minuten
+    // före backstoppen.
+    for (let min = 1; min <= 119; min++) {
       vessel = svc.updateVessel('999000111', {
         lat: KAJ_MITT.lat, lon: KAJ_MITT.lon, sog: 0.0, cog: 195, name: 'KOARE',
       });
@@ -406,9 +411,9 @@ describe('B3: konsumtionen — stillhet krävs, rörelse skyddar', () => {
       tick(1);
     }
 
-    // ...men graceperioden är ändlig: efter 15 min klassas hon som förtöjd.
-    // (Låser även övre änden så en fix inte gör undantaget oändligt.)
-    for (let min = 15; min <= 17; min++) {
+    // ...men undantaget är inte evigt: 2 h-backstoppen gäller vid kajen
+    // (queueBridge ger null i en kajzon, så broväntans undantag når inte hit).
+    for (let min = 120; min <= 122; min++) {
       vessel = svc.updateVessel('999000111', {
         lat: KAJ_MITT.lat, lon: KAJ_MITT.lon, sog: 0.0, cog: 195, name: 'KOARE',
       });
@@ -416,6 +421,11 @@ describe('B3: konsumtionen — stillhet krävs, rörelse skyddar', () => {
     }
     expect(vessel._moored).toBe(true);
     expect(vessel.targetBridge).toBeNull();
+    const mooredRader = logger.log.mock.calls
+      .map((c) => String(c[0]))
+      .filter((r) => r.includes('[MOORED]') && r.includes('999000111'));
+    expect(mooredRader).toHaveLength(1);
+    expect(mooredRader[0]).toContain('backstop');
   });
 
   test('KAJZONENS NORRA SPETS: graceperioden gäller HELA kapseln (fäller 600→300 m)', () => {

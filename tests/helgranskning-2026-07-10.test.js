@@ -598,8 +598,20 @@ describe('V2-1: fartgivarlös kajliggare blir moored via positionsstillhet', () 
     svc.updateVessel(mmsi, {
       lat: QUAY.lat, lon: QUAY.lon, sog: null, cog: 215, shipName: 'FARTGIVARLÖSA',
     });
-    // Still i 20 min över flera prover (inom 40 m-jitterradien)
+    // Still i 20 min över flera prover (inom 40 m-jitterradien). Hon har
+    // målbro Klaffbron och rörelsebevis, alltså en köare: sedan ägarbeslutet
+    // U23 (2026-11-09) är Kajens köundantag obegränsat, så zonkravet för henne
+    // är 2 h-backstoppen. Den positionshärledda stillheten ska då bära hela
+    // vägen dit — samma lager som finit-sog-vägen.
     for (let i = 0; i < 5; i++) {
+      tick(4);
+      svc.updateVessel(mmsi, {
+        lat: QUAY.lat + 0.00005, lon: QUAY.lon, sog: null, cog: 215, shipName: 'FARTGIVARLÖSA',
+      });
+    }
+    expect(svc.vessels.get(mmsi)._moored).toBe(false); // köare (U23)
+    expect(Number.isFinite(svc.vessels.get(mmsi)._stationarySince)).toBe(true);
+    for (let i = 0; i < 26; i++) { // till 124 min
       tick(4);
       svc.updateVessel(mmsi, {
         lat: QUAY.lat + 0.00005, lon: QUAY.lon, sog: null, cog: 215, shipName: 'FARTGIVARLÖSA',

@@ -447,3 +447,74 @@ describe('BridgeTextService — Invariants', () => {
     expect(text).not.toContain(';');
   });
 });
+
+/**
+ * Kajfallet (granskningen av familj F, L3, 2026-11-09). "Kajen norr om
+ * Klaffbron" (190–320 m från bron) är en kajzon, och där ger bekräftad väntan
+ * (lib/utils/bridgeQueue.js queueBridge) alltid null. Sedan ägarbeslutet U23
+ * står köaren kvar i texten, och inom 300 m får hon "strax" genom appens
+ * imminent-flagga (färsk position) i stället för genom bekräftad väntan.
+ * Texten blir därmed densamma som för farledsköaren med bekräftad väntan vid
+ * målbron (beslutet 2026-09-12 i docs/bridgeTextFormat.md; U6: även vid lång
+ * kö). Hela kedjan genom appen prövas i runSyntheticScenarios
+ * ("kö-25min-i-Kajens-kapsel", "kö-60min-i-Kajens-kapsel-med-annan-trafik").
+ */
+describe('BridgeTextService — köare vid Kajen norr om Klaffbron (U23)', () => {
+  // eslint-disable-next-line global-require
+  const { waitingBridge } = require('../lib/utils/bridgeQueue');
+  const KAJ_MITT = { lat: 58.286060, lon: 12.285651 }; // 241 m från bron, i kapseln
+  const KAJ_SPETS = { lat: 58.286584, lon: 12.286333 }; // 310 m, kapselns norra spets
+  const FARLED = { lat: 58.285900, lon: 12.286600 }; // 254 m, utanför kajzonerna
+  const FARLED_310 = { lat: 58.286296, lon: 12.287200 }; // 310 m, utanför kajzonerna
+  const STRAX = 'En båt på väg mot Klaffbron, beräknad broöppning strax';
+
+  // Söderut, still i 25 min: belagd anflygning och bekräftad väntan mot
+  // Klaffbron, och en kvarstående ETA från anflygningen.
+  const queuer = (pos, overrides = {}) => {
+    const now = Date.now();
+    return mkVessel({
+      lat: pos.lat,
+      lon: pos.lon,
+      sog: 0,
+      cog: 195,
+      navStatus: 0,
+      etaMinutes: 4,
+      timestamp: now,
+      lastPositionUpdate: now,
+      _routeDirection: 'south',
+      _stationarySince: now - 25 * 60000,
+      _bridgeQueueApproaches: {
+        Klaffbron: { confirmedAt: now - 26 * 60000, direction: 'south', waitConfirmedAt: now - 24 * 60000 },
+      },
+      ...overrides,
+    });
+  };
+
+  test('inom 300 m: köaren vid Kajen och farledsköaren får samma text, "strax"', () => {
+    const kaj = queuer(KAJ_MITT, { _isImminentAtTargetBridge: true });
+    const farled = queuer(FARLED, { _isImminentAtTargetBridge: true });
+    expect(waitingBridge(kaj)).toBeNull();
+    expect(waitingBridge(farled)).toBe('Klaffbron');
+    expect(makeService().generateBridgeText([kaj])).toBe(STRAX);
+    expect(makeService().generateBridgeText([farled])).toBe(STRAX);
+  });
+
+  test('kapselns norra spets (310 m): varken imminent-flagga eller bekräftad väntan ⇒ ordinarie ETA-klausul', () => {
+    // Farledsköaren på samma avstånd har bekräftad väntan vid målbron och
+    // behåller "strax" (docs/ARCHITECTURE.md §Förtöjningslagren, lager 4).
+    const kaj = queuer(KAJ_SPETS, { _isImminentAtTargetBridge: false });
+    const farled = queuer(FARLED_310, { _isImminentAtTargetBridge: false });
+    expect(makeService().generateBridgeText([kaj]))
+      .toBe('En båt på väg mot Klaffbron, beräknad broöppning om 4 minuter');
+    expect(makeService().generateBridgeText([farled])).toBe(STRAX);
+  });
+
+  test('köaren vid Kajen med positionen äldre än 10 min ⇒ "ETA okänd"', () => {
+    // Appen släcker imminent-flaggan och ETA:n på gammal position.
+    const old = Date.now() - 11 * 60000;
+    const kaj = queuer(KAJ_MITT, {
+      _isImminentAtTargetBridge: false, etaMinutes: null, timestamp: old, lastPositionUpdate: old,
+    });
+    expect(makeService().generateBridgeText([kaj])).toBe('En båt på väg mot Klaffbron, ETA okänd');
+  });
+});

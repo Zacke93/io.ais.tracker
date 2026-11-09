@@ -59,14 +59,16 @@ const QUAY = { lat: 58.28767, lon: 12.285705 };
 const M_PER_DEG_LAT = 111320; // meridiangraden
 const ZON_MIN_STILL_MS = 3 * 60 * 1000; // _classifyMooring:s baskrav för zonlagret
 const { ARM_STALE_TTL_MS } = constants.BRIDGE_OPENING;
+const { MAX_STATIONARY_WAIT_MS } = constants.MOORING_DETECTION;
 const NET_M = constants.MOORING_DETECTION.MOVEMENT_PROOF_NET_M;
 
 // KÖ-ZONEN — M1:s NYA BETEENDEGRÄNS (granskarfynd runda 4, korrekthetslinsen).
-// "Kajen norr om Klaffbron" är den ENDA zon som bär kö-nåd (queueGraceMs
-// 15 min, se constants.MOORING_ZONES). Punkten nedan är kapsellinjens
-// mittpunkt: uppmätt 235 m från Klaffbron, alltså INNE i väntzonen (≤300 m)
-// och långt inom kö-undantagets 600 m-villkor. Zonen är därför den plats där
-// ankarmognaden (30 min) och kö-nåden (15 min) staplas på varandra.
+// "Kajen norr om Klaffbron" är den ENDA zon som bär kö-nåd (queueGraceMs, se
+// constants.MOORING_ZONES; obegränsad sedan ägarbeslutet U23 2026-11-09, 15 min
+// dessförinnan). Punkten nedan är kapsellinjens mittpunkt: uppmätt 235 m från
+// Klaffbron, alltså INNE i väntzonen (≤300 m) och långt inom kö-undantagets
+// 600 m-villkor. Zonen är därför den plats där ankarmognaden (30 min) och
+// köarens övre gräns (sedan U23 2 h-backstoppen) staplas på varandra.
 const KO_ZON = constants.MOORING_ZONES.find((z) => z.name === 'Kajen norr om Klaffbron');
 const KO = { lat: 58.286060, lon: 12.285651 };
 const KO_KADENS_MS = 2 * 60 * 1000; // CARAT:s egen sampelkadens
@@ -263,73 +265,66 @@ describe('M1: ihållande stillhetsankare', () => {
     }
   });
 
-  test('KÖ-ZONENS GRÄNS: brusig köare förtöjs först efter ankarmognad + kö-nåd — ren givare gör det redan på HEAD', () => {
+  test('KÖ-ZONENS GRÄNS: köaren förtöjs först av 2 h-backstoppen — brusig givare efter ankarmognaden (U23)', () => {
     // GRANSKARFYND RUNDA 4 (korrekthetslinsen): M1 förflyttar en beteendegräns
     // som ingen svit låste. Karakteriseringstestet ovan slutar vid 20 minuter,
     // alltså EXAKT innan det nya beteendet börjar, så ARM_STALE_TTL_MS eller
     // zonens kö-nåd kunde ändras utan att något föll.
     //
-    // UPPMÄTT 2026-08-23 i TVÅ isolerade träd (HEAD 0b72310 byggt med
-    // git archive, arbetsträdet som rsync-kopia), samma rigg som nedan:
-    //   brusig givare (vartannat prov ≥0,5 kn): HEAD ALDRIG förtöjd (120 min
-    //     utan klassning, målbron kvar) → arbetsträdet förtöjd efter 46 min.
-    //   ren givare (alla prov <0,3 kn): 18 min i BÅDA armarna, målbron släpps
-    //     i båda.
-    // LÅSNINGEN DOKUMENTERAR ALLTSÅ KONVERGENS, INTE NY RISK: den brusiga
-    // klassen rör sig från "aldrig" mot det beteende en REN givare redan har på
-    // HEAD, och är fortfarande 2,5 gånger mer generös (46 mot 18 min). Att
-    // göra något åt den skillnaden är ett DESIGNBESLUT, inte en bugg — men det
-    // får inte längre ske av våda.
+    // ÄGARBESLUT U23 (2026-11-09): kö-nåden är obegränsad. En köare med målbro
+    // och rörelsebevis klassas inte längre av zonlagret alls; hennes övre gräns
+    // är MOORING_DETECTION.MAX_STATIONARY_WAIT_MS (2 h-backstoppen), som gäller
+    // vid kajen eftersom queueBridge ger null i en kajzon. Före U23 (mätt
+    // 2026-08-23 och åter 2026-11-09 på c14938f, samma rigg): brusig 46 min,
+    // ren 18 min. Med U23, uppmätt 2026-11-09 i familj F:s worktree och i en
+    // git archive-kopia av c14938f: brusig 152 min, ren 124 min.
     //
-    // HÄRLEDNINGEN (varför just 46 min vid 2 min kadens): ankaret sätts vid
-    // första stillasamplet t0+2 min och ÖVERLEVER brusproven (M1). Villkor (2)
-    // i _stillnessJitterHolds mognar alltså vid t0+32 min; först då slutar
-    // brusproven nolla klockan, som står från föregående stillasampel
-    // (t0+30 min). Zonens kö-nåd är 15 min ⇒ förtöjd på samplet t0+46 min.
+    // HÄRLEDNINGEN (vid 2 min kadens): ankaret sätts vid första stillasamplet
+    // t0+2 min och ÖVERLEVER brusproven (M1). Villkor (2) i
+    // _stillnessJitterHolds mognar vid t0+32 min; först då slutar brusproven
+    // nolla klockan, som står från föregående stillasampel (t0+30 min).
+    // Backstoppen kräver stilltid STRIKT över 2 h ⇒ förtöjd på samplet
+    // t0+152 min. Den rena givarens klocka står från t0+2 min ⇒ t0+124 min.
     expect(KO_ZON).toBeDefined();
-    // KONSTANTVAKT — de två talen gränsen är byggd av. Ändras något av dem
-    // faller raderna nedan MED FLIT: mät om gränsen i två isolerade träd och
-    // skriv in det nya talet här, i stället för att låta den glida tyst.
+    // KONSTANTVAKT — talen gränsen är byggd av. Ändras något av dem faller
+    // raderna nedan MED FLIT: mät om gränsen i två isolerade träd och skriv in
+    // det nya talet här, i stället för att låta den glida tyst.
     expect(ARM_STALE_TTL_MS).toBe(30 * 60 * 1000);
-    expect(KO_ZON.queueGraceMs).toBe(15 * 60 * 1000);
+    expect(KO_ZON.queueGraceMs).toBe(Infinity);
+    expect(MAX_STATIONARY_WAIT_MS).toBe(2 * 60 * 60 * 1000);
 
-    const brusig = koaIKajzonen('265900005', [0.1, 0.8, 0.2, 1.2, 0.1, 0.6, 0.2, 1.5, 0.1, 0.7], 60);
+    const brusig = koaIKajzonen('265900005', [0.1, 0.8, 0.2, 1.2, 0.1, 0.6, 0.2, 1.5, 0.1, 0.7], 170);
     // Riggen måste vara det den utger sig för: rätt zon, målbro och rörelsebevis —
     // utan alla tre gäller baskravet 3 min och gränsen vore en annan.
     expect(brusig.zon).toBe('Kajen norr om Klaffbron');
     expect(brusig.target).toBe('Klaffbron');
     expect(brusig.rorelsebevis).toBe(true);
 
-    // SIDA 1 — INTE FÖRE gränsen. C9b:s villkor (2) är avsiktligt stängt under
-    // ankarmognaden, och zonens kö-nåd löper först därefter.
-    const GRANS_MS = ARM_STALE_TTL_MS + KO_ZON.queueGraceMs; // 45 min
+    // SIDA 1 — INTE FÖRE gränsen: ankarmognaden plus backstoppen.
+    const GRANS_MS = ARM_STALE_TTL_MS + MAX_STATIONARY_WAIT_MS; // 150 min
     expect(brusig.mooredAtMs).not.toBeNull();
-    expect(brusig.mooredAtMs).toBeGreaterThanOrEqual(GRANS_MS);
+    expect(brusig.mooredAtMs).toBeGreaterThan(GRANS_MS);
     // SIDA 2 — MEN DIREKT DÄREFTER (inom ett kadenssteg), inte "aldrig".
     expect(brusig.mooredAtMs).toBeLessThanOrEqual(GRANS_MS + KO_KADENS_MS);
-    // Det exakta talet låses också: en ändring av NÅGON av de två konstanterna
-    // flyttar det, även om båda banden ovan skulle följa med.
-    expect(brusig.mooredAtMs).toBe(46 * 60 * 1000);
+    // Det exakta talet låses också.
+    expect(brusig.mooredAtMs).toBe(152 * 60 * 1000);
 
     // MEKANISMEN som bär gränsen: vid klassningen är ANKARET moget men KLOCKAN
-    // yngre än så. På HEAD var de två åldrarna identiska per konstruktion — det
-    // är hela M1.
+    // yngre än så (M1).
     expect(brusig.ankarAlderMs).toBeGreaterThanOrEqual(ARM_STALE_TTL_MS);
     expect(brusig.klockAlderMs).toBeLessThan(brusig.ankarAlderMs);
-    // Följden av klassningen: målbron släpps (demotering). Samma sak som händer
-    // den rena givaren redan på HEAD.
+    expect(brusig.klockAlderMs).toBeGreaterThan(MAX_STATIONARY_WAIT_MS);
+    // Följden av klassningen: målbron släpps (demotering).
     expect(brusig.targetEfter).toBeNull();
 
-    // KONTROLLMÄTNINGEN — ren givare, samma zon, samma rigg. Talet 18 min är
-    // HEAD:s eget och är OFÖRÄNDRAT av M1 (uppmätt i båda armarna). Den här
-    // raden är inte en låsning av M1 utan referensen som gör 46 min tolkbart.
-    const ren = koaIKajzonen('265900006', [0.1, 0.2, 0.1, 0.15], 60);
+    // KONTROLLMÄTNINGEN — ren givare, samma zon, samma rigg.
+    const ren = koaIKajzonen('265900006', [0.1, 0.2, 0.1, 0.15], 170);
     expect(ren.zon).toBe('Kajen norr om Klaffbron');
-    expect(ren.mooredAtMs).toBe(18 * 60 * 1000);
+    expect(ren.mooredAtMs).toBe(124 * 60 * 1000);
     expect(ren.targetEfter).toBeNull();
-    // Konvergens, inte likhet: den brusiga klassen är fortfarande drygt 2,5
-    // gånger mer generöst behandlad än den rena.
-    expect(brusig.mooredAtMs).toBeGreaterThan(ren.mooredAtMs * 2);
+    // Skillnaden är nu bara ankarmognaden: den brusiga klockan startar vid
+    // t0+30 min i stället för t0+2 min.
+    expect(brusig.mooredAtMs - ren.mooredAtMs).toBe(ARM_STALE_TTL_MS - KO_KADENS_MS);
   });
 
   test('KRYPANDE KÖARE (TIM-klassen) passerar bron — förtöjningen bryter inte passagen', () => {

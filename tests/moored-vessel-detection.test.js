@@ -112,26 +112,28 @@ describe('Förtöjningsdetektering: kajliggare vs äkta broöppningsväntare', (
     expect(vessel.targetBridge).toBe('Klaffbron');
   });
 
-  test('LAGER 4+2: båt seglar in, förtöjer vid kajen → demoteras (target rensas, ej borttagen)', () => {
+  test('LAGER 4+2: båt seglar in och ligger vid kajen → köare tills 2h-backstoppen, sedan demoterad (ej borttagen)', () => {
     sailInSouthbound('265000003');
     let vessel = svc.getVessel('265000003');
     expect(vessel.targetBridge).toBe('Klaffbron');
 
-    // Förtöjer vid kajen (stationär i zonen). Körning 2026-07-02 (ELFKUNGEN):
-    // zonlagret kräver nu stillhetsTID — 15 min för båt med target inom
-    // 600 m — så en KÖARE som pausar vid kajen inför broöppning inte
-    // demoteras. Kort paus (≤9 min) ska alltså INTE klassa som förtöjd:
-    for (let i = 0; i < 3; i++) {
+    // Ligger still vid kajen (stationär i zonen). Körning 2026-07-02
+    // (ELFKUNGEN): zonlagret kräver stillhetsTID för en båt med target inom
+    // 600 m, så en KÖARE som pausar vid kajen inför broöppning inte demoteras.
+    // Ägarbeslut U23 (2026-11-09): köundantaget är obegränsat — hon står kvar
+    // som "på väg mot Klaffbron" även efter de gamla 15 minuterna:
+    for (let i = 0; i < 20; i++) { // 20 × 3 min = 60 min
       vessel = svc.updateVessel('265000003', {
         lat: QUAY.lat, lon: QUAY.lon, sog: 0.1, cog: 30, name: 'TEST',
       });
       tick(3);
     }
-    expect(vessel._moored).toBe(false); // kö-skyddad (6 min stillhet < 15 min)
+    expect(vessel._moored).toBe(false); // kö-skyddad (U23)
     expect(vessel.targetBridge).toBe('Klaffbron');
 
-    // ...men en äkta förtöjning (≥15 min still i zonen) demoteras:
-    for (let i = 0; i < 4; i++) {
+    // ...men en äkta förtöjning utan navstatus fångas av 2h-backstoppen,
+    // som gäller vid kajen (queueBridge ger null i en kajzon):
+    for (let i = 0; i < 22; i++) { // till 126 min
       vessel = svc.updateVessel('265000003', {
         lat: QUAY.lat, lon: QUAY.lon, sog: 0.1, cog: 30, name: 'TEST',
       });

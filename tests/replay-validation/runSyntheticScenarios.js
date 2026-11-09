@@ -21,7 +21,7 @@ const {
   generateScenario, buildPath, pathMetrics, pointAt, truthCrossings, BASE_TIME_MS,
 } = require('./scenarioGenerator');
 const { validateInvariants, validateWarnInvariants } = require('./invariants');
-const { MOORING_ZONES, TRIGGER_POINTS } = require('../../lib/constants');
+const { MOORING_ZONES, TRIGGER_POINTS, BRIDGES } = require('../../lib/constants');
 
 const RUNNER = path.join(__dirname, 'replayRunner.js');
 const QUAY = {
@@ -106,6 +106,12 @@ const OMSTART_SLOW_ZONE = {
  *  - forbiddenOpeningBridges: dessa broar får INTE ha varnats (fantomtaket).
  *  - zeroOpeningWarnings: inga öppningsvarningar alls får ha gått ut.
  *  - maxOpeningsPerBridge: {bro: N} — "EN varning per förestående öppning".
+ *  - minOpeningLeadS: {bro: S} — ingen varning för bron får komma under S s
+ *    före båtens SANNA korsning (ur scenariots egna sampel). U23: ingen ny,
+ *    sen varning när en köare lägger ut från kajen.
+ *  - noDefaultWhileStopped: true — texten får aldrig vara "Inga båtar …"
+ *    medan en båt ligger i sitt stopp (första till sista stillasamplet). U23
+ *    och D1: en väntande båt nära målbron står kvar i texten.
  *  - deadlineFiredOpenings: dessa broars varning MÅSTE ha kommit ur tick-
  *    motorn (firedBy='deadline'), inte ur ett inkommande fix — beviset för
  *    att äggklockan fungerar i radiotystnad.
@@ -1914,6 +1920,75 @@ const SCENARIOS = [
       maxOpeningsPerBridge: { Klaffbron: 1, Stridsbergsbron: 1 },
     },
   },
+  {
+    // ÄGARBESLUT U23 (2026-11-09): en båt på väg mot Klaffbron som stannar vid
+    // "Kajen norr om Klaffbron" behandlas som i resten av väntområdet. Rutten
+    // går genom Kajens kapsel 190–300 m norr om bron (16–24 m från kapsel-
+    // linjen, radie 30 m), så stoppet 250 m norr om bron ligger i kapseln —
+    // placeringen ÄR testet. Stoppet läggs med ben (exakt läge); `stop` utlöses
+    // upp till ett rapportsteg före sitt mål och hade hamnat 343 m från bron,
+    // utanför kapseln. På c14938f klassades hon förtöjd efter 15 min (zonens
+    // köundantag): texten blev "Inga båtar …" medan hon väntade, och vid
+    // avgången gav ankomstspärren (OPENING_QUAY_DEPARTURE) en ny varning strax
+    // före passagen (värld 313 i buggjägaren: 32 s). Nu gäller den första
+    // varningen hela kön.
+    name: 'kö-25min-i-Kajens-kapsel (U23)',
+    seed: 57,
+    vessels: [{
+      mmsi: '901000057',
+      name: 'SYNT-KAJKO',
+      startS: METRICS.total,
+      legs: [
+        { toS: METRICS.cum[2] + 600, speedKn: 4.5, intervalS: 60 },
+        { toS: METRICS.cum[2] + 250, speedKn: 3, intervalS: 60 },
+        { stopS: 1500, stopIntervalS: 60, stopCogRandom: true },
+        { toS: 0, speedKn: 4.5, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      minTargetPassages: 2,
+      expectedOpenings: ['Stridsbergsbron', 'Klaffbron'],
+      maxOpeningsPerBridge: { Klaffbron: 1, Stridsbergsbron: 1 },
+      minOpeningLeadS: { Klaffbron: 60 },
+      noDefaultWhileStopped: true,
+    },
+  },
+  {
+    // U23 och INV-10 (granskningen av familj F, 2026-11-09): samma kö vid Kajen
+    // men i 60 min, och en senare båt söderut kommer in i texten 39 min efter
+    // att köaren fick "strax". Den första strax-texten slutar alltså utan
+    // passage efter mer än INV-10:s 35 min. Texten är sanktionerad (U6) och
+    // densamma som för en köare i farleden, så harnessen måste räkna Kajens
+    // köare som bekräftad väntan (replayRunner.js, holdsQuayQueue). Utan den
+    // regeln fälls scenariot av INV-10 STRAX-ZOMBIE; på c14938f av "Inga båtar"
+    // under kön och en sen andra varning vid avgången.
+    name: 'kö-60min-i-Kajens-kapsel-med-annan-trafik (U23, INV-10)',
+    seed: 58,
+    vessels: [
+      {
+        mmsi: '901000058',
+        name: 'SYNT-KAJKO-LANG',
+        startS: METRICS.total,
+        legs: [
+          { toS: METRICS.cum[2] + 600, speedKn: 4.5, intervalS: 60 },
+          { toS: METRICS.cum[2] + 250, speedKn: 3, intervalS: 60 },
+          { stopS: 3600, stopIntervalS: 60, stopCogRandom: true },
+          { toS: 0, speedKn: 4.5, intervalS: 60 },
+        ],
+      },
+      {
+        mmsi: '901000059', name: 'SYNT-SENARE', direction: 'south', speedKn: 5.0, startOffsetS: 4300,
+      },
+    ],
+    expect: {
+      minTargetPassages: 4,
+      expectedOpenings: ['Stridsbergsbron', 'Klaffbron'],
+      openingBeforeEachPassage: ['Klaffbron'],
+      maxOpeningsPerBridge: { Klaffbron: 2, Stridsbergsbron: 2 },
+      minOpeningLeadS: { Klaffbron: 60 },
+      noDefaultWhileStopped: true,
+    },
+  },
 ];
 
 function runScenario(scenario) {
@@ -1927,7 +2002,9 @@ function runScenario(scenario) {
     });
     const m = stdout.match(/__REPLAY_JSON__([\s\S]*?)__END__/);
     if (!m) throw new Error('Ingen JSON-markör i replay-output');
-    return { result: JSON.parse(m[1]), sampleCount: samples.length, truthPaths };
+    return {
+      result: JSON.parse(m[1]), sampleCount: samples.length, truthPaths, samples,
+    };
   } finally {
     fs.unlinkSync(tmpFile);
   }
@@ -1938,7 +2015,26 @@ const PATH_INDEX = {
   Olidebron: 1, Klaffbron: 2, Järnvägsbron: 3, Stridsbergsbron: 4, Stallbackabron: 5,
 };
 
-function checkExpectations(scenario, result, truthPaths = {}) {
+/**
+ * Sann korsning av en bros latitud för en båt, interpolerad mellan de två
+ * sampel som ligger på var sin sida (rutten går genom brons koordinat).
+ * @returns {number|null} tid i ms för första korsningen, eller null
+ */
+function sampleCrossingMs(samples, mmsi, bridge) {
+  const own = (samples || []).filter((x) => x.mmsi === mmsi && Number.isFinite(x.lat))
+    .sort((a, b) => a.aisTimestamp - b.aisTimestamp);
+  for (let i = 1; i < own.length; i++) {
+    const a = own[i - 1].lat - bridge.lat;
+    const b = own[i].lat - bridge.lat;
+    if (a !== 0 && Math.sign(a) !== Math.sign(b)) {
+      const f = a / (a - b);
+      return own[i - 1].aisTimestamp + f * (own[i].aisTimestamp - own[i - 1].aisTimestamp);
+    }
+  }
+  return null;
+}
+
+function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
   const problems = [];
   const e = scenario.expect || {};
   const passages = result.targetPassages || [];
@@ -2084,6 +2180,43 @@ function checkExpectations(scenario, result, truthPaths = {}) {
       }
     }
   }
+  // U23 (2026-11-09): ingen varning för bron under S s före båtens sanna
+  // korsning. Korsningen räknas ur scenariots egna sampel, inte ur appens
+  // bokförda passage (som kommer ett fix efter korsningen).
+  if (e.minOpeningLeadS) {
+    for (const [bridgeName, minLeadS] of Object.entries(e.minOpeningLeadS)) {
+      const bridge = Object.values(BRIDGES).find((b) => b.name === bridgeName);
+      for (const w of openings.filter((x) => x.bridge === bridgeName && Number.isFinite(x.t))) {
+        for (const mmsi of (w.mmsis || [w.leadMmsi]).map(String)) {
+          const crossMs = sampleCrossingMs(samples, mmsi, bridge);
+          if (crossMs === null || crossMs < w.t) continue;
+          const leadS = (crossMs - w.t) / 1000;
+          if (leadS < minLeadS) {
+            problems.push(`SEN ÖPPNINGSVARNING: ${bridgeName} ${w.eventId} ${w.iso} (${w.firedBy}) bara `
+              + `${Math.round(leadS)} s före ${mmsi}:s korsning (minst ${minLeadS} s)`);
+          }
+        }
+      }
+    }
+  }
+  // U23/D1: en båt som ligger i sitt stopp ska stå kvar i texten.
+  if (e.noDefaultWhileStopped) {
+    const transitions = result.bridgeTextTransitions || [];
+    const textAt = (t) => transitions.filter((x) => x.t <= t).pop()?.text || '';
+    for (const v of scenario.vessels || []) {
+      const still = (samples || []).filter((x) => x.mmsi === v.mmsi && Number.isFinite(x.sog) && x.sog < 0.3)
+        .map((x) => x.aisTimestamp);
+      if (still.length === 0) continue;
+      const from = Math.min(...still);
+      const to = Math.max(...still);
+      const flips = [from, ...transitions.filter((x) => x.t > from && x.t <= to).map((x) => x.t)];
+      const def = flips.find((t) => textAt(t).startsWith('Inga båtar'));
+      if (def !== undefined) {
+        problems.push(`"Inga båtar" ${new Date(def).toISOString()} medan ${v.mmsi} låg i sitt stopp `
+          + `(${new Date(from).toISOString()}–${new Date(to).toISOString()})`);
+      }
+    }
+  }
   // U15 (K2, 2026-11-04): VARJE passage av bron ska ha en varning efter
   // båtens förra passage av samma bro och före den här. expectedOpenings
   // prövar bara den första passagen och ser därför inte en ovarnad retur.
@@ -2195,8 +2328,10 @@ console.log(`${SCENARIOS.length} scenarier (seedade, deterministiska)\n`);
 for (const scenario of SCENARIOS) {
   let outcome;
   try {
-    const { result, sampleCount, truthPaths } = runScenario(scenario);
-    const problems = checkExpectations(scenario, result, truthPaths);
+    const {
+      result, sampleCount, truthPaths, samples,
+    } = runScenario(scenario);
+    const problems = checkExpectations(scenario, result, truthPaths, samples);
     // WARN-invarianter (fas 0.4, 2026-07-03): informativa, fäller inte.
     const warns = validateWarnInvariants(result);
     if (warns.length > 0) {

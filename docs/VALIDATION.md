@@ -72,7 +72,7 @@ Eller stegen var för sig:
 |---|---|---|
 | Enhetstester | `npm test > /tmp/ais-jest.log 2>&1` (läs sedan slutraderna) | Alla tester passerar, exitkod 0 och inga öppna handtag. Aktuellt antal står i körningens sammanfattning. Omdirigeringen bevarar Jest:s exitkod; en pipe till `tail` gör inte det. |
 | Korpusarna | `npm run replay:all` | Samtliga korpusar (aktuellt antal och timmar står i skriptets utskrift) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + exakt (mmsi,bro,riktning)-fördelning + EXAKT bridge_text-transitionsström (golden-text/) + alla invarianter. Ofullständig fångst redovisas separat och får bara utgöra regression för bevarade sampel. |
-| Syntetiska | `npm run replay:synthetic` | 81 scenarier (gap, U-svängar även med gles AIS, GPS-hopp, kajliggare, sog=null, omstart, 2h-prune-stillaliggare, krypfart förbi passerad bro, återfödelse med kurs i dödbandet …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
+| Syntetiska | `npm run replay:synthetic` | 83 scenarier (gap, U-svängar även med gles AIS, GPS-hopp, kajliggare, köer i Kajens kapsel (U23), sog=null, omstart, 2h-prune-stillaliggare, krypfart förbi passerad bro, återfödelse med kurs i dödbandet, köer i Kajens kapsel (U23) …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
 | Öppningsgrindarna | `npm run replay:openings` | ETAPP 6: det proaktiva lagret (`bridge_opening_soon`). **O1** varje målbropassage i SAMTLIGA korpusar (låsta som olåsta — antalet står i skriptets utskrift, inte här) har en öppningsvarning FÖRE passagen — varje miss klassad mot rådata (oklassad = rött); en KONVOJTÄCKNING underkänns om bron bevisligen öppnat och stängt för någon annan emellan. **O2** varje varning utan passage inom 20 min klassas mot rådata (KAJVOBBEL och UTANFÖR_HORISONTEN = rött; avbruten approach, gles anflygning och garantipris = accepterade) — även SEN_PASSAGE-hinken klassas. **O2b** (S14, 2026-08-23) SAMMA fantommätning mot RÅDATAFACIT (A2, `gt-passages`) i stället för appens egna passager — O1b:s mönster: appens passageregistreringar delar grindarnas blindfläck, så en varning kan kallas BEKRÄFTAD av appens egen bokföring medan rådatan inte känner korsningen. Serierna redovisas BREDVID varandra (annars går körningsloggar inte att jämföra bakåt). `inferred`-poster (korsning bevisad, tidpunkt = fönster) bär ALDRIG hinkindelningen utan hamnar i egen hink INFERRERAD_TID — hinkarna ÄR en tidsfönstermätning. **O2b är INFORMATIV: den ändrar inte exitkoden** (grinden ligger kvar på appserien precis som O1:s täckning i fas A); `OPENING_GT_STRICT` flyttar den hit när fas C är klar. Vid införandet: 0 röda i BÅDA serierna, 118 av 360 varningar byter hink (98 blir omätbara `inferred`) och EN varning byter åt det farliga hållet (JAATTEN II @ Stridsbergsbron i 20260708-21h — samma fall INV-21 redan fäller). **O3** A/B-nattens båda armar: 6/6 öppningar varnade före, konvojen som EN varning, boat_near byte-identisk med nattens facit. Dessutom **avfyrningsfönstret** (`t − dueMs` inom två tick — kontraktet "avfyra så sent som garantin tillåter") och **ledtidsgolvet** (hårt golv 60 s; tunnare än utlovade 150 s rapporteras). |
 | Soaken | `node tests/replay-validation/runSoak.js` | 72 h blandtrafik: 0 processfel, inga läckor, fatala invarianter rena |
 | Driftens minutloop | `npm run replay:monitoring` | Samma 72 h med riktig monitoring/stale-städning även efter omstarter; samtliga timers avvecklade efter shutdown |
@@ -398,6 +398,30 @@ inom konvojfönstret räknat från utresan; på 7699cbe är det rött (returen
 `u-sväng-efter-Klaffbron` och `u-sväng-gles-ais-norr-om-Klaffbron`, som båda
 är röda på 7699cbe (returerna 06:30:00 och 06:27:00 absorberades i utresans
 händelse) och gröna med rättningen.
+
+**Kön i Kajens kapsel (ägarbeslut U23, 2026-11-09).** `kö-25min-i-Kajens-kapsel (U23)`
+låter en båt söderut ligga still 250 m norr om Klaffbron i 25 min och sedan gå
+igenom bron. Rutten går genom kapseln "Kajen norr om Klaffbron" 190–300 m norr
+om bron, så stoppet ligger i den — placeringen är testet. Stoppet läggs med ben
+(`legs`), eftersom `stop` utlöses upp till ett rapportsteg före sitt mål och
+här hade hamnat 343 m från bron, utanför kapseln. Två förväntningar är nya:
+`noDefaultWhileStopped` (texten får inte vara "Inga båtar …" mellan båtens
+första och sista stillasampel) och `minOpeningLeadS: {bro: S}` (ingen varning
+för bron under S s före båtens sanna korsning, interpolerad ur scenariots egna
+sampel). Mot `c14938f` fälls scenariot på alla tre villkoren: "Inga båtar"
+06:49, en andra Klaffbronvarning (ÖPPNINGSDUBBLETT) och den 47 s före
+korsningen.
+
+`kö-60min-i-Kajens-kapsel-med-annan-trafik (U23, INV-10)` är samma kö i 60 min,
+och en senare båt kommer in i texten 39 min efter att köaren fick "strax". Den
+strax-texten slutar alltså utan passage efter mer än INV-10:s 35 min, och
+texten är densamma som för en köare i farleden (U6). Harnessen räknar därför
+Kajens köare som bekräftad väntan: `replayRunner.js` godtar
+`VesselDataService.holdsQuayQueue` på den levande båten med färsk position och
+minst en minuts stillhet, samma krav som `waitingBridge`. `queueBridge` ger
+fortfarande null i en kajzon, så 2 h-backstoppen gäller vid Kajen. Utan regeln
+fälls scenariot av INV-10 STRAX-ZOMBIE ("stod 44 min"), och mot `c14938f` av
+"Inga båtar" under kön och en tredje Klaffbronvarning 47 s före korsningen.
 
 **Krypfartsscenarierna (familj M, rättningskampanjen 2026-11-04, F05) prövar
 närmandebeviset och fartgrinden i båda vägarna.** Placeringen är testet i alla sex.
