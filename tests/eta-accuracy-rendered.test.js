@@ -154,6 +154,16 @@ describe('ETA-mätaren läser textmotorns verkliga val utan omräkning', () => {
 
 // Hela fältet och oförändrat replayresultat är den oberoende kontrollen:
 // mätfångsten får varken byta ledare, lägga till timerpass eller ändra text.
+//
+// Tidsgränserna vaktar bara mot ett barn som hänger sig; de mäter inte
+// prestanda. På en ledig maskin tar varje replay av 21h-korpusen cirka 3 s,
+// och hela filen 7 s. Under hög last (fyra kärnor, load 40–80) uppmättes
+// 32–42 s per replay, och den tidigare gränsen på 25 s gav falskt rött med
+// spawnSync ETIMEDOUT fast koden var oförändrad (varv 2, 2026-11-09).
+// 120 s per barn och 300 s för båda tillsammans ger samma utfall oavsett last.
+const CHILD_TIMEOUT_MS = 120000;
+const FIELD_SETUP_TIMEOUT_MS = 2 * CHILD_TIMEOUT_MS + 60000;
+
 describe('Verkliga EUGENIE/ANTJE-fältet attribueras till rätt publicerande båt', () => {
   let plain;
   let measured;
@@ -170,7 +180,7 @@ describe('Verkliga EUGENIE/ANTJE-fältet attribueras till rätt publicerande bå
       ], {
         cwd: ROOT,
         encoding: 'utf8',
-        timeout: 25000,
+        timeout: CHILD_TIMEOUT_MS,
         maxBuffer: 96 * 1024 * 1024,
         env: {
           ...process.env,
@@ -205,7 +215,7 @@ describe('Verkliga EUGENIE/ANTJE-fältet attribueras till rätt publicerande bå
     legacyClaims = M.collectClaims(job, {
       ...measured, debug: { ...measured.debug, renderCapture: false },
     }, { index }).claims;
-  }, 60000);
+  }, FIELD_SETUP_TIMEOUT_MS);
 
   test('alla deterministiska replayfält är exakt lika med och utan mätfångsten', () => {
     // Processens heap beror på GC och diagnostikmängd även mellan två vanliga
