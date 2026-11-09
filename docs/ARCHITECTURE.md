@@ -894,6 +894,67 @@ båt.
   har ingen passage och stannar i sin öppning (U2: inga andrapåminnelser). En
   armlös passage bokförs inte, som i resten av öppningslagret. Kontraktet är
   INV-21:s returresa (`invariants.js`).
+- **Spärren vid en tidigare bro (a8d7b76) och tystnaden (familj D, varv 2,
+  2026-11-09; M6, dirigentens val B med omgranskningens två skärpningar):**
+  färska positioner före en annan öppningsbar bro kan inte lova nästa öppning
+  (`_earlierBridgeAhead`: en bekräftad kö vid en annan bro, eller en opasserad
+  bro emellan i färdriktningen; har båten passerat broar räknas varje
+  opasserad bro emellan, utom Stallbackabron och inom `WAITING_CLEAR_DISTANCE`
+  från målbron). Spärren infördes mot för tidiga varningar för båtar som sedan
+  väntar vid den tidigare bron, och den ersätter 10-knopsdeadlinen: för en båt
+  i rörelse (≥ 2 kn, ingen kö bekräftad i senaste fixet) släpps den vid
+  ankaret + min(`STALE_ETA_SOFT_MS`, restiden i nuvarande fart −
+  `WARNING_LEAD_MS`), annars vid ankaret + `STALE_ETA_SOFT_MS`, och varje fix
+  ankrar om den. Restiden räknas på den senaste farten, så en båt som kryper
+  fram mot Järnvägsbron och ökar efter bron äter ledtiden; hörs hon som
+  vanligt syns det i nästa fix. **Tystnaden:** har appen inte hört henne på
+  `EARLIER_BRIDGE_SILENCE_FACTOR` (2) gånger hennes längsta
+  mottagningsintervall bland de `EARLIER_BRIDGE_CADENCE_WINDOW` (4) senaste,
+  och minst `EARLIER_BRIDGE_MIN_SILENCE_MS` (210 s), räknas restiden i hennes
+  fart fram till den tidigare bron och i minst `EARLIER_BRIDGE_BEYOND_KN` (4
+  kn, rask kanalfart) efter den. Spärren släpps vid det senaste av
+  tystnadsgränsen, den restiden − `WARNING_LEAD_MS` och tiden hon i sin egen
+  fart behöver fram till den tidigare bron, om det kommer före den vanliga
+  gränsen (`_silentHoldLimitMs`). Medan hon i sin egen fart ännu inte har nått
+  den tidigare bron slutar spärren alltså aldrig tidigare än förut. 210 s är
+  klass B:s takt under 2 kn (180 s) som AISHub tar emot den: pollen går var
+  65–70 s, så takten kommer fram efter två eller tre pollar, högst 3 × 70 s.
+  Leder kursen i sista fixet bort från bron, eller väntar en vändning
+  (`_fixDPendingReversal`), ges ingen sådan släppning; spärren och en planerad
+  varning gäller då som förut (U19). Fältet motiverar uppdelningen: norrut
+  150–500 m före Järnvägsbron är farten median 2,3 kn, mellan Järnvägsbron och
+  Stridsbergsbron median 5,1 kn. Buggjägarens värld 263: BRISEN tystnade 272 s
+  459 m före Stridsbergsbron (202 m före Järnvägsbron) i 2,1 kn och korsade i
+  4,2 kn; varningen gick 44 s före korsningen och går nu 70 s före.
+  **Kostnaden prövas mot spärrens syfte:** i tystnad går inbromsning inte att
+  skilja från acceleration (värld 29: 269 s glapp före en kö på 10 min vid
+  Järnvägsbron). Rask fart på hela sträckan (familj D:s förkastade TYST-GOLV)
+  varnade 9–13 min för tidigt före köer som c14938f väntade ut (världarna 29
+  och 1767) och gav en fantom när båten vände under tystnaden (värld 1089).
+  Den första versionen med rask fart efter bron (19e87b5: gräns 180 s, inget
+  villkor om egen fart) släppte spärren för Stridsbergsbron cirka 55 s innan
+  båten i egen fart nådde Järnvägsbron. I omgranskningens värld 1511 med en
+  poll till varnades då en båt som stannade i kön där 22 min före korsningen,
+  och i granskarens kögrid (84 fall) kom 26 varningar före köfixet där c14938f
+  väntade ut kön. Med skärpningarna är det 3 fall, och 1511-varianten blir som
+  på c14938f. Mätt: banken (med och utan monitoring), `replay:openings` och
+  `replay:synthetic` är bitlika med c14938f; i buggjägarens 2 000
+  standardvärldar kommer 9 varningar tidigare (median 20 s), ingen före en kö
+  som c14938f väntade ut, ingen ny fantom och ingen ny varning efter en
+  korsning. En kö som var bekräftad i senaste fixet, en båt under 2 kn och en
+  båt i 4 kn eller fortare berörs inte. Efter `restartArrival` behålls
+  kadensen, så nästa fix sätter `originalDueMs` med en spärr som regeln kan ha
+  kortat (bara mätinstrumentet). **Restfönstret:** kommer första köfixet efter
+  tystnadsgränsen och efter att båten i egen fart skulle ha nått Järnvägsbron,
+  men före c14938f:s gräns, varnas hon före köfixet där c14938f väntade ut
+  kön. Det kräver fart under 257 m / 180 s = 2,8 kn, och fönstret är högst 257
+  m / sog − 180 s brett (70 s i 2,0 kn, 20 s i 2,5 kn). Av motorns 320 köer
+  vid Järnvägsbron norrut ligger ingen i fönstret. **Kvar står** också att
+  reservvägen räknar på kryparfarten när båten hörs: i standardvärldarna fick
+  843 av 1 227 spärrbundna varningar i rörelse 60–150 s ledtid, och i banken 3
+  av 36. Det är T2:s tunna klass, inte golvet. Familj A:s punkt om returresor
+  (spärren gäller från fixet efter vändningen) hänvisar till samma fråga, M6;
+  dirigenten valde B och, efter omgranskningen, båda skärpningarna.
 - **"Hölls vid en tidigare bro" avgörs av båtens egna fix (F09, 2026-11-04):**
   regeln från a8d7b76 (en varning som gick medan båten hölls vid en tidigare
   bro täcker inte hennes senare ankomst; AKIRA-testet) avgörs vid hennes första
