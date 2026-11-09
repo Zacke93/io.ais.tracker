@@ -500,23 +500,39 @@ Två triagerare gick igenom fynden värld för värld. Mekanismerna rättades i 
   - fem är ETA-kort, uppskjutna enligt U22 (INV-3 SÅGTAND och OSCILLATION, i bank och stress);
   - två gäller inte ETA, med ett fynd vardera, mot sex kort med cirka 34 fynd före varvet.
 
-**Kvar efter varv 2** (frågor till ägaren och kända gränser):
+**Kvar efter varv 2** (frågor till ägaren och kända gränser; besluten står i nästa stycke):
 - **1139 (T2 LEDTID):** en stilla köande båt omfattas inte av U24 och får dagens sena andra
-  varning vid täckningsslutet. Ett beslut behövs.
+  varning vid täckningsslutet. Avgjort genom U26.
 - **1038 (T3):** efter B släpper bakkanten båten vid en sen bokföring, 12 s efter hennes
-  korsning. En U17-variant för fallet kräver ett beslut.
+  korsning. Avgjort genom U25.
 - **D1-luckan 300–500 m:** en helt stilla båt 300–500 m från sin målbro tappar målet efter
   20 min, även i farleden (`_isInTargetQueueZone`). Gränsen kommer från valideringskörningen
-  2026-07-02 och är inget ägarbeslut. Fallet har inte setts i banken eller i provvärldarna.
-- **U2-VS-DEADLINE och konvojfamiljen:** beslutsfråga 5–6 nedan står kvar.
+  2026-07-02. Fallet har inte setts i banken eller i provvärldarna. Avgjort genom U27.
+- **U2-VS-DEADLINE och konvojfamiljen:** beslutsfråga 5–6 nedan står kvar. Ägaren skjuter upp
+  den till efter fältprovet.
 - **Kända gränser:**
   - A:s riktningskontroll ser inte en GPS-utliggare med vänd kurs bakom Järnvägsbron, som kan
     ge ett kort falsklarm för Klaffbron (ARCHITECTURE);
   - D:s restfönster: ett köfix under 2,8 kn strax efter tystnadsgränsen;
   - F:s rimlighetskrav vid kajavgång tillåter 131 m på 3 min i 0,6 kn;
   - C:s grannfall vid återfödelse (ARCHITECTURE, känd gräns e).
-- **eta-accuracy-rendered** är lastkänsligt: barnprocessen tar 32–42 s mot gränsen 25 s
-  när maskinen är hårt belastad. Felet fanns redan på c14938f och beror inte på varv 2.
+- **eta-accuracy-rendered** var lastkänsligt: barnprocessen tog 32–42 s mot gränsen 25 s
+  när maskinen var hårt belastad. Felet fanns redan på c14938f. Rättat i eda1839: gränserna
+  vaktar bara mot häng (120 s per barn, 300 s totalt).
+
+**Ägarens beslut efter varv 2 (2026-11-09):**
+- **U25 (1038):** en varning som kommer efter båtens passage därför att händelsens första
+  passage bokfördes för sent, när appen inte hade något tidigare underlag, godtas som en känd
+  gräns. Appen ändras inte. Beslutet speglas i beslutsregistret (BUGGJAKT §7).
+- **U26 (1139):** en stilla köande båt som U24 inte omfattar får täckningsslutets sena varning
+  när hennes avgång inte hördes. Det godtas som en känd gräns. Appen ändras inte, och beslutet
+  speglas i registret.
+- **U27 (D1-luckan 300–500 m):** 20 min behålls tills vidare. Fallet har inte setts i fältdata
+  eller i provvärldarna. Frågan tas upp igen om det syns i fält (docs/ARCHITECTURE.md,
+  docs/reliability-spec.md).
+- **Konvojfrågan (beslutsfråga 5–6, C-IV):** uppskjuten till efter fältprovet.
+- **Nästa steg:** ägaren kör grenen på sin egen Homey som fältprov enligt docs/VALIDATION.md
+  §Fältprov. Någon ny version släpps inte i Homey App Store nu.
 
 ## Ägarens beslut 2026-11-04
 
@@ -637,7 +653,8 @@ Frågorna 1–3 avgjordes 2026-11-04 (se ovan). Texten står kvar som underlag.
    - De övriga KÄND_ÖPPEN-posterna (OMSTART-DEFAULT-FÖRE-FÖRSTA-FIX,
      K20-FASKÄNSLIG-LEDARE, FIXD-SLINGA, LATENT-INBROMSNING och
      P8-L6-SPÖKTEXT) gav inga utslag.
-6. **Konvojfamiljen som ett beslut (rekommendation).**
+6. **Konvojfamiljen som ett beslut (rekommendation; uppskjuten av ägaren 2026-11-09 till
+   efter fältprovet).**
    `docs/ARCHITECTURE.md:1621–1622` kräver ett användarbeslut och ett
    omlåsningsprotokoll med O1/O2-mätning för hela konvojfamiljen. Ta därför
    U2-VS-DEADLINE, B02, J13-J14 och J13+J33 i samma beslut som rättningarna i

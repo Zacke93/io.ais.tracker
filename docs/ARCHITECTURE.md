@@ -1352,7 +1352,8 @@ båt.
     tidsflyttade varningar tidigare och 13 upp till 37 s senare, alla mot en målbro med
     Järnvägsbron emellan. I buggjägarens quick-värld 169 kom returens
     Stridsbergsbronvarning 123 s före korsningen i stället för 824 s. Ingen ledtid mot en
-    sann korsning sjönk under 60 s. Spärrens avvägning är ägarfrågan M6.
+    sann korsning sjönk under 60 s. Spärrens avvägning avgjordes i M6 (dirigentens
+    val B med två skärpningar, se spärren vid en tidigare bro ovan).
   - **ETA-texten (U22).** ETA-kedjan är orörd, men ETA-historiken börjar ett fix
     tidigare, och utjämningen ger då en längre ETA i första notisen efter vändningen.
     Värld 936: "om 1 minut" blir "om 2 minuter" 154 m före bron (korsningen 46 s
@@ -1504,7 +1505,11 @@ båt.
    minns att klassningen höll henne (`heldAsQueue` nedan): hon behåller sin
    första varning som farledsköaren på samma avstånd (granskningens prov
    X3kaj; före L1 kom en ny varning 92 s före korsningen). Bandet 300–500 m
-   är en befintlig lucka mot D1 även i farleden (öppen ägarfråga). Motivet är D1 (docs/reliability-spec.md): utanför kajzonerna tas
+   är en känd lucka mot D1 även i farleden. Ägaren beslutade 2026-11-09 (U27)
+   att 20 min behålls tills vidare: fallet kräver fart exakt 0 och har inte
+   setts i fältdata eller i buggjägarens provvärldar. Frågan tas upp igen om
+   det syns i fält.
+   Motivet för U23 är D1 (docs/reliability-spec.md): utanför kajzonerna tas
    en väntande båt nära bron aldrig bort, och 15-minutersgissningen gav i
    buggjägarens provvärldar "Inga båtar" medan en båt väntade 250 m från bron
    och en ny, sen varning vid avgången (värld 313: 32 s före passagen).
