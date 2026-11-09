@@ -821,7 +821,19 @@ båt.
   passage släpps armen redan på det färska, GPS-rena fix vars förväntade
   ankomst ligger bortom det som slutar först av täckningen (`coverUntilMs`)
   och U2-fönstret kring den verkliga korsningen, och hon varnas på sin egen
-  deadline ur samma fix; (b) **vid täckningsslut** hålls armen kvar (`OPENING_RECOVER_HOLD`,
+  deadline ur samma fix. För en krypare under ETA-kedjans passagegolv
+  (`MIN_PASSAGE_ROUTE_SPEED_KNOTS`, 2,5 kn) är ankomsten den senare av appens
+  prognos och armens fysik, avstånd genom fart (`physicsArrivalMs`, varv 2,
+  familj B, M5): golvet och outlierskyddet höll prognosen minuter för tidigt
+  (värld 790: 230 m i 0,9 kn, appen 3 min, fysiken 6,4 min). Fysiken gäller
+  från det andra NYA krypfixet i följd, eller direkt efter ett fix i marschfart
+  (≥ 2,5 kn), och aldrig med köflaggan (`waitingAtBridge`): en kölämnares första
+  rörelsefix i låg fart släppte henne annars, fast hon korsade inom fönstret
+  (granskningen av varv 2). Ett fix räknas bara när dess tid gått framåt, så en
+  upprepad leverans av samma fix ger inget andra krypfix (omgranskningen). Ligger bron redan bakom
+  hennes senaste läge (ett fix utan riktning) släpper bakkanten inte; passagedomen
+  vid täckningsslutet avväpnar (KRAV (1), `_bridgeBehindArm`). Deadlinen,
+  eta-tokenen och ETA-texten läser inte fysiken (U22); (b) **vid täckningsslut** hålls armen kvar (`OPENING_RECOVER_HOLD`,
   nästa fix avgör) om bron ligger bakom henne (avväpnas som passage), om armen
   är fryst, om ankomstfysik saknas, om hon låg under bron (≤
   `UNDER_BRIDGE_SET_DISTANCE`, i rörelse) med ankomst inom täckningen, eller om
@@ -832,6 +844,26 @@ båt.
   korsningen får en egen händelse, men som upptäcks under två tick före sin
   ankomst, absorberas som förut (`_anchorFloorHost`, golvet). Se §H29/H30 för
   vad som medvetet inte är grindar och för U17.
+  (c) **Före händelsens första passage** (ägarbeslut **U24, 2026-11-09**:
+  "inför ändringen"; C-IV väg b, smal variant, varv 2 familj B M7,
+  `_ownDeadlineVerdict`): har hennes egen deadline passerat (garantins,
+  `earliestArrivalMs − WARNING_LEAD_MS`) och ligger både appens prognos och
+  armens fysik efter händelsens fönsterslut (referensankomsten +
+  `CONVOY_WINDOW_MS`), släpps hon på sitt fix och varnas direkt, om
+  täckningsslutet annars hade kommit mindre än `WARNING_LEAD_MS` före hennes
+  ankomst. Appens prognos måste finnas (`etaMinutes`; utan den är prognosen
+  samma fysik, och villkoret vore tomt), och bron får inte ligga bakom hennes
+  senaste läge (KRAV (1)). En båt som ligger still (ingen fysik), har köflaggan eller ligger i
+  väntzonen (`STATUS_HYSTERESIS.WAITING_CLEAR_DISTANCE`) släpps inte så, och
+  inte heller under ledtidsgolvet eller med kursen bort; för stilla köande
+  båtar (värld 1139) gäller täckningsslutet som förut. Schemaläggaren väcker
+  släppvägen på deadlinen. U9:s breda täckning är fortfarande avstängd: U24
+  ändrar bara släppet, inte vilka som täcks. Mätt: värld 979 får sin varning
+  330 s före korsningen i stället för 50 s; banken har lika många varningar
+  och ingen låst rad flyttas. Kostnaden som ägaren godtog: buggjägarens
+  quick-värld 143, där en köande konvoj delas när den första följaren släpps
+  tidigt och den andra varnas vid täckningsslutet på ett 21 min gammalt fix
+  (registerpost med U24 som källa, familj E).
 - **Returresan är en egen öppning (U15, användarbeslut 2026-11-04):** varje
   bokförd passage av en beväpnad båt skrivs i servicens returminne
   (`_passageMemory`, mmsi och bro, skrivs i `_recordPassage` även när armen
@@ -2112,8 +2144,14 @@ samma form: släpp på ren tid och avfyrning på den ärvda deadlinen. Rättning
   position att hon inte har det, släpps hon som förut.
 - **(3)** Utan finit ankomstfysik släpps hon inte (hängslen: `_canArm` kräver ett
   finit avstånd, så ingen arm i drift når grenen). **(4)** gäller bakkanten: den
-  släpper på ett färskt, rent fix efter den bokförda första passagen, och
-  deadlinen räknas ur det fixet (F02, F17, F22, F01:s r2). Vid täckningsslut
+  släpper på ett färskt, rent fix efter den första passagen, och deadlinen
+  räknas ur det fixet (F02, F17, F22, F01:s r2). Färskheten **(2)** mäts sedan
+  varv 2 (familj B, M4) mot den skattade korsningen (`firstPassageAt`), inte mot
+  bokföringen: bokfördes ledarens passage sent och tystnade följaren mellan
+  korsningen och bokföringen, fick bakkanten förut aldrig döma, och följaren
+  släpptes först vid täckningsslutet, efter sin korsning (buggjägarens världar
+  1094 och 1476). Saknas skattningen är `firstPassageAt` bokföringstiden och
+  villkoret detsamma som förut. Vid täckningsslut
   avfyras armen däremot på deadlinen ur sitt senaste tillämpade fix, som för en
   tyst båt sedan länge har förfallit. Bakkanten jämför med det som slutar
   först av täckningsslutet och U2-fönstret kring korsningen. Att jämföra
