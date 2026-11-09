@@ -289,9 +289,19 @@ function generateJourney(opts, rnd) {
  * på varje rapportintervall i ett gående ben (Class B med jitter, AISHub).
  * Ben utan fältet drar inga extra slumptal, så äldre scenarier genereras
  * byte för byte som förut.
+ *
+ * Varv 2 (familj A, 2026-11-09): SANNA BANAN. Varje steg i benen lämnar en
+ * punkt {tS, s} (sekunder från BASE_TIME_MS, meter längs rutten) i
+ * `samples.truthPath`, en egenskap på den returnerade arrayen som aldrig når
+ * jsonl-raderna. Banan är linjär mellan punkterna, precis som stegningen
+ * flyttar båten, även genom AIS-glapp. generateScenario samlar den per MMSI
+ * så att scenariosviten kan mäta ledtiden mot den SANNA korsningen
+ * (förväntan openingLeadS) och inte mot appens bokföring, som vid gles AIS
+ * kommer ett fix efter korsningen. Inga slumptal dras, så raderna är
+ * byte för byte desamma som förut.
  * @param {Object} opts - {mmsi, name, startS, legs, jitterM?, startOffsetS?}
  * @param {Function} rnd - seedad PRNG
- * @returns {Array<Object>} samples (jsonl-rader)
+ * @returns {Array<Object>} samples (jsonl-rader), med `truthPath`
  */
 function generateLegJourney(opts, rnd) {
   const path = buildPath();
@@ -300,6 +310,7 @@ function generateLegJourney(opts, rnd) {
   const samples = [];
   let tS = opts.startOffsetS || 0;
   let s = opts.startS;
+  const truthPath = [{ tS, s }];
   const push = (sNow, sog, dir, cogOverride) => {
     const p = pointAt(path, metrics, sNow);
     const dLat = ((rnd() * 2 - 1) * jitter) / M_PER_DEG_LAT;
@@ -329,6 +340,7 @@ function generateLegJourney(opts, rnd) {
         push(s, Number.isFinite(leg.stopSog) ? leg.stopSog : 0.1, 1, leg.stopCogRandom ? rnd() * 360 : undefined);
         tS += stopInterval;
       }
+      truthPath.push({ tS, s });
       continue;
     }
     const dir = leg.toS >= s ? 1 : -1;
@@ -339,10 +351,35 @@ function generateLegJourney(opts, rnd) {
       const dt = interval + (leg.intervalJitterS ? rnd() * leg.intervalJitterS : 0);
       tS += dt;
       s += dir * leg.speedKn * 0.5144 * dt;
+      // Sista steget slutar vid benets mål (s klipps nedan), inte bortom det.
+      truthPath.push({ tS, s: (dir > 0 ? Math.min(s, leg.toS) : Math.max(s, leg.toS)) });
     }
     s = leg.toS;
   }
+  Object.defineProperty(samples, 'truthPath', { value: truthPath, enumerable: false });
   return samples;
+}
+
+/**
+ * Varv 2 (familj A): tiderna (sekunder från BASE_TIME_MS) då en sann bana
+ * ur generateLegJourney korsar meterpositionen sTarget, med riktning
+ * ('north' när s ökar, annars 'south'). Linjär interpolation mellan banans
+ * punkter.
+ * @param {Array<{tS:number, s:number}>} truthPath
+ * @param {number} sTarget - meter längs rutten (t.ex. pathMetrics(...).cum[2])
+ * @returns {Array<{tS:number, dir:string}>}
+ */
+function truthCrossings(truthPath, sTarget) {
+  const out = [];
+  for (let i = 1; i < (truthPath || []).length; i++) {
+    const a = truthPath[i - 1];
+    const b = truthPath[i];
+    if ((a.s - sTarget) * (b.s - sTarget) >= 0 && !(a.s !== sTarget && b.s === sTarget)) continue;
+    if (b.s === a.s) continue;
+    const f = (sTarget - a.s) / (b.s - a.s);
+    out.push({ tS: a.tS + f * (b.tS - a.tS), dir: b.s > a.s ? 'north' : 'south' });
+  }
+  return out;
 }
 
 /** Närmaste meterposition på rutten för en godtycklig punkt (för avgång från kaj). */
@@ -363,8 +400,12 @@ function nearestPathS(path, metrics, pt) {
 function generateScenario(scenario) {
   const rnd = mulberry32(scenario.seed || 1);
   const all = [];
+  // Varv 2 (familj A): benresornas sanna banor per MMSI (se generateLegJourney).
+  const truthPaths = {};
   for (const v of scenario.vessels) {
-    all.push(...generateJourney({ ...v }, rnd));
+    const samples = generateJourney({ ...v }, rnd);
+    if (samples.truthPath) truthPaths[v.mmsi] = samples.truthPath;
+    all.push(...samples);
   }
   // Anslutningshändelser (2026-07-01): ctrl-rader (disconnect/reconnect)
   // konsumeras av replayRunner och simulerar avbrott mitt i korpusen.
@@ -372,9 +413,10 @@ function generateScenario(scenario) {
     all.push({ ctrl: ev.ctrl, aisTimestamp: BASE_TIME_MS + Math.round(ev.atOffsetS * 1000) });
   }
   all.sort((a, b) => a.aisTimestamp - b.aisTimestamp);
+  Object.defineProperty(all, 'truthPaths', { value: truthPaths, enumerable: false });
   return all;
 }
 
 module.exports = {
-  generateScenario, buildPath, pathMetrics, pointAt, BASE_TIME_MS,
+  generateScenario, buildPath, pathMetrics, pointAt, truthCrossings, BASE_TIME_MS,
 };

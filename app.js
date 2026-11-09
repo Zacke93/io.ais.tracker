@@ -3076,6 +3076,34 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * STEG 1 i _onVesselUpdated: målbron har bytts sedan förra fixet. Rensa
+   * ETA-historiken (gamla ETA-beräkningar gäller en annan bro) och avbryt en
+   * väntande borttagning när båten fått en ny målbro (BUG 12 FIX B).
+   * Varv 2 (familj A, 2026-11-09): utbruten ordagrant, eftersom NEW_JOURNEY nu
+   * kan tilldela målbron i samma tick (efter STEG 1) och då behöver exakt samma
+   * bokföring som nästa fix hade gett.
+   * @param {string} mmsi - båtens MMSI
+   * @param {Object} vessel - det levande fartygsobjektet
+   * @param {string|null} previousTarget - målbron före bytet
+   * @private
+   */
+  _noteTargetBridgeChange(mmsi, vessel, previousTarget) {
+    this.statusService.clearVesselETAHistory(
+      mmsi,
+      `target_bridge_change_${previousTarget || 'none'}_to_${vessel.targetBridge || 'none'}`,
+    );
+
+    // BUG 12 FIX B: Avbryt removal-timer vid targetBridge-transition.
+    // Om fartyget fått ny targetBridge har det inte avslutat resan.
+    if (vessel.targetBridge && this._vesselRemovalTimers.has(mmsi)) {
+      clearTimeout(this._vesselRemovalTimers.get(mmsi));
+      this._vesselRemovalTimers.delete(mmsi);
+      vessel._finalTargetBridge = null;
+      this.debug(`🛡️ [REMOVAL_CANCELLED] ${mmsi}: Target changed to ${vessel.targetBridge}, cancelled removal timer`);
+    }
+  }
+
+  /**
    * ==========================================================================
    * VESSEL UPDATED HANDLER
    * ==========================================================================
@@ -3113,19 +3141,7 @@ class AISBridgeApp extends Homey.App {
       // STEG 1: HANTERA MÅLBRO-ÄNDRINGAR
       // Om målbron har ändrats, rensa ETA-historik (gamla ETA-beräkningar är inte längre relevanta)
       if (oldVessel && vessel.targetBridge !== oldVessel.targetBridge) {
-        this.statusService.clearVesselETAHistory(
-          mmsi,
-          `target_bridge_change_${oldVessel.targetBridge || 'none'}_to_${vessel.targetBridge || 'none'}`,
-        );
-
-        // BUG 12 FIX B: Avbryt removal-timer vid targetBridge-transition.
-        // Om fartyget fått ny targetBridge har det inte avslutat resan.
-        if (vessel.targetBridge && this._vesselRemovalTimers.has(mmsi)) {
-          clearTimeout(this._vesselRemovalTimers.get(mmsi));
-          this._vesselRemovalTimers.delete(mmsi);
-          vessel._finalTargetBridge = null;
-          this.debug(`🛡️ [REMOVAL_CANCELLED] ${mmsi}: Target changed to ${vessel.targetBridge}, cancelled removal timer`);
-        }
+        this._noteTargetBridgeChange(mmsi, vessel, oldVessel.targetBridge);
       }
 
       // Anomali 7 fix (2026-05-06): detektera "ny resa" efter U-sväng för
@@ -3221,6 +3237,19 @@ class AISBridgeApp extends Homey.App {
             // F34: rensa ÄVEN persistent (clearPersistent=true) — en äkta ny resa
             // ska kunna notifiera samma broar igen även inom 2h-fönstret.
             this._clearBoatNearTriggers(vessel, true);
+            // Varv 2 (familj A, M1): MÅLBRON I SAMMA TICK SOM BEKRÄFTELSEN.
+            // updateVessel har redan kört målbrokedjan för det här fixet, och
+            // ACCELERATED-grenen gav null på den avslutade resans riktning och
+            // passager (FIX Z och dess nordspegel). Förut kom målbron först vid
+            // nästa fix, så en returresa med gles AIS fick öppningsarmen och
+            // varningen 10–46 s före passagen eller inte alls (buggjägarens
+            // värld 936, 1208, 1316 och 1918). Samma tilldelning som
+            // ACCELERATED-grenen, med samma grindar (se assignTargetAfterReversal);
+            // vändningen är redan bekräftad på två positioner (U18).
+            const assigned = this.vesselDataService.assignTargetAfterReversal?.(
+              vessel, oldVessel, 'new-journey',
+            );
+            if (assigned) this._noteTargetBridgeChange(mmsi, vessel, null);
           }
         } else if (vessel._newJourneyPending) {
           // Inte längre reversed — kortvarig wobble, ingen ny resa.

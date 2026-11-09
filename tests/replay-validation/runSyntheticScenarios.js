@@ -18,7 +18,7 @@ const os = require('os');
 const path = require('path');
 const { openingDeliveryFailures } = require('./openingDelivery');
 const {
-  generateScenario, buildPath, pathMetrics, pointAt, BASE_TIME_MS,
+  generateScenario, buildPath, pathMetrics, pointAt, truthCrossings, BASE_TIME_MS,
 } = require('./scenarioGenerator');
 const { validateInvariants, validateWarnInvariants } = require('./invariants');
 const { MOORING_ZONES, TRIGGER_POINTS } = require('../../lib/constants');
@@ -90,6 +90,8 @@ const OMSTART_SLOW_ZONE = {
  *  - minNotifiedBridges: dessa broar MÅSTE ha fått notis
  *  - minPassagesPerBridge: {bro: N} — minst N bokförda passager av bron,
  *    mål- och mellanbropassager sammantaget (R1, returpassagen)
+ *  - maxPassagesPerBridge: {bro: N} — högst N bokförda passager av bron, på
+ *    samma sätt (varv 2, familj A: fantompassagen efter en GPS-utliggare)
  *  - forbiddenNotifiedBridges: dessa broar får INTE ha fått notis
  *  - maxNotifiedPerBridge: {bro: N} — max antal notiser per bro (dubblettvakt)
  *  - minNotifiedPerBridge: {bro: N} — minst N notiser per bro (U14: en notis
@@ -113,6 +115,13 @@ const OMSTART_SLOW_ZONE = {
  *    leveransvägen. Sätts bara i scenarier där tystnaden ÄR kontraktet
  *    (omstart-mitt-i-passage), och då som ett EXAKT tal — en dedup som
  *    slutar spärra ger 0 och en som spärrar för brett ger 2.
+ *  - openingLeadS: {bro: N} — LEDTID MOT DEN SANNA KORSNINGEN (varv 2,
+ *    familj A). Varje sann korsning av bron, för varje båt med benresa
+ *    (`legs`), ska ha en varning som täcker båten minst N s före korsningen
+ *    och efter båtens förra korsning av samma bro. Korsningstiden kommer ur
+ *    generatorns sanna bana (truthPath), inte ur appens bokföring, som vid
+ *    gles AIS kommer ett fix efter korsningen. Samma krav som buggjägarens
+ *    T2-orakel (LEDTID ≥ 60 s).
  */
 const SCENARIOS = [
   {
@@ -400,6 +409,163 @@ const SCENARIOS = [
     }],
     expect: { minTargetPassages: 1, minPassagesPerBridge: { Klaffbron: 2 } },
   },
+  // === Varv 2 (familj A, 2026-11-09): MÅLBRON I SAMMA TICK SOM VÄNDNINGEN ===
+  // Buggjägarens M1 (NEW_JOURNEY i app-lagret, värld 936, 1208, 1316 och 1918)
+  // och M2 (vändning inne i målbrogrenen, värld 1274 och 1317). Vändningen
+  // var bekräftad på två positioner (U18), men målbron, och därmed
+  // öppningsarmen, kom först vid NÄSTA fix. Med gles AIS gick returvarningen
+  // 10–46 s före passagen eller inte alls. Ledtiden mäts mot den SANNA
+  // korsningen (openingLeadS), eftersom appens bokföring vid gles AIS kommer
+  // ett fix efter korsningen. Alla tre fäller c14938f; placeringen ÄR testet
+  // (räkna om om generatorn eller rutten ändras).
+  {
+    // M1, värld 936: resan söderut slutar vid Klaffbron (TARGET_END). Båten
+    // vänder 450 m söder om bron och går tillbaka norrut med AISHub-kadens
+    // (70 s i 5 kn ⇒ 180 m per fix). NEW_JOURNEY väntar på fixet 450 m söder
+    // om bron och bekräftar på fixet 270 m söder om den. På c14938f kom
+    // målbron och varningen vid nästa fix, 90 m före linjen (35 s före den
+    // sanna korsningen); nu i bekräftelseticken (105 s).
+    name: 'retur-efter-målbroslut-gles-ais-Klaffbron (M1, värld 936)',
+    seed: 936,
+    vessels: [{
+      mmsi: '903600936',
+      name: 'RETUR-936',
+      startS: METRICS.cum[2] + 700,
+      legs: [
+        { toS: METRICS.cum[2] - 450, speedKn: 5, intervalS: 70 },
+        { toS: METRICS.cum[2] + 700, speedKn: 5, intervalS: 70 },
+      ],
+    }],
+    expect: { openingLeadS: { Klaffbron: 60 } },
+  },
+  {
+    // M1, värld 1208: som ovan, men efter bekräftelsefixet är båten tyst i
+    // 11,7 min och passerar under tiden Klaffbron, Järnvägsbron och
+    // Stridsbergsbron. På c14938f fick hon ingen målbro före tystnaden och
+    // ingen varning alls; nu går Klaffbronvarningen i bekräftelseticken och
+    // Stridsbergsbronvarningen ur deadline-motorn i tystnaden (nästa målbro i
+    // samma färdriktning, ARM_NEXT_TARGET).
+    name: 'retur-efter-målbroslut-tyst-genom-tre-broar (M1, värld 1208)',
+    seed: 1208,
+    vessels: [{
+      mmsi: '903601208',
+      name: 'RETUR-1208',
+      startS: METRICS.cum[2] + 700,
+      legs: [
+        { toS: METRICS.cum[2] - 450, speedKn: 5, intervalS: 70 },
+        {
+          toS: METRICS.cum[4] + 700,
+          speedKn: 5,
+          intervalS: 70,
+          gapFromS: METRICS.cum[2] - 200,
+          gapToS: METRICS.cum[4] + 300,
+        },
+      ],
+    }],
+    expect: { openingLeadS: { Klaffbron: 60, Stridsbergsbron: 60 } },
+  },
+  {
+    // M2, värld 1317: båten går söderut genom Stridsbergsbron och
+    // Järnvägsbron (målbro Klaffbron) och vänder 260 m söder om
+    // Järnvägsbron, inom brons besök (U14). Första fixet efter vändningen går
+    // i 1 kn, så Fix D hoppar över det (Anomali 5). Nästa fix, 220 s senare och
+    // 7 m norr om Järnvägsbron i 3 kn, är återkorsningen: RE_CROSS_EVIDENCED
+    // bekräftar vändningen inne i målbrogrenen, och tickens detektering
+    // bokför inte bron (fixet ligger på linjen). Nästa fix kommer först 244 m
+    // norr om Stridsbergsbron. På c14938f fick båten ingen målbro i
+    // återkorsningsticken och ingen returvarning för Stridsbergsbron; nu går
+    // varningen där. Returnotisen vid Järnvägsbron kommer då från
+    // TARGET_END:s geometriska inferens, och den kräver att reseankaret ligger
+    // i återkorsningssegmentets start (B2). Utan B2 försvann notisen.
+    // Placeringen: glappen stryker första fixet i ben 3 och 4, så att
+    // återkorsningsfixet landar 7 m norr om bron (3 kn · 160 s = 247 m från
+    // 240 m söder om den) och nästa fix 494 m längre fram (6 kn · 160 s).
+    name: 'återkorsning-på-linjen-gles-ais-Järnvägsbron (M2, värld 1317)',
+    seed: 1317,
+    vessels: [{
+      mmsi: '903601317',
+      name: 'RETUR-1317',
+      startS: METRICS.cum[4] + 400,
+      legs: [
+        { toS: METRICS.cum[3] - 260, speedKn: 5, intervalS: 60 },
+        { toS: METRICS.cum[3] - 240, speedKn: 1, intervalS: 60 },
+        {
+          toS: METRICS.cum[3] + 7,
+          speedKn: 3,
+          intervalS: 160,
+          gapFromS: METRICS.cum[3] - 241,
+          gapToS: METRICS.cum[3] - 239,
+        },
+        {
+          toS: METRICS.cum[4] + 700,
+          speedKn: 6,
+          intervalS: 160,
+          gapFromS: METRICS.cum[3] + 6,
+          gapToS: METRICS.cum[3] + 8,
+        },
+      ],
+    }],
+    expect: {
+      openingLeadS: { Stridsbergsbron: 60 },
+      minNotifiedPerBridge: { Järnvägsbron: 2, Stridsbergsbron: 2 },
+    },
+  },
+  // Granskningen av varv 2 (2026-11-09): EN GPS-UTLIGGARE STRAX EFTER EN ÄKTA
+  // PASSAGE. Båten går norrut genom Klaffbron i 4,4 kn med 10 s kadens. Ett fix
+  // 40 m efter linjen flyttas 100 respektive 60 m söderut i latitud
+  // (generatorns gpsJump; fart och kurs orörda). RE_CROSS_EVIDENCED vänder då
+  // båten söderut på utliggaren. I samma tick valde kursen (norr, ≥ 2 kn slår
+  // låset) bron hon nyss passerat, eftersom utliggaren ligger söder om den i
+  // latitud. Sanningen är en passage och en varning. Båda scenarierna tål
+  // en DEFAULT-FLASH ("Inga båtar" 10–20 s mellan två Stridsbergsbrontexter).
+  // Den kommer likadant på c14938f: vändningen på utliggaren lämnar båten
+  // mållös till nästa fix, och det är det beteende båda skydden återställer.
+  // Att vändningen tros på en utliggare är passagelogikens sak (RE_CROSS:s
+  // GPS-grind), inte måltilldelningens.
+  {
+    // H1: utliggaren hamnar 74 m från Klaffbron, alltså strax bortom
+    // under-bro-vakten. Utan riktningskontrollen i assignTargetAfterReversal gav
+    // fixet en andra Klaffbronvarning (74 m) och "på väg mot Klaffbron" i 4,7
+    // min. c14938f lät nästa fix avgöra och gav en varning.
+    name: 'gps-utliggare-74m-bakom-Klaffbron-efter-passage (M2-riktningskontrollen)',
+    seed: 9715,
+    vessels: [{
+      mmsi: '909000015',
+      name: 'HOPP15',
+      direction: 'north',
+      speedKn: 4.4,
+      reportIntervalS: 10,
+      jitterM: 3,
+      gpsJump: { atFraction: FRAC_KLAFFBRON + 40 / METRICS.total, offsetM: -100 },
+    }],
+    expect: {
+      maxOpeningsPerBridge: { Klaffbron: 1 },
+      maxPassagesPerBridge: { Klaffbron: 1 },
+      toleratedInvariants: [/^DEFAULT-FLASH: \S+ "Inga båtar" inklämd \(\d+s\) mellan två "En … Stridsbergsbron"-texter/],
+    },
+  },
+  {
+    // Negativtest för vaktens M2-del: samma utliggare 60 m bakåt hamnar inom
+    // under-bro-bandet. Utan både riktningskontrollen och under-bro-vakten gav
+    // den två varningar och två passager av Klaffbron. Med något av skydden,
+    // och på c14938f, blir det en av vardera.
+    name: 'gps-utliggare-inom-under-bro-bandet-efter-passage (M2-vakten)',
+    seed: 9713,
+    vessels: [{
+      mmsi: '909000013',
+      name: 'HOPP13',
+      direction: 'north',
+      speedKn: 4.4,
+      reportIntervalS: 10,
+      jitterM: 3,
+      gpsJump: { atFraction: FRAC_KLAFFBRON + 40 / METRICS.total, offsetM: -60 },
+    }],
+    expect: {
+      maxOpeningsPerBridge: { Klaffbron: 1 },
+      maxPassagesPerBridge: { Klaffbron: 1 },
+      toleratedInvariants: [/^DEFAULT-FLASH: \S+ "Inga båtar" inklämd \(\d+s\) mellan två "En … Stridsbergsbron"-texter/],
+    },
+  },
   {
     // U14 (användarbeslut 2026-11-04, kort B01): tur och retur INOM besöket.
     // Vändningen 200 m bortom Klaffbron ligger innanför besökets utfärdsgräns
@@ -636,6 +802,13 @@ const SCENARIOS = [
     // isär är brus), och klassen har en uppmätt rest: 2 av 24 banor i svepet
     // G2 (K/N/tmp/r4/logs/guards4.log), registrerad som känd gräns. Vakten
     // håller fast det fall som revision 4 stänger.
+    // Varv 2 (familj A): också NEGATIVTESTET för under-bro-vakten i
+    // VesselDataService.assignTargetAfterReversal. När båten ger upp väntan
+    // bekräftar NEW_JOURNEY vändningen norrut på ett fix 16 m från Klaffbron,
+    // söder om bron i latitud men 7,9 m norr om linjen längs kanalaxeln. Utan
+    // vakten blev Klaffbron målbro i den ticken, nästa fix bokfördes som en
+    // falsk målbropassage och en tredje Klaffbronvarning gick ut på 16 m. Två
+    // varningar är de verkliga anflygningarna: norrut och tillbaka mot linjen.
     name: 'vänder-bromsar-väntar-3m-tät-10s-i-1kn-brus-30m-ge-upp (U14-vakt)',
     seed: 2956,
     vessels: [{
@@ -656,6 +829,7 @@ const SCENARIOS = [
     expect: {
       minNotifiedBridges: ['Klaffbron'],
       maxNotifiedPerBridge: { Klaffbron: 1 },
+      maxOpeningsPerBridge: { Klaffbron: 2 },
       toleratedInvariants: [/^MISSAD MÅLBRO-NOTIS: \d{9}:Klaffbron — /],
     },
   },
@@ -1667,6 +1841,7 @@ const SCENARIOS = [
 
 function runScenario(scenario) {
   const samples = generateScenario(scenario);
+  const { truthPaths } = samples;
   const tmpFile = path.join(os.tmpdir(), `synthetic-${scenario.seed}.jsonl`);
   fs.writeFileSync(tmpFile, samples.map((s) => JSON.stringify(s)).join('\n'));
   try {
@@ -1675,13 +1850,18 @@ function runScenario(scenario) {
     });
     const m = stdout.match(/__REPLAY_JSON__([\s\S]*?)__END__/);
     if (!m) throw new Error('Ingen JSON-markör i replay-output');
-    return { result: JSON.parse(m[1]), sampleCount: samples.length };
+    return { result: JSON.parse(m[1]), sampleCount: samples.length, truthPaths };
   } finally {
     fs.unlinkSync(tmpFile);
   }
 }
 
-function checkExpectations(scenario, result) {
+// Kedjeindex i PATH per bro (se METRICS ovan): ledtidskravets sanna korsningar.
+const PATH_INDEX = {
+  Olidebron: 1, Klaffbron: 2, Järnvägsbron: 3, Stridsbergsbron: 4, Stallbackabron: 5,
+};
+
+function checkExpectations(scenario, result, truthPaths = {}) {
   const problems = [];
   const e = scenario.expect || {};
   const passages = result.targetPassages || [];
@@ -1708,6 +1888,14 @@ function checkExpectations(scenario, result) {
     for (const [bridge, minN] of Object.entries(e.minPassagesPerBridge)) {
       const n = all.filter((p) => p.bridge === bridge).length;
       if (n < minN) problems.push(`bokförda passager av ${bridge} ${n} < förväntade ${minN}`);
+    }
+  }
+  // Varv 2 (familj A, granskningen): spegeln, mot fantompassager.
+  if (e.maxPassagesPerBridge) {
+    const all = [...passages, ...(result.intermediatePassages || [])];
+    for (const [bridge, maxN] of Object.entries(e.maxPassagesPerBridge)) {
+      const n = all.filter((p) => p.bridge === bridge).length;
+      if (n > maxN) problems.push(`FANTOMPASSAGE: ${n} bokförda passager av ${bridge} (max ${maxN})`);
     }
   }
   if (e.zeroNotifications && notifications.length > 0) {
@@ -1845,6 +2033,41 @@ function checkExpectations(scenario, result) {
       });
     }
   }
+  // Varv 2 (familj A): ledtiden mot den SANNA korsningen. En varning täcker
+  // båten när hon är medlem eller ledare i den, eller när hon absorberades i
+  // dess händelse (openingCoverage); i det senare fallet räknas ledtiden från
+  // absorptionen. Både varningen och täckningen ska ligga efter båtens förra
+  // sanna korsning av bron, så att utresans varning inte räknas för returen.
+  if (e.openingLeadS) {
+    const coverage = result.openingCoverage || [];
+    for (const [bridge, minLeadS] of Object.entries(e.openingLeadS)) {
+      const sBridge = METRICS.cum[PATH_INDEX[bridge]];
+      for (const [mmsi, truthPath] of Object.entries(truthPaths || {})) {
+        let previousMs = -Infinity;
+        for (const c of truthCrossings(truthPath, sBridge)) {
+          const crossingMs = BASE_TIME_MS + c.tS * 1000;
+          const coveredAt = (w) => {
+            if ((w.mmsis || []).map(String).includes(mmsi) || String(w.leadMmsi) === mmsi) return w.t;
+            const cov = coverage.find((x) => x.bridge === bridge && String(x.mmsi) === mmsi
+              && x.eventId === w.eventId && x.t > previousMs && x.t < crossingMs);
+            return cov ? Math.max(w.t, cov.t) : null;
+          };
+          const leads = openings
+            .filter((w) => w.bridge === bridge && Number.isFinite(w.t) && w.t > previousMs && w.t < crossingMs)
+            .map(coveredAt)
+            .filter((t) => Number.isFinite(t))
+            .map((t) => (crossingMs - t) / 1000);
+          const best = leads.length ? Math.max(...leads) : null;
+          if (best === null || best < minLeadS) {
+            problems.push(`KORT LEDTID vid ${bridge} ${new Date(crossingMs).toISOString()} (${mmsi}, ${c.dir}): `
+              + `${best === null ? 'ingen täckande varning' : `bästa varningen ${Math.round(best)} s`} före den sanna `
+              + `korsningen (krav ≥ ${minLeadS} s)`);
+          }
+          previousMs = crossingMs;
+        }
+      }
+    }
+  }
   if (e.deadlineFiredOpenings) {
     for (const bridge of e.deadlineFiredOpenings) {
       const forBridge = openings.filter((w) => w.bridge === bridge);
@@ -1895,8 +2118,8 @@ console.log(`${SCENARIOS.length} scenarier (seedade, deterministiska)\n`);
 for (const scenario of SCENARIOS) {
   let outcome;
   try {
-    const { result, sampleCount } = runScenario(scenario);
-    const problems = checkExpectations(scenario, result);
+    const { result, sampleCount, truthPaths } = runScenario(scenario);
+    const problems = checkExpectations(scenario, result, truthPaths);
     // WARN-invarianter (fas 0.4, 2026-07-03): informativa, fäller inte.
     const warns = validateWarnInvariants(result);
     if (warns.length > 0) {

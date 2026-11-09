@@ -72,7 +72,7 @@ Eller stegen var för sig:
 |---|---|---|
 | Enhetstester | `npm test > /tmp/ais-jest.log 2>&1` (läs sedan slutraderna) | Alla tester passerar, exitkod 0 och inga öppna handtag. Aktuellt antal står i körningens sammanfattning. Omdirigeringen bevarar Jest:s exitkod; en pipe till `tail` gör inte det. |
 | Korpusarna | `npm run replay:all` | Samtliga korpusar (aktuellt antal och timmar står i skriptets utskrift) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + exakt (mmsi,bro,riktning)-fördelning + EXAKT bridge_text-transitionsström (golden-text/) + alla invarianter. Ofullständig fångst redovisas separat och får bara utgöra regression för bevarade sampel. |
-| Syntetiska | `npm run replay:synthetic` | 74 scenarier (gap, U-svängar även med gles AIS, GPS-hopp, kajliggare, sog=null, omstart, 2h-prune-stillaliggare, krypfart förbi passerad bro …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
+| Syntetiska | `npm run replay:synthetic` | 79 scenarier (gap, U-svängar även med gles AIS, GPS-hopp, kajliggare, sog=null, omstart, 2h-prune-stillaliggare, krypfart förbi passerad bro …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
 | Öppningsgrindarna | `npm run replay:openings` | ETAPP 6: det proaktiva lagret (`bridge_opening_soon`). **O1** varje målbropassage i SAMTLIGA korpusar (låsta som olåsta — antalet står i skriptets utskrift, inte här) har en öppningsvarning FÖRE passagen — varje miss klassad mot rådata (oklassad = rött); en KONVOJTÄCKNING underkänns om bron bevisligen öppnat och stängt för någon annan emellan. **O2** varje varning utan passage inom 20 min klassas mot rådata (KAJVOBBEL och UTANFÖR_HORISONTEN = rött; avbruten approach, gles anflygning och garantipris = accepterade) — även SEN_PASSAGE-hinken klassas. **O2b** (S14, 2026-08-23) SAMMA fantommätning mot RÅDATAFACIT (A2, `gt-passages`) i stället för appens egna passager — O1b:s mönster: appens passageregistreringar delar grindarnas blindfläck, så en varning kan kallas BEKRÄFTAD av appens egen bokföring medan rådatan inte känner korsningen. Serierna redovisas BREDVID varandra (annars går körningsloggar inte att jämföra bakåt). `inferred`-poster (korsning bevisad, tidpunkt = fönster) bär ALDRIG hinkindelningen utan hamnar i egen hink INFERRERAD_TID — hinkarna ÄR en tidsfönstermätning. **O2b är INFORMATIV: den ändrar inte exitkoden** (grinden ligger kvar på appserien precis som O1:s täckning i fas A); `OPENING_GT_STRICT` flyttar den hit när fas C är klar. Vid införandet: 0 röda i BÅDA serierna, 118 av 360 varningar byter hink (98 blir omätbara `inferred`) och EN varning byter åt det farliga hållet (JAATTEN II @ Stridsbergsbron i 20260708-21h — samma fall INV-21 redan fäller). **O3** A/B-nattens båda armar: 6/6 öppningar varnade före, konvojen som EN varning, boat_near byte-identisk med nattens facit. Dessutom **avfyrningsfönstret** (`t − dueMs` inom två tick — kontraktet "avfyra så sent som garantin tillåter") och **ledtidsgolvet** (hårt golv 60 s; tunnare än utlovade 150 s rapporteras). |
 | Soaken | `node tests/replay-validation/runSoak.js` | 72 h blandtrafik: 0 processfel, inga läckor, fatala invarianter rena |
 | Driftens minutloop | `npm run replay:monitoring` | Samma 72 h med riktig monitoring/stale-städning även efter omstarter; samtliga timers avvecklade efter shutdown |
@@ -438,6 +438,52 @@ bron. Förväntan `minNotifiedPerBridge` kräver två Klaffbronotiser och
 står still på linjen i 40 min med GPS-brus på båda sidor och ska ha EN
 Klaffbronotis. På 7699cbe fäller B01-scenariot (en notis, INV-5), medan
 vakten är grön i båda versionerna.
+
+**Ledtid mot den SANNA korsningen (varv 2, familj A, 2026-11-09).** Vid gles AIS
+bokför appen en passage först vid fixet efter korsningen. `openingBeforeEachPassage`
+kan därför inte se en returvarning som kom 35 s före korsningen: den ligger ändå före
+bokföringen. Förväntan `openingLeadS: {bro: N}` mäter mot korsningen i generatorns
+sanna bana. `generateLegJourney` lämnar banan i `samples.truthPath` (en punkt per steg,
+inga extra slumptal, raderna byte för byte desamma), och `truthCrossings` ger
+korsningstiderna. Varje sann korsning av bron ska ha en varning som täcker båten minst
+N s före korsningen och efter båtens förra korsning av samma bro. Kravet är detsamma som
+buggjägarens T2-orakel. Tre scenarier prövar målbron i samma tick som en bekräftad
+vändning (M1 NEW_JOURNEY och M2 vändning inne i målbrogrenen). Alla tre fäller `c14938f`:
+- `retur-efter-målbroslut-gles-ais-Klaffbron (M1, värld 936)`: med 70 s kadens och
+  5 kn bekräftar NEW_JOURNEY 270 m söder om Klaffbron. Mot `c14938f` blir det
+  "bästa varningen 35 s före den sanna korsningen", nu 105 s.
+- `retur-efter-målbroslut-tyst-genom-tre-broar (M1, värld 1208)`: som ovan men tyst
+  i 11,7 min genom tre broar. Mot `c14938f` saknas en täckande varning både vid
+  Klaffbron och vid Stridsbergsbron.
+- `återkorsning-på-linjen-gles-ais-Järnvägsbron (M2, värld 1317)`: återkorsningen av
+  Järnvägsbron syns först i ett fix 7 m norr om bron, efter ett fix i 1 kn som Fix D
+  hoppar över. Mot `c14938f` saknas returvarningen vid Stridsbergsbron. Scenariot
+  kräver också två notiser vid Järnvägsbron. Det fäller därför en variant utan B2
+  (reseankaret i återkorsningssegmentets start): returnotisen kommer från
+  TARGET_END:s geometriska inferens. Vändningen 260 m bortom bron ligger inom
+  besöket. Bortom besökets utfärdsgräns får återkorsningsfixet en egen notis, och
+  B2 prövas inte.
+
+Under-bro-vakten i `assignTargetAfterReversal` har sitt negativtest för M1 i
+`vänder-bromsar-väntar-3m-tät-10s-i-1kn-brus-30m-ge-upp (U14-vakt)`:
+`maxOpeningsPerBridge: { Klaffbron: 2 }`. Med vakten bortkopplad blir det tre
+Klaffbronvarningar (den tredje på 16 m) och scenariot rött.
+
+**En GPS-utliggare strax efter en äkta passage (granskningen 2026-11-09).** Två scenarier
+låter båten gå norrut genom Klaffbron i 4,4 kn med 10 s kadens, och generatorns
+`gpsJump` flyttar ett fix 40 m efter linjen 100 respektive 60 m söderut.
+`RE_CROSS_EVIDENCED` vänder båten på utliggaren, och kursen väljer bron hon nyss passerat.
+Båda dömer med `maxOpeningsPerBridge` och den nya `maxPassagesPerBridge` (högst N bokförda
+passager av bron, mål- och mellanbro tillsammans):
+- `gps-utliggare-74m-bakom-Klaffbron-efter-passage (M2-riktningskontrollen)`, seed 9715:
+  utliggaren hamnar 74 m från bron, bortom under-bro-vakten. Det är rött utan
+  riktningskontrollen ("Klaffbron fick 2 varningar").
+- `gps-utliggare-inom-under-bro-bandet-efter-passage (M2-vakten)`, seed 9713: utliggaren
+  hamnar inom under-bro-bandet. Det är rött först när både riktningskontrollen och vakten
+  tas bort (två varningar och två passager).
+
+Båda är gröna på `c14938f`. De tål en DEFAULT-FLASH mellan två Stridsbergsbrontexter, som
+kommer likadant på `c14938f`: vändningen på utliggaren lämnar båten mållös till nästa fix.
 
 Granskningen samma dag lade till sex vakter och två returer. **Vänd och vänta**
 (`vänder-och-väntar-…-från-Klaffbron-brus-… (U14-vakt)`, fem varianter D = 5–30 m från

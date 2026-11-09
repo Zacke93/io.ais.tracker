@@ -1051,7 +1051,9 @@ båt.
   `_firstSeenLat` som FALLBACK; publik läsare `getJourneyOriginLat`). Ankaret
   skrivs av TVÅ vägar med olika kontrakt: `_anchorJourneyOrigin` HÅRT vid äkta
   resegränser (bekräftad reversal, app-lagrets NEW_JOURNEY via publika
-  `anchorJourneyOrigin`) och `_extendJourneyOrigin` MONOTONT vid måltilldelning
+  `anchorJourneyOrigin`; en vändning som bevisas av en återkorsning,
+  `RE_CROSS_EVIDENCED`, ankras i återkorsningssegmentets start, B2 i varv 2, se
+  U-svängspunkten nedan) och `_extendJourneyOrigin` MONOTONT vid måltilldelning
   (**H12-B** — måltilldelningen är ingen bevisad resegräns): behåll det
   extremaste av utgångsvärdet och tilldelningsläget i färdriktningen
   (nordresa ⇒ sydligast, sydresa ⇒ nordligast). Utgångsvärdet är reseankaret och
@@ -1063,7 +1065,8 @@ båt.
   `_fixDPendingReversal` :196–231) nollar target mitt i resan; journey-reset
   rensar båda dedup-lagren (app.js:738–741). Post-resa: NEW_JOURNEY
   (app.js:897–952, debounce `_newJourneyPending`) nollar passedBridges + dedupe
-  + target-protection för returresan.
+  + target-protection för returresan och tilldelar målbron i samma tick (varv 2,
+  se nedan).
 - N1-resetten i `_confirmDirectionReversal` släpper broar framför båten i den nya
   riktningen. R1 (rättningskampanjen 2026-11-04, buggjägarens F10/W750): Fix D och
   positionsbevisets två ben bekräftar före tickens detektering, ofta på fixen bortom bron
@@ -1098,6 +1101,91 @@ båt.
   korsningen). Under debouncen bär notiser om broar framför båten det gamla låsets riktning
   (1731: "närmar sig Järnvägsbron" 11:01:04 söderut). U18 gäller öppningsvarningen och
   riktningen; returens bokföring i de kända luckorna ovan är ett eget öppet kort.
+- **Målbron i samma tick som bekräftelsen (varv 2, familj A, 2026-11-09).** Två vägar
+  bekräftade en vändning men lämnade måltilldelningen åt NÄSTA fix:
+  - (M1) app-lagrets NEW_JOURNEY i `_onVesselUpdated`, som körs efter att `updateVessel`
+    redan kört målbrokedjan för fixet. ACCELERATED-grenen gav där null på den avslutade
+    resans riktning och passager (FIX Z och dess nordspegel);
+  - (M2) `RE_CROSS_EVIDENCED` eller korsningsbeviset inne i målbrogrenen, där
+    ACCELERATED-grenen ligger i samma else-if-kedja och hoppas över.
+
+  Med gles AIS kom öppningsarmen och returvarningen därför 10–46 s före passagen eller
+  inte alls (buggjägarens värld 936, 1208, 1274, 1316, 1317 och 1918). Båda vägarna
+  anropar nu `VesselDataService.assignTargetAfterReversal`. Den kör ACCELERATED-grenens
+  tilldelning för samma fix, med samma grindar som när Fix D bekräftar en vändning i
+  ticken: `_shouldAssignTargetBridge` med det gamla målet ogiltigt, därefter
+  `_selectAcceleratedTarget` och `_applyAcceleratedTarget`. De två metoderna är utbrutna
+  ordagrant ur ACCELERATED-grenen, som själv använder dem. M2:s krok ligger efter
+  mellanbroblocken i `updateVessel`, så att tickens segment prövas med båten mållös som
+  förut; räknaren `_reversalSeq` i `_confirmDirectionReversal` visar att vändningen
+  bekräftades inne i kedjan. M1:s anrop ligger sist i NEW_JOURNEY-resetten och följs av
+  STEG 1:s bokföring (`_noteTargetBridgeChange`: ETA-historiken och borttagningstimern).
+  U18 rörs inte: vändningen är redan bekräftad på två positioner, och ingen ny
+  riktningskälla tillkommer.
+  - **Riktningskontrollen** (granskningen 2026-11-09). Tillämpningen skulle låsa
+    riktningen `positionDirection || _deriveAssignmentDirection`. Om den motsäger den
+    nyss bekräftade vändningen vid `FIX_D_MIN_SOG` eller mer (`_routeLockVerdict`
+    'override', C4b:s andra halva), avgör nästa fix målbron, som förut. Kurs och
+    positionsbevis är då oense. Fallet är en enstaka GPS-utliggare strax efter en äkta
+    passage: `RE_CROSS_EVIDENCED` vände båten på utliggaren, och kursen valde bron hon
+    nyss passerat (latitud bakom linjen, kurs framåt). Granskarens prov med utliggare
+    30–180 m bakåt (504 banor) gav 10 extra varningar, 8 med fantompassage. c14938f gav
+    0, och kontrollen ger 0. Scenariot med seed 9715 prövar fallet. För M1 kan
+    kontrollen inte slå till, eftersom NEW_JOURNEY låser ur samma kurs.
+  - **Under-bro-vakten.** Ligger båten inom den nya målbrons under-bro-band
+    (`UNDER_BRIDGE_CLEAR_DISTANCE`, 70 m), avgör nästa fix målbron, som förut. Där är
+    brus och linjens läge av samma storlek, och `_calculateTargetBridge` väljer efter rå
+    latitud medan broarna är snedställda. I U14-vakten med ±30 m brus låg
+    bekräftelsefixet söder om Klaffbron i latitud men 7,9 m norr om linjen. Målbron
+    blev bron vid båten, och nästa fix bokfördes som målbropassage med en extra varning.
+    Ett svep över U14-vaktfamiljerna vid Klaffbron och Stridsbergsbron (504 banor) gav
+    utan vakten 2 extra varningar och 5 fantompassager, med vakten inga.
+    - För M1 är vakten det enda skyddet; U14-scenariot fäller utan den.
+    - För M2 ligger den bakom riktningskontrollen: scenariot med seed 9713 fäller först
+      när båda tas bort.
+    - Inom 70 m behålls c14938f:s beteende, alltså vid gles AIS ofta ingen varning. I
+      granskarens prov med 576 returer nära bron hade en variant utan vakt varnat för 138
+      korsningar som förblir ovarnade: 115 med under 30 s ledtid, 22 med 30–60 s och 1 med
+      62 s.
+  - **B2.** En vändning som bevisas av en återkorsning ankrar reseankaret i
+    återkorsningssegmentets start (`journeyStartAt`). Bron ligger strikt mellan segmentets
+    start och båten, så den nya resan började på startens sida om bron. Med ankaret i nuet
+    hoppade TARGET_END:s Järnvägsbroinferens (S-F6) över bron när tickens detektering inte
+    bokfört återkorsningen (fixet på linjen, `UNDER_BRIDGE_CROSS_AMBIGUOUS`), och
+    returnotisen vid Järnvägsbron försvann (värld 1317). Origin-vakterna (RC9, S-F6 och
+    triggerpunktsvakten) dömer annorlunda bara för broar mellan segmentets start och
+    båten, alltså broar som den nya resan bevisligen har korsat. Undantag
+    (granskningen 2026-11-09): motsäger kursen i `FIX_D_MIN_SOG` eller mer
+    återkorsningens riktning, är återkorsningen tvivelaktig, och ankaret sätts i nuet som
+    förut. Det är samma oenighet som riktningskontrollen mäter, till exempel ett brusfix
+    på linjen hos en båt som väntar och sedan kör vidare. Med ankaret på brusfixets sida
+    tilldelade nästa fix i kursens riktning, och det monotona ankaret kunde inte flytta
+    tillbaka förbi bron. Returnotisen vid Järnvägsbron försvann då i två svepbanor.
+  - **Kvar.** En vändning som bekräftas efter `updateVessel` väntar fortfarande på nästa
+    fix för sin målbro. Det gäller STEG 5:s GPS-grind (`registerConfirmedIntermediatePassage`
+    via `_analyzeVesselPosition`) och skipped-bridges-failsafen (`applyInferredPassage`).
+    Båda vägarna följer på en GPS-osäkerhet eller ett glapp, där ett fix till är försiktigt.
+    Failsafen körs dessutom efter öppningslagret, så en målbro där hade ändå beväpnats
+    först vid nästa fix. Vägarna gav ingen vändning i banken: 5 grindbekräftade passager
+    på 482 h, ingen av dem en vändning.
+  - **Kvar.** Låg återkorsningsfixet på linjen och har nästa fix redan passerat den nya
+    målbron, bokförs mellanbron bara av TARGET_END:s Järnvägsbroinferens. För M2 är
+    Järnvägsbron den enda mellanbro som kan ge en ny målbro; en återkorsning av Olidebron
+    eller Stallbackabron leder ut ur kanalen. Spärren vid en tidigare bro
+    (`_earlierBridgeAhead` i BridgeOpeningService) gäller nu redan från fixet efter
+    vändningen, eftersom köbevisbokföringen kräver målbro. Returbåten behandlas då som
+    vilken båt som helst med en tidigare bro framför målbron. På c14938f slapp hon spärren
+    för nästa målbro, eftersom målbron kom ett fix sent. I svepet kom 90 av 103
+    tidsflyttade varningar tidigare och 13 upp till 37 s senare, alla mot en målbro med
+    Järnvägsbron emellan. I buggjägarens quick-värld 169 kom returens
+    Stridsbergsbronvarning 123 s före korsningen i stället för 824 s. Ingen ledtid mot en
+    sann korsning sjönk under 60 s. Spärrens avvägning är ägarfrågan M6.
+  - **ETA-texten (U22).** ETA-kedjan är orörd, men ETA-historiken börjar ett fix
+    tidigare, och utjämningen ger då en längre ETA i första notisen efter vändningen.
+    Värld 936: "om 1 minut" blir "om 2 minuter" 154 m före bron (korsningen 46 s
+    senare). Värld 1918: "strax" blir "om 1 minut" 97 m före (9 s senare). Värld 169: "om
+    2 minuter" blir "om 3 minuter" 170 m före (43 s senare). Annan trafik med målbro i
+    två fix får samma utjämning. Felet hör till de uppskjutna ETA-korten.
 - **U19 (användarbeslut 2026-11-04): en planerad öppningsvarning skickas även när en
   obekräftad vändning väntar.** Deadlinemotorn avfyrar som vanligt medan
   `_fixDPendingReversal` väntar på sin andra observation; varningen hålls inte inne och stryks
