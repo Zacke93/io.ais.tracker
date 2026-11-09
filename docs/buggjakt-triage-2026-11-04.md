@@ -456,6 +456,68 @@ registret.
   - **Stress:** ett T2-fall.
 - Beslutskort: D1-KAJZON-DEMOTION (KONFLIKT) är fortfarande öppen.
 
+## Rättningskampanjens varv 2 (2026-11-09)
+
+Ägaren beslutade att ett andra varv skulle köras på de restkort som inte gäller ETA:
+- F02, T2 LEDTID (9 världar);
+- F05, T2 OKLASSAD (11 fynd);
+- F06, T3 VARNING-EFTER (10 fynd);
+- F07, T3 FRUSET-FIX (2 världar);
+- F08, stress (1);
+- B01, KONFLIKT D1-KAJZON-DEMOTION.
+
+Två triagerare gick igenom fynden värld för värld. Mekanismerna rättades i sex familjer, och varje familj granskades adversariellt och reviderades tills den godkändes. Granskningarna hittade verkliga fel som provvärldarna missade:
+- falska varningar vid GPS-utliggare (A);
+- tidiga varningar vid Järnvägsbron när en klass B-båt sänder glest (D);
+- att motorns U17-villkor först litade på appens egna flaggor (E).
+
+| Commit | Familj | Rättning | Världar |
+|---|---|---|---|
+| 811c723 | A | Målbron i samma tick som en bekräftad vändning (NEW_JOURNEY och RE_CROSS), med riktningskontroll och under-bro-vakt | 936, 1208, 1274, 1316, 1317, 1918 |
+| b6a4002 | C | Återfödd båt med kurs i dödbandet får målbro ur förflyttningen | 756, 977, 1913 |
+| c798e9b | F | U23: köaren vid Kajen står kvar. Kajavgången inne i kapseln och köbeviset genom en kapsel | 313 och kajköerna |
+| b38eabc | B | Bakkantens färskhet mot korsningen, krypfartens fysik och U24: egen varning före första passagen | 790, 979, 1094, 1476, 1794 |
+| 25862ee | D | Spärren vid en tidigare bro: rask fart efter bron vid onormal tystnad, aldrig före bron | 263 |
+| 7b449bb | motorn | U17/K-NÄSTA på appens dom med oberoende fysik, fixtid, gemensam RECOVER, kajpredikatet, U23/U24-posterna och radiomodellen vid avgång | 941, 972, 138, 290, 625 med flera |
+
+Övriga fynd var redan beslutade beteenden som motorn tidigare missade. Exempel är U17-släppen vid täckningsslutet (1973, 537, 625, 1337, 1629, 1752, 479) och K-NÄSTA (510, 1704).
+
+**Ägarens beslut under varv 2:**
+- **U23 (kajen norr om Klaffbron):** en båt på väg mot Klaffbron som stannar vid Kajen behandlas som i resten av väntområdet. Hon står kvar tills hon kör vidare, sänder navStatus 1/5 eller har legat stilla i 2 timmar. Andra båtar vid Kajen, och Gästhamnen, behandlas som förut.
+- **U24 (C-IV väg b, smal):** en båt i en avfyrad händelse utan bokförd passage får sin egen varning när hennes egen tidsfrist går ut, i stället för vid täckningsslutet. Det gäller när hon är i rörelse, mer än 350 m från bron och efter fönstret enligt båda prognoserna. Ägaren godtog att en köande konvoj ibland får en extra varning.
+- **M6 (spärren vid Järnvägsbron):** dirigenten valde den smala varianten EFTER-BRON, eftersom den inte har någon uppmätt kostnad i form av för tidiga varningar eller fantomer.
+
+**Omlåst facit enligt U13**, med rådatabelägg i corpora.js-noterna:
+- **20260806-42h:** S/V REBEL:s varning återställd, Klaffbron södergående 18 → 19. Fältappens varning kom 105 s före korsningen.
+- **20260713-41h:** två övergångar blir "ETA okänd" för en båt i kö vid Järnvägsbron. Den gamla texten var fel med 41 min.
+
+**Motorn efter varv 2.** Körningen är `npm run hunt`, standard, seed 1, på 7b449bb.
+- Självtestet är grönt: determinism, SHIFT30 och MMSI 24/24, kanarier 5/5 och rundresa 45/45.
+- Sanningsspåret: 2 000 världar och 222 råa utslag. De ger 6 kandidatkluster och 29 kluster
+  med registerpost, alltså 43 kluster och 240 fynd med registertagna. Före varv 2 var det
+  263 råa utslag och 46 kluster.
+- Kandidatkorten är 7, mot 11 före varvet:
+  - fem är ETA-kort, uppskjutna enligt U22 (INV-3 SÅGTAND och OSCILLATION, i bank och stress);
+  - två gäller inte ETA, med ett fynd vardera, mot sex kort med cirka 34 fynd före varvet.
+
+**Kvar efter varv 2** (frågor till ägaren och kända gränser):
+- **1139 (T2 LEDTID):** en stilla köande båt omfattas inte av U24 och får dagens sena andra
+  varning vid täckningsslutet. Ett beslut behövs.
+- **1038 (T3):** efter B släpper bakkanten båten vid en sen bokföring, 12 s efter hennes
+  korsning. En U17-variant för fallet kräver ett beslut.
+- **D1-luckan 300–500 m:** en helt stilla båt 300–500 m från sin målbro tappar målet efter
+  20 min, även i farleden (`_isInTargetQueueZone`). Gränsen kommer från valideringskörningen
+  2026-07-02 och är inget ägarbeslut. Fallet har inte setts i banken eller i provvärldarna.
+- **U2-VS-DEADLINE och konvojfamiljen:** beslutsfråga 5–6 nedan står kvar.
+- **Kända gränser:**
+  - A:s riktningskontroll ser inte en GPS-utliggare med vänd kurs bakom Järnvägsbron, som kan
+    ge ett kort falsklarm för Klaffbron (ARCHITECTURE);
+  - D:s restfönster: ett köfix under 2,8 kn strax efter tystnadsgränsen;
+  - F:s rimlighetskrav vid kajavgång tillåter 131 m på 3 min i 0,6 kn;
+  - C:s grannfall vid återfödelse (ARCHITECTURE, känd gräns e).
+- **eta-accuracy-rendered** är lastkänsligt: barnprocessen tar 32–42 s mot gränsen 25 s
+  när maskinen är hårt belastad. Felet fanns redan på c14938f och beror inte på varv 2.
+
 ## Ägarens beslut 2026-11-04
 
 Ägaren besvarade beslutsfrågorna 1–3 nedan och gav regeln för omlåsning:
@@ -567,7 +629,7 @@ Frågorna 1–3 avgjordes 2026-11-04 (se ovan). Texten står kvar som underlag.
      20260909-80h, Kanalinfarten). Frågan är beslutspunkt 2 i
      `docs/helgranskning-2026-11-03.md:162–172`: ska en utåtriktad transit vid
      ytterpunkterna räknas som utfärd, eller ska bevakningsboxen vidgas?
-   - **D1-KAJZON-DEMOTION (KONFLIKT):** 1 värld (R1). En båt som står still
+   - **D1-KAJZON-DEMOTION (KONFLIKT, avgjord 2026-11-09 genom U23, se varv 2 ovan):** 1 värld (R1). En båt som står still
      minst 3 min i Kajens kapsel med målbron mer än 600 m bort demoteras, och
      texten blinkar "Inga båtar" (INV-14). Zonregeln
      (`lib/constants.js:415–470`) står mot INV-B1/D1

@@ -1296,6 +1296,15 @@ båt.
     30–180 m bakåt (504 banor) gav 10 extra varningar, 8 med fantompassage. c14938f gav
     0, och kontrollen ger 0. Scenariot med seed 9715 prövar fallet. För M1 kan
     kontrollen inte slå till, eftersom NEW_JOURNEY låser ur samma kurs.
+    - **Känd gräns (omgranskningen 2026-11-09, L6).** En utliggare 30–180 m bakom
+      Järnvägsbron vars kurs också är vänd ger ett kort falsklarm. Kontrollen ser inget,
+      eftersom kurs och återkorsning är eniga, och Klaffbron ligger 900 m bort, utanför
+      under-bro-vakten. Följden är en falsk Klaffbronvarning söderut och 20–60 s "på väg mot
+      Klaffbron", där c14938f gav 20 s "Inga båtar". Granskarens prov gav det i 23 av 252
+      banor med vänd kurs. Fältdatan (S-F4) visar att utliggare bär båtens verkliga fart,
+      så fallet är ovanligt. Följden är ett falsklarm, inte en missad öppning. Ett möjligt
+      skydd är att avstå samma-tick-tilldelningen vid en vändning på 180° i minst 2 kn
+      mellan fix som ligger mindre än cirka 30 s isär.
   - **Under-bro-vakten.** Ligger båten inom den nya målbrons under-bro-band
     (`UNDER_BRIDGE_CLEAR_DISTANCE`, 70 m), avgör nästa fix målbron, som förut. Där är
     brus och linjens läge av samma storlek, och `_calculateTargetBridge` väljer efter rå
