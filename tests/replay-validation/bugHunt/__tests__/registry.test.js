@@ -362,19 +362,34 @@ describe('buggjägaren: beslutsregistret', () => {
       expect(p(f, { rader: rows, resultat: trans(200000) }).sant).toBe(false);
     });
 
-    test('mooringCapsuleStationary: stilla 5 min i Kajens kapsel och målbron > 600 m bort ⇒ sant; Klaffbron nära ⇒ falskt', () => {
+    test('mooringCapsuleStationary: bäraren på väg mot Stridsbergsbron demoteras i Kajens kapsel efter 3 min ⇒ sant; fel bro, tid, navStatus eller utan rörelsebevis ⇒ falskt', () => {
       const { reg, constants } = load();
       const p = pred(reg, 'mooringCapsuleStationary');
       const z = constants.MOORING_ZONES[0];
       const mid = { lat: (z.start.lat + z.end.lat) / 2, lon: (z.start.lon + z.end.lon) / 2 };
-      const rows = [0, 2, 4, 5].map((m) => ({
-        mmsi: '211000040', ...mid, sog: 0, aisTimestamp: T0 + m * MIN,
+      // Varv 2, B01: flashen binds till zonregelns demotion av textens bärare.
+      // Hon kom norrut i 4 kn (kursen 25°, rörelsebevis, Stridsbergsbron är
+      // närmaste målbro framför henne, Klaffbron ligger bakom), låg still från T0 och demoterades vid
+      // raden T0 + 4 min, den första där stilltiden nått 3 min.
+      const fart = [-6, -4].map((m) => ({
+        mmsi: '211000040', lat: mid.lat - 0.0008, lon: mid.lon - 0.0006, sog: 4, cog: 25, aisTimestamp: T0 + m * MIN,
       }));
-      const f = (bro) => ({
-        orakel: 'INV-F', inv: 'INV-14', bro, t: T0 + 5 * MIN,
+      const still = [0, 2, 4, 5].map((m) => ({
+        mmsi: '211000040', ...mid, sog: 0, cog: 25, aisTimestamp: T0 + m * MIN,
+      }));
+      const rows = [...fart, ...still];
+      const f = (bro, t = T0 + 4 * MIN + 25) => ({
+        orakel: 'INV-F', inv: 'INV-14', bro, t,
       });
       expect(p(f('Stridsbergsbron'), { rader: rows }).sant).toBe(true);
-      expect(p(f('Klaffbron'), { rader: rows }).sant).toBe(false);
+      // Hon var på väg mot Stridsbergsbron, inte Klaffbron (som ligger bakom henne).
+      expect(p(f('Klaffbron'), { rader: rows }).skäl).toMatch(/på väg mot Stridsbergsbron .* inte mot Klaffbron/);
+      // En episod som inte börjar vid demotionen förklaras inte.
+      expect(p(f('Stridsbergsbron', T0 + 5 * MIN), { rader: rows }).skäl).toMatch(/demoterad vid raden 10:04:00, 60 s före episoden 10:05:00 \(mer än en tick\)/);
+      // En kajliggare utan rörelsebevis (värld 138: TROLLA) bar aldrig texten.
+      expect(p(f('Stridsbergsbron'), { rader: still }).skäl).toMatch(/inget rörelsebevis/);
+      // navStatus förtöjd: navstatus-lagret, inte zonregeln.
+      expect(p(f('Stridsbergsbron'), { rader: [...fart, ...still.map((r) => ({ ...r, navStatus: 5 }))] }).skäl).toMatch(/navStatus 5/);
     });
 
     test('profileIs: R0 ⇒ sant; R1 ⇒ falskt', () => {

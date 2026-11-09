@@ -26,6 +26,29 @@
  * kommer ur en världsström som inte beror på vilka båtar som finns. Därför
  * kan krympningen ta bort en båt utan att de andras observationer ändras.
  *
+ * TAKTBYTE VID AVGÅNG (varv 2, M9). Nästa fixtid dras ur tillståndet vid
+ * fixet. Lämnar en stilla båt kön eller stoppet före den dragna tiden, dras
+ * tiden om: nästa fix kommer avgången + ett rörelseintervall, men aldrig
+ * senare än den först dragna tiden. En verklig transponder byter takt när
+ * farten ändras, och tätare rapportering kan bara flytta nästa sändning
+ * närmare. Förut hördes en båt som lämnade kön strax efter ett stillafix
+ * först när stillaintervallet hade löpt ut (världarna 290 och 625, F02 och
+ * F05). Omdragningen gäller båda erorna men inte ett fast intervall (R0 och
+ * fixedIntervalS), där takten inte beror på rörelsen. Båtar utan avgång mitt
+ * i ett stillaintervall får bitlika rader, och raderna som tas emot före
+ * avgången är bitlika:
+ *  - aisstream: nästa rad efter stillafixet kommer tidigast vid avgången, så
+ *    det extra slumptalet ur båtens ström påverkar bara rader efter den;
+ *  - AISHub: rörelseintervallet dras ur en egen ström per avgång
+ *    (`radio-<mmsi>-avgång-<s>`), så båtens ström är densamma som i den
+ *    gamla modellen fram till den första pollen som tar emot en färsk fix.
+ *    Den omdragna tiden gäller bara fixar från avgången och framåt; en fix
+ *    från före avgången (en poll med fixålder) prövas mot den gamla tiden.
+ *    Därför kommer den första hörda fixen efter avgången aldrig senare än i
+ *    den gamla modellen. Förut kunde en tidigare poll leverera ett stillafix
+ *    och lägga nästa rörelseintervall efter det (värld 1527: 334 s i stället
+ *    för 62 s; granskningen av varv 2, L1).
+ *
  * RADION SKRIVER ALDRIG I SPECEN. Slumputfall som namnfördröjning bokförs i
  * en separat radiorealisering som returneras bredvid raderna.
  *
@@ -41,12 +64,16 @@ const { truthAt, KN } = require('./world');
 const M_PER_DEG_LAT = 111320;
 
 /** Radioprofilerna. Båtens egna fält (fixedIntervalS, noise, nameLagMin, firstHeardS) går före. */
+// taktbyte: nästa fixtid dras om vid en avgång mitt i ett stillaintervall
+// (modulhuvudet, varv 2, M9). Overkan i R0, där intervallet är fast; kan
+// stängas av med overrides ({ taktbyte: false }) för att jämföra med den
+// gamla modellen.
 const PROFILES = {
   R0: {
-    id: 'R0', era: 'aisstream', intervalS: 30, forceClassA: true, noise: false, nameLag: false, lateBirth: false,
+    id: 'R0', era: 'aisstream', intervalS: 30, forceClassA: true, noise: false, nameLag: false, lateBirth: false, taktbyte: true,
   },
   R1: {
-    id: 'R1', era: null, intervalS: null, forceClassA: false, noise: true, nameLag: true, lateBirth: true,
+    id: 'R1', era: null, intervalS: null, forceClassA: false, noise: true, nameLag: true, lateBirth: true, taktbyte: true,
   },
 };
 
@@ -147,6 +174,24 @@ function makeRow(ctx, p, tFixMs, tRecvMs, feed) {
   };
 }
 
+/**
+ * Första tidpunkten (s) strikt efter frånS och strikt före tillS då banan
+ * rör sig (|v| > 0), eller null. Banan har steg om 1 s (world.js).
+ * @param {object} bt - båtens simulering {traj}
+ * @param {number} frånS - fixets tid (s)
+ * @param {number} tillS - den dragna nästa fixtiden (s)
+ * @returns {number|null} avgångens tid (s)
+ */
+function avgångMellan(bt, frånS, tillS) {
+  const tr = bt.traj;
+  if (!tr.length) return null;
+  const i0 = Math.max(0, Math.floor(frånS - tr[0].t) + 1);
+  for (let i = i0; i < tr.length && tr[i].t < tillS; i++) {
+    if (tr[i].t > frånS && inMotion(tr[i])) return tr[i].t;
+  }
+  return null;
+}
+
 /** Tysta intervall [från, till) i sekunder ur världens ctrl-händelser. */
 function silenceWindows(world) {
   const evs = [...(world.events || [])].sort((a, b) => a.atS - b.atS);
@@ -221,10 +266,28 @@ function observeWorld(sim, opts = {}) {
     // transitkvantiler i rörelse och stillakvantilerna vid v = 0. Fältet har
     // kadens bara för transit (sog ≥ 2 kn) och stilla (sog < 0,3 kn, < 60 m
     // mellan fixarna); AIS-klassernas fartberoende sändregler (klass B
-    // ≤ 2 kn var 3:e min) modelleras inte i v1 (BUGGJAKT.md §4.5).
+    // ≤ 2 kn var 3:e min) modelleras inte i v1 (BUGGJAKT.md §4.5). Regimen
+    // byts vid avgången, inte först vid nästa fix (omdragen, varv 2, M9).
     const interval = (feed, moving) => (Number.isFinite(fixedIv)
       ? fixedIv
       : cal.cadence[feed][cls][moving ? 'move' : 'still'](rnd.u()));
+    // Taktbytet vid avgång (modulhuvudet): nästa fixtid efter ett stillafix
+    // vid frånS, med intervallet minIv som golv (aisstream: 10 s).
+    const omdragen = (feed, frånS, nästaS, minIv = 0) => {
+      if (Number.isFinite(fixedIv) || profile.taktbyte === false) return nästaS;
+      const avg = avgångMellan(bt, frånS, nästaS);
+      if (avg === null) return nästaS;
+      return Math.min(nästaS, avg + Math.max(minIv, interval(feed, true)));
+    };
+    // AISHub: avgången efter stillapollen frånS och före dueS, med den
+    // omdragna tiden ur avgångens egen ström; null utan avgång.
+    const avgångAISHub = (frånS, dueS) => {
+      if (Number.isFinite(fixedIv) || profile.taktbyte === false) return null;
+      const D = avgångMellan(bt, frånS, dueS);
+      if (D === null) return null;
+      const egen = stream(baseSeed, `radio-${b.mmsi}-avgång-${D}`);
+      return { D, dueNy: Math.min(dueS, D + cal.cadence.aishub[cls].move(egen.u())) };
+    };
     const tEnd = tr[tr.length - 1].t;
     if (era === 'aisstream') {
       let tS = tr[0].t + (Number.isFinite(fixedIv) ? rnd.range(0, fixedIv) : rnd.range(0, 30));
@@ -241,7 +304,8 @@ function observeWorld(sim, opts = {}) {
           const tMs = T0 + Math.round(tS * 1000);
           rows.push(makeRow(ctx, p, tMs, tMs, 'aisstream'));
         }
-        tS += Math.max(10, interval('aisstream', moving));
+        const nästa = tS + Math.max(10, interval('aisstream', moving));
+        tS = moving ? nästa : omdragen('aisstream', tS, nästa, 10);
       }
     } else {
       // AISHub: pollkvantiserad leverans, fixålder och sekundupplöst fixTs.
@@ -251,6 +315,8 @@ function observeWorld(sim, opts = {}) {
       }
       let lastFix = -Infinity;
       let due = tr[0].t;
+      // Avgången mitt i det senaste stillaintervallet: {D, dueNy}, eller null.
+      let avg = null;
       for (const P of polls) {
         if (P < tr[0].t) continue;
         if (P > tEnd + 70) break;
@@ -259,7 +325,10 @@ function observeWorld(sim, opts = {}) {
         const moving = inMotion(pNow);
         const age = moving ? cal.ageMove(rnd.u()) : cal.ageStill(rnd.u());
         const fixS = Math.floor(P - age);
-        if (fixS < due - 35 || fixS <= lastFix) continue;
+        // En fix från avgången och framåt prövas mot den omdragna tiden
+        // (aldrig senare än den gamla), en äldre fix mot den gamla.
+        const tröskel = avg && fixS >= avg.D ? Math.min(due, avg.dueNy) : due;
+        if (fixS < tröskel - 35 || fixS <= lastFix) continue;
         const p = truthAt(bt, fixS);
         if (!p) continue;
         heard = heard || firstHeard(p);
@@ -271,6 +340,10 @@ function observeWorld(sim, opts = {}) {
         due = fixS + interval('aishub', moving);
         const recvMs = T0 + Math.round(P * 1000) + rnd.int(0, 150);
         rows.push(makeRow(ctx, p, T0 + (fixS * 1000), recvMs, 'aishub'));
+        // Stilla vid pollen: en avgång efter pollen och före den dragna tiden
+        // ger rörelsetakt från avgången, med intervallet ur avgångens egen
+        // ström (modulhuvudet). Båtens ström och `due` är orörda.
+        avg = moving ? null : avgångAISHub(P, due);
       }
     }
   }
@@ -320,5 +393,5 @@ function checkRows(rows) {
 const toJsonl = (rows) => `${rows.map((x) => JSON.stringify(x)).join('\n')}\n`;
 
 module.exports = {
-  PROFILES, resolveProfile, inMotion, observeWorld, silenceWindows, pollTimes, checkRows, toJsonl,
+  PROFILES, resolveProfile, inMotion, avgångMellan, observeWorld, silenceWindows, pollTimes, checkRows, toJsonl,
 };

@@ -14,7 +14,9 @@
  * rad, och alla kortanrop i den millisekunden kommer från den nya instansen).
  */
 
-const FIELDS = ['openingWarnings', 'openingCoverage', 'openingSuppressions'];
+// openingCoverageVerdicts: släppvägens domspår (varv 2, M1), som registret
+// joinar på eventId mot openingWarnings och openingCoverage.
+const FIELDS = ['openingWarnings', 'openingCoverage', 'openingSuppressions', 'openingCoverageVerdicts'];
 
 function restartTimes(rows) {
   return (rows || [])

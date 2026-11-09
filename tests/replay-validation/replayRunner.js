@@ -106,6 +106,93 @@ const { fromUserDirection } = require(path.join(ROOT, 'lib', 'utils', 'direction
 const { loadState } = require(path.join(ROOT, 'lib', 'utils', 'replayStartupState'));
 const internalDirection = (value) => (typeof value === 'string' ? fromUserDirection(value) : value);
 
+// ---- SLÄPPVÄGENS DOMAR (varv 2, familj E) ----
+// Buggjägarens U17-predikat (tystRecoverSammaÖppning) måste veta om
+// bakkanten kunde släppa en absorberad båt, alltså om appens EGEN prognos vid
+// hennes fix efter att händelsens första passage blev känd låg inom fönstrets
+// slut, och om släppet kom vid täckningsslutet. Prognosen
+// (ProgressiveETACalculator) går inte att återskapa ur raderna. Wrappern
+// bokför därför varje dom ur BridgeOpeningService._coverageVerdict med dess
+// indata i `sink` (resultatets openingCoverageVerdicts), men bara när något
+// ändrats sedan förra domen för samma arm (domen körs i varje utvärdering).
+// Domen kopieras GENERISKT (`verdict`), så att fält som läggs till i
+// returvärdet följer med utan ändring här. Strängar får sina ISO-tider
+// utbytta mot ‹tid› (SHIFT30 jämför hela resultatet och flyttar bara tal och
+// hela ISO-strängar). Ren diagnostik: domen, armen och händelsen lämnas
+// orörda, och de två hjälpmetoderna är rena läsare. Domen räknas först, och
+// bokföringen ligger i try/catch, så att den aldrig kan påverka appens
+// anropsväg (_releaseStrandedArms → _coverageVerdict): ett fel bokförs som en
+// post med `fel` (granskningen av varv 2, L3). En egen funktion, så att andra
+// instrumenteringar i instrumentApp kan läggas till utan konflikt.
+function instrumentCoverageVerdicts(ops, sink) {
+  if (!ops || typeof ops._coverageVerdict !== 'function' || ops._gtVerdictInstrumented) return;
+  ops._gtVerdictInstrumented = true;
+  const origVerdict = ops._coverageVerdict.bind(ops);
+  const isoITextRe = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g;
+  const kopia = (v) => {
+    if (v === null || typeof v === 'boolean') return v;
+    if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+    if (typeof v === 'string') return v.replace(isoITextRe, '‹tid›');
+    if (Array.isArray(v)) return v.map(kopia);
+    if (v && typeof v === 'object' && Object.getPrototypeOf(v) === Object.prototype) {
+      const ut = {};
+      for (const [k, x] of Object.entries(v)) if (x !== undefined && typeof x !== 'function') ut[k] = kopia(x);
+      return ut;
+    }
+    return null;
+  };
+  const tal = (x) => (Number.isFinite(x) ? x : null);
+  const senaste = new Map();
+  ops._coverageVerdict = (arm, event, now) => {
+    const verdict = origVerdict(arm, event, now);
+    try {
+      bokför(arm, event, now, verdict);
+    } catch (err) {
+      sink.push({
+        t: now, mmsi: String(arm && arm.mmsi), bridge: arm && arm.bridge, fel: String((err && err.message) || err),
+      });
+    }
+    return verdict;
+  };
+  function bokför(arm, event, now, verdict) {
+    const bridge = ops._targetBridges && typeof ops._targetBridges.get === 'function' ? ops._targetBridges.get(arm.bridge) : undefined;
+    const post = {
+      mmsi: String(arm.mmsi),
+      bridge: arm.bridge,
+      eventId: arm.eventId,
+      verdict: kopia(verdict),
+      arm: {
+        lastSeenAt: tal(arm.lastSeenAt),
+        anchorMs: tal(arm.anchorMs),
+        expectedArrivalMs: tal(arm.expectedArrivalMs),
+        earliestArrivalMs: tal(arm.earliestArrivalMs),
+        coverUntilMs: tal(arm.coverUntilMs),
+        absorbedAt: tal(arm.absorbedAt),
+        distanceM: tal(arm.distanceM),
+        sog: tal(arm.sog),
+        lastFixClean: arm.lastFixClean === true,
+        anchorFloor: !!event && arm.anchorFloorEventId === event.id,
+        // Appens bekräftade väntan (bron eller null), för U24:s grind 'kö'.
+        waitingAtBridge: typeof arm.waitingAtBridge === 'string' ? arm.waitingAtBridge : null,
+      },
+      event: event ? {
+        id: event.id,
+        firedAt: tal(event.firedAt),
+        firstPassageAt: tal(event.firstPassageAt),
+        firstPassageRegisteredAt: tal(event.firstPassageRegisteredAt),
+      } : null,
+      frozen: typeof ops._hasUnappliedObservation === 'function' ? !!ops._hasUnappliedObservation(arm) : null,
+      courseAway: typeof ops._courseAway === 'function' ? !!ops._courseAway(arm, bridge) : null,
+    };
+    const nyckel = `${post.mmsi}|${post.bridge}`;
+    const sig = JSON.stringify(post);
+    if (senaste.get(nyckel) !== sig) {
+      senaste.set(nyckel, sig);
+      sink.push({ t: now, ...post });
+    }
+  }
+}
+
 async function main() {
   const jsonlPath = process.argv[2];
   const mmsiFilter = process.argv[3] || null;
@@ -236,6 +323,8 @@ async function main() {
   // konvojtäckning). O1-klassificeringen skiljer på dem.
   const openingCoverage = [];
   const coverageRe = /\[OPENING_COVERAGE\] (\d+): (\S+) täckt av (\S+) \((\w+)\)/;
+  // Släppvägens domar (varv 2, familj E): se instrumentApp. Ren diagnostik.
+  const openingCoverageVerdicts = [];
 
   // ---- Fånga bridge_text-övergångar via RIKTIGA publiceringsvägen ----
   const bridgeTextLog = [];
@@ -425,6 +514,9 @@ async function main() {
         return result;
       };
     }
+
+    // Släppvägens domar (varv 2, familj E): se instrumentCoverageVerdicts.
+    instrumentCoverageVerdicts(instance.bridgeOpeningService, openingCoverageVerdicts);
 
     const origUpdateCap = instance._updateDeviceCapability.bind(instance);
     instance._updateDeviceCapability = (capability, value) => {
@@ -917,6 +1009,9 @@ async function main() {
     openingSuppressions,
     openingWarningsAtStartup,
     openingCoverage,
+    // Varv 2 (familj E): släppvägens domar per absorberad arm, se instrumentApp.
+    // Additivt; läses bara av buggjägaren.
+    openingCoverageVerdicts,
     // Öppningsservicens sluttillstånd: armar/händelser ska vara städade efter
     // 40 min efterspel (soak-kravet — en arm får aldrig överleva sitt fartyg).
     openingStats: (app.bridgeOpeningService

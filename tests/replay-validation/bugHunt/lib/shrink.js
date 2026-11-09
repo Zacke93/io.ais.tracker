@@ -118,6 +118,19 @@ async function ddmin(items, test, { skyddade = [], budget = null } = {}) {
 // Konstanter för gränsannoteringen (§4.4, "Närliggande konstanter")
 // ---------------------------------------------------------------------------
 
+// Kajens köundantag läses ur zonposten (constants.MOORING_ZONES, "Kajen norr
+// om Klaffbron") och tolkas som i appen (VesselDataService.js#_classifyMooring):
+// ett positivt tal, där Infinity betyder obegränsat. Värdet var 900 s fram
+// till ägarbeslutet U23 (2026-11-09); sedan familj F:s apprättning är det
+// Infinity, och ett obegränsat eller saknat undantag har inget gränsvärde att
+// ligga nära, så posten tas då inte med i tabellen.
+function kajensKöundantagS(zoner = constants.MOORING_ZONES) {
+  const kaj = (zoner || []).find((z) => /^Kajen\b/.test(String((z && z.name) || '')));
+  const ms = kaj && typeof kaj.queueGraceMs === 'number' && kaj.queueGraceMs > 0 ? kaj.queueGraceMs : 0;
+  return Number.isFinite(ms) && ms > 0 ? ms / 1000 : null;
+}
+const KAJENS_KÖUNDANTAG_S = kajensKöundantagS();
+
 const KONSTANTER = Object.freeze([
   { namn: 'CONVOY_WINDOW_MS', värde: BO.CONVOY_WINDOW_MS / 1000, enhet: 's' },
   { namn: 'WARNING_LEAD_MS', värde: BO.WARNING_LEAD_MS / 1000, enhet: 's' },
@@ -125,7 +138,7 @@ const KONSTANTER = Object.freeze([
   { namn: 'TICK_INTERVAL_MS', värde: BO.TICK_INTERVAL_MS / 1000, enhet: 's' },
   { namn: 'STALE_ETA_SOFT_THRESHOLD_MS', värde: constants.UI_CONSTANTS.STALE_ETA_SOFT_THRESHOLD_MS / 1000, enhet: 's' },
   { namn: 'STALE_ETA_HARD_THRESHOLD_MS', värde: constants.UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS / 1000, enhet: 's' },
-  { namn: 'queueGraceMs (Kajen)', värde: 900, enhet: 's' },
+  ...(KAJENS_KÖUNDANTAG_S === null ? [] : [{ namn: 'queueGraceMs (Kajen)', värde: KAJENS_KÖUNDANTAG_S, enhet: 's' }]),
   { namn: 'D5-avbrottet', värde: 120, enhet: 's' },
   { namn: 'besöksutfärd (radie + 50 m)', värde: constants.PROTECTION_ZONE_RADIUS + 50, enhet: 'm' },
   { namn: 'PROTECTION_ZONE_RADIUS', värde: constants.PROTECTION_ZONE_RADIUS, enhet: 'm' },
@@ -701,6 +714,7 @@ module.exports = {
   KONSTANT_TOLERANS,
   KONSTANTER,
   FAMILJ_KONSTANTER,
+  kajensKöundantagS,
   makeBudget,
   ddmin,
   annotateConstant,

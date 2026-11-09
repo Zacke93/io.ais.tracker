@@ -412,5 +412,5 @@ function judgeT2T3(ctx) {
 }
 
 module.exports = {
-  judgeT2T3, explainT2, canaryFloorMs, membersOf, FLOOR_MS,
+  judgeT2T3, explainT2, canaryFloorMs, membersOf, FLOOR_MS, FROZEN_FIX_MS,
 };

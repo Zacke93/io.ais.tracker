@@ -54,7 +54,8 @@ describe('registret 2026-11-07: posterna finns, laddar utan varningar och U2-RET
     expect(reg.varningar).toEqual([]);
     // KIE-PER-KORPUS och D1 prövas före de nya INV-14-posterna; O1 före U18–U19.
     expect(ids.indexOf('KIE-PER-KORPUS')).toBeLessThan(ids.indexOf('U1-C11-TYST-FÖRE-DEFAULT'));
-    expect(ids.indexOf('D1-KAJZON-DEMOTION')).toBeLessThan(ids.indexOf('U1-C11-TYST-FÖRE-DEFAULT'));
+    // D1-KAJZON-DEMOTION ersattes i varv 2 av U23-KAJZON-UTANFÖR-VÄNTZONEN på samma plats.
+    expect(ids.indexOf('U23-KAJZON-UTANFÖR-VÄNTZONEN')).toBeLessThan(ids.indexOf('U1-C11-TYST-FÖRE-DEFAULT'));
     expect(ids.indexOf('O1-ACCEPTERADE-MISSKLASSER')).toBeLessThan(ids.indexOf('U18-RETUR-BEKRÄFTAD-SENT'));
     expect(ids.indexOf('U18-RETUR-BEKRÄFTAD-SENT')).toBeLessThan(ids.indexOf('U17-TYST-BÅT-RECOVER'));
   });
@@ -387,17 +388,44 @@ describe('U17 U17-TYST-BÅT-RECOVER och K-TYST-BÅT-NÄSTA-ÖPPNING', () => {
     expect(pred('tystRecoverSammaÖppning', { läge: 'nästa' })(fynd, ctx).skäl).toMatch(/absorberad i Stridsbergsbron#4/);
   });
 
-  test('[vakt] värld 972: varningen leds av en annan båt; KANDIDAT', () => {
+  // Varv 2, M3: värld 972 är en gemensam RECOVER och U17. Fallet prövas i
+  // k-varv2-motor.test.js med alla båtars rader; den här fixturen bär bara
+  // QUESTs tre rader och kan inte visa att ledaren var tyst.
+  test('[vakt] en annan ledare utan absorption vid bron före varningen är ingen gemensam RECOVER; KANDIDAT', () => {
     const { fynd, ctx } = fall('w972');
+    const w = ctx.resultat.openingWarnings.find((x) => x.eventId === fynd.belägg.varning.eventId);
+    ctx.resultat.openingCoverage = ctx.resultat.openingCoverage.filter((c) => String(c.mmsi) !== String(w.leadMmsi));
     const c = klassa(reg, fynd, ctx);
     expect(c.klass).toBe('KANDIDAT');
-    expect(prövad(c, 'U17-TYST-BÅT-RECOVER').skäl).toMatch(/inte av båten själv/);
+    expect(prövad(c, 'U17-TYST-BÅT-RECOVER').skäl).toMatch(/inte av båten själv, och är ingen gemensam RECOVER: 265158956 absorberades aldrig/);
   });
 
-  test('[vakt] värld 941: båten hördes efter sin korsning, så appen kunde veta att hon passerat; KANDIDAT', () => {
+  // Varv 2, M2 (motorfel): tystnaden över korsningen avgörs av fixens tid.
+  // Förut stod här en vakt som byggde på samma misstag som predikatet: raden
+  // mottogs 0,1 s efter korsningen, men fixen var 17 s äldre och visade henne
+  // 58 m före bron.
+  test('[träff] värld 941: raden mottogs 0,1 s efter korsningen men bär en fix 17 s före den (58 m före bron); tyst över korsningen, U17', () => {
     const { fynd, ctx } = fall('w941');
+    expect(klassa(reg, fynd, ctx)).toMatchObject({ klass: 'DESIGN', post: 'U17-TYST-BÅT-RECOVER' });
+    expect(pred('tystRecoverSammaÖppning')(fynd, ctx).skäl).toMatch(/U17: tyst sedan 13:28:57 \(58 m\)/);
+  });
+
+  test('[vakt] värld 941 med samma rad men fixen efter korsningen: appen kunde veta att hon passerat; KANDIDAT', () => {
+    const { fynd, ctx } = fall('w941');
+    const kors = Date.parse(fynd.belägg.sannPassage.t);
+    const sista = ctx.rader.filter((r) => r.mmsi === fynd.mmsi && r.aisTimestamp < fynd.t).pop();
+    expect(sista.fixTs).toBeLessThan(kors);
+    sista.fixTs = kors + 100;
     expect(klassa(reg, fynd, ctx).klass).toBe('KANDIDAT');
-    expect(pred('tystRecoverSammaÖppning')(fynd, ctx).skäl).toMatch(/kom efter korsningen/);
+    expect(pred('tystRecoverSammaÖppning')(fynd, ctx).skäl).toMatch(/fix 13:28:57 \(mottagen 13:28:57\) låg efter korsningen 13:28:57/);
+  });
+
+  test('[vakt] en rad utan fixTs prövas på mottagningstiden, som förut', () => {
+    const { fynd, ctx } = fall('w941');
+    const sista = ctx.rader.filter((r) => r.mmsi === fynd.mmsi && r.aisTimestamp < fynd.t).pop();
+    delete sista.fixTs;
+    expect(klassa(reg, fynd, ctx).klass).toBe('KANDIDAT');
+    expect(pred('tystRecoverSammaÖppning')(fynd, ctx).skäl).toMatch(/låg efter korsningen/);
   });
 
   test('[vakt] en varning som avfyrades av ett fix (värld 829, U-svängsreturen) och en båt utan absorption faller på predikatet', () => {

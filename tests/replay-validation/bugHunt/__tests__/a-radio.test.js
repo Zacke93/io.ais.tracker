@@ -208,3 +208,117 @@ describe('v = 0: stillaliggarmodellen gäller fortfarande', () => {
     expect(rows.every((r) => r.sog === 0 && r.navStatus === 5)).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Varv 2, M9: taktbyte vid avgång mitt i ett stillaintervall
+// ---------------------------------------------------------------------------
+
+describe('M9 (varv 2): nästa fixtid dras om när en stilla båt avgår före den dragna tiden', () => {
+  const { avgångMellan } = require('../lib/radio');
+  /** En båt söderut som köar 250 m före Klaffbron i durS och sedan kör vidare. */
+  const köSim = (era, cls, radioSeed, durS) => simulateWorld(deepFreeze({
+    version: 1,
+    seed: 302,
+    startMs: T0,
+    durS: 3 * 3600,
+    era,
+    boats: [{
+      mmsi: '265000302',
+      name: 'KÖAREN',
+      cls,
+      role: 'transit',
+      dir: 'south',
+      tStartS: 60,
+      sStart: S_KLAFF + 1500,
+      sEnd: S_KLAFF - 1500,
+      cruiseKn: 4,
+      v0Kn: 4,
+      laneM: 0,
+      queueLaneM: 0,
+      lateralSigma: 0,
+      plan: [{
+        op: 'queue', bridge: 'Klaffbron', distM: 250, durS,
+      }],
+      tags: [],
+      seed: 4,
+    }],
+    events: [],
+    radioSeed,
+  }));
+  /** Köns slut i L0 och banans första rörliga sekund efter den. */
+  const avgången = (bt) => {
+    const kö = bt.stops.find((x) => x.kind === 'queue');
+    return bt.traj.find((p) => p.t > kö.t1 && p.v !== 0);
+  };
+  const median = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+  /** Ny och gammal modell för samma värld: raderna mottagna före avgången och fördröjningen till första fixen efter den. */
+  const jämför = (sim) => {
+    const tDep = T0 + (avgången(sim.boats[0]).t * 1000);
+    const ny = observeWorld(sim, { profile: 'R1' }).rows.filter((r) => !r.ctrl);
+    const gammal = observeWorld(sim, { profile: 'R1', overrides: { taktbyte: false } }).rows.filter((r) => !r.ctrl);
+    const n = ny.find((r) => r.fixTs > tDep);
+    const g = gammal.find((r) => r.fixTs > tDep);
+    return {
+      föreNy: ny.filter((r) => r.aisTimestamp < tDep), föreGammal: gammal.filter((r) => r.aisTimestamp < tDep), n: n ? n.fixTs - tDep : null, g: g ? g.fixTs - tDep : null,
+    };
+  };
+
+  test('avgångMellan hittar banans första rörliga sekund strikt inom intervallet', () => {
+    const bt = köSim('aisstream', 'A', 1001, 600).boats[0];
+    const dep = avgången(bt);
+    expect(Math.abs(bt.traj.find((p) => p.t === dep.t - 1).v)).toBe(0);
+    expect(avgångMellan(bt, dep.t - 100, dep.t + 100)).toBe(dep.t);
+    expect(avgångMellan(bt, dep.t - 100, dep.t)).toBeNull();
+    expect(avgångMellan(bt, dep.t - 300, dep.t - 100)).toBeNull();
+  });
+
+  test.each([
+    ['A'],
+    ['B'],
+  ])('R1, aisstream, klass %s: raderna före avgången är bitlika, och första fixen efter avgången kommer aldrig senare och ofta tidigare än i den gamla modellen', (cls) => {
+    // Tio radioseeds; mätningen över standardens 2 000 världar står i
+    // BUGGJAKT bilaga A.7 (granskningen av varv 2, L5).
+    let prövade = 0;
+    let tidigare = 0;
+    for (let k = 1; k <= 10; k++) {
+      const j = jämför(köSim('aisstream', cls, 1000 + k, 600 + (7 * k)));
+      expect(j.föreNy).toEqual(j.föreGammal);
+      if (j.g === null) continue;
+      prövade++;
+      expect(j.n).not.toBeNull();
+      expect(j.n).toBeLessThanOrEqual(j.g);
+      if (j.n < j.g) tidigare++;
+    }
+    expect(prövade).toBeGreaterThanOrEqual(6);
+    expect(tidigare).toBeGreaterThanOrEqual(3);
+  });
+
+  test.each([
+    ['A'],
+    ['B'],
+  ])('R1, AISHub, klass %s: raderna mottagna före avgången är bitlika, och första fixen efter avgången kommer aldrig senare än i den gamla modellen', (cls) => {
+    // AISHub levererar fixar med ålder i pollens takt. Den omdragna tiden
+    // gäller bara fixar från avgången och framåt, och rörelseintervallet dras
+    // ur avgångens egen ström, så båtens ström är orörd fram till den första
+    // färska fixen (granskningen av varv 2, L1: förut kom den senare i 57 av
+    // 251 avgångar, och raderna före avgången skilde sig i 2).
+    const ny = [];
+    const gammal = [];
+    for (let k = 1; k <= 10; k++) {
+      const j = jämför(köSim('aishub', cls, 1000 + k, 600 + (7 * k)));
+      expect(j.föreNy).toEqual(j.föreGammal);
+      if (j.g === null) continue;
+      expect(j.n).not.toBeNull();
+      expect(j.n).toBeLessThanOrEqual(j.g);
+      ny.push(j.n);
+      gammal.push(j.g);
+    }
+    expect(ny.length).toBeGreaterThanOrEqual(6);
+    expect(median(ny)).toBeLessThanOrEqual(median(gammal));
+  });
+
+  test('R0 och ett fast intervall påverkas inte: raderna är bitlika med och utan taktbytet', () => {
+    const sim = köSim('aisstream', 'A', 1003, 900);
+    expect(observeWorld(sim, { profile: 'R0' }).rows).toEqual(observeWorld(sim, { profile: 'R0', overrides: { taktbyte: false } }).rows);
+  });
+});
