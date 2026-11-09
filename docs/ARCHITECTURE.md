@@ -718,6 +718,12 @@ Fältfacit på FIXklockan: BALTIC JONGLEUR 0,461 m/s och NAVEN 0,606 ⇒ norrut,
 LADYBIRD 0,115 (46 % av ribban, marginal 2,2×) ⇒ `okänd` står kvar — hon vände
 vid 230 m och förtöjde 423 m väster om punkten.
 
+K1-mätningen har en tredje läsare sedan varv 2 (M3, se §Target-livscykeln):
+`VesselDataService._rebirthTransitDirection` läser samma stash med samma
+färskhetskontrakt, men bara vid återfödelse och med Fix D:s 2 kn i stället för
+ribban 0,25 m/s, eftersom den väljer MÅLBRO och inte en notistoken. K1 själv
+är oförändrad.
+
 **K13b — `båda`.** Öppningskortet beskriver ÖPPNINGEN, inte ledaren:
 `payload.eventDirection` mäts på HELA medlemsmängden och blir `mixed` vid en
 mötande konvoj. `??` (inte `||`) skyddar `mixed` mot fallbacken; `null` =
@@ -925,6 +931,70 @@ båt.
 
 - Tilldelning: `_shouldAssignTargetBridge` (:1753, kräver bl.a. rörelsebevis,
   ej `_moored`) → `_calculateTargetBridge` (:2026, COG-riktning + position).
+- **M3 (rättningskampanjen varv 2, familj C, 2026-11-09): en återfödd båt med kurs i
+  dödbandet får målbro ur förflyttningen.**
+  - *Felet.* `_calculateTargetBridge` avstår vid kurs 46–134° och 226–314° (F18). En
+    återfödd båt saknar ruttlås, och svepets lås (`_checkSkippedBridgesFallback`) kom
+    först efter `_observeBridgeOpening` i samma tick. Ingen målbro gav ingen arm och
+    ingen deadline när båten tystnade. Buggjägarens värld 756: FREJA korsade
+    Stridsbergsbron ovarnad under ett AIS-avbrott, fast deadlinen hade gått 400 s före
+    korsningen. Nästa fix räddade henne inte heller: `_calculateTargetBridge` följer
+    låset bara när kursen SAKNAS (FP8), inte när den ligger i dödbandet.
+  - *Rättningen.* Blir målbron null i ny-båtsgrenen och saknas lås, prövas
+    `_rebirthTransitDirection`. Den läser K1-mätningen mot sist kända position ur samma
+    meddelande (`_rebirthNorthBase`, ts-kontraktet från `_freshNorthProgressMps`) och
+    kräver: (1) kursen ligger i ett dödband, (2) sog ≥ `FIX_D_MIN_SOG` (2,0 kn),
+    (3) nettofarten i nordled ≥ 2 kn, (4) kursens sida stämmer med förflyttningen
+    (östra dödbandet norrut, västra, alltså Fix D:s breda sydband, söderut). Då låses
+    riktningen, och `_calculateTargetBridge(vessel, dir)` väljer målbron. Den målbron
+    prövas också mot kajgrinden (`_slowInitialQuayApproachNeedsProof`, som annars
+    räknar sin målbro ur kursen och därför är stum vid dödbandskurs), så en båt som
+    återvänder till sin belagda kajplats hålls som förut. Blir det ingen målbro släpps
+    låset igen.
+  - *Ingen gissning (F18).* Riktningen kommer ur en mätt förflyttning mellan två
+    observerade positioner, inte ur kursen. Ribban är högre än för en kurs i banden,
+    som ger målbro utan något förflyttningsbevis alls. Kanalen går 22–36° mellan
+    broarna, så 2 kn i nordled är minst 2 kn längs farleden.
+  - *Ordningen mot svepet.* Låser svepet alls, låser det samma riktning: samma post i
+    `_lastKnownPositions` och samma tecken. Vid ≥ 100 m förflyttning har svepet
+    `rebornEvidence`, och under det avstår svepets portgissning vid dödbandskurs. Saknar
+    svepets fönster kandidatbroar returnerar svepet före låset (PELLE i buggjägarens
+    värld 977); då är M3:s lås det enda, och det släpps när ingen målbro blir. Krav 4
+    gör att R1/F15:s release aldrig hade släppt låset. Svepet ser låset och låser inte
+    en gång till, så ticken har en riktningskälla.
+  - *Fältdata* (bankens 24 korpusar, alla fixpar med 65–900 s mellanrum, klassade mot
+    gt-passages; `faltfordelning.py` i varv 2:s familj C). Med sog ≥ 2 och kurs i
+    dödbandet låser 2 kn 56 av 121 transitpar och 0 av 50 övriga. Det högsta övriga
+    paret når 1,68 kn, och motsatt riktning högst 1,14 kn. Fartkravet tar bort VIRGO
+    (20260710-13h: +2,08 kn netto i 1,4 kn med kurs 63°, korsade sedan söderut).
+    Kurssidan tar bort ett transitpar (265800960 i 20260702-2h, som cirklade i kön vid
+    Järnvägsbron med kurs 242°). Kajavgången NORDIC SOLA (20260713-41h, 0,84 kn netto i
+    3,2 kn) ligger en faktor 2,4 under ribban; skissens första variant med bara K1:s
+    0,25 m/s gav henne målbro och flyttade tre golden-text-rader till sämre. I appen
+    når regeln i banken bara SY FREYJA (20260702-2h, norr om Stridsbergsbron på väg ut,
+    ingen målbro och låset släpps), och banken är bitlik (26 av 26 med och utan
+    monitoring).
+  - *Kända gränser.* (a) En återfödd båt UTAN kurs (FP8:s fall) omfattas inte; hon får
+    målbro först när låset finns, på nästa fix. (b) En kontinuerligt spårad båt med
+    kurs i dödbandet får som förut målbro först när kursen lämnar bandet. (c) En äkta
+    transit under 2 kn netto får ingen målbro här (54 % av bankens dödbandstransiter
+    med sog ≥ 2). (d) Basen saknar fixtid (V8): en gammal basfix gör dt för kort och
+    överskattar nordfarten med faktorn 1 + (basens fixålder − återfödelsens)/dt, ≤ 1,5
+    vid fältets p90-fixålder och 2,8 vid nattens max. Tecknet, alltså riktningen, kan
+    inte bli fel, men i AISHub- och 'both'-läge kan en långsam båt få ett mål hon inte
+    transiterar mot. Förslag till en senare runda: låt `_onVesselRemoved` spara
+    `fixTs`/`fixFeed` i posten och `_rebirthNorthBase` föra dem vidare, så att
+    `fixDtMs` mäter på fixklockan; K1:s Kanalinfartsregel vinner på samma sak.
+    (e) Dödbandet skyddar inte längre en återfödd båt mot falsklarm i klasser där en båt
+    med kurs i banden redan får målbro (granskningen 2026-11-09, världarna W1–W5):
+    vändning genom samma sidas dödband vid återfödelsen (W1), första ankomst till Kajen
+    eller Gästhamnen utan kajhistorik (W2, W3), GPS-hopp med fartspik åt kursens sida
+    (W4) och V8 (W5). Varje klass ger samma utfall som tvillingen med kurs i banden på
+    c14938f, alltså ett falsklarm i stället för en missad öppning. W1 och W3 är låsta i
+    testets steg 7. En zonvakt bara för M3 avråds: farleden går 7–52 m från
+    kajplatserna (FP9-H'), så den återinför missen för äkta transiter förbi kajerna.
+    Regressionstest: `tests/m3-aterfodd-dodband-2026-11-09.test.js` och de två
+    syntetiska scenarierna `återfödd-i-dödbandet-…`.
 - Retention: samma `_shouldAssignTargetBridge`, med 2-READINGS: målbron ska ha
   närmats ≥ `MIN_APPROACH_DISTANCE` (10 m) när den ligger > 300 m bort.
   Misslyckas valideringen utanför skyddszonen startar en 60 s nådafrist
@@ -1200,7 +1270,11 @@ båt.
   båten har vänt i glappet (R1, F15 IRMA). Senare notiser bär den levande kursens token.
   Ligger kursen i 271–314° (Fix D:s sydband men tokenbandets dödband, FP8) blir den tokenen
   `unknown` tills kursen är entydig. Osäker kurs, fart under 2 kn och samma riktning låser
-  som förut.
+  som förut. Sedan M3 (varv 2, se §Target-livscykeln) kan VDS ha låst riktningen redan i
+  ny-båtsgrenen, när förflyttningen sedan sist kända position bevisar transit. Då låser
+  svepet inte, och releasen prövas inte. M3:s kurskrav släpper bara igenom kombinationer
+  som releasen aldrig hade släppt, så där svepet hade låst blir utfallet detsamma. Saknar
+  svepets fönster kandidatbroar låser svepet inte alls, och då är M3:s lås det enda.
 
 ### Passage-latch + under-bridge-hysteres (StatusService)
 

@@ -1837,6 +1837,83 @@ const SCENARIOS = [
       deadlineFiredOpenings: ['Klaffbron'],
     },
   },
+  // === Varv 2, familj C (M3 ÅTERFÖDD-DÖDBAND) ===
+  // En båt hörs EN gång (ingen målbro), raderas av proximity-timeouten och
+  // återföds på nästa fix med kurs i dödbandet. K1-mätningen mot sist kända
+  // position bevisar färdriktningen, men på c14938f fick hon ändå ingen målbro
+  // i återfödelsens tick (svepets ruttlås kom efter _observeBridgeOpening).
+  // Sedan tystnar hon över målbron. Utan arm går ingen deadline, och bron
+  // korsas ovarnad. Med rättningen beväpnas hon på återfödelsen och
+  // äggklockan avfyrar i tystnaden. Fallet kräver gles AIS och en bestämd
+  // placering och har därför inget korpusfall.
+  {
+    // Buggjägarens värld 756 (F05-representanten, FREJA): söderut, återfödd
+    // 1888 m norr om Stridsbergsbron i 7 kn med kurs ~231° (västra dödbandet),
+    // nordprogress ≈ −2,9 m/s över 420 s. Deadline 1888 m / 10 kn − 180 s ≈
+    // 187 s efter återfödelsen; korsningen sker ~525 s efter. På c14938f:
+    // ingen Stridsbergsbron-varning (radering efter 10 min, återfödelse söder
+    // om Järnvägsbron med Klaffbron som mål).
+    name: 'återfödd-i-dödbandet-söderut-tyst-över-Stridsbergsbron (M3, värld 756)',
+    seed: 757,
+    vessels: [{
+      mmsi: '901000757',
+      name: 'SYNT-FREJA',
+      startS: METRICS.cum[4] + 1888 + 7 * 0.5144 * 420,
+      legs: [
+        {
+          toS: METRICS.cum[4] + 1889, speedKn: 7, intervalS: 420, cogDeg: 231,
+        },
+        {
+          toS: METRICS.cum[3] - 300,
+          speedKn: 7,
+          intervalS: 60,
+          cogDeg: 231,
+          gapFromS: METRICS.cum[4] + 1888,
+          gapToS: METRICS.cum[3] - 299,
+        },
+        { toS: METRICS.cum[2] - 600, speedKn: 6, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      expectedOpenings: ['Stridsbergsbron'],
+      deadlineFiredOpenings: ['Stridsbergsbron'],
+      maxOpeningsPerBridge: { Stridsbergsbron: 1, Klaffbron: 1 },
+    },
+  },
+  {
+    // Buggjägarens värld 1913 (HAVSORN) och 977 (PELLE): norrut från
+    // Kanalinfarten, återfödd 1900 m söder om Klaffbron i 3,6 kn med kurs ~52°
+    // (östra dödbandet), nordprogress ≈ +1,7 m/s över 300 s. Deadline ≈ 189 s
+    // efter återfödelsen; korsningen ~1026 s efter. På c14938f: ingen
+    // Klaffbron-varning (radering efter 10 min, och nästa fix norr om
+    // Klaffbron ligger bortom nordprogressens 15 min).
+    name: 'återfödd-i-dödbandet-norrut-tyst-över-Klaffbron (M3, värld 1913)',
+    seed: 1913,
+    vessels: [{
+      mmsi: '901001913',
+      name: 'SYNT-HAVSORN',
+      startS: METRICS.cum[2] - 1900 - 3.6 * 0.5144 * 300,
+      legs: [
+        {
+          toS: METRICS.cum[2] - 1901, speedKn: 3.6, intervalS: 300, cogDeg: 52,
+        },
+        {
+          toS: METRICS.cum[2] + 300,
+          speedKn: 3.6,
+          intervalS: 60,
+          cogDeg: 52,
+          gapFromS: METRICS.cum[2] - 1900,
+          gapToS: METRICS.cum[2] + 299,
+        },
+        { toS: METRICS.cum[4] + 600, speedKn: 4, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      expectedOpenings: ['Klaffbron'],
+      deadlineFiredOpenings: ['Klaffbron'],
+      maxOpeningsPerBridge: { Klaffbron: 1, Stridsbergsbron: 1 },
+    },
+  },
 ];
 
 function runScenario(scenario) {

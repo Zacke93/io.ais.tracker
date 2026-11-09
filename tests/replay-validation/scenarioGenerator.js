@@ -299,6 +299,11 @@ function generateJourney(opts, rnd) {
  * (förväntan openingLeadS) och inte mot appens bokföring, som vid gles AIS
  * kommer ett fix efter korsningen. Inga slumptal dras, så raderna är
  * byte för byte desamma som förut.
+ *
+ * Varv 2, familj C (M3): `cogDeg` ger ett gående ben en fast rapporterad kurs
+ * (med samma ±3° brus) i stället för farledens bäring, till exempel en kurs i
+ * dödbandet 46–134° eller 226–314° fast båten går längs kanalen. Fältet drar
+ * inga extra slumptal; ben utan det genereras byte för byte som förut.
  * @param {Object} opts - {mmsi, name, startS, legs, jitterM?, startOffsetS?}
  * @param {Function} rnd - seedad PRNG
  * @returns {Array<Object>} samples (jsonl-rader), med `truthPath`
@@ -347,7 +352,7 @@ function generateLegJourney(opts, rnd) {
     const inGap = (x) => Number.isFinite(leg.gapFromS) && Number.isFinite(leg.gapToS)
       && x >= Math.min(leg.gapFromS, leg.gapToS) && x <= Math.max(leg.gapFromS, leg.gapToS);
     while ((dir > 0 && s < leg.toS) || (dir < 0 && s > leg.toS)) {
-      if (!inGap(s)) push(s, leg.speedKn, dir);
+      if (!inGap(s)) push(s, leg.speedKn, dir, leg.cogDeg);
       const dt = interval + (leg.intervalJitterS ? rnd() * leg.intervalJitterS : 0);
       tS += dt;
       s += dir * leg.speedKn * 0.5144 * dt;

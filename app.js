@@ -8685,6 +8685,13 @@ class AISBridgeApp extends Homey.App {
     // direction-token som 'unknown' i samma millisekund som svepet visste
     // 'north'. Lås bara när riktning saknas — motsägelser mot ett
     // befintligt lås hanteras av korsningsbevis-reversalen i VDS.
+    // M3 (varv 2, familj C): bevisar förflyttningen sedan sist kända position
+    // transit (≥ 2 kn netto i nordled, ≥ 2 kn fart, kursen på samma sida),
+    // har VDS redan satt låset i ny-båtsgrenen, före målbrovalet, och
+    // villkoret nedan hoppar över (VesselDataService._rebirthTransitDirection).
+    // Hade svepet låst, hade det låst samma riktning (samma post, samma
+    // tecken). Saknar fönstret kandidatbroar returnerar svepet ovan före
+    // låset, och då är VDS-låset det enda.
     //
     // R1 (rättningskampanjen 2026-11-04, F15 IRMA): svepets riktning är
     // NETTOFÖRFLYTTNINGEN sedan sist kända position. Den är rätt riktning för
@@ -11135,7 +11142,9 @@ class AISBridgeApp extends Homey.App {
    * (_getNotificationDirection, bara östbandet 46–134°) och BN2:s
    * färdriktning när kursen ligger i östbandet eller saknas
    * (_hasGapCrossedNotifiedBridge, F13). Ett bevis som K1 underkänner kan
-   * därför aldrig bära BN2, och tvärtom.
+   * därför aldrig bära BN2, och tvärtom. M3 (varv 2) i VesselDataService
+   * (_rebirthTransitDirection) läser samma stash med samma färskhetskrav men
+   * med Fix D:s 2 kn som ribba, eftersom den väljer målbro.
    * @param {Object} vessel - Fartygsobjekt
    * @returns {number|null}
    * @private

@@ -72,7 +72,7 @@ Eller stegen var för sig:
 |---|---|---|
 | Enhetstester | `npm test > /tmp/ais-jest.log 2>&1` (läs sedan slutraderna) | Alla tester passerar, exitkod 0 och inga öppna handtag. Aktuellt antal står i körningens sammanfattning. Omdirigeringen bevarar Jest:s exitkod; en pipe till `tail` gör inte det. |
 | Korpusarna | `npm run replay:all` | Samtliga korpusar (aktuellt antal och timmar står i skriptets utskrift) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + exakt (mmsi,bro,riktning)-fördelning + EXAKT bridge_text-transitionsström (golden-text/) + alla invarianter. Ofullständig fångst redovisas separat och får bara utgöra regression för bevarade sampel. |
-| Syntetiska | `npm run replay:synthetic` | 79 scenarier (gap, U-svängar även med gles AIS, GPS-hopp, kajliggare, sog=null, omstart, 2h-prune-stillaliggare, krypfart förbi passerad bro …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
+| Syntetiska | `npm run replay:synthetic` | 81 scenarier (gap, U-svängar även med gles AIS, GPS-hopp, kajliggare, sog=null, omstart, 2h-prune-stillaliggare, krypfart förbi passerad bro, återfödelse med kurs i dödbandet …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
 | Öppningsgrindarna | `npm run replay:openings` | ETAPP 6: det proaktiva lagret (`bridge_opening_soon`). **O1** varje målbropassage i SAMTLIGA korpusar (låsta som olåsta — antalet står i skriptets utskrift, inte här) har en öppningsvarning FÖRE passagen — varje miss klassad mot rådata (oklassad = rött); en KONVOJTÄCKNING underkänns om bron bevisligen öppnat och stängt för någon annan emellan. **O2** varje varning utan passage inom 20 min klassas mot rådata (KAJVOBBEL och UTANFÖR_HORISONTEN = rött; avbruten approach, gles anflygning och garantipris = accepterade) — även SEN_PASSAGE-hinken klassas. **O2b** (S14, 2026-08-23) SAMMA fantommätning mot RÅDATAFACIT (A2, `gt-passages`) i stället för appens egna passager — O1b:s mönster: appens passageregistreringar delar grindarnas blindfläck, så en varning kan kallas BEKRÄFTAD av appens egen bokföring medan rådatan inte känner korsningen. Serierna redovisas BREDVID varandra (annars går körningsloggar inte att jämföra bakåt). `inferred`-poster (korsning bevisad, tidpunkt = fönster) bär ALDRIG hinkindelningen utan hamnar i egen hink INFERRERAD_TID — hinkarna ÄR en tidsfönstermätning. **O2b är INFORMATIV: den ändrar inte exitkoden** (grinden ligger kvar på appserien precis som O1:s täckning i fas A); `OPENING_GT_STRICT` flyttar den hit när fas C är klar. Vid införandet: 0 röda i BÅDA serierna, 118 av 360 varningar byter hink (98 blir omätbara `inferred`) och EN varning byter åt det farliga hållet (JAATTEN II @ Stridsbergsbron i 20260708-21h — samma fall INV-21 redan fäller). **O3** A/B-nattens båda armar: 6/6 öppningar varnade före, konvojen som EN varning, boat_near byte-identisk med nattens facit. Dessutom **avfyrningsfönstret** (`t − dueMs` inom två tick — kontraktet "avfyra så sent som garantin tillåter") och **ledtidsgolvet** (hårt golv 60 s; tunnare än utlovade 150 s rapporteras). |
 | Soaken | `node tests/replay-validation/runSoak.js` | 72 h blandtrafik: 0 processfel, inga läckor, fatala invarianter rena |
 | Driftens minutloop | `npm run replay:monitoring` | Samma 72 h med riktig monitoring/stale-städning även efter omstarter; samtliga timers avvecklade efter shutdown |
@@ -520,6 +520,24 @@ två fixar i rad på ankomstsidan där den förra låg vid linjen. Bruset ligger
 brusmodell, och klassen har en uppmätt rest (registrerad som känd gräns); vakten håller fast det
 fall som revision 4 stänger. Fröna kommer ur ett svep med appens egen generator (144 + 48 banor).
 Alla tre `ge-upp`-vakterna fäller revision 3.
+
+**Återfödelse med kurs i dödbandet (M3, rättningskampanjen varv 2, familj C).**
+`återfödd-i-dödbandet-söderut-tyst-över-Stridsbergsbron (M3, värld 756)` och
+`återfödd-i-dödbandet-norrut-tyst-över-Klaffbron (M3, värld 1913)` prövar att en
+återfödd båt vars enda fix har kurs i dödbandet beväpnas på återfödelsen, så att
+äggklockan avfyrar när hon sedan tystnar över målbron. Placeringen är testet:
+- Första fixet får ingen målbro (söderut: utanför kanalens gränser; norrut: kurs i
+  dödbandet utan sist kända position), så att proximity-timeouten raderar båten
+  (5 min i 7 kn, 2 min i 3,6 kn mer än 600 m från närmaste bro).
+- Återfödelsen kommer 420 s respektive 300 s senare, inom nordprogressens 15 min,
+  med kurs ~231° respektive ~52° via benets nya `cogDeg`. Förflyttningen ger
+  −2,9 respektive +1,7 m/s i nordled.
+- Sedan är båten tyst tills hon passerat bron (1888 m respektive 1900 m bort), så
+  varningen MÅSTE komma ur tick-motorn (`deadlineFiredOpenings`).
+Mot `c14938f` fälls båda med SAKNAD ÖPPNINGSVARNING och ÄGGKLOCKAN TYST: båten
+raderas efter 10 min utan målbro, och nästa fix kommer bortom bron. Med rättningen
+går varningen 187 respektive 190 s efter återfödelsen. Scenarierna lägger inte
+till någon WARN.
 
 ## Täckningskartan — diagnosverktyg, INTE en gate
 
