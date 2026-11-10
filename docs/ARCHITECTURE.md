@@ -864,6 +864,29 @@ båt.
   quick-värld 143, där en köande konvoj delas när den första följaren släpps
   tidigt och den andra varnas vid täckningsslutet på ett 21 min gammalt fix
   (registerpost med U24 som källa, familj E).
+  (d) **Två sena varningar som ägaren godtar som kända gränser** (ägarbesluten
+  **U25 och U26, 2026-11-09**). De är inte avsett idealbeteende. De är priset
+  för att släppvägen bara kan döma på det appen vet, och appen ändras inte.
+  **U25:** bakkanten kan döma först när händelsens första passage är bokförd.
+  Bokförs den för sent, därför att ingen båt som händelsen täckte hördes
+  efter sin korsning, släpps en följare först vid bokföringen. Hennes egen
+  varning kommer då efter hennes passage. Provvärld 1038: ledaren ZELDA korsar
+  Stridsbergsbron tyst 12:07:18 och hörs nästa gång 12:15:55, när passagen
+  bokförs (skattad till 12:08:20). ELSA MARIA släpps i samma utvärdering
+  (prognosen 12:17:06 ligger efter fönstrets slut 12:16:27) och varnas 12 s
+  efter sin korsning 12:15:43. Hade appen haft underlaget tidigare och ändå
+  bokfört sent, är det ett fel och inte U25.
+  **U26:** en stilla köande båt i en händelse utan bokförd passage omfattas
+  inte av U24 (hon saknar fysik och ligger i väntzonen), så hon släpps vid
+  täckningsslutet. Hörs inte hennes avgång ur kön, kommer varningen sent.
+  Provvärld 1139: MASEN ligger stilla 157 m från Stridsbergsbron. Vid den
+  äldre händelsens täckningsslut absorberas hon i en händelse som avfyrades
+  på den tysta YRSA 2:s 15 min gamla fix. YRSA 2 hade redan korsat osedd och
+  hördes aldrig mer, så den händelsen fick ingen passage. MASEN avgår osedd
+  12:34:16 och varnas vid täckningsslutet 12:35:02, 41 s före korsningen.
+  Buggjägaren registrerar båda som ACCEPTERAD med predikat som bara tar
+  mekanismen: ett fel i bokföringen, bakkanten, U24-släppet eller
+  täckningsslutet förblir en kandidat (`docs/BUGGJAKT.md` §7).
 - **Returresan är en egen öppning (U15, användarbeslut 2026-11-04):** varje
   bokförd passage av en beväpnad båt skrivs i servicens returminne
   (`_passageMemory`, mmsi och bro, skrivs i `_recordPassage` även när armen
@@ -2286,6 +2309,14 @@ samma form: släpp på ren tid och avfyrning på den ärvda deadlinen. Rättning
   bron och för kurs bort är inte en sådan grind: de gäller lägen som säger mer
   än en prognos (appens egen under-bron-gräns, en kurs bort från bron) och
   skjuter bara upp släppet till nästa fix.
+- **U25 och U26 (ägarbeslut 2026-11-09): två sena varningar godtas som kända
+  gränser** (se §bridge_opening_soon, punkt (d)). U25: bakkanten släpper en
+  följare först när händelsens första passage bokförs, och bokförs den efter
+  hennes korsning därför att ingen täckt båt hördes efter sin korsning,
+  kommer hennes varning efter passagen (provvärld 1038). U26: en stilla
+  köande båt som U24 inte omfattar släpps vid täckningsslutet, och hörs inte
+  hennes avgång kommer varningen under 60 s före korsningen (provvärld 1139).
+  Till skillnad från U17 är båda ett känt pris och inte det avsedda beteendet.
 - Negativtesterna för VIRGO och PILGRIM ligger i
   `tests/k-konvoj-recover-bakkant-glapp.test.js`, liksom U17-kontraktet och ett
   fällande test per grind (granskningens mutationsprov).
