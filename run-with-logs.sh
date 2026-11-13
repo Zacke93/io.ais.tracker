@@ -157,9 +157,20 @@ file_mtime() {
 
 # Kalenderdagar gör även helt saknade dygn synliga. POSIX awk saknar en
 # portabel mktime, så räkna gregorianska dagar med sekelskiftets skottårsregel.
+#
+# HÅLGRÄNSEN FÖLJER HJÄRTSLAGET (V4, fältprovet 2026-11-13). Loggvägen
+# Homey → homey CLI tappade fem block om 88–156 s, och 180 s missade alla
+# fem. Monitoringloopen skriver [COORDINATION_CLEANUP] ovillkorligt varje
+# minut från debugnivå detailed; där den är belagd är gränsen 60 s + 5 s
+# marginal = 65 s (mätt: största normala lucka 54,6 s på 66 h fältlogg med
+# full debugnivå). Utan belagt hjärtslag (basic/off: normala luckor upp till
+# ~70 s) gäller 180 s som förut. Boot och ändrad debugnivå nollar
+# hjärtslaget. Samma regel som node-grinden (checkReplayIntegrity.js,
+# createTimeGapAudit). Gränserna kan sättas med HOLE_LIMIT_HEARTBEAT_S och
+# HOLE_LIMIT_S; standardvärdena står här så att funktionen fungerar fristående.
 find_log_holes() {
-    LC_ALL=C grep -oE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}' "$1" | \
-      awk -F'[T:]' '
+    local hb_limit="${HOLE_LIMIT_HEARTBEAT_S:-65}" base_limit="${HOLE_LIMIT_S:-180}"
+    LC_ALL=C awk -v hb_limit="$hb_limit" -v base_limit="$base_limit" '
         function calendar_day(date, parts, year, month, previous_year) {
           split(date, parts, "-");
           year = parts[1] + 0; month = parts[2] + 0; previous_year = year - 1;
@@ -167,13 +178,38 @@ find_log_holes() {
             + int(previous_year/400) + month_start[month] + parts[3] \
             + (month > 2 && year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
         }
-        BEGIN { split("0 31 59 90 120 151 181 212 243 273 304 334", month_start, " "); }
-        {
-          tabs = calendar_day($1)*86400 + $2*3600 + $3*60 + $4;
-          if (prevt != "" && tabs - prevt > 180)
-            printf "- HÅL: %s → %s (%.0f s utan loggrader)\n", prev, $0, tabs - prevt;
-          prevt = tabs; prev = $0;
-        }'
+        BEGIN { split("0 31 59 90 120 151 181 212 243 273 304 334", month_start, " "); hb = 0; }
+        /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]/ {
+          stamp = substr($0, 1, 19);
+          split(stamp, f, "[T:]");
+          tabs = calendar_day(f[1])*86400 + f[2]*3600 + f[3]*60 + f[4];
+          limit = hb ? hb_limit : base_limit;
+          if (prevt != "" && tabs - prevt > limit)
+            printf "- HÅL: %s → %s (%.0f s utan loggrader)\n", prev, stamp, tabs - prevt;
+          prevt = tabs; prev = stamp;
+          if (index($0, "AIS Bridge starting with modular architecture") || index($0, "Debug level changed to:")) hb = 0;
+          if (index($0, "[COORDINATION_CLEANUP]")) hb = 1;
+        }' "$1"
+}
+
+# Hålgränsen just nu för livevakten: hjärtslaget i loggens svans (1 MiB räcker
+# till flera minuter även i loggens tätaste minuter, ~100 kB/min).
+current_hole_limit() {
+    if tail -c 1048576 "$1" 2>/dev/null | LC_ALL=C grep -q 'COORDINATION_CLEANUP'; then
+        printf '%s\n' "${HOLE_LIMIT_HEARTBEAT_S:-65}"
+    else
+        printf '%s\n' "${HOLE_LIMIT_S:-180}"
+    fi
+}
+
+# Terminalutskrift som aldrig kan fälla nedstängningen (V4): när terminalen
+# är borta (utloggning, stängt fönster) ger en skrivning EIO eller SIGPIPE.
+# EXTERN printf med flit: bash inbyggda printf/echo behåller en misslyckad
+# skrivning i sin stdout-buffert och skriver ut den vid nästa omdirigerade
+# skrivning (uppmätt: terminaltexten hamnade i nästa fil som skrevs med >>).
+# I nedstängningen är nästa fil summaryn.
+say() {
+    env printf '%s\n' "$*" 2>/dev/null || true
 }
 
 echo "Startar app — live-loggar skrivs LOKALT (immunt mot OneDrive-stall):"
@@ -223,9 +259,12 @@ echo "Tryck Ctrl+C för att stoppa"
 ) &
 REPLAY_GUARD_PID=$!
 
-# HÅLDETEKTOR, runtime (F4-A): appen loggar watchdog-/self-healing-rader var
-# ~90:e sekund i ALLA lägen — om loggfilen inte växt på 3 minuter tappar
-# röret data (eller CLI-strömmen har dött). Larma direkt i terminalen.
+# HÅLDETEKTOR, runtime (F4-A, gräns V4 2026-11-13): på debugnivå detailed/full
+# skriver monitoringloopen [COORDINATION_CLEANUP] varje minut, så en logg som
+# inte växt på 65 s tappar rader (CLI-strömmen eller röret). Utan belagt
+# hjärtslag gäller 180 s. Larma direkt i terminalen. homey CLI varnar INTE
+# själv när strömmen bryts (dess disconnect-hanterare anropas aldrig), så det
+# här är det enda livelarmet.
 (
   sleep 240
   while true; do
@@ -234,12 +273,13 @@ REPLAY_GUARD_PID=$!
       NOW=$(date +%s)
       MTIME=$(file_mtime "$LOGFILE") || MTIME=$NOW
       AGE=$((NOW - MTIME))
-      if [ "$AGE" -gt 180 ]; then
-        echo ""
-        echo "🚨🚨 [HÅLVAKT] Loggfilen har inte växt på ${AGE}s (>180s)!"
-        echo "🚨🚨 Watchdogen loggar var ~90:e sekund — rader tappas troligen"
-        echo "🚨🚨 (CLI-ström/rör). Körningens logg kan bli ofullständig."
-        echo ""
+      LIMIT=$(current_hole_limit "$LOGFILE")
+      if [ "$AGE" -gt "$LIMIT" ]; then
+        say ""
+        say "🚨🚨 [HÅLVAKT] Loggfilen har inte växt på ${AGE}s (>${LIMIT}s)!"
+        say "🚨🚨 Monitoringloopen loggar varje minut på debugnivå detailed/full —"
+        say "🚨🚨 rader tappas troligen (CLI-ström/rör). Loggen kan bli ofullständig."
+        say ""
       fi
     fi
     sleep 60
@@ -345,6 +385,7 @@ stop_capture() {
 # i extract_bridge_text och kunde hoppas över).
 cleanup_run_tempfiles() {
     rm -f "$LIVE_DIR"/.ais-replay-"$TIMESTAMP".jsonl.tmp.* \
+          "$LIVE_DIR"/.bridge-text-summary-"$TIMESTAMP".md.tmp.* \
           "$LOGS_DIR"/.app-"$TIMESTAMP".log.tmp.* \
           "$LOGS_DIR"/.ais-replay-"$TIMESTAMP".jsonl.tmp.* \
           "$LOGS_DIR"/.bridge-text-summary-"$TIMESTAMP".md.tmp.* 2>/dev/null || true
@@ -355,7 +396,9 @@ finish_run() {
     # Avväpna direkt: en signal som anländer MITT I nedstängningen ska varken
     # avbryta den eller starta om den (K24:s bonusfynd — TERM-trap:en fyrade
     # en gång med EXTRACT_DONE redan satt, och summaryn uteblev).
-    trap '' INT TERM HUP
+    # PIPE/TTOU (V4, fältprovet 2026-11-13): när terminalen försvinner
+    # (utloggning, stängt fönster) får en skrivning dit inte döda skriptet.
+    trap '' INT TERM HUP PIPE TTOU
     stop_capture
     extract_bridge_text
     cleanup_run_tempfiles
@@ -373,7 +416,7 @@ shutdown_and_exit() {
 # Funktion för att extrahera bridge text updates när appen stoppas
 extract_bridge_text() {
     # ALLRA FÖRST (K24): nedstängningen ska inte gå att avbryta halvvägs.
-    trap '' INT TERM HUP
+    trap '' INT TERM HUP PIPE TTOU
     if [ "$EXTRACT_DONE" -eq 1 ]; then
         return 0
     fi
@@ -394,17 +437,37 @@ extract_bridge_text() {
     kill -KILL "$REPLAY_GUARD_PID" 2>/dev/null || true
     kill -KILL "$HOLE_GUARD_PID" 2>/dev/null || true
     kill -KILL "$SYNC_PID" 2>/dev/null || true
-    echo ""
-    echo "🔍 Genererar bridge text summary..."
+
+    # SLUTSYNK FÖRST (V4, fältprovet 2026-11-13). Körning 2 avslutades av en
+    # macOS-uppdatering: utloggningen dödade skriptet EFTER summaryn men FÖRE
+    # synken, och arkivet saknade loggens och jsonl:ens svans. Loggen är det
+    # enda som inte kan återskapas, så den synkas allra först, sedan byggs
+    # jsonl:en om och synkas. Först därefter den långsamma summaryn (node-
+    # kontrollen tar sekunder på en dygnslogg). Dör skriptet i summaryn är
+    # arkivet ändå komplett, och summaryn går att göra om ur filerna.
+    FINAL_SYNC_STATUS="OK"
+    sync_file "$LOGFILE" "$FINAL_LOGFILE" || FINAL_SYNC_STATUS="FEL"
 
     # SLUTLIG FÅNGST (K24): bygg jsonl:en ur den färdiga loggen INNAN grinden
     # mäter. Kör till EOF i förgrunden — inget kan ligga kvar i en buffert.
     rebuild_replay_jsonl
+    sync_file "$AIS_REPLAY_FILE" "$FINAL_REPLAY" || FINAL_SYNC_STATUS="FEL"
+    sync_file "${AIS_REPLAY_FILE%.jsonl}.state.json" "${FINAL_REPLAY%.jsonl}.state.json" || FINAL_SYNC_STATUS="FEL"
+    if [ "$FINAL_SYNC_STATUS" != "OK" ]; then
+        say "⚠️ Kunde inte synka logg/jsonl till $LOGS_DIR — live-filerna i $LIVE_DIR är kompletta"
+    fi
+
+    say ""
+    say "🔍 Genererar bridge text summary..."
+
+    # Summaryn skrivs till en temp-fil och byts in med mv (V4): en avbruten
+    # summary lämnar ingen halv fil under det riktiga namnet.
+    SUMMARY_TMP="$LIVE_DIR/.bridge-text-summary-$TIMESTAMP.md.tmp.$$"
 
     # Skapa bridge text summary (portable header expansion, macOS/BSD-friendly)
     GENERATED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
     SOURCE_NAME="$(basename "$LOGFILE")"
-    cat > "$BRIDGE_TEXT_SUMMARY" << EOL
+    cat > "$SUMMARY_TMP" << EOL
 # Bridge Text Summary Report
 
 **Generated:** $GENERATED_AT
@@ -419,13 +482,13 @@ EOL
     nl -w3 -s'. ' | \
     sed -E 's/^([[:space:]]*[0-9]+\. ).*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})\.[0-9]{3}Z.*"(.+)"$/\1**\2** `\3`/' | \
     while IFS= read -r line; do
-        echo "$line" >> "$BRIDGE_TEXT_SUMMARY"
-        echo "" >> "$BRIDGE_TEXT_SUMMARY"
+        echo "$line" >> "$SUMMARY_TMP"
+        echo "" >> "$SUMMARY_TMP"
     done
 
     # Lägg till summary statistik
-    echo "## Summary Statistics" >> "$BRIDGE_TEXT_SUMMARY"
-    echo "" >> "$BRIDGE_TEXT_SUMMARY"
+    echo "## Summary Statistics" >> "$SUMMARY_TMP"
+    echo "" >> "$SUMMARY_TMP"
 
     # FP8 (2026-07-13): räknarna moderniserade. De gamla grep-mönstren
     # ("Broöppning pågår"/"inväntar broöppning"/"närmar sig") tillhör ett
@@ -439,34 +502,35 @@ EOL
     ETA_UNKNOWN=$(grep "📱 \[UI_UPDATE\] Bridge text updated:" "$LOGFILE" | grep -c "ETA okänd")
     DEFAULT_UPDATES=$(grep "📱 \[UI_UPDATE\] Bridge text updated:" "$LOGFILE" | grep -c "Inga båtar är i närheten")
 
-    echo "- **Total Bridge Text Updates:** $TOTAL_UPDATES" >> "$BRIDGE_TEXT_SUMMARY"
-    echo "- **boat_near Notifications:** $NOTIFICATIONS" >> "$BRIDGE_TEXT_SUMMARY"
-    echo "- **\"strax\"-Updates:** $STRAX_UPDATES" >> "$BRIDGE_TEXT_SUMMARY"
-    echo "- **\"ETA okänd\"-Updates:** $ETA_UNKNOWN" >> "$BRIDGE_TEXT_SUMMARY"
-    echo "- **\"Inga båtar\"-Updates:** $DEFAULT_UPDATES" >> "$BRIDGE_TEXT_SUMMARY"
+    echo "- **Total Bridge Text Updates:** $TOTAL_UPDATES" >> "$SUMMARY_TMP"
+    echo "- **boat_near Notifications:** $NOTIFICATIONS" >> "$SUMMARY_TMP"
+    echo "- **\"strax\"-Updates:** $STRAX_UPDATES" >> "$SUMMARY_TMP"
+    echo "- **\"ETA okänd\"-Updates:** $ETA_UNKNOWN" >> "$SUMMARY_TMP"
+    echo "- **\"Inga båtar\"-Updates:** $DEFAULT_UPDATES" >> "$SUMMARY_TMP"
 
-    # HÅLDETEKTOR, efterhand (F4-A): tidsstämpelluckor >180 s i loggen = tappade
-    # rader (watchdogen loggar var ~90 s). Resultatet skrivs i summaryn så en
+    # HÅLDETEKTOR, efterhand (F4-A, gräns V4 2026-11-13): tidsstämpelluckor
+    # över 65 s där monitoringloopens minutslag är belagt (annars 180 s) =
+    # tappade rader, se find_log_holes. Resultatet skrivs i summaryn så en
     # ofullständig körning aldrig korpuslåses av misstag (körboken kräver
     # "Logg-integritet: OK" före låsning).
-    echo "" >> "$BRIDGE_TEXT_SUMMARY"
+    echo "" >> "$SUMMARY_TMP"
     # Rubriken namnger BÅDA grindarna (granskningsfynd 2026-08-21): sektionen
     # bar kvar namnet "håldetektor" fast den sedan K24 innehåller tidshål,
     # replay-fångst och ett samlat verdikt.
-    echo "## Logg-integritet (tidshål + replay-fångst)" >> "$BRIDGE_TEXT_SUMMARY"
-    echo "" >> "$BRIDGE_TEXT_SUMMARY"
+    echo "## Logg-integritet (tidshål + replay-fångst)" >> "$SUMMARY_TMP"
+    echo "" >> "$SUMMARY_TMP"
     HOLES=$(find_log_holes "$LOGFILE")
     INTEGRITY_FAIL=0
     if [ -n "$HOLES" ]; then
         INTEGRITY_FAIL=1
-        echo "⚠️ **TIDSHÅL FUNNA — körningen är OFULLSTÄNDIG och får inte korpuslåsas:**" >> "$BRIDGE_TEXT_SUMMARY"
-        echo "" >> "$BRIDGE_TEXT_SUMMARY"
-        echo "$HOLES" >> "$BRIDGE_TEXT_SUMMARY"
-        echo ""
-        echo "🚨🚨 [HÅLVAKT] Tidshål funna i loggen — se $BRIDGE_TEXT_SUMMARY"
-        echo "$HOLES"
+        echo "⚠️ **TIDSHÅL FUNNA — körningen är OFULLSTÄNDIG och får inte korpuslåsas:**" >> "$SUMMARY_TMP"
+        echo "" >> "$SUMMARY_TMP"
+        echo "$HOLES" >> "$SUMMARY_TMP"
+        say ""
+        say "🚨🚨 [HÅLVAKT] Tidshål funna i loggen — se $BRIDGE_TEXT_SUMMARY"
+        say "$HOLES"
     else
-        echo "✅ Inga tidshål >180 s — loggens tidslinje är obruten." >> "$BRIDGE_TEXT_SUMMARY"
+        echo "✅ Inga tidshål (gräns 65 s med 60 s-hjärtslaget [COORDINATION_CLEANUP], annars 180 s) — loggens tidslinje är obruten." >> "$SUMMARY_TMP"
     fi
 
     # REPLAY-INTEGRITET (K24, fältprov 10 2026-08-21): håldetektorn ovan läser
@@ -475,9 +539,9 @@ EOL
     # Facit kan vara trunkerat även när loggen är hel, så de två räknas nu mot
     # varandra: en jsonl-rad per [AIS_REPLAY_SAMPLE]-rad, varken fler
     # (dubbelskrivning) eller färre (tappad fångst).
-    echo "" >> "$BRIDGE_TEXT_SUMMARY"
-    echo "### Replay-fångst (jsonl mot logg)" >> "$BRIDGE_TEXT_SUMMARY"
-    echo "" >> "$BRIDGE_TEXT_SUMMARY"
+    echo "" >> "$SUMMARY_TMP"
+    echo "### Replay-fångst (jsonl mot logg)" >> "$SUMMARY_TMP"
+    echo "" >> "$SUMMARY_TMP"
 
     LOG_SAMPLES=$(grep -c 'AIS_REPLAY_SAMPLE' "$LOGFILE" 2>/dev/null)
     case "$LOG_SAMPLES" in ''|*[!0-9]*) LOG_SAMPLES=0 ;; esac
@@ -506,22 +570,22 @@ EOL
         esac
     fi
 
-    echo "- Sampel i loggen (\`AIS_REPLAY_SAMPLE\`): **$LOG_SAMPLES**" >> "$BRIDGE_TEXT_SUMMARY"
-    echo "- Kompletta rader i jsonl: **$JSONL_LINES**" >> "$BRIDGE_TEXT_SUMMARY"
-    echo "- Filstorlek: $JSONL_BYTES B — slutar med radbrytning: $TAIL_NOTE" >> "$BRIDGE_TEXT_SUMMARY"
+    echo "- Sampel i loggen (\`AIS_REPLAY_SAMPLE\`): **$LOG_SAMPLES**" >> "$SUMMARY_TMP"
+    echo "- Kompletta rader i jsonl: **$JSONL_LINES**" >> "$SUMMARY_TMP"
+    echo "- Filstorlek: $JSONL_BYTES B — slutar med radbrytning: $TAIL_NOTE" >> "$SUMMARY_TMP"
     if [ "$LAST_JSON_OK" -eq 0 ]; then
-        echo "- ⚠️ sista raden i filen är inte ett helt JSON-objekt" >> "$BRIDGE_TEXT_SUMMARY"
+        echo "- ⚠️ sista raden i filen är inte ett helt JSON-objekt" >> "$SUMMARY_TMP"
     fi
 
     if [ "$LOG_SAMPLES" -eq 0 ]; then
         REPLAY_FAIL=1
-        echo "- ⚠️ loggen saknar [AIS_REPLAY_SAMPLE]-rader helt — debug_level var inte 'full'" >> "$BRIDGE_TEXT_SUMMARY"
+        echo "- ⚠️ loggen saknar [AIS_REPLAY_SAMPLE]-rader helt — debug_level var inte 'full'" >> "$SUMMARY_TMP"
     elif [ "$JSONL_LINES" -lt "$LOG_SAMPLES" ]; then
         REPLAY_FAIL=1
-        echo "- ⚠️ $((LOG_SAMPLES - JSONL_LINES)) av $LOG_SAMPLES sampel SAKNAS i jsonl:en" >> "$BRIDGE_TEXT_SUMMARY"
+        echo "- ⚠️ $((LOG_SAMPLES - JSONL_LINES)) av $LOG_SAMPLES sampel SAKNAS i jsonl:en" >> "$SUMMARY_TMP"
     elif [ "$JSONL_LINES" -gt "$LOG_SAMPLES" ]; then
         REPLAY_FAIL=1
-        echo "- ⚠️ $((JSONL_LINES - LOG_SAMPLES)) FLER rader än loggens sampel — dubbelskrivning?" >> "$BRIDGE_TEXT_SUMMARY"
+        echo "- ⚠️ $((JSONL_LINES - LOG_SAMPLES)) FLER rader än loggens sampel — dubbelskrivning?" >> "$SUMMARY_TMP"
     fi
 
     # Node-kontrollen jämför dessutom rad för rad och validerar JSON:en.
@@ -530,8 +594,8 @@ EOL
     if command -v node >/dev/null 2>&1 && [ -f "$REPLAY_CHECKER" ]; then
         CHECK_OUT=$(node "$REPLAY_CHECKER" "$AIS_REPLAY_FILE" "$LOGFILE" --brief 2>&1)
         CHECK_STATUS=$?
-        echo "" >> "$BRIDGE_TEXT_SUMMARY"
-        echo "$CHECK_OUT" >> "$BRIDGE_TEXT_SUMMARY"
+        echo "" >> "$SUMMARY_TMP"
+        echo "$CHECK_OUT" >> "$SUMMARY_TMP"
         if [ "$CHECK_STATUS" -ne 0 ]; then
             REPLAY_FAIL=1
         fi
@@ -539,30 +603,35 @@ EOL
 
     # SAMLAT VERDIKT — körboken (docs/VALIDATION.md steg 5) kräver strängen
     # "Logg-integritet: OK" för att en körning ska få låsas som korpus.
-    echo "" >> "$BRIDGE_TEXT_SUMMARY"
+    echo "" >> "$SUMMARY_TMP"
     if [ "$INTEGRITY_FAIL" -eq 0 ] && [ "$REPLAY_FAIL" -eq 0 ]; then
-        echo "✅ **Logg-integritet: OK** — obruten tidslinje och komplett replay-fångst (korpuslåsning tillåten)." >> "$BRIDGE_TEXT_SUMMARY"
+        echo "✅ **Logg-integritet: OK** — obruten tidslinje och komplett replay-fångst (korpuslåsning tillåten)." >> "$SUMMARY_TMP"
     else
-        echo "🚨 **Logg-integritet: FEL** — körningen är OFULLSTÄNDIG: **korpuslåsning EJ tillåten**." >> "$BRIDGE_TEXT_SUMMARY"
-        echo ""
-        echo "🚨🚨 [INTEGRITET] Logg-integritet: FEL — korpuslåsning EJ tillåten"
-        echo "🚨🚨 Loggen har $LOG_SAMPLES sampel, jsonl:en $JSONL_LINES kompletta rader."
-        echo "🚨🚨 Se $FINAL_SUMMARY"
-        echo ""
+        echo "🚨 **Logg-integritet: FEL** — körningen är OFULLSTÄNDIG: **korpuslåsning EJ tillåten**." >> "$SUMMARY_TMP"
+        say ""
+        say "🚨🚨 [INTEGRITET] Logg-integritet: FEL — korpuslåsning EJ tillåten"
+        say "🚨🚨 Loggen har $LOG_SAMPLES sampel, jsonl:en $JSONL_LINES kompletta rader."
+        say "🚨🚨 Se $FINAL_SUMMARY"
+        say ""
     fi
 
-    # SLUTSYNK (F4-A): flytta allt till OneDrive-mappen — samma namn/plats som
-    # tidigare arbetsflöden förväntar sig. K24: atomiskt (se sync_file).
-    sync_file "$LOGFILE" "$FINAL_LOGFILE" || echo "⚠️ Kunde inte synka $FINAL_LOGFILE"
-    sync_file "$AIS_REPLAY_FILE" "$FINAL_REPLAY" || echo "⚠️ Kunde inte synka $FINAL_REPLAY"
-    sync_file "${AIS_REPLAY_FILE%.jsonl}.state.json" "${FINAL_REPLAY%.jsonl}.state.json" || true
-    sync_file "$BRIDGE_TEXT_SUMMARY" "$FINAL_SUMMARY" || echo "⚠️ Kunde inte synka $FINAL_SUMMARY"
+    # Arkivsynken redovisas i summaryn (V4): utan raden går det inte att se i
+    # efterhand om arkivets logg och jsonl är kompletta.
+    echo "" >> "$SUMMARY_TMP"
+    echo "## Arkivsynk" >> "$SUMMARY_TMP"
+    echo "" >> "$SUMMARY_TMP"
+    echo "- Logg, jsonl och starttillstånd synkade till \`$LOGS_DIR\` före summaryn: **$FINAL_SYNC_STATUS**" >> "$SUMMARY_TMP"
+
+    # Summaryn byts in i ETT steg och synkas sist (V4). Logg och jsonl ligger
+    # redan i arkivet (se SLUTSYNK FÖRST ovan); K24: atomiskt (se sync_file).
+    mv -f "$SUMMARY_TMP" "$BRIDGE_TEXT_SUMMARY" 2>/dev/null || say "⚠️ Kunde inte skriva $BRIDGE_TEXT_SUMMARY"
+    sync_file "$BRIDGE_TEXT_SUMMARY" "$FINAL_SUMMARY" || say "⚠️ Kunde inte synka $FINAL_SUMMARY"
     # Temp-filerna städas av cleanup_run_tempfiles direkt efter den här
     # funktionen (finish_run), så att även en halvvägs avbruten summary städas.
 
-    echo "✅ Bridge text summary skapad: $FINAL_SUMMARY"
-    echo "✅ AIS replay logg skapad: $FINAL_REPLAY"
-    echo "✅ App-logg synkad: $FINAL_LOGFILE"
+    say "✅ Bridge text summary skapad: $FINAL_SUMMARY"
+    say "✅ AIS replay logg skapad: $FINAL_REPLAY (arkivsynk: $FINAL_SYNC_STATUS)"
+    say "✅ App-logg synkad: $FINAL_LOGFILE"
 }
 
 # Sätt trap för att köra bridge text extraction när scriptet avbryts.
