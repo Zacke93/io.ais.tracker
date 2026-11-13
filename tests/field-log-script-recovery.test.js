@@ -277,3 +277,123 @@ describe('Misslyckad replay-extraktion bevarar senast hela filer', () => {
     expect(fs.readFileSync(state, 'utf8')).toBe(originalState);
   });
 });
+
+// Revision 1 av V4 (granskningen 2026-11-14): när Terminal stängs kommer
+// skriptet till raden efter `wait "$PIPE_PID"` med en död terminal. En
+// inbyggd echo/printf dit misslyckas, och bash 3.2 behåller texten i sin
+// stdout-buffert. Nästa gaffling (en kommandosubstitution) ärver bufferten
+// och skriver ut den i sitt värde: i sync_file fick temp-sökvägen skräptext,
+// slutsynken blev FEL och arkivet saknade logg och jsonl. Regeln: på alla
+// vägar som kan köras med död terminal går terminalutskrift via say (extern
+// printf), och övriga echo/printf skriver till en fil.
+describe('Ingen inbyggd terminalskrivning där terminalen kan vara död', () => {
+  // Skriptets sista rader: allt efter huvudflödets `wait "$PIPE_PID"` (inte
+  // stop_capture:s wait, som står tidigare).
+  const MAIN_WAIT = '\nwait "$PIPE_PID"\n';
+  const mainTail = () => {
+    const at = script.lastIndexOf(MAIN_WAIT);
+    if (at < 0) throw new Error('Huvudflödets wait saknas');
+    return script.slice(at + MAIN_WAIT.length);
+  };
+  const code = (text) => text.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n');
+  const regions = () => {
+    const out = [];
+    const tail = mainTail();
+    out.push(['efter wait "$PIPE_PID"', tail]);
+    for (const name of ['finish_run', 'shutdown_and_exit', 'stop_capture', 'extract_bridge_text',
+      'cleanup_run_tempfiles', 'sync_file', 'rebuild_replay_jsonl']) {
+      out.push([name, bashFunction(name)]);
+    }
+    for (const [label, start, end] of [
+      ['REPLAY-VAKT', '(\n  sleep 120\n', 'REPLAY_GUARD_PID=$!'],
+      ['HÅLVAKT', '(\n  sleep 240\n', 'HOLE_GUARD_PID=$!'],
+      ['periodisk synk', '(\n  ticks=0\n', 'SYNC_PID=$!'],
+    ]) {
+      const from = script.indexOf(start);
+      const to = script.indexOf(end, from);
+      if (from < 0 || to < 0) throw new Error(`Saknat block: ${label}`);
+      out.push([label, script.slice(from, to)]);
+    }
+    return out;
+  };
+
+  test('echo och printf skriver bara till filer; terminalen nås via say', () => {
+    const offenders = [];
+    for (const [label, text] of regions()) {
+      for (const raw of text.split('\n')) {
+        const line = raw.trim();
+        if (line.startsWith('#')) continue;
+        if (!/(^|[;&|(]\s*)(echo|printf)\b/.test(line)) continue;
+        if (/>>?\s*"\$[A-Z_]+"/.test(line)) continue;
+        offenders.push(`${label}: ${line}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  test('sync_file bygger temp-sökvägen utan kommandosubstitution', () => {
+    expect(code(bashFunction('sync_file'))).not.toMatch(/\$\((dirname|basename)\b/);
+    expect(code(bashFunction('extract_bridge_text'))).not.toMatch(/\$\((dirname|basename)\b/);
+  });
+
+  // Granskarens prov i miniatyr: en riktig pty vars master stängs medan
+  // skriptets sista rader och nedstängningen körs. Kräver python3 (pty).
+  const hasPty = process.platform !== 'win32'
+    && spawnSync('python3', ['-c', 'import pty'], { encoding: 'utf8' }).status === 0;
+  (hasPty ? test : test.skip)('stängd terminal: logg och jsonl hamnar i arkivet och summaryn är ren', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ais-log-deadtty-'));
+    try {
+      fs.mkdirSync(path.join(dir, 'live'));
+      fs.mkdirSync(path.join(dir, 'arkiv'));
+      const lines = ['2026-11-13T18:00:00.000Z [log] [AISBridgeApp] AIS Bridge starting with modular architecture v2.0'];
+      for (let i = 1; i <= 6; i += 1) {
+        const t = new Date(Date.UTC(2026, 10, 13, 18, 0, i * 30)).toISOString();
+        lines.push(`${t} [log] [AISBridgeApp] [DEBUG] 🧹 [COORDINATION_CLEANUP] Cleaned old coordination state`);
+        lines.push(`${t} [log] [AISBridgeApp] [AIS_REPLAY_SAMPLE] {"mmsi":"265012090","n":${i}}`);
+        lines.push(`${t} [log] [AISBridgeApp] 📱 [UI_UPDATE] Bridge text updated: "Inga båtar ${i}"`);
+      }
+      fs.writeFileSync(path.join(dir, 'live', 'app-ts.log'), `${lines.join('\n')}\n`);
+      const fns = ['say', 'sync_file', 'rebuild_replay_jsonl', 'find_log_holes', 'extract_bridge_text',
+        'cleanup_run_tempfiles', 'stop_capture', 'finish_run'].map(bashFunction).join('\n');
+      // Skriptets egna rader efter wait, ordagrant, följda av EXIT-trap:ens finish_run.
+      const tail = mainTail();
+      const payload = `${fns}
+        LIVE_DIR="$AUDIT_DIR/live"; LOGS_DIR="$AUDIT_DIR/arkiv"; SCRIPT_DIR="$AUDIT_DIR"; TIMESTAMP=ts
+        LOGFILE="$LIVE_DIR/app-ts.log"; AIS_REPLAY_FILE="$LIVE_DIR/ais-replay-ts.jsonl"
+        BRIDGE_TEXT_SUMMARY="$LIVE_DIR/bridge-text-summary-ts.md"
+        FINAL_LOGFILE="$LOGS_DIR/app-ts.log"; FINAL_REPLAY="$LOGS_DIR/ais-replay-ts.jsonl"
+        FINAL_SUMMARY="$LOGS_DIR/bridge-text-summary-ts.md"
+        EXTRACT_DONE=0; REPLAY_GUARD_PID=""; HOLE_GUARD_PID=""; SYNC_PID=""; PIPE_PID=""; APP_PID=""
+        trap '' HUP
+        while [ ! -e "$AUDIT_DIR/stangd" ]; do sleep 0.05; done
+        ${tail}
+        finish_run
+        : > "$AUDIT_DIR/klar"
+      `;
+      const harness = `
+import os, pty, sys, time
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvpe('/bin/bash', ['/bin/bash', '-c', sys.argv[1]], os.environ)
+time.sleep(0.3)
+os.close(fd)
+open(os.path.join(os.environ['AUDIT_DIR'], 'stangd'), 'w').close()
+os.waitpid(pid, 0)
+`;
+      const r = spawnSync('python3', ['-c', harness, payload], {
+        env: { ...process.env, AUDIT_DIR: dir }, encoding: 'utf8', timeout: 20000,
+      });
+      expect(r.status).toBe(0);
+      expect(fs.existsSync(path.join(dir, 'klar'))).toBe(true);
+      const live = fs.readFileSync(path.join(dir, 'live', 'app-ts.log'));
+      expect(fs.existsSync(path.join(dir, 'arkiv', 'app-ts.log'))).toBe(true);
+      expect(fs.readFileSync(path.join(dir, 'arkiv', 'app-ts.log')).equals(live)).toBe(true);
+      expect(fs.readFileSync(path.join(dir, 'arkiv', 'ais-replay-ts.jsonl'), 'utf8').trim().split('\n')).toHaveLength(6);
+      const summary = fs.readFileSync(path.join(dir, 'arkiv', 'bridge-text-summary-ts.md'), 'utf8');
+      expect(summary).toMatch(/före summaryn: \*\*OK\*\*/);
+      expect(summary).not.toMatch(/Loggar sparade i/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
