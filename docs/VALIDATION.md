@@ -1211,7 +1211,17 @@ efteråt.
    och starttillståndet, och skriver sedan summaryn till en temp-fil som byts
    in med `mv` och synkas sist. Summaryn redovisar synken under "Arkivsynk".
    Terminalutskrifterna i nedstängningen kan inte fälla den (PIPE/TTOU
-   ignoreras, utskriften går via en extern `printf`).
+   ignoreras, utskriften går via en extern `printf`). **Regeln gäller hela
+   skriptet efter starten** (revision 1, granskningen 2026-11-14): efter
+   `wait "$PIPE_PID"`, i nedstängningen och i bakgrundsvakterna skriver ingen
+   inbyggd `echo`/`printf` till terminalen. När Terminal stängs misslyckas en
+   sådan skrivning, bash 3.2 behåller texten i sin stdout-buffert, och nästa
+   kommandosubstitution får den i sitt värde: med den gamla raden "Loggar
+   sparade i: …" blev `sync_file`:s temp-sökväg trasig, slutsynken FEL och
+   arkivet saknade logg och jsonl (granskarens pty-prov med zsh som
+   sessionsledare). `sync_file` bygger nu sökvägen med parameterexpansion, och
+   `tests/field-log-script-recovery.test.js` låser regeln statiskt och med en
+   riktig pty vars master stängs.
 3. **GRIND 1 — logg-integriteten.** Summaryn (`bridge-text-summary-*.md`) har
    sektionen "Logg-integritet (tidshål + replay-fångst)" med tre kontroller och ett
    samlat verdikt. Replay-kontrollen granskar även källans bokföring:

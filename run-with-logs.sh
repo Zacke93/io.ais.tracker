@@ -85,7 +85,12 @@ sync_file() {
     local src dst tmp
     src="$1"; dst="$2"
     [ -f "$src" ] || return 0
-    tmp="$(dirname "$dst")/.$(basename "$dst").tmp.$$.$RANDOM"
+    # Parameterexpansion, inte $(dirname)/$(basename) (revision 1 av V4): en
+    # kommandosubstitution gafflar skalet, och har en tidigare inbyggd skrivning
+    # till en död terminal misslyckats ärver gaffeln bash 3.2:s stdout-buffert
+    # och skriver ut den i substitutionens värde. Temp-sökvägen fick då en
+    # radbrytning och skräptext, cp föll och slutsynken blev FEL.
+    tmp="${dst%/*}/.${dst##*/}.tmp.$$.$RANDOM"
     if cp -f "$src" "$tmp" 2>/dev/null && mv -f "$tmp" "$dst" 2>/dev/null; then
         return 0
     fi
@@ -244,17 +249,17 @@ echo "Tryck Ctrl+C för att stoppa"
   case "$SAMPLES" in ''|*[!0-9]*) SAMPLES=0 ;; esac
   rebuild_replay_jsonl
   if [ "$SAMPLES" -eq 0 ]; then
-    echo ""
-    echo "🚨🚨 [REPLAY-VAKT] Inga [AIS_REPLAY_SAMPLE]-rader efter 2 minuter!"
-    echo "🚨🚨 Kontrollera att debug_level='full' i appens inställningar,"
-    echo "🚨🚨 annars blir replay-filen tom och körningen oanalyserbar."
-    echo ""
+    say ""
+    say "🚨🚨 [REPLAY-VAKT] Inga [AIS_REPLAY_SAMPLE]-rader efter 2 minuter!"
+    say "🚨🚨 Kontrollera att debug_level='full' i appens inställningar,"
+    say "🚨🚨 annars blir replay-filen tom och körningen oanalyserbar."
+    say ""
   elif [ ! -s "$AIS_REPLAY_FILE" ]; then
-    echo ""
-    echo "🚨🚨 [REPLAY-VAKT] Loggen har $SAMPLES sampel men jsonl-filen är TOM!"
-    echo "🚨🚨 Fångstvägen (rebuild_replay_jsonl) skriver inte — kontrollera"
-    echo "🚨🚨 skrivrättigheter i $LIVE_DIR. Körningen kan inte korpuslåsas."
-    echo ""
+    say ""
+    say "🚨🚨 [REPLAY-VAKT] Loggen har $SAMPLES sampel men jsonl-filen är TOM!"
+    say "🚨🚨 Fångstvägen (rebuild_replay_jsonl) skriver inte — kontrollera"
+    say "🚨🚨 skrivrättigheter i $LIVE_DIR. Körningen kan inte korpuslåsas."
+    say ""
   fi
 ) &
 REPLAY_GUARD_PID=$!
@@ -466,7 +471,7 @@ extract_bridge_text() {
 
     # Skapa bridge text summary (portable header expansion, macOS/BSD-friendly)
     GENERATED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-    SOURCE_NAME="$(basename "$LOGFILE")"
+    SOURCE_NAME="${LOGFILE##*/}"
     cat > "$SUMMARY_TMP" << EOL
 # Bridge Text Summary Report
 
@@ -683,4 +688,9 @@ wait "$PIPE_PID"
 # Pipelinen är slut och redan inväntad — nedstängningen ska inte leta efter den.
 PIPE_PID=""
 
-echo "Loggar sparade i: $FINAL_LOGFILE"
+# say, inte echo (revision 1 av V4): hit kommer skriptet när processgruppen får
+# HUP och tee dör först, alltså när terminalen redan kan vara borta. En inbyggd
+# echo till en död terminal lämnar texten i bash 3.2:s stdout-buffert, och den
+# hamnade sedan i nedstängningens kommandosubstitutioner (sync_file) och i
+# summaryn. Regeln låses i tests/field-log-script-recovery.test.js.
+say "Loggar sparade i: $FINAL_LOGFILE"
