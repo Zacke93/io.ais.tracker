@@ -659,6 +659,11 @@ function validateInvariants(result) {
  *        reset mellan passagen och varningen) undantas — de är äkta nya
  *        öppningar. WARN tills den varit tyst över samtliga korpusar +
  *        syntetiska + soaken.
+ * INV-22 Förvarningsform efter rådatans passage (V2, 2026-11-13): en notis
+ *        i formen "närmar sig"/"inväntar broöppning vid" som byggs mer än en
+ *        bearbetningscykel efter att rådatan fått första fixen bortom
+ *        brolinjen, i notisens riktning. Kräver rådatafacit. WARN tills
+ *        ägaren tagit ställning (tre utslag i bank + fält 2026-11-13).
  */
 /**
  * Rådatafacit (A2) för den korpus resultatet kommer ur.
@@ -685,6 +690,30 @@ function resolveGtPassages(result) {
   } catch (e) {
     return null;
   }
+}
+
+// INV-22: en bearbetningscykel. Se regeln i validateWarnInvariants.
+const INV22_SAME_CYCLE_MS = 1000;
+
+let inv22Fairway = null;
+/**
+ * Ligger notisens frysta position bortom brolinjen i korsningens riktning?
+ * Samma farledsprojektion och brostationer som rådatafacit (makeGtPassages),
+ * så att "bortom linjen" betyder exakt detsamma som i korsningsposten.
+ * @param {object} n - notisen (vesselLat/vesselLon)
+ * @param {object} crossing - rådatans korsning (bridge, dir)
+ * @returns {boolean|null} true/false, eller null när positionen saknas
+ */
+function positionBeyondLine(n, crossing) {
+  if (!Number.isFinite(n.vesselLat) || !Number.isFinite(n.vesselLon)) return null;
+  /* eslint-disable global-require */
+  const { buildFairway, projectFix, BRIDGE_STATIONS } = require('./makeGtPassages');
+  /* eslint-enable global-require */
+  const station = BRIDGE_STATIONS.find((b) => b.name === crossing.bridge);
+  if (!station) return null;
+  if (!inv22Fairway) inv22Fairway = buildFairway();
+  const rel = projectFix(inv22Fairway, n.vesselLat, n.vesselLon).s - station.s;
+  return crossing.dir === 'nord' ? rel > 0 : rel < 0;
 }
 
 function validateWarnInvariants(result, gtPassagesArg = null) {
@@ -956,6 +985,73 @@ function validateWarnInvariants(result, gtPassagesArg = null) {
           );
           break;
         }
+      }
+    }
+  }
+
+  // INV-22 (V2, fältprovet 2026-11-13): FÖRVARNINGSFORM EFTER RÅDATANS PASSAGE.
+  // Replay av körning 2 skickade PRICKBJORN 13:57:24 "närmar sig Järnvägsbron,
+  // beräknad ankomst strax" för en bro som rådatan visar att hon passerat:
+  // fixen 13:56:38 låg 23 m söder om linjen, och en senare UI-cykel byggde
+  // notisen på samma fix 46 s senare. Replay gav 0 WARN. Den här regeln
+  // jämför notisens FORM med rådatans linjekorsning.
+  //
+  // Mätpunkten är `tTo`: mottagningen av första fixen bortom linjen. Då
+  // hamnar AIS-latensklassen (open3, helgranskningen 2026-11-03: en
+  // AISHub-fix är i median 20–30 s gammal) per konstruktion utanför: en notis
+  // som bygger på en fix FÖRE linjen går före `tTo`, hur gammal fixen än är.
+  // Samma skydd åt andra hållet: har notisen en fryst position före linjen
+  // (en försenad fix som kom efter en färskare) flaggas den inte.
+  //
+  // Marginalen är EN bearbetningscykel (INV22_SAME_CYCLE_MS). En notis som
+  // byggs när fixen bortom linjen bearbetas (sampelbearbetning, 60 ms
+  // coalescing, 150 ms IMMEDIATE-publicering) gäller en båt som just står
+  // under bron, 0–23 m förbi linjen i banken, inom UNDER_BRIDGE_SET_DISTANCE
+  // (50 m), där "strax" är under-bridge-formen. En notis från en SENARE
+  // cykel (vakthund, omkörning, nästa fix) återanvänder en position som
+  // åldrats medan båten fortsatt.
+  //
+  // WARN, inte fatal, tills ägaren tagit ställning. Mätt 2026-11-13 över
+  // banken och fältets k1/k2: 969 notiser i förvarnings- eller väntform, 52
+  // efter en tidigare rådatakorsning av samma bro. Samma riktning: 4 i samma
+  // cykel (inga utslag) och 3 senare, alla Järnvägsbron söderut på en fix
+  // 18–26 m bortom linjen, avfyrade av vakthunden eller omkörningen
+  // (20260917-16h SINE BRES +29,6 s, k2 PRICKBJORN +46,3 s, 20260601-41h
+  // OSPREY +50,4 s). Motsatt riktning: 45, alla returresor ≥ 21 min senare.
+  // Utan rådatafacit (syntetiska scenarier, soaken) dömer regeln inte.
+  {
+    const crossings = (gtPassages || []).filter((g) => g && g.kind !== 'zone'
+      && Number.isFinite(g.tTo) && (g.dir === 'nord' || g.dir === 'syd') && g.bridge && g.mmsi != null);
+    if (crossings.length > 0) {
+      for (const n of notifications) {
+        if (!Number.isFinite(n.t) || !n.bridge) continue;
+        const msg = typeof n.message === 'string' ? n.message : '';
+        let form = null;
+        if (msg.includes(' närmar sig ')) form = 'närmar sig';
+        else if (msg.includes(' inväntar broöppning vid ')) form = 'inväntar broöppning';
+        if (!form) continue;
+        let dir = null;
+        if (n.direction === 'northbound') dir = 'nord';
+        else if (n.direction === 'southbound') dir = 'syd';
+        if (!dir) continue;
+        let latest = null;
+        for (const g of crossings) {
+          if (String(g.mmsi) !== String(n.mmsi) || g.bridge !== n.bridge) continue;
+          if (g.tTo + INV22_SAME_CYCLE_MS >= n.t) continue;
+          if (!latest || g.tTo > latest.tTo) latest = g;
+        }
+        if (!latest || latest.dir !== dir) continue;
+        const beyond = positionBeyondLine(n, latest);
+        if (beyond === false) continue;
+        const iso = (t) => new Date(Math.round(t)).toISOString();
+        warnings.push(
+          `INV-22 FÖRVARNING EFTER PASSAGE: ${n.mmsi}@${n.bridge} "${form}" ${iso(n.t)} `
+          + `(${Number.isFinite(n.distance) ? `${Math.round(n.distance)} m` : 'avstånd okänt'}, eta ${n.eta}, `
+          + `källa ${n.source || 'okänd'}) — rådatan visar ${latest.dir}-passage, första fix bortom linjen `
+          + `${iso(latest.tTo)} (${Math.round((n.t - latest.tTo) / 1000)} s före notisen; sampelfönster `
+          + `${Number.isFinite(latest.tFrom) ? iso(latest.tFrom) : '?'}–${iso(latest.tTo)}`
+          + `${latest.inferred ? ', inferred' : ''})${beyond === null ? ' [notisens position okänd]' : ''}`,
+        );
       }
     }
   }

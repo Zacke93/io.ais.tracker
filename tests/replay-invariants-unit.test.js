@@ -494,3 +494,120 @@ describe('INV-21 öppningsvarning efter passage (WARN)', () => {
     expect(validateWarnInvariants(result).filter((x) => x.includes('INV-21'))).toEqual([]);
   });
 });
+
+// ===========================================================================
+// INV-22 (V2, fältprovet 2026-11-13) — FÖRVARNINGSFORM EFTER RÅDATANS PASSAGE
+// ===========================================================================
+// Replay av körning 2 gav PRICKBJORN 13:57:24 "närmar sig Järnvägsbron …
+// strax" fast rådatan visar att hon passerat 13:56:16: fixen 13:56:38 låg
+// 23 m söder om linjen, och notisen byggdes 46 s senare av en senare
+// UI-cykel på samma fix. Replay gav 0 WARN. INV-22 jämför notisens form med
+// rådatans linjekorsning (gt-passages): tTo är mottagningen av första fixen
+// bortom linjen.
+describe('INV-22 förvarningsform efter rådatans passage (WARN)', () => {
+  const tFrom = Date.parse('2026-11-13T13:55:32.306Z'); // 333 m norr om Järnvägsbron
+  const tTo = Date.parse('2026-11-13T13:56:38.445Z'); // 23 m söder om linjen
+  const NORTH = { lat: 58.29401, lon: 12.29551 };
+  const SOUTH = { lat: 58.29147, lon: 12.29179 };
+  const crossing = (overrides = {}) => ({
+    mmsi: '265012090',
+    bridge: 'Järnvägsbron',
+    kind: 'line',
+    dir: 'syd',
+    t: tTo - 6000,
+    iso: new Date(tTo - 6000).toISOString(),
+    tFrom,
+    tTo,
+    inferred: false,
+    ...overrides,
+  });
+  const approach = (t, overrides = {}) => notis({
+    mmsi: '265012090',
+    bridge: 'Järnvägsbron',
+    direction: 'southbound',
+    eta: 0,
+    t,
+    distance: 23,
+    source: 'current',
+    message: 'PRICKBJORN närmar sig Järnvägsbron, beräknad ankomst strax',
+    alreadyPassed: false,
+    vesselLat: SOUTH.lat,
+    vesselLon: SOUTH.lon,
+    ...overrides,
+  });
+  const inv22 = (notifications, gt = [crossing()]) => validateWarnInvariants(
+    baseResult({ notifications }), gt,
+  ).filter((x) => x.startsWith('INV-22'));
+
+  test('fältfallet: "närmar sig" 46 s efter första fixen bortom linjen flaggas', () => {
+    const hits = inv22([approach(Date.parse('2026-11-13T13:57:24.700Z'))]);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]).toMatch(/265012090@Järnvägsbron/);
+    expect(hits[0]).toMatch(/2026-11-13T13:57:24\.700Z/);
+    expect(hits[0]).toMatch(/syd-passage/);
+    expect(hits[0]).toMatch(/46 s före notisen/);
+  });
+
+  test('samma bearbetningscykel (≤ 1 s efter fixen bortom linjen) flaggas inte', () => {
+    expect(inv22([approach(tTo)])).toEqual([]);
+    expect(inv22([approach(tTo + 150)])).toEqual([]);
+    expect(inv22([approach(tTo + 1001)])).toHaveLength(1);
+  });
+
+  test('AIS-latensklassen: notis på en fix FÖRE linjen går före tTo och flaggas aldrig', () => {
+    // open3: AISHub-fixen är 21–28 s gammal; båten hann korsa innan notisen
+    // gick, men rådatan visade ännu ingen passage när notisen byggdes.
+    expect(inv22([approach(tFrom, { vesselLat: NORTH.lat, vesselLon: NORTH.lon, distance: 333 })])).toEqual([]);
+    expect(inv22([approach(tTo - 1)])).toEqual([]);
+  });
+
+  test('en försenad fix före linjen som kommer efter fixen bortom linjen flaggas inte', () => {
+    const late = approach(tTo + 20000, { vesselLat: NORTH.lat, vesselLon: NORTH.lon, distance: 333 });
+    expect(inv22([late])).toEqual([]);
+  });
+
+  test('notis utan fryst position döms på tiden ensam', () => {
+    const noPos = approach(tTo + 30000, { vesselLat: null, vesselLon: null });
+    expect(inv22([noPos])).toHaveLength(1);
+  });
+
+  test('passerad form är det rätta svaret efter passagen och flaggas inte', () => {
+    const passed = approach(tTo + 46000, {
+      eta: -1, message: 'PRICKBJORN har precis passerat Järnvägsbron', alreadyPassed: true,
+    });
+    expect(inv22([passed])).toEqual([]);
+  });
+
+  test('väntformen ("inväntar broöppning vid") påstår också att bron ligger framför', () => {
+    const waiting = approach(tTo + 60000, { eta: -1, message: 'PRICKBJORN inväntar broöppning vid Järnvägsbron' });
+    const hits = inv22([waiting]);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]).toMatch(/inväntar broöppning/);
+  });
+
+  test('returresan: senaste korsningen åt andra hållet är en ny anflygning', () => {
+    const back = crossing({
+      dir: 'nord', t: tTo + 1200000, tFrom: tTo + 1190000, tTo: tTo + 1210000,
+    });
+    const returnTrip = approach(tTo + 1800000, { direction: 'northbound', vesselLat: SOUTH.lat, vesselLon: SOUTH.lon });
+    expect(inv22([returnTrip], [crossing(), back])).toEqual([]);
+    // Men en ny sydgående förvarning efter en nordgående korsning flaggas inte heller.
+    expect(inv22([approach(tTo + 1800000, { vesselLat: NORTH.lat, vesselLon: NORTH.lon })], [crossing(), back])).toEqual([]);
+  });
+
+  test('okänd riktning, annan båt, annan bro, zonbesök eller saknat facit: ingen dom', () => {
+    const t = tTo + 46000;
+    expect(inv22([approach(t, { direction: 'unknown' })])).toEqual([]);
+    expect(inv22([approach(t, { mmsi: '265999999' })])).toEqual([]);
+    expect(inv22([approach(t, { bridge: 'Stridsbergsbron' })])).toEqual([]);
+    expect(inv22([approach(t)], [crossing({ kind: 'zone' })])).toEqual([]);
+    expect(validateWarnInvariants(baseResult({ notifications: [approach(t)] }), [])
+      .filter((x) => x.startsWith('INV-22'))).toEqual([]);
+  });
+
+  test('en korsning utan tidsfönster eller riktning används inte', () => {
+    const t = tTo + 46000;
+    expect(inv22([approach(t)], [crossing({ tTo: null })])).toEqual([]);
+    expect(inv22([approach(t)], [crossing({ dir: null })])).toEqual([]);
+  });
+});

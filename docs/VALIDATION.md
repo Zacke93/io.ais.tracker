@@ -340,7 +340,21 @@ returpassagen av samma bro; sedan U14, 2026-11-04, är det appens kontrakt och
 inte längre i konflikt med besöksregeln), sluttext (INV-6), namn (INV-8), distans (INV-11),
 läckage (INV-12), ETA-fysik (INV-16). WARN (informativa): INV-14W/15/17/18/19/20
 samt **INV-21** (etapp 6: öppningsvarning EFTER registrerad målbropassage för
-samma händelse — tyst över samtliga korpusar och soaken i dag).
+samma händelse — tyst över samtliga korpusar och soaken i dag) och **INV-22**
+(V2, fältprovet 2026-11-13: notis i förvarnings- eller väntform, "närmar sig"
+eller "inväntar broöppning vid", som byggs mer än en bearbetningscykel (1 s)
+efter att rådatan fått första fixen bortom brolinjen, i notisens riktning).
+INV-22 mäter från `tTo` i rådatafacit, alltså mottagningen av fixen bortom
+linjen. Därmed flaggas aldrig den kända latensklassen (open3: en AISHub-fix är
+20–30 s gammal och båten hinner korsa innan notisen går), eftersom en sådan
+notis bygger på en fix före linjen och går före `tTo`; en notis vars frysta
+position ligger före linjen flaggas inte heller. Utan rådatafacit (syntetiska
+scenarier, soaken) dömer den inte. Baslinje 2026-11-13: två utslag i banken,
+20260601-41h OSPREY och 20260917-16h SINE BRES, båda Järnvägsbron söderut på
+en fix 20–26 m bortom linjen som vakthunden återanvände 30–50 s senare, samma
+mekanism som k2-granskningens fynd 1; replay av fältkörning 2 ger dessutom
+PRICKBJORN 13:57:24, som är en artefakt av replayns tidsstegning (fältet
+skickade passerad form på samma indata).
 Domarlogiken har EGNA enhetstester i `tests/replay-invariants-unit.test.js` —
 ändrar du en invariant, uppdatera dem.
 
