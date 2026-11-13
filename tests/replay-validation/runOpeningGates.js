@@ -158,8 +158,9 @@ const LATE_PASSAGE_WINDOW_MS = 120 * 60 * 1000;
 //  (a) en varning kan då inte vara täckning i O1 och fantom i O2 samtidigt;
 //  (b) ägarbeslut U23 behandlar 2 h stillaliggande som slutet på en väntan;
 //  (c) bankens fördelning (2026-11-13, 376 varnade passager i appserien) har
-//      sitt glapp här: p50 14,8 min, p90 46,7, p95 55,5; 8 passager i 60–90
-//      min, INGEN i 90–120 min, 7 över 120 min. O2:s sena passager (GARANTIPRIS
+//      sitt glapp här: p50 14,8 min, p90 46,6, p95 55,5; 8 passager i 60–90
+//      min, INGEN i 90–120 min, 6 över 120 min (rev 1, färskaste täckande
+//      varning). O2:s sena passager (GARANTIPRIS
 //      m.fl., godtagna) slutar på 105,2 min.
 // RAPPORTERANDE, INTE FÄLLANDE: gränsen är inte ägarbeslutad. Måttet skrivs
 // ut som WARN (⚠️ GAMMAL VARNING) och ändrar aldrig exitkoden.
@@ -823,6 +824,37 @@ function analyseCoverage(result, samples, gtPassages = null) {
       }
     }
 
+    // V1 rev 1 (granskningen 2026-11-14): DEN FÄRSKASTE TÄCKANDE VARNINGEN,
+    // för åldersmåttet. O1:s val ovan hoppar över konvojslingan när en säker
+    // fired-träff finns, så en båt som var medlem i en gammal händelse och
+    // sedan absorberades i en färsk (FILOU 20260806-42h: Klaffbron#28 173 min
+    // före, Klaffbron#37 8,9 min före) fick den gamla. O1:s dom och ledtid
+    // ändras inte; här väljs i stället den senaste säkert föregående varningen
+    // bland hennes egna fired-medlemskap och hennes egna täckningsrader, med
+    // samma uteslutning som konvojslingan: en absorption i en händelse vars
+    // kort gick före en annan båts passage mer än ett konvojfönster före
+    // hennes egen räknas inte (bron har öppnat och stängt emellan).
+    let freshest = null;
+    let freshestVia = null;
+    const considerFresh = (w, how) => {
+      if (!certainlyBefore(w)) return;
+      if (freshest === null || w.t > freshest.t) {
+        freshest = w; freshestVia = how;
+      }
+    };
+    for (const w of warnings) {
+      if (w.bridge !== p.bridge || !inWindow(w.t)) continue;
+      const members = Array.isArray(w.mmsis) ? w.mmsis : [];
+      if (members.includes(String(p.mmsi)) || String(w.leadMmsi) === String(p.mmsi)) considerFresh(w, 'fired');
+    }
+    for (const c of coverage) {
+      if (c.bridge !== p.bridge || String(c.mmsi) !== String(p.mmsi) || !inWindow(c.t)) continue;
+      const w = warnings.find((x) => x.eventId === c.eventId);
+      if (!w || !inWindow(w.t)) continue;
+      if (c.reason === 'absorbed' && otherPassagesBetween(w.t).length) continue;
+      considerFresh(w, c.reason === 'absorbed' ? 'konvoj' : 'fired');
+    }
+
     if (hit && !certainlyBefore(hit)) {
       uncertain.push({
         passage: p,
@@ -836,7 +868,13 @@ function analyseCoverage(result, samples, gtPassages = null) {
       });
     } else if (hit) {
       covered.push({
-        passage: p, warning: hit, via, leadMs: p.t - hit.t,
+        passage: p,
+        warning: hit,
+        via,
+        leadMs: p.t - hit.t,
+        // V1 rev 1: åldersmåttets varning (aldrig äldre än O1:s).
+        freshestWarning: freshest || hit,
+        freshestVia: freshest ? freshestVia : via,
       });
     } else {
       // Slutfixet ligger redan bortom föregående korsning och får bära ny
@@ -858,6 +896,8 @@ function analyseCoverage(result, samples, gtPassages = null) {
  * är äldre än `limitMs` räknas fortfarande som täckt i O1 (domen ändras inte),
  * men redovisas som GAMMAL, och banden 60/120/240 min skrivs alltid ut.
  *
+ * Varningen är den FÄRSKASTE som täckte passagen (rev 1): hennes egna
+ * fired-medlemskap och konvojabsorptioner, se freshestWarning i analyseCoverage.
  * Åldern är passagetid minus varningstid. För en `inferred` passage (korsning
  * bevisad, tidpunkt bara ett fönster) används fönstrets början `tFrom`, alltså
  * den kortaste möjliga åldern: bara en varning som är gammal även då räknas.
@@ -870,7 +910,12 @@ function analyseWarningAge(covered, limitMs = STALE_WARNING_AGE_MS) {
   const withAge = (covered || []).map((c) => {
     const p = c.passage;
     const passageT = p.inferred === true && Number.isFinite(p.tFrom) ? p.tFrom : p.t;
-    return { ...c, ageMs: passageT - c.warning.t };
+    // Rev 1: den färskaste täckande varningen (analyseCoverage.freshestWarning),
+    // inte O1:s val, som kan vara ett äldre fired-medlemskap.
+    const ageWarning = c.freshestWarning || c.warning;
+    return {
+      ...c, ageWarning, ageVia: c.freshestWarning ? c.freshestVia : c.via, ageMs: passageT - ageWarning.t,
+    };
   });
   const stale = withAge.filter((c) => c.ageMs > limitMs).sort((a, b) => b.ageMs - a.ageMs);
   const bands = {};
@@ -887,11 +932,12 @@ function analyseWarningAge(covered, limitMs = STALE_WARNING_AGE_MS) {
 /** En rad per gammal varning, samma form i grinden och i fältrapporten. */
 function describeStaleWarning(c) {
   const p = c.passage;
+  const w = c.ageWarning || c.warning;
   const inferred = p.inferred === true && Number.isFinite(p.tFrom);
   const when = inferred ? `korsningsfönster ${iso(p.tFrom)}–${iso(p.tTo)} [inferred]` : p.iso;
   return `${p.mmsi} @ ${p.bridge} ${when}: senaste varningen ${inferred ? 'minst ' : ''}${mins(c.ageMs)} gammal `
-    + `(${c.warning.eventId || 'utan händelse-id'} ${iso(c.warning.t)}, ${c.via}, `
-    + `ledande ${c.warning.leadVessel}/${c.warning.leadMmsi})`;
+    + `(${w.eventId || 'utan händelse-id'} ${iso(w.t)}, ${c.ageVia || c.via}, `
+    + `ledande ${w.leadVessel}/${w.leadMmsi})`;
 }
 
 /** Summeringsraden för en serie, med banden. */

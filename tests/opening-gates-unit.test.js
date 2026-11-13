@@ -271,6 +271,86 @@ describe('O1 analyseWarningAge: varnad är inte detsamma som varnad med färsk v
     expect(age.fresh).toBe(1);
   });
 
+  // Revision 1 (granskningen 2026-11-14): FILOU 20260806-42h vid Klaffbron var
+  // medlem i Klaffbron#28 (173 min före passagen) men absorberades i
+  // Klaffbron#37 (MISTRAL leder, kortet gick 8,9 min före passagen). O1 tar
+  // den säkra fired-träffen och hoppar över konvojslingan; åldersmåttet ska
+  // ändå räkna den FÄRSKASTE varning som täckte henne.
+  test('FILOU: gammal fired-medlemskap plus färsk konvojabsorption är en färsk varning', () => {
+    const res = {
+      targetPassages: [passage(T0)],
+      openingWarnings: [
+        warning(T0 - 173 * 60000, { eventId: 'Klaffbron#28' }),
+        warning(T0 - 9 * 60000, {
+          eventId: 'Klaffbron#37', leadMmsi: '219025192', leadVessel: 'MISTRAL', mmsis: ['219025192'],
+        }),
+      ],
+      openingCoverage: [{
+        t: T0 - 8 * 60000, mmsi: '265000111', bridge: 'Klaffbron', eventId: 'Klaffbron#37', reason: 'absorbed',
+      }],
+    };
+    const a = analyseCoverage(res, samplesOf([]));
+    // O1:s egen dom och ledtid är orörda.
+    expect(a.covered[0].warning.eventId).toBe('Klaffbron#28');
+    expect(a.covered[0].leadMs).toBe(173 * 60000);
+    const age = analyseWarningAge(a.covered);
+    expect(age.fresh).toBe(1);
+    expect(age.stale).toHaveLength(0);
+  });
+
+  test('åt andra hållet: en annan öppnings konvojvarning räknas inte som färsk täckning', () => {
+    // Absorptionen gäller en händelse vars kort gick före en ANNAN båts passage
+    // mer än ett konvojfönster före hennes egen: bron har öppnat och stängt
+    // emellan, så den varningen täcker inte hennes öppning.
+    const res = {
+      targetPassages: [passage(T0), passage(T0 - 40 * 60000, { mmsi: '265999999' })],
+      openingWarnings: [
+        warning(T0 - 173 * 60000, { eventId: 'Klaffbron#28' }),
+        warning(T0 - 50 * 60000, {
+          eventId: 'Klaffbron#30', leadMmsi: '265999999', leadVessel: 'ANNAN', mmsis: ['265999999'],
+        }),
+      ],
+      openingCoverage: [{
+        t: T0 - 45 * 60000, mmsi: '265000111', bridge: 'Klaffbron', eventId: 'Klaffbron#30', reason: 'absorbed',
+      }],
+    };
+    const a = analyseCoverage(res, samplesOf([]));
+    const mine = a.covered.filter((c) => c.passage.mmsi === '265000111');
+    const age = analyseWarningAge(mine);
+    expect(age.stale.map((c) => c.ageWarning.eventId)).toEqual(['Klaffbron#28']);
+  });
+
+  test('åt andra hållet: en annan båts absorption räknas inte för henne', () => {
+    const res = {
+      targetPassages: [passage(T0)],
+      openingWarnings: [
+        warning(T0 - 173 * 60000, { eventId: 'Klaffbron#28' }),
+        warning(T0 - 9 * 60000, {
+          eventId: 'Klaffbron#37', leadMmsi: '219025192', leadVessel: 'MISTRAL', mmsis: ['219025192'],
+        }),
+      ],
+      openingCoverage: [{
+        t: T0 - 8 * 60000, mmsi: '265999999', bridge: 'Klaffbron', eventId: 'Klaffbron#37', reason: 'absorbed',
+      }],
+    };
+    const age = analyseWarningAge(analyseCoverage(res, samplesOf([])).covered);
+    expect(age.stale).toHaveLength(1);
+    expect(age.stale[0].ageMs).toBe(173 * 60000);
+  });
+
+  test('en färsk egen avfyrning efter en gammal räknas, även när O1 redan valt den senaste', () => {
+    const res = {
+      targetPassages: [passage(T0)],
+      openingWarnings: [
+        warning(T0 - 173 * 60000, { eventId: 'Klaffbron#28' }),
+        warning(T0 - 5 * 60000, { eventId: 'Klaffbron#40' }),
+      ],
+      openingCoverage: [],
+    };
+    const age = analyseWarningAge(analyseCoverage(res, samplesOf([])).covered);
+    expect(age.fresh).toBe(1);
+  });
+
   test('egen gräns kan anges för mätning (rapporten skriver ut banden 60/120/240)', () => {
     const covered = [
       { passage: passage(T0), warning: warning(T0 - 70 * 60000), leadMs: 70 * 60000 },
