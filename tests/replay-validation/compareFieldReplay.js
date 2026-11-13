@@ -247,9 +247,30 @@ function measureOpeningWarningAge(replay, gtPassages, samples) {
   };
 }
 
+/**
+ * INTEGRITETSBANNERN (V4 rev 1, granskningen 2026-11-14). Rapporten kastade
+ * förr när integritetsgrinden inte var OK, så de körningar som behövde den mest
+ * (fältprovet: k1 och k2 är FEL) gav ingen rapport alls. En fälld körning får
+ * analyseras som fältbevis men aldrig bli facit (VALIDATION.md §Fältprov):
+ * rapporten skrivs därför ändå, med verdiktet som första rad i både txt och
+ * json, och kommandot behåller felkoden (samma skala som checkReplayIntegrity:
+ * 1 = FEL, 3 = OKÄNT) så att ingen kan ta en fälld körning för godkänd.
+ * ANROPSFEL (filerna går inte att läsa) kastar fortfarande.
+ */
+const INTEGRITY_EXIT = {
+  OK: 0, DELVIS: 0, FEL: 1, OKÄNT: 3,
+};
+
+function integrityBanner(integrity) {
+  if (integrity.verdict === 'OK') return null;
+  return `🚨 LOGG-INTEGRITET: ${integrity.verdict} — FÄLTBEVIS, ALDRIG FACIT (korpuslåsning EJ tillåten). `
+    + `${integrity.problems.length} problem, se nedan och "integrity" i field-report.json.`;
+}
+
 function makeReport(logPath, jsonlPath, replay) {
   const integrity = checkPair(jsonlPath, logPath, {});
-  if (integrity.verdict !== 'OK') throw new Error(`Replay-integritet ${integrity.verdict}: ${integrity.problems.join('; ')}`);
+  if (integrity.verdict === 'ANROPSFEL') throw new Error(`Replay-integritet ANROPSFEL: ${integrity.problems.join('; ')}`);
+  const banner = integrityBanner(integrity);
   const field = parseFieldLog(fs.readFileSync(logPath, 'utf8'));
   const gt = buildFacit(jsonlPath);
   const coverage = analyzeCorpus({ id: path.basename(jsonlPath), jsonl: jsonlPath }, buildFairway());
@@ -257,6 +278,8 @@ function makeReport(logPath, jsonlPath, replay) {
   const openings = splitAtStop(replay.openingWarnings, field.stopMs);
   const texts = splitAtStop(replay.bridgeTextTransitions, field.stopMs);
   return {
+    // Första nyckeln med flit: det första en läsare av json:en ser.
+    integrityBanner: banner,
     log: path.resolve(logPath),
     jsonl: path.resolve(jsonlPath),
     integrity,
@@ -327,6 +350,7 @@ function summarize(r) {
   const o = r.openingComparison;
   const maxDelta = n.pairs.length ? Math.max(...n.pairs.map((p) => Math.abs(p.deltaMs))) / 1000 : null;
   return [
+    ...(r.integrityBanner ? [r.integrityBanner, ...r.integrity.problems.map((v) => `  ✗ ${v}`), ''] : []),
     `Fält ${r.field.firstIso} → ${r.field.stopIso}: ${r.field.lines} loggrader, ${r.integrity.jsonlComplete} kompletta AIS-sampel.`,
     `Integritet: ${r.integrity.verdict}; tidshål: ${r.field.gaps.length} (gräns 65 s med 60 s-hjärtslag, annars 180 s).`,
     `Notiser: ${n.pairs.length} parade, ${n.pairs.filter((p) => p.changes.length).length} innehållsändrade, `
@@ -346,8 +370,6 @@ function summarize(r) {
 function main(argv) {
   const [logPath, jsonlPath, out = path.join(os.tmpdir(), 'ais-field-report')] = argv;
   if (!logPath || !jsonlPath || argv.length > 3) throw new Error('Användning: compareFieldReplay.js <app.log> <ais.jsonl> [utkatalog]');
-  const integrity = checkPair(jsonlPath, logPath, {});
-  if (integrity.verdict !== 'OK') throw new Error(`Replay-integritet ${integrity.verdict}: ${integrity.problems.join('; ')}`);
   const run = spawnSync(process.execPath, [path.join(__dirname, 'replayRunner.js'), path.resolve(jsonlPath)], {
     cwd: ROOT,
     encoding: 'utf8',
@@ -366,11 +388,13 @@ function main(argv) {
   fs.writeFileSync(path.join(out, 'field-report.txt'), `${summarize(report)}\n`);
   fs.writeFileSync(path.join(out, 'replay-stderr.log'), run.stderr);
   console.log(`${summarize(report)}\nRapport: ${path.resolve(out)}`);
+  // Felkoden står kvar för en fälld körning (se integrityBanner).
+  return INTEGRITY_EXIT[report.integrity.verdict] ?? 1;
 }
 
 if (require.main === module) {
   try {
-    main(process.argv.slice(2));
+    process.exitCode = main(process.argv.slice(2));
   } catch (e) {
     console.error(e.message);
     process.exitCode = 1;
@@ -385,6 +409,7 @@ module.exports = {
   measureClaims,
   measureOpeningWarningAge,
   formatOpeningWarningAge,
+  integrityBanner,
   makeReport,
   summarize,
 };
