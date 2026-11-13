@@ -1,8 +1,11 @@
 'use strict';
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const {
   parseFieldLog, compareEvents, openingKeyOf, splitAtStop, measureClaims,
-  measureOpeningWarningAge, formatOpeningWarningAge,
+  measureOpeningWarningAge, formatOpeningWarningAge, makeReport, summarize, integrityBanner,
 } = require('./replay-validation/compareFieldReplay');
 const { crossingsForVessel, BRIDGE_STATIONS } = require('./replay-validation/makeGtPassages');
 
@@ -162,6 +165,54 @@ describe('Fältrapporten mäter leverans, innehåll och fältstopp', () => {
     const age = measureOpeningWarningAge(replay, [], new Map());
     expect(age.app.fresh).toBe(1);
     expect(formatOpeningWarningAge(age).join('\n')).not.toMatch(/GAMMAL VARNING/);
+  });
+
+  // V4 rev 1 (granskningen 2026-11-14): replay:field kastade när integriteten
+  // inte var OK, så k1 och k2 (båda FEL) gav ingen rapport alls och V1-raden
+  // nåddes aldrig. Nu skrivs rapporten med en FEL-banner överst, och main()
+  // behåller felkoden.
+  test('fälld integritet: rapporten skrivs med banner överst och felkoden står kvar', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ais-field-fel-'));
+    try {
+      const T0 = Date.UTC(2026, 10, 13, 6, 0, 0);
+      const at = (sec, msg) => `${new Date(T0 + sec * 1000).toISOString()} [log] [AISBridgeApp] ${msg}`;
+      const rows = [];
+      const lines = [at(0, 'AIS Bridge starting with modular architecture v2.0')];
+      for (const sec of [60, 90, 120, 210, 240]) { // 90 s-bortfall 120 → 210 med belagt hjärtslag
+        const row = JSON.stringify({
+          mmsi: '265012090', lat: 58.29, lon: 12.29, sog: 5, aisTimestamp: T0 + sec * 1000,
+        });
+        rows.push(row);
+        lines.push(at(sec, '[DEBUG] 🧹 [COORDINATION_CLEANUP] Cleaned old coordination state'));
+        lines.push(at(sec, `[AIS_REPLAY_SAMPLE] ${row}`));
+      }
+      const logPath = path.join(dir, 'app.log');
+      const jsonlPath = path.join(dir, 'ais.jsonl');
+      fs.writeFileSync(logPath, `${lines.join('\n')}\n`);
+      fs.writeFileSync(jsonlPath, `${rows.join('\n')}\n`);
+      const replay = {
+        notifications: [],
+        openingWarnings: [],
+        openingCoverage: [],
+        bridgeTextTransitions: [],
+        targetPassages: [],
+        sampleCount: rows.length,
+        processErrors: 0,
+        leakDiagnostics: {},
+        suppressedTokenTimeouts: 0,
+      };
+      const report = makeReport(logPath, jsonlPath, replay);
+      expect(Object.keys(report)[0]).toBe('integrityBanner');
+      expect(report.integrity.verdict).toBe('FEL');
+      expect(report.integrityBanner).toMatch(/LOGG-INTEGRITET: FEL — FÄLTBEVIS, ALDRIG FACIT/);
+      const text = summarize(report).split('\n');
+      expect(text[0]).toBe(report.integrityBanner);
+      expect(text[1]).toMatch(/TIDSHÅL I LOGGEN/);
+      expect(report.field.gaps).toHaveLength(1);
+      expect(integrityBanner({ verdict: 'OK', problems: [] })).toBeNull();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test('inferred-korsning publicerar bara felgränser, aldrig ett exakt ETA-fel', () => {

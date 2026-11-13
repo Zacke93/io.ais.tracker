@@ -1091,7 +1091,15 @@ separat. Efterspel EFTER sista loggtiden blandas aldrig med observerat fält:
 
 Rapporten är **informativ**, inte en låsningsgrind: även fatala invarianter
 redovisas utan att ändra exitkod (integritetsfel/processkrasch ger däremot
-felkod). DIANAs två Kanalinfarten-notiser ligger kvar synligt som
+felkod). **En fälld körning får ändå en rapport** (revision 1, granskningen
+2026-11-14): förr kastade kommandot när integriteten inte var OK, så
+fältprovets båda körningar (FEL på källbokföring och tidshål) gav ingen rapport
+alls. Nu skrivs rapporten med verdiktet som första rad i `field-report.txt` och
+som första nyckel (`integrityBanner`) i `field-report.json`, följt av
+grindens problem, och kommandot avslutar med grindens felkod (1 = FEL,
+3 = OKÄNT). En fälld körning är fältbevis, aldrig facit. Kontrollerat på
+fältprovet: k1 flaggar PRICKBJORN 12 nov 12:35 som gammal varning (244,9 min
+mot rådatans passage), k2 ger INV-22 för PRICKBJORN 13:57:24. DIANAs två Kanalinfarten-notiser ligger kvar synligt som
 invariantutslag. Monitoring/stale-svepet, avvisade fusionsfixar, livstecken
 och initial settings-persistens återspelas fortfarande inte.
 
