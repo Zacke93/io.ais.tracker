@@ -82,23 +82,31 @@ Eller stegen var för sig:
 passage som varnad hur gammal varningen än är. I fältet varnades PRICKBJORN
 08:30 och passerade Stridsbergsbron 12:35 utan ny varning; O1 skrev "ledtid
 244,9 min" medan O2 kallade samma varning FANTOM. `replay:openings` skriver
-därför `⚠️ GAMMAL VARNING` för varje täckt passage vars senaste varning är
-äldre än `STALE_WARNING_AGE_MS` (= O2:s `LATE_PASSAGE_WINDOW_MS`, 120 min) och
-en summarad rad `⚠️ VARNINGENS ÅLDER` för båda serierna med banden 60/120/240
-min. `inferred`-passager mäts från fönstrets början (kortaste möjliga ålder).
-Gränsen följer O2 och U23 (2 h stillaliggande avslutar en väntan), och bankens
-fördelning har sitt glapp där: p50 14,8 min, p95 55,5 min, 8 passager i
-60–90 min, ingen i 90–120 min, 7 över 120 min. **Måttet är rapporterande, inte
-fällande**, tills ägaren beslutat en gräns: det rör aldrig exitkoden.
-Baslinje 2026-11-13: appserien 369 av 376 varnade passager hade en färsk varning
-(äldre än 60/120/240 min: 15/7/1), rådataserien 381 av 392 (15/11/4). Samma
-mått står i fältrapporten (`openingWarningAge` i `field-report.json` och en rad i
-`field-report.txt`). Grinden skriver ut varje fall med händelse-id och tider.
-Två av bankens sju gamla fall i appserien (NENJA 20260713-41h, CALIMA
-20260711-16h) har exakt fältfelets mekanism: servicen avfyrade på nytt men
-appens ankomstspärr höll inne kortet, vilket syns i replayresultatets
-`openingSuppressions`. Fyra är långa väntor nära bron (MISTRAL, MOKENDEIST,
-ANDREA två gånger).
+därför `⚠️ GAMMAL VARNING` för varje täckt passage vars färskaste täckande
+varning är äldre än `STALE_WARNING_AGE_MS` (= O2:s `LATE_PASSAGE_WINDOW_MS`,
+120 min) och en summarad rad `⚠️ VARNINGENS ÅLDER` för båda serierna med banden
+60/120/240 min. Färskaste täckande varning (revision 1, granskningen
+2026-11-14) betyder den senaste säkert föregående varningen bland båtens egna
+avfyrade medlemskap och egna konvojabsorptioner, inte O1:s val: O1 hoppar över
+konvojen när en säker avfyrad träff finns, och FILOU (20260806-42h,
+Klaffbron) kallades 173 min gammal fast hon absorberades i Klaffbron#37 8,9 min
+före passagen. En absorption i en händelse vars kort gick före en annan båts
+passage mer än ett konvojfönster före hennes egen räknas inte (bron har
+öppnat och stängt emellan); O1:s dom och ledtid är orörda. `inferred`-passager
+mäts från fönstrets början (kortaste möjliga ålder). Gränsen följer O2 och U23
+(2 h stillaliggande avslutar en väntan), och bankens fördelning har sitt glapp
+där: p50 14,8 min, p95 55,5 min, 8 passager i 60–90 min, ingen i 90–120 min,
+6 över 120 min. **Måttet är rapporterande, inte fällande**, tills ägaren
+beslutat en gräns: det rör aldrig exitkoden. Baslinje 2026-11-14: appserien
+370 av 376 varnade passager hade en färsk varning (äldre än 60/120/240 min:
+14/6/1), rådataserien 382 av 392 (14/10/4). Samma mått står i fältrapporten
+(`openingWarningAge` i `field-report.json` och en rad i `field-report.txt`).
+Grinden skriver ut varje fall med händelse-id och tider. Två av bankens sex
+gamla fall i appserien (NENJA 20260713-41h, CALIMA 20260711-16h) har exakt
+fältfelets mekanism: servicen avfyrade på nytt men appens ankomstspärr höll
+inne kortet, vilket syns i replayresultatets `openingSuppressions` (11
+undertryckningar i banken, 9 följda av en passage). Fyra är långa väntor nära
+bron (MISTRAL, MOKENDEIST, ANDREA två gånger).
 
 **Rör ändringen ETA-vägen?** Då räcker inte batteriet: facit säger bara att
 texten är OFÖRÄNDRAD, inte att siffran är SANN. Mät med `npm run measure:eta`
