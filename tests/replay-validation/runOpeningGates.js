@@ -15,6 +15,9 @@
  *      medlem i avfyrningen, eller via konvojtäckning — "absorbed"). Varje
  *      MISS klassas mot rå jsonl i tre datastödda klasser; en OKLASSAD miss
  *      är RÖD. Rapporterar täckningsgrad + ledtidsfördelning per korpus.
+ *      V1 (2026-11-13): varje täckt passage vars senaste varning är äldre än
+ *      STALE_WARNING_AGE_MS redovisas som ⚠️ GAMMAL VARNING (WARN, fäller
+ *      inte), och åldersbanden 60/120/240 min summeras för båda serierna.
  *   O2 FANTOMTAK. Varje öppningsvarning som INTE följs av en passage av bron
  *      inom 20 min klassas mot rådata. "U-sväng/avbruten anflygning efter en
  *      äkta beväpnad approach" är produktprincipens ACCEPTERADE falsklarms-
@@ -147,6 +150,23 @@ const PHANTOM_WINDOW_MS = 20 * 60 * 1000;
 // bara 17 av 118 (stopp och köer efter varningen dominerar), medan 14
 // passager blev oförvarnade och O1 mot rådata föll 391 → 362 av 447.
 const LATE_PASSAGE_WINDOW_MS = 120 * 60 * 1000;
+// FÄRSK VARNING (V1, fältprovet 2026-11-13). O1 räknade en passage som varnad
+// hur gammal varningen än var: PRICKBJORN varnades 08:30 och passerade
+// Stridsbergsbron 12:35 utan ny varning, och O1 skrev "ledtid 244,9 min"
+// medan O2 kallade samma varning FANTOM. Gränsen för en färsk varning är
+// O2:s eget senpassagefönster, av tre skäl:
+//  (a) en varning kan då inte vara täckning i O1 och fantom i O2 samtidigt;
+//  (b) ägarbeslut U23 behandlar 2 h stillaliggande som slutet på en väntan;
+//  (c) bankens fördelning (2026-11-13, 376 varnade passager i appserien) har
+//      sitt glapp här: p50 14,8 min, p90 46,7, p95 55,5; 8 passager i 60–90
+//      min, INGEN i 90–120 min, 7 över 120 min. O2:s sena passager (GARANTIPRIS
+//      m.fl., godtagna) slutar på 105,2 min.
+// RAPPORTERANDE, INTE FÄLLANDE: gränsen är inte ägarbeslutad. Måttet skrivs
+// ut som WARN (⚠️ GAMMAL VARNING) och ändrar aldrig exitkoden.
+const STALE_WARNING_AGE_MS = LATE_PASSAGE_WINDOW_MS;
+// Banden som alltid redovisas bredvid gränsen, så att en framtida gräns kan
+// väljas på mätning och inte på känsla.
+const WARNING_AGE_BANDS_MIN = [60, 120, 240];
 // Bevis för en ÄKTA anflygning: fartyget ska ha NÄRMAT sig bron mätbart. 200 m
 // är grovt fem gånger GPS-bruset i korpusarna (≤20 m syntetiskt, ≤~40 m i
 // fält) och en tiondel av beväpningshorisonten.
@@ -828,6 +848,57 @@ function analyseCoverage(result, samples, gtPassages = null) {
   return {
     passages, covered, misses, uncertain,
   };
+}
+
+/**
+ * V1 (fältprovet 2026-11-13): VARNINGENS ÅLDER VID PASSAGEN.
+ *
+ * O1 svarar på "fanns en varning före passagen?". Den här funktionen svarar
+ * på nästa fråga: "var den varningen färsk?". En passage vars senaste varning
+ * är äldre än `limitMs` räknas fortfarande som täckt i O1 (domen ändras inte),
+ * men redovisas som GAMMAL, och banden 60/120/240 min skrivs alltid ut.
+ *
+ * Åldern är passagetid minus varningstid. För en `inferred` passage (korsning
+ * bevisad, tidpunkt bara ett fönster) används fönstrets början `tFrom`, alltså
+ * den kortaste möjliga åldern: bara en varning som är gammal även då räknas.
+ * @param {object[]} covered - analyseCoverage().covered
+ * @param {number} [limitMs] - gränsen för en färsk varning
+ * @returns {{total:number, fresh:number, stale:object[], bands:object, limitMs:number}}
+ *   stale: täckta passager med fältet ageMs, äldst först
+ */
+function analyseWarningAge(covered, limitMs = STALE_WARNING_AGE_MS) {
+  const withAge = (covered || []).map((c) => {
+    const p = c.passage;
+    const passageT = p.inferred === true && Number.isFinite(p.tFrom) ? p.tFrom : p.t;
+    return { ...c, ageMs: passageT - c.warning.t };
+  });
+  const stale = withAge.filter((c) => c.ageMs > limitMs).sort((a, b) => b.ageMs - a.ageMs);
+  const bands = {};
+  for (const m of WARNING_AGE_BANDS_MIN) bands[m] = withAge.filter((c) => c.ageMs > m * 60000).length;
+  return {
+    total: withAge.length,
+    fresh: withAge.length - stale.length,
+    stale,
+    bands,
+    limitMs,
+  };
+}
+
+/** En rad per gammal varning, samma form i grinden och i fältrapporten. */
+function describeStaleWarning(c) {
+  const p = c.passage;
+  const inferred = p.inferred === true && Number.isFinite(p.tFrom);
+  const when = inferred ? `korsningsfönster ${iso(p.tFrom)}–${iso(p.tTo)} [inferred]` : p.iso;
+  return `${p.mmsi} @ ${p.bridge} ${when}: senaste varningen ${inferred ? 'minst ' : ''}${mins(c.ageMs)} gammal `
+    + `(${c.warning.eventId || 'utan händelse-id'} ${iso(c.warning.t)}, ${c.via}, `
+    + `ledande ${c.warning.leadVessel}/${c.warning.leadMmsi})`;
+}
+
+/** Summeringsraden för en serie, med banden. */
+function describeWarningAge(age) {
+  const pct = age.total ? ((100 * age.fresh) / age.total).toFixed(1) : '0';
+  return `${age.fresh}/${age.total} varnade passager hade en färsk varning (≤ ${mins(age.limitMs)}, ${pct} %); `
+    + `varningen äldre än ${WARNING_AGE_BANDS_MIN.map((m) => `${m} min: ${age.bands[m]}`).join(', ')}`;
 }
 
 /**
@@ -1694,6 +1765,9 @@ async function main() {
   let totalPassages = 0;
   let totalCovered = 0;
   let thinLeads = 0;
+  // V1: alla täckta passager per serie, för åldersmåttet.
+  const appCoveredAll = [];
+  const gtCoveredAll = [];
   // A3: rådataserien bokförs parallellt med appserien. GRINDEN ligger kvar på
   // appserien i fas A (planens "instrument före produkt" — fas A får inte
   // ändra utfallet av någon grind); OPENING_GT_STRICT=1 flyttar den till
@@ -1749,6 +1823,7 @@ async function main() {
       gtTotals.misses += g.misses.length;
       gtTotals.unclassified += g.misses.filter((m) => !m.accepted).length;
       gtTotals.uncertain += g.uncertain.length;
+      for (const c of g.covered) gtCoveredAll.push({ ...c, corpus: run.job.id });
       // TIDSFÖNSTERMÄTNINGEN utesluter `inferred` (planens A3(b)).
       for (const c of g.covered) if (!c.passage.inferred) gtLeads.push(c.leadMs);
       for (const m of g.misses) gtMissByClass.set(m.klass, (gtMissByClass.get(m.klass) || 0) + 1);
@@ -1831,6 +1906,12 @@ async function main() {
         + `${c.passage.iso} varnades ${secs(c.leadMs)} före (utlovat ${secs(leadPromiseMs)})`);
     }
     thinLeads += thin.length;
+    // V1: GAMMAL VARNING — WARN, rör aldrig gateFail (gränsen är inte
+    // ägarbeslutad, se STALE_WARNING_AGE_MS).
+    appCoveredAll.push(...covered);
+    for (const c of analyseWarningAge(covered).stale) {
+      console.log(`  ⚠️ GAMMAL VARNING ${run.job.id}: ${describeStaleWarning(c)}`);
+    }
     const convoyCovered = covered.filter((c) => c.via === 'konvoj').length;
 
     let o1Status = '✅ FULL TÄCKNING';
@@ -1869,6 +1950,9 @@ async function main() {
       + `p10 ${mins(sorted[Math.floor(sorted.length * 0.1)])}, max ${mins(sorted[sorted.length - 1])}`
       + `${thinLeads ? ` — ${thinLeads} tunna (< utlovad ledtid)` : ''}`);
   }
+  // V1: varnad är inte detsamma som varnad med färsk varning.
+  console.log(`  ⚠️ VARNINGENS ÅLDER (WARN, fäller inte): ${describeWarningAge(analyseWarningAge(appCoveredAll))}. `
+    + 'Gränsen är O2:s senpassagefönster och inte ägarbeslutad.');
   if (missByClass.size) {
     console.log(`  MISSKLASSER: ${[...missByClass].map(([k, v]) => `${k}=${v}`).join(', ')}`);
   }
@@ -1904,6 +1988,10 @@ async function main() {
     if (gtMissByClass.size) {
       console.log(`  MISSKLASSER: ${[...gtMissByClass].map(([k, v]) => `${k}=${v}`).join(', ')}`);
     }
+    // V1: samma åldersmått mot rådatans passager (inferred mäts från tFrom).
+    const gtAge = analyseWarningAge(gtCoveredAll);
+    console.log(`  ⚠️ VARNINGENS ÅLDER (WARN, fäller inte): ${describeWarningAge(gtAge)}`);
+    for (const c of gtAge.stale) console.log(`     ⚠️ GAMMAL VARNING ${c.corpus}: ${describeStaleWarning(c)}`);
     for (const run of runs) {
       for (const p of run.gtPassages || []) {
         if (!p.timingEvidence) continue;
@@ -2205,6 +2293,9 @@ module.exports = {
   classifyLatePassage,
   approachEvidence,
   analyseCoverage,
+  analyseWarningAge,
+  describeStaleWarning,
+  describeWarningAge,
   analysePhantoms,
   reportGtPhantoms,
   analyseFireWindow,
@@ -2215,6 +2306,8 @@ module.exports = {
   MIN_WARNABLE_MS,
   PHANTOM_WINDOW_MS,
   LATE_PASSAGE_WINDOW_MS,
+  STALE_WARNING_AGE_MS,
+  WARNING_AGE_BANDS_MIN,
   GENUINE_APPROACH_M,
   UNDERWAY_SOG_KN,
   UNDERWAY_MIN_FIXES,

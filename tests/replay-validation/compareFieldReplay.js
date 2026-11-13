@@ -18,6 +18,10 @@ const { checkPair } = require('./checkReplayIntegrity');
 const { buildFacit } = require('./makeGtPassages');
 const { validateInvariants, validateWarnInvariants } = require('./invariants');
 const { analyzeCorpus, buildFairway } = require('./coverageMap');
+const {
+  analyseCoverage, analyseWarningAge, describeStaleWarning, describeWarningAge, loadSamples, STALE_WARNING_AGE_MS,
+} = require('./runOpeningGates');
+const { TARGET_BRIDGES } = require('../../lib/constants');
 
 const ROOT = path.resolve(__dirname, '../..');
 const ISO_RE = /^(\d{4}-\d{2}-\d{2}T[\d:.]+Z)/;
@@ -185,6 +189,57 @@ function measureClaims(notifications, passages) {
   });
 }
 
+/**
+ * V1 (fältprovet 2026-11-13): öppningsvarningens ålder vid varje passage som
+ * replayn räknar som varnad. Samma mått och gräns som replay:openings
+ * (analyseWarningAge, STALE_WARNING_AGE_MS). INFORMATIVT: fältrapporten
+ * ändrar aldrig exitkoden på det här. Fältfelet PRICKBJORN 12 nov hade en
+ * 244,9 min gammal varning och syntes inte i någon grind.
+ * @param {object} replay - replay-resultatet
+ * @param {object[]} gtPassages - rådatafacit (buildFacit().passages)
+ * @param {Map} samples - rå sampel per mmsi (för O1:s missklassning)
+ * @returns {{limitMinutes:number, app:object, groundTruth:object}} åldersmåttet per serie
+ */
+function measureOpeningWarningAge(replay, gtPassages, samples) {
+  const gtTarget = (gtPassages || [])
+    .filter((g) => g.kind !== 'zone' && TARGET_BRIDGES.includes(g.bridge))
+    .map((g) => ({
+      t: g.t,
+      iso: g.iso || new Date(Math.round(g.t)).toISOString(),
+      mmsi: String(g.mmsi),
+      bridge: g.bridge,
+      inferred: g.inferred === true,
+      dir: g.dir || null,
+      tFrom: g.tFrom ?? null,
+      tTo: g.tTo ?? null,
+      source: 'gt',
+    }))
+    .sort((a, b) => a.t - b.t);
+  const series = (covered) => {
+    const age = analyseWarningAge(covered);
+    return {
+      total: age.total,
+      fresh: age.fresh,
+      bands: age.bands,
+      summary: describeWarningAge(age),
+      stale: age.stale.map((c) => ({
+        mmsi: String(c.passage.mmsi),
+        bridge: c.passage.bridge,
+        passage: c.passage.iso,
+        warning: new Date(c.warning.t).toISOString(),
+        eventId: c.warning.eventId || null,
+        ageMinutes: Math.round(c.ageMs / 6000) / 10,
+        text: describeStaleWarning(c),
+      })),
+    };
+  };
+  return {
+    limitMinutes: STALE_WARNING_AGE_MS / 60000,
+    app: series(analyseCoverage(replay, samples).covered),
+    groundTruth: series(analyseCoverage(replay, samples, gtTarget).covered),
+  };
+}
+
 function makeReport(logPath, jsonlPath, replay) {
   const integrity = checkPair(jsonlPath, logPath, {});
   if (integrity.verdict !== 'OK') throw new Error(`Replay-integritet ${integrity.verdict}: ${integrity.problems.join('; ')}`);
@@ -216,6 +271,7 @@ function makeReport(logPath, jsonlPath, replay) {
     ['direction', 'eta', 'message', 'alreadyPassed', 'source', 'distance']),
     openingComparison: compareEvents(field.openingWarnings, openings.observed, openingKeyOf,
       ['leadVessel', 'direction', 'etaMin', 'firedBy', 'vesselCount']),
+    openingWarningAge: measureOpeningWarningAge(replay, gt.passages, loadSamples(jsonlPath)),
     textCounts: { field: field.bridgeTextTransitions.length, replayBeforeStop: texts.observed.length, replayTotal: replay.bridgeTextTransitions.length },
     afterStop: { notifications: notis.afterStop, openingWarnings: openings.afterStop, bridgeTextTransitions: texts.afterStop },
     groundTruth: gt,
@@ -248,6 +304,17 @@ function makeReport(logPath, jsonlPath, replay) {
   };
 }
 
+/** Textraderna för åldersmåttet (WARN, informativt). */
+function formatOpeningWarningAge(age) {
+  if (!age) return [];
+  return [
+    `Öppningsvarningens ålder vid passage (WARN, informativ, gräns ${age.limitMinutes} min = O2:s senpassagefönster): `
+      + `appserien ${age.app.summary}; rådataserien ${age.groundTruth.summary}.`,
+    ...age.app.stale.map((s) => `  ⚠️ GAMMAL VARNING (appserien): ${s.text}`),
+    ...age.groundTruth.stale.map((s) => `  ⚠️ GAMMAL VARNING (rådataserien): ${s.text}`),
+  ];
+}
+
 function summarize(r) {
   const n = r.notificationComparison;
   const o = r.openingComparison;
@@ -260,6 +327,7 @@ function summarize(r) {
     `Öppningar före fältstopp: ${o.pairs.length} parade, ${o.pairs.filter((p) => p.changes.length).length} innehållsändrade; `
       + `${o.unmatchedField.length} saknas, ${o.unmatchedReplay.length} extra. Efter stopp: ${r.afterStop.openingWarnings.length}.`,
     `Brotexter: ${r.textCounts.field} fält, ${r.textCounts.replayBeforeStop} replay före stopp, ${r.textCounts.replayTotal} inklusive efterspel.`,
+    ...formatOpeningWarningAge(r.openingWarningAge),
     `Replay: ${r.replay.targetPassages.length} målbropassager, ${r.replay.processErrors} processfel, `
       + `${r.replay.invariantFailures.length} fatala invariantutslag, ${r.replay.invariantWarnings.length} WARN.`,
     ...r.replay.invariantFailures.map((v) => `  INVARIANT: ${v}`),
@@ -303,5 +371,13 @@ if (require.main === module) {
 }
 
 module.exports = {
-  parseFieldLog, compareEvents, openingKeyOf, splitAtStop, measureClaims, makeReport, summarize,
+  parseFieldLog,
+  compareEvents,
+  openingKeyOf,
+  splitAtStop,
+  measureClaims,
+  measureOpeningWarningAge,
+  formatOpeningWarningAge,
+  makeReport,
+  summarize,
 };
