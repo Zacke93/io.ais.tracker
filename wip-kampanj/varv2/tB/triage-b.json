@@ -1,0 +1,225 @@
+{
+ "världar": [
+  {
+   "värld": 1973,
+   "kort": "F06",
+   "mmsi": "265329761",
+   "bro": "Stridsbergsbron",
+   "mekanism": "M1",
+   "rotorsak": "U17-släppet vid täckningsslutet: tyst absorberad båt vars appprognos låg inom fönstret vid varje fix efter att E:s första passage blev känd; släpps med domen täckningsslut och varnas på förfallen deadline. Appen hade ingen position bortom bron. B − A 504 s; sista fix 15:39:57 139 m före bron, prognos 15:41:31 (+33,5 s); W 15:42:25 = täckningsslut, 117 s efter B; nästa fix 7,7 s efter W. Motorns kvot 0,82 på raden 15:33:31.",
+   "filRad": "lib/services/BridgeOpeningService.js:2171–2197, :2340; tests/replay-validation/bugHunt/lib/registry.js:1984–1989",
+   "klass": "TÄCKT"
+  },
+  {
+   "värld": 510,
+   "kort": "F06",
+   "mmsi": "265558533",
+   "bro": "Stridsbergsbron",
+   "mekanism": "M1",
+   "rotorsak": "U17-släppet vid täckningsslutet: tyst absorberad båt vars appprognos låg inom fönstret vid varje fix efter att E:s första passage blev känd; släpps med domen täckningsslut och varnas på förfallen deadline. Appen hade ingen position bortom bron. B − A 604 s (nästa öppning, 4 s marginal); minsta marginal +3,6 s; hon saktade in till 1,4 kn vid bron; W 4 s efter B. Motorns kvot 0,84. Samma apphändelse ger F05 (T2 OKLASSAD).",
+   "filRad": "lib/services/BridgeOpeningService.js:2171–2197, :2340; tests/replay-validation/bugHunt/lib/registry.js:1984–1989",
+   "klass": "TÄCKT"
+  },
+  {
+   "värld": 537,
+   "kort": "F06",
+   "mmsi": "265185267",
+   "bro": "Stridsbergsbron",
+   "mekanism": "M1",
+   "rotorsak": "U17-släppet vid täckningsslutet: tyst absorberad båt vars appprognos låg inom fönstret vid varje fix efter att E:s första passage blev känd; släpps med domen täckningsslut och varnas på förfallen deadline. Appen hade ingen position bortom bron. B − A 488 s; täckningen ur ledarens prognos (13:01:15,6) förlängs aldrig; sista fix 187 m, prognos 13:01:12 (+3,5 s); W 83 s efter B. Motorns kvot 0,78.",
+   "filRad": "lib/services/BridgeOpeningService.js:1898–1903, :2696, :2340; tests/replay-validation/bugHunt/lib/registry.js:1984–1989",
+   "klass": "TÄCKT"
+  },
+  {
+   "värld": 625,
+   "kort": "F06",
+   "mmsi": "265956823",
+   "bro": "Stridsbergsbron",
+   "mekanism": "M1",
+   "rotorsak": "U17-släppet vid täckningsslutet: tyst absorberad båt vars appprognos låg inom fönstret vid varje fix efter att E:s första passage blev känd; släpps med domen täckningsslut och varnas på förfallen deadline. Appen hade ingen position bortom bron. FREJA: B − A 467 s; prognoser +70…+134 s inom fönstret; tyst 6 min efter sista fixen 202 m före bron; W 163 s efter B. Motorns kvot 0,79.",
+   "filRad": "lib/services/BridgeOpeningService.js:2171–2197, :2340; tests/replay-validation/bugHunt/lib/registry.js:1984–1989",
+   "klass": "TÄCKT"
+  },
+  {
+   "värld": 625,
+   "kort": "F06",
+   "mmsi": "265956525",
+   "bro": "Stridsbergsbron",
+   "mekanism": "M4",
+   "rotorsak": "DAGNY norrut köar vid Järnvägsbron (520 m före Stridsbergsbron); spärren vid tidigare bro håller varningen; sista fix 09:32:49 still i kön; hon går 3,6 s senare och är tyst 11,6 min (R1 drar stillakadens ur tillståndet vid fixen); reservvarningen kommer sista fix + 300 s = 09:37:49, 54 s efter korsningen 09:36:56. Ingen absorption, så U17 gäller inte.",
+   "filRad": "lib/services/BridgeOpeningService.js:1302–1316, :397; docs/ARCHITECTURE.md:858–873; tests/replay-validation/bugHunt/lib/radio.js#interval",
+   "klass": "MÄTGRÄNS"
+  },
+  {
+   "värld": 941,
+   "kort": "F06",
+   "mmsi": "265790032",
+   "bro": "Stridsbergsbron",
+   "mekanism": "M2",
+   "rotorsak": "U17-släpp (B − A 428 s, E utan bokförd passage). Sista raden mottogs 13:28:57,288, 0,1 s efter korsningen, men bär fixen 13:28:40, 58 m före bron. Predikatet jämför mottagningstiden med korsningen och dömer henne \"hörd efter korsningen\".",
+   "filRad": "tests/replay-validation/bugHunt/lib/registry.js:1940",
+   "klass": "MOTORFEL"
+  },
+  {
+   "värld": 1337,
+   "kort": "F06",
+   "mmsi": "265222729",
+   "bro": "Stridsbergsbron",
+   "mekanism": "M1",
+   "rotorsak": "U17-släppet vid täckningsslutet: tyst absorberad båt vars appprognos låg inom fönstret vid varje fix efter att E:s första passage blev känd; släpps med domen täckningsslut och varnas på förfallen deadline. Appen hade ingen position bortom bron. Ledaren kröp (0,7 kn); täckningen 10:39:39,7 ur ledarens prognos förlängs aldrig; B − A 156 s; prognos +40,8 s; W 43 s efter B. Motorns kvot 0,86 (tidigaste slut W − 30 s).",
+   "filRad": "lib/services/BridgeOpeningService.js:2696, :2340; tests/replay-validation/bugHunt/lib/registry.js:1976, :1984–1989",
+   "klass": "TÄCKT"
+  },
+  {
+   "värld": 1629,
+   "kort": "F06",
+   "mmsi": "265479497",
+   "bro": "Stridsbergsbron",
+   "mekanism": "M1",
+   "rotorsak": "U17-släppet vid täckningsslutet: tyst absorberad båt vars appprognos låg inom fönstret vid varje fix efter att E:s första passage blev känd; släpps med domen täckningsslut och varnas på förfallen deadline. Appen hade ingen position bortom bron. Sen född: första och enda fix 1 210 m före bron, prognos 27 s inom fönstret; B − A 578 s; W 39 s efter B (eta −1). Motorns kvot 0,96.",
+   "filRad": "lib/services/BridgeOpeningService.js:2340; tests/replay-validation/bugHunt/lib/registry.js:1984–1989",
+   "klass": "TÄCKT"
+  },
+  {
+   "värld": 1704,
+   "kort": "F06",
+   "mmsi": "265584588",
+   "bro": "Klaffbron",
+   "mekanism": "M1",
+   "rotorsak": "U17-släppet vid täckningsslutet: tyst absorberad båt vars appprognos låg inom fönstret vid varje fix efter att E:s första passage blev känd; släpps med domen täckningsslut och varnas på förfallen deadline. Appen hade ingen position bortom bron. E:s ledare MASEN korsade mitt i ett AIS-avbrott (sant 12:11:29, appens skattning 12:13:07, först bokförd passage GUNHILD 12:16:02); fönsterslutet = täckningen 12:22:49,5; B − A 607 s mot sanningen (nästa öppning, 7 s marginal); W 73 s efter B; nästa fix 0,5 s efter W. Motorns kvot 1,03.",
+   "filRad": "lib/services/BridgeOpeningService.js:2298–2320, :2340; tests/replay-validation/bugHunt/lib/registry.js:1984–1989",
+   "klass": "TÄCKT"
+  },
+  {
+   "värld": 1752,
+   "kort": "F06",
+   "mmsi": "265205690",
+   "bro": "Stridsbergsbron",
+   "mekanism": "M1",
+   "rotorsak": "U17-släppet vid täckningsslutet: tyst absorberad båt vars appprognos låg inom fönstret vid varje fix efter att E:s första passage blev känd; släpps med domen täckningsslut och varnas på förfallen deadline. Appen hade ingen position bortom bron. B − A 474 s; prognoser +51…+73,5 s; W 14:42:51,011, 161 s efter B; nästa fix har fixTs 11 ms före W men mottogs 4 s efter. Motorns kvot 0,81.",
+   "filRad": "lib/services/BridgeOpeningService.js:2340; tests/replay-validation/bugHunt/lib/registry.js:1984–1989",
+   "klass": "TÄCKT"
+  },
+  {
+   "värld": 479,
+   "kort": "F07",
+   "mmsi": "265651025",
+   "bro": "Stridsbergsbron",
+   "mekanism": "M1",
+   "rotorsak": "Tyst båt hörd en gång (1 452 m) och absorberad i #8 med prognos 85,6 s inom fönstret; B − A 542 s; vid #8:s täckningsslut återabsorberad i den varnade #9 (J13+J33 (a)); vid #9:s täckningsslut W 14:43:20 på en 24 min gammal fix. Tystnad avväpnar aldrig, och U17 avvisade färskhets- och åldersgrindar. Motorns kvot 0,83.",
+   "filRad": "lib/services/BridgeOpeningService.js:1878–1903, :2171–2197, :2340; docs/ARCHITECTURE.md:2080–2093, :1934–1951; tests/replay-validation/bugHunt/lib/registry.js:1984–1989",
+   "klass": "TÄCKT"
+  },
+  {
+   "värld": 972,
+   "kort": "F07",
+   "mmsi": "265159025",
+   "bro": "Stridsbergsbron",
+   "mekanism": "M3",
+   "rotorsak": "QUEST tyst sedan 13:32:32 (1 067 m), absorberad i #4, korsar först (B = A); kedja #4 → #6 (J33 (a)); vid #6:s täckningsslut släpps hon och MASEN (också tyst, absorberad i samma händelser) i samma utvärdering och binds till ny händelse #10 som MASEN leder på rått avstånd; W 13:54:52 med hennes fix 22 min gammal. Predikatet kräver att hon själv leder.",
+   "filRad": "lib/services/BridgeOpeningService.js:1868–1874, :2761; tests/replay-validation/bugHunt/lib/registry.js:1927",
+   "klass": "TÄCKT"
+  },
+  {
+   "värld": 138,
+   "kort": "B01",
+   "mmsi": "265162344",
+   "bro": "Stridsbergsbron",
+   "mekanism": "B01",
+   "rotorsak": "Flashen 09:54:00 (84 s) är ULLA:s STALE_DISPLAY_DROP vid 20 min (U1-C11, DESIGN): hon tystnade 125 m före bron och korsade tyst. Kajposten matchade kajliggaren TROLLA 265162412 (navStatus 5, aldrig målbro, aldrig i texten) eftersom predikatet godtar vilken båt som helst som ligger still ≥ 3 min i en kapsel; posten står före U1-C11.",
+   "filRad": "tests/replay-validation/bugHunt/lib/registry.js:1023–1046; tests/replay-validation/bugHunt/beslutsregister.json:74, :133",
+   "klass": "MOTORFEL"
+  }
+ ],
+ "mekanismer": [
+  {
+   "id": "M1",
+   "världar": [
+    1973,
+    510,
+    537,
+    625,
+    1337,
+    1629,
+    1704,
+    1752,
+    479
+   ],
+   "klass": "TÄCKT",
+   "rotorsak": "U17-släppet vid täckningsslutet (BridgeOpeningService.js:2171–2197, domen täckningsslut :2340) för en tyst absorberad båt vars appprognos låg inom fönstret vid varje fix efter att E:s första passage blev känd (marginal +3,5…+134 s). Motorns villkor (3b) (restid med radens fart ≤ 0,6 av tiden kvar, registry.js:1984–1989) kan inte återskapa appens ETA, som nära broarna är upp till 3 × den raka restiden, och gav kvoter 0,78–1,03.",
+   "rättning": "Ingen appändring. Motor/harness: replayRunner.js#instrumentApp bokför släppvägens indata och dom (openingCoverageVerdicts), och villkor (3′) prövar appens egen prognos mot fönstrets slut i stället för kvotregeln, plus att W följer ett släpp med domen täckningsslut. Kvotregeln finns kvar för resultat utan spåret. Skiss: S/varv2/tB/skiss-M1-u17-prognosspar.diff.",
+   "fråga": null,
+   "post": "Utvidga U17-TYST-BÅT-RECOVER (510, 1704 och 790 via K-TYST-BÅT-NÄSTA-ÖPPNING) med villkor (3′): varje dom covered för henne i E efter bokförd första passage (rent, ofryst fix före täckningsslutet, inte kurs bort) har expectedArrivalMs ≤ min(coverUntilMs, max(firedAt, firstPassageAt) + 600 s) (golvhållen: coverUntilMs), och W kommer högst en tick efter ett släpp med domen täckningsslut. Källa: docs/ARCHITECTURE.md:1934–1951 (U17); BridgeOpeningService.js#_coverageVerdict; replayRunner.js#instrumentApp; BUGGJAKT §7 rad 32 och granskningens anmärkning (a).",
+   "risk": "Ingen app- eller facitrisk; harnessfältet är additivt. Självtestet med fältet är GRÖNT (determinism, SHIFT30 och MMSI 24/24, kanarier 5/5, rundresa 45/45). Standardens sanningsspår: exakt 10 registerutfall byts (7 KANDIDAT → U17, 3 → K-NÄSTA, bland dem 790 i F02). Mutationen med bakkanten bortkopplad (BridgeOpeningService.js:2312) gav 75 nya utslag, varav 0 till U17/K-NÄSTA (67 KANDIDAT, 8 U2-VS-DEADLINE); 14 fälldes av det nya villkoret (3′)."
+  },
+  {
+   "id": "M2",
+   "världar": [
+    941
+   ],
+   "klass": "MOTORFEL",
+   "rotorsak": "registry.js:1940 jämför radens mottagningstid (aisTimestamp) med korsningen; för AISHub-rader kan fixen vara äldre, och positionen avgör om appen kunde se passagen.",
+   "rättning": "Jämför fixtid(sista) < kors.t. Jest-vakten \"värld 941 hördes efter korsningen\" blir ett träfffall, och en ny vakt med fixen efter korsningen ger KANDIDAT. Rätta BUGGJAKT §7 rad 27 (motexemplet 941). Skiss: S/varv2/tB/skiss-M2-tyst-over-korsningen-fixtid.diff.",
+   "fråga": null,
+   "post": "Ingen ny post; efter rättningen tar U17-TYST-BÅT-RECOVER värld 941 (B − A 428 s).",
+   "risk": "Bara motorn. Fler AISHub-fall med rader mottagna efter korsningen men fix före kan flytta till U17/K-NÄSTA; räknas vid nästa körning."
+  },
+  {
+   "id": "M3",
+   "världar": [
+    972
+   ],
+   "klass": "TÄCKT",
+   "rotorsak": "Gemensam RECOVER: två tysta båtar släpps i samma utvärdering ur samma händelse och binds till en ny händelse som den närmaste leder (_bindLooseArms → _openEvent, BridgeOpeningService.js:1868–1874; _leadOf :2761). Predikatets villkor (2) kräver att fyndets båt själv leder (registry.js:1927).",
+   "rättning": "Villkor (2) godtar en annan ledare L när hon är medlem i W, när hennes och L:s senaste absorption vid bron före W gällde samma händelse, och när ingen av dem har en egen rad mellan absorptionen och W. Skiss: S/varv2/tB/skiss-M3-gemensam-recover.diff.",
+   "fråga": null,
+   "post": "Utvidga villkor (2) i U17-TYST-BÅT-RECOVER och K-TYST-BÅT-NÄSTA-ÖPPNING. Källa: BridgeOpeningService.js#_bindLooseArms, #_leadOf och #_releaseStrandedArms; U17.",
+   "risk": "Bara motorn."
+  },
+  {
+   "id": "M4",
+   "världar": [
+    625
+   ],
+   "klass": "MÄTGRÄNS",
+   "rotorsak": "Spärren vid tidigare bro (BridgeOpeningService.js:1302–1316) släpper i tystnad efter STALE_ETA_SOFT_MS (reservvarningen, ARCHITECTURE.md:858–873). DAGNY gick ur kön 3,6 s efter sin sista (stilla) fix och hördes inte på 11,6 min, eftersom R1 drar kadensen ur tillståndet vid fixen (BUGGJAKT §4.5). För 60 s ledtid hade appen behövt varna 187 s efter en fix som visade henne still i kön, utan ny data.",
+   "rättning": "Ingen appändring. Motorn: byt kadensregim i radio.js när rörelsetillståndet byts (v1.1).",
+   "fråga": null,
+   "post": "Ny post MÄTGRÄNS-R1-STILLAKADENS-VID-KÖAVGÅNG (T3 VARNING-EFTER-SANN-PASSAGE och T2 ÖPPNING-MISS:OKLASSAD). Predikat: W leds av henne, avfyras av ticken vid sista fixtid + STALE_ETA_SOFT_MS (± en tick); hennes sista rad före W är still i ett L0-köstopp vid en annan bro; köstoppet slutar efter raden; ingen egen rad mellan köns slut och korsningen. Källa: BUGGJAKT §4.5; BridgeOpeningService.js#_refreshArm; ARCHITECTURE.md:858–873.",
+   "risk": "Ingen app- eller facitrisk."
+  },
+  {
+   "id": "B01",
+   "världar": [
+    138
+   ],
+   "klass": "MOTORFEL",
+   "rotorsak": "mooringCapsuleStationary (registry.js:1023–1046) godtar vilken båt som helst som ligger still ≥ 3 min i en kajkapsel > 600 m från bron. I värld 138 matchade kajliggaren TROLLA, som aldrig hade målbro, medan flashen var U1-C11 (ULLA:s 20-minuterssteg).",
+   "rättning": "Bind predikatet till zonregelns demotion av textens bärare: rörelsebevis före stillheten (MOVEMENT_PROOF_SOG_KN), navStatus inte 1 eller 5, och episodens start högst en tick efter raden där stilltiden nått 3 min (eller zonens queueGraceMs inom 600 m, parametern medGrace). Skiss: S/varv2/tB/skiss-B01-kajpredikat.diff (B01 och värld 138 → DESIGN U1-C11; eget scenario norrut 6 min i Kajen → KONFLIKT kvar).",
+   "fråga": "Kajfrågan (nedan) är ägarens; den gäller köare vid Klaffbron, inte värld 138.",
+   "post": "D1-KAJZON-DEMOTION behåller klassen KONFLIKT men med det bundna predikatet och en omformulerad fråga (köaren inom 600 m efter queueGraceMs).",
+   "risk": "Bara motorn; posten används i dag en gång, och den användningen är felaktig."
+  }
+ ],
+ "kajfrågan": {
+  "förklaring": "Strax norr om Klaffbron, 190–300 m från bron, finns en kaj. En båt som ligger stilla där räknas som förtöjd och tas bort ur brotexten. En båt på väg mot Klaffbron får ligga stilla där i 15 minuter först. Köerna vid Klaffbron är ofta längre. Efter 15 minuter står det \"Inga båtar är i närheten\" fast en båt väntar 250 m från bron. När hon kör vidare kommer hon tillbaka med en ny öppningsvarning, ibland en halv minut före passagen (buggjägarens värld 313: 32 s). Det bryter mot ägarbeslutet D1 (2026-06-03): en båt som står still eller väntar inom 500 m från sin målbro ska stå kvar som \"på väg mot Klaffbron\". I buggjägarens 2 000 provvärldar hände det 9 gånger, med sammanlagt cirka 150 minuter \"Inga båtar\". Kortet B01 (värld 138) var inte det här fallet: där blinkade texten för att en annan båt tystnat i 20 min (beslutet U1/C11), och buggjägaren pekade ut fel båt. Fallet \"3 min och mer än 600 m\" krockar inte med D1. I de 24 låsta fältinspelningarna (482 h) har kajregeln aldrig tagit en båt på väg mot Klaffbron. De två fall där den tog en målbro gällde båtar norrut mot Stridsbergsbron (ELFKUNGEN och SUSANNE, som låg förtöjd 67 min), och där var den rätt.",
+  "alternativ": [
+   {
+    "namn": "A. Behåll som i dag (15 minuter)",
+    "vad händer för användaren": "En båt som köar länge vid kajen försvinner ur texten efter 15 min och får en ny, ibland mycket sen, öppningsvarning när hon går. En båt som verkligen lägger till försvinner efter 15 min.",
+    "risk": "Användaren tror att ingen båt väntar vid Klaffbron; den andra varningen kan komma för sent (32 s i värld 313)."
+   },
+   {
+    "namn": "B. En väntande båt står kvar",
+    "vad händer för användaren": "En båt som kom in mot Klaffbron och fortsätter sända står kvar som \"på väg mot Klaffbron\" tills hon kör vidare, sänder status förtöjd eller ligger still mer än 2 timmar. Ingen extra varning; samma som köer utanför kajen.",
+    "risk": "En båt som lägger till vid kajen utan att sända status förtöjd (vanligt för småbåtar) visas som \"på väg\" i upp till 2 timmar. Det är ett falsklarm i texten, utan extra öppningsvarning."
+   },
+   {
+    "namn": "C. Längre väntetid vid kajen, till exempel 40 minuter",
+    "vad händer för användaren": "De flesta köer (cirka 9 av 10) klaras; de längsta beter sig som i dag.",
+    "risk": "En båt som lägger till visas som \"på väg\" i upp till 40 min; de längsta köerna får samma problem som i dag."
+   }
+  ],
+  "rekommendation": "B. Att dölja en båt som väntar vid bron och sedan varna en halv minut före passagen är i praktiken en missad öppning. Ett \"på väg\" för en båt som lagt till är ett falsklarm, och produktprincipen säger att det första är värre. B stämmer med D1 och med hur köer utanför kajen behandlas. B flyttar inget låst facit, eftersom banken saknar fallet (U13). Bygg den med ett regressionstest av scenariot (köare 250 m från Klaffbron i 25 min). Visar ett fältprov att båtar söderut ofta lägger till vid kajen utan att sända förtöjd, är C mellanvägen."
+ }
+}

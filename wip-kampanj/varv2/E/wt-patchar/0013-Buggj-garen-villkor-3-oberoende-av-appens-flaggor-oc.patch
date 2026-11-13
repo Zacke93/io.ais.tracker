@@ -1,0 +1,241 @@
+From f0b7dc0590dfd4754410f800a0d688aacec7905a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 15:24:55 +0000
+Subject: [PATCH 13/17] =?UTF-8?q?Buggj=C3=A4garen:=20villkor=20(3=E2=80=B2?=
+ =?UTF-8?q?)=20oberoende=20av=20appens=20flaggor=20och=20f=C3=B6nsterslut?=
+ =?UTF-8?q?=20(varv=202,=20granskningen=20H1)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Granskningen av varv 2 (H1, hög): de rena bakkantsdomarna valdes med appens
+egna flaggor, (3a) hoppade över raderna med domspåret, och fönsterslutet var
+appens windowEndMs. En bakkant som slogs ut via renhetsflaggan syntes inte:
+mutationen "aldrig rent fix" gav 4 av 23 KANDIDAT i quick mot c14938f:s 21.
+
+Rättningen är granskarens förslag-H1.diff:
+- med domspåret prövas fysiken ur varje egen rad efter att passagen blev
+  känd, mot fönstrets slut vid raden (3a′);
+- fönstrets slut är det tidigare av domens windowEndMs och motorns räknade
+  slut ur armen och händelsen;
+- appens renhetsflagga lastFixClean undantar inte en dom från prognosprovet.
+
+Jest: k-varv2-motor.test.js (aldrig rent fix, fryst arm, windowEndMs efter
+det räknade slutet; tre fäller 1dfd18a). BUGGJAKT §7 rad 50.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/BUGGJAKT.md                              |  1 +
+ .../bugHunt/__tests__/k-varv2-motor.test.js   | 46 +++++++++++++++
+ .../bugHunt/beslutsregister.json              |  8 +--
+ .../replay-validation/bugHunt/lib/registry.js | 58 ++++++++++++++-----
+ 4 files changed, 93 insertions(+), 20 deletions(-)
+
+diff --git a/docs/BUGGJAKT.md b/docs/BUGGJAKT.md
+index 676d9af..92340cf 100644
+--- a/docs/BUGGJAKT.md
++++ b/docs/BUGGJAKT.md
+@@ -412,6 +412,7 @@ Rad 1–17 och 19–22 rättar motorfel eller registrerar en mätgräns i ett be
+ | 47 | Källhänvisningarna till VesselDataService.js (varv 2, samspelet med familj A) | Radhänvisningarna i `beslutsregister.json` till `lib/services/VesselDataService.js` pekar på symboler: `#FIX_D_MIN_SOG` (Fix D-blocket i updateVessel, förut :380–407, :446–476 och :385–491), `#_createVesselObject` (förut :5286–5287 och :5291), `#getVesselsForBridgeText` (trappan, förut :2361–2465) och `#STALE_AIS_TIMEOUT_MS` (förut :84). Laddningen kontrollerar att symbolerna finns. | Familj A flyttar VDS:385–491 till :398–504, och familjerna C och F ändrar också filen; :5286–5287 pekade redan på c14938f på koordinatkontrollen, inte på reserven för sog och cog. Ingen post ändrar utfall. |
+ | 48 | U17-TYST-BÅT-RECOVER och K-TYST-BÅT-NÄSTA-ÖPPNING (varv 2, värld 1837) | Villkor (3a) mäter med domspåret varje rad efter att passagen blev känd mot fönstrets slut i appens dom när raden bearbetades (den första domen från bearbetningen, när den är en dom `covered` efter passagen), i stället för mot det skattade tidigaste slutet, vars term W − TICK_INTERVAL_MS kan ligga före appens täckningsslut. Utan domspår, eller när domen inte är en sådan dom, gäller skattningen som förut. | Motorfel som M9:s radio visade i värld 1837: 265594787:s rad 12:52:32 (fixen 85 m före bron i 5,4 kn) bearbetades 16 s efter W − tickMs men 14 s före täckningsslutet 12:52:46,115. Appens prognos 12:52:43,9 och den fysiska ankomsten 12:52:44,6 låg inom slutet, hon korsade 12:52:43,9 osedd, och RECOVERn kom 12:52:46,1: U17:s fall. (3′) prövar prognosen och fysiken vid raden, så ingen bakkantsregression göms: i mutationsproven (bakkanten respektive under-bron-hållet bortkopplade, punkt 1–6) fälldes inget utslag av (3a). Jest: `k-varv2-motor.test.js` (1837 ur fixturen `varv2-m9-1837-2026-11-09.json`, utan domspår, och en rad efter slutet i sin egen dom). |
+ | 49 | U17-TYST-BÅT-RECOVER, K-TYST-BÅT-NÄSTA-ÖPPNING och U24-DELAD-KÖ-EXTRA-VARNING (varv 2, inför sammanslagningen) | Källorna pekar på `replayRunner.js#instrumentCoverageVerdicts`, den egna funktion som harnessens domspår nu ligger i (förut ett block i `instrumentApp`). U16-F40-STRAX-STUDS:s krav 6 (ingen fix i en kajkapsel) är oförändrat; motiveringen i predikatets kommentar och i avsnittet om U16 säger att en köare vid Kajen efter U23 kan bära "strax" i upp till 2 h, inte 15 min. | Dirigenten efter granskningen av familj F (L2): familj F lägger också till instrumentering i `replayRunner.js` (`confirmedTargetWaits`), och en egen funktion gör sammanslagningen enkel. Flytten är ren kodflytt: replayresultaten är bitlika (bitlik.js på alla korpusar, med och utan monitoring). |
++| 50 | U17-TYST-BÅT-RECOVER och K-TYST-BÅT-NÄSTA-ÖPPNING (varv 2, granskningen H1) | Villkor (3′) är oberoende av appens flaggor och fönsterslut: (a) med domspåret prövas fysiken ur varje egen rad efter att passagen blev känd, mot fönstrets slut vid raden (förut hoppade (3a) över raden med spåret och prövade fysiken bara vid de rena domarna); (b) fönstrets slut är det tidigare av domens `windowEndMs` och motorns räknade slut ur armen och händelsen; (c) appens renhetsflagga `lastFixClean` undantar inte längre en dom från prognosprovet (frysning och kurs bort gör det fortfarande). | Granskningen av varv 2, anmärkning H1 (hög): rena domar valdes med appens egna flaggor, och en bakkant som slogs ut via renhetsflaggan blev osynlig. Mutationen "aldrig rent fix" (`arm.lastFixClean = false` i `_refreshArm`) gav i quick 4 av 23 KANDIDAT med 1dfd18a mot 21 av 23 med c14938f:s motor, och "fönsterslut = täckningsslut" på familj B:s 5d4b2c3 2 av 3. Rättningen är granskarens `förslag-H1.diff` (prototypen fixprov3). Jest: `k-varv2-motor.test.js` (aldrig rent fix i 625, 1973 och 1337, en fryst arm, och windowEndMs senare än det räknade slutet; tre fäller 1dfd18a). Mätt i bilaga A.7. |
+ 
+ **Valet för M12, per post** (flytta vakten till registret eller märka posten):
+ - **KAJGRIND-UTAN-RÖRELSEBEVIS: märkt.** T1:s förutsättning 3 (`t1Notice.js#judgeT1`, rörelsebeviset med MOVE_KN) dömer inget besök utan en fix med sog ≥ 1,0 kn i [tIn − 10 min; max(tOut, första fixen)] och räknar dem i `utanRörelsebevis`. Registrets fönster skilde bara med högst 120 s i svansen. Att flytta vakten till registret hade gjort varje kajliggare till ett rått T1-utslag.
+diff --git a/tests/replay-validation/bugHunt/__tests__/k-varv2-motor.test.js b/tests/replay-validation/bugHunt/__tests__/k-varv2-motor.test.js
+index 0f4b842..b9c1cc0 100644
+--- a/tests/replay-validation/bugHunt/__tests__/k-varv2-motor.test.js
++++ b/tests/replay-validation/bugHunt/__tests__/k-varv2-motor.test.js
+@@ -597,3 +597,49 @@ describe('Villkor (3a) med domspår: raden mäts mot fönstrets slut i appens do
+     expect(pred('tystRecoverSammaÖppning')(fynd, ctx).skäl).toMatch(/rad 12:52:32 kom efter .* och efter fönstrets slut 12:52:31 \(domen 12:52:32\): bakkanten kunde släppa henne/);
+   });
+ });
++
++describe('H1 (granskningen av varv 2): villkor (3′) är oberoende av appens flaggor och fönsterslut', () => {
++  // En bakkant som slås ut genom att appen markerar fixen som orena, eller
++  // genom att appens fönsterslut blir för sent, ska synas som KANDIDAT, som
++  // med c14938f:s kvotregel. Mutationerna "aldrig rent fix" och "fönsterslut
++  // = täckningsslut" i quick: BUGGJAKT §7 rad 50 och bilaga A.7.
++  const medSistaRad = (k, sog) => {
++    const a = fall(k);
++    a.ctx.rader.filter((r) => r.mmsi === a.fynd.mmsi && r.aisTimestamp < a.fynd.t).pop().sog = sog;
++    return a;
++  };
++
++  test('[vakt] aldrig rent fix: appen markerar hennes fix som orena och fysiken i 1 kn ligger efter fönstret; KANDIDAT', () => {
++    for (const k of ['w625', 'w1973', 'w1337']) {
++      const { fynd, ctx } = medSistaRad(k, 1);
++      for (const v of ctx.resultat.openingCoverageVerdicts) if (v.mmsi === fynd.mmsi) v.arm.lastFixClean = false;
++      expect([k, klassa(reg, fynd, ctx).klass]).toEqual([k, 'KANDIDAT']);
++      expect(pred('tystRecoverSammaÖppning')(fynd, ctx).skäl).toMatch(/den fysiska ankomsten .* låg efter fönstrets slut/);
++    }
++  });
++
++  test('[vakt] en fryst arm i domspåret undantar inte raden från fysikprovet; KANDIDAT', () => {
++    const { fynd, ctx } = medSistaRad('w625', 1);
++    for (const v of ctx.resultat.openingCoverageVerdicts) if (v.mmsi === fynd.mmsi && v.event && Number.isFinite(v.event.firstPassageAt)) v.frozen = true;
++    expect(klassa(reg, fynd, ctx).klass).toBe('KANDIDAT');
++    expect(pred('tystRecoverSammaÖppning')(fynd, ctx).skäl).toMatch(/den fysiska ankomsten .* \(202 m, 1 kn\) låg efter fönstrets slut 09:28:01/);
++  });
++
++  test('[vakt] fönsterslut = täckningsslut: domens windowEndMs ligger senare än motorns räknade slut, och det tidigare gäller; KANDIDAT', () => {
++    const { fynd, ctx } = medSistaRad('w625', 2.0);
++    for (const v of ctx.resultat.openingCoverageVerdicts) {
++      if (v.mmsi === fynd.mmsi && v.verdict.kind === 'covered' && v.event && Number.isFinite(v.event.firstPassageAt)) v.verdict.windowEndMs = v.arm.coverUntilMs;
++    }
++    expect(klassa(reg, fynd, ctx).klass).toBe('KANDIDAT');
++    expect(pred('tystRecoverSammaÖppning')(fynd, ctx).skäl).toMatch(/låg efter fönstrets slut 09:28:01/);
++  });
++
++  test('[träff] utan ändringar är de nio U17- och K-NÄSTA-fallen och 1837 oförändrade', () => {
++    for (const k of ['w1973', 'w537', 'w625', 'w1337', 'w1629', 'w1752', 'w479']) {
++      const { fynd, ctx } = fall(k);
++      expect([k, klassa(reg, fynd, ctx).post]).toEqual([k, 'U17-TYST-BÅT-RECOVER']);
++    }
++    const m = kopia(require('./fixtures/varv2-m9-1837-2026-11-09.json').w1837);
++    expect(klassa(reg, m.fynd, m.ctx).post).toBe('U17-TYST-BÅT-RECOVER');
++  });
++});
+diff --git a/tests/replay-validation/bugHunt/beslutsregister.json b/tests/replay-validation/bugHunt/beslutsregister.json
+index 177ff28..f0bec7c 100644
+--- a/tests/replay-validation/bugHunt/beslutsregister.json
++++ b/tests/replay-validation/bugHunt/beslutsregister.json
+@@ -530,7 +530,7 @@
+       "id": "U17-TYST-BÅT-RECOVER",
+       "klass": "DESIGN",
+       "datum": "2026-11-04",
+-      "källa": "docs/ARCHITECTURE.md:1934–1951 (U17, ägarbeslut 2026-11-04: säkerhetsvarningen för en tyst båt behålls); lib/services/BridgeOpeningService.js#_coverageVerdict (täckningsslutet, bakkanten, hållen under bron (1c) och kursen bort (1d)), #_courseAway, #_bindLooseArms och #_leadOf (gemensam RECOVER); tests/replay-validation/replayRunner.js#instrumentCoverageVerdicts (släppvägens domspår, openingCoverageVerdicts); lib/services/BridgeOpeningService.js:138 (MOVING_SOG_KN); lib/constants.js:46 (UNDER_BRIDGE_SET_DISTANCE), :1065 (MINIMUM_VIABLE_SPEED), :1375 (CONVOY_WINDOW_MS), :1577 (WAITING_CLEAR_DISTANCE); KAMPANJ.md, dirigentens beslut 2026-11-05 (under bron-hållet); docs/BUGGJAKT.md §7 (användarbeslut U17; registerändringarna 2026-11-07, rad 27 och 32; varv 2, rad 37, 38, 41, 43, 48 och 49)",
++      "källa": "docs/ARCHITECTURE.md:1934–1951 (U17, ägarbeslut 2026-11-04: säkerhetsvarningen för en tyst båt behålls); lib/services/BridgeOpeningService.js#_coverageVerdict (täckningsslutet, bakkanten, hållen under bron (1c) och kursen bort (1d)), #_courseAway, #_bindLooseArms och #_leadOf (gemensam RECOVER); tests/replay-validation/replayRunner.js#instrumentCoverageVerdicts (släppvägens domspår, openingCoverageVerdicts); lib/services/BridgeOpeningService.js:138 (MOVING_SOG_KN); lib/constants.js:46 (UNDER_BRIDGE_SET_DISTANCE), :1065 (MINIMUM_VIABLE_SPEED), :1375 (CONVOY_WINDOW_MS), :1577 (WAITING_CLEAR_DISTANCE); KAMPANJ.md, dirigentens beslut 2026-11-05 (under bron-hållet); docs/BUGGJAKT.md §7 (användarbeslut U17; registerändringarna 2026-11-07, rad 27 och 32; varv 2, rad 37, 38, 41, 43, 48, 49 och 50)",
+       "gäller": {
+         "orakel": [
+           "T3"
+@@ -543,13 +543,13 @@
+           "läge": "samma"
+         }
+       },
+-      "regel": "U17: RECOVER-släppets säkerhetsvarning för en tyst båt behålls. Den gäller en båt vars senaste position sa att hon skulle hinna igenom den gemensamma öppningen, men där appen inte vet om hon gjorde det; F11/F23-klassen är ett falsklarm av samma slag som AVBRUTEN_APPROACH. Predikatet speglar släppvägen vid täckningsslutet och kräver alla: (1) båten absorberades vid bron i en levererad händelse E före sin sanna korsning, och E:s varning kom före korsningen; E är händelsen i den sista sådana absorptionen, den som täckte henne när hon korsade. (2) Fyndets varning kom efter absorptionen och avfyrades av ticken (firedBy 'deadline'), och den är hennes RECOVER: hon leder den, eller den är en gemensam RECOVER (varv 2): en annan ledare godtas när hon är medlem i varningen, när hennes och ledarens senaste absorption vid bron före varningen gällde samma händelse och när ingen av dem hade en egen rad mellan sin absorption och varningen (två tysta båtar som släpps ur samma händelse binds till en ny händelse med den närmaste som ledare, _bindLooseArms och _leadOf). (3) Tyst, så att bakkanten inte kunde släppa henne: bakkanten släpper på ett eget fix efter att E:s första passage blev känd (bokförd, eller den täckta båtens första rad efter sin korsning) när prognosen ligger efter fönstrets slut, utom när kursen leder bort. Därför: ingen egen rad efter att passagen blev känd bearbetades efter fönstrets tidigaste slut min(känd + 600 s, max(E, första korsningen) + 600 s, varningen − TICK_INTERVAL_MS) (för T2 LEDTID är det tystnadsvillkoret; med släppvägens domspår gäller i stället fönstrets slut i appens dom när raden bearbetades, varv 2, värld 1837), och för varje sådan rad är restiden till bron med radens fart (minst MINIMUM_VIABLE_SPEED) högst 0,6 av tiden kvar till fönstrets tidigaste slut. Appens ETA går inte att återskapa ur raderna; en prognos nära fönstrets slut bevisar inte U17:s premiss och blir KANDIDAT. När replayresultatet bär släppvägens domspår (openingCoverageVerdicts, varv 2) ersätts kvotregeln av domspåret: ingen dom från absorptionen till varningen var 'bakkant', heller inte U24:s släpp på hennes egen deadline före första passagen (skälet 'egen deadline …', familj B:s M7); vid varje ren bakkantsdom (före täckningsslutet när passagen är bokförd före hennes korsning, över ett fix efter den skattade första passagen, GPS-rent, inte fryst, utan kurs bort) ligger BÅDE appens ankomst (domens arrivalMs när domen bär den, efter familj B:s M5 den senare av prognosen och armens fysik under 2,5 kn; annars prognosen expectedArrivalMs) OCH den fysiska ankomsten ur samma fix (fixens tid + avståndet till bron med fixets fart, minst MINIMUM_VIABLE_SPEED) inom domens fönsterslut (domens windowEndMs när den finns); och varningen kommer högst TICK_INTERVAL_MS efter hennes senaste dom 'täckningsslut'. Appens prognos ensam räcker inte, eftersom ETA-kedjans golv kan lägga en krypares prognos minuter för tidigt och posten då skulle dölja prognosfelet. För T3 låg dessutom fixen i hennes sista rad före varningen före korsningen (fixens tid, inte mottagningens: en AISHub-rad som tas emot efter korsningen men bär en fix från före den visar henne före bron; rättat i varv 2, M2). (4) Inget håll vid täckningsslutet gällde hennes sista rad: inte högst UNDER_BRIDGE_SET_DISTANCE (50 m) från bron i minst MINIMUM_VIABLE_SPEED (dirigentens beslut 2026-11-05: hon har i praktiken passerat) och inte kursen bort (_courseAway: minst MOVING_SOG_KN, utanför WAITING_CLEAR_DISTANCE, mer än 90° från bäringen till bron). (5) Hennes korsning ligger högst CONVOY_WINDOW_MS (600 s) efter E:s första sanna korsning av en båt som E täckte när hon korsade, hennes egen medräknad. Ingen fixålder. Skärpt 2026-11-07 efter granskningens mutationsprov (bakkanten respektive under-bron-hållet bortkopplade i _coverageVerdict): utan (1):s absorption före korsningen, (3) och (4) tog posterna 46 nya utslag."
++      "regel": "U17: RECOVER-släppets säkerhetsvarning för en tyst båt behålls. Den gäller en båt vars senaste position sa att hon skulle hinna igenom den gemensamma öppningen, men där appen inte vet om hon gjorde det; F11/F23-klassen är ett falsklarm av samma slag som AVBRUTEN_APPROACH. Predikatet speglar släppvägen vid täckningsslutet och kräver alla: (1) båten absorberades vid bron i en levererad händelse E före sin sanna korsning, och E:s varning kom före korsningen; E är händelsen i den sista sådana absorptionen, den som täckte henne när hon korsade. (2) Fyndets varning kom efter absorptionen och avfyrades av ticken (firedBy 'deadline'), och den är hennes RECOVER: hon leder den, eller den är en gemensam RECOVER (varv 2): en annan ledare godtas när hon är medlem i varningen, när hennes och ledarens senaste absorption vid bron före varningen gällde samma händelse och när ingen av dem hade en egen rad mellan sin absorption och varningen (två tysta båtar som släpps ur samma händelse binds till en ny händelse med den närmaste som ledare, _bindLooseArms och _leadOf). (3) Tyst, så att bakkanten inte kunde släppa henne: bakkanten släpper på ett eget fix efter att E:s första passage blev känd (bokförd, eller den täckta båtens första rad efter sin korsning) när prognosen ligger efter fönstrets slut, utom när kursen leder bort. Därför: ingen egen rad efter att passagen blev känd bearbetades efter fönstrets tidigaste slut min(känd + 600 s, max(E, första korsningen) + 600 s, varningen − TICK_INTERVAL_MS) (för T2 LEDTID är det tystnadsvillkoret; med släppvägens domspår gäller i stället fönstrets slut i appens dom när raden bearbetades, varv 2, värld 1837), och för varje sådan rad är restiden till bron med radens fart (minst MINIMUM_VIABLE_SPEED) högst 0,6 av tiden kvar till fönstrets tidigaste slut. Appens ETA går inte att återskapa ur raderna; en prognos nära fönstrets slut bevisar inte U17:s premiss och blir KANDIDAT. När replayresultatet bär släppvägens domspår (openingCoverageVerdicts, varv 2) ersätts kvotregeln av domspåret: ingen dom från absorptionen till varningen var 'bakkant', heller inte U24:s släpp på hennes egen deadline före första passagen (skälet 'egen deadline …', familj B:s M7); vid varje ren bakkantsdom (före täckningsslutet när passagen är bokförd före hennes korsning, över ett fix efter den skattade första passagen, inte fryst, utan kurs bort; appens renhetsflagga räknas inte) ligger BÅDE appens ankomst (domens arrivalMs när domen bär den, efter familj B:s M5 den senare av prognosen och armens fysik under 2,5 kn; annars prognosen expectedArrivalMs) OCH den fysiska ankomsten ur samma fix (fixens tid + avståndet till bron med fixets fart, minst MINIMUM_VIABLE_SPEED) inom domens fönsterslut (det tidigare av domens windowEndMs och motorns räknade slut ur armen och händelsen); den fysiska ankomsten ur VARJE egen rad efter att passagen blev känd ligger inom fönstrets slut vid raden, oavsett appens flaggor (granskningen av varv 2, H1); och varningen kommer högst TICK_INTERVAL_MS efter hennes senaste dom 'täckningsslut'. Appens prognos ensam räcker inte, eftersom ETA-kedjans golv kan lägga en krypares prognos minuter för tidigt och posten då skulle dölja prognosfelet. För T3 låg dessutom fixen i hennes sista rad före varningen före korsningen (fixens tid, inte mottagningens: en AISHub-rad som tas emot efter korsningen men bär en fix från före den visar henne före bron; rättat i varv 2, M2). (4) Inget håll vid täckningsslutet gällde hennes sista rad: inte högst UNDER_BRIDGE_SET_DISTANCE (50 m) från bron i minst MINIMUM_VIABLE_SPEED (dirigentens beslut 2026-11-05: hon har i praktiken passerat) och inte kursen bort (_courseAway: minst MOVING_SOG_KN, utanför WAITING_CLEAR_DISTANCE, mer än 90° från bäringen till bron). (5) Hennes korsning ligger högst CONVOY_WINDOW_MS (600 s) efter E:s första sanna korsning av en båt som E täckte när hon korsade, hennes egen medräknad. Ingen fixålder. Skärpt 2026-11-07 efter granskningens mutationsprov (bakkanten respektive under-bron-hållet bortkopplade i _coverageVerdict): utan (1):s absorption före korsningen, (3) och (4) tog posterna 46 nya utslag."
+     },
+     {
+       "id": "K-TYST-BÅT-NÄSTA-ÖPPNING",
+       "klass": "KÄND_ÖPPEN",
+       "datum": "2026-11-05",
+-      "källa": "docs/ARCHITECTURE.md:1934–1951 (U17) och :1883–1905 (täckningsslutet räknas från bokföringen, dirigentens beslut 2026-11-05, U13); lib/services/BridgeOpeningService.js#_coverageVerdict; lib/constants.js:1375 (CONVOY_WINDOW_MS); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 28 och 32; varv 2, rad 37, 38, 41, 43, 48 och 49); tests/replay-validation/replayRunner.js#instrumentCoverageVerdicts (släppvägens domspår); docs/BUGGJAKT.md §7 (varv 2, rad 42: T2-vyn ÖPPNING-MISS:OKLASSAD)",
++      "källa": "docs/ARCHITECTURE.md:1934–1951 (U17) och :1883–1905 (täckningsslutet räknas från bokföringen, dirigentens beslut 2026-11-05, U13); lib/services/BridgeOpeningService.js#_coverageVerdict; lib/constants.js:1375 (CONVOY_WINDOW_MS); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 28 och 32; varv 2, rad 37, 38, 41, 43, 48, 49 och 50); tests/replay-validation/replayRunner.js#instrumentCoverageVerdicts (släppvägens domspår); docs/BUGGJAKT.md §7 (varv 2, rad 42: T2-vyn ÖPPNING-MISS:OKLASSAD)",
+       "gäller": {
+         "orakel": [
+           "T2",
+@@ -563,7 +563,7 @@
+           "läge": "nästa"
+         }
+       },
+-      "regel": "K-familjens kvarvarande gräns efter revision 3: villkor (1)–(4) som i U17-TYST-BÅT-RECOVER (absorberad i E före korsningen, egen eller gemensam RECOVER på tick, tyst så att bakkanten inte kunde släppa henne, inget håll vid täckningsslutet), men hennes korsning ligger mer än CONVOY_WINDOW_MS (600 s) efter E:s första sanna korsning, så hon hörde enligt U2 till nästa öppning. Hon hölls av E:s täckning till täckningsslutet, som räknas från bokföringen, och hennes egen varning kom på tick efter korsningen (T3, även sedd som VARNING-PÅ-FRUSET-FIX) eller mindre än 60 s före den (T2 LEDTID). Det är en verklig sen varning; den kvarstår för att banken inte kan belägga alternativ A (U13). En båt som sände efter fönstrets slut, eller vars prognos låg nära slutet, kunde ha släppts av bakkanten och är KANDIDAT (granskningen av registret 2026-11-07); med släppvägens domspår (varv 2) prövas appens ankomst (domens arrivalMs när den finns) och den fysiska ankomsten mot fönstrets slut (domens windowEndMs när den finns) i stället för kvotregeln, och ett U24-släpp på hennes egen deadline räknas som bakkant, som i U17-TYST-BÅT-RECOVER. Samma händelse ses av T2 som ÖPPNING-MISS:OKLASSAD när hennes RECOVER kom efter korsningen: då är W hennes första levererade varning vid bron efter korsningen (högst CONVOY_WINDOW_MS efter), och villkoren är desamma som för T3 (varv 2, punkt 6, värld 510). För en båt i samma öppning tar U2-VS-DEADLINE den T2-vyn; för nästa öppning saknades den.",
++      "regel": "K-familjens kvarvarande gräns efter revision 3: villkor (1)–(4) som i U17-TYST-BÅT-RECOVER (absorberad i E före korsningen, egen eller gemensam RECOVER på tick, tyst så att bakkanten inte kunde släppa henne, inget håll vid täckningsslutet), men hennes korsning ligger mer än CONVOY_WINDOW_MS (600 s) efter E:s första sanna korsning, så hon hörde enligt U2 till nästa öppning. Hon hölls av E:s täckning till täckningsslutet, som räknas från bokföringen, och hennes egen varning kom på tick efter korsningen (T3, även sedd som VARNING-PÅ-FRUSET-FIX) eller mindre än 60 s före den (T2 LEDTID). Det är en verklig sen varning; den kvarstår för att banken inte kan belägga alternativ A (U13). En båt som sände efter fönstrets slut, eller vars prognos låg nära slutet, kunde ha släppts av bakkanten och är KANDIDAT (granskningen av registret 2026-11-07); med släppvägens domspår (varv 2) prövas appens ankomst (domens arrivalMs när den finns) och den fysiska ankomsten mot fönstrets slut (det tidigare av domens windowEndMs och motorns räknade slut), och fysiken ur varje egen rad efter att passagen blev känd, oavsett appens flaggor, i stället för kvotregeln, och ett U24-släpp på hennes egen deadline räknas som bakkant, som i U17-TYST-BÅT-RECOVER. Samma händelse ses av T2 som ÖPPNING-MISS:OKLASSAD när hennes RECOVER kom efter korsningen: då är W hennes första levererade varning vid bron efter korsningen (högst CONVOY_WINDOW_MS efter), och villkoren är desamma som för T3 (varv 2, punkt 6, värld 510). För en båt i samma öppning tar U2-VS-DEADLINE den T2-vyn; för nästa öppning saknades den.",
+       "fråga": "Ska en tyst konvojmedlem vars korsning ligger efter den gemensamma öppningens konvojfönster släppas på sin senaste prognos före täckningsslutet (K-familjens alternativ A), fast det flyttar en låst rad i banken som rådatan bara visar som likvärdig?"
+     },
+     {
+diff --git a/tests/replay-validation/bugHunt/lib/registry.js b/tests/replay-validation/bugHunt/lib/registry.js
+index d81880a..bfea761 100644
+--- a/tests/replay-validation/bugHunt/lib/registry.js
++++ b/tests/replay-validation/bugHunt/lib/registry.js
+@@ -607,9 +607,10 @@ function domspårFält(spår) {
+  * Är domen en ren bakkantsdom: en dom 'covered' före täckningsslutet, när
+  * händelsens första passage är bokförd och bokföringen kom före båtens
+  * korsning, över ett fix som armen tillämpade efter den skattade första
+- * passagen (firstPassageAt), GPS-rent, inte fryst och utan kurs bort? Det är
+- * de fix där bakkanten (_coverageVerdict) jämför, eller borde jämföra, appens
+- * prognos med fönstrets slut i tid för att ge henne en egen varning.
++ * passagen (firstPassageAt), inte fryst och utan kurs bort? Det är de fix där
++ * bakkanten (_coverageVerdict) jämför, eller borde jämföra, appens prognos
++ * med fönstrets slut i tid för att ge henne en egen varning. Appens
++ * renhetsflagga räknas inte (se nedan).
+  *  - Färskheten mäts mot den skattade passagen, som KRAV (2) i
+  *    ARCHITECTURE.md och familj B:s rättning av bakkanten (triage A, M4);
+  *    appen på c14938f mäter den mot bokföringen. Ett fix mellan passagen och
+@@ -631,19 +632,28 @@ function rentBakkantsfix(v, korsT) {
+   if (!(v.event.firstPassageRegisteredAt < korsT)) return false;
+   if (!(v.arm.lastSeenAt > v.event.firstPassageAt)) return false;
+   if (!(v.t <= v.arm.coverUntilMs)) return false;
+-  return v.arm.lastFixClean === true && v.frozen !== true && v.courseAway !== true;
++  // Appens renhetsflagga (arm.lastFixClean) undantar inte domen: världarnas
++  // fix är GPS-rena i sanningen, och U17:s premiss gäller vad hennes
++  // position sa, inte hur appen bedömde fixet. Med flaggan som undantag blev
++  // villkoret tomt när appen markerade fixen som orena, och en utslagen
++  // bakkant syntes inte (granskningen av varv 2, H1: mutationen "aldrig rent
++  // fix" gav 4 av 23 KANDIDAT mot c14938f:s 21).
++  return v.frozen !== true && v.courseAway !== true;
+ }
+ 
+ /**
+- * Fönstrets slut i domen. Bär domen `windowEndMs` (familj B, varv 2: det
+- * bakkanten jämförde med) gäller det; annars räknas det som i
+- * _coverageVerdict på c14938f: täckningen, eller U2-fönstret kring passagen
+- * om det slutar först.
++ * Fönstrets slut i domen: det tidigare av domens `windowEndMs` (familj B,
++ * varv 2: det bakkanten jämförde med) och motorns eget fönsterslut ur domens
++ * arm och händelse, som i _coverageVerdict på c14938f (täckningen, eller
++ * U2-fönstret kring passagen om det slutar först; en golvhållen arm bara
++ * täckningen). Appens tal ensamt räcker inte: ett för sent fönsterslut i appen
++ * hade annars gjort provet tomt (granskningen av varv 2, H1).
+  */
+ function domensFönsterslut(v, p) {
+-  if (Number.isFinite(v.verdict && v.verdict.windowEndMs)) return v.verdict.windowEndMs;
+-  if (v.arm.anchorFloor) return v.arm.coverUntilMs;
+-  return Math.min(v.arm.coverUntilMs, Math.max(Number.isFinite(v.event.firedAt) ? v.event.firedAt : 0, v.event.firstPassageAt) + p.fönsterMs);
++  const räknat = v.arm.anchorFloor ? v.arm.coverUntilMs
++    : Math.min(v.arm.coverUntilMs, Math.max(Number.isFinite(v.event.firedAt) ? v.event.firedAt : 0, v.event.firstPassageAt) + p.fönsterMs);
++  if (Number.isFinite(v.verdict && v.verdict.windowEndMs)) return Math.min(v.verdict.windowEndMs, räknat);
++  return räknat;
+ }
+ 
+ /**
+@@ -2168,15 +2178,18 @@ const PREDICATES = {
+   //            familj B:s M7); vid varje ren
+   //            bakkantsdom (rentBakkantsfix: 'covered' före täckningsslutet
+   //            när passagen är bokförd före hennes korsning, över ett fix som
+-  //            armen tillämpade efter den skattade första passagen, GPS-rent,
+-  //            inte fryst, utan kurs bort)
++  //            armen tillämpade efter den skattade första passagen, inte
++  //            fryst, utan kurs bort; appens renhetsflagga räknas inte, H1)
+   //            ligger BÅDE appens ankomst (domensAnkomst: domens arrivalMs
+   //            när den finns, efter familj B:s M5 den senare av prognosen
+   //            och armens fysik under 2,5 kn, annars expectedArrivalMs) OCH
+   //            den fysiska ankomsten ur samma fix (fixtid + avståndet till
+   //            bron med fixets fart, minst minFartKn) inom domens fönsterslut
+-  //            (domensFönsterslut: domens windowEndMs när den finns, annars
+-  //            som i _coverageVerdict); och W kommer
++  //            (domensFönsterslut: det tidigare av domens windowEndMs och
++  //            motorns räknade slut som i _coverageVerdict, H1); den fysiska
++  //            ankomsten ur VARJE egen rad efter att passagen blev känd ligger
++  //            inom fönstrets slut vid raden, oavsett appens flaggor (3a′,
++  //            granskningen av varv 2, H1); och W kommer
+   //            högst tickMs efter hennes senaste dom 'täckningsslut'. Appens
+   //            prognos ensam räcker inte: ETA-kedjans golv (2,5 kn efter en
+   //            passage) kan lägga en krypares prognos minuter för tidigt,
+@@ -2386,7 +2399,20 @@ const PREDICATES = {
+             + `${iDomen ? `slut ${fmtT(slutR)} (domen ${fmtT(domR.t)})` : `tidigaste slut ${fmtT(slut)}`}: `
+             + 'bakkanten kunde släppa henne, hon var inte tyst');
+         }
+-        if (spår) continue;
++        if (spår) {
++          // (3a′) Med spåret prövas fysiken ur VARJE egen rad efter att
++          // passagen blev känd, oberoende av appens flaggor (renhet, frysning,
++          // färskhet) och av vilka domar spåret bär, mot fönstrets slut i
++          // domen vid raden (det tidigare av appens och motorns), eller mot
++          // den skattade gränsen när ingen sådan dom finns. Kvotregeln (3b)
++          // gäller bara utan spår (granskningen av varv 2, H1).
++          const fysR = fysiskAnkomst(r);
++          if (fysR > slutR) {
++            return nej(`den fysiska ankomsten ${fmtT(fysR)} ur hennes rad ${fmtT(r.aisTimestamp)} (${Math.round(platser.distanceToPoint(r, f.bro))} m, `
++              + `${r.sog} kn) låg efter fönstrets slut ${fmtT(slutR)}: hennes position sa inte att hon skulle hinna`);
++          }
++          continue;
++        }
+         const restMs = fysiskAnkomst(r) - fixtid(r);
+         const kvarMs = slut - fixtid(r);
+         if (restMs > p.maxRestandel * kvarMs) {
+-- 
+2.43.0
+

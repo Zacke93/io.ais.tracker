@@ -1,0 +1,40 @@
+From 1b4c9a3bfef4623551afa2d6350e065d0a35bc78 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 5 Nov 2026 01:52:04 +0000
+Subject: [PATCH 8/9] =?UTF-8?q?K-familjen=20rev=203:=20testkommentarerna?=
+ =?UTF-8?q?=20h=C3=A4nvisar=20inte=20till=20filer=20utanf=C3=B6r=20repot?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ tests/k-konvoj-recover-bakkant-glapp.test.js | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/tests/k-konvoj-recover-bakkant-glapp.test.js b/tests/k-konvoj-recover-bakkant-glapp.test.js
+index 7495476..7588007 100644
+--- a/tests/k-konvoj-recover-bakkant-glapp.test.js
++++ b/tests/k-konvoj-recover-bakkant-glapp.test.js
+@@ -209,7 +209,7 @@ describe('K-familjen: RECOVER-släppet, bakkanten och glappregistreringen', () =
+   // ===========================================================================
+   describe('korsningsankaret när fixet före bron visar en väntande båt', () => {
+     /**
+-     * Omgranskningens minsta repro (K/tmp/og1/probes/p2-wait-interp.js): ledaren
++     * Omgranskningens minsta repro (2026-11-05, kampanjens sond p2): ledaren
+      * ligger STILLA 100 m före bron, korsar i verkligheten T0+720 s, och nästa
+      * fix kommer T0+840 s, 370 m bortom bron i 6 kn. Den räta linjen ankrade
+      * korsningen i T0+273 s — mitt i väntan — och en båt som anländer 407 s
+@@ -583,7 +583,7 @@ describe('K-familjen: RECOVER-släppet, bakkanten och glappregistreringen', () =
+     });
+ 
+     it('observeVessel när armens senaste läge redan låg bortom bron: fixets tid är övre gräns', () => {
+-      // Omgranskningens systerställe (K/tmp/og1/probes/p1-sister-upperbound.js):
++      // Omgranskningens systerställe (2026-11-05, kampanjens sond p1):
+       // fixet bortom bron kom utan riktning och tillämpades, nästa fix med
+       // riktning bokför passagen. Det finns inget fix före bron att interpolera
+       // från, så _crossingEstimate ger null; förut gällde då bokföringstiden.
+-- 
+2.43.0
+

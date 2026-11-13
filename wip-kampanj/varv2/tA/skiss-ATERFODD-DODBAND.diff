@@ -1,0 +1,67 @@
+diff --git a/lib/services/VesselDataService.js b/lib/services/VesselDataService.js
+index 1e18cd3..8f139ff 100755
+--- a/lib/services/VesselDataService.js
++++ b/lib/services/VesselDataService.js
+@@ -505,6 +505,29 @@ class VesselDataService extends EventEmitter {
+       if (this._shouldAssignTargetBridge(vessel, oldVessel)) {
+         // New vessel: Calculate initial target bridge only if vessel appears to be moving
+         vessel.targetBridge = this._calculateTargetBridge(vessel);
++        // Varv 2 (triage A, skiss C): en ÅTERFÖDD båt vars enda fix har kurs i
++        // dödbanden (46–134°/226–314°) fick ingen målbro, fast K1-mätningen mot
++        // sist kända position (NORTH_PROGRESS_REBIRTH, samma tick) bevisar
++        // färdriktningen. Ingen arm ⇒ ingen varning när hon sedan tystnar
++        // (buggjägarens värld 756 och 1913). Kräver ≥ FIX_D_MIN_SOG i både
++        // rapporterad fart och nettoförflyttning, och att kursen inte pekar åt
++        // motsatt håll; annars som förut.
++        if (!vessel.targetBridge && !vessel._routeDirection) {
++          const rebirthDir = this._rebirthDirectionEvidence(vessel);
++          if (rebirthDir) {
++            vessel._routeDirection = rebirthDir;
++            vessel.targetBridge = this._calculateTargetBridge(vessel, rebirthDir);
++            if (vessel.targetBridge) {
++              this.logger.debug(
++                `🧭 [TARGET_ASSIGNMENT_REBIRTH_K1] ${mmsi}: kurs ${vessel.cog}° i dödbandet, men K1 `
++                + `(${vessel._lastNorthProgress.mps.toFixed(3)} m/s mot sist kända position) bevisar ${rebirthDir} `
++                + `→ ${vessel.targetBridge}`,
++              );
++            } else {
++              vessel._routeDirection = null;
++            }
++          }
++        }
+         if (vessel.targetBridge) {
+           this.logger.debug(
+             `🎯 [TARGET_BRIDGE_NEW] Assigned ${vessel.targetBridge} to new vessel ${mmsi} (${vessel.sog}kn)`,
+@@ -6886,6 +6909,32 @@ class VesselDataService extends EventEmitter {
+     }
+   }
+ 
++  /**
++   * Varv 2 (triage A, skiss C): K1-riktningen för en återfödd båt, eller null.
++   * Samma mätning och ribba som app-lagrets _freshNorthProgressMps (paret ska
++   * höra till detta meddelande), men tecknet avgör riktningen. Kräver fart
++   * ≥ 2 kn (FIX_D_MIN_SOG) och att kursen inte ligger i motsatt riktnings band.
++   * @private
++   */
++  _rebirthDirectionEvidence(vessel) {
++    const progress = vessel?._lastNorthProgress;
++    if (!progress || !Number.isFinite(progress.mps)) return null;
++    const ts = Math.max(
++      Number.isFinite(vessel.lastPositionUpdate) ? vessel.lastPositionUpdate : 0,
++      Number.isFinite(vessel.timestamp) ? vessel.timestamp : 0,
++    );
++    // Nettofarten i farledens längdriktning ska motsvara transitfart (Fix D:s
++    // 2 kn), inte bara K1-ribban: en kajliggare vid Kanalinfarten som återföds
++    // var 3:e minut (NORDIC SOLA, 0,43 m/s i 20260713-41h) ska inte få målbro här.
++    const transitMps = 2.0 * 0.514444;
++    if (progress.ts !== ts || Math.abs(progress.mps) < Math.max(NORTH_PROGRESS_MIN_MPS, transitMps)) return null;
++    if (!Number.isFinite(vessel.sog) || vessel.sog < 2.0) return null;
++    const dir = progress.mps > 0 ? 'north' : 'south';
++    if (Number.isFinite(vessel.cog)
++        && (dir === 'north' ? isSouthCogStrict(vessel.cog) : isNorthCog(vessel.cog))) return null;
++    return dir;
++  }
++
+   /**
+    * R1 (rättningskampanjen 2026-11-04): bekräftelsesegmentets start för
+    * N1-resetten, eller null när segmentet inte är ett rent korsningsbevis.

@@ -1,0 +1,50 @@
+diff --git a/lib/services/BridgeOpeningService.js b/lib/services/BridgeOpeningService.js
+index 5b365ec..393edf8 100644
+--- a/lib/services/BridgeOpeningService.js
++++ b/lib/services/BridgeOpeningService.js
+@@ -137,6 +137,11 @@ const BATCH_SETTLE_MS = 2 * ((AIS_CONFIG && AIS_CONFIG.AISHUB
+ // gränsen är cog brus för en båt som ligger och väntar, och grinden tiger.
+ const MOVING_SOG_KN = 2;
+ 
++// Varv 2 (triage A, skiss E): ETA-kedjans passagegolv
++// (ProgressiveETACalculator, MIN_PASSAGE_ROUTE_SPEED_KNOTS). Under det kan
++// appens ETA ligga minuter före armens egen fysik.
++const CRAWL_ETA_FLOOR_KN = 2.5;
++
+ const NOOP = () => {};
+ 
+ class BridgeOpeningService {
+@@ -1296,6 +1301,15 @@ class BridgeOpeningService {
+     arm.expectedArrivalMs = arm.etaMinutes !== null
+       ? anchor + arm.etaMinutes * 60000
+       : anchor + (dist / (speedKn * KNOTS_TO_MS)) * 1000;
++    // Varv 2 (triage A, skiss E): armens EGEN fysik (avstånd/fart ur fixet).
++    // Appens ETA har ett passagegolv på 2,5 kn (MIN_PASSAGE_ROUTE_SPEED_KNOTS)
++    // och en spärr mot ETA-hopp, så för en krypare (0,9–1,3 kn) ligger den
++    // förväntade ankomsten minuter för tidigt. Bakkanten läser den senare av de
++    // två (värld 790 och 1794).
++    // Bara där golvet binder (under 2,5 kn): över det räknar ETA:n på farten.
++    arm.physicsArrivalMs = Number.isFinite(arm.sog) && arm.sog > PASSAGE_TIMING.MINIMUM_VIABLE_SPEED
++      && arm.sog < CRAWL_ETA_FLOOR_KN
++      ? anchor + (dist / (arm.sog * KNOTS_TO_MS)) * 1000 : null;
+     const etaFireMs = arm.expectedArrivalMs - this.config.FIRE_EXPECTED_ETA_MS;
+ 
+     arm.earliestArrivalMs = earliestArrivalMs;
+@@ -2309,13 +2323,15 @@ class BridgeOpeningService {
+       const windowEnd = arm.anchorFloorEventId === event.id ? arm.coverUntilMs
+         : Math.min(arm.coverUntilMs, Math.max(Number.isFinite(event.firedAt) ? event.firedAt : 0,
+           event.firstPassageAt) + this.config.CONVOY_WINDOW_MS);
+-      if (!Number.isFinite(arm.expectedArrivalMs) || arm.expectedArrivalMs <= windowEnd) {
++      const arrivalMs = Number.isFinite(arm.physicsArrivalMs)
++        ? Math.max(arm.expectedArrivalMs, arm.physicsArrivalMs) : arm.expectedArrivalMs;
++      if (!Number.isFinite(arrivalMs) || arrivalMs <= windowEnd) {
+         return { kind: 'covered' };
+       }
+       if (this._courseAway(arm, bridge)) return { kind: 'covered' };
+       return {
+         kind: 'bakkant',
+-        reason: `färsk prognos ${new Date(arm.expectedArrivalMs).toISOString()} ligger efter fönstrets slut `
++        reason: `färsk prognos ${new Date(arrivalMs).toISOString()} ligger efter fönstrets slut `
+           + `${new Date(windowEnd).toISOString()}`,
+       };
+     }

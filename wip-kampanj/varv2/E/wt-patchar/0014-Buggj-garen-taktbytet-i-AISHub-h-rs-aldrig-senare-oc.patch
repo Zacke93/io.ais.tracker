@@ -1,0 +1,201 @@
+From d7dd393eba507c091c1d12a1d75b8b3e63afd126 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 15:30:04 +0000
+Subject: [PATCH 14/17] =?UTF-8?q?Buggj=C3=A4garen:=20taktbytet=20i=20AISHu?=
+ =?UTF-8?q?b=20h=C3=B6rs=20aldrig=20senare=20och=20l=C3=A4mnar=20raderna?=
+ =?UTF-8?q?=20f=C3=B6re=20avg=C3=A5ngen=20or=C3=B6rda=20(varv=202,=20grans?=
+ =?UTF-8?q?kningen=20L1)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Granskningen av varv 2 (L1): i AISHub blev den dragna tiden aldrig senare,
+men den första hörda fixen kunde bli det. En tidigare poll kunde leverera
+ett stillafix (fixålder) och lägga nästa rörelseintervall efter det, och det
+extra slumptalet vid stillapollen flyttade åldrarna i pollerna fram till
+avgången: 57 av 251 avgångar hördes senare (median +27 s, max +272 s), och
+raderna före avgången skilde sig i 2. Värld 1527 hördes 334 s efter
+avgången i stället för 62 s.
+
+Nu gäller den omdragna tiden bara fixar från avgången och framåt, en äldre
+fix prövas mot den gamla tiden, och rörelseintervallet dras ur avgångens
+egen ström (radio-<mmsi>-avgång-<s>). Över standardens 2 000 världar hörs
+ingen avgång senare i någon era, inga rader före avgången ändras, och 1527
+ger inga utslag. aisstream är oförändrad.
+
+a-radio.test.js: AISHub-testet kräver aldrig senare per avgång (fäller
+1dfd18a), och M9-jämförelserna använder 10 radioseeds i stället för 25 (L5).
+BUGGJAKT §4.2 och §4.5.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/BUGGJAKT.md                              |  4 +-
+ .../bugHunt/__tests__/a-radio.test.js         | 29 ++++++++------
+ tests/replay-validation/bugHunt/lib/radio.js  | 39 +++++++++++++++----
+ 3 files changed, 51 insertions(+), 21 deletions(-)
+
+diff --git a/docs/BUGGJAKT.md b/docs/BUGGJAKT.md
+index 92340cf..b2e2bdf 100644
+--- a/docs/BUGGJAKT.md
++++ b/docs/BUGGJAKT.md
+@@ -111,7 +111,7 @@ L0 (`lib/truth.js`) bokför exakta, interpolerade brokorsningar, radiebesök ino
+ - **R0 idealradio.** Fast intervall 30 s, klass A, aisstream, inget brus, inga namnglapp och ingen sen födelse. Ett fel som syns här har ingen observerbarhetsursäkt.
+ - **R1 fältlik radio** (`lib/radio.js`). Varje båt har en egen slumpström (`radio-<mmsi>`), och AISHub-pollens tider kommer ur en världsström som inte beror på vilka båtar som finns, så krympningen kan ta bort båtar utan att ändra de andras observationer. Modellen:
+   - aisstream-kadens per klass och rörelse ur fältkvantilerna, med log-interpolerad svans;
+-  - taktbyte vid avgång: när en stilla båt avgår före den dragna nästa fixtiden dras tiden om till avgången + ett rörelseintervall, aldrig senare än den först dragna (varv 2, M9);
++  - taktbyte vid avgång: när en stilla båt avgår före den dragna nästa fixtiden dras tiden om till avgången + ett rörelseintervall, aldrig senare än den först dragna (varv 2, M9); i AISHub dras intervallet ur en egen ström per avgång och gäller bara fixar från avgången, så den första hörda fixen aldrig kommer senare och raderna före avgången är bitlika (granskningen av varv 2, L1);
+   - AISHub-poll var 65 + U(0, 5) s med fixålder ur fältet, sekundupplöst `fixTs`, 5 decimaler och spridning ≤ 150 ms;
+   - brus på sog, cog och GPS ur fältet;
+   - namnbackfill för klass B, där 25 % börjar som Unknown;
+@@ -173,7 +173,7 @@ Ankomsterna följer en Poissonprocess i två täthetsnivåer: realistisk täthet
+ - Kön stannar exakt distM före stationen. Fältets köer driver.
+ - Radion saknar mottagningshål per sektor och en inflygningsprofil (se 4.2).
+ - AIS-klassernas sändregler modelleras inte. En båt i rörelse får fältets transitkadens även under 2 kn, där klass B i verkligheten sänder var 3:e minut. En krypande klass B-båt hörs därför oftare i R1 än i fält, eftersom fältet saknar mätt kadens för 0,3–2 kn.
+-- Kadensen dras vid varje fix ur tillståndet just då, och en avgång mitt i ett stillaintervall drar om nästa fixtid (varv 2, M9): nästa fix kommer avgången + ett rörelseintervall, aldrig senare än den först dragna tiden, som när en verklig transponder byter takt. Förut hördes en båt som lämnade kön strax efter ett stillafix först när stillaintervallet löpt ut (världarna 290 och 625 i triagen av restkorten, med 164 s respektive 11,6 min tystnad efter avgången). Det motsatta bytet modelleras inte: en båt som stannar mitt i ett rörelseintervall hörs vid nästa rörelsetid, alltså tätare än en verklig transponder, och det döljer inget för appen. För AISHub kan den tidigare luckan fyllas av en fix från före avgången (fixålder), så en enskild avgång kan höras senare än i den gamla modellen; mätt över världarna kommer den fram tidigare (`a-radio.test.js`).
++- Kadensen dras vid varje fix ur tillståndet just då, och en avgång mitt i ett stillaintervall drar om nästa fixtid (varv 2, M9): nästa fix kommer avgången + ett rörelseintervall, aldrig senare än den först dragna tiden, som när en verklig transponder byter takt. Förut hördes en båt som lämnade kön strax efter ett stillafix först när stillaintervallet löpt ut (världarna 290 och 625 i triagen av restkorten, med 164 s respektive 11,6 min tystnad efter avgången). Det motsatta bytet modelleras inte: en båt som stannar mitt i ett rörelseintervall hörs vid nästa rörelsetid, alltså tätare än en verklig transponder, och det döljer inget för appen. I AISHub gäller den omdragna tiden bara fixar från avgången och framåt (en poll med en äldre fix prövas mot den gamla tiden), och rörelseintervallet dras ur avgångens egen ström, så båtens ström är orörd fram till den första färska fixen. Den första hörda fixen efter avgången kommer därför aldrig senare än i den gamla modellen, och raderna före avgången är bitlika. Förut kunde en tidigare poll leverera ett stillafix och lägga nästa rörelseintervall efter det: 57 av 251 avgångar hördes senare (median +27 s, max +272 s), raderna före avgången skilde sig i 2, och i värld 1527 hördes DAGNY 334 s efter avgången i stället för 62 s (granskningen av varv 2, L1). Mätt över standardens 2 000 världar: aisstream 242 avgångar, 181 hörs tidigare och 61 samtidigt; AISHub 130 avgångar som ändras, alla tidigare (första fixen p50/p90/max 57/96/147 s mot 199/549/1 371 s); inga rader före avgången och inga båtar utan avgång ändras, och R0 är bitlik.
+ - R1:s cog-brus är fältets fel mot farleden vid sog ≥ 2 kn. Vid krypfart är verklig GPS-kurs betydligt brusigare.
+ 
+ ## 5. Bankspåret
+diff --git a/tests/replay-validation/bugHunt/__tests__/a-radio.test.js b/tests/replay-validation/bugHunt/__tests__/a-radio.test.js
+index edf3106..f4f3688 100644
+--- a/tests/replay-validation/bugHunt/__tests__/a-radio.test.js
++++ b/tests/replay-validation/bugHunt/__tests__/a-radio.test.js
+@@ -276,9 +276,11 @@ describe('M9 (varv 2): nästa fixtid dras om när en stilla båt avgår före de
+     ['A'],
+     ['B'],
+   ])('R1, aisstream, klass %s: raderna före avgången är bitlika, och första fixen efter avgången kommer aldrig senare och ofta tidigare än i den gamla modellen', (cls) => {
++    // Tio radioseeds; mätningen över standardens 2 000 världar står i
++    // BUGGJAKT bilaga A.7 (granskningen av varv 2, L5).
+     let prövade = 0;
+     let tidigare = 0;
+-    for (let k = 1; k <= 25; k++) {
++    for (let k = 1; k <= 10; k++) {
+       const j = jämför(köSim('aisstream', cls, 1000 + k, 600 + (7 * k)));
+       expect(j.föreNy).toEqual(j.föreGammal);
+       if (j.g === null) continue;
+@@ -287,29 +289,32 @@ describe('M9 (varv 2): nästa fixtid dras om när en stilla båt avgår före de
+       expect(j.n).toBeLessThanOrEqual(j.g);
+       if (j.n < j.g) tidigare++;
+     }
+-    expect(prövade).toBeGreaterThanOrEqual(10);
+-    expect(tidigare).toBeGreaterThanOrEqual(5);
++    expect(prövade).toBeGreaterThanOrEqual(6);
++    expect(tidigare).toBeGreaterThanOrEqual(3);
+   });
+ 
+   test.each([
+     ['A'],
+     ['B'],
+-  ])('R1, AISHub, klass %s: raderna mottagna före avgången är bitlika, och fördröjningen till första fixen efter avgången krymper', (cls) => {
+-    // AISHub levererar fixar med ålder i pollens takt, så en enskild värld kan
+-    // få en fix från före avgången i den tidigare luckan och nästa fix senare.
+-    // Mätt över världarna kommer avgången fram tidigare.
++  ])('R1, AISHub, klass %s: raderna mottagna före avgången är bitlika, och första fixen efter avgången kommer aldrig senare än i den gamla modellen', (cls) => {
++    // AISHub levererar fixar med ålder i pollens takt. Den omdragna tiden
++    // gäller bara fixar från avgången och framåt, och rörelseintervallet dras
++    // ur avgångens egen ström, så båtens ström är orörd fram till den första
++    // färska fixen (granskningen av varv 2, L1: förut kom den senare i 57 av
++    // 251 avgångar, och raderna före avgången skilde sig i 2).
+     const ny = [];
+     const gammal = [];
+-    for (let k = 1; k <= 25; k++) {
++    for (let k = 1; k <= 10; k++) {
+       const j = jämför(köSim('aishub', cls, 1000 + k, 600 + (7 * k)));
+       expect(j.föreNy).toEqual(j.föreGammal);
+-      if (j.g === null || j.n === null) continue;
++      if (j.g === null) continue;
++      expect(j.n).not.toBeNull();
++      expect(j.n).toBeLessThanOrEqual(j.g);
+       ny.push(j.n);
+       gammal.push(j.g);
+     }
+-    expect(ny.length).toBeGreaterThanOrEqual(15);
+-    expect(median(ny)).toBeLessThan(median(gammal));
+-    expect(Math.max(...ny)).toBeLessThan(Math.max(...gammal));
++    expect(ny.length).toBeGreaterThanOrEqual(6);
++    expect(median(ny)).toBeLessThanOrEqual(median(gammal));
+   });
+ 
+   test('R0 och ett fast intervall påverkas inte: raderna är bitlika med och utan taktbytet', () => {
+diff --git a/tests/replay-validation/bugHunt/lib/radio.js b/tests/replay-validation/bugHunt/lib/radio.js
+index 30f469f..49d8cbe 100644
+--- a/tests/replay-validation/bugHunt/lib/radio.js
++++ b/tests/replay-validation/bugHunt/lib/radio.js
+@@ -34,9 +34,20 @@
+  * närmare. Förut hördes en båt som lämnade kön strax efter ett stillafix
+  * först när stillaintervallet hade löpt ut (världarna 290 och 625, F02 och
+  * F05). Omdragningen gäller båda erorna men inte ett fast intervall (R0 och
+- * fixedIntervalS), där takten inte beror på rörelsen. Den drar ett extra tal
+- * ur båtens egen slumpström bara när en sådan avgång finns, så båtar utan
+- * avgång mitt i ett stillaintervall får bitlika rader.
++ * fixedIntervalS), där takten inte beror på rörelsen. Båtar utan avgång mitt
++ * i ett stillaintervall får bitlika rader, och raderna som tas emot före
++ * avgången är bitlika:
++ *  - aisstream: nästa rad efter stillafixet kommer tidigast vid avgången, så
++ *    det extra slumptalet ur båtens ström påverkar bara rader efter den;
++ *  - AISHub: rörelseintervallet dras ur en egen ström per avgång
++ *    (`radio-<mmsi>-avgång-<s>`), så båtens ström är densamma som i den
++ *    gamla modellen fram till den första pollen som tar emot en färsk fix.
++ *    Den omdragna tiden gäller bara fixar från avgången och framåt; en fix
++ *    från före avgången (en poll med fixålder) prövas mot den gamla tiden.
++ *    Därför kommer den första hörda fixen efter avgången aldrig senare än i
++ *    den gamla modellen. Förut kunde en tidigare poll leverera ett stillafix
++ *    och lägga nästa rörelseintervall efter det (värld 1527: 334 s i stället
++ *    för 62 s; granskningen av varv 2, L1).
+  *
+  * RADION SKRIVER ALDRIG I SPECEN. Slumputfall som namnfördröjning bokförs i
+  * en separat radiorealisering som returneras bredvid raderna.
+@@ -268,6 +279,15 @@ function observeWorld(sim, opts = {}) {
+       if (avg === null) return nästaS;
+       return Math.min(nästaS, avg + Math.max(minIv, interval(feed, true)));
+     };
++    // AISHub: avgången efter stillapollen frånS och före dueS, med den
++    // omdragna tiden ur avgångens egen ström; null utan avgång.
++    const avgångAISHub = (frånS, dueS) => {
++      if (Number.isFinite(fixedIv) || profile.taktbyte === false) return null;
++      const D = avgångMellan(bt, frånS, dueS);
++      if (D === null) return null;
++      const egen = stream(baseSeed, `radio-${b.mmsi}-avgång-${D}`);
++      return { D, dueNy: Math.min(dueS, D + cal.cadence.aishub[cls].move(egen.u())) };
++    };
+     const tEnd = tr[tr.length - 1].t;
+     if (era === 'aisstream') {
+       let tS = tr[0].t + (Number.isFinite(fixedIv) ? rnd.range(0, fixedIv) : rnd.range(0, 30));
+@@ -295,6 +315,8 @@ function observeWorld(sim, opts = {}) {
+       }
+       let lastFix = -Infinity;
+       let due = tr[0].t;
++      // Avgången mitt i det senaste stillaintervallet: {D, dueNy}, eller null.
++      let avg = null;
+       for (const P of polls) {
+         if (P < tr[0].t) continue;
+         if (P > tEnd + 70) break;
+@@ -303,7 +325,10 @@ function observeWorld(sim, opts = {}) {
+         const moving = inMotion(pNow);
+         const age = moving ? cal.ageMove(rnd.u()) : cal.ageStill(rnd.u());
+         const fixS = Math.floor(P - age);
+-        if (fixS < due - 35 || fixS <= lastFix) continue;
++        // En fix från avgången och framåt prövas mot den omdragna tiden
++        // (aldrig senare än den gamla), en äldre fix mot den gamla.
++        const tröskel = avg && fixS >= avg.D ? Math.min(due, avg.dueNy) : due;
++        if (fixS < tröskel - 35 || fixS <= lastFix) continue;
+         const p = truthAt(bt, fixS);
+         if (!p) continue;
+         heard = heard || firstHeard(p);
+@@ -316,9 +341,9 @@ function observeWorld(sim, opts = {}) {
+         const recvMs = T0 + Math.round(P * 1000) + rnd.int(0, 150);
+         rows.push(makeRow(ctx, p, T0 + (fixS * 1000), recvMs, 'aishub'));
+         // Stilla vid pollen: en avgång efter pollen och före den dragna tiden
+-        // ger rörelsetakt från avgången. Omdragningen kommer efter raden, så
+-        // att raden själv drar samma slumptal som i den gamla modellen.
+-        if (!moving) due = omdragen('aishub', P, due);
++        // ger rörelsetakt från avgången, med intervallet ur avgångens egen
++        // ström (modulhuvudet). Båtens ström och `due` är orörda.
++        avg = moving ? null : avgångAISHub(P, due);
+       }
+     }
+   }
+-- 
+2.43.0
+

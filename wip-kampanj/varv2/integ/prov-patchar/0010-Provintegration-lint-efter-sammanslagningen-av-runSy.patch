@@ -1,0 +1,39 @@
+From 85151be19547c3f058efff8edbcac6a75ed6271d Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 12:29:21 +0000
+Subject: [PATCH 10/10] Provintegration: lint efter sammanslagningen av
+ runSyntheticScenarios (A+F)
+
+---
+ tests/replay-validation/runSyntheticScenarios.js | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/tests/replay-validation/runSyntheticScenarios.js b/tests/replay-validation/runSyntheticScenarios.js
+index a8190f9..b9016e9 100644
+--- a/tests/replay-validation/runSyntheticScenarios.js
++++ b/tests/replay-validation/runSyntheticScenarios.js
+@@ -1908,7 +1908,9 @@ function runScenario(scenario) {
+     });
+     const m = stdout.match(/__REPLAY_JSON__([\s\S]*?)__END__/);
+     if (!m) throw new Error('Ingen JSON-markör i replay-output');
+-    return { result: JSON.parse(m[1]), sampleCount: samples.length, truthPaths, samples };
++    return {
++      result: JSON.parse(m[1]), sampleCount: samples.length, truthPaths, samples,
++    };
+   } finally {
+     fs.unlinkSync(tmpFile);
+   }
+@@ -2224,7 +2226,9 @@ console.log(`${SCENARIOS.length} scenarier (seedade, deterministiska)\n`);
+ for (const scenario of SCENARIOS) {
+   let outcome;
+   try {
+-    const { result, sampleCount, truthPaths, samples } = runScenario(scenario);
++    const {
++      result, sampleCount, truthPaths, samples,
++    } = runScenario(scenario);
+     const problems = checkExpectations(scenario, result, truthPaths, samples);
+     // WARN-invarianter (fas 0.4, 2026-07-03): informativa, fäller inte.
+     const warns = validateWarnInvariants(result);
+-- 
+2.43.0
+

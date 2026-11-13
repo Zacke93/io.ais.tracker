@@ -1,0 +1,1701 @@
+diff --git a/app.js b/app.js
+index 3a109b8..d5e191c 100755
+--- a/app.js
++++ b/app.js
+@@ -9910,6 +9910,27 @@ class AISBridgeApp extends Homey.App {
+       if (isNorthCog(vessel.cog)) travel = 'north';
+       else if (isSouthCogWide(vessel.cog)) travel = 'south';
+     }
++    // F13 (rättningskampanjen 2026-11-04; dirigentens JA på R2:s fråga 1):
++    // när varken ruttlåset eller kursbanden ger färdriktning återstår två fall,
++    // och i båda säger kursen inget om nord eller syd:
++    //  - kursen ligger i östra dödbandet 46–134°, samma hål som K1 täpper
++    //    till vid Kanalinfarten;
++    //  - kursen saknas: AIS 360 ("ej tillgänglig") och ogiltiga värden blir
++    //    null i _validateAISMessage (omgranskningen av revision 1).
++    // Där får K1:s färska nordprogress över ribban visa färd norrut
++    // (_freshNorthProgressMps, samma kontrakt som K1; K1 själv är orörd och
++    // gäller fortfarande bara östbandet). Utan regeln fick en återfödd båt
++    // utan ruttlås aldrig färdriktning: SALTIS (cog 49,9°) och en okänd båt
++    // (cog 46,2°) fick "närmar sig Olidebron, beräknad ankomst om 1 minut"
++    // 115 m respektive 107 m efter bron, och SALTIS fick samma notis med
++    // kursen 360. En återresa styr fortfarande med kursen: sydlig kurs ger
++    // 'south' ovan och behåller förvarningen för bron framför båten.
++    // OBS: nordprogressen mäts över SAMMA hopp som prövas här (föregående
++    // fix, eller återfödelsens bas). Regeln betyder därför i praktiken
++    // "hoppet gick norrut med minst 0,25 m/s"; vid återfödelse krävs dessutom
++    // en bas som är högst 15 min gammal. Den ger aldrig 'south': ett hopp
++    // söderut med dödbandskurs eller utan kurs behåller förvarningen.
++    if (!travel && this._freshNorthProgressMps(vessel) !== null) travel = 'north';
+     return (vessel.lat > fromLat && travel === 'north') || (vessel.lat < fromLat && travel === 'south');
+   }
+ 
+@@ -10840,19 +10861,9 @@ class AISBridgeApp extends Homey.App {
+       return direction;
+     }
+ 
+-    // FÄRSKHETEN: paret {mps, ts} måste höra till DET MEDDELANDE som bär
+-    // notisen. ts stämplas i VesselDataService som max(lastPositionUpdate,
+-    // timestamp) — så även en byte-identisk omleverans (ingen ny mätning, men
+-    // ny mottagningstid) gör beviset gammalt och regeln faller till 'okänd'.
+-    const progress = vessel._lastNorthProgress;
+-    const northMps = progress && Number.isFinite(progress.mps) ? progress.mps : null;
+-    const senasteMeddelandeTs = Math.max(
+-      Number.isFinite(vessel.lastPositionUpdate) ? vessel.lastPositionUpdate : 0,
+-      Number.isFinite(vessel.timestamp) ? vessel.timestamp : 0,
+-    );
+-    if (northMps === null
+-        || progress.ts !== senasteMeddelandeTs
+-        || northMps < VesselDataService.NORTH_PROGRESS_MIN_MPS) {
++    // FÄRSKHETEN: se _freshNorthProgressMps (delad med BN2:s dödbandsregel).
++    const northMps = this._freshNorthProgressMps(vessel);
++    if (northMps === null) {
+       return direction;
+     }
+ 
+@@ -10865,6 +10876,39 @@ class AISBridgeApp extends Homey.App {
+     return 'northbound';
+   }
+ 
++  /**
++   * K1:s nordbevis: den färska nordprogressen i m/s, eller null.
++   *
++   * FÄRSKHETEN: paret {mps, ts} måste höra till DET MEDDELANDE som bär
++   * notisen. ts stämplas i VesselDataService som max(lastPositionUpdate,
++   * timestamp) — så även en byte-identisk omleverans (ingen ny mätning, men
++   * ny mottagningstid) gör beviset gammalt och regeln faller till 'okänd'.
++   * Ribban är NORTH_PROGRESS_MIN_MPS; under den returneras null.
++   *
++   * Två läsare med samma kontrakt: K1:s Kanalinfartsregel
++   * (_getNotificationDirection, bara östbandet 46–134°) och BN2:s
++   * färdriktning när kursen ligger i östbandet eller saknas
++   * (_hasGapCrossedNotifiedBridge, F13). Ett bevis som K1 underkänner kan
++   * därför aldrig bära BN2, och tvärtom.
++   * @param {Object} vessel - Fartygsobjekt
++   * @returns {number|null}
++   * @private
++   */
++  _freshNorthProgressMps(vessel) {
++    const progress = vessel?._lastNorthProgress;
++    const northMps = progress && Number.isFinite(progress.mps) ? progress.mps : null;
++    const senasteMeddelandeTs = Math.max(
++      Number.isFinite(vessel?.lastPositionUpdate) ? vessel.lastPositionUpdate : 0,
++      Number.isFinite(vessel?.timestamp) ? vessel.timestamp : 0,
++    );
++    if (northMps === null
++        || progress.ts !== senasteMeddelandeTs
++        || northMps < VesselDataService.NORTH_PROGRESS_MIN_MPS) {
++      return null;
++    }
++    return northMps;
++  }
++
+   /**
+    * TOKEN-VAKTEN: fäller ett internt riktningsvärde som inte står i
+    * vokabulären (granskarfynd 2026-08-21).
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index c9a9361..78fbb6e 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -215,7 +215,13 @@ Moduler (ansvar / ägda tillstånd / in-ut):
+   debounce-/koordinationsmetoder längre (§9).
+ - **GPSJumpGateService**: blockerar passage-detektering under GPS-hopp;
+   candidate→confirm, 30 s gate-timeout. Anropas från VDS (:3020–3028,
+-  :3695–3703; clearVessel vid removal :736–738).
++  :3695–3703; clearVessel vid removal :736–738). En kandidat släpps när en
++  annan väg bokför samma bros passage (`releaseCandidate`, anropas från VDS
++  `_releaseGateCandidateForBookedBridge` vid de fyra bokföringarna som lägger
++  bron i `passedBridges`). Annars kunde den bekräftas inom TTL:n (20 min) och
++  bokföra bron en gång till, en målbro då som mellanbro (F12/F16 2026-11-04:
++  JOLLY, glappvägen 16:03:34 och grindbekräftelsen 795 s senare). Andra broars
++  kandidater ligger kvar.
+ - **PassageLatchService**: latch per båt+bro som blockerar retrograda statusar
+   ("tidsresor"); 10 min latch-timeout. Konsumeras av StatusService via
+   `shouldBlockStatus` (StatusService.js:772, 846, 912, 960, 1176).
+@@ -894,6 +900,46 @@ båt.
+   Råfallen PRIMA LADY 2026-08-24 och ANDREA 2026-08-05 återfår Olidebron;
+   deras växande bakåtben i Klaffbron-ETA:n försvinner. U-svängens nettokrav
+   och samtliga befintliga passagegrindar består.
++  **Uppskjutna pass (F08, 2026-11-04, `_noteDeferredZoneEntryCross`):** vid det
++  nära broparet når passet vid inträdesfixen ofta inte INTERMEDIATE_UNDER.
++  Phase 3-hållningen för den nyss passerade bron returnerar före grenen, FIX U:s
++  tvingade väntan returnerar före hela `_isUnderBridge`, och rensningspasset
++  (CurrentBridgeManager Regel 0) väljer inte nästa bro. Beviset prövades då
++  först i ett senare pass vid samma position, oftast UI-uppdateringen. Om det
++  passet hann före nästa AIS-fix berodde på klockfasen (SINE BRES 20260917-16h
++  tappade Järnvägspassagen 02:27:17 i fasvarianterna δ −2,5/−7 s). Nu prövas
++  inträdessegmentet i det pass som gör uppskjutningen, med samma startpunkt och
++  samma grindar som INTERMEDIATE_UNDER: ≤ `UNDER_BRIDGE_SET_DISTANCE` från bron,
++  inte en passerad eller S-3-spärrad bro och inte Stallbackabron. Föregående
++  observation läses utan att förbrukas. FIX O-spärren (under-bro väntar tills
++  "inväntar" visats) skjuter upp grenen på samma sätt och prövar också beviset.
++  **Beviset sparas till zonbesöket (granskningen 2026-11-04):** det första
++  ordinarie passet efter uppskjutningen startar ofta ett nytt zonbesök vid
++  samma bro och nollar beviset, antingen genom HYSTERESIS_RESET (målbytet i
++  passagepasset sågs aldrig av hållningen eller FIX U) eller genom ett nytt
++  INTERMEDIATE_UNDER med släppt lås. Låg nästa fix kvar i zonen prövades sedan
++  segmentet från föregående observation till den nya fixen, och det kan vara
++  för långt (SINE BRES med en extra fix 45 m söder om linjen: 362 + 45 =
++  407 m > `UNDER_BRIDGE_CROSS_SEGMENT_MAX_M`). Därför sparas beviset i
++  `_underBridgeDeferredProof` (bro, inträdesankare, tid; i VDS fältlista).
++  INTERMEDIATE_UNDER och TARGET_UNDER återställer det när zonbesöket vid samma
++  bro startar, och varje uppskjutande pass återställer det om ett ordinarie
++  pass emellan har nollat det. Posten släpps vid GPS-hopp eller osäker
++  position, när bron är bokförd (eller en passage av den registrerats efter
++  posten), när båten är mer än `UNDER_BRIDGE_CLEAR_DISTANCE` från bron, när ett
++  bevis för en annan bro har satts och efter två minuter. METHOD 1:s
++  nettokrav består, så en båt som vänder i zonen får ingen passage. Basfacit är
++  oförändrat: OSPREY, SINE BRES och NINA B får beviset i meddelandepasset och
++  får det återställt när zonbesöket startar.
++  **Känd lucka (omgranskningen 2026-11-04, eget kort):** METHOD 1 i
++  `detectBridgePassage` (geometry.js) kräver ett steg från en fix högst 50 m
++  från bron till en fix mer än 60 m bort. Har korsningen skett i inträdessteget
++  och ligger nästa fix 50–60 m efter linjen, når inget steg det kravet, och
++  inget steg korsar linjen. Passagen tappas då, i 7699cbe som efter rättningen
++  (SINE BRES med en extra fix 58,8 m söder om linjen 02:26:41,6, alla faser;
++  KÄND LUCKA-testet i `tests/zonintrade-uppskjutet-bevis.test.js`). Med en
++  extra fix på 49 m eller på 60–63 m bokförs passagen. Ingen bankkorpus har
++  fallet.
+   Fyra spärrar: inget bevis på en GPS-hoppstick (hoppet ÄR annars "sidbytet" —
+   flaggan skickas ned i `_isUnderBridge`), inget bevis när BÅDA samplen är
+   bevisat stillaliggande med jitter-liten rörelse (CG2-1-spegeln), segment
+@@ -2029,7 +2075,22 @@ Underlaget står i `docs/helgranskning-2026-11-03.md`; varje fynd prövades med
+   riktning) är ett användarbeslut.
+ - `_hasGapCrossedNotifiedBridge` är en tredje passerad-formsignal bredvid S4 och H16. Bron ska
+   ligga strikt mellan föregående (eller sist kända) och aktuell position i gap-kedjans fönster,
+-  och hoppet ska gå i färdriktningen. Källsträng och distans lämnas orörda.
++  och hoppet ska gå i färdriktningen. Källsträng och distans lämnas orörda. Färdriktningen tas ur
++  ruttlåset, annars ur kursen (nordbandet, det breda sydbandet). När kursen inte säger nord eller
++  syd, alltså i östra dödbandet 46–134° och när kursen saknas (AIS 360 "ej tillgänglig" och
++  ogiltiga värden blir null i `_validateAISMessage`), bär K1:s färska nordprogress riktningen
++  norrut (`_freshNorthProgressMps`, samma kontrakt och ribba som Kanalinfartsregeln; K1 själv
++  gäller fortfarande bara östbandet). Det stänger F13 (2026-11-04, dirigentens JA på R2:s fråga
++  1): återfödda norrgående båtar med nordostlig kurs (SALTIS 49,9°, en okänd båt 46,2°) fick
++  förvarningsform 107–115 m efter Olidebron, och SALTIS fick samma notis med kursen 360. En
++  sydlig kurs ger fortfarande 'south', så en återresa behåller förvarningen. Nordprogressen mäts
++  över samma hopp som BN2 prövar (från föregående fix, eller från återfödelsens bas). Regeln
++  betyder därför i praktiken "hoppet gick norrut med minst 0,25 m/s": alltid vid ett långt hopp,
++  och vid återfödelse bara med en bas som är högst 15 min gammal. Den ger aldrig 'south': ett
++  hopp söderut med dödbandskurs eller utan kurs behåller förvarningsformen (känd gräns, inget
++  fall i banken). Kantfall: en båt som korsat bron norrut under tystnaden och redan vänt, men
++  har kurs 46–134° eller ingen kurs, får "passerade" i stället för "närmar sig". Påståendet är
++  sant för korsningen under tystnaden; returen får en egen notis enligt U14.
+ - Mellanbrons avståndsreserv i `_hasPassedBridge` täcker bandet mellan
+   `UNDER_BRIDGE_CROSS_SEGMENT_MAX_M` och `LARGE_JUMP_LAT_DEG` (den delade hoppgränsen, förut
+   hårdkodad 0,005).
+diff --git a/docs/VALIDATION.md b/docs/VALIDATION.md
+index e24a1e2..aa240dc 100644
+--- a/docs/VALIDATION.md
++++ b/docs/VALIDATION.md
+@@ -713,6 +713,17 @@ efteråt.
+    finns) −5 s, −11,52 s respektive −20 s, exakt en ändrad rad per variant,
+    replaya varje variant och jämför mot basreplayn.
+ 
++   **Svepets blinda fläck: fasen mot halvminutsrutnätet.** Eftersom bara
++   ankarraden flyttas ligger alla övriga sampel kvar på samma plats mot de fasta
++   halvminuterna. Buggjägarens M-FAS-relation flyttar i stället HELA korpusen och
++   starttillståndet δ, och det var den som fångade F08 (SINE BRES 20260917-16h
++   tappade Järnvägspassagen vid δ −2,5 och −7 s; omgranskningen fann även −5 s;
++   rättat 2026-11-04). Det fallet är låst i
++   `tests/zonintrade-uppskjutet-bevis.test.js`, som flyttar korpusen på samma
++   sätt, både som den är och med en extra fix inne i brozonen (granskarens prov:
++   två tider och fyra faser). Samma fil visar den kända luckan med en extra fix
++   50–60 m efter linjen (ARCHITECTURE.md, F08), som inte beror på fasen.
++
+    **Offsettecknet och RUTNÄTET.** Defaultoffsets är negativa därför att ett
+    POSITIVT skift äter av korpusens första gap (en offset som inte ryms
+    rapporteras "ej tillämpbar"). Ekvivalensen gäller ett rutnät i taget: mot
+diff --git a/lib/services/GPSJumpGateService.js b/lib/services/GPSJumpGateService.js
+index 5734e8e..744712c 100644
+--- a/lib/services/GPSJumpGateService.js
++++ b/lib/services/GPSJumpGateService.js
+@@ -305,6 +305,43 @@ class GPSJumpGateService {
+     }
+   }
+ 
++  /**
++   * F12/F16 (rättningskampanjen 2026-11-04): släpp kandidaten för EN bro när
++   * en annan väg redan har bokfört brons passage.
++   *
++   * Kandidaten är en passage som grinden håller inne tills GPS:en är stabil.
++   * Bokför glappvägen (GAP_TARGET_INFERRED), normalvägen eller RC9-inferensen
++   * samma bro under tiden är kandidaten förbrukad. Annars bekräftas den senare
++   * (TTL 20 min) och bokför bron en gång till. Det var JOLLY i värld 254:
++   * glappvägen bokförde Stridsbergsbron 16:03:34, kandidaten från samma tick
++   * bekräftades 795 s senare och blev en mellanbropassage medan båten låg
++   * stilla i kön (INV-13 och T10 FANTOMPASSAGE).
++   *
++   * Släppet gäller bara den bokförda bron. Andra broars kandidater ligger kvar,
++   * eftersom de kan vara äkta passager som ännu inte bokförts (218023240 i
++   * 20260601-41h bekräftar Järnvägsbron i samma tick som Stridsbergsbrons
++   * glappinferens). Det är den kvarvarande halvan av B6 i
++   * reliability-review-2026-06-09.md; borttagningshalvan är clearVessel.
++   * @param {string} vesselId - Vessel MMSI
++   * @param {string} bridgeName - Bron vars passage nyss bokförts
++   * @returns {boolean} true om en kandidat släpptes
++   */
++  releaseCandidate(vesselId, bridgeName) {
++    const candidates = this._candidatePassages.get(vesselId);
++    if (!candidates || !bridgeName) return false;
++    const remaining = candidates.filter((c) => c.bridgeName !== bridgeName);
++    if (remaining.length === candidates.length) return false;
++    if (remaining.length > 0) {
++      this._candidatePassages.set(vesselId, remaining);
++    } else {
++      this._candidatePassages.delete(vesselId);
++    }
++    this.logger.debug(
++      `🧹 [GPS_GATE] ${vesselId}: Candidate for ${bridgeName} released — passage already booked by another path`,
++    );
++    return true;
++  }
++
+   /**
+    * B6-fix (2026-06-09): rensa ALLT tillstånd för en vessel (gate + kandidater).
+    * Anropas vid vessel-removal så stale kandidater inte kan bekräftas om samma
+diff --git a/lib/services/StatusService.js b/lib/services/StatusService.js
+index 73d7794..6653555 100644
+--- a/lib/services/StatusService.js
++++ b/lib/services/StatusService.js
+@@ -29,6 +29,13 @@ const StatusStabilizer = require('./StatusStabilizer');
+ const PassageWindowManager = require('../utils/PassageWindowManager');
+ const ProgressiveETACalculator = require('./ProgressiveETACalculator');
+ 
++// F08 (rättningskampanjen 2026-11-04, efter granskningen): ett inträdesbevis
++// som ett uppskjutande pass har satt bärs högst så här länge till det ordinarie
++// zonbesöket vid samma bro. Det är samma två minuter som epsilonkandidaten i
++// _noteUnderBridgeLineCross: nästa normala AIS-rapport och UI-pass ryms, en
++// längre AIS-tystnad gör det inte. Se _noteDeferredZoneEntryCross.
++const DEFERRED_ZONE_PROOF_MAX_AGE_MS = 2 * 60 * 1000;
++
+ /**
+  * StatusService - Manages vessel status detection and transitions
+  * Handles waiting detection, under-bridge detection, and status changes
+@@ -116,9 +123,14 @@ class StatusService extends EventEmitter {
+       // "sidbytet" är då hoppet, inte en passage.
+       vessel._underBridgeCrossedBridge = null;
+       vessel._underBridgePendingCross = null;
++      vessel._underBridgeDeferredProof = null;
+       this.logger.debug(`🔄 [HYSTERESIS_RESET] ${vessel.mmsi}: GPS jump detected (${positionAnalysis.analysis?.movementDistance?.toFixed(0) || 'unknown'}m) - resetting latch`);
+     }
+ 
++    // F08: ett sparat inträdesbevis från ett uppskjutande pass gäller bara
++    // samma zonbesök. Släpp det innan något pass i den här analysen läser det.
++    this._expireDeferredZoneEntryProof(vessel, positionAnalysis);
++
+     const previousStatus = vessel.status || 'unknown';
+     const previousWaitingAtBridge = previousStatus === 'waiting'
+       ? (vessel.waitingAtBridge ?? null)
+@@ -198,6 +210,15 @@ class StatusService extends EventEmitter {
+           // Rensa force-flaggan efter användning
+           vessel._forceWaitingAtBridge = null;
+ 
++          // F08: den tvingade väntan skjuter upp under-bro-grenen, men inte
++          // passagebeviset. Pröva inträdessegmentet till den väntade bron i
++          // samma pass (läser föregående observation utan att förbruka den).
++          this._noteDeferredZoneEntryCross(
++            vessel, forcedBridgeName, distanceToForcedBridge,
++            this._readUnderBridgePrevFix(vessel),
++            this._isUnderBridgeJumpTick(vessel, positionAnalysis),
++          );
++
+           // Uppdatera waiting timer
+           this._updateWaitingTimer(vessel, { status: 'waiting' });
+ 
+@@ -249,6 +270,19 @@ class StatusService extends EventEmitter {
+       vessel, proximityData, positionAnalysis, clearedPassedBridge,
+     );
+ 
++    // F08: rensningspasset (CurrentBridgeManager Regel 0) väljer inte nästa
++    // bro, så INTERMEDIATE_UNDER prövar inte dess inträdessegment här. Pröva
++    // det ändå, efter att det avslutade zonbesöket städats i _isUnderBridge
++    // (NINA B 20260918-7h: rensning av Stridsbergsbron 17:32:34 med fixen
++    // 19 m bortom Järnvägsbron).
++    if (clearedPassedBridge && !underBridgeActive && proximityData.nearestBridge) {
++      this._noteDeferredZoneEntryCross(
++        vessel, proximityData.nearestBridge.name, proximityData.nearestBridge.distance,
++        this._readUnderBridgePrevFix(vessel),
++        this._isUnderBridgeJumpTick(vessel, positionAnalysis),
++      );
++    }
++
+     if (underBridgeActive) {
+       // Priority 1: Under bridge detection
+       result.status = 'under-bridge';
+@@ -558,6 +592,181 @@ class StatusService extends EventEmitter {
+     return null;
+   }
+ 
++  /**
++   * Passet bär ett GPS-hopp eller en osäker position. Ett sådant pass får
++   * varken ge segmentbevis eller bli startpunkt för nästa segment.
++   * @private
++   */
++  _isUnderBridgeJumpTick(vessel, positionAnalysis = null) {
++    return Boolean(positionAnalysis?.gpsJumpDetected
++      || positionAnalysis?.analysis?.isGPSJump
++      || vessel._gpsJumpDetected || vessel._positionUncertain);
++  }
++
++  /**
++   * Föregående rena observation (startpunkt för segmentbeviset), eller null.
++   * Läser bara; skrivningen sker i _isUnderBridge.
++   * @private
++   */
++  _readUnderBridgePrevFix(vessel) {
++    if (!Number.isFinite(vessel._underBridgePrevLat) || !Number.isFinite(vessel._underBridgePrevLon)) {
++      return null;
++    }
++    return {
++      lat: vessel._underBridgePrevLat,
++      lon: vessel._underBridgePrevLon,
++      sog: Number.isFinite(vessel._underBridgePrevSog) ? vessel._underBridgePrevSog : null,
++      ...vessel._underBridgePrevClock,
++    };
++  }
++
++  /**
++   * F08 (rättningskampanjen 2026-11-04): INTRÄDESBEVISET FÅR INTE VÄNTA PÅ ETT
++   * SENARE PASS.
++   *
++   * Segmentbeviset (_noteUnderBridgeLineCross) prövas i INTERMEDIATE_UNDER och
++   * TARGET_UNDER. Vid det nära broparet når passet vid inträdesfixen ofta inte
++   * dit, av tre skäl:
++   *  - Phase 3-hållningen för den nyss passerade bron returnerar före grenen;
++   *  - FIX U:s tvingade väntan returnerar före hela _isUnderBridge;
++   *  - rensningspasset (CurrentBridgeManager Regel 0) väljer inte nästa bro.
++   * Beviset prövades då först i nästa statuspass vid SAMMA position, normalt
++   * UI-uppdateringen. Om den hinner före nästa AIS-fix beror på klockfasen.
++   * SINE BRES (20260917-16h) korsade Järnvägsbron 02:26:08–02:26:30. I basen
++   * hann UI-passet köra och passagen bokfördes 02:27:17. I fasvarianterna
++   * δ −2,5/−7 s låg UI-passet kvar bakom en pågående skrivning, utgångsfixen
++   * saknade beviset och passagen tappades (M-FAS, F08).
++   *
++   * Här prövas samma bevis i det pass som gör uppskjutningen, med samma
++   * startpunkt och samma grindar som den ordinarie grenen: ≤ 50 m från bron
++   * (UNDER_BRIDGE_SET_DISTANCE), inte en passerad eller tidsspärrad bro och
++   * inte Stallbackabron (egen gren). Föregående observation läses utan att
++   * förbrukas. FIX O-spärren skjuter upp grenen på samma sätt och prövar
++   * därför också beviset här.
++   *
++   * BEVISET SPARAS TILL DET ORDINARIE ZONBESÖKET (granskningen 2026-11-04).
++   * Det räcker inte att sätta beviset en gång. Det första ordinarie passet
++   * efter uppskjutningen startar ofta ett NYTT zonbesök vid samma bro och
++   * nollar då beviset: HYSTERESIS_RESET (målbytet i passagepasset sågs aldrig
++   * av hållningen eller FIX U) eller INTERMEDIATE_UNDER med släppt lås. Ligger
++   * båtens nya fix kvar i zonen prövas sedan segmentet från föregående
++   * observation till den nya fixen. Det är längre än inträdessegmentet och kan
++   * passera UNDER_BRIDGE_CROSS_SEGMENT_MAX_M (SINE BRES med en fix 45 m söder
++   * om linjen: 362 + 45 = 407 m > 400 m). Då saknade utgångsfixen beviset, och
++   * om passagen bokfördes berodde åter på fasen.
++   * Därför sparas beviset i _underBridgeDeferredProof ({bro, inträdesankare,
++   * tid}). INTERMEDIATE_UNDER och TARGET_UNDER återställer det när de startar
++   * zonbesöket vid samma bro, och varje uppskjutande pass återställer det om
++   * ett mellanliggande pass har nollat det (_restoreDeferredZoneEntryProof).
++   * Posten släpps vid GPS-hopp eller osäker position, när bron är bokförd, när
++   * båten är längre än UNDER_BRIDGE_CLEAR_DISTANCE från bron, när ett bevis för
++   * en annan bro har satts och efter DEFERRED_ZONE_PROOF_MAX_AGE_MS
++   * (_expireDeferredZoneEntryProof). Återställningen ger exakt det tillstånd
++   * som zonbesöket hade fått om det registrerats vid inträdesfixen. Beslutet
++   * vid utgången är oförändrat: METHOD 1 kräver fortfarande nettosidbyte mellan
++   * inträdesankaret och utgångsfixen, så en båt som vänder i zonen får ingen
++   * passage.
++   * @param {Object} vessel - fartygsobjektet (skrivs av beviset)
++   * @param {string} bridgeName - bron vars zon båten ligger i
++   * @param {number} distanceM - avståndet till bron
++   * @param {Object|null} prevFix - föregående rena observation
++   * @param {boolean} jumpTick - passet bär GPS-hopp/osäker position
++   * @private
++   */
++  _noteDeferredZoneEntryCross(vessel, bridgeName, distanceM, prevFix, jumpTick) {
++    if (!bridgeName || bridgeName === 'Stallbackabron') return;
++    if (!Number.isFinite(distanceM) || distanceM > UNDER_BRIDGE_SET_DISTANCE) return;
++    if (Array.isArray(vessel.passedBridges) && vessel.passedBridges.includes(bridgeName)) return;
++    if (vessel._underBridgeTimeoutBlockedBridge === bridgeName) return;
++    // Ett tidigare uppskjutande pass kan redan ha bevisat inträdet, och ett
++    // ordinarie pass emellan kan ha nollat beviset. Posten ligger kvar tills
++    // det ordinarie zonbesöket startar.
++    if (!jumpTick && vessel._underBridgeCrossedBridge !== bridgeName) {
++      this._restoreDeferredZoneEntryProof(vessel, bridgeName, false);
++    }
++    const provenBefore = vessel._underBridgeCrossedBridge === bridgeName;
++    this._noteUnderBridgeLineCross(vessel, bridgeName, prevFix, jumpTick);
++    if (!provenBefore && vessel._underBridgeCrossedBridge === bridgeName
++        && Number.isFinite(vessel._underBridgeEntryLat)
++        && Number.isFinite(vessel._underBridgeEntryLon)) {
++      vessel._underBridgeDeferredProof = {
++        bridge: bridgeName,
++        lat: vessel._underBridgeEntryLat,
++        lon: vessel._underBridgeEntryLon,
++        at: Date.now(),
++      };
++    }
++  }
++
++  /**
++   * Återställ ett sparat inträdesbevis för bridgeName (se
++   * _noteDeferredZoneEntryCross). Med consume=true startar ett ordinarie
++   * zonbesök: posten förbrukas då alltid, även när den gäller en annan bro.
++   * Giltigheten (tid, zon, GPS-hopp, bokförd bro) prövas i
++   * _expireDeferredZoneEntryProof överst i varje analys.
++   * @returns {boolean} true om beviset återställdes
++   * @private
++   */
++  _restoreDeferredZoneEntryProof(vessel, bridgeName, consume) {
++    const rec = vessel._underBridgeDeferredProof;
++    if (!rec) return false;
++    if (consume) vessel._underBridgeDeferredProof = null;
++    if (!bridgeName || rec.bridge !== bridgeName
++        || !Number.isFinite(rec.lat) || !Number.isFinite(rec.lon)) return false;
++    vessel._underBridgeCrossedBridge = bridgeName;
++    vessel._underBridgePendingCross = null;
++    vessel._underBridgeEntryLat = rec.lat;
++    vessel._underBridgeEntryLon = rec.lon;
++    this.logger.debug(
++      `🧵 [UNDER_BRIDGE_CROSS_PROOF_RESTORED] ${vessel.mmsi}: ${bridgeName} — inträdesbeviset från `
++      + `${new Date(rec.at).toISOString()} återställt `
++      + `(${consume ? 'zonbesöket startar' : 'uppskjutet pass'}), inträdesankaret på närsidan`,
++    );
++    return true;
++  }
++
++  /**
++   * Släpp ett sparat inträdesbevis som inte längre hör till samma zonbesök.
++   * Körs överst i varje analys, före FIX U och _isUnderBridge.
++   * @private
++   */
++  _expireDeferredZoneEntryProof(vessel, positionAnalysis) {
++    const rec = vessel._underBridgeDeferredProof;
++    if (!rec) return;
++    const ageMs = Date.now() - rec.at;
++    let reason = null;
++    if (this._isUnderBridgeJumpTick(vessel, positionAnalysis)) {
++      reason = 'GPS-hopp eller osäker position';
++    } else if ((Array.isArray(vessel.passedBridges) && vessel.passedBridges.includes(rec.bridge))
++        // En passage registrerad efter posten räcker, även om en vändning
++        // (N1-resetten) redan har lyft bron ur passedBridges.
++        || (vessel.lastPassedBridge === rec.bridge && Number.isFinite(vessel.lastPassedBridgeTime)
++          && vessel.lastPassedBridgeTime >= rec.at)) {
++      reason = 'bron är bokförd';
++    } else if (vessel._underBridgeCrossedBridge && vessel._underBridgeCrossedBridge !== rec.bridge) {
++      reason = `bevis för ${vessel._underBridgeCrossedBridge}`;
++    } else if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs > DEFERRED_ZONE_PROOF_MAX_AGE_MS) {
++      reason = 'för gammalt';
++    } else {
++      const bridge = this.bridgeRegistry && typeof this.bridgeRegistry.getBridgeByName === 'function'
++        ? this.bridgeRegistry.getBridgeByName(rec.bridge)
++        : null;
++      const distM = bridge && Number.isFinite(bridge.lat) && Number.isFinite(bridge.lon)
++        && Number.isFinite(vessel.lat) && Number.isFinite(vessel.lon)
++        ? geometry.calculateDistance(vessel.lat, vessel.lon, bridge.lat, bridge.lon)
++        : null;
++      if (!Number.isFinite(distM) || distM > UNDER_BRIDGE_CLEAR_DISTANCE) {
++        reason = 'båten har lämnat zonen';
++      }
++    }
++    if (reason) {
++      vessel._underBridgeDeferredProof = null;
++      this.logger.debug(
++        `🧹 [UNDER_BRIDGE_DEFERRED_PROOF_DROPPED] ${vessel.mmsi}: ${rec.bridge} — ${reason}`,
++      );
++    }
++  }
++
+   /**
+    * Check if vessel is under a bridge (with hysteresis)
+    * @private
+@@ -567,21 +776,11 @@ class StatusService extends EventEmitter {
+     // Kvalitetsgrinden måste äga även startpunkten för NÄSTA segment.
+     // Annars kan en ren återhämtning få ett falskt korsningsankare från
+     // GPS-hoppets osäkra mellanposition, trots att VDS använder ren bas.
+-    const jumpTick = Boolean(positionAnalysis?.gpsJumpDetected
+-      || positionAnalysis?.analysis?.isGPSJump
+-      || vessel._gpsJumpDetected || vessel._positionUncertain);
++    const jumpTick = this._isUnderBridgeJumpTick(vessel, positionAnalysis);
+     // SEGMENTBEVIS: pröva föregående rena observation före nästa skrivning.
+     // Timerpass bär samma position och råklocka; de kan varken flytta
+     // inträdesankaret eller skapa ett nytt positionsben.
+-    const prevFix = (Number.isFinite(vessel._underBridgePrevLat)
+-      && Number.isFinite(vessel._underBridgePrevLon))
+-      ? {
+-        lat: vessel._underBridgePrevLat,
+-        lon: vessel._underBridgePrevLon,
+-        sog: Number.isFinite(vessel._underBridgePrevSog) ? vessel._underBridgePrevSog : null,
+-        ...vessel._underBridgePrevClock,
+-      }
+-      : null;
++    const prevFix = this._readUnderBridgePrevFix(vessel);
+     // KÄLLNÄRVARO (granskningsrunda 2, 2026-08-03): utrullningsgrinden frågar
+     // om ANDRAKÄLLAN matar fartyget — inte om just det här segmentets två fix
+     // råkade komma därifrån. Skälet är mätt: med källans egen p90-latens
+@@ -710,6 +909,15 @@ class StatusService extends EventEmitter {
+           );
+           vessel._bridgeOpeningLogged = now;
+         }
++        // F08: hållningen visar den passerade bron, men båten kan redan ligga
++        // i nästa bros zon. Pröva det inträdessegmentet nu. Nästa ordinarie
++        // pass startar ofta ett nytt zonbesök och nollar då beviset
++        // (HYSTERESIS_RESET för målbytet, nytt INTERMEDIATE_UNDER); därför
++        // sparas det och återställs där (_noteDeferredZoneEntryCross).
++        const zoneBridge = proximityData?.nearestBridge;
++        if (zoneBridge && zoneBridge.name !== syntheticBridge) {
++          this._noteDeferredZoneEntryCross(vessel, zoneBridge.name, zoneBridge.distance, prevFix, jumpTick);
++        }
+         return true;
+       }
+ 
+@@ -1020,6 +1228,11 @@ class StatusService extends EventEmitter {
+               `🔄 [FIX_O_WAITING_REQUIRED] ${vessel.mmsi}: Blocking under-bridge at ${vessel.currentBridge} - `
+               + `"inväntar" not yet shown since passing ${pairedBridge} (${timeSincePass}ms ago)`,
+             );
++            // F08: spärren skjuter upp under-bro-grenen men inte inträdesbeviset
++            // (samma regel som hållningen, FIX U och rensningspasset).
++            this._noteDeferredZoneEntryCross(
++              vessel, vessel.currentBridge, vessel.distanceToCurrent, prevFix, jumpTick,
++            );
+             return false;
+           }
+         }
+@@ -1042,6 +1255,9 @@ class StatusService extends EventEmitter {
+           // V2 (2026-08-03): ny episod börjar utan segmentbevis.
+           vessel._underBridgeCrossedBridge = null;
+           vessel._underBridgePendingCross = null;
++          // F08: utom inträdesbeviset som ett uppskjutande pass satte vid
++          // samma bro i samma zonbesök (_noteDeferredZoneEntryCross).
++          this._restoreDeferredZoneEntryProof(vessel, vessel.currentBridge, true);
+         }
+         vessel._underBridgeLatched = true;
+         this._noteUnderBridgeLineCross(vessel, vessel.currentBridge, prevFix, jumpTick);
+@@ -1072,6 +1288,8 @@ class StatusService extends EventEmitter {
+           // V2 (2026-08-03): se INTERMEDIATE_UNDER.
+           vessel._underBridgeCrossedBridge = null;
+           vessel._underBridgePendingCross = null;
++          // F08: se INTERMEDIATE_UNDER.
++          this._restoreDeferredZoneEntryProof(vessel, vessel.targetBridge, true);
+         }
+         vessel._underBridgeLatched = true;
+         this._noteUnderBridgeLineCross(vessel, vessel.targetBridge, prevFix, jumpTick);
+diff --git a/lib/services/VesselDataService.js b/lib/services/VesselDataService.js
+index 4ad935c..6ec5d4f 100755
+--- a/lib/services/VesselDataService.js
++++ b/lib/services/VesselDataService.js
+@@ -5150,6 +5150,7 @@ class VesselDataService extends EventEmitter {
+     if (!vessel.passedBridges.includes(previousTarget)) {
+       vessel.passedBridges.push(previousTarget);
+     }
++    this._releaseGateCandidateForBookedBridge(vessel, previousTarget);
+ 
+     if (isTransitionToNext) {
+       this.logger.log(
+@@ -5472,6 +5473,10 @@ class VesselDataService extends EventEmitter {
+       _underBridgePrevClock: oldVessel?._underBridgePrevClock ?? null,
+       _underBridgeCrossedBridge: oldVessel?._underBridgeCrossedBridge ?? null,
+       _underBridgePendingCross: oldVessel?._underBridgePendingCross ?? null,
++      // F08 (rättningskampanjen 2026-11-04): inträdesbeviset som ett
++      // uppskjutande statuspass satte ska återställas när zonbesöket startar,
++      // och det sker ofta först vid NÄSTA fix. Utan arv vore posten borta då.
++      _underBridgeDeferredProof: oldVessel?._underBridgeDeferredProof ?? null,
+       _secondSourceFixAt: oldVessel?._secondSourceFixAt ?? null,
+       _routeDirection: oldVessel?._routeDirection || null,
+       // K1 (fältprov 10, 2026-08-19) — FÄLTLIST-FÄLLAN: nordprogressen mäts i
+@@ -6018,6 +6023,7 @@ class VesselDataService extends EventEmitter {
+           `📋 [PASSED_BRIDGES_UPDATED] ${vessel.mmsi}: Added ${vessel.targetBridge} to passedBridges list. Current: [${vessel.passedBridges.join(', ')}]`,
+         );
+       }
++      this._releaseGateCandidateForBookedBridge(vessel, vessel.targetBridge);
+ 
+       this._activateBridgeOpening(vessel, targetBridge.name, oldVessel, passageResult);
+ 
+@@ -6409,6 +6415,7 @@ class VesselDataService extends EventEmitter {
+     if (!vessel.passedBridges.includes(bridgeName)) {
+       vessel.passedBridges.push(bridgeName);
+     }
++    this._releaseGateCandidateForBookedBridge(vessel, bridgeName);
+     // RC9-inferens: ligger den bekräftade bron BORTOM målbron i färdriktningen
+     // är målbrons passage missad — applicera transitionen + begär failsafen.
+     if (vessel.targetBridge) {
+@@ -7038,6 +7045,7 @@ class VesselDataService extends EventEmitter {
+             `📋 [PASSED_BRIDGES_UPDATED] ${vessel.mmsi}: Added ${bridge.name} to passedBridges list. Current: [${vessel.passedBridges.join(', ')}]`,
+           );
+         }
++        this._releaseGateCandidateForBookedBridge(vessel, bridge.name);
+ 
+         // RC9-fix (2026-06-11): bakåt-inferens av MISSAD målbro-passage.
+         // Om den nyss detekterade bron ligger BORTOM målbron i färdriktningen
+@@ -8296,6 +8304,32 @@ class VesselDataService extends EventEmitter {
+     this._passageCleanupTimers.add(timer);
+   }
+ 
++  /**
++   * F12/F16 (rättningskampanjen 2026-11-04): en bro som nu är bokförd får
++   * inte ha en GPS-grindskandidat kvar. Kandidaten beskriver samma korsning
++   * (eller en äldre i motsatt riktning, som sidokontraktet ändå motbevisar),
++   * och bekräftas den senare blir det en andra bokföring av bron, för en
++   * målbro som mellanbro (INV-13). Dedupen i registreringen räcker inte:
++   * passageId bygger på passedAt, och studsvakten släpper efter 3 min.
++   *
++   * Anropas vid de fyra bokföringarna som lägger bron i passedBridges:
++   * målbrotransitionen, målbropassagen i skyddszonen, den grindbekräftade
++   * eller glappinfererade mellanbron och den ordinarie mellanbropassagen.
++   * Två vägar släpper medvetet inget:
++   *  - under-bro-ankringen i StatusService bokför ingen passage (V2R2-2);
++   *  - Järnvägsbro-inferensen vid TARGET_END lägger bron i passedBridges utan
++   *    registrering. En väntande Järnvägsbro-kandidat är då den enda väg som
++   *    registrerar korsningen, så den får stå kvar (oförändrat beteende).
++   * @param {Object} vessel
++   * @param {string} bridgeName - bron vars passage nyss bokförts
++   * @private
++   */
++  _releaseGateCandidateForBookedBridge(vessel, bridgeName) {
++    const gate = this.app?.gpsJumpGateService;
++    if (!gate || typeof gate.releaseCandidate !== 'function' || !vessel?.mmsi || !bridgeName) return;
++    gate.releaseCandidate(String(vessel.mmsi), bridgeName);
++  }
++
+   /**
+    * Record anchored crossing timestamp for passage deduplication
+    * @param {Object} vessel - Vessel object
+diff --git a/tests/bn2-dodband-nordprogress.test.js b/tests/bn2-dodband-nordprogress.test.js
+new file mode 100644
+index 0000000..153f584
+--- /dev/null
++++ b/tests/bn2-dodband-nordprogress.test.js
+@@ -0,0 +1,230 @@
++'use strict';
++
++jest.mock('homey');
++
++const path = require('path');
++const { execFileSync } = require('child_process');
++const { __mockHomey: mockHomey } = require('homey');
++const AISBridgeApp = require('../app');
++const { BRIDGES } = require('../lib/constants');
++const VesselDataService = require('../lib/services/VesselDataService');
++
++/**
++ * F13 (rättningskampanjen 2026-11-04): BN2-luckan i COG-dödbandet.
++ *
++ * BN2 sätter passerad form när bron ligger mellan sist kända position och den
++ * aktuella och hoppet pekar i färdriktningen. Färdriktningen kom ur ruttlåset
++ * eller kursen, men kursbanden lämnar östra dödbandet 46–134° öppet. En
++ * återfödd norrgående båt utan ruttlås och med nordostlig kurs fick därför
++ * ingen färdriktning, och notisen gick i förvarningsform efter korsningen:
++ *  - SALTIS (värld 86, AISHub, cog 49,9°): korsning 08:56:38, notis 08:57:32
++ *    "närmar sig Olidebron, beräknad ankomst om 1 minut" 115 m efter bron.
++ *  - En okänd båt (värld 783, cog 46,2°): korsning 10:54:31, notis 10:55:19
++ *    107 m efter bron.
++ * Rättningen låter K1:s färska nordprogress bära färdriktningen i dödbandet,
++ * med samma kontrakt (_freshNorthProgressMps).
++ *
++ * Revision 2 (omgranskningen av revision 1, dirigentens JA på fråga 1): samma
++ * lucka fanns när kursen SAKNAS. AIS 360 ("ej tillgänglig") och ogiltiga
++ * värden blir null i _validateAISMessage, och en återfödd båt utan föregående
++ * fixobjekt behåller null. Med kursen 360 på återfödelsefixen fick SALTIS
++ * fortfarande "närmar sig Olidebron, beräknad ankomst om 1 minut" 116 m efter
++ * bron (granskarens repro, fixturen r2-saltis-utan-kurs.jsonl). Regeln gäller
++ * nu båda fallen där kursen inte säger nord eller syd.
++ */
++const ROOT = path.resolve(__dirname, '..');
++const FIXTURE = path.join(__dirname, 'fixtures', 'r2-saltis-dodband.jsonl');
++const FIXTURE_UTAN_KURS = path.join(__dirname, 'fixtures', 'r2-saltis-utan-kurs.jsonl');
++const OLIDE = BRIDGES.olidebron;
++const MMSI = '265316661';
++const clone = (value) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
++const northOf = (metres) => ({ lat: OLIDE.lat + metres / 111320, lon: OLIDE.lon });
++
++describe('F13: BN2 när kursen inte säger nord eller syd (östra dödbandet eller ingen kurs)', () => {
++  let apps;
++  let savedTestMode;
++
++  const boot = async () => {
++    const store = {};
++    const app = new AISBridgeApp();
++    app.log = jest.fn();
++    app.debug = jest.fn();
++    app.error = jest.fn();
++    app.homey = {
++      ...mockHomey,
++      settings: {
++        get: (key) => clone(store[key]),
++        set: jest.fn((key, value) => {
++          store[key] = clone(value);
++        }),
++        on: jest.fn(),
++        off: jest.fn(),
++      },
++    };
++    await app.onInit();
++    apps.push(app);
++    return app;
++  };
++
++  // Återfödd 115 m norr om Olidebron; sist kända position 7 min gammal och
++  // 720 m söder om bron (SALTIS-geometrin). Beviset bär samma stämpel som
++  // meddelandet (K1:s färskhetskontrakt).
++  const reborn = (extra = {}) => {
++    const now = Date.now();
++    return {
++      mmsi: MMSI,
++      name: 'SALTIS',
++      ...northOf(115),
++      lastPosition: null,
++      sog: 5.7,
++      cog: 49.9,
++      _routeDirection: null,
++      targetBridge: null,
++      status: 'waiting',
++      timestamp: now,
++      lastPositionUpdate: now,
++      _lastNorthProgress: { mps: 1.968, ts: now },
++      ...extra,
++    };
++  };
++  const candidate = { name: OLIDE.name, id: 'olidebron', source: 'current' };
++
++  beforeEach(() => {
++    jest.useFakeTimers();
++    jest.setSystemTime(new Date('2026-06-18T08:57:32.513Z'));
++    savedTestMode = global.__TEST_MODE__;
++    global.__TEST_MODE__ = true;
++    apps = [];
++  });
++
++  afterEach(async () => {
++    for (const app of apps) {
++      // eslint-disable-next-line no-await-in-loop
++      if (!app._shuttingDown) await app.onUninit();
++    }
++    await jest.advanceTimersByTimeAsync(0);
++    global.__TEST_MODE__ = savedTestMode;
++    jest.useRealTimers();
++  });
++
++  test('färsk nordprogress bär färdriktningen i dödbandet, men inte mot en sydlig kurs eller ett ruttlås', async () => {
++    const app = await boot();
++    app._lastKnownPositions.set(MMSI, { ...northOf(-720), t: Date.now() - 7 * 60 * 1000 });
++
++    // SALTIS (49,9°) och den okända båten (46,2°): passerad form.
++    expect(app._hasGapCrossedNotifiedBridge(reborn(), candidate, 'current')).toBe(true);
++    expect(app._hasGapCrossedNotifiedBridge(reborn({ cog: 46.2 }), candidate, 'current')).toBe(true);
++
++    // Beviset måste vara färskt och över ribban, precis som för K1.
++    const now = Date.now();
++    expect(app._hasGapCrossedNotifiedBridge(
++      reborn({ _lastNorthProgress: { mps: 1.968, ts: now - 1 } }), candidate, 'current',
++    )).toBe(false);
++    expect(app._hasGapCrossedNotifiedBridge(
++      reborn({ _lastNorthProgress: { mps: VesselDataService.NORTH_PROGRESS_MIN_MPS - 0.01, ts: now } }),
++      candidate, 'current',
++    )).toBe(false);
++    expect(app._hasGapCrossedNotifiedBridge(reborn({ _lastNorthProgress: null }), candidate, 'current'))
++      .toBe(false);
++
++    // Kursen styr fortfarande: en sydlig kurs är en återresa med bron framför
++    // båten.
++    expect(app._hasGapCrossedNotifiedBridge(reborn({ cog: 205 }), candidate, 'current')).toBe(false);
++
++    // Ett ruttlås söderut vinner över nordprogressen.
++    expect(app._hasGapCrossedNotifiedBridge(reborn({ _routeDirection: 'south' }), candidate, 'current'))
++      .toBe(false);
++  });
++
++  test('utan kurs (AIS 360 → null) bär färsk nordprogress färdriktningen på samma sätt', async () => {
++    const app = await boot();
++    app._lastKnownPositions.set(MMSI, { ...northOf(-720), t: Date.now() - 7 * 60 * 1000 });
++    const now = Date.now();
++
++    // Revision 2: kursen saknas helt (null eller undefined). Förut false.
++    expect(app._hasGapCrossedNotifiedBridge(reborn({ cog: null }), candidate, 'current')).toBe(true);
++    expect(app._hasGapCrossedNotifiedBridge(reborn({ cog: undefined }), candidate, 'current')).toBe(true);
++
++    // Samma beviskrav som i dödbandet: färskt och över ribban.
++    expect(app._hasGapCrossedNotifiedBridge(
++      reborn({ cog: null, _lastNorthProgress: { mps: 1.968, ts: now - 1 } }), candidate, 'current',
++    )).toBe(false);
++    expect(app._hasGapCrossedNotifiedBridge(
++      reborn({ cog: null, _lastNorthProgress: { mps: VesselDataService.NORTH_PROGRESS_MIN_MPS - 0.01, ts: now } }),
++      candidate, 'current',
++    )).toBe(false);
++    expect(app._hasGapCrossedNotifiedBridge(reborn({ cog: null, _lastNorthProgress: null }), candidate, 'current'))
++      .toBe(false);
++
++    // Ruttlåset går fortfarande först.
++    expect(app._hasGapCrossedNotifiedBridge(
++      reborn({ cog: null, _routeDirection: 'south' }), candidate, 'current',
++    )).toBe(false);
++
++    // Regeln ger aldrig 'south': ett hopp söderut över bron utan kurs (och
++    // därmed utan nordprogress) behåller förvarningen.
++    app._lastKnownPositions.set(MMSI, { ...northOf(720), t: Date.now() - 7 * 60 * 1000 });
++    expect(app._hasGapCrossedNotifiedBridge(
++      reborn({ ...northOf(-115), cog: null, _lastNorthProgress: null }), candidate, 'current',
++    )).toBe(false);
++    // Även om ett felaktigt nordbevis fanns kräver svaret att hoppet gick norrut.
++    expect(app._hasGapCrossedNotifiedBridge(
++      reborn({ ...northOf(-115), cog: null }), candidate, 'current',
++    )).toBe(false);
++  });
++
++  test('K1:s Kanalinfartsregel läser samma färskhetskontrakt', async () => {
++    const app = await boot();
++    const kanal = { name: 'Kanalinfarten', id: 'kanalinfarten', source: 'trigger-point' };
++    expect(app._getNotificationDirection(reborn({ _routeDirection: null }), kanal)).toBe('northbound');
++    expect(app._getNotificationDirection(
++      reborn({ _lastNorthProgress: { mps: 1.968, ts: Date.now() - 1 } }), kanal,
++    )).toBe('unknown');
++    // K1 själv är orörd (dirigentens beslut): regeln gäller bara östbandet,
++    // så en båt utan kurs får fortfarande 'unknown' vid Kanalinfarten.
++    expect(app._getNotificationDirection(reborn({ cog: null }), kanal)).toBe('unknown');
++  });
++
++  const replay = (fixture) => {
++    const out = execFileSync(process.execPath, [path.join(ROOT, 'tests/replay-validation/replayRunner.js'), fixture], {
++      cwd: ROOT,
++      encoding: 'utf8',
++      maxBuffer: 64 * 1024 * 1024,
++      env: {
++        ...process.env, NODE_OPTIONS: '', REPLAY_VERBOSE: '', REPLAY_MONITORING: '',
++      },
++    });
++    return JSON.parse(out.match(/__REPLAY_JSON__(.*?)__END__/s)[1]);
++  };
++
++  test('SALTIS genom hela appen: Olidebron-notisen går i passerad form', () => {
++    const result = replay(FIXTURE);
++    const notice = result.notifications.find((n) => n.mmsi === MMSI && n.bridge === 'Olidebron');
++    // Före rättningen: "SALTIS närmar sig Olidebron, beräknad ankomst om 1 minut".
++    expect(notice).toMatchObject({
++      t: Date.parse('2026-06-18T08:57:32.513Z'),
++      eta: -1,
++      alreadyPassed: true,
++      message: 'SALTIS passerade Olidebron under AIS-tystnad',
++    });
++    // Bara formen ändras: samma fem notiser, i samma ordning.
++    expect(result.notifications.filter((n) => n.mmsi === MMSI).map((n) => n.bridge))
++      .toEqual(['Kanalinfarten', 'Olidebron', 'Stridsbergsbron', 'Järnvägsbron', 'Klaffbron']);
++  }, 60000);
++
++  test('SALTIS med kursen 360 ("ej tillgänglig") genom hela appen: också passerad form', () => {
++    // Granskarens repro: fixturen är r2-saltis-dodband.jsonl med kursen 360 på
++    // återfödelsefixen 08:57:32,513. Korsningen var 08:56:38 norrut (L0).
++    const result = replay(FIXTURE_UTAN_KURS);
++    const notice = result.notifications.find((n) => n.mmsi === MMSI && n.bridge === 'Olidebron');
++    // Före revision 2: "SALTIS närmar sig Olidebron, beräknad ankomst om 1 minut".
++    expect(notice).toMatchObject({
++      t: Date.parse('2026-06-18T08:57:32.513Z'),
++      eta: -1,
++      alreadyPassed: true,
++      message: 'SALTIS passerade Olidebron under AIS-tystnad',
++    });
++    expect(result.notifications.filter((n) => n.mmsi === MMSI).map((n) => n.bridge))
++      .toEqual(['Kanalinfarten', 'Olidebron', 'Stridsbergsbron', 'Järnvägsbron', 'Klaffbron']);
++  }, 60000);
++});
+diff --git a/tests/fixtures/r2-jolly-grindkandidat.jsonl b/tests/fixtures/r2-jolly-grindkandidat.jsonl
+new file mode 100644
+index 0000000..c7134e3
+--- /dev/null
++++ b/tests/fixtures/r2-jolly-grindkandidat.jsonl
+@@ -0,0 +1,17 @@
++{"mmsi":"265841261","msgType":"StandardClassBPositionReport","lat":58.320571605238335,"lon":12.323753999856178,"sog":6.6,"cog":197.9,"navStatus":null,"shipName":"JOLLY","aisTimestamp":1784735008362,"fixTs":1784735008362,"feed":"aisstream","receivedAt":"2026-07-22T15:43:28.362Z"}
++{"mmsi":"265841261","msgType":"StandardClassBPositionReport","lat":58.314731618371766,"lon":12.32004367353945,"sog":6.7,"cog":192.2,"navStatus":null,"shipName":"JOLLY","aisTimestamp":1784735205811,"fixTs":1784735205811,"feed":"aisstream","receivedAt":"2026-07-22T15:46:45.811Z"}
++{"mmsi":"265841261","msgType":"StandardClassBPositionReport","lat":58.31236713676392,"lon":12.318624638025321,"sog":6.8,"cog":198.4,"navStatus":null,"shipName":"JOLLY","aisTimestamp":1784735286502,"fixTs":1784735286502,"feed":"aisstream","receivedAt":"2026-07-22T15:48:06.502Z"}
++{"mmsi":"265841261","msgType":"StandardClassBPositionReport","lat":58.30627036922539,"lon":12.311020142271623,"sog":5.9,"cog":221.6,"navStatus":null,"shipName":"JOLLY","aisTimestamp":1784735545060,"fixTs":1784735545060,"feed":"aisstream","receivedAt":"2026-07-22T15:52:25.060Z"}
++{"mmsi":"265841261","msgType":"StandardClassBPositionReport","lat":58.30364262719039,"lon":12.3072085046646,"sog":5.9,"cog":214.8,"navStatus":null,"shipName":"JOLLY","aisTimestamp":1784735666300,"fixTs":1784735666300,"feed":"aisstream","receivedAt":"2026-07-22T15:54:26.300Z"}
++{"mmsi":"265841261","msgType":"StandardClassBPositionReport","lat":58.29255561178748,"lon":12.293398779992788,"sog":0,"cog":211.6,"navStatus":null,"shipName":"JOLLY","aisTimestamp":1784736214941,"fixTs":1784736214941,"feed":"aisstream","receivedAt":"2026-07-22T16:03:34.941Z"}
++{"mmsi":"265841261","msgType":"StandardClassBPositionReport","lat":58.292761285636374,"lon":12.292630421014,"sog":0,"cog":93.8,"navStatus":null,"shipName":"JOLLY","aisTimestamp":1784736403123,"fixTs":1784736403123,"feed":"aisstream","receivedAt":"2026-07-22T16:06:43.123Z"}
++{"mmsi":"265841261","msgType":"StandardClassBPositionReport","lat":58.29259961143514,"lon":12.293353950005217,"sog":0.1,"cog":null,"navStatus":null,"shipName":"JOLLY","aisTimestamp":1784736816917,"fixTs":1784736816917,"feed":"aisstream","receivedAt":"2026-07-22T16:13:36.917Z"}
++{"mmsi":"265841261","msgType":"StandardClassBPositionReport","lat":58.292599171850206,"lon":12.293364863549211,"sog":0,"cog":184.5,"navStatus":null,"shipName":"JOLLY","aisTimestamp":1784737009875,"fixTs":1784737009875,"feed":"aisstream","receivedAt":"2026-07-22T16:16:49.875Z"}
++{"mmsi":"265841261","msgType":"StandardClassBPositionReport","lat":58.291721988007204,"lon":12.292172298521217,"sog":4.3,"cog":217.1,"navStatus":null,"shipName":"JOLLY","aisTimestamp":1784737412294,"fixTs":1784737412294,"feed":"aisstream","receivedAt":"2026-07-22T16:23:32.294Z"}
++{"mmsi":"265841261","msgType":"StandardClassBPositionReport","lat":58.290142937463514,"lon":12.29005726725669,"sog":4.5,"cog":214.9,"navStatus":null,"shipName":"JOLLY","aisTimestamp":1784737504468,"fixTs":1784737504468,"feed":"aisstream","receivedAt":"2026-07-22T16:25:04.468Z"}
++{"mmsi":"265841261","msgType":"StandardClassBPositionReport","lat":58.28280097729762,"lon":12.28341260619708,"sog":5.1,"cog":190.2,"navStatus":null,"shipName":"JOLLY","aisTimestamp":1784737886343,"fixTs":1784737886343,"feed":"aisstream","receivedAt":"2026-07-22T16:31:26.343Z"}
++{"mmsi":"265841261","msgType":"StandardClassBPositionReport","lat":58.28201395091429,"lon":12.283123674894327,"sog":4.9,"cog":192.8,"navStatus":null,"shipName":"JOLLY","aisTimestamp":1784737919882,"fixTs":1784737919882,"feed":"aisstream","receivedAt":"2026-07-22T16:31:59.882Z"}
++{"mmsi":"265841261","msgType":"StandardClassBPositionReport","lat":58.27708441163933,"lon":12.280313232321951,"sog":5,"cog":218.3,"navStatus":null,"shipName":"JOLLY","aisTimestamp":1784738141395,"fixTs":1784738141395,"feed":"aisstream","receivedAt":"2026-07-22T16:35:41.395Z"}
++{"mmsi":"265841261","msgType":"StandardClassBPositionReport","lat":58.276098105448135,"lon":12.279538119530551,"sog":5.2,"cog":203.3,"navStatus":null,"shipName":"JOLLY","aisTimestamp":1784738186878,"fixTs":1784738186878,"feed":"aisstream","receivedAt":"2026-07-22T16:36:26.878Z"}
++{"mmsi":"265841261","msgType":"StandardClassBPositionReport","lat":58.2752330050213,"lon":12.278716164158793,"sog":5.1,"cog":215.5,"navStatus":null,"shipName":"JOLLY","aisTimestamp":1784738226003,"fixTs":1784738226003,"feed":"aisstream","receivedAt":"2026-07-22T16:37:06.003Z"}
++{"mmsi":"265841261","msgType":"StandardClassBPositionReport","lat":58.27254435618545,"lon":12.275069391606085,"sog":4.4,"cog":211,"navStatus":null,"shipName":"JOLLY","aisTimestamp":1784738366009,"fixTs":1784738366009,"feed":"aisstream","receivedAt":"2026-07-22T16:39:26.009Z"}
+diff --git a/tests/fixtures/r2-saltis-dodband.jsonl b/tests/fixtures/r2-saltis-dodband.jsonl
+new file mode 100644
+index 0000000..3270afc
+--- /dev/null
++++ b/tests/fixtures/r2-saltis-dodband.jsonl
+@@ -0,0 +1,11 @@
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.26555,"lon":12.26443,"sog":3.5,"cog":47,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781772579808,"fixTs":1781772554000,"feed":"aishub","receivedAt":"2026-06-18T08:49:39.808Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.26627,"lon":12.26629,"sog":3.7,"cog":47,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781772646290,"fixTs":1781772629000,"feed":"aishub","receivedAt":"2026-06-18T08:50:46.290Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.27345,"lon":12.27658,"sog":5.7,"cog":49.9,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781773052513,"fixTs":1781773038000,"feed":"aishub","receivedAt":"2026-06-18T08:57:32.513Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.2749,"lon":12.27853,"sog":5.4,"cog":33,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781773122244,"fixTs":1781773107000,"feed":"aishub","receivedAt":"2026-06-18T08:58:42.244Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.2764,"lon":12.2799,"sog":5.6,"cog":15.6,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781773187999,"fixTs":1781773170000,"feed":"aishub","receivedAt":"2026-06-18T08:59:47.999Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.27822,"lon":12.28121,"sog":5.4,"cog":24.9,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781773255972,"fixTs":1781773247000,"feed":"aishub","receivedAt":"2026-06-18T09:00:55.972Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.27958,"lon":12.28208,"sog":5.7,"cog":349.5,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781773325194,"fixTs":1781773301000,"feed":"aishub","receivedAt":"2026-06-18T09:02:05.194Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.29258,"lon":12.29353,"sog":6.6,"cog":27.3,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781774067259,"fixTs":1781774028000,"feed":"aishub","receivedAt":"2026-06-18T09:14:27.259Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.29498,"lon":12.29704,"sog":7.3,"cog":32,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781774133589,"fixTs":1781774122000,"feed":"aishub","receivedAt":"2026-06-18T09:15:33.589Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.29909,"lon":12.30174,"sog":7.3,"cog":19.3,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781774271608,"fixTs":1781774259000,"feed":"aishub","receivedAt":"2026-06-18T09:17:51.608Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.3014,"lon":12.30448,"sog":7.4,"cog":31.1,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781774340434,"fixTs":1781774337000,"feed":"aishub","receivedAt":"2026-06-18T09:19:00.434Z"}
+diff --git a/tests/fixtures/r2-saltis-utan-kurs.jsonl b/tests/fixtures/r2-saltis-utan-kurs.jsonl
+new file mode 100644
+index 0000000..777b294
+--- /dev/null
++++ b/tests/fixtures/r2-saltis-utan-kurs.jsonl
+@@ -0,0 +1,11 @@
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.26555,"lon":12.26443,"sog":3.5,"cog":47,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781772579808,"fixTs":1781772554000,"feed":"aishub","receivedAt":"2026-06-18T08:49:39.808Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.26627,"lon":12.26629,"sog":3.7,"cog":47,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781772646290,"fixTs":1781772629000,"feed":"aishub","receivedAt":"2026-06-18T08:50:46.290Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.27345,"lon":12.27658,"sog":5.7,"cog":360,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781773052513,"fixTs":1781773038000,"feed":"aishub","receivedAt":"2026-06-18T08:57:32.513Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.2749,"lon":12.27853,"sog":5.4,"cog":33,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781773122244,"fixTs":1781773107000,"feed":"aishub","receivedAt":"2026-06-18T08:58:42.244Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.2764,"lon":12.2799,"sog":5.6,"cog":15.6,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781773187999,"fixTs":1781773170000,"feed":"aishub","receivedAt":"2026-06-18T08:59:47.999Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.27822,"lon":12.28121,"sog":5.4,"cog":24.9,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781773255972,"fixTs":1781773247000,"feed":"aishub","receivedAt":"2026-06-18T09:00:55.972Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.27958,"lon":12.28208,"sog":5.7,"cog":349.5,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781773325194,"fixTs":1781773301000,"feed":"aishub","receivedAt":"2026-06-18T09:02:05.194Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.29258,"lon":12.29353,"sog":6.6,"cog":27.3,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781774067259,"fixTs":1781774028000,"feed":"aishub","receivedAt":"2026-06-18T09:14:27.259Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.29498,"lon":12.29704,"sog":7.3,"cog":32,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781774133589,"fixTs":1781774122000,"feed":"aishub","receivedAt":"2026-06-18T09:15:33.589Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.29909,"lon":12.30174,"sog":7.3,"cog":19.3,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781774271608,"fixTs":1781774259000,"feed":"aishub","receivedAt":"2026-06-18T09:17:51.608Z"}
++{"mmsi":"265316661","msgType":"AISHubPosition","lat":58.3014,"lon":12.30448,"sog":7.4,"cog":31.1,"navStatus":null,"shipName":"SALTIS","aisTimestamp":1781774340434,"fixTs":1781774337000,"feed":"aishub","receivedAt":"2026-06-18T09:19:00.434Z"}
+diff --git a/tests/gps-grind-kandidat-bokford-bro.test.js b/tests/gps-grind-kandidat-bokford-bro.test.js
+new file mode 100644
+index 0000000..0dddd64
+--- /dev/null
++++ b/tests/gps-grind-kandidat-bokford-bro.test.js
+@@ -0,0 +1,155 @@
++'use strict';
++
++const path = require('path');
++const { execFileSync } = require('child_process');
++const GPSJumpGateService = require('../lib/services/GPSJumpGateService');
++
++/**
++ * F12/F16 (rättningskampanjen 2026-11-04): GPS-grindens dubbelbokföring.
++ *
++ * JOLLY (klass B, värld 254 i buggjägarens standardkörning) korsar
++ * Stridsbergsbron söderut 16:01:52 under ett 9 minuters glapp och ligger
++ * sedan i kö 126 m söder om bron. Fixen 16:03:34 är GPS-osäker, så grinden
++ * registrerar en kandidat för bron. I samma tick bokför glappvägen passagen
++ * (GAP_TARGET_INFERRED, målet flyttas till Klaffbron). Kandidaten släpptes
++ * aldrig: 795 s senare bekräftades den och bokförde Stridsbergsbron en gång
++ * till, nu som mellanbro (INV-13 och T10 FANTOMPASSAGE). Rättningen släpper
++ * den bokförda brons kandidat vid bokföringen; andra broars kandidater ligger
++ * kvar.
++ */
++const ROOT = path.resolve(__dirname, '..');
++const FIXTURE = path.join(__dirname, 'fixtures', 'r2-jolly-grindkandidat.jsonl');
++const JOLLY = '265841261';
++
++function replay(jsonl) {
++  const out = execFileSync(process.execPath, [path.join(ROOT, 'tests/replay-validation/replayRunner.js'), jsonl], {
++    cwd: ROOT,
++    encoding: 'utf8',
++    maxBuffer: 64 * 1024 * 1024,
++    env: {
++      ...process.env, NODE_OPTIONS: '', REPLAY_VERBOSE: '', REPLAY_MONITORING: '',
++    },
++  });
++  return JSON.parse(out.match(/__REPLAY_JSON__(.*?)__END__/s)[1]);
++}
++
++describe('GPS-grinden släpper en bokförd bros kandidat', () => {
++  const logger = { debug: jest.fn(), log: jest.fn(), error: jest.fn() };
++  const vessel = (extra = {}) => ({
++    mmsi: JOLLY, lat: 58.2926, lon: 12.2934, sog: 0, cog: 184.5, timestamp: Date.now(), ...extra,
++  });
++
++  beforeEach(() => {
++    jest.useFakeTimers();
++    jest.setSystemTime(new Date('2026-07-22T16:03:34.941Z'));
++  });
++
++  afterEach(() => {
++    jest.useRealTimers();
++  });
++
++  test('bara den bokförda bron släpps, och den bekräftas aldrig senare', () => {
++    const gate = new GPSJumpGateService(logger, null);
++    gate.registerCandidatePassage(JOLLY, 'Stridsbergsbron', { passed: true }, vessel());
++    gate.registerCandidatePassage(JOLLY, 'Järnvägsbron', { passed: true }, vessel());
++
++    expect(gate.releaseCandidate(JOLLY, 'Stridsbergsbron')).toBe(true);
++    expect(gate.releaseCandidate(JOLLY, 'Stridsbergsbron')).toBe(false);
++    expect(gate.releaseCandidate('000000000', 'Järnvägsbron')).toBe(false);
++
++    jest.advanceTimersByTime(795 * 1000);
++    const confirmed = gate.confirmStableCandidates(JOLLY, vessel({ timestamp: Date.now() }));
++    expect(confirmed.map((c) => c.bridgeName)).toEqual(['Järnvägsbron']);
++    gate.destroy();
++  });
++
++  /**
++   * Varje bokföringsväg som lägger bron i passedBridges släpper sin bros
++   * kandidat (granskningen 2026-11-04: bara målbrotransitionen var låst, av
++   * JOLLY nedan). En kandidat för en annan bro ligger kvar och bekräftas, så
++   * testet visar också att den bokförda brons kandidat annars hade bekräftats.
++   */
++  describe('varje bokföringsväg släpper sin bros kandidat', () => {
++    const MMSI = '265000001';
++    const { BRIDGES } = require('../lib/constants');
++    const VesselDataService = require('../lib/services/VesselDataService');
++    const BridgeRegistry = require('../lib/models/BridgeRegistry');
++    const SystemCoordinator = require('../lib/services/SystemCoordinator');
++    const mToDeg = (m) => m / 111320;
++    const fix = (bridge, northM, t, extra) => ({
++      mmsi: MMSI,
++      lat: bridge.lat + mToDeg(northM),
++      lon: bridge.lon + mToDeg(northM * 0.6),
++      sog: 5.5,
++      _rawPositionSog: 5.5,
++      cog: 200,
++      timestamp: t,
++      fixTs: t,
++      lastPositionUpdate: t,
++      fixFeed: 'aisstream',
++      passedBridges: [],
++      passedAt: {},
++      _routeDirection: 'south',
++      _hasMovementProof: true,
++      ...extra,
++    });
++    let svc;
++    let gate;
++
++    beforeEach(() => {
++      global.__TEST_MODE__ = true;
++      svc = new VesselDataService(logger, new BridgeRegistry(), new SystemCoordinator(logger));
++      gate = new GPSJumpGateService(logger, null);
++      svc.app = {
++        gpsJumpGateService: gate, passageLatchService: null, routeOrderValidator: null,
++      };
++    });
++
++    afterEach(() => {
++      svc.clearAllTimers();
++      gate.destroy();
++    });
++
++    test.each([
++      ['målbropassagen i _hasPassedTargetBridge', BRIDGES.klaffbron, 'Klaffbron', (v, old) => {
++        expect(svc._hasPassedTargetBridge(v, old)).toBe(true);
++      }],
++      ['den grindbekräftade mellanbron (registerConfirmedIntermediatePassage)', BRIDGES.jarnvagsbron, null, (v, old) => {
++        svc.registerConfirmedIntermediatePassage(v, old, 'Järnvägsbron', Date.now());
++      }],
++      ['den ordinarie mellanbropassagen (_handleIntermediateBridgePassage)', BRIDGES.jarnvagsbron, 'Klaffbron', (v, old) => {
++        svc._handleIntermediateBridgePassage(v, old);
++      }],
++    ])('%s', (_label, bridge, targetBridge, book) => {
++      const t = Date.now();
++      const atBridge = fix(bridge, 0, t);
++      gate.registerCandidatePassage(MMSI, bridge.name, { passed: true }, atBridge);
++      gate.registerCandidatePassage(MMSI, 'Olidebron', { passed: true }, atBridge);
++      const old = fix(bridge, 60, t - 30000, { targetBridge });
++      const v = fix(bridge, -70, t, { targetBridge });
++
++      book(v, old);
++
++      expect(v.passedBridges).toContain(bridge.name);
++      jest.advanceTimersByTime(60 * 1000);
++      const confirmed = gate.confirmStableCandidates(MMSI, { ...atBridge, timestamp: Date.now() });
++      expect(confirmed.map((c) => c.bridgeName)).toEqual(['Olidebron']);
++    });
++  });
++
++  test('JOLLY: Stridsbergsbron bokförs en gång, som målbro', () => {
++    const result = replay(FIXTURE);
++    const target = result.targetPassages.filter((p) => p.mmsi === JOLLY && p.bridge === 'Stridsbergsbron');
++    const intermediate = result.intermediatePassages
++      .filter((p) => p.mmsi === JOLLY && p.bridge === 'Stridsbergsbron');
++    expect(target.map((p) => p.iso)).toEqual(['2026-07-22T16:03:34.941Z']);
++    // Före rättningen: en andra bokföring 16:16:49.875 (gate-confirmed).
++    expect(intermediate).toEqual([]);
++    // Övriga passager står kvar; Järnvägsbron bokförs när kön släpper.
++    expect(result.intermediatePassages.filter((p) => p.mmsi === JOLLY).map((p) => [p.bridge, p.iso]))
++      .toEqual([
++        ['Stallbackabron', '2026-07-22T15:52:25.060Z'],
++        ['Järnvägsbron', '2026-07-22T16:25:04.468Z'],
++      ]);
++  }, 60000);
++});
+diff --git a/tests/zonintrade-uppskjutet-bevis.test.js b/tests/zonintrade-uppskjutet-bevis.test.js
+new file mode 100644
+index 0000000..dfbe88f
+--- /dev/null
++++ b/tests/zonintrade-uppskjutet-bevis.test.js
+@@ -0,0 +1,584 @@
++'use strict';
++
++const fs = require('fs');
++const os = require('os');
++const path = require('path');
++const { execFile } = require('child_process');
++const StatusService = require('../lib/services/StatusService');
++const ProximityService = require('../lib/services/ProximityService');
++const SystemCoordinator = require('../lib/services/SystemCoordinator');
++const VesselDataService = require('../lib/services/VesselDataService');
++const BridgeRegistry = require('../lib/models/BridgeRegistry');
++const geometry = require('../lib/utils/geometry');
++const { BRIDGES } = require('../lib/constants');
++const corpora = require('./replay-validation/corpora');
++
++/**
++ * F08 (rättningskampanjen 2026-11-04): fasberoendet vid Järnvägsbron.
++ *
++ * SINE BRES (20260917-16h) passerar Stridsbergsbron söderut 02:26:08 och
++ * fixen 02:26:30 ligger 26 m bortom Järnvägsbrons linje. Segmentbeviset för
++ * inträdet (A0 362 m norr om bron → 26 m söder om den) prövades först i ett
++ * senare statuspass vid samma position: Phase 3-hållningen för Stridsbergsbron
++ * returnerade före INTERMEDIATE_UNDER, och FIX U:s tvingade väntan före hela
++ * under-bro-analysen. I basen hann UI-passet efter FIX U köra före nästa fix
++ * och passagen bokfördes 02:27:17. I fasvarianterna δ −2,5 s och −7 s låg
++ * UI-passet kvar bakom en pågående skrivning tills efter fixen 02:27:17, och
++ * passagen tappades (buggjägarens M-FAS, kort F08; omgranskningen fann samma
++ * sak vid δ −5 s). Rättningen prövar beviset i det pass som gör uppskjutningen.
++ */
++const ROOT = path.resolve(__dirname, '..');
++const JVB = BRIDGES.jarnvagsbron;
++const MMSI = '304225000';
++// Råfixar ur 20260917-16h (SINE BRES).
++const A0 = {
++  lat: 58.29427, lon: 12.29567, t: 1789698299377, fixTs: 1789698265000, sog: 6.9,
++};
++const A = { t: 1789698368016 };
++const B = {
++  lat: 58.291455, lon: 12.291744999999999, t: 1789698390446, sog: 5.5, cog: 213.3,
++};
++const C = {
++  lat: 58.29084, lon: 12.29099, sog: 5.4, cog: 212.8,
++};
++
++function vesselAtB(extra = {}) {
++  return {
++    mmsi: MMSI,
++    lat: B.lat,
++    lon: B.lon,
++    sog: B.sog,
++    _rawPositionSog: B.sog,
++    cog: B.cog,
++    timestamp: B.t,
++    fixTs: B.t,
++    fixFeed: 'aisstream',
++    lastPositionUpdate: B.t,
++    _routeDirection: 'south',
++    status: 'under-bridge',
++    currentBridge: 'Stridsbergsbron',
++    targetBridge: 'Klaffbron',
++    lastPassedBridge: 'Stridsbergsbron',
++    lastPassedBridgeTime: A.t,
++    passedBridges: ['Stallbackabron', 'Stridsbergsbron'],
++    _forceWaitingAtBridge: { bridge: 'Järnvägsbron', until: A.t + 5 * 60 * 1000, triggeredBy: 'Stridsbergsbron' },
++    _bridgeOpeningUntil: A.t + 30 * 1000,
++    _bridgeOpeningBridgeName: 'Stridsbergsbron',
++    _underBridgeLatched: true,
++    _underBridgeSince: A.t,
++    _underBridgeEntryLat: 58.29236,
++    _underBridgeEntryLon: 12.29288,
++    _underBridgeCrossedBridge: null,
++    _underBridgePrevLat: A0.lat,
++    _underBridgePrevLon: A0.lon,
++    _underBridgePrevSog: A0.sog,
++    _underBridgePrevClock: { timestamp: A0.t, fixTs: A0.fixTs, fixFeed: 'aishub' },
++    _lastTargetBridgeForHysteresis: 'Stridsbergsbron',
++    ...extra,
++  };
++}
++
++const cleanAnalysis = { gpsJumpDetected: false, positionUncertain: false, analysis: { isGPSJump: false } };
++
++describe('F08: inträdesbeviset prövas i passet som skjuter upp under-bro-grenen', () => {
++  let status;
++  let proximity;
++  let logger;
++
++  beforeEach(() => {
++    jest.useFakeTimers();
++    jest.setSystemTime(B.t);
++    logger = {
++      log: jest.fn(), debug: jest.fn(), error: jest.fn(), warn: jest.fn(),
++    };
++    const registry = new BridgeRegistry();
++    status = new StatusService(registry, logger, new SystemCoordinator(logger));
++    proximity = new ProximityService(registry, logger);
++  });
++
++  afterEach(() => {
++    jest.clearAllTimers();
++    jest.useRealTimers();
++  });
++
++  const passageAtC = (vessel) => geometry.detectBridgePassage({ ...vessel, ...C, _rawPositionSog: C.sog }, vessel, JVB);
++
++  test.each([
++    ['Phase 3-hållningen för Stridsbergsbron', {}],
++    ['FIX U:s tvingade väntan', { _bridgeOpeningUntil: B.t - 1 }],
++  ])('%s: utgångsfixen bokför passagen utan något mellanliggande pass', (_label, extra) => {
++    const vessel = vesselAtB(extra);
++    status.analyzeVesselStatus(vessel, proximity.analyzeVesselProximity(vessel), cleanAnalysis);
++
++    expect(vessel._underBridgeCrossedBridge).toBe('Järnvägsbron');
++    expect(vessel._underBridgeEntryLat).toBe(A0.lat);
++    // Föregående observation förbrukas inte av uppskjutningen.
++    expect(vessel._underBridgePrevLat).toBe(A0.lat);
++    expect(passageAtC(vessel)).toMatchObject({ passed: true, method: 'traditional_close_passage' });
++  });
++
++  test('rensningspasset (NINA B 20260918-7h): nästa bros inträde prövas i samma pass', () => {
++    // Fixen 17:31:26 (47 m söder om Stridsbergsbron) är föregående observation;
++    // fixen 17:32:34 ligger 19 m bortom Järnvägsbron, och Regel 0 rensar den
++    // passerade Stridsbergsbron i samma pass. Hållning och FIX U är förbrukade.
++    const prev = {
++      lat: 58.293189999999996, lon: 12.294071666666667, t: 1789752686104, sog: 6.6,
++    };
++    const at = {
++      lat: 58.29150333333334, lon: 12.29182, t: 1789752754469, sog: 6.2,
++    };
++    jest.setSystemTime(at.t);
++    const vessel = vesselAtB({
++      mmsi: '209982000',
++      lat: at.lat,
++      lon: at.lon,
++      sog: at.sog,
++      _rawPositionSog: at.sog,
++      cog: 213.1,
++      timestamp: at.t,
++      fixTs: at.t,
++      lastPositionUpdate: at.t,
++      lastPassedBridgeTime: prev.t,
++      _forceWaitingAtBridge: null,
++      _bridgeOpeningUntil: null,
++      _bridgeOpeningBridgeName: null,
++      _underBridgeSince: prev.t + 30000,
++      _underBridgeEntryLat: prev.lat,
++      _underBridgeEntryLon: prev.lon,
++      _underBridgePrevLat: prev.lat,
++      _underBridgePrevLon: prev.lon,
++      _underBridgePrevSog: prev.sog,
++      _underBridgePrevClock: { timestamp: prev.t, fixTs: prev.t, fixFeed: 'aisstream' },
++      _lastTargetBridgeForHysteresis: 'Klaffbron',
++      _lastCurrentBridgeForHysteresis: 'Stridsbergsbron',
++    });
++    status.analyzeVesselStatus(vessel, proximity.analyzeVesselProximity(vessel), cleanAnalysis);
++
++    expect(vessel.currentBridge).toBeNull();
++    expect(vessel._underBridgeCrossedBridge).toBe('Järnvägsbron');
++    expect(vessel._underBridgeEntryLat).toBe(prev.lat);
++    const exit = {
++      ...vessel, lat: 58.28917, lon: 12.28889, sog: 5.6, _rawPositionSog: 5.6,
++    };
++    expect(geometry.detectBridgePassage(exit, vessel, JVB)).toMatchObject({
++      passed: true, method: 'traditional_close_passage',
++    });
++  });
++
++  test.each([
++    ['GPS-osäker fix', { _positionUncertain: true }, cleanAnalysis],
++    ['för långt segment', { _underBridgePrevLat: JVB.lat + 450 / 111320, _underBridgePrevLon: JVB.lon }, cleanAnalysis],
++    ['redan passerad bro', { passedBridges: ['Stallbackabron', 'Stridsbergsbron', 'Järnvägsbron'] }, cleanAnalysis],
++    ['utanför zonen', { lat: JVB.lat - 70 / 111320, lon: JVB.lon }, cleanAnalysis],
++  ])('inget bevis vid %s', (_label, extra, analysis) => {
++    const vessel = vesselAtB(extra);
++    status.analyzeVesselStatus(vessel, proximity.analyzeVesselProximity(vessel), analysis);
++    expect(vessel._underBridgeCrossedBridge).not.toBe('Järnvägsbron');
++  });
++});
++
++/**
++ * F08 efter granskningen (2026-11-04): beviset överlever det nya zonbesöket.
++ *
++ * Granskaren lade en extra fix C' 45 m söder om linjen mellan B och C. Det
++ * första ordinarie passet vid C' gör HYSTERESIS_RESET (målbytet i passagepasset
++ * sågs aldrig av hållningen eller FIX U) och startar ett nytt INTERMEDIATE_UNDER.
++ * Båda nollar beviset, och segmentet A0→C' är 407 m, alltså längre än
++ * UNDER_BRIDGE_CROSS_SEGMENT_MAX_M. Utan sparat bevis tappades passagen vid C,
++ * utom när ett UI-pass hann köra vid B före C' (fasberoende). Rättningen sparar
++ * beviset och återställer det när zonbesöket vid samma bro startar.
++ */
++describe('F08: beviset från det uppskjutande passet överlever nästa zonbesök', () => {
++  // C' ligger på linjen B→C, 45 m söder om Järnvägsbrons linje (inne i zonen).
++  const Cp = {
++    lat: B.lat + (C.lat - B.lat) * 0.23, lon: B.lon + (C.lon - B.lon) * 0.23, sog: 5.4, cog: 213,
++  };
++  let status;
++  let proximity;
++
++  beforeEach(() => {
++    jest.useFakeTimers();
++    jest.setSystemTime(B.t);
++    const logger = {
++      log: jest.fn(), debug: jest.fn(), error: jest.fn(), warn: jest.fn(),
++    };
++    const registry = new BridgeRegistry();
++    status = new StatusService(registry, logger, new SystemCoordinator(logger));
++    proximity = new ProximityService(registry, logger);
++  });
++
++  afterEach(() => {
++    jest.clearAllTimers();
++    jest.useRealTimers();
++  });
++
++  const pass = (vessel, analysis = cleanAnalysis) => {
++    status.analyzeVesselStatus(vessel, proximity.analyzeVesselProximity(vessel), analysis);
++  };
++  // En ny AIS-fix på samma fartygsobjekt; returnerar föregående läge.
++  const moveTo = (vessel, pos, t) => {
++    jest.setSystemTime(t);
++    const before = { ...vessel };
++    Object.assign(vessel, {
++      lat: pos.lat,
++      lon: pos.lon,
++      sog: pos.sog,
++      _rawPositionSog: pos.sog,
++      cog: pos.cog,
++      timestamp: t,
++      fixTs: t,
++      fixFeed: 'aisstream',
++      lastPositionUpdate: t,
++    });
++    return before;
++  };
++  // Hållningspasset vid B och FIX U-passet när hållningen löpt ut.
++  const holdAndFixU = () => {
++    const vessel = vesselAtB({ _lastCurrentBridgeForHysteresis: 'Stridsbergsbron' });
++    pass(vessel);
++    jest.setSystemTime(B.t + 9600);
++    pass(vessel);
++    return vessel;
++  };
++
++  test.each([
++    ['med ett UI-pass vid B före C\'', true],
++    ['utan UI-pass vid B (förut tappad)', false],
++  ])('extra fix inne i zonen, %s: utgångsfixen bokför passagen', (_label, uiPassAtB) => {
++    const vessel = holdAndFixU();
++    if (uiPassAtB) {
++      jest.setSystemTime(B.t + 9700);
++      pass(vessel);
++    }
++    moveTo(vessel, Cp, B.t + 20000);
++    expect(geometry.calculateDistance(vessel.lat, vessel.lon, JVB.lat, JVB.lon)).toBeLessThan(50);
++    pass(vessel);
++
++    expect(vessel._underBridgeCrossedBridge).toBe('Järnvägsbron');
++    expect(vessel._underBridgeEntryLat).toBe(A0.lat);
++    expect(vessel._underBridgeLatched).toBe(true);
++    const atCp = moveTo(vessel, C, B.t + 47332);
++    expect(geometry.detectBridgePassage(vessel, atCp, JVB)).toMatchObject({
++      passed: true, method: 'traditional_close_passage',
++    });
++  });
++
++  test('TARGET_UNDER återställer beviset på samma sätt när bron är målbron', () => {
++    const vessel = holdAndFixU();
++    moveTo(vessel, Cp, B.t + 20000);
++    Object.assign(vessel, {
++      targetBridge: 'Järnvägsbron',
++      currentBridge: null,
++      distanceToCurrent: null,
++      _underBridgeLatched: false,
++      _underBridgeCrossedBridge: null,
++    });
++    const underBridge = status._isUnderBridge(vessel, proximity.analyzeVesselProximity(vessel), cleanAnalysis);
++
++    expect(underBridge).toBe(true);
++    expect(vessel.currentBridge).toBe('Järnvägsbron');
++    expect(vessel._underBridgeCrossedBridge).toBe('Järnvägsbron');
++    expect(vessel._underBridgeEntryLat).toBe(A0.lat);
++  });
++
++  test('U-sväng inne i zonen: det återställda beviset ger ingen passage söderut', () => {
++    const vessel = holdAndFixU();
++    moveTo(vessel, Cp, B.t + 20000);
++    pass(vessel);
++    expect(vessel._underBridgeCrossedBridge).toBe('Järnvägsbron');
++    // Båten vänder, korsar tillbaka norrut inne i zonen och lämnar den norrut.
++    // Punkterna ligger på inflygningslinjen A0→B (linjen korsas vid ~93 %).
++    const along = (f, sog) => ({
++      lat: A0.lat + (B.lat - A0.lat) * f, lon: A0.lon + (B.lon - A0.lon) * f, sog, cog: 33,
++    });
++    moveTo(vessel, along(0.856, 4.0), B.t + 60000);
++    pass(vessel);
++    const inZoneNorth = moveTo(vessel, along(0.655, 4.5), B.t + 90000);
++    expect(geometry.detectBridgePassage(vessel, inZoneNorth, JVB).passed).toBe(false);
++  });
++
++  test('FIX O-spärren prövar inträdesbeviset (passet efter FIX U i samma millisekund)', () => {
++    // Bankens mönster (20260804-both-21h): passagen av parbron och FIX U:s
++    // väntstämpel har samma tid, så FIX O spärrar under-bro i nästa pass.
++    const vessel = vesselAtB({
++      currentBridge: 'Järnvägsbron',
++      lastPassedBridgeTime: B.t,
++      _forceWaitingAtBridge: null,
++      _bridgeOpeningUntil: null,
++      _bridgeOpeningBridgeName: null,
++      _underBridgeLatched: false,
++      _underBridgeSince: null,
++      _underBridgeEntryLat: null,
++      _underBridgeEntryLon: null,
++      _lastWaitingShownAt: { Järnvägsbron: B.t },
++      _lastTargetBridgeForHysteresis: 'Klaffbron',
++      _lastCurrentBridgeForHysteresis: 'Järnvägsbron',
++    });
++    jest.setSystemTime(B.t + 25);
++    pass(vessel);
++
++    expect(vessel._underBridgeLatched).toBe(false); // spärren höll under-bro
++    expect(vessel._underBridgeCrossedBridge).toBe('Järnvägsbron');
++    expect(vessel._underBridgeEntryLat).toBe(A0.lat);
++  });
++
++  test('FIX O-spärren återställer ett bevis som ett ordinarie pass har nollat', () => {
++    // FIX U-passet vid B sätter beviset. C' kommer inom FIX O:s 20 s, och
++    // samma pass gör HYSTERESIS_RESET (målbytet) och spärrar sedan under-bro.
++    // A0→C' är 407 m, så beviset kan inte prövas om från segmentet.
++    const vessel = vesselAtB({
++      lastPassedBridgeTime: B.t,
++      _bridgeOpeningUntil: null,
++      _bridgeOpeningBridgeName: null,
++      _forceWaitingAtBridge: { bridge: 'Järnvägsbron', until: B.t + 5 * 60 * 1000, triggeredBy: 'Stridsbergsbron' },
++    });
++    pass(vessel);
++    expect(vessel._underBridgeCrossedBridge).toBe('Järnvägsbron');
++    moveTo(vessel, Cp, B.t + 15000);
++    vessel._lastWaitingShownAt = { Järnvägsbron: B.t };
++    pass(vessel);
++
++    expect(vessel._underBridgeLatched).toBe(false);
++    expect(vessel._underBridgeCrossedBridge).toBe('Järnvägsbron');
++    expect(vessel._underBridgeEntryLat).toBe(A0.lat);
++  });
++
++  // Varje fall: vad som händer före fixen C' och vid den. Utan villkoret hade
++  // passet vid C' återställt beviset (se första testet).
++  test.each([
++    ['båten har lämnat zonen', {
++      before: (vessel) => {
++        moveTo(vessel, { ...C, lat: JVB.lat - 80 / 111320, lon: JVB.lon }, B.t + 15000);
++        pass(vessel);
++      },
++    }],
++    ['positionen är GPS-osäker', {
++      atCp: (vessel) => {
++        vessel._positionUncertain = true;
++      },
++    }],
++    ['bron är bokförd', {
++      atCp: (vessel) => {
++        vessel.passedBridges = [...vessel.passedBridges, 'Järnvägsbron'];
++      },
++    }],
++    ['en passage av bron har registrerats efter posten (listan nollad av en vändning)', {
++      atCp: (vessel) => {
++        vessel.lastPassedBridge = 'Järnvägsbron';
++        vessel.lastPassedBridgeTime = B.t + 15000;
++      },
++    }],
++    ['beviset är äldre än två minuter', { tCp: B.t + 2 * 60 * 1000 + 1000 }],
++    ['ett bevis för en annan bro har satts', {
++      atCp: (vessel) => {
++        vessel._underBridgeCrossedBridge = 'Stridsbergsbron';
++      },
++    }],
++  ])('posten släpps när %s', (_label, { before, atCp, tCp = B.t + 20000 }) => {
++    const vessel = holdAndFixU();
++    expect(vessel._underBridgeDeferredProof).toMatchObject({ bridge: 'Järnvägsbron', lat: A0.lat });
++    if (before) before(vessel);
++    moveTo(vessel, Cp, tCp);
++    if (atCp) atCp(vessel);
++    pass(vessel);
++
++    expect(vessel._underBridgeDeferredProof).toBeNull();
++    expect(vessel._underBridgeCrossedBridge).not.toBe('Järnvägsbron');
++  });
++
++  test('posten följer med när VesselDataService bygger om fartygsobjektet', () => {
++    global.__TEST_MODE__ = true;
++    const logger = {
++      log: jest.fn(), debug: jest.fn(), error: jest.fn(), warn: jest.fn(),
++    };
++    const svc = new VesselDataService(logger, new BridgeRegistry(), new SystemCoordinator(logger));
++    svc.app = {
++      gpsJumpGateService: null, passageLatchService: null, routeOrderValidator: null,
++    };
++    try {
++      const proof = {
++        bridge: 'Järnvägsbron', lat: A0.lat, lon: A0.lon, at: B.t,
++      };
++      const rebuilt = svc._createVesselObject(MMSI, {
++        lat: Cp.lat, lon: Cp.lon, sog: Cp.sog, cog: Cp.cog, name: 'SINE BRES',
++      }, { ...vesselAtB(), _underBridgeDeferredProof: proof });
++      expect(rebuilt._underBridgeDeferredProof).toEqual(proof);
++    } finally {
++      svc.clearAllTimers();
++    }
++  });
++});
++
++/**
++ * Hela kedjan genom appen, i basen och i fasvarianterna: korpusen och dess
++ * starttillstånd flyttas δ (aisTimestamp, fixTs och receivedAt typbevarande;
++ * alla epok-ms i starttillståndet), precis som buggjägarens M-FAS-relation.
++ */
++describe('F08: SINE BRES Järnvägspassage oberoende av klockfasen', () => {
++  const corpus = corpora.find((c) => c.id === '20260917-16h');
++  const statePath = corpus.jsonl.replace(/\.jsonl$/, '.state.json');
++  const EPOCH_MIN = 1.5e12;
++  const EPOCH_MAX = 4.1e12;
++  // Rå-GT: korsning 02:26:08.016–02:26:30.446; bokförd vid utgångsfixen.
++  const BOOKED = Date.parse('2026-09-18T02:27:17.778Z');
++  const shiftDeep = (v, d) => {
++    if (typeof v === 'number') return (Number.isFinite(v) && v >= EPOCH_MIN && v <= EPOCH_MAX) ? v + d : v;
++    if (Array.isArray(v)) return v.map((x) => shiftDeep(x, d));
++    if (v && typeof v === 'object') {
++      return Object.keys(v).reduce((acc, k) => {
++        acc[k] = shiftDeep(v[k], d);
++        return acc;
++      }, {});
++    }
++    return v;
++  };
++  let dir;
++
++  beforeAll(() => {
++    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'r2-f08-'));
++  });
++
++  afterAll(() => {
++    fs.rmSync(dir, { recursive: true, force: true });
++  });
++
++  const corpusRows = () => fs.readFileSync(corpus.jsonl, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
++
++  // Skriver raderna och starttillståndet flyttade δ sekunder.
++  const writeVariant = (name, rows, deltaS) => {
++    const d = Math.round(deltaS * 1000);
++    const shifted = rows.map((r0) => {
++      const r = { ...r0 };
++      if (Number.isFinite(r.aisTimestamp)) r.aisTimestamp += d;
++      if (Number.isFinite(r.fixTs)) r.fixTs += d;
++      if (typeof r.receivedAt === 'string' && Number.isFinite(Date.parse(r.receivedAt))) {
++        r.receivedAt = new Date(Date.parse(r.receivedAt) + d).toISOString();
++      }
++      return JSON.stringify(r);
++    });
++    const jsonl = path.join(dir, `${name}.jsonl`);
++    fs.writeFileSync(jsonl, `${shifted.join('\n')}\n`);
++    const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
++    fs.writeFileSync(jsonl.replace(/\.jsonl$/, '.state.json'), JSON.stringify(shiftDeep(state, d)));
++    return jsonl;
++  };
++
++  const replay = (jsonl) => new Promise((resolve, reject) => {
++    execFile(process.execPath, [path.join(ROOT, 'tests/replay-validation/replayRunner.js'), jsonl], {
++      cwd: ROOT,
++      encoding: 'utf8',
++      maxBuffer: 256 * 1024 * 1024,
++      env: {
++        ...process.env, NODE_OPTIONS: '', REPLAY_VERBOSE: '', REPLAY_MONITORING: '',
++      },
++    }, (err, stdout) => {
++      if (err) {
++        reject(err);
++        return;
++      }
++      resolve(JSON.parse(stdout.match(/__REPLAY_JSON__(.*?)__END__/s)[1]));
++    });
++  });
++
++  // SINE BRES Järnvägspassager, tillbakaflyttade δ.
++  const jvbPassages = (result, deltaS) => result.intermediatePassages
++    .filter((p) => p.mmsi === MMSI && p.bridge === 'Järnvägsbron')
++    .map((p) => p.t - Math.round(deltaS * 1000));
++
++  // Basen tappade passagen vid δ −2,5, −5 och −7 s (buggjägarens M-FAS gav
++  // −2,5 och −7; omgranskningen fann även −5).
++  test.each([0, -2.5, -5, -7])('δ = %s s', async (deltaS) => {
++    const result = await replay(writeVariant(`fas${deltaS}`, corpusRows(), deltaS));
++    expect(jvbPassages(result, deltaS)).toEqual([BOOKED]);
++  }, 120000);
++
++  /**
++   * Granskningens prov: samma data med EN extra fix C' 45 m söder om linjen,
++   * mellan B (02:26:30) och utgångsfixen C (02:27:17), med fart som i datat.
++   * Med C' 02:26:41,6 tappades passagen i alla faser, med C' 02:27:05 vid
++   * δ −2,5, −5 och −7 s, i både 7699cbe och den första prototypen.
++   */
++  test('en extra fix inne i zonen: passagen bokförs i alla faser', async () => {
++    const rows = corpusRows();
++    const rowB = rows.find((r) => r.mmsi === MMSI && r.aisTimestamp === B.t);
++    const rowC = rows.find((r) => r.mmsi === MMSI && r.aisTimestamp === 1789698437778);
++    const variants = [];
++    for (const tIso of ['2026-09-18T02:26:41.600Z', '2026-09-18T02:27:05.000Z']) {
++      const t = Date.parse(tIso);
++      const extra = {
++        ...rowB,
++        lat: rowB.lat + (rowC.lat - rowB.lat) * 0.23,
++        lon: rowB.lon + (rowC.lon - rowB.lon) * 0.23,
++        sog: 5.4,
++        cog: 213,
++        aisTimestamp: t,
++        fixTs: t,
++        receivedAt: tIso,
++      };
++      const at = rows.findIndex((r) => Date.parse(r.receivedAt) > t);
++      const withExtra = [...rows.slice(0, at), extra, ...rows.slice(at)];
++      for (const deltaS of [0, -2.5, -5, -7]) {
++        variants.push({ tIso, deltaS, jsonl: writeVariant(`extra-${t}-${deltaS}`, withExtra, deltaS) });
++      }
++    }
++    const outcomes = [];
++    for (let i = 0; i < variants.length; i += 4) {
++      const batch = variants.slice(i, i + 4);
++      // eslint-disable-next-line no-await-in-loop
++      const results = await Promise.all(batch.map((v) => replay(v.jsonl)));
++      results.forEach((result, k) => {
++        const v = batch[k];
++        outcomes.push(`${v.tIso} δ ${v.deltaS}: ${jvbPassages(result, v.deltaS).map((t) => new Date(t).toISOString()).join(',') || 'tappad'}`);
++      });
++    }
++    expect(outcomes).toEqual(variants.map((v) => `${v.tIso} δ ${v.deltaS}: ${new Date(BOOKED).toISOString()}`));
++  }, 300000);
++
++  /**
++   * KÄND LUCKA (omgranskningen av revision 1, låg; ingen kodändring i R2): en
++   * extra fix 50–60 m efter linjen bryter METHOD 1 i detectBridgePassage
++   * (geometry.js). Steget dit från B (26 m) når inte "mer än 60 m", och steget
++   * därifrån till C (108 m) börjar inte "högst 50 m" från bron. Inget steg
++   * efter B korsar linjen, så ingen annan metod bokför heller. Passagen tappas
++   * i alla faser, i både 7699cbe och prototypen. Testet visar dagens beteende
++   * så att luckan syns; den som rättar den vänder mittenfallet.
++   *
++   * Kanterna är regressionsfall för R2: med en extra fix på 49 m bokförs
++   * passagen vid C, och med 60–63 m vid den extra fixen. 7699cbe tappar båda,
++   * eftersom beviset från det uppskjutna passet nollades i nästa zonbesök.
++   */
++  test('KÄND LUCKA: en extra fix 50–60 m efter linjen tappar passagen; kanterna bokförs', async () => {
++    const rows = corpusRows();
++    const rowB = rows.find((r) => r.mmsi === MMSI && r.aisTimestamp === B.t);
++    const rowC = rows.find((r) => r.mmsi === MMSI && r.aisTimestamp === 1789698437778);
++    const tIso = '2026-09-18T02:26:41.600Z';
++    const t = Date.parse(tIso);
++    const cases = [
++      { frac: 0.28, expected: [BOOKED] }, // 49 m: bokförs vid C
++      { frac: 0.40, expected: [] }, // 58,8 m: KÄND LUCKA (granskarens v4)
++      { frac: 0.42, expected: [t] }, // 60,4 m: bokförs vid den extra fixen
++    ];
++    const variants = cases.map(({ frac, expected }) => {
++      const extra = {
++        ...rowB,
++        lat: rowB.lat + (rowC.lat - rowB.lat) * frac,
++        lon: rowB.lon + (rowC.lon - rowB.lon) * frac,
++        sog: 5.4,
++        cog: 213,
++        aisTimestamp: t,
++        fixTs: t,
++        receivedAt: tIso,
++      };
++      const distanceM = geometry.calculateDistance(extra.lat, extra.lon, JVB.lat, JVB.lon);
++      const at = rows.findIndex((r) => Date.parse(r.receivedAt) > t);
++      const withExtra = [...rows.slice(0, at), extra, ...rows.slice(at)];
++      return {
++        frac, expected, distanceM, jsonl: writeVariant(`lucka-${frac}`, withExtra, 0),
++      };
++    });
++    // Bandet mäts, så att testet inte glider om geometrin ändras.
++    expect(variants.map((v) => Math.round(v.distanceM * 10) / 10)).toEqual([49.1, 58.8, 60.4]);
++    const results = await Promise.all(variants.map((v) => replay(v.jsonl)));
++    expect(results.map((result) => jvbPassages(result, 0))).toEqual(variants.map((v) => v.expected));
++  }, 120000);
++});

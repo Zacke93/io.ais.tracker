@@ -1,0 +1,346 @@
+{
+ "världar": [
+  {
+   "värld": 263,
+   "kort": "F02",
+   "mmsi": "265891927",
+   "bro": "Stridsbergsbron",
+   "mekanism": "M6 SPÄRR-I-RÖRELSE",
+   "rotorsak": "Spärren vid Järnvägsbron (tidigare bro) räknar reservtiden i nuvarande fart 2,1 kn − 180 s och ersätter 10-knopsdeadlinen; båten accelererade till 4,4 kn efter bron under ett fixglapp på 272 s (varning 15:07:00,824 = fix 15:02:56 + 244,9 s, 44 s före korsningen).",
+   "filRad": "lib/services/BridgeOpeningService.js:626, :1308–1316",
+   "klass": "ÄGARBESLUT"
+  },
+  {
+   "värld": 290,
+   "kort": "F02",
+   "mmsi": "265264951",
+   "bro": "Stridsbergsbron",
+   "mekanism": "M9 AVGÅNG-I-STILLAINTERVALL",
+   "rotorsak": "Kö vid Järnvägsbron; avgången 14:48:09 hördes först 14:51:07 eftersom radiomodellen drog nästa fix ur stillakadensen vid stillafixet 14:47:20; spärren tystar en väntande båt; varning på första rörelsefixet, 46 s före.",
+   "filRad": "tests/replay-validation/bugHunt/lib/radio.js:225–227, :271; lib/services/BridgeOpeningService.js:1311–1315",
+   "klass": "MOTORFEL"
+  },
+  {
+   "värld": 313,
+   "kort": "F02",
+   "mmsi": "265128436",
+   "bro": "Klaffbron",
+   "mekanism": "M8 KÖ-I-KAJKAPSELN",
+   "rotorsak": "Kö 60 min i kajkapseln \"Kajen norr om Klaffbron\" (190–295 m, i väntzonen) → MOORED efter 15 min → målbron rensas, armen dör (stale 30 min) → avgången kräver två fix (≥ 50 m netto) → ny arm 82 m från bron, varning 32 s före; oraklet läser den sena #6 i stället för #5 (66 min).",
+   "filRad": "lib/constants.js:421–434; lib/services/VesselDataService.js:323–330, :3683, :4104–4135; lib/services/BridgeOpeningService.js:1636–1641; app.js:1535",
+   "klass": "ÄGARBESLUT"
+  },
+  {
+   "värld": 790,
+   "kort": "F02",
+   "mmsi": "265276913",
+   "bro": "Stridsbergsbron",
+   "mekanism": "M5 KRYP-PROGNOS",
+   "rotorsak": "Krypare 0,9–1,1 kn absorberad efter ledarens passage; bakkanten läser appens ETA (passagegolv 2,5 kn + ETA_OUTLIER-spärr: 3,0 min i stället för 8,3) → prognos inom U2-fönstret → släpps först vid täckningsslutet, 47 s före.",
+   "filRad": "lib/services/BridgeOpeningService.js:1296, :2312; lib/services/ProgressiveETACalculator.js:787–790, :1289",
+   "klass": "APPFEL"
+  },
+  {
+   "värld": 936,
+   "kort": "F02",
+   "mmsi": "265664174",
+   "bro": "Klaffbron",
+   "mekanism": "M1 NYRESA-SAMMA-TICK",
+   "rotorsak": "NEW_JOURNEY bekräftar returen 06:58:53 i app-lagret efter VDS:s målbrokedja; målbro, arm och egen varning först vid nästa fix 07:00:01 (46 s före).",
+   "filRad": "app.js:3148–3225, :3301; lib/services/VesselDataService.js:761, :4622–4626",
+   "klass": "APPFEL"
+  },
+  {
+   "värld": 979,
+   "kort": "F02",
+   "mmsi": "265141626",
+   "bro": "Stridsbergsbron",
+   "mekanism": "M7 TÄCKNINGSSLUT-UTAN-PASSAGE",
+   "rotorsak": "Absorberad i FREJAs #1 med täckning t.o.m. referensankomst + 600 s; FREJA väntar 37 min så #1 får ingen passage och bakkanten är stum; U9 avstängd; vid täckningsslutet 08:56:34,937 RECOVER på förfallen deadline → egen #2, 50 s före.",
+   "filRad": "lib/services/BridgeOpeningService.js:2212–2214, :2301–2303, :2340, :2371; lib/constants.js:1504",
+   "klass": "ÄGARBESLUT"
+  },
+  {
+   "värld": 1139,
+   "kort": "F02",
+   "mmsi": "265620261",
+   "bro": "Stridsbergsbron",
+   "mekanism": "M7 TÄCKNINGSSLUT-UTAN-PASSAGE",
+   "rotorsak": "Väntande båt återabsorberad i #5 (YRSA 2 avfyrad på fruset fix, passagen aldrig bokförd); vid #5:s täckningsslut 12:35:02 RECOVER på förfallen deadline → egen #6, 41 s före.",
+   "filRad": "lib/services/BridgeOpeningService.js:2171–2197, :2340",
+   "klass": "ÄGARBESLUT"
+  },
+  {
+   "värld": 1274,
+   "kort": "F02",
+   "mmsi": "265402472",
+   "bro": "Klaffbron",
+   "mekanism": "M2 RECROSS-TOMT-MÅL",
+   "rotorsak": "Vändningen bekräftas av RE_CROSS_EVIDENCED vid Järnvägsbron inne i målbrogrenen; _confirmDirectionReversal nollar målbron men ACCELERATED-grenen (else-if) körs inte i ticken; målbro först vid nästa fix 6 min senare, 23 s före.",
+   "filRad": "lib/services/VesselDataService.js:534, :719, :761, :6813–6826, :7189–7196",
+   "klass": "APPFEL"
+  },
+  {
+   "värld": 1918,
+   "kort": "F02",
+   "mmsi": "265251208",
+   "bro": "Stridsbergsbron",
+   "mekanism": "M1 NYRESA-SAMMA-TICK",
+   "rotorsak": "NEW_JOURNEY bekräftad 09:11:39 (448 m) utan målbro i samma tick; målbro och varning vid nästa fix 09:12:46, 10 s före.",
+   "filRad": "app.js:3148–3225, :3301",
+   "klass": "APPFEL"
+  },
+  {
+   "värld": 510,
+   "kort": "F05",
+   "mmsi": "265558533",
+   "bro": "Stridsbergsbron",
+   "mekanism": "M10 U2-FÖNSTERKANT",
+   "rotorsak": "Korsning 605 s efter händelsens första passage (4 s utanför U2-fönstret); varje egen rad gav fysisk ankomst inom fönstret (sista 16:07:12), krypet 1,4 kn började efter sista fixet; RECOVER 4 s efter korsningen.",
+   "filRad": "lib/services/BridgeOpeningService.js:2298–2318 (bakkanten)",
+   "klass": "MÄTGRÄNS"
+  },
+  {
+   "värld": 625,
+   "kort": "F05",
+   "mmsi": "265956525",
+   "bro": "Stridsbergsbron",
+   "mekanism": "M9 AVGÅNG-I-STILLAINTERVALL",
+   "rotorsak": "Kö vid Järnvägsbron; avgång 4 s efter stillafixet 09:32:49, nästa fix 11,6 min senare (stillaintervallet); spärrens reserv 300 s gick 09:37:49, 54 s efter korsningen.",
+   "filRad": "tests/replay-validation/bugHunt/lib/radio.js:225–227, :244; lib/services/BridgeOpeningService.js:1311–1315",
+   "klass": "MOTORFEL"
+  },
+  {
+   "värld": 756,
+   "kort": "F05",
+   "mmsi": "265172107",
+   "bro": "Stridsbergsbron",
+   "mekanism": "M3 ÅTERFÖDD-DÖDBAND",
+   "rotorsak": "Återfödd med ett enda fix 1888 m ut (6,4 kn, cog 229,6° i dödbandet) → \"Osäker COG → ingen målbro\"; svepets riktningslås sätts senare i samma tick; ingen arm → ingen deadline i tystnaden (avbrott 520–741 s). Ingen MÄTGRÄNS: deadlinen hade gått 13:47:54, 400 s före.",
+   "filRad": "lib/services/VesselDataService.js:4645–4651, :265–295; app.js:3014, :3056, :3068, :8676–8686",
+   "klass": "APPFEL"
+  },
+  {
+   "värld": 977,
+   "kort": "F05",
+   "mmsi": "265369968",
+   "bro": "Klaffbron",
+   "mekanism": "M10 U2-FÖNSTERKANT",
+   "rotorsak": "Ledaren XENIA tyst över bron; passagen bokförd 07:39:43, 29 s efter följarens korsning (614 s efter ledaren); före det hör följaren till händelsen och bakkanten kan inte döma; appens skattade fönsterslut 07:39:21 > prognosen 07:39:17.",
+   "filRad": "lib/services/BridgeOpeningService.js:2212–2214, :2301–2303",
+   "klass": "MÄTGRÄNS"
+  },
+  {
+   "värld": 1094,
+   "kort": "F05",
+   "mmsi": "265109339",
+   "bro": "Stridsbergsbron",
+   "mekanism": "M4 BAKKANT-BOKFÖRINGSFÄRSKHET",
+   "rotorsak": "Ledaren ALVA tyst över bron, passagen bokförd 11:41:39; följarens sista fix 11:39:27 låg före bokföringen och tystnaden (avbrott) följde; bakkanten kräver fix efter BOKFÖRINGEN, så prognosen 11:49:15 (> fönsterslutet 11:48:48) dömdes aldrig; RECOVER 33 s efter korsningen.",
+   "filRad": "lib/services/BridgeOpeningService.js:2303",
+   "klass": "APPFEL"
+  },
+  {
+   "värld": 1208,
+   "kort": "F05",
+   "mmsi": "265244034",
+   "bro": "Klaffbron",
+   "mekanism": "M1 NYRESA-SAMMA-TICK",
+   "rotorsak": "NEW_JOURNEY 13:41:25 (255 m) utan målbro i samma tick; nästa fix 13,5 min senare, efter returkorsningen 13:42:39.",
+   "filRad": "app.js:3148–3225, :3301; lib/services/VesselDataService.js:761, :4602–4626",
+   "klass": "APPFEL"
+  },
+  {
+   "värld": 1208,
+   "kort": "F05",
+   "mmsi": "265244034",
+   "bro": "Stridsbergsbron",
+   "mekanism": "M1 NYRESA-SAMMA-TICK",
+   "rotorsak": "Samma NEW_JOURNEY utan målbro: ingen kedjearm mot Stridsbergsbron; korsning 13:53:22 i fixglappet.",
+   "filRad": "app.js:3148–3225, :3301",
+   "klass": "APPFEL"
+  },
+  {
+   "värld": 1316,
+   "kort": "F05",
+   "mmsi": "265909710",
+   "bro": "Stridsbergsbron",
+   "mekanism": "M1 NYRESA-SAMMA-TICK",
+   "rotorsak": "NEW_JOURNEY 01:09:53 (623 m) utan målbro i samma tick; nästa fix 01:14:46, efter korsningen 01:13:09.",
+   "filRad": "app.js:3148–3225, :3301",
+   "klass": "APPFEL"
+  },
+  {
+   "värld": 1317,
+   "kort": "F05",
+   "mmsi": "265535696",
+   "bro": "Stridsbergsbron",
+   "mekanism": "M2 RECROSS-TOMT-MÅL",
+   "rotorsak": "RE_CROSS_EVIDENCED vid Järnvägsbron 12:33:26 nollar målbron Klaffbron i målbrogrenen; Stridsbergsbron 253 m bort blir inte målbro; nästa fix efter korsningen 12:35:06.",
+   "filRad": "lib/services/VesselDataService.js:534, :719, :761, :6813–6826, :7189–7196",
+   "klass": "APPFEL"
+  },
+  {
+   "värld": 1476,
+   "kort": "F05",
+   "mmsi": "265848238",
+   "bro": "Klaffbron",
+   "mekanism": "M4 BAKKANT-BOKFÖRINGSFÄRSKHET",
+   "rotorsak": "Ledaren PELLE bokförd 11:54:00 (52 s efter skattad korsning); följarens sista fix 11:53:33 före bokföringen och sedan 11,5 min tystnad; bakkanten dömde aldrig prognosen 12:03:36 (> fönsterslutet 12:03:08).",
+   "filRad": "lib/services/BridgeOpeningService.js:2303",
+   "klass": "APPFEL"
+  },
+  {
+   "värld": 1913,
+   "kort": "F05",
+   "mmsi": "265629897",
+   "bro": "Klaffbron",
+   "mekanism": "M3 ÅTERFÖDD-DÖDBAND",
+   "rotorsak": "Återfödd tre gånger med kurs 45–49° (dödbandet) → aldrig målbro trots K1 2,04 m/s och svepets lås norrut; ingen arm, ingen varning.",
+   "filRad": "lib/services/VesselDataService.js:4645–4651; app.js:8676–8686",
+   "klass": "APPFEL"
+  },
+  {
+   "värld": 1794,
+   "kort": "F08",
+   "mmsi": "265059630",
+   "bro": "Klaffbron",
+   "mekanism": "M5 KRYP-PROGNOS",
+   "rotorsak": "Krypare 1,3 kn absorberad; appens ETA (passagegolv 2,5 kn) 2–3,5 min mot fysiken 2,2–6,4 min → bakkanten ser ankomst inom fönstret; korsning 604 s efter ledaren; RECOVER 20 s efter korsningen.",
+   "filRad": "lib/services/BridgeOpeningService.js:1296, :2312; lib/services/ProgressiveETACalculator.js:787–790",
+   "klass": "APPFEL"
+  }
+ ],
+ "mekanismer": [
+  {
+   "id": "M1 NYRESA-SAMMA-TICK",
+   "världar": [
+    936,
+    1208,
+    1316,
+    1918
+   ],
+   "klass": "APPFEL",
+   "rotorsak": "NEW_JOURNEY (app.js:3148–3225) bekräftar en returresa efter att VDS:s målbrokedja redan körts för fixet (ACCELERATED-grenen VDS:761 gav null via FIX Z, VDS:4602–4626); målbron och därmed armen (app.js:3301) kommer först vid nästa fix.",
+   "rättning": "T/skiss-NYRESA-SAMMA-TICK.diff: ny VesselDataService.assignTargetAfterReversal(vessel, oldVessel, dir, reason) med ACCELERATED-grenens grindar (_shouldAssignTargetBridge(…, true), _calculateTargetBridge(vessel, dir), _lockRouteDirection, _extendJourneyOrigin), vakt inom UNDER_BRIDGE_CLEAR_DISTANCE; anropas i app.js efter _clearBoatNearTriggers (:3223), avbokar borttagningstimer och ETA-historik. U18 orörd.",
+   "fråga": null,
+   "post": null,
+   "risk": "Låg: replay:all, replay:synthetic och replay:openings bitlika; 762 riktade test gröna; hela jest grön i sammanslagningen."
+  },
+  {
+   "id": "M2 RECROSS-TOMT-MÅL",
+   "världar": [
+    1274,
+    1317
+   ],
+   "klass": "APPFEL",
+   "rotorsak": "RE_CROSS_EVIDENCED (VDS:7189–7196) inne i målbrogrenen (VDS:534/:719) anropar _confirmDirectionReversal (VDS:6813–6826) som nollar målbron \"via normal flow\", men ACCELERATED-grenen (VDS:761) är else-if i samma kedja och körs inte i ticken; Fix D-vägen (VDS:394–487) körs före kedjan och har inte felet.",
+   "rättning": "T/skiss-RECROSS-SAMMA-TICK.diff: räkna bekräftelser i _confirmDirectionReversal och kör assignTargetAfterReversal efter kedjan (före VDS:957) när en vändning bekräftades inne i kedjan; B2: ankra reseankaret i segmentets start i RE_CROSS-grenen så att TARGET_END:s geometriska inferens bokför en återkorsning som tickens detektering missade (1317, 8 m från linjen).",
+   "fråga": null,
+   "post": null,
+   "risk": "Låg–medel: banken bitlik; B2 flyttar reseankaret för alla RE_CROSS-vändningar (RC9/S-F6-vakterna) — testerna gröna, men granska."
+  },
+  {
+   "id": "M3 ÅTERFÖDD-DÖDBAND",
+   "världar": [
+    756,
+    1913
+   ],
+   "klass": "APPFEL",
+   "rotorsak": "En återfödd båts fix med kurs i dödbanden 46–134°/226–314° ger ingen målbro (VDS:4645–4651) fast K1-mätningen mot sist kända position (VDS:265–295) och svepets riktningslås (app.js:8676–8686, satt senare i samma tick) bevisar färdriktningen; ingen arm → ingen deadline i tystnad.",
+   "rättning": "T/skiss-ATERFODD-DODBAND.diff: i ny-båtsgrenen (VDS:503–510), när målbron blir null och ruttlås saknas: _rebirthDirectionEvidence (K1 i samma meddelande, nettofart och rapporterad fart ≥ 2 kn, kursen inte i motsatt band) → lås riktningen och kör _calculateTargetBridge(vessel, dir). Tar på köpet bort 977 (M10), där de fyra första fixen hade kurs 45,9–51°.",
+   "fråga": null,
+   "post": null,
+   "risk": "Låg–medel: bitlik bank med transitfartskravet; utan det flyttade 20260713-41h tre golden-textrader (NORDIC SOLA 08:12:51) — förkastat."
+  },
+  {
+   "id": "M4 BAKKANT-BOKFÖRINGSFÄRSKHET",
+   "världar": [
+    1094,
+    1476
+   ],
+   "klass": "APPFEL",
+   "rotorsak": "_coverageVerdict kräver ett fix efter BOKFÖRINGEN av ledarens passage (BOS:2303), strängare än KRAV (2) (ARCHITECTURE.md:1848–1855, färskhet mot korsningen); med tyst ledare och följare som tystnar före bokföringen dömer bakkanten aldrig och följaren släpps vid täckningsslutet efter sin korsning.",
+   "rättning": "T/skiss-BAKKANT-FARSKHET.diff: arm.lastSeenAt > event.firstPassageAt (skattad korsning) i stället för firstPassageRegisteredAt.",
+   "fråga": null,
+   "post": null,
+   "risk": "Låg: bank, scenarier och öppningsgrindar bitlika; 518 öppningstest gröna. 1476 övergår till KÄND_ÖPPEN J13-J14."
+  },
+  {
+   "id": "M5 KRYP-PROGNOS",
+   "världar": [
+    790,
+    1794
+   ],
+   "klass": "APPFEL",
+   "rotorsak": "Bakkanten och medlemskapet läser expectedArrivalMs ur appens ETA (BOS:1296, :2312), som efter en passage räknar med minst 2,5 kn (ProgressiveETACalculator.js:787–790) och spärras mot hopp (:1289); för en krypare i 0,9–1,3 kn ligger prognosen minuter för tidigt och inom U2-fönstret.",
+   "rättning": "T/skiss-KRYP-FYSIK.diff: arm.physicsArrivalMs = ankare + d/sog när 0,5 < sog < 2,5 kn; bakkanten jämför max(expectedArrivalMs, physicsArrivalMs) med fönsterslutet. ETA-text och eta-token orörda (U22).",
+   "fråga": null,
+   "post": null,
+   "risk": "Låg–medel: replay:all bitlik; replay:openings: 20260804-17h PILLE Stridsbergsbron#22 11:29:38 i stället för 11:33:56 (rådata: korsning 11:49–12:04, likvärdig, ingen låst rad)."
+  },
+  {
+   "id": "M6 SPÄRR-I-RÖRELSE",
+   "världar": [
+    263
+   ],
+   "klass": "ÄGARBESLUT",
+   "rotorsak": "Spärren vid en tidigare bro (a8d7b76) räknar reservtiden för en båt i rörelse som restid i nuvarande fart − 180 s (BOS:1311–1316) och ersätter 10-knopsgarantin; Järnvägsbron räknas som tidigare bro för varje båt som passerat broar (BOS:626); acceleration efter bron under fixglapp ger kort ledtid.",
+   "rättning": "Mätt: T/skiss-SPARR-RORELSE.diff (FIRE_EXPECTED_ETA_MS i stället för WARNING_LEAD_MS) tar bort 263 men flyttar GOLDEN-EVENTS i 10 låsta korpusar och ger 42h en varning till — kräver ägarbeslut och U13.",
+   "fråga": "När en båt på väg mot Stridsbergsbron först ska förbi Järnvägsbron varnar appen i dag ungefär 3 minuter före den ankomst som båtens nuvarande fart ger, för att inte varna i onödan om hon sedan väntar vid Järnvägsbron. En båt som ökar farten efter Järnvägsbron medan appen inte hör henne kan då få varningen under en minut före (44 s). (a) Behåll och godta enstaka sena varningar här. (b) Varna ungefär 5 minuter före beräknad ankomst som annars — längre förvarning men fler varningar innan båten stannar; tio låsta körningar får ändrade varningstider. (c) Pröva en mer försiktig fart bara när båten är tyst — ny mätt design.",
+   "post": "Vid (a): SPÄRR-JVB-ACCELERATION, KÄND_ÖPPEN, orakel T2 LEDTID, predikat: båten har passerat en bro, varningen avfyrades vid spärrens slut (fireDue = ankare + d/sog − 180 s ± 1 s) och farten vid korsningen ≥ 1,5 × sista fixets fart; källa lib/services/BridgeOpeningService.js:1303–1316, a8d7b76.",
+   "risk": "Hög vid (b): 10 korpusar."
+  },
+  {
+   "id": "M7 TÄCKNINGSSLUT-UTAN-PASSAGE",
+   "världar": [
+    979,
+    1139
+   ],
+   "klass": "ÄGARBESLUT",
+   "rotorsak": "En båt täckt av en äldre händelse som saknar bokförd passage (ledaren väntar eller passerade osedd) har ingen tidig släppväg: bakkanten kräver passage (BOS:2212–2214, :2301–2303), U9 är avstängd (lib/constants.js:1504); täckningsslutet (BOS:2340) släpper henne på förfallen deadline → sen andrapåminnelse (50 s, 41 s), sämre än både U2 och garantin.",
+   "rättning": null,
+   "fråga": "En båt räknas till en öppning som en annan båt redan fått varning för, men den andra båten har inte passerat (hon väntar, eller appen har tappat henne). Den första båten kommer fram efter den tid appen räknade med. I dag får hon en egen varning först när den tiden gått, ibland under en minut före passagen. Vill du (a) att hon räknas till den gemensamma öppningen tills någon faktiskt passerar (ingen egen varning; första varningen kom 11–16 min före), (b) att hon får en egen varning så fort hennes tidsfrist gått ut och prognosen visar att hon inte hinner med den gemensamma öppningen (4–10 min före, men en andra varning för samma bro), eller (c) behålla dagens beteende? (a) och (b) tar bort fynden; (c) är sämst.",
+   "post": "Vid (a) eller (c): U2-VS-DEADLINE-OPASSERAD, KÄND_ÖPPEN, orakel T2 LEDTID|OKLASSAD, predikat: båten absorberad i E före korsningen, E:s varning ≥ 60 s före, E saknade bokförd passage vid korsningen och fyndets varning är RECOVER vid E:s täckningsslut; källa docs/etapp7-plan-2026-08-08.md:310–349, lib/services/BridgeOpeningService.js:2212–2214, :2340.",
+   "risk": "Hög: (a) flyttar konvojfacit (C8: sex ovarnade öppningar), (b) kan ge andrapåminnelser i äkta konvojer (U9-mätningen); O1/O2 och U13 krävs."
+  },
+  {
+   "id": "M8 KÖ-I-KAJKAPSELN",
+   "världar": [
+    313
+   ],
+   "klass": "ÄGARBESLUT",
+   "rotorsak": "Kajkapseln norr om Klaffbron (190–295 m) ligger i väntzonen; köundantaget 15 min (lib/constants.js:421–434) gör en lång kö till kajliggare (VDS:3683, :323–330), armen dör (BOS:1636–1641), avgången kräver två fix (VDS:4104–4135) och ger en ny sen varning (app.js:1535) som oraklet läser i stället för den första.",
+   "rättning": null,
+   "fråga": "En båt ligger stilla mer än 15 minuter vid kajen 190–300 m norr om Klaffbron, där båtar också köar inför broöppning. Appen tror då att hon lagt till och glömmer hennes varning; när hon kör behövs två positioner innan avgången tros, och den nya varningen kan komma under en minut före (32 s). Vill du (a) att en båt som kom farleden fram med Klaffbron som mål räknas som köande hur länge hon än ligger (ingen ny varning), (b) behålla regeln men tro på avgången vid första positionen i minst 2 kn mot bron (≈ 1,5 min förvarning, risk för falsklarm från guppande kajliggare), eller (c) behålla dagens beteende? Hör ihop med D1-KAJZON-DEMOTION.",
+   "post": "Vid (c): KAJKAPSEL-AVGÅNG-NÄRA-BRO, DESIGN eller KÄND_ÖPPEN, orakel T2 LEDTID, predikat: L0-stopp i en MOORING_ZONE med queueGraceMs > 0 längre än queueGraceMs och fyndets varning från en OPENING_QUAY_DEPARTURE-arm; källa lib/constants.js:415–436, QUAY_DEPARTURE_GATE.",
+   "risk": "Medel–hög: kajzonsregeln är användarverifierad och har korpusfacit (ELFKUNGEN, NANNA)."
+  },
+  {
+   "id": "M9 AVGÅNG-I-STILLAINTERVALL",
+   "världar": [
+    290,
+    625
+   ],
+   "klass": "MOTORFEL",
+   "rotorsak": "Radiomodellen drar nästa fix ur rörelsetillståndet vid föregående fix (tests/replay-validation/bugHunt/lib/radio.js:225–227, :244, :271); en båt som lämnar kön strax efter ett stillafix hörs först när stillaintervallet löpt ut (290: 164 s efter avgången, 224 s restid; 625: 11,6 min, 242 s restid). BUGGJAKT §4.5 (rad 175) kallar det känd modellgräns, men den ger kandidatkort. Med de observationer appen fick var det ogörligt att varna i tid (spärrens reserv 300 s > restiden).",
+   "rättning": "Motorn: dra om nästa fixtid vid byte stilla → rörelse före den dragna tiden (avgång + interval(feed, true)), i båda erorna; kör om kalibrering och realismtabell.",
+   "fråga": null,
+   "post": "Interimistiskt: MÄTGRÄNS-AVGÅNG-I-STILLAINTERVALL, MÄTGRÄNS, orakel T2 LEDTID|OKLASSAD, predikat: båtens sista rad före L0-avgången stilla (v = 0) och första raden efter avgången senare än korsningen − 60 s; källa docs/BUGGJAKT.md §4.5, tests/replay-validation/bugHunt/lib/radio.js#observeWorld.",
+   "risk": "Motoråtgärden ändrar R1-världarnas rader och fingeravtryck; appen orörd."
+  },
+  {
+   "id": "M10 U2-FÖNSTERKANT",
+   "världar": [
+    510,
+    977
+   ],
+   "klass": "MÄTGRÄNS",
+   "rotorsak": "Korsningen ligger 4–14 s utanför U2-fönstret (605 och 615 s efter händelsens första passage). Appens bästa underlag pekade in i fönstret: 510 alla egna rader gav fysisk ankomst inom fönstret (sista 16:07:12), krypet började efter sista fixet; 977 ledarens passage bokfördes 29 s efter följarens korsning, och skattningen gav fönsterslutet 07:39:21 > prognosen 07:39:17.",
+   "rättning": null,
+   "fråga": null,
+   "post": "MÄTGRÄNS-U2-FÖNSTERKANT, MÄTGRÄNS, orakel T2 OKLASSAD|LEDTID, predikat u2Fönsterkant(600 s, 30 s, 60 s): korsning inom (600; 630] s efter E:s första sanna passage, båten absorberad i E före korsningen och E:s varning före den, och (i) E:s första passage bokfördes efter korsningen − 60 s eller (ii) båten har minst en egen rad mellan E:s första passage och korsningen − 60 s och varje sådan rad ger fysisk ankomst ≤ E:s första passage + 600 s; källa docs/etapp7-plan-2026-08-08.md:9, :310–349, lib/services/BridgeOpeningService.js#_coverageVerdict, tests/replay-validation/bugHunt/lib/konvoj.js#inomHändelsefönster. Prövat: 510 och 977 matchar, 1094/1476/1794 (APPFEL) matchar inte.",
+   "risk": "Ingen appändring."
+  }
+ ]
+}

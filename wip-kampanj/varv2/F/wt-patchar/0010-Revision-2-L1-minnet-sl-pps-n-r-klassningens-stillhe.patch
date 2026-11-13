@@ -1,0 +1,122 @@
+From bd30c8a5241ddb685bd5301214e29f80b529a09a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 14:41:33 +0000
+Subject: [PATCH 10/12] =?UTF-8?q?Revision=202,=20L1:=20minnet=20sl=C3=A4pp?=
+ =?UTF-8?q?s=20n=C3=A4r=20klassningens=20stillhetsklocka=20n=C3=A5tt=202?=
+ =?UTF-8?q?=20h?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Omgranskningen av familj F (prov B3): en ensam fartspik på 0,6 kn vid
+kajen raderar det obekräftade stoppet, och nästa fix startar ett nytt med
+senare första fix. VDS:s stillhetsklocka (_stationarySince) startar inte
+om, så 2 h-gränsen förtöjer köaren i tid, men minnet (heldAsQueue) höll
+ändå "samma ankomst" i två timmar från det nya stoppet, och avgången blev
+utan varning.
+
+keptQueue kräver nu också att klassningens klocka inte nått
+MAX_STATIONARY_WAIT_MS (granskarens probe-m3-l1.diff). Efter en omstart är
+klockan ny, så omstartsfallet påverkas inte: B1, X2kaj, X5kaj och K60 har
+fortfarande ingen andra varning, och B2, B3, K150 och KNAV5 får sin varning
+73 s före korsningen.
+
+Nytt regressionstest för fartspiken (fäller 056a535).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ app.js                                | 11 ++++++++++-
+ docs/ARCHITECTURE.md                  | 16 ++++++++++------
+ tests/opening-queue-quay-stop.test.js | 23 +++++++++++++++++++++++
+ 3 files changed, 43 insertions(+), 7 deletions(-)
+
+diff --git a/app.js b/app.js
+index 0d4845e..3e13983 100755
+--- a/app.js
++++ b/app.js
+@@ -1551,10 +1551,19 @@ class AISBridgeApp extends Homey.App {
+       // U23:s tre villkor för att släppa henne inte är uppfyllda: hon ligger
+       // kvar (< 50 m från stoppet), sänder inte navstatus 1/5 och har inte
+       // legat still i MAX_STATIONARY_WAIT_MS räknat från stoppets första fix.
++      // Omgranskningen (revision 2, prov B3): en ensam fartspik vid kajen
++      // raderar det obekräftade stoppet, och nästa fix startar ett nytt med
++      // senare första fix, medan klassningens stillhetsklocka
++      // (_stationarySince) inte startar om. Minnet släpps därför också när
++      // den klockan nått MAX_STATIONARY_WAIT_MS — annars höll det kvar en båt
++      // som 2 h-gränsen redan förtöjt, och avgången blev utan varning. Efter
++      // en omstart är klockan ny, så omstartsfallet påverkas inte.
+       const keptQueue = queueGraceMs === Infinity && !holdsQueue
+         && stop?.heldAsQueue === true && stop.confirmed !== true && movedFromStop < 50
+         && !MOORING_DETECTION.MOORED_NAV_STATUSES.includes(vessel.navStatus)
+-        && fixTs - stop.firstFixTs < MOORING_DETECTION.MAX_STATIONARY_WAIT_MS;
++        && fixTs - stop.firstFixTs < MOORING_DETECTION.MAX_STATIONARY_WAIT_MS
++        && !(Number.isFinite(vessel._stationarySince)
++          && Date.now() - vessel._stationarySince >= MOORING_DETECTION.MAX_STATIONARY_WAIT_MS);
+       const stopGraceMs = queueGraceMs === Infinity && !holdsQueue && !keptQueue
+         ? 0 : queueGraceMs;
+       // Avgången kräver normalt en fix utanför kajzonerna. Inne i en kajzon med
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 6d8f32f..d749b5d 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -1257,12 +1257,16 @@ båt.
+    samma ankomst så länge hon ligger kvar (< 50 m), inte sänder navstatus
+    1/5 och inte legat still i MAX_STATIONARY_WAIT_MS från stoppets första fix
+    — som farledsköaren (prov X2kaj/X5kaj mot X2far/X5far; före L1 ett andra
+-   kort 73 s före korsningen). Släpper klassningen henne genom navstatus eller
+-   backstoppen bekräftas stoppet med 30 s-regeln och avgången blir en ny
+-   ankomst (`OPENING_QUAY_DEPARTURE`) som förut — efter backstoppen alltså med
+-   en sen andra varning (73 s före korsningen i det syntetiska 150-minuters-
+-   provet; 43 s före M3, samma som på c14938f efter 15 min). Ledtiderna här
+-   mäts mot korsningen interpolerad ur fixarna.
++   kort 73 s före korsningen). Minnet släpps också när klassningens egen
++   stillhetsklocka (`_stationarySince`) nått MAX_STATIONARY_WAIT_MS, eftersom
++   en ensam fartspik raderar det obekräftade stoppet och startar ett nytt med
++   senare första fix (omgranskningens prov B3); efter en omstart är klockan
++   ny. Släpper klassningen henne genom navstatus eller backstoppen bekräftas
++   stoppet med 30 s-regeln och avgången blir en ny ankomst
++   (`OPENING_QUAY_DEPARTURE`) som förut — efter backstoppen alltså med en sen
++   andra varning (73 s före korsningen i det syntetiska 150-minutersprovet;
++   43 s före M3, samma som på c14938f efter 15 min). Ledtiderna här mäts mot
++   korsningen interpolerad ur fixarna.
+    **Avgång inne i Kajen (M3):** avgången godtas när båten flyttat minst
+    50 m från ett bekräftat stopp mot bron, på en enda fix, om steget sedan
+    föregående fix är rimligt för farten (högst 20 m plus dubbla farten gånger
+diff --git a/tests/opening-queue-quay-stop.test.js b/tests/opening-queue-quay-stop.test.js
+index c4d4b99..7f16723 100644
+--- a/tests/opening-queue-quay-stop.test.js
++++ b/tests/opening-queue-quay-stop.test.js
+@@ -375,6 +375,29 @@ describe('Öppningslagret: kort köstopp vid Kajen är samma ankomst', () => {
+     departAndExpectSameArrival(false);
+   });
+ 
++  // Omgranskningen av familj F (revision 2, L1; granskningens prov B3): en
++  // ensam fartspik på 0,6 kn vid kajen raderar det obekräftade stoppet, och
++  // nästa fix startar ett nytt med senare första fix. Klassningens
++  // stillhetsklocka (_stationarySince) startar inte om, så 2 h-gränsen
++  // förtöjer henne i tid. Minnet släpps därför också när den klockan nått
++  // 2 h; annars blev avgången samma ankomst, utan varning.
++  test('L1: en fartspik startar inte om 2 h-gränsen — minnet släpps på klassningens stillhetsklocka', () => {
++    const at = mid(KAJEN);
++    const HELD = { ...QUEUER, _stationarySince: Date.now() };
++    app._observeOpeningArrivals(fix(at, 0.1, HELD));
++    stillAt(at, 60 * 60 * 1000, HELD);
++    jest.setSystemTime(Date.now() + 30000);
++    app._observeOpeningArrivals(fix(at, 0.6, HELD));
++    stillAt(at, 60 * 60 * 1000, HELD);
++    // 2 h efter klockans start: backstoppen förtöjer henne och släpper målbron.
++    const BACKSTOP = {
++      ...HELD, _moored: true, targetBridge: null,
++    };
++    stillAt(at, 30 * 60 * 1000, BACKSTOP);
++    expect(app._persistentOpeningWarnings.get(KEY).quayStop.confirmed).toBe(true);
++    departAndExpectSameArrival(false);
++  });
++
+   // Köskyddet gäller bara när bron ligger inom DISARM_MOORED_MIN_DISTANCE_M
+   // (600 m), som i förtöjningsklassningen. Kajen ligger 980 m från
+   // Stridsbergsbron: där är ett stopp vid kajen ett besök, inte brokö.
+-- 
+2.43.0
+

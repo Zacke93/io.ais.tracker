@@ -1,0 +1,950 @@
+{
+ "resE": {
+  "fixed": [
+   {
+    "id": "E1",
+    "summary": "reversalAwayFromBridge kräver nu att zonens FÖRSTA fix har sog ≥ FIX_D_MIN_SOG (2,0 kn) och att ingen senare zonfix har det, eftersom en andra omvänd fix med minst den farten bekräftar reversalen och då går notisen ut. FIX_D_MIN_SOG läses ur appens källtext (lib/services/VesselDataService.js) med den nya hjälparen appKonstant, inte ur registret. Deklarationen `const FIX_D_MIN_SOG = tal;` ska stå exakt en gång i filen. Annars blir värdet null, predikatet blir falskt och laddningen ger en registervarning. Senare zonfixar ska som förut ha kurs i det nya bandet, minst MIN_VIABLE_SPEED, bron bakom sig och ligga inom 15 min. Predikatet har en ny parameter, fixDMinSogKn. Skälet i DESIGN-utfallet visar nu den första zonfixens fart.",
+    "files": [
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/lib/registry.js",
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/beslutsregister.json",
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/__tests__/e-runda2.test.js",
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/docs/BUGGJAKT.md"
+    ],
+    "tests": "Nya fall i e-runda2.test.js, describe E1 (5 fall):\n- FIX_D_MIN_SOG jämförs med en regex över VesselDataService.js, och appKonstant ger null för ett okänt namn och en okänd fil.\n- Vakt: F15:s tre världar är DESIGN, med fixturer ur materialize(sampleWorld(1, i)) för värld 215, 581 och 1818 (zonfix 3,6, 2,2 och 2,4 kn).\n- Som i granskarens s10sog: en zonfix på 0,6, 1,0 eller 1,9 kn ger KANDIDAT med skälet 'Fix D sätter ingen pending-flagga'. Värld 1818 med 1,9 kn ger KANDIDAT. 2,2 kn ger DESIGN.\n- Som i granskarens s10two: en extra zonfix på 2,2 kn vid andel 0,2, eller två vid 0,15 och 0,3, ger KANDIDAT med skälet 'bekräftar reversalen'.\n- En senare zonfix på 1,5 kn ger DESIGN, en på 0,4 kn ger KANDIDAT. Jag kontrollerade båda mot appen med en egen sond (F/tmp/E/probes/s10twosog.js): vid 1,5 kn kommer ingen notis, vid 0,4 kn notifierar appen 10:06:36.\n\nBevis mot den gamla motorn: testfilen kördes i F/tmp/E/oldt (en kopia av C där bugHunt/lib och registret är bytliga med F/pre2, diff -rq tom). 4 av 5 fall är röda; F15-vakten är grön. Fallet med 1,5 kn ger DESIGN även i F/pre2 och fäller där bara på skältexten.\n\nResultat: F/tmp/E/old-final.json."
+   },
+   {
+    "id": "E2",
+    "summary": "chainedConfirmedWait godtar inget glapp i väntkedjan som innehåller en halvminutstick. UI-klockan slår på absoluta halvminuter (T = k · 30 s i epok-ms), och tickens text genereras inom mikrograce, alltså i [T; T + 40 ms]. Det fönstret får inte skära glappet (ny hjälpare halvminutstickInne). Glappets skäl namnger ticken. Svansen på högst 30 s behålls, och ett intervall som börjar vid eller efter övergången räknas inte som länk. Predikatet har nya parametrar tickS: 30 och tickFördröjningMs: 40, som också står i registret.",
+    "files": [
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/lib/registry.js",
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/beslutsregister.json",
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/__tests__/e-runda2.test.js",
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/__tests__/b-register.test.js",
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/docs/BUGGJAKT.md"
+    ],
+    "tests": "Nya fall i e-runda2.test.js, describe E2 (3 fall):\n- Ett glapp på 25 s, 08:59:44,854–09:00:09,854, ger KANDIDAT. Närmast är MÄTGRÄNS-INV10-VÄNTKEDJA med skälet 'innehåller halvminutsticken 09:00:00'. Sondens eget fall (ny väntan från 09:00:10,025) och ett glapp som börjar inne i mikrograce (09:00:00,020) ger också KANDIDAT.\n- Vakt: värld 1228 (F18) är kvar som MÄTGRÄNS, och ett glapp på 29 s utan tick med 30 s svans är MÄTGRÄNS.\n- Enhetsfall för halvminutstickInne i gränslägena.\n\nMot F/pre2 (F/tmp/E/oldt): 2 av 3 röda; F18-vakten är grön.\n\nÄndrat befintligt fall: b-register.test.js T-1, 'gränsen är en tick'. Ett glapp på 30 s innehåller alltid en tick och ger nu KANDIDAT; den nya gränsen är ett glapp på 29 s utan tick. Fallet är rött mot F/pre2."
+   },
+   {
+    "id": "E3",
+    "summary": "episodLängdMs ger en längd bara för klasser vars ISO-tid är episodens SLUT: ETA-SÅGTAND UPP 'på Ns' och ETA-OSCILLATION 'inom Ns' (tabellen SLUTTIDSKLASSER). kiePrefix tar L bara ur undantaget, aldrig ur utslaget. DEFAULT-FLASH, vars tid är starten av 'Inga båtar', jämförs därför start mot start med |δ| + en tick. Fönstertexten nämner undantagets längd bara när den finns. Det nya L är aldrig större än det gamla, så posten blir smalare, aldrig bredare.",
+    "files": [
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/lib/registry.js",
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/beslutsregister.json",
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/__tests__/e-runda2.test.js",
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/__tests__/b-register.test.js",
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/__tests__/d-efterratt.test.js",
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/docs/BUGGJAKT.md"
+    ],
+    "tests": "Nya fall i e-runda2.test.js, describe E3 (4 fall):\n- Vakt: 42h-flashen är ACCEPTERAD vid δ −20, −11,52, −7, +7 och +15 s.\n- Som i kiewindow2: en lång separat flash utan syskon ger KANDIDAT, med skälet 'utanför |δ| 7 s + en tick 30 s'. Det gäller 240 s vid +4 min, 290 s vid +5 min och 300 s vid +5,5 min.\n- Gränsen vid δ +7 s: 37 s isär ger ACCEPTERAD, 38 s ger KANDIDAT.\n- En 41h-sågtand 100 s efter undantaget med 'på 300s' ger KANDIDAT. Ett undantag med 'på 90s' vidgar fönstret till |δ| + 90 s + en tick.\n- Enhetsfall för episodLängdMs.\n\nMot F/pre2: 3 av 4 röda; acceptansvakten är grön.\n\nÄndrade befintliga fall:\n- b-register.test.js M03: gränsen 97/98 s ändrad till 37/38 s. Rött mot F/pre2.\n- d-efterratt.test.js: kiewindow-regexen är utan 'längd 60 s'. Rött mot F/pre2.\n- d-efterratt.test.js, tvåflashfallet: den andra flashen ligger nu 35 s från undantaget, så att en-till-en-regeln prövas inom det nya fönstret."
+   },
+   {
+    "id": "E4",
+    "summary": "bankRepro läser kortets registerutfall ur nyckeln i fynd.json med den nya funktionen kortetsRegisterutfall (klass|post|mekanism, där post '-' betyder ingen post). Saknas nyckeln, eller hör den till en annan mekanism, används de sparade fyndens register. Finns inget av dem blir svaret KAN INTE DÖMAS med exit 2. Som KVAR räknas bara utslag av mekanismen med kortets klass och post. Utslag av mekanismen med ett annat registerutfall räknas och listas som information per klass och post, som i reproKalibrering.",
+    "files": [
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/lib/lanes.js",
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/__tests__/e-runda2.test.js",
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/docs/BUGGJAKT.md"
+    ],
+    "tests": "Nya fall i e-runda2.test.js, describe E4 (3 fall). De använder en injicerad pool och den verkliga 42h-korpusen som bas.jsonl.\n- Som i fakebankcard: när den enda träffen är den kända flashen (56 s, ACCEPTERAD) blir svaret BORTA med exit 0 och 'ACCEPTERAD KIE-PER-KORPUS 1' som information.\n- Med ytterligare en separat flash 09:31 (KANDIDAT) blir svaret KVAR.\n- Nyckeltolkningen: KANDIDAT|-, KÄND_ÖPPEN|K20… och återfallet. fynd.json utan nyckel ger KAN INTE DÖMAS med exit 2.\n\nMot F/pre2: 3 av 3 röda. Den gamla motorn svarar 'KVAR (1 utslag i varianten)' och saknar kortetsRegisterutfall."
+   },
+   {
+    "id": "E5",
+    "summary": "Alla fem orakelvakter pekar på symboler i stället för rader: t1Notice.js#judgeT1, t10Passage.js#decisiveFixAfter, t2Opening.js#judgePhantom, runOpeningGates.js#classifyPhantom och runOpeningGates.js#classifyLatePassage. Laddningen tolkar hänvisningarna i källa och orakelvakt med sourceRefs (fil följd av #symbol eller :rader). Den varnar när en citerad symbol inte definieras i filen. definesSymbol godtar en funktion, en deklaration (även inre), en metod eller en egenskap, men inte ett omnämnande. Laddningen varnar också när motorns egna filer citeras med rader. Filkontrollen finns kvar. Läsningarna cachas per laddning.",
+    "files": [
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/lib/registry.js",
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/beslutsregister.json",
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/__tests__/e-runda2.test.js",
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/__tests__/b-register.test.js",
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/docs/BUGGJAKT.md"
+    ],
+    "tests": "Nya fall i e-runda2.test.js, describe E5 (3 fall):\n- Alla fem orakelvakter har en symbol och inga rader, symbolen definieras i filen, och registret laddar utan varningar. UNDER-BRO-BANDET-70M citerar t10Passage.js#decisiveFixAfter.\n- Laddningen varnar för en symbol som saknas (#finnsInteAlls) och för förra registrets t1Notice.js:250–253 och t10Passage.js:57–60 (två varningar). Den varnar inte för harnessens radhänvisning. Den varnar för en källa med en saknad symbol.\n- Enhetsfall för definesSymbol.\n\nMot F/pre2: 3 av 3 röda. Den gamla laddningen tog '#…' som en del av filnamnet och varnade 'finns inte'.\n\nÄndrat befintligt fall: b-register.test.js M12. Orakelvakten matchar nu fil.js#namn, och exempelposten använder #judgeT1 utan varning. Fallet är rött mot F/pre2."
+   },
+   {
+    "id": "E7",
+    "summary": "Registry.applies låter en taggpost (verkan tagg) utan inv-lista nå INV-F-fynd; med en inv-lista når den bara de namngivna. Säkerhetsregeln står kvar: en omklassande post måste namnge INV-id:t, också med orakel '*'. Laddningen kräver fortfarande INV-id för en post som namnger INV-F. Själva STRESS-TÄTHET-posten är oförändrad, men _om i registret är uppdaterad.",
+    "files": [
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/lib/registry.js",
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/beslutsregister.json",
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/__tests__/e-runda2.test.js",
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/docs/BUGGJAKT.md"
+    ],
+    "tests": "Nya fall i e-runda2.test.js, describe E7 (3 fall):\n- STRESS-TÄTHET taggar ett INV-3-fynd och ett INV-10-fynd i en stressvärld men inte i en realistisk värld, och användningen bokförs.\n- Vakt: en omklassande post med orakel '*' och utan inv ger KANDIDAT för INV-F men DESIGN för T1. Laddfelet för en INV-F-post utan inv står kvar.\n- Vakt: en taggpost med inv ['INV-10'] taggar bara INV-10.\n\nMot F/pre2: 1 av 3 röda (taggfallet); de två vakterna är gröna."
+   }
+  ],
+  "declined": [],
+  "registryChanges": [
+   {
+    "post": "S10-VÄNDNING-BRON-BAKOM",
+    "change": "Ny regeltext: zonens första fix har minst FIX_D_MIN_SOG (2,0 kn, läst ur VesselDataService.js), och ingen senare zonfix har det, eftersom den bekräftar reversalen och notisen går ut. Källan är utökad med 'lib/services/VesselDataService.js:380–391 och :446–470'. Predikatets nya parameter fixDMinSogKn står medvetet inte i registret: standardvärdet läses ur appens källtext. Införd i §7, rad 10; rad 8 är annoterad.",
+    "source": "lib/services/VesselDataService.js:380–391 (const FIX_D_MIN_SOG = 2.0; Fix D-blockets villkor sog ≥ FIX_D_MIN_SOG) och :446–470 (första omvända fixen sätter _fixDPendingReversal, nästa inom FIX_D_PENDING_MAX_AGE_MS kör _confirmDirectionReversal); app.js:9745–9783 (S10-vaktens krav 1: färsk pending-flagga); granskarens sonder s10sog, s10two och s10two-b (F/tmp/granskare-r1/probes-out/s10sog.txt, s10two.txt)"
+   },
+   {
+    "post": "MÄTGRÄNS-INV10-VÄNTKEDJA",
+    "change": "predikat.parametrar har fått tickS: 30 och tickFördröjningMs: 40. Ny regeltext: inget glapp i kedjan får innehålla en halvminutstick, och svansen behålls. Källan är utökad med 'lib/services/BridgeTextService.js:304–308 (hasFreshPosition)'. Införd i §7, rad 12; rad 7 är annoterad.",
+    "source": "lib/services/BridgeTextService.js:304–308 (hasFreshPosition: 'strax' kräver en position högst STALE_ETA_HARD_THRESHOLD_MS gammal); app.js:13089–13096 (UI-klockan slår på absoluta halvminuter); app.js:5513–5520 (mikrograce 15/25/40 ms); granskarens inv10tick och inv10tick-b (F/tmp/granskare-r1/probes-out/inv10tick.txt)"
+   },
+   {
+    "post": "KIE-PER-KORPUS",
+    "change": "Ny regeltext: L är undantagets egen längd, och bara för klasser vars tid är episodens slut (ETA-SÅGTAND UPP 'på Ns', ETA-OSCILLATION 'inom Ns'); annars är L 0. DEFAULT-FLASH jämförs start mot start med |δ| + en tick, och utslagets egen längd vidgar aldrig fönstret. Källan och parametrarna är oförändrade. Radhänvisningarna till invariants.js står i regeln och inte i källan, eftersom källan skrivs ut på varje kort där posten är 'närmast'. Införd i §7, rad 11; rad 9 har fått anmärkningen att 'aldrig bredare' inte höll.",
+    "source": "tests/replay-validation/invariants.js:170–180 och :438 (DEFAULT-FLASH: iso är starten av 'Inga båtar', '(Ns)' textens längd); :321 och :351 (ETA-SÅGTAND UPP och ETA-OSCILLATION: iso är episodens slut); granskarens kiewindow2 (F/tmp/granskare-r1/probes-out/kiewindow2.txt)"
+   },
+   {
+    "post": "KAJGRIND-UTAN-RÖRELSEBEVIS, U10-BN2-PASSERAD-FORM, UNDER-BRO-BANDET-70M, FALSKLARM-AVBRUTEN-GLES, DEADLINE-10KN-GARANTIPRIS",
+    "change": "orakelvakt pekar på symboler i stället för rader: t1Notice.js#judgeT1 (tre poster), t10Passage.js#decisiveFixAfter, t2Opening.js#judgePhantom (två poster), runOpeningGates.js#classifyPhantom och runOpeningGates.js#classifyLatePassage. Gäller, predikat och regel är oförändrade. Införd i §7, rad 13; rad 3 är annoterad och M12-valet uppdaterat.",
+    "source": "tests/replay-validation/bugHunt/lib/oracles/t10Passage.js#decisiveFixAfter (funktionen står på rad 62–65; 57–60 är JSDoc sedan efterrättning D); tests/replay-validation/runOpeningGates.js#classifyPhantom (GLES_ANFLYGNING står på rad 1066, inte 1067); granskarens varv r1, nytt problem 5 (F/result.json, review.newProblems)"
+   },
+   {
+    "post": "(registret, _om)",
+    "change": "Beskriver säkerhetsregeln: en post omklassar ett INV-F-fynd bara om den namnger INV-id:t, och en taggpost utan inv-lista når alla INV-F-fynd. Har fått en sammanfattning av runda 2 (E1, E2, E3, E5, E7). STRESS-TÄTHET-posten är oförändrad. Införd i §7, rad 14.",
+    "source": "lib/registry.js Registry.applies (E7); triagens anmärkning efter varv r1 om STRESS-TÄTHET och de 5 INV-F-fynden i stressvärldarna (F/result.json); RUNDA2.md E7"
+   }
+  ],
+  "docs": "C/docs/BUGGJAKT.md, bara mina avsnitt §5, §6 och §7:\n- §5.2: KIE-fönstret har ny definition av L (bara undantagets längd, och bara för sluttidsklasser; DEFAULT-FLASH jämförs start mot start med |δ| + en tick), en punkt för runda 2 E3 och ett nytt stycke om hunt:repro för bankkort (E4).\n- §6: orakelvakten anges som fil.js#symbol och kontrolleras vid laddningen (E5). INV-10-rekommendationen förklarar nu halvminutsticken, med app.js- och BridgeTextService-hänvisningar (E2).\n- §7, text: nytt stycke 'Hänvisningar' (fil#symbol, kontrollen och registervarningarna). Reglerna har uppdaterats för säkerhetsregeln och taggposterna (E7), iOraklet som fil#symbol och appKonstant.\n- §7, posttabellen: STRESS-TÄTHET når även INV-F, och raderna för KIE, INV10, S10 och de fem iOraklet-posterna är uppdaterade.\n- §7, listan över registerändringar: rad 3, 7, 8 och 9 är annoterade, och rad 10–14 är nya. M12-valet citerar symboler, och en ny punkt redovisar följderna av runda 2 (A/B).\n\nUtanför mina avsnitt behövs följande. Jag har inte ändrat där.\n- §10, hunt:repro-tabellen, raden 'bankspåret (relation M-FAS)': lägg till 'KVAR bara när mekanismen ger ett utslag med kortets registerutfall (nyckeln i fynd.json); övriga utslag av mekanismen listas som information (§5.2, runda 2 E4)'.\n- §16, punkten 'hunt:repro för S-KALIBRERING …': sista meningen ('M-FAS-kortens repro svarar fortfarande på mekanismnivå …') är inaktuell. Ersätt den med 'Sedan runda 2 (E4) gäller samma princip för M-FAS-kort (§5.2).'\n- §16, punkten om STRESS-TÄTHET (valfritt): '… är en taggpost, som också når INV-F-fynd (§7, E7)'.\n- Bilaga B, INV-F (ägs av F), falsklarmsvakten: 'där L är episodens längd ur meddelandena' bör bli 'där L är undantagets egen längd för klasser vars tid är episodens slut (ETA-SÅGTAND \"på Ns\", ETA-OSCILLATION \"inom Ns\"), annars 0; DEFAULT-FLASH jämförs start mot start med |δ| + en tick (§5.2, runda 2 E3)'.\n- Bilaga B, T1 (ägs av F): 'S10-VÄNDNING-BRON-BAKOM → DESIGN: zonens enda fixar går bort från bron efter en vändning' bör bli 'S10-VÄNDNING-BRON-BAKOM → DESIGN: zonens första fix har sog ≥ FIX_D_MIN_SOG (2,0 kn) och går bort från bron efter en vändning, och ingen senare zonfix har sog ≥ FIX_D_MIN_SOG (den bekräftar reversalen och notisen går ut), så S10-vakten avstår'.\n- Bilaga B, INV-F (ägs av F), valfritt: MÄTGRÄNS-INV10-VÄNTKEDJA '… (INV-10:s granularitet, triagens T-1; inget glapp över en halvminutstick, runda 2 E2)'.\n\n§14 behöver inte ändras: inget kriterium byggde på mina motorfel, och alla håller.",
+  "checks": "Slutläget i C, mätt efter alla mina ändringar och med rättare F:s E6-ändringar inne. Rättare G:s E8 hade ännu inte ändrat några filer.\n\n- **Motorns jest:** 22 sviter och 238 test, alla gröna. Tre körningar på ledig maskin tog 4,0, 4,2 och 4,5 s. Ytterligare en körning omedelbart före svaret tog 4,2 s. Inga öppna handtag under --detectOpenHandles. Under F:s parallella A/B (load 7–8) tog en körning 5,1–5,5 s.\n- **Lint:** `npx eslint --max-warnings=0 tests/replay-validation/bugHunt/` ger exit 0.\n- **Självtest:** körd till F/runs/E-selftest (rapport.md, rapport.json; loggen i F/runs/E-selftest.log), exit 0 på 26 s.\n  - GRÖNT: determinism 24/24, SHIFT30 24/24, MMSI 24/24, kanarier 5/5, rundresa 45/45.\n  - Låst bank: 3 fatala utslag, alla täckta, 0 nya träffar.\n  - S-KALIBRERING: T1 13 och T10 3, alla registrerade, 0 oregistrerade.\n  - Inga registervarningar.\n- **Skyddskoll:** `bash F/input/skyddskoll.sh` ger OK, både före och efter slutkörningarna.\n- **Determinism:** två quick-körningar parallellt (F/runs/E-quick-a och E-quick-b) gav rapport.json identisk utom tid, med fingeravtrycket f9fddea58fb8 i båda. 42h ACCEPTERAD vid δ +7 och −11,52, 44 av 48 rena varianter.\n\n**Granskarens sonder** kördes ompekade mot C med skriptet F/tmp/E/probes/run-all.sh. Före = F/tmp/E/old/repo, där bugHunt är bytlik med F/pre2. Utdata: F/tmp/E/probes-out/old/ och …/new/; F/tmp/E/probes-out/slut/ är identisk med new.\n- **s10sog:**\n  - Före: DESIGN vid 0,6, 1,0, 1,9, 2,2 och 3,6 kn, fast appen notifierar vid 0,6–1,9 kn.\n  - Efter: KANDIDAT vid 0,6, 1,0 och 1,9 kn; DESIGN vid 2,2 och 3,6 kn, där appen inte notifierar.\n- **s10two och s10two-b:**\n  - Med notisen borttagen: före DESIGN för 2 och 3 zonfixar, efter KANDIDAT.\n  - Utan regression notifierar appen 10:06:36 respektive 10:06:31 i båda.\n- **Egen sond s10twosog:**\n  - Senare zonfix 1,5 kn: appen notifierar inte, DESIGN före och efter.\n  - Senare zonfix 0,4 kn: appen notifierar 10:06:36.\n- **inv10tick:**\n  - Fixen kvar 08:59:57,835: MÄTGRÄNS före och efter.\n  - Fixen flyttad till 09:00:10 utan regression: inget utslag före och efter.\n  - inv10tick-b ('strax' kvar över ticken): före MÄTGRÄNS ('högst 25 s'), efter KANDIDAT.\n- **kiewindow2:** före ACCEPTERAD för 240 s vid +4 min, 290 s vid +5 min och 300 s vid +5,5 min utan syskon. Efter: alla 10 fall KANDIDAT.\n- **fakebankcard med hunt:repro:** före 'KVAR (1 utslag i varianten)'. Efter 'BORTA (0 … med registerutfallet KANDIDAT; 1 … som information — ACCEPTERAD KIE-PER-KORPUS 1)'. Exit 0 i båda.\n- **canaryrows:** 5/5 bitlika i båda.\n- **Verkliga bankkort:** hunt:repro på F07 (21h), F08 (16h) och F09 (13h) ur F/runs/r1-standard-a ger KVAR med exit 0 i både gammal och ny motor. Utdata i F/tmp/E/probes-out/bankkort/.",
+  "effects": "**A/B av bara mina ändringar.** Mätt över standardens 2 000 världar och bankens 168 fasvarianter (seed 1, `--lanes=bank,synth --no-shrink`). Motorerna jämfördes isolerat: F/tmp/E/old (bugHunt = F/pre2) mot F/tmp/E/mine (F/pre2 med bara lib/registry.js, beslutsregister.json och lib/lanes.js utbytta). Körningarna ligger i F/runs/E-ab-old och F/runs/E-ab-mine; jämförelseskriptet är F/tmp/E/abcmp.js. Efter A/B ändrades bara kommentarer, källa- och regeltexter och INV10:s nu uttryckliga parametrar, som har samma värden som standardvärdena. Inget predikat ändrades, och sonderna och jest kördes om på slutläget.\n\n**Oförändrat:**\n- 420 råa utslag i båda; inget försvinner och inget tillkommer.\n- 0 byten av registerutfall.\n- 46 kluster med samma nycklar och antal.\n- S10-VÄNDNING-BRON-BAKOM används 3 gånger (världarna 215, 581 och 1818, alla DESIGN).\n- MÄTGRÄNS-INV10-VÄNTKEDJA används 1 gång (värld 1228 MÄTGRÄNS).\n- KIE-PER-KORPUS används 5 gånger (42h ACCEPTERAD vid δ 7, −7, −11,52, 15 och −20; skälet visar nu '≤ |δ| 7 s + en tick 30 s').\n- Inga registervarningar.\n\n**Ändrat:** STRESS-TÄTHET används 55 gånger i stället för 45. Taggen når nu de 5 INV-F-fynden i stressvärldarna: världarna 1608 och 1907 (ETA-OSCILLATION och ETA-SÅGTAND UPP, korten F18 och F19) och värld 212 (INV-5). Nu har alla 23 stressfynd taggen.\n\n**Bör ägaren veta:** taggen hamnar också på bankens DEFAULT-FLASH i 42h, som fortfarande är ACCEPTERAD via KIE-PER-KORPUS.\n- Utan uppmätt täthet räknar stressDensity korsningskedjor i korpusens facit. 42h är den enda av de 24 korpusarna med en kedja på 6 korsningar (Olidebron söderut, högst 10 min mellanrum).\n- Det är en direkt följd av E7. Bankens övriga orakel i 42h hade redan kunnat få taggen, men i standarden finns inga sådana fynd.\n- Ingen klass, inget kluster och ingen sektion ändras. Fingeravtrycken ändras: sanningsspårets fynd ef400bd80a3b → d9d278224505, rapporten 7403a2af5da1 → 057c380773e8.\n- Nästa standardkörning får därför ett nytt fingeravtryck även utan andra rättares ändringar.\n\n**Kostnad:** registrets laddning tar 2,4 ms per anrop i stället för 0,56 ms, eftersom symbolerna kontrolleras i 4 källfiler och FIX_D_MIN_SOG läses ur VesselDataService.js. Det märks inte i jest-tiden.",
+  "notes": "- **Valet i E3:** jag använder L bara för sluttidsklasserna OCH bara ur undantaget. Det är den strängare kombinationen av RUNDA2:s två alternativ. Utslagets egen längd vidgar alltså aldrig fönstret, inte heller för ETA-klasserna. Bankens 41h-undantag saknar längd i strängen, så där gäller |δ| + en tick. Ingen av bankens fasvarianter använder i dag KIE för 41h, och KIE används 5 gånger både före och efter.\n- **Kvar i E2, enligt RUNDA2 ('svansen behålls'):** en tick inne i svansen prövas inte. En övergång som sker utan tick, upp till 30 s efter kedjans slut, med en tick emellan godtas alltså fortfarande.\n- **Medvetet konservativt i E2:** en fix som kommer inom 40 ms efter ticken kan ge ett falskt KANDIDAT. Det är riktningen mot ett synligt kort, inte mot amnesti.\n- **Medvetet konservativt i E1:** en senare zonfix minst 15 min efter den första ger som förut KANDIDAT, fast appen då kan sätta en ny pending-flagga.\n- **appKonstant** läser bara en `const NAMN = tal;` som står exakt en gång. Byter appen form på konstanten blir S10-predikatet falskt och registret varnar. Det amnestierar aldrig på en gissning.\n- **Andra rättares filer:** jag har inte rört F:s filer (t1Notice.js, t2Opening.js, truthCommon.js, f-tidslik*, bilaga B) eller G:s (report.js, cluster.js). Orakelvakterna citerar judgeT1 och judgePhantom, som finns kvar efter F:s ändringar; laddningen ger 0 varningar. Om någon döper om dem ger registret en varning, och jest-fallen i b-register M12 och e-runda2 E5 blir röda.\n- **Befintliga test:** jag ändrade b-register.test.js (M03, M12, T-1) och d-efterratt.test.js (KIE-blocket), som uppgiften tillåter.\n- **Mina arbetskataloger:** F/tmp/E (old/, oldt/, mine/, probes/, probes-out/, abcmp.js, old-e.json, old-final.json, new-all.json) och F/runs/E-ab-old, E-ab-mine, E-selftest, E-quick-a och E-quick-b. Ingenting raderades utanför F/tmp och F/runs."
+ },
+ "resF": {
+  "fixed": [
+   {
+    "id": "E6",
+    "summary": "T1:s formkrav (FÖRVARNINGSFORM-EFTER-PASSAGE) räknar nu bara fixar som appen faktiskt hade fått när notisen gick ut. Ny hjälpare truthCommon.noticeHadFix: en fix strikt före n.t räknas, och en tidslik fix (aisTimestamp === n.t) bara när notisens frysta position (vesselLat/vesselLon) är just den fixen. Ny hjälpare truthCommon.tiedAtNotice använder vesselLatNext för att märka en utesluten tidslik fix: 'ej-inmatad' när den är harnessens nästa ännu inte inmatade rad, annars 'oklar'. t1Notice.js:263–276 använder dem. Förut räknade filtret `f.aisTimestamp <= n.t`, på rad 250–253, även en tidslik rad som harnessen matade in först efter notisen. Två tillägg: T1-räknaren tidslikUtesluten {ejInmatad, oklar}, och fältet fixBortom.mottagen i formkortets belägg ('före notisen' eller 'notisens egen fix (tidslik)'). Resultat: F21 (värld 856, XENIA vid Järnvägsbron) försvinner. Där byggdes notisen på fixen 6 m före linjen, och vesselLatNext är den tidslika raden 77 m bortom. Värld 86 (F13 SALTIS), 783 och 1731 står kvar; där byggdes notisen på den tidslika fixen. Regeln är prövad mot harnessens fält i alla 41 832 levererade notiser, i standardens världar och i bankens bas: gränsen var harnessens i varje notis. 109 syntetiska notiser, alla vid Järnvägsbron, gick ut före sin tidslika rad; på banken ingen. Inga fall av drift eller av en inmatad men oanvänd tidslik rad. truthJudge.js behövde ingen ändring.",
+    "files": [
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/lib/oracles/truthCommon.js",
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/lib/oracles/t1Notice.js",
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/lib/oracles/t2Opening.js",
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/__tests__/f-tidslik.test.js",
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/__tests__/fixtures/f-tidslik-varldar.json",
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/docs/BUGGJAKT.md"
+    ],
+    "tests": "Ny testfil __tests__/f-tidslik.test.js med 12 fall, alla gröna i C på 0,07 s. Fallen är märkta [rättning], [vakt] och [nytt].\n\nKonstruerade fall (Klaffbron, en båt norrut):\n- [rättning] F21-mönstret ger inget utslag.\n- [rättning] En tidslik fix utan frusen position räknas inte.\n- [vakt] SALTIS-mönstret ger utslag (77 m).\n- [vakt] En fix strikt före notisen räknas som förut.\n- [nytt] Räknaren och fältet mottagen.\n\nStandardvärldarna ur fixturen f-tidslik-varldar.json: målbåtens rader, L0:s korsningar och besök för båten och de levererade notiserna, tagna ur generatorn och replayRunner. T1-domen för båten är prövad lika på hela och på trimmade världen, med båda motorerna.\n- [rättning] Värld 856 (F21): notisens position är föregående fix, vesselLatNext är den tidslika raden, och inget formutslag.\n- [vakt] Värld 86 (SALTIS, 115 m), 783 (107 m) och 1731 (298 m): notisen byggd på den tidslika fixen, utslag kvar.\n- [nytt] Räknare och belägg i de fyra världarna.\n- [vakt] Två T3-fall för systerställena: en fix-varning vars utlösande tidslika rad kommer efter 25 min tystnad ger ingen VARNING-PÅ-FRUSET-FIX, men utan den raden fälls varningen.\n\nBevis mot gamla motorn: testfilen och fixturen kopierades till tempkopian F/tmp/F/old/repo (C med F/pre2/bugHunt och F/pre2/docs/BUGGJAKT.md) och kördes med samma jest-kommando. Utfall: 5 röda och 7 gröna. Röda är de tre [rättning]-fallen och de två [nytt]-fallen; alla [vakt]-fall är gröna. Mot nya motorn: 12/12. Utskrifter i F/runs/F-ab/jest-nya-fall-mot-gammal-motor.txt och jest-f-tidslik-mot-pre2.full.txt.\n\nHela vägen via hunt --repro på förra standardens kort (F/runs/F-ab/repro-F21-F13.txt): med pre2 är F21 KVAR, med E6 BORTA. F13 och F13/r2 är KVAR med båda motorerna."
+   }
+  ],
+  "declined": [
+   {
+    "id": "E6-systerställe t2Opening.js:248–252 (lastSeenFixTs, nu rad 256–258)",
+    "reason": "Analysen visar ingen verklig skillnad, så `<=` behölls. Sonden gick över standardens 2 000 världar, med 11 866 varningar.\n- Ties: 2 352 medlemsrader har exakt varningens tid. 2 351 av dem hör till fix-varningar, där raden är den som utlöste varningen när den matades in och som appen alltså hade.\n- Den enda deadline-varningen med tidslik rad prövades aldrig mot något avbrott.\n- En strikt jämförelse som i T1 hade dolt det äkta FANTOM-UTAN-AVBROTT i värld 1590 (Klaffbron#11, fix-utlöst, tidslik).\n- Varningar har ingen frusen position i harnessen, så T1:s regel går inte att flytta hit.\n\nBara en kommentar är tillagd, och ett vaktfall i f-tidslik.test.js håller fast att en utlösande tidslik rad räknas."
+   },
+   {
+    "id": "E6-systerställe t2Opening.js:366–369 (VARNING-PÅ-FRUSET-FIX, nu rad 375–380)",
+    "reason": "Ingen verklig skillnad, så `<=` behölls.\n- För fix-varningar är den tidslika raden den utlösande, så den hade appen.\n- Den enda deadline-varningen med tidslik rad hade en 300 s gammal fix före och ändrade inget utfall.\n- En strikt jämförelse hade gett 19 falska VARNING-PÅ-FRUSET-FIX, där en färsk fix efter mer än 19 min tystnad utlöser varningen.\n\nBara en kommentar och vaktfall (25 min tystnad, med och utan den tidslika raden)."
+   },
+   {
+    "id": "E6-systerställe t1Notice.js:175 (utfärdsbeviset, nu rad 189)",
+    "reason": "Samma slags `<=` mot förra notisens tid fanns här; triagen hade inte nämnt stället. Det kan bara ändra ett utfall om en tidslik rad som kom efter notisen ligger mer än 350 m från punkten. Ingen av de 109 sådana raderna i standardens världar gör det (F/runs/F-ab/skript/tiedist.js), och på banken finns inga. Därför orört, med samma tumregel som för T2-ställena; det står i bilaga B T1."
+   }
+  ],
+  "registryChanges": [],
+  "docs": "docs/BUGGJAKT.md, bilaga B. Jag ändrade bara T1-, T2- och T3-avsnitten. E:s samtidiga ändringar i §5.2 och §7 är orörda.\\n- T1, efter v1-raden: ny punkt \\\"Formkravets 'fått' (rättat 2026-11-04, runda 2, E6; kortet F21)\\\". Den beskriver regeln (noticeHadFix; harnessens 30 s-stegning med replayRunner.js:512–521 och 749–769), räknaren tidslikUtesluten och fältet fixBortom.mottagen. Underpunkter: beläggen ur sonden (41 832 notiser, 109 ej inmatade, banken 0), A/B-talen och bankens oförändrade T1-kalibrering, och varför utfärdsbeviset är orört.\\n- T2: en mening om att filens två jämförelser mot medlemmarnas rader hör till T3.\\n- T3: ny punkt \\\"Tidslika rader (analyserat 2026-11-04, runda 2, E6; inte ändrat)\\\" med analysen: 11 866 varningar, 2 352 tidslika medlemsrader varav 2 351 i fix-varningar, den enda deadline-varningen, och de 19 falska fynd plus det dolda fyndet i värld 1590 som en strikt jämförelse hade gett.\\n\\nKodkommentarerna i t1Notice.js, truthCommon.js och t2Opening.js är på svenska.",
+  "checks": "Alla slutkontroller kördes i C, med E:s färdiga runda 2-ändringar på plats.\\n- Motorns jest: 22 sviter och 238 fall gröna. På låg last tog det 4,37, 4,07 och 4,18 s (F/runs/F-slut/jest-C-slut-*.txt). När E:s hunt-körning gav last 8–11 tog det 5,1–5,8 s. Inga öppna handtag. Min svit tar 0,07 s; pre2:s baslinje var 3,7 s.\\n- Lint: `npx eslint --max-warnings=0 tests/replay-validation/bugHunt/` gav exit 0 (F/runs/F-slut/lint.txt).\\n- Självtest i F/runs/F-selftest: GRÖNT. Determinism 24/24, SHIFT30 24/24, MMSI 24/24, kanarier 5/5, rundresa 45/45, exit 0 (F/runs/F-selftest.log). S-KALIBRERING T1: 732 bedömda besök av 1 098, 13 utslag, 13 registrerade, 0 oregistrerade träffar.\\n- Skyddskoll: `bash F/input/skyddskoll.sh` gav OK (F/runs/F-slut/skyddskoll.txt).\\n- Kopian pre2 + E6: hela motorns jest 217/217 gröna.\\n- Sondens rapport är lika med pre2-körningens utom tidsblocket, så sonden ändrade inga fynd.",
+  "effects": "A/B över standardvärldarna (--lanes=synth --no-shrink, seed 1, 2 000 världar), sparad i F/runs/F-ab/. pre2/ är tempkopian med F/pre2:s motor. ny/ är samma kopia med bara E6:s filer, så att E:s samtidiga ändringar inte blandas in; orakelkoden är byte-lik C:s.\\n\\nTotalt:\\n- Råa syntetiska utslag: 400 → 399.\\n- Kluster: 42 → 41.\\n- Kandidater: 20 → 19.\\n- Fingeravtryck: 374b8476970b → ca9eda1e2d69.\\n- Radernas fingeravtryck: oförändrat 19bbc284099d.\\n- Fyndfingeravtryck: ef400bd80a3b → ad59bbf405d8.\\n\\nPer orakelklass och nivå (F/runs/F-ab/abdiff.txt) ändrades en enda rad: T1|FÖRVARNINGSFORM-EFTER-PASSAGE [KANDIDAT], som gick från R0 0 / R1 3 / stress 1 till R0 0 / R1 3 / stress 0. Alla andra 24 klass- och registerrader är lika på R0, R1 och stress. Några exempel:\\n- INV-3 ETA-SÅGTAND UPP: 4/27/2.\\n- T2 ÖPPNING-MISS:OKLASSAD [KANDIDAT]: 5/50/5.\\n- T3 VARNING-EFTER-SANN-PASSAGE [KANDIDAT]: 3/69/3.\\n- T3 VARNING-PÅ-FRUSET-FIX: 0/10/1.\\n- T3 FANTOM-UTAN-AVBROTT: 0/2/0.\\n\\nEnda världen som ändrades är 856 (F-MÖTE, R1, stress), som tappar sitt formutslag. Klustret KANDIDAT|-|T1|FÖRVARNINGSFORM-EFTER-PASSAGE|synt|stress försvinner, det vill säga F21-kortet. R1-klustret står kvar med värld 86, 783 och 1731, alla med mottagen 'notisens egen fix (tidslik)'.\\n\\nRäknaren tidslikUtesluten är R1 {ejInmatad 1, oklar 0} och R0 {0, 0}.\\n\\nBankens T1-kalibrering är oförändrad före och efter: 732 bedömda besök av 1 098, 13 utslag, 13 registrerade, 0 oregistrerade träffar. På banken fanns 3 formprövningar och inget formutslag, varken före eller efter.\\n\\nÄgaren bör veta:\\n- Kortet F21 försvinner ur nästa standardrapport.\\n- Tvillingparet F21↔F13 i E8 (rättare G) blir därmed inaktuellt.\\n- F13 behåller tre äkta utslag.",
+  "notes": "Underlag:\\n- Sonden är en kopia av pre2 med loggning, med patchen i F/runs/F-ab/skript/sond.diff. Rådata ligger i F/runs/F-ab/sond-e6.jsonl och sammanställningen i F/runs/F-ab/sond-analys.txt.\\n- Skripten (mkfixture, trimfixture, checkfixture, tiedist, abdiff, abjamfor, sondanalys, compactjson) ligger i F/runs/F-ab/skript/.\\n- Övriga filer: klusterdiff.txt, abjamfor.txt och repro-F21-F13.txt.\\n- Tempkopiorna ligger i F/tmp/F/{old,probe,new}/repo.\\n\\nTre ytterligare iakttagelser:\\n1. Varför T1 och T2/T3 behandlas olika. Notiser kan gå ut i dräneringen i slutet av ett klocksteg. Ett exempel är F21:s UI-omkörning, som var IN_FLIGHT-blockerad. Fix-varningar avfyras däremot medan sin egen rad matas in. Deadline-varningar ligger nästan aldrig på exakt en rads tid: 1 av 9 022 i standardens världar.\\n2. Kvarstående teoretisk lucka. En deadline-varning på exakt nästa rads tid räknar en rad som inte var inmatad. Det hände en gång och ändrade inget utfall. Harnessen fryser ingen position för öppningsvarningar, så det går inte att avgöra exakt.\\n3. Om 'oklar'. RUNDA2:s regel räknar inte heller en tidslik rad som harnessen redan matat in men som appen inte tog som position, till exempel en GPS-hoppsavvisad fix. Det fallet förekom inte: oklar = 0 i alla notiser. Räknaren 'oklar' gör det synligt om det någon gång händer.\\n\\nSamtidigt arbete: E:s ändringar (registry.js, beslutsregister.json, lanes.js, e-runda2.test.js m.fl.) blev klara under min runda. De två röda sviterna jag såg tidigt (b-register, d-efterratt) var E:s pågående arbete och är gröna nu. Jag har inte rört E:s eller G:s filer."
+ },
+ "resG": {
+  "fixed": [
+   {
+    "id": "E8",
+    "summary": "Rapporten länkar nu tvillingkort åt båda hållen, både i rapport.md och i rapport.json. Korten slås inte ihop, och klusternyckeln är oförändrad.\n\nI lib/cluster.js finns nya rena relationsfunktioner:\n- utanStress: nyckeln utan '|stress'.\n- reproIdentitet: radHash plus monitoringläge. Bara krympta representanter har en sådan identitet.\n- utslagsfönster, underlagOf, utslagsplats och sammaUtslag.\n\nI lib/report.js finns kortlänkar(urval). writeReport sparar de representanter som fick kataloger (k.representanter). Det finns tre typer av länkar:\n- 'Samma minsta repro som Fxx (troligen samma apphändelse)': en representant i vartdera kortet har samma radhash och samma monitoringläge. Texten anger vilka representanter det gäller, till exempel 'r2 = F13:s r2 (värld 1731)'.\n- 'Stresstvilling till Fxx (samma mekanism)': klusternycklarna är lika när '|stress' tas bort. Samma text står på båda korten. Om tvillingen ligger utanför de 25 korten anges klustrets mekanism utan kort-id.\n- 'Samma utslag som Fxx i N världar (troligen samma apphändelse där)'. Det här är min prövning av regeln 'samma representantvärld och överlappande utslagstid'. Två kort länkas när deras kluster delar ett utslag: samma värld eller korpus, samma bro och samma fartyg (eller inget fartyg i båda), med överlappande utslagsfönster utan tolerans. Fönstret täcker händelseparet som oraklet jämför (korsning, varning, sann passage, notis, passage, T1-besök). För INV-3 SÅGTAND och OSCILLATION, INV-14 och STRAX-ZOMBIE täcker det hela episoden. Kontextfält som senasteFix och fixFöre/fixEfter räknas inte. Länken visas bara när den tillför något utöver samma minsta repro.\n\nVarför regeln prövas på alla utslag i klustret och inte bara på representanterna: på runda 1:s rapport gav representant mot representant bara F18/r2–F19/r2 utöver paren med samma repro. Över alla utslag hittade regeln fem par till, och varje delat utslag var samma korsning eller samma varning:\n- F01↔F03 (14 världar)\n- F01↔F10 (3 världar)\n- F01↔F13\n- F03↔F11\n- F20↔F23\n\nVar länkarna syns:\n- I rapport.md står raden 'Länkar:' på kortet, mellan Register och Nästa steg.\n- Avsnittet Kandidater börjar med översikten 'Länkade kort', där varje par står en gång.\n- I rapport.json har varje kluster fältet länkar med typ, kort, nyckel, text och belägg. Kluster utan kort har en tom lista.\n\nAllt härleds ur klustren och representanterna, så länkarna är deterministiska.",
+    "files": [
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/lib/report.js",
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/lib/cluster.js",
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/__tests__/g-tvilling.test.js",
+     "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/docs/BUGGJAKT.md"
+    ],
+    "tests": "Ny fil __tests__/g-tvilling.test.js med 12 fall, alla gröna i C. Sviten tar 0,27 s. Fynden bär värden ur standardkörningen: världar, radhashar, tider, broar, fartyg och INV-meddelanden.\n\n[rättning], 8 fall:\n- F12/F16-mönstret: samma repro åt båda hållen i md och json, plus översikten.\n- F18/F19-mönstret: samma repro i 1608 och samma utslag även i 1907.\n- Stresstvillingar åt båda hållen och bara vid samma mekanism.\n- F20/F23-mönstret: ett representantutslag som är medlem i ett annat kort.\n- writeReport med länk via r2 (F10/F13), inklusive katalogen r2/.\n- Sortering mot stresstvillingar (F06/F04-mönstret).\n- Determinism när fynden kommer i omvänd ordning.\n- Stresstvilling utanför de 25 korten.\n\n[vakt], 2 fall:\n- Inga falska länkar: okrympt värld, annat monitoringläge, annan bro, annat fartyg, textutslag mot fartygsutslag.\n- F18/F19 med episoder som inte överlappar.\n\n[nytt], 2 fall: de nya hjälparna i cluster.js.\n\nBevis mot gamla motorn: tempkopian F/tmp/G/old/repo är C med F/pre2/bugHunt och F/pre2/docs. Där är report.js och cluster.js md5-lika med pre2. Samma jest-kommando gav 10 röda (alla 8 [rättning] och båda [nytt]) och 2 gröna (båda [vakt]). Den nya motorn gav 12/12. Utfallen ligger i F/runs/G-prov/jest-g-mot-pre2.utfall.txt och jest-g-ny.utfall.txt.\n\nMutationsprov i kopian F/tmp/G/mut (F/runs/G-prov/mutationer.txt): alla tio mutationerna M1–M10 fälls av minst ett fall. De gäller krympt, monitoring, fartyg, bro, tidsfönster, episodlängd, kontextfält, samma-utslag trots täckande repro, envägs stresstvilling och osorterade länkar."
+   }
+  ],
+  "declined": [
+   {
+    "id": "E8: textutslag utan fartyg mot fartygsutslag",
+    "reason": "Ett utslag utan mmsi (INV-3, INV-14, INV-10) länkas bara till andra utslag utan fartyg, även när tiderna överlappar. Textklausulen gäller bron och inte en viss båt.\n\nProvet: med en tolerans på 30 s och null-mmsi som jokertecken hade det tillkommit ett enda par, F03↔F04 i värld 1521. Där kom en sen varning kl. 13:10:18 och en ETA-sågtand 13:10:35–13:11:41. Det gick inte att visa att det är samma händelse.\n\nJag valde därför ingen tolerans och fartygskrav. Gränsen står i BUGGJAKT §9."
+   },
+   {
+    "id": "E8: länkar mot kluster utanför korten",
+    "reason": "Länkarna för samma minsta repro och samma utslag prövas bara mellan korten. Kluster bortom de 25 korten och kluster med registerpost ingår inte, eftersom texten ska kunna peka på ett Fxx.\n\nUndantag: en stresstvilling utanför korten länkas med sin klusternyckel, kort = null, och har ett eget jest-fall. Gränsen står i §9."
+   },
+   {
+    "id": "E8: Nästa steg-raden",
+    "reason": "Raden ändras inte. Länkraden står direkt ovanför den, översikten säger att länkade kort triageras tillsammans, och befintliga test matchar texten 'Nästa steg: triage'."
+   }
+  ],
+  "registryChanges": [],
+  "docs": "C/docs/BUGGJAKT.md. Jag har bara ändrat §8 och §9.\\n\\n§8: nytt stycke 'Tvillingkort slås inte ihop'. Klusteridentiteten är avsiktlig, rapporten länkar korten i stället, och stycket beskriver relationsfunktionerna i lib/cluster.js.\\n\\n§9:\\n- Punkt 5 (Kandidater) börjar nu med översikten 'Länkade kort'.\\n- Nytt avsnitt 'Tvillinglänkar', som tar upp:\\n  - de tre länktyperna med exakta texter och kriterier: radhash plus monitoringläge, bara krympta representanter, r1/rN-namngivningen, utslagsfönstret och vilka fält som ingår eller inte, överlapp utan tolerans och fartygsregeln;\\n  - var länkarna står: Länkar-raden, översikten och fältet länkar i rapport.json med typ, kort, nyckel, text och belägg;\\n  - determinism, och att en länk inte betyder samma rotorsak;\\n  - gränserna;\\n  - ett exempel med kortet F10:s länkrader;\\n  - historiken (runda 2, E8): triagens par och utfallet av regelprovet i runda 1:s numrering;\\n  - resultatet från standardkörningen efter runda 2: 14 par, samtliga triagens par länkade utom F21↔F13.\\n\\nAlla kodkommentarer är på svenska.",
+  "checks": "Alla kontroller kördes i C med slutkoden. report.js har md5 7ec4c54a och cluster.js cf2bf9b4, samma vid start och slut av den slutliga körningen.\\n\\n- Motorns jest: 23 sviter och 250 fall, alla gröna. Ingen svit hängde, så inga öppna handtag. Vid låg last (load1 0,98) tog körningarna 4,34, 4,31 och 4,21 s (vägg 4,69–4,87 s); se F/runs/G-slut/jest-C-slut-1..3.txt. När andra agenter gav load 3,8–6,4 tog det 4,23–4,51 s, med ett utfall på 5,13 s vid load 6,3. Utan g-tvilling gav samma last 4,24–6,37 s (F/runs/G-slut/jest-med-utan-g.txt), så tiden styrs av lasten. Min svit tar 0,27 s.\\n- Lint: `npx eslint --max-warnings=0 tests/replay-validation/bugHunt/` gav exit 0 (F/runs/G-slut/lint.txt).\\n- Standardkörning: `node tests/replay-validation/bugHunt/hunt.js --out=F/runs/G-standard` gav exit 0 på 7 min 16 s (last från andra agenter). Självtestet var GRÖNT: determinism, SHIFT30 och MMSI 24/24, kanarier 5/5, rundresa 45/45. Det blev 22 kort och 39 av 39 representanter krympta och bekräftade.\\n- Skyddskoll: `bash F/input/skyddskoll.sh` gav OK (F/runs/G-slut/skyddskoll.txt).",
+  "effects": "Mätt mot baslinjen F/runs/G-bas-standard: samma motor utan E8, körd ur ögonblickskopian F/tmp/G/bas/repo, standard, seed 1.\\n\\nVad som ändrades i rapporten:\\n- rapport.json är byte-lik baslinjen när fältet länkar, fingeravtrycket och tidsblocket tas bort. Fingeravtrycket gick från 2d6a0e6e8635 till 19804855dcf4.\\n- fynd/ har samma filer och samma innehåll; bara utkatalogens sökväg i kommando.txt skiljer.\\n- rapport.md har 46 nya rader: översikten och Länkar-raderna. Den enda andra skillnaden är Väggtid.\\n- Antalet kort (22), kluster och kandidater är oförändrat, så acceptanskriterierna i §14 påverkas inte.\\n\\nDeterminism: G-standard och den första körningen G-standard-1 är byte-lika utom tidsblocket. Länkarna går att räkna om ur rapport.json och blir då lika med de sparade. Ingen länk saknar spegel. kortlänkar tar 6–9 ms.\\n\\nLänkarna i G-standard, 14 par:\\n- Samma minsta repro: F12↔F16, F18↔F19, F10↔F13 (r2, värld 1731).\\n- Samma utslag: F01↔F03 (14 världar), F01↔F10 (3), F18↔F19 (2), samt F01↔F13, F03↔F11 och F20↔F22 med 1 värld vardera.\\n- Stresstvillingar: F01↔F17, F02↔F21, F03↔F20, F11↔F22, F04↔F19, F06↔F18.\\n\\nJämfört med triagens par (runda 1:s numrering):\\n- Länkade: F12↔F16 och F18↔F19 (samma repro), F20↔F03, F23↔F11 (nu F22↔F11), F22↔F02 (nu F21↔F02) och F17↔F01.\\n- F21↔F13 finns inte längre, eftersom E6 tog bort stresskortet F21.\\n- Utöver triagens lista tillkom:\\n  - F10↔F13 med samma repro, vilket stämmer med triagens 'F13:s r2 är F10:s mekanism';\\n  - stresstvillingarna F04↔F19 och F06↔F18, där triagen gav olika rotorsaker men mekanismen är densamma;\\n  - samma-utslag-paren. Triagen hade själv sett F20↔F23 ('samma varning ingår i F20:s kluster') och U-svängsreturerna i F01 som F10-klassen.\\n\\nÄgaren bör veta:\\n- Den bokstavliga regeln 'samma representantvärld och överlappande utslagstid', prövad bara mellan representanter, hittar inga nya par. Varje träff hörde till ett par som redan hade samma minsta repro.\\n- Det som tillförs kommer från utslag som delas mellan kort men där minst ena sidan inte är en representant. Det gav 5 nya par, och F01↔F03 är störst: 14 av F01:s 55 världar är sena varningar av F03-klass.",
+  "notes": "Underlag i F/runs/G-prov/:\\n- jamforelse.txt (baslinje, triagepar, omräkning, determinism)\\n- regelprov-G-standard-1.txt och regelprov-r1-standard-a.txt (delade utslag uppdelade på representant~representant 4, representant~medlem 5 och medlem~medlem 15)\\n- lankar-G-standard.txt\\n- rapport-md-diff.txt\\n- mutationer.txt\\n- jest-utfall\\n- report.diff och cluster.diff (mot pre2) samt BUGGJAKT.diff\\n\\nSkripten ligger i F/tmp/G/skript/: parprov.js, overlapp.js, lankprov.js, regelprov.js, jamfor.js, mutationer.sh och slutjest.sh. Tempkopiorna är F/tmp/G/{bas,old,mut}/repo.\\n\\nKörningar:\\n- G-bas-standard: baslinjen utan E8.\\n- G-standard-1: första körningen. Där saknade översiktens samma-utslag-rader '(troligen samma apphändelse där)'; det ändrades före slutkörningen.\\n- G-standard: slutkörningen.\\n\\nOm texterna:\\n- 'Stresstvilling till Fxx (samma mekanism)' står likadant på båda korten. På R0- eller R1-kortet betyder den att Fxx är stresstvillingen.\\n- r1 är kortets egen katalog och rN är underkatalogen rN/.\\n\\nSamtidigt arbete:\\n- Jag har bara ändrat report.js, cluster.js, den nya testfilen och §8–§9 i BUGGJAKT.md.\\n- Under hela min runda var motorkatalogen i C oförändrad utom mina filer, jämfört med ögonblicksbilden kl. 15:03.\\n- E:s filer och F:s filer är orörda.\\n- Andra agenter (R1, K2, R2, K) körde tung last på maskinen under mina körningar."
+ },
+ "fixups": [
+  {
+   "fixed": [
+    {
+     "id": "s0-ny-1 (S10-predikatet ser inte en pending-flagga från före zonen)",
+     "summary": "Predikatet reversalAwayFromBridge spelar nu Fix D:s pending-logik över fartygets alla fixar före zonens första fix. Det görs med den nya hjälparen spelaFixD i lib/registry.js, som exporteras. Modellen är tagen ur VesselDataService.js:380–476, och det gamla bandet är riktningslås när spelet börjar:\n- En fix utan finit kurs eller med sog < FIX_D_MIN_SOG rör ingenting, eftersom den inte klarar blockets yttre villkor (:383–391).\n- En fix vars kurs är omvänd mot låset sätter flaggan (lås norr: det breda sydbandet; lås söder: nordbandet; :395–407).\n- Finns redan en flagga i samma riktning som är yngre än FIX_D_PENDING_MAX_AGE_MS (`<`, som i appen, :448–451) bekräftar fixen i stället reversalen: låset byts och flaggan nollas (:446–470).\n- En fix med sog ≥ FIX_D_MIN_SOG som inte är omvänd nollar flaggan (:473–476).\n\nPredikatet är nu falskt i två nya fall:\n- En färsk flagga finns före zonen. Skälet blir 'zonens första fix HH:MM:SS (… kn ≥ FIX_D_MIN_SOG 2 kn) bekräftar reversalen som flaggades HH:MM:SS, N s tidigare (inom 15 min); notisen går ut'.\n- Låset är redan det nya. Skälet blir 'Fix D bekräftade reversalen söderut redan … (flaggad …), före zonen: låset är söderut, så zonens första fix sätter ingen pending-flagga och S10-vakten avstår inte'.\n\nKontrollen av långsam zonfix från E1 står kvar och kommer först. Skälet säger nu när en färsk flagga från före zonen finns, eftersom 'S10-vakten avstår inte' var fel just där. Utfallet är som förut KANDIDAT, medvetet konservativt. DESIGN-skälet (ok) och alla befintliga nej-skäl är oförändrade.\n\nGranskarens förslag (bara sätt och nolla, utan lås) hade lämnat ett eget amnestihål. Med två omvända fixar före zonen bekräftar appen reversalen före zonen. Fixen i det gamla bandet flaggar sedan tillbaka, zonens första fix nollar den flaggan, och appen notifierar 10:06:16. Därför följer modellen också låset.\n\nRegeltexten och källan (:380–407 och :446–476) i beslutsregister.json är rättade. Regeltexten säger nu att zonens första fix sätter flaggan bara när låset är det gamla och ingen färsk flagga finns. §7 har fått rad 15, och rad 8 och 10 är annoterade.",
+     "files": [
+      "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/lib/registry.js",
+      "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/beslutsregister.json",
+      "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/__tests__/h-efterratt.test.js",
+      "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/docs/BUGGJAKT.md"
+     ],
+     "tests": "Ny fil __tests__/h-efterratt.test.js med sex S10-fall. Raderna är E:s fixturer för värld 581 och 1818, med granskarens interpolerade extrafixar. Varje utfall är prövat mot appen med min sond F/tmp/H/probes/s10h.js, som är granskarens s10x utvidgad med appens Fix D-loggrader (REPLAY_VERBOSE=1, REPLAY_DEBUG_LEVEL=full).\n\n1. [rättning] Granskarens fall: 10:03:51 på 2,2 kn med kurs 216° och 10:05:18 med kurs 30° på 1,9 respektive 1,0 kn ger KANDIDAT med skälet 'bekräftar reversalen som flaggades 10:03:51, 145 s tidigare'. Samma mönster i den nordvända världen 1818 (02:15:46 på 2,4 kn med kurs 25°, 02:16:20 på 1,9 kn) ger KANDIDAT. Appen notifierar i alla tre.\n2. [vakt] 10:05:18 på 2,2 kn ger DESIGN, och 1818 med 3,7 kn ger DESIGN; appen avstår i båda. F15:s tre världar är DESIGN med oförändrat skäl.\n3. [rättning] Reversal bekräftad före zonen (10:02:53 och 10:03:51 på 2,2 kn med kurs 216°, 10:05:18 på 2,2 kn med kurs 30°) ger KANDIDAT; appen notifierar 10:06:16. [vakt] Med ännu en fix 10:04:49 på kurs 30° bekräftas tillbaka norrut, och fallet ger DESIGN; appen avstår.\n4. [rättning] Flaggans ålder: 899 999 ms ger KANDIDAT och 900 000 ms ger DESIGN, med 10:01:26 på 1,0 kn. Appen notifierar respektive avstår.\n5. [regel] Långsam zonfix (1,0 kn) med färsk flagga före zonen ger KANDIDAT med det nya skälet. Appen avstår här, så det är ett medvetet konservativt KANDIDAT. Utan flagga är skälet oförändrat.\n6. [nytt] Enhetsfall för spelaFixD: fartgräns, omvänd mot låset, bekräftelse inom åldern, inaktuell flagga, glappbandet och låset söderut.\n\nBevis mot den gamla motorn: F/tmp/H/old/repo är C med F/pre2/bugHunt och F/pre2/docs/BUGGJAKT.md, och diff -rq mot F/pre2/bugHunt visar bara testfilen. Mot F/pre2 är fall 1, 3, 4, 5 och 6 röda; fall 2 är grönt. Felen är 'Expected KANDIDAT, Received DESIGN' och 'spelaFixD is not a function'. Mot läget före efterrättningen (F/tmp/H/preH/repo, alltså C när jag började) är utfallet detsamma. I C är alla gröna. Resultat: F/tmp/H/out/jest-h-mot-old.json, jest-h-mot-preH.json och jest-h-mot-C.json."
+    },
+    {
+     "id": "s0-ny-2 (BUGGJAKT.md motsäger E1, E3 och E4 utanför E:s avsnitt)",
+     "summary": "Jag förde in rättare E:s föreslagna texter på de fyra ställena. Två till hittade jag själv.\n\nDe fyra ställena:\n- §10, raden 'bankspåret (relation M-FAS)' i hunt:repro-tabellen: KVAR betyder nu ett utslag med kortets registerutfall (klass och post ur nyckeln i fynd.json). Övriga utslag listas som information, och utan nyckel och sparade fynd blir svaret KAN INTE DÖMAS (E4).\n- §16: den inaktuella meningen om 'mekanismnivå' är ersatt med 'Sedan runda 2 (E4) gäller samma princip för M-FAS-kort …'.\n- Bilaga B, INV-F, falsklarmsvakten: L är undantagets egen längd för sluttidsklasserna, annars 0, och DEFAULT-FLASH jämförs start mot start med |δ| + en tick (E3).\n- Bilaga B, T1: S10-raden har E1:s krav på FIX_D_MIN_SOG, ingen senare zonfix med minst den farten, och efterrättningens krav på lås och färsk flagga.\n\nUtöver det:\n- §16 nämner att STRESS-TÄTHET når INV-F-fynd (E7).\n- Bilaga B INV-F nämner att inget glapp i MÄTGRÄNS-INV10-VÄNTKEDJA får innehålla en halvminutstick (E2).\n- Själv hittat: bilaga B M-FAS beskrev fortfarande KIE-fönstret som '|δ| + episodens längd + en tick'. Det är rättat till E3:s definition.\n- Själv hittat: §7 Regler säger nu att S10-predikatet modellerar Fix D på raderna och vad modellen antar.",
+     "files": [
+      "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/docs/BUGGJAKT.md"
+     ],
+     "tests": "Det här är en dokumentationsrättning, så det finns inget jest-fall; prosa går inte att pröva meningsfullt. Jag kontrollerade med grep att de inaktuella formuleringarna är borta: 'svarar fortfarande på mekanismnivå', 'där L är episodens längd ur meddelandena', 'zonens enda fixar går bort', '| bas och variant körs om och jämförs |' och 'episodens längd + en tick' i bilaga B M-FAS ger 0 träffar. Kvar finns bara historiska rader, nämligen §7 rad 9 och följderna av efterrättning D, som E redan har annoterat."
+    },
+    {
+     "id": "s0-ny-3 (_om hänvisar till §7 rad 10–15)",
+     "summary": "I `_om` står nu 'Runda 2 samma dag (BUGGJAKT §7, rad 10–14)', som motsvarar E:s fem ändringar. Efter det följer en ny mening om efterrättningen: 'Efterrättningen i runda 2 (rad 15): S10-VÄNDNING-BRON-BAKOM spelar Fix D över fartygets fixar före zonen och godtar inte en färsk pending-flagga eller en reversal som redan bekräftats före zonen.' Rad 15 finns nu i §7, eftersom min S10-ändring är en registerändring. Därför stämmer alla hänvisningar.",
+     "files": [
+      "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/beslutsregister.json",
+      "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/__tests__/h-efterratt.test.js",
+      "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/docs/BUGGJAKT.md"
+     ],
+     "tests": "Nytt vaktfall i h-efterratt.test.js, '[rättning] varje \"rad N\" och \"rad A–B\" i _om finns i listan över registerändringar'. Det läser registrets `_om` och listan '### Registerändringar att granska' i docs/BUGGJAKT.md, fram till §8, och kräver att varje hänvisad rad finns. Det kräver också minst en hänvisning, så att fallet inte blir tomt.\n- Mot läget före efterrättningen (preH) är fallet rött: rad 15 saknas, 'Received [15]'.\n- Mot F/pre2 är fallet också rött, men bara på kravet om minst en hänvisning. Där hänvisade `_om` inte till några rader, och felet infördes först i runda 2.\n- I C är fallet grönt."
+    },
+    {
+     "id": "s0-körare-dok (§14 och bilaga A.3 visade runda 1:s tal)",
+     "summary": "Ny bilaga A.4, 'Kontrollkörning efter runda 2', med körarens mätningar från varv s0. Talen är kontrollerade mot F/runs/s0-*/rapport.json och s0-logs:\n- jest: 357 sviter och 4 823 test i hela repot; motorn 23 sviter och 250 test på 4,10–4,30 s ledig och 5,79–6,27 s under last;\n- självtest: 393a4609ced1;\n- standard: 19804855dcf4, 419 utslag (399 syntetiska) → 45 kluster: 22 kandidater (R0 6, bank 3, R1 7, stress 6), 4 KONFLIKT, 5 KÄND_ÖPPEN, 4 ACCEPTERAD, 7 DESIGN och 3 MÄTGRÄNS; 39 representanter på 790 prov;\n- quick: df2a702991a1, 88 utslag → 34 kluster och 17 kort;\n- skillnaden mot runda 1;\n- efterrättningen H.\n\n§14 har fått en hänvisning i inledningen och en lista 'Efter runda 2 (bilaga A.4)' under tabellen. Listan visar att alla kriterier håller: jest-marginalen, lint, självtest, tider, determinism, konvojbakkanten F02 (627–664 s), INV5 med 30 världar, bankkorten F09 och F07, 42h-flashen vid fem δ, 22 kort och git. Tabellens kolumn för runda 1 är orörd.",
+     "files": [
+      "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/docs/BUGGJAKT.md"
+     ],
+     "tests": "Det här är en dokumentationsrättning, så det finns inget jest-fall. Talen är hämtade ur körarens filer (determinism-quick.json, determinism-standard.json, acceptans-standard-a.json, jest-full.log, jest-motor-*.log och rapport.json) och jämförda med körarens sammanfattning."
+    }
+   ],
+   "declined": [
+    {
+     "id": "körare-3b/7b (jest- och väggtidernas mätkvalitet, VARNING)",
+     "reason": "Det här är inget motorfel. Tiderna förlängdes av främmande last, och CPU-arbetet var oförändrat. Kraven håller på låg last. Jag mätte på slutläget med 24 sviter och 257 test:\n- 4,20–4,81 s vid load 2 på 4 kärnor;\n- växelvis mot läget före efterrättningen 4,22–4,48 s mot 4,15–4,45 s;\n- 4,40–5,09 s vid load 5–10.\nMin nya svit tar 44–57 ms. Varningen och siffrorna står nu i §14 och A.4. Att snabba upp andras sviter, till exempel world.test.js på cirka 1,7 s, ligger utanför uppdraget."
+    },
+    {
+     "id": "körare-anmärkning F15 (två representanter i värld 451, ingen i värld 188)",
+     "reason": "Inget motorfel är belagt. chooseRepresentatives (lib/cluster.js) följer §8: helst R0, helst olika broar, minsta värld först. De två fynden i värld 451 gäller olika broar (Olidebron och Kanalinfarten) och väljs därför före värld 188. Köraren skriver själv att det följer §8 och var likadant i runda 1. Att låta olika världar gå före olika broar vore en designändring. Den skulle också ändra standardrapporten, så den hör till ägaren."
+    },
+    {
+     "id": "körare-anmärkning E7 (STRESS-TÄTHET på bankens 42h-DEFAULT-FLASH)",
+     "reason": "Det är väntat och redan dokumenterat i §7, under följderna av rättare E:s ändringar (rad 10–14). Ingen klass, inget kluster och ingen sektion ändras, och flashen är fortfarande ACCEPTERAD via KIE-PER-KORPUS."
+    },
+    {
+     "id": "körare-anmärkning steg 10 (hunt:repro på omnumrerade kort)",
+     "reason": "Det är bara information. Alla 38 körningar gav KVAR och gamla F21 gav BORTA, som väntat efter E6. Inget behöver rättas. Talen står i A.4."
+    }
+   ],
+   "registryChanges": [
+    {
+     "post": "S10-VÄNDNING-BRON-BAKOM",
+     "change": "Ny regeltext: zonens första fix har minst FIX_D_MIN_SOG och sätter Fix D:s pending-flagga, vilket den bara gör när låset fortfarande är det gamla bandet och ingen färsk flagga finns. Predikatet spelar Fix D över fartygets fixar före zonen (sätt, bekräfta och byt lås, nolla; långsammare fixar rör ingenting). Med en färsk flagga bekräftar zonens första fix reversalen, och efter en reversal som bekräftats före zonen är den inte omvänd. I båda fallen avstår S10-vakten inte. Källan har utökats från ':380–391 och :446–470' till ':380–407 och :446–476', alltså kursbanden mot låset och nollningen. Predikatets parametrar är oförändrade. Ändringen står i §7 som rad 15. Rad 10 är annoterad: 'bara en sådan fix sätter flaggan' gäller bara utan färsk flagga och med det gamla låset. Rad 8 är annoterad.",
+     "source": "lib/services/VesselDataService.js:380–407 (FIX_D_MIN_SOG, blockets yttre villkor :383–391, kursbanden och reversed :395–407) och :446–476 (pending, bekräftelse via _confirmDirectionReversal, nollning i else-grenen); replayRunner.js:512–521 (klockan stegas till radens aisTimestamp); granskarens s10x (F/tmp/granskare-s0/probes-out/s10x-2.txt och s10x-3.txt) och min sond F/tmp/H/probes/s10h.js med utfallen i F/tmp/H/out/s10h-alla.txt och s10h-1818.txt"
+    },
+    {
+     "post": "(registret, _om)",
+     "change": "'BUGGJAKT §7, rad 10–15' är ändrat till 'rad 10–14' för E:s sammanfattning. En ny mening om efterrättningen hänvisar till rad 15. Detta står i §7 rad 15 och i 'Följder' under efterrättning H.",
+     "source": "Granskarens varv s0, nytt problem 3; listan 'Registerändringar att granska' i docs/BUGGJAKT.md §7 (rad 1–15)"
+    }
+   ],
+   "docs": "C/docs/BUGGJAKT.md:\n- §7 Regler, punkten om appKonstant: S10-predikatet modellerar Fix D på raderna (spelaFixD) och antar att blockets övriga villkor håller.\n- §7 posttabellen, S10-raden: predikatet och källan (:380–407, :446–476).\n- §7 listan över registerändringar: rad 8 och 10 är annoterade, och rad 15 är ny med ändring, skäl och belägg mot appen.\n- §7 Följder: ny punkt 'Runda 2, efterrättning H (rad 15)' med A/B-resultatet. Ingenting ändras; fingeravtrycket är 16a56465413b i båda.\n- §10 hunt:repro-tabellen: M-FAS-raden enligt E4.\n- §14: hänvisning till A.4 och listan 'Efter runda 2 (bilaga A.4)'.\n- §16: M-FAS-repro enligt E4, och att STRESS-TÄTHET når INV-F (E7).\n- Ny bilaga A.4 'Kontrollkörning efter runda 2'.\n- Bilaga B: INV-F (L-definitionen enligt E3 och halvminutsticken enligt E2), T1 (S10 enligt E1 och efterrättningen) och M-FAS (KIE-fönstret enligt E3).\n\nKodkommentarer och testtexter är på svenska. Inga sökvägar till tempkataloger står i repots filer.",
+   "checks": "Slutläget i C, efter alla ändringar:\n- **Motorns jest:** 24 sviter och 257 test, alla gröna. Inga öppna handtag under --detectOpenHandles och ingen häng. Uppmätt 4,20–4,81 s vid load 2, 4,40 s vid load 5,4 och 4,47–5,09 s vid load 9,8 (F/runs/H-slut/jest-motor-1..4.txt, F/tmp/H/out/jest/).\n- **Lint:** `npx eslint --max-warnings=0 tests/replay-validation/bugHunt/` ger exit 0 (F/runs/H-slut/lint.txt).\n- **Självtest:** körd till F/runs/H0-selftest på slutläget, exit 0 på 57 s under last (logg F/runs/H0-selftest.log).\n  - GRÖNT: determinism 24/24, SHIFT30 24/24, MMSI 24/24, kanarier 5/5, rundresa 45/45.\n  - S-KALIBRERING: T1 13 och T10 3, alla registrerade.\n  - Inga registervarningar.\n  - Fingeravtrycket är 393a4609ced1. rapport.json är identisk med körarens F/runs/s0-selftest utom tidsblocket.\n- **Skyddskoll:** `bash F/input/skyddskoll.sh` ger OK (F/runs/H-slut/skyddskoll.txt).\n- **Ändrade filer i C:** bara lib/registry.js, beslutsregister.json, __tests__/h-efterratt.test.js (ny) och docs/BUGGJAKT.md. Det är kontrollerat med sha256 mot läget vid start; ingen annan har ändrat i C under tiden.\n- **quick på slutmotorn (F/runs/H0-quick):** exit 0 på 3 min 44 s under last. Fingeravtrycket är df2a702991a1, och rapport.json är identisk med körarens s0-quick-a utom tidsblocket.",
+   "effects": "**A/B av bara min ändring.** Jag körde standardens 2 000 världar och bankens 168 fasvarianter (seed 1, `--lanes=bank,synth --no-shrink`). Jämförelsen var F/tmp/H/preH/repo (C när jag började) mot F/tmp/H/mine/repo (samma kopia med bara min registry.js). Körningarna ligger i F/runs/H-ab-preH och F/runs/H-ab-mine, och jämförelsen i F/tmp/H/out/ab-preH-mot-mine.txt.\n- Ingenting ändras: 419 fynd i båda, inga byten av registerutfall eller taggar, och 45 kluster med samma nycklar och antal.\n- Registrets användning är densamma; S10-VÄNDNING-BRON-BAKOM används 3 gånger i båda.\n- Fingeravtrycket är 16a56465413b i båda. rapport.json och rapport.md är lika utom tidsblocket och utkatalogens sökväg, och fynd/ (300 filer) skiljer bara i kommando.txt.\n\n**Varför standarden inte påverkas.** I standarden prövas S10-predikatet bara i F15:s tre världar. Alla andra T1 NOTIS-UTEBLIVEN-fynd fångas av poster före S10 (BESÖKSREGEL, D3, KANALINFARTEN och BN1). I de tre världarnas spår är alla fixar före zonen i det gamla bandet eller i glappet. Inget kort har mekanismen T1 NOTIS-UTEBLIVEN, så krympningen berörs inte. Quick och självtestet ger körarens fingeravtryck (df2a702991a1 och 393a4609ced1), så en ny standardkörning bör ge 19804855dcf4 igen. Den har jag inte kört.\n\n**Sonden mot appen** (F/tmp/H/out/s10h-alla.txt och s10h-1818.txt): 12 scenarier i värld 581 och 3 i värld 1818.\n- Där appen notifierar (6 scenarier) ger den nya motorn KANDIDAT i 6 av 6. Både preH och F/pre2 gav DESIGN i alla 6, alltså amnesti.\n- Där appen avstår (9 scenarier) ger den nya motorn DESIGN i 7. De två övriga ger ett konservativt KANDIDAT: en zonfix på 1,0 kn med flagga före zonen, och en fix före besöket som redan låg i det nya bandet.\n- Ingen amnesti återstår i sonden.\n\n**Bör ägaren veta:**\n- S10-predikatet bygger nu på en modell av Fix D:s tillståndsmaskin. Modellen antar att blockets övriga villkor håller vid varje fix med minst 2 kn: målbro, inte nytt fartyg och shouldRecalc. En nollning som appen inte gjorde kan i teorin dölja en flagga. Det kräver att blocket inte körs på en fix i det gamla bandet, till exempel utan målbro, men körs på zonens första fix. Det har inte setts i sonderna.\n- Granskarens förslag utan låsföljning hade gett DESIGN i fallet med reversalen bekräftad före zonen, där appen notifierar. Därför följer modellen också låset.",
+   "notes": "- **Medvetet konservativt.** En zonfix under 2 kn med en färsk flagga från före zonen ger KANDIDAT, fast appens vakt avstår där (sonden s10h-s10.txt: FLOW_TRIGGER_SKIP_PENDING_REVERSAL). Skälet säger nu just det. F/pre2 gav DESIGN där, eftersom det saknade E1:s fartkrav, och E:s version gav det felaktiga skälet 'S10-vakten avstår inte'.\n- **Inte i modellen, som förut.**\n  - Omstarter. Ingen av motorns lanes har ctrl:restart: banken har 0 kontrollrader enligt A.1, och de syntetiska världarna har bara disconnect och reconnect.\n  - Fixar utanför radien mellan zonfixarna prövas inte för bekräftelse. Inget belägg finns för att det förekommer.\n- **Jest-beviset.** Kopian F/tmp/H/old/repo är C med F/pre2/bugHunt och F/pre2/docs/BUGGJAKT.md; diff -rq mot F/pre2/bugHunt visar bara testfilen. F/tmp/H/preH/repo är C som den var när jag började.\n- **Sonden.** F/tmp/H/probes/s10h.js är granskarens s10x utvidgad: flera motorer, appens Fix D-loggrader, ändring av fart på befintliga rader ('=HH:MM:SS:sog'), extrafixar på exakt tid ('@ms:sog:cog') och parametrar för värld, båt, bro och tider (S10H_*).\n- **Ägarskap.** Ingen ägarlista fanns i uppgiften. Jag ändrade bara de fyra filerna ovan. E:s, F:s och G:s filer är orörda; de finns bara som kopior i mina tempkataloger.\n- **Arbetskataloger** (F = /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-fix):\n  - F/tmp/H: old/, preH/, mine/, probes/, out/, runs/, tmpdir*, C-start.sha256 och C-nu.sha256.\n  - F/runs: H-ab-preH, H-ab-mine, H0-selftest, H0-quick och H-slut, med sina loggar.\n  - Ingenting raderades utanför F/tmp. Jag tog bara bort min egen kopia av testfilen i F/tmp/H/preH.\n- **Last.** Maskinen hade hög främmande last (load 7–18) under det mesta av arbetet, från kampanj/E, K, N och R2. A/B tog därför 19 min per körning."
+  }
+ ],
+ "run": {
+  "ok": true,
+  "checks": [
+   {
+    "name": "Steg 1: skyddskoll",
+    "result": "PASS",
+    "detail": "`bash /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-fix/input/skyddskoll.sh` skrev OK kl. 17:36:55, före första körningen, och kl. 18:21:54, efter den sista. Huvudträdet är rent på HEAD 7699cbe. Utskrifterna ligger i /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-fix/runs/s1-logs/skyddskoll-start.txt och skyddskoll-slut.txt."
+   },
+   {
+    "name": "Steg 2: hela svitens jest i C",
+    "result": "PASS",
+    "detail": "Kommando från C: `TMPDIR=F/tmp/korare-s1 npx jest --config tests/jest.config.js --detectOpenHandles --cacheDirectory=S/hunt-build/C/jest-cache`. Resultat: 358 av 358 sviter gröna; 4 830 test, varav 4 828 gröna, 2 överhoppade och 0 röda. Jest-tid 109,6 s, vägg 1 min 50 s, exit 0, inga varningar om öppna handtag. Lasten: load1 9,2 i snitt, främmande CPU 2,4 kärnor av 4. Mot varv s0 (357 sviter, 4 823 test) tillkommer H:s h-efterratt.test.js med 7 test. Logg: /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-fix/runs/s1-logs/jest-full.log."
+   },
+   {
+    "name": "Steg 3: motorns jest-sviter separat (krav: under 5 s)",
+    "result": "VARNING",
+    "detail": "I alla tio körningar var 24 sviter och 257 test gröna, med exit 0 och inga öppna handtag (--detectOpenHandles; JSON-körningen gav openHandles 0).\n- Jest-tiderna i ordning: 6,12, 5,07, 4,46, 4,69 (JSON), 6,16, 5,67, 6,72, 5,10, 4,52 och 4,59 s. Under 5 s i 4 av 10.\n- Alla körningar gick under främmande last: 2,3–3,4 kärnor av 4, load1 4,6–7,3.\n- CPU-arbetet var konstant: user 5,36–5,82 s.\n- Jag väntade 5 minuter på att den främmande lasten skulle gå under 1,5 kärnor, men den gjorde det inte.\n- Tyngst är world.test.js (1,6 s), d-efterratt (0,45 s) och a-radio (0,28 s); h-efterratt tar 44 ms.\n\nSamma bild som i varv s0 (4,10–4,30 s ledig, 5,79–6,27 s under last) och hos H (4,20–4,81 s vid load 2). Det är inget motorfel. Loggar: /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-fix/runs/s1-logs/jest-motor-1..9.log och jest-motor.json."
+   },
+   {
+    "name": "Steg 4a: lint över hela kopian",
+    "result": "PASS",
+    "detail": "`npx eslint --ext .js,.ts --ignore-path .gitignore .` i C, samma som npm run lint: 471 filer, 0 fel, 0 varningar, exit 0 på 15,4 s. Logg: /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-fix/runs/s1-logs/lint-full.log; JSON i /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-fix/tmp/korare-s1/lint-full.json."
+   },
+   {
+    "name": "Steg 4b: lint --max-warnings=0 på bugHunt/",
+    "result": "PASS",
+    "detail": "`npx eslint --max-warnings=0 tests/replay-validation/bugHunt/`: exit 0 på 4,0 s. bugHunt/ har 68 filer utan anmärkning. Logg: /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-fix/runs/s1-logs/lint-bughunt.log."
+   },
+   {
+    "name": "Steg 5: självtest (F/runs/s1-selftest)",
+    "result": "PASS",
+    "detail": "Exit 0 på 54,7 s, vid load1 10,5. GRÖNT: determinism 24/24, SHIFT30 24/24, MMSI 24/24, kanarier 5/5, rundresa 45/45.\n- Låst bank: 3 fatala utslag, alla täckta; 0 nya träffar och 0 oanvända undantag.\n- S-KALIBRERING: T1 732 bedömda besök av 1 098, 13 utslag, alla registrerade. T10 3 utslag, registrerade. 0 oregistrerade.\n- 0 registervarningar och 0 motorfel.\n- Fingeravtrycket är 393a4609ced1. rapport.json är lika med s0-selftest och H0-selftest utom tidsblocket; rapport.md skiljer bara i väggtiden.\n\nKatalog: /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-fix/runs/s1-selftest."
+   },
+   {
+    "name": "Steg 6: quick två gånger, fingeravtrycken",
+    "result": "PASS",
+    "detail": "s1-quick-a tog 2 min 8 s och s1-quick-b 1 min 42 s, båda exit 0.\n- Fingeravtrycket är df2a702991a1 i båda.\n- rapport.json är lika utom tidsblocket, även utan sökvägsnormalisering. rapport.md är lika rad för rad, och fynd/ har 155 lika filer.\n- Både fingeravtryck och innehåll är desamma som i s0-quick-a.\n- Innehåll: 300 världar (R0 97, R1 203; stress 6) och 88 utslag som ger 34 kluster och 17 kort. 48 fasvarianter, 44 rena. 7 av 7 representanter på 104 prov.\n\nJämförelse: /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-fix/runs/s1-logs/determinism-quick.json."
+   },
+   {
+    "name": "Steg 7: standard två gånger med seed 1, fingeravtryck och väggtid",
+    "result": "PASS",
+    "detail": "s1-standard-a: exit 0, vägg 11 min 7 s (user 19 min 47 s). Faserna tog 25,9, 67,9, 424,7 och 148,2 s.\ns1-standard-b: exit 0, vägg 12 min 41 s (user 19 min 59 s). Faserna tog 41,1, 72,0, 476,3 och 171,6 s.\n\nBåda gick under tung främmande last: load1 i snitt 13,3 och 14,1 (max 18,6), främmande CPU 2,0 och 2,2 kärnor av 4. CPU-arbetet är detsamma som i r1 (user 19 min 25 s, vägg 5 min 47 s), så väggtiderna är övre gränser.\n\nFingeravtrycket är 19804855dcf4 i båda. rapport.json är lika utom tidsblocket, rapport.md skiljer bara i väggtiden (11 mot 13 min), och fynd/ har 353 lika filer. Rapporten är också lika, utom tidsblocket, med s0-standard-a och G-standard. Efterrättningen H ändrade alltså inte standarden, som H förutsade. 0 registervarningar, 0 motorfel, inte avkortad.\n\nJämförelse: /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-fix/runs/s1-logs/determinism-standard.json."
+   },
+   {
+    "name": "Steg 8: jämförelse med r1-standard-a (3284652ba6a7, 23 kort)",
+    "result": "PASS",
+    "detail": "Det väntade utfallet håller:\n- F21 försvann (E6), och inga nya klusternycklar har tillkommit.\n- De 22 övriga korten finns kvar med samma representanter, antal och gräns. F22 och F23 har numrerats om till F21 och F22.\n- Länkarna F12↔F16 och F18↔F19 (samma minsta repro) och sex stresstvillingpar har uppstått (E8).\n- Inget äkta kort försvann.\n\nRäkningar: kluster 46 → 45, råa utslag 420 → 419 (syntetiska 400 → 399), fynd/-kataloger 25 → 24.\n\nKortkatalogerna är bitlika efter normalisering, utom fynd.json och r2/fynd.json i två fall: F13 (fältet fixBortom.mottagen, E6) och F18/F19 (taggen STRESS-TÄTHET, E7).\n\nIakttagelse, oförändrad sedan runda 1: F15:s båda representanter är värld 451 med samma radhash 833648217e66. H har redan avböjt att ändra det, med hänvisning till §8.\n\nUnderlag i /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-fix/runs/s1-logs/: jamfor-standard-a-mot-r1.json, klusterdiff-standard-a-mot-r1.json, fyndjamfor-standard-a-mot-r1.json, rapport-md-diff-r1-mot-s1.txt, kontrollerE-standard-a.json och persisted-s1-städad.json. De fyra jämförelsefilerna är bytelika med varv s0:s."
+   },
+   {
+    "name": "Steg 9: acceptanskriterierna i BUGGJAKT §14",
+    "result": "PASS",
+    "detail": "Alla elva kriterier håller mot s1-standard-a. Jest-tiden under last är en VARNING (se steg 3). Detaljerna står under acceptance; underlaget i /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-fix/runs/s1-logs/acceptans-standard-a.json."
+   },
+   {
+    "name": "Steg 10: hunt:repro på nya kort",
+    "result": "PASS",
+    "detail": "Inga nya klusternycklar finns, så inget kort är nytt i parningen. Jag körde därför hunt:repro på de omnumrerade korten och, för fullständighetens skull, på alla 22 kort och 16 r2-kataloger: 38 körningar på 28 s, alla med exit 0 och KVAR.\n- Raderna var bitlika mot den sparade radhashen i alla 35 syntetiska körningar.\n- Bankkorten F07–F09 svarar enligt E4: 'KVAR (1 utslag av mekanismen med registerutfallet KANDIDAT; 0 med annat registerutfall; 1 utslag i varianten)'.\n- Nya F21 (förut F22): värld 47, R0, monitoring, 183 rader. KVAR: T2 LEDTID<60s, varningen Stridsbergsbron#3 16:58:38 kom bara 54 s före den sanna korsningen 16:59:32.\n- Nya F22 (förut F23): värld 1907, R1, monitoring, 74 rader. KVAR med 2 utslag: VARNING-PÅ-FRUSET-FIX och VARNING-EFTER-SANN-PASSAGE.\n- Direktuppspelning av båda med replayRunner: lika med sparad repro.result.json, 0 avvikelser.\n- Kontroll: gamla F21 ur r1-standard-a ger BORTA (0 utslag i världen), exit 0.\n\nUtfallsraderna och alla 38 loggar är identiska med varv s0:s. Utdata: /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-fix/runs/s1-logs/repro-alla/ (sammanstallning.txt), repro-gammalt-F21.log och direktreplay-omnumrerade.txt."
+   },
+   {
+    "name": "Motorn orörd under varvet",
+    "result": "PASS",
+    "detail": "sha256 över 77 filer i bugHunt/ och docs/BUGGJAKT.md var lika kl. 17:36 och 18:15 (/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-fix/tmp/korare-s1/motor-sha-start.txt och motor-sha-slut.txt).\n\nMot H:s ögonblicksbild F/tmp/H/C-nu.sha256, tagen 17:28:29, skiljer bara h-efterratt.test.js. H ändrade den filen 17:30:50, före sin sista jest och lint. Mina körningar prövade alltså slutläget."
+   },
+   {
+    "name": "Skrivgränser, städning och last",
+    "result": "PASS",
+    "detail": "Allt jag skrev ligger i F/runs/s1-logs, s1-selftest, s1-quick-a, s1-quick-b, s1-standard-a och s1-standard-b, samt i F/tmp/korare-s1/. hunt lämnade inga ais-tracker-hunt-*-kataloger i TMPDIR. Allt kördes seriellt. Lastloggen, som läste /proc var 10:e sekund, är stoppad; sammandraget per körning finns i /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-fix/runs/s1-logs/lastsammandrag.txt."
+   }
+  ],
+  "standardDir": "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-fix/runs/s1-standard-a",
+  "fingerprint": "19804855dcf4",
+  "summaryLine": "Sanningsspåret: 2000 världar (R0 635, R1 1365; stress 23) på 5978,2 simulerade timmar; 399 råa utslag → 19 kandidatkluster (logikfel R0 6, robusthet R1 7, stress 6) och 16 kluster med registerpost; 39 av 39 representanter krympta och bekräftade, 1 stressfynd med R1-radio reproducerar med R0 (stannar under Stress).",
+  "vanished": [
+   {
+    "oldId": "F21",
+    "mechanism": "KANDIDAT|-|T1|FÖRVARNINGSFORM-EFTER-PASSAGE|synt|stress",
+    "note": "Försvann genom E6 (rättare F). Kortet gällde värld 856 (F-MÖTE, R1, stress) och 265606311 XENIA vid Järnvägsbron söderut. Notisen 12:03:17 var i förvarningsform; den sanna korsningen var 12:02:34. Kortets 'fix 76 m bortom linjen (12:03:17)' var den tidslika raden, som appen ännu inte hade fått.\n\nKortet hade 1 utslag, ingen gräns och representanten värld 856, krympt 41b807562f03 (34 rader).\n\nI den nya rapporten:\n- Klusternyckeln finns inte, och mekanismen har inga utslag i värld 856.\n- T1 R1 i täckningen går från 9 till 8 världar med utslag.\n- Räknaren tidslikUtesluten är R1 {ejInmatad 1, oklar 0}.\n- Värld 856 finns kvar i F17 (T2 ÖPPNING-MISS:OKLASSAD stress) och i KÄND_ÖPPEN U2-VS-DEADLINE stress.\n- Basnyckeln utan |stress står kvar som F13, med 3 världar (86, 783 och 1731), alla med mottagen 'notisens egen fix (tidslik)'.\n\nhunt:repro på r1-standard-a/fynd/F21-notis-i-forvarningsform-efter-sann-passage-vid-jarnvagsbron-soderut ger BORTA (0 utslag i världen), exit 0, med 34 rader bitlika mot den sparade radhashen. Inget annat kort försvann."
+   }
+  ],
+  "persisted": [
+   {
+    "oldId": "F01",
+    "newId": "F01",
+    "mechanism": "KANDIDAT|-|T2|ÖPPNING-MISS:OKLASSAD|synt",
+    "change": "Inget ändrat utom den nya länkraden.\n- Antal oförändrat: 55 utslag, 53 oberoende, 53 världar.\n- Representanter oförändrade: r1 värld 1900/R0/F-AVBROTT krympt a460645fbb28; r2 värld 1349/R0/F-KRYP krympt 73d88f39861a.\n- Gräns oförändrad: avbrottS ∈ 543–819 s, borta vid 432 och 875 s; queueGraceMs (Kajen) = 900 s.\n- Ny länkrad: samma utslag som F03 i 14 världar (63, 110, 119, 122 +10), som F10 i 3 (353, 1731, 188) och som F13 i 1 (1731 = F13:s r2); stresstvilling till F17.\n- hunt:repro: F01 KVAR (1), F01/r2 KVAR (2), exit 0."
+   },
+   {
+    "oldId": "F02",
+    "newId": "F02",
+    "mechanism": "KANDIDAT|-|T2|LEDTID<Ns|synt",
+    "change": "Inget ändrat utom den nya länkraden.\n- Antal oförändrat: 37 utslag, 37 oberoende, 37 världar.\n- Representanter oförändrade: r1 värld 452/R0/F-KONVOJ krympt 9c226ce0678b; r2 värld 1274/R1/F-USVÄNG krympt fd0807c8c09e.\n- Gräns oförändrad: B − A vid Stridsbergsbron ∈ 627–664 s, borta vid 609 och 682 s; CONVOY_WINDOW_MS = 600 s.\n- Ny länkrad: stresstvilling till F21 (förut F22).\n- hunt:repro: F02 KVAR (1), F02/r2 KVAR (1), exit 0."
+   },
+   {
+    "oldId": "F03",
+    "newId": "F03",
+    "mechanism": "KANDIDAT|-|T3|VARNING-EFTER-SANN-PASSAGE|synt",
+    "change": "Inget ändrat utom den nya länkraden.\n- Antal oförändrat: 72 utslag, 71 oberoende, 71 världar.\n- Representanter oförändrade: r1 värld 131/R0/F-KONVOJ krympt f5a4427a5fe4 (monitoring); r2 värld 596/R1/F-AVBROTT krympt 26403a682dcc.\n- Gräns oförändrad: B − A vid Stridsbergsbron ∈ 587–605 s, borta vid 569 och 624 s; CONVOY_WINDOW_MS = 600 s.\n- Ny länkrad: samma utslag som F01 i 14 världar och som F11 i 1 (582 = F11:s r2); stresstvilling till F20.\n- hunt:repro: F03 KVAR (1), F03/r2 KVAR (3), exit 0."
+   },
+   {
+    "oldId": "F04",
+    "newId": "F04",
+    "mechanism": "KANDIDAT|-|INV-F|INV-3 ETA-SÅGTAND UPP|synt",
+    "change": "Inget ändrat utom den nya länkraden.\n- Antal oförändrat: 31 utslag, 31 oberoende, 31 världar.\n- Representanter oförändrade: r1 värld 884/R0/F-MÖTE krympt f4ef1e117e06; r2 värld 117/R0/F-KÖ krympt ddc21aaa5388.\n- Gräns: ingen på kortet, som förut. r2:s gräns är oförändrad: köavstånd 115–206 m, borta vid 97 och 242 m.\n- Ny länkrad: stresstvilling till F19.\n- hunt:repro: F04 KVAR (1), F04/r2 KVAR (1), exit 0."
+   },
+   {
+    "oldId": "F05",
+    "newId": "F05",
+    "mechanism": "KANDIDAT|-|INV-F|INV-14 DEFAULT-FLASH|synt",
+    "change": "Inget ändrat; kortet har ingen länk.\n- Antal oförändrat: 17 utslag, 17 oberoende, 17 världar.\n- Representanter oförändrade: r1 värld 933/R0/F-KRYP krympt c74751a9bf5c; r2 värld 1526/R1/F-KÖ krympt 43c9fe050e6c.\n- Gräns oförändrad: krypfart ∈ 0,26–0,59 kn, borta vid 0,23 och 0,68 kn.\n- hunt:repro: F05 KVAR (1), F05/r2 KVAR (1), exit 0."
+   },
+   {
+    "oldId": "F06",
+    "newId": "F06",
+    "mechanism": "KANDIDAT|-|INV-F|INV-3 ETA-OSCILLATION|synt",
+    "change": "Inget ändrat utom den nya länkraden.\n- Antal oförändrat: 16 utslag, 16 oberoende, 16 världar.\n- Representanter oförändrade: r1 värld 192/R0/F-KRYP krympt 212f694b6107; r2 värld 1963/R0/F-KÖ krympt 52c56389999f (monitoring).\n- Gräns oförändrad: krypfart ∈ 0,3–1,1 kn, borta vid 0,2 och 1,28 kn; QUAY_DEPARTURE_GATE.TRANSIT_SOG_KN = 1 kn.\n- Ny länkrad: stresstvilling till F18.\n- hunt:repro: F06 KVAR (1), F06/r2 KVAR (1), exit 0."
+   },
+   {
+    "oldId": "F07",
+    "newId": "F07",
+    "mechanism": "KANDIDAT|-|INV-F|INV-3 ETA-SÅGTAND UPP",
+    "change": "Inget ändrat; kortet har ingen länk.\n- Bankkort: 20260708-21h, Klaffbron, δ −11,52 s, KNIVSEGG.\n- Antal oförändrat: 1 utslag. Inga krympta representanter (bankfynd krymps inte i v1) och ingen gräns.\n- Katalogen (bas, variant, recept; 6 filer) är bitlik.\n- hunt:repro: KVAR (1 utslag av mekanismen med registerutfallet KANDIDAT; 0 med annat; 1 utslag i varianten), exit 0."
+   },
+   {
+    "oldId": "F08",
+    "newId": "F08",
+    "mechanism": "KANDIDAT|-|M-FAS|PASSAGENYCKEL TAPPAD",
+    "change": "Inget ändrat; kortet har ingen länk.\n- Bankkort: 20260917-16h, Järnvägsbron, δ −7 och −2,5 s, KNIVSEGG.\n- Antal oförändrat: 1 utslag. Inga krympta representanter och ingen gräns.\n- Katalogen (8 filer med state) är bitlik.\n- hunt:repro: KVAR (1 utslag med registerutfallet KANDIDAT; 1 i varianten), exit 0."
+   },
+   {
+    "oldId": "F09",
+    "newId": "F09",
+    "mechanism": "KANDIDAT|-|M-FAS|ÖPPNINGSNYCKEL TILLAGD",
+    "change": "Inget ändrat; kortet har ingen länk.\n- Bankkort: 20260710-13h, Klaffbron norrut, δ −11,52 och +15 s, KNIVSEGG.\n- Antal oförändrat: 1 utslag. Inga krympta representanter och ingen gräns.\n- Katalogen (6 filer) är bitlik.\n- hunt:repro: KVAR (1 utslag med registerutfallet KANDIDAT; 1 i varianten), exit 0."
+   },
+   {
+    "oldId": "F10",
+    "newId": "F10",
+    "mechanism": "KANDIDAT|-|T10|PASSAGE-EJ-REGISTRERAD|synt",
+    "change": "Inget ändrat utom den nya länkraden.\n- Antal oförändrat: 11 utslag, 11 oberoende, 11 världar.\n- Representanter oförändrade: r1 värld 353/R1/F-USVÄNG krympt a90e19fe75eb; r2 värld 1731/R1/F-KRYP krympt 6c6a22119cca (monitoring).\n- Gräns oförändrad: U-svängens avstånd från Järnvägsbron ∈ 198–234 m, borta vid 179 och 253 m; WAITING_SET_DISTANCE = 270 m.\n- Ny länkrad: samma utslag som F01 i 3 världar (353, 1731, 188); samma minsta repro som F13 (r2 = F13:s r2, värld 1731).\n- hunt:repro: F10 KVAR (1), F10/r2 KVAR (4), exit 0."
+   },
+   {
+    "oldId": "F11",
+    "newId": "F11",
+    "mechanism": "KANDIDAT|-|T3|VARNING-PÅ-FRUSET-FIX|synt",
+    "change": "Inget ändrat utom den nya länkraden.\n- Antal oförändrat: 10 utslag, 10 oberoende, 10 världar.\n- Representanter oförändrade: r1 värld 1428/R1/F-USVÄNG krympt 30f4f90c469f; r2 värld 582/R1/F-MÖTE krympt dfdbc8b2569f.\n- Gräns oförändrad: 265155721 − 265155685 vid Stridsbergsbron ∈ −86–289 s, borta vid −273 och 383 s; STALE_ETA_SOFT_THRESHOLD_MS = 300 s.\n- Ny länkrad: samma utslag som F03 i 1 värld (582 = r2 här); stresstvilling till F22 (förut F23).\n- hunt:repro: F11 KVAR (1), F11/r2 KVAR (2), exit 0."
+   },
+   {
+    "oldId": "F12",
+    "newId": "F12",
+    "mechanism": "KANDIDAT|-|INV-F|INV-13 MÅLBRO SOM MELLANBRO|synt",
+    "change": "Inget ändrat utom den nya länkraden.\n- Antal oförändrat: 3 utslag, 3 oberoende, 3 världar.\n- Representanter oförändrade: r1 värld 254/R1/F-KÖ krympt 877af0fbffc6; r2 värld 1227/R1/F-SENFÖDD krympt da8c39082d2b (monitoring).\n- Gräns oförändrad: köavstånd före bron ∈ 77–185 m, borta vid 59 och 204 m; UNDER_BRIDGE_CLEAR_DISTANCE = 70 m.\n- Ny länkrad: samma minsta repro som F16 (r1 = F16:s r1, värld 254).\n- hunt:repro: F12 KVAR (2), F12/r2 KVAR (1), exit 0."
+   },
+   {
+    "oldId": "F13",
+    "newId": "F13",
+    "mechanism": "KANDIDAT|-|T1|FÖRVARNINGSFORM-EFTER-PASSAGE|synt",
+    "change": "I rapport.md har bara länkraden tillkommit.\n- Antal oförändrat: 3 utslag, 3 oberoende, 3 världar (86, 783 och 1731).\n- Representanter oförändrade: r1 värld 86/R1/F-KRYP krympt d61470b1a0b5; r2 värld 1731/R1/F-KRYP krympt 6c6a22119cca (monitoring).\n- Gräns: ingen på kortet, som förut. r2:s gräns är oförändrad: köavstånd 60–96 m; UNDER_BRIDGE_SET_DISTANCE = 50 m.\n- Ny länkrad: samma utslag som F01 i 1 värld (1731 = r2 här); samma minsta repro som F10 (r2 = F10:s r2, värld 1731).\n- E6 i rapport.json och fynd.json: alla tre fynden har fått belägg.fixBortom.mottagen = 'notisens egen fix (tidslik)'.\n- Klustret är basnyckeln till försvunna F21.\n- hunt:repro: F13 KVAR (1), F13/r2 KVAR (4), exit 0."
+   },
+   {
+    "oldId": "F14",
+    "newId": "F14",
+    "mechanism": "KANDIDAT|-|T3|FANTOM-UTAN-AVBROTT|synt",
+    "change": "Inget ändrat; kortet har ingen länk.\n- Antal oförändrat: 2 utslag, 2 oberoende, 2 världar.\n- Representanter oförändrade: r1 värld 227/R1/F-AVBROTT krympt de7cb01690b8 (monitoring); r2 värld 1590/R1/F-KONVOJ krympt f32585996599.\n- Gräns oförändrad: U-svängens avstånd från Klaffbron (265533681) ∈ 147–586 m, borta vid 30 m.\n- hunt:repro: F14 KVAR (2), F14/r2 KVAR (2), exit 0."
+   },
+   {
+    "oldId": "F15",
+    "newId": "F15",
+    "mechanism": "KANDIDAT|-|T9|FEL-RIKTNING|synt",
+    "change": "Inget ändrat; kortet har ingen länk.\n- Antal oförändrat: 3 utslag, 2 oberoende, 2 världar.\n- Representanter oförändrade: r1 och r2 är båda värld 451/R1/F-USVÄNG krympt 833648217e66 (monitoring). Så var det också i runda 1, och H har avböjt att ändra det (§8).\n- Gräns oförändrad: U-svängens avstånd från Stridsbergsbron ∈ 467–760 m, borta vid 321 och 906 m; besöksutfärd 350 m.\n- hunt:repro: F15 KVAR (2), F15/r2 KVAR (2), exit 0."
+   },
+   {
+    "oldId": "F16",
+    "newId": "F16",
+    "mechanism": "KANDIDAT|-|T10|FANTOMPASSAGE(intermediate)|synt",
+    "change": "Inget ändrat utom den nya länkraden.\n- Antal oförändrat: 1 utslag, 1 värld.\n- Representant oförändrad: r1 värld 254/R1/F-KÖ krympt 877af0fbffc6.\n- Gräns oförändrad: köavstånd före bron ∈ 77–185 m, borta vid 59 och 204 m; UNDER_BRIDGE_CLEAR_DISTANCE = 70 m.\n- Ny länkrad: samma minsta repro som F12 (r1 = F12:s r1, värld 254).\n- hunt:repro: F16 KVAR (2 utslag i världen), exit 0."
+   },
+   {
+    "oldId": "F17",
+    "newId": "F17",
+    "mechanism": "KANDIDAT|-|T2|ÖPPNING-MISS:OKLASSAD|synt|stress",
+    "change": "Inget ändrat utom den nya länkraden.\n- Antal oförändrat: 5 utslag, 5 oberoende, 5 världar.\n- Representanter oförändrade: r1 värld 104/R0/F-KONVOJ krympt eba32240ed3d; r2 värld 1794/R1/F-AVBROTT krympt 819f9b58d99f.\n- Gräns oförändrad: B − A vid Stridsbergsbron ∈ 605–623 s, borta vid 587 och 642 s; CONVOY_WINDOW_MS = 600 s.\n- Ny länkrad: stresstvilling till F01.\n- hunt:repro: F17 KVAR (2), F17/r2 KVAR (2), exit 0."
+   },
+   {
+    "oldId": "F18",
+    "newId": "F18",
+    "mechanism": "KANDIDAT|-|INV-F|INV-3 ETA-OSCILLATION|synt|stress",
+    "change": "I rapport.md har bara länkraden tillkommit.\n- Antal oförändrat: 2 utslag, 2 oberoende, 2 världar.\n- Representanter oförändrade: r1 värld 1608/R1/F-KONVOJ krympt 9dfe35647d54; r2 värld 1907/R1/F-KONVOJ krympt d273b7117ba5 (monitoring).\n- Gräns: ingen, som förut.\n- Ny länkrad: stresstvilling till F06; samma minsta repro som F19 (r1 = F19:s r1, värld 1608); samma utslag som F19 i 2 världar (1608 och 1907).\n- E7 i rapport.json och fynd.json: båda fynden har fått taggen STRESS-TÄTHET.\n- hunt:repro: F18 KVAR (2), F18/r2 KVAR (2), exit 0."
+   },
+   {
+    "oldId": "F19",
+    "newId": "F19",
+    "mechanism": "KANDIDAT|-|INV-F|INV-3 ETA-SÅGTAND UPP|synt|stress",
+    "change": "I rapport.md har bara länkraden tillkommit.\n- Antal oförändrat: 2 utslag, 2 oberoende, 2 världar.\n- Representanter oförändrade: r1 värld 1608/R1/F-KONVOJ krympt 9dfe35647d54; r2 värld 1907/R1/F-KONVOJ krympt 186e740575ce (monitoring).\n- Gräns: ingen, som förut.\n- Ny länkrad: stresstvilling till F04; samma minsta repro som F18 (värld 1608); samma utslag som F18 i 2 världar (1608 och 1907).\n- E7: båda fynden har fått taggen STRESS-TÄTHET.\n- hunt:repro: F19 KVAR (2), F19/r2 KVAR (2), exit 0."
+   },
+   {
+    "oldId": "F20",
+    "newId": "F20",
+    "mechanism": "KANDIDAT|-|T3|VARNING-EFTER-SANN-PASSAGE|synt|stress",
+    "change": "Inget ändrat utom den nya länkraden.\n- Antal oförändrat: 3 utslag, 2 oberoende, 2 världar.\n- Representanter oförändrade: r1 värld 1486/R1/F-KAJ krympt 2bf8925f8545; r2 värld 1907/R1/F-KONVOJ krympt f6c6c546dd6b (monitoring).\n- Gräns oförändrad: 265519324 − 265519273 vid Klaffbron ∈ 367–555 s, borta vid 320 och 602 s; CONVOY_WINDOW_MS = 600 s.\n- Ny länkrad: stresstvilling till F03; samma utslag som F22 i 1 värld (1907 = F22:s r1).\n- hunt:repro: F20 KVAR (1), F20/r2 KVAR (1), exit 0."
+   },
+   {
+    "oldId": "F22",
+    "newId": "F21",
+    "mechanism": "KANDIDAT|-|T2|LEDTID<Ns|synt|stress",
+    "change": "Nytt id: F22 → F21. Katalogen fynd/F21-oppningsvarning-med-for-kort-ledtid-fore-sann-passage-vid-stridsbergsbron-soderu har 9 filer, bitlika med gamla F22 efter normalisering.\n- Antal oförändrat: 1 utslag, 1 värld.\n- Representant oförändrad: r1 värld 47/R0/F-KONVOJ krympt 15510fb916d0 (monitoring).\n- Gräns oförändrad: B − A vid Stridsbergsbron ∈ 632–669 s, borta vid 614 och 687 s; CONVOY_WINDOW_MS = 600 s.\n- Ny länkrad: stresstvilling till F02.\n- hunt:repro: KVAR (1 utslag i världen: T2 LEDTID<60s, varning Stridsbergsbron#3 16:58:38 bara 54 s före sann korsning 16:59:32), 183 rader bitlika, exit 0.\n- Direktuppspelningen är lika med sparad repro.result.json."
+   },
+   {
+    "oldId": "F23",
+    "newId": "F22",
+    "mechanism": "KANDIDAT|-|T3|VARNING-PÅ-FRUSET-FIX|synt|stress",
+    "change": "Nytt id: F23 → F22. Katalogen fynd/F22-oppningsvarning-pa-fruset-fix-vid-stridsbergsbron-soderut har 9 filer, bitlika med gamla F23 efter normalisering.\n- Antal oförändrat: 1 utslag, 1 värld.\n- Representant oförändrad: r1 värld 1907/R1/F-KONVOJ krympt 1926deedbee5 (monitoring).\n- Gräns oförändrad: 265183171 − 265182844 vid Stridsbergsbron ∈ 367–508 s, borta vid 320 och 555 s; CONVOY_WINDOW_MS = 600 s.\n- Ny länkrad: stresstvilling till F11; samma utslag som F20 i 1 värld (1907 = r1 här).\n- hunt:repro: KVAR (2 utslag: VARNING-PÅ-FRUSET-FIX, där medlemmens senaste fix är 22 min gammal, och VARNING-EFTER-SANN-PASSAGE, 475 s efter passagen), 74 rader bitlika, exit 0.\n- Direktuppspelningen är lika med sparad repro.result.json."
+   }
+  ],
+  "appeared": [],
+  "sections": "Full diff av rapport.md (r1-standard-a → s1-standard-a): /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-fix/runs/s1-logs/rapport-md-diff-r1-mot-s1.txt.\n\nSektionerna i rapport.md:\n- **Hälsa:** bara sanningsspårets fyndfingeravtryck har ändrats, ef400bd80a3b → 847ffde12743. Radfingeravtrycket 19bbc284099d är oförändrat. Självtest, låst bank, kalibrering, kanarier och realism (grinden RÖD som förut) är lika.\n- **Sammanfattning:** bara Sanningsspåret-raden har ändrats: 400 → 399 råa utslag, 20 → 19 kandidatkluster (stress 7 → 6) och 40 → 39 representanter. Självtest- och Bankspårsraderna är oförändrade.\n- **Nya träffar på låst bank och kanarier:** oförändrad, inga.\n- **Kandidater:** börjar nu med översikten 'Länkade kort' (14 par).\n  - Logikfel F01–F06, Bank F07–F09 och Robusthet F10–F16 har samma kort och id.\n  - Stress hade sju kort, F17–F23, och har nu sex, F17–F22: F21 är borta, F22 har blivit F21 och F23 har blivit F22.\n  - 16 av 22 kort har fått en ny rad 'Länkar:' (alla utom F05, F07, F08, F09, F14 och F15). Inga andra kortfält har ändrats.\n- **Beslutsfrågor och konflikter:** samma nio rubriker med samma utslag (INV5-VS-BESÖKSREGEL 32 plus stress 1, U2-VS-DEADLINE 23/6/5, U2-RETURRESA 18, BN1-BOXKANT 2, J13-J14 3, D1-KAJZON-DEMOTION 1).\n- **Kända utfall:** samma 16 rader och tal. Oanvända poster (10 av 27) och iOraklet-listan är lika i md.\n- **Instrumentfel och mätgränser:** oförändrad.\n- **Täckning:** raden synth | T1 | R1 har gått från 9 till 8 världar med utslag (1 356 → 1 357 rena).\n- **fynd/:** 25 → 24 kataloger. F21-notis… är borta, och katalogerna F22-… och F23-… heter nu F21-… och F22-….\n\nÄndringar i rapport.json utöver md:\n- register.användning STRESS-TÄTHET 45 → 54.\n- Alla fem orakelvakter som fil#symbol (E5).\n- Nya skäl för S10 (E1: '3.6/2.2/2.4 kn ≥ FIX_D_MIN_SOG 2 kn'), INV10 (E2: 'ingen halvminutstick i glappen') och KIE (E3: '≤ |δ| 7 s + en tick 30 s', utan 'längd 56 s').\n- Taggen STRESS-TÄTHET på F18, F19, INV5-stressklustret (värld 212) och bankens 42h-flash (E7). Alla 22 stressfynd har nu taggen.\n- fixBortom.mottagen i F13, och räknaren tidslikUtesluten R0 {0, 0} och R1 {ejInmatad 1, oklar 0} (E6).\n- Varje kluster har fältet länkar: 30 länkar, alla speglade, inga på kluster utan kort och ingen utan kort-id.\n- Registervarningar: 0.\n\nTvillinglänkar (E8), 14 par:\n- **Samma minsta repro:** F12↔F16 (r1, värld 254, radhash 877af0fbffc6), F18↔F19 (r1, värld 1608, 9dfe35647d54) och F10↔F13 (r2, värld 1731, 6c6a22119cca).\n- **Stresstvillingar:** F01↔F17, F02↔F21, F03↔F20, F04↔F19, F06↔F18 och F11↔F22.\n- **Samma utslag:** F01↔F03 (14 världar), F01↔F10 (3), F18↔F19 (2), samt F01↔F13, F03↔F11 och F20↔F22 (1 vardera).\n\nMot RUNDA2 E8, i runda 1:s numrering:\n- Länkade: F12↔F16, F18↔F19, F20↔F03, F23↔F11 (nu F22↔F11), F22↔F02 (nu F21↔F02) och F17↔F01.\n- F21↔F13 finns inte längre, eftersom E6 tog bort F21.\n- F17↔F02 länkas inte: mekanismerna är olika, och korten har ingen gemensam repro och inget gemensamt utslag.\n\nLänkbilden är densamma som rättare G mätte i G-standard.",
+  "acceptance": [
+   {
+    "criterion": "npm test grönt; buggjägarens jest-filer under 5 s och utan öppna handtag",
+    "holds": true,
+    "detail": "Uppfyllt med förbehåll.\n- npm test-kommandot (med --cacheDirectory): 358 sviter, 4 830 test, 2 överhoppade, exit 0, inga öppna handtag.\n- Motorn: 24 sviter och 257 test, gröna i alla tio körningar, inga öppna handtag.\n- Tiden: 4,46–4,69 s i 4 av 10 körningar, men 5,07–6,72 s i 6. Alla körningar gick under 2,3–3,4 kärnor främmande last; user-CPU var 5,36–5,82 s.\n\nSamma läge som i A.4: marginalen räcker inte under last. Det är en VARNING, inte rött."
+   },
+   {
+    "criterion": "npm run lint rent för de nya filerna",
+    "holds": true,
+    "detail": "eslint över hela kopian: 471 filer, 0 fel, 0 varningar, exit 0. `eslint --max-warnings=0 tests/replay-validation/bugHunt/`: exit 0."
+   },
+   {
+    "criterion": "hunt:selftest grönt: determinism, SHIFT30 och MMSI 24/24, instrumentkraven uppfyllda, 0 avvikelser i rundresan",
+    "holds": true,
+    "detail": "Fingeravtryck 393a4609ced1, 54,7 s.\n- Determinism, SHIFT30 och MMSI 24/24 vardera.\n- Kanarier 5/5 för både instrument- och produktkrav. Rundresa 45/45 bitlika.\n- Bankens instrumentkrav uppfyllda. Låst bank: 0 nya träffar. 0 oregistrerade kalibreringsträffar.\n- Samma fingeravtryck som s0 och H0."
+   },
+   {
+    "criterion": "hunt:quick under 6 min och hunt under 25 min på 4 CPU",
+    "holds": true,
+    "detail": "quick tog 2 min 8 s och 1 min 42 s. Standard tog 11 min 7 s och 12 min 41 s, under tung främmande last (load1 i snitt 12–14). CPU-tiden för standard, 19 min 47 s och 19 min 59 s, är densamma som i r1."
+   },
+   {
+    "criterion": "Två körningar med samma seed och profil ger identisk rapport.json utom tidsblocket",
+    "holds": true,
+    "detail": "quick: df2a702991a1 båda gångerna, och fynd/ har 155 lika filer. standard med seed 1: 19804855dcf4 båda gångerna, och fynd/ har 353 lika filer. Båda är också lika med s0 respektive s0/G-standard."
+   },
+   {
+    "criterion": "git status --porcelain oförändrat",
+    "holds": true,
+    "detail": "Huvudträdets git status är tomt på HEAD 7699cbe, och skyddskollen gav OK före och efter. Arbetskopian är inget git-repo, så git-vakten varnar 'git saknas', som förut."
+   },
+   {
+    "criterion": "Rapporten återfinner konvojfönstrets bakkant (T2, R0, 2 båtar, gräns vid CONVOY_WINDOW_MS)",
+    "holds": true,
+    "detail": "F02, KANDIDAT T2 LEDTID<Ns (utslaget LEDTID<60s), R0, 37 utslag.\n- Minsta repro: 2 båtar söderut, 199 rader.\n- Gräns: B − A vid Stridsbergsbron 627–664 s, borta vid 609 och 682 s; närmaste konstant CONVOY_WINDOW_MS = 600 s.\n- Registerraden är oförändrad: 'Närmast U2-VS-DEADLINE … 664 s efter … utanför +600 s'."
+   },
+   {
+    "criterion": "U-sväng mot INV-5 (KONFLIKT INV5-VS-BESÖKSREGEL)",
+    "holds": true,
+    "detail": "KONFLIKT med 30 världar (32 utslag; F-USVÄNG 14).\n- Exemplet fynd/B01-…: 1 båt (1 med U-sväng), 181 rader.\n- Gräns: 125–308 m bortom Klaffbron, borta vid 89 och 381 m; besöksutfärden 350 m.\n- Dessutom ett stresskluster med 1 värld, nu taggat STRESS-TÄTHET (E7)."
+   },
+   {
+    "criterion": "U2-extravarningen i 20260710-13h och ETA-studsen i 20260708-21h, båda KNIVSEGG",
+    "holds": true,
+    "detail": "Bankkorten F09 (13h, M-FAS ÖPPNINGSNYCKEL TILLAGD vid Klaffbron norrut, δ −11,52 och +15 s) och F07 (21h, INV-3 ETA-SÅGTAND UPP, δ −11,52 s) är båda KNIVSEGG, och hunt:repro ger KVAR. Dessutom F08 (16h, δ −7 och −2,5 s)."
+   },
+   {
+    "criterion": "42h-flashens fasvariant som ACCEPTERAD via KIE-PER-KORPUS",
+    "holds": true,
+    "detail": "Kända utfall: KIE-PER-KORPUS, ACCEPTERAD, INV-14 DEFAULT-FLASH, 20260806-42h, Stridsbergsbron, δ −20, −11,52, −7, +7 och +15 s.\n- Skälet är nu '0 s isär (≤ |δ| 7 s + en tick 30 s)', alltså E3:s snävare fönster.\n- Fynden ligger 08:47:00 (+7, +15) och 08:46:30 (−7, −11,52, −20)."
+   },
+   {
+    "criterion": "Högst 25 kort, och varje kort har minsta repro och kommando",
+    "holds": true,
+    "detail": "22 kort: R0 6, bank 3, R1 7, stress 6. Ingen överskottsrad.\n- De 19 syntetiska korten har minsta repro; 39 av 39 representanter är krympta och bekräftade på 790 prov, 0 obekräftade.\n- Bankkorten har bas, variant och recept.\n- Alla kort har både replayRunner- och hunt:repro-kommando."
+   }
+  ],
+  "problems": [
+   "VARNING, inte rött: motorns jest-sviter (24 sviter, 257 test, alla gröna, inga öppna handtag) tog 5,07–6,72 s i 6 av 10 körningar och 4,46–4,69 s i de övriga 4. Alla körningar gick under 2,3–3,4 kärnor främmande last av 4, från andra agenters replay- och hunt-körningar i kampanj E, N, R2 och K. CPU-arbetet var konstant (user 5,36–5,82 s). Ingen ledig stund kom under varvet, så kravet 'under 5 s' kunde inte beläggas på ledig maskin. Det är samma läge som i varv s0 och inget motorfel."
+  ]
+ },
+ "review": {
+  "verdicts": [
+   {
+    "id": "E1",
+    "resolved": true,
+    "evidence": "Sonderna kördes mot egna kopior: gammal = C med F/pre2/bugHunt (diff -rq tom) och ny = C. Utfallen ligger i /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-fix/tmp/granskare-s1/probes-out/{old,new}/.\n- s10sog: före gav alla fem farter (0,6/1,0/1,9/2,2/3,6 kn) DESIGN. Efter blir 0,6, 1,0 och 1,9 kn KANDIDAT; där notifierar appen northbound 10:06:16. 2,2 och 3,6 kn är kvar som DESIGN; där notifierar appen inte.\n- s10two-b med 2 och 3 zonfixar: före DESIGN, efter KANDIDAT. Utan regression notifierar appen 10:06:36 respektive 10:06:31.\n- worldjudge på färska världar: F15:s världar 215, 581 och 1818 är DESIGN i båda motorerna, med skälet '… ≥ FIX_D_MIN_SOG 2 kn'.\n- FIX_D_MIN_SOG läses ur VesselDataService.js:380.\n- (b) e-runda2 E1 mot F/pre2 (oldt): 4 av 5 röda; F15-vakten är grön.",
+    "regression": "Ingen. F15 är kvar som DESIGN, och S10 används 3 gånger i s0-standard-a, som i runda 1. Modellen hoppar däremot över rader utan kurs eller fart (nytt problem 1)."
+   },
+   {
+    "id": "E2",
+    "resolved": true,
+    "evidence": "- inv10tick med fixen kvar 08:59:57.835: MÄTGRÄNS i båda motorerna. Med fixen flyttad till 09:00:10: inget utslag i någon av dem.\n- inv10tick-b: före MÄTGRÄNS ('högst 25 s'). Efter KANDIDAT med skälet 'glappet 08:59:44–09:00:10 … innehåller halvminutsticken 09:00:00'.\n- Värld 1228 (F18) är kvar som MÄTGRÄNS med '(ingen halvminutstick i glappen)'.\n- Källorna stämmer. app.js:13089–13096 är vakthunden på absoluta halvminuter, och den schemalägger en 'normal' uppdatering med 40 ms grace (app.js:5513–5520). BridgeTextService.js:304–308 är hasFreshPosition.\n- (b) e-runda2 E2: 2 av 3 röda mot pre2; F18-vakten är grön. b-register T-1 är rött mot pre2.",
+    "regression": "Ingen. MÄTGRÄNS-INV10 används 1 gång, som förut. En tick i svansen prövas inte; det är dokumenterat och följer RUNDA2."
+   },
+   {
+    "id": "E3",
+    "resolved": true,
+    "evidence": "- kiewindow2: före ACCEPTERAD för 240 s vid +4 min, 290 s vid +5 min och 300 s vid +5,5 min utan syskon. Efter är alla 10 fallen KANDIDAT.\n- 42h-acceptansen håller. I s0-standard-a är ACCEPTERAD|KIE-PER-KORPUS|INV-14 DEFAULT-FLASH satt vid δ −20, −11,52, −7, +7 och +15, och KIE används 5 gånger.\n- Hänvisningarna i invariants.js stämmer: DEFAULT-FLASH:s iso är övergångens start (170–180 och 438), medan SÅGTAND (321) och OSCILLATION (351) har sluttiden.\n- (b) e-runda2 E3: 3 av 4 röda mot pre2. b-register M03 och d-efterratts kiewindow-fall är röda.",
+    "regression": "Ingen. Bara STRESS-TÄTHET ändrar räkning, och det kommer från E7."
+   },
+   {
+    "id": "E4",
+    "resolved": true,
+    "evidence": "- fakebankcard med hunt --repro: före 'KVAR (1 utslag i varianten)'. Efter 'BORTA (0 utslag … KANDIDAT; 1 … som information — ACCEPTERAD KIE-PER-KORPUS 1)'. Exit 0 i båda.\n- De verkliga bankkorten F07 (21h), F08 (16h) och F09 (13h), kopierade ur s0-standard-a, ger KVAR med exit 0 i nya motorn. Nyckeln läses som KANDIDAT|-.\n- (b) e-runda2 E4: 3 av 3 röda mot pre2.",
+    "regression": "Ingen."
+   },
+   {
+    "id": "E5",
+    "resolved": true,
+    "evidence": "- Alla fem orakelvakter citerar symboler som finns i filerna:\n  - runOpeningGates.js#classifyPhantom på rad 1038, med GLES_ANFLYGNING och AVBRUTEN_APPROACH på 1067–1068;\n  - #classifyLatePassage på 1087;\n  - t2Opening.js#judgePhantom, en inre const på 272;\n  - t10Passage.js#decisiveFixAfter på 62, med DECISIVE_M;\n  - t1Notice.js#judgeT1 på 106.\n- Registret laddar med 0 varningar.\n- sourceRefs tolkar fil#symbol, fil:rad och ':a–b' rätt.\n- (b) e-runda2 E5: 3 av 3 röda mot pre2. b-register M12 är rött.",
+    "regression": "Inget nytt fel i klassningen. Kontrollen är dock svagare än dokumentationen säger: den godtar en bortkommenterad deklaration (nytt problem 2)."
+   },
+   {
+    "id": "E6",
+    "resolved": true,
+    "evidence": "- worldjudge på färska världar: värld 856 har T1 FÖRVARNINGSFORM i gamla motorn och inget formutslag i den nya. Världarna 86, 783 och 1731 behåller utslaget i båda.\n- Triagens tieworlds.js, kört mot C: 86, 783 och 1731 är 'byggd på BUNDNA fixen (äkta)', och 856 är 'FÖREGÅENDE fix (tidslikhetsartefakt)'.\n- Harnessen sorterar raderna på aisTimestamp (replayRunner.js:125), så en fix strikt före n.t är alltid inmatad.\n- Räknaren summeras riktigt: R1 {ejInmatad 1, oklar 0}.\n- T2/T3 har bara ändrade kommentarer. Avböjandet håller: med `<` i lastSeenFixTs försvinner FANTOM-UTAN-AVBROTT i värld 1590 (probes-out via wj-strict).\n- (b) f-tidslik: 5 av 12 röda mot pre2 (3 [rättning], 2 [nytt]); vakterna är gröna.",
+    "regression": "Ingen. Äkta formutslag står kvar, och T2/T3 är logiskt orörda."
+   },
+   {
+    "id": "E7",
+    "resolved": true,
+    "evidence": "- worldjudge: INV-F-fynden i stressvärldarna har nu taggen STRESS-TÄTHET med oförändrad klass: 1608 ETA-OSCILLATION och SÅGTAND, 1907 ETA-OSCILLATION och SÅGTAND, och 212 INV-5 KONFLIKT.\n- STRESS-TÄTHET används 45 gånger i r1 och 54 i s0. Det stämmer med 55 − 1, eftersom E6 tog bort F21.\n- STRESS-TÄTHET är registrets enda taggpost. Taggen påverkar varken nivå eller klusternyckel.\n- Säkerhetsregeln står kvar, enligt jest.\n- (b) e-runda2 E7: 1 av 3 röda mot pre2; vakterna är gröna.",
+    "regression": "Ingen. Taggen hamnar också på bankens 42h-flash, som fortfarande är ACCEPTERAD; det är dokumenterat och ändrar ingen klass, inget kluster och ingen sektion."
+   },
+   {
+    "id": "E8",
+    "resolved": true,
+    "evidence": "- s0-standard-a/rapport.json har 22 kort och 14 länkade par. Varje länk har en spegel (0 saknas), och kluster utan kort har inga länkar.\n- rapport.md har 16 'Länkar:'-rader, och översikten visar samma 14 par.\n- Stickprov på samma-utslag-länkar visar samma händelse:\n  - F03↔F11: Klaffbron#7;\n  - F20↔F22: Stridsbergsbron#34;\n  - F01↔F13 och F01↔F10: samma korsningstid.\n- s0-standard-a, s0-standard-b och G-standard har samma fingeravtryck, 19804855dcf4.\n- (b) g-tvilling: 10 av 12 röda mot pre2; vakterna är gröna.",
+    "regression": "Ingen."
+   },
+   {
+    "id": "s0-ny-1 (S10, pending-flaggan före zonen)",
+    "resolved": true,
+    "evidence": "- H:s scenarier körda om mot min kopia:\n  - −0,5:2,2:216 och −0,2:1,9:30: appen notifierar 10:06:16. Före DESIGN, efter KANDIDAT med skälet 'bekräftar reversalen som flaggades 10:03:51'.\n  - Två omvända fixar före zonen: före DESIGN, efter KANDIDAT ('bekräftade reversalen söderut redan 10:03:51').\n  - Bekräftat tillbaka norrut: DESIGN; appen avstår.\n  - Glappbandsfix (90°): KANDIDAT, konservativt.\n- F15 är oförändrat.\n- (b) h-efterratt mot pre2: 6 av 7 röda, där fall 2 (vakt) är grönt.",
+    "regression": "Den beskrivna luckan är stängd. Modellens påstående att en rad utan kurs eller fart inte rör Fix D är fel, och ett jest-fall låser fast det (nytt problem 1). Utfallet är inte sämre än i F/pre2."
+   },
+   {
+    "id": "s0-ny-2 (BUGGJAKT motsäger E1/E3/E4)",
+    "resolved": true,
+    "evidence": "grep i C/docs/BUGGJAKT.md ger 0 träffar på 'svarar fortfarande på mekanismnivå', 'där L är episodens längd ur meddelandena', 'zonens enda fixar går bort', '| bas och variant körs om och jämförs |', 'episodens längd + en tick' och 'längd 60 s'. Det som står kvar är historiska rader: §7 rad 3, 9 och 13 samt E3-historiken.",
+    "regression": "Ingen."
+   },
+   {
+    "id": "s0-ny-3 (_om hänvisar till §7 rad 10–15)",
+    "resolved": true,
+    "evidence": "_om säger nu 'rad 10–14' och 'Efterrättningen i runda 2 (rad 15)', och §7-listan har rad 1–15. Jest-fallet är grönt i C och rött mot pre2.",
+    "regression": "Ingen."
+   },
+   {
+    "id": "s0-körare-dok (§14 och bilaga A.4)",
+    "resolved": true,
+    "evidence": "Talen i A.4 och §14 stämmer mot F/runs/s0-*/rapport.json:\n- standard: 19804855dcf4, 45 kluster, 22 kort (R0 6, bank 3, R1 7, stress 6), 419 råa utslag och 39 av 39 representanter krympta;\n- quick: df2a702991a1, 34 kluster, 17 kort och 7 representanter;\n- självtest: 393a4609ced1;\n- F02: 37 utslag, 627–664 s;\n- INV5: 30 världar och 32 fynd;\n- F09: δ −11,52 och +15; F07: δ −11,52;\n- KIE vid fem δ.",
+    "regression": "Ingen."
+   },
+   {
+    "id": "Avböjda (E6-systerställen, E8-gränser, körare-3b/7b, F15-representanter, E7-taggen, steg 10)",
+    "resolved": true,
+    "evidence": "- E6, lastSeenFixTs: avböjandet är belagt, för en strikt jämförelse döljer FANTOM-UTAN-AVBROTT i värld 1590.\n- Jest-tiden: 24 sviter och 257 test är gröna. Det tog 4,51 s när den momentana lasten sjunkit och 9,2 s vid last 6–8, utan öppna handtag. Det är förenligt med H:s 4,2–4,8 s vid låg last.\n- Lint: exit 0. Skyddskollen: OK.\n- C var oförändrad under hela granskningen (sha256).",
+    "regression": "Ingen. Marginalen till 5 s är liten."
+   }
+  ],
+  "newProblems": [
+   {
+    "title": "S10-modellen spelaFixD hoppar över rader utan kurs eller fart, men appen ersätter dem med föregående värde och kör Fix D",
+    "severity": "låg",
+    "file": "tests/replay-validation/bugHunt/lib/registry.js",
+    "detail": "Felet:\n- spelaFixD (registry.js:330) hoppar över varje rad utan finit cog eller sog, och kommentaren på :302–303 säger att en sådan rad 'rör varken flaggan eller låset'.\n- Appen gör något annat. _createVesselObject sätter sog och cog till oldVessels värden när raden saknar dem (VesselDataService.js:5286–5287). Fix D:s yttre villkor (:384–392) prövar sedan vessel.cog och vessel.sog, så blocket körs på det ersatta värdet.\n\nSond: /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-fix/tmp/granskare-s1/probes/s10h.js, som är H:s sond. Utfallen ligger i probes-out/s10h-nullcog.txt och s10h-nullsog.txt.\n- Kurs saknas: värld 581 med extrarader 10:02:53 (216°, 1,0 kn), 10:03:51 (kurs null i jsonl, 2,2 kn) och 10:05:18 (30°, 1,0 kn). Appen loggar TARGET_RECALC_PENDING 10:03:51 (cog=216°), bekräftar reversalen 10:06:16 och notifierar Järnvägsbron southbound 10:06:16.803. Med notisen borttagen ger C DESIGN S10-VÄNDNING-BRON-BAKOM, alltså amnesti.\n- Fart saknas: rader 30° 2,2 kn, 216° utan fart och 30° 1,0 kn. Appen notifierar 10:06:16, och C ger DESIGN.\n\nKonsekvenser:\n- Jest-fallet h-efterratt.test.js:211 låser fast felet. Det kräver att spelaFixD([f(0,200,1.9), f(10,NaN,3), f(20,200,null)]) ger varken flagga eller lås. Appen hade satt flaggan vid t=10 (kurs 200 från förra raden, 3 kn) och bekräftat vid t=20 (fart 3 från förra raden).\n- BUGGJAKT.md:258 nämner inte antagandet.\n- F/pre2 ger också DESIGN, så utfallet har inte blivit sämre, men H:s påstående att modellen följer Fix D-blocket håller inte.\n\nRäckvidd:\n- Sanningsspåret kan inte råka ut för det. Radiomodellen ger aldrig null-fart, och null-kurs bara för stillaliggande klass B med sog ≤ 0,4.\n- Banken har 6 rader med null-kurs och sog ≥ 2: 42h 2, 20260708 1 och 20260713 3. S10 används inte i bankkalibreringen i dag.",
+    "fix": "- Låt spelaFixD föra fram senaste finita cog och sog ur fartygets tidigare rader, som _createVesselObject gör, och gärna zonkontrollerna också. De är i dag konservativa.\n- Rätta kommentaren på registry.js:302–303 och §7 Regler.\n- Ändra h-efterratt.test.js:211 och lägg till sondens mönster som jest-fall. Det ska ge KANDIDAT."
+   },
+   {
+    "title": "definesSymbol godtar en bortkommenterad deklaration, trots att dokumentationen säger att en kommentar inte räcker",
+    "severity": "låg",
+    "file": "tests/replay-validation/bugHunt/lib/registry.js",
+    "detail": "definesSymbol (registry.js:1075) tar inte bort kommentarer innan den matchar. Prövat direkt:\n- definesSymbol('// const decisiveFixAfter = null;', 'decisiveFixAfter') ger true;\n- definesSymbol('/* function judgeT1(ctx) { gammal version } */', 'judgeT1') ger true;\n- en rad i en blockkommentar utan asterisk, '   judgeT1: …', ger true;\n- 'const judgeT1 = require(\"./t1Notice\").judgeT1;' ger true, fast filen bara importerar symbolen.\n\nBUGGJAKT.md:249 och JSDoc-kommentaren på registry.js:1070 lovar att 'ett omnämnande i en kommentar räcker inte'. Enhetsfallet i e-runda2 prövar bara '// omnämnd: decisiveFixAfter'. Om en citerad funktion döps om och den gamla deklarationen ligger kvar i en kommentar eller ett JSDoc-exempel, förblir orakelvakten grön, och E5-kontrollen glider tyst. Det finns inget sådant fall i dag, och registret laddar med 0 varningar.",
+    "fix": "- Ta bort block- och radkommentarer ur källtexten innan regexen körs, och räkna inte `= require(` som definition.\n- Lägg till de fyra fallen ovan i enhetstestet för definesSymbol."
+   }
+  ],
+  "summary": "Varv s1 i runda 2. Alla punkter håller: E1–E8 och efterrättningarna s0-ny-1–3 och körardokumentationen. Granskningen gjordes i egna kopior under /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-fix/tmp/granskare-s1/: new = C, old = C med F/pre2, oldt = old med de nya testfilerna. C var oförändrad under hela granskningen (sha256).\n\n**Före och efter:**\n- Sonderna (s10sog, s10two, s10two-b, inv10tick, inv10tick-b, kiewindow2 och fakebankcard med repro) visar att felen är borta. canaryrows är bitlik.\n- worldjudge bekräftar utfallen på färska världar:\n  - F15 är kvar som DESIGN och F18 som MÄTGRÄNS;\n  - 856 tappar formutslaget, medan 86, 783 och 1731 behåller det;\n  - stressvärldarnas INV-F-fynd får taggen STRESS-TÄTHET.\n- Triagens tieworlds bekräftar E6:s premiss.\n- Verkliga bankkort är kvar som KVAR.\n- Tvillinglänkarna i s0-standard-a har alla en spegel och är deterministiska.\n- Talen i A.4 och §14 stämmer mot körarens filer.\n\n**Kontroller:**\n- Jest i ny kopia: 257/257 gröna. Det tog 4,51 s när den momentana lasten sjunkit och 9,2 s vid last 6–8, utan öppna handtag.\n- Mot F/pre2 är 41 av de nya och ändrade fallen röda, enligt rättarnas påståenden.\n- Lint gav exit 0 och skyddskollen OK.\n- Avböjandet av den strikta jämförelsen i T2 är belagt: med `<` försvinner FANTOM-UTAN-AVBROTT i värld 1590.\n\n**Två nya problem, båda låga:**\n1. S10-modellen hoppar över rader utan kurs eller fart, men appen ersätter dem med föregående värde och kör Fix D. En konstruerad sond i värld 581 visar att appen notifierar 10:06:16, medan C ger DESIGN. F/pre2 ger samma utfall, så det är ingen försämring. Ett jest-fall låser dock fast det felaktiga beteendet.\n2. definesSymbol godtar en bortkommenterad deklaration, fast dokumentationen säger att en kommentar inte räcker."
+ },
+ "triage2": {
+  "cards": [
+   {
+    "id": "F01",
+    "oldId": "F01",
+    "title": "Sann målbropassage utan öppningsvarning (T2 OKLASSAD, R0): glappregistrering flyttar konvojfönstret",
+    "verdict": "trolig-bugg",
+    "reproduced": true,
+    "evidence": "hunt:repro (från C, TMPDIR i F/tmp/triage2, på en kopia av kortet) ger KVAR med exit 0.\n- r1: värld 1900 (R0, F-AVBROTT), 136 rader bitlika (a460645fbb28). Utslaget är 'sann korsning 09:31:35 nord utan varning före'.\n- r2: värld 1349 (R0), 177 rader bitlika (73d88f39861a), KVAR med T2 OKLASSAD 08:37:19 och T3 #4 08:37:25.\n- Utslagslistorna är identiska med runda 1:s repro-utdata, och direkt replay av båda repro.jsonl är lika med repro.result.json.\n- Alla filer är bitlika med r1-standard-a utom kommando.txt, som bara skiljer i sökvägen.\n- Klustret är oförändrat: 55 utslag, 53 oberoende.\n\nNya E8-länkar: samma utslag som F03 i 14 världar, som F10 i 3 (353, 1731, 188) och som F13 i 1 (1731); stresstvilling till F17.\n\nKontroll av länkarna:\n- Runda 1:s classify-f01.js på det nya klustret ger samma fördelning som förut: U-sväng 13, RECOVER-söm 14, absorberad utan egen varning 17, avbrott 9, övrigt 2.\n- RECOVER-sömmen och F03-länken delar 12 av 14 världar. I 625 och 1288 kommer den egna varningen 142–160 s efter korsningen. I 463 och 1322 kommer den inom 120 s, men där finns inget T3-utslag.\n- F10-länken täcker de enda tre U-svängsvärldarna som också har ett T10-utslag.\n- Stickprov värld 18 (återskapad, replay): returen över Klaffbron 11:46:35 bokförs inte heller där; targetPassages har bara 11:35:59. Korsningen ligger i ett glapp på 11 min, och första fixen efter är 1247 m bort. T10 saknar därför en beslutsam fix (t10Passage.js decisiveFixAfter: högst 10 min efter och högst 600 m från bron).",
+    "note": "Runda 1:s dom står, för representanten. Rättningarna har inte ändrat appens beteende eller klustrets innehåll. E8-länkarna bekräftar runda 1:s bild av ett heterogent kluster.\n\nRotorsak för representanten:\n- BridgeOpeningService.js:1743–1760: _recordPassage sätter firstPassageAt till registreringstiden.\n- :1801: _rebaseConvoyCoverage = max(firedAt, firstPassageAt) + CONVOY_WINDOW_MS.\n- Det strider mot K14-doktrinen (:1762–1800) och U2 (etapp7-plan:9).\n\nInget ägarbeslut täcker fallet. U2-VS-DEADLINE gäller inte, eftersom 1069 s > 600 s. En rättning (interpolerad korsningstid för glappassager) flyttar konvojfacit, så O1/O2 och replay:openings måste mätas om.\n\nEn rättning av glappregistreringen tömmer inte kortet:\n- 14 världar är RECOVER-sömmen (familjen F02/F03/F17).\n- U-svängsreturerna hör till F10:s klass. Tre är belagda av T10, och fler är troliga men osynliga för T10, som stickprovet värld 18 visar. Länken till F10 är alltså en undre gräns."
+   },
+   {
+    "id": "F02",
+    "oldId": "F02",
+    "title": "Öppningsvarning med för kort ledtid före sann passage (T2 LEDTID<60s, Stridsbergsbron söderut)",
+    "verdict": "trolig-bugg",
+    "reproduced": true,
+    "evidence": "hunt:repro ger KVAR med exit 0.\n- r1: värld 452 (R0, F-KONVOJ), 199 rader bitlika (9c226ce0678b). Utslaget är 'varning Stridsbergsbron#3 16:20:48 (fired) bara 47 s före sann korsning 16:21:35'.\n- r2: värld 1274 (R1, F-USVÄNG), 31 rader (fd0807c8c09e), KVAR med Klaffbron#4 09:20:29, 23 s före korsningen 09:20:52.\n- Utslagslistorna är lika med runda 1:s, och direkt replay är lika med repro.result.json.\n- Filerna är bitlika med r1 utom kommando.txt.\n- 37 utslag i 37 världar, som förut. Gränsen B − A 627–664 s är oförändrad (gräns.json bitlik).\n- Ny länk: stresstvilling till F21 (förut F22).",
+    "note": "Runda 1:s dom står.\n\nRotorsak: _releaseStrandedArms (BridgeOpeningService.js:1648–1667) körs som steg (1b) i _evaluateBridge (:1279). Den släpper armen på ren tid, binder den och avfyrar i samma anrop på den ärvda, förfallna deadlinen, utan ledtidsgolv. ARCHITECTURE.md:1461 (KRAV 2–4) beskriver grindarna som saknas.\n\nInget ägarbeslut täcker fallet. U2-VS-DEADLINE gäller inte, eftersom 664 s > 600 s.\n\nKortet hör till samma RECOVER-familj som F03, F11, F14, F17 och F20–F22. Länken till F21 stämmer med runda 1: samma mekanism, R0 och 2 båtar. r2 hör till F10-klassen (sen vändningsbekräftelse). En rättning flyttar konvojfacit och kräver O1/O2-mätning."
+   },
+   {
+    "id": "F03",
+    "oldId": "F03",
+    "title": "Öppningsvarning efter sann passage (T3, Stridsbergsbron söderut)",
+    "verdict": "trolig-bugg",
+    "reproduced": true,
+    "evidence": "hunt:repro ger KVAR med exit 0.\n- r1: värld 131 (R0, REPLAY_MONITORING=1), 159 rader bitlika (f5a4427a5fe4). Utslaget är varningen Stridsbergsbron#3 13:28:23, 22 s efter passagen 13:28:00.\n- r2: värld 596 (R1, F-AVBROTT), 11 rader (26403a682dcc), KVAR med 3 utslag: EFTER-SANN-PASSAGE 547 s, FRUSET-FIX 22 min och INV-3.\n- Direkt replay, med monitoring för r1, är lika med repro.result.json.\n- Filerna är bitlika utom kommando.txt.\n- 72 utslag och 71 oberoende. Gränsen 587–605 s är oförändrad.\n\nNya länkar:\n- samma utslag som F01 i 14 världar (RECOVER-sömmen, se F01);\n- samma utslag som F11 i 1 värld (582, F11:s r2), där samma varning Klaffbron#6 16:42:29 både kommer efter passagen och bygger på ett fruset fix;\n- stresstvilling till F20.",
+    "note": "Runda 1:s dom står.\n\nOrsaken är samma tidsstyrda RECOVER-släpp som i F02 (BridgeOpeningService.js:1648–1667), här med B − A < 600 s. Enligt U2 (etapp7-plan:9) är det alltså samma öppning, och varningen kommer efter passagen; se ARCHITECTURE.md:1461 KRAV (1)–(4). etapp7-plan:380 är en mätning av RECOVER-vägen, inget beslut.\n\nEn smal vakt räcker: kräv en fix efter täckningsslut, eller extrapolera förbi bron. En rättning flyttar konvojfacit. Länkarna ändrar inte bilden; de belägger att T2 OKLASSAD i F01 och T3 här ofta är samma apphändelse."
+   },
+   {
+    "id": "F04",
+    "oldId": "F04",
+    "title": "Fatal INV-3 ETA-SÅGTAND UPP (Stridsbergsbron, avgång efter lång väntan)",
+    "verdict": "trolig-bugg",
+    "reproduced": true,
+    "evidence": "hunt:repro ger KVAR med exit 0.\n- r1: värld 884 (R0, F-MÖTE), 347 rader bitlika (f4ef1e117e06). Utslaget är 'ETA-SÅGTAND UPP 11:31:47.306 Stridsbergsbron 0.5→27 på 37s'.\n- r2: värld 117 (R0, F-KÖ), 262 rader (ddc21aaa5388), KVAR med Klaffbron 5→38 på 107s.\n- Direkt replay är lika med repro.result.json, och filerna är bitlika utom kommando.txt.\n- Antalet är oförändrat, 31 utslag.\n- Ny länk: stresstvilling till F19.\n\nKontroll av länken: jag återskapade alla 31 världar (radantalen stämmer med rapporten) och körde dem med REPLAY_VERBOSE och REPLAY_DEBUG_LEVEL=full. Skripten är F/tmp/triage2/scripts/staleall2.py och segvisa.py.\n- 11 utslag har, i loggsegmentet närmast före hoppet, ETA_STALE_HARD eller IMMINENT_SKIP 'AIS too old' på 600–700 s för en båt mot utslagets bro: 60, 343, 690, 765, 957, 999, 1088, 1214, 1228, 1453 och 1507. Exempel 765: 'ETA_STALE_HARD 265344423: AIS 629s old → clearing ETA', och texten går från 'cirka 6 minuter' till '21 minuter' och sedan till 'strax' 25 s senare, med samma båts nästa fix.\n- 3 utslag är 'strax' som B4:s 90 s-tak släpper (exhausted=true): 368, 1241 och 1521.\n- Alla 14 är R1 i realistisk täthet. Tolv av dem har jag granskat rad för rad.\n- De övriga 17, bland dem alla fyra R0-utslag och båda representanterna, har inget av detta.",
+    "note": "Domen står, för representanten. Avgångs-ETA räknas på igångsättningsfart (ARCHITECTURE.md:2231, K6-kraven), och kedjan ETA_GAP_RESET → ETA_OUTLIER → EMA ger 'strax' → 27 min. Inget ägarbeslut täcker fallet. Åtgärden hör till ETA-etappen; ska den skjutas upp krävs en KÄND_ÖPPEN-post med källan ARCHITECTURE.md:2231.\n\nNytt i runda 2, via E8-länken: klustret är heterogent. 14 av 31 utslag har F18/F19:s mekanism:\n- STALE_ETA_HARD 10 min (app.js:6995–6999 och 7171–7175, constants.js:1133), eller\n- B4:s 90 s-tak (app.js:257).\n\nRunda 1 dömde den mekanismen som beslut-eller-design, med F40-avvägningen i helgranskning-2026-07-06.md:271–274 som underlag. Följderna:\n- en rättning av avgångskedjan tömmer inte kortet;\n- ett ägarbeslut för F18/F19 flyttar ungefär hälften av F04:s utslag;\n- stresstvillinglänken F04↔F19 är alltså mer än nyckellikhet."
+   },
+   {
+    "id": "F05",
+    "oldId": "F05",
+    "title": "Fatal INV-14 DEFAULT-FLASH (krypfart efter Klaffbron, mål Stridsbergsbron)",
+    "verdict": "trolig-bugg",
+    "reproduced": true,
+    "evidence": "hunt:repro ger KVAR med exit 0.\n- r1: värld 933 (R0, F-KRYP), 112 rader bitlika (c74751a9bf5c), DEFAULT-FLASH 17:19:30.258 på 30 s.\n- r2: värld 1526 (R1, F-KÖ), 16 rader (43c9fe050e6c), KVAR med en flash på 158 s vid Klaffbron.\n- Direkt replay är lika med repro.result.json, och filerna är bitlika utom kommando.txt.\n- 17 utslag. Gränsen 0,26–0,59 kn är oförändrad. Kortet har ingen länk.\n- E3 (KIE-fönstret) rör bara bankens KIE-PER-KORPUS. Klustret ACCEPTERAD|KIE-PER-KORPUS är oförändrat, 1 utslag, och påverkar inte kortet.",
+    "note": "Runda 1:s dom står, med runda 1:s rättade mekanismbeskrivning. Grindarna mäter mot olika broar:\n- Tilldelningens närhetsundantag (VesselDataService.js:4377–4383) mäter mot närmaste bro, Klaffbron inom 300 m.\n- Retentionens LOW_SPEED (:8065–8067) och INSUFFICIENT_MOVEMENT (:8092–8093, constants.js:148) mäter mot målbron 1,2 km bort.\n\nDärför tappas och återfås målet växelvis.\n\nEtt syskon är dokumenterat i valideringskorning-2026-07-02.md:36–40, men det här fallet ligger utanför kö-zonsvakten. Inget ägarbeslut täcker det. En rättning flyttar syntetiskt textfacit; mät med replay:all."
+   },
+   {
+    "id": "F06",
+    "oldId": "F06",
+    "title": "Fatal INV-3 ETA-OSCILLATION (Klaffbron norrut, inbromsning)",
+    "verdict": "trolig-bugg",
+    "reproduced": true,
+    "evidence": "hunt:repro ger KVAR med exit 0.\n- r1: värld 192 (R0, F-KRYP), 121 rader bitlika (212f694b6107). Utslaget är 'ETA-OSCILLATION 12:00:00.739 Klaffbron 0.5→4→0.5 inom 90s'.\n- r2: värld 1963 (R0, monitoring), 166 rader (52c56389999f), KVAR med 6→9→7 inom 60s.\n- Direkt replay är lika med repro.result.json, och filerna är bitlika utom kommando.txt.\n- 16 utslag. Gränsen 0,3–1,1 kn är oförändrad.\n- Ny länk: stresstvilling till F18.\n\nKontroll som för F04, med alla 16 världar i verbose-logg:\n- 1 utslag ligger vid 600 s-gränsen: 1038, där 265310872 ger 'AIS too old (601s > 600s)' för Klaffbron.\n- 2 utslag är 'strax' som B4:s 90 s-tak släpper: 888 och 1275.\n- 13 är andra, bland dem alla R0-utslag och båda representanterna.",
+    "note": "Runda 1:s dom står, för representanten. Tre saker samverkar: 3-minuterströskeln saknar hysteres, K6-dubbelkörningen ger dubbel EMA-eftersläpning, och 300 m-regeln (Fix H) slår till. U1/U6 sanktionerar 'strax' inom 300 m, men inte växlingen.\n\nLåg prioritet, eftersom inget fall finns i banken. Åtgärden hör till ETA-etappen (K6, ARCHITECTURE §8 e).\n\nLänken till F18 är mest nyckellikhet: 3 av 16 utslag har F18:s mekanism (600 s-gränsen eller 90 s-taket), resten är F06:s egen. Ett ägarbeslut för F18 flyttar de tre."
+   },
+   {
+    "id": "F07",
+    "oldId": "F07",
+    "title": "Fatal INV-3 SÅGTAND UPP i fasvarianten (20260708-21h, δ −11,52 s, Klaffbron)",
+    "verdict": "trolig-bugg",
+    "reproduced": true,
+    "evidence": "hunt:repro, med bankrepro efter E4, ger KVAR med exit 0 för 20260708-21h vid δ −11,52 s.\n- 1 utslag av mekanismen har registerutfallet KANDIDAT och 0 ett annat registerutfall; varianten har 1 utslag.\n- Utslaget är 'ETA-SÅGTAND UPP 07:11:30.040 Klaffbron 13→19 på 30s'.\n- Utslagslistan är lika med runda 1:s.\n- bas.jsonl, variant.jsonl, recept.json, fynd.json och tidslinje.txt är bitlika med r1-standard-a. kommando.txt skiljer bara i sökvägen.\n- Kortet har ingen länk.",
+    "note": "Runda 1:s dom står. Fasen avgör bara om heltalströskeln Δ ≥ 6 slår till; hoppet 13→18 (Δ5) finns redan i låst golden.\n\nETA-felet är den dokumenterade öppna klämkedjeklassen (ARCHITECTURE.md:1593 J10, K6-kraven), inte ett beslut. Det tas antingen i ETA-etappen, eller så bokförs knivseggen enligt VALIDATION.md:223–232 (K20 p. 6).\n\nE4 skärpte bara repro-domaren. Svaret är fortfarande KVAR, eftersom den enda träffen är KANDIDAT. BUGGJAKT §14:s 21h-knivsegg håller."
+   },
+   {
+    "id": "F08",
+    "oldId": "F08",
+    "title": "Tappad mellanbropassage i fasvarianten (20260917-16h, δ −2,5/−7 s, Järnvägsbron)",
+    "verdict": "trolig-bugg",
+    "reproduced": true,
+    "evidence": "hunt:repro ger KVAR med exit 0 för 20260917-16h vid δ −2,5 s.\n- 1 utslag har registerutfallet KANDIDAT och 0 ett annat; varianten har 1 utslag.\n- Utslaget är 'basens passage saknas i varianten: 304225000@Järnvägsbron 02:27:17'.\n- Utslagslistan är lika med runda 1:s.\n- Katalogens 8 filer (bas och variant, jsonl och state.json) är bitlika med r1 utom kommando.txt.",
+    "note": "Runda 1:s dom står. Passagedetektionen vid Järnvägsbron beror på tickens fas mot fixarna:\n- I basen körs UNDER_BRIDGE_CROSS_PROOF före AISHub-fixen.\n- I varianten körs FIX_U_FORCE_WAITING i stället, och fixen ger NO_PASSAGE.\n\nDet är just den klass som 2026-10-05-rättelsen skulle stänga. phase-sweep-exceptions.json har inga aktiva undantag, så fallet ska utredas som ett startberoende utfall (CLAUDE.md).\n\nRunda 2 rör inte kortet: E4 räknar nu bara KANDIDAT-träffar, och den här är den enda."
+   },
+   {
+    "id": "F09",
+    "oldId": "F09",
+    "title": "Ny öppningsvarning i fasvarianten (20260710-13h, δ −11,52/+15 s, Klaffbron norrut)",
+    "verdict": "trolig-bugg",
+    "reproduced": true,
+    "evidence": "hunt:repro ger KVAR med exit 0 för 20260710-13h vid δ −11,52 s.\n- 1 utslag har registerutfallet KANDIDAT och 0 ett annat; varianten har 1 utslag.\n- Utslaget är 'varianten har en öppningsvarning som basen saknar: Klaffbron northbound 05:44:29 ledare 265552100 eta 6 (deadline)'.\n- Utslagslistan är lika med runda 1:s.\n- Katalogen är bitlik med r1 utom kommando.txt.",
+    "note": "Runda 1:s dom står. Regeln 'en varning som gick medan båten hölls vid en tidigare bro täcker inte hennes senare ankomst' prövas vid varje utvärdering. Därför avgör halvminutsticken mellan avfyrningen och VIRGOs fix om hon får en egen händelse. Varianten bryter U2 (etapp7-plan:9).\n\nDet finns ingen undantagspost för 13h, och K20-FASKÄNSLIG-LEDARE gäller bara parade kortbyten. BUGGJAKT §14:s 13h-knivsegg håller."
+   },
+   {
+    "id": "F10",
+    "oldId": "F10",
+    "title": "Sann passage registrerades inte: U-svängens återkorsning bokförs aldrig (T10, R1)",
+    "verdict": "trolig-bugg",
+    "reproduced": true,
+    "evidence": "hunt:repro ger KVAR med exit 0.\n- r1: värld 353 (R1, F-USVÄNG), 27 rader bitlika (a90e19fe75eb). Utslaget är 'sann korsning 09:23:15 syd … beslutsam fix efter 09:26:25 (526 m bortom) men ingen passage registrerad'.\n- r2: värld 1731 (R1, monitoring), 17 rader (6c6a22119cca), KVAR med 4 utslag: T10, T2 OKLASSAD, T1 FORM och INV-13.\n- Utslagslistorna är lika med runda 1:s, och direkt replay är lika med repro.result.json.\n- Filerna är bitlika utom kommando.txt.\n- 11 utslag i världarna 188, 353, 523, 750, 892, 1044, 1558, 1680, 1731, 1927 och 1953.\n\nNya länkar:\n- samma utslag som F01 i 353, 1731 och 188;\n- samma minsta repro som F13 (r2 = F13:s r2, radhash 6c6a22119cca…).",
+    "note": "Runda 1:s dom står. Rotorsaken har tre led:\n1. Fix D:s 2-fixdebounce (VesselDataService.js:440–468, Anomali 18) bekräftar vändningen först bortom bron.\n2. N1-resetten i _confirmDirectionReversal (:6771–6793) räknar 'framför' från nuvarande läge och behåller den återkorsade bron i passedBridges.\n3. Därför bokför varken detektionen eller applyInferredPassage (:6880) korsningen.\n\nDokument: helgranskning-2026-07-06.md:305–307, ARCHITECTURE.md:849–853 och :2023–2029. Inget ägarbeslut accepterar en obokförd returpassage. Låst facit väntas inte flytta sig: banken har 4 resetter mitt i resan, och ingen av dem behåller en bro.\n\nLänkarna bekräftar runda 1: F13:s r2 och F01:s U-svängsreturer i 353, 1731 och 188 är samma apphändelse. T10 ser bara returer med en beslutsam fix högst 600 m från bron inom 10 min (t10Passage.js decisiveFixAfter). Fler av F01:s returer har därför troligen samma orsak; stickprovet värld 18 har samma obokförda retur men inget T10-utslag."
+   },
+   {
+    "id": "F11",
+    "oldId": "F11",
+    "title": "Öppningsvarning på fruset fix (T3, Stridsbergsbron söderut)",
+    "verdict": "trolig-bugg",
+    "reproduced": true,
+    "evidence": "hunt:repro ger KVAR med exit 0.\n- r1: värld 1428 (R1, F-USVÄNG), 72 rader bitlika (30f4f90c469f). Utslaget är 'varning Stridsbergsbron#6 11:17:32 med medlem 265155721 vars senaste fix är 20 min gammal'.\n- r2: värld 582 (R1, F-MÖTE), 62 rader (dfdbc8b2569f), KVAR med FRUSET-FIX och EFTER-SANN-PASSAGE (382 s) för samma varning Klaffbron#6 16:42:29.\n- Direkt replay är lika med repro.result.json, och filerna är bitlika utom kommando.txt.\n- 10 utslag. Gränsen −86–289 s är oförändrad.\n- Nya länkar: samma utslag som F03 i 582, och stresstvilling till F22 (förut F23).\n\nE6-systerstället VARNING-PÅ-FRUSET-FIX behöll `<=` (t2Opening.js:371–374). I kortens minsta repro har 27 av 124 levererade varningar en tidslik medlemsrad, och alla 27 är fix-utlösta. Ingen dom om fruset fix vilar alltså på en rad som ännu inte matats in.",
+    "note": "Runda 1:s dom står. RECOVER-släppet saknar färskhetskravet i ARCHITECTURE.md:1461 KRAV (2), att lastSeenAt ska vara nyare än firstPassageAt, och har ingen spärr mot ankomst i det förflutna. Återabsorptionen är den dokumenterade öppna J13+J33 (a).\n\nDet är R1-robusthet med ett fältrimligt klass B-glapp, i samma familj som F02, F03, F14, F17 och F20–F22. En rättning flyttar öppningsfacit."
+   },
+   {
+    "id": "F12",
+    "oldId": "F12",
+    "title": "Fatal INV-13 MÅLBRO SOM MELLANBRO (Stridsbergsbron, GPS-grindens sena bekräftelse)",
+    "verdict": "trolig-bugg",
+    "reproduced": true,
+    "evidence": "hunt:repro ger KVAR med exit 0.\n- r1: värld 254 (R1, F-KÖ), 17 rader bitlika (877af0fbffc6), med två utslag: INV-13 16:16:49 och T10 FANTOMPASSAGE(intermediate).\n- r2: värld 1227 (R1, F-SENFÖDD, monitoring), 32 rader (da8c39082d2b), KVAR med INV-13 02:33:51.\n- Direkt replay är lika med repro.result.json, och filerna är bitlika utom kommando.txt.\n- 3 utslag. Gränsen 77–185 m är oförändrad.\n- Ny länk: samma minsta repro som F16 (r1 = F16:s r1, radhash 877af0fbffc6…).",
+    "note": "Runda 1:s dom står.\n\nRotorsak: app.js:4229–4252 skickar en bekräftad GPS-grindkandidat, vars bro inte längre är target, till registerConfirmedIntermediatePassage (VesselDataService.js:6358). Dedupen räcker inte vid 795 s: den bygger på passageId, en studsvakt på 3 min (:8305–8320) och processedPassages, som lever 5 min (:8288–8296). Kandidaten släpps aldrig när gap-vägen bokför passagen.\n\nRisken är dokumenterad som B6 i reliability-review-2026-06-09.md:126–128, men bara borttagningshalvan infördes (VesselDataService.js:1711–1720). Inget ägarbeslut täcker fallet. En smal rättning, som släpper just den bokförda brons kandidat, flyttar inte låst facit.\n\nLänken bekräftar runda 1: F12 och F16 är samma apphändelse. r2 (1227, båten föds vid linjen) är ett eget fall."
+   },
+   {
+    "id": "F13",
+    "oldId": "F13",
+    "title": "Notis i förvarningsform efter sann passage (T1, Olidebron)",
+    "verdict": "trolig-bugg",
+    "reproduced": true,
+    "evidence": "hunt:repro ger KVAR med exit 0.\n- r1: värld 86 (R1, aishub), 11 rader bitlika (d61470b1a0b5). Utslaget är 'notis 08:57:32 \"SALTIS närmar sig Olidebron, beräknad ankomst om 1 minut\" i förvarningsform, men sann korsning 08:56:38 och appen hade fix 115 m bortom linjen (08:57:32)'.\n- r2: värld 1731 (monitoring), 17 rader (6c6a22119cca), KVAR med 4 utslag; KAJSA är 298 m bortom linjen 11:06:36.\n- Direkt replay är lika med repro.result.json.\n- fynd.json skiljer sig från r1 bara i E6:s nya fält: alla tre fynden (86, 783 och 1731) har fixBortom.mottagen = 'notisens egen fix (tidslik)'. Övriga filer är bitlika.\n- Jag kontrollerade själv i repro.result.json att notisernas vesselLat och vesselLon är exakt den tidslika fixen i 86 och 1731.\n- Utslaget står kvar, för r1 och r2, med gamla motorn (pre2), med pre2 plus bara E6:s filer och med C utan E6:s filer.\n- Klustret har 3 utslag, som förut.\n- Nya länkar: samma utslag som F01 i 1731, och samma minsta repro som F10 (r2).",
+    "note": "Runda 1:s dom står och stärks av E6. Appen byggde notisen i förvarningsform på just den fix som låg 107–298 m bortom linjen, så det är ingen tidslikhetsartefakt.\n\nRepresentanten är ett systerställe till BN2: _hasGapCrossedNotifiedBridge kräver färdriktning, den återfödda båtens kurs 49,9° ligger utanför nordbandet 315–45° i cogDirection.js, och Olidebron-fallbacken dedupas.\n\nr2 (1731) har F10:s mekanism: den nordgående korsningen 11:04:57 bokförs aldrig. En rättning av F10 tar alltså r2, men inte representanten. Stresstvillingen, gamla F21, är borta av rätt skäl (se kortet med oldId F21)."
+   },
+   {
+    "id": "F14",
+    "oldId": "F14",
+    "title": "Fantomvarning utan avbrott i sanningen (T3, Klaffbron söderut)",
+    "verdict": "trolig-bugg",
+    "reproduced": true,
+    "evidence": "hunt:repro ger KVAR med exit 0.\n- r1: värld 227 (R1, F-AVBROTT, monitoring), 190 rader bitlika (de7cb01690b8). Utslagen är varningen Klaffbron#3 11:32:33, klassad AVBRUTEN_APPROACH utan L0-korsning och utan avbrott, och T2 OKLASSAD 11:33:20.\n- r2: värld 1590 (R1, F-KONVOJ), 103 rader (f32585996599), KVAR med Klaffbron#2 13:35:27 och T2 [KONFLIKT U2-RETURRESA].\n- Direkt replay är lika med repro.result.json, och filerna är bitlika utom kommando.txt.\n- 2 utslag, gränsen oförändrad. Kortet har ingen länk.\n\nE6: r2:s varning är fix-utlöst av ledarens egen rad på exakt 13:35:27.182. Enligt BUGGJAKT bilaga B T3 (C/docs/BUGGJAKT.md:787–790) hade en strikt jämförelse i lastSeenFixTs dolt just detta äkta FANTOM-UTAN-AVBROTT i värld 1590. Därför behölls `<=`.",
+    "note": "Runda 1:s dom står. RECOVER släpper en arm vars senaste fix (11:29:00, 705 m, kurs 32,8°) motsäger anflygningen. Enligt ARCHITECTURE.md:1461 KRAV (1) ska armen då avväpnas, inte släppas. Fix D:s tvåfixsbekräftelse förklarar varför armen lever, men inte varför en ny varning avfyras. Kortet hör till samma RECOVER-familj."
+   },
+   {
+    "id": "F15",
+    "oldId": "F15",
+    "title": "Riktning som motsäger sanningen (T9, Olidebron/Kanalinfarten)",
+    "verdict": "trolig-bugg",
+    "reproduced": true,
+    "evidence": "hunt:repro ger KVAR med exit 0.\n- r1: värld 451 (R1, F-USVÄNG, monitoring), 16 rader bitlika (833648217e66), med två T9-utslag: notiserna 12:11:57 och 12:17:41 har riktningen northbound under sydfärd.\n- r2 är samma minsta repro i samma värld, med Kanalinfarten i stället för Olidebron som bro, och är också KVAR med samma två utslag.\n- Direkt replay är lika med repro.result.json, och filerna är bitlika utom kommando.txt.\n- 3 utslag i 2 världar. Gränsen 467–760 m är oförändrad. Kortet har ingen länk.",
+    "note": "Runda 1:s dom står. Ett svepinfererat riktningslås (SKIPPED_BRIDGES_DIRECTION_LOCK) omprövas aldrig mot levande kurs. Avvägningen 'låst ruttlås går före momentan COG' (korpusnoten 20260708-21h, S10) förutsätter att Fix D vänder låset. Fallet kräver en U-sväng i ett långt glapp. Utslaget i värld 188 är F10:s sena vändningsbekräftelse, inte låsmekanismen."
+   },
+   {
+    "id": "F16",
+    "oldId": "F16",
+    "title": "Registrerad mellanbropassage som ingen sann korsning förklarar (T10 FANTOMPASSAGE(intermediate), Stridsbergsbron): dubbelbokföring via GPS-grinden",
+    "verdict": "trolig-bugg",
+    "reproduced": true,
+    "evidence": "hunt:repro ger KVAR med exit 0.\n- r1: värld 254 (R1, aisstream, klass B), 17 rader bitlika (877af0fbffc6), med INV-13 och T10 FANTOMPASSAGE(intermediate) 16:16:49. Närmaste korsning är 16:01:52 söderut.\n- Direkt replay är lika med repro.result.json, och filerna är bitlika utom kommando.txt.\n- 1 utslag.\n- Ny länk: samma minsta repro som F12 (r1 = F12:s r1).",
+    "note": "Runda 1:s dom står. Det är samma apphändelse som F12, och motorn länkar nu korten.\n\nGPS-grindens kandidat från 16:03:34 bekräftas 795 s senare av GPSJumpGateService.confirmStableCandidates (:184–257, TTL 20 min), för en bro som gap-vägen redan har bokfört. Den bokförs då som mellanbro (app.js:4229–4252, VesselDataService.js:6358), och dedupen (:8249–8258 och :8305–8320) räcker inte.\n\nDet är B6 i reliability-review-2026-06-09.md:126–128, och inget ägarbeslut täcker fallet. En rättning tar båda korten, och en smal rättning flyttar inte låst facit."
+   },
+   {
+    "id": "F17",
+    "oldId": "F17",
+    "title": "Sann målbropassage utan öppningsvarning (T2 OKLASSAD, stress): RECOVER-sömmen strax över konvojfönstret",
+    "verdict": "trolig-bugg",
+    "reproduced": true,
+    "evidence": "hunt:repro ger KVAR med exit 0.\n- r1: värld 104 (stress, F-KONVOJ), minsta repro R0 med 196 rader bitlika (eba32240ed3d). Utslagen är T2 OKLASSAD 09:21:15 och T3 #3 09:21:33, 19 s efter korsningen.\n- r2: värld 1794 (R1, F-AVBROTT), 115 rader (819f9b58d99f), KVAR med samma par: #4 10:19:09, 0 s efter korsningen.\n- Direkt replay är lika med repro.result.json, och filerna är bitlika utom kommando.txt.\n- 5 utslag. Gränsen 605–623 s är oförändrad.\n- Ny länk: stresstvilling till F01.",
+    "note": "Runda 1:s dom står. Det är RECOVER-sömmen:\n- Täckningen ankras i den registrerade första passagen (_recordPassage :1754, _rebaseConvoyCoverage :1801).\n- _releaseStrandedArms (BridgeOpeningService.js:1648–1667) avfyrar direkt på förfallen deadline.\n- När 600 s < B − A < 600 s + registreringsfördröjningen kommer därför varningen efter passagen, fast det är en ny öppning.\n\nSamma söm finns i R0 som F01:s r2 (värld 1349), och det är den kopplingen stresstvillinglänken till F01 nu visar.\n\nInget ägarbeslut täcker fallet. U2-VS-DEADLINE gäller bara inom +600 s, och ARCHITECTURE.md:1461 KRAV (3)–(4) beskriver det som saknas. En rättning flyttar konvojfacit."
+   },
+   {
+    "id": "F18",
+    "oldId": "F18",
+    "title": "Fatal INV-3 ETA-OSCILLATION (Stridsbergsbron, stress): 'strax' tappas vid 600 s-gränsen och återkommer med nästa fix",
+    "verdict": "beslut-eller-design",
+    "reproduced": true,
+    "evidence": "hunt:repro ger KVAR med exit 0.\n- r1: värld 1608 (stress, R1 aishub), 109 rader bitlika (9dfe35647d54). Utslagen är ETA-SÅGTAND UPP 09:42:15.101 och ETA-OSCILLATION 09:42:15.126.\n- r2: värld 1907 (monitoring), 97 rader (d273b7117ba5), KVAR med övergången 11:01:40.985/11:01:41.010.\n- Direkt replay är lika med repro.result.json.\n- fynd.json skiljer sig bara genom E7: båda fynden har fått taggen STRESS-TÄTHET. Övriga filer är bitlika.\n- Minsta repro har 3 båtar och är alltså inte stresstät; tätheten gäller ursprungsvärldarna.\n\nNya länkar: stresstvilling till F06, samma minsta repro som F19, och samma utslag som F19 i 1608 och 1907.\n\nI de återskapade fullvärldarna, körda med verbose-logg, har båda utslagen IMMINENT_SKIP 'AIS too old' strax över 600 s för båten mot bron. I 1608 är det 265855691 MASEN 2: glappet är 605 s, och nästa fix kommer just vid hoppet.",
+    "note": "Runda 1:s dom står, eftersom varje steg följer dokumenterade beslut:\n- U1 (etapp7-plan:8) och C11 (:267): 'strax' kräver en färsk signal inom STALE_ETA_HARD 10 min (app.js:6995–6999 och 7171–7175, constants.js:1133).\n- U6 (:15): 'strax' vid lång kö är sanktionerat.\n- B4:s 90 s-tak (app.js:257).\n- F40-avvägningen i helgranskning-2026-07-06.md:271–274: 'ETA-hopp vid 600s-gränsen för väntande glesa sändare'.\n\nKrocken ligger i INV-3:s studsdiskriminator (invariants.js:302–319). Det behövs ett ägarbeslut: antingen en DESIGN- eller MÄTGRÄNS-post med de källorna, eller hysteres i appen.\n\nNytt i runda 2:\n- Taggen STRESS-TÄTHET gör inte fallet till en stressartefakt.\n- Samma mekanism finns i realistiska R1-världar: 3 av F06:s 16 utslag och 14 av F04:s 31 (11 vid 600 s-gränsen, 3 vid 90 s-taket).\n- Ägarbeslutet gäller alltså minst 17 utslag utanför stresskorten.\n- En eventuell registerpost bör därför beskriva mekanismen, alltså 600 s-ålder eller uttömt 'strax' vid hoppet med återgång vid samma båts nästa fix, inte stressnivån."
+   },
+   {
+    "id": "F19",
+    "oldId": "F19",
+    "title": "Fatal INV-3 ETA-SÅGTAND UPP (Stridsbergsbron, stress): samma övergång som F18",
+    "verdict": "beslut-eller-design",
+    "reproduced": true,
+    "evidence": "hunt:repro ger KVAR med exit 0.\n- r1: värld 1608, 109 rader bitlika (9dfe35647d54, samma minsta repro som F18), med samma två utslag 09:42:15.101 och 09:42:15.126.\n- r2: värld 1907 (monitoring), 138 rader (186e740575ce), KVAR med 11:01:40.985/11:01:41.010.\n- Direkt replay är lika med repro.result.json.\n- fynd.json skiljer sig bara genom E7-taggen STRESS-TÄTHET.\n- Nya länkar: stresstvilling till F04, samma minsta repro som F18 och samma utslag som F18 i 1608 och 1907.\n- I fullvärlden 1608 är hoppet 'strax' → 7 min exakt samtidigt med MASEN 2:s fix efter 605 s tystnad.",
+    "note": "Kortet är en dubblett av F18: samma textövergång i två INV-3-underklasser. Motorn länkar nu korten, och dom och underlag är desamma som för F18.\n\nLänken till F04 är mer än nyckellikhet. 14 av F04:s 31 utslag har samma mekanism (600 s-gränsen eller 90 s-taket), medan F04:s representanter (R0) är avgångskedjan. Ett ägarbeslut för F18 avgör F19 och den delen av F04."
+   },
+   {
+    "id": "F20",
+    "oldId": "F20",
+    "title": "Öppningsvarning efter sann passage (T3 VARNING-EFTER-SANN-PASSAGE, Klaffbron norrut, stress)",
+    "verdict": "trolig-bugg",
+    "reproduced": true,
+    "evidence": "hunt:repro ger KVAR med exit 0.\n- r1: värld 1486 (R1, F-KAJ), 41 rader bitlika (2bf8925f8545). Utslaget är varningen Klaffbron#4 12:20:11, 268 s efter passagen 12:15:43.\n- r2: värld 1907 (monitoring), 27 rader (f6c6c546dd6b), KVAR med Stridsbergsbron#3 10:04:01, 129 s efter passagen.\n- Direkt replay är lika med repro.result.json, och filerna är bitlika utom kommando.txt.\n- 3 utslag. Gränsen 367–555 s är oförändrad.\n- Nya länkar: stresstvilling till F03, och samma utslag som F22 i 1907.",
+    "note": "Runda 1:s dom står.\n\n_releaseStrandedArms (BridgeOpeningService.js:1648–1666) släpper armen på ren tid, och samma utvärdering binder armen och avfyrar (:1298, :1327). Släppet saknar de grindar _rescueCoveredArms har (:1567–1580). Premissen 'öppningen har bevisligen gått utan henne' (:1637–1641; ARCHITECTURE.md:738–741) håller inte för en tyst båt.\n\nFallet är VIRGO/PILGRIM-klassen (ARCHITECTURE.md:1454–1482), där KRAV (3)–(4) hade stoppat varningen, och U2 bryts.\n\nInget ägarbeslut täcker fallet: produktprincipen (:45–50) godtar bara stopp eller vändning efter sista fixen, och etapp7-plan:380–381 är en mätning. En rättning flyttar öppningsfacit (O1/O2, ARCHITECTURE.md:1621–1623)."
+   },
+   {
+    "id": "F21",
+    "oldId": "F22",
+    "title": "Öppningsvarning med för kort ledtid före sann passage vid Stridsbergsbron söderut (T2 LEDTID<60s, R0, stress)",
+    "verdict": "trolig-bugg",
+    "reproduced": true,
+    "evidence": "hunt:repro ger KVAR med exit 0.\n- r1: värld 47 (R0, F-KONVOJ, monitoring), 183 rader bitlika (15510fb916d0). Utslaget är 'varning Stridsbergsbron#3 16:58:38 (fired) bara 54 s före sann korsning 16:59:32'.\n- Direkt replay med REPLAY_MONITORING=1 är lika med repro.result.json.\n- Alla filer utom kommando.txt är bitlika med r1:s F22.\n- 1 utslag. Gränsen 632–669 s är oförändrad.\n- Ny länk: stresstvilling till F02.",
+    "note": "Runda 1:s dom för F22 står; bara id:t är nytt.\n\nTäckningsslutet är den enda punkt där medlemskapet omprövas:\n- coverUntilMs sätts en gång, på en prognos (BridgeOpeningService.js:1470–1473 och :1629–1630).\n- Den kortas bara av K14 (:1801–1812).\n- _releaseStrandedArms (:1648–1666) släpper armen 255 m från bron, och :1327 avfyrar på den ärvda fireDueMs.\n\nB − A = 669 s > CONVOY_WINDOW_MS, så båten är nästa öppning enligt U2. KRAV (3)–(4) räcker inte här: prognosen gav 81,7 s kvar, verkligheten 54 s.\n\nInget ägarbeslut täcker fallet: C-IV gäller båtar i samma öppning, och U9-ventilen är avstängd (constants.js:1478–1504). Kortet uppfyller BUGGJAKT §14:s kriterium för konvojfönstrets bakkant. En rättning flyttar konvojfacit."
+   },
+   {
+    "id": "F22",
+    "oldId": "F23",
+    "title": "Öppningsvarning på fruset fix vid Stridsbergsbron söderut (T3 VARNING-PÅ-FRUSET-FIX, stress)",
+    "verdict": "trolig-bugg",
+    "reproduced": true,
+    "evidence": "hunt:repro ger KVAR med exit 0.\n- r1: värld 1907 (R1, F-KONVOJ, monitoring), 74 rader bitlika (1926deedbee5). Utslagen gäller Stridsbergsbron#6 11:46:09: VARNING-PÅ-FRUSET-FIX (ALVA, 265183171, senaste fix 22 min gammal) och VARNING-EFTER-SANN-PASSAGE (475 s).\n- Direkt replay är lika med repro.result.json.\n- Alla filer utom kommando.txt är bitlika med r1:s F23.\n- 1 utslag. Gränsen 367–508 s är oförändrad.\n- Nya länkar: stresstvilling till F11, och samma utslag som F20 i 1907.\n- Varningen har ingen tidslik medlemsrad, så E6:s `<=` i FRUSET-FIX påverkar inte domen.",
+    "note": "Runda 1:s dom för F23 står; bara id:t är nytt.\n\n_releaseStrandedArms (BridgeOpeningService.js:1648–1666) saknar färskhetskravet KRAV (2) (ARCHITECTURE.md:1461–1470). lastSeenAt 11:24:30 är äldre än båda händelsernas firstPassageAt, och :1327 avfyrar på den ärvda fireDueMs. Den enda färskhetsgränsen är ARM_STALE_TTL_MS, 30 min (constants.js:1418). Återabsorptionen är den öppna J13+J33 (a) (ARCHITECTURE.md:1611–1616).\n\nInget ägarbeslut täcker fallet, och U2 bryts. Vakten ska vara smal, eftersom RECOVER räddar 5 äkta fall (etapp7-plan:380–381)."
+   },
+   {
+    "id": "",
+    "oldId": "F21",
+    "title": "Notis i förvarningsform efter sann passage vid Järnvägsbron söderut (T1 FÖRVARNINGSFORM-EFTER-PASSAGE, stress), försvunnen genom E6",
+    "verdict": "motorartefakt",
+    "reproduced": false,
+    "evidence": "hunt:repro på en kopia av r1-standard-a/fynd/F21-notis-i-forvarningsform-efter-sann-passage-vid-jarnvagsbron-soderut ger BORTA (0 utslag i världen) med exit 0. De 34 raderna är bitlika med den sparade radhashen (41b807562f03). Direkt replay är lika med repro.result.json, så appens beteende är oförändrat.\n\nIsolering med kopior under F/tmp/triage2:\n- gamla motorn (F/pre2/bugHunt) ger KVAR;\n- pre2 med bara C:s t1Notice.js och truthCommon.js (E6) ger BORTA;\n- C med pre2:s två filer ger KVAR;\n- F13 (r1 och r2) är KVAR i alla tre.\n\nI repro.result.json har notisen 12:03:17.268 vesselLat 58.29166574786605, alltså fixen 12:02:30.449, 6 m före linjen. vesselLatNext är 58.291032526317125, alltså den tidslika raden 12:03:17.268, 77 m bortom linjen, som väntade på inmatning.\n\nI den nya rapporten:\n- Klusternyckeln KANDIDAT|-|T1|FÖRVARNINGSFORM-EFTER-PASSAGE|synt|stress finns inte.\n- Utslagsjämförelsen r1 → s1 (420 → 419) visar att detta utslag är det enda som försvunnit.\n- Värld 856 har kvar F17 och KÄND_ÖPPEN U2-VS-DEADLINE stress.\n- T1 R1 har gått från 9 till 8 utslag.\n- täckning.synt.räknare.R1.T1.tidslikUtesluten = {ejInmatad 1, oklar 0}; för R0 är den {0, 0}.",
+    "note": "Jag bekräftar att kortet försvann av rätt skäl: runda 1:s motorartefakt är rättad genom E6.\n- Rättningen finns i truthCommon.noticeHadFix (:83) och tiedAtNotice (:98) samt t1Notice.js:267–276.\n- Regeln räknar fixar strikt före notisen, och en tidslik fix bara när notisens frysta position är just den fixen. Det stämmer med katalogregeln 'appen före notisen fått en fix mer än 70 m bortom linjen' (C/docs/BUGGJAKT.md bilaga B T1, rad 763–772).\n- Notisen byggdes på fixen 6 m före linjen. Att den gick ut på nästa rads tid beror på harnessens 30 s-stegning med dränering (replayRunner.js:512–521).\n\nAppen följer kontraktet. Inget ägarbeslut behövs, och inget appfacit flyttas. Basnyckeln står kvar som F13, med tre äkta utslag."
+   },
+   {
+    "id": "W750",
+    "oldId": "W750",
+    "title": "Värld 750 (R1, GUNHILD): U-svängens södergående återpassage av Klaffbron bokförs aldrig",
+    "verdict": "trolig-bugg",
+    "reproduced": true,
+    "evidence": "hunt:repro på en kopia av runda 1:s katalog F/tmp/triage-1/W750 ger KVAR med exit 0. De 551 raderna är bitlika (sampleWorld(1, 750), seed 420032269, radhash 02bbc858c52bea5b).\n\nUtslagen är samma tre som i runda 1:\n- T10 PASSAGE-EJ-REGISTRERAD för GUNHILD: Klaffbron söderut 09:10:01, fix före 09:09:33 (79 m), beslutsam fix efter 09:11:44 (242 m bortom).\n- T3 VARNING-EFTER-SANN-PASSAGE: Stridsbergsbron#31 10:08:56, 592 s efter passagen.\n- T2 [KÄND_ÖPPEN U2-VS-DEADLINE]: 08:43:16.\n\nI den nya rapporten ligger värld 750:s utslag i samma kluster som förut: F10, F03 och KÄND_ÖPPEN U2-VS-DEADLINE. Ingen länk berör världen.",
+    "note": "Oförändrat från runda 1. Värld 750 är en av F10:s elva världar, med samma appmekanism: Fix D:s 2-fixdebounce (VesselDataService.js:440–468) plus N1-resetten räknad från nuvarande läge (:6771–6793).\n\nMotorn ger världen inget eget kort, eftersom klusternyckeln bara skiljer på mekanism och representanterna väljs med R0 först, olika broar och minsta världen först (cluster.js). Något eget kort behövs inte heller. Inget ägarbeslut täcker fallet.\n\nAtt notisen uteblir följer besöksregeln, eftersom U-svängen på 241 m ligger inom 350 m-utfärden. Bokförs returen som målbropassage hamnar fallet i INV5-VS-BESÖKSREGEL (125–308 m)."
+   }
+  ],
+  "summary": "Jag har triagerat runda 2:s standardrapport, s1-standard-a med fingeravtrycket 19804855dcf4 och 22 kort, mot runda 1 (r1-standard-a, 23 kort). Ingen dom ändras. Inga nya kort finns, och det enda försvunna kortet, gamla F21, försvann av rätt skäl.\n\n**Domar**\n- **trolig-bugg (20):** F01–F17, F20, F21 (förut F22), F22 (förut F23) och W750.\n- **beslut-eller-design (2):** F18 och F19.\n- **motorartefakt (1):** gamla F21, som är borta (id tomt, oldId F21).\n\n**Hur jag kontrollerade**\n- Motorn i C var oförändrad under hela triagen; sha-summorna är lika med körarens start- och slutsnapshot. Jag har inte skrivit i C, och skyddskoll.sh ger OK.\n- hunt:repro kördes från C på kopior av korten, med TMPDIR i F/tmp/triage2. Alla 22 kort och deras r2 gav KVAR med exit 0 och bitlika rader, och utslagslistorna är identiska med runda 1:s.\n- Direkt replay av alla 37 syntetiska repro-kataloger, plus gamla F21, är lika med sparad repro.result.json.\n- Alla kortfiler är bitlika med r1. Undantagen är kommando.txt, som bara skiljer i sökvägen, och fynd.json i F13 (E6:s mottagen) och F18/F19 (E7:s STRESS-TÄTHET).\n- En jämförelse av alla utslag i rapport.json, även de registrerade klustren, visar 420 → 419 utslag. Det enda som försvunnit är T1-utslaget i värld 856. E1–E5 ändrade alltså inget utfall i standardkörningen.\n\n**Gamla F21**\nJag isolerade E6 som orsak:\n- Gamla motorn (pre2) ger KVAR.\n- pre2 med bara E6:s två filer ger BORTA.\n- C utan E6:s filer ger KVAR.\n- F13 står kvar i alla tre.\n\nNotisen byggdes på fixen 12:02:30, 6 m före linjen. Den tidslika raden 12:03:17 var harnessens nästa rad, ännu inte inmatad (vesselLatNext), och räknaren tidslikUtesluten visar R1 {ejInmatad 1, oklar 0}. F13:s tre notiser byggdes däremot på sin egen fix 107–298 m bortom linjen, så F13 är äkta.\n\n**Vad E8-länkarna tillförde**\n- **F01↔F03:** de 14 delade världarna är RECOVER-sömmen och överlappar runda 1:s klassning i 12 av 14.\n- **F01↔F10:** länken (353, 1731, 188) är en undre gräns. T10 kräver en beslutsam fix högst 600 m från bron inom 10 min, och i stickprovet värld 18 är returen lika obokförd men osynlig för T10.\n- **F04↔F19 och F06↔F18:** jag körde alla 31 världar i F04 och alla 16 i F06 med verbose-logg. 14 av F04:s utslag och 3 av F06:s har F18/F19:s mekanism: ETA_STALE_HARD vid 600 s eller B4:s 90 s-tak på 'strax'. Alla är R1 i realistisk täthet, medan representanterna (R0) har sina egna mekanismer.\n  - F04:s och F06:s domar står.\n  - Ägarbeslutet för F18/F19 täcker minst 17 utslag utanför stresskorten, så STRESS-TÄTHET-taggen gör inte fallet till en stressartefakt.\n  - En registerpost bör beskriva mekanismen, inte stressnivån.\n- **E6:s T2/T3-ställen:** att `<=` behölls håller för korten. 27 av 124 varningar har en tidslik medlemsrad, och alla är fix-utlösta. F14:s r2 (värld 1590) står kvar just tack vare `<=`.\n\n**Övrigt**\nB01 och B02 (KONFLIKT) ger också KVAR och har oförändrade filer. De ingår inte i runda 1:s kortmängd, så jag har inte gett dem egna domar.\n\nAllt underlag ligger i /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-fix/tmp/triage2:\n- repro/: hunt:repro-loggar\n- direkt/: direkta replay-jämförelser\n- iso/: isoleringen av F21 och F13\n- allinv3/: verbose-körningarna och klassning2.txt\n- worlds/: återskapade världar\n- old, e6only, utanE6: motorkopiorna\n- scripts/: skripten"
+ },
+ "doc": {
+  "path": "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/docs/buggjakt-triage-2026-11-04.md",
+  "cardCount": 22,
+  "verdictCounts": "Rapportens 22 kort: 20 trolig-bugg (F01–F17 och F20–F22), 2 beslut-eller-design (F18, F19), 0 oklara. Utöver korten finns W750 (trolig-bugg; en värld i F10:s kluster utan eget kort) och förra F21 (motorartefakt, borttagen genom E6). Det blir 24 bedömningar: trolig-bugg 21, beslut-eller-design 2 och motorartefakt 1. B01 och B02 är konfliktexempel och inga kort; båda ger KVAR. Triagens sammanfattning angav \"trolig-bugg (20)\" men räknade upp 21 poster, eftersom W750 ingick. Dokumentet anger därför 20 kort plus W750.",
+  "rootCauseGroups": [
+   {
+    "name": "1. RECOVER-släppet och konvojfönstrets bakkant",
+    "cards": [
+     "F02",
+     "F03",
+     "F11",
+     "F14",
+     "F17",
+     "F20",
+     "F21",
+     "F22",
+     "F01"
+    ],
+    "summary": "F01 ingår bara delvis: RECOVER-sömmen i ungefär 14 av dess världar, plus r2 i värld 1349.\n\nMekanism: _releaseStrandedArms (BridgeOpeningService.js:1648–1667, steg 1b vid :1279) släpper en absorberad arm på ren tid när täckningen tar slut. Samma utvärdering binder armen (:1298) och avfyrar på den ärvda, redan förfallna deadlinen (:1327). Grindarna i _rescueCoveredArms (:1567–1580) saknas.\n\nUtfallet beror på B − A:\n- under 600 s: varningen kommer efter passagen (F03, F20);\n- strax över 600 s: OKLASSAD (F17);\n- därefter: ledtid under 60 s (F02, F21);\n- dessutom fruset fix (F11, F22) och bron bakom båten (F14).\n\nDokument: ARCHITECTURE.md:1461–1474 (KRAV 1–4) och :1611–1622 (J13+J33); etapp7-plan:9 (U2) och :380–381.\n\nRättningsriktning: ett smalt släpp enligt KRAV 1–4. För F21 måste medlemskapet dessutom omprövas.\n\nFacit och mätning: flyttar konvoj- och öppningsfacit. Kräver O1/O2/O2b (replay:openings), replay:all och omlåsning, samt fassvepet med REPLAY_MONITORING=1.\n\nPrioritet: hög."
+   },
+   {
+    "name": "2. Glappregistreringen flyttar konvojtäckningen",
+    "cards": [
+     "F01"
+    ],
+    "summary": "Representanten är värld 1900 (R0, F-AVBROTT). Klustret är blandat: avbrott 9, RECOVER-söm 14, U-svängsretur 13, absorberad utan egen varning 17 och övrigt 2.\n\nMekanism: _recordPassage (BridgeOpeningService.js:1743–1761) sätter firstPassageAt och referenceArrivalMs till registreringstiden efter ett AIS-glapp. Täckningen räknas därifrån (:1470–1473, :1801). Därför sväljs nästa öppning: 1 069 s efter den sanna korsningen kommer ingen varning. Det strider mot K14-doktrinen (:1763–1800) och U2.\n\nRättningsriktning: ankra i den interpolerade korsningstiden. Gör det tillsammans med eller efter grupp 1, eftersom en kortare täckning ger RECOVER fler båtar att släppa.\n\nFacit och mätning: flyttar konvojfacit; mät O1/O2 och kör replay:all.\n\nPrioritet: hög."
+   },
+   {
+    "name": "3. U-svängens obokförda återkorsning",
+    "cards": [
+     "F10",
+     "W750",
+     "F01",
+     "F12",
+     "F13",
+     "F15"
+    ],
+    "summary": "F10 (11 världar, R1) och W750 är gruppens kärna. Från F01, F12, F13 och F15 ingår bara de utslag som har den här mekanismen: F01:s 13 U-svängsreturer, F12 och F13:s r2 i värld 1731 och F15 i värld 188.\n\nMekanism i tre led:\n1. Fix D:s tvåfixsdebounce (VesselDataService.js:440–468, Anomali 18) bekräftar vändningen först när båten är bortom bron.\n2. N1-resetten (:6771–6793) räknar \"framför\" från nuvarande läge och behåller den återkorsade bron i passedBridges.\n3. applyInferredPassage (:6858, :6879) bokför därför aldrig returen.\n\nDokument: helgranskning-2026-07-06.md:305–307 och ARCHITECTURE.md:849–853, :2023–2029.\n\nRättningsriktning: räkna resetten från den väntande reversalen.\n\nFacit och mätning: låst facit väntas inte flytta sig. Kör replay:all och replay:synthetic. B01 bör avgöras först, eftersom returer inom 350 m annars hamnar i INV5-VS-BESÖKSREGEL.\n\nPrioritet: medel."
+   },
+   {
+    "name": "4. GPS-grindens dubbelbokföring",
+    "cards": [
+     "F12",
+     "F16"
+    ],
+    "summary": "F12 och F16 är samma apphändelse i värld 254, med samma minsta repro.\n\nMekanism: GPSJumpGateService.confirmStableCandidates (:184–257) bekräftar 795 s senare en kandidat för en bro som gap-vägen redan har bokfört. app.js:4229–4252 skickar den sedan till registerConfirmedIntermediatePassage (VesselDataService.js:6358). Dedupen räcker inte: passageId, studsvakten på 3 min och processedPassages på 5 min (:8249–8320).\n\nDokument: B6 i reliability-review-2026-06-09.md:126–128. Bara borttagningshalvan infördes (VDS:1711–1720).\n\nRättningsriktning: släpp just den bokförda brons kandidat, inte alla kandidater vid målbyte (jfr 20260713-41h).\n\nFacit och mätning: låst facit flyttas inte; kör replay:all.\n\nPrioritet: medel."
+   },
+   {
+    "name": "5. BN2-luckan för en återfödd båt",
+    "cards": [
+     "F13"
+    ],
+    "summary": "Representanten är värld 86 (SALTIS). r2 (värld 1731) hör till grupp 3, och värld 783 är inte utredd.\n\nMekanism: _hasGapCrossedNotifiedBridge (app.js:9890) kräver färdriktning ur ruttlåset eller kursbanden. Den återfödda båtens kurs, 49,9°, ligger utanför nordbandet 315–45° (lib/utils/cogDirection.js). Notisen får därför förvarningsform trots att korsningen redan skett.\n\nDokument: helgranskning-2026-11-03.md:108–115 och :266–272.\n\nRättningsriktning: ge BN2 en riktningskälla, utan att villkoret blir glappets egen latitudförflyttning (scenario A). Rätta tillsammans med grupp 6.\n\nFacit och mätning: notisformen i banken kan ändras; kör replay:all.\n\nPrioritet: låg till medel."
+   },
+   {
+    "name": "6. Det svepinfererade riktningslåset",
+    "cards": [
+     "F15"
+    ],
+    "summary": "Representanten är värld 451 (IRMA). Utslaget i värld 188 hör till grupp 3.\n\nMekanism: SKIPPED_BRIDGES_DIRECTION_LOCK (app.js:8515–8528) sätter riktningen ur svepfönstrets nettoförflyttning efter en U-sväng som skett i ett glapp. Låset omprövas sedan aldrig mot levande kurs, och varken korsningsbeviset eller Fix D vänder det.\n\nDokument: korpusnoten för 20260708-21h (corpora.js:771–772, \"låst ruttriktning > momentan COG\").\n\nRättningsriktning: ompröva låset mot kurs och progress, tillsammans med grupp 5.\n\nFacit och mätning: notisernas riktning kan ändras; kör replay:all.\n\nPrioritet: låg."
+   },
+   {
+    "name": "7. ETA-kedjan (avgångs-ETA, oscillation och klämkedjan)",
+    "cards": [
+     "F04",
+     "F06",
+     "F07"
+    ],
+    "summary": "14 av F04:s 31 utslag och 3 av F06:s 16 har i stället F18:s mekanism och hör till F40-frågan.\n\nMekanism per kort:\n- F04: avgångs-ETA på igångsättningsfart, förstärkt av ETA_GAP_RESET → ETA_OUTLIER → EMA (ProgressiveETACalculator.js:745, :904, :1156).\n- F06: 3-minutersgränsen saknar hysteres, K6 ger dubbel EMA, och 300 m-regeln slår till.\n- F07: klämkedjan (ETA_PUBLISH_CLAMP, app.js:5442) vid 21h-knivseggen. Hoppet Δ5 finns redan i låst golden.\n\nDokument: ARCHITECTURE.md:2230–2232, :1593–1610 (J10) och §8 (e) K6; etapp7-plan U1/U6.\n\nRättningsriktning: tas i ETA-etappen. F07 kan i stället bokföras som knivsegg (VALIDATION.md:230–238).\n\nFacit och mätning: flyttar golden-text; kör replay:all och measure:eta.\n\nPrioritet: medel för F04, låg för F06 och F07."
+   },
+   {
+    "name": "8. LOW_SPEED/INSUFFICIENT_MOVEMENT-flappen",
+    "cards": [
+     "F05"
+    ],
+    "summary": "F05 är INV-14 DEFAULT-FLASH i 17 världar.\n\nMekanism: tilldelningens närhetsundantag (VesselDataService.js:4377–4383) mäter mot närmaste bro. Retentionens LOW_SPEED (:8065–8067) och INSUFFICIENT_MOVEMENT (:8092–8093; MIN_APPROACH_DISTANCE = 10 m, constants.js:148) mäter mot målbron 1,2 km bort. Målet tappas och tilldelas därför växelvis, och texten visar \"Inga båtar\" däremellan. Gränsen är 0,26–0,59 kn.\n\nDokument: syskonet i valideringskorning-2026-07-02.md:36–40 ligger utanför kö-zonsvakten.\n\nRättningsriktning: låt båda grindarna mäta mot samma bro, eller tidsnormalisera kravet på 10 m per fix.\n\nFacit och mätning: flyttar syntetiskt textfacit och möjligen golden-text; kör replay:all.\n\nPrioritet: medel."
+   },
+   {
+    "name": "9. Fasberoendet i 16h och 13h",
+    "cards": [
+     "F08",
+     "F09"
+    ],
+    "summary": "F08 (20260917-16h): passagebeviset vid Järnvägsbron beror på om UNDER_BRIDGE_CROSS_PROOF (StatusService.js:1341) eller FIX_U_FORCE_WAITING (:183) hinner först. Det är den klass som rättelsen 2026-10-05 skulle stänga.\n\nF09 (20260710-13h): regeln om båt som hålls vid en tidigare bro (BridgeOpeningService.js:1387–1394, _bindLooseArms) prövas vid varje utvärdering. En halvminutstick mellan avfyrningen och VIRGOs fix ger därför en extra varning, vilket bryter U2.\n\nRättningsriktning: gör besluten oberoende av ticken.\n\nFacit och mätning: basen är facit. replay:phase ser inte felen, eftersom den bara byter ankarraden. Mät med hunt:repro (M-FAS flyttar hela korpusen) och replay:all med REPLAY_MONITORING=1, och för F09 även replay:openings.\n\nPrioritet: medel."
+   }
+  ],
+  "ownerDecisions": [
+   "B01 INV5-VS-BESÖKSREGEL (KONFLIKT, 32 utslag i 30 världar plus en stressvärld): ska det vara en notis per passage (INV-5/7, VALIDATION.md:296–300) eller en per besök (besöksregeln 2026-09-07, TriggerPointVisitTracker.js:12–16)? Svaret avgör också hur en bokförd U-svängsretur i grupp 3 ska klassas.",
+   "B02 U2-RETURRESA (KONFLIKT, 18 världar): är en U-svängares retur en ny öppning med egen varning (INV-21, invariants.js:866–871), eller hör den till båtens egen äldre händelse (U2, etapp7-plan:9)? Frågan tas i konvojbeslutet.",
+   "F40-studsen (F18 och F19, plus 17 utslag i realistiska R1-världar ur F04 och F06): antingen en registerpost, DESIGN eller MÄTGRÄNS för INV-3, som beskriver mekanismen (600 s-gränsen eller 90 s-taket, och återgång vid samma båts nästa fix) och inte stressnivån; eller hysteres i appen, vilket flyttar golden-text.",
+   "INV-10:s granularitet i replay:all. Rekommendation: lägg kedjeregeln med tickvillkoret i INV-10 själv och ta sedan bort MÄTGRÄNS-INV10-VÄNTKEDJA. Banken har inga INV-10-utslag, så inget låst facit flyttas. Det är en harnessändring och kräver ägarens beslut.",
+   "U2-VS-DEADLINE (KÄND_ÖPPEN, 34 utslag): C-IV:s val a, b eller c (etapp7-plan:310–349).",
+   "J13-J14-KONVOJSEMANTIK (KÄND_ÖPPEN, 3 världar): ska en öppning stängas av en medlems passage eller av första faktiska passagen (ARCHITECTURE.md:1611–1628)?",
+   "BN1-BOXKANT (KÄND_ÖPPEN, 42h och 80h): ska en utåtriktad transit räknas som utfärd, eller ska bevakningsboxen vidgas (helgranskning-2026-11-03, beslutspunkt 2)?",
+   "D1-KAJZON-DEMOTION (KONFLIKT, 1 värld): är demotionen i Kajens kapsel avsedd, eller bryter den mot INV-B1/D1 (constants.js:415–470 mot reliability-spec.md:83 och :102)?",
+   "Rekommendation: ta konvojfamiljen som ett enda beslut med ett omlåsningsprotokoll (ARCHITECTURE.md:1621–1622). Det omfattar U2-VS-DEADLINE, B02, J13-J14 och J13+J33 tillsammans med rättningarna i grupp 1 och 2.",
+   "Ska fixarnas fas mot de fasta halvminuterna bli en stående grind? replay:phase byter bara ankarraden. M-FAS flyttar hela korpusen och fann F07–F09 där fassvepet var grönt."
+  ],
+  "notes": "Jag har bara skrivit en fil: C/docs/buggjakt-triage-2026-11-04.md (624 rader, LF, ingen rad utanför tabellerna längre än 80 tecken). skyddskoll.sh ger OK före och efter skrivningen. Motorn och BUGGJAKT.md är oförändrade (sha-kontroll mot triagens slutsnapshot), och huvudträdets git status är tomt. Dokumentet innehåller inga absoluta scratch-sökvägar; körningens filer anges som dirigent/hunt/<körning>/fynd/<kort>.\n\nInför committen: rapportens fingeravtryck (19804855dcf4) räknas även över HEAD, körnings-id och Node-version (tests/replay-validation/bugHunt/lib/report.js och lib/hygiene.js#runIdOf). En körning i repot ger därför samma kort men ett annat rapportfingeravtryck. Sanningsspårets fingeravtryck (rader 19bbc284099d, fynd 847ffde12743) beror däremot inte på HEAD-sha:n. Dokumentet säger detta uttryckligen, så att ingen förväntar sig 19804855dcf4 i repot.\n\nJag kontrollerade alla citerade fil:rad mot HEAD 7699cbe och rättade några som triagen angav en rad fel:\n- K14-doktrinen ligger på :1763–1800.\n- _recordPassage ligger på :1743–1761.\n- Fix D-avvägningen ligger på ARCHITECTURE.md:2023–2029.\n- Riktningslåset ligger på app.js:8515–8528.\nNya hänvisningar som triagen saknade: StatusService.js:1341/:183 (F08), BridgeOpeningService.js:1387–1394 (F09), ProgressiveETACalculator.js:745/:904/:1156 och app.js:5442 (ETA), samt faltgranskning-2026-10-05.md:130–136 och :219–221 (16h). Värd 218023240 finns i 20260713-41h (grep i corpora-data).\n\nNy iakttagelse i dokumentet (grupp 9 och beslutsfråga 7): runPhaseSweep byter bara ankarraden, och UI-klockan följer fasta halvminuter. Fassvepet kan därför inte se fixarnas fas mot ticken; det kan bara buggjägarens M-FAS.\n\nF18 och F19 är beslut-eller-design och står under beslutsfrågor, inte bland rotorsaksgrupperna.\n\nRättningsriktningarna är förslag. Ingen är prototypad eller mätt, och dokumentet säger det."
+ }
+}

@@ -1,0 +1,122 @@
+diff --git a/app.js b/app.js
+index 2cfcfe4..4810c2d 100755
+--- a/app.js
++++ b/app.js
+@@ -3221,6 +3221,19 @@ class AISBridgeApp extends Homey.App {
+             // F34: rensa ÄVEN persistent (clearPersistent=true) — en äkta ny resa
+             // ska kunna notifiera samma broar igen även inom 2h-fönstret.
+             this._clearBoatNearTriggers(vessel, true);
++            // Varv 2 (triage A, skiss): målbron i SAMMA tick som bekräftelsen.
++            // Förut sattes den av ACCELERATED-grenen först vid nästa fix, så en
++            // returresa med gles AIS fick armen och varningen ett fix för sent.
++            const assigned = this.vesselDataService.assignTargetAfterReversal?.(
++              vessel, oldVessel, newDir, 'new-journey',
++            );
++            if (assigned) {
++              this.statusService.clearVesselETAHistory(mmsi, `target_bridge_change_none_to_${assigned}`);
++              if (this._vesselRemovalTimers.has(mmsi)) {
++                clearTimeout(this._vesselRemovalTimers.get(mmsi));
++                this._vesselRemovalTimers.delete(mmsi);
++              }
++            }
+           }
+         } else if (vessel._newJourneyPending) {
+           // Inte längre reversed — kortvarig wobble, ingen ny resa.
+diff --git a/lib/services/VesselDataService.js b/lib/services/VesselDataService.js
+index 1e18cd3..81fa9cc 100755
+--- a/lib/services/VesselDataService.js
++++ b/lib/services/VesselDataService.js
+@@ -498,6 +498,10 @@ class VesselDataService extends EventEmitter {
+     // en no-op, men ett dubbelanrop skulle logga två gånger och göra spårningen
+     // otydlig).
+     let acceleratedIntermediateChecked = false;
++    // Varv 2 (triage A, skiss): vändningar som bekräftas INNE i målbrokedjan
++    // (RE_CROSS_EVIDENCED, korsningsbevis-reversalen) nollar målbron, men
++    // ACCELERATED-grenen ligger i samma else-if-kedja och körs inte denna tick.
++    const reversalSeqBeforeChain = this._reversalSeq || 0;
+ 
+     // Handle target bridge assignment and transitions
+     if (isNewVessel && !vessel.targetBridge) {
+@@ -947,6 +951,14 @@ class VesselDataService extends EventEmitter {
+       }
+     }
+ 
++    if (!isNewVessel && !vessel.targetBridge
++        && (this._reversalSeq || 0) > reversalSeqBeforeChain
++        && this._lastReversal && String(this._lastReversal.mmsi) === String(mmsi)
++        && this.assignTargetAfterReversal(vessel, oldVessel, this._lastReversal.dir, 'reversal-i-målbrogrenen')) {
++      // Segmentet prövades redan i målbrogrenen (där vändningen bekräftades).
++      acceleratedIntermediateChecked = true;
++    }
++
+     // Anomali 11 (2026-05-12): Post-TARGET_END intermediate-passage detection.
+     // När vessel har passerat sista målbron (_finalTargetBridge satt, targetBridge=null),
+     // fortsätter den genom kvarvarande intermediate-broar (Stallbackabron norrut,
+@@ -6815,6 +6827,8 @@ class VesselDataService extends EventEmitter {
+     // efter att en verklig vändning redan har bekräftats.
+     vessel._passageRecoveryPosition = null;
+     const mmsi = vessel.mmsi?.toString?.() || vessel.mmsi;
++    this._reversalSeq = (this._reversalSeq || 0) + 1;
++    this._lastReversal = { mmsi, dir: newDir };
+     this.logger.log(
+       `🔄 [TARGET_RECALC] ${mmsi}: Direction reversed CONFIRMED `
+       + `(${vessel._routeDirection} → ${newDir}, ${reason}), `
+@@ -6886,6 +6900,44 @@ class VesselDataService extends EventEmitter {
+     }
+   }
+ 
++  /**
++   * Varv 2 (triage A, skiss): MÅLBRO I SAMMA TICK SOM EN BEKRÄFTAD VÄNDNING.
++   * Två vägar bekräftade vändningen men lämnade måltilldelningen åt nästa fix:
++   * RE_CROSS_EVIDENCED inne i målbrogrenen (else-if-kedjan i updateVessel
++   * hoppar då över ACCELERATED-grenen) och app-lagrets NEW_JOURNEY (körs
++   * efter updateVessel). Med gles AIS kom målbron, och därmed armen och
++   * öppningsvarningen, först vid nästa fix (buggjägarens värld 936, 1208,
++   * 1274, 1316, 1317 och 1918). U18 är oförändrad: anropas bara efter en
++   * bekräftad vändning. Samma grindar som ACCELERATED-grenen, med det gamla
++   * målet ogiltigt (som fixDReversalConfirmed).
++   * @param {Object} vessel
++   * @param {Object|null} oldVessel
++   * @param {string} direction - 'north' eller 'south' (den bekräftade)
++   * @param {string} reason - loggetikett
++   * @returns {string|null} den tilldelade målbron
++   */
++  assignTargetAfterReversal(vessel, oldVessel, direction, reason) {
++    if (!vessel || vessel.targetBridge || vessel._moored) return null;
++    if (direction !== 'north' && direction !== 'south') return null;
++    if (!this._shouldAssignTargetBridge(vessel, oldVessel, true)) return null;
++    const target = this._calculateTargetBridge(vessel, direction);
++    const bridge = target ? this.bridgeRegistry.getBridgeByName(target) : null;
++    if (!bridge || !Number.isFinite(bridge.lat) || !Number.isFinite(bridge.lon)) return null;
++    const distance = geometry.calculateDistance(vessel.lat, vessel.lon, bridge.lat, bridge.lon);
++    // Inom appens under-bro-band avgör nästa fix, som förut: där är brus och
++    // linjens läge av samma storlek (U14-vakten med ±30 m brus i 1 kn gav annars
++    // en fantompassage och en extra varning vid Klaffbron).
++    if (!Number.isFinite(distance) || distance <= constants.UNDER_BRIDGE_CLEAR_DISTANCE) return null;
++    this.logger.log(
++      `🔄 [TARGET_CHANGE] ${vessel.mmsi}: "none" → "${target}" | Reason: REVERSAL_SAME_TICK (${reason}) `
++      + `| Distance to target: ${Number.isFinite(distance) ? distance.toFixed(0) : '?'}m | Speed: ${vessel.sog}kn`,
++    );
++    vessel.targetBridge = target;
++    this._lockRouteDirection(vessel, direction);
++    this._extendJourneyOrigin(vessel, direction, `target-assign-reversal-${reason}`);
++    return target;
++  }
++
+   /**
+    * R1 (rättningskampanjen 2026-11-04): bekräftelsesegmentets start för
+    * N1-resetten, eller null när segmentet inte är ett rent korsningsbevis.
+@@ -7194,6 +7246,13 @@ class VesselDataService extends EventEmitter {
+           );
+           vessel.passedBridges = vessel.passedBridges.filter((b) => b !== bridge.name);
+           this._confirmDirectionReversal(vessel, reCrossDir, `re-cross of ${bridge.name} evidenced ${reCrossDir}`);
++          // Varv 2 (triage A, skiss B2): den nya resan började FÖRE återkorsningen.
++          // Ankra reseankaret i segmentets start, så att TARGET_END:s geometriska
++          // inferens kan bokföra bron om tickens detektering inte hann göra det
++          // (värld 1317: fixet låg 8 m från linjen, UNDER_BRIDGE_CROSS_AMBIGUOUS).
++          if (Number.isFinite(oldVessel?.lat)) {
++            vessel._journeyStartLat = oldVessel.lat;
++          }
+           // N1-resetten ovan täcker broarna FRAMFÖR — den nyss korsade
+           // ligger bakom och behöver eget dedup-släpp för returnotisen.
+           this.emit('vessel:journey-reset', {

@@ -1,0 +1,144 @@
+From cf4381159a8f554e181ad673cedaba65a37e9b3b Mon Sep 17 00:00:00 2001
+From: "Familj F (Claude)" <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 12:32:48 +0000
+Subject: [PATCH 3/7] =?UTF-8?q?U23/M1:=20harnessen=20r=C3=A4knar=20Kajens?=
+ =?UTF-8?q?=20k=C3=B6are=20som=20bekr=C3=A4ftad=20v=C3=A4ntan=20(INV-10)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Granskningen av familj F (M1): harnessens confirmedTargetWaits byggde enbart
+på waitingBridge, och queueBridge ger null i en kajzon. INV-10 fällde därför
+varje "strax" som stod över 35 min vid Kajen och slutade utan passage, fast
+texten är densamma som för en köare i farleden (U6). replayRunner räknar nu
+U23-köaren som bekräftad väntan: holdsQuayQueue på den levande båten (presen-
+tationskopian saknar rörelsebeviset), färsk position och stilla minst 60 s.
+
+Nytt syntetiskt scenario kö-60min-i-Kajens-kapsel-med-annan-trafik (U23,
+INV-10): 60 min kö, en senare båt kommer in i texten efter 39 min. Utan
+regeln fälls det av INV-10 STRAX-ZOMBIE (44 min); på c14938f av "Inga båtar"
+under kön och en sen tredje Klaffbronvarning. docs/VALIDATION.md: 76 scenarier.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/VALIDATION.md                            | 13 ++++++-
+ tests/replay-validation/replayRunner.js       | 16 +++++++--
+ .../runSyntheticScenarios.js                  | 36 +++++++++++++++++++
+ 3 files changed, 62 insertions(+), 3 deletions(-)
+
+diff --git a/docs/VALIDATION.md b/docs/VALIDATION.md
+index 304a44a..db54f44 100644
+--- a/docs/VALIDATION.md
++++ b/docs/VALIDATION.md
+@@ -72,7 +72,7 @@ Eller stegen var för sig:
+ |---|---|---|
+ | Enhetstester | `npm test > /tmp/ais-jest.log 2>&1` (läs sedan slutraderna) | Alla tester passerar, exitkod 0 och inga öppna handtag. Aktuellt antal står i körningens sammanfattning. Omdirigeringen bevarar Jest:s exitkod; en pipe till `tail` gör inte det. |
+ | Korpusarna | `npm run replay:all` | Samtliga korpusar (aktuellt antal och timmar står i skriptets utskrift) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + exakt (mmsi,bro,riktning)-fördelning + EXAKT bridge_text-transitionsström (golden-text/) + alla invarianter. Ofullständig fångst redovisas separat och får bara utgöra regression för bevarade sampel. |
+-| Syntetiska | `npm run replay:synthetic` | 75 scenarier (gap, U-svängar även med gles AIS, GPS-hopp, kajliggare, kö i Kajens kapsel (U23), sog=null, omstart, 2h-prune-stillaliggare, krypfart förbi passerad bro …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
++| Syntetiska | `npm run replay:synthetic` | 76 scenarier (gap, U-svängar även med gles AIS, GPS-hopp, kajliggare, köer i Kajens kapsel (U23), sog=null, omstart, 2h-prune-stillaliggare, krypfart förbi passerad bro …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
+ | Öppningsgrindarna | `npm run replay:openings` | ETAPP 6: det proaktiva lagret (`bridge_opening_soon`). **O1** varje målbropassage i SAMTLIGA korpusar (låsta som olåsta — antalet står i skriptets utskrift, inte här) har en öppningsvarning FÖRE passagen — varje miss klassad mot rådata (oklassad = rött); en KONVOJTÄCKNING underkänns om bron bevisligen öppnat och stängt för någon annan emellan. **O2** varje varning utan passage inom 20 min klassas mot rådata (KAJVOBBEL och UTANFÖR_HORISONTEN = rött; avbruten approach, gles anflygning och garantipris = accepterade) — även SEN_PASSAGE-hinken klassas. **O2b** (S14, 2026-08-23) SAMMA fantommätning mot RÅDATAFACIT (A2, `gt-passages`) i stället för appens egna passager — O1b:s mönster: appens passageregistreringar delar grindarnas blindfläck, så en varning kan kallas BEKRÄFTAD av appens egen bokföring medan rådatan inte känner korsningen. Serierna redovisas BREDVID varandra (annars går körningsloggar inte att jämföra bakåt). `inferred`-poster (korsning bevisad, tidpunkt = fönster) bär ALDRIG hinkindelningen utan hamnar i egen hink INFERRERAD_TID — hinkarna ÄR en tidsfönstermätning. **O2b är INFORMATIV: den ändrar inte exitkoden** (grinden ligger kvar på appserien precis som O1:s täckning i fas A); `OPENING_GT_STRICT` flyttar den hit när fas C är klar. Vid införandet: 0 röda i BÅDA serierna, 118 av 360 varningar byter hink (98 blir omätbara `inferred`) och EN varning byter åt det farliga hållet (JAATTEN II @ Stridsbergsbron i 20260708-21h — samma fall INV-21 redan fäller). **O3** A/B-nattens båda armar: 6/6 öppningar varnade före, konvojen som EN varning, boat_near byte-identisk med nattens facit. Dessutom **avfyrningsfönstret** (`t − dueMs` inom två tick — kontraktet "avfyra så sent som garantin tillåter") och **ledtidsgolvet** (hårt golv 60 s; tunnare än utlovade 150 s rapporteras). |
+ | Soaken | `node tests/replay-validation/runSoak.js` | 72 h blandtrafik: 0 processfel, inga läckor, fatala invarianter rena |
+ | Driftens minutloop | `npm run replay:monitoring` | Samma 72 h med riktig monitoring/stale-städning även efter omstarter; samtliga timers avvecklade efter shutdown |
+@@ -412,6 +412,17 @@ sampel). Mot `c14938f` fälls scenariot på alla tre villkoren: "Inga båtar"
+ 06:49, en andra Klaffbronvarning (ÖPPNINGSDUBBLETT) och den 47 s före
+ korsningen.
+ 
++`kö-60min-i-Kajens-kapsel-med-annan-trafik (U23, INV-10)` är samma kö i 60 min,
++och en senare båt kommer in i texten 39 min efter att köaren fick "strax". Den
++strax-texten slutar alltså utan passage efter mer än INV-10:s 35 min, och
++texten är densamma som för en köare i farleden (U6). Harnessen räknar därför
++Kajens köare som bekräftad väntan: `replayRunner.js` godtar
++`VesselDataService.holdsQuayQueue` på den levande båten med färsk position och
++minst en minuts stillhet, samma krav som `waitingBridge`. `queueBridge` ger
++fortfarande null i en kajzon, så 2 h-backstoppen gäller vid Kajen. Utan regeln
++fälls scenariot av INV-10 STRAX-ZOMBIE ("stod 44 min"), och mot `c14938f` av
++"Inga båtar" under kön och en tredje Klaffbronvarning 47 s före korsningen.
++
+ **Krypfartsscenarierna (familj M, rättningskampanjen 2026-11-04, F05) prövar
+ närmandebeviset och fartgrinden i båda vägarna.** Placeringen är testet i alla sex.
+ - `krypfart-förbi-passerad-Klaffbron`, `krypfart-förbi-passerad-Järnvägsbron-söderut`
+diff --git a/tests/replay-validation/replayRunner.js b/tests/replay-validation/replayRunner.js
+index 4ec0084..8f2dadf 100644
+--- a/tests/replay-validation/replayRunner.js
++++ b/tests/replay-validation/replayRunner.js
+@@ -78,7 +78,7 @@ Module.prototype.require = function requireOverride(id) {
+ const mockHomeyModule = require(path.join(ROOT, 'tests', '__mocks__', 'homey'));
+ const mockHomey = mockHomeyModule.__mockHomey;
+ const AISBridgeApp = require(path.join(ROOT, 'app'));
+-const { waitingBridge } = require('../../lib/utils/bridgeQueue');
++const { waitingBridge, hasFreshPosition } = require('../../lib/utils/bridgeQueue');
+ const { UI_CONSTANTS, AIS_CONFIG } = require('../../lib/constants');
+ 
+ // Äkta setImmediate (sparas innan klockan installeras) för microtask-dränering.
+@@ -295,7 +295,19 @@ async function main() {
+     instance.bridgeTextService.generateBridgeText = (vessels, ...args) => {
+       const text = generateText(vessels, ...args);
+       for (const vessel of vessels || []) {
+-        const bridge = waitingBridge(vessel);
++        // Ägarbeslut U23 (2026-11-09): köaren vid "Kajen norr om Klaffbron" är
++        // bekräftad väntan vid målbron, fast queueBridge ger null i en kajzon
++        // (så att 2 h-backstoppen gäller där). Klassningen läses på den levande
++        // båten, eftersom presentationskopian saknar rörelsebeviset. Beviskraven
++        // är waitingBridge:s: färsk position och stilla i minst en minut. Utan
++        // grenen fällde INV-10 varje "strax" som stod över 35 min vid Kajen och
++        // slutade utan passage, fast farledsköaren med samma text godtas.
++        const live = instance.vesselDataService?.getVessel?.(vessel.mmsi);
++        const quayHeld = !!live && !!vessel.targetBridge
++          && instance.vesselDataService.holdsQuayQueue?.(live, vessel.targetBridge) === true
++          && hasFreshPosition(live) && Number.isFinite(live._stationarySince)
++          && Date.now() - live._stationarySince >= 60000;
++        const bridge = waitingBridge(vessel) || (quayHeld ? vessel.targetBridge : null);
+         if (!bridge || bridge !== vessel.targetBridge) continue;
+         const confirmed = Math.max(vessel.timestamp || 0, vessel.lastPositionUpdate || 0);
+         const until = Math.min(confirmed + UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS,
+diff --git a/tests/replay-validation/runSyntheticScenarios.js b/tests/replay-validation/runSyntheticScenarios.js
+index b30ff83..aa77048 100644
+--- a/tests/replay-validation/runSyntheticScenarios.js
++++ b/tests/replay-validation/runSyntheticScenarios.js
+@@ -1702,6 +1702,42 @@ const SCENARIOS = [
+       noDefaultWhileStopped: true,
+     },
+   },
++  {
++    // U23 och INV-10 (granskningen av familj F, 2026-11-09): samma kö vid Kajen
++    // men i 60 min, och en senare båt söderut kommer in i texten 39 min efter
++    // att köaren fick "strax". Den första strax-texten slutar alltså utan
++    // passage efter mer än INV-10:s 35 min. Texten är sanktionerad (U6) och
++    // densamma som för en köare i farleden, så harnessen måste räkna Kajens
++    // köare som bekräftad väntan (replayRunner.js, holdsQuayQueue). Utan den
++    // regeln fälls scenariot av INV-10 STRAX-ZOMBIE; på c14938f av "Inga båtar"
++    // under kön och en sen andra varning vid avgången.
++    name: 'kö-60min-i-Kajens-kapsel-med-annan-trafik (U23, INV-10)',
++    seed: 58,
++    vessels: [
++      {
++        mmsi: '901000058',
++        name: 'SYNT-KAJKO-LANG',
++        startS: METRICS.total,
++        legs: [
++          { toS: METRICS.cum[2] + 600, speedKn: 4.5, intervalS: 60 },
++          { toS: METRICS.cum[2] + 250, speedKn: 3, intervalS: 60 },
++          { stopS: 3600, stopIntervalS: 60, stopCogRandom: true },
++          { toS: 0, speedKn: 4.5, intervalS: 60 },
++        ],
++      },
++      {
++        mmsi: '901000059', name: 'SYNT-SENARE', direction: 'south', speedKn: 5.0, startOffsetS: 4300,
++      },
++    ],
++    expect: {
++      minTargetPassages: 4,
++      expectedOpenings: ['Stridsbergsbron', 'Klaffbron'],
++      openingBeforeEachPassage: ['Klaffbron'],
++      maxOpeningsPerBridge: { Klaffbron: 2, Stridsbergsbron: 2 },
++      minOpeningLeadS: { Klaffbron: 60 },
++      noDefaultWhileStopped: true,
++    },
++  },
+ ];
+ 
+ function runScenario(scenario) {
+-- 
+2.43.0
+

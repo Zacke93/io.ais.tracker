@@ -1,0 +1,17 @@
+diff --git a/lib/services/BridgeOpeningService.js b/lib/services/BridgeOpeningService.js
+index 5b365ec..d0ab217 100644
+--- a/lib/services/BridgeOpeningService.js
++++ b/lib/services/BridgeOpeningService.js
+@@ -1309,7 +1309,11 @@ class BridgeOpeningService {
+     // Under pågående gång måste även reservvägen hinna före ankomsten.
+     // En bekräftad kö har däremot ingen meningsfull restid att räkna ned.
+     const movingFallbackMs = Number.isFinite(vessel.sog) && vessel.sog >= 2 && !arm.waitingAtBridge
+-      ? Math.max(0, (dist / (vessel.sog * KNOTS_TO_MS)) * 1000 - this.config.WARNING_LEAD_MS)
++      // Varv 2 (triage A, skiss F, MÄTT OCH AVRÅDD): samma marginal som den
++      // vanliga ETA-avfyrningen (FIRE_EXPECTED_ETA_MS) i stället för
++      // WARNING_LEAD_MS. Tar bort värld 263 men flyttar öppningstider i 7 låsta
++      // korpusar och ger 42h en varning till.
++      ? Math.max(0, (dist / (vessel.sog * KNOTS_TO_MS)) * 1000 - this.config.FIRE_EXPECTED_ETA_MS)
+       : STALE_ETA_SOFT_MS;
+     arm.earlierBridgeUntilMs = arm.earlierBridge
+       ? anchor + Math.min(STALE_ETA_SOFT_MS, movingFallbackMs) : null;

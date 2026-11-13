@@ -1,0 +1,264 @@
+From 77e6774d12e3b877d13060faad8332cdcb6b3ba4 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 4 Nov 2026 23:17:35 +0000
+Subject: [PATCH 08/24] =?UTF-8?q?E2-familjen:=20outlierf=C3=B6nstret=20l?=
+ =?UTF-8?q?=C3=A4ser=20kadensen=20f=C3=B6re=20fixet,=20golvet=2030=20s?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Kadensen uppdateras först efter outlierprövningen, så ett intervall
+aldrig täcker sig självt. Det tog bort BARAVI-hållningen i 17h
+(19,5 min mot sanning 25,5) och CYGNUS-varningen 3,8 min efter
+passagen. Fönstret är 1,5 × kadensen men aldrig kortare än det gamla
+30 s-fönstret. Okänd kadens ger 30 s. Halv kadens prövades och
+återtogs, eftersom en väntande båt i 30 s kadens då växte om 6 → om 13.
+
+Banken och measure:eta är oförändrade mot varianten utan golv: 0
+ändrade påståenden och 0 ändrade textrader.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ lib/services/ProgressiveETACalculator.js | 64 ++++++++++++-----
+ tests/e2-eta-etapp-2026-11-04.test.js    | 89 +++++++++++++++++++-----
+ tests/m8-gps-outlier-bounded.test.js     |  9 +--
+ 3 files changed, 121 insertions(+), 41 deletions(-)
+
+diff --git a/lib/services/ProgressiveETACalculator.js b/lib/services/ProgressiveETACalculator.js
+index fc4a29e..445d0f6 100644
+--- a/lib/services/ProgressiveETACalculator.js
++++ b/lib/services/ProgressiveETACalculator.js
+@@ -153,9 +153,12 @@ function sampleKeyOf(vessel) {
+ //      baslinjen genom hela skyddskedjan, med GAP_BASELINE_ALPHA. Det är exakt
+ //      den skyddseffekt pass 2 råkade ge.
+ //   2. OUTLIER_WINDOW_CADENCE_FACTOR: outliergrindens dramatiska grenar gäller
+-//      inom 1,5 av fartygets EGNA fixintervall (minst 30 s, högst glappgränsen),
+-//      inte inom 30 s väggtid — annars lever skyddet bara i en andra körning.
++//      inom 1,5 av fartygets EGET fixintervall, mätt FÖRE fixet, men aldrig
++//      inom kortare tid än det gamla fönstret 30 s. Mellan två fix levde
++//      skyddet tidigare bara i dubbelkörningens andra pass.
+ //   3. EMA_ALPHA_PER_FIX kalibrerades EFTER de två ovan.
++// Avgångskontextens not ovan ("K6 rörs inte") gäller familj E:s leverans; E2
++// ändrar K6 här och lämnar avgångskontexten orörd.
+ const GAP_RESET_MS = 3 * 60 * 1000;
+ 
+ // E2 (K6, del 1): vikten för fixets färska skattning mot glappbaslinjen. Samma
+@@ -163,9 +166,26 @@ const GAP_RESET_MS = 3 * 60 * 1000;
+ // glappets skyddseffekt behålls oförändrad.
+ const GAP_BASELINE_ALPHA = 0.4;
+ 
+-// E2 (K6, del 2): outliergrindens fönster i fartygets egen kadens. 1,5 intervall
+-// = "nästa fix" med marginal för kadensens spridning; golvet 30 s är det gamla
+-// fönstret (tät kadens), taket är glappgränsen (äldre historik nollställs ändå).
++// E2 (K6, del 2): outliergrindens fönster i fartygets egen kadens. Kadensen är
++// ett glidande medel av intervallen mellan beräknade fix UTAN glapp, och
++// fönstret läser den så som den var FÖRE fixet (den uppdateras efter
++// prövningen). 1,5 intervall = "nästa fix", med marginal för kadensens
++// spridning. Golvet 30 s är det gamla fönstret: i tät kadens prövas lika
++// mycket som förut, och okänd kadens (ny båt, eller ingen glappfri följd ännu)
++// får just det. Glappsteget (del 1) prövar två skattningar av samma fix med
++// tidsavstånd 0 och ryms alltid. Vid 30 s kadens höll dubbelkörningen en
++// väntande båt av en slump (nästa pass 1 kom 29,96 s efter pass 2); här håller
++// kadensen den.
++// PRÖVAT OCH ÅTERTAGET (mätt, docs/VALIDATION.md §ETA-mätharnessen "Familj E2"):
++//   - HALV kadens ("samma mätomgång"): en väntande båt i 30 s kadens prövades
++//     aldrig, och ETA:n växte en minut per fix (E:s syntetiska väntan före
++//     Klaffbron: om 6 → om 13; e949ae1 höll om 6);
++//   - kadensen uppdaterad FÖRE prövningen: intervallet täckte då alltid sig
++//     självt, så första fixet efter ett glapp prövades mot glappsteget. Det höll
++//     en båt som stannade på sin gamla siffra (BARAVI 20260804-17h 09:28:42:
++//     19,5 min mot sanning 25,5; dubbelkörningen gav 24,5), flyttade
++//     Klaffbron#13:s konvojtäckning 5 min och gav en öppningsvarning 3,8 min
++//     EFTER CYGNUS verkliga passage.
+ const OUTLIER_WINDOW_CADENCE_FACTOR = 1.5;
+ const OUTLIER_WINDOW_MIN_MS = 30 * 1000;
+ 
+@@ -1338,16 +1358,12 @@ class ProgressiveETACalculator {
+     // publicerings-clampen; vinsten är att alla skyddssteg ser en tömd
+     // historik uniformt från och med NÄSTA beräkning.
+     const gapReset = this._applyGapResetIfNeeded(vessel, history, now);
+-    if (!gapReset && !this._inGapStep && history.length > 0) {
+-      // E2 (K6, del 2): fartygets kadens = intervallet mellan två beräknade
+-      // fix utan glapp (glidande medel), läses av outliergrindens fönster.
+-      const interval = now - history[history.length - 1].timestamp;
+-      const prevCad = this._fixCadence.get(mmsi);
+-      this._fixCadence.set(mmsi, {
+-        intervalMs: prevCad && Number.isFinite(prevCad.intervalMs)
+-          ? 0.5 * prevCad.intervalMs + 0.5 * interval : interval,
+-      });
+-    }
++    // E2 (K6, del 2): fixets intervall mot förra beräknade fix (utan glapp).
++    // Kadensen uppdateras med det först EFTER outlierprövningen: fönstret ska
++    // bygga på fartygets rytm FÖRE fixet, annars täcker ett intervall alltid
++    // sig självt.
++    const cadenceIntervalMs = !gapReset && !this._inGapStep && history.length > 0
++      ? now - history[history.length - 1].timestamp : null;
+ 
+     const distanceToTarget = this._getDistanceToTarget(vessel);
+     const position = this._trustedETAPosition(vessel);
+@@ -1647,6 +1663,16 @@ class ProgressiveETACalculator {
+       adjustedETA = STRAX_THRESHOLD_MINUTES;
+     }
+ 
++    if (cadenceIntervalMs !== null) {
++      // E2 (K6, del 2): fartygets kadens = intervallet mellan två beräknade
++      // fix utan glapp (glidande medel), läses av outliergrindens fönster.
++      const prevCad = this._fixCadence.get(mmsi);
++      this._fixCadence.set(mmsi, {
++        intervalMs: prevCad && Number.isFinite(prevCad.intervalMs)
++          ? 0.5 * prevCad.intervalMs + 0.5 * cadenceIntervalMs : cadenceIntervalMs,
++      });
++    }
++
+     // STEP 6: RECORD HISTORY - Store this calculation for future reference
+     this._recordETAHistory(mmsi, {
+       rawETA,
+@@ -1733,11 +1759,11 @@ class ProgressiveETACalculator {
+    * @private
+    */
+   _outlierWindowMs(vessel) {
+-    // Okänd kadens (andra fixet efter en tömd historik): föregående post är
+-    // per definition fixet före, så fönstret täcker allt inom glappgränsen.
++    // Kadensen FÖRE fixet (uppdateras efter prövningen). Okänd kadens: det
++    // gamla fönstret. Glappstegets två skattningar (tidsavstånd 0) ryms alltid.
+     const cad = this._fixCadence.get(String(vessel.mmsi));
+-    if (!cad || !Number.isFinite(cad.intervalMs)) return GAP_RESET_MS;
+-    return Math.min(GAP_RESET_MS, Math.max(OUTLIER_WINDOW_MIN_MS, OUTLIER_WINDOW_CADENCE_FACTOR * cad.intervalMs));
++    if (!cad || !Number.isFinite(cad.intervalMs)) return OUTLIER_WINDOW_MIN_MS;
++    return Math.max(OUTLIER_WINDOW_MIN_MS, OUTLIER_WINDOW_CADENCE_FACTOR * cad.intervalMs);
+   }
+ 
+   /**
+diff --git a/tests/e2-eta-etapp-2026-11-04.test.js b/tests/e2-eta-etapp-2026-11-04.test.js
+index 76ad5c9..0f00bfc 100644
+--- a/tests/e2-eta-etapp-2026-11-04.test.js
++++ b/tests/e2-eta-etapp-2026-11-04.test.js
+@@ -13,7 +13,8 @@ jest.mock('homey');
+  *      baslinje från det värde fixet publicerar på den gamla bufferten; fixets
+  *      färska skattning prövas mot den baslinjen (pass 2:s skyddseffekt);
+  *   2. outliergrindens fönster är kadensrelativt (1,5 av fartygets eget
+- *      fixintervall) i stället för 30 s väggtid;
++ *      fixintervall, mätt före fixet, men minst det gamla 30 s-fönstret) i
++ *      stället för 30 s väggtid;
+  *   3. utjämningens vikt per fix kalibrerades efter 1 och 2: 0,64.
+  * Därtill två kort ur buggjägaren:
+  *   F06 (värld 192, XENIA): "strax → om 4 → strax" vid inbromsning. Medelfarten
+@@ -180,25 +181,77 @@ describe('K6 del 1: glapp-reseten etablerar en baslinje i stället för ingentin
+ });
+ 
+ describe('K6 del 2: outliergrindens fönster följer fartygets kadens', () => {
+-  test('ett dramatiskt fall mellan två fix i 70 s kadens fångas utan en andra körning', () => {
++  let calc; let logger;
++
++  beforeEach(() => {
+     jest.useFakeTimers({ now: Date.parse('2026-07-15T09:00:00Z') });
+-    const logger = makeLogger();
+-    const calc = new ProgressiveETACalculator(logger, new BridgeRegistry());
+-    try {
+-      calc.calculateProgressiveETA(fixAt(2000, 4), null);
+-      jest.advanceTimersByTime(70000);
+-      calc.calculateProgressiveETA(fixAt(1856, 4), null);
+-      jest.advanceTimersByTime(70000);
+-      calc.calculateProgressiveETA(fixAt(1712, 4), null);
+-      jest.advanceTimersByTime(70000);
+-      // Positionsglimt: 1 300 m närmare på 70 s (rå-ETA:n under 40 % av förra).
+-      calc.calculateProgressiveETA(fixAt(400, 4), null);
+-      expect(lines(logger, 'dramatic_decrease')).toHaveLength(1);
+-      expect(lines(logger, '[ETA_FALLBACK] 265039053: Using fallback')).toHaveLength(1);
+-    } finally {
+-      calc.destroy();
+-      jest.useRealTimers();
++    logger = makeLogger();
++    calc = new ProgressiveETACalculator(logger, new BridgeRegistry());
++  });
++
++  afterEach(() => {
++    calc.destroy();
++    jest.useRealTimers();
++  });
++
++  test('ett dramatiskt fall till nästa fix i 150 s kadens fångas utan en andra körning', () => {
++    // 150 s kadens (AISHubs p50). Nästa fix har en positionsglimt 1 300 m
++    // närmare: rå-ETA:n under 40 % av förra, 150 s efter — bortom det gamla
++    // 30 s-fönstret men inom 1,5 × kadensen.
++    calc.calculateProgressiveETA(fixAt(2300, 4), null);
++    jest.advanceTimersByTime(150000);
++    calc.calculateProgressiveETA(fixAt(1990, 4), null);
++    jest.advanceTimersByTime(150000);
++    calc.calculateProgressiveETA(fixAt(1680, 4), null);
++    jest.advanceTimersByTime(150000);
++    calc.calculateProgressiveETA(fixAt(400, 4), null);
++    expect(lines(logger, 'dramatic_decrease')).toHaveLength(1);
++    expect(lines(logger, '[ETA_FALLBACK] 265039053: Using fallback')).toHaveLength(1);
++  });
++
++  test('i 30 s kadens prövas nästa fix — dubbelkörningen gjorde det bara av en slump', () => {
++    // Exakt 30 s ligger utanför det gamla fönstret (< 30 s); pass 1 kom förut
++    // 29,96 s efter pass 2 och hölls därför. Kadensfönstret är 45 s. Prövat
++    // och återtaget: HALV kadens (15 s) prövade aldrig nästa fix, och E:s
++    // syntetiska väntan före Klaffbron växte "om 6 → om 13".
++    calc.calculateProgressiveETA(fixAt(1000, 4), null);
++    jest.advanceTimersByTime(30000);
++    calc.calculateProgressiveETA(fixAt(938, 4), null);
++    jest.advanceTimersByTime(30000);
++    const v = fixAt(300, 4);
++    expect(calc._outlierWindowMs(v)).toBe(45000);
++    calc.calculateProgressiveETA(v, null);
++    expect(lines(logger, 'dramatic_decrease')).toHaveLength(1);
++  });
++
++  test('tät kadens prövas minst som förut: golvet är det gamla 30 s-fönstret', () => {
++    // 10 s kadens ger 1,5 × kadensen = 15 s; ett fix 25 s senare (två tappade)
++    // ligger inom det gamla fönstret och prövas fortfarande.
++    let m = 2000;
++    for (let i = 0; i < 4; i++) {
++      calc.calculateProgressiveETA(fixAt(m, 4), null);
++      jest.advanceTimersByTime(10000);
++      m -= 21;
+     }
++    jest.advanceTimersByTime(15000);
++    calc.calculateProgressiveETA(fixAt(500, 4), null);
++    expect(lines(logger, 'dramatic_decrease')).toHaveLength(1);
++  });
++
++  test('efter ett glapp är kadensen okänd: en båt som stannar får sin ETA att växa (BARAVI 17h)', () => {
++    // Prövat och återtaget: kadensen uppdaterad FÖRE prövningen täckte alltid
++    // sitt eget intervall (1,5 × 110 s), så fixet efter glappsteget prövades
++    // dramatiskt och hölls. BARAVI fick 19,5 min mot sanning 25,5; det
++    // flyttade en konvojtäckning och gav en varning efter CYGNUS passage.
++    calc.calculateProgressiveETA(fixAt(1500, 4.5), null);
++    jest.advanceTimersByTime(181000);
++    const before = calc.calculateProgressiveETA(fixAt(1300, 1.0), null); // glappsteget
++    const seen = logger.debug.mock.calls.length;
++    jest.advanceTimersByTime(110000);
++    const after = calc.calculateProgressiveETA(fixAt(1290, 0.6, { status: 'en-route' }), null);
++    const later = logger.debug.mock.calls.slice(seen).map((c) => String(c[0]));
++    expect(later.filter((l) => l.includes('dramatic_'))).toHaveLength(0);
++    expect(after).toBeGreaterThan(before);
+   });
+ });
+ 
+diff --git a/tests/m8-gps-outlier-bounded.test.js b/tests/m8-gps-outlier-bounded.test.js
+index 34e620b..4f5c7b1 100644
+--- a/tests/m8-gps-outlier-bounded.test.js
++++ b/tests/m8-gps-outlier-bounded.test.js
+@@ -25,10 +25,11 @@ jest.mock('homey');
+  * dramatic_*-grenarna INTE påverkas av taket.
+  *
+  * E2 (K6, del 2, 2026-11-04): de dramatiska grenarnas fönster är numera
+- * kadensrelativt (1,5 av fartygets eget fixintervall, högst glappgränsen
+- * 180 s), så vid 150 s kadens fyrar dramatic_* FÖRE GPS-grenen när kvoten är
+- * över 2,5. GPS-grenens egna prov använder därför rå-ETA 25 mot baslinjen 12
+- * (kvot 2,1: under dramatic-tröskeln men över GPS-grenens 50 %).
++ * kadensrelativt (1,5 av fartygets eget fixintervall mätt före fixet, minst
++ * det gamla 30 s-fönstret), så vid 150 s kadens fyrar dramatic_* FÖRE
++ * GPS-grenen när kvoten är över 2,5. GPS-grenens egna prov använder därför
++ * rå-ETA 25 mot baslinjen 12 (kvot 2,1: under dramatic-tröskeln men över
++ * GPS-grenens 50 %).
+  */
+ 
+ const ProgressiveETACalculator = require('../lib/services/ProgressiveETACalculator');
+-- 
+2.43.0
+

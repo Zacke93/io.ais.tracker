@@ -1,0 +1,61 @@
+From 3887254254fc44095fb7d667a507d7f6b4d96dec Mon Sep 17 00:00:00 2001
+From: "Familj F (Claude)" <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 11:02:14 +0000
+Subject: [PATCH 02/12] =?UTF-8?q?U23:=20konstantkommentaren=20=E2=80=94=20?=
+ =?UTF-8?q?Infinity-semantiken=20och=20h=C3=A4nvisning=20till=20ARCHITECTU?=
+ =?UTF-8?q?RE?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Kommentaren över MOORING_ZONES beskriver nu att Infinity betyder obegränsat
+köundantag och att ankomstspärren i app.js läser samma fält; Kajens post
+hänvisar till docs/ARCHITECTURE.md i stället för en arbetskatalog.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ lib/constants.js | 13 ++++++++-----
+ 1 file changed, 8 insertions(+), 5 deletions(-)
+
+diff --git a/lib/constants.js b/lib/constants.js
+index 6252e99..6f59e50 100644
+--- a/lib/constants.js
++++ b/lib/constants.js
+@@ -409,7 +409,10 @@ const VESSEL_GRAVE = {
+ // hur länge en trolig KÖARE får ligga still i just den här zonen innan zon-
+ // lagret klassar henne som förtöjd. Fältet läses av
+ // VesselDataService._classifyMooring och kan bara FÖRLÄNGA baskravet (3 min).
+-// Zoner utan fält (eller med 0) klassar alltid på baskravet.
++// Zoner utan fält (eller med 0) klassar alltid på baskravet. Infinity betyder
++// obegränsat (ägarbeslut U23, Kajen): zonlagret klassar då aldrig köaren, och
++// navstatus 1/5 och 2 h-backstoppen gäller ensamma. Fältet läses också av
++// öppningslagrets ankomstspärr (app.js _observeOpeningArrivals).
+ // Bakgrund: undantaget var tidigare AVSTÅNDSgrindat (målbro inom 600 m) och
+ // därmed globalt över alla zoner — se gästhamnsposten nedan för skadan.
+ const MOORING_ZONES = [
+@@ -422,8 +425,8 @@ const MOORING_ZONES = [
+     start: { lat: 58.285685, lon: 12.285164 },
+     end: { lat: 58.286434, lon: 12.286138 },
+     radiusM: 30,
+-    // KÖUNDANTAG 15 min (oförändrat värde sedan körningen 2026-07-02; C0b
+-    // flyttar det bara hit från den globala avståndsgrinden). Zonen ligger
++    // KÖUNDANTAG (15 min från körningen 2026-07-02 till U23 nedan; C0b
++    // flyttade det hit från den globala avståndsgrinden). Zonen ligger
+     // MITT i Klaffbrons väntzon — uppmätt 190,9–290,3 m från bron, närmaste
+     // kapselpunkt 161,1 m, dvs. 138,9 m INNANFÖR 300 m-radien — så en båt som
+     // ligger still här kan mycket väl vara en KÖARE och inte en kajliggare.
+@@ -447,8 +450,8 @@ const MOORING_ZONES = [
+     // 3 min som förut — ELFKUNGEN och SUSANNE (norrut efter Klaffbron, mål
+     // Stridsbergsbron ~980 m bort) demoteras exakt som i dag. Öppnings-
+     // lagrets ankomstspärr (app.js _observeOpeningArrivals) följer samma
+-    // klassning, så den första varningen gäller hela kön.
+-    // Underlag: S/varv2/tB/TRIAGE-B.md "Kajfrågan för ägaren".
++    // klassning, så den första varningen gäller hela kön. Se
++    // docs/ARCHITECTURE.md §Förtöjningslagren.
+     queueGraceMs: Infinity,
+   },
+   {
+-- 
+2.43.0
+

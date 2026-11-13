@@ -1,0 +1,296 @@
+From cb2f41e020fe6b1c823e39b0813417ff95917f54 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 12:31:44 +0000
+Subject: [PATCH 09/17] =?UTF-8?q?Buggj=C3=A4garen:=20harnessens=20domsp?=
+ =?UTF-8?q?=C3=A5r=20i=20en=20egen=20funktion=20och=20studspostens=20kajmo?=
+ =?UTF-8?q?tivering=20efter=20U23=20(varv=202)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- replayRunner.js: släppvägens domspår ligger i den egna funktionen
+  instrumentCoverageVerdicts, som instrumentApp anropar med en rad, så att
+  familj F:s instrumentering (confirmedTargetWaits) kan läggas till utan
+  konflikt. Ren kodflytt; replayresultaten är bitlika.
+- Registrets källor pekar på replayRunner.js#instrumentCoverageVerdicts.
+- U16-F40-STRAX-STUDS, krav 6: motiveringen säger att en köare vid Kajen
+  efter U23 kan bära "strax" i upp till 2 h, inte 15 min (dirigenten efter
+  granskningen av familj F, L2). Kravet är oförändrat.
+
+BUGGJAKT §7 rad 49.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/BUGGJAKT.md                              |   5 +-
+ .../bugHunt/beslutsregister.json              |   6 +-
+ .../replay-validation/bugHunt/lib/registry.js |  14 +-
+ tests/replay-validation/replayRunner.js       | 145 +++++++++---------
+ 4 files changed, 89 insertions(+), 81 deletions(-)
+
+diff --git a/docs/BUGGJAKT.md b/docs/BUGGJAKT.md
+index cafbaf2..89fd8b7 100644
+--- a/docs/BUGGJAKT.md
++++ b/docs/BUGGJAKT.md
+@@ -37,7 +37,7 @@ hunt.js  (förälder med äkta klocka: generering, dom, klustring, krympning, ra
+                 (oförändrad CLI och oförändrat markörkontrakt __REPLAY_JSON__ … __END__)
+ ```
+ 
+-All motorkod ligger under `tests/replay-validation/bugHunt/` (modulkarta i bilaga C). Fyra befintliga filer har fått små krokar: `package.json` (skript), `CLAUDE.md` (en rad under Kommandon), `docs/VALIDATION.md` (ett kort avsnitt) och den här filen. `app.js`, `lib/`, `drivers/`, `settings/`, `app.json` och `.homeycompose/` är orörda. `replayRunner.js` var orörd i v1; sedan rättningskampanjens varv 2 bokför den additivt släppvägens domar (`openingCoverageVerdicts`, ren diagnostik som bara motorn läser, §7 rad 41), och replay:all, openings och golden-filerna är bitlika. Domen kopieras generiskt, så fält som appen lägger till (familj B:s `arrivalMs`, `physicsArrivalMs`, `windowEndMs`, `ownDeadlineMs` och `gate`) bokförs utan ändring i harnessen; registret läser `arrivalMs` och `windowEndMs` (§7 rad 43) och U24-släppets skäl (rad 45).
++All motorkod ligger under `tests/replay-validation/bugHunt/` (modulkarta i bilaga C). Fyra befintliga filer har fått små krokar: `package.json` (skript), `CLAUDE.md` (en rad under Kommandon), `docs/VALIDATION.md` (ett kort avsnitt) och den här filen. `app.js`, `lib/`, `drivers/`, `settings/`, `app.json` och `.homeycompose/` är orörda. `replayRunner.js` var orörd i v1; sedan rättningskampanjens varv 2 bokför den additivt släppvägens domar (`openingCoverageVerdicts` i den egna funktionen `instrumentCoverageVerdicts`, ren diagnostik som bara motorn läser, §7 rad 41), och replay:all, openings och golden-filerna är bitlika. Domen kopieras generiskt, så fält som appen lägger till (familj B:s `arrivalMs`, `physicsArrivalMs`, `windowEndMs`, `ownDeadlineMs` och `gate`) bokförs utan ändring i harnessen; registret läser `arrivalMs` och `windowEndMs` (§7 rad 43) och U24-släppets skäl (rad 45).
+ 
+ ## 3. Ramar och hygien
+ 
+@@ -318,7 +318,7 @@ Radhänvisningarna i tabellen och i `beslutsregister.json` gäller aa71099, prod
+ 
+ - **Mekanismen** (F18/F19 i s1-standard-a, värld 1608): MASEN 2 köar 82 m från Stridsbergsbron och är tyst 09:32:10,242–09:42:15,101 (604,9 s; harnessen bearbetade fixen 09:32:10,291, efter två andra rader i samma AISHub-kluster, så appens ålder är 604,8 s). När klockan når hennes nästa rad dränerar harnessen väntande UI-arbete före sampelbearbetningen (`replayRunner.js:542–551`). Positionen är då äldre än STALE_ETA_HARD, så imminent-grinden släpper "strax" (`app.js:7233–7239`, `IMMINENT_SKIP … AIS too old (605s > 600s)` på :7174), och klausulen lånar YRSA:s ETA, 7 min (8 min i minsta repro). Efter sampelbearbetningen bär texten "strax" igen, 246 ms senare (25 ms i minsta repro). INV-3:s studsdiskriminator (`invariants.js:334–351`) fäller det som ETA-OSCILLATION och ETA-SÅGTAND UPP. Hoppet låg på kniveggen: vid dräneringen i slutet av harnessens 30 s-steg 09:42:09,998 var åldern 599,7 s, och appen satte `IMMINENT_SET` ("AIS 600s old"). **Hoppet vid hennes rad är en uppskjuten svans i harnessen** (granskarens slutvarv, belagt i värld 1608:s verbose-logg). Harnessen kör appens asynkrona UI-arbete först vid sin nästa dränering, en enda verklig setImmediate efter varje `clock.tick` (`replayRunner.js:86–88` och `:512–521`). UI-cykeln från halvminuten 09:42:00 räknade därför först vid dräneringen 09:42:09,998, och dess omkörning (setImmediate, `app.js:6983–6988`) kördes först vid dräneringen före MASEN 2:s rad 09:42:15,101: där kommer `AIS too old (605s > 600s)`. I fält hade omkörningen gått vid halvminuten med åldern cirka 590 s, och nästa cykel 09:42:30 hade kommit efter hennes färska rad. Åldern 604,8 s är alltså harnessens tid, och den varianten av studsen som posten täcker är en mätgräns. Tick-varianten, som posten utesluter, är den som en riktig körning skulle ge.
+ - **Posten är smal och bunden till den båt som kan ha burit "strax".** Den gäller bara studsen när den båtens nästa rad bearbetas. Kraven: nivån före hoppet och återgången är "strax" i brons ETA-serie; hoppet publicerades exakt när harnessen bearbetade båtens rad (`harnessTider`, §7 Regler), högst 1 s efter radens tid; båtens föregående fix bearbetades mer än STALE_ETA_HARD före hoppet, med samma jämförelse som appens `dataIsFreshEnough`; båda fixarna ligger inom 350 m från bron (imminent-hysteresens yttre gräns, `app.js:7336–7338`) och utanför kajkapslarna (MOORING_ZONES); ingen brotext publicerades och ingen halvminutstick (i variantens fas för M-FAS) föll mellan 600 s-gränsen och hoppet; återgången kom efter radens bearbetning och högst 1 s efter radens tid; ingen annan båts rad inom 500 m från bron bearbetades emellan; ingen styrrad bearbetades mellan båtens förra fix och återgången; båten kunde bära "strax" vid sin förra fix (fixen inom 300 m, imminent SET, eller inom 350 m efter en tidigare fix inom 270 m, väntläget, utan att båten lämnat 350 m emellan; `app.js:7336–7338`); och ingen annan båt kunde bära "strax" vid hoppet (ingen annan båt har sin senaste fix före hoppet inom 500 m, högst 600 s gammal i appens klocka, utanför kajkapslarna och på väg mot bron: kursen inom ±90° från bäringen till bron, eller saknad kurs inom 350 m).
+-- **Varför villkoren.** Bar båten "strax" ensam, tappar appen det vid den första textgenereringen efter 600 s-gränsen. En publicerad brotext eller en halvminutstick (UI-klockans absoluta halvminuter, `app.js:13259–13266`, med textens mikrograce på högst 40 ms) mellan gränsen och hoppet visar att båten inte var ensam bärare, eftersom "strax" stod kvar där. Att hoppet ligger på bearbetningen av just hennes rad binder hoppet till hennes ålder. Bearbetade harnessen en annan båts rad inom 500 m (den vidaste radie där appen sätter "strax", den uttömda grenen på `app.js:7365`) mellan hennes rad och återgången, kan återgången komma från den båten. En förtöjd båt i en kajkapsel sänder glest, och hennes rad kan sammanfalla med en studs som har en annan orsak. Appen kan räkna en stillaliggare vid kajen norr om Klaffbron som köare i upp till 15 min (`queueGraceMs`, `lib/constants.js:415–470`; obegränsat efter ägarbeslutet U23 och familj F:s apprättning), så en äkta studs med bäraren där blir KANDIDAT. Det är ett medvetet pris.
++- **Varför villkoren.** Bar båten "strax" ensam, tappar appen det vid den första textgenereringen efter 600 s-gränsen. En publicerad brotext eller en halvminutstick (UI-klockans absoluta halvminuter, `app.js:13259–13266`, med textens mikrograce på högst 40 ms) mellan gränsen och hoppet visar att båten inte var ensam bärare, eftersom "strax" stod kvar där. Att hoppet ligger på bearbetningen av just hennes rad binder hoppet till hennes ålder. Bearbetade harnessen en annan båts rad inom 500 m (den vidaste radie där appen sätter "strax", den uttömda grenen på `app.js:7365`) mellan hennes rad och återgången, kan återgången komma från den båten. En förtöjd båt i en kajkapsel sänder glest, och hennes rad kan sammanfalla med en studs som har en annan orsak. En stillaliggare vid kajen norr om Klaffbron kan dessutom vara en köare som bär "strax": på c14938f i upp till 15 min (`queueGraceMs`, `lib/constants.js:415–470`), och efter ägarbeslutet U23 (familj F) tills hon kör vidare, sänder navStatus 1/5 eller legat stilla i 2 h (MAX_STATIONARY_WAIT_MS). En äkta studs med bäraren där blir därför KANDIDAT. Det är ett medvetet pris.
+ - **Fönstret 1 s gäller återgången.** Återgången publiceras tidigast efter textens mikrograce (15–40 ms, `app.js:5638–5646`). I minsta repro för F18 kom den 25 ms efter raden. I fullvärlden 1608 gav hennes sampel `IMMINENT_SET` direkt, men texten publicerades först efter de tre AISHub-rader som följde 66–109 ms senare, 246 ms efter hennes rad (harnessen tickar 60 ms efter varje rad, `replayRunner.js:649`). De tre båtarna låg 1,0–1,7 km från bron. Fönstret räknas från radens tid, inte från bearbetningen, så att posten aldrig blir bredare än i rundans första försök. Hoppet har inget eget fönster: det ska ligga på radens bearbetning.
+ - **Bindningen kom i efterrättningen R3b** (granskarens varv r3, rad 19). Rundans första försök godtog vilken båt som helst inom 350 m med en fix äldre än 600 s, räknad på radernas tider, och en rad högst 1 s från hoppet åt båda hållen. Granskarens u16e2e genom appen: F21:s minsta repro i R3-standard (värld 1907, B4-studsen) och en förtöjd båt vid kajen norr om Klaffbron, 240 m från bron, tyst i 720 eller 605 s och med en rad 35 ms före ULLA:s. Appen ger samma studs ("om 7 minuter" 11:01:40,950, "strax" 11:01:41,035), och posten gjorde den till DESIGN. Nu ger 720 s-fallet KANDIDAT, eftersom appen publicerade "strax" 10:59:56,883 och 11:01:11,643, efter att båtens ålder passerat 600 s 10:59:40,985. 605 s-fallet ger KANDIDAT, eftersom båten ligger i kajkapseln. Samma båt 45 m öster om kapseln, 262 m från bron (appen ger samma texter), ger KANDIDAT, eftersom ULLA:s rad bearbetades 11:01:41,010, mellan båtens rad och återgången. Granskarens enhetsfall (en annan tyst båt 273 m från bron med en rad 23–41 ms före hoppet, en färsk MASEN 2 med en tyst båt i samma kluster, ett hopp 0,8 s efter MASEN 2:s färska rad) ger också KANDIDAT. Granskarens förslag om ett villkor att ingen annan färsk båt finns inom 300 m togs inte: i fullvärlden 1608 låg ORION (183 m) och NORDVIND (298 m) med 65 s gamla fixar vid hoppet.
+ - **Bäraren och klassen i efterrättningen R3c** (granskarens slutvarv, rad 21). Posten tog radens båt som bärare utan att pröva att hon kunde bära "strax" och att ingen annan båt kunde det. Granskarens ce-b genom appen: F21:s B4-studs (ULLA:s uttömda "strax" 452 m från Klaffbron, fixen 407 s gammal) och en båt Y som närmar sig söderifrån, 320 m från bron 10:51:35,950 och 260 m 11:01:40,950. Appen loggar `IMMINENT_SKIP … dist=320m > 300m` för Y, som alltså aldrig bar "strax". Vid dräneringen före Y:s rad körs vakthundens uppskjutna omkörning från halvminuten 11:01:30, och B4-taket släpper ULLA:s "strax": "om 7 minuter" 11:01:40,950 och "strax" igen 11:01:40,975. Posten gav DESIGN, medan samma körning med Y tyst i 590 s (bitlik apputdata, ce-b590) gav KANDIDAT. Nu ger båda KANDIDAT: ce-b eftersom Y:s fix ligger 320 m från bron utan föregående väntläge, ce-b590 eftersom Y:s fix är färsk. Enhetsfallet med en stillaliggande Y 262 m från bron och ULLA:s rad borttagen (förut DESIGN) ger KANDIDAT, eftersom ULLA:s 407 s gamla fix 452 m från bron, på väg mot bron, kunde bära "strax". Villkoret om andra bärare kräver kurs mot bron: i fullvärlden 1608 går ORION och NORDVIND söderut från Stridsbergsbron, och värld 1608 är kvar i posten. Klassen ändrades samtidigt från DESIGN till MÄTGRÄNS, eftersom hoppet vid båtens nästa rad uppstår av harnessens uppskjutna UI-arbete (Mekanismen ovan). Ägarbeslutet U16 om beteendet står kvar.
+@@ -410,6 +410,7 @@ Rad 1–17 och 19–22 rättar motorfel eller registrerar en mätgräns i ett be
+ | 46 | U2-VS-DEADLINE (varv 2) | Bara frågan och källan: U24 valde C-IV väg b för en båt i rörelse utanför väntzonen vars båda prognoser ligger efter fönstret. Frågan står kvar för en korsning inom fönstret och för stilla köande båtar. | Användarbeslut U24. Predikatet är oförändrat: posten gäller en korsning inom en varnad öppnings fönster, och ett U24-släpp gäller en båt vars prognoser låg efter fönstret. Korsar hon ändå inom fönstret hör hon enligt U2 till den varnade öppningen. |
+ | 47 | Källhänvisningarna till VesselDataService.js (varv 2, samspelet med familj A) | Radhänvisningarna i `beslutsregister.json` till `lib/services/VesselDataService.js` pekar på symboler: `#FIX_D_MIN_SOG` (Fix D-blocket i updateVessel, förut :380–407, :446–476 och :385–491), `#_createVesselObject` (förut :5286–5287 och :5291), `#getVesselsForBridgeText` (trappan, förut :2361–2465) och `#STALE_AIS_TIMEOUT_MS` (förut :84). Laddningen kontrollerar att symbolerna finns. | Familj A flyttar VDS:385–491 till :398–504, och familjerna C och F ändrar också filen; :5286–5287 pekade redan på c14938f på koordinatkontrollen, inte på reserven för sog och cog. Ingen post ändrar utfall. |
+ | 48 | U17-TYST-BÅT-RECOVER och K-TYST-BÅT-NÄSTA-ÖPPNING (varv 2, värld 1837) | Villkor (3a) mäter med domspåret varje rad efter att passagen blev känd mot fönstrets slut i appens dom när raden bearbetades (den första domen från bearbetningen, när den är en dom `covered` efter passagen), i stället för mot det skattade tidigaste slutet, vars term W − TICK_INTERVAL_MS kan ligga före appens täckningsslut. Utan domspår, eller när domen inte är en sådan dom, gäller skattningen som förut. | Motorfel som M9:s radio visade i värld 1837: 265594787:s rad 12:52:32 (fixen 85 m före bron i 5,4 kn) bearbetades 16 s efter W − tickMs men 14 s före täckningsslutet 12:52:46,115. Appens prognos 12:52:43,9 och den fysiska ankomsten 12:52:44,6 låg inom slutet, hon korsade 12:52:43,9 osedd, och RECOVERn kom 12:52:46,1: U17:s fall. (3′) prövar prognosen och fysiken vid raden, så ingen bakkantsregression göms: i mutationsproven (bakkanten respektive under-bron-hållet bortkopplade, punkt 1–6) fälldes inget utslag av (3a). Jest: `k-varv2-motor.test.js` (1837 ur fixturen `varv2-m9-1837-2026-11-09.json`, utan domspår, och en rad efter slutet i sin egen dom). |
++| 49 | U17-TYST-BÅT-RECOVER, K-TYST-BÅT-NÄSTA-ÖPPNING och U24-DELAD-KÖ-EXTRA-VARNING (varv 2, inför sammanslagningen) | Källorna pekar på `replayRunner.js#instrumentCoverageVerdicts`, den egna funktion som harnessens domspår nu ligger i (förut ett block i `instrumentApp`). U16-F40-STRAX-STUDS:s krav 6 (ingen fix i en kajkapsel) är oförändrat; motiveringen i predikatets kommentar och i avsnittet om U16 säger att en köare vid Kajen efter U23 kan bära "strax" i upp till 2 h, inte 15 min. | Dirigenten efter granskningen av familj F (L2): familj F lägger också till instrumentering i `replayRunner.js` (`confirmedTargetWaits`), och en egen funktion gör sammanslagningen enkel. Flytten är ren kodflytt: replayresultaten är bitlika (bitlik.js på alla korpusar, med och utan monitoring). |
+ 
+ **Valet för M12, per post** (flytta vakten till registret eller märka posten):
+ - **KAJGRIND-UTAN-RÖRELSEBEVIS: märkt.** T1:s förutsättning 3 (`t1Notice.js#judgeT1`, rörelsebeviset med MOVE_KN) dömer inget besök utan en fix med sog ≥ 1,0 kn i [tIn − 10 min; max(tOut, första fixen)] och räknar dem i `utanRörelsebevis`. Registrets fönster skilde bara med högst 120 s i svansen. Att flytta vakten till registret hade gjort varje kajliggare till ett rått T1-utslag.
+diff --git a/tests/replay-validation/bugHunt/beslutsregister.json b/tests/replay-validation/bugHunt/beslutsregister.json
+index e3f1205..22e3036 100644
+--- a/tests/replay-validation/bugHunt/beslutsregister.json
++++ b/tests/replay-validation/bugHunt/beslutsregister.json
+@@ -530,7 +530,7 @@
+       "id": "U17-TYST-BÅT-RECOVER",
+       "klass": "DESIGN",
+       "datum": "2026-11-04",
+-      "källa": "docs/ARCHITECTURE.md:1934–1951 (U17, ägarbeslut 2026-11-04: säkerhetsvarningen för en tyst båt behålls); lib/services/BridgeOpeningService.js#_coverageVerdict (täckningsslutet, bakkanten, hållen under bron (1c) och kursen bort (1d)), #_courseAway, #_bindLooseArms och #_leadOf (gemensam RECOVER); tests/replay-validation/replayRunner.js#instrumentApp (släppvägens domspår, openingCoverageVerdicts); lib/services/BridgeOpeningService.js:138 (MOVING_SOG_KN); lib/constants.js:46 (UNDER_BRIDGE_SET_DISTANCE), :1065 (MINIMUM_VIABLE_SPEED), :1375 (CONVOY_WINDOW_MS), :1577 (WAITING_CLEAR_DISTANCE); KAMPANJ.md, dirigentens beslut 2026-11-05 (under bron-hållet); docs/BUGGJAKT.md §7 (användarbeslut U17; registerändringarna 2026-11-07, rad 27 och 32; varv 2, rad 37, 38, 41, 43 och 48)",
++      "källa": "docs/ARCHITECTURE.md:1934–1951 (U17, ägarbeslut 2026-11-04: säkerhetsvarningen för en tyst båt behålls); lib/services/BridgeOpeningService.js#_coverageVerdict (täckningsslutet, bakkanten, hållen under bron (1c) och kursen bort (1d)), #_courseAway, #_bindLooseArms och #_leadOf (gemensam RECOVER); tests/replay-validation/replayRunner.js#instrumentCoverageVerdicts (släppvägens domspår, openingCoverageVerdicts); lib/services/BridgeOpeningService.js:138 (MOVING_SOG_KN); lib/constants.js:46 (UNDER_BRIDGE_SET_DISTANCE), :1065 (MINIMUM_VIABLE_SPEED), :1375 (CONVOY_WINDOW_MS), :1577 (WAITING_CLEAR_DISTANCE); KAMPANJ.md, dirigentens beslut 2026-11-05 (under bron-hållet); docs/BUGGJAKT.md §7 (användarbeslut U17; registerändringarna 2026-11-07, rad 27 och 32; varv 2, rad 37, 38, 41, 43, 48 och 49)",
+       "gäller": {
+         "orakel": [
+           "T3"
+@@ -549,7 +549,7 @@
+       "id": "K-TYST-BÅT-NÄSTA-ÖPPNING",
+       "klass": "KÄND_ÖPPEN",
+       "datum": "2026-11-05",
+-      "källa": "docs/ARCHITECTURE.md:1934–1951 (U17) och :1883–1905 (täckningsslutet räknas från bokföringen, dirigentens beslut 2026-11-05, U13); lib/services/BridgeOpeningService.js#_coverageVerdict; lib/constants.js:1375 (CONVOY_WINDOW_MS); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 28 och 32; varv 2, rad 37, 38, 41, 43 och 48); tests/replay-validation/replayRunner.js#instrumentApp (släppvägens domspår); docs/BUGGJAKT.md §7 (varv 2, rad 42: T2-vyn ÖPPNING-MISS:OKLASSAD)",
++      "källa": "docs/ARCHITECTURE.md:1934–1951 (U17) och :1883–1905 (täckningsslutet räknas från bokföringen, dirigentens beslut 2026-11-05, U13); lib/services/BridgeOpeningService.js#_coverageVerdict; lib/constants.js:1375 (CONVOY_WINDOW_MS); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 28 och 32; varv 2, rad 37, 38, 41, 43, 48 och 49); tests/replay-validation/replayRunner.js#instrumentCoverageVerdicts (släppvägens domspår); docs/BUGGJAKT.md §7 (varv 2, rad 42: T2-vyn ÖPPNING-MISS:OKLASSAD)",
+       "gäller": {
+         "orakel": [
+           "T2",
+@@ -570,7 +570,7 @@
+       "id": "U24-DELAD-KÖ-EXTRA-VARNING",
+       "klass": "DESIGN",
+       "datum": "2026-11-09",
+-      "källa": "docs/BUGGJAKT.md §7 (användarbeslut U24 2026-11-09, ur rättningskampanjens KAMPANJ2.md, med familj B:s underlag om provvärld 143; varv 2, rad 45); lib/services/BridgeOpeningService.js#_coverageVerdict (släppvägen: U24:s släpp på den egna deadlinen före händelsens första passage, domen 'bakkant' med skälet 'egen deadline …', och täckningsslutet); tests/replay-validation/replayRunner.js#instrumentApp (släppvägens domspår, openingCoverageVerdicts); tests/replay-validation/bugHunt/lib/oracles/t2Opening.js#FROZEN_FIX_MS (T3:s gräns för ett fruset fix, 19 min); lib/constants.js#STATUS_HYSTERESIS (WAITING_CLEAR_DISTANCE, väntzonen 350 m) och #PASSAGE_TIMING (MINIMUM_VIABLE_SPEED)",
++      "källa": "docs/BUGGJAKT.md §7 (användarbeslut U24 2026-11-09, ur rättningskampanjens KAMPANJ2.md, med familj B:s underlag om provvärld 143; varv 2, rad 45); lib/services/BridgeOpeningService.js#_coverageVerdict (släppvägen: U24:s släpp på den egna deadlinen före händelsens första passage, domen 'bakkant' med skälet 'egen deadline …', och täckningsslutet); tests/replay-validation/replayRunner.js#instrumentCoverageVerdicts (släppvägens domspår, openingCoverageVerdicts); tests/replay-validation/bugHunt/lib/oracles/t2Opening.js#FROZEN_FIX_MS (T3:s gräns för ett fruset fix, 19 min); lib/constants.js#STATUS_HYSTERESIS (WAITING_CLEAR_DISTANCE, väntzonen 350 m) och #PASSAGE_TIMING (MINIMUM_VIABLE_SPEED)",
+       "gäller": {
+         "orakel": [
+           "T3"
+diff --git a/tests/replay-validation/bugHunt/lib/registry.js b/tests/replay-validation/bugHunt/lib/registry.js
+index 904ae72..432b0ce 100644
+--- a/tests/replay-validation/bugHunt/lib/registry.js
++++ b/tests/replay-validation/bugHunt/lib/registry.js
+@@ -573,7 +573,7 @@ function kursBort(r, bro, p) {
+ 
+ // ---------------------------------------------------------------------------
+ // Släppvägens domspår (varv 2, M1): resultatets openingCoverageVerdicts, som
+-// replayRunner.js#instrumentApp bokför ur BridgeOpeningService#_coverageVerdict.
++// replayRunner.js#instrumentCoverageVerdicts bokför ur BridgeOpeningService#_coverageVerdict.
+ // En post: {t, mmsi, bridge, eventId, verdict: {kind, …}, arm: {lastSeenAt,
+ // expectedArrivalMs, coverUntilMs, lastFixClean, anchorFloor, …}, event:
+ // {firedAt, firstPassageAt, firstPassageRegisteredAt, …}, frozen, courseAway}.
+@@ -1576,10 +1576,12 @@ const PREDICATES = {
+   //     bearbetas ofta andra rader strax före båtens;
+   //  6. ingen av fixarna ligger i en kajkapsel (MOORING_ZONES). En förtöjd
+   //     båt sänder glest, och hennes rad kan sammanfalla med en studs med en
+-  //     annan orsak. Appen kan räkna en stillaliggare vid kajen norr om
+-  //     Klaffbron som köare i upp till 15 min (queueGraceMs; obegränsat
+-  //     efter ägarbeslutet U23, familj F), så en äkta studs med bäraren där
+-  //     blir KANDIDAT;
++  //     annan orsak. En stillaliggare vid kajen norr om Klaffbron kan
++  //     dessutom vara en köare som bär 'strax': på c14938f i upp till 15 min
++  //     (queueGraceMs), och efter ägarbeslutet U23 (familj F) tills hon kör
++  //     vidare, sänder navStatus 1/5 eller legat stilla i 2 h
++  //     (MAX_STATIONARY_WAIT_MS). En äkta studs med bäraren där blir därför
++  //     KANDIDAT;
+   //  7. återgången kom efter radens bearbetning och högst fönsterMs efter
+   //     radens tid, och ingen annan båts rad inom straxRadieM från bron
+   //     bearbetades emellan: den hade kunnat bära 'strax' tillbaka. 500 m är
+@@ -2159,7 +2161,7 @@ const PREDICATES = {
+   //            senaste position sa att hon skulle hinna") och blir KANDIDAT.
+   //            Kvotregeln gäller bara resultat utan domspår (äldre fixturer
+   //            och sparade resultat);
+-  //       (3′) med domspår (varv 2, M1: replayRunner.js#instrumentApp
++  //       (3′) med domspår (varv 2, M1: replayRunner.js#instrumentCoverageVerdicts
+   //            bokför släppvägens domar som openingCoverageVerdicts): ingen
+   //            dom från absorptionen i E till W var 'bakkant' (heller inte
+   //            U24:s släpp på hennes egen deadline före första passagen,
+diff --git a/tests/replay-validation/replayRunner.js b/tests/replay-validation/replayRunner.js
+index 1fd50ac..6ae7929 100644
+--- a/tests/replay-validation/replayRunner.js
++++ b/tests/replay-validation/replayRunner.js
+@@ -106,6 +106,79 @@ const { fromUserDirection } = require(path.join(ROOT, 'lib', 'utils', 'direction
+ const { loadState } = require(path.join(ROOT, 'lib', 'utils', 'replayStartupState'));
+ const internalDirection = (value) => (typeof value === 'string' ? fromUserDirection(value) : value);
+ 
++// ---- SLÄPPVÄGENS DOMAR (varv 2, familj E) ----
++// Buggjägarens U17-predikat (tystRecoverSammaÖppning) måste veta om
++// bakkanten kunde släppa en absorberad båt, alltså om appens EGEN prognos vid
++// hennes fix efter att händelsens första passage blev känd låg inom fönstrets
++// slut, och om släppet kom vid täckningsslutet. Prognosen
++// (ProgressiveETACalculator) går inte att återskapa ur raderna. Wrappern
++// bokför därför varje dom ur BridgeOpeningService._coverageVerdict med dess
++// indata i `sink` (resultatets openingCoverageVerdicts), men bara när något
++// ändrats sedan förra domen för samma arm (domen körs i varje utvärdering).
++// Domen kopieras GENERISKT (`verdict`), så att fält som läggs till i
++// returvärdet följer med utan ändring här. Strängar får sina ISO-tider
++// utbytta mot ‹tid› (SHIFT30 jämför hela resultatet och flyttar bara tal och
++// hela ISO-strängar). Ren diagnostik: domen, armen och händelsen lämnas
++// orörda, och de två hjälpmetoderna är rena läsare. En egen funktion, så att
++// andra instrumenteringar i instrumentApp kan läggas till utan konflikt.
++function instrumentCoverageVerdicts(ops, sink) {
++  if (!ops || typeof ops._coverageVerdict !== 'function' || ops._gtVerdictInstrumented) return;
++  ops._gtVerdictInstrumented = true;
++  const origVerdict = ops._coverageVerdict.bind(ops);
++  const isoITextRe = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g;
++  const kopia = (v) => {
++    if (v === null || typeof v === 'boolean') return v;
++    if (typeof v === 'number') return Number.isFinite(v) ? v : null;
++    if (typeof v === 'string') return v.replace(isoITextRe, '‹tid›');
++    if (Array.isArray(v)) return v.map(kopia);
++    if (v && typeof v === 'object' && Object.getPrototypeOf(v) === Object.prototype) {
++      const ut = {};
++      for (const [k, x] of Object.entries(v)) if (x !== undefined && typeof x !== 'function') ut[k] = kopia(x);
++      return ut;
++    }
++    return null;
++  };
++  const tal = (x) => (Number.isFinite(x) ? x : null);
++  const senaste = new Map();
++  ops._coverageVerdict = (arm, event, now) => {
++    const verdict = origVerdict(arm, event, now);
++    const bridge = ops._targetBridges && typeof ops._targetBridges.get === 'function' ? ops._targetBridges.get(arm.bridge) : undefined;
++    const post = {
++      mmsi: String(arm.mmsi),
++      bridge: arm.bridge,
++      eventId: arm.eventId,
++      verdict: kopia(verdict),
++      arm: {
++        lastSeenAt: tal(arm.lastSeenAt),
++        anchorMs: tal(arm.anchorMs),
++        expectedArrivalMs: tal(arm.expectedArrivalMs),
++        earliestArrivalMs: tal(arm.earliestArrivalMs),
++        coverUntilMs: tal(arm.coverUntilMs),
++        absorbedAt: tal(arm.absorbedAt),
++        distanceM: tal(arm.distanceM),
++        sog: tal(arm.sog),
++        lastFixClean: arm.lastFixClean === true,
++        anchorFloor: !!event && arm.anchorFloorEventId === event.id,
++      },
++      event: event ? {
++        id: event.id,
++        firedAt: tal(event.firedAt),
++        firstPassageAt: tal(event.firstPassageAt),
++        firstPassageRegisteredAt: tal(event.firstPassageRegisteredAt),
++      } : null,
++      frozen: typeof ops._hasUnappliedObservation === 'function' ? !!ops._hasUnappliedObservation(arm) : null,
++      courseAway: typeof ops._courseAway === 'function' ? !!ops._courseAway(arm, bridge) : null,
++    };
++    const nyckel = `${post.mmsi}|${post.bridge}`;
++    const sig = JSON.stringify(post);
++    if (senaste.get(nyckel) !== sig) {
++      senaste.set(nyckel, sig);
++      sink.push({ t: now, ...post });
++    }
++    return verdict;
++  };
++}
++
+ async function main() {
+   const jsonlPath = process.argv[2];
+   const mmsiFilter = process.argv[3] || null;
+@@ -416,76 +489,8 @@ async function main() {
+       };
+     }
+ 
+-    // SLÄPPVÄGENS DOMAR (varv 2, familj E). Buggjägarens U17-predikat
+-    // (tystRecoverSammaÖppning) måste veta om bakkanten kunde släppa en
+-    // absorberad båt, alltså om appens EGEN prognos vid hennes fix efter att
+-    // händelsens första passage blev känd låg inom fönstrets slut, och om
+-    // släppet kom vid täckningsslutet. Prognosen (ProgressiveETACalculator)
+-    // går inte att återskapa ur raderna. Wrappern bokför därför varje dom ur
+-    // BridgeOpeningService._coverageVerdict med dess indata, men bara när
+-    // något ändrats sedan förra domen för samma arm (domen körs i varje
+-    // utvärdering). Domen kopieras GENERISKT (`verdict`), så att fält som
+-    // läggs till i returvärdet följer med utan ändring här. Strängar får sina
+-    // ISO-tider utbytta mot ‹tid› (SHIFT30 jämför hela resultatet och flyttar
+-    // bara tal och hela ISO-strängar). Ren diagnostik: domen, armen och
+-    // händelsen lämnas orörda, och de två hjälpmetoderna är rena läsare.
+-    const ops = instance.bridgeOpeningService;
+-    if (ops && typeof ops._coverageVerdict === 'function' && !ops._gtVerdictInstrumented) {
+-      ops._gtVerdictInstrumented = true;
+-      const origVerdict = ops._coverageVerdict.bind(ops);
+-      const isoITextRe = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g;
+-      const kopia = (v) => {
+-        if (v === null || typeof v === 'boolean') return v;
+-        if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+-        if (typeof v === 'string') return v.replace(isoITextRe, '‹tid›');
+-        if (Array.isArray(v)) return v.map(kopia);
+-        if (v && typeof v === 'object' && Object.getPrototypeOf(v) === Object.prototype) {
+-          const ut = {};
+-          for (const [k, x] of Object.entries(v)) if (x !== undefined && typeof x !== 'function') ut[k] = kopia(x);
+-          return ut;
+-        }
+-        return null;
+-      };
+-      const tal = (x) => (Number.isFinite(x) ? x : null);
+-      const senaste = new Map();
+-      ops._coverageVerdict = (arm, event, now) => {
+-        const verdict = origVerdict(arm, event, now);
+-        const bridge = ops._targetBridges && typeof ops._targetBridges.get === 'function' ? ops._targetBridges.get(arm.bridge) : undefined;
+-        const post = {
+-          mmsi: String(arm.mmsi),
+-          bridge: arm.bridge,
+-          eventId: arm.eventId,
+-          verdict: kopia(verdict),
+-          arm: {
+-            lastSeenAt: tal(arm.lastSeenAt),
+-            anchorMs: tal(arm.anchorMs),
+-            expectedArrivalMs: tal(arm.expectedArrivalMs),
+-            earliestArrivalMs: tal(arm.earliestArrivalMs),
+-            coverUntilMs: tal(arm.coverUntilMs),
+-            absorbedAt: tal(arm.absorbedAt),
+-            distanceM: tal(arm.distanceM),
+-            sog: tal(arm.sog),
+-            lastFixClean: arm.lastFixClean === true,
+-            anchorFloor: !!event && arm.anchorFloorEventId === event.id,
+-          },
+-          event: event ? {
+-            id: event.id,
+-            firedAt: tal(event.firedAt),
+-            firstPassageAt: tal(event.firstPassageAt),
+-            firstPassageRegisteredAt: tal(event.firstPassageRegisteredAt),
+-          } : null,
+-          frozen: typeof ops._hasUnappliedObservation === 'function' ? !!ops._hasUnappliedObservation(arm) : null,
+-          courseAway: typeof ops._courseAway === 'function' ? !!ops._courseAway(arm, bridge) : null,
+-        };
+-        const nyckel = `${post.mmsi}|${post.bridge}`;
+-        const sig = JSON.stringify(post);
+-        if (senaste.get(nyckel) !== sig) {
+-          senaste.set(nyckel, sig);
+-          openingCoverageVerdicts.push({ t: now, ...post });
+-        }
+-        return verdict;
+-      };
+-    }
++    // Släppvägens domar (varv 2, familj E): se instrumentCoverageVerdicts.
++    instrumentCoverageVerdicts(instance.bridgeOpeningService, openingCoverageVerdicts);
+ 
+     const origUpdateCap = instance._updateDeviceCapability.bind(instance);
+     instance._updateDeviceCapability = (capability, value) => {
+-- 
+2.43.0
+

@@ -1,0 +1,44 @@
+From ab9c57c7d48f175a38f6c0808998d3cc1b621e1e Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 11:30:45 +0000
+Subject: [PATCH 2/3] =?UTF-8?q?ARCHITECTURE:=20sp=C3=A4rren=20vid=20en=20t?=
+ =?UTF-8?q?idigare=20bro=20efter=20samma-tick-tilldelningen?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Quick-jämförelsen visade en större effekt än svepet. I värld 169 kommer
+returens varning för Stridsbergsbron 123 s före korsningen i stället för
+824 s, eftersom spärren nu gäller från fixet efter vändningen, som för
+vilken båt som helst med en tidigare bro framför målbron. Texten säger
+det nu och hänvisar till ägarfrågan M6.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/ARCHITECTURE.md | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 633fb1f..327ded6 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -1145,9 +1145,13 @@ båt.
+     Järnvägsbron den enda mellanbro som kan ge en ny målbro; en återkorsning av Olidebron
+     eller Stallbackabron leder ut ur kanalen. Spärren vid en tidigare bro
+     (`_earlierBridgeAhead` i BridgeOpeningService) gäller nu redan från fixet efter
+-    vändningen, eftersom köbevisbokföringen kräver målbro. I svepet kom 90 av 103
++    vändningen, eftersom köbevisbokföringen kräver målbro. Returbåten behandlas då som
++    vilken båt som helst med en tidigare bro framför målbron. På c14938f slapp hon spärren
++    för nästa målbro, eftersom målbron kom ett fix sent. I svepet kom 90 av 103
+     tidsflyttade varningar tidigare och 13 upp till 37 s senare, alla mot en målbro med
+-    Järnvägsbron emellan. Ingen ledtid mot en sann korsning sjönk under 60 s.
++    Järnvägsbron emellan. I buggjägarens quick-värld 169 kom returens
++    Stridsbergsbronvarning 123 s före korsningen i stället för 824 s. Ingen ledtid mot en
++    sann korsning sjönk under 60 s. Spärrens avvägning är ägarfrågan M6.
+ - **U19 (användarbeslut 2026-11-04): en planerad öppningsvarning skickas även när en
+   obekräftad vändning väntar.** Deadlinemotorn avfyrar som vanligt medan
+   `_fixDPendingReversal` väntar på sin andra observation; varningen hålls inte inne och stryks
+-- 
+2.43.0
+

@@ -1,0 +1,496 @@
+From 5edfe20799d6e9835a31f7c18ece8463474826bf Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 13:25:43 +0000
+Subject: [PATCH 3/3] Revision efter granskningen: riktningskontroll och
+ villkorat B2 (familj A)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+H1 (hög): en enstaka GPS-utliggare 70–140 m bakom linjen, strax efter en
+äkta passage, fick M2 att välja bron båten just passerat. RE_CROSS vände
+båten på utliggaren, och kursen (≥ 2 kn) valde bron bakom henne; C4b
+låste sedan om. Det gav en extra varning och en fantompassage, och
+70 m-vakten täckte inte fallet. Rättningen:
+- assignTargetAfterReversal avstår, och nästa fix avgör som förut, när
+  riktningen tillämpningen skulle låsa motsäger den nyss bekräftade
+  vändningen vid FIX_D_MIN_SOG eller mer. Det är C4b:s andra halva.
+  Villkoret är utbrutet till _routeLockVerdict, som C4b också läser.
+- B2 ankrar i segmentets start bara när kursen inte motsäger
+  återkorsningen. Annars låg ankaret på brusfixets sida, och en
+  returnotis vid Järnvägsbron försvann (två banor i svepet).
+
+Test:
+- Scenarierna med seed 9715 (utliggare 74 m, rött utan kontrollen) och
+  seed 9713 (60 m, rött utan både kontrollen och vakten). Båda gröna på
+  c14938f. Ny förväntan maxPassagesPerBridge.
+- Enhetstest för kontrollen och B2-undantaget.
+- M1-testet fångar målbron i det ögonblick öppningslagret anropas.
+
+Dokumentation: vaktens kostnad (138 korsningar utan varning i
+granskarens prov), ETA-textens utjämning (U22), systervägarna i
+app-lagret och 79 scenarier.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/ARCHITECTURE.md                          |  54 +++++++--
+ docs/VALIDATION.md                            |  20 +++-
+ lib/services/VesselDataService.js             | 104 ++++++++++++++----
+ .../runSyntheticScenarios.js                  |  66 +++++++++++
+ .../varv2-a-maltilldelning-samma-tick.test.js |  52 ++++++++-
+ 5 files changed, 260 insertions(+), 36 deletions(-)
+
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 327ded6..4aed311 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -1122,16 +1122,31 @@ båt.
+   STEG 1:s bokföring (`_noteTargetBridgeChange`: ETA-historiken och borttagningstimern).
+   U18 rörs inte: vändningen är redan bekräftad på två positioner, och ingen ny
+   riktningskälla tillkommer.
++  - **Riktningskontrollen** (granskningen 2026-11-09). Tillämpningen skulle låsa
++    riktningen `positionDirection || _deriveAssignmentDirection`. Om den motsäger den
++    nyss bekräftade vändningen vid `FIX_D_MIN_SOG` eller mer (`_routeLockVerdict`
++    'override', C4b:s andra halva), avgör nästa fix målbron, som förut. Kurs och
++    positionsbevis är då oense. Fallet är en enstaka GPS-utliggare strax efter en äkta
++    passage: `RE_CROSS_EVIDENCED` vände båten på utliggaren, och kursen valde bron hon
++    nyss passerat (latitud bakom linjen, kurs framåt). Granskarens prov med utliggare
++    30–180 m bakåt (504 banor) gav 10 extra varningar, 8 med fantompassage. c14938f gav
++    0, och kontrollen ger 0. Scenariot med seed 9715 prövar fallet. För M1 kan
++    kontrollen inte slå till, eftersom NEW_JOURNEY låser ur samma kurs.
+   - **Under-bro-vakten.** Ligger båten inom den nya målbrons under-bro-band
+-    (`UNDER_BRIDGE_CLEAR_DISTANCE`, 70 m) avgör nästa fix målbron, som förut. Där är brus
+-    och linjens läge av samma storlek. `_calculateTargetBridge` väljer efter rå latitud,
+-    men broarna är snedställda (U14-vakten med ±30 m brus: fixet låg söder om Klaffbron i
+-    latitud men 7,9 m norr om linjen), och `RE_CROSS_EVIDENCED` kan bekräftas på ett
+-    brusfix strax efter en äkta passage. Målbron blev då bron vid båten, och nästa fix
+-    bokfördes som målbropassage med en extra varning. Ett svep över U14-vaktfamiljerna
+-    vid Klaffbron och Stridsbergsbron (504 banor) gav utan vakten 2 extra varningar och 5
+-    fantompassager; med vakten inga. Vakten kostar ingen förvarning: inom 70 m är
+-    passagen under en minut bort i 2,3 kn eller mer.
++    (`UNDER_BRIDGE_CLEAR_DISTANCE`, 70 m), avgör nästa fix målbron, som förut. Där är
++    brus och linjens läge av samma storlek, och `_calculateTargetBridge` väljer efter rå
++    latitud medan broarna är snedställda. I U14-vakten med ±30 m brus låg
++    bekräftelsefixet söder om Klaffbron i latitud men 7,9 m norr om linjen. Målbron
++    blev bron vid båten, och nästa fix bokfördes som målbropassage med en extra varning.
++    Ett svep över U14-vaktfamiljerna vid Klaffbron och Stridsbergsbron (504 banor) gav
++    utan vakten 2 extra varningar och 5 fantompassager, med vakten inga.
++    - För M1 är vakten det enda skyddet; U14-scenariot fäller utan den.
++    - För M2 ligger den bakom riktningskontrollen: scenariot med seed 9713 fäller först
++      när båda tas bort.
++    - Inom 70 m behålls c14938f:s beteende, alltså vid gles AIS ofta ingen varning. I
++      granskarens prov med 576 returer nära bron hade en variant utan vakt varnat för 138
++      korsningar som förblir ovarnade: 115 med under 30 s ledtid, 22 med 30–60 s och 1 med
++      62 s.
+   - **B2.** En vändning som bevisas av en återkorsning ankrar reseankaret i
+     återkorsningssegmentets start (`journeyStartAt`). Bron ligger strikt mellan segmentets
+     start och båten, så den nya resan började på startens sida om bron. Med ankaret i nuet
+@@ -1139,7 +1154,20 @@ båt.
+     bokfört återkorsningen (fixet på linjen, `UNDER_BRIDGE_CROSS_AMBIGUOUS`), och
+     returnotisen vid Järnvägsbron försvann (värld 1317). Origin-vakterna (RC9, S-F6 och
+     triggerpunktsvakten) dömer annorlunda bara för broar mellan segmentets start och
+-    båten, alltså broar som den nya resan bevisligen har korsat.
++    båten, alltså broar som den nya resan bevisligen har korsat. Undantag
++    (granskningen 2026-11-09): motsäger kursen i `FIX_D_MIN_SOG` eller mer
++    återkorsningens riktning, är återkorsningen tvivelaktig, och ankaret sätts i nuet som
++    förut. Det är samma oenighet som riktningskontrollen mäter, till exempel ett brusfix
++    på linjen hos en båt som väntar och sedan kör vidare. Med ankaret på brusfixets sida
++    tilldelade nästa fix i kursens riktning, och det monotona ankaret kunde inte flytta
++    tillbaka förbi bron. Returnotisen vid Järnvägsbron försvann då i två svepbanor.
++  - **Kvar.** En vändning som bekräftas efter `updateVessel` väntar fortfarande på nästa
++    fix för sin målbro. Det gäller STEG 5:s GPS-grind (`registerConfirmedIntermediatePassage`
++    via `_analyzeVesselPosition`) och skipped-bridges-failsafen (`applyInferredPassage`).
++    Båda vägarna följer på en GPS-osäkerhet eller ett glapp, där ett fix till är försiktigt.
++    Failsafen körs dessutom efter öppningslagret, så en målbro där hade ändå beväpnats
++    först vid nästa fix. Vägarna gav ingen vändning i banken: 5 grindbekräftade passager
++    på 482 h, ingen av dem en vändning.
+   - **Kvar.** Låg återkorsningsfixet på linjen och har nästa fix redan passerat den nya
+     målbron, bokförs mellanbron bara av TARGET_END:s Järnvägsbroinferens. För M2 är
+     Järnvägsbron den enda mellanbro som kan ge en ny målbro; en återkorsning av Olidebron
+@@ -1152,6 +1180,12 @@ båt.
+     Järnvägsbron emellan. I buggjägarens quick-värld 169 kom returens
+     Stridsbergsbronvarning 123 s före korsningen i stället för 824 s. Ingen ledtid mot en
+     sann korsning sjönk under 60 s. Spärrens avvägning är ägarfrågan M6.
++  - **ETA-texten (U22).** ETA-kedjan är orörd, men ETA-historiken börjar ett fix
++    tidigare, och utjämningen ger då en längre ETA i första notisen efter vändningen.
++    Värld 936: "om 1 minut" blir "om 2 minuter" 154 m före bron (korsningen 46 s
++    senare). Värld 1918: "strax" blir "om 1 minut" 97 m före (9 s senare). Värld 169: "om
++    2 minuter" blir "om 3 minuter" 170 m före (43 s senare). Annan trafik med målbro i
++    två fix får samma utjämning. Felet hör till de uppskjutna ETA-korten.
+ - **U19 (användarbeslut 2026-11-04): en planerad öppningsvarning skickas även när en
+   obekräftad vändning väntar.** Deadlinemotorn avfyrar som vanligt medan
+   `_fixDPendingReversal` väntar på sin andra observation; varningen hålls inte inne och stryks
+diff --git a/docs/VALIDATION.md b/docs/VALIDATION.md
+index d193394..545a71b 100644
+--- a/docs/VALIDATION.md
++++ b/docs/VALIDATION.md
+@@ -72,7 +72,7 @@ Eller stegen var för sig:
+ |---|---|---|
+ | Enhetstester | `npm test > /tmp/ais-jest.log 2>&1` (läs sedan slutraderna) | Alla tester passerar, exitkod 0 och inga öppna handtag. Aktuellt antal står i körningens sammanfattning. Omdirigeringen bevarar Jest:s exitkod; en pipe till `tail` gör inte det. |
+ | Korpusarna | `npm run replay:all` | Samtliga korpusar (aktuellt antal och timmar står i skriptets utskrift) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + exakt (mmsi,bro,riktning)-fördelning + EXAKT bridge_text-transitionsström (golden-text/) + alla invarianter. Ofullständig fångst redovisas separat och får bara utgöra regression för bevarade sampel. |
+-| Syntetiska | `npm run replay:synthetic` | 77 scenarier (gap, U-svängar även med gles AIS, GPS-hopp, kajliggare, sog=null, omstart, 2h-prune-stillaliggare, krypfart förbi passerad bro …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
++| Syntetiska | `npm run replay:synthetic` | 79 scenarier (gap, U-svängar även med gles AIS, GPS-hopp, kajliggare, sog=null, omstart, 2h-prune-stillaliggare, krypfart förbi passerad bro …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
+ | Öppningsgrindarna | `npm run replay:openings` | ETAPP 6: det proaktiva lagret (`bridge_opening_soon`). **O1** varje målbropassage i SAMTLIGA korpusar (låsta som olåsta — antalet står i skriptets utskrift, inte här) har en öppningsvarning FÖRE passagen — varje miss klassad mot rådata (oklassad = rött); en KONVOJTÄCKNING underkänns om bron bevisligen öppnat och stängt för någon annan emellan. **O2** varje varning utan passage inom 20 min klassas mot rådata (KAJVOBBEL och UTANFÖR_HORISONTEN = rött; avbruten approach, gles anflygning och garantipris = accepterade) — även SEN_PASSAGE-hinken klassas. **O2b** (S14, 2026-08-23) SAMMA fantommätning mot RÅDATAFACIT (A2, `gt-passages`) i stället för appens egna passager — O1b:s mönster: appens passageregistreringar delar grindarnas blindfläck, så en varning kan kallas BEKRÄFTAD av appens egen bokföring medan rådatan inte känner korsningen. Serierna redovisas BREDVID varandra (annars går körningsloggar inte att jämföra bakåt). `inferred`-poster (korsning bevisad, tidpunkt = fönster) bär ALDRIG hinkindelningen utan hamnar i egen hink INFERRERAD_TID — hinkarna ÄR en tidsfönstermätning. **O2b är INFORMATIV: den ändrar inte exitkoden** (grinden ligger kvar på appserien precis som O1:s täckning i fas A); `OPENING_GT_STRICT` flyttar den hit när fas C är klar. Vid införandet: 0 röda i BÅDA serierna, 118 av 360 varningar byter hink (98 blir omätbara `inferred`) och EN varning byter åt det farliga hållet (JAATTEN II @ Stridsbergsbron i 20260708-21h — samma fall INV-21 redan fäller). **O3** A/B-nattens båda armar: 6/6 öppningar varnade före, konvojen som EN varning, boat_near byte-identisk med nattens facit. Dessutom **avfyrningsfönstret** (`t − dueMs` inom två tick — kontraktet "avfyra så sent som garantin tillåter") och **ledtidsgolvet** (hårt golv 60 s; tunnare än utlovade 150 s rapporteras). |
+ | Soaken | `node tests/replay-validation/runSoak.js` | 72 h blandtrafik: 0 processfel, inga läckor, fatala invarianter rena |
+ | Driftens minutloop | `npm run replay:monitoring` | Samma 72 h med riktig monitoring/stale-städning även efter omstarter; samtliga timers avvecklade efter shutdown |
+@@ -464,11 +464,27 @@ vändning (M1 NEW_JOURNEY och M2 vändning inne i målbrogrenen). Alla tre fäll
+   besöket. Bortom besökets utfärdsgräns får återkorsningsfixet en egen notis, och
+   B2 prövas inte.
+ 
+-Under-bro-vakten i `assignTargetAfterReversal` har sitt negativtest i
++Under-bro-vakten i `assignTargetAfterReversal` har sitt negativtest för M1 i
+ `vänder-bromsar-väntar-3m-tät-10s-i-1kn-brus-30m-ge-upp (U14-vakt)`:
+ `maxOpeningsPerBridge: { Klaffbron: 2 }`. Med vakten bortkopplad blir det tre
+ Klaffbronvarningar (den tredje på 16 m) och scenariot rött.
+ 
++**En GPS-utliggare strax efter en äkta passage (granskningen 2026-11-09).** Två scenarier
++låter båten gå norrut genom Klaffbron i 4,4 kn med 10 s kadens, och generatorns
++`gpsJump` flyttar ett fix 40 m efter linjen 100 respektive 60 m söderut.
++`RE_CROSS_EVIDENCED` vänder båten på utliggaren, och kursen väljer bron hon nyss passerat.
++Båda dömer med `maxOpeningsPerBridge` och den nya `maxPassagesPerBridge` (högst N bokförda
++passager av bron, mål- och mellanbro tillsammans):
++- `gps-utliggare-74m-bakom-Klaffbron-efter-passage (M2-riktningskontrollen)`, seed 9715:
++  utliggaren hamnar 74 m från bron, bortom under-bro-vakten. Det är rött utan
++  riktningskontrollen ("Klaffbron fick 2 varningar").
++- `gps-utliggare-inom-under-bro-bandet-efter-passage (M2-vakten)`, seed 9713: utliggaren
++  hamnar inom under-bro-bandet. Det är rött först när både riktningskontrollen och vakten
++  tas bort (två varningar och två passager).
++
++Båda är gröna på `c14938f`. De tål en DEFAULT-FLASH mellan två Stridsbergsbrontexter, som
++kommer likadant på `c14938f`: vändningen på utliggaren lämnar båten mållös till nästa fix.
++
+ Granskningen samma dag lade till sex vakter och två returer. **Vänd och vänta**
+ (`vänder-och-väntar-…-från-Klaffbron-brus-… (U14-vakt)`, fem varianter D = 5–30 m från
+ linjen och brus J = 10–30 m, samt en med gles AIS): båten passerar Klaffbron, vänder 150 m
+diff --git a/lib/services/VesselDataService.js b/lib/services/VesselDataService.js
+index 8177895..cef7f30 100755
+--- a/lib/services/VesselDataService.js
++++ b/lib/services/VesselDataService.js
+@@ -6752,6 +6752,15 @@ class VesselDataService extends EventEmitter {
+    * hoppar TARGET_END:s geometriska inferens över den (S-F6,
+    * INFERRED_PASSAGE_SKIP). Värld 1317: returnotisen vid Järnvägsbron
+    * försvann när målbron sattes i samma tick.
++   * UNDANTAG (granskningen 2026-11-09): motsäger kursen i FIX_D_MIN_SOG eller
++   * mer återkorsningens riktning (_routeLockVerdict 'override', samma
++   * oenighet som riktningskontrollen i assignTargetAfterReversal), är
++   * återkorsningen tvivelaktig. Den kan vara ett brusfix på linjen hos en båt
++   * som väntar och sedan kör vidare. Ankaret sätts då i nuet, som förut.
++   * Annars låg ankaret på brusfixets sida, nästa fix tilldelade i kursens
++   * riktning, och det monotona ankaret kunde inte flytta tillbaka förbi bron.
++   * Det gav en förlorad returnotis vid Järnvägsbron i svepet
++   * (Js-F4-…-retur-s4/s5).
+    * @param {Object} [options]
+    * @param {Object|null} [options.reCrossSegmentStart] - segmentets start
+    *   (rent, se _cleanReCrossSegmentStart) eller null
+@@ -6780,8 +6789,14 @@ class VesselDataService extends EventEmitter {
+     this._lockRouteDirection(vessel, newDir);
+     // H12: en bekräftad U-sväng ÄR en ny resa (N1-resetten nedan säger det
+     // rakt ut) — origo för den nya resan är här och nu, inte episodens start.
+-    // B2 (varv 2): vid en återkorsning segmentets start (se docblocket).
+-    this._anchorJourneyOrigin(vessel, `reversal-${newDir}`, { originLat: journeyStartAt?.lat });
++    // B2 (varv 2): vid en återkorsning segmentets start (se docblocket), men
++    // bara när kursen inte motsäger återkorsningen (granskningen 2026-11-09).
++    // Låset är nytt här, så _routeLockVerdict jämför kursen med newDir.
++    const reCrossDoubtful = Boolean(journeyStartAt)
++      && this._routeLockVerdict(vessel, this._deriveAssignmentDirection(vessel, null)) === 'override';
++    this._anchorJourneyOrigin(vessel, `reversal-${newDir}`, {
++      originLat: reCrossDoubtful ? null : journeyStartAt?.lat,
++    });
+     vessel._fixDPendingReversal = null;
+     this.targetBridgeProtection.delete(mmsi);
+     this._clearProtectionTimer(mmsi);
+@@ -6905,6 +6920,28 @@ class VesselDataService extends EventEmitter {
+     return { targetBridge: newTargetBridge, bridge };
+   }
+ 
++  /**
++   * C4b:s TVÅVÄGSBESLUT om ruttlåset vid en måltilldelning (granskningen av
++   * varv 2, 2026-11-09): motsäger den härledda riktningen det låsta ruttlåset,
++   * och har båten i så fall rörelsebevis att skriva om det?
++   *  - 'none': inget lås, eller riktningen och låset är eniga;
++   *  - 'keep': de motsäger varandra, men farten är okänd eller under
++   *    FIX_D_MIN_SOG. Låset står kvar (C4b, se _applyAcceleratedTarget);
++   *  - 'override': de motsäger varandra, och kursen i FIX_D_MIN_SOG eller mer
++   *    får skriva om låset (HALIFAX/AKIRA-klassen).
++   * Villkoret är ordagrant C4b:s. Brutet ut eftersom riktningskontrollen i
++   * assignTargetAfterReversal är dess andra halva.
++   * @param {Object} vessel - fartygsobjektet
++   * @param {string|null} direction - den härledda tilldelningsriktningen
++   * @returns {'none'|'keep'|'override'}
++   * @private
++   */
++  _routeLockVerdict(vessel, direction) {
++    const lock = vessel._routeDirection;
++    if ((lock !== 'north' && lock !== 'south') || direction === lock) return 'none';
++    return (!Number.isFinite(vessel.sog) || vessel.sog < FIX_D_MIN_SOG) ? 'keep' : 'override';
++  }
++
+   /**
+    * ACCELERATED-TILLDELNINGEN, steg 2 av 2: TILLÄMPA valet ur
+    * _selectAcceleratedTarget — TARGET_CHANGE-raden, målbron, riktningen (F18/J2
+@@ -6960,9 +6997,9 @@ class VesselDataService extends EventEmitter {
+     // ny konstant. Äkta U-svängar (HALIFAX/AKIRA, 4,2/5 kn) har rörelse-
+     // bevis och skriver om låset precis som förut; Fix D-debouncen och
+     // korsningsbevis-reversalen äger fortfarande de bevisade vändningarna.
+-    if ((vessel._routeDirection === 'north' || vessel._routeDirection === 'south')
+-        && direction !== vessel._routeDirection
+-        && (!Number.isFinite(vessel.sog) || vessel.sog < FIX_D_MIN_SOG)) {
++    // Granskningen av varv 2 (2026-11-09): villkoret bor i _routeLockVerdict,
++    // som riktningskontrollen i assignTargetAfterReversal också läser.
++    if (this._routeLockVerdict(vessel, direction) === 'keep') {
+       // KÄLLETIKETTEN (fixomgång B, 2026-08-22 — ren loggtext, inget
+       // beslut): raden sa 'COG' eller 'målbro-fallback', de två källor som
+       // fanns FÖRE J2. Sedan J2 har _deriveAssignmentDirection FYRA led
+@@ -7039,26 +7076,51 @@ class VesselDataService extends EventEmitter {
+       positionDirection, reversalConfirmed: true,
+     });
+     if (!selection) return null;
++    // RIKTNINGSKONTROLLEN (granskningen 2026-11-09, H1). Tillämpningen skulle
++    // låsa riktningen positionDirection || _deriveAssignmentDirection. Om den
++    // motsäger den nyss bekräftade vändningen (ruttlåset) vid
++    // FIX_D_MIN_SOG eller mer, är kurs och positionsbevis oense, och ett fix
++    // räcker inte: nästa fix avgör målbron, som förut. Det är C4b:s andra
++    // halva (_routeLockVerdict 'override'). Utan kontrollen gjorde en enstaka
++    // GPS-utliggare 70–140 m bakom linjen strax efter en äkta passage följande:
++    // RE_CROSS_EVIDENCED vände båten, kursen valde bron hon nyss passerat
++    // (latitud söder om linjen, kurs norr), och C4b låste om norrut. Följden
++    // blev en extra varning, en fantompassage och flera minuter "på väg mot
++    // Klaffbron … strax". Granskarens prov gav 10 av 504 banor, c14938f gav 0,
++    // och kontrollen 0. Scenariot "utliggare-74-m-bakom-Klaffbron-efter-
++    // passage" prövar fallet. För M1 kan kontrollen inte slå till:
++    // NEW_JOURNEY låser ur samma kurs.
++    const direction = positionDirection || this._deriveAssignmentDirection(vessel, selection.targetBridge);
++    if (this._routeLockVerdict(vessel, direction) === 'override') {
++      this.logger.debug(
++        `⏸️ [REVERSAL_TARGET_DEFERRED] ${vessel.mmsi}: ${selection.targetBridge} valdes för ${direction}, `
++        + `men vändningen bekräftade ${vessel._routeDirection} (${vessel.sog} kn) — kurs och positionsbevis `
++        + `är oense, nästa fix avgör målbron, som förut (${reason})`,
++      );
++      return null;
++    }
+     // UNDER-BRO-VAKTEN. Ligger båten inom den nya målbrons under-bro-band
+     // (UNDER_BRIDGE_CLEAR_DISTANCE, 70 m: appens egen gräns för "inte längre
+     // under bron") avgör nästa fix målbron, som förut. Där är brus och linjens
+-    // läge av samma storlek, och ett enda fix räcker inte för att välja:
+-    //  - _calculateTargetBridge väljer efter rå latitud, men broarna är
+-    //    snedställda. I U14-vakten med ±30 m brus (10 s, 1 kn) låg
+-    //    bekräftelsefixet söder om Klaffbron i latitud men 7,9 m NORR om
+-    //    linjen längs kanalaxeln. Målbron blev Klaffbron, och nästa fix
+-    //    bokfördes som målbropassage (avståndsreserven ≤ 50 m räknar en båt på
+-    //    linjen som passerad) med en extra varning på 16 m;
+-    //  - RE_CROSS_EVIDENCED kan bekräftas på ett brusfix strax efter en äkta
+-    //    passage. Kursen i ≥ 2 kn slår då ruttlåset i _calculateTargetBridge,
+-    //    och samma fix gav målbron 38 m bakom båten (STRAX-ZOMBIE i svepet).
++    // läge av samma storlek, och ett enda fix räcker inte för att välja.
++    // _calculateTargetBridge väljer efter rå latitud, men broarna är
++    // snedställda:
++    //  - i U14-vakten med ±30 m brus (10 s, 1 kn) låg bekräftelsefixet söder
++    //    om Klaffbron i latitud men 7,9 m NORR om linjen längs kanalaxeln;
++    //  - målbron blev Klaffbron, och nästa fix bokfördes som målbropassage
++    //    (avståndsreserven ≤ 50 m räknar en båt på linjen som passerad), med
++    //    en extra varning på 16 m.
++    // För M1 är vakten det enda skyddet. För M2 ligger den bakom
++    // riktningskontrollen, som redan tar det brusfix som annars gav målbron
++    // 38 m bakom båten (STRAX-ZOMBIE).
+     // Vid förra beteendet körde nästa fix först N2:s mellanbroprov och valde
+-    // sedan målbron på ett fix som inte längre låg på linjen. Vakten kostar
+-    // ingen förvarning: inom 70 m är passagen under en minut bort i 2,3 kn
+-    // eller mer. Mätt på svepet över U14-vaktfamiljerna (504 banor vid
+-    // Klaffbron och Stridsbergsbron): utan vakt ändrades 16 banor (2 extra
+-    // varningar, 5 fantompassager), med vakten 2, båda utan "Inga båtar"-
+-    // blinket (DEFAULT-FLASH). Se docs/ARCHITECTURE.md §U-svängspunkten.
++    // målbron på ett fix som inte längre låg på linjen. Inom 70 m behålls
++    // därför c14938f:s beteende, alltså vid gles AIS ofta ingen varning. I
++    // granskarens prov (576 returer nära bron) hade en variant utan vakt
++    // varnat för 138 korsningar som förblir ovarnade (115 med under 30 s
++    // ledtid, 22 med 30–60 s och 1 med 62 s). Utan vakt fick svepet över
++    // U14-vaktfamiljerna (504 banor) 2 extra varningar och 5 fantompassager,
++    // med vakten inga. Se docs/ARCHITECTURE.md §U-svängspunkten.
+     const distanceM = geometry.calculateDistance(
+       vessel.lat, vessel.lon, selection.bridge.lat, selection.bridge.lon,
+     );
+diff --git a/tests/replay-validation/runSyntheticScenarios.js b/tests/replay-validation/runSyntheticScenarios.js
+index 51ce1bc..91b195d 100644
+--- a/tests/replay-validation/runSyntheticScenarios.js
++++ b/tests/replay-validation/runSyntheticScenarios.js
+@@ -90,6 +90,8 @@ const OMSTART_SLOW_ZONE = {
+  *  - minNotifiedBridges: dessa broar MÅSTE ha fått notis
+  *  - minPassagesPerBridge: {bro: N} — minst N bokförda passager av bron,
+  *    mål- och mellanbropassager sammantaget (R1, returpassagen)
++ *  - maxPassagesPerBridge: {bro: N} — högst N bokförda passager av bron, på
++ *    samma sätt (varv 2, familj A: fantompassagen efter en GPS-utliggare)
+  *  - forbiddenNotifiedBridges: dessa broar får INTE ha fått notis
+  *  - maxNotifiedPerBridge: {bro: N} — max antal notiser per bro (dubblettvakt)
+  *  - minNotifiedPerBridge: {bro: N} — minst N notiser per bro (U14: en notis
+@@ -508,6 +510,62 @@ const SCENARIOS = [
+       minNotifiedPerBridge: { Järnvägsbron: 2, Stridsbergsbron: 2 },
+     },
+   },
++  // Granskningen av varv 2 (2026-11-09): EN GPS-UTLIGGARE STRAX EFTER EN ÄKTA
++  // PASSAGE. Båten går norrut genom Klaffbron i 4,4 kn med 10 s kadens. Ett fix
++  // 40 m efter linjen flyttas 100 respektive 60 m söderut i latitud
++  // (generatorns gpsJump; fart och kurs orörda). RE_CROSS_EVIDENCED vänder då
++  // båten söderut på utliggaren. I samma tick valde kursen (norr, ≥ 2 kn slår
++  // låset) bron hon nyss passerat, eftersom utliggaren ligger söder om den i
++  // latitud. Sanningen är en passage och en varning. Båda scenarierna tål
++  // en DEFAULT-FLASH ("Inga båtar" 10–20 s mellan två Stridsbergsbrontexter).
++  // Den kommer likadant på c14938f: vändningen på utliggaren lämnar båten
++  // mållös till nästa fix, och det är det beteende båda skydden återställer.
++  // Att vändningen tros på en utliggare är passagelogikens sak (RE_CROSS:s
++  // GPS-grind), inte måltilldelningens.
++  {
++    // H1: utliggaren hamnar 74 m från Klaffbron, alltså strax bortom
++    // under-bro-vakten. Utan riktningskontrollen i assignTargetAfterReversal gav
++    // fixet en andra Klaffbronvarning (74 m) och "på väg mot Klaffbron" i 4,7
++    // min. c14938f lät nästa fix avgöra och gav en varning.
++    name: 'gps-utliggare-74m-bakom-Klaffbron-efter-passage (M2-riktningskontrollen)',
++    seed: 9715,
++    vessels: [{
++      mmsi: '909000015',
++      name: 'HOPP15',
++      direction: 'north',
++      speedKn: 4.4,
++      reportIntervalS: 10,
++      jitterM: 3,
++      gpsJump: { atFraction: FRAC_KLAFFBRON + 40 / METRICS.total, offsetM: -100 },
++    }],
++    expect: {
++      maxOpeningsPerBridge: { Klaffbron: 1 },
++      maxPassagesPerBridge: { Klaffbron: 1 },
++      toleratedInvariants: [/^DEFAULT-FLASH: \S+ "Inga båtar" inklämd \(\d+s\) mellan två "En … Stridsbergsbron"-texter/],
++    },
++  },
++  {
++    // Negativtest för vaktens M2-del: samma utliggare 60 m bakåt hamnar inom
++    // under-bro-bandet. Utan både riktningskontrollen och under-bro-vakten gav
++    // den två varningar och två passager av Klaffbron. Med något av skydden,
++    // och på c14938f, blir det en av vardera.
++    name: 'gps-utliggare-inom-under-bro-bandet-efter-passage (M2-vakten)',
++    seed: 9713,
++    vessels: [{
++      mmsi: '909000013',
++      name: 'HOPP13',
++      direction: 'north',
++      speedKn: 4.4,
++      reportIntervalS: 10,
++      jitterM: 3,
++      gpsJump: { atFraction: FRAC_KLAFFBRON + 40 / METRICS.total, offsetM: -60 },
++    }],
++    expect: {
++      maxOpeningsPerBridge: { Klaffbron: 1 },
++      maxPassagesPerBridge: { Klaffbron: 1 },
++      toleratedInvariants: [/^DEFAULT-FLASH: \S+ "Inga båtar" inklämd \(\d+s\) mellan två "En … Stridsbergsbron"-texter/],
++    },
++  },
+   {
+     // U14 (användarbeslut 2026-11-04, kort B01): tur och retur INOM besöket.
+     // Vändningen 200 m bortom Klaffbron ligger innanför besökets utfärdsgräns
+@@ -1832,6 +1890,14 @@ function checkExpectations(scenario, result, truthPaths = {}) {
+       if (n < minN) problems.push(`bokförda passager av ${bridge} ${n} < förväntade ${minN}`);
+     }
+   }
++  // Varv 2 (familj A, granskningen): spegeln, mot fantompassager.
++  if (e.maxPassagesPerBridge) {
++    const all = [...passages, ...(result.intermediatePassages || [])];
++    for (const [bridge, maxN] of Object.entries(e.maxPassagesPerBridge)) {
++      const n = all.filter((p) => p.bridge === bridge).length;
++      if (n > maxN) problems.push(`FANTOMPASSAGE: ${n} bokförda passager av ${bridge} (max ${maxN})`);
++    }
++  }
+   if (e.zeroNotifications && notifications.length > 0) {
+     problems.push(`oväntade notiser: ${notifications.map((n) => `${n.mmsi}:${n.bridge}`).join(',')}`);
+   }
+diff --git a/tests/varv2-a-maltilldelning-samma-tick.test.js b/tests/varv2-a-maltilldelning-samma-tick.test.js
+index 24425fa..c126603 100644
+--- a/tests/varv2-a-maltilldelning-samma-tick.test.js
++++ b/tests/varv2-a-maltilldelning-samma-tick.test.js
+@@ -159,6 +159,25 @@ describe('assignTargetAfterReversal: ACCELERATED-tilldelningen för samma fix',
+     expect(svc.assignTargetAfterReversal(outside, null, 'new-journey')).toBe('Klaffbron');
+   });
+ 
++  test('RIKTNINGSKONTROLLEN: kursen motsäger vändningen i ≥ 2 kn — nästa fix avgör', () => {
++    const svc = makeVDS();
++    // Utliggarläget (granskningen H1): RE_CROSS har vänt båten söderut på ett
++    // fix 90 m söder om Klaffbron, men kursen säger norr i 4,4 kn. Kursen
++    // hade valt bron hon nyss passerat.
++    const vessel = afterNewJourneyReset({
++      ...northOf(KLAFF, -90), _routeDirection: 'south', sog: 4.4, cog: 20,
++    });
++
++    expect(svc.assignTargetAfterReversal(vessel, null, 'vändning-i-målbrogrenen')).toBeNull();
++    expect(vessel.targetBridge).toBeNull();
++    expect(vessel._routeDirection).toBe('south');
++    expect(logged(logger.debug, 'kurs och positionsbevis är oense')).toBe(true);
++
++    // Positiv kontroll: samma läge, men vändningen och kursen är eniga.
++    const agreeing = afterNewJourneyReset({ ...northOf(KLAFF, -90), sog: 4.4, cog: 20 });
++    expect(svc.assignTargetAfterReversal(agreeing, null, 'new-journey')).toBe('Klaffbron');
++  });
++
+   test('grindarna: befintlig målbro, förtöjd båt och osäker kurs i låg fart ger ingen tilldelning', () => {
+     const svc = makeVDS();
+ 
+@@ -228,6 +247,25 @@ describe('M2: vändning inne i målbrogrenen tilldelar i samma updateVessel', ()
+     // inferens (S-F6) kan bokföra bron om tickens detektering missade den.
+     expect(after._journeyStartLat).toBeLessThan(JVB.lat);
+   });
++
++  test('B2-UNDANTAGET: kursen i ≥ 2 kn motsäger återkorsningen — ankaret i nuet, målbron väntar', () => {
++    const {
++      svc, mmsi, t0, segmentStart,
++    } = reCrossSetup();
++    const crossing = northOf(JVB, 7);
++
++    // Positionerna korsar bron norrut, men kursen säger söder i 3 kn. Det är
++    // brusfixet hos en båt som egentligen fortsätter söderut.
++    const after = svc.updateVessel(mmsi, {
++      ...crossing, sog: 3, cog: 210, name: 'RETUR', fixTs: t0 + 220000, fixFeed: 'aisstream',
++    });
++
++    expect(logged(logger.log, 'RE_CROSS_EVIDENCED')).toBe(true);
++    expect(after._journeyStartLat).toBeCloseTo(crossing.lat, 6);
++    expect(after._journeyStartLat).not.toBeCloseTo(segmentStart.lat, 6);
++    expect(after.targetBridge).toBeNull();
++    expect(logged(logger.debug, 'kurs och positionsbevis är oense')).toBe(true);
++  });
+ });
+ 
+ describe('M1: app-lagrets NEW_JOURNEY tilldelar i samma _onVesselUpdated', () => {
+@@ -240,7 +278,13 @@ describe('M1: app-lagrets NEW_JOURNEY tilldelar i samma _onVesselUpdated', () =>
+     app._triggerBoatNearFlow = jest.fn().mockResolvedValue(undefined);
+     app._checkSkippedBridgesFallback = jest.fn().mockResolvedValue(undefined);
+     app._triggerBoatNearFlowFallback = jest.fn().mockResolvedValue(undefined);
+-    app._observeBridgeOpening = jest.fn();
++    // Granskningen (L5): fånga målbron i det ögonblick öppningslagret anropas.
++    // Objektet muteras senare, så ett toHaveBeenCalledWith(vessel) visar inte
++    // vad öppningslagret såg.
++    app.openingTargetsSeen = [];
++    app._observeBridgeOpening = jest.fn((v) => {
++      app.openingTargetsSeen.push(v.targetBridge);
++    });
+     app._updateUIIfNeeded = jest.fn();
+     app._clearBoatNearTriggers = jest.fn();
+     app.statusService = { clearVesselETAHistory: jest.fn() };
+@@ -298,8 +342,9 @@ describe('M1: app-lagrets NEW_JOURNEY tilldelar i samma _onVesselUpdated', () =>
+     expect(app.statusService.clearVesselETAHistory)
+       .toHaveBeenCalledWith(vessel.mmsi, 'target_bridge_change_none_to_Klaffbron');
+     expect(app._vesselRemovalTimers.has(vessel.mmsi)).toBe(false);
+-    // Öppningslagret såg målbron i samma hanterare.
+-    expect(app._observeBridgeOpening).toHaveBeenCalledWith(vessel);
++    // Öppningslagret såg målbron i samma hanterare. På c14938f är den null här:
++    // tilldelningen väntade på nästa fix.
++    expect(app.openingTargetsSeen).toEqual(['Klaffbron']);
+   });
+ 
+   test('ingen tilldelning (vakten eller grindarna) lämnar resten av flödet orört', async () => {
+@@ -311,5 +356,6 @@ describe('M1: app-lagrets NEW_JOURNEY tilldelar i samma _onVesselUpdated', () =>
+     expect(vessel.passedBridges).toEqual([]);
+     expect(vessel.targetBridge).toBeNull();
+     expect(app.statusService.clearVesselETAHistory).not.toHaveBeenCalled();
++    expect(app.openingTargetsSeen).toEqual([null]);
+   });
+ });
+-- 
+2.43.0
+

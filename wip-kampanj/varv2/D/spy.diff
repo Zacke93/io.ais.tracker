@@ -1,0 +1,59 @@
+diff --git a/lib/services/BridgeOpeningService.js b/lib/services/BridgeOpeningService.js
+index 5b365ec..a699d49 100644
+--- a/lib/services/BridgeOpeningService.js
++++ b/lib/services/BridgeOpeningService.js
+@@ -138,6 +138,12 @@ const BATCH_SETTLE_MS = 2 * ((AIS_CONFIG && AIS_CONFIG.AISHUB
+ const MOVING_SOG_KN = 2;
+ 
+ const NOOP = () => {};
++// DFAM-SPION (tillfällig mätning, familj D; committas aldrig).
++const __DSPY = new WeakMap();
++function __dspyWrite(obj) {
++  if (!process.env.DFAM_SPY) return;
++  require('fs').appendFileSync(process.env.DFAM_SPY, `${JSON.stringify({ src: process.argv[2], ...obj })}\n`);
++}
+ 
+ class BridgeOpeningService {
+   /**
+@@ -1314,6 +1320,23 @@ class BridgeOpeningService {
+     arm.earlierBridgeUntilMs = arm.earlierBridge
+       ? anchor + Math.min(STALE_ETA_SOFT_MS, movingFallbackMs) : null;
+     if (arm.earlierBridge) arm.fireDueMs = Math.max(arm.fireDueMs, arm.earlierBridgeUntilMs);
++    if (process.env.DFAM_SPY) {
++      const st = __DSPY.get(arm) || { seen: [] };
++      st.seen.push(now);
++      if (st.seen.length > 8) st.seen.shift();
++      Object.assign(st, {
++        anchor, rawAnchor, now, dist, sog: vessel.sog, eb: arm.earlierBridge, holdEnd: arm.earlierBridgeUntilMs,
++        baseDue: Math.min(deadlineMs, etaFireMs), deadline: deadlineMs, etaFire: etaFireMs, fireDue: arm.fireDueMs,
++        movingFallbackMs, waiting: arm.waitingAtBridge || null, warned: arm.warnedAt !== null,
++      });
++      __DSPY.set(arm, st);
++      __dspyWrite({
++        k: 'fix', mmsi: arm.mmsi, bridge: arm.bridge, now, anchor, rawAnchor, dist, sog: vessel.sog,
++        eb: arm.earlierBridge, holdEnd: arm.earlierBridgeUntilMs, baseDue: Math.min(deadlineMs, etaFireMs),
++        fireDue: arm.fireDueMs, mf: movingFallbackMs, waiting: arm.waitingAtBridge || null, warned: arm.warnedAt !== null,
++        absorbed: arm.absorbedAt !== null, eventId: arm.eventId,
++      });
++    }
+     // F09: visade fixet henne hållen vid en tidigare bro (spärren gäller
+     // efter fixet)? Bokför fixets plats i bearbetningsordningen. Se
+     // _fixAfterWarning och _releaseWarningsWhileHeld.
+@@ -2979,6 +3002,17 @@ class BridgeOpeningService {
+ 
+   /** @private */
+   _fire(event, members, due, firedBy, now) {
++    if (process.env.DFAM_SPY) {
++      for (const a of due) {
++        const st = __DSPY.get(a) || null;
++        __dspyWrite({
++          k: 'fire', eventId: event.id, firedBy, now, mmsi: a.mmsi, bridge: a.bridge, fireDue: a.fireDueMs,
++          holdEnd: a.earlierBridgeUntilMs, eb: a.earlierBridge, lastSeenAt: a.lastSeenAt, anchor: a.anchorMs,
++          dist: a.distanceM, sog: a.sog, seen: st ? st.seen : null, baseDue: st ? st.baseDue : null,
++          mf: st ? st.movingFallbackMs : null, members: members.map((m) => m.mmsi),
++        });
++      }
++    }
+     const snapshot = Object.freeze(members.map((arm) => Object.freeze({
+       mmsi: arm.mmsi,
+       name: arm.name,

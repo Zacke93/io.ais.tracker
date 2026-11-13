@@ -1,0 +1,117 @@
+{
+ "verdict": "Motorn håller i stort det designen lovar: jest för bugHunt är grönt (10 sviter, 128 test, 3,98 s, inga öppna handtag), eslint är rent, app.js, lib/, drivers/, settings/, app.json, .homeycompose/ och replayRunner.js är byte-identiska med HEAD 7699cbe, och det kanoniska repot är orört. Determinismen håller också: --jobs=1 och --jobs=4 ger samma rapport.json (f07cba24394e), och byggets quick- respektive standardpar är identiska. pool.js --smoke är grönt, även med tvingad dubbel tidsgräns. REPLAY_MONITORING=1 ger inga nya H3-signaturer på banken. F02:s gräns 854–882 s kommer från ett verkligt beteendeskifte i appen (absorption i den inaktuella händelsen #1 i stället för en egen varning #2), inte från motorn.\n\nJag hittade 14 belagda motorfel, alla visade med körningar och skript under /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-review/. Tre är allvarliga:\n1. Två av acceptansrapportens R0-kort (F05:s R0-del och F08) är motorartefakter. Orsaken är dels att radion rapporterar sog 0 för båtar under 0,49 kn, dels att T10 motsäger sig själv.\n2. KIE-PER-KORPUS saknar tidsvillkor och kan tysta en ny fatal invariant på den låsta banken.\n3. U2-VS-DEADLINE kräver inte att båten täcks av händelsen. Därför sorteras U-svängsreturer (en KONFLIKT) och båtar som aldrig täckts av händelsen in som KÄND_ÖPPEN.\n\nResten är M-FAS-amnestier och parningsfel (D4 med '.*', parning utan tidsvillkor, indexparad drift) och hygien: senaste.txt skrivs i repot eller i /tmp, gamla fynd ligger kvar och synthLane lämnar temp efter sig. Dessutom märker nödbromsen i fas 4 inte rapporten AVKORTAD, stressfynden får ingen egen sektion, hunt:repro svarar falskt BORTA och fem registerposter kan aldrig matcha.",
+ "findings": [
+  {
+   "title": "T10 (b) FANTOMPASSAGE motsäger T10 (a) och gav det falska R0-logikfelskortet F08",
+   "severity": "hög",
+   "file": "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/lib/oracles/t10Passage.js:99-121 (jfr :77-78)",
+   "detail": "Del (a) godtar en registrering i [c.t − 180 s; första beslutsamma fix + 300 s] som passagen för L1-korsningen. Del (b) kräver en L0-korsning i [tredje fixen före registreringen − 120 s; t + 120 s]. En sen men äkta registrering räknas därför som träff i (a) och samtidigt som fantom i (b). Belägg: på F08:s sparade minsta repro ger judgeT10 (skriptet hunt-review/t10probe.js) beslutsammaKorsningar 2 och MISS 0, alltså räknade (a) registreringen 10:52:48 som träff för L1-punktkorsningen 10:44:55 (glapp 156 s). Samtidigt ger (b) FANTOMPASSAGE(target) 10:52:48 med motiveringen 'ingen korsning i 10:45:06–10:54:48', fast korsningen ligger bara 11 s före fönstret. Kortrubriken 'Registrerad målbropassage utan sann korsning' stämmer alltså inte, och R0-bekräftelsen flyttade kortet till Logikfel (R0).",
+   "fix": "Låt (b) använda samma koppling som (a). En registrering är förklarad om någon korsning x av samma båt och bro (L0 i syntetiken, L1 på banken) uppfyller x.t − PRE_MS ≤ p.t ≤ (första beslutsamma fix efter x) + POST_MS. Alternativt börjar fönstret vid sista fixen före den senaste korsningen före p.t. Lägg till ett jest-fall med en krypande båt som registreras 8 min efter korsningen.",
+   "id": "M01"
+  },
+  {
+   "title": "Radion rapporterar sog 0 för båtar som rör sig under 0,25 m/s (≈0,49 kn), även i R0",
+   "severity": "hög",
+   "file": "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/lib/radio.js:75-99",
+   "detail": "I makeRow sätts moving = |v| ≥ 0,25 m/s. Under gränsen ger R0 sog 0 och R1 stillaliggarbrus, även när båten rör sig. Därmed motsäger L1 L0 just i den radio som ska sakna observerbarhetsursäkt. Belägg: i F05:s R0-repro rör sig båten 0,40 kn (6,2 m per 30 s) i mer än 15 min förbi Klaffbron, men varje rad säger sog 0. Experimentet gjordes i kopian hunt-review/repo2, där bara den raden ändrades så att sog = |v|/KN när |v| > 0,02 m/s. Där går F05:s och F08:s minsta repro från KVAR till BORTA, medan F06 och F07 har bitlika rader och är kvar. A/B över samma 2000 standardvärldar (--lanes=synth --no-shrink, hunt-review/ab/): T10 PASSAGE-EJ-REGISTRERAD i R0 går från 2 till 0 och T10 FANTOMPASSAGE från 1 till 0. Båda T10-korten på R0-nivå är alltså radioartefakter. Gränsannoteringen 'borta vid 0,49 kn; Närmaste konstant MOVEMENT_PROOF_SOG_KN = 0,5 kn' pekar dessutom på en produktkonstant, fast kanten är radions egen gräns på 0,486 kn.",
+   "fix": "Koppla loss sog från moving-tröskeln: sog = r1(|v|/KN) när |v| > 0, i R1 med fartbrus. Använd stillaliggarmodellen bara för v = 0 (stopp och kaj), och gör likadant för cog och navStatus. Lägg till ett jest-test där krypfart 0,3 kn ger sog 0,3 i R0.",
+   "id": "M02"
+  },
+  {
+   "title": "KIE-PER-KORPUS saknar episodvillkor och döljer nya fatala utslag på låst bank",
+   "severity": "hög",
+   "file": "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/lib/registry.js:388-406 (+ beslutsregister.json post 2, selftest.js:86-125)",
+   "detail": "kiePrefix kräver klass, broar och mmsi. Ingen av bankens tre KIE har mmsi: DEFAULT-FLASH i 42h samt ETA-SÅGTAND UPP och ETA-OSCILLATION i 41h. Därför är sameVessel alltid sann, och tidsvillkor saknas helt. Skripten hunt-review/regprobe.js och kieprobe.js visar följden. En annan DEFAULT-FLASH i 42h (2026-08-06T15:52, 240 s) blir ACCEPTERAD, och det blir även en ETA-sågtand i 41h ett dygn tidigare. Hela kedjan provades också: en ny DEFAULT-FLASH 2026-08-07T14:12 på låst bank räknas av lockedBankFindings som '1 ny träff' men klassas ACCEPTERAD via KIE-PER-KORPUS. Den ger 0 kort under 'Nya träffar på låst bank' och hamnar i stället under 'Kända utfall'. Den starkaste regressionssignalen tystas alltså, och samma sak gäller nya episoder i M-FAS-varianter.",
+   "fix": "När undantaget saknar mmsi ska utslagets ISO-tid ligga inom ett fönster kring undantagets tid, till exempel |Δt| ≤ max|δ| + 5 min. För relation BAS (låst bank) ska samma exakta startsWith gälla som i runAllCorpora, utan registeramnesti. Lägg till ett jest-fall med en ny episod vid samma bro.",
+   "id": "M03"
+  },
+  {
+   "title": "U2-VS-DEADLINE kräver inte att båten täcks av händelsen och räknar båtens egen utresa som händelsens första passage",
+   "severity": "medel",
+   "file": "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/lib/registry.js:287-314",
+   "detail": "Vakten self på rad 299 utesluter bara den identiska korsningen. Medlemskap, absorption eller riktning prövas inte (rad 302–305). Belägg från standardkörningens rapport.json: 13 av 40 T2-OKLASSAD-amnestier via U2-VS-DEADLINE använder en händelse där båten varken är medlem eller absorberad. I 3 fall (värld 936, 1208 och 1317) är 'händelsens första passage' båtens egen utresa före en U-sväng, alltså konflikten mellan INV-21 och U2. Den fallen hör hemma under KONFLIKT U2-RETURRESA men hamnar nu som KÄND_ÖPPEN. Skriptet hunt-review/u2probe.js visar två fall: en retur 7 min efter egen utresa ger KÄND_ÖPPEN, och en orelaterad sydgående båt som aldrig var medlem eller absorberad och korsar 5 min efter en annan händelses första passage ger också KÄND_ÖPPEN. Enligt katalogen förfaller garantin bara 'medan båten är täckt'.",
+   "fix": "Hoppa över händelser där first.mmsi === f.mmsi. Kräv att f.mmsi finns i w.mmsis eller är w.leadMmsi, eller att det finns openingCoverage{reason:'absorbed', eventId: w.eventId, mmsi: f.mmsi, t ≤ tc}. Låt uturnReturnAbsorbed omfatta egna medlemsvarningar och inte bara absorption, så att returerna hamnar under U2-RETURRESA.",
+   "id": "M04"
+  },
+  {
+   "title": "D4-RIKTNING-UNKNOWN med klassRegex '.*' amnestierar alla M-FAS-utslag som har riktning unknown",
+   "severity": "medel",
+   "file": "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/beslutsregister.json:187 (post 8) + lib/registry.js:356-363",
+   "detail": "Posten gäller M-FAS med klassRegex '.*', och directionUnknown faller tillbaka på f.riktning. Skriptet hunt-review/regprobe.js visar att NOTISNYCKEL TAPPAD, NOTISNYCKEL TILLAGD och NOTISDRIFT>30s med riktning unknown alla blir DESIGN via D4. En tappad, dubblerad eller förskjuten notis har inget med riktningstokenet att göra. D4 säger bara att unknown aldrig är en felaktig riktning, men regeln tystar ändå en klockfasberoende notisförlust.",
+   "fix": "Begränsa posten för M-FAS till klassRegex '^(NOTIS|ÖPPNINGS)RIKTNING BYTT$' och kräv belägg.nyRiktning === 'unknown', utan återfall på f.riktning. Det kan bli en egen post för M-FAS.",
+   "id": "M05"
+  },
+  {
+   "title": "notificationDiffs och passageDiffs parar tappade och tillagda poster utan tidsfönster",
+   "severity": "medel",
+   "file": "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/lib/relations.js:192-203, 226-236",
+   "detail": "Parningen görs på mmsi, bro och olika riktning eller typ, utan tidsvillkor. openingDiffs använder däremot PAIR_WINDOW_MS = 120 s. Skriptet hunt-review/pairprobe.js visar följden: en notis som tappas 13:46:40 och en orelaterad extra notis sex timmar senare med riktning unknown blir ett enda 'NOTISRIKTNING BYTT', som D4 sedan klassar DESIGN. Två fel försvinner. PASSAGETYP BYTT har samma brist.",
+   "fix": "Para bara när |a.t − r.t| ≤ PAIR_WINDOW_MS, eller välj närmaste i tid inom fönstret. Gör likadant i passageDiffs.",
+   "id": "M06"
+  },
+  {
+   "title": "notificationDrift parar notiser per index och ger ett falskt NOTISDRIFT>30s",
+   "severity": "låg",
+   "file": "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/lib/project.js:116-147 (rad 135) + lib/relations.js:417-431",
+   "detail": "Den k:te notisen för en nyckel i basen paras med den k:te i varianten. En extra notis förskjuter därför alla senare par. Skriptet hunt-review/driftprobe.js: basen har T och T+3 h, varianten T, T+1 h och T+3 h. Det ger NOTISNYCKEL TILLAGD 14:46:40 och dessutom en drift på 7200 s för notisen 16:46:40, som finns oförändrad i båda. Ett enda utfall blir alltså två kort, och driftkortet pekar på fel notis.",
+   "fix": "Beräkna driften först sedan de extra poster som notificationDiffs pekat ut har tagits bort, eller para på närmaste tid. Hoppa över nycklar där antalet skiljer.",
+   "id": "M07"
+  },
+  {
+   "title": "senaste.txt skrivs i --out-katalogens förälder: skrivning i repot och fil kvar utanför utkatalogen",
+   "severity": "medel",
+   "file": "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/lib/report.js:631-634 + lib/hygiene.js:181,189",
+   "detail": "Med --out blir bas = path.dirname(dir), och writeReport skriver senaste.txt där. Ignoreringskontrollen gäller bara utkatalogen själv. Belägg i git-kopian hunt-review/repo: '--lanes=bank --corpus=20260525 --profile=quick --out=<repo>/hunt.log' godtas eftersom *.log är ignorerat. Resultatet blev '?? senaste.txt' i repots rot och S-GIT exit 2, och filen låg kvar. Med --out=/tmp/x skrivs /tmp/senaste.txt, och byggets egna körningar lämnade C/out/senaste.txt. Det strider mot §3 och S-GIT ('skriver aldrig i repot').",
+   "fix": "Skriv senaste.txt bara när källan är 'dirigent' eller 'tmpdir', alltså motorns egna baskataloger. Med --out ska inget skrivas utanför utkatalogen. Om senaste.txt ändå ska skrivas där: kör isGitIgnored på bas och vägra annars.",
+   "id": "M08"
+  },
+  {
+   "title": "Nödbromsen under fas 4 märker inte rapporten AVKORTAD",
+   "severity": "medel",
+   "file": "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/lib/lanes/synth.js:612,742-772 (+ hunt.js:400-425)",
+   "detail": "krympAlla skickar körning.tidenUte till mapPool och till varje budget, men sätter aldrig körning.avkortad. Samma kommando kördes med och utan --max-minutes=0.15 (--lanes=synth --worlds=40 --corpus=20260525 --profile=quick, hunt-review/runs/). Fingeravtrycken skiljer: f07cba24394e mot 20e70500d59b. Två representanter blev 'delvis krympt (nödbromsen (--max-minutes))', men avkortad var false, titeln saknade (AVKORTAD) och sammanfattningen sade ändå '4 av 4 representanter krympta och bekräftade'. En rapport som beror på väggklockan ser alltså reproducerbar ut, trots att §3 kräver att den märks AVKORTAD.",
+   "fix": "Sätt körning.avkortad = true efter krympAlla om någon budget har nödbroms, något jobb saknar bekräftelse eller tidenUte() är sann. Pröva också tidenUte() före fas 4 i hunt.js och nämn avkortningen i sammanfattningsraden.",
+   "id": "M09"
+  },
+  {
+   "title": "Stressvärldarnas fynd klustras ihop med R0/R1 och får ingen egen sektion",
+   "severity": "medel",
+   "file": "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/lib/cluster.js:29-32, 52-55, 88-97",
+   "detail": "clusterKey saknar nivå, bestLevel väljer R0 eller R1 före stress, och stressvärldar räknas som oberoende enheter i poängen. I standardkörningens rapport.json blandar 12 kluster stressfynd med R0/R1-fynd. 10 stressfynd ligger i 8 kort: F01, F02, F03 (3 st), F04, F06, F12, F14 och F15. Rapporten saknar sektionen Stress, och sammanfattningen säger 'stress 0' trots att 23 stressvärldar gav utslag. Det strider mot BUGGJAKT.md §4.4 och §9 ('redovisas i en egen sektion', nivåvikt 0,3).",
+   "fix": "Lägg till '|stress' i clusterKey när f.nivå === 'stress' i sanningsspåret, så att stressfynd bildar egna kluster med nivåvikt 0,3. Räkna dem inte som enheter i R0/R1-klustren.",
+   "id": "M10"
+  },
+  {
+   "title": "hunt:repro svarar falskt 'BORTA' för kort som det inte kan döma",
+   "severity": "medel",
+   "file": "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/hunt.js:464-498",
+   "detail": "runRepro skickar bara spår 'synth' och relation 'M-FAS' vidare till ett spår. Allt annat går till den generiska vägen, som bara kör judgeExisting (INV-F/INV-W/LEV) och skriver BORTA när mekanismen inte återkommer. Kort från S-KALIBRERING (T1/T10 på låst bank, som står först i rapporten), S-KANARIE, H1 och H3 kan därför aldrig bli KVAR. Belägg: en S-KALIBRERING-katalog för 20260806-42h med mekanismen T1|NOTIS-UTEBLIVEN (hunt-review/fakecards/S01-kalibrering). T1 ger fortfarande 8 NOTIS-UTEBLIVEN på korpusen, men hunt:repro skriver 'BORTA för T1|NOTIS-UTEBLIVEN' med exit 0. §15 säger åt ägaren att verifiera rättningar just med hunt:repro.",
+   "fix": "Låt runRepro välja domare efter recept.relation: 'S-KALIBRERING' ger bankTruth, judgeT1/judgeT10 och registret (som i kalibrera), 'S-KANARIE' ger selftestSynth.checkCanary, och H1/H3 ger health. Saknas domare ska svaret vara 'KAN INTE DÖMAS' med exit ≠ 0, aldrig BORTA.",
+   "id": "M11"
+  },
+  {
+   "title": "Fem registerposter kan aldrig matcha men visas som 'Närmast'",
+   "severity": "låg",
+   "file": "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/beslutsregister.json (poster 14, 15, 16, 21, 22)",
+   "detail": "Oraklen utesluter redan dessa fall som förutsättning, så predikaten blir aldrig sanna:\n- U10-BN2-PASSERAD-FORM: T1 FORM fälls bara när alreadyPassed ≠ true (t1Notice.js:249).\n- UNDER-BRO-BANDET-70M: T1 FORM fälls bara med en fix mer än 70 m bortom linjen (t1Notice.js:253), och T10 MISS kräver en beslutsam fix över 70 m (t10Passage.js:69-71) som predikatets fönster alltid innehåller.\n- FALSKLARM-AVBRUTEN-GLES: AVBRUTEN_APPROACH och GLES_ANFLYGNING är alltid accepterade och fälls aldrig som egen T3-klass (t2Opening.js:288-313).\n- DEADLINE-10KN-GARANTIPRIS: belägg.veffKn sätts ingenstans.\n- KAJGRIND-UTAN-RÖRELSEBEVIS: T1 kräver redan sog ≥ 1,0 kn, så bara ett fönster på högst 120 s skiljer.\nI standardkörningen har alla fem användning 0. Korten F05, F12 och F14 visar ändå 'Närmast UNDER-BRO-BANDET-70M', 'DEADLINE-10KN-GARANTIPRIS' och 'U10-BN2-PASSERAD-FORM', vilket vilseleder triagen. Listan över oanvända poster, som ska avslöja kvarlämnade amnestier, får dessutom permanent brus.",
+   "fix": "Två vägar:\n- Flytta vakterna från oraklen till registret, som designen avser.\n- Märk posterna som hanterade i oraklet (till exempel verkan 'iOraklet') och undanta dem från 'närmast' och från unused() och rapportens lista över oanvända poster.",
+   "id": "M12"
+  },
+  {
+   "title": "Återanvänd --out lämnar gamla fynd/-kataloger kvar",
+   "severity": "låg",
+   "file": "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/lib/report.js:602-611",
+   "detail": "writeReport skapar bara kataloger, så gamla Fnn-, Bnn- och r2-kataloger ligger kvar. Belägg i hunt-review/reuse: körning 1 med --corpus=20260710-13h skriver fynd/F01-ny-oppningsvarning-i-fasvarianten-vid-klaffbron-norrut. Körning 2 med --corpus=20260525 i samma --out ger rapport.md 'Inga kandidater' och 0 kluster i rapport.json, men F01-katalogen från körning 1 finns kvar. hunt:repro på den kör dessutom den gamla varianten.",
+   "fix": "Vägra en icke-tom --out, utom när den bara innehåller en tidigare motorkörning (rapport.json med format 'buggjägaren-rapport/1'). Töm i så fall fynd/ först. Alternativt skapas alltid en ny stämplad underkatalog.",
+   "id": "M13"
+  },
+  {
+   "title": "Fristående synthLane.js lämnar sin tempkatalog",
+   "severity": "låg",
+   "file": "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/hunt-build/C/repo/tests/replay-validation/bugHunt/lib/synthLane.js:337 (+ :83-85)",
+   "detail": "main skapar os.tmpdir()/ais-tracker-hunt-synth-XXXX med mkdtemp, raderar den aldrig och skriver bara ut 'Filer: …'. Barnprocessen ärver dessutom förälderns cwd. Belägg: 'TMPDIR=… node lib/synthLane.js --worlds=2 --jobs=1' lämnade jsonl-, spec- och truth-filer för varje värld i tempkatalogen. Det strider mot hygienregeln i §3: tempfiler raderas om inte --keep-temp anges.",
+   "fix": "Radera katalogen i finally, om inte --tmp eller --keep-temp angetts. Sätt cwd: tmpDir i execFile, som pool.js gör.",
+   "id": "M14"
+  }
+ ]
+}

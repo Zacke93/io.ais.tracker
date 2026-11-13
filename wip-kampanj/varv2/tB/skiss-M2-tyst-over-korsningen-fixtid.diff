@@ -1,0 +1,46 @@
+diff --git a/tests/replay-validation/bugHunt/__tests__/j-kampanj-register.test.js b/tests/replay-validation/bugHunt/__tests__/j-kampanj-register.test.js
+index d4242b4..673b368 100644
+--- a/tests/replay-validation/bugHunt/__tests__/j-kampanj-register.test.js
++++ b/tests/replay-validation/bugHunt/__tests__/j-kampanj-register.test.js
+@@ -394,10 +394,18 @@ describe('U17 U17-TYST-BÅT-RECOVER och K-TYST-BÅT-NÄSTA-ÖPPNING', () => {
+     expect(prövad(c, 'U17-TYST-BÅT-RECOVER').skäl).toMatch(/inte av båten själv/);
+   });
+ 
+-  test('[vakt] värld 941: båten hördes efter sin korsning, så appen kunde veta att hon passerat; KANDIDAT', () => {
++  test('[träff] värld 941: raden mottogs 0,1 s efter korsningen men bär en fix 17 s före den (58 m före bron); tyst över korsningen, U17', () => {
+     const { fynd, ctx } = fall('w941');
++    expect(klassa(reg, fynd, ctx)).toMatchObject({ klass: 'DESIGN', post: 'U17-TYST-BÅT-RECOVER' });
++  });
++
++  test('[vakt] värld 941 med samma rad men fixen efter korsningen: appen kunde veta att hon passerat; KANDIDAT', () => {
++    const { fynd, ctx } = fall('w941');
++    const kors = Date.parse(fynd.belägg.sannPassage.t);
++    const sista = ctx.rader.filter((r) => r.mmsi === fynd.mmsi && r.aisTimestamp < fynd.t).pop();
++    sista.fixTs = kors + 100;
+     expect(klassa(reg, fynd, ctx).klass).toBe('KANDIDAT');
+-    expect(pred('tystRecoverSammaÖppning')(fynd, ctx).skäl).toMatch(/kom efter korsningen/);
++    expect(pred('tystRecoverSammaÖppning')(fynd, ctx).skäl).toMatch(/låg efter korsningen/);
+   });
+ 
+   test('[vakt] en varning som avfyrades av ett fix (värld 829, U-svängsreturen) och en båt utan absorption faller på predikatet', () => {
+diff --git a/tests/replay-validation/bugHunt/lib/registry.js b/tests/replay-validation/bugHunt/lib/registry.js
+index aa736df..eeefe9d 100644
+--- a/tests/replay-validation/bugHunt/lib/registry.js
++++ b/tests/replay-validation/bugHunt/lib/registry.js
+@@ -1937,7 +1937,15 @@ const PREDICATES = {
+       const föreW = rader.filter((r) => r.p < w.t);
+       const sista = föreW[föreW.length - 1];
+       if (!sista) return nej('ingen rad för båten före varningen');
+-      if (!(sista.aisTimestamp < kors.t)) return nej(`båtens rad ${fmtT(sista.aisTimestamp)} kom efter korsningen ${fmtT(kors.t)}: hon var inte tyst över korsningen`);
++      // Tyst över korsningen avgörs av POSITIONENS tid, inte mottagningen:
++      // en AISHub-rad som tas emot efter korsningen men bär en fix från före
++      // den visar henne fortfarande före bron (triage B, varv 2, värld 941:
++      // mottagen 13:28:57,288, fix 13:28:40, 58 m före Stridsbergsbron,
++      // korsning 13:28:57,177). fixtid = fixTs, annars mottagningstiden.
++      if (!(fixtid(sista) < kors.t)) {
++        return nej(`båtens fix ${fmtT(fixtid(sista))} (mottagen ${fmtT(sista.aisTimestamp)}) låg efter korsningen ${fmtT(kors.t)}: `
++          + 'hon var inte tyst över korsningen');
++      }
+       const res = ctx.resultat || {};
+       const cov = res.openingCoverage || [];
+       const ws = deliveredWarnings(ctx, f.bro);

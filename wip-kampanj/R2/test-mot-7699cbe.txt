@@ -1,0 +1,596 @@
+FAIL tests/zonintrade-uppskjutet-bevis.test.js (19.058 s)
+  ● F08: inträdesbeviset prövas i passet som skjuter upp under-bro-grenen › Phase 3-hållningen för Stridsbergsbron: utgångsfixen bokför passagen utan något mellanliggande pass
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "Järnvägsbron"
+    Received: null
+
+      111 |     status.analyzeVesselStatus(vessel, proximity.analyzeVesselProximity(vessel), cleanAnalysis);
+      112 |
+    > 113 |     expect(vessel._underBridgeCrossedBridge).toBe('Järnvägsbron');
+          |                                              ^
+      114 |     expect(vessel._underBridgeEntryLat).toBe(A0.lat);
+      115 |     // Föregående observation förbrukas inte av uppskjutningen.
+      116 |     expect(vessel._underBridgePrevLat).toBe(A0.lat);
+
+      at toBe (zonintrade-uppskjutet-bevis.test.js:113:46)
+
+  ● F08: inträdesbeviset prövas i passet som skjuter upp under-bro-grenen › FIX U:s tvingade väntan: utgångsfixen bokför passagen utan något mellanliggande pass
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "Järnvägsbron"
+    Received: null
+
+      111 |     status.analyzeVesselStatus(vessel, proximity.analyzeVesselProximity(vessel), cleanAnalysis);
+      112 |
+    > 113 |     expect(vessel._underBridgeCrossedBridge).toBe('Järnvägsbron');
+          |                                              ^
+      114 |     expect(vessel._underBridgeEntryLat).toBe(A0.lat);
+      115 |     // Föregående observation förbrukas inte av uppskjutningen.
+      116 |     expect(vessel._underBridgePrevLat).toBe(A0.lat);
+
+      at toBe (zonintrade-uppskjutet-bevis.test.js:113:46)
+
+  ● F08: inträdesbeviset prövas i passet som skjuter upp under-bro-grenen › rensningspasset (NINA B 20260918-7h): nästa bros inträde prövas i samma pass
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "Järnvägsbron"
+    Received: null
+
+      156 |
+      157 |     expect(vessel.currentBridge).toBeNull();
+    > 158 |     expect(vessel._underBridgeCrossedBridge).toBe('Järnvägsbron');
+          |                                              ^
+      159 |     expect(vessel._underBridgeEntryLat).toBe(prev.lat);
+      160 |     const exit = {
+      161 |       ...vessel, lat: 58.28917, lon: 12.28889, sog: 5.6, _rawPositionSog: 5.6,
+
+      at Object.toBe (zonintrade-uppskjutet-bevis.test.js:158:46)
+
+  ● F08: beviset från det uppskjutande passet överlever nästa zonbesök › extra fix inne i zonen, utan UI-pass vid B (förut tappad): utgångsfixen bokför passagen
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "Järnvägsbron"
+    Received: null
+
+      255 |     pass(vessel);
+      256 |
+    > 257 |     expect(vessel._underBridgeCrossedBridge).toBe('Järnvägsbron');
+          |                                              ^
+      258 |     expect(vessel._underBridgeEntryLat).toBe(A0.lat);
+      259 |     expect(vessel._underBridgeLatched).toBe(true);
+      260 |     const atCp = moveTo(vessel, C, B.t + 47332);
+
+      at toBe (zonintrade-uppskjutet-bevis.test.js:257:46)
+
+  ● F08: beviset från det uppskjutande passet överlever nästa zonbesök › TARGET_UNDER återställer beviset på samma sätt när bron är målbron
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "Järnvägsbron"
+    Received: null
+
+      278 |     expect(underBridge).toBe(true);
+      279 |     expect(vessel.currentBridge).toBe('Järnvägsbron');
+    > 280 |     expect(vessel._underBridgeCrossedBridge).toBe('Järnvägsbron');
+          |                                              ^
+      281 |     expect(vessel._underBridgeEntryLat).toBe(A0.lat);
+      282 |   });
+      283 |
+
+      at Object.toBe (zonintrade-uppskjutet-bevis.test.js:280:46)
+
+  ● F08: beviset från det uppskjutande passet överlever nästa zonbesök › U-sväng inne i zonen: det återställda beviset ger ingen passage söderut
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "Järnvägsbron"
+    Received: null
+
+      286 |     moveTo(vessel, Cp, B.t + 20000);
+      287 |     pass(vessel);
+    > 288 |     expect(vessel._underBridgeCrossedBridge).toBe('Järnvägsbron');
+          |                                              ^
+      289 |     // Båten vänder, korsar tillbaka norrut inne i zonen och lämnar den norrut.
+      290 |     // Punkterna ligger på inflygningslinjen A0→B (linjen korsas vid ~93 %).
+      291 |     const along = (f, sog) => ({
+
+      at Object.toBe (zonintrade-uppskjutet-bevis.test.js:288:46)
+
+  ● F08: beviset från det uppskjutande passet överlever nästa zonbesök › FIX O-spärren prövar inträdesbeviset (passet efter FIX U i samma millisekund)
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "Järnvägsbron"
+    Received: null
+
+      319 |
+      320 |     expect(vessel._underBridgeLatched).toBe(false); // spärren höll under-bro
+    > 321 |     expect(vessel._underBridgeCrossedBridge).toBe('Järnvägsbron');
+          |                                              ^
+      322 |     expect(vessel._underBridgeEntryLat).toBe(A0.lat);
+      323 |   });
+      324 |
+
+      at Object.toBe (zonintrade-uppskjutet-bevis.test.js:321:46)
+
+  ● F08: beviset från det uppskjutande passet överlever nästa zonbesök › FIX O-spärren återställer ett bevis som ett ordinarie pass har nollat
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "Järnvägsbron"
+    Received: null
+
+      334 |     });
+      335 |     pass(vessel);
+    > 336 |     expect(vessel._underBridgeCrossedBridge).toBe('Järnvägsbron');
+          |                                              ^
+      337 |     moveTo(vessel, Cp, B.t + 15000);
+      338 |     vessel._lastWaitingShownAt = { Järnvägsbron: B.t };
+      339 |     pass(vessel);
+
+      at Object.toBe (zonintrade-uppskjutet-bevis.test.js:336:46)
+
+  ● F08: beviset från det uppskjutande passet överlever nästa zonbesök › posten släpps när båten har lämnat zonen
+
+    expect(received).toMatchObject(expected)
+
+    Matcher error: received value must be a non-null object
+
+    Received has value: undefined
+
+      377 |   ])('posten släpps när %s', (_label, { before, atCp, tCp = B.t + 20000 }) => {
+      378 |     const vessel = holdAndFixU();
+    > 379 |     expect(vessel._underBridgeDeferredProof).toMatchObject({ bridge: 'Järnvägsbron', lat: A0.lat });
+          |                                              ^
+      380 |     if (before) before(vessel);
+      381 |     moveTo(vessel, Cp, tCp);
+      382 |     if (atCp) atCp(vessel);
+
+      at toMatchObject (zonintrade-uppskjutet-bevis.test.js:379:46)
+
+  ● F08: beviset från det uppskjutande passet överlever nästa zonbesök › posten släpps när positionen är GPS-osäker
+
+    expect(received).toMatchObject(expected)
+
+    Matcher error: received value must be a non-null object
+
+    Received has value: undefined
+
+      377 |   ])('posten släpps när %s', (_label, { before, atCp, tCp = B.t + 20000 }) => {
+      378 |     const vessel = holdAndFixU();
+    > 379 |     expect(vessel._underBridgeDeferredProof).toMatchObject({ bridge: 'Järnvägsbron', lat: A0.lat });
+          |                                              ^
+      380 |     if (before) before(vessel);
+      381 |     moveTo(vessel, Cp, tCp);
+      382 |     if (atCp) atCp(vessel);
+
+      at toMatchObject (zonintrade-uppskjutet-bevis.test.js:379:46)
+
+  ● F08: beviset från det uppskjutande passet överlever nästa zonbesök › posten släpps när bron är bokförd
+
+    expect(received).toMatchObject(expected)
+
+    Matcher error: received value must be a non-null object
+
+    Received has value: undefined
+
+      377 |   ])('posten släpps när %s', (_label, { before, atCp, tCp = B.t + 20000 }) => {
+      378 |     const vessel = holdAndFixU();
+    > 379 |     expect(vessel._underBridgeDeferredProof).toMatchObject({ bridge: 'Järnvägsbron', lat: A0.lat });
+          |                                              ^
+      380 |     if (before) before(vessel);
+      381 |     moveTo(vessel, Cp, tCp);
+      382 |     if (atCp) atCp(vessel);
+
+      at toMatchObject (zonintrade-uppskjutet-bevis.test.js:379:46)
+
+  ● F08: beviset från det uppskjutande passet överlever nästa zonbesök › posten släpps när en passage av bron har registrerats efter posten (listan nollad av en vändning)
+
+    expect(received).toMatchObject(expected)
+
+    Matcher error: received value must be a non-null object
+
+    Received has value: undefined
+
+      377 |   ])('posten släpps när %s', (_label, { before, atCp, tCp = B.t + 20000 }) => {
+      378 |     const vessel = holdAndFixU();
+    > 379 |     expect(vessel._underBridgeDeferredProof).toMatchObject({ bridge: 'Järnvägsbron', lat: A0.lat });
+          |                                              ^
+      380 |     if (before) before(vessel);
+      381 |     moveTo(vessel, Cp, tCp);
+      382 |     if (atCp) atCp(vessel);
+
+      at toMatchObject (zonintrade-uppskjutet-bevis.test.js:379:46)
+
+  ● F08: beviset från det uppskjutande passet överlever nästa zonbesök › posten släpps när beviset är äldre än två minuter
+
+    expect(received).toMatchObject(expected)
+
+    Matcher error: received value must be a non-null object
+
+    Received has value: undefined
+
+      377 |   ])('posten släpps när %s', (_label, { before, atCp, tCp = B.t + 20000 }) => {
+      378 |     const vessel = holdAndFixU();
+    > 379 |     expect(vessel._underBridgeDeferredProof).toMatchObject({ bridge: 'Järnvägsbron', lat: A0.lat });
+          |                                              ^
+      380 |     if (before) before(vessel);
+      381 |     moveTo(vessel, Cp, tCp);
+      382 |     if (atCp) atCp(vessel);
+
+      at toMatchObject (zonintrade-uppskjutet-bevis.test.js:379:46)
+
+  ● F08: beviset från det uppskjutande passet överlever nästa zonbesök › posten släpps när ett bevis för en annan bro har satts
+
+    expect(received).toMatchObject(expected)
+
+    Matcher error: received value must be a non-null object
+
+    Received has value: undefined
+
+      377 |   ])('posten släpps när %s', (_label, { before, atCp, tCp = B.t + 20000 }) => {
+      378 |     const vessel = holdAndFixU();
+    > 379 |     expect(vessel._underBridgeDeferredProof).toMatchObject({ bridge: 'Järnvägsbron', lat: A0.lat });
+          |                                              ^
+      380 |     if (before) before(vessel);
+      381 |     moveTo(vessel, Cp, tCp);
+      382 |     if (atCp) atCp(vessel);
+
+      at toMatchObject (zonintrade-uppskjutet-bevis.test.js:379:46)
+
+  ● F08: beviset från det uppskjutande passet överlever nästa zonbesök › posten följer med när VesselDataService bygger om fartygsobjektet
+
+    expect(received).toEqual(expected) // deep equality
+
+    Expected: {"at": 1789698390446, "bridge": "Järnvägsbron", "lat": 58.29427, "lon": 12.29567}
+    Received: undefined
+
+      403 |         lat: Cp.lat, lon: Cp.lon, sog: Cp.sog, cog: Cp.cog, name: 'SINE BRES',
+      404 |       }, { ...vesselAtB(), _underBridgeDeferredProof: proof });
+    > 405 |       expect(rebuilt._underBridgeDeferredProof).toEqual(proof);
+          |                                                 ^
+      406 |     } finally {
+      407 |       svc.clearAllTimers();
+      408 |     }
+
+      at Object.toEqual (zonintrade-uppskjutet-bevis.test.js:405:49)
+
+  ● F08: SINE BRES Järnvägspassage oberoende av klockfasen › δ = -2.5 s
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 3
+    + Received  + 1
+
+    - Array [
+    -   1789698437778,
+    - ]
+    + Array []
+
+      490 |   test.each([0, -2.5, -5, -7])('δ = %s s', async (deltaS) => {
+      491 |     const result = await replay(writeVariant(`fas${deltaS}`, corpusRows(), deltaS));
+    > 492 |     expect(jvbPassages(result, deltaS)).toEqual([BOOKED]);
+          |                                         ^
+      493 |   }, 120000);
+      494 |
+      495 |   /**
+
+      at toEqual (zonintrade-uppskjutet-bevis.test.js:492:41)
+
+  ● F08: SINE BRES Järnvägspassage oberoende av klockfasen › δ = -5 s
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 3
+    + Received  + 1
+
+    - Array [
+    -   1789698437778,
+    - ]
+    + Array []
+
+      490 |   test.each([0, -2.5, -5, -7])('δ = %s s', async (deltaS) => {
+      491 |     const result = await replay(writeVariant(`fas${deltaS}`, corpusRows(), deltaS));
+    > 492 |     expect(jvbPassages(result, deltaS)).toEqual([BOOKED]);
+          |                                         ^
+      493 |   }, 120000);
+      494 |
+      495 |   /**
+
+      at toEqual (zonintrade-uppskjutet-bevis.test.js:492:41)
+
+  ● F08: SINE BRES Järnvägspassage oberoende av klockfasen › δ = -7 s
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 3
+    + Received  + 1
+
+    - Array [
+    -   1789698437778,
+    - ]
+    + Array []
+
+      490 |   test.each([0, -2.5, -5, -7])('δ = %s s', async (deltaS) => {
+      491 |     const result = await replay(writeVariant(`fas${deltaS}`, corpusRows(), deltaS));
+    > 492 |     expect(jvbPassages(result, deltaS)).toEqual([BOOKED]);
+          |                                         ^
+      493 |   }, 120000);
+      494 |
+      495 |   /**
+
+      at toEqual (zonintrade-uppskjutet-bevis.test.js:492:41)
+
+  ● F08: SINE BRES Järnvägspassage oberoende av klockfasen › en extra fix inne i zonen: passagen bokförs i alla faser
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 7
+    + Received  + 7
+
+      Array [
+    -   "2026-09-18T02:26:41.600Z δ 0: 2026-09-18T02:27:17.778Z",
+    -   "2026-09-18T02:26:41.600Z δ -2.5: 2026-09-18T02:27:17.778Z",
+    -   "2026-09-18T02:26:41.600Z δ -5: 2026-09-18T02:27:17.778Z",
+    -   "2026-09-18T02:26:41.600Z δ -7: 2026-09-18T02:27:17.778Z",
+    +   "2026-09-18T02:26:41.600Z δ 0: tappad",
+    +   "2026-09-18T02:26:41.600Z δ -2.5: tappad",
+    +   "2026-09-18T02:26:41.600Z δ -5: tappad",
+    +   "2026-09-18T02:26:41.600Z δ -7: tappad",
+        "2026-09-18T02:27:05.000Z δ 0: 2026-09-18T02:27:17.778Z",
+    -   "2026-09-18T02:27:05.000Z δ -2.5: 2026-09-18T02:27:17.778Z",
+    -   "2026-09-18T02:27:05.000Z δ -5: 2026-09-18T02:27:17.778Z",
+    -   "2026-09-18T02:27:05.000Z δ -7: 2026-09-18T02:27:17.778Z",
+    +   "2026-09-18T02:27:05.000Z δ -2.5: tappad",
+    +   "2026-09-18T02:27:05.000Z δ -5: tappad",
+    +   "2026-09-18T02:27:05.000Z δ -7: tappad",
+      ]
+
+      532 |       });
+      533 |     }
+    > 534 |     expect(outcomes).toEqual(variants.map((v) => `${v.tIso} δ ${v.deltaS}: ${new Date(BOOKED).toISOString()}`));
+          |                      ^
+      535 |   }, 300000);
+      536 |
+      537 |   /**
+
+      at Object.toEqual (zonintrade-uppskjutet-bevis.test.js:534:22)
+
+  ● F08: SINE BRES Järnvägspassage oberoende av klockfasen › KÄND LUCKA: en extra fix 50–60 m efter linjen tappar passagen; kanterna bokförs
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 6
+    + Received  + 2
+
+      Array [
+    -   Array [
+    -     1789698437778,
+    -   ],
+    +   Array [],
+    +   Array [],
+        Array [],
+    -   Array [
+    -     1789698401600,
+    -   ],
+      ]
+
+      580 |     expect(variants.map((v) => Math.round(v.distanceM * 10) / 10)).toEqual([49.1, 58.8, 60.4]);
+      581 |     const results = await Promise.all(variants.map((v) => replay(v.jsonl)));
+    > 582 |     expect(results.map((result) => jvbPassages(result, 0))).toEqual(variants.map((v) => v.expected));
+          |                                                             ^
+      583 |   }, 120000);
+      584 | });
+      585 |
+
+      at Object.toEqual (zonintrade-uppskjutet-bevis.test.js:582:61)
+
+FAIL tests/bn2-dodband-nordprogress.test.js
+  ● F13: BN2 när kursen inte säger nord eller syd (östra dödbandet eller ingen kurs) › färsk nordprogress bär färdriktningen i dödbandet, men inte mot en sydlig kurs eller ett ruttlås
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: true
+    Received: false
+
+      113 |
+      114 |     // SALTIS (49,9°) och den okända båten (46,2°): passerad form.
+    > 115 |     expect(app._hasGapCrossedNotifiedBridge(reborn(), candidate, 'current')).toBe(true);
+          |                                                                              ^
+      116 |     expect(app._hasGapCrossedNotifiedBridge(reborn({ cog: 46.2 }), candidate, 'current')).toBe(true);
+      117 |
+      118 |     // Beviset måste vara färskt och över ribban, precis som för K1.
+
+      at Object.toBe (bn2-dodband-nordprogress.test.js:115:78)
+
+  ● F13: BN2 när kursen inte säger nord eller syd (östra dödbandet eller ingen kurs) › utan kurs (AIS 360 → null) bär färsk nordprogress färdriktningen på samma sätt
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: true
+    Received: false
+
+      143 |
+      144 |     // Revision 2: kursen saknas helt (null eller undefined). Förut false.
+    > 145 |     expect(app._hasGapCrossedNotifiedBridge(reborn({ cog: null }), candidate, 'current')).toBe(true);
+          |                                                                                           ^
+      146 |     expect(app._hasGapCrossedNotifiedBridge(reborn({ cog: undefined }), candidate, 'current')).toBe(true);
+      147 |
+      148 |     // Samma beviskrav som i dödbandet: färskt och över ribban.
+
+      at Object.toBe (bn2-dodband-nordprogress.test.js:145:91)
+
+  ● F13: BN2 när kursen inte säger nord eller syd (östra dödbandet eller ingen kurs) › SALTIS genom hela appen: Olidebron-notisen går i passerad form
+
+    expect(received).toMatchObject(expected)
+
+    - Expected  - 3
+    + Received  + 3
+
+      Object {
+    -   "alreadyPassed": true,
+    -   "eta": -1,
+    -   "message": "SALTIS passerade Olidebron under AIS-tystnad",
+    +   "alreadyPassed": false,
+    +   "eta": 1,
+    +   "message": "SALTIS närmar sig Olidebron, beräknad ankomst om 1 minut",
+        "t": 1781773052513,
+      }
+
+      202 |     const notice = result.notifications.find((n) => n.mmsi === MMSI && n.bridge === 'Olidebron');
+      203 |     // Före rättningen: "SALTIS närmar sig Olidebron, beräknad ankomst om 1 minut".
+    > 204 |     expect(notice).toMatchObject({
+          |                    ^
+      205 |       t: Date.parse('2026-06-18T08:57:32.513Z'),
+      206 |       eta: -1,
+      207 |       alreadyPassed: true,
+
+      at Object.toMatchObject (bn2-dodband-nordprogress.test.js:204:20)
+
+  ● F13: BN2 när kursen inte säger nord eller syd (östra dödbandet eller ingen kurs) › SALTIS med kursen 360 ("ej tillgänglig") genom hela appen: också passerad form
+
+    expect(received).toMatchObject(expected)
+
+    - Expected  - 3
+    + Received  + 3
+
+      Object {
+    -   "alreadyPassed": true,
+    -   "eta": -1,
+    -   "message": "SALTIS passerade Olidebron under AIS-tystnad",
+    +   "alreadyPassed": false,
+    +   "eta": 1,
+    +   "message": "SALTIS närmar sig Olidebron, beräknad ankomst om 1 minut",
+        "t": 1781773052513,
+      }
+
+      219 |     const notice = result.notifications.find((n) => n.mmsi === MMSI && n.bridge === 'Olidebron');
+      220 |     // Före revision 2: "SALTIS närmar sig Olidebron, beräknad ankomst om 1 minut".
+    > 221 |     expect(notice).toMatchObject({
+          |                    ^
+      222 |       t: Date.parse('2026-06-18T08:57:32.513Z'),
+      223 |       eta: -1,
+      224 |       alreadyPassed: true,
+
+      at Object.toMatchObject (bn2-dodband-nordprogress.test.js:221:20)
+
+FAIL tests/gps-grind-kandidat-bokford-bro.test.js
+  ● GPS-grinden släpper en bokförd bros kandidat › bara den bokförda bron släpps, och den bekräftas aldrig senare
+
+    TypeError: gate.releaseCandidate is not a function
+
+      54 |     gate.registerCandidatePassage(JOLLY, 'Järnvägsbron', { passed: true }, vessel());
+      55 |
+    > 56 |     expect(gate.releaseCandidate(JOLLY, 'Stridsbergsbron')).toBe(true);
+         |                 ^
+      57 |     expect(gate.releaseCandidate(JOLLY, 'Stridsbergsbron')).toBe(false);
+      58 |     expect(gate.releaseCandidate('000000000', 'Järnvägsbron')).toBe(false);
+      59 |
+
+      at Object.releaseCandidate (gps-grind-kandidat-bokford-bro.test.js:56:17)
+
+  ● GPS-grinden släpper en bokförd bros kandidat › varje bokföringsväg släpper sin bros kandidat › målbropassagen i _hasPassedTargetBridge
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 0
+    + Received  + 1
+
+      Array [
+    +   "Klaffbron",
+        "Olidebron",
+      ]
+
+      134 |       jest.advanceTimersByTime(60 * 1000);
+      135 |       const confirmed = gate.confirmStableCandidates(MMSI, { ...atBridge, timestamp: Date.now() });
+    > 136 |       expect(confirmed.map((c) => c.bridgeName)).toEqual(['Olidebron']);
+          |                                                  ^
+      137 |     });
+      138 |   });
+      139 |
+
+      at toEqual (gps-grind-kandidat-bokford-bro.test.js:136:50)
+
+  ● GPS-grinden släpper en bokförd bros kandidat › varje bokföringsväg släpper sin bros kandidat › den grindbekräftade mellanbron (registerConfirmedIntermediatePassage)
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 0
+    + Received  + 1
+
+      Array [
+    +   "Järnvägsbron",
+        "Olidebron",
+      ]
+
+      134 |       jest.advanceTimersByTime(60 * 1000);
+      135 |       const confirmed = gate.confirmStableCandidates(MMSI, { ...atBridge, timestamp: Date.now() });
+    > 136 |       expect(confirmed.map((c) => c.bridgeName)).toEqual(['Olidebron']);
+          |                                                  ^
+      137 |     });
+      138 |   });
+      139 |
+
+      at toEqual (gps-grind-kandidat-bokford-bro.test.js:136:50)
+
+  ● GPS-grinden släpper en bokförd bros kandidat › varje bokföringsväg släpper sin bros kandidat › den ordinarie mellanbropassagen (_handleIntermediateBridgePassage)
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 0
+    + Received  + 1
+
+      Array [
+    +   "Järnvägsbron",
+        "Olidebron",
+      ]
+
+      134 |       jest.advanceTimersByTime(60 * 1000);
+      135 |       const confirmed = gate.confirmStableCandidates(MMSI, { ...atBridge, timestamp: Date.now() });
+    > 136 |       expect(confirmed.map((c) => c.bridgeName)).toEqual(['Olidebron']);
+          |                                                  ^
+      137 |     });
+      138 |   });
+      139 |
+
+      at toEqual (gps-grind-kandidat-bokford-bro.test.js:136:50)
+
+  ● GPS-grinden släpper en bokförd bros kandidat › JOLLY: Stridsbergsbron bokförs en gång, som målbro
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 9
+
+    - Array []
+    + Array [
+    +   Object {
+    +     "bridge": "Stridsbergsbron",
+    +     "iso": "2026-07-22T16:16:49.875Z",
+    +     "mmsi": "265841261",
+    +     "noTarget": false,
+    +     "t": 1784737009875,
+    +   },
+    + ]
+
+      145 |     expect(target.map((p) => p.iso)).toEqual(['2026-07-22T16:03:34.941Z']);
+      146 |     // Före rättningen: en andra bokföring 16:16:49.875 (gate-confirmed).
+    > 147 |     expect(intermediate).toEqual([]);
+          |                          ^
+      148 |     // Övriga passager står kvar; Järnvägsbron bokförs när kön släpper.
+      149 |     expect(result.intermediatePassages.filter((p) => p.mmsi === JOLLY).map((p) => [p.bridge, p.iso]))
+      150 |       .toEqual([
+
+      at Object.toEqual (gps-grind-kandidat-bokford-bro.test.js:147:26)
+
+Test Suites: 3 failed, 3 total
+Tests:       29 failed, 7 passed, 36 total
+Snapshots:   0 total
+Time:        20.71 s
+Ran all test suites matching tests/gps-grind-kandidat-bokford-bro.test.js|tests/bn2-dodband-nordprogress.test.js|tests/zonintrade-uppskjutet-bevis.test.js.
+Test results written to: ../matris/base.json

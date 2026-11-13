@@ -1,0 +1,68 @@
+From 57808cbe399ae364875e3f854295ecbd0af9ef2b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 7 Nov 2026 13:12:30 +0000
+Subject: [PATCH 24/24] =?UTF-8?q?Sammanslagning=20E=20+=20E2:=20familj=20E?=
+ =?UTF-8?q?:s=20plat=C3=A5svit=20omm=C3=A4tt=20i=20VALIDATION?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+E:s platå.js (208 syntetiska avgångar) kördes i samma körning på
+7699cbe, E:s andra revision, E2-revisionen och sammanslagningen. Sviten
+återskapar E:s tal exakt. Efter sammanslagningen blir platåklassen
+bättre än E ensam i påståenden < 10 min, uppsteg (36/48/13 -> 33/44/11)
+och grovt optimistiska sampel (23 -> 13). Det tidsviktade bandet < 5 min
+blir något sämre (0,76 · 98,9 % -> 0,81 · 98,6 %). Kontroll-, kö- och
+inbromsningsklassen blir något sämre än E ensam. Banken är oförändrad
+mot E2-revisionen.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/VALIDATION.md | 29 ++++++++++++++++++++++++++++-
+ 1 file changed, 28 insertions(+), 1 deletion(-)
+
+diff --git a/docs/VALIDATION.md b/docs/VALIDATION.md
+index cb5ea30..c911893 100644
+--- a/docs/VALIDATION.md
++++ b/docs/VALIDATION.md
+@@ -813,8 +813,35 @@ rättare och 8 sämre. De sämre raderna är E2:s ägarfråga; sammanslagningen
+ lägger inga nya till. 20260917-7h kan fortfarande inte låsas om (GOLDEN-TEXT
+ 68 ≠ 69).
+ 
++**Familj E:s platåsvit, ommätt** (E:s `platå.js`, 208 syntetiska avgångar, fyra
++träd i samma körning; tidsviktat = visad brotext var 10:e s; uppsteg =
++fall / antal / varav ≥ 2 min). Sviten återskapar E:s tal exakt på 7699cbe och
++E:s andra revision:
++
++| Klass | Mått | 7699cbe | E:s andra revision | E2-revisionen | E + E2 |
++|---|---|---|---|---|---|
++| platå (144) | tidsviktat < 5 min | 1,03 · 87,9 % · +1,07 | 0,76 · 98,9 % · +0,64 | 0,67 · 99,9 % · +0,09 | 0,81 · 98,6 % · +0,71 |
++| | tidsviktat < 10 min | 0,88 · 93,1 % · +0,72 | 0,80 · 97,7 % · +0,46 | 0,84 · 94,3 % · +0,07 | 0,81 · 97,9 % · +0,50 |
++| | påståenden < 10 min | 0,67 · 94,4 % · +0,49 | 0,47 · 97,5 % · +0,11 | 0,56 · 92,1 % · −0,36 | 0,45 · 98,6 % · +0,10 |
++| | uppsteg | 39 / 46 / 27 | 36 / 48 / 13 | 46 / 80 / 11 | 33 / 44 / 11 |
++| | tidsviktade sampel ≥ 2 min för optimistiska (sanning < 10) | 0 | 23 | 124 | 13 |
++| kontroll (40) | tidsviktat < 5 min | 2,08 · 46,2 % · +2,13 | 1,33 · 72,4 % · +1,57 | 1,01 · 80,4 % · +1,29 | 1,46 · 68,4 % · +1,64 |
++| kö (16) | tidsviktat < 5 min | 1,58 · 60,3 % · +2,15 | 1,25 · 72,7 % · +1,73 | 0,90 · 92,6 % · +0,91 | 1,25 · 72,7 % · +2,32 |
++| | uppsteg | 7 / 9 / 6 | 7 / 9 / 3 | 5 / 5 / 2 | 7 / 13 / 4 |
++| inbromsning (8) | påståenden < 10 min | 0,96 · 80,0 % · −0,78 | 1,30 · 70,4 % · −1,40 | 1,77 · 61,5 % · −1,68 | 1,52 · 61,5 % · −1,53 |
++
++Platåklassen, E:s acceptansklass, blir bättre än E:s andra revision i
++påståendena < 10 min, i uppstegen och i de grovt optimistiska samplen (23 → 13).
++I det tidsviktade bandet < 5 min blir den något sämre: median 0,76 → 0,81,
++andel 98,9 → 98,6 % och bias +0,64 → +0,71. Kontroll-, kö- och
++inbromsningsklassen blir något sämre än E ensam. Kontroll- och köklassen är
++ändå bättre än 7699cbe. I banken syns inget av detta (alla 3 110 påståenden
++lika med E2-revisionen). Klasserna är syntetiska, och E-granskningen fann att
++verkliga inbromsande avgångar blir bättre med E (VALIDATION "Familj E").
++
+ Verktyg och rådata: kampanjens `K/E2/matningar/sammanslagning/` (`jamfor.py`,
+-`namngivna.py`, `facit_summa.py`, kroken och klassningen).
++`namngivna.py`, `facit_summa.py`, kroken och klassningen, `platå.js` och
++`plata_optimism.py`).
+ 
+ ## Fältprov / ny korpus (så samlas verklighet in)
+ 
+-- 
+2.43.0
+

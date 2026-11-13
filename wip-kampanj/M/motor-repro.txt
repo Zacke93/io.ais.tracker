@@ -1,0 +1,58 @@
+# Motorkontroll familj M, revision 3 (454850a) mot 7699cbe
+# node tests/replay-validation/bugHunt/hunt.js --repro <kortkatalog> och <kortkatalog>/r2 för alla kort i r1-standard-a (7699cbe | revision 3)
+# 7699cbe-kolumnen är revision 1:s körning på 7699cbe (K/M/tmp/hunt-repro-base.txt)
+B01 KVAR (1 utslag i världen)|KVAR (1 utslag i världen)
+B02 KVAR (1 utslag i världen)|KVAR (1 utslag i världen)
+F01/r2 KVAR (2 utslag i världen)|KVAR (2 utslag i världen)
+F01 KVAR (1 utslag i världen)|KVAR (1 utslag i världen)
+F02/r2 KVAR (1 utslag i världen)|KVAR (1 utslag i världen)
+F02 KVAR (1 utslag i världen)|KVAR (1 utslag i världen)
+F03/r2 KVAR (3 utslag i världen)|KVAR (3 utslag i världen)
+F03 KVAR (1 utslag i världen)|KVAR (1 utslag i världen)
+F04/r2 KVAR (1 utslag i världen)|KVAR (1 utslag i världen)
+F04 KVAR (1 utslag i världen)|KVAR (1 utslag i världen)
+F05/r2 KVAR (1 utslag i världen)|KVAR (1 utslag i världen)
+F05 KVAR (1 utslag i världen)|BORTA (0 utslag i världen)  <-- ÄNDRAD
+F06/r2 KVAR (1 utslag i världen)|KVAR (1 utslag i världen)
+F06 KVAR (1 utslag i världen)|KVAR (1 utslag i världen)
+F07 KVAR (1 utslag i varianten)|KVAR (1 utslag i varianten)
+F08 KVAR (1 utslag i varianten)|KVAR (1 utslag i varianten)
+F09 KVAR (1 utslag i varianten)|KVAR (1 utslag i varianten)
+F10/r2 KVAR (4 utslag i världen)|KVAR (4 utslag i världen)
+F10 KVAR (1 utslag i världen)|KVAR (1 utslag i världen)
+F11/r2 KVAR (2 utslag i världen)|KVAR (2 utslag i världen)
+F11 KVAR (1 utslag i världen)|KVAR (1 utslag i världen)
+F12/r2 KVAR (1 utslag i världen)|KVAR (1 utslag i världen)
+F12 KVAR (2 utslag i världen)|KVAR (2 utslag i världen)
+F13/r2 KVAR (4 utslag i världen)|KVAR (4 utslag i världen)
+F13 KVAR (1 utslag i världen)|KVAR (1 utslag i världen)
+F14/r2 KVAR (2 utslag i världen)|KVAR (2 utslag i världen)
+F14 KVAR (2 utslag i världen)|KVAR (2 utslag i världen)
+F15/r2 KVAR (2 utslag i världen)|KVAR (2 utslag i världen)
+F15 KVAR (2 utslag i världen)|KVAR (2 utslag i världen)
+F16 KVAR (2 utslag i världen)|KVAR (2 utslag i världen)
+F17/r2 KVAR (2 utslag i världen)|KVAR (2 utslag i världen)
+F17 KVAR (2 utslag i världen)|KVAR (2 utslag i världen)
+F18/r2 KVAR (2 utslag i världen)|KVAR (2 utslag i världen)
+F18 KVAR (2 utslag i världen)|KVAR (2 utslag i världen)
+F19/r2 KVAR (2 utslag i världen)|KVAR (2 utslag i världen)
+F19 KVAR (2 utslag i världen)|KVAR (2 utslag i världen)
+F20/r2 KVAR (1 utslag i världen)|KVAR (1 utslag i världen)
+F20 KVAR (1 utslag i världen)|KVAR (1 utslag i världen)
+F21 KVAR (1 utslag i världen)|KVAR (1 utslag i världen)
+F22 KVAR (1 utslag i världen)|KVAR (1 utslag i världen)
+F23 KVAR (2 utslag i världen)|KVAR (2 utslag i världen)
+
+Antal: 41. Ändrade domar: 1 (F05: KVAR → BORTA). Övriga har samma dom och samma antal utslag som på 7699cbe.
+
+## Fullständig utskrift för familjens kort (revision 3)
+Repro F05-fatalt-invariantutslag-inv-14-default-flash: värld 933 (seed 511710085), R0, minsta repro
+  rader ur sparad spec: 112 (bitlik mot den sparade radhashen)
+  sparad mekanism: INV-F|INV-14 DEFAULT-FLASH vid Stridsbergsbron [KANDIDAT]
+  utfall mot aktuell HEAD: BORTA (0 utslag i världen)
+
+Repro r2: värld 1526 (seed 527713812), R1, minsta repro
+  rader ur sparad spec: 16 (bitlik mot den sparade radhashen)
+  sparad mekanism: INV-F|INV-14 DEFAULT-FLASH vid Klaffbron [KANDIDAT]
+  utfall mot aktuell HEAD: KVAR (1 utslag i världen)
+  - INV-F INV-14 DEFAULT-FLASH [KANDIDAT]: DEFAULT-FLASH: 2026-08-03T10:47:00.040Z "Inga båtar" inklämd (158s) mellan två "En … Klaffbron"-texter utan passage

@@ -1,0 +1,177 @@
+From c5fdb1c921df33d5ab869eb5ff1f14f88b94015f Mon Sep 17 00:00:00 2001
+From: "Familj F (Claude)" <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 13:03:49 +0000
+Subject: [PATCH 05/12] =?UTF-8?q?M1(c):=20bekr=C3=A4ftat=20k=C3=B6bevis=20?=
+ =?UTF-8?q?beh=C3=A5lls=20n=C3=A4r=20b=C3=A5ten=20g=C3=A5r=20genom=20en=20?=
+ =?UTF-8?q?kajkapsel=20(U13:=2041h=20oml=C3=A5st)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Granskningen av familj F (M1 punkt 2): _noteBridgeQueueApproach tömde allt
+anflygningsbevis vid en enda fix i en kajkapsel, även i transit. Farleds-
+tvillingen till värld 129 passerade Gästhamnens kapsel i 4,3 kn; nästa
+AISHub-fix var redan stoppet, så hon fick aldrig bekräftad väntan (och inte
+heller 2 h-undantaget för färsk broväntan). Nu behåller en båt i minst
+MOVEMENT_PROOF_SOG_KN redan bekräftat bevis genom kapseln (väntans ankare
+nollas); nytt bevis skapas aldrig i en kapsel, och en båt som saktar in eller
+stannar där tappar beviset som förut. queueBridge ger fortfarande null i en
+kajzon, så 2 h-backstoppen vid Kajen är orörd.
+
+Banken: bara 20260713-41h ändras, 264 → 262 övergångar (relockGoldenText).
+265764760 norrut gick genom Kajen 09:04:18 i 3,1 kn och låg sedan i kön vid
+Järnvägsbron (09:32–09:47); korsningar Järnvägsbron 09:54:07 och Strids-
+bergsbron 09:55:48 (gt). "om cirka 2 minuter" 09:13:00 och "om 13 minuter"
+09:36:30 blir "ETA okänd", det texten visade en tick senare. Rättare enligt
+U13. Ingen kod i ETA-kedjan ändrad (U22), men raderna är ETA-klausuler — se
+FACIT.md. Notis-, fördelnings-, riktnings- och öppningsfacit orörda; normal och
+monitoring gröna; fassvepet för 41h grönt. Syntetsviten bitlik.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/ARCHITECTURE.md                          |  5 ++++
+ lib/services/VesselDataService.js             | 20 +++++++++++++--
+ tests/bridge-queue-adversarial.test.js        | 25 +++++++++++++++++++
+ tests/replay-validation/corpora.js            | 15 ++++++++++-
+ .../golden-text/20260713-41h.json             |  8 ------
+ 5 files changed, 62 insertions(+), 11 deletions(-)
+
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 08d2ec3..16540e4 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -1263,6 +1263,11 @@ bara vid bekräftad `waitingAtBridge`, före brolinjen, inom väntans befintliga
+ eller känd kaj. Det gäller också väntan vid Järnvägsbron på väg mot Klaffbron
+ och Olidebron söderut efter sista målbron. Uppgiften bevaras av den explicita
+ fältlistan, rensas vid ny resa/riktningsbyte/passage och sparas inte i grav.
++En fix i en kajkapsel skapar aldrig nytt bevis. Sedan 2026-11-09 (granskningen
++av familj F, M1 c) behåller en båt som går genom kapseln i minst 0,5 kn redan
++bekräftat bevis, med väntans ankare nollat; förut tömde en enda transitfix i
++Gästhamnens eller Kajens kapsel beviset, och med AISHub-takt kunde nästa fix
++redan vara stoppet i kön (20260713-41h omlåst 264 → 262 övergångar, se noten).
+ 
+ Färskhet använder `max(timestamp, lastPositionUpdate)` inom tio minuter;
+ `_lastSeen` är inget positionsbevis. AISHubs `fixTs` måste dessutom vara
+diff --git a/lib/services/VesselDataService.js b/lib/services/VesselDataService.js
+index 011d78d..b3f9e91 100755
+--- a/lib/services/VesselDataService.js
++++ b/lib/services/VesselDataService.js
+@@ -3743,8 +3743,24 @@ class VesselDataService extends EventEmitter {
+       if (bridge.name === 'Stallbackabron') continue;
+       if (vessel.passedBridges?.includes(bridge.name)
+           || !this._isBeforeQueueBridge(vessel, bridge, direction)) continue;
+-      if (constants.MOORING_DETECTION.MOORED_NAV_STATUSES.includes(vessel.navStatus)
+-          || this._findMooringZone(vessel)) continue;
++      if (constants.MOORING_DETECTION.MOORED_NAV_STATUSES.includes(vessel.navStatus)) continue;
++      if (this._findMooringZone(vessel)) {
++        // Granskningen av familj F (M1 c, 2026-11-09): en båt som GÅR genom en
++        // kajkapsel (minst MOVEMENT_PROOF_SOG_KN) behåller redan bekräftat
++        // anflygningsbevis; nytt bevis skapas aldrig i en kapsel, och väntans
++        // ankare nollas. Förut tömdes allt bevis av en enda fix i kapseln, även
++        // i transit: farledsköaren i värld 129:s tvilling passerade Gästhamnens
++        // kapsel i 4,3 kn, nästa AISHub-fix var redan stoppet, och hon fick
++        // aldrig bekräftad väntan (och därmed inte heller 2 h-undantaget för
++        // färsk broväntan). En båt som saktar in eller stannar i kapseln tappar
++        // beviset som förut, så en kajliggare kan inte bära med sig kö.
++        const kept = previous[bridge.name];
++        if (kept?.confirmedAt && kept.direction === direction && Number.isFinite(vessel.sog)
++            && vessel.sog >= constants.MOORING_DETECTION.MOVEMENT_PROOF_SOG_KN) {
++          next[bridge.name] = { ...kept, waitAnchor: null, waitConfirmedAt: null };
++        }
++        continue;
++      }
+       const distance = geometry.calculateDistance(vessel.lat, vessel.lon, bridge.lat, bridge.lon);
+       if (!Number.isFinite(distance)) continue;
+       const stored = previous[bridge.name];
+diff --git a/tests/bridge-queue-adversarial.test.js b/tests/bridge-queue-adversarial.test.js
+index 565a11c..97ce8de 100644
+--- a/tests/bridge-queue-adversarial.test.js
++++ b/tests/bridge-queue-adversarial.test.js
+@@ -245,6 +245,31 @@ describe('Lång brokö: motbevis, källtid och resgränser', () => {
+     expect(vessel._stationarySince).toBe(now);
+   });
+ 
++  // Granskningen av familj F (M1 c, 2026-11-09): en fix i en kajkapsel tömde
++  // allt anflygningsbevis, även för en båt i transit. Farledsköaren i värld
++  // 129:s tvilling passerade Gästhamnens kapsel i 4,3 kn, nästa AISHub-fix var
++  // redan stoppet, och beviset kunde aldrig bekräftas igen.
++  const KAJ_MITT = { lat: 58.286060, lon: 12.285651 };
++  test('en båt som går genom en kajkapsel behåller redan bekräftad anflygning', () => {
++    let vessel = seed(BRIDGES.jarnvagsbron, 'north', 900);
++    vessel = step(vessel, { ...point(BRIDGES.jarnvagsbron, 'north', 820), sog: 3 });
++    expect(vessel._bridgeQueueApproaches['Järnvägsbron']?.confirmedAt).toBeTruthy();
++    const { confirmedAt } = vessel._bridgeQueueApproaches['Järnvägsbron'];
++    vessel = step(vessel, { ...KAJ_MITT, sog: 3 });
++    expect(service._findMooringZone(vessel)?.name).toBe('Kajen norr om Klaffbron');
++    expect(vessel._bridgeQueueApproaches['Järnvägsbron']?.confirmedAt).toBe(confirmedAt);
++    expect(vessel._bridgeQueueApproaches['Järnvägsbron'].waitAnchor).toBeNull();
++  });
++
++  test('en båt som saktar in eller stannar i en kajkapsel tappar anflygningen som förut', () => {
++    let vessel = seed(BRIDGES.jarnvagsbron, 'north', 900);
++    vessel = step(vessel, { ...point(BRIDGES.jarnvagsbron, 'north', 820), sog: 3 });
++    expect(vessel._bridgeQueueApproaches['Järnvägsbron']?.confirmedAt).toBeTruthy();
++    vessel = step(vessel, { ...KAJ_MITT, sog: 0.1 });
++    expect(vessel._bridgeQueueApproaches['Järnvägsbron']).toBeUndefined();
++    expect(service._hasFreshBridgeQueueEvidence(vessel)).toBe(false);
++  });
++
+   test('långsamma delsteg över brolinjen med kvarstående nollfart får inte bli kajvistelse', () => {
+     let vessel = queue();
+     vessel = step(vessel, {}, 125);
+diff --git a/tests/replay-validation/corpora.js b/tests/replay-validation/corpora.js
+index ce65f4c..365853d 100644
+--- a/tests/replay-validation/corpora.js
++++ b/tests/replay-validation/corpora.js
+@@ -1176,7 +1176,20 @@ module.exports = [
+     hours: 41,
+     locked: true,
+     expectedNotifications: 165,
+-    note: `${SEPTEMBER_REVIEW}2026-09-06 BELAGD BROKÖ: golden 270→269 efter användarval att `
++    note: 'GOLDEN OMLÅST 2026-11-09 (granskningen av familj F, M1 c — farledsbeviset genom en kajkapsel): '
++      + '264 → 262 övergångar. 265764760 norrut korsade Klaffbron 09:01:36 (gt, inferred) och hade en fix i Kajens '
++      + 'kapsel 09:04:18 (288 m norr om Klaffbron, 25 m från linjen, 3,1 kn). Den fixen tömde förut hennes '
++      + 'bekräftade anflygning mot Järnvägsbron och Stridsbergsbron (08:52:49); nu behålls den, eftersom hon gick '
++      + 'i minst 0,5 kn. Sista fixen 09:07:49 245 m före Järnvägsbron i 2,4 kn, sedan tyst till 09:32:17, då hon '
++      + 'låg still 127 m före Järnvägsbron (även 09:38:16 och 09:47:18). Rådatafacit: Järnvägsbron 09:54:07 och '
++      + 'Stridsbergsbron 09:55:48 (inferred). Två rader ändras, båda till det som texten visade en tick senare: '
++      + '(1) 09:13:00 "om cirka 2 minuter" (extrapolerat från 09:07:49) blir "ETA okänd" — hon korsade '
++      + 'Stridsbergsbron 43 min senare, och båten låg i kön vid Järnvägsbron; (2) 09:36:30 "Två båtar …, om '
++      + '13 minuter" (ledaren stilla i kön, 0,1 kn) blir "Två båtar …, ETA okänd" — gruppens korsningar kom 09:45:38 '
++      + '(265013030) och 09:55:48. En stilla kö vid en tidigare bro får ingen minutprognos (bridgeTextFormat.md); '
++      + 'raderna 09:13:30 och 09:37:30 försvinner därför. Rättare enligt U13. Ingen kod i ETA-kedjan ändrad '
++      + '(U22), men raderna är ETA-klausuler. Notis- (165/165), fördelnings-, riktnings- och öppningsfacit ORÖRDA. '
++      + `${SEPTEMBER_REVIEW}2026-09-06 BELAGD BROKÖ: golden 270→269 efter användarval att `
+       + 'aktiv broväntan får bestå över 2 h. PILGRIM 211110880 väntar 12:38:48–12:59:46 '
+       + '111–112 m före Järnvägsbron, med Klaffbron 1074 m bort som mål. '
+       + 'F4-I demoterade henne felaktigt efter 18 min; oberoende anflygningsbevis '
+diff --git a/tests/replay-validation/golden-text/20260713-41h.json b/tests/replay-validation/golden-text/20260713-41h.json
+index db3d146..1eb7164 100644
+--- a/tests/replay-validation/golden-text/20260713-41h.json
++++ b/tests/replay-validation/golden-text/20260713-41h.json
+@@ -889,10 +889,6 @@
+  },
+  {
+   "iso": "2026-07-15T09:13:00.040Z",
+-  "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om cirka 2 minuter"
+- },
+- {
+-  "iso": "2026-07-15T09:13:30.040Z",
+   "text": "En båt på väg mot Stridsbergsbron, ETA okänd"
+  },
+  {
+@@ -921,10 +917,6 @@
+  },
+  {
+   "iso": "2026-07-15T09:36:30.040Z",
+-  "text": "Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 13 minuter"
+- },
+- {
+-  "iso": "2026-07-15T09:37:30.040Z",
+   "text": "Två båtar på väg mot Stridsbergsbron, ETA okänd"
+  },
+  {
+-- 
+2.43.0
+

@@ -1,0 +1,189 @@
+diff --git a/tests/replay-validation/bugHunt/__tests__/j-kampanj-register.test.js b/tests/replay-validation/bugHunt/__tests__/j-kampanj-register.test.js
+index d4242b4..89375e8 100644
+--- a/tests/replay-validation/bugHunt/__tests__/j-kampanj-register.test.js
++++ b/tests/replay-validation/bugHunt/__tests__/j-kampanj-register.test.js
+@@ -331,6 +331,60 @@ describe('U17 U17-TYST-BÅT-RECOVER och K-TYST-BÅT-NÄSTA-ÖPPNING', () => {
+     expect(prövad(c, 'U17-TYST-BÅT-RECOVER').skäl).toMatch(/restiden 136 s .* mer än 0.6 × de 200 s/);
+   });
+ 
++  // Triage B, varv 2 (skiss M1): med harnessens prognosspår prövas bakkanten
++  // mot appens egen prognos. Spåret nedan är FREJAs verkliga domar i värld 625
++  // (spionen i S/varv2/tB/v/w625.spion): fyra fix efter bokföringen med
++  // prognosen 70–134 s inom fönstrets slut 09:28:01,330 och släppet vid
++  // täckningsslutet 09:28:26,984.
++  const spår625 = () => {
++    const d = (hh) => Date.parse(`2026-09-01T${hh}Z`);
++    const bas = {
++      mmsi: '265956823',
++      bridge: 'Stridsbergsbron',
++      eventId: 'Stridsbergsbron#4',
++      coverUntilMs: d('09:28:26.983'),
++      firedAt: d('09:12:18.321'),
++      firstPassageAt: d('09:18:01.330'),
++      firstPassageRegisteredAt: d('09:18:26.983'),
++      anchorFloor: false,
++      clean: true,
++      frozen: false,
++      courseAway: false,
++    };
++    return [
++      ['09:18:43.745', '09:25:59.451'], ['09:20:15.755', '09:26:51.323'], ['09:23:18.642', '09:25:47.114'], ['09:24:59.845', '09:26:46.866'],
++    ].map(([t, exp]) => ({
++      ...bas, t: d(t), lastSeenAt: d(t), expectedArrivalMs: d(exp), kind: 'covered',
++    })).concat([{
++      ...bas, t: d('09:28:26.984'), lastSeenAt: d('09:24:59.845'), expectedArrivalMs: d('09:26:46.866'), kind: 'täckningsslut',
++    }]);
++  };
++
++  test('[träff] värld 625 med prognosspåret: appens prognos låg inom fönstret vid varje fix och släppet kom vid täckningsslutet; U17', () => {
++    const { fynd, ctx } = fall('w625');
++    ctx.resultat.openingCoverageVerdicts = spår625();
++    expect(klassa(reg, fynd, ctx)).toMatchObject({ klass: 'DESIGN', post: 'U17-TYST-BÅT-RECOVER' });
++  });
++
++  test('[vakt] prognosspåret med en prognos efter fönstrets slut som bakkanten inte släppte (bakkanten bortkopplad); KANDIDAT', () => {
++    const { fynd, ctx } = fall('w625');
++    const s = spår625();
++    s[3].expectedArrivalMs = Date.parse('2026-09-01T09:28:06Z');
++    ctx.resultat.openingCoverageVerdicts = s;
++    const c = klassa(reg, fynd, ctx);
++    expect(c.klass).toBe('KANDIDAT');
++    expect(prövad(c, 'U17-TYST-BÅT-RECOVER').skäl).toMatch(/bakkanten släppte henne inte/);
++  });
++
++  test('[vakt] prognosspåret där släppet var bakkantens, inte täckningsslutets; KANDIDAT', () => {
++    const { fynd, ctx } = fall('w625');
++    const s = spår625();
++    s[4].kind = 'bakkant';
++    ctx.resultat.openingCoverageVerdicts = s;
++    expect(klassa(reg, fynd, ctx).klass).toBe('KANDIDAT');
++    expect(pred('tystRecoverSammaÖppning')(fynd, ctx).skäl).toMatch(/följer inte inom en tick på ett släpp vid täckningsslutet/);
++  });
++
+   test('[gräns] värld 625 (baslinjen): restiden 436 s av 553 s kvar, så posten kan inte skilja henne från en bakkantsregression; KANDIDAT', () => {
+     const { fynd, ctx } = fall('w625');
+     expect(klassa(reg, fynd, ctx).klass).toBe('KANDIDAT');
+diff --git a/tests/replay-validation/bugHunt/lib/registry.js b/tests/replay-validation/bugHunt/lib/registry.js
+index aa736df..d93d0c0 100644
+--- a/tests/replay-validation/bugHunt/lib/registry.js
++++ b/tests/replay-validation/bugHunt/lib/registry.js
+@@ -1975,12 +1975,46 @@ const PREDICATES = {
+         && Math.abs(x.t - first.t) <= p.fönsterMs).map((x) => x.t));
+       const slut = Math.min(bok + p.fönsterMs, Math.max(e.t, förstaT) + p.fönsterMs, w.t - p.tickMs);
+       const bokTxt = `att appen kunde veta om ${e.eventId}:s första passage (${bokförda.length ? bokförda[0].hur : '—'})`;
++      // (3') PROGNOSSPÅRET (triage B, varv 2, skiss). När harnessen bokfört
++      // släppvägens indata (replayRunner.js, openingCoverageVerdicts) prövas
++      // bakkanten mot appens EGEN prognos i stället för kvotregeln: vid varje
++      // dom för henne i E efter att E:s första passage bokförts, på ett rent,
++      // ofryst fix före täckningsslutet och utan kurs bort, ska
++      // expectedArrivalMs ligga inom fönstrets slut min(täckningsslutet,
++      // max(E:s varning, första passagen) + fönsterMs) (golvhållen arm:
++      // täckningsslutet). Annars hade bakkanten släppt henne. Dessutom ska W
++      // komma högst en tick efter ett släpp med domen 'täckningsslut' (inte
++      // 'bakkant') ur E eller en händelse som återabsorberat henne. Kvotregeln
++      // nedan gäller bara resultat utan spåret.
++      const spår = Array.isArray(res.openingCoverageVerdicts)
++        ? res.openingCoverageVerdicts.filter((v) => String(v.mmsi) === m && v.bridge === f.bro && Number.isFinite(v.t) && v.t <= w.t)
++        : null;
++      if (spår) {
++        for (const v of spår) {
++          if (v.eventId !== e.eventId || v.kind !== 'covered') continue;
++          if (!Number.isFinite(v.firstPassageRegisteredAt) || !(v.lastSeenAt > v.firstPassageRegisteredAt)) continue;
++          if (!(v.t <= v.coverUntilMs) || !v.clean || v.frozen || v.courseAway) continue;
++          const fönsterslut = v.anchorFloor ? v.coverUntilMs
++            : Math.min(v.coverUntilMs, Math.max(Number.isFinite(v.firedAt) ? v.firedAt : 0, v.firstPassageAt) + p.fönsterMs);
++          if (!Number.isFinite(v.expectedArrivalMs)) continue;
++          if (v.expectedArrivalMs > fönsterslut) {
++            return nej(`appens prognos ${fmtT(v.expectedArrivalMs)} vid hennes fix ${fmtT(v.lastSeenAt)} låg efter fönstrets slut `
++              + `${fmtT(fönsterslut)}, men ${e.eventId} höll henne: bakkanten släppte henne inte`);
++          }
++        }
++        const släpp = spår.filter((v) => v.kind === 'täckningsslut' || v.kind === 'bakkant').pop();
++        if (!släpp || släpp.kind !== 'täckningsslut' || w.t - släpp.t > p.tickMs) {
++          return nej(`varningen ${w.eventId} ${fmtT(w.t)} följer inte inom en tick på ett släpp vid täckningsslutet `
++            + `(${släpp ? `${släpp.kind} ${fmtT(släpp.t)} ur ${släpp.eventId}` : 'inget släpp'})`);
++        }
++      }
+       for (const r of föreW.filter((x) => x.p > bok)) {
+         if (kursBort(r, f.bro, p)) continue;
+         if (r.p >= slut) {
+           return nej(`hennes rad ${fmtT(r.aisTimestamp)} kom efter ${bokTxt} och efter fönstrets tidigaste slut ${fmtT(slut)}: `
+             + 'bakkanten kunde släppa henne, hon var inte tyst');
+         }
++        if (spår) continue;
+         const restMs = (platser.distanceToPoint(r, f.bro) / (Math.max(Number.isFinite(r.sog) ? r.sog : 0, p.minFartKn) * KN_TILL_MS)) * 1000;
+         const kvarMs = slut - fixtid(r);
+         if (restMs > p.maxRestandel * kvarMs) {
+diff --git a/tests/replay-validation/replayRunner.js b/tests/replay-validation/replayRunner.js
+index 4ec0084..3d1cd4c 100644
+--- a/tests/replay-validation/replayRunner.js
++++ b/tests/replay-validation/replayRunner.js
+@@ -236,6 +236,8 @@ async function main() {
+   // konvojtäckning). O1-klassificeringen skiljer på dem.
+   const openingCoverage = [];
+   const coverageRe = /\[OPENING_COVERAGE\] (\d+): (\S+) täckt av (\S+) \((\w+)\)/;
++  // Släppvägens prognosspår (triage B, varv 2, skiss): se instrumentApp.
++  const openingCoverageVerdicts = [];
+ 
+   // ---- Fånga bridge_text-övergångar via RIKTIGA publiceringsvägen ----
+   const bridgeTextLog = [];
+@@ -414,6 +416,50 @@ async function main() {
+       };
+     }
+ 
++    // SLÄPPVÄGENS PROGNOSSPÅR (triage B, varv 2, skiss). Buggjägarens
++    // U17-predikat (tystRecoverSammaÖppning, villkor 3) måste veta om
++    // bakkanten kunde släppa en absorberad båt, alltså om appens EGEN prognos
++    // vid något av hennes fix efter att händelsens första passage blev känd
++    // låg efter fönstrets slut. Prognosen (ProgressiveETACalculator) går inte
++    // att återskapa ur raderna, och kvotregeln (restid ≤ 0,6 av tiden kvar)
++    // gav tio U17-sanna släpp som KANDIDAT. Här bokförs därför släppvägens
++    // indata och dom, en gång per arm och (händelse, fix, dom). Ren
++    // diagnostik: domen och armen lämnas orörda. Epok-ms och strängar, så
++    // SHIFT30 och ID ser samma fält som i resten av resultatet.
++    const ops = instance.bridgeOpeningService;
++    if (ops && typeof ops._coverageVerdict === 'function' && !ops._gtVerdictInstrumented) {
++      ops._gtVerdictInstrumented = true;
++      const origVerdict = ops._coverageVerdict.bind(ops);
++      const senast = new Map();
++      ops._coverageVerdict = (arm, event, now) => {
++        const verdict = origVerdict(arm, event, now);
++        const key = `${arm.mmsi}|${arm.bridge}`;
++        const sig = `${arm.eventId}|${arm.lastSeenAt}|${verdict.kind}`;
++        if (senast.get(key) !== sig) {
++          senast.set(key, sig);
++          const finite = (x) => (Number.isFinite(x) ? x : null);
++          openingCoverageVerdicts.push({
++            t: now,
++            mmsi: String(arm.mmsi),
++            bridge: arm.bridge,
++            eventId: arm.eventId,
++            kind: verdict.kind,
++            lastSeenAt: finite(arm.lastSeenAt),
++            expectedArrivalMs: finite(arm.expectedArrivalMs),
++            coverUntilMs: finite(arm.coverUntilMs),
++            firedAt: finite(event && event.firedAt),
++            firstPassageAt: finite(event && event.firstPassageAt),
++            firstPassageRegisteredAt: finite(event && event.firstPassageRegisteredAt),
++            anchorFloor: !!event && arm.anchorFloorEventId === event.id,
++            clean: arm.lastFixClean === true,
++            frozen: typeof ops._hasUnappliedObservation === 'function' ? !!ops._hasUnappliedObservation(arm) : null,
++            courseAway: typeof ops._courseAway === 'function' ? !!ops._courseAway(arm, ops._targetBridges.get(arm.bridge)) : null,
++          });
++        }
++        return verdict;
++      };
++    }
++
+     const origUpdateCap = instance._updateDeviceCapability.bind(instance);
+     instance._updateDeviceCapability = (capability, value) => {
+       if (capability === 'bridge_text' && value !== lastBridgeText) {
+@@ -905,6 +951,8 @@ async function main() {
+     openingSuppressions,
+     openingWarningsAtStartup,
+     openingCoverage,
++    // Triage B (varv 2, skiss): släppvägens prognosspår, se instrumentApp.
++    openingCoverageVerdicts,
+     // Öppningsservicens sluttillstånd: armar/händelser ska vara städade efter
+     // 40 min efterspel (soak-kravet — en arm får aldrig överleva sitt fartyg).
+     openingStats: (app.bridgeOpeningService

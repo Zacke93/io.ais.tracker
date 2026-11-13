@@ -1,0 +1,699 @@
+From d7a8022a4b6e4debf4e13623633029c8aad858b9 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 5 Nov 2026 01:28:25 +0000
+Subject: [PATCH 3/4] K2 rev 3: returminnet frikopplat, U15 utan golv, villkor
+ (b) mot referensankomsten
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Returminnet (_passageMemory) bokförs i _recordPassage för varje beväpnad
+  båt, även utan händelse, och städas först när ingen levande händelse
+  beskriver öppningen hon passerade. Tickens fas avgör inte längre om
+  returen känns igen (granskarens sond b02-936-kant: 0 av 30 faser).
+- U15 utan ledtidsgolv (dirigentens beslut 2026-11-05): returen får egen
+  varning även under 60 s före ankomsten.
+- _describesPassedOpening jämför händelsens referensankomst med hennes
+  passage (dig9), så en varning för en senare öppning täcker returen
+  oavsett om den gick före eller efter passagen.
+- openingBeforeEachPassage på två u-svängsscenarier; dokumentation.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/ARCHITECTURE.md                          |  61 +++--
+ docs/VALIDATION.md                            |   5 +-
+ lib/services/BridgeOpeningService.js          | 217 ++++++++++--------
+ ...opening-returresa-och-fasoberoende.test.js | 172 ++++++++++++--
+ .../runSyntheticScenarios.js                  |   9 +-
+ 5 files changed, 328 insertions(+), 136 deletions(-)
+
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 239edb4..4d26092 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -739,26 +739,36 @@ båt.
+   öppningen hon knöts till passerat utan henne (`referenceArrival +
+   CONVOY_WINDOW_MS`), och kan då seeda en egen varning. Utan det blev en
+   absorberad båt permanent tystad.
+-- **Returresan är en egen öppning (U15, användarbeslut 2026-11-04):** en båt
+-  som passerat bron som medlem i en händelse (`event.passedMmsis`, bokförs i
+-  `_recordPassage`) får en returarm med `returnAfterPassageAt`. Ingen händelse
+-  som beskriver öppningen hon redan passerat får täcka returen, inte ens inom
+-  konvojfönstret (`_describesPassedOpening`): (a) hon passerade själv i den,
+-  (b) dess varning gick ut vid eller före hennes passage, eller (c) dess första
+-  passage ligger inom `CONVOY_WINDOW_MS` från hennes (dig9:s definition av
+-  samma öppning). (b) och (c) behövs eftersom två händelser kan beskriva samma
+-  fysiska öppning: värld 936 (varningen före passagen) och dess spegelbild
+-  (varningen efter passagen, den andra båten korsar 75 s efter henne).
+-  `_releaseReturnCoverage` prövar det vid varje värdval i `_bindLooseArms` och
+-  släpper också en retur som redan absorberats, så det gäller även när den
+-  andra båten korsar först efter att returarmen skapats. En båt som vänder FÖRE
+-  bron eller ligger och väntar har ingen passage och stannar i sin öppning (U2:
+-  inga andrapåminnelser). Ledtidsgolvet är räddningsventilens: ligger
+-  förväntad ankomst närmare än 2 × `TICK_INTERVAL_MS` står den gamla
+-  täckningen kvar (`OPENING_RETURN`-loggraden), eftersom en så sen varning
+-  kommer efter korsningen (värld 227). Golvet prövas om vid varje fix, så en
+-  båt som vänder nära bron och sedan väntar får sin varning så snart prognosen
+-  ligger bortom golvet. Kontraktet är INV-21:s returresa (`invariants.js`).
++- **Returresan är en egen öppning (U15, användarbeslut 2026-11-04):** varje
++  bokförd passage av en beväpnad båt skrivs i servicens returminne
++  (`_passageMemory`, mmsi och bro, skrivs i `_recordPassage` även när armen
++  saknar händelse). Hennes nästa arm mot samma bro är en returarm
++  (`returnAfterPassage`). Ingen avfyrad händelse som beskriver öppningen hon
++  redan passerat får täcka returen, inte ens inom konvojfönstret
++  (`_describesPassedOpening`): (a) hon passerade själv i den, (b) dess
++  referensankomst (första verkliga passagen, annars prognosen när varningen
++  gick ut) ligger inom `CONVOY_WINDOW_MS` från hennes passage, alltså dig9:s
++  definition av samma öppning, eller (c) referensen saknas och varningen gick
++  vid eller före hennes passage. Två händelser kan beskriva samma fysiska
++  öppning: värld 936 (den andra varningen gick före hennes passage) och dess
++  spegelbild (den gick efter, och den andra båten korsar 75 s efter henne).
++  En varning för en SENARE öppning, mer än ett konvojfönster från hennes
++  passage, täcker returen som vanligt (U2), oavsett om den gick före eller
++  efter passagen. `_releaseReturnCoverage` prövar villkoren vid varje värdval i
++  `_bindLooseArms` och släpper också en retur som redan absorberats, så det
++  gäller även när den andra båten korsar först efter att returarmen skapats.
++  Returminnet är frikopplat från händelsestädningen
++  (`_prunePassageMemory`): en post lever minst ett konvojfönster och sedan så
++  länge någon levande händelse beskriver hennes passerade öppning. Förut lästes
++  passagen ur hennes egen händelse, och runt dess städning avgjorde tickens fas
++  (omgranskningen 2026-11-05). Inget ledtidsgolv (dirigentens beslut
++  2026-11-05): returen får sin egen varning även under 2 × `TICK_INTERVAL_MS`
++  före ankomsten. Upptäcks returen först vid eller efter korsningen
++  (värld 227) kommer varningen sent; det är riktningslogikens kända gräns
++  (U18), inte konvojens. En båt som vänder FÖRE bron eller ligger och väntar
++  har ingen passage och stannar i sin öppning (U2: inga andrapåminnelser). En
++  armlös passage bokförs inte, som i resten av öppningslagret. Kontraktet är
++  INV-21:s returresa (`invariants.js`).
+ - **"Hölls vid en tidigare bro" avgörs av båtens egna fix (F09, 2026-11-04):**
+   regeln från a8d7b76 (en varning som gick medan båten hölls vid en tidigare
+   bro täcker inte hennes senare ankomst; AKIRA-testet) avgörs vid hennes första
+@@ -782,7 +792,16 @@ båt.
+   till varningsögonblicket gav en miss i buggjägarens värld 276, och att
+   vänta på hennes nästa fix bröt den låsta gemensamma brokön
+   (`opening-shared-queue-convoy`). Vägen stängs bäst genom att en given
+-  konvojtäckning kan omprövas mot hennes nästa fix.
++  konvojtäckning kan omprövas mot hennes nästa fix. Samspelet med villkor (2)
++  och (3): utan en tick före hennes nästa fix släpper (2) eller (3) varningen
++  vid hennes fix eller när spärren tar slut, och med en sådan tick kan
++  konvojundantaget i stället absorbera henne på det äldre fixet. Granskarens
++  fasfuzz (3 × 3000 köscenarier vid Järnvägsbron, 10 faser) gav 125–151
++  fasberoende scenarier per 3000 på 7699cbe och 25–34 med rättningen, alla via
++  konvojundantaget (0 utan det). 7 av 9000 är fasberoende bara med
++  rättningen, till exempel seed 11 scenario 62: följaren absorberas vid fas
++  3,3–15,5 s och får egen varning vid övriga faser. Restklassen är registrerad
++  för motorn som känd och öppen.
+ - **Dedup i TVÅ lager (app.js):** `_firedOpeningEvents` (eventId, sessionslokal)
+   och `persistent_opening_warnings` (`bro|mmsi|riktning`, 10 min, ÖVER omstart
+   — v1 persisterar inga armar, så en omstart mitt i en anflygning varnade annars
+diff --git a/docs/VALIDATION.md b/docs/VALIDATION.md
+index e915753..e1196e2 100644
+--- a/docs/VALIDATION.md
++++ b/docs/VALIDATION.md
+@@ -353,7 +353,10 @@ dess händelse (`openingCoverage`) mellan passagerna. En annan båts varning
+ vid samma bro räcker alltså inte. Scenariot
+ `u-sväng-bortom-Stridsbergsbron (B02-returresan)` vänder 880 m bortom bron,
+ inom konvojfönstret räknat från utresan; på 7699cbe är det rött (returen
+-06:31:00 saknar varning), med U15-rättningen grönt.
++06:31:00 saknar varning), med U15-rättningen grönt. Samma kontroll ligger på
++`u-sväng-efter-Klaffbron` och `u-sväng-gles-ais-norr-om-Klaffbron`, som båda
++är röda på 7699cbe (returerna 06:30:00 och 06:27:00 absorberades i utresans
++händelse) och gröna med rättningen.
+ 
+ ## Täckningskartan — diagnosverktyg, INTE en gate
+ 
+diff --git a/lib/services/BridgeOpeningService.js b/lib/services/BridgeOpeningService.js
+index 9b6ba7b..7dc2fcc 100644
+--- a/lib/services/BridgeOpeningService.js
++++ b/lib/services/BridgeOpeningService.js
+@@ -208,6 +208,15 @@ class BridgeOpeningService {
+      * händelser utan medlemmar städas i varje utvärdering.
+      */
+     this._events = new Map();
++    /**
++     * U15 (B02) — RETURMINNET: armKey ('mmsi::Bro') → { at, eventId } för
++     * båtens SENASTE bokförda passage av bron (se _recordPassage). Minnet är
++     * frikopplat från händelselistan (omgranskningen 2026-11-05): returresan
++     * känns igen även när hennes egen gamla händelse redan städats, så länge
++     * någon levande händelse beskriver öppningen hon passerade. Posten städas i
++     * _prunePassageMemory.
++     */
++    this._passageMemory = new Map();
+ 
+     this._eventSeq = 0;
+     // F09: BEARBETNINGSORDNING för hållna fix och avfyrningar (se
+@@ -522,6 +531,7 @@ class BridgeOpeningService {
+     this._scheduledDeadline = null;
+     this._arms.clear();
+     this._events.clear();
++    this._passageMemory.clear();
+     this._destroyed = true;
+     this.logger.debug('🌉 [BRIDGE_OPENING] Service nedstängd');
+   }
+@@ -957,16 +967,14 @@ class BridgeOpeningService {
+       // F09: bearbetningsordningen (`_orderSeq`) för senaste egna fix som
+       // visade henne hållen vid en tidigare bro. Se _fixAfterWarning.
+       heldSeenOrder: null,
+-      // U15 (B02): båtens senaste egna passage av den här bron i en levande
+-      // händelse när armen skapades, eller null. Satt ⇒ armen är en
+-      // RETURRESA, och _releaseReturnCoverage spärrar de händelser som
+-      // beskriver öppningen hon redan passerat. returnFloorLogged: logg-
+-      // dedup för ledtidsgolvet, ingen fysik.
+-      returnAfterPassageAt: null,
+-      returnFloorLogged: false,
++      // U15 (B02): båtens senaste bokförda passage av den här bron ur
++      // returminnet när armen skapades ({ at, eventId }), eller null. Satt ⇒
++      // armen är en RETURRESA, och _releaseReturnCoverage spärrar de
++      // händelser som beskriver öppningen hon redan passerat.
++      returnAfterPassage: null,
+     };
+     this._refreshArm(arm, vessel, distance, now);
+-    arm.returnAfterPassageAt = this._ownPassageAt(arm);
++    arm.returnAfterPassage = this._ownPassage(arm);
+     // Frys ursprungsdeadlinen — EN gång, här. _refreshArm får aldrig röra den
+     // (den anropas om vid varje nytt fix), och absorption/släpp rör bara
+     // eligibleAt/warnedAt. Är avståndet oanvändbart förblir fireDueMs Infinity
+@@ -986,53 +994,95 @@ class BridgeOpeningService {
+    *
+    * En ny arm är alltid en ny anflygning: den förra armen avväpnades när
+    * båten passerade (observeVessel steg 1 eller notePassage). _arm frågar
+-   * därför här om hon redan passerat bron som medlem i en levande händelse
+-   * (`passedMmsis`, bokförs i _recordPassage). Svaret sparas på armen som
+-   * `returnAfterPassageAt`, och _releaseReturnCoverage spärrar sedan de
+-   * händelser som beskriver öppningen hon redan passerat.
++   * därför returminnet (`_passageMemory`, skrivs i _recordPassage) om hon
++   * redan passerat bron. Svaret sparas på armen som `returnAfterPassage`, och
++   * _releaseReturnCoverage spärrar sedan de händelser som beskriver öppningen
++   * hon redan passerat.
++   *
++   * MINNET ÄR FRIKOPPLAT FRÅN HÄNDELSELISTAN (omgranskningen 2026-11-05).
++   * Förut lästes passagen ur hennes egen gamla händelse. Den städas i
++   * _evaluateBridge steg 2 ett konvojfönster efter passagen, medan en annan
++   * händelse för samma öppning kan leva längre. Runt den kanten avgjorde
++   * tickens fas om returen kändes igen, och efter den absorberades returen
++   * alltid i den andra händelsen (granskarens sond b02-936-kant: 0 av 30
++   * faser vid returarm 728 s, 15 av 30 vid 745 s, 30 av 30 från 762 s).
+    * @private
+    * @param {Object} arm - den nya armen
+-   * @returns {number|null} senaste egna passagetid vid bron, eller null
++   * @returns {{at: number, eventId: (string|null)}|null} senaste bokförda passage vid bron
++   */
++  _ownPassage(arm) {
++    const passage = this._passageMemory.get(arm.key);
++    return passage && Number.isFinite(passage.at) ? passage : null;
++  }
++
++  /**
++   * Städa returminnet vid en bro (anropas av _evaluateBridge efter steg 2,
++   * med den städade händelselistan). En post behövs så länge den kan ändra
++   * ett värdval:
++   *  - ett konvojfönster efter passagen, eftersom en händelse som ännu inte
++   *    fått sin första passage kan få den inom fönstret (villkor (b) i
++   *    _describesPassedOpening);
++   *  - därefter så länge någon levande händelse beskriver öppningen hon
++   *    passerade. Den mängden kan bara krympa: efter fönstret kan ingen ny
++   *    händelse uppfylla villkoren.
++   * En arm som redan skapats bär sin egen kopia (`returnAfterPassage`).
++   * @private
++   * @param {string} bridgeName
++   * @param {Object[]} events - levande händelser vid bron
++   * @param {number} now
+    */
+-  _ownPassageAt(arm) {
+-    let ownPassageAt = null;
+-    for (const event of this._eventsAt(arm.bridge)) {
+-      const t = event.passedMmsis ? event.passedMmsis.get(arm.mmsi) : undefined;
+-      if (Number.isFinite(t) && (ownPassageAt === null || t > ownPassageAt)) ownPassageAt = t;
++  _prunePassageMemory(bridgeName, events, now) {
++    const suffix = `::${bridgeName}`;
++    for (const [key, passage] of this._passageMemory) {
++      if (!key.endsWith(suffix)) continue;
++      if (now - passage.at <= this.config.CONVOY_WINDOW_MS) continue;
++      if (events.some((event) => this._describesPassedOpening(event, passage))) continue;
++      this._passageMemory.delete(key);
+     }
+-    return ownPassageAt;
+   }
+ 
+   /**
+    * Beskriver händelsen ÖPPNINGEN SOM BÅTEN REDAN PASSERAT? (U15, B02.)
+-   * Vart och ett av villkoren räcker:
+-   *  (a) hon passerade själv bron i händelsen (`passedMmsis`);
+-   *  (b) varningen gick ut vid eller före hennes passage. Två händelser kan
+-   *      beskriva samma fysiska öppning: i värld 936 korsade ALVA
+-   *      (Klaffbron#5) och XENIA (#6) bron 74 s isär. Att bara spärra XENIAs
+-   *      egen #6 flyttade returen till ALVAs #5, och RECOVER-släppet varnade
+-   *      5 s efter returkorsningen;
+-   *  (c) händelsens FÖRSTA passage ligger inom CONVOY_WINDOW_MS från hennes,
+-   *      dig9:s definition av samma öppning, även när varningen gick ut EFTER
+-   *      hennes passage. Det är spegelbilden av värld 936 (granskningen
+-   *      2026-11-04): A passerar norrut, B:s händelse varnar 65 s senare och
+-   *      B korsar söderut 75 s efter A. Utan (c) absorberades A:s retur i B:s
+-   *      händelse. Villkoret prövas om vid varje utvärdering, så det gäller
+-   *      också när B korsar först efter att A:s returarm skapats.
+-   * Allt annat får täcka returen som vanligt: en varning som gick ut efter
+-   * hennes passage för en öppning som ännu inte skett, eller vars första
+-   * passage ligger mer än ett konvojfönster från hennes (nästa öppning, U2).
++   * Bara en avfyrad händelse kan absorbera, så bara en sådan prövas. En
++   * oavfyrad händelse hon ansluter till varnar för henne som medlem, och det
++   * är en egen varning för returen.
++   *
++   * Händelsens öppning är dess referensankomst: den första verkliga passagen
++   * när den finns (_recordPassage), annars prognosen när varningen gick ut
++   * (_fire). Två passager är SAMMA öppning när de ligger inom
++   * CONVOY_WINDOW_MS (dig9, se konstanten), och det är samma mått som
++   * _belongsToEvent använder. Villkoren:
++   *  (a) hon passerade själv bron i händelsen (`eventId` i minnet);
++   *  (b) händelsens referensankomst ligger inom CONVOY_WINDOW_MS från hennes
++   *      passage. Det täcker värld 936 (ALVA:s Klaffbron#5 och XENIA:s #6,
++   *      korsningarna 74 s isär) och spegelbilden där en annan båts varning
++   *      går EFTER hennes passage men gäller samma öppning (granskningen
++   *      2026-11-04). Villkoret prövas om i varje utvärdering, så det gäller
++   *      också när referensen byts mot den verkliga passagen efter att
++   *      returarmen skapats;
++   *  (c) referensankomsten saknas och varningen gick ut vid eller före hennes
++   *      passage. Då går öppningen inte att placera, och den mest sannolika
++   *      är den hon passerade. Missad öppning är värre än falsklarm, så den
++   *      får inte täcka returen.
++   * Allt annat får täcka returen som vanligt, OAVSETT när varningen gick ut:
++   * en varning för en senare öppning (referensen mer än ett konvojfönster
++   * från hennes passage) som returen hinner med är nästa öppning (U2), och
++   * en egen varning vore en andrapåminnelse. Förut avgjorde varningens tid
++   * relativt hennes passage, så utfallet hängde på en knivsegg
++   * (omgranskningen 2026-11-05, sonden b02-senare-oppning).
+    * @private
+    * @param {Object} event
+-   * @param {string} mmsi
+-   * @param {number} ownPassageAt - hennes senaste passage (returnAfterPassageAt)
++   * @param {{at: number, eventId: (string|null)}} passage - hennes senaste passage
+    * @returns {boolean}
+    */
+-  _describesPassedOpening(event, mmsi, ownPassageAt) {
+-    if (event.passedMmsis && event.passedMmsis.has(mmsi)) return true;
+-    if (event.firedAt !== null && event.firedAt <= ownPassageAt) return true;
+-    return event.firstPassageAt !== null
+-      && Math.abs(event.firstPassageAt - ownPassageAt) <= this.config.CONVOY_WINDOW_MS;
++  _describesPassedOpening(event, passage) {
++    if (event.firedAt === null) return false;
++    if (passage.eventId !== null && event.id === passage.eventId) return true;
++    const reference = event.firstPassageAt !== null ? event.firstPassageAt : event.referenceArrivalMs;
++    if (Number.isFinite(reference)) {
++      return Math.abs(reference - passage.at) <= this.config.CONVOY_WINDOW_MS;
++    }
++    return event.firedAt <= passage.at;
+   }
+ 
+   /**
+@@ -1051,52 +1101,32 @@ class BridgeOpeningService {
+    * norr om bron, absorberades i sin egen #3 08:32:35 och korsade söderut
+    * 08:35:55 utan egen varning.
+    *
++   * INGET LEDTIDSGOLV (dirigentens beslut 2026-11-05 om U15). Förut stod den
++   * gamla täckningen kvar när förväntad ankomst låg närmare än
++   * 2 × TICK_INTERVAL_MS. Nu får returen sin egen varning även då, precis som
++   * vilken annan sent beväpnad anflygning som helst: _bindLooseArms och
++   * avfyrningen behandlar henne som en vanlig lös arm. Upptäcks returen
++   * först efter korsningen (värld 227, ZELDA beväpnad 13 m före bron 9 s
++   * efter sin verkliga returkorsning) kommer varningen efter korsningen. Det
++   * är riktningslogikens kända gräns (U18: två positioner innan en vändning
++   * tros), inte konvojens, och den kostar ingen öppning: den gamla
++   * täckningen gällde en annan öppning.
++   *
+    * VAD SOM INTE PÅVERKAS: andra båtar (spärren gäller bara hennes arm), en
+    * båt som vänder FÖRE bron eller ligger och väntar (ingen passage ⇒ ingen
+    * returarm; U2 "inga andrapåminnelser"), och en arm som redan varnats som
+    * medlem i en händelse efter passagen (returen har då sin egen varning).
+-   *
+-   * LEDTIDSGOLVET, samma tal och samma storhet som räddningsventilens
+-   * (_rescueCoveredArms), och som den prövat vid VARJE utvärdering: ligger
+-   * hennes förväntade ankomst närmare än 2 × TICK_INTERVAL_MS (60 s) kan en
+-   * egen varning inte hinna göra nytta, och den kommer i praktiken efter
+-   * korsningen. Mätt i buggjägarens värld 227 (R1-radio): ZELDA beväpnades
+-   * för returen 13 m före Stridsbergsbron, 10 s EFTER sin verkliga
+-   * returkorsning, och en egen varning blev ett nytt T3-utslag (varning efter
+-   * sann passage). Under golvet står den gamla täckningen kvar, som före
+-   * rättningen. Väntar hon sedan vid bron visar nästa fix en ankomst bortom
+-   * golvet, och då släpps täckningen (granskningen 2026-11-04: returarm med
+-   * 58 s prognos, fem minuters väntan, korsning utan egen varning). Golvet kan
+-   * bara öppnas av ett nytt eget fix: mellan fixen krymper `expectedArrivalMs
+-   * − now`, så en tick kan aldrig ändra utfallet. Att armen skapas så sent är
+-   * riktningslogikens sak (R1), inte konvojens.
+    * @private
+    * @param {Object} arm
+    * @param {Object[]} events - händelserna vid armens bro
+-   * @param {number} now
+    */
+-  _releaseReturnCoverage(arm, events, now) {
+-    if (arm.returnAfterPassageAt === null) return;
++  _releaseReturnCoverage(arm, events) {
++    const passage = arm.returnAfterPassage;
++    if (passage === null) return;
+     if (arm.warnedAt !== null && arm.absorbedAt === null) return;
+     const passedOpening = events.filter((event) => !arm.releasedFrom.has(event.id)
+-      && this._describesPassedOpening(event, arm.mmsi, arm.returnAfterPassageAt));
++      && this._describesPassedOpening(event, passage));
+     if (passedOpening.length === 0) return;
+-    const passageIso = new Date(arm.returnAfterPassageAt).toISOString();
+-    const floorMs = 2 * this.config.TICK_INTERVAL_MS;
+-    const remainingMs = Number.isFinite(arm.expectedArrivalMs) ? arm.expectedArrivalMs - now : Infinity;
+-    if (remainingMs < floorMs) {
+-      if (!arm.returnFloorLogged) {
+-        this.logger.debug(
+-          `⛔ [OPENING_RETURN] ${arm.mmsi} (${arm.name || 'okänt namn'}): ${arm.bridge} — returen efter `
+-          + `passagen ${passageIso} har ${Math.round(remainingMs / 1000)} s kvar till förväntad ankomst `
+-          + `(golv ${Math.round(floorMs / 1000)} s); ingen egen varning nu, äldre täckning står kvar `
+-          + 'tills ett nytt fix visar en ankomst bortom golvet',
+-        );
+-        arm.returnFloorLogged = true;
+-      }
+-      return;
+-    }
+-    arm.returnFloorLogged = false;
+     for (const event of passedOpening) arm.releasedFrom.add(event.id);
+     const absorbedIn = arm.absorbedAt !== null && passedOpening.some((event) => event.id === arm.eventId)
+       ? arm.eventId : null;
+@@ -1109,8 +1139,8 @@ class BridgeOpeningService {
+     }
+     this.logger.debug(
+       `↩️ [OPENING_RETURN] ${arm.mmsi} (${arm.name || 'okänt namn'}): ${arm.bridge} — returresa efter `
+-      + `passagen ${passageIso}; ${passedOpening.map((event) => event.id).join(', ')} täcker inte returen (U15)`
+-      + `${absorbedIn !== null ? `, släpps ur ${absorbedIn}` : ''}`,
++      + `passagen ${new Date(passage.at).toISOString()}; ${passedOpening.map((event) => event.id).join(', ')} `
++      + `täcker inte returen (U15)${absorbedIn !== null ? `, släpps ur ${absorbedIn}` : ''}`,
+     );
+   }
+ 
+@@ -1606,6 +1636,9 @@ class BridgeOpeningService {
+       }
+       return keep;
+     });
++    // U15 (B02): returminnet lever så länge en levande händelse beskriver
++    // öppningen båten passerade, inte så länge hennes egen händelse lever.
++    this._prunePassageMemory(bridgeName, events, now);
+ 
+     // --- (3) Knyt lösa armar till RÄTT öppning ----------------------------
+     events = this._bindLooseArms(arms, events, bridgeName, now, observedMmsi);
+@@ -1676,7 +1709,7 @@ class BridgeOpeningService {
+       if (arm.pendingArrivalObservation) continue;
+       // U15 (B02): returresans gamla täckning spärras före varje värdval,
+       // även konvojvärdens nedan. Se _releaseReturnCoverage.
+-      this._releaseReturnCoverage(arm, events, now);
++      this._releaseReturnCoverage(arm, events);
+       const blocked = this._blockedByEarlierBridge(arm, now);
+       const convoyHost = blocked && events.find((event) => !arm.releasedFrom.has(event.id)
+         && this._sharesMovingConvoy(arm, event, arms, now));
+@@ -2065,14 +2098,18 @@ class BridgeOpeningService {
+    * @private
+    */
+   _recordPassage(bridgeName, arm, now) {
+-    if (!arm || arm.eventId === null) return;
+-    const event = this._eventsAt(bridgeName).find((e) => e.id === arm.eventId);
++    if (!arm) return;
++    const event = arm.eventId === null ? null
++      : this._eventsAt(bridgeName).find((e) => e.id === arm.eventId) || null;
++    // U15 (B02): RETURMINNET. Hennes NÄSTA anflygning mot samma bro är en ny
++    // öppning (se _ownPassage och _releaseReturnCoverage). Bokförs för varje
++    // beväpnad båt, även utan levande händelse, och oberoende av
++    // händelsestädningen. Samma tid som firstPassageAt nedan, så villkor (b) i
++    // _describesPassedOpening jämför passager i samma tidsdomän. En ARMLÖS
++    // passage bokförs inte, som i resten av öppningslagret (app.js
++    // _observeBridgeOpening, J14: medlemskravet är ett val).
++    this._passageMemory.set(arm.key, { at: now, eventId: event ? event.id : null });
+     if (!event) return;
+-    // U15 (B02): hennes NÄSTA anflygning mot samma bro är en ny öppning (se
+-    // _ownPassageAt och _releaseReturnCoverage). Samma tid som firstPassageAt
+-    // nedan, så villkor (c) i _describesPassedOpening jämför passager i samma
+-    // tidsdomän; registreringstiden ligger alltid vid eller efter korsningen.
+-    event.passedMmsis.set(arm.mmsi, now);
+     event.lastPassageAt = now;
+     // Referensankomsten blir den FÖRSTA faktiska passagetiden — konvojfönstret
+     // mäts mot den (dig9 klustrar passager, inte prognoser). Den skjuts INTE
+@@ -2168,10 +2205,6 @@ class BridgeOpeningService {
+       lastPassageAt: null,
+       firstPassageAt: null,
+       newMemberArrivalLimitMs: null,
+-      // U15 (B02): mmsi → registreringstid för medlemmar som PASSERAT bron i
+-      // den här händelsen. Deras nästa anflygning är en egen öppning (se
+-      // _ownPassageAt, _releaseReturnCoverage och _recordPassage).
+-      passedMmsis: new Map(),
+       referenceArrivalMs: seedArm && Number.isFinite(seedArm.expectedArrivalMs)
+         ? seedArm.expectedArrivalMs : null,
+     };
+diff --git a/tests/opening-returresa-och-fasoberoende.test.js b/tests/opening-returresa-och-fasoberoende.test.js
+index 64749f3..5e819d7 100644
+--- a/tests/opening-returresa-och-fasoberoende.test.js
++++ b/tests/opening-returresa-och-fasoberoende.test.js
+@@ -6,9 +6,11 @@
+  * B02 / U15: en båt som passerar en bro, vänder och kommer tillbaka får en
+  * EGEN bridge_opening_soon för returen, även inom konvojfönstret (600 s).
+  * Ingen händelse som beskriver öppningen hon redan passerat får täcka
+- * returen: hennes egen, en som varnade före hennes passage, eller en vars
+- * första passage ligger inom konvojfönstret från hennes. Ledtidsgolvet
+- * (60 s kvar till ankomsten) prövas vid varje nytt fix.
++ * returen: hennes egen, eller en vars öppning (första passage, annars
++ * prognosen vid varningen) ligger inom konvojfönstret från hennes passage.
++ * Returminnet är frikopplat från händelsestädningen, och returen får sin
++ * egen varning även under 60 s före ankomsten (dirigentens beslut
++ * 2026-11-05: U15 utan golvundantag).
+  *
+  * F09: regeln "en varning som gick medan båten hölls vid en tidigare bro
+  * täcker inte hennes senare ankomst" får inte bero på när den halvminutsvisa
+@@ -266,19 +268,24 @@ describe('U15 (B02): returresan får en egen öppningsvarning', () => {
+     expect(warnings.map((w) => w.leadMmsi)).toEqual([A, B]);
+   });
+ 
+-  test('ledtidsgolvet prövas vid varje fix: vänder nära bron, väntar och får egen varning', () => {
+-    // Granskningen 2026-11-04 (sonden b02-golv). 7699cbe och första K2: rött.
+-    // Returarmen skapas 150 m från bron i 5 kn (58 s kvar, under golvet), och
+-    // den gamla täckningen står kvar. Sedan väntar hon vid bron i fem minuter;
+-    // nästa fix visar en ankomst bortom golvet och hon får sin egen varning.
++  test('inget ledtidsgolv: returarm 58 s från ankomsten får egen varning direkt (U15, dirigentens beslut 2026-11-05)', () => {
++    // 7699cbe: rött (absorberad i sin egen händelse). 5e273df: rött (golvet
++    // höll kvar den gamla täckningen tills ett senare fix visade en ankomst
++    // bortom 60 s, här 230 s).
+     const V = '265000401';
+     svc.observeVessel(vessel(V, 900, 'syd', 'north'));
+     at(130);
+     svc.notePassage(V, 'Stridsbergsbron');
+     at(200);
+     svc.observeVessel(vessel(V, 150, 'norr', 'south', { sog: 5 }));
+-    expect(warnings).toHaveLength(1);
++    svc.tick();
+ 
++    expect(warnings.map((w) => w.leadMmsi)).toEqual([V, V]);
++    expect(warnings[1]).toMatchObject({ direction: 'southbound', mmsis: [V] });
++    expect(warnings[1].t).toBe(T0 + 200000);
++
++    // Hon väntar sedan vid bron i fem minuter: ingen tredje varning
++    // (returen är varnad som medlem, U2 "inga andrapåminnelser").
+     for (let s = 230; s <= 470; s += 30) {
+       at(s);
+       svc.observeVessel(vessel(V, 140, 'norr', 'south', { sog: 0.2 }));
+@@ -286,28 +293,153 @@ describe('U15 (B02): returresan får en egen öppningsvarning', () => {
+     }
+     at(500);
+     svc.notePassage(V, 'Stridsbergsbron');
+-
+-    expect(warnings.map((w) => w.leadMmsi)).toEqual([V, V]);
+-    expect(warnings[1]).toMatchObject({ direction: 'southbound', mmsis: [V] });
+-    expect(warnings[1].t).toBe(T0 + 230000);
++    expect(warnings).toHaveLength(2);
+   });
+ 
+-  test('negativt: under golvet och framme inom en minut ⇒ ingen ny varning (golvet står kvar)', () => {
+-    // Värld 227-klassen: returen upptäcks så nära bron att en egen varning
+-    // skulle komma i praktiken efter korsningen.
++  test('inget ledtidsgolv: returen upptäcks 12 s före ankomsten och får ändå egen varning', () => {
++    // Värld 1918-klassen (GUNHILD, 12 s kvar). 5e273df: rött (golvet stod kvar,
++    // och returen täcktes av hennes egen gamla händelse).
+     const V = '265000411';
+     svc.observeVessel(vessel(V, 900, 'syd', 'north'));
+     at(130);
+     svc.notePassage(V, 'Stridsbergsbron');
+-    at(200);
+-    svc.observeVessel(vessel(V, 150, 'norr', 'south', { sog: 5 }));
+     at(225);
+-    svc.observeVessel(vessel(V, 60, 'norr', 'south', { sog: 5 }));
++    svc.observeVessel(vessel(V, 31, 'norr', 'south', { sog: 5 }));
+     svc.tick();
+     at(240);
+     svc.notePassage(V, 'Stridsbergsbron');
+ 
+-    expect(warnings).toHaveLength(1);
++    expect(warnings.map((w) => w.leadMmsi)).toEqual([V, V]);
++    expect(warnings[1]).toMatchObject({ direction: 'southbound', mmsis: [V] });
++    expect(warnings[1].t).toBeLessThan(T0 + 240000);
++  });
++
++  // Granskarens sond b02-936-kant (omgranskningen 2026-11-05). X passerar
++  // norrut 130 s i sin egen händelse (varnad 0 s). Y:s händelse varnar 287 s
++  // och Y korsar söderut 630 s, 500 s efter X: samma öppning (dig9). X:s egen
++  // händelse löper ut 730 s och städas vid nästa utvärdering. Returarmen
++  // skapas `armS` sekunder in, 300 s före returkorsningen.
++  function kantRun(armS, phaseS) {
++    const X = '265000921';
++    const Y = '265000922';
++    const script = [
++      [0, () => svc.observeVessel(vessel(X, 900, 'syd', 'north', { sog: 6.5 }))],
++      [1, () => svc.observeVessel(vessel(Y, 2400, 'norr', 'south', { sog: 4 }))],
++      [130, () => svc.notePassage(X, 'Stridsbergsbron')],
++      [630, () => svc.notePassage(Y, 'Stridsbergsbron')],
++      [armS, () => svc.observeVessel(vessel(X, 300 * 4 * 0.514444, 'norr', 'south', { sog: 4 }))],
++    ];
++    for (let s = phaseS; s <= armS + 299; s += 30) script.push([s, () => svc.tick()]);
++    script.sort((a, b) => a[0] - b[0]);
++    for (const [s, step] of script) {
++      at(s);
++      step();
++    }
++    const arm = svc._arms.get(`${X}::Stridsbergsbron`);
++    return {
++      warnings: warnings.map((w) => `${w.leadMmsi === X ? 'X' : 'Y'}:${w.direction}`),
++      ownWarning: !!arm && arm.warnedAt !== null && arm.absorbedAt === null,
++    };
++  }
++
++  test('returminnet: returarm efter att hennes egen händelse städats får ändå egen varning', () => {
++    // 7699cbe och 5e273df: rött (absorberad i Y:s händelse, vars öppning hon
++    // redan passerat). Deterministiskt: armen skapas 780 s, långt efter att
++    // X:s egen händelse städats, medan Y:s händelse lever till 1230 s.
++    const r = kantRun(780, 0.5);
++    expect(r.warnings).toEqual(['X:northbound', 'Y:southbound', 'X:southbound']);
++    expect(r.ownWarning).toBe(true);
++  });
++
++  test.each([732, 745, 758])(
++    'returminnet: kanten kring städningen (returarm %i s) ger samma utfall i alla 30 tickfaser',
++    (armS) => {
++      // 5e273df: rött (2, 15 respektive 28 av 30 faser utan egen varning).
++      const outcomes = new Set();
++      for (let phase = 0.5; phase < 30; phase += 1) {
++        svc.destroy();
++        jest.setSystemTime(T0);
++        warnings = [];
++        svc = new BridgeOpeningService({
++          onWarning: (payload) => warnings.push(payload),
++          targetBridges: ['Stridsbergsbron'],
++          scheduleDeadlines: true,
++        });
++        const r = kantRun(armS, phase);
++        outcomes.add(`${r.warnings.join(',')}|${r.ownWarning}`);
++      }
++      expect([...outcomes]).toEqual(['X:northbound,Y:southbound,X:southbound|true']);
++    },
++  );
++
++  test('returminnet bokförs även när armen saknar händelse vid passagen', () => {
++    // 7699cbe och 5e273df: rött. A:s arm är lös (restartArrival, eventId null)
++    // när hon passerar 10 s efter B, i samma öppning som B:s varning. Förut
++    // bokfördes passagen bara på hennes händelse, så returen absorberades i
++    // B:s händelse.
++    const A = '265000331';
++    const B = '265000332';
++    svc.observeVessel(vessel(B, 900, 'syd', 'north'));
++    expect(warnings.map((w) => w.leadMmsi)).toEqual([B]);
++    at(5);
++    svc.observeVessel(vessel(A, 950, 'syd', 'north'));
++    expect(svc._arms.get(`${A}::Stridsbergsbron`).eventId).toBe(warnings[0].eventId);
++    at(120);
++    svc.notePassage(B, 'Stridsbergsbron');
++    at(125);
++    svc.restartArrival(A, 'Stridsbergsbron');
++    at(130);
++    svc.notePassage(A, 'Stridsbergsbron');
++
++    at(400);
++    svc.observeVessel(vessel(A, 700, 'norr', 'south', { sog: 6.8 }));
++    expect(warnings.map((w) => w.leadMmsi)).toEqual([B, A]);
++    expect(warnings[1]).toMatchObject({ mmsis: [A], direction: 'southbound' });
++  });
++
++  test('returminnet städas när ingen levande händelse längre beskriver öppningen', () => {
++    const V = '265000341';
++    svc.observeVessel(vessel(V, 900, 'syd', 'north'));
++    at(130);
++    svc.notePassage(V, 'Stridsbergsbron');
++    expect(svc._passageMemory.size).toBe(1);
++    // Händelsen lever till 130 + 600 s; minnet minst ett konvojfönster.
++    at(700);
++    svc.tick();
++    expect(svc._passageMemory.size).toBe(1);
++    at(760);
++    svc.tick();
++    expect(svc._passageMemory.size).toBe(0);
++  });
++
++  // Villkor (b) (omgranskningen 2026-11-05, sonden b02-senare-oppning): en
++  // varning för en SENARE öppning täcker returen oavsett om den gick före
++  // eller efter hennes passage. B söderut i 2 kn varnar för ankomst ≈ 2333 s;
++  // A passerar 300 s, vänder och kommer söderut med ankomst ≈ 2794 s, i B:s
++  // fönster. Den gamla regeln (varning före passagen spärras) gav A en tredje
++  // varning när B:s varning gick 286 s, men inte när den gick efter 300 s.
++  test.each([
++    ['före', 200],
++    ['efter', 315],
++  ])('villkor (b): en varning %s hennes passage för en senare öppning täcker returen', (_label, bFirstFixS) => {
++    // 5e273df: rött för "före" (tre varningar).
++    const A = '265000901';
++    const B = '265000902';
++    at(bFirstFixS - 200);
++    svc.observeVessel(vessel(B, 2400, 'norr', 'south', { sog: 2 }));
++    at(100);
++    svc.observeVessel(vessel(A, 700, 'syd', 'north', { sog: 6 }));
++    at(300);
++    svc.notePassage(A, 'Stridsbergsbron');
++    at(bFirstFixS + 120);
++    svc.tick();
++    expect(warnings.map((w) => w.leadMmsi)).toEqual([A, B]);
++    at(850);
++    svc.observeVessel(vessel(A, 2000, 'norr', 'south', { sog: 2 }));
++    svc.tick();
++
++    expect(warnings.map((w) => w.leadMmsi)).toEqual([A, B]);
++    expect(svc._arms.get(`${A}::Stridsbergsbron`).eventId).toBe(warnings[1].eventId);
+   });
+ });
+ 
+diff --git a/tests/replay-validation/runSyntheticScenarios.js b/tests/replay-validation/runSyntheticScenarios.js
+index 85703ac..ca6757e 100644
+--- a/tests/replay-validation/runSyntheticScenarios.js
++++ b/tests/replay-validation/runSyntheticScenarios.js
+@@ -278,12 +278,15 @@ const SCENARIOS = [
+     // Äkta tur-och-retur: U-sväng EFTER Klaffbron → returpassagen av samma
+     // bro är en NY passage och ska ge en ANDRA notis (journey-reset-vägen,
+     // N1). INV-2:s journey-reset-medvetna dubbletthantering dömer.
++    // U15 (K2, omgranskningen 2026-11-05): returpassagen ska också ha en EGEN
++    // öppningsvarning. På 7699cbe absorberades returen söderut i båtens egen
++    // händelse för utresan (B02), och scenariot såg det inte.
+     name: 'u-sväng-efter-Klaffbron',
+     seed: 25,
+     vessels: [{
+       mmsi: '901000018', direction: 'north', speedKn: 4.5, uTurnAtFraction: 0.45,
+     }],
+-    expect: { minTargetPassages: 2, minNotifiedBridges: ['Klaffbron'] },
++    expect: { minTargetPassages: 2, minNotifiedBridges: ['Klaffbron'], openingBeforeEachPassage: ['Klaffbron'] },
+   },
+   {
+     // Helgranskningen 2026-11-03: samma tur-och-retur med GLES AIS (180 s,
+@@ -293,6 +296,8 @@ const SCENARIOS = [
+     // blev mållös och returpassagen av Klaffbron bokfördes som en mållös
+     // mellanbropassage (fältfallet ANYA ELAN 380 i both-21h). Vid 60 s-kadens
+     // syns felet inte, därför fångade scenariot ovan det aldrig.
++    // U15 (K2, omgranskningen 2026-11-05): returpassagen av Klaffbron ska ha
++    // en egen öppningsvarning (på 7699cbe absorberad i utresans händelse).
+     name: 'u-sväng-gles-ais-norr-om-Klaffbron',
+     seed: 91,
+     vessels: [{
+@@ -302,7 +307,7 @@ const SCENARIOS = [
+       reportIntervalS: 180,
+       uTurnAtFraction: (METRICS.cum[2] + 600) / METRICS.total,
+     }],
+-    expect: { minTargetPassages: 2 },
++    expect: { minTargetPassages: 2, openingBeforeEachPassage: ['Klaffbron'] },
+   },
+   {
+     // K2 / U15 (B02-klassen, rättningskampanjen 2026-11-04): tur-och-retur
+-- 
+2.43.0
+

@@ -1,0 +1,695 @@
+From 89b47ddd8bbc6da9f4507494e7a272b24877529b Mon Sep 17 00:00:00 2001
+From: R1-designer <r1@kampanj.local>
+Date: Wed, 4 Nov 2026 15:40:30 +0000
+Subject: [PATCH 1/5] =?UTF-8?q?R1:=20bokf=C3=B6r=20U-sv=C3=A4ngens=20?=
+ =?UTF-8?q?=C3=A5terkorsning=20och=20ompr=C3=B6va=20svepets=20riktningsl?=
+ =?UTF-8?q?=C3=A5s?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Fix D:s debounce och positionsbeviset bekräftar ofta vändningen på fixen
+bortom den bro båten just korsat tillbaka. N1-resetten släpper nu en bro
+som bekräftelsesegmentet korsar i den nya riktningen, så tickens vanliga
+detektering bokför returpassagen (F10, W750, F13/r2). Svepets riktningslås
+sätts inte när den rörelsebevisade levande kursen säger motsatsen (F15).
+
+Prototyp i rättningskampanjen 2026-11-04, familj R1.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ app.js                                        |  31 +-
+ lib/services/VesselDataService.js             |  70 +++-
+ tests/fixtures/r1-f10-havsorn-usvang.jsonl    |  27 ++
+ tests/fixtures/r1-f10r2-kajsa-usvang.jsonl    |  17 +
+ tests/fixtures/r1-f15-irma-svepriktning.jsonl |  16 +
+ .../r1-usvang-aterkorsning-2026-11-04.test.js | 350 ++++++++++++++++++
+ .../runSyntheticScenarios.js                  |  40 ++
+ 7 files changed, 542 insertions(+), 9 deletions(-)
+ create mode 100644 tests/fixtures/r1-f10-havsorn-usvang.jsonl
+ create mode 100644 tests/fixtures/r1-f10r2-kajsa-usvang.jsonl
+ create mode 100644 tests/fixtures/r1-f15-irma-svepriktning.jsonl
+ create mode 100644 tests/r1-usvang-aterkorsning-2026-11-04.test.js
+
+diff --git a/app.js b/app.js
+index 3a109b8..f7ba4b2 100755
+--- a/app.js
++++ b/app.js
+@@ -8519,12 +8519,33 @@ class AISBridgeApp extends Homey.App {
+     // direction-token som 'unknown' i samma millisekund som svepet visste
+     // 'north'. Lås bara när riktning saknas — motsägelser mot ett
+     // befintligt lås hanteras av korsningsbevis-reversalen i VDS.
++    //
++    // R1 (rättningskampanjen 2026-11-04, F15 IRMA): svepets riktning är
++    // NETTOFÖRFLYTTNINGEN sedan sist kända position, inte nödvändigtvis
++    // färdriktningen nu. Vände båten i glappet (norrut förbi Olidebron,
++    // U-sväng, söderut igen) pekar svepet norrut medan båten går söderut,
++    // och ett lås från svepet omprövas aldrig: mållös båt ⇒ ingen Fix D,
++    // ingen bokförd bro att korsa igen ⇒ ingen korsningsbevis-reversal.
++    // Låset sätts därför inte när den RÖRELSEBEVISADE levande kursen
++    // (_dedupDirection med requireMovement: Fix D:s band och 2 kn, samma
++    // krav som reborn-grenen i journey-reset-hanteraren) säger motsatsen.
++    // SISU-skälet (tokenen blev 'unknown') gäller inte då — tokenen faller
++    // till den levande kursen. Osäker kurs eller samma riktning låser som förut.
+     if (!vessel._routeDirection && (direction === 'north' || direction === 'south')) {
+-      vessel._routeDirection = direction;
+-      this.log(
+-        `🧭 [SKIPPED_BRIDGES_DIRECTION_LOCK] ${vessel.mmsi}: route direction '${direction}' `
+-        + 'locked from evidenced sweep window',
+-      );
++      const liveDirection = this._dedupDirection(vessel, { requireMovement: true });
++      if (liveDirection && liveDirection !== direction) {
++        this.log(
++          `🧭 [SKIPPED_BRIDGES_DIRECTION_LOCK_SKIP] ${vessel.mmsi}: sweep window says '${direction}' `
++          + `but movement-proven live course says '${liveDirection}' (cog=${vessel.cog}°, sog=${vessel.sog}) `
++          + '— turned during the gap, route direction left unlocked',
++        );
++      } else {
++        vessel._routeDirection = direction;
++        this.log(
++          `🧭 [SKIPPED_BRIDGES_DIRECTION_LOCK] ${vessel.mmsi}: route direction '${direction}' `
++          + 'locked from evidenced sweep window',
++        );
++      }
+     }
+ 
+     // Körning 2026-07-02 (YEMANJA II): failsafen var notis-enbart. När hoppet
+diff --git a/lib/services/VesselDataService.js b/lib/services/VesselDataService.js
+index 4ad935c..793a6f6 100755
+--- a/lib/services/VesselDataService.js
++++ b/lib/services/VesselDataService.js
+@@ -465,7 +465,14 @@ class VesselDataService extends EventEmitter {
+               } else {
+                 reason = 'target behind vessel';
+               }
+-              this._confirmDirectionReversal(vessel, newDir, reason);
++              // R1 (rättningskampanjen 2026-11-04): debouncen bekräftar ofta på
++              // fixen BORTOM den nyss återkorsade bron. Bekräftelsesegmentet
++              // följer med så att N1-resetten kan släppa den bron (se
++              // _confirmDirectionReversal) och tickens vanliga detektering
++              // bokför returpassagen.
++              this._confirmDirectionReversal(vessel, newDir, reason, {
++                reCrossSegmentStart: this._cleanReCrossSegmentStart(vessel, oldVessel),
++              });
+               fixDReversalConfirmed = true;
+             }
+           }
+@@ -6701,7 +6708,11 @@ class VesselDataService extends EventEmitter {
+     const oppositeDirection = direction === 'north' ? 'south' : 'north';
+     if (!beforeBridge(vessel, target, oppositeDirection)) return null;
+ 
+-    this._confirmDirectionReversal(vessel, direction, `två rena positionsben, ${Math.round(netM)} m netto`);
++    // R1: samma bekräftelsesegment som Fix D-grenen — det andra benet kan ha
++    // korsat en bro som den gamla resan redan bokfört.
++    this._confirmDirectionReversal(vessel, direction, `två rena positionsben, ${Math.round(netM)} m netto`, {
++      reCrossSegmentStart: this._cleanReCrossSegmentStart(vessel, oldVessel),
++    });
+     return direction;
+   }
+ 
+@@ -6730,9 +6741,25 @@ class VesselDataService extends EventEmitter {
+    * HELT onotifierad på returresan. Speglar NEW_JOURNEY-resetten:
+    * nollställ passedBridges och låt app-lagret rensa dedup
+    * (session + persistent) via eventet.
++   *
++   * R1 (rättningskampanjen 2026-11-04, F10/W750): `reCrossSegmentStart` är
++   * bekräftelsesegmentets startpunkt och skickas BARA av de två vägar som
++   * bekräftar vändningen före tickens detektering: Fix D:s COG-debounce och
++   * positionsbevisets två ben. Där har ingen bro bokförts i den nya
++   * riktningen ännu, så en bro BAKOM båten är inte "nya benets nyss korsade"
++   * (premissen nedan) — ligger den strikt mellan segmentets ändpunkter och
++   * korsades i den nya riktningen är den GAMLA resans post och returpassagen
++   * har just skett. Den släpps då som en bro framför: dedup rensas och
++   * tickens vanliga detektering bokför returen (samma utfall som
++   * RE_CROSS_EVIDENCED i _handleIntermediateBridgePassage ger när
++   * korsningen kommer före bekräftelsen). Korsningsbevisvägarna skickar inte
++   * segmentet: där ÄR bron bakom den nya korsningen och ska behållas.
++   * @param {Object} [options]
++   * @param {Object|null} [options.reCrossSegmentStart] - segmentets start
++   *   (rent, se _cleanReCrossSegmentStart) eller null
+    * @private
+    */
+-  _confirmDirectionReversal(vessel, newDir, reason) {
++  _confirmDirectionReversal(vessel, newDir, reason, { reCrossSegmentStart = null } = {}) {
+     // Den gamla resans GPS-ankare får inte återspela en tidigare korsning
+     // efter att en verklig vändning redan har bekräftats.
+     vessel._passageRecoveryPosition = null;
+@@ -6779,12 +6806,25 @@ class VesselDataService extends EventEmitter {
+         if (!b || !Number.isFinite(b.lat) || !Number.isFinite(vessel.lat)) return true; // okänd geometri → konservativ full N1
+         return newDir === 'north' ? b.lat > vessel.lat : b.lat < vessel.lat;
+       };
+-      const bridgesToReset = vessel.passedBridges.filter(aheadInNewDir);
++      // R1: återkorsad i bekräftelsesegmentet (se docblocket). Samma bevis
++      // som RE_CROSS_EVIDENCED och korsningsbevis-reversalen använder.
++      const reCrossedInSegment = (bridgeName) => {
++        if (!reCrossSegmentStart) return false;
++        const b = this.bridgeRegistry.getBridgeByName(bridgeName);
++        return this._evidencedCrossingDirection(vessel, reCrossSegmentStart, b) === newDir;
++      };
++      const reCrossedBridges = vessel.passedBridges.filter(
++        (b) => !aheadInNewDir(b) && reCrossedInSegment(b),
++      );
++      const bridgesToReset = vessel.passedBridges.filter(
++        (b) => aheadInNewDir(b) || reCrossedBridges.includes(b),
++      );
+       const keptBridges = vessel.passedBridges.filter((b) => !bridgesToReset.includes(b));
+       if (bridgesToReset.length > 0) {
+         this.logger.log(
+           `🔁 [JOURNEY_RESET] ${mmsi}: Mid-journey reversal → clearing `
+           + `passedBridges ahead in new direction [${bridgesToReset.join(', ')}]`
++          + `${reCrossedBridges.length > 0 ? ` (re-crossed ${newDir} in confirming segment: [${reCrossedBridges.join(', ')}])` : ''}`
+           + `${keptBridges.length > 0 ? ` (keeping [${keptBridges.join(', ')}])` : ''} + requesting dedup reset`,
+         );
+         vessel.passedBridges = keptBridges;
+@@ -6795,6 +6835,28 @@ class VesselDataService extends EventEmitter {
+     }
+   }
+ 
++  /**
++   * R1 (rättningskampanjen 2026-11-04): bekräftelsesegmentets start för
++   * N1-resetten, eller null när segmentet inte är ett rent korsningsbevis.
++   * Startpunkten är densamma som tickens detektering mäter från
++   * (GPSJumpAnalyzer.passageSegmentStart), och GPS-kravet är detsamma som
++   * RE_CROSS_EVIDENCED:s: ett flaggat fix i någon ände får aldrig släppa en
++   * bokförd bro (ECHO-sampel 400 m bakåt "korsar" annars den nyss passerade
++   * bron i motsatt riktning).
++   * @param {Object} vessel - tickens fartygsobjekt
++   * @param {Object|null} oldVessel - föregående fartygsobjekt
++   * @returns {Object|null}
++   * @private
++   */
++  _cleanReCrossSegmentStart(vessel, oldVessel) {
++    if (!vessel || !oldVessel) return null;
++    if (vessel._gpsJumpDetected === true || vessel._positionUncertain === true) return null;
++    const start = GPSJumpAnalyzer.passageSegmentStart(oldVessel);
++    if (!start || start._gpsJumpDetected === true || start._positionUncertain === true) return null;
++    if (!Number.isFinite(start.lat) || !Number.isFinite(vessel.lat)) return null;
++    return start;
++  }
++
+   /**
+    * Belagd korsningsriktning: när bron ligger STRIKT mellan förra och nya
+    * positionen är korsningens riktning bevisad av positionsdeltat —
+diff --git a/tests/fixtures/r1-f10-havsorn-usvang.jsonl b/tests/fixtures/r1-f10-havsorn-usvang.jsonl
+new file mode 100644
+index 0000000..09a17d5
+--- /dev/null
++++ b/tests/fixtures/r1-f10-havsorn-usvang.jsonl
+@@ -0,0 +1,27 @@
++{"mmsi":"265196010","msgType":"PositionReport","lat":58.26496513322794,"lon":12.263234139995888,"sog":3.8,"cog":50.4,"navStatus":0,"shipName":"HAVSORN","aisTimestamp":1782377559255,"fixTs":1782377559255,"feed":"aisstream","receivedAt":"2026-06-25T08:52:39.255Z"}
++{"mmsi":"265196010","msgType":"PositionReport","lat":58.266795356108766,"lon":12.26695316924161,"sog":3.3,"cog":56.9,"navStatus":0,"shipName":"HAVSORN","aisTimestamp":1782377730186,"fixTs":1782377730186,"feed":"aisstream","receivedAt":"2026-06-25T08:55:30.186Z"}
++{"mmsi":"265196010","msgType":"PositionReport","lat":58.26744302397804,"lon":12.268398454662103,"sog":3.5,"cog":43.6,"navStatus":0,"shipName":"HAVSORN","aisTimestamp":1782377795850,"fixTs":1782377795850,"feed":"aisstream","receivedAt":"2026-06-25T08:56:35.850Z"}
++{"mmsi":"265196010","msgType":"PositionReport","lat":58.26876920212713,"lon":12.270123581877296,"sog":4.7,"cog":34.4,"navStatus":0,"shipName":"HAVSORN","aisTimestamp":1782377884526,"fixTs":1782377884526,"feed":"aisstream","receivedAt":"2026-06-25T08:58:04.526Z"}
++{"mmsi":"265196010","msgType":"PositionReport","lat":58.26965020332532,"lon":12.271269658716347,"sog":5,"cog":34.5,"navStatus":0,"shipName":"HAVSORN","aisTimestamp":1782377933847,"fixTs":1782377933847,"feed":"aisstream","receivedAt":"2026-06-25T08:58:53.847Z"}
++{"mmsi":"265196010","msgType":"PositionReport","lat":58.27054732846689,"lon":12.272377484289997,"sog":4.9,"cog":35.5,"navStatus":0,"shipName":"HAVSORN","aisTimestamp":1782377984057,"fixTs":1782377984057,"feed":"aisstream","receivedAt":"2026-06-25T08:59:44.057Z"}
++{"mmsi":"265196010","msgType":"PositionReport","lat":58.27715220704309,"lon":12.280441189684947,"sog":5.3,"cog":15.3,"navStatus":0,"shipName":"HAVSORN","aisTimestamp":1782378324455,"fixTs":1782378324455,"feed":"aisstream","receivedAt":"2026-06-25T09:05:24.455Z"}
++{"mmsi":"265196010","msgType":"PositionReport","lat":58.27894973346635,"lon":12.281470267749981,"sog":5.2,"cog":18.3,"navStatus":0,"shipName":"HAVSORN","aisTimestamp":1782378401151,"fixTs":1782378401151,"feed":"aisstream","receivedAt":"2026-06-25T09:06:41.151Z"}
++{"mmsi":"265196010","msgType":"PositionReport","lat":58.280369018671735,"lon":12.282348576158304,"sog":5.2,"cog":19.6,"navStatus":0,"shipName":"HAVSORN","aisTimestamp":1782378465904,"fixTs":1782378465904,"feed":"aisstream","receivedAt":"2026-06-25T09:07:45.904Z"}
++{"mmsi":"265196010","msgType":"PositionReport","lat":58.28098344128051,"lon":12.282642488622471,"sog":4.9,"cog":14.2,"navStatus":0,"shipName":"HAVSORN","aisTimestamp":1782378493757,"fixTs":1782378493757,"feed":"aisstream","receivedAt":"2026-06-25T09:08:13.757Z"}
++{"mmsi":"265196010","msgType":"PositionReport","lat":58.28364240799502,"lon":12.283989817666964,"sog":5.2,"cog":21.9,"navStatus":0,"shipName":"HAVSORN","aisTimestamp":1782378608050,"fixTs":1782378608050,"feed":"aisstream","receivedAt":"2026-06-25T09:10:08.050Z"}
++{"mmsi":"265196010","msgType":"PositionReport","lat":58.28557672028875,"lon":12.28503283196221,"sog":3.5,"cog":16.4,"navStatus":0,"shipName":"HAVSORN","aisTimestamp":1782378723728,"fixTs":1782378723728,"feed":"aisstream","receivedAt":"2026-06-25T09:12:03.728Z"}
++{"mmsi":"265196010","msgType":"PositionReport","lat":58.28609200054681,"lon":12.285511222296162,"sog":3.6,"cog":26.6,"navStatus":0,"shipName":"HAVSORN","aisTimestamp":1782378761114,"fixTs":1782378761114,"feed":"aisstream","receivedAt":"2026-06-25T09:12:41.114Z"}
++{"mmsi":"265196010","msgType":"PositionReport","lat":58.28698564487622,"lon":12.286410740914741,"sog":3.2,"cog":17.7,"navStatus":0,"shipName":"HAVSORN","aisTimestamp":1782378825260,"fixTs":1782378825260,"feed":"aisstream","receivedAt":"2026-06-25T09:13:45.260Z"}
++{"mmsi":"265196010","msgType":"PositionReport","lat":58.28812988421511,"lon":12.287706615672155,"sog":3.3,"cog":30.8,"navStatus":0,"shipName":"HAVSORN","aisTimestamp":1782378915515,"fixTs":1782378915515,"feed":"aisstream","receivedAt":"2026-06-25T09:15:15.515Z"}
++{"mmsi":"265196010","msgType":"PositionReport","lat":58.2896790444134,"lon":12.289525280501165,"sog":3.4,"cog":1.2,"navStatus":0,"shipName":"HAVSORN","aisTimestamp":1782379029636,"fixTs":1782379029636,"feed":"aisstream","receivedAt":"2026-06-25T09:17:09.636Z"}
++{"mmsi":"265196010","msgType":"PositionReport","lat":58.28975474895339,"lon":12.289688230810865,"sog":3.1,"cog":228,"navStatus":0,"shipName":"HAVSORN","aisTimestamp":1782379104584,"fixTs":1782379104584,"feed":"aisstream","receivedAt":"2026-06-25T09:18:24.584Z"}
++{"mmsi":"265196010","msgType":"PositionReport","lat":58.27945842475913,"lon":12.281807658183055,"sog":5.1,"cog":192,"navStatus":0,"shipName":"HAVSORN","aisTimestamp":1782379585420,"fixTs":1782379585420,"feed":"aisstream","receivedAt":"2026-06-25T09:26:25.420Z"}
++{"mmsi":"265196010","msgType":"PositionReport","lat":58.277919311902494,"lon":12.28079529441019,"sog":5.5,"cog":195.6,"navStatus":0,"shipName":"HAVSORN","aisTimestamp":1782379646982,"fixTs":1782379646982,"feed":"aisstream","receivedAt":"2026-06-25T09:27:26.982Z"}
++{"mmsi":"265196010","msgType":"PositionReport","lat":58.27742217951783,"lon":12.280596301483277,"sog":5.6,"cog":206,"navStatus":0,"shipName":"HAVSORN","aisTimestamp":1782379668469,"fixTs":1782379668469,"feed":"aisstream","receivedAt":"2026-06-25T09:27:48.469Z"}
++{"mmsi":"265196010","msgType":"PositionReport","lat":58.27477870487975,"lon":12.278180151420765,"sog":5.6,"cog":212.4,"navStatus":0,"shipName":"HAVSORN","aisTimestamp":1782379783604,"fixTs":1782379783604,"feed":"aisstream","receivedAt":"2026-06-25T09:29:43.604Z"}
++{"mmsi":"265196010","msgType":"PositionReport","lat":58.27434856822449,"lon":12.27763873292152,"sog":5.7,"cog":206.8,"navStatus":0,"shipName":"HAVSORN","aisTimestamp":1782379802920,"fixTs":1782379802920,"feed":"aisstream","receivedAt":"2026-06-25T09:30:02.920Z"}
++{"mmsi":"265196010","msgType":"PositionReport","lat":58.27335699168049,"lon":12.276273814706663,"sog":5.4,"cog":209.1,"navStatus":0,"shipName":"HAVSORN","aisTimestamp":1782379852799,"fixTs":1782379852799,"feed":"aisstream","receivedAt":"2026-06-25T09:30:52.799Z"}
++{"mmsi":"265196010","msgType":"PositionReport","lat":58.27050309628728,"lon":12.272365037208008,"sog":4.3,"cog":211.5,"navStatus":0,"shipName":"HAVSORN","aisTimestamp":1782380015767,"fixTs":1782380015767,"feed":"aisstream","receivedAt":"2026-06-25T09:33:35.767Z"}
++{"mmsi":"265196010","msgType":"PositionReport","lat":58.26940872131423,"lon":12.27104344486803,"sog":4.6,"cog":217.3,"navStatus":0,"shipName":"HAVSORN","aisTimestamp":1782380084128,"fixTs":1782380084128,"feed":"aisstream","receivedAt":"2026-06-25T09:34:44.128Z"}
++{"mmsi":"265196010","msgType":"PositionReport","lat":58.26910512979994,"lon":12.270619850060282,"sog":4.4,"cog":207.6,"navStatus":0,"shipName":"HAVSORN","aisTimestamp":1782380103097,"fixTs":1782380103097,"feed":"aisstream","receivedAt":"2026-06-25T09:35:03.097Z"}
++{"mmsi":"265196010","msgType":"PositionReport","lat":58.268032378999344,"lon":12.269171687045683,"sog":3.7,"cog":224.3,"navStatus":0,"shipName":"HAVSORN","aisTimestamp":1782380172249,"fixTs":1782380172249,"feed":"aisstream","receivedAt":"2026-06-25T09:36:12.249Z"}
+diff --git a/tests/fixtures/r1-f10r2-kajsa-usvang.jsonl b/tests/fixtures/r1-f10r2-kajsa-usvang.jsonl
+new file mode 100644
+index 0000000..6f04cfe
+--- /dev/null
++++ b/tests/fixtures/r1-f10r2-kajsa-usvang.jsonl
+@@ -0,0 +1,17 @@
++{"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.32053086136392,"lon":12.32363640151149,"sog":6.1,"cog":197.8,"navStatus":null,"shipName":"Unknown","aisTimestamp":1786699762617,"fixTs":1786699762617,"feed":"aisstream","receivedAt":"2026-08-14T09:29:22.617Z"}
++{"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.31689745293969,"lon":12.321291370658434,"sog":6.4,"cog":200,"navStatus":null,"shipName":"Unknown","aisTimestamp":1786699898354,"fixTs":1786699898354,"feed":"aisstream","receivedAt":"2026-08-14T09:31:38.354Z"}
++{"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.311030924057704,"lon":12.317752767405171,"sog":6.3,"cog":207.9,"navStatus":null,"shipName":"Unknown","aisTimestamp":1786700111411,"fixTs":1786700111411,"feed":"aisstream","receivedAt":"2026-08-14T09:35:11.411Z"}
++{"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.30730949567015,"lon":12.312782084776668,"sog":5.3,"cog":217.6,"navStatus":null,"shipName":"Unknown","aisTimestamp":1786700284175,"fixTs":1786700284175,"feed":"aisstream","receivedAt":"2026-08-14T09:38:04.175Z"}
++{"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.302550178221715,"lon":12.305539624927414,"sog":5.6,"cog":214.1,"navStatus":null,"shipName":"Unknown","aisTimestamp":1786700529036,"fixTs":1786700529036,"feed":"aisstream","receivedAt":"2026-08-14T09:42:09.036Z"}
++{"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.301246916277265,"lon":12.303926322499555,"sog":5.3,"cog":214.6,"navStatus":null,"shipName":"Unknown","aisTimestamp":1786700589418,"fixTs":1786700589418,"feed":"aisstream","receivedAt":"2026-08-14T09:43:09.418Z"}
++{"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.29422386503112,"lon":12.295475583096268,"sog":0,"cog":null,"navStatus":null,"shipName":"Unknown","aisTimestamp":1786701206746,"fixTs":1786701206746,"feed":"aisstream","receivedAt":"2026-08-14T09:53:26.746Z"}
++{"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.29423429652286,"lon":12.29545759613786,"sog":0,"cog":null,"navStatus":null,"shipName":"Unknown","aisTimestamp":1786701395018,"fixTs":1786701395018,"feed":"aisstream","receivedAt":"2026-08-14T09:56:35.018Z"}
++{"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.29420544003861,"lon":12.295514822024547,"sog":0,"cog":123.4,"navStatus":null,"shipName":"Unknown","aisTimestamp":1786701570489,"fixTs":1786701570489,"feed":"aisstream","receivedAt":"2026-08-14T09:59:30.489Z"}
++{"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.294214133948984,"lon":12.295436824365355,"sog":0,"cog":4.1,"navStatus":null,"shipName":"Unknown","aisTimestamp":1786704216124,"fixTs":1786704216124,"feed":"aisstream","receivedAt":"2026-08-14T10:43:36.124Z"}
++{"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.293315671984686,"lon":12.294310670064123,"sog":4.3,"cog":211.2,"navStatus":null,"shipName":"Unknown","aisTimestamp":1786704405992,"fixTs":1786704405992,"feed":"aisstream","receivedAt":"2026-08-14T10:46:45.992Z"}
++{"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.290142429610675,"lon":12.290187093018664,"sog":4,"cog":213.6,"navStatus":null,"shipName":"KAJSA","aisTimestamp":1786704616035,"fixTs":1786704616035,"feed":"aisstream","receivedAt":"2026-08-14T10:50:16.035Z"}
++{"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.28774816158161,"lon":12.287114878239764,"sog":4.2,"cog":217,"navStatus":null,"shipName":"KAJSA","aisTimestamp":1786704763134,"fixTs":1786704763134,"feed":"aisstream","receivedAt":"2026-08-14T10:52:43.134Z"}
++{"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.28672780232204,"lon":12.286025629827474,"sog":4.3,"cog":211.6,"navStatus":null,"shipName":"KAJSA","aisTimestamp":1786704823213,"fixTs":1786704823213,"feed":"aisstream","receivedAt":"2026-08-14T10:53:43.213Z"}
++{"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.2902066481667,"lon":12.290222823413513,"sog":2.8,"cog":31.6,"navStatus":null,"shipName":"KAJSA","aisTimestamp":1786705264010,"fixTs":1786705264010,"feed":"aisstream","receivedAt":"2026-08-14T11:01:04.010Z"}
++{"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.29463822989341,"lon":12.29638302390713,"sog":5.8,"cog":40.8,"navStatus":null,"shipName":"KAJSA","aisTimestamp":1786705553613,"fixTs":1786705553613,"feed":"aisstream","receivedAt":"2026-08-14T11:05:53.613Z"}
++{"mmsi":"265781143","msgType":"StandardClassBPositionReport","lat":58.295620740178926,"lon":12.297727072715933,"sog":6.1,"cog":33.5,"navStatus":null,"shipName":"KAJSA","aisTimestamp":1786705596748,"fixTs":1786705596748,"feed":"aisstream","receivedAt":"2026-08-14T11:06:36.748Z"}
+diff --git a/tests/fixtures/r1-f15-irma-svepriktning.jsonl b/tests/fixtures/r1-f15-irma-svepriktning.jsonl
+new file mode 100644
+index 0000000..b41c936
+--- /dev/null
++++ b/tests/fixtures/r1-f15-irma-svepriktning.jsonl
+@@ -0,0 +1,16 @@
++{"mmsi":"265899297","msgType":"StandardClassBPositionReport","lat":58.26487290610469,"lon":12.262975020191199,"sog":2.8,"cog":51.2,"navStatus":null,"shipName":"IRMA","aisTimestamp":1787224298981,"fixTs":1787224298981,"feed":"aisstream","receivedAt":"2026-08-20T11:11:38.981Z"}
++{"mmsi":"265899297","msgType":"StandardClassBPositionReport","lat":58.2665440300593,"lon":12.266236282762943,"sog":2.9,"cog":54.7,"navStatus":null,"shipName":"IRMA","aisTimestamp":1787224474512,"fixTs":1787224474512,"feed":"aisstream","receivedAt":"2026-08-20T11:14:34.512Z"}
++{"mmsi":"265899297","msgType":"StandardClassBPositionReport","lat":58.26752003007204,"lon":12.26830869032837,"sog":3,"cog":39.9,"navStatus":null,"shipName":"IRMA","aisTimestamp":1787224580473,"fixTs":1787224580473,"feed":"aisstream","receivedAt":"2026-08-20T11:16:20.473Z"}
++{"mmsi":"265899297","msgType":"StandardClassBPositionReport","lat":58.26839593947193,"lon":12.269878530633838,"sog":4,"cog":41,"navStatus":null,"shipName":"IRMA","aisTimestamp":1787224661425,"fixTs":1787224661425,"feed":"aisstream","receivedAt":"2026-08-20T11:17:41.425Z"}
++{"mmsi":"265899297","msgType":"StandardClassBPositionReport","lat":58.269048920365734,"lon":12.270594695590848,"sog":4.3,"cog":27,"navStatus":null,"shipName":"IRMA","aisTimestamp":1787224706008,"fixTs":1787224706008,"feed":"aisstream","receivedAt":"2026-08-20T11:18:26.008Z"}
++{"mmsi":"265899297","msgType":"StandardClassBPositionReport","lat":58.27069100923698,"lon":12.272631184852292,"sog":4.2,"cog":45.5,"navStatus":null,"shipName":"IRMA","aisTimestamp":1787224801614,"fixTs":1787224801614,"feed":"aisstream","receivedAt":"2026-08-20T11:20:01.614Z"}
++{"mmsi":"265899297","msgType":"StandardClassBPositionReport","lat":58.27256509237556,"lon":12.275041586009921,"sog":4.3,"cog":22.7,"navStatus":null,"shipName":"IRMA","aisTimestamp":1787224920303,"fixTs":1787224920303,"feed":"aisstream","receivedAt":"2026-08-20T11:22:00.303Z"}
++{"mmsi":"265899297","msgType":"StandardClassBPositionReport","lat":58.28002992155397,"lon":12.28206648043037,"sog":4.9,"cog":193.5,"navStatus":null,"shipName":"IRMA","aisTimestamp":1787227503466,"fixTs":1787227503466,"feed":"aisstream","receivedAt":"2026-08-20T12:05:03.466Z"}
++{"mmsi":"265899297","msgType":"StandardClassBPositionReport","lat":58.277506014670195,"lon":12.280684858498304,"sog":4.7,"cog":197.5,"navStatus":null,"shipName":"IRMA","aisTimestamp":1787227621335,"fixTs":1787227621335,"feed":"aisstream","receivedAt":"2026-08-20T12:07:01.335Z"}
++{"mmsi":"265899297","msgType":"StandardClassBPositionReport","lat":58.276794313772925,"lon":12.280107215939845,"sog":4.6,"cog":207.8,"navStatus":null,"shipName":"IRMA","aisTimestamp":1787227656373,"fixTs":1787227656373,"feed":"aisstream","receivedAt":"2026-08-20T12:07:36.373Z"}
++{"mmsi":"265899297","msgType":"StandardClassBPositionReport","lat":58.272075324556816,"lon":12.274438430742787,"sog":3.8,"cog":203.1,"navStatus":null,"shipName":"IRMA","aisTimestamp":1787227917615,"fixTs":1787227917615,"feed":"aisstream","receivedAt":"2026-08-20T12:11:57.615Z"}
++{"mmsi":"265899297","msgType":"StandardClassBPositionReport","lat":58.27139241243285,"lon":12.273418771827556,"sog":3.9,"cog":216.4,"navStatus":null,"shipName":"IRMA","aisTimestamp":1787227970526,"fixTs":1787227970526,"feed":"aisstream","receivedAt":"2026-08-20T12:12:50.526Z"}
++{"mmsi":"265899297","msgType":"StandardClassBPositionReport","lat":58.270496404811496,"lon":12.272389950355002,"sog":3.7,"cog":214.7,"navStatus":null,"shipName":"IRMA","aisTimestamp":1787228032068,"fixTs":1787228032068,"feed":"aisstream","receivedAt":"2026-08-20T12:13:52.068Z"}
++{"mmsi":"265899297","msgType":"StandardClassBPositionReport","lat":58.26748745931566,"lon":12.268218938956037,"sog":2.7,"cog":237.1,"navStatus":null,"shipName":"IRMA","aisTimestamp":1787228261855,"fixTs":1787228261855,"feed":"aisstream","receivedAt":"2026-08-20T12:17:41.855Z"}
++{"mmsi":"265899297","msgType":"StandardClassBPositionReport","lat":58.2667152612362,"lon":12.266776544714574,"sog":2.9,"cog":226.1,"navStatus":null,"shipName":"IRMA","aisTimestamp":1787228340514,"fixTs":1787228340514,"feed":"aisstream","receivedAt":"2026-08-20T12:19:00.514Z"}
++{"mmsi":"265899297","msgType":"StandardClassBPositionReport","lat":58.26553870019627,"lon":12.264263433436595,"sog":3,"cog":232.6,"navStatus":null,"shipName":"IRMA","aisTimestamp":1787228470798,"fixTs":1787228470798,"feed":"aisstream","receivedAt":"2026-08-20T12:21:10.798Z"}
+diff --git a/tests/r1-usvang-aterkorsning-2026-11-04.test.js b/tests/r1-usvang-aterkorsning-2026-11-04.test.js
+new file mode 100644
+index 0000000..6c23db3
+--- /dev/null
++++ b/tests/r1-usvang-aterkorsning-2026-11-04.test.js
+@@ -0,0 +1,350 @@
++'use strict';
++
++/**
++ * R1 (rättningskampanjen 2026-11-04): riktning och vändning.
++ *
++ * (1) U-SVÄNGENS ÅTERKORSNING BOKFÖRS ALDRIG (buggjägarens F10, W750 och
++ * U-svängsreturerna i F01). Fix D:s 2-fixdebounce (Anomali 18) bekräftar
++ * vändningen ofta först på fixen BORTOM den bro båten just korsat tillbaka.
++ * N1-resetten i _confirmDirectionReversal räknade "framför" från det läget,
++ * så den nyss återkorsade bron låg kvar i passedBridges. Samma tick hade då
++ * redan låst om _routeDirection, och RE_CROSS_EVIDENCED i
++ * _handleIntermediateBridgePassage (som annars bokför en återkorsning) såg
++ * ingen motsatt riktning. Ingen väg bokförde passagen. Rättningen: Fix D-
++ * och positionsbevisgrenarna skickar bekräftelsesegmentet till resetten, och
++ * en bro som segmentet korsar i den nya riktningen släpps som en bro framför.
++ * Korsningsbevisvägarna (AKIRA) behåller sin bro som förut.
++ *
++ * (2) SVEPETS RIKTNINGSLÅS OMPRÖVAS ALDRIG (F15, IRMA). En återfödd båt utan
++ * ruttlås fick svepets nettoriktning som lås, även när hon vänt i glappet och
++ * den rörelsebevisade levande kursen sa motsatsen. Låset sätts inte längre då.
++ *
++ * Fixturerna är buggjägarens minsta repro (r1-standard-a): F10 (värld 353),
++ * F10/r2 (värld 1731, monitoring) och F15 (värld 451, monitoring).
++ */
++
++jest.mock('homey');
++
++const path = require('path');
++const { execFileSync } = require('child_process');
++const { __mockHomey: mockHomey } = require('homey');
++const VesselDataService = require('../lib/services/VesselDataService');
++const BridgeRegistry = require('../lib/models/BridgeRegistry');
++const SystemCoordinator = require('../lib/services/SystemCoordinator');
++const AISBridgeApp = require('../app');
++const { BRIDGES } = require('../lib/constants');
++
++const ROOT = path.resolve(__dirname, '..');
++const FIXTURES = path.join(__dirname, 'fixtures');
++const KLAFF = BRIDGES.klaffbron;
++const northOf = (bridge, metres) => ({ lat: bridge.lat + metres / 111320, lon: bridge.lon });
++
++const logger = {
++  debug: jest.fn(), log: jest.fn(), error: jest.fn(), warn: jest.fn(),
++};
++const liveServices = [];
++
++function makeVDS() {
++  const svc = new VesselDataService(logger, new BridgeRegistry(), new SystemCoordinator(logger));
++  svc.app = {
++    gpsJumpGateService: null, passageLatchService: null, routeOrderValidator: null, debug: jest.fn(), log: jest.fn(), error: jest.fn(),
++  };
++  liveServices.push(svc);
++  return svc;
++}
++
++function replay(fixture, { monitoring = false } = {}) {
++  const env = { ...process.env, NODE_OPTIONS: '', REPLAY_VERBOSE: '' };
++  if (monitoring) env.REPLAY_MONITORING = '1';
++  else delete env.REPLAY_MONITORING;
++  const out = execFileSync(process.execPath, [
++    path.join(ROOT, 'tests/replay-validation/replayRunner.js'), path.join(FIXTURES, fixture),
++  ], {
++    cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env,
++  });
++  return JSON.parse(out.match(/__REPLAY_JSON__(.*?)__END__/s)[1]);
++}
++
++const passagesOf = (result, mmsi) => [
++  ...result.targetPassages.map((p) => ({ ...p, slag: 'target' })),
++  ...result.intermediatePassages.map((p) => ({ ...p, slag: 'intermediate' })),
++].filter((p) => p.mmsi === mmsi).sort((a, b) => a.t - b.t);
++
++describe('N1-resetten släpper en bro som bekräftelsesegmentet korsade i nya riktningen', () => {
++  beforeAll(() => {
++    global.__TEST_MODE__ = true;
++  });
++  afterAll(() => {
++    delete global.__TEST_MODE__;
++  });
++  afterEach(() => {
++    while (liveServices.length > 0) {
++      try {
++        liveServices.pop().clearAllTimers();
++      } catch (_) { /* tomt */ }
++    }
++    jest.clearAllMocks();
++  });
++
++  // HAVSORN-geometrin: utresan norrut bokförde Olidebron och Klaffbron; den
++  // väntande fixen ligger 400 m norr om Klaffbron, bekräftelsefixen 500 m söder.
++  const reversedVessel = () => ({
++    mmsi: '265196010',
++    ...northOf(KLAFF, -500),
++    sog: 5.1,
++    cog: 192,
++    targetBridge: 'Stridsbergsbron',
++    passedBridges: ['Olidebron', 'Klaffbron'],
++    _routeDirection: 'north',
++  });
++  const pendingFix = (vessel) => ({ ...vessel, ...northOf(KLAFF, 400), cog: 228 });
++
++  test('Fix D-segmentet över Klaffbron: Klaffbron släpps tillsammans med bron framför', () => {
++    const svc = makeVDS();
++    const vessel = reversedVessel();
++    const resetSpy = jest.fn();
++    svc.on('vessel:journey-reset', resetSpy);
++
++    svc._confirmDirectionReversal(vessel, 'south', 'dist=1733m > 500', {
++      reCrossSegmentStart: pendingFix(vessel),
++    });
++
++    expect(vessel.passedBridges).toEqual([]);
++    expect(resetSpy).toHaveBeenCalledWith(expect.objectContaining({
++      direction: 'south', bridges: ['Olidebron', 'Klaffbron'],
++    }));
++  });
++
++  test('utan segment (korsningsbevisvägarna) behålls bron bakom, som förut', () => {
++    const svc = makeVDS();
++    const vessel = reversedVessel();
++    const resetSpy = jest.fn();
++    svc.on('vessel:journey-reset', resetSpy);
++
++    svc._confirmDirectionReversal(vessel, 'south', 'bridge-crossing Klaffbron evidenced south');
++
++    expect(vessel.passedBridges).toEqual(['Klaffbron']);
++    expect(resetSpy).toHaveBeenCalledWith(expect.objectContaining({ bridges: ['Olidebron'] }));
++  });
++
++  test('en bro bakom som segmentet INTE korsar stannar kvar (smal regel)', () => {
++    const svc = makeVDS();
++    const vessel = reversedVessel();
++    // Båda fixarna söder om Klaffbron: återkorsningen skedde tidigare.
++    const start = { ...vessel, ...northOf(KLAFF, -200) };
++
++    svc._confirmDirectionReversal(vessel, 'south', 'dist=1733m > 500', { reCrossSegmentStart: start });
++
++    expect(vessel.passedBridges).toEqual(['Klaffbron']);
++  });
++
++  test('ett segment som korsar bron i GAMLA riktningen släpper den inte', () => {
++    const svc = makeVDS();
++    const vessel = { ...reversedVessel(), ...northOf(KLAFF, 300) };
++    const start = { ...vessel, ...northOf(KLAFF, -300) }; // segmentet går norrut över bron
++
++    svc._confirmDirectionReversal(vessel, 'south', 'target behind vessel', { reCrossSegmentStart: start });
++
++    // Klaffbron ligger framför (söder om båten) och släpps ändå av den vanliga
++    // regeln; Olidebron likaså. Inget släpps på grund av segmentet.
++    expect(vessel.passedBridges).toEqual([]);
++    const [line] = logger.log.mock.calls.map(([l]) => l).filter((l) => l.includes('[JOURNEY_RESET]'));
++    expect(line).not.toMatch(/re-crossed/);
++  });
++
++  test('GPS-flaggade fix ger inget segment', () => {
++    const svc = makeVDS();
++    const vessel = reversedVessel();
++    expect(svc._cleanReCrossSegmentStart({ ...vessel, _gpsJumpDetected: true }, pendingFix(vessel))).toBeNull();
++    expect(svc._cleanReCrossSegmentStart({ ...vessel, _positionUncertain: true }, pendingFix(vessel))).toBeNull();
++    expect(svc._cleanReCrossSegmentStart(vessel, null)).toBeNull();
++    expect(svc._cleanReCrossSegmentStart(vessel, pendingFix(vessel))).toMatchObject({ lat: northOf(KLAFF, 400).lat });
++  });
++
++  test('positionsbevisets två ben skickar också segmentet', () => {
++    const svc = makeVDS();
++    const spy = jest.spyOn(svc, '_confirmDirectionReversal');
++    // Låg fart (< 2 kn), två rena ben söderut över Klaffbron, ruttlås norrut
++    // och målbron Stridsbergsbron framför i den gamla riktningen.
++    const t0 = Date.now() - 4 * 60 * 1000;
++    const first = {
++      mmsi: '265000001',
++      ...northOf(KLAFF, 150),
++      sog: 1.5,
++      cog: 200,
++      fixTs: t0 + 2 * 60 * 1000,
++      timestamp: t0 + 2 * 60 * 1000,
++      lastPositionUpdate: t0 + 2 * 60 * 1000,
++      _hasMovementProof: true,
++      _routeDirection: 'north',
++      targetBridge: 'Stridsbergsbron',
++      passedBridges: ['Olidebron', 'Klaffbron'],
++      _positionDirectionEvidence: {
++        direction: 'south', lastFixTs: t0 + 2 * 60 * 1000, legs: 1, ...{ originLat: northOf(KLAFF, 260).lat, originLon: KLAFF.lon },
++      },
++    };
++    const second = {
++      ...first,
++      ...northOf(KLAFF, -80),
++      fixTs: t0 + 4 * 60 * 1000,
++      timestamp: t0 + 4 * 60 * 1000,
++      lastPositionUpdate: t0 + 4 * 60 * 1000,
++      _positionDirectionEvidence: null,
++    };
++    jest.spyOn(svc, '_isQueuePositionFresh').mockReturnValue(true);
++
++    const dir = svc._updatePositionDirectionEvidence(second, first);
++
++    expect(dir).toBe('south');
++    expect(spy).toHaveBeenCalledWith(second, 'south', expect.any(String), expect.objectContaining({
++      reCrossSegmentStart: expect.objectContaining({ lat: first.lat }),
++    }));
++    expect(second.passedBridges).toEqual([]);
++  });
++});
++
++describe('svepets riktningslås mot rörelsebevisad levande kurs (F15)', () => {
++  let apps;
++  let savedTestMode;
++  const MMSI = '265899297';
++
++  const boot = async () => {
++    const store = {};
++    const app = new AISBridgeApp();
++    app.log = jest.fn();
++    app.debug = jest.fn();
++    app.error = jest.fn();
++    app.homey = {
++      ...mockHomey,
++      settings: {
++        get: (key) => (store[key] === undefined ? undefined : JSON.parse(JSON.stringify(store[key]))),
++        set: jest.fn((key, value) => {
++          store[key] = JSON.parse(JSON.stringify(value));
++        }),
++        on: jest.fn(),
++        off: jest.fn(),
++      },
++    };
++    await app.onInit();
++    apps.push(app);
++    jest.spyOn(app, '_triggerBoatNearFlowFallback').mockResolvedValue(undefined);
++    return app;
++  };
++
++  // IRMA återföds 465 m söder om Klaffbron; sist kända läge låg 43 min tidigare
++  // 830 m längre söderut (nordgående) — nettot säger norr, kursen säger söder.
++  const reborn = (extra = {}) => ({
++    mmsi: MMSI,
++    name: 'IRMA',
++    lat: 58.28003,
++    lon: 12.28207,
++    sog: 4.9,
++    cog: 193.5,
++    targetBridge: null,
++    passedBridges: [],
++    _routeDirection: null,
++    _firstSeenLat: 58.28003,
++    _firstSeenLon: 12.28207,
++    timestamp: Date.now(),
++    lastPositionUpdate: Date.now(),
++    ...extra,
++  });
++
++  beforeEach(() => {
++    jest.useFakeTimers();
++    jest.setSystemTime(new Date('2026-08-20T12:05:03.466Z'));
++    savedTestMode = global.__TEST_MODE__;
++    global.__TEST_MODE__ = true;
++    apps = [];
++  });
++
++  afterEach(async () => {
++    for (const app of apps) {
++      // eslint-disable-next-line no-await-in-loop
++      if (!app._shuttingDown) await app.onUninit();
++    }
++    await jest.advanceTimersByTimeAsync(0);
++    global.__TEST_MODE__ = savedTestMode;
++    jest.useRealTimers();
++  });
++
++  const lastKnown = (app) => app._lastKnownPositions.set(MMSI, {
++    lat: 58.27257, lon: 12.27504, t: Date.now() - 13 * 60 * 1000, posT: Date.now() - 43 * 60 * 1000,
++  });
++
++  test('vänd i glappet: svepet säger norr, kursen 193° i 4,9 kn säger söder ⇒ inget lås', async () => {
++    const app = await boot();
++    lastKnown(app);
++    const vessel = reborn();
++    await app._checkSkippedBridgesFallback(vessel, null);
++    expect(vessel._routeDirection).toBeNull();
++    expect(app.log).toHaveBeenCalledWith(expect.stringContaining('[SKIPPED_BRIDGES_DIRECTION_LOCK_SKIP]'));
++    expect(app._getDirectionString(vessel)).toBe('southbound');
++  });
++
++  test('osäker kurs (SISU-skälet) låser som förut', async () => {
++    const app = await boot();
++    lastKnown(app);
++    const vessel = reborn({ cog: 80 }); // östbandet säger inget om nord/syd
++    await app._checkSkippedBridgesFallback(vessel, null);
++    expect(vessel._routeDirection).toBe('north');
++  });
++
++  test('kursen motsäger men farten är under 2 kn ⇒ låser som förut', async () => {
++    const app = await boot();
++    lastKnown(app);
++    const vessel = reborn({ sog: 1.2 });
++    await app._checkSkippedBridgesFallback(vessel, null);
++    expect(vessel._routeDirection).toBe('north');
++  });
++
++  test('kursen håller med svepet ⇒ låser som förut', async () => {
++    const app = await boot();
++    lastKnown(app);
++    const vessel = reborn({ cog: 20 });
++    await app._checkSkippedBridgesFallback(vessel, null);
++    expect(vessel._routeDirection).toBe('north');
++  });
++});
++
++describe('hela appen på buggjägarens minsta repro', () => {
++  test('F10 (HAVSORN): returen söderut över Klaffbron bokförs på bekräftelsefixen', () => {
++    const result = replay('r1-f10-havsorn-usvang.jsonl');
++    const klaff = passagesOf(result, '265196010').filter((p) => p.bridge === 'Klaffbron');
++    // Utresan norrut (målbropassage) och returen söderut (mållös mellanbropassage).
++    expect(klaff.map((p) => [p.slag, p.iso])).toEqual([
++      ['target', '2026-06-25T09:12:03.728Z'],
++      ['intermediate', '2026-06-25T09:26:25.420Z'],
++    ]);
++    expect(result.intermediatePassages.find((p) => p.bridge === 'Klaffbron').noTarget).toBe(true);
++    // Sann korsning 09:23:15.951; bokföringen ligger inom T10:s kopplingsfönster.
++    expect(klaff[1].t).toBeGreaterThan(Date.parse('2026-06-25T09:23:15.951Z'));
++    // Returens notis (passerad form) är oförändrad och ensam.
++    const south = result.notifications.filter((n) => n.bridge === 'Klaffbron' && n.direction === 'southbound');
++    expect(south).toHaveLength(1);
++    expect(south[0]).toMatchObject({ eta: -1, alreadyPassed: true });
++  }, 120000);
++
++  test('F10/r2 (KAJSA): Järnvägsbron och Stridsbergsbron bokförs i färdordning, notisen i passerad form', () => {
++    const result = replay('r1-f10r2-kajsa-usvang.jsonl', { monitoring: true });
++    const back = passagesOf(result, '265781143').filter((p) => p.t >= Date.parse('2026-08-14T11:00:00Z'));
++    expect(back.map((p) => [p.bridge, p.slag, p.iso])).toEqual([
++      ['Järnvägsbron', 'intermediate', '2026-08-14T11:05:53.613Z'],
++      ['Stridsbergsbron', 'intermediate', '2026-08-14T11:05:53.613Z'],
++    ]);
++    // Förut: "närmar sig Stridsbergsbron, beräknad ankomst om 2 minuter" 11:06:36,
++    // 99 s efter den sanna korsningen 11:04:57 (buggjägarens F13/r2).
++    const strids = result.notifications.filter((n) => n.bridge === 'Stridsbergsbron' && n.direction === 'northbound');
++    expect(strids).toHaveLength(1);
++    expect(strids[0]).toMatchObject({ eta: -1, alreadyPassed: true });
++  }, 120000);
++
++  test('F15 (IRMA): notiserna efter återfödelsen bär söderut', () => {
++    const result = replay('r1-f15-irma-svepriktning.jsonl', { monitoring: true });
++    const after = result.notifications.filter((n) => n.t >= Date.parse('2026-08-20T12:05:00Z'));
++    expect(after.map((n) => [n.bridge, n.direction])).toEqual([
++      ['Olidebron', 'southbound'],
++      ['Kanalinfarten', 'southbound'],
++    ]);
++  }, 120000);
++});
+diff --git a/tests/replay-validation/runSyntheticScenarios.js b/tests/replay-validation/runSyntheticScenarios.js
+index dd50573..e12eefd 100644
+--- a/tests/replay-validation/runSyntheticScenarios.js
++++ b/tests/replay-validation/runSyntheticScenarios.js
+@@ -88,6 +88,8 @@ const OMSTART_SLOW_ZONE = {
+  *  - zeroNotifications: inga notiser alls
+  *  - noVesselText: ingen "på väg mot"-text får publiceras
+  *  - minNotifiedBridges: dessa broar MÅSTE ha fått notis
++ *  - minPassagesPerBridge: {bro: N} — minst N bokförda passager av bron,
++ *    mål- och mellanbropassager sammantaget (R1, returpassagen)
+  *  - forbiddenNotifiedBridges: dessa broar får INTE ha fått notis
+  *  - maxNotifiedPerBridge: {bro: N} — max antal notiser per bro (dubblettvakt)
+  *
+@@ -304,6 +306,33 @@ const SCENARIOS = [
+     }],
+     expect: { minTargetPassages: 2 },
+   },
++  {
++    // R1 (rättningskampanjen 2026-11-04, buggjägarens F10/W750): samma glesa
++    // tur-och-retur, men vändningen ligger så nära Klaffbron att Fix D:s
++    // debounce bekräftar den först på fixen BORTOM bron. 7 kn och 240 s ger
++    // en vändfix 592 m norr om Klaffbron (utpassagen bokförs i samma tick,
++    // vändningen blir väntande) och en bekräftelsefix 273 m söder om den.
++    // Förut räknade N1-resetten "framför" från bekräftelsefixen, Klaffbron
++    // stannade i passedBridges och returpassagen bokfördes aldrig. Placeringen
++    // är vald, inte given: samplen ligger på ett fast rutnät från ruttens
++    // start, s = k · Δ med Δ = fart · intervall (här 864 m), och vändningen
++    // sker på första samplet med s ≥ vändandelen. Med Klaffbron vid sK ger
++    // k = ⌈sK / Δ⌉ vändfixen k · Δ − sK norr om bron och bekräftelsefixen
++    // sK − (k − 1) · Δ söder om den. Vändfixen måste ligga > 500 m från
++    // Klaffbron (Fix D:s distansvillkor, målet är ännu Klaffbron i den
++    // ticken). Ändras generatorn eller rutten ska bandet räknas om, inte
++    // förväntan tas bort.
++    name: 'u-sväng-gles-ais-återkorsning-i-debouncen',
++    seed: 92,
++    vessels: [{
++      mmsi: '901000092',
++      direction: 'north',
++      speedKn: 7,
++      reportIntervalS: 240,
++      uTurnAtFraction: (METRICS.cum[2] + 500) / METRICS.total,
++    }],
++    expect: { minTargetPassages: 1, minPassagesPerBridge: { Klaffbron: 2 } },
++  },
+   {
+     // Två båtar möts VID Stridsbergsbron — grupplogik, klausulunikhet (INV-9)
+     // och att båda får sina målbropassager/notiser utan korskontaminering.
+@@ -1120,6 +1149,17 @@ function checkExpectations(scenario, result) {
+   if (e.noTargetPassages && passages.length > 0) {
+     problems.push(`oväntade målbro-passager: ${passages.map((p) => p.bridge).join(',')}`);
+   }
++  // R1 (2026-11-04): bokförda passager per bro oavsett slag. En returpassage
++  // efter en bekräftad U-sväng bokförs som mellanbropassage när båten redan
++  // är mållös (samma utfall som RE_CROSS_EVIDENCED), så minTargetPassages
++  // ensam ser den inte.
++  if (e.minPassagesPerBridge) {
++    const all = [...passages, ...(result.intermediatePassages || [])];
++    for (const [bridge, minN] of Object.entries(e.minPassagesPerBridge)) {
++      const n = all.filter((p) => p.bridge === bridge).length;
++      if (n < minN) problems.push(`bokförda passager av ${bridge} ${n} < förväntade ${minN}`);
++    }
++  }
+   if (e.zeroNotifications && notifications.length > 0) {
+     problems.push(`oväntade notiser: ${notifications.map((n) => `${n.mmsi}:${n.bridge}`).join(',')}`);
+   }
+-- 
+2.43.0
+

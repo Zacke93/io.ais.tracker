@@ -1,0 +1,122 @@
+diff --git a/tests/replay-validation/bugHunt/__tests__/registry.test.js b/tests/replay-validation/bugHunt/__tests__/registry.test.js
+index a447968..a959c08 100644
+--- a/tests/replay-validation/bugHunt/__tests__/registry.test.js
++++ b/tests/replay-validation/bugHunt/__tests__/registry.test.js
+@@ -367,14 +367,27 @@ describe('buggjägaren: beslutsregistret', () => {
+       const p = pred(reg, 'mooringCapsuleStationary');
+       const z = constants.MOORING_ZONES[0];
+       const mid = { lat: (z.start.lat + z.end.lat) / 2, lon: (z.start.lon + z.end.lon) / 2 };
+-      const rows = [0, 2, 4, 5].map((m) => ({
++      // Triage B, varv 2: flashen ska bindas till zonregelns demotion av en
++      // båt som kan ha burit texten (rörelsebevis före stillheten) och börja
++      // vid den rad där stilltiden når 3 min.
++      const fart = [-6, -4].map((m) => ({
++        mmsi: '211000040', lat: mid.lat - 0.002, lon: mid.lon - 0.002, sog: 4, aisTimestamp: T0 + m * MIN,
++      }));
++      const still = [0, 2, 4, 5].map((m) => ({
+         mmsi: '211000040', ...mid, sog: 0, aisTimestamp: T0 + m * MIN,
+       }));
+-      const f = (bro) => ({
+-        orakel: 'INV-F', inv: 'INV-14', bro, t: T0 + 5 * MIN,
++      const rows = [...fart, ...still];
++      const f = (bro, t = T0 + 4 * MIN) => ({
++        orakel: 'INV-F', inv: 'INV-14', bro, t,
+       });
+       expect(p(f('Stridsbergsbron'), { rader: rows }).sant).toBe(true);
+       expect(p(f('Klaffbron'), { rader: rows }).sant).toBe(false);
++      // En episod som inte börjar vid demotionen förklaras inte.
++      expect(p(f('Stridsbergsbron', T0 + 5 * MIN), { rader: rows }).sant).toBe(false);
++      // En kajliggare utan rörelsebevis (värld 138: TROLLA) bar aldrig texten.
++      expect(p(f('Stridsbergsbron'), { rader: still }).sant).toBe(false);
++      // navStatus förtöjd: navstatus-lagret, inte zonregeln.
++      expect(p(f('Stridsbergsbron'), { rader: [...fart, ...still.map((r) => ({ ...r, navStatus: 5 }))] }).sant).toBe(false);
+     });
+ 
+     test('profileIs: R0 ⇒ sant; R1 ⇒ falskt', () => {
+diff --git a/tests/replay-validation/bugHunt/lib/registry.js b/tests/replay-validation/bugHunt/lib/registry.js
+index aa736df..256d289 100644
+--- a/tests/replay-validation/bugHunt/lib/registry.js
++++ b/tests/replay-validation/bugHunt/lib/registry.js
+@@ -1020,28 +1020,75 @@ const PREDICATES = {
+     },
+   },
+ 
++  // D1-KAJZON-DEMOTION. Zonregeln (VesselDataService.js#_classifyMooring,
++  // lib/constants.js MOORING_ZONES) klassar en stillaliggare i en kajkapsel
++  // som förtöjd efter 3 min, eller efter zonens queueGraceMs när hon har en
++  // målbro inom 600 m och rörelsebevis, och tar då bort hennes målbro
++  // (MOORED_DEMOTE). Predikatet binder flashen till den demotionen (triage B,
++  // varv 2: förut räckte det att NÅGON båt låg still i en kapsel, och i
++  // värld 138 matchade en kajliggare som aldrig hade någon målbro, medan
++  // flashen var U1-C11, ULLAs 20-minuterssteg). Kraven för båten B:
++  //  - hennes sista rad före episoden ligger stilla i kapseln Z, och navStatus
++  //    är inte förtöjd/ankrad (då är det navstatus-lagret, inte zonregeln);
++  //  - hon har rörelsebevis före stillheten (någon rad med sog ≥
++  //    MOVEMENT_PROOF_SOG_KN): utan det fick hon aldrig någon målbro och bar
++  //    aldrig texten;
++  //  - episoden börjar högst en tick efter bearbetningen av hennes första rad
++  //    där stilltiden från stillhetens första rad nått zonens krav: 3 min när
++  //    kapseln ligger mer än minAvståndM från bron, annars zonens queueGraceMs
++  //    (minst 3 min).
++  // Avståndsvillkoret (> minAvståndM) gäller som förut; med medGrace prövas
++  // också grace-fallet inom minAvståndM (köaren vid Klaffbron).
+   mooringCapsuleStationary: {
+-    parametrar: { minStillaMin: 3, minAvståndM: C.BRIDGE_OPENING.DISARM_MOORED_MIN_DISTANCE_M, stillaSogKn: C.MOORING_DETECTION.STATIONARY_SOG_KN },
++    parametrar: {
++      minStillaMin: 3,
++      minAvståndM: C.BRIDGE_OPENING.DISARM_MOORED_MIN_DISTANCE_M,
++      stillaSogKn: C.MOORING_DETECTION.STATIONARY_SOG_KN,
++      rörelseSogKn: C.MOORING_DETECTION.MOVEMENT_PROOF_SOG_KN,
++      förtöjdStatus: C.MOORING_DETECTION.MOORED_NAV_STATUSES,
++      tickMs: C.BRIDGE_OPENING.TICK_INTERVAL_MS,
++      medGrace: false,
++    },
+     fn(f, ctx, p) {
+       if (!Number.isFinite(f.t) || !f.bro || !Array.isArray(ctx.rader)) return nej('saknar tid, bro eller rader');
+       const per = ctx.__perMmsi || platser.rowsByMmsi(ctx.rader);
++      const tider = harnessTider(ctx);
++      const skäl = [];
+       for (const [mmsi, list] of per) {
+-        const before = list.filter((r) => r.aisTimestamp <= f.t);
++        const before = list.filter((r) => r.aisTimestamp <= f.t && Number.isFinite(r.lat));
+         if (!before.length) continue;
+         const last = before[before.length - 1];
+         const zone = platser.capsuleOf(last);
+         if (!zone) continue;
+         const still = (r) => !Number.isFinite(r.sog) || r.sog < p.stillaSogKn;
++        if (!still(last)) continue;
+         let k = before.length - 1;
+         while (k > 0 && platser.capsuleOf(before[k - 1]) === zone && still(before[k - 1])) k--;
+-        if (!still(last)) continue;
+-        const stillMs = f.t - before[k].aisTimestamp;
++        if (p.förtöjdStatus.includes(last.navStatus)) {
++          skäl.push(`${mmsi}: navStatus ${last.navStatus} (navstatus-lagret)`);
++          continue;
++        }
++        if (!before.slice(0, k).some((r) => Number.isFinite(r.sog) && r.sog >= p.rörelseSogKn)) {
++          skäl.push(`${mmsi}: inget rörelsebevis före stillheten, aldrig någon målbro`);
++          continue;
++        }
+         const dist = platser.capsuleDistanceToPoint(zone, f.bro);
+-        if (stillMs >= p.minStillaMin * MIN && dist > p.minAvståndM) {
+-          return ok(`${mmsi} stilla ${Math.round(stillMs / 1000)} s i "${zone.name}", ${Math.round(dist)} m från ${f.bro}`);
++        const grace = Number.isFinite(zone.queueGraceMs) ? zone.queueGraceMs : 0;
++        const inom = dist <= p.minAvståndM;
++        if (inom && !p.medGrace) continue;
++        const kravMs = Math.max(p.minStillaMin * MIN, inom ? grace : 0);
++        const t0 = fixtid(before[k]);
++        const dem = before.slice(k).find((r) => fixtid(r) - t0 >= kravMs);
++        if (!dem) continue;
++        const pDem = tider.get(dem) ?? dem.aisTimestamp;
++        if (f.t < pDem || f.t - pDem > p.tickMs + HARNESS_TICK_EFTER_RAD_MS) {
++          skäl.push(`${mmsi}: episoden ${fmtT(f.t)} börjar inte vid demotionen ${fmtT(pDem)}`);
++          continue;
+         }
++        return ok(`${mmsi} stilla ${Math.round((f.t - before[k].aisTimestamp) / 1000)} s i "${zone.name}", ${Math.round(dist)} m från ${f.bro}; `
++          + `demoterad vid raden ${fmtT(pDem)} (krav ${kravMs / MIN} min)`);
+       }
+-      return nej(`ingen båt stilla ≥ ${p.minStillaMin} min i en kajkapsel > ${p.minAvståndM} m från ${f.bro}`);
++      return nej(`ingen textbärare demoterad av zonregeln vid episodens start${skäl.length ? ` (${skäl.slice(0, 3).join('; ')})` : ''}`);
+     },
+   },
+ 

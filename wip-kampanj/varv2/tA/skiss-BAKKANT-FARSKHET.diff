@@ -1,0 +1,19 @@
+diff --git a/lib/services/BridgeOpeningService.js b/lib/services/BridgeOpeningService.js
+index 5b365ec..23d6eeb 100644
+--- a/lib/services/BridgeOpeningService.js
++++ b/lib/services/BridgeOpeningService.js
+@@ -2300,7 +2300,13 @@ class BridgeOpeningService {
+     if (now <= arm.coverUntilMs) {
+       const passageKnown = !!event && event.firstPassageAt !== null
+         && Number.isFinite(event.firstPassageRegisteredAt);
+-      if (!passageKnown || !(arm.lastSeenAt > event.firstPassageRegisteredAt)) return { kind: 'covered' };
++      // Varv 2 (triage A, skiss D): färskheten mäts mot den SKATTADE korsningen
++      // (KRAV (2)), inte mot bokföringen. Bokförs ledarens passage sent (hon var
++      // tyst över bron) och tystnar följaren före bokföringen, fick bakkanten
++      // aldrig ett fix att döma på och följaren släpptes först vid
++      // täckningsslutet, efter sin egen korsning (värld 1094 och 1476).
++      const freshAfter = event ? event.firstPassageAt : null;
++      if (!passageKnown || !(arm.lastSeenAt > freshAfter)) return { kind: 'covered' };
+       if (!arm.lastFixClean || this._hasUnappliedObservation(arm)) return { kind: 'covered' };
+       // Mot det som slutar FÖRST av täckningen och U2-fönstret kring den
+       // verkliga passagen (se docblocket). En golvhållen arm mäts bara mot

@@ -1,0 +1,75 @@
+diff --git a/tests/replay-validation/bugHunt/__tests__/j-kampanj-register.test.js b/tests/replay-validation/bugHunt/__tests__/j-kampanj-register.test.js
+index d4242b4..9a65307 100644
+--- a/tests/replay-validation/bugHunt/__tests__/j-kampanj-register.test.js
++++ b/tests/replay-validation/bugHunt/__tests__/j-kampanj-register.test.js
+@@ -387,11 +387,23 @@ describe('U17 U17-TYST-BÅT-RECOVER och K-TYST-BÅT-NÄSTA-ÖPPNING', () => {
+     expect(pred('tystRecoverSammaÖppning', { läge: 'nästa' })(fynd, ctx).skäl).toMatch(/absorberad i Stridsbergsbron#4/);
+   });
+ 
+-  test('[vakt] värld 972: varningen leds av en annan båt; KANDIDAT', () => {
++  test('[träff] värld 972: gemensam RECOVER, ledaren 265158956 släpptes ur samma händelse #6 vid samma täckningsslut; U17', () => {
+     const { fynd, ctx } = fall('w972');
++    expect(klassa(reg, fynd, ctx)).toMatchObject({ klass: 'DESIGN', post: 'U17-TYST-BÅT-RECOVER' });
++  });
++
++  test('[vakt] värld 972 där ledaren hördes efter sin absorption: W kan vara hans färska varning; KANDIDAT', () => {
++    const { fynd, ctx } = fall('w972');
++    const w = ctx.resultat.openingWarnings.find((x) => x.eventId === fynd.belägg.varning.eventId);
++    // Fixturen bär bara hennes rader: ledarens rad byggs ur hennes sista.
++    const mall = ctx.rader.filter((r) => r.mmsi === fynd.mmsi && r.aisTimestamp < w.t).pop();
++    ctx.rader.push({
++      ...mall, mmsi: String(w.leadMmsi), aisTimestamp: w.t - 60000, fixTs: w.t - 60000,
++    });
++    ctx.rader.sort((x, y) => x.aisTimestamp - y.aisTimestamp);
+     const c = klassa(reg, fynd, ctx);
+     expect(c.klass).toBe('KANDIDAT');
+-    expect(prövad(c, 'U17-TYST-BÅT-RECOVER').skäl).toMatch(/inte av båten själv/);
++    expect(prövad(c, 'U17-TYST-BÅT-RECOVER').skäl).toMatch(/ingen gemensam RECOVER/);
+   });
+ 
+   test('[vakt] värld 941: båten hördes efter sin korsning, så appen kunde veta att hon passerat; KANDIDAT', () => {
+diff --git a/tests/replay-validation/bugHunt/lib/registry.js b/tests/replay-validation/bugHunt/lib/registry.js
+index aa736df..4dce999 100644
+--- a/tests/replay-validation/bugHunt/lib/registry.js
++++ b/tests/replay-validation/bugHunt/lib/registry.js
+@@ -1924,7 +1924,9 @@ const PREDICATES = {
+       const m = String(f.mmsi);
+       const w = fyndetsVarning(f, ctx);
+       if (!w) return nej('fyndet gäller ingen levererad varning');
+-      if (String(w.leadMmsi) !== m) return nej(`varningen ${w.eventId} leds av ${w.leadMmsi}, inte av båten själv`);
++      // (2) leds av henne, eller är en GEMENSAM RECOVER (prövas nedan, när
++      // täckningsspåret och bearbetningstiderna finns).
++      const ledare = String(w.leadMmsi);
+       if (w.firedBy !== 'deadline') return nej(`varningen ${w.eventId} avfyrades av ${w.firedBy}, inte av ticken i radiotystnad`);
+       const l0 = s.crossings.filter((x) => x.bridge === f.bro && Number.isFinite(x.t)).sort((a, b) => a.t - b.t);
+       const kors = f.orakel === 'T2' ? { t: crossingTimeOf(f) } : l0.filter((x) => String(x.mmsi) === m && x.t <= w.t).pop();
+@@ -1940,6 +1942,29 @@ const PREDICATES = {
+       if (!(sista.aisTimestamp < kors.t)) return nej(`båtens rad ${fmtT(sista.aisTimestamp)} kom efter korsningen ${fmtT(kors.t)}: hon var inte tyst över korsningen`);
+       const res = ctx.resultat || {};
+       const cov = res.openingCoverage || [];
++      if (ledare !== m) {
++        // GEMENSAM RECOVER (triage B, varv 2, värld 972): två tysta båtar som
++        // släpps ur samma händelse vid samma täckningsslut binds till EN ny
++        // händelse, och ledaren väljs på rått avstånd (_leadOf). Varningen är
++        // då lika mycket hennes RECOVER som ledarens. Kräver att hon är medlem
++        // i W, att båda hade sin senaste absorption vid bron före W i samma
++        // händelse, och att ingen av dem hade en egen rad mellan den
++        // absorptionen och W (ingen färsk prognos kan ha seedat W).
++        const sistaAbs = (mm) => cov.filter((c) => c.reason === 'absorbed' && String(c.mmsi) === mm && c.bridge === f.bro
++          && Number.isFinite(c.t) && c.t < w.t).sort((x, y) => x.t - y.t).pop();
++        const hennes = sistaAbs(m);
++        const hans = sistaAbs(ledare);
++        const radMellan = (mm, från) => rowsOf(ctx, mm).some((r) => {
++          const pp = tider.get(r) ?? r.aisTimestamp;
++          return pp > från && pp < w.t;
++        });
++        const gemensam = (w.mmsis || []).map(String).includes(m) && hennes && hans && hennes.eventId === hans.eventId
++          && !radMellan(m, hennes.t) && !radMellan(ledare, hans.t);
++        if (!gemensam) {
++          return nej(`varningen ${w.eventId} leds av ${w.leadMmsi}, inte av båten själv, och är ingen gemensam RECOVER `
++            + '(samma senaste händelse och ingen egen rad efter absorptionen)');
++        }
++      }
+       const ws = deliveredWarnings(ctx, f.bro);
+       const abs = cov.filter((c) => c.reason === 'absorbed' && String(c.mmsi) === m && c.eventId !== w.eventId && Number.isFinite(c.t)
+         && c.t < kors.t && c.t < w.t && ws.some((e) => e.eventId === c.eventId && e.t < kors.t)).sort((a, b) => a.t - b.t);

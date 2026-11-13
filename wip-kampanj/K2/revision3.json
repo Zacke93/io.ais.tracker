@@ -1,0 +1,110 @@
+{
+ "family": "K2: konvojens medlemskap (B02/U15 returresan och F09 fasberoendet i 13h), revision 3",
+ "summary": "Revision 3 åtgärdar omgranskningens medelpunkt och alla fem låga, och följer dirigentens beslut om U15 utan 60 s-golv. Worktreen var ren vid start; inget avbrutet försök fanns.\n\nMedel, B02:s returminne. Returen känns nu igen även när båtens egen gamla händelse har städats bort.\n- Ett returminne per båt och bro (_passageMemory) bokförs i _recordPassage, även när armen saknar händelse.\n- Posten städas först när ingen levande händelse beskriver öppningen hon passerade.\n- Granskarens kantsond b02-936-kant: 0 av 30 faser utan egen varning för returarm vid 700–1200 s. 5e273df gav 2, 15 och 28 av 30 vid 732, 745 och 758 s, och 30 av 30 från 762 s.\n\nU15 utan golv (dirigentens beslut 2026-11-05). Returen får egen varning även när ankomsten ligger under 60 s.\n- Jag prövade alla tolv golvfall i buggjägarens körningar (elva världar).\n- Dubbla varningar för samma öppning: inga belagda.\n- Tio av fallen får varningen 8–55 s före returkorsningen.\n- Värld 227 får varningen 10 s efter korsningen, ett T3 KANDIDAT. Det beror på U18: returen upptäcks först 9 s efter korsningen. Öppningen var missad även med golvet. U15 ändras inte; utslaget är föreslaget som registerpost.\n\nLåga punkter:\n- Villkor (b) jämför händelsens referensankomst med hennes passage (dig9), inte varningens tid. En varning för en senare öppning täcker därmed returen oavsett om den gick före eller efter passagen.\n- De två ändrade u-svängsscenarierna är redovisade och låsta med openingBeforeEachPassage. Båda är röda på 7699cbe.\n- AKIRA-raden i FACIT anger nu de inferrerade fönstren.\n- Samspelet mellan F09:s villkor (2)/(3) och konvojticken är dokumenterat (scenario 62) och föreslaget som KÄND_ÖPPEN-post.\n\nResultat:\n- Ingen låst facit flyttas. Banken är identisk med revision 2: samma tre olåsta tidsbyten, alla likvärdiga.\n- Fassvepet med tid: 0 av 696 par i banken och 0 av 45 faser i 13h.\n- B02 och F09 är BORTA, och U2-RETURRESA har 15 av 18 världar BORTA.\n- Quick ger inga nya kandidatkluster mot r1-quick-a.\n\nKonflikt med K: i K+K2 tar K:s korsningsankargolv inte längre bort T3 i värld 227, eftersom returspärren släpper hennes gamla händelse först. F14-kortet är ändå BORTA. Tre registerposter är föreslagna.",
+ "rootCause": "B02 (värld 1273, minsta repro S/hunt-fix/runs/r1-standard-a/fynd/B02-…/repro.jsonl, verbose mot 7699cbe):\n- 08:24:49 avfyras Stridsbergsbron#3 med VEGA som ledare.\n- 08:27:05 avväpnas hon vid passagen.\n- 08:32:35 absorberas returen i hennes egen #3.\n- 08:35:55 korsar hon söderut utan egen varning.\nKedjan: steg 2 i _evaluateBridge behåller den passerade händelsen i 600 s, och _bindLooseArms gör inget undantag för båten som själv passerat.\n\nOmgranskningens medelpunkt är bekräftad med granskarens sond b02-936-kant mot 5e273df:\n- _ownPassageAt läste passedMmsis i händelselistan innan steg 2 hade städat den.\n- Hennes händelse lever till max(firedAt, lastPassageAt) + 600 s (730 s i sonden) och städas vid nästa utvärdering.\n- Därför avgjorde tickens fas igenkänningen: 2/15/28 av 30 faser vid 732/745/758 s.\n- Därefter absorberades returen alltid i Y:s händelse, vars öppning hon redan passerat: 30 av 30 från 762 s.\n\n(b)-bredden är bekräftad med sonden b02-senare-oppning. 5e273df ger tre varningar, eftersom B:s varning för en senare öppning gick 14 s före A:s passage; med varningen efter passagen hade den täckt returen.\n\nF09 är oförändrad sedan revision 2. 7699cbe släppte alla avfyrade händelser vid varje spärrad utvärdering, så en tick mellan PILOT 761:s avfyrning 05:44:09 och VIRGOs fix 05:44:17 gav en extra varning.",
+ "fix": "Allt i lib/services/BridgeOpeningService.js (commit d7a8022 plus kommentaren i afce797).\n\nB02/U15, nytt i revision 3:\n- this._passageMemory: armKey → { at, eventId }.\n  - Skrivs i _recordPassage för varje båt med arm, före kontrollen av händelsen, alltså även utan eventId.\n  - Armlösa passager bokförs inte (J14, som i resten av öppningslagret).\n  - Töms i destroy().\n- passedMmsis är borttaget.\n- _ownPassage(arm) läser minnet, och _arm sparar svaret i arm.returnAfterPassage.\n- _prunePassageMemory(bridge, events, now) körs i _evaluateBridge direkt efter steg 2. En post lever minst CONVOY_WINDOW_MS och sedan så länge en levande händelse uppfyller _describesPassedOpening.\n- _describesPassedOpening(event, passage) prövar bara avfyrade händelser och är sant om något av följande gäller:\n  - (a) event.id === passage.eventId;\n  - (b) |referens − passage.at| ≤ CONVOY_WINDOW_MS, där referensen är firstPassageAt, annars referenceArrivalMs från avfyrningen;\n  - (c) referensen saknas och firedAt ≤ passage.at.\n- _releaseReturnCoverage(arm, events) körs utan ledtidsgolv; returnFloorLogged är borttaget.\n\nF09 är oförändrad sedan revision 2:\n- _noteHoldEnd skriver heldThroughMs och silentHoldEndMs.\n- _orderSeq med heldSeenOrder och firedOrder.\n- _releaseWarningsWhileHeld med villkoren (1)–(3).\n- Spärrgrenens värdmängd är densamma som i 7699cbe.\n\nInga nya konstanter.\n\nrunSyntheticScenarios: openingBeforeEachPassage: ['Klaffbron'] på u-sväng-efter-Klaffbron och u-sväng-gles-ais-norr-om-Klaffbron.\n\nDocs: ARCHITECTURE §bridge_opening_soon (returminnet, villkoren mot referensankomsten, inget golv, värld 227, konvojticken och scenario 62) och VALIDATION §Syntetiska scenarier.",
+ "functionsTouched": [
+  "BridgeOpeningService.constructor (_passageMemory, _orderSeq)",
+  "BridgeOpeningService.destroy (_passageMemory.clear)",
+  "BridgeOpeningService._evaluateBridge (_prunePassageMemory efter steg 2)",
+  "BridgeOpeningService._arm (returnAfterPassage)",
+  "BridgeOpeningService._ownPassage (ny, ersätter _ownPassageAt)",
+  "BridgeOpeningService._prunePassageMemory (ny)",
+  "BridgeOpeningService._describesPassedOpening (ny signatur: villkor mot referensankomsten)",
+  "BridgeOpeningService._releaseReturnCoverage (utan ledtidsgolv)",
+  "BridgeOpeningService._recordPassage (returminnet; passedMmsis borttaget)",
+  "BridgeOpeningService._openEvent (firedOrder; passedMmsis borttaget)",
+  "BridgeOpeningService._bindLooseArms",
+  "BridgeOpeningService._refreshArm",
+  "BridgeOpeningService._fire (firedOrder)",
+  "BridgeOpeningService._releaseWarningsWhileHeld / _fixAfterWarning / _holdInEffect / _noteHoldEnd / _silentHoldEnd (F09, oförändrade sedan rev 2)",
+  "runSyntheticScenarios: scenarierna u-sväng-efter-Klaffbron och u-sväng-gles-ais-norr-om-Klaffbron"
+ ],
+ "tests": "tests/opening-returresa-och-fasoberoende.test.js har 69 test, alla gröna. 7699cbe har 36 röda och 5e273df 9 röda (K2/tmp/rev4/jest-basetest.failed och jest-r5e.failed).\n\nNya i revision 3, alla röda på 5e273df:\n- inget ledtidsgolv: returarm 58 s från ankomsten får egen varning direkt (200 s), utan tredje varning under väntan;\n- inget golv vid 12 s kvar (1918-klassen);\n- returminnet: returarm 780 s efter att hennes händelse städats (deterministiskt);\n- kanten 732, 745 och 758 s i alla 30 tickfaser (5e273df: 2, 15 och 28 av 30 faser utan egen varning);\n- returminnet bokförs även när armen saknar händelse (restartArrival före passagen);\n- städningen av minnet;\n- villkor (b), \"före\": en varning före hennes passage för en senare öppning täcker returen.\n\nSkyddstest, gröna på 5e273df:\n- villkor (b), \"efter\";\n- spegelbilden;\n- samma öppning efter returarmen;\n- det negativa testet för första passage mer än 600 s bort;\n- F09-testen i alla faser;\n- 13h med tid, δ −15…+14 och −11,52.\n\nSyntetiskt: med den skärpta kontrollen är u-sväng-efter-Klaffbron (06:30:00), u-sväng-gles (06:27:00) och u-sväng-bortom-Stridsbergsbron (06:31:00) röda på 7699cbe, och inga andra scenarier (rev4/synth-base-skarpt.log).\n\nSammanslagen K+K2-kopia (rev4/kk2): K2:s, K:s och schemaläggningens testfiler är gröna, 113 av 113.",
+ "battery": "Commit d7a8022/afce797 i K2/wt. Loggar i K2/tmp/rev4 och rev4/final.\n\n- npm test: 4844 godkända, 2 hoppade, 1 röd. Den röda är motorns otrackade bugHunt/__tests__/b-register (\"källfilen docs/BUGGJAKT.md finns inte\"), lika röd på 7699cbe.\n- replay:all: exit 0, alla 24 låsta korpusar matchar.\n- cmpall mot 7699cbe vid δ = 0: notiser, passager och brotexter identiska i alla 24. Öppningar identiska i 21, och samma tre tidsbyten som i revision 2.\n- replay:synthetic: exit 0, 47 rena.\n- replay:openings: exit 0, O1 376/378, samma utskrift som revision 2.\n- replay:monitoring: exit 0, identisk med 7699cbe utom heap och tider.\n- replay:phase: exit 0, 24 korpusar.\n- REPLAY_MONITORING=1 runPhaseSweep för 13h, 17h, 0525 och 2h: exit 0.\n- Fassvep med tid:\n  - 13h, δ −15…+29 och −11,52: 0 av 45 (7699cbe 15);\n  - banken, 24 × δ −15…+14: 0 av 696 par och 0 ändrade notisnycklar.\n- fasfuzz 3 × 3000: 34/29/25 fasberoende (samma som 5e273df) och 0/0/0 utan konvojundantaget.\n- lint: exit 0.",
+ "facitChanges": [
+  {
+   "corpus": "alla 24 låsta korpusar",
+   "dimension": "notis, text, riktning, öppningsfördelning, golden-events",
+   "change": "ingen förflyttning; ingen omlåsning och ingen corpora.js-not",
+   "evidence": "replay:all exit 0; replay:openings exit 0, O1 376/378; cmpall mot 7699cbe identisk i notiser, passager och brotexter; banken identisk med revision 2",
+   "verdict": "likvärdig"
+  },
+  {
+   "corpus": "20260710-13h",
+   "dimension": "öppning (tid, olåst)",
+   "change": "PILOT 761 Klaffbron söderut, andra varningen 11:54:15.566 → 12:09:08.761 (oförändrat sedan revision 2)",
+   "evidence": "gt-passages: PILOT 12:22:15.333 och VIRGO 12:21:35.445 (linje), 40 s isär, redan varnad av #19 11:45:06.772; två varningar i båda; O2 8 → 9",
+   "verdict": "likvärdig"
+  },
+  {
+   "corpus": "20260804-17h",
+   "dimension": "öppning (tid, olåst)",
+   "change": "CARAT Klaffbron#33 14:13:54.846 → 14:06:29.249",
+   "evidence": "ingen Klaffbronkorsning för CARAT i gt-passages; fantom i båda; O2 ACCEPTERAD i båda",
+   "verdict": "likvärdig"
+  },
+  {
+   "corpus": "20260525",
+   "dimension": "öppning (tid, olåst)",
+   "change": "JOSEPHINE Klaffbron#10 09:55:43.440 → 10:06:05.877",
+   "evidence": "varken JOSEPHINE eller MARIANNE korsade Klaffbron (gt-passages); fantom i båda; O2 ACCEPTERAD",
+   "verdict": "likvärdig"
+  },
+  {
+   "corpus": "syntetiska u-sväng-efter-Klaffbron, u-sväng-gles-ais-norr-om-Klaffbron, u-sväng-bortom-Stridsbergsbron",
+   "dimension": "öppning (antal)",
+   "change": "1 → 2, 2 → 3 och 3 → 4 öppningar. Egna returvarningar söderut 06:26:00, 06:24:00 och 06:28:00, före returerna 06:30:00, 06:27:00 och 06:31:00",
+   "evidence": "rött på 7699cbe med openingBeforeEachPassage (synth-base-skarpt.log); tider ur sonden rev4/synthsond/usvang.js",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "buggjägarvärld 936 R1 och 1918 R1 (U2-RETURRESA)",
+   "dimension": "öppning (miss → varning)",
+   "change": "936 XENIA egen varning 07:00:01, 46 s före returen 07:00:47. 1918 GUNHILD 09:12:46, 9 s före 09:12:55",
+   "evidence": "L0: ingen annan korsning i returens lyft; utslaget T2 OKLASSAD → T2 LEDTID<60s (936 KÄND_ÖPPEN, 1918 KANDIDAT)",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "B01-kortets värld och quick-världarna 40, 140, 152, 161, 212, 272, 289",
+   "dimension": "öppning (egen returvarning)",
+   "change": "egen varning 8–55 s före returkorsningen. I 289 går 504 in i 589:s varning (12:32:51), så antalet varningar är oförändrat",
+   "evidence": "golvquick.txt: ingen annan båt korsar i returens lyft med egen varning; T2 LEDTID i registrerade klasser",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "buggjägarvärld 227 R1 (F14-kortets värld, även quick)",
+   "dimension": "öppning (sen varning)",
+   "change": "ZELDA egen varning 11:33:30, 10 s EFTER returkorsningen 11:33:20; ny T3 KANDIDAT. T2-missen är kvar som förut",
+   "evidence": "returen upptäcktes 9 s efter korsningen (U18); inom U15 utan golv finns ingen annan väg. Kvar i K+K2",
+   "verdict": "sämre"
+  },
+  {
+   "corpus": "20260707-14h (förkastad variant från revision 2)",
+   "dimension": "öppning (tid)",
+   "change": "AKIRA egen varning 08:24:47.964 → 08:06:43.884 (förkastad)",
+   "evidence": "rättat: båda korsningarna inferrerade. AKIRA-fönstret 08:13:39.974–08:37:10.640 och GRETA-fönstret 08:08:07.749–08:26:33.556 överlappar; bara O1b-fönstret belägger",
+   "verdict": "rättare"
+  }
+ ],
+ "engineCheck": "hunt:repro för alla 25 kort i r1-standard-a (rev4/reproall.txt):\n- B02 och F09 BORTA, 23 KVAR.\n- Utslagen är identiska med revision 2 utom i två golvvärldar: B01:s värld får T2 LEDTID 14 s (ACCEPTERAD), och F14:s värld 227 får T3 10 s efter korsningen (KANDIDAT).\n\nU2-RETURRESA, 18 världar (rev4/u2ret.txt):\n- 15 BORTA: alla nio R0, R1 191, 998, 1351 och 1590, samt nu 936 och 1918.\n- 3 KVAR: 1208, 1316 och 1317, som saknar returarm före korsningen.\n- Revision 2 hade 13 BORTA och 5 KVAR.\n\nVärld 276: BORTA.\n\nQuick (K2/hunt-quick, självtest grönt, exit 0):\n- Mot r1-quick-a: inga nya kandidatkluster (17 → 16 kandidatkort). Borta: U2-RETURRESA w101 och w191, M-FAS 13h, T2 w130 och U2-VS-DEADLINE w116.\n- Mot quick för 5e273df: åtta nya instanser, alla golvfall. Sju T2 LEDTID i ACCEPTERAD och KÄND_ÖPPEN, och en T3 för w227 i det befintliga F01-klustret.\n\nK+K2 (rev4/kk2-repro.txt): B02, F01, F03, F09, F14 och F20 BORTA. F14:s värld har kvar T2 OKLASSAD och T3 10 s efter korsningen (KANDIDAT).",
+ "interplay": "K (samma fil). Provsammanslagning mot K:s HEAD 7b520c2 och K:s arbetskopia ger två konflikter i servicen och en i ARCHITECTURE. Lösningen finns i K2/tmp/rev4/scripts/resolve-kk2.py, och den sammanslagna kopian är K2/tmp/rev4/kk2.\n\n1. _recordPassage: behåll K:s crossedAtMs men flytta const crossedAt före returminnet.\n   - Minnet sparar { at: crossedAt, registeredAt: now, eventId }.\n   - (b) jämför då korsningstid med korsningstid.\n   - (c) och städningens minimifönster använder registeredAt.\n2. wideHost/floorHost: behåll båda, med `floorHost = host || wideHost || blocked ? null : _anchorFloorHost(…)`.\n3. ARCHITECTURE: K:s RECOVER-punkt står före K2:s två punkter.\n\nKonflikten i värld 227. K:s korsningsankargolv tog bort T3 genom att absorbera ZELDA i hennes egen #1. Med U15 utan golv släpper K2 #1 först, så T3 kommer tillbaka i K+K2. K:s påstående \"samma golv och samma utfall som K2\" gäller inte längre.\n\nKonvojticken (F09-restklassen) har ingen ägare hos K. Den föreslås som registerpost.\n\nK:s DESIGN hänvisar till K2:s gamla funktionsnamn. De gällande är _releaseReturnCoverage, _describesPassedOpening och _releaseWarningsWhileHeld.\n\nK2:s tre olåsta rader går via RECOVER: kör cmpall och banksweep2 efter integrationen.\n\nÖvriga familjer:\n- R1: sena returer (U18) syns nu som korta ledtider eller sena varningar.\n- N: inga delade funktioner.\n- E och E2 flyttar expectedArrivalMs och därmed referensankomsten i (b); mät om.\n- R2 och M: inget samspel.",
+ "docs": "Uppdaterat i prototypen:\n- docs/ARCHITECTURE.md §bridge_opening_soon:\n  - returpunkten omskriven: returminnet och dess livslängd, villkoren (a)–(c) mot referensankomsten, inget golv enligt dirigentens beslut, och värld 227 som U18-gräns;\n  - F09-punkten: samspelet mellan (2)/(3) och konvojticken, fuzzens tal och scenario 62.\n- docs/VALIDATION.md §Syntetiska scenarier: openingBeforeEachPassage på de två u-svängsscenarierna, båda röda på 7699cbe.\n\nAtt uppdatera vid integrationen:\n- ARCHITECTURE §H29/H30 (U15-undantaget för den egna returresan);\n- INV-21-kommentaren i invariants.js;\n- K:s text om att K:s och K2:s golv har samma utfall;\n- motorns register och BUGGJAKT.md (registryRequests).\n\nLeveranser:\n- /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/kampanj/K2/DESIGN.md\n- /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/kampanj/K2/FACIT.md\n- /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/kampanj/K2/patch.diff\n- /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/kampanj/K2/hunt-quick/",
+ "registryRequests": [
+  "U15-RETUR-SEN · klass DESIGN (KÄND_ÖPPEN är alternativet U18 tillåter) · källa: dirigentens beslut 2026-11-05 om U15 ('en returresa får egen varning även när mindre än 2 × TICK_INTERVAL_MS återstår') och U18 (Fix D:s två positioner gör att returen upptäcks sent); docs/ARCHITECTURE.md, returpunkten · orakel T2 (klassRegex ^LEDTID) och T3 (klassRegex ^VARNING-EFTER-SANN-PASSAGE$) · predikat egenReturVarnadSent {returFönsterMin: 30, ledtidMaxS: 60, efterMaxS: 30}: sant när varningens leadMmsi är fyndets mmsi, samma mmsi har en L0-korsning av samma bro i motsatt riktning högst 30 min före den varnade korsningen, och varningen gick högst 60 s före eller högst 30 s efter korsningen · placering efter O1-ACCEPTERADE-MISSKLASSER, J13-J14-KONVOJSEMANTIK och U2-VS-DEADLINE · mätt (K2/tmp/rev4/golvquick.txt, reproall.txt, u2ret.txt): skulle klassa standard w1918 (T2 LEDTID 10 s, KANDIDAT i dag) och w227 (T3 10 s efter, KANDIDAT; kvar även i K+K2) samt quick w227 (T3, F01-klustret). Övriga golvfall (936, B01-världen, quick 40, 140, 152, 161, 212, 272, 289) har redan registerklass.",
+  "U2-RETURRESA · stryks som KONFLIKT, eftersom U15 (2026-11-04) besvarade postens fråga: INV-21:s returresa är kontraktet · källa U15 och KAMPANJ.md ('INV-21 blir kontraktet') · orakel T2 · predikatet uturnReturnAbsorbed tas ur registret, så att en retur som åter absorberas i sin egen äldre händelse blir KANDIDAT (en regression) · kvar efter K2 i r1-standard-a: 1208, 1316 och 1317, som saknar returarm före korsningen. De ska prövas mot R1:s U18-EN-OMVÄND-FIX-FÖRE-RETUR. R1 mätte att den posten är falsk för 1208, så 1208 blir då en R1-kandidat, inte ett K2-fel. Quick efter K2: 0 instanser (w101 och w191 BORTA).",
+  "F09-KONVOJTICK · klass KÄND_ÖPPEN · källa K2/DESIGN.md §10 punkt 1 och docs/ARCHITECTURE.md (F09-punkten, 'Kvar står …'); underlag: sonderna K2/tmp/rev3/probes/f09-konvojtick.js och K2/tmp/omg1/probes/fasfuzz.js · orakel M-FAS (bankspårets fasvarianter, klassRegex ÖPPNINGSNYCKEL|ÖPPNINGSTID) · predikat konvojtickFöljare {tickMs: 30000, rawAnchorSkillnadMaxMs: 60000}: sant när fasvarianterna skiljer sig i exakt en båts täckning vid målbron (egen varning i den ena, ingen i den andra), när båten hölls vid en tidigare bro (Olidebron eller Järnvägsbron) när ledarens varning gick, när båtens senaste fix före varningen låg högst 60 s från ledarens, och när ingen av hennes fix föll mellan varningen och första tick efter den · bankfall i dag: 0 (svep 24 × 30 faser) · fasfuzz: 25–34 per 3000 med rättningen (7699cbe 125–151), 0 utan konvojundantaget; exempel seed 11 scenario 62. Ägare för en riktig stängning: omprövning av given konvojtäckning mot följarens nästa fix (nära K:s F22/F02)."
+ ],
+ "risks": [
+  "Värld 227-klassen: en retur som upptäcks efter korsningen (U18) får en varning efter korsningen (T3). Det följer av U15 utan golv och kvarstår i K+K2, eftersom K:s korsningsankargolv inte får täcka en returresa i hennes egen gamla händelse.",
+  "Korta ledtider för sent upptäckta returer: 936 46 s, 1918 9 s och sju quick-instanser 8–55 s. Det följer av U18, men varningen kommer före korsningen.",
+  "Konvojundantaget vid tick (fanns i 7699cbe) konkurrerar med F09:s villkor (2) och (3): 7 av 9000 fuzzscenarier är fasberoende bara med rättningen, och 0 avvikelser finns i banken. Föreslagen som KÄND_ÖPPEN-post.",
+  "K-integrationen: returminnets tidsdomäner (at = korsning, registeredAt = bokföring), K:s golv för hållna armar, och omkörning av 13h, 17h och 0525 efter K:s RECOVER-grindar. Med K:s sena korsningsbokföring (p90 625 s) kan en annan händelses första passage bokföras efter att minnet städats. Det påverkar bara en returarm som skapas därefter, eftersom en befintlig arm bär sin kopia.",
+  "Armlösa passager bokförs inte i returminnet, som i resten av öppningslagret (J14).",
+  "Villkor (b) läser referenceArrivalMs, så E:s och E2:s ETA-ändringar kan flytta besluten. Mät om efter integrationen.",
+  "Samma millisekund i F09:s villkor (1): utfallet följer ordningen i AIS-svepet, aldrig tickens fas. Låst av opening-confirmed-waiting-eta; banken har inga sådana rader."
+ ],
+ "commit": "afce797 (K2/wt, detached, ovanpå d7a8022 → 5e273df → ac7a460 → 7699cbe). d7a8022: \"K2 rev 3: returminnet frikopplat, U15 utan golv, villkor (b) mot referensankomsten\". afce797: \"K2 rev 3: precisera kommentaren om returminnets städning\" (endast kommentar).",
+ "patchPath": "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/kampanj/K2/patch.diff",
+ "status": "klar"
+}

@@ -1,0 +1,157 @@
+From c667ca7a1b8b9b06590b5a07db2a4c41c0e8a14a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 09:39:54 +0000
+Subject: [PATCH 01/17] =?UTF-8?q?Buggj=C3=A4garen:=20tystnaden=20=C3=B6ver?=
+ =?UTF-8?q?=20korsningen=20pr=C3=B6vas=20p=C3=A5=20fixens=20tid=20(varv=20?=
+ =?UTF-8?q?2,=20M2)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+tystRecoverSammaÖppning jämförde radens mottagningstid med korsningen.
+För en AISHub-rad kan fixen vara mer än en minut äldre än mottagningen,
+och det är positionens tid som avgör om appen kunde se passagen. I värld
+941 togs ZELDAs sista rad emot 0,1 s efter korsningen, men fixen var 17 s
+äldre och visade henne 58 m före Stridsbergsbron. Världen blir U17.
+
+Jest-vakten för 941 byggde på samma misstag och är nu ett träfffall; två
+nya vakter (fixen efter korsningen, och en rad utan fixTs). BUGGJAKT §7
+rad 37.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/BUGGJAKT.md                              |  5 ++--
+ .../__tests__/j-kampanj-register.test.js      | 26 +++++++++++++++++--
+ .../bugHunt/beslutsregister.json              |  4 +--
+ .../replay-validation/bugHunt/lib/registry.js | 16 +++++++++---
+ 4 files changed, 42 insertions(+), 9 deletions(-)
+
+diff --git a/docs/BUGGJAKT.md b/docs/BUGGJAKT.md
+index 6ec769e..15ab47a 100644
+--- a/docs/BUGGJAKT.md
++++ b/docs/BUGGJAKT.md
+@@ -339,7 +339,7 @@ Radhänvisningarna i tabellen och i `beslutsregister.json` gäller aa71099, prod
+ 
+ ### Registerändringar att granska (rättningsrundan 2026-11-04)
+ 
+-Rad 1–17 och 19–22 rättar motorfel eller registrerar en mätgräns i ett befintligt orakel och skriver inga nya ägarbeslut. Rad 18 speglar ägarens beslut U16 (2026-11-04, ovan), rad 19 och 21 snävar den posten efter motorfel, och rad 21 gör den till MÄTGRÄNS med beslutet U16 kvar som källa för beteendet. Rad 23–31 (registret 2026-11-07, på e088a51 med familjerna K, K2, M, E, R1 och R2 integrerade) speglar användarbesluten U15, U17, U18 och U19, dirigentens beslut om R2:s fråga 2 och familjernas kända gränser (ovan); de skriver inga nya beslut. Rad 32–33 (efterrättningen samma dag, efter granskningen av registret) snävar de posterna och O1:s T3-gren; de skriver inga nya beslut heller. Rad 34–36 (den andra granskningen samma dag, på aa71099 med alla sju kampanjfamiljer K, K2, M, E, R1, R2 och N integrerade, men inte E2 enligt U22) snävar U18, tar bort en KONFLIKT som U14 har avgjort och flyttar radhänvisningarna; de skriver inga nya beslut. Varje post pekar på sin källa. Ägaren bör granska listan.
++Rad 1–17 och 19–22 rättar motorfel eller registrerar en mätgräns i ett befintligt orakel och skriver inga nya ägarbeslut. Rad 18 speglar ägarens beslut U16 (2026-11-04, ovan), rad 19 och 21 snävar den posten efter motorfel, och rad 21 gör den till MÄTGRÄNS med beslutet U16 kvar som källa för beteendet. Rad 23–31 (registret 2026-11-07, på e088a51 med familjerna K, K2, M, E, R1 och R2 integrerade) speglar användarbesluten U15, U17, U18 och U19, dirigentens beslut om R2:s fråga 2 och familjernas kända gränser (ovan); de skriver inga nya beslut. Rad 32–33 (efterrättningen samma dag, efter granskningen av registret) snävar de posterna och O1:s T3-gren; de skriver inga nya beslut heller. Rad 34–36 (den andra granskningen samma dag, på aa71099 med alla sju kampanjfamiljer K, K2, M, E, R1, R2 och N integrerade, men inte E2 enligt U22) snävar U18, tar bort en KONFLIKT som U14 har avgjort och flyttar radhänvisningarna; de skriver inga nya beslut. Rad 37 och framåt (rättningskampanjens varv 2, 2026-11-09, familj E MOTOR, på c14938f) rättar motorfel i predikaten som triagen av restkorten hittade; vilka rader som speglar ett ägarbeslut står i raden. Varje post pekar på sin källa. Ägaren bör granska listan.
+ 
+ | # | Post | Ändring | Skäl och källa |
+ |---|---|---|---|
+@@ -369,7 +369,7 @@ Rad 1–17 och 19–22 rättar motorfel eller registrerar en mätgräns i ett be
+ | 24 | U1-C11-TYST-FÖRE-DEFAULT (ny) | DESIGN för INV-F INV-14 DEFAULT-FLASH med predikatet `tystBärareFörfallen`: texten före episoden har för bron exakt "En båt på väg mot X, ETA okänd", och en båts tystnad passerar ett steg i STALE_DISPLAY_DROP-trappan (10/15/20/25 min) inom en halvminutstick före episodens start, räknat från harnessens bearbetning (`harnessTider`). Aldrig låst bank. | Familj M:s F05/r2 och klustrets B- och C-världar (U1, C11, C11b). Mätt på standardkörningens 15 DEFAULT-FLASH-kandidater på e088a51: alla 15 (182, 495, 621, 691, 715, 876, 1024, 1031, 1038, 1199, 1323, 1526, 1590, 1887, 1910), med tystnaden 904–1508 s och 0,4–29 s efter steget. M:s formulering ("varje fartyg som bar texten") är inte observerbar ur raderna; klausulen "ETA okänd" och trappsteget är det. |
+ | 25 | M-BRUSBAND-RÖRELSEBEVIS (ny) | KÄND_ÖPPEN för INV-F INV-14 DEFAULT-FLASH med predikatet `krypbandVidTröskel`: samma båt bär texten före och efter (episoden börjar och slutar vid hennes två på varandra följande rader, högst 40 ms senare), och hennes median-sog ligger inom ±0,1 kn från 0,1, 0,3 eller 0,7 kn, eller hennes närmande är 5–15 m per TARGET_REMOVAL_GRACE_PERIOD, eller hon saknar sog med en spridning över 8 m. Ny appkonstant TARGET_REMOVAL_GRACE_PERIOD. | M:s kända gränser (a)–(c), beslutade 2026-11-05 utan hysteres. Inga träffar väntas i dagens profiler (F-KRYP ger 0,4–1,5 kn); jest prövar syntetiska krypare. Gräns (d) har inget orakel och ingen post. |
+ | 26 | U18-RETUR-BEKRÄFTAD-SENT (ny) | DESIGN för T2 ÖPPNING-MISS:OKLASSAD, LEDTID och T3 VARNING-EFTER-SANN-PASSAGE med predikatet `fixDBekräftarReturSent` (ovan, U18). Står efter O1-ACCEPTERADE-MISSKLASSER. | Ersätter R1:s U18-EN-OMVÄND-FIX-FÖRE-RETUR, K:s U18-utvidgning och K2:s U15-RETUR-SEN med ett mekanismbundet predikat. Mätt på e088a51: OKLASSAD i värld 18, 134, 188, 227, 353, 1181, 1317 och 1731; LEDTID i 829, 1038 och 1274; T3 i 227. Motexempel: 1208 och 1316 (bekräftade före korsningen), 936 och 1918 (bekräftade 113 respektive 77 s före korsningen, egen varning först vid nästa fix) förblir KANDIDAT. Rättat i rad 34: 1274 (LEDTID) och 1317 (OKLASSAD) bekräftades av återkorsningen av Järnvägsbron före korsningen och är KANDIDAT. |
+-| 27 | U17-TYST-BÅT-RECOVER (ny) | DESIGN för T3 VARNING-EFTER-SANN-PASSAGE och VARNING-PÅ-FRUSET-FIX med predikatet `tystRecoverSammaÖppning` (läge `samma`, ovan, U17). | Mätt på e088a51: 40 VARNING-EFTER och 11 FRUSET-FIX. Motexempel: 972 (varningen leds av en annan båt), 941 (båten hördes efter korsningen) och 625:s andra båt (ingen absorption) förblir KANDIDAT. |
++| 27 | U17-TYST-BÅT-RECOVER (ny) | DESIGN för T3 VARNING-EFTER-SANN-PASSAGE och VARNING-PÅ-FRUSET-FIX med predikatet `tystRecoverSammaÖppning` (läge `samma`, ovan, U17). | Mätt på e088a51: 40 VARNING-EFTER och 11 FRUSET-FIX. Motexempel: 972 (varningen leds av en annan båt), 941 (båten hördes efter korsningen) och 625:s andra båt (ingen absorption) förblir KANDIDAT. (941 var ett motorfel: fixen i raden låg före korsningen; rättat i varv 2, rad 37.) |
+ | 28 | K-TYST-BÅT-NÄSTA-ÖPPNING (ny) | KÄND_ÖPPEN för T2 LEDTID och T3 VARNING-EFTER-SANN-PASSAGE med samma predikat i läge `nästa`. | K-familjen revision 3 (U13). Mätt på e088a51: T3 i 87, 331, 510, 582, 1704 och 1907, T2 i 790 och 1247. En egen varning som avfyrades av ett fix (U-svängsreturen 829) omfattas inte. |
+ | 29 | U19-VARNING-UNDER-VÄNTANDE-VÄNDNING (ny) | ACCEPTERAD för T9 FEL-RIKTNING (varningsanspråk) och T3 FANTOM-UTAN-AVBROTT med predikatet `väntandeVändningVidVarning` (ovan, U19). | R1:s förslag med K:s tillägg (inget RECOVER-släpp) och kravet att vändningen bekräftas efter varningen. Mätt på e088a51: 188 (T9) och 1590 (T3). |
+ | 30 | TVÅ-ÅTERKORSADE-BROAR-I-SAMMA-SEGMENT (ny) | KÄND_ÖPPEN för T10 PASSAGE-EJ-REGISTRERAD med predikatet `andraBronISammaSegment`. | R1:s kända lucka 1. Inga träffar i körningarna; jest prövar R1:s fixtur `r1-kand-lucka-tva-broar-i-segmentet.jsonl`. |
+@@ -379,6 +379,7 @@ Rad 1–17 och 19–22 rättar motorfel eller registrerar en mätgräns i ett be
+ | 34 | U18-RETUR-BEKRÄFTAD-SENT (snävad igen) | `fixDBekräftarReturSent` kräver i båda grenarna att vändningen inte var bekräftad på en annan väg före korsningen. Appen får inte ha bokfört någon riktningshändelse för båten (`riktningshändelser`: resultatets journeyResets, där [TARGET_RECALC] loggas av `_confirmDirectionReversal` för varje bekräftelseväg och [NEW_JOURNEY] av app.js) efter L0-vändningen och senast vid korsningen, mer än 1 s före det bekräftande fixets bearbetning. Fix D:s egen bekräftelse loggas vid det fixet (0 ms i alla träffar) och räknas inte. Ett resultat utan journeyResets ger nej. Ny jest-fixtur `register-u18-2026-11-07.json` (aa71099, med journeyResets); U18-fallen i `kampanj-register-2026-11-07.json` är flyttade dit. | Den andra granskningen (review2, hög): predikatet byggde bara på Fix D. I värld 1274 (T2 LEDTID 23 s vid Klaffbron, K:s F02-r2) och värld 1317 (T2 OKLASSAD vid Stridsbergsbron) bekräftade appen vändningen via "re-cross of Järnvägsbron evidenced" 09:14:21 respektive 12:33:26, 391 och 100 s före korsningen. Sedan höll appen målbron tom (TARGET_PROTECTION_ACTIVE och PROTECTION_ZONE_SAVE under Järnvägsbron), och den sena eller uteblivna varningen beror inte på U18. Båda blir KANDIDAT. 134, 227 och 1731 förblir U18: Järnvägsbron korsades på returen, men ingen riktningshändelse kom före korsningen. 1181 förblir också U18: återkorsningen av Klaffbron bekräftade vid samma fix som Fix D, efter korsningen. Mekanismen "målbron hålls tom efter en bekräftad vändning under en annan bro" bör triageras som ett eget kort. Riktningen syns inte i journeyResets, så varje händelse räknas som en bekräftelse; det kan bara göra posten smalare. |
+ | 35 | INV5-VS-BESÖKSREGEL (borttagen) | Posten är borttagen. Predikatet `sameVisit` står kvar för BESÖKSREGEL-2026-09-07 (T1). | U14 (användarbeslut 2026-11-04) avgjorde konflikten: INV-5/7 ("en notis per passage, även returpassagen") är kontraktet, och N är integrerad i aa71099 ("En verklig returpassage över en bro får egen notis"). Standardkörningen på aa71099 (seed 1) gav posten 0 träffar och inga INV-5- eller INV-7-utslag alls. B01-kortet för posten är borta, och de råa utslagen går från 297 till 263. Ett framtida INV-5/7-utslag blir KANDIDAT utan amnesti. BESÖKSREGEL-2026-09-07 står kvar: T1 räknar besök, inte passager, och postens fyra bankträffar är inga returpassager (tre saknar korsning, och i den fjärde korsar ANDREA Stridsbergsbron norrut i 21h, i samma riktning som vid förra notisen). |
+ | 36 | Källhänvisningarna (alla poster) | Radhänvisningarna i `beslutsregister.json`, i posttabellen ovan och i kommentarerna i `lib/registry.js` är flyttade till aa71099, liksom hänvisningarna i avsnitten om besluten U16–U21 ovan. Ingen post och ingen klassning ändras. | Registret skrevs på e088a51 och plockades över på aa71099, där U14 lade till rader i `docs/ARCHITECTURE.md`, `docs/VALIDATION.md`, `app.js`, `TriggerPointVisitTracker.js`, `invariants.js` och `replayRunner.js`. Varje flyttad hänvisning är kontrollerad mot innehållet: raderna är oförändrade och bara förskjutna, till exempel U18 ARCHITECTURE:1028–1035 → :1093–1100 och besöksregeln TriggerPointVisitTracker.js:12–16 → :82–86. |
++| 37 | U17-TYST-BÅT-RECOVER och K-TYST-BÅT-NÄSTA-ÖPPNING (varv 2, M2) | `tystRecoverSammaÖppning` prövar tystnaden över korsningen (T3) på fixens tid (`fixtid`: fixTs, annars mottagningstiden) i stället för på radens mottagningstid. Skälet nämner båda tiderna. U17:s regeltext är uppdaterad; parametrar, gäller och klass är oförändrade. | Motorfel M2 (triage B, varv 2). För en AISHub-rad är aisTimestamp mottagningen, och fixen kan vara mer än en minut äldre. I värld 941 togs ZELDAs sista rad emot 13:28:57,288, 0,1 s efter korsningen 13:28:57,177, men fixen var från 13:28:40 och visade henne 58 m före Stridsbergsbron; appen kunde alltså inte se passagen. Värld 941 blir U17 (DESIGN). Jest: `j-kampanj-register.test.js`, där vakten för 941 byggde på samma misstag och nu är ett träfffall, med två nya vakter (fixen efter korsningen, och en rad utan fixTs). Källa oförändrad: U17 och `BridgeOpeningService.js#_coverageVerdict`. |
+ 
+ **Valet för M12, per post** (flytta vakten till registret eller märka posten):
+ - **KAJGRIND-UTAN-RÖRELSEBEVIS: märkt.** T1:s förutsättning 3 (`t1Notice.js#judgeT1`, rörelsebeviset med MOVE_KN) dömer inget besök utan en fix med sog ≥ 1,0 kn i [tIn − 10 min; max(tOut, första fixen)] och räknar dem i `utanRörelsebevis`. Registrets fönster skilde bara med högst 120 s i svansen. Att flytta vakten till registret hade gjort varje kajliggare till ett rått T1-utslag.
+diff --git a/tests/replay-validation/bugHunt/__tests__/j-kampanj-register.test.js b/tests/replay-validation/bugHunt/__tests__/j-kampanj-register.test.js
+index d4242b4..fe8960d 100644
+--- a/tests/replay-validation/bugHunt/__tests__/j-kampanj-register.test.js
++++ b/tests/replay-validation/bugHunt/__tests__/j-kampanj-register.test.js
+@@ -394,10 +394,32 @@ describe('U17 U17-TYST-BÅT-RECOVER och K-TYST-BÅT-NÄSTA-ÖPPNING', () => {
+     expect(prövad(c, 'U17-TYST-BÅT-RECOVER').skäl).toMatch(/inte av båten själv/);
+   });
+ 
+-  test('[vakt] värld 941: båten hördes efter sin korsning, så appen kunde veta att hon passerat; KANDIDAT', () => {
++  // Varv 2, M2 (motorfel): tystnaden över korsningen avgörs av fixens tid.
++  // Förut stod här en vakt som byggde på samma misstag som predikatet: raden
++  // mottogs 0,1 s efter korsningen, men fixen var 17 s äldre och visade henne
++  // 58 m före bron.
++  test('[träff] värld 941: raden mottogs 0,1 s efter korsningen men bär en fix 17 s före den (58 m före bron); tyst över korsningen, U17', () => {
+     const { fynd, ctx } = fall('w941');
++    expect(klassa(reg, fynd, ctx)).toMatchObject({ klass: 'DESIGN', post: 'U17-TYST-BÅT-RECOVER' });
++    expect(pred('tystRecoverSammaÖppning')(fynd, ctx).skäl).toMatch(/U17: tyst sedan 13:28:57 \(58 m\)/);
++  });
++
++  test('[vakt] värld 941 med samma rad men fixen efter korsningen: appen kunde veta att hon passerat; KANDIDAT', () => {
++    const { fynd, ctx } = fall('w941');
++    const kors = Date.parse(fynd.belägg.sannPassage.t);
++    const sista = ctx.rader.filter((r) => r.mmsi === fynd.mmsi && r.aisTimestamp < fynd.t).pop();
++    expect(sista.fixTs).toBeLessThan(kors);
++    sista.fixTs = kors + 100;
++    expect(klassa(reg, fynd, ctx).klass).toBe('KANDIDAT');
++    expect(pred('tystRecoverSammaÖppning')(fynd, ctx).skäl).toMatch(/fix 13:28:57 \(mottagen 13:28:57\) låg efter korsningen 13:28:57/);
++  });
++
++  test('[vakt] en rad utan fixTs prövas på mottagningstiden, som förut', () => {
++    const { fynd, ctx } = fall('w941');
++    const sista = ctx.rader.filter((r) => r.mmsi === fynd.mmsi && r.aisTimestamp < fynd.t).pop();
++    delete sista.fixTs;
+     expect(klassa(reg, fynd, ctx).klass).toBe('KANDIDAT');
+-    expect(pred('tystRecoverSammaÖppning')(fynd, ctx).skäl).toMatch(/kom efter korsningen/);
++    expect(pred('tystRecoverSammaÖppning')(fynd, ctx).skäl).toMatch(/låg efter korsningen/);
+   });
+ 
+   test('[vakt] en varning som avfyrades av ett fix (värld 829, U-svängsreturen) och en båt utan absorption faller på predikatet', () => {
+diff --git a/tests/replay-validation/bugHunt/beslutsregister.json b/tests/replay-validation/bugHunt/beslutsregister.json
+index 86d4281..ef6f204 100644
+--- a/tests/replay-validation/bugHunt/beslutsregister.json
++++ b/tests/replay-validation/bugHunt/beslutsregister.json
+@@ -542,7 +542,7 @@
+       "id": "U17-TYST-BÅT-RECOVER",
+       "klass": "DESIGN",
+       "datum": "2026-11-04",
+-      "källa": "docs/ARCHITECTURE.md:1934–1951 (U17, ägarbeslut 2026-11-04: säkerhetsvarningen för en tyst båt behålls); lib/services/BridgeOpeningService.js#_coverageVerdict (täckningsslutet, bakkanten, hållen under bron (1c) och kursen bort (1d)) och #_courseAway; lib/services/BridgeOpeningService.js:138 (MOVING_SOG_KN); lib/constants.js:46 (UNDER_BRIDGE_SET_DISTANCE), :1065 (MINIMUM_VIABLE_SPEED), :1375 (CONVOY_WINDOW_MS), :1577 (WAITING_CLEAR_DISTANCE); KAMPANJ.md, dirigentens beslut 2026-11-05 (under bron-hållet); docs/BUGGJAKT.md §7 (användarbeslut U17; registerändringarna 2026-11-07, rad 27 och 32)",
++      "källa": "docs/ARCHITECTURE.md:1934–1951 (U17, ägarbeslut 2026-11-04: säkerhetsvarningen för en tyst båt behålls); lib/services/BridgeOpeningService.js#_coverageVerdict (täckningsslutet, bakkanten, hållen under bron (1c) och kursen bort (1d)) och #_courseAway; lib/services/BridgeOpeningService.js:138 (MOVING_SOG_KN); lib/constants.js:46 (UNDER_BRIDGE_SET_DISTANCE), :1065 (MINIMUM_VIABLE_SPEED), :1375 (CONVOY_WINDOW_MS), :1577 (WAITING_CLEAR_DISTANCE); KAMPANJ.md, dirigentens beslut 2026-11-05 (under bron-hållet); docs/BUGGJAKT.md §7 (användarbeslut U17; registerändringarna 2026-11-07, rad 27 och 32; varv 2, rad 37)",
+       "gäller": {
+         "orakel": [
+           "T3"
+@@ -555,7 +555,7 @@
+           "läge": "samma"
+         }
+       },
+-      "regel": "U17: RECOVER-släppets säkerhetsvarning för en tyst båt behålls. Den gäller en båt vars senaste position sa att hon skulle hinna igenom den gemensamma öppningen, men där appen inte vet om hon gjorde det; F11/F23-klassen är ett falsklarm av samma slag som AVBRUTEN_APPROACH. Predikatet speglar släppvägen vid täckningsslutet och kräver alla: (1) båten absorberades vid bron i en levererad händelse E före sin sanna korsning, och E:s varning kom före korsningen; E är händelsen i den sista sådana absorptionen, den som täckte henne när hon korsade. (2) Fyndets varning leds av henne, kom efter absorptionen och avfyrades av ticken (firedBy 'deadline'): hennes egen RECOVER. (3) Tyst, så att bakkanten inte kunde släppa henne: bakkanten släpper på ett eget fix efter att E:s första passage blev känd (bokförd, eller den täckta båtens första rad efter sin korsning) när prognosen ligger efter fönstrets slut, utom när kursen leder bort. Därför: ingen egen rad efter att passagen blev känd bearbetades efter fönstrets tidigaste slut min(känd + 600 s, max(E, första korsningen) + 600 s, varningen − TICK_INTERVAL_MS) (för T2 LEDTID är det tystnadsvillkoret), och för varje sådan rad är restiden till bron med radens fart (minst MINIMUM_VIABLE_SPEED) högst 0,6 av tiden kvar till fönstrets tidigaste slut. Appens ETA går inte att återskapa ur raderna; en prognos nära fönstrets slut bevisar inte U17:s premiss och blir KANDIDAT. För T3 kom dessutom hennes sista rad före varningen före korsningen. (4) Inget håll vid täckningsslutet gällde hennes sista rad: inte högst UNDER_BRIDGE_SET_DISTANCE (50 m) från bron i minst MINIMUM_VIABLE_SPEED (dirigentens beslut 2026-11-05: hon har i praktiken passerat) och inte kursen bort (_courseAway: minst MOVING_SOG_KN, utanför WAITING_CLEAR_DISTANCE, mer än 90° från bäringen till bron). (5) Hennes korsning ligger högst CONVOY_WINDOW_MS (600 s) efter E:s första sanna korsning av en båt som E täckte när hon korsade, hennes egen medräknad. Ingen fixålder. Skärpt 2026-11-07 efter granskningens mutationsprov (bakkanten respektive under-bron-hållet bortkopplade i _coverageVerdict): utan (1):s absorption före korsningen, (3) och (4) tog posterna 46 nya utslag."
++      "regel": "U17: RECOVER-släppets säkerhetsvarning för en tyst båt behålls. Den gäller en båt vars senaste position sa att hon skulle hinna igenom den gemensamma öppningen, men där appen inte vet om hon gjorde det; F11/F23-klassen är ett falsklarm av samma slag som AVBRUTEN_APPROACH. Predikatet speglar släppvägen vid täckningsslutet och kräver alla: (1) båten absorberades vid bron i en levererad händelse E före sin sanna korsning, och E:s varning kom före korsningen; E är händelsen i den sista sådana absorptionen, den som täckte henne när hon korsade. (2) Fyndets varning leds av henne, kom efter absorptionen och avfyrades av ticken (firedBy 'deadline'): hennes egen RECOVER. (3) Tyst, så att bakkanten inte kunde släppa henne: bakkanten släpper på ett eget fix efter att E:s första passage blev känd (bokförd, eller den täckta båtens första rad efter sin korsning) när prognosen ligger efter fönstrets slut, utom när kursen leder bort. Därför: ingen egen rad efter att passagen blev känd bearbetades efter fönstrets tidigaste slut min(känd + 600 s, max(E, första korsningen) + 600 s, varningen − TICK_INTERVAL_MS) (för T2 LEDTID är det tystnadsvillkoret), och för varje sådan rad är restiden till bron med radens fart (minst MINIMUM_VIABLE_SPEED) högst 0,6 av tiden kvar till fönstrets tidigaste slut. Appens ETA går inte att återskapa ur raderna; en prognos nära fönstrets slut bevisar inte U17:s premiss och blir KANDIDAT. För T3 låg dessutom fixen i hennes sista rad före varningen före korsningen (fixens tid, inte mottagningens: en AISHub-rad som tas emot efter korsningen men bär en fix från före den visar henne före bron; rättat i varv 2, M2). (4) Inget håll vid täckningsslutet gällde hennes sista rad: inte högst UNDER_BRIDGE_SET_DISTANCE (50 m) från bron i minst MINIMUM_VIABLE_SPEED (dirigentens beslut 2026-11-05: hon har i praktiken passerat) och inte kursen bort (_courseAway: minst MOVING_SOG_KN, utanför WAITING_CLEAR_DISTANCE, mer än 90° från bäringen till bron). (5) Hennes korsning ligger högst CONVOY_WINDOW_MS (600 s) efter E:s första sanna korsning av en båt som E täckte när hon korsade, hennes egen medräknad. Ingen fixålder. Skärpt 2026-11-07 efter granskningens mutationsprov (bakkanten respektive under-bron-hållet bortkopplade i _coverageVerdict): utan (1):s absorption före korsningen, (3) och (4) tog posterna 46 nya utslag."
+     },
+     {
+       "id": "K-TYST-BÅT-NÄSTA-ÖPPNING",
+diff --git a/tests/replay-validation/bugHunt/lib/registry.js b/tests/replay-validation/bugHunt/lib/registry.js
+index aa736df..0e4238a 100644
+--- a/tests/replay-validation/bugHunt/lib/registry.js
++++ b/tests/replay-validation/bugHunt/lib/registry.js
+@@ -1888,8 +1888,9 @@ const PREDICATES = {
+   //            brotextens ETA upp till 1,3 × den raka restiden. En prognos
+   //            nära fönstrets slut bevisar inte U17:s premiss ("hennes
+   //            senaste position sa att hon skulle hinna") och blir KANDIDAT.
+-  //      För T3 gäller dessutom att hennes sista rad före W kom före
+-  //      korsningen (tyst över korsningen);
++  //      För T3 gäller dessutom att fixen i hennes sista rad före W låg före
++  //      korsningen (tyst över korsningen; fixens tid, inte mottagningens,
++  //      rättat i varv 2, M2);
+   //  (4) inget håll vid täckningsslutet gällde hennes sista rad före W: inte
+   //      under bron (högst underBronM från bron i minst minFartKn;
+   //      dirigentens beslut 2026-11-05, hon har i praktiken passerat) och
+@@ -1937,7 +1938,16 @@ const PREDICATES = {
+       const föreW = rader.filter((r) => r.p < w.t);
+       const sista = föreW[föreW.length - 1];
+       if (!sista) return nej('ingen rad för båten före varningen');
+-      if (!(sista.aisTimestamp < kors.t)) return nej(`båtens rad ${fmtT(sista.aisTimestamp)} kom efter korsningen ${fmtT(kors.t)}: hon var inte tyst över korsningen`);
++      // Tyst över korsningen avgörs av POSITIONENS tid (fixtid: fixTs, annars
++      // mottagningen), inte av när raden togs emot. En AISHub-rad som tas
++      // emot efter korsningen men bär en fix från före den visar henne
++      // fortfarande före bron, så appen kunde inte se passagen (varv 2, M2,
++      // värld 941: mottagen 13:28:57,288 med fixen 13:28:40, 58 m före
++      // Stridsbergsbron, korsningen 13:28:57,177).
++      if (!(fixtid(sista) < kors.t)) {
++        return nej(`båtens fix ${fmtT(fixtid(sista))} (mottagen ${fmtT(sista.aisTimestamp)}) låg efter korsningen ${fmtT(kors.t)}: `
++          + 'hon var inte tyst över korsningen');
++      }
+       const res = ctx.resultat || {};
+       const cov = res.openingCoverage || [];
+       const ws = deliveredWarnings(ctx, f.bro);
+-- 
+2.43.0
+

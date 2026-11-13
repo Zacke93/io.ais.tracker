@@ -1,0 +1,266 @@
+From b8a60b1b0180d2727fa75591766b6e94a23a1f92 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 10:03:14 +0000
+Subject: [PATCH 04/17] =?UTF-8?q?Buggj=C3=A4garen:=20U23=20ers=C3=A4tter?=
+ =?UTF-8?q?=20KONFLIKT-posten=20f=C3=B6r=20kajzonen=20(varv=202,=20B01)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Ägaren beslutade U23 (2026-11-09): en båt på väg mot Klaffbron som stannar
+vid Kajen behandlas som i resten av väntområdet och står kvar, medan Kajen
+för andra båtar och hela Gästhamnen behandlas som i dag. KONFLIKT-posten
+D1-KAJZON-DEMOTION, vars fråga beslutet besvarar, ersätts av
+U23-KAJZON-UTANFÖR-VÄNTZONEN (DESIGN) på samma plats och med samma
+predikat. Omfånget är U23:s: kapselns närmaste punkt ligger utanför
+väntzonen kring målbron (APPROACH_RADIUS). Köfallet vid Kajen är KANDIDAT,
+eftersom U23 kräver att hon står kvar; villkoret läser geometrin och håller
+före och efter familj F:s apprättning.
+
+kajB och kajG blir DESIGN, kajK (köundantagets 15 min) KANDIDAT. Beslutet
+speglas i BUGGJAKT §7 (användarbeslut U23) och listan, rad 40.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/BUGGJAKT.md                              | 16 ++++++++--
+ .../__tests__/j-kampanj-register.test.js      |  3 +-
+ .../bugHunt/__tests__/k-varv2-motor.test.js   | 31 +++++++++++++------
+ .../bugHunt/beslutsregister.json              | 24 ++++----------
+ .../replay-validation/bugHunt/lib/registry.js | 27 +++++++++++-----
+ 5 files changed, 62 insertions(+), 39 deletions(-)
+
+diff --git a/docs/BUGGJAKT.md b/docs/BUGGJAKT.md
+index 9300897..b2245d8 100644
+--- a/docs/BUGGJAKT.md
++++ b/docs/BUGGJAKT.md
+@@ -267,7 +267,7 @@ Tre följder av principerna, förtydligade 2026-11-04:
+ | STRESS-TÄTHET | MÄTGRÄNS (tagg) | alla orakel, även INV-F | stressDensity(6, 10 min, 9) | denna fil §4.4 |
+ | KIE-PER-KORPUS | ACCEPTERAD | INV-F, M-FAS (INV-3, INV-14) | kiePrefix(samma episod: \|δ\| + en tick, plus undantagets längd när tiden är episodens slut; högst en träff per undantag och variant; aldrig låst bank) | corpora.js knownInvariantExceptions; runAllCorpora FP9 |
+ | U16-F40-STRAX-STUDS | MÄTGRÄNS | INV-F (INV-3) ETA-OSCILLATION, ETA-SÅGTAND UPP | f40StudsVidNästaFix(600 s, 1 s, 350 m, 300 m, 270 m, 500 m: strax → hopp → strax, hoppet när harnessen bearbetar en båts nästa rad, hennes föregående fix bearbetad mer än STALE_ETA_HARD före hoppet, ingen brotext eller halvminutstick mellan 600 s-gränsen och hoppet, båda fixarna inom 350 m och utanför kajkapslarna, återgången högst 1 s efter raden utan någon annan båts rad inom 500 m emellan, ingen styrrad, båten kunde bära strax vid sin förra fix (inom 300 m, eller inom 350 m efter en fix inom 270 m), och ingen annan båt kunde bära det vid hoppet (senaste fix inom 500 m, högst 600 s gammal, utanför kajkapslarna och på väg mot bron); aldrig låst bank) | harnessens uppskjutna UI-arbete (`replayRunner.js:86–88` och `:512–521`, `app.js:6983–6988`; §7 nedan); användarbeslut U16 om beteendet (§7 nedan); helgranskning-2026-07-06:271–274 (F40); etapp7-plan:8 (U1), :15 (U6), :267 (C11); app.js:7233–7239 |
+-| D1-KAJZON-DEMOTION | KONFLIKT | INV-F (INV-14), T6 | mooringCapsuleStationary(3 min, 600 m; textens bärare: appens stillhetsklocka spelad över hennes rader, demotionen i kapseln när stilltiden nått zonens krav, rörelsebevis före stillheten, på väg mot bron, ingen navStatus 1/5; episoden högst en tick efter demotionsraden, harnessens klocka) | constants MOORING_ZONES och VesselDataService#_classifyMooring mot reliability-spec D1 |
++| U23-KAJZON-UTANFÖR-VÄNTZONEN | DESIGN | INV-F (INV-14), T6 | mooringCapsuleStationary(3 min; textens bärare: appens stillhetsklocka spelad över hennes rader, demotionen i kapseln när stilltiden nått zonens krav, rörelsebevis före stillheten, på väg mot bron, ingen navStatus 1/5; episoden högst en tick efter demotionsraden, harnessens klocka; kapselns närmaste punkt mer än APPROACH_RADIUS 300 m från bron) | användarbeslut U23 (§7 nedan); constants MOORING_ZONES och APPROACH_RADIUS; VesselDataService#_classifyMooring; ersätter KONFLIKT-posten D1-KAJZON-DEMOTION |
+ | OMSTART-DEFAULT-FÖRE-FÖRSTA-FIX | KÄND_ÖPPEN | INV-F (INV-14), T11 | defaultUntilFirstFixAfterRestart(60 s) | app.js:487 (beslut saknas) |
+ | U1-C11-TYST-FÖRE-DEFAULT | DESIGN | INV-F (INV-14) DEFAULT-FLASH | tystBärareFörfallen(texten före: "En båt på väg mot X, ETA okänd"; BÄRAREN, med kursen mot X och X som närmaste målbro framför sig, passerar sitt eget steg för en båt med målbro (15, 20 eller 25 min ur hennes sista rad) inom en tick före episoden, harnessens klocka; aldrig låst bank) | etapp7-plan:8 (U1), :266–267 (C11, C11b); VesselDataService#getVesselsForBridgeText |
+ | M-BRUSBAND-RÖRELSEBEVIS | KÄND_ÖPPEN | INV-F (INV-14) DEFAULT-FLASH | krypbandVidTröskel(samma båt bär texten före och efter episoden och sänder hela den; (i) brus kring en tröskel i dess zon och så som M:s rättning dömer den: fartgrinden 0,7 kn > 500 m och 0,1 kn 300–500 m från närmaste bro med under grinden 60 s före och över den 60 s före slutet, ANCHOR_BLOCK 0,3 kn efter en bokförd passage, median ±0,1 kn och rader på båda sidor; (ii) en kadens lång och närmande 5–15 m per 60 s; (iii) en kadens lång, sog saknas och spridning > 8 m; aldrig låst bank) | ARCHITECTURE:954–986, fartprovet och kända gränser (a)–(c) |
+@@ -337,9 +337,18 @@ Radhänvisningarna i tabellen och i `beslutsregister.json` gäller aa71099, prod
+ - **Dirigentens beslut om R2:s fråga 2 (2026-11-04): JA.** En båt som får sin målbro först vid eller just efter bron bokför bron som mellanbro, och det är korrekt appbeteende (värld 1227 ELSA MARIA och 1731 KAJSA). Appen ger inget mål utan rörelsebevis (`MOVEMENT_PROOF_SOG_KN`, `MOVEMENT_PROOF_NET_M`), och `_calculateTargetBridge` väljer målbro på latitud mot brons latitud, så en båt som föds eller återföds stilla vid bron, eller redan bortom den, kan inte ha bron som mål när hon korsar linjen. Posten R2-MÅLBRO-EFTER-LINJEN (DESIGN, R2:s predikat) gäller INV-F INV-13. R2:s egentliga dubbelbokföring (värld 254, registrerad 13 min efter första raden bortom bron) omfattas inte.
+ - **U15 och U2-RETURRESA.** U15 (2026-11-04) besvarade U2-RETURRESA:s fråga: INV-21:s returresa är kontraktet, och returen får en egen varning (K2, commit 2c3f778). Posten användes fortfarande tre gånger i standardkörningen på e088a51 (värld 1208, 1316 och 1317), men ingen av träffarna är en returresa som U2 ska förklara. 1208 och 1316 är returer utan egen varning som U15 kräver. I 1317 bekräftade återkorsningen av Järnvägsbron vändningen 100 s före korsningen, och sedan hölls målbron tom (rad 34). Förut stod här felaktigt att Fix D bekräftade först efter korsningen och att 1317 var U18. Alla tre är KANDIDAT. Därför är posten borttagen och inte märkt som löst. Samtidigt förklarar U2-VS-DEADLINE och J13-J14-KONVOJSEMANTIK aldrig en returresa via båtens egen äldre händelse (`konvoj.egenKorsningEfter`): utan vakten hade J13 tagit över värld 1316 och 936.
+ 
++### Användarbeslut U23 (2026-11-09): kajen norr om Klaffbron
++
++Ägaren besvarade kajfrågan från triagen av restkorten i rättningskampanjens varv 2 (triage B, avsnittet "Kajfrågan för ägaren"; beslutet står i kampanjens KAMPANJ2.md, och familj F bygger det i appen och beskriver det i `docs/ARCHITECTURE.md`). Beslutet speglas här för motorn:
++
++- **En båt på väg mot Klaffbron som stannar vid Kajen norr om Klaffbron behandlas som i resten av väntområdet.** Hon står kvar i texten tills hon kör vidare, sänder navStatus "förtöjd" eller "ankrad" (1 eller 5) eller har legat stilla i 2 timmar (MAX_STATIONARY_WAIT_MS). D1 vinner alltså över kajzonens 15-minutersgissning. Ägarens motiv: utanför kajzonerna tas en väntande båt nära bron aldrig bort automatiskt, och Kajen ligger mitt i väntzonen (kapselns närmaste punkt 161 m från bron, `lib/constants.js:415–436`).
++- **Två saker behandlas som i dag:** båtar vid Kajen som inte är på väg mot Klaffbron, till exempel norrgående som redan har passerat Klaffbron och har Stridsbergsbron som mål mer än 600 m bort, och hela Gästhamnen, som ligger utanför väntzonen (kapselns närmaste punkt 319,5 m från Klaffbron, `lib/constants.js:438–468`). Där klassar zonregeln en stillaliggare som förtöjd efter baskravet 3 min.
++- **Registret** (rad 40): KONFLIKT-posten D1-KAJZON-DEMOTION, vars fråga beslutet besvarar, ersätts av U23-KAJZON-UTANFÖR-VÄNTZONEN (DESIGN) på samma plats i registret. Den gäller en DEFAULT-flash där zonregeln demoterade textens bärare i en kapsel utanför väntzonen kring hennes målbro (kapselns närmaste punkt mer än APPROACH_RADIUS, 300 m, från bron). Det är just de två fallen som behandlas som i dag; fallet med 3 min och mer än 600 m till målbron krockar inte med D1, eftersom båten då är mer än 500 m från sin målbro. En båt på väg mot Klaffbron som demoteras vid Kajen omfattas inte: före familj F:s apprättning sker det efter köundantagets 15 min, och det är ett appfel mot U23 som ska synas som KANDIDAT. Villkoret läser geometrin och inte köundantaget, så posten håller både före och efter apprättningen, också om F ändrar konstanterna i stället för zonregeln.
++- **Vad som ändras när F är integrerad:** inget i posten. Flashar av köfallet vid Kajen (som triagens kajK) försvinner ur körningarna, och 313-klassen i T2 LEDTID (kön i kapseln, M8) bör försvinna med dem. Om F också låter navStatus 1/5 eller 2-timmarsgränsen demotera en köare vid Kajen och det ger en flash, omfattas den inte av posten (navstatus-lagret och reservgränsen är inte zonregeln) och blir KANDIDAT; en sådan post kräver ett belägg i körningarna först.
++
+ ### Registerändringar att granska (rättningsrundan 2026-11-04)
+ 
+-Rad 1–17 och 19–22 rättar motorfel eller registrerar en mätgräns i ett befintligt orakel och skriver inga nya ägarbeslut. Rad 18 speglar ägarens beslut U16 (2026-11-04, ovan), rad 19 och 21 snävar den posten efter motorfel, och rad 21 gör den till MÄTGRÄNS med beslutet U16 kvar som källa för beteendet. Rad 23–31 (registret 2026-11-07, på e088a51 med familjerna K, K2, M, E, R1 och R2 integrerade) speglar användarbesluten U15, U17, U18 och U19, dirigentens beslut om R2:s fråga 2 och familjernas kända gränser (ovan); de skriver inga nya beslut. Rad 32–33 (efterrättningen samma dag, efter granskningen av registret) snävar de posterna och O1:s T3-gren; de skriver inga nya beslut heller. Rad 34–36 (den andra granskningen samma dag, på aa71099 med alla sju kampanjfamiljer K, K2, M, E, R1, R2 och N integrerade, men inte E2 enligt U22) snävar U18, tar bort en KONFLIKT som U14 har avgjort och flyttar radhänvisningarna; de skriver inga nya beslut. Rad 37 och framåt (rättningskampanjens varv 2, 2026-11-09, familj E MOTOR, på c14938f) rättar motorfel i predikaten som triagen av restkorten hittade; vilka rader som speglar ett ägarbeslut står i raden. Varje post pekar på sin källa. Ägaren bör granska listan.
++Rad 1–17 och 19–22 rättar motorfel eller registrerar en mätgräns i ett befintligt orakel och skriver inga nya ägarbeslut. Rad 18 speglar ägarens beslut U16 (2026-11-04, ovan), rad 19 och 21 snävar den posten efter motorfel, och rad 21 gör den till MÄTGRÄNS med beslutet U16 kvar som källa för beteendet. Rad 23–31 (registret 2026-11-07, på e088a51 med familjerna K, K2, M, E, R1 och R2 integrerade) speglar användarbesluten U15, U17, U18 och U19, dirigentens beslut om R2:s fråga 2 och familjernas kända gränser (ovan); de skriver inga nya beslut. Rad 32–33 (efterrättningen samma dag, efter granskningen av registret) snävar de posterna och O1:s T3-gren; de skriver inga nya beslut heller. Rad 34–36 (den andra granskningen samma dag, på aa71099 med alla sju kampanjfamiljer K, K2, M, E, R1, R2 och N integrerade, men inte E2 enligt U22) snävar U18, tar bort en KONFLIKT som U14 har avgjort och flyttar radhänvisningarna; de skriver inga nya beslut. Rad 37 och framåt (rättningskampanjens varv 2, 2026-11-09, familj E MOTOR, på c14938f) rättar motorfel i predikaten som triagen av restkorten hittade och skriver inga nya beslut; rad 40 speglar användarbeslutet U23 (ovan). Varje post pekar på sin källa. Ägaren bör granska listan.
+ 
+ | # | Post | Ändring | Skäl och källa |
+ |---|---|---|---|
+@@ -382,6 +391,7 @@ Rad 1–17 och 19–22 rättar motorfel eller registrerar en mätgräns i ett be
+ | 37 | U17-TYST-BÅT-RECOVER och K-TYST-BÅT-NÄSTA-ÖPPNING (varv 2, M2) | `tystRecoverSammaÖppning` prövar tystnaden över korsningen (T3) på fixens tid (`fixtid`: fixTs, annars mottagningstiden) i stället för på radens mottagningstid. Skälet nämner båda tiderna. U17:s regeltext är uppdaterad; parametrar, gäller och klass är oförändrade. | Motorfel M2 (triage B, varv 2). För en AISHub-rad är aisTimestamp mottagningen, och fixen kan vara mer än en minut äldre. I värld 941 togs ZELDAs sista rad emot 13:28:57,288, 0,1 s efter korsningen 13:28:57,177, men fixen var från 13:28:40 och visade henne 58 m före Stridsbergsbron; appen kunde alltså inte se passagen. Värld 941 blir U17 (DESIGN). Jest: `j-kampanj-register.test.js`, där vakten för 941 byggde på samma misstag och nu är ett träfffall, med två nya vakter (fixen efter korsningen, och en rad utan fixTs). Källa oförändrad: U17 och `BridgeOpeningService.js#_coverageVerdict`. |
+ | 38 | U17-TYST-BÅT-RECOVER och K-TYST-BÅT-NÄSTA-ÖPPNING (varv 2, M3) | Villkor (2) godtar en GEMENSAM RECOVER: varningen får ledas av en annan båt L när båten är medlem i varningen, när hennes och L:s senaste absorption vid bron före varningen gällde samma händelse och när ingen av dem har en egen rad, bearbetad efter sin absorption och före varningen. Förut krävdes att hon själv ledde varningen. Regeltexterna och källan är uppdaterade; parametrar, gäller och klass är oförändrade. | Motorfel M3 (triage B, varv 2): villkoret var snävare än släppvägen. Två tysta båtar som släpps i samma utvärdering ur samma händelse binds till EN ny händelse (`BridgeOpeningService.js#_bindLooseArms` → `_openEvent`), och ledaren väljs på rått avstånd (`#_leadOf`). I värld 972 (F07) absorberades QUEST och MASEN båda i Stridsbergsbron#6 13:49:33,735, släpptes vid samma täckningsslut och bands till #10 13:54:52,919 med MASEN som ledare; ingen av dem hördes efter absorptionen, så ingen färsk prognos kan ha seedat varningen. Värld 972 blir U17 (DESIGN). Jest: `k-varv2-motor.test.js` med alla båtars rader ur världen (ny fixtur `varv2-motor-2026-11-09.json`), med vakter för en ledare som hördes efter absorptionen, en egen rad efter absorptionen, en annan senaste händelse för ledaren och en varning där båten inte är medlem. Vakten för 972 i `j-kampanj-register.test.js` byggde på den gamla fixturen med bara hennes rader och prövar nu en ledare utan absorption. Källa: U17, `#_bindLooseArms`, `#_leadOf` och `#_releaseStrandedArms`. |
+ | 39 | D1-KAJZON-DEMOTION (varv 2, B01) | Predikatet `mooringCapsuleStationary` binds till den båt som bar texten och speglar zonregeln (`VesselDataService.js#_classifyMooring`). Appens stillhetsklocka (`VesselDataService.js#_updateMooringEvidence`) spelas över hennes rader: den startar vid första raden med finit sog under STATIONARY_SOG_KN, var hon än ligger, en rad utan sog låter den gå, en rad med minst MOVEMENT_PROOF_SOG_KN och två gråzonsrader i följd nollar den (jitterhållet spelas inte, så predikatet kan bara bli smalare). Demotionen är första raden i klockans sista varv där hon ligger i en kapsel och stilltiden, räknad på harnessens bearbetningstider som appens klocka, nått zonens krav (3 min, eller zonens queueGraceMs inom 600 m från bron); har en rad i varvet dessförinnan navStatus 1 eller 5 klassade navstatus-lagret henne. Kraven för båten: rörelsebevis (en rad med sog ≥ MOVEMENT_PROOF_SOG_KN) före varvet, kursbandet i hennes sista rad i rörelse pekar mot bron och bron är den närmaste målbron framför henne (U1-C11:s bärarbegrepp), och episoden börjar högst en halvminutstick (30 s plus 40 ms mikrograce) efter bearbetningen av demotionsraden. Avståndet mäts från hennes position vid demotionen, som i zonregeln, inte från kapselns närmaste punkt. Postens omfång (målbron mer än 600 m bort), klass och fråga är oförändrade; regeltexten och källan är uppdaterade. | Motorfel B01 (triage B, varv 2). Predikatet godtog första båt som låg still minst 3 min i en kapsel mer än 600 m från bron, även en kajliggare som aldrig hade målbro. I värld 138 träffade TROLLA (navStatus 5, stilla hela världen, utan målbro) och gav KONFLIKT, medan flashen var ULLAs 20-minuterssteg i STALE_DISPLAY_DROP-trappan (U1-C11). Krymparen behöll TROLLA i minsta repro bara för att hålla klassen. Värld 138 blir nu U1-C11 (DESIGN). En äkta kajflash ger fortfarande KONFLIKT: triagens scenario kajB (R0, en båt norrut som stannar 6 min i Kajens kapsel 979 m från Stridsbergsbron, demoterad vid raden 08:27:28,095 och "Inga båtar" 25 ms senare i 240 s). Två egna scenarier visar klockan: kajG (söderut mot Klaffbron, stopp 4 min i Gästhamnens kapsel, där en rad på 0,2 kn utanför kapseln startar klockan och appen demoterar efter 3 min) och kajK (triagens kajA med kön kortad till 17 min i Kajens kapsel, köundantaget 15 min). Båda demotionerna hittas, och båda är KANDIDAT eftersom målbron ligger inom 600 m (postens omfång). Jest: `k-varv2-motor.test.js` (138, kajB, kajG och kajK ur körningarna, med vakter för navStatus 5, en senare stillhet, en sydgående kurs och 0,4 kn utan rörelsebevis) och enhetsfallet i `registry.test.js`. Källa: `lib/constants.js:415–470` och `VesselDataService.js#_classifyMooring`. |
++| 40 | D1-KAJZON-DEMOTION (borttagen) och U23-KAJZON-UTANFÖR-VÄNTZONEN (ny, varv 2) | KONFLIKT-posten ersätts av en DESIGN-post med samma gäller (INV-F INV-14 DEFAULT-FLASH, T6 LIVENESS) och samma predikat, på samma plats i registret. Predikatets omfång byts från "målbron mer än 600 m bort" (parametern `minAvståndM`, borttagen) till U23:s: kapselns närmaste punkt ligger mer än APPROACH_RADIUS (300 m, ny parameter `väntzonM`) från bron. Frågan och doktrinerna tas bort; regeltexten citerar beslutet. | Användarbeslut U23 (2026-11-09, ovan), dirigentens uppdrag i varv 2: KONFLIKT-posten är löst för båtar på väg mot Klaffbron (D1 vinner), och fallet med 3 min och mer än 600 m krockar inte med D1. Omfånget följer beslutets två fall "som i dag": Kajen för en båt som inte är på väg mot Klaffbron (kajB: DESIGN, förut KONFLIKT) och hela Gästhamnen, också inom 600 m från Klaffbron (kajG: DESIGN, förut KANDIDAT). Köfallet vid Kajen (kajK, demoterat efter köundantagets 15 min) är KANDIDAT, nu med skälet att U23 kräver att hon står kvar. Standardkörningen på c14938f har ingen sådan träff: posten användes en gång, i värld 138, och det var motorfelet B01 (rad 39). Jest: `k-varv2-motor.test.js` (kajB, kajG och kajK, och en vakt som visar att villkoret håller när köundantaget inte gäller). Källa: U23, `lib/constants.js:415–470` och `:39–41`, `VesselDataService.js#_classifyMooring`. |
+ 
+ **Valet för M12, per post** (flytta vakten till registret eller märka posten):
+ - **KAJGRIND-UTAN-RÖRELSEBEVIS: märkt.** T1:s förutsättning 3 (`t1Notice.js#judgeT1`, rörelsebeviset med MOVE_KN) dömer inget besök utan en fix med sog ≥ 1,0 kn i [tIn − 10 min; max(tOut, första fixen)] och räknar dem i `utanRörelsebevis`. Registrets fönster skilde bara med högst 120 s i svansen. Att flytta vakten till registret hade gjort varje kajliggare till ett rått T1-utslag.
+@@ -990,7 +1000,7 @@ Katalogen återges ur byggunderlaget med regler, trösklar och falsklarmsvakter.
+ 
+ - **Regel:** Brotexten är DEFAULT oavbrutet i minst 120 s medan en båt uppfyller båda villkoren: (1) enligt L0 är den på aktiv resa mot målbron T, det vill säga korsar T senare och har högst 500 m kvar (APPROACHING_RADIUS); (2) enligt L1 har den en senaste fix som är högst 5 min gammal och ligger högst 500 m från T, samt minst 2 fixar med sog ≥ 2 kn de senaste 60 min.
+ - **Tröskel:** Minst 120 s ger KANDIDAT med allvar 4 (INV-B1/D1, ratificerad 2026-06-03).
+-- **Falsklarmsvakt:** Ingen dom fälls i följande fall: senaste fixen ligger stilla i en MOORING_ZONES-kapsel längre än baskravet 3 min (för Kajen 15 min när köundantaget gäller, det vill säga målbro, rörelsebevis och högst 600 m); fixen har navStatus 1 eller 5; inom 5 min efter ctrl:restart; under ctrl:disconnect. D1-KAJZON-DEMOTION → KONFLIKT. P8/L6 hör inte hit, eftersom det inte går att mäta i standardreplay.
++- **Falsklarmsvakt:** Ingen dom fälls i följande fall: senaste fixen ligger stilla i en MOORING_ZONES-kapsel längre än baskravet 3 min (för Kajen 15 min när köundantaget gäller, det vill säga målbro, rörelsebevis och högst 600 m); fixen har navStatus 1 eller 5; inom 5 min efter ctrl:restart; under ctrl:disconnect. Efter U23 (2026-11-09, §7) gäller kajundantaget inte en båt på väg mot Klaffbron vid Kajen: hon ska stå kvar som i resten av väntområdet. U23-KAJZON-UTANFÖR-VÄNTZONEN → DESIGN för kapslar utanför väntzonen (förut D1-KAJZON-DEMOTION → KONFLIKT). P8/L6 hör inte hit, eftersom det inte går att mäta i standardreplay.
+ - **v1:** inte byggt.
+ 
+ ### T11 OMSTART (sträckmål S1)
+diff --git a/tests/replay-validation/bugHunt/__tests__/j-kampanj-register.test.js b/tests/replay-validation/bugHunt/__tests__/j-kampanj-register.test.js
+index cc0aad1..c664837 100644
+--- a/tests/replay-validation/bugHunt/__tests__/j-kampanj-register.test.js
++++ b/tests/replay-validation/bugHunt/__tests__/j-kampanj-register.test.js
+@@ -54,7 +54,8 @@ describe('registret 2026-11-07: posterna finns, laddar utan varningar och U2-RET
+     expect(reg.varningar).toEqual([]);
+     // KIE-PER-KORPUS och D1 prövas före de nya INV-14-posterna; O1 före U18–U19.
+     expect(ids.indexOf('KIE-PER-KORPUS')).toBeLessThan(ids.indexOf('U1-C11-TYST-FÖRE-DEFAULT'));
+-    expect(ids.indexOf('D1-KAJZON-DEMOTION')).toBeLessThan(ids.indexOf('U1-C11-TYST-FÖRE-DEFAULT'));
++    // D1-KAJZON-DEMOTION ersattes i varv 2 av U23-KAJZON-UTANFÖR-VÄNTZONEN på samma plats.
++    expect(ids.indexOf('U23-KAJZON-UTANFÖR-VÄNTZONEN')).toBeLessThan(ids.indexOf('U1-C11-TYST-FÖRE-DEFAULT'));
+     expect(ids.indexOf('O1-ACCEPTERADE-MISSKLASSER')).toBeLessThan(ids.indexOf('U18-RETUR-BEKRÄFTAD-SENT'));
+     expect(ids.indexOf('U18-RETUR-BEKRÄFTAD-SENT')).toBeLessThan(ids.indexOf('U17-TYST-BÅT-RECOVER'));
+   });
+diff --git a/tests/replay-validation/bugHunt/__tests__/k-varv2-motor.test.js b/tests/replay-validation/bugHunt/__tests__/k-varv2-motor.test.js
+index 02557da..8794820 100644
+--- a/tests/replay-validation/bugHunt/__tests__/k-varv2-motor.test.js
++++ b/tests/replay-validation/bugHunt/__tests__/k-varv2-motor.test.js
+@@ -107,12 +107,12 @@ describe('M3: gemensam RECOVER i villkor (2) av tystRecoverSammaÖppning', () =>
+ // B01: kajpredikatet binds till textens bärare (värld 138 och kajB)
+ // ---------------------------------------------------------------------------
+ 
+-describe('B01: mooringCapsuleStationary binds till den båt som bar texten', () => {
++describe('B01 och U23: mooringCapsuleStationary binds till den båt som bar texten', () => {
+   test('[träff] värld 138: kajliggaren TROLLA (navStatus 5, aldrig målbro) bar aldrig texten; flashen är ULLAs 20-minuterssteg, U1-C11', () => {
+     const { fynd, ctx } = fall('w138');
+     const c = klassa(reg, fynd, ctx);
+     expect(c).toMatchObject({ klass: 'DESIGN', post: 'U1-C11-TYST-FÖRE-DEFAULT' });
+-    expect(prövad(c, 'D1-KAJZON-DEMOTION').skäl).toMatch(/265162412: inget rörelsebevis före stillheten/);
++    expect(prövad(c, 'U23-KAJZON-UTANFÖR-VÄNTZONEN').skäl).toMatch(/265162412: inget rörelsebevis före stillheten/);
+   });
+ 
+   test('[vakt] värld 138 där TROLLA hade kommit norrut i 3 kn: navStatus 5 under stillheten, så navstatus-lagret klassade henne', () => {
+@@ -129,10 +129,10 @@ describe('B01: mooringCapsuleStationary binds till den båt som bar texten', ()
+   // 6 min i Kajens kapsel, 979 m från bron. Zonregeln demoterar henne vid
+   // raden 08:27:28,095, när stilltiden når 3 min, och texten blir "Inga båtar"
+   // 25 ms senare i 240 s. Det är en äkta kajflash.
+-  test('[träff] kajB: bäraren demoteras av zonregeln efter 3 min när episoden börjar; KONFLIKT D1-KAJZON-DEMOTION', () => {
++  test('[träff] kajB: bäraren demoteras av zonregeln efter 3 min när episoden börjar; U23 (som i dag för en båt som inte är på väg mot Klaffbron)', () => {
+     const { fynd, ctx } = fall('kajB');
+-    expect(klassa(reg, fynd, ctx)).toMatchObject({ klass: 'KONFLIKT', post: 'D1-KAJZON-DEMOTION' });
+-    expect(pred('mooringCapsuleStationary')(fynd, ctx).skäl).toMatch(/bäraren 265900100 .* demoterades av zonregeln \(krav 3 min\) vid raden 08:27:28; .* 25 ms efter/);
++    expect(klassa(reg, fynd, ctx)).toMatchObject({ klass: 'DESIGN', post: 'U23-KAJZON-UTANFÖR-VÄNTZONEN' });
++    expect(pred('mooringCapsuleStationary')(fynd, ctx).skäl).toMatch(/U23: bäraren 265900100 .* demoterades av zonregeln \(krav 3 min\) vid raden 08:27:28; .* 25 ms efter/);
+   });
+ 
+   test('[vakt] kajB med navStatus 5 under stillheten: navstatus-lagret, inte zonregeln', () => {
+@@ -162,15 +162,28 @@ describe('B01: mooringCapsuleStationary binds till den båt som bar texten', ()
+   // ("zon Gästhamnen norr om Klaffbron (still 3 min)"). kajK: triagens kajA
+   // med kön kortad till 17 min, i Kajens kapsel 245 m före Klaffbron;
+   // köundantaget (15 min) gäller.
+-  test('[vakt] kajG och kajK: demotionen hittas på appens klocka (3 min i Gästhamnen, köundantagets 15 min vid Kajen), men målbron ligger inom 600 m', () => {
++  test('[träff] kajG: demotionen efter 3 min i Gästhamnen hittas på appens klocka; U23 (hela Gästhamnen som i dag)', () => {
+     const g = fall('kajG');
+-    expect(pred('mooringCapsuleStationary')(g.fynd, g.ctx).skäl).toMatch(/demoterad i "Gästhamnen norr om Klaffbron" 379 m från Klaffbron, inte mer än 600 m/);
+-    expect(klassa(reg, g.fynd, g.ctx).klass).toBe('KANDIDAT');
++    expect(klassa(reg, g.fynd, g.ctx)).toMatchObject({ klass: 'DESIGN', post: 'U23-KAJZON-UTANFÖR-VÄNTZONEN' });
++    expect(pred('mooringCapsuleStationary')(g.fynd, g.ctx).skäl)
++      .toMatch(/U23: bäraren 265900100 \(på väg mot Klaffbron, 379 m från bron\) låg stilla från 08:26:38 i "Gästhamnen norr om Klaffbron" /);
++    expect(pred('mooringCapsuleStationary')(g.fynd, g.ctx).skäl).toMatch(/\(utanför väntzonen, 319 m\) .*krav 3 min\) vid raden 08:29:38/);
++  });
++
++  test('[vakt] kajK: en båt på väg mot Klaffbron demoteras vid Kajen efter köundantagets 15 min; enligt U23 ska hon stå kvar (D1), KANDIDAT', () => {
+     const k = fall('kajK');
+-    expect(pred('mooringCapsuleStationary')(k.fynd, k.ctx).skäl).toMatch(/demoterad i "Kajen norr om Klaffbron" 245 m från Klaffbron, inte mer än 600 m/);
++    expect(pred('mooringCapsuleStationary')(k.fynd, k.ctx).skäl)
++      .toMatch(/demoterad i "Kajen norr om Klaffbron" 245 m från Klaffbron; kapselns närmaste punkt ligger 161 m från bron, inom väntzonen \(300 m\): enligt U23/);
+     expect(klassa(reg, k.fynd, k.ctx).klass).toBe('KANDIDAT');
+   });
+ 
++  test('[vakt] kajK med köundantaget avstängt (3 min, som om zonen saknade queueGraceMs): fortfarande inom väntzonen, KANDIDAT', () => {
++    // Villkoret bygger på geometrin, inte på köundantaget, så det håller om
++    // familj F:s apprättning ändrar konstanterna i stället för zonregeln.
++    const k = fall('kajK');
++    expect(pred('mooringCapsuleStationary', { köundantagM: -1 })(k.fynd, k.ctx).sant).toBe(false);
++  });
++
+   test('[vakt] kajB utan rörelsebevis (0,4 kn före stillheten): fick aldrig någon målbro', () => {
+     const { fynd, ctx } = fall('kajB');
+     for (const r of ctx.rader.filter((x) => x.sog > 0)) r.sog = 0.4;
+diff --git a/tests/replay-validation/bugHunt/beslutsregister.json b/tests/replay-validation/bugHunt/beslutsregister.json
+index 38ac03f..a9d1075 100644
+--- a/tests/replay-validation/bugHunt/beslutsregister.json
++++ b/tests/replay-validation/bugHunt/beslutsregister.json
+@@ -71,10 +71,10 @@
+       "regel": "Användarbeslut U16 (2026-11-04): beteendet behålls. Appen visar aldrig 'strax' på en position som är äldre än STALE_ETA_HARD (10 min; U1/C11 och F40-avvägningen). När en köande båts 'strax'-bärande fix blir äldre än 600 s tappar klausulen 'strax' och lånar nästa båts ETA, och 'strax' kommer tillbaka med båtens nästa fix. INV-3:s studsdiskriminator (invariants.js:334–351) fäller studsen som ETA-OSCILLATION och ETA-SÅGTAND UPP. Posten gäller bara studsen hos den båt som kan ha burit 'strax', när hennes nästa rad bearbetas: harnessen dränerar väntande UI-arbete när klockan når raden, före sampelbearbetningen, och texten där bygger på läget före raden. Den varianten är en mätgräns: harnessen kör appens asynkrona UI-arbete först vid sin nästa dränering (en verklig setImmediate efter varje clock.tick, replayRunner.js:86–88 och 512–521), så hoppet är svansen av en tidigare UI-cykel, i värld 1608 omkörningen (setImmediate, app.js:6983–6988) av halvminutens cykel 09:42:00. I fält hade omkörningen gått vid halvminuten med åldern cirka 590 s. Kraven: nivån före hoppet och återgången är 'strax' i brons ETA-serie; hoppet publicerades exakt när harnessen bearbetade båtens rad (harnessens klocka: en rad bearbetas vid max(radens tid, förra AIS-radens bearbetning + 60 ms)); båtens föregående fix bearbetades mer än 600 s före hoppet (appens ålder, med samma jämförelse som dataIsFreshEnough); båda fixarna ligger inom 350 m från bron (WAITING_CLEAR_DISTANCE) och utanför kajkapslarna (MOORING_ZONES); ingen brotext publicerades och ingen halvminutstick (i variantens fas för M-FAS) föll mellan 600 s-gränsen och hoppet, eftersom appen annars hade tappat 'strax' där om båten bar det; återgången kom efter radens bearbetning och högst 1 s efter radens tid, utan att någon annan båts rad inom 500 m från bron (den vidaste radie där appen sätter 'strax') bearbetades emellan; ingen styrrad (avbrott, återanslutning, omstart) bearbetades mellan båtens förra fix och återgången; båten kunde bära 'strax' vid sin förra fix (fixen inom 300 m, imminent SET, eller inom 350 m efter en tidigare fix inom 270 m, väntläget, utan att båten lämnat 350 m emellan); och ingen annan båt kunde bära 'strax' vid hoppet (ingen annan båt har sin senaste fix före hoppet inom 500 m, högst 600 s gammal i appens klocka, utanför kajkapslarna och på väg mot bron: kursen inom ±90° från bäringen till bron, eller saknad kurs inom 350 m). Tick-varianten, ETA-hoppet vid 600 s utan 'strax' och B4:s 90 s-tak på uttömt 'strax' (positionen är då yngre än 600 s, och uttömningen syns inte i raderna) omfattas inte, inte heller en B4-studs vid en annan båts rad. En äkta studs med bäraren i en kajkapsel blir också KANDIDAT. På den låsta banken (relation BAS) gäller ingen registeramnesti. Snävad i efterrättningarna R3b och R3c, och klassen ändrad från DESIGN till MÄTGRÄNS i R3c (BUGGJAKT §7 rad 19 och 21)."
+     },
+     {
+-      "id": "D1-KAJZON-DEMOTION",
+-      "klass": "KONFLIKT",
+-      "datum": "2026-11-04",
+-      "källa": "lib/constants.js:415–470 (MOORING_ZONES, queueGraceMs) och lib/services/VesselDataService.js#_classifyMooring (zonregeln) mot docs/reliability-spec.md:83 och :102 (INV-B1/D1); docs/BUGGJAKT.md §7 (varv 2, rad 39)",
++      "id": "U23-KAJZON-UTANFÖR-VÄNTZONEN",
++      "klass": "DESIGN",
++      "datum": "2026-11-09",
++      "källa": "docs/BUGGJAKT.md §7 (användarbeslut U23 2026-11-09, ur rättningskampanjens KAMPANJ2.md, med underlaget i triage B:s avsnitt Kajfrågan för ägaren; registerändringarna i varv 2, rad 39 och 40); lib/constants.js:415–470 (MOORING_ZONES: Kajen norr om Klaffbron med köundantag mitt i väntzonen, Gästhamnen utanför väntzonen utan köundantag) och :39–41 (APPROACH_RADIUS, väntzonen 300 m); lib/services/VesselDataService.js#_classifyMooring och #_updateMooringEvidence (zonregeln och stillhetsklockan); docs/reliability-spec.md:102 (D1)",
+       "gäller": {
+         "orakel": [
+           "INV-F",
+@@ -88,22 +88,10 @@
+       "predikat": {
+         "namn": "mooringCapsuleStationary",
+         "parametrar": {
+-          "minStillaMin": 3,
+-          "minAvståndM": 600
++          "minStillaMin": 3
+         }
+       },
+-      "regel": "En båt som står still minst 3 min i en kajkapsel när målbron ligger mer än 600 m bort demoteras enligt zonregeln, vilket kan ge en DEFAULT-flash. Predikatet binder flashen till den båt som bar texten och speglar zonregeln (varv 2, B01): appens stillhetsklocka spelas över hennes rader (start vid första raden under STATIONARY_SOG_KN var hon än ligger, nollning vid en rad med minst MOVEMENT_PROOF_SOG_KN eller två gråzonsrader i följd), och demotionen är första raden i klockans sista varv där hon ligger i en kapsel och stilltiden, räknad på harnessens bearbetningstider, nått zonens krav. Hon har rörelsebevis före varvet (annars fick hon aldrig någon målbro), hennes kurs i sista raden i rörelse pekar mot bron och bron är den närmaste målbron framför henne, ingen rad i varvet före demotionen har navStatus förtöjd eller ankrad (då klassar navstatus-lagret henne), och episoden börjar högst en halvminutstick efter demotionsraden.",
+-      "doktriner": [
+-        {
+-          "text": "Zonregeln: en stillaliggare i en kajkapsel klassas som förtöjd efter baskravet 3 min; köundantaget (queueGraceMs) gäller bara med målbro inom 600 m.",
+-          "källa": "lib/constants.js:415–470"
+-        },
+-        {
+-          "text": "INV-B1/D1: texten visar aldrig DEFAULT när ett relevant fartyg är inom 500 m av en målbro på aktiv resa; stoppad båt behålls som 'på väg mot X'.",
+-          "källa": "docs/reliability-spec.md:83, :102"
+-        }
+-      ],
+-      "fråga": "En båt som står still minst 3 min i Kajens kapsel när målbron ligger mer än 600 m bort demoteras och ger en fatal INV-14 (DEFAULT-flash). Är det avsett, eller bryter det mot INV-B1/D1?"
++      "regel": "U23 (ägarbeslut 2026-11-09): en båt på väg mot Klaffbron som stannar vid Kajen norr om Klaffbron behandlas som i resten av väntområdet och står kvar i texten tills hon kör vidare, sänder navStatus 1 eller 5 eller har legat stilla i 2 timmar; D1 vinner över kajzonens 15-minutersgissning. Två saker behandlas som i dag: båtar vid Kajen som inte är på väg mot Klaffbron (norrgående som passerat Klaffbron, med Stridsbergsbron som mål mer än 600 m bort) och hela Gästhamnen, som ligger utanför väntzonen. Där klassar zonregeln en stillaliggare som förtöjd efter baskravet 3 min, och var hon textens enda båt mot bron blir texten 'Inga båtar' tills hon kör vidare (INV-14 DEFAULT-FLASH). Det är beslutat beteende. Predikatet binder flashen till den båt som bar texten och speglar zonregeln: appens stillhetsklocka spelas över hennes rader (start vid första raden under STATIONARY_SOG_KN var hon än ligger, nollning vid en rad med minst MOVEMENT_PROOF_SOG_KN eller två gråzonsrader i följd), och demotionen är första raden i klockans sista varv där hon ligger i en kapsel och stilltiden, räknad på harnessens bearbetningstider, nått zonens krav. Hon har rörelsebevis före varvet (annars fick hon aldrig någon målbro), hennes kurs i sista raden i rörelse pekar mot bron och bron är den närmaste målbron framför henne, ingen rad i varvet före demotionen har navStatus förtöjd eller ankrad (då klassar navstatus-lagret henne), och episoden börjar högst en halvminutstick efter demotionsraden. Kapselns närmaste punkt ska ligga mer än APPROACH_RADIUS (300 m) från bron, alltså utanför väntzonen: Kajen ligger 161 m från Klaffbron, så en båt på väg mot Klaffbron som demoteras där (före familj F:s apprättning efter köundantagets 15 min) omfattas inte och blir KANDIDAT. Villkoret läser geometrin och inte köundantaget, så det håller både före och efter apprättningen. Ersätter KONFLIKT-posten D1-KAJZON-DEMOTION (2026-11-04), vars fråga U23 besvarar."
+     },
+     {
+       "id": "OMSTART-DEFAULT-FÖRE-FÖRSTA-FIX",
+diff --git a/tests/replay-validation/bugHunt/lib/registry.js b/tests/replay-validation/bugHunt/lib/registry.js
+index 35b021e..d8020a5 100644
+--- a/tests/replay-validation/bugHunt/lib/registry.js
++++ b/tests/replay-validation/bugHunt/lib/registry.js
+@@ -1020,7 +1020,8 @@ const PREDICATES = {
+     },
+   },
+ 
+-  // Kajzonens demotion av textens bärare (D1-KAJZON-DEMOTION). Zonregeln
++  // Kajzonens demotion av textens bärare (U23-KAJZON-UTANFÖR-VÄNTZONEN,
++  // förut KONFLIKT-posten D1-KAJZON-DEMOTION). Zonregeln
+   // (VesselDataService.js#_classifyMooring, MOORING_ZONES i lib/constants.js)
+   // klassar en stillaliggare i en kajkapsel som förtöjd när stilltiden når
+   // zonens krav, och då rensas hennes målbro (MOORED_DEMOTE). Var hon textens
+@@ -1054,12 +1055,20 @@ const PREDICATES = {
+   //  - episoden börjar vid demotionen: högst en halvminutstick (tickS plus
+   //    textens mikrograce tickFördröjningMs) efter bearbetningen av
+   //    demotionsraden;
+-  //  - hennes avstånd till bron är större än minAvståndM (postens omfång:
+-  //    "målbron mer än 600 m bort").
++  //  - U23 (ägarbeslut 2026-11-09, BUGGJAKT §7): kapseln Z ligger utanför
++  //    väntzonen kring bron, alltså Z:s närmaste punkt mer än väntzonM
++  //    (APPROACH_RADIUS, 300 m) från bron. Där gäller zonregeln som i dag
++  //    (Kajen för en båt som inte är på väg mot Klaffbron, och hela
++  //    Gästhamnen). En båt på väg mot Klaffbron som stannar vid Kajen, mitt i
++  //    väntzonen, ska stå kvar tills hon kör vidare, sänder navStatus 1/5
++  //    eller har legat stilla i 2 timmar (D1 vinner). En sådan demotion (före
++  //    familj F:s apprättning efter köundantagets 15 min) förklaras inte och
++  //    blir KANDIDAT. Villkoret läser bara geometrin och inte köundantaget, så
++  //    det håller både före och efter apprättningen.
+   mooringCapsuleStationary: {
+     parametrar: {
+       minStillaMin: 3,
+-      minAvståndM: C.BRIDGE_OPENING.DISARM_MOORED_MIN_DISTANCE_M,
++      väntzonM: C.APPROACH_RADIUS,
+       köundantagM: 600,
+       stillaSogKn: C.MOORING_DETECTION.STATIONARY_SOG_KN,
+       rörelseSogKn: C.MOORING_DETECTION.MOVEMENT_PROOF_SOG_KN,
+@@ -1160,12 +1169,14 @@ const PREDICATES = {
+           skäl.push(`${mmsi}: demoterad vid raden ${fmtT(dem.aisTimestamp)}, ${Math.round(efterMs / 1000)} s före episoden ${fmtT(t0)} (mer än en tick)`);
+           continue;
+         }
+-        if (!(dist > p.minAvståndM)) {
+-          skäl.push(`${mmsi}: demoterad i "${zone.name}" ${Math.round(dist)} m från ${f.bro}, inte mer än ${p.minAvståndM} m (utanför postens omfång)`);
++        const zonM = platser.capsuleDistanceToPoint(zone, f.bro);
++        if (!(zonM > p.väntzonM)) {
++          skäl.push(`${mmsi}: demoterad i "${zone.name}" ${Math.round(dist)} m från ${f.bro}; kapselns närmaste punkt ligger ${Math.round(zonM)} m `
++            + `från bron, inom väntzonen (${p.väntzonM} m): enligt U23 ska en båt på väg mot ${f.bro} stå kvar där (D1)`);
+           continue;
+         }
+-        return ok(`bäraren ${mmsi} (på väg mot ${f.bro}, ${Math.round(dist)} m från bron) låg stilla från ${fmtT(startRad.aisTimestamp)} `
+-          + `i "${zone.name}" `
++        return ok(`U23: bäraren ${mmsi} (på väg mot ${f.bro}, ${Math.round(dist)} m från bron) låg stilla från ${fmtT(startRad.aisTimestamp)} `
++          + `i "${zone.name}" (utanför väntzonen, ${Math.round(zonM)} m) `
+           + `och demoterades av zonregeln (krav ${kravMs / MIN} min) vid raden ${fmtT(dem.aisTimestamp)}; episoden ${fmtT(t0)} börjar `
+           + `${Math.round(efterMs)} ms efter bearbetningen`);
+       }
+-- 
+2.43.0
+

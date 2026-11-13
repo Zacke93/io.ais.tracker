@@ -1,0 +1,370 @@
+From 1893af8353a80a76a58bcc8f22d40013bc0ce8ac Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 13:37:30 +0000
+Subject: [PATCH 07/12] =?UTF-8?q?L1=20och=20L3:=20kajk=C3=B6ns=20stopp=20m?=
+ =?UTF-8?q?inns=20klassningen=20=C3=B6ver=20omstart=20och=20AIS-glapp;=20k?=
+ =?UTF-8?q?ajfall=20i=20brotexttesterna?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+L1 (granskningen av familj F): efter en omstart eller ett AIS-glapp mitt i
+en kö vid Kajen är köaren ny för appen, och klassningen håller henne inte.
+Stoppet bekräftades då med 30 s-regeln, och avgången gav ett andra, sent
+kort som farledstvillingen aldrig får (X2kaj och X5kaj: 77 s före
+korsningen; X3kaj vid kapselns norra spets: 96 s). quayStop.heldAsQueue
+minns att klassningen höll henne och överlever omstart. Minnet gäller så
+länge hon ligger kvar (< 50 m från stoppet), inte sänder navstatus 1/5 och
+inte legat still i MAX_STATIONARY_WAIT_MS från stoppets första fix, alltså
+U23:s tre villkor. Banken är 24/24 bitlik; replay:all med och utan
+monitoring, 76 syntetiska scenarier och öppningsgrindarna är oförändrade.
+
+L3: reliability-spec B1 ("utan ETA-klausul") rättad mot beslutet
+2026-09-12 och U6. bridge-text-variant1 får kajfallet: inom 300 m samma
+"strax" som farledsköaren med bekräftad väntan, kapselns norra spets
+ordinarie ETA-klausul, och gammal position "ETA okänd".
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ app.js                                | 31 +++++++--
+ docs/ARCHITECTURE.md                  | 29 +++++---
+ docs/reliability-spec.md              |  2 +-
+ lib/constants.js                      |  3 +-
+ tests/bridge-text-variant1.test.js    | 71 ++++++++++++++++++++
+ tests/opening-queue-quay-stop.test.js | 95 +++++++++++++++++++++++++++
+ 6 files changed, 212 insertions(+), 19 deletions(-)
+
+diff --git a/app.js b/app.js
+index 9713589..6f3a792 100755
+--- a/app.js
++++ b/app.js
+@@ -1456,6 +1456,7 @@ class AISBridgeApp extends Homey.App {
+               lastFixTs: stop.lastFixTs,
+               confirmed: stop.confirmed === true,
+               afterConfirmedStop: stop.afterConfirmedStop === true,
++              heldAsQueue: stop.heldAsQueue === true,
+             };
+           }
+           this._persistentOpeningWarnings.set(key, entry);
+@@ -1531,17 +1532,31 @@ class AISBridgeApp extends Homey.App {
+       // holdsQuayQueue: målbron är kortets bro, rörelsebevis, inom 600 m och
+       // inte förtöjd) står hon kvar i texten och stoppet är samma ankomst —
+       // den första varningen gäller hela kön. När klassningen släpper henne
+-      // (navstatus 1/5, 2 h-backstoppen, eller ingen målbro, t.ex. ny efter
+-      // ett långt AIS-glapp eller en omstart) bekräftas stoppet med 30 s-
+-      // regeln, och avgången blir en ny ankomst som förut. Ett AIS-glapp
+-      // nollställer fortfarande inte stoppet i en kajzon med köundantag
++      // (navstatus 1/5, 2 h-backstoppen, eller ingen målbro) bekräftas stoppet
++      // med 30 s-regeln, och avgången blir en ny ankomst som förut. Ett AIS-
++      // glapp nollställer fortfarande inte stoppet i en kajzon med köundantag
+       // (gapResetsStop nedan), så övernattningen vid Kajen bekräftas nästa
+       // morgon som förut.
+-      const stopGraceMs = queueGraceMs === Infinity
+-        && this.vesselDataService?.holdsQuayQueue?.(vessel, bridgeName) !== true
+-        ? 0 : queueGraceMs;
+       const stop = entry.quayStop;
+       const movedFromStop = stop && geometry.calculateDistance(stop.lat, stop.lon, vessel.lat, vessel.lon);
++      const holdsQueue = queueGraceMs === Infinity
++        && this.vesselDataService?.holdsQuayQueue?.(vessel, bridgeName) === true;
++      // Granskningen av familj F (L1, 2026-11-09): klassningen är flyktig. Efter
++      // en omstart eller ett AIS-glapp på 25–30 min mitt i kön är köaren ny för
++      // appen — utan målbro och rörelsebevis, och zonlagrets 3 min förtöjer
++      // henne. Stoppet bekräftades då med 30 s-regeln, och avgången gav ett
++      // andra, sent kort (X2kaj/X5kaj: 77 s före korsningen) som farleds-
++      // tvillingen aldrig får. Stoppet minns därför att klassningen höll henne
++      // som köare (heldAsQueue, överlever omstart), och minnet gäller så länge
++      // U23:s tre villkor för att släppa henne inte är uppfyllda: hon ligger
++      // kvar (< 50 m från stoppet), sänder inte navstatus 1/5 och har inte
++      // legat still i MAX_STATIONARY_WAIT_MS räknat från stoppets första fix.
++      const keptQueue = queueGraceMs === Infinity && !holdsQueue
++        && stop?.heldAsQueue === true && stop.confirmed !== true && movedFromStop < 50
++        && !MOORING_DETECTION.MOORED_NAV_STATUSES.includes(vessel.navStatus)
++        && fixTs - stop.firstFixTs < MOORING_DETECTION.MAX_STATIONARY_WAIT_MS;
++      const stopGraceMs = queueGraceMs === Infinity && !holdsQueue && !keptQueue
++        ? 0 : queueGraceMs;
+       // Avgången kräver normalt en fix utanför kajzonerna. Inne i en kajzon med
+       // köundantag ("Kajen norr om Klaffbron", mitt i väntzonen mellan
+       // Gästhamnen och bron) räcker att båten flyttat sig minst 50 m från
+@@ -1588,10 +1603,12 @@ class AISBridgeApp extends Homey.App {
+             // Kajen) är ingen kö efter samma kort. Köskyddet gäller då inte,
+             // och 30 s-regeln från före 74b3a34 bekräftar stoppet som förut.
+             afterConfirmedStop: stop?.confirmed === true || stop?.afterConfirmedStop === true,
++            heldAsQueue: holdsQueue,
+           };
+           dirty = true;
+         } else if (!stop.confirmed) {
+           stop.lastFixTs = fixTs;
++          if (holdsQueue) stop.heldAsQueue = true;
+           stop.confirmed = fixTs - stop.firstFixTs
+             >= Math.max(30000, stop.afterConfirmedStop ? 0 : stopGraceMs);
+           dirty = true;
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 5f269d8..71a38bd 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -1236,10 +1236,11 @@ båt.
+    till dess hennes senaste ETA i stället för "strax", eftersom hon varken har
+    imminent-flaggan (över 300 m) eller bekräftad väntan (`queueBridge` ger
+    null i en kajzon). Utan målbro håller undantaget inte längre, så zonlagret
+-   klassar henne efter 3 min, och avgången blir en ny ankomst med en ny
+-   varning (granskningens prov X3kaj: 96 s före korsningen; farledsköaren på
+-   samma avstånd behåller sin första varning). Bandet 300–500 m är en
+-   befintlig lucka mot D1 även i farleden (öppen ägarfråga). Motivet är D1 (docs/reliability-spec.md): utanför kajzonerna tas
++   klassar henne efter 3 min. Avgången är ändå samma ankomst, eftersom stoppet
++   minns att klassningen höll henne (`heldAsQueue` nedan): hon behåller sin
++   första varning som farledsköaren på samma avstånd (granskningens prov
++   X3kaj; före L1 kom en ny varning 96 s före korsningen). Bandet 300–500 m
++   är en befintlig lucka mot D1 även i farleden (öppen ägarfråga). Motivet är D1 (docs/reliability-spec.md): utanför kajzonerna tas
+    en väntande båt nära bron aldrig bort, och 15-minutersgissningen gav i
+    buggjägarens provvärldar "Inga båtar" medan en båt väntade 250 m från bron
+    och en ny, sen varning vid avgången (värld 313: 32 s före passagen).
+@@ -1249,12 +1250,20 @@ båt.
+    **Öppningslagrets ankomstspärr** (app.js `_observeOpeningArrivals`) följer
+    samma klassning via `VesselDataService.holdsQuayQueue`: så länge köaren
+    hålls är stoppet vid Kajen samma ankomst, och armen lever vidare eftersom
+-   målbron står kvar, så den första varningen gäller hela kön. Släpper
+-   klassningen henne (navstatus, backstoppen, eller ingen målbro efter ett
+-   långt AIS-glapp eller en omstart) bekräftas stoppet med 30 s-regeln och
+-   avgången blir en ny ankomst (`OPENING_QUAY_DEPARTURE`) som förut — efter
+-   backstoppen alltså med en sen andra varning (47 s före korsningen i det
+-   syntetiska 150-minutersprovet, samma som på c14938f efter 15 min).
++   målbron står kvar, så den första varningen gäller hela kön. Klassningen
++   är flyktig, men stoppet minns att den höll henne (`quayStop.heldAsQueue`,
++   överlever omstart; granskningen av familj F, L1): efter en omstart eller
++   ett AIS-glapp mitt i kön är hon ny för appen, utan målbro, men stoppet är
++   samma ankomst så länge hon ligger kvar (< 50 m), inte sänder navstatus
++   1/5 och inte legat still i MAX_STATIONARY_WAIT_MS från stoppets första fix
++   — som farledsköaren (prov X2kaj/X5kaj mot X2far/X5far; före L1 ett andra
++   kort 77 s före korsningen). Släpper klassningen henne genom navstatus eller
++   backstoppen bekräftas stoppet med 30 s-regeln och avgången blir en ny
++   ankomst (`OPENING_QUAY_DEPARTURE`) som förut — efter backstoppen alltså med
++   en sen andra varning (77 s före korsningen i det syntetiska 150-minuters-
++   provet; 47 s före M3, samma som på c14938f efter 15 min). Inne i Kajen
++   godtas avgången när båten flyttat minst 50 m från ett bekräftat stopp mot
++   bron (M3, S/V REBEL i 20260806-42h).
+ 5. **2h-backstop**: stationär > MAX_STATIONARY_WAIT_MS. Sedan 2026-09-06
+    undantas styrkt, fortsatt färsk brokö enligt kontraktet nedan. Undantaget
+    når aldrig en kajzon: `queueBridge` (lib/utils/bridgeQueue.js) ger null i en
+diff --git a/docs/reliability-spec.md b/docs/reliability-spec.md
+index cc41edf..acdc8c0 100644
+--- a/docs/reliability-spec.md
++++ b/docs/reliability-spec.md
+@@ -107,7 +107,7 @@ Per målbro-grupp: `"{antal} båt(ar) på väg mot {målbro}, {ETA-klausul}"`. F
+ | **D6** | "100 %"-definitionen | **Ja — alla 9 invarianter håller mot (a) alla historiska loggar + (b) genererad scenario-svit** | mållinje |
+ 
+ ### Konsekvenser inarbetade i reglerna ovan
+-- **B1/INV-B1:** ett fartyg förblir *relevant* för bridge_text så länge det är inom `APPROACHING_RADIUS` (500 m) av sin målbro på en aktiv resa, **även om sog ≈ 0**. En stoppad båt visas som "En båt på väg mot X" utan ETA-klausul (eller med "ETA okänd" om ETA saknas). Texten får aldrig falla till DEFAULT medan en sådan båt finns.
++- **B1/INV-B1:** ett fartyg förblir *relevant* för bridge_text så länge det är inom `APPROACHING_RADIUS` (500 m) av sin målbro på en aktiv resa, **även om sog ≈ 0**. En stoppad båt visas som "En båt på väg mot X" med ordinarie ETA-klausul (B3, docs/bridgeTextFormat.md). **REVIDERAT (granskningen av familj F, 2026-11-09):** den ursprungliga lydelsen "utan ETA-klausul" motsägs av beslutet 2026-09-12 och U6. Bekräftad väntan direkt vid målbron ger "beräknad broöppning strax" (beslutet 2026-09-12), likaså imminent-flaggan inom 300 m med färsk position, och "strax" behålls även under en lång kö (U6, docs/etapp7-plan-2026-08-08.md:15). I övrigt gäller ordinarie klausul, och "ETA okänd" när positionen är äldre än 10 min. D1:s lydelse i beslutstabellen ovan behålls som historik. Texten får aldrig falla till DEFAULT medan en sådan båt finns.
+ - **B1/INV-B1 mot kajzonen — löst genom ägarbeslutet U23 (2026-11-09):** kajzonen "Kajen norr om Klaffbron" (190–295 m från bron, mitt i väntzonen) klassade en köare mot Klaffbron som förtöjd efter 15 min och bröt D1. Nu klassar zonlagret henne aldrig, och inom 300 m från bron (nästan hela kapseln) står hon kvar som i resten av väntområdet, tills hon kör vidare, sänder navstatus 1/5 eller legat still i 2 h (`MAX_STATIONARY_WAIT_MS`). Kapselns norra spets (300–320 m) beter sig som farleden på samma avstånd: målbron släpps efter 20 min stillhet (`_isInTargetQueueZone`). Det är en befintlig lucka mot D1 mellan 300 och 500 m, även i farleden, och en öppen ägarfråga. Norrgående med målbro bortom 600 m och Gästhamnen klassas som förut (`lib/constants.js` MOORING_ZONES, docs/ARCHITECTURE.md §Förtöjningslagren).
+ - **A2/INV-N4:** `_getDirectionString` sydband snävas till 135–225° för COG-fallback; off-axis (226–314°) utan route-latch → `unknown`. **REVIDERAT 2026-07-02 (JOSEPHINE, replay-belagt):** token-fallbackens sydband breddades till 135–314° — bevisligen sydgående båt med COG 226,7° fick felaktigt `unknown`. Det STRIKTA bandet 135–225° gäller fortsatt alla HÖGRISK-beslut (målbro-/riktningslås, Fix D, NEW_JOURNEY). Koden + `notification-tokens.test.js` är sanningskällan (P5-beslutet i constants.js:276–285); denna spec-rad behålls som historik (helgranskningen 2026-07-06, docs-core#R2-1).
+ - **B3/INV-B2:** visad ETA klampas icke-ökande medan fartyget närmar sig (tolerans för brus tillåten).
+diff --git a/lib/constants.js b/lib/constants.js
+index 4ed420c..4fe96f6 100644
+--- a/lib/constants.js
++++ b/lib/constants.js
+@@ -456,7 +456,8 @@ const MOORING_ZONES = [
+     // 3 min som förut — ELFKUNGEN och SUSANNE (norrut efter Klaffbron, mål
+     // Stridsbergsbron ~980 m bort) demoteras exakt som i dag. Öppnings-
+     // lagrets ankomstspärr (app.js _observeOpeningArrivals) följer samma
+-    // klassning, så den första varningen gäller hela kön. Se
++    // klassning och minns den över omstart och AIS-glapp (quayStop.
++    // heldAsQueue), så den första varningen gäller hela kön. Se
+     // docs/ARCHITECTURE.md §Förtöjningslagren.
+     queueGraceMs: Infinity,
+   },
+diff --git a/tests/bridge-text-variant1.test.js b/tests/bridge-text-variant1.test.js
+index c4b9ba9..4ede372 100644
+--- a/tests/bridge-text-variant1.test.js
++++ b/tests/bridge-text-variant1.test.js
+@@ -447,3 +447,74 @@ describe('BridgeTextService — Invariants', () => {
+     expect(text).not.toContain(';');
+   });
+ });
++
++/**
++ * Kajfallet (granskningen av familj F, L3, 2026-11-09). "Kajen norr om
++ * Klaffbron" (190–320 m från bron) är en kajzon, och där ger bekräftad väntan
++ * (lib/utils/bridgeQueue.js queueBridge) alltid null. Sedan ägarbeslutet U23
++ * står köaren kvar i texten, och inom 300 m får hon "strax" genom appens
++ * imminent-flagga (färsk position) i stället för genom bekräftad väntan.
++ * Texten blir därmed densamma som för farledsköaren med bekräftad väntan vid
++ * målbron (beslutet 2026-09-12 i docs/bridgeTextFormat.md; U6: även vid lång
++ * kö). Hela kedjan genom appen prövas i runSyntheticScenarios
++ * ("kö-25min-i-Kajens-kapsel", "kö-60min-i-Kajens-kapsel-med-annan-trafik").
++ */
++describe('BridgeTextService — köare vid Kajen norr om Klaffbron (U23)', () => {
++  // eslint-disable-next-line global-require
++  const { waitingBridge } = require('../lib/utils/bridgeQueue');
++  const KAJ_MITT = { lat: 58.286060, lon: 12.285651 }; // 241 m från bron, i kapseln
++  const KAJ_SPETS = { lat: 58.286584, lon: 12.286333 }; // 310 m, kapselns norra spets
++  const FARLED = { lat: 58.285900, lon: 12.286600 }; // 254 m, utanför kajzonerna
++  const FARLED_310 = { lat: 58.286296, lon: 12.287200 }; // 310 m, utanför kajzonerna
++  const STRAX = 'En båt på väg mot Klaffbron, beräknad broöppning strax';
++
++  // Söderut, still i 25 min: belagd anflygning och bekräftad väntan mot
++  // Klaffbron, och en kvarstående ETA från anflygningen.
++  const queuer = (pos, overrides = {}) => {
++    const now = Date.now();
++    return mkVessel({
++      lat: pos.lat,
++      lon: pos.lon,
++      sog: 0,
++      cog: 195,
++      navStatus: 0,
++      etaMinutes: 4,
++      timestamp: now,
++      lastPositionUpdate: now,
++      _routeDirection: 'south',
++      _stationarySince: now - 25 * 60000,
++      _bridgeQueueApproaches: {
++        Klaffbron: { confirmedAt: now - 26 * 60000, direction: 'south', waitConfirmedAt: now - 24 * 60000 },
++      },
++      ...overrides,
++    });
++  };
++
++  test('inom 300 m: köaren vid Kajen och farledsköaren får samma text, "strax"', () => {
++    const kaj = queuer(KAJ_MITT, { _isImminentAtTargetBridge: true });
++    const farled = queuer(FARLED, { _isImminentAtTargetBridge: true });
++    expect(waitingBridge(kaj)).toBeNull();
++    expect(waitingBridge(farled)).toBe('Klaffbron');
++    expect(makeService().generateBridgeText([kaj])).toBe(STRAX);
++    expect(makeService().generateBridgeText([farled])).toBe(STRAX);
++  });
++
++  test('kapselns norra spets (310 m): varken imminent-flagga eller bekräftad väntan ⇒ ordinarie ETA-klausul', () => {
++    // Farledsköaren på samma avstånd har bekräftad väntan vid målbron och
++    // behåller "strax" (docs/ARCHITECTURE.md §Förtöjningslagren, lager 4).
++    const kaj = queuer(KAJ_SPETS, { _isImminentAtTargetBridge: false });
++    const farled = queuer(FARLED_310, { _isImminentAtTargetBridge: false });
++    expect(makeService().generateBridgeText([kaj]))
++      .toBe('En båt på väg mot Klaffbron, beräknad broöppning om 4 minuter');
++    expect(makeService().generateBridgeText([farled])).toBe(STRAX);
++  });
++
++  test('köaren vid Kajen med positionen äldre än 10 min ⇒ "ETA okänd"', () => {
++    // Appen släcker imminent-flaggan och ETA:n på gammal position.
++    const old = Date.now() - 11 * 60000;
++    const kaj = queuer(KAJ_MITT, {
++      _isImminentAtTargetBridge: false, etaMinutes: null, timestamp: old, lastPositionUpdate: old,
++    });
++    expect(makeService().generateBridgeText([kaj])).toBe('En båt på väg mot Klaffbron, ETA okänd');
++  });
++});
+diff --git a/tests/opening-queue-quay-stop.test.js b/tests/opening-queue-quay-stop.test.js
+index 1ffceb0..6495ea4 100644
+--- a/tests/opening-queue-quay-stop.test.js
++++ b/tests/opening-queue-quay-stop.test.js
+@@ -20,6 +20,12 @@ const { MOORING_ZONES, MOORING_DETECTION } = require('../lib/constants');
+  * är stoppet samma ankomst, hur länge hon än väntar. När klassningen släpper
+  * henne (navstatus 1/5, 2 h-backstoppen eller ingen målbro) gäller 30 s-regeln
+  * och avgången blir en ny ankomst.
++ *
++ * Granskningen av familj F (L1, 2026-11-09): stoppet minns att klassningen
++ * höll henne (heldAsQueue, överlever omstart). Efter en omstart eller ett
++ * AIS-glapp mitt i kön är hon ny för appen och klassningen håller henne inte,
++ * men minnet gäller så länge hon ligger kvar, inte sänder navstatus 1/5 och
++ * inte legat still i 2 h från stoppets första fix — som farledsköaren.
+  */
+ const MMSI = '265000222';
+ const KEY = `Klaffbron|${MMSI}|southbound`;
+@@ -219,6 +225,95 @@ describe('Öppningslagret: kort köstopp vid Kajen är samma ankomst', () => {
+     expect(app.bridgeOpeningService.restartArrival).not.toHaveBeenCalled();
+   });
+ 
++  // L1 (granskningen av familj F, 2026-11-09). Efter omstarten eller glappet
++  // är köaren ny för appen: ingen målbro, inget rörelsebevis, och zonlagrets
++  // 3 min förtöjer henne (granskningens prov X2kaj och X5kaj). Utan minnet
++  // bekräftades stoppet direkt, och avgången gav ett andra, sent kort som
++  // farledstvillingen (X2far, X5far) aldrig får.
++  const LOST = { targetBridge: null, _hasMovementProof: false, _moored: true };
++
++  function stillAt(at, ms, state = QUEUER) {
++    for (let elapsed = 0; elapsed < ms; elapsed += 30000) {
++      jest.setSystemTime(Date.now() + 30000);
++      app._observeOpeningArrivals(fix(at, 0.1, state));
++    }
++  }
++
++  // Omstart med samma inställningslager: ny app, samma lagrade ankomster.
++  async function restart() {
++    const { homey } = app;
++    await app.onUninit();
++    app = new App();
++    app.log = jest.fn();
++    app.error = jest.fn();
++    app.debug = jest.fn();
++    app.homey = homey;
++    await app.onInit();
++    jest.spyOn(app.bridgeOpeningService, 'restartArrival');
++  }
++
++  function departAndExpectSameArrival(expected) {
++    jest.setSystemTime(Date.now() + 60000);
++    app._observeOpeningArrivals(fix(DEPARTED, 3.0));
++    expect(app._persistentOpeningWarnings.has(KEY)).toBe(expected);
++    if (expected) expect(app.bridgeOpeningService.restartArrival).not.toHaveBeenCalled();
++    else expect(app.bridgeOpeningService.restartArrival).toHaveBeenCalledWith(MMSI, 'Klaffbron');
++  }
++
++  test('L1: omstart mitt i kön vid Kajen ⇒ samma ankomst, inget nytt kort vid avgången', async () => {
++    const at = mid(KAJEN);
++    app._observeOpeningArrivals(fix(at, 0.1));
++    stillAt(at, 30 * 60 * 1000);
++    await restart();
++    expect(app._persistentOpeningWarnings.get(KEY).quayStop)
++      .toMatchObject({ confirmed: false, heldAsQueue: true });
++    stillAt(at, 25 * 60 * 1000, LOST);
++    expect(app._persistentOpeningWarnings.get(KEY).quayStop.confirmed).toBe(false);
++    departAndExpectSameArrival(true);
++  });
++
++  test('L1: AIS-glapp på 30 min mitt i kön vid Kajen ⇒ samma ankomst', () => {
++    const at = mid(KAJEN);
++    app._observeOpeningArrivals(fix(at, 0.1));
++    stillAt(at, 10 * 60 * 1000);
++    jest.setSystemTime(Date.now() + 30 * 60 * 1000);
++    stillAt(at, 15 * 60 * 1000, LOST);
++    departAndExpectSameArrival(true);
++  });
++
++  test('L1: navstatus 5 efter omstarten släpper minnet ⇒ avgången är en ny ankomst', async () => {
++    const at = mid(KAJEN);
++    app._observeOpeningArrivals(fix(at, 0.1));
++    stillAt(at, 30 * 60 * 1000);
++    await restart();
++    stillAt(at, 60000, { ...LOST, navStatus: 5 });
++    expect(app._persistentOpeningWarnings.get(KEY).quayStop.confirmed).toBe(true);
++    departAndExpectSameArrival(false);
++  });
++
++  test('L1: minnet gäller inte bortom 2 h från stoppets första fix', async () => {
++    const at = mid(KAJEN);
++    app._observeOpeningArrivals(fix(at, 0.1));
++    stillAt(at, 100 * 60 * 1000);
++    await restart();
++    stillAt(at, 19 * 60 * 1000, LOST);
++    expect(app._persistentOpeningWarnings.get(KEY).quayStop.confirmed).toBe(false);
++    stillAt(at, 2 * 60 * 1000, LOST);
++    expect(app._persistentOpeningWarnings.get(KEY).quayStop.confirmed).toBe(true);
++    departAndExpectSameArrival(false);
++  });
++
++  test('L1: en båt som klassningen aldrig höll som köare får inget minne', () => {
++    // Ny för appen redan vid stoppet (t.ex. AIS påslagen vid kajen): 30 s-
++    // regeln gäller som förut, och avgången är en ny ankomst.
++    const at = mid(KAJEN);
++    app._observeOpeningArrivals(fix(at, 0.1, LOST));
++    stillAt(at, 60000, LOST);
++    expect(app._persistentOpeningWarnings.get(KEY).quayStop)
++      .toMatchObject({ confirmed: true, heldAsQueue: false });
++    departAndExpectSameArrival(false);
++  });
++
+   // Köskyddet gäller bara när bron ligger inom DISARM_MOORED_MIN_DISTANCE_M
+   // (600 m), som i förtöjningsklassningen. Kajen ligger 980 m från
+   // Stridsbergsbron: där är ett stopp vid kajen ett besök, inte brokö.
+-- 
+2.43.0
+

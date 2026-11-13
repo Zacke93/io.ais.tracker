@@ -1,0 +1,42 @@
+From 0dce23626ec3198eb7acfacf6cb24302527b3001 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 14:42:45 +0000
+Subject: [PATCH 12/12] =?UTF-8?q?Revision=202:=2041h-noten=20anger=20mekan?=
+ =?UTF-8?q?ismen=20bakom=20de=20tv=C3=A5=20oml=C3=A5sta=20raderna?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Omgranskningen av familj F godkände omlåsningen av 20260713-41h enligt U13
+och bad att noten nämner mekanismen: app.js stale-ETA-gren (Fix G)
+extrapolerar inte när queueBridge ger en kö vid en tidigare bro
+(queueAhead), och M1 c ger tillbaka det köbevis koden väntar sig; 09:36:30
+ger ProgressiveETACalculator ETA_POST_TRANSITION_HOLD "unknown" i stället
+för ETA_GAP_RESET:s 13,9 min ur golvfarten. Bara noten ändras.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ tests/replay-validation/corpora.js | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/tests/replay-validation/corpora.js b/tests/replay-validation/corpora.js
+index 365853d..9b3dd35 100644
+--- a/tests/replay-validation/corpora.js
++++ b/tests/replay-validation/corpora.js
+@@ -1187,7 +1187,11 @@ module.exports = [
+       + 'Stridsbergsbron 43 min senare, och båten låg i kön vid Järnvägsbron; (2) 09:36:30 "Två båtar …, om '
+       + '13 minuter" (ledaren stilla i kön, 0,1 kn) blir "Två båtar …, ETA okänd" — gruppens korsningar kom 09:45:38 '
+       + '(265013030) och 09:55:48. En stilla kö vid en tidigare bro får ingen minutprognos (bridgeTextFormat.md); '
+-      + 'raderna 09:13:30 och 09:37:30 försvinner därför. Rättare enligt U13. Ingen kod i ETA-kedjan ändrad '
++      + 'raderna 09:13:30 och 09:37:30 försvinner därför. Mekanismen: (1) app.js stale-ETA-gren (Fix G) '
++      + 'extrapolerar inte när queueBridge ger en kö vid en tidigare bro (queueAhead), och M1 c ger tillbaka det '
++      + 'köbevis koden väntar sig; (2) ProgressiveETACalculator ger ETA_POST_TRANSITION_HOLD "unknown" i stället '
++      + 'för ETA_GAP_RESET:s 13,9 min ur golvfarten (omgranskningen av familj F). '
++      + 'Rättare enligt U13. Ingen kod i ETA-kedjan ändrad '
+       + '(U22), men raderna är ETA-klausuler. Notis- (165/165), fördelnings-, riktnings- och öppningsfacit ORÖRDA. '
+       + `${SEPTEMBER_REVIEW}2026-09-06 BELAGD BROKÖ: golden 270→269 efter användarval att `
+       + 'aktiv broväntan får bestå över 2 h. PILGRIM 211110880 väntar 12:38:48–12:59:46 '
+-- 
+2.43.0
+

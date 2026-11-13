@@ -1,0 +1,94 @@
+From 6d2aeb2bbacc68031a07ddca9b9bcbb0fab3c5fc Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 4 Nov 2026 23:39:44 +0000
+Subject: [PATCH 03/11] =?UTF-8?q?E2-familjen:=20ett=20dramatiskt=20fall=20?=
+ =?UTF-8?q?m=C3=A4ts=20mot=20f=C3=B6rra=20v=C3=A4rdet=20minus=20f=C3=B6rfl?=
+ =?UTF-8?q?uten=20tid?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Inom kadensfönstret jämför outliergrinden två fix. Båten har då hunnit
+fram en bit, och den utjämnade siffran ligger efter. Mot det oförändrade
+förra värdet dömdes en snabb inflygning som positionsglimt: NORDIC SAGA i
+20260917-7h kl. 15:15:14 hölls på 4,9 min mot sanning 2,4. Fallet mäts nu
+mot förra värdet minus förfluten tid. Glappsteget (tidsavstånd 0) och
+ökningsgrenen påverkas inte.
+
+measure:eta mot föregående commit: 7 påståenden ändras, alla närmare
+rådatafacit (bland dem NORDIC SAGA, ELISE och ELFKUNGEN), inga öppningar
+flyttas.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ lib/services/ProgressiveETACalculator.js | 13 +++++++++++--
+ tests/e2-eta-etapp-2026-11-04.test.js    | 21 ++++++++++++++++++++-
+ 2 files changed, 31 insertions(+), 3 deletions(-)
+
+diff --git a/lib/services/ProgressiveETACalculator.js b/lib/services/ProgressiveETACalculator.js
+index 445d0f6..a2728cc 100644
+--- a/lib/services/ProgressiveETACalculator.js
++++ b/lib/services/ProgressiveETACalculator.js
+@@ -1731,8 +1731,17 @@ class ProgressiveETACalculator {
+ 
+     // Check for dramatic ETA jumps (e.g., 7min → 1min)
+     const etaRatio = lastEntry.processedETA > 0 ? eta / lastEntry.processedETA : 1;
+-    if (etaRatio < (1 / this._outlierThresholdMultiple) && timeDelta < windowMs) {
+-      return { isOutlier: true, reason: `dramatic_decrease_${etaRatio.toFixed(2)}x` };
++    // E2 (K6, del 2): ett dramatiskt FALL mäts mot vad förra värdet förutsäger
++    // NU — förra värdet minus förfluten tid. Inom kadensfönstret jämförs två
++    // fix, och då har båten hunnit fram en bit medan den utjämnade siffran
++    // ligger efter. Mot det oförändrade förra värdet dömdes en snabb
++    // inflygning som en positionsglimt (NORDIC SAGA 20260917-7h 15:15:14: rå
++    // 2,4 min mot 6,1 en minut tidigare, kvot 0,39, hölls på 4,9 mot sanning
++    // 2,4). Glappsteget (tidsavstånd 0) och ökningsgrenen påverkas inte.
++    const expectedNow = Math.max(0.1, lastEntry.processedETA - timeDelta / 60000);
++    const decreaseRatio = eta / expectedNow;
++    if (decreaseRatio < (1 / this._outlierThresholdMultiple) && timeDelta < windowMs) {
++      return { isOutlier: true, reason: `dramatic_decrease_${decreaseRatio.toFixed(2)}x` };
+     }
+ 
+     // Check for unreasonable ETA spikes (e.g., 1min → 10min)
+diff --git a/tests/e2-eta-etapp-2026-11-04.test.js b/tests/e2-eta-etapp-2026-11-04.test.js
+index 0f00bfc..ebb6253 100644
+--- a/tests/e2-eta-etapp-2026-11-04.test.js
++++ b/tests/e2-eta-etapp-2026-11-04.test.js
+@@ -14,7 +14,8 @@ jest.mock('homey');
+  *      färska skattning prövas mot den baslinjen (pass 2:s skyddseffekt);
+  *   2. outliergrindens fönster är kadensrelativt (1,5 av fartygets eget
+  *      fixintervall, mätt före fixet, men minst det gamla 30 s-fönstret) i
+- *      stället för 30 s väggtid;
++ *      stället för 30 s väggtid, och ett dramatiskt fall mäts mot förra
++ *      värdet minus förfluten tid;
+  *   3. utjämningens vikt per fix kalibrerades efter 1 och 2: 0,64.
+  * Därtill två kort ur buggjägaren:
+  *   F06 (värld 192, XENIA): "strax → om 4 → strax" vid inbromsning. Medelfarten
+@@ -238,6 +239,24 @@ describe('K6 del 2: outliergrindens fönster följer fartygets kadens', () => {
+     expect(lines(logger, 'dramatic_decrease')).toHaveLength(1);
+   });
+ 
++  test('ett fall mäts mot förra värdet minus förfluten tid: en snabb inflygning är ingen positionsglimt', () => {
++    // NORDIC SAGA 20260917-7h 15:15:14: förra fixet 6,1 min (utjämnat, efter
++    // rå 4,1) en minut tidigare, nu rå 2,4. Mot 6,1 är kvoten 0,39 och fallet
++    // dömdes som dramatiskt; mot det förväntade 5,1 är kvoten 0,47.
++    const now = Date.now();
++    const v = {
++      mmsi: MMSI, targetBridge: 'Klaffbron', status: 'approaching', sog: 5.1,
++    };
++    calc._fixCadence.set(MMSI, { intervalMs: 50000 });
++    const history = [{ timestamp: now - 60000, rawETA: 4.1, processedETA: 6.1 }];
++    expect(calc._isETAOutlier(2.4, history, v)).toEqual({ isOutlier: false, reason: 'normal_variation' });
++    // En verklig glimt (1,0 min) är fortfarande dramatisk mot det förväntade.
++    expect(calc._isETAOutlier(1.0, history, v).reason).toMatch(/^dramatic_decrease_0\.2/);
++    // Tidsavstånd 0 (glappsteget): förväntat = förra, samma kvot som förut.
++    const same = [{ timestamp: now, rawETA: 6.1, processedETA: 6.1 }];
++    expect(calc._isETAOutlier(2.4, same, v).reason).toBe('dramatic_decrease_0.39x');
++  });
++
+   test('efter ett glapp är kadensen okänd: en båt som stannar får sin ETA att växa (BARAVI 17h)', () => {
+     // Prövat och återtaget: kadensen uppdaterad FÖRE prövningen täckte alltid
+     // sitt eget intervall (1,5 × 110 s), så fixet efter glappsteget prövades
+-- 
+2.43.0
+

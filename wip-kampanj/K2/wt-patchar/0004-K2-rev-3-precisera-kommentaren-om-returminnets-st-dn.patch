@@ -1,0 +1,36 @@
+From afce79791625ef11e8ae8140ace99711198e08ce Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 5 Nov 2026 01:47:50 +0000
+Subject: [PATCH 4/4] =?UTF-8?q?K2=20rev=203:=20precisera=20kommentaren=20o?=
+ =?UTF-8?q?m=20returminnets=20st=C3=A4dning?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ lib/services/BridgeOpeningService.js | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/lib/services/BridgeOpeningService.js b/lib/services/BridgeOpeningService.js
+index 7dc2fcc..a2f98cd 100644
+--- a/lib/services/BridgeOpeningService.js
++++ b/lib/services/BridgeOpeningService.js
+@@ -1023,9 +1023,10 @@ class BridgeOpeningService {
+    *    fått sin första passage kan få den inom fönstret (villkor (b) i
+    *    _describesPassedOpening);
+    *  - därefter så länge någon levande händelse beskriver öppningen hon
+-   *    passerade. Den mängden kan bara krympa: efter fönstret kan ingen ny
+-   *    händelse uppfylla villkoren.
+-   * En arm som redan skapats bär sin egen kopia (`returnAfterPassage`).
++   *    passerade. Efter fönstret kan en ny händelse uppfylla villkoren bara
++   *    om dess prognos redan ligger i det förflutna (en försenad båt).
++   * En arm som redan skapats bär sin egen kopia (`returnAfterPassage`), så
++   * städningen påverkar bara en returarm som skapas senare.
+    * @private
+    * @param {string} bridgeName
+    * @param {Object[]} events - levande händelser vid bron
+-- 
+2.43.0
+

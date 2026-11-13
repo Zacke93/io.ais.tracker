@@ -1,0 +1,95 @@
+From ba72a32c12246a937b2fc1dd3d7334ca2730b028 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 14:40:30 +0000
+Subject: [PATCH 09/12] =?UTF-8?q?Revision=202,=20M3=20(l=C3=A5g):=20priset?=
+ =?UTF-8?q?=20f=C3=B6r=20enfixsregeln=20dokumenterat?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Omgranskningen av familj F: en äkta omförtöjning 100 m mot bron inne i
+Kajen räknas som avgång på en enda fix, och varningen kommer då 62 min före
+korsningen (prov A4, navstatus 5, fix var 10:e s). Utan navstatus (A4n0)
+håller U23 henne som köare på den nya platsen, så den verkliga avgången får
+ingen egen varning. REBEL behöver enfixsregeln med gles AIS. Avvägningen är
+ägarens och står i ARCHITECTURE §Förtöjningslagren och i app.js.
+
+Ledtiderna i ARCHITECTURE mäts nu som granskarens, mot korsningen
+interpolerad ur fixarna: 73 s (före M3 43 s) efter 2 h-gränsen, 73 s för
+X2kaj/X5kaj före L1 och 92 s för X3kaj före L1.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ app.js               |  5 ++++-
+ docs/ARCHITECTURE.md | 22 ++++++++++++++++------
+ 2 files changed, 20 insertions(+), 7 deletions(-)
+
+diff --git a/app.js b/app.js
+index 057ba4f..0d4845e 100755
+--- a/app.js
++++ b/app.js
+@@ -1545,7 +1545,7 @@ class AISBridgeApp extends Homey.App {
+       // en omstart eller ett AIS-glapp på 25–30 min mitt i kön är köaren ny för
+       // appen — utan målbro och rörelsebevis, och zonlagrets 3 min förtöjer
+       // henne. Stoppet bekräftades då med 30 s-regeln, och avgången gav ett
+-      // andra, sent kort (X2kaj/X5kaj: 77 s före korsningen) som farleds-
++      // andra, sent kort (X2kaj/X5kaj: 73 s före korsningen) som farleds-
+       // tvillingen aldrig får. Stoppet minns därför att klassningen höll henne
+       // som köare (heldAsQueue, överlever omstart), och minnet gäller så länge
+       // U23:s tre villkor för att släppa henne inte är uppfyllda: hon ligger
+@@ -1578,6 +1578,9 @@ class AISBridgeApp extends Homey.App {
+       // falsk varning, och efter 2 h-gränsen förbrukade den ankomsten, så att
+       // den verkliga avgången blev utan varning (granskningens prov A5).
+       // Utanför kajzonerna gäller kravet inte: där bär fixen själv beviset.
++      // Priset för enfixsregeln (ägarens avvägning, docs/ARCHITECTURE.md
++      // §Förtöjningslagren): en äkta omförtöjning 100 m mot bron inne i Kajen
++      // är också en avgång, och varningen kommer då långt före korsningen.
+       const stopDistance = stop && geometry.calculateDistance(stop.lat, stop.lon, bridge.lat, bridge.lon);
+       const prev = vessel.lastPosition;
+       const stepM = prev && geometry.calculateDistance(prev.lat, prev.lon, vessel.lat, vessel.lon);
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 71a38bd..6d8f32f 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -1239,7 +1239,7 @@ båt.
+    klassar henne efter 3 min. Avgången är ändå samma ankomst, eftersom stoppet
+    minns att klassningen höll henne (`heldAsQueue` nedan): hon behåller sin
+    första varning som farledsköaren på samma avstånd (granskningens prov
+-   X3kaj; före L1 kom en ny varning 96 s före korsningen). Bandet 300–500 m
++   X3kaj; före L1 kom en ny varning 92 s före korsningen). Bandet 300–500 m
+    är en befintlig lucka mot D1 även i farleden (öppen ägarfråga). Motivet är D1 (docs/reliability-spec.md): utanför kajzonerna tas
+    en väntande båt nära bron aldrig bort, och 15-minutersgissningen gav i
+    buggjägarens provvärldar "Inga båtar" medan en båt väntade 250 m från bron
+@@ -1257,13 +1257,23 @@ båt.
+    samma ankomst så länge hon ligger kvar (< 50 m), inte sänder navstatus
+    1/5 och inte legat still i MAX_STATIONARY_WAIT_MS från stoppets första fix
+    — som farledsköaren (prov X2kaj/X5kaj mot X2far/X5far; före L1 ett andra
+-   kort 77 s före korsningen). Släpper klassningen henne genom navstatus eller
++   kort 73 s före korsningen). Släpper klassningen henne genom navstatus eller
+    backstoppen bekräftas stoppet med 30 s-regeln och avgången blir en ny
+    ankomst (`OPENING_QUAY_DEPARTURE`) som förut — efter backstoppen alltså med
+-   en sen andra varning (77 s före korsningen i det syntetiska 150-minuters-
+-   provet; 47 s före M3, samma som på c14938f efter 15 min). Inne i Kajen
+-   godtas avgången när båten flyttat minst 50 m från ett bekräftat stopp mot
+-   bron (M3, S/V REBEL i 20260806-42h).
++   en sen andra varning (73 s före korsningen i det syntetiska 150-minuters-
++   provet; 43 s före M3, samma som på c14938f efter 15 min). Ledtiderna här
++   mäts mot korsningen interpolerad ur fixarna.
++   **Avgång inne i Kajen (M3):** avgången godtas när båten flyttat minst
++   50 m från ett bekräftat stopp mot bron, på en enda fix, om steget sedan
++   föregående fix är rimligt för farten (högst 20 m plus dubbla farten gånger
++   tiden). S/V REBEL i 20260806-42h behöver enfixsregeln: med gles AIS kom
++   nästa fix först efter passagen. Rimlighetskravet gör att ett ensamt
++   GPS-hopp (60 m mot bron i 0,6 kn) inte är en avgång (omgranskningens prov
++   A5). **Priset, ägarens avvägning:** en äkta omförtöjning 100 m mot bron
++   inne i Kajen räknas som avgång, och varningen kommer då 62 min före
++   korsningen (prov A4, navstatus 5, fix var 10:e s). Utan navstatus (A4n0)
++   håller U23 henne som köare på den nya platsen, så den verkliga avgången
++   får ingen egen varning; den tidiga gäller.
+ 5. **2h-backstop**: stationär > MAX_STATIONARY_WAIT_MS. Sedan 2026-09-06
+    undantas styrkt, fortsatt färsk brokö enligt kontraktet nedan. Undantaget
+    når aldrig en kajzon: `queueBridge` (lib/utils/bridgeQueue.js) ger null i en
+-- 
+2.43.0
+

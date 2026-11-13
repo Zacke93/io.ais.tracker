@@ -1,0 +1,56 @@
+From 7a80260dc527579a709dbccf6ed125d4a8625b4a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 5 Nov 2026 00:19:53 +0000
+Subject: [PATCH 14/24] =?UTF-8?q?E2-familjen:=20facitsiffrorna=20i=20dokum?=
+ =?UTF-8?q?enten=20f=C3=B6ljer=20FACIT?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Antalet sämre rader är 65, med SENTA:s öppning inräknad, och 23 rader
+saknar linjefacit. De fyra öppningsrader som bedömdes för hand är
+fördelade på de klasserna.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/ARCHITECTURE.md | 4 ++--
+ docs/VALIDATION.md   | 7 ++++---
+ 2 files changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index af41152..0cfeb32 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -1406,8 +1406,8 @@ Mätt enligt VALIDATION.md §REGELN ("Familj E2"): banden sanning < 5 och
+   "om 4" mot sanning 3,1 min. Väntefasens platå blir 0,5 min högre med en
+   vikt per fix än med dubbelkörningens pass 1.
+ - J10 (FRAM, 25h) är oförändrad.
+-- 64 låsta rader blir sämre mot rådata. 54 av dem flyttar 1 minut, och 30 har
+-  sanning ≥ 20 min. De är DEMO-omlåsta i E2:s worktree, och dirigenten avgör
++- 65 låsta rader blir sämre mot rådata, SENTA:s öppning inräknad. Av de
++  övriga 64 flyttar 54 en minut, och 30 har sanning ≥ 20 min. De är DEMO-omlåsta i E2:s worktree, och dirigenten avgör
+   enligt U13.
+ 
+ **FÄLTVALIDERINGENS REGEL: kasta det KORRUPTA FÄLTET, aldrig positionen
+diff --git a/docs/VALIDATION.md b/docs/VALIDATION.md
+index f01f2fe..94a0e9b 100644
+--- a/docs/VALIDATION.md
++++ b/docs/VALIDATION.md
+@@ -577,9 +577,10 @@ Namngivna fall:
+   1,4 min.
+ 
+ Facit (U13): 161 låsta rader ändras. Av dem är 60 rättare, 13 likvärdiga och
+-64 sämre, medan 20 saknar linjefacit och 4 bedöms för hand (öppningar). De
+-sämre raderna är till 54 av 64 en 1-minutsflytt, och 30 av dem har sanning
+-≥ 20 min. I bandet < 10 min är 46 rader rättare och 25 sämre. Bedömningen per rad står i rättningskampanjens
++65 sämre, medan 23 saknar linjefacit. Bland de sämre finns SENTA:s öppning i
++25h, som är bedömd för hand. Av de 64 radbedömda sämre raderna är 54 en
++1-minutsflytt, och 30 har sanning ≥ 20 min. I bandet < 10 min är 46 rader
++rättare och 26 sämre. Bedömningen per rad står i rättningskampanjens
+ FACIT för E2. Omlåsningen är en DEMO i E2:s worktree, och dirigenten avgör.
+ 
+ Prövat och återtaget, mätt mot samma baslinje (bandet < 5 min, alla typer och
+-- 
+2.43.0
+

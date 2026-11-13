@@ -1,0 +1,1205 @@
+From 0873322f6316e2bf7c417958b0b6619d8e87d51b Mon Sep 17 00:00:00 2001
+From: "Familj F (Claude)" <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 10:29:20 +0000
+Subject: [PATCH 1/7] =?UTF-8?q?U23:=20k=C3=B6aren=20vid=20Kajen=20norr=20o?=
+ =?UTF-8?q?m=20Klaffbron=20st=C3=A5r=20kvar=20som=20i=20resten=20av=20v?=
+ =?UTF-8?q?=C3=A4ntomr=C3=A5det?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Ägarbeslut U23 (2026-11-09): en båt på väg mot Klaffbron som stannar vid
+Kajen står kvar i texten tills hon kör vidare, sänder navstatus 1/5 eller
+legat still i MAX_STATIONARY_WAIT_MS. D1 vinner över 15-minutersgissningen.
+
+- lib/constants.js: Kajens queueGraceMs Infinity (U23, motivet D1).
+- VDS: zonvillkoret utbrutet till _zoneMinStillMs (godtar Infinity; samma
+  tre villkor: målbro, rörelsebevis, målbron inom 600 m) och nytt publikt
+  predikat holdsQuayQueue. 2 h-backstoppen gäller vid kajen (queueBridge ger
+  null i en kajzon).
+- app.js _observeOpeningArrivals: kajstoppet vid Kajen följer klassningen —
+  samma ankomst så länge köaren hålls, 30 s-regeln när klassningen släpper
+  henne. Den första varningen gäller hela kön.
+- Regression: syntetiskt scenario kö-25min-i-Kajens-kapsel (U23) med
+  noDefaultWhileStopped och minOpeningLeadS, tests/u23-kajens-ko.test.js och
+  U23-fall i opening-queue-quay-stop.test.js; alla fäller c14938f.
+- Låsningar av 15-minutersregeln omskrivna till U23 (gasthamnskapseln,
+  moored-vessel-detection, m1-ihallande-stillhetsankare, helgranskning
+  2026-07-10 V2-1, bridge-queue-adversarial).
+- Docs: ARCHITECTURE §Förtöjningslagren, reliability-spec B1/INV-B1,
+  VALIDATION (75 scenarier).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ app.js                                        |  36 ++-
+ docs/ARCHITECTURE.md                          |  40 ++-
+ docs/VALIDATION.md                            |  15 +-
+ docs/reliability-spec.md                      |   1 +
+ lib/constants.js                              |  20 +-
+ lib/services/VesselDataService.js             |  73 +++--
+ tests/bridge-queue-adversarial.test.js        |   6 +
+ tests/gasthamnskapseln.test.js                |  40 ++-
+ tests/helgranskning-2026-07-10.test.js        |  14 +-
+ tests/m1-ihallande-stillhetsankare.test.js    |  87 +++---
+ tests/moored-vessel-detection.test.js         |  20 +-
+ tests/opening-queue-quay-stop.test.js         |  71 +++--
+ .../runSyntheticScenarios.js                  | 105 ++++++-
+ tests/u23-kajens-ko.test.js                   | 267 ++++++++++++++++++
+ 14 files changed, 666 insertions(+), 129 deletions(-)
+ create mode 100644 tests/u23-kajens-ko.test.js
+
+diff --git a/app.js b/app.js
+index 2cfcfe4..cf5550a 100755
+--- a/app.js
++++ b/app.js
+@@ -1513,19 +1513,33 @@ class AISBridgeApp extends Homey.App {
+       const atConfirmedMooring = vessel._moored === true
+         && distance > BRIDGE_OPENING.DISARM_MOORED_MIN_DISTANCE_M;
+       // En kajzon som ligger mitt i brons väntzon bär queueGraceMs
+-      // ("Kajen norr om Klaffbron", 15 min): där är ett kort stopp brokö, inte
+-      // ett kajstopp. Regeln liknar förtöjningsklassningens köundantag
+-      // (VesselDataService._classifyMooring) men är inte densamma: där gäller
+-      // undantaget inom 600 m från MÅLBRON och kräver rörelsebevis, och
+-      // navstatus 1/5 klassar förtöjd direkt. Här räcker att kajzonen bär grace
+-      // och att ankomstbron (kortets bro) ligger inom
+-      // DISARM_MOORED_MIN_DISTANCE_M; inom det avståndet spelar varken navstatus
+-      // eller _moored någon roll. Med en fast 30 s-gräns fick en båt
+-      // som väntat ut öppningen vid kajen ett andra kort för samma öppning när
+-      // hon lade ut (TIM och CHARLYS DREAM i both-21h, med båten isolerad).
++      // ("Kajen norr om Klaffbron"): där är ett stopp brokö, inte ett
++      // kajstopp. Med en fast 30 s-gräns fick en båt som väntat ut öppningen
++      // vid kajen ett andra kort för samma öppning när hon lade ut (TIM och
++      // CHARLYS DREAM i both-21h, med båten isolerad). Graceperioden gäller när
++      // ankomstbron (kortets bro) ligger inom DISARM_MOORED_MIN_DISTANCE_M.
++      // En ÄNDLIG grace (Kajens 15 min fram till U23) räknas på stoppets
++      // längd oavsett navstatus och _moored; den obegränsade följer
++      // förtöjningsklassningen (stopGraceMs nedan).
+       const queueGraceMs = !atConfirmedMooring && atQuay
+         && distance <= BRIDGE_OPENING.DISARM_MOORED_MIN_DISTANCE_M
+         && Number(quayZone.queueGraceMs) > 0 ? Number(quayZone.queueGraceMs) : 0;
++      // ÄGARBESLUT U23 (2026-11-09): Kajens köundantag är obegränsat
++      // (queueGraceMs Infinity). Då finns ingen tid som gör kön till ett
++      // kajstopp; spärren följer i stället förtöjningsklassningen. Så länge
++      // den håller båten som köare mot kortets bro (VesselDataService.
++      // holdsQuayQueue: målbron är kortets bro, rörelsebevis, inom 600 m och
++      // inte förtöjd) står hon kvar i texten och stoppet är samma ankomst —
++      // den första varningen gäller hela kön. När klassningen släpper henne
++      // (navstatus 1/5, 2 h-backstoppen, eller ingen målbro, t.ex. ny efter
++      // ett långt AIS-glapp eller en omstart) bekräftas stoppet med 30 s-
++      // regeln, och avgången blir en ny ankomst som förut. Ett AIS-glapp
++      // nollställer fortfarande inte stoppet i en kajzon med köundantag
++      // (gapResetsStop nedan), så övernattningen vid Kajen bekräftas nästa
++      // morgon som förut.
++      const stopGraceMs = queueGraceMs === Infinity
++        && this.vesselDataService?.holdsQuayQueue?.(vessel, bridgeName) !== true
++        ? 0 : queueGraceMs;
+       const stop = entry.quayStop;
+       const movedFromStop = stop && geometry.calculateDistance(stop.lat, stop.lon, vessel.lat, vessel.lon);
+       if (stop?.confirmed && !atQuay && vessel._moored !== true
+@@ -1563,7 +1577,7 @@ class AISBridgeApp extends Homey.App {
+         } else if (!stop.confirmed) {
+           stop.lastFixTs = fixTs;
+           stop.confirmed = fixTs - stop.firstFixTs
+-            >= Math.max(30000, stop.afterConfirmedStop ? 0 : queueGraceMs);
++            >= Math.max(30000, stop.afterConfirmedStop ? 0 : stopGraceMs);
+           dirty = true;
+         }
+       } else if (stop && !stop.confirmed) {
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index bba56d8..08d2ec3 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -290,9 +290,10 @@ Broar i `BRIDGES` (:245–325), syd→nord (`BRIDGE_SEQUENCE` :573–579):
+   punkt de räknades mot).
+   (Haversine bro-till-bro; 950/420-datafelen rättades i helgranskningen
+   2026-07-06 — denna rad släpade efter till 2026-07-10.)
+-- `MOORING_ZONES` (:403–458): TVÅ kapslar (centrumlinje + halvbredd), båda norr
++- `MOORING_ZONES` (:403–488): TVÅ kapslar (centrumlinje + halvbredd), båda norr
+   om Klaffbron: "Kajen norr om Klaffbron" (30 m halvbredd, 190–295 m från bron,
+-  mitt i väntzonen, `queueGraceMs` 15 min) och "Gästhamnen norr om Klaffbron"
++  mitt i väntzonen, `queueGraceMs` Infinity sedan ägarbeslutet U23 2026-11-09,
++  15 min dessförinnan) och "Gästhamnen norr om Klaffbron"
+   (35 m, `queueGraceMs` 0 — B3, 2026-08-06). `MOORING_DETECTION`
+   (:342–355): STATIONARY 0.3 kn, MOVEMENT_PROOF 0.5 kn/50 m, navstatus 1/5,
+   2h-backstop.
+@@ -1221,9 +1222,33 @@ båt.
+    `_pendingTarget` rensas, protection släpps (VDS:126–135), fartyget behålls.
+ 3. **Navstatus**: 1 (ankar)/5 (förtöjd) + stillaliggande (:1666–1668).
+ 4. **Kajzon**: stationär i MOORING_ZONE kräver stillhetsTID — 3 min normalt,
+-   **15 min** för trolig köare (target inom 600 m + rörelsebevis) (:1681–1696).
++   zonens `queueGraceMs` för trolig köare (target inom 600 m + rörelsebevis;
++   `_zoneMinStillMs`). Kajen bär sedan **ägarbeslutet U23 (2026-11-09)** ett
++   obegränsat köundantag: en båt på väg mot Klaffbron som stannar vid Kajen
++   behandlas som i resten av väntområdet och klassas aldrig av zonlagret. Hon
++   står kvar i texten ("på väg mot Klaffbron, beräknad broöppning strax" inom
++   300 m, enligt imminent-regeln och U6) tills hon kör vidare, sänder
++   navstatus 1/5 (lager 3) eller legat still i MAX_STATIONARY_WAIT_MS
++   (lager 5). Motivet är D1 (docs/reliability-spec.md): utanför kajzonerna tas
++   en väntande båt nära bron aldrig bort, och 15-minutersgissningen gav i
++   buggjägarens provvärldar "Inga båtar" medan en båt väntade 250 m från bron
++   och en ny, sen varning vid avgången (värld 313: 32 s före passagen).
++   Utan undantagets villkor gäller 3 min som förut: norrgående efter Klaffbron
++   med Stridsbergsbron ~980 m bort (ELFKUNGEN, SUSANNE), båtar utan målbro eller
++   rörelsebevis, och hela Gästhamnen (`queueGraceMs` 0, utanför väntzonen).
++   **Öppningslagrets ankomstspärr** (app.js `_observeOpeningArrivals`) följer
++   samma klassning via `VesselDataService.holdsQuayQueue`: så länge köaren
++   hålls är stoppet vid Kajen samma ankomst, och armen lever vidare eftersom
++   målbron står kvar, så den första varningen gäller hela kön. Släpper
++   klassningen henne (navstatus, backstoppen, eller ingen målbro efter ett
++   långt AIS-glapp eller en omstart) bekräftas stoppet med 30 s-regeln och
++   avgången blir en ny ankomst (`OPENING_QUAY_DEPARTURE`) som förut — efter
++   backstoppen alltså med en sen andra varning (47 s före korsningen i det
++   syntetiska 150-minutersprovet, samma som på c14938f efter 15 min).
+ 5. **2h-backstop**: stationär > MAX_STATIONARY_WAIT_MS. Sedan 2026-09-06
+-   undantas styrkt, fortsatt färsk brokö enligt kontraktet nedan.
++   undantas styrkt, fortsatt färsk brokö enligt kontraktet nedan. Undantaget
++   når aldrig en kajzon: `queueBridge` (lib/utils/bridgeQueue.js) ger null i en
++   MOORING_ZONE, så backstoppen gäller vid Kajen även för U23-köaren.
+    Släpp-hysteres: tydlig avgång (≥0.5 kn) direkt; gråzon kräver 2 prover
+    (`_mooredReleasePending`, :1638–1653); navstatus-flap ensam släpper inte
+    (:1660–1665).
+@@ -1750,9 +1775,10 @@ mätas i nästa A/B, inte gissas fram.
+   observationsankare)`, i stället för klientens `timeSinceLastMessage`-sentinel och socketens
+   uptime. Ankaret är medvetet **icke-persisterat** (ett persisterat ankare återinför kollapsen vid
+   omstart mitt i ett avbrott). `connection_status` har värdet `degraded` sedan v5.4.0.
+-- **MOORING_ZONES bär `queueGraceMs`** (C0b): köundantaget som höjer stillhetskravet 3 → 15 min är
+-  zon-lokalt, inte avståndsbaserat. Zonernas broavstånd **överlappar** (kajzonen 161–320 m,
+-  gästhamnen 319–446 m), så ingen avståndströskel kan separera dem.
++- **MOORING_ZONES bär `queueGraceMs`** (C0b): köundantaget som höjer stillhetskravet från 3 min
++  (Kajen: 15 min, obegränsat sedan U23 2026-11-09) är zon-lokalt, inte avståndsbaserat.
++  Zonernas broavstånd **överlappar** (kajzonen 161–320 m, gästhamnen 319–446 m), så ingen
++  avståndströskel kan separera dem.
+ - **Riktningslåset kräver rörelsebevis** (C4b): `_routeDirection` skrivs bara om från COG när
+   `sog ≥ FIX_D_MIN_SOG`. Målbrologiken förkastade redan sådana COG; låset gjorde det inte.
+ - **Rådatafacit (`gt-passages/`) läser farledspolylinjen, aldrig `BRIDGES`-koordinaten** — annars
+diff --git a/docs/VALIDATION.md b/docs/VALIDATION.md
+index 8dfc95d..304a44a 100644
+--- a/docs/VALIDATION.md
++++ b/docs/VALIDATION.md
+@@ -72,7 +72,7 @@ Eller stegen var för sig:
+ |---|---|---|
+ | Enhetstester | `npm test > /tmp/ais-jest.log 2>&1` (läs sedan slutraderna) | Alla tester passerar, exitkod 0 och inga öppna handtag. Aktuellt antal står i körningens sammanfattning. Omdirigeringen bevarar Jest:s exitkod; en pipe till `tail` gör inte det. |
+ | Korpusarna | `npm run replay:all` | Samtliga korpusar (aktuellt antal och timmar står i skriptets utskrift) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + exakt (mmsi,bro,riktning)-fördelning + EXAKT bridge_text-transitionsström (golden-text/) + alla invarianter. Ofullständig fångst redovisas separat och får bara utgöra regression för bevarade sampel. |
+-| Syntetiska | `npm run replay:synthetic` | 74 scenarier (gap, U-svängar även med gles AIS, GPS-hopp, kajliggare, sog=null, omstart, 2h-prune-stillaliggare, krypfart förbi passerad bro …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
++| Syntetiska | `npm run replay:synthetic` | 75 scenarier (gap, U-svängar även med gles AIS, GPS-hopp, kajliggare, kö i Kajens kapsel (U23), sog=null, omstart, 2h-prune-stillaliggare, krypfart förbi passerad bro …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
+ | Öppningsgrindarna | `npm run replay:openings` | ETAPP 6: det proaktiva lagret (`bridge_opening_soon`). **O1** varje målbropassage i SAMTLIGA korpusar (låsta som olåsta — antalet står i skriptets utskrift, inte här) har en öppningsvarning FÖRE passagen — varje miss klassad mot rådata (oklassad = rött); en KONVOJTÄCKNING underkänns om bron bevisligen öppnat och stängt för någon annan emellan. **O2** varje varning utan passage inom 20 min klassas mot rådata (KAJVOBBEL och UTANFÖR_HORISONTEN = rött; avbruten approach, gles anflygning och garantipris = accepterade) — även SEN_PASSAGE-hinken klassas. **O2b** (S14, 2026-08-23) SAMMA fantommätning mot RÅDATAFACIT (A2, `gt-passages`) i stället för appens egna passager — O1b:s mönster: appens passageregistreringar delar grindarnas blindfläck, så en varning kan kallas BEKRÄFTAD av appens egen bokföring medan rådatan inte känner korsningen. Serierna redovisas BREDVID varandra (annars går körningsloggar inte att jämföra bakåt). `inferred`-poster (korsning bevisad, tidpunkt = fönster) bär ALDRIG hinkindelningen utan hamnar i egen hink INFERRERAD_TID — hinkarna ÄR en tidsfönstermätning. **O2b är INFORMATIV: den ändrar inte exitkoden** (grinden ligger kvar på appserien precis som O1:s täckning i fas A); `OPENING_GT_STRICT` flyttar den hit när fas C är klar. Vid införandet: 0 röda i BÅDA serierna, 118 av 360 varningar byter hink (98 blir omätbara `inferred`) och EN varning byter åt det farliga hållet (JAATTEN II @ Stridsbergsbron i 20260708-21h — samma fall INV-21 redan fäller). **O3** A/B-nattens båda armar: 6/6 öppningar varnade före, konvojen som EN varning, boat_near byte-identisk med nattens facit. Dessutom **avfyrningsfönstret** (`t − dueMs` inom två tick — kontraktet "avfyra så sent som garantin tillåter") och **ledtidsgolvet** (hårt golv 60 s; tunnare än utlovade 150 s rapporteras). |
+ | Soaken | `node tests/replay-validation/runSoak.js` | 72 h blandtrafik: 0 processfel, inga läckor, fatala invarianter rena |
+ | Driftens minutloop | `npm run replay:monitoring` | Samma 72 h med riktig monitoring/stale-städning även efter omstarter; samtliga timers avvecklade efter shutdown |
+@@ -399,6 +399,19 @@ inom konvojfönstret räknat från utresan; på 7699cbe är det rött (returen
+ är röda på 7699cbe (returerna 06:30:00 och 06:27:00 absorberades i utresans
+ händelse) och gröna med rättningen.
+ 
++**Kön i Kajens kapsel (ägarbeslut U23, 2026-11-09).** `kö-25min-i-Kajens-kapsel (U23)`
++låter en båt söderut ligga still 250 m norr om Klaffbron i 25 min och sedan gå
++igenom bron. Rutten går genom kapseln "Kajen norr om Klaffbron" 190–300 m norr
++om bron, så stoppet ligger i den — placeringen är testet. Stoppet läggs med ben
++(`legs`), eftersom `stop` utlöses upp till ett rapportsteg före sitt mål och
++här hade hamnat 343 m från bron, utanför kapseln. Två förväntningar är nya:
++`noDefaultWhileStopped` (texten får inte vara "Inga båtar …" mellan båtens
++första och sista stillasampel) och `minOpeningLeadS: {bro: S}` (ingen varning
++för bron under S s före båtens sanna korsning, interpolerad ur scenariots egna
++sampel). Mot `c14938f` fälls scenariot på alla tre villkoren: "Inga båtar"
++06:49, en andra Klaffbronvarning (ÖPPNINGSDUBBLETT) och den 47 s före
++korsningen.
++
+ **Krypfartsscenarierna (familj M, rättningskampanjen 2026-11-04, F05) prövar
+ närmandebeviset och fartgrinden i båda vägarna.** Placeringen är testet i alla sex.
+ - `krypfart-förbi-passerad-Klaffbron`, `krypfart-förbi-passerad-Järnvägsbron-söderut`
+diff --git a/docs/reliability-spec.md b/docs/reliability-spec.md
+index 28ed88e..8a1ee35 100644
+--- a/docs/reliability-spec.md
++++ b/docs/reliability-spec.md
+@@ -108,5 +108,6 @@ Per målbro-grupp: `"{antal} båt(ar) på väg mot {målbro}, {ETA-klausul}"`. F
+ 
+ ### Konsekvenser inarbetade i reglerna ovan
+ - **B1/INV-B1:** ett fartyg förblir *relevant* för bridge_text så länge det är inom `APPROACHING_RADIUS` (500 m) av sin målbro på en aktiv resa, **även om sog ≈ 0**. En stoppad båt visas som "En båt på väg mot X" utan ETA-klausul (eller med "ETA okänd" om ETA saknas). Texten får aldrig falla till DEFAULT medan en sådan båt finns.
++- **B1/INV-B1 mot kajzonen — löst genom ägarbeslutet U23 (2026-11-09):** kajzonen "Kajen norr om Klaffbron" (190–295 m från bron, mitt i väntzonen) klassade en köare mot Klaffbron som förtöjd efter 15 min och bröt D1. Nu står hon kvar som i resten av väntområdet, tills hon kör vidare, sänder navstatus 1/5 eller legat still i 2 h (`MAX_STATIONARY_WAIT_MS`). Norrgående med målbro bortom 600 m och Gästhamnen klassas som förut (`lib/constants.js` MOORING_ZONES, docs/ARCHITECTURE.md §Förtöjningslagren).
+ - **A2/INV-N4:** `_getDirectionString` sydband snävas till 135–225° för COG-fallback; off-axis (226–314°) utan route-latch → `unknown`. **REVIDERAT 2026-07-02 (JOSEPHINE, replay-belagt):** token-fallbackens sydband breddades till 135–314° — bevisligen sydgående båt med COG 226,7° fick felaktigt `unknown`. Det STRIKTA bandet 135–225° gäller fortsatt alla HÖGRISK-beslut (målbro-/riktningslås, Fix D, NEW_JOURNEY). Koden + `notification-tokens.test.js` är sanningskällan (P5-beslutet i constants.js:276–285); denna spec-rad behålls som historik (helgranskningen 2026-07-06, docs-core#R2-1).
+ - **B3/INV-B2:** visad ETA klampas icke-ökande medan fartyget närmar sig (tolerans för brus tillåten).
+diff --git a/lib/constants.js b/lib/constants.js
+index 7b18246..6252e99 100644
+--- a/lib/constants.js
++++ b/lib/constants.js
+@@ -431,7 +431,25 @@ const MOORING_ZONES = [
+     // Klaffbron-passage; 15 min täcker den observerade köstillheten med
+     // marginal medan äkta kajliggare (timmar) ändå fångas. Villkoren för att
+     // graceperioden ska gälla är oförändrade: målbro + rörelsebevis + ≤600 m.
+-    queueGraceMs: 15 * 60 * 1000,
++    //
++    // ÄGARBESLUT U23 (2026-11-09): KÖUNDANTAGET ÄR OBEGRÄNSAT. Motiv: D1
++    // (2026-06-03, docs/reliability-spec.md) — en stoppad eller väntande båt
++    // inom 500 m från sin målbro står kvar i texten. Utanför kajzonerna tas
++    // en väntande båt nära bron aldrig bort automatiskt, och Kajen ligger
++    // mitt i väntzonen. 15 min var en gissning: buggjägarens köer vid
++    // Klaffbron (fältets köplatser 221–307 m) varar ofta längre, och i
++    // 9 av 2 000 provvärldar visade texten "Inga båtar" medan en båt väntade
++    // 250 m från bron; vid avgången kom en ny varning, i värld 313 32 s före
++    // passagen. Under samma tre villkor står köaren nu kvar tills hon kör
++    // vidare, sänder navstatus 1/5 eller legat still i
++    // MOORING_DETECTION.MAX_STATIONARY_WAIT_MS (2 h-backstoppen, som gäller
++    // här: queueBridge ger null i en kajzon). Utan villkoren gäller baskravet
++    // 3 min som förut — ELFKUNGEN och SUSANNE (norrut efter Klaffbron, mål
++    // Stridsbergsbron ~980 m bort) demoteras exakt som i dag. Öppnings-
++    // lagrets ankomstspärr (app.js _observeOpeningArrivals) följer samma
++    // klassning, så den första varningen gäller hela kön.
++    // Underlag: S/varv2/tB/TRIAGE-B.md "Kajfrågan för ägaren".
++    queueGraceMs: Infinity,
+   },
+   {
+     // Gästhamnen 354–411 m norr om Klaffbron (etapp 7/B3, 2026-08-05).
+diff --git a/lib/services/VesselDataService.js b/lib/services/VesselDataService.js
+index 1e18cd3..011d78d 100755
+--- a/lib/services/VesselDataService.js
++++ b/lib/services/VesselDataService.js
+@@ -3660,24 +3660,18 @@ class VesselDataService extends EventEmitter {
+           // är därför ZON-LOKALT: zonen bär sin egen `queueGraceMs`. Avstånds-
+           // och rörelsebevisvillkoren är OFÖRÄNDRADE för de zoner som har
+           // grace, så kajzonens beteende (ELFKUNGEN-skyddet) står kvar exakt.
++          //
++          // ÄGARBESLUT U23 (2026-11-09): Kajens köundantag är OBEGRÄNSAT
++          // (`queueGraceMs: Infinity`). En trolig köare — samma tre villkor
++          // som ovan — klassas aldrig förtöjd av zonlagret; hon står kvar
++          // tills hon kör vidare, sänder navstatus 1/5 (grenen ovan) eller
++          // ligger still i MAX_STATIONARY_WAIT_MS (backstoppen nedan). D1
++          // vinner alltså över 15-minutersgissningen. Backstoppen gäller vid
++          // kajen precis som förut: queueBridge (lib/utils/bridgeQueue.js) ger
++          // null i en MOORING_ZONE, så undantaget för färsk broväntan
++          // (_hasFreshBridgeQueueEvidence) når aldrig hit.
+           const stillMs = Date.now() - vessel._stationarySince;
+-          let zoneMinStillMs = 3 * 60 * 1000;
+-          // Graceperioden kan bara FÖRLÄNGA baskravet — en zon utan fält (eller
+-          // med ett kortare värde) får aldrig sänka 3-minuterskravet. Saknas
+-          // grace hoppas hela avståndsberäkningen över.
+-          const zoneQueueGraceMs = Number.isFinite(zone.queueGraceMs) ? zone.queueGraceMs : 0;
+-          if (zoneQueueGraceMs > zoneMinStillMs
+-              && vessel.targetBridge && vessel._hasMovementProof) {
+-            const targetObj = this.bridgeRegistry?.getBridgeByName?.(vessel.targetBridge);
+-            if (targetObj && Number.isFinite(targetObj.lat) && Number.isFinite(targetObj.lon)) {
+-              const distToTarget = geometry.calculateDistance(
+-                vessel.lat, vessel.lon, targetObj.lat, targetObj.lon,
+-              );
+-              if (Number.isFinite(distToTarget) && distToTarget <= 600) {
+-                zoneMinStillMs = zoneQueueGraceMs;
+-              }
+-            }
+-          }
++          const zoneMinStillMs = this._zoneMinStillMs(vessel, zone);
+           if (stillMs >= zoneMinStillMs) {
+             moored = true;
+             mooredReason = `zon "${zone.name}" (still ${Math.round(stillMs / 60000)} min)`;
+@@ -3809,6 +3803,51 @@ class VesselDataService extends EventEmitter {
+     vessel._bridgeQueueApproaches = next;
+   }
+ 
++  /**
++   * Zonlagrets stillhetskrav (ms) för just den här båten i `zone`: baskravet
++   * 3 min, eller zonens `queueGraceMs` för en trolig KÖARE — målbro inom 600 m
++   * och rörelsebevis (ELFKUNGEN 2026-07-02; zon-lokalt sedan C0b 2026-08-08).
++   * Graceperioden kan bara FÖRLÄNGA baskravet — en zon utan fält (eller med ett
++   * kortare värde) får aldrig sänka 3-minuterskravet, och saknas grace hoppas
++   * avståndsberäkningen över. Infinity är ett giltigt värde (ägarbeslut U23,
++   * 2026-11-09: Kajens köundantag är obegränsat); NaN, null och saknat fält
++   * betyder ingen grace.
++   * @private
++   * @param {Object} vessel - Vessel object (läses)
++   * @param {Object} zone - MOORING_ZONES-post
++   * @returns {number} minsta stilltid i ms (kan vara Infinity)
++   */
++  _zoneMinStillMs(vessel, zone) {
++    const baseMs = 3 * 60 * 1000;
++    const graceMs = typeof zone?.queueGraceMs === 'number' && zone.queueGraceMs > 0
++      ? zone.queueGraceMs : 0;
++    if (!(graceMs > baseMs) || !vessel?.targetBridge || !vessel._hasMovementProof) return baseMs;
++    const targetObj = this.bridgeRegistry?.getBridgeByName?.(vessel.targetBridge);
++    if (!targetObj || !Number.isFinite(targetObj.lat) || !Number.isFinite(targetObj.lon)) return baseMs;
++    const distToTarget = geometry.calculateDistance(vessel.lat, vessel.lon, targetObj.lat, targetObj.lon);
++    return Number.isFinite(distToTarget) && distToTarget <= 600 ? graceMs : baseMs;
++  }
++
++  /**
++   * U23 (ägarbeslut 2026-11-09): håller kajzonen båten som KÖARE mot
++   * `bridgeName`? Sant när zonlagret aldrig skulle klassa henne förtöjd på tid:
++   * hon ligger i en zon med obegränsat köundantag (Kajen), är inte förtöjd-
++   * klassad och uppfyller undantagets villkor med just `bridgeName` som målbro.
++   * Falskt så snart förtöjningsklassningen släpper henne ur texten — navstatus
++   * 1/5, 2 h-backstoppen, eller ingen målbro (t.ex. ny efter ett långt
++   * AIS-glapp eller en omstart). Läses av öppningslagrets ankomstspärr
++   * (app.js _observeOpeningArrivals): ett stopp vid Kajen är samma ankomst så
++   * länge texten bär henne som "på väg mot" bron.
++   * @param {Object} vessel - Vessel object (läses)
++   * @param {string} bridgeName - Ankomstbron (kortets bro)
++   * @returns {boolean}
++   */
++  holdsQuayQueue(vessel, bridgeName) {
++    if (!vessel || vessel._moored === true || !bridgeName || vessel.targetBridge !== bridgeName) return false;
++    const zone = this._findMooringZone(vessel);
++    return zone !== null && this._zoneMinStillMs(vessel, zone) === Infinity;
++  }
++
+   /** Aktiv, belagd broväntan har ingen tvåtimmarsgräns (användarval 2026-09-06). */
+   _hasFreshBridgeQueueEvidence(vessel) {
+     return queueBridge(vessel) !== null;
+diff --git a/tests/bridge-queue-adversarial.test.js b/tests/bridge-queue-adversarial.test.js
+index f0be469..565a11c 100644
+--- a/tests/bridge-queue-adversarial.test.js
++++ b/tests/bridge-queue-adversarial.test.js
+@@ -125,6 +125,12 @@ describe('Lång brokö: motbevis, källtid och resgränser', () => {
+     let vessel = queue(BRIDGES.klaffbron, 'south');
+     vessel = step(vessel, { lat: 58.2861, lon: 12.2857 });
+     vessel = step(vessel, {}, 16);
++    // Brokön följer inte med in i kajzonen (queueBridge ger null där), men
++    // sedan ägarbeslutet U23 (2026-11-09) är hon en köare mot Klaffbron i
++    // Kajens kapsel: zonlagret klassar henne inte, 2 h-backstoppen gör det.
++    expect(service._hasFreshBridgeQueueEvidence(vessel)).toBe(false);
++    expect(vessel._moored).toBe(false);
++    vessel = step(vessel, {}, 106);
+     expect(service._hasFreshBridgeQueueEvidence(vessel)).toBe(false);
+     expect(vessel._moored).toBe(true);
+   });
+diff --git a/tests/gasthamnskapseln.test.js b/tests/gasthamnskapseln.test.js
+index 45fdcaa..b813fff 100644
+--- a/tests/gasthamnskapseln.test.js
++++ b/tests/gasthamnskapseln.test.js
+@@ -96,9 +96,10 @@ describe('B3: gästhamnskapselns geometri (datahärledd)', () => {
+ 
+   test('C0b: köundantaget bärs av zonposterna, inte av en global avståndsgrind', () => {
+     // Kontraktet C0b inför: `queueGraceMs` på MOORING_ZONES-posten. Kajzonen
+-    // (inne i väntzonen) behåller sina 15 min; gästhamnen (utanför väntzonen)
+-    // har inget undantag alls och faller tillbaka på baskravet 3 min.
+-    expect(KAJZON.queueGraceMs).toBe(15 * 60 * 1000);
++    // (inne i väntzonen) bär köundantaget — obegränsat sedan ägarbeslutet U23
++    // (2026-11-09; 15 min dessförinnan); gästhamnen (utanför väntzonen) har
++    // inget undantag alls och faller tillbaka på baskravet 3 min.
++    expect(KAJZON.queueGraceMs).toBe(Infinity);
+     expect(ZONE.queueGraceMs).toBeFalsy();
+ 
+     // Varje zon som BÄR grace måste också ligga i en väntzon — annars är
+@@ -371,14 +372,16 @@ describe('B3: konsumtionen — stillhet krävs, rörelse skyddar', () => {
+     expect(mooredRader).toEqual([]);
+   });
+ 
+-  test('KÖUNDANTAGET I KAJZONEN: 15-minutersgrenen håller, 3-minutersgrenen gör det inte', () => {
++  test('KÖUNDANTAGET I KAJZONEN: köaren står kvar, och övre änden är 2 h-backstoppen (U23)', () => {
+     // F-8b/C0b-vakt (2026-08-08): köundantaget (VesselDataService._classifyMooring,
+-    // zoneMinStillMs 3 → 15 min när target + rörelsebevis + ≤600 m) skrevs för
+-    // ELFKUNGEN-fallet i KAJZONEN — en köande båt 161–290 m från Klaffbron fick
+-    // annars ETT stillasample att demotera henne 4,5 min före passagen.
+-    // C0b ska göra undantaget ZON-LOKALT (gästhamnen tappar det), men kajzonens
+-    // grace ska stå kvar EXAKT som i dag. Raden fäller varje C0b-variant som
+-    // river undantaget brett i stället för per zon.
++    // zoneMinStillMs 3 min → zonens grace när target + rörelsebevis + ≤600 m)
++    // skrevs för ELFKUNGEN-fallet i KAJZONEN — en köande båt 161–290 m från
++    // Klaffbron fick annars ETT stillasample att demotera henne 4,5 min före
++    // passagen. C0b gjorde undantaget ZON-LOKALT (gästhamnen tappade det).
++    // Ägarbeslut U23 (2026-11-09): graceperioden är obegränsad — köaren står
++    // kvar tills hon kör vidare, sänder navstatus 1/5 eller legat still i
++    // MAX_STATIONARY_WAIT_MS. Raden fäller både en variant som river undantaget
++    // och en som åter gör det ändligt.
+     const KAJ_MITT = { lat: 58.286060, lon: 12.285651 }; // 240,5 m N Klaffbron
+     const anflygning = [
+       { lat: 58.28760, lon: 12.28600, sog: 3.4 },
+@@ -396,8 +399,10 @@ describe('B3: konsumtionen — stillhet krävs, rörelse skyddar', () => {
+     expect(vessel.targetBridge).toBe('Klaffbron');
+     expect(vessel._hasMovementProof).toBe(true);
+ 
+-    // Stillhet i kajzonen: 3-minutersgrenen får INTE bita på en köare.
+-    for (let min = 1; min <= 14; min++) {
++    // Stillhet i kajzonen: varken 3-minutersgrenen eller den gamla
++    // 15-minutersgränsen får bita på en köare (U23). 119 min = sista minuten
++    // före backstoppen.
++    for (let min = 1; min <= 119; min++) {
+       vessel = svc.updateVessel('999000111', {
+         lat: KAJ_MITT.lat, lon: KAJ_MITT.lon, sog: 0.0, cog: 195, name: 'KOARE',
+       });
+@@ -406,9 +411,9 @@ describe('B3: konsumtionen — stillhet krävs, rörelse skyddar', () => {
+       tick(1);
+     }
+ 
+-    // ...men graceperioden är ändlig: efter 15 min klassas hon som förtöjd.
+-    // (Låser även övre änden så en fix inte gör undantaget oändligt.)
+-    for (let min = 15; min <= 17; min++) {
++    // ...men undantaget är inte evigt: 2 h-backstoppen gäller vid kajen
++    // (queueBridge ger null i en kajzon, så broväntans undantag når inte hit).
++    for (let min = 120; min <= 122; min++) {
+       vessel = svc.updateVessel('999000111', {
+         lat: KAJ_MITT.lat, lon: KAJ_MITT.lon, sog: 0.0, cog: 195, name: 'KOARE',
+       });
+@@ -416,6 +421,11 @@ describe('B3: konsumtionen — stillhet krävs, rörelse skyddar', () => {
+     }
+     expect(vessel._moored).toBe(true);
+     expect(vessel.targetBridge).toBeNull();
++    const mooredRader = logger.log.mock.calls
++      .map((c) => String(c[0]))
++      .filter((r) => r.includes('[MOORED]') && r.includes('999000111'));
++    expect(mooredRader).toHaveLength(1);
++    expect(mooredRader[0]).toContain('backstop');
+   });
+ 
+   test('KAJZONENS NORRA SPETS: graceperioden gäller HELA kapseln (fäller 600→300 m)', () => {
+diff --git a/tests/helgranskning-2026-07-10.test.js b/tests/helgranskning-2026-07-10.test.js
+index fdacc87..8a595e7 100644
+--- a/tests/helgranskning-2026-07-10.test.js
++++ b/tests/helgranskning-2026-07-10.test.js
+@@ -598,13 +598,25 @@ describe('V2-1: fartgivarlös kajliggare blir moored via positionsstillhet', ()
+     svc.updateVessel(mmsi, {
+       lat: QUAY.lat, lon: QUAY.lon, sog: null, cog: 215, shipName: 'FARTGIVARLÖSA',
+     });
+-    // Still i 20 min över flera prover (inom 40 m-jitterradien)
++    // Still i 20 min över flera prover (inom 40 m-jitterradien). Hon har
++    // målbro Klaffbron och rörelsebevis, alltså en köare: sedan ägarbeslutet
++    // U23 (2026-11-09) är Kajens köundantag obegränsat, så zonkravet för henne
++    // är 2 h-backstoppen. Den positionshärledda stillheten ska då bära hela
++    // vägen dit — samma lager som finit-sog-vägen.
+     for (let i = 0; i < 5; i++) {
+       tick(4);
+       svc.updateVessel(mmsi, {
+         lat: QUAY.lat + 0.00005, lon: QUAY.lon, sog: null, cog: 215, shipName: 'FARTGIVARLÖSA',
+       });
+     }
++    expect(svc.vessels.get(mmsi)._moored).toBe(false); // köare (U23)
++    expect(Number.isFinite(svc.vessels.get(mmsi)._stationarySince)).toBe(true);
++    for (let i = 0; i < 26; i++) { // till 124 min
++      tick(4);
++      svc.updateVessel(mmsi, {
++        lat: QUAY.lat + 0.00005, lon: QUAY.lon, sog: null, cog: 215, shipName: 'FARTGIVARLÖSA',
++      });
++    }
+ 
+     const vessel = svc.vessels.get(mmsi);
+     expect(vessel._moored).toBe(true);
+diff --git a/tests/m1-ihallande-stillhetsankare.test.js b/tests/m1-ihallande-stillhetsankare.test.js
+index 977f787..883cc1f 100644
+--- a/tests/m1-ihallande-stillhetsankare.test.js
++++ b/tests/m1-ihallande-stillhetsankare.test.js
+@@ -59,14 +59,16 @@ const QUAY = { lat: 58.28767, lon: 12.285705 };
+ const M_PER_DEG_LAT = 111320; // meridiangraden
+ const ZON_MIN_STILL_MS = 3 * 60 * 1000; // _classifyMooring:s baskrav för zonlagret
+ const { ARM_STALE_TTL_MS } = constants.BRIDGE_OPENING;
++const { MAX_STATIONARY_WAIT_MS } = constants.MOORING_DETECTION;
+ const NET_M = constants.MOORING_DETECTION.MOVEMENT_PROOF_NET_M;
+ 
+ // KÖ-ZONEN — M1:s NYA BETEENDEGRÄNS (granskarfynd runda 4, korrekthetslinsen).
+-// "Kajen norr om Klaffbron" är den ENDA zon som bär kö-nåd (queueGraceMs
+-// 15 min, se constants.MOORING_ZONES). Punkten nedan är kapsellinjens
+-// mittpunkt: uppmätt 235 m från Klaffbron, alltså INNE i väntzonen (≤300 m)
+-// och långt inom kö-undantagets 600 m-villkor. Zonen är därför den plats där
+-// ankarmognaden (30 min) och kö-nåden (15 min) staplas på varandra.
++// "Kajen norr om Klaffbron" är den ENDA zon som bär kö-nåd (queueGraceMs, se
++// constants.MOORING_ZONES; obegränsad sedan ägarbeslutet U23 2026-11-09, 15 min
++// dessförinnan). Punkten nedan är kapsellinjens mittpunkt: uppmätt 235 m från
++// Klaffbron, alltså INNE i väntzonen (≤300 m) och långt inom kö-undantagets
++// 600 m-villkor. Zonen är därför den plats där ankarmognaden (30 min) och
++// köarens övre gräns (sedan U23 2 h-backstoppen) staplas på varandra.
+ const KO_ZON = constants.MOORING_ZONES.find((z) => z.name === 'Kajen norr om Klaffbron');
+ const KO = { lat: 58.286060, lon: 12.285651 };
+ const KO_KADENS_MS = 2 * 60 * 1000; // CARAT:s egen sampelkadens
+@@ -263,73 +265,66 @@ describe('M1: ihållande stillhetsankare', () => {
+     }
+   });
+ 
+-  test('KÖ-ZONENS GRÄNS: brusig köare förtöjs först efter ankarmognad + kö-nåd — ren givare gör det redan på HEAD', () => {
++  test('KÖ-ZONENS GRÄNS: köaren förtöjs först av 2 h-backstoppen — brusig givare efter ankarmognaden (U23)', () => {
+     // GRANSKARFYND RUNDA 4 (korrekthetslinsen): M1 förflyttar en beteendegräns
+     // som ingen svit låste. Karakteriseringstestet ovan slutar vid 20 minuter,
+     // alltså EXAKT innan det nya beteendet börjar, så ARM_STALE_TTL_MS eller
+     // zonens kö-nåd kunde ändras utan att något föll.
+     //
+-    // UPPMÄTT 2026-08-23 i TVÅ isolerade träd (HEAD 0b72310 byggt med
+-    // git archive, arbetsträdet som rsync-kopia), samma rigg som nedan:
+-    //   brusig givare (vartannat prov ≥0,5 kn): HEAD ALDRIG förtöjd (120 min
+-    //     utan klassning, målbron kvar) → arbetsträdet förtöjd efter 46 min.
+-    //   ren givare (alla prov <0,3 kn): 18 min i BÅDA armarna, målbron släpps
+-    //     i båda.
+-    // LÅSNINGEN DOKUMENTERAR ALLTSÅ KONVERGENS, INTE NY RISK: den brusiga
+-    // klassen rör sig från "aldrig" mot det beteende en REN givare redan har på
+-    // HEAD, och är fortfarande 2,5 gånger mer generös (46 mot 18 min). Att
+-    // göra något åt den skillnaden är ett DESIGNBESLUT, inte en bugg — men det
+-    // får inte längre ske av våda.
++    // ÄGARBESLUT U23 (2026-11-09): kö-nåden är obegränsad. En köare med målbro
++    // och rörelsebevis klassas inte längre av zonlagret alls; hennes övre gräns
++    // är MOORING_DETECTION.MAX_STATIONARY_WAIT_MS (2 h-backstoppen), som gäller
++    // vid kajen eftersom queueBridge ger null i en kajzon. Före U23 (mätt
++    // 2026-08-23 och åter 2026-11-09 på c14938f, samma rigg): brusig 46 min,
++    // ren 18 min. Med U23, uppmätt 2026-11-09 i familj F:s worktree och i en
++    // git archive-kopia av c14938f: brusig 152 min, ren 124 min.
+     //
+-    // HÄRLEDNINGEN (varför just 46 min vid 2 min kadens): ankaret sätts vid
+-    // första stillasamplet t0+2 min och ÖVERLEVER brusproven (M1). Villkor (2)
+-    // i _stillnessJitterHolds mognar alltså vid t0+32 min; först då slutar
+-    // brusproven nolla klockan, som står från föregående stillasampel
+-    // (t0+30 min). Zonens kö-nåd är 15 min ⇒ förtöjd på samplet t0+46 min.
++    // HÄRLEDNINGEN (vid 2 min kadens): ankaret sätts vid första stillasamplet
++    // t0+2 min och ÖVERLEVER brusproven (M1). Villkor (2) i
++    // _stillnessJitterHolds mognar vid t0+32 min; först då slutar brusproven
++    // nolla klockan, som står från föregående stillasampel (t0+30 min).
++    // Backstoppen kräver stilltid STRIKT över 2 h ⇒ förtöjd på samplet
++    // t0+152 min. Den rena givarens klocka står från t0+2 min ⇒ t0+124 min.
+     expect(KO_ZON).toBeDefined();
+-    // KONSTANTVAKT — de två talen gränsen är byggd av. Ändras något av dem
+-    // faller raderna nedan MED FLIT: mät om gränsen i två isolerade träd och
+-    // skriv in det nya talet här, i stället för att låta den glida tyst.
++    // KONSTANTVAKT — talen gränsen är byggd av. Ändras något av dem faller
++    // raderna nedan MED FLIT: mät om gränsen i två isolerade träd och skriv in
++    // det nya talet här, i stället för att låta den glida tyst.
+     expect(ARM_STALE_TTL_MS).toBe(30 * 60 * 1000);
+-    expect(KO_ZON.queueGraceMs).toBe(15 * 60 * 1000);
++    expect(KO_ZON.queueGraceMs).toBe(Infinity);
++    expect(MAX_STATIONARY_WAIT_MS).toBe(2 * 60 * 60 * 1000);
+ 
+-    const brusig = koaIKajzonen('265900005', [0.1, 0.8, 0.2, 1.2, 0.1, 0.6, 0.2, 1.5, 0.1, 0.7], 60);
++    const brusig = koaIKajzonen('265900005', [0.1, 0.8, 0.2, 1.2, 0.1, 0.6, 0.2, 1.5, 0.1, 0.7], 170);
+     // Riggen måste vara det den utger sig för: rätt zon, målbro och rörelsebevis —
+     // utan alla tre gäller baskravet 3 min och gränsen vore en annan.
+     expect(brusig.zon).toBe('Kajen norr om Klaffbron');
+     expect(brusig.target).toBe('Klaffbron');
+     expect(brusig.rorelsebevis).toBe(true);
+ 
+-    // SIDA 1 — INTE FÖRE gränsen. C9b:s villkor (2) är avsiktligt stängt under
+-    // ankarmognaden, och zonens kö-nåd löper först därefter.
+-    const GRANS_MS = ARM_STALE_TTL_MS + KO_ZON.queueGraceMs; // 45 min
++    // SIDA 1 — INTE FÖRE gränsen: ankarmognaden plus backstoppen.
++    const GRANS_MS = ARM_STALE_TTL_MS + MAX_STATIONARY_WAIT_MS; // 150 min
+     expect(brusig.mooredAtMs).not.toBeNull();
+-    expect(brusig.mooredAtMs).toBeGreaterThanOrEqual(GRANS_MS);
++    expect(brusig.mooredAtMs).toBeGreaterThan(GRANS_MS);
+     // SIDA 2 — MEN DIREKT DÄREFTER (inom ett kadenssteg), inte "aldrig".
+     expect(brusig.mooredAtMs).toBeLessThanOrEqual(GRANS_MS + KO_KADENS_MS);
+-    // Det exakta talet låses också: en ändring av NÅGON av de två konstanterna
+-    // flyttar det, även om båda banden ovan skulle följa med.
+-    expect(brusig.mooredAtMs).toBe(46 * 60 * 1000);
++    // Det exakta talet låses också.
++    expect(brusig.mooredAtMs).toBe(152 * 60 * 1000);
+ 
+     // MEKANISMEN som bär gränsen: vid klassningen är ANKARET moget men KLOCKAN
+-    // yngre än så. På HEAD var de två åldrarna identiska per konstruktion — det
+-    // är hela M1.
++    // yngre än så (M1).
+     expect(brusig.ankarAlderMs).toBeGreaterThanOrEqual(ARM_STALE_TTL_MS);
+     expect(brusig.klockAlderMs).toBeLessThan(brusig.ankarAlderMs);
+-    // Följden av klassningen: målbron släpps (demotering). Samma sak som händer
+-    // den rena givaren redan på HEAD.
++    expect(brusig.klockAlderMs).toBeGreaterThan(MAX_STATIONARY_WAIT_MS);
++    // Följden av klassningen: målbron släpps (demotering).
+     expect(brusig.targetEfter).toBeNull();
+ 
+-    // KONTROLLMÄTNINGEN — ren givare, samma zon, samma rigg. Talet 18 min är
+-    // HEAD:s eget och är OFÖRÄNDRAT av M1 (uppmätt i båda armarna). Den här
+-    // raden är inte en låsning av M1 utan referensen som gör 46 min tolkbart.
+-    const ren = koaIKajzonen('265900006', [0.1, 0.2, 0.1, 0.15], 60);
++    // KONTROLLMÄTNINGEN — ren givare, samma zon, samma rigg.
++    const ren = koaIKajzonen('265900006', [0.1, 0.2, 0.1, 0.15], 170);
+     expect(ren.zon).toBe('Kajen norr om Klaffbron');
+-    expect(ren.mooredAtMs).toBe(18 * 60 * 1000);
++    expect(ren.mooredAtMs).toBe(124 * 60 * 1000);
+     expect(ren.targetEfter).toBeNull();
+-    // Konvergens, inte likhet: den brusiga klassen är fortfarande drygt 2,5
+-    // gånger mer generöst behandlad än den rena.
+-    expect(brusig.mooredAtMs).toBeGreaterThan(ren.mooredAtMs * 2);
++    // Skillnaden är nu bara ankarmognaden: den brusiga klockan startar vid
++    // t0+30 min i stället för t0+2 min.
++    expect(brusig.mooredAtMs - ren.mooredAtMs).toBe(ARM_STALE_TTL_MS - KO_KADENS_MS);
+   });
+ 
+   test('KRYPANDE KÖARE (TIM-klassen) passerar bron — förtöjningen bryter inte passagen', () => {
+diff --git a/tests/moored-vessel-detection.test.js b/tests/moored-vessel-detection.test.js
+index 8db5fae..0e4db16 100644
+--- a/tests/moored-vessel-detection.test.js
++++ b/tests/moored-vessel-detection.test.js
+@@ -112,26 +112,28 @@ describe('Förtöjningsdetektering: kajliggare vs äkta broöppningsväntare', (
+     expect(vessel.targetBridge).toBe('Klaffbron');
+   });
+ 
+-  test('LAGER 4+2: båt seglar in, förtöjer vid kajen → demoteras (target rensas, ej borttagen)', () => {
++  test('LAGER 4+2: båt seglar in och ligger vid kajen → köare tills 2h-backstoppen, sedan demoterad (ej borttagen)', () => {
+     sailInSouthbound('265000003');
+     let vessel = svc.getVessel('265000003');
+     expect(vessel.targetBridge).toBe('Klaffbron');
+ 
+-    // Förtöjer vid kajen (stationär i zonen). Körning 2026-07-02 (ELFKUNGEN):
+-    // zonlagret kräver nu stillhetsTID — 15 min för båt med target inom
+-    // 600 m — så en KÖARE som pausar vid kajen inför broöppning inte
+-    // demoteras. Kort paus (≤9 min) ska alltså INTE klassa som förtöjd:
+-    for (let i = 0; i < 3; i++) {
++    // Ligger still vid kajen (stationär i zonen). Körning 2026-07-02
++    // (ELFKUNGEN): zonlagret kräver stillhetsTID för en båt med target inom
++    // 600 m, så en KÖARE som pausar vid kajen inför broöppning inte demoteras.
++    // Ägarbeslut U23 (2026-11-09): köundantaget är obegränsat — hon står kvar
++    // som "på väg mot Klaffbron" även efter de gamla 15 minuterna:
++    for (let i = 0; i < 20; i++) { // 20 × 3 min = 60 min
+       vessel = svc.updateVessel('265000003', {
+         lat: QUAY.lat, lon: QUAY.lon, sog: 0.1, cog: 30, name: 'TEST',
+       });
+       tick(3);
+     }
+-    expect(vessel._moored).toBe(false); // kö-skyddad (6 min stillhet < 15 min)
++    expect(vessel._moored).toBe(false); // kö-skyddad (U23)
+     expect(vessel.targetBridge).toBe('Klaffbron');
+ 
+-    // ...men en äkta förtöjning (≥15 min still i zonen) demoteras:
+-    for (let i = 0; i < 4; i++) {
++    // ...men en äkta förtöjning utan navstatus fångas av 2h-backstoppen,
++    // som gäller vid kajen (queueBridge ger null i en kajzon):
++    for (let i = 0; i < 22; i++) { // till 126 min
+       vessel = svc.updateVessel('265000003', {
+         lat: QUAY.lat, lon: QUAY.lon, sog: 0.1, cog: 30, name: 'TEST',
+       });
+diff --git a/tests/opening-queue-quay-stop.test.js b/tests/opening-queue-quay-stop.test.js
+index 5d4e184..8bff63d 100644
+--- a/tests/opening-queue-quay-stop.test.js
++++ b/tests/opening-queue-quay-stop.test.js
+@@ -3,17 +3,23 @@
+ jest.mock('homey');
+ const { __mockHomey: mockHomey } = require('homey');
+ const App = require('../app');
+-const { MOORING_ZONES } = require('../lib/constants');
++const { MOORING_ZONES, MOORING_DETECTION } = require('../lib/constants');
+ 
+ /**
+  * Helgranskningen 2026-11-03: "Kajen norr om Klaffbron" ligger mitt i
+- * Klaffbrons väntzon och bär queueGraceMs (15 min) — förtöjnings-
+- * klassningen räknar stillhet där som brokö. Öppningslagrets ankomstspärr
+- * bekräftade ändå ett "kajstopp" efter 30 s i vilken kajzon som helst, så en
+- * båt som väntat ut öppningen vid kajen fick ett andra kort för samma öppning
+- * när hon lade ut (TIM och CHARLYS DREAM i both-21h, med båten isolerad).
+- * Gästhamnen (queueGraceMs 0) behåller 30 s-regeln: där ÄR ett stopp ett
+- * besök (HERA II).
++ * Klaffbrons väntzon och bär queueGraceMs — förtöjningsklassningen räknar
++ * stillhet där som brokö. Öppningslagrets ankomstspärr bekräftade ändå ett
++ * "kajstopp" efter 30 s i vilken kajzon som helst, så en båt som väntat ut
++ * öppningen vid kajen fick ett andra kort för samma öppning när hon lade ut
++ * (TIM och CHARLYS DREAM i both-21h, med båten isolerad). Gästhamnen
++ * (queueGraceMs 0) behåller 30 s-regeln: där ÄR ett stopp ett besök (HERA II).
++ *
++ * Ägarbeslut U23 (2026-11-09): Kajens köundantag är obegränsat. Spärren
++ * följer förtöjningsklassningen (VesselDataService.holdsQuayQueue): så länge
++ * köaren har kortets bro som målbro, rörelsebevis och inte är förtöjdklassad
++ * är stoppet samma ankomst, hur länge hon än väntar. När klassningen släpper
++ * henne (navstatus 1/5, 2 h-backstoppen eller ingen målbro) gäller 30 s-regeln
++ * och avgången blir en ny ankomst.
+  */
+ const MMSI = '265000222';
+ const KEY = `Klaffbron|${MMSI}|southbound`;
+@@ -63,7 +69,12 @@ describe('Öppningslagret: kort köstopp vid Kajen är samma ankomst', () => {
+     global.__TEST_MODE__ = savedMode;
+   });
+ 
+-  const fix = (pos, sog) => ({
++  // Fixen bär förtöjningsklassningens fält. En KÖARE (`state` utelämnat) är
++  // på väg mot kortets bro med rörelsebevis, som i appen när kortet gick;
++  // `{}` är en båt som klassningen inte håller (ingen målbro, t.ex. ny efter
++  // ett långt AIS-glapp). Avgångsfixen bär köarens fält.
++  const QUEUER = { targetBridge: 'Klaffbron', _hasMovementProof: true, _moored: false };
++  const fix = (pos, sog, state = QUEUER) => ({
+     mmsi: MMSI,
+     lat: pos.lat,
+     lon: pos.lon,
+@@ -71,14 +82,15 @@ describe('Öppningslagret: kort köstopp vid Kajen är samma ankomst', () => {
+     timestamp: Date.now(),
+     lastPositionUpdate: Date.now(),
+     fixTs: Date.now(),
++    ...state,
+   });
+ 
+-  function stopThenDepart(zone, stopMs) {
++  function stopThenDepart(zone, stopMs, stateAt = () => QUEUER) {
+     const at = mid(zone);
+-    app._observeOpeningArrivals(fix(at, 0.1));
++    app._observeOpeningArrivals(fix(at, 0.1, stateAt(0)));
+     for (let elapsed = 30000; elapsed <= stopMs; elapsed += 30000) {
+       jest.setSystemTime(Date.now() + 30000);
+-      app._observeOpeningArrivals(fix(at, 0.1));
++      app._observeOpeningArrivals(fix(at, 0.1, stateAt(elapsed)));
+     }
+     jest.setSystemTime(Date.now() + 60000);
+     app._observeOpeningArrivals(fix(DEPARTED, 3.0));
+@@ -91,8 +103,29 @@ describe('Öppningslagret: kort köstopp vid Kajen är samma ankomst', () => {
+     expect(app.bridgeOpeningService.restartArrival).not.toHaveBeenCalled();
+   });
+ 
+-  test('stopp som varat hela köskyddet vid Kajen ⇒ avgången är en ny ankomst', () => {
+-    stopThenDepart(KAJEN, KAJEN.queueGraceMs);
++  // U23-regressionen (fäller c14938f, där spärren bekräftade kajstoppet efter
++  // 15 min och avgången gav ett nytt, sent kort — värld 313: 32 s före passagen).
++  test('U23: kö på 25 min vid Kajen ⇒ samma ankomst, inget nytt kort vid avgången', () => {
++    stopThenDepart(KAJEN, 25 * 60 * 1000);
++    expect(app._persistentOpeningWarnings.has(KEY)).toBe(true);
++    expect(app.bridgeOpeningService.restartArrival).not.toHaveBeenCalled();
++  });
++
++  test('U23: köaren som 2 h-backstoppen förtöjer ⇒ avgången är en ny ankomst', () => {
++    // Klassningen släpper henne efter MOORING_DETECTION.MAX_STATIONARY_WAIT_MS;
++    // från den fixen är hon förtöjd och inte längre en köare i texten.
++    const backstopMs = MOORING_DETECTION.MAX_STATIONARY_WAIT_MS;
++    stopThenDepart(KAJEN, backstopMs + 60000,
++      (elapsed) => (elapsed > backstopMs ? { ...QUEUER, _moored: true, targetBridge: null } : QUEUER));
++    expect(app._persistentOpeningWarnings.has(KEY)).toBe(false);
++    expect(app.bridgeOpeningService.restartArrival).toHaveBeenCalledWith(MMSI, 'Klaffbron');
++  });
++
++  test('U23: navstatus 5 vid Kajen (förtöjd enligt klassningen) ⇒ avgången efter 20 min är en ny ankomst', () => {
++    const NAV5 = {
++      ...QUEUER, navStatus: 5, _moored: true, targetBridge: null,
++    };
++    stopThenDepart(KAJEN, 20 * 60 * 1000, () => NAV5);
+     expect(app._persistentOpeningWarnings.has(KEY)).toBe(false);
+     expect(app.bridgeOpeningService.restartArrival).toHaveBeenCalledWith(MMSI, 'Klaffbron');
+   });
+@@ -102,9 +135,13 @@ describe('Öppningslagret: kort köstopp vid Kajen är samma ankomst', () => {
+     app._observeOpeningArrivals(fix(at, 0.1));
+     jest.setSystemTime(Date.now() + 30000);
+     app._observeOpeningArrivals(fix(at, 0.1));
++    expect(app._persistentOpeningWarnings.get(KEY).quayStop.confirmed).toBe(false);
+     // AIS avstängd över natten; nästa fix på samma plats tio timmar senare.
++    // Appen har tappat båten: hon är ny, utan målbro, och klassningen håller
++    // henne inte som köare. Glappet nollställer inte stoppet i en kajzon med
++    // köundantag, så stoppet bekräftas på morgonens första fix.
+     jest.setSystemTime(Date.now() + 10 * 60 * 60 * 1000);
+-    app._observeOpeningArrivals(fix(at, 0.1));
++    app._observeOpeningArrivals(fix(at, 0.1, {}));
+     expect(app._persistentOpeningWarnings.get(KEY).quayStop.confirmed).toBe(true);
+     jest.setSystemTime(Date.now() + 60000);
+     app._observeOpeningArrivals(fix(DEPARTED, 3.0));
+@@ -135,7 +172,9 @@ describe('Öppningslagret: kort köstopp vid Kajen är samma ankomst', () => {
+     const STRIDS_KEY = `Stridsbergsbron|${MMSI}|northbound`;
+     app._persistentOpeningWarnings.delete(KEY);
+     app._persistentOpeningWarnings.set(STRIDS_KEY, { arrivalActive: true, firedAt: Date.now() - 60000 });
+-    stopThenDepart(KAJEN, 60000);
++    // Norrgående efter Klaffbron: målbron Stridsbergsbron ligger bortom 600 m,
++    // så varken zonens köundantag eller U23 gäller (ELFKUNGEN, SUSANNE).
++    stopThenDepart(KAJEN, 60000, () => ({ ...QUEUER, targetBridge: 'Stridsbergsbron' }));
+     expect(app._persistentOpeningWarnings.has(STRIDS_KEY)).toBe(false);
+     expect(app.bridgeOpeningService.restartArrival).toHaveBeenCalledWith(MMSI, 'Stridsbergsbron');
+   });
+diff --git a/tests/replay-validation/runSyntheticScenarios.js b/tests/replay-validation/runSyntheticScenarios.js
+index 70a18cb..b30ff83 100644
+--- a/tests/replay-validation/runSyntheticScenarios.js
++++ b/tests/replay-validation/runSyntheticScenarios.js
+@@ -21,7 +21,7 @@ const {
+   generateScenario, buildPath, pathMetrics, pointAt, BASE_TIME_MS,
+ } = require('./scenarioGenerator');
+ const { validateInvariants, validateWarnInvariants } = require('./invariants');
+-const { MOORING_ZONES, TRIGGER_POINTS } = require('../../lib/constants');
++const { MOORING_ZONES, TRIGGER_POINTS, BRIDGES } = require('../../lib/constants');
+ 
+ const RUNNER = path.join(__dirname, 'replayRunner.js');
+ const QUAY = {
+@@ -104,6 +104,12 @@ const OMSTART_SLOW_ZONE = {
+  *  - forbiddenOpeningBridges: dessa broar får INTE ha varnats (fantomtaket).
+  *  - zeroOpeningWarnings: inga öppningsvarningar alls får ha gått ut.
+  *  - maxOpeningsPerBridge: {bro: N} — "EN varning per förestående öppning".
++ *  - minOpeningLeadS: {bro: S} — ingen varning för bron får komma under S s
++ *    före båtens SANNA korsning (ur scenariots egna sampel). U23: ingen ny,
++ *    sen varning när en köare lägger ut från kajen.
++ *  - noDefaultWhileStopped: true — texten får aldrig vara "Inga båtar …"
++ *    medan en båt ligger i sitt stopp (första till sista stillasamplet). U23
++ *    och D1: en väntande båt nära målbron står kvar i texten.
+  *  - deadlineFiredOpenings: dessa broars varning MÅSTE ha kommit ur tick-
+  *    motorn (firedBy='deadline'), inte ur ett inkommande fix — beviset för
+  *    att äggklockan fungerar i radiotystnad.
+@@ -1663,6 +1669,39 @@ const SCENARIOS = [
+       deadlineFiredOpenings: ['Klaffbron'],
+     },
+   },
++  {
++    // ÄGARBESLUT U23 (2026-11-09): en båt på väg mot Klaffbron som stannar vid
++    // "Kajen norr om Klaffbron" behandlas som i resten av väntområdet. Rutten
++    // går genom Kajens kapsel 190–300 m norr om bron (16–24 m från kapsel-
++    // linjen, radie 30 m), så stoppet 250 m norr om bron ligger i kapseln —
++    // placeringen ÄR testet. Stoppet läggs med ben (exakt läge); `stop` utlöses
++    // upp till ett rapportsteg före sitt mål och hade hamnat 343 m från bron,
++    // utanför kapseln. På c14938f klassades hon förtöjd efter 15 min (zonens
++    // köundantag): texten blev "Inga båtar …" medan hon väntade, och vid
++    // avgången gav ankomstspärren (OPENING_QUAY_DEPARTURE) en ny varning strax
++    // före passagen (värld 313 i buggjägaren: 32 s). Nu gäller den första
++    // varningen hela kön.
++    name: 'kö-25min-i-Kajens-kapsel (U23)',
++    seed: 57,
++    vessels: [{
++      mmsi: '901000057',
++      name: 'SYNT-KAJKO',
++      startS: METRICS.total,
++      legs: [
++        { toS: METRICS.cum[2] + 600, speedKn: 4.5, intervalS: 60 },
++        { toS: METRICS.cum[2] + 250, speedKn: 3, intervalS: 60 },
++        { stopS: 1500, stopIntervalS: 60, stopCogRandom: true },
++        { toS: 0, speedKn: 4.5, intervalS: 60 },
++      ],
++    }],
++    expect: {
++      minTargetPassages: 2,
++      expectedOpenings: ['Stridsbergsbron', 'Klaffbron'],
++      maxOpeningsPerBridge: { Klaffbron: 1, Stridsbergsbron: 1 },
++      minOpeningLeadS: { Klaffbron: 60 },
++      noDefaultWhileStopped: true,
++    },
++  },
+ ];
+ 
+ function runScenario(scenario) {
+@@ -1675,13 +1714,32 @@ function runScenario(scenario) {
+     });
+     const m = stdout.match(/__REPLAY_JSON__([\s\S]*?)__END__/);
+     if (!m) throw new Error('Ingen JSON-markör i replay-output');
+-    return { result: JSON.parse(m[1]), sampleCount: samples.length };
++    return { result: JSON.parse(m[1]), sampleCount: samples.length, samples };
+   } finally {
+     fs.unlinkSync(tmpFile);
+   }
+ }
+ 
+-function checkExpectations(scenario, result) {
++/**
++ * Sann korsning av en bros latitud för en båt, interpolerad mellan de två
++ * sampel som ligger på var sin sida (rutten går genom brons koordinat).
++ * @returns {number|null} tid i ms för första korsningen, eller null
++ */
++function sampleCrossingMs(samples, mmsi, bridge) {
++  const own = (samples || []).filter((x) => x.mmsi === mmsi && Number.isFinite(x.lat))
++    .sort((a, b) => a.aisTimestamp - b.aisTimestamp);
++  for (let i = 1; i < own.length; i++) {
++    const a = own[i - 1].lat - bridge.lat;
++    const b = own[i].lat - bridge.lat;
++    if (a !== 0 && Math.sign(a) !== Math.sign(b)) {
++      const f = a / (a - b);
++      return own[i - 1].aisTimestamp + f * (own[i].aisTimestamp - own[i - 1].aisTimestamp);
++    }
++  }
++  return null;
++}
++
++function checkExpectations(scenario, result, samples = []) {
+   const problems = [];
+   const e = scenario.expect || {};
+   const passages = result.targetPassages || [];
+@@ -1819,6 +1877,43 @@ function checkExpectations(scenario, result) {
+       }
+     }
+   }
++  // U23 (2026-11-09): ingen varning för bron under S s före båtens sanna
++  // korsning. Korsningen räknas ur scenariots egna sampel, inte ur appens
++  // bokförda passage (som kommer ett fix efter korsningen).
++  if (e.minOpeningLeadS) {
++    for (const [bridgeName, minLeadS] of Object.entries(e.minOpeningLeadS)) {
++      const bridge = Object.values(BRIDGES).find((b) => b.name === bridgeName);
++      for (const w of openings.filter((x) => x.bridge === bridgeName && Number.isFinite(x.t))) {
++        for (const mmsi of (w.mmsis || [w.leadMmsi]).map(String)) {
++          const crossMs = sampleCrossingMs(samples, mmsi, bridge);
++          if (crossMs === null || crossMs < w.t) continue;
++          const leadS = (crossMs - w.t) / 1000;
++          if (leadS < minLeadS) {
++            problems.push(`SEN ÖPPNINGSVARNING: ${bridgeName} ${w.eventId} ${w.iso} (${w.firedBy}) bara `
++              + `${Math.round(leadS)} s före ${mmsi}:s korsning (minst ${minLeadS} s)`);
++          }
++        }
++      }
++    }
++  }
++  // U23/D1: en båt som ligger i sitt stopp ska stå kvar i texten.
++  if (e.noDefaultWhileStopped) {
++    const transitions = result.bridgeTextTransitions || [];
++    const textAt = (t) => transitions.filter((x) => x.t <= t).pop()?.text || '';
++    for (const v of scenario.vessels || []) {
++      const still = (samples || []).filter((x) => x.mmsi === v.mmsi && Number.isFinite(x.sog) && x.sog < 0.3)
++        .map((x) => x.aisTimestamp);
++      if (still.length === 0) continue;
++      const from = Math.min(...still);
++      const to = Math.max(...still);
++      const flips = [from, ...transitions.filter((x) => x.t > from && x.t <= to).map((x) => x.t)];
++      const def = flips.find((t) => textAt(t).startsWith('Inga båtar'));
++      if (def !== undefined) {
++        problems.push(`"Inga båtar" ${new Date(def).toISOString()} medan ${v.mmsi} låg i sitt stopp `
++          + `(${new Date(from).toISOString()}–${new Date(to).toISOString()})`);
++      }
++    }
++  }
+   // U15 (K2, 2026-11-04): VARJE passage av bron ska ha en varning efter
+   // båtens förra passage av samma bro och före den här. expectedOpenings
+   // prövar bara den första passagen och ser därför inte en ovarnad retur.
+@@ -1895,8 +1990,8 @@ console.log(`${SCENARIOS.length} scenarier (seedade, deterministiska)\n`);
+ for (const scenario of SCENARIOS) {
+   let outcome;
+   try {
+-    const { result, sampleCount } = runScenario(scenario);
+-    const problems = checkExpectations(scenario, result);
++    const { result, sampleCount, samples } = runScenario(scenario);
++    const problems = checkExpectations(scenario, result, samples);
+     // WARN-invarianter (fas 0.4, 2026-07-03): informativa, fäller inte.
+     const warns = validateWarnInvariants(result);
+     if (warns.length > 0) {
+diff --git a/tests/u23-kajens-ko.test.js b/tests/u23-kajens-ko.test.js
+new file mode 100644
+index 0000000..9a54a91
+--- /dev/null
++++ b/tests/u23-kajens-ko.test.js
+@@ -0,0 +1,267 @@
++'use strict';
++
++/**
++ * Ägarbeslut U23 (2026-11-09): kajen norr om Klaffbron.
++ *
++ * En båt på väg mot Klaffbron som stannar vid "Kajen norr om Klaffbron"
++ * behandlas som i resten av väntområdet. Hon står kvar tills hon kör vidare,
++ * sänder navstatus 1 eller 5, eller har legat still i
++ * MOORING_DETECTION.MAX_STATIONARY_WAIT_MS (2 h). D1 (2026-06-03,
++ * docs/reliability-spec.md) vinner över kajzonens 15-minutersgissning.
++ *
++ * Testerna går genom den riktiga VesselDataService.updateVessel:
++ *  - REGRESSION (fäller c14938f, där köaren klassades förtöjd efter 15 min);
++ *  - KONTROLLEN av att 2 h-backstoppen gäller vid kajen: queueBridge ger null
++ *    i en MOORING_ZONE, så undantaget för färsk broväntan når aldrig dit;
++ *  - NEGATIVTESTER som ska klara både c14938f och U23: norrgående med målbron
++ *    bortom 600 m, båt utan målbro, navstatus 5, 2 h-gränsen, Gästhamnen och
++ *    kajliggaren utan rörelsebevis.
++ * Ankomstspärren i app.js prövas i opening-queue-quay-stop.test.js och hela
++ * kedjan (text och varningar) i runSyntheticScenarios ("kö-25min-i-Kajens-kapsel").
++ */
++
++jest.mock('homey');
++
++const VesselDataService = require('../lib/services/VesselDataService');
++const BridgeRegistry = require('../lib/models/BridgeRegistry');
++const SystemCoordinator = require('../lib/services/SystemCoordinator');
++const geometry = require('../lib/utils/geometry');
++const { queueBridge } = require('../lib/utils/bridgeQueue');
++const { MOORING_ZONES, MOORING_DETECTION, BRIDGES } = require('../lib/constants');
++
++const KAJEN = MOORING_ZONES.find((z) => z.name === 'Kajen norr om Klaffbron');
++const GASTHAMNEN = MOORING_ZONES.find((z) => z.name === 'Gästhamnen norr om Klaffbron');
++// Kapsellinjens mittpunkt, 240 m norr om Klaffbron (samma punkt som
++// gasthamnskapseln.test.js och m1-ihallande-stillhetsankare.test.js).
++const KAJ_MITT = { lat: 58.286060, lon: 12.285651 };
++// Gästhamnens stillhetskluster (fältdygnen 2026-08-04/05).
++const GAST_MITT = { lat: 58.28740, lon: 12.285705 };
++// Väntposition i farleden norr om Klaffbron, utanför kajkapseln.
++const FARLED = { lat: 58.28590, lon: 12.28660 };
++
++const MIN = 60 * 1000;
++
++describe('U23: köare i Kajens kapsel', () => {
++  let svc;
++  let mockNow;
++  const realDateNow = Date.now;
++  const logger = {
++    debug: jest.fn(), log: jest.fn(), error: jest.fn(), warn: jest.fn(),
++  };
++
++  beforeEach(() => {
++    jest.clearAllMocks();
++    global.__TEST_MODE__ = true;
++    mockNow = new Date(2026, 10, 9, 10, 0, 0).getTime();
++    Date.now = () => mockNow;
++    svc = new VesselDataService(logger, new BridgeRegistry(), new SystemCoordinator(logger));
++    svc.app = {
++      gpsJumpGateService: null,
++      passageLatchService: null,
++      routeOrderValidator: null,
++      debug: jest.fn(),
++      log: jest.fn(),
++      error: jest.fn(),
++    };
++  });
++
++  afterEach(() => {
++    svc.clearAllTimers();
++    delete global.__TEST_MODE__;
++    Date.now = realDateNow;
++  });
++
++  const tick = (ms) => {
++    mockNow += ms;
++  };
++  const send = (mmsi, pos, sog, extra = {}) => svc.updateVessel(mmsi, {
++    lat: pos.lat, lon: pos.lon, sog, cog: 195, name: 'KOARE', ...extra,
++  });
++  const mooredLines = (mmsi) => logger.log.mock.calls.map((c) => String(c[0]))
++    .filter((s) => s.includes('[MOORED]') && s.includes(mmsi));
++
++  // Anflygning söderut in i kapseln (gasthamnskapseln.test.js:s kajköare):
++  // ger målbro Klaffbron och rörelsebevis, de två villkor köundantaget kräver.
++  function sailIntoKajen(mmsi) {
++    const path = [
++      { lat: 58.28760, lon: 12.28600, sog: 3.4 },
++      { lat: 58.28700, lon: 12.28585, sog: 3.6 },
++      { lat: 58.28650, lon: 12.28572, sog: 3.2 },
++      { lat: KAJ_MITT.lat, lon: KAJ_MITT.lon, sog: 2.4 },
++    ];
++    let vessel;
++    for (const p of path) {
++      vessel = send(mmsi, p, p.sog);
++      tick(MIN);
++    }
++    return vessel;
++  }
++
++  // Ligger still vid `pos` i `minutes` minuter med en fix per `cadenceMs`.
++  // Returnerar sista fartygsobjektet och tiden (ms från första stillafixen)
++  // då hon först klassades förtöjd, eller null.
++  function lieStill(mmsi, pos, minutes, cadenceMs = MIN, extra = {}) {
++    const t0 = mockNow;
++    let vessel;
++    let mooredAtMs = null;
++    while (mockNow - t0 <= minutes * MIN) {
++      vessel = send(mmsi, pos, 0.0, extra);
++      if (vessel._moored && mooredAtMs === null) mooredAtMs = mockNow - t0;
++      tick(cadenceMs);
++    }
++    return { vessel, mooredAtMs };
++  }
++
++  test('förutsättningar: kajmitten ligger i Kajens kapsel, inom väntzonen', () => {
++    const d = geometry.distancePointToSegmentM(
++      KAJ_MITT.lat, KAJ_MITT.lon, KAJEN.start.lat, KAJEN.start.lon, KAJEN.end.lat, KAJEN.end.lon,
++    );
++    expect(d).toBeLessThanOrEqual(KAJEN.radiusM);
++    const dKlaff = geometry.calculateDistance(
++      KAJ_MITT.lat, KAJ_MITT.lon, BRIDGES.klaffbron.lat, BRIDGES.klaffbron.lon,
++    );
++    expect(dKlaff).toBeLessThan(300);
++  });
++
++  describe('regression (fäller c14938f)', () => {
++    test('köaren står kvar i 60 min: målbro Klaffbron, inte förtöjd, hållen som köare', () => {
++      const vessel = sailIntoKajen('265923001');
++      expect(vessel.targetBridge).toBe('Klaffbron');
++      expect(vessel._hasMovementProof).toBe(true);
++      const { vessel: efter, mooredAtMs } = lieStill('265923001', KAJ_MITT, 60);
++      expect(mooredAtMs).toBeNull();
++      expect(efter._moored).toBe(false);
++      expect(efter.targetBridge).toBe('Klaffbron');
++      expect(svc.holdsQuayQueue(efter, 'Klaffbron')).toBe(true);
++      // Kortets bro avgör: mot en annan bro är hon ingen köare.
++      expect(svc.holdsQuayQueue(efter, 'Stridsbergsbron')).toBe(false);
++      expect(mooredLines('265923001')).toEqual([]);
++    });
++
++    test('först 2 h-backstoppen klassar henne — inte zonlagret', () => {
++      sailIntoKajen('265923002');
++      const { vessel, mooredAtMs } = lieStill('265923002', KAJ_MITT, 125);
++      // Ingen klassning före gränsen, och direkt efter den (inom en kadens).
++      expect(mooredAtMs).toBeGreaterThan(MOORING_DETECTION.MAX_STATIONARY_WAIT_MS);
++      expect(mooredAtMs).toBeLessThanOrEqual(MOORING_DETECTION.MAX_STATIONARY_WAIT_MS + 2 * MIN);
++      expect(vessel._moored).toBe(true);
++      expect(vessel.targetBridge).toBeNull(); // demoterad, inte borttagen
++      expect(svc.getVessel('265923002')).toBeTruthy();
++      const rader = mooredLines('265923002');
++      expect(rader).toHaveLength(1);
++      expect(rader[0]).toContain('backstop');
++      expect(svc.holdsQuayQueue(vessel, 'Klaffbron')).toBe(false);
++    });
++  });
++
++  describe('kontroll: 2 h-gränsen gäller vid Kajen', () => {
++    test('queueBridge ger null i kajkapseln trots bekräftad anflygning — men inte i farleden', () => {
++      // Samma båt, samma bevis: bara platsen skiljer. Undantaget för färsk
++      // broväntan (_hasFreshBridgeQueueEvidence, användarvalet 2026-09-06)
++      // bygger på queueBridge och kan därför aldrig nå en båt vid Kajen.
++      const now = Date.now();
++      const base = {
++        mmsi: '265923003',
++        targetBridge: 'Klaffbron',
++        _routeDirection: 'south',
++        _hasMovementProof: true,
++        _moored: false,
++        passedBridges: ['Stridsbergsbron', 'Järnvägsbron'],
++        timestamp: now,
++        lastPositionUpdate: now,
++        _bridgeQueueApproaches: {
++          Klaffbron: {
++            bridge: 'Klaffbron', direction: 'south', confirmedAt: now - 10 * MIN,
++          },
++        },
++      };
++      const vidKajen = { ...base, ...KAJ_MITT };
++      const iFarleden = { ...base, ...FARLED };
++      expect(queueBridge(vidKajen)).toBeNull();
++      expect(svc._hasFreshBridgeQueueEvidence(vidKajen)).toBe(false);
++      expect(queueBridge(iFarleden)?.name).toBe('Klaffbron');
++      expect(svc._hasFreshBridgeQueueEvidence(iFarleden)).toBe(true);
++    });
++  });
++
++  describe('negativtester (ska klara både c14938f och U23)', () => {
++    test('2 h-gränsen: köaren vid Kajen är förtöjd och demoterad efter 2 h', () => {
++      sailIntoKajen('265923010');
++      const { vessel } = lieStill('265923010', KAJ_MITT, 125, 5 * MIN);
++      expect(vessel._moored).toBe(true);
++      expect(vessel.targetBridge).toBeNull();
++    });
++
++    test('norrgående med målbro Stridsbergsbron bortom 600 m demoteras efter 3 min', () => {
++      // ELFKUNGEN/SUSANNE-klassen: norrut förbi Klaffbron, stopp vid Kajen.
++      let vessel = svc.updateVessel('265923011', {
++        lat: KAJ_MITT.lat, lon: KAJ_MITT.lon, sog: 5.5, cog: 25, name: 'NORRUT',
++      });
++      expect(vessel.targetBridge).toBe('Stridsbergsbron');
++      const dStrids = geometry.calculateDistance(
++        KAJ_MITT.lat, KAJ_MITT.lon, BRIDGES.stridsbergsbron.lat, BRIDGES.stridsbergsbron.lon,
++      );
++      expect(dStrids).toBeGreaterThan(600);
++      tick(MIN);
++      const { vessel: efter, mooredAtMs } = lieStill('265923011', KAJ_MITT, 6, 30 * 1000, { cog: 25 });
++      vessel = efter;
++      expect(mooredAtMs).toBeGreaterThanOrEqual(3 * MIN);
++      expect(mooredAtMs).toBeLessThanOrEqual(3.5 * MIN);
++      expect(vessel._moored).toBe(true);
++      expect(vessel.targetBridge).toBeNull();
++      expect(mooredLines('265923011')[0]).toContain('zon "Kajen norr om Klaffbron"');
++    });
++
++    test('båt utan målbro (osäker kurs, men rörelsebevis) klassas efter 3 min', () => {
++      let vessel = svc.updateVessel('265923012', {
++        lat: KAJ_MITT.lat, lon: KAJ_MITT.lon, sog: 0.8, cog: 120, name: 'TVARS',
++      });
++      expect(vessel._hasMovementProof).toBe(true);
++      expect(vessel.targetBridge).toBeNull();
++      tick(MIN);
++      const { vessel: efter, mooredAtMs } = lieStill('265923012', KAJ_MITT, 6, 30 * 1000, { cog: 120 });
++      vessel = efter;
++      expect(mooredAtMs).toBeGreaterThanOrEqual(3 * MIN);
++      expect(mooredAtMs).toBeLessThanOrEqual(3.5 * MIN);
++      expect(vessel._moored).toBe(true);
++      expect(vessel.targetBridge).toBeNull();
++    });
++
++    test('navstatus 5 vid Kajen klassar köaren direkt och demoterar henne', () => {
++      sailIntoKajen('265923013');
++      const vessel = send('265923013', KAJ_MITT, 0.0, { navStatus: 5 });
++      expect(vessel._moored).toBe(true);
++      expect(vessel.targetBridge).toBeNull();
++      expect(mooredLines('265923013')[0]).toContain('navstatus=5');
++    });
++
++    test('Gästhamnen: köare mot Klaffbron klassas efter 3 min (inget köundantag)', () => {
++      expect(GASTHAMNEN.queueGraceMs || 0).toBe(0);
++      const anflygning = [
++        { lat: 58.28810, lon: 12.28578, sog: 3.4 },
++        { lat: 58.28786, lon: 12.28572, sog: 3.0 },
++        { lat: 58.28760, lon: 12.28571, sog: 2.6 },
++      ];
++      let vessel;
++      for (const p of anflygning) {
++        vessel = send('265923014', p, p.sog);
++        tick(MIN);
++      }
++      expect(vessel.targetBridge).toBe('Klaffbron');
++      expect(vessel._hasMovementProof).toBe(true);
++      const { vessel: efter, mooredAtMs } = lieStill('265923014', GAST_MITT, 6, 30 * 1000);
++      expect(mooredAtMs).toBeGreaterThanOrEqual(3 * MIN);
++      expect(mooredAtMs).toBeLessThanOrEqual(3.5 * MIN);
++      expect(efter._moored).toBe(true);
++      expect(efter.targetBridge).toBeNull();
++    });
++
++    test('kajliggare utan rörelsebevis: aldrig målbro, förtöjd efter 3 min', () => {
++      const { vessel, mooredAtMs } = lieStill('265923015', KAJ_MITT, 9, 3 * MIN, { cog: 205 });
++      expect(vessel._hasMovementProof).toBe(false);
++      expect(vessel.targetBridge).toBeNull();
++      expect(mooredAtMs).toBe(3 * MIN);
++      expect(vessel._moored).toBe(true);
++    });
++  });
++});
+-- 
+2.43.0
+

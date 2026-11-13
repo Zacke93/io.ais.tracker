@@ -1,0 +1,323 @@
+From 11b8a3bbc0613fa0853ece894a51fe10bc3f000f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 09:38:34 +0000
+Subject: [PATCH 07/10] =?UTF-8?q?Bakkanten:=20f=C3=A4rskheten=20m=C3=A4ts?=
+ =?UTF-8?q?=20mot=20den=20skattade=20korsningen=20(varv=202,=20familj=20B,?=
+ =?UTF-8?q?=20M4)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+_coverageVerdict krävde att en absorberad arm tillämpat ett fix efter
+BOKFÖRINGEN av ledarens första passage. KRAV (2) (ARCHITECTURE.md §H29/H30)
+kräver ett fix efter KORSNINGEN. Bokfördes passagen sent (ledaren var tyst
+över bron) och tystnade följaren mellan korsningen och bokföringen, fick
+bakkanten aldrig döma, och följaren släpptes först vid täckningsslutet,
+efter sin egen korsning (buggjägarens världar 1094 och 1476, kort F05).
+
+Nu jämförs lastSeenAt med event.firstPassageAt. Saknas skattningen är
+firstPassageAt bokföringstiden (_recordPassage), och villkoret är detsamma
+som förut. Släppet vid täckningsslutet rörs inte (U17).
+
+Mätt: hunt --repro ger BORTA för 1094 (KÄND_ÖPPEN U2-VS-DEADLINE) och 1476
+(KÄND_ÖPPEN J13-J14-KONVOJSEMANTIK). replay:all, replay:synthetic och
+replay:openings är bitlika med c14938f (437 varningar, med och utan
+monitoring). Regressionstestet tests/b-bakkant-varv2.test.js fäller c14938f.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/ARCHITECTURE.md                 |  10 +-
+ lib/services/BridgeOpeningService.js |  23 ++-
+ tests/b-bakkant-varv2.test.js        | 208 +++++++++++++++++++++++++++
+ 3 files changed, 234 insertions(+), 7 deletions(-)
+ create mode 100644 tests/b-bakkant-varv2.test.js
+
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 56bf83c..c83484e 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -2024,8 +2024,14 @@ samma form: släpp på ren tid och avfyrning på den ärvda deadlinen. Rättning
+   position att hon inte har det, släpps hon som förut.
+ - **(3)** Utan finit ankomstfysik släpps hon inte (hängslen: `_canArm` kräver ett
+   finit avstånd, så ingen arm i drift når grenen). **(4)** gäller bakkanten: den
+-  släpper på ett färskt, rent fix efter den bokförda första passagen, och
+-  deadlinen räknas ur det fixet (F02, F17, F22, F01:s r2). Vid täckningsslut
++  släpper på ett färskt, rent fix efter den första passagen, och deadlinen
++  räknas ur det fixet (F02, F17, F22, F01:s r2). Färskheten **(2)** mäts sedan
++  varv 2 (familj B, M4) mot den skattade korsningen (`firstPassageAt`), inte mot
++  bokföringen: bokfördes ledarens passage sent och tystnade följaren mellan
++  korsningen och bokföringen, fick bakkanten förut aldrig döma, och följaren
++  släpptes först vid täckningsslutet, efter sin korsning (buggjägarens världar
++  1094 och 1476). Saknas skattningen är `firstPassageAt` bokföringstiden och
++  villkoret detsamma som förut. Vid täckningsslut
+   avfyras armen däremot på deadlinen ur sitt senaste tillämpade fix, som för en
+   tyst båt sedan länge har förfallit. Bakkanten jämför med det som slutar
+   först av täckningsslutet och U2-fönstret kring korsningen. Att jämföra
+diff --git a/lib/services/BridgeOpeningService.js b/lib/services/BridgeOpeningService.js
+index 5b365ec..88076c8 100644
+--- a/lib/services/BridgeOpeningService.js
++++ b/lib/services/BridgeOpeningService.js
+@@ -2209,9 +2209,19 @@ class BridgeOpeningService {
+    * BAKKANTEN, före täckningsslut. Släpp när ALLA gäller:
+    *  - händelsen har fått sin första passage (öppningen har skett, och
+    *    täckningen är ankrad i den — K14), och armen har tillämpat ett fix
+-   *    EFTER att passagen bokfördes (firstPassageRegisteredAt). Före första
++   *    EFTER den skattade KORSNINGEN (firstPassageAt, KRAV (2)). Före första
+    *    passagen är fönstret en prognos om ledaren, och en väntande ledare gör
+    *    att följaren fortfarande hör till samma öppning (U2);
++   *    FÄRSKHETEN MOT KORSNINGEN, INTE MOT BOKFÖRINGEN (varv 2, familj B,
++   *    M4). Ett fix efter korsningen visar henne före bron när öppningen redan
++   *    skett, och det är vad KRAV (2) frågar efter. Bokförs ledarens passage
++   *    sent (hon var tyst över bron) och tystnar följaren mellan korsningen
++   *    och bokföringen, fick bakkanten förut aldrig döma: följaren släpptes
++   *    först vid täckningsslutet, efter sin egen korsning (buggjägarens
++   *    världar 1094 och 1476). Saknas skattningen är firstPassageAt
++   *    bokföringstiden (_recordPassage), och villkoret är detsamma som förut.
++   *    Släppet vid TÄCKNINGSSLUTET rörs inte: där är färskhet mätt och avvisad
++   *    (U17, se nedan);
+    *  - fixet var GPS-rent och färskt, och armen är inte fryst (C7b);
+    *  - armens förväntade ankomst ur det fixet ligger EFTER fönstrets slut:
+    *    det som kommer först av täckningsslutet coverUntilMs och U2-fönstret
+@@ -2300,7 +2310,8 @@ class BridgeOpeningService {
+     if (now <= arm.coverUntilMs) {
+       const passageKnown = !!event && event.firstPassageAt !== null
+         && Number.isFinite(event.firstPassageRegisteredAt);
+-      if (!passageKnown || !(arm.lastSeenAt > event.firstPassageRegisteredAt)) return { kind: 'covered' };
++      // KRAV (2): ett fix efter den SKATTADE korsningen (M4, se docblocket).
++      if (!passageKnown || !(arm.lastSeenAt > event.firstPassageAt)) return { kind: 'covered' };
+       if (!arm.lastFixClean || this._hasUnappliedObservation(arm)) return { kind: 'covered' };
+       // Mot det som slutar FÖRST av täckningen och U2-fönstret kring den
+       // verkliga passagen (se docblocket). En golvhållen arm mäts bara mot
+@@ -2724,9 +2735,11 @@ class BridgeOpeningService {
+       lastPassageAt: null,
+       firstPassageAt: null,
+       // När appen BOKFÖRDE den första passagen. firstPassageAt är den
+-      // interpolerade korsningstiden och kan ligga ett AIS-avbrott tidigare;
+-      // färskhetsfrågan "har armen setts EFTER att passagen blev känd?" måste
+-      // mätas mot bokföringen. Se _coverageVerdict.
++      // interpolerade korsningstiden och kan ligga ett AIS-avbrott tidigare.
++      // Täckningsslutet räknas från bokföringen (_rebaseConvoyCoverage,
++      // _bindLooseArms) och korsningsankarets golv läser den
++      // (_anchorFloorHost). Bakkantens färskhet mäts sedan varv 2 (M4) mot
++      // korsningen, inte mot bokföringen. Se _coverageVerdict.
+       firstPassageRegisteredAt: null,
+       newMemberArrivalLimitMs: null,
+       referenceArrivalMs: seedArm && Number.isFinite(seedArm.expectedArrivalMs)
+diff --git a/tests/b-bakkant-varv2.test.js b/tests/b-bakkant-varv2.test.js
+new file mode 100644
+index 0000000..a44dd91
+--- /dev/null
++++ b/tests/b-bakkant-varv2.test.js
+@@ -0,0 +1,208 @@
++'use strict';
++
++/**
++ * FAMILJ B (BAKKANT) — rättningskampanjen, varv 2 (2026-11-09)
++ * =============================================================================
++ * Konvojtäckningens släppväg i BridgeOpeningService#_coverageVerdict, enligt
++ * triage A (T-A M4, M5 och M7) och buggjägarens kort F02, F05 och F08:
++ *
++ *  M4  BAKKANTENS FÄRSKHET. Bakkanten krävde ett fix efter BOKFÖRINGEN av
++ *      ledarens passage. KRAV (2) (ARCHITECTURE.md §H29/H30) kräver ett fix
++ *      efter KORSNINGEN. Bokfördes passagen sent och tystnade följaren mellan
++ *      korsningen och bokföringen, fick bakkanten aldrig döma, och följaren
++ *      släpptes först vid täckningsslutet, efter sin egen korsning (världarna
++ *      1094 och 1476).
++ *
++ * Testen återskapar mekanismen i liten skala. Varje describe-block fäller
++ * c14938f (stegets "röda" test); vakterna (namn som börjar med "vakt:")
++ * är gröna även där och låser det som inte får ändras.
++ */
++
++global.__TEST_MODE__ = true;
++
++const BridgeOpeningService = require('../lib/services/BridgeOpeningService');
++const { BRIDGES, BRIDGE_OPENING } = require('../lib/constants');
++
++const T0 = 1_700_000_000_000;
++const KLAFF = BRIDGES.klaffbron;
++const S = 1000;
++const KN = 0.514444;
++
++const makeLogger = () => ({
++  debug: jest.fn(), log: jest.fn(), error: jest.fn(), warn: jest.fn(),
++});
++
++/** Position `distanceM` meter från bron längs bäring `bearingDeg` (220 = söder om, 40 = norr om). */
++function posAtDistance(bridge, distanceM, bearingDeg) {
++  const rad = (bearingDeg * Math.PI) / 180;
++  const dLat = (distanceM * Math.cos(rad)) / 111320;
++  const dLon = (distanceM * Math.sin(rad)) / (111320 * Math.cos((bridge.lat * Math.PI) / 180));
++  return { lat: bridge.lat + dLat, lon: bridge.lon + dLon };
++}
++
++/** Norrgående båt mot Klaffbron; `bearing` 220 = anflygningssidan, 40 = bortom bron. */
++function boat(mmsi, distanceM, sog, overrides = {}) {
++  const pos = posAtDistance(KLAFF, distanceM, overrides.bearing ?? 220);
++  const now = Date.now();
++  return {
++    mmsi,
++    name: mmsi,
++    lat: pos.lat,
++    lon: pos.lon,
++    sog,
++    cog: overrides.cog ?? 40,
++    timestamp: now,
++    fixTs: overrides.fixTs ?? now,
++    lastPositionUpdate: now,
++    targetBridge: overrides.targetBridge === undefined ? 'Klaffbron' : overrides.targetBridge,
++    _routeDirection: overrides._routeDirection === undefined ? 'north' : overrides._routeDirection,
++    _finalTargetDirection: null,
++    _hasMovementProof: true,
++    _moored: false,
++    _stationarySince: null,
++    navStatus: null,
++    etaMinutes: overrides.etaMinutes ?? null,
++    passedAt: {},
++    passedBridges: [],
++  };
++}
++
++describe('familj B, varv 2: konvojtäckningens släppväg', () => {
++  let logger;
++  let warnings;
++  let svc;
++  let tickTimer;
++
++  const advanceTo = (t) => jest.advanceTimersByTime(t - Date.now());
++  const klaff = () => warnings.filter((w) => w.bridge === 'Klaffbron');
++  const own = (mmsi) => klaff().filter((w) => w.leadMmsi === mmsi);
++  const armOf = (mmsi) => svc._arms.get(`${mmsi}::Klaffbron`);
++  const debugLines = (tag) => logger.debug.mock.calls.map((c) => String(c[0])).filter((l) => l.includes(tag));
++  const eventOf = (mmsi) => svc._events.get('Klaffbron').find((e) => e.id === armOf(mmsi).eventId);
++
++  const makeService = (extra = {}) => new BridgeOpeningService({
++    logger,
++    onWarning: (payload) => warnings.push(payload),
++    targetBridges: ['Klaffbron'],
++    ...extra,
++  });
++
++  beforeEach(() => {
++    jest.useFakeTimers();
++    jest.setSystemTime(T0);
++    logger = makeLogger();
++    warnings = [];
++    svc = makeService();
++    tickTimer = setInterval(() => svc.tick(), BRIDGE_OPENING.TICK_INTERVAL_MS);
++  });
++
++  afterEach(() => {
++    if (tickTimer) clearInterval(tickTimer);
++    tickTimer = null;
++    if (svc) svc.destroy();
++    jest.clearAllTimers();
++    jest.useRealTimers();
++  });
++
++  // ===========================================================================
++  // M4 — bakkantens färskhet mäts mot den skattade korsningen
++  // ===========================================================================
++  describe('M4: bakkantens färskhet mot korsningen, inte mot bokföringen', () => {
++    /**
++     * Värld 1094 i liten skala. LEAD (900 m, 6 kn) avfyrar direkt, FOLLOWER
++     * (2400 m, 6,9 kn) absorberas: täckt t.o.m. LEADs prognos + 600 s
++     * (T0+891,6 s). LEAD hörs 50 m före bron T0+240 s och tystnar över bron;
++     * nästa fix T0+420 s ligger 500 m bortom den. Passagen bokförs T0+420 s,
++     * och korsningen interpoleras till T0+256,4 s. U2-fönstret slutar
++     * T0+856,4 s.
++     * FOLLOWER hörs en sista gång T0+300 s, MELLAN korsningen och
++     * bokföringen: 1760 m i 6 kn, ankomst T0+870,2 s, alltså efter fönstret.
++     * Sedan är hon tyst och korsar ungefär då, före täckningsslutet.
++     */
++    const stageLateRegistration = () => {
++      svc.observeVessel(boat('LEAD', 900, 6));
++      svc.observeVessel(boat('FOLLOWER', 2400, 6.9));
++      expect(klaff()).toHaveLength(1);
++      expect(armOf('FOLLOWER').absorbedAt).toBe(T0);
++      const coverUntil = armOf('FOLLOWER').coverUntilMs;
++      advanceTo(T0 + 240 * S);
++      svc.observeVessel(boat('LEAD', 50, 6));
++      advanceTo(T0 + 300 * S);
++      svc.observeVessel(boat('FOLLOWER', 1760, 6));
++      // Ingen passage är känd ännu: täckningen gäller.
++      expect(armOf('FOLLOWER').absorbedAt).toBe(T0);
++      return coverUntil;
++    };
++
++    it('en följare som tystnade mellan korsningen och bokföringen släpps på bokföringen och varnas före sin ankomst', () => {
++      const coverUntil = stageLateRegistration();
++      const arrival = armOf('FOLLOWER').expectedArrivalMs;
++      advanceTo(T0 + 420 * S);
++      svc.observeVessel(boat('LEAD', 500, 6, { bearing: 40 }));
++      expect(armOf('LEAD')).toBeUndefined();
++      const passed = svc._events.get('Klaffbron').find((e) => e.firstPassageAt !== null);
++      expect(passed.firstPassageRegisteredAt).toBe(T0 + 420 * S);
++      expect(passed.firstPassageAt).toBeCloseTo(T0 + 240 * S + 180 * S * (50 / 550), -3);
++      // Fixet T0+300 s ligger efter korsningen, och prognosen ligger efter
++      // U2-fönstret. Bakkanten dömer på bokföringen (förut: täckt till
++      // täckningsslutet, eftersom fixet låg före bokföringen).
++      const windowEnd = passed.firstPassageAt + BRIDGE_OPENING.CONVOY_WINDOW_MS;
++      expect(arrival).toBeGreaterThan(windowEnd);
++      expect(arrival).toBeLessThan(coverUntil);
++      expect(armOf('FOLLOWER').absorbedAt).toBeNull();
++      expect(debugLines('[OPENING_RECOVER]').some((l) => l.includes('bakkant'))).toBe(true);
++
++      // Egen varning på deadlinen ur fixet T0+300 s, före ankomsten och långt
++      // före täckningsslutet (där c14938f släppte henne, efter korsningen).
++      advanceTo(arrival - 60 * S);
++      const mine = own('FOLLOWER');
++      expect(mine).toHaveLength(1);
++      expect(mine[0].t).toBeLessThanOrEqual(arrival - BRIDGE_OPENING.WARNING_LEAD_MS);
++      expect(mine[0].t).toBeLessThan(coverUntil);
++    });
++
++    it('vakt: utan skattning (notePassage, inget fix bortom bron) gäller bokföringen som förut', () => {
++      stageLateRegistration();
++      // Ingen interpolation går att göra: LEADs senaste läge låg före bron, så
++      // firstPassageAt blir bokföringstiden. Följarens fix T0+300 s är då inte
++      // färskt, och täckningen gäller som på c14938f.
++      advanceTo(T0 + 420 * S);
++      svc.notePassage('LEAD', 'Klaffbron');
++      const passed = svc._events.get('Klaffbron').find((e) => e.firstPassageAt !== null);
++      expect(passed.firstPassageAt).toBe(T0 + 420 * S);
++      expect(passed.firstPassageAt).toBe(passed.firstPassageRegisteredAt);
++      expect(armOf('FOLLOWER').absorbedAt).toBe(T0);
++      advanceTo(T0 + 800 * S);
++      expect(own('FOLLOWER')).toHaveLength(0);
++      expect(debugLines('[OPENING_RECOVER]')).toHaveLength(0);
++    });
++
++    it('vakt: ett fix FÖRE korsningen är inte färskt, även när passagen bokförs sent', () => {
++      svc.observeVessel(boat('LEAD', 900, 6));
++      svc.observeVessel(boat('FOLLOWER', 2400, 6.9));
++      advanceTo(T0 + 200 * S);
++      // Följarens sista fix före korsningen (T0+256,4 s), med prognos efter fönstret.
++      svc.observeVessel(boat('FOLLOWER', 2300, 5));
++      advanceTo(T0 + 240 * S);
++      svc.observeVessel(boat('LEAD', 50, 6));
++      advanceTo(T0 + 420 * S);
++      svc.observeVessel(boat('LEAD', 500, 6, { bearing: 40 }));
++      const passed = svc._events.get('Klaffbron').find((e) => e.firstPassageAt !== null);
++      expect(armOf('FOLLOWER').lastSeenAt).toBeLessThan(passed.firstPassageAt);
++      expect(armOf('FOLLOWER').expectedArrivalMs)
++        .toBeGreaterThan(passed.firstPassageAt + BRIDGE_OPENING.CONVOY_WINDOW_MS);
++      expect(armOf('FOLLOWER').absorbedAt).toBe(T0);
++      expect(debugLines('[OPENING_RECOVER]')).toHaveLength(0);
++    });
++
++    it('vakt: domen bär samma anropsform och returform som förut (familj E instrumenterar den)', () => {
++      stageLateRegistration();
++      const arm = armOf('FOLLOWER');
++      const event = eventOf('FOLLOWER');
++      expect(svc._coverageVerdict.length).toBe(3);
++      const verdict = svc._coverageVerdict(arm, event, Date.now());
++      expect(typeof verdict.kind).toBe('string');
++      expect(verdict.kind).toBe('covered');
++    });
++  });
++});
+-- 
+2.43.0
+

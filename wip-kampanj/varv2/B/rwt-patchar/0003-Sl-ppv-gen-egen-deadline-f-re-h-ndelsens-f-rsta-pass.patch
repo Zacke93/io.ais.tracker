@@ -1,0 +1,480 @@
+From 0b0a35dcb7ed37041f0c2a5b52f6a5c246f03feb Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 11:41:06 +0000
+Subject: [PATCH 3/4] =?UTF-8?q?Sl=C3=A4ppv=C3=A4gen:=20egen=20deadline=20f?=
+ =?UTF-8?q?=C3=B6re=20h=C3=A4ndelsens=20f=C3=B6rsta=20passage=20(U24,=20va?=
+ =?UTF-8?q?rv=202,=20familj=20B,=20M7)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Ägarbeslut U24 (2026-11-09): "inför ändringen", C-IV väg b i smal form.
+En absorberad arm i en avfyrad händelse UTAN bokförd passage hade bara en
+utgång, täckningsslutet, och varnades där på en sedan länge förfallen
+deadline (buggjägarens värld 979: 50 s före korsningen medan ledaren köade
+i 37 min).
+
+_coverageVerdict lämnar nu över till _ownDeadlineVerdict före första
+passagen. Domen blir 'bakkant' när (a) fixet är rent och armen inte fryst,
+(b) både appens prognos och armens fysik ligger efter fönsterslutet
+(referensankomsten + CONVOY_WINDOW_MS), (c) hon inte köar (ingen köflagga,
+utanför väntzonen 350 m), (d) hennes egen deadline (earliestArrivalMs −
+WARNING_LEAD_MS) har passerat, (e) täckningsslutet annars hade kommit
+mindre än WARNING_LEAD_MS före hennes ankomst, (f) minst två tick återstår
+och (g) kursen inte leder bort. Schemaläggaren väcker släppvägen på
+deadlinen (_ownDeadlineWakeMs). Domen bär arrivalMs, physicsArrivalMs,
+windowEndMs, ownDeadlineMs och, vid 'covered', grinden i gate.
+Stilla köande båtar (värld 1139) omfattas inte. U9:s breda täckning är
+fortfarande avstängd.
+
+Mätt: hunt --repro ger BORTA för 979 och F02-representanten (egen varning
+317 s före korsningen); värld 41 varnas 7,4 min före i stället för 2 s
+efter. Korpusbanken: 437 varningar som förut, ingen låst rad flyttas; en
+olåst fantomvarning (20260525 JOSEPHINE, AVBRUTEN_APPROACH) går 10:01:20 i
+stället för 10:06:05. Kostnaden som U24 godtar: quick-värld 143, där en
+köande konvoj delas och CORDELIA varnas vid täckningsslutet på ett 21 min
+gammalt fix (T3 VARNING-PÅ-FRUSET-FIX), fast hon korsar 353 s efter RUNA.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/ARCHITECTURE.md                 |  18 +++
+ lib/constants.js                     |   3 +
+ lib/services/BridgeOpeningService.js | 164 ++++++++++++++++++++++++++-
+ tests/b-bakkant-varv2.test.js        | 164 +++++++++++++++++++++++++++
+ 4 files changed, 344 insertions(+), 5 deletions(-)
+
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index fabaaa4..529313c 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -830,6 +830,24 @@ båt.
+   korsningen får en egen händelse, men som upptäcks under två tick före sin
+   ankomst, absorberas som förut (`_anchorFloorHost`, golvet). Se §H29/H30 för
+   vad som medvetet inte är grindar och för U17.
++  (c) **Före händelsens första passage** (ägarbeslut **U24, 2026-11-09**:
++  "inför ändringen"; C-IV väg b, smal variant, varv 2 familj B M7,
++  `_ownDeadlineVerdict`): har hennes egen deadline passerat (garantins,
++  `earliestArrivalMs − WARNING_LEAD_MS`) och ligger både appens prognos och
++  armens fysik efter händelsens fönsterslut (referensankomsten +
++  `CONVOY_WINDOW_MS`), släpps hon på sitt fix och varnas direkt, om
++  täckningsslutet annars hade kommit mindre än `WARNING_LEAD_MS` före hennes
++  ankomst. En båt som ligger still (ingen fysik), har köflaggan eller ligger i
++  väntzonen (`STATUS_HYSTERESIS.WAITING_CLEAR_DISTANCE`) släpps inte så, och
++  inte heller under ledtidsgolvet eller med kursen bort; för stilla köande
++  båtar (värld 1139) gäller täckningsslutet som förut. Schemaläggaren väcker
++  släppvägen på deadlinen. U9:s breda täckning är fortfarande avstängd: U24
++  ändrar bara släppet, inte vilka som täcks. Mätt: värld 979 får sin varning
++  317 s före korsningen i stället för 50 s; banken har lika många varningar
++  och ingen låst rad flyttas. Kostnaden som ägaren godtog: buggjägarens
++  quick-värld 143, där en köande konvoj delas när den första följaren släpps
++  tidigt och den andra varnas vid täckningsslutet på ett 21 min gammalt fix
++  (registerpost med U24 som källa, familj E).
+ - **Returresan är en egen öppning (U15, användarbeslut 2026-11-04):** varje
+   bokförd passage av en beväpnad båt skrivs i servicens returminne
+   (`_passageMemory`, mmsi och bro, skrivs i `_recordPassage` även när armen
+diff --git a/lib/constants.js b/lib/constants.js
+index 7b18246..a24e008 100644
+--- a/lib/constants.js
++++ b/lib/constants.js
+@@ -1501,6 +1501,9 @@ const BRIDGE_OPENING = {
+   // Att slå PÅ flaggan kräver alltså ett nytt användarbeslut OCH en omläsning
+   // av öppningsfacit (5 låsta korpusar) — se P7:s rapport. Koden ligger kvar
+   // testad och mätbar; ett `true` här återaktiverar den i sin helhet.
++  // U24 (ägarbeslut 2026-11-09) genomför väg b SMALT, utan bred täckning: en
++  // absorberad båt släpps på sin egen deadline före händelsens första passage
++  // (BridgeOpeningService#_ownDeadlineVerdict). Flaggan här förblir av.
+   U9_RESCUE_COVERAGE: false,
+ 
+   // ---------------------------------------------------------------------
+diff --git a/lib/services/BridgeOpeningService.js b/lib/services/BridgeOpeningService.js
+index 3179bf8..b1d3741 100644
+--- a/lib/services/BridgeOpeningService.js
++++ b/lib/services/BridgeOpeningService.js
+@@ -393,6 +393,12 @@ class BridgeOpeningService {
+           && !(Number.isFinite(arm.recoverHeldAt) && arm.recoverHeldAt >= arm.coverUntilMs)) {
+         due = Math.min(due, Math.max(now + 1, Math.floor(arm.coverUntilMs) + 1));
+       }
++      // U24 (M7, varv 2, familj B): en absorberad arm i en avfyrad händelse
++      // utan passage släpps på sin egen deadline när villkoren i
++      // _ownDeadlineVerdict håller. Boka den, så att släppet inte väntar på
++      // nästa watchdog och beror på tickens fas.
++      const ownWake = this._ownDeadlineWakeMs(arm, now);
++      if (ownWake !== null) due = Math.min(due, ownWake);
+       if (arm.warnedAt !== null || this._hasUnappliedObservation(arm) || !Number.isFinite(arm.fireDueMs)) continue;
+       if (this._blockedByEarlierBridge(arm, now)) {
+         due = Math.min(due, Math.ceil(arm.earlierBridgeUntilMs));
+@@ -2237,7 +2243,8 @@ class BridgeOpeningService {
+    *    världar 1094 och 1476). Saknas skattningen är firstPassageAt
+    *    bokföringstiden (_recordPassage), och villkoret är detsamma som förut.
+    *    Släppet vid TÄCKNINGSSLUTET rörs inte: där är färskhet mätt och avvisad
+-   *    (U17, se nedan);
++   *    (U17, se nedan). Före första passagen dömer i stället
++   *    _ownDeadlineVerdict (U24, M7, C-IV väg b): hennes egen deadline;
+    *  - fixet var GPS-rent och färskt, och armen är inte fryst (C7b);
+    *  - armens förväntade ankomst ur det fixet ligger EFTER fönstrets slut:
+    *    det som kommer först av täckningsslutet coverUntilMs och U2-fönstret
+@@ -2323,22 +2330,32 @@ class BridgeOpeningService {
+    * `kind`; `reason` vid 'bakkant' och 'hold'. När bakkanten hann jämföra en
+    * ankomst med fönstrets slut bär domen dessutom `arrivalMs` (det som
+    * jämfördes, se _crawlArrivalMs), `physicsArrivalMs` (armens fysik, eller
+-   * null) och `windowEndMs`. De tre saknas när domen avgjordes tidigare (ingen
+-   * passage, inget färskt eller rent fix, eller täckningen har löpt ut).
++   * null) och `windowEndMs`. De tre saknas när domen avgjordes tidigare (inget
++   * färskt eller rent fix efter passagen, eller täckningen har löpt ut). Före
++   * första passagen (U24, _ownDeadlineVerdict) bär domen alltid de tre och
++   * dessutom `ownDeadlineMs` (garantins deadline, eller null); `arrivalMs` är
++   * då den TIDIGARE av prognosen och fysiken, `windowEndMs` referensankomsten +
++   * CONVOY_WINDOW_MS, och en dom 'covered' bär `gate`: villkoret som höll henne
++   * kvar ('orent', 'ingen-fysik', 'inom-fönstret', 'kö', 'deadline',
++   * 'täckningsslut-i-tid', 'golv' eller 'kurs').
+    * @private
+    * @param {Object} arm - absorberad arm
+    * @param {Object|null} event - armens händelse
+    * @param {number} now
+    * @returns {{kind: string, reason?: string, arrivalMs?: (number|null),
+-   *   physicsArrivalMs?: (number|null), windowEndMs?: number}} dom
++   *   physicsArrivalMs?: (number|null), windowEndMs?: number,
++   *   ownDeadlineMs?: (number|null), gate?: string}} dom
+    */
+   _coverageVerdict(arm, event, now) {
+     const bridge = this._targetBridges.get(arm.bridge);
+     if (now <= arm.coverUntilMs) {
+       const passageKnown = !!event && event.firstPassageAt !== null
+         && Number.isFinite(event.firstPassageRegisteredAt);
++      // U24 (M7): före första passagen avgör hennes egen deadline (C-IV
++      // väg b, se _ownDeadlineVerdict).
++      if (!passageKnown) return this._ownDeadlineVerdict(arm, event, bridge, now);
+       // KRAV (2): ett fix efter den SKATTADE korsningen (M4, se docblocket).
+-      if (!passageKnown || !(arm.lastSeenAt > event.firstPassageAt)) return { kind: 'covered' };
++      if (!(arm.lastSeenAt > event.firstPassageAt)) return { kind: 'covered' };
+       if (!arm.lastFixClean || this._hasUnappliedObservation(arm)) return { kind: 'covered' };
+       // Mot det som slutar FÖRST av täckningen och U2-fönstret kring den
+       // verkliga passagen (se docblocket). En golvhållen arm mäts bara mot
+@@ -2381,6 +2398,143 @@ class BridgeOpeningService {
+     return { kind: 'täckningsslut' };
+   }
+ 
++  /**
++   * EGEN DEADLINE FÖRE FÖRSTA PASSAGEN (ägarbeslut U24, 2026-11-09; varv 2,
++   * familj B, M7; C-IV väg b).
++   *
++   * U24: "Inför ändringen" (rättningskampanjen varv 2, KAMPANJ2.md). Ägaren
++   * valde den smala varianten nedan och godtar kostnaden att en köande konvoj
++   * ibland får en extra varning (buggjägarens värld 143, se MÄTT). Stilla
++   * köande båtar (värld 1139) omfattas inte; för dem gäller täckningsslutet
++   * som förut. U9:s breda täckning (BRIDGE_OPENING.U9_RESCUE_COVERAGE) är
++   * fortfarande avstängd: U24 ändrar bara släppet, inte vilka som täcks.
++   *
++   * Ägarens val i C-IV (2026-08-09, docs/etapp7-plan-2026-08-08.md): "Garantin
++   * står fast, U2 mjukas upp. Tillåt en andra varning när en medlems egen
++   * deadline annars skulle förfalla." Förut hade en absorberad arm i en
++   * avfyrad händelse UTAN bokförd passage bara en utgång: täckningsslutet. Där
++   * släpptes hon och varnades på en sedan länge förfallen deadline
++   * (buggjägarens värld 979: XENIA varnades 50 s före korsningen, medan
++   * ledaren FREJA väntade i kö i 37 min; ursprunglig deadline 08:48:36).
++   *
++   * SMAL VARIANT (inte U9:s breda täckning). Släpp med domen 'bakkant' när ALLA
++   * gäller:
++   *  (a) fixet var GPS-rent och armen är inte fryst, som för bakkanten efter
++   *      passagen;
++   *  (b) både appens prognos och armens fysik (physicsArrivalMs, som kräver
++   *      mätbar fart) ligger efter händelsens fönsterslut, referensankomsten +
++   *      CONVOY_WINDOW_MS: hon hör inte till den öppning som varnades
++   *      (_belongsToEvent på hennes senaste fix, sen sida). En båt som ligger
++   *      still har ingen fysik och släpps aldrig här;
++   *  (c) hon köar inte: ingen köflagga (waitingAtBridge) och utanför väntzonen
++   *      (STATUS_HYSTERESIS.WAITING_CLEAR_DISTANCE, samma zon som köbeviset i
++   *      bridgeQueue). U9 splittrade äkta konvojer som väntade tillsammans vid
++   *      bron (JOY och SEEBAER III 2026-07-14); utan villkoret släpptes HERA II
++   *      239 m från bron i 1,2 kn ur samma kö som LYS (20260707-14h);
++   *  (d) hennes egen deadline har passerat: garantins, earliestArrivalMs −
++   *      WARNING_LEAD_MS, som räddningsventilen (_rescueCoveredArms);
++   *  (e) täckningsslutet kommer för sent för henne: coverUntilMs ligger efter
++   *      den tidigare av prognosen och fysiken minus WARNING_LEAD_MS. Ger
++   *      täckningsslutet (U17) henne ledtiden ändå, står utfallet kvar. Utan
++   *      villkoret flyttade den låsta raden 20260804-both-21h LAURIERBORG
++   *      07:36:41 → 07:33:39, där båda varningarna ligger minuter före
++   *      korsningen (U13);
++   *  (f) minst två tick kvar till förväntad ankomst (ledtidsgolvet, samma som
++   *      räddningsventilen och korsningsankarets golv);
++   *  (g) kursen leder inte bort från bron (_courseAway).
++   * Schemaläggaren väcker släppvägen på hennes deadline (_ownDeadlineWakeMs),
++   * så att släppet inte beror på halvminutstickens fas.
++   *
++   * MÄTT (familj B, varv 2): värld 979 och F02-representanten BORTA (egen
++   * varning 08:52:08, 317 s före korsningen); värld 41 varnas 12:16:52, 7,4 min
++   * före korsningen, i stället för 2 s efter. Korpusbanken: 437 varningar som
++   * förut, ingen låst rad flyttas; en olåst fantomvarning (20260525 JOSEPHINE,
++   * AVBRUTEN_APPROACH) går 10:01:20 i stället för 10:06:05. KOSTNADEN SOM U24
++   * GODTAR (quick, värld 143): RUNA släpps 11:14:52 medan ledaren och CORDELIA
++   * köar, CORDELIA absorberas sedan i RUNAs händelse i stället för att bilda en
++   * gemensam med henne, och varnas vid dess täckningsslut på ett 21 min gammalt
++   * fix, fast hon korsar 353 s efter RUNA. Värld 1139 (stilla i kö) står kvar:
++   * en båt som ligger still släpps aldrig här.
++   * @private
++   * @param {Object} arm - absorberad arm
++   * @param {Object|null} event - armens händelse (avfyrad, utan passage)
++   * @param {Object|undefined} bridge
++   * @param {number} now
++   * @returns {Object} dom, se _coverageVerdict
++   */
++  _ownDeadlineVerdict(arm, event, bridge, now) {
++    const basis = this._ownDeadlineBasis(arm, event);
++    if (!basis) return { kind: 'covered' };
++    const gate = this._ownDeadlineGate(arm, bridge, basis, now);
++    if (gate) return { kind: 'covered', gate, ...basis };
++    return {
++      kind: 'bakkant',
++      reason: `egen deadline ${new Date(basis.ownDeadlineMs).toISOString()} förföll före händelsens första `
++        + `passage; prognos ${new Date(arm.expectedArrivalMs).toISOString()} och fysik `
++        + `${new Date(arm.physicsArrivalMs).toISOString()} ligger efter fönstrets slut `
++        + `${new Date(basis.windowEndMs).toISOString()}`,
++      ...basis,
++    };
++  }
++
++  /**
++   * Underlaget för M7-domen, eller null när händelsen inte är avfyrad, redan
++   * har en passage eller saknar referensankomst. `arrivalMs` är den TIDIGARE
++   * av appens prognos och armens fysik (null utan fysik): villkor (b) kräver
++   * att båda ligger efter fönstrets slut.
++   * @private
++   */
++  _ownDeadlineBasis(arm, event) {
++    if (!event || event.firedAt === null || event.firstPassageAt !== null
++        || !Number.isFinite(event.referenceArrivalMs)) return null;
++    return {
++      arrivalMs: Number.isFinite(arm.expectedArrivalMs) && Number.isFinite(arm.physicsArrivalMs)
++        ? Math.min(arm.expectedArrivalMs, arm.physicsArrivalMs) : null,
++      physicsArrivalMs: arm.physicsArrivalMs,
++      windowEndMs: event.referenceArrivalMs + this.config.CONVOY_WINDOW_MS,
++      ownDeadlineMs: Number.isFinite(arm.earliestArrivalMs)
++        ? arm.earliestArrivalMs - this.config.WARNING_LEAD_MS : null,
++    };
++  }
++
++  /**
++   * Vilket villkor i _ownDeadlineVerdict håller armen kvar? null = släpp.
++   * Namnen bärs i domens `gate` (se _coverageVerdict).
++   * @private
++   */
++  _ownDeadlineGate(arm, bridge, basis, now) {
++    if (!arm.lastFixClean || this._hasUnappliedObservation(arm)) return 'orent';
++    if (!Number.isFinite(basis.arrivalMs)) return 'ingen-fysik';
++    if (basis.arrivalMs <= basis.windowEndMs) return 'inom-fönstret';
++    if (arm.waitingAtBridge || !Number.isFinite(arm.distanceM)
++        || arm.distanceM <= STATUS_HYSTERESIS.WAITING_CLEAR_DISTANCE) return 'kö';
++    if (!Number.isFinite(basis.ownDeadlineMs) || now < basis.ownDeadlineMs) return 'deadline';
++    if (arm.coverUntilMs <= basis.arrivalMs - this.config.WARNING_LEAD_MS) return 'täckningsslut-i-tid';
++    if (arm.expectedArrivalMs - now < 2 * this.config.TICK_INTERVAL_MS) return 'golv';
++    if (this._courseAway(arm, bridge)) return 'kurs';
++    return null;
++  }
++
++  /**
++   * När ska schemaläggaren väcka släppvägen för M7? Hennes egen deadline, om
++   * den ligger framåt och före täckningsslutet och om alla övriga villkor
++   * håller på det fix hon har; annars null. Villkoren utom tiden ändras bara
++   * med ett nytt fix, och ett nytt fix utvärderar bron ändå, så ingen
++   * nolltidsloop kan uppstå.
++   * @private
++   * @param {Object} arm
++   * @param {number} now
++   * @returns {number|null}
++   */
++  _ownDeadlineWakeMs(arm, now) {
++    if (arm.absorbedAt === null || !Number.isFinite(arm.coverUntilMs) || arm.eventId === null) return null;
++    const event = this._eventsAt(arm.bridge).find((e) => e.id === arm.eventId) || null;
++    const basis = this._ownDeadlineBasis(arm, event);
++    if (!basis || !(basis.ownDeadlineMs > now) || basis.ownDeadlineMs > arm.coverUntilMs) return null;
++    const wake = Math.ceil(basis.ownDeadlineMs);
++    return this._ownDeadlineGate(arm, this._targetBridges.get(arm.bridge), basis, wake) === null ? wake : null;
++  }
++
+   /**
+    * BAKKANTENS ANKOMST för en krypare (varv 2, familj B, M5).
+    *
+diff --git a/tests/b-bakkant-varv2.test.js b/tests/b-bakkant-varv2.test.js
+index 2aa7bc6..5b29458 100644
+--- a/tests/b-bakkant-varv2.test.js
++++ b/tests/b-bakkant-varv2.test.js
+@@ -17,6 +17,10 @@
+  *      inom U2-fönstret, och hon varnades vid täckningsslutet på en förfallen
+  *      deadline (världarna 790 och 1794). Under golvet läser bakkanten nu
+  *      den senare av prognosen och armens fysik.
++ *  M7  TÄCKNINGSSLUT UTAN PASSAGE (ägarbeslut U24, 2026-11-09). En båt i en
++ *      avfyrad händelse utan passage släpps på sin egen deadline när båda
++ *      prognoserna lägger henne efter fönstret och täckningsslutet annars
++ *      kommer för sent (värld 979, C-IV väg b, smal variant).
+  *
+  * Testen återskapar mekanismen i liten skala. Varje describe-block fäller
+  * c14938f (stegets "röda" test); vakterna (namn som börjar med "vakt:")
+@@ -298,4 +302,164 @@ describe('familj B, varv 2: konvojtäckningens släppväg', () => {
+       expect(Number.isFinite(armOf('FOLLOWER').physicsArrivalMs)).toBe(true);
+     });
+   });
++  // ===========================================================================
++  // M7 — egen deadline före händelsens första passage (U24; C-IV väg b, smal)
++  // ===========================================================================
++  describe('M7: en absorberad båt släpps på sin egen deadline när öppningen ännu inte skett', () => {
++    /**
++     * Värld 979 i liten skala. LEAD (900 m, 6 kn) avfyrar direkt; referens-
++     * ankomsten blir hennes prognos T0+291,6 s, och fönstret slutar T0+891,6 s.
++     * Hon stannar sedan 100 m före bron och väntar: ingen passage bokförs.
++     * FOLLOWER (2400 m, 6,9 kn) absorberas, täckt t.o.m. T0+891,6 s.
++     */
++    const stageWaitingLeader = () => {
++      svc.observeVessel(boat('LEAD', 900, 6));
++      svc.observeVessel(boat('FOLLOWER', 2400, 6.9));
++      expect(klaff()).toHaveLength(1);
++      expect(armOf('FOLLOWER').absorbedAt).toBe(T0);
++      advanceTo(T0 + 20 * S);
++      svc.observeVessel(boat('LEAD', 100, 0));
++      return armOf('FOLLOWER').coverUntilMs;
++    };
++    const verdictNow = (mmsi) => svc._coverageVerdict(armOf(mmsi), eventOf(mmsi), Date.now());
++
++    it('värld 979 i liten skala: följaren som saktat in varnas på sin egen deadline, inte vid täckningsslutet', () => {
++      const coverUntil = stageWaitingLeader();
++      expect(coverUntil).toBeCloseTo(T0 + 891.6 * S, -3);
++      // 2300 m i 4,5 kn: ankomst ~T0+1024 s, efter fönstret. Egen deadline
++      // ~T0+297 s. Täckningsslutet hade gett henne ~132 s (979: 50 s).
++      advanceTo(T0 + 30 * S);
++      svc.observeVessel(boat('FOLLOWER', 2300, 4.5));
++      const arm = armOf('FOLLOWER');
++      const deadline = arm.earliestArrivalMs - BRIDGE_OPENING.WARNING_LEAD_MS;
++      expect(arm.expectedArrivalMs).toBeGreaterThan(coverUntil);
++      expect(arm.absorbedAt).toBe(T0);
++      advanceTo(deadline - 5 * S);
++      expect(own('FOLLOWER')).toHaveLength(0);
++      advanceTo(deadline + BRIDGE_OPENING.TICK_INTERVAL_MS);
++      const mine = own('FOLLOWER');
++      expect(mine).toHaveLength(1);
++      expect(mine[0].t).toBeLessThanOrEqual(deadline + BRIDGE_OPENING.TICK_INTERVAL_MS);
++      expect(mine[0].t).toBeLessThan(coverUntil);
++      expect(debugLines('[OPENING_RECOVER]').some((l) => l.includes('egen deadline'))).toBe(true);
++    });
++
++    it('schemaläggaren släpper henne på deadlinen, utan watchdog', () => {
++      clearInterval(tickTimer);
++      tickTimer = null;
++      svc.destroy();
++      svc = makeService({ scheduleDeadlines: true });
++      stageWaitingLeader();
++      advanceTo(T0 + 30 * S);
++      svc.observeVessel(boat('FOLLOWER', 2300, 4.5));
++      const deadline = armOf('FOLLOWER').earliestArrivalMs - BRIDGE_OPENING.WARNING_LEAD_MS;
++      expect(svc._ownDeadlineWakeMs(armOf('FOLLOWER'), Date.now())).toBe(Math.ceil(deadline));
++      advanceTo(Math.ceil(deadline) + 1);
++      const mine = own('FOLLOWER');
++      expect(mine).toHaveLength(1);
++      expect(mine[0].t).toBe(Math.ceil(deadline));
++    });
++
++    it('domen bär underlaget och grinden (familj E bokför dem)', () => {
++      stageWaitingLeader();
++      advanceTo(T0 + 30 * S);
++      svc.observeVessel(boat('FOLLOWER', 2300, 4.5));
++      const verdict = verdictNow('FOLLOWER');
++      expect(verdict.kind).toBe('covered');
++      expect(verdict.gate).toBe('deadline');
++      expect(verdict.windowEndMs).toBeCloseTo(T0 + 891.6 * S, -3);
++      expect(verdict.ownDeadlineMs).toBe(armOf('FOLLOWER').earliestArrivalMs - BRIDGE_OPENING.WARNING_LEAD_MS);
++      expect(verdict.arrivalMs).toBe(Math.min(armOf('FOLLOWER').expectedArrivalMs, armOf('FOLLOWER').physicsArrivalMs));
++      expect(verdict.physicsArrivalMs).toBe(armOf('FOLLOWER').physicsArrivalMs);
++    });
++
++    it('vakt: en prognos inom fönstret hör till öppningen som förut (U2)', () => {
++      const coverUntil = stageWaitingLeader();
++      advanceTo(T0 + 300 * S);
++      svc.observeVessel(boat('FOLLOWER', 1200, 6.9)); // ankomst ~T0+638 s
++      advanceTo(coverUntil - 10 * S);
++      expect(armOf('FOLLOWER').absorbedAt).toBe(T0);
++      expect(own('FOLLOWER')).toHaveLength(0);
++    });
++
++    it('vakt: en båt i väntzonen (≤ 350 m) släpps inte, även när prognosen ligger efter fönstret', () => {
++      const coverUntil = stageWaitingLeader();
++      advanceTo(T0 + 200 * S);
++      svc.observeVessel(boat('FOLLOWER', 300, 0.8)); // ankomst ~T0+929 s, deadline passerad
++      expect(armOf('FOLLOWER').expectedArrivalMs).toBeGreaterThan(coverUntil);
++      advanceTo(coverUntil - 10 * S);
++      expect(armOf('FOLLOWER').absorbedAt).toBe(T0);
++      expect(own('FOLLOWER')).toHaveLength(0);
++    });
++
++    it('en båt som ligger still släpps inte (grinden ingen-fysik)', () => {
++      const coverUntil = stageWaitingLeader();
++      advanceTo(T0 + 200 * S);
++      svc.observeVessel(boat('FOLLOWER', 1500, 0.3, { etaMinutes: 20 }));
++      expect(verdictNow('FOLLOWER').gate).toBe('ingen-fysik');
++      advanceTo(coverUntil - 10 * S);
++      expect(armOf('FOLLOWER').absorbedAt).toBe(T0);
++      expect(own('FOLLOWER')).toHaveLength(0);
++    });
++
++    it('vakt: bara när BÅDA prognoserna ligger efter fönstret släpps hon', () => {
++      const coverUntil = stageWaitingLeader();
++      // Fysiken (2300 m i 4,5 kn) ligger efter fönstret, appens ETA (12 min) inom det.
++      advanceTo(T0 + 30 * S);
++      svc.observeVessel(boat('FOLLOWER', 2300, 4.5, { etaMinutes: 12 }));
++      const arm = armOf('FOLLOWER');
++      expect(Date.now() + (arm.distanceM / (4.5 * KN)) * S).toBeGreaterThan(coverUntil);
++      expect(arm.expectedArrivalMs).toBeLessThan(coverUntil);
++      advanceTo(coverUntil - 10 * S);
++      expect(armOf('FOLLOWER').absorbedAt).toBe(T0);
++      expect(own('FOLLOWER')).toHaveLength(0);
++    });
++
++    it('vakt: ger täckningsslutet henne ledtiden ändå, står utfallet kvar (LAURIERBORG, U13)', () => {
++      const coverUntil = stageWaitingLeader();
++      // 2300 m i 3,5 kn: ankomst ~T0+1307 s, långt efter täckningsslutet.
++      advanceTo(T0 + 30 * S);
++      svc.observeVessel(boat('FOLLOWER', 2300, 3.5));
++      expect(coverUntil).toBeLessThanOrEqual(armOf('FOLLOWER').expectedArrivalMs - BRIDGE_OPENING.WARNING_LEAD_MS);
++      advanceTo(coverUntil - 10 * S);
++      expect(armOf('FOLLOWER').absorbedAt).toBe(T0);
++      expect(own('FOLLOWER')).toHaveLength(0);
++      // Täckningsslutet (U17) släpper henne som förut, med ledtid kvar.
++      advanceTo(coverUntil + BRIDGE_OPENING.TICK_INTERVAL_MS);
++      expect(own('FOLLOWER')).toHaveLength(1);
++    });
++
++    it('grindarna prövas direkt: kö-flaggan, orent fix, golvet och kursen bort', () => {
++      stageWaitingLeader();
++      advanceTo(T0 + 30 * S);
++      svc.observeVessel(boat('FOLLOWER', 2300, 4.5));
++      // Ingen utvärdering efter fixet: deadlinen passerar, armen är kvar.
++      clearInterval(tickTimer);
++      tickTimer = null;
++      advanceTo(T0 + 400 * S);
++      const arm = armOf('FOLLOWER');
++      const event = eventOf('FOLLOWER');
++      const now = Date.now();
++      expect(arm.absorbedAt).toBe(T0);
++      expect(svc._coverageVerdict(arm, event, now).kind).toBe('bakkant');
++      expect(svc._coverageVerdict({ ...arm, waitingAtBridge: 'Järnvägsbron' }, event, now).gate).toBe('kö');
++      expect(svc._coverageVerdict({ ...arm, lastFixClean: false }, event, now).gate).toBe('orent');
++      expect(svc._coverageVerdict({ ...arm, cog: 220 }, event, now).gate).toBe('kurs');
++      // Golvet: ankomst 30 s bort, fönstret slut och täckningen för sen.
++      const late = { ...arm, expectedArrivalMs: now + 30 * S, physicsArrivalMs: now + 40 * S };
++      const lateEvent = { ...event, referenceArrivalMs: now - BRIDGE_OPENING.CONVOY_WINDOW_MS - 60 * S };
++      expect(svc._coverageVerdict({ ...late, coverUntilMs: now + 300 * S }, lateEvent, now).gate).toBe('golv');
++    });
++
++    it('vakt: efter första passagen gäller bakkanten som förut, inte den egna deadlinen', () => {
++      stageWaitingLeader();
++      advanceTo(T0 + 30 * S);
++      svc.observeVessel(boat('FOLLOWER', 2300, 4.5));
++      advanceTo(T0 + 60 * S);
++      svc.notePassage('LEAD', 'Klaffbron');
++      const verdict = verdictNow('FOLLOWER');
++      expect(verdict.ownDeadlineMs).toBeUndefined();
++      expect(verdict.gate).toBeUndefined();
++    });
++  });
+ });
+-- 
+2.43.0
+

@@ -1,0 +1,100 @@
+From 329b7c3188f8d814d907daf111068733fd7ec800 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 4 Nov 2026 23:57:42 +0000
+Subject: [PATCH 11/24] =?UTF-8?q?E2-familjen:=20inbromsningsregeln=20sp?=
+ =?UTF-8?q?=C3=A4rrar=20bara=20ett=20nytt=20intr=C3=A4de=20i=20strax?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+F06-regeln höll ETA:n på 3 min när medelfarten ensam lovade strax men
+momentanfarten gav minst 3 min. Stod förra värdet redan under 3 min
+lyfte regeln en redan given strax till "om 3". Buggjägarens quick-värld
+286 (RUNA, U-sväng 307 m före Klaffbron) fick då en ny
+INV-3-oscillation strax → om 3 → strax, som e949ae1 inte hade. Regeln
+gäller nu bara när förra värdet låg på 3 min eller mer. Värld 286 är
+regressionstest (fixtur ur motorn).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ lib/services/ProgressiveETACalculator.js      | 10 ++++++++++
+ tests/e2-eta-etapp-2026-11-04.test.js         | 12 +++++++++++
+ .../e2-f06-runa-usvang-varld286.jsonl         | 20 +++++++++++++++++++
+ 3 files changed, 42 insertions(+)
+ create mode 100644 tests/fixtures/e2-f06-runa-usvang-varld286.jsonl
+
+diff --git a/lib/services/ProgressiveETACalculator.js b/lib/services/ProgressiveETACalculator.js
+index fc8fcd4..dc759a2 100644
+--- a/lib/services/ProgressiveETACalculator.js
++++ b/lib/services/ProgressiveETACalculator.js
+@@ -1660,7 +1660,17 @@ class ProgressiveETACalculator {
+       adjustedETA = STRAX_THRESHOLD_MINUTES;
+     }
+ 
++    // E2 (F06, M9-principen vid inbromsning): buffertens medelfart ligger
++    // efter när båten bromsar in. Lovar medelfarten ensam strax medan
++    // momentanfarten ger minst 3 min, hålls ETA:n på 3 min (XENIA, värld 192:
++    // strax → om 4 → strax). Regeln spärrar bara ett NYTT inträde i strax:
++    // stod förra värdet redan under 3 min är löftet redan givet, och att lyfta
++    // det till 3 gav i stället strax → om 3 → strax (RUNA, U-sväng i
++    // buggjägarens quick-värld 286).
++    const straxAlreadyGiven = history.length > 0
++      && history[history.length - 1].processedETA < STRAX_THRESHOLD_MINUTES;
+     if (decelInstantETA !== null
++        && !straxAlreadyGiven
+         && decelRawETA < STRAX_THRESHOLD_MINUTES
+         && decelInstantETA >= STRAX_THRESHOLD_MINUTES
+         && vessel._isImminentAtTargetBridge !== true
+diff --git a/tests/e2-eta-etapp-2026-11-04.test.js b/tests/e2-eta-etapp-2026-11-04.test.js
+index d3c07b1..402a020 100644
+--- a/tests/e2-eta-etapp-2026-11-04.test.js
++++ b/tests/e2-eta-etapp-2026-11-04.test.js
+@@ -353,6 +353,18 @@ describe('F06: medelfarten får inte ensam lova strax vid inbromsning', () => {
+     const at1158 = result.bridgeTextTransitions.filter((t) => t.iso.slice(11, 16) === '11:58');
+     expect(at1158.some((t) => t.text.includes('beräknad broöppning strax'))).toBe(false);
+   });
++
++  test('värld 286 (U-sväng, quick): en redan given strax lyfts inte till "om 3"', () => {
++    // RUNA bromsar från 6,3 till 2,5 kn i U-svängen 307 m före Klaffbron.
++    // Förra värdet stod redan under 3 min ("strax"); att hålla på 3 gav
++    // strax → om 3 → strax. Regeln spärrar bara ett nytt inträde i strax.
++    const result = runReplay(path.join(FIXTURES, 'e2-f06-runa-usvang-varld286.jsonl'));
++    expect(etaViolations(result)).toEqual([]);
++    const texts = result.bridgeTextTransitions
++      .filter((x) => x.iso >= '2026-07-11T15:04' && x.iso < '2026-07-11T15:07')
++      .map((x) => x.text);
++    expect(texts).toEqual(['En båt på väg mot Klaffbron, beräknad broöppning strax']);
++  });
+ });
+ 
+ describe('F07: spärren jämför en färsk mätning med en mätning, inte med en osedd gissning', () => {
+diff --git a/tests/fixtures/e2-f06-runa-usvang-varld286.jsonl b/tests/fixtures/e2-f06-runa-usvang-varld286.jsonl
+new file mode 100644
+index 0000000..f805a22
+--- /dev/null
++++ b/tests/fixtures/e2-f06-runa-usvang-varld286.jsonl
+@@ -0,0 +1,20 @@
++{"mmsi":"265955595","msgType":"StandardClassBPositionReport","lat":58.32071696582036,"lon":12.323635512062861,"sog":8.4,"cog":198.8,"navStatus":null,"shipName":"RUNA","aisTimestamp":1783781292852,"fixTs":1783781292852,"feed":"aisstream","receivedAt":"2026-07-11T14:48:12.852Z"}
++{"mmsi":"265955595","msgType":"StandardClassBPositionReport","lat":58.316786225055566,"lon":12.320783251188024,"sog":9.7,"cog":196.7,"navStatus":null,"shipName":"RUNA","aisTimestamp":1783781388014,"fixTs":1783781388014,"feed":"aisstream","receivedAt":"2026-07-11T14:49:48.014Z"}
++{"mmsi":"265955595","msgType":"StandardClassBPositionReport","lat":58.313764435512134,"lon":12.31931086113124,"sog":9.5,"cog":200,"navStatus":null,"shipName":"RUNA","aisTimestamp":1783781456729,"fixTs":1783781456729,"feed":"aisstream","receivedAt":"2026-07-11T14:50:56.729Z"}
++{"mmsi":"265955595","msgType":"StandardClassBPositionReport","lat":58.309646836562436,"lon":12.316083159689049,"sog":8.5,"cog":207.6,"navStatus":null,"shipName":"RUNA","aisTimestamp":1783781557885,"fixTs":1783781557885,"feed":"aisstream","receivedAt":"2026-07-11T14:52:37.885Z"}
++{"mmsi":"265955595","msgType":"StandardClassBPositionReport","lat":58.30713911856479,"lon":12.312358932159416,"sog":8.7,"cog":221.7,"navStatus":null,"shipName":"RUNA","aisTimestamp":1783781638874,"fixTs":1783781638874,"feed":"aisstream","receivedAt":"2026-07-11T14:53:58.874Z"}
++{"mmsi":"265955595","msgType":"StandardClassBPositionReport","lat":58.30116511563116,"lon":12.303734985856188,"sog":8.4,"cog":217.5,"navStatus":null,"shipName":"RUNA","aisTimestamp":1783781828455,"fixTs":1783781828455,"feed":"aisstream","receivedAt":"2026-07-11T14:57:08.455Z"}
++{"mmsi":"265955595","msgType":"StandardClassBPositionReport","lat":58.29692067801936,"lon":12.299001379311207,"sog":8.4,"cog":209.5,"navStatus":null,"shipName":"RUNA","aisTimestamp":1783781954475,"fixTs":1783781954475,"feed":"aisstream","receivedAt":"2026-07-11T14:59:14.475Z"}
++{"mmsi":"265955595","msgType":"StandardClassBPositionReport","lat":58.29246620159543,"lon":12.292905278493771,"sog":6,"cog":225.5,"navStatus":null,"shipName":"RUNA","aisTimestamp":1783782103358,"fixTs":1783782103358,"feed":"aisstream","receivedAt":"2026-07-11T15:01:43.358Z"}
++{"mmsi":"265955595","msgType":"StandardClassBPositionReport","lat":58.29105146183948,"lon":12.291099257596418,"sog":6.5,"cog":216.3,"navStatus":null,"shipName":"RUNA","aisTimestamp":1783782161081,"fixTs":1783782161081,"feed":"aisstream","receivedAt":"2026-07-11T15:02:41.081Z"}
++{"mmsi":"265955595","msgType":"StandardClassBPositionReport","lat":58.28952314038016,"lon":12.289056513752625,"sog":6.6,"cog":211.6,"navStatus":null,"shipName":"RUNA","aisTimestamp":1783782221774,"fixTs":1783782221774,"feed":"aisstream","receivedAt":"2026-07-11T15:03:41.774Z"}
++{"mmsi":"265955595","msgType":"StandardClassBPositionReport","lat":58.287981504261765,"lon":12.287234598063309,"sog":6.3,"cog":213.9,"navStatus":null,"shipName":"RUNA","aisTimestamp":1783782282602,"fixTs":1783782282602,"feed":"aisstream","receivedAt":"2026-07-11T15:04:42.602Z"}
++{"mmsi":"265955595","msgType":"StandardClassBPositionReport","lat":58.28666928165209,"lon":12.28583786860849,"sog":2.5,"cog":197.4,"navStatus":null,"shipName":"RUNA","aisTimestamp":1783782343035,"fixTs":1783782343035,"feed":"aisstream","receivedAt":"2026-07-11T15:05:43.035Z"}
++{"mmsi":"265955595","msgType":"StandardClassBPositionReport","lat":58.28703005829093,"lon":12.286174984290684,"sog":3.8,"cog":32,"navStatus":null,"shipName":"RUNA","aisTimestamp":1783782403709,"fixTs":1783782403709,"feed":"aisstream","receivedAt":"2026-07-11T15:06:43.709Z"}
++{"mmsi":"265955595","msgType":"StandardClassBPositionReport","lat":58.288099296205054,"lon":12.287380053564322,"sog":4.5,"cog":33.7,"navStatus":null,"shipName":"RUNA","aisTimestamp":1783782464000,"fixTs":1783782464000,"feed":"aisstream","receivedAt":"2026-07-11T15:07:44.000Z"}
++{"mmsi":"265955595","msgType":"StandardClassBPositionReport","lat":58.28870646671484,"lon":12.288136940805817,"sog":4.7,"cog":37.1,"navStatus":null,"shipName":"RUNA","aisTimestamp":1783782499186,"fixTs":1783782499186,"feed":"aisstream","receivedAt":"2026-07-11T15:08:19.186Z"}
++{"mmsi":"265955595","msgType":"StandardClassBPositionReport","lat":58.295906830840735,"lon":12.29776436025268,"sog":9,"cog":33.7,"navStatus":null,"shipName":"RUNA","aisTimestamp":1783782812698,"fixTs":1783782812698,"feed":"aisstream","receivedAt":"2026-07-11T15:13:32.698Z"}
++{"mmsi":"265955595","msgType":"StandardClassBPositionReport","lat":58.30616552930686,"lon":12.310805033995997,"sog":9.1,"cog":36.7,"navStatus":null,"shipName":"RUNA","aisTimestamp":1783783103750,"fixTs":1783783103750,"feed":"aisstream","receivedAt":"2026-07-11T15:18:23.750Z"}
++{"mmsi":"265955595","msgType":"StandardClassBPositionReport","lat":58.30810491922268,"lon":12.314087324060738,"sog":9.2,"cog":50.3,"navStatus":null,"shipName":"RUNA","aisTimestamp":1783783164547,"fixTs":1783783164547,"feed":"aisstream","receivedAt":"2026-07-11T15:19:24.547Z"}
++{"mmsi":"265955595","msgType":"StandardClassBPositionReport","lat":58.31507383726043,"lon":12.32014866964778,"sog":9.7,"cog":16.7,"navStatus":null,"shipName":"RUNA","aisTimestamp":1783783339476,"fixTs":1783783339476,"feed":"aisstream","receivedAt":"2026-07-11T15:22:19.476Z"}
++{"mmsi":"265955595","msgType":"StandardClassBPositionReport","lat":58.317754154478244,"lon":12.32163134933683,"sog":10.1,"cog":18.7,"navStatus":null,"shipName":"RUNA","aisTimestamp":1783783400287,"fixTs":1783783400287,"feed":"aisstream","receivedAt":"2026-07-11T15:23:20.287Z"}
+-- 
+2.43.0
+

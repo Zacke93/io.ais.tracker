@@ -1,0 +1,254 @@
+From e5f78b55ea119be405bbd65e1a57d383ef101825 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 14:40:29 +0000
+Subject: [PATCH 5/5] =?UTF-8?q?Krypregeln:=20r=C3=A4kna=20nya=20fix=20och?=
+ =?UTF-8?q?=20godta=20krypfix=20efter=20marschfart=20(revision=202,=20fami?=
+ =?UTF-8?q?lj=20B)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Omgranskningen 2026-11-09 (GODKÄND, låga anmärkningar 2 och 3):
+
+- crawlFixes räknade tillämpade observationer. Om kölämnarens första
+  rörelsefix levererades två gånger med samma fixtid blev det två
+  krypfix, och hon släpptes och varnades igen (prob D4; aisstream-
+  multiplexern filtrerar inte dubbletter). Nu räknas ett fix bara när
+  dess tid (rawAnchorMs) har gått framåt.
+- Tvåfixregeln föll tillbaka till c14938f:s sena varning vid gles kadens
+  (prob D3, klass B 180 s) och vid fart som pendlar runt golvet (D2). Ett
+  första krypfix godtas nu när förra nya fixet låg i marschfart
+  (crawlFromCruise, prevFixSog ≥ MIN_PASSAGE_ROUTE_SPEED_KNOTS), enligt
+  granskarens forslag-krypfix-alt.diff. En kölämnare kommer från stillhet
+  och omfattas inte (C4, C4b och C4c som c14938f).
+
+Två familjetest ändras: 790-testet släpper nu på första krypfixet efter
+marschfart, och kölämnartestet ligger still före sitt första krypfix.
+Nya test: D4 (dubblett) och D3 (gles kadens). 790, 1794, F08 och 1476
+förblir BORTA. Banken mot c14938f: JOSEPHINE (U24) och åter PILLE-raden
+(hennes krypfix kom direkt efter 5,7 kn, likvärdig enligt FACIT).
+Mutationsprov: 22 av 22 fälls.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/ARCHITECTURE.md                 |  8 ++--
+ lib/services/BridgeOpeningService.js | 50 +++++++++++++++++-------
+ tests/b-bakkant-varv2.test.js        | 58 +++++++++++++++++++++++-----
+ 3 files changed, 91 insertions(+), 25 deletions(-)
+
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index d288e3d..1c536cb 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -819,9 +819,11 @@ båt.
+   prognos och armens fysik, avstånd genom fart (`physicsArrivalMs`, varv 2,
+   familj B, M5): golvet och outlierskyddet höll prognosen minuter för tidigt
+   (värld 790: 230 m i 0,9 kn, appen 3 min, fysiken 6,4 min). Fysiken gäller
+-  från det andra krypfixet i följd och aldrig med köflaggan (`waitingAtBridge`):
+-  en kölämnares första rörelsefix i låg fart släppte henne annars, fast hon
+-  korsade inom fönstret (granskningen av varv 2). Ligger bron redan bakom
++  från det andra NYA krypfixet i följd, eller direkt efter ett fix i marschfart
++  (≥ 2,5 kn), och aldrig med köflaggan (`waitingAtBridge`): en kölämnares första
++  rörelsefix i låg fart släppte henne annars, fast hon korsade inom fönstret
++  (granskningen av varv 2). Ett fix räknas bara när dess tid gått framåt, så en
++  upprepad leverans av samma fix ger inget andra krypfix (omgranskningen). Ligger bron redan bakom
+   hennes senaste läge (ett fix utan riktning) släpper bakkanten inte; passagedomen
+   vid täckningsslutet avväpnar (KRAV (1), `_bridgeBehindArm`). Deadlinen,
+   eta-tokenen och ETA-texten läser inte fysiken (U22); (b) **vid täckningsslut** hålls armen kvar (`OPENING_RECOVER_HOLD`,
+diff --git a/lib/services/BridgeOpeningService.js b/lib/services/BridgeOpeningService.js
+index 1c85e9e..6044b71 100644
+--- a/lib/services/BridgeOpeningService.js
++++ b/lib/services/BridgeOpeningService.js
+@@ -992,10 +992,14 @@ class BridgeOpeningService {
+       // (≤ MINIMUM_VIABLE_SPEED). Läses bara av släppvägen (_coverageVerdict);
+       // ETA-texten, eta-tokenen och deadlinen läser den inte (U22).
+       physicsArrivalMs: null,
+-      // Antal tillämpade fix I FÖLJD med krypfart (MINIMUM_VIABLE_SPEED <
+-      // sog < MIN_PASSAGE_ROUTE_SPEED_KNOTS). Bakkanten läser fysiken först
+-      // på det andra (se _crawlArrivalMs). Nollas av varje annat fix.
++      // Antal NYA fix I FÖLJD med krypfart (MINIMUM_VIABLE_SPEED < sog <
++      // MIN_PASSAGE_ROUTE_SPEED_KNOTS); ett fix är nytt när dess tid gått
++      // framåt. Nollas av varje annat nytt fix. crawlFromCruise: det här
++      // krypfixet kom direkt efter ett fix i marschfart (prevFixSog ≥
++      // MIN_PASSAGE_ROUTE_SPEED_KNOTS). Se _crawlArrivalMs.
+       crawlFixes: 0,
++      crawlFromCruise: false,
++      prevFixSog: null,
+       warnedAt: null,
+       eventId: null,
+       // Sattes warnedAt av en KONVOJABSORPTION (armen anslöt till en redan
+@@ -1259,6 +1263,8 @@ class BridgeOpeningService {
+     arm.pendingArrivalObservation = false;
+     arm.lastSeenAt = now;
+     arm.anchorMs = anchor;
++    // Förra fixets tid, för krypräknaren nedan (nya fix, inte upprepningar).
++    const prevFixMs = arm.rawAnchorMs;
+     arm.rawAnchorMs = Number.isFinite(rawAnchor) ? rawAnchor : null;
+     arm.distanceM = dist;
+     arm.lat = Number.isFinite(vessel.lat) ? vessel.lat : null;
+@@ -1322,8 +1328,19 @@ class BridgeOpeningService {
+     //      ETA-texten är oförändrade (U22).
+     arm.physicsArrivalMs = Number.isFinite(arm.sog) && arm.sog > PASSAGE_TIMING.MINIMUM_VIABLE_SPEED
+       ? anchor + (dist / (arm.sog * KNOTS_TO_MS)) * 1000 : null;
+-    arm.crawlFixes = Number.isFinite(arm.physicsArrivalMs) && arm.sog < MIN_PASSAGE_ROUTE_SPEED_KNOTS
+-      ? (arm.crawlFixes || 0) + 1 : 0;
++    // KRYPRÄKNAREN (se _crawlArrivalMs) räknar NYA fix: bara när fixets tid
++    // har gått framåt. En upprepad leverans av samma fix (aisstream-
++    // multiplexern filtrerar inte dubbletter) räknas inte en gång till
++    // (granskningens prob D4).
++    const newFix = !Number.isFinite(prevFixMs)
++      || (Number.isFinite(arm.rawAnchorMs) && arm.rawAnchorMs > prevFixMs);
++    if (newFix) {
++      const crawl = Number.isFinite(arm.physicsArrivalMs) && arm.sog < MIN_PASSAGE_ROUTE_SPEED_KNOTS;
++      arm.crawlFromCruise = crawl && Number.isFinite(arm.prevFixSog)
++        && arm.prevFixSog >= MIN_PASSAGE_ROUTE_SPEED_KNOTS;
++      arm.crawlFixes = crawl ? (arm.crawlFixes || 0) + 1 : 0;
++      arm.prevFixSog = Number.isFinite(arm.sog) ? arm.sog : null;
++    }
+     const etaFireMs = arm.expectedArrivalMs - this.config.FIRE_EXPECTED_ETA_MS;
+ 
+     arm.earliestArrivalMs = earliestArrivalMs;
+@@ -2566,10 +2583,10 @@ class BridgeOpeningService {
+    *
+    * Under ETA-kedjans passagegolv (MIN_PASSAGE_ROUTE_SPEED_KNOTS, 2,5 kn) är
+    * det den SENARE av appens prognos (expectedArrivalMs) och armens fysik
+-   * (physicsArrivalMs, avstånd genom fart ur samma fix), från det andra
+-   * krypfixet i följd och utan köflagga (se KÖLÄMNAREN). Över golvet, utan
+-   * mätbar fart, på ett första krypfix eller i bekräftad kö är det appens
+-   * prognos som förut.
++   * (physicsArrivalMs, avstånd genom fart ur samma fix), från det andra nya
++   * krypfixet i följd eller direkt efter marschfart, och utan köflagga (se
++   * KÖLÄMNAREN). Över golvet, utan mätbar fart, på ett första krypfix efter
++   * stillhet eller i bekräftad kö är det appens prognos som förut.
+    *
+    * VARFÖR. Efter en passage räknar ETA-kedjan med minst 2,5 kn
+    * (ProgressiveETACalculator, minRouteSpeed) och håller emot hopp uppåt
+@@ -2592,9 +2609,15 @@ class BridgeOpeningService {
+    * henne efter fönstret, hon släpptes och varnades igen fast hon korsade
+    * inom det. Därför gäller fysiken bara (1) när armen saknar köflaggan
+    * (waitingAtBridge, appens bekräftade väntan) och (2) från det ANDRA
+-   * krypfixet i följd (crawlFixes, räknas i _refreshArm). En båt som saktar
+-   * in från marschfart släpps alltså ett fix senare än förut: i värld 790
+-   * 13:31:18 i stället för 13:28:30, 411 s före korsningen.
++   * nya krypfixet i följd (crawlFixes, räknas i _refreshArm), UTOM när
++   * krypet börjar direkt efter ett fix i marschfart (crawlFromCruise, förra
++   * fixet ≥ MIN_PASSAGE_ROUTE_SPEED_KNOTS). En kölämnare kommer från
++   * stillhet, en krypare som saktat in kommer från marschfart: den senare
++   * släpps på sitt första krypfix (omgranskningen: annars föll M5 tillbaka
++   * till c14938f:s sena varning vid gles kadens, prob D3, och vid fart som
++   * pendlar runt golvet, D2). Ett fix räknas bara när dess tid gått framåt,
++   * så en upprepad leverans av kölämnarens första rörelsefix ger inget
++   * andra krypfix (prob D4).
+    *
+    * Bara släppvägen läser värdet. Deadlinen, eta-tokenen och ETA-texten är
+    * oförändrade (U22).
+@@ -2604,7 +2627,8 @@ class BridgeOpeningService {
+    */
+   _crawlArrivalMs(arm) {
+     if (!Number.isFinite(arm.expectedArrivalMs)) return null;
+-    if (Number.isFinite(arm.physicsArrivalMs) && arm.crawlFixes >= 2 && !arm.waitingAtBridge) {
++    if (Number.isFinite(arm.physicsArrivalMs) && (arm.crawlFixes >= 2 || arm.crawlFromCruise)
++        && !arm.waitingAtBridge) {
+       return Math.max(arm.expectedArrivalMs, arm.physicsArrivalMs);
+     }
+     return arm.expectedArrivalMs;
+diff --git a/tests/b-bakkant-varv2.test.js b/tests/b-bakkant-varv2.test.js
+index d3d102f..15e309a 100644
+--- a/tests/b-bakkant-varv2.test.js
++++ b/tests/b-bakkant-varv2.test.js
+@@ -25,6 +25,9 @@
+  *      (grinden 'bakom', prob A1/A1b), appens egen prognos i U24 ('en-prognos',
+  *      A4/A4c), och i M5 ingen fysik med köflaggan och först från det andra
+  *      krypfixet i följd (kölämnaren, C4/C4b/C4c).
++ *  REVISION 2 efter omgranskningen: krypräknaren räknar NYA fix (fixtiden
++ *      framåt, prob D4), och ett första krypfix direkt efter marschfart läser
++ *      fysiken (gles kadens D3, pendling runt golvet D2).
+  *
+  * Testen återskapar mekanismen i liten skala. Varje describe-block fäller
+  * c14938f (stegets "röda" test); vakterna (namn som börjar med "vakt:")
+@@ -243,18 +246,17 @@ describe('familj B, varv 2: konvojtäckningens släppväg', () => {
+     /** Appens ETA efter en passage: avståndet i ETA-kedjans golvfart 2,5 kn. */
+     const floorEtaMinutes = (distanceM) => distanceM / (2.5 * KN) / 60;
+ 
+-    it('värld 790 i liten skala: 300 m i 1 kn släpps på det andra krypfixet och varnas med full ledtid', () => {
++    it('värld 790 i liten skala: 300 m i 1 kn direkt efter marschfart släpps på fixet och varnas med full ledtid', () => {
+       stageConvoyWithPassage();
+-      // Första krypfixet (efter marschfart) läser inte fysiken: hon är kvar.
+-      advanceTo(T0 + 470 * S);
+-      svc.observeVessel(boat('FOLLOWER', 330, 1, { etaMinutes: floorEtaMinutes(330) }));
+-      expect(armOf('FOLLOWER').absorbedAt).toBe(T0);
+-      expect(armOf('FOLLOWER').crawlFixes).toBe(1);
+-      // Andra krypfixet i följd: appens ETA (golvet 2,5 kn) säger 3,9 min,
+-      // alltså ankomst T0+733 s, inom fönstret. Fysiken säger 583 s, T0+1083 s.
++      // Förra fixet låg i 6,9 kn (marschfart), så det första krypfixet läser
++      // fysiken (omgranskningen: en krypare som saktat in, inte en
++      // kölämnare). Appens ETA (golvet 2,5 kn) säger 3,9 min, alltså ankomst
++      // T0+733 s, inom fönstret. Fysiken säger 583 s, alltså T0+1083 s.
+       advanceTo(T0 + 500 * S);
+       svc.observeVessel(boat('FOLLOWER', 300, 1, { etaMinutes: floorEtaMinutes(300) }));
+       const arm = armOf('FOLLOWER');
++      expect(arm.crawlFixes).toBe(1);
++      expect(arm.crawlFromCruise).toBe(true);
+       expect(arm.expectedArrivalMs).toBeLessThan(T0 + 840 * S);
+       expect(arm.physicsArrivalMs).toBeCloseTo(T0 + 500 * S + (arm.distanceM / KN) * S, -1);
+       expect(arm.physicsArrivalMs).toBeGreaterThan(T0 + 840 * S);
+@@ -324,9 +326,13 @@ describe('familj B, varv 2: konvojtäckningens släppväg', () => {
+       stageConvoyWithPassage();
+       // Köar 300 m från bron och startar 30 s efter ledarens passage: ett
+       // momentant fix i 0,8 kn, sedan 3,5 och 5 kn. Hon korsar inom fönstret.
+-      // Ett krypfix i kön och sedan stillhet: räknaren börjar om.
++      // Hon ligger still i kön, kryper ett fix och står still igen:
++      // räknaren börjar om, och inget krypfix kommer direkt efter marschfart.
++      advanceTo(T0 + 242 * S);
++      svc.observeVessel(boat('FOLLOWER', 300, 0, { etaMinutes: floorEtaMinutes(300) }));
+       advanceTo(T0 + 245 * S);
+       svc.observeVessel(boat('FOLLOWER', 300, 0.8, { etaMinutes: floorEtaMinutes(300) }));
++      expect(armOf('FOLLOWER').crawlFromCruise).toBe(false);
+       advanceTo(T0 + 250 * S);
+       svc.observeVessel(boat('FOLLOWER', 300, 0, { etaMinutes: floorEtaMinutes(300) }));
+       expect(armOf('FOLLOWER').crawlFixes).toBe(0);
+@@ -343,6 +349,40 @@ describe('familj B, varv 2: konvojtäckningens släppväg', () => {
+       expect(own('FOLLOWER')).toHaveLength(0);
+     });
+ 
++    it('kölämnarens första rörelsefix levererat två gånger (samma fixtid) räknas en gång (granskningens D4)', () => {
++      stageConvoyWithPassage();
++      advanceTo(T0 + 250 * S);
++      svc.observeVessel(boat('FOLLOWER', 300, 0, { etaMinutes: floorEtaMinutes(300) }));
++      advanceTo(T0 + 270 * S);
++      svc.observeVessel(boat('FOLLOWER', 300, 0.8, { etaMinutes: floorEtaMinutes(300) }));
++      // Samma fix en gång till, 5 s senare (aisstream-multiplexern filtrerar
++      // inte dubbletter). Fixets tid har inte gått framåt.
++      advanceTo(T0 + 275 * S);
++      svc.observeVessel(boat('FOLLOWER', 300, 0.8, { etaMinutes: floorEtaMinutes(300), fixTs: T0 + 270 * S }));
++      expect(armOf('FOLLOWER').crawlFixes).toBe(1);
++      expect(svc._crawlArrivalMs(armOf('FOLLOWER'))).toBe(armOf('FOLLOWER').expectedArrivalMs);
++      advanceTo(T0 + 300 * S);
++      svc.observeVessel(boat('FOLLOWER', 260, 3.5, { etaMinutes: floorEtaMinutes(260) }));
++      advanceTo(T0 + 330 * S);
++      svc.observeVessel(boat('FOLLOWER', 200, 5, { etaMinutes: floorEtaMinutes(200) }));
++      expect(armOf('FOLLOWER').absorbedAt).toBe(T0);
++      expect(own('FOLLOWER')).toHaveLength(0);
++    });
++
++    it('gles kadens (klass B, 180 s): första krypfixet efter marschfart släpps direkt (granskningens D3)', () => {
++      stageConvoyWithPassage();
++      advanceTo(T0 + 480 * S);
++      svc.observeVessel(boat('FOLLOWER', 600, 6, { etaMinutes: 600 / (6 * KN) / 60 }));
++      // Nästa fix 220 s senare: 100 m från bron i 1 kn. Fysiken säger
++      // ankomst ~T0+894 s, efter fönstret; appens ETA (golvet) T0+740 s.
++      advanceTo(T0 + 700 * S);
++      svc.observeVessel(boat('FOLLOWER', 100, 1, { etaMinutes: floorEtaMinutes(100) }));
++      expect(armOf('FOLLOWER').crawlFromCruise).toBe(true);
++      const mine = own('FOLLOWER');
++      expect(mine).toHaveLength(1);
++      expect(mine[0].t).toBe(T0 + 700 * S);
++    });
++
+     it('köflaggan: i appens bekräftade kö läser bakkanten inte fysiken (granskningens C4c)', () => {
+       stageConvoyWithPassage();
+       // Två krypfix i följd i 0,8 kn 300 m från bron, med appens köbevis.
+-- 
+2.43.0
+

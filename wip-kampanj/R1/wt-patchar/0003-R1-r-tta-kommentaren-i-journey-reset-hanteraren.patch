@@ -1,0 +1,36 @@
+From 34c2b574a43547f3e7a405f71179ae484f4c9f41 Mon Sep 17 00:00:00 2001
+From: R1-designer <r1@kampanj.local>
+Date: Wed, 4 Nov 2026 16:14:43 +0000
+Subject: [PATCH 3/5] =?UTF-8?q?R1:=20r=C3=A4tta=20kommentaren=20i=20journe?=
+ =?UTF-8?q?y-reset-hanteraren?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Listan kan nu innehålla en återkorsad bro bakom båten; dess nyckel hör
+till den gamla resan. Ingen ändring i beteendet.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ app.js | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/app.js b/app.js
+index f7ba4b2..df92935 100755
+--- a/app.js
++++ b/app.js
+@@ -2753,6 +2753,10 @@ class AISBridgeApp extends Homey.App {
+           // nycklarna för broar FRAMFÖR båten i nya riktningen. Full rensning
+           // dubbelnotifierade nya benets redan avfyrade broar (AKIRA:
+           // Järnvägsbron ×2 i replayen av 21h-loggen).
++          // R1 (2026-11-04): listan kan också innehålla en bro BAKOM båten som
++          // Fix D:s eller positionsbevisets bekräftelsesegment korsade i den nya
++          // riktningen. Dess nyckel hör till den gamla resans passage; returen
++          // är inte notifierad ännu, så rensningen dubbelnotifierar ingenting.
+           this.log(
+             `🔁 [JOURNEY_RESET_DEDUP] ${mmsi}: clearing boat_near dedup keys for `
+             + `reversed journey [${bridges.join(', ')}]`,
+-- 
+2.43.0
+

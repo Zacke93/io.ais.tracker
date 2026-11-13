@@ -1,0 +1,640 @@
+From 9827d6021bfbf64573161f6f8a3e5522f5a9b503 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 5 Nov 2026 01:38:38 +0000
+Subject: [PATCH 16/24] =?UTF-8?q?E2-revisionen:=20DEMO-oml=C3=A5sning=20ef?=
+ =?UTF-8?q?ter=20granskningen=20(worktree)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Golden-text (19h, 11h, 21h, 13h, 24h) är omlåsta med relockGoldenText.js
+och golden-events (21h, 16h, 25h) med eventFacit ur revisionens kod.
+Öppningsfördelningen för 20260804-17h (Klaffbron:northbound 7 → 8,
+KOLLAND) är ändrad för hand eftersom REGEN vägras av 20260917-7h:s
+ofullständiga fångst. DEMO-noterna i corpora.js följer den nya FACIT-
+bedömningen per korpus. 20260917-7h låses inte om.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ tests/replay-validation/corpora.js            | 193 ++++++++++--------
+ .../golden-events/20260708-21h.json           |   4 +-
+ .../golden-events/20260711-16h.json           |   4 +-
+ .../golden-events/20260712-25h.json           |  46 ++---
+ .../golden-text/20260610-19h.json             |   8 -
+ .../golden-text/20260702-11h.json             |   4 -
+ .../golden-text/20260708-21h.json             |  34 +--
+ .../golden-text/20260710-13h.json             |   8 -
+ .../golden-text/20260823-24h.json             |   4 -
+ .../opening-distribution.json                 |   2 +-
+ 10 files changed, 151 insertions(+), 156 deletions(-)
+
+diff --git a/tests/replay-validation/corpora.js b/tests/replay-validation/corpora.js
+index e8730fc..68afc73 100644
+--- a/tests/replay-validation/corpora.js
++++ b/tests/replay-validation/corpora.js
+@@ -119,10 +119,11 @@ module.exports = [
+     hours: 4,
+     locked: true,
+     expectedNotifications: 30,
+-    note: 'DEMO-omlåst 2026-11-04 (familj E2, ETA-etappen: en beräkning per AIS-fix, F06, F07; i E2:s '
+-      + 'worktree): 3 ändrade rader (3 brotextrader). Mot gt-passages: 1 rättare, 2 utan linjefacit. '
+-      + 'Bedömning per rad i E2:s FACIT.md, mätt enligt docs/VALIDATION.md §ETA-mätharnessen "Familj E2". '
+-      + 'Dirigenten låser om på riktigt. '
++    note: 'DEMO-omlåst 2026-11-05 (familj E2 efter granskningen: en beräkning per AIS-fix, F06 med '
++      + 'marginal, F07, mötande konvoj mot tyst motpart; i E2:s worktree, mot e949ae1): 3 ändrade rader '
++      + '(3 brotextrader). Mot gt-passages och O1/O2: 1 rättare, 2 utan linjefacit. Bedömning per rad i '
++      + 'E2:s FACIT.md, mätt enligt docs/VALIDATION.md §ETA-mätharnessen "Familj E2". Dirigenten låser om '
++      + 'på riktigt. '
+       + `${SEPTEMBER_REVIEW}Ursprungskorpus. OMLÅST 29→30 (2026-06-11): prod MISSADE AURANA@Klaffbron `
+       + '(målbro!) — failsafen ströps av RC3-buggen (prodlogg 07:47:41: "estimated '
+       + '472s... sog=3.7kn" med momentan inbromsningsfart). Den 30:e notisen är '
+@@ -164,10 +165,11 @@ module.exports = [
+     hours: 41,
+     locked: true,
+     expectedNotifications: 84,
+-    note: 'DEMO-omlåst 2026-11-04 (familj E2, ETA-etappen: en beräkning per AIS-fix, F06, F07; i E2:s '
+-      + 'worktree): 4 ändrade rader (4 brotextrader). Mot gt-passages: 2 rättare, 2 sämre. Bedömning per '
+-      + 'rad i E2:s FACIT.md, mätt enligt docs/VALIDATION.md §ETA-mätharnessen "Familj E2". Dirigenten '
+-      + 'låser om på riktigt. '
++    note: 'DEMO-omlåst 2026-11-05 (familj E2 efter granskningen: en beräkning per AIS-fix, F06 med '
++      + 'marginal, F07, mötande konvoj mot tyst motpart; i E2:s worktree, mot e949ae1): 4 ändrade rader '
++      + '(4 brotextrader). Mot gt-passages och O1/O2: 2 rättare, 2 sämre. Bedömning per rad i E2:s '
++      + 'FACIT.md, mätt enligt docs/VALIDATION.md §ETA-mätharnessen "Familj E2". Dirigenten låser om på '
++      + 'riktigt. '
+       + 'Omlåst 2026-11-04 (familj E, avgångs-ETA): SKONNERTEN JYLLAND 220276000 lämnar stillhet '
+       + '[0,0, 0,1, 0,0] 2026-06-03 07:30:11 i 3,4 kn, 72 m från senaste stillasampel. Golden-text idx 127 '
+       + '"om 8 minuter" → "om 3 minuter" (07:30:11). gt-passages: korsning av Stridsbergsbron 2,1 min efter '
+@@ -376,10 +378,10 @@ module.exports = [
+     hours: 19,
+     locked: true,
+     expectedNotifications: 51,
+-    note: 'DEMO-omlåst 2026-11-04 (familj E2, ETA-etappen: en beräkning per AIS-fix, F06, F07; i E2:s '
+-      + 'worktree): 4 ändrade rader (4 brotextrader). Mot gt-passages: 4 sämre. Bedömning per rad i E2:s '
+-      + 'FACIT.md, mätt enligt docs/VALIDATION.md §ETA-mätharnessen "Familj E2". Dirigenten låser om på '
+-      + 'riktigt. '
++    note: 'DEMO-omlåst 2026-11-05 (familj E2 efter granskningen: en beräkning per AIS-fix, F06 med '
++      + 'marginal, F07, mötande konvoj mot tyst motpart; i E2:s worktree, mot e949ae1): 2 ändrade rader '
++      + '(2 brotextrader). Mot gt-passages och O1/O2: 2 sämre. Bedömning per rad i E2:s FACIT.md, mätt '
++      + 'enligt docs/VALIDATION.md §ETA-mätharnessen "Familj E2". Dirigenten låser om på riktigt. '
+       + `${SEPTEMBER_REVIEW}19h-körningen (RC1–RC9-auditens underlag). LÅST 47 (2026-06-11): prod gav `
+       + '45 men MISSADE två — SILJA@Klaffbron (RC3: failsafe-stale-skattning med '
+       + 'momentan sog) och DIANA@Järnvägsbron (RC2: falsk INFERRED_PASSAGE '
+@@ -466,10 +468,11 @@ module.exports = [
+     hours: 11,
+     locked: true,
+     expectedNotifications: 32,
+-    note: 'DEMO-omlåst 2026-11-04 (familj E2, ETA-etappen: en beräkning per AIS-fix, F06, F07; i E2:s '
+-      + 'worktree): 4 ändrade rader (4 brotextrader). Mot gt-passages: 3 likvärdiga, 1 sämre. Bedömning '
+-      + 'per rad i E2:s FACIT.md, mätt enligt docs/VALIDATION.md §ETA-mätharnessen "Familj E2". '
+-      + 'Dirigenten låser om på riktigt. '
++    note: 'DEMO-omlåst 2026-11-05 (familj E2 efter granskningen: en beräkning per AIS-fix, F06 med '
++      + 'marginal, F07, mötande konvoj mot tyst motpart; i E2:s worktree, mot e949ae1): 3 ändrade rader '
++      + '(3 brotextrader). Mot gt-passages och O1/O2: 2 likvärdiga, 1 sämre. Bedömning per rad i E2:s '
++      + 'FACIT.md, mätt enligt docs/VALIDATION.md §ETA-mätharnessen "Familj E2". Dirigenten låser om på '
++      + 'riktigt. '
+       + `${SEPTEMBER_REVIEW}11h-valideringskörningen efter helkodsgranskningen (f0cf7c7). LÅST 24 `
+       + '(2026-07-02): prod gav 23; +1 är RÄTTAD miss MOSHE/211471090@Olidebron — '
+       + 'stale-raderad i 44-min-gap, återfödd målbrolös söder om Klaffbron, '
+@@ -530,10 +533,10 @@ module.exports = [
+     hours: 2,
+     locked: true,
+     expectedNotifications: 33,
+-    note: 'DEMO-omlåst 2026-11-04 (familj E2, ETA-etappen: en beräkning per AIS-fix, F06, F07; i E2:s '
+-      + 'worktree): 1 ändrade rader (1 brotextrader). Mot gt-passages: 1 sämre. Bedömning per rad i E2:s '
+-      + 'FACIT.md, mätt enligt docs/VALIDATION.md §ETA-mätharnessen "Familj E2". Dirigenten låser om på '
+-      + 'riktigt. '
++    note: 'DEMO-omlåst 2026-11-05 (familj E2 efter granskningen: en beräkning per AIS-fix, F06 med '
++      + 'marginal, F07, mötande konvoj mot tyst motpart; i E2:s worktree, mot e949ae1): 1 ändrade rad (1 '
++      + 'brotextrad). Mot gt-passages och O1/O2: 1 sämre. Bedömning per rad i E2:s FACIT.md, mätt enligt '
++      + 'docs/VALIDATION.md §ETA-mätharnessen "Familj E2". Dirigenten låser om på riktigt. '
+       + `${SEPTEMBER_REVIEW}HAJH-LAIF: 30 min 26 s utan AIS avslutar den gamla livscykeln `
+       + 'före återkomsten, även om minutstädningen inte hunnit. Ren ETA-historik ger 7 i stället för '
+       + '6 minuter; samma utfall i alla sex faser med och utan monitoring. '
+@@ -614,10 +617,10 @@ module.exports = [
+     hours: 19.5,
+     locked: true,
+     expectedNotifications: 55,
+-    note: 'DEMO-omlåst 2026-11-04 (familj E2, ETA-etappen: en beräkning per AIS-fix, F06, F07; i E2:s '
+-      + 'worktree): 1 ändrade rader (1 brotextrader). Mot gt-passages: 1 utan linjefacit. Bedömning per '
+-      + 'rad i E2:s FACIT.md, mätt enligt docs/VALIDATION.md §ETA-mätharnessen "Familj E2". Dirigenten '
+-      + 'låser om på riktigt. '
++    note: 'DEMO-omlåst 2026-11-05 (familj E2 efter granskningen: en beräkning per AIS-fix, F06 med '
++      + 'marginal, F07, mötande konvoj mot tyst motpart; i E2:s worktree, mot e949ae1): 1 ändrade rad (1 '
++      + 'brotextrad). Mot gt-passages och O1/O2: 1 utan linjefacit. Bedömning per rad i E2:s FACIT.md, '
++      + 'mätt enligt docs/VALIDATION.md §ETA-mätharnessen "Familj E2". Dirigenten låser om på riktigt. '
+       + `${SEPTEMBER_REVIEW}19,5h-körningen 2026-07-02→03 (tolv fartyg, källa till fynden F1–F14 i `
+       + 'docs/korrigeringar-2026-07-03.md). LÅST 54 (2026-07-03): prod gav 48; '
+       + 'alla 6 diffar är RÄTTADE missar verifierade mot rå jsonl: '
+@@ -662,10 +665,11 @@ module.exports = [
+     hours: 14,
+     locked: true,
+     expectedNotifications: 74,
+-    note: 'DEMO-omlåst 2026-11-04 (familj E2, ETA-etappen: en beräkning per AIS-fix, F06, F07; i E2:s '
+-      + 'worktree): 3 ändrade rader (3 brotextrader). Mot gt-passages: 2 sämre, 1 utan linjefacit. '
+-      + 'Bedömning per rad i E2:s FACIT.md, mätt enligt docs/VALIDATION.md §ETA-mätharnessen "Familj E2". '
+-      + 'Dirigenten låser om på riktigt. '
++    note: 'DEMO-omlåst 2026-11-05 (familj E2 efter granskningen: en beräkning per AIS-fix, F06 med '
++      + 'marginal, F07, mötande konvoj mot tyst motpart; i E2:s worktree, mot e949ae1): 3 ändrade rader '
++      + '(3 brotextrader). Mot gt-passages och O1/O2: 2 sämre, 1 utan linjefacit. Bedömning per rad i '
++      + 'E2:s FACIT.md, mätt enligt docs/VALIDATION.md §ETA-mätharnessen "Familj E2". Dirigenten låser om '
++      + 'på riktigt. '
+       + `${SEPTEMBER_REVIEW}GOLDEN-tid omprövad 2026-09-06 (fältprov 11 P8): EN tidsstämpel, idx101, `
+       + '20:24:35.988 → 20:24:25.946; alla 111 texter ordagrant oförändrade. '
+       + 'Rådata: EKEN passerade Stridsbergsbron 20:22:35 och är 20:24:35 vid '
+@@ -758,10 +762,11 @@ module.exports = [
+     locked: true,
+     lockEvents: true,
+     expectedNotifications: 54,
+-    note: 'DEMO-omlåst 2026-11-04 (familj E2, ETA-etappen: en beräkning per AIS-fix, F06, F07; i E2:s '
+-      + 'worktree): 5 ändrade rader (2 brotextrader, 3 notiser). Mot gt-passages: 2 rättare, 1 '
+-      + 'likvärdiga, 1 sämre, 1 utan linjefacit. Bedömning per rad i E2:s FACIT.md, mätt enligt '
+-      + 'docs/VALIDATION.md §ETA-mätharnessen "Familj E2". Dirigenten låser om på riktigt. '
++    note: 'DEMO-omlåst 2026-11-05 (familj E2 efter granskningen: en beräkning per AIS-fix, F06 med '
++      + 'marginal, F07, mötande konvoj mot tyst motpart; i E2:s worktree, mot e949ae1): 16 ändrade rader '
++      + '(14 brotextrader, 2 notiser). Mot gt-passages och O1/O2: 12 rättare, 1 likvärdig, 1 sämre, 2 '
++      + 'utan linjefacit. Bedömning per rad i E2:s FACIT.md, mätt enligt docs/VALIDATION.md '
++      + '§ETA-mätharnessen "Familj E2". Dirigenten låser om på riktigt. '
+       + 'Omlåst 2026-11-03: enbart SOLANDEs Klaffnotis 10:06:42.741 byter till passerad form ("passerade '
+       + 'Klaffbron under AIS-tystnad", eta −1, already_passed). Föregående fix 09:48:44 låg 1 468 m norr om '
+       + 'bron; rådatans korsning 10:05:50 ligger före notisfixen, som står 75 m söder om linjen. Fallbackens '
+@@ -846,10 +851,10 @@ module.exports = [
+     hours: 13.5,
+     locked: true,
+     expectedNotifications: 80,
+-    note: 'DEMO-omlåst 2026-11-04 (familj E2, ETA-etappen: en beräkning per AIS-fix, F06, F07; i E2:s '
+-      + 'worktree): 5 ändrade rader (5 brotextrader). Mot gt-passages: 3 rättare, 1 likvärdiga, 1 sämre. '
+-      + 'Bedömning per rad i E2:s FACIT.md, mätt enligt docs/VALIDATION.md §ETA-mätharnessen "Familj E2". '
+-      + 'Dirigenten låser om på riktigt. '
++    note: 'DEMO-omlåst 2026-11-05 (familj E2 efter granskningen: en beräkning per AIS-fix, F06 med '
++      + 'marginal, F07, mötande konvoj mot tyst motpart; i E2:s worktree, mot e949ae1): 3 ändrade rader '
++      + '(3 brotextrader). Mot gt-passages och O1/O2: 3 rättare. Bedömning per rad i E2:s FACIT.md, mätt '
++      + 'enligt docs/VALIDATION.md §ETA-mätharnessen "Familj E2". Dirigenten låser om på riktigt. '
+       + 'Omlåst 2026-10-05: PILOT 761 lämnar krypväntan vid Järnvägsbron med bekräftad passage12:14:51.495. '
+       + 'Råfart1,9→4,7kn och fysisk rörelse motbevisar outlier-skyddets gamla väntbaslinje. Klafftext14→9min '
+       + 'och9→7min; nästa5min visas12:16:30.249. Råkorsningsintervall12:21:48.842–12:22:48.797; '
+@@ -997,10 +1002,11 @@ module.exports = [
+     locked: true,
+     lockEvents: true,
+     expectedNotifications: 48,
+-    note: 'DEMO-omlåst 2026-11-04 (familj E2, ETA-etappen: en beräkning per AIS-fix, F06, F07; i E2:s '
+-      + 'worktree): 3 ändrade rader (2 notiser, 1 öppningskort). Mot gt-passages: 3 rättare. Bedömning '
+-      + 'per rad i E2:s FACIT.md, mätt enligt docs/VALIDATION.md §ETA-mätharnessen "Familj E2". '
+-      + 'Dirigenten låser om på riktigt. '
++    note: 'DEMO-omlåst 2026-11-05 (familj E2 efter granskningen: en beräkning per AIS-fix, F06 med '
++      + 'marginal, F07, mötande konvoj mot tyst motpart; i E2:s worktree, mot e949ae1): 2 ändrade rader '
++      + '(1 notis, 1 öppningskort). Mot gt-passages och O1/O2: 2 rättare. Bedömning per rad i E2:s '
++      + 'FACIT.md, mätt enligt docs/VALIDATION.md §ETA-mätharnessen "Familj E2". Dirigenten låser om på '
++      + 'riktigt. '
+       + `${SEPTEMBER_REVIEW}KNIGHT OWL 12/7: öppningar 12→13. Ren rörelsefix 07:42, `
+       + '466 m förflyttning till Järnvägsbrons väntzon 08:04 och separat färsk bekräftelse 08:23 '
+       + 'ger en Stridsbergsvarning och vänttext utan minuter. Järnvägsnotisen går vid väntplatsen '
+@@ -1054,12 +1060,11 @@ module.exports = [
+     locked: true,
+     lockEvents: true,
+     expectedNotifications: 85,
+-    note: 'DEMO-omlåst 2026-11-04 (familj E2, ETA-etappen: en beräkning per AIS-fix, F06, F07; i E2:s '
+-      + 'worktree): 8 ändrade rader (5 brotextrader, 3 öppningskort). Mot gt-passages: 2 rättare, 2 '
+-      + 'likvärdiga, 1 sämre, 2 utan linjefacit, 1 bedömda för hand. SENTA: Stridsbergsbron#34 15:20:11 '
+-      + 'försvinner och RECOVER ger #36 15:27:01, efter ELAIZAs korsning 15:26:06 (sämre). Bedömning per '
+-      + 'rad i E2:s FACIT.md, mätt enligt docs/VALIDATION.md §ETA-mätharnessen "Familj E2". Dirigenten '
+-      + 'låser om på riktigt. '
++    note: 'DEMO-omlåst 2026-11-05 (familj E2 efter granskningen: en beräkning per AIS-fix, F06 med '
++      + 'marginal, F07, mötande konvoj mot tyst motpart; i E2:s worktree, mot e949ae1): 7 ändrade rader '
++      + '(5 brotextrader, 2 öppningskort). Mot gt-passages och O1/O2: 4 rättare, 1 sämre, 2 utan '
++      + 'linjefacit. Bedömning per rad i E2:s FACIT.md, mätt enligt docs/VALIDATION.md §ETA-mätharnessen '
++      + '"Familj E2". Dirigenten låser om på riktigt. '
+       + 'LÅNG KÖ 2026-09-09: IDUNs rena avgång 07:16, 1256 m förflyttning över AIS-glappet '
+       + 'till väntplatsen 08:02 och separat färsk stillhetsbekräftelse 08:21 styrker Järnvägskön. '
+       + 'Nya AIS-positioner håller väntan kvar även över tre timmar; AIS-tystnad förlänger '
+@@ -1209,10 +1214,11 @@ module.exports = [
+     hours: 41,
+     locked: true,
+     expectedNotifications: 165,
+-    note: 'DEMO-omlåst 2026-11-04 (familj E2, ETA-etappen: en beräkning per AIS-fix, F06, F07; i E2:s '
+-      + 'worktree): 19 ändrade rader (19 brotextrader). Mot gt-passages: 12 rättare, 4 likvärdiga, 2 '
+-      + 'sämre, 1 utan linjefacit. Bedömning per rad i E2:s FACIT.md, mätt enligt docs/VALIDATION.md '
+-      + '§ETA-mätharnessen "Familj E2". Dirigenten låser om på riktigt. '
++    note: 'DEMO-omlåst 2026-11-05 (familj E2 efter granskningen: en beräkning per AIS-fix, F06 med '
++      + 'marginal, F07, mötande konvoj mot tyst motpart; i E2:s worktree, mot e949ae1): 19 ändrade rader '
++      + '(19 brotextrader). Mot gt-passages och O1/O2: 12 rättare, 4 likvärdiga, 2 sämre, 1 utan '
++      + 'linjefacit. Bedömning per rad i E2:s FACIT.md, mätt enligt docs/VALIDATION.md §ETA-mätharnessen '
++      + '"Familj E2". Dirigenten låser om på riktigt. '
+       + `${SEPTEMBER_REVIEW}2026-09-06 BELAGD BROKÖ: golden 270→269 efter användarval att `
+       + 'aktiv broväntan får bestå över 2 h. PILGRIM 211110880 väntar 12:38:48–12:59:46 '
+       + '111–112 m före Järnvägsbron, med Klaffbron 1074 m bort som mål. '
+@@ -1441,10 +1447,13 @@ module.exports = [
+     hours: 17,
+     locked: true,
+     expectedNotifications: 116,
+-    note: 'DEMO-omlåst 2026-11-04 (familj E2, ETA-etappen: en beräkning per AIS-fix, F06, F07; i E2:s '
+-      + 'worktree): 7 ändrade rader (7 brotextrader). Mot gt-passages: 6 sämre, 1 utan linjefacit. '
+-      + 'Bedömning per rad i E2:s FACIT.md, mätt enligt docs/VALIDATION.md §ETA-mätharnessen "Familj E2". '
+-      + 'Dirigenten låser om på riktigt. '
++    note: 'DEMO-omlåst 2026-11-05 (familj E2 efter granskningen: en beräkning per AIS-fix, F06 med '
++      + 'marginal, F07, mötande konvoj mot tyst motpart; i E2:s worktree, mot e949ae1): 7 ändrade rader '
++      + '(7 brotextrader). Mot gt-passages och O1/O2: 6 sämre, 1 utan linjefacit. Öppningsfördelningen '
++      + 'Klaffbron:northbound 7 → 8 (KOLLAND 15:04:51, egen varning 20 min före korsningen) är '
++      + 'DEMO-ändrad för hand: REGEN vägras av 20260917-7h:s ofullständiga fångst. Bedömning per rad i '
++      + 'E2:s FACIT.md, mätt enligt docs/VALIDATION.md §ETA-mätharnessen "Familj E2". Dirigenten låser om '
++      + 'på riktigt. '
+       + 'Omlåst 2026-11-03 (mellanbroreserven): ORCAs segment 13:56:15.903→14:00:43.502 slutar 27 m söder om '
+       + 'Järnvägsbron; rådatans korsning 14:00:31.026. Passagen bokförs vid korsningsfixen och notisen blir '
+       + '"har precis passerat" 14:00:43.502 i stället för "närmar sig …, strax" 14:01:43.833. En textövergång '
+@@ -1697,10 +1706,11 @@ module.exports = [
+     lockOpenings: true,
+     lockEvents: true,
+     expectedNotifications: 151,
+-    note: 'DEMO-omlåst 2026-11-04 (familj E2, ETA-etappen: en beräkning per AIS-fix, F06, F07; i E2:s '
+-      + 'worktree): 25 ändrade rader (8 brotextrader, 5 notiser, 12 öppningskort). Mot gt-passages: 4 '
+-      + 'rättare, 20 sämre, 1 utan linjefacit. Bedömning per rad i E2:s FACIT.md, mätt enligt '
+-      + 'docs/VALIDATION.md §ETA-mätharnessen "Familj E2". Dirigenten låser om på riktigt. '
++    note: 'DEMO-omlåst 2026-11-05 (familj E2 efter granskningen: en beräkning per AIS-fix, F06 med '
++      + 'marginal, F07, mötande konvoj mot tyst motpart; i E2:s worktree, mot e949ae1): 25 ändrade rader '
++      + '(8 brotextrader, 5 notiser, 12 öppningskort). Mot gt-passages och O1/O2: 4 rättare, 20 sämre, 1 '
++      + 'utan linjefacit. Bedömning per rad i E2:s FACIT.md, mätt enligt docs/VALIDATION.md '
++      + '§ETA-mätharnessen "Familj E2". Dirigenten låser om på riktigt. '
+       + 'Omlåst 2026-11-03: enbart ARESTELs Stridsnärnotis 12:50:21.699 ändras från 3 till 1 min. Väntan vid '
+       + 'Järnvägsbron flyttas inte längre till målbron ~93 m söder om Järnvägsbron, så väntbaslinjen släpps vid '
+       + 'Järnvägspassagen. Rådatans Stridsbergspassage 12:51:34.277 ligger 72,6 s efter notisen. Tider, avstånd, '
+@@ -2333,10 +2343,11 @@ module.exports = [
+       'DEFAULT-FLASH: 2026-08-06T08:47:00.040Z "Inga båtar" inklämd (30s) '
+         + 'mellan två "En … Stridsbergsbron"-texter utan passage',
+     ],
+-    note: 'DEMO-omlåst 2026-11-04 (familj E2, ETA-etappen: en beräkning per AIS-fix, F06, F07; i E2:s '
+-      + 'worktree): 26 ändrade rader (10 brotextrader, 7 notiser, 9 öppningskort). Mot gt-passages: 13 '
+-      + 'rättare, 9 sämre, 3 utan linjefacit, 1 bedömda för hand. Bedömning per rad i E2:s FACIT.md, mätt '
+-      + 'enligt docs/VALIDATION.md §ETA-mätharnessen "Familj E2". Dirigenten låser om på riktigt. '
++    note: 'DEMO-omlåst 2026-11-05 (familj E2 efter granskningen: en beräkning per AIS-fix, F06 med '
++      + 'marginal, F07, mötande konvoj mot tyst motpart; i E2:s worktree, mot e949ae1): 26 ändrade rader '
++      + '(10 brotextrader, 7 notiser, 9 öppningskort). Mot gt-passages och O1/O2: 13 rättare, 9 sämre, 4 '
++      + 'utan linjefacit. Bedömning per rad i E2:s FACIT.md, mätt enligt docs/VALIDATION.md '
++      + '§ETA-mätharnessen "Familj E2". Dirigenten låser om på riktigt. '
+       + 'Omlåst 2026-11-03: enbart FILOUs Järnvägsnotis 7/8 12:14:58.542 byter till passerad form ("passerade '
+       + 'Järnvägsbron under AIS-tystnad", eta −1, already_passed). Hon återföddes efter 55 min glapp 208 m söder om '
+       + 'bron; rådatans korsning 11:54:03 ligger i glappet, före notisfixen. Fältloggen bar samma felaktiga '
+@@ -2482,11 +2493,11 @@ module.exports = [
+     lockOpenings: true,
+     lockEvents: true,
+     expectedNotifications: 23,
+-    note: 'DEMO-omlåst 2026-11-04 (familj E2, ETA-etappen: en beräkning per AIS-fix, F06, F07; i E2:s '
+-      + 'worktree): 5 ändrade rader (3 brotextrader, 2 öppningskort). Mot gt-passages: 3 rättare, 1 '
+-      + 'likvärdiga, 1 sämre. Familj E:s rad 16:34:01 (PRIMA LADY) går "om 3" → "om 4" mot sanning 3,1 '
+-      + 'min (sämre). Bedömning per rad i E2:s FACIT.md, mätt enligt docs/VALIDATION.md §ETA-mätharnessen '
+-      + '"Familj E2". Dirigenten låser om på riktigt. '
++    note: 'DEMO-omlåst 2026-11-05 (familj E2 efter granskningen: en beräkning per AIS-fix, F06 med '
++      + 'marginal, F07, mötande konvoj mot tyst motpart; i E2:s worktree, mot e949ae1): 4 ändrade rader '
++      + '(2 brotextrader, 2 öppningskort). Mot gt-passages och O1/O2: 3 rättare, 1 sämre. Bedömning per '
++      + 'rad i E2:s FACIT.md, mätt enligt docs/VALIDATION.md §ETA-mätharnessen "Familj E2". Dirigenten '
++      + 'låser om på riktigt. '
+       + 'Omlåst 2026-11-04 (familj E, avgångs-ETA): PRIMA LADY 230693000 lämnar stillhet [0,4, 0,3, 0,4] '
+       + 'i 1,8 kn, 42 m från senaste stillasampel. Golden-text idx 65 16:34:01 "om 7 minuter" → "om 3 minuter" '
+       + '(gt-passages: Stridsbergsbron +3,1 min), golden-events notis 16:35:10 eta 5 → 3 och öppningskortet '
+@@ -2513,10 +2524,11 @@ module.exports = [
+     lockOpenings: true,
+     lockEvents: true,
+     expectedNotifications: 24,
+-    note: 'DEMO-omlåst 2026-11-04 (familj E2, ETA-etappen: en beräkning per AIS-fix, F06, F07; i E2:s '
+-      + 'worktree): 4 ändrade rader (1 brotextrader, 2 notiser, 1 öppningskort). Mot gt-passages: 1 '
+-      + 'rättare, 3 sämre. Bedömning per rad i E2:s FACIT.md, mätt enligt docs/VALIDATION.md '
+-      + '§ETA-mätharnessen "Familj E2". Dirigenten låser om på riktigt. '
++    note: 'DEMO-omlåst 2026-11-05 (familj E2 efter granskningen: en beräkning per AIS-fix, F06 med '
++      + 'marginal, F07, mötande konvoj mot tyst motpart; i E2:s worktree, mot e949ae1): 4 ändrade rader '
++      + '(1 brotextrad, 2 notiser, 1 öppningskort). Mot gt-passages och O1/O2: 1 rättare, 3 sämre. '
++      + 'Bedömning per rad i E2:s FACIT.md, mätt enligt docs/VALIDATION.md §ETA-mätharnessen "Familj E2". '
++      + 'Dirigenten låser om på riktigt. '
+       + 'Omlåst 2026-11-04 (familj E, avgångs-ETA): OLA 265031670 lämnar stillhet [0,1, 0,0] i 5,3 kn, '
+       + '145 m från senaste stillasampel. Golden-events notis 18:50:04 eta 4 → 1 ("om 1 minut") och '
+       + 'öppningskortet Stridsbergsbron#11 etaMin 4 → 1; gt-passages: Stridsbergsbron +1,3 min — rättare. '
+@@ -2547,10 +2559,11 @@ module.exports = [
+     lockOpenings: true,
+     lockEvents: true,
+     expectedNotifications: 23,
+-    note: 'DEMO-omlåst 2026-11-04 (familj E2, ETA-etappen: en beräkning per AIS-fix, F06, F07; i E2:s '
+-      + 'worktree): 6 ändrade rader (3 notiser, 3 öppningskort). Mot gt-passages: 3 rättare, 3 sämre. '
+-      + 'Bedömning per rad i E2:s FACIT.md, mätt enligt docs/VALIDATION.md §ETA-mätharnessen "Familj E2". '
+-      + 'Dirigenten låser om på riktigt. '
++    note: 'DEMO-omlåst 2026-11-05 (familj E2 efter granskningen: en beräkning per AIS-fix, F06 med '
++      + 'marginal, F07, mötande konvoj mot tyst motpart; i E2:s worktree, mot e949ae1): 6 ändrade rader '
++      + '(3 notiser, 3 öppningskort). Mot gt-passages och O1/O2: 3 rättare, 3 sämre. Bedömning per rad i '
++      + 'E2:s FACIT.md, mätt enligt docs/VALIDATION.md §ETA-mätharnessen "Familj E2". Dirigenten låser om '
++      + 'på riktigt. '
+       + 'Låst 2026-09-12: samtliga 1905 AIS-poster är byteidentiska med fältloggen; '
+       + 'inspelade startinställningar följer med. Sex fasvarianter med monitoring passerar. '
+       + '23 närnotiser, nio öppningsvarningar, åtta målpassager och tolv mellanpassager. '
+@@ -2572,11 +2585,12 @@ module.exports = [
+     lockOpenings: true,
+     lockEvents: true,
+     expectedNotifications: 14,
+-    note: 'DEMO-omlåst 2026-11-04 (familj E2, ETA-etappen: en beräkning per AIS-fix, F06, F07; i E2:s '
+-      + 'worktree): 6 ändrade rader (1 brotextrader, 2 notiser, 3 öppningskort). Mot gt-passages: 3 '
+-      + 'rättare, 2 sämre, 1 bedömda för hand. Golden-text låses INTE om (ofullständig fångst, '
+-      + 'relockGoldenText vägrar); bara golden-events. Bedömning per rad i E2:s FACIT.md, mätt enligt '
+-      + 'docs/VALIDATION.md §ETA-mätharnessen "Familj E2". Dirigenten låser om på riktigt. '
++    note: 'DEMO-omlåst 2026-11-05 (familj E2 efter granskningen: en beräkning per AIS-fix, F06 med '
++      + 'marginal, F07, mötande konvoj mot tyst motpart; i E2:s worktree, mot e949ae1): 6 ändrade rader '
++      + '(1 brotextrad, 2 notiser, 3 öppningskort). Mot gt-passages och O1/O2: 3 rättare, 2 sämre, 1 utan '
++      + 'linjefacit. Golden-text låses INTE om (ofullständig fångst; relockGoldenText vägrar) — '
++      + 'dirigentbeslut. Bedömning per rad i E2:s FACIT.md, mätt enligt docs/VALIDATION.md '
++      + '§ETA-mätharnessen "Familj E2". Dirigenten låser om på riktigt. '
+       + 'Omklassad 2026-10-05: ofullständig fångst, ENBART regressionsreferens för bevarade sampel. '
+       + 'Ett loggblock och minst en emitterad AISHub-fix saknas 17/9 cirka 17:13 UTC; '
+       + 'poll-/hälsoräknarna och saknad UI-version 1001 bevisar bortfallet. Tidigare granskning '
+@@ -2600,11 +2614,11 @@ module.exports = [
+     lockOpenings: true,
+     lockEvents: true,
+     expectedNotifications: 38,
+-    note: 'DEMO-omlåst 2026-11-04 (familj E2, ETA-etappen: en beräkning per AIS-fix, F06, F07; i E2:s '
+-      + 'worktree): 19 ändrade rader (7 brotextrader, 4 notiser, 8 öppningskort). Mot gt-passages: 6 '
+-      + 'rättare, 1 likvärdiga, 4 sämre, 7 utan linjefacit, 1 bedömda för hand. Bedömning per rad i E2:s '
+-      + 'FACIT.md, mätt enligt docs/VALIDATION.md §ETA-mätharnessen "Familj E2". Dirigenten låser om på '
+-      + 'riktigt. '
++    note: 'DEMO-omlåst 2026-11-05 (familj E2 efter granskningen: en beräkning per AIS-fix, F06 med '
++      + 'marginal, F07, mötande konvoj mot tyst motpart; i E2:s worktree, mot e949ae1): 19 ändrade rader '
++      + '(7 brotextrader, 4 notiser, 8 öppningskort). Mot gt-passages och O1/O2: 6 rättare, 1 likvärdig, '
++      + '4 sämre, 8 utan linjefacit. Bedömning per rad i E2:s FACIT.md, mätt enligt docs/VALIDATION.md '
++      + '§ETA-mätharnessen "Familj E2". Dirigenten låser om på riktigt. '
+       + 'ETA 2026-10-05: VISTENs Stridsnotis 17/9 21:09:21.837 rättas 4→2 min efter rent Järnvägssegment före '
+       + 'zonutgång. Råkorsning 21:10:22.045–21:10:53.801, interpolerad restid 1,50 min. Enbart notisens '
+       + 'ETA/text ändras för VISTEN. SINE BRES får dessutom sin tidigare tappade Järnvägspassage '
+@@ -2630,10 +2644,11 @@ module.exports = [
+     lockOpenings: true,
+     lockEvents: true,
+     expectedNotifications: 16,
+-    note: 'DEMO-omlåst 2026-11-04 (familj E2, ETA-etappen: en beräkning per AIS-fix, F06, F07; i E2:s '
+-      + 'worktree): 3 ändrade rader (1 notiser, 2 öppningskort). Mot gt-passages: 2 rättare, 1 sämre. '
+-      + 'Bedömning per rad i E2:s FACIT.md, mätt enligt docs/VALIDATION.md §ETA-mätharnessen "Familj E2". '
+-      + 'Dirigenten låser om på riktigt. '
++    note: 'DEMO-omlåst 2026-11-05 (familj E2 efter granskningen: en beräkning per AIS-fix, F06 med '
++      + 'marginal, F07, mötande konvoj mot tyst motpart; i E2:s worktree, mot e949ae1): 3 ändrade rader '
++      + '(1 notis, 2 öppningskort). Mot gt-passages och O1/O2: 2 rättare, 1 sämre. Bedömning per rad i '
++      + 'E2:s FACIT.md, mätt enligt docs/VALIDATION.md §ETA-mätharnessen "Familj E2". Dirigenten låser om '
++      + 'på riktigt. '
+       + 'Låst 2026-10-05 efter granskning av alla 51558 loggrader och bytekontroll av 379 AIS-poster. '
+       + 'Inspelat startminne följer med. Intern källbokföring: 83 bootförankrade AISHub-kontroller '
+       + 'och 82 fusionsfönster utan belagt bortfall; svansen efter sista räknarrapporten är inte '
+diff --git a/tests/replay-validation/golden-events/20260708-21h.json b/tests/replay-validation/golden-events/20260708-21h.json
+index 14e1b7d..9e5f1a5 100644
+--- a/tests/replay-validation/golden-events/20260708-21h.json
++++ b/tests/replay-validation/golden-events/20260708-21h.json
+@@ -689,8 +689,8 @@
+       "t": 1783504538079,
+       "bridge": "Klaffbron",
+       "direction": "northbound",
+-      "eta": 3,
+-      "message": "SISU närmar sig Klaffbron, beräknad ankomst om 3 minuter",
++      "eta": 2,
++      "message": "SISU närmar sig Klaffbron, beräknad ankomst om 2 minuter",
+       "alreadyPassed": false,
+       "name": "SISU",
+       "distance": 257,
+diff --git a/tests/replay-validation/golden-events/20260711-16h.json b/tests/replay-validation/golden-events/20260711-16h.json
+index 24042bb..26bdef2 100644
+--- a/tests/replay-validation/golden-events/20260711-16h.json
++++ b/tests/replay-validation/golden-events/20260711-16h.json
+@@ -455,8 +455,8 @@
+       "t": 1783852648538,
+       "bridge": "Klaffbron",
+       "direction": "southbound",
+-      "eta": 3,
+-      "message": "QUEEN ELAN GT5 närmar sig Klaffbron, beräknad ankomst om 3 minuter",
++      "eta": 2,
++      "message": "QUEEN ELAN GT5 närmar sig Klaffbron, beräknad ankomst om 2 minuter",
+       "alreadyPassed": false,
+       "name": "QUEEN ELAN GT5",
+       "distance": 247,
+diff --git a/tests/replay-validation/golden-events/20260712-25h.json b/tests/replay-validation/golden-events/20260712-25h.json
+index 5318cb6..2f3ae42 100644
+--- a/tests/replay-validation/golden-events/20260712-25h.json
++++ b/tests/replay-validation/golden-events/20260712-25h.json
+@@ -2116,6 +2116,27 @@
+       "success": true,
+       "error": null
+     },
++    {
++      "t": 1783955836123,
++      "iso": "2026-07-13T15:17:16.123Z",
++      "bridge": "Stridsbergsbron",
++      "direction": "southbound",
++      "etaMin": 6,
++      "vesselCount": 2,
++      "leadVessel": "Okänd båt",
++      "firedBy": "deadline",
++      "eventId": "Stridsbergsbron#34",
++      "leadMmsi": "265013440",
++      "mmsis": [
++        "265013440",
++        "230198250"
++      ],
++      "distance": 2036,
++      "dueMs": 1783955836122.958,
++      "originalDueMs": 1783955836122.958,
++      "success": true,
++      "error": null
++    },
+     {
+       "t": 1783956161487,
+       "iso": "2026-07-13T15:22:41.487Z",
+@@ -2125,7 +2146,7 @@
+       "vesselCount": 1,
+       "leadVessel": "ELAIZA",
+       "firedBy": "deadline",
+-      "eventId": "Klaffbron#34",
++      "eventId": "Klaffbron#35",
+       "leadMmsi": "265013440",
+       "mmsis": [
+         "265013440"
+@@ -2145,7 +2166,7 @@
+       "vesselCount": 1,
+       "leadVessel": "SENTA",
+       "firedBy": "deadline",
+-      "eventId": "Klaffbron#35",
++      "eventId": "Klaffbron#36",
+       "leadMmsi": "230198250",
+       "mmsis": [
+         "230198250"
+@@ -2155,27 +2176,6 @@
+       "originalDueMs": 1783956347247,
+       "success": true,
+       "error": null
+-    },
+-    {
+-      "t": 1783956421959,
+-      "iso": "2026-07-13T15:27:01.959Z",
+-      "bridge": "Stridsbergsbron",
+-      "direction": "southbound",
+-      "etaMin": -1,
+-      "vesselCount": 2,
+-      "leadVessel": "SENTA",
+-      "firedBy": "deadline",
+-      "eventId": "Stridsbergsbron#36",
+-      "leadMmsi": "230198250",
+-      "mmsis": [
+-        "265013440",
+-        "230198250"
+-      ],
+-      "distance": 922,
+-      "dueMs": 1783956421959,
+-      "originalDueMs": 1783955836122.958,
+-      "success": true,
+-      "error": null
+     }
+   ],
+   "openingSuppressions": [
+diff --git a/tests/replay-validation/golden-text/20260610-19h.json b/tests/replay-validation/golden-text/20260610-19h.json
+index 118e393..3497c7f 100644
+--- a/tests/replay-validation/golden-text/20260610-19h.json
++++ b/tests/replay-validation/golden-text/20260610-19h.json
+@@ -81,10 +81,6 @@
+  },
+  {
+   "iso": "2026-06-10T06:17:48.258Z",
+-  "text": "En båt på väg mot Klaffbron, beräknad broöppning om 3 minuter"
+- },
+- {
+-  "iso": "2026-06-10T06:19:48.016Z",
+   "text": "En båt på väg mot Klaffbron, beräknad broöppning strax"
+  },
+  {
+@@ -221,10 +217,6 @@
+  },
+  {
+   "iso": "2026-06-10T08:12:00.040Z",
+-  "text": "Två båtar på väg mot Klaffbron, beräknad broöppning om 3 minuter; En båt väntar vid Järnvägsbron på väg mot Stridsbergsbron"
+- },
+- {
+-  "iso": "2026-06-10T08:12:48.249Z",
+   "text": "Två båtar på väg mot Klaffbron, beräknad broöppning strax; En båt väntar vid Järnvägsbron på väg mot Stridsbergsbron"
+  },
+  {
+diff --git a/tests/replay-validation/golden-text/20260702-11h.json b/tests/replay-validation/golden-text/20260702-11h.json
+index 0784913..ee1011e 100644
+--- a/tests/replay-validation/golden-text/20260702-11h.json
++++ b/tests/replay-validation/golden-text/20260702-11h.json
+@@ -113,10 +113,6 @@
+  },
+  {
+   "iso": "2026-07-02T09:17:30.096Z",
+-  "text": "En båt på väg mot Klaffbron, beräknad broöppning om 9 minuter; En båt på väg mot Stridsbergsbron, beräknad broöppning om 3 minuter"
+- },
+- {
+-  "iso": "2026-07-02T09:18:30.040Z",
+   "text": "En båt på väg mot Klaffbron, beräknad broöppning om 9 minuter; En båt på väg mot Stridsbergsbron, beräknad broöppning strax"
+  },
+  {
+diff --git a/tests/replay-validation/golden-text/20260708-21h.json b/tests/replay-validation/golden-text/20260708-21h.json
+index 7efea13..6b116e1 100644
+--- a/tests/replay-validation/golden-text/20260708-21h.json
++++ b/tests/replay-validation/golden-text/20260708-21h.json
+@@ -88,35 +88,39 @@
+   "text": "Två båtar på väg mot Klaffbron, beräknad broöppning om cirka 17 minuter; En båt på väg mot Stridsbergsbron, beräknad broöppning om 25 minuter"
+  },
+  {
+-  "iso": "2026-07-08T07:08:00.040Z",
+-  "text": "Två båtar på väg mot Klaffbron, beräknad broöppning om cirka 16 minuter; En båt på väg mot Stridsbergsbron, beräknad broöppning om 25 minuter"
++  "iso": "2026-07-08T07:07:13.889Z",
++  "text": "Två båtar på väg mot Klaffbron, beräknad broöppning om 12 minuter; En båt på väg mot Stridsbergsbron, beräknad broöppning om 25 minuter"
+  },
+  {
+-  "iso": "2026-07-08T07:09:00.040Z",
+-  "text": "Två båtar på väg mot Klaffbron, beräknad broöppning om cirka 15 minuter; En båt på väg mot Stridsbergsbron, beräknad broöppning om 25 minuter"
++  "iso": "2026-07-08T07:10:30.040Z",
++  "text": "Två båtar på väg mot Klaffbron, beräknad broöppning om 12 minuter; En båt på väg mot Stridsbergsbron, ETA okänd"
+  },
+  {
+-  "iso": "2026-07-08T07:10:00.040Z",
+-  "text": "Två båtar på väg mot Klaffbron, beräknad broöppning om cirka 14 minuter; En båt på väg mot Stridsbergsbron, beräknad broöppning om 25 minuter"
++  "iso": "2026-07-08T07:12:30.040Z",
++  "text": "Två båtar på väg mot Klaffbron, beräknad broöppning om cirka 7 minuter; En båt på väg mot Stridsbergsbron, ETA okänd"
+  },
+  {
+-  "iso": "2026-07-08T07:10:30.040Z",
+-  "text": "Två båtar på väg mot Klaffbron, beräknad broöppning om cirka 14 minuter; En båt på väg mot Stridsbergsbron, ETA okänd"
++  "iso": "2026-07-08T07:13:00.040Z",
++  "text": "Två båtar på väg mot Klaffbron, beräknad broöppning om cirka 6 minuter; En båt på väg mot Stridsbergsbron, ETA okänd"
+  },
+  {
+-  "iso": "2026-07-08T07:11:00.040Z",
+-  "text": "Två båtar på väg mot Klaffbron, beräknad broöppning om cirka 13 minuter; En båt på väg mot Stridsbergsbron, ETA okänd"
++  "iso": "2026-07-08T07:13:26.196Z",
++  "text": "Två båtar på väg mot Klaffbron, beräknad broöppning om 5 minuter; En båt på väg mot Stridsbergsbron, ETA okänd"
+  },
+  {
+-  "iso": "2026-07-08T07:11:30.040Z",
+-  "text": "Två båtar på väg mot Klaffbron, beräknad broöppning om 18 minuter; En båt på väg mot Stridsbergsbron, ETA okänd"
++  "iso": "2026-07-08T07:15:00.040Z",
++  "text": "Två båtar på väg mot Klaffbron, beräknad broöppning om cirka 4 minuter; En båt på väg mot Stridsbergsbron, ETA okänd"
+  },
+  {
+-  "iso": "2026-07-08T07:12:30.040Z",
+-  "text": "Två båtar på väg mot Klaffbron, beräknad broöppning om cirka 12 minuter; En båt på väg mot Stridsbergsbron, ETA okänd"
++  "iso": "2026-07-08T07:16:00.040Z",
++  "text": "Två båtar på väg mot Klaffbron, beräknad broöppning om cirka 3 minuter; En båt på väg mot Stridsbergsbron, ETA okänd"
+  },
+  {
+-  "iso": "2026-07-08T07:13:26.196Z",
++  "iso": "2026-07-08T07:16:30.040Z",
++  "text": "Två båtar på väg mot Klaffbron, beräknad broöppning om cirka 2 minuter; En båt på väg mot Stridsbergsbron, ETA okänd"
++ },
++ {
++  "iso": "2026-07-08T07:17:26.231Z",
+   "text": "Två båtar på väg mot Klaffbron, beräknad broöppning om 5 minuter; En båt på väg mot Stridsbergsbron, ETA okänd"
+  },
+  {
+diff --git a/tests/replay-validation/golden-text/20260710-13h.json b/tests/replay-validation/golden-text/20260710-13h.json
+index ded2049..b71daf9 100644
+--- a/tests/replay-validation/golden-text/20260710-13h.json
++++ b/tests/replay-validation/golden-text/20260710-13h.json
+@@ -105,10 +105,6 @@
+  },
+  {
+   "iso": "2026-07-10T08:24:47.431Z",
+-  "text": "Två båtar på väg mot Klaffbron, beräknad broöppning om 3 minuter"
+- },
+- {
+-  "iso": "2026-07-10T08:27:17.346Z",
+   "text": "Två båtar på väg mot Klaffbron, beräknad broöppning strax"
+  },
+  {
+@@ -501,10 +497,6 @@
+  },
+  {
+   "iso": "2026-07-10T12:43:06.332Z",
+-  "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 3 minuter"
+- },
+- {
+-  "iso": "2026-07-10T12:48:30.040Z",
+   "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning strax"
+  },
+  {
+diff --git a/tests/replay-validation/golden-text/20260823-24h.json b/tests/replay-validation/golden-text/20260823-24h.json
+index bd2e845..fa66820 100644
+--- a/tests/replay-validation/golden-text/20260823-24h.json
++++ b/tests/replay-validation/golden-text/20260823-24h.json
+@@ -141,10 +141,6 @@
+  },
+  {
+   "iso": "2026-08-24T15:07:16.588Z",
+-  "text": "En båt på väg mot Klaffbron, beräknad broöppning om 3 minuter"
+- },
+- {
+-  "iso": "2026-08-24T15:09:28.713Z",
+   "text": "En båt på väg mot Klaffbron, beräknad broöppning strax"
+  },
+  {
+diff --git a/tests/replay-validation/opening-distribution.json b/tests/replay-validation/opening-distribution.json
+index 7e397ea..e38c549 100644
+--- a/tests/replay-validation/opening-distribution.json
++++ b/tests/replay-validation/opening-distribution.json
+@@ -81,7 +81,7 @@
+     "Stridsbergsbron:southbound": 11
+   },
+   "20260804-17h": {
+-    "Klaffbron:northbound": 7,
++    "Klaffbron:northbound": 8,
+     "Klaffbron:southbound": 14,
+     "Stridsbergsbron:northbound": 10,
+     "Stridsbergsbron:southbound": 9
+-- 
+2.43.0
+

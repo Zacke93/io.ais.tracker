@@ -1,0 +1,1229 @@
+From 454850aca323c08af1da2c65f98ad45a4a727282 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 7 Nov 2026 12:32:14 +0000
+Subject: [PATCH 3/3] =?UTF-8?q?M=20(F05)=20rev=203:=20fartgrindens=20tidsb?=
+ =?UTF-8?q?ed=C3=B6mning=20i=20=C3=A5terintr=C3=A4det,=20ingen=20bev=C3=A4?=
+ =?UTF-8?q?pning=20vid=20bortr=C3=B6relse?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Omgranskningen 2026-11-05 och dirigentens beslut (granskarens väg 1):
+
+- Återinträdets FARTPROV (_armReentrySpeedProof, _maintainReentrySpeedProof,
+  _reentryNeedsProof): föll retentionens borttagning på fartgrinden
+  (0,7 kn > 500 m / 0,1 kn 300–500 m från närmaste bro) läggs samma bro
+  tillbaka först när grinden hållit oavbrutet i mer än nådafristen, samma
+  tidsbedömning som borttagningen. Inte när ANCHOR_BLOCK fällde provet.
+  Fartgrindarna utbrutna ordagrant till _targetSpeedGate.
+- Närmandebeviset beväpnas bara vid otillräcklig rörelse, inte vid en tydlig
+  bortrörelse (granskarens variant, slinga-C 150 s -> 30 s).
+- Regressionstest (35 test, två nya fixturer), syntetiskt scenario
+  fartgrind-krypare-söder-om-Stallbackabron (seed 96), ARCHITECTURE §4 och
+  VALIDATION (52 scenarier, WARN-baslinjen 6 + 3 INV-14W).
+
+Inga nya konstanter. Banken orörd.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/ARCHITECTURE.md                          |  40 +-
+ docs/VALIDATION.md                            |  26 +-
+ lib/services/VesselDataService.js             | 344 +++++++++++++-----
+ ...grind-0.65kn-soder-om-stallbackabron.jsonl | 171 +++++++++
+ ...5-slinga-c-bortglidning-och-vandning.jsonl |  85 +++++
+ tests/m-krypfart-malbron-2026-11-04.test.js   | 269 +++++++++++++-
+ .../runSyntheticScenarios.js                  |  28 ++
+ 7 files changed, 834 insertions(+), 129 deletions(-)
+ create mode 100644 tests/fixtures/m-f05-fartgrind-0.65kn-soder-om-stallbackabron.jsonl
+ create mode 100644 tests/fixtures/m-f05-slinga-c-bortglidning-och-vandning.jsonl
+
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 36c60f2..246920b 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -796,11 +796,22 @@ båt.
+      närmandet gör att fönstret bara kan LÄGGA TILL godkännanden — med fristens
+      start som enda referens underkändes en båt som gled bort och sedan vände mot
+      målbron (granskningen 2026-11-04, slingsvepet).
+-  2. *Återinträdet.* Tog retentionen bort målbron för att beviset saknades
+-     (`_armReentryApproachProof`, sätter `vessel._reentryApproachRef`), lägger
+-     ACCELERATED tillbaka SAMMA bro först när samma bevis finns
+-     (`_reentryNeedsApproachProof`) — i ett fönster lika långt som fristen, som
+-     glider i `_maintainReentryApproachProof` och förbrukas med en målbro.
++  2. *Återinträdet.* Tog retentionen bort målbron för OTILLRÄCKLIG rörelse
++     (`_armReentryApproachProof`, sätter `vessel._reentryApproachRef`; en tydlig
++     bortrörelse ≥ 10 m beväpnar inte, revision 3), lägger ACCELERATED tillbaka
++     SAMMA bro först när samma bevis finns (`_reentryNeedsProof`) — i ett fönster
++     lika långt som fristen, som glider i `_maintainReentryApproachProof` och
++     förbrukas med en målbro.
++  3. *Fartprovet (revision 3, 2026-11-05).* Retentionen dömer fartgrindarna
++     (0,7 kn > 500 m och 0,1 kn 300–500 m från närmaste bro, utbrutna ordagrant
++     till `_targetSpeedGate`) över TID: målbron tas bort först när valideringen
++     fallerat oavbrutet i mer än fristen. Föll borttagningen på fartgrinden
++     (`_armReentrySpeedProof`; inte när ANCHOR_BLOCK fällde samma prov, där är
++     det FIX B:s per-fix-regel som gäller) läggs samma bro tillbaka först när
++     grinden HÅLLIT oavbrutet i mer än fristen (`vessel._reentrySpeedProof`,
++     loppet räknas i `_maintainReentrySpeedProof`). Förut räckte ett enda
++     fartprov över 0,7 kn (granskarens klasser G och H, 0,6–0,75 kn långt från
++     broar).
+      Retentionens undantag gäller: målbron inom 300 m, skyddszonen kring en
+      opasserad bro eller målbron (med F21-regeln) och kö-zonen. En bekräftad
+      vändning hoppar över beviset, precis som 2-READINGS, och det gör också
+@@ -815,11 +826,20 @@ båt.
+   DEFAULT-FLASH): WILMA 0,5 kn norr om Klaffbron (F21 häver skyddszonen vid en
+   passerad bro), krypare 300–500 m från närmaste bro och båtar utan fartgivare.
+   Mätt: banken byte-identisk (24 av 24 korpusar, alla 69 målbyten med
+-  etiketter). Kvar: (a) ett brusband kring tröskeln — 10 m per fönster ≈ 0,22 kn
+-  vid 30 s, 0,28 kn vid 10 s och 0,16 kn vid 60 s kadens — där GPS-brus avgör
+-  utfallet åt båda hållen, och (b) ANCHOR_BLOCK:s 0,3 kn med fartbrus (tröskeln
+-  bedöms över fristen i retentionen men per fix i tilldelningen). Båda kräver
+-  hysteres, alltså ett ägarbeslut.
++  etiketter). Kända gränser (beslutade 2026-11-05, registreras i motorn; ingen
++  hysteres införs):
++  (a) brusbandet kring varje tröskel — 10 m per fönster ≈ 0,22 kn vid 30 s,
++      0,28 kn vid 10 s och 0,16 kn vid 60 s kadens, och fartgrindens 0,7 kn —
++      där GPS- eller fartbrus avgör utfallet åt båda hållen;
++  (b) ANCHOR_BLOCK:s 0,3 kn med fartbrus (FIX B: bedöms över fristen i
++      retentionen men per fix i tilldelningen, medvetet orört);
++  (c) en sog=null-båt med GPS-brus på ±8 m eller mer kan få ett skenbart
++      närmande på 10 m;
++  (d) PRISET: en avgång under `FIX_D_MIN_SOG` (2,0 kn) kan få målbron senare än
++      förut — en fix om avgångens första fix inte flyttat sig (närmandebeviset),
++      och upp till tre fixar (> 60 s) efter ett stopp mer än 300 m från alla
++      broar utan passerad bro (fartprovet). I svepen 30–60 s, utan ändrade
++      notiser, öppningsvarningar eller passager.
+ - Transition: `_applyTargetTransition` (:2392–2627). `previousTarget` läses från
+   det LEVANDE objektet (S-F3-följdfixen, :2402). Vid byte till nästa bro:
+   targetBridge muteras, `_finalTarget*` nollas, **hela ETA-serien nollställs**
+diff --git a/docs/VALIDATION.md b/docs/VALIDATION.md
+index cfa200e..c49968a 100644
+--- a/docs/VALIDATION.md
++++ b/docs/VALIDATION.md
+@@ -63,7 +63,7 @@ Eller stegen var för sig:
+ |---|---|---|
+ | Enhetstester | `npm test > /tmp/ais-jest.log 2>&1` (läs sedan slutraderna) | Alla tester passerar, exitkod 0 och inga öppna handtag. Aktuellt antal står i körningens sammanfattning. Omdirigeringen bevarar Jest:s exitkod; en pipe till `tail` gör inte det. |
+ | Korpusarna | `npm run replay:all` | Samtliga korpusar (aktuellt antal och timmar står i skriptets utskrift) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + exakt (mmsi,bro,riktning)-fördelning + EXAKT bridge_text-transitionsström (golden-text/) + alla invarianter. Ofullständig fångst redovisas separat och får bara utgöra regression för bevarade sampel. |
+-| Syntetiska | `npm run replay:synthetic` | 51 scenarier (gap, U-svängar även med gles AIS, GPS-hopp, kajliggare, sog=null, omstart, 2h-prune-stillaliggare, krypfart förbi passerad bro …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
++| Syntetiska | `npm run replay:synthetic` | 52 scenarier (gap, U-svängar även med gles AIS, GPS-hopp, kajliggare, sog=null, omstart, 2h-prune-stillaliggare, krypfart förbi passerad bro …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
+ | Öppningsgrindarna | `npm run replay:openings` | ETAPP 6: det proaktiva lagret (`bridge_opening_soon`). **O1** varje målbropassage i SAMTLIGA korpusar (låsta som olåsta — antalet står i skriptets utskrift, inte här) har en öppningsvarning FÖRE passagen — varje miss klassad mot rådata (oklassad = rött); en KONVOJTÄCKNING underkänns om bron bevisligen öppnat och stängt för någon annan emellan. **O2** varje varning utan passage inom 20 min klassas mot rådata (KAJVOBBEL och UTANFÖR_HORISONTEN = rött; avbruten approach, gles anflygning och garantipris = accepterade) — även SEN_PASSAGE-hinken klassas. **O2b** (S14, 2026-08-23) SAMMA fantommätning mot RÅDATAFACIT (A2, `gt-passages`) i stället för appens egna passager — O1b:s mönster: appens passageregistreringar delar grindarnas blindfläck, så en varning kan kallas BEKRÄFTAD av appens egen bokföring medan rådatan inte känner korsningen. Serierna redovisas BREDVID varandra (annars går körningsloggar inte att jämföra bakåt). `inferred`-poster (korsning bevisad, tidpunkt = fönster) bär ALDRIG hinkindelningen utan hamnar i egen hink INFERRERAD_TID — hinkarna ÄR en tidsfönstermätning. **O2b är INFORMATIV: den ändrar inte exitkoden** (grinden ligger kvar på appserien precis som O1:s täckning i fas A); `OPENING_GT_STRICT` flyttar den hit när fas C är klar. Vid införandet: 0 röda i BÅDA serierna, 118 av 360 varningar byter hink (98 blir omätbara `inferred`) och EN varning byter åt det farliga hållet (JAATTEN II @ Stridsbergsbron i 20260708-21h — samma fall INV-21 redan fäller). **O3** A/B-nattens båda armar: 6/6 öppningar varnade före, konvojen som EN varning, boat_near byte-identisk med nattens facit. Dessutom **avfyrningsfönstret** (`t − dueMs` inom två tick — kontraktet "avfyra så sent som garantin tillåter") och **ledtidsgolvet** (hårt golv 60 s; tunnare än utlovade 150 s rapporteras). |
+ | Soaken | `node tests/replay-validation/runSoak.js` | 72 h blandtrafik: 0 processfel, inga läckor, fatala invarianter rena |
+ | Driftens minutloop | `npm run replay:monitoring` | Samma 72 h med riktig monitoring/stale-städning även efter omstarter; samtliga timers avvecklade efter shutdown |
+@@ -345,7 +345,7 @@ påstår sig pröva i en isolerad kopia, koppla bort den, och kontrollera att
+ scenariot blir RÖTT. Blir det grönt är kontraktet dekoration.
+ 
+ **Krypfartsscenarierna (familj M, rättningskampanjen 2026-11-04, F05) prövar
+-närmandebeviset i båda vägarna.** Placeringen är testet i alla fem.
++närmandebeviset och fartgrinden i båda vägarna.** Placeringen är testet i alla sex.
+ - `krypfart-förbi-passerad-Klaffbron`, `krypfart-förbi-passerad-Järnvägsbron-söderut`
+   och `lång-krypfart-Klaffbron-till-Järnvägsbron` prövar RETENTIONEN: 0,45 kn med
+   30 s kadens, ≈ 7 m per fix. Zonen måste ligga där skyddszonen inte håller
+@@ -364,6 +364,15 @@ närmandebeviset i båda vägarna.** Placeringen är testet i alla fem.
+   dold tills hon gör väg, och varje scenario har därför EN förväntad INV-14W
+   (lång "Inga båtar"-period, informativ) — samma klass som `ankrad-gles-sändare`
+   och `återfödd-i-kö`.
++- `fartgrind-krypare-söder-om-Stallbackabron` (revision 3, granskarens klass H)
++  prövar återinträdets FARTPROV: 0,65 kn söderut 560–1650 m söder om
++  Stallbackabron, alltså mer än 500 m från VARJE bro, där tilldelningen kräver
++  > 0,7 kn. Generatorns fartbrus lägger fixar över 0,7 kn; retentionen tar bort
++  målbron först när grinden fallerat i mer än nådafristen, och samma bro läggs
++  tillbaka först när grinden HÅLLIT lika länge. Mot `7699cbe` 9 DEFAULT-FLASH
++  (7–12 över seed 94–99) och mot revision 1 (`c6a765d`) 8. Med rättningen EN
++  förväntad INV-14W (2550 s). Ligger zonen inom 500 m från en bro prövas
++  0,1 kn-grinden i stället, och scenariot blir verkningslöst.
+ 
+ ## Täckningskartan — diagnosverktyg, INTE en gate
+ 
+@@ -936,9 +945,16 @@ adversariella granskningen 2026-08-10: selektiva noter på 7 korpusar).
+ - **INV-14W (WARN):** INV-14 fäller bara inklämda DEFAULT-episoder ≤ 300 s; längre spann
+   rapporteras nu som WARN-klassen INV-14W (spannlängd + bro) i stället för att tystas
+   (M24). `runAllCorpora` varnar även för OANVÄNDA `knownInvariantExceptions`.
+-- **Syntetiska scenarier — känd WARN-baslinje är 8** (5 gamla + 3 INV-14W:
+-  navstatus-flap-väntare 540 s, ankrad gles sändare 1440 s, återfödd-i-kö HERA-klassen
+-  900 s). Fler än 8 = rapportera.
++- **Syntetiska scenarier — känd WARN-baslinje.** På `7699cbe` är den 6: INV-15 ×2
++  (u-sväng-gles-ais-norr-om-Klaffbron, fördröjd-gammal-position), INV-18
++  (återfödd-utflygare-söderut) och 3 INV-14W (navstatus-flap-väntare 600 s, ankrad
++  gles sändare 1440 s, återfödd-i-kö HERA-klassen 900 s). Familj M (F05, 2026-11-05)
++  lägger till 3 INV-14W, en per krypfartsscenario där båten med rätta är dold
++  medan hon kryper: krypfart-söder-om-Olidebron-ej-passerad 2970 s,
++  sog-null-stopp-norr-om-passerade-Klaffbron 1050 s och
++  fartgrind-krypare-söder-om-Stallbackabron 2550 s. Baslinjen är då 9. Fler än
++  baslinjen, eller en annan sammansättning, = rapportera. (Integrationen:
++  summera med de andra familjernas scenarier och WARN-rader.)
+ - **O1:s missklassificerare (`classifyMiss`)** kräver nu KORROBORERAT rörelsebevis i tre
+   led (position ≥ MOVEMENT_PROOF_NET_M från första horisontsampel; etablerad stillhets-
+   vistelse ≥ ARM_STALE_TTL_MS inom 50 m + tätt fixpar med implicerad fart < 0,5 kn ⇒
+diff --git a/lib/services/VesselDataService.js b/lib/services/VesselDataService.js
+index c5dfaf8..9d1af7f 100755
+--- a/lib/services/VesselDataService.js
++++ b/lib/services/VesselDataService.js
+@@ -90,7 +90,7 @@ const COMPLETED_JOURNEY_TTL_MS = 15 * 60 * 1000;
+ // första var en lokal const i retentionsblocket i updateVessel, det andra en
+ // literal i 2-READINGS (_shouldAssignTargetBridge) och i dess etikett
+ // (_getTargetRemovalReason). Återinträdesbeviset i ACCELERATED-grenen
+-// (_reentryNeedsApproachProof) måste pröva EXAKT samma fönster och samma närzon
++// (_reentryNeedsProof) måste pröva EXAKT samma fönster och samma närzon
+ // som retentionen — att tilldelning och retention dömde samma båt efter olika
+ // mått ÄR F05:s rotorsak. Samma skäl som NORTH_PROGRESS_MIN_MPS ovan.
+ const TARGET_REMOVAL_GRACE_PERIOD = 60000;
+@@ -669,6 +669,10 @@ class VesselDataService extends EventEmitter {
+               // lägga tillbaka SAMMA bro — se _armReentryApproachProof. Anropas
+               // före raderingen nedan, medan fristens referens ännu gäller.
+               this._armReentryApproachProof(vessel, oldVessel, now);
++              // F05 rev 3: föll den på fartgrinden (0,7/0,1 kn) ska grinden
++              // hålla i en hel frist innan samma bro läggs tillbaka — samma
++              // tidsbedömning som borttagningen (_armReentrySpeedProof).
++              this._armReentrySpeedProof(vessel, now);
+               vessel.targetBridge = null;
+               this._targetRemovalGrace.delete(graceKey);
+             } else {
+@@ -845,9 +849,10 @@ class VesselDataService extends EventEmitter {
+           // F05 (granskningen 2026-11-04) — ÅTERINTRÄDESBEVISET. Tog retentionen
+           // nyss bort SAMMA bro för att närmandet saknades, kräver tilldelningen
+           // nu samma bevis i stället för att släppa igenom båten på närmaste
+-          // bros fartgrindar (det var F05:s flapp). En bekräftad vändning i
+-          // tick:en ogiltigförklarar det gamla målet och hoppar över beviset,
+-          // precis som 2-READINGS (tredje argumentet ovan).
++          // bros fartgrindar (det var F05:s flapp). Rev 3: föll borttagningen på
++          // fartgrinden ska grinden ha hållit i en hel frist (_reentryNeedsProof).
++          // En bekräftad vändning i tick:en ogiltigförklarar det gamla målet och
++          // hoppar över beviset, precis som 2-READINGS (tredje argumentet ovan).
+           && !(positionDirection !== null || fixDReversalConfirmed)
+           // KÄND fart ≥ FIX_D_MIN_SOG (2,0 kn) i DETTA meddelande är
+           // rörelsebevis i sig — samma ribba som C4b nedan, där kursen får slå
+@@ -859,7 +864,7 @@ class VesselDataService extends EventEmitter {
+           // genom null-sampel, och en gammal fart är inget bevis. Under ribban
+           // — krypare, fartbrus kring ANCHOR_BLOCK och sog=null — gäller beviset.
+           && !(Number.isFinite(vessel._rawPositionSog) && vessel._rawPositionSog >= FIX_D_MIN_SOG)
+-          && this._reentryNeedsApproachProof(vessel, oldVessel, newTargetBridge, bridge, Date.now())) {
++          && this._reentryNeedsProof(vessel, oldVessel, newTargetBridge, bridge, Date.now())) {
+         // Ingen tilldelning denna tick; hjälparen har loggat varför.
+       } else if (newTargetBridge) {
+         const newTargetDistance = geometry.calculateDistance(
+@@ -978,8 +983,10 @@ class VesselDataService extends EventEmitter {
+     }
+ 
+     // F05 (granskningen 2026-11-04): återinträdesbevisets livscykel — se
+-    // _maintainReentryApproachProof (förbrukas med en målbro, glider annars).
++    // _maintainReentryApproachProof (förbrukas med en målbro, glider annars)
++    // och, rev 3, fartprovets lopp (_maintainReentrySpeedProof).
+     this._maintainReentryApproachProof(vessel, Date.now());
++    this._maintainReentrySpeedProof(vessel, Date.now());
+ 
+     // Store vessel
+     this.vessels.set(mmsi, vessel);
+@@ -4348,7 +4355,7 @@ class VesselDataService extends EventEmitter {
+         // vände mot målbron, fast hon närmade sig 15 m per fix). Samma 10 m,
+         // samma 60 s, samma grindar i övrigt. En stillaliggande båt eller en
+         // som glider bort underkänns som förut. Spegeln på tilldelningssidan är
+-        // återinträdesbeviset (_reentryNeedsApproachProof), som kräver SAMMA
++        // återinträdesbeviset (_reentryNeedsProof), som kräver SAMMA
+         // bevis innan en nyss borttagen målbro får läggas tillbaka.
+         const graceRef = this._graceApproachReference(vessel, oldVessel.targetBridge);
+         const evidence = this._targetApproachEvidence(vessel, oldVessel, graceRef, targetBridge);
+@@ -4384,62 +4391,25 @@ class VesselDataService extends EventEmitter {
+       }
+     }
+ 
+-    // Calculate distance to nearest bridge for speed validation
+-    let nearestDistance = Infinity;
+-    let nearestBridge = null;
+-    for (const bridge of Object.values(this.bridgeRegistry.bridges)) {
+-      // Skip bridges without valid coordinates
+-      if (!bridge || !Number.isFinite(bridge.lat) || !Number.isFinite(bridge.lon)) {
+-        continue;
+-      }
+-
+-      const distance = geometry.calculateDistance(
+-        vessel.lat, vessel.lon,
+-        bridge.lat, bridge.lon,
+-      );
+-      if (distance < nearestDistance) {
+-        nearestDistance = distance;
+-        nearestBridge = bridge.name;
+-      }
+-    }
+-
+     // DISTANCE-BASED SPEED REQUIREMENTS:
+     // - Far from bridges (>500m): Must have ≥0.7kn (prevent anchored boats far away)
+     // - Approaching bridges (300-500m): Must have ≥0.1kn (allow slow boats preparing for bridge)
+     // - Near bridges (<300m): Can be 0.0kn (boats waiting for bridge opening - legitimate stop)
+-
+-    let minSpeed;
+-    let context;
+-
+-    // Helgranskning 2026-07-06: fartgrindarna gäller bara KÄND fart.
+-    // Number(null)=0 lät "fart okänd" (Class B utan fartgivare) falla på
+-    // 0.7/0.1-grindarna → målbro först <300 m trots rörelsebevis. Okänd fart
+-    // blockerar inte; ankrade båtar utan fartdata avvisas redan av
+-    // rörelsebevis-gaten ovan (positionsbaserad).
+-    const speedKnown = Number.isFinite(vessel.sog);
+-    if (nearestDistance > 500) {
+-      minSpeed = 0.7;
+-      context = 'far from bridges';
+-
+-      if (speedKnown && speed <= minSpeed) {
+-        this.logger.debug(
+-          `🚫 [TARGET_ASSIGNMENT] ${vessel.mmsi}: Too slow for target bridge (${speed}kn ≤ ${minSpeed}kn, ${nearestDistance.toFixed(0)}m ${context}) - likely anchored`,
+-        );
+-        return false;
+-      }
+-    } else if (nearestDistance > 300) {
+-      minSpeed = 0.1;
+-      context = 'approaching bridge';
+-
+-      if (speedKnown && speed <= minSpeed) {
+-        this.logger.debug(
+-          `🚫 [TARGET_ASSIGNMENT] ${vessel.mmsi}: Too slow for target bridge (${speed}kn ≤ ${minSpeed}kn, ${nearestDistance.toFixed(0)}m ${context}) - likely anchored`,
+-        );
+-        return false;
+-      }
+-    } else {
++    // F05 rev 3 (2026-11-05): avståndet till närmaste bro och fartgrindarna
++    // är utbrutna ORDAGRANT till _targetSpeedGate, eftersom återinträdets
++    // fartprov (_reentryNeedsProof) måste döma med EXAKT samma grind. Samma
++    // villkor, samma loggrader.
++    const speedGate = this._targetSpeedGate(vessel);
++    const { nearestDistance, nearestBridge } = speedGate;
++
++    if (speedGate.blocked) {
++      this.logger.debug(
++        `🚫 [TARGET_ASSIGNMENT] ${vessel.mmsi}: Too slow for target bridge (${speed}kn ≤ ${speedGate.minSpeed}kn, ${nearestDistance.toFixed(0)}m ${speedGate.context}) - likely anchored`,
++      );
++      return false;
++    }
++    if (speedGate.minSpeed === null) {
+       // Near bridges (<300m): Allow any speed including 0.0kn (waiting for bridge opening)
+-      context = 'near bridge (may be waiting)';
+       this.logger.debug(
+         `🛡️ [PROTECTION_ACTIVE] ${vessel.mmsi}: ${nearestDistance.toFixed(0)}m from ${nearestBridge} (≤300m) - protected from speed requirements`,
+       );
+@@ -4461,9 +4431,10 @@ class VesselDataService extends EventEmitter {
+ 
+     // K32(c) (fältprov 10, 2026-08-19; etiketten omarbetad efter granskningen
+     // 2026-08-21). Vad raden faktiskt mäter, härlett ur koden ovan:
+-    //  • nearestBridge/nearestDistance kommer ur loopen ~3-4 skärmar upp som
+-    //    sveper SAMTLIGA broar i registret (Olidebron, Klaffbron,
+-    //    Järnvägsbron, Stridsbergsbron, Stallbackabron) — målbroarna
++    //  • nearestBridge/nearestDistance kommer ur loopen i _targetSpeedGate
++    //    (utbruten ordagrant, F05 rev 3), som sveper SAMTLIGA broar i
++    //    registret (Olidebron, Klaffbron, Järnvägsbron, Stridsbergsbron,
++    //    Stallbackabron) — målbroarna
+     //    INRÄKNADE. Närmaste bro KAN alltså mycket väl vara målbron.
+     //  • Det är samma avstånd som fart- och kursgrindarna precis ovanför
+     //    jämför mot (>500 m ⇒ 0,7 kn, >300 m ⇒ 0,1 kn, ≤300 m ⇒ fri fart).
+@@ -5619,6 +5590,10 @@ class VesselDataService extends EventEmitter {
+       // (_maintainReentryApproachProof tar bort det så fort hon har en
+       // målbro). Graven bär det inte: en återfödd båt är ett nytt besök.
+       _reentryApproachRef: oldVessel?._reentryApproachRef ?? null,
++      // F05 rev 3 (2026-11-05): fartprovets lopp (_maintainReentrySpeedProof)
++      // räknas över fixarna och måste överleva objektombyggnaden på samma
++      // sätt. Graven bär det inte.
++      _reentrySpeedProof: oldVessel?._reentrySpeedProof ?? null,
+       _moored: oldVessel?._moored || false,
+       navStatus: data.navStatus ?? oldVessel?.navStatus ?? null,
+ 
+@@ -8079,7 +8054,7 @@ class VesselDataService extends EventEmitter {
+    * F05 (rättningskampanjen 2026-11-04, familj M) — NÄRMANDEBEVISET mot en
+    * målbro, EN sanningskälla för tvåprovsvalideringen (2-READINGS i
+    * _shouldAssignTargetBridge), dess etikett (_getTargetRemovalReason) och
+-   * återinträdesbeviset (_reentryNeedsApproachProof).
++   * återinträdesbeviset (_reentryNeedsProof).
+    *
+    * Närmandet räknas från den av två referenser som ger STÖRST närmande:
+    * förra fixen (`prevFix`, som före F05) och fönstrets startposition
+@@ -8139,13 +8114,155 @@ class VesselDataService extends EventEmitter {
+       && recentlyActive && vessel._hasMovementProof === true && !vessel._moored;
+   }
+ 
++  /**
++   * Fartgrindarna i _shouldAssignTargetBridge (avståndsbaserade, gäller bara
++   * KÄND fart — helgranskningen 2026-07-06), utbrutna ORDAGRANT (F05 rev 3,
++   * 2026-11-05) så att återinträdets fartprov dömer med samma grind:
++   *  - närmaste bro i registret > 500 m: farten måste vara > 0,7 kn;
++   *  - 300–500 m: > 0,1 kn;
++   *  - ≤ 300 m: ingen fartgräns (väntare vid bro).
++   * Närmaste bro räknas över ALLA broar i registret, målbroarna inräknade
++   * (K32(c)). Okoordinerade broar hoppas över.
++   *
++   * @param {Object} vessel - Fartyget (lat, lon, sog)
++   * @returns {{nearestDistance:number, nearestBridge:(string|null),
++   *   minSpeed:(number|null), context:string, blocked:boolean}}
++   *   minSpeed null = ingen fartgräns; blocked = grinden fäller detta sampel
++   * @private
++   */
++  _targetSpeedGate(vessel) {
++    let nearestDistance = Infinity;
++    let nearestBridge = null;
++    for (const bridge of Object.values(this.bridgeRegistry.bridges)) {
++      // Skip bridges without valid coordinates
++      if (!bridge || !Number.isFinite(bridge.lat) || !Number.isFinite(bridge.lon)) {
++        continue;
++      }
++
++      const distance = geometry.calculateDistance(
++        vessel.lat, vessel.lon,
++        bridge.lat, bridge.lon,
++      );
++      if (distance < nearestDistance) {
++        nearestDistance = distance;
++        nearestBridge = bridge.name;
++      }
++    }
++
++    // Helgranskning 2026-07-06: fartgrindarna gäller bara KÄND fart.
++    // Number(null)=0 lät "fart okänd" (Class B utan fartgivare) falla på
++    // 0.7/0.1-grindarna → målbro först <300 m trots rörelsebevis. Okänd fart
++    // blockerar inte; ankrade båtar utan fartdata avvisas redan av
++    // rörelsebevis-gaten (positionsbaserad).
++    const speedKnown = Number.isFinite(vessel.sog);
++    const speed = Number(vessel.sog);
++    let minSpeed = null;
++    let context = 'near bridge (may be waiting)';
++    if (nearestDistance > 500) {
++      minSpeed = 0.7;
++      context = 'far from bridges';
++    } else if (nearestDistance > 300) {
++      minSpeed = 0.1;
++      context = 'approaching bridge';
++    }
++    return {
++      nearestDistance,
++      nearestBridge,
++      minSpeed,
++      context,
++      blocked: minSpeed !== null && speedKnown && speed <= minSpeed,
++    };
++  }
++
++  /**
++   * F05 rev 3 (2026-11-05, dirigentens beslut: granskarens väg 1) — BEVÄPNAR
++   * återinträdets FARTPROV när retentionen tar bort målbron efter nådafristen
++   * och borttagningen föll på fartgrinden (0,7 kn > 500 m eller 0,1 kn
++   * 300–500 m från närmaste bro, _targetSpeedGate).
++   *
++   * Retentionen dömer fartgrinden över TID: målbron tas bort först när
++   * valideringen fallerat oavbrutet i mer än TARGET_REMOVAL_GRACE_PERIOD
++   * (varje lyckad validering släpper fristen, S-F8). ACCELERATED dömde
++   * samma grind per SAMPEL, så ett enda brusprov över 0,7 kn lade tillbaka
++   * målbron (granskningens klasser G och H, 0,6–0,75 kn långt från broar).
++   * Spegeln: samma bro får tillbaka målet först när grinden HÅLLIT oavbrutet
++   * i mer än TARGET_REMOVAL_GRACE_PERIOD (_maintainReentrySpeedProof räknar
++   * loppet, _reentryNeedsProof prövar det). Ingen ny konstant.
++   *
++   * Beväpnas INTE när ANCHOR_BLOCK (FIX B) fällde samma sampel: där är
++   * borttagningen FIX B:s, och FIX B:s per-fix-återtilldelning (≥ 0,3 kn) är
++   * orörd. Därmed fördröjs inte avgången efter ett stopp vid en passerad bro
++   * (granskningens avgångssvep).
++   *
++   * @param {Object} vessel - Fartyget (har ännu kvar målbron som tas bort)
++   * @param {number} now - Borttagningens tidpunkt (ms)
++   * @private
++   */
++  _armReentrySpeedProof(vessel, now) {
++    const bridgeName = vessel && vessel.targetBridge;
++    if (!bridgeName || !Number.isFinite(vessel.lat) || !Number.isFinite(vessel.lon)) {
++      return;
++    }
++    // ANCHOR_BLOCK:s predikat ordagrant (FIX B i _shouldAssignTargetBridge).
++    const anchorBlock = Boolean(vessel.passedBridges && vessel.passedBridges.length > 0
++      && Number.isFinite(vessel.sog) && vessel.sog < 0.3);
++    if (anchorBlock || !this._targetSpeedGate(vessel).blocked) {
++      return; // borttagningen föll inte på fartgrinden — inget att spegla
++    }
++    vessel._reentrySpeedProof = { bridge: bridgeName, t: now, holdsSince: null };
++  }
++
++  /**
++   * F05 rev 3 — fartprovets LIVSCYKEL, körd sist i varje updateVessel (före
++   * lagringen), syskon till _maintainReentryApproachProof:
++   *  - har fartyget en målbro (oavsett väg dit) är posten förbrukad och tas bort;
++   *  - annars räknas loppet: `holdsSince` är första sampel i en obruten följd
++   *    där fartgrinden HÅLLER (inte fäller). Ett sampel där grinden fäller —
++   *    eller en GPS-misstänkt position, där avståndet till närmaste bro och
++   *    därmed grindens zon är opålitliga — bryter loppet.
++   * Posten byts alltid mot ett nytt objekt (aldrig mutation): _createVesselObject
++   * bär den via oldVessel, och förra fixens ögonblicksbild ska inte ändras.
++   *
++   * @param {Object} vessel - Fartyget (levande objektet i updateVessel)
++   * @param {number} now - Tidpunkt (ms)
++   * @private
++   */
++  _maintainReentrySpeedProof(vessel, now) {
++    const proof = vessel && vessel._reentrySpeedProof;
++    if (!proof) {
++      return;
++    }
++    if (vessel.targetBridge) {
++      vessel._reentrySpeedProof = null;
++      return;
++    }
++    const usable = !vessel._gpsJumpDetected && !vessel._positionUncertain
++      && Number.isFinite(vessel.lat) && Number.isFinite(vessel.lon);
++    const holds = usable && !this._targetSpeedGate(vessel).blocked;
++    let holdsSince = null;
++    if (holds) {
++      holdsSince = Number.isFinite(proof.holdsSince) ? proof.holdsSince : now;
++    }
++    if (holdsSince !== proof.holdsSince) {
++      vessel._reentrySpeedProof = { ...proof, holdsSince };
++    }
++  }
++
+   /**
+    * F05 (granskningen 2026-11-04) — BEVÄPNAR återinträdesbeviset när
+-   * retentionen tar bort målbron efter nådafristen och närmandebeviset saknas
++   * retentionen tar bort målbron efter nådafristen för OTILLRÄCKLIG rörelse
+    * (samma prov som 2-READINGS: mer än 300 m kvar och under 10 m närmande
+    * från förra fixen eller fristens start). Anropas FÖRE raderingen av
+    * fristens post, så att fristens referens ännu gäller.
+    *
++   * F05 rev 3 (omgranskningen 2026-11-05, slinga-C): en TYDLIG bortrörelse
++   * (≥ MIN_APPROACH_DISTANCE bort enligt samma bevis, MOVING_AWAY) beväpnar
++   * INTE. Det är en båt under gång som svänger — inte en krypare vars
++   * närmande drunknar i bruset — och där gäller 7699cbe:s återtilldelning.
++   * Med beväpning stod "Inga båtar" 150 s i stället för 30 s för en båt som
++   * enligt korsningarna var på väg mot målbron hela tiden (granskarens
++   * slinga-C och loop-n12-k6-v1.8).
++   *
+    * Posten `vessel._reentryApproachRef = {bridge, lat, lon, t}` är
+    * återinträdesfönstrets start: positionen och tiden för borttagningen. Den
+    * lever bara medan båten är mållös: _maintainReentryApproachProof tar bort
+@@ -8168,8 +8285,9 @@ class VesselDataService extends EventEmitter {
+       vessel, oldVessel, this._graceApproachReference(vessel, bridgeName), bridge,
+     );
+     if (!(evidence.currentDistance > TWO_READINGS_NEAR_TARGET_M)
+-        || evidence.change >= constants.MIN_APPROACH_DISTANCE) {
+-      return; // borttagningen föll inte på närmandet — inget att spegla
++        || evidence.change >= constants.MIN_APPROACH_DISTANCE
++        || evidence.change <= -constants.MIN_APPROACH_DISTANCE) {
++      return; // borttagningen föll inte på otillräcklig rörelse — inget att spegla
+     }
+     vessel._reentryApproachRef = {
+       bridge: bridgeName, lat: vessel.lat, lon: vessel.lon, t: now,
+@@ -8177,32 +8295,33 @@ class VesselDataService extends EventEmitter {
+   }
+ 
+   /**
+-   * F05 (granskningen 2026-11-04) — ÅTERINTRÄDESBEVISET i ACCELERATED-grenen.
++   * F05 (granskningen 2026-11-04, rev 3 2026-11-05) — ÅTERINTRÄDESBEVISET i
++   * ACCELERATED-grenen.
+    *
+-   * Flappens mekanism: retentionen tar bort målbron när närmandebeviset
+-   * (2-READINGS, ≥ 10 m mot målbron inom nådafristen) saknas, men tilldelningen
+-   * prövar inte 2-READINGS och godkänner samma båt på NÄRMASTE bros
+-   * fartgrindar — ingen fartgräns inom 300 m, 0,1 kn vid 300–500 m — och för
+-   * okänd fart (sog=null) eller en båt som inte passerat någon bro gäller inte
+-   * heller ANCHOR_BLOCK. Samma båt dömdes alltså olika i de två vägarna, och
+-   * texten blinkade "Inga båtar" (granskningens syskon: krypare under ≈ 0,22 kn
+-   * söder om Olidebron, och sog=null-båtar som stannar eller kryper efter en
+-   * passerad bro).
+-   *
+-   * Regeln: SAMMA bro som retentionen nyss tog bort tilldelas igen först när
+-   * SAMMA bevis finns — ≥ MIN_APPROACH_DISTANCE närmande, räknat som i
+-   * 2-READINGS från förra fixen eller fönstrets start, i ett fönster lika långt
+-   * som nådafristen (TARGET_REMOVAL_GRACE_PERIOD; saknas beviset när fönstret
+-   * löpt ut börjar ett nytt där båten är). Därmed har retention och tilldelning
+-   * samma tröskel, och en båt som retentionen skulle ta bort igen läggs inte
+-   * tillbaka. Undantagen är retentionens egna, så beviset bara gäller där
+-   * retentionen själv skulle ha tagit bort målbron:
+-   *  - målbron inom 300 m (2-READINGS gäller inte där);
++   * Flappens mekanism: retentionen tar bort målbron när valideringen fallerat
++   * oavbrutet i nådafristen, men tilldelningen dömde samma båt per SAMPEL och
++   * utan 2-READINGS. Den godkände alltså en båt som retentionen nyss tagit
++   * bort — "Inga båtar" blinkade mellan två likadana texter. Två delar, var
++   * och en speglar ett av retentionens prov:
++   *  1. NÄRMANDET (_reentryApproachRef, beväpnat vid otillräcklig rörelse):
++   *     ≥ MIN_APPROACH_DISTANCE mot målbron, räknat som i 2-READINGS från förra
++   *     fixen eller fönstrets start, i ett fönster lika långt som nådafristen
++   *     (glider, _maintainReentryApproachProof). Granskningens syskon: krypare
++   *     under ≈ 0,22 kn söder om Olidebron och sog=null-båtar som stannar
++   *     eller kryper efter en passerad bro.
++   *  2. FARTGRINDEN (_reentrySpeedProof, beväpnat när borttagningen föll på
++   *     0,7/0,1 kn-grinden, rev 3): grinden ska ha HÅLLIT oavbrutet i mer än
++   *     TARGET_REMOVAL_GRACE_PERIOD — samma tidsbedömning som retentionen
++   *     använder när den tar bort (_maintainReentrySpeedProof räknar loppet).
++   *     Omgranskningens klasser G och H: 0,6–0,75 kn långt från broar.
++   * Undantagen är retentionens egna, så beviset bara gäller där retentionen
++   * själv skulle ha tagit bort målbron:
++   *  - målbron inom 300 m (gäller närmandet; 2-READINGS gäller inte där);
+    *  - skyddszonen kring en opasserad bro eller målbron (PROTECTION_ZONE_SAVE,
+    *    med F21-regeln för passerade broar);
+    *  - kö-zonen (_isInTargetQueueZone).
+-   * En annan bro, en ny resa eller en bekräftad vändning berörs inte. Inga nya
+-   * konstanter.
++   * En annan bro, en ny resa, en bekräftad vändning och meddelandets egen fart
++   * ≥ FIX_D_MIN_SOG berörs inte (anroparen). Inga nya konstanter.
+    *
+    * @param {Object} vessel - Fartyget (mållöst)
+    * @param {Object|null} oldVessel - Förra fixen
+@@ -8212,14 +8331,28 @@ class VesselDataService extends EventEmitter {
+    * @returns {boolean} true = tilldelningen ska vänta (beviset saknas)
+    * @private
+    */
+-  _reentryNeedsApproachProof(vessel, oldVessel, bridgeName, bridge, now) {
++  _reentryNeedsProof(vessel, oldVessel, bridgeName, bridge, now) {
+     const ref = vessel && vessel._reentryApproachRef;
+-    if (!ref || ref.bridge !== bridgeName || !Number.isFinite(ref.lat) || !Number.isFinite(ref.lon)) {
+-      return false;
+-    }
+-    const evidence = this._targetApproachEvidence(vessel, oldVessel, ref, bridge);
+-    if (!(evidence.currentDistance > TWO_READINGS_NEAR_TARGET_M)
+-        || evidence.change >= constants.MIN_APPROACH_DISTANCE) {
++    let approachShort = null;
++    if (ref && ref.bridge === bridgeName && Number.isFinite(ref.lat) && Number.isFinite(ref.lon)) {
++      const evidence = this._targetApproachEvidence(vessel, oldVessel, ref, bridge);
++      if (evidence.currentDistance > TWO_READINGS_NEAR_TARGET_M
++          && evidence.change < constants.MIN_APPROACH_DISTANCE) {
++        approachShort = evidence;
++      }
++    }
++    const speedProof = vessel && vessel._reentrySpeedProof;
++    let speedShort = null;
++    if (speedProof && speedProof.bridge === bridgeName) {
++      // Loppet räknas t.o.m. FÖRRA fixen; detta sampel håller (annars hade
++      // _shouldAssignTargetBridge redan fällt det). Samma jämförelse som
++      // retentionens `graceElapsed > TARGET_REMOVAL_GRACE_PERIOD`.
++      const heldMs = Number.isFinite(speedProof.holdsSince) ? now - speedProof.holdsSince : 0;
++      if (!(heldMs > TARGET_REMOVAL_GRACE_PERIOD)) {
++        speedShort = { heldMs };
++      }
++    }
++    if (!approachShort && !speedShort) {
+       return false;
+     }
+     const probe = { ...vessel, targetBridge: bridgeName };
+@@ -8231,13 +8364,22 @@ class VesselDataService extends EventEmitter {
+     if ((zone.isProtected && !zoneBridgePassed) || this._isInTargetQueueZone(probe, bridgeName, now)) {
+       return false;
+     }
+-    const windowAgeMs = Number.isFinite(ref.t) ? now - ref.t : Infinity;
+-    this.logger.debug(
+-      `🚫 [REENTRY_APPROACH_PROOF] ${vessel.mmsi}: ${bridgeName} togs nyss bort utan närmande — `
+-      + `${evidence.previousDistance.toFixed(0)}m → ${evidence.currentDistance.toFixed(0)}m `
+-      + `(${evidence.change >= 0 ? '-' : '+'}${Math.abs(evidence.change).toFixed(0)}m, `
+-      + `min ${constants.MIN_APPROACH_DISTANCE}m, fönster ${Math.round(windowAgeMs / 1000)}s) — väntar med återtilldelningen`,
+-    );
++    if (approachShort) {
++      const windowAgeMs = Number.isFinite(ref.t) ? now - ref.t : Infinity;
++      this.logger.debug(
++        `🚫 [REENTRY_APPROACH_PROOF] ${vessel.mmsi}: ${bridgeName} togs nyss bort utan närmande — `
++        + `${approachShort.previousDistance.toFixed(0)}m → ${approachShort.currentDistance.toFixed(0)}m `
++        + `(${approachShort.change >= 0 ? '-' : '+'}${Math.abs(approachShort.change).toFixed(0)}m, `
++        + `min ${constants.MIN_APPROACH_DISTANCE}m, fönster ${Math.round(windowAgeMs / 1000)}s) — väntar med återtilldelningen`,
++      );
++    }
++    if (speedShort) {
++      this.logger.debug(
++        `🚫 [REENTRY_SPEED_PROOF] ${vessel.mmsi}: ${bridgeName} togs nyss bort på fartgrinden — `
++        + `grinden har hållit ${Math.round(speedShort.heldMs / 1000)}s `
++        + `(krav > ${TARGET_REMOVAL_GRACE_PERIOD / 1000}s, ${vessel.sog}kn) — väntar med återtilldelningen`,
++      );
++    }
+     return true;
+   }
+ 
+diff --git a/tests/fixtures/m-f05-fartgrind-0.65kn-soder-om-stallbackabron.jsonl b/tests/fixtures/m-f05-fartgrind-0.65kn-soder-om-stallbackabron.jsonl
+new file mode 100644
+index 0000000..90b690f
+--- /dev/null
++++ b/tests/fixtures/m-f05-fartgrind-0.65kn-soder-om-stallbackabron.jsonl
+@@ -0,0 +1,171 @@
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.31857418396543,"lon":12.328641314775359,"sog":6.00548940799199,"cog":218.4833396324666,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767247200000,"receivedAt":"2026-01-01T06:00:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.317916246558035,"lon":12.327748257122224,"sog":6.0225677721202375,"cog":216.92149267445893,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767247230000,"receivedAt":"2026-01-01T06:00:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.317210668929455,"lon":12.326899874996547,"sog":5.991054225433618,"cog":215.52976373217643,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767247260000,"receivedAt":"2026-01-01T06:01:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.31651887413832,"lon":12.325917591802083,"sog":5.949504779279232,"cog":213.52399263724328,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767247290000,"receivedAt":"2026-01-01T06:01:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.31586141677158,"lon":12.324961448067716,"sog":5.978923863219097,"cog":217.1996819834003,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767247320000,"receivedAt":"2026-01-01T06:02:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.31517412689314,"lon":12.324052496565216,"sog":5.908545941999182,"cog":215.1613255623506,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767247350000,"receivedAt":"2026-01-01T06:02:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.314514206923526,"lon":12.323193241280947,"sog":5.958973974175751,"cog":213.8298525475675,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767247380000,"receivedAt":"2026-01-01T06:03:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.31384152516795,"lon":12.322245694878193,"sog":6.051688568107783,"cog":213.7539180145377,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767247410000,"receivedAt":"2026-01-01T06:03:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.31316857774239,"lon":12.321314634350754,"sog":6.054082764917984,"cog":218.56423783635364,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767247440000,"receivedAt":"2026-01-01T06:04:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.31246628612913,"lon":12.320424085084719,"sog":5.930654188385233,"cog":214.5370235453138,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767247470000,"receivedAt":"2026-01-01T06:04:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.31179932391187,"lon":12.319450356501223,"sog":5.930417654383928,"cog":216.95366280160488,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767247500000,"receivedAt":"2026-01-01T06:05:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.31113178394516,"lon":12.318516213281324,"sog":5.952931524673477,"cog":212.88937461522983,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767247530000,"receivedAt":"2026-01-01T06:05:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.31045792350332,"lon":12.317670366272953,"sog":5.94769884115085,"cog":218.53329875513555,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767247560000,"receivedAt":"2026-01-01T06:06:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30978677333351,"lon":12.31670119287872,"sog":5.960474569769576,"cog":216.67279981533204,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767247590000,"receivedAt":"2026-01-01T06:06:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30912317541543,"lon":12.31583316810852,"sog":6.0385487549006935,"cog":218.12281279629235,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767247620000,"receivedAt":"2026-01-01T06:07:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.308440576281534,"lon":12.314912763143681,"sog":5.922961131809279,"cog":212.8461981847896,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767247650000,"receivedAt":"2026-01-01T06:07:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30776619528575,"lon":12.31392568513995,"sog":6.076245306199416,"cog":215.66986193405603,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767247680000,"receivedAt":"2026-01-01T06:08:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30709358991831,"lon":12.313046258070727,"sog":5.9332514353562145,"cog":216.6703641795567,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767247710000,"receivedAt":"2026-01-01T06:08:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.306418062103454,"lon":12.312066045056392,"sog":6.095576515374705,"cog":213.58758704075728,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767247740000,"receivedAt":"2026-01-01T06:09:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.305711622718654,"lon":12.31114309428062,"sog":5.980248516285792,"cog":214.5554596855319,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767247770000,"receivedAt":"2026-01-01T06:09:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.305049904227516,"lon":12.310261772160674,"sog":0.6563088033813983,"cog":213.06618490340327,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767247800000,"receivedAt":"2026-01-01T06:10:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.304984754694246,"lon":12.310197355102181,"sog":0.6045573089271784,"cog":213.59512396985804,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767247830000,"receivedAt":"2026-01-01T06:10:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.304884292177796,"lon":12.31010160410595,"sog":0.6079878823366016,"cog":213.47188496627052,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767247860000,"receivedAt":"2026-01-01T06:11:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30482996985091,"lon":12.309966393531615,"sog":0.6149234181270004,"cog":213.33050393397127,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767247890000,"receivedAt":"2026-01-01T06:11:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30472904927122,"lon":12.309817157664778,"sog":0.6101653845515103,"cog":216.663158181963,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767247920000,"receivedAt":"2026-01-01T06:12:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30468328495753,"lon":12.309722399298655,"sog":0.6516341057606042,"cog":215.7489305710434,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767247950000,"receivedAt":"2026-01-01T06:12:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.304586332890835,"lon":12.309691854159485,"sog":0.6004683293867856,"cog":218.55943326689442,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767247980000,"receivedAt":"2026-01-01T06:13:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30455307677857,"lon":12.309600009160313,"sog":0.5507414522580802,"cog":213.70733649740134,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248010000,"receivedAt":"2026-01-01T06:13:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30442992704806,"lon":12.309511901307618,"sog":0.6159435600508004,"cog":216.9335599428988,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248040000,"receivedAt":"2026-01-01T06:14:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30440178537193,"lon":12.309320732681694,"sog":0.6001217050012201,"cog":217.82812490398203,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248070000,"receivedAt":"2026-01-01T06:14:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30432474393346,"lon":12.309292506340695,"sog":0.5941612501628697,"cog":213.18708819886808,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248100000,"receivedAt":"2026-01-01T06:15:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.304216663265215,"lon":12.309153373012183,"sog":0.6585108839906753,"cog":214.3332836766741,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248130000,"receivedAt":"2026-01-01T06:15:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30418304227806,"lon":12.309043650163243,"sog":0.7318211453966796,"cog":217.78004892394085,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248160000,"receivedAt":"2026-01-01T06:16:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.3040962252906,"lon":12.308980431429559,"sog":0.5969113667495549,"cog":214.91140868831565,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248190000,"receivedAt":"2026-01-01T06:16:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30400542578243,"lon":12.308832958972555,"sog":0.6029880087822675,"cog":218.19534372063492,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248220000,"receivedAt":"2026-01-01T06:17:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30396767236374,"lon":12.308728540966179,"sog":0.6159323061350733,"cog":213.0694513925365,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248250000,"receivedAt":"2026-01-01T06:17:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.303844307294824,"lon":12.308692702816856,"sog":0.6274300676770509,"cog":214.071887072084,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248280000,"receivedAt":"2026-01-01T06:18:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.303777076274905,"lon":12.308596726967329,"sog":0.6115897765383125,"cog":217.96415434116636,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248310000,"receivedAt":"2026-01-01T06:18:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30372416300765,"lon":12.308456549037462,"sog":0.6872749962378293,"cog":214.67854363089566,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248340000,"receivedAt":"2026-01-01T06:19:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30363577998082,"lon":12.308367821935128,"sog":0.7024792193900794,"cog":217.3755181211992,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248370000,"receivedAt":"2026-01-01T06:19:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.3035520288864,"lon":12.308234407933167,"sog":0.6763444094453007,"cog":216.4852785839713,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248400000,"receivedAt":"2026-01-01T06:20:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30347765708117,"lon":12.308146649772022,"sog":0.635833830293268,"cog":217.8392701921067,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248430000,"receivedAt":"2026-01-01T06:20:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30343775705384,"lon":12.308050154351362,"sog":0.6209192137233913,"cog":216.2171819414026,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248460000,"receivedAt":"2026-01-01T06:21:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.303330261895006,"lon":12.30800827814162,"sog":0.6580160406883806,"cog":216.01772316303243,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248490000,"receivedAt":"2026-01-01T06:21:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30329090304204,"lon":12.307826457727451,"sog":0.564040063554421,"cog":217.49496319042657,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248520000,"receivedAt":"2026-01-01T06:22:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.3031906380328,"lon":12.307786762071961,"sog":0.6052844083402306,"cog":216.45836231196438,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248550000,"receivedAt":"2026-01-01T06:22:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30312558163224,"lon":12.307670011333164,"sog":0.7351100696250796,"cog":213.04235592661564,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248580000,"receivedAt":"2026-01-01T06:23:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30304243372295,"lon":12.307531997385862,"sog":0.6861850486602634,"cog":212.8821339657544,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248610000,"receivedAt":"2026-01-01T06:23:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30299170788056,"lon":12.30745334839861,"sog":0.7055568366311491,"cog":214.18759428188343,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248640000,"receivedAt":"2026-01-01T06:24:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30289448385767,"lon":12.307416987586647,"sog":0.7455403446685523,"cog":212.69762578550865,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248670000,"receivedAt":"2026-01-01T06:24:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30286311961802,"lon":12.307226256489724,"sog":0.6282923772931099,"cog":216.25426721377437,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248700000,"receivedAt":"2026-01-01T06:25:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.302771710885075,"lon":12.30715435445127,"sog":0.692515025055036,"cog":213.41652410375093,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248730000,"receivedAt":"2026-01-01T06:25:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.3026855256414,"lon":12.30711416243146,"sog":0.6737545728683472,"cog":215.8570405746824,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248760000,"receivedAt":"2026-01-01T06:26:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.302599236001996,"lon":12.306932039308261,"sog":0.6748039783909917,"cog":214.03325995281477,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248790000,"receivedAt":"2026-01-01T06:26:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30253207260199,"lon":12.306881091686773,"sog":0.6723485423717648,"cog":212.72478527380292,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248820000,"receivedAt":"2026-01-01T06:27:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.302454062901866,"lon":12.30671880296208,"sog":0.6304046964272857,"cog":216.66929014483605,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248850000,"receivedAt":"2026-01-01T06:27:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30241237475256,"lon":12.306697671995853,"sog":0.6789497591555118,"cog":216.65432386137684,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248880000,"receivedAt":"2026-01-01T06:28:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30235556698205,"lon":12.306518252365032,"sog":0.7235084017273039,"cog":218.12611319022392,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248910000,"receivedAt":"2026-01-01T06:28:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30223208283192,"lon":12.306500601396255,"sog":0.6582303115632385,"cog":215.9971400167807,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248940000,"receivedAt":"2026-01-01T06:29:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30217760105339,"lon":12.30632730123807,"sog":0.5667226523160934,"cog":216.71601954139908,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767248970000,"receivedAt":"2026-01-01T06:29:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30210439252751,"lon":12.306217990054105,"sog":0.6512692216783762,"cog":215.9134842463783,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249000000,"receivedAt":"2026-01-01T06:30:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.302047868902896,"lon":12.306204962745381,"sog":0.649379513738677,"cog":217.21195053067197,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249030000,"receivedAt":"2026-01-01T06:30:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30194115278875,"lon":12.306057748098814,"sog":0.6970740391407162,"cog":213.83007809929688,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249060000,"receivedAt":"2026-01-01T06:31:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30191152727484,"lon":12.305997071312818,"sog":0.5692667841911316,"cog":213.7122813145644,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249090000,"receivedAt":"2026-01-01T06:31:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.3018289715725,"lon":12.305820615692417,"sog":0.7104080858640374,"cog":218.35347804278274,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249120000,"receivedAt":"2026-01-01T06:32:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30173599064074,"lon":12.305810724998572,"sog":0.7200183542910964,"cog":216.3774240663289,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249150000,"receivedAt":"2026-01-01T06:32:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30166983412022,"lon":12.305678897422172,"sog":0.6372008663602173,"cog":213.84001278774952,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249180000,"receivedAt":"2026-01-01T06:33:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.3015791339227,"lon":12.305613931606498,"sog":0.6792509821709245,"cog":212.8878017737544,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249210000,"receivedAt":"2026-01-01T06:33:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30153032242525,"lon":12.305478501515323,"sog":0.5813273299485445,"cog":213.52987531423707,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249240000,"receivedAt":"2026-01-01T06:34:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30147626067808,"lon":12.305346017725437,"sog":0.5524982682429254,"cog":215.5792150375447,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249270000,"receivedAt":"2026-01-01T06:34:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.301369236910105,"lon":12.305318352923729,"sog":0.6760898722335696,"cog":215.4880273909322,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249300000,"receivedAt":"2026-01-01T06:35:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.301278452489605,"lon":12.30518331286434,"sog":0.5565064012538642,"cog":217.32340831533213,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249330000,"receivedAt":"2026-01-01T06:35:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30125747115523,"lon":12.305036920751663,"sog":0.679509990522638,"cog":217.924252571912,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249360000,"receivedAt":"2026-01-01T06:36:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30116353120778,"lon":12.304978699106188,"sog":0.6311026921030134,"cog":216.29925823714723,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249390000,"receivedAt":"2026-01-01T06:36:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30108915489486,"lon":12.304899358026255,"sog":0.7243921694811434,"cog":214.96237324960669,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249420000,"receivedAt":"2026-01-01T06:37:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30102619731405,"lon":12.304792444132687,"sog":0.5983924467116595,"cog":213.56597428107773,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249450000,"receivedAt":"2026-01-01T06:37:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30096012551194,"lon":12.304658692023482,"sog":0.7406616528052837,"cog":215.65315983109315,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249480000,"receivedAt":"2026-01-01T06:38:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30087338803687,"lon":12.304563492603013,"sog":0.5722502916585654,"cog":217.1773345963112,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249510000,"receivedAt":"2026-01-01T06:38:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.300799323139,"lon":12.30449887787271,"sog":0.5747579251881689,"cog":212.65288416426768,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249540000,"receivedAt":"2026-01-01T06:39:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30073462867064,"lon":12.30439979291533,"sog":0.5942244217265398,"cog":214.52353027127822,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249570000,"receivedAt":"2026-01-01T06:39:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.300659170678706,"lon":12.304223421293969,"sog":0.5969023428391665,"cog":212.93157641254504,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249600000,"receivedAt":"2026-01-01T06:40:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.300562200729686,"lon":12.30421620882457,"sog":0.6132210598792881,"cog":215.0556375867701,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249630000,"receivedAt":"2026-01-01T06:40:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30050864093577,"lon":12.30403507506606,"sog":0.6788201907183975,"cog":217.37701162826409,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249660000,"receivedAt":"2026-01-01T06:41:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.300434916404434,"lon":12.30396869209684,"sog":0.5703205629251897,"cog":215.05996400527795,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249690000,"receivedAt":"2026-01-01T06:41:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30037531225031,"lon":12.303868203419132,"sog":0.731963208783418,"cog":218.5896887145019,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249720000,"receivedAt":"2026-01-01T06:42:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.300285437759904,"lon":12.303741058159483,"sog":0.6777388447895647,"cog":216.3289582719109,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249750000,"receivedAt":"2026-01-01T06:42:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30021147732853,"lon":12.303714090793642,"sog":0.6235023704357445,"cog":218.0913055100492,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249780000,"receivedAt":"2026-01-01T06:43:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.30010876729823,"lon":12.303567256315695,"sog":0.5986292713321746,"cog":212.6910309879123,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249810000,"receivedAt":"2026-01-01T06:43:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.3000600562438,"lon":12.303468519683763,"sog":0.7091612224001438,"cog":214.45637165792425,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249840000,"receivedAt":"2026-01-01T06:44:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.300003259117844,"lon":12.303414443727606,"sog":0.634826690889895,"cog":213.73418072415654,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249870000,"receivedAt":"2026-01-01T06:44:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.29991627684779,"lon":12.303276929879567,"sog":0.6248233914375305,"cog":218.37775356685881,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249900000,"receivedAt":"2026-01-01T06:45:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.299848244032404,"lon":12.303174672455125,"sog":0.6468831862788648,"cog":212.85389762921398,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249930000,"receivedAt":"2026-01-01T06:45:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.29976153456997,"lon":12.30304194344963,"sog":0.66018734020181,"cog":212.83445148253952,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249960000,"receivedAt":"2026-01-01T06:46:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.299696673927,"lon":12.302957129403332,"sog":0.6623072564601898,"cog":213.97089436454837,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767249990000,"receivedAt":"2026-01-01T06:46:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.299600855296674,"lon":12.302850502227857,"sog":0.611235134350136,"cog":214.3552138059414,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250020000,"receivedAt":"2026-01-01T06:47:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.29955402033624,"lon":12.302782606115786,"sog":0.5657144950237125,"cog":214.94664093563472,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250050000,"receivedAt":"2026-01-01T06:47:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.29945601843851,"lon":12.302702848504067,"sog":0.6578404378611594,"cog":213.8402217024951,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250080000,"receivedAt":"2026-01-01T06:48:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.299399711610384,"lon":12.30252334652514,"sog":0.579127715388313,"cog":214.7363728912561,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250110000,"receivedAt":"2026-01-01T06:48:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.299331872223256,"lon":12.302523475290704,"sog":0.6252418220043182,"cog":216.25996359009434,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250140000,"receivedAt":"2026-01-01T06:49:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.299254982053526,"lon":12.302364642808374,"sog":0.6283934459090234,"cog":213.01762592177977,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250170000,"receivedAt":"2026-01-01T06:49:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.299186450467246,"lon":12.302290095108376,"sog":0.650090395892039,"cog":212.8030875897049,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250200000,"receivedAt":"2026-01-01T06:50:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.29909741371706,"lon":12.302132108376815,"sog":0.6766288261394948,"cog":218.53698175111924,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250230000,"receivedAt":"2026-01-01T06:50:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.299056765035715,"lon":12.302073431867058,"sog":0.7098477143794298,"cog":215.5662411380573,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250260000,"receivedAt":"2026-01-01T06:51:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.298935114730405,"lon":12.301950405626538,"sog":0.7356042700819672,"cog":212.90580093711753,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250290000,"receivedAt":"2026-01-01T06:51:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.29887946421697,"lon":12.301910104939582,"sog":0.7220979801379145,"cog":214.97650599330802,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250320000,"receivedAt":"2026-01-01T06:52:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.298828233820466,"lon":12.301808580084476,"sog":0.6748624907806516,"cog":213.68920570043986,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250350000,"receivedAt":"2026-01-01T06:52:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.298717431743356,"lon":12.301642787426475,"sog":0.6750383790116757,"cog":215.5150053146309,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250380000,"receivedAt":"2026-01-01T06:53:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.298668567395225,"lon":12.301571092093369,"sog":0.6160583128686995,"cog":216.38071142640104,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250410000,"receivedAt":"2026-01-01T06:53:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.298609542463765,"lon":12.301508684662076,"sog":0.5670327003579587,"cog":217.86777458051358,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250440000,"receivedAt":"2026-01-01T06:54:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.29852404250695,"lon":12.301361044450358,"sog":0.7249694631434977,"cog":215.67872359780733,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250470000,"receivedAt":"2026-01-01T06:54:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.29844011100002,"lon":12.301262112975662,"sog":0.7149597091134638,"cog":215.9996853576987,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250500000,"receivedAt":"2026-01-01T06:55:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.298393747059585,"lon":12.301147847312656,"sog":0.7285640202928335,"cog":215.0978967271759,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250530000,"receivedAt":"2026-01-01T06:55:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.2983150614216,"lon":12.301039120243178,"sog":0.6091286070179195,"cog":214.546020427627,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250560000,"receivedAt":"2026-01-01T06:56:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.29823880508736,"lon":12.300963347887128,"sog":0.6510018778499216,"cog":215.42744143018638,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250590000,"receivedAt":"2026-01-01T06:56:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.2981463794413,"lon":12.30089852037906,"sog":0.6898039580322802,"cog":218.50043273614858,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250620000,"receivedAt":"2026-01-01T06:57:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.29805888621514,"lon":12.300826022242417,"sog":0.6084392909426243,"cog":213.1980308363228,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250650000,"receivedAt":"2026-01-01T06:57:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.298002644112174,"lon":12.300694280422828,"sog":0.6267094729002566,"cog":215.79029110856493,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250680000,"receivedAt":"2026-01-01T06:58:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.29792807471031,"lon":12.300598923684845,"sog":0.7331140317954123,"cog":217.0833451686441,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250710000,"receivedAt":"2026-01-01T06:58:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.297840459544595,"lon":12.300459938182707,"sog":0.6079301773570478,"cog":213.65891657993336,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250740000,"receivedAt":"2026-01-01T06:59:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.29779056929019,"lon":12.300332154870226,"sog":0.5644703395664692,"cog":214.5847056781887,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250770000,"receivedAt":"2026-01-01T06:59:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.2977109532034,"lon":12.300255730499458,"sog":6.033786862250418,"cog":213.97911592889716,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250800000,"receivedAt":"2026-01-01T07:00:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.29701477883469,"lon":12.299372577078202,"sog":6.0100531690754,"cog":218.46902264226367,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250830000,"receivedAt":"2026-01-01T07:00:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.29637942835218,"lon":12.298423663738431,"sog":5.997392362589016,"cog":216.10956201926012,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250860000,"receivedAt":"2026-01-01T07:01:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.2956946352507,"lon":12.297469695947134,"sog":6.0278178150299935,"cog":214.7825349475271,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250890000,"receivedAt":"2026-01-01T07:01:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.29499801714998,"lon":12.296617847708319,"sog":6.076460538851097,"cog":214.61138935657357,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250920000,"receivedAt":"2026-01-01T07:02:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.294348479672074,"lon":12.29571075255667,"sog":6.097239640634507,"cog":217.68523553144325,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250950000,"receivedAt":"2026-01-01T07:02:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.29367576384647,"lon":12.294743096217362,"sog":5.983276600483805,"cog":213.91614692742144,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767250980000,"receivedAt":"2026-01-01T07:03:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.29300163352993,"lon":12.293856877670656,"sog":5.909670584928245,"cog":213.83529593900948,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251010000,"receivedAt":"2026-01-01T07:03:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.29231993598657,"lon":12.292930203626357,"sog":6.0534476999659095,"cog":212.37184543733656,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251040000,"receivedAt":"2026-01-01T07:04:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.291629580562116,"lon":12.292013658676382,"sog":5.9095239997375755,"cog":207.79379421596695,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251070000,"receivedAt":"2026-01-01T07:04:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.290873028321215,"lon":12.291251209243535,"sog":5.914715168671682,"cog":211.77063015506883,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251100000,"receivedAt":"2026-01-01T07:05:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.290156850005374,"lon":12.290438904145867,"sog":5.908770786691457,"cog":210.19421575109754,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251130000,"receivedAt":"2026-01-01T07:05:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.28945856544181,"lon":12.28971096733211,"sog":6.08443144671619,"cog":206.86469440565725,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251160000,"receivedAt":"2026-01-01T07:06:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.28874622495074,"lon":12.288911471459965,"sog":6.023248974513263,"cog":208.31170704526176,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251190000,"receivedAt":"2026-01-01T07:06:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.28797566589186,"lon":12.288150570454485,"sog":5.938008816167712,"cog":210.5224059734801,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251220000,"receivedAt":"2026-01-01T07:07:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.287296509179676,"lon":12.28731998174486,"sog":5.980886535765603,"cog":212.14225413122495,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251250000,"receivedAt":"2026-01-01T07:07:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.28657094478208,"lon":12.286525713556232,"sog":6.055318818101659,"cog":206.96844566318487,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251280000,"receivedAt":"2026-01-01T07:08:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.28582943634121,"lon":12.28577238321773,"sog":5.93299656054005,"cog":207.01027830860858,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251310000,"receivedAt":"2026-01-01T07:08:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.285085308483474,"lon":12.284999808611328,"sog":6.011276946216822,"cog":207.2540271122316,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251340000,"receivedAt":"2026-01-01T07:09:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.284401456505265,"lon":12.284214527433235,"sog":5.91008539609611,"cog":209.07572998323758,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251370000,"receivedAt":"2026-01-01T07:09:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.2836090393194,"lon":12.283548385962487,"sog":5.900608472758904,"cog":203.02989305854044,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251400000,"receivedAt":"2026-01-01T07:10:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.28287989425885,"lon":12.283014966857147,"sog":5.946132710948587,"cog":203.93767587859384,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251430000,"receivedAt":"2026-01-01T07:10:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.28208798696268,"lon":12.282342756849209,"sog":6.077976586809382,"cog":199.55048062531478,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251460000,"receivedAt":"2026-01-01T07:11:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.28129223424957,"lon":12.28172593230036,"sog":5.979917714279145,"cog":204.1750843857435,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251490000,"receivedAt":"2026-01-01T07:11:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.2805536405754,"lon":12.281151596219502,"sog":5.972063794359565,"cog":201.8943182343637,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251520000,"receivedAt":"2026-01-01T07:12:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.279768620234364,"lon":12.28058450905539,"sog":5.994973056204617,"cog":203.6659892543239,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251550000,"receivedAt":"2026-01-01T07:12:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.279015400418956,"lon":12.279999004476068,"sog":5.911640779068693,"cog":201.8777162294855,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251580000,"receivedAt":"2026-01-01T07:13:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.27823046273073,"lon":12.27937142764925,"sog":6.07058623675257,"cog":203.43095288025415,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251610000,"receivedAt":"2026-01-01T07:13:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.27744922781324,"lon":12.27882859688347,"sog":6.043561574677005,"cog":204.66813906487278,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251640000,"receivedAt":"2026-01-01T07:14:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.27667693798934,"lon":12.278232376098481,"sog":5.904470638744533,"cog":202.01967886109105,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251670000,"receivedAt":"2026-01-01T07:14:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.2759059354861,"lon":12.277598299844929,"sog":5.912740784371271,"cog":202.8798166510669,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251700000,"receivedAt":"2026-01-01T07:15:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.27513429985214,"lon":12.27694942119992,"sog":5.968073897482827,"cog":201.88273311844296,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251730000,"receivedAt":"2026-01-01T07:15:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.274372124164515,"lon":12.276402734515601,"sog":5.918701737420633,"cog":200.05481600919939,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251760000,"receivedAt":"2026-01-01T07:16:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.27360215389001,"lon":12.27581167611364,"sog":6.063543182937428,"cog":202.08748547798223,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251790000,"receivedAt":"2026-01-01T07:16:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.27284303257555,"lon":12.275245100534548,"sog":6.051404341496527,"cog":199.63949028188563,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251820000,"receivedAt":"2026-01-01T07:17:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.27209885830372,"lon":12.27455744905044,"sog":5.940700876619667,"cog":202.43977992785165,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251850000,"receivedAt":"2026-01-01T07:17:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.27130783599899,"lon":12.274008424891399,"sog":5.920178668014705,"cog":201.38899734838867,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251880000,"receivedAt":"2026-01-01T07:18:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.270543256429185,"lon":12.273420359784328,"sog":5.968857631646097,"cog":202.36461053685287,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251910000,"receivedAt":"2026-01-01T07:18:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.26977553010102,"lon":12.272850480482932,"sog":6.030408231820911,"cog":204.65553478793242,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251940000,"receivedAt":"2026-01-01T07:19:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.26900789392015,"lon":12.272230658896916,"sog":5.965367127116769,"cog":204.4932789428998,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767251970000,"receivedAt":"2026-01-01T07:19:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.26824018834719,"lon":12.271607275095809,"sog":5.9666706640739,"cog":204.0412101819087,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767252000000,"receivedAt":"2026-01-01T07:20:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.26747785810189,"lon":12.271051932903422,"sog":5.912786146299913,"cog":204.27269697085956,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767252030000,"receivedAt":"2026-01-01T07:20:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.26668340019259,"lon":12.27040115250521,"sog":5.928130920697003,"cog":201.73891124538147,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767252060000,"receivedAt":"2026-01-01T07:21:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.2659117888713,"lon":12.269785924851758,"sog":6.001814902573824,"cog":205.08438446455636,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767252090000,"receivedAt":"2026-01-01T07:21:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.26514673405312,"lon":12.269169140637143,"sog":6.098830130184069,"cog":202.4301059473213,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767252120000,"receivedAt":"2026-01-01T07:22:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.26438410490192,"lon":12.268568829057317,"sog":6.056078035524115,"cog":204.08602451895365,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767252150000,"receivedAt":"2026-01-01T07:22:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.26361927136275,"lon":12.268064330952756,"sog":6.079981786943972,"cog":203.20872185555288,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767252180000,"receivedAt":"2026-01-01T07:23:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.262808916110984,"lon":12.267441750232072,"sog":5.992526817182079,"cog":204.99319080253133,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767252210000,"receivedAt":"2026-01-01T07:23:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.26206717393285,"lon":12.266837728301457,"sog":5.934800686594099,"cog":203.6955033521075,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767252240000,"receivedAt":"2026-01-01T07:24:00.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.26127683725356,"lon":12.266229354081279,"sog":5.951949507277459,"cog":200.4173534660507,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767252270000,"receivedAt":"2026-01-01T07:24:30.000Z"}
++{"mmsi":"901000300","msgType":"PositionReport","lat":58.26051782010459,"lon":12.265588568266665,"sog":5.907163543673232,"cog":201.65128090362066,"navStatus":null,"shipName":"KRYPARE","aisTimestamp":1767252300000,"receivedAt":"2026-01-01T07:25:00.000Z"}
+diff --git a/tests/fixtures/m-f05-slinga-c-bortglidning-och-vandning.jsonl b/tests/fixtures/m-f05-slinga-c-bortglidning-och-vandning.jsonl
+new file mode 100644
+index 0000000..77e84be
+--- /dev/null
++++ b/tests/fixtures/m-f05-slinga-c-bortglidning-och-vandning.jsonl
+@@ -0,0 +1,85 @@
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.27327849478651,"lon":12.271726249979364,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851030258,"fixTs":1780851030258,"feed":"aisstream","receivedAt":"2026-06-07T16:50:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.273874667152874,"lon":12.27239882477904,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851060258,"fixTs":1780851060258,"feed":"aisstream","receivedAt":"2026-06-07T16:51:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.27447083951924,"lon":12.273071399578715,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851090258,"fixTs":1780851090258,"feed":"aisstream","receivedAt":"2026-06-07T16:51:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.275067011885604,"lon":12.273743974378391,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851120258,"fixTs":1780851120258,"feed":"aisstream","receivedAt":"2026-06-07T16:52:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.27566318425197,"lon":12.274416549178065,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851150258,"fixTs":1780851150258,"feed":"aisstream","receivedAt":"2026-06-07T16:52:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.27625935661833,"lon":12.275089123977741,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851180258,"fixTs":1780851180258,"feed":"aisstream","receivedAt":"2026-06-07T16:53:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.2768555289847,"lon":12.275761698777417,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851210258,"fixTs":1780851210258,"feed":"aisstream","receivedAt":"2026-06-07T16:53:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.27745170135107,"lon":12.276434273577092,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851240258,"fixTs":1780851240258,"feed":"aisstream","receivedAt":"2026-06-07T16:54:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.27804787371743,"lon":12.277106848376768,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851270258,"fixTs":1780851270258,"feed":"aisstream","receivedAt":"2026-06-07T16:54:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.2786440460838,"lon":12.277779423176442,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851300258,"fixTs":1780851300258,"feed":"aisstream","receivedAt":"2026-06-07T16:55:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.27924021845016,"lon":12.278451997976118,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851330258,"fixTs":1780851330258,"feed":"aisstream","receivedAt":"2026-06-07T16:55:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.27983639081653,"lon":12.279124572775794,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851360258,"fixTs":1780851360258,"feed":"aisstream","receivedAt":"2026-06-07T16:56:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.28043256318289,"lon":12.279797147575469,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851390258,"fixTs":1780851390258,"feed":"aisstream","receivedAt":"2026-06-07T16:56:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.281028735549256,"lon":12.280469722375145,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851420258,"fixTs":1780851420258,"feed":"aisstream","receivedAt":"2026-06-07T16:57:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.28162490791562,"lon":12.281142297174819,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851450258,"fixTs":1780851450258,"feed":"aisstream","receivedAt":"2026-06-07T16:57:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.282221080281985,"lon":12.281814871974495,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851480258,"fixTs":1780851480258,"feed":"aisstream","receivedAt":"2026-06-07T16:58:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.28281725264835,"lon":12.282487446774171,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851510258,"fixTs":1780851510258,"feed":"aisstream","receivedAt":"2026-06-07T16:58:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.283413425014714,"lon":12.283160021573845,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851540258,"fixTs":1780851540258,"feed":"aisstream","receivedAt":"2026-06-07T16:59:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.28400959738108,"lon":12.283832596373522,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851570258,"fixTs":1780851570258,"feed":"aisstream","receivedAt":"2026-06-07T16:59:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.28460576974745,"lon":12.284505171173196,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851600258,"fixTs":1780851600258,"feed":"aisstream","receivedAt":"2026-06-07T17:00:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.285201942113815,"lon":12.285177745972872,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851630258,"fixTs":1780851630258,"feed":"aisstream","receivedAt":"2026-06-07T17:00:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.28579811448018,"lon":12.285850320772546,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851660258,"fixTs":1780851660258,"feed":"aisstream","receivedAt":"2026-06-07T17:01:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.286394286846544,"lon":12.286522895572222,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851690258,"fixTs":1780851690258,"feed":"aisstream","receivedAt":"2026-06-07T17:01:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.28699045921291,"lon":12.287195470371898,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851720258,"fixTs":1780851720258,"feed":"aisstream","receivedAt":"2026-06-07T17:02:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.28716931092282,"lon":12.287397242811801,"sog":1.5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851750258,"fixTs":1780851750258,"feed":"aisstream","receivedAt":"2026-06-07T17:02:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.287348162632725,"lon":12.287599015251702,"sog":1.5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851780258,"fixTs":1780851780258,"feed":"aisstream","receivedAt":"2026-06-07T17:03:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.287527014342636,"lon":12.287800787691605,"sog":1.5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851810258,"fixTs":1780851810258,"feed":"aisstream","receivedAt":"2026-06-07T17:03:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.28770586605255,"lon":12.288002560131508,"sog":1.5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851840258,"fixTs":1780851840258,"feed":"aisstream","receivedAt":"2026-06-07T17:04:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.28778313048572,"lon":12.28808972638341,"sog":1.5,"cog":70,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851870258,"fixTs":1780851870258,"feed":"aisstream","receivedAt":"2026-06-07T17:04:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.28778313048572,"lon":12.28808972638341,"sog":1.5,"cog":110,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851900258,"fixTs":1780851900258,"feed":"aisstream","receivedAt":"2026-06-07T17:05:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.28766723383596,"lon":12.287958977005557,"sog":1.5,"cog":150,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851930258,"fixTs":1780851930258,"feed":"aisstream","receivedAt":"2026-06-07T17:05:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.28748952563966,"lon":12.287758494626182,"sog":1.5,"cog":190,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851960258,"fixTs":1780851960258,"feed":"aisstream","receivedAt":"2026-06-07T17:06:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.28731181744336,"lon":12.287558012246809,"sog":1.5,"cog":210,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780851990258,"fixTs":1780851990258,"feed":"aisstream","receivedAt":"2026-06-07T17:06:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.28713410924706,"lon":12.287357529867434,"sog":1.5,"cog":210,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852020258,"fixTs":1780852020258,"feed":"aisstream","receivedAt":"2026-06-07T17:07:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.2870182125973,"lon":12.287226780489581,"sog":1.5,"cog":250,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852050258,"fixTs":1780852050258,"feed":"aisstream","receivedAt":"2026-06-07T17:07:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.2870182125973,"lon":12.287226780489581,"sog":1.5,"cog":290,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852080258,"fixTs":1780852080258,"feed":"aisstream","receivedAt":"2026-06-07T17:08:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.28713410924706,"lon":12.287357529867434,"sog":1.5,"cog":330,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852110258,"fixTs":1780852110258,"feed":"aisstream","receivedAt":"2026-06-07T17:08:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.28731181744336,"lon":12.287558012246809,"sog":1.5,"cog":10,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852140258,"fixTs":1780852140258,"feed":"aisstream","receivedAt":"2026-06-07T17:09:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.28748952563966,"lon":12.287758494626182,"sog":1.5,"cog":30.7,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852170258,"fixTs":1780852170258,"feed":"aisstream","receivedAt":"2026-06-07T17:09:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.28766723383596,"lon":12.287958977005557,"sog":1.5,"cog":30.7,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852200258,"fixTs":1780852200258,"feed":"aisstream","receivedAt":"2026-06-07T17:10:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.28784494203226,"lon":12.288159459384932,"sog":1.5,"cog":30.7,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852230258,"fixTs":1780852230258,"feed":"aisstream","receivedAt":"2026-06-07T17:10:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.288022650228555,"lon":12.288359941764305,"sog":1.5,"cog":30.7,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852260258,"fixTs":1780852260258,"feed":"aisstream","receivedAt":"2026-06-07T17:11:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.28820035842485,"lon":12.28856042414368,"sog":1.5,"cog":30.7,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852290258,"fixTs":1780852290258,"feed":"aisstream","receivedAt":"2026-06-07T17:11:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.288378066621156,"lon":12.288760906523056,"sog":1.5,"cog":30.7,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852320258,"fixTs":1780852320258,"feed":"aisstream","receivedAt":"2026-06-07T17:12:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.28855577481745,"lon":12.288961388902429,"sog":1.5,"cog":30.7,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852350258,"fixTs":1780852350258,"feed":"aisstream","receivedAt":"2026-06-07T17:12:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.28915194718382,"lon":12.289633963702105,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852380258,"fixTs":1780852380258,"feed":"aisstream","receivedAt":"2026-06-07T17:13:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.28974811955018,"lon":12.290306538501781,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852410258,"fixTs":1780852410258,"feed":"aisstream","receivedAt":"2026-06-07T17:13:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.29034429191655,"lon":12.290979113301455,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852440258,"fixTs":1780852440258,"feed":"aisstream","receivedAt":"2026-06-07T17:14:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.29094046428291,"lon":12.291651688101132,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852470258,"fixTs":1780852470258,"feed":"aisstream","receivedAt":"2026-06-07T17:14:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.291536636649276,"lon":12.292324262900806,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852500258,"fixTs":1780852500258,"feed":"aisstream","receivedAt":"2026-06-07T17:15:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.29213280901564,"lon":12.292996837700482,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852530258,"fixTs":1780852530258,"feed":"aisstream","receivedAt":"2026-06-07T17:15:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.292728981382005,"lon":12.293669412500156,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852560258,"fixTs":1780852560258,"feed":"aisstream","receivedAt":"2026-06-07T17:16:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.29332515374837,"lon":12.294341987299832,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852590258,"fixTs":1780852590258,"feed":"aisstream","receivedAt":"2026-06-07T17:16:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.29392132611474,"lon":12.295014562099508,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852620258,"fixTs":1780852620258,"feed":"aisstream","receivedAt":"2026-06-07T17:17:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.294517498481106,"lon":12.295687136899183,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852650258,"fixTs":1780852650258,"feed":"aisstream","receivedAt":"2026-06-07T17:17:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.29511367084747,"lon":12.296359711698859,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852680258,"fixTs":1780852680258,"feed":"aisstream","receivedAt":"2026-06-07T17:18:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.295709843213835,"lon":12.297032286498533,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852710258,"fixTs":1780852710258,"feed":"aisstream","receivedAt":"2026-06-07T17:18:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.2963060155802,"lon":12.29770486129821,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852740258,"fixTs":1780852740258,"feed":"aisstream","receivedAt":"2026-06-07T17:19:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.296902187946564,"lon":12.298377436097885,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852770258,"fixTs":1780852770258,"feed":"aisstream","receivedAt":"2026-06-07T17:19:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.29749836031293,"lon":12.29905001089756,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852800258,"fixTs":1780852800258,"feed":"aisstream","receivedAt":"2026-06-07T17:20:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.29809453267929,"lon":12.299722585697236,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852830258,"fixTs":1780852830258,"feed":"aisstream","receivedAt":"2026-06-07T17:20:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.29869070504566,"lon":12.30039516049691,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852860258,"fixTs":1780852860258,"feed":"aisstream","receivedAt":"2026-06-07T17:21:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.29928687741202,"lon":12.301067735296586,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852890258,"fixTs":1780852890258,"feed":"aisstream","receivedAt":"2026-06-07T17:21:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.29988304977839,"lon":12.301740310096262,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852920258,"fixTs":1780852920258,"feed":"aisstream","receivedAt":"2026-06-07T17:22:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.30047922214475,"lon":12.302412884895936,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852950258,"fixTs":1780852950258,"feed":"aisstream","receivedAt":"2026-06-07T17:22:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.301075394511116,"lon":12.303085459695613,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780852980258,"fixTs":1780852980258,"feed":"aisstream","receivedAt":"2026-06-07T17:23:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.30167156687749,"lon":12.303758034495287,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780853010258,"fixTs":1780853010258,"feed":"aisstream","receivedAt":"2026-06-07T17:23:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.30226773924385,"lon":12.304430609294963,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780853040258,"fixTs":1780853040258,"feed":"aisstream","receivedAt":"2026-06-07T17:24:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.30286391161022,"lon":12.305103184094637,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780853070258,"fixTs":1780853070258,"feed":"aisstream","receivedAt":"2026-06-07T17:24:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.30346008397658,"lon":12.305775758894313,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780853100258,"fixTs":1780853100258,"feed":"aisstream","receivedAt":"2026-06-07T17:25:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.304056256342946,"lon":12.30644833369399,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780853130258,"fixTs":1780853130258,"feed":"aisstream","receivedAt":"2026-06-07T17:25:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.30465242870931,"lon":12.307120908493664,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780853160258,"fixTs":1780853160258,"feed":"aisstream","receivedAt":"2026-06-07T17:26:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.305248601075675,"lon":12.30779348329334,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780853190258,"fixTs":1780853190258,"feed":"aisstream","receivedAt":"2026-06-07T17:26:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.30584477344204,"lon":12.308466058093014,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780853220258,"fixTs":1780853220258,"feed":"aisstream","receivedAt":"2026-06-07T17:27:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.306440945808404,"lon":12.30913863289269,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780853250258,"fixTs":1780853250258,"feed":"aisstream","receivedAt":"2026-06-07T17:27:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.30703711817477,"lon":12.309811207692366,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780853280258,"fixTs":1780853280258,"feed":"aisstream","receivedAt":"2026-06-07T17:28:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.30763329054113,"lon":12.31048378249204,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780853310258,"fixTs":1780853310258,"feed":"aisstream","receivedAt":"2026-06-07T17:28:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.3082294629075,"lon":12.311156357291717,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780853340258,"fixTs":1780853340258,"feed":"aisstream","receivedAt":"2026-06-07T17:29:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.30882563527387,"lon":12.311828932091391,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780853370258,"fixTs":1780853370258,"feed":"aisstream","receivedAt":"2026-06-07T17:29:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.309421807640234,"lon":12.312501506891067,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780853400258,"fixTs":1780853400258,"feed":"aisstream","receivedAt":"2026-06-07T17:30:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.3100179800066,"lon":12.313174081690743,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780853430258,"fixTs":1780853430258,"feed":"aisstream","receivedAt":"2026-06-07T17:30:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.31061415237296,"lon":12.313846656490417,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780853460258,"fixTs":1780853460258,"feed":"aisstream","receivedAt":"2026-06-07T17:31:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.31121032473933,"lon":12.314519231290094,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780853490258,"fixTs":1780853490258,"feed":"aisstream","receivedAt":"2026-06-07T17:31:30.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.31180649710569,"lon":12.315191806089768,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780853520258,"fixTs":1780853520258,"feed":"aisstream","receivedAt":"2026-06-07T17:32:00.258Z"}
++{"mmsi":"265999001","msgType":"PositionReport","lat":58.31240266947206,"lon":12.315864380889444,"sog":5,"cog":30.671325768834492,"navStatus":0,"shipName":"GRANSKARE","aisTimestamp":1780853550258,"fixTs":1780853550258,"feed":"aisstream","receivedAt":"2026-06-07T17:32:30.258Z"}
+diff --git a/tests/m-krypfart-malbron-2026-11-04.test.js b/tests/m-krypfart-malbron-2026-11-04.test.js
+index d1d5c02..981e978 100644
+--- a/tests/m-krypfart-malbron-2026-11-04.test.js
++++ b/tests/m-krypfart-malbron-2026-11-04.test.js
+@@ -29,13 +29,29 @@
+  *     ANCHOR_BLOCK inte gäller: båtar som inte passerat någon bro och båtar
+  *     utan fartgivare (sog=null).
+  *
++ * Revision 3 (omgranskningen 2026-11-05, dirigentens beslut "väg 1"):
++ *  3. Återinträdets FARTPROV (vessel._reentrySpeedProof): föll borttagningen på
++ *     fartgrinden (0,7 kn > 500 m / 0,1 kn 300–500 m från närmaste bro,
++ *     _targetSpeedGate) läggs samma bro tillbaka först när grinden HÅLLIT
++ *     oavbrutet i mer än nådafristen — samma tidsbedömning som retentionen
++ *     använder när den tar bort. Förut räckte ett enda fartprov över 0,7 kn
++ *     (granskarens klasser G och H).
++ *  4. Närmandebeviset beväpnas bara vid OTILLRÄCKLIG rörelse, inte vid en
++ *     tydlig bortrörelse (≥ 10 m bort, MOVING_AWAY). Granskarens slinga-C:
++ *     "Inga båtar" stod 150 s i stället för 30 s för en båt på väg mot målbron.
++ *
+  * Testen fäller 7699cbe: kryparna tappar målbron (riggen), syskonen flappar,
+  * etiketten säger emot beslutet och fixturen ger DEFAULT-FLASH 17:19:30.
+- * Vändningstestet fäller i stället den första prototypen (9c802ed). Kontrollerna
+- * (stilla, bortglidande, stoppad, avgång, skyddszon) visar att rättningen
+- * varken håller kvar mål utan närmande eller fördröjer en äkta avgång.
++ * Vändningstestet fäller i stället den första prototypen (9c802ed), och
++ * slinga-C-testet revision 1 (c6a765d). Fartgrindstesten fäller både 7699cbe
++ * och c6a765d. Kontrollerna (stilla, bortglidande, stoppad, avgång, skyddszon)
++ * visar att rättningen varken håller kvar mål utan närmande eller fördröjer en
++ * äkta avgång i minst 2,0 kn. De ACCEPTERADE testen låser rättningens kända pris:
++ * en avgång under 2,0 kn kan få målbron en till tre fixar senare än på 7699cbe.
+  *
+- * Fixturen är buggjägarens minsta repro för F05 (värld 933, R0, 112 rader).
++ * Fixturerna: buggjägarens minsta repro för F05 (värld 933, R0, 112 rader),
++ * granskarens klass H (0,65 kn 560–1650 m söder om Stallbackabron, seed 1)
++ * och granskarens slinga-C (bortglidning och vändning norr om Klaffbron).
+  */
+ 
+ jest.mock('homey');
+@@ -476,18 +492,245 @@ describe('F05 (granskningen): återinträdesbevisets livscykel', () => {
+   });
+ });
+ 
++/** Kör en fixtur genom hela appen (replayRunner) och returnerar resultat-JSON. */
++function korHelaAppen(fixtur) {
++  const env = { ...process.env, NODE_OPTIONS: '', REPLAY_VERBOSE: '' };
++  delete env.REPLAY_MONITORING;
++  const out = execFileSync(process.execPath, [
++    path.join(ROOT, 'tests/replay-validation/replayRunner.js'),
++    path.join(FIXTURES, fixtur),
++  ], {
++    cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env,
++  });
++  return JSON.parse(out.match(/__REPLAY_JSON__(.*?)__END__/s)[1]);
++}
++
++/** Sekunder med "Inga båtar" i texten mellan tidpunkterna t0 och t1 (ms). */
++function ingaBatarSekunder(result, t0, t1) {
++  const tr = result.bridgeTextTransitions;
++  let ms = 0;
++  for (let i = 0; i < tr.length; i++) {
++    if (!/^Inga båtar/.test(tr[i].text)) continue;
++    const a = Math.max(tr[i].t, t0);
++    const b = Math.min(i + 1 < tr.length ? tr[i + 1].t : t1, t1);
++    if (b > a) ms += b - a;
++  }
++  return ms / 1000;
++}
++
++describe('F05 rev 3 (omgranskningen): fartgrindens tidsbedömning gäller även återinträdet', () => {
++  // Granskarens klass H i riggen: förbi Stallbackabron söderut, sedan 11 m per
++  // 30 s (≈ 0,71 kn verklig fart, så närmandebeviset finns) 600–1150 m söder om
++  // Stallbackabron — mer än 500 m från varje bro, alltså 0,7 kn-grinden. Den
++  // rapporterade farten brusar kring 0,65 kn och går över 0,7 kn två gånger per
++  // tio fixar. Retentionen tar bort målbron först när grinden fallerat i mer än
++  // nådafristen (fyra fixar i rad); ACCELERATED lade tillbaka den på nästa
++  // enstaka prov över 0,7 kn — samma flapp som F05.
++  const FARTBRUS = [0.65, 0.62, 0.68, 0.74, 0.63, 0.66, 0.6, 0.72, 0.64, 0.67];
++  const kryparSoderOmStallbacka = (mmsi, farter) => {
++    const steg = [];
++    for (let i = 0; i < 18; i++) steg.push({ ds: 77, sog: 5 });
++    farter.forEach((sog) => steg.push({ ds: 11, sog }));
++    return korLangsLinje(mmsi, 'stallbackabron', 'stridsbergsbron', -800, steg);
++  };
++
++  test('KLASS H: en krypare kring 0,7 kn mer än 500 m från broar får inte tillbaka målbron på ett enstaka fartprov', () => {
++    const farter = Array.from({ length: 50 }, (_, i) => FARTBRUS[i % FARTBRUS.length]);
++    const { spar } = kryparSoderOmStallbacka('265000531', farter);
++    const krypet = spar.slice(19);
++    expect(krypet[0].s).toBeGreaterThan(500);
++    expect(krypet[krypet.length - 1].s).toBeLessThan(2226 - 500);
++    expect(spar.some((x) => x.target === 'Stridsbergsbron')).toBe(true);
++    expect(krypet.some((x) => x.target === null)).toBe(true);
++    expect(aterkomster(spar, 'Stridsbergsbron')).toBe(0);
++  });
++
++  test('KONTROLL: håller fartgrinden i mer än en nådafrist läggs samma bro tillbaka (spegeln av borttagningen)', () => {
++    // Samma krypare, men efter 20 fixar ligger farten stadigt på 0,8 kn. Grinden
++    // håller då oavbrutet; efter mer än 60 s (fyra fixar i 30 s kadens: 0, 30,
++    // 60 och 90 s) får båten tillbaka målbron, precis som retentionen tar bort
++    // den först efter fyra fallerade fixar.
++    const farter = [
++      ...Array.from({ length: 20 }, (_, i) => FARTBRUS[i % FARTBRUS.length]),
++      ...Array(10).fill(0.8),
++    ];
++    const { spar } = kryparSoderOmStallbacka('265000532', farter);
++    const krypet = spar.slice(19);
++    expect(krypet.slice(0, 20).some((x) => x.target === null)).toBe(true);
++    expect(krypet.slice(20).map((x) => x.target)).toEqual([
++      null, null, null, ...Array(7).fill('Stridsbergsbron'),
++    ]);
++  });
++
++  test('_targetSpeedGate är fartgrindarna ordagrant (bara känd fart, närmaste bro i registret)', () => {
++    const svc = makeVDS();
++    const strids = BRIDGES.stridsbergsbron;
++    const stall = BRIDGES.stallbackabron;
++    const mitt = { lat: (strids.lat + stall.lat) / 2, lon: (strids.lon + stall.lon) / 2 }; // ≈ 1,1 km från båda
++    expect(svc._targetSpeedGate({ ...mitt, sog: 0.65 })).toEqual(expect.objectContaining({
++      minSpeed: 0.7, context: 'far from bridges', blocked: true,
++    }));
++    expect(svc._targetSpeedGate({ ...mitt, sog: 0.71 }).blocked).toBe(false);
++    expect(svc._targetSpeedGate({ ...mitt, sog: null }).blocked).toBe(false); // okänd fart blockerar inte
++    const p400 = along(-400); // 400 m söder om Klaffbron
++    expect(svc._targetSpeedGate({ ...p400, sog: 0.1 })).toEqual(expect.objectContaining({ minSpeed: 0.1, blocked: true }));
++    expect(svc._targetSpeedGate({ ...p400, sog: 0.11 }).blocked).toBe(false);
++    const p100 = along(100);
++    expect(svc._targetSpeedGate({ ...p100, sog: 0 })).toEqual(expect.objectContaining({
++      minSpeed: null, blocked: false, nearestBridge: 'Klaffbron',
++    }));
++  });
++
++  test('fartprovets livscykel: beväpnas bara på fartgrinden (inte ANCHOR_BLOCK), loppet bryts av ett fallerat prov och posten förbrukas med en målbro', () => {
++    const svc = makeVDS();
++    const strids = BRIDGES.stridsbergsbron;
++    const stall = BRIDGES.stallbackabron;
++    const mitt = { lat: (strids.lat + stall.lat) / 2, lon: (strids.lon + stall.lon) / 2 };
++    // Grinden håller (0,8 kn) → ingen beväpning.
++    const v = {
++      mmsi: '265000533', ...mitt, sog: 0.8, targetBridge: 'Stridsbergsbron', passedBridges: [],
++    };
++    svc._armReentrySpeedProof(v, NOW);
++    expect(v._reentrySpeedProof).toBeUndefined();
++    // ANCHOR_BLOCK fällde samma prov (passerad bro och < 0,3 kn) → FIX B:s, ingen beväpning.
++    const ankrad = { ...v, sog: 0.2, passedBridges: ['Stallbackabron'] };
++    svc._armReentrySpeedProof(ankrad, NOW);
++    expect(ankrad._reentrySpeedProof).toBeUndefined();
++    // Fartgrinden fällde (0,6 kn, ingen passerad bro) → beväpnas.
++    v.sog = 0.6;
++    svc._armReentrySpeedProof(v, NOW);
++    expect(v._reentrySpeedProof).toEqual({ bridge: 'Stridsbergsbron', t: NOW, holdsSince: null });
++    v.targetBridge = null;
++    // Loppet startar på första prov där grinden håller …
++    v.sog = 0.8;
++    svc._maintainReentrySpeedProof(v, NOW + 30000);
++    expect(v._reentrySpeedProof.holdsSince).toBe(NOW + 30000);
++    svc._maintainReentrySpeedProof(v, NOW + 60000);
++    expect(v._reentrySpeedProof.holdsSince).toBe(NOW + 30000);
++    expect(svc._reentryNeedsProof(v, null, 'Stridsbergsbron', strids, NOW + 90000)).toBe(true); // 60 s: inte > 60 s
++    expect(svc._reentryNeedsProof(v, null, 'Stridsbergsbron', strids, NOW + 90001)).toBe(false);
++    expect(svc._reentryNeedsProof(v, null, 'Klaffbron', BRIDGES.klaffbron, NOW + 30000)).toBe(false); // annan bro
++    // … ett fallerat prov eller en GPS-misstänkt position bryter det.
++    v.sog = 0.7;
++    svc._maintainReentrySpeedProof(v, NOW + 90000);
++    expect(v._reentrySpeedProof.holdsSince).toBeNull();
++    v.sog = 0.8;
++    v._gpsJumpDetected = true;
++    svc._maintainReentrySpeedProof(v, NOW + 120000);
++    expect(v._reentrySpeedProof.holdsSince).toBeNull();
++    v._gpsJumpDetected = false;
++    // Med en målbro (oavsett väg) är posten förbrukad.
++    v.targetBridge = 'Stridsbergsbron';
++    svc._maintainReentrySpeedProof(v, NOW + 150000);
++    expect(v._reentrySpeedProof).toBeNull();
++  });
++
++  describe('i hela appen: granskarens klass H (0,65 kn, seed 1)', () => {
++    let result;
++    beforeAll(() => {
++      result = korHelaAppen('m-f05-fartgrind-0.65kn-soder-om-stallbackabron.jsonl');
++    });
++
++    test('ingen DEFAULT-FLASH (7699cbe: 9, revision 1: 10)', () => {
++      const flash = validateInvariants(result).filter((x) => String(x).includes('DEFAULT-FLASH'));
++      expect(flash).toEqual([]);
++    });
++
++    test('notiser, öppningsvarningar och målbropassager är desamma som på 7699cbe', () => {
++      expect(result.notifications.map((n) => n.bridge)).toEqual(
++        ['Stallbackabron', 'Stridsbergsbron', 'Järnvägsbron', 'Klaffbron', 'Olidebron', 'Kanalinfarten'],
++      );
++      expect(result.openingWarnings.map((w) => `${w.bridge}:${w.direction}`)).toEqual(
++        ['Stridsbergsbron:southbound', 'Klaffbron:southbound'],
++      );
++      expect(result.targetPassages.map((p) => p.bridge)).toEqual(['Stridsbergsbron', 'Klaffbron']);
++    });
++  });
++});
++
++describe('F05 rev 3 (omgranskningen): en tydlig bortrörelse beväpnar inte närmandebeviset (slinga-C)', () => {
++  let result;
++  beforeAll(() => {
++    result = korHelaAppen('m-f05-slinga-c-bortglidning-och-vandning.jsonl');
++  });
++
++  test('"Inga båtar" står högst 30 s mellan Klaffbron- och Stridsbergsbron-passagen, som på 7699cbe (revision 1: 150 s)', () => {
++    // Rådata: båten glider 15–23 m per fix BORT 17:05:30–17:07:30 och närmar
++    // sig från 17:08:30. Korsningarna (U13): Klaffbron 17:00, Stridsbergsbron
++    // 17:17, ingen återkorsning — hon var på väg mot målbron hela tiden.
++    const p = (bro) => result.targetPassages.find((x) => x.mmsi === '265999001' && x.bridge === bro);
++    expect(p('Klaffbron')).toBeDefined();
++    expect(p('Stridsbergsbron')).toBeDefined();
++    expect(ingaBatarSekunder(result, p('Klaffbron').t, p('Stridsbergsbron').t)).toBeLessThanOrEqual(30);
++  });
++
++  test('notiser och öppningsvarningar är desamma som på 7699cbe', () => {
++    expect(result.notifications.map((n) => n.bridge)).toEqual(
++      ['Olidebron', 'Kanalinfarten', 'Klaffbron', 'Järnvägsbron', 'Stridsbergsbron', 'Stallbackabron'],
++    );
++    expect(result.openingWarnings.map((w) => `${w.bridge}:${w.direction}`)).toEqual(
++      ['Klaffbron:northbound', 'Stridsbergsbron:northbound'],
++    );
++  });
++
++  test('_armReentryApproachProof beväpnar vid otillräcklig rörelse men inte vid ≥ 10 m bortrörelse', () => {
++    const svc = makeVDS();
++    const p0 = along(400);
++    const vessel = {
++      mmsi: '265000534', lat: p0.lat, lon: p0.lon, sog: 1.5, targetBridge: 'Stridsbergsbron',
++    };
++    svc._armReentryApproachProof(vessel, { ...vessel, ...along(415) }, NOW); // 15 m bort
++    expect(vessel._reentryApproachRef).toBeUndefined();
++    svc._armReentryApproachProof(vessel, { ...vessel, ...along(404) }, NOW); // 4 m bort: otillräckligt
++    expect(vessel._reentryApproachRef).toEqual(expect.objectContaining({ bridge: 'Stridsbergsbron', t: NOW }));
++  });
++});
++
++describe('F05: rättningens accepterade pris — avgångar under 2,0 kn (FIX_D_MIN_SOG)', () => {
++  test('ACCEPTERAT (närmandebeviset): en avgång i 1,5 kn vars första fix inte flyttat sig får målbron en fix senare', () => {
++    // Stopp 500 m norr om passerade Klaffbron tills målbron tagits bort, sedan
++    // avgång i 1,5 kn. Första avgångsfixen har farten men samma position
++    // (granskarens dep-at500-v1.5-sog). 7699cbe lade tillbaka målbron på den
++    // fixen; nu krävs 10 m närmande, som kommer med nästa fix (23 m). Under
++    // 2,0 kn räknas farten inte som rörelsebevis i sig.
++    const fas2 = [];
++    for (let i = 0; i < 6; i++) fas2.push({ ds: 77, sog: 5, dtS: 30 });
++    fas2.push({ ds: 40, sog: 2, dtS: 30 });
++    for (let i = 0; i < 30; i++) fas2.push({ ds: 0, sog: 0, dtS: 30 });
++    fas2.push({ ds: 0, sog: 1.5, dtS: 30 });
++    for (let i = 0; i < 4; i++) fas2.push({ ds: 1.5 * KN * 30, sog: 1.5, dtS: 30 });
++    const { efter } = korForbiKlaffbron('265000535', fas2);
++    expect(efter[6].s).toBeGreaterThan(480);
++    expect(efter.slice(7, 37).some((e) => e.target === null)).toBe(true);
++    expect(efter.slice(37).map((e) => e.target)).toEqual([null, ...Array(4).fill('Stridsbergsbron')]);
++  });
++
++  test('ACCEPTERAT (fartprovet): en avgång i 1,5 kn från stopp mer än 500 m från broar får målbron när grinden hållit i mer än en nådafrist; i 2,5 kn direkt', () => {
++    // Ingen bro passerad (ANCHOR_BLOCK gäller inte): stopp ≈ 570 m söder om
++    // Olidebron, där 0,7 kn-grinden tar bort Klaffbron. Avgången i 1,5 kn får
++    // tillbaka målbron på fjärde fixen (grinden har då hållit 90 s), som
++    // retentionen tar bort den först på fjärde fallerade fixen. Från 2,0 kn
++    // räknas meddelandets egen fart som rörelsebevis och avgången fördröjs inte.
++    const avgang = (mmsi, kn) => {
++      const steg = [];
++      for (let i = 0; i < 12; i++) steg.push({ ds: 77, sog: 5 });
++      for (let i = 0; i < 30; i++) steg.push({ ds: 0, sog: 0 });
++      for (let i = 0; i < 6; i++) steg.push({ ds: kn * KN * 30, sog: kn });
++      return korLangsLinje(mmsi, 'olidebron', 'klaffbron', -1500, steg).spar;
++    };
++    const lang = avgang('265000536', 1.5);
++    expect(lang[12].s).toBeLessThan(-500);
++    expect(lang.slice(13, 43).some((x) => x.target === null)).toBe(true);
++    expect(lang.slice(43).map((x) => x.target)).toEqual([null, null, null, 'Klaffbron', 'Klaffbron', 'Klaffbron']);
++    const snabb = avgang('265000537', 2.5);
++    expect(snabb.slice(43).map((x) => x.target)).toEqual(Array(6).fill('Klaffbron'));
++  });
++});
++
+ describe('F05 i hela appen: buggjägarens minsta repro (WILMA, värld 933)', () => {
+   let result;
+   beforeAll(() => {
+-    const env = { ...process.env, NODE_OPTIONS: '', REPLAY_VERBOSE: '' };
+-    delete env.REPLAY_MONITORING;
+-    const out = execFileSync(process.execPath, [
+-      path.join(ROOT, 'tests/replay-validation/replayRunner.js'),
+-      path.join(FIXTURES, 'm-f05-wilma-krypfart-norr-om-klaffbron.jsonl'),
+-    ], {
+-      cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env,
+-    });
+-    result = JSON.parse(out.match(/__REPLAY_JSON__(.*?)__END__/s)[1]);
++    result = korHelaAppen('m-f05-wilma-krypfart-norr-om-klaffbron.jsonl');
+   });
+ 
+   test('ingen DEFAULT-FLASH (INV-14)', () => {
+diff --git a/tests/replay-validation/runSyntheticScenarios.js b/tests/replay-validation/runSyntheticScenarios.js
+index 3919bf8..e33756e 100644
+--- a/tests/replay-validation/runSyntheticScenarios.js
++++ b/tests/replay-validation/runSyntheticScenarios.js
+@@ -518,6 +518,34 @@ const SCENARIOS = [
+     }],
+     expect: { minTargetPassages: 2 },
+   },
++  {
++    // M rev 3 (omgranskningen 2026-11-05, granskarens klass H): FARTGRINDEN.
++    // 0,65 kn söderut 560–1650 m söder om Stallbackabron, alltså mer än 500 m
++    // från VARJE bro (Stridsbergsbron ligger 2,2 km bort), där tilldelningen
++    // kräver > 0,7 kn. Generatorns fartbrus (±0,1 kn) lägger varannan–var
++    // tredje fix över 0,7 kn. Retentionen tar bort målbron först när grinden
++    // fallerat i mer än nådafristen, men ACCELERATED lade tillbaka den på
++    // nästa ENSTAKA prov över 0,7 kn: 9 DEFAULT-FLASH (7–12 över seed 94–99;
++    // revision 1 av rättningen gav 8, eftersom den bara speglade närmandet). Med
++    // fartprovet (_reentrySpeedProof) läggs samma bro tillbaka först när
++    // grinden HÅLLIT i mer än nådafristen, så båten är dold medan hon kryper
++    // — EN lång "Inga båtar"-period (INV-14W, informativ). Placeringen ÄR
++    // testet: inom 500 m från en bro gäller 0,1 kn-grinden i stället.
++    name: 'fartgrind-krypare-söder-om-Stallbackabron',
++    seed: 96,
++    vessels: [{
++      mmsi: '901000096',
++      direction: 'south',
++      speedKn: 5.9,
++      reportIntervalS: 30,
++      slowZone: {
++        fromFraction: 1 - (METRICS.cum[5] - 560) / METRICS.total,
++        toFraction: 1 - (METRICS.cum[5] - 1650) / METRICS.total,
++        speedKn: 0.65,
++      },
++    }],
++    expect: { minTargetPassages: 2 },
++  },
+   {
+     // Varje meddelande levereras DUBBELT (multi-mottagare/AISstream-dubbletter)
+     // — utfallet ska vara identiskt med enkel leverans: inga dubbelnotiser.
+-- 
+2.43.0
+

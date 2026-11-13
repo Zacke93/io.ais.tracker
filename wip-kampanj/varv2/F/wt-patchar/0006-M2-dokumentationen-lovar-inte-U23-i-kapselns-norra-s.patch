@@ -1,0 +1,102 @@
+From abaeafe89fb19e5ed50702a5769134ce155c03ca Mon Sep 17 00:00:00 2001
+From: "Familj F (Claude)" <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 13:13:20 +0000
+Subject: [PATCH 06/12] =?UTF-8?q?M2:=20dokumentationen=20lovar=20inte=20U2?=
+ =?UTF-8?q?3=20i=20kapselns=20norra=20spets=20(300=E2=80=93320=20m)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Granskningen av familj F (M2): constants.js, ARCHITECTURE §lager 4 och
+reliability-spec sade att köaren vid Kajen står kvar tills hon kör vidare.
+Det håller inom 300 m från bron, alltså nästan hela kapseln (190–300 m). I
+spetsen (300–320 m) beter hon sig som en köare i farleden på samma avstånd:
+målbron släpps efter 20 min stillhet (_isInTargetQueueZone, aktivitets-
+fönstret från valideringskörningen 2026-07-02, inget ägarbeslut), och texten
+visar till dess hennes senaste ETA i stället för "strax". Efter bortaget
+klassar zonlagret henne, så avgången blir en ny ankomst med en ny varning.
+
+Bandet 300–500 m är en befintlig lucka mot D1 även i farleden; uppmätt utan
+kodändring: 0 målbortag i bandet på bankens 482 h (en köare låg 11 min på
+320 m från Stridsbergsbron och behöll målet), 0 av 73 stopp ≥ 20 min i
+standardens 2 000 världar. Ingen kodändring; ägarfrågan står i familjens
+DESIGN.md.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/ARCHITECTURE.md     | 20 +++++++++++++++-----
+ docs/reliability-spec.md |  2 +-
+ lib/constants.js         | 12 +++++++++---
+ 3 files changed, 25 insertions(+), 9 deletions(-)
+
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 16540e4..5f269d8 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -1225,11 +1225,21 @@ båt.
+    zonens `queueGraceMs` för trolig köare (target inom 600 m + rörelsebevis;
+    `_zoneMinStillMs`). Kajen bär sedan **ägarbeslutet U23 (2026-11-09)** ett
+    obegränsat köundantag: en båt på väg mot Klaffbron som stannar vid Kajen
+-   behandlas som i resten av väntområdet och klassas aldrig av zonlagret. Hon
+-   står kvar i texten ("på väg mot Klaffbron, beräknad broöppning strax" inom
+-   300 m, enligt imminent-regeln och U6) tills hon kör vidare, sänder
+-   navstatus 1/5 (lager 3) eller legat still i MAX_STATIONARY_WAIT_MS
+-   (lager 5). Motivet är D1 (docs/reliability-spec.md): utanför kajzonerna tas
++   behandlas som i resten av väntområdet och klassas aldrig av zonlagret.
++   Inom 300 m från bron (190–300 m, nästan hela kapseln) står hon kvar i
++   texten ("på väg mot Klaffbron, beräknad broöppning strax", enligt
++   imminent-regeln och U6) tills hon kör vidare, sänder navstatus 1/5
++   (lager 3) eller legat still i MAX_STATIONARY_WAIT_MS (lager 5).
++   **Kapselns norra spets (300–320 m) beter sig som farleden på samma
++   avstånd:** målbron släpps efter 20 min stillhet (`_isInTargetQueueZone`,
++   aktivitetsfönstret från valideringskörningen 2026-07-02), och texten visar
++   till dess hennes senaste ETA i stället för "strax", eftersom hon varken har
++   imminent-flaggan (över 300 m) eller bekräftad väntan (`queueBridge` ger
++   null i en kajzon). Utan målbro håller undantaget inte längre, så zonlagret
++   klassar henne efter 3 min, och avgången blir en ny ankomst med en ny
++   varning (granskningens prov X3kaj: 96 s före korsningen; farledsköaren på
++   samma avstånd behåller sin första varning). Bandet 300–500 m är en
++   befintlig lucka mot D1 även i farleden (öppen ägarfråga). Motivet är D1 (docs/reliability-spec.md): utanför kajzonerna tas
+    en väntande båt nära bron aldrig bort, och 15-minutersgissningen gav i
+    buggjägarens provvärldar "Inga båtar" medan en båt väntade 250 m från bron
+    och en ny, sen varning vid avgången (värld 313: 32 s före passagen).
+diff --git a/docs/reliability-spec.md b/docs/reliability-spec.md
+index 8a1ee35..cc41edf 100644
+--- a/docs/reliability-spec.md
++++ b/docs/reliability-spec.md
+@@ -108,6 +108,6 @@ Per målbro-grupp: `"{antal} båt(ar) på väg mot {målbro}, {ETA-klausul}"`. F
+ 
+ ### Konsekvenser inarbetade i reglerna ovan
+ - **B1/INV-B1:** ett fartyg förblir *relevant* för bridge_text så länge det är inom `APPROACHING_RADIUS` (500 m) av sin målbro på en aktiv resa, **även om sog ≈ 0**. En stoppad båt visas som "En båt på väg mot X" utan ETA-klausul (eller med "ETA okänd" om ETA saknas). Texten får aldrig falla till DEFAULT medan en sådan båt finns.
+-- **B1/INV-B1 mot kajzonen — löst genom ägarbeslutet U23 (2026-11-09):** kajzonen "Kajen norr om Klaffbron" (190–295 m från bron, mitt i väntzonen) klassade en köare mot Klaffbron som förtöjd efter 15 min och bröt D1. Nu står hon kvar som i resten av väntområdet, tills hon kör vidare, sänder navstatus 1/5 eller legat still i 2 h (`MAX_STATIONARY_WAIT_MS`). Norrgående med målbro bortom 600 m och Gästhamnen klassas som förut (`lib/constants.js` MOORING_ZONES, docs/ARCHITECTURE.md §Förtöjningslagren).
++- **B1/INV-B1 mot kajzonen — löst genom ägarbeslutet U23 (2026-11-09):** kajzonen "Kajen norr om Klaffbron" (190–295 m från bron, mitt i väntzonen) klassade en köare mot Klaffbron som förtöjd efter 15 min och bröt D1. Nu klassar zonlagret henne aldrig, och inom 300 m från bron (nästan hela kapseln) står hon kvar som i resten av väntområdet, tills hon kör vidare, sänder navstatus 1/5 eller legat still i 2 h (`MAX_STATIONARY_WAIT_MS`). Kapselns norra spets (300–320 m) beter sig som farleden på samma avstånd: målbron släpps efter 20 min stillhet (`_isInTargetQueueZone`). Det är en befintlig lucka mot D1 mellan 300 och 500 m, även i farleden, och en öppen ägarfråga. Norrgående med målbro bortom 600 m och Gästhamnen klassas som förut (`lib/constants.js` MOORING_ZONES, docs/ARCHITECTURE.md §Förtöjningslagren).
+ - **A2/INV-N4:** `_getDirectionString` sydband snävas till 135–225° för COG-fallback; off-axis (226–314°) utan route-latch → `unknown`. **REVIDERAT 2026-07-02 (JOSEPHINE, replay-belagt):** token-fallbackens sydband breddades till 135–314° — bevisligen sydgående båt med COG 226,7° fick felaktigt `unknown`. Det STRIKTA bandet 135–225° gäller fortsatt alla HÖGRISK-beslut (målbro-/riktningslås, Fix D, NEW_JOURNEY). Koden + `notification-tokens.test.js` är sanningskällan (P5-beslutet i constants.js:276–285); denna spec-rad behålls som historik (helgranskningen 2026-07-06, docs-core#R2-1).
+ - **B3/INV-B2:** visad ETA klampas icke-ökande medan fartyget närmar sig (tolerans för brus tillåten).
+diff --git a/lib/constants.js b/lib/constants.js
+index 6f59e50..4ed420c 100644
+--- a/lib/constants.js
++++ b/lib/constants.js
+@@ -443,10 +443,16 @@ const MOORING_ZONES = [
+     // Klaffbron (fältets köplatser 221–307 m) varar ofta längre, och i
+     // 9 av 2 000 provvärldar visade texten "Inga båtar" medan en båt väntade
+     // 250 m från bron; vid avgången kom en ny varning, i värld 313 32 s före
+-    // passagen. Under samma tre villkor står köaren nu kvar tills hon kör
+-    // vidare, sänder navstatus 1/5 eller legat still i
++    // passagen. Under samma tre villkor klassar zonlagret aldrig köaren. Inom
++    // 300 m från bron (190–300 m, nästan hela kapseln) står hon därmed kvar
++    // tills hon kör vidare, sänder navstatus 1/5 eller legat still i
+     // MOORING_DETECTION.MAX_STATIONARY_WAIT_MS (2 h-backstoppen, som gäller
+-    // här: queueBridge ger null i en kajzon). Utan villkoren gäller baskravet
++    // här: queueBridge ger null i en kajzon). Kapselns norra spets (300–320 m)
++    // beter sig som farleden på samma avstånd: zonlagret håller henne, men
++    // målbron släpps efter 20 min stillhet (VesselDataService.
++    // _isInTargetQueueZone, aktivitetsfönstret från 2026-07-02). Den luckan
++    // mot D1 gäller hela bandet 300–500 m och är en öppen ägarfråga, inte
++    // U23:s. Utan villkoren gäller baskravet
+     // 3 min som förut — ELFKUNGEN och SUSANNE (norrut efter Klaffbron, mål
+     // Stridsbergsbron ~980 m bort) demoteras exakt som i dag. Öppnings-
+     // lagrets ankomstspärr (app.js _observeOpeningArrivals) följer samma
+-- 
+2.43.0
+

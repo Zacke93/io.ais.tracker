@@ -1,0 +1,51 @@
+FAIL tests/bn2-dodband-nordprogress.test.js
+  ● F13: BN2 när kursen inte säger nord eller syd (östra dödbandet eller ingen kurs) › utan kurs (AIS 360 → null) bär färsk nordprogress färdriktningen på samma sätt
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: true
+    Received: false
+
+      143 |
+      144 |     // Revision 2: kursen saknas helt (null eller undefined). Förut false.
+    > 145 |     expect(app._hasGapCrossedNotifiedBridge(reborn({ cog: null }), candidate, 'current')).toBe(true);
+          |                                                                                           ^
+      146 |     expect(app._hasGapCrossedNotifiedBridge(reborn({ cog: undefined }), candidate, 'current')).toBe(true);
+      147 |
+      148 |     // Samma beviskrav som i dödbandet: färskt och över ribban.
+
+      at Object.toBe (bn2-dodband-nordprogress.test.js:145:91)
+
+  ● F13: BN2 när kursen inte säger nord eller syd (östra dödbandet eller ingen kurs) › SALTIS med kursen 360 ("ej tillgänglig") genom hela appen: också passerad form
+
+    expect(received).toMatchObject(expected)
+
+    - Expected  - 3
+    + Received  + 3
+
+      Object {
+    -   "alreadyPassed": true,
+    -   "eta": -1,
+    -   "message": "SALTIS passerade Olidebron under AIS-tystnad",
+    +   "alreadyPassed": false,
+    +   "eta": 1,
+    +   "message": "SALTIS närmar sig Olidebron, beräknad ankomst om 1 minut",
+        "t": 1781773052513,
+      }
+
+      219 |     const notice = result.notifications.find((n) => n.mmsi === MMSI && n.bridge === 'Olidebron');
+      220 |     // Före revision 2: "SALTIS närmar sig Olidebron, beräknad ankomst om 1 minut".
+    > 221 |     expect(notice).toMatchObject({
+          |                    ^
+      222 |       t: Date.parse('2026-06-18T08:57:32.513Z'),
+      223 |       eta: -1,
+      224 |       alreadyPassed: true,
+
+      at Object.toMatchObject (bn2-dodband-nordprogress.test.js:221:20)
+
+Test Suites: 1 failed, 2 passed, 3 total
+Tests:       2 failed, 34 passed, 36 total
+Snapshots:   0 total
+Time:        14.038 s
+Ran all test suites matching tests/gps-grind-kandidat-bokford-bro.test.js|tests/bn2-dodband-nordprogress.test.js|tests/zonintrade-uppskjutet-bevis.test.js.
+Test results written to: ../matris/r1.json

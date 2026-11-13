@@ -1,0 +1,71 @@
+From 5b9ea159d5159d89474b2d1863c73f9b651fd35f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 4 Nov 2026 22:58:53 +0000
+Subject: [PATCH 8/9] =?UTF-8?q?E-familjen:=20DEMO-oml=C3=A5sning=20av=2024?=
+ =?UTF-8?q?h=20efter=20golvet=20som=20f=C3=B6ljer=20accelerationen?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+PRIMA LADY 16:34:01 (20260823-24h, golden-text idx 65): "om 3 minuter"
+blir "om 4 minuter". Golvet är nu dubbla igångsättningsfarten, 3,6 kn för
+1,8 kn, i stället för 4 kn. Mot 7699cbe:s "om 7" är raden fortfarande
+rättare: korsningen av Stridsbergsbron kommer 3,1 min senare (gt-passages,
+kind=line), och felet blir +0,9 i stället för +3,9. Övriga omlåsta rader
+(41h idx 127, 24h notis 20 och kort 5, 31h notis 22 och kort 7) är
+oförändrade. Noterna i corpora.js säger det. Dirigenten låser om på riktigt
+vid integrationen.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ tests/replay-validation/corpora.js                   | 12 +++++++-----
+ .../replay-validation/golden-text/20260823-24h.json  |  2 +-
+ 2 files changed, 8 insertions(+), 6 deletions(-)
+
+diff --git a/tests/replay-validation/corpora.js b/tests/replay-validation/corpora.js
+index 059b28a..ac8dc90 100644
+--- a/tests/replay-validation/corpora.js
++++ b/tests/replay-validation/corpora.js
+@@ -162,8 +162,9 @@ module.exports = [
+     expectedNotifications: 84,
+     note: 'Omlåst 2026-11-04 (familj E, avgångs-ETA): SKONNERTEN JYLLAND 220276000 lämnar stillhet '
+       + '[0,0, 0,1, 0,0] 2026-06-03 07:30:11 i 3,4 kn, 72 m från senaste stillasampel. Golden-text idx 127 '
+-      + '"om 8 minuter" → "om 3 minuter" (07:30:11). gt-passages: korsning av Stridsbergsbron 2,1 min efter '
+-      + '07:30:11 (kind=line) — rättare. Antalet övergångar (178), notiser, kort och passager består. '
++      + '"om 8 minuter" → "om 3 minuter" (07:30:11; golvet 4 kn hade lovat strax, M9 håller 3). gt-passages: '
++      + 'korsning av Stridsbergsbron 2,1 min efter 07:30:11 (kind=line) — rättare. Antalet övergångar (178), '
++      + 'notiser (07:30:52 eta 2 som på 7699cbe, V4-principen), kort och passager består. '
+       + `${SEPTEMBER_REVIEW}41h-korpusen. 75/75 inkl. per-fartyg+bro-fördelning validerat 2026-06-09 `
+       + '(prod-loggens 75:e är null-attribuerad — samma notis, 211355290@Stallbackabron). '
+       + 'OMLÅST 75→77 (2026-07-01, S-F3 + previousTarget-fixen): BÅDA nya är RÄTTADE '
+@@ -2421,9 +2422,10 @@ module.exports = [
+     lockEvents: true,
+     expectedNotifications: 23,
+     note: 'Omlåst 2026-11-04 (familj E, avgångs-ETA): PRIMA LADY 230693000 lämnar stillhet [0,4, 0,3, 0,4] '
+-      + 'i 1,8 kn, 42 m från senaste stillasampel. Golden-text idx 65 16:34:01 "om 7 minuter" → "om 3 minuter" '
+-      + '(gt-passages: Stridsbergsbron +3,1 min), golden-events notis 16:35:10 eta 5 → 3 och öppningskortet '
+-      + 'Stridsbergsbron#8 etaMin 5 → 3 (gt: +1,9 min) — alla tre rättare. Tid, källa, antal och passager består. '
++      + 'i 1,8 kn, 42 m från senaste stillasampel. Golden-text idx 65 16:34:01 "om 7 minuter" → "om 4 minuter" '
++      + '(golvet 3,6 kn = 2 × 1,8; gt-passages: Stridsbergsbron +3,1 min), golden-events notis 16:35:10 eta 5 → 3 '
++      + 'och öppningskortet Stridsbergsbron#8 etaMin 5 → 3 (gt: +1,9 min) — alla tre rättare. Tid, källa, antal '
++      + 'och passager består. '
+       + 'Låst 2026-09-08 efter bytekontroll av samtliga 920 AIS-rader, oberoende rådatafacit och sex fasvarianter. '
+       + '23 boat_near, sex målpassager, åtta öppningsvarningar och 78 textövergångar; fulla händelser är också låsta. '
+       + 'DIANAs 2,5 timmar inom Kanalinfarten ger en notis för besöket. Alla fem broar och Kanalinfarten täcks. '
+diff --git a/tests/replay-validation/golden-text/20260823-24h.json b/tests/replay-validation/golden-text/20260823-24h.json
+index a6e102c..aa94985 100644
+--- a/tests/replay-validation/golden-text/20260823-24h.json
++++ b/tests/replay-validation/golden-text/20260823-24h.json
+@@ -261,7 +261,7 @@
+  },
+  {
+   "iso": "2026-08-24T16:34:01.965Z",
+-  "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 3 minuter"
++  "text": "En båt på väg mot Stridsbergsbron, beräknad broöppning om 4 minuter"
+  },
+  {
+   "iso": "2026-08-24T16:35:10.163Z",
+-- 
+2.43.0
+

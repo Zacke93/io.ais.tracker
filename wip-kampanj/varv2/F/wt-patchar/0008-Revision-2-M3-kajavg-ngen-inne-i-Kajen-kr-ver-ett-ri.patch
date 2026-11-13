@@ -1,0 +1,258 @@
+From 056a5354881ac48aac2a98322b9b794b9b671f61 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 14:37:47 +0000
+Subject: [PATCH 08/12] =?UTF-8?q?Revision=202,=20M3:=20kajavg=C3=A5ngen=20?=
+ =?UTF-8?q?inne=20i=20Kajen=20kr=C3=A4ver=20ett=20rimligt=20steg=20(GPS-ho?=
+ =?UTF-8?q?pp)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Omgranskningen av familj F: en enda fix räcker som avgång inne i en kajzon
+med köundantag, så ett ensamt GPS-hopp på 60 m mot bron i 0,6 kn hos en
+förtöjd båt vid Kajen gav en falsk varning (prov A5n5 och A5n0). Var båten
+förtöjd av 2 h-gränsen förbrukade varningen dessutom ankomsten, och den
+verkliga avgången blev utan varning (A5q).
+
+Steget sedan föregående fix (VDS:s lastPosition och ankomstens lastFixTs)
+måste nu vara rimligt för farten: högst 20 m plus dubbla farten gånger
+tiden (granskarens probe-m3-rimlighet.diff). Utanför kajzonerna gäller
+kravet inte.
+
+Kajtestets fixtur bär lastPosition. Nya test: GPS-hoppet för en båt
+förtöjd av 2 h-gränsen och med navstatus 5 (båda fäller 1893af8), och en
+verklig avgång inne i Kajen (60 m på 60 s i 2 kn).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ app.js                                |  15 ++-
+ tests/opening-queue-quay-stop.test.js | 145 ++++++++++++++++++--------
+ 2 files changed, 117 insertions(+), 43 deletions(-)
+
+diff --git a/app.js b/app.js
+index 6f3a792..057ba4f 100755
+--- a/app.js
++++ b/app.js
+@@ -1570,8 +1570,21 @@ class AISBridgeApp extends Homey.App {
+       // U23 släpper vid Kajen (navstatus, 2 h, omstart, AIS-glapp): 43 → 73 s
+       // före korsningen i de syntetiska proven. Ett bekräftat stopp krävs som
+       // förut, så en köare som klassningen håller berörs inte.
++      //
++      // Omgranskningen av familj F (revision 2, 2026-11-09): en enda fix räcker
++      // som avgång inne i kajzonen, så steget sedan föregående fix måste vara
++      // rimligt för farten (högst 20 m + dubbla farten gånger tiden). Ett ensamt
++      // GPS-hopp på 60 m mot bron i 0,6 kn hos en förtöjd båt gav annars en
++      // falsk varning, och efter 2 h-gränsen förbrukade den ankomsten, så att
++      // den verkliga avgången blev utan varning (granskningens prov A5).
++      // Utanför kajzonerna gäller kravet inte: där bär fixen själv beviset.
+       const stopDistance = stop && geometry.calculateDistance(stop.lat, stop.lon, bridge.lat, bridge.lon);
+-      const leftQuay = !atQuay || (Number(quayZone?.queueGraceMs) > 0
++      const prev = vessel.lastPosition;
++      const stepM = prev && geometry.calculateDistance(prev.lat, prev.lon, vessel.lat, vessel.lon);
++      const stepS = Number.isFinite(entry.lastFixTs) ? (fixTs - entry.lastFixTs) / 1000 : null;
++      const plausibleStep = Number.isFinite(stepM) && Number.isFinite(stepS) && stepS > 0
++        && Number.isFinite(vessel.sog) && stepM <= 20 + stepS * vessel.sog * 0.514444 * 2;
++      const leftQuay = !atQuay || (Number(quayZone?.queueGraceMs) > 0 && plausibleStep
+         && Number.isFinite(stopDistance) && stopDistance - distance >= 50);
+       if (stop?.confirmed && leftQuay && vessel._moored !== true
+           && movedFromStop >= 50 && Number.isFinite(vessel.sog) && vessel.sog >= 0.5) {
+diff --git a/tests/opening-queue-quay-stop.test.js b/tests/opening-queue-quay-stop.test.js
+index 6495ea4..c4d4b99 100644
+--- a/tests/opening-queue-quay-stop.test.js
++++ b/tests/opening-queue-quay-stop.test.js
+@@ -3,7 +3,8 @@
+ jest.mock('homey');
+ const { __mockHomey: mockHomey } = require('homey');
+ const App = require('../app');
+-const { MOORING_ZONES, MOORING_DETECTION } = require('../lib/constants');
++const geometry = require('../lib/utils/geometry');
++const { MOORING_ZONES, MOORING_DETECTION, BRIDGES } = require('../lib/constants');
+ 
+ /**
+  * Helgranskningen 2026-11-03: "Kajen norr om Klaffbron" ligger mitt i
+@@ -37,12 +38,20 @@ const mid = (zone) => ({
+ });
+ // Utanför båda zonerna, söder om Kajen mot Klaffbron (≈115 m från Kajens mitt).
+ const DEPARTED = { lat: 58.2852955, lon: 12.2843295 };
++// Punkten `meters` m rakt mot Klaffbron från `pos`.
++const toward = (pos, meters) => {
++  const { lat, lon } = BRIDGES.klaffbron;
++  const f = meters / geometry.calculateDistance(pos.lat, pos.lon, lat, lon);
++  return { lat: pos.lat + (lat - pos.lat) * f, lon: pos.lon + (lon - pos.lon) * f };
++};
+ 
+ describe('Öppningslagret: kort köstopp vid Kajen är samma ankomst', () => {
+   let app;
+   let savedMode;
++  let lastPos;
+ 
+   beforeEach(async () => {
++    lastPos = null;
+     jest.useFakeTimers();
+     jest.setSystemTime(new Date('2026-11-03T08:00:00Z'));
+     savedMode = global.__TEST_MODE__;
+@@ -78,18 +87,25 @@ describe('Öppningslagret: kort köstopp vid Kajen är samma ankomst', () => {
+   // Fixen bär förtöjningsklassningens fält. En KÖARE (`state` utelämnat) är
+   // på väg mot kortets bro med rörelsebevis, som i appen när kortet gick;
+   // `{}` är en båt som klassningen inte håller (ingen målbro, t.ex. ny efter
+-  // ett långt AIS-glapp). Avgångsfixen bär köarens fält.
++  // ett långt AIS-glapp). Avgångsfixen bär köarens fält. Fixen bär också
++  // VDS:s `lastPosition` (föregående fix), som kajavgångens rimlighetskrav
++  // läser; varje anrop är nästa fix i ordning.
+   const QUEUER = { targetBridge: 'Klaffbron', _hasMovementProof: true, _moored: false };
+-  const fix = (pos, sog, state = QUEUER) => ({
+-    mmsi: MMSI,
+-    lat: pos.lat,
+-    lon: pos.lon,
+-    sog,
+-    timestamp: Date.now(),
+-    lastPositionUpdate: Date.now(),
+-    fixTs: Date.now(),
+-    ...state,
+-  });
++  const fix = (pos, sog, state = QUEUER) => {
++    const vessel = {
++      mmsi: MMSI,
++      lat: pos.lat,
++      lon: pos.lon,
++      sog,
++      timestamp: Date.now(),
++      lastPositionUpdate: Date.now(),
++      fixTs: Date.now(),
++      lastPosition: lastPos,
++      ...state,
++    };
++    lastPos = { lat: pos.lat, lon: pos.lon };
++    return vessel;
++  };
+ 
+   function stopThenDepart(zone, stopMs, stateAt = () => QUEUER) {
+     const at = mid(zone);
+@@ -102,6 +118,40 @@ describe('Öppningslagret: kort köstopp vid Kajen är samma ankomst', () => {
+     app._observeOpeningArrivals(fix(DEPARTED, 3.0));
+   }
+ 
++  // Båten som klassningen inte håller: ingen målbro, inget rörelsebevis och
++  // zonförtöjd (ny för appen efter en omstart eller ett AIS-glapp).
++  const LOST = { targetBridge: null, _hasMovementProof: false, _moored: true };
++
++  function stillAt(at, ms, state = QUEUER, sog = 0.1) {
++    for (let elapsed = 0; elapsed < ms; elapsed += 30000) {
++      jest.setSystemTime(Date.now() + 30000);
++      app._observeOpeningArrivals(fix(at, sog, state));
++    }
++  }
++
++  // Omstart med samma inställningslager: ny app, samma lagrade ankomster.
++  // VDS har glömt båten, så nästa fix saknar föregående position.
++  async function restart() {
++    const { homey } = app;
++    await app.onUninit();
++    app = new App();
++    app.log = jest.fn();
++    app.error = jest.fn();
++    app.debug = jest.fn();
++    app.homey = homey;
++    await app.onInit();
++    jest.spyOn(app.bridgeOpeningService, 'restartArrival');
++    lastPos = null;
++  }
++
++  function departAndExpectSameArrival(expected) {
++    jest.setSystemTime(Date.now() + 60000);
++    app._observeOpeningArrivals(fix(DEPARTED, 3.0));
++    expect(app._persistentOpeningWarnings.has(KEY)).toBe(expected);
++    if (expected) expect(app.bridgeOpeningService.restartArrival).not.toHaveBeenCalled();
++    else expect(app.bridgeOpeningService.restartArrival).toHaveBeenCalledWith(MMSI, 'Klaffbron');
++  }
++
+   test('köstopp på 7 min vid Kajen ⇒ ankomstspärren står kvar, inget nytt kort', () => {
+     expect(KAJEN.queueGraceMs).toBeGreaterThan(30000);
+     stopThenDepart(KAJEN, 7 * 60 * 1000);
+@@ -225,41 +275,52 @@ describe('Öppningslagret: kort köstopp vid Kajen är samma ankomst', () => {
+     expect(app.bridgeOpeningService.restartArrival).not.toHaveBeenCalled();
+   });
+ 
++  // Omgranskningen av familj F (revision 2, M3; granskningens prov A5n5 och
++  // A5q): en enda fix räcker som avgång inne i Kajen, så steget sedan förra
++  // fixen måste vara rimligt för farten. Ett ensamt GPS-hopp på 60 m mot bron
++  // i 0,6 kn (utan GPS-hoppflagga) släpper klassningen men är ingen avgång.
++  // Utan kravet blev det en falsk varning, och efter 2 h-gränsen förbrukade
++  // den ankomsten, så att den verkliga avgången blev utan varning.
++  test.each([
++    ['förtöjd av 2 h-gränsen', { ...QUEUER, _moored: true, targetBridge: null }],
++    ['navstatus 5', {
++      ...QUEUER, navStatus: 5, _moored: true, targetBridge: null,
++    }],
++  ])('M3: ett ensamt GPS-hopp på 60 m mot bron (%s) är ingen avgång, den verkliga avgången är det', (_, moored) => {
++    const at = mid(KAJEN);
++    app._observeOpeningArrivals(fix(at, 0, moored));
++    stillAt(at, 60000, moored, 0);
++    expect(app._persistentOpeningWarnings.get(KEY).quayStop.confirmed).toBe(true);
++    // Hoppet 30 s senare: 60 m rakt mot bron, fortfarande i kapseln, och
++    // klassningen har släppt henne.
++    jest.setSystemTime(Date.now() + 30000);
++    app._observeOpeningArrivals(fix(toward(at, 60), 0.6));
++    expect(app._persistentOpeningWarnings.has(KEY)).toBe(true);
++    expect(app.bridgeOpeningService.restartArrival).not.toHaveBeenCalled();
++    // Nästa fix är tillbaka vid kajen; sedan lägger hon ut på riktigt.
++    jest.setSystemTime(Date.now() + 30000);
++    app._observeOpeningArrivals(fix(at, 0, moored));
++    departAndExpectSameArrival(false);
++  });
++
++  test('M3: en verklig avgång inne i Kajen (60 m på 60 s i 2 kn mot bron) är en avgång', () => {
++    const NAV5 = {
++      ...QUEUER, navStatus: 5, _moored: true, targetBridge: null,
++    };
++    const at = mid(KAJEN);
++    app._observeOpeningArrivals(fix(at, 0, NAV5));
++    stillAt(at, 60000, NAV5, 0);
++    jest.setSystemTime(Date.now() + 60000);
++    app._observeOpeningArrivals(fix(toward(at, 60), 2.0));
++    expect(app._persistentOpeningWarnings.has(KEY)).toBe(false);
++    expect(app.bridgeOpeningService.restartArrival).toHaveBeenCalledWith(MMSI, 'Klaffbron');
++  });
++
+   // L1 (granskningen av familj F, 2026-11-09). Efter omstarten eller glappet
+   // är köaren ny för appen: ingen målbro, inget rörelsebevis, och zonlagrets
+   // 3 min förtöjer henne (granskningens prov X2kaj och X5kaj). Utan minnet
+   // bekräftades stoppet direkt, och avgången gav ett andra, sent kort som
+   // farledstvillingen (X2far, X5far) aldrig får.
+-  const LOST = { targetBridge: null, _hasMovementProof: false, _moored: true };
+-
+-  function stillAt(at, ms, state = QUEUER) {
+-    for (let elapsed = 0; elapsed < ms; elapsed += 30000) {
+-      jest.setSystemTime(Date.now() + 30000);
+-      app._observeOpeningArrivals(fix(at, 0.1, state));
+-    }
+-  }
+-
+-  // Omstart med samma inställningslager: ny app, samma lagrade ankomster.
+-  async function restart() {
+-    const { homey } = app;
+-    await app.onUninit();
+-    app = new App();
+-    app.log = jest.fn();
+-    app.error = jest.fn();
+-    app.debug = jest.fn();
+-    app.homey = homey;
+-    await app.onInit();
+-    jest.spyOn(app.bridgeOpeningService, 'restartArrival');
+-  }
+-
+-  function departAndExpectSameArrival(expected) {
+-    jest.setSystemTime(Date.now() + 60000);
+-    app._observeOpeningArrivals(fix(DEPARTED, 3.0));
+-    expect(app._persistentOpeningWarnings.has(KEY)).toBe(expected);
+-    if (expected) expect(app.bridgeOpeningService.restartArrival).not.toHaveBeenCalled();
+-    else expect(app.bridgeOpeningService.restartArrival).toHaveBeenCalledWith(MMSI, 'Klaffbron');
+-  }
+-
+   test('L1: omstart mitt i kön vid Kajen ⇒ samma ankomst, inget nytt kort vid avgången', async () => {
+     const at = mid(KAJEN);
+     app._observeOpeningArrivals(fix(at, 0.1));
+-- 
+2.43.0
+

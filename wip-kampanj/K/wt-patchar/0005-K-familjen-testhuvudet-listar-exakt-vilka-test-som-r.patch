@@ -1,0 +1,54 @@
+From 3400fa5162efbdfdf38780846a47d47c15e0372f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 4 Nov 2026 21:58:46 +0000
+Subject: [PATCH 5/9] =?UTF-8?q?K-familjen:=20testhuvudet=20listar=20exakt?=
+ =?UTF-8?q?=20vilka=20test=20som=20=C3=A4r=20gr=C3=B6na=20p=C3=A5=207699cb?=
+ =?UTF-8?q?e?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Bara en kommentar. Med testfilen kopierad till 7699cbe är 18 av 26 röda;
+huvudet räknar nu upp de 8 gröna och varför de är gröna där.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ tests/k-konvoj-recover-bakkant-glapp.test.js | 17 ++++++++---------
+ 1 file changed, 8 insertions(+), 9 deletions(-)
+
+diff --git a/tests/k-konvoj-recover-bakkant-glapp.test.js b/tests/k-konvoj-recover-bakkant-glapp.test.js
+index 31de1c7..d711082 100644
+--- a/tests/k-konvoj-recover-bakkant-glapp.test.js
++++ b/tests/k-konvoj-recover-bakkant-glapp.test.js
+@@ -27,19 +27,18 @@
+  * Blocket "grindar som saknade fällande test" längst ned fäller var och en av
+  * dem (kommentaren vid varje test namnger mutationen).
+  *
+- * VILKA SOM ÄR RÖDA PÅ 7699cbe (körda med testfilen kopierad dit, K/tmp/rev):
+- * alla utom de som vaktar beteenden som fanns redan där —
++ * PÅ 7699cbe (testfilen kopierad dit) är 18 av 26 röda. De 8 gröna vaktar
++ * beteenden som fanns redan där och som rättningen inte får ändra:
+  *  - KRAV-negativen (ARCHITECTURE.md §H29/H30, "TESTKRAVET ÄR NEGATIVT"):
+- *    VIRGO och PILGRIM korsar under tystnad och får INGEN andra varning;
++ *    VIRGO och PILGRIM korsar under tystnad och får INGEN andra varning (2);
+  *  - U17-kontraktet (ägarbeslut 2026-11-04): en tyst båt utanför bron prövas
+  *    fortfarande vid täckningsslutet och får sin säkerhetsvarning
+  *    (F11/F23-klassen);
+- *  - två bakkantsfall som 7699cbe redan klarade på annan väg: en prognos
+- *    inom täckningen hör till öppningen, och en följare som inte setts sedan
+- *    bokföringen släpps inte av rebaseringen ensam;
+- *  - golvets motsats: utan flyttat ankare eller med full ledtid gäller
+- *    vanlig medlemsprövning.
+- * Den exakta listan per test står i K/DESIGN.md §7.
++ *  - två bakkantsfall: en prognos inom täckningen hör till öppningen, och en
++ *    följare som inte setts sedan bokföringen släpps inte av rebaseringen;
++ *  - tre mutationsvakter där 7699cbe redan gör rätt eftersom grinden saknas:
++ *    M08 (7699cbe har ingen bakkant), M10 och notePassage före bron
++ *    (7699cbe bokför alltid på bokföringstiden).
+  */
+ 
+ global.__TEST_MODE__ = true;
+-- 
+2.43.0
+

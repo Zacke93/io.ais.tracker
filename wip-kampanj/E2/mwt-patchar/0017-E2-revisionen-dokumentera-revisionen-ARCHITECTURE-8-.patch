@@ -1,0 +1,304 @@
+From 66bb985cda76412084bced9bf65538bb5afc79b9 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 5 Nov 2026 01:44:21 +0000
+Subject: [PATCH 17/24] =?UTF-8?q?E2-revisionen:=20dokumentera=20revisionen?=
+ =?UTF-8?q?=20(ARCHITECTURE=20=C2=A78=20(e),=20VALIDATION)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+ARCHITECTURE §8 (e) "ETA-etappen gick in" beskriver revisionens regler:
+F06 med kvot och marginal, F07 med inaktuell baslinje och ledarurval efter
+snapshot-loopen, taket för hållna ökningar och grinden för en mötande konvoj
+mot en tyst motpart (samordnas med K/K2). Listan "Kvar" är ägarfrågan.
+
+VALIDATION "Familj E2" har de nya banden, parat och oparat (de oparade
+blir sämre i median, vilket den första leveransen inte redovisade),
+öppningsgrindarna, facit och de prövade varianterna i revisionen.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/ARCHITECTURE.md | 119 ++++++++++++++++++++++++++++---------------
+ docs/VALIDATION.md   |  86 +++++++++++++++++++++----------
+ 2 files changed, 137 insertions(+), 68 deletions(-)
+
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 0cfeb32..47cb843 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -1280,8 +1280,8 @@ bit-identiskt kvar.
+   < 5 min och < 10 min**. **ALDRIG totalsumman** — 87 % av felmassan ligger över
+   20 min, och summamåttet byter dessutom tecken beroende på parningstolerans
+   (parad delmängd +4,08 % vs oparad −0,9 % för exakt samma ändring).
+-- **KRAVEN GICK IN 2026-11-04 (familj E2, U20)** — se "ETA-etappen gick in"
+-  nedan.
++- **KRAVEN GICK IN 2026-11-04 (familj E2, U20, reviderad 2026-11-05)** — se
++  "ETA-etappen gick in" nedan.
+ 
+ **K8 STRUKEN som eget fynd**: biasen "publicerat > rätt" är **EMA-inneboende**,
+ inte en följd av dubbelkörningen. Kvot publicerat-högre/lägre 1,98:1 före och
+@@ -1347,8 +1347,9 @@ RC4-clampen mot en extrapolerad baslinje). Båda väntar på ägarbeslut — se
+ rättningskampanjens DESIGN.md för familj E.
+ 
+ **ETA-etappen gick in (familj E2, rättningskampanjen 2026-11-04, U20: K6, F06,
+-F07).** Stycket ersätter "Kvar till ETA-etappen" ovan. K6:s tre krav gick in
+-tillsammans, i `ProgressiveETACalculator` om inget annat sägs:
++F07; reviderad efter granskningen 2026-11-05).** Stycket ersätter "Kvar till
++ETA-etappen" ovan. K6:s tre krav gick in tillsammans, i
++`ProgressiveETACalculator` om inget annat sägs:
+ - *En beräkning per AIS-fix.* `calculateProgressiveETA` minns fixet
+   (`vessel.timestamp`, sampelnyckel och målbro, `_fixIdentity`). Ett nytt anrop
+   för samma fix i samma läge ger samma värde utan ny utjämning
+@@ -1367,48 +1368,86 @@ tillsammans, i `ProgressiveETACalculator` om inget annat sägs:
+   men aldrig kortare än det gamla 30 s-fönstret (`_outlierWindowMs`). Ett
+   dramatiskt fall mäts mot förra värdet minus förfluten tid. Två fix i följd
+   bekräftar ett fall: historiken bär `measuredETA` och `heldDecrease`, och
+-  `[ETA_OUTLIER_CONFIRMED]` loggar bekräftelsen. Utan bekräftelsen jämfördes
+-  varje nytt fix med en hållen siffra som aldrig hann ikapp (MOKENDEIST, 42h).
++  `[ETA_OUTLIER_CONFIRMED]` loggar bekräftelsen. En hållen ÖKNING
++  (dramatic_increase) släpps efter 15 min i följd
++  (`INCREASE_HOLD_MAX_MS`, `[ETA_INCREASE_BOUND]`): med kadensfönstret prövas
++  varje fix, och F74-capen lät annars en båt som saktat in till 0,6 kn frysa
++  på samma siffra i över en halvtimme. Tre fix och 5 min mättes och
++  återtogs — båda gjorde ANDREA (42h 18:40–18:52) sämre i fyra låsta
++  påståenden; 15 min rör inget påstående i banken.
+ - *Del 3, vikten.* `EMA_ALPHA_PER_FIX` = 0,64 kalibrerades sist, med ett svep
+   över 0,40–0,70 och tidsvikt τ 60–100 s. 0,64 är dubbelkörningens effektiva
+   vikt, 1 − (1 − 0,4)².
+ - *F06 (värld 192, XENIA).* Inbromsningsregeln följer M9-principen: om
+-  buffertens medelfart ensam lovar strax medan momentanfarten ger minst 3 min,
+-  hålls ETA:n på 3 min. Den gäller bara ett NYTT inträde i strax, eftersom en
+-  redan given strax annars lyftes till "om 3" (RUNA, buggjägarens quick-värld
+-  286).
+-- *F07 (21h, δ −11,52 s, AVALON).* Fix G registrerar en extrapolerad ETA som
+-  spärrens baslinje (`_etaPublishedValue`) bara när båten leder sin målbros
+-  grupp i brotexten (`app.js _leadsEtaGroup`). Förut dämpades en färsk mätning
+-  mot en gissning som ingen såg. SISU (21h "om 10") och IDUN (25h "om 13") är
+-  oförändrade.
+-
+-Mätt enligt VALIDATION.md §REGELN ("Familj E2"): banden sanning < 5 och
+-< 10 min är lika eller bättre i alla typer, både parat och oparat. LINNEA och
+-41h-svängningarna (8→14, 8→14→9) är oförändrade. Av 109 ändrade påståenden blir
+-62 bättre och 46 sämre.
+-
+-*Kvar, medvetet och mätt:*
+-- SENTA, 20260712-25h: varningen för Stridsbergsbron#34 15:20:11 försvinner, och
+-  RECOVER ger #36 15:27:01. Det är efter ELAIZAs verkliga korsning 15:26:06,
+-  med tunn ledtid 99 s. Vid beväpningen 15:15:18 läste öppningsmotorn i
+-  e949ae1 pass 1:s värde 11,96 min, mellan de två passen. Den förväntade
+-  ankomsten hamnade då efter #33:s täckning (t.o.m. 15:27:01,958), så SENTA
+-  fick en egen händelse. Med en beräkning per fix är värdet 11,27 min, samma
+-  som e949ae1:s pass 2, och #33 absorberar SENTA. Gränsen är 11,73 min, och
+-  att hålla sig över den kräver vikten ≤ 0,47. Utfallet hör ihop med K/K2:s
+-  konvojtäckning.
+-- Samma tidsföljd, att en annan tjänst läste pass 1:s värde mellan passen,
+-  låg bakom två notiser som var rätt av en slump: PILOT 761 (13h 06:11:19) och
+-  ORCA (17h 13:56:15). Notistokenens tak FP9 (rå restid + 3 min) fångade pass
+-  1:s glappbaslinje men inte det hållna slutvärdet.
++  buffertens medelfart ensam lovar strax medan momentanfarten ger minst
++  3,5 min och kvoten medelfart/momentanfart är minst 1,2, hålls ETA:n på
++  3 min (`DECEL_HOLD_MIN_INSTANT_ETA`, `DECEL_HOLD_MIN_RATIO`). Den gäller
++  bara ett NYTT inträde i strax, eftersom en redan given strax annars lyftes
++  till "om 3" (RUNA, quick-värld 286). Marginalen och kvoten kom ur
++  granskningen: utan dem höll regeln 44 gånger i banken och gjorde fem
++  korrekta "strax" till "om 3" (NORDIC SOLA 19h 06:17:48: 4,6 → 4,1 kn, 2,8 min
++  på snittet och 3,0 på momentanfarten, korsade 2,8 min senare).
++- *F07 (21h, δ −11,52 s, AVALON).* Två regler i `app.js`:
++  (1) Fix G registrerar en extrapolerad ETA som spärrens baslinje
++  (`_etaPublishedValue`) bara när båten leder sin målbros grupp i brotexten
++  (`_leadsEtaGroup`: brotextens lista ur `getVesselsForBridgeText`,
++  `isValidETA` för de andra), och i snapshot-loopen avgörs det EFTER loopen
++  (`_notePublishedETA`/`_flushPublishedNotes`), när varje båts värde för
++  passet finns. (2) `_reconcilePublishedETA` försvarar inte en baslinje som
++  är äldre än Fix G:s mjuka gräns (`STALE_ETA_SOFT_THRESHOLD_MS`, 5 min) mot en
++  LÄGRE färsk mätning (`[ETA_PUBLISH_BASE_STALE]`). AVALON:s färska 11,9
++  07:07:02 dämpades förut mot hennes egen, aldrig visade 30,3 från 5,04 min
++  tidigare till 17,7, och texten blev "om 18" 07:11:30 mot verkliga 4,5 min;
++  nu "om 12". Ett hopp UPPÅT dämpas fortfarande (utan riktningskravet gick
++  NOCHT 41h "om 26" → "om 40" mot sanning 16,2). SISU (glapp 0,2 och 3,5
++  min) och IDUN (0,5 och 3,0 min) ligger under gränsen och är oförändrade
++  mot e949ae1. En regel som bara registrerar MÄTTA värden för den visade
++  ledaren mättes och återtogs: en icke-ledares baslinje flyttade sig aldrig,
++  och CATHARINA (19h 08:12:00) visades "om 7" mot verkliga 2,4.
++- *Mötande konvoj mot en tyst motpart (`BridgeOpeningService.
++  _meetsOnlySilentOpening`, samordnas med familj K/K2).* En arm absorberas inte
++  i en avfyrad händelse utan bokförd passage när händelsens alla varnade
++  medlemmar går i motsatt riktning och är tysta (senaste fix äldre än
++  `STALE_ETA_SOFT_MS`), och när armens egen deadline ännu ligger framför
++  henne. Hon seedar då en egen händelse och får en egen varning. 20260712-25h:
++  ELAIZA och SENTA (söderut) absorberades förut i #33, en norrgående varning
++  för LIFE STYLE som hördes senast 15:05:33 och aldrig korsade bron; ELAIZA
++  korsade 15:26:06 utan kort, och RECOVER-släppet gav #36 först 15:27:01. På
++  e949ae1 räddades hon av slump: SENTA:s pass 1-värde 11,96 låg över gränsen
++  11,73 och seedade #34. Nu varnas båda 15:17:16 (8,8 respektive 10,3 min före
++  korsningarna). Grinden påverkar också 17h KOLLAND (missad Klaffbronsöppning
++  blir en varning 20 min före), 13h SAGESSE (varning efter passagen blir en
++  varning före), 14h LYS/HERA II och 17h ADA (se E2:s FACIT).
++
++Mätt enligt VALIDATION.md §REGELN ("Familj E2"): de parade banden sanning
++< 5 och < 10 min är lika eller bättre i median och andel inom 2 min i alla
++typer. Öppningskortens bias i bandet < 10 min byter tecken (+0,13 → −0,15).
++De oparade populationerna (n 8 → 11 och 21 → 22) blir sämre i median, och i
++bandet < 5 min även i andel inom 2 min (100 → 81,8 %). LINNEA:s Klaffbronsrader
++(2026-07-15, "om 4" mot 4,76), 41h-svängningarna (8→14, 8→14→9), SISU och IDUN
++är oförändrade mot e949ae1. LINNEA:s Stridsbergsbronsrad 09:36:30 går 13 → 14 mot
++sanning 19,3 min (inferred).
++
++*Kvar, medvetet och mätt (ägarfråga, se E2:s DESIGN.md):*
++- 61 låsta rader blir sämre mot rådata, 22 av dem i bandet sanning < 10 min
++  (mot 55 rättare). De flesta är enminutsflyttar av öppningskortens etaMin och
++  notistokenen: de läste förut pass 1:s värde mellan de två passen och läser nu
++  slutvärdet, som ligger 0,3–1 min lägre.
+ - PRIMA LADY, 20260823-24h: familj E:s rad 16:34:01 går från "om 3" till
+-  "om 4" mot sanning 3,1 min. Väntefasens platå blir 0,5 min högre med en
+-  vikt per fix än med dubbelkörningens pass 1.
++  "om 4" mot sanning 3,1 min (väntefasens platå).
++- PILOT 761 (13h 06:11:19, notis 2 → 5 mot 1,4) och ORCA (17h 13:56:15, 3 → 6
++  mot 2,2): FP9-taket (rå restid + 3 min) kapade förut pass 1:s glappbaslinje
++  till rå restid, men inte slutvärdet (4,7 mot taket 4,8).
++- MALUCA (25h 07:42:16) och JUNO (17h 15:55:31): "strax" → "om 3" mot sanning
++  2,8 och 2,7 min. De bromsade verkligen in vid bron (5,5 → 1,3 kn och 2,8 kn),
++  marginalen räcker inte, och det är F06-regelns pris.
++- 20260917-7h kan inte låsas om (ofullständig fångst); raden SUSANNE
++  14:58:43 ("om 15" → "om 14" mot 74 min) kräver ett dirigentbeslut.
+ - J10 (FRAM, 25h) är oförändrad.
+-- 65 låsta rader blir sämre mot rådata, SENTA:s öppning inräknad. Av de
+-  övriga 64 flyttar 54 en minut, och 30 har sanning ≥ 20 min. De är DEMO-omlåsta i E2:s worktree, och dirigenten avgör
+-  enligt U13.
++- Quick-värld 5 (BRISEN) får en RECOVER-varning 77 s efter sin sanna passage.
++  Hon var täckt av KAJSA:s varning (samma riktning, absorberad 08:07:42), och
++  hennes senaste fix 08:16:40 sa att hon skulle hinna igenom inom täckningen:
++  det är U17-klassen (F11/F23), som motorn ska registrera som DESIGN.
+ 
+ **FÄLTVALIDERINGENS REGEL: kasta det KORRUPTA FÄLTET, aldrig positionen
+ (H34 — DIRIGENTBESLUT 2026-08-22).** *Var beslutet togs:* granskningsunderlaget
+diff --git a/docs/VALIDATION.md b/docs/VALIDATION.md
+index 94a0e9b..3c382a9 100644
+--- a/docs/VALIDATION.md
++++ b/docs/VALIDATION.md
+@@ -532,14 +532,16 @@ Kvar efter rättningen (oförändrade mot 7699cbe): ANTJE (20260804-both-21h
+ 8,5), NORDIC SOLA (20260713-41h 08:48:51, "om 14" mot 4,5) och AKIRA
+ (20260708-21h 07:20:09, "om 14" mot 5,2). Skälen står i ARCHITECTURE §8 (e).
+ 
+-### Familj E2 (rättningskampanjen 2026-11-04): ETA-etappen mätt enligt REGELN
++### Familj E2 (rättningskampanjen 2026-11-04, reviderad 2026-11-05): ETA-etappen mätt enligt REGELN
+ 
+ Ändringen gäller K6:s tre krav, som gick in tillsammans: en beräkning per
+ AIS-fix, glappbaslinjen, ett kadensrelativt outlierfönster och vikten 0,64 per
+-fix. Därtill kommer F06 (inbromsningsregeln) och F07 (spärrens baslinje bara
+-från ett visat värde), se ARCHITECTURE §8 (e), "ETA-etappen gick in".
+-Baslinjen är e949ae1 (familj E), med samma 24 korpusar och parning per korpus,
+-typ, bro och mmsi inom 2 s:
++fix. Därtill kommer F06 (inbromsningsregeln med kvot och marginal), F07
++(spärrens baslinje bara från en visad gissning, och ingen försvarad baslinje
++äldre än 5 min mot en lägre färsk mätning), taket för hållna ökningar och,
++samordnat med familj K/K2, grinden för en mötande konvoj mot en tyst motpart.
++Se ARCHITECTURE §8 (e), "ETA-etappen gick in". Baslinjen är e949ae1 (familj E),
++med samma 24 korpusar och parning per korpus, typ, bro och mmsi inom 2 s:
+ 
+ | Band | Typ | Population | Före (e949ae1) | Efter |
+ |---|---|---|---|---|
+@@ -547,41 +549,63 @@ typ, bro och mmsi inom 2 s:
+ | sanning < 5 min | brotext | parad, n = 244 | 0,87 · 82,4 % · +0,92 | 0,87 · 82,4 % · +0,91 |
+ | sanning < 5 min | notis | parad, n = 500 | 0,37 · 94,0 % · +0,26 | 0,34 · 94,6 % · +0,21 |
+ | sanning < 5 min | öppningskort | parad, n = 32 | 0,98 · 75,0 % · +0,80 | 0,98 · 87,5 % · +0,52 |
+-| sanning < 10 min | alla | parad, n = 1 278 | 0,71 · 81,5 % · +0,17 | 0,67 · 82,1 % · +0,13 |
+-| sanning < 10 min | brotext | parad, n = 647 | 1,01 · 75,4 % · +0,27 | 1,01 · 75,6 % · +0,26 |
++| sanning < 10 min | alla | parad, n = 1 274 | 0,70 · 81,7 % · +0,15 | 0,67 · 82,3 % · +0,11 |
++| sanning < 10 min | brotext | parad, n = 643 | 1,00 · 75,9 % · +0,23 | 1,00 · 76,0 % · +0,23 |
+ | sanning < 10 min | notis | parad, n = 526 | 0,39 · 90,5 % · +0,06 | 0,38 · 90,9 % · +0,02 |
+ | sanning < 10 min | öppningskort | parad, n = 105 | 1,03 · 73,3 % · +0,13 | 1,02 · 78,1 % · −0,15 |
+-| sanning < 5 min | alla | oparad | n = 8: 0,42 · 100 % · +0,49 | n = 13: 0,46 · 92,3 % · −0,05 |
+-| sanning < 10 min | alla | oparad | n = 17: 0,66 · 94,1 % · −0,04 | n = 23: 0,84 · 91,3 % · −0,45 |
++| sanning < 5 min | alla | oparad | n = 8: 0,42 · 100 % · +0,49 | n = 11: 0,46 · 81,8 % · +0,38 |
++| sanning < 10 min | alla | oparad | n = 21: 0,66 · 76,2 % · +1,08 | n = 22: 0,84 · 81,8 % · −0,37 |
++
++De PARADE banden är lika eller bättre i median och andel inom 2 min i alla
++typer. Öppningskortens bias i bandet < 10 min byter tecken och blir något
++större till beloppet (+0,13 → −0,15). De OPARADE populationerna blir sämre i
++median i båda banden och i bandet < 5 min även i andel inom 2 min; i bandet
++< 10 min blir andelen och biasen bättre. (Den första E2-leveransen påstod att
++även de oparade banden var lika eller bättre; det stämde inte.)
+ 
+ Mot 7699cbe (E + E2), parat: bandet < 5 min, alla typer (n = 775), går från
+ median 0,47 · 88,8 % · bias +0,51 till 0,45 · 90,5 % · +0,44. Bandet < 10 min
+-(n = 1 277) går från 0,71 · 81,0 % · +0,19 till 0,67 · 82,1 % · +0,13.
++(n = 1 273) går från 0,71 · 81,2 % · +0,17 till 0,67 · 82,3 % · +0,11. Oparat:
++n 8 → 12 (0,42 · 100 % → 0,49 · 83,3 %) och n 21 → 23 (0,66 · 76,2 % → 0,84 ·
++82,6 %).
+ 
+-109 parade påståenden ändras mot e949ae1: 62 blir bättre, 46 sämre och 1 är
+-lika. I bandet < 10 min ändras 77, varav 54 blir bättre och 22 sämre.
+-Brotextövergångarna blir fler, 2 544 → 2 552, alltså uppdateras texten inte
+-mer sällan. Strax-löftet går från n 208 och 62,98 % inom 3 min till n 207
+-och 64,25 %.
++154 parade påståenden ändras mot e949ae1: 61 blir bättre, 46 sämre, 1 är lika
++och 46 saknar linjefacit. I bandet < 10 min ändras 99, varav 55 bättre och 27
++sämre; i bandet < 5 min 62, varav 40 bättre och 14 sämre.
++Brotextövergångarna går 2 544 → 2 547 och öppningsvarningarna 431 → 432.
++Strax-löftet går från n 211 och 63,0 % inom 3 min till n 208 och 63,9 %.
+ 
+ Namngivna fall:
+-- LINNEA 265764760 (Klaffbron 2026-07-15) är oförändrad. Det rena memot gav
+-  4 → 8 → 14.
+-- 41h-svängningarna 8→14 och 8→14→9 (Stridsbergsbron 08:48:51 och 08:50:22)
+-  är oförändrade. De blev aldrig 10→16.
+-- SISU (21h, "om 10" → "om 3") och IDUN (25h, "om 13" → "om 10") är
+-  oförändrade.
++- LINNEA 265764760 (Klaffbron 2026-07-15) är oförändrad, "om 4" mot 4,76. Det
++  rena memot gav 4 → 8 → 14. Hennes Stridsbergsbronsrad 09:36:30 går 13 → 14
++  mot sanning 19,3 min (inferred).
++- 41h-svängningarna 8→14 och 8→14→9 är oförändrade. De blev aldrig 10→16.
++- SISU (21h, "om 10") och IDUN (25h, "om 13") är oförändrade mot e949ae1,
++  även SISU:s notis 09:55:38 (den första E2-leveransen gav där 2 → 3).
++- AVALON (21h): "om 18" 07:11:30 mot verkliga 4,5 min blir "om 12"
++  (07:07:13); "om cirka 12" 07:12:30 blir "om cirka 7" mot 3,5 (inferred).
+ - Familj E:s sex rader: fem är oförändrade. PRIMA LADY 16:34:01 går "om 3" →
+   "om 4" mot sanning 3,1 min och blir sämre.
+ - M9-priset försvinner: SKONNERTENs notis 07:30:52 går 3 → 2 mot sanning
+   1,4 min.
+-
+-Facit (U13): 161 låsta rader ändras. Av dem är 60 rättare, 13 likvärdiga och
+-65 sämre, medan 23 saknar linjefacit. Bland de sämre finns SENTA:s öppning i
+-25h, som är bedömd för hand. Av de 64 radbedömda sämre raderna är 54 en
+-1-minutsflytt, och 30 har sanning ≥ 20 min. I bandet < 10 min är 46 rader
+-rättare och 26 sämre. Bedömningen per rad står i rättningskampanjens
+-FACIT för E2. Omlåsningen är en DEMO i E2:s worktree, och dirigenten avgör.
++- F06-raderna ur granskningen: NORDIC SOLA (19h 06:17:48), CATHARINA (19h
++  08:12:00) och ELFKUNGEN (13h 12:43:06) har åter "strax" som på e949ae1, liksom
++  tre rader till (11h 09:17:30, 13h 08:24:47, 24h 15:07:16). MALUCA (25h
++  07:42:16) och JUNO (17h 15:55:31) står kvar som "om 3" mot 2,8 och 2,7 min.
++
++Öppningsgrindarna (replay:openings) mot e949ae1: täckningen 391 → 392 av 447
++rådataverifierade passager, tunn ledtid 7 → 7 (den nya i 25h är borta, och
++25h:s minsta ledtid går 8,5 → 8,9 min), TIDPUNKT_OKÄND 38 → 37, passagegrupper
++med mer än en belagd förvarning 48 → 48 och oanknutna varningar 44 → 47 (en
++mer i vardera 14h, 17h och 25h, där grinden för en mötande konvoj ger ett
++tidigare eget kort).
++
++Facit (U13): 164 låsta rader ändras mot e949ae1. Av dem är 71 rättare, 8
++likvärdiga och 61 sämre, medan 24 saknar linjefacit. I bandet sanning < 10 min
++är 55 rättare och 22 sämre, i bandet < 5 min 33 rättare och 9 sämre. De sämre
++raderna i bandet < 10 min är listade i E2:s FACIT och lyfts som ägarfråga
++("bandförbättring mot radförsämring"). Omlåsningen är en DEMO i E2:s
++worktree, och dirigenten avgör.
+ 
+ Prövat och återtaget, mätt mot samma baslinje (bandet < 5 min, alla typer och
+ hela populationen, om inget annat sägs):
+@@ -604,6 +628,12 @@ hela populationen, om inget annat sägs):
+ | Fall mot förra värdet utan förfluten tid | NORDIC SAGA (7h 15:15:14) hölls på 4,9 mot 2,4 | ersatt; 7 påståenden bättre, 0 sämre |
+ | Utan bekräftelse av fall med två fix | MOKENDEIST (42h) hölls 17,8 → 10,3 medan rå-ETA:n var 6,1 → 3,2; texten blinkade "om cirka 5" mellan två "strax" | ersatt |
+ | Inbromsningsregeln även när strax redan var given | strax → om 3 → strax i buggjägarens quick-värld 286 och i both-21h 14:53–14:56 | ny INV-3 |
++| Spärren registrerar bara MÄTTA värden för den visade ledaren (granskningens förslag) | AVALON rätt, men en icke-ledares baslinje flyttade sig aldrig: CATHARINA (19h 08:12:00) "om 7" mot 2,4, och texten stod på "om 7" 08:05–08:10 | sämre rader |
++| Inaktuell baslinje (> 5 min) släpps åt båda håll | NOCHT (41h 11:08:02) "om 26" → "om 40" mot 16,2, fyra sämre rader | ökningen ska fortfarande dämpas |
++| Strax hålls kvar under inbromsning i stället för hållning på 3 | värld 192 kvar (strax → om 4 → strax), 11 korpusar flyttade | F06 inte rättad |
++| Tak för hållna ökningar: tre hållningar / 5 min | fyra sämre låsta påståenden, inga bättre (ANDREA 42h, öppningskortet 9 → 11 mot 6,6) | U13 |
++| Mötande konvoj: absorption bara med bokförd passage (granskningens förslag "samma riktning eller bevisad passage") | sju korpusar flyttade | för brett |
++| Mötande konvoj mot tyst motpart utan krav på egen deadline | 14h DESTINY fick ett kort med eta 0 åtta sekunder före korsningen, och AKIRA:s RECOVER-varning flyttades förbi hennes korsning | sämre öppning |
+ 
+ ## Fältprov / ny korpus (så samlas verklighet in)
+ 
+-- 
+2.43.0
+

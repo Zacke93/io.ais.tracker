@@ -1,0 +1,101 @@
+From a53dd185f76d3f925e41a6aec47c3cd4dfb130f4 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 7 Nov 2026 12:43:07 +0000
+Subject: [PATCH 21/24] =?UTF-8?q?Sammanslagning=20E=20+=20E2:=20V4-testen?=
+ =?UTF-8?q?=20f=C3=B6ljer=20E2:s=20vikt,=20test=20f=C3=B6r=20omr=C3=A4knad?=
+ =?UTF-8?q?=20avg=C3=A5ng?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+V4-testen i tests/e-avgangs-eta-2026-11-04.test.js räknade med vikten
+0,4. Efter sammanslagningen är vikten E2:s EMA_ALPHA_PER_FIX (0,64), och
+testen läser den ur kalkylatorn. Med 0,64 avgör vakten för mätningar
+strax över 3 min: mätningen 3,2 ger 3,13 från det hållna värdet och 2,98
+(strax) från det ohållna, så vakttestet använder 3,2 i stället för 3,4.
+
+Nytt test (E:s DESIGN §10 punkt 5): en fix som räknas om i ändrat läge
+för avgångskontexten vidare en gång. Mutationsprov: grönt utan E:s
+lastKey-dedup eller utan E2:s återställning av _departures, rött utan
+båda.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ tests/e-avgangs-eta-2026-11-04.test.js | 48 ++++++++++++++++++++++++--
+ 1 file changed, 45 insertions(+), 3 deletions(-)
+
+diff --git a/tests/e-avgangs-eta-2026-11-04.test.js b/tests/e-avgangs-eta-2026-11-04.test.js
+index 04fc795..d559ba9 100644
+--- a/tests/e-avgangs-eta-2026-11-04.test.js
++++ b/tests/e-avgangs-eta-2026-11-04.test.js
+@@ -306,14 +306,23 @@ describe('avgångskontexten i ProgressiveETACalculator', () => {
+     heldHistory(2.6);
+     const v = vesselAt(160, 3.8, { status: 'en-route' });
+     const out = calc._processETAWithProtection(v, 1.93, null);
+-    expect(out).toBeCloseTo(0.4 * 1.93 + 0.6 * 2.6, 5); // 2,33 — inte 2,56 från det hållna 3,0
++    // Sammanslagningen E + E2: vikten är E2:s kalibrerade EMA_ALPHA_PER_FIX
++    // (0,64), inte 0,4. 2,17 — inte 2,31 från det hållna 3,0.
++    const a = calc._emaAlpha;
++    expect(out).toBeCloseTo(a * 1.93 + (1 - a) * 2.6, 5);
++    expect(out).toBeLessThan(a * 1.93 + (1 - a) * 3);
+   });
+ 
+   test('lovar mätningen inte strax räknar EMA:n från det hållna värdet, så antagandet inte kan lova strax via utjämningen', () => {
+     heldHistory(2.6);
+     const v = vesselAt(300, 3.0, { status: 'en-route' });
+-    const out = calc._processETAWithProtection(v, 3.4, null);
+-    expect(out).toBeCloseTo(0.4 * 3.4 + 0.6 * 3, 5); // 3,16 ("om 3"); från 2,6 hade det blivit 2,92 (strax)
++    // Sammanslagningen E + E2: med vikten 0,64 avgör vakten för mätningar
++    // strax över 3 min. Mätningen 3,2 ger 3,13 ("om 3") från det hållna
++    // värdet; från det ohållna 2,6 hade det blivit 2,98 (strax).
++    const out = calc._processETAWithProtection(v, 3.2, null);
++    const a = calc._emaAlpha;
++    expect(a * 3.2 + (1 - a) * 2.6).toBeLessThan(3);
++    expect(out).toBeCloseTo(a * 3.2 + (1 - a) * 3, 5);
+     expect(out).toBeGreaterThanOrEqual(3);
+   });
+ 
+@@ -325,6 +334,39 @@ describe('avgångskontexten i ProgressiveETACalculator', () => {
+     expect(last.m9UnheldETA).toBeLessThan(3);
+   });
+ 
++  // Sammanslagningen E + E2 (E:s DESIGN §10 punkt 5): E2:s memo per fix
++  // räknar om en fix i ändrat läge från ögonblicksbilden FÖRE fixet. Den
++  // kopierar _departures-posten, så E:s fält (peakSog, floorKn, released,
++  // lastDistance) förs vidare en gång per sampel, inte en gång per pass.
++  // Två skydd bär det, och vart och ett räcker ensamt: E:s lastKey-dedup i
++  // _noteDepartureSample och E2:s återställning av posten. Mutationsprov
++  // 2026-11-07: testet är grönt utan det ena eller det andra och rött utan
++  // båda.
++  test('en omräknad fix (ändrat läge) för avgången vidare en gång, inte två (E + E2)', () => {
++    stillAt(485);
++    eta(476, 1.6); // avgången: golvet 2 × 1,6 = 3,2 kn
++    jest.advanceTimersByTime(30000);
++    const v = vesselAt(460, 2.2);
++    const recomputesBefore = logger.debug.mock.calls
++      .filter(([msg]) => String(msg).includes('[ETA_FIX_RECOMPUTE]')).length;
++    const first = calc.calculateProgressiveETA(v, null);
++    v.status = 'en-route'; // snapshot-vägens statusanalys kom fram till annat
++    const second = calc.calculateProgressiveETA(v, null);
++    const recomputes = logger.debug.mock.calls
++      .filter(([msg]) => String(msg).includes('[ETA_FIX_RECOMPUTE]')).length - recomputesBefore;
++    expect(recomputes).toBe(1);
++    expect(Number.isFinite(first) && Number.isFinite(second)).toBe(true);
++    const d = calc._departures.get('265000884');
++    // Ett stigande sampel: golvet står kvar (max av förra golvet och
++    // 2,2 + 0,6), inget släpp. En andra framflyttning med samma fart hade
++    // släppt golvet till toppfarten + bruset, 2,5 kn.
++    expect(d.samples).toBe(2);
++    expect(d.released).toBe(false);
++    expect(d.floorKn).toBeCloseTo(3.2, 6);
++    expect(d.peakSog).toBe(2.2);
++    expect(d.lastSog).toBe(2.2);
++  });
++
+   test('städningen följer fartbufferten (clear, svep och destroy)', () => {
+     stillAt(485);
+     sample(476, 1.6);
+-- 
+2.43.0
+

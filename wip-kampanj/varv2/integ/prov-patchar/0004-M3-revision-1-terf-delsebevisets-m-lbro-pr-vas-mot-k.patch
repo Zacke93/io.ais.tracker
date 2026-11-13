@@ -1,0 +1,197 @@
+From 6b057c6cad118400b7e46954edaefd6f38034903 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 10:21:49 +0000
+Subject: [PATCH 04/10] =?UTF-8?q?M3=20revision=201:=20=C3=A5terf=C3=B6dels?=
+ =?UTF-8?q?ebevisets=20m=C3=A5lbro=20pr=C3=B6vas=20mot=20kajgrinden?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Systerställe till M3. Kajgrinden i _shouldAssignTargetBridge
+(_slowInitialQuayApproachNeedsProof) räknade sin målbro ur kursen och var
+därför stum för varje dödbandskurs. En båt som legat vid sin kajplats,
+gått ut, raderats och återvänt i transitfart med kurs i dödbandet fick då
+målbro av M3, fast grinden håller samma båt med kurs i banden. Grinden får
+en valfri parameter proposedTarget (utelämnad räknas målbron som förut),
+och M3 prövar sin målbro mot den.
+
+Nytt test: återkomsten till en belagd kajplats i Gästhamnen (röd på
+f62aea8) och dess kontroll utan kajhistorik. Banken är fortsatt bitlik
+(26 av 26 med och utan monitoring); arkitekturdokumentet nämner grinden
+och V8-gränsen för basens mottagningsklocka.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/ARCHITECTURE.md                         | 13 +++-
+ lib/services/VesselDataService.js            | 18 ++++-
+ tests/m3-aterfodd-dodband-2026-11-09.test.js | 78 ++++++++++++++++++++
+ 3 files changed, 101 insertions(+), 8 deletions(-)
+
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index db97d2b..fbeb35c 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -946,8 +946,11 @@ båt.
+     kräver: (1) kursen ligger i ett dödband, (2) sog ≥ `FIX_D_MIN_SOG` (2,0 kn),
+     (3) nettofarten i nordled ≥ 2 kn, (4) kursens sida stämmer med förflyttningen
+     (östra dödbandet norrut, västra, alltså Fix D:s breda sydband, söderut). Då låses
+-    riktningen, och `_calculateTargetBridge(vessel, dir)` väljer målbron. Blir det
+-    ingen målbro släpps låset igen.
++    riktningen, och `_calculateTargetBridge(vessel, dir)` väljer målbron. Den målbron
++    prövas också mot kajgrinden (`_slowInitialQuayApproachNeedsProof`, som annars
++    räknar sin målbro ur kursen och därför är stum vid dödbandskurs), så en båt som
++    återvänder till sin belagda kajplats hålls som förut. Blir det ingen målbro släpps
++    låset igen.
+   - *Ingen gissning (F18).* Riktningen kommer ur en mätt förflyttning mellan två
+     observerade positioner, inte ur kursen. Ribban är högre än för en kurs i banden,
+     som ger målbro utan något förflyttningsbevis alls. Kanalen går 22–36° mellan
+@@ -973,8 +976,10 @@ båt.
+     målbro först när låset finns, på nästa fix. (b) En kontinuerligt spårad båt med
+     kurs i dödbandet får som förut målbro först när kursen lämnar bandet. (c) En äkta
+     transit under 2 kn netto får ingen målbro här (54 % av bankens dödbandstransiter
+-    med sog ≥ 2). Regressionstest: `tests/m3-aterfodd-dodband-2026-11-09.test.js` och
+-    de två syntetiska scenarierna `återfödd-i-dödbandet-…`.
++    med sog ≥ 2). (d) Basen saknar fixtid (V8): en gammal basfix gör dt för kort och
++    överskattar nordfarten (faktor ≤ 1,5 vid fältets p90-fixålder). Regressionstest:
++    `tests/m3-aterfodd-dodband-2026-11-09.test.js` och de två syntetiska scenarierna
++    `återfödd-i-dödbandet-…`.
+ - Retention: samma `_shouldAssignTargetBridge`, med 2-READINGS: målbron ska ha
+   närmats ≥ `MIN_APPROACH_DISTANCE` (10 m) när den ligger > 300 m bort.
+   Misslyckas valideringen utanför skyddszonen startar en 60 s nådafrist
+diff --git a/lib/services/VesselDataService.js b/lib/services/VesselDataService.js
+index e2611b6..22a0bc7 100755
+--- a/lib/services/VesselDataService.js
++++ b/lib/services/VesselDataService.js
+@@ -546,8 +546,14 @@ class VesselDataService extends EventEmitter {
+           const rebirthDirection = this._rebirthTransitDirection(vessel, FIX_D_MIN_SOG);
+           if (rebirthDirection) {
+             this._lockRouteDirection(vessel, rebirthDirection);
+-            vessel.targetBridge = this._calculateTargetBridge(vessel, rebirthDirection);
+-            if (vessel.targetBridge) {
++            const rebirthTarget = this._calculateTargetBridge(vessel, rebirthDirection);
++            // SYSTERSTÄLLET: kajgrinden i _shouldAssignTargetBridge
++            // (_slowInitialQuayApproachNeedsProof) räknade sin målbro ur
++            // kursen och var därför stum för just dödbandskursen. Den prövas
++            // här mot den målbro beviset ger, så att en båt som återvänder
++            // till sin belagda kajplats inte får målbro den vägen heller.
++            if (rebirthTarget && !this._slowInitialQuayApproachNeedsProof(vessel, rebirthTarget)) {
++              vessel.targetBridge = rebirthTarget;
+               this.logger.debug(
+                 `🧭 [TARGET_ASSIGNMENT_REBIRTH] ${mmsi}: kurs ${vessel.cog}° i dödbandet, men `
+                 + `förflyttningen sedan sist kända position (${vessel._lastNorthProgress.mps.toFixed(3)} m/s `
+@@ -4076,8 +4082,12 @@ class VesselDataService extends EventEmitter {
+    * Stridsvarning och 25 minuters falsk brotext. Det rena positionsparet i
+    * appens kajlager överlever den tidiga removal som ligger mellan fixarna.
+    * Befintlig resa, belagd brokö och stark transit berörs inte.
++   * @param {Object} vessel
++   * @param {string|null} [proposedTarget] - målbron som prövas. Utelämnad
++   *   räknas den ur kursen som förut; M3 (varv 2) skickar målbron som
++   *   förflyttningsbeviset gav, eftersom kursen då ligger i dödbandet.
+    */
+-  _slowInitialQuayApproachNeedsProof(vessel) {
++  _slowInitialQuayApproachNeedsProof(vessel, proposedTarget = undefined) {
+     if (vessel.targetBridge || !Number.isFinite(vessel.sog)
+         || vessel._gpsJumpDetected || vessel._positionUncertain
+         || !hasFreshPosition(vessel)
+@@ -4145,7 +4155,7 @@ class VesselDataService extends EventEmitter {
+       ...Object.values(constants.TRIGGER_POINTS),
+       ...Object.values(constants.BRIDGES).filter((b) => constants.TARGET_BRIDGES.includes(b.name)),
+     ];
+-    const target = this._calculateTargetBridge(vessel);
++    const target = proposedTarget === undefined ? this._calculateTargetBridge(vessel) : proposedTarget;
+     const bridge = target && this.bridgeRegistry.getBridgeByName(target);
+     if (!bridge) return false;
+     const distance = geometry.calculateDistance(vessel.lat, vessel.lon, bridge.lat, bridge.lon);
+diff --git a/tests/m3-aterfodd-dodband-2026-11-09.test.js b/tests/m3-aterfodd-dodband-2026-11-09.test.js
+index 5923137..cd08c21 100644
+--- a/tests/m3-aterfodd-dodband-2026-11-09.test.js
++++ b/tests/m3-aterfodd-dodband-2026-11-09.test.js
+@@ -312,6 +312,84 @@ describe('M3 steg 3 — F18: motexemplen får ingen gissad målbro', () => {
+     expect(vessel._routeDirection).toBeNull();
+   });
+ 
++  // KONSTRUERAT (systerstället till kajgrinden, _slowInitialQuayApproachNeedsProof):
++  // båten har legat vid sin kajplats i Gästhamnen i 6 min, gått ut söderut förbi
++  // Klaffbron (en fix utanför kajbandet), raderats och återvänder nu i 2,5 kn med
++  // kurs 80° in mot kajen. Förflyttningen sedan sist kända position är +1,25 m/s,
++  // alltså över ribban, och kursens sida stämmer. Kajgrinden räknade sin målbro
++  // ur kursen och var därför stum vid dödbandskurs; den prövas nu mot målbron
++  // som beviset ger och håller henne, som den håller en båt med kurs i banden.
++  test('kaj: återkomst till belagd kajplats i Gästhamnen ⇒ kajgrinden håller, ingen målbro', () => {
++    const app = Object.create(AISBridgeApp.prototype);
++    app.log = jest.fn();
++    app.debug = jest.fn();
++    app.error = jest.fn();
++    app._openingQuayLedger = new Map();
++    app._quayStableLedger = new Map();
++    app._lastKnownPositions = new Map();
++    const svc = makeVds();
++    svc.app = app;
++    const zon = MOORING_ZONES.find((z) => /Gästhamnen/.test(z.name));
++    const kaj = { lat: (zon.start.lat + zon.end.lat) / 2, lon: (zon.start.lon + zon.end.lon) / 2 };
++    const mmsi = '901300006';
++    const t0 = Date.parse('2026-07-14T10:00:00Z');
++    const fix = (t, pos, sog, cog) => ({
++      mmsi, lat: pos.lat, lon: pos.lon, sog, cog, timestamp: t, lastPositionUpdate: t, fixTs: t, fixFeed: 'aisstream',
++    });
++    jest.setSystemTime(t0);
++    app._noteQuayStability(fix(t0, kaj, 0.1, 0));
++    jest.setSystemTime(t0 + 6 * 60000);
++    app._noteQuayStability(fix(t0 + 6 * 60000, kaj, 0.1, 0));
++    expect(app._openingQuayLedger.get(mmsi).positionStayEvidence).toBeTruthy();
++    // 550 m söder om Klaffbron längs farleden: utanför kajbandet (> 500 m).
++    const klaff = BRIDGES.klaffbron;
++    const ute = {
++      lat: klaff.lat - (550 * Math.cos((22 * Math.PI) / 180)) / M_PER_DEG_LAT,
++      lon: klaff.lon - (550 * Math.sin((22 * Math.PI) / 180)) / (M_PER_DEG_LAT * Math.cos((klaff.lat * Math.PI) / 180)),
++    };
++    const t1 = t0 + 7 * 60000;
++    jest.setSystemTime(t1);
++    app._noteQuayStability(fix(t1, ute, 4.0, 200));
++    expect(app._openingQuayLedger.get(mmsi)).toBeTruthy();
++    const f = {
++      mmsi,
++      name: 'ÅTERKOMST',
++      bas: { t: t1, ...ute },
++      åter: {
++        t: t1 + 700000, lat: kaj.lat + 10 / M_PER_DEG_LAT, lon: kaj.lon, sog: 2.5, cog: 80,
++      },
++    };
++    expect(k1(f)).toBeGreaterThan(RIBBA_MPS);
++    const vessel = reborn(svc, f);
++    expect(svc._rebirthTransitDirection(vessel, 2.0)).toBe('north');
++    expect(vessel.targetBridge).toBeNull();
++    expect(vessel._routeDirection).toBeNull();
++    expect(svc.logger.debug).toHaveBeenCalledWith(expect.stringContaining('[TARGET_QUAY_POSITION_PROOF]'));
++  });
++
++  test('kontroll: samma återkomst UTAN kajhistorik får målbro ur beviset', () => {
++    const svc = makeVds();
++    const zon = MOORING_ZONES.find((z) => /Gästhamnen/.test(z.name));
++    const kaj = { lat: (zon.start.lat + zon.end.lat) / 2, lon: (zon.start.lon + zon.end.lon) / 2 };
++    const klaff = BRIDGES.klaffbron;
++    const ute = {
++      lat: klaff.lat - (550 * Math.cos((22 * Math.PI) / 180)) / M_PER_DEG_LAT,
++      lon: klaff.lon - (550 * Math.sin((22 * Math.PI) / 180)) / (M_PER_DEG_LAT * Math.cos((klaff.lat * Math.PI) / 180)),
++    };
++    const t1 = Date.parse('2026-07-14T10:07:00Z');
++    const f = {
++      mmsi: '901300007',
++      name: 'TRANSIT',
++      bas: { t: t1, ...ute },
++      åter: {
++        t: t1 + 700000, lat: kaj.lat + 10 / M_PER_DEG_LAT, lon: kaj.lon, sog: 2.5, cog: 80,
++      },
++    };
++    const vessel = reborn(svc, f);
++    expect(vessel.targetBridge).toBe('Stridsbergsbron');
++    expect(vessel._routeDirection).toBe('north');
++  });
++
+   // KONSTRUERAT: vänd under avbrottet. Nettot sedan sist kända position säger
+   // norr (+2,4 m/s), men kursen 250° (västra dödbandet, Fix D:s breda
+   // sydband) säger att hon nu går söderut — och spegelbilden. Svepets
+-- 
+2.43.0
+

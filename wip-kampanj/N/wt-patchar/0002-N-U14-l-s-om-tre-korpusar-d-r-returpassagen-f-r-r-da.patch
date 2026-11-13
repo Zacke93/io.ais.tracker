@@ -1,0 +1,281 @@
+From 1b7a193bf93ce6561ad26b7d16fd0474789dd6ef Mon Sep 17 00:00:00 2001
+From: N-designer <n@kampanj.local>
+Date: Wed, 4 Nov 2026 18:10:14 +0000
+Subject: [PATCH 2/6] =?UTF-8?q?N=20(U14):=20l=C3=A5s=20om=20tre=20korpusar?=
+ =?UTF-8?q?=20d=C3=A4r=20returpassagen=20f=C3=A5r=20r=C3=A5databelagd=20no?=
+ =?UTF-8?q?tis?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+ELFKUNGEN (265573130) korsar bron tillbaka inom samma besök i tre låsta
+korpusar. Rådatafacit (gt-passages) visar båda korsningarna i alla tre:
+
+- 20260712-25h: Stallbackabron syd 12:21:51 (observerad), 85 → 86
+- 20260804-both-21h: Klaffbron syd i glappet 10:26–10:37, 151 → 152
+- 20260806-42h: Klaffbron syd 10:38:34 (observerad), 130 → 131
+
+Notiserna togs bort av besöksregeln 2026-09-07 och kommer nu tillbaka i
+passerad form. Brotexter, öppningar och passager är oförändrade. Omlåst i
+designarens worktree för att visa att allt annat är grönt; dirigenten
+låser om vid integrationen.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ tests/boat-near-gps-recovery.test.js          |  5 ++-
+ tests/opening-new-members-field.test.js       |  4 +-
+ .../corpora-direction-distribution.json       |  4 +-
+ .../corpora-distribution.json                 |  3 ++
+ tests/replay-validation/corpora.js            | 37 ++++++++++++++++---
+ .../golden-events/20260712-25h.json           | 18 +++++++++
+ .../golden-events/20260804-both-21h.json      | 18 +++++++++
+ .../golden-events/20260806-42h.json           | 18 +++++++++
+ 8 files changed, 98 insertions(+), 9 deletions(-)
+
+diff --git a/tests/boat-near-gps-recovery.test.js b/tests/boat-near-gps-recovery.test.js
+index 7a3e964..bc766ed 100644
+--- a/tests/boat-near-gps-recovery.test.js
++++ b/tests/boat-near-gps-recovery.test.js
+@@ -148,7 +148,10 @@ describe('Hela resan: GPS-hopp in i notiszonen', () => {
+           t: Date.parse('2026-07-13T13:06:20.330Z'), direction: 'southbound', success: true, alreadyPassed: true,
+         }),
+       ]);
+-    expect(result.notificationCount).toBe(85);
++    // U14 (2026-11-04): 85 → 86. ELFKUNGENs returpassage söderut över
++    // Stallbackabron 13/7 (rådata 12:21:51, efter nordpassagen i 77 min glapp)
++    // får sin egen notis 12:26:57. Se korpusnoten för 20260712-25h.
++    expect(result.notificationCount).toBe(86);
+     expect(result.processErrors).toBe(0);
+     expect(result.runtimeDiagnostics.timersAfterShutdown).toBe(0);
+   });
+diff --git a/tests/opening-new-members-field.test.js b/tests/opening-new-members-field.test.js
+index 7ba47f5..21393b0 100644
+--- a/tests/opening-new-members-field.test.js
++++ b/tests/opening-new-members-field.test.js
+@@ -77,7 +77,9 @@ describe('ANYA/ANTJE: nytillkomna båten får sitt kort utan att ANYA upprepas',
+ 
+   test('båda ankomsterna varnas före passage med var sitt kvitterat kort', () => {
+     expect(result.openingWarnings).toHaveLength(39);
+-    expect(result.notificationCount).toBe(151);
++    // U14 (2026-11-04): 151 → 152. ELFKUNGENs returpassage över Klaffbron 5/8
++    // 10:38:19 får egen notis; se korpusnoten för 20260804-both-21h.
++    expect(result.notificationCount).toBe(152);
+     for (const mmsi of [ANYA, ANTJE]) {
+       const cards = result.openingWarnings.filter((entry) => entry.bridge === 'Stridsbergsbron' && entry.mmsis.includes(mmsi));
+       expect(cards).toHaveLength(1);
+diff --git a/tests/replay-validation/corpora-direction-distribution.json b/tests/replay-validation/corpora-direction-distribution.json
+index 3d86df8..632f240 100644
+--- a/tests/replay-validation/corpora-direction-distribution.json
++++ b/tests/replay-validation/corpora-direction-distribution.json
+@@ -644,6 +644,7 @@
+     "265573130:Olidebron:northbound": 1,
+     "265573130:Olidebron:southbound": 1,
+     "265573130:Stallbackabron:northbound": 1,
++    "265573130:Stallbackabron:southbound": 1,
+     "265573130:Stridsbergsbron:northbound": 1,
+     "265573130:Stridsbergsbron:southbound": 1,
+     "265637230:Järnvägsbron:southbound": 1,
+@@ -1023,6 +1024,7 @@
+     "265573130:Kanalinfarten:southbound": 2,
+     "265573130:Kanalinfarten:unknown": 1,
+     "265573130:Klaffbron:northbound": 1,
++    "265573130:Klaffbron:southbound": 1,
+     "265573130:Olidebron:northbound": 2,
+     "265573130:Olidebron:southbound": 2,
+     "265614200:Järnvägsbron:southbound": 1,
+@@ -1176,7 +1178,7 @@
+     "265573130:Kanalinfarten:northbound": 2,
+     "265573130:Kanalinfarten:southbound": 2,
+     "265573130:Klaffbron:northbound": 2,
+-    "265573130:Klaffbron:southbound": 1,
++    "265573130:Klaffbron:southbound": 2,
+     "265573130:Olidebron:northbound": 2,
+     "265573130:Olidebron:southbound": 2,
+     "265573130:Stallbackabron:northbound": 1,
+diff --git a/tests/replay-validation/corpora-distribution.json b/tests/replay-validation/corpora-distribution.json
+index f53fc0c..a674857 100644
+--- a/tests/replay-validation/corpora-distribution.json
++++ b/tests/replay-validation/corpora-distribution.json
+@@ -893,6 +893,7 @@
+       "Olidebron",
+       "Olidebron",
+       "Stallbackabron",
++      "Stallbackabron",
+       "Stridsbergsbron",
+       "Stridsbergsbron"
+     ],
+@@ -1437,6 +1438,7 @@
+       "Kanalinfarten",
+       "Kanalinfarten",
+       "Klaffbron",
++      "Klaffbron",
+       "Olidebron",
+       "Olidebron",
+       "Olidebron",
+@@ -1722,6 +1724,7 @@
+       "Klaffbron",
+       "Klaffbron",
+       "Klaffbron",
++      "Klaffbron",
+       "Olidebron",
+       "Olidebron",
+       "Olidebron",
+diff --git a/tests/replay-validation/corpora.js b/tests/replay-validation/corpora.js
+index a307dba..933adda 100644
+--- a/tests/replay-validation/corpora.js
++++ b/tests/replay-validation/corpora.js
+@@ -1009,8 +1009,17 @@ module.exports = [
+     hours: 25,
+     locked: true,
+     lockEvents: true,
+-    expectedNotifications: 85,
+-    note: 'LÅNG KÖ 2026-09-09: IDUNs rena avgång 07:16, 1256 m förflyttning över AIS-glappet '
++    expectedNotifications: 86,
++    note: 'Omlåst 2026-11-04 (U14, kort B01): 85→86. ELFKUNGEN/265573130 får en egen notis för returpassagen '
++      + 'söderut över Stallbackabron 13/7: "passerade Stallbackabron under AIS-tystnad" 12:26:57.910, 1265 m söder '
++      + 'om bron, eta −1, already_passed. Rådatafacit (gt-passages): nordpassagen 11:22:54 är inferred i 77 min '
++      + 'glapp (11:03:29→12:20:57), sydpassagen 12:21:51.259 är observerad (12:20:57 på 223 m norr, 12:26:57 på '
++      + '1270 m söder). Två verkliga passager, och förvarningen 11:02:29 gällde den första. Besöket stängdes '
++      + 'aldrig (fixen 12:20:57 på bortre sidan, ingen utfärd), så returen tystades förut. Appen bokför returen '
++      + '12:26:57 som mellanbropassage; besöket släpps och failsafen notifierar i samma tick. Det är den andra '
++      + 'Stallbackanotisen som 2026-09-07 togs bort nedan, nu i passerad form. Brotexter, öppningar och passager '
++      + 'består. Se docs/ARCHITECTURE.md (U14).  '
++      + 'LÅNG KÖ 2026-09-09: IDUNs rena avgång 07:16, 1256 m förflyttning över AIS-glappet '
+       + 'till väntplatsen 08:02 och separat färsk stillhetsbekräftelse 08:21 styrker Järnvägskön. '
+       + 'Nya AIS-positioner håller väntan kvar även över tre timmar; AIS-tystnad förlänger '
+       + 'ingen aktiv resa. Samma 85 närnotiser och 31 öppningar; vänttexten räknar IDUN korrekt. '
+@@ -1638,8 +1647,16 @@ module.exports = [
+     locked: true,
+     lockOpenings: true,
+     lockEvents: true,
+-    expectedNotifications: 151,
+-    note: 'Omlåst 2026-11-03: enbart ARESTELs Stridsnärnotis 12:50:21.699 ändras från 3 till 1 min. Väntan vid '
++    expectedNotifications: 152,
++    note: 'Omlåst 2026-11-04 (U14, kort B01): 151→152. ELFKUNGEN/265573130 får en egen notis för returpassagen '
++      + 'söderut över Klaffbron 5/8: "passerade Klaffbron under AIS-tystnad" 10:38:19.540, 175 m söder om bron, '
++      + 'eta −1, already_passed. Rådatafacit (gt-passages): nordpassagen 10:15:12.558 (observerad), sydpassagen '
++      + 'inferred i 11 min glapp (10:26:00→10:37:11, från 220 m norr till 12 m söder). Två verkliga passager; '
++      + 'den första notifierades 10:15:46 i passerad form. Besöket stängdes aldrig (högst 216 m), så returen '
++      + 'tystades förut. Appen bokför returen 10:38:19 som mellanbropassage; besöket släpps och failsafen '
++      + 'notifierar i samma tick. Det är Klaffnotisen som 2026-09-07 togs bort nedan. Brotexter, öppningar och '
++      + 'passager består. Se docs/ARCHITECTURE.md (U14).  '
++      + 'Omlåst 2026-11-03: enbart ARESTELs Stridsnärnotis 12:50:21.699 ändras från 3 till 1 min. Väntan vid '
+       + 'Järnvägsbron flyttas inte längre till målbron ~93 m söder om Järnvägsbron, så väntbaslinjen släpps vid '
+       + 'Järnvägspassagen. Rådatans Stridsbergspassage 12:51:34.277 ligger 72,6 s efter notisen. Tider, avstånd, '
+       + 'källa, antal, öppningskort, passager och brotexter består. Se docs/helgranskning-2026-11-03.md.  '
+@@ -2264,14 +2281,22 @@ module.exports = [
+     locked: true,
+     lockEvents: true,
+     pollEraMinutes: 10,
+-    expectedNotifications: 130,
++    expectedNotifications: 131,
+     // Exakt textheuristiskt falsklarm: sista AIS passerade 25-minutersgränsen.
+     // Rådatagap och verklig visningsgräns låses av utopia-stale-display-field.test.js.
+     knownInvariantExceptions: [
+       'DEFAULT-FLASH: 2026-08-06T08:47:00.040Z "Inga båtar" inklämd (30s) '
+         + 'mellan två "En … Stridsbergsbron"-texter utan passage',
+     ],
+-    note: 'Omlåst 2026-11-03: enbart FILOUs Järnvägsnotis 7/8 12:14:58.542 byter till passerad form ("passerade '
++    note: 'Omlåst 2026-11-04 (U14, kort B01): 130→131. ELFKUNGEN/265573130 får en egen notis för returpassagen '
++      + 'söderut över Klaffbron 7/8: "passerade Klaffbron under AIS-tystnad" 10:39:41.258, 165 m söder om bron, '
++      + 'eta −1, already_passed. Rådatafacit (gt-passages): nordpassagen 10:17:48.001 och sydpassagen 10:38:34.189, '
++      + 'båda observerade (sydpassagen mellan 136 m norr 10:37:28 och 4 m söder 10:38:35). Två verkliga passager; '
++      + 'förvarningen 10:16:07 gällde den första. Besöket stängdes aldrig (högst 245 m), så returen tystades förut. '
++      + 'Appen bokför returen 10:39:41 som mellanbropassage; varken mål- eller nuvarande bro finns kvar i den '
++      + 'ticken, så failsafen notifierar och texten blir dess standardmening. Det är Klaffnotisen som 2026-09-07 '
++      + 'togs bort nedan. Brotexter, öppningar och passager består. Se docs/ARCHITECTURE.md (U14).  '
++      + 'Omlåst 2026-11-03: enbart FILOUs Järnvägsnotis 7/8 12:14:58.542 byter till passerad form ("passerade '
+       + 'Järnvägsbron under AIS-tystnad", eta −1, already_passed). Hon återföddes efter 55 min glapp 208 m söder om '
+       + 'bron; rådatans korsning 11:54:03 ligger i glappet, före notisfixen. Fältloggen bar samma felaktiga '
+       + '"om 2 minuter". Tid, avstånd, källa, antal, kort, passager och brotexter består. Se '
+diff --git a/tests/replay-validation/golden-events/20260712-25h.json b/tests/replay-validation/golden-events/20260712-25h.json
+index 0916540..f195b39 100644
+--- a/tests/replay-validation/golden-events/20260712-25h.json
++++ b/tests/replay-validation/golden-events/20260712-25h.json
+@@ -991,6 +991,24 @@
+       "vesselLon": 12.289611666666667,
+       "vesselLatNext": 58.2895
+     },
++    {
++      "t": 1783945617910,
++      "bridge": "Stallbackabron",
++      "direction": "southbound",
++      "eta": -1,
++      "message": "ELFKUNGEN passerade Stallbackabron under AIS-tystnad",
++      "alreadyPassed": true,
++      "name": "ELFKUNGEN",
++      "distance": 1265,
++      "source": "passage-fallback",
++      "stateBridge": "stallbackabron",
++      "mmsi": "265573130",
++      "success": true,
++      "error": null,
++      "vesselLat": 58.300865,
++      "vesselLon": 12.303336666666667,
++      "vesselLatNext": 58.279215
++    },
+     {
+       "t": 1783945860313,
+       "bridge": "Kanalinfarten",
+diff --git a/tests/replay-validation/golden-events/20260804-both-21h.json b/tests/replay-validation/golden-events/20260804-both-21h.json
+index f85dd20..a14aeaf 100644
+--- a/tests/replay-validation/golden-events/20260804-both-21h.json
++++ b/tests/replay-validation/golden-events/20260804-both-21h.json
+@@ -1549,6 +1549,24 @@
+       "vesselLon": 12.27195,
+       "vesselLatNext": 58.2692
+     },
++    {
++      "t": 1785926299540,
++      "bridge": "Klaffbron",
++      "direction": "southbound",
++      "eta": -1,
++      "message": "ELFKUNGEN passerade Klaffbron under AIS-tystnad",
++      "alreadyPassed": true,
++      "name": "ELFKUNGEN",
++      "distance": 175,
++      "source": "passage-fallback",
++      "stateBridge": "klaffbron",
++      "mmsi": "265573130",
++      "success": true,
++      "error": null,
++      "vesselLat": 58.28254,
++      "vesselLon": 12.28351,
++      "vesselLatNext": 58.28105
++    },
+     {
+       "t": 1785926616858,
+       "bridge": "Olidebron",
+diff --git a/tests/replay-validation/golden-events/20260806-42h.json b/tests/replay-validation/golden-events/20260806-42h.json
+index 33fb595..dec28b9 100644
+--- a/tests/replay-validation/golden-events/20260806-42h.json
++++ b/tests/replay-validation/golden-events/20260806-42h.json
+@@ -1351,6 +1351,24 @@
+       "vesselLon": 12.28328,
+       "vesselLatNext": 58.28475
+     },
++    {
++      "t": 1786099181258,
++      "bridge": "Klaffbron",
++      "direction": "southbound",
++      "eta": -1,
++      "message": "ELFKUNGEN passerade Klaffbron under AIS-tystnad",
++      "alreadyPassed": true,
++      "name": "ELFKUNGEN",
++      "distance": 165,
++      "source": "passage-fallback",
++      "stateBridge": "klaffbron",
++      "mmsi": "265573130",
++      "success": true,
++      "error": null,
++      "vesselLat": 58.28262,
++      "vesselLon": 12.28364,
++      "vesselLatNext": 58.28183
++    },
+     {
+       "t": 1786099249861,
+       "bridge": "Stallbackabron",
+-- 
+2.43.0
+

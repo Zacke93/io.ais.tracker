@@ -1,0 +1,249 @@
+From f166adf47eea8c0d04a0a8ab78136f4f35776b58 Mon Sep 17 00:00:00 2001
+From: "Familj F (Claude)" <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 12:48:57 +0000
+Subject: [PATCH 04/12] =?UTF-8?q?M3:=20kajavg=C3=A5ng=20inne=20i=20en=20ka?=
+ =?UTF-8?q?jzon=20med=20k=C3=B6undantag;=20REBEL:s=20kort=20i=2042h=20oml?=
+ =?UTF-8?q?=C3=A5st=20(U13)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Granskningen av familj F (M3), känd sedan helgranskning-2026-11-03 ("S/V
+REBEL (42h)"): avgångsbeviset från ett bekräftat kajstopp krävde en fix
+utanför kajzonerna. Kajen ligger mellan Gästhamnen och Klaffbron, så en båt
+som lade ut fick sitt nya kort först vid nästa fix — ofta efter passagen —
+och REBEL:s kort spärrades som same-arrival mot gårdagens ankomst.
+
+Nu godtas avgången inne i en kajzon med köundantag när båten flyttat minst
+50 m från stoppet MOT kortets bro. Ett bekräftat stopp krävs som förut, så
+U23-köaren som klassningen håller berörs inte.
+
+Omlåsning (U13, rådatabelagd): 20260806-42h Klaffbron:southbound 18 → 19 och
+golden-events (+Klaffbron#24 2026-08-07T08:44:41.473Z 249 m, −spärren).
+Fältappens Klaffbron#19 08:44:41.922 vid 249 m; gt-passages: korsning
+08:46:26.407 (observerad); ledtid 105 s. Öppningsgrindarna: O1 36/36, O2
+21 → 22 bekräftade inom 20 min av 41. Notis-, fördelnings-, riktnings- och
+golden-text-facit orörda; normal = monitoring; fassvepet för 42h grönt.
+Bankens övriga 23 korpusar bitlika. Syntetiska prov: den sena andra varningen
+efter backstoppen eller navstatus kommer 77 s före korsningen i stället för 47 s.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ app.js                                        | 18 ++++++-
+ docs/helgranskning-2026-11-03.md              |  5 ++
+ tests/opening-queue-quay-stop.test.js         | 54 +++++++++++++++++++
+ tests/replay-validation/corpora.js            | 18 ++++++-
+ .../golden-events/20260806-42h.json           | 36 +++++++------
+ .../opening-distribution.json                 |  2 +-
+ 6 files changed, 115 insertions(+), 18 deletions(-)
+
+diff --git a/app.js b/app.js
+index cf5550a..9713589 100755
+--- a/app.js
++++ b/app.js
+@@ -1542,7 +1542,23 @@ class AISBridgeApp extends Homey.App {
+         ? 0 : queueGraceMs;
+       const stop = entry.quayStop;
+       const movedFromStop = stop && geometry.calculateDistance(stop.lat, stop.lon, vessel.lat, vessel.lon);
+-      if (stop?.confirmed && !atQuay && vessel._moored !== true
++      // Avgången kräver normalt en fix utanför kajzonerna. Inne i en kajzon med
++      // köundantag ("Kajen norr om Klaffbron", mitt i väntzonen mellan
++      // Gästhamnen och bron) räcker att båten flyttat sig minst 50 m från
++      // stoppet MOT kortets bro — annars kom avgångsbeviset först vid nästa fix,
++      // ofta efter passagen. S/V REBEL (20260806-42h, 2026-08-07) lämnade sitt
++      // bekräftade övernattningsstopp i Gästhamnen; första rörelsefixen låg i
++      // Kajen 249 m från Klaffbron, och fältappens kort 08:44:41 (Klaffbron#19)
++      // spärrades i replayn av gårdagens ankomst (helgranskning-2026-11-03:
++      // "räkna rörelse ≥ 50 m från ett bekräftat stopp som avgång även i en
++      // annan kajzon"). Samma grind gjorde varningen sen för varje båt som
++      // U23 släpper vid Kajen (navstatus, 2 h, omstart, AIS-glapp): 43 → 73 s
++      // före korsningen i de syntetiska proven. Ett bekräftat stopp krävs som
++      // förut, så en köare som klassningen håller berörs inte.
++      const stopDistance = stop && geometry.calculateDistance(stop.lat, stop.lon, bridge.lat, bridge.lon);
++      const leftQuay = !atQuay || (Number(quayZone?.queueGraceMs) > 0
++        && Number.isFinite(stopDistance) && stopDistance - distance >= 50);
++      if (stop?.confirmed && leftQuay && vessel._moored !== true
+           && movedFromStop >= 50 && Number.isFinite(vessel.sog) && vessel.sog >= 0.5) {
+         this._persistentOpeningWarnings.delete(key);
+         this.bridgeOpeningService?.restartArrival?.(vessel.mmsi, bridgeName);
+diff --git a/docs/helgranskning-2026-11-03.md b/docs/helgranskning-2026-11-03.md
+index ddf59f6..3a402d9 100644
+--- a/docs/helgranskning-2026-11-03.md
++++ b/docs/helgranskning-2026-11-03.md
+@@ -251,6 +251,11 @@ beslut eller en senare runda.
+     2026-08-07; passagen kom 08:46:26.
+   - Rättning: räkna rörelse ≥ 50 m från ett bekräftat stopp som avgång även i
+     en annan kajzon. Det ändrar låst facit med ett kort till.
++  - **Rättat 2026-11-09** (granskningen av familj F, M3): avgången godtas inne
++    i en kajzon med köundantag när båten flyttat minst 50 m från stoppet mot
++    bron (app.js `_observeOpeningArrivals`). REBEL:s kort kommer 08:44:41 vid
++    249 m, 105 s före korsningen; 20260806-42h omlåst (Klaffbron:southbound
++    18 → 19), se noten i corpora.js.
+ - **AKIRA, glapp i Gästhamnen.** Ett AIS-glapp nollställer fortfarande ett
+   obekräftat stopp i Gästhamnen. En övernattning med AIS avstängd ger därför
+   inget morgonkort, men bara i kedjade körningar med persisterat minne.
+diff --git a/tests/opening-queue-quay-stop.test.js b/tests/opening-queue-quay-stop.test.js
+index 8bff63d..1ffceb0 100644
+--- a/tests/opening-queue-quay-stop.test.js
++++ b/tests/opening-queue-quay-stop.test.js
+@@ -165,6 +165,60 @@ describe('Öppningslagret: kort köstopp vid Kajen är samma ankomst', () => {
+     expect(app.bridgeOpeningService.restartArrival).toHaveBeenCalledWith(MMSI, 'Klaffbron');
+   });
+ 
++  // M3 (granskningen av familj F, 2026-11-09; helgranskning-2026-11-03, S/V
++  // REBEL i 20260806-42h): avgången från ett bekräftat stopp godtas inne i
++  // en kajzon med köundantag när båten flyttat minst 50 m från stoppet MOT
++  // bron. REBEL låg över natten i Gästhamnen; hennes första rörelsefix låg i
++  // Kajen 249 m från Klaffbron, och fältappens kort spärrades av gårdagens
++  // ankomst.
++  test('M3: bekräftat stopp i Gästhamnen, första rörelsefixen i Kajen mot bron ⇒ ny ankomst', () => {
++    const gasthamnen = mid(GASTHAMNEN);
++    app._observeOpeningArrivals(fix(gasthamnen, 0.1));
++    jest.setSystemTime(Date.now() + 30000);
++    app._observeOpeningArrivals(fix(gasthamnen, 0.1));
++    expect(app._persistentOpeningWarnings.get(KEY).quayStop.confirmed).toBe(true);
++    jest.setSystemTime(Date.now() + 8 * 60 * 60 * 1000);
++    app._observeOpeningArrivals(fix(mid(KAJEN), 3.0));
++    expect(app._persistentOpeningWarnings.has(KEY)).toBe(false);
++    expect(app.bridgeOpeningService.restartArrival).toHaveBeenCalledWith(MMSI, 'Klaffbron');
++  });
++
++  test('M3: rörelse inne i Kajen BORT från bron är ingen avgång', () => {
++    // Bekräftat stopp vid Kajens södra ände (förtöjd enligt klassningen),
++    // sedan en rörelsefix vid kapselns norra ände: över 50 m från stoppet
++    // men längre från Klaffbron, alltså ingen avgång mot bron.
++    const NAV5 = {
++      ...QUEUER, navStatus: 5, _moored: true, targetBridge: null,
++    };
++    const sydande = { lat: KAJEN.start.lat, lon: KAJEN.start.lon };
++    const nordande = { lat: KAJEN.end.lat, lon: KAJEN.end.lon };
++    app._observeOpeningArrivals(fix(sydande, 0.1, NAV5));
++    jest.setSystemTime(Date.now() + 30000);
++    app._observeOpeningArrivals(fix(sydande, 0.1, NAV5));
++    expect(app._persistentOpeningWarnings.get(KEY).quayStop.confirmed).toBe(true);
++    jest.setSystemTime(Date.now() + 60000);
++    app._observeOpeningArrivals(fix(nordande, 2.0, { ...QUEUER, _moored: false }));
++    expect(app._persistentOpeningWarnings.has(KEY)).toBe(true);
++    expect(app.bridgeOpeningService.restartArrival).not.toHaveBeenCalled();
++  });
++
++  test('M3: köaren som klassningen håller lägger ut genom Kajen ⇒ fortfarande samma ankomst', () => {
++    // Stoppet bekräftas aldrig medan U23 håller henne, så avgången inne i
++    // kapseln mot bron ger inget nytt kort.
++    const at = mid(KAJEN);
++    app._observeOpeningArrivals(fix(at, 0.1));
++    for (let elapsed = 30000; elapsed <= 25 * 60 * 1000; elapsed += 30000) {
++      jest.setSystemTime(Date.now() + 30000);
++      app._observeOpeningArrivals(fix(at, 0.1));
++    }
++    // Kapselns södra spets, 25 m bortom linjens ände: 167 m från Klaffbron,
++    // 73 m närmare bron än stoppet och fortfarande i kapseln.
++    jest.setSystemTime(Date.now() + 60000);
++    app._observeOpeningArrivals(fix({ lat: 58.285500, lon: 12.284923 }, 3.0));
++    expect(app._persistentOpeningWarnings.has(KEY)).toBe(true);
++    expect(app.bridgeOpeningService.restartArrival).not.toHaveBeenCalled();
++  });
++
+   // Köskyddet gäller bara när bron ligger inom DISARM_MOORED_MIN_DISTANCE_M
+   // (600 m), som i förtöjningsklassningen. Kajen ligger 980 m från
+   // Stridsbergsbron: där är ett stopp vid kajen ett besök, inte brokö.
+diff --git a/tests/replay-validation/corpora.js b/tests/replay-validation/corpora.js
+index d3546a0..ce65f4c 100644
+--- a/tests/replay-validation/corpora.js
++++ b/tests/replay-validation/corpora.js
+@@ -2299,7 +2299,23 @@ module.exports = [
+       'DEFAULT-FLASH: 2026-08-06T08:47:00.040Z "Inga båtar" inklämd (30s) '
+         + 'mellan två "En … Stridsbergsbron"-texter utan passage',
+     ],
+-    note: 'Omlåst 2026-11-04 (U14, kort B01): 130→131. ELFKUNGEN/265573130 får en egen notis för returpassagen '
++    note: 'ÖPPNINGSFACIT OMLÅST 2026-11-09 (granskningen av familj F, M3 kajavgångsgrinden; '
++      + 'helgranskning-2026-11-03 "S/V REBEL (42h)"): Klaffbron:southbound 18 → 19, och golden-events får '
++      + 'en varning till och en spärr mindre. S/V REBEL 265827650 varnades dag 1 Klaffbron#13 2026-08-06T10:30:04 '
++      + '(900 m), gick in i Gästhamnen 10:34:35 och låg där över natten (sog 0, 7–13 m från gästhamnslinjen; '
++      + 'sista stillafixen 2026-08-07T08:37:53, 391 m från Klaffbron). Första rörelsefixen 08:44:41.473 '
++      + '(58.28622/12.28529, 3,3 kn, kurs 213°) ligger i Kajens kapsel 28 m från linjen, 249 m från Klaffbron '
++      + 'och 142 m närmare bron än stoppet; nästa fix 08:48:06 ligger 245 m söder om bron. Rådatafacit '
++      + '(gt-passages): korsning söderut 08:46:26.407, observerad mellan 251 m norr och 239 m söder. Fältappen '
++      + 'varnade Klaffbron#19 08:44:41.922, 249 m, eta 2 min (field-facit/20260806-42h/field-openings.txt:19). '
++      + 'Replayn avfyrade Klaffbron#24 vid samma fix men spärrade den som same-arrival mot dag 1:s ankomst, '
++      + 'eftersom avgångsbeviset krävde en fix utanför kajzonerna och nästa fix kom efter passagen. Med '
++      + 'rättningen (avgång inne i en kajzon med köundantag när båten flyttat minst 50 m från stoppet MOT bron) '
++      + 'levereras Klaffbron#24 08:44:41.473, 249 m, fix, eta 2, 105 s före korsningen. Öppningsgrindarna: O1 '
++      + '36/36 som förut (passagens enda täckning var dag 1:s varning, 1 336 min gammal); O2 21 → 22 bekräftade '
++      + 'inom 20 min av 41. Normal- och monitoringkörningen ger samma händelser. Notis-, fördelnings-, '
++      + 'riktnings- och golden-text-facit ORÖRDA (131/131 notiser). '
++      + 'Omlåst 2026-11-04 (U14, kort B01): 130→131. ELFKUNGEN/265573130 får en egen notis för returpassagen '
+       + 'söderut över Klaffbron 7/8: "passerade Klaffbron under AIS-tystnad" 10:39:41.258, 165 m söder om bron, '
+       + 'eta −1, already_passed. Rådatafacit (gt-passages): nordpassagen 10:17:48.001 och sydpassagen 10:38:34.189, '
+       + 'båda observerade (sydpassagen mellan 136 m norr 10:37:28 och 4 m söder 10:38:35). Två verkliga passager; '
+diff --git a/tests/replay-validation/golden-events/20260806-42h.json b/tests/replay-validation/golden-events/20260806-42h.json
+index dec28b9..2bf96e0 100644
+--- a/tests/replay-validation/golden-events/20260806-42h.json
++++ b/tests/replay-validation/golden-events/20260806-42h.json
+@@ -2742,6 +2742,26 @@
+       "success": true,
+       "error": null
+     },
++    {
++      "t": 1786092281473,
++      "iso": "2026-08-07T08:44:41.473Z",
++      "bridge": "Klaffbron",
++      "direction": "southbound",
++      "etaMin": 2,
++      "vesselCount": 1,
++      "leadVessel": "S/V REBEL",
++      "firedBy": "fix",
++      "eventId": "Klaffbron#24",
++      "leadMmsi": "265827650",
++      "mmsis": [
++        "265827650"
++      ],
++      "distance": 249,
++      "dueMs": 1786092281473,
++      "originalDueMs": 1786092073824.2078,
++      "success": true,
++      "error": null
++    },
+     {
+       "t": 1786093606003,
+       "iso": "2026-08-07T09:06:46.003Z",
+@@ -3169,21 +3189,7 @@
+       "error": null
+     }
+   ],
+-  "openingSuppressions": [
+-    {
+-      "suppressed": "same-arrival",
+-      "t": 1786092281473,
+-      "eventId": "Klaffbron#24",
+-      "bridge": "Klaffbron",
+-      "members": [
+-        {
+-          "mmsi": "265827650",
+-          "key": "Klaffbron|265827650|southbound",
+-          "firedAt": 1786012204153
+-        }
+-      ]
+-    }
+-  ],
++  "openingSuppressions": [],
+   "targetPassages": [
+     {
+       "t": 1785972334811,
+diff --git a/tests/replay-validation/opening-distribution.json b/tests/replay-validation/opening-distribution.json
+index 7e397ea..0251245 100644
+--- a/tests/replay-validation/opening-distribution.json
++++ b/tests/replay-validation/opening-distribution.json
+@@ -95,7 +95,7 @@
+   },
+   "20260806-42h": {
+     "Klaffbron:northbound": 6,
+-    "Klaffbron:southbound": 18,
++    "Klaffbron:southbound": 19,
+     "Stridsbergsbron:northbound": 6,
+     "Stridsbergsbron:southbound": 10
+   },
+-- 
+2.43.0
+

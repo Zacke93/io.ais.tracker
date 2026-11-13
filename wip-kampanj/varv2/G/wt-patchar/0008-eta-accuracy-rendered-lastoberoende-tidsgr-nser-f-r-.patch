@@ -1,0 +1,74 @@
+From eda1839b3006310001883bf8e193f7a6b281bae7 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 17:44:53 +0000
+Subject: [PATCH 8/9] =?UTF-8?q?eta-accuracy-rendered:=20lastoberoende=20ti?=
+ =?UTF-8?q?dsgr=C3=A4nser=20f=C3=B6r=20f=C3=A4ltets=20replay?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Fältdelen kör två replayer av 20260804-both-21h efter varandra. Varje barn hade
+spawnSync-gränsen 25 s och beforeAll 60 s. På en ledig maskin tar en replay
+cirka 3 s och hela filen 7 s. Under hög last (fyra kärnor, load 40–80) tar en
+replay 32–42 s, och testet föll då med spawnSync ETIMEDOUT fast koden var
+oförändrad.
+
+Gränserna vaktar bara mot ett barn som hänger sig. De blir nu 120 s per barn och
+300 s för båda (CHILD_TIMEOUT_MS och FIELD_SETUP_TIMEOUT_MS), med motiveringen
+i kommentaren.
+
+Provat med 80 upptagna node-processer som konstgjord last:
+- före rättningen: 4 av 17 test röda (ETIMEDOUT);
+- efter rättningen: 17 av 17 gröna, på 121 s;
+- ledig maskin: 6 s.
+
+Hela jest: 375 sviter och 5 444 test gröna. Lint grön.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ tests/eta-accuracy-rendered.test.js | 14 ++++++++++++--
+ 1 file changed, 12 insertions(+), 2 deletions(-)
+
+diff --git a/tests/eta-accuracy-rendered.test.js b/tests/eta-accuracy-rendered.test.js
+index dc750d8..2edc4a6 100644
+--- a/tests/eta-accuracy-rendered.test.js
++++ b/tests/eta-accuracy-rendered.test.js
+@@ -154,6 +154,16 @@ describe('ETA-mätaren läser textmotorns verkliga val utan omräkning', () => {
+ 
+ // Hela fältet och oförändrat replayresultat är den oberoende kontrollen:
+ // mätfångsten får varken byta ledare, lägga till timerpass eller ändra text.
++//
++// Tidsgränserna vaktar bara mot ett barn som hänger sig; de mäter inte
++// prestanda. På en ledig maskin tar varje replay av 21h-korpusen cirka 3 s,
++// och hela filen 7 s. Under hög last (fyra kärnor, load 40–80) uppmättes
++// 32–42 s per replay, och den tidigare gränsen på 25 s gav falskt rött med
++// spawnSync ETIMEDOUT fast koden var oförändrad (varv 2, 2026-11-09).
++// 120 s per barn och 300 s för båda tillsammans ger samma utfall oavsett last.
++const CHILD_TIMEOUT_MS = 120000;
++const FIELD_SETUP_TIMEOUT_MS = 2 * CHILD_TIMEOUT_MS + 60000;
++
+ describe('Verkliga EUGENIE/ANTJE-fältet attribueras till rätt publicerande båt', () => {
+   let plain;
+   let measured;
+@@ -170,7 +180,7 @@ describe('Verkliga EUGENIE/ANTJE-fältet attribueras till rätt publicerande bå
+       ], {
+         cwd: ROOT,
+         encoding: 'utf8',
+-        timeout: 25000,
++        timeout: CHILD_TIMEOUT_MS,
+         maxBuffer: 96 * 1024 * 1024,
+         env: {
+           ...process.env,
+@@ -205,7 +215,7 @@ describe('Verkliga EUGENIE/ANTJE-fältet attribueras till rätt publicerande bå
+     legacyClaims = M.collectClaims(job, {
+       ...measured, debug: { ...measured.debug, renderCapture: false },
+     }, { index }).claims;
+-  }, 60000);
++  }, FIELD_SETUP_TIMEOUT_MS);
+ 
+   test('alla deterministiska replayfält är exakt lika med och utan mätfångsten', () => {
+     // Processens heap beror på GC och diagnostikmängd även mellan två vanliga
+-- 
+2.43.0
+

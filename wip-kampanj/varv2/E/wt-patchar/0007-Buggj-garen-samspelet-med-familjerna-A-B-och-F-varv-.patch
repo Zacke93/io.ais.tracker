@@ -1,0 +1,843 @@
+From c474842189721bea1acbcd10d1da4f4d1d01e6d3 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 12:13:00 +0000
+Subject: [PATCH 07/17] =?UTF-8?q?Buggj=C3=A4garen:=20samspelet=20med=20fam?=
+ =?UTF-8?q?iljerna=20A,=20B=20och=20F=20(varv=202):=20domens=20f=C3=A4lt,?=
+ =?UTF-8?q?=20U24-posten=20och=20Kajens=20obegr=C3=A4nsade=20k=C3=B6undant?=
+ =?UTF-8?q?ag?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Familj B: villkor (3′) i tystRecoverSammaÖppning läser domens arrivalMs
+  (M5: under ETA-golvet den senare av prognosen och armens fysik) och
+  windowEndMs när domen bär dem; kravet på oberoende fysik står kvar.
+  U24:s släpp på hennes egen deadline före första passagen räknas som
+  bakkant och nämns i skälet (BUGGJAKT §7 rad 43).
+- U24 (ägarbeslut 2026-11-09): ny DESIGN-post U24-DELAD-KÖ-EXTRA-VARNING
+  med predikatet u24DeladKö för den köande konvoj som delas, som i
+  provvärld 143. Smal: kräver domspåret, ett U24-släpp av en annan båt
+  som höll U24:s villkor på hennes egen rad, båten själv i väntzonen och
+  stilla, ingen känd passage vid täckningssluten, samma öppning och ett
+  fix som var yngre än T3:s 19 min vid den äldre händelsens slut (rad 45).
+  U2-VS-DEADLINE:s fråga uppdaterad efter U24 (rad 46).
+- Familj F: kajpredikatet läser queueGraceMs som appen (Infinity är
+  obegränsat), och shrink-tabellen läser Kajens köundantag ur zonposten i
+  stället för en hårdkodad 900 s (rad 44).
+- Familj A: registrets radhänvisningar till VesselDataService.js pekar på
+  symboler (rad 47).
+- Jest: k-varv2-motor.test.js, 11 nya test fäller 606a52b; fixturen
+  varv2-u24-2026-11-09.json är värld 143 körd på familj B:s 0b0a35d.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/BUGGJAKT.md                              |  33 ++-
+ .../fixtures/varv2-u24-2026-11-09.json        |   1 +
+ .../bugHunt/__tests__/k-varv2-motor.test.js   | 169 ++++++++++++++
+ .../bugHunt/beslutsregister.json              |  47 ++--
+ .../bugHunt/lib/oracles/t2Opening.js          |   2 +-
+ .../replay-validation/bugHunt/lib/registry.js | 217 ++++++++++++++++--
+ tests/replay-validation/bugHunt/lib/shrink.js |  16 +-
+ 7 files changed, 442 insertions(+), 43 deletions(-)
+ create mode 100644 tests/replay-validation/bugHunt/__tests__/fixtures/varv2-u24-2026-11-09.json
+
+diff --git a/docs/BUGGJAKT.md b/docs/BUGGJAKT.md
+index ffd1037..7463b01 100644
+--- a/docs/BUGGJAKT.md
++++ b/docs/BUGGJAKT.md
+@@ -37,7 +37,7 @@ hunt.js  (förälder med äkta klocka: generering, dom, klustring, krympning, ra
+                 (oförändrad CLI och oförändrat markörkontrakt __REPLAY_JSON__ … __END__)
+ ```
+ 
+-All motorkod ligger under `tests/replay-validation/bugHunt/` (modulkarta i bilaga C). Fyra befintliga filer har fått små krokar: `package.json` (skript), `CLAUDE.md` (en rad under Kommandon), `docs/VALIDATION.md` (ett kort avsnitt) och den här filen. `app.js`, `lib/`, `drivers/`, `settings/`, `app.json` och `.homeycompose/` är orörda. `replayRunner.js` var orörd i v1; sedan rättningskampanjens varv 2 bokför den additivt släppvägens domar (`openingCoverageVerdicts`, ren diagnostik som bara motorn läser, §7 rad 41), och replay:all, openings och golden-filerna är bitlika.
++All motorkod ligger under `tests/replay-validation/bugHunt/` (modulkarta i bilaga C). Fyra befintliga filer har fått små krokar: `package.json` (skript), `CLAUDE.md` (en rad under Kommandon), `docs/VALIDATION.md` (ett kort avsnitt) och den här filen. `app.js`, `lib/`, `drivers/`, `settings/`, `app.json` och `.homeycompose/` är orörda. `replayRunner.js` var orörd i v1; sedan rättningskampanjens varv 2 bokför den additivt släppvägens domar (`openingCoverageVerdicts`, ren diagnostik som bara motorn läser, §7 rad 41), och replay:all, openings och golden-filerna är bitlika. Domen kopieras generiskt, så fält som appen lägger till (familj B:s `arrivalMs`, `physicsArrivalMs`, `windowEndMs`, `ownDeadlineMs` och `gate`) bokförs utan ändring i harnessen; registret läser `arrivalMs` och `windowEndMs` (§7 rad 43) och U24-släppets skäl (rad 45).
+ 
+ ## 3. Ramar och hygien
+ 
+@@ -154,12 +154,12 @@ Varje värld är 2–4 h lång och har en fokal familj plus bakgrundstrafik (`li
+ | F-TRANSIT | bara bakgrundstrafik (15 % nära deadline-taket) | marschfart | 10 kn (DEADLINE_MAX_SPEED_KN) |
+ | F-KONVOJ | följare i samma riktning, Δ ∈ U(0,5; 13) min | Δ | CONVOY_WINDOW_MS 600 s, WARNING_LEAD_MS 180 s |
+ | F-MÖTE | motriktad båt vid samma målbro inom 10 min | Δ | CONVOY_WINDOW_MS |
+-| F-KÖ | kö på fältets köplatser, p50 15 och p90 39 min, klippt vid 60 min | distM, durS | WAITING_SET/CLEAR 270/350 m, radie 300 m, queueGraceMs 900 s, STALE 300/600 s |
++| F-KÖ | kö på fältets köplatser, p50 15 och p90 39 min, klippt vid 60 min | distM, durS | WAITING_SET/CLEAR 270/350 m, radie 300 m, queueGraceMs (Kajen, ur zonposten: 900 s på c14938f, utgår när det är obegränsat efter U23), STALE 300/600 s |
+ | F-KRYP | 0,4–1,5 kn inom 150–400 m före målbron; radion rapporterar farten fysiskt i hela intervallet (4.2) | kn, withinM | 0,5 / 1,0 / 2,0 kn, 300/500 m |
+ | F-USVÄNG | vändning 100–900 m från närmaste station, på båda sidor | avstånd | besöksutfärd 350 m, radie 300 m, 50/70 m |
+ | F-KAJ | kajliggare på 12 kajplatser härledda ur banken | (ej sökbar i v1) | 600 m (DISARM_MOORED_MIN_DISTANCE_M) |
+ | F-SENFÖDD | hörs först 300–1 500 m före målbron (bara R1) | avstånd | 210 s minsta varningsbarhet, 926 m, 2 500 m |
+-| F-AVBROTT | disconnect i 1–15 min under fokal anflygning, radion tyst | längd | 120 s (D5), 300/600 s, 900 s |
++| F-AVBROTT | disconnect i 1–15 min under fokal anflygning, radion tyst | längd | 120 s (D5), 300/600 s, Kajens queueGraceMs (som F-KÖ) |
+ | F-OMSTART | **inte byggd** (sträckmål S1, kräver T11) | — | — |
+ 
+ Köplatserna i F-KÖ, mätt som avstånd före bron: Stridsbergsbron söderut 80–193 m, Järnvägsbron norrut 121–278 m, Järnvägsbron söderut 56–180 m och Klaffbron söderut 221–307 m.
+@@ -260,14 +260,14 @@ Tre följder av principerna, förtydligade 2026-11-04:
+ - Varje körning redovisar oanvända poster, så att inga amnestier ligger kvar efter en rättning.
+ - Motorn ändrar aldrig registret. Ett kort kan föreslå en post med källa, om ägaren beslutar att utfallet är avsett.
+ 
+-**Poster** (40, i registerordning; fem har verkan iOraklet):
++**Poster** (41, i registerordning; fem har verkan iOraklet):
+ 
+ | Post | Klass | Gäller | Predikat | Källa |
+ |---|---|---|---|---|
+ | STRESS-TÄTHET | MÄTGRÄNS (tagg) | alla orakel, även INV-F | stressDensity(6, 10 min, 9) | denna fil §4.4 |
+ | KIE-PER-KORPUS | ACCEPTERAD | INV-F, M-FAS (INV-3, INV-14) | kiePrefix(samma episod: \|δ\| + en tick, plus undantagets längd när tiden är episodens slut; högst en träff per undantag och variant; aldrig låst bank) | corpora.js knownInvariantExceptions; runAllCorpora FP9 |
+ | U16-F40-STRAX-STUDS | MÄTGRÄNS | INV-F (INV-3) ETA-OSCILLATION, ETA-SÅGTAND UPP | f40StudsVidNästaFix(600 s, 1 s, 350 m, 300 m, 270 m, 500 m: strax → hopp → strax, hoppet när harnessen bearbetar en båts nästa rad, hennes föregående fix bearbetad mer än STALE_ETA_HARD före hoppet, ingen brotext eller halvminutstick mellan 600 s-gränsen och hoppet, båda fixarna inom 350 m och utanför kajkapslarna, återgången högst 1 s efter raden utan någon annan båts rad inom 500 m emellan, ingen styrrad, båten kunde bära strax vid sin förra fix (inom 300 m, eller inom 350 m efter en fix inom 270 m), och ingen annan båt kunde bära det vid hoppet (senaste fix inom 500 m, högst 600 s gammal, utanför kajkapslarna och på väg mot bron); aldrig låst bank) | harnessens uppskjutna UI-arbete (`replayRunner.js:86–88` och `:512–521`, `app.js:6983–6988`; §7 nedan); användarbeslut U16 om beteendet (§7 nedan); helgranskning-2026-07-06:271–274 (F40); etapp7-plan:8 (U1), :15 (U6), :267 (C11); app.js:7233–7239 |
+-| U23-KAJZON-UTANFÖR-VÄNTZONEN | DESIGN | INV-F (INV-14), T6 | mooringCapsuleStationary(3 min; textens bärare: appens stillhetsklocka spelad över hennes rader, demotionen i kapseln när stilltiden nått zonens krav, rörelsebevis före stillheten, på väg mot bron, ingen navStatus 1/5; episoden högst en tick efter demotionsraden, harnessens klocka; kapselns närmaste punkt mer än APPROACH_RADIUS 300 m från bron) | användarbeslut U23 (§7 nedan); constants MOORING_ZONES och APPROACH_RADIUS; VesselDataService#_classifyMooring; ersätter KONFLIKT-posten D1-KAJZON-DEMOTION |
++| U23-KAJZON-UTANFÖR-VÄNTZONEN | DESIGN | INV-F (INV-14), T6 | mooringCapsuleStationary(3 min; textens bärare: appens stillhetsklocka spelad över hennes rader, demotionen i kapseln när stilltiden nått zonens krav (queueGraceMs läst som i appen: Infinity är obegränsat, Kajen efter familj F), rörelsebevis före stillheten, på väg mot bron, ingen navStatus 1/5; episoden högst en tick efter demotionsraden, harnessens klocka; kapselns närmaste punkt mer än APPROACH_RADIUS 300 m från bron) | användarbeslut U23 (§7 nedan); constants MOORING_ZONES och APPROACH_RADIUS; VesselDataService#_classifyMooring; ersätter KONFLIKT-posten D1-KAJZON-DEMOTION |
+ | OMSTART-DEFAULT-FÖRE-FÖRSTA-FIX | KÄND_ÖPPEN | INV-F (INV-14), T11 | defaultUntilFirstFixAfterRestart(60 s) | app.js:487 (beslut saknas) |
+ | U1-C11-TYST-FÖRE-DEFAULT | DESIGN | INV-F (INV-14) DEFAULT-FLASH | tystBärareFörfallen(texten före: "En båt på väg mot X, ETA okänd"; BÄRAREN, med kursen mot X och X som närmaste målbro framför sig, passerar sitt eget steg för en båt med målbro (15, 20 eller 25 min ur hennes sista rad) inom en tick före episoden, harnessens klocka; aldrig låst bank) | etapp7-plan:8 (U1), :266–267 (C11, C11b); VesselDataService#getVesselsForBridgeText |
+ | M-BRUSBAND-RÖRELSEBEVIS | KÄND_ÖPPEN | INV-F (INV-14) DEFAULT-FLASH | krypbandVidTröskel(samma båt bär texten före och efter episoden och sänder hela den; (i) brus kring en tröskel i dess zon och så som M:s rättning dömer den: fartgrinden 0,7 kn > 500 m och 0,1 kn 300–500 m från närmaste bro med under grinden 60 s före och över den 60 s före slutet, ANCHOR_BLOCK 0,3 kn efter en bokförd passage, median ±0,1 kn och rader på båda sidor; (ii) en kadens lång och närmande 5–15 m per 60 s; (iii) en kadens lång, sog saknas och spridning > 8 m; aldrig låst bank) | ARCHITECTURE:954–986, fartprovet och kända gränser (a)–(c) |
+@@ -285,12 +285,13 @@ Tre följder av principerna, förtydligade 2026-11-04:
+ | KAJGRIND-UTAN-RÖRELSEBEVIS | DESIGN (iOraklet) | T1 | — (t1Notice.js#judgeT1, förutsättning 3) | constants QUAY_DEPARTURE_GATE |
+ | U10-BN2-PASSERAD-FORM | DESIGN (iOraklet) | T1 (FORM) | — (t1Notice.js#judgeT1) | ARCHITECTURE P8/U10 |
+ | UNDER-BRO-BANDET-70M | DESIGN (iOraklet) | T1, T10 | — (t1Notice.js#judgeT1; t10Passage.js#decisiveFixAfter) | constants UNDER_BRIDGE_CLEAR_DISTANCE |
+-| U2-VS-DEADLINE | KÄND_ÖPPEN | T2 | crossingWithinEventWindow(600 s; konvoj.inomHändelsefönster; aldrig en händelse som båten själv passerat i, U15) | etapp7-plan C-IV |
++| U2-VS-DEADLINE | KÄND_ÖPPEN | T2 | crossingWithinEventWindow(600 s; konvoj.inomHändelsefönster; aldrig en händelse som båten själv passerat i, U15) | etapp7-plan C-IV; frågan efter U24 (§7 nedan) |
+ | J13-J14-KONVOJSEMANTIK | KÄND_ÖPPEN | T2 | nonMemberCrossingBetween (konvoj.ickeMedlemEmellan; aldrig en händelse som båten själv passerat i, U15) | ARCHITECTURE:1676–1693 |
+ | O1-ACCEPTERADE-MISSKLASSER | ACCEPTERAD | T2, T3 | missklassAccepterad (inte för T3 när båten var absorberad vid bron före sin korsning: det är RECOVER-släppet, U17) | runOpeningGates.js classifyMiss |
+ | U18-RETUR-BEKRÄFTAD-SENT | DESIGN | T2 OKLASSAD, LEDTID; T3 VARNING-EFTER-SANN-PASSAGE | fixDBekräftarReturSent(L0-vändning ≤ 30 min före korsningen, minst en omvänd fix ≥ FIX_D_MIN_SOG före den; Fix D bekräftar efter korsningen (OKLASSAD), eller < 2 × TICK före eller efter den och den egna varningen avfyras av det bekräftande fixet eller av första ticken efter det utan egen rad emellan; ingen riktningshändelse i appen (resultatets journeyResets) efter vändningen och senast vid korsningen, mer än 1 s före det bekräftande fixet) | §7 U18; ARCHITECTURE:1093–1100; VesselDataService.js:385–491 och #_confirmDirectionReversal; replayRunner.js:256–267, :472–474 |
+-| U17-TYST-BÅT-RECOVER | DESIGN | T3 VARNING-EFTER-SANN-PASSAGE, VARNING-PÅ-FRUSET-FIX | tystRecoverSammaÖppning(samma: absorberad i E före korsningen och E:s varning före den, egen varning på tick efter absorptionen eller gemensam RECOVER (varv 2), tyst över korsningen på fixens tid (varv 2); bakkanten kunde inte släppa henne: ingen egen rad efter att E:s första passage blev känd och efter fönstrets tidigaste slut, och med släppvägens domspår (varv 2) ingen bakkantsdom, appens prognos OCH den fysiska ankomsten inom domens fönsterslut vid varje ren bakkantsdom och varningen högst en tick efter täckningsslutet, utan domspår restiden ≤ 0,6 av tiden kvar till slutet; inget håll vid täckningsslutet (under bron ≤ 50 m i rörelse, kursen bort); korsning ≤ 600 s efter E:s första sanna korsning) | §7 U17; ARCHITECTURE:1934–1951; BridgeOpeningService#_coverageVerdict, #_courseAway; KAMPANJ.md 2026-11-05 (under bron-hållet) |
++| U17-TYST-BÅT-RECOVER | DESIGN | T3 VARNING-EFTER-SANN-PASSAGE, VARNING-PÅ-FRUSET-FIX | tystRecoverSammaÖppning(samma: absorberad i E före korsningen och E:s varning före den, egen varning på tick efter absorptionen eller gemensam RECOVER (varv 2), tyst över korsningen på fixens tid (varv 2); bakkanten kunde inte släppa henne: ingen egen rad efter att E:s första passage blev känd och efter fönstrets tidigaste slut, och med släppvägens domspår (varv 2) ingen bakkantsdom (heller inte U24:s släpp på hennes egen deadline), appens ankomst (domens arrivalMs, annars prognosen) OCH den fysiska ankomsten inom domens fönsterslut (domens windowEndMs, annars räknat) vid varje ren bakkantsdom och varningen högst en tick efter täckningsslutet, utan domspår restiden ≤ 0,6 av tiden kvar till slutet; inget håll vid täckningsslutet (under bron ≤ 50 m i rörelse, kursen bort); korsning ≤ 600 s efter E:s första sanna korsning) | §7 U17; ARCHITECTURE:1934–1951; BridgeOpeningService#_coverageVerdict, #_courseAway; KAMPANJ.md 2026-11-05 (under bron-hållet) |
+ | K-TYST-BÅT-NÄSTA-ÖPPNING | KÄND_ÖPPEN | T2 LEDTID, ÖPPNING-MISS:OKLASSAD (varv 2), T3 VARNING-EFTER-SANN-PASSAGE, VARNING-PÅ-FRUSET-FIX | tystRecoverSammaÖppning(nästa: som U17 men > 600 s, med samma domspårsprov; för T2 LEDTID är villkoret om raderna efter fönstrets slut tystnadsvillkoret; för T2 OKLASSAD är varningen hennes första RECOVER efter korsningen) | ARCHITECTURE:1883–1905, :1934–1951 |
++| U24-DELAD-KÖ-EXTRA-VARNING | DESIGN | T3 VARNING-PÅ-FRUSET-FIX | u24DeladKö(släppvägens domspår krävs; W på tick inom en tick efter hennes täckningsslut i E, E:s passage okänd; E leds av L och avfyrades inom en tick efter att U24 släppte L ur E0 på hennes egen deadline; L:s sista rad > 350 m från bron i > 0,5 kn med fysiken och domens arrivalMs efter windowEndMs; hon absorberad i E0 före släppet och flyttad till E vid E0:s täckningsslut; alla hennes rader inom väntzonen och den sista stilla; korsning efter W och ≤ 600 s från L:s; fixet ≤ 19 min gammalt vid E0:s täckningsslut) | §7 U24; BridgeOpeningService#_coverageVerdict; t2Opening.js#FROZEN_FIX_MS |
+ | U19-VARNING-UNDER-VÄNTANDE-VÄNDNING | ACCEPTERAD | T9 FEL-RIKTNING (varning), T3 FANTOM-UTAN-AVBROTT | väntandeVändningVidVarning(egen varning; Fix D:s flagga i motsatt riktning vid varningen, bekräftad efter den; inget RECOVER-släpp) | §7 U19; ARCHITECTURE:1101–1107 |
+ | FALSKLARM-AVBRUTEN-GLES | ACCEPTERAD (iOraklet) | T3 | — (runOpeningGates.js#classifyPhantom; t2Opening.js#judgePhantom) | runOpeningGates classifyPhantom |
+ | DEADLINE-10KN-GARANTIPRIS | ACCEPTERAD (iOraklet) | T3 | — (runOpeningGates.js#classifyLatePassage; t2Opening.js#judgePhantom) | runOpeningGates GARANTIPRIS |
+@@ -317,7 +318,7 @@ Radhänvisningarna i tabellen och i `beslutsregister.json` gäller aa71099, prod
+ 
+ - **Mekanismen** (F18/F19 i s1-standard-a, värld 1608): MASEN 2 köar 82 m från Stridsbergsbron och är tyst 09:32:10,242–09:42:15,101 (604,9 s; harnessen bearbetade fixen 09:32:10,291, efter två andra rader i samma AISHub-kluster, så appens ålder är 604,8 s). När klockan når hennes nästa rad dränerar harnessen väntande UI-arbete före sampelbearbetningen (`replayRunner.js:542–551`). Positionen är då äldre än STALE_ETA_HARD, så imminent-grinden släpper "strax" (`app.js:7233–7239`, `IMMINENT_SKIP … AIS too old (605s > 600s)` på :7174), och klausulen lånar YRSA:s ETA, 7 min (8 min i minsta repro). Efter sampelbearbetningen bär texten "strax" igen, 246 ms senare (25 ms i minsta repro). INV-3:s studsdiskriminator (`invariants.js:334–351`) fäller det som ETA-OSCILLATION och ETA-SÅGTAND UPP. Hoppet låg på kniveggen: vid dräneringen i slutet av harnessens 30 s-steg 09:42:09,998 var åldern 599,7 s, och appen satte `IMMINENT_SET` ("AIS 600s old"). **Hoppet vid hennes rad är en uppskjuten svans i harnessen** (granskarens slutvarv, belagt i värld 1608:s verbose-logg). Harnessen kör appens asynkrona UI-arbete först vid sin nästa dränering, en enda verklig setImmediate efter varje `clock.tick` (`replayRunner.js:86–88` och `:512–521`). UI-cykeln från halvminuten 09:42:00 räknade därför först vid dräneringen 09:42:09,998, och dess omkörning (setImmediate, `app.js:6983–6988`) kördes först vid dräneringen före MASEN 2:s rad 09:42:15,101: där kommer `AIS too old (605s > 600s)`. I fält hade omkörningen gått vid halvminuten med åldern cirka 590 s, och nästa cykel 09:42:30 hade kommit efter hennes färska rad. Åldern 604,8 s är alltså harnessens tid, och den varianten av studsen som posten täcker är en mätgräns. Tick-varianten, som posten utesluter, är den som en riktig körning skulle ge.
+ - **Posten är smal och bunden till den båt som kan ha burit "strax".** Den gäller bara studsen när den båtens nästa rad bearbetas. Kraven: nivån före hoppet och återgången är "strax" i brons ETA-serie; hoppet publicerades exakt när harnessen bearbetade båtens rad (`harnessTider`, §7 Regler), högst 1 s efter radens tid; båtens föregående fix bearbetades mer än STALE_ETA_HARD före hoppet, med samma jämförelse som appens `dataIsFreshEnough`; båda fixarna ligger inom 350 m från bron (imminent-hysteresens yttre gräns, `app.js:7336–7338`) och utanför kajkapslarna (MOORING_ZONES); ingen brotext publicerades och ingen halvminutstick (i variantens fas för M-FAS) föll mellan 600 s-gränsen och hoppet; återgången kom efter radens bearbetning och högst 1 s efter radens tid; ingen annan båts rad inom 500 m från bron bearbetades emellan; ingen styrrad bearbetades mellan båtens förra fix och återgången; båten kunde bära "strax" vid sin förra fix (fixen inom 300 m, imminent SET, eller inom 350 m efter en tidigare fix inom 270 m, väntläget, utan att båten lämnat 350 m emellan; `app.js:7336–7338`); och ingen annan båt kunde bära "strax" vid hoppet (ingen annan båt har sin senaste fix före hoppet inom 500 m, högst 600 s gammal i appens klocka, utanför kajkapslarna och på väg mot bron: kursen inom ±90° från bäringen till bron, eller saknad kurs inom 350 m).
+-- **Varför villkoren.** Bar båten "strax" ensam, tappar appen det vid den första textgenereringen efter 600 s-gränsen. En publicerad brotext eller en halvminutstick (UI-klockans absoluta halvminuter, `app.js:13259–13266`, med textens mikrograce på högst 40 ms) mellan gränsen och hoppet visar att båten inte var ensam bärare, eftersom "strax" stod kvar där. Att hoppet ligger på bearbetningen av just hennes rad binder hoppet till hennes ålder. Bearbetade harnessen en annan båts rad inom 500 m (den vidaste radie där appen sätter "strax", den uttömda grenen på `app.js:7365`) mellan hennes rad och återgången, kan återgången komma från den båten. En förtöjd båt i en kajkapsel sänder glest, och hennes rad kan sammanfalla med en studs som har en annan orsak. Appen kan räkna en stillaliggare vid kajen norr om Klaffbron som köare i upp till 15 min (`queueGraceMs`, `lib/constants.js:415–470`), så en äkta studs med bäraren där blir KANDIDAT. Det är ett medvetet pris.
++- **Varför villkoren.** Bar båten "strax" ensam, tappar appen det vid den första textgenereringen efter 600 s-gränsen. En publicerad brotext eller en halvminutstick (UI-klockans absoluta halvminuter, `app.js:13259–13266`, med textens mikrograce på högst 40 ms) mellan gränsen och hoppet visar att båten inte var ensam bärare, eftersom "strax" stod kvar där. Att hoppet ligger på bearbetningen av just hennes rad binder hoppet till hennes ålder. Bearbetade harnessen en annan båts rad inom 500 m (den vidaste radie där appen sätter "strax", den uttömda grenen på `app.js:7365`) mellan hennes rad och återgången, kan återgången komma från den båten. En förtöjd båt i en kajkapsel sänder glest, och hennes rad kan sammanfalla med en studs som har en annan orsak. Appen kan räkna en stillaliggare vid kajen norr om Klaffbron som köare i upp till 15 min (`queueGraceMs`, `lib/constants.js:415–470`; obegränsat efter ägarbeslutet U23 och familj F:s apprättning), så en äkta studs med bäraren där blir KANDIDAT. Det är ett medvetet pris.
+ - **Fönstret 1 s gäller återgången.** Återgången publiceras tidigast efter textens mikrograce (15–40 ms, `app.js:5638–5646`). I minsta repro för F18 kom den 25 ms efter raden. I fullvärlden 1608 gav hennes sampel `IMMINENT_SET` direkt, men texten publicerades först efter de tre AISHub-rader som följde 66–109 ms senare, 246 ms efter hennes rad (harnessen tickar 60 ms efter varje rad, `replayRunner.js:649`). De tre båtarna låg 1,0–1,7 km från bron. Fönstret räknas från radens tid, inte från bearbetningen, så att posten aldrig blir bredare än i rundans första försök. Hoppet har inget eget fönster: det ska ligga på radens bearbetning.
+ - **Bindningen kom i efterrättningen R3b** (granskarens varv r3, rad 19). Rundans första försök godtog vilken båt som helst inom 350 m med en fix äldre än 600 s, räknad på radernas tider, och en rad högst 1 s från hoppet åt båda hållen. Granskarens u16e2e genom appen: F21:s minsta repro i R3-standard (värld 1907, B4-studsen) och en förtöjd båt vid kajen norr om Klaffbron, 240 m från bron, tyst i 720 eller 605 s och med en rad 35 ms före ULLA:s. Appen ger samma studs ("om 7 minuter" 11:01:40,950, "strax" 11:01:41,035), och posten gjorde den till DESIGN. Nu ger 720 s-fallet KANDIDAT, eftersom appen publicerade "strax" 10:59:56,883 och 11:01:11,643, efter att båtens ålder passerat 600 s 10:59:40,985. 605 s-fallet ger KANDIDAT, eftersom båten ligger i kajkapseln. Samma båt 45 m öster om kapseln, 262 m från bron (appen ger samma texter), ger KANDIDAT, eftersom ULLA:s rad bearbetades 11:01:41,010, mellan båtens rad och återgången. Granskarens enhetsfall (en annan tyst båt 273 m från bron med en rad 23–41 ms före hoppet, en färsk MASEN 2 med en tyst båt i samma kluster, ett hopp 0,8 s efter MASEN 2:s färska rad) ger också KANDIDAT. Granskarens förslag om ett villkor att ingen annan färsk båt finns inom 300 m togs inte: i fullvärlden 1608 låg ORION (183 m) och NORDVIND (298 m) med 65 s gamla fixar vid hoppet.
+ - **Bäraren och klassen i efterrättningen R3c** (granskarens slutvarv, rad 21). Posten tog radens båt som bärare utan att pröva att hon kunde bära "strax" och att ingen annan båt kunde det. Granskarens ce-b genom appen: F21:s B4-studs (ULLA:s uttömda "strax" 452 m från Klaffbron, fixen 407 s gammal) och en båt Y som närmar sig söderifrån, 320 m från bron 10:51:35,950 och 260 m 11:01:40,950. Appen loggar `IMMINENT_SKIP … dist=320m > 300m` för Y, som alltså aldrig bar "strax". Vid dräneringen före Y:s rad körs vakthundens uppskjutna omkörning från halvminuten 11:01:30, och B4-taket släpper ULLA:s "strax": "om 7 minuter" 11:01:40,950 och "strax" igen 11:01:40,975. Posten gav DESIGN, medan samma körning med Y tyst i 590 s (bitlik apputdata, ce-b590) gav KANDIDAT. Nu ger båda KANDIDAT: ce-b eftersom Y:s fix ligger 320 m från bron utan föregående väntläge, ce-b590 eftersom Y:s fix är färsk. Enhetsfallet med en stillaliggande Y 262 m från bron och ULLA:s rad borttagen (förut DESIGN) ger KANDIDAT, eftersom ULLA:s 407 s gamla fix 452 m från bron, på väg mot bron, kunde bära "strax". Villkoret om andra bärare kräver kurs mot bron: i fullvärlden 1608 går ORION och NORDVIND söderut från Stridsbergsbron, och värld 1608 är kvar i posten. Klassen ändrades samtidigt från DESIGN till MÄTGRÄNS, eftersom hoppet vid båtens nästa rad uppstår av harnessens uppskjutna UI-arbete (Mekanismen ovan). Ägarbeslutet U16 om beteendet står kvar.
+@@ -344,7 +345,16 @@ Radhänvisningarna i tabellen och i `beslutsregister.json` gäller aa71099, prod
+ - **En båt på väg mot Klaffbron som stannar vid Kajen norr om Klaffbron behandlas som i resten av väntområdet.** Hon står kvar i texten tills hon kör vidare, sänder navStatus "förtöjd" eller "ankrad" (1 eller 5) eller har legat stilla i 2 timmar (MAX_STATIONARY_WAIT_MS). D1 vinner alltså över kajzonens 15-minutersgissning. Ägarens motiv: utanför kajzonerna tas en väntande båt nära bron aldrig bort automatiskt, och Kajen ligger mitt i väntzonen (kapselns närmaste punkt 161 m från bron, `lib/constants.js:415–436`).
+ - **Två saker behandlas som i dag:** båtar vid Kajen som inte är på väg mot Klaffbron, till exempel norrgående som redan har passerat Klaffbron och har Stridsbergsbron som mål mer än 600 m bort, och hela Gästhamnen, som ligger utanför väntzonen (kapselns närmaste punkt 319,5 m från Klaffbron, `lib/constants.js:438–468`). Där klassar zonregeln en stillaliggare som förtöjd efter baskravet 3 min.
+ - **Registret** (rad 40): KONFLIKT-posten D1-KAJZON-DEMOTION, vars fråga beslutet besvarar, ersätts av U23-KAJZON-UTANFÖR-VÄNTZONEN (DESIGN) på samma plats i registret. Den gäller en DEFAULT-flash där zonregeln demoterade textens bärare i en kapsel utanför väntzonen kring hennes målbro (kapselns närmaste punkt mer än APPROACH_RADIUS, 300 m, från bron). Det är just de två fallen som behandlas som i dag; fallet med 3 min och mer än 600 m till målbron krockar inte med D1, eftersom båten då är mer än 500 m från sin målbro. En båt på väg mot Klaffbron som demoteras vid Kajen omfattas inte: före familj F:s apprättning sker det efter köundantagets 15 min, och det är ett appfel mot U23 som ska synas som KANDIDAT. Villkoret läser geometrin och inte köundantaget, så posten håller både före och efter apprättningen, också om F ändrar konstanterna i stället för zonregeln.
+-- **Vad som ändras när F är integrerad:** inget i posten. Flashar av köfallet vid Kajen (som triagens kajK) försvinner ur körningarna, och 313-klassen i T2 LEDTID (kön i kapseln, M8) bör försvinna med dem. Om F också låter navStatus 1/5 eller 2-timmarsgränsen demotera en köare vid Kajen och det ger en flash, omfattas den inte av posten (navstatus-lagret och reservgränsen är inte zonregeln) och blir KANDIDAT; en sådan post kräver ett belägg i körningarna först.
++- **Vad som ändras när F är integrerad:** inget i posten. F gör Kajens `queueGraceMs` obegränsat (Infinity); predikatet läser det som appen, ett positivt tal där Infinity betyder att zonlagret aldrig klassar köaren (rad 44). Flashar av köfallet vid Kajen (som triagens kajK) försvinner ur körningarna, och 313-klassen i T2 LEDTID (kön i kapseln, M8) bör försvinna med dem. Om F också låter navStatus 1/5 eller 2-timmarsgränsen demotera en köare vid Kajen och det ger en flash, omfattas den inte av posten (navstatus-lagret och reservgränsen är inte zonregeln) och blir KANDIDAT; en sådan post kräver ett belägg i körningarna först.
++
++### Användarbeslut U24 (2026-11-09): egen varning i tid före första passagen
++
++Ägaren besvarade familj B:s ägarfråga M7 i rättningskampanjens varv 2 och valde den smala varianten V1c (kampanjens KAMPANJ2.md; familj B bygger den i appen och beskriver den i `docs/ARCHITECTURE.md` vid släppvägen, `_coverageVerdict` och `_ownDeadlineVerdict`). Beslutet följer C-IV väg b (2026-08-09). Det speglas här för motorn:
++
++- **Fallet:** en båt som tillhör en avfyrad händelse utan bokförd passage kommer fram efter händelsens fönster. Hon får sin egen varning så fort hennes egen tidsfrist går ut, i stället för vid täckningsslutet, när hon är i rörelse, mer än 350 m från bron, när båda prognoserna lägger henne efter fönstret och när varningen annars hade kommit för sent. Släppet är en dom `bakkant` med skälet "egen deadline …".
++- **Stilla köande båtar omfattas inte** (provvärld 1139): för dem gäller dagens beteende, släppet vid täckningsslutet (U17).
++- **Kostnaden ägaren godtar:** en köande konvoj kan få en extra varning, som i provvärld 143. RUNA släpps 11:14:52 ur ALVAs händelse och varnas själv. CORDELIA ligger stilla i kön 104 m från bron, går vid den äldre händelsens täckningsslut 11:25:13 till RUNAs händelse i stället för att bilda en gemensam RECOVER med henne (som på c14938f), och varnas vid dess täckningsslut 11:36:10 på sitt fix från 11:15:10 (T3 VARNING-PÅ-FRUSET-FIX, 21 min). Hon korsar 353 s efter RUNA, i samma öppning.
++- **Registret** (rad 43, 45 och 46): posten U24-DELAD-KÖ-EXTRA-VARNING (DESIGN) speglar kostnaden smalt, så att den inte döljer ett fel i bakkanten eller i U24-släppet: den kräver släppvägens domspår, ett U24-släpp av en annan båt L som höll U24:s villkor på L:s egen rad (utanför väntzonen, i rörelse, fysiken efter fönstret), att båten själv låg i väntzonen hela tiden och stilla vid sitt sista fix (så att U24 aldrig kunde släppa henne), att ingen av händelserna hade en känd passage vid täckningsslutet, att de korsade inom 600 s av varandra och att fixet var högst 19 min gammalt vid den äldre händelsens täckningsslut. U17 och K-NÄSTA räknar U24-släppet som en bakkant. U2-VS-DEADLINE:s fråga är uppdaterad: väg b gäller nu för en båt i rörelse utanför väntzonen, men för en korsning inom fönstret, som posten gäller, och för stilla köande båtar står frågan kvar.
+ 
+ ### Registerändringar att granska (rättningsrundan 2026-11-04)
+ 
+@@ -394,6 +404,11 @@ Rad 1–17 och 19–22 rättar motorfel eller registrerar en mätgräns i ett be
+ | 40 | D1-KAJZON-DEMOTION (borttagen) och U23-KAJZON-UTANFÖR-VÄNTZONEN (ny, varv 2) | KONFLIKT-posten ersätts av en DESIGN-post med samma gäller (INV-F INV-14 DEFAULT-FLASH, T6 LIVENESS) och samma predikat, på samma plats i registret. Predikatets omfång byts från "målbron mer än 600 m bort" (parametern `minAvståndM`, borttagen) till U23:s: kapselns närmaste punkt ligger mer än APPROACH_RADIUS (300 m, ny parameter `väntzonM`) från bron. Frågan och doktrinerna tas bort; regeltexten citerar beslutet. | Användarbeslut U23 (2026-11-09, ovan), dirigentens uppdrag i varv 2: KONFLIKT-posten är löst för båtar på väg mot Klaffbron (D1 vinner), och fallet med 3 min och mer än 600 m krockar inte med D1. Omfånget följer beslutets två fall "som i dag": Kajen för en båt som inte är på väg mot Klaffbron (kajB: DESIGN, förut KONFLIKT) och hela Gästhamnen, också inom 600 m från Klaffbron (kajG: DESIGN, förut KANDIDAT). Köfallet vid Kajen (kajK, demoterat efter köundantagets 15 min) är KANDIDAT, nu med skälet att U23 kräver att hon står kvar. Standardkörningen på c14938f har ingen sådan träff: posten användes en gång, i värld 138, och det var motorfelet B01 (rad 39). Jest: `k-varv2-motor.test.js` (kajB, kajG och kajK, och en vakt som visar att villkoret håller när köundantaget inte gäller). Källa: U23, `lib/constants.js:415–470` och `:39–41`, `VesselDataService.js#_classifyMooring`. |
+ | 41 | U17-TYST-BÅT-RECOVER och K-TYST-BÅT-NÄSTA-ÖPPNING (varv 2, M1) | Villkor (3) prövar bakkanten på släppvägens domspår när replayresultatet bär det: ingen dom från absorptionen i E till varningen var `bakkant`; vid varje ren bakkantsdom (`covered` före täckningsslutet när passagen är bokförd före hennes korsning, över ett fix som armen tillämpade efter den skattade första passagen `firstPassageAt`, GPS-rent, inte fryst, utan kurs bort) ligger BÅDE appens prognos (`expectedArrivalMs`) OCH den fysiska ankomsten ur samma fix (fixens tid + avståndet till bron med fixets fart, minst MINIMUM_VIABLE_SPEED) inom domens fönsterslut (`min(coverUntilMs, max(firedAt, firstPassageAt) + CONVOY_WINDOW_MS)`, golvhållen arm: täckningen); och varningen kommer högst TICK_INTERVAL_MS efter hennes senaste dom `täckningsslut`. Kvotregeln (restid ≤ 0,6 av tiden kvar) gäller bara resultat utan domspår. Harnessen bokför domarna additivt (`replayRunner.js#instrumentApp`, `openingCoverageVerdicts`), och `instances.js` namnrymdar deras eventId. Regeltexterna och källorna är uppdaterade; parametrar, gäller och klass är oförändrade. | Motorns mätgräns M1 (triage B, varv 2, och granskningens anmärkning (a) 2026-11-07): appens ETA är pessimistisk nära broarna (vid 139 m 94 s mot den raka restidens 29 s), så kvotregeln kunde aldrig skilja de nio U17- och K-NÄSTA-sanna släppen vid täckningsslutet (1973, 537, 625, 1337, 1629, 1752 och 479 samma öppning; 510 och 1704 nästa) från en bakkantsregression. Appens prognos ensam räcker inte: ETA-kedjans golv 2,5 kn för krypare (M5, som familj B rättar i appen) lade prognosen inom fönstret i värld 790 och 1794, och då hade posten dolt prognosfelet. Därför krävs också fysiken ur fixet. Färskheten mäts mot den skattade passagen, som KRAV (2) (`ARCHITECTURE.md:1848–1855`) och familj B:s rättning av bakkanten (triage A, M4): appen på c14938f mäter mot bokföringen, och ett fix mellan passagen och bokföringen med prognosen efter fönstrets slut är just det appfelet, så då blir predikatet falskt i stället för att dölja det: värld 1160 (fixet 11:35:15 med prognosen 11:40:57 efter fönstrets slut 11:39:31, bokfört 11:36:18, korsningen 11:39:19) blir KANDIDAT, och med B:s skiss för färskheten försvinner fyndet (egen varning 3 min före korsningen). Bokföringen ska ha kommit före hennes korsning: bokfördes passagen efter att hon korsat kunde ingen bakkant släppa henne i tid, och RECOVER vid täckningsslutet är den beslutade säkerhetsvarningen (värld 1038, bokförd 12 s efter korsningen, förblir U17). Ingen tolerans behövs: i de nio fallen ligger fysiken 27–136 s och appens prognos 3,5–134 s inom fönstret, medan 790:s fysik ligger 178–204 s efter. Jest: `k-varv2-motor.test.js` (de nio, 790 och vakter för en prognos efter fönstret, ett bakkantssläpp, en varning som inte följer på täckningsslutet, fysiken i 1 kn, under-bron-hållet, nya fält i domen och en okänd form). Mätningar: se Följder, varv 2. Källa: U17, `BridgeOpeningService.js#_coverageVerdict` och `replayRunner.js#instrumentApp`. |
+ | 42 | K-TYST-BÅT-NÄSTA-ÖPPNING (varv 2, punkt 6) | Posten gäller också T2 ÖPPNING-MISS:OKLASSAD. Fyndet bär ingen varning, så predikatet tar hennes första levererade varning vid bron efter korsningen, högst CONVOY_WINDOW_MS efter, som W; övriga villkor är desamma som för T3 (egen eller gemensam RECOVER på tick, tyst över korsningen, domspåret eller kvotregeln, hållen vid täckningsslutet och korsningen mer än 600 s efter E:s första korsning). Parametrar och klass är oförändrade. | Triage A:s M10 (MÄTGRÄNS-U2-FÖNSTERKANT) prövades efter punkt 1–5 och behövs inte som egen post: värld 510:s T3-utslag blir K-NÄSTA genom punkt 4, värld 977 försvinner med familj C:s apprättning (ledarens passage bokfördes efter följarens korsning, och hon fick ingen egen varning), och kvar blev 510:s T2-utslag (korsningen 604 s efter VEGAs, RECOVERn 4 s efter korsningen). Det är samma apphändelse som K-NÄSTA-utslaget, sedd av T2. En båt i samma öppning får sin T2-vy av U2-VS-DEADLINE, men för nästa öppning saknades den, och en egen mätgränspost hade klassat samma händelse två gånger med två klasser. Utvidgningen följer K-NÄSTA:s källa och föregångaren i rad 32 (K-NÄSTA gäller också VARNING-PÅ-FRUSET-FIX, som U17). Motexempel som förblir KANDIDAT: 977, 1476 och 1794 (ingen egen varning efter korsningen) och 1094 (triage A:s M4: fixet 11:39:27, efter ALVAs skattade passage men före bokföringen, hade prognosen 11:49:15 efter fönstrets slut 11:48:47). Jest: `k-varv2-motor.test.js` (510:s T2-tvilling, motexemplen och en varning som avfyrades av ett fix eller kom mer än 600 s efter). Källa: K-NÄSTA:s källor och §7 rad 32. |
++| 43 | U17-TYST-BÅT-RECOVER och K-TYST-BÅT-NÄSTA-ÖPPNING (varv 2, samspelet med familj B) | Villkor (3′) läser domens `arrivalMs` när domen bär den (familj B:s M5: under ETA-kedjans passagegolv den senare av prognosen och armens fysik) i stället för armens `expectedArrivalMs`, och domens `windowEndMs` i stället för det räknade fönsterslutet. Kravet på den oberoende fysiska ankomsten står kvar. U24:s släpp på hennes egen deadline före första passagen (domen `bakkant` med skälet "egen deadline …", familj B:s M7) räknas som bakkant och nämns i skälet. Utan fälten (c14938f) är predikatet oförändrat. | Samordnarens meddelande i varv 2 och familj B:s DESIGN.md (§Domens fält): efter steg 2 jämför bakkanten domens arrivalMs, så predikatet hade annars missat en krypare som bakkanten borde ha släppt. Jest: `k-varv2-motor.test.js` (en dom med arrivalMs efter fönstret, en med ett tidigare windowEndMs, U24-släppet, och en vakt där fälten ligger inom fönstret). Inga träffar ändras på c14938f. |
++| 44 | U23-KAJZON-UTANFÖR-VÄNTZONEN (varv 2, samspelet med familj F) | `mooringCapsuleStationary` läser zonens `queueGraceMs` som appen: ett positivt tal, där Infinity betyder obegränsat (förut `Number.isFinite`, som gjorde Infinity till baskravet 3 min). Kravet blir då Infinity, och skälet säger "aldrig: obegränsat köundantag". Motorns tabell över närliggande konstanter (`shrink.js#kajensKöundantagS`) läser Kajens köundantag ur zonposten i stället för en hårdkodad 900 s och tar inte med ett obegränsat undantag. | Familj F gör Kajens köundantag obegränsat (U23, `queueGraceMs: Infinity`; `VesselDataService.js#_classifyMooring`). På c14938f ger regeln samma 15 min. Utfallet för Kajen mot Klaffbron är KANDIDAT före och efter F (inom väntzonen), men före rättningen beskrev skälet en demotion efter 3 min som appen inte gör. Jest: kajK och kajB med Kajens undantag satt till Infinity, och shrink-tabellen med och utan undantaget. |
++| 45 | U24-DELAD-KÖ-EXTRA-VARNING (ny, varv 2) | DESIGN för T3 VARNING-PÅ-FRUSET-FIX med predikatet `u24DeladKö`, efter K-TYST-BÅT-NÄSTA-ÖPPNING. Villkoren står i avsnittet om U24 ovan och i predikatets kommentar. | Användarbeslut U24 (2026-11-09, ovan): ägaren godtar att en köande konvoj ibland får en extra varning, som i provvärld 143. På familj B:s 0b0a35d med den här motorn blir värld 143 DESIGN i stället för KANDIDAT. Jest: värld 143 ur familj B:s app (fixturen `varv2-u24-2026-11-09.json`) och nio vakter (inget U24-släpp, ett släpp efter passage, en känd passage vid täckningsslutet, L i väntzonen, hon utanför väntzonen eller i rörelse, mer än 600 s isär, ett redan fruset fix, inget domspår). Utan U24-släppet finns ingen dom att binda händelsen till, så posten tar ingenting på c14938f och ingenting när bakkanten är bortkopplad. |
++| 46 | U2-VS-DEADLINE (varv 2) | Bara frågan och källan: U24 valde C-IV väg b för en båt i rörelse utanför väntzonen vars båda prognoser ligger efter fönstret. Frågan står kvar för en korsning inom fönstret och för stilla köande båtar. | Användarbeslut U24. Predikatet är oförändrat: posten gäller en korsning inom en varnad öppnings fönster, och ett U24-släpp gäller en båt vars prognoser låg efter fönstret. Korsar hon ändå inom fönstret hör hon enligt U2 till den varnade öppningen. |
++| 47 | Källhänvisningarna till VesselDataService.js (varv 2, samspelet med familj A) | Radhänvisningarna i `beslutsregister.json` till `lib/services/VesselDataService.js` pekar på symboler: `#FIX_D_MIN_SOG` (Fix D-blocket i updateVessel, förut :380–407, :446–476 och :385–491), `#_createVesselObject` (förut :5286–5287 och :5291), `#getVesselsForBridgeText` (trappan, förut :2361–2465) och `#STALE_AIS_TIMEOUT_MS` (förut :84). Laddningen kontrollerar att symbolerna finns. | Familj A flyttar VDS:385–491 till :398–504, och familjerna C och F ändrar också filen; :5286–5287 pekade redan på c14938f på koordinatkontrollen, inte på reserven för sog och cog. Ingen post ändrar utfall. |
+ 
+ **Valet för M12, per post** (flytta vakten till registret eller märka posten):
+ - **KAJGRIND-UTAN-RÖRELSEBEVIS: märkt.** T1:s förutsättning 3 (`t1Notice.js#judgeT1`, rörelsebeviset med MOVE_KN) dömer inget besök utan en fix med sog ≥ 1,0 kn i [tIn − 10 min; max(tOut, första fixen)] och räknar dem i `utanRörelsebevis`. Registrets fönster skilde bara med högst 120 s i svansen. Att flytta vakten till registret hade gjort varje kajliggare till ett rått T1-utslag.
+diff --git a/tests/replay-validation/bugHunt/__tests__/fixtures/varv2-u24-2026-11-09.json b/tests/replay-validation/bugHunt/__tests__/fixtures/varv2-u24-2026-11-09.json
+new file mode 100644
+index 0000000..f29d749
+--- /dev/null
++++ b/tests/replay-validation/bugHunt/__tests__/fixtures/varv2-u24-2026-11-09.json
+@@ -0,0 +1 @@
++{"w143":{"recept":{"värld":143,"radio":"R1","orakel":"T3","klass":"VARNING-PÅ-FRUSET-FIX","mmsi":"265101116","bro":"Stridsbergsbron","radHash":"c95998b33fa547135b16a916f1000e89fb3cc1bf9ec9752654893d17bd62a545"},"fynd":{"orakel":"T3","klass":"VARNING-PÅ-FRUSET-FIX","inv":null,"allvar":4,"räknare":false,"mmsi":"265101116","bro":"Stridsbergsbron","riktning":"southbound","t":1785238570801,"detalj":"varning Stridsbergsbron#8 11:36:10 med medlem 265101116 vars senaste fix är 21 min gammal","belägg":{"varning":{"t":1785238570801,"eventId":"Stridsbergsbron#8"},"senasteFix":"2026-07-28T11:15:10.632Z","förklaring":null},"spår":"synth","nivå":"R1","ursprung":{"värld":143,"seed":2028687290,"radio":"R1","era":"aisstream","familj":"F-SENFÖDD","monitoring":true,"täthet":"realistisk","båtar":9,"timmar":3.782,"rader":146},"taggar":[]},"ctx":{"rader":[{"mmsi":"265101338","lat":58.26801622575213,"lon":12.267164655648697,"sog":0,"cog":115.3,"navStatus":5,"aisTimestamp":1785234782618,"fixTs":1785234782618,"feed":"aisstream"},{"mmsi":"265101397","lat":58.266178555805844,"lon":12.264335376511486,"sog":0,"cog":66.6,"navStatus":null,"aisTimestamp":1785234785485,"fixTs":1785234785485,"feed":"aisstream"},{"mmsi":"265101338","lat":58.26801344331479,"lon":12.267254080681369,"sog":0,"cog":232.9,"navStatus":5,"aisTimestamp":1785235000912,"fixTs":1785235000912,"feed":"aisstream"},{"mmsi":"265101397","lat":58.26618959061211,"lon":12.264343465530295,"sog":0.1,"cog":271.9,"navStatus":null,"aisTimestamp":1785235735880,"fixTs":1785235735880,"feed":"aisstream"},{"mmsi":"265101338","lat":58.2679962848989,"lon":12.267183966932036,"sog":0,"cog":81.4,"navStatus":5,"aisTimestamp":1785235903084,"fixTs":1785235903084,"feed":"aisstream"},{"mmsi":"265101040","lat":58.3202537957719,"lon":12.323800813518767,"sog":6,"cog":196.6,"navStatus":0,"aisTimestamp":1785236062708,"fixTs":1785236062708,"feed":"aisstream"},{"mmsi":"265101040","lat":58.31678440104075,"lon":12.321515579598946,"sog":5.9,"cog":189.9,"navStatus":0,"aisTimestamp":1785236199750,"fixTs":1785236199750,"feed":"aisstream"},{"mmsi":"265101116","lat":58.320551727217804,"lon":12.323709713682952,"sog":7.8,"cog":186.9,"navStatus":null,"aisTimestamp":1785236324112,"fixTs":1785236324112,"feed":"aisstream"},{"mmsi":"265101040","lat":58.31289060512779,"lon":12.319372656868719,"sog":6,"cog":193.4,"navStatus":0,"aisTimestamp":1785236348412,"fixTs":1785236348412,"feed":"aisstream"},{"mmsi":"265101040","lat":58.311207136924715,"lon":12.318085487982644,"sog":5.8,"cog":201.6,"navStatus":0,"aisTimestamp":1785236415325,"fixTs":1785236415325,"feed":"aisstream"},{"mmsi":"265101154","lat":58.32070129414636,"lon":12.323612233089037,"sog":5,"cog":200.5,"navStatus":null,"aisTimestamp":1785236438675,"fixTs":1785236438675,"feed":"aisstream"},{"mmsi":"265101040","lat":58.310371508000316,"lon":12.317343895690511,"sog":5.7,"cog":214.3,"navStatus":0,"aisTimestamp":1785236447629,"fixTs":1785236447629,"feed":"aisstream"},{"mmsi":"265101040","lat":58.30717582266388,"lon":12.313077189395496,"sog":5.3,"cog":219.3,"navStatus":0,"aisTimestamp":1785236607623,"fixTs":1785236607623,"feed":"aisstream"},{"mmsi":"265101338","lat":58.26801529263458,"lon":12.267249191963055,"sog":0,"cog":281.1,"navStatus":5,"aisTimestamp":1785236633064,"fixTs":1785236633064,"feed":"aisstream"},{"mmsi":"265101040","lat":58.30661100995824,"lon":12.31193059645072,"sog":5.2,"cog":224.1,"navStatus":0,"aisTimestamp":1785236641052,"fixTs":1785236641052,"feed":"aisstream"},{"mmsi":"265101154","lat":58.313413036682135,"lon":12.319235476849828,"sog":5.3,"cog":196.7,"navStatus":null,"aisTimestamp":1785236759921,"fixTs":1785236759921,"feed":"aisstream"},{"mmsi":"265101040","lat":58.30296171830595,"lon":12.306546776059857,"sog":5.4,"cog":214.1,"navStatus":0,"aisTimestamp":1785236835282,"fixTs":1785236835282,"feed":"aisstream"},{"mmsi":"265101040","lat":58.30271983166404,"lon":12.306176981035437,"sog":5.3,"cog":224.1,"navStatus":0,"aisTimestamp":1785236847559,"fixTs":1785236847559,"feed":"aisstream"},{"mmsi":"265101040","lat":58.30207604373226,"lon":12.305182041660455,"sog":4.9,"cog":205.2,"navStatus":0,"aisTimestamp":1785236884256,"fixTs":1785236884256,"feed":"aisstream"},{"mmsi":"265101040","lat":58.30142643704484,"lon":12.304436201149056,"sog":5.1,"cog":214,"navStatus":0,"aisTimestamp":1785236915433,"fixTs":1785236915433,"feed":"aisstream"},{"mmsi":"265101154","lat":58.30897874699606,"lon":12.315213304689241,"sog":4.4,"cog":220.1,"navStatus":null,"aisTimestamp":1785236979008,"fixTs":1785236979008,"feed":"aisstream"},{"mmsi":"265101338","lat":58.26801793186282,"lon":12.267135522666024,"sog":0,"cog":81.3,"navStatus":5,"aisTimestamp":1785237025239,"fixTs":1785237025239,"feed":"aisstream"},{"mmsi":"265101040","lat":58.29820277353954,"lon":12.30085265419821,"sog":5.2,"cog":198.7,"navStatus":0,"aisTimestamp":1785237070779,"fixTs":1785237070779,"feed":"aisstream"},{"mmsi":"265101040","lat":58.297809520816735,"lon":12.300421447608514,"sog":5.2,"cog":208.8,"navStatus":0,"aisTimestamp":1785237087248,"fixTs":1785237087248,"feed":"aisstream"},{"mmsi":"265101040","lat":58.296880087962585,"lon":12.299672736469374,"sog":5.2,"cog":206.8,"navStatus":0,"aisTimestamp":1785237128827,"fixTs":1785237128827,"feed":"aisstream"},{"mmsi":"265101154","lat":58.30653383397011,"lon":12.31147337848015,"sog":4.3,"cog":227.7,"navStatus":null,"aisTimestamp":1785237132122,"fixTs":1785237132122,"feed":"aisstream"},{"mmsi":"265101338","lat":58.26802841375918,"lon":12.267243547668476,"sog":0.1,"cog":109.3,"navStatus":5,"aisTimestamp":1785237201559,"fixTs":1785237201559,"feed":"aisstream"},{"mmsi":"265101116","lat":58.294241319922385,"lon":12.29589361447162,"sog":0.8,"cog":224.9,"navStatus":null,"aisTimestamp":1785237257668,"fixTs":1785237257668,"feed":"aisstream"},{"mmsi":"265101040","lat":58.29416778400791,"lon":12.29570396704877,"sog":0.4,"cog":221.7,"navStatus":0,"aisTimestamp":1785237292395,"fixTs":1785237292395,"feed":"aisstream"},{"mmsi":"265101040","lat":58.29421154872402,"lon":12.295759115569963,"sog":0,"cog":276.6,"navStatus":0,"aisTimestamp":1785237302435,"fixTs":1785237302435,"feed":"aisstream"},{"mmsi":"265101116","lat":58.2942401819057,"lon":12.295719983220245,"sog":0,"cog":null,"navStatus":null,"aisTimestamp":1785237310632,"fixTs":1785237310632,"feed":"aisstream"},{"mmsi":"265101397","lat":58.26621111442896,"lon":12.264347531939162,"sog":0,"cog":120.1,"navStatus":null,"aisTimestamp":1785237533460,"fixTs":1785237533460,"feed":"aisstream"},{"mmsi":"265101040","lat":58.29425408472842,"lon":12.295582392825656,"sog":0,"cog":158.9,"navStatus":0,"aisTimestamp":1785237609945,"fixTs":1785237609945,"feed":"aisstream"},{"mmsi":"265101154","lat":58.2955542842623,"lon":12.297604537255337,"sog":4.5,"cog":218,"navStatus":null,"aisTimestamp":1785237763649,"fixTs":1785237763649,"feed":"aisstream"},{"mmsi":"265101040","lat":58.294299737629146,"lon":12.295530621718724,"sog":0.2,"cog":345.7,"navStatus":0,"aisTimestamp":1785237868188,"fixTs":1785237868188,"feed":"aisstream"},{"mmsi":"265101338","lat":58.268007085195386,"lon":12.26725990264576,"sog":0,"cog":175.6,"navStatus":5,"aisTimestamp":1785237900877,"fixTs":1785237900877,"feed":"aisstream"},{"mmsi":"265101075","lat":58.32072974242526,"lon":12.323949020779668,"sog":7.3,"cog":193.9,"navStatus":null,"aisTimestamp":1785237916624,"fixTs":1785237916624,"feed":"aisstream"},{"mmsi":"265101040","lat":58.29300204871323,"lon":12.29418857466098,"sog":3.4,"cog":216.2,"navStatus":0,"aisTimestamp":1785238046019,"fixTs":1785238046019,"feed":"aisstream"},{"mmsi":"265101338","lat":58.26801914846952,"lon":12.267206283402142,"sog":0.3,"cog":262.7,"navStatus":5,"aisTimestamp":1785238134478,"fixTs":1785238134478,"feed":"aisstream"},{"mmsi":"265101040","lat":58.29143429396942,"lon":12.291981369816217,"sog":3.7,"cog":213.2,"navStatus":0,"aisTimestamp":1785238159399,"fixTs":1785238159399,"feed":"aisstream"},{"mmsi":"265101075","lat":58.30936759914817,"lon":12.31613174153073,"sog":6.4,"cog":203.8,"navStatus":null,"aisTimestamp":1785238273535,"fixTs":1785238273535,"feed":"aisstream"},{"mmsi":"265101154","lat":58.294365716882226,"lon":12.295662682307546,"sog":0,"cog":141.9,"navStatus":null,"aisTimestamp":1785238350868,"fixTs":1785238350868,"feed":"aisstream"},{"mmsi":"265101040","lat":58.2882264397007,"lon":12.288161268026476,"sog":4,"cog":202.4,"navStatus":0,"aisTimestamp":1785238372239,"fixTs":1785238372239,"feed":"aisstream"},{"mmsi":"265101075","lat":58.30685485876182,"lon":12.312145847530378,"sog":6.6,"cog":220.8,"navStatus":null,"aisTimestamp":1785238384003,"fixTs":1785238384003,"feed":"aisstream"},{"mmsi":"265101040","lat":58.287232689573635,"lon":12.28677387549057,"sog":4.1,"cog":206.1,"navStatus":0,"aisTimestamp":1785238435126,"fixTs":1785238435126,"feed":"aisstream"},{"mmsi":"265101040","lat":58.28579694315522,"lon":12.285557429046765,"sog":4.1,"cog":194.1,"navStatus":0,"aisTimestamp":1785238521277,"fixTs":1785238521277,"feed":"aisstream"},{"mmsi":"265101154","lat":58.29433351392602,"lon":12.29570886321994,"sog":0.1,"cog":null,"navStatus":null,"aisTimestamp":1785238542602,"fixTs":1785238542602,"feed":"aisstream"},{"mmsi":"265101040","lat":58.28447960422296,"lon":12.284596631694686,"sog":4.1,"cog":202.8,"navStatus":0,"aisTimestamp":1785238599454,"fixTs":1785238599454,"feed":"aisstream"},{"mmsi":"265101040","lat":58.28431513127737,"lon":12.284444723728026,"sog":3.9,"cog":200.5,"navStatus":0,"aisTimestamp":1785238612056,"fixTs":1785238612056,"feed":"aisstream"},{"mmsi":"265101040","lat":58.284098050531384,"lon":12.284422214319699,"sog":3.8,"cog":196.8,"navStatus":0,"aisTimestamp":1785238622405,"fixTs":1785238622405,"feed":"aisstream"},{"mmsi":"265101040","lat":58.28337683204799,"lon":12.284012618439686,"sog":4.4,"cog":191.8,"navStatus":0,"aisTimestamp":1785238658530,"fixTs":1785238658530,"feed":"aisstream"},{"mmsi":"265101040","lat":58.28290898490317,"lon":12.283855148593654,"sog":4.5,"cog":191.1,"navStatus":0,"aisTimestamp":1785238679721,"fixTs":1785238679721,"feed":"aisstream"},{"mmsi":"265101397","lat":58.26617722118101,"lon":12.264398512047489,"sog":0,"cog":184,"navStatus":null,"aisTimestamp":1785238717567,"fixTs":1785238717567,"feed":"aisstream"},{"mmsi":"265101040","lat":58.28154791344991,"lon":12.283179011857934,"sog":4.4,"cog":197,"navStatus":0,"aisTimestamp":1785238749080,"fixTs":1785238749080,"feed":"aisstream"},{"mmsi":"265101040","lat":58.28020408020172,"lon":12.282657612370445,"sog":4.5,"cog":197.7,"navStatus":0,"aisTimestamp":1785238813896,"fixTs":1785238813896,"feed":"aisstream"},{"mmsi":"265101338","lat":58.268006056152565,"lon":12.26721850730072,"sog":0.1,"cog":179,"navStatus":5,"aisTimestamp":1785238842725,"fixTs":1785238842725,"feed":"aisstream"},{"mmsi":"265101040","lat":58.278689213972385,"lon":12.281585276901414,"sog":4.5,"cog":191.1,"navStatus":0,"aisTimestamp":1785238890053,"fixTs":1785238890053,"feed":"aisstream"},{"mmsi":"265101154","lat":58.29064720444564,"lon":12.290942990492262,"sog":3.5,"cog":210.8,"navStatus":null,"aisTimestamp":1785239067467,"fixTs":1785239067467,"feed":"aisstream"},{"mmsi":"265101040","lat":58.27468989299558,"lon":12.27816230300178,"sog":4.5,"cog":210.7,"navStatus":0,"aisTimestamp":1785239102297,"fixTs":1785239102297,"feed":"aisstream"},{"mmsi":"265101040","lat":58.27312690422397,"lon":12.276178629376746,"sog":4.1,"cog":216.6,"navStatus":0,"aisTimestamp":1785239191540,"fixTs":1785239191540,"feed":"aisstream"},{"mmsi":"265101040","lat":58.27003891318453,"lon":12.272134687308904,"sog":3.7,"cog":203.1,"navStatus":0,"aisTimestamp":1785239415441,"fixTs":1785239415441,"feed":"aisstream"},{"mmsi":"265101040","lat":58.269566068938246,"lon":12.271422941481466,"sog":3.6,"cog":205.5,"navStatus":0,"aisTimestamp":1785239448505,"fixTs":1785239448505,"feed":"aisstream"},{"mmsi":"265101338","lat":58.268002864425156,"lon":12.267156269789211,"sog":0,"cog":61.9,"navStatus":5,"aisTimestamp":1785239480600,"fixTs":1785239480600,"feed":"aisstream"},{"mmsi":"265101040","lat":58.267872716134264,"lon":12.269235580467688,"sog":2.8,"cog":226.4,"navStatus":0,"aisTimestamp":1785239587320,"fixTs":1785239587320,"feed":"aisstream"},{"mmsi":"265101040","lat":58.26690808364002,"lon":12.267318245313033,"sog":2.9,"cog":236.7,"navStatus":0,"aisTimestamp":1785239688930,"fixTs":1785239688930,"feed":"aisstream"},{"mmsi":"265101154","lat":58.2808604727082,"lon":12.282606721331407,"sog":3.8,"cog":193.7,"navStatus":null,"aisTimestamp":1785239722168,"fixTs":1785239722168,"feed":"aisstream"},{"mmsi":"265101028","lat":58.301321384361664,"lon":12.303962868402612,"sog":6.1,"cog":218.3,"navStatus":null,"aisTimestamp":1785239738799,"fixTs":1785239738799,"feed":"aisstream"}],"resultat":{"openingWarnings":[{"t":1785236805886,"iso":"2026-07-28T11:06:45.886Z","bridge":"Stridsbergsbron","direction":"southbound","etaMin":8,"vesselCount":1,"leadVessel":"ALVA","firedBy":"deadline","eventId":"Stridsbergsbron#1","leadMmsi":"265101040","mmsis":["265101040"],"distance":1774,"dueMs":1785236805885.0874,"originalDueMs":1785236701621.5054,"success":true,"error":null},{"t":1785237292633,"iso":"2026-07-28T11:14:52.633Z","bridge":"Stridsbergsbron","direction":"southbound","etaMin":11,"vesselCount":1,"leadVessel":"RUNA","firedBy":"deadline","eventId":"Stridsbergsbron#3","leadMmsi":"265101154","mmsis":["265101154"],"distance":1752,"dueMs":1785237292633,"originalDueMs":1785237207143.9297,"success":true,"error":null},{"t":1785237602435,"iso":"2026-07-28T11:20:02.435Z","bridge":"Klaffbron","direction":"southbound","etaMin":-1,"vesselCount":1,"leadVessel":"ALVA","firedBy":"deadline","eventId":"Klaffbron#4","leadMmsi":"265101040","mmsis":["265101040"],"distance":1320,"dueMs":1785237602435,"originalDueMs":1785237137259.0632,"success":true,"error":null},{"t":1785237610632,"iso":"2026-07-28T11:20:10.632Z","bridge":"Klaffbron","direction":"southbound","etaMin":-1,"vesselCount":1,"leadVessel":"CORDELIA","firedBy":"deadline","eventId":"Klaffbron#5","leadMmsi":"265101116","mmsis":["265101116"],"distance":1322,"dueMs":1785237610632,"originalDueMs":1785237335675.216,"success":true,"error":null},{"t":1785238063649,"iso":"2026-07-28T11:27:43.649Z","bridge":"Klaffbron","direction":"southbound","etaMin":-1,"vesselCount":1,"leadVessel":"RUNA","firedBy":"deadline","eventId":"Klaffbron#6","leadMmsi":"265101154","mmsis":["265101154"],"distance":1504,"dueMs":1785238063649,"originalDueMs":1785238063649,"success":true,"error":null},{"t":1785238554559,"iso":"2026-07-28T11:35:54.559Z","bridge":"Stridsbergsbron","direction":"southbound","etaMin":7,"vesselCount":1,"leadVessel":"LINNEA","firedBy":"deadline","eventId":"Stridsbergsbron#7","leadMmsi":"265101075","mmsis":["265101075"],"distance":1803,"dueMs":1785238554558.9573,"originalDueMs":1785238514558.818,"success":true,"error":null},{"t":1785238570801,"iso":"2026-07-28T11:36:10.801Z","bridge":"Stridsbergsbron","direction":"southbound","etaMin":-1,"vesselCount":1,"leadVessel":"CORDELIA","firedBy":"deadline","eventId":"Stridsbergsbron#8","leadMmsi":"265101116","mmsis":["265101116"],"distance":104,"dueMs":1785238570801,"originalDueMs":1785237099292.7976,"success":true,"error":null},{"t":1785239758288,"iso":"2026-07-28T11:55:58.288Z","bridge":"Stridsbergsbron","direction":"southbound","etaMin":5,"vesselCount":1,"leadVessel":"PELLE","firedBy":"deadline","eventId":"Stridsbergsbron#9","leadMmsi":"265101028","mmsis":["265101028"],"distance":1026,"dueMs":1785239758287.4326,"originalDueMs":1785239758287.4326,"success":true,"error":null}],"openingCoverage":[{"t":1785236805886,"iso":"2026-07-28T11:06:45.886Z","mmsi":"265101040","bridge":"Stridsbergsbron","eventId":"Stridsbergsbron#1","reason":"fired"},{"t":1785236979008,"iso":"2026-07-28T11:09:39.008Z","mmsi":"265101154","bridge":"Stridsbergsbron","eventId":"Stridsbergsbron#1","reason":"absorbed"},{"t":1785237257668,"iso":"2026-07-28T11:14:17.668Z","mmsi":"265101116","bridge":"Stridsbergsbron","eventId":"Stridsbergsbron#1","reason":"absorbed"},{"t":1785237292633,"iso":"2026-07-28T11:14:52.633Z","mmsi":"265101154","bridge":"Stridsbergsbron","eventId":"Stridsbergsbron#3","reason":"fired"},{"t":1785237602435,"iso":"2026-07-28T11:20:02.435Z","mmsi":"265101040","bridge":"Klaffbron","eventId":"Klaffbron#4","reason":"fired"},{"t":1785237610632,"iso":"2026-07-28T11:20:10.632Z","mmsi":"265101116","bridge":"Klaffbron","eventId":"Klaffbron#5","reason":"fired"},{"t":1785237913760,"iso":"2026-07-28T11:25:13.760Z","mmsi":"265101116","bridge":"Stridsbergsbron","eventId":"Stridsbergsbron#3","reason":"absorbed"},{"t":1785238063649,"iso":"2026-07-28T11:27:43.649Z","mmsi":"265101154","bridge":"Klaffbron","eventId":"Klaffbron#6","reason":"fired"},{"t":1785238554559,"iso":"2026-07-28T11:35:54.559Z","mmsi":"265101075","bridge":"Stridsbergsbron","eventId":"Stridsbergsbron#7","reason":"fired"},{"t":1785238570801,"iso":"2026-07-28T11:36:10.801Z","mmsi":"265101116","bridge":"Stridsbergsbron","eventId":"Stridsbergsbron#8","reason":"fired"},{"t":1785239758288,"iso":"2026-07-28T11:55:58.288Z","mmsi":"265101028","bridge":"Stridsbergsbron","eventId":"Stridsbergsbron#9","reason":"fired"}],"openingCoverageVerdicts":[{"t":1785237000000,"mmsi":"265101154","bridge":"Stridsbergsbron","eventId":"Stridsbergsbron#1","verdict":{"kind":"covered","gate":"inom-fönstret","arrivalMs":1785237820524.6538,"physicsArrivalMs":1785237906589.6582,"windowEndMs":1785237913759.676,"ownDeadlineMs":1785237207143.9297},"arm":{"lastSeenAt":1785236979008,"anchorMs":1785236979008,"expectedArrivalMs":1785237820524.6538,"earliestArrivalMs":1785237387143.9297,"coverUntilMs":1785237913759.676,"absorbedAt":1785236979008,"distanceM":2099.6308019933535,"sog":4.4,"lastFixClean":true,"anchorFloor":false},"event":{"id":"Stridsbergsbron#1","firedAt":1785236805886,"firstPassageAt":null,"firstPassageRegisteredAt":null},"frozen":false,"courseAway":false},{"t":1785237132122,"mmsi":"265101154","bridge":"Stridsbergsbron","eventId":"Stridsbergsbron#1","verdict":{"kind":"covered","gate":"deadline","arrivalMs":1785237924007.7273,"physicsArrivalMs":1785237924007.7273,"windowEndMs":1785237913759.676,"ownDeadlineMs":1785237292632.8628},"arm":{"lastSeenAt":1785237132122,"anchorMs":1785237132122,"expectedArrivalMs":1785237970800.5674,"earliestArrivalMs":1785237472632.8628,"coverUntilMs":1785237913759.676,"absorbedAt":1785236979008,"distanceM":1751.737702428881,"sog":4.3,"lastFixClean":true,"anchorFloor":false},"event":{"id":"Stridsbergsbron#1","firedAt":1785236805886,"firstPassageAt":null,"firstPassageRegisteredAt":null},"frozen":false,"courseAway":false},{"t":1785237270000,"mmsi":"265101116","bridge":"Stridsbergsbron","eventId":"Stridsbergsbron#1","verdict":{"kind":"covered","gate":"inom-fönstret","arrivalMs":1785237527977.7368,"physicsArrivalMs":1785237527977.9702,"windowEndMs":1785237913759.676,"ownDeadlineMs":1785237099292.7976},"arm":{"lastSeenAt":1785237257668,"anchorMs":1785237257668,"expectedArrivalMs":1785237527977.7368,"earliestArrivalMs":1785237279292.7976,"coverUntilMs":1785237913759.676,"absorbedAt":1785237257668,"distanceM":111.24747389310716,"sog":0.8,"lastFixClean":true,"anchorFloor":false},"event":{"id":"Stridsbergsbron#1","firedAt":1785236805886,"firstPassageAt":null,"firstPassageRegisteredAt":null},"frozen":false,"courseAway":false},{"t":1785237292633,"mmsi":"265101154","bridge":"Stridsbergsbron","eventId":"Stridsbergsbron#1","verdict":{"kind":"bakkant","reason":"egen deadline ‹tid› förföll före händelsens första passage; prognos ‹tid› och fysik ‹tid› ligger efter fönstrets slut ‹tid›","arrivalMs":1785237924007.7273,"physicsArrivalMs":1785237924007.7273,"windowEndMs":1785237913759.676,"ownDeadlineMs":1785237292632.8628},"arm":{"lastSeenAt":1785237132122,"anchorMs":1785237132122,"expectedArrivalMs":1785237970800.5674,"earliestArrivalMs":1785237472632.8628,"coverUntilMs":1785237913759.676,"absorbedAt":1785236979008,"distanceM":1751.737702428881,"sog":4.3,"lastFixClean":true,"anchorFloor":false},"event":{"id":"Stridsbergsbron#1","firedAt":1785236805886,"firstPassageAt":null,"firstPassageRegisteredAt":null},"frozen":false,"courseAway":false},{"t":1785237310632,"mmsi":"265101116","bridge":"Stridsbergsbron","eventId":"Stridsbergsbron#1","verdict":{"kind":"covered","gate":"ingen-fysik","arrivalMs":null,"physicsArrivalMs":null,"windowEndMs":1785237913759.676,"ownDeadlineMs":1785237150912.1733},"arm":{"lastSeenAt":1785237310632,"anchorMs":1785237310632,"expectedArrivalMs":1785237527992.7368,"earliestArrivalMs":1785237330912.1733,"coverUntilMs":1785237913759.676,"absorbedAt":1785237257668,"distanceM":104.33013541265007,"sog":0,"lastFixClean":true,"anchorFloor":false},"event":{"id":"Stridsbergsbron#1","firedAt":1785236805886,"firstPassageAt":null,"firstPassageRegisteredAt":null},"frozen":false,"courseAway":false},{"t":1785237913760,"mmsi":"265101116","bridge":"Stridsbergsbron","eventId":"Stridsbergsbron#1","verdict":{"kind":"täckningsslut"},"arm":{"lastSeenAt":1785237310632,"anchorMs":1785237310632,"expectedArrivalMs":1785237527992.7368,"earliestArrivalMs":1785237330912.1733,"coverUntilMs":1785237913759.676,"absorbedAt":1785237257668,"distanceM":104.33013541265007,"sog":0,"lastFixClean":true,"anchorFloor":false},"event":{"id":"Stridsbergsbron#1","firedAt":1785236805886,"firstPassageAt":null,"firstPassageRegisteredAt":null},"frozen":false,"courseAway":false},{"t":1785237930000,"mmsi":"265101116","bridge":"Stridsbergsbron","eventId":"Stridsbergsbron#3","verdict":{"kind":"covered","gate":"ingen-fysik","arrivalMs":null,"physicsArrivalMs":null,"windowEndMs":1785238570800.5674,"ownDeadlineMs":1785237150912.1733},"arm":{"lastSeenAt":1785237310632,"anchorMs":1785237310632,"expectedArrivalMs":1785237527992.7368,"earliestArrivalMs":1785237330912.1733,"coverUntilMs":1785238570800.5674,"absorbedAt":1785237913760,"distanceM":104.33013541265007,"sog":0,"lastFixClean":true,"anchorFloor":false},"event":{"id":"Stridsbergsbron#3","firedAt":1785237292633,"firstPassageAt":null,"firstPassageRegisteredAt":null},"frozen":false,"courseAway":false},{"t":1785238570801,"mmsi":"265101116","bridge":"Stridsbergsbron","eventId":"Stridsbergsbron#3","verdict":{"kind":"täckningsslut"},"arm":{"lastSeenAt":1785237310632,"anchorMs":1785237310632,"expectedArrivalMs":1785237527992.7368,"earliestArrivalMs":1785237330912.1733,"coverUntilMs":1785238570800.5674,"absorbedAt":1785237913760,"distanceM":104.33013541265007,"sog":0,"lastFixClean":true,"anchorFloor":false},"event":{"id":"Stridsbergsbron#3","firedAt":1785237292633,"firstPassageAt":null,"firstPassageRegisteredAt":null},"frozen":false,"courseAway":false}],"targetPassages":[{"t":1785238046019,"iso":"2026-07-28T11:27:26.019Z","mmsi":"265101040","bridge":"Stridsbergsbron"},{"t":1785238658530,"iso":"2026-07-28T11:37:38.530Z","mmsi":"265101040","bridge":"Klaffbron"},{"t":1785239067467,"iso":"2026-07-28T11:44:27.467Z","mmsi":"265101154","bridge":"Stridsbergsbron"},{"t":1785239722168,"iso":"2026-07-28T11:55:22.168Z","mmsi":"265101154","bridge":"Klaffbron"}],"intermediatePassages":[{"t":1785236607623,"iso":"2026-07-28T11:03:27.623Z","mmsi":"265101040","bridge":"Stallbackabron","noTarget":false},{"t":1785236979008,"iso":"2026-07-28T11:09:39.008Z","mmsi":"265101154","bridge":"Stallbackabron","noTarget":false},{"t":1785238372239,"iso":"2026-07-28T11:32:52.239Z","mmsi":"265101040","bridge":"Järnvägsbron","noTarget":false},{"t":1785239067467,"iso":"2026-07-28T11:44:27.467Z","mmsi":"265101154","bridge":"Järnvägsbron","noTarget":false},{"t":1785239415441,"iso":"2026-07-28T11:50:15.441Z","mmsi":"265101040","bridge":"Olidebron","noTarget":true}],"journeyResets":[]},"gt":[{"t":1785236470456.6929,"iso":"2026-07-28T11:01:10.457Z","mmsi":"265101040","bridge":"Stallbackabron","kind":"line","inferred":false,"dir":"syd","tFrom":1785236470456.6929,"tTo":1785236470456.6929,"source":"truth-L1"},{"t":1785236636783.3467,"iso":"2026-07-28T11:03:56.783Z","mmsi":"265101116","bridge":"Stallbackabron","kind":"line","inferred":true,"dir":"syd","tFrom":1785236324112,"tTo":1785237257668,"source":"truth-L1"},{"t":1785236921996.471,"iso":"2026-07-28T11:08:41.996Z","mmsi":"265101154","bridge":"Stallbackabron","kind":"line","inferred":false,"dir":"syd","tFrom":1785236921996.471,"tTo":1785236921996.471,"source":"truth-L1"},{"t":1785238019985.237,"iso":"2026-07-28T11:26:59.985Z","mmsi":"265101040","bridge":"Stridsbergsbron","kind":"line","inferred":false,"dir":"syd","tFrom":1785238019985.237,"tTo":1785238019985.237,"source":"truth-L1"},{"t":1785238152875.337,"iso":"2026-07-28T11:29:12.875Z","mmsi":"265101040","bridge":"Järnvägsbron","kind":"line","inferred":false,"dir":"syd","tFrom":1785238152875.337,"tTo":1785238152875.337,"source":"truth-L1"},{"t":1785238255619.6465,"iso":"2026-07-28T11:30:55.620Z","mmsi":"265101075","bridge":"Stallbackabron","kind":"line","inferred":false,"dir":"syd","tFrom":1785238255619.6465,"tTo":1785238255619.6465,"source":"truth-L1"},{"t":1785238626433.6829,"iso":"2026-07-28T11:37:06.434Z","mmsi":"265101040","bridge":"Klaffbron","kind":"line","inferred":false,"dir":"syd","tFrom":1785238626433.6829,"tTo":1785238626433.6829,"source":"truth-L1"},{"t":1785238839782.187,"iso":"2026-07-28T11:40:39.782Z","mmsi":"265101154","bridge":"Stridsbergsbron","kind":"line","inferred":false,"dir":"syd","tFrom":1785238839782.187,"tTo":1785238839782.187,"source":"truth-L1"},{"t":1785238926507.4724,"iso":"2026-07-28T11:42:06.507Z","mmsi":"265101075","bridge":"Stridsbergsbron","kind":"line","inferred":true,"dir":"syd","tFrom":1785238384003,"tTo":1785240171579,"source":"truth-L1"},{"t":1785238993326.1694,"iso":"2026-07-28T11:43:13.326Z","mmsi":"265101154","bridge":"Järnvägsbron","kind":"line","inferred":false,"dir":"syd","tFrom":1785238993326.1694,"tTo":1785238993326.1694,"source":"truth-L1"},{"t":1785239031401.6218,"iso":"2026-07-28T11:43:51.402Z","mmsi":"265101075","bridge":"Järnvägsbron","kind":"line","inferred":true,"dir":"syd","tFrom":1785238384003,"tTo":1785240171579,"source":"truth-L1"},{"t":1785239225211.08,"iso":"2026-07-28T11:47:05.211Z","mmsi":"265101040","bridge":"Olidebron","kind":"line","inferred":false,"dir":"syd","tFrom":1785239225211.08,"tTo":1785239225211.08,"source":"truth-L1"},{"t":1785239410012.859,"iso":"2026-07-28T11:50:10.013Z","mmsi":"265101075","bridge":"Klaffbron","kind":"line","inferred":true,"dir":"syd","tFrom":1785238384003,"tTo":1785240171579,"source":"truth-L1"},{"t":1785239538281.0796,"iso":"2026-07-28T11:52:18.281Z","mmsi":"265101154","bridge":"Klaffbron","kind":"line","inferred":false,"dir":"syd","tFrom":1785239538281.0796,"tTo":1785239538281.0796,"source":"truth-L1"}],"sanning":{"crossings":[{"mmsi":"265101040","bridge":"Stallbackabron","t":1785236470456.6929,"dir":"syd","kn":5.87},{"mmsi":"265101116","bridge":"Stallbackabron","t":1785236636783.3467,"dir":"syd","kn":7.82},{"mmsi":"265101154","bridge":"Stallbackabron","t":1785236921996.471,"dir":"syd","kn":5.1},{"mmsi":"265101040","bridge":"Stridsbergsbron","t":1785238019985.237,"dir":"syd","kn":5.18},{"mmsi":"265101040","bridge":"Järnvägsbron","t":1785238152875.337,"dir":"syd","kn":3.68},{"mmsi":"265101075","bridge":"Stallbackabron","t":1785238255619.6465,"dir":"syd","kn":7.35},{"mmsi":"265101040","bridge":"Klaffbron","t":1785238626433.6829,"dir":"syd","kn":3.98},{"mmsi":"265101154","bridge":"Stridsbergsbron","t":1785238839782.187,"dir":"syd","kn":4.5},{"mmsi":"265101075","bridge":"Stridsbergsbron","t":1785238926507.4724,"dir":"syd","kn":6.48},{"mmsi":"265101154","bridge":"Järnvägsbron","t":1785238993326.1694,"dir":"syd","kn":3.2},{"mmsi":"265101075","bridge":"Järnvägsbron","t":1785239031401.6218,"dir":"syd","kn":4.61},{"mmsi":"265101116","bridge":"Stridsbergsbron","t":1785239192739.0334,"dir":"syd","kn":5.68},{"mmsi":"265101040","bridge":"Olidebron","t":1785239225211.08,"dir":"syd","kn":4.48},{"mmsi":"265101116","bridge":"Järnvägsbron","t":1785239293835.8103,"dir":"syd","kn":4.91},{"mmsi":"265101028","bridge":"Stallbackabron","t":1785239345126.5974,"dir":"syd","kn":6.76},{"mmsi":"265101075","bridge":"Klaffbron","t":1785239410012.859,"dir":"syd","kn":4.98},{"mmsi":"265101154","bridge":"Klaffbron","t":1785239538281.0796,"dir":"syd","kn":3.46},{"mmsi":"265101116","bridge":"Klaffbron","t":1785239649472.1658,"dir":"syd","kn":5.3},{"mmsi":"265101075","bridge":"Olidebron","t":1785239888824.1228,"dir":"syd","kn":5.61},{"mmsi":"265101028","bridge":"Stridsbergsbron","t":1785240074591.813,"dir":"syd","kn":5.96},{"mmsi":"265101116","bridge":"Olidebron","t":1785240099250.314,"dir":"syd","kn":5.97},{"mmsi":"265101028","bridge":"Järnvägsbron","t":1785240189217.4795,"dir":"syd","kn":4.24},{"mmsi":"265101154","bridge":"Olidebron","t":1785240227242.104,"dir":"syd","kn":3.89},{"mmsi":"265101028","bridge":"Klaffbron","t":1785240600860.0842,"dir":"syd","kn":4.58},{"mmsi":"265101028","bridge":"Olidebron","t":1785241121293.3667,"dir":"syd","kn":5.16},{"mmsi":"265101264","bridge":"Stallbackabron","t":1785243611972.8523,"dir":"syd","kn":6.3},{"mmsi":"265101207","bridge":"Olidebron","t":1785244356983.9905,"dir":"nord","kn":3.65},{"mmsi":"265101264","bridge":"Stridsbergsbron","t":1785244395104.0383,"dir":"syd","kn":5.55},{"mmsi":"265101264","bridge":"Järnvägsbron","t":1785244518356.5188,"dir":"syd","kn":3.95},{"mmsi":"265101264","bridge":"Klaffbron","t":1785244960143.9316,"dir":"syd","kn":4.27},{"mmsi":"265101207","bridge":"Klaffbron","t":1785245038402.0662,"dir":"nord","kn":3.94},{"mmsi":"265101264","bridge":"Olidebron","t":1785245518758.8645,"dir":"syd","kn":4.8},{"mmsi":"265101207","bridge":"Järnvägsbron","t":1785245764457.8604,"dir":"nord","kn":2.59},{"mmsi":"265101207","bridge":"Stridsbergsbron","t":1785245880521.9521,"dir":"nord","kn":4.5},{"mmsi":"265101207","bridge":"Stallbackabron","t":1785246710027.2336,"dir":"nord","kn":5.25}],"uturns":[],"stops":[{"mmsi":"265101040","tIn":1785237293000,"tOut":1785237949000,"kind":"queue"},{"mmsi":"265101116","tIn":1785237265000,"tOut":1785239120000,"kind":"queue"},{"mmsi":"265101154","tIn":1785237858000,"tOut":1785238763000,"kind":"queue"},{"mmsi":"265101338","tIn":1785234782000,"tOut":1785248397000,"kind":"moor"},{"mmsi":"265101397","tIn":1785234782000,"tOut":1785248397000,"kind":"moor"}]},"radio":"R1","profil":"standard","täthet":{"stress":false,"maxSamtidiga":5,"längstaKedja":3},"korpus":null}}}
+diff --git a/tests/replay-validation/bugHunt/__tests__/k-varv2-motor.test.js b/tests/replay-validation/bugHunt/__tests__/k-varv2-motor.test.js
+index 8870282..17f8905 100644
+--- a/tests/replay-validation/bugHunt/__tests__/k-varv2-motor.test.js
++++ b/tests/replay-validation/bugHunt/__tests__/k-varv2-motor.test.js
+@@ -11,6 +11,9 @@
+  * Byggskriptet kontrollerar att fyndet klassas likadant i den trimmade
+  * kontexten som i hela världen.
+  *
++ * Fixturen fixtures/varv2-u24-2026-11-09.json är provvärld 143 körd på familj
++ * B:s 0b0a35d (ägarbeslutet U24) med samma motor, byggd på samma sätt.
++ *
+  * [träff] är ett utslag som posten ska klassa, [vakt] ett motexempel som ska
+  * förbli KANDIDAT. Inga barnprocesser och inga timers.
+  */
+@@ -356,3 +359,169 @@ describe('Punkt 6: K-TYST-BÅT-NÄSTA-ÖPPNING gäller också T2 ÖPPNING-MISS:O
+     expect(klassa(reg, b.fynd, b.ctx).klass).toBe('KANDIDAT');
+   });
+ });
++
++// ---------------------------------------------------------------------------
++// Samspelet med familjerna B och F (samordnarens meddelande i varv 2)
++// ---------------------------------------------------------------------------
++
++describe('Familj F: Kajens queueGraceMs = Infinity (U23) läses som i appen', () => {
++  // F:s apprättning gör Kajens köundantag obegränsat (Infinity). Appen läser
++  // det som ett positivt tal (VesselDataService.js#_zoneMinStillMs efter F);
++  // predikatet läste Number.isFinite och gjorde Infinity till baskravet 3 min.
++  const C = require('../../../../lib/constants');
++  const kajen = () => C.MOORING_ZONES.find((z) => /^Kajen\b/.test(z.name));
++  const medKaj = (grace, fn) => {
++    const z = kajen();
++    const förut = z.queueGraceMs;
++    z.queueGraceMs = grace;
++    try {
++      return fn();
++    } finally {
++      z.queueGraceMs = förut;
++    }
++  };
++
++  test('[vakt] kajK efter F: zonlagret klassar aldrig köaren mot Klaffbron, så predikatet hittar ingen demotion; KANDIDAT', () => {
++    const k = fall('kajK');
++    const d = medKaj(Infinity, () => pred('mooringCapsuleStationary')(k.fynd, k.ctx));
++    expect(d.sant).toBe(false);
++    expect(d.skäl).toMatch(/under kravet i "Kajen norr om Klaffbron" \(aldrig: obegränsat köundantag, U23\)/);
++    expect(medKaj(Infinity, () => klassa(reg, k.fynd, k.ctx).klass)).toBe('KANDIDAT');
++  });
++
++  test('[träff] kajB efter F: köundantaget gäller inte 979 m från Stridsbergsbron, och demotionen efter 3 min står; U23', () => {
++    const k = fall('kajB');
++    expect(medKaj(Infinity, () => klassa(reg, k.fynd, k.ctx))).toMatchObject({ klass: 'DESIGN', post: 'U23-KAJZON-UTANFÖR-VÄNTZONEN' });
++  });
++
++  test('[nytt] shrink läser Kajens köundantag ur zonposten: 900 s på c14938f, inget gränsvärde när det är obegränsat', () => {
++    const shrink = require('../lib/shrink');
++    expect(shrink.KONSTANTER.find((k) => k.namn === 'queueGraceMs (Kajen)').värde).toBe(kajen().queueGraceMs / 1000);
++    expect(shrink.kajensKöundantagS([{ name: 'Kajen norr om Klaffbron', queueGraceMs: Infinity }])).toBeNull();
++    jest.isolateModules(() => {
++      // eslint-disable-next-line global-require
++      require('../../../../lib/constants').MOORING_ZONES.find((z) => /^Kajen\b/.test(z.name)).queueGraceMs = Infinity;
++      // eslint-disable-next-line global-require
++      const s = require('../lib/shrink');
++      expect(s.KONSTANTER.some((k) => k.namn === 'queueGraceMs (Kajen)')).toBe(false);
++      expect(s.annotateConstant({ värden: [900], enhet: 's', familj: 'F-KÖ' })).toBeNull();
++    });
++  });
++});
++
++describe('Familj B: (3′) läser domens arrivalMs och windowEndMs, och U24-släppet är en bakkant', () => {
++  // Steg 2 (M5) låter bakkanten jämföra domens arrivalMs, under ETA-golvet
++  // den senare av prognosen och armens fysik, med windowEndMs. Predikatet
++  // läste armens expectedArrivalMs och sitt eget fönsterslut, och missade
++  // då en krypare som bakkanten borde ha släppt.
++  const renDom = (ctx, m) => ctx.resultat.openingCoverageVerdicts.filter((x) => x.mmsi === m && x.verdict.kind === 'covered').pop();
++
++  test('[vakt] domens arrivalMs låg efter fönstrets slut fast armens prognos låg inom: bakkanten borde ha släppt henne; KANDIDAT', () => {
++    const { fynd, ctx } = fall('w625');
++    const v = renDom(ctx, fynd.mmsi);
++    v.verdict = { ...v.verdict, arrivalMs: Date.parse('2026-09-01T09:28:30Z'), physicsArrivalMs: Date.parse('2026-09-01T09:28:30Z') };
++    const c = klassa(reg, fynd, ctx);
++    expect(c.klass).toBe('KANDIDAT');
++    expect(prövad(c, 'U17-TYST-BÅT-RECOVER').skäl)
++      .toMatch(/appens ankomst \(domens arrivalMs\) 09:28:30 vid hennes fix 09:24:59 .* låg efter fönstrets slut 09:28:01, men bakkanten släppte henne inte/);
++  });
++
++  test('[vakt] domens windowEndMs gäller före det räknade fönstret; KANDIDAT', () => {
++    const { fynd, ctx } = fall('w625');
++    const v = renDom(ctx, fynd.mmsi);
++    v.verdict = { ...v.verdict, windowEndMs: v.arm.expectedArrivalMs - 1000 };
++    expect(klassa(reg, fynd, ctx).klass).toBe('KANDIDAT');
++    expect(pred('tystRecoverSammaÖppning')(fynd, ctx).skäl).toMatch(/appens prognos .* låg efter fönstrets slut .*, men bakkanten släppte henne inte/);
++  });
++
++  test('[träff] domens fält inom fönstret ändrar inget: arrivalMs lika med prognosen; U17', () => {
++    const { fynd, ctx } = fall('w625');
++    for (const v of ctx.resultat.openingCoverageVerdicts) {
++      if (v.mmsi === fynd.mmsi && v.verdict.kind === 'covered') v.verdict = { ...v.verdict, arrivalMs: v.arm.expectedArrivalMs, physicsArrivalMs: null };
++    }
++    expect(klassa(reg, fynd, ctx)).toMatchObject({ klass: 'DESIGN', post: 'U17-TYST-BÅT-RECOVER' });
++  });
++
++  test('[vakt] U24:s släpp på hennes egen deadline före första passagen räknas som bakkant; KANDIDAT', () => {
++    const a = fall('w625');
++    const slut = a.ctx.resultat.openingCoverageVerdicts.find((x) => x.mmsi === a.fynd.mmsi && x.verdict.kind === 'täckningsslut');
++    slut.verdict = { kind: 'bakkant', reason: 'egen deadline ‹tid› förföll före händelsens första passage; prognos ‹tid› och fysik ‹tid› ligger efter fönstrets slut ‹tid›' };
++    slut.event = { ...slut.event, firstPassageAt: null, firstPassageRegisteredAt: null };
++    expect(pred('tystRecoverSammaÖppning')(a.fynd, a.ctx).skäl).toMatch(/U24 släppte henne ur Stridsbergsbron#4 .* på hennes egen deadline före händelsens första passage/);
++    expect(pred('tystRecoverSammaÖppning', { läge: 'nästa' })(a.fynd, a.ctx).skäl).toMatch(/U24 släppte henne/);
++    expect(klassa(reg, a.fynd, a.ctx).klass).toBe('KANDIDAT');
++  });
++});
++
++describe('U24: den delade kön i provvärld 143 (U24-DELAD-KÖ-EXTRA-VARNING)', () => {
++  // Fixturen fixtures/varv2-u24-2026-11-09.json är värld 143 (R1) körd på
++  // familj B:s 0b0a35d (U24, M7) med den här motorn. RUNA (265101154)
++  // släpps ur ALVAs Stridsbergsbron#1 på sin egen deadline 11:14:52 och
++  // varnas själv (#3). CORDELIA (265101116) köar 104 m från bron, går vid
++  // #1:s täckningsslut 11:25:13 till #3 och varnas vid dess täckningsslut
++  // 11:36:10 (#8) på sitt fix från 11:15:10; hon korsar 353 s efter RUNA.
++  const U = require('./fixtures/varv2-u24-2026-11-09.json');
++  const u24 = () => kopia(U.w143);
++  const RUNA = '265101154';
++  const CORDELIA = '265101116';
++  const X = require('../lib/platser').POINTS.Stridsbergsbron;
++  const flytta = (r, m) => Object.assign(r, { lat: X.lat + m / 111320, lon: X.lon });
++  const skäl = (f, ctx, extra) => pred('u24DeladKö', extra)(f, ctx).skäl;
++
++  test('[träff] CORDELIAs varning vid RUNAs täckningsslut på ett 21 min gammalt fix; DESIGN U24', () => {
++    const { fynd, ctx } = u24();
++    expect(fynd).toMatchObject({ orakel: 'T3', klass: 'VARNING-PÅ-FRUSET-FIX', mmsi: CORDELIA });
++    expect(klassa(reg, fynd, ctx)).toMatchObject({ klass: 'DESIGN', post: 'U24-DELAD-KÖ-EXTRA-VARNING' });
++    expect(skäl(fynd, ctx)).toMatch(/^U24: 265101154 släpptes ur Stridsbergsbron#1 på sin egen deadline 11:14:52 \(1752 m från bron i 4.3 kn\) och varnades i Stridsbergsbron#3; /);
++    expect(skäl(fynd, ctx)).toMatch(/till Stridsbergsbron#3 och varnades vid dess täckningsslut \(Stridsbergsbron#8 11:36:10\) på fixet 11:15:10; hon korsade 353 s efter/);
++    expect(PREDICATES.u24DeladKö.parametrar.frusetMs).toBe(require('../lib/oracles/t2Opening').FROZEN_FIX_MS);
++  });
++
++  test('[vakt] utan U24-släppet (c14938f, eller bakkanten bortkopplad) och utan domspår; KANDIDAT', () => {
++    const a = u24();
++    for (const v of a.ctx.resultat.openingCoverageVerdicts) if (v.mmsi === RUNA && v.verdict.kind === 'bakkant') v.verdict = { kind: 'covered' };
++    expect(klassa(reg, a.fynd, a.ctx).klass).toBe('KANDIDAT');
++    expect(skäl(a.fynd, a.ctx)).toMatch(/265101154 släpptes inte av bakkanten inom en tick före sin varning Stridsbergsbron#3/);
++    const b = u24();
++    delete b.ctx.resultat.openingCoverageVerdicts;
++    expect(skäl(b.fynd, b.ctx)).toMatch(/saknar släppvägens domspår/);
++  });
++
++  test('[vakt] släppet är bakkanten efter en passage, inte U24; eller händelsens passage var känd vid täckningsslutet; KANDIDAT', () => {
++    const a = u24();
++    const s = a.ctx.resultat.openingCoverageVerdicts.find((v) => v.mmsi === RUNA && v.verdict.kind === 'bakkant');
++    s.verdict = { ...s.verdict, reason: 'färsk prognos ‹tid› ligger efter fönstrets slut ‹tid›' };
++    expect(skäl(a.fynd, a.ctx)).toMatch(/är inget U24-släpp/);
++    const b = u24();
++    const slut = b.ctx.resultat.openingCoverageVerdicts.filter((v) => v.mmsi === CORDELIA && v.verdict.kind === 'täckningsslut').pop();
++    slut.event = { ...slut.event, firstPassageAt: slut.t - 60000 };
++    expect(skäl(b.fynd, b.ctx)).toMatch(/Stridsbergsbron#3:s första passage var känd vid täckningsslutet/);
++    expect(klassa(reg, b.fynd, b.ctx).klass).toBe('KANDIDAT');
++  });
++
++  test('[vakt] RUNA låg i väntzonen när hon släpptes: U24:s villkor höll inte; KANDIDAT', () => {
++    const a = u24();
++    const s = a.ctx.resultat.openingCoverageVerdicts.find((v) => v.mmsi === RUNA && v.verdict.kind === 'bakkant');
++    flytta(a.ctx.rader.filter((r) => r.mmsi === RUNA && r.aisTimestamp <= s.t).pop(), 300);
++    expect(skäl(a.fynd, a.ctx)).toMatch(/U24:s villkor höll inte för 265101154 vid släppet 11:14:52: raden 11:12:12 300 m från bron/);
++    expect(klassa(reg, a.fynd, a.ctx).klass).toBe('KANDIDAT');
++  });
++
++  test('[vakt] CORDELIA utanför väntzonen efter absorptionen, eller i rörelse vid sitt sista fix: U24 kan ha gällt henne; KANDIDAT', () => {
++    const a = u24();
++    flytta(a.ctx.rader.find((r) => r.mmsi === CORDELIA && r.aisTimestamp === Date.parse('2026-07-28T11:14:17.668Z')), 400);
++    expect(skäl(a.fynd, a.ctx)).toMatch(/hennes rad 11:14:17 låg 400 m från bron, utanför väntzonen \(350 m\)/);
++    const b = u24();
++    b.ctx.rader.filter((r) => r.mmsi === CORDELIA && r.aisTimestamp < b.fynd.t).pop().sog = 1.2;
++    expect(skäl(b.fynd, b.ctx)).toMatch(/hennes sista rad före varningen 11:15:10 hade 1.2 kn: hon låg inte stilla i kön/);
++    expect(klassa(reg, b.fynd, b.ctx).klass).toBe('KANDIDAT');
++  });
++
++  test('[vakt] hon korsade mer än 600 s efter RUNA, eller fixet var redan fruset vid den äldre händelsens täckningsslut; KANDIDAT', () => {
++    const a = u24();
++    a.ctx.sanning.crossings.find((x) => x.mmsi === CORDELIA && x.bridge === 'Stridsbergsbron').t += 300000;
++    expect(skäl(a.fynd, a.ctx)).toMatch(/hon korsade 11:51:32, 653 s från 265101154 \(11:40:39\): inte samma öppning/);
++    const b = u24();
++    expect(skäl(b.fynd, b.ctx, { frusetMs: 9 * 60000 })).toMatch(/hennes fix 11:15:10 var redan vid Stridsbergsbron#1:s täckningsslut 11:25:13 äldre än 9 min/);
++  });
++});
+diff --git a/tests/replay-validation/bugHunt/beslutsregister.json b/tests/replay-validation/bugHunt/beslutsregister.json
+index 5c1cce5..f31edeb 100644
+--- a/tests/replay-validation/bugHunt/beslutsregister.json
++++ b/tests/replay-validation/bugHunt/beslutsregister.json
+@@ -52,7 +52,7 @@
+       "id": "U16-F40-STRAX-STUDS",
+       "klass": "MÄTGRÄNS",
+       "datum": "2026-11-04",
+-      "källa": "docs/BUGGJAKT.md §7 (användarbeslut U16 2026-11-04: beteendet behålls, aldrig 'strax' på en position äldre än 10 min; studsen vid båtens nästa rad är MÄTGRÄNS sedan efterrättningen R3c, rad 21); tests/replay-validation/replayRunner.js:86–88 och :542–551 (harnessens dränering: en enda verklig setImmediate efter varje clock.tick, så appens asynkrona UI-arbete körs först vid nästa dränering); app.js:6983–6988 (omkörningen efter en pågående uppdatering schemaläggs med setImmediate);docs/buggjakt-triage-2026-11-04.md beslutsfråga 3 (F40-studsen: DESIGN, MÄTGRÄNS eller hysteres) och §Ägarens beslut 2026-11-04 (U16); docs/helgranskning-2026-07-06.md:271–274 (F40-avvägningen: ETA-hopp vid 600 s-gränsen för väntande glesa sändare, säkerhetsvalet 'aldrig strax på gammal position' står); docs/etapp7-plan-2026-08-08.md:8 (U1), :15 (U6) och :267 (C11: 'strax' kräver färsk signal, positionsålder högst STALE_ETA_HARD); app.js:7233–7239 (imminent-grinden dataIsFreshEnough, 'F40 medvetet EJ ändrat'); app.js:7336–7338 (imminentLimitM: imminent SET inom 300 m, kvar inom 350 m); lib/constants.js:1133 (STALE_ETA_HARD_THRESHOLD_MS); tests/replay-validation/replayRunner.js:122–126 och :531–652 (harnessens klocka: raderna i aisTimestamp-ordning, dränering före raden, clock.tick(60) efter varje AIS-rad); lib/services/VesselDataService.js:5291 (vessel.timestamp = Date.now() när raden bearbetas); app.js:7365 (den uttömda grenen sätter 'strax' inom 500 m); app.js:13259–13266 (UI-klockans absoluta halvminuter); lib/constants.js:415–470 (MOORING_ZONES och kajen norr om Klaffbrons köundantag queueGraceMs)",
++      "källa": "docs/BUGGJAKT.md §7 (användarbeslut U16 2026-11-04: beteendet behålls, aldrig 'strax' på en position äldre än 10 min; studsen vid båtens nästa rad är MÄTGRÄNS sedan efterrättningen R3c, rad 21); tests/replay-validation/replayRunner.js:86–88 och :542–551 (harnessens dränering: en enda verklig setImmediate efter varje clock.tick, så appens asynkrona UI-arbete körs först vid nästa dränering); app.js:6983–6988 (omkörningen efter en pågående uppdatering schemaläggs med setImmediate);docs/buggjakt-triage-2026-11-04.md beslutsfråga 3 (F40-studsen: DESIGN, MÄTGRÄNS eller hysteres) och §Ägarens beslut 2026-11-04 (U16); docs/helgranskning-2026-07-06.md:271–274 (F40-avvägningen: ETA-hopp vid 600 s-gränsen för väntande glesa sändare, säkerhetsvalet 'aldrig strax på gammal position' står); docs/etapp7-plan-2026-08-08.md:8 (U1), :15 (U6) och :267 (C11: 'strax' kräver färsk signal, positionsålder högst STALE_ETA_HARD); app.js:7233–7239 (imminent-grinden dataIsFreshEnough, 'F40 medvetet EJ ändrat'); app.js:7336–7338 (imminentLimitM: imminent SET inom 300 m, kvar inom 350 m); lib/constants.js:1133 (STALE_ETA_HARD_THRESHOLD_MS); tests/replay-validation/replayRunner.js:122–126 och :531–652 (harnessens klocka: raderna i aisTimestamp-ordning, dränering före raden, clock.tick(60) efter varje AIS-rad); lib/services/VesselDataService.js#_createVesselObject (vessel.timestamp = Date.now() när raden bearbetas); app.js:7365 (den uttömda grenen sätter 'strax' inom 500 m); app.js:13259–13266 (UI-klockans absoluta halvminuter); lib/constants.js:415–470 (MOORING_ZONES och kajen norr om Klaffbrons köundantag queueGraceMs)",
+       "gäller": {
+         "orakel": [
+           "INV-F"
+@@ -74,7 +74,7 @@
+       "id": "U23-KAJZON-UTANFÖR-VÄNTZONEN",
+       "klass": "DESIGN",
+       "datum": "2026-11-09",
+-      "källa": "docs/BUGGJAKT.md §7 (användarbeslut U23 2026-11-09, ur rättningskampanjens KAMPANJ2.md, med underlaget i triage B:s avsnitt Kajfrågan för ägaren; registerändringarna i varv 2, rad 39 och 40); lib/constants.js:415–470 (MOORING_ZONES: Kajen norr om Klaffbron med köundantag mitt i väntzonen, Gästhamnen utanför väntzonen utan köundantag) och :39–41 (APPROACH_RADIUS, väntzonen 300 m); lib/services/VesselDataService.js#_classifyMooring och #_updateMooringEvidence (zonregeln och stillhetsklockan); docs/reliability-spec.md:102 (D1)",
++      "källa": "docs/BUGGJAKT.md §7 (användarbeslut U23 2026-11-09, ur rättningskampanjens KAMPANJ2.md, med underlaget i triage B:s avsnitt Kajfrågan för ägaren; registerändringarna i varv 2, rad 39, 40 och 44); lib/constants.js:415–470 (MOORING_ZONES: Kajen norr om Klaffbron med köundantag mitt i väntzonen, Gästhamnen utanför väntzonen utan köundantag) och :39–41 (APPROACH_RADIUS, väntzonen 300 m); lib/services/VesselDataService.js#_classifyMooring och #_updateMooringEvidence (zonregeln och stillhetsklockan); docs/reliability-spec.md:102 (D1)",
+       "gäller": {
+         "orakel": [
+           "INV-F",
+@@ -91,7 +91,7 @@
+           "minStillaMin": 3
+         }
+       },
+-      "regel": "U23 (ägarbeslut 2026-11-09): en båt på väg mot Klaffbron som stannar vid Kajen norr om Klaffbron behandlas som i resten av väntområdet och står kvar i texten tills hon kör vidare, sänder navStatus 1 eller 5 eller har legat stilla i 2 timmar; D1 vinner över kajzonens 15-minutersgissning. Två saker behandlas som i dag: båtar vid Kajen som inte är på väg mot Klaffbron (norrgående som passerat Klaffbron, med Stridsbergsbron som mål mer än 600 m bort) och hela Gästhamnen, som ligger utanför väntzonen. Där klassar zonregeln en stillaliggare som förtöjd efter baskravet 3 min, och var hon textens enda båt mot bron blir texten 'Inga båtar' tills hon kör vidare (INV-14 DEFAULT-FLASH). Det är beslutat beteende. Predikatet binder flashen till den båt som bar texten och speglar zonregeln: appens stillhetsklocka spelas över hennes rader (start vid första raden under STATIONARY_SOG_KN var hon än ligger, nollning vid en rad med minst MOVEMENT_PROOF_SOG_KN eller två gråzonsrader i följd), och demotionen är första raden i klockans sista varv där hon ligger i en kapsel och stilltiden, räknad på harnessens bearbetningstider, nått zonens krav. Hon har rörelsebevis före varvet (annars fick hon aldrig någon målbro), hennes kurs i sista raden i rörelse pekar mot bron och bron är den närmaste målbron framför henne, ingen rad i varvet före demotionen har navStatus förtöjd eller ankrad (då klassar navstatus-lagret henne), och episoden börjar högst en halvminutstick efter demotionsraden. Kapselns närmaste punkt ska ligga mer än APPROACH_RADIUS (300 m) från bron, alltså utanför väntzonen: Kajen ligger 161 m från Klaffbron, så en båt på väg mot Klaffbron som demoteras där (före familj F:s apprättning efter köundantagets 15 min) omfattas inte och blir KANDIDAT. Villkoret läser geometrin och inte köundantaget, så det håller både före och efter apprättningen. Ersätter KONFLIKT-posten D1-KAJZON-DEMOTION (2026-11-04), vars fråga U23 besvarar."
++      "regel": "U23 (ägarbeslut 2026-11-09): en båt på väg mot Klaffbron som stannar vid Kajen norr om Klaffbron behandlas som i resten av väntområdet och står kvar i texten tills hon kör vidare, sänder navStatus 1 eller 5 eller har legat stilla i 2 timmar; D1 vinner över kajzonens 15-minutersgissning. Två saker behandlas som i dag: båtar vid Kajen som inte är på väg mot Klaffbron (norrgående som passerat Klaffbron, med Stridsbergsbron som mål mer än 600 m bort) och hela Gästhamnen, som ligger utanför väntzonen. Där klassar zonregeln en stillaliggare som förtöjd efter baskravet 3 min, och var hon textens enda båt mot bron blir texten 'Inga båtar' tills hon kör vidare (INV-14 DEFAULT-FLASH). Det är beslutat beteende. Predikatet binder flashen till den båt som bar texten och speglar zonregeln: appens stillhetsklocka spelas över hennes rader (start vid första raden under STATIONARY_SOG_KN var hon än ligger, nollning vid en rad med minst MOVEMENT_PROOF_SOG_KN eller två gråzonsrader i följd), och demotionen är första raden i klockans sista varv där hon ligger i en kapsel och stilltiden, räknad på harnessens bearbetningstider, nått zonens krav (3 min, eller zonens queueGraceMs inom 600 m från bron; queueGraceMs läses som i appen, ett positivt tal där Infinity betyder obegränsat, som Kajens köundantag efter familj F:s apprättning). Hon har rörelsebevis före varvet (annars fick hon aldrig någon målbro), hennes kurs i sista raden i rörelse pekar mot bron och bron är den närmaste målbron framför henne, ingen rad i varvet före demotionen har navStatus förtöjd eller ankrad (då klassar navstatus-lagret henne), och episoden börjar högst en halvminutstick efter demotionsraden. Kapselns närmaste punkt ska ligga mer än APPROACH_RADIUS (300 m) från bron, alltså utanför väntzonen: Kajen ligger 161 m från Klaffbron, så en båt på väg mot Klaffbron som demoteras där (före familj F:s apprättning efter köundantagets 15 min) omfattas inte och blir KANDIDAT. Villkoret läser geometrin och inte köundantaget, så det håller både före och efter apprättningen. Ersätter KONFLIKT-posten D1-KAJZON-DEMOTION (2026-11-04), vars fråga U23 besvarar."
+     },
+     {
+       "id": "OMSTART-DEFAULT-FÖRE-FÖRSTA-FIX",
+@@ -121,7 +121,7 @@
+       "id": "U1-C11-TYST-FÖRE-DEFAULT",
+       "klass": "DESIGN",
+       "datum": "2026-11-05",
+-      "källa": "docs/etapp7-plan-2026-08-08.md:8 (U1: en båt som slutar sända AIS ska tas bort ur texten) och :266–267 (C11 och C11b, staleDisplayLimit-trappan); lib/services/VesselDataService.js#getVesselsForBridgeText (STALE_DISPLAY_DROP: 10 min, 15 min med målbro, 20 min mitt i passage, 25 min nära stilla eller i kö); lib/constants.js:1133 (STALE_ETA_HARD_THRESHOLD_MS, ETA:n nollas: 'ETA okänd'); lib/services/VesselDataService.js:2361–2465 (trappans nivåer och villkor); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 24 och 33; familj M:s F05/r2)",
++      "källa": "docs/etapp7-plan-2026-08-08.md:8 (U1: en båt som slutar sända AIS ska tas bort ur texten) och :266–267 (C11 och C11b, staleDisplayLimit-trappan); lib/services/VesselDataService.js#getVesselsForBridgeText (STALE_DISPLAY_DROP: 10 min, 15 min med målbro, 20 min mitt i passage, 25 min nära stilla eller i kö); lib/constants.js:1133 (STALE_ETA_HARD_THRESHOLD_MS, ETA:n nollas: 'ETA okänd'); lib/services/VesselDataService.js#getVesselsForBridgeText (trappans nivåer och villkor); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 24 och 33; familj M:s F05/r2)",
+       "gäller": {
+         "orakel": [
+           "INV-F"
+@@ -162,7 +162,7 @@
+       "id": "R2-MÅLBRO-EFTER-LINJEN",
+       "klass": "DESIGN",
+       "datum": "2026-11-04",
+-      "källa": "docs/BUGGJAKT.md §7 (dirigentens beslut 2026-11-04 om R2:s fråga 2); lib/services/VesselDataService.js#_calculateTargetBridge (målbron väljs på latitud mot brons latitud); lib/constants.js:356–357 (MOVEMENT_PROOF_SOG_KN 0,5 och MOVEMENT_PROOF_NET_M 50: inget mål utan rörelsebevis); lib/services/VesselDataService.js:84 (STALE_AIS_TIMEOUT_MS, raderingen gravlägger inte); tests/replay-validation/invariants.js:600–625 (INV-13); lib/constants.js:47 (UNDER_BRIDGE_CLEAR_DISTANCE 70 m, appens under-bron-band); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 29 och 33)",
++      "källa": "docs/BUGGJAKT.md §7 (dirigentens beslut 2026-11-04 om R2:s fråga 2); lib/services/VesselDataService.js#_calculateTargetBridge (målbron väljs på latitud mot brons latitud); lib/constants.js:356–357 (MOVEMENT_PROOF_SOG_KN 0,5 och MOVEMENT_PROOF_NET_M 50: inget mål utan rörelsebevis); lib/services/VesselDataService.js#STALE_AIS_TIMEOUT_MS (raderingen gravlägger inte); tests/replay-validation/invariants.js:600–625 (INV-13); lib/constants.js:47 (UNDER_BRIDGE_CLEAR_DISTANCE 70 m, appens under-bron-band); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 29 och 33)",
+       "gäller": {
+         "orakel": [
+           "INV-F"
+@@ -373,7 +373,7 @@
+       "id": "S10-VÄNDNING-BRON-BAKOM",
+       "klass": "DESIGN",
+       "datum": "2026-08-23",
+-      "källa": "docs/ARCHITECTURE.md:1993 (FIXRUNDA 6 LIGHT, användarbeslut 2026-08-23: S10 och S6 godkända); docs/ARCHITECTURE.md:1936–1939 och :2027–2031 (S10 i notisvägen: avstå när Fix D:s färska pending-reversal motsäger tokenriktningen och bron ligger bakom fartyget); app.js:9858–9933 (_fixDReversalContradictsNotification, tre krav) och app.js:10441–10451 (FLOW_TRIGGER_SKIP_PENDING_REVERSAL); lib/services/VesselDataService.js:380–407 och :446–476 (FIX_D_MIN_SOG och blockets yttre villkor, kursbanden mot riktningslåset, pending-flaggan, den bekräftande fixen och nollningen); lib/services/VesselDataService.js:5286–5287 (_createVesselObject: en rad utan finit sog eller cog får fartygets senast kända värde, och Fix D och S10-vakten prövar det)",
++      "källa": "docs/ARCHITECTURE.md:1993 (FIXRUNDA 6 LIGHT, användarbeslut 2026-08-23: S10 och S6 godkända); docs/ARCHITECTURE.md:1936–1939 och :2027–2031 (S10 i notisvägen: avstå när Fix D:s färska pending-reversal motsäger tokenriktningen och bron ligger bakom fartyget); app.js:9858–9933 (_fixDReversalContradictsNotification, tre krav) och app.js:10441–10451 (FLOW_TRIGGER_SKIP_PENDING_REVERSAL); lib/services/VesselDataService.js#FIX_D_MIN_SOG (Fix D-blocket i updateVessel: blockets yttre villkor, kursbanden mot riktningslåset, pending-flaggan, den bekräftande fixen och nollningen); lib/services/VesselDataService.js#_createVesselObject (en rad utan finit sog eller cog får fartygets senast kända värde, och Fix D och S10-vakten prövar det)",
+       "gäller": {
+         "orakel": [
+           "T1"
+@@ -387,7 +387,7 @@
+           "maxÅlderMin": 15
+         }
+       },
+-      "regel": "S10-vakten avstår från notisen när båten vänder före bron: fixen före besöket hade det gamla kursbandet, och alla fixar inom 300 m under besöket går i det nya bandet med minst MIN_VIABLE_SPEED, med bron bakom sig och inom 15 min (FIX_D_PENDING_MAX_AGE_MS) från den första. Zonens första fix har dessutom minst FIX_D_MIN_SOG (2,0 kn, läst ur VesselDataService.js) och sätter Fix D:s pending-flagga. Det gör den bara när riktningslåset fortfarande är det gamla bandet och ingen färsk flagga redan finns, så predikatet spelar Fix D över fartygets fixar före zonen, med det gamla bandet som lås: en fix med minst FIX_D_MIN_SOG som är omvänd mot låset sätter flaggan, eller bekräftar reversalen och byter lås om en flagga i samma riktning är yngre än 15 min; en fix med minst FIX_D_MIN_SOG som inte är omvänd nollar flaggan; långsammare fixar rör ingenting. En rad utan kurs eller fart prövas med fartygets senast kända värde, som i appen (VesselDataService.js:5286–5287): det gäller spelet före zonen, fixen före besöket och zonfixarna. Med en färsk flagga bekräftar zonens första fix reversalen och notisen går ut, och efter en reversal som bekräftats före zonen är den inte omvänd och sätter ingen flagga; i båda fallen avstår S10-vakten inte. Ingen senare zonfix har minst FIX_D_MIN_SOG, eftersom en andra omvänd fix med minst den farten bekräftar reversalen och då går notisen ut. Notisen ägs då av den bekräftade reversalen, och kommer ingen fix till inom radien uteblir den. Båten får inte ha korsat bron i besöket. Appen loggar FLOW_TRIGGER_SKIP_PENDING_REVERSAL; predikatet prövar vaktens villkor på raderna eftersom replayresultatet inte bär loggraden (F15 i första standardrapporten)."
++      "regel": "S10-vakten avstår från notisen när båten vänder före bron: fixen före besöket hade det gamla kursbandet, och alla fixar inom 300 m under besöket går i det nya bandet med minst MIN_VIABLE_SPEED, med bron bakom sig och inom 15 min (FIX_D_PENDING_MAX_AGE_MS) från den första. Zonens första fix har dessutom minst FIX_D_MIN_SOG (2,0 kn, läst ur VesselDataService.js) och sätter Fix D:s pending-flagga. Det gör den bara när riktningslåset fortfarande är det gamla bandet och ingen färsk flagga redan finns, så predikatet spelar Fix D över fartygets fixar före zonen, med det gamla bandet som lås: en fix med minst FIX_D_MIN_SOG som är omvänd mot låset sätter flaggan, eller bekräftar reversalen och byter lås om en flagga i samma riktning är yngre än 15 min; en fix med minst FIX_D_MIN_SOG som inte är omvänd nollar flaggan; långsammare fixar rör ingenting. En rad utan kurs eller fart prövas med fartygets senast kända värde, som i appen (VesselDataService.js#_createVesselObject): det gäller spelet före zonen, fixen före besöket och zonfixarna. Med en färsk flagga bekräftar zonens första fix reversalen och notisen går ut, och efter en reversal som bekräftats före zonen är den inte omvänd och sätter ingen flagga; i båda fallen avstår S10-vakten inte. Ingen senare zonfix har minst FIX_D_MIN_SOG, eftersom en andra omvänd fix med minst den farten bekräftar reversalen och då går notisen ut. Notisen ägs då av den bekräftade reversalen, och kommer ingen fix till inom radien uteblir den. Båten får inte ha korsat bron i besöket. Appen loggar FLOW_TRIGGER_SKIP_PENDING_REVERSAL; predikatet prövar vaktens villkor på raderna eftersom replayresultatet inte bär loggraden (F15 i första standardrapporten)."
+     },
+     {
+       "id": "KAJGRIND-UTAN-RÖRELSEBEVIS",
+@@ -456,7 +456,7 @@
+       "id": "U2-VS-DEADLINE",
+       "klass": "KÄND_ÖPPEN",
+       "datum": "2026-08-09",
+-      "källa": "docs/etapp7-plan-2026-08-08.md:310–349 (ETAPP C-IV:s utfall: U2 och deadline-garantin är ömsesidigt oförenliga, C8 återkallad); docs/ARCHITECTURE.md:828–857 (U15, returresan är en egen öppning)",
++      "källa": "docs/etapp7-plan-2026-08-08.md:310–349 (ETAPP C-IV:s utfall: U2 och deadline-garantin är ömsesidigt oförenliga, C8 återkallad); docs/ARCHITECTURE.md:828–857 (U15, returresan är en egen öppning); docs/BUGGJAKT.md §7 (användarbeslut U24 2026-11-09; varv 2, rad 46)",
+       "gäller": {
+         "orakel": [
+           "T2"
+@@ -470,7 +470,7 @@
+         }
+       },
+       "regel": "Garantin förfaller medan båten är täckt: en korsning inom [händelsens första passage; + CONVOY_WINDOW_MS] hör till samma öppning enligt U2, när båten var täckt av den äldre händelsen före korsningen (medlem, ledare eller absorberad) och händelsens första passage är en ANNAN båts. Båtens egen utresa före en U-sväng räknas aldrig, och en händelse vars varning kom före båtens egen tidigare korsning av bron förklarar inte korsningen: enligt U15 är returen en egen öppning (konvoj.egenKorsningEfter, registret 2026-11-07). Definitionen delas med T2-oraklet (tests/replay-validation/bugHunt/lib/konvoj.js, inomHändelsefönster).",
+-      "fråga": "U2 mot deadline-garantin (etapp7-plan C-IV, val a/b/c) är fortfarande öppen. Vill du avgöra den, eller ska motorn fortsätta behandla sådana utfall som kända?"
++      "fråga": "U2 mot deadline-garantin (etapp7-plan C-IV, val a/b/c): ägarbeslutet U24 (2026-11-09) valde väg b för en båt i rörelse utanför väntzonen vars båda prognoser ligger efter händelsens fönster (en egen varning på hennes egen deadline). För en korsning inom fönstret, som posten gäller, och för stilla köande båtar är frågan fortfarande öppen. Vill du avgöra den, eller ska motorn fortsätta behandla sådana utfall som kända?"
+     },
+     {
+       "id": "J13-J14-KONVOJSEMANTIK",
+@@ -512,7 +512,7 @@
+       "id": "U18-RETUR-BEKRÄFTAD-SENT",
+       "klass": "DESIGN",
+       "datum": "2026-11-04",
+-      "källa": "docs/ARCHITECTURE.md:1093–1100 (U18, användarbeslut 2026-11-04: Fix D kräver två positioner, Anomali 18) och :828–857 (U15, returresan är en egen öppning; värld 227); lib/services/VesselDataService.js:385–491 (Fix D: FIX_D_MIN_SOG, kursbanden, pending-flaggan och bekräftelsen) och #_confirmDirectionReversal ([TARGET_RECALC] för varje väg som bekräftar en vändning); tests/replay-validation/replayRunner.js:256–267 och :472–474 (resultatets journeyResets); lib/constants.js:1545 (TICK_INTERVAL_MS); docs/BUGGJAKT.md §7 (användarbeslut U18; registerändringarna 2026-11-07, rad 26, 33 och 34)",
++      "källa": "docs/ARCHITECTURE.md:1093–1100 (U18, användarbeslut 2026-11-04: Fix D kräver två positioner, Anomali 18) och :828–857 (U15, returresan är en egen öppning; värld 227); lib/services/VesselDataService.js#FIX_D_MIN_SOG (Fix D-blocket i updateVessel: kursbanden, pending-flaggan och bekräftelsen) och #_confirmDirectionReversal ([TARGET_RECALC] för varje väg som bekräftar en vändning); tests/replay-validation/replayRunner.js:256–267 och :472–474 (resultatets journeyResets); lib/constants.js:1545 (TICK_INTERVAL_MS); docs/BUGGJAKT.md §7 (användarbeslut U18; registerändringarna 2026-11-07, rad 26, 33 och 34)",
+       "gäller": {
+         "orakel": [
+           "T2",
+@@ -530,7 +530,7 @@
+       "id": "U17-TYST-BÅT-RECOVER",
+       "klass": "DESIGN",
+       "datum": "2026-11-04",
+-      "källa": "docs/ARCHITECTURE.md:1934–1951 (U17, ägarbeslut 2026-11-04: säkerhetsvarningen för en tyst båt behålls); lib/services/BridgeOpeningService.js#_coverageVerdict (täckningsslutet, bakkanten, hållen under bron (1c) och kursen bort (1d)), #_courseAway, #_bindLooseArms och #_leadOf (gemensam RECOVER); tests/replay-validation/replayRunner.js#instrumentApp (släppvägens domspår, openingCoverageVerdicts); lib/services/BridgeOpeningService.js:138 (MOVING_SOG_KN); lib/constants.js:46 (UNDER_BRIDGE_SET_DISTANCE), :1065 (MINIMUM_VIABLE_SPEED), :1375 (CONVOY_WINDOW_MS), :1577 (WAITING_CLEAR_DISTANCE); KAMPANJ.md, dirigentens beslut 2026-11-05 (under bron-hållet); docs/BUGGJAKT.md §7 (användarbeslut U17; registerändringarna 2026-11-07, rad 27 och 32; varv 2, rad 37, 38 och 41)",
++      "källa": "docs/ARCHITECTURE.md:1934–1951 (U17, ägarbeslut 2026-11-04: säkerhetsvarningen för en tyst båt behålls); lib/services/BridgeOpeningService.js#_coverageVerdict (täckningsslutet, bakkanten, hållen under bron (1c) och kursen bort (1d)), #_courseAway, #_bindLooseArms och #_leadOf (gemensam RECOVER); tests/replay-validation/replayRunner.js#instrumentApp (släppvägens domspår, openingCoverageVerdicts); lib/services/BridgeOpeningService.js:138 (MOVING_SOG_KN); lib/constants.js:46 (UNDER_BRIDGE_SET_DISTANCE), :1065 (MINIMUM_VIABLE_SPEED), :1375 (CONVOY_WINDOW_MS), :1577 (WAITING_CLEAR_DISTANCE); KAMPANJ.md, dirigentens beslut 2026-11-05 (under bron-hållet); docs/BUGGJAKT.md §7 (användarbeslut U17; registerändringarna 2026-11-07, rad 27 och 32; varv 2, rad 37, 38, 41 och 43)",
+       "gäller": {
+         "orakel": [
+           "T3"
+@@ -543,13 +543,13 @@
+           "läge": "samma"
+         }
+       },
+-      "regel": "U17: RECOVER-släppets säkerhetsvarning för en tyst båt behålls. Den gäller en båt vars senaste position sa att hon skulle hinna igenom den gemensamma öppningen, men där appen inte vet om hon gjorde det; F11/F23-klassen är ett falsklarm av samma slag som AVBRUTEN_APPROACH. Predikatet speglar släppvägen vid täckningsslutet och kräver alla: (1) båten absorberades vid bron i en levererad händelse E före sin sanna korsning, och E:s varning kom före korsningen; E är händelsen i den sista sådana absorptionen, den som täckte henne när hon korsade. (2) Fyndets varning kom efter absorptionen och avfyrades av ticken (firedBy 'deadline'), och den är hennes RECOVER: hon leder den, eller den är en gemensam RECOVER (varv 2): en annan ledare godtas när hon är medlem i varningen, när hennes och ledarens senaste absorption vid bron före varningen gällde samma händelse och när ingen av dem hade en egen rad mellan sin absorption och varningen (två tysta båtar som släpps ur samma händelse binds till en ny händelse med den närmaste som ledare, _bindLooseArms och _leadOf). (3) Tyst, så att bakkanten inte kunde släppa henne: bakkanten släpper på ett eget fix efter att E:s första passage blev känd (bokförd, eller den täckta båtens första rad efter sin korsning) när prognosen ligger efter fönstrets slut, utom när kursen leder bort. Därför: ingen egen rad efter att passagen blev känd bearbetades efter fönstrets tidigaste slut min(känd + 600 s, max(E, första korsningen) + 600 s, varningen − TICK_INTERVAL_MS) (för T2 LEDTID är det tystnadsvillkoret), och för varje sådan rad är restiden till bron med radens fart (minst MINIMUM_VIABLE_SPEED) högst 0,6 av tiden kvar till fönstrets tidigaste slut. Appens ETA går inte att återskapa ur raderna; en prognos nära fönstrets slut bevisar inte U17:s premiss och blir KANDIDAT. När replayresultatet bär släppvägens domspår (openingCoverageVerdicts, varv 2) ersätts kvotregeln av domspåret: ingen dom från absorptionen till varningen var 'bakkant'; vid varje ren bakkantsdom (före täckningsslutet när passagen är bokförd före hennes korsning, över ett fix efter den skattade första passagen, GPS-rent, inte fryst, utan kurs bort) ligger BÅDE appens prognos OCH den fysiska ankomsten ur samma fix (fixens tid + avståndet till bron med fixets fart, minst MINIMUM_VIABLE_SPEED) inom domens fönsterslut; och varningen kommer högst TICK_INTERVAL_MS efter hennes senaste dom 'täckningsslut'. Appens prognos ensam räcker inte, eftersom ETA-kedjans golv kan lägga en krypares prognos minuter för tidigt och posten då skulle dölja prognosfelet. För T3 låg dessutom fixen i hennes sista rad före varningen före korsningen (fixens tid, inte mottagningens: en AISHub-rad som tas emot efter korsningen men bär en fix från före den visar henne före bron; rättat i varv 2, M2). (4) Inget håll vid täckningsslutet gällde hennes sista rad: inte högst UNDER_BRIDGE_SET_DISTANCE (50 m) från bron i minst MINIMUM_VIABLE_SPEED (dirigentens beslut 2026-11-05: hon har i praktiken passerat) och inte kursen bort (_courseAway: minst MOVING_SOG_KN, utanför WAITING_CLEAR_DISTANCE, mer än 90° från bäringen till bron). (5) Hennes korsning ligger högst CONVOY_WINDOW_MS (600 s) efter E:s första sanna korsning av en båt som E täckte när hon korsade, hennes egen medräknad. Ingen fixålder. Skärpt 2026-11-07 efter granskningens mutationsprov (bakkanten respektive under-bron-hållet bortkopplade i _coverageVerdict): utan (1):s absorption före korsningen, (3) och (4) tog posterna 46 nya utslag."
++      "regel": "U17: RECOVER-släppets säkerhetsvarning för en tyst båt behålls. Den gäller en båt vars senaste position sa att hon skulle hinna igenom den gemensamma öppningen, men där appen inte vet om hon gjorde det; F11/F23-klassen är ett falsklarm av samma slag som AVBRUTEN_APPROACH. Predikatet speglar släppvägen vid täckningsslutet och kräver alla: (1) båten absorberades vid bron i en levererad händelse E före sin sanna korsning, och E:s varning kom före korsningen; E är händelsen i den sista sådana absorptionen, den som täckte henne när hon korsade. (2) Fyndets varning kom efter absorptionen och avfyrades av ticken (firedBy 'deadline'), och den är hennes RECOVER: hon leder den, eller den är en gemensam RECOVER (varv 2): en annan ledare godtas när hon är medlem i varningen, när hennes och ledarens senaste absorption vid bron före varningen gällde samma händelse och när ingen av dem hade en egen rad mellan sin absorption och varningen (två tysta båtar som släpps ur samma händelse binds till en ny händelse med den närmaste som ledare, _bindLooseArms och _leadOf). (3) Tyst, så att bakkanten inte kunde släppa henne: bakkanten släpper på ett eget fix efter att E:s första passage blev känd (bokförd, eller den täckta båtens första rad efter sin korsning) när prognosen ligger efter fönstrets slut, utom när kursen leder bort. Därför: ingen egen rad efter att passagen blev känd bearbetades efter fönstrets tidigaste slut min(känd + 600 s, max(E, första korsningen) + 600 s, varningen − TICK_INTERVAL_MS) (för T2 LEDTID är det tystnadsvillkoret), och för varje sådan rad är restiden till bron med radens fart (minst MINIMUM_VIABLE_SPEED) högst 0,6 av tiden kvar till fönstrets tidigaste slut. Appens ETA går inte att återskapa ur raderna; en prognos nära fönstrets slut bevisar inte U17:s premiss och blir KANDIDAT. När replayresultatet bär släppvägens domspår (openingCoverageVerdicts, varv 2) ersätts kvotregeln av domspåret: ingen dom från absorptionen till varningen var 'bakkant', heller inte U24:s släpp på hennes egen deadline före första passagen (skälet 'egen deadline …', familj B:s M7); vid varje ren bakkantsdom (före täckningsslutet när passagen är bokförd före hennes korsning, över ett fix efter den skattade första passagen, GPS-rent, inte fryst, utan kurs bort) ligger BÅDE appens ankomst (domens arrivalMs när domen bär den, efter familj B:s M5 den senare av prognosen och armens fysik under 2,5 kn; annars prognosen expectedArrivalMs) OCH den fysiska ankomsten ur samma fix (fixens tid + avståndet till bron med fixets fart, minst MINIMUM_VIABLE_SPEED) inom domens fönsterslut (domens windowEndMs när den finns); och varningen kommer högst TICK_INTERVAL_MS efter hennes senaste dom 'täckningsslut'. Appens prognos ensam räcker inte, eftersom ETA-kedjans golv kan lägga en krypares prognos minuter för tidigt och posten då skulle dölja prognosfelet. För T3 låg dessutom fixen i hennes sista rad före varningen före korsningen (fixens tid, inte mottagningens: en AISHub-rad som tas emot efter korsningen men bär en fix från före den visar henne före bron; rättat i varv 2, M2). (4) Inget håll vid täckningsslutet gällde hennes sista rad: inte högst UNDER_BRIDGE_SET_DISTANCE (50 m) från bron i minst MINIMUM_VIABLE_SPEED (dirigentens beslut 2026-11-05: hon har i praktiken passerat) och inte kursen bort (_courseAway: minst MOVING_SOG_KN, utanför WAITING_CLEAR_DISTANCE, mer än 90° från bäringen till bron). (5) Hennes korsning ligger högst CONVOY_WINDOW_MS (600 s) efter E:s första sanna korsning av en båt som E täckte när hon korsade, hennes egen medräknad. Ingen fixålder. Skärpt 2026-11-07 efter granskningens mutationsprov (bakkanten respektive under-bron-hållet bortkopplade i _coverageVerdict): utan (1):s absorption före korsningen, (3) och (4) tog posterna 46 nya utslag."
+     },
+     {
+       "id": "K-TYST-BÅT-NÄSTA-ÖPPNING",
+       "klass": "KÄND_ÖPPEN",
+       "datum": "2026-11-05",
+-      "källa": "docs/ARCHITECTURE.md:1934–1951 (U17) och :1883–1905 (täckningsslutet räknas från bokföringen, dirigentens beslut 2026-11-05, U13); lib/services/BridgeOpeningService.js#_coverageVerdict; lib/constants.js:1375 (CONVOY_WINDOW_MS); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 28 och 32; varv 2, rad 37, 38 och 41); tests/replay-validation/replayRunner.js#instrumentApp (släppvägens domspår); docs/BUGGJAKT.md §7 (varv 2, rad 42: T2-vyn ÖPPNING-MISS:OKLASSAD)",
++      "källa": "docs/ARCHITECTURE.md:1934–1951 (U17) och :1883–1905 (täckningsslutet räknas från bokföringen, dirigentens beslut 2026-11-05, U13); lib/services/BridgeOpeningService.js#_coverageVerdict; lib/constants.js:1375 (CONVOY_WINDOW_MS); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 28 och 32; varv 2, rad 37, 38, 41 och 43); tests/replay-validation/replayRunner.js#instrumentApp (släppvägens domspår); docs/BUGGJAKT.md §7 (varv 2, rad 42: T2-vyn ÖPPNING-MISS:OKLASSAD)",
+       "gäller": {
+         "orakel": [
+           "T2",
+@@ -563,14 +563,31 @@
+           "läge": "nästa"
+         }
+       },
+-      "regel": "K-familjens kvarvarande gräns efter revision 3: villkor (1)–(4) som i U17-TYST-BÅT-RECOVER (absorberad i E före korsningen, egen eller gemensam RECOVER på tick, tyst så att bakkanten inte kunde släppa henne, inget håll vid täckningsslutet), men hennes korsning ligger mer än CONVOY_WINDOW_MS (600 s) efter E:s första sanna korsning, så hon hörde enligt U2 till nästa öppning. Hon hölls av E:s täckning till täckningsslutet, som räknas från bokföringen, och hennes egen varning kom på tick efter korsningen (T3, även sedd som VARNING-PÅ-FRUSET-FIX) eller mindre än 60 s före den (T2 LEDTID). Det är en verklig sen varning; den kvarstår för att banken inte kan belägga alternativ A (U13). En båt som sände efter fönstrets slut, eller vars prognos låg nära slutet, kunde ha släppts av bakkanten och är KANDIDAT (granskningen av registret 2026-11-07); med släppvägens domspår (varv 2) prövas appens prognos och den fysiska ankomsten mot fönstrets slut i stället för kvotregeln, som i U17-TYST-BÅT-RECOVER. Samma händelse ses av T2 som ÖPPNING-MISS:OKLASSAD när hennes RECOVER kom efter korsningen: då är W hennes första levererade varning vid bron efter korsningen (högst CONVOY_WINDOW_MS efter), och villkoren är desamma som för T3 (varv 2, punkt 6, värld 510). För en båt i samma öppning tar U2-VS-DEADLINE den T2-vyn; för nästa öppning saknades den.",
++      "regel": "K-familjens kvarvarande gräns efter revision 3: villkor (1)–(4) som i U17-TYST-BÅT-RECOVER (absorberad i E före korsningen, egen eller gemensam RECOVER på tick, tyst så att bakkanten inte kunde släppa henne, inget håll vid täckningsslutet), men hennes korsning ligger mer än CONVOY_WINDOW_MS (600 s) efter E:s första sanna korsning, så hon hörde enligt U2 till nästa öppning. Hon hölls av E:s täckning till täckningsslutet, som räknas från bokföringen, och hennes egen varning kom på tick efter korsningen (T3, även sedd som VARNING-PÅ-FRUSET-FIX) eller mindre än 60 s före den (T2 LEDTID). Det är en verklig sen varning; den kvarstår för att banken inte kan belägga alternativ A (U13). En båt som sände efter fönstrets slut, eller vars prognos låg nära slutet, kunde ha släppts av bakkanten och är KANDIDAT (granskningen av registret 2026-11-07); med släppvägens domspår (varv 2) prövas appens ankomst (domens arrivalMs när den finns) och den fysiska ankomsten mot fönstrets slut (domens windowEndMs när den finns) i stället för kvotregeln, och ett U24-släpp på hennes egen deadline räknas som bakkant, som i U17-TYST-BÅT-RECOVER. Samma händelse ses av T2 som ÖPPNING-MISS:OKLASSAD när hennes RECOVER kom efter korsningen: då är W hennes första levererade varning vid bron efter korsningen (högst CONVOY_WINDOW_MS efter), och villkoren är desamma som för T3 (varv 2, punkt 6, värld 510). För en båt i samma öppning tar U2-VS-DEADLINE den T2-vyn; för nästa öppning saknades den.",
+       "fråga": "Ska en tyst konvojmedlem vars korsning ligger efter den gemensamma öppningens konvojfönster släppas på sin senaste prognos före täckningsslutet (K-familjens alternativ A), fast det flyttar en låst rad i banken som rådatan bara visar som likvärdig?"
+     },
++    {
++      "id": "U24-DELAD-KÖ-EXTRA-VARNING",
++      "klass": "DESIGN",
++      "datum": "2026-11-09",
++      "källa": "docs/BUGGJAKT.md §7 (användarbeslut U24 2026-11-09, ur rättningskampanjens KAMPANJ2.md, med familj B:s underlag om provvärld 143; varv 2, rad 45); lib/services/BridgeOpeningService.js#_coverageVerdict (släppvägen: U24:s släpp på den egna deadlinen före händelsens första passage, domen 'bakkant' med skälet 'egen deadline …', och täckningsslutet); tests/replay-validation/replayRunner.js#instrumentApp (släppvägens domspår, openingCoverageVerdicts); tests/replay-validation/bugHunt/lib/oracles/t2Opening.js#FROZEN_FIX_MS (T3:s gräns för ett fruset fix, 19 min); lib/constants.js#STATUS_HYSTERESIS (WAITING_CLEAR_DISTANCE, väntzonen 350 m) och #PASSAGE_TIMING (MINIMUM_VIABLE_SPEED)",
++      "gäller": {
++        "orakel": [
++          "T3"
++        ],
++        "klassRegex": "^VARNING-PÅ-FRUSET-FIX$"
++      },
++      "predikat": {
++        "namn": "u24DeladKö",
++        "parametrar": {}
++      },
++      "regel": "U24 (ägarbeslut 2026-11-09): en båt i rörelse utanför väntzonen som hör till en avfyrad händelse utan bokförd passage, och vars båda prognoser lägger henne efter händelsens fönster, får sin egen varning på sin egen deadline. Ägaren godtar kostnaden att en köande konvoj då ibland får en extra varning, som i provvärld 143: RUNA släpps ur ALVAs händelse och varnas själv, CORDELIA, som ligger stilla i kön 109 m från bron, går vid den äldre händelsens täckningsslut till RUNAs händelse i stället för att bilda en gemensam RECOVER med henne, och varnas vid dess täckningsslut på ett 21 min gammalt fix; hon korsar 353 s efter RUNA. Predikatet kräver släppvägens domspår och alla: (1) fyndets varning W (på tick, hon med i den) följer inom en tick på hennes täckningsslut i en händelse E, och E:s första passage var inte känd då; (2) E leds av en annan båt L och avfyrades högst en tick efter att L släpptes ur en äldre händelse E0 av U24 (domen 'bakkant' med skälet 'egen deadline …', E0:s passage okänd); (3) släppet höll U24:s villkor oberoende av appens ETA: L:s sista rad före släppet låg mer än WAITING_CLEAR_DISTANCE (350 m) från bron i mer än MINIMUM_VIABLE_SPEED, och både den fysiska ankomsten ur raden och domens arrivalMs låg efter domens windowEndMs; (4) hon var absorberad i E0 före släppet och gick vid E0:s täckningsslut (passagen okänd) till E inom en tick; (5) U24 kunde aldrig släppa henne: varje rad från absorptionen i E0 till W låg inom väntzonen, och hennes sista rad hade högst MINIMUM_VIABLE_SPEED; (6) hon korsade efter W och högst CONVOY_WINDOW_MS (600 s) från L:s korsning (samma öppning); (7) hon hördes inte efter E0:s täckningsslut, och där var hennes senaste fix högst T3:s 19 min gammalt, så fixåldern kommer av delningen. Utan U24-släppet (c14938f, eller med bakkanten bortkopplad) finns ingen dom att binda E till, och posten är falsk; en bakkant efter passagen eller ett U24-släpp som borde ha gällt henne själv blir KANDIDAT."
++    },
+     {
+       "id": "U19-VARNING-UNDER-VÄNTANDE-VÄNDNING",
+       "klass": "ACCEPTERAD",
+       "datum": "2026-11-04",
+-      "källa": "docs/ARCHITECTURE.md:1101–1107 (U19, användarbeslut 2026-11-04: en planerad öppningsvarning skickas även när en obekräftad vändning väntar); lib/services/VesselDataService.js:385–491 (Fix D:s pending-flagga och bekräftelse); docs/BUGGJAKT.md §7 (användarbeslut U19; registerändringarna 2026-11-07, rad 29)",
++      "källa": "docs/ARCHITECTURE.md:1101–1107 (U19, användarbeslut 2026-11-04: en planerad öppningsvarning skickas även när en obekräftad vändning väntar); lib/services/VesselDataService.js#FIX_D_MIN_SOG (Fix D-blocket i updateVessel: pending-flaggan och bekräftelsen); docs/BUGGJAKT.md §7 (användarbeslut U19; registerändringarna 2026-11-07, rad 29)",
+       "gäller": {
+         "orakel": [
+           "T9",
+diff --git a/tests/replay-validation/bugHunt/lib/oracles/t2Opening.js b/tests/replay-validation/bugHunt/lib/oracles/t2Opening.js
+index 24370ef..bac85cd 100644
+--- a/tests/replay-validation/bugHunt/lib/oracles/t2Opening.js
++++ b/tests/replay-validation/bugHunt/lib/oracles/t2Opening.js
+@@ -412,5 +412,5 @@ function judgeT2T3(ctx) {
+ }
+ 
+ module.exports = {
+-  judgeT2T3, explainT2, canaryFloorMs, membersOf, FLOOR_MS,
++  judgeT2T3, explainT2, canaryFloorMs, membersOf, FLOOR_MS, FROZEN_FIX_MS,
+ };
+diff --git a/tests/replay-validation/bugHunt/lib/registry.js b/tests/replay-validation/bugHunt/lib/registry.js
+index 145dcd8..dc61537 100644
+--- a/tests/replay-validation/bugHunt/lib/registry.js
++++ b/tests/replay-validation/bugHunt/lib/registry.js
+@@ -634,12 +634,36 @@ function rentBakkantsfix(v, korsT) {
+   return v.arm.lastFixClean === true && v.frozen !== true && v.courseAway !== true;
+ }
+ 
+-/** Fönstrets slut i domen, som i _coverageVerdict: täckningen, eller U2-fönstret kring passagen om det slutar först. */
++/**
++ * Fönstrets slut i domen. Bär domen `windowEndMs` (familj B, varv 2: det
++ * bakkanten jämförde med) gäller det; annars räknas det som i
++ * _coverageVerdict på c14938f: täckningen, eller U2-fönstret kring passagen
++ * om det slutar först.
++ */
+ function domensFönsterslut(v, p) {
++  if (Number.isFinite(v.verdict && v.verdict.windowEndMs)) return v.verdict.windowEndMs;
+   if (v.arm.anchorFloor) return v.arm.coverUntilMs;
+   return Math.min(v.arm.coverUntilMs, Math.max(Number.isFinite(v.event.firedAt) ? v.event.firedAt : 0, v.event.firstPassageAt) + p.fönsterMs);
+ }
+ 
++/**
++ * Appens ankomst i en ren bakkantsdom: domens `arrivalMs` när den finns
++ * (familj B, varv 2, M5: under ETA-kedjans passagegolv den senare av
++ * prognosen och armens fysik, _crawlArrivalMs), annars armens prognos
++ * expectedArrivalMs som på c14938f.
++ * @returns {{ms: number|null, vad: string}} ankomsten och vad den är
++ */
++function domensAnkomst(v) {
++  if (Number.isFinite(v.verdict && v.verdict.arrivalMs)) return { ms: v.verdict.arrivalMs, vad: 'appens ankomst (domens arrivalMs)' };
++  return { ms: Number.isFinite(v.arm.expectedArrivalMs) ? v.arm.expectedArrivalMs : null, vad: 'appens prognos' };
++}
++
++/** Är domen U24:s släpp på hennes egen deadline före händelsens första passage (familj B, M7)? */
++function u24Släpp(v) {
++  return !!v && !!v.verdict && v.verdict.kind === 'bakkant' && /^egen deadline\b/.test(String(v.verdict.reason || ''))
++    && !(v.event && Number.isFinite(v.event.firstPassageAt));
++}
++
+ /**
+  * Båtens första levererade varning vid bron efter korsningen, med henne som
+  * medlem eller ledare, högst fönsterMs efter korsningen; annars null. För T2
+@@ -1136,8 +1160,11 @@ const PREDICATES = {
+   //  - zonens krav: minStillaMin, eller zonens queueGraceMs när den är längre
+   //    och hon ligger högst köundantagM från bron (köundantaget i
+   //    _classifyMooring kräver dessutom målbro och rörelsebevis, som
+-  //    villkoren ovan redan ger). Stilltiden räknas på harnessens
+-  //    bearbetningstider, som appens klocka (Date.now() när raden bearbetas);
++  //    villkoren ovan redan ger). queueGraceMs läses som i appen: ett
++  //    positivt tal, där Infinity betyder obegränsat (Kajen efter U23,
++  //    familj F: zonlagret klassar då aldrig köaren). Stilltiden räknas på
++  //    harnessens bearbetningstider, som appens klocka (Date.now() när
++  //    raden bearbetas);
+   //  - episoden börjar vid demotionen: högst en halvminutstick (tickS plus
+   //    textens mikrograce tickFördröjningMs) efter bearbetningen av
+   //    demotionsraden;
+@@ -1218,10 +1245,16 @@ const PREDICATES = {
+         // Demotionen: första raden i varvet där navstatus-lagret eller
+         // zonregeln klassar henne som förtöjd.
+         const start = pt(startRad);
++        // Zonens queueGraceMs läses som i appen: ett positivt tal, och
++        // Infinity är giltigt. Sedan ägarbeslutet U23 (familj F) är Kajens
++        // köundantag obegränsat; då klassar zonlagret aldrig köaren, och
++        // kravet blir Infinity (VesselDataService.js#_zoneMinStillMs efter F;
++        // på c14938f ger samma regel samma 15 min som Number.isFinite).
+         const kravFör = (r, zone) => {
+-          const grace = Number.isFinite(zone.queueGraceMs) ? zone.queueGraceMs : 0;
++          const grace = typeof zone.queueGraceMs === 'number' && zone.queueGraceMs > 0 ? zone.queueGraceMs : 0;
+           return grace > p.minStillaMin * MIN && platser.distanceToPoint(r, f.bro) <= p.köundantagM ? grace : p.minStillaMin * MIN;
+         };
++        const kravTxt = (ms) => (Number.isFinite(ms) ? `${ms / MIN} min` : 'aldrig: obegränsat köundantag, U23');
+         let dem = null;
+         let zone = null;
+         let kravMs = null;
+@@ -1246,7 +1279,7 @@ const PREDICATES = {
+         if (!dem) {
+           const z = iVarvet.map((r) => platser.capsuleOf(r)).find(Boolean);
+           skäl.push(`${mmsi}: stilla ${Math.round((pt(före[före.length - 1]) - start) / 1000)} s sedan ${fmtT(startRad.aisTimestamp)}, `
+-            + `under kravet i "${z.name}" (${kravFör(före[före.length - 1], z) / MIN} min)`);
++            + `under kravet i "${z.name}" (${kravTxt(kravFör(före[före.length - 1], z))})`);
+           continue;
+         }
+         const dist = platser.distanceToPoint(dem, f.bro);
+@@ -1263,7 +1296,7 @@ const PREDICATES = {
+         }
+         return ok(`U23: bäraren ${mmsi} (på väg mot ${f.bro}, ${Math.round(dist)} m från bron) låg stilla från ${fmtT(startRad.aisTimestamp)} `
+           + `i "${zone.name}" (utanför väntzonen, ${Math.round(zonM)} m) `
+-          + `och demoterades av zonregeln (krav ${kravMs / MIN} min) vid raden ${fmtT(dem.aisTimestamp)}; episoden ${fmtT(t0)} börjar `
++          + `och demoterades av zonregeln (krav ${kravTxt(kravMs)}) vid raden ${fmtT(dem.aisTimestamp)}; episoden ${fmtT(t0)} börjar `
+           + `${Math.round(efterMs)} ms efter bearbetningen`);
+       }
+       return nej(`ingen bärare på väg mot ${f.bro} demoterades av zonregeln när episoden började ${fmtT(t0)}`
+@@ -1544,8 +1577,9 @@ const PREDICATES = {
+   //  6. ingen av fixarna ligger i en kajkapsel (MOORING_ZONES). En förtöjd
+   //     båt sänder glest, och hennes rad kan sammanfalla med en studs med en
+   //     annan orsak. Appen kan räkna en stillaliggare vid kajen norr om
+-  //     Klaffbron som köare i upp till 15 min (queueGraceMs), så en äkta
+-  //     studs med bäraren där blir KANDIDAT;
++  //     Klaffbron som köare i upp till 15 min (queueGraceMs; obegränsat
++  //     efter ägarbeslutet U23, familj F), så en äkta studs med bäraren där
++  //     blir KANDIDAT;
+   //  7. återgången kom efter radens bearbetning och högst fönsterMs efter
+   //     radens tid, och ingen annan båts rad inom straxRadieM från bron
+   //     bearbetades emellan: den hade kunnat bära 'strax' tillbaka. 500 m är
+@@ -2125,15 +2159,20 @@ const PREDICATES = {
+   //            och sparade resultat);
+   //       (3′) med domspår (varv 2, M1: replayRunner.js#instrumentApp
+   //            bokför släppvägens domar som openingCoverageVerdicts): ingen
+-  //            dom från absorptionen i E till W var 'bakkant'; vid varje ren
++  //            dom från absorptionen i E till W var 'bakkant' (heller inte
++  //            U24:s släpp på hennes egen deadline före första passagen,
++  //            familj B:s M7); vid varje ren
+   //            bakkantsdom (rentBakkantsfix: 'covered' före täckningsslutet
+   //            när passagen är bokförd före hennes korsning, över ett fix som
+   //            armen tillämpade efter den skattade första passagen, GPS-rent,
+   //            inte fryst, utan kurs bort)
+-  //            ligger BÅDE appens prognos (expectedArrivalMs) OCH den
+-  //            fysiska ankomsten ur samma fix (fixtid + avståndet till bron
+-  //            med fixets fart, minst minFartKn) inom domens fönsterslut
+-  //            (domensFönsterslut, som i _coverageVerdict); och W kommer
++  //            ligger BÅDE appens ankomst (domensAnkomst: domens arrivalMs
++  //            när den finns, efter familj B:s M5 den senare av prognosen
++  //            och armens fysik under 2,5 kn, annars expectedArrivalMs) OCH
++  //            den fysiska ankomsten ur samma fix (fixtid + avståndet till
++  //            bron med fixets fart, minst minFartKn) inom domens fönsterslut
++  //            (domensFönsterslut: domens windowEndMs när den finns, annars
++  //            som i _coverageVerdict); och W kommer
+   //            högst tickMs efter hennes senaste dom 'täckningsslut'. Appens
+   //            prognos ensam räcker inte: ETA-kedjans golv (2,5 kn efter en
+   //            passage) kan lägga en krypares prognos minuter för tidigt,
+@@ -2293,14 +2332,21 @@ const PREDICATES = {
+         if (dom) return nej(dom);
+         const bakkant = spår.find((v) => v.verdict.kind === 'bakkant');
+         if (bakkant) {
+-          return nej(`bakkanten släppte henne ur ${bakkant.eventId} ${fmtT(bakkant.t)} (prognosen ${fmtT(bakkant.arm.expectedArrivalMs)} efter fönstrets slut): `
+-            + 'hon hörde inte till den gemensamma öppningen');
++          // Också U24:s släpp på hennes egen deadline före första passagen
++          // (familj B, M7): då fick hon en egen varning och hörde inte till
++          // den gemensamma öppningen.
++          return nej(u24Släpp(bakkant)
++            ? `U24 släppte henne ur ${bakkant.eventId} ${fmtT(bakkant.t)} på hennes egen deadline före händelsens första passage: `
++              + 'hon fick en egen varning och hörde inte till den gemensamma öppningen'
++            : `bakkanten släppte henne ur ${bakkant.eventId} ${fmtT(bakkant.t)} (prognosen ${fmtT(domensAnkomst(bakkant).ms)} efter fönstrets slut): `
++              + 'hon hörde inte till den gemensamma öppningen');
+         }
+         for (const v of spår.filter((x) => rentBakkantsfix(x, kors.t))) {
+           const fönsterslut = domensFönsterslut(v, p);
+           const vid = `vid hennes fix ${fmtT(v.arm.lastSeenAt)} (dom ${fmtT(v.t)} i ${v.eventId})`;
+-          if (Number.isFinite(v.arm.expectedArrivalMs) && v.arm.expectedArrivalMs > fönsterslut) {
+-            return nej(`appens prognos ${fmtT(v.arm.expectedArrivalMs)} ${vid} låg efter fönstrets slut ${fmtT(fönsterslut)}, `
++          const ank = domensAnkomst(v);
++          if (Number.isFinite(ank.ms) && ank.ms > fönsterslut) {
++            return nej(`${ank.vad} ${fmtT(ank.ms)} ${vid} låg efter fönstrets slut ${fmtT(fönsterslut)}, `
+               + 'men bakkanten släppte henne inte');
+           }
+           // Den fysiska ankomsten ur samma fix, oberoende av appens ETA: fixens
+@@ -2342,6 +2388,143 @@ const PREDICATES = {
+       return inom ? nej(`${beskr}: inom ${p.fönsterMs / 1000} s (samma öppning, U17)`) : ok(`nästa öppning: ${beskr}, mer än ${p.fönsterMs / 1000} s`);
+     },
+   },
++  // U24 (ägarbeslut 2026-11-09, familj B:s M7, BUGGJAKT §7 "Användarbeslut
++  // U24"): en båt i rörelse utanför väntzonen släpps ur en avfyrad händelse
++  // på sin egen deadline före händelsens första passage och får en egen
++  // varning. Ägaren godtar att en köande konvoj då ibland får en extra
++  // varning, som i provvärld 143: RUNA släpps 11:14:52 ur ALVAs
++  // Stridsbergsbron#1 och varnas själv (#3); CORDELIA, som köar 109 m från
++  // bron, går vid #1:s täckningsslut 11:25:13 till #3 i stället för att bilda
++  // en gemensam RECOVER med RUNA (som på c14938f), och varnas vid #3:s
++  // täckningsslut 11:36:10 på sitt fix från 11:15:10 (T3
++  // VARNING-PÅ-FRUSET-FIX); hon korsar 353 s efter RUNA. Predikatet kräver
++  // släppvägens domspår och alla villkor, så att det inte döljer ett fel i
++  // bakkanten eller i U24-släppet:
++  //  (1) fyndets varning W (firedBy 'deadline', hon med i den) följer inom en
++  //      tick på hennes dom 'täckningsslut' i en händelse E ≠ W, och E:s
++  //      första passage var inte känd då: bakkanten efter passagen hade
++  //      inget att döma;
++  //  (2) E leds av en annan båt L, och E avfyrades högst en tick efter att
++  //      L släpptes ur en äldre händelse E0 av U24 (domen 'bakkant' med skälet
++  //      "egen deadline …", E0:s första passage okänd);
++  //  (3) släppet höll U24:s villkor oberoende av appens ETA: L:s sista rad
++  //      före släppet låg mer än väntzonM från bron i mer än minFartKn, och
++  //      den fysiska ankomsten ur raden (fixtid + avståndet med radens fart)
++  //      och domens arrivalMs låg efter domens windowEndMs;
++  //  (4) hon delade kön: hon var absorberad i E0 före släppet, och vid E0:s
++  //      täckningsslut (E0:s passage okänd) absorberades hon i E inom en tick;
++  //  (5) U24 kunde aldrig släppa henne: varje rad från absorptionen i E0 till
++  //      W låg inom väntzonM från bron (villkoret 'kö'), och hennes sista rad
++  //      före W hade högst minFartKn (ingen fysik): hon låg stilla i kön;
++  //  (6) samma öppning: hon korsade bron efter W och högst fönsterMs från L:s
++  //      första korsning efter E;
++  //  (7) fixåldern kommer av delningen: hon hördes inte efter E0:s
++  //      täckningsslut, och vid det var hennes senaste fix högst frusetMs
++  //      gammalt (T3:s gräns, oracles/t2Opening.js#FROZEN_FIX_MS). Utan
++  //      delningen hade hon varnats där på ett yngre fix, som på c14938f.
++  // Utan U24-släppet (c14938f, eller med bakkanten bortkopplad) finns ingen
++  // dom 'bakkant' att binda E till, och posten är falsk.
++  u24DeladKö: {
++    parametrar: {
++      fönsterMs: C.BRIDGE_OPENING.CONVOY_WINDOW_MS,
++      tickMs: C.BRIDGE_OPENING.TICK_INTERVAL_MS,
++      väntzonM: C.STATUS_HYSTERESIS.WAITING_CLEAR_DISTANCE,
++      minFartKn: C.PASSAGE_TIMING.MINIMUM_VIABLE_SPEED,
++      frusetMs: 19 * MIN,
++    },
++    fn(f, ctx, p) {
++      if (!Array.isArray(ctx.rader) || !f.mmsi || !f.bro) return nej('saknar rader, mmsi eller bro');
++      if (!platser.POINTS[f.bro]) return nej(`${f.bro} är ingen bro`);
++      const s = ctx.sanning;
++      if (!s || !Array.isArray(s.crossings)) return nej('saknar L0');
++      const res = ctx.resultat || {};
++      if (!Array.isArray(res.openingCoverageVerdicts)) {
++        return nej('resultatet saknar släppvägens domspår (openingCoverageVerdicts), så U24-släppet kan inte beläggas');
++      }
++      const m = String(f.mmsi);
++      const w = fyndetsVarning(f, ctx);
++      if (!w) return nej('fyndet gäller ingen levererad varning');
++      if (w.firedBy !== 'deadline') return nej(`varningen ${w.eventId} avfyrades av ${w.firedBy}, inte av ticken`);
++      if (!(String(w.leadMmsi) === m || (w.mmsis || []).map(String).includes(m))) return nej(`hon är inte med i varningen ${w.eventId}`);
++      const domar = res.openingCoverageVerdicts.filter((v) => v && v.bridge === f.bro && Number.isFinite(v.t)
++        && v.verdict && typeof v.verdict.kind === 'string');
++      const hennes = domar.filter((v) => String(v.mmsi) === m && v.t <= w.t);
++      const passageKänd = (v) => !!v.event && Number.isFinite(v.event.firstPassageAt);
++      // (1) W är hennes RECOVER vid täckningsslutet av E, före E:s passage.
++      const slut = hennes[hennes.length - 1];
++      if (!slut || slut.verdict.kind !== 'täckningsslut' || slut.eventId === w.eventId || w.t - slut.t > p.tickMs) {
++        return nej(`varningen ${w.eventId} ${fmtT(w.t)} följer inte inom en tick på hennes täckningsslut i en annan händelse`);
++      }
++      const E = slut.eventId;
++      if (passageKänd(slut)) return nej(`${E}:s första passage var känd vid täckningsslutet ${fmtT(slut.t)}: bakkanten efter passagen gällde`);
++      // (2) E är L:s egen varning efter U24-släppet ur E0.
++      const ws = deliveredWarnings(ctx, f.bro);
++      const eW = ws.find((x) => x.eventId === E);
++      if (!eW) return nej(`${E} har ingen levererad varning`);
++      const L = String(eW.leadMmsi);
++      if (L === m) return nej(`${E} leds av henne själv`);
++      const släpp = domar.filter((v) => String(v.mmsi) === L && v.verdict.kind === 'bakkant' && v.eventId !== E
++        && v.t <= eW.t && eW.t - v.t <= p.tickMs).pop();
++      if (!släpp) return nej(`${L} släpptes inte av bakkanten inom en tick före sin varning ${E} ${fmtT(eW.t)}`);
++      if (!u24Släpp(släpp)) return nej(`släppet av ${L} ur ${släpp.eventId} ${fmtT(släpp.t)} är inget U24-släpp (egen deadline före första passagen)`);
++      const E0 = släpp.eventId;
++      // (3) U24:s villkor för L, oberoende av appens ETA.
++      const tider = harnessTider(ctx);
++      const raderAv = (mm) => {
++        const egna = rowsOf(ctx, mm).filter((r) => Number.isFinite(r.lat));
++        return medFramfördKursOchFart(egna).map((r, i) => ({ ...r, p: tider.get(egna[i]) ?? r.aisTimestamp }));
++      };
++      const lr = raderAv(L).filter((r) => r.p <= släpp.t).pop();
++      const slutE0Ms = släpp.verdict.windowEndMs;
++      if (!lr || !Number.isFinite(slutE0Ms)) return nej(`ingen rad för ${L} före släppet, eller domen saknar windowEndMs`);
++      const dL = platser.distanceToPoint(lr, f.bro);
++      const fartL = Number.isFinite(lr.sog) ? lr.sog : 0;
++      const fysL = fixtid(lr) + (dL / (Math.max(fartL, p.minFartKn) * KN_TILL_MS)) * 1000;
++      if (!(dL > p.väntzonM) || !(fartL > p.minFartKn) || !(fysL > slutE0Ms) || !(släpp.verdict.arrivalMs > slutE0Ms)) {
++        return nej(`U24:s villkor höll inte för ${L} vid släppet ${fmtT(släpp.t)}: raden ${fmtT(lr.aisTimestamp)} ${Math.round(dL)} m från bron i ${fartL} kn, `
++          + `fysiken ${fmtT(fysL)} och domens ankomst ${fmtT(släpp.verdict.arrivalMs)} mot fönstrets slut ${fmtT(slutE0Ms)}`);
++      }
++      // (4) Hon delade kön med L i E0.
++      const cov = res.openingCoverage || [];
++      const absE0 = cov.filter((c) => c.reason === 'absorbed' && String(c.mmsi) === m && c.eventId === E0 && Number.isFinite(c.t) && c.t < släpp.t)
++        .sort((x, y) => x.t - y.t)[0];
++      if (!absE0) return nej(`hon var inte absorberad i ${E0} när ${L} släpptes ${fmtT(släpp.t)}: ingen delad kö`);
++      const slutE0 = hennes.find((v) => v.eventId === E0 && v.verdict.kind === 'täckningsslut' && v.t > släpp.t);
++      const absE = slutE0 && cov.find((c) => c.reason === 'absorbed' && String(c.mmsi) === m && c.eventId === E
++        && Number.isFinite(c.t) && c.t >= slutE0.t && c.t - slutE0.t <= p.tickMs);
++      if (!absE) return nej(`hon gick inte vid ${E0}:s täckningsslut till ${E}`);
++      if (passageKänd(slutE0)) return nej(`${E0}:s första passage var känd vid dess täckningsslut ${fmtT(slutE0.t)}`);
++      // (5) Stilla i kön: U24 kunde aldrig släppa henne.
++      const hr = raderAv(m).filter((r) => r.p >= absE0.t && r.p < w.t);
++      const utanför = hr.find((r) => platser.distanceToPoint(r, f.bro) > p.väntzonM);
++      if (!hr.length || utanför) {
++        return nej(utanför ? `hennes rad ${fmtT(utanför.aisTimestamp)} låg ${Math.round(platser.distanceToPoint(utanför, f.bro))} m från bron, `
++          + `utanför väntzonen (${p.väntzonM} m): U24 kan ha haft henne att släppa` : `ingen rad för henne mellan ${E0} och varningen`);
++      }
++      const sista = hr[hr.length - 1];
++      if (Number.isFinite(sista.sog) && sista.sog > p.minFartKn) {
++        return nej(`hennes sista rad före varningen ${fmtT(sista.aisTimestamp)} hade ${sista.sog} kn: hon låg inte stilla i kön`);
++      }
++      // (6) Samma öppning som L.
++      const l0 = s.crossings.filter((x) => x.bridge === f.bro && Number.isFinite(x.t)).sort((a, b) => a.t - b.t);
++      const kL = l0.find((x) => String(x.mmsi) === L && x.t >= eW.t);
++      const kM = l0.find((x) => String(x.mmsi) === m && x.t > w.t);
++      if (!kL || !kM) return nej(`${kL ? 'hon' : L} korsade inte bron efter ${kL ? 'varningen' : E}`);
++      if (Math.abs(kM.t - kL.t) > p.fönsterMs) {
++        return nej(`hon korsade ${fmtT(kM.t)}, ${Math.round(Math.abs(kM.t - kL.t) / 1000)} s från ${L} (${fmtT(kL.t)}): inte samma öppning`);
++      }
++      // (7) Fixåldern kommer av delningen.
++      if (sista.p > slutE0.t) return nej(`hon hördes ${fmtT(sista.aisTimestamp)}, efter ${E0}:s täckningsslut`);
++      if (slutE0.t - sista.aisTimestamp > p.frusetMs) {
++        return nej(`hennes fix ${fmtT(sista.aisTimestamp)} var redan vid ${E0}:s täckningsslut ${fmtT(slutE0.t)} äldre än `
++          + `${p.frusetMs / MIN} min: fixåldern kommer inte av delningen`);
++      }
++      return ok(`U24: ${L} släpptes ur ${E0} på sin egen deadline ${fmtT(släpp.t)} (${Math.round(dL)} m från bron i ${fartL} kn) och varnades i ${E}; `
++        + `hon låg stilla i kön ${Math.round(platser.distanceToPoint(sista, f.bro))} m från bron, gick vid ${E0}:s täckningsslut ${fmtT(slutE0.t)} till ${E} `
++        + `och varnades vid dess täckningsslut (${w.eventId} ${fmtT(w.t)}) på fixet ${fmtT(sista.aisTimestamp)}; `
++        + `hon korsade ${Math.round((kM.t - kL.t) / 1000)} s efter ${L} (samma öppning)`);
++    },
++  },
+   // R2:s fråga 2 (dirigentens JA 2026-11-04, BUGGJAKT §7): en båt som får
+   // sin målbro först vid eller just efter bron (värld 1227 och 1731) bokför
+   // bron som mellanbro, och det är korrekt. Appen ger inget mål utan
+diff --git a/tests/replay-validation/bugHunt/lib/shrink.js b/tests/replay-validation/bugHunt/lib/shrink.js
+index d1a6e0c..b4b8b87 100644
+--- a/tests/replay-validation/bugHunt/lib/shrink.js
++++ b/tests/replay-validation/bugHunt/lib/shrink.js
+@@ -118,6 +118,19 @@ async function ddmin(items, test, { skyddade = [], budget = null } = {}) {
+ // Konstanter för gränsannoteringen (§4.4, "Närliggande konstanter")
+ // ---------------------------------------------------------------------------
+ 
++// Kajens köundantag läses ur zonposten (constants.MOORING_ZONES, "Kajen norr
++// om Klaffbron") och tolkas som i appen (VesselDataService.js#_classifyMooring):
++// ett positivt tal, där Infinity betyder obegränsat. Värdet var 900 s fram
++// till ägarbeslutet U23 (2026-11-09); sedan familj F:s apprättning är det
++// Infinity, och ett obegränsat eller saknat undantag har inget gränsvärde att
++// ligga nära, så posten tas då inte med i tabellen.
++function kajensKöundantagS(zoner = constants.MOORING_ZONES) {
++  const kaj = (zoner || []).find((z) => /^Kajen\b/.test(String((z && z.name) || '')));
++  const ms = kaj && typeof kaj.queueGraceMs === 'number' && kaj.queueGraceMs > 0 ? kaj.queueGraceMs : 0;
++  return Number.isFinite(ms) && ms > 0 ? ms / 1000 : null;
++}
++const KAJENS_KÖUNDANTAG_S = kajensKöundantagS();
++
+ const KONSTANTER = Object.freeze([
+   { namn: 'CONVOY_WINDOW_MS', värde: BO.CONVOY_WINDOW_MS / 1000, enhet: 's' },
+   { namn: 'WARNING_LEAD_MS', värde: BO.WARNING_LEAD_MS / 1000, enhet: 's' },
+@@ -125,7 +138,7 @@ const KONSTANTER = Object.freeze([
+   { namn: 'TICK_INTERVAL_MS', värde: BO.TICK_INTERVAL_MS / 1000, enhet: 's' },
+   { namn: 'STALE_ETA_SOFT_THRESHOLD_MS', värde: constants.UI_CONSTANTS.STALE_ETA_SOFT_THRESHOLD_MS / 1000, enhet: 's' },
+   { namn: 'STALE_ETA_HARD_THRESHOLD_MS', värde: constants.UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS / 1000, enhet: 's' },
+-  { namn: 'queueGraceMs (Kajen)', värde: 900, enhet: 's' },
++  ...(KAJENS_KÖUNDANTAG_S === null ? [] : [{ namn: 'queueGraceMs (Kajen)', värde: KAJENS_KÖUNDANTAG_S, enhet: 's' }]),
+   { namn: 'D5-avbrottet', värde: 120, enhet: 's' },
+   { namn: 'besöksutfärd (radie + 50 m)', värde: constants.PROTECTION_ZONE_RADIUS + 50, enhet: 'm' },
+   { namn: 'PROTECTION_ZONE_RADIUS', värde: constants.PROTECTION_ZONE_RADIUS, enhet: 'm' },
+@@ -701,6 +714,7 @@ module.exports = {
+   KONSTANT_TOLERANS,
+   KONSTANTER,
+   FAMILJ_KONSTANTER,
++  kajensKöundantagS,
+   makeBudget,
+   ddmin,
+   annotateConstant,
+-- 
+2.43.0
+

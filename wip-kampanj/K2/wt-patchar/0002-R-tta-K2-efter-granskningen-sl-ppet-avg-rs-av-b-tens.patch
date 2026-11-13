@@ -1,0 +1,1187 @@
+From 5e273dffa09b891ef1dc1588779786b0451241af Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 4 Nov 2026 22:18:48 +0000
+Subject: [PATCH 2/4] =?UTF-8?q?R=C3=A4tta=20K2=20efter=20granskningen:=20s?=
+ =?UTF-8?q?l=C3=A4ppet=20avg=C3=B6rs=20av=20b=C3=A5tens=20egna=20fix?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+F09: villkor (2) läser bara båtens egna fixtider (heldThroughMs) och
+villkor (1) jämför bearbetningsordning (heldSeenOrder mot firedOrder), så
+varken en halvminutstick eller ett fix i samma millisekund avgör släppet.
+Spärrgrenens värdmängd är densamma som i 7699cbe. Konvojundantaget är
+oförändrat; att flytta dess beslutsögonblick gav en miss i värld 276 eller
+bröt den låsta gemensamma brokön.
+
+B02/U15: en händelse vars första passage ligger inom konvojfönstret från
+båtens egen beskriver samma öppning (villkor c), och returens gamla
+täckning och ledtidsgolvet prövas om i varje utvärdering.
+
+openingBeforeEachPassage kräver att varningen täcker just den båten.
+Nya regressionstest: spegelfallet, golvet vid väntan, samma millisekund,
+17h CARAT, ZWERK- och reservvarningsskydd, 13h med tid i hela 30 s-varvet.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/ARCHITECTURE.md                          |  61 ++-
+ docs/VALIDATION.md                            |   5 +-
+ lib/services/BridgeOpeningService.js          | 339 ++++++++++-----
+ ...opening-returresa-och-fasoberoende.test.js | 388 ++++++++++++++++--
+ .../runSyntheticScenarios.js                  |  15 +-
+ 5 files changed, 663 insertions(+), 145 deletions(-)
+
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 62e0a85..239edb4 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -741,29 +741,48 @@ båt.
+   absorberad båt permanent tystad.
+ - **Returresan är en egen öppning (U15, användarbeslut 2026-11-04):** en båt
+   som passerat bron som medlem i en händelse (`event.passedMmsis`, bokförs i
+-  `_recordPassage`) kan inte täckas av någon varning som gick ut FÖRE hennes
+-  passage när hon vänder och kommer tillbaka — inte ens inom konvojfönstret.
+-  Spärren läggs i den nya armens `releasedFrom` (`_releaseEventsBeforeOwnPassage`).
+-  Tiden och inte bara den egna händelsen, eftersom två händelser kan beskriva
+-  samma fysiska öppning (buggjägarens värld 936). En båt som vänder FÖRE bron
+-  eller ligger och väntar har ingen passage och stannar i sin öppning (U2:
+-  inga andrapåminnelser). Samma ledtidsgolv som räddningsventilen: upptäcks
+-  returen mindre än 2 × `TICK_INTERVAL_MS` före förväntad ankomst står den
+-  gamla täckningen kvar (`OPENING_RETURN`-loggraden), eftersom en så sen
+-  varning kommer efter korsningen (värld 227). Kontraktet är INV-21:s
+-  returresa (`invariants.js`).
++  `_recordPassage`) får en returarm med `returnAfterPassageAt`. Ingen händelse
++  som beskriver öppningen hon redan passerat får täcka returen, inte ens inom
++  konvojfönstret (`_describesPassedOpening`): (a) hon passerade själv i den,
++  (b) dess varning gick ut vid eller före hennes passage, eller (c) dess första
++  passage ligger inom `CONVOY_WINDOW_MS` från hennes (dig9:s definition av
++  samma öppning). (b) och (c) behövs eftersom två händelser kan beskriva samma
++  fysiska öppning: värld 936 (varningen före passagen) och dess spegelbild
++  (varningen efter passagen, den andra båten korsar 75 s efter henne).
++  `_releaseReturnCoverage` prövar det vid varje värdval i `_bindLooseArms` och
++  släpper också en retur som redan absorberats, så det gäller även när den
++  andra båten korsar först efter att returarmen skapats. En båt som vänder FÖRE
++  bron eller ligger och väntar har ingen passage och stannar i sin öppning (U2:
++  inga andrapåminnelser). Ledtidsgolvet är räddningsventilens: ligger
++  förväntad ankomst närmare än 2 × `TICK_INTERVAL_MS` står den gamla
++  täckningen kvar (`OPENING_RETURN`-loggraden), eftersom en så sen varning
++  kommer efter korsningen (värld 227). Golvet prövas om vid varje fix, så en
++  båt som vänder nära bron och sedan väntar får sin varning så snart prognosen
++  ligger bortom golvet. Kontraktet är INV-21:s returresa (`invariants.js`).
+ - **"Hölls vid en tidigare bro" avgörs av båtens egna fix (F09, 2026-11-04):**
+   regeln från a8d7b76 (en varning som gick medan båten hölls vid en tidigare
+-  bro täcker inte hennes senare ankomst; AKIRA-testet) släpper en avfyrad
+-  händelse när båten enligt egna fix stod kvar efter varningen: ett eget fix
+-  efter varningen visar henne kvar, hon stod kvar mer än `TICK_INTERVAL_MS`
+-  (30 s) efter varningen, eller spärren löpte ut i radiotystnad
+-  (`_releaseWarningsWhileHeld`, `_heldThrough`, `_silentHoldEnd`). Förut
+-  prövades den vid varje tick medan spärren gällde, så halvminutstickens fas
+-  avgjorde om en båt som lämnade kön strax efter varningen fick en egen
+-  varning (20260710-13h, δ −15/−11,52/+15/+20 s). Visar hennes eget fix att
+-  hon lämnade kön inom en tick avgör hennes färska prognos, som för vilken
+-  båt som helst.
++  bro täcker inte hennes senare ankomst; AKIRA-testet) avgörs vid hennes första
++  egna fix efter varningen, eller när spärren löper ut i tystnad
++  (`_releaseWarningsWhileHeld`). Varningen släpps om (1) ett eget fix efter
++  varningen visade henne hållen, (2) hennes nästa fix kom mer än
++  `TICK_INTERVAL_MS` (30 s) efter varningen medan spärren gällde
++  (`heldThroughMs`, skrivs bara av hennes fix i `_noteHoldEnd`), eller (3)
++  spärren löpte ut i tystnad efter varningen (`_silentHoldEnd`). "Efter
++  varningen" i (1) är bearbetningsordning (`_orderSeq`, `heldSeenOrder` mot
++  `firedOrder`), så ett fix i samma millisekund som varningen får samma svar
++  vid varje utvärdering. Medan spärren gäller kan bara konvojvärden absorbera
++  henne i en avfyrad händelse. Förut släpptes varningen vid varje
++  utvärdering medan spärren gällde, så halvminutstickens fas avgjorde
++  (20260710-13h: VIRGO fick en extra varning i 15 av 45 faser; första
++  K2-versionen gav PILOT 761 en annan varningstid i 6 av 45). Nu avviker 0 av
++  45 faser, och bankens svep (24 korpusar × 30 faser) har 0 avvikelser.
++  **Kvar står** att konvojundantaget (`_sharesMovingConvoy`, oförändrat)
++  prövas vid första utvärderingen efter varningen. Är den en tick före
++  hennes nästa fix avgör hennes fix från före varningen. Att flytta beslutet
++  till varningsögonblicket gav en miss i buggjägarens värld 276, och att
++  vänta på hennes nästa fix bröt den låsta gemensamma brokön
++  (`opening-shared-queue-convoy`). Vägen stängs bäst genom att en given
++  konvojtäckning kan omprövas mot hennes nästa fix.
+ - **Dedup i TVÅ lager (app.js):** `_firedOpeningEvents` (eventId, sessionslokal)
+   och `persistent_opening_warnings` (`bro|mmsi|riktning`, 10 min, ÖVER omstart
+   — v1 persisterar inga armar, så en omstart mitt i en anflygning varnade annars
+diff --git a/docs/VALIDATION.md b/docs/VALIDATION.md
+index 9d54733..e915753 100644
+--- a/docs/VALIDATION.md
++++ b/docs/VALIDATION.md
+@@ -347,7 +347,10 @@ scenariot blir RÖTT. Blir det grönt är kontraktet dekoration.
+ **Varje passage ska ha sin egen förvarning (U15, 2026-11-04).**
+ `expectedOpenings` prövar bara brons FÖRSTA passage och kan därför inte se en
+ ovarnad returresa. `openingBeforeEachPassage: [bro]` kräver en varning efter
+-båtens förra passage av samma bro och före varje ny. Scenariot
++båtens förra passage av samma bro och före varje ny, och varningen måste
++täcka just den båten: hon är medlem eller ledare i den, eller absorberades i
++dess händelse (`openingCoverage`) mellan passagerna. En annan båts varning
++vid samma bro räcker alltså inte. Scenariot
+ `u-sväng-bortom-Stridsbergsbron (B02-returresan)` vänder 880 m bortom bron,
+ inom konvojfönstret räknat från utresan; på 7699cbe är det rött (returen
+ 06:31:00 saknar varning), med U15-rättningen grönt.
+diff --git a/lib/services/BridgeOpeningService.js b/lib/services/BridgeOpeningService.js
+index 6b42b97..9b6ba7b 100644
+--- a/lib/services/BridgeOpeningService.js
++++ b/lib/services/BridgeOpeningService.js
+@@ -210,6 +210,12 @@ class BridgeOpeningService {
+     this._events = new Map();
+ 
+     this._eventSeq = 0;
++    // F09: BEARBETNINGSORDNING för hållna fix och avfyrningar (se
++    // _fixAfterWarning). Klocktiden räcker inte: i ett AIS-svep kan ett fix
++    // och en avfyrning bära samma millisekund, och "efter varningen" betyder
++    // då "bearbetat efter avfyrningen" (opening-confirmed-waiting-eta låser
++    // det för AKIRA-regeln).
++    this._orderSeq = 0;
+     this._warningCount = 0;
+     this._destroyed = false;
+     this._scheduleDeadlines = opts.scheduleDeadlines === true;
+@@ -591,7 +597,7 @@ class BridgeOpeningService {
+ 
+   /**
+    * F09 (bankkortet i 20260710-13h, 2026-11-04) — "HÖLLS VID EN TIDIGARE BRO"
+-   * AVGÖRS AV BÅTENS EGNA DATA, INTE AV NÄR UTVÄRDERINGEN KÖRS.
++   * AVGÖRS AV BÅTENS EGNA FIX, INTE AV NÄR UTVÄRDERINGEN KÖRS.
+    *
+    * Regeln från a8d7b76 (AKIRA-fallet, quay-departure-continuation.test.js):
+    * en varning som gick medan båten hölls vid en tidigare bro täcker inte
+@@ -604,41 +610,96 @@ class BridgeOpeningService {
+    * 2 s efter varningen, och VIRGO fick en egen varning 05:44:29 för samma
+    * öppning (rådata: båda korsade Klaffbron norrut 05:48:59 och 05:50:20).
+    *
+-   * Nu släpps en avfyrad händelse när hon enligt sina egna fix STOD KVAR
+-   * efter varningen, på något av tre sätt:
+-   *  (1) ett eget fix, tillämpat vid eller efter varningen, visar henne kvar
+-   *      (`lastSeenAt >= firedAt` medan spärren gäller);
+-   *  (2) spärren gällde mer än en tick efter varningen innan hennes nästa fix
+-   *      tog bort den (`firedAt + TICK_INTERVAL_MS < _heldThrough`);
++   * REGELN. Om en varning W släpps för en hållen båt avgörs av hennes data,
++   * aldrig av när en tick råkar komma: vid hennes FÖRSTA EGNA FIX EFTER W,
++   * eller i ögonblicket då spärren löper ut i tystnad (deadlinetimern bokar
++   * det). W släpps när något av följande gäller:
++   *  (1) ett eget fix efter W visade henne hållen (`heldSeenOrder`, se
++   *      _fixAfterWarning: spärren gällde efter fixet);
++   *  (2) hennes nästa fix kom mer än en tick efter W medan spärren från förra
++   *      fixet fortfarande gällde (`firedAt + TICK_INTERVAL_MS <
++   *      heldThroughMs`). heldThroughMs skrivs BARA av hennes egna fix
++   *      (_noteHoldEnd i _refreshArm), aldrig av klockan;
+    *  (3) spärren löpte ut i radiotystnad, utan att något fix visat att hon
+-   *      lämnat kön, och varningen gick före spärrens slut (`_silentHoldEnd`).
+-   *      Då är det senaste vi vet att hon stod kvar, och reservvarningen när
++   *      lämnat kön, och W gick före spärrens slut (`_silentHoldEnd`). Då är
++   *      det senaste vi vet att hon stod kvar, och reservvarningen när
+    *      spärren släpper står kvar (värld 2: NORDVIND tystnade i kön och
+-   *      spärren löpte ut 22 s efter WILMAs varning).
++   *      spärren löpte ut 22 s efter WILMAs varning). Slutet är spärrens egen
++   *      tid ur hennes fix.
++   * Mellan W och hennes nästa fix släpps W därför aldrig, vare sig en tick
++   * eller en annan båts fix kommer emellan.
++   *
++   * KONVOJUNDANTAGET (`keep`, en hållen båt i rörelse tätt bakom W:s ledare)
++   * är oförändrat från 7699cbe: det prövas vid varje utvärdering på de
++   * senaste positionerna, och en given konvojtäckning består
++   * (`keepMovingConvoy`). Det släpp som kortet gällde väntar nu på hennes fix,
++   * så hennes fix kan visa konvojen (granskarens sond f09-konvojfas: samma
++   * utfall i alla faser). KVAR STÅR att undantaget prövas vid den första
++   * utvärderingen efter W: är den en tick före hennes nästa fix avgör hennes
++   * fix från före W (sonden f09-konvojtick, lika i 7699cbe). Två
++   * fasoberoende varianter mättes och förkastades. Att bestämma konvojen när
++   * W går ut gav en miss i buggjägarens värld 276 (JOLLY absorberades i
++   * CORDELIAs varning på ett äldre fix, kröp fram och korsade vid en egen
++   * öppning 9 min senare; täckningen bestod trots hennes nästa fix). Att
++   * vänta på hennes nästa fix bröt den låsta gemensamma brokön
++   * (opening-shared-queue-convoy, LIV/JOHANNA 2026-09-27) och gav ZWERK en
++   * andra varning i 20260702-19h. Att stänga vägen kräver att en given
++   * konvojtäckning kan omprövas mot hennes nästa fix (K-familjens omprövning
++   * av medlemskapet), inte att beslutsögonblicket flyttas.
++   *
+    * Tiden i (2) är motorns egen upplösning: den gamla regeln prövades vid
+    * nästa halvminutstick, alltså högst 30 s efter varningen. Kvar blir bara
+    * fallet där hennes EGET fix visar att hon lämnade kön inom en tick efter
+-   * varningen. Då avgör hennes färska prognos (_belongsToEvent), som för
+-   * vilken båt som helst.
++   * W. Då avgör hennes färska prognos (_belongsToEvent), som för vilken båt
++   * som helst. Spärrar medan hon var absorberad i en annan händelse räknas
++   * också: villkoren läser bara hennes fix, och prövas när hon åter är ovarnad.
++   *
++   * VAD SOM VAR FASBEROENDE I FÖRSTA VERSIONEN (granskningen 2026-11-04 och
++   * K2:s sonder efteråt):
++   *  - (2) jämfördes med klockan så länge spärren gällde. Varje utvärdering
++   *    mer än 30 s efter W släppte W innan hennes fix hann visa en tät konvoj.
++   *    20260710-13h: PILOT 761 fick Klaffbronvarningen 11:54:15 i stället för
++   *    12:09:08 vid 6 av 45 faser;
++   *  - (1) krävde att spärren gällde VID utvärderingen (`blocked &&
++   *    lastSeenAt >= firedAt`). I ett AIS-svep där hennes fix kommer före
++   *    ledarens i samma millisekund avgjorde då nästa tick om fixet räknades
++   *    (sonden f09-sammams). Det fanns redan i 7699cbe.
++   * Nu läser (1)–(3) bara värden som hennes fix och avfyrningen skriver.
+    * @private
+    * @param {Object} arm - ovarnad arm
+    * @param {Object[]} events - händelserna vid armens bro
+    * @param {Object|null} keep - händelse som inte släpps (positionsbelagd konvojvärd)
+-   * @param {boolean} blocked - spärren gäller nu (_blockedByEarlierBridge)
+    * @param {number} now
+    */
+-  _releaseWarningsWhileHeld(arm, events, keep, blocked, now) {
+-    const heldThrough = this._heldThrough(arm, now);
++  _releaseWarningsWhileHeld(arm, events, keep, now) {
++    const heldThrough = Number.isFinite(arm.heldThroughMs) ? arm.heldThroughMs : -Infinity;
+     const silentEnd = this._silentHoldEnd(arm, now);
+     for (const event of events) {
+       if (event.firedAt === null || event === keep) continue;
+-      const seenHeldAfter = blocked && Number.isFinite(arm.lastSeenAt) && arm.lastSeenAt >= event.firedAt;
++      const seenHeldAfter = this._fixAfterWarning(arm.heldSeenOrder, event);
+       const heldTickAfter = event.firedAt + this.config.TICK_INTERVAL_MS < heldThrough;
+       const heldIntoSilence = event.firedAt < silentEnd;
+       if (seenHeldAfter || heldTickAfter || heldIntoSilence) arm.releasedFrom.add(event.id);
+     }
+   }
+ 
++  /**
++   * Tillämpades fixet med ordningsnummer `fixOrder` EFTER att händelsen
++   * avfyrade? Jämför bearbetningsordning (`_orderSeq`), inte klocktid. Båda
++   * värdena skrivs bara när hennes fix tillämpas och när händelsen avfyrar,
++   * så samma fråga får samma svar vid varje utvärdering: en tick kan aldrig
++   * ändra det. Inom samma millisekund räknas ett fix som efter varningen bara
++   * om det bearbetades efter avfyrningen (opening-confirmed-waiting-eta låser
++   * det för AKIRA-regeln).
++   * @private
++   * @param {number|null} fixOrder - `heldSeenOrder`
++   * @param {Object} event
++   * @returns {boolean}
++   */
++  _fixAfterWarning(fixOrder, event) {
++    return Number.isFinite(fixOrder) && Number.isFinite(event.firedOrder) && fixOrder > event.firedOrder;
++  }
++
+   /**
+    * Gällde armens senaste spärr efter fixet som satte den? En spärr som
+    * redan var slut när fixet tillämpades har aldrig hållit henne.
+@@ -650,20 +711,33 @@ class BridgeOpeningService {
+   }
+ 
+   /**
+-   * Senaste tidpunkt då armen enligt sina egna fix hölls vid en tidigare bro,
+-   * för spärrar som pågår (⇒ `now`) eller som ett nytt eget fix avslutade
+-   * (⇒ fixets tid, sparad i `heldThroughMs` av _refreshArm).
++   * Bokför hur armens FÖRRA spärr slutade, i det ögonblick ett nytt eget fix
++   * tillämpas (anropas av _refreshArm innan fixet skriver över `lastSeenAt`
++   * och spärren). Gällde spärren fortfarande vid fixet hölls hon fram till
++   * fixet ⇒ `heldThroughMs = fixTime`. Hade den redan löpt ut löpte den ut i
++   * tystnad ⇒ `silentHoldEndMs`. Det är de enda två skrivställena, så båda
++   * värdena är tider ur hennes egna fix och aldrig en utvärderings klocka.
+    * @private
++   * @param {Object} arm
++   * @param {number} fixTime - tiden då det nya fixet tillämpas
+    */
+-  _heldThrough(arm, now) {
+-    const current = this._holdInEffect(arm) && now < arm.earlierBridgeUntilMs ? now : -Infinity;
+-    return Math.max(Number.isFinite(arm.heldThroughMs) ? arm.heldThroughMs : -Infinity, current);
++  _noteHoldEnd(arm, fixTime) {
++    if (!this._holdInEffect(arm)) return;
++    if (fixTime < arm.earlierBridgeUntilMs) {
++      arm.heldThroughMs = Math.max(Number.isFinite(arm.heldThroughMs) ? arm.heldThroughMs : -Infinity, fixTime);
++    } else {
++      arm.silentHoldEndMs = Math.max(
++        Number.isFinite(arm.silentHoldEndMs) ? arm.silentHoldEndMs : -Infinity,
++        arm.earlierBridgeUntilMs,
++      );
++    }
+   }
+ 
+   /**
+    * Slutet på senaste spärr som löpte ut i radiotystnad (ingen fix tog bort
+    * den): pågående utlöpt spärr ⇒ `earlierBridgeUntilMs`; en tidigare sådan
+-   * spärr sparas i `silentHoldEndMs` av _refreshArm.
++   * spärr sparas i `silentHoldEndMs` av _noteHoldEnd. `now` avgör bara OM den
++   * pågående spärren har löpt ut; värdet är spärrens egen sluttid.
+    * @private
+    */
+   _silentHoldEnd(arm, now) {
+@@ -877,12 +951,22 @@ class BridgeOpeningService {
+       // sin egen öppning.
+       releasedFrom: new Set(),
+       // F09: när armen enligt sina egna fix senast hölls vid en tidigare bro
+-      // (se _heldThrough och _silentHoldEnd). null = aldrig.
++      // (se _noteHoldEnd och _silentHoldEnd). null = aldrig.
+       heldThroughMs: null,
+       silentHoldEndMs: null,
++      // F09: bearbetningsordningen (`_orderSeq`) för senaste egna fix som
++      // visade henne hållen vid en tidigare bro. Se _fixAfterWarning.
++      heldSeenOrder: null,
++      // U15 (B02): båtens senaste egna passage av den här bron i en levande
++      // händelse när armen skapades, eller null. Satt ⇒ armen är en
++      // RETURRESA, och _releaseReturnCoverage spärrar de händelser som
++      // beskriver öppningen hon redan passerat. returnFloorLogged: logg-
++      // dedup för ledtidsgolvet, ingen fysik.
++      returnAfterPassageAt: null,
++      returnFloorLogged: false,
+     };
+     this._refreshArm(arm, vessel, distance, now);
+-    this._releaseEventsBeforeOwnPassage(arm, now);
++    arm.returnAfterPassageAt = this._ownPassageAt(arm);
+     // Frys ursprungsdeadlinen — EN gång, här. _refreshArm får aldrig röra den
+     // (den anropas om vid varje nytt fix), och absorption/släpp rör bara
+     // eligibleAt/warnedAt. Är avståndet oanvändbart förblir fireDueMs Infinity
+@@ -901,79 +985,133 @@ class BridgeOpeningService {
+    * U15 (användarbeslut 2026-11-04, kort B02) — RETURRESAN ÄR EN EGEN ÖPPNING.
+    *
+    * En ny arm är alltid en ny anflygning: den förra armen avväpnades när
+-   * båten passerade (observeVessel steg 1 eller notePassage). Har hon redan
+-   * passerat bron som medlem i en händelse (`passedMmsis`, bokförs i
+-   * _recordPassage) får INGEN varning som gick ut före den passagen täcka den
+-   * nya anflygningen — inte ens inom konvojfönstret, där händelsen annars
+-   * lever kvar för båtar som kommer efter (U2: "båtar som anländer efter
+-   * passagen är nästa öppning"). Spärren läggs i `releasedFrom`, som alla
+-   * värdval i _bindLooseArms redan respekterar.
++   * båten passerade (observeVessel steg 1 eller notePassage). _arm frågar
++   * därför här om hon redan passerat bron som medlem i en levande händelse
++   * (`passedMmsis`, bokförs i _recordPassage). Svaret sparas på armen som
++   * `returnAfterPassageAt`, och _releaseReturnCoverage spärrar sedan de
++   * händelser som beskriver öppningen hon redan passerat.
++   * @private
++   * @param {Object} arm - den nya armen
++   * @returns {number|null} senaste egna passagetid vid bron, eller null
++   */
++  _ownPassageAt(arm) {
++    let ownPassageAt = null;
++    for (const event of this._eventsAt(arm.bridge)) {
++      const t = event.passedMmsis ? event.passedMmsis.get(arm.mmsi) : undefined;
++      if (Number.isFinite(t) && (ownPassageAt === null || t > ownPassageAt)) ownPassageAt = t;
++    }
++    return ownPassageAt;
++  }
++
++  /**
++   * Beskriver händelsen ÖPPNINGEN SOM BÅTEN REDAN PASSERAT? (U15, B02.)
++   * Vart och ett av villkoren räcker:
++   *  (a) hon passerade själv bron i händelsen (`passedMmsis`);
++   *  (b) varningen gick ut vid eller före hennes passage. Två händelser kan
++   *      beskriva samma fysiska öppning: i värld 936 korsade ALVA
++   *      (Klaffbron#5) och XENIA (#6) bron 74 s isär. Att bara spärra XENIAs
++   *      egen #6 flyttade returen till ALVAs #5, och RECOVER-släppet varnade
++   *      5 s efter returkorsningen;
++   *  (c) händelsens FÖRSTA passage ligger inom CONVOY_WINDOW_MS från hennes,
++   *      dig9:s definition av samma öppning, även när varningen gick ut EFTER
++   *      hennes passage. Det är spegelbilden av värld 936 (granskningen
++   *      2026-11-04): A passerar norrut, B:s händelse varnar 65 s senare och
++   *      B korsar söderut 75 s efter A. Utan (c) absorberades A:s retur i B:s
++   *      händelse. Villkoret prövas om vid varje utvärdering, så det gäller
++   *      också när B korsar först efter att A:s returarm skapats.
++   * Allt annat får täcka returen som vanligt: en varning som gick ut efter
++   * hennes passage för en öppning som ännu inte skett, eller vars första
++   * passage ligger mer än ett konvojfönster från hennes (nästa öppning, U2).
++   * @private
++   * @param {Object} event
++   * @param {string} mmsi
++   * @param {number} ownPassageAt - hennes senaste passage (returnAfterPassageAt)
++   * @returns {boolean}
++   */
++  _describesPassedOpening(event, mmsi, ownPassageAt) {
++    if (event.passedMmsis && event.passedMmsis.has(mmsi)) return true;
++    if (event.firedAt !== null && event.firedAt <= ownPassageAt) return true;
++    return event.firstPassageAt !== null
++      && Math.abs(event.firstPassageAt - ownPassageAt) <= this.config.CONVOY_WINDOW_MS;
++  }
++
++  /**
++   * U15 — RETURRESANS GAMLA TÄCKNING SPÄRRAS (anropas för varje arm i
++   * _bindLooseArms, före värdvalet, i varje utvärdering).
+    *
+-   * VARFÖR TIDEN OCH INTE BARA DEN EGNA HÄNDELSEN. Två händelser kan beskriva
+-   * samma fysiska öppning: i värld 936 korsade ALVA (Klaffbron#5) och XENIA
+-   * (Klaffbron#6) bron 74 s isär. Att bara spärra XENIAs egen #6 flyttade
+-   * hennes retur till ALVAs #5 — samma öppning som hon redan passerat — och
+-   * RECOVER-släppet varnade 5 s efter returkorsningen. Varje varning som gick
+-   * ut före hennes egen passage gällde en öppning hon redan var en del av,
+-   * eller kunde ha varit; returen är nästa.
++   * Händelser som beskriver öppningen hon redan passerat
++   * (_describesPassedOpening) läggs i armens `releasedFrom`, som alla värdval
++   * redan respekterar — inte ens inom konvojfönstret, där händelsen annars
++   * lever kvar för båtar som kommer efter (U2: "båtar som anländer efter
++   * passagen är nästa öppning"). Är hon redan absorberad i en sådan händelse
++   * släpps absorptionen, och hon binds om som lös i samma utvärdering.
+    *
+    * RÅDATABEVIS (minsta repro B02, värld 1273, R0): VEGA 265441711 varnades
+    * för Stridsbergsbron#3 08:24:49, korsade norrut 08:26:57, vände 881 m
+    * norr om bron, absorberades i sin egen #3 08:32:35 och korsade söderut
+    * 08:35:55 utan egen varning.
+    *
+-   * VAD SOM INTE PÅVERKAS: andra båtar (spärren gäller bara hennes mmsi), en
++   * VAD SOM INTE PÅVERKAS: andra båtar (spärren gäller bara hennes arm), en
+    * båt som vänder FÖRE bron eller ligger och väntar (ingen passage ⇒ ingen
+-   * spärr; U2 "inga andrapåminnelser"), och varningar som gick ut EFTER
+-   * hennes passage (de kan gälla returen och får täcka henne som vanligt).
+-   * Händelser städas 600 s efter sin passage (_evaluateBridge steg 2), så
+-   * spärren verkar precis i det konvojfönster U15 talar om.
+-   *
+-   * LEDTIDSGOLVET, samma som räddningsventilens (_rescueCoveredArms): ligger
+-   * hennes förväntade ankomst närmare än 2 × TICK_INTERVAL_MS (60 s) när
+-   * returarmen skapas kan en egen varning inte hinna göra nytta, och den
+-   * kommer i praktiken efter korsningen. Mätt i buggjägarens värld 227
+-   * (R1-radio): ZELDA beväpnades för returen 13 m före Stridsbergsbron,
+-   * 10 s EFTER sin verkliga returkorsning, och en egen varning blev ett nytt
+-   * T3-utslag (varning efter sann passage). Under golvet står den gamla
+-   * täckningen kvar, som före rättningen, och tillfället loggas. Att armen
+-   * skapas så sent är riktningslogikens sak (R1), inte konvojens.
++   * returarm; U2 "inga andrapåminnelser"), och en arm som redan varnats som
++   * medlem i en händelse efter passagen (returen har då sin egen varning).
++   *
++   * LEDTIDSGOLVET, samma tal och samma storhet som räddningsventilens
++   * (_rescueCoveredArms), och som den prövat vid VARJE utvärdering: ligger
++   * hennes förväntade ankomst närmare än 2 × TICK_INTERVAL_MS (60 s) kan en
++   * egen varning inte hinna göra nytta, och den kommer i praktiken efter
++   * korsningen. Mätt i buggjägarens värld 227 (R1-radio): ZELDA beväpnades
++   * för returen 13 m före Stridsbergsbron, 10 s EFTER sin verkliga
++   * returkorsning, och en egen varning blev ett nytt T3-utslag (varning efter
++   * sann passage). Under golvet står den gamla täckningen kvar, som före
++   * rättningen. Väntar hon sedan vid bron visar nästa fix en ankomst bortom
++   * golvet, och då släpps täckningen (granskningen 2026-11-04: returarm med
++   * 58 s prognos, fem minuters väntan, korsning utan egen varning). Golvet kan
++   * bara öppnas av ett nytt eget fix: mellan fixen krymper `expectedArrivalMs
++   * − now`, så en tick kan aldrig ändra utfallet. Att armen skapas så sent är
++   * riktningslogikens sak (R1), inte konvojens.
+    * @private
+-   * @param {Object} arm - den nya armen, efter första _refreshArm
++   * @param {Object} arm
++   * @param {Object[]} events - händelserna vid armens bro
+    * @param {number} now
+    */
+-  _releaseEventsBeforeOwnPassage(arm, now) {
+-    const events = this._eventsAt(arm.bridge);
+-    let ownPassageAt = -Infinity;
+-    for (const event of events) {
+-      const t = event.passedMmsis ? event.passedMmsis.get(arm.mmsi) : undefined;
+-      if (Number.isFinite(t) && t > ownPassageAt) ownPassageAt = t;
+-    }
+-    if (!Number.isFinite(ownPassageAt)) return;
++  _releaseReturnCoverage(arm, events, now) {
++    if (arm.returnAfterPassageAt === null) return;
++    if (arm.warnedAt !== null && arm.absorbedAt === null) return;
++    const passedOpening = events.filter((event) => !arm.releasedFrom.has(event.id)
++      && this._describesPassedOpening(event, arm.mmsi, arm.returnAfterPassageAt));
++    if (passedOpening.length === 0) return;
++    const passageIso = new Date(arm.returnAfterPassageAt).toISOString();
++    const floorMs = 2 * this.config.TICK_INTERVAL_MS;
+     const remainingMs = Number.isFinite(arm.expectedArrivalMs) ? arm.expectedArrivalMs - now : Infinity;
+-    if (remainingMs < 2 * this.config.TICK_INTERVAL_MS) {
+-      this.logger.debug(
+-        `⛔ [OPENING_RETURN] ${arm.mmsi} (${arm.name || 'okänt namn'}): ${arm.bridge} — returen efter `
+-        + `passagen ${new Date(ownPassageAt).toISOString()} upptäcktes ${Math.round(remainingMs / 1000)} s `
+-        + `före förväntad ankomst (golv ${Math.round((2 * this.config.TICK_INTERVAL_MS) / 1000)} s); `
+-        + 'ingen egen varning, äldre täckning står kvar',
+-      );
+-      return;
+-    }
+-    const released = [];
+-    for (const event of events) {
+-      if ((event.passedMmsis && event.passedMmsis.has(arm.mmsi))
+-          || (event.firedAt !== null && event.firedAt <= ownPassageAt)) {
+-        arm.releasedFrom.add(event.id);
+-        released.push(event.id);
++    if (remainingMs < floorMs) {
++      if (!arm.returnFloorLogged) {
++        this.logger.debug(
++          `⛔ [OPENING_RETURN] ${arm.mmsi} (${arm.name || 'okänt namn'}): ${arm.bridge} — returen efter `
++          + `passagen ${passageIso} har ${Math.round(remainingMs / 1000)} s kvar till förväntad ankomst `
++          + `(golv ${Math.round(floorMs / 1000)} s); ingen egen varning nu, äldre täckning står kvar `
++          + 'tills ett nytt fix visar en ankomst bortom golvet',
++        );
++        arm.returnFloorLogged = true;
+       }
++      return;
+     }
+-    if (released.length > 0) {
+-      this.logger.debug(
+-        `↩️ [OPENING_RETURN] ${arm.mmsi} (${arm.name || 'okänt namn'}): ${arm.bridge} — returresa efter `
+-        + `passagen ${new Date(ownPassageAt).toISOString()}; ${released.join(', ')} täcker inte returen (U15)`,
+-      );
++    arm.returnFloorLogged = false;
++    for (const event of passedOpening) arm.releasedFrom.add(event.id);
++    const absorbedIn = arm.absorbedAt !== null && passedOpening.some((event) => event.id === arm.eventId)
++      ? arm.eventId : null;
++    if (absorbedIn !== null) {
++      arm.warnedAt = null;
++      arm.absorbedAt = null;
++      arm.coverUntilMs = null;
++      arm.coveredBeyondWindow = false;
++      arm.eventId = null;
+     }
++    this.logger.debug(
++      `↩️ [OPENING_RETURN] ${arm.mmsi} (${arm.name || 'okänt namn'}): ${arm.bridge} — returresa efter `
++      + `passagen ${passageIso}; ${passedOpening.map((event) => event.id).join(', ')} täcker inte returen (U15)`
++      + `${absorbedIn !== null ? `, släpps ur ${absorbedIn}` : ''}`,
++    );
+   }
+ 
+   /**
+@@ -1017,8 +1155,7 @@ class BridgeOpeningService {
+     // F09: spara slutet på armens förra spärr vid en tidigare bro innan det
+     // här fixet skriver över lastSeenAt och spärren nedan — som avslutad av
+     // ett eget fix (heldThroughMs) eller utlöpt i tystnad (silentHoldEndMs).
+-    arm.heldThroughMs = this._heldThrough(arm, now);
+-    arm.silentHoldEndMs = this._silentHoldEnd(arm, now);
++    this._noteHoldEnd(arm, now);
+     arm.pendingArrivalObservation = false;
+     arm.lastSeenAt = now;
+     arm.anchorMs = anchor;
+@@ -1089,6 +1226,10 @@ class BridgeOpeningService {
+     arm.earlierBridgeUntilMs = arm.earlierBridge
+       ? anchor + Math.min(STALE_ETA_SOFT_MS, movingFallbackMs) : null;
+     if (arm.earlierBridge) arm.fireDueMs = Math.max(arm.fireDueMs, arm.earlierBridgeUntilMs);
++    // F09: visade fixet henne hållen vid en tidigare bro (spärren gäller
++    // efter fixet)? Bokför fixets plats i bearbetningsordningen. Se
++    // _fixAfterWarning och _releaseWarningsWhileHeld.
++    if (this._holdInEffect(arm)) arm.heldSeenOrder = ++this._orderSeq;
+     if (arm.originalDueMs === null) arm.originalDueMs = arm.fireDueMs;
+ 
+     // En ny ren prognos kan lämna det fönster som den skickade varningen
+@@ -1533,6 +1674,9 @@ class BridgeOpeningService {
+   _bindLooseArms(arms, events, bridgeName, now, observedMmsi = null) {
+     for (const arm of arms) {
+       if (arm.pendingArrivalObservation) continue;
++      // U15 (B02): returresans gamla täckning spärras före varje värdval,
++      // även konvojvärdens nedan. Se _releaseReturnCoverage.
++      this._releaseReturnCoverage(arm, events, now);
+       const blocked = this._blockedByEarlierBridge(arm, now);
+       const convoyHost = blocked && events.find((event) => !arm.releasedFrom.has(event.id)
+         && this._sharesMovingConvoy(arm, event, arms, now));
+@@ -1562,11 +1706,11 @@ class BridgeOpeningService {
+         // täcker inte automatiskt hennes senare ankomst. F09: släppet avgörs
+         // av hennes egna fix (se _releaseWarningsWhileHeld), inte av om en
+         // halvminutstick råkade landa medan hon hölls.
+-        this._releaseWarningsWhileHeld(arm, events, convoyHost || null, true, now);
++        this._releaseWarningsWhileHeld(arm, events, convoyHost || null, now);
+         arm.eventId = null;
+         if (!convoyHost) continue;
+       }
+-      if (arm.warnedAt === null && !blocked) this._releaseWarningsWhileHeld(arm, events, null, false, now);
++      if (arm.warnedAt === null && !blocked) this._releaseWarningsWhileHeld(arm, events, null, now);
+       // En fryst medlem ingick inte i kortets payload. När hennes fix kan
+       // användas igen får ett undertryckt/misslyckat event inte hålla henne
+       // kvar som ovarnad medlem i en redan förbrukad händelse.
+@@ -1579,11 +1723,18 @@ class BridgeOpeningService {
+       // Bara en AVFYRAD händelse kan ABSORBERA (dess varning är det som täcker
+       // den nya båten). En händelse som fått en passage utan att någonsin
+       // avfyra är förbrukad och får inte hålla nya armar som gisslan.
++      // F09: medan spärren gäller täcker bara konvojvärden (positionsbelagd)
++      // henne med en avfyrad varning. Övriga avfyrade händelser släpps eller
++      // behålls först vid hennes nästa fix (_releaseWarningsWhileHeld); förut
++      // släpptes de här vid varje spärrad utvärdering, så värdmängden i den
++      // spärrade grenen är densamma som före rättningen.
+       const host = convoyHost && this._belongsToEvent(arm, convoyHost)
+         ? convoyHost
+         : events.find((e) => !e.deliveryUnavailable && !arm.releasedFrom.has(e.id)
+           && this._belongsToEvent(arm, e)
+-          && (e.firedAt !== null || e.lastPassageAt === null));
++          && (blocked
++            ? e.firedAt === null && e.lastPassageAt === null
++            : e.firedAt !== null || e.lastPassageAt === null));
+       // U9 (användarbeslut 2026-08-09) — C8:s BREDA TÄCKNING, återinförd.
+       // U2 säger att en öppningshändelse lever tills FÖRSTA FAKTISKA PASSAGEN
+       // och att alla väntande båtar tillhör den. Konvojfönstret (dig9) är en
+@@ -1619,7 +1770,7 @@ class BridgeOpeningService {
+       const wideHost = (host || !guaranteeIntact || this.config.U9_RESCUE_COVERAGE !== true)
+         ? null
+         : events.find((e) => !e.deliveryUnavailable && !arm.releasedFrom.has(e.id)
+-          && e.firedAt !== null && e.lastPassageAt === null);
++          && e.firedAt !== null && e.lastPassageAt === null && (!blocked || e === convoyHost));
+       const bound = host || wideHost;
+       if (!bound) {
+         const fresh = this._openEvent(bridgeName, now, arm);
+@@ -1918,8 +2069,9 @@ class BridgeOpeningService {
+     const event = this._eventsAt(bridgeName).find((e) => e.id === arm.eventId);
+     if (!event) return;
+     // U15 (B02): hennes NÄSTA anflygning mot samma bro är en ny öppning (se
+-    // _releaseEventsBeforeOwnPassage). Registreringstiden räcker här: den
+-    // ligger alltid vid eller efter den verkliga korsningen.
++    // _ownPassageAt och _releaseReturnCoverage). Samma tid som firstPassageAt
++    // nedan, så villkor (c) i _describesPassedOpening jämför passager i samma
++    // tidsdomän; registreringstiden ligger alltid vid eller efter korsningen.
+     event.passedMmsis.set(arm.mmsi, now);
+     event.lastPassageAt = now;
+     // Referensankomsten blir den FÖRSTA faktiska passagetiden — konvojfönstret
+@@ -2011,12 +2163,14 @@ class BridgeOpeningService {
+       bridge: bridgeName,
+       openedAt: now,
+       firedAt: null,
++      // F09: avfyrningens plats i bearbetningsordningen (se _fixAfterWarning).
++      firedOrder: null,
+       lastPassageAt: null,
+       firstPassageAt: null,
+       newMemberArrivalLimitMs: null,
+       // U15 (B02): mmsi → registreringstid för medlemmar som PASSERAT bron i
+       // den här händelsen. Deras nästa anflygning är en egen öppning (se
+-      // _releaseEventsBeforeOwnPassage och _recordPassage).
++      // _ownPassageAt, _releaseReturnCoverage och _recordPassage).
+       passedMmsis: new Map(),
+       referenceArrivalMs: seedArm && Number.isFinite(seedArm.expectedArrivalMs)
+         ? seedArm.expectedArrivalMs : null,
+@@ -2286,6 +2440,7 @@ class BridgeOpeningService {
+     } = this._warningLeadInfo(snapshot, now);
+ 
+     event.firedAt = now;
++    event.firedOrder = ++this._orderSeq;
+     event.referenceArrivalMs = members.reduce(
+       (min, a) => (Number.isFinite(a.expectedArrivalMs) && a.expectedArrivalMs < min
+         ? a.expectedArrivalMs : min),
+diff --git a/tests/opening-returresa-och-fasoberoende.test.js b/tests/opening-returresa-och-fasoberoende.test.js
+index b5462da..64749f3 100644
+--- a/tests/opening-returresa-och-fasoberoende.test.js
++++ b/tests/opening-returresa-och-fasoberoende.test.js
+@@ -5,16 +5,23 @@
+  *
+  * B02 / U15: en båt som passerar en bro, vänder och kommer tillbaka får en
+  * EGEN bridge_opening_soon för returen, även inom konvojfönstret (600 s).
+- * Ingen varning som gick ut före hennes egen passage får täcka returen.
++ * Ingen händelse som beskriver öppningen hon redan passerat får täcka
++ * returen: hennes egen, en som varnade före hennes passage, eller en vars
++ * första passage ligger inom konvojfönstret från hennes. Ledtidsgolvet
++ * (60 s kvar till ankomsten) prövas vid varje nytt fix.
+  *
+  * F09: regeln "en varning som gick medan båten hölls vid en tidigare bro
+  * täcker inte hennes senare ankomst" får inte bero på när den halvminutsvisa
+- * ticken råkar köras. Den avgörs av båtens egna fix: släpp när ett eget fix
+- * efter varningen visar henne kvar i kön, eller när hon enligt senaste fix
+- * stod kvar mer än en tick (30 s) efter varningen.
++ * ticken eller en annan båts fix råkar komma. Den avgörs av båtens egna fix:
++ * släpp när ett eget fix efter varningen visar henne kvar i kön, när hennes
++ * nästa fix kom mer än en tick (30 s) efter varningen medan hon hölls, eller
++ * när spärren löpte ut i tystnad. "Efter varningen" är bearbetningsordning,
++ * så ett fix i samma millisekund får samma svar vid varje utvärdering.
++ * Konvojundantaget är oförändrat från 7699cbe (se DESIGN.md, kvarvarande).
+  *
+- * Testerna i första och andra blocket fälls av 7699cbe (före rättningen); de
+- * negativa fallen låser att rättningen inte blir bredare än klassen.
++ * Testerna som fäller 7699cbe (före rättningen) är markerade "7699cbe: rött"
++ * i sina kommentarer; de negativa fallen låser att rättningen inte blir
++ * bredare än klassen.
+  */
+ 
+ global.__TEST_MODE__ = true;
+@@ -22,7 +29,7 @@ global.__TEST_MODE__ = true;
+ const fs = require('fs');
+ const os = require('os');
+ const path = require('path');
+-const { execFileSync } = require('child_process');
++const { execFile } = require('child_process');
+ const BridgeOpeningService = require('../lib/services/BridgeOpeningService');
+ const { BRIDGES, BRIDGE_OPENING } = require('../lib/constants');
+ 
+@@ -67,12 +74,15 @@ function vessel(mmsi, distanceM, side, dir, extra = {}) {
+ describe('U15 (B02): returresan får en egen öppningsvarning', () => {
+   let svc;
+   let warnings;
++  let coverage;
+ 
+   beforeEach(() => {
+     jest.useFakeTimers({ now: T0 });
+     warnings = [];
++    coverage = [];
+     svc = new BridgeOpeningService({
+       onWarning: (payload) => warnings.push(payload),
++      onCoverage: (row) => coverage.push(row),
+       targetBridges: ['Stridsbergsbron'],
+       scheduleDeadlines: true,
+     });
+@@ -86,6 +96,7 @@ describe('U15 (B02): returresan får en egen öppningsvarning', () => {
+   const at = (t) => jest.setSystemTime(T0 + t * 1000);
+ 
+   test('VEGA passerar norrut, vänder 880 m bortom bron och får egen varning före returen', () => {
++    // 7699cbe: rött (absorberad i sin egen händelse, värld 1273).
+     const VEGA = '265441711';
+     svc.observeVessel(vessel(VEGA, 900, 'syd', 'north'));
+     expect(warnings).toHaveLength(1);
+@@ -104,9 +115,10 @@ describe('U15 (B02): returresan får en egen öppningsvarning', () => {
+   });
+ 
+   test('två händelser för samma öppning: varning som gick före båtens passage täcker inte returen', () => {
++    // 7699cbe: rött (värld 936-mönstret).
+     // B (söderut, långsam) seedar egen händelse; A (norrut) får en annan.
+     // Båda passerar bron inom en halvminut — samma fysiska öppning med två
+-    // händelser (värld 936-mönstret). B vänder och kommer tillbaka norrut.
++    // händelser. B vänder och kommer tillbaka norrut.
+     // Deadline = avstånd / 10 kn − 180 s ledtid: B (2000 m) avfyrar vid 208 s.
+     const A = '265664285';
+     const B = '265664174';
+@@ -133,6 +145,64 @@ describe('U15 (B02): returresan får en egen öppningsvarning', () => {
+     expect(warnings[2]).toMatchObject({ leadMmsi: B, mmsis: [B], direction: 'northbound' });
+   });
+ 
++  test('spegelbilden: en händelse som varnar EFTER passagen men korsar inom fönstret täcker inte returen', () => {
++    // Granskningen 2026-11-04 (sonden b02-spegel). 7699cbe och första K2: rött.
++    // A passerar norrut 150 s; B:s händelse varnar 215 s och B korsar söderut
++    // 225 s, 75 s efter A — samma fysiska öppning med två händelser, men B:s
++    // varning gick EFTER A:s passage. A vänder och kommer tillbaka söderut.
++    const A = '265000301';
++    const B = '265000302';
++    svc.observeVessel(vessel(A, 900, 'syd', 'north'));
++    at(5);
++    svc.observeVessel(vessel(B, 2000, 'norr', 'south', { sog: 2 }));
++    at(150);
++    svc.notePassage(A, 'Stridsbergsbron');
++    at(215);
++    svc.tick();
++    expect(warnings.map((w) => w.leadMmsi)).toEqual([A, B]);
++    at(225);
++    svc.notePassage(B, 'Stridsbergsbron');
++
++    at(400);
++    svc.observeVessel(vessel(A, 600, 'norr', 'south', { sog: 6 }));
++
++    expect(warnings.map((w) => w.leadMmsi)).toEqual([A, B, A]);
++    expect(warnings[2]).toMatchObject({ mmsis: [A], direction: 'southbound' });
++  });
++
++  test('samma öppning syns först efter returarmen: släpps när B korsar inom fönstret från A:s passage', () => {
++    // 7699cbe och första K2: rött. B:s händelse varnar efter A:s passage, och
++    // A:s returarm absorberas i den medan B ännu inte korsat (B:s prognos,
++    // ≈ 977 s, ligger inom fönstret från A:s retur, ≈ 414 s). När B korsar
++    // 150 s efter A är B:s händelse samma öppning som A redan passerat, och A
++    // får sin egen varning.
++    const A = '265000311';
++    const B = '265000312';
++    svc.observeVessel(vessel(A, 900, 'syd', 'north'));
++    at(5);
++    svc.observeVessel(vessel(B, 2000, 'norr', 'south', { sog: 4 }));
++    at(150);
++    svc.notePassage(A, 'Stridsbergsbron');
++    at(215);
++    svc.tick();
++    expect(warnings.map((w) => w.leadMmsi)).toEqual([A, B]);
++
++    at(220);
++    svc.observeVessel(vessel(A, 600, 'norr', 'south', { sog: 6 }));
++    // Varningen gick efter hennes passage och B har inte korsat: får täcka.
++    expect(warnings).toHaveLength(2);
++    expect(svc._arms.get(`${A}::Stridsbergsbron`).eventId).toBe(warnings[1].eventId);
++
++    at(250);
++    svc.observeVessel(vessel(B, 120, 'norr', 'south', { sog: 6 }));
++    at(300);
++    svc.notePassage(B, 'Stridsbergsbron');
++
++    expect(warnings.map((w) => w.leadMmsi)).toEqual([A, B, A]);
++    expect(warnings[2]).toMatchObject({ mmsis: [A], direction: 'southbound' });
++    expect(warnings[2].t).toBe(T0 + 300000);
++  });
++
+   test('negativt: vändning FÖRE bron (ingen passage) ger ingen andrapåminnelse', () => {
+     const MMSI = '265000101';
+     svc.observeVessel(vessel(MMSI, 900, 'syd', 'north'));
+@@ -168,6 +238,77 @@ describe('U15 (B02): returresan får en egen öppningsvarning', () => {
+     expect(warnings).toHaveLength(2);
+     expect(svc._arms.get(`${V}::Stridsbergsbron`).eventId).toBe(warnings[1].eventId);
+   });
++
++  test('negativt: händelsens första passage mer än ett konvojfönster efter hennes ⇒ nästa öppning, täcker returen', () => {
++    // A passerar 150 s. B:s händelse varnar ≈ 587 s och B korsar 800 s, 650 s
++    // efter A — utanför konvojfönstret, alltså nästa öppning. A:s retur, som
++    // absorberades i B:s händelse, ska inte få någon extra varning.
++    const A = '265000321';
++    const B = '265000322';
++    svc.observeVessel(vessel(A, 900, 'syd', 'north'));
++    at(150);
++    svc.notePassage(A, 'Stridsbergsbron');
++    at(300);
++    svc.observeVessel(vessel(B, 2400, 'norr', 'south', { sog: 6 }));
++    at(590);
++    svc.tick();
++    expect(warnings.map((w) => w.leadMmsi)).toEqual([A, B]);
++
++    at(700);
++    svc.observeVessel(vessel(A, 700, 'norr', 'south', { sog: 6.8 }));
++    expect(svc._arms.get(`${A}::Stridsbergsbron`).eventId).toBe(warnings[1].eventId);
++    at(800);
++    svc.notePassage(B, 'Stridsbergsbron');
++    at(830);
++    svc.observeVessel(vessel(A, 150, 'norr', 'south', { sog: 6.8 }));
++    svc.tick();
++
++    expect(warnings.map((w) => w.leadMmsi)).toEqual([A, B]);
++  });
++
++  test('ledtidsgolvet prövas vid varje fix: vänder nära bron, väntar och får egen varning', () => {
++    // Granskningen 2026-11-04 (sonden b02-golv). 7699cbe och första K2: rött.
++    // Returarmen skapas 150 m från bron i 5 kn (58 s kvar, under golvet), och
++    // den gamla täckningen står kvar. Sedan väntar hon vid bron i fem minuter;
++    // nästa fix visar en ankomst bortom golvet och hon får sin egen varning.
++    const V = '265000401';
++    svc.observeVessel(vessel(V, 900, 'syd', 'north'));
++    at(130);
++    svc.notePassage(V, 'Stridsbergsbron');
++    at(200);
++    svc.observeVessel(vessel(V, 150, 'norr', 'south', { sog: 5 }));
++    expect(warnings).toHaveLength(1);
++
++    for (let s = 230; s <= 470; s += 30) {
++      at(s);
++      svc.observeVessel(vessel(V, 140, 'norr', 'south', { sog: 0.2 }));
++      svc.tick();
++    }
++    at(500);
++    svc.notePassage(V, 'Stridsbergsbron');
++
++    expect(warnings.map((w) => w.leadMmsi)).toEqual([V, V]);
++    expect(warnings[1]).toMatchObject({ direction: 'southbound', mmsis: [V] });
++    expect(warnings[1].t).toBe(T0 + 230000);
++  });
++
++  test('negativt: under golvet och framme inom en minut ⇒ ingen ny varning (golvet står kvar)', () => {
++    // Värld 227-klassen: returen upptäcks så nära bron att en egen varning
++    // skulle komma i praktiken efter korsningen.
++    const V = '265000411';
++    svc.observeVessel(vessel(V, 900, 'syd', 'north'));
++    at(130);
++    svc.notePassage(V, 'Stridsbergsbron');
++    at(200);
++    svc.observeVessel(vessel(V, 150, 'norr', 'south', { sog: 5 }));
++    at(225);
++    svc.observeVessel(vessel(V, 60, 'norr', 'south', { sog: 5 }));
++    svc.tick();
++    at(240);
++    svc.notePassage(V, 'Stridsbergsbron');
++
++    expect(warnings).toHaveLength(1);
++  });
+ });
+ 
+ describe('F09: "hölls vid en tidigare bro" beror inte på tickens fas', () => {
+@@ -194,6 +335,18 @@ describe('F09: "hölls vid en tidigare bro" beror inte på tickens fas', () => {
+     etaMinutes: null,
+     ...extra,
+   });
++  // Söderut från norr om bron (för en andra, fristående händelse).
++  const southbound = (mmsi, distance, extra = {}) => ({
++    ...boat(mmsi, 0, extra),
++    name: `SYD-${mmsi.slice(-3)}`,
++    lat: STRIDS.lat + distance / 111320,
++    cog: 180,
++    _routeDirection: 'south',
++    ...extra,
++  });
++  const queueEvidence = () => ({
++    _bridgeQueueApproaches: { Järnvägsbron: { confirmedAt: Date.now() - 180000, direction: 'north' } },
++  });
+   const queued = () => {
+     const v = boat(FOLLOWER, 402, { sog: 0.1, status: 'waiting' });
+     return Object.assign(v, {
+@@ -205,11 +358,14 @@ describe('F09: "hölls vid en tidigare bro" beror inte på tickens fas', () => {
+ 
+   let svc;
+   let warnings;
++  let coverage;
+   beforeEach(() => {
+     jest.useFakeTimers({ now: START });
+     warnings = [];
++    coverage = [];
+     svc = new BridgeOpeningService({
+       onWarning: (payload) => warnings.push(payload),
++      onCoverage: (row) => coverage.push(row),
+       targetBridges: ['Stridsbergsbron'],
+       scheduleDeadlines: true,
+     });
+@@ -250,6 +406,7 @@ describe('F09: "hölls vid en tidigare bro" beror inte på tickens fas', () => {
+   test.each([0.5, 3, 5, 8, 12, 15, 20, 25, 29])(
+     'lämnar kön 8 s efter varningen: absorberas vid varje tickfas (fas %s s)',
+     (phaseS) => {
++      // 7699cbe: rött vid fas 12 och 15 s.
+       play(phaseS, leftQueueRightAfterWarning(8));
+       expect(warnings).toHaveLength(1);
+       expect(warnings[0]).toMatchObject({ leadMmsi: LEAD });
+@@ -267,6 +424,27 @@ describe('F09: "hölls vid en tidigare bro" beror inte på tickens fas', () => {
+     },
+   );
+ 
++  test.each([1, 4, 6, 7, 8, 10, 15, 20, 25, 29])(
++    'tät konvoj vid nästa egna fix 33,5 s efter varningen: samma utfall vid varje tickfas (fas %s s)',
++    (phaseS) => {
++      // Granskningen 2026-11-04 (sonden f09-konvojfas). Första K2: rött vid fas
++      // 6–8 s, där ticken landade mer än 30 s efter varningen men före hennes
++      // fix och släppte händelsen. Följaren hålls av kön vid Järnvägsbron men
++      // rör sig (2,1 kn) tätt bakom ledaren; hennes nästa fix visar konvojen.
++      // Avgörandet ska fattas där, ur hennes egna data, i alla faser.
++      play(phaseS, [
++        [0, () => svc.observeVessel(boat(FOLLOWER, 500, { sog: 2.1, ...queueEvidence() }))],
++        [65, () => svc.observeVessel(boat(LEAD, 200, { sog: 4, passedBridges: ['Järnvägsbron'] }))],
++        [90, () => svc.observeVessel(boat(LEAD, 149, { sog: 4, passedBridges: ['Järnvägsbron'] }))],
++        [98.5, () => svc.observeVessel(boat(FOLLOWER, 400, { sog: 2.1, ...queueEvidence() }))],
++      ], 400);
++      expect(warnings.map((w) => w.leadMmsi)).toEqual([LEAD]);
++      const arm = svc._arms.get(`${FOLLOWER}::Stridsbergsbron`);
++      expect(arm.eventId).toBe(warnings[0].eventId);
++      expect(arm.absorbedAt).not.toBeNull();
++    },
++  );
++
+   test('eget fix efter varningen visar henne kvar i kön: egen varning (AKIRA-regeln, a8d7b76)', () => {
+     play(0.5, [
+       [1, () => svc.observeVessel(queued())],
+@@ -280,9 +458,10 @@ describe('F09: "hölls vid en tidigare bro" beror inte på tickens fas', () => {
+   test.each([0.5, 5, 9, 12, 20, 29])(
+     'tystnar i kön och spärren löper ut 20 s efter varningen: egen reservvarning vid varje tickfas (fas %s s)',
+     (phaseS) => {
+-      // Värld 2 i buggjägarens quick-körning: NORDVIND tystnade i kön och
+-      // spärren (5 min från hennes fix) löpte ut 22 s efter WILMAs varning.
+-      // Hon har aldrig visat att hon lämnat kön, så varningen täcker henne inte.
++      // 7699cbe: rött vid tre faser. Värld 2 i buggjägarens quick-körning:
++      // NORDVIND tystnade i kön och spärren (5 min från hennes fix) löpte ut
++      // 22 s efter WILMAs varning. Hon har aldrig visat att hon lämnat kön, så
++      // varningen täcker henne inte.
+       play(phaseS, [
+         [0.1, () => svc.observeVessel(queued())],
+         [280, () => svc.observeVessel(boat(LEAD, 150, { passedBridges: ['Järnvägsbron'] }))],
+@@ -302,9 +481,142 @@ describe('F09: "hölls vid en tidigare bro" beror inte på tickens fas', () => {
+     expect(warnings.map((w) => w.leadMmsi)).toEqual([LEAD, FOLLOWER]);
+     expect(warnings[1]).toMatchObject({ firedBy: 'deadline', etaMinutes: null });
+   });
++
++  test('absorberad i en konvoj, hålls vid en tidigare bro när en annan händelse varnar: den täcker henne inte efter RECOVER', () => {
++    // 7699cbe: rött. Mönstret bakom CARAT i 20260804-17h: hon låg absorberad
++    // (konvoj) när PAPOUs händelse varnade och hölls då vid Järnvägsbron.
++    // När konvojtäckningen löpte ut absorberades hon förut i PAPOUs händelse
++    // och fick sin varning först när DEN täckningen löpt ut. Spärren medan hon
++    // var absorberad räknas nu med: hennes egna fix visar att hon stod kvar
++    // mer än en tick efter den varningen, så den täcker henne inte.
++    const OTHER = '265000501';
++    play(0.5, [
++      [0, () => svc.observeVessel(boat(FOLLOWER, 500, { sog: 2.1, ...queueEvidence() }))],
++      [65, () => svc.observeVessel(boat(LEAD, 200, { sog: 4, passedBridges: ['Järnvägsbron'] }))],
++      [90, () => svc.observeVessel(boat(LEAD, 149, { sog: 4, passedBridges: ['Järnvägsbron'] }))],
++      [98.5, () => svc.observeVessel(boat(FOLLOWER, 400, { sog: 2.1, ...queueEvidence() }))],
++      [120, () => svc.notePassage(LEAD, 'Stridsbergsbron')],
++      // En båt söderut med ankomst ≈ 848 s: egen händelse, deadline ≈ 409 s.
++      [200, () => svc.observeVessel(southbound(OTHER, 2000, { sog: 6 }))],
++      [250, () => svc.observeVessel(boat(FOLLOWER, 390, { sog: 2.1, ...queueEvidence() }))],
++      [420, () => svc.observeVessel(boat(FOLLOWER, 380, { sog: 2.1, ...queueEvidence() }))],
++      // Ut ur kön 70 s efter den andra varningen, långsam slutsträcka.
++      [480, () => svc.observeVessel(boat(FOLLOWER, 240, { sog: 1.5, passedBridges: ['Järnvägsbron'] }))],
++      [700, () => svc.observeVessel(boat(FOLLOWER, 200, { sog: 1.5, passedBridges: ['Järnvägsbron'] }))],
++    ], 760);
++    const otherEvent = warnings.find((w) => w.leadMmsi === OTHER);
++    expect(warnings.map((w) => w.leadMmsi)).toEqual([LEAD, OTHER, FOLLOWER]);
++    expect(coverage.filter((c) => c.mmsi === FOLLOWER && c.reason === 'absorbed').map((c) => c.eventId))
++      .toEqual([warnings[0].eventId]);
++    expect(coverage.some((c) => c.mmsi === FOLLOWER && c.eventId === otherEvent.eventId)).toBe(false);
++  });
++
++  test('skydd: medan spärren gäller täcker bara konvojvärden, även vid en annan båts fix (som 7699cbe)', () => {
++    // Grön på 7699cbe. Utan vakten i _bindLooseArms hade K2:s uppskjutna släpp
++    // låtit en ANNAN båts utvärdering (ledarens fix 370 s) absorbera följaren
++    // i en händelse som varnade 365 s, medan hon hölls och innan hennes eget
++    // nästa fix (400 s, 35 s efter varningen) hunnit visa något.
++    const EARLY = '265000601';
++    const OTHER = '265000602';
++    play(0.5, [
++      // Konvojvärden: LEAD varnas 95 s; EARLY absorberas och korsar 100 s, så
++      // händelsens referens blir 100 s och följaren (ankomst ≈ 730 s) hör inte
++      // till den på prognos — men LEAD rör sig tätt framför henne.
++      [95, () => svc.observeVessel(boat(LEAD, 700, { sog: 2.5 }))],
++      [96, () => svc.observeVessel(boat(EARLY, 20, { sog: 4, passedBridges: ['Järnvägsbron'] }))],
++      [100, () => svc.notePassage(EARLY, 'Stridsbergsbron')],
++      // En båt söderut med ankomst ≈ 750 s: egen händelse, deadline ≈ 365 s.
++      [140, () => svc.observeVessel(southbound(OTHER, 2083, { sog: 6.64 }))],
++      // Ledarens och följarens fix 5 s isär: positionsbelagd konvoj, så
++      // följarens fix 360 s släpper inte LEAD:s händelse.
++      [355, () => svc.observeVessel(boat(LEAD, 330, { sog: 2.5 }))],
++      [360, () => svc.observeVessel(boat(FOLLOWER, 400, { sog: 2.1, ...queueEvidence() }))],
++      [370, () => svc.observeVessel(boat(LEAD, 320, { sog: 2.5 }))],
++      [400, () => svc.observeVessel(boat(FOLLOWER, 230, { sog: 2.1, passedBridges: ['Järnvägsbron'] }))],
++    ], 420);
++    const otherWarning = warnings.find((w) => w.leadMmsi === OTHER);
++    expect(otherWarning).toBeDefined();
++    expect(otherWarning.t).toBeLessThan(START + 370000);
++    expect(otherWarning.t).toBeGreaterThan(START + 360000);
++    expect(coverage.some((c) => c.mmsi === FOLLOWER && c.eventId === otherWarning.eventId)).toBe(false);
++    expect(warnings.map((w) => w.leadMmsi)).toEqual([LEAD, OTHER, FOLLOWER]);
++  });
++
++  // Samma millisekund i ett AIS-svep (K2:s sond f09-sammams). Följaren står i
++  // kö; ledarens fix i samma millisekund avfyrar varningen. Hennes nästa fix
++  // 20 s senare visar att hon lämnat kön. Utfallet får bero på ordningen i
++  // svepet (fixet bearbetat före eller efter varningen), aldrig på tickens fas.
++  const sameMsSweep = (followerFirst) => {
++    const follower = () => svc.observeVessel(queued());
++    const lead = () => svc.observeVessel(boat(LEAD, 150, { passedBridges: ['Järnvägsbron'] }));
++    return [
++      [0.1, () => svc.observeVessel(queued())],
++      [10, followerFirst ? follower : lead],
++      [10, followerFirst ? lead : follower],
++      [30, () => svc.observeVessel(boat(FOLLOWER, 230, { passedBridges: ['Järnvägsbron'] }))],
++    ];
++  };
++
++  test.each([0.5, 5, 9, 10.5, 12, 15, 20, 25, 29])(
++    'samma millisekund, följarens fix före varningen: beslutet väntar på hennes nästa fix (fas %s s)',
++    (phaseS) => {
++      // 7699cbe och första K2: rött vid fas 10,5–29 s. En tick mellan
++      // varningen och hennes nästa fix släppte varningen ("spärren gäller och
++      // fixet är från samma millisekund"), annars absorberades hon.
++      play(phaseS, sameMsSweep(true), 200);
++      expect(warnings.map((w) => w.leadMmsi)).toEqual([LEAD]);
++      const arm = svc._arms.get(`${FOLLOWER}::Stridsbergsbron`);
++      expect(arm.eventId).toBe(warnings[0].eventId);
++      expect(arm.absorbedAt).not.toBeNull();
++    },
++  );
++
++  test.each([0.5, 9, 15, 29])(
++    'samma millisekund, följarens fix efter varningen: hon syns kvar i kön ⇒ egen varning (fas %s s)',
++    (phaseS) => {
++      // Grönt på 7699cbe: AKIRA-regeln när fixet bearbetas efter avfyrningen.
++      play(phaseS, sameMsSweep(false), 200);
++      expect(warnings.map((w) => w.leadMmsi)).toEqual([LEAD, FOLLOWER]);
++      expect(coverage.some((c) => c.mmsi === FOLLOWER && c.eventId === warnings[0].eventId)).toBe(false);
++    },
++  );
++
++  test.each([1, 10, 21, 29])(
++    'skydd: tyst i kön efter varningen, tät konvoj på senaste fixen ⇒ täckt, ingen andra varning (ZWERK, fas %s s)',
++    (phaseS) => {
++      // Grönt på 7699cbe och nu. Skydd mot att låta konvojundantaget vänta på
++      // hennes nästa fix: i 20260702-19h löpte ZWERKs spärr ut i tystnad före
++      // nästa fix, fast hon korsade Klaffbron 32 s efter CAVA och hörde till
++      // CAVAs varning. Med en sådan grind släppte tystnadsvillkoret (3)
++      // varningen och gav henne en andra varning för samma öppning.
++      play(phaseS, [
++        [0, () => svc.observeVessel(boat(FOLLOWER, 500, { sog: 2.1, ...queueEvidence() }))],
++        [20, () => svc.observeVessel(boat(LEAD, 200, { sog: 4, passedBridges: ['Järnvägsbron'] }))],
++      ], 400);
++      expect(warnings.map((w) => w.leadMmsi)).toEqual([LEAD]);
++      const arm = svc._arms.get(`${FOLLOWER}::Stridsbergsbron`);
++      expect(arm.eventId).toBe(warnings[0].eventId);
++      expect(arm.movingConvoyEventId).toBe(warnings[0].eventId);
++    },
++  );
++
++  test('skydd: reservvarningens ledare har varit tyst i 5 min, så hans position är inget konvojbevis', () => {
++    // Grönt på 7699cbe och nu. Reservvarningen går när ledarens spärr löper
++    // ut, alltså exakt STALE_ETA_SOFT_MS efter hans senaste fix. Konvojprovet
++    // sker vid nästa utvärdering, då positionen redan är för gammal. En
++    // variant som prövade konvojen i varningsögonblicket godtog den (`<=`)
++    // och absorberade ELFKUNGEN i PAX reservvarning i 20260702-2h.
++    play(0.5, [
++      [0, () => svc.observeVessel(boat(LEAD, 1000, { sog: 4, ...queueEvidence() }))],
++      [30, () => svc.observeVessel(boat(FOLLOWER, 1250, { sog: 2.1, ...queueEvidence() }))],
++    ], 400);
++    expect(warnings.map((w) => w.leadMmsi)).toEqual([LEAD, FOLLOWER]);
++    expect(warnings[0]).toMatchObject({ firedBy: 'deadline', t: START + 300000 });
++    expect(coverage.some((c) => c.mmsi === FOLLOWER && c.eventId === warnings[0].eventId)).toBe(false);
++  });
+ });
+ 
+-describe('F09 på riktig korpus: 20260710-13h ger samma öppningar i alla faser', () => {
++describe('F09 på riktig korpus: 20260710-13h ger samma öppningar MED TID i alla faser', () => {
+   const replayDir = path.join(__dirname, 'replay-validation');
+   const source = path.join(replayDir, 'corpora-data/ais-replay-20260710-015254.jsonl');
+   let directory;
+@@ -314,9 +626,13 @@ describe('F09 på riktig korpus: 20260710-13h ger samma öppningar i alla faser'
+   afterAll(() => fs.rmSync(directory, { recursive: true, force: true }));
+ 
+   // Hela korpusen flyttas δ s (aisTimestamp, fixTs, receivedAt; typbevarande),
+-  // som buggjägarens M-FAS-relation. Före rättningen gav δ −15, −11,52, +15
+-  // och +20 s en extra Klaffbron-varning för VIRGO (265552100).
+-  const openingKeys = (deltaS) => {
++  // som buggjägarens M-FAS-relation. Varningarna jämförs MED TID: t − δ i hela
++  // sekunder, bro, riktning, ledare och medlemmar. Före rättningen gav 15 av
++  // δ ∈ {−15 … +29} en extra Klaffbron-varning för VIRGO (265552100); första
++  // K2 gav PILOT 761 (265606970) varningen 11:54:15 i stället för 12:09:08
++  // vid δ −9, −8, −7, +21, +22 och +23 s (granskningen 2026-11-04). Ett helt
++  // halvminutsvarv i steg om 1 s täcker alla tickfaser.
++  const replay = (deltaS) => new Promise((resolve, reject) => {
+     const deltaMs = Math.round(deltaS * 1000);
+     const rows = fs.readFileSync(source, 'utf8').split('\n').filter(Boolean).map((line) => {
+       const row = JSON.parse(line);
+@@ -330,24 +646,40 @@ describe('F09 på riktig korpus: 20260710-13h ger samma öppningar i alla faser'
+     });
+     const file = path.join(directory, `13h-${deltaS}.jsonl`);
+     fs.writeFileSync(file, `${rows.join('\n')}\n`);
+-    const out = execFileSync(process.execPath, [path.join(replayDir, 'replayRunner.js'), file], {
++    execFile(process.execPath, [path.join(replayDir, 'replayRunner.js'), file], {
+       cwd: path.join(__dirname, '..'),
+       encoding: 'utf8',
+       maxBuffer: 64 * 1024 * 1024,
+       env: { ...process.env, REPLAY_MONITORING: '0' },
++    }, (error, stdout) => {
++      if (error) {
++        reject(error);
++        return;
++      }
++      const result = JSON.parse(stdout.match(/__REPLAY_JSON__(.*?)__END__/s)[1]);
++      resolve({
++        deltaS,
++        processErrors: result.processErrors,
++        keys: result.openingWarnings.map((w) => `${w.bridge}|${w.direction}|${w.leadMmsi}|`
++          + `${(w.mmsis || []).join(',')}|${new Date(Math.round((w.t - deltaMs) / 1000) * 1000).toISOString()}`).sort(),
++      });
+     });
+-    const result = JSON.parse(out.match(/__REPLAY_JSON__(.*?)__END__/s)[1]);
+-    expect(result.processErrors).toBe(0);
+-    return result.openingWarnings
+-      .map((w) => `${w.bridge}|${w.direction}|${w.leadMmsi}|${(w.mmsis || []).join(',')}`)
+-      .sort();
+-  };
++  });
+ 
+-  test('δ ∈ {−15, −11,52, +15, +20} s ger samma öppningsnycklar som basen', () => {
+-    const base = openingKeys(0);
+-    expect(base.filter((k) => k.startsWith('Klaffbron|northbound|265552100'))).toHaveLength(0);
+-    for (const deltaS of [-15, -11.52, 15, 20]) {
+-      expect({ deltaS, keys: openingKeys(deltaS) }).toEqual({ deltaS, keys: base });
++  test('δ ∈ {−15 … +14} s och −11,52 s ger samma öppningsvarningar och tider som basen', async () => {
++    const deltas = [];
++    for (let d = -15; d <= 14; d += 1) deltas.push(d);
++    deltas.push(-11.52);
++    const results = [];
++    for (let i = 0; i < deltas.length; i += 4) {
++      // Fyra åt gången: ett varv tar några sekunder per replay.
++      results.push(...await Promise.all(deltas.slice(i, i + 4).map(replay)));
++    }
++    const base = results.find((r) => r.deltaS === 0);
++    expect(base.keys.filter((k) => k.startsWith('Klaffbron|northbound|265552100'))).toHaveLength(0);
++    for (const r of results) {
++      expect(r.processErrors).toBe(0);
++      expect({ deltaS: r.deltaS, keys: r.keys }).toEqual({ deltaS: r.deltaS, keys: base.keys });
+     }
+-  }, 120000);
++  }, 240000);
+ });
+diff --git a/tests/replay-validation/runSyntheticScenarios.js b/tests/replay-validation/runSyntheticScenarios.js
+index c67d784..85703ac 100644
+--- a/tests/replay-validation/runSyntheticScenarios.js
++++ b/tests/replay-validation/runSyntheticScenarios.js
+@@ -1240,16 +1240,25 @@ function checkExpectations(scenario, result) {
+   // U15 (K2, 2026-11-04): VARJE passage av bron ska ha en varning efter
+   // båtens förra passage av samma bro och före den här. expectedOpenings
+   // prövar bara den första passagen och ser därför inte en ovarnad retur.
++  // Varningen måste TÄCKA just den båten (granskningen 2026-11-04): hon är
++  // medlem eller ledare i varningen, eller absorberades i dess händelse
++  // (openingCoverage) efter förra passagen och före den här. Annars hade en
++  // annan båts varning vid samma bro räckt i ett scenario med flera båtar.
+   if (e.openingBeforeEachPassage) {
++    const coverage = result.openingCoverage || [];
+     for (const bridge of e.openingBeforeEachPassage) {
+       const forBridge = openings.filter((w) => w.bridge === bridge && Number.isFinite(w.t));
+       const own = passages.filter((p) => p.bridge === bridge).sort((a, b) => a.t - b.t);
+       own.forEach((p, i) => {
+-        const prev = own.slice(0, i).filter((q) => String(q.mmsi) === String(p.mmsi)).pop();
++        const mmsi = String(p.mmsi);
++        const prev = own.slice(0, i).filter((q) => String(q.mmsi) === mmsi).pop();
+         const after = prev ? prev.t : -Infinity;
+-        if (!forBridge.some((w) => w.t > after && w.t < p.t)) {
++        const covers = (w) => (w.mmsis || []).map(String).includes(mmsi) || String(w.leadMmsi) === mmsi
++          || coverage.some((c) => c.bridge === bridge && String(c.mmsi) === mmsi && c.eventId === w.eventId
++            && c.t > after && c.t < p.t);
++        if (!forBridge.some((w) => w.t > after && w.t < p.t && covers(w))) {
+           problems.push(`OVARNAD PASSAGE av ${bridge} ${new Date(p.t).toISOString()} (${p.mmsi}): ingen varning `
+-            + `${prev ? `efter förra passagen ${new Date(prev.t).toISOString()} och ` : ''}före passagen`);
++            + `som täcker båten ${prev ? `efter förra passagen ${new Date(prev.t).toISOString()} och ` : ''}före passagen`);
+         }
+       });
+     }
+-- 
+2.43.0
+

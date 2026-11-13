@@ -1,0 +1,112 @@
+# hunt --profile=quick, seed 1: r1-quick-a (7699cbe) mot andra revisionen (E/hunt-quick, kod 5b9ea15 = f3a2d46, exit 0)
+# kluster: 34 → 34; råa utslag: 88 → 87
+# nya kluster: inga
+# försvunna kluster: inga
+lika   ACCEPTERAD|KIE-PER-KORPUS|INV-F|INV-14 DEFAULT-FLASH
+        r1-quick-a  : 1 []
+        andra-rev   : 1 []
+lika   ACCEPTERAD|O1-ACCEPTERADE-MISSKLASSER|T2|LEDTID<Ns|synt
+        r1-quick-a  : 1 [167]
+        andra-rev   : 1 [167]
+lika   ACCEPTERAD|O1-ACCEPTERADE-MISSKLASSER|T2|LEDTID<Ns|synt|stress
+        r1-quick-a  : 1 [128]
+        andra-rev   : 1 [128]
+lika   ACCEPTERAD|O1-ACCEPTERADE-MISSKLASSER|T3|VARNING-EFTER-SANN-PASSAGE|synt
+        r1-quick-a  : 1 [182]
+        andra-rev   : 1 [182]
+lika   DESIGN|BESÖKSREGEL-2026-09-07|T1|NOTIS-UTEBLIVEN
+        r1-quick-a  : 4 []
+        andra-rev   : 4 []
+lika   DESIGN|D3-2H-DEDUP|T1|NOTIS-UTEBLIVEN
+        r1-quick-a  : 6 []
+        andra-rev   : 6 []
+lika   DESIGN|KANALINFARTEN-FP8-SYDGRIND|T1|NOTIS-UTEBLIVEN
+        r1-quick-a  : 1 []
+        andra-rev   : 1 []
+lika   DESIGN|S10-VÄNDNING-BRON-BAKOM|T1|NOTIS-UTEBLIVEN|synt
+        r1-quick-a  : 1 [215]
+        andra-rev   : 1 [215]
+lika   KANDIDAT|-|INV-F|INV-13 MÅLBRO SOM MELLANBRO|synt
+        r1-quick-a  : 1 [254]
+        andra-rev   : 1 [254]
+lika   KANDIDAT|-|INV-F|INV-14 DEFAULT-FLASH|synt
+        r1-quick-a  : 1 [182]
+        andra-rev   : 1 [182]
+lika   KANDIDAT|-|INV-F|INV-3 ETA-OSCILLATION|synt
+        r1-quick-a  : 3 [8, 192, 235]
+        andra-rev   : 3 [8, 192, 235]
+lika   KANDIDAT|-|INV-F|INV-3 ETA-SÅGTAND UPP
+        r1-quick-a  : 1 []
+        andra-rev   : 1 []
+ÄNDRAT KANDIDAT|-|INV-F|INV-3 ETA-SÅGTAND UPP|synt
+        r1-quick-a  : 4 [5, 60, 117, 246]
+        andra-rev   : 3 [5, 60, 246]
+lika   KANDIDAT|-|M-FAS|ÖPPNINGSNYCKEL TILLAGD
+        r1-quick-a  : 1 []
+        andra-rev   : 1 []
+lika   KANDIDAT|-|T10|FANTOMPASSAGE(intermediate)|synt
+        r1-quick-a  : 1 [254]
+        andra-rev   : 1 [254]
+lika   KANDIDAT|-|T10|PASSAGE-EJ-REGISTRERAD|synt
+        r1-quick-a  : 1 [188]
+        andra-rev   : 1 [188]
+lika   KANDIDAT|-|T1|FÖRVARNINGSFORM-EFTER-PASSAGE|synt
+        r1-quick-a  : 1 [86]
+        andra-rev   : 1 [86]
+lika   KANDIDAT|-|T2|LEDTID<Ns|synt
+        r1-quick-a  : 7 [28, 72, 78, 129, 251, 263, 290]
+        andra-rev   : 7 [28, 72, 78, 129, 251, 263, 290]
+lika   KANDIDAT|-|T2|LEDTID<Ns|synt|stress
+        r1-quick-a  : 1 [47]
+        andra-rev   : 1 [47]
+lika   KANDIDAT|-|T2|ÖPPNING-MISS:OKLASSAD|synt
+        r1-quick-a  : 12 [18, 63, 82, 110, 119, 122, 130, 134, 188, 223, 227, 290]
+        andra-rev   : 12 [18, 63, 82, 110, 119, 122, 130, 134, 188, 223, 227, 290]
+lika   KANDIDAT|-|T2|ÖPPNING-MISS:OKLASSAD|synt|stress
+        r1-quick-a  : 1 [104]
+        andra-rev   : 1 [104]
+lika   KANDIDAT|-|T3|FANTOM-UTAN-AVBROTT|synt
+        r1-quick-a  : 1 [227]
+        andra-rev   : 1 [227]
+lika   KANDIDAT|-|T3|VARNING-EFTER-SANN-PASSAGE|synt
+        r1-quick-a  : 14 [41, 56, 63, 77, 87, 110, 119, 122, 131, 158, 217, 220, 260, 290]
+        andra-rev   : 14 [41, 56, 63, 77, 87, 110, 119, 122, 131, 158, 217, 220, 260, 290]
+lika   KANDIDAT|-|T3|VARNING-PÅ-FRUSET-FIX|synt
+        r1-quick-a  : 1 [217]
+        andra-rev   : 1 [217]
+lika   KANDIDAT|-|T9|FEL-RIKTNING|synt
+        r1-quick-a  : 1 [188]
+        andra-rev   : 1 [188]
+lika   KONFLIKT|D1-KAJZON-DEMOTION|INV-F|INV-14 DEFAULT-FLASH|synt
+        r1-quick-a  : 1 [138]
+        andra-rev   : 1 [138]
+lika   KONFLIKT|INV5-VS-BESÖKSREGEL|INV-F|INV-5 MISSAD MÅLBRO-NOTIS|synt
+        r1-quick-a  : 6 [40, 140, 152, 161, 191, 289]
+        andra-rev   : 6 [40, 140, 152, 161, 191, 289]
+lika   KONFLIKT|INV5-VS-BESÖKSREGEL|INV-F|INV-5 MISSAD MÅLBRO-NOTIS|synt|stress
+        r1-quick-a  : 1 [212]
+        andra-rev   : 1 [212]
+lika   KONFLIKT|U2-RETURRESA|T2|ÖPPNING-MISS:OKLASSAD|synt
+        r1-quick-a  : 2 [101, 191]
+        andra-rev   : 2 [101, 191]
+lika   KÄND_ÖPPEN|BN1-BOXKANT|T1|NOTIS-UTEBLIVEN
+        r1-quick-a  : 2 []
+        andra-rev   : 2 []
+lika   KÄND_ÖPPEN|U2-VS-DEADLINE|T2|LEDTID<Ns|synt
+        r1-quick-a  : 1 [240]
+        andra-rev   : 1 [240]
+lika   KÄND_ÖPPEN|U2-VS-DEADLINE|T2|ÖPPNING-MISS:OKLASSAD|synt
+        r1-quick-a  : 4 [8, 21, 51, 116]
+        andra-rev   : 4 [8, 21, 51, 116]
+lika   MÄTGRÄNS|MÄTGRÄNS-FACIT-SIDLED|T10|FANTOMPASSAGE(intermediate)
+        r1-quick-a  : 2 []
+        andra-rev   : 2 []
+lika   MÄTGRÄNS|MÄTGRÄNS-FACIT-SIDLED|T10|FANTOMPASSAGE(target)
+        r1-quick-a  : 1 []
+        andra-rev   : 1 []
+
+# Första revisionen (e949ae1, tmp/rev2/hunt-quick-e949ae1) mot andra revisionen
+# kluster: 34 → 34; råa utslag: 87 → 87
+# nya kluster: inga
+# försvunna kluster: inga
+# ändrade kluster: 0

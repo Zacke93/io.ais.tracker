@@ -1,0 +1,390 @@
+From 1dfd18aeef8bc964a56f79604bb15987e6517c86 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 10:36:03 +0000
+Subject: [PATCH 12/17] =?UTF-8?q?Buggj=C3=A4garen:=20radion=20byter=20takt?=
+ =?UTF-8?q?=20vid=20avg=C3=A5ng=20mitt=20i=20ett=20stillaintervall=20(varv?=
+ =?UTF-8?q?=202,=20M9)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Nästa fixtid drogs ur rörelsetillståndet vid föregående fix, så en båt som
+lämnade kön strax efter ett stillafix hördes först när stillaintervallet
+löpt ut (världarna 290 och 625, F02 och F05: 164 s respektive 11,6 min
+tystnad efter avgången). En verklig transponder byter takt direkt. Nu dras
+nästa fixtid om när L0-banan byter från stilla till rörelse före den
+dragna tiden: nästa fix kommer avgången + ett rörelseintervall, aldrig
+senare än den först dragna tiden, i båda erorna. Ett fast intervall (R0)
+påverkas inte, och profilfältet taktbyte: false ger den gamla modellen.
+Omdragningen drar ett extra slumptal bara vid en sådan avgång och efter
+fixets rad, så rader före avgången är bitlika.
+
+Ändrar R1-världarnas rader; realismtabellen flyttar högst några sekunder.
+BUGGJAKT §4.2 och §4.5. Commiten bär också varv 2:s mätningar för hela
+familjen E: §7 (följder i standardens världar, rad 46 och bilaga C),
+§14 (efter varv 2) och bilaga A.7.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/BUGGJAKT.md                              |  55 ++++++++-
+ .../bugHunt/__tests__/a-radio.test.js         | 109 ++++++++++++++++++
+ tests/replay-validation/bugHunt/lib/radio.js  |  58 +++++++++-
+ 3 files changed, 211 insertions(+), 11 deletions(-)
+
+diff --git a/docs/BUGGJAKT.md b/docs/BUGGJAKT.md
+index 3ed0d6e..676d9af 100644
+--- a/docs/BUGGJAKT.md
++++ b/docs/BUGGJAKT.md
+@@ -111,6 +111,7 @@ L0 (`lib/truth.js`) bokför exakta, interpolerade brokorsningar, radiebesök ino
+ - **R0 idealradio.** Fast intervall 30 s, klass A, aisstream, inget brus, inga namnglapp och ingen sen födelse. Ett fel som syns här har ingen observerbarhetsursäkt.
+ - **R1 fältlik radio** (`lib/radio.js`). Varje båt har en egen slumpström (`radio-<mmsi>`), och AISHub-pollens tider kommer ur en världsström som inte beror på vilka båtar som finns, så krympningen kan ta bort båtar utan att ändra de andras observationer. Modellen:
+   - aisstream-kadens per klass och rörelse ur fältkvantilerna, med log-interpolerad svans;
++  - taktbyte vid avgång: när en stilla båt avgår före den dragna nästa fixtiden dras tiden om till avgången + ett rörelseintervall, aldrig senare än den först dragna (varv 2, M9);
+   - AISHub-poll var 65 + U(0, 5) s med fixålder ur fältet, sekundupplöst `fixTs`, 5 decimaler och spridning ≤ 150 ms;
+   - brus på sog, cog och GPS ur fältet;
+   - namnbackfill för klass B, där 25 % börjar som Unknown;
+@@ -128,9 +129,9 @@ L0 (`lib/truth.js`) bokför exakta, interpolerade brokorsningar, radiebesök ino
+ | GPS-brus (R1) | 3,5 m | 2 m |
+ | kadens och AISHub-fixålder (R1) | fältets transitkvantiler och rörelseålder | fältets stillakvantiler och stillaålder |
+ 
+-Fältet har kadens för två tillstånd: transit (sog ≥ 2 kn hos båda fixarna) och stilla (sog < 0,3 kn och < 60 m mellan fixarna). Kadensregimen följer därför rörelsetillståndet och inte någon sog-gräns. AIS-klassernas fartberoende sändregler, till exempel klass B var 3:e minut vid högst 2 kn, modelleras inte (4.5). Fram till rättningen gick gränsen vid \|v\| ≥ 0,25 m/s (≈ 0,49 kn). Under den rapporterade en båt sog 0, slumpad cog och stillakadens även i R0. Båda T10-korten på R0-nivå i första standardrapporten byggde på den artefakten. F05 var bara radioartefakten. F08 (ett R1-fynd som R0-bekräftelsen flyttade till logikfel) var dessutom T10 (b):s motsägelse mot (a), och vardera rättningen tar bort det (bilaga B, T10). A/B över standardens 2 000 världar finns där.
++Fältet har kadens för två tillstånd: transit (sog ≥ 2 kn hos båda fixarna) och stilla (sog < 0,3 kn och < 60 m mellan fixarna). Kadensregimen följer därför rörelsetillståndet och inte någon sog-gräns. Regimen byts vid avgången: lämnar en stilla båt kön eller stoppet före den dragna nästa fixtiden, kommer nästa fix avgången + ett rörelseintervall men aldrig senare än den först dragna tiden, i båda erorna (`radio.js`, `omdragen` och `avgångMellan`; rättat i varv 2, M9). Ett fast intervall (R0 och `fixedIntervalS`) påverkas inte, och profilfältet `taktbyte: false` ger den gamla modellen för jämförelser. AIS-klassernas fartberoende sändregler, till exempel klass B var 3:e minut vid högst 2 kn, modelleras inte (4.5). Fram till rättningen gick gränsen vid \|v\| ≥ 0,25 m/s (≈ 0,49 kn). Under den rapporterade en båt sog 0, slumpad cog och stillakadens även i R0. Båda T10-korten på R0-nivå i första standardrapporten byggde på den artefakten. F05 var bara radioartefakten. F08 (ett R1-fynd som R0-bekräftelsen flyttade till logikfel) var dessutom T10 (b):s motsägelse mot (a), och vardera rättningen tar bort det (bilaga B, T10). A/B över standardens 2 000 världar finns där.
+ 
+-**R1 är okalibrerad i v1.** Realismtabellen (`lib/realism.js`, S-REALISM) mäts i varje självtest och redovisas i hälsorutan, men stoppar inget. Grinden (p50 inom ±30 %, p90 inom ±40 %) är röd för båda erorna: för aisstream är glappen i rörelse p50/p90 101/325 s mot fältets 129,5/538,3 s; för AISHub 71/123 s mot 61/119 s. Korsningsmåtten finns i fältet bara poolade över erorna och märks så. Radiorättningen M02 (ovan) flyttade måtten högst några sekunder. Den största ändringen gäller aisstreams sista fix före korsningen: p50 gick från 161 till 160 s mot fältets 123,5 s och hamnar därmed precis innanför ±30 %. aisstream klarar nu båda kvantilerna i två av fyra mått och AISHub i ett av fyra, så grinden är fortfarande röd. Fältets båtar saktar in före broarna i väntan på öppning, så kalibreringen kräver en inflygningsprofil och mottagningshål per sektor (v1.1). Därför redovisas R1-fynd som **robusthet**. Ett R1-fynd som reproducerar med R0 i bekräftelsen flyttas till logikfel.
++**R1 är okalibrerad i v1.** Realismtabellen (`lib/realism.js`, S-REALISM) mäts i varje självtest och redovisas i hälsorutan, men stoppar inget. Grinden (p50 inom ±30 %, p90 inom ±40 %) är röd för båda erorna: för aisstream är glappen i rörelse p50/p90 101/324 s mot fältets 129,5/538,3 s; för AISHub 71/124 s mot 61/119 s (efter taktbytet vid avgång i varv 2; förut 101/325 och 71/123 s, bilaga A.7). Korsningsmåtten finns i fältet bara poolade över erorna och märks så. Radiorättningen M02 (ovan) flyttade måtten högst några sekunder. Den största ändringen gäller aisstreams sista fix före korsningen: p50 gick från 161 till 160 s mot fältets 123,5 s och hamnar därmed precis innanför ±30 %. aisstream klarar nu båda kvantilerna i två av fyra mått och AISHub i ett av fyra, så grinden är fortfarande röd. Fältets båtar saktar in före broarna i väntan på öppning, så kalibreringen kräver en inflygningsprofil och mottagningshål per sektor (v1.1). Därför redovisas R1-fynd som **robusthet**. Ett R1-fynd som reproducerar med R0 i bekräftelsen flyttas till logikfel.
+ 
+ ### 4.3 Observerbar sanning (L1)
+ 
+@@ -172,7 +173,7 @@ Ankomsterna följer en Poissonprocess i två täthetsnivåer: realistisk täthet
+ - Kön stannar exakt distM före stationen. Fältets köer driver.
+ - Radion saknar mottagningshål per sektor och en inflygningsprofil (se 4.2).
+ - AIS-klassernas sändregler modelleras inte. En båt i rörelse får fältets transitkadens även under 2 kn, där klass B i verkligheten sänder var 3:e minut. En krypande klass B-båt hörs därför oftare i R1 än i fält, eftersom fältet saknar mätt kadens för 0,3–2 kn.
+-- Kadensen dras vid varje fix ur tillståndet just då. En båt som lämnar kön mitt i ett stillaintervall hörs alltså först när intervallet löpt ut, medan en verklig transponder byter takt direkt.
++- Kadensen dras vid varje fix ur tillståndet just då, och en avgång mitt i ett stillaintervall drar om nästa fixtid (varv 2, M9): nästa fix kommer avgången + ett rörelseintervall, aldrig senare än den först dragna tiden, som när en verklig transponder byter takt. Förut hördes en båt som lämnade kön strax efter ett stillafix först när stillaintervallet löpt ut (världarna 290 och 625 i triagen av restkorten, med 164 s respektive 11,6 min tystnad efter avgången). Det motsatta bytet modelleras inte: en båt som stannar mitt i ett rörelseintervall hörs vid nästa rörelsetid, alltså tätare än en verklig transponder, och det döljer inget för appen. För AISHub kan den tidigare luckan fyllas av en fix från före avgången (fixålder), så en enskild avgång kan höras senare än i den gamla modellen; mätt över världarna kommer den fram tidigare (`a-radio.test.js`).
+ - R1:s cog-brus är fältets fel mot farleden vid sog ≥ 2 kn. Vid krypfart är verklig GPS-kurs betydligt brusigare.
+ 
+ ## 5. Bankspåret
+@@ -407,7 +408,7 @@ Rad 1–17 och 19–22 rättar motorfel eller registrerar en mätgräns i ett be
+ | 43 | U17-TYST-BÅT-RECOVER och K-TYST-BÅT-NÄSTA-ÖPPNING (varv 2, samspelet med familj B) | Villkor (3′) läser domens `arrivalMs` när domen bär den (familj B:s M5: under ETA-kedjans passagegolv den senare av prognosen och armens fysik) i stället för armens `expectedArrivalMs`, och domens `windowEndMs` i stället för det räknade fönsterslutet. Kravet på den oberoende fysiska ankomsten står kvar. U24:s släpp på hennes egen deadline före första passagen (domen `bakkant` med skälet "egen deadline …", familj B:s M7) räknas som bakkant och nämns i skälet. Utan fälten (c14938f) är predikatet oförändrat. | Samordnarens meddelande i varv 2 och familj B:s DESIGN.md (§Domens fält): efter steg 2 jämför bakkanten domens arrivalMs, så predikatet hade annars missat en krypare som bakkanten borde ha släppt. Jest: `k-varv2-motor.test.js` (en dom med arrivalMs efter fönstret, en med ett tidigare windowEndMs, U24-släppet, och en vakt där fälten ligger inom fönstret). Inga träffar ändras på c14938f. |
+ | 44 | U23-KAJZON-UTANFÖR-VÄNTZONEN (varv 2, samspelet med familj F) | `mooringCapsuleStationary` läser zonens `queueGraceMs` som appen: ett positivt tal, där Infinity betyder obegränsat (förut `Number.isFinite`, som gjorde Infinity till baskravet 3 min). Kravet blir då Infinity, och skälet säger "aldrig: obegränsat köundantag". Motorns tabell över närliggande konstanter (`shrink.js#kajensKöundantagS`) läser Kajens köundantag ur zonposten i stället för en hårdkodad 900 s och tar inte med ett obegränsat undantag. | Familj F gör Kajens köundantag obegränsat (U23, `queueGraceMs: Infinity`; `VesselDataService.js#_classifyMooring`). På c14938f ger regeln samma 15 min. Utfallet för Kajen mot Klaffbron är KANDIDAT före och efter F (inom väntzonen), men före rättningen beskrev skälet en demotion efter 3 min som appen inte gör. Jest: kajK och kajB med Kajens undantag satt till Infinity, och shrink-tabellen med och utan undantaget. |
+ | 45 | U24-DELAD-KÖ-EXTRA-VARNING (ny, varv 2) | DESIGN för T3 VARNING-PÅ-FRUSET-FIX med predikatet `u24DeladKö`, efter K-TYST-BÅT-NÄSTA-ÖPPNING. Villkoren står i avsnittet om U24 ovan och i predikatets kommentar. | Användarbeslut U24 (2026-11-09, ovan): ägaren godtar att en köande konvoj ibland får en extra varning, som i provvärld 143. På familj B:s 0b0a35d med den här motorn blir värld 143 DESIGN i stället för KANDIDAT. Grindarna i domens tal kom till efter familj B:s förslag (V/B/DESIGN.md, §Registerpost för värld 143), så att ett U24-släpp som bryter mot en grind (V1 och V1b utan `täckningsslut-i-tid` eller `kö`) ger utslag. Jest: värld 143 ur familj B:s app (fixturen `varv2-u24-2026-11-09.json`), samma värld med en hörd köare, och 18 vakter (inget U24-släpp, ett släpp efter passage, en känd passage vid täckningsslutet, L i väntzonen, var och en av de åtta grindarna, hon utanför väntzonen eller i rörelse, mer än 600 s efter eller före L, ett redan fruset fix, inget domspår). Utan U24-släppet finns ingen dom att binda händelsen till, så posten tar ingenting på c14938f och ingenting när bakkanten är bortkopplad. |
+-| 46 | U2-VS-DEADLINE (varv 2) | Bara frågan och källan: U24 valde C-IV väg b för en båt i rörelse utanför väntzonen vars båda prognoser ligger efter fönstret. Frågan står kvar för en korsning inom fönstret och för stilla köande båtar. | Användarbeslut U24. Predikatet är oförändrat: posten gäller en korsning inom en varnad öppnings fönster, och ett U24-släpp gäller en båt vars prognoser låg efter fönstret. Korsar hon ändå inom fönstret hör hon enligt U2 till den varnade öppningen. |
++| 46 | U2-VS-DEADLINE (varv 2) | Bara frågan och källan: U24 valde C-IV väg b för en båt i rörelse utanför väntzonen vars båda prognoser ligger efter fönstret. Frågan står kvar för en korsning inom fönstret och för stilla köande båtar. | Användarbeslut U24. Predikatet är oförändrat: posten gäller en korsning inom en varnad öppnings fönster, och ett U24-släpp gäller en båt vars prognoser låg efter fönstret. Korsar hon ändå inom fönstret hör hon enligt U2 till den varnade öppningen. Bindningen till släppvägen som review2 (b) föreslog (nedan) är inte gjord: i bakkantsmutanten tog posten 8 nya utslag, alla med korsningen inom första passagen + 600 s, som mutation B i review2. Det är en fråga till nästa granskning. |
+ | 47 | Källhänvisningarna till VesselDataService.js (varv 2, samspelet med familj A) | Radhänvisningarna i `beslutsregister.json` till `lib/services/VesselDataService.js` pekar på symboler: `#FIX_D_MIN_SOG` (Fix D-blocket i updateVessel, förut :380–407, :446–476 och :385–491), `#_createVesselObject` (förut :5286–5287 och :5291), `#getVesselsForBridgeText` (trappan, förut :2361–2465) och `#STALE_AIS_TIMEOUT_MS` (förut :84). Laddningen kontrollerar att symbolerna finns. | Familj A flyttar VDS:385–491 till :398–504, och familjerna C och F ändrar också filen; :5286–5287 pekade redan på c14938f på koordinatkontrollen, inte på reserven för sog och cog. Ingen post ändrar utfall. |
+ | 48 | U17-TYST-BÅT-RECOVER och K-TYST-BÅT-NÄSTA-ÖPPNING (varv 2, värld 1837) | Villkor (3a) mäter med domspåret varje rad efter att passagen blev känd mot fönstrets slut i appens dom när raden bearbetades (den första domen från bearbetningen, när den är en dom `covered` efter passagen), i stället för mot det skattade tidigaste slutet, vars term W − TICK_INTERVAL_MS kan ligga före appens täckningsslut. Utan domspår, eller när domen inte är en sådan dom, gäller skattningen som förut. | Motorfel som M9:s radio visade i värld 1837: 265594787:s rad 12:52:32 (fixen 85 m före bron i 5,4 kn) bearbetades 16 s efter W − tickMs men 14 s före täckningsslutet 12:52:46,115. Appens prognos 12:52:43,9 och den fysiska ankomsten 12:52:44,6 låg inom slutet, hon korsade 12:52:43,9 osedd, och RECOVERn kom 12:52:46,1: U17:s fall. (3′) prövar prognosen och fysiken vid raden, så ingen bakkantsregression göms: i mutationsproven (bakkanten respektive under-bron-hållet bortkopplade, punkt 1–6) fälldes inget utslag av (3a). Jest: `k-varv2-motor.test.js` (1837 ur fixturen `varv2-m9-1837-2026-11-09.json`, utan domspår, och en rad efter slutet i sin egen dom). |
+ | 49 | U17-TYST-BÅT-RECOVER, K-TYST-BÅT-NÄSTA-ÖPPNING och U24-DELAD-KÖ-EXTRA-VARNING (varv 2, inför sammanslagningen) | Källorna pekar på `replayRunner.js#instrumentCoverageVerdicts`, den egna funktion som harnessens domspår nu ligger i (förut ett block i `instrumentApp`). U16-F40-STRAX-STUDS:s krav 6 (ingen fix i en kajkapsel) är oförändrat; motiveringen i predikatets kommentar och i avsnittet om U16 säger att en köare vid Kajen efter U23 kan bära "strax" i upp till 2 h, inte 15 min. | Dirigenten efter granskningen av familj F (L2): familj F lägger också till instrumentering i `replayRunner.js` (`confirmedTargetWaits`), och en egen funktion gör sammanslagningen enkel. Flytten är ren kodflytt: replayresultaten är bitlika (bitlik.js på alla korpusar, med och utan monitoring). |
+@@ -438,6 +439,17 @@ Rad 1–17 och 19–22 rättar motorfel eller registrerar en mätgräns i ett be
+ - **Efterrättningen av registret 2026-11-07 (rad 32–33)** (standardkörningen standard-2, seed 1, på e088a51 med det efterrättade registret, mot körningen med registret från rad 23–31): 297 råa utslag, 49 kluster och 10 kandidatkluster i båda; fingeravtrycket är 1d2fd067e2e3 (c1c21879fe6c före), och 18 av 18 representanter är krympta och bekräftade (17 av 17 före). Registerutfallen som byts, alla i T3 och T2 i R1: U17 → KANDIDAT 7 (VARNING-EFTER-SANN-PASSAGE i världarna 537, 625, 1337, 1629, 1752 och 1973, VARNING-PÅ-FRUSET-FIX i 479), K-NÄSTA → KANDIDAT 3 (510 och 1704 i T3, 790 i T2 LEDTID), U17 → K-NÄSTA 2 (1907, VARNING-EFTER-SANN-PASSAGE och FRUSET-FIX: E är nu händelsen #26 som täckte henne vid korsningen, och korsningen ligger 622 s efter dess första korsning) och O1 → U17 3 (182, 413 och 1510: absorberade båtars RECOVER). De tio nya kandidaterna har egna rader efter att E:s första passage blev känd med en prognos för nära fönstrets slut (restiden 0,78–1,34 av tiden kvar till fönstrets tidigaste slut, gränsen är 0,6) för att posten ska kunna skilja dem från en bakkantsregression; de går in i korten T3 VARNING-EFTER-SANN-PASSAGE i R1 (2 → 9 världar), T3 VARNING-PÅ-FRUSET-FIX (1 → 2) och T2 LEDTID (7 → 8). Användningen blir U17 45 (51), K-NÄSTA 7 (8) och O1 44 (47); övriga poster är oförändrade (U18 12, U19 2, R2 2, U1-C11 15), och registret ger inga varningar. Mutationsproven (granskarens dumpar mutA och mutB över standardprofilens 2 000 världar, omklassade med det nya registret): med bakkanten bortkopplad blir 36 nya K-NÄSTA och 7 nya U17 KANDIDAT, och med under-bron-hållet bortkopplat blir de 3 nya U17- och K-NÄSTA-utslagen och det som O1 tog (värld 777) KANDIDAT. Kvar som icke-kort är 8 nya utslag i mutB som U2-VS-DEADLINE tar: korsningen ligger inom händelsens konvojfönster och båten var täckt, så mutationens utfall stämmer med U2.
+ - **Den andra granskningen av registret 2026-11-07 (rad 34–36)** (standardkörningen slut-standard, seed 1, på aa71099 med registret från rad 34–36, mot samma motor och samma 2 000 världar med registret från rad 32–33 på aa71099 som baslinje): 263 råa utslag, 46 kluster och 10 kandidatkluster i båda, och 16 av 16 representanter är krympta och bekräftade. Fingeravtrycket är 84026eb4e587 (92a4fce23a97 före). Bara två registerutfall byts, båda U18 → KANDIDAT i R1: värld 1274 (T2 LEDTID<60s; kortet T2 LEDTID i R0 går från 8 till 9 världar) och värld 1317 (T2 ÖPPNING-MISS:OKLASSAD; kortet i R1 går från 9 till 10 världar). U18 används 10 gånger (12 före), övriga poster som förut (U17 45, K-NÄSTA 7, O1 44, U2-VS-DEADLINE 29, U1-C11 15, U19 2, R2 2). Registret har 40 poster och ger inga varningar. INV5-VS-BESÖKSREGEL användes inte ens i baslinjen. Mellan e088a51 (standard-2, rad 32–33) och aa71099 försvann 34 råa utslag, alla genom U14: 33 INV-5-utslag (32 i R0 och 1 i stress, det tidigare beslutskortet B01) och 1 T1 NOTIS-UTEBLIVEN i värld 1448 som BESÖKSREGEL-2026-09-07 tog. Inget annat utslag ändrades. Beslutskortet B01 är nu D1-KAJZON-DEMOTION (KONFLIKT, INV-14, värld 138).
+ - **Granskningens två låga anmärkningar (review2), utan ändring i registret.** (Anmärkning (a) är åtgärdad i varv 2, rad 41: nio av de tio blir U17 eller K-NÄSTA på släppvägens domspår, och 790 är appens prognosfel M5.) (a) De tio U17- och K-NÄSTA-sanna RECOVER-släppen som blev KANDIDAT i rad 32 (världarna 479, 510, 537, 625, 790, 1337, 1629, 1704, 1752 och 1973) släpptes enligt granskarens debugloggar alla vid täckningsslutet. De är inga appfel, men de ligger i korten T3 VARNING-EFTER-SANN-PASSAGE (9 världar), T3 VARNING-PÅ-FRUSET-FIX (2) och T2 LEDTID (9). Kortets närmaste post säger varför: restiden med radens fart är mer än 0,6 av tiden kvar till fönstrets tidigaste slut, så bakkanten kan ha släppt henne. Triagera korten med det i minne. Brotextens ETA kan inte ersätta den raka restiden (textsonden på aa71099). I texter med flera båtar gäller klausulen den närmaste båten och inte henne: i 510 står "Tre båtar … strax" medan hennes restid var 490 s. I texter med en båt ger textens ETA kvoten 0,77–1,53 (479, 537, 1629, 1973), eller "strax" med en upplösning på ±0,35–0,48 (1337, 1704). Ingen kommer säkert under 0,6, så kvotvillkoret står kvar. (b) Granskarens mutation C (fönstrets slut + 120 s i `_coverageVerdict`) gav 9 nya U2-VS-DEADLINE-utslag (världarna 364, 616, 687, 856, 1089, 1214, 1689, 1759 och 1813; granskarens dump omklassad med registret från rad 34–36). I alla ligger korsningen inom händelsens första passage + 600 s och båten var täckt. Det är U2:s egen regel, och designerns mutation B gav samma bild (8). Posten är KÄND_ÖPPEN och dömer doktrinen, inte släppvägen, så en försvagad bakkant syns bara som högre användning. Posten ingick inte i den här granskningen och är orörd. Nästa granskning av U2-VS-DEADLINE bör pröva bakkantsmutationerna B och C och avgöra om posten ska bindas till släppvägen, som U17.
++- **Varv 2, familj E (rad 37–49)** (standardkörningen std-efter, seed 1, på f5eb11a med appen på c14938f, mot std-fore på c14938f med motorn därifrån; samma 2 000 världar och 168 fasvarianter). 261 råa utslag mot 263, 44 kluster mot 46 och 9 kort mot 11. Banken är oförändrad (162 rena fasvarianter). Commitarna efter f5eb11a ändrar inget utfall på c14938f:s app: flytten i harnessen är bitlik, och U24-posten kräver U24-domar (quick på af57b8f, 5d3484f och slutkoden ger samma kluster). Ändringarna, var för sig:
++  - **Till U17 eller K-NÄSTA (M1, M2, M3, punkt 6):** de nio U17- och K-NÄSTA-sanna släppen, 1973, 537, 625 (FREJA), 1337, 1629, 1752 och 479 (U17) och 510 och 1704 (K-NÄSTA); 941 (M2, fixens tid); 972 (M3, gemensam RECOVER); och 510:s T2-vy (punkt 6). Korten F06 (T3 VARNING-EFTER) och F07 (T3 FRUSET-FIX) krymper från 10 och 2 utslag till 2 och 0.
++  - **Från U17 till KANDIDAT: 1160** (M1:s färskhet mot den skattade passagen). Fixet 11:35:15 efter ledarens skattade passage hade prognosen efter fönstrets slut, och passagen bokfördes 3 min före hennes korsning. Det är appfelet M4: på familj B:s 0b0a35d försvinner fyndet.
++  - **138:** KONFLIKT D1-KAJZON-DEMOTION blir DESIGN U1-C11 (B01: kajliggaren bar aldrig texten), och kortet B01 försvinner.
++  - **Radions taktbyte (M9) tar bort** radioartefakterna 290 (T2 LEDTID, F02) och 625:s DAGNY (T2 OKLASSAD och T3, F05 och F06). Det tar också bort 1024 och 1526 (U1-C11), 1228 (MÄTGRÄNS-INV10), 526 (O1) och 1731:s två utslag (R2 och U18); 1731:s R2-utslag kommer tillbaka vid en annan tid.
++  - **Radions taktbyte ger nya radiorealiseringar:** 1452 (T2 LEDTID, O1 ACCEPTERAD), 1675 (T3, U17), 1731 (R2) och tre KANDIDAT-utslag i två världar.
++    - **1527** (DAGNY, klass B, AISHub): hon köar vid Järnvägsbron 435 m före Stridsbergsbron, lämnar kön under ett glapp på 5,7 min och korsar båda broarna osedd. Den egna varningen kommer 49 s efter korsningen (T2 OKLASSAD och T3 VARNING-EFTER). Det ligger i familj D:s område (spärren vid en tidigare bro), men D:s 9fe94c6 tar inte bort det.
++    - **1623** (IRMA 3): hon köar vid Kajen 274 m från Klaffbron och tystnar i 26 min. Texten tappar henne (U1-C11), och när hon hörs igen klassar zonregeln henne som förtöjd (stilla 29 min, över köundantagets 15 min). Vid avgången kommer en ny varning 60 s före korsningen (T2 LEDTID). Det är U23:s köfall: med familj F:s 3887254 försvinner det.
++  - **1837** (T3, U17) blev KANDIDAT med radions taktbyte och är U17 igen med (3a) på domspåret (rad 48). Raden 12:52:32 bearbetades före täckningsslutet men efter den skattade gränsen W − tickMs.
++  - **Postanvändningen:** U17-TYST-BÅT-RECOVER 45 → 54, K-TYST-BÅT-NÄSTA-ÖPPNING 7 → 10, U18-RETUR-BEKRÄFTAD-SENT 10 → 9, MÄTGRÄNS-INV10-VÄNTKEDJA 1 → 0, D1-KAJZON-DEMOTION 1 → borttagen, och U23-KAJZON-UTANFÖR-VÄNTZONEN och U24-DELAD-KÖ-EXTRA-VARNING 0. Övriga poster är oförändrade.
++  - **Mutationsproven på slutmotorn** (f5eb11a, bara sanningsspåret): med bakkanten bortkopplad i `_coverageVerdict` blir det 75 nya utslag: 67 KANDIDAT och 8 KÄND_ÖPPEN U2-VS-DEADLINE (korsningen inom första passagen + 600 s, som mutation B i review2). Inget av dem är U17 eller K-NÄSTA. På punkt 1–6 utan M9 var talen desamma, och med under-bron-hållet bortkopplat blev det 4 nya utslag, alla KANDIDAT.
+ 
+ ## 8. Klustring, krympning och bekräftelse
+ 
+@@ -724,6 +736,18 @@ Kriterierna, utfallet i byggets acceptanskörning (bilaga A.2) och utfallet i ko
+ - **Korten:** 22 (R0 6, bank 3, R1 7, stress 6), alla med repro och recept, med samma nummer som i R3-standard.
+ - **Git:** huvudträdets `git status` är tomt.
+ 
++**Efter varv 2 (familj E, bilaga A.7)** håller kriterierna. Tidskraven för jest (5 s) och standard (25 min) gäller en ledig maskin och kunde inte prövas under dagens främmande last:
++- **Jest:** hela repots jest är grönt (370 sviter, 5 324 test, 2 överhoppade) på slutkoden. Motorns 27 sviter och 426 test är gröna, utan öppna handtag. 5 s-kravet kunde inte prövas på ledig maskin (load 37–60 hela dagen). Körda växelvis mot c14938f:s 26 sviter och 366 test tog de vid load 37–41 32–40 s mot 30–48 s väggtid och vid load 17–22 19–28 s mot 21–22 s. CPU-arbetet (user) med varm cache steg från 10,7–11,1 s till 13,0 s vid den lägre lasten, alltså med ungefär 20 %. `k-varv2-motor.test.js` tar 1,2 s under last.
++- **Lint:** exit 0.
++- **Självtest:** grönt med samma tal som i A.6 (24/24, 24/24, 24/24, kanarier 5/5, rundresa 45/45), och 0 nya träffar på låst bank.
++- **Tider:** quick tog 4 min vid load 17–22 (becf0ae) och 8–12 min vid load 40–60. Standard tog 59 min vid load 40–60 (std-fore på c14938f: 6 min vid låg last); kravet 25 min gäller en ledig maskin och kunde inte prövas.
++- **Determinism:** fyra quick-körningar (af57b8f i git, samma kod utan git, 5d3484f och slutkoden) ger identiska kluster och fynd. Sanningsspårets fingeravtryck är rader 23f5b8fd31a0 och fynd 3fe700ad4f07 i alla fyra; rapporternas fingeravtryck skiljer bara genom HEAD och registret.
++- **Konvojfönstrets bakkant:** F02 (R0, T2 LEDTID, 9 utslag) står kvar, och hunt:repro ger KVAR.
++- **Bankkorten:** F04 (bank, INV-3 ETA-SÅGTAND UPP) står kvar.
++- **42h-flashen:** KIE-PER-KORPUS används som förut.
++- **Korten:** 9 i standard (R0 3, R1 2, bank 1, stress 3), alla med repro och recept.
++- **Git:** porcelain i worktreen visar bara node_modules, och huvudträdet är orört.
++
+ ## 15. Så triagerar du ett kort
+ 
+ 1. Läs kortets tidslinje (sanning mot app) och gräns.
+@@ -859,6 +883,23 @@ Körd 2026-11-04 av rättaren i efterrättningen R3b (§7 rad 19–20), i arbets
+ | Sonder genom appen | Granskarens u16e2e på F21:s minsta repro i R3-standard med en kajbåt 240 m från Klaffbron, tyst i 720 eller 605 s, och samma båt 45 m utanför kapseln (262 m): appen ger samma studs i alla tre ("om 7 minuter" 11:01:40,950, "strax" 11:01:41,035). Rundans första försök ger DESIGN i alla tre, nu KANDIDAT (en publicerad text efter 600 s-gränsen, kajkapseln respektive ULLA:s rad emellan). Granskarens enhetsfall (u16motex) ger KANDIDAT utom F18, som är DESIGN. |
+ | hunt:repro | Kopior av s1-standard-a:s F18 och F19: BORTA, med båda utslagen i minsta repro DESIGN U16-F40-STRAX-STUDS. R3-standard:s F20 och F21: KVAR (exit 0). |
+ 
++### A.7 Kontrollkörning efter varv 2 (familj E)
++
++Körd 2026-11-09 av familj E i rättningskampanjens varv 2 (§7 rad 37–49), med appen på c14938f (Node 22, Linux, 4 CPU) och seed 1. Maskinen hade tung främmande last från de andra familjernas körningar (load 30–60), så väggtiderna är övre gränser. Batteriets alla 13 steg kördes på af57b8f (`batt5`). Motorns steg (jest, lint, självtest, quick och porcelain) kördes igen på 5d3484f (`batt6`) och på becf0ae (`batt7`). De skiljer sig från af57b8f bara i U24-postens villkor, deras test och källtexter. Slutcommiten skiljer sig från becf0ae bara i den här filen.
++
++| Område | Mätning |
++|---|---|
++| Jest | Hela repot: 370 sviter och 5 324 test gröna, 2 överhoppade, inga öppna handtag (becf0ae; 5 321 på af57b8f). Motorn: 27 sviter och 426 test. Körda växelvis mot c14938f (26 sviter, 366 test): vid load 37–41 32–40 s mot 30–48 s väggtid, vid load 17–22 19–28 s mot 21–22 s; CPU-arbetet (user) med varm cache 13,0 s mot 10,7–11,1 s. `k-varv2-motor.test.js` (52 test) tar 1,2 s under last. De nya testen fäller motorn före respektive commit (`V/E/bevis/*-gamla-motorn.txt`). |
++| Lint | `npm run lint` exit 0; `eslint --max-warnings=0 tests/replay-validation/bugHunt/ tests/replay-validation/replayRunner.js` exit 0. |
++| Harnessen | replay:all är bitlikt mot c14938f utom det nya fältet `openingCoverageVerdicts`, 26 av 26 korpusar med och utan monitoring. Flytten till `instrumentCoverageVerdicts` är bitlik med fältet medräknat (26 av 26, 204 domar). replay:all, synthetic, openings, soak och fassvepet, alla även med monitoring, är gröna (`batt5`). |
++| Självtest (166–255 s) | determinism 24/24, SHIFT30 24/24, MMSI 24/24, kanarier 5/5, rundresa 45/45; instrumentkraven uppfyllda; låst bank 0 nya träffar. Fingeravtrycken skiljer bara genom registerlistan. Realismen efter M9: aisstream 101/324 s, AISHub 71/124 s. |
++| standard (59 min vid load 40–60) | Körd på f5eb11a. 168 fasvarianter, 162 rena. 2 000 världar (R0 635, R1 1 365; stress 23), 0 fel och 0 häng. 261 råa utslag → 44 kluster: 9 kort (R0 3, R1 2, bank 1, stress 3) och 35 registerkluster. 13 representanter krympta och bekräftade på 280 prov. Fingeravtryck 0eb12bc47b32; sanningsspåret rader f8ac8893d61b, fynd 1752927f48fa. Mot std-fore (c14938f: 263 utslag, 46 kluster, 11 kort) se §7, följder i varv 2. |
++| quick (4 min vid load 17–22, 8–12 min vid load 40–60) | 48 fasvarianter, 45 rena. 300 världar. 57 råa utslag → 24 kluster och 4 kort (R0 2, bank 1, R1 1). Mot basens quick (c14938f) försvinner bara 290 (M9), och 138 blir U1-C11 (B01). Inga nya kandidater och inga nya utslag. Fyra körningar ger identiska kluster och fynd, med sanningsspårets fingeravtryck rader 23f5b8fd31a0 och fynd 3fe700ad4f07. |
++| Mutationsprov | Slutmotorn (f5eb11a), sanningsspåret: med bakkanten bortkopplad blir det 75 nya utslag (67 KANDIDAT, 8 KÄND_ÖPPEN U2-VS-DEADLINE) och 0 U17/K-NÄSTA. Punkt 1–6 utan M9 gav samma tal, och med under-bron-hållet bortkopplat 4 nya utslag, alla KANDIDAT. |
++| Familj B:s app (0b0a35d, U24) | Quick med motorn: 143 blir DESIGN U24-DELAD-KÖ-EXTRA-VARNING, och posten används inte någon annanstans. 240 och 41 försvinner (B:s M4 och U24), och inga nya kandidater tillkommer. Med bakkanten efter passagen bortkopplad blir det 21 nya utslag, alla KANDIDAT, 0 U17/K-NÄSTA, och U24-posten tar fortfarande bara 143. Med U24:s grindar `kö` och `täckningsslut-i-tid` bortkopplade ändras inget utslag i quick; grindarna prövas i jest. I enstaka världar försvinner 1160 (M4), och 1038 blir KANDIDAT (öppen fråga). |
++| Familjerna D och F | Värld 1623 (U23:s köfall) försvinner med F:s 3887254. Värld 1527 står kvar med D:s 9fe94c6. |
++| hunt:repro | 26 kort. Familjens 20 (triage B:s och de egna) ger BORTA. KVAR ger std-F02 (R0, konvojfönstrets bakkant), std-F05, std-F08 (stress) och triage A:s 790, 977 och 1794, som andra familjer rättar i appen. |
++
+ ## Bilaga B — orakelkatalog
+ 
+ Katalogen återges ur byggunderlaget med regler, trösklar och falsklarmsvakter. Raden **v1** säger vad som är byggt och var v1 avviker. Den uppdateras i samma commit som oraklen.
+@@ -1056,7 +1097,7 @@ Alla sökvägar under `tests/replay-validation/bugHunt/`.
+ | `lib/schema.js` | schemavalideringen av rader |
+ | `lib/lanes.js`, `lib/lanes/synth.js` | spårregistret; inbyggda självtest- och bankspår; sanningsspåret med självtesttillägg, fas 2, fas 4 och hunt:repro |
+ | `lib/selftest.js`, `lib/relations.js`, `lib/bankOps.js`, `lib/project.js` | självtestet, M-EXAKT och M-FAS, bankens transformationer och projektionerna |
+-| `lib/registry.js`, `beslutsregister.json` | beslutsregistret och dess predikat |
++| `lib/registry.js`, `beslutsregister.json` | beslutsregistret och dess predikat; sedan varv 2 också hjälparna för släppvägens domspår (`domspårFält`, `rentBakkantsfix`, `domensFönsterslut`, `domensAnkomst`, `u24Släpp`) |
+ | `lib/cluster.js`, `lib/report.js`, `lib/finding.js`, `lib/signature.js` | klustring och poäng, rapporten, fyndformatet och normaliseringen |
+ | `lib/instances.js`, `lib/platser.js`, `lib/util.js` | eventId-namnrymd, registrets geometri och hjälpare |
+ | `lib/oracles/existing.js`, `lib/oracles/health.js` | INV-F, INV-W, LEV, H1–H3 och H5 |
+@@ -1068,4 +1109,6 @@ Alla sökvägar under `tests/replay-validation/bugHunt/`.
+ | `lib/selftestSynth.js`, `canaries/kanarier.json`, `tools/writeCanaries.js` | kanarierna, rundresan och bankkalibreringens byggstenar |
+ | `lib/realism.js` | realismtabellen för R1 |
+ | `lib/synthLane.js` | fristående drivare för sanningsspåret (felsökning utan ramverket) |
+-| `__tests__/` | jest: schema, domarkärnan, registret, klustring och rapport, bankoperationer, hygien och pool, geometri och kalibrering, världen, sanningsoraklen samt krympning och bekräftelse |
++| `__tests__/` | jest: schema, domarkärnan, registret, klustring och rapport, bankoperationer, hygien och pool, geometri och kalibrering, världen, sanningsoraklen samt krympning och bekräftelse; varv 2: `k-varv2-motor.test.js` med fixturerna `varv2-motor-2026-11-09.json` (c14938f), `varv2-u24-2026-11-09.json` (familj B:s 0b0a35d) och `varv2-m9-1837-2026-11-09.json` (M9:s radio) |
++
++Utanför motorn bokför `tests/replay-validation/replayRunner.js#instrumentCoverageVerdicts` släppvägens domar (`openingCoverageVerdicts`, varv 2) åt registret; funktionen anropas från `instrumentApp` och är ren diagnostik (§2).
+diff --git a/tests/replay-validation/bugHunt/__tests__/a-radio.test.js b/tests/replay-validation/bugHunt/__tests__/a-radio.test.js
+index fe6a570..edf3106 100644
+--- a/tests/replay-validation/bugHunt/__tests__/a-radio.test.js
++++ b/tests/replay-validation/bugHunt/__tests__/a-radio.test.js
+@@ -208,3 +208,112 @@ describe('v = 0: stillaliggarmodellen gäller fortfarande', () => {
+     expect(rows.every((r) => r.sog === 0 && r.navStatus === 5)).toBe(true);
+   });
+ });
++
++// ---------------------------------------------------------------------------
++// Varv 2, M9: taktbyte vid avgång mitt i ett stillaintervall
++// ---------------------------------------------------------------------------
++
++describe('M9 (varv 2): nästa fixtid dras om när en stilla båt avgår före den dragna tiden', () => {
++  const { avgångMellan } = require('../lib/radio');
++  /** En båt söderut som köar 250 m före Klaffbron i durS och sedan kör vidare. */
++  const köSim = (era, cls, radioSeed, durS) => simulateWorld(deepFreeze({
++    version: 1,
++    seed: 302,
++    startMs: T0,
++    durS: 3 * 3600,
++    era,
++    boats: [{
++      mmsi: '265000302',
++      name: 'KÖAREN',
++      cls,
++      role: 'transit',
++      dir: 'south',
++      tStartS: 60,
++      sStart: S_KLAFF + 1500,
++      sEnd: S_KLAFF - 1500,
++      cruiseKn: 4,
++      v0Kn: 4,
++      laneM: 0,
++      queueLaneM: 0,
++      lateralSigma: 0,
++      plan: [{
++        op: 'queue', bridge: 'Klaffbron', distM: 250, durS,
++      }],
++      tags: [],
++      seed: 4,
++    }],
++    events: [],
++    radioSeed,
++  }));
++  /** Köns slut i L0 och banans första rörliga sekund efter den. */
++  const avgången = (bt) => {
++    const kö = bt.stops.find((x) => x.kind === 'queue');
++    return bt.traj.find((p) => p.t > kö.t1 && p.v !== 0);
++  };
++  const median = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
++  /** Ny och gammal modell för samma värld: raderna mottagna före avgången och fördröjningen till första fixen efter den. */
++  const jämför = (sim) => {
++    const tDep = T0 + (avgången(sim.boats[0]).t * 1000);
++    const ny = observeWorld(sim, { profile: 'R1' }).rows.filter((r) => !r.ctrl);
++    const gammal = observeWorld(sim, { profile: 'R1', overrides: { taktbyte: false } }).rows.filter((r) => !r.ctrl);
++    const n = ny.find((r) => r.fixTs > tDep);
++    const g = gammal.find((r) => r.fixTs > tDep);
++    return {
++      föreNy: ny.filter((r) => r.aisTimestamp < tDep), föreGammal: gammal.filter((r) => r.aisTimestamp < tDep), n: n ? n.fixTs - tDep : null, g: g ? g.fixTs - tDep : null,
++    };
++  };
++
++  test('avgångMellan hittar banans första rörliga sekund strikt inom intervallet', () => {
++    const bt = köSim('aisstream', 'A', 1001, 600).boats[0];
++    const dep = avgången(bt);
++    expect(Math.abs(bt.traj.find((p) => p.t === dep.t - 1).v)).toBe(0);
++    expect(avgångMellan(bt, dep.t - 100, dep.t + 100)).toBe(dep.t);
++    expect(avgångMellan(bt, dep.t - 100, dep.t)).toBeNull();
++    expect(avgångMellan(bt, dep.t - 300, dep.t - 100)).toBeNull();
++  });
++
++  test.each([
++    ['A'],
++    ['B'],
++  ])('R1, aisstream, klass %s: raderna före avgången är bitlika, och första fixen efter avgången kommer aldrig senare och ofta tidigare än i den gamla modellen', (cls) => {
++    let prövade = 0;
++    let tidigare = 0;
++    for (let k = 1; k <= 25; k++) {
++      const j = jämför(köSim('aisstream', cls, 1000 + k, 600 + (7 * k)));
++      expect(j.föreNy).toEqual(j.föreGammal);
++      if (j.g === null) continue;
++      prövade++;
++      expect(j.n).not.toBeNull();
++      expect(j.n).toBeLessThanOrEqual(j.g);
++      if (j.n < j.g) tidigare++;
++    }
++    expect(prövade).toBeGreaterThanOrEqual(10);
++    expect(tidigare).toBeGreaterThanOrEqual(5);
++  });
++
++  test.each([
++    ['A'],
++    ['B'],
++  ])('R1, AISHub, klass %s: raderna mottagna före avgången är bitlika, och fördröjningen till första fixen efter avgången krymper', (cls) => {
++    // AISHub levererar fixar med ålder i pollens takt, så en enskild värld kan
++    // få en fix från före avgången i den tidigare luckan och nästa fix senare.
++    // Mätt över världarna kommer avgången fram tidigare.
++    const ny = [];
++    const gammal = [];
++    for (let k = 1; k <= 25; k++) {
++      const j = jämför(köSim('aishub', cls, 1000 + k, 600 + (7 * k)));
++      expect(j.föreNy).toEqual(j.föreGammal);
++      if (j.g === null || j.n === null) continue;
++      ny.push(j.n);
++      gammal.push(j.g);
++    }
++    expect(ny.length).toBeGreaterThanOrEqual(15);
++    expect(median(ny)).toBeLessThan(median(gammal));
++    expect(Math.max(...ny)).toBeLessThan(Math.max(...gammal));
++  });
++
++  test('R0 och ett fast intervall påverkas inte: raderna är bitlika med och utan taktbytet', () => {
++    const sim = köSim('aisstream', 'A', 1003, 900);
++    expect(observeWorld(sim, { profile: 'R0' }).rows).toEqual(observeWorld(sim, { profile: 'R0', overrides: { taktbyte: false } }).rows);
++  });
++});
+diff --git a/tests/replay-validation/bugHunt/lib/radio.js b/tests/replay-validation/bugHunt/lib/radio.js
+index f2b8335..30f469f 100644
+--- a/tests/replay-validation/bugHunt/lib/radio.js
++++ b/tests/replay-validation/bugHunt/lib/radio.js
+@@ -26,6 +26,18 @@
+  * kommer ur en världsström som inte beror på vilka båtar som finns. Därför
+  * kan krympningen ta bort en båt utan att de andras observationer ändras.
+  *
++ * TAKTBYTE VID AVGÅNG (varv 2, M9). Nästa fixtid dras ur tillståndet vid
++ * fixet. Lämnar en stilla båt kön eller stoppet före den dragna tiden, dras
++ * tiden om: nästa fix kommer avgången + ett rörelseintervall, men aldrig
++ * senare än den först dragna tiden. En verklig transponder byter takt när
++ * farten ändras, och tätare rapportering kan bara flytta nästa sändning
++ * närmare. Förut hördes en båt som lämnade kön strax efter ett stillafix
++ * först när stillaintervallet hade löpt ut (världarna 290 och 625, F02 och
++ * F05). Omdragningen gäller båda erorna men inte ett fast intervall (R0 och
++ * fixedIntervalS), där takten inte beror på rörelsen. Den drar ett extra tal
++ * ur båtens egen slumpström bara när en sådan avgång finns, så båtar utan
++ * avgång mitt i ett stillaintervall får bitlika rader.
++ *
+  * RADION SKRIVER ALDRIG I SPECEN. Slumputfall som namnfördröjning bokförs i
+  * en separat radiorealisering som returneras bredvid raderna.
+  *
+@@ -41,12 +53,16 @@ const { truthAt, KN } = require('./world');
+ const M_PER_DEG_LAT = 111320;
+ 
+ /** Radioprofilerna. Båtens egna fält (fixedIntervalS, noise, nameLagMin, firstHeardS) går före. */
++// taktbyte: nästa fixtid dras om vid en avgång mitt i ett stillaintervall
++// (modulhuvudet, varv 2, M9). Overkan i R0, där intervallet är fast; kan
++// stängas av med overrides ({ taktbyte: false }) för att jämföra med den
++// gamla modellen.
+ const PROFILES = {
+   R0: {
+-    id: 'R0', era: 'aisstream', intervalS: 30, forceClassA: true, noise: false, nameLag: false, lateBirth: false,
++    id: 'R0', era: 'aisstream', intervalS: 30, forceClassA: true, noise: false, nameLag: false, lateBirth: false, taktbyte: true,
+   },
+   R1: {
+-    id: 'R1', era: null, intervalS: null, forceClassA: false, noise: true, nameLag: true, lateBirth: true,
++    id: 'R1', era: null, intervalS: null, forceClassA: false, noise: true, nameLag: true, lateBirth: true, taktbyte: true,
+   },
+ };
+ 
+@@ -147,6 +163,24 @@ function makeRow(ctx, p, tFixMs, tRecvMs, feed) {
+   };
+ }
+ 
++/**
++ * Första tidpunkten (s) strikt efter frånS och strikt före tillS då banan
++ * rör sig (|v| > 0), eller null. Banan har steg om 1 s (world.js).
++ * @param {object} bt - båtens simulering {traj}
++ * @param {number} frånS - fixets tid (s)
++ * @param {number} tillS - den dragna nästa fixtiden (s)
++ * @returns {number|null} avgångens tid (s)
++ */
++function avgångMellan(bt, frånS, tillS) {
++  const tr = bt.traj;
++  if (!tr.length) return null;
++  const i0 = Math.max(0, Math.floor(frånS - tr[0].t) + 1);
++  for (let i = i0; i < tr.length && tr[i].t < tillS; i++) {
++    if (tr[i].t > frånS && inMotion(tr[i])) return tr[i].t;
++  }
++  return null;
++}
++
+ /** Tysta intervall [från, till) i sekunder ur världens ctrl-händelser. */
+ function silenceWindows(world) {
+   const evs = [...(world.events || [])].sort((a, b) => a.atS - b.atS);
+@@ -221,10 +255,19 @@ function observeWorld(sim, opts = {}) {
+     // transitkvantiler i rörelse och stillakvantilerna vid v = 0. Fältet har
+     // kadens bara för transit (sog ≥ 2 kn) och stilla (sog < 0,3 kn, < 60 m
+     // mellan fixarna); AIS-klassernas fartberoende sändregler (klass B
+-    // ≤ 2 kn var 3:e min) modelleras inte i v1 (BUGGJAKT.md §4.5).
++    // ≤ 2 kn var 3:e min) modelleras inte i v1 (BUGGJAKT.md §4.5). Regimen
++    // byts vid avgången, inte först vid nästa fix (omdragen, varv 2, M9).
+     const interval = (feed, moving) => (Number.isFinite(fixedIv)
+       ? fixedIv
+       : cal.cadence[feed][cls][moving ? 'move' : 'still'](rnd.u()));
++    // Taktbytet vid avgång (modulhuvudet): nästa fixtid efter ett stillafix
++    // vid frånS, med intervallet minIv som golv (aisstream: 10 s).
++    const omdragen = (feed, frånS, nästaS, minIv = 0) => {
++      if (Number.isFinite(fixedIv) || profile.taktbyte === false) return nästaS;
++      const avg = avgångMellan(bt, frånS, nästaS);
++      if (avg === null) return nästaS;
++      return Math.min(nästaS, avg + Math.max(minIv, interval(feed, true)));
++    };
+     const tEnd = tr[tr.length - 1].t;
+     if (era === 'aisstream') {
+       let tS = tr[0].t + (Number.isFinite(fixedIv) ? rnd.range(0, fixedIv) : rnd.range(0, 30));
+@@ -241,7 +284,8 @@ function observeWorld(sim, opts = {}) {
+           const tMs = T0 + Math.round(tS * 1000);
+           rows.push(makeRow(ctx, p, tMs, tMs, 'aisstream'));
+         }
+-        tS += Math.max(10, interval('aisstream', moving));
++        const nästa = tS + Math.max(10, interval('aisstream', moving));
++        tS = moving ? nästa : omdragen('aisstream', tS, nästa, 10);
+       }
+     } else {
+       // AISHub: pollkvantiserad leverans, fixålder och sekundupplöst fixTs.
+@@ -271,6 +315,10 @@ function observeWorld(sim, opts = {}) {
+         due = fixS + interval('aishub', moving);
+         const recvMs = T0 + Math.round(P * 1000) + rnd.int(0, 150);
+         rows.push(makeRow(ctx, p, T0 + (fixS * 1000), recvMs, 'aishub'));
++        // Stilla vid pollen: en avgång efter pollen och före den dragna tiden
++        // ger rörelsetakt från avgången. Omdragningen kommer efter raden, så
++        // att raden själv drar samma slumptal som i den gamla modellen.
++        if (!moving) due = omdragen('aishub', P, due);
+       }
+     }
+   }
+@@ -320,5 +368,5 @@ function checkRows(rows) {
+ const toJsonl = (rows) => `${rows.map((x) => JSON.stringify(x)).join('\n')}\n`;
+ 
+ module.exports = {
+-  PROFILES, resolveProfile, inMotion, observeWorld, silenceWindows, pollTimes, checkRows, toJsonl,
++  PROFILES, resolveProfile, inMotion, avgångMellan, observeWorld, silenceWindows, pollTimes, checkRows, toJsonl,
+ };
+-- 
+2.43.0
+

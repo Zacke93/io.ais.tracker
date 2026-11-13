@@ -1,0 +1,1651 @@
+From ac4e131614049485ba5c90423ca96514e5ed9cba Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 5 Nov 2026 01:30:22 +0000
+Subject: [PATCH 15/24] =?UTF-8?q?E2-revisionen:=20m=C3=B6tande=20konvoj,?=
+ =?UTF-8?q?=20F07-baslinjen,=20F06-marginalen=20och=20=C3=B6kningstaket?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Efter granskningen 2026-11-05:
+- BridgeOpeningService._meetsOnlySilentOpening: en mötande arm absorberas
+  inte i en avfyrad, o-passerad händelse vars varnade medlemmar alla är
+  tysta (> 5 min) när hennes egen deadline ligger framför henne. 25h
+  ELAIZA/SENTA får varning 15:17:16 i stället för RECOVER efter korsningen.
+  Samordnas med K/K2.
+- _reconcilePublishedETA: en baslinje äldre än Fix G:s mjuka gräns (5 min)
+  försvaras inte mot en lägre färsk mätning (AVALON 21h, om 18 → om 12).
+- _leadsEtaGroup följer brotextens lista och isValidETA; Fix G:s
+  registrering avgörs efter snapshot-loopen.
+- F06: kvot ≥ 1,2 och momentanfartens ETA ≥ 3,5 min (NORDIC SOLA m.fl.).
+- dramatic_increase-hållningen har ett tak på 15 min.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ app.js                                        | 837 ++++++++++--------
+ lib/services/BridgeOpeningService.js          |  55 +-
+ lib/services/ProgressiveETACalculator.js      |  58 +-
+ tests/e2-eta-etapp-2026-11-04.test.js         |  12 +-
+ tests/e2-revision-2026-11-05.test.js          | 368 ++++++++
+ ...2-25h-elaiza-senta-motande-tyst-vard.jsonl |  14 +
+ .../fixtures/e2-quick-varld5-brisen-u17.jsonl |  57 ++
+ 7 files changed, 1019 insertions(+), 382 deletions(-)
+ create mode 100644 tests/e2-revision-2026-11-05.test.js
+ create mode 100644 tests/fixtures/e2-25h-elaiza-senta-motande-tyst-vard.jsonl
+ create mode 100644 tests/fixtures/e2-quick-varld5-brisen-u17.jsonl
+
+diff --git a/app.js b/app.js
+index 460b71d..ff36c16 100755
+--- a/app.js
++++ b/app.js
+@@ -42,7 +42,9 @@ const RouteOrderValidator = require('./lib/services/RouteOrderValidator'); // Va
+ const AISSourceMultiplexer = require('./lib/connection/AISSourceMultiplexer'); // äger AISStreamClient + ev. AISHubClient
+ 
+ // UTILITIES: Hjälpfunktioner
+-const { etaDisplay, formatETABroOpeningClause, etaMinutesForDisplay } = require('./lib/utils/etaValidation');
++const {
++  etaDisplay, formatETABroOpeningClause, etaMinutesForDisplay, isValidETA,
++} = require('./lib/utils/etaValidation');
+ const geometry = require('./lib/utils/geometry');
+ const GPSJumpAnalyzer = require('./lib/utils/GPSJumpAnalyzer');
+ const { waitingBridge, queueBridge, hasFreshPosition } = require('./lib/utils/bridgeQueue');
+@@ -5315,9 +5317,11 @@ class AISBridgeApp extends Homey.App {
+ 
+   /**
+    * E2 (F07): leder fartyget sin målbros grupp i brotexten med det här
+-   * ETA-värdet? Samma urval som BridgeTextService gör: båtar med samma målbro
+-   * som inte står i kö vid en annan bro, utan zombieläge, och ledaren är den
+-   * med lägst giltig ETA.
++   * ETA-värdet? Urvalet är brotextens: VesselDataService.getVesselsForBridgeText
++   * (BRIDGE_TEXT_FILTER, _isVesselSuitableForBridgeText och stale-undantagen),
++   * samma målbro, ingen kö vid en annan bro, inte redan förbi målbron, och en
++   * giltig ETA enligt isValidETA (> 0) för de andra. Ett fartyg som själv inte
++   * står i brotextens lista syns inte och leder därför inte.
+    * @param {Object} vessel - fartyget
+    * @param {number} eta - fartygets ETA (minuter)
+    * @returns {boolean} sant om värdet är det brotexten visar för gruppen
+@@ -5325,22 +5329,78 @@ class AISBridgeApp extends Homey.App {
+    */
+   _leadsEtaGroup(vessel, eta) {
+     const target = vessel && vessel.targetBridge;
+-    if (!target || !Number.isFinite(eta)) return false;
++    if (!target || !Number.isFinite(eta) || eta < 0) return false;
+     const inMovingGroup = (v) => {
+       const queue = waitingBridge(v);
+       return !queue || queue === v.targetBridge;
+     };
+     if (!inMovingGroup(vessel)) return false;
+-    const all = this.vesselDataService && typeof this.vesselDataService.getAllVessels === 'function'
+-      ? this.vesselDataService.getAllVessels() : [];
+-    return !all.some((other) => other && String(other.mmsi) !== String(vessel.mmsi)
++    const vds = this.vesselDataService;
++    let shown = [];
++    if (vds && typeof vds.getVesselsForBridgeText === 'function') shown = vds.getVesselsForBridgeText();
++    else if (vds && typeof vds.getAllVessels === 'function') shown = vds.getAllVessels();
++    const self = String(vessel.mmsi);
++    if (!shown.some((v) => v && String(v.mmsi) === self)) return false;
++    return !shown.some((other) => other && String(other.mmsi) !== self
+       && other.targetBridge === target
+-      && Number.isFinite(other.etaMinutes) && other.etaMinutes >= 0
++      && isValidETA(other.etaMinutes)
+       && other.etaMinutes < eta
+       && !(Array.isArray(other.passedBridges) && other.passedBridges.includes(other.targetBridge))
+       && inMovingGroup(other));
+   }
+ 
++  /**
++   * E2 (F07): bokför en EXTRAPOLERAD publicering (Fix G) som spärrens
++   * baslinje bara när brotexten visar den. En gissning för en båt som inte
++   * leder sin grupp har ingen sett, och den får inte hålla uppe nästa färska
++   * mätning. I snapshot-loopen skjuts beslutet upp till efter loopen, så att
++   * alla båtars värden för passet finns när ledaren avgörs (granskningen
++   * 2026-11-05: i loopen kunde en annan båts etaMinutes vara från före hennes
++   * egen extrapolering). Mätta publiceringar bokförs som förut: de syns även
++   * i notistokenen och öppningskortet, och en icke-ledares baslinje som
++   * aldrig flyttades höll hennes värde uppe tills hon tog över texten
++   * (CATHARINA 20260610-19h 08:12:00, "om 7" mot verkliga 2,4 — mätt och
++   * återtaget). Den gamla baslinjen släpps i stället av åldern, se
++   * _reconcilePublishedETA.
++   * @param {Object} vessel - fartyget
++   * @param {number} value - publicerat värde (minuter)
++   * @param {number} atMs - publiceringens tid för glappmåttet
++   * @param {string} kind - publiceringens slag (loggen)
++   * @private
++   */
++  _notePublishedETA(vessel, value, atMs, kind) {
++    if (Array.isArray(this._pendingPublishedNotes)) {
++      this._pendingPublishedNotes.push({
++        vessel, value, atMs, kind,
++      });
++      return;
++    }
++    this._applyPublishedNote(vessel, value, atMs, kind);
++  }
++
++  /** @private */
++  _applyPublishedNote(vessel, value, atMs, kind) {
++    if (this._leadsEtaGroup(vessel, value)) {
++      vessel._etaPublishedValue = value;
++      vessel._etaPublishedAtMs = atMs;
++      return;
++    }
++    this.debug(
++      `🪜 [ETA_PUBLISH_UNSEEN] ${vessel.mmsi}: ${kind} ${value.toFixed(1)} min leder inte `
++      + `${vessel.targetBridge}-gruppen i brotexten — spärrens baslinje står kvar på senast visade värde`,
++    );
++  }
++
++  /** @private */
++  _flushPublishedNotes() {
++    const notes = this._pendingPublishedNotes;
++    this._pendingPublishedNotes = null;
++    if (!Array.isArray(notes)) return;
++    for (const note of notes) {
++      this._applyPublishedNote(note.vessel, note.value, note.atMs, note.kind);
++    }
++  }
++
+   /**
+    * RC4-fix (2026-06-11): dämpa en färsk ETA-beräkning mot det senast
+    * PUBLICERADE värdet för samma fartyg+målbro. Kalkylatorns interna
+@@ -5360,7 +5420,32 @@ class AISBridgeApp extends Homey.App {
+     // inte som referens eftersom meddelandevägen skriver över det innan
+     // snapshot-vägen hinner jämföra (då blir clampen en no-op och sågtänder
+     // läcker: 19h-replayen visade 3→9 på 10 s via exakt det hålet).
+-    const published = Number.isFinite(vessel._etaPublishedValue) ? vessel._etaPublishedValue : null;
++    // E2-granskningen (F07): en baslinje som är äldre än Fix G:s mjuka gräns
++    // (STALE_ETA_SOFT_THRESHOLD_MS, 5 min) försvaras inte. Appen räknar själv
++    // ett så gammalt värde som inaktuellt — det är då Fix G börjar
++    // extrapolera — och kalkylatorns glappsteg har redan prövat fixets färska
++    // skattning mot en baslinje (K6 del 1). Utan regeln dämpades AVALON:s
++    // färska 11,9 mot hennes egen mätning 30,3 från 5,04 min tidigare, som
++    // aldrig visades (JÄÄTTEN ledde gruppen), till 17,7, och texten blev
++    // "om 18" 07:11:30 mot verkliga 4,5 (20260708-21h). SISU (glapp 0,2 och
++    // 3,5 min) och IDUN (0,5 och 3,0 min) ligger under gränsen.
++    const publishedAgeMs = Number.isFinite(vessel._etaPublishedAtMs)
++      ? Date.now() - vessel._etaPublishedAtMs : 0;
++    // Släppet gäller bara en LÄGRE färsk mätning: spärren ska inte hålla uppe
++    // ett inaktuellt värde, men den skyddar fortfarande mot ett hopp uppåt
++    // (NOCHT 20260601-41h 11:08:02: utan riktningskravet gick "om 26" till
++    // "om 40" mot verkliga 16,2 — mätt och återtaget).
++    const publishedStale = publishedAgeMs > UI_CONSTANTS.STALE_ETA_SOFT_THRESHOLD_MS
++      && Number.isFinite(vessel._etaPublishedValue) && Number.isFinite(freshETA)
++      && freshETA < vessel._etaPublishedValue;
++    if (publishedStale) {
++      this.debug(
++        `🪜 [ETA_PUBLISH_BASE_STALE] ${vessel.mmsi}: baslinjen ${vessel._etaPublishedValue.toFixed(1)} min är `
++        + `${(publishedAgeMs / 60000).toFixed(1)} min gammal — färsk ${freshETA.toFixed(1)} dämpas inte mot den`,
++      );
++    }
++    const published = Number.isFinite(vessel._etaPublishedValue) && !publishedStale
++      ? vessel._etaPublishedValue : null;
+     const sameTarget = vessel._etaPublishTarget === vessel.targetBridge;
+     vessel._etaPublishTarget = vessel.targetBridge;
+ 
+@@ -6907,405 +6992,405 @@ class AISBridgeApp extends Homey.App {
+   _reevaluateVesselStatuses() {
+     const allVessels = this.vesselDataService.getAllVessels();
+ 
+-    allVessels.forEach((vessel) => {
+-      try {
+-        // CRITICAL FIX: Validate vessel object before processing
+-        if (!vessel || !vessel.mmsi || !Number.isFinite(vessel.lat) || !Number.isFinite(vessel.lon)) {
+-          // Helgranskning 2026-07-10 (T-2): nollställ imminent-flaggan innan
+-          // hoppet — resten av loopen (inkl. den ordinarie reset-then-set-
+-          // sekvensen längre ned) körs aldrig för det här fartyget, så en
+-          // kvarhängande true från förra ticket kunde annars driva falskt
+-          // "strax" i texten för en båt utan användbar position.
+-          if (vessel && vessel._isImminentAtTargetBridge) {
+-            vessel._isImminentAtTargetBridge = false;
+-          }
+-          // A3-4 (Fable 2026-07-10b): T-2-kompletteringen — returen hoppar
+-          // över hela ETA-staleness-maskineriet (inkl. HARD-nollningen), så
+-          // etaMinutes frös annars på sist beräknade värde och texten visade
+-          // fryst minutsiffra i stället för degradering.
+-          if (vessel && vessel.etaMinutes !== null && vessel.etaMinutes !== undefined) {
+-            vessel.etaMinutes = null;
+-            vessel._etaIsExtrapolated = false;
+-          }
+-          this.debug('⚠️ [STATUS_UPDATE] Skipping invalid vessel:', vessel?.mmsi || 'unknown');
+-          return;
+-        }
+-
+-        // Re-analyze proximity and status for each vessel
+-        const proximityData = this.proximityService.analyzeVesselProximity(vessel);
+-        // Fable-granskningen 2026-07-10b (S-1): timer-/snapshotvägen anropade
+-        // utan positionAnalysis → stabilizern (gate:ad på den i StatusService)
+-        // hoppades över och vessel.status skrevs ovillkorligt nedan. Det hold
+-        // stabilizern etablerade i meddelandevägen (GPS-hopp 30 s /
+-        // osäkerhets-konsistenskravet) revs därmed upp inom ≤30 s av nästa
+-        // timerpass från SAMMA osäkra position — falsk statusflapp i text och
+-        // notiskedja. ETA-vägen längre ned har haft exakt dessa gater hela
+-        // tiden (_positionUncertain/_gpsJumpDetected); statusvägen får nu
+-        // samma: syntetisera analysen ur fartygets flaggor (satta per senast
+-        // accepterade meddelande, nollade av nästa rena sample).
+-        const timerPositionAnalysis = (vessel._gpsJumpDetected === true || vessel._positionUncertain === true)
+-          ? {
+-            gpsJumpDetected: vessel._gpsJumpDetected === true,
+-            positionUncertain: vessel._positionUncertain === true,
+-          }
+-          : null;
+-        const statusResult = this.statusService.analyzeVesselStatus(vessel, proximityData, timerPositionAnalysis);
+-
+-        // CRITICAL FIX: Always update status - it might have been changed elsewhere
+-        // This ensures UI always gets the latest status
+-        vessel.status = statusResult.status;
+-        vessel.isWaiting = statusResult.isWaiting;
+-        vessel.isApproaching = statusResult.isApproaching;
+-
+-        // Bug B fix: only recalculate ETA if we received a fresh AIS position update
+-        // Timer-only re-evaluations reuse the last ETA to prevent oscillation.
+-        // Same status list as in _processAISMessage above — 'under-bridge' is
+-        // included so a vessel at the bridge keeps showing a meaningful clause
+-        // ("strax" for <1min) instead of "ETA okänd".
+-        // Fix 1: same status list as in _processAISMessage above. 'passed'
+-        // is included only when targetBridge points to a new (different) bridge,
+-        // so post-passage watchdog ticks compute ETA toward the next target
+-        // instead of nulling it (which would render as "ETA okänd").
+-        const hasOngoingJourneyEval = vessel.targetBridge
+-          && vessel.targetBridge !== vessel.lastPassedBridge;
+-        const inETACalcStatus = ['approaching', 'waiting', 'en-route', 'stallbacka-waiting', 'under-bridge']
+-          .includes(vessel.status)
+-          || (vessel.status === 'passed' && hasOngoingJourneyEval);
+-
+-        if (inETACalcStatus) {
+-          if (vessel._positionUpdatedSinceLastETA
+-              && vessel._positionUncertain !== true
+-              && vessel._gpsJumpDetected !== true) {
+-            // RC4-fix (2026-06-11): dämpa färsk beräkning mot senast
+-            // PUBLICERADE värde (det användaren faktiskt såg) — kalkylatorns
+-            // interna historik vet inget om Fix G-extrapolerade publiceringar,
+-            // så utan detta uppstår sågtand (19h-loggen: 9→"cirka 4"→9→17).
+-            //
+-            // Echo-gaten (2026-07-02b, scenariot fördröjd-gammal-position):
+-            // ett GPS-osäkert sampel (S-F4 accept_with_caution — t.ex. en
+-            // out-of-order-levererad GAMMAL position 400 m bakåt) får inte
+-            // driva ett publicerat ETA-hopp ("strax"→"om 4 minuter"→"strax"
+-            // inom 90 s). Behåll publicerat värde tills ett RENT sampel
+-            // kommer (_positionUncertain nollställs per sampel). Flappen
+-            // maskerades tidigare av att distance_fallback felaktigt förklarade
+-            // ankommande båtar passerade — sidbyteskravet avslöjade den.
+-            const freshETA = this.statusService.calculateETA(vessel, proximityData);
+-            vessel.etaMinutes = this._reconcilePublishedETA(vessel, freshETA);
+-            vessel._positionUpdatedSinceLastETA = false;
+-            vessel._etaIsExtrapolated = false;
+-            vessel._etaExtrapolationBaseMs = Date.now();
+-            vessel._etaExtrapolationExhausted = false;
+-            vessel._etaExtrapolationBaseValue = undefined;
+-            vessel._etaExhaustedAtMs = null;
+-          } else {
+-            // Fix G (2026-04-28): smart stale-ETA-hantering.
+-            //   0–5 min:  använd senaste ETA oförändrat (täcker normalt AIS-jitter)
+-            //   5–10 min: extrapolera ned (lastETA - ageMin) → "om cirka N min"
+-            //   >10 min:  nullify → "ETA okänd"
+-            // För bilförare ger extrapolation användbar info under typiska
+-            // Klass B AIS-glapp 5–8 min. Om båten vänt under tystnaden rättas
+-            // siffran inom max 10 min av nästa AIS-tick.
+-            // F40 FÖRFINAT (fältprov 4, 2026-07-09, SOKERI — F4-E): staleness
+-            // mäts mot senast BEKRÄFTADE positionsrapport
+-            // (max(timestamp, lastPositionUpdate)), inte enbart positions-
+-            // ÄNDRINGSTID. SOKERI väntade 74 m från Stridsbergsbron (sog 0,
+-            // sände accepterade positioner var ~3:e min) men lastPositionUpdate
+-            // frös vid ankomsten → ETA_STALE_HARD dömde henne "615s old" och
+-            // texten föll till "ETA okänd" mitt i kön (åtta läsarfynd, samma
+-            // rot). En stillaliggande båt vars position BEKRÄFTAS färskt är
+-            // inte "okänd position" — det är känd, färsk, stilla position.
+-            // Anomali-3-/WIZARD-säkerhetsvalet BESTÅR: vessel.timestamp bumpar
+-            // bara när ett positionsmeddelande faktiskt bearbetas
+-            // (_createVesselObject) — en tyst transponder fryser båda
+-            // klockorna och degraderingen slår som förut.
+-            const ageMs = Date.now() - this._lastConfirmedPositionMs(vessel);
+-            const queueAhead = queueBridge(vessel);
+-            if (ageMs > UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS) {
+-              if (vessel.etaMinutes !== null) {
+-                this.debug(
+-                  `⏰ [ETA_STALE_HARD] ${vessel.mmsi}: AIS ${Math.round(ageMs / 1000)}s old → clearing ETA`,
+-                );
+-                // FP7-1 (2026-07-12, NICOLINE): armera kalkylatorns
+-                // stationär-hold — UTAN att röra historiken. Nästa färska
+-                // sample för en STATIONÄR båt golvfabricerade annars om
+-                // ("om 101 minuter" på 0,1 kn, visad i 9 min); en RÖRLIG
+-                // återkomst släpper holden direkt och behåller sin
+-                // dämpningshistorik exakt som förut (rensningsvarianten
+-                // rörde 6 låsta korpusgoldens och ÅTERTOGS). Kö-båtar med
+-                // normal kadens når aldrig hit (>600 s-tröskeln).
+-                this.statusService.armStationaryETAHold(String(vessel.mmsi), 'eta_stale_hard');
+-              }
++    // E2 (F07): spärrens baslinjer avgörs efter loopen, när varje båts värde
++    // för passet finns (se _notePublishedETA).
++    this._pendingPublishedNotes = [];
++    try {
++      allVessels.forEach((vessel) => {
++        try {
++          // CRITICAL FIX: Validate vessel object before processing
++          if (!vessel || !vessel.mmsi || !Number.isFinite(vessel.lat) || !Number.isFinite(vessel.lon)) {
++            // Helgranskning 2026-07-10 (T-2): nollställ imminent-flaggan innan
++            // hoppet — resten av loopen (inkl. den ordinarie reset-then-set-
++            // sekvensen längre ned) körs aldrig för det här fartyget, så en
++            // kvarhängande true från förra ticket kunde annars driva falskt
++            // "strax" i texten för en båt utan användbar position.
++            if (vessel && vessel._isImminentAtTargetBridge) {
++              vessel._isImminentAtTargetBridge = false;
++            }
++            // A3-4 (Fable 2026-07-10b): T-2-kompletteringen — returen hoppar
++            // över hela ETA-staleness-maskineriet (inkl. HARD-nollningen), så
++            // etaMinutes frös annars på sist beräknade värde och texten visade
++            // fryst minutsiffra i stället för degradering.
++            if (vessel && vessel.etaMinutes !== null && vessel.etaMinutes !== undefined) {
+               vessel.etaMinutes = null;
+               vessel._etaIsExtrapolated = false;
+-              vessel._etaPublishedValue = null; // RC4: "okänd" = ny baslinje
+-              // Anomali 3: rensa exhausted-flagga vid HARD-zon. Vid >10 min stale
+-              // är data för gammal för att lita på att båten fortfarande är vid bron.
+-              vessel._etaExtrapolationExhausted = false;
+-              vessel._etaExhaustedAtMs = null;
+-            } else if (ageMs > UI_CONSTANTS.STALE_ETA_SOFT_THRESHOLD_MS
+-                && (!Number.isFinite(vessel.sog) || vessel.sog < 1.0
+-                  || (queueAhead && queueAhead.name !== vessel.targetBridge))) {
+-              // En gammal låg fart kan varken ge framdrift eller lova att
+-              // samma minuter fortfarande återstår efter ett hamnstopp.
+-              // Behåll spärren även vid nästa stillastående fix. Annars
+-              // når den redan nollade ETA:n aldrig tiominutersgrenens hold.
+-              if (vessel.etaMinutes !== null) {
+-                this.statusService.armStationaryETAHold(String(vessel.mmsi), 'eta_stale_soft');
+-              }
+-              vessel.etaMinutes = null;
++            }
++            this.debug('⚠️ [STATUS_UPDATE] Skipping invalid vessel:', vessel?.mmsi || 'unknown');
++            return;
++          }
++
++          // Re-analyze proximity and status for each vessel
++          const proximityData = this.proximityService.analyzeVesselProximity(vessel);
++          // Fable-granskningen 2026-07-10b (S-1): timer-/snapshotvägen anropade
++          // utan positionAnalysis → stabilizern (gate:ad på den i StatusService)
++          // hoppades över och vessel.status skrevs ovillkorligt nedan. Det hold
++          // stabilizern etablerade i meddelandevägen (GPS-hopp 30 s /
++          // osäkerhets-konsistenskravet) revs därmed upp inom ≤30 s av nästa
++          // timerpass från SAMMA osäkra position — falsk statusflapp i text och
++          // notiskedja. ETA-vägen längre ned har haft exakt dessa gater hela
++          // tiden (_positionUncertain/_gpsJumpDetected); statusvägen får nu
++          // samma: syntetisera analysen ur fartygets flaggor (satta per senast
++          // accepterade meddelande, nollade av nästa rena sample).
++          const timerPositionAnalysis = (vessel._gpsJumpDetected === true || vessel._positionUncertain === true)
++            ? {
++              gpsJumpDetected: vessel._gpsJumpDetected === true,
++              positionUncertain: vessel._positionUncertain === true,
++            }
++            : null;
++          const statusResult = this.statusService.analyzeVesselStatus(vessel, proximityData, timerPositionAnalysis);
++
++          // CRITICAL FIX: Always update status - it might have been changed elsewhere
++          // This ensures UI always gets the latest status
++          vessel.status = statusResult.status;
++          vessel.isWaiting = statusResult.isWaiting;
++          vessel.isApproaching = statusResult.isApproaching;
++
++          // Bug B fix: only recalculate ETA if we received a fresh AIS position update
++          // Timer-only re-evaluations reuse the last ETA to prevent oscillation.
++          // Same status list as in _processAISMessage above — 'under-bridge' is
++          // included so a vessel at the bridge keeps showing a meaningful clause
++          // ("strax" for <1min) instead of "ETA okänd".
++          // Fix 1: same status list as in _processAISMessage above. 'passed'
++          // is included only when targetBridge points to a new (different) bridge,
++          // so post-passage watchdog ticks compute ETA toward the next target
++          // instead of nulling it (which would render as "ETA okänd").
++          const hasOngoingJourneyEval = vessel.targetBridge
++            && vessel.targetBridge !== vessel.lastPassedBridge;
++          const inETACalcStatus = ['approaching', 'waiting', 'en-route', 'stallbacka-waiting', 'under-bridge']
++            .includes(vessel.status)
++            || (vessel.status === 'passed' && hasOngoingJourneyEval);
++
++          if (inETACalcStatus) {
++            if (vessel._positionUpdatedSinceLastETA
++                && vessel._positionUncertain !== true
++                && vessel._gpsJumpDetected !== true) {
++              // RC4-fix (2026-06-11): dämpa färsk beräkning mot senast
++              // PUBLICERADE värde (det användaren faktiskt såg) — kalkylatorns
++              // interna historik vet inget om Fix G-extrapolerade publiceringar,
++              // så utan detta uppstår sågtand (19h-loggen: 9→"cirka 4"→9→17).
++              //
++              // Echo-gaten (2026-07-02b, scenariot fördröjd-gammal-position):
++              // ett GPS-osäkert sampel (S-F4 accept_with_caution — t.ex. en
++              // out-of-order-levererad GAMMAL position 400 m bakåt) får inte
++              // driva ett publicerat ETA-hopp ("strax"→"om 4 minuter"→"strax"
++              // inom 90 s). Behåll publicerat värde tills ett RENT sampel
++              // kommer (_positionUncertain nollställs per sampel). Flappen
++              // maskerades tidigare av att distance_fallback felaktigt förklarade
++              // ankommande båtar passerade — sidbyteskravet avslöjade den.
++              const freshETA = this.statusService.calculateETA(vessel, proximityData);
++              vessel.etaMinutes = this._reconcilePublishedETA(vessel, freshETA);
++              vessel._positionUpdatedSinceLastETA = false;
+               vessel._etaIsExtrapolated = false;
+-              vessel._etaPublishedValue = null;
++              vessel._etaExtrapolationBaseMs = Date.now();
+               vessel._etaExtrapolationExhausted = false;
++              vessel._etaExtrapolationBaseValue = undefined;
+               vessel._etaExhaustedAtMs = null;
+-            } else if (ageMs > UI_CONSTANTS.STALE_ETA_SOFT_THRESHOLD_MS
+-                && Number.isFinite(vessel.etaMinutes)
+-                && vessel.etaMinutes > 0
+-                // RC4-fix (2026-06-11): dead-reckoning förutsätter FRAMDRIFT.
+-                // För nära-stillastående båtar (sog < 1 kn) domineras verkligt
+-                // ETA av fartgolven och SJUNKER inte med tiden — extrapolering
+-                // som drar av 1 min/min springer före verkligheten och ger
+-                // sågtand när färsk AIS rättar (LILLI: 9→cirka4→9). Behåll
+-                // senaste värdet oförändrat i stället (else-grenen nedan).
+-                && Number.isFinite(vessel.sog) && vessel.sog >= 1.0) {
+-              // Extrapolera: dra av tiden som gått sedan senaste verkliga beräkning.
+-              const baseMs = Number.isFinite(vessel._etaExtrapolationBaseMs)
+-                ? vessel._etaExtrapolationBaseMs
+-                : (vessel.lastPositionUpdate || Date.now());
+-              const elapsedMin = (Date.now() - baseMs) / 60000;
+-              const baseETA = Number.isFinite(vessel._etaExtrapolationBaseValue)
+-                ? vessel._etaExtrapolationBaseValue
+-                : vessel.etaMinutes;
+-              const extrapolated = Math.max(0, baseETA - elapsedMin);
+-              if (extrapolated > 0) {
+-                vessel.etaMinutes = extrapolated;
+-                vessel._etaIsExtrapolated = true;
+-                // RC4: extrapolerade värden ÄR publicerade — registrera dem som
+-                // baslinje så nästa färska beräkning dämpas mot det användaren såg
+-                if (this._leadsEtaGroup(vessel, extrapolated)) {
+-                  vessel._etaPublishedValue = extrapolated;
+-                  vessel._etaPublishedAtMs = Date.now();
+-                } else {
++            } else {
++              // Fix G (2026-04-28): smart stale-ETA-hantering.
++              //   0–5 min:  använd senaste ETA oförändrat (täcker normalt AIS-jitter)
++              //   5–10 min: extrapolera ned (lastETA - ageMin) → "om cirka N min"
++              //   >10 min:  nullify → "ETA okänd"
++              // För bilförare ger extrapolation användbar info under typiska
++              // Klass B AIS-glapp 5–8 min. Om båten vänt under tystnaden rättas
++              // siffran inom max 10 min av nästa AIS-tick.
++              // F40 FÖRFINAT (fältprov 4, 2026-07-09, SOKERI — F4-E): staleness
++              // mäts mot senast BEKRÄFTADE positionsrapport
++              // (max(timestamp, lastPositionUpdate)), inte enbart positions-
++              // ÄNDRINGSTID. SOKERI väntade 74 m från Stridsbergsbron (sog 0,
++              // sände accepterade positioner var ~3:e min) men lastPositionUpdate
++              // frös vid ankomsten → ETA_STALE_HARD dömde henne "615s old" och
++              // texten föll till "ETA okänd" mitt i kön (åtta läsarfynd, samma
++              // rot). En stillaliggande båt vars position BEKRÄFTAS färskt är
++              // inte "okänd position" — det är känd, färsk, stilla position.
++              // Anomali-3-/WIZARD-säkerhetsvalet BESTÅR: vessel.timestamp bumpar
++              // bara när ett positionsmeddelande faktiskt bearbetas
++              // (_createVesselObject) — en tyst transponder fryser båda
++              // klockorna och degraderingen slår som förut.
++              const ageMs = Date.now() - this._lastConfirmedPositionMs(vessel);
++              const queueAhead = queueBridge(vessel);
++              if (ageMs > UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS) {
++                if (vessel.etaMinutes !== null) {
+                   this.debug(
+-                    `🪜 [ETA_EXTRAPOLATION_UNSEEN] ${vessel.mmsi}: extrapolerad ${extrapolated.toFixed(1)} min leder inte `
+-                    + `${vessel.targetBridge}-gruppen — spärrens baslinje står kvar på senast mätta publicering`,
++                    `⏰ [ETA_STALE_HARD] ${vessel.mmsi}: AIS ${Math.round(ageMs / 1000)}s old → clearing ETA`,
+                   );
++                  // FP7-1 (2026-07-12, NICOLINE): armera kalkylatorns
++                  // stationär-hold — UTAN att röra historiken. Nästa färska
++                  // sample för en STATIONÄR båt golvfabricerade annars om
++                  // ("om 101 minuter" på 0,1 kn, visad i 9 min); en RÖRLIG
++                  // återkomst släpper holden direkt och behåller sin
++                  // dämpningshistorik exakt som förut (rensningsvarianten
++                  // rörde 6 låsta korpusgoldens och ÅTERTOGS). Kö-båtar med
++                  // normal kadens når aldrig hit (>600 s-tröskeln).
++                  this.statusService.armStationaryETAHold(String(vessel.mmsi), 'eta_stale_hard');
+                 }
+-                if (!Number.isFinite(vessel._etaExtrapolationBaseValue)) {
+-                  vessel._etaExtrapolationBaseValue = baseETA;
++                vessel.etaMinutes = null;
++                vessel._etaIsExtrapolated = false;
++                vessel._etaPublishedValue = null; // RC4: "okänd" = ny baslinje
++                // Anomali 3: rensa exhausted-flagga vid HARD-zon. Vid >10 min stale
++                // är data för gammal för att lita på att båten fortfarande är vid bron.
++                vessel._etaExtrapolationExhausted = false;
++                vessel._etaExhaustedAtMs = null;
++              } else if (ageMs > UI_CONSTANTS.STALE_ETA_SOFT_THRESHOLD_MS
++                  && (!Number.isFinite(vessel.sog) || vessel.sog < 1.0
++                    || (queueAhead && queueAhead.name !== vessel.targetBridge))) {
++                // En gammal låg fart kan varken ge framdrift eller lova att
++                // samma minuter fortfarande återstår efter ett hamnstopp.
++                // Behåll spärren även vid nästa stillastående fix. Annars
++                // når den redan nollade ETA:n aldrig tiominutersgrenens hold.
++                if (vessel.etaMinutes !== null) {
++                  this.statusService.armStationaryETAHold(String(vessel.mmsi), 'eta_stale_soft');
+                 }
+-              } else {
+-                // Anomali 3 fix (2026-05-06): extrapolation gick ned till 0 →
+-                // båten BORDE vara framme nu enligt vår sista verkliga ETA.
+-                // Tidigare visade vi "ETA okänd" vilket fick bilförare att se
+-                // 8+ minuter okänd-text när vi faktiskt vet att broöppning är
+-                // imminent. ELFKUNGEN 06-05 14:10–14:18 är paradigm-fallet.
+-                //
+-                // Nu sätter vi flaggan _etaExtrapolationExhausted så Fix H
+-                // nedan visar "broöppning strax" istället för "ETA okänd".
+-                // Risk: båten har vänt under tystnaden → "strax" är fel under
+-                // max 5 min (mellan SOFT 5min och HARD 10min) tills nästa AIS.
+                 vessel.etaMinutes = null;
+                 vessel._etaIsExtrapolated = false;
+-                vessel._etaExtrapolationExhausted = true;
+-                // B4 (F10): stämpla NÄR uttömningen inträffade — "strax" på
+-                // uttömd extrapolering håller max 90 s (imminent-grenen).
+-                if (!Number.isFinite(vessel._etaExhaustedAtMs)) {
+-                  vessel._etaExhaustedAtMs = Date.now();
++                vessel._etaPublishedValue = null;
++                vessel._etaExtrapolationExhausted = false;
++                vessel._etaExhaustedAtMs = null;
++              } else if (ageMs > UI_CONSTANTS.STALE_ETA_SOFT_THRESHOLD_MS
++                  && Number.isFinite(vessel.etaMinutes)
++                  && vessel.etaMinutes > 0
++                  // RC4-fix (2026-06-11): dead-reckoning förutsätter FRAMDRIFT.
++                  // För nära-stillastående båtar (sog < 1 kn) domineras verkligt
++                  // ETA av fartgolven och SJUNKER inte med tiden — extrapolering
++                  // som drar av 1 min/min springer före verkligheten och ger
++                  // sågtand när färsk AIS rättar (LILLI: 9→cirka4→9). Behåll
++                  // senaste värdet oförändrat i stället (else-grenen nedan).
++                  && Number.isFinite(vessel.sog) && vessel.sog >= 1.0) {
++                // Extrapolera: dra av tiden som gått sedan senaste verkliga beräkning.
++                const baseMs = Number.isFinite(vessel._etaExtrapolationBaseMs)
++                  ? vessel._etaExtrapolationBaseMs
++                  : (vessel.lastPositionUpdate || Date.now());
++                const elapsedMin = (Date.now() - baseMs) / 60000;
++                const baseETA = Number.isFinite(vessel._etaExtrapolationBaseValue)
++                  ? vessel._etaExtrapolationBaseValue
++                  : vessel.etaMinutes;
++                const extrapolated = Math.max(0, baseETA - elapsedMin);
++                if (extrapolated > 0) {
++                  vessel.etaMinutes = extrapolated;
++                  vessel._etaIsExtrapolated = true;
++                  // RC4: extrapolerade värden ÄR publicerade — registrera dem som
++                  // baslinje så nästa färska beräkning dämpas mot det användaren såg
++                  // E2 (F07): bara när brotexten visar värdet — se _notePublishedETA.
++                  this._notePublishedETA(vessel, extrapolated, Date.now(), 'extrapolerad');
++                  if (!Number.isFinite(vessel._etaExtrapolationBaseValue)) {
++                    vessel._etaExtrapolationBaseValue = baseETA;
++                  }
++                } else {
++                  // Anomali 3 fix (2026-05-06): extrapolation gick ned till 0 →
++                  // båten BORDE vara framme nu enligt vår sista verkliga ETA.
++                  // Tidigare visade vi "ETA okänd" vilket fick bilförare att se
++                  // 8+ minuter okänd-text när vi faktiskt vet att broöppning är
++                  // imminent. ELFKUNGEN 06-05 14:10–14:18 är paradigm-fallet.
++                  //
++                  // Nu sätter vi flaggan _etaExtrapolationExhausted så Fix H
++                  // nedan visar "broöppning strax" istället för "ETA okänd".
++                  // Risk: båten har vänt under tystnaden → "strax" är fel under
++                  // max 5 min (mellan SOFT 5min och HARD 10min) tills nästa AIS.
++                  vessel.etaMinutes = null;
++                  vessel._etaIsExtrapolated = false;
++                  vessel._etaExtrapolationExhausted = true;
++                  // B4 (F10): stämpla NÄR uttömningen inträffade — "strax" på
++                  // uttömd extrapolering håller max 90 s (imminent-grenen).
++                  if (!Number.isFinite(vessel._etaExhaustedAtMs)) {
++                    vessel._etaExhaustedAtMs = Date.now();
++                  }
+                 }
+               }
++              // else: reuse existing vessel.etaMinutes
+             }
+-            // else: reuse existing vessel.etaMinutes
++          } else {
++            vessel.etaMinutes = null;
++            vessel._etaIsExtrapolated = false;
++            vessel._etaExtrapolationExhausted = false;
++            vessel._etaExhaustedAtMs = null;
+           }
+-        } else {
+-          vessel.etaMinutes = null;
+-          vessel._etaIsExtrapolated = false;
+-          vessel._etaExtrapolationExhausted = false;
+-          vessel._etaExhaustedAtMs = null;
+-        }
+ 
+-        // Fix H (2026-04-28): distansbaserad "strax"-trigger för aktiva resor.
+-        // Bilförare behöver veta att broöppning är imminent när båt närmar sig
+-        // målbro — oavsett om hon saktar ner/stannar för att vänta (vanligt
+-        // beteende i kanalen) eller om Class A 30s-tick hoppar över ETA<3-zonen.
+-        // Skydd: kräver targetBridge satt + färsk AIS + ej GPS-jump-hold så
+-        // spökbåtar (Bug #1) och stale data inte triggar falsk "strax".
+-        //
+-        // Anomali 3 debug (2026-05-05): producerar rikt loggning när vessel har
+-        // targetBridge men imminent inte sätts, så vi kan diagnosticera varför
+-        // "ETA okänd" visas trots att förutsättningarna borde stämma.
+-        // Echo-gaten (2026-07-02b): på ett GPS-osäkert sampel (S-F4
+-        // accept_with_caution — bakåtlevererad gammal position) behåller vi
+-        // FÖREGÅENDE imminent-läge i stället för att härleda om från den
+-        // osäkra positionen. Utan detta släcktes "strax" av ekot och tändes
+-        // igen av nästa rena sampel (flappen strax↔"om N minuter" i
+-        // fördröjd-gammal-position-scenariot). Nästa rena sampel härleder om.
+-        // F40 (medvetet EJ ändrat): se kommentar ovan. Imminent gatas på
+-        // positionsålder så vi inte påstår "broöppning strax" för en båt vars
+-        // position är >10 min gammal (Anomali-3-säkerhetsval).
+-        // F4-E (2026-07-09): samma bekräftade-position-klocka som ETA-gaten —
+-        // en väntande båt som sänder oförändrad position är FÄRSK (SOKERI).
+-        const ageMs = Date.now() - this._lastConfirmedPositionMs(vessel);
+-        const dataIsFreshEnough = ageMs <= UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS;
+-        // Produktionsredo (2026-07-03, CONFIRMED): hold-vägen delar F40:s
+-        // färskhetsgräns. Utan den höll en båt som fastnat med
+-        // _positionUncertain och sedan TYSTNAT sitt gamla "strax" i upp till
+-        // 20–25 min (tills STALE-removal) — echo-gaten är till för sekunders
+-        // eko-flapp, inte som evig frysning av stale data.
+-        // H17 (helkodsgranskning 2026-08-22): B4/F10:s 90 s-tak på uttömd
+-        // "strax" satt BARA i SET-grenen längre ned. Echo-hållningen här
+-        // hoppar över HELA återhärledningen, så en flagga som seedats av den
+-        // uttömda grenen (_imminentFromExhausted) levde vidare tills
+-        // färskhetsgränsen STALE_ETA_HARD föll — "beräknad broöppning strax"
+-        // i upp till 10,5 min på en gissning som fick leva 90 s. Ett accepterat
+-        // osäkert sampel stämplar dessutom om positionsklockan, så
+-        // dataIsFreshEnough höll hållningen vid liv hur länge som helst.
+-        // Taket prövas därför FÖRE hållningen.
+-        // SAKNAD STÄMPEL = UTGÅNGEN: ETA-blocket ovan nollar _etaExhaustedAtMs
+-        // i samma andetag som _etaExtrapolationExhausted, och utan den regeln
+-        // hade en nollad stämpel frusit flaggan igen. (SET-grenens `: 0`-
+-        // fallback betyder "nyss uttömd" och hör hemma där — den får aldrig
+-        // styra ett SLÄPP.)
+-        const exhaustedImminentAgeMs = Number.isFinite(vessel._etaExhaustedAtMs)
+-          ? Date.now() - vessel._etaExhaustedAtMs
+-          : Number.POSITIVE_INFINITY;
+-        const exhaustedImminentExpired = vessel._imminentFromExhausted === true
+-          && exhaustedImminentAgeMs > IMMINENT_EXHAUSTED_MAX_AGE_MS;
+-        const holdImminentForUncertain = (vessel._positionUncertain === true
+-          || vessel._gpsJumpDetected === true)
+-          && vessel.targetBridge
+-          && dataIsFreshEnough;
+-        // Fable-granskningen 2026-07-10b (P1-3): hysteres på imminent-
+-        // gränsen — den hårda 300 m-gränsen fick en ködrivande båt
+-        // (285→315→290 m mellan accepterade sampel) att flappa
+-        // "strax"↔"om N minuter" per tick. SET ≤300 / CLEAR >350 (samma
+-        // geometri som waiting-hysteresen; statuslagret hade den redan).
+-        const wasImminent = vessel._isImminentAtTargetBridge === true;
+-        if (!holdImminentForUncertain) {
+-          vessel._isImminentAtTargetBridge = false;
+-        } else if (exhaustedImminentExpired) {
+-          // H17: hållningen står KVAR (echo-gaten äger fortfarande beslutet
+-          // att inte härleda om från en osäker position) — men den uttömda
+-          // flaggan släcks, för B4/F10:s tak äger sanningen även här. Nästa
+-          // rena sampel härleder om som vanligt. _imminentFromExhausted
+-          // nollas i samma andetag så raden loggas EN gång per uttömning.
+-          vessel._isImminentAtTargetBridge = false;
+-          vessel._imminentFromExhausted = false;
+-          // ÅLDERN SKRIVS ALDRIG SOM "Infinity" (F-9-läxan: sentinelen skrev
+-          // 153 loggrader med Infinity i fältprovet) — saknad stämpel är ett
+-          // eget, läsbart fall.
+-          const alderText = Number.isFinite(exhaustedImminentAgeMs)
+-            ? `i ${Math.round(exhaustedImminentAgeMs / 1000)}s`
+-            : 'utan uttömningsstämpel (nollad av ETA-blocket)';
+-          this.debug(
+-            `🛡️ [IMMINENT_HOLD_EXPIRED] ${vessel.mmsi}: target=${vessel.targetBridge}, `
+-            + `uttömd "strax" hölls av GPS-osäkerhet ${alderText} `
+-            + `> ${IMMINENT_EXHAUSTED_MAX_AGE_MS / 1000}s — släpps`,
+-          );
+-        }
+-        if (vessel.targetBridge && !holdImminentForUncertain) {
+-          const ageS = Math.round(ageMs / 1000);
+-          if (!dataIsFreshEnough) {
+-            this.debug(
+-              `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, AIS too old (${ageS}s > ${UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS / 1000}s)`,
+-            );
+-          } else if (!Number.isFinite(vessel.lat) || !Number.isFinite(vessel.lon)) {
+-            this.debug(
+-              `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, lat/lon not finite (lat=${vessel.lat}, lon=${vessel.lon})`,
+-            );
+-          } else if (this.vesselDataService?.hasGpsJumpHold?.(vessel.mmsi)) {
+-            this.debug(
+-              `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, GPS jump hold active`,
+-            );
+-          } else if (!this.bridgeRegistry) {
++          // Fix H (2026-04-28): distansbaserad "strax"-trigger för aktiva resor.
++          // Bilförare behöver veta att broöppning är imminent när båt närmar sig
++          // målbro — oavsett om hon saktar ner/stannar för att vänta (vanligt
++          // beteende i kanalen) eller om Class A 30s-tick hoppar över ETA<3-zonen.
++          // Skydd: kräver targetBridge satt + färsk AIS + ej GPS-jump-hold så
++          // spökbåtar (Bug #1) och stale data inte triggar falsk "strax".
++          //
++          // Anomali 3 debug (2026-05-05): producerar rikt loggning när vessel har
++          // targetBridge men imminent inte sätts, så vi kan diagnosticera varför
++          // "ETA okänd" visas trots att förutsättningarna borde stämma.
++          // Echo-gaten (2026-07-02b): på ett GPS-osäkert sampel (S-F4
++          // accept_with_caution — bakåtlevererad gammal position) behåller vi
++          // FÖREGÅENDE imminent-läge i stället för att härleda om från den
++          // osäkra positionen. Utan detta släcktes "strax" av ekot och tändes
++          // igen av nästa rena sampel (flappen strax↔"om N minuter" i
++          // fördröjd-gammal-position-scenariot). Nästa rena sampel härleder om.
++          // F40 (medvetet EJ ändrat): se kommentar ovan. Imminent gatas på
++          // positionsålder så vi inte påstår "broöppning strax" för en båt vars
++          // position är >10 min gammal (Anomali-3-säkerhetsval).
++          // F4-E (2026-07-09): samma bekräftade-position-klocka som ETA-gaten —
++          // en väntande båt som sänder oförändrad position är FÄRSK (SOKERI).
++          const ageMs = Date.now() - this._lastConfirmedPositionMs(vessel);
++          const dataIsFreshEnough = ageMs <= UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS;
++          // Produktionsredo (2026-07-03, CONFIRMED): hold-vägen delar F40:s
++          // färskhetsgräns. Utan den höll en båt som fastnat med
++          // _positionUncertain och sedan TYSTNAT sitt gamla "strax" i upp till
++          // 20–25 min (tills STALE-removal) — echo-gaten är till för sekunders
++          // eko-flapp, inte som evig frysning av stale data.
++          // H17 (helkodsgranskning 2026-08-22): B4/F10:s 90 s-tak på uttömd
++          // "strax" satt BARA i SET-grenen längre ned. Echo-hållningen här
++          // hoppar över HELA återhärledningen, så en flagga som seedats av den
++          // uttömda grenen (_imminentFromExhausted) levde vidare tills
++          // färskhetsgränsen STALE_ETA_HARD föll — "beräknad broöppning strax"
++          // i upp till 10,5 min på en gissning som fick leva 90 s. Ett accepterat
++          // osäkert sampel stämplar dessutom om positionsklockan, så
++          // dataIsFreshEnough höll hållningen vid liv hur länge som helst.
++          // Taket prövas därför FÖRE hållningen.
++          // SAKNAD STÄMPEL = UTGÅNGEN: ETA-blocket ovan nollar _etaExhaustedAtMs
++          // i samma andetag som _etaExtrapolationExhausted, och utan den regeln
++          // hade en nollad stämpel frusit flaggan igen. (SET-grenens `: 0`-
++          // fallback betyder "nyss uttömd" och hör hemma där — den får aldrig
++          // styra ett SLÄPP.)
++          const exhaustedImminentAgeMs = Number.isFinite(vessel._etaExhaustedAtMs)
++            ? Date.now() - vessel._etaExhaustedAtMs
++            : Number.POSITIVE_INFINITY;
++          const exhaustedImminentExpired = vessel._imminentFromExhausted === true
++            && exhaustedImminentAgeMs > IMMINENT_EXHAUSTED_MAX_AGE_MS;
++          const holdImminentForUncertain = (vessel._positionUncertain === true
++            || vessel._gpsJumpDetected === true)
++            && vessel.targetBridge
++            && dataIsFreshEnough;
++          // Fable-granskningen 2026-07-10b (P1-3): hysteres på imminent-
++          // gränsen — den hårda 300 m-gränsen fick en ködrivande båt
++          // (285→315→290 m mellan accepterade sampel) att flappa
++          // "strax"↔"om N minuter" per tick. SET ≤300 / CLEAR >350 (samma
++          // geometri som waiting-hysteresen; statuslagret hade den redan).
++          const wasImminent = vessel._isImminentAtTargetBridge === true;
++          if (!holdImminentForUncertain) {
++            vessel._isImminentAtTargetBridge = false;
++          } else if (exhaustedImminentExpired) {
++            // H17: hållningen står KVAR (echo-gaten äger fortfarande beslutet
++            // att inte härleda om från en osäker position) — men den uttömda
++            // flaggan släcks, för B4/F10:s tak äger sanningen även här. Nästa
++            // rena sampel härleder om som vanligt. _imminentFromExhausted
++            // nollas i samma andetag så raden loggas EN gång per uttömning.
++            vessel._isImminentAtTargetBridge = false;
++            vessel._imminentFromExhausted = false;
++            // ÅLDERN SKRIVS ALDRIG SOM "Infinity" (F-9-läxan: sentinelen skrev
++            // 153 loggrader med Infinity i fältprovet) — saknad stämpel är ett
++            // eget, läsbart fall.
++            const alderText = Number.isFinite(exhaustedImminentAgeMs)
++              ? `i ${Math.round(exhaustedImminentAgeMs / 1000)}s`
++              : 'utan uttömningsstämpel (nollad av ETA-blocket)';
+             this.debug(
+-              `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, bridgeRegistry missing`,
++              `🛡️ [IMMINENT_HOLD_EXPIRED] ${vessel.mmsi}: target=${vessel.targetBridge}, `
++              + `uttömd "strax" hölls av GPS-osäkerhet ${alderText} `
++              + `> ${IMMINENT_EXHAUSTED_MAX_AGE_MS / 1000}s — släpps`,
+             );
+-          } else {
+-            const targetBridge = this.bridgeRegistry.getBridgeByName(vessel.targetBridge);
+-            if (!targetBridge
+-                || !Number.isFinite(targetBridge.lat)
+-                || !Number.isFinite(targetBridge.lon)) {
++          }
++          if (vessel.targetBridge && !holdImminentForUncertain) {
++            const ageS = Math.round(ageMs / 1000);
++            if (!dataIsFreshEnough) {
+               this.debug(
+-                `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge} not in registry or invalid coords`,
++                `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, AIS too old (${ageS}s > ${UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS / 1000}s)`,
+               );
+-            } else {
+-              const distToTarget = geometry.calculateDistance(
+-                vessel.lat, vessel.lon,
+-                targetBridge.lat, targetBridge.lon,
++            } else if (!Number.isFinite(vessel.lat) || !Number.isFinite(vessel.lon)) {
++              this.debug(
++                `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, lat/lon not finite (lat=${vessel.lat}, lon=${vessel.lon})`,
++              );
++            } else if (this.vesselDataService?.hasGpsJumpHold?.(vessel.mmsi)) {
++              this.debug(
++                `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, GPS jump hold active`,
+               );
+-              // P1-3: hysteresgräns — se wasImminent-kommentaren ovan.
+-              // R2 2026-07-11 (A3R2-1/P1R2-3 — 2 oberoende): hysteresen
+-              // gäller ENDAST normal-seedad flagga (bevisad ≤300 m). En
+-              // exhausted-seedad flagga (301–350 m-bandet) fick annars
+-              // limit 350 nästa tick → ordinarie SET-grenen (utan
+-              // exhaustedAgeMs-koll) återsatte den varje tick → B4/F10:s
+-              // 90 s-tak kringgicks och falskt "strax" stod till HARD
+-              // (10 min). Med limit 300 för exhausted-seedad faller bandet
+-              // alltid in i >limit-grenen där 90 s-taket äger.
+-              const imminentLimitM = ((wasImminent && vessel._imminentFromExhausted !== true)
+-                || waitingBridge(vessel) === vessel.targetBridge)
+-                ? 350 : 300;
+-              if (!Number.isFinite(distToTarget)) {
++            } else if (!this.bridgeRegistry) {
++              this.debug(
++                `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, bridgeRegistry missing`,
++              );
++            } else {
++              const targetBridge = this.bridgeRegistry.getBridgeByName(vessel.targetBridge);
++              if (!targetBridge
++                  || !Number.isFinite(targetBridge.lat)
++                  || !Number.isFinite(targetBridge.lon)) {
+                 this.debug(
+-                  `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, distance not finite`,
++                  `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge} not in registry or invalid coords`,
+                 );
+-              } else if (distToTarget > imminentLimitM) {
+-                // Anomali 3 fix (2026-05-06): även när vesseln är >300m kan vår
+-                // egen extrapolation ha sagt att hon borde vara framme. Då är
+-                // "strax" mer ärligt än "ETA okänd" — vi vet inte exakt var
+-                // hon är just nu, men vi vet att broöppning är imminent enligt
+-                // hennes senaste fart och kurs.
+-                //
+-                // Körning 2026-07-02: grenen saknade övre distansgräns och satte
+-                // "strax" på 433 m (HAJH-LAIF — verklig öppning 25 min senare),
+-                // 1016 m (YEMANJA II — som redan PASSERAT målet) och 1419 m
+-                // (ELFKUNGEN). En uttömd extrapolation är en gissning byggd på
+-                // ≥5 min gammal fart — bortom ~500 m (≈"strax"-bandets räckvidd
+-                // vid 5 kn) är "ETA okänd" det ärliga svaret.
+-                // B4 (körning 2026-07-03, F10): uttömd-strax är tidsbegränsad.
+-                // ZWERK/PHILULA stod med fruset "strax" + antalsflimmer i
+-                // 2–5 min på uttömd extrapolering (AIS 314–584 s gammal).
+-                // 90 s täcker det ärliga fönstret "hon BORDE vara framme nu";
+-                // därefter är "ETA okänd" det ärliga svaret tills färsk AIS.
+-                const exhaustedAgeMs = Number.isFinite(vessel._etaExhaustedAtMs)
+-                  ? Date.now() - vessel._etaExhaustedAtMs
+-                  : 0;
+-                const precedingQueue = queueBridge(vessel);
+-                if (vessel._etaExtrapolationExhausted === true && distToTarget <= 500
+-                    && (!precedingQueue || precedingQueue.name === vessel.targetBridge)
+-                    && exhaustedAgeMs <= IMMINENT_EXHAUSTED_MAX_AGE_MS) {
+-                  vessel._isImminentAtTargetBridge = true;
+-                  vessel._imminentFromExhausted = true; // A3R2-1: ingen hysteres
+-                  this.log(
+-                    `✨ [IMMINENT_SET_EXHAUSTED] ${vessel.mmsi}: target=${vessel.targetBridge}, `
+-                    + `dist=${Math.round(distToTarget)}m but extrapolation exhausted (AIS ${ageS}s old)`,
++              } else {
++                const distToTarget = geometry.calculateDistance(
++                  vessel.lat, vessel.lon,
++                  targetBridge.lat, targetBridge.lon,
++                );
++                // P1-3: hysteresgräns — se wasImminent-kommentaren ovan.
++                // R2 2026-07-11 (A3R2-1/P1R2-3 — 2 oberoende): hysteresen
++                // gäller ENDAST normal-seedad flagga (bevisad ≤300 m). En
++                // exhausted-seedad flagga (301–350 m-bandet) fick annars
++                // limit 350 nästa tick → ordinarie SET-grenen (utan
++                // exhaustedAgeMs-koll) återsatte den varje tick → B4/F10:s
++                // 90 s-tak kringgicks och falskt "strax" stod till HARD
++                // (10 min). Med limit 300 för exhausted-seedad faller bandet
++                // alltid in i >limit-grenen där 90 s-taket äger.
++                const imminentLimitM = ((wasImminent && vessel._imminentFromExhausted !== true)
++                  || waitingBridge(vessel) === vessel.targetBridge)
++                  ? 350 : 300;
++                if (!Number.isFinite(distToTarget)) {
++                  this.debug(
++                    `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, distance not finite`,
+                   );
++                } else if (distToTarget > imminentLimitM) {
++                  // Anomali 3 fix (2026-05-06): även när vesseln är >300m kan vår
++                  // egen extrapolation ha sagt att hon borde vara framme. Då är
++                  // "strax" mer ärligt än "ETA okänd" — vi vet inte exakt var
++                  // hon är just nu, men vi vet att broöppning är imminent enligt
++                  // hennes senaste fart och kurs.
++                  //
++                  // Körning 2026-07-02: grenen saknade övre distansgräns och satte
++                  // "strax" på 433 m (HAJH-LAIF — verklig öppning 25 min senare),
++                  // 1016 m (YEMANJA II — som redan PASSERAT målet) och 1419 m
++                  // (ELFKUNGEN). En uttömd extrapolation är en gissning byggd på
++                  // ≥5 min gammal fart — bortom ~500 m (≈"strax"-bandets räckvidd
++                  // vid 5 kn) är "ETA okänd" det ärliga svaret.
++                  // B4 (körning 2026-07-03, F10): uttömd-strax är tidsbegränsad.
++                  // ZWERK/PHILULA stod med fruset "strax" + antalsflimmer i
++                  // 2–5 min på uttömd extrapolering (AIS 314–584 s gammal).
++                  // 90 s täcker det ärliga fönstret "hon BORDE vara framme nu";
++                  // därefter är "ETA okänd" det ärliga svaret tills färsk AIS.
++                  const exhaustedAgeMs = Number.isFinite(vessel._etaExhaustedAtMs)
++                    ? Date.now() - vessel._etaExhaustedAtMs
++                    : 0;
++                  const precedingQueue = queueBridge(vessel);
++                  if (vessel._etaExtrapolationExhausted === true && distToTarget <= 500
++                      && (!precedingQueue || precedingQueue.name === vessel.targetBridge)
++                      && exhaustedAgeMs <= IMMINENT_EXHAUSTED_MAX_AGE_MS) {
++                    vessel._isImminentAtTargetBridge = true;
++                    vessel._imminentFromExhausted = true; // A3R2-1: ingen hysteres
++                    this.log(
++                      `✨ [IMMINENT_SET_EXHAUSTED] ${vessel.mmsi}: target=${vessel.targetBridge}, `
++                      + `dist=${Math.round(distToTarget)}m but extrapolation exhausted (AIS ${ageS}s old)`,
++                    );
++                  } else {
++                    this.debug(
++                      `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, `
++                      + `dist=${Math.round(distToTarget)}m > ${imminentLimitM}m `
++                      + `(AIS ${ageS}s old, exhausted=${vessel._etaExtrapolationExhausted === true})`,
++                    );
++                  }
+                 } else {
++                  vessel._isImminentAtTargetBridge = true;
++                  vessel._imminentFromExhausted = false; // äkta ≤300-bevis → hysteres OK
+                   this.debug(
+-                    `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, `
+-                    + `dist=${Math.round(distToTarget)}m > ${imminentLimitM}m `
+-                    + `(AIS ${ageS}s old, exhausted=${vessel._etaExtrapolationExhausted === true})`,
++                    `✨ [IMMINENT_SET] ${vessel.mmsi}: target=${vessel.targetBridge}, dist=${Math.round(distToTarget)}m, AIS ${ageS}s old`,
+                   );
+                 }
+-              } else {
+-                vessel._isImminentAtTargetBridge = true;
+-                vessel._imminentFromExhausted = false; // äkta ≤300-bevis → hysteres OK
+-                this.debug(
+-                  `✨ [IMMINENT_SET] ${vessel.mmsi}: target=${vessel.targetBridge}, dist=${Math.round(distToTarget)}m, AIS ${ageS}s old`,
+-                );
+               }
+             }
+           }
+-        }
+ 
+-        if (statusResult.statusChanged) {
+-          this.debug(`🔄 [STATUS_UPDATE] ${vessel.mmsi}: ${statusResult.status} (${statusResult.statusReason})`);
++          if (statusResult.statusChanged) {
++            this.debug(`🔄 [STATUS_UPDATE] ${vessel.mmsi}: ${statusResult.status} (${statusResult.statusReason})`);
++          }
++        } catch (error) {
++          this.error(`Error re-evaluating status for vessel ${vessel?.mmsi || 'unknown'}:`, error);
++          // Continue with next vessel
+         }
+-      } catch (error) {
+-        this.error(`Error re-evaluating status for vessel ${vessel?.mmsi || 'unknown'}:`, error);
+-        // Continue with next vessel
+-      }
+-    });
++      });
++    } finally {
++      this._flushPublishedNotes();
++    }
+   }
+ 
+   /**
+diff --git a/lib/services/BridgeOpeningService.js b/lib/services/BridgeOpeningService.js
+index d31ae9e..c70e1b4 100644
+--- a/lib/services/BridgeOpeningService.js
++++ b/lib/services/BridgeOpeningService.js
+@@ -613,6 +613,58 @@ class BridgeOpeningService {
+     });
+   }
+ 
++  /**
++   * E2-GRANSKNINGEN (2026-11-05, samordnas med familj K/K2): en MÖTANDE
++   * konvoj får inte vila på en tyst motpart.
++   *
++   * En avfyrad händelse utan bokförd passage är en PROGNOS om en öppning. När
++   * en båt i motsatt riktning absorberas i den är kopplingen dubbelt
++   * prognostiserad: båda ankomsterna är oberoende, och det enda som binder
++   * ihop dem är händelsens referensankomst. Har ingen av händelsens egna,
++   * varnade medlemmar hörts på STALE_ETA_SOFT_MS bär ingen färsk position den
++   * öppningen längre. Absorptionen ger då båten en täckning för en öppning
++   * som kanske aldrig sker — och täckningen löper ut först i konvojfönstrets
++   * bakkant, efter hennes egen ankomst.
++   *
++   * Mätt fall: 20260712-25h, Stridsbergsbron#33. LIFE STYLE (norrut) hördes
++   * senast 15:05:33 och korsade aldrig bron. ELAIZA (15:13:40) och SENTA
++   * (15:15:18) gick söderut och absorberades i #33, täckta t.o.m.
++   * 15:27:01,958. ELAIZA korsade 15:26:06 (gt-passages, line) utan ett enda
++   * kort mellan 15:10:33 och RECOVER-släppet 15:27:01. På e949ae1 räddades
++   * hon av slump: SENTA:s prognos låg 0,7 min senare och seedade en egen
++   * händelse (#34, 15:20:11).
++   *
++   * Grinden är smal med flit: bara MÖTANDE riktning, bara en händelse utan
++   * bokförd passage, bara när armens egen deadline ännu inte passerat och
++   * bara när VARJE egen varnad medlem är tyst. Samma
++   * riktning rörs inte (en följare bakom en tyst ledare är fortfarande en
++   * konvoj), och en händelse med bokförd passage följer K:s korsningsankare.
++   * Utfallet kan bara bli att båten seedar en egen händelse, alltså en egen
++   * varning — aldrig en varning mindre (produktprincipen).
++   * @param {Object} arm - den lösa armen som prövas
++   * @param {Object} event - kandidatvärden
++   * @param {Object[]} arms - alla armar vid bron
++   * @param {number} now - nu (ms)
++   * @returns {boolean} sant när absorptionen ska vägras
++   * @private
++   */
++  _meetsOnlySilentOpening(arm, event, arms, now) {
++    if (!event || event.firedAt === null || event.firstPassageAt !== null) return false;
++    if (arm.routeDirection !== 'north' && arm.routeDirection !== 'south') return false;
++    // Vägran ska ge en ANVÄNDBAR egen varning: armens egen deadline ligger
++    // fortfarande framför oss. En båt som beväpnas sekunder före bron
++    // (20260707-14h DESTINY, 8 s före korsningen) hade bara fått ett kort med
++    // eta 0 för en öppning som redan pågick, och kedjan efteråt flyttade
++    // AKIRA:s RECOVER-varning förbi hennes korsning.
++    if (!Number.isFinite(arm.fireDueMs) || arm.fireDueMs <= now) return false;
++    const own = arms.filter((a) => a !== arm && a.eventId === event.id
++      && a.warnedAt !== null && a.absorbedAt === null);
++    if (own.length === 0) return false;
++    return own.every((a) => (a.routeDirection === 'north' || a.routeDirection === 'south')
++      && a.routeDirection !== arm.routeDirection
++      && (!Number.isFinite(a.rawAnchorMs) || now - a.rawAnchorMs > STALE_ETA_SOFT_MS));
++  }
++
+   _sharesEarlierQueue(arm, arms, now) {
+     // LIV/JOHANNA 2026-09-27: en redan belagd konvoj stannade tillsammans
+     // vid Järnvägsbron. LIV fick väntbevis, medan JOHANNAs 1,2 kn fortfarande
+@@ -1410,7 +1462,8 @@ class BridgeOpeningService {
+         ? convoyHost
+         : events.find((e) => !e.deliveryUnavailable && !arm.releasedFrom.has(e.id)
+           && this._belongsToEvent(arm, e)
+-          && (e.firedAt !== null || e.lastPassageAt === null));
++          && (e.firedAt !== null || e.lastPassageAt === null)
++          && !this._meetsOnlySilentOpening(arm, e, arms, now));
+       // U9 (användarbeslut 2026-08-09) — C8:s BREDA TÄCKNING, återinförd.
+       // U2 säger att en öppningshändelse lever tills FÖRSTA FAKTISKA PASSAGEN
+       // och att alla väntande båtar tillhör den. Konvojfönstret (dig9) är en
+diff --git a/lib/services/ProgressiveETACalculator.js b/lib/services/ProgressiveETACalculator.js
+index c82b506..50d5acf 100644
+--- a/lib/services/ProgressiveETACalculator.js
++++ b/lib/services/ProgressiveETACalculator.js
+@@ -44,6 +44,23 @@ const MOVEMENT_SOG_KNOTS = 1.0;
+ // (monotoni + EMA + positive-jump-limit), som fortfarande dämpar övergången.
+ const GPS_FALLBACK_MAX_CONSECUTIVE = 3;
+ 
++// E2-granskningen (2026-11-05): ett TAK för dramatic_increase-grenen. Med
++// kadensfönstret (K6 del 2) prövas varje fix, och F74-capen i
++// _getFallbackETA låter aldrig en hållen ökning växa. En båt som saktar in
++// från 4 till 0,6 kn i 60 s kadens frös därför på 25,6 min i över 30 minuter
++// mot sanning 77–107 min (dubbelkörningen släppte efter ungefär 25 fix; i 30 s
++// kadens frös även e949ae1). Har ökningen hållits utan avbrott i 15 min går
++// rå-ETA:n genom det vanliga skyddet (monotoni, tillväxtkap och EMA), som
++// fortfarande dämpar steget.
++// MÄTT OCH ÅTERTAGET (docs/VALIDATION.md "Familj E2"): taket tre hållningar
++// i följd (som GPS-grenen) och taket 5 min gav båda fyra sämre låsta
++// påståenden och inga bättre — ANDREA 20260806-42h 18:40–18:52 låg på rå
++// 69–75 min i 12 min medan den hållna nedräkningen träffade hennes korsning
++// (brotext 9 → 11 och öppningskortet 9 → 11 mot sanning 6,6). 15 min rör
++// inget påstående i banken; taket är en spärr mot den obegränsade
++// hållningen, inte en kalibrering.
++const INCREASE_HOLD_MAX_MS = 15 * 60 * 1000;
++
+ // M9 (helkodsgranskning runda 4, 2026-08-23): två tal som idle-decayns golv
+ // måste känna till. Båda SPEGLAS här med sin källa i stället för att
+ // importeras — se härledningarna.
+@@ -198,6 +215,17 @@ const OUTLIER_WINDOW_MIN_MS = 30 * 1000;
+ // avsedda vikten, gav median 0,54 mot 0,46 och 84,6 % mot 89,7 % inom 2 min i
+ // bandet < 5 min, samma riktning som K6 mätte.
+ const EMA_ALPHA_PER_FIX = 0.64;
++
++// E2 (F06), skärpt efter granskningen 2026-11-05: inbromsningsregeln kräver en
++// VERKLIG inbromsning och en marginal. Kvoten är buffertens medelfart mot
++// momentanfarten (lika med kvoten mellan momentanfartens och medelfartens
++// rå-ETA). Utan kravet höll regeln 44 gånger i banken, och sex av dem låg
++// under 3,25 min på momentanfarten: NORDIC SOLA 20260610-19h 06:17:48 (sog
++// 4,1, 2,8 min på medelfarten och 3,0 på momentanfarten) fick "om 3" och
++// korsade 2,8 min senare. Ett fall i den marginalen är mätbrus, inte en
++// inbromsning, och "strax" var rätt.
++const DECEL_HOLD_MIN_RATIO = 1.2;
++const DECEL_HOLD_MIN_INSTANT_ETA = 3.5;
+ // M9b (fixrunda 4b, 2026-08-23): HÄR STOD TIDIGARE `IMMINENT_RADIUS_M = 300`,
+ // en LOKAL KOPIA av imminent-radien som jämfördes rått mot avståndet nedan.
+ // Kopian var defekt av samma slag som M2 och M37 i samma leverans handlar om:
+@@ -264,6 +292,9 @@ class ProgressiveETACalculator {
+     // Nollställs så fort en beräkningscykel INTE gick via gps_coordination_active
+     // (då är serien bruten) och städas tillsammans med fartbuffertarna.
+     this._gpsFallbackStreak = new Map(); // Map<mmsi, number>
++    // E2-granskningen: dramatic_increase-hållningar i följd per mmsi (samma
++    // semantik som GPS-serien ovan) — se INCREASE_HOLD_MAX_CONSECUTIVE.
++    this._increaseHoldStreak = new Map(); // Map<mmsi, number>
+ 
+     // Familj E (F04): pågående igångsättning per fartyg — se
+     // DEPARTURE_STILL_SAMPLES högst upp i filen. {atMs, samples, lastKey,
+@@ -534,6 +565,7 @@ class ProgressiveETACalculator {
+       sampleKey: this._speedBufferSampleKeys && this._speedBufferSampleKeys.has(m)
+         ? this._speedBufferSampleKeys.get(m) : undefined,
+       gpsStreak: this._gpsFallbackStreak.has(s) ? this._gpsFallbackStreak.get(s) : undefined,
++      incStreak: this._increaseHoldStreak.has(s) ? this._increaseHoldStreak.get(s) : undefined,
+       departure: this._departures.has(m) ? { ...this._departures.get(m) } : undefined,
+       lastStill: this._lastStillSample.has(m) ? { ...this._lastStillSample.get(m) } : undefined,
+       hold: this._postTransitionStationaryHold.has(s),
+@@ -561,6 +593,7 @@ class ProgressiveETACalculator {
+     if (!this._speedBufferSampleKeys) this._speedBufferSampleKeys = new Map();
+     put(this._speedBufferSampleKeys, m, st.sampleKey);
+     put(this._gpsFallbackStreak, s, st.gpsStreak);
++    put(this._increaseHoldStreak, s, st.incStreak);
+     put(this._departures, m, st.departure ? { ...st.departure } : undefined);
+     put(this._lastStillSample, m, st.lastStill ? { ...st.lastStill } : undefined);
+     if (st.hold) this._postTransitionStationaryHold.add(s);
+@@ -1418,6 +1451,21 @@ class ProgressiveETACalculator {
+     } else if (this._gpsFallbackStreak.has(mmsi)) {
+       this._gpsFallbackStreak.delete(mmsi);
+     }
++    if (outlierProtectionActive && suspiciousETA.reason.startsWith('dramatic_increase')) {
++      const since = this._increaseHoldStreak.get(mmsi);
++      if (Number.isFinite(since) && now - since >= INCREASE_HOLD_MAX_MS) {
++        outlierProtectionActive = false;
++        this.logger.debug(
++          `🔓 [ETA_INCREASE_BOUND] ${mmsi}: ökningen har hållits i ${Math.round((now - since) / 1000)} s `
++          + `(tak ${INCREASE_HOLD_MAX_MS / 1000} s) — släpper rå-ETA ${rawETA.toFixed(1)}min `
++          + 'genom det vanliga skyddet (monotoni + tillväxtkap + EMA)',
++        );
++      } else if (!Number.isFinite(since)) {
++        this._increaseHoldStreak.set(mmsi, now);
++      }
++    } else if (this._increaseHoldStreak.has(mmsi)) {
++      this._increaseHoldStreak.delete(mmsi);
++    }
+ 
+     if (outlierProtectionActive) {
+       this.logger.debug(`🚨 [ETA_OUTLIER] ${mmsi}: Suspicious ETA ${rawETA.toFixed(1)}min detected (${suspiciousETA.reason}) - applying protection`);
+@@ -1672,8 +1720,9 @@ class ProgressiveETACalculator {
+       && history[history.length - 1].processedETA < STRAX_THRESHOLD_MINUTES;
+     if (decelInstantETA !== null
+         && !straxAlreadyGiven
++        && decel.ratio >= DECEL_HOLD_MIN_RATIO
+         && decelRawETA < STRAX_THRESHOLD_MINUTES
+-        && decelInstantETA >= STRAX_THRESHOLD_MINUTES
++        && decelInstantETA >= DECEL_HOLD_MIN_INSTANT_ETA
+         && vessel._isImminentAtTargetBridge !== true
+         && adjustedETA < STRAX_THRESHOLD_MINUTES) {
+       this.logger.debug(
+@@ -2098,6 +2147,11 @@ class ProgressiveETACalculator {
+         this._gpsFallbackStreak.delete(mmsi);
+       }
+     }
++    for (const mmsi of this._increaseHoldStreak.keys()) {
++      if (!this._etaHistory.has(mmsi) && !tracked(mmsi)) {
++        this._increaseHoldStreak.delete(mmsi);
++      }
++    }
+ 
+     // Familj E (F04): samma städregel för avgångskontexten; stillasamplets
+     // position följer fartbufferten.
+@@ -2152,6 +2206,7 @@ class ProgressiveETACalculator {
+     // tömd finns inget sådant värde kvar (nästa prövning svarar 'no_history'
+     // och rå-ETA:n går rakt igenom), så budgeten ska börja om.
+     this._gpsFallbackStreak.delete(mmsi);
++    this._increaseHoldStreak.delete(mmsi);
+ 
+     // Familj E (F04): avgångskontexten och stillasamplets position följer
+     // fartbufferten — tömd buffert betyder att nästa avgång prövas från början.
+@@ -2224,6 +2279,7 @@ class ProgressiveETACalculator {
+     this._speedBuffers.clear();
+     if (this._speedBufferSampleKeys) this._speedBufferSampleKeys.clear();
+     this._gpsFallbackStreak.clear(); // M8: samma städparitet som FG-D4 kräver
++    this._increaseHoldStreak.clear();
+     this._departures.clear(); // Familj E (F04): samma städparitet
+     this._lastStillSample.clear();
+     this._fixMemo.clear(); // E2 (K6): samma städparitet
+diff --git a/tests/e2-eta-etapp-2026-11-04.test.js b/tests/e2-eta-etapp-2026-11-04.test.js
+index 402a020..7fc591d 100644
+--- a/tests/e2-eta-etapp-2026-11-04.test.js
++++ b/tests/e2-eta-etapp-2026-11-04.test.js
+@@ -384,15 +384,19 @@ describe('F07: spärren jämför en färsk mätning med en mätning, inte med en
+     expect(leads([boat('2', 'Klaffbron', null), sisu], sisu, 13)).toBe(true); // ETA okänd leder inte
+   });
+ 
+-  test('21h-varianten δ −11,52 s och basen ger samma text — ingen sågtand 13 → 19', () => {
++  test('21h-varianten δ −11,52 s och basen: ingen sågtand 13 → 19, och AVALON:s färska mätning syns', () => {
+     const variant = runReplay(path.join(FIXTURES, 'e2-f07-avalon-21h-variant.jsonl'));
+     const bas = runReplay(path.join(FIXTURES, 'e2-f07-avalon-21h-bas.jsonl'));
+     expect(etaViolations(variant)).toEqual([]);
+     expect(etaViolations(bas)).toEqual([]);
+     const klaff = (r) => r.bridgeTextTransitions
+-      .filter((t) => t.iso >= '2026-07-08T07:11:00' && t.iso < '2026-07-08T07:13:00')
++      .filter((t) => t.iso >= '2026-07-08T07:07:00' && t.iso < '2026-07-08T07:12:00')
+       .map((t) => t.text.split('; ')[0]);
+-    expect(klaff(variant)).toEqual(klaff(bas));
+-    expect(klaff(variant)).toContain('Två båtar på väg mot Klaffbron, beräknad broöppning om 18 minuter');
++    // Granskningen 2026-11-05: "om 18" 07:11:30 (spärren mot AVALON:s osedda
++    // 30,3) var felet, inte facit. Hennes färska 11,9 går nu igenom.
++    for (const r of [variant, bas]) {
++      expect(klaff(r)).toContain('Två båtar på väg mot Klaffbron, beräknad broöppning om 12 minuter');
++      expect(klaff(r).some((t) => /om (18|19) minuter/.test(t))).toBe(false);
++    }
+   });
+ });
+diff --git a/tests/e2-revision-2026-11-05.test.js b/tests/e2-revision-2026-11-05.test.js
+new file mode 100644
+index 0000000..76ce51b
+--- /dev/null
++++ b/tests/e2-revision-2026-11-05.test.js
+@@ -0,0 +1,368 @@
++'use strict';
++
++jest.mock('homey');
++
++/**
++ * Familj E2, revisionen efter granskningen 2026-11-05.
++ *
++ * 1. Mötande konvoj mot en tyst motpart (BridgeOpeningService, samordnas med
++ *    K/K2). 20260712-25h: ELAIZA och SENTA gick söderut mot Stridsbergsbron och
++ *    absorberades i #33, en norrgående varning för LIFE STYLE som hördes
++ *    senast 15:05:33 och aldrig korsade bron. Täckningen löpte till
++ *    15:27:01,958, och ELAIZA korsade 15:26:06 (gt-passages, line) utan ett
++ *    kort. På e949ae1 räddades hon av slump av SENTA:s egen händelse.
++ * 2. Quick-värld 5 (BRISEN): samma riktning, och U17-klassen — grinden rör den
++ *    inte, och hon är täckt av en avfyrad händelse före sin sanna korsning.
++ * 3. F07: spärren försvarar inte en baslinje som är äldre än Fix G:s mjuka
++ *    gräns mot en LÄGRE färsk mätning (AVALON 21h, "om 18" mot verkliga 4,5).
++ * 4. F06: inbromsningsregeln kräver en verklig inbromsning (kvot ≥ 1,2) och en
++ *    marginal (momentanfartens ETA ≥ 3,5 min) — NORDIC SOLA 19h fick "om 3"
++ *    för en korrekt "strax".
++ * 5. Ledarurvalet följer brotextens lista, och Fix G:s registrering avgörs
++ *    efter snapshot-loopen.
++ * 6. Taket för hållna ökningar (dramatic_increase) — 15 min.
++ */
++
++const path = require('path');
++const { execFileSync } = require('child_process');
++const BridgeRegistry = require('../lib/models/BridgeRegistry');
++const ProgressiveETACalculator = require('../lib/services/ProgressiveETACalculator');
++const BridgeOpeningService = require('../lib/services/BridgeOpeningService');
++const { BRIDGES } = require('../lib/constants');
++const { validateInvariants } = require('./replay-validation/invariants');
++const AISBridgeApp = require('../app');
++
++global.__TEST_MODE__ = true;
++
++const ROOT = path.resolve(__dirname, '..');
++const RUNNER = path.join(ROOT, 'tests/replay-validation/replayRunner.js');
++const FIXTURES = path.join(__dirname, 'fixtures');
++const KLAFF = BRIDGES.klaffbron;
++const M_PER_DEG_LAT = 111320;
++
++function runReplay(jsonlPath) {
++  const env = { ...process.env, NODE_OPTIONS: '', REPLAY_VERBOSE: '' };
++  delete env.REPLAY_MONITORING;
++  const out = execFileSync(process.execPath, [RUNNER, jsonlPath], {
++    cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env,
++  });
++  return JSON.parse(out.match(/__REPLAY_JSON__(.*?)__END__/s)[1]);
++}
++
++function makeLogger() {
++  return {
++    log: jest.fn(), debug: jest.fn(), error: jest.fn(), warn: jest.fn(),
++  };
++}
++
++const lines = (logger, tag) => logger.debug.mock.calls.map((c) => String(c[0])).filter((s) => s.includes(tag));
++
++describe('Mötande konvoj mot en tyst motpart (25h ELAIZA/SENTA)', () => {
++  const ELAIZA = '265013440';
++  const SENTA = '230198250';
++  const ELAIZA_CROSSING = Date.parse('2026-07-13T15:26:06Z'); // gt-passages, line
++  const SENTA_CROSSING = Date.parse('2026-07-13T15:27:36Z');
++  let result;
++
++  beforeAll(() => {
++    result = runReplay(path.join(FIXTURES, 'e2-25h-elaiza-senta-motande-tyst-vard.jsonl'));
++  });
++
++  test('ELAIZA och SENTA får en söderut-varning för Stridsbergsbron före sina korsningar', () => {
++    const south = result.openingWarnings.filter((w) => w.bridge === 'Stridsbergsbron'
++      && w.direction === 'southbound');
++    const forElaiza = south.find((w) => w.mmsis.includes(ELAIZA) && w.t < ELAIZA_CROSSING);
++    expect(forElaiza).toBeDefined();
++    // Ledtiden minst den utlovade (150 s) före den sanna korsningen.
++    expect(ELAIZA_CROSSING - forElaiza.t).toBeGreaterThanOrEqual(150000);
++    const forSenta = south.find((w) => w.mmsis.includes(SENTA) && w.t < SENTA_CROSSING);
++    expect(forSenta).toBeDefined();
++    expect(SENTA_CROSSING - forSenta.t).toBeGreaterThanOrEqual(150000);
++  });
++
++  test('ingen av dem absorberas i den norrgående händelsen för den tysta LIFE STYLE', () => {
++    const northIds = new Set(result.openingWarnings
++      .filter((w) => w.bridge === 'Stridsbergsbron' && w.direction === 'northbound')
++      .map((w) => w.eventId));
++    const absorbedNorth = result.openingCoverage.filter((c) => c.reason === 'absorbed'
++      && northIds.has(c.eventId) && (c.mmsi === ELAIZA || c.mmsi === SENTA));
++    expect(absorbedNorth).toEqual([]);
++  });
++});
++
++describe('Grinden _meetsOnlySilentOpening', () => {
++  const svc = Object.create(BridgeOpeningService.prototype);
++  const NOW = Date.parse('2026-07-13T15:13:40Z');
++  const SILENT = NOW - 8 * 60000; // LIFE STYLE hördes 15:05:33
++  const event = { id: 'Stridsbergsbron#33', firedAt: NOW - 3 * 60000, firstPassageAt: null };
++  const lead = (extra = {}) => ({
++    mmsi: '211335800',
++    eventId: event.id,
++    warnedAt: event.firedAt,
++    absorbedAt: null,
++    routeDirection: 'north',
++    rawAnchorMs: SILENT,
++    ...extra,
++  });
++  const arm = (extra = {}) => ({
++    mmsi: '265013440',
++    eventId: null,
++    warnedAt: null,
++    absorbedAt: null,
++    routeDirection: 'south',
++    rawAnchorMs: NOW,
++    fireDueMs: NOW + 216000,
++    ...extra,
++  });
++  const meets = (a, e, arms) => svc._meetsOnlySilentOpening(a, e, arms, NOW);
++
++  test('mötande arm och en tyst motpart utan bokförd passage: absorptionen vägras', () => {
++    const a = arm();
++    expect(meets(a, event, [lead(), a])).toBe(true);
++  });
++
++  test('samma riktning rörs inte (en följare bakom en tyst ledare är en konvoj)', () => {
++    const a = arm({ routeDirection: 'north' });
++    expect(meets(a, event, [lead(), a])).toBe(false);
++  });
++
++  test('en färsk motpart bär öppningen', () => {
++    const a = arm();
++    expect(meets(a, event, [lead({ rawAnchorMs: NOW - 60000 }), a])).toBe(false);
++  });
++
++  test('en bokförd passage följer K:s korsningsankare', () => {
++    const a = arm();
++    expect(meets(a, { ...event, firstPassageAt: NOW - 60000 }, [lead(), a])).toBe(false);
++  });
++
++  test('en arm vars egen deadline redan passerat absorberas som förut (DESTINY 14h)', () => {
++    const a = arm({ fireDueMs: NOW - 1000 });
++    expect(meets(a, event, [lead(), a])).toBe(false);
++  });
++
++  test('okänd riktning och en händelse som inte avfyrat ger ingen vägran', () => {
++    const a = arm({ routeDirection: null });
++    expect(meets(a, event, [lead(), a])).toBe(false);
++    const b = arm();
++    expect(meets(b, { ...event, firedAt: null }, [lead(), b])).toBe(false);
++  });
++});
++
++describe('Quick-värld 5 (BRISEN, samma riktning, U17-klassen)', () => {
++  test('BRISEN är täckt av en avfyrad söderut-händelse före sin sanna korsning 08:20:43', () => {
++    const result = runReplay(path.join(FIXTURES, 'e2-quick-varld5-brisen-u17.jsonl'));
++    const crossing = Date.parse('2026-09-19T08:20:43.551Z');
++    const BRISEN = '265549774';
++    const covered = result.openingCoverage.filter((c) => c.mmsi === BRISEN
++      && c.bridge === 'Stridsbergsbron' && c.t < crossing);
++    expect(covered.length).toBeGreaterThan(0);
++    const host = result.openingWarnings.find((w) => w.eventId === covered[0].eventId);
++    expect(host).toBeDefined();
++    expect(host.direction).toBe('southbound');
++    expect(host.t).toBeLessThan(crossing - 150000);
++  });
++});
++
++describe('F07: en inaktuell baslinje försvaras inte mot en lägre färsk mätning', () => {
++  const NOW = Date.parse('2026-07-08T07:07:02.344Z');
++
++  beforeEach(() => {
++    jest.useFakeTimers({ now: NOW });
++  });
++
++  afterEach(() => {
++    jest.useRealTimers();
++  });
++
++  const reconcile = (vessel, fresh) => AISBridgeApp.prototype._reconcilePublishedETA.call({
++    debug: jest.fn(),
++    bridgeRegistry: null,
++    vesselDataService: { getVesselsForBridgeText: () => [vessel] },
++  }, vessel, fresh);
++  const avalon = (ageMs) => ({
++    mmsi: '219009353',
++    targetBridge: 'Klaffbron',
++    _etaPublishTarget: 'Klaffbron',
++    _etaPublishedValue: 30.3,
++    _etaPublishedAtMs: NOW - ageMs,
++  });
++
++  test('AVALON: färska 11,9 mot hennes egen 30,3 från 5,04 min tidigare går igenom', () => {
++    expect(reconcile(avalon(302377), 11.9)).toBeCloseTo(11.9, 5);
++  });
++
++  test('en baslinje inom fem minuter dämpar som förut (SISU 3,5 min, IDUN 3,0 min)', () => {
++    const v = avalon(3.5 * 60000);
++    // maxDelta = max(3, 3,5 + 0,25 · 30,3)
++    expect(reconcile(v, 11.9)).toBeCloseTo(30.3 - (3.5 + 0.25 * 30.3), 5);
++  });
++
++  test('ett hopp UPPÅT mot en inaktuell baslinje dämpas fortfarande (NOCHT 41h)', () => {
++    const v = avalon(6 * 60000);
++    const max = 30.3 + (6 + 0.25 * 30.3);
++    expect(reconcile(v, 60)).toBeCloseTo(max, 5);
++  });
++
++  test('21h-varianten och basen: AVALON visas nära sanningen, ingen sågtand', () => {
++    const variant = runReplay(path.join(FIXTURES, 'e2-f07-avalon-21h-variant.jsonl'));
++    const bas = runReplay(path.join(FIXTURES, 'e2-f07-avalon-21h-bas.jsonl'));
++    for (const r of [variant, bas]) {
++      expect(validateInvariants(r).filter((v) => /ETA-OSCILLATION|ETA-SÅGTAND/.test(v))).toEqual([]);
++    }
++    // Värdet som står 07:11:30, när JÄÄTTEN nollats och AVALON leder. AVALON
++    // korsar 07:16:01 (inferred, 4,5 min). Förut "om 18".
++    const shownAt = (r, iso) => {
++      const before = r.bridgeTextTransitions.filter((t) => t.iso <= iso);
++      const text = before[before.length - 1].text.split('; ')[0];
++      return Number((text.match(/om (?:cirka )?(\d+) minut/) || [])[1]);
++    };
++    const v = shownAt(variant, '2026-07-08T07:11:30.040Z');
++    const b = shownAt(bas, '2026-07-08T07:11:30.040Z');
++    expect(v).toBeLessThanOrEqual(12);
++    expect(b).toBeLessThanOrEqual(12);
++    expect(Math.abs(v - b)).toBeLessThanOrEqual(1);
++  });
++});
++
++describe('Ledarurvalet följer brotexten, och Fix G:s registrering avgörs efter loopen', () => {
++  const boat = (mmsi, etaMinutes, extra = {}) => ({
++    mmsi, targetBridge: 'Klaffbron', etaMinutes, ...extra,
++  });
++
++  test('en filtrerad båt med lägre ETA hindrar inte ledaren som brotexten visar', () => {
++    const shown = boat('1', 9);
++    const filtered = boat('2', 4); // t.ex. BRIDGE_TEXT_FILTER: för långsam
++    const ctx = {
++      vesselDataService: {
++        getVesselsForBridgeText: () => [shown],
++        getAllVessels: () => [shown, filtered],
++      },
++    };
++    expect(AISBridgeApp.prototype._leadsEtaGroup.call(ctx, shown, 9)).toBe(true);
++    // Den filtrerade båten syns inte själv och leder därför inte.
++    expect(AISBridgeApp.prototype._leadsEtaGroup.call(ctx, filtered, 4)).toBe(false);
++  });
++
++  test('en ETA på 0 räknas inte som giltig (isValidETA)', () => {
++    const a = boat('1', 9);
++    const zero = boat('2', 0);
++    const ctx = { vesselDataService: { getVesselsForBridgeText: () => [a, zero], getAllVessels: () => [a, zero] } };
++    expect(AISBridgeApp.prototype._leadsEtaGroup.call(ctx, a, 9)).toBe(true);
++  });
++
++  test('i snapshot-loopen registreras gissningen först efter loopen, mot passets värden', () => {
++    const a = boat('1', 12);
++    const b = boat('2', 14);
++    const ctx = {
++      debug: jest.fn(),
++      vesselDataService: { getVesselsForBridgeText: () => [a, b] },
++      _pendingPublishedNotes: [],
++    };
++    for (const name of ['_notePublishedETA', '_applyPublishedNote', '_flushPublishedNotes', '_leadsEtaGroup']) {
++      ctx[name] = AISBridgeApp.prototype[name].bind(ctx);
++    }
++    ctx._notePublishedETA(b, 11.5, 1000, 'extrapolerad');
++    expect(b._etaPublishedValue).toBeUndefined();
++    // Senare i samma pass sjunker a:s värde — b leder inte efter passet.
++    a.etaMinutes = 10;
++    ctx._flushPublishedNotes();
++    expect(b._etaPublishedValue).toBeUndefined();
++    expect(ctx.debug.mock.calls.some((c) => String(c[0]).includes('[ETA_PUBLISH_UNSEEN]'))).toBe(true);
++    expect(ctx._pendingPublishedNotes).toBeNull();
++  });
++});
++
++describe('F06: inbromsningsregeln kräver en verklig inbromsning och en marginal', () => {
++  let calc; let logger;
++  const MMSI = '258715000';
++
++  beforeEach(() => {
++    jest.useFakeTimers({ now: Date.parse('2026-06-10T06:13:00Z') });
++    logger = makeLogger();
++    calc = new ProgressiveETACalculator(logger, new BridgeRegistry());
++  });
++
++  afterEach(() => {
++    calc.destroy();
++    jest.useRealTimers();
++  });
++
++  const fixAt = (metres, sog) => ({
++    mmsi: MMSI,
++    targetBridge: 'Klaffbron',
++    status: 'approaching',
++    lat: KLAFF.lat - metres / M_PER_DEG_LAT,
++    lon: KLAFF.lon,
++    sog,
++    cog: 20,
++    timestamp: Date.now(),
++    lastPositionUpdate: Date.now(),
++  });
++
++  // Tre fix i 4,6 kn med 10 s mellanrum, sedan det prövade fixet `gapS`
++  // sekunder senare. Förra värdet ligger strax över 3 min (nytt inträde).
++  function approach(lastM, lastSog, offsets, gapS) {
++    for (const off of offsets) {
++      calc.calculateProgressiveETA(fixAt(lastM + off, 4.6), null);
++      jest.advanceTimersByTime(10000);
++    }
++    jest.advanceTimersByTime((gapS - 10) * 1000);
++    return calc.calculateProgressiveETA(fixAt(lastM, lastSog), null);
++  }
++
++  test('NORDIC SOLA 19h: 4,6 → 4,1 kn (kvot 1,08) är ingen inbromsning, och strax står kvar', () => {
++    // 400 m: snittet ger 2,9 min och momentanfarten 3,2 min. Förut "om 3".
++    expect(approach(400, 4.1, [72, 48, 24], 10)).toBeLessThan(3);
++    expect(lines(logger, '[ETA_DECEL_M9]')).toHaveLength(0);
++  });
++
++  test('momentanfartens ETA under 3,5 min är ingen marginal: strax står kvar', () => {
++    // 350 m i 3,3 kn = 3,4 min; kvoten 1,26 räcker, marginalen inte. Förut "om 3".
++    expect(approach(350, 3.3, [119, 95, 71], 30)).toBeLessThan(3);
++    expect(lines(logger, '[ETA_DECEL_M9]')).toHaveLength(0);
++  });
++
++  test('en verklig inbromsning med marginal hålls fortfarande på 3 min (F06)', () => {
++    // 365 m i 3,3 kn = 3,6 min.
++    expect(approach(365, 3.3, [119, 95, 71], 30)).toBe(3);
++    expect(lines(logger, '[ETA_DECEL_M9]')).toHaveLength(1);
++  });
++});
++
++describe('Taket för hållna ökningar (dramatic_increase)', () => {
++  test('en båt som saktar in till 0,6 kn i 30 s kadens fryser inte längre än 15 min', () => {
++    jest.useFakeTimers({ now: Date.parse('2026-07-15T08:00:00Z') });
++    const logger = makeLogger();
++    const calc = new ProgressiveETACalculator(logger, new BridgeRegistry());
++    try {
++      let m = 3000;
++      const values = [];
++      for (let i = 0; i < 60; i++) {
++        const sog = i < 8 ? 4 : 0.6;
++        m -= sog * (1852 / 3600) * 30;
++        const v = {
++          mmsi: '265000002',
++          targetBridge: 'Klaffbron',
++          status: 'en-route',
++          lat: KLAFF.lat - m / M_PER_DEG_LAT,
++          lon: KLAFF.lon,
++          sog,
++          cog: 20,
++          timestamp: Date.now(),
++          lastPositionUpdate: Date.now(),
++        };
++        values.push(calc.calculateProgressiveETA(v, null));
++        jest.advanceTimersByTime(30000);
++      }
++      const held = values[10];
++      // Inom taket hålls ökningen (F74), efter taket växer ETA:n mot verkligheten.
++      expect(values[20]).toBeCloseTo(held, 5);
++      expect(Math.max(...values.slice(45))).toBeGreaterThan(held + 2);
++      expect(lines(logger, '[ETA_INCREASE_BOUND]').length).toBeGreaterThan(0);
++    } finally {
++      calc.destroy();
++      jest.useRealTimers();
++    }
++  });
++});
+diff --git a/tests/fixtures/e2-25h-elaiza-senta-motande-tyst-vard.jsonl b/tests/fixtures/e2-25h-elaiza-senta-motande-tyst-vard.jsonl
+new file mode 100644
+index 0000000..69f0719
+--- /dev/null
++++ b/tests/fixtures/e2-25h-elaiza-senta-motande-tyst-vard.jsonl
+@@ -0,0 +1,14 @@
++{"mmsi":"211335800","msgType":"StandardClassBPositionReport","lat":58.27045,"lon":12.27233,"sog":5.5,"cog":33.2,"shipName":"LIFE STYLE","aisTimestamp":1783954172436,"receivedAt":"2026-07-13T14:49:32.439Z"}
++{"mmsi":"211335800","msgType":"StandardClassBPositionReport","lat":58.271605,"lon":12.273513333333334,"sog":3.3,"cog":27.1,"shipName":"LIFE STYLE","aisTimestamp":1783954232675,"receivedAt":"2026-07-13T14:50:32.675Z"}
++{"mmsi":"211335800","msgType":"StandardClassBPositionReport","lat":58.27230833333333,"lon":12.274248333333333,"sog":0,"cog":30.6,"shipName":"LIFE STYLE","aisTimestamp":1783954352478,"receivedAt":"2026-07-13T14:52:32.478Z"}
++{"mmsi":"211335800","msgType":"StandardClassBPositionReport","lat":58.272315000000006,"lon":12.274256666666668,"sog":0,"cog":30.6,"shipName":"LIFE STYLE","aisTimestamp":1783954652595,"receivedAt":"2026-07-13T14:57:32.595Z"}
++{"mmsi":"211335800","msgType":"StandardClassBPositionReport","lat":58.272801666666666,"lon":12.275238333333334,"sog":6.5,"cog":46.7,"shipName":"LIFE STYLE","aisTimestamp":1783955073512,"receivedAt":"2026-07-13T15:04:33.512Z"}
++{"mmsi":"211335800","msgType":"StandardClassBPositionReport","lat":58.27413833333333,"lon":12.277653333333335,"sog":6.7,"cog":40.8,"shipName":"LIFE STYLE","aisTimestamp":1783955133919,"receivedAt":"2026-07-13T15:05:33.919Z"}
++{"mmsi":"230198250","msgType":"StandardClassBPositionReport","lat":58.31333333333334,"lon":12.3195,"sog":6.5,"cog":194.2,"shipName":"SENTA","aisTimestamp":1783955568344,"receivedAt":"2026-07-13T15:12:48.348Z"}
++{"mmsi":"265013440","msgType":"StandardClassBPositionReport","lat":58.30848833333334,"lon":12.314635,"sog":6.9,"cog":220,"shipName":"Unknown","aisTimestamp":1783955620435,"receivedAt":"2026-07-13T15:13:40.435Z"}
++{"mmsi":"230198250","msgType":"StandardClassBPositionReport","lat":58.30909333333333,"lon":12.31581,"sog":7.1,"cog":217.5,"shipName":"SENTA","aisTimestamp":1783955718341,"receivedAt":"2026-07-13T15:15:18.341Z"}
++{"mmsi":"265013440","msgType":"StandardClassBPositionReport","lat":58.30255833333333,"lon":12.30533,"sog":7.1,"cog":212,"shipName":"ELAIZA","aisTimestamp":1783955861487,"receivedAt":"2026-07-13T15:17:41.500Z"}
++{"mmsi":"230198250","msgType":"StandardClassBPositionReport","lat":58.30390666666666,"lon":12.307265,"sog":7.2,"cog":215.3,"shipName":"SENTA","aisTimestamp":1783955927169,"receivedAt":"2026-07-13T15:18:47.169Z"}
++{"mmsi":"230198250","msgType":"StandardClassBPositionReport","lat":58.30054333333333,"lon":12.302950000000001,"sog":7.3,"cog":213.6,"shipName":"SENTA","aisTimestamp":1783956047247,"receivedAt":"2026-07-13T15:20:47.247Z"}
++{"mmsi":"265013440","msgType":"StandardClassBPositionReport","lat":58.290910000000004,"lon":12.290828333333334,"sog":6.6,"cog":209.2,"shipName":"ELAIZA","aisTimestamp":1783956521158,"receivedAt":"2026-07-13T15:28:41.158Z"}
++{"mmsi":"230198250","msgType":"StandardClassBPositionReport","lat":58.28510000000001,"lon":12.284298333333334,"sog":1.5,"cog":199.8,"shipName":"SENTA","aisTimestamp":1783956947053,"receivedAt":"2026-07-13T15:35:47.053Z"}
+diff --git a/tests/fixtures/e2-quick-varld5-brisen-u17.jsonl b/tests/fixtures/e2-quick-varld5-brisen-u17.jsonl
+new file mode 100644
+index 0000000..4318fe6
+--- /dev/null
++++ b/tests/fixtures/e2-quick-varld5-brisen-u17.jsonl
+@@ -0,0 +1,57 @@
++{"mmsi":"265549438","msgType":"StandardClassBPositionReport","lat":58.26502739260243,"lon":12.26326920095627,"sog":2.8,"cog":39.4,"navStatus":null,"shipName":"NORDVIND","aisTimestamp":1789802392020,"fixTs":1789802392020,"feed":"aisstream","receivedAt":"2026-09-19T07:19:52.020Z"}
++{"mmsi":"265549438","msgType":"StandardClassBPositionReport","lat":58.26544404389968,"lon":12.264540912815239,"sog":2.9,"cog":40.1,"navStatus":null,"shipName":"NORDVIND","aisTimestamp":1789802452413,"fixTs":1789802452413,"feed":"aisstream","receivedAt":"2026-09-19T07:20:52.413Z"}
++{"mmsi":"265549438","msgType":"StandardClassBPositionReport","lat":58.26759338744,"lon":12.268945127804052,"sog":2.9,"cog":41.4,"navStatus":null,"shipName":"NORDVIND","aisTimestamp":1789802697962,"fixTs":1789802697962,"feed":"aisstream","receivedAt":"2026-09-19T07:24:57.962Z"}
++{"mmsi":"265549438","msgType":"StandardClassBPositionReport","lat":58.27871174374534,"lon":12.281613963405183,"sog":3.9,"cog":20.6,"navStatus":null,"shipName":"NORDVIND","aisTimestamp":1789803389528,"fixTs":1789803389528,"feed":"aisstream","receivedAt":"2026-09-19T07:36:29.528Z"}
++{"mmsi":"265549438","msgType":"StandardClassBPositionReport","lat":58.2819331161803,"lon":12.283380855078388,"sog":4,"cog":16.1,"navStatus":null,"shipName":"NORDVIND","aisTimestamp":1789803558329,"fixTs":1789803558329,"feed":"aisstream","receivedAt":"2026-09-19T07:39:18.329Z"}
++{"mmsi":"265549682","msgType":"StandardClassBPositionReport","lat":58.32052170204066,"lon":12.323613948662862,"sog":8.9,"cog":199.8,"navStatus":null,"shipName":"KAJSA","aisTimestamp":1789804764957,"fixTs":1789804764957,"feed":"aisstream","receivedAt":"2026-09-19T07:59:24.957Z"}
++{"mmsi":"265549682","msgType":"StandardClassBPositionReport","lat":58.3172057388319,"lon":12.321414273122222,"sog":10,"cog":198.9,"navStatus":null,"shipName":"KAJSA","aisTimestamp":1789804842945,"fixTs":1789804842945,"feed":"aisstream","receivedAt":"2026-09-19T08:00:42.945Z"}
++{"mmsi":"265549774","msgType":"StandardClassBPositionReport","lat":58.32056004798321,"lon":12.323908859619237,"sog":6.9,"cog":202.4,"navStatus":null,"shipName":"BRISEN","aisTimestamp":1789804983354,"fixTs":1789804983354,"feed":"aisstream","receivedAt":"2026-09-19T08:03:03.354Z"}
++{"mmsi":"265549682","msgType":"StandardClassBPositionReport","lat":58.30880112903337,"lon":12.314951039864788,"sog":8.9,"cog":214,"navStatus":null,"shipName":"KAJSA","aisTimestamp":1789805043880,"fixTs":1789805043880,"feed":"aisstream","receivedAt":"2026-09-19T08:04:03.880Z"}
++{"mmsi":"265549682","msgType":"StandardClassBPositionReport","lat":58.30681973249578,"lon":12.311866923249099,"sog":8.8,"cog":218.7,"navStatus":null,"shipName":"KAJSA","aisTimestamp":1789805105940,"fixTs":1789805105940,"feed":"aisstream","receivedAt":"2026-09-19T08:05:05.940Z"}
++{"mmsi":"265549774","msgType":"StandardClassBPositionReport","lat":58.315103479701854,"lon":12.32057753849909,"sog":7,"cog":195.8,"navStatus":null,"shipName":"BRISEN","aisTimestamp":1789805162293,"fixTs":1789805162293,"feed":"aisstream","receivedAt":"2026-09-19T08:06:02.293Z"}
++{"mmsi":"265549607","msgType":"StandardClassBPositionReport","lat":58.2649952439056,"lon":12.26318162217496,"sog":3.1,"cog":44.7,"navStatus":null,"shipName":"ULLA","aisTimestamp":1789805229804,"fixTs":1789805229804,"feed":"aisstream","receivedAt":"2026-09-19T08:07:09.804Z"}
++{"mmsi":"265549774","msgType":"StandardClassBPositionReport","lat":58.31195974199851,"lon":12.318688262255776,"sog":6.8,"cog":202.6,"navStatus":null,"shipName":"BRISEN","aisTimestamp":1789805262986,"fixTs":1789805262986,"feed":"aisstream","receivedAt":"2026-09-19T08:07:42.986Z"}
++{"mmsi":"265549607","msgType":"StandardClassBPositionReport","lat":58.2655303747922,"lon":12.264420097740127,"sog":3,"cog":50.1,"navStatus":null,"shipName":"ULLA","aisTimestamp":1789805290413,"fixTs":1789805290413,"feed":"aisstream","receivedAt":"2026-09-19T08:08:10.413Z"}
++{"mmsi":"265549774","msgType":"StandardClassBPositionReport","lat":58.30892305859085,"lon":12.315506521052077,"sog":5.9,"cog":215.2,"navStatus":null,"shipName":"BRISEN","aisTimestamp":1789805375374,"fixTs":1789805375374,"feed":"aisstream","receivedAt":"2026-09-19T08:09:35.374Z"}
++{"mmsi":"265549682","msgType":"StandardClassBPositionReport","lat":58.29274889666807,"lon":12.293557699218487,"sog":6.5,"cog":221,"navStatus":null,"shipName":"KAJSA","aisTimestamp":1789805530847,"fixTs":1789805530847,"feed":"aisstream","receivedAt":"2026-09-19T08:12:10.847Z"}
++{"mmsi":"265549774","msgType":"StandardClassBPositionReport","lat":58.30225441951487,"lon":12.30540004785466,"sog":6.2,"cog":211.5,"navStatus":null,"shipName":"BRISEN","aisTimestamp":1789805676871,"fixTs":1789805676871,"feed":"aisstream","receivedAt":"2026-09-19T08:14:36.871Z"}
++{"mmsi":"265549774","msgType":"StandardClassBPositionReport","lat":58.30072189700646,"lon":12.303478221751075,"sog":6.2,"cog":208,"navStatus":null,"shipName":"BRISEN","aisTimestamp":1789805739530,"fixTs":1789805739530,"feed":"aisstream","receivedAt":"2026-09-19T08:15:39.530Z"}
++{"mmsi":"265549774","msgType":"StandardClassBPositionReport","lat":58.29925059441472,"lon":12.301921926062938,"sog":6.2,"cog":205.1,"navStatus":null,"shipName":"BRISEN","aisTimestamp":1789805800427,"fixTs":1789805800427,"feed":"aisstream","receivedAt":"2026-09-19T08:16:40.427Z"}
++{"mmsi":"265549512","msgType":"StandardClassBPositionReport","lat":58.320612947297015,"lon":12.32354752578087,"sog":8.3,"cog":200.1,"navStatus":null,"shipName":"YRSA","aisTimestamp":1789805821190,"fixTs":1789805821190,"feed":"aisstream","receivedAt":"2026-09-19T08:17:01.190Z"}
++{"mmsi":"265549512","msgType":"StandardClassBPositionReport","lat":58.31755404294839,"lon":12.321608746546893,"sog":8.2,"cog":199.1,"navStatus":null,"shipName":"YRSA","aisTimestamp":1789805906144,"fixTs":1789805906144,"feed":"aisstream","receivedAt":"2026-09-19T08:18:26.144Z"}
++{"mmsi":"265549774","msgType":"StandardClassBPositionReport","lat":58.292065701752705,"lon":12.292990242428738,"sog":4.5,"cog":221,"navStatus":null,"shipName":"BRISEN","aisTimestamp":1789806123966,"fixTs":1789806123966,"feed":"aisstream","receivedAt":"2026-09-19T08:22:03.966Z"}
++{"mmsi":"265549682","msgType":"StandardClassBPositionReport","lat":58.27244807283381,"lon":12.27472648139931,"sog":6.7,"cog":210.4,"navStatus":null,"shipName":"KAJSA","aisTimestamp":1789806216777,"fixTs":1789806216777,"feed":"aisstream","receivedAt":"2026-09-19T08:23:36.777Z"}
++{"mmsi":"265549512","msgType":"StandardClassBPositionReport","lat":58.306877450807114,"lon":12.311948570639906,"sog":7.1,"cog":220.9,"navStatus":null,"shipName":"YRSA","aisTimestamp":1789806231575,"fixTs":1789806231575,"feed":"aisstream","receivedAt":"2026-09-19T08:23:51.575Z"}
++{"mmsi":"265549682","msgType":"StandardClassBPositionReport","lat":58.27111917335109,"lon":12.272925635041807,"sog":6,"cog":208.5,"navStatus":null,"shipName":"KAJSA","aisTimestamp":1789806277427,"fixTs":1789806277427,"feed":"aisstream","receivedAt":"2026-09-19T08:24:37.427Z"}
++{"mmsi":"265549512","msgType":"StandardClassBPositionReport","lat":58.305337402277196,"lon":12.309493410949917,"sog":7.3,"cog":216.2,"navStatus":null,"shipName":"YRSA","aisTimestamp":1789806292179,"fixTs":1789806292179,"feed":"aisstream","receivedAt":"2026-09-19T08:24:52.179Z"}
++{"mmsi":"265549774","msgType":"StandardClassBPositionReport","lat":58.28868233812912,"lon":12.288431893519883,"sog":4.8,"cog":213.8,"navStatus":null,"shipName":"BRISEN","aisTimestamp":1789806314573,"fixTs":1789806314573,"feed":"aisstream","receivedAt":"2026-09-19T08:25:14.573Z"}
++{"mmsi":"265549682","msgType":"StandardClassBPositionReport","lat":58.267056491307955,"lon":12.267289427660806,"sog":4.6,"cog":220.2,"navStatus":null,"shipName":"KAJSA","aisTimestamp":1789806473160,"fixTs":1789806473160,"feed":"aisstream","receivedAt":"2026-09-19T08:27:53.160Z"}
++{"mmsi":"265549512","msgType":"StandardClassBPositionReport","lat":58.297008339104885,"lon":12.299326310006453,"sog":7.2,"cog":204.5,"navStatus":null,"shipName":"YRSA","aisTimestamp":1789806584496,"fixTs":1789806584496,"feed":"aisstream","receivedAt":"2026-09-19T08:29:44.496Z"}
++{"mmsi":"265549512","msgType":"StandardClassBPositionReport","lat":58.295133112542835,"lon":12.296949256597355,"sog":7.4,"cog":213.7,"navStatus":null,"shipName":"YRSA","aisTimestamp":1789806651343,"fixTs":1789806651343,"feed":"aisstream","receivedAt":"2026-09-19T08:30:51.343Z"}
++{"mmsi":"265549512","msgType":"StandardClassBPositionReport","lat":58.29352932076453,"lon":12.29469487231648,"sog":7.4,"cog":220.4,"navStatus":null,"shipName":"YRSA","aisTimestamp":1789806712188,"fixTs":1789806712188,"feed":"aisstream","receivedAt":"2026-09-19T08:31:52.188Z"}
++{"mmsi":"265549774","msgType":"StandardClassBPositionReport","lat":58.279774573069574,"lon":12.282050161133492,"sog":5.2,"cog":211.7,"navStatus":null,"shipName":"BRISEN","aisTimestamp":1789806732089,"fixTs":1789806732089,"feed":"aisstream","receivedAt":"2026-09-19T08:32:12.089Z"}
++{"mmsi":"265549512","msgType":"StandardClassBPositionReport","lat":58.29224053444566,"lon":12.292867255103726,"sog":5.2,"cog":216.1,"navStatus":null,"shipName":"YRSA","aisTimestamp":1789806772584,"fixTs":1789806772584,"feed":"aisstream","receivedAt":"2026-09-19T08:32:52.584Z"}
++{"mmsi":"265549774","msgType":"StandardClassBPositionReport","lat":58.277876646238354,"lon":12.281055051597908,"sog":5.2,"cog":204.2,"navStatus":null,"shipName":"BRISEN","aisTimestamp":1789806814309,"fixTs":1789806814309,"feed":"aisstream","receivedAt":"2026-09-19T08:33:34.309Z"}
++{"mmsi":"265549607","msgType":"StandardClassBPositionReport","lat":58.28989725131274,"lon":12.289977452219818,"sog":3.1,"cog":23.4,"navStatus":null,"shipName":"ULLA","aisTimestamp":1789806834792,"fixTs":1789806834792,"feed":"aisstream","receivedAt":"2026-09-19T08:33:54.792Z"}
++{"mmsi":"265549512","msgType":"StandardClassBPositionReport","lat":58.29065246669435,"lon":12.290806531681655,"sog":5.6,"cog":215.3,"navStatus":null,"shipName":"YRSA","aisTimestamp":1789806852249,"fixTs":1789806852249,"feed":"aisstream","receivedAt":"2026-09-19T08:34:12.249Z"}
++{"mmsi":"265549607","msgType":"StandardClassBPositionReport","lat":58.29097677553021,"lon":12.291497684648727,"sog":3.4,"cog":40,"navStatus":null,"shipName":"ULLA","aisTimestamp":1789806925094,"fixTs":1789806925094,"feed":"aisstream","receivedAt":"2026-09-19T08:35:25.094Z"}
++{"mmsi":"265549774","msgType":"StandardClassBPositionReport","lat":58.27532263154123,"lon":12.278991610243592,"sog":5.3,"cog":200.8,"navStatus":null,"shipName":"BRISEN","aisTimestamp":1789806926344,"fixTs":1789806926344,"feed":"aisstream","receivedAt":"2026-09-19T08:35:26.344Z"}
++{"mmsi":"265549512","msgType":"StandardClassBPositionReport","lat":58.28874053801292,"lon":12.288232239515024,"sog":5.6,"cog":213.8,"navStatus":null,"shipName":"YRSA","aisTimestamp":1789806940985,"fixTs":1789806940985,"feed":"aisstream","receivedAt":"2026-09-19T08:35:40.985Z"}
++{"mmsi":"265549607","msgType":"StandardClassBPositionReport","lat":58.29207642647934,"lon":12.292799888757438,"sog":5.5,"cog":1.9,"navStatus":null,"shipName":"ULLA","aisTimestamp":1789807007719,"fixTs":1789807007719,"feed":"aisstream","receivedAt":"2026-09-19T08:36:47.719Z"}
++{"mmsi":"265549774","msgType":"StandardClassBPositionReport","lat":58.271644010610366,"lon":12.27411293974595,"sog":3.6,"cog":219.5,"navStatus":null,"shipName":"BRISEN","aisTimestamp":1789807119098,"fixTs":1789807119098,"feed":"aisstream","receivedAt":"2026-09-19T08:38:39.098Z"}
++{"mmsi":"265549512","msgType":"StandardClassBPositionReport","lat":58.28511596183289,"lon":12.284565309401343,"sog":0.8,"cog":201,"navStatus":null,"shipName":"YRSA","aisTimestamp":1789807191470,"fixTs":1789807191470,"feed":"aisstream","receivedAt":"2026-09-19T08:39:51.470Z"}
++{"mmsi":"265549774","msgType":"StandardClassBPositionReport","lat":58.268586120042336,"lon":12.27024460914968,"sog":4.2,"cog":212.2,"navStatus":null,"shipName":"BRISEN","aisTimestamp":1789807308408,"fixTs":1789807308408,"feed":"aisstream","receivedAt":"2026-09-19T08:41:48.408Z"}
++{"mmsi":"265549512","msgType":"StandardClassBPositionReport","lat":58.28450314441039,"lon":12.28408796490493,"sog":1.1,"cog":207.7,"navStatus":null,"shipName":"YRSA","aisTimestamp":1789807333019,"fixTs":1789807333019,"feed":"aisstream","receivedAt":"2026-09-19T08:42:13.019Z"}
++{"mmsi":"265549774","msgType":"StandardClassBPositionReport","lat":58.267266403067794,"lon":12.268066588572283,"sog":3.5,"cog":240.2,"navStatus":null,"shipName":"BRISEN","aisTimestamp":1789807413675,"fixTs":1789807413675,"feed":"aisstream","receivedAt":"2026-09-19T08:43:33.675Z"}
++{"mmsi":"265549512","msgType":"StandardClassBPositionReport","lat":58.28392567029557,"lon":12.283943097034248,"sog":1,"cog":192.1,"navStatus":null,"shipName":"YRSA","aisTimestamp":1789807478952,"fixTs":1789807478952,"feed":"aisstream","receivedAt":"2026-09-19T08:44:38.952Z"}
++{"mmsi":"265549774","msgType":"StandardClassBPositionReport","lat":58.26589684154934,"lon":12.265176357065528,"sog":3.6,"cog":228.6,"navStatus":null,"shipName":"BRISEN","aisTimestamp":1789807553672,"fixTs":1789807553672,"feed":"aisstream","receivedAt":"2026-09-19T08:45:53.672Z"}
++{"mmsi":"265549607","msgType":"StandardClassBPositionReport","lat":58.30516282732991,"lon":12.309357111916386,"sog":6.3,"cog":42.8,"navStatus":null,"shipName":"ULLA","aisTimestamp":1789807554063,"fixTs":1789807554063,"feed":"aisstream","receivedAt":"2026-09-19T08:45:54.063Z"}
++{"mmsi":"265549512","msgType":"StandardClassBPositionReport","lat":58.283557180158674,"lon":12.283943981681492,"sog":0.7,"cog":204.9,"navStatus":null,"shipName":"YRSA","aisTimestamp":1789807567463,"fixTs":1789807567463,"feed":"aisstream","receivedAt":"2026-09-19T08:46:07.463Z"}
++{"mmsi":"265549774","msgType":"StandardClassBPositionReport","lat":58.26536186574449,"lon":12.264287634927998,"sog":3.2,"cog":226.6,"navStatus":null,"shipName":"BRISEN","aisTimestamp":1789807598640,"fixTs":1789807598640,"feed":"aisstream","receivedAt":"2026-09-19T08:46:38.640Z"}
++{"mmsi":"265549607","msgType":"StandardClassBPositionReport","lat":58.306526769117085,"lon":12.311522570888085,"sog":6.1,"cog":38.5,"navStatus":null,"shipName":"ULLA","aisTimestamp":1789807614615,"fixTs":1789807614615,"feed":"aisstream","receivedAt":"2026-09-19T08:46:54.615Z"}
++{"mmsi":"265549607","msgType":"StandardClassBPositionReport","lat":58.30849361143057,"lon":12.31473580510816,"sog":6.5,"cog":35.7,"navStatus":null,"shipName":"ULLA","aisTimestamp":1789807702278,"fixTs":1789807702278,"feed":"aisstream","receivedAt":"2026-09-19T08:48:22.278Z"}
++{"mmsi":"265549607","msgType":"StandardClassBPositionReport","lat":58.30993397385119,"lon":12.316470729740475,"sog":6.5,"cog":27.4,"navStatus":null,"shipName":"ULLA","aisTimestamp":1789807762496,"fixTs":1789807762496,"feed":"aisstream","receivedAt":"2026-09-19T08:49:22.496Z"}
++{"mmsi":"265549512","msgType":"StandardClassBPositionReport","lat":58.2779261045446,"lon":12.280769100096634,"sog":6.3,"cog":192.7,"navStatus":null,"shipName":"YRSA","aisTimestamp":1789807800917,"fixTs":1789807800917,"feed":"aisstream","receivedAt":"2026-09-19T08:50:00.917Z"}
++{"mmsi":"265549512","msgType":"StandardClassBPositionReport","lat":58.27590117760506,"lon":12.279275369476068,"sog":6.4,"cog":195,"navStatus":null,"shipName":"YRSA","aisTimestamp":1789807873867,"fixTs":1789807873867,"feed":"aisstream","receivedAt":"2026-09-19T08:51:13.867Z"}
++{"mmsi":"265549512","msgType":"StandardClassBPositionReport","lat":58.273556756751496,"lon":12.276507423266885,"sog":6.2,"cog":216.5,"navStatus":null,"shipName":"YRSA","aisTimestamp":1789807970939,"fixTs":1789807970939,"feed":"aisstream","receivedAt":"2026-09-19T08:52:50.939Z"}
++{"mmsi":"265549607","msgType":"StandardClassBPositionReport","lat":58.31998087119826,"lon":12.323395639643564,"sog":6.8,"cog":7.5,"navStatus":null,"shipName":"ULLA","aisTimestamp":1789808103864,"fixTs":1789808103864,"feed":"aisstream","receivedAt":"2026-09-19T08:55:03.864Z"}
+-- 
+2.43.0
+

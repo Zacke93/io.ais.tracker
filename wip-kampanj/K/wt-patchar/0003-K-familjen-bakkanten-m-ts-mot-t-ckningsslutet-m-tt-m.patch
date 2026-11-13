@@ -1,0 +1,181 @@
+From 90a63c69370cc0db5b1802eb53e9e30a1baac705 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 4 Nov 2026 18:01:43 +0000
+Subject: [PATCH 3/9] =?UTF-8?q?K-familjen:=20bakkanten=20m=C3=A4ts=20mot?=
+ =?UTF-8?q?=20t=C3=A4ckningsslutet=20(m=C3=A4tt=20mot=20U2-f=C3=B6nstret)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+94d573f lät bakkanten jämföra följarens färska prognos med U2-fönstret
+kring den verkliga passagen i stället för med coverUntilMs. Mätningen
+visar att det är sämre. K14 förlänger aldrig täckningen, så en följare
+med prognos mellan täckningsslutet och fönstrets slut släpps vid
+täckningsslutet ändå. Varianten höll bara kvar henne dit, och hon
+varnades efter sin korsning (klustervärldarna 56, 119, 685 och 1643).
+Standardprofilen gav 6 fler kandidatutslag och snabbprofilen 1 fler.
+Det enda varianten vann var snabbvärld 295 (HAVSORN, 0,8 s bortom
+täckningen, 96 m från bron), som motorn registrerar som KÄND_ÖPPEN
+U2-VS-DEADLINE.
+
+Regressionstestet pekar nu ut det valda beteendet: följaren varnas med
+full ledtid före täckningsslutet. Testet är rött på 7699cbe och på
+94d573f.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/ARCHITECTURE.md                         | 12 ++++---
+ lib/services/BridgeOpeningService.js         | 37 +++++++++++---------
+ tests/k-konvoj-recover-bakkant-glapp.test.js | 32 ++++++++++-------
+ 3 files changed, 47 insertions(+), 34 deletions(-)
+
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index b67820d..c89e91f 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -741,10 +741,9 @@ båt.
+   absorberad båt permanent tystad. Sedan K-familjen (2026-11-04) avgör
+   `_coverageVerdict` släppet: (a) **bakkanten** — efter händelsens första
+   passage släpps armen redan på det färska, GPS-rena fix vars förväntade
+-  ankomst ligger bortom U2-fönstret kring den verkliga passagen
+-  (`max(firedAt, firstPassageAt) + CONVOY_WINDOW_MS`, inte `coverUntilMs`,
+-  som K14 aldrig förlänger), och hon varnas på sin egen deadline ur samma
+-  fix; (b) **vid täckningsslut** hålls armen kvar (`OPENING_RECOVER_HOLD`,
++  ankomst ligger bortom täckningen (`coverUntilMs`; K14 förlänger aldrig, så
++  täckningsslutet hade släppt henne ändå), och hon varnas på sin egen
++  deadline ur samma fix; (b) **vid täckningsslut** hålls armen kvar (`OPENING_RECOVER_HOLD`,
+   nästa fix avgör) om bron ligger bakom henne (avväpnas som passage), om armen
+   är fryst, om ankomstfysik saknas, om hon låg under bron (≤
+   `UNDER_BRIDGE_SET_DISTANCE`, i rörelse) med ankomst inom täckningen, eller om
+@@ -1507,7 +1506,10 @@ samma form: släpp på ren tid och avfyrning på den ärvda deadlinen. Rättning
+   väntzonen), hålls täckningen kvar tills nästa fix (F20, F03, F14).
+ - **(3)** Utan finit ankomstfysik släpps hon inte. **(4)** Bakkanten släpper på
+   ett färskt fix efter den bokförda första passagen, och deadlinen räknas ur det
+-  fixet (F02, F17, F22, F01:s r2).
++  fixet (F02, F17, F22, F01:s r2). Bakkanten jämför med täckningsslutet, inte
++  med U2-fönstret kring passagen. Den varianten mättes: när ledaren passerat
++  senare än sin prognos höll den kvar följarna till täckningsslutet, och de
++  varnades efter sin korsning.
+ - Konvojfönstret ankras i den interpolerade korsningen, inte i bokföringen
+   (F01). I banken ligger bokföringen median 109 s och p90 625 s efter
+   korsningen. Interpolationen gäller varje passage med fix på var sin sida om
+diff --git a/lib/services/BridgeOpeningService.js b/lib/services/BridgeOpeningService.js
+index 3b5071f..79a69f1 100644
+--- a/lib/services/BridgeOpeningService.js
++++ b/lib/services/BridgeOpeningService.js
+@@ -1753,15 +1753,21 @@ class BridgeOpeningService {
+    *    passagen är fönstret en prognos om ledaren, och en väntande ledare gör
+    *    att följaren fortfarande hör till samma öppning (U2);
+    *  - fixet var GPS-rent och färskt, och armen är inte fryst (C7b);
+-   *  - armens förväntade ankomst ur det fixet ligger EFTER konvojfönstret kring
+-   *    den verkliga första passagen, max(firedAt, firstPassageAt) +
+-   *    CONVOY_WINDOW_MS — samma medlemsfråga som _belongsToEvent ställde vid
+-   *    bindningen, nu mot passagen i stället för ledarens prognos. INTE mot
+-   *    coverUntilMs: K14 kortar aldrig uppåt, så täckningen kan ligga kvar på
+-   *    ledarens tidigare prognos, och då hör en båt med prognos mellan de två
+-   *    fortfarande till öppningen (buggjägarens snabbvärld 295: HAVSORN hade
+-   *    släppts 28 s före sin korsning, 178 s efter DAGNYs);
++   *  - armens förväntade ankomst ur det fixet ligger EFTER täckningsslutet
++   *    coverUntilMs — samma medlemsfråga som _belongsToEvent ställde vid
++   *    bindningen, nu mot den täckning som faktiskt gäller. K14 förlänger
++   *    aldrig täckningen, så täckningsslutet släpper henne ändå om hon inte
++   *    hunnit passera; bakkanten flyttar bara släppet till det fix som visar
++   *    det, och hon får en hel deadline i stället för en förfallen;
+    *  - kursen leder inte bort från bron (se _courseAway).
++   * MÄTT OCH AVVISAT: att jämföra mot U2-fönstret kring den verkliga
++   * passagen, max(firedAt, firstPassageAt) + CONVOY_WINDOW_MS, när ledaren
++   * passerat senare än sin prognos. Båtarna mellan täckningsslutet och
++   * fönstrets slut hölls då kvar till täckningsslutet och varnades efter sin
++   * korsning (buggjägarens klustervärldar 56, 119, 685 och 1643; standard-
++   * profilen 6 fler kandidatutslag). Det enda varianten vann var snabbvärld
++   * 295, där HAVSORN låg 0,8 s bortom täckningen 96 m från bron och fick 28 s
++   * ledtid — ett fall som motorn registrerar som KÄND_ÖPPEN U2-VS-DEADLINE.
+    * Prognosen är den som kortets eta_minutes, O1 och konvojfönstret redan
+    * använder (expectedArrivalMs); ingen ny storhet. Mätt i korpusbanken
+    * (485 h): bakkanten släpper ingen arm som inte redan släpptes förut —
+@@ -1807,20 +1813,17 @@ class BridgeOpeningService {
+         && Number.isFinite(event.firstPassageRegisteredAt);
+       if (!passageKnown || !(arm.lastSeenAt > event.firstPassageRegisteredAt)) return { kind: 'covered' };
+       if (!arm.lastFixClean || this._hasUnappliedObservation(arm)) return { kind: 'covered' };
+-      // U2-fönstret kring den VERKLIGA första passagen — inte coverUntilMs, som
+-      // K14:s enkelriktade rebasering kan ha lämnat på ledarens tidigare prognos.
+-      // Ligger prognosen mellan de två hör båten fortfarande till öppningen
+-      // (U2), och täckningsslutet prövar henne som förut.
+-      const windowEndMs = Math.max(Number.isFinite(event.firedAt) ? event.firedAt : 0, event.firstPassageAt)
+-        + this.config.CONVOY_WINDOW_MS;
+-      if (!Number.isFinite(arm.expectedArrivalMs) || arm.expectedArrivalMs <= windowEndMs) {
++      // Mot täckningsslutet, inte mot U2-fönstret kring passagen: K14 förlänger
++      // aldrig, så en båt med prognos bortom täckningen släpps där ändå (se
++      // docblocket för mätningen).
++      if (!Number.isFinite(arm.expectedArrivalMs) || arm.expectedArrivalMs <= arm.coverUntilMs) {
+         return { kind: 'covered' };
+       }
+       if (this._courseAway(arm, bridge)) return { kind: 'covered' };
+       return {
+         kind: 'bakkant',
+-        reason: `färsk prognos ${new Date(arm.expectedArrivalMs).toISOString()} ligger efter konvojfönstret `
+-          + `${new Date(windowEndMs).toISOString()}`,
++        reason: `färsk prognos ${new Date(arm.expectedArrivalMs).toISOString()} ligger efter täckningsslutet `
++          + `${new Date(arm.coverUntilMs).toISOString()}`,
+       };
+     }
+     const dir = arm.routeDirection;
+diff --git a/tests/k-konvoj-recover-bakkant-glapp.test.js b/tests/k-konvoj-recover-bakkant-glapp.test.js
+index 591aab0..d5ec2c7 100644
+--- a/tests/k-konvoj-recover-bakkant-glapp.test.js
++++ b/tests/k-konvoj-recover-bakkant-glapp.test.js
+@@ -228,16 +228,19 @@ describe('K-familjen: RECOVER-släppet, bakkanten och glappregistreringen', () =
+       expect(klaff()).toHaveLength(1);
+     });
+ 
+-    it('bakkanten mäts mot U2-fönstret kring den verkliga passagen, inte mot täckningen', () => {
+-      // Snabbvärld 295 (HAVSORN): ledaren passerar SENARE än sin prognos.
+-      // K14 förlänger aldrig, så täckningen ligger kvar på ledarens prognos,
+-      // medan U2-fönstret räknas från den verkliga passagen. En följare med
+-      // prognos mellan de två hör fortfarande till öppningen.
++    it('bakkanten mäts mot täckningsslutet även när ledaren passerade senare än prognosen', () => {
++      // Ledaren väntar vid bron och passerar SENARE än sin prognos. K14
++      // förlänger aldrig, så täckningen ligger kvar på prognosen medan
++      // U2-fönstret räknas från passagen. Följaren släpps vid täckningsslutet
++      // oavsett U2-fönstret; bakkanten flyttar bara släppet till fixet som
++      // visar det, så att hon varnas med full ledtid. Att i stället jämföra mot
++      // U2-fönstret höll kvar henne till täckningsslutet och gav en sen
++      // varning (klustervärldarna 56, 119, 685 och 1643).
+       svc.observeVessel(boat('LEAD', 900, 6));
+       svc.observeVessel(boat('FOLLOWER', 2400, 6.9));
+       expect(armOf('FOLLOWER').absorbedAt).toBe(T0);
+       const coverBefore = armOf('FOLLOWER').coverUntilMs;
+-      advanceTo(T0 + 500 * S); // ledaren väntade vid bron och passerar nu
++      advanceTo(T0 + 500 * S);
+       svc.notePassage('LEAD', 'Klaffbron');
+       const windowEnd = T0 + 1100 * S; // max(firedAt, passagen) + CONVOY_WINDOW_MS
+       expect(armOf('FOLLOWER').coverUntilMs).toBe(coverBefore);
+@@ -246,13 +249,18 @@ describe('K-familjen: RECOVER-släppet, bakkanten och glappregistreringen', () =
+       advanceTo(T0 + 510 * S);
+       svc.observeVessel(boat('FOLLOWER', 1000, 4));
+       const follower = armOf('FOLLOWER');
+-      expect(follower.expectedArrivalMs).toBeGreaterThan(coverBefore);
+-      expect(follower.expectedArrivalMs).toBeLessThanOrEqual(windowEnd);
+-      // Inget bakkantssläpp: hon är kvar i öppningen tills täckningen löper ut.
+-      expect(follower.absorbedAt).toBe(T0);
+-      expect(debugLines('[OPENING_RECOVER]').some((l) => l.includes('bakkant'))).toBe(false);
++      const arrival = follower.expectedArrivalMs;
++      expect(arrival).toBeGreaterThan(coverBefore);
++      expect(arrival).toBeLessThanOrEqual(windowEnd);
++      expect(follower.absorbedAt).toBeNull();
++      expect(debugLines('[OPENING_RECOVER]').some((l) => l.includes('bakkant'))).toBe(true);
++
++      // Egen varning före täckningsslutet, med full ledtid. Förut kom den
++      // först vid täckningsslutet, ~104 s före ankomsten.
+       advanceTo(coverBefore - 10 * S);
+-      expect(klaff()).toHaveLength(1);
++      const own = klaff().filter((w) => w.leadMmsi === 'FOLLOWER');
++      expect(own).toHaveLength(1);
++      expect(own[0].t).toBeLessThanOrEqual(arrival - BRIDGE_OPENING.WARNING_LEAD_MS);
+     });
+   });
+ 
+-- 
+2.43.0
+

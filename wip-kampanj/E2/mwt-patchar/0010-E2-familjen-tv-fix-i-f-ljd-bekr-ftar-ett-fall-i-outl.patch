@@ -1,0 +1,145 @@
+From d37a5fb0c124dc9731f57294602778940dc2b5ee Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 4 Nov 2026 23:47:23 +0000
+Subject: [PATCH 10/24] =?UTF-8?q?E2-familjen:=20tv=C3=A5=20fix=20i=20f?=
+ =?UTF-8?q?=C3=B6ljd=20bekr=C3=A4ftar=20ett=20fall=20i=20outliergrinden?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Hölls förra fixet som dramatiskt fall, och stämmer det nya fixets
+rå-ETA med förra fixets uppmätta värde (minus förfluten tid), är
+fallet verkligt. Utan bekräftelsen jämfördes varje fix med en hållen
+siffra som aldrig kom ikapp. MOKENDEIST i 20260806-42h hölls på
+17,8 → 15,1 → 12,6 → 10,3 medan rå-ETA:n var 6,1 → 4,8 → 3,2, och
+brotexten blinkade "om cirka 5 minuter" i 0,2 s mellan två "strax".
+Ökningar bekräftas inte på det här sättet: en väntande båts rå-ETA
+ligger stadigt på fartgolvet och ska fortsatt hållas.
+
+Historikposten bär nu fixets uppmätta rå-ETA (measuredETA) och om
+fallet hölls (heldDecrease). measure:eta: 0 ändrade påståenden mot
+föregående commit, och 42h-blinket är borta (samma text som e949ae1).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ lib/services/ProgressiveETACalculator.js | 30 ++++++++++++++++++++++--
+ tests/e2-eta-etapp-2026-11-04.test.js    | 25 ++++++++++++++++++--
+ 2 files changed, 51 insertions(+), 4 deletions(-)
+
+diff --git a/lib/services/ProgressiveETACalculator.js b/lib/services/ProgressiveETACalculator.js
+index a2728cc..fc8fcd4 100644
+--- a/lib/services/ProgressiveETACalculator.js
++++ b/lib/services/ProgressiveETACalculator.js
+@@ -1316,6 +1316,9 @@ class ProgressiveETACalculator {
+ 
+   _processETAWithProtection(vessel, rawETA, proximityData) {
+     const mmsi = vessel.mmsi.toString();
++    // E2 (K6, del 2): fixets uppmätta rå-ETA, innan outlierskyddet kan byta
++    // ut den mot en blandning — historiken bär den till nästa fix.
++    const measuredETA = rawETA;
+     // Familj E (F04): rå-ETA:n som den kom in (outlierskyddet nedan kan byta
+     // ut rawETA mot en blandning) — M9-kravet för avgångsgolvet läser den.
+     const departureMeasuredETA = this._departureMeasuredETA(vessel, rawETA);
+@@ -1393,6 +1396,12 @@ class ProgressiveETACalculator {
+     // ligger i serier längre än taket. Taket är alltså en SPÄRR mot en latent
+     // rundgång, inte en bred beteendeändring — se rapporten.
+     let outlierProtectionActive = suspiciousETA.isOutlier;
++    if (suspiciousETA.reason === 'confirmed_decrease') {
++      this.logger.debug(
++        `✅ [ETA_OUTLIER_CONFIRMED] ${mmsi}: fallet till ${rawETA.toFixed(1)}min stämmer med förra fixets `
++        + 'uppmätta värde — två fix i följd, ingen glimt',
++      );
++    }
+     if (suspiciousETA.isOutlier && suspiciousETA.reason === 'gps_coordination_active') {
+       const gpsStreak = this._gpsFallbackStreak.get(mmsi) || 0;
+       if (gpsStreak >= GPS_FALLBACK_MAX_CONSECUTIVE) {
+@@ -1676,6 +1685,8 @@ class ProgressiveETACalculator {
+     // STEP 6: RECORD HISTORY - Store this calculation for future reference
+     this._recordETAHistory(mmsi, {
+       rawETA,
++      measuredETA,
++      heldDecrease: outlierProtectionActive && suspiciousETA.reason.startsWith('dramatic_decrease'),
+       protectedETA,
+       processedETA: adjustedETA,
+       timestamp: now,
+@@ -1740,8 +1751,23 @@ class ProgressiveETACalculator {
+     // 2,4). Glappsteget (tidsavstånd 0) och ökningsgrenen påverkas inte.
+     const expectedNow = Math.max(0.1, lastEntry.processedETA - timeDelta / 60000);
+     const decreaseRatio = eta / expectedNow;
++    let confirmedDecrease = false;
+     if (decreaseRatio < (1 / this._outlierThresholdMultiple) && timeDelta < windowMs) {
+-      return { isOutlier: true, reason: `dramatic_decrease_${decreaseRatio.toFixed(2)}x` };
++      // E2 (K6, del 2): TVÅ FIX I FÖLJD BEKRÄFTAR ETT FALL. Hölls förra fixet
++      // redan som dramatiskt fall, och stämmer det här fixets rå-ETA med förra
++      // fixets UPPMÄTTA värde (minus förfluten tid), är fallet verkligt och
++      // ingen glimt. Annars jämförs varje nytt fix med en hållen siffra som
++      // aldrig hinner ikapp (MOKENDEIST 20260806-42h 12:13–12:17: rå 7,7 →
++      // 6,1 → 4,8 → 3,2 hölls 17,8 → 15,1 → 12,6 → 10,3; dubbelkörningen gav
++      // 17,8 → 10,3 → 6,8 → 4,5). Ökningar bekräftas inte så: en väntande
++      // båts rå-ETA står stadigt på fartgolvet och ska fortsatt hållas.
++      const prevMeasured = lastEntry.heldDecrease === true && Number.isFinite(lastEntry.measuredETA)
++        ? Math.max(0.1, lastEntry.measuredETA - timeDelta / 60000) : null;
++      if (prevMeasured !== null && eta / prevMeasured >= 1 / this._outlierThresholdMultiple) {
++        confirmedDecrease = true;
++      } else {
++        return { isOutlier: true, reason: `dramatic_decrease_${decreaseRatio.toFixed(2)}x` };
++      }
+     }
+ 
+     // Check for unreasonable ETA spikes (e.g., 1min → 10min)
+@@ -1758,7 +1784,7 @@ class ProgressiveETACalculator {
+       return { isOutlier: true, reason: 'gps_coordination_active' };
+     }
+ 
+-    return { isOutlier: false, reason: 'normal_variation' };
++    return { isOutlier: false, reason: confirmedDecrease ? 'confirmed_decrease' : 'normal_variation' };
+   }
+ 
+   /**
+diff --git a/tests/e2-eta-etapp-2026-11-04.test.js b/tests/e2-eta-etapp-2026-11-04.test.js
+index ebb6253..d3c07b1 100644
+--- a/tests/e2-eta-etapp-2026-11-04.test.js
++++ b/tests/e2-eta-etapp-2026-11-04.test.js
+@@ -14,8 +14,8 @@ jest.mock('homey');
+  *      färska skattning prövas mot den baslinjen (pass 2:s skyddseffekt);
+  *   2. outliergrindens fönster är kadensrelativt (1,5 av fartygets eget
+  *      fixintervall, mätt före fixet, men minst det gamla 30 s-fönstret) i
+- *      stället för 30 s väggtid, och ett dramatiskt fall mäts mot förra
+- *      värdet minus förfluten tid;
++ *      stället för 30 s väggtid; ett dramatiskt fall mäts mot förra värdet
++ *      minus förfluten tid, och två fix i följd bekräftar ett fall;
+  *   3. utjämningens vikt per fix kalibrerades efter 1 och 2: 0,64.
+  * Därtill två kort ur buggjägaren:
+  *   F06 (värld 192, XENIA): "strax → om 4 → strax" vid inbromsning. Medelfarten
+@@ -257,6 +257,27 @@ describe('K6 del 2: outliergrindens fönster följer fartygets kadens', () => {
+     expect(calc._isETAOutlier(2.4, same, v).reason).toBe('dramatic_decrease_0.39x');
+   });
+ 
++  test('två fix i följd bekräftar ett fall: en hållen siffra hinner ikapp (MOKENDEIST 42h)', () => {
++    // 20260806-42h 12:13–12:17: glappsteget höll en färsk skattning 7,7 som
++    // dramatiskt fall mot baslinjen 19,2 (17,8 publicerat). Nästa fix 66 s
++    // senare: rå 6,1. Mot det hållna värdet är fallet fortfarande dramatiskt
++    // (6,1 mot 16,7), men det stämmer med förra fixets UPPMÄTTA 7,7 (6,6 nu).
++    const now = Date.now();
++    const v = {
++      mmsi: MMSI, targetBridge: 'Klaffbron', status: 'approaching', sog: 4.1,
++    };
++    calc._fixCadence.set(MMSI, { intervalMs: 66000 });
++    const held = [{
++      timestamp: now - 66000, rawETA: 17.8, processedETA: 17.8, measuredETA: 7.7, heldDecrease: true,
++    }];
++    expect(calc._isETAOutlier(6.1, held, v)).toEqual({ isOutlier: false, reason: 'confirmed_decrease' });
++    // En glimpse efter hållningen bekräftas inte (1,0 mot förväntade 6,6).
++    expect(calc._isETAOutlier(1.0, held, v).isOutlier).toBe(true);
++    // Utan föregående hållning är samma fall dramatiskt som förut.
++    const free = [{ ...held[0], heldDecrease: false }];
++    expect(calc._isETAOutlier(6.1, free, v).reason).toMatch(/^dramatic_decrease_/);
++  });
++
+   test('efter ett glapp är kadensen okänd: en båt som stannar får sin ETA att växa (BARAVI 17h)', () => {
+     // Prövat och återtaget: kadensen uppdaterad FÖRE prövningen täckte alltid
+     // sitt eget intervall (1,5 × 110 s), så fixet efter glappsteget prövades
+-- 
+2.43.0
+

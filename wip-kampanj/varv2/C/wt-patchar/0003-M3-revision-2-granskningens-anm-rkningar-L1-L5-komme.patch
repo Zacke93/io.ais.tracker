@@ -1,0 +1,248 @@
+From d190e9c524716f8b2042aa37e4c721151e12ca18 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 12:46:02 +0000
+Subject: [PATCH 3/3] =?UTF-8?q?M3=20revision=202:=20granskningens=20anm?=
+ =?UTF-8?q?=C3=A4rkningar=20L1=E2=80=93L5=20(kommentarer,=20dokument=20och?=
+ =?UTF-8?q?=20test)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Ingen beteendeändring. Granskningen av familj C (GODKÄND, sex låga):
+- L1: dokumentationen säger inte längre att alla motexempel stoppas. Fyra
+  grannklasser (vändning vid återfödelsen, första ankomst till Kajen eller
+  Gästhamnen utan kajhistorik, GPS-hopp med fartspik och V8) ger samma
+  utfall som en tvilling med kurs i banden på c14938f. W1 och W3 låses i
+  testets steg 7 genom hela appen.
+- L2: "låset är det svepet själv hade satt" är omformulerat i VDS, app.js
+  och ARCHITECTURE: låser svepet alls, låser det samma riktning; saknar
+  fönstret kandidatbroar är M3:s lås det enda.
+- L5: V8 är en känd gräns med förslaget att spara fixTs/fixFeed i posten.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ app.js                                       |  5 +-
+ docs/ARCHITECTURE.md                         | 28 +++++--
+ lib/services/VesselDataService.js            | 16 ++--
+ tests/m3-aterfodd-dodband-2026-11-09.test.js | 88 ++++++++++++++++++++
+ 4 files changed, 125 insertions(+), 12 deletions(-)
+
+diff --git a/app.js b/app.js
+index edc49cd..d01ebd1 100755
+--- a/app.js
++++ b/app.js
+@@ -8658,8 +8658,11 @@ class AISBridgeApp extends Homey.App {
+     // befintligt lås hanteras av korsningsbevis-reversalen i VDS.
+     // M3 (varv 2, familj C): bevisar förflyttningen sedan sist kända position
+     // transit (≥ 2 kn netto i nordled, ≥ 2 kn fart, kursen på samma sida),
+-    // har VDS redan satt SAMMA lås i ny-båtsgrenen, före målbrovalet, och
++    // har VDS redan satt låset i ny-båtsgrenen, före målbrovalet, och
+     // villkoret nedan hoppar över (VesselDataService._rebirthTransitDirection).
++    // Hade svepet låst, hade det låst samma riktning (samma post, samma
++    // tecken). Saknar fönstret kandidatbroar returnerar svepet ovan före
++    // låset, och då är VDS-låset det enda.
+     //
+     // R1 (rättningskampanjen 2026-11-04, F15 IRMA): svepets riktning är
+     // NETTOFÖRFLYTTNINGEN sedan sist kända position. Den är rätt riktning för
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 921a196..86776a9 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -955,9 +955,11 @@ båt.
+     observerade positioner, inte ur kursen. Ribban är högre än för en kurs i banden,
+     som ger målbro utan något förflyttningsbevis alls. Kanalen går 22–36° mellan
+     broarna, så 2 kn i nordled är minst 2 kn längs farleden.
+-  - *Ordningen mot svepet.* Låset är det svepet själv hade satt: samma post i
++  - *Ordningen mot svepet.* Låser svepet alls, låser det samma riktning: samma post i
+     `_lastKnownPositions` och samma tecken. Vid ≥ 100 m förflyttning har svepet
+-    `rebornEvidence`, och under det avstår svepets portgissning vid dödbandskurs. Krav 4
++    `rebornEvidence`, och under det avstår svepets portgissning vid dödbandskurs. Saknar
++    svepets fönster kandidatbroar returnerar svepet före låset (PELLE i buggjägarens
++    värld 977); då är M3:s lås det enda, och det släpps när ingen målbro blir. Krav 4
+     gör att R1/F15:s release aldrig hade släppt låset. Svepet ser låset och låser inte
+     en gång till, så ticken har en riktningskälla.
+   - *Fältdata* (bankens 24 korpusar, alla fixpar med 65–900 s mellanrum, klassade mot
+@@ -977,9 +979,22 @@ båt.
+     kurs i dödbandet får som förut målbro först när kursen lämnar bandet. (c) En äkta
+     transit under 2 kn netto får ingen målbro här (54 % av bankens dödbandstransiter
+     med sog ≥ 2). (d) Basen saknar fixtid (V8): en gammal basfix gör dt för kort och
+-    överskattar nordfarten (faktor ≤ 1,5 vid fältets p90-fixålder). Regressionstest:
+-    `tests/m3-aterfodd-dodband-2026-11-09.test.js` och de två syntetiska scenarierna
+-    `återfödd-i-dödbandet-…`.
++    överskattar nordfarten med faktorn 1 + (basens fixålder − återfödelsens)/dt, ≤ 1,5
++    vid fältets p90-fixålder och 2,8 vid nattens max. Tecknet, alltså riktningen, kan
++    inte bli fel, men i AISHub- och 'both'-läge kan en långsam båt få ett mål hon inte
++    transiterar mot. Förslag till en senare runda: låt `_onVesselRemoved` spara
++    `fixTs`/`fixFeed` i posten och `_rebirthNorthBase` föra dem vidare, så att
++    `fixDtMs` mäter på fixklockan; K1:s Kanalinfartsregel vinner på samma sak.
++    (e) Dödbandet skyddar inte längre en återfödd båt mot falsklarm i klasser där en båt
++    med kurs i banden redan får målbro (granskningen 2026-11-09, världarna W1–W5):
++    vändning genom samma sidas dödband vid återfödelsen (W1), första ankomst till Kajen
++    eller Gästhamnen utan kajhistorik (W2, W3), GPS-hopp med fartspik åt kursens sida
++    (W4) och V8 (W5). Varje klass ger samma utfall som tvillingen med kurs i banden på
++    c14938f, alltså ett falsklarm i stället för en missad öppning. W1 och W3 är låsta i
++    testets steg 7. En zonvakt bara för M3 avråds: farleden går 7–52 m från
++    kajplatserna (FP9-H'), så den återinför missen för äkta transiter förbi kajerna.
++    Regressionstest: `tests/m3-aterfodd-dodband-2026-11-09.test.js` och de två
++    syntetiska scenarierna `återfödd-i-dödbandet-…`.
+ - Retention: samma `_shouldAssignTargetBridge`, med 2-READINGS: målbron ska ha
+   närmats ≥ `MIN_APPROACH_DISTANCE` (10 m) när den ligger > 300 m bort.
+   Misslyckas valideringen utanför skyddszonen startar en 60 s nådafrist
+@@ -1170,7 +1185,8 @@ båt.
+   som förut. Sedan M3 (varv 2, se §Target-livscykeln) kan VDS ha låst riktningen redan i
+   ny-båtsgrenen, när förflyttningen sedan sist kända position bevisar transit. Då låser
+   svepet inte, och releasen prövas inte. M3:s kurskrav släpper bara igenom kombinationer
+-  som releasen aldrig hade släppt, så utfallet är detsamma som om svepet hade låst.
++  som releasen aldrig hade släppt, så där svepet hade låst blir utfallet detsamma. Saknar
++  svepets fönster kandidatbroar låser svepet inte alls, och då är M3:s lås det enda.
+ 
+ ### Passage-latch + under-bridge-hysteres (StatusService)
+ 
+diff --git a/lib/services/VesselDataService.js b/lib/services/VesselDataService.js
+index 4ce01bc..c4206bc 100755
+--- a/lib/services/VesselDataService.js
++++ b/lib/services/VesselDataService.js
+@@ -515,11 +515,12 @@ class VesselDataService extends EventEmitter {
+         // AIS-avbrott; deadlinen hade gått 400 s före korsningen). K1-mätningen
+         // mot sist kända position ur SAMMA meddelande bevisar färdriktningen.
+         // Kraven och varför detta inte är en gissning: se
+-        // _rebirthTransitDirection. Låset sätts här, före målbrovalet, och är
+-        // per konstruktion det lås svepet själv hade satt och behållit
+-        // (samma bas, samma tecken), bara tidigare i ticken; svepet ser låset
+-        // och låser inte en gång till. Blir det ingen målbro i den riktningen
+-        // släpps låset igen, så att svepet beter sig exakt som förut.
++        // _rebirthTransitDirection. Låset sätts här, före målbrovalet. Låser
++        // svepet alls i samma tick, låser det samma riktning (samma bas, samma
++        // tecken) och hade behållit låset; nu ser det låset och låser inte en
++        // gång till. Saknar svepets fönster kandidatbroar låser svepet inte
++        // alls, och då är det här låset det enda. Blir det ingen målbro i den
++        // riktningen släpps låset igen, så att svepet beter sig exakt som förut.
+         if (!vessel.targetBridge && !vessel._routeDirection) {
+           const rebirthDirection = this._rebirthTransitDirection(vessel, FIX_D_MIN_SOG);
+           if (rebirthDirection) {
+@@ -4082,6 +4083,11 @@ class VesselDataService extends EventEmitter {
+    *     kombinationer där svepets låsrelease (R1/F15 IRMA, `_dedupDirection`
+    *     med requireMovement) INTE hade släppt svepets lås: östra dödbandet ger
+    *     ingen levande riktning, västra ger söderut.
++   * Kraven stänger INTE de klasser där en båt med kurs i banden redan får
++   * målbro: vändning genom samma sidas dödband, första ankomst till en kaj
++   * utan kajhistorik, GPS-hopp med fartspik åt kursens sida och V8 (se
++   * ARCHITECTURE.md §Target-livscykeln, M3, känd gräns (d) och (e)). Där blir
++   * utfallet bandkurstvillingens, ett falsklarm i stället för en missad öppning.
+    *
+    * @private
+    * @param {Object} vessel - Det återfödda fartygsobjektet
+diff --git a/tests/m3-aterfodd-dodband-2026-11-09.test.js b/tests/m3-aterfodd-dodband-2026-11-09.test.js
+index cd08c21..3fed1cd 100644
+--- a/tests/m3-aterfodd-dodband-2026-11-09.test.js
++++ b/tests/m3-aterfodd-dodband-2026-11-09.test.js
+@@ -33,6 +33,7 @@
+ jest.mock('homey');
+ 
+ const fs = require('fs');
++const os = require('os');
+ const path = require('path');
+ const { execFileSync } = require('child_process');
+ const { __mockHomey: mockHomey } = require('homey');
+@@ -42,6 +43,7 @@ const BridgeRegistry = require('../lib/models/BridgeRegistry');
+ const SystemCoordinator = require('../lib/services/SystemCoordinator');
+ const { KN_TO_MPS } = require('../lib/utils/quayTransitProof');
+ const { MOORING_ZONES, BRIDGES } = require('../lib/constants');
++const { buildPath, pathMetrics, pointAt } = require('./replay-validation/scenarioGenerator');
+ 
+ const ROOT = path.resolve(__dirname, '..');
+ const FIXTURE = path.join(__dirname, 'fixtures', 'm3-f05-freja-aterfodd-dodband.jsonl');
+@@ -560,3 +562,89 @@ describe('M3 steg 6 — hela appen på buggjägarens minsta repro (värld 756)',
+     expect(result.openingWarnings.filter((w) => w.bridge === 'Klaffbron')).toHaveLength(1);
+   }, 120000);
+ });
++
++// Granskningen av familj C (2026-11-09, L1): dödbandet skyddar inte längre en
++// återfödd båt mot falsklarm i de klasser där en båt med kurs i banden redan i dag
++// får målbro. Varje sådan värld ger EXAKT tvillingens utfall: samma värld med
++// kurs 25° (nordbandet) vid återfödelsen, som c14938f behandlar på samma sätt.
++// Testerna låser det, så att en framtida skärpning (t.ex. en zonvakt bara för M3)
++// blir ett medvetet beslut. Världarna är granskarens W1 och W3 (advgen.js).
++describe('M3 steg 7 — residualen: samma utfall som tvillingen med kurs i banden', () => {
++  const P = buildPath();
++  const MET = pathMetrics(P);
++  const { cum } = MET; // 1 Olidebron, 2 Klaffbron, 3 Järnvägsbron, 4 Stridsbergsbron
++  const T0 = Date.UTC(2026, 6, 20, 10, 0, 0);
++  const at = (s) => pointAt(P, MET, s);
++  const row = (mmsi, name, tS, pos, sog, cog) => {
++    const ts = T0 + Math.round(tS * 1000);
++    return {
++      mmsi,
++      msgType: 'StandardClassBPositionReport',
++      lat: pos.lat,
++      lon: pos.lon,
++      sog,
++      cog,
++      navStatus: null,
++      shipName: name,
++      aisTimestamp: ts,
++      receivedAt: new Date(ts).toISOString(),
++    };
++  };
++  // W1: vändningen PÅGÅR vid återfödelsen 389 m söder om Klaffbron (kurs 100° i
++  // östra dödbandet, netto norrut); därefter ger hon upp och går söderut.
++  const w1 = (mmsi, kurs) => {
++    const rows = [row(mmsi, 'VAND-NARA', 0, at(cum[1] + 683), 3.8, 50)];
++    rows.push(row(mmsi, 'VAND-NARA', 150, at(cum[2] - 389), 3.0, kurs));
++    for (let t = 180, s = cum[2] - 400; s >= cum[1] - 600; t += 30, s -= 3.5 * KN_TO_MPS * 30) {
++      rows.push(row(mmsi, 'VAND-NARA', t, at(s), 3.5, 202));
++    }
++    return rows;
++  };
++  // W3: första ankomst till Gästhamnen efter ett avbrott, utan kajhistorik
++  // (kurs 95° på väg in), sedan förtöjd.
++  const w3 = (mmsi, kurs) => {
++    const zon = MOORING_ZONES.find((z) => /Gästhamnen/.test(z.name));
++    const kaj = { lat: (zon.start.lat + zon.end.lat) / 2, lon: (zon.start.lon + zon.end.lon) / 2 };
++    const rows = [row(mmsi, 'GASTHAMN', 0, at(cum[1] + 683), 3.8, 50)];
++    rows.push(row(mmsi, 'GASTHAMN', 480, at(cum[2] + 300), 2.6, kurs));
++    rows.push(row(mmsi, 'GASTHAMN', 540, { lat: kaj.lat, lon: kaj.lon - 0.0003 }, 0.9, 100));
++    for (let t = 660; t <= 3600; t += 180) {
++      rows.push(row(mmsi, 'GASTHAMN', t, { lat: kaj.lat + ((t / 180) % 2) * 0.00002, lon: kaj.lon }, 0.0, null));
++    }
++    return rows;
++  };
++  const replay = (rows, namn) => {
++    const fil = path.join(os.tmpdir(), `m3-tvilling-${namn}-${process.pid}.jsonl`);
++    fs.writeFileSync(fil, `${rows.map((r) => JSON.stringify(r)).join('\n')}\n`);
++    try {
++      const env = { ...process.env, NODE_OPTIONS: '', REPLAY_VERBOSE: '' };
++      delete env.REPLAY_MONITORING;
++      const out = execFileSync(process.execPath, [
++        path.join(ROOT, 'tests/replay-validation/replayRunner.js'), fil,
++      ], {
++        cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env,
++      });
++      return JSON.parse(out.match(/__REPLAY_JSON__(.*?)__END__/s)[1]);
++    } finally {
++      fs.unlinkSync(fil);
++    }
++  };
++  const utfall = (r) => ({
++    processfel: r.processErrors,
++    varningar: r.openingWarnings.map((w) => [w.bridge, w.iso, w.firedBy, w.direction, w.etaMin]),
++    texter: r.bridgeTextTransitions.map((t) => [t.iso, t.text]),
++    notiser: r.notifications.map((n) => [n.t, n.bridge, n.direction, n.eta]),
++    passager: r.targetPassages.map((p) => [p.t, p.bridge]),
++  });
++
++  test.each([
++    ['W1, vändning vid återfödelsen (kurs 100°)', w1, 100, ['Klaffbron', '2026-07-20T10:02:30.000Z', 'fix']],
++    ['W3, första ankomst till Gästhamnen (kurs 95°)', w3, 95, ['Stridsbergsbron', '2026-07-20T10:08:00.000Z', 'fix']],
++  ])('%s: samma varning och text som tvillingen med kurs 25°', (namn, varld, kurs, varning) => {
++    const dodband = utfall(replay(varld('901900301', kurs), 'dodband'));
++    const tvilling = utfall(replay(varld('901900391', 25), 'tvilling'));
++    expect(dodband.processfel).toBe(0);
++    expect(dodband.varningar.map((w) => w.slice(0, 3))).toEqual([varning]);
++    expect(dodband).toEqual(tvilling);
++  }, 120000);
++});
+-- 
+2.43.0
+

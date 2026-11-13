@@ -1,0 +1,89 @@
+{
+ "family": "R2: passage och notis (F12, F16, F13 och F08), reviderad efter granskningen",
+ "summary": "Granskningens medelallvarliga punkt stämde, och den är nu rättad. De tre låga punkterna är också åtgärdade. Inget låst facit flyttas.\n\nF08, medel: Appen visste att SINE BRES hade korsat Järnvägsbrons linje. Den kunskapen raderades i nästa vanliga statuspass om det kom en fix till inne i brozonen, och då kunde passagen tappas igen. Nu sparas beviset och läggs tillbaka när appen startar brons zonbesök. Det gäller bara samma bro och samma besök, och högst i två minuter. Granskarens 16 varianter bokför nu alla passagen 02:27:17,778. Förut gjorde 5 av 16 det, både i 7699cbe och i första prototypen. FIX O-spärren prövar nu också beviset. Min förra design påstod felaktigt att FIX O inte kunde slå till efter FIX U; i banken gör den det 3 gånger per läge.\n\nF12/F16, låg: Varje ställe som släpper grindens kandidat har nu ett eget test. Tar man bort ett släppanrop blir just det testet rött.\n\nF13, låg: Dokumentationen säger nu att mätningen gäller samma hopp som BN2 prövar. Den beskriver också kantfallet med en båt som vänt.\n\nE, låg: Det delade tillståndet med ETA-kedjans AMELIA-släpp är beskrivet.\n\nTvå frågor till ägaren står i enkla ord i DESIGN.md §6:\n1. Får mätningen från K1, om båten verkligen rört sig norrut, användas även för att avgöra \"passerade\" eller \"närmar sig\" efter AIS-tystnad?\n2. Ska buggjägaren godkänna fallet där en båt får sitt mål först när den redan är vid bron? Appen ändras inte av det svaret.\n\nPrototypen är commit 8318c1a, ovanpå e0e8124. 32 regressionstester är gröna; 25 är röda mot 7699cbe och 13 mot e0e8124. Hela batteriet är grönt, utom motorkopians b-register.test.js, som är lika rött i 7699cbe.",
+ "rootCause": "Radnummer avser 7699cbe. Loggar är körda med REPLAY_VERBOSE=1.\n\nF12/F16 (värld 254, JOLLY), oförändrad:\n- 16:03:34 registreras en grindkandidat för Stridsbergsbron. Glappvägen bokför bron i samma tick, men kandidaten släpps aldrig.\n- 16:16:49, 795 s senare, bekräftas den och bokförs en gång till, som mellanbro.\n- Kedjan: confirmStableCandidates (GPSJumpGateService.js:184–257) → app.js:4229–4252 → registerConfirmedIntermediatePassage (VesselDataService.js:6358).\n\nF13 (värld 86, SALTIS, och värld 783), oförändrad:\n- Kursen 49,9° ligger i dödbandet, och båten saknar ruttlås. _hasGapCrossedNotifiedBridge (app.js:9890) får därför ingen färdriktning, och notisen säger \"närmar sig\" 115 m efter Olidebron.\n\nF08 (20260917-16h, SINE BRES):\n- Halva 1, som förut: beviset A0→B (388 m) prövades bara i INTERMEDIATE_UNDER. Hållningen, FIX U, rensningspasset och FIX O skjuter upp den grenen.\n- Halva 2, granskningen: med en extra fix C' 45 m söder om linjen (02:27:05, δ −2,5 s) ger första prototypen:\n  - B: UNDER_BRIDGE_CROSS_PROOF 388 m;\n  - 02:27:00: FIX_U_FORCE_WAITING;\n  - C': HYSTERESIS_RESET (\"Target bridge changed from Stridsbergsbron to Klaffbron\"), sedan INTERMEDIATE_UNDER 45 m utan bevis;\n  - C: NO_PASSAGE 45→108 m.\n- Orsak: målbytet skedde i passagepasset vid A. Hållningen och FIX U returnerar före _checkHysteresisResetConditions (StatusService.js:1436), så återställningen kommer först vid C'. Både den och det nya zonbesöket i INTERMEDIATE_UNDER nollar beviset. Segmentet A0→C' är 407 m, alltså längre än UNDER_BRIDGE_CROSS_SEGMENT_MAX_M (400 m).\n- FIX O, rättat påstående: i 20260804-both-21h (ANTJE, JEANNELLE) och 20260909-80h slår FIX O till i passet efter FIX U. Passagen och väntstämpeln har samma millisekund, och FIX O kräver att stämpeln är strikt senare.",
+ "fix": "F12/F16 och F13 är oförändrade från e0e8124:\n- releaseCandidate släpper en bokförd bros kandidat vid fyra bokföringsställen i VDS.\n- I BN2:s dödband ger K1:s färska nordprogress riktningen norrut.\n\nF08, revisionen 8318c1a:\n1. När _noteDeferredZoneEntryCross sätter ett nytt bevis sparas det i vessel._underBridgeDeferredProof = {bridge, lat, lon, at}. lat och lon är inträdesankaret på närsidan.\n2. _restoreDeferredZoneEntryProof lägger tillbaka beviset (_underBridgeCrossedBridge och inträdesankaret) för samma bro:\n   - när INTERMEDIATE_UNDER eller TARGET_UNDER startar ett nytt zonbesök (posten förbrukas);\n   - i varje uppskjutande pass, om beviset saknas (posten ligger kvar).\n3. _expireDeferredZoneEntryProof körs överst i analyzeVesselStatus. Posten släpps vid:\n   - GPS-hopp eller osäker position;\n   - bokförd bro (passedBridges, eller lastPassedBridge med en tid efter posten);\n   - bevis för en annan bro;\n   - mer än 70 m från bron (UNDER_BRIDGE_CLEAR_DISTANCE);\n   - ålder över 2 min (DEFERRED_ZONE_PROOF_MAX_AGE_MS, samma som epsilonkandidaten).\n   GPS-hoppsblocket nollar också posten.\n4. FIX O-grenen anropar _noteDeferredZoneEntryCross före return false.\n5. _underBridgeDeferredProof ligger i VDS fältlista.\n\nMETHOD 1:s nettokrav är oförändrat. En båt som vänder i zonen får ingen passage (testat).",
+ "functionsTouched": [
+  "GPSJumpGateService.releaseCandidate (ny, e0e8124)",
+  "VesselDataService._releaseGateCandidateForBookedBridge (ny, e0e8124) och dess fyra anrop",
+  "VesselDataService._createVesselObject fältlista (_underBridgeDeferredProof, ny i 8318c1a)",
+  "app._freshNorthProgressMps (ny, e0e8124)",
+  "app._getNotificationDirection (utbrytning, oförändrat beteende)",
+  "app._hasGapCrossedNotifiedBridge (dödbandsregeln; kommentar utökad i 8318c1a)",
+  "StatusService.analyzeVesselStatus (GPS-hoppsblocket nollar posten; utgångskontrollen anropas; FIX U-grenen och rensningspasset)",
+  "StatusService._noteDeferredZoneEntryCross (sparar och återställer beviset i 8318c1a)",
+  "StatusService._restoreDeferredZoneEntryProof (ny i 8318c1a)",
+  "StatusService._expireDeferredZoneEntryProof (ny i 8318c1a)",
+  "StatusService._isUnderBridge (hållningsgrenen, FIX O-grenen, nya zonbesök i INTERMEDIATE_UNDER och TARGET_UNDER)",
+  "StatusService._readUnderBridgePrevFix och _isUnderBridgeJumpTick (utbrutna, e0e8124)"
+ ],
+ "tests": "Tre testfiler, 32 tester, 17 fler än förut. Matrisen ligger i /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/kampanj/R2/test-matris.txt.\n\nNytt i tests/zonintrade-uppskjutet-bevis.test.js:\n- extra fix inne i zonen, med och utan UI-pass vid B;\n- TARGET_UNDER återställer beviset;\n- U-sväng i zonen ger ingen passage;\n- FIX O prövar beviset, och FIX O återställer ett nollat bevis;\n- sex utgångsregler (lämnat zonen, osäker position, bokförd bro, passage efter posten, över 2 min, bevis för annan bro);\n- fältlistan bär posten;\n- hela appen med granskarens extra fix 02:26:41,6 och 02:27:05 i δ 0, −2,5, −5 och −7 s.\n\nNytt i tests/gps-grind-kandidat-bokford-bro.test.js: ett test per släppställe (_hasPassedTargetBridge, registerConfirmedIntermediatePassage, _handleIntermediateBridgePassage).\n\nResultat:\n- Mot 7699cbe: 25 av 32 röda. De 7 gröna är fyra negativa fall, δ 0, K1-vakten och fallet med UI-pass (där räddar basen beviset).\n- Mot e0e8124: 13 röda, alla nya F08-tester utom UI-passfallet.\n- Mot 8318c1a: 32 av 32 gröna.\n\nMutationsprov: F12 4 av 4 fångade, F08 13 av 13 fångade (matningar/mut-f12.txt och mut-f08.txt).\n\nUtdata: /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/kampanj/R2/test-mot-7699cbe.txt, test-mot-e0e8124.txt och test-mot-prototyp.txt.",
+ "battery": "Allt kört på 8318c1a. Loggarna ligger i /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/kampanj/R2/matningar/.\n\n- npm test: 357 sviter, 4807 godkända, 2 överhoppade, 1 röd. Den röda är motorkopians b-register.test.js (\"docs/BUGGJAKT.md finns inte\"), lika röd i 7699cbe.\n- npm run lint: rent.\n- replay:all: alla låsta korpusar gröna, normalt och med REPLAY_MONITORING=1.\n- replay:synthetic: 46 scenarier rena, ordagrant lika med 7699cbe.\n- replay:openings: O1 376/378 och O1b 391/447, ordagrant lika med 7699cbe.\n- replay:monitoring: 216 notiser, 761 övergångar, 72 målpassager, 0 fel och 0 kvarvarande timrar. Lika med 7699cbe utom heapUsedMB.\n- replay:phase: 24 korpusar och 168 replayer gröna, både normalt och med REPLAY_MONITORING=1.\n- Banken rad för rad: 0 skillnader i 48 körningar.\n- Instrumenterad bank: 3 sparade och 3 återställda bevis per läge (OSPREY, SINE BRES, NINA B), 25 ms till 60 s efter sparandet, och 0 släppta. FIX O-anropet körs 3 gånger per läge utan bevis.\n- Granskarens 16 varianter: 16 av 16 bokförda.",
+ "facitChanges": [
+  {
+   "corpus": "alla 24 låsta korpusar, normalt och med REPLAY_MONITORING=1",
+   "dimension": "notis, text, öppning, riktning och passager",
+   "change": "ingen förflyttning; ingen omlåsning behövs",
+   "evidence": "snap.js och diffsnap.py på 8318c1a: 0 korpusar med skillnad i 48 körningar. replay:all är grönt, och replay:openings är ordagrant lika med 7699cbe.",
+   "verdict": "likvärdig"
+  },
+  {
+   "corpus": "20260917-16h M-FAS δ −2,5 och −7 s (ej låst facit)",
+   "dimension": "passage",
+   "change": "SINE BRES Järnvägspassage 02:27:17,778 bokförs; förut tappad",
+   "evidence": "rå-GT: korsning 02:26:08,016–02:26:30,446, från 94 m före till 26 m efter linjen; bokförd vid samma fix som i basen",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "granskarens prov: 16h med extra fix 45 m söder om linjen 02:26:41,6, δ 0 till −25 s, 8 faser (ej låst facit)",
+   "dimension": "passage",
+   "change": "Järnvägspassagen bokförs 02:27:17,778 i alla 8 faser; förut tappad i alla 8, i både 7699cbe och e0e8124",
+   "evidence": "samma rå-GT; den extra fixen ligger efter korsningen, på linjen B→C. diffsnap visar att inget annat ändras.",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "granskarens prov: samma med extra fix 02:27:05 (ej låst facit)",
+   "dimension": "passage",
+   "change": "bokförs i alla 8 faser; förut tappad vid δ −2,5, −5 och −7 s",
+   "evidence": "samma rå-GT och samma jämförelse",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "syntetisk värld 254, JOLLY (ej låst facit)",
+   "dimension": "passage",
+   "change": "den andra bokföringen av Stridsbergsbron 16:16:49,875 försvinner",
+   "evidence": "L0: en enda korsning 16:01:52 söderut, sedan kö 126 m söder om bron",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "syntetisk värld 86, SALTIS (ej låst facit)",
+   "dimension": "notis",
+   "change": "\"närmar sig Olidebron, om 1 minut\" → \"passerade Olidebron under AIS-tystnad\"",
+   "evidence": "L0: korsning 08:56:38 norrut; notisfixen ligger 115 m bortom linjen",
+   "verdict": "rättare"
+  },
+  {
+   "corpus": "syntetisk värld 783, okänd båt (ej låst facit)",
+   "dimension": "notis",
+   "change": "förvarningsform → passerad form vid Olidebron",
+   "evidence": "L0: korsning 10:54:31 norrut; notisfixen ligger 107 m bortom linjen",
+   "verdict": "rättare"
+  }
+ ],
+ "engineCheck": "hunt.js --repro för alla kort, mot 8318c1a (motor-repro-prototyp.txt) och mot 7699cbe (motor-repro-7699cbe.txt):\n- F08, F12, F13 och F16 går från KVAR till BORTA.\n- Alla andra kort och alla r2 står kvar som KVAR med samma antal utslag. F12/r2 är värld 1227 och F13/r2 är värld 1731; båda är andra mekanismer.\n- Utfallet är ordagrant lika med e0e8124.\n\nhunt.js --profile=quick --out=K/R2/hunt-quick, jämfört med r1-quick-a:\n- Självtestet är grönt.\n- Råa utslag minskar från 69 till 66 och kandidatkluster från 15 till 12. Borta är INV-13 och T10 för värld 254 och T1 för värld 86.\n- Inga nya kluster. Klustren är identiska med e0e8124 (matningar/hunt-quick-jamforelse.txt).\n\nBankspåret, --lanes=bank med 7 δ:\n- 7699cbe 158 av 168 rena, 8318c1a 160 av 168.\n- Det enda kluster som försvinner är F08:s (PASSAGENYCKEL TAPPAD, 16h). Det är identiskt med e0e8124 (matningar/bankspar-m-fas.txt).",
+ "interplay": "- R1 (VDS): mina släppanrop ligger textnära R1:s ändringar vid passedBridges.push, men semantiskt är de oberoende. Det sparade F08-beviset släpps också när en vändning lyfter bron ur passedBridges i samma uppdatering, via lastPassedBridge. Dödbandsregeln gäller bara när ruttlåset saknas.\n- N: en återresa har sydlig kurs och behåller förvarningen. Kantfallet med en vänd båt som har kurs 46–134° hör till N:s returnotis (U14).\n- K och K2: en falsk andra bokföring försvinner. Öppningsfacit är oförändrat.\n- E: ingen delad funktion, men delat tillstånd. ProgressiveETACalculator._hasPassedWaitingBridge (AMELIA-släppet, rad 769–784) läser _underBridgeLatched, _underBridgeCrossedBridge och inträdesankaret. Beviset kan nu finnas ett pass tidigare än i basen, till exempel i FIX U-passet medan hållningens lås ligger kvar. Banken visar ingen skillnad, men E och dirigenten bör pröva det vid integrationen.\n- M: inget samspel.",
+ "docs": "Uppdaterat i prototypen:\n- docs/ARCHITECTURE.md: det sparade inträdesbeviset och dess utgångsregler, FIX O, och BN2-stycket (mätningen gäller samma hopp, kantfallet).\n- docs/VALIDATION.md: F08 är låst även med en extra fix i zonen.\n- Kodkommentarer: hållningsgrenen är rättad, och BN2:s kommentar är utökad.\n\nFör dirigenten:\n- svaren på de två frågorna i DESIGN.md §6, i enkla ord;\n- en post i beslutsregistret för INV-13 (världarna 1227 och 1731);\n- kampanjens sammanställning;\n- valfritt: en hänvisning i reliability-review B6.\n\nLeveranserna ligger i /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/kampanj/R2/: DESIGN.md, FACIT.md, patch.diff, matningar/ och motor-repro-*.txt. Den första versionens filer ligger i tmp/rev/.",
+ "risks": [
+  "Det sparade beviset gäller högst 2 minuter. En båt som ligger 50–70 m från bron längre än så innan zonbesöket startar får basens utfall. I banken återställs beviset efter 25 ms till 60 s.",
+  "Det sparade beviset skrivs inte till disk. Startar appen om mellan inträdet och zonbesöket, blir utfallet som i basen.",
+  "Dödbandsregeln (F13) betyder i praktiken \"hoppet gick norrut\". Den bygger på K1:s mätning, och ägaren behöver svara på fråga 1 i DESIGN.md §6 (A3).",
+  "E:s AMELIA-släpp kan se beviset ett pass tidigare än i basen. Banken visar ingen skillnad, men tillståndet är delat.",
+  "Bekräftelseloopen i app.js STEG 5 kan i teorin bokföra en bro två gånger i samma tick. Ingen spärr infördes, eftersom registreringsordningen gör fallet orimligt.",
+  "F12:s värld 1227 och 1731 står kvar i motorn tills beslutsregistret fått en post (fråga 2 i DESIGN.md §6).",
+  "Utanför R2:s kort: i den låsta korpusen 16h säger notisen 02:27:00 \"närmar sig Järnvägsbron\" cirka 35 s efter korsningen. Den kommer från FIX U och finns redan i 7699cbe. Att ändra den kräver ett eget beslut.",
+  "Motorkopians b-register.test.js är röd i både 7699cbe och prototypen, eftersom docs/BUGGJAKT.md saknas i kopian."
+ ],
+ "commit": "8318c1a i /tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/kampanj/R2/wt, ovanpå e0e8124 (som har förälder 7699cbe). Worktree är detached; commiten är lokal och inte pushad.",
+ "patchPath": "/tmp/claude-0/-home-user-io-ais-tracker/c4a2d5a0-8da0-57bb-b8aa-b758fc3f45a8/scratchpad/kampanj/R2/patch.diff",
+ "status": "klar"
+}

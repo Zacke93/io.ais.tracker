@@ -1,0 +1,59 @@
+From dc350664e98579f9c00db0a1d7f310893083dba3 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 7 Nov 2026 13:08:37 +0000
+Subject: [PATCH 23/24] =?UTF-8?q?Sammanslagning=20E=20+=20E2:=20golvbeskri?=
+ =?UTF-8?q?vningen=20f=C3=B6ljer=20koden?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+E-granskningens låga punkt 1 (andra revisionen): dokumenten beskrev
+golvet som "farten plus senaste ökningen". _advanceDeparture tar max av
+förra golvet och det värdet. ARCHITECTURE §8 (e) och VALIDATION "Familj
+E" säger nu det, och också följden: ett avgångssampel på minst 2,0 kn ger
+4 kn så länge farten stiger, högst i kontextens fem minuter. Koden och
+testen är oförändrade.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/ARCHITECTURE.md | 6 +++++-
+ docs/VALIDATION.md   | 5 +++--
+ 2 files changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 36b25d8..ab8545e 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -1307,7 +1307,11 @@ marschfarten: dubbla igångsättningsfarten i avgångssamplet
+ (`DEPARTURE_FIRST_SAMPLE_GAIN`), därefter senaste farten plus senaste ökningen
+ så länge farten stiger, och aldrig över rask kanalfart
+ `BRISK_CANAL_SPEED_KNOTS` = 4 kn (samma tal som E-F7:s decaygolv, som läser
+-konstanten). När farten slutar stiga dras antagandet tillbaka mjukt
++konstanten). Golvet sänks aldrig medan farten stiger (max av förra golvet och
++farten plus ökningen). Ett avgångssampel på minst 2,0 kn ger därför 4 kn så
++länge farten stiger, hur lite den än stiger, och högst i kontextens fem minuter;
++E-granskningens krypsvit visade att optimismen då främst ligger vid sanning
++10–20 min. När farten slutar stiga dras antagandet tillbaka mjukt
+ (`_releaseDepartureFloor`): golvet ligger högst fartbruset
+ `DEPARTURE_SPEED_NOISE_KN` (0,3 kn, `STATIONARY_SOG_KN`) över toppfarten,
+ sjunker i samma takt som avståndet till målbron krymper och går aldrig under
+diff --git a/docs/VALIDATION.md b/docs/VALIDATION.md
+index fe52daf..cb5ea30 100644
+--- a/docs/VALIDATION.md
++++ b/docs/VALIDATION.md
+@@ -499,8 +499,9 @@ gäller följande — det är läxan från K6 (ARCHITECTURE §8 (e)):
+ igångsättningsfarten efter belagd stillhet. Väntans sampel lämnar
+ fartbufferten, och farten räknas på ett golv som följer den uppmätta
+ accelerationen ett sampel framåt (dubbla igångsättningsfarten, därefter
+-senaste farten plus senaste ökningen, högst 4 kn). Antagandet släpps mjukt när
+-farten slutar stiga. ARCHITECTURE §8 (e), "Avgångskontexten gick in", har
++senaste farten plus senaste ökningen, högst 4 kn, och aldrig lägre än förra
++golvet medan farten stiger, så ett avgångssampel på minst 2,0 kn ger 4 kn tills
++farten slutar stiga). Antagandet släpps mjukt när farten slutar stiga. ARCHITECTURE §8 (e), "Avgångskontexten gick in", har
+ villkoren. Två granskningar formade det, och den andra mätte platåklassen
+ nedan.
+ 
+-- 
+2.43.0
+

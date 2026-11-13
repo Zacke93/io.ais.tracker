@@ -1,0 +1,309 @@
+From d913146042fd119112b7b168c216df71c2e58dd9 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 15:37:36 +0000
+Subject: [PATCH 16/17] =?UTF-8?q?Buggj=C3=A4garen:=20U24-posten=20godtar?=
+ =?UTF-8?q?=20b=C3=A5da=20sl=C3=A4ppv=C3=A4garna,=20och=20motortesten=20h?=
+ =?UTF-8?q?=C3=A5ller=20f=C3=B6re=20och=20efter=20F=20(varv=202,=20revisio?=
+ =?UTF-8?q?nen)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- U24-DELAD-KÖ-EXTRA-VARNING: båten får lämna E0 vid täckningsslutet eller
+  genom ett eget U24-släpp som håller samma villkor och grindar som L:s
+  (hjälparen u24Brott). Efter ett eget släpp prövas stillheten i kön från
+  absorptionen i E, och fixåldern vid E0:s täckningsslut ur hennes dom
+  (omgranskningen av B, anmärkning 1, proben A3e).
+- k-varv2-motor.test.js: kajK- och shrink-testen håller både före och efter
+  familj F (Kajens queueGraceMs Infinity). Motorns 27 sviter är gröna med F:s
+  0dce236, och E:s replayRunner.js läggs rent ovanpå F:s.
+
+Jest: A3e ur 143 med ett giltigt och ett ogiltigt eget släpp (fäller
+703bbf1). BUGGJAKT §7 rad 52.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DNCqwt4q1MF8G4Aw5jG5pc
+---
+ docs/BUGGJAKT.md                              |   1 +
+ .../bugHunt/__tests__/k-varv2-motor.test.js   |  62 ++++++++-
+ .../bugHunt/beslutsregister.json              |   4 +-
+ .../replay-validation/bugHunt/lib/registry.js | 120 +++++++++++-------
+ 4 files changed, 132 insertions(+), 55 deletions(-)
+
+diff --git a/docs/BUGGJAKT.md b/docs/BUGGJAKT.md
+index e40e010..26b6cc9 100644
+--- a/docs/BUGGJAKT.md
++++ b/docs/BUGGJAKT.md
+@@ -414,6 +414,7 @@ Rad 1–17 och 19–22 rättar motorfel eller registrerar en mätgräns i ett be
+ | 49 | U17-TYST-BÅT-RECOVER, K-TYST-BÅT-NÄSTA-ÖPPNING och U24-DELAD-KÖ-EXTRA-VARNING (varv 2, inför sammanslagningen) | Källorna pekar på `replayRunner.js#instrumentCoverageVerdicts`, den egna funktion som harnessens domspår nu ligger i (förut ett block i `instrumentApp`). U16-F40-STRAX-STUDS:s krav 6 (ingen fix i en kajkapsel) är oförändrat; motiveringen i predikatets kommentar och i avsnittet om U16 säger att en köare vid Kajen efter U23 kan bära "strax" i upp till 2 h, inte 15 min. | Dirigenten efter granskningen av familj F (L2): familj F lägger också till instrumentering i `replayRunner.js` (`confirmedTargetWaits`), och en egen funktion gör sammanslagningen enkel. Flytten är ren kodflytt: replayresultaten är bitlika (bitlik.js på alla korpusar, med och utan monitoring). |
+ | 50 | U17-TYST-BÅT-RECOVER och K-TYST-BÅT-NÄSTA-ÖPPNING (varv 2, granskningen H1) | Villkor (3′) är oberoende av appens flaggor och fönsterslut: (a) med domspåret prövas fysiken ur varje egen rad efter att passagen blev känd, mot fönstrets slut vid raden (förut hoppade (3a) över raden med spåret och prövade fysiken bara vid de rena domarna); (b) fönstrets slut är det tidigare av domens `windowEndMs` och motorns räknade slut ur armen och händelsen; (c) appens renhetsflagga `lastFixClean` undantar inte längre en dom från prognosprovet (frysning och kurs bort gör det fortfarande). | Granskningen av varv 2, anmärkning H1 (hög): rena domar valdes med appens egna flaggor, och en bakkant som slogs ut via renhetsflaggan blev osynlig. Mutationen "aldrig rent fix" (`arm.lastFixClean = false` i `_refreshArm`) gav i quick 4 av 23 KANDIDAT med 1dfd18a mot 21 av 23 med c14938f:s motor, och "fönsterslut = täckningsslut" på familj B:s 5d4b2c3 2 av 3. Rättningen är granskarens `förslag-H1.diff` (prototypen fixprov3). Jest: `k-varv2-motor.test.js` (aldrig rent fix i 625, 1973 och 1337, en fryst arm, och windowEndMs senare än det räknade slutet; tre fäller 1dfd18a). Mätt i bilaga A.7. |
+ | 51 | U24-DELAD-KÖ-EXTRA-VARNING (varv 2, granskningen L3) | Grinden `kö` prövar också appens köflagga: armen får inte ha `waitingAtBridge` vid släppet. Harnessen bokför flaggan (`arm.waitingAtBridge`, bron eller null), och bokföringen i `replayRunner.js#instrumentCoverageVerdicts` ligger i try/catch: domen räknas först och returneras alltid, och ett fel bokförs som en post med `fel` (en sådan post gör spåret till en okänd form, och predikaten svarar nej). | Granskningen av varv 2, L3: ett undantag i bokföringen hade avbrutit appens släppslinga, och köflaggan i U24:s grind `kö` kunde inte prövas (familjens öppna fråga 4). Replay är bitlikt mot c14938f utom domspåret, med och utan monitoring. Jest: `k-varv2-motor.test.js` (köflaggan, och funktionen fristående: en cyklisk dom ger en felpost och appen får sin dom). |
++| 52 | U24-DELAD-KÖ-EXTRA-VARNING (varv 2, revisionen) | Villkor (4) godtar båda släppvägarna ur E0: täckningsslutet eller ett eget U24-släpp som håller samma villkor och grindar som L:s (hjälparen `u24Brott`). Efter ett eget U24-släpp prövas stillheten i kön (5) från absorptionen i E, och fixåldern (7) vid E0:s täckningsslut ur hennes dom. | Dirigentens revisionslista efter omgranskningen av B (anmärkning 1, proben A3e): där lämnar båten den första händelsen genom U24. Posten dolde ingen regression; varningen på fruset fix slår inte till för en hörd båt. Jest: `k-varv2-motor.test.js` (A3e ur 143 med ett giltigt och ett ogiltigt eget släpp; båda fäller 703bbf1). Testen för kajK och shrink-tabellen håller nu både före och efter familj F: motorns 27 sviter är gröna med F:s 0dce236 (432 test), och E:s `replayRunner.js` läggs rent ovanpå F:s. |
+ 
+ **Valet för M12, per post** (flytta vakten till registret eller märka posten):
+ - **KAJGRIND-UTAN-RÖRELSEBEVIS: märkt.** T1:s förutsättning 3 (`t1Notice.js#judgeT1`, rörelsebeviset med MOVE_KN) dömer inget besök utan en fix med sog ≥ 1,0 kn i [tIn − 10 min; max(tOut, första fixen)] och räknar dem i `utanRörelsebevis`. Registrets fönster skilde bara med högst 120 s i svansen. Att flytta vakten till registret hade gjort varje kajliggare till ett rått T1-utslag.
+diff --git a/tests/replay-validation/bugHunt/__tests__/k-varv2-motor.test.js b/tests/replay-validation/bugHunt/__tests__/k-varv2-motor.test.js
+index 20279f0..aeca72c 100644
+--- a/tests/replay-validation/bugHunt/__tests__/k-varv2-motor.test.js
++++ b/tests/replay-validation/bugHunt/__tests__/k-varv2-motor.test.js
+@@ -174,10 +174,15 @@ describe('B01 och U23: mooringCapsuleStationary binds till den båt som bar text
+     expect(pred('mooringCapsuleStationary')(g.fynd, g.ctx).skäl).toMatch(/\(utanför väntzonen, 319 m\) .*krav 3 min\) vid raden 08:29:38/);
+   });
+ 
+-  test('[vakt] kajK: en båt på väg mot Klaffbron demoteras vid Kajen efter köundantagets 15 min; enligt U23 ska hon stå kvar (D1), KANDIDAT', () => {
++  test('[vakt] kajK: en båt på väg mot Klaffbron vid Kajen; enligt U23 ska hon stå kvar (D1), KANDIDAT före och efter familj F', () => {
++    // Före F (köundantaget 15 min) demoterar zonregeln henne efter 15 min,
++    // och det är appfelet mot U23. Efter F (Infinity) demoteras hon aldrig,
++    // och predikatet hittar ingen demotion. KANDIDAT i båda lägena.
+     const k = fall('kajK');
+-    expect(pred('mooringCapsuleStationary')(k.fynd, k.ctx).skäl)
+-      .toMatch(/demoterad i "Kajen norr om Klaffbron" 245 m från Klaffbron; kapselns närmaste punkt ligger 161 m från bron, inom väntzonen \(300 m\): enligt U23/);
++    const obegränsat = require('../lib/shrink').kajensKöundantagS() === null;
++    expect(pred('mooringCapsuleStationary')(k.fynd, k.ctx).skäl).toMatch(obegränsat
++      ? /under kravet i "Kajen norr om Klaffbron" \(aldrig: obegränsat köundantag, U23\)/
++      : /demoterad i "Kajen norr om Klaffbron" 245 m från Klaffbron; kapselns närmaste punkt ligger 161 m från bron, inom väntzonen \(300 m\): enligt U23/);
+     expect(klassa(reg, k.fynd, k.ctx).klass).toBe('KANDIDAT');
+   });
+ 
+@@ -397,7 +402,10 @@ describe('Familj F: Kajens queueGraceMs = Infinity (U23) läses som i appen', ()
+ 
+   test('[nytt] shrink läser Kajens köundantag ur zonposten: 900 s på c14938f, inget gränsvärde när det är obegränsat', () => {
+     const shrink = require('../lib/shrink');
+-    expect(shrink.KONSTANTER.find((k) => k.namn === 'queueGraceMs (Kajen)').värde).toBe(kajen().queueGraceMs / 1000);
++    // Före familj F: 900 s; efter F (Infinity) saknas posten.
++    const kaj = shrink.KONSTANTER.find((k) => k.namn === 'queueGraceMs (Kajen)');
++    if (Number.isFinite(kajen().queueGraceMs)) expect(kaj.värde).toBe(kajen().queueGraceMs / 1000);
++    else expect(kaj).toBeUndefined();
+     expect(shrink.kajensKöundantagS([{ name: 'Kajen norr om Klaffbron', queueGraceMs: Infinity }])).toBeNull();
+     jest.isolateModules(() => {
+       // eslint-disable-next-line global-require
+@@ -538,6 +546,52 @@ describe('U24: den delade kön i provvärld 143 (U24-DELAD-KÖ-EXTRA-VARNING)',
+     expect(skäl(fynd, ctx)).toMatch(/varnades vid dess täckningsslut \(Stridsbergsbron#8 11:36:10\) på fixet 11:26:00/);
+   });
+ 
++  // A3e (omgranskningen av B): CORDELIA lämnar #1 genom ett eget U24-släpp
++  // 11:20:00 i stället för vid täckningsslutet, absorberas i RUNAs #3, köar
++  // där (hörd 11:26:00) och varnas vid #3:s täckningsslut.
++  const egetSläpp = (medGiltigRad) => {
++    const a = u24();
++    const t = Date.parse('2026-07-28T11:20:00Z');
++    const v = a.ctx.resultat.openingCoverageVerdicts.find((x) => x.mmsi === CORDELIA && x.eventId === 'Stridsbergsbron#1' && x.verdict.kind === 'täckningsslut');
++    const slutE0 = 1785237913759.676;
++    Object.assign(v, { t });
++    v.verdict = {
++      kind: 'bakkant',
++      reason: 'egen deadline ‹tid› förföll före händelsens första passage; prognos ‹tid› och fysik ‹tid› ligger efter fönstrets slut ‹tid›',
++      arrivalMs: Date.parse('2026-07-28T11:26:00Z'),
++      physicsArrivalMs: Date.parse('2026-07-28T11:31:39Z'),
++      windowEndMs: slutE0,
++      ownDeadlineMs: t - 60000,
++    };
++    Object.assign(v.arm, {
++      distanceM: 1500, expectedArrivalMs: Date.parse('2026-07-28T11:26:00Z'), coverUntilMs: slutE0, lastFixClean: true, waitingAtBridge: null,
++    });
++    a.ctx.resultat.openingCoverage.find((c) => c.mmsi === CORDELIA && c.reason === 'absorbed' && c.eventId === 'Stridsbergsbron#3').t = t;
++    const mall = a.ctx.rader.filter((r) => r.mmsi === CORDELIA && r.aisTimestamp < a.fynd.t).pop();
++    if (medGiltigRad) {
++      const r0 = Date.parse('2026-07-28T11:19:30Z');
++      a.ctx.rader.push({
++        ...flytta({ ...mall }, 1500), sog: 4, cog: 200, aisTimestamp: r0, fixTs: r0,
++      });
++    }
++    const r1 = Date.parse('2026-07-28T11:26:00Z');
++    a.ctx.rader.push({ ...mall, aisTimestamp: r1, fixTs: r1 });
++    a.ctx.rader.sort((x, y) => x.aisTimestamp - y.aisTimestamp);
++    return a;
++  };
++
++  test('[träff] A3e: hon lämnar #1 genom ett eget U24-släpp som höll U24:s villkor och köar i #3; DESIGN U24', () => {
++    const { fynd, ctx } = egetSläpp(true);
++    expect(klassa(reg, fynd, ctx)).toMatchObject({ klass: 'DESIGN', post: 'U24-DELAD-KÖ-EXTRA-VARNING' });
++    expect(skäl(fynd, ctx)).toMatch(/gick genom ett eget U24-släpp 11:20:00 till Stridsbergsbron#3/);
++  });
++
++  test('[vakt] A3e: hennes eget U24-släpp bröt mot U24:s villkor (hon låg i kön); KANDIDAT', () => {
++    const { fynd, ctx } = egetSläpp(false);
++    expect(skäl(fynd, ctx)).toMatch(/hennes eget U24-släpp ur Stridsbergsbron#1: U24:s villkor höll inte för 265101116/);
++    expect(klassa(reg, fynd, ctx).klass).toBe('KANDIDAT');
++  });
++
+   test('[vakt] RUNA hade redan korsat bron när U24 släppte henne (grinden bakom); KANDIDAT', () => {
+     const { fynd, ctx } = u24();
+     ctx.sanning.crossings.push({ mmsi: RUNA, bridge: 'Stridsbergsbron', t: Date.parse('2026-07-28T11:14:00Z') });
+diff --git a/tests/replay-validation/bugHunt/beslutsregister.json b/tests/replay-validation/bugHunt/beslutsregister.json
+index 2d86571..a3f4044 100644
+--- a/tests/replay-validation/bugHunt/beslutsregister.json
++++ b/tests/replay-validation/bugHunt/beslutsregister.json
+@@ -570,7 +570,7 @@
+       "id": "U24-DELAD-KÖ-EXTRA-VARNING",
+       "klass": "DESIGN",
+       "datum": "2026-11-09",
+-      "källa": "docs/BUGGJAKT.md §7 (användarbeslut U24 2026-11-09, ur rättningskampanjens KAMPANJ2.md, med familj B:s underlag om provvärld 143; varv 2, rad 45 och 51); lib/services/BridgeOpeningService.js#_coverageVerdict (släppvägen: U24:s släpp på den egna deadlinen före händelsens första passage, domen 'bakkant' med skälet 'egen deadline …', och täckningsslutet); tests/replay-validation/replayRunner.js#instrumentCoverageVerdicts (släppvägens domspår, openingCoverageVerdicts); tests/replay-validation/bugHunt/lib/oracles/t2Opening.js#FROZEN_FIX_MS (T3:s gräns för ett fruset fix, 19 min); lib/constants.js#STATUS_HYSTERESIS (WAITING_CLEAR_DISTANCE, väntzonen 350 m) och #PASSAGE_TIMING (MINIMUM_VIABLE_SPEED)",
++      "källa": "docs/BUGGJAKT.md §7 (användarbeslut U24 2026-11-09, ur rättningskampanjens KAMPANJ2.md, med familj B:s underlag om provvärld 143; varv 2, rad 45, 51 och 52); lib/services/BridgeOpeningService.js#_coverageVerdict (släppvägen: U24:s släpp på den egna deadlinen före händelsens första passage, domen 'bakkant' med skälet 'egen deadline …', och täckningsslutet); tests/replay-validation/replayRunner.js#instrumentCoverageVerdicts (släppvägens domspår, openingCoverageVerdicts); tests/replay-validation/bugHunt/lib/oracles/t2Opening.js#FROZEN_FIX_MS (T3:s gräns för ett fruset fix, 19 min); lib/constants.js#STATUS_HYSTERESIS (WAITING_CLEAR_DISTANCE, väntzonen 350 m) och #PASSAGE_TIMING (MINIMUM_VIABLE_SPEED)",
+       "gäller": {
+         "orakel": [
+           "T3"
+@@ -581,7 +581,7 @@
+         "namn": "u24DeladKö",
+         "parametrar": {}
+       },
+-      "regel": "U24 (ägarbeslut 2026-11-09): en båt i rörelse utanför väntzonen som hör till en avfyrad händelse utan bokförd passage, och vars båda prognoser lägger henne efter händelsens fönster, får sin egen varning på sin egen deadline. Ägaren godtar kostnaden att en köande konvoj då ibland får en extra varning, som i provvärld 143: RUNA släpps ur ALVAs händelse och varnas själv, CORDELIA, som ligger stilla i kön 104 m från bron, går vid den äldre händelsens täckningsslut till RUNAs händelse i stället för att bilda en gemensam RECOVER med henne, och varnas vid dess täckningsslut på ett 21 min gammalt fix; hon korsar 353 s efter RUNA. Predikatet kräver släppvägens domspår och alla: (1) fyndets varning W (på tick, hon med i den) följer inom en tick på hennes täckningsslut i en händelse E, och E:s första passage var inte känd då; (2) E leds av en annan båt L och avfyrades högst en tick efter att L släpptes ur en äldre händelse E0 av U24 (domen 'bakkant' med skälet 'egen deadline …', E0:s passage okänd); (3) släppet höll U24:s villkor oberoende av appens ETA: L:s sista rad före släppet låg mer än WAITING_CLEAR_DISTANCE (350 m) från bron i mer än MINIMUM_VIABLE_SPEED, och både den fysiska ankomsten ur raden och domens arrivalMs låg efter domens windowEndMs; U24:s övriga grindar höll i appens egna tal i domen (armens avstånd utanför väntzonen och ingen köflagga waitingAtBridge, släppet vid eller efter ownDeadlineMs, täckningsslutet senare än arrivalMs − WARNING_LEAD_MS, minst två tick kvar till prognosen, ingen kurs bort, ett rent fix, appens ETA fanns så att prognosen inte var exakt armens fysik ('en-prognos'), och L hade inte korsat bron mellan E0:s varning och släppet ('bakom', ur L0)), så att ett släpp som bryter mot en grind blir KANDIDAT (familj B:s förslag och granskning); (4) hon var absorberad i E0 före släppet och gick vid E0:s täckningsslut (passagen okänd) till E inom en tick; (5) U24 kunde aldrig släppa henne: varje rad från absorptionen i E0 till W låg inom väntzonen, och hennes sista rad hade högst MINIMUM_VIABLE_SPEED; (6) hon korsade efter W, vid eller efter L:s korsning och högst CONVOY_WINDOW_MS (600 s) efter den (samma öppning); (7) vid E0:s täckningsslut, där hon hade varnats utan delningen, var hennes senaste fix högst T3:s 19 min gammalt, så fixåldern kommer av delningen; hon får ha hörts efteråt, eftersom kostnaden också gäller en hörd köare (familj B:s granskning, anmärkning 4). Utan U24-släppet (c14938f, eller med bakkanten bortkopplad) finns ingen dom att binda E till, och posten är falsk; en bakkant efter passagen eller ett U24-släpp som borde ha gällt henne själv blir KANDIDAT."
++      "regel": "U24 (ägarbeslut 2026-11-09): en båt i rörelse utanför väntzonen som hör till en avfyrad händelse utan bokförd passage, och vars båda prognoser lägger henne efter händelsens fönster, får sin egen varning på sin egen deadline. Ägaren godtar kostnaden att en köande konvoj då ibland får en extra varning, som i provvärld 143: RUNA släpps ur ALVAs händelse och varnas själv, CORDELIA, som ligger stilla i kön 104 m från bron, går vid den äldre händelsens täckningsslut till RUNAs händelse i stället för att bilda en gemensam RECOVER med henne, och varnas vid dess täckningsslut på ett 21 min gammalt fix; hon korsar 353 s efter RUNA. Predikatet kräver släppvägens domspår och alla: (1) fyndets varning W (på tick, hon med i den) följer inom en tick på hennes täckningsslut i en händelse E, och E:s första passage var inte känd då; (2) E leds av en annan båt L och avfyrades högst en tick efter att L släpptes ur en äldre händelse E0 av U24 (domen 'bakkant' med skälet 'egen deadline …', E0:s passage okänd); (3) släppet höll U24:s villkor oberoende av appens ETA: L:s sista rad före släppet låg mer än WAITING_CLEAR_DISTANCE (350 m) från bron i mer än MINIMUM_VIABLE_SPEED, och både den fysiska ankomsten ur raden och domens arrivalMs låg efter domens windowEndMs; U24:s övriga grindar höll i appens egna tal i domen (armens avstånd utanför väntzonen och ingen köflagga waitingAtBridge, släppet vid eller efter ownDeadlineMs, täckningsslutet senare än arrivalMs − WARNING_LEAD_MS, minst två tick kvar till prognosen, ingen kurs bort, ett rent fix, appens ETA fanns så att prognosen inte var exakt armens fysik ('en-prognos'), och L hade inte korsat bron mellan E0:s varning och släppet ('bakom', ur L0)), så att ett släpp som bryter mot en grind blir KANDIDAT (familj B:s förslag och granskning); (4) hon var absorberad i E0 före släppet och lämnade E0 efter det, vid täckningsslutet (passagen okänd) eller genom ett eget U24-släpp som höll samma villkor och grindar som L:s (omgranskningen av B, A3e), och absorberades i E inom en tick; (5) U24 kunde aldrig släppa henne: varje rad från absorptionen i E0 (efter ett eget U24-släpp: i E) till W låg inom väntzonen, och hennes sista rad hade högst MINIMUM_VIABLE_SPEED; (6) hon korsade efter W, vid eller efter L:s korsning och högst CONVOY_WINDOW_MS (600 s) efter den (samma öppning); (7) vid E0:s täckningsslut, där hon hade varnats utan delningen, var hennes senaste fix högst T3:s 19 min gammalt, så fixåldern kommer av delningen; hon får ha hörts efteråt, eftersom kostnaden också gäller en hörd köare (familj B:s granskning, anmärkning 4). Utan U24-släppet (c14938f, eller med bakkanten bortkopplad) finns ingen dom att binda E till, och posten är falsk; en bakkant efter passagen eller ett U24-släpp som borde ha gällt henne själv blir KANDIDAT."
+     },
+     {
+       "id": "U19-VARNING-UNDER-VÄNTANDE-VÄNDNING",
+diff --git a/tests/replay-validation/bugHunt/lib/registry.js b/tests/replay-validation/bugHunt/lib/registry.js
+index 8520b00..142a412 100644
+--- a/tests/replay-validation/bugHunt/lib/registry.js
++++ b/tests/replay-validation/bugHunt/lib/registry.js
+@@ -2523,61 +2523,80 @@ const PREDICATES = {
+       const E0 = släpp.eventId;
+       const e0W = ws.find((x) => x.eventId === E0);
+       const e0Från = e0W ? e0W.t : -Infinity;
+-      // (3) U24:s villkor för L, oberoende av appens ETA.
++      // (3) U24:s villkor för L, oberoende av appens ETA (u24Brott).
+       const tider = harnessTider(ctx);
+       const raderAv = (mm) => {
+         const egna = rowsOf(ctx, mm).filter((r) => Number.isFinite(r.lat));
+         return medFramfördKursOchFart(egna).map((r, i) => ({ ...r, p: tider.get(egna[i]) ?? r.aisTimestamp }));
+       };
+-      const lr = raderAv(L).filter((r) => r.p <= släpp.t).pop();
+-      const slutE0Ms = släpp.verdict.windowEndMs;
+-      if (!lr || !Number.isFinite(slutE0Ms)) return nej(`ingen rad för ${L} före släppet, eller domen saknar windowEndMs`);
+-      const dL = platser.distanceToPoint(lr, f.bro);
+-      const fartL = Number.isFinite(lr.sog) ? lr.sog : 0;
+-      const fysL = fixtid(lr) + (dL / (Math.max(fartL, p.minFartKn) * KN_TILL_MS)) * 1000;
+-      if (!(dL > p.väntzonM) || !(fartL > p.minFartKn) || !(fysL > slutE0Ms) || !(släpp.verdict.arrivalMs > slutE0Ms)) {
+-        return nej(`U24:s villkor höll inte för ${L} vid släppet ${fmtT(släpp.t)}: raden ${fmtT(lr.aisTimestamp)} ${Math.round(dL)} m från bron i ${fartL} kn, `
+-          + `fysiken ${fmtT(fysL)} och domens ankomst ${fmtT(släpp.verdict.arrivalMs)} mot fönstrets slut ${fmtT(slutE0Ms)}`);
+-      }
+-      // U24:s övriga grindar i appens egna tal i domen (_ownDeadlineGate):
+-      // ett släpp som bryter mot en av dem är ett kodfel och ska ge utslag.
+-      const v3 = släpp.verdict;
+-      const a3 = släpp.arm || {};
+-      const grind = [
+-        [Number.isFinite(a3.distanceM) && a3.distanceM > p.väntzonM, `armens avstånd ${Math.round(a3.distanceM)} m, inom väntzonen (${p.väntzonM} m)`],
+-        // Köflaggan (waitingAtBridge) bokförs av harnessen sedan granskningen
+-        // av varv 2 (L3); äldre domspår saknar fältet.
+-        [!a3.waitingAtBridge, `armen hade appens köflagga (waitingAtBridge ${a3.waitingAtBridge})`],
+-        [Number.isFinite(v3.ownDeadlineMs) && släpp.t >= v3.ownDeadlineMs, `släppet ${fmtT(släpp.t)} före hennes egen deadline ${fmtT(v3.ownDeadlineMs)}`],
+-        [a3.coverUntilMs > v3.arrivalMs - p.ledtidMs, `täckningsslutet ${fmtT(a3.coverUntilMs)} hade gett henne ledtiden (ankomsten ${fmtT(v3.arrivalMs)})`],
+-        [a3.expectedArrivalMs - släpp.t >= 2 * p.tickMs, `under två tick kvar till ankomsten ${fmtT(a3.expectedArrivalMs)} (golvet)`],
+-        [släpp.courseAway !== true, 'kursen ledde bort från bron'],
+-        [a3.lastFixClean === true && släpp.frozen !== true, 'fixet var orent eller armen fryst'],
+-        // Familj B:s grindar efter granskningen: 'en-prognos' (utan appens ETA
+-        // är prognosen exakt armens fysik, och "båda prognoserna" vilar då på
+-        // en) och 'bakom' (bron låg redan bakom henne: hon hade korsat).
+-        [!(Number.isFinite(a3.expectedArrivalMs) && a3.expectedArrivalMs === v3.physicsArrivalMs),
+-          'bara en prognos: appens ETA saknades, så prognosen var armens fysik (en-prognos)'],
+-        [!s.crossings.some((x) => String(x.mmsi) === L && x.bridge === f.bro && Number.isFinite(x.t) && x.t >= e0Från && x.t <= släpp.t),
+-          'bron låg redan bakom henne vid släppet (bakom)'],
+-      ].find(([håller]) => !håller);
+-      if (grind) return nej(`U24-släppet av ${L} ${fmtT(släpp.t)} bröt mot en grind: ${grind[1]}`);
+-      // (4) Hon delade kön med L i E0.
++      // Bröt U24-släppet `sl` av båten mm mot U24:s villkor eller grindar?
++      // null när släppet höll, annars skälet. Används för L och för hennes
++      // eget släpp ur E0 (omgranskningen av B, A3e).
++      const u24Brott = (sl, mm) => {
++        const lr = raderAv(mm).filter((r) => r.p <= sl.t).pop();
++        const slutMs = sl.verdict.windowEndMs;
++        if (!lr || !Number.isFinite(slutMs)) return `ingen rad för ${mm} före släppet, eller domen saknar windowEndMs`;
++        const dL = platser.distanceToPoint(lr, f.bro);
++        const fartL = Number.isFinite(lr.sog) ? lr.sog : 0;
++        const fysL = fixtid(lr) + (dL / (Math.max(fartL, p.minFartKn) * KN_TILL_MS)) * 1000;
++        if (!(dL > p.väntzonM) || !(fartL > p.minFartKn) || !(fysL > slutMs) || !(sl.verdict.arrivalMs > slutMs)) {
++          return `U24:s villkor höll inte för ${mm} vid släppet ${fmtT(sl.t)}: raden ${fmtT(lr.aisTimestamp)} ${Math.round(dL)} m från bron i ${fartL} kn, `
++            + `fysiken ${fmtT(fysL)} och domens ankomst ${fmtT(sl.verdict.arrivalMs)} mot fönstrets slut ${fmtT(slutMs)}`;
++        }
++        // U24:s övriga grindar i appens egna tal i domen (_ownDeadlineGate):
++        // ett släpp som bryter mot en av dem är ett kodfel och ska ge utslag.
++        const v3 = sl.verdict;
++        const a3 = sl.arm || {};
++        const grind = [
++          [Number.isFinite(a3.distanceM) && a3.distanceM > p.väntzonM, `armens avstånd ${Math.round(a3.distanceM)} m, inom väntzonen (${p.väntzonM} m)`],
++          // Köflaggan (waitingAtBridge) bokförs av harnessen sedan granskningen
++          // av varv 2 (L3); äldre domspår saknar fältet.
++          [!a3.waitingAtBridge, `armen hade appens köflagga (waitingAtBridge ${a3.waitingAtBridge})`],
++          [Number.isFinite(v3.ownDeadlineMs) && sl.t >= v3.ownDeadlineMs, `släppet ${fmtT(sl.t)} före hennes egen deadline ${fmtT(v3.ownDeadlineMs)}`],
++          [a3.coverUntilMs > v3.arrivalMs - p.ledtidMs, `täckningsslutet ${fmtT(a3.coverUntilMs)} hade gett henne ledtiden (ankomsten ${fmtT(v3.arrivalMs)})`],
++          [a3.expectedArrivalMs - sl.t >= 2 * p.tickMs, `under två tick kvar till ankomsten ${fmtT(a3.expectedArrivalMs)} (golvet)`],
++          [sl.courseAway !== true, 'kursen ledde bort från bron'],
++          [a3.lastFixClean === true && sl.frozen !== true, 'fixet var orent eller armen fryst'],
++          // Familj B:s grindar efter granskningen: 'en-prognos' (utan appens ETA
++          // är prognosen exakt armens fysik, och "båda prognoserna" vilar då på
++          // en) och 'bakom' (bron låg redan bakom henne: hon hade korsat).
++          [!(Number.isFinite(a3.expectedArrivalMs) && a3.expectedArrivalMs === v3.physicsArrivalMs),
++            'bara en prognos: appens ETA saknades, så prognosen var armens fysik (en-prognos)'],
++          [!s.crossings.some((x) => String(x.mmsi) === mm && x.bridge === f.bro && Number.isFinite(x.t) && x.t >= e0Från && x.t <= sl.t),
++            'bron låg redan bakom henne vid släppet (bakom)'],
++        ].find(([håller]) => !håller);
++        return grind ? `U24-släppet av ${mm} ${fmtT(sl.t)} bröt mot en grind: ${grind[1]}` : null;
++      };
++      const brottL = u24Brott(släpp, L);
++      if (brottL) return nej(brottL);
++      // (4) Hon delade kön med L i E0 och lämnade E0 efter L:s släpp, vid
++      // täckningsslutet (E0:s passage okänd) eller genom ett eget U24-släpp
++      // som höll U24:s villkor (omgranskningen av B, A3e), och absorberades i
++      // E inom en tick.
+       const cov = res.openingCoverage || [];
+       const absE0 = cov.filter((c) => c.reason === 'absorbed' && String(c.mmsi) === m && c.eventId === E0 && Number.isFinite(c.t) && c.t < släpp.t)
+         .sort((x, y) => x.t - y.t)[0];
+       if (!absE0) return nej(`hon var inte absorberad i ${E0} när ${L} släpptes ${fmtT(släpp.t)}: ingen delad kö`);
+-      const slutE0 = hennes.find((v) => v.eventId === E0 && v.verdict.kind === 'täckningsslut' && v.t > släpp.t);
+-      const absE = slutE0 && cov.find((c) => c.reason === 'absorbed' && String(c.mmsi) === m && c.eventId === E
+-        && Number.isFinite(c.t) && c.t >= slutE0.t && c.t - slutE0.t <= p.tickMs);
+-      if (!absE) return nej(`hon gick inte vid ${E0}:s täckningsslut till ${E}`);
+-      if (passageKänd(slutE0)) return nej(`${E0}:s första passage var känd vid dess täckningsslut ${fmtT(slutE0.t)}`);
+-      // (5) Stilla i kön: U24 kunde aldrig släppa henne.
+-      const hr = raderAv(m).filter((r) => r.p >= absE0.t && r.p < w.t);
++      const utE0 = hennes.find((v) => v.eventId === E0 && v.t > släpp.t && (v.verdict.kind === 'täckningsslut' || u24Släpp(v)));
++      const absE = utE0 && cov.find((c) => c.reason === 'absorbed' && String(c.mmsi) === m && c.eventId === E
++        && Number.isFinite(c.t) && c.t >= utE0.t && c.t - utE0.t <= p.tickMs);
++      if (!absE) return nej(`hon gick inte från ${E0} (täckningsslutet eller ett eget U24-släpp) till ${E}`);
++      if (passageKänd(utE0)) return nej(`${E0}:s första passage var känd när hon lämnade händelsen ${fmtT(utE0.t)}`);
++      const genomU24 = utE0.verdict.kind === 'bakkant';
++      if (genomU24) {
++        const brott = u24Brott(utE0, m);
++        if (brott) return nej(`hennes eget U24-släpp ur ${E0}: ${brott}`);
++      }
++      // E0:s täckningsslut, där hon hade varnats utan delningen.
++      const slutE0Ms = genomU24 ? utE0.arm.coverUntilMs : utE0.t;
++      // (5) Stilla i kön: U24 kunde aldrig släppa henne, från absorptionen i
++      // E0 (eller i E, när U24 redan släppt henne ur E0) till W.
++      const frånMs = genomU24 ? absE.t : absE0.t;
++      const hr = raderAv(m).filter((r) => r.p >= frånMs && r.p < w.t);
+       const utanför = hr.find((r) => platser.distanceToPoint(r, f.bro) > p.väntzonM);
+       if (!hr.length || utanför) {
+         return nej(utanför ? `hennes rad ${fmtT(utanför.aisTimestamp)} låg ${Math.round(platser.distanceToPoint(utanför, f.bro))} m från bron, `
+-          + `utanför väntzonen (${p.väntzonM} m): U24 kan ha haft henne att släppa` : `ingen rad för henne mellan ${E0} och varningen`);
++          + `utanför väntzonen (${p.väntzonM} m): U24 kan ha haft henne att släppa` : `ingen rad för henne mellan ${genomU24 ? E : E0} och varningen`);
+       }
+       const sista = hr[hr.length - 1];
+       if (Number.isFinite(sista.sog) && sista.sog > p.minFartKn) {
+@@ -2596,14 +2615,17 @@ const PREDICATES = {
+       // hade varnats utan delningen, var hennes senaste fix högst frusetMs
+       // gammalt. Hon får ha hörts efteråt (en hörd köare, familj B:s
+       // granskning, anmärkning 4); W bygger då på ett senare fix.
+-      const vidSlutE0 = hr.filter((r) => r.p <= slutE0.t).pop();
+-      if (!vidSlutE0) return nej(`ingen rad för henne före ${E0}:s täckningsslut ${fmtT(slutE0.t)}`);
+-      if (slutE0.t - vidSlutE0.aisTimestamp > p.frusetMs) {
+-        return nej(`hennes fix ${fmtT(vidSlutE0.aisTimestamp)} var redan vid ${E0}:s täckningsslut ${fmtT(slutE0.t)} äldre än `
++      const vidSlutE0 = raderAv(m).filter((r) => r.p <= slutE0Ms).pop();
++      if (!vidSlutE0) return nej(`ingen rad för henne före ${E0}:s täckningsslut ${fmtT(slutE0Ms)}`);
++      if (slutE0Ms - vidSlutE0.aisTimestamp > p.frusetMs) {
++        return nej(`hennes fix ${fmtT(vidSlutE0.aisTimestamp)} var redan vid ${E0}:s täckningsslut ${fmtT(slutE0Ms)} äldre än `
+           + `${p.frusetMs / MIN} min: fixåldern kommer inte av delningen`);
+       }
+-      return ok(`U24: ${L} släpptes ur ${E0} på sin egen deadline ${fmtT(släpp.t)} (${Math.round(dL)} m från bron i ${fartL} kn) och varnades i ${E}; `
+-        + `hon låg stilla i kön ${Math.round(platser.distanceToPoint(sista, f.bro))} m från bron, gick vid ${E0}:s täckningsslut ${fmtT(slutE0.t)} till ${E} `
++      const lrL = raderAv(L).filter((r) => r.p <= släpp.t).pop();
++      return ok(`U24: ${L} släpptes ur ${E0} på sin egen deadline ${fmtT(släpp.t)} (${Math.round(platser.distanceToPoint(lrL, f.bro))} m från bron `
++        + `i ${Number.isFinite(lrL.sog) ? lrL.sog : 0} kn) och varnades i ${E}; `
++        + `hon låg stilla i kön ${Math.round(platser.distanceToPoint(sista, f.bro))} m från bron, `
++        + `gick ${genomU24 ? `genom ett eget U24-släpp ${fmtT(utE0.t)}` : `vid ${E0}:s täckningsslut ${fmtT(utE0.t)}`} till ${E} `
+         + `och varnades vid dess täckningsslut (${w.eventId} ${fmtT(w.t)}) på fixet ${fmtT(sista.aisTimestamp)}; `
+         + `hon korsade ${Math.round((kM.t - kL.t) / 1000)} s efter ${L} (samma öppning)`);
+     },
+-- 
+2.43.0
+

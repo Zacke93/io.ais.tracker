@@ -1,0 +1,6 @@
+Test Suites: 3 passed, 3 total
+Tests:       36 passed, 36 total
+Snapshots:   0 total
+Time:        20.684 s, estimated 26 s
+Ran all test suites matching tests/gps-grind-kandidat-bokford-bro.test.js|tests/bn2-dodband-nordprogress.test.js|tests/zonintrade-uppskjutet-bevis.test.js.
+Test results written to: ../tmp/rev2/matris/rev2.json
