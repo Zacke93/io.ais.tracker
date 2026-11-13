@@ -17,8 +17,11 @@ const {
   classifyPhantom,
   analyseCoverage,
   analysePhantoms,
+  analyseWarningAge,
   MIN_WARNABLE_MS,
   PHANTOM_WINDOW_MS,
+  LATE_PASSAGE_WINDOW_MS,
+  STALE_WARNING_AGE_MS,
   UNDERWAY_SOG_KN,
 } = require('./replay-validation/runOpeningGates');
 const { BRIDGES } = require('../lib/constants');
@@ -198,6 +201,82 @@ describe('O1 analyseCoverage: varje passage måste ha SIN egen varning före', (
     };
     const a = analyseCoverage(res, samplesOf([southOf(6000, T0 - 3600000)]));
     expect(a.misses).toHaveLength(1);
+  });
+});
+
+// ===========================================================================
+// O1 — VARNINGENS ÅLDER VID PASSAGEN (V1, fältprovet 2026-11-13)
+// ===========================================================================
+
+describe('O1 analyseWarningAge: varnad är inte detsamma som varnad med färsk varning', () => {
+  // Fältfallet i miniatyr: PRICKBJORN varnades 08:30 och passerade 12:35 utan
+  // ny varning. analyseCoverage räknar passagen som täckt (ledtid 244,9 min),
+  // medan O2 kallar samma varning FANTOM eftersom passagen kom efter
+  // LATE_PASSAGE_WINDOW_MS. Måttet ska skilja de två fallen åt.
+  test('gränsen är O2:s eget senpassagefönster (120 min), inte ett nytt tal', () => {
+    expect(STALE_WARNING_AGE_MS).toBe(LATE_PASSAGE_WINDOW_MS);
+    expect(STALE_WARNING_AGE_MS).toBe(120 * 60000);
+  });
+
+  test('en 245 min gammal varning är täckning i O1 men redovisas som gammal', () => {
+    const res = {
+      targetPassages: [passage(T0)],
+      openingWarnings: [warning(T0 - 245 * 60000)],
+      openingCoverage: [],
+    };
+    const a = analyseCoverage(res, samplesOf([]));
+    expect(a.covered).toHaveLength(1); // O1:s dom står kvar oförändrad
+    const age = analyseWarningAge(a.covered);
+    expect(age.total).toBe(1);
+    expect(age.fresh).toBe(0);
+    expect(age.stale).toHaveLength(1);
+    expect(age.stale[0].ageMs).toBe(245 * 60000);
+    expect(age.bands).toEqual({ 60: 1, 120: 1, 240: 1 });
+  });
+
+  test('gränsen är exklusiv: exakt 120 min är färsk, 120 min + 1 ms är gammal', () => {
+    const covered = [
+      { passage: passage(T0), warning: warning(T0 - 120 * 60000), leadMs: 120 * 60000 },
+      { passage: passage(T0 + 1), warning: warning(T0 - 120 * 60000), leadMs: 120 * 60000 + 1 },
+    ];
+    const age = analyseWarningAge(covered);
+    expect(age.fresh).toBe(1);
+    expect(age.stale.map((c) => c.ageMs)).toEqual([120 * 60000 + 1]);
+  });
+
+  test('en sen passage som O2 godtar (45 min) är fortfarande färsk', () => {
+    const res = {
+      targetPassages: [passage(T0)],
+      openingWarnings: [warning(T0 - 45 * 60000)],
+      openingCoverage: [],
+    };
+    const age = analyseWarningAge(analyseCoverage(res, samplesOf([])).covered);
+    expect(age.fresh).toBe(1);
+    expect(age.stale).toHaveLength(0);
+    expect(age.bands).toEqual({ 60: 0, 120: 0, 240: 0 });
+  });
+
+  test('inferred-passage mäts från fönstrets början: den kortaste möjliga åldern', () => {
+    // Korsningen ligger någonstans i [tFrom, tTo]. Bara om även tFrom ligger
+    // mer än 120 min efter varningen är varningen bevisat gammal.
+    const w = warning(T0 - 150 * 60000);
+    const inWindow = {
+      passage: passage(T0, { inferred: true, tFrom: T0 - 40 * 60000, tTo: T0 + 60000 }), warning: w, leadMs: 150 * 60000,
+    };
+    const after = {
+      passage: passage(T0, { inferred: true, tFrom: T0 - 20 * 60000, tTo: T0 + 60000 }), warning: w, leadMs: 150 * 60000,
+    };
+    const age = analyseWarningAge([inWindow, after]);
+    expect(age.stale.map((c) => c.ageMs)).toEqual([130 * 60000]);
+    expect(age.fresh).toBe(1);
+  });
+
+  test('egen gräns kan anges för mätning (rapporten skriver ut banden 60/120/240)', () => {
+    const covered = [
+      { passage: passage(T0), warning: warning(T0 - 70 * 60000), leadMs: 70 * 60000 },
+    ];
+    expect(analyseWarningAge(covered, 60 * 60000).stale).toHaveLength(1);
+    expect(analyseWarningAge(covered).stale).toHaveLength(0);
   });
 });
 

@@ -2,6 +2,7 @@
 
 const {
   parseFieldLog, compareEvents, openingKeyOf, splitAtStop, measureClaims,
+  measureOpeningWarningAge, formatOpeningWarningAge,
 } = require('./replay-validation/compareFieldReplay');
 const { crossingsForVessel, BRIDGE_STATIONS } = require('./replay-validation/makeGtPassages');
 
@@ -105,6 +106,62 @@ describe('Fältrapporten mäter leverans, innehåll och fältstopp', () => {
     expect(result.pairs.every((p) => p.changes.length === 0 && p.deltaMs === 0)).toBe(true);
     expect(result.unmatchedField).toEqual([duplicate]);
     expect(result.unmatchedReplay).toEqual([]);
+  });
+
+  // V1 (fältprovet 2026-11-13): PRICKBJORN varnades 08:30:31 och passerade
+  // Stridsbergsbron 12:35:22 (rådata) utan ny varning. Fältrapporten räknade
+  // passagen som varnad och nämnde inte åldern; nu redovisas den som WARN.
+  test('en 244,9 min gammal öppningsvarning redovisas i båda serierna, utan att fälla', () => {
+    const w = Date.parse('2026-11-12T08:30:31.157Z');
+    const appT = Date.parse('2026-11-12T12:36:04.670Z');
+    const gtT = Date.parse('2026-11-12T12:35:22.513Z');
+    const replay = {
+      targetPassages: [{
+        mmsi: '265012090', bridge: 'Stridsbergsbron', t: appT, iso: new Date(appT).toISOString(),
+      }],
+      openingWarnings: [{
+        t: w,
+        iso: new Date(w).toISOString(),
+        bridge: 'Stridsbergsbron',
+        eventId: 'Stridsbergsbron#19',
+        leadVessel: 'PRICKBJORN',
+        leadMmsi: '265012090',
+        mmsis: ['265012090'],
+      }],
+      openingCoverage: [],
+    };
+    const gt = [{
+      mmsi: '265012090', bridge: 'Stridsbergsbron', kind: 'line', dir: 'syd', t: gtT, tFrom: gtT - 30000, tTo: gtT + 30000, inferred: false,
+    }, {
+      mmsi: '265012090', bridge: 'Kanalinfarten', kind: 'zone', t: gtT, inferred: false,
+    }];
+    const age = measureOpeningWarningAge(replay, gt, new Map());
+    expect(age.limitMinutes).toBe(120);
+    expect(age.app).toMatchObject({ total: 1, fresh: 0, bands: { 60: 1, 120: 1, 240: 1 } });
+    expect(age.groundTruth).toMatchObject({ total: 1, fresh: 0, bands: { 60: 1, 120: 1, 240: 1 } });
+    expect(age.groundTruth.stale[0]).toMatchObject({
+      mmsi: '265012090', bridge: 'Stridsbergsbron', eventId: 'Stridsbergsbron#19', ageMinutes: 244.9,
+    });
+    const text = formatOpeningWarningAge(age).join('\n');
+    expect(text).toMatch(/GAMMAL VARNING \(appserien\): 265012090 @ Stridsbergsbron/);
+    expect(text).toMatch(/GAMMAL VARNING \(rådataserien\): .*244\.9 min gammal/);
+    expect(text).toMatch(/WARN, informativ/);
+  });
+
+  test('en färsk varning ger ingen GAMMAL VARNING-rad', () => {
+    const t = Date.parse('2026-11-12T12:35:22.513Z');
+    const replay = {
+      targetPassages: [{
+        mmsi: '1', bridge: 'Klaffbron', t, iso: new Date(t).toISOString(),
+      }],
+      openingWarnings: [{
+        t: t - 10 * 60000, bridge: 'Klaffbron', eventId: 'Klaffbron#1', leadMmsi: '1', mmsis: ['1'],
+      }],
+      openingCoverage: [],
+    };
+    const age = measureOpeningWarningAge(replay, [], new Map());
+    expect(age.app.fresh).toBe(1);
+    expect(formatOpeningWarningAge(age).join('\n')).not.toMatch(/GAMMAL VARNING/);
   });
 
   test('inferred-korsning publicerar bara felgränser, aldrig ett exakt ETA-fel', () => {
