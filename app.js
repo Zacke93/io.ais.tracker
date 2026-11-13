@@ -4922,12 +4922,24 @@ class AISBridgeApp extends Homey.App {
    * ==========================================================================
    *
    * SYFTE:
-   * Loggar WebSocket-fel från AIS-anslutningen
+   * Loggar fel från AIS-källorna.
    *
+   * F7 (fältprovet 2026-11-11): muxen skickar källan som andra argument
+   * (AISSourceMultiplexer._bindStreamChild/_bindHubChild), men raden sa
+   * alltid "AIS stream error". Ett AISHub-fel (ENETUNREACH mot AISHubs
+   * server, k1 rad 24103) såg därför ut som ett AISstream-fel i fältanalysen.
+   * Nu står källan i raden. Inget verktyg eller test matchar på den gamla
+   * texten.
+   *
+   * @param {*} error
+   * @param {'aisstream'|'aishub'} [feed] - källan enligt muxen
    * @private
    */
-  _onAISError(error) {
-    this.error('❌ [AIS_CONNECTION] AIS stream error:', error);
+  _onAISError(error, feed) {
+    let source = 'okänd källa';
+    if (feed === 'aishub') source = 'AISHub';
+    else if (feed === 'aisstream') source = 'AISstream';
+    this.error(`❌ [AIS_CONNECTION] AIS-källfel från ${source}:`, error);
   }
 
   /**
