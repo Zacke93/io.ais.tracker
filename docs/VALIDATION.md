@@ -1087,6 +1087,44 @@ felkod). DIANAs två Kanalinfarten-notiser ligger kvar synligt som
 invariantutslag. Monitoring/stale-svepet, avvisade fusionsfixar, livstecken
 och initial settings-persistens återspelas fortfarande inte.
 
+**Harnessens tidsstegning är en känd gräns (V3, fältprovet 2026-11-13).**
+Replay och fält skilde sig i fältprovet på ett enda notisinnehåll, och skälet
+låg i harnessen, inte i appen. Läs replay som trogen i innehåll men inte på
+sekunden i UI-tidsled.
+
+- *Dräneringen.* `replayRunner.js` stegar klockan synkront med `clock.tick` i
+  bitar om högst 30 s och dränerar sedan med ett enda äkta
+  `setImmediate`-varv. Timrar som förfaller inom samma steg körs utan
+  mikrouppgifter emellan. En publicering på 150 ms-timern (IMMEDIATE) hinner
+  därför inte avsluta (dess `finally` är en mikrouppgift) innan vakthunden i
+  samma steg ser `[IN_FLIGHT]`, och omkörningen (`[RERUN]`, `setImmediate`)
+  kör först efter nästa steg. På Homey körs mikrouppgifterna alltid mellan
+  timrarna. Fältet hade 4 respektive 0 sådana kollisioner i k1 och k2;
+  replay hade 96 och 83, och banken har 3 916. I k2 gav det PRICKBJORN
+  13:57:24 "närmar sig Järnvägsbron … strax" i replay mot fältets "har
+  precis passerat"; notistider förskjuts upp till 6,5 s.
+- *Homeys I/O-latens.* `boat_near`-kortet tar i fältet median ~420 ms från
+  `FLOW_TRIGGER_ATTEMPT` till `SUCCESS` (k1 417 ms, k2 421 ms, p90 437/445,
+  max 455), mocken svarar på 0 ms. UI-uppdateringen som följer kortanropet
+  hamnar då före nästa fix i en AISHub-batch (fixarna emitteras 150 ms isär)
+  i replay men efter den i fältet. Det förklarar k1:s 155 brotexter i fältet
+  mot 156 i replay (en mellantext 13:22:33.867 som levde 149 ms i replay).
+- *Mätt med ett experiment* (inte incheckat): `clock.tickAsync` i stället för
+  `clock.tick` i huvudloopen, efter varje sampel och i efterspelet, valfritt
+  med 420 ms fejkad kortlatens. Med `tickAsync` blir kollisionerna 3 och 1
+  (banken 146), alla 79 fältnotiser blir identiska i innehåll med högst 37 ms
+  tidsskillnad, och k2:s 90 brotexter återges exakt. Med latensen dessutom
+  k1:s 155 brotexter i exakt ordning. I banken är notis- och
+  öppningsmultiseten oförändrade i alla 25 korpusar, men golden-text flyttas
+  i 19 korpusar (23 med latensen), och med latensen ändras en öppnings-ETA
+  (20260601-41h Klaffbron#17, 9 → 10 min).
+- *Harnessen är oförändrad.* En ändring flyttar låst golden-text i större
+  delen av banken och kräver omlåsning enligt U13; det är dirigentens och
+  ägarens beslut. Till dess: en skillnad mot fältet i en notis eller text som
+  byggs av en senare UI-cykel (vakthunden eller en omkörning) inom ett
+  30 s-steg efter en publicering, eller som följer direkt på ett kortanrop,
+  ska först prövas mot den här gränsen innan den tolkas som ett appfel.
+
 **P9: gt-punktens precision.** Nygenererat rådatafacit märker korsningspar
 med glapp >120 s och SOG <0,5 kn i någon ändpunkt som `inferred` med orsaken
 `sparse-stopped-endpoint`. En linjär tidsstämpel kan inte avgöra när båten

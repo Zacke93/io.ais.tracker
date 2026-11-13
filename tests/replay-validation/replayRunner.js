@@ -643,6 +643,11 @@ async function main() {
     // INV-10 såg falskt en 35-min-"strax"-zombie. 30 s = reevaluerings-
     // intervallet, så varje timer-tick publicerar på sin riktiga faketid
     // (harness-core#2-precisionen, tidigare dokumenterad som latent).
+    // KÄND GRÄNS (V3, fältprovet 2026-11-13): clock.tick kör alla timrar i
+    // steget utan mikrouppgifter emellan, så en IMMEDIATE-publicering hinner
+    // inte avsluta innan vakthunden i samma steg ser [IN_FLIGHT]. Mätt och
+    // beskrivet i docs/VALIDATION.md §Fältprov ("Harnessens tidsstegning").
+    // Ändras stegningen flyttas låst golden-text: omlåsning enligt U13.
     let gap = s.aisTimestamp - Date.now();
     while (gap > 0) {
       const step = Math.min(gap, 30000);
