@@ -10,7 +10,7 @@
 |---|---|---|
 | `APPROACHING_RADIUS` | 500 m | "närmar sig" / currentBridge sätts |
 | `APPROACH_RADIUS` | 300 m | nära-tröskel |
-| `FLOW_TRIGGER_DISTANCE_THRESHOLD` | 300 m | notis fyrar inom detta (icke-target) |
+| `FLOW_TRIGGER_DISTANCE_THRESHOLD` | 300 m | notis fyrar inom detta för alla broar och källor, även `target` (bro-lokal radie `BRIDGES.*.radius` = 300 m; radiebeslutet 2026-08-10) |
 | `UNDER_BRIDGE_SET / CLEAR` | 50 / 70 m | "under bron"-status på/av |
 | `PROTECTION_ZONE_RADIUS` | 300 m | skyddszon runt målbro |
 | `MINIMUM_VIABLE_SPEED` | 0,5 kn | minsta fart för ETA/riktning |
@@ -30,7 +30,7 @@ En `boat_near` fyrar för (fartyg, bro) när fartyget är inom relevant avstånd
 
 | Källa | Avstånd | Not |
 |---|---|---|
-| `target` | ≤ ~500 m | målbro (Klaff/Strids); vidare räckvidd |
+| `target` | ≤ 300 m | målbro (Klaff/Strids). Samma radie som övriga broar: kandidatgrinden prövar varje källa mot brons radie (`bridgeThreshold`, app.js; radiebeslutet 2026-08-10 i `lib/constants.js` vid Stallbackabron och ARCHITECTURE.md). Raden sa förr ~500 m, vilket aldrig gällde för notisen; 500 m är `APPROACHING_RADIUS` ("närmar sig" i texten). |
 | `current` | ≤ 300 m | aktuell bro fartyget passerar |
 | `trigger-point` | ≤ 300 m | Kanalinfarten m.fl. |
 | `just-passed` / `passage-fallback` | ≤ 300 m (fallback vidare) | precis passerad bro |
