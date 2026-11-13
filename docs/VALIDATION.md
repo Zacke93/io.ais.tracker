@@ -1142,6 +1142,31 @@ ELFKUNGENs Järnvägspassage 10/9 försvinner därmed inte vid källbyte. Råfix
 visar normal förflyttning, trots mycket korta leveransgap. `--check` prövar
 att samtliga incheckade filer stämmer med generatorn.
 
+**Loggvägen tappar block utan spår (fältprovet 10–13 november 2026).**
+Strömmen Homey → `homey app run` → `tee` tappade fem block om 88–156 s i de
+två körningarna medan appen körde vidare (pollräknare, UI-versioner och
+`dupesTotal`-kedjan visar att raderna skrevs men aldrig kom fram), och ett
+4,5 h långt hål när Homey tappade nätverket. homey CLI 4.6.0 varnar inte: dess
+hanterare för bruten ström anropas aldrig med homey-api 3.20.1, så inget
+"Connection has been lost" hamnar i loggen. Samma signatur fanns i tre
+körningar i september. Sedan V4 fångar integritetsgrinden luckor över 65 s där
+monitoringloopens minutslag är belagt (alla sex bortfallen) och, som förut,
+pollrader som saknas i källbokföringen. Den fångar INTE ett bortfall som är
+kortare än gränsen och inte sväljer en pollrad med `accepted > 0`, och den
+kan inte säga vilka rader som saknades; det kräver löpnummer i fångstraderna
+(inte infört). En körning med belagt bortfall är fältbevis, aldrig facit.
+
+Inför nästa fältprov:
+- Koppla Homey med **kabel**. De korta bortfallen skedde med fungerande
+  internet på Homey, alltså i kontakten Mac ↔ Homey.
+- Stäng av **automatiska macOS-uppdateringar** och "Installera i natt" under
+  körningen. Körning 2 avslutades av en uppdatering som loggade ut
+  användaren; före V4 dog skriptet då före slutsynken.
+- Håll Macen vaken (`caffeinate`) och kör gärna under `tmux` eller `nohup`, så
+  att ett stängt terminalfönster inte avslutar körningen.
+- Läs `[HÅLVAKT]` i terminalen under körningen och summaryns "Arkivsynk" och
+  "Logg-integritet" efteråt.
+
 **Två grindar står mellan en fältkörning och en låst korpus: steg 3
 (logg-integriteten) och steg 4 (fassvepet).** Båda är OBLIGATORISKA före
 låsning, båda kan köras i efterhand på en färdig körning, och båda ger grönt
