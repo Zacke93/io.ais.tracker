@@ -14,7 +14,7 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { fromUserDirection } = require('../../lib/utils/directionTokens');
-const { checkPair } = require('./checkReplayIntegrity');
+const { checkPair, createTimeGapAudit } = require('./checkReplayIntegrity');
 const { buildFacit } = require('./makeGtPassages');
 const { validateInvariants, validateWarnInvariants } = require('./invariants');
 const { analyzeCorpus, buildFairway } = require('./coverageMap');
@@ -34,7 +34,9 @@ function parseFieldLog(text) {
   const notifications = [];
   const openingWarnings = [];
   const bridgeTextTransitions = [];
-  const gaps = [];
+  // V4 (2026-11-13): samma tidshålsregel som integritetsgrinden (65 s med
+  // 60 s-hjärtslag, annars 180 s) i stället för en egen 180 s-kopia.
+  const gapAudit = createTimeGapAudit();
   let firstMs = null;
   let stopMs = null;
   let attempts = 0;
@@ -42,13 +44,15 @@ function parseFieldLog(text) {
   const logLines = text.split(/\r?\n/);
   if (logLines[logLines.length - 1] === '') logLines.pop();
   const lines = logLines.length;
+  let lineNumber = 0;
   for (const line of logLines) {
+    lineNumber += 1;
+    gapAudit.take(line, lineNumber);
     const stamp = ISO_RE.exec(line);
     if (!stamp) continue;
     const t = Date.parse(stamp[1]);
     if (!Number.isFinite(t)) throw new Error(`Ogiltig loggtid: ${stamp[1]}`);
     if (firstMs === null) firstMs = t;
-    if (stopMs !== null && t - stopMs > 180000) gaps.push({ from: stopMs, to: t, seconds: (t - stopMs) / 1000 });
     stopMs = Math.max(stopMs || t, t);
     let m = /\[FLOW_TRIGGER_SAFE_TOKENS\] (\d+): Safe tokens = (\{.*\})$/.exec(line);
     if (m) tokens.set(m[1], JSON.parse(m[2]));
@@ -100,6 +104,9 @@ function parseFieldLog(text) {
     }
   }
   if (firstMs === null) throw new Error('Loggen saknar tidsstämplar');
+  const gaps = gapAudit.finish().gaps.map((g) => ({
+    from: g.from.t, to: g.to.t, seconds: g.ms / 1000, limitSeconds: g.limitMs / 1000, heartbeat: g.heartbeat,
+  }));
   return {
     lines,
     firstMs,
@@ -321,7 +328,7 @@ function summarize(r) {
   const maxDelta = n.pairs.length ? Math.max(...n.pairs.map((p) => Math.abs(p.deltaMs))) / 1000 : null;
   return [
     `Fält ${r.field.firstIso} → ${r.field.stopIso}: ${r.field.lines} loggrader, ${r.integrity.jsonlComplete} kompletta AIS-sampel.`,
-    `Integritet: ${r.integrity.verdict}; tidshål >180 s: ${r.field.gaps.length}.`,
+    `Integritet: ${r.integrity.verdict}; tidshål: ${r.field.gaps.length} (gräns 65 s med 60 s-hjärtslag, annars 180 s).`,
     `Notiser: ${n.pairs.length} parade, ${n.pairs.filter((p) => p.changes.length).length} innehållsändrade, `
       + `${n.unmatchedField.length} saknas i replay, ${n.unmatchedReplay.length} extra; max tidsskillnad ${maxDelta}s.`,
     `Öppningar före fältstopp: ${o.pairs.length} parade, ${o.pairs.filter((p) => p.changes.length).length} innehållsändrade; `

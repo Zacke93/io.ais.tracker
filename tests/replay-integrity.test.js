@@ -485,3 +485,123 @@ describe('K24 tvåkälliga korpusar ger DELVIS, inte OK', () => {
     expect(r.problems.join(' ')).toMatch(/aisstream-delens rad 3 skiljer sig/);
   });
 });
+
+/**
+ * V4 (fältprovet 2026-11-13): TIDSHÅL I NODE-GRINDEN.
+ *
+ * Loggvägen Homey → homey CLI tappade fem block om 88–156 s medan appen körde
+ * vidare. Node-grinden hade ingen tidshålskontroll (k1:s början med ett 4,5 h
+ * hål gav OK), och skalets gräns 180 s missade alla fem korta bortfall.
+ * Gränsen är 65 s där monitoringloopens 60 s-hjärtslag [COORDINATION_CLEANUP]
+ * är belagt, annars 180 s. Loggarna nedan är syntetiska och följer
+ * fältloggens radformat; inga fältloggar ligger i repot.
+ */
+describe('V4 tidshål i loggen', () => {
+  let dir;
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'replay-tidshal-'));
+  });
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const T0 = Date.UTC(2026, 10, 13, 6, 0, 0);
+  const at = (s, msg) => `${new Date(T0 + s * 1000).toISOString()} [log] [AISBridgeApp] ${msg}`;
+  const BOOT = 'AIS Bridge starting with modular architecture v2.0';
+  const BEAT = '[DEBUG] 🧹 [COORDINATION_CLEANUP] Cleaned old coordination state';
+
+  /** Logg + jsonl ur samma sampelrader; `events` = [sekund, meddelande]. */
+  function write(events) {
+    const logPath = path.join(dir, 'app-20261113-060000.log');
+    const jsonlPath = path.join(dir, 'ais-replay-20261113-060000.jsonl');
+    const rows = [];
+    const lines = events.map(([s, msg], i) => {
+      const m = msg === 'SAMPLE' ? `[AIS_REPLAY_SAMPLE] ${sample(i)}` : msg;
+      if (msg === 'SAMPLE') rows.push(sample(i));
+      return at(s, m);
+    });
+    fs.writeFileSync(logPath, `${lines.join('\n')}\n`);
+    fs.writeFileSync(jsonlPath, rows.map((r) => `${r}\n`).join(''));
+    return checker.checkPair(jsonlPath, logPath, {});
+  }
+
+  /** Hjärtslag var 60:e sekund och UI-tick var 30:e, från `from` till `to` (s). */
+  function heartbeat(from, to) {
+    const out = [];
+    for (let s = from; s <= to; s += 30) out.push([s, s % 60 === 0 ? BEAT : '[DEBUG] 🐕 [WATCHDOG] Running self-healing check (1 vessels)']);
+    return out;
+  }
+
+  test('ett 90 s-bortfall med belagt hjärtslag fäller (k2 06:17:30 → 06:19:00)', () => {
+    const r = write([
+      [0, BOOT], [1, 'Debug level changed to: full'], ...heartbeat(30, 300), [300.5, 'SAMPLE'], [330, BEAT],
+      // bortfall 330 → 420 s
+      ...heartbeat(420, 600), [601, 'SAMPLE'],
+    ]);
+    expect(r.verdict).toBe('FEL');
+    expect(r.timeGapAudit.heartbeatSeen).toBe(true);
+    expect(r.timeGapAudit.gaps).toHaveLength(1);
+    expect(r.timeGapAudit.gaps[0]).toMatchObject({ ms: 90000, limitMs: 65000, heartbeat: true });
+    expect(r.problems.join(' ')).toMatch(/TIDSHÅL I LOGGEN: 2026-11-13T06:05:30\.000Z → 2026-11-13T06:07:00\.000Z \(90 s/);
+    // Jsonl och logg är ändå identiska: hålet är något källbokföringen inte ser.
+    expect(r.problems.join(' ')).not.toMatch(/SAKNAS/);
+  });
+
+  test('normal drift med hjärtslag och en lucka på 54,6 s är OK (k1 06:53:09 → 06:54:03)', () => {
+    const r = write([
+      [0, BOOT], ...heartbeat(30, 300), [300.4, 'SAMPLE'], [355, 'SAMPLE'], ...heartbeat(360, 480),
+    ]);
+    expect(r.verdict).toBe('OK');
+    expect(r.timeGapAudit.gaps).toEqual([]);
+    expect(r.notes.join(' ')).toMatch(/största lucka 54\.6 s/);
+  });
+
+  test('exakt 65 s är tillåtet, 65,001 s är ett hål', () => {
+    const ok = write([[0, BOOT], [60, BEAT], [125, 'SAMPLE']]);
+    expect(ok.timeGapAudit.gaps).toEqual([]);
+    const hole = write([[0, BOOT], [60, BEAT], [125.001, 'SAMPLE']]);
+    expect(hole.verdict).toBe('FEL');
+  });
+
+  test('utan belagt hjärtslag (debugnivå basic) gäller 180 s', () => {
+    // AISHub-kadensen ger normala luckor upp till ~70 s på basic.
+    const ok = write([[0, BOOT], [70, 'SAMPLE'], [140, 'SAMPLE'], [320, 'SAMPLE']]);
+    expect(ok.verdict).toBe('OK');
+    expect(ok.notes.join(' ')).toMatch(/inte belagt i den här loggen/);
+    const hole = write([[0, BOOT], [70, 'SAMPLE'], [251, 'SAMPLE']]);
+    expect(hole.verdict).toBe('FEL');
+    expect(hole.timeGapAudit.gaps[0]).toMatchObject({ limitMs: 180000, heartbeat: false });
+  });
+
+  test('ändrad debugnivå nollar hjärtslaget tills nästa [COORDINATION_CLEANUP]', () => {
+    const r = write([
+      [0, BOOT], [60, BEAT], [61, 'Debug level changed to: basic'], [161, 'SAMPLE'],
+    ]);
+    expect(r.timeGapAudit.gaps).toEqual([]);
+    expect(r.verdict).toBe('OK');
+  });
+
+  test('4,5 h-hålet i k1 fäller (gav OK före V4)', () => {
+    const r = write([
+      [0, BOOT], ...heartbeat(30, 240), [241, 'SAMPLE'], [16565, 'SAMPLE'], ...heartbeat(16590, 16710),
+    ]);
+    expect(r.verdict).toBe('FEL');
+    expect(r.problems.join(' ')).toMatch(/TIDSHÅL I LOGGEN: .*\(16324 s utan loggrader/);
+  });
+
+  test('ett utdrag utan boot-rad och hjärtslag döms med 180 s, som skalets find_log_holes', () => {
+    expect(write([[0, 'SAMPLE'], [180, 'SAMPLE']]).verdict).toBe('OK');
+    expect(write([[0, 'SAMPLE'], [181, 'SAMPLE']]).verdict).toBe('FEL');
+  });
+
+  test('en tidsstämpel som går bakåt (klockjustering) ger ingen lucka', () => {
+    const r = write([[0, BOOT], [60, BEAT], [90, 'SAMPLE'], [30, 'SAMPLE'], [80, 'SAMPLE']]);
+    expect(r.timeGapAudit.gaps).toEqual([]);
+  });
+
+  test('gränserna är härledda ur monitoringintervallet, inte hårdkodade i testet', () => {
+    const { UI_CONSTANTS } = require('../lib/constants'); // eslint-disable-line global-require
+    expect(checker.HEARTBEAT_GAP_LIMIT_MS).toBe(UI_CONSTANTS.MONITORING_INTERVAL_MS + 5000);
+    expect(checker.FALLBACK_GAP_LIMIT_MS).toBe(180000);
+  });
+});

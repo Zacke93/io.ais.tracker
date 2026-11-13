@@ -23,6 +23,11 @@
  *   3. filen slutar med radbrytning och sista raden är komplett JSON
  * Varje avvikelse = tappad eller dubblerad facitdata.
  *
+ * TIDSHÅL (V4, 2026-11-13): loggen själv kan ha tappat block som jsonl:en då
+ * också saknar. Luckor över 65 s där monitoringloopens minutslag är belagt
+ * (annars 180 s) fäller, se createTimeGapAudit. Samma regel som skalets
+ * find_log_holes.
+ *
  * UNDANTAGET: de härledda TVÅKÄLLIGA korpusarna (makeFieldFusionCorpus.js)
  * blandar loggbara aisstream-rader med aishub-rader som är parseade ur
  * [AISHUB_RESPONSE_SAMPLE]-svarens kuvert. Bara den första delen kan jämföras
@@ -52,6 +57,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { StringDecoder } = require('string_decoder');
+const { UI_CONSTANTS } = require('../../lib/constants');
 
 // Samma mönster som fångsten i run-with-logs.sh greppar på — grinden måste
 // räkna EXAKT det fångsten räknar, annars mäter den något annat än den vaktar.
@@ -331,6 +337,79 @@ function createSourceAudit() {
 }
 
 /**
+ * V4 (fältprovet 2026-11-13): TIDSHÅL I LOGGEN.
+ *
+ * Loggvägen Homey → homey CLI tappade fem block om 88–156 s medan appen
+ * körde vidare, och CLI:n varnar inte (dess disconnect-hanterare anropas
+ * aldrig). Node-grinden hade ingen tidshålskontroll alls: på början av
+ * körning 1, med ett 4,5 h hål, sa den OK. Bara skalets find_log_holes fångade
+ * hål, och dess gräns 180 s missade alla fem korta bortfall.
+ *
+ * GRÄNSEN FÖLJER HJÄRTSLAGET. Monitoringloopen skriver
+ * `[COORDINATION_CLEANUP]` ovillkorligt varje minut
+ * (UI_CONSTANTS.MONITORING_INTERVAL_MS) från debugnivå `detailed`. Där
+ * hjärtslaget är belagt kan ingen normal lucka bli längre än en minut, och
+ * gränsen är 60 s + 5 s marginal = 65 s. Mätt på fältets båda loggar (66 h,
+ * full debugnivå): största normala lucka 54,6 s, bortfallen 88,4–155,9 s.
+ * Utan belagt hjärtslag (debugnivå basic/off) är normala luckor upp till
+ * ~70 s (AISHub-kadensen) och utan AISHub obegränsade; där gäller den gamla
+ * gränsen 180 s, samma som skalet alltid haft. Hjärtslaget nollas vid boot
+ * och vid ändrad debugnivå och räknas som belagt först när nästa
+ * `[COORDINATION_CLEANUP]` syns.
+ *
+ * Kontrollen mäter mellan på varandra följande tidsstämplade rader från
+ * loggens första rad, precis som skalets find_log_holes (samma regel på båda
+ * ställena). En tidsstämpel som går bakåt (klockjustering) ger ingen lucka.
+ */
+const HEARTBEAT_MARKER = '[COORDINATION_CLEANUP]';
+const HEARTBEAT_GAP_LIMIT_MS = UI_CONSTANTS.MONITORING_INTERVAL_MS + 5000;
+const FALLBACK_GAP_LIMIT_MS = 180000;
+const BOOT_LINE_RE = /(?:^|\] )AIS Bridge starting with modular architecture v[\w.]+$/;
+
+function createTimeGapAudit() {
+  const result = {
+    heartbeatSeen: false,
+    checkedIntervals: 0,
+    maxGap: null,
+    gaps: [],
+    heartbeatLimitMs: HEARTBEAT_GAP_LIMIT_MS,
+    fallbackLimitMs: FALLBACK_GAP_LIMIT_MS,
+  };
+  let prev = null;
+  let heartbeat = false;
+  return {
+    take(line, lineNumber) {
+      const stamp = line.match(/^(\d{4}-\d{2}-\d{2}T[\d:.]+Z)\s/);
+      if (!stamp) return;
+      const t = Date.parse(stamp[1]);
+      if (!Number.isFinite(t)) return;
+      const at = { t, time: stamp[1], line: lineNumber };
+      if (prev) {
+        const ms = t - prev.t;
+        const limitMs = heartbeat ? HEARTBEAT_GAP_LIMIT_MS : FALLBACK_GAP_LIMIT_MS;
+        result.checkedIntervals += 1;
+        if (!result.maxGap || ms > result.maxGap.ms) result.maxGap = { from: prev, to: at, ms };
+        if (ms > limitMs) {
+          result.gaps.push({
+            from: prev, to: at, ms, limitMs, heartbeat,
+          });
+        }
+      }
+      prev = at;
+      if (BOOT_LINE_RE.test(line)) heartbeat = false;
+      if (line.includes('Debug level changed to:')) heartbeat = false;
+      if (line.includes(HEARTBEAT_MARKER)) {
+        heartbeat = true;
+        result.heartbeatSeen = true;
+      }
+    },
+    finish() {
+      return result;
+    },
+  };
+}
+
+/**
  * Strömmar loggen och plockar ut sampelraderna i ordning. Läses i bitar —
  * fältloggarna är upp till 70 MB och ska inte tvinga fram en 70 MB-sträng
  * på en gång.
@@ -357,10 +436,12 @@ function readLogSamples(filePath) {
   let responses = 0;
   let lineNumber = 0;
   const sourceAudit = createSourceAudit();
+  const timeGapAudit = createTimeGapAudit();
   const take = (raw) => {
     const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
     lineNumber += 1;
     sourceAudit.take(line, lineNumber);
+    timeGapAudit.take(line, lineNumber);
     if (line.indexOf(RESPONSE_MARKER) !== -1) responses += 1;
     if (line.indexOf(SAMPLE_MARKER) === -1) return;
     matched += 1;
@@ -391,6 +472,7 @@ function readLogSamples(filePath) {
     responses,
     bytes: fs.statSync(filePath).size,
     sourceAudit: sourceAudit.finish(),
+    timeGapAudit: timeGapAudit.finish(),
   };
 }
 
@@ -601,6 +683,21 @@ function checkPair(jsonlPath, logPath, opts) {
         + `${explanation} ${gap.captureExplicitlyEnabled ? 'Fångst explicit aktiverad.' : 'Fångstläget är inte explicit belagt.'} `
         + 'Differensen ensam är inget bevis för loggbortfall.');
     }
+  }
+
+  // V4: tidshålen. Ett hål är tappade loggrader och fäller, precis som i
+  // skalets find_log_holes (som numera följer samma regel).
+  const tg = log.timeGapAudit;
+  result.timeGapAudit = tg;
+  const sek = (ms) => `${Math.round(ms / 100) / 10} s`;
+  result.notes.push(`Tidshålskontroll: ${tg.checkedIntervals} intervall, största lucka `
+    + `${tg.maxGap ? `${sek(tg.maxGap.ms)} (${tg.maxGap.from.time})` : '—'}; gräns ${sek(tg.heartbeatLimitMs)} där `
+    + `60 s-hjärtslaget ${HEARTBEAT_MARKER} är belagt (debugnivå detailed/full)`
+    + `${tg.heartbeatSeen ? '' : ' — inte belagt i den här loggen'}, annars ${sek(tg.fallbackLimitMs)}.`);
+  for (const gap of tg.gaps) {
+    result.problems.push(`TIDSHÅL I LOGGEN: ${gap.from.time} → ${gap.to.time} (${sek(gap.ms)} utan loggrader, `
+      + `loggrader ${gap.from.line}–${gap.to.line}; gräns ${sek(gap.limitMs)}`
+      + `${gap.heartbeat ? ', 60 s-hjärtslaget var belagt' : ''}). Rader har tappats mellan appen och filen.`);
   }
 
   if (log.bytes === 0) {
@@ -845,6 +942,9 @@ if (require.main === module) {
 
 module.exports = {
   checkPair,
+  createTimeGapAudit,
+  HEARTBEAT_GAP_LIMIT_MS,
+  FALLBACK_GAP_LIMIT_MS,
   readJsonl,
   readLogSamples,
   resolveLog,

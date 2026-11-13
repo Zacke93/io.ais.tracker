@@ -1179,12 +1179,30 @@ efteråt.
    upp till fem minuter efter loggen, och då är loggen ändå hel — kommandot ovan
    återställer facit. Vid Ctrl+C, `kill` och stängd terminal byggs filen om en
    sista gång innan skriptet dör.
+   **Slutsynken går före summaryn (V4, fältprovet 2026-11-13).** Körning 2
+   avslutades av en macOS-uppdatering: utloggningen dödade skriptet efter
+   summaryn men före synken, och arkivets logg saknade svansen. Nedstängningen
+   synkar nu loggen till arkivet allra först, bygger om jsonl:en och synkar den
+   och starttillståndet, och skriver sedan summaryn till en temp-fil som byts
+   in med `mv` och synkas sist. Summaryn redovisar synken under "Arkivsynk".
+   Terminalutskrifterna i nedstängningen kan inte fälla den (PIPE/TTOU
+   ignoreras, utskriften går via en extern `printf`).
 3. **GRIND 1 — logg-integriteten.** Summaryn (`bridge-text-summary-*.md`) har
    sektionen "Logg-integritet (tidshål + replay-fångst)" med tre kontroller och ett
    samlat verdikt. Replay-kontrollen granskar även källans bokföring:
-   - **Tidshål** — luckor >180 s i loggens tidsstämplar (watchdogen skriver var
-     ~90 s, så ett hål = tappade loggrader). Grönt:
-     `✅ Inga tidshål >180 s — loggens tidslinje är obruten.`
+   - **Tidshål** — luckor mellan på varandra följande tidsstämplade rader. Gränsen
+     följer hjärtslaget (V4, fältprovet 2026-11-13): monitoringloopen skriver
+     `[COORDINATION_CLEANUP]` ovillkorligt varje minut från debugnivå
+     `detailed`, så där den raden är belagd är gränsen 60 s + 5 s = **65 s**;
+     utan belagt hjärtslag (basic/off, där AISHub-kadensen ger normala luckor
+     upp till ~70 s) gäller **180 s**. Boot och ändrad debugnivå nollar
+     hjärtslaget. Mätt på fältprovets två loggar (66 h, full debugnivå):
+     största normala lucka 54,6 s; de fem bortfallen i loggströmmen var
+     88–156 s och fångades förr bara av källbokföringen. Samma regel i skalet
+     (`find_log_holes`), i node-grinden (som förr saknade tidshålskontroll och
+     sa OK på början av körning 1 med ett 4,5 h hål) och i fältrapporten.
+     Grönt: `✅ Inga tidshål (gräns 65 s med 60 s-hjärtslaget …, annars 180 s)
+     — loggens tidslinje är obruten.`
    - **Replay-fångst (jsonl mot logg)** — undersektionen jämför antalet
      KOMPLETTA jsonl-rader mot antalet `[AIS_REPLAY_SAMPLE]`-rader i loggen och
      kontrollerar att filen slutar med radbrytning och att sista raden är ett
@@ -1229,7 +1247,9 @@ efteråt.
    `🚨 **Logg-integritet: FEL** — körningen är OFULLSTÄNDIG: **korpuslåsning EJ
    tillåten**` (då skriker skriptet dessutom `🚨🚨 [INTEGRITET]` i terminalen).
    En fälld körning får analyseras som fältbevis — den får aldrig bli facit.
-   Skriptet larmar också live om loggfilen slutar växa >3 min.
+   Skriptet larmar också live om loggfilen slutar växa längre än gränsen ovan
+   (65 s när hjärtslaget syns i loggens svans, annars 180 s; kontrollen körs
+   varje minut).
 
    Kontrollen är fristående och kan köras när som helst, utan fältrigg:
    ```bash
@@ -1273,7 +1293,12 @@ efteråt.
    fusionsparet; 14 836 rader) — sammanfattningen lyder `20 filer — OK 19,
    DELVIS 1, FEL 0, OKÄNT 0, ANROPSFEL 0`, där DELVIS-filen är
    `ais-fusion-20260803-nattkorning.jsonl`. Ingen redan låst korpus har tagits
-   in trunkerad.
+   in trunkerad. **Tidshålskontrollen (V4, 2026-11-13) är inte prövad mot de
+   låsta korpusarnas källoggar:** de ligger inte i loggarkivet på Macen
+   (`--corpora` ger OKÄNT för alla 26 filer, före och efter ändringen). Kör
+   `--corpora --log-dir <arkiv>` där loggarna finns innan nästa låsning; ändrar
+   den nya gränsen verdiktet för en låst korpus är det ett fynd att utreda, inte
+   ett skäl att låsa upp eller om.
 4. **Analysera + GRIND 2 (fassvepet).** Jämför först loggens notiser/texter mot
    förväntat beteende och replaya jsonl:en:
    `node tests/replay-validation/replayRunner.js <jsonl>`.
