@@ -12518,6 +12518,9 @@ class AISBridgeApp extends Homey.App {
     // NEDKOPPLAT läge nollställer INTE — samma semantik som hubgrenens
     // isConnected-kommentar: klientens egen flank/backoff äger återanslutningen
     // och vaktens trappa ska inte tappa minnet av en pågående tyst episod.
+    // (F1, fältprovet 2026-11-11: att backoffen inte väntar ut timfasen när
+    // AISHub bevisat att nätet är tillbaka sköts i muxen och klienten —
+    // AISSourceMultiplexer._onHubRecovered → AISStreamClient.nudgeReconnect.)
     if (!feedStats.isConnected) return;
     const sinceMessage = Number.isFinite(feedStats.timeSinceLastMessage)
       ? feedStats.timeSinceLastMessage
