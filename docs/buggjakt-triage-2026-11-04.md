@@ -534,6 +534,15 @@ Två triagerare gick igenom fynden värld för värld. Mekanismerna rättades i 
 - **Nästa steg:** ägaren kör grenen på sin egen Homey som fältprov enligt docs/VALIDATION.md
   §Fältprov. Någon ny version släpps inte i Homey App Store nu.
 
+**Fältprovet 10–13 november (granskat 2026-11-14).** Fältprovet är kört och analyserat. Fynden,
+rättningarna, de kända gränserna och 18 nya beslutsfrågor till ägaren (F1–F18) står i
+docs/faltgranskning-2026-11-14.md. Två av besluten ovan berörs:
+- **U27** syntes i fält (PRICKBJORN låg stilla 460 m från Stridsbergsbron i nästan fyra timmar).
+  Texten "Inga båtar" var rätt; felet låg i att den nya varningen vid avgången spärrades, och
+  det är rättat. Rekommendationen är att behålla 20 min (F5 i fältgranskningen).
+- **Konvojfrågan** har fått mätt underlag (F1: när en gammal öppningsvarning ska sluta gälla,
+  alternativen a–c över hela banken) men är fortfarande ägarens beslut.
+
 ## Ägarens beslut 2026-11-04
 
 Ägaren besvarade beslutsfrågorna 1–3 nedan och gav regeln för omlåsning:
