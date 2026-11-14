@@ -669,6 +669,50 @@ raderas efter 10 min utan målbro, och nästa fix kommer bortom bron. Med rättn
 går varningen 187 respektive 190 s efter återfödelsen. Scenarierna lägger inte
 till någon WARN.
 
+**Manöverskyddet söder om Kanalinfarten (fältprov k1, rättningskampanjen 2026-11-13,
+familj D, revision 2).** Rättningen gäller söder om en gräns 40 m norr om
+Kanalinfarten-punktens latitud (kajraden vid punkten ligger på båda sidor om den). Den nya förväntan `textCountWindows: [{bro, fromS, toS, min, max}]`
+kräver att texten under fönstret räknar mellan min och max båtar mot bron (summan av
+räkneorden i klausulerna som nämner "mot <bro>"; texten vid fönstrets start och varje
+övergång i det). Den räknar båtar, inte VILKA båtar — texten bär ingen identitet — så ett
+scenario som ska pröva en viss båt behöver ett fönster där bara den båten kan räknas.
+Sex scenarier, placeringen är testet:
+- `kajbyte-med-kursbrus-långt-från-målbron (k1 PRICKBJORN)`, seed 4401: en båt går
+  norrut i 6 kn söder om Kanalinfarten-punkten (målbro Klaffbron), svänger in mot en kaj
+  och ligger still 2 km från bron med kursen omväxlande 150°/290° (micro-ben om 1 m med
+  benets `cogDeg`, fart 0,05 ± 0,1 kn) till 2 080 s. En annan båt går norrut mot
+  Klaffbron. Fönstret 430–1 340 s kräver exakt EN båt; fönstret 1 600–2 050 s, efter att
+  den gående båten passerat Klaffbron, kräver NOLL — där kan bara kajbåten räknas. Mot
+  `e51c7b6` rött i båda fönstren.
+- `kajbyte-med-fartbrus-i-fristen (k1 PRICKBJORN, M1)`, seed 4405: samma kajbyte, men
+  andra kajsamplet (260 s, i nådafristen) rapporterar 2,5 kn på samma punkt (stoppben
+  med `stopSog`). Fönstret 330–900 s kräver noll båtar mot Klaffbron. Rött mot `e51c7b6`,
+  mot revision 0 (`65c05dd`) och med fartregeln bortkopplad (släpp först 390 s).
+- `kajbyte-9-m-norr-om-punktens-latitud (k1 PRICKBJORN, R1-M1)`, seed 4406: svängen
+  kommer 9 m söder om punktens latitud och kajen ligger 7–20 m NORR om den (micro-ben om
+  0,3 m), som PRICKBJORNs kajplats den 12 november. Fönstret 330–2 000 s kräver noll båtar
+  mot Klaffbron. Rött mot `e51c7b6` och mot revision 1 (`ea8d24b`, gränsen på linjen).
+  Motfallet strax utanför den vidgade gränsen (allt som på basen) ligger i jest-sviten.
+- `krypande-insegling-med-släpande-fart-söder-om-Kanalinfarten (familj D, L2)`, seed 4404:
+  söder om punkten tre fixar 60 m isär med 180 s mellanrum (mellanfixarna stryks med glapp)
+  som rapporterar 0,0–0,2 kn och vänder kursen 22°/200°/22°. Båten har bevisligen rört
+  sig, så kursbenet ska räknas; fönstret 180–650 s kräver minst en båt. Rött om grinden
+  spärrar på farten ensam (40 m-villkoret bortkopplat), annars grönt.
+- `låg-fart-manöver-utanför-kö-zonen-behåller-målbron (motfall k1)`, seed 4402: norr om
+  punkten, 435 m norr om passerade Klaffbron och ~786 m från målbron Stridsbergsbron,
+  vrids kursen drygt 80° i 0,45 kn nästan utan förflyttning. Fristen startar på stoppet,
+  så bara manöverskyddet håller målet; fönstret 540–700 s kräver minst en båt. Rött med
+  kursbenet avstängt eller spärrat under 0,5 kn ("Inga båtar" 605 s och DEFAULT-FLASH).
+- `stilla-köare-i-luckan-med-kursbrus (granskning D)`, seed 4403 (granskarens scenario):
+  en köare mot Stridsbergsbron ligger 15 min 420 m norr om Klaffbron med `stopSog: 0.1`
+  och `stopCogRandom`, utanför kö-zonen och utan skyddszon. `noDefaultWhileStopped`.
+  Rött mot revision 0 (`65c05dd`, grinden gällde överallt) och med regionsvillkoret
+  bortkopplat; grönt mot `e51c7b6` och med rättningen.
+
+Två delar prövas bara av jest-sviten `falt-k1-manoverskyddets-kursben`: att samplets
+egen fart (`_rawPositionSog`) läses i stället för den ärvda (generatorn levererar inga
+sampel utan fart i benläge), och fixpar som går över punkten.
+
 ## Täckningskartan — diagnosverktyg, INTE en gate
 
 `tests/replay-validation/coverageMap.js` (etapp 6) svarar på frågan **var längs

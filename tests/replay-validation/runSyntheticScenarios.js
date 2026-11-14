@@ -116,6 +116,13 @@ const OMSTART_SLOW_ZONE = {
  *  - noDefaultWhileStopped: true — texten får aldrig vara "Inga båtar …"
  *    medan en båt ligger i sitt stopp (första till sista stillasamplet). U23
  *    och D1: en väntande båt nära målbron står kvar i texten.
+ *  - textCountWindows: [{bridge, fromS, toS, min?, max?}] — under fönstret
+ *    (sekunder från scenariots bastid) ska antalet båtar som texten räknar
+ *    mot bron ligga inom [min, max]: texten som gäller vid fromS och varje
+ *    övergång fram till toS. Antalet är summan av räkneorden i de klausuler
+ *    som nämner "mot <bro>". Familj D (k1): antalet ska följa verkligheten.
+ *    OBS: texten bär ingen identitet, så förväntan räknar båtar, inte vilka;
+ *    ska en viss båt prövas behövs ett fönster där bara hon kan räknas.
  *  - deadlineFiredOpenings: dessa broars varning MÅSTE ha kommit ur tick-
  *    motorn (firedBy='deadline'), inte ur ett inkommande fix — beviset för
  *    att äggklockan fungerar i radiotystnad.
@@ -2423,6 +2430,271 @@ const SCENARIOS = [
       suppressedOpeningFires: 1,
     },
   },
+  // Fältprov k1 (2026-11-11, PRICKBJORN-klassen; familj D i rättnings-
+  // kampanjen): MANÖVERSKYDDETS KURSBEN VID STILLHET. En arbetsbåt lägger ut
+  // söder om Kanalinfarten, går norrut i 6 kn (får målbro Klaffbron), svänger
+  // in mot en kaj och ligger sedan still med fladdrande kurs, 2 km från bron.
+  // Samtidigt går en annan båt norrut mot Klaffbron. Före rättningen
+  // återaktiverade varje kurshopp > 45° manöverskyddet (fart 0, någon meter
+  // förflyttning) och höll kvar kajbåtens målbro: texten sa "Två båtar på väg
+  // mot Klaffbron" under hela kajvistelsen. Positionerna är egna och nedkortade
+  // (micro-ben om 1 m med omväxlande rapporterad kurs 150°/290°, fart 0,05 ±
+  // 0,1 kn), inte fältets.
+  //
+  // Första fönstret börjar 5 min efter svängen (skyddets maxtid, så att den
+  // verkliga manöverns skydd hunnit släppa) och slutar 2 min före den andra
+  // båtens korsning av Klaffbron; där ska texten räkna EN båt mot Klaffbron.
+  // Förväntan räknar båtar, inte vilka, så det fönstret skiljer inte "kajbåten
+  // borta" från "den gående båten borta, kajbåten kvar". Det andra fönstret gör
+  // det: efter att den gående båten passerat Klaffbron (hon går då mot
+  // Stridsbergsbron) ligger kajbåten kvar vid kajen till 2 080 s, och texten får
+  // inte räkna någon båt mot Klaffbron. Kajen ligger söder om
+  // Kanalinfarten-punkten, där rättningen gäller (FP9-H′:s område).
+  {
+    name: 'kajbyte-med-kursbrus-långt-från-målbron (k1 PRICKBJORN)',
+    seed: 4401,
+    vessels: [
+      {
+        mmsi: '904401001',
+        name: 'SYNT-KAJBYTE',
+        startS: 450,
+        legs: [
+          { toS: 800, speedKn: 6, intervalS: 65 },
+          // Svängen in mot kajen: verklig manöver (kurs 22° → 255°, 6 → 1,1 kn).
+          {
+            toS: 820, speedKn: 1.1, intervalS: 65, cogDeg: 255,
+          },
+          // Kajen: 30 sampel (195–2 080 s), fart på brusnivå, kursen hoppar
+          // 140° per sampel.
+          ...Array.from({ length: 30 }, (_, i) => ({
+            toS: 821 + i, speedKn: 0.05, intervalS: 65, cogDeg: i % 2 === 0 ? 150 : 290,
+          })),
+        ],
+      },
+      {
+        mmsi: '904401002',
+        name: 'SYNT-MOT-KLAFF',
+        startS: 100,
+        startOffsetS: 120,
+        legs: [{ toS: METRICS.cum[2] + 400, speedKn: 4, intervalS: 60 }],
+      },
+    ],
+    // Svängen kommer 130 s; den andra båten korsar Klaffbron ~1 464 s
+    // (2 765 m i 4 kn från 120 s). Fönstren: 430–1 340 s och 1 600–2 050 s.
+    expect: {
+      textCountWindows: [
+        {
+          bridge: 'Klaffbron', fromS: 430, toS: 1340, min: 1, max: 1,
+        },
+        {
+          bridge: 'Klaffbron', fromS: 1600, toS: 2050, max: 0,
+        },
+      ],
+    },
+  },
+  // Motfallet till scenariot ovan (familj D): en VERKLIG manöver i låg fart
+  // ska fortfarande hålla målbron. Båten går norrut genom Klaffbron (målbro
+  // Stridsbergsbron) och stannar upp 435 m norr om Klaffbron, ~786 m från
+  // målbron — utanför målbroskyddets 300 m, kö-zonens 600 m och alla broars
+  // skyddszon, så bara manöverskyddet kan hålla målet. Där vrider hon kursen
+  // drygt 80° i 0,45 kn (gråzonen 0,3–0,5 kn, nästan utan förflyttning, som
+  // ANYA ELAN i both-21h 08:19:25) och lägger sedan ut igen. Fristen startar på
+  // stoppet; utan manöverskydd tas målet bort 65 s senare och texten blir
+  // "Inga båtar" mitt i manövern. Scenariot fäller en grind som stänger
+  // kursbenet helt eller redan under 0,5 kn (MOVEMENT_PROOF_SOG_KN).
+  //
+  // Tider (sekunder från bastiden): 1 035 m i 4 kn med 30 s kadens ger 17
+  // sampel, ankomstfixet kommer 510 s, stoppet 540 s (fristen startar),
+  // manöversamplen 570, 605 och 640 s. Avgångsbenets första sampel skulle
+  // ligga på samma punkt som det sista manöversamplet och stryks därför med
+  // ett glapp på en meter; nästa sampel (705 s) har 62 m närmande.
+  {
+    name: 'låg-fart-manöver-utanför-kö-zonen-behåller-målbron (motfall k1)',
+    seed: 4402,
+    vessels: [{
+      mmsi: '904402001',
+      name: 'SYNT-MANÖVER',
+      startS: METRICS.cum[2] - 600,
+      legs: [
+        { toS: METRICS.cum[2] + 435, speedKn: 4, intervalS: 30 },
+        // Framme: samma position, 4 kn rapporterad (ankomstfixet).
+        { stopS: 30, stopIntervalS: 30, stopSog: 4 },
+        // Stannar upp: ingen förflyttning, 2,2 kn (Δ 1,8 kn < 2, ingen manöver)
+        // ⇒ närmandet uteblir och nådafristen startar.
+        { stopS: 30, stopIntervalS: 30, stopSog: 2.2 },
+        // Manövern: kursen vrids från farledens ~30° till 112° i 0,45 kn.
+        ...[112, 114, 116].map((cogDeg, i) => ({
+          toS: METRICS.cum[2] + 436 + i, speedKn: 0.45, intervalS: 35, cogDeg,
+        })),
+        {
+          toS: METRICS.cum[4] + 400,
+          speedKn: 4,
+          intervalS: 30,
+          gapFromS: METRICS.cum[2] + 438,
+          gapToS: METRICS.cum[2] + 439,
+        },
+      ],
+    }],
+    expect: {
+      minTargetPassages: 2,
+      textCountWindows: [{
+        bridge: 'Stridsbergsbron', fromS: 540, toS: 700, min: 1,
+      }],
+    },
+  },
+  // Familj D, revision 1 (granskningens M1): FARTBRUS VID KAJEN I FRISTEN.
+  // Samma kajbyte som ovan, men andra kajsamplet (260 s, mitt i nådafristen)
+  // rapporterar 2,5 kn på samma punkt — fartbruset som FP9-H′ dokumenterar vid
+  // kajerna söder om Kanalinfarten (HEY JOE 0,8–7,5 kn). Granskaren visade att
+  // ett sådant prov i PRICKBJORNs 13:28:15-sampel återställer fältfelet: både
+  // fartbenet (Δ 2,5 kn) och kursbenet (kurshopp i "2,5 kn") återaktiverar
+  // skyddet. Med rättningen släpps målet vid fristens slut (260 s); utan
+  // fartregeln först 390 s, utan någon rättning långt senare. Fönstret
+  // 330–900 s får inte räkna någon båt mot Klaffbron.
+  {
+    name: 'kajbyte-med-fartbrus-i-fristen (k1 PRICKBJORN, M1)',
+    seed: 4405,
+    vessels: [{
+      mmsi: '904405001',
+      name: 'SYNT-KAJBRUS',
+      startS: 450,
+      legs: [
+        { toS: 800, speedKn: 6, intervalS: 65 },
+        {
+          toS: 820, speedKn: 1.1, intervalS: 65, cogDeg: 255,
+        },
+        {
+          toS: 821, speedKn: 0.05, intervalS: 65, cogDeg: 150,
+        },
+        // Fartbruset: 2,5 kn på samma punkt, kurs = farledens (~22°).
+        { stopS: 65, stopIntervalS: 65, stopSog: 2.5 },
+        ...Array.from({ length: 10 }, (_, i) => ({
+          toS: 822 + i, speedKn: 0.05, intervalS: 65, cogDeg: i % 2 === 0 ? 290 : 150,
+        })),
+      ],
+    }],
+    expect: {
+      textCountWindows: [{
+        bridge: 'Klaffbron', fromS: 330, toS: 900, max: 0,
+      }],
+    },
+  },
+  // Familj D, revision 2 (omgranskningens R1-M1): KAJRADEN NORR OM PUNKTENS
+  // LATITUD. Kajraden vid Kanalinfarten ligger på båda sidor om punktens
+  // latitud (CAPELLA 2 m norr, PRICKBJORN 9–10 m norr den 12 november). Samma
+  // kajbyte som ovan, men svängen kommer 9 m söder om linjen (s = 920) och kajen
+  // ligger 9–17 m NORR om den (s = 940–949, micro-ben om 0,3 m). Gränsen ligger
+  // 40 m norr om linjen, så kajen ingår. Med gränsen på linjen (revision 1) kom
+  // fältfelet tillbaka: svängsamplet söder, kajsamplet norr ⇒ kursbruset höll
+  // målet. Fönstret 330–2 000 s får inte räkna någon båt mot Klaffbron.
+  {
+    name: 'kajbyte-9-m-norr-om-punktens-latitud (k1 PRICKBJORN, R1-M1)',
+    seed: 4406,
+    vessels: [{
+      mmsi: '904406001',
+      name: 'SYNT-KAJ-NORR',
+      startS: 600,
+      legs: [
+        { toS: 920, speedKn: 6, intervalS: 65 },
+        {
+          toS: 940, speedKn: 1.1, intervalS: 65, cogDeg: 255,
+        },
+        ...Array.from({ length: 30 }, (_, i) => ({
+          toS: 940.3 + 0.3 * i, speedKn: 0.05, intervalS: 65, cogDeg: i % 2 === 0 ? 150 : 290,
+        })),
+      ],
+    }],
+    expect: {
+      textCountWindows: [{
+        bridge: 'Klaffbron', fromS: 330, toS: 2000, max: 0,
+      }],
+    },
+  },
+  // Familj D, revision 1 (granskningens L2): 40 m-VILLKORET SÖDER OM PUNKTEN.
+  // Grinden spärrar kursbenet bara när BÅDE farten (< 0,3 kn) och positionen
+  // (< 40 m sedan förra fixen) säger stilla. Här kryper en båt in mot kanalen
+  // söder om Kanalinfarten-punkten med en fartgivare som släpar: hon rapporterar
+  // 0,0–0,2 kn men flyttar sig 60 m per 3 min norrut (0,31 m/s, över FP9-H′:s
+  // 0,25 m/s) och kursen vänder mellan fixarna. Fartgrinden (0,7 kn > 500 m från
+  // broarna) underkänner henne, så bara manöverskyddet håller målet — och det
+  // ska det göra, för hon har bevisligen rört sig. Om grinden spärrade på farten
+  // ensam släpptes målet vid tredje krypfixen (540 s) och texten blev "Inga
+  // båtar" tills hon gick vidare (660 s).
+  //
+  // Placering: insegling i 4 kn till s = 450, därefter tre fixar 60 m isär med
+  // 180 s mellanrum (mellanfixarna stryks med glapp på benen i 1 kn) och kurs
+  // 22°/200°/22°; avgångsbenets första fix stryks också (samma punkt som sista
+  // krypfixen), nästa kommer 660 s med 124 m förflyttning.
+  {
+    name: 'krypande-insegling-med-släpande-fart-söder-om-Kanalinfarten (familj D, L2)',
+    seed: 4404,
+    vessels: [{
+      mmsi: '904404001',
+      name: 'SYNT-KRYP',
+      startS: 150,
+      legs: [
+        { toS: 450, speedKn: 4, intervalS: 60 },
+        // Krypfix 1 (180 s): s = 450, kurs 22°.
+        {
+          toS: 451, speedKn: 0.1, intervalS: 60, cogDeg: 22,
+        },
+        {
+          toS: 510, speedKn: 1, intervalS: 60, gapFromS: 450.5, gapToS: 509.9,
+        },
+        // Krypfix 2 (360 s): s = 510, 60 m, kurs 200°.
+        {
+          toS: 511, speedKn: 0.1, intervalS: 60, cogDeg: 200,
+        },
+        {
+          toS: 570, speedKn: 1, intervalS: 60, gapFromS: 510.5, gapToS: 569.9,
+        },
+        // Krypfix 3 (540 s): s = 570, 60 m, kurs 22°.
+        {
+          toS: 571, speedKn: 0.1, intervalS: 60, cogDeg: 22,
+        },
+        {
+          toS: METRICS.cum[2] + 300,
+          speedKn: 4,
+          intervalS: 60,
+          gapFromS: 570.5,
+          gapToS: 571.5,
+        },
+      ],
+    }],
+    expect: {
+      textCountWindows: [{
+        bridge: 'Klaffbron', fromS: 180, toS: 650, min: 1,
+      }],
+    },
+  },
+  // Granskning D (2026-11-13): MOTFALL TILL KURSBENETS STILLHETSGRIND. En
+  // verklig köare mot Stridsbergsbron ligger stilla i farleden mellan
+  // Klaffbron och Järnvägsbron, 420 m norr om Klaffbron (~800 m från
+  // målbron): utanför kö-zonens 600 m, och Klaffbrons skyddszon är upphävd
+  // (F21, passerad bro). Hon rapporterar fart på brusnivå (0,0–0,2 kn) och en
+  // kurs som hoppar mellan fixarna (Class B vid stillhet), väntar 15 min och
+  // går sedan vidare genom Stridsbergsbron. Texten ska räkna henne hela
+  // väntan; "Inga båtar" mitt i kön är felbilden manöverskyddet finns för.
+  {
+    name: 'stilla-köare-i-luckan-med-kursbrus (granskning D)',
+    seed: 4403,
+    vessels: [{
+      mmsi: '904403001',
+      name: 'SYNT-LUCKKÖ',
+      startS: METRICS.cum[2] - 900,
+      legs: [
+        { toS: METRICS.cum[2] + 420, speedKn: 4, intervalS: 30 },
+        {
+          stopS: 900, stopIntervalS: 60, stopSog: 0.1, stopCogRandom: true,
+        },
+        { toS: METRICS.cum[4] + 500, speedKn: 4, intervalS: 30 },
+      ],
+    }],
+    expect: {
+      minTargetPassages: 2,
+      noDefaultWhileStopped: true,
+    },
+  },
 ];
 
 function runScenario(scenario) {
@@ -2526,6 +2798,29 @@ function singleJourney(scenario, truthPaths, samples, bridge, tag, problems) {
   const sBridge = METRICS.cum[PATH_INDEX[bridge]];
   const crossings = truthCrossings(truthPath, sBridge).map((c) => BASE_TIME_MS + c.tS * 1000);
   return { stopEnds, crossingAfter: (t) => crossings.find((c) => c > t) };
+}
+
+// Räkneorden i docs/bridgeTextFormat.md (1–10 i ord, ≥ 11 som siffra).
+const COUNT_WORDS = {
+  en: 1, två: 2, tre: 3, fyra: 4, fem: 5, sex: 6, sju: 7, åtta: 8, nio: 9, tio: 10,
+};
+
+/**
+ * Hur många båtar räknar brotexten mot bron? Summan av klausulernas räkneord
+ * för de klausuler som nämner "mot <bro>" (gång- och väntklausuler). "Inga
+ * båtar …" och andra texter utan sådan klausul ger 0.
+ * @param {string} text
+ * @param {string} bridge
+ * @returns {number}
+ */
+function vesselCountInText(text, bridge) {
+  return String(text || '').split('; ')
+    .filter((clause) => clause.includes(`mot ${bridge}`))
+    .reduce((sum, clause) => {
+      const word = clause.split(' ')[0].toLowerCase();
+      const n = /^\d+$/.test(word) ? Number(word) : COUNT_WORDS[word];
+      return sum + (Number.isFinite(n) ? n : 0);
+    }, 0);
 }
 
 function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
@@ -2708,6 +3003,25 @@ function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
       if (def !== undefined) {
         problems.push(`"Inga båtar" ${new Date(def).toISOString()} medan ${v.mmsi} låg i sitt stopp `
           + `(${new Date(from).toISOString()}–${new Date(to).toISOString()})`);
+      }
+    }
+  }
+  // Familj D (k1, 2026-11-11): antalet båtar mot en bro i ett tidsfönster.
+  if (e.textCountWindows) {
+    const transitions = result.bridgeTextTransitions || [];
+    for (const w of e.textCountWindows) {
+      const fromMs = BASE_TIME_MS + w.fromS * 1000;
+      const toMs = BASE_TIME_MS + w.toS * 1000;
+      const atStart = transitions.filter((x) => x.t <= fromMs).pop();
+      const inWindow = [...(atStart ? [atStart] : []), ...transitions.filter((x) => x.t > fromMs && x.t <= toMs)];
+      if (inWindow.length === 0) inWindow.push({ t: fromMs, text: '' });
+      for (const x of inWindow) {
+        const n = vesselCountInText(x.text, w.bridge);
+        if ((Number.isFinite(w.min) && n < w.min) || (Number.isFinite(w.max) && n > w.max)) {
+          problems.push(`ANTAL I TEXTEN: ${n} mot ${w.bridge} ${new Date(Math.max(x.t, fromMs)).toISOString()} `
+            + `("${x.text}"), förväntat ${w.min ?? 0}–${w.max ?? '∞'} under ${w.fromS}–${w.toS} s`);
+          break;
+        }
       }
     }
   }
