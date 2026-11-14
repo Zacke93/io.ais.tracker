@@ -605,6 +605,20 @@ describe('INV-22 förvarningsform efter rådatans passage (WARN)', () => {
       .filter((x) => x.startsWith('INV-22'))).toEqual([]);
   });
 
+  // Rev 1 (granskningen 2026-11-14): i buggjägarens sanningsspår är tTo den
+  // sanna korsningstiden och tObs mottagningen av första fixen bortom linjen.
+  // Regeln dömer mot tObs, så samma cykel undantas där precis som i banken.
+  test('sanningsspårets post: samma cykel som första observationen bortom linjen flaggas inte', () => {
+    const tCross = tTo - 20000;
+    const truth = crossing({
+      t: tCross, tFrom: tCross, tTo: tCross, tObs: tTo, source: 'truth-L1',
+    });
+    expect(inv22([approach(tTo + 150)], [truth])).toEqual([]);
+    expect(inv22([approach(tTo + 2000)], [truth])).toHaveLength(1);
+    // Utan tObs (bankens facit) gäller tTo som förut.
+    expect(inv22([approach(tCross + 2000)], [crossing({ t: tCross, tFrom: tCross, tTo: tCross })])).toHaveLength(1);
+  });
+
   test('en korsning utan tidsfönster eller riktning används inte', () => {
     const t = tTo + 46000;
     expect(inv22([approach(t)], [crossing({ tTo: null })])).toEqual([]);

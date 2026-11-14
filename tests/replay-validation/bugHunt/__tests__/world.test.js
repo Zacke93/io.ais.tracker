@@ -161,6 +161,9 @@ describe('L1', () => {
     const gtRows = truth.asGt(L1.crossings, { targetsOnly: true, pointOnly: true });
     expect(gtRows[0].tFrom).toBe(tCross);
     expect(gtRows[0].tTo).toBe(tCross);
+    // Rev 1 (INV-22): observationstiden följer med, så att invarianten kan
+    // döma mot mottagningen av första fixen bortom linjen, som i banken.
+    expect(gtRows[0].tObs).toBe(tCross + 30000);
   });
 
   test('(d) korsningen försvinner utan fixar på ena sidan och blir inferred vid 1000 s glapp', () => {
