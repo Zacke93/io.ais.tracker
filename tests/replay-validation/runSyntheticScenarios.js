@@ -3246,9 +3246,13 @@ function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
   if (e.maxNoticeDelayS) {
     for (const [bridge, maxS] of Object.entries(e.maxNoticeDelayS)) {
       const sBridge = METRICS.cum[PATH_INDEX[bridge]];
+      // Granskningen av C3: utan en enda sann korsning prövas ingenting, och
+      // förväntan fick då inte bli grön (samma krav som maxOpeningAgeS).
+      let tested = 0;
       for (const [mmsi, truthPath] of Object.entries(truthPaths || {})) {
         let previousMs = -Infinity;
         for (const c of truthCrossings(truthPath, sBridge)) {
+          tested++;
           const crossingMs = BASE_TIME_MS + c.tS * 1000;
           const first = notifications
             .filter((n) => String(n.mmsi) === mmsi && n.bridge === bridge && Number.isFinite(n.t) && n.t > previousMs)
@@ -3260,6 +3264,9 @@ function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
           }
           previousMs = crossingMs;
         }
+      }
+      if (tested === 0) {
+        problems.push(`maxNoticeDelayS: ingen sann korsning av ${bridge} att pröva — förväntan mäter ingenting`);
       }
     }
   }
