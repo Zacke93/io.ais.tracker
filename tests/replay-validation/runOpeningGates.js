@@ -837,7 +837,9 @@ function analyseCoverage(result, samples, gtPassages = null) {
     let freshest = null;
     let freshestVia = null;
     const considerFresh = (w, how) => {
-      if (!certainlyBefore(w)) return;
+      // Rev 2: ett kort som aldrig gick fram (success=false) är ingen
+      // varning för användaren och räknas inte som färsk täckning.
+      if (!certainlyBefore(w) || w.success === false) return;
       if (freshest === null || w.t > freshest.t) {
         freshest = w; freshestVia = how;
       }
@@ -872,9 +874,10 @@ function analyseCoverage(result, samples, gtPassages = null) {
         warning: hit,
         via,
         leadMs: p.t - hit.t,
-        // V1 rev 1: åldersmåttets varning (aldrig äldre än O1:s).
-        freshestWarning: freshest || hit,
-        freshestVia: freshest ? freshestVia : via,
+        // V1 rev 1: åldersmåttets varning (aldrig äldre än O1:s levererade).
+        // null när ingen täckande varning levererades (rev 2).
+        freshestWarning: freshest,
+        freshestVia: freshest ? freshestVia : null,
       });
     } else {
       // Slutfixet ligger redan bortom föregående korsning och får bära ny
@@ -907,23 +910,34 @@ function analyseCoverage(result, samples, gtPassages = null) {
  *   stale: täckta passager med fältet ageMs, äldst först
  */
 function analyseWarningAge(covered, limitMs = STALE_WARNING_AGE_MS) {
-  const withAge = (covered || []).map((c) => {
+  const all = (covered || []).map((c) => {
     const p = c.passage;
     const passageT = p.inferred === true && Number.isFinite(p.tFrom) ? p.tFrom : p.t;
     // Rev 1: den färskaste täckande varningen (analyseCoverage.freshestWarning),
-    // inte O1:s val, som kan vara ett äldre fired-medlemskap.
-    const ageWarning = c.freshestWarning || c.warning;
+    // inte O1:s val, som kan vara ett äldre fired-medlemskap. Rev 2: bara
+    // levererade kort; finns ingen (freshestWarning null, eller O1:s varning
+    // har success=false) redovisas passagen som OLEVERERAD, aldrig som färsk.
+    let ageWarning = Object.prototype.hasOwnProperty.call(c, 'freshestWarning') ? c.freshestWarning : c.warning;
+    if (ageWarning && ageWarning.success === false) ageWarning = null;
+    if (!ageWarning) {
+      return {
+        ...c, ageWarning: c.warning, ageVia: c.via, ageMs: passageT - c.warning.t, undelivered: true,
+      };
+    }
     return {
       ...c, ageWarning, ageVia: c.freshestWarning ? c.freshestVia : c.via, ageMs: passageT - ageWarning.t,
     };
   });
+  const undelivered = all.filter((c) => c.undelivered);
+  const withAge = all.filter((c) => !c.undelivered);
   const stale = withAge.filter((c) => c.ageMs > limitMs).sort((a, b) => b.ageMs - a.ageMs);
   const bands = {};
   for (const m of WARNING_AGE_BANDS_MIN) bands[m] = withAge.filter((c) => c.ageMs > m * 60000).length;
   return {
-    total: withAge.length,
+    total: all.length,
     fresh: withAge.length - stale.length,
     stale,
+    undelivered,
     bands,
     limitMs,
   };
@@ -944,7 +958,8 @@ function describeStaleWarning(c) {
 function describeWarningAge(age) {
   const pct = age.total ? ((100 * age.fresh) / age.total).toFixed(1) : '0';
   return `${age.fresh}/${age.total} varnade passager hade en färsk varning (≤ ${mins(age.limitMs)}, ${pct} %); `
-    + `varningen äldre än ${WARNING_AGE_BANDS_MIN.map((m) => `${m} min: ${age.bands[m]}`).join(', ')}`;
+    + `varningen äldre än ${WARNING_AGE_BANDS_MIN.map((m) => `${m} min: ${age.bands[m]}`).join(', ')}`
+    + `${age.undelivered.length ? `; ${age.undelivered.length} täcktes bara av kort som aldrig levererades (success=false)` : ''}`;
 }
 
 /**
@@ -1955,8 +1970,12 @@ async function main() {
     // V1: GAMMAL VARNING — WARN, rör aldrig gateFail (gränsen är inte
     // ägarbeslutad, se STALE_WARNING_AGE_MS).
     appCoveredAll.push(...covered);
-    for (const c of analyseWarningAge(covered).stale) {
+    const runAge = analyseWarningAge(covered);
+    for (const c of runAge.stale) {
       console.log(`  ⚠️ GAMMAL VARNING ${run.job.id}: ${describeStaleWarning(c)}`);
+    }
+    for (const c of runAge.undelivered) {
+      console.log(`  ⚠️ OLEVERERAD VARNING ${run.job.id}: ${describeStaleWarning(c)} — kortet gick aldrig fram`);
     }
     const convoyCovered = covered.filter((c) => c.via === 'konvoj').length;
 
@@ -2038,6 +2057,9 @@ async function main() {
     const gtAge = analyseWarningAge(gtCoveredAll);
     console.log(`  ⚠️ VARNINGENS ÅLDER (WARN, fäller inte): ${describeWarningAge(gtAge)}`);
     for (const c of gtAge.stale) console.log(`     ⚠️ GAMMAL VARNING ${c.corpus}: ${describeStaleWarning(c)}`);
+    for (const c of gtAge.undelivered) {
+      console.log(`     ⚠️ OLEVERERAD VARNING ${c.corpus}: ${describeStaleWarning(c)} — kortet gick aldrig fram`);
+    }
     for (const run of runs) {
       for (const p of run.gtPassages || []) {
         if (!p.timingEvidence) continue;

@@ -96,7 +96,7 @@ describe('Fältloggens tidshål följer kalendern', () => {
     const output = runBash(['find_log_holes'], 'find_log_holes "$AUDIT_LOG"', { AUDIT_LOG: log });
     const elapsed = (Date.parse(`${end}Z`) - Date.parse(`${start}Z`)) / 1000;
     expect(output).toBe(elapsed > 180
-      ? `- HÅL: ${start} → ${end} (${elapsed} s utan loggrader)\n` : '');
+      ? `- HÅL: ${start} → ${end} (${elapsed.toFixed(1)} s utan loggrader)\n` : '');
   });
 });
 
@@ -120,7 +120,7 @@ describe('Fältloggens tidshål följer hjärtslaget', () => {
   test.each([
     ['65 s efter belagt hjärtslag är tillåtet', '2026-11-13T06:01:05', ''],
     ['66 s efter belagt hjärtslag är ett hål (k2:s 88–90 s-bortfall)', '2026-11-13T06:01:06',
-      '- HÅL: 2026-11-13T06:00:00 → 2026-11-13T06:01:06 (66 s utan loggrader)\n'],
+      '- HÅL: 2026-11-13T06:00:00 → 2026-11-13T06:01:06 (66.0 s utan loggrader)\n'],
   ])('%s', (_label, next, expected) => {
     expect(holes([`2026-11-13T06:00:00.000Z ${BEAT}`, `${next}.000Z [log] nästa rad`])).toBe(expected);
   });
@@ -152,9 +152,14 @@ describe('Fältloggens tidshål följer hjärtslaget', () => {
     expect(limit([...beats, basic, at(5, BEAT.replace('[log] [AISBridgeApp] ', ''))])).toBe('65\n');
   });
 
+  test('en lucka på 65,2 s skrivs med en decimal, inte avrundad till gränsen (rev 2)', () => {
+    expect(holes([`2026-11-13T06:00:00.000Z ${BEAT}`, '2026-11-13T06:01:05.200Z [log] nästa rad']))
+      .toBe('- HÅL: 2026-11-13T06:00:00 → 2026-11-13T06:01:05 (65.2 s utan loggrader)\n');
+  });
+
   test('millisekunderna räknas: 65,5 s efter hjärtslaget är ett hål, som i node-grinden', () => {
     expect(holes([`2026-11-13T06:00:00.000Z ${BEAT}`, '2026-11-13T06:01:05.500Z [log] nästa rad']))
-      .toBe('- HÅL: 2026-11-13T06:00:00 → 2026-11-13T06:01:05 (66 s utan loggrader)\n');
+      .toBe('- HÅL: 2026-11-13T06:00:00 → 2026-11-13T06:01:05 (65.5 s utan loggrader)\n');
     expect(holes([`2026-11-13T06:00:00.500Z ${BEAT}`, '2026-11-13T06:01:05.400Z [log] nästa rad'])).toBe('');
   });
 
@@ -359,9 +364,14 @@ describe('Ingen inbyggd terminalskrivning där terminalen kan vara död', () => 
   });
 
   // Granskarens prov i miniatyr: en riktig pty vars master stängs medan
-  // skriptets sista rader och nedstängningen körs. Kräver python3 (pty).
+  // skriptets sista rader och nedstängningen körs. Kräver python3 (pty) och
+  // /bin/bash; saknas de (t.ex. Windows) hoppas testet över i stället för att
+  // fälla. DETERMINISTISKT (rev 2): mastern stängs först när bash själv skrivit
+  // en redo-fil efter `trap '' HUP`, aldrig efter en fast väntan, och python
+  // avslutar med bashs egen slutkod.
   const hasPty = process.platform !== 'win32'
-    && spawnSync('python3', ['-c', 'import pty'], { encoding: 'utf8' }).status === 0;
+    && fs.existsSync('/bin/bash')
+    && spawnSync('python3', ['-c', 'import pty, select, signal'], { encoding: 'utf8' }).status === 0;
   (hasPty ? test : test.skip)('stängd terminal: logg och jsonl hamnar i arkivet och summaryn är ren', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ais-log-deadtty-'));
     try {
@@ -387,24 +397,40 @@ describe('Ingen inbyggd terminalskrivning där terminalen kan vara död', () => 
         FINAL_SUMMARY="$LOGS_DIR/bridge-text-summary-ts.md"
         EXTRACT_DONE=0; REPLAY_GUARD_PID=""; HOLE_GUARD_PID=""; SYNC_PID=""; PIPE_PID=""; APP_PID=""
         trap '' HUP
+        : > "$AUDIT_DIR/redo"
         while [ ! -e "$AUDIT_DIR/stangd" ]; do sleep 0.05; done
         ${tail}
         finish_run
         : > "$AUDIT_DIR/klar"
+        exit 0
       `;
       const harness = `
-import os, pty, sys, time
+import os, pty, select, signal, sys, time
+d = os.environ['AUDIT_DIR']
 pid, fd = pty.fork()
 if pid == 0:
     os.execvpe('/bin/bash', ['/bin/bash', '-c', sys.argv[1]], os.environ)
-time.sleep(0.3)
+deadline = time.time() + 15
+while not os.path.exists(os.path.join(d, 'redo')):
+    if time.time() > deadline:
+        os.kill(pid, signal.SIGKILL)
+        os.waitpid(pid, 0)
+        sys.exit(97)
+    r, _, _ = select.select([fd], [], [], 0.05)
+    if r:
+        try:
+            os.read(fd, 65536)
+        except OSError:
+            pass
 os.close(fd)
-open(os.path.join(os.environ['AUDIT_DIR'], 'stangd'), 'w').close()
-os.waitpid(pid, 0)
+open(os.path.join(d, 'stangd'), 'w').close()
+_, st = os.waitpid(pid, 0)
+sys.exit(os.WEXITSTATUS(st) if os.WIFEXITED(st) else 128 + os.WTERMSIG(st))
 `;
       const r = spawnSync('python3', ['-c', harness, payload], {
-        env: { ...process.env, AUDIT_DIR: dir }, encoding: 'utf8', timeout: 20000,
+        env: { ...process.env, AUDIT_DIR: dir }, encoding: 'utf8', timeout: 30000,
       });
+      // Bashs egen slutkod (97 = redo-filen kom aldrig).
       expect(r.status).toBe(0);
       expect(fs.existsSync(path.join(dir, 'klar'))).toBe(true);
       const live = fs.readFileSync(path.join(dir, 'live', 'app-ts.log'));
