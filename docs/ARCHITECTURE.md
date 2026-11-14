@@ -1360,9 +1360,68 @@ båt.
   (`_detectGPSEventProtection`: `_gpsJumpDetected`, `_positionUncertain`, ELLER
   förflyttning över det **tidsnormaliserade** taket
   `max(200 m, maxfart × dt × 2,0)` — K19 2026-08-22, se nedan); manöver
-  (`_detectManeuverProtection`: COG-ändring >45° ELLER fartändring >2 kn);
+  (`_detectManeuverProtection`: COG-ändring >45° ELLER fartändring >2 kn;
+  söder om Kanalinfarten-punkten krävs verklig rörelse, se k1 nedan);
   passage <60 s; koordination aktiv. Aktiv protection ÅTERSTÄLLER targetBridge
-  om något ändrat den.
+  om något ändrat den. Manöverflaggan håller också skyddet vid liv: släppet
+  ">500 m + inga event + >1 min" kräver att samplet inte är en manöver.
+  **Manövern söder om Kanalinfarten (fältprov k1, 2026-11-11, rättningskampanjen
+  familj D, revision 2 efter omgranskningen):** PRICKBJORN svängde in mot en kaj
+  166 m från Kanalinfarten-punkten, 2,1 km från Klaffbron (verklig manöver,
+  skyddet aktiverades med rätta). När skyddet släppt och nådafristen startat
+  återaktiverades det av kursbrus (292° → 152° vid sog 0 och 2,5 m) och
+  förlängdes av nästa kurshopp (sog 0,1, 1,3 m); målbron släpptes 138 s för
+  sent och texten räknade henne "på väg mot Klaffbron". `_maneuverLacksMovement`:
+  när BÅDA fixarna ligger söder om gränsen och båten flyttat sig
+  < `NULL_SOG_STILL_RADIUS_M` (40 m) sedan förra fixen räknas (a) kursbenet inte
+  när samplets EGEN fart (`_rawPositionSog`, inte den ärvda `sog`; prejudikat
+  F05 rev 3) är under `MOORING_DETECTION.STATIONARY_SOG_KN` (0,3), och (b) inget
+  av benen när farten hoppat mer än fartbenets 2 kn.
+  **Beslutsgrund: FP9-H′** (användarbeslut 2026-07-18, `_shouldAssignTargetBridge`):
+  söder om punkten ligger lotskajen och väntplatserna utanför brosystemet, en
+  målbro där förutsätter demonstrerad färd norrut, fristen ska släppa
+  retentionen och en äkta väntare döljs hellre tills hon rör sig. Villkoret
+  (båda fixarna söder om gränsen) är FP9-H′:s. **Gränsen** ligger 40 m
+  (`NULL_SOG_STILL_RADIUS_M`, kodens jitterradie) norr om
+  `TRIGGER_POINTS.kanalinfarten.lat`: kajraden vid Kanalinfarten, 125–170 m väster
+  om punkten, ligger på båda sidor om punktens latitud (CAPELLA permanent 2 m
+  norr, PRICKBJORN 9–10 m norr den 12 november), och med gränsen på linjen kom
+  fältfelet tillbaka byte för byte när k1-händelsen flyttades dit (omgranskningen
+  R1-M1). Radien täcker raden utan att nå in i någon köyta; punktens egen radie
+  (300 m) prövades också och gav samma utfall men vore en större region än
+  fältfelet kräver. FP9-H′:s egna regler och deras gräns är orörda. (b) gäller
+  fartbrus vid just de kajerna, som FP9-H′ dokumenterar (HEY JOE 0,8–7,5 kn):
+  rådatan har 60 fixpar söder om gränsen där ett ben slår till med < 40 m —
+  29 brus, 31 början på en verklig avgång (en avgångs första fix har full fart
+  men nästan ingen förflyttning, så ett fixpar kan inte skilja dem åt) — och
+  bara ett av dem hade målbro: PILOT 761 10:16:31, en verklig sväng i 3,9 kn som
+  inte berörs. En avgång med bevisad förflyttning (≥ 40 m) räknas som förut.
+  **Norr om gränsen är båda benen oförändrade:** där är kursbruset det som håller
+  en stilla köare utanför kö-zonen (600 m) och broarnas 300 m, t.ex. kön mellan
+  Klaffbron och Järnvägsbron mot Stridsbergsbron (Klaffbrons skyddszon upphävd
+  av F21). Revision 0 av rättningen gällde överallt och tappade 15 av
+  granskningens 26 konstruerade köfall i 9–14 min; den vidgade också U27, som
+  beslutades med premissen "kräver fart exakt 0". Om stilla köare i luckan ska
+  skyddas av något annat än kursbruset är en öppen fråga hos ägaren. Utfall:
+  bara k1 ändras (PRICKBJORN släpps 13:28:15 i stället för 13:30:33); banken är
+  byte-identisk. Kända gränser: (1) skyddet gäller på alla avstånd, så en verklig
+  sväng mot en kaj söder om punkten skyddas fortfarande (PILOT 761 k1 10:16,
+  3,9 kn, 22 m; ELFKUNGEN 20260806-42h 11:35) — ägarfråga; (2) gråzonsfart
+  0,3–0,49 kn utan förflyttning räknas som rörelse även söder om gränsen; (3) ett
+  fartbrus som råkar ge ≥ 40 m (lång tystnad, GPS-drift) räknas som rörelse;
+  (4) **en båt med målbro som stannar söder om gränsen döljs tidigare än förr**
+  (omgranskningen R1-L1). En båt vid kaj där har ingen målbro (FP9-H′), men en
+  båt som kommer söderifrån och går norrut får målbro redan söder om punkten
+  (PILOT 761 10:15:35, PRICKBJORN 13:24:50). Stannar hon där räknas
+  inbromsningens fartsprång inte längre som manöver, och FP9-H′ med fristen
+  släpper henne efter 60 s. Granskarens konstruerade fall (norrgående, stopp
+  2 min 230 m söder om punkten med 10 s kadens) visar "Inga båtar" i 60 s där
+  basen höll henne kvar (INV-14 DEFAULT-FLASH i det fallet); vid 4 min stopp
+  110 → 180 s. Riktningen är FP9-H′:s ("hellre tyst"); notiser,
+  öppningsvarningarnas tid, bro och innehåll samt avgångens tilldelning är
+  oförändrade (bara den interna händelsenumreringen flyttas ett steg), och
+  fallet finns inte i data. Med glesare AIS (60 s eller mer) blir det identiskt
+  med basen.
   **K19 (2026-08-22)**: rörelsebenet var ett naket `movementDistance > 200`
   utan tidsnormalisering — systerhålet till GJ-1 i
   `GPSJumpGateService._isVesselStable`. Vid AISHubs kadens (fix-Δ p50 152 s)
