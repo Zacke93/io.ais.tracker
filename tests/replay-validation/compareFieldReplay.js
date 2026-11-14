@@ -229,6 +229,12 @@ function measureOpeningWarningAge(replay, gtPassages, samples) {
       fresh: age.fresh,
       bands: age.bands,
       summary: describeWarningAge(age),
+      undelivered: age.undelivered.map((c) => ({
+        mmsi: String(c.passage.mmsi),
+        bridge: c.passage.bridge,
+        passage: c.passage.iso,
+        text: describeStaleWarning(c),
+      })),
       stale: age.stale.map((c) => ({
         mmsi: String(c.passage.mmsi),
         bridge: c.passage.bridge,
@@ -261,8 +267,21 @@ const INTEGRITY_EXIT = {
   OK: 0, DELVIS: 0, FEL: 1, OKÄNT: 3,
 };
 
+// Bannern följer grindens egen läsning per verdikt (rev 2): DELVIS ger
+// exitkod 0 i grinden och läses "så långt mätningen räcker, inte som OK"
+// (VALIDATION.md §Fältprov steg 3), så den får en informativ rad utan
+// "korpuslåsning EJ tillåten" och felkod 0.
 function integrityBanner(integrity) {
   if (integrity.verdict === 'OK') return null;
+  if (integrity.verdict === 'DELVIS') {
+    return `☑️ LOGG-INTEGRITET: DELVIS verifierad${integrity.partialNote ? ` (${integrity.partialNote})` : ''} — `
+      + 'den loggbara delen är komplett och byte-identisk, resten går inte att mäta mot loggen. '
+      + 'Läs som "så långt mätningen räcker", inte som OK.';
+  }
+  if (integrity.verdict === 'OKÄNT') {
+    return '❓ LOGG-INTEGRITET: OKÄNT — källoggen kunde inte verifieras: FÄLTBEVIS, ALDRIG FACIT '
+      + '(korpuslåsning EJ tillåten). Se "integrity" i field-report.json.';
+  }
   return `🚨 LOGG-INTEGRITET: ${integrity.verdict} — FÄLTBEVIS, ALDRIG FACIT (korpuslåsning EJ tillåten). `
     + `${integrity.problems.length} problem, se nedan och "integrity" i field-report.json.`;
 }
@@ -342,6 +361,8 @@ function formatOpeningWarningAge(age) {
       + `appserien ${age.app.summary}; rådataserien ${age.groundTruth.summary}.`,
     ...age.app.stale.map((s) => `  ⚠️ GAMMAL VARNING (appserien): ${s.text}`),
     ...age.groundTruth.stale.map((s) => `  ⚠️ GAMMAL VARNING (rådataserien): ${s.text}`),
+    ...age.app.undelivered.map((s) => `  ⚠️ OLEVERERAD VARNING (appserien): ${s.text}`),
+    ...age.groundTruth.undelivered.map((s) => `  ⚠️ OLEVERERAD VARNING (rådataserien): ${s.text}`),
   ];
 }
 
@@ -362,6 +383,9 @@ function summarize(r) {
     `Replay: ${r.replay.targetPassages.length} målbropassager, ${r.replay.processErrors} processfel, `
       + `${r.replay.invariantFailures.length} fatala invariantutslag, ${r.replay.invariantWarnings.length} WARN.`,
     ...r.replay.invariantFailures.map((v) => `  INVARIANT: ${v}`),
+    // Rev 2: WARN-texterna i txt också, inte bara antalet (k2:s INV-22 stod
+    // förut bara i json).
+    ...r.replay.invariantWarnings.map((v) => `  WARN: ${v}`),
     `Rådatafacit: ${r.groundTruth.stats.crossings} korsningar/zonbesök, ${r.groundTruth.stats.inferred} tidsintervall.`,
     ...r.limitations.map((v) => `Begränsning: ${v}`),
   ].join('\n');

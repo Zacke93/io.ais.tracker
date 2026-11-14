@@ -189,12 +189,13 @@ find_log_holes() {
           split(stamp, f, "[T:]");
           # Millisekunderna räknas med (rev 1): node-grinden mäter i ms, och
           # med hela sekunder kunde en lucka på 65,1–65,99 s bli 65 här men
-          # 65,x där. Nu dömer skal och node exakt lika.
+          # 65,x där. Nu dömer skal och node exakt lika, och luckan skrivs med
+          # en decimal (rev 2), så att 65,2 s inte ser ut att ligga på gränsen.
           frac = (substr($0, 20, 1) == "." && substr($0, 21, 3) ~ /^[0-9][0-9][0-9]$/) ? substr($0, 21, 3) / 1000 : 0;
           tabs = calendar_day(f[1])*86400 + f[2]*3600 + f[3]*60 + f[4] + frac;
           limit = hb ? hb_limit : base_limit;
           if (prevt != "" && tabs - prevt > limit)
-            printf "- HÅL: %s → %s (%.0f s utan loggrader)\n", prev, stamp, tabs - prevt;
+            printf "- HÅL: %s → %s (%.1f s utan loggrader)\n", prev, stamp, tabs - prevt;
           prevt = tabs; prev = stamp;
           if (index($0, "AIS Bridge starting with modular architecture") || index($0, "Debug level changed to:")) hb = 0;
           if (index($0, "[COORDINATION_CLEANUP]")) hb = 1;

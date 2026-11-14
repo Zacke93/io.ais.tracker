@@ -210,9 +210,39 @@ describe('Fältrapporten mäter leverans, innehåll och fältstopp', () => {
       expect(text[1]).toMatch(/TIDSHÅL I LOGGEN/);
       expect(report.field.gaps).toHaveLength(1);
       expect(integrityBanner({ verdict: 'OK', problems: [] })).toBeNull();
+      // Rev 2: DELVIS är grindens "så långt mätningen räcker" (exit 0), inte FEL.
+      const delvis = integrityBanner({ verdict: 'DELVIS', problems: [], partialNote: 'aisstream-delen 5/5 mot logg' });
+      expect(delvis).toMatch(/^☑️ LOGG-INTEGRITET: DELVIS verifierad \(aisstream-delen 5\/5 mot logg\)/);
+      expect(delvis).not.toMatch(/EJ tillåten/);
+      expect(integrityBanner({ verdict: 'OKÄNT', problems: [] })).toMatch(/^❓ LOGG-INTEGRITET: OKÄNT.*EJ tillåten/);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  // Rev 2: WARN-texterna står i txt, inte bara antalet (k2:s INV-22 syntes
+  // förut bara i json).
+  test('field-report.txt listar WARN-invarianternas text', () => {
+    const report = {
+      integrityBanner: null,
+      integrity: { verdict: 'OK', jsonlComplete: 1, problems: [] },
+      field: {
+        firstIso: 'a', stopIso: 'b', lines: 1, gaps: [],
+      },
+      notificationComparison: { pairs: [], unmatchedField: [], unmatchedReplay: [] },
+      openingComparison: { pairs: [], unmatchedField: [], unmatchedReplay: [] },
+      afterStop: { openingWarnings: [] },
+      textCounts: { field: 0, replayBeforeStop: 0, replayTotal: 0 },
+      openingWarningAge: null,
+      replay: {
+        targetPassages: [], processErrors: 0, invariantFailures: [], invariantWarnings: ['INV-22 FÖRVARNING EFTER PASSAGE: x'],
+      },
+      groundTruth: { stats: { crossings: 0, inferred: 0 } },
+      limitations: [],
+    };
+    const text = summarize(report);
+    expect(text).toMatch(/1 WARN\./);
+    expect(text).toMatch(/^ {2}WARN: INV-22 FÖRVARNING EFTER PASSAGE: x$/m);
   });
 
   test('inferred-korsning publicerar bara felgränser, aldrig ett exakt ETA-fel', () => {

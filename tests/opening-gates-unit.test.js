@@ -351,6 +351,39 @@ describe('O1 analyseWarningAge: varnad är inte detsamma som varnad med färsk v
     expect(age.fresh).toBe(1);
   });
 
+  // Rev 2 (omgranskningen 2026-11-14): ett kort som aldrig gick fram
+  // (success=false) är ingen varning för användaren. Det får inte göra en
+  // passage "färsk"; den redovisas separat som OLEVERERAD.
+  test('ett olevererat kort räknas inte som färsk täckning', () => {
+    const res = {
+      targetPassages: [passage(T0)],
+      openingWarnings: [warning(T0 - 5 * 60000, { success: false, error: 'kortet kastade' })],
+      openingCoverage: [],
+    };
+    const a = analyseCoverage(res, samplesOf([]));
+    expect(a.covered).toHaveLength(1); // O1 är orört (ärvt beteende)
+    const age = analyseWarningAge(a.covered);
+    expect(age.total).toBe(1);
+    expect(age.fresh).toBe(0);
+    expect(age.stale).toHaveLength(0);
+    expect(age.undelivered).toHaveLength(1);
+    expect(age.bands).toEqual({ 60: 0, 120: 0, 240: 0 });
+  });
+
+  test('en levererad äldre varning räknas när den färskare aldrig gick fram', () => {
+    const res = {
+      targetPassages: [passage(T0)],
+      openingWarnings: [
+        warning(T0 - 150 * 60000, { eventId: 'Klaffbron#1' }),
+        warning(T0 - 5 * 60000, { eventId: 'Klaffbron#2', success: false, error: 'kortet kastade' }),
+      ],
+      openingCoverage: [],
+    };
+    const age = analyseWarningAge(analyseCoverage(res, samplesOf([])).covered);
+    expect(age.undelivered).toHaveLength(0);
+    expect(age.stale.map((c) => c.ageWarning.eventId)).toEqual(['Klaffbron#1']);
+  });
+
   test('egen gräns kan anges för mätning (rapporten skriver ut banden 60/120/240)', () => {
     const covered = [
       { passage: passage(T0), warning: warning(T0 - 70 * 60000), leadMs: 70 * 60000 },

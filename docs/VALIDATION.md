@@ -92,7 +92,10 @@ konvojen när en säker avfyrad träff finns, och FILOU (20260806-42h,
 Klaffbron) kallades 173 min gammal fast hon absorberades i Klaffbron#37 8,9 min
 före passagen. En absorption i en händelse vars kort gick före en annan båts
 passage mer än ett konvojfönster före hennes egen räknas inte (bron har
-öppnat och stängt emellan); O1:s dom och ledtid är orörda. `inferred`-passager
+öppnat och stängt emellan); O1:s dom och ledtid är orörda. Bara levererade
+kort räknas (rev 2): en varning med `success=false` gör aldrig en passage färsk,
+och en passage som bara täcks av sådana redovisas som `⚠️ OLEVERERAD VARNING`
+(0 fall i banken i dag). `inferred`-passager
 mäts från fönstrets början (kortaste möjliga ålder). Gränsen följer O2 och U23
 (2 h stillaliggande avslutar en väntan), och bankens fördelning har sitt glapp
 där: p50 14,8 min, p95 55,5 min, 8 passager i 60–90 min, ingen i 90–120 min,
@@ -1112,7 +1115,10 @@ fältprovets båda körningar (FEL på källbokföring och tidshål) gav ingen r
 alls. Nu skrivs rapporten med verdiktet som första rad i `field-report.txt` och
 som första nyckel (`integrityBanner`) i `field-report.json`, följt av
 grindens problem, och kommandot avslutar med grindens felkod (1 = FEL,
-3 = OKÄNT). En fälld körning är fältbevis, aldrig facit. Kontrollerat på
+3 = OKÄNT). En fälld körning är fältbevis, aldrig facit. DELVIS (bara en del
+av filen kunde mätas mot loggen) får i stället en informativ ☑️-rad och
+felkod 0, som i grinden: "så långt mätningen räcker", inte OK. Både fatala
+invariantutslag och WARN-texter står i `field-report.txt`, inte bara antalet. Kontrollerat på
 fältprovet: k1 flaggar PRICKBJORN 12 nov 12:35 som gammal varning (244,9 min
 mot rådatans passage), k2 ger INV-22 för PRICKBJORN 13:57:24. DIANAs två Kanalinfarten-notiser ligger kvar synligt som
 invariantutslag. Monitoring/stale-svepet, avvisade fusionsfixar, livstecken
