@@ -423,6 +423,24 @@ fortfarande null i en kajzon, så 2 h-backstoppen gäller vid Kajen. Utan regeln
 fälls scenariot av INV-10 STRAX-ZOMBIE ("stod 44 min"), och mot `c14938f` av
 "Inga båtar" under kön och en tredje Klaffbronvarning 47 s före korsningen.
 
+**Långt stopp i farleden innanför 600 m (familj A, fältprovet 2026-11-12).**
+`stopp-4h-460m-norr-om-Stridsbergsbron-i-farleden (fält 2026-11-12)` varnas för
+Stridsbergsbron på väg söderut, ligger sedan still 460 m norr om bron i 3 h 54 min
+och lägger ut genom bron. 460 m ligger i bandet 300–600 m där varken kajzonernas
+regler eller förtöjningsgrenen bortom 600 m gäller — placeringen är testet. Den nya
+förväntan `maxOpeningAgeS: {bro: N}` är spegeln av `openingLeadS`: den SENASTE
+varningen som täcker båten före varje sann korsning får vara högst N s gammal, så
+att en varning från anflygningen timmar tidigare inte räknas som förvarning
+(`openingLeadS` och `openingBeforeEachPassage` godtar den). Förväntan kräver ben och
+minst en sann korsning per bro, och den prövar inte ledtiden; scenariot har därför
+också `minOpeningLeadS: {Stridsbergsbron: 60}`. Mot `e51c7b6` fälls scenariot på
+ÖPPNINGSLEVERANS (servicen avfyrade 3, kortet fick 2) och GAMMAL FÖRVARNING
+(14 558 s). Med rättningen (revision 1: två avgångsfix i följd från ett farledsstopp)
+avfyrar servicen redan på första avgångsfixet; spärren håller det kortet, och det nya
+kortet går 60 s senare, 135 s före korsningen (`suppressedOpeningFires: 1`, exakt).
+Scenariot har en förväntad INV-14W ("Inga båtar" i 11 008 s medan båten ligger
+förtöjd, U27 och backstoppen).
+
 **Krypfartsscenarierna (familj M, rättningskampanjen 2026-11-04, F05) prövar
 närmandebeviset och fartgrinden i båda vägarna.** Placeringen är testet i alla sex.
 - `krypfart-förbi-passerad-Klaffbron`, `krypfart-förbi-passerad-Järnvägsbron-söderut`
@@ -1451,7 +1469,9 @@ adversariella granskningen 2026-08-10: selektiva noter på 7 korpusar).
   sog-null-stopp-norr-om-passerade-Klaffbron 1050 s och
   fartgrind-krypare-söder-om-Stallbackabron 2550 s. Baslinjen är då 9. Fler än
   baslinjen, eller en annan sammansättning, = rapportera. (Integrationen:
-  summera med de andra familjernas scenarier och WARN-rader.)
+  summera med de andra familjernas scenarier och WARN-rader.) Familj A
+  (fältprovet 2026-11-12) lägger till 1 INV-14W:
+  stopp-4h-460m-norr-om-Stridsbergsbron-i-farleden 11 008 s.
 - **O1:s missklassificerare (`classifyMiss`)** kräver nu KORROBORERAT rörelsebevis i tre
   led (position ≥ MOVEMENT_PROOF_NET_M från första horisontsampel; etablerad stillhets-
   vistelse ≥ ARM_STALE_TTL_MS inom 50 m + tätt fixpar med implicerad fart < 0,5 kn ⇒

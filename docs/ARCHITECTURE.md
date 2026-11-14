@@ -1160,9 +1160,12 @@ båt.
   3,3–15,5 s och får egen varning vid övriga faser. Restklassen är registrerad
   för motorn som känd och öppen.
 - **Dedup i TVÅ lager (app.js):** `_firedOpeningEvents` (eventId, sessionslokal)
-  och `persistent_opening_warnings` (`bro|mmsi|riktning`, 10 min, ÖVER omstart
-  — v1 persisterar inga armar, så en omstart mitt i en anflygning varnade annars
-  om för samma öppning).
+  och `persistent_opening_warnings` (`bro|mmsi|riktning`, ÖVER omstart — v1
+  persisterar inga armar, så en omstart mitt i en anflygning varnade annars om
+  för samma öppning). Sedan 33b9fbf är posten en **ankomstspärr utan
+  tidsgräns**, inte ett tiominutersfönster: den gäller tills ankomsten tar slut
+  (bekräftad passage, bortfärd eller kajstopp följt av avgång; se tabellen
+  i §6 Persistens och §Förtöjningslagren).
 - **Grindar:** `npm run replay:openings` (O1 täckning / O2 fantomtak / O2b fantomer mot rådatafacit, informativ (S14) /
   O3 nattkontroll), `opening-distribution.json` (O5, bro:riktning-multiset per
   korpus, jämförs i `runAllCorpora`), INV-21 (WARN), och — före varje
@@ -1241,7 +1244,15 @@ båt.
     monitoring).
   - *Kända gränser.* (a) En återfödd båt UTAN kurs (FP8:s fall) omfattas inte; hon får
     målbro först när låset finns, på nästa fix. (b) En kontinuerligt spårad båt med
-    kurs i dödbandet får som förut målbro först när kursen lämnar bandet. (c) En äkta
+    kurs i dödbandet får som förut målbro först när kursen lämnar bandet. Första
+    fältfallet (2026-11-12, PRICKBJORN): avgång från ett stopp 460 m norr om
+    Stridsbergsbron med kurs 225–232° (farleden går ~45° där) och ruttlåset `south`
+    kvar; målbro först på 165 m, öppningsvarningen 133 s före korsningen och "Inga
+    båtar" i texten under anflygningen. M3:s bevis fångar henne inte tillförlitligt
+    (nordkomponenten 1,1 kn över 97 s mot ribban 2 kn). En skuggmätt regel för
+    följda båtar (låst riktning, samma sidas dödband, sog ≥ 2 kn, två närmande ben
+    ≥ 50 m) slår till just där och ingen gång i bankens 24 korpusar, så banken kan
+    varken visa nytta eller kostnad; frågan ligger hos ägaren. (c) En äkta
     transit under 2 kn netto får ingen målbro här (54 % av bankens dödbandstransiter
     med sog ≥ 2). (d) Basen saknar fixtid (V8): en gammal basfix gör dt för kort och
     överskattar nordfarten med faktorn 1 + (basens fixålder − återfödelsens)/dt, ≤ 1,5
@@ -1695,7 +1706,9 @@ båt.
    är en känd lucka mot D1 även i farleden. Ägaren beslutade 2026-11-09 (U27)
    att 20 min behålls tills vidare: fallet kräver fart exakt 0 och har inte
    setts i fältdata eller i buggjägarens provvärldar. Frågan tas upp igen om
-   det syns i fält.
+   det syns i fält. Fallet syntes i fältprovet 2026-11-12 (PRICKBJORN 460 m
+   från Stridsbergsbron, se farleden innanför 600 m nedan); frågan ligger hos
+   ägaren.
    Motivet för U23 är D1 (docs/reliability-spec.md): utanför kajzonerna tas
    en väntande båt nära bron aldrig bort, och 15-minutersgissningen gav i
    buggjägarens provvärldar "Inga båtar" medan en båt väntade 250 m från bron
@@ -1723,6 +1736,112 @@ båt.
    andra varning (73 s före korsningen i det syntetiska 150-minutersprovet;
    43 s före M3, samma som på c14938f efter 15 min). Ledtiderna här mäts mot
    korsningen interpolerad ur fixarna.
+   **Farleden innanför 600 m (familj A, fältprovet 2026-11-12; revision 1
+   efter granskningen):** utanför kajzonerna registrerades förut inget stopp
+   innanför `DISARM_MOORED_MIN_DISTANCE_M`, så ankomsten kunde bara ta slut
+   genom passage eller bortfärd. PRICKBJORN varnades för Stridsbergsbron 08:30,
+   låg sedan helt stilla 460 m norr om bron i 3 h 54 min, tappade målbron
+   efter 20 min (U27) och förtöjdes av backstoppen 10:35; när hon lade ut
+   12:29 och korsade bron 12:35 spärrades den nya varningen av den fyra
+   timmar gamla. Nu gäller:
+   - *Farledsstoppet.* Från första stilla fix i bandet (sog ≤ 0,5 kn, eller
+     klassningens stillhet när farten saknas) bär posten ett stopp med egen
+     ålder (`quayStop` med `fairway: true`: första fix, läge, senaste fix),
+     som kajstoppet. Inom 50 m är det samma stopp oavsett fartbrus, AIS-glapp
+     och omstart; ett fix 50 m bort startar ett nytt (eller är ett
+     avgångsfix). Granskningens M1: med klassningens klocka (`_stationarySince`)
+     nollade ett glapp på 15 min följt av fältets brus 2 h-räkningen, och en
+     omstart 10:26–10:36 i fältfallet missade kortet.
+   - *Släppet.* Stoppet bekräftas när det är minst MAX_STATIONARY_WAIT_MS
+     gammalt (eller klassningens klocka nått dit) och klassningen inte håller
+     båten som köare mot kortets bro: hon är förtöjd ELLER har inte kortets
+     bro som målbro — samma två led som `holdsQuayQueue` släpper på vid Kajen
+     (U23: "navstatus 1/5, 2 h-backstoppen, eller ingen målbro").
+     Granskningens M2: i bandet 300–350 m tar U27 målbron, men en båt som
+     passerat en bro har färsk brokö, så backstoppen förtöjde henne aldrig och
+     fältfelet blev kvar.
+   - *Avgången* kräver TVÅ avgångsfix i följd (minst 50 m från stoppet, minst
+     0,5 kn, inte förtöjd); ett fix som inte är ett avgångsfix (till exempel
+     tillbaka inom 50 m) nollar kravet. Det andra fixet ska komma inom
+     `STALE_ETA_HARD_THRESHOLD_MS` (10 min, samma gräns som `gapResetsStop`)
+     efter det första och ligga längre från stoppet än det första; annars
+     räknas det som ett nytt första avgångsfix (omgranskningens N3: en
+     utliggare, 20 min tystnad och en ny utliggare, eller drift två fix i rad
+     på samma förskjutning, gav annars fortfarande ett falskt kort och en
+     spärrad verklig avgång). Granskningens H1: innanför ca 925 m har
+     deadlinen redan passerat när båten får målbro, så ett ensamt GPS-hopp hos
+     den förtöjda båten gav ett falskt kort och spärrade sedan den verkliga
+     avgången. Ett kort som servicen avfyrar på det första avgångsfixet
+     spärras, och `restartArrival` på det andra låter servicen avfyra igen.
+     `plausibleStep` räcker inte här (131 m på 3 min i 0,6 kn).
+     Kvar efter N3 (omgranskningen av revision 2): en förtöjd båt vars
+     position av GPS-drift rör sig FRAMÅT två fix i rad (granskarens P14:
+     70 m och sedan 90 m från stoppet inom 10 min, i 0,6 kn) räknas som
+     avgång, ger ett falskt kort och spärrar den verkliga avgången inom 2 h.
+     Med två fix går det inte att skilja från en långsam verklig avgång, och
+     formen kräver ett bekräftat farledsstopp (inget i bankens cirka 550 h
+     trafik, ett i fältproven).
+   - *Känd gräns: priset för två avgångsfix (omgranskningens N1, dirigentens
+     beslut 2026-11-14 att behålla kravet).* Kortet kan aldrig komma före det
+     andra avgångsfixet, och ligger det fixet bortom bron kommer inget kort.
+     Uppmätt (granskarens sond P8, kurs 215°, stopp bekräftat efter 150 min,
+     tre faser, ledtid före den sanna korsningen; inom parentes ett fix):
+     460 m i 3 kn med fix var 60:e s 148–178 s (208–238 s), var 120:e s
+     53/118/58 s (173–238 s), var 180:e s inget kort i 2 av 3 faser och 28 s
+     (113–208 s); 460 m i 1,8 kn var 180:e s 132–227 s (312–407 s); 400 m i
+     3 kn var 120:e s 19/79/14 s (134–199 s); 400 m i 1,8 kn var 180:e s
+     67–162 s (247–342 s); 330 m i 3 kn var 60:e s 64–94 s; 330 m i 3 kn var
+     120:e s inget kort i 2 av 3 faser och 34 s; 330 m i 1,8 kn var 180:e s
+     inget kort i 2 av 3 faser och 86 s (330 m gav inget kort alls före M2).
+     Fältfallet kostar inget, eftersom målbron kom först på 165 m
+     (kursbandet); granskaren glesade fältutsnittet till 60/120/180 s utan
+     skillnad. Det syntetiska scenariot får 135 s i stället för 195 s med en
+     tystad avfyrning. Skälet till beslutet: utan rättningen fanns aldrig något
+     kort i den här situationen, så ett uteblivet kort vid gles AIS är inte
+     sämre än förut, medan ett falskt kort förbrukar ankomsten och gör den
+     verkliga avgången inom 2 h utan kort. Mekanismen utlöses sällan: i banken
+     (cirka 550 h trafik) skapas 107 farledsstopp och inget bekräftas.
+     Alternativet en avgång på ETT fix när steget är rimligt och farten är
+     minst 1,5 kn gav tillbaka 89–407 s men släppte igenom utliggare i 2–3 kn
+     som falska kort. Avvägningen är en fråga till ägaren. En tredje väg,
+     inte införd: ett stopp som visar sig ligga kvar efter en "avgång" (båten
+     är tillbaka inom 50 m) återskapas med sin gamla ålder och bekräftelse, så
+     att ett falskt kort inte kostar den verkliga avgången; då kunde ett fix
+     räcka, men ett falskt kort skulle fortfarande gå ut.
+   - *Känd gräns: en annan båts händelse mellan avgångsfixen (omgranskningens
+     N2).* Avfyrar en annan båts händelse mellan båtens två avgångsfix filtreras
+     båten bort ur det kortet (spärren gäller ännu), och `restartArrival` på
+     det andra fixet släpper henne även ur den nya händelsen, så hon får ett
+     eget kort ca 30 s efter den andra båtens (granskarens P9: två kort där
+     ett fix gav ett gemensamt). Det hör till U2 och konvojfrågan (C-IV) och
+     är inte rättat.
+   - *Gränsen.* Köaren som appen håller (målbron kvar, texten visar henne)
+     får inget andra kort hur länge hon än väntar (användarvalet 2026-09-06;
+     bankens ANDREA 129 min på 145 m och MOKENDEIST 142 min på 114 m
+     oförändrade). Stopp under 2 h, också i U27-bandet, är samma ankomst
+     (U2; dig10: inget stopp över 102 min följdes av passage), liksom
+     navstatus 1/5 med kortare stillhet än 2 h (KINNE-testet under 600 m i
+     `tests/opening-confirmed-mooring.test.js`). KINNE-dokumentets "tid,
+     navstatus eller vanlig brokö räcker inte" (`docs/faltgranskning-2026-10-05.md`)
+     gäller fortfarande: 2 h-tiden ensam släpper inget, det krävs ett belagt
+     stopp, att klassningen släppt båten och en verklig avgång.
+   - *Följder att känna till.* Tystnad på samma plats räknas in i stoppets
+     ålder, som Kajens övernattning: en båt som var stilla, stängde av AIS i
+     mer än 2 h och hörs igen inom 50 m från stoppet får en ny ankomst när
+     hon lägger ut (förut samma ankomst). En köare som appen höll men som
+     efter ett glapp på mer än 10 min eller en omstart är ny för appen (ingen
+     målbro) släpps när stoppet är 2 h gammalt — samma pris som Kajens minne
+     efter 2 h. Avgångens ledtid styrs av när båten får målbro (PRICKBJORN:
+     165 m, 133 s, kursbandet P5, känd gräns (b) för M3).
+   - *Inte rättat, öppen fråga till ägaren:* banken har tio återavfyrningar
+     som ankomstspärren höll inne och som följdes av passage (familj V:s
+     mätning "Gamla öppningsvarningar"), till exempel NENJA (en kajfix, 17 h
+     tystnad) och CALIMA (tyst 120 min i rörelse). Ingen av dem har ett
+     observerat stopp på 2 h i farleden; att släppa dem kräver en regel som
+     avslutar en ankomst utan stopp (tystnad, eller en annan båts passage),
+     och det hör till konvojfrågan (C-IV).
+   Prov: `tests/opening-fairway-long-stop.test.js` och scenariot
+   `stopp-4h-460m-norr-om-Stridsbergsbron-i-farleden`.
    **Avgång inne i Kajen (M3):** avgången godtas när båten flyttat minst
    50 m från ett bekräftat stopp mot bron, på en enda fix, om steget sedan
    föregående fix är rimligt för farten (högst 20 m plus dubbla farten gånger
@@ -1857,7 +1976,7 @@ Flaggor (bärs av `_createVesselObject`-fältlistan, §8a): `_etaIsExtrapolated`
 | `known_vessel_names` | `_loadVesselNames`:529 | `_persistVesselNames`:561 | B1-namncache `{ mmsi: {name, t} }`, 30 d TTL, max 200 poster (äldst-först-eviction); skrivs via `_rememberVesselName`:593 bara vid nytt/ändrat namn eller >24 h sedan sist |
 | `last_known_positions` | `_loadLastKnownPositions`:615 | `_persistLastKnownPositions`:646 | `{ mmsi: {lat, lon, t} }`, 6 h TTL; skrivs vid removal (:1084–1090); begränsar skipped-bridges-scenario A för återfödda båtar (§3) |
 | `quay_stable_ledger` | `_loadQuayLedger` | `_persistQuayLedger` (STRYPT: max var 15:e min + tvingad vid `onUninit`) | V1-kajavgångsgrindens historik `{ mmsi: {stillAt, lat, lon} }`, TTL = `QUAY_DEPARTURE_GATE.MEMORY_MS` (2 h); rörelseräknaren `movingFixes` persisteras ALDRIG (den är ett påstående om innevarande sessions observationer). Utan persistensen återskapade en appomstart 5 s före kajavgången PRICKBJORN-fantomen exakt |
-| `persistent_opening_warnings` | `_loadPersistentOpeningWarnings` | `_persistOpeningWarnings` (vid varje avfyrning + vid konsumtion) | Etapp 6 + J15 (2026-08-22): öppningsvarningarnas dedup ÖVER omstart, `{ "Bro\|mmsi\|riktning": {firedAt, expiresAt} }`. TVÅDELAT läsfönster (`_openingDedupActiveUntil`): post skriven i DENNA session dedupar till firedAt + `CONVOY_WINDOW_MS` (10 min, som förr); post LADDAD VID BOOT dedupar till expiresAt = firedAt + 10 min + ETA (kapat `_OPENING_PERSIST_MAX_MS`) — omstartsskyddet. TRE konsumtionsvägar nollar nyckeln: bekräftad passage i `_observeBridgeOpening`, gap-inferrerad passage och backfill (L19). Riktningsledet gör att en U-svängares RETURPASSAGE aldrig tystas; sedan S11 (fixrunda 6) är riktningsledet MEDLEMMENS egen låsta riktning (`memberDirections` i payloaden), ledarens bara som fallback. Sedan S13 härleds expiresAt inte ur ETA-tokenen utan ur max(dagens uttryck, armens förväntade ankomst `expectedArrivalMs` — MAX över medlemmarna), fortfarande kapat. Känd avvägning: avbruten anflygning före omstart (§9) |
+| `persistent_opening_warnings` | `_loadPersistentOpeningWarnings` | `_persistOpeningWarnings` (vid varje avfyrning, ändring av ankomsten och konsumtion) | Etapp 6 + J15 (2026-08-22), ankomstspärr sedan 33b9fbf: öppningsvarningarnas dedup ÖVER omstart, `{ "Bro\|mmsi\|riktning": {arrivalActive: true, firedAt, closestDistance, lastFixTs, awayFixTs?, quayStop?} }`. Posten har INGEN tidsgräns (`_openingDedupActiveUntil` ger Infinity för `arrivalActive`): samma båt får inget nytt kort för samma bro och riktning förrän ankomsten tagit slut. Den tar slut genom (1) bekräftad passage — TRE konsumtionsvägar: bekräftad passage i `_observeBridgeOpening`, gap-inferrerad passage och backfill (L19); (2) bortfärd, två färska fix minst 350 m längre bort än närmaste läget (`OPENING_ARRIVAL_LEFT`); (3) ett bekräftat stopp följt av en verklig avgång (`OPENING_QUAY_DEPARTURE`, `_observeOpeningArrivals`). Stoppet bekräftas i en ritad kajzon (Kajens köare enligt U23), för en förtöjd båt mer än `DISARM_MOORED_MIN_DISTANCE_M` från bron (KINNE), och sedan familj A (fältprovet 2026-11-12) i farleden innanför 600 m när farledsstoppet (`fairway: true`, egen ålder som överlever glapp och omstart) är minst `MAX_STATIONARY_WAIT_MS` gammalt och klassningen inte håller båten som köare mot kortets bro; avgången från ett farledsstopp kräver två avgångsfix i följd (`departFixTs`) (§Förtöjningslagren). Äldre poster i formatet `{firedAt, expiresAt}` läses fortfarande till expiresAt. Riktningsledet gör att en U-svängares RETURPASSAGE aldrig tystas; sedan S11 (fixrunda 6) är riktningsledet MEDLEMMENS egen låsta riktning (`memberDirections` i payloaden), ledarens bara som fallback. S13:s härledning av expiresAt (armens förväntade ankomst `expectedArrivalMs`, kapad) hörde till det gamla fönstret; nya poster bär inget expiresAt. Känd avvägning: avbruten anflygning före omstart (§9) |
 | `trigger_point_visits` | konstruktorn (`TriggerPointVisitTracker.loadSnapshot`) | `_persistTriggerPointVisits` (vid varje fasbyte i `observe`, reservation/rollback av notis, stängning vid fullbordad resa och tvingad i `onUninit`) | Besöksregeln 2026-09-07: `{ version: 2, entries: { "mmsi:punkt": {startedAt, lastFixTs, outsideFixTs, exitedAt, lastLat, lastLon, lastPositionTs, arrivalLat, arrivalLon, farSign, farSideSeenAt} } }` för alla broar och Kanalinfarten. Ett notifierat besök spärrar nya notiser till observerad utfärd (två rena fixar > 350 m, passage följd av två fixar på bortre sidan, eller positionsbevisad fullbordad resa) och återkomst inom 300 m. U14 (2026-11-04): vid en bro avslutar också en bevisad passage tillbaka besöket (§3, dedup-lager 3); `farSign` och `farSideSeenAt` sparas, och första observationen på bortre sidan är ett fasbyte. Bokföringsstämplarna (`farSideBooking`, `returnBookedAt`), den noterade korsningen och fixens segment gäller bara det levande fartygsobjektet och sparas inte; efter en omstart noteras en korsning på nytt ur den sparade sista fixen. Äldre poster utan fälten, eller med skadade värden, får inget returpassagesläpp. Stängda poster gallras efter 6 h; tak 2048 poster |
 | `opening_quay_ledger` | `_loadOpeningQuayLedger` | `_persistQuayLedger` (samma strypta 15-min-klocka som V1-kartan + tvingad flush i `onUninit`; skrivtakt ~96→192/dygn) | M11 (2026-08-23): öppningslagrets kajbokföring `{ mmsi: {bandSince, stillAt, lat, lon, moving} }`, TTL = `QUAY_DEPARTURE_GATE.MEMORY_MS`. Utan persistens var kajvobbelgrinden BLIND 5 min efter varje omstart (bandSince sessionslokal) och efter ETT fix utanför 500 m-bandet; nu hysteres (en tolererad fix, `MIN_MOVING_FIXES`-härledd) + persistens. `movingFixes`, `prevFix`, `lastFix` persisteras ALDRIG (påståenden om innevarande session) |
 

@@ -634,8 +634,9 @@ class AISBridgeApp extends Homey.App {
     // RIKTNINGEN är med av samma skäl som i boat_near-dedupen: en U-svängares
     // RETURPASSAGE av samma bro är en äkta, ny öppning och får inte tystas.
     this._persistentOpeningWarnings = new Map();
-    // En varnad ankomst överlever AIS-tystnad och omstart. Endast en
-    // bekräftad passage eller verklig bortfärd avslutar den. Äldre poster
+    // En varnad ankomst överlever AIS-tystnad och omstart. Bara en bekräftad
+    // passage, en verklig bortfärd eller ett bekräftat stopp följt av en
+    // verklig avgång avslutar den (_observeOpeningArrivals). Äldre poster
     // med expiresAt läses enligt sin ursprungliga livslängd.
     this._loadPersistentOpeningWarnings();
 
@@ -1460,6 +1461,15 @@ class AISBridgeApp extends Homey.App {
               afterConfirmedStop: stop.afterConfirmedStop === true,
               heldAsQueue: stop.heldAsQueue === true,
             };
+            // Farledsstoppet innanför 600 m (familj A, revision 1): stoppets
+            // egen ålder och det första avgångsfixet överlever omstart.
+            if (stop.fairway === true) entry.quayStop.fairway = true;
+            if (Number.isFinite(stop.departFixTs) && stop.departFixTs >= stop.firstFixTs
+                && stop.departFixTs <= Date.now() + AIS_CONFIG.AISHUB.SEEN_MAX_FUTURE_SKEW_MS
+                && Number.isFinite(stop.departDistM) && stop.departDistM >= 0) {
+              entry.quayStop.departFixTs = stop.departFixTs;
+              entry.quayStop.departDistM = stop.departDistM;
+            }
           }
           this._persistentOpeningWarnings.set(key, entry);
         } else {
@@ -1512,9 +1522,38 @@ class AISBridgeApp extends Homey.App {
       // kajzonerna. Öppningsmotorn avväpnade anflygningen, men dess nya kort
       // vid avgången spärrades av den gamla ankomsten. Läs samma förtöjnings-
       // klassning och samma avståndsgolv som motorn; ett stopp i brokön är
-      // fortfarande samma ankomst. Enbart navstatus eller tid räcker inte.
+      // fortfarande samma ankomst. Enbart navstatus eller tid räcker inte —
+      // utom ett farledsstopp på minst 2 h som klassningen släppt
+      // (fairwayBand nedan); även då krävs stopp och verklig avgång.
       const atConfirmedMooring = vessel._moored === true
         && distance > BRIDGE_OPENING.DISARM_MOORED_MIN_DISTANCE_M;
+      // FARLEDSSTOPPET INNANFÖR 600 M (familj A; fältprovet 2026-11-12, revision
+      // 1 efter granskningen). PRICKBJORN varnades för Stridsbergsbron och låg
+      // sedan helt stilla 460 m norr om bron i farleden i 3 h 54 min.
+      // Klassningen släppte henne (målbron efter 20 min, U27; backstoppen
+      // 10:35), men innanför 600 m utanför kajzonerna registrerades inget
+      // stopp, så den nya varningen när hon lade ut spärrades av den fyra
+      // timmar gamla.
+      //
+      // Stoppet registreras nu från första stilla fix i bandet och bär en EGEN
+      // ålder (första fix, läge, senaste fix) i postens quayStop, som Kajens
+      // stopp: åldern räknas så länge båten ligger inom 50 m, oavsett fartbrus,
+      // AIS-glapp och omstart (granskningens M1: ett glapp på 15 min följt av
+      // fältets brus nollade klassningens klocka). Stoppet bekräftas när det är
+      // minst MAX_STATIONARY_WAIT_MS gammalt (U23:s 2 h; dig10: inget stopp
+      // över 102 min följdes av passage) och klassningen inte håller båten som
+      // köare mot kortets bro: hon är förtöjd ELLER har inte kortets bro som
+      // målbro — samma två led som holdsQuayQueue släpper på vid Kajen
+      // (granskningens M2: i bandet 300–350 m med en passerad bro tog U27
+      // målbron men brokön räknades som färsk, så backstoppen förtöjde henne
+      // aldrig). Köaren som appen håller (målbron kvar, texten visar henne)
+      // får inget andra kort hur länge hon än väntar (användarvalet
+      // 2026-09-06); stopp under 2 h, U27-bandet under 2 h och navstatus under
+      // 2 h är samma ankomst som förut (farledsköaren i prov X3kaj,
+      // KINNE-testet under 600 m).
+      const fairwayBand = !atQuay && distance <= BRIDGE_OPENING.DISARM_MOORED_MIN_DISTANCE_M;
+      const heldAsFairwayQueue = vessel._moored !== true && vessel.targetBridge === bridgeName;
+      const stillNow = Number.isFinite(vessel.sog) ? vessel.sog <= 0.5 : Number.isFinite(vessel._stationarySince);
       // En kajzon som ligger mitt i brons väntzon bär queueGraceMs
       // ("Kajen norr om Klaffbron"): där är ett stopp brokö, inte ett
       // kajstopp. Med en fast 30 s-gräns fick en båt som väntat ut öppningen
@@ -1600,19 +1639,87 @@ class AISBridgeApp extends Homey.App {
         && Number.isFinite(vessel.sog) && stepM <= 20 + stepS * vessel.sog * 0.514444 * 2;
       const leftQuay = !atQuay || (Number(quayZone?.queueGraceMs) > 0 && plausibleStep
         && Number.isFinite(stopDistance) && stopDistance - distance >= 50);
-      if (stop?.confirmed && leftQuay && vessel._moored !== true
-          && movedFromStop >= 50 && Number.isFinite(vessel.sog) && vessel.sog >= 0.5) {
+      const departing = stop?.confirmed === true && leftQuay && vessel._moored !== true
+        && movedFromStop >= 50 && Number.isFinite(vessel.sog) && vessel.sog >= 0.5;
+      // Granskningen av familj A (H1, revision 1): innanför 600 m har
+      // deadlinen redan passerat när båten får målbro, så ett ensamt GPS-hopp
+      // hos den förtöjda båten (≥ 50 m mot bron i ≥ 0,5 kn) gav ett falskt
+      // kort direkt, och den nya posten spärrade sedan den verkliga avgången.
+      // Ett farledsstopp kräver därför TVÅ avgångsfix i följd; ett fix som
+      // inte är ett avgångsfix (t.ex. tillbaka inom 50 m) nollar kravet. Ett
+      // kort som servicen avfyrar på det första avgångsfixet spärras, och
+      // restartArrival på det andra låter servicen avfyra på nytt. Priset är
+      // ett fixintervall i ledtid och kan vid gles AIS kosta hela kortet
+      // (känd gräns, docs/ARCHITECTURE.md §Förtöjningslagren).
+      // plausibleStep räcker inte här: det godtar 131 m på 3 min i 0,6 kn.
+      // Omgranskningen (N3, revision 2): det andra avgångsfixet ska komma
+      // inom STALE_ETA_HARD_THRESHOLD_MS efter det första (samma gräns som
+      // gapResetsStop) och ligga längre från stoppet än det första. Annars
+      // gav en utliggare, 20 min tystnad och en ny utliggare, eller drift på
+      // samma förskjutning två fix i rad, fortfarande ett falskt kort; ett
+      // sådant fix räknas i stället som ett nytt första avgångsfix.
+      const secondDepartureFix = Number.isFinite(stop?.departFixTs) && fixTs > stop.departFixTs
+        && fixTs - stop.departFixTs <= UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS
+        && Number.isFinite(stop.departDistM) && movedFromStop > stop.departDistM;
+      const firstDepartureFix = departing && stop.fairway === true && !secondDepartureFix;
+      if (departing && !firstDepartureFix) {
         this._persistentOpeningWarnings.delete(key);
         this.bridgeOpeningService?.restartArrival?.(vessel.mmsi, bridgeName);
         this.log(`🌉 [OPENING_QUAY_DEPARTURE] ${mmsi}: belagd avgång efter kajstopp — ny ankomst till ${bridgeName}`);
         dirty = true;
         continue;
       }
-      // Två separata fix styrker stoppet: långsamt vid känd kaj eller redan
-      // förtöjd-klassad utanför brokön. Okänd fart får användas enbart i det
-      // senare fallet, där förtöjningsdetektorn redan har positionsbevis.
-      // Stoppet avslutas först av verklig avgång, aldrig av tid.
-      if (atConfirmedMooring || (atQuay && Number.isFinite(vessel.sog) && vessel.sog <= 0.5)) {
+      // Avgångsfixen ska komma i följd: ett fix som inte är ett avgångsfix
+      // nollar kravet.
+      if (!departing && Number.isFinite(stop?.departFixTs)) {
+        delete stop.departFixTs;
+        delete stop.departDistM;
+        dirty = true;
+      }
+      if (firstDepartureFix) {
+        // Första avgångsfixet från ett bekräftat farledsstopp, var det än
+        // ligger (även inne i Kajen på väg mot Klaffbron): vänta på nästa.
+        stop.departFixTs = fixTs;
+        stop.departDistM = movedFromStop;
+        dirty = true;
+      } else if (fairwayBand && (!stop || stop.fairway === true || movedFromStop >= 50)) {
+        // Farledsstoppet (se fairwayBand ovan). Inom 50 m är det samma stopp
+        // hur farten än brusar; längre bort är det ett nytt stopp eller ingen
+        // stillhet.
+        if (stop?.fairway === true && movedFromStop < 50) {
+          // Persisteras bara när något väsentligt ändras (åldern bärs av
+          // firstFixTs), inte vid varje fix från en stillaliggande båt.
+          stop.lastFixTs = fixTs;
+          if (!stop.confirmed) {
+            const ageMs = fixTs - stop.firstFixTs;
+            const clockMs = Number.isFinite(vessel._stationarySince) ? Date.now() - vessel._stationarySince : 0;
+            stop.confirmed = !heldAsFairwayQueue && ageMs >= 30000
+              && (stop.afterConfirmedStop || Math.max(ageMs, clockMs) >= MOORING_DETECTION.MAX_STATIONARY_WAIT_MS);
+            if (stop.confirmed) dirty = true;
+          }
+        } else if (stillNow) {
+          entry.quayStop = {
+            lat: vessel.lat,
+            lon: vessel.lon,
+            firstFixTs: fixTs,
+            lastFixTs: fixTs,
+            confirmed: false,
+            // Ett nytt stopp efter ett bekräftat (en omförtöjning) bekräftas
+            // med 30 s-regeln, som i kajgrenen.
+            afterConfirmedStop: stop?.confirmed === true || stop?.afterConfirmedStop === true,
+            heldAsQueue: false,
+            fairway: true,
+          };
+          dirty = true;
+        } else if (stop && !stop.confirmed) {
+          delete entry.quayStop;
+          dirty = true;
+        }
+      } else if (atConfirmedMooring || (atQuay && Number.isFinite(vessel.sog) && vessel.sog <= 0.5)) {
+        // Två separata fix styrker stoppet: långsamt vid känd kaj eller redan
+        // förtöjd-klassad utanför brokön. Okänd fart får användas enbart i det
+        // senare fallet, där förtöjningsdetektorn redan har positionsbevis.
+        // Stoppet avslutas först av verklig avgång, aldrig av tid.
         // I en közon får ett AIS-glapp inte nollställa stoppet så länge båten
         // ligger kvar på samma plats: en båt som övernattar vid kajen och
         // stänger av AIS ska fortfarande kunna bekräfta stoppet nästa morgon.
