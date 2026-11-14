@@ -858,6 +858,103 @@ slängas. Mätningarna ovan är tagna i körningar med noll saknade renderingar.
 Kontrollera `rendering-saknas` = 0 innan en mätning används, tills harnessen
 tömmer stderr före exit.
 
+### Familj E, fältprovet 2026-11-12: avgångsgolvet efter en målbroövergång
+
+Ändringen: stationär-holdens sampel efter ett målbyte bokförs som
+stillhetsbevis för avgångsigenkänningen (ARCHITECTURE §8 (e), "Avgångsgolvet
+efter en målbroövergång"). Fallet är PRICKBJORN 265012090 i fältkörning 1,
+12 nov 12:53:33: "om 32, 33, 25 minuter" mot sanningen 6,7, 6,1 och 5,0 min.
+
+**Banken** (`e51c7b6` mot efter, 24 korpusar, `rendering-saknas` 0 i båda,
+parning per korpus, typ, bro och mmsi inom 2 s): alla 3 103 påståenden är
+parade och oförändrade, både i banden under 5 och under 10 min (parad
+n = 784 respektive 1 296, oparad n = 0) och i alla korpusar och broar.
+Brotextövergångarna (2 542) och strax-löftet (n 211, 63,0 % ≤ 3 min) är
+oförändrade. Mät-JSON:en skiljer sig bara i en extra debugrad i 20260525:
+JOSEPHINE 244870852 10:01:13 känns igen som avgång ur holden i 5,2 kn, men
+golvet (4 kn) ligger under hennes uppmätta fart och binder aldrig. Det är
+bankens enda avgång ur en hold efter ett målbyte; övriga holdsläpp saknar
+belagd stillhet (för få sampel, krypfart 0,5–0,99 kn eller över 200 m från
+stillheten).
+
+**Fältkörning 1** (olåst; sanning ur fältrapportens `groundTruth`, Klaffbron
+13:00:16): fem brotexter, en notis och ett öppningskort ändras, allt för
+PRICKBJORN.
+
+| Påstående | Före | Efter | Sanning | Fel före → efter |
+|---|---|---|---|---|
+| text 12:53:33 | om 32 | om 16 | 6,7 | +25,3 → +9,3 |
+| text 12:54:09 | om 33 | om 17 | 6,1 | +26,9 → +10,9 |
+| text 12:55:17 | om 25 | om 12 | 5,0 | +20,0 → +7,0 |
+| text 12:56:24 | om 7 | om 8 | 3,9 | +3,1 → +4,1 |
+| text 12:57:14 | om 4 | om 5 | 3,0 | +1,0 → +2,0 |
+| notis Klaffbron 12:58:39 | om 3 | om 4 | 1,6 | +1,4 → +2,4 |
+| öppningskort Klaffbron#27 12:56:24 | eta 6 | eta 9 | 3,9 | +2,1 → +5,1 |
+
+De fyra sista blir sämre. Före rättningen var överskattningen så stor att
+outliergrenen i `_releaseWaitingBaseline` släppte väntbaslinjen när båten
+passerade Järnvägsbron, och rå-ETA:n gick igenom; nu är golvprognosen inte
+tillräckligt avvikande, och EMA:n bär den två sampel till. Kontroll: samma
+syntetiska avgång för en båt som fick Klaffbron utan målbyte (ingen hold,
+avgången känns igen ur fartbufferten) ger "om 13, 9, 6, 4" — samma sena
+värden som holdvägen efter rättningen ("om 16, 11, 9, 6, 4"); före rättningen
+gav holdvägen "om 31, 23, 20, 5, 3". Det gäller den syntetiska kontrollen,
+inte fältets egna data: med holden avstängd i k1 ger buffertvägen "om 46, 34,
+24, 17, 12", notisen "om 1" och kortet eta 17, eftersom den bär väntans
+prognos genom EMA:n och publiceringsklampen (granskningen 2026-11-13, A1).
+Svansen kommer av EMA:n och av att holden inte lämnar någon väntehistorik åt
+`_releaseWaitingBaseline`; den tidigare bättre siffran var en bieffekt av
+överskattningen.
+
+**Avvägningen mot REGELN — ägarens beslut.** I fältfallet blir de tre första
+texterna 13–16 min rättare, och det tidsviktade felet (varje text vägd med
+hur länge den stod, REGELN punkt 5) sjunker från 14,1 till 6,3 min. Men
+enligt REGELNs acceptansmått blir fältets påståenden sämre: i bandet under
+5 min (n = 5) median 2,13 → 4,13 och andel ≤ 2 min 2 → 1 (bias +5,53 →
++4,13), under 10 min (n = 7) median 3,13 → 5,13 och andel 2 → 1 (bias
++11,40 → +5,83). Öppningskortet säger eta 9 mot sanningen 3,9 (förut 6).
+Banken är oförändrad. Eftersom REGELN saknar ett tidsviktat mått är vägningen
+mellan det grova felet och de små försämringarna i bandet ett beslut, inte en
+följd av REGELN. Varningens tidpunkt är oförändrad. Körning 2 är oförändrad.
+
+**Kryp i kön och ny väntan (granskningen 2026-11-13, A3).** Det omvända
+felet: ett kryp på 1–2 kn efter väntan känns igen som avgång och ger för låg
+prognos, som sedan står kvar under den nya väntan. Granskningens svep (mest
+optimistiska textfel under kryp och väntan, före → efter familj E): 1,2 kn ×
+3 steg +8,5 → −5,5; 1,5 × 2 +5,4 → −6,6; 1,5 × 3 +3,6 → −8,4; 2,0 × 2 −1,4 →
+−9,4; 2,0 × 3 −1,1 → −10,1; 1,0 × 2 +17,3 → −0,7. Buffertvägen utan målbyte
+ger samma sak, så klassen är F04:s och inte ny, men den var inte mätt.
+ARCHITECTURE §8 (e) ("Kvar utanför klassen") har siffrorna. Scenariot
+"kryp-i-kön-efter-målbyte-och-ny-väntan" låser dagens storlek informativt
+(förväntan `creepEta`): i dag "om 9, om 8" mot 19,1 och 18,1 min (fel −10,1)
+och kortet eta 8 mot 17,0 (−9,0); gränserna är −11 och −10. Före familj E gav
+samma rörelse "om 18, 17, 21" och eta 19. Klassen hör till ETA-etappen.
+
+**Prövat och återtaget:** bevis även i en hold som `ETA_STALE_HARD` armerade.
+Två avgångar till kändes igen, båda med förgapsfarter kvar i bufferten:
+LA FEMME 219033332 (20260804-both-21h 10:04:48, brotext Klaffbron "om 10 → 7"
+och "om 7 → 6" mot sanning 10,0 och 9,2 min — hon väntade igen före Klaffbron,
+så den uppmätta farten 4,5 kn var för optimistisk) och MOKENDEIST 211214850
+(20260806-42h 12:13:52, ledarbyte i Klaffbrongruppen: tre parade påståenden
+försvann och tre nya kom). Två sämre utan rådatastöd, alltså avvisat enligt
+REGELN. Den varianten hör till de kvarvarande klasserna i tabellen ovan
+(E2 och senare).
+
+**Regressionstester:** `tests/e-avgang-efter-malbyte-2026-11-13.test.js`
+(12 tester) och scenariot "avgång-ur-väntan-vid-mellanbro-efter-målbyte" i
+`replay:synthetic` (förväntan `departureEta`: varje avgång före korsningen
+döms, och varje ETA-text från avgången till den sanna korsningen, vid
+övergångarna och som stående text var 30:e sekund, får ligga högst 12 min
+över och 3 min under den sanna restiden; ingen avgång eller ingen text att
+döma är rött). Före rättningen gav scenariot "om 31, 23, 20" mot 6,6, 5,9 och
+4,9 (fel +24,4, +17,1, +15,1); efter "om 16, 11, 9, 6, 4". Gränstesterna är
+parade med en positiv kontroll, så alla 12 fäller koden före rättningen på
+beteende (inget på `TypeError`). Mutationsprov (revision 1): fartkravet "alla
+under 0,5 kn", tvåsampelkravet, närhets- och riktningskravet, förbrukningen,
+sampelnyckelvakten, nollställningen vid nytt målbyte, rensningen vid andra
+skäl, bevis i en `ETA_STALE_HARD`-hold och holdens sampel i den riktiga
+bufferten fäller vart och ett minst ett test.
+
 ## Buggjägaren — diagnosverktyg, INTE en gate (2026-11-04)
 
 `tests/replay-validation/bugHunt/hunt.js` letar fel offline ur de 24 låsta

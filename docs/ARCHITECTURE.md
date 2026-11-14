@@ -2001,6 +2001,68 @@ avgångar 2,0–3,5 kn från tre platser) minskar de tidsviktade sampel som är 
 prognos än med det fasta golvet (ALVA "om 5" mot sanning 3,1 i stället för
 "om 4"); nedräkningen går därefter bara nedåt.
 
+**Avgångsgolvet efter en målbroövergång (familj E, fältprovet 2026-11-12).**
+PRICKBJORN 265012090 (körning 1) passerade Stridsbergsbron söderut 12:35,
+fick Klaffbron som målbro 12:36:04, låg stilla 160–175 m norr om
+Järnvägsbron till 12:53:33 och lade ut i 1,1 → 1,0 → 3,7 → 6,9 kn. Texterna
+blev "om 32, 33, 25 minuter" mot sanningen 6,7, 6,1 och 5,0 min. Målbytet
+tömmer fartbufferten och armerar stationär-holden (FP6-1/FP7-1, H22), och
+holden svarar null i `_getEffectiveSpeed` INNAN bufferten matas — väntans
+sampel nådde alltså aldrig avgångsigenkänningen, och rå-ETA:n räknades på
+1,1 kn. Nu bokförs holdens sampel som stillhetsbevis (`_holdStillness`,
+`_noteHoldStillness`) med buffertens definition (de senaste högst tre
+farterna, senaste stillasamplets position), och `_noteDepartureSample` prövar
+det beviset med samma krav när buffertens bevis inte räcker: minst två sampel,
+alla under 0,5 kn, avgången högst 200 m från stillheten och närmare målbron.
+Beviset finns bara i samplet som släpper holden och förbrukas där. Det samlas
+BARA i en hold som ett målbyte armerade (`clearVesselETAHistory` öppnar en tom
+post): där är bufferten tom, så avgången ändrar ingenting utom att golvet
+armeras. Holden svarar fortfarande "ETA okänd" under 1,0 kn, och fartbufferten,
+`_lastStillSample` och historiken rörs inte — en släppt hold utan igenkänd
+avgång räknar exakt som förut. Skillnaden mot det återtagna stillhetsminnet
+nedan är att beviset aldrig bärs över ett målbyte och aldrig överlever holden.
+En hold som `ETA_STALE_HARD` armerade (`armStationaryHold`) samlar inget bevis:
+där ligger förgapsfarterna kvar i bufferten, och den varianten prövades och
+återtogs (LA FEMME 219033332 i 20260804-both-21h 10:04:48 fick "om 10 → 7" och
+"om 7 → 6" mot sanning 10,0 och 9,2 min, eftersom hon väntade igen före
+Klaffbron; MOKENDEIST i 20260806-42h bytte ledare i Klaffbrongruppen). Mätt
+enligt VALIDATION.md §REGELN ("Familj E", fältprovet): banken är oförändrad i
+alla 3 103 påståenden; i k1 blir PRICKBJORNs texter "om 16, 17, 12, 8, 5" i
+stället för "om 32, 33, 25, 7, 4" (sanning 6,7, 6,1, 5,0, 3,9, 3,0). De två
+sista texterna, notisen 12:58:39 ("om 3 → 4", sanning 1,6) och
+öppningskortet Klaffbron#27 (eta 6 → 9, sanning 3,9) blir sämre: förut
+släppte den stora överskattningen väntbaslinjen under Järnvägsbron
+(`_releaseWaitingBaseline`, outliergrenen), nu bär EMA:n golvprognosen två
+sampel till. Svansen kommer av EMA:n och av att holden inte lämnar någon
+väntehistorik åt `_releaseWaitingBaseline`, som därför bara kan släppa via
+outliergrenen. I familjens syntetiska kontroll ger buffertvägen (samma
+avgångsprofil för en båt som fick Klaffbron utan målbyte) samma sena värden,
+"om 13, 9, 6, 4". Det gäller inte allmänt: med holden avstängd i fältets egen
+data bär buffertvägen väntans prognos genom EMA:n och publiceringsklampen och
+ger "om 46, 34, 24, 17, 12" (granskningen 2026-11-13, A1). Att ta bort svansen
+kräver ändringar i baslinjesläppet eller i EMA:n, alltså ETA-etappen
+(U20/U22).
+
+*Avvägningen mot REGELN (beslut för ägaren).* I fältfallet blir de tre första
+texterna 13–16 min rättare (+25,3/+26,9/+20,0 → +9,3/+10,9/+7,0), och det
+tidsviktade felet går från 14,1 till 6,3 min. Men enligt REGELNs
+acceptansmått blir fältets påståenden i bandet under 5 min sämre: median
+2,13 → 4,13 och andel ≤ 2 min 2 av 5 → 1 av 5 (bias +5,53 → +4,13), och
+öppningskortet säger eta 9 mot sanningen 3,9 (förut 6). Banken
+(`measure:eta`, 3 103 påståenden) är oförändrad. REGELN saknar ett
+tidsviktat mått (punkt 5), så att väga det grova felet mot de små
+försämringarna i bandet är ett beslut, inte en följd av REGELN.
+
+*Gränser för rättningen (samma som buffertvägen).* Avgången känns bara igen
+om samplet som släpper holden ligger mätbart närmare målbron än det sista
+stillasamplet; hörs första samplet på 1 kn eller mer på stoppets position
+missas avgången, beviset förbrukas och ETA:n räknas på igångsättningsfarten
+som förut. Och eftersom varje sampel på 1 kn eller mer släpper holden omfattas
+bara båtar vars första sampel efter målbytet är under 1 kn: i praktiken
+södergående som stannar vid Järnvägsbron strax efter Stridsbergsbron, och
+målbyten efter AIS-glapp. En norrgående båt som stannar först vid Järnvägsbron,
+ungefär 1 km efter Klaffbron, har redan släppt holden.
+
 *Kvar utanför klassen (mätt, medvetet):* stillheten läses ur fartbufferten.
 Den får bara sampel när ETA:n räknas, töms av gap-reseten och målbytet och har
 kvar ankomstfarten efter en kort väntan — efter rörelse krävs därför i
@@ -2016,7 +2078,9 @@ minst 3 min för hög inom tre minuter: tömd buffert med högst ett sampel kvar
 +9,5), startsampel 0,5–0,99 kn före avgången (UTOPIA 20260806-42h 08:03:38
 +6,9, ANDREA 18:52:22 +4,4), långsam gång i bufferten (ZORA 20260702-19h
 07:11:17 +5,9) och stillhet som aldrig nådde kalkylatorn (PILOT 761 265606970
-20260710-13h 12:13:45 +11,3; ingen ETA räknades 11:49–12:13). Två vidgningar
+20260710-13h 12:13:45 +11,3; ingen ETA räknades 11:49–12:13 — varianten där
+holden efter ett målbyte svarade null är sedan fältprovet 2026-11-12 täckt,
+se stycket ovan, men PILOT 761 räknades inte alls). Två vidgningar
 prövades och återtogs enligt U13: ett eget stillhetsminne utanför bufferten
 (överlever gap-reset, målbyte och stationär-hold) fångar ANTJE men gör 8–17
 mätta påståenden sämre (ELFKUNGEN ×3, ANTJEs senare rader, YOLO 2:s notis
@@ -2026,6 +2090,40 @@ ELFKUNGENs låsta rad i 20260907-31h sämre, "om 11 → om 8" mot sanning 13,1.
 PILOT 761 kräver en stillhetssignal från VesselDataService, krypfarten och
 startsamplen en annan stillhetsdefinition än rörelsebeviset — klassen hör till
 ETA-etappen (familj E2 och senare).
+
+*Kryp i kön och ny väntan (omvänt fel, gemensamt för buffertvägen och
+holdvägen; granskningen 2026-11-13, A3).* Avgångsigenkänningen ser bara det
+första rörliga samplet och kan inte skilja ett kryp i kön från en avgång. En
+båt som efter väntan kryper 1–2 kn i några sampel och sedan väntar igen får
+golvet (dubbla krypfarten, högst 4 kn) och en för LÅG prognos, och
+outlierskyddet håller sedan det låga värdet under den nya väntan
+(`ETA_FALLBACK`). Granskningens svep (södergående, målbyte vid
+Stridsbergsbron, 17 min väntan 175 m norr om Järnvägsbron, kryp, 10 min ny
+väntan; mest optimistiska textfel under kryp och väntan, `e51c7b6` → efter
+familj E):
+
+| Kryp | Före | Efter |
+|---|---|---|
+| 1,2 kn × 3 steg | +8,5 | −5,5 |
+| 1,5 kn × 2 | +5,4 | −6,6 |
+| 1,5 kn × 3 | +3,6 | −8,4 |
+| 2,0 kn × 2 | −1,4 | −9,4 |
+| 2,0 kn × 3 | −1,1 | −10,1 |
+| 1,0 kn × 2 | +17,3 | −0,7 |
+
+I fallet 2,0 kn × 3 visar texten "om 9, om 8" mot sann restid 19,1 och 18,1
+min, "om 8" står kvar 12,5 min, och öppningskortet Klaffbron#3 (deadline) har
+eta 8 mot sanningen 17,0 (före familj E: 19). Ingen "strax", ingen ändrad
+notis och ingen ändrad varningstidpunkt. Samma rörelse utan målbyte
+(buffertvägen) ger samma sak ("om 11, 12", "om 12, 10"), så familj E gör ingen
+ny klass utan ställer holdvägen på samma fot. Klassen var inte mätt av F04.
+Tidsviktat över kryp och väntan är felet 4,7 min efter familj E mot 8,3 före:
+pessimism byts mot optimism, och den tydliga förlusten är kortets eta, en push
+som står kvar och lovar för tidigt. Dagens storlek är låst i det informativa
+scenariot "kryp-i-kön-efter-målbyte-och-ny-väntan" (förväntan `creepEta`: högst
+11 min för optimistisk text, högst 10 min för optimistiskt kort), så att en
+ändring som gör klassen större syns. Att göra den mindre hör till ETA-etappen
+(U20/U22).
 
 Till familj E2 (användarbeslut U20, 2026-11-04): ETA-oscillationen vid
 inbromsning (buggjägarens F06, K6:s dubbla EMA mot den binära
