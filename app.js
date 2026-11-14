@@ -1296,7 +1296,9 @@ class AISBridgeApp extends Homey.App {
    *  - där notisbeslutet fattas (_triggerBoatNearFlowForBridge och failsafen),
    *    med PASSAGE_TRIGGER_GRACE_MS som bokföringsgräns. Det är samma fönster
    *    som S4:s passerade form, så notisen i samma tick säger "har precis
-   *    passerat" (eller failsafens "under AIS-tystnad") och aldrig "närmar sig";
+   *    passerat" (eller "passerade … under AIS-tystnad" när beviset visar
+   *    tystnad, se _returnPassageForm; det gäller även failsafen) och aldrig
+   *    "närmar sig";
    *  - i slutet av varje fix (_confirmReturnPassages), utan bokföringsgräns,
    *    för en retur som bokfördes medan båten ännu låg vid linjen eller innan
    *    hon korsade den.
@@ -9839,7 +9841,8 @@ class AISBridgeApp extends Homey.App {
     // U14, revision 4: spärrarna är passerade, nu släpps besöket på riktigt.
     // Samma tick och samma bevis som torrkörningen ovan; skulle beviset ändå
     // ha fallit bort (gränsfall på millisekunden) går ingen notis ut.
-    if (returnProof && !this._releaseVisitOnReturnPassage(vessel, bridgeName)) {
+    const releasedReturn = returnProof ? this._releaseVisitOnReturnPassage(vessel, bridgeName) : null;
+    if (returnProof && !releasedReturn) {
       this.log(
         `🚫 [FALLBACK_TRIGGER_PERSISTENT_DEDUP] ${vessel.mmsi}: Skipping ${bridgeName} fallback `
         + '— return-passage proof lapsed, already notified for this visit',
@@ -9854,11 +9857,19 @@ class AISBridgeApp extends Homey.App {
           + `without prior proximity trigger (distance=${Math.round(distance)}m) — firing failsafe`,
     );
 
+    // Fältprovet 13/11 (PRICKBJORN vid Stallbackabron, familj C): ett
+    // retursläpp här tar formen ur släppets bevis, precis som huvudvägen och
+    // _confirmReturnPassages. Besöket är redan avslutat när notisvägen nedan
+    // prövar sitt eget släpp, så formen måste följa med kandidaten. Utan den
+    // blev källan 'passage-fallback' ensam avgörande och meningen alltid
+    // "passerade … under AIS-tystnad", även för en korsning i ett segment på
+    // 68 s. Källsträngen står orörd (dedup, INV-11, loggstatus).
     await this._triggerBoatNearFlowForBridge(vessel, {
       name: bridgeName,
       id: bridgeId,
       distance,
       source: notificationSource,
+      ...(releasedReturn ? { returnForm: this._returnPassageForm(releasedReturn) } : {}),
     });
   }
 
@@ -10703,7 +10714,9 @@ class AISBridgeApp extends Homey.App {
     // passedAt[bro]). Formen följer beviset (_returnPassageForm): korsningen i
     // ett AIS-glapp och notisen efter "precis passerat"-fönstret ger
     // "passerade … under AIS-tystnad", annars "har precis passerat".
-    const returnForm = this._returnPassageForm(releasedReturn);
+    // Failsafen släpper besöket innan den anropar hit och skickar då formen
+    // med kandidaten (candidate.returnForm); släppet ovan blir då null.
+    const returnForm = this._returnPassageForm(releasedReturn) ?? candidate.returnForm ?? null;
     const retroactiveSource = this._isRetroactiveNotificationSource(source);
     const justPassedBridge = (returnForm === 'live' && !retroactiveSource)
       || (returnForm === null && this._hasJustPassedNotifiedBridge(vessel, candidate, source));
@@ -10800,10 +10813,15 @@ class AISBridgeApp extends Homey.App {
     // befintliga flows).
     safeTokens.already_passed = passedBridgeSource;
     // U14: en returpassage i AIS-tystnad får tystnadens mening även när
-    // källsträngen är 'just-passed'. Bara meningen byter källa; källsträngen
-    // bär dedupsemantiken och står orörd.
+    // källsträngen är 'just-passed', och en retur vid vanlig kadens som
+    // failsafen släppte får "har precis passerat" trots källan
+    // 'passage-fallback' (fältprovet 13/11). Bara meningen byter källa;
+    // källsträngen bär dedupsemantiken och står orörd.
+    let messageSource = source;
+    if (returnForm === 'silence') messageSource = 'passage-fallback';
+    else if (returnForm === 'live' && source === 'passage-fallback') messageSource = 'just-passed';
     safeTokens.message = this._buildBoatNearMessage(
-      safeTokens, returnForm === 'silence' ? 'passage-fallback' : source,
+      safeTokens, messageSource,
       passedTriggerPoint, justPassedBridge, waitingAtBridge, gapCrossedBridge,
     );
 
