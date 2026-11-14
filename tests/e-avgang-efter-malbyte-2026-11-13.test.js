@@ -29,7 +29,9 @@
  * det. Den positiva kontrollen fäller koden före rättningen på BETEENDE
  * (1,1 kn i stället för 2,2), och vakten fäller en mutation som tar bort
  * kravet. Testen läser inget internt tillstånd som bara finns efter
- * rättningen. Mutationsproven står i S/familj-E/RESULTAT.md, "Revision 1".
+ * rättningen. Mutationsproven: varje kärnvillkor borttaget (fartkravet,
+ * tvåsampelkravet, närhet och riktning, förbrukningen, sampelnyckelvakten)
+ * fäller minst ett test; se docs/faltgranskning-2026-11-14.md §5.4.
  */
 
 const BridgeRegistry = require('../lib/models/BridgeRegistry');
