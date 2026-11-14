@@ -3299,7 +3299,10 @@ class AISBridgeApp extends Homey.App {
             // HÅRT ankare (skriver alltid över) — samma väg som
             // _confirmDirectionReversal använder internt, så det finns EN
             // sanningskälla. No-op om positionen inte är finit.
-            this.vesselDataService.anchorJourneyOrigin?.(vessel, 'new-journey');
+            // `reversal`: vändningen är bekräftad (U18), så öppningslagrets
+            // kedjearm får spärr redan på första målbrofixet (familj B,
+            // revision 1; se VesselDataService._anchorJourneyOrigin).
+            this.vesselDataService.anchorJourneyOrigin?.(vessel, 'new-journey', { reversal: true });
             // N6: uppdatera ruttriktningen så direction-token i kommande
             // notiser speglar den NYA resan (inte kvarvarande gamla låset).
             vessel._routeDirection = newDir;

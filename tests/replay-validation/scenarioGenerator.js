@@ -304,6 +304,14 @@ function generateJourney(opts, rnd) {
  * (med samma ±3° brus) i stället för farledens bäring, till exempel en kurs i
  * dödbandet 46–134° eller 226–314° fast båten går längs kanalen. Fältet drar
  * inga extra slumptal; ben utan det genereras byte för byte som förut.
+ *
+ * Fältprovet 10–13 november (familj B): `stopCogDeg` ger ett stoppben en fast
+ * rapporterad kurs (±3° brus), till exempel de omvända fixen i en vändning
+ * på stället där båten bara flyttat några meter men rapporterar fart och ny
+ * kurs. `fixLagS` gör benets rader till AISHub-fix: fixtiden ligger så många
+ * sekunder före mottagningen (`fixTs`, `feed: 'aishub'`), som i fältet där
+ * AISHub levererar fixen 20–40 s gamla. Inga av fälten drar slumptal, och
+ * ben utan dem genereras byte för byte som förut.
  * @param {Object} opts - {mmsi, name, startS, legs, jitterM?, startOffsetS?}
  * @param {Function} rnd - seedad PRNG
  * @returns {Array<Object>} samples (jsonl-rader), med `truthPath`
@@ -316,14 +324,14 @@ function generateLegJourney(opts, rnd) {
   let tS = opts.startOffsetS || 0;
   let s = opts.startS;
   const truthPath = [{ tS, s }];
-  const push = (sNow, sog, dir, cogOverride) => {
+  const push = (sNow, sog, dir, cogOverride, fixLagS) => {
     const p = pointAt(path, metrics, sNow);
     const dLat = ((rnd() * 2 - 1) * jitter) / M_PER_DEG_LAT;
     const dLon = ((rnd() * 2 - 1) * jitter) / mPerDegLon(p.lat);
     let cog = Number.isFinite(cogOverride) ? cogOverride : p.bearing;
     if (!Number.isFinite(cogOverride) && dir < 0) cog = (p.bearing + 180) % 360;
     const ts = BASE_TIME_MS + Math.round(tS * 1000);
-    samples.push({
+    const sample = {
       mmsi: opts.mmsi,
       msgType: 'PositionReport',
       lat: p.lat + dLat,
@@ -334,7 +342,15 @@ function generateLegJourney(opts, rnd) {
       shipName: opts.name || `SYNT-${opts.mmsi.slice(-4)}`,
       aisTimestamp: ts,
       receivedAt: new Date(ts).toISOString(),
-    });
+    };
+    // AISHub-fix (fixLagS): samma rad, men fixtiden ligger före mottagningen.
+    // Utan fältet får raden inga nya nycklar (byte för byte som förut).
+    if (Number.isFinite(fixLagS) && fixLagS > 0) {
+      sample.msgType = 'AISHubPosition';
+      sample.fixTs = ts - Math.round(fixLagS * 1000);
+      sample.feed = 'aishub';
+    }
+    samples.push(sample);
   };
   for (const leg of opts.legs) {
     const interval = leg.intervalS || 60;
@@ -342,7 +358,8 @@ function generateLegJourney(opts, rnd) {
       const end = tS + leg.stopS;
       const stopInterval = leg.stopIntervalS || interval;
       while (tS < end) {
-        push(s, Number.isFinite(leg.stopSog) ? leg.stopSog : 0.1, 1, leg.stopCogRandom ? rnd() * 360 : undefined);
+        const stopCog = leg.stopCogRandom ? rnd() * 360 : leg.stopCogDeg;
+        push(s, Number.isFinite(leg.stopSog) ? leg.stopSog : 0.1, 1, stopCog, leg.fixLagS);
         tS += stopInterval;
       }
       truthPath.push({ tS, s });
@@ -352,7 +369,7 @@ function generateLegJourney(opts, rnd) {
     const inGap = (x) => Number.isFinite(leg.gapFromS) && Number.isFinite(leg.gapToS)
       && x >= Math.min(leg.gapFromS, leg.gapToS) && x <= Math.max(leg.gapFromS, leg.gapToS);
     while ((dir > 0 && s < leg.toS) || (dir < 0 && s > leg.toS)) {
-      if (!inGap(s)) push(s, leg.speedKn, dir, leg.cogDeg);
+      if (!inGap(s)) push(s, leg.speedKn, dir, leg.cogDeg, leg.fixLagS);
       const dt = interval + (leg.intervalJitterS ? rnd() * leg.intervalJitterS : 0);
       tS += dt;
       s += dir * leg.speedKn * 0.5144 * dt;

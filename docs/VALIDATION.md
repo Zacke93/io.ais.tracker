@@ -493,6 +493,32 @@ Under-bro-vakten i `assignTargetAfterReversal` har sitt negativtest för M1 i
 `maxOpeningsPerBridge: { Klaffbron: 2 }`. Med vakten bortkopplad blir det tre
 Klaffbronvarningar (den tredje på 16 m) och scenariot rött.
 
+**Kedjearmens spärr efter en bekräftad vändning (fältprovet 10–13 november, familj B).**
+Förväntan `openingNotBeforeCrossing: {bro: tidigare bro}` kräver att ingen varning för
+bron som täcker båten går innan hon på vägen dit korsat den tidigare bron (sann bana,
+samma riktning, efter förra korsningen av bron). Benläget har två nya fält som inte drar
+slumptal: `stopCogDeg` (fast kurs i ett stoppben, för omvända fix på stället) och
+`fixLagS` (benets rader blir AISHub-fix med fixtiden så många sekunder före mottagningen);
+de gamla scenarierna genereras byte för byte som förut. Scenarierna:
+- `vänder-på-stället-norr-om-Stridsbergsbron-kö-vid-Järnvägsbron (fältprovet, PILOT 761)`:
+  30 min stopp, två omvända fix i 2,8 kn på stället (kajprovet stoppar samma-tick-målbron),
+  målbron på ett AISHub-fix 27 s gammalt och 34 min kö vid Järnvägsbron. `e51c7b6` varnar
+  61 s efter målbrofixet med "eta 25", som i fältet ("FÖR TIDIG ÖPPNINGSVARNING").
+- `vänder-norr-om-Stridsbergsbron-klass-B-tystnad-efter-bekräftelsen`: samma-tick-målbron
+  sätts i bekräftelseticken, och nästa fix kommer 240 s senare. `e51c7b6` varnar på
+  kedjearmens deadline 100 s efter bekräftelsen. Scenariot fäller också alternativet att
+  låta samma-tick-tilldelningen hoppa över kajprovet.
+- `förstakontakt-2,5kn-sedan-8kn-norrut-i-tystnad` och
+  `omstart-120m-före-Stridsbergsbron-10kn-gles` (granskningen av familj B, H1) kräver
+  `openingLeadS` 150 s. De fäller regeln i sin första, breda form (`eb34e30`: alla båtar
+  utan historik), som gav 58 respektive 115 s; regeln gäller nu bara efter en bekräftad
+  vändning. Omstartsscenariot har `suppressedOpeningFires: 1` (omstartens dedup).
+- `vänder-norr-om-Stridsbergsbron-6kn-söderut-fix-var-6-min (M3, i tid)` kräver att
+  kedjevarningen kommer minst 150 s före korsningen; en spärr utan tidsgräns ger 101 s.
+- `vänder-norr-om-Stridsbergsbron-8kn-söderut-i-tystnad (känd gräns)`: 105 s mot basens
+  306 s, låst vid 90 s så att en försämring syns. Se den kända gränsen i `docs/ARCHITECTURE.md` (kedjearmen efter
+  en bekräftad vändning).
+
 **En GPS-utliggare strax efter en äkta passage (granskningen 2026-11-09).** Två scenarier
 låter båten gå norrut genom Klaffbron i 4,4 kn med 10 s kadens, och generatorns
 `gpsJump` flyttar ett fix 40 m efter linjen 100 respektive 60 m söderut.

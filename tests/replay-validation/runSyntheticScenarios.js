@@ -152,6 +152,10 @@ const OMSTART_SLOW_ZONE = {
  *    ETA-text vara mer än maxUnderMin och inget öppningskort för bron mer än
  *    maxCardUnderMin minuter för optimistiskt. Gränserna är dagens storlek
  *    plus marginal, inte en kvalitetsnivå.
+ *  - openingNotBeforeCrossing: {bro: tidigare bro} — SPÄRREN VID EN TIDIGARE
+ *    BRO (fältprovet 10–13 november, familj B). Ingen varning för bron som
+ *    täcker en båt med benresa får gå innan hon på vägen dit korsat den
+ *    tidigare bron (sann bana, samma riktning, efter förra korsningen av bron).
  */
 const SCENARIOS = [
   {
@@ -539,6 +543,209 @@ const SCENARIOS = [
       openingLeadS: { Stridsbergsbron: 60 },
       minNotifiedPerBridge: { Järnvägsbron: 2, Stridsbergsbron: 2 },
     },
+  },
+  // === Fältprovet 10–13 november (familj B): KEDJEARMENS SPÄRR DIREKT EFTER EN
+  // VÄNDNING. En båt som vänt norr om Stridsbergsbron har Stridsbergsbron som
+  // målbro och Klaffbron som kedjearm (ARM_NEXT_TARGET). Vändningen tömmer
+  // passedBridges och köposterna, och köposterna skapas först på fixet EFTER
+  // första målbrofixet. Spärren vid en tidigare bro räknade därför ingen bro
+  // emellan på första målbrofixet, och kedjearmen fick 10-knopsdeadlinen. Nu
+  // räknas, efter en BEKRÄFTAD vändning (vändningsmärket), varje opasserad bro
+  // mellan båten och kedjearmens bro. Båda scenarierna fäller e51c7b6;
+  // placeringen ÄR testet.
+  {
+    // k1 11 nov, PILOT 761 (265606970): låg 30 min 222 m norr om
+    // Stridsbergsbron och vände med två omvända fix i 2,7–2,8 kn nästan på
+    // stället (5 och 9 m från ankaret). NEW_JOURNEY bekräftade, men kajprovet
+    // (_slowInitialQuayApproachNeedsProof) stoppade samma-tick-målbron. Målbron
+    // kom på nästa fix, ett AISHub-fix 27 s gammalt, 61 m söderut i 1,7 kn.
+    // Kedjearmens deadline (fixtid + 1376 m / 10 kn − 180 s) föll 61 s efter
+    // mottagningen, före nästa poll 70 s senare, och Klaffbronvarningen gick
+    // 50 min före passagen. Hon låg sedan 34 min i kön 75 m norr om
+    // Järnvägsbron. Stoppet, vändningen på stället och AISHub-fixets ålder är
+    // fältets; positionerna är generatorns.
+    name: 'vänder-på-stället-norr-om-Stridsbergsbron-kö-vid-Järnvägsbron (fältprovet, PILOT 761)',
+    seed: 1111,
+    vessels: [{
+      mmsi: '901111761',
+      name: 'SYNT-LOTS',
+      startS: METRICS.cum[1] - 600,
+      legs: [
+        { toS: METRICS.cum[4] + 220, speedKn: 8.5, intervalS: 67 },
+        {
+          stopS: 30 * 60, stopIntervalS: 67, stopSog: 0, stopCogRandom: true,
+        },
+        // Vändningen: två omvända fix i 2,8 kn på stoppets plats (U18).
+        {
+          stopS: 122, stopIntervalS: 61, stopSog: 2.8, stopCogDeg: 215,
+        },
+        // Söderut i 1,7 kn som AISHub-fix 27 s gamla. Glappet stryker benets
+        // första rad (stoppets plats), så första fixet ligger 61 m söderut
+        // (+159 m) och nästa på +98 m. Sedan 5 kn genom Stridsbergsbron till
+        // kön, som i fältet (5,5 kn 30 m före bron).
+        {
+          toS: METRICS.cum[4] + 90,
+          speedKn: 1.7,
+          intervalS: 70,
+          fixLagS: 27,
+          gapFromS: METRICS.cum[4] + 219,
+          gapToS: METRICS.cum[4] + 221,
+        },
+        {
+          toS: METRICS.cum[3] + 75, speedKn: 5, intervalS: 68, fixLagS: 27,
+        },
+        {
+          stopS: 34 * 60, stopIntervalS: 67, stopSog: 0, stopCogRandom: true,
+        },
+        { toS: METRICS.cum[2] - 900, speedKn: 4.5, intervalS: 67 },
+      ],
+    }],
+    expect: {
+      openingLeadS: { Klaffbron: 60, Stridsbergsbron: 60 },
+      openingNotBeforeCrossing: { Klaffbron: 'Järnvägsbron' },
+    },
+  },
+  {
+    // Samma vändning utan stopp, så samma-tick-målbron (811c723) sätts i
+    // bekräftelseticken, 222 m norr om Stridsbergsbron. Därefter hörs hon som
+    // en klass B-sändare under 2 kn: nästa fix kommer 240 s senare. På e51c7b6
+    // beväpnades kedjearmen Klaffbron i bekräftelseticken utan spärr
+    // (köposterna tömdes av NEW_JOURNEY), och deadlinen 100 s senare kom före
+    // nästa fix. ARCHITECTURE:s "spärren gäller från fixet efter vändningen"
+    // höll alltså bara när nästa fix hann före deadlinen. Scenariot fäller
+    // också alternativet att låta samma-tick-tilldelningen hoppa över kajprovet.
+    name: 'vänder-norr-om-Stridsbergsbron-klass-B-tystnad-efter-bekräftelsen',
+    seed: 1112,
+    vessels: [{
+      mmsi: '901111762',
+      name: 'SYNT-VAND-B',
+      startS: METRICS.cum[1] - 600,
+      legs: [
+        { toS: METRICS.cum[4] + 300, speedKn: 6, intervalS: 60 },
+        // Två omvända fix i 2,5 kn: +300 m (väntar) och +223 m (bekräftar).
+        { toS: METRICS.cum[4] + 200, speedKn: 2.5, intervalS: 60 },
+        // 1,8 kn med klass B-kadens; glappet stryker raden på +200 m.
+        {
+          toS: METRICS.cum[3] + 75,
+          speedKn: 1.8,
+          intervalS: 180,
+          gapFromS: METRICS.cum[4] + 199,
+          gapToS: METRICS.cum[4] + 201,
+        },
+        {
+          stopS: 15 * 60, stopIntervalS: 180, stopSog: 0, stopCogRandom: true,
+        },
+        { toS: METRICS.cum[2] - 900, speedKn: 4.5, intervalS: 30 },
+      ],
+    }],
+    expect: {
+      openingLeadS: { Klaffbron: 60, Stridsbergsbron: 60 },
+      openingNotBeforeCrossing: { Klaffbron: 'Järnvägsbron' },
+    },
+  },
+  // Granskningen av familj B (H1): regeln får bara gälla efter en BEKRÄFTAD
+  // vändning. För en båt utan historik och utan vändning håller spärren en arm
+  // som saknar kadens, och tystnadsregeln (två intervall) kan inte skydda den.
+  // Båda motexemplen gav kort ledtid eller ingen varning med regeln för alla
+  // båtar utan historik (eb34e30) och minst 181 s i basen.
+  {
+    // Förstakontakt 250 m söder om Klaffbron i 2,5 kn, sedan 8 kn norrut utan
+    // fix i 358 s. Med den breda regeln hölls kedjearmen Stridsbergsbron 300 s
+    // från första fixet, och varningen kom 58 s före korsningen; basen 253 s.
+    name: 'förstakontakt-2,5kn-sedan-8kn-norrut-i-tystnad (granskningen av familj B, H1)',
+    seed: 1114,
+    vessels: [{
+      mmsi: '901111764',
+      name: 'SYNT-FORST-SNABB',
+      startS: METRICS.cum[2] - 250,
+      legs: [
+        { toS: METRICS.cum[2] - 249, speedKn: 2.5, intervalS: 1 },
+        {
+          toS: METRICS.cum[5] - 200,
+          speedKn: 8,
+          intervalS: 360,
+          gapFromS: METRICS.cum[2] - 250,
+          gapToS: METRICS.cum[2] - 250 + 8 * 0.5144 * 358,
+        },
+      ],
+    }],
+    expect: { openingLeadS: { Stridsbergsbron: 150 } },
+  },
+  {
+    // Söderut i 10 kn med en position var 6:e minut, appomstart 120 m före
+    // Stridsbergsbron. Öppningsarmarna sparas inte, så efter omstarten saknar
+    // båten historik. Med den breda regeln hölls kedjearmen Klaffbron, och
+    // passagen blev helt ovarnad; basen varnade 307 s före.
+    name: 'omstart-120m-före-Stridsbergsbron-10kn-gles (granskningen av familj B, H1)',
+    seed: 1115,
+    vessels: [{
+      mmsi: '901111765',
+      name: 'SYNT-OMSTART-B',
+      startS: METRICS.cum[5] + 800,
+      legs: [{ toS: METRICS.cum[1] + 200, speedKn: 10, intervalS: 360 }],
+    }],
+    events: [{
+      ctrl: 'restart',
+      atOffsetS: (METRICS.cum[5] + 800 - (METRICS.cum[4] + 120)) / (10 * 0.5144),
+    }],
+    // Efter omstarten beväpnas Stridsbergsbron på nytt och avfyrar; den
+    // persistenta dedupen tystar kortet (samma kontrakt som
+    // omstart-mitt-i-passage). Det är omstartens, inte spärrens, sak.
+    expect: { openingLeadS: { Klaffbron: 150 }, suppressedOpeningFires: 1 },
+  },
+  {
+    // M3 (granskningen av familj B): varningen ska komma I TID efter en
+    // vändning, inte bara inte för tidigt. Samma vändning som ovan, sedan 6 kn
+    // söderut och nästa fix efter 360 s, när hon redan passerat Järnvägsbron.
+    // Spärren efter vändningen håller kedjearmen Klaffbron högst 300 s från
+    // bekräftelsen; en spärr som väntade på nästa fix hade gett under 100 s.
+    name: 'vänder-norr-om-Stridsbergsbron-6kn-söderut-fix-var-6-min (M3, i tid)',
+    seed: 1116,
+    vessels: [{
+      mmsi: '901111766',
+      name: 'SYNT-VAND-6KN',
+      startS: METRICS.cum[1] - 600,
+      legs: [
+        { toS: METRICS.cum[4] + 300, speedKn: 6, intervalS: 60 },
+        { toS: METRICS.cum[4] + 200, speedKn: 2.5, intervalS: 60 },
+        {
+          toS: METRICS.cum[1] + 200,
+          speedKn: 6,
+          intervalS: 360,
+          gapFromS: METRICS.cum[4] + 199,
+          gapToS: METRICS.cum[4] + 201,
+        },
+      ],
+    }],
+    expect: { openingLeadS: { Klaffbron: 150, Stridsbergsbron: 60 } },
+  },
+  {
+    // KÄND GRÄNS efter vändning (granskningen av familj B; ägarfråga i
+    // docs/ARCHITECTURE.md): som M3-scenariot men 8 kn och nästa fix efter
+    // 240 s. Två omvända fix i 2,5 kn och sedan 8 kn i tystnad går inte att
+    // skilja från familjens scenario med 1,8 kn och kö, som inte får varnas
+    // före Järnvägsbron. Spärren håller 300 s, och varningen kommer 105 s före
+    // korsningen; basen gav 306 s. Kravet 90 s låser gränsen nära dagens värde,
+    // så att en försämring syns (omgranskningen av familj B, O2).
+    name: 'vänder-norr-om-Stridsbergsbron-8kn-söderut-i-tystnad (känd gräns)',
+    seed: 1113,
+    vessels: [{
+      mmsi: '901111763',
+      name: 'SYNT-VAND-SNABB',
+      startS: METRICS.cum[1] - 600,
+      legs: [
+        { toS: METRICS.cum[4] + 300, speedKn: 6, intervalS: 60 },
+        { toS: METRICS.cum[4] + 200, speedKn: 2.5, intervalS: 60 },
+        {
+          toS: METRICS.cum[1] + 200,
+          speedKn: 8,
+          intervalS: 240,
+          gapFromS: METRICS.cum[4] + 199,
+          gapToS: METRICS.cum[4] + 201,
+        },
+      ],
+    }],
+    expect: { openingLeadS: { Klaffbron: 90, Stridsbergsbron: 60 } },
   },
   // Granskningen av varv 2 (2026-11-09): EN GPS-UTLIGGARE STRAX EFTER EN ÄKTA
   // PASSAGE. Båten går norrut genom Klaffbron i 4,4 kn med 10 s kadens. Ett fix
@@ -2638,6 +2845,47 @@ function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
               + `"${n.message}" ${Math.round((n.t - crossingMs) / 1000)} s efter den sanna korsningen`);
           }
         });
+      }
+    }
+  }
+  // Fältprovet 10–13 november (familj B): SPÄRREN VID EN TIDIGARE BRO mot den
+  // sanna banan. En varning för `bro` som täcker båten får inte gå innan hon
+  // korsat `tidigare bro` på vägen dit: för varje sann korsning av bron ska
+  // varje täckande varning efter förra korsningen av bron ligga efter båtens
+  // senaste sanna korsning av den tidigare bron i samma riktning. Täckning
+  // räknas som i openingLeadS (medlem, ledare eller absorption).
+  if (e.openingNotBeforeCrossing) {
+    const coverage = result.openingCoverage || [];
+    for (const [bridge, earlier] of Object.entries(e.openingNotBeforeCrossing)) {
+      const sBridge = METRICS.cum[PATH_INDEX[bridge]];
+      const sEarlier = METRICS.cum[PATH_INDEX[earlier]];
+      for (const [mmsi, truthPath] of Object.entries(truthPaths || {})) {
+        let previousMs = -Infinity;
+        for (const c of truthCrossings(truthPath, sBridge)) {
+          const crossingMs = BASE_TIME_MS + c.tS * 1000;
+          const earlierMs = truthCrossings(truthPath, sEarlier)
+            .filter((x) => x.dir === c.dir)
+            .map((x) => BASE_TIME_MS + x.tS * 1000)
+            .filter((t) => t > previousMs && t < crossingMs)
+            .pop();
+          if (Number.isFinite(earlierMs)) {
+            for (const w of openings.filter((x) => x.bridge === bridge && Number.isFinite(x.t)
+              && x.t > previousMs && x.t < crossingMs)) {
+              const member = (w.mmsis || []).map(String).includes(mmsi) || String(w.leadMmsi) === mmsi;
+              const cov = coverage.find((x) => x.bridge === bridge && String(x.mmsi) === mmsi
+                && x.eventId === w.eventId && x.t > previousMs && x.t < crossingMs);
+              let coveredAt = null;
+              if (member) coveredAt = w.t;
+              else if (cov) coveredAt = Math.max(w.t, cov.t);
+              if (coveredAt !== null && coveredAt < earlierMs) {
+                problems.push(`FÖR TIDIG ÖPPNINGSVARNING: ${bridge} ${w.eventId} ${w.iso} (${w.firedBy}) täcker ${mmsi} `
+                  + `${Math.round((earlierMs - coveredAt) / 1000)} s innan hon korsat ${earlier} `
+                  + `(${new Date(earlierMs).toISOString()}); korsningen av ${bridge} ${new Date(crossingMs).toISOString()}`);
+              }
+            }
+          }
+          previousMs = crossingMs;
+        }
       }
     }
   }
