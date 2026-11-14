@@ -352,12 +352,27 @@ samma händelse — tyst över samtliga korpusar och soaken i dag) och **INV-22*
 (V2, fältprovet 2026-11-13: notis i förvarnings- eller väntform, "närmar sig"
 eller "inväntar broöppning vid", som byggs mer än en bearbetningscykel (1 s)
 efter att rådatan fått första fixen bortom brolinjen, i notisens riktning).
-INV-22 mäter från `tTo` i rådatafacit, alltså mottagningen av fixen bortom
-linjen. Därmed flaggas aldrig den kända latensklassen (open3: en AISHub-fix är
+INV-22 mäter från `tTo` i rådatafacit (`tObs` i buggjägarens sanningsspår),
+alltså mottagningen av fixen bortom linjen. Därmed flaggas aldrig den kända latensklassen (open3: en AISHub-fix är
 20–30 s gammal och båten hinner korsa innan notisen går), eftersom en sådan
 notis bygger på en fix före linjen och går före `tTo`; en notis vars frysta
 position ligger före linjen flaggas inte heller. Utan rådatafacit (syntetiska
-scenarier, soaken) dömer den inte. Baslinje 2026-11-13: två utslag i banken,
+scenarier, soaken) dömer den inte. Buggjägarens sanningsspår har facit; där är
+`tTo` den sanna korsningstiden, så INV-22 dömer mot `tObs` (mottagningen av
+första fixen bortom linjen, som `asGt` för med) och betyder därmed samma sak i
+banken och i motorn (revision 1, granskningen 2026-11-14). Mätt med
+`hunt:quick` (seed 1): 34 räknarutslag i sanningsspåret före rättningen, nästan
+alla i samma cykel under bron, 3 efter och inga nya kandidatkort. De tre är
+VEGA och RUNA vid Järnvägsbron (vakthunden 54–57 s efter fixen 3 m bortom
+linjen, samma mekanism som bankfallen nedan) och ULLA i värld
+`w1153334786-134-R1`: "närmar sig Järnvägsbron, om 3 minuter" med riktning
+söderut, 286 m söder om bron efter en sydgående passage. Hon hade vänt
+(fixen 11:45:29 med kurs 68° ligger i dödbandet, 11:47:23 är den första
+norrgående, så vändningen var ännu inte trodd enligt U18) och kandidaten kom
+från `nearest`, som prövar avstånd utan sida. Texten råkar stämma för
+returresan men riktningstoken är fel; det är kandidatvalets sidblindhet, samma
+klass som familj C:s systerfynd (C2, 18 förvarningar bortom bron i banken), inte
+en motorartefakt. Baslinje 2026-11-13: två utslag i banken,
 20260601-41h OSPREY och 20260917-16h SINE BRES, båda Järnvägsbron söderut på
 en fix 20–26 m bortom linjen som vakthunden återanvände 30–50 s senare, samma
 mekanism som k2-granskningens fynd 1; replay av fältkörning 2 ger dessutom

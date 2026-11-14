@@ -1018,10 +1018,18 @@ function validateWarnInvariants(result, gtPassagesArg = null) {
   // 18–26 m bortom linjen, avfyrade av vakthunden eller omkörningen
   // (20260917-16h SINE BRES +29,6 s, k2 PRICKBJORN +46,3 s, 20260601-41h
   // OSPREY +50,4 s). Motsatt riktning: 45, alla returresor ≥ 21 min senare.
-  // Utan rådatafacit (syntetiska scenarier, soaken) dömer regeln inte.
+  // Utan rådatafacit (syntetiska scenarier, soaken) dömer regeln inte;
+  // buggjägarens sanningsspår har facit och dömer mot tObs (se nedan).
+  //
+  // OBSERVATIONSTIDEN (rev 1, granskningen 2026-11-14): `tObs` när posten har
+  // den (buggjägarens sanningsspår, där `tTo` är den sanna korsningstiden),
+  // annars `tTo` (bankens rådatafacit, där `tTo` redan är mottagningen av första
+  // fixen bortom linjen). Utan det dömde regeln i sanningsspåret mot den sanna
+  // korsningen och flaggade 33 notiser i samma cykel under bron som banken undantar.
   {
+    const obsT = (g) => (Number.isFinite(g.tObs) ? g.tObs : g.tTo);
     const crossings = (gtPassages || []).filter((g) => g && g.kind !== 'zone'
-      && Number.isFinite(g.tTo) && (g.dir === 'nord' || g.dir === 'syd') && g.bridge && g.mmsi != null);
+      && Number.isFinite(obsT(g)) && (g.dir === 'nord' || g.dir === 'syd') && g.bridge && g.mmsi != null);
     if (crossings.length > 0) {
       for (const n of notifications) {
         if (!Number.isFinite(n.t) || !n.bridge) continue;
@@ -1037,8 +1045,8 @@ function validateWarnInvariants(result, gtPassagesArg = null) {
         let latest = null;
         for (const g of crossings) {
           if (String(g.mmsi) !== String(n.mmsi) || g.bridge !== n.bridge) continue;
-          if (g.tTo + INV22_SAME_CYCLE_MS >= n.t) continue;
-          if (!latest || g.tTo > latest.tTo) latest = g;
+          if (obsT(g) + INV22_SAME_CYCLE_MS >= n.t) continue;
+          if (!latest || obsT(g) > obsT(latest)) latest = g;
         }
         if (!latest || latest.dir !== dir) continue;
         const beyond = positionBeyondLine(n, latest);
@@ -1048,7 +1056,7 @@ function validateWarnInvariants(result, gtPassagesArg = null) {
           `INV-22 FÖRVARNING EFTER PASSAGE: ${n.mmsi}@${n.bridge} "${form}" ${iso(n.t)} `
           + `(${Number.isFinite(n.distance) ? `${Math.round(n.distance)} m` : 'avstånd okänt'}, eta ${n.eta}, `
           + `källa ${n.source || 'okänd'}) — rådatan visar ${latest.dir}-passage, första fix bortom linjen `
-          + `${iso(latest.tTo)} (${Math.round((n.t - latest.tTo) / 1000)} s före notisen; sampelfönster `
+          + `${iso(obsT(latest))} (${Math.round((n.t - obsT(latest)) / 1000)} s före notisen; sampelfönster `
           + `${Number.isFinite(latest.tFrom) ? iso(latest.tFrom) : '?'}–${iso(latest.tTo)}`
           + `${latest.inferred ? ', inferred' : ''})${beyond === null ? ' [notisens position okänd]' : ''}`,
         );

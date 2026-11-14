@@ -245,6 +245,11 @@ function deriveObservable(L0, rows) {
  * Syntetiska punktobserverbara korsningar får punktfönstret tFrom = tTo = t
  * (sann L0-tid); inferred och bankens facit (source 'gt') behåller radions
  * fönster, precis som gtTargetPassages.
+ * `tObs` (V4/V2 rev 1, granskningen 2026-11-14) är mottagningstiden för första
+ * fixen bortom linjen, samma sak som `tTo` betyder i bankens rådatafacit.
+ * INV-22 dömer mot den, så att invarianten betyder detsamma i banken och i
+ * sanningsspåret (med punktfönstret dömde den mot den sanna korsningen och
+ * flaggade notiser i samma cykel som första fixen bortom linjen).
  * @param {object[]} l1Crossings - L1.crossings (eller bankens punktfacit)
  * @param {object} [opts] - {targetsOnly, pointOnly}
  * @returns {object[]} facitposter
@@ -252,18 +257,23 @@ function deriveObservable(L0, rows) {
 function asGt(l1Crossings, { targetsOnly = false, pointOnly = false } = {}) {
   return l1Crossings
     .filter((c) => (!targetsOnly || geo.TARGETS.includes(c.bridge)) && (!pointOnly || !c.inferred))
-    .map((c) => ({
-      t: c.t,
-      iso: new Date(Math.round(c.t)).toISOString(),
-      mmsi: String(c.mmsi),
-      bridge: c.bridge,
-      kind: 'line',
-      inferred: !!c.inferred,
-      dir: c.dir || null,
-      tFrom: (c.inferred || c.source === 'gt') ? c.tFrom : c.t,
-      tTo: (c.inferred || c.source === 'gt') ? c.tTo : c.t,
-      source: c.source === 'gt' ? 'gt' : 'truth-L1',
-    }))
+    .map((c) => {
+      const window = c.inferred || c.source === 'gt';
+      const tTo = window ? c.tTo : c.t;
+      return {
+        t: c.t,
+        iso: new Date(Math.round(c.t)).toISOString(),
+        mmsi: String(c.mmsi),
+        bridge: c.bridge,
+        kind: 'line',
+        inferred: !!c.inferred,
+        dir: c.dir || null,
+        tFrom: window ? c.tFrom : c.t,
+        tTo,
+        tObs: Number.isFinite(c.tObs) ? c.tObs : tTo,
+        source: c.source === 'gt' ? 'gt' : 'truth-L1',
+      };
+    })
     .sort((a, b) => a.t - b.t);
 }
 
