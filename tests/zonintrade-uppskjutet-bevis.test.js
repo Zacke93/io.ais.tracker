@@ -103,18 +103,55 @@ describe('F08: inträdesbeviset prövas i passet som skjuter upp under-bro-grene
 
   const passageAtC = (vessel) => geometry.detectBridgePassage({ ...vessel, ...C, _rawPositionSog: C.sog }, vessel, JVB);
 
+  // Fältprovet 2026-11-13 (familj C, C2): B ligger 26 m bortom Järnvägsbrons
+  // linje. FIX U rensar då flaggan (FIX_U_SKIP_PAST_LINE), både medan fönstret
+  // håller den vilande och efteråt. Andra fallet gick förut genom FIX U-grenen
+  // ("FIX U:s tvingade väntan"); i dag går det den ordinarie vägen genom
+  // INTERMEDIATE_UNDER, och testet säger det. FIX U-grenens eget anrop prövas
+  // med en fix i ±10 m-bandet i nästa test.
   test.each([
-    ['Phase 3-hållningen för Stridsbergsbron', {}],
-    ['FIX U:s tvingade väntan', { _bridgeOpeningUntil: B.t - 1 }],
-  ])('%s: utgångsfixen bokför passagen utan något mellanliggande pass', (_label, extra) => {
+    ['Phase 3-hållningen för Stridsbergsbron', {}, false],
+    ['fönstret har löpt ut och fixen ligger bortom parbron (FIX U rensas, ordinarie INTERMEDIATE_UNDER)',
+      { _bridgeOpeningUntil: B.t - 1 }, true],
+  ])('%s: utgångsfixen bokför passagen utan något mellanliggande pass', (_label, extra, ordinaryPath) => {
     const vessel = vesselAtB(extra);
-    status.analyzeVesselStatus(vessel, proximity.analyzeVesselProximity(vessel), cleanAnalysis);
+    const result = status.analyzeVesselStatus(vessel, proximity.analyzeVesselProximity(vessel), cleanAnalysis);
 
+    expect(vessel._forceWaitingAtBridge).toBeNull();
+    if (ordinaryPath) {
+      expect(result.statusReason).not.toBe('FIX_U_forced_waiting_close_bridge_pair');
+      expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining('FIX_U_SKIP_PAST_LINE'));
+    }
     expect(vessel._underBridgeCrossedBridge).toBe('Järnvägsbron');
     expect(vessel._underBridgeEntryLat).toBe(A0.lat);
     // Föregående observation förbrukas inte av uppskjutningen.
     expect(vessel._underBridgePrevLat).toBe(A0.lat);
     expect(passageAtC(vessel)).toMatchObject({ passed: true, method: 'traditional_close_passage' });
+  });
+
+  test('FIX U:s tvingade väntan med fixen i ±10 m-bandet: FIX U-passet noterar inträdets epsilonkandidat', () => {
+    // Granskningen av familj C (M-1): efter C2 tar FIX U-grenen bara fixar som
+    // inte ligger entydigt bortom parbron, alltså på ankomstsidan eller inom
+    // ±10 m från linjen. Här ligger fixen 6 m bortom linjen, på inflygningslinjen
+    // A0→B. Segmentet från A0 har ett verkligt teckenbyte men slutar i
+    // epsilonbandet, så F08-anropet i FIX U-grenen ska spara P1:s
+    // epsilonkandidat med startpunkten på närsidan (A0), utan att förbruka
+    // föregående observation. Utan anropet (mutationen M4) sparas inget.
+    const oA0 = geometry.bridgeLineOffsetM(A0, JVB);
+    const oB = geometry.bridgeLineOffsetM(B, JVB);
+    const f = (oA0 + 6) / (oA0 - oB);
+    const onLine = { lat: A0.lat + (B.lat - A0.lat) * f, lon: A0.lon + (B.lon - A0.lon) * f };
+    expect(geometry.bridgeLineOffsetM(onLine, JVB)).toBeCloseTo(-6, 0);
+    expect(geometry.decisiveBridgeSide(onLine, JVB)).toBe(0);
+
+    const vessel = vesselAtB({ ...onLine, _bridgeOpeningUntil: B.t - 1 });
+    const result = status.analyzeVesselStatus(vessel, proximity.analyzeVesselProximity(vessel), cleanAnalysis);
+
+    expect(result.statusReason).toBe('FIX_U_forced_waiting_close_bridge_pair');
+    expect(vessel._underBridgePendingCross).toMatchObject({ bridge: 'Järnvägsbron', lat: A0.lat, lon: A0.lon });
+    expect(vessel._underBridgeCrossedBridge).toBeNull();
+    expect(vessel._underBridgePrevLat).toBe(A0.lat);
+    expect(passageAtC(vessel)).toMatchObject({ passed: true });
   });
 
   test('rensningspasset (NINA B 20260918-7h): nästa bros inträde prövas i samma pass', () => {
@@ -232,8 +269,11 @@ describe('F08: beviset från det uppskjutande passet överlever nästa zonbesök
     });
     return before;
   };
-  // Hållningspasset vid B och FIX U-passet när hållningen löpt ut.
-  const holdAndFixU = () => {
+  // Hållningspasset vid B och nästa pass när hållningen löpt ut. Förut var det
+  // andra passet FIX U:s tvingade väntan; sedan C2 (fältprovet 2026-11-13)
+  // rensar FIX U flaggan redan i hållningspasset, eftersom B ligger 26 m
+  // bortom Järnvägsbron, och det andra passet är ordinarie.
+  const holdThenExpiredPass = () => {
     const vessel = vesselAtB({ _lastCurrentBridgeForHysteresis: 'Stridsbergsbron' });
     pass(vessel);
     jest.setSystemTime(B.t + 9600);
@@ -245,7 +285,7 @@ describe('F08: beviset från det uppskjutande passet överlever nästa zonbesök
     ['med ett UI-pass vid B före C\'', true],
     ['utan UI-pass vid B (förut tappad)', false],
   ])('extra fix inne i zonen, %s: utgångsfixen bokför passagen', (_label, uiPassAtB) => {
-    const vessel = holdAndFixU();
+    const vessel = holdThenExpiredPass();
     if (uiPassAtB) {
       jest.setSystemTime(B.t + 9700);
       pass(vessel);
@@ -264,7 +304,7 @@ describe('F08: beviset från det uppskjutande passet överlever nästa zonbesök
   });
 
   test('TARGET_UNDER återställer beviset på samma sätt när bron är målbron', () => {
-    const vessel = holdAndFixU();
+    const vessel = holdThenExpiredPass();
     moveTo(vessel, Cp, B.t + 20000);
     Object.assign(vessel, {
       targetBridge: 'Järnvägsbron',
@@ -282,7 +322,7 @@ describe('F08: beviset från det uppskjutande passet överlever nästa zonbesök
   });
 
   test('U-sväng inne i zonen: det återställda beviset ger ingen passage söderut', () => {
-    const vessel = holdAndFixU();
+    const vessel = holdThenExpiredPass();
     moveTo(vessel, Cp, B.t + 20000);
     pass(vessel);
     expect(vessel._underBridgeCrossedBridge).toBe('Järnvägsbron');
@@ -322,10 +362,12 @@ describe('F08: beviset från det uppskjutande passet överlever nästa zonbesök
     expect(vessel._underBridgeEntryLat).toBe(A0.lat);
   });
 
-  test('FIX O-spärren återställer ett bevis som ett ordinarie pass har nollat', () => {
-    // FIX U-passet vid B sätter beviset. C' kommer inom FIX O:s 20 s, och
-    // samma pass gör HYSTERESIS_RESET (målbytet) och spärrar sedan under-bro.
-    // A0→C' är 407 m, så beviset kan inte prövas om från segmentet.
+  test('FIX O-spärren återställer ett bevis som ett ordinarie pass har nollat (beviset sätts i det ordinarie passet vid B)', () => {
+    // Passet vid B sätter beviset. Förut var det FIX U-passet; sedan C2
+    // (fältprovet 2026-11-13) ligger B bortom parbron, FIX U rensas och passet
+    // är ordinarie. C' kommer inom FIX O:s 20 s, och samma pass gör
+    // HYSTERESIS_RESET (målbytet) och spärrar sedan under-bro. A0→C' är 407 m,
+    // så beviset kan inte prövas om från segmentet.
     const vessel = vesselAtB({
       lastPassedBridgeTime: B.t,
       _bridgeOpeningUntil: null,
@@ -333,6 +375,7 @@ describe('F08: beviset från det uppskjutande passet överlever nästa zonbesök
       _forceWaitingAtBridge: { bridge: 'Järnvägsbron', until: B.t + 5 * 60 * 1000, triggeredBy: 'Stridsbergsbron' },
     });
     pass(vessel);
+    expect(vessel._forceWaitingAtBridge).toBeNull();
     expect(vessel._underBridgeCrossedBridge).toBe('Järnvägsbron');
     moveTo(vessel, Cp, B.t + 15000);
     vessel._lastWaitingShownAt = { Järnvägsbron: B.t };
@@ -375,7 +418,7 @@ describe('F08: beviset från det uppskjutande passet överlever nästa zonbesök
       },
     }],
   ])('posten släpps när %s', (_label, { before, atCp, tCp = B.t + 20000 }) => {
-    const vessel = holdAndFixU();
+    const vessel = holdThenExpiredPass();
     expect(vessel._underBridgeDeferredProof).toMatchObject({ bridge: 'Järnvägsbron', lat: A0.lat });
     if (before) before(vessel);
     moveTo(vessel, Cp, tCp);
