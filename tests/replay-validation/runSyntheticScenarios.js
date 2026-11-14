@@ -156,6 +156,11 @@ const OMSTART_SLOW_ZONE = {
  *    BRO (fältprovet 10–13 november, familj B). Ingen varning för bron som
  *    täcker en båt med benresa får gå innan hon på vägen dit korsat den
  *    tidigare bron (sann bana, samma riktning, efter förra korsningen av bron).
+ *  - maxOpeningAgeS: {bro: N} — spegeln av openingLeadS (familj A, fältprovet
+ *    2026-11-12): den SENASTE varningen som täcker båten före varje sann
+ *    korsning får vara högst N s gammal. En varning från en anflygning timmar
+ *    tidigare är ingen förvarning för korsningen. Kräver ben (sann bana) och
+ *    minst en korsning per bro; prövar inte ledtiden (lägg minOpeningLeadS).
  */
 const SCENARIOS = [
   {
@@ -2378,6 +2383,46 @@ const SCENARIOS = [
       noApproachNoticeAfterCrossing: ['Järnvägsbron', 'Stridsbergsbron'],
     },
   },
+  {
+    // Fältprovet 2026-11-12 (körning 1, PRICKBJORN; familj A): varnad för
+    // Stridsbergsbron på väg söderut, sedan helt stilla 460 m norr om bron i
+    // farleden, utanför de ritade kajzonerna, i 3 h 54 min. Målbron tappas
+    // efter 20 min (U27) och 2 h-backstoppen förtöjer henne; hon lägger ut
+    // och korsar bron. På e51c7b6 registrerade ankomstspärren aldrig stoppet
+    // innanför 600 m, så den nya varningen vid avgången spärrades av den fyra
+    // timmar gamla (servicen avfyrade, kortet tystades). Nu bekräftar
+    // klassningens 2 h-släpp stoppet, och avgången är en ny ankomst.
+    // Placeringen ÄR testet: 460 m ligger i bandet 300–600 m där varken
+    // kajzonens regler eller KINNE-grenen (> 600 m) gäller.
+    name: 'stopp-4h-460m-norr-om-Stridsbergsbron-i-farleden (fält 2026-11-12)',
+    seed: 1112,
+    vessels: [{
+      mmsi: '901001112',
+      name: 'SYNT-FARLEDSSTOPP',
+      startS: METRICS.cum[4] + 1500,
+      legs: [
+        { toS: METRICS.cum[4] + 460, speedKn: 6, intervalS: 65 },
+        { stopS: 234 * 60, stopIntervalS: 68, stopCogRandom: true },
+        { toS: METRICS.cum[2] - 400, speedKn: 3.5, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      minTargetPassages: 2,
+      expectedOpenings: ['Stridsbergsbron', 'Klaffbron'],
+      // Den första varningen vid anflygningen och en ny vid avgången.
+      maxOpeningsPerBridge: { Stridsbergsbron: 2, Klaffbron: 1 },
+      // Den senaste varningen före korsningen får inte vara den från
+      // anflygningen fyra timmar tidigare, och den nya ska ge förvarning
+      // (granskningen, L1: maxOpeningAgeS prövar inte ledtiden).
+      maxOpeningAgeS: { Stridsbergsbron: 900 },
+      minOpeningLeadS: { Stridsbergsbron: 60 },
+      // Revision 1 (H1): farledsstoppets avgång kräver två avgångsfix i följd.
+      // Servicen avfyrar redan på det första (deadlinen har passerat), och
+      // spärren håller det kortet; på det andra släpper restartArrival armen
+      // och kortet går 60 s senare. Exakt en tystad avfyrning.
+      suppressedOpeningFires: 1,
+    },
+  },
 ];
 
 function runScenario(scenario) {
@@ -2887,6 +2932,47 @@ function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
           previousMs = crossingMs;
         }
       }
+    }
+  }
+  // Familj A (fältprovet 2026-11-12): spegeln av openingLeadS. Den SENASTE
+  // täckande varningen före varje sann korsning får vara högst N s gammal —
+  // en varning från en anflygning timmar tidigare räknas inte som förvarning
+  // för korsningen (openingLeadS och openingBeforeEachPassage godtar den).
+  if (e.maxOpeningAgeS) {
+    const coverage = result.openingCoverage || [];
+    for (const [bridge, maxAgeS] of Object.entries(e.maxOpeningAgeS)) {
+      const sBridge = METRICS.cum[PATH_INDEX[bridge]];
+      // Granskningen (L1): utan prövade korsningar (scenario utan ben eller
+      // utan korsning av bron) hade förväntan passerat tyst.
+      let tested = 0;
+      for (const [mmsi, truthPath] of Object.entries(truthPaths || {})) {
+        let previousMs = -Infinity;
+        for (const c of truthCrossings(truthPath, sBridge)) {
+          tested++;
+          const crossingMs = BASE_TIME_MS + c.tS * 1000;
+          // Samma täckningstid som openingLeadS: varningens tid för medlem och
+          // ledare, absorptionens för en båt som anslöt till händelsen.
+          const coveredAt = (w) => {
+            if ((w.mmsis || []).map(String).includes(mmsi) || String(w.leadMmsi) === mmsi) return w.t;
+            const cov = coverage.find((x) => x.bridge === bridge && String(x.mmsi) === mmsi
+              && x.eventId === w.eventId && x.t > previousMs && x.t < crossingMs);
+            return cov ? Math.max(w.t, cov.t) : null;
+          };
+          const ages = openings
+            .filter((w) => w.bridge === bridge && Number.isFinite(w.t) && w.t > previousMs && w.t < crossingMs)
+            .map(coveredAt)
+            .filter((t) => Number.isFinite(t))
+            .map((t) => (crossingMs - t) / 1000);
+          const newestS = ages.length ? Math.min(...ages) : null;
+          if (newestS === null || newestS > maxAgeS) {
+            problems.push(`GAMMAL FÖRVARNING vid ${bridge} ${new Date(crossingMs).toISOString()} (${mmsi}, ${c.dir}): `
+              + `${newestS === null ? 'ingen täckande varning' : `senaste varningen ${Math.round(newestS)} s`} före den `
+              + `sanna korsningen (högst ${maxAgeS} s)`);
+          }
+          previousMs = crossingMs;
+        }
+      }
+      if (tested === 0) problems.push(`maxOpeningAgeS: ingen sann korsning av ${bridge} att pröva`);
     }
   }
   if (e.deadlineFiredOpenings) {

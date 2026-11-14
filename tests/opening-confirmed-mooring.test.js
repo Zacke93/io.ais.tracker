@@ -134,8 +134,13 @@ describe('Bekräftad förtöjning och fysisk avgång skapar en ny öppningsankom
     const close = { lat: BRIDGES.stridsbergsbron.lat + 450 / 111320, lon: BRIDGES.stridsbergsbron.lon };
     await warnedArrival(close);
     await moor(5, close);
-    expect(app._persistentOpeningWarnings.get(KEY).quayStop).toBeUndefined();
+    // Familj A (revision 1): innanför 600 m registreras ett farledsstopp med
+    // egen ålder, men det bekräftas först efter 2 h stillhet.
+    expect(app._persistentOpeningWarnings.get(KEY).quayStop?.confirmed).not.toBe(true);
     await fix({ ...close, lat: close.lat - 120 / 111320 }, 2.9, 0, 3600000);
+    // Omgranskningen (N4): ett farledsstopp kräver två avgångsfix, så det
+    // andra fixet behövs för att utfallet (inget nytt kort) ska pröva något.
+    await fix({ ...close, lat: close.lat - 200 / 111320 }, 2.9, 0);
     expect(warnings()).toHaveLength(1);
   });
 
