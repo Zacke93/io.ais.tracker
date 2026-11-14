@@ -86,4 +86,72 @@ describe('Brotextens periodiska kontroll är oberoende av appens starttid', () =
     expect(calls).toEqual([epoch + 37000, epoch + 60000]);
     expect(jest.getTimerCount()).toBe(1);
   });
+
+  // F5 (fältprovet 2026-11-12, k1 rad 210719/210721): Node-timern kan lösa ut
+  // när väggklockan fortfarande står 1 ms före halvminuten. Den gamla
+  // bokningen (30000 − now % 30000) körde då ticken på xx:59.999 och bokade
+  // nästa om 1 ms, alltså samma halvminut två gånger. Fältet: 13 tidiga tick
+  // på 66 h, varav ett dubbelt (03:53:59.999 och 03:54:00.001).
+  // setSystemTime flyttar väggklockan utan att röra timerns återstående tid,
+  // så timern löser ut när Date.now() står 1 ms före gränsen, precis som i fält.
+  test('F5: en timer som löser ut 1 ms före halvminuten kör varken för tidigt eller två gånger', () => {
+    const calls = [];
+    start(0)._scheduleCoalescedUpdate.mockImplementation(() => calls.push(Date.now()));
+    jest.advanceTimersByTime(10000);
+    jest.setSystemTime(Date.now() - 1);
+    jest.advanceTimersByTime(20000 + 30000 + 1000);
+    expect(calls).toEqual([epoch + 30000, epoch + 60000]);
+    expect(app.bridgeOpeningService.tick).toHaveBeenCalledTimes(2);
+    expect(jest.getTimerCount()).toBe(1);
+  });
+
+  test('F5: tidig utlösning vid varje gräns i ett halvt dygn ger exakt ett tick per halvminut', () => {
+    const calls = [];
+    start(2500)._scheduleCoalescedUpdate.mockImplementation(() => calls.push(Date.now()));
+    for (let i = 0; i < 1440; i++) {
+      // Varje varv: klockan glider 1 ms bakåt mitt i väntan (värsta fallet).
+      jest.advanceTimersByTime(15000);
+      jest.setSystemTime(Date.now() - 1);
+      jest.advanceTimersByTime(15000);
+    }
+    // Alla körningar på exakta halvminutsgränser, inga dubbletter.
+    expect(calls.every((t) => t % 30000 === 0)).toBe(true);
+    expect(new Set(calls).size).toBe(calls.length);
+    for (let i = 1; i < calls.length; i++) expect(calls[i] - calls[i - 1]).toBe(30000);
+    expect(jest.getTimerCount()).toBe(1);
+  });
+
+  test('F5: en klocka som ställts bakåt inom halvminuten kör inte ticket förrän gränsen nås', () => {
+    const calls = [];
+    start(0)._scheduleCoalescedUpdate.mockImplementation(() => calls.push(Date.now()));
+    jest.advanceTimersByTime(10000);
+    jest.setSystemTime(epoch + 3000); // 7 s bakåt; timern har 20 s kvar
+    jest.advanceTimersByTime(40000);
+    // Före rättningen: ett tick 23 s in (utanför rutnätet) och ett till på 30 s.
+    expect(calls).toEqual([epoch + 30000]);
+    expect(jest.getTimerCount()).toBe(1);
+  });
+
+  test('F5/L4: en callback som kommer 2 min sent kör en gång och följer sedan rutnätet — ingen ikappkörning', () => {
+    const calls = [];
+    start(0)._scheduleCoalescedUpdate.mockImplementation(() => calls.push(Date.now()));
+    jest.advanceTimersByTime(10000);
+    // Väggklockan hoppar 2 min framåt medan timern väntar (stall/klocksteg):
+    // callbacken kommer då 2 min efter sin gräns.
+    jest.setSystemTime(epoch + 10000 + 120000);
+    jest.advanceTimersByTime(20000 + 60000);
+    expect(calls).toEqual([epoch + 150000, epoch + 180000, epoch + 210000]);
+    expect(jest.getTimerCount()).toBe(1);
+  });
+
+  test('F5: en klocka som ställts bakåt mer än en halvminut låser inte ticken', () => {
+    const calls = [];
+    start(0)._scheduleCoalescedUpdate.mockImplementation(() => calls.push(Date.now()));
+    jest.advanceTimersByTime(10000);
+    jest.setSystemTime(epoch - 10 * 60 * 1000); // tio minuter bakåt
+    jest.advanceTimersByTime(20000 + 60000);
+    // Första gränsen efter den nya tiden, sedan varje halvminut.
+    expect(calls).toEqual([epoch - 10 * 60 * 1000 + 30000, epoch - 10 * 60 * 1000 + 60000]);
+    expect(jest.getTimerCount()).toBe(1);
+  });
 });
