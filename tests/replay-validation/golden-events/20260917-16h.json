@@ -254,22 +254,22 @@
       "vesselLatNext": 58.29236
     },
     {
-      "t": 1789698420040,
+      "t": 1789698368016,
       "bridge": "Järnvägsbron",
       "direction": "southbound",
       "eta": 0,
       "message": "SINE BRES närmar sig Järnvägsbron, beräknad ankomst strax",
       "alreadyPassed": false,
       "name": "SINE BRES",
-      "distance": 26,
+      "distance": 94,
       "source": "current",
       "stateBridge": "jarnvagsbron",
       "mmsi": "304225000",
       "success": true,
       "error": null,
-      "vesselLat": 58.291455,
-      "vesselLon": 12.291744999999999,
-      "vesselLatNext": 58.29084
+      "vesselLat": 58.29236,
+      "vesselLon": 12.29288,
+      "vesselLatNext": 58.291455
     },
     {
       "t": 1789698638405,
@@ -362,7 +362,7 @@
       "vesselLatNext": 58.29436
     },
     {
-      "t": 1789700580040,
+      "t": 1789700522538,
       "bridge": "Järnvägsbron",
       "direction": "southbound",
       "eta": 1,
@@ -578,7 +578,7 @@
       "vesselLatNext": 58.294549999999994
     },
     {
-      "t": 1789723470040,
+      "t": 1789723429438,
       "bridge": "Järnvägsbron",
       "direction": "southbound",
       "eta": 2,

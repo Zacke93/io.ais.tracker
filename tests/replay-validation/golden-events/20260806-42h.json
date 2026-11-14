@@ -38,7 +38,7 @@
       "vesselLatNext": 58.29255
     },
     {
-      "t": 1785972390040,
+      "t": 1785972334811,
       "bridge": "Järnvägsbron",
       "direction": "southbound",
       "eta": 1,
@@ -146,7 +146,7 @@
       "vesselLatNext": 58.29334
     },
     {
-      "t": 1785978960040,
+      "t": 1785978915755,
       "bridge": "Järnvägsbron",
       "direction": "southbound",
       "eta": 1,
@@ -560,7 +560,7 @@
       "vesselLatNext": 58.29373
     },
     {
-      "t": 1786012164918,
+      "t": 1786012134708,
       "bridge": "Järnvägsbron",
       "direction": "southbound",
       "eta": 1,
@@ -704,7 +704,7 @@
       "vesselLatNext": 58.29276
     },
     {
-      "t": 1786017570040,
+      "t": 1786017520331,
       "bridge": "Järnvägsbron",
       "direction": "southbound",
       "eta": 2,
@@ -1356,7 +1356,7 @@
       "bridge": "Klaffbron",
       "direction": "southbound",
       "eta": -1,
-      "message": "ELFKUNGEN passerade Klaffbron under AIS-tystnad",
+      "message": "ELFKUNGEN har precis passerat Klaffbron",
       "alreadyPassed": true,
       "name": "ELFKUNGEN",
       "distance": 165,
@@ -1460,7 +1460,7 @@
       "vesselLatNext": 58.26731
     },
     {
-      "t": 1786103040040,
+      "t": 1786103009770,
       "bridge": "Järnvägsbron",
       "direction": "southbound",
       "eta": 2,
@@ -1478,7 +1478,7 @@
       "vesselLatNext": 58.29263
     },
     {
-      "t": 1786103107343,
+      "t": 1786103077133,
       "bridge": "Järnvägsbron",
       "direction": "southbound",
       "eta": 3,
@@ -1496,7 +1496,7 @@
       "vesselLatNext": 58.29301
     },
     {
-      "t": 1786103250040,
+      "t": 1786103211665,
       "bridge": "Järnvägsbron",
       "direction": "southbound",
       "eta": -1,
@@ -2072,7 +2072,7 @@
       "vesselLatNext": 58.29263
     },
     {
-      "t": 1786109526024,
+      "t": 1786109495814,
       "bridge": "Järnvägsbron",
       "direction": "southbound",
       "eta": 3,
@@ -2108,7 +2108,7 @@
       "vesselLatNext": 58.26606
     },
     {
-      "t": 1786109594609,
+      "t": 1786109564549,
       "bridge": "Järnvägsbron",
       "direction": "southbound",
       "eta": 8,

@@ -236,7 +236,7 @@
       "vesselLatNext": 58.29405333333333
     },
     {
-      "t": 1789063710040,
+      "t": 1789063677257,
       "bridge": "Järnvägsbron",
       "direction": "southbound",
       "eta": 3,
@@ -344,7 +344,7 @@
       "vesselLatNext": 58.29457
     },
     {
-      "t": 1789145580040,
+      "t": 1789145526642,
       "bridge": "Järnvägsbron",
       "direction": "southbound",
       "eta": 1,

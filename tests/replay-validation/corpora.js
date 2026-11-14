@@ -806,7 +806,14 @@ module.exports = [
       + 'öppningsvarningar OFÖRÄNDRAT (21). Klaffbron#14 09:44:05.461 är rådataverifierat ett MÖTE: '
       + 'SISU (219032725, lat 58.27091 → 58.28181 = +1214 m NORRUT, cog 41°) och 211228640 (58.30042 '
       + '→ 58.28339 = −1896 m SÖDERUT, cog 212°). Notis-, fördelnings- och riktningsfacit ORÖRDA '
-      + '(56/56).',
+      + '(56/56). '
+      + 'OMLÅST 2026-11-14 (fältprovet 10–13 nov, familj C2; docs/faltgranskning-2026-11-14.md §5.3, U13): '
+      + 'notisen för Järnvägsbron söderut går på passagefixen i stället för med vakthundens varv efter '
+      + 'Stridsbergsbrons 30 s-fönster. Dirigentens egen diff av golden-events: 2 av 54 notiser ändras, bara '
+      + 'fältet t, texterna ordagrant lika — SELENE PRAHM 02:30:00 → 02:29:15 (16 → 61 s före rådatans '
+      + 'korsning 02:30:15) och MAJALISA 09:01:30 → 09:00:40 (61 → 110 s före korsningen 09:02:30, inferred). '
+      + 'Öppningsvarningar (20), undertryckningar (1), målpassager (16) och mellanpassager (23) identiska; '
+      + 'notis-, riktnings- och öppningsmultiset samt golden-text orörda.',
   },
   {
     id: '20260710-13h',
@@ -1167,7 +1174,14 @@ module.exports = [
       + '— nästa rad 16:04:25.948 är broöppning strax i BÅDA armarna — och är därmed osynlig i '
       + 'dagens publiceringskadens; sanningen (Klaffbron 16:04:53.453) är 0,46 min, så HEAD:s '
       + 'cirka 2 minuter var dessutom 1,54 min fel. Notis-, fördelnings-, riktnings- och '
-      + 'öppningsfacit ORÖRDA (86/86 notiser, 31 öppningsvarningar).',
+      + 'öppningsfacit ORÖRDA (86/86 notiser, 31 öppningsvarningar). '
+      + 'OMLÅST 2026-11-14 (fältprovet 10–13 nov, familj C2; docs/faltgranskning-2026-11-14.md §5.3, U13): '
+      + 'notisen för Järnvägsbron söderut går på passagefixen i stället för med vakthundens varv. '
+      + 'Dirigentens egen diff av golden-events: 1 av 86 notiser ändras, bara fältet t — VENTICELLO '
+      + '09:06:00 → 09:05:18 (41 s tidigare), texten "VENTICELLO närmar sig Järnvägsbron" ordagrant lika. '
+      + 'Hon korsar aldrig Järnvägsbron i rådatafacit, så notisen är en förvarning utan passage både före '
+      + 'och efter. Öppningsvarningar (32), undertryckningar (1), målpassager (19) och mellanpassager (28) '
+      + 'identiska; notis-, riktnings- och öppningsmultiset samt golden-text orörda.',
   },
   {
     id: '20260713-41h',
@@ -2299,7 +2313,19 @@ module.exports = [
         + 'FASSVEPT 2026-08-23 (6 faser, −2,5 till −25 s): dimensionen "notiser" avviker i '
         + 'INGEN fasvariant, alltså är riktningsvärdet ingen knivsegg. Korpusens sedan '
         + 'tidigare kända fasberoende (108 avvikelser i oppningar + brotext) är OFÖRÄNDRAT '
-        + 'mot HEAD — samma tal i båda armarna.',
+        + 'mot HEAD — samma tal i båda armarna. '
+        + 'OMLÅST 2026-11-14 (fältprovet 10–13 nov, familj C2; docs/faltgranskning-2026-11-14.md §5.3, U13): '
+        + 'notisen för Järnvägsbron söderut går på passagefixen i stället för med vakthundens varv efter '
+        + 'Stridsbergsbrons 30 s-fönster. Dirigentens egen diff av golden-events: 5 av 152 notiser ändras, '
+        + 'bara fältet t, texterna ordagrant lika — TIM 23:42:30 → 23:41:53 (36 → 72 s före rådatans '
+        + 'korsning), DIONE 09:46:00 → 09:45:14, YOLO 2 09:55:00 → 09:54:00, ELIZABETH GREENWOOD '
+        + '12:18:00 → 12:17:18 (52 → 93 s före korsningen 12:18:51) och ANNA 15:13:00 → 15:12:22 '
+        + '(129 → 167 s, inferred). Notislistans ORDNING ändras på ett ställe: ELIZABETH GREENWOODs notis '
+        + 'går nu på hennes egen fix 12:17:18 och hamnar därmed före AISHub-batchen 12:17:29 (BLADE '
+        + 'Stridsbergsbron, CAVAT och CHARLYS DREAM Järnvägsbron); ordningen är deterministisk och '
+        + 'fasstabil (granskarens δ-rutnät, 25 förskjutningar — fassvepet jämför bara multiset). '
+        + 'Öppningsvarningar (39), undertryckningar (2), målpassager (41) och mellanpassager (68) '
+        + 'identiska; notis-, riktnings- och öppningsmultiset samt golden-text orörda.',
   },
   {
     id: '20260806-42h',
@@ -2476,7 +2502,21 @@ module.exports = [
       + 'fasförskjutning byter sampelmängd. H22 ska INTE rullas tillbaka — den är '
       + 'rådataverifierad. VILLKOR: de två fasernas brotextavvikelser ska antingen beläggas i '
       + 'rådata eller skrivas som undantag i phase-sweep-exceptions.json FÖRE skarp låsning av '
-      + 'den här korpusen — en faskänslig korpus får inte låsas med okvitterad drift.',
+      + 'den här korpusen — en faskänslig korpus får inte låsas med okvitterad drift. '
+      + 'OMLÅST 2026-11-14 (fältprovet 10–13 nov, familj C; docs/faltgranskning-2026-11-14.md §5.3 och '
+      + '§5.5, U13). Dirigentens egen diff av golden-events: 10 av 131 notiser ändras. C2 (nio notiser, '
+      + 'bara fältet t, texterna ordagrant lika): notisen för Järnvägsbron söderut går på passagefixen i '
+      + 'stället för med vakthundens varv — TIDAN 23:26:30 → 23:25:34 (kom förut 14 s EFTER rådatans '
+      + 'korsning 23:26:15, nu 41 s före), NOSSAN 01:16:00 → 01:15:15 (37 → 81 s före korsningen), '
+      + 'SKYBIRD 10:29:24 → 10:28:54 (49 → 79 s), ELFKUNGEN 11:59:30 → 11:58:40, MOKENDEIST '
+      + '11:44:00 → 11:43:29, MISTRAL 11:45:07 → 11:44:37, MARY 11:47:30 → 11:46:51, DORY MAN '
+      + '13:32:06 → 13:31:35 och LENYA 13:33:14 → 13:32:44 (alla 30–50 s tidigare; de sex sista köade '
+      + 'och korsade långt senare). C1 (en notis, bara fältet message): ELFKUNGEN Klaffbron söderut '
+      + 'byter "ELFKUNGEN passerade Klaffbron under AIS-tystnad" mot "ELFKUNGEN har precis passerat '
+      + 'Klaffbron" — notisen gick 67 s efter korsningen 10:38:34 med fixar var 60:e sekund, alltså '
+      + 'ingen tystnad enligt formregeln (_returnPassageForm); tid och övriga fält oförändrade. '
+      + 'Öppningsvarningar (41), undertryckningar (0), målpassager (36) och mellanpassager (60) '
+      + 'identiska; notis-, riktnings- och öppningsmultiset samt golden-text orörda.',
   },
   {
     id: '20260823-24h',
@@ -2553,7 +2593,14 @@ module.exports = [
       + 'hamnstopp och verkliga avgång ger en ny Klaffvarning följande morgon. '
       + 'Straxtestet skiljer färsk väntan vid målbron från gammal position före mellanbron. '
       + 'Texter och fullständiga händelser är låsta; septembertesterna prövar dessutom '
-      + 'långvarig kö, källbyte, GPS-osäkerhet, tystnad och frånvaro av timerläckor.',
+      + 'långvarig kö, källbyte, GPS-osäkerhet, tystnad och frånvaro av timerläckor. '
+      + 'OMLÅST 2026-11-14 (fältprovet 10–13 nov, familj C2; docs/faltgranskning-2026-11-14.md §5.3, U13): '
+      + 'notisen för Järnvägsbron söderut går på passagefixen i stället för med vakthundens varv. '
+      + 'Dirigentens egen diff av golden-events: 2 av 23 notiser ändras, bara fältet t, texterna '
+      + 'ordagrant lika — ELFKUNGEN 18:08:30 → 18:07:57 (215 → 248 s före rådatans korsning, inferred) '
+      + 'och EMBLA 16:53:00 → 16:52:06 (9 → 63 s före korsningen 16:53:09). Öppningsvarningar (9), '
+      + 'undertryckningar (1), målpassager (8) och mellanpassager (12) identiska; notis-, riktnings- och '
+      + 'öppningsmultiset samt golden-text orörda.',
   },
   {
     id: '20260917-7h',
@@ -2602,7 +2649,18 @@ module.exports = [
       + 'med och utan monitoring. KAPERENs Klaffpassage upptäcks efter AIS-glappet och får en '
       + 'retroaktiv notis. INV-18 vid 09:38–09:43 UTC beror på olika ETA-bärare: KAPERENs '
       + 'kortvariga extrapolerade strax följs av SYBIL OF WIVENHOEs längre prognos. '
-      + 'Ingen notis eller passage undantas. Se docs/faltgranskning-2026-09-18.md.',
+      + 'Ingen notis eller passage undantas. Se docs/faltgranskning-2026-09-18.md. '
+      + 'OMLÅST 2026-11-14 (fältprovet 10–13 nov, familj C2; docs/faltgranskning-2026-11-14.md §5.3, U13): '
+      + 'notisen för Järnvägsbron söderut går på passagefixen i stället för med vakthundens varv. '
+      + 'Dirigentens egen diff av golden-events: 3 av 38 notiser ändras. SINE BRES 02:27:00 → 02:26:08: '
+      + 'förut gick "SINE BRES närmar sig Järnvägsbron, beräknad ankomst strax" 34 s EFTER rådatans '
+      + 'korsning 02:26:25, på en fix 26 m från bron; nu går samma text 18 s FÖRE korsningen på '
+      + 'föregående fix (94 m), så fälten t, distance och positionen ändras och texten blir sann. '
+      + 'NORDIC SOLA 03:03:00 → 03:02:02 (12 → 70 s före korsningen 03:03:12) och KAPEREN '
+      + '09:24:30 → 09:23:49 (331 → 371 s) ändras bara i t, texterna ordagrant lika. SINE BRES '
+      + 'Järnvägspassage bokförs som förut (F08; 121 fasförskjutningar i granskningen av C2). '
+      + 'Öppningsvarningar (14), undertryckningar (0), målpassager (12) och mellanpassager (19) '
+      + 'identiska; notis-, riktnings- och öppningsmultiset samt golden-text orörda.',
   },
   {
     id: '20260918-7h',
@@ -2626,6 +2684,12 @@ module.exports = [
       + 'Stridsbergsbro. Mellanpassagen registreras vid zonutgång 17:34:15.400 i stället för '
       + 'senare backfill vid Klaffbron. Alla fältets notiser, öppningar, målpassager och texter är kvar. '
       + 'Fem råa målpassager täcks av fyra öppningsgrupper med en varning var; säkra ledtiden till '
-      + 'korsningsfönstrets början är minst 206,449 s. Se docs/faltgranskning-2026-10-05.md.',
+      + 'korsningsfönstrets början är minst 206,449 s. Se docs/faltgranskning-2026-10-05.md. '
+      + 'OMLÅST 2026-11-14 (fältprovet 10–13 nov, familj C2; docs/faltgranskning-2026-11-14.md §5.3, U13): '
+      + 'notisen för Järnvägsbron söderut går på passagefixen i stället för med vakthundens varv. '
+      + 'Dirigentens egen diff av golden-events: 1 av 16 notiser ändras, bara fältet t — NINA B '
+      + '17:32:00 → 17:31:26 (29 → 63 s före rådatans korsning 17:32:28), texten ordagrant lika. '
+      + 'Öppningsvarningar (4), undertryckningar (0), målpassager (5) och mellanpassager (7) identiska; '
+      + 'notis-, riktnings- och öppningsmultiset samt golden-text orörda.',
   },
 ];
