@@ -38,7 +38,7 @@
       "vesselLatNext": 58.29395
     },
     {
-      "t": 1785886950040,
+      "t": 1785886913879,
       "bridge": "Järnvägsbron",
       "direction": "southbound",
       "eta": 1,
@@ -1244,7 +1244,7 @@
       "vesselLatNext": 58.29259
     },
     {
-      "t": 1785923160040,
+      "t": 1785923114819,
       "bridge": "Järnvägsbron",
       "direction": "southbound",
       "eta": 4,
@@ -1262,7 +1262,7 @@
       "vesselLatNext": 58.29258
     },
     {
-      "t": 1785923700040,
+      "t": 1785923640511,
       "bridge": "Järnvägsbron",
       "direction": "southbound",
       "eta": -1,
@@ -1874,6 +1874,24 @@
       "vesselLatNext": 58.29127166666667
     },
     {
+      "t": 1785932238710,
+      "bridge": "Järnvägsbron",
+      "direction": "southbound",
+      "eta": 1,
+      "message": "ELIZABETH GREENWOOD närmar sig Järnvägsbron, beräknad ankomst om 1 minut",
+      "alreadyPassed": false,
+      "name": "ELIZABETH GREENWOOD",
+      "distance": 200,
+      "source": "current",
+      "stateBridge": "jarnvagsbron",
+      "mmsi": "265805640",
+      "success": true,
+      "error": null,
+      "vesselLat": 58.29316333333334,
+      "vesselLon": 12.293836666666666,
+      "vesselLatNext": 58.29195
+    },
+    {
       "t": 1785932249461,
       "bridge": "Stridsbergsbron",
       "direction": "northbound",
@@ -1944,24 +1962,6 @@
       "vesselLat": 58.2948,
       "vesselLon": 12.29641,
       "vesselLatNext": 58.29139833333333
-    },
-    {
-      "t": 1785932280121,
-      "bridge": "Järnvägsbron",
-      "direction": "southbound",
-      "eta": 1,
-      "message": "ELIZABETH GREENWOOD närmar sig Järnvägsbron, beräknad ankomst om 1 minut",
-      "alreadyPassed": false,
-      "name": "ELIZABETH GREENWOOD",
-      "distance": 200,
-      "source": "current",
-      "stateBridge": "jarnvagsbron",
-      "mmsi": "265805640",
-      "success": true,
-      "error": null,
-      "vesselLat": 58.29316333333334,
-      "vesselLon": 12.293836666666666,
-      "vesselLatNext": 58.29195
     },
     {
       "t": 1785932425332,
@@ -2648,7 +2648,7 @@
       "vesselLatNext": 58.2946
     },
     {
-      "t": 1785942780040,
+      "t": 1785942742025,
       "bridge": "Järnvägsbron",
       "direction": "southbound",
       "eta": 2,
