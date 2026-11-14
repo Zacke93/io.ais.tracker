@@ -980,9 +980,11 @@ båt.
   2026-11-09; M6, dirigentens val B med omgranskningens två skärpningar):**
   färska positioner före en annan öppningsbar bro kan inte lova nästa öppning
   (`_earlierBridgeAhead`: en bekräftad kö vid en annan bro, eller en opasserad
-  bro emellan i färdriktningen; har båten passerat broar räknas varje
-  opasserad bro emellan, utom Stallbackabron och inom `WAITING_CLEAR_DISTANCE`
-  från målbron). Spärren infördes mot för tidiga varningar för båtar som sedan
+  bro emellan i färdriktningen; har båten passerat broar, eller en köpost för
+  bron i färdriktningen, räknas varje opasserad bro emellan, utom
+  Stallbackabron och inom `WAITING_CLEAR_DISTANCE` från målbron; efter en
+  bekräftad vändning räknas kedjearmens broar även utan dem, se nästa
+  punkt). Spärren infördes mot för tidiga varningar för båtar som sedan
   väntar vid den tidigare bron, och den ersätter 10-knopsdeadlinen: för en båt
   i rörelse (≥ 2 kn, ingen kö bekräftad i senaste fixet) släpps den vid
   ankaret + min(`STALE_ETA_SOFT_MS`, restiden i nuvarande fart −
@@ -1037,6 +1039,93 @@ båt.
   av 36. Det är T2:s tunna klass, inte golvet. Familj A:s punkt om returresor
   (spärren gäller från fixet efter vändningen) hänvisar till samma fråga, M6;
   dirigenten valde B och, efter omgranskningen, båda skärpningarna.
+- **Kedjearmen efter en bekräftad vändning (fältprovet 10–13 november, familj
+  B; granskningen och dirigentens beslut 2026-11-14):** k1 11 nov vände PILOT
+  761 222 m norr om Stridsbergsbron efter 30 min stopp. Vändningen tömde
+  `passedBridges` (NEW_JOURNEY) och köposterna (`_anchorJourneyOrigin`), och
+  köposterna skapas av `_noteBridgeQueueApproach`, som körs före
+  måltilldelningen. Första målbrofixet efter en vändning saknar därför allt
+  underlag för spärren. Kajprovet sköt målbron ett fix, och kedjearmen
+  Klaffbron (`ARM_NEXT_TARGET`) beväpnades 12:33:55 på ett AISHub-fix 27 s
+  gammalt utan spärr. 10-knopsdeadlinen föll före nästa fix, och varningen gick
+  12:34:57 med "eta 25", 50,7 min före passagen efter 34 min kö vid
+  Järnvägsbron.
+  - **Regeln.** Efter en bekräftad vändning räknar `_earlierBridgeAhead` varje
+    opasserad bro mellan båten och kedjearmens bro som tidigare bro, även utan
+    passerade broar och köposter. Kedjearmen hålls alltså från första
+    målbrofixet, som för en båt med historik; den egna målbrons arm berörs
+    inte. Underlaget är vändningsmärket `_reversalConfirmedAt`, som sätts av
+    `_anchorJourneyOrigin` med `reversal` (app-lagrets NEW_JOURNEY och
+    `_confirmDirectionReversal`, båda efter U18:s två positioner) och förs
+    vidare i `_createVesselObject`. Märket släcks på första fixet där
+    `_noteBridgeQueueApproach` bokför en köpost (då finns det vanliga
+    underlaget), när båten klassas förtöjd, och det följer inte med i graven
+    eller över en omstart. En ny vändning sätter om det. I k1 går PILOTs
+    varning nu 13:15:44, cirka 9,6 min före korsningen (fixen 13:24:50 och
+    13:25:58 ligger på var sin sida om bron). Banken är bitlik med e51c7b6.
+  - **Bara efter en vändning.** Samma regel för varje båt utan historik
+    (förstakontakt mitt i kanalen, båt efter en omstart) gav sena varningar:
+    spärren håller då en arm som saknar kadens, och tystnadsregeln
+    (`_silentHoldLimitMs`) kräver två mottagningsintervall. Granskarens
+    sondmatriser: ett första fix i 2,5 kn och sedan 8–10 kn utan fix gav 22 av
+    108 fall under 150 s, tio under 60 s eller efter passagen; en omstart under
+    spärren gav en passage helt utan varning. Basen gav minst 181 s.
+    Scenarierna `förstakontakt-2,5kn-sedan-8kn-norrut-i-tystnad` och
+    `omstart-120m-före-Stridsbergsbron-10kn-gles` prövar det.
+  - **Känd gräns: vändning följd av hög fart i tystnad.** Situationen: en båt
+    vänder i låg fart (två omvända fix i cirka 2,5 kn), hörs sedan inte på 3–6
+    min och går därefter fort genom målbron och Järnvägsbron, som båda måste
+    öppna. Vid beslutsögonblicket ser det likadant ut som när båten går 1,8 kn
+    till kön vid Järnvägsbron (familjens scenario 2, k1:s PILOT låg där 34 min),
+    och den får inte varnas före kön. Spärren håller 300 s från bekräftelsen.
+    Ledtiden för kedjebron mot den sanna korsningen, granskarens sondmatriser (12
+    fall per fart: båda riktningarna, vändning 200 och 300 m bortom målbron, nästa
+    fix efter 180, 240 eller 360 s):
+
+    | Fart efter vändningen | Bas e51c7b6 | Nu | varav 240–360 s tystnad | Vakt 8 kn (prövad, ej införd) |
+    |---|---|---|---|---|
+    | 4 kn | 621–651 s | 175–457 s | 402–451 s | 556–582 s |
+    | 6 kn | 407–421 s | 181–281 s | 188–221 s | 342–352 s |
+    | 8 kn | 300–306 s | 81–165 s | 81–105 s | 235–236 s |
+    | 9 kn | 264–268 s | 45–127 s | 45–67 s | 197–200 s |
+    | 10 kn | 236–237 s | 17–96 s | 17–36 s | 165–172 s |
+
+    Under 150 s: 10 fall i 8 kn (81–141 s) och alla 12 i 9 och 10 kn; under 60 s:
+    4 fall i 9 kn och 8 i 10 kn. Ingen varning kom efter passagen och ingen
+    passage blev ovarnad i de 60 fallen, men i 10 kn är marginalen 17 s. Snabbare
+    än 10 kn är inte prövat. Det låsta scenariot för värld 1208 (M1, 5 kn) får
+    Stridsbergsbrons varning 280 s före den sanna korsningen i stället för 472 s,
+    och en ETA som stämde ("eta 8") blir okänd. Det som talar för att fallet är
+    en undre gräns: generatorn passerar broarna utan uppehåll, men i
+    verkligheten måste målbron och Järnvägsbron hinna öppna; den tidiga klassen
+    (fältfelet, 50,7 min) är sedd i fält, den sena inte. Vakten som räknar
+    spärren efter vändning på minst 8 kn tar bort fallen (tabellen; 1208 400 s
+    och "eta 6") men varnar familjens scenario 2 29,6 min före passagen (1 779 s
+    mot 411 s); 4 kn (`EARLIER_BRIDGE_BEYOND_KN`) ändrar ingenting. Ingen vakt är
+    införd. Öppen ägarfråga (2026-11-14), alternativ: (a) spärren som nu, med
+    tabellens sena fall; (b) vakten 8 kn, och fältfelets klass kommer tillbaka
+    när nästa fix efter vändningen dröjer mer än cirka 170 s; (c) ingen spärr
+    efter vändning (basen), fältfelet kvar. Familj B rekommenderar (a).
+    Scenariot `vänder-norr-om-Stridsbergsbron-8kn-söderut-i-tystnad (känd gräns)`
+    låser gränsen vid 90 s (i dag 105 s).
+  - **Omstart.** Märket sparas inte, så efter en omstart är båten en
+    förstakontakt. Ligger hon då mellan Stridsbergsbron och Järnvägsbron på väg
+    söderut (eller mellan Klaffbron och Järnvägsbron norrut) är nästa målbro
+    hennes EGEN, med Järnvägsbron emellan; den egna armen saknar historik och
+    köposter på första fixet och varnar på 10-knopsdeadlinen. Granskarens omstart
+    12:36:40Z i k1 gav PILOT en varning 12:37:46Z, 47,6 min för tidigt. Det är
+    basens beteende och hör till de kända omstartsgränserna (öppningsarmar och
+    resetillstånd sparas inte); att låta märket eller regeln gälla där skulle
+    återinföra granskningens H1.
+  - **Instrumentet `[OPENING_HOLD]`** (debug, `_noteHoldTransition`) skriver
+    bara övergångar för armar där spärren kan hålla en varning (ovarnade och
+    absorberade): spärren börjar hålla (bro, underlag, gren, slut), spärren
+    kortas mer än `TICK_INTERVAL_MS`, och spärren släpps (fix utan tidigare
+    bro, utlöpt, avväpnad eller varnad). Släpp-raden bär det faktiska slutet
+    och antalet förnyelser. En förnyelse som skjuter slutet framåt och ett
+    brobyte inom spärren loggas inte. I fem uppmätta korpusar (k1 och fyra ur
+    banken) blev det 12–68 rader per korpus, med en start och ett slut per
+    spärr.
 - **"Hölls vid en tidigare bro" avgörs av båtens egna fix (F09, 2026-11-04):**
   regeln från a8d7b76 (en varning som gick medan båten hölls vid en tidigare
   bro täcker inte hennes senare ankomst; AKIRA-testet) avgörs vid hennes första
@@ -1427,10 +1516,15 @@ båt.
     målbron, bokförs mellanbron bara av TARGET_END:s Järnvägsbroinferens. För M2 är
     Järnvägsbron den enda mellanbro som kan ge en ny målbro; en återkorsning av Olidebron
     eller Stallbackabron leder ut ur kanalen. Spärren vid en tidigare bro
-    (`_earlierBridgeAhead` i BridgeOpeningService) gäller nu redan från fixet efter
-    vändningen, eftersom köbevisbokföringen kräver målbro. Returbåten behandlas då som
-    vilken båt som helst med en tidigare bro framför målbron. På c14938f slapp hon spärren
-    för nästa målbro, eftersom målbron kom ett fix sent. I svepet kom 90 av 103
+    (`_earlierBridgeAhead` i BridgeOpeningService) gäller för kedjearmen redan från
+    första målbrofixet efter vändningen (vändningsmärket, se "Kedjearmen efter en
+    bekräftad vändning" ovan). Fram till fältprovet gällde den först från fixet efter,
+    eftersom köposterna kräver målbro, och bara om det fixet hann före kedjearmens
+    10-knopsdeadline; i fältet kom målbron dessutom ett fix sent (kajprovet), och
+    PILOT 761 varnades 50,7 min före passagen. Returbåten behandlas som vilken båt som
+    helst med en tidigare bro framför målbron. Mätningen när samma-tick-målbron
+    infördes (mot c14938f, där hon slapp spärren för nästa målbro eftersom målbron kom
+    ett fix sent): i svepet kom 90 av 103
     tidsflyttade varningar tidigare och 13 upp till 37 s senare, alla mot en målbro med
     Järnvägsbron emellan. I buggjägarens quick-värld 169 kom returens
     Stridsbergsbronvarning 123 s före korsningen i stället för 824 s. Ingen ledtid mot en
