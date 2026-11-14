@@ -13629,16 +13629,38 @@ class AISBridgeApp extends Homey.App {
         this.error('Error in watchdog:', error);
       }
     };
-    const schedule = () => {
+    // F5 (fältprovet 2026-11-12): timern bär sin MÅLGRÄNS. Node-timern kan
+    // lösa ut medan väggklockan fortfarande står 1 ms före halvminuten (k1:
+    // 13 gånger på 66 h). Den gamla bokningen (30000 − now % 30000) körde då
+    // ticken på xx:59.999 och, om nästa bokning hann göras inom samma
+    // millisekund, en gång till 1 ms senare — samma halvminut två gånger
+    // (k1 12 nov 03:53:59.999 och 03:54:00.001). Nu körs ingenting före
+    // målgränsen: en tidig utlösning bokas om till första gränsen strikt efter
+    // nu, vilket är målgränsen själv så länge klockan inte ställts bakåt mer
+    // än en halvminut. Efter körning bokas första gränsen strikt efter nu, så
+    // en gräns kan aldrig köras två gånger och en sen callback kör inte ikapp.
+    // Replayharnessens fake-klocka löser ut exakt på målgränsen, så replayns
+    // fas är oförändrad. KÄND, OFARLIG GRÄNS (granskningen L5): ställs klockan
+    // bakåt mer än en halvminut medan timern väntar, väntar ticken in första
+    // gränsen efter den nya tiden i stället för att köra direkt, så ett
+    // 30 s-fönster blir utan tick (högst cirka 60 s mellan två körningar).
+    // Öppningsmotorn har egen deadline-timer och tick() är tidsbaserad.
+    const WATCHDOG_SLOT_MS = 30000;
+    const nextSlotAfter = (t) => (Math.floor(t / WATCHDOG_SLOT_MS) + 1) * WATCHDOG_SLOT_MS;
+    const arm = (target) => {
       if (!isCurrent()) return;
-      const delay = 30000 - (Date.now() % 30000);
       this._watchdogTimer = setTimeout(() => {
         if (!isCurrent()) return;
+        const now = Date.now();
+        if (now < target) {
+          arm(nextSlotAfter(now));
+          return;
+        }
         runWatchdog();
-        schedule();
-      }, delay);
+        arm(nextSlotAfter(Date.now()));
+      }, Math.max(1, target - Date.now()));
     };
-    schedule();
+    arm(nextSlotAfter(Date.now()));
 
     this.debug('✅ [COALESCING] Micro-grace coalescing system initialized');
   }

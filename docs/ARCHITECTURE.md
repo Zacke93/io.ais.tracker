@@ -45,7 +45,17 @@ BridgeOpeningService: gemensam timer för nästa deadline/utgången konvojtäckn
    └─→ onWarning → bridge_opening_soon
 ```
 
-Tidsstyrningen ovan gäller sedan 2026-09-08. Förbrukad ankomstprognos efter
+Tidsstyrningen ovan gäller sedan 2026-09-08. Sedan fältprovet 2026-11-12
+(F5) bär watchdogens timer sin målgräns: en timer som löser ut medan
+väggklockan står före gränsen (fältet: 1 ms, 13 gånger på 66 h, en gång med
+dubbelt tick) bokas om till gränsen i stället för att köra, och nästa gräns
+räknas strikt efter körningen, så ingen halvminut körs för tidigt eller två
+gånger, och en sen callback kör inte ikapp. Känd, ofarlig gräns: ställs
+klockan bakåt mer än en halvminut blir ett 30 s-fönster utan tick (högst
+cirka 60 s mellan två körningar) innan ticken följer rutnätet igen.
+Öppningsmotorns deadline-timer jämför själv `now` mot varje deadline
+och bokar om efter en tidig utlösning. Monitoringloopen är ett vanligt
+intervall utan rutnät. Förbrukad ankomstprognos efter
 mer än fem minuters AIS-tystnad ger okänd ETA i öppningskortet. Full loggning
 bevarar även avvisade AISstream-fixar i `AIS_SOURCE_REJECT_SAMPLE`; dessa
 diagnostikrader påverkar varken livstecken eller appens replayindata.
