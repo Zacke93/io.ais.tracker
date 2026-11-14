@@ -100,6 +100,9 @@ const OMSTART_SLOW_ZONE = {
  *    varje sann korsning av bron, minst N s före korsningen (familj C, C2)
  *  - noApproachNoticeAfterCrossing: [bro] — ingen förvarning för bron mellan
  *    en sann korsning och nästa (en passerad bro får bara passerad form)
+ *  - maxNoticeDelayS: {bro: N} — för varje sann korsning av bron ska båtens
+ *    första notis för bron (vilken form som helst) komma senast N s efter
+ *    korsningen (familj C3: ingen notis via failsafen minuter senare)
  *  - toleratedInvariants: [RegExp] — fatala invariantrader som scenariot
  *    medvetet tål. Bara för KÄNDA fel utanför scenariots fråga, med motivering
  *    vid scenariot (U14-vakterna: passagelogikens falska bokföring vid linjen)
@@ -2391,6 +2394,36 @@ const SCENARIOS = [
     },
   },
   {
+    // Buggjägaren efter sammanslagningen (2026-11-14, familj C3): FREJA 2 och
+    // BRISEN (w1458015545-383-R1, w2090169785-1226-R1). Båten ligger redan
+    // under Stridsbergsbron (40 m) och nästa glesa fix, 173 s senare, ligger
+    // 14 m bortom Järnvägsbron. Passagen av Stridsbergsbron bokförs utan
+    // broöppningsfönster (samma bro var redan låst), så FIX U konsumeras i
+    // fixens eget pass. Basen gav där "närmar sig Järnvägsbron, beräknad
+    // ankomst strax" ~8 s efter korsningen; C2 rensade väntan 10 m bortom
+    // linjen och notisen kom via failsafen vid nästa fix, ~180 s efter.
+    name: 'järnvägsbron-söderut-glest-passagefix-under-bron (C3)',
+    seed: 8203,
+    vessels: [
+      {
+        mmsi: '908200003',
+        name: 'SYNT-JVB-UNDER',
+        startS: METRICS.cum[5] + 200,
+        legs: [
+          { toS: METRICS.cum[4] + 40, speedKn: 5, intervalS: 60 },
+          // 173 s i 3,5 kn = 311 m: från 40 m norr om Stridsbergsbron till
+          // 14 m söder om Järnvägsbron (paret ligger 257 m isär).
+          { toS: 0, speedKn: 3.5, intervalS: 173 },
+        ],
+      },
+    ],
+    expect: {
+      minTargetPassages: 2,
+      minNotifiedBridges: ['Järnvägsbron'],
+      maxNoticeDelayS: { Järnvägsbron: 60 },
+    },
+  },
+  {
     // Fältprovet 2026-11-12 (körning 1, PRICKBJORN; familj A): varnad för
     // Stridsbergsbron på väg söderut, sedan helt stilla 460 m norr om bron i
     // farleden, utanför de ritade kajzonerna, i 3 h 54 min. Målbron tappas
@@ -3204,6 +3237,29 @@ function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
               + `"${n.message}" ${Math.round((n.t - crossingMs) / 1000)} s efter den sanna korsningen`);
           }
         });
+      }
+    }
+  }
+  // Familj C3 (2026-11-14): NOTISEN FÅR INTE KOMMA MINUTER EFTER PASSAGEN.
+  // För varje sann korsning ska båtens första notis för bron (efter förra
+  // korsningen) komma senast N s efter den, i vilken form som helst.
+  if (e.maxNoticeDelayS) {
+    for (const [bridge, maxS] of Object.entries(e.maxNoticeDelayS)) {
+      const sBridge = METRICS.cum[PATH_INDEX[bridge]];
+      for (const [mmsi, truthPath] of Object.entries(truthPaths || {})) {
+        let previousMs = -Infinity;
+        for (const c of truthCrossings(truthPath, sBridge)) {
+          const crossingMs = BASE_TIME_MS + c.tS * 1000;
+          const first = notifications
+            .filter((n) => String(n.mmsi) === mmsi && n.bridge === bridge && Number.isFinite(n.t) && n.t > previousMs)
+            .sort((x, y) => x.t - y.t)[0];
+          if (!first || first.t > crossingMs + maxS * 1000) {
+            problems.push(`SEN NOTIS vid ${bridge} ${new Date(crossingMs).toISOString()} (${mmsi}, ${c.dir}): `
+              + `${first ? `första notisen ${Math.round((first.t - crossingMs) / 1000)} s efter korsningen ("${first.message}")` : 'ingen notis'} `
+              + `(krav ≤ ${maxS} s)`);
+          }
+          previousMs = crossingMs;
+        }
       }
     }
   }

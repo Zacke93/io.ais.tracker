@@ -240,7 +240,21 @@ Moduler (ansvar / ägda tillstånd / in-ut):
   notisen "närmar sig Järnvägsbron, beräknad ankomst strax". Nu bokförs passagen vid
   nästa fix, och passerad form kommer från S4 eller, när den fixen ligger utanför
   notisradien, från failsafen (OSPREY i 20260601-41h: 591 m, 130 s senare än den falska
-  förvarningen)),
+  förvarningen). **Gränsen (familj C3, buggjägaren 2026-11-14):** 10 m bortom linjen
+  ensamt var fel. Det är mindre än en båtlängd: en båt 12–31 m bortom Järnvägsbron
+  står under bron (appen själv loggar "Under Järnvägsbron" i samma pass). Låg
+  passagefixen där och bokfördes Stridsbergsbron utan broöppningsfönster (båten låg
+  redan under den bron), gav basen "närmar sig … strax" i samma pass, 7–28 s efter
+  korsningen, en form som INV-22 (samma cykel inom bandet) och T1 godtar. C2 skickade
+  i stället notisen via S4 eller failsafen vid nästa glesa fix, 61–367 s senare (9 av
+  buggjägarens 35 142 besök, FREJA 2 +367 s, BRISEN +202 s). Nu behålls väntan när
+  fixen ligger högst `UNDER_BRIDGE_SET_DISTANCE` (50 m) från parbron OCH passet är
+  fixens eget (`ownCleanFixPass`: meddelandevägens uttryckligen rena positionsanalys,
+  samma signal som släpper stabilizern; timerpassen skickar ingen sådan analys).
+  Med fönstret aktivt står flaggan vilande. Ett senare pass på samma fix (vakthunden,
+  en omkörning) rensar den: där var basens notis falsk (OSPREY-klassen, en 30–55 s
+  gammal fix 15–34 m bortom linjen) och C2:s passerade form står kvar, ofta 39–130 s
+  senare. Den klassen är känd och ägarfråga 4 (passerad form redan på passagefixen)),
   under-bridge-hysteres (:407–657). Äger CurrentBridgeManager, StatusStabilizer,
   PassageWindowManager, ProgressiveETACalculator. Emitterar `status:changed`.
 - **ProximityService**: stateless avståndsanalys fartyg↔broar
@@ -487,8 +501,13 @@ passager, öppningsvarningar eller notisantal (i banken: ingen), utöver notiser
 Järnvägsbron söderut; (2) två notiser för
 samma Järnvägspassage, eller "närmar sig Järnvägsbron" från en fix entydigt bortom
 linjen; (3) en sydgående Järnvägsbronnotis som kommer senare mot rådatans korsning än
-utan tillägget; eller (4) en Järnvägspassage som bokförs utan tillägget men inte med det
-(F08-klassen). Sjätte och sjunde source-värdet —
+utan tillägget, utom OSPREY-klassen (en notis som utan C2 kom i ett senare pass på en
+fix bortom linjen och var falsk; den får passerad form senare, och det är känt); eller (4)
+en Järnvägspassage som bokförs utan tillägget men inte med det (F08-klassen). Kriterium
+(3) fångade inte felet som buggjägaren hittade efter sammanslagningen (FREJA 2-klassen),
+eftersom banken saknade fallet; buggjägarens standardkörning (T1 SEN-NOTIS och
+populationsjämförelsen av första notisens tid) hör därför till prövningen av varje
+ändring här. Sjätte och sjunde source-värdet —
 `passage-fallback` respektive `exit-fallback` (F6, 2026-08-10) — sätts av
 fallback-vägen; ingen av dem är en proximity-källa (se §8d).
 
@@ -1698,18 +1717,22 @@ båt.
   **Uppskjutna pass (F08, 2026-11-04, `_noteDeferredZoneEntryCross`):** vid det
   nära broparet når passet vid inträdesfixen ofta inte INTERMEDIATE_UNDER.
   Phase 3-hållningen för den nyss passerade bron returnerar före grenen, FIX U:s
-  tvingade väntan returnerar före hela `_isUnderBridge` (sedan 2026-11-13 bara när
-  fixen inte ligger entydigt bortom parbrons linje; en fix bortom linjen, som SINE
-  BRES 26 m, rensar flaggan och går den ordinarie vägen genom INTERMEDIATE_UNDER, som
-  prövar samma inträdessegment. FIX U-grenens prövning nås alltså bara på ankomstsidan
-  och inom ±10 m från linjen. Där kan den bara spara P1:s epsilonkandidat, med
-  startpunkten på närsidan; testet "FIX U:s tvingade väntan med fixen i ±10 m-bandet"
-  i `zonintrade-uppskjutet-bevis.test.js` låser anropet. I de följder familj C prövade
+  tvingade väntan returnerar före hela `_isUnderBridge` (sedan familj C3, 2026-11-14:
+  när fixen ligger på ankomstsidan, inom ±10 m från linjen, eller högst 50 m bortom
+  den i fixens eget pass; ett senare pass på en fix bortom linjen, som vakthunden vid
+  SINE BRES 26 m, rensar flaggan och går den ordinarie vägen genom INTERMEDIATE_UNDER,
+  som prövar samma inträdessegment. Testerna i `zonintrade-uppskjutet-bevis.test.js`
+  låser alla tre vägarna (hållningen, FIX U i fixens eget pass, det senare passet)
+  och FIX U-grenens anrop, även med fixen i ±10 m-bandet där det bara kan spara P1:s
+  epsilonkandidat; SINE BRES Järnvägspassage bokförs i alla 121 fasförskjutningar
+  δ = −30…+30 s. I de följder familj C prövade
   avgjordes passagen ändå av den ordinarie vägen, i basen och efter C2: utgångsfixen
   bokför passagen direkt, och en mellanfix 20–30 m bortom linjen ger segmentbevis
-  direkt från A0. En mellanfix 40 m bortom linjen tappar passagen, eftersom segmentet
-  från A0 blir 401 m och nästa pass startar ett nytt zonbesök. Det gäller både i basen och efter C2 och är
-  samma klass som korpustestets KÄNDA LUCKA (en extra fix 50–60 m efter linjen)), och rensningspasset
+  direkt från A0. En mellanfix 40–55 m bortom linjen efter en start 3–6 m bortom den
+  tappar passagen (granskningens 208 följder: 32), eftersom segmentet från A0 blir
+  över 400 m och nästa pass startar ett nytt zonbesök. Det gäller både i basen och
+  efter C2/C3 och är samma klass som korpustestets KÄNDA LUCKA (en extra fix 50–60 m
+  efter linjen)), och rensningspasset
   (CurrentBridgeManager Regel 0) väljer inte nästa bro. Beviset prövades då
   först i ett senare pass vid samma position, oftast UI-uppdateringen. Om det
   passet hann före nästa AIS-fix berodde på klockfasen (SINE BRES 20260917-16h

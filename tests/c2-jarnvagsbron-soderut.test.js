@@ -145,6 +145,64 @@ describe('C2: FIX U tvingar ingen väntan vid en parbro som båten redan passera
     expect(vessel.currentBridge).toBe('Järnvägsbron');
   });
 
+  // Buggjägaren efter sammanslagningen (2026-11-14, familj C3): C2 rensade
+  // flaggan redan 10 m bortom linjen, alltså inom en båtlängd. Låg passagefixen
+  // 12–31 m bortom Järnvägsbron och bearbetades utan broöppningsfönster (båten
+  // låg redan under Stridsbergsbron), gav basen notisen "närmar sig … strax" i
+  // samma pass. Efter C2 kom den via failsafen minuter senare (FREJA 2 +367 s,
+  // BRISEN +202 s). I fixens eget pass (meddelandevägens rena positionsanalys)
+  // och inom UNDER_BRIDGE_SET_DISTANCE behålls väntan som i basen.
+  const ownFixAnalysis = { gpsJumpDetected: false, positionUncertain: false, analysis: { isGPSJump: false } };
+  const ownFixPass = (vessel) => {
+    const events = [];
+    status.on('status:changed', (e) => events.push(e));
+    const result = status.analyzeVesselStatus(vessel, proximity.analyzeVesselProximity(vessel), ownFixAnalysis);
+    return { result, events };
+  };
+
+  test.each([
+    ['FREJA 2, 12 m bortom linjen', -12],
+    ['BRISEN, 31 m bortom linjen', -31],
+  ])('%s i fixens eget pass utan broöppningsfönster: väntan tvingas som i basen', (_label, offsetM) => {
+    jest.setSystemTime(T0);
+    const vessel = vesselAfterStridsPassage(offsetM, {
+      _bridgeOpeningUntil: null, _bridgeOpeningBridgeName: null, status: 'under-bridge',
+    });
+    const { result, events } = ownFixPass(vessel);
+    expect(result.statusReason).toBe('FIX_U_forced_waiting_close_bridge_pair');
+    expect(events.some((e) => e.reason === 'FIX_U_forced_waiting_close_bridge_pair')).toBe(true);
+    expect(vessel.currentBridge).toBe('Järnvägsbron');
+    expect(log.debug).not.toHaveBeenCalledWith(expect.stringContaining('FIX_U_SKIP_PAST_LINE'));
+  });
+
+  test('mer än 50 m bortom linjen ges ingen tvingad väntan, inte heller i fixens eget pass', () => {
+    jest.setSystemTime(T0);
+    const vessel = vesselAfterStridsPassage(-60, { _bridgeOpeningUntil: null, _bridgeOpeningBridgeName: null });
+    const { result, events } = ownFixPass(vessel);
+    expect(result.statusReason).not.toBe('FIX_U_forced_waiting_close_bridge_pair');
+    expect(events.some((e) => e.reason === 'FIX_U_forced_waiting_close_bridge_pair')).toBe(false);
+    expect(vessel._forceWaitingAtBridge).toBeNull();
+    expect(log.debug).toHaveBeenCalledWith(expect.stringContaining('FIX_U_SKIP_PAST_LINE'));
+  });
+
+  test('PRICKBJORN med fönstret aktivt: flaggan står vilande i fixens pass, vakthunden efter fönstret rensar den', () => {
+    // OSPREY-klassen: basens notis kom från ett senare pass på den gamla fixen
+    // och var falsk. Den ska inte komma tillbaka.
+    jest.setSystemTime(T0);
+    const vessel = vesselAfterStridsPassage(-23);
+    let { result } = ownFixPass(vessel);
+    expect(result.statusReason).not.toBe('FIX_U_forced_waiting_close_bridge_pair');
+    expect(vessel._forceWaitingAtBridge).toMatchObject({ bridge: 'Järnvägsbron' });
+    jest.setSystemTime(T0 + 44000);
+    const events = [];
+    status.on('status:changed', (e) => events.push(e));
+    result = status.analyzeVesselStatus(vessel, proximity.analyzeVesselProximity(vessel), null);
+    expect(result.statusReason).not.toBe('FIX_U_forced_waiting_close_bridge_pair');
+    expect(events.some((e) => e.reason === 'FIX_U_forced_waiting_close_bridge_pair')).toBe(false);
+    expect(vessel._forceWaitingAtBridge).toBeNull();
+    expect(log.debug).toHaveBeenCalledWith(expect.stringContaining('FIX_U_SKIP_PAST_LINE'));
+  });
+
   test('utan känd utlösande bro avgör ruttriktningen', () => {
     const registry = new BridgeRegistry();
     const past = vesselAfterStridsPassage(-23, {
@@ -279,5 +337,43 @@ describe('C2: notisen för Järnvägsbron går på fixen som bokför Stridsbergs
     const app = makeApp();
     const vessel = vesselAfterStridsPassage(196, { _forceWaitingAtBridge: null });
     expect(candidates(app, vessel).map((c) => c.name)).not.toContain('Järnvägsbron');
+  });
+});
+
+/**
+ * Familj C3 (2026-11-14): MOTFALLET SOM LÅSER C2:S VINST I BANKEN. OSPREY
+ * (20260601-41h) bokförde Stridsbergsbron 09:59:39 på en fix 19 m bortom
+ * Järnvägsbron, med broöppningsfönstret aktivt. Basen tvingade väntan i
+ * vakthundens senare pass på den fixen (10:00:30) och skickade "närmar sig
+ * Järnvägsbron, beräknad ankomst strax" för en bro hon passerat. C3 behåller
+ * väntan bara i fixens eget pass inom 50 m; vakthundens pass rensar den som i
+ * C2, så notisen blir passerad form.
+ */
+describe('C3: OSPREY-klassen i banken får ingen förvarning för den passerade bron', () => {
+  const { execFileSync } = require('child_process');
+  const path = require('path');
+  const corpora = require('./replay-validation/corpora');
+  let notices;
+
+  beforeAll(() => {
+    const corpus = corpora.find((entry) => entry.id === '20260601-41h');
+    const stdout = execFileSync(process.execPath, [
+      path.join(__dirname, 'replay-validation/replayRunner.js'), corpus.jsonl,
+    ], {
+      encoding: 'utf8',
+      timeout: 60000,
+      maxBuffer: 64 * 1024 * 1024,
+      env: {
+        ...process.env, REPLAY_MONITORING: '', REPLAY_VERBOSE: '', REPLAY_DEBUG_LEVEL: 'off',
+      },
+    });
+    notices = JSON.parse(/__REPLAY_JSON__(.*)__END__/s.exec(stdout)[1]).notifications
+      .filter((n) => String(n.mmsi) === '265035480' && n.bridge === 'Järnvägsbron');
+  }, 70000);
+
+  test('Järnvägsbron söderut kommer i passerad form, aldrig som "närmar sig"', () => {
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({ direction: 'southbound', alreadyPassed: true });
+    expect(notices[0].message).not.toMatch(/närmar sig/);
   });
 });
