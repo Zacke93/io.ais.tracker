@@ -96,6 +96,10 @@ const OMSTART_SLOW_ZONE = {
  *  - maxNotifiedPerBridge: {bro: N} — max antal notiser per bro (dubblettvakt)
  *  - minNotifiedPerBridge: {bro: N} — minst N notiser per bro (U14: en notis
  *    per verklig passage, även returpassagen inom samma besök)
+ *  - approachNoticeLeadS: {bro: N} — en förvarning (already_passed=false) för
+ *    varje sann korsning av bron, minst N s före korsningen (familj C, C2)
+ *  - noApproachNoticeAfterCrossing: [bro] — ingen förvarning för bron mellan
+ *    en sann korsning och nästa (en passerad bro får bara passerad form)
  *  - toleratedInvariants: [RegExp] — fatala invariantrader som scenariot
  *    medvetet tål. Bara för KÄNDA fel utanför scenariots fråga, med motivering
  *    vid scenariot (U14-vakterna: passagelogikens falska bokföring vid linjen)
@@ -2114,6 +2118,59 @@ const SCENARIOS = [
       creepEta: { bridge: 'Klaffbron', maxUnderMin: 11, maxCardUnderMin: 10 },
     },
   },
+  {
+    // Fältprovet 2026-11-13 (familj C, C2): ASPEN/WILSON ALSTER/NORDIC SOLA.
+    // Söderut i 10 kn med 70 s mellan fixarna: 290 m norr om Stridsbergsbron,
+    // sedan 70 m söder om den (187 m norr om Järnvägsbron). Den fixen bokför
+    // Stridsbergsbron och ligger redan i Järnvägsbrons zon. Förut höll
+    // broöppningsfönstret (30 s) notisen tills vakthunden tvingade väntan på
+    // den gamla fixen, högst 6 s före korsningen (36 s efter fixen). Nu går
+    // notisen på fixen, 36 s före korsningen.
+    name: 'järnvägsbron-söderut-notis-på-passagefixen (C2)',
+    seed: 8201,
+    vessels: [
+      {
+        mmsi: '908200001',
+        name: 'SYNT-JVB-TIDIG',
+        startS: METRICS.cum[4] + 290 + 8 * 10 * 0.5144 * 70,
+        legs: [{ toS: 0, speedKn: 10, intervalS: 70 }],
+      },
+    ],
+    expect: {
+      minTargetPassages: 2,
+      approachNoticeLeadS: { Järnvägsbron: 20 },
+      noApproachNoticeAfterCrossing: ['Järnvägsbron', 'Stridsbergsbron'],
+    },
+  },
+  {
+    // Fältprovet 2026-11-13 (familj C, C2): PRICKBJORN 13:56. Fixen efter
+    // Stridsbergsbron ligger 20 m BORTOM Järnvägsbron (77 m norr om
+    // Stridsbergsbron → 354 m på 70 s). Ingen fix låg inom 300 m på
+    // ankomstsidan, så någon förvarning finns inte att ge. Förut tvingade
+    // vakthunden väntan vid den passerade bron och notisen blev "närmar sig
+    // Järnvägsbron, beräknad ankomst strax". Nästa fix (AISStream, 45 s)
+    // bokför passagen och ger "har precis passerat".
+    name: 'järnvägsbron-söderut-passagefix-bortom-linjen (C2)',
+    seed: 8202,
+    vessels: [
+      {
+        mmsi: '908200002',
+        name: 'SYNT-JVB-BORTOM',
+        startS: METRICS.cum[4] + 77 + 8 * 10 * 0.5144 * 70,
+        legs: [
+          // Benet slutar 1 m norr om fixen 20 m söder om Järnvägsbron, så att
+          // nästa ben börjar exakt där (sista steget klipps till benets mål).
+          { toS: METRICS.cum[3] - 19, speedKn: 10, intervalS: 70 },
+          { toS: 0, speedKn: 10, intervalS: 45 },
+        ],
+      },
+    ],
+    expect: {
+      minTargetPassages: 2,
+      minNotifiedBridges: ['Järnvägsbron'],
+      noApproachNoticeAfterCrossing: ['Järnvägsbron', 'Stridsbergsbron'],
+    },
+  },
 ];
 
 function runScenario(scenario) {
@@ -2535,6 +2592,52 @@ function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
               + `${((crossing - w.t) / 60000).toFixed(1)} min (fel ${err.toFixed(1)}, dagens gräns −${maxCardUnderMin})`);
           }
         }
+      }
+    }
+  }
+  // Fältprovet 2026-11-13 (familj C, C2): NOTISENS LEDTID OCH SIDA MOT DEN
+  // SANNA KORSNINGEN. En förvarning ("närmar sig", already_passed=false) för
+  // båtens korsning av bron ska komma minst N s före korsningen och efter
+  // båtens förra korsning av samma bro. Korsningen kommer ur generatorns sanna
+  // bana, inte ur appens bokföring.
+  if (e.approachNoticeLeadS) {
+    for (const [bridge, minLeadS] of Object.entries(e.approachNoticeLeadS)) {
+      const sBridge = METRICS.cum[PATH_INDEX[bridge]];
+      for (const [mmsi, truthPath] of Object.entries(truthPaths || {})) {
+        let previousMs = -Infinity;
+        for (const c of truthCrossings(truthPath, sBridge)) {
+          const crossingMs = BASE_TIME_MS + c.tS * 1000;
+          const leads = notifications
+            .filter((n) => String(n.mmsi) === mmsi && n.bridge === bridge && n.alreadyPassed === false
+              && Number.isFinite(n.t) && n.t > previousMs && n.t < crossingMs)
+            .map((n) => (crossingMs - n.t) / 1000);
+          const best = leads.length ? Math.max(...leads) : null;
+          if (best === null || best < minLeadS) {
+            problems.push(`SEN FÖRVARNING vid ${bridge} ${new Date(crossingMs).toISOString()} (${mmsi}, ${c.dir}): `
+              + `${best === null ? 'ingen förvarning före korsningen' : `bästa förvarningen ${Math.round(best)} s`} `
+              + `före den sanna korsningen (krav ≥ ${minLeadS} s)`);
+          }
+          previousMs = crossingMs;
+        }
+      }
+    }
+  }
+  // Spegeln: ingen förvarning för en bro som båten redan har passerat (efter
+  // en sann korsning och före nästa). Passerad form (already_passed) är
+  // tillåten.
+  if (e.noApproachNoticeAfterCrossing) {
+    for (const bridge of e.noApproachNoticeAfterCrossing) {
+      const sBridge = METRICS.cum[PATH_INDEX[bridge]];
+      for (const [mmsi, truthPath] of Object.entries(truthPaths || {})) {
+        const crossings = truthCrossings(truthPath, sBridge).map((c) => BASE_TIME_MS + c.tS * 1000);
+        crossings.forEach((crossingMs, i) => {
+          const nextMs = i + 1 < crossings.length ? crossings[i + 1] : Infinity;
+          for (const n of notifications.filter((x) => String(x.mmsi) === mmsi && x.bridge === bridge
+            && x.alreadyPassed === false && Number.isFinite(x.t) && x.t > crossingMs && x.t < nextMs)) {
+            problems.push(`FÖRVARNING EFTER PASSAGEN: ${bridge} ${n.iso || new Date(n.t).toISOString()} (${mmsi}) `
+              + `"${n.message}" ${Math.round((n.t - crossingMs) / 1000)} s efter den sanna korsningen`);
+          }
+        });
       }
     }
   }

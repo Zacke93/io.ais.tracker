@@ -9030,6 +9030,50 @@ class AISBridgeApp extends Homey.App {
       addCandidate(nearestBridge.name, 'nearest');
     }
 
+    // Fältprovet 2026-11-13 (familj C, ASPEN/WILSON ALSTER/NORDIC SOLA): DET
+    // NÄRA BROPARETS NÄSTA BRO. Söderut ligger Järnvägsbron ~257 m efter
+    // Stridsbergsbron, så fixen som bokför Stridsbergsbron ligger redan i
+    // Järnvägsbrons zon. Phase 3-hållningen håller då currentBridge på den
+    // passerade bron i 30 s, och FIX U gör parbron till current först när
+    // fönstret gått ut — i praktiken vakthundens pass på en 30–60 s gammal fix.
+    // Notisen kom därför vid eller efter passagen. Hållningen och FIX U gäller
+    // brotextens fassekvens och står orörda; här erbjuds parbron (den bro FIX U
+    // ändå gör till current) redan nu, med samma källa och samma fix som
+    // vakthundens notis hade fått. Fix 7 (nedan) låter redan målbron och en
+    // annan bro inom 300 m trigga i samma tick, just för att broparets zoner
+    // överlappar (EKEN); det här är samma tanke när parbron inte är målbro.
+    // Norrut är parbron målbron och erbjuds som target. En parbro som båten
+    // redan passerat erbjuds inte (se StatusService.isBeyondForcedWaitingBridge);
+    // passerad form kommer när passagen bokförs (S4) eller, när nästa fix ligger
+    // utanför notisradien, från failsafen.
+    // D6 (etapp7-plan 2026-08-08, "Järnvägsbrofördröjningen", uppskjuten
+    // 2026-08-05b) skisserade en annan rättning: undanta parbron från zonstoppet
+    // i ProximityService. Den rörs inte här; se docs/ARCHITECTURE.md §Kandidatval.
+    // Etiketten 'current' behålls (INV-11/16 och tokens identiska med
+    // vakthundens notis), men en egen debugrad skrivs en gång per FIX U-flagga
+    // så att loggen inte ser ut att motsäga currentBridge.
+    const pairNext = vessel._forceWaitingAtBridge;
+    if (pairNext && typeof pairNext.bridge === 'string'
+        && Number.isFinite(pairNext.until) && Date.now() < pairNext.until
+        && vessel.lastPassedBridge !== pairNext.bridge
+        && !(Array.isArray(vessel.passedBridges) && vessel.passedBridges.includes(pairNext.bridge))
+        && !StatusService.isBeyondForcedWaitingBridge(vessel, pairNext, this.bridgeRegistry)) {
+      const countBefore = candidates.length;
+      addCandidate(pairNext.bridge, 'current');
+      if (candidates.length > countBefore) {
+        if (!this._fixUPairCandidateLogged) this._fixUPairCandidateLogged = new WeakSet();
+        if (!this._fixUPairCandidateLogged.has(pairNext)) {
+          this._fixUPairCandidateLogged.add(pairNext);
+          this.debug(
+            `🔗 [FIX_U_PAIR_CANDIDATE] ${vessel.mmsi}: parbron ${pairNext.bridge} erbjuds som kandidat `
+            + `(källa current) fast currentBridge=${vessel.currentBridge || 'ingen'} — `
+            + `${pairNext.triggeredBy || 'föregående bro'}s broöppningsfönster håller den; FIX U gör `
+            + `${pairNext.bridge} till current när fönstret gått ut`,
+          );
+        }
+      }
+    }
+
     // Trigger points: independently calculate distance and add as candidates
     // (geographic trigger points outside the bridge passage system)
     if (Number.isFinite(vessel.lat) && Number.isFinite(vessel.lon)) {

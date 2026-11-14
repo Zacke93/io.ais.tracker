@@ -204,7 +204,16 @@ Moduler (ansvar / ägda tillstånd / in-ut):
   (:4609/4638), removal + snapshot (:511–709), RC7-filtret (:1165–1307).
 - **StatusService**: statusmaskinen (`analyzeVesselStatus`:71, prioritetsordning
   under-bridge > passed > waiting > stallbacka-waiting > approaching > en-route,
-  :171–227; FIX U-tvingad waiting som "prioritet 0" :110–168),
+  :171–227; FIX U-tvingad waiting som "prioritet 0" :110–168; parbron omprövas vid
+  konsumtionen, både när den är bokförd (PHOENIX) och sedan fältprovet 2026-11-13 när
+  båten entydigt ligger bortom dess linje sett från den bro som satte flaggan
+  (`isBeyondForcedWaitingBridge`, `FIX_U_SKIP_PAST_LINE`). Avståndsprövningen
+  (≤ 500 m) frågade inte efter sida: PRICKBJORN 13:56:38 låg 23 m bortom Järnvägsbron,
+  och varje statuspass före nästa fix tvingade "väntan" vid den passerade bron och gav
+  notisen "närmar sig Järnvägsbron, beräknad ankomst strax". Nu bokförs passagen vid
+  nästa fix, och passerad form kommer från S4 eller, när den fixen ligger utanför
+  notisradien, från failsafen (OSPREY i 20260601-41h: 591 m, 130 s senare än den falska
+  förvarningen)),
   under-bridge-hysteres (:407–657). Äger CurrentBridgeManager, StatusStabilizer,
   PassageWindowManager, ProgressiveETACalculator. Emitterar `status:changed`.
 - **ProximityService**: stateless avståndsanalys fartyg↔broar
@@ -410,7 +419,49 @@ Kandidatval: tröskel 300 m (FLOW_TRIGGER_DISTANCE_THRESHOLD). Källor i ordning
 `nearest` (endast om inga andra) → `trigger-point` (Kanalinfarten, egen
 distansberäkning). Finns target-kandidat: target dominerar, MEN target +
 current/nearest/just-passed får båda trigga när de är olika broar (Fix 7,
-Järnvägs/Strids-överlappet; :4120–4146). Sjätte och sjunde source-värdet —
+Järnvägs/Strids-överlappet; :4120–4146). **Broparets nästa bro (fältprovet
+2026-11-13, familj C):** så länge FIX U-flaggan (`_forceWaitingAtBridge`) lever
+erbjuds parbron som `current`, om den inte redan är bokförd och båten inte ligger
+entydigt bortom den (`StatusService.isBeyondForcedWaitingBridge`). Söderut ligger
+Järnvägsbron ~257 m efter Stridsbergsbron, så fixen som bokför Stridsbergsbron ligger
+redan i Järnvägsbrons zon, men Phase 3-hållningen höll `currentBridge` på
+Stridsbergsbron i 30 s och FIX U gjorde Järnvägsbron till current först därefter, i
+praktiken i vakthundens pass på en 30–60 s gammal fix. Notisen kom då 23 s efter till
+4 s före passagen (ASPEN, WILSON ALSTER, NORDIC SOLA i körning 2). Nu går den på
+passagefixen med samma avstånd, ETA, källa och text. Hållningen och FIX U styr
+fortfarande status och brotext. Norrut är parbron målbron och erbjuds redan som
+`target`. Inget dokument motiverade fördröjningen för notisen; hållningen och FIX U:s
+vakt gäller brotextens fassekvens från det äldre formatet. Tillägget ligger i Fix 7:s
+linje (målbron och en annan bro inom 300 m får trigga i samma tick, EKEN-fallet) men
+Fix 7 säger inget om parbron när den inte är målbro. Etiketten `current` behålls för
+att tokens ska vara identiska med vakthundens notis; en egen debugrad
+(`FIX_U_PAIR_CANDIDATE`, en gång per FIX U-flagga) säger i loggen att parbron erbjuds
+medan `currentBridge` fortfarande är den passerade bron.
+**Förhållandet till D6** (`docs/etapp7-plan-2026-08-08.md`, "Järnvägsbrofördröjningen
+(S2-1)", risk RÖD, uppskjuten med hela fas D genom användarbeslut 2026-08-05b). D6
+reproducerade en fördröjning vid Järnvägsbron (medianlag 57 s mot 28–32 s vid snabba
+broar), noterade att Olidebron hade större lag (64 s) utan att vara parbro och skisserade
+en annan rättning: undanta parbron från zonstoppet i ProximityService, med full
+golden-genomgång i parbrokorpusar och ett revert-kriterium. Rättningen ovan rör inte
+zonstoppet och inte spärrarna FIX O (20 s), CLOSE_BRIDGE_PAIR (15 s) eller FIX U:s 90 s.
+Den rättar notisens fördröjning söderut: mätt i banken (24 korpusar, tid från första fix
+inom 300 m på ankomstsidan till förvarningen) gick medianlaget för Järnvägsbron söderut
+från 42 s till 0 s, och av de 48 ändrade notiserna kom 7 efter rådatans korsning före och
+1 efter (den enda är OSPREY i passerad form). p90 står kvar på 67 s; de notiserna gäller
+båtar vars första fix i Järnvägsbrons zon låg norr om Stridsbergsbron, före den bron, och
+är avsiktliga. **Kvar av D6:** D6:s eget lagmått är inte dokumenterat. Med måttet ovan
+har Olidebron medianlag 0 s både före och efter (178 förvarningar med mätbart lag), och appens
+bokföringslag vid Olidebron (rådatans korsning till bokföring, median 80 s) är
+oförändrat eftersom passagerna är byte för byte lika. Om D6:s 64 s avsåg bokföringen
+står den delen kvar orörd. Zonstoppet och de tre spärrarna är också orörda.
+**Revert-kriterium för C2** (kandidaten och sidprövningen, i D6:s anda): reverta om ett fältprov, när
+fältets jsonl körs i replay med och utan tillägget, visar (1) någon skillnad i brotext,
+passager, öppningsvarningar eller notisantal (i banken: ingen), utöver notiserna för
+Järnvägsbron söderut; (2) två notiser för
+samma Järnvägspassage, eller "närmar sig Järnvägsbron" från en fix entydigt bortom
+linjen; (3) en sydgående Järnvägsbronnotis som kommer senare mot rådatans korsning än
+utan tillägget; eller (4) en Järnvägspassage som bokförs utan tillägget men inte med det
+(F08-klassen). Sjätte och sjunde source-värdet —
 `passage-fallback` respektive `exit-fallback` (F6, 2026-08-10) — sätts av
 fallback-vägen; ingen av dem är en proximity-källa (se §8d).
 
@@ -1456,7 +1507,18 @@ båt.
   **Uppskjutna pass (F08, 2026-11-04, `_noteDeferredZoneEntryCross`):** vid det
   nära broparet når passet vid inträdesfixen ofta inte INTERMEDIATE_UNDER.
   Phase 3-hållningen för den nyss passerade bron returnerar före grenen, FIX U:s
-  tvingade väntan returnerar före hela `_isUnderBridge`, och rensningspasset
+  tvingade väntan returnerar före hela `_isUnderBridge` (sedan 2026-11-13 bara när
+  fixen inte ligger entydigt bortom parbrons linje; en fix bortom linjen, som SINE
+  BRES 26 m, rensar flaggan och går den ordinarie vägen genom INTERMEDIATE_UNDER, som
+  prövar samma inträdessegment. FIX U-grenens prövning nås alltså bara på ankomstsidan
+  och inom ±10 m från linjen. Där kan den bara spara P1:s epsilonkandidat, med
+  startpunkten på närsidan; testet "FIX U:s tvingade väntan med fixen i ±10 m-bandet"
+  i `zonintrade-uppskjutet-bevis.test.js` låser anropet. I de följder familj C prövade
+  avgjordes passagen ändå av den ordinarie vägen, i basen och efter C2: utgångsfixen
+  bokför passagen direkt, och en mellanfix 20–30 m bortom linjen ger segmentbevis
+  direkt från A0. En mellanfix 40 m bortom linjen tappar passagen, eftersom segmentet
+  från A0 blir 401 m och nästa pass startar ett nytt zonbesök. Det gäller både i basen och efter C2 och är
+  samma klass som korpustestets KÄNDA LUCKA (en extra fix 50–60 m efter linjen)), och rensningspasset
   (CurrentBridgeManager Regel 0) väljer inte nästa bro. Beviset prövades då
   först i ett senare pass vid samma position, oftast UI-uppdateringen. Om det
   passet hann före nästa AIS-fix berodde på klockfasen (SINE BRES 20260917-16h
