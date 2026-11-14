@@ -128,6 +128,26 @@ const OMSTART_SLOW_ZONE = {
  *    generatorns sanna bana (truthPath), inte ur appens bokföring, som vid
  *    gles AIS kommer ett fix efter korsningen. Samma krav som buggjägarens
  *    T2-orakel (LEDTID ≥ 60 s).
+ *
+ * AVGÅNGS-ETA (fältprovet 2026-11-12, familj E; revision 1 efter
+ * granskningen 2026-11-13, A5). Båda förväntningarna kräver EXAKT EN båt med
+ * sann bana (`legs`) — hela brotexten tillskrivs henne, så ledarvalet i en
+ * grupp prövas inte. Ett stopp är sampel under 0,5 kn och en avgång första
+ * sampel ≥ 1,0 kn efter ett stopp. Texten prövas vid varje övergång och som
+ * stående text var 30:e sekund; "strax" (< 3 min) prövas bara mot undre
+ * gränsen. Notiser prövas inte.
+ *  - departureEta: {bridge, maxOverMin, maxUnderMin} — varje avgång före den
+ *    sanna korsningen av bron döms: från avgången till korsningen (eller nästa
+ *    avgång) får ETA-texten ligga högst maxOverMin minuter över och högst
+ *    maxUnderMin minuter under den sanna restiden, och första texten efter
+ *    avgången måste vara numerisk. Ingen avgång eller ingen ETA-text att döma
+ *    är ett FEL, inte ett tyst godkännande.
+ *  - creepEta: {bridge, maxUnderMin, maxCardUnderMin} — INFORMATIV LÅSNING
+ *    av en känd svaghet (kryp i kön och ny väntan, ARCHITECTURE §8 (e) "Kvar
+ *    utanför klassen"). Från första avgången till den sista får ingen
+ *    ETA-text vara mer än maxUnderMin och inget öppningskort för bron mer än
+ *    maxCardUnderMin minuter för optimistiskt. Gränserna är dagens storlek
+ *    plus marginal, inte en kvalitetsnivå.
  */
 const SCENARIOS = [
   {
@@ -1989,6 +2009,111 @@ const SCENARIOS = [
       noDefaultWhileStopped: true,
     },
   },
+  {
+    // Fältprovet 2026-11-12 (körning 1, familj E): avgång ur väntan vid en
+    // mellanbro direkt efter en målbroövergång. Efterbildar PRICKBJORN
+    // 265012090: passerar Stridsbergsbron söderut (målbytet till Klaffbron
+    // armerar stationär-holden och tömmer fartbufferten), väntar 17 min
+    // ~175 m norr om Järnvägsbron och lägger ut i 1,1 → 3,7 → 6,5 kn.
+    // Holden svarade null innan fartbufferten matades, så avgångsgolvet
+    // (familj E, F04) armades aldrig och ETA:n räknades på 1,1 kn: "om 31,
+    // 23, 20 minuter" mot sanningen 6,6, 5,9, 4,9 (fältet: 32, 33, 25 mot 6,7,
+    // 6,1, 5,0). Med holdens stillhetsbevis räknas första texten på golvet
+    // (dubbla igångsättningsfarten, 2,2 kn): "om 16, 11, 9, 6, 4".
+    // GRÄNSEN +12 min ligger mellan golvets medvetet försiktiga första
+    // prognos för en så långsam igångsättning (+9,4) och igångsättningsfartens
+    // (+24,4). Den fäller alltså en avgång som inte känns igen, men låter en
+    // framtida ETA-etapp komma närmare sanningen. Gränsen −3 min fäller ett
+    // golv som lovar för tidigt.
+    // Glappet i första avgångsbenet gör att 1,1 kn-samplet hörs 23 m från
+    // stoppet (som i fältet, 36 m) i stället för på stoppets position.
+    // Benens slut ligger ett helt steg efter senaste sampel, så nästa bens
+    // första sampel ligger där båten verkligen är.
+    name: 'avgång-ur-väntan-vid-mellanbro-efter-målbyte (fältprov k1, PRICKBJORN)',
+    seed: 53001,
+    vessels: [{
+      mmsi: '901053001',
+      name: 'SYNT-PRICKAVG',
+      startS: METRICS.cum[4] + 900,
+      legs: [
+        { toS: METRICS.cum[3] + 175, speedKn: 4.0, intervalS: 60 },
+        { stopS: 1020, stopIntervalS: 65 },
+        {
+          toS: METRICS.cum[3] + 175 - 2 * (1.1 * 0.5144 * 40) + 0.01,
+          speedKn: 1.1,
+          intervalS: 40,
+          gapFromS: METRICS.cum[3] + 175,
+          gapToS: METRICS.cum[3] + 174,
+        },
+        {
+          toS: METRICS.cum[3] + 175 - 2 * (1.1 * 0.5144 * 40) + 0.01 - 3.7 * 0.5144 * 60 + 0.01,
+          speedKn: 3.7,
+          intervalS: 60,
+        },
+        { toS: 0, speedKn: 6.5, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      minTargetPassages: 2,
+      departureEta: { bridge: 'Klaffbron', maxOverMin: 12, maxUnderMin: 3 },
+    },
+  },
+  {
+    // Familj E, revision 1 (granskningen 2026-11-13, A3): KRYP I KÖN EFTER
+    // MÅLBYTET OCH NY VÄNTAN — en INFORMATIV låsning av en känd svaghet, inte
+    // ett påstående att beteendet är rätt. Samma början som scenariot ovan
+    // (Stridsbergsbron söderut, målbytet armerar holden, 17 min väntan 175 m
+    // norr om Järnvägsbron), sedan kryp i 2,0 kn i tre steg på 60 s (185 m;
+    // de två första hörs i 2,0 kn, det tredje när hon redan stannat 10 m
+    // söder om Järnvägsbron), 10 min ny väntan och verklig avgång 1,1 → 3,7 →
+    // 6,5 kn. Krypsamplet kan inte skiljas från en avgång: holdens bevis
+    // armerar golvet (2 × 2,0 kn, högst 4 kn) och prognosen blir för låg,
+    // precis som i buffertvägen utan målbyte. Dagens utfall (efter 9d06a82):
+    // "om 9, om 8" mot sann restid 19,1 och 18,1 min (fel −10,1), "om 8" står
+    // kvar 12,5 min under den nya väntan, och öppningskortet Klaffbron#3
+    // (deadline 06:28:25) har eta 8 mot sann restid 17,0 (fel −9,0). Före
+    // rättningen gav samma rörelse "om 18, 17, 21" och eta 19. GRÄNSERNA
+    // (−11 för texten, −10 för kortet) är dagens värden plus marginal: en
+    // ändring som gör klassen större blir röd här. Att göra klassen mindre
+    // hör till ETA-etappen (U20/U22).
+    name: 'kryp-i-kön-efter-målbyte-och-ny-väntan (informativ, granskning A3)',
+    seed: 53002,
+    vessels: [{
+      mmsi: '901053002',
+      name: 'SYNT-KOKRYP',
+      startS: METRICS.cum[4] + 900,
+      legs: [
+        { toS: METRICS.cum[3] + 175, speedKn: 4.0, intervalS: 60 },
+        { stopS: 1020, stopIntervalS: 65 },
+        {
+          toS: METRICS.cum[3] + 175 - 3 * (2.0 * 0.5144 * 60) + 0.01,
+          speedKn: 2.0,
+          intervalS: 60,
+          gapFromS: METRICS.cum[3] + 175,
+          gapToS: METRICS.cum[3] + 174,
+        },
+        { stopS: 600, stopIntervalS: 65 },
+        {
+          toS: METRICS.cum[3] + 175 - 3 * (2.0 * 0.5144 * 60) + 0.01 - 2 * (1.1 * 0.5144 * 40) + 0.01,
+          speedKn: 1.1,
+          intervalS: 40,
+          gapFromS: METRICS.cum[3] + 175 - 3 * (2.0 * 0.5144 * 60) + 0.01,
+          gapToS: METRICS.cum[3] + 175 - 3 * (2.0 * 0.5144 * 60) + 0.01 - 1,
+        },
+        {
+          toS: METRICS.cum[3] + 175 - 3 * (2.0 * 0.5144 * 60) + 0.01 - 2 * (1.1 * 0.5144 * 40) + 0.01
+            - 3.7 * 0.5144 * 60 + 0.01,
+          speedKn: 3.7,
+          intervalS: 60,
+        },
+        { toS: 0, speedKn: 6.5, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      minTargetPassages: 2,
+      creepEta: { bridge: 'Klaffbron', maxUnderMin: 11, maxCardUnderMin: 10 },
+    },
+  },
 ];
 
 function runScenario(scenario) {
@@ -2032,6 +2157,66 @@ function sampleCrossingMs(samples, mmsi, bridge) {
     }
   }
   return null;
+}
+
+/**
+ * Familj E (departureEta och creepEta): brotextens ETA-klausul för en bro.
+ * Grupp 1 är minuttalet; saknas den är klausulen "strax".
+ */
+function etaClauseFor(bridge) {
+  return new RegExp(`på väg mot ${bridge}, beräknad broöppning (?:om (?:cirka )?(\\d+) minuter?|strax)`);
+}
+
+/**
+ * Familj E: ETA-texten för en bro prövad mot den sanna restiden i fönstret
+ * [fromMs, toMs): vid varje textövergång OCH som stående text var 30:e
+ * sekund, så att ett värde som står kvar prövas medan sanningen rör sig.
+ * "strax" lovar under 3 min och får felet min(0, 3 − sanning): det kan bara
+ * vara för optimistiskt. Texter utan ETA-klausul för bron hoppas över.
+ * BEGRÄNSNING: hela texten tillskrivs scenariots enda båt (singleJourney);
+ * ledarvalet i en grupp prövas inte.
+ * @returns {Array<{t:number, label:string, truthMin:number, err:number}>}
+ */
+function etaTextPoints(transitions, bridge, fromMs, toMs, crossingMs) {
+  const list = (transitions || []).filter((x) => Number.isFinite(x.t)).sort((a, b) => a.t - b.t);
+  const times = list.filter((x) => x.t >= fromMs && x.t < toMs).map((x) => x.t);
+  for (let t = fromMs; t < toMs; t += 30000) times.push(t);
+  const re = etaClauseFor(bridge);
+  const out = [];
+  for (const t of [...new Set(times)].sort((a, b) => a - b)) {
+    const standing = list.filter((x) => x.t <= t).pop();
+    const m = standing ? re.exec(standing.text) : null;
+    if (!m) continue;
+    const truthMin = (crossingMs - t) / 60000;
+    const err = m[1] === undefined ? Math.min(0, 3 - truthMin) : Number(m[1]) - truthMin;
+    out.push({
+      t, label: m[1] === undefined ? 'strax' : `om ${m[1]} minuter`, truthMin, err,
+    });
+  }
+  return out;
+}
+
+/**
+ * Familj E: resan för departureEta/creepEta. Förväntningarna förutsätter EN
+ * båt med sann bana (`legs`); annars är det ett fel i scenariot. Ett stopp är
+ * sampel under 0,5 kn (projektets rörelsebevis, samma gräns som
+ * avgångsigenkänningen), och en avgång är första sampel ≥ 1,0 kn efter ett
+ * stopp. crossingAfter ger den sanna korsningen av bron efter en tid.
+ */
+function singleJourney(scenario, truthPaths, samples, bridge, tag, problems) {
+  const paths = Object.entries(truthPaths || {});
+  if ((scenario.vessels || []).length !== 1 || paths.length !== 1) {
+    problems.push(`${tag}: förväntan kräver exakt en båt med sann bana (legs), scenariot har `
+      + `${(scenario.vessels || []).length} båtar och ${paths.length} banor`);
+    return null;
+  }
+  const [mmsi, truthPath] = paths[0];
+  const own = (samples || []).filter((x) => x.mmsi === mmsi && Number.isFinite(x.sog))
+    .sort((a, b) => a.aisTimestamp - b.aisTimestamp);
+  const stopEnds = own.filter((x, i) => i > 0 && x.sog >= 1.0 && own[i - 1].sog < 0.5);
+  const sBridge = METRICS.cum[PATH_INDEX[bridge]];
+  const crossings = truthCrossings(truthPath, sBridge).map((c) => BASE_TIME_MS + c.tS * 1000);
+  return { stopEnds, crossingAfter: (t) => crossings.find((c) => c > t) };
 }
 
 function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
@@ -2274,6 +2459,81 @@ function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
               + `korsningen (krav ≥ ${minLeadS} s)`);
           }
           previousMs = crossingMs;
+        }
+      }
+    }
+  }
+  // Familj E (fältprovet 2026-11-12): ETA-löftet efter avgång ur väntan,
+  // mätt mot den SANNA korsningen (generatorns bana), inte mot appens
+  // bokförda passage. Revision 1 (granskningen 2026-11-13, A5): varje stopp
+  // före korsningen ger en avgång att döma, den stående texten prövas var
+  // 30:e sekund och inte bara vid övergångarna, och en förväntan som inte
+  // hittar någon avgång eller någon ETA-text att döma är ett FEL.
+  if (e.departureEta) {
+    const { bridge, maxOverMin, maxUnderMin } = e.departureEta;
+    const journey = singleJourney(scenario, truthPaths, samples, bridge, 'AVGÅNGS-ETA', problems);
+    if (journey) {
+      const { stopEnds, crossingAfter } = journey;
+      let judged = 0;
+      let points = 0;
+      stopEnds.forEach((departure, i) => {
+        const crossing = crossingAfter(departure.aisTimestamp);
+        // Ett stopp efter korsningen har ingen korsning att döma mot.
+        if (!Number.isFinite(crossing)) return;
+        const end = Math.min(crossing, i + 1 < stopEnds.length ? stopEnds[i + 1].aisTimestamp : Infinity);
+        judged += 1;
+        const first = (result.bridgeTextTransitions || []).find((x) => x.t >= departure.aisTimestamp && x.t < end);
+        const firstMatch = first ? etaClauseFor(bridge).exec(first.text) : null;
+        if (!firstMatch || firstMatch[1] === undefined) {
+          problems.push(`AVGÅNGS-ETA: ingen numerisk ETA-text för ${bridge} vid avgången `
+            + `${new Date(departure.aisTimestamp).toISOString()} (${first ? `"${first.text}"` : 'ingen text'})`);
+        }
+        for (const p of etaTextPoints(result.bridgeTextTransitions, bridge, departure.aisTimestamp, end, crossing)) {
+          points += 1;
+          if (p.err > maxOverMin || p.err < -maxUnderMin) {
+            problems.push(`AVGÅNGS-ETA: ${new Date(p.t).toISOString()} "${p.label}" mot sann restid `
+              + `${p.truthMin.toFixed(1)} min (fel ${p.err >= 0 ? '+' : ''}${p.err.toFixed(1)}, tillåtet `
+              + `−${maxUnderMin} till +${maxOverMin})`);
+          }
+        }
+      });
+      if (judged === 0) problems.push(`AVGÅNGS-ETA: ingen avgång före korsningen av ${bridge} att döma`);
+      else if (points === 0) problems.push(`AVGÅNGS-ETA: ingen ETA-text för ${bridge} att döma efter avgången`);
+    }
+  }
+  // Familj E, revision 1 (granskningen 2026-11-13, A3): KRYP I KÖN OCH NY
+  // VÄNTAN. Informativ förväntan: den påstår INTE att beteendet är rätt, bara
+  // att det inte får bli mer optimistiskt än i dag. Från första avgången ur
+  // det första stoppet till den sista avgången (den verkliga) får ingen
+  // ETA-text för bron ligga mer än maxUnderMin minuter under den sanna
+  // restiden, och inget öppningskort för bron mer än maxCardUnderMin minuter.
+  if (e.creepEta) {
+    const { bridge, maxUnderMin, maxCardUnderMin } = e.creepEta;
+    const journey = singleJourney(scenario, truthPaths, samples, bridge, 'KRYP-ETA', problems);
+    if (journey) {
+      const { stopEnds, crossingAfter } = journey;
+      if (stopEnds.length < 2) {
+        problems.push(`KRYP-ETA: ${stopEnds.length} avgång(ar) ur stopp, minst två krävs (krypet och den verkliga)`);
+      } else {
+        const from = stopEnds[0].aisTimestamp;
+        const to = stopEnds[stopEnds.length - 1].aisTimestamp;
+        const crossing = crossingAfter(from);
+        const pts = Number.isFinite(crossing)
+          ? etaTextPoints(result.bridgeTextTransitions, bridge, from, to, crossing) : [];
+        if (pts.length === 0) problems.push(`KRYP-ETA: ingen ETA-text för ${bridge} att döma under krypet och väntan`);
+        for (const p of pts) {
+          if (p.err < -maxUnderMin) {
+            problems.push(`KRYP-ETA: ${new Date(p.t).toISOString()} "${p.label}" mot sann restid `
+              + `${p.truthMin.toFixed(1)} min (fel ${p.err.toFixed(1)}, dagens gräns −${maxUnderMin})`);
+          }
+        }
+        for (const w of openings.filter((x) => x.bridge === bridge && x.t >= from && x.t < to)) {
+          if (!Number.isFinite(w.etaMin) || !Number.isFinite(crossing)) continue;
+          const err = w.etaMin - (crossing - w.t) / 60000;
+          if (err < -maxCardUnderMin) {
+            problems.push(`KRYP-ETA: öppningskortet ${w.eventId} ${w.iso} eta ${w.etaMin} mot sann restid `
+              + `${((crossing - w.t) / 60000).toFixed(1)} min (fel ${err.toFixed(1)}, dagens gräns −${maxCardUnderMin})`);
+          }
         }
       }
     }
