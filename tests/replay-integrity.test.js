@@ -599,6 +599,37 @@ describe('V4 tidshål i loggen', () => {
     expect(r.timeGapAudit.gaps).toEqual([]);
   });
 
+  // Rev 1 (granskningen 2026-11-14): mutationen som tog bort nollningen vid
+  // boot överlevde alla tester.
+  test('boot nollar hjärtslaget: en lucka på 100 s direkt efter en omstart är inget hål', () => {
+    const r = write([[0, BOOT], [60, BEAT], [61, BOOT], [161, 'SAMPLE'], [200, BEAT]]);
+    expect(r.timeGapAudit.gaps).toEqual([]);
+    expect(r.verdict).toBe('OK');
+    // Utan omstarten hade samma lucka varit ett hål.
+    expect(write([[0, BOOT], [60, BEAT], [61, 'SAMPLE'], [161, 'SAMPLE']]).verdict).toBe('FEL');
+  });
+
+  test('sampel utan hjärtslag ger en varning (hjärtslagsraden kan ha bytt namn), inte FEL', () => {
+    const r = write([[0, BOOT], [30, 'SAMPLE'], [130, 'SAMPLE']]);
+    expect(r.verdict).toBe('OK');
+    expect(r.notes.join(' ')).toMatch(/VARNING: loggen har 2 \[AIS_REPLAY_SAMPLE\]-rader men inget \[COORDINATION_CLEANUP\]-hjärtslag/);
+    const withBeat = write([[0, BOOT], [30, BEAT], [60, 'SAMPLE']]);
+    expect(withBeat.notes.join(' ')).not.toMatch(/VARNING: loggen har/);
+  });
+
+  test('hjärtslagssträngen är låst mot appkoden som skriver den varje minut', () => {
+    const root = path.join(__dirname, '..');
+    const coordinator = fs.readFileSync(path.join(root, 'lib', 'services', 'SystemCoordinator.js'), 'utf8');
+    const cleanup = coordinator.slice(coordinator.indexOf('\n  cleanup() {'), coordinator.indexOf('\n  }\n', coordinator.indexOf('\n  cleanup() {')));
+    // Ovillkorligt sist i cleanup(), inte inne i en if.
+    expect(cleanup).toMatch(/\n {4}this\.logger\.debug\('🧹 \[COORDINATION_CLEANUP\] Cleaned old coordination state'\);\s*$/);
+    expect(checker.HEARTBEAT_MARKER).toBe('[COORDINATION_CLEANUP]');
+    // Monitoringloopen (UI_CONSTANTS.MONITORING_INTERVAL_MS) anropar cleanup().
+    const app = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
+    const loop = app.slice(app.indexOf('this._monitoringInterval = setInterval('), app.indexOf('}, UI_CONSTANTS.MONITORING_INTERVAL_MS);'));
+    expect(loop).toMatch(/this\.systemCoordinator\.cleanup\(\)/);
+  });
+
   test('gränserna är härledda ur monitoringintervallet, inte hårdkodade i testet', () => {
     const { UI_CONSTANTS } = require('../lib/constants'); // eslint-disable-line global-require
     expect(checker.HEARTBEAT_GAP_LIMIT_MS).toBe(UI_CONSTANTS.MONITORING_INTERVAL_MS + 5000);

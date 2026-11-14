@@ -1144,14 +1144,17 @@ sekunden i UI-tidsled.
   `clock.tick` i huvudloopen, efter varje sampel och i efterspelet, valfritt
   med 420 ms fejkad kortlatens. Med `tickAsync` blir kollisionerna 3 och 1
   (banken 146), alla 79 fältnotiser blir identiska i innehåll med högst 37 ms
-  tidsskillnad, och k2:s 90 brotexter återges exakt. Med latensen dessutom
-  k1:s 155 brotexter i exakt ordning. I banken är notis- och
+  tidsskillnad (k2:s 90 brotexter återges exakt både med och utan
+  experimentet). Med latensen dessutom k1:s 155 brotexter i exakt ordning. I banken är notis- och
   öppningsmultiseten oförändrade i alla 25 korpusar, men golden-text flyttas
   i 19 korpusar (23 med latensen), och med latensen ändras en öppnings-ETA
   (20260601-41h Klaffbron#17, 9 → 10 min).
 - *Harnessen är oförändrad.* En ändring flyttar låst golden-text i större
   delen av banken och kräver omlåsning enligt U13; det är dirigentens och
-  ägarens beslut. Till dess: en skillnad mot fältet i en notis eller text som
+  ägarens beslut. Görs den, lås om i **två separata steg**: först `tickAsync`
+  (Node-semantik, mikrouppgifter körs alltid mellan timrar), sedan 420 ms
+  kortlatens (ett antagande om Homeys last), så att varje flyttad golden-text
+  går att hänföra till sin orsak. Till dess: en skillnad mot fältet i en notis eller text som
   byggs av en senare UI-cykel (vakthunden eller en omkörning) inom ett
   30 s-steg efter en publicering, eller som följer direkt på ett kortanrop,
   ska först prövas mot den här gränsen innan den tolkas som ett appfel.
@@ -1266,7 +1269,18 @@ efteråt.
      största normala lucka 54,6 s; de fem bortfallen i loggströmmen var
      88–156 s och fångades förr bara av källbokföringen. Samma regel i skalet
      (`find_log_holes`), i node-grinden (som förr saknade tidshålskontroll och
-     sa OK på början av körning 1 med ett 4,5 h hål) och i fältrapporten.
+     sa OK på början av körning 1 med ett 4,5 h hål) och i fältrapporten;
+     båda räknar med millisekunder och dömer lika (förr trunkerade skalet till
+     hela sekunder och kunde skilja upp till 1 s). Har loggen sampelrader men
+     inget hjärtslag varnar node-grinden: raden kan ha bytt namn i appen, och
+     då faller gränsen tyst tillbaka på 180 s (strängen är låst mot
+     `lib/services/SystemCoordinator.js` i `tests/replay-integrity.test.js`).
+     **Kända kanter:** föll själva raden "Debug level changed to:" bort i ett
+     bortfall, dömer regeln resten av loggen med 65 s och kan flagga normala
+     basic-luckor (~70 s) som hål, alltså falskt rött. Marginalen 5 s över
+     minutslaget är liten i en tyst period där bara hjärtslaget loggas; i k1
+     flyttades minutslagets fas 3,8 s över nätavbrottet (troligen ett
+     klocksteg), utan att någon normal lucka kom över 54,6 s.
      Grönt: `✅ Inga tidshål (gräns 65 s med 60 s-hjärtslaget …, annars 180 s)
      — loggens tidslinje är obruten.`
    - **Replay-fångst (jsonl mot logg)** — undersektionen jämför antalet
@@ -1314,8 +1328,8 @@ efteråt.
    tillåten**` (då skriker skriptet dessutom `🚨🚨 [INTEGRITET]` i terminalen).
    En fälld körning får analyseras som fältbevis — den får aldrig bli facit.
    Skriptet larmar också live om loggfilen slutar växa längre än gränsen ovan
-   (65 s när hjärtslaget syns i loggens svans, annars 180 s; kontrollen körs
-   varje minut).
+   (65 s när den sista av raderna hjärtslag, nivåbyte och boot i loggens svans
+   är ett hjärtslag, annars 180 s; kontrollen körs varje minut).
 
    Kontrollen är fristående och kan köras när som helst, utan fältrigg:
    ```bash
