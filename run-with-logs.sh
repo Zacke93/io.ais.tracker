@@ -187,7 +187,11 @@ find_log_holes() {
         /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]/ {
           stamp = substr($0, 1, 19);
           split(stamp, f, "[T:]");
-          tabs = calendar_day(f[1])*86400 + f[2]*3600 + f[3]*60 + f[4];
+          # Millisekunderna räknas med (rev 1): node-grinden mäter i ms, och
+          # med hela sekunder kunde en lucka på 65,1–65,99 s bli 65 här men
+          # 65,x där. Nu dömer skal och node exakt lika.
+          frac = (substr($0, 20, 1) == "." && substr($0, 21, 3) ~ /^[0-9][0-9][0-9]$/) ? substr($0, 21, 3) / 1000 : 0;
+          tabs = calendar_day(f[1])*86400 + f[2]*3600 + f[3]*60 + f[4] + frac;
           limit = hb ? hb_limit : base_limit;
           if (prevt != "" && tabs - prevt > limit)
             printf "- HÅL: %s → %s (%.0f s utan loggrader)\n", prev, stamp, tabs - prevt;
@@ -197,14 +201,21 @@ find_log_holes() {
         }' "$1"
 }
 
-# Hålgränsen just nu för livevakten: hjärtslaget i loggens svans (1 MiB räcker
-# till flera minuter även i loggens tätaste minuter, ~100 kB/min).
+# Hålgränsen just nu för livevakten, ur loggens svans (1 MiB räcker till flera
+# minuter även i loggens tätaste minuter, ~100 kB/min). Samma regel som
+# find_log_holes: 65 s bara om den SISTA av raderna hjärtslag, nivåbyte och
+# boot är ett hjärtslag. Revision 1 av V4: förr räckte det att ett hjärtslag
+# fanns någonstans i svansen, och efter en sänkning till basic (loggen växer då
+# ~40 KiB/h) låg det kvar där i ungefär ett dygn, med falsklarm som följd.
 current_hole_limit() {
-    if tail -c 1048576 "$1" 2>/dev/null | LC_ALL=C grep -q 'COORDINATION_CLEANUP'; then
-        printf '%s\n' "${HOLE_LIMIT_HEARTBEAT_S:-65}"
-    else
-        printf '%s\n' "${HOLE_LIMIT_S:-180}"
-    fi
+    local last
+    last=$(tail -c 1048576 "$1" 2>/dev/null \
+      | LC_ALL=C grep -E 'COORDINATION_CLEANUP|Debug level changed to:|AIS Bridge starting with modular architecture' \
+      | tail -n 1)
+    case "$last" in
+        *COORDINATION_CLEANUP*) printf '%s\n' "${HOLE_LIMIT_HEARTBEAT_S:-65}" ;;
+        *) printf '%s\n' "${HOLE_LIMIT_S:-180}" ;;
+    esac
 }
 
 # Terminalutskrift som aldrig kan fälla nedstängningen (V4): när terminalen

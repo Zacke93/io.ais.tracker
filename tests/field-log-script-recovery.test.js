@@ -136,6 +136,28 @@ describe('Fältloggens tidshål följer hjärtslaget', () => {
     ])).toBe('');
   });
 
+  // Rev 1 (granskningen 2026-11-14): efter en sänkning till basic låg det
+  // sista hjärtslaget kvar i svansen i ungefär ett dygn och gav 65 s.
+  test('livevakten följer den sista av hjärtslag, nivåbyte och boot', () => {
+    const at = (i, msg) => `${new Date(Date.UTC(2026, 10, 13, 6, 0, i * 30)).toISOString()} [log] [AISBridgeApp] ${msg}`;
+    const limit = (lines) => {
+      fs.writeFileSync(log, `${lines.join('\n')}\n`);
+      return runBash(['current_hole_limit'], 'current_hole_limit "$AUDIT_LOG"', { AUDIT_LOG: log });
+    };
+    const beats = [1, 2, 3].map((i) => at(i, BEAT.replace('[log] [AISBridgeApp] ', '')));
+    const basic = at(4, 'Debug level changed to: basic');
+    const later = [5, 6, 7].map((i) => at(i, 'rad på basic-nivå'));
+    expect(limit([...beats, basic, ...later])).toBe('180\n');
+    expect(limit([...beats, at(4, 'AIS Bridge starting with modular architecture v2.0'), ...later])).toBe('180\n');
+    expect(limit([...beats, basic, at(5, BEAT.replace('[log] [AISBridgeApp] ', ''))])).toBe('65\n');
+  });
+
+  test('millisekunderna räknas: 65,5 s efter hjärtslaget är ett hål, som i node-grinden', () => {
+    expect(holes([`2026-11-13T06:00:00.000Z ${BEAT}`, '2026-11-13T06:01:05.500Z [log] nästa rad']))
+      .toBe('- HÅL: 2026-11-13T06:00:00 → 2026-11-13T06:01:05 (66 s utan loggrader)\n');
+    expect(holes([`2026-11-13T06:00:00.500Z ${BEAT}`, '2026-11-13T06:01:05.400Z [log] nästa rad'])).toBe('');
+  });
+
   test('livevaktens gräns läses ur loggens svans', () => {
     fs.writeFileSync(log, `2026-11-13T06:00:00.000Z ${BEAT}\n`);
     expect(runBash(['current_hole_limit'], 'current_hole_limit "$AUDIT_LOG"', { AUDIT_LOG: log })).toBe('65\n');

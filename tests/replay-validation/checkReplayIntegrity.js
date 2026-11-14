@@ -694,6 +694,16 @@ function checkPair(jsonlPath, logPath, opts) {
     + `${tg.maxGap ? `${sek(tg.maxGap.ms)} (${tg.maxGap.from.time})` : '—'}; gräns ${sek(tg.heartbeatLimitMs)} där `
     + `60 s-hjärtslaget ${HEARTBEAT_MARKER} är belagt (debugnivå detailed/full)`
     + `${tg.heartbeatSeen ? '' : ' — inte belagt i den här loggen'}, annars ${sek(tg.fallbackLimitMs)}.`);
+  // Rev 1 (granskningen 2026-11-14): sampelrader finns bara på debugnivå full
+  // (eller med appens filfångst), och då ska hjärtslaget också finnas. Saknas
+  // det har raden troligen bytt namn i appen, och hålgränsen har tyst fallit
+  // tillbaka på 180 s. Varnar, fäller inte (äldre loggar före 2026-07-06 hade
+  // sampel även på lägre nivåer).
+  if (log.count > 0 && !tg.heartbeatSeen) {
+    result.notes.push(`⚠️ VARNING: loggen har ${log.count} [AIS_REPLAY_SAMPLE]-rader men inget `
+      + `${HEARTBEAT_MARKER}-hjärtslag, så hålgränsen föll tillbaka på ${sek(tg.fallbackLimitMs)}. `
+      + 'Har hjärtslagsraden bytt namn i appen (lib/services/SystemCoordinator.js)?');
+  }
   for (const gap of tg.gaps) {
     result.problems.push(`TIDSHÅL I LOGGEN: ${gap.from.time} → ${gap.to.time} (${sek(gap.ms)} utan loggrader, `
       + `loggrader ${gap.from.line}–${gap.to.line}; gräns ${sek(gap.limitMs)}`
@@ -944,6 +954,7 @@ module.exports = {
   checkPair,
   createTimeGapAudit,
   HEARTBEAT_GAP_LIMIT_MS,
+  HEARTBEAT_MARKER,
   FALLBACK_GAP_LIMIT_MS,
   readJsonl,
   readLogSamples,
