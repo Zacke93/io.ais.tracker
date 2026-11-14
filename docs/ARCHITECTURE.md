@@ -69,6 +69,23 @@ Moduler (ansvar / ägda tillstånd / in-ut):
   delays, medium 5 min ×12, slow 60 min; :521–529), ping/pong-watchdog
   (`_awaitingPong` :35). Emitterar connected/disconnected/ais-message/static-name
   (typ 5/24-namn, :362–373)/auth-error/error/reconnect-needed/max-reconnects-reached.
+  **Framdraget försök efter nätavbrott (F1, fältprovet 2026-11-11):** timfasen
+  gällde även när nätet bevisligen var tillbaka — k1: AISHub svarade 06:54:21Z
+  efter 4,5 h utan nät, AISstream återanslöt först 07:31:34Z. Muxen anropar nu
+  `nudgeReconnect` vid hubbens connected-flank (efter en nedflank, men också
+  vid appstart och när hubbklienten byggs om — ofarligt, då står AISstream i
+  snabbfasen eller får högst ett försök). Klienten drar fram nästa försök till
+  5 s + 0–5 s jitter bara när socketen är nere utanför snabbfasen, ingen
+  rate-limit-spärr pågår och det senaste försöket aldrig nådde servern (ingen
+  öppnad socket, inget HTTP-svar — ett nätfel ELLER en server som inte svarar
+  på TCP/TLS-nivå: DNS-fel, TLS-fel, handskakningstimeout, ECONNRESET och
+  TCP-vägran räknas alla hit; spärrad nyckel, policyfel och HTTP-fel som 503
+  och 429 undantas), högst en gång per 5 min. Stegräknaren rörs inte, och ett
+  misslyckat försök faller tillbaka i fasens vanliga backoff. Känd gräns: mot
+  en server som inte svarar på TCP/TLS-nivå medan AISHub har egna avbrott blir
+  det högst cirka 4–5 extra försök per timme (hubbens hysteres gör en
+  hubbcykel minst cirka 13–14 min), mot ett per timme utan F1 — godtagbart mot
+  RC-S1 och KX-2, som båda gällde HTTP-svar.
 - **AISHubClient** (lib/connection/AISHubClient.js, etapp 1 2026-08-02): pollande
   klient mot AISHubs webservice. HÅRD kadensdisciplin (max 1 request/minut per
   username — kontraktsbrott ⇒ tomt svar/indragen access): EN setTimeout-kedja, — SEDAN M12 (2026-08-23) TVÅ timerhandtag: kadenskedjan (`_pollTimer`) OCH pollens ABSOLUTA deadline (`inFlightDeadlineTimer`, ≈ 2×HTTP_TIMEOUT_MS + pollintervall) som nollar `_inFlight` om ett trickle-svar aldrig settlar; en generationsräknare (`pollGen`) ogiltigförklarar sena settlingar; feed-vaktens `forceReschedule` bryter ett inaktuellt single-flight när now − senaste poll > chainDeadMs; `disconnect` river båda timrarna.
@@ -3446,7 +3463,9 @@ cooldown (15 min + jitter, `Retry-After` respekteras strikt parsad, cooldownen
 är GOLV — aldrig tak — mot fastrappan), och ping-vakten avväpnas av
 leveransbevis (en socket som bevisligen levererar meddelanden termineras inte
 för utebliven pong). Aktivt nyckel-/källbyte bryter cooldownen; watchdogen gör
-det inte.
+det inte. Hubbens återkomst efter ett avbrott drar fram AISstreams nästa
+försök när AISstreams försök aldrig nått servern (F1, se AISStreamClient i
+modullistan); spärrar och HTTP-fel följer fortfarande sin egen takt.
 
 **connection_status-semantiken** (B2c fullbordad): `degraded` kräver BEVISAD
 ASYMMETRI — den friska källan måste själv LEVERERA (silence ≤ 15 min), inte
