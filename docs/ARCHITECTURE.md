@@ -540,7 +540,13 @@ Dedup-lagren:
    Formen följer beviset (`_returnPassageForm`): "passerade … under AIS-tystnad"
    när korsningen låg i ett segment längre än två AISHub-pollar (130 s) och
    notisen kommer efter "precis passerat"-fönstret (60 s), annars "har precis
-   passerat". Släppet städar som en observerad återkomst (sessionsnyckel och
+   passerat". Det gäller alla tre vägarna. Failsafen släpper besöket innan
+   notisvägen prövar sitt eget släpp och skickar därför formen med kandidaten
+   (`returnForm`); källsträngen står kvar som `passage-fallback`, så dedup,
+   ETA (−1), `already_passed` och INV-11:s undantag är oförändrade, och bara
+   `message` följer beviset (fältprovet 2026-11-13: PRICKBJORN fick "passerade
+   Stallbackabron under AIS-tystnad" för en korsning i ett segment på 68 s,
+   93 s före notisen). Släppet städar som en observerad återkomst (sessionsnyckel och
    persistent post för just den bron). Replayharnessen bokför det separat
    (`visitReturnReleases`, med bevis, korsningstid och dröjsmål) med en
    geometrisk dom ur rådatan (`tests/replay-validation/returnReleaseVerdict.js`),
@@ -580,7 +586,9 @@ att varje bortfiltrering byter notis mot täckningsmiss 1:1) och ändra TEXTEN.
 `_isRetroactiveNotificationSource`, samma predikat som persistent-dedupens
 `retroactiveSource`), och `message` är en färdig svensk mening:
 "X passerade Y under AIS-tystnad" (passage-fallback — klassen där passagen
-inferreras i efterhand ur en observerad position på ANDRA sidan bron),
+inferreras i efterhand ur en observerad position på ANDRA sidan bron; när
+failsafen släpper ett returbesök enligt U14 följer meningen i stället släppets
+bevis, se dedup-lager 3),
 "X har precis passerat Y" (just-passed — LIVE-passage inom 15 s grace, där
 AIS-tystnad hade varit ett osant påstående; sedan S4/fixrunda 6 även när källan är
 current/target/nearest men appen själv bokfört bron som passerad inom nådan — källsträngen

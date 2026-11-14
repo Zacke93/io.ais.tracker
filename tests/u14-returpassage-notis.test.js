@@ -847,6 +847,10 @@ describe('Appens notisbeslut: bevisad retur får egen notis, väntande båt inte
   });
 
   test('returpassage där första fixen ligger utanför notisradien går via failsafen', async () => {
+    // Korsningen ligger i ett segment på 60 s och notisen kommer ~54 s efter
+    // den. Formregeln (_returnPassageForm) ger då "har precis passerat" även
+    // när släppet går via failsafen (fältprovet 13/11, familj C). Testet låste
+    // förut failsafens tystnadsmening, i strid med docs/ARCHITECTURE.md (U14).
     const app = await boot();
     await outboundAndTurn(app);
     later(60);
@@ -857,7 +861,36 @@ describe('Appens notisbeslut: bevisad retur får egen notis, väntande båt inte
     await app._triggerBoatNearFlowFallback(back, KLAFF.name);
     const calls = klaffCalls(app);
     expect(calls).toHaveLength(2);
-    expect(calls[1]).toMatchObject({ direction: 'norrut', already_passed: true, message: 'WILMA passerade Klaffbron under AIS-tystnad' });
+    expect(calls[1]).toMatchObject({
+      direction: 'norrut', already_passed: true, eta_minutes: -1, message: 'WILMA har precis passerat Klaffbron',
+    });
+  });
+
+  test('fältprovet 13/11 (PRICKBJORN, Stallbackabron): retur via failsafen vid vanlig kadens påstår ingen AIS-tystnad', async () => {
+    // Fältet: korsningen låg i ett segment på 68 s och notisen kom 93 s
+    // efter den. Notisen kommer alltså efter "precis passerat"-fönstret
+    // (60 s), men segmentet är kortare än två AISHub-pollar (130 s). Det är
+    // ingen tystnad, så formen är "har precis passerat". Här: segment 100 s,
+    // notisen ~90 s efter korsningen.
+    const app = await boot();
+    await outboundAndTurn(app);
+    later(100);
+    const back = vesselAt(345, {
+      ...north, sog: 8, lastPassedBridge: KLAFF.name, lastPassedBridgeTime: Date.now(), passedBridges: [KLAFF.name],
+    });
+    fix(app, back);
+    await app._triggerBoatNearFlowFallback(back, KLAFF.name);
+    const calls = klaffCalls(app);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toMatchObject({
+      direction: 'norrut', already_passed: true, eta_minutes: -1, message: 'WILMA har precis passerat Klaffbron',
+    });
+    expect(app.log).toHaveBeenCalledWith(expect.stringMatching(/segment på 100 s/));
+    expect(app.log).toHaveBeenCalledWith(expect.stringContaining('source=passage-fallback'));
+    // Släppet är förbrukat: en andra failsafe i samma tick ger ingen dubblett.
+    await app._triggerBoatNearFlowFallback(back, KLAFF.name);
+    await app._confirmReturnPassages(back);
+    expect(klaffCalls(app)).toHaveLength(2);
   });
 
   test('failsafen släpper inte besöket när dess egna spärrar stoppar notisen (omgranskning 2)', async () => {
