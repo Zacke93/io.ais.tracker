@@ -5125,6 +5125,10 @@ class AISBridgeApp extends Homey.App {
    * väger tyngre än att kunna skilja två notiser åt i den enda situation där
    * de krockar. I normal drift korsas stegen ett i taget (timmar isär) och
    * siffran växer monotont: "i över 1 h" → "i över 4 h" → "i över 1 dygn".
+   * F2 (fältprovet 2026-11-11): skuren 06:55:09Z i k1 (bas + 1h + 4h för
+   * aisstream:silent) var INTE det här fallet utan en felräkning — måttet
+   * räknade in ett totalavbrott där grannen också var borta. Korsgrenarna
+   * skickar numera korstystnaden (_checkCrossFeedSilence, KORSTYSTNADEN).
    * @param {string} baseKey - dedup-basnyckel, t.ex. 'feeds:silent'
    * @param {number} silenceMs - uppmätt tystnad; DET är siffran texten bär
    * @param {(tidsfras: string) => string} msgForLabel - notistext per nivå;
@@ -12297,6 +12301,126 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * F2 (fältprovet 2026-11-11): sedan när källan OAVBRUTET har levt, enligt
+   * korstystnadsgrenens egna predikat (aisstream: svarar enligt H18:s latch
+   * eller har levererat inom FRESH_MS; AISHub: pollklockan inom
+   * FRESH_POLL_MS). Bär den del av påståendet "X tyst medan Y flödar" som
+   * handlar om Y: grannen kan bara ha flödat under den tid den levt.
+   * _aliveTimeDuringSilence ackumulerar den över glapp (revision 1); värdet
+   * här är bara den OBRUTNA delen och används för fröet och för att räkna
+   * tiden sedan grannens återkomst.
+   *
+   * Uppskattningen när källan börjar leva igen är den SENARE av senaste
+   * observerade döda tick och källans egen återkomst (socketens öppning /
+   * hubbens "Kontakt etablerad", ur uptime). Den senare ger en sann undre
+   * gräns för hur länge grannen flödat; den förra hindrar en upptid som
+   * överlevt ett avbrott (hubben flankar ner först efter tre missade pollar)
+   * från att räknas bakåt över avbrottet. Vid första observationen (appstart,
+   * ny konfiguration) finns ingen död tick — då gäller källans upptid.
+   *
+   * Minnesbaserad med flit (samma regel som observationsankaret och H18:s
+   * svarsklocka): _persistFeedSilenceLedger skriver bara lastMessageAt och
+   * configuredSince, så fälten faller bort vid omstart.
+   * @param {string} feedKey - 'aisstream' | 'aishub'
+   * @param {object|undefined} feedStats - perFeed-posten
+   * @param {boolean} alive - lever källan i den här ticken?
+   * @param {number} now
+   * @returns {number|null} sedan när källan levt, eller null om den inte lever
+   * @private
+   */
+  _noteFeedAlive(feedKey, feedStats, alive, now) {
+    const ledger = this._getFeedSilenceLedger();
+    if (!ledger[feedKey]) ledger[feedKey] = {};
+    const entry = ledger[feedKey];
+    if (!feedStats || feedStats.configured === false) {
+      delete entry.aliveSince;
+      delete entry.lastNotAliveAt;
+      return null;
+    }
+    if (!alive) {
+      delete entry.aliveSince;
+      entry.lastNotAliveAt = now;
+      return null;
+    }
+    if (!Number.isFinite(entry.aliveSince)) {
+      const uptimeMs = Number.isFinite(feedStats.uptime) ? Math.max(0, feedStats.uptime) : 0;
+      const ownReturn = uptimeMs > 0 ? now - uptimeMs : now;
+      entry.aliveSince = Number.isFinite(entry.lastNotAliveAt)
+        ? Math.max(entry.lastNotAliveAt, ownReturn)
+        : ownReturn;
+    }
+    return entry.aliveSince;
+  }
+
+  /**
+   * F2, revision 1 (granskningen av familj F, H1/M3): hur länge ett villkor
+   * (grannen lever / alla källor svarar) har gällt under den PÅGÅENDE
+   * tystnaden, ACKUMULERAT över glapp.
+   *
+   * Första versionen av F2 klippte tystnaden vid grannens senaste återkomst,
+   * alltså en nollställning vid varje glapp över grannens svarsfönster (två
+   * missade AISHub-pollar räcker). Då uteblev K22-trappan för en källa som
+   * var tyst i dygn medan grannen hackade regelbundet: bara basnotisen gick,
+   * med "på 28 min" efter ett dygns tystnad — exakt den underskattning K22
+   * infördes för att utrota. Ackumulerat drar ett glapp bara av sin egen
+   * längd, och siffran är fortfarande en sann undre gräns för "i över N
+   * medan Y flödar".
+   *
+   * Bokföringen per tick:
+   *  - NY EPISOD (episodnyckeln har ändrats — den tysta källan har
+   *    levererat eller konfigurerats om — eller första observationen efter
+   *    appstart): frö med den obrutna levande tiden inom episoden,
+   *    now − max(aliveSince, start).
+   *  - Villkoret gäller nu: lägg till tiden sedan max(aliveSince, förra
+   *    ticken). Gällde det vid förra ticken är aliveSince äldre, så hela
+   *    tickavståndet läggs till; har grannen just kommit tillbaka räknas
+   *    bara tiden sedan återkomsten (_noteFeedAlive ger den som sann undre
+   *    gräns).
+   *  - Villkoret gäller inte nu: inget läggs till (även om det gällde en del
+   *    av tiden sedan förra ticken — undre gräns).
+   *
+   * Inget tak på tickavståndet: provsviterna anropar vakten med upp till
+   * 16 min mellanrum (B2f), och ett stall där grannen levde vid båda tickarna
+   * räknas som levande, precis som den observerade tystnaden räknar hela
+   * stallet. Anroparen klämmer alltid resultatet mot den observerade
+   * tystnaden. Minnesbaserad: efter omstart börjar en ny episod vid
+   * observationsankaret, så inget dubbelräknas.
+   * REVISION 2 (omgranskningen N1): episodens IDENTITET är en nyckel av
+   * lagrade stämplar (_observedFeedSilence → episodeKey), aldrig ett tal som
+   * räknas fram ur now. Första ackumulatorn jämförde `now − tystnad` på exakt
+   * likhet; talet flyttar sig med de millisekunder som går mellan klientens
+   * statistik och korsvaktens now, och varje flytt nollställde ackumulatorn.
+   * episodeStart används bara för fröets längd, där millisekunder inte spelar
+   * roll.
+   * @param {string} key - vilket mått ('aisstream-medan-aishub', …)
+   * @param {string} episodeId - episodens identitet (lagrade stämplar; ändras
+   *        den — källan har levererat, konfigurerats om eller uppsättningen
+   *        källor bytts — börjar en ny episod)
+   * @param {number} episodeStart - när den pågående tystnaden började (för fröet)
+   * @param {number|null} aliveSince - sedan när villkoret gällt (null = gäller inte nu)
+   * @param {number} now
+   * @returns {number} ackumulerad tid i ms
+   * @private
+   */
+  _aliveTimeDuringSilence(key, episodeId, episodeStart, aliveSince, now) {
+    if (!this._silenceAliveAccumulators) this._silenceAliveAccumulators = new Map();
+    const alive = Number.isFinite(aliveSince);
+    let acc = this._silenceAliveAccumulators.get(key);
+    if (!acc || acc.episodeId !== episodeId) {
+      acc = {
+        episodeId,
+        ms: alive ? Math.max(0, now - Math.max(aliveSince, episodeStart)) : 0,
+        tickAt: now,
+      };
+      this._silenceAliveAccumulators.set(key, acc);
+      return acc.ms;
+    }
+    if (alive) acc.ms += Math.max(0, now - Math.max(aliveSince, acc.tickAt));
+    acc.tickAt = now;
+    return acc.ms;
+  }
+
+  /**
    * B2e/B2f: OBSERVERAD tystnad per källa — larmets enda mått.
    *
    * observedMs = now − max(senaste meddelande, observationsankaret). Alltid
@@ -12315,7 +12439,11 @@ class AISBridgeApp extends Homey.App {
    * @private
    */
   _observedFeedSilence(feedKey, feedStats, now = Date.now()) {
-    if (!feedStats) return { observedMs: 0, sinceMessageMs: null, observedSince: now };
+    if (!feedStats) {
+      return {
+        observedMs: 0, sinceMessageMs: null, observedSince: now, episodeKey: 'saknas',
+      };
+    }
 
     const ledger = this._getFeedSilenceLedger();
     if (!ledger[feedKey]) ledger[feedKey] = {};
@@ -12340,10 +12468,41 @@ class AISBridgeApp extends Homey.App {
     const lastMessageAt = known.length ? Math.max(...known) : null;
 
     const silenceStart = lastMessageAt !== null ? Math.max(anchor, lastMessageAt) : anchor;
+
+    // F2, revision 2 (omgranskningen N1): EPISODNYCKELN — vilken tystnad det
+    // här är, för korstystnadens ackumulator (_aliveTimeDuringSilence). Den
+    // får INTE härledas ur now − observedMs: timeSinceLastMessage och uptime
+    // räknas av klienten med dess egen Date.now() några millisekunder före
+    // korsvaktens now, så "now − tystnad" flyttar sig med de millisekunderna
+    // från tick till tick (uppmätt med riktig klocka: 0–2 ms på en Mac). Varje
+    // flytt såg ut som en ny episod och nollställde ackumulatorn — första
+    // versionens fel, osynligt i jest och replay där klockan står still inom
+    // ett anrop. Nyckeln byggs därför av LAGRADE stämplar som aldrig räknas om:
+    // konfigurationsstämpeln (configuredSince, ny vid av-/påkonfigurering) och
+    // senaste meddelandets absoluta tid (klientens lastMessageTime och
+    // bokföringens lastMessageAt). Ankaret ingår inte: det tas ur uptime och
+    // kan glida några ms. Det relativa måttet används bara när ingen absolut
+    // stämpel finns — då finns inte heller i drift något relativt mått
+    // (klienterna härleder timeSinceLastMessage ur lastMessageTime); grenen
+    // finns för äldre teststubbar.
+    const absolute = [];
+    if (Number.isFinite(feedStats.lastMessageTime)) absolute.push(feedStats.lastMessageTime);
+    if (Number.isFinite(entry.lastMessageAt)) absolute.push(entry.lastMessageAt);
+    let lastKey = 'aldrig';
+    if (absolute.length) {
+      lastKey = String(Math.max(...absolute));
+    } else if (Number.isFinite(feedStats.timeSinceLastMessage)) {
+      lastKey = `relativ:${now - Math.max(0, feedStats.timeSinceLastMessage)}`;
+    }
+    let configKey = 'avkonfigurerad';
+    if (configured) {
+      configKey = Number.isFinite(entry.configuredSince) ? String(entry.configuredSince) : 'konfigurerad';
+    }
     return {
       observedMs: Math.max(0, now - silenceStart),
       sinceMessageMs: lastMessageAt !== null ? Math.max(0, now - lastMessageAt) : null,
       observedSince: anchor,
+      episodeKey: `${configKey}|${lastKey}`,
     };
   }
 
@@ -12934,17 +13093,68 @@ class AISBridgeApp extends Homey.App {
         if (streamResponding) streamLatchAgeMs = sinceRespondingMs;
       }
     }
+    // F2 (fältprovet 2026-11-11): sedan när varje källa oavbrutet levt — se
+    // _noteFeedAlive och KORSTYSTNADEN nedan. Bokförs varje tick, även i
+    // nedkopplat läge, så ett totalavbrott alltid syns som döda tick.
+    const streamAliveSince = this._noteFeedAlive('aisstream', s, !!s && (streamResponding || sFresh), now);
+    const hubAliveSince = this._noteFeedAlive('aishub', h, !!h && hubResponding, now);
+    // F2, revision 1 (granskningen H1/M2/M3) — KORSTYSTNADEN ÄR ACKUMULERAD.
+    // Notiserna "X har inte levererat på N medan Y flödar" och trappan "X har
+    // varit tyst i över N medan Y flödar — halverad redundans" påstår två
+    // saker om samma N: att X varit tyst OCH att Y flödat. Den observerade
+    // tystnaden bär bara den första. k1: Homey var utan nät 02:20–06:53Z,
+    // AISHub svarade 06:54:21Z, och ticken 06:55:09Z skickade bas-, 1h- och
+    // 4h-notisen med "4 h medan AISHub flödar" — hubben hade flödat i 48 s
+    // (BT-12). N är därför den tid under X:s PÅGÅENDE tystnad då grannen Y
+    // levt (_aliveTimeDuringSilence), klämd mot den observerade tystnaden.
+    // Ett glapp hos grannen drar bara av sin egen längd — första versionen
+    // nollställde vid varje glapp över 210 s, och då uteblev K22-trappan för
+    // en källa som var tyst i dygn medan grannen hackade (granskningen H1).
+    // Utan glapp hos grannen är N lika med den observerade tystnaden, så K22
+    // och trappan står kvar. Skuren av tre notiser i samma tick i k1 var en
+    // följd av samma felräkning (N hoppade från 0 till 277 min), inte av
+    // K22-avvägningen. connection_status (degradeNow) läser SAMMA mått, så
+    // B2c:s likhet mellan statusvillkoret och korsnotisens villkor står kvar.
+    // Revision 2 (N1): episodens identitet ur lagrade stämplar (episodeKey),
+    // aldrig ur now − tystnad; now − tystnad används bara för fröets längd.
+    const sCross = Math.min(sSilence, this._aliveTimeDuringSilence(
+      'aisstream-medan-aishub', sObs.episodeKey, now - sSilence, hubAliveSince, now,
+    ));
+    const hCross = Math.min(hSilence, this._aliveTimeDuringSilence(
+      'aishub-medan-aisstream', hObs.episodeKey, now - hSilence, streamAliveSince, now,
+    ));
     const hubFeedsPipeline = this._hubFeedsPipeline();
     const relevant = [];
     if (s && s.configured) {
       relevant.push({
-        name: 'aisstream', st: s, sil: sSilence, responding: streamResponding,
+        name: 'aisstream', st: s, sil: sSilence, responding: streamResponding, aliveSince: streamAliveSince, episodeKey: sObs.episodeKey,
       });
     }
     if (h && h.configured && hubFeedsPipeline) {
       relevant.push({
-        name: 'aishub', st: h, sil: hSilence, responding: hubResponding,
+        name: 'aishub', st: h, sil: hSilence, responding: hubResponding, aliveSince: hubAliveSince, episodeKey: hObs.episodeKey,
       });
+    }
+    // F2, revision 1 (granskningen M3): tom-kanal-nätet påstår "AIS-källorna
+    // svarar men ingen båtdata på N". N är den tid under den GEMENSAMMA
+    // tystnaden (sedan den senaste källans senaste leverans) då ALLA relevanta
+    // källor svarat, med samma ackumulering som korstystnaden. k1-förloppet med
+    // tom kanal gav annars notisen 41 s efter återkomsten med "på 4 h" — då
+    // källorna i 4,5 h inte svarat alls. Ett kort glapp drar bara av sin egen
+    // längd, så skyddsnätet mot bbox-/kontofel (U12) står kvar.
+    let emptyAliveMs = 0;
+    if (relevant.length > 0) {
+      const jointSilence = Math.min(...relevant.map((r) => r.sil));
+      const allAliveSince = relevant.every((r) => Number.isFinite(r.aliveSince))
+        ? Math.max(...relevant.map((r) => r.aliveSince))
+        : null;
+      // Episoden är den gemensamma tystnaden: den byts när någon relevant
+      // källa levererar eller konfigureras om, eller när uppsättningen
+      // relevanta källor ändras (källbyte) — allt syns i nyckeln.
+      const jointEpisodeId = relevant.map((r) => `${r.name}=${r.episodeKey}`).join('+');
+      emptyAliveMs = Math.min(jointSilence, this._aliveTimeDuringSilence(
+        'tom-kanal', jointEpisodeId, now - jointSilence, allAliveSince, now,
+      ));
     }
     if (relevant.length > 0
         && relevant.every((r) => r.sil > SILENT_MS)) {
@@ -12983,7 +13193,12 @@ class AISBridgeApp extends Homey.App {
         : ` [aisstream-socketen nere sedan ${Math.round(streamLatchAgeMs / 1000)}s `
           + `— inom hysteresfönstret ${Math.round(FRESH_POLL_MS / 1000)}s, ännu inte dömd]`;
       // (streamLatchAgeMs mäts från senast observerade STABILA socket, se H18.)
-      logLimited(`feeds-total:${mode}`, `INGEN aktiv AIS-källa har levererat på ${Math.round(minSil / 60000)} min (${names(relevant)}) — ${totalPhrase}${latchPhrase}`);
+      // F2, revision 1 (M3): i tom-kanal-läget säger tillägget hur stor del av
+      // tystnaden alla källor faktiskt svarat (det mått notisen bär).
+      const emptyPhrase = mode === 'tom-kanal' && minSil - emptyAliveMs >= 60 * 1000
+        ? ` [alla källor har svarat ${Math.round(emptyAliveMs / 60000)} min av tystnaden]`
+        : '';
+      logLimited(`feeds-total:${mode}`, `INGEN aktiv AIS-källa har levererat på ${Math.round(minSil / 60000)} min (${names(relevant)}) — ${totalPhrase}${latchPhrase}${emptyPhrase}`);
       if (trulyBlind) {
         // K22: siffran HÄRLEDS ur samma mätning som loggraden ovan (minSil) —
         // den hårdkodade "15 minuter" var korstystnadsFÖNSTRET, inte det
@@ -13000,7 +13215,7 @@ class AISBridgeApp extends Homey.App {
           + 'broöppningsvakten är blind. Kontrollera nätverk, AISstream-nyckeln '
           + 'och AISHub-status på aishub.net.'
         ));
-      } else if (allResponding && minSil >= FEED_SILENCE.EMPTY_CHANNEL_ALERT_MS) {
+      } else if (allResponding && emptyAliveMs >= FEED_SILENCE.EMPTY_CHANNEL_ALERT_MS) {
         // (2) SKYDDSNÄTET. EN notis, egen nyckel, samma 24h-dedup som övriga —
         // ingen eskaleringstrappa: en tom kanal behöver en påminnelse, inte en
         // serie. Nivån speglar trappans 4h-STEG (efter K22:s dygnssteg är 4 h
@@ -13010,8 +13225,10 @@ class AISBridgeApp extends Homey.App {
         // brännas av en sentinel innan appen faktiskt bevakat kanalen i fyra
         // timmar — och K22: siffran är den MÄTTA tystnaden, inte tröskeln, så
         // ett dygns tom kanal inte längre rapporteras som "på 4 timmar".
+        // F2, revision 1 (M3): måttet är den del av tystnaden då ALLA källor
+        // svarat (emptyAliveMs ovan), inte hela tystnaden.
         this._notifyConnectionIssue(
-          `AIS Tracker: AIS-källorna svarar men ingen båtdata på ${this._formatSilence(minSil)} `
+          `AIS Tracker: AIS-källorna svarar men ingen båtdata på ${this._formatSilence(emptyAliveMs)} `
           + '— kontrollera bevakningsområdet/kontona.',
           'feeds:empty:4h',
         );
@@ -13019,6 +13236,17 @@ class AISBridgeApp extends Homey.App {
     }
 
     const bothConfigured = !!(s && h && s.configured && h.configured);
+    // F2: korstystnaden (sCross/hCross) räknas ovan, före totalgrenen, så att
+    // ackumulatorerna bokförs i varje tick. Loggraderna behåller sina prefix
+    // (greppmönster) och får ett tillägg när korstystnaden är minst en
+    // monitoringtick (60 s) kortare än tystnaden, så fältanalysen ser varför
+    // notisen väntar eller varför dess tid är kortare än tystnaden.
+    const crossNote = (neighbour, cross, silence, aliveSince) => (
+      silence - cross >= 60 * 1000 && Number.isFinite(aliveSince)
+        ? ` [korstystnad ${Math.round(cross / 60000)} min: så länge ${neighbour} svarat under tystnaden; `
+          + `${neighbour} svarar oavbrutet sedan ${new Date(aliveSince).toISOString().slice(11, 19)}Z`
+          + `${cross > SILENT_MS ? '' : ` — notiserna väntar tills den passerat ${Math.round(SILENT_MS / 60000)} min`}]`
+        : '');
     // F1: TVÅ nivåer på aisstream-grenen. Den svagare (hubben SVARAR) bär bara
     // LOGGRADEN — den är fältdiagnostik och skiljer "hubben är borta" från
     // "hubben svarar men kanalen är tom". Den starkare (hubben LEVERERAR)
@@ -13027,6 +13255,10 @@ class AISBridgeApp extends Homey.App {
     const streamSilentHubResponding = bothConfigured && sSilence > SILENT_MS && hubResponding;
     const streamSilentHubFresh = bothConfigured && sSilence > SILENT_MS && hFresh;
     const hubSilentStreamFresh = bothConfigured && hSilence > SILENT_MS && sFresh;
+    // F2: KORSVILLKORET — tystnaden räknad som korstystnad. Det enda villkoret
+    // för både notiserna och statusen (B2c: "EXAKT korstystnadsvillkoret").
+    const streamCrossSilent = streamSilentHubFresh && sCross > SILENT_MS;
+    const hubCrossSilent = hubSilentStreamFresh && hCross > SILENT_MS;
 
     // B2c (etapp 7, 2026-08-08, användarbeslut U8): DEGRADERAT LÄGE PÅ ENHETEN.
     // Fältprovet: capabilityn stod på "connected" i 41,8 h medan halva
@@ -13061,10 +13293,19 @@ class AISBridgeApp extends Homey.App {
     // enumet {disconnected, connected, degraded} är 'degraded' det minst
     // felaktiga värdet i det läget; SANNINGEN om blindheten ägs av
     // totalgrenen ovan (loggrad + 'feeds:silent'-notis med eskalering).
-    const degradeNow = hubFeedsPipeline && (streamSilentHubFresh || hubSilentStreamFresh);
+    //
+    // F2, revision 1 (granskningen M2): SÄTTNINGEN läser korstystnaden, samma
+    // mått som notiserna. Första versionen av F2 lät statusen läsa den råa
+    // tystnaden och bröt därmed likheten ovan: efter ett totalavbrott blev
+    // statusen "degraded" i ticken efter hubbens återkomst, fast AISstream var
+    // tillbaka och bara inte hunnit leverera (granskarens k1-prov: 06:55:09Z,
+    // socketen uppe sedan 06:54:15Z). Nu får ett totalavbrott samma 15 min nåd
+    // som när AISstream tappar ensam. SLÄPPET läser fortfarande den tysta
+    // källans egen tystnad — det är hennes leverans som häver degraderingen.
+    const degradeNow = hubFeedsPipeline && (streamCrossSilent || hubCrossSilent);
     let degraded = degradeNow;
     if (degradeNow) {
-      this._connectionDegradedSilentFeed = streamSilentHubFresh ? 'aisstream' : 'aishub';
+      this._connectionDegradedSilentFeed = streamCrossSilent ? 'aisstream' : 'aishub';
     } else if (this._connectionFeedDegraded) {
       const held = this._connectionDegradedSilentFeed;
       const heldSilence = held === 'aisstream' ? sSilence : hSilence;
@@ -13098,7 +13339,8 @@ class AISBridgeApp extends Homey.App {
       logLimited(
         'aisstream',
         `aisstream har inte levererat på ${Math.round(sSilence / 60000)} min ${hubPhrase}`
-        + `${hubFeedsPipeline ? '' : ' (skuggläge — AISHub matar inte appen; appen är blind, se totalgrenen)'}`,
+        + `${hubFeedsPipeline ? '' : ' (skuggläge — AISHub matar inte appen; appen är blind, se totalgrenen)'}`
+        + `${crossNote('AISHub', sCross, sSilence, hubAliveSince)}`,
       );
       // F1: NOTISERNA är gatade på leveransbeviset — och deras text HÄRLEDS ur
       // samma mätning som loggraden i stället för att hårdkoda "flödar". Båda
@@ -13131,18 +13373,20 @@ class AISBridgeApp extends Homey.App {
       // ("appen är blind"), med EGEN nyckel (motsatt text får inte dela
       // dygnsfönster — N29-doktrinen). Socketen NERE ägs fortfarande av
       // totalgrenen (feeds:silent) — ingen dubblett (S12:s sex-notiser-fall).
-      if (streamSilentHubFresh && !hubFeedsPipeline && streamResponding) {
+      // F2: notiserna gatas och formuleras på korstystnaden (sCross), inte på
+      // den observerade tystnaden — se KORSTYSTNADEN ovan.
+      if (streamCrossSilent && !hubFeedsPipeline && streamResponding) {
         this._notifyConnectionIssue(
-          `AIS Tracker: AISstream har inte levererat några positioner på ${this._formatSilence(sSilence)} `
+          `AIS Tracker: AISstream har inte levererat några positioner på ${this._formatSilence(sCross)} `
           + 'trots att AISHub (mätinstrument i skuggläge) ser trafik — appen tar just nu '
           + 'inte emot båtdata. Vakterna försöker återansluta automatiskt; byt källval '
           + "till 'both' om det består.",
           'aisstream:silent:shadow',
         );
       }
-      if (streamSilentHubFresh && hubFeedsPipeline) {
+      if (streamCrossSilent && hubFeedsPipeline) {
         this._notifyConnectionIssue(
-          `AIS Tracker: AISstream har inte levererat några positioner på ${this._formatSilence(sSilence)} `
+          `AIS Tracker: AISstream har inte levererat några positioner på ${this._formatSilence(sCross)} `
           + `${hubPhrase} — anslutningen kan vara halvdöd. Appens vakter `
           + 'försöker återansluta automatiskt.',
           'aisstream:silent',
@@ -13151,7 +13395,7 @@ class AISBridgeApp extends Homey.App {
         // och sedan tystnad; nu bryter 1h-, 4h- och dygnsnivåerna igenom per
         // dygn (K22 2026-08-20: 19/8 gick 10 h 51 min utan signal efter
         // 4h-notisen medan tystnaden växte till 886 min).
-        this._escalateSilenceNotices('aisstream:silent', sSilence, (tidsfras) => (
+        this._escalateSilenceNotices('aisstream:silent', sCross, (tidsfras) => (
           `AIS Tracker: AISstream har varit tyst i över ${tidsfras} `
           + `${hubPhrase} — appen kör på halverad redundans. Vakterna fortsätter `
           + 'återansluta; kontrollera din AISstream-nyckel om det består.'
@@ -13168,12 +13412,16 @@ class AISBridgeApp extends Homey.App {
       logLimited(
         'aishub',
         `AISHub har inte levererat på ${Math.round(hSilence / 60000)} min medan aisstream flödar`
-        + `${hubFeedsPipeline ? '' : ' (skuggläge — påverkar inte notiser/brotext, ingen användarnotis)'}`,
+        + `${hubFeedsPipeline ? '' : ' (skuggläge — påverkar inte notiser/brotext, ingen användarnotis)'}`
+        + `${crossNote('AISstream', hCross, hSilence, streamAliveSince)}`,
       );
-      if (hubFeedsPipeline) {
+      // F2: spegelfallet — AISstream tillbaka först efter ett totalavbrott ska
+      // inte ge "AISHub tyst i 4 h medan AISstream flödar". Gatas och formuleras
+      // på korstystnaden (hCross), se KORSTYSTNADEN ovan.
+      if (hubFeedsPipeline && hubCrossSilent) {
         // K22: mätt tystnad, inte korstystnadsfönstret — se aisstream-tvillingen.
         this._notifyConnectionIssue(
-          `AIS Tracker: AISHub har inte levererat några positioner på ${this._formatSilence(hSilence)} `
+          `AIS Tracker: AISHub har inte levererat några positioner på ${this._formatSilence(hCross)} `
           + 'medan AISstream flödar — kontrollera användarnamnet och din '
           + 'stationsstatus på aishub.net.',
           'aishub:silent',
@@ -13181,7 +13429,7 @@ class AISBridgeApp extends Homey.App {
         // B2: eskalering — AISHub bär ~75 % av datat i both-läge; ett långt
         // hub-avbrott är den farligaste oprövade riktningen och ska inte
         // tystna efter basnotisen.
-        this._escalateSilenceNotices('aishub:silent', hSilence, (tidsfras) => (
+        this._escalateSilenceNotices('aishub:silent', hCross, (tidsfras) => (
           `AIS Tracker: AISHub har varit tyst i över ${tidsfras} medan AISstream `
           + 'flödar — appen kör på halverad redundans. Kontrollera användarnamn '
           + 'och stationsstatus på aishub.net.'

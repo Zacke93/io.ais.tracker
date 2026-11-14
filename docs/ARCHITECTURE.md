@@ -3546,6 +3546,65 @@ alla nivåer i samma millisekund). Låst av `tests/k22-larmtext.test.js`
 (formateringens gränser, BT-12-invarianten "aldrig mer än mätningen bär", och
 att trappans text följer mätningen och inte tröskeln).
 
+**Korstystnaden är den tid grannen levt under tystnaden** (F2, fältprovet
+2026-11-11; revision 1 efter granskningen samma vecka). Korsnotiserna
+(`aisstream:silent` med trappan, `aisstream:silent:shadow`, `aishub:silent`
+med trappan) påstår två saker om samma tid N: att källan varit tyst OCH att
+grannen flödat. I k1 var Homey utan nät 02:20–06:53Z; AISHub svarade
+06:54:21Z, och ticken 06:55:09Z skickade bas-, 1h- och 4h-notisen med "4 h
+medan AISHub flödar" — hubben hade flödat i 48 s. N är därför den tid under
+källans PÅGÅENDE tystnad då grannen levt, ACKUMULERAD över glapp
+(`_aliveTimeDuringSilence`), klämd mot den observerade tystnaden. "Levt" är
+grenens egna predikat (`_noteFeedAlive`: aisstream svarar enligt H18:s latch
+eller har levererat inom 2 min; AISHub har pollklockan inom 210 s). Vid
+grannens återkomst räknas bara tiden sedan återkomsten (den senare av senaste
+döda tick och källans egen återkomst ur `uptime`), så N är en sann undre
+gräns. En ny tystnadsepisod (källan levererar) börjar om räkningen.
+Notiserna gatas på att N passerat 15 min och texten bär N.
+
+Episodens IDENTITET (revision 2, omgranskningen N1) är en nyckel av lagrade
+stämplar: konfigurationsstämpeln och senaste meddelandets ABSOLUTA tid
+(klientens `lastMessageTime`, bokföringens `lastMessageAt`), sammanställd i
+`_observedFeedSilence` (`episodeKey`). Revision 1 jämförde `now − observerad
+tystnad` på exakt likhet; talet innehåller `timeSinceLastMessage`, som
+klienterna räknar med sin egen `Date.now()` några millisekunder före
+korsvaktens `now` (uppmätt med riktig klocka: 0–2 ms på en Mac, mer på en
+Homey). Varje millisekunds skillnad startade en ny episod och nollställde
+ackumulatorn — första versionens fel, osynligt i jest och replay där klockan
+står still inom ett anrop. Tom-kanal-episoden är summan av de relevanta
+källornas nycklar, så ett källbyte också startar en ny episod. Proven kör
+förloppen med statistiken 0/1/2/50 ms före vaktens `now` och genom den
+riktiga `_checkAISFeedHealth` med klockan stegad mellan statistik och tick.
+
+Ett glapp hos grannen drar bara av sin egen längd. Den första versionen
+nollställde N vid varje glapp över grannens svarsfönster (två missade
+AISHub-pollar räcker); då uteblev K22-trappan för en källa som var tyst i
+dygn medan grannen hackade, och basnotisen sa "på 28 min" efter ett dygns
+tystnad. Utan glapp hos grannen är N lika med den observerade tystnaden, så
+K22:s tider står kvar; med ett grannglapp på 4 min var 50:e min kommer hela
+trappan, med stegen några minuter senare och texter som underskattar med
+högst grannens frånvaro (låst av granskarens förlopp i testfilen).
+
+Skuren av tre notiser i samma tick i k1 var en följd av samma felräkning,
+inte av K22-avvägningen ovan: N hoppade från 0 till 277 min.
+`connection_status` läser SAMMA mått: `degradeNow` är exakt korsnotisens
+villkor (B2c), så statusen får 15 min nåd efter ett totalavbrott precis som
+när AISstream tappar ensam (den första versionen lät statusen läsa den råa
+tystnaden och blinkade "degraded" efter varje totalavbrott). Släppet läser
+fortfarande den tysta källans egen tystnad. Tom-kanal-nätet (`feeds:empty:4h`,
+"AIS-källorna svarar men ingen båtdata på N") räknar på samma sätt den tid
+under den gemensamma tystnaden då ALLA relevanta källor svarat; ett
+totalavbrott följt av tom kanal gav annars notisen 41 s efter återkomsten med
+"på 4 h". `[FEED_SILENT]`-raderna behåller sina prefix och får ett tillägg
+("korstystnad N min: så länge … svarat under tystnaden" respektive "alla
+källor har svarat N min av tystnaden") när måttet är minst en tick kortare än
+tystnaden. Ackumulatorerna är minnesbaserade; efter omstart börjar en ny
+episod vid observationsankaret. Kända gränser: inget tak på tickavståndet
+(ett stall där grannen levde vid båda tickarna räknas som levande, som den
+observerade tystnaden), och tiden mellan grannens sista levande och första
+döda tick räknas inte (undre gräns, upplösning en tick). Låst av
+`tests/f2-korstystnad-efter-totalavbrott.test.js`.
+
 **`FEED_SILENCE.EMPTY_CHANNEL_ALERT_MS` (4 h) speglar 4h-STEGET, inte trappans
 topp** (användarbeslut 2026-08-21). Efter dygnssteget är 4 h ett MELLANSTEG, och
 tom-kanal-nätet följer medvetet mellansteget: dess egen härledning handlar om
