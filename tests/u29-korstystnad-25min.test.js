@@ -59,11 +59,15 @@ afterEach(() => {
 
 /**
  * FÄLTETS ELVA TYSTNADER med frisk anslutning och bara förtöjda båtar.
- * k1/k2: glappen mellan AISstreams pipeline-accepterade sampel i ais.jsonl
- * (familj F:s tabell; en övre gräns — appens eget mått, som räknar även
- * meddelanden som fusionen avvisar, är för två av k2:s glapp kortare).
- * k3: appens eget mått ur app.log (accepterade sampel plus avslagsurvalet),
- * k3-driftrapportens fynd 1. Längsta: 23,33 min (k3 14/11 18:21:50).
+ * MÅTTET (granskningen L3): k1/k2 är glappen mellan AISstreams
+ * pipeline-accepterade sampel i ais.jsonl (familj F:s tabell), en övre gräns.
+ * k3 är appens eget mått ur app.log (accepterade sampel plus fusionens
+ * avslagsurval). Med appens eget mått genomgående är tystnaderna på minst
+ * 15 min NIO på 100,2 h (k1: 3, k2: 1, k3: 5): i k2 bryts 21:48–22:06 av
+ * meddelanden, 13:16–13:36 delas vid 13:28 och 08:36 är 17,5 min. Listan
+ * nedan är alltså strängare än fältet, inte svagare. Längsta: 23,33 min
+ * (k3 14/11 18:21:50), som slutade 2 min 20 s efter feed-vaktens
+ * tvångsåteranslutning, på den nya socketen.
  */
 const FIELD_SILENCES = [
   ['k1', '2026-11-11T07:59:48.470Z', '2026-11-11T08:18:29.438Z'], // 18,7 min
@@ -369,7 +373,10 @@ describe('U29 (c): textvalet följer den uttryckliga livssignalen', () => {
     expect(textFor({ isConnected: false, lastPongAt: Date.now() - 10 * SEC })).toBe(GAMMAL_TEXT('30 min'));
   });
 
-  test('fönstrets kant: 59,9 s ⇒ ny text; 60 s och äldre ⇒ gamla (pingvakten hade då dödat socketen)', () => {
+  // L2 (granskningen): pingvakten terminerar socketen vid tick efter en
+  // obesvarad ping, när senaste pong är knappt 60 s gammal — i upp till 30 s
+  // efter den missade pingen räknas socketen alltså fortfarande som levande.
+  test('fönstrets kant: 59,9 s ⇒ ny text; 60 s och äldre ⇒ gamla (då har pingvakten hunnit stänga socketen)', () => {
     Date.now = () => at('2026-11-20T10:00:00.000Z');
     const W = CONNECTION_ALERT.AISSTREAM_PONG_PROOF_WINDOW_MS;
     expect(W).toBe(2 * AIS_CONFIG.PING_INTERVAL_MS);

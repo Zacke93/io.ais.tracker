@@ -3533,16 +3533,29 @@ fyra oftare än en gång per dygn av oavbrutet avbrott.
 F12 i `docs/faltgranskning-2026-11-14.md`, alternativ b + c). På vintern rör sig
 ingen båt i området på 15–23 minuter, och AISstream levererar då inget alls fast
 anslutningen är frisk, medan AISHub fortsätter rapportera de förtöjda båtarna.
-Tre fältkörningar gav elva sådana tystnader (k1/k2: sex på 16–20 min på 61 h;
-k3: fem på 15,3–23,3 min på 34 h), sju episoder "Degraderad" och tre falska
-notiser "… kan vara halvdöd". **Gränsen för AISstream-sidans basnotis
+Tre fältkörningar (app.log täcker 100,2 h) gav sju episoder "Degraderad" och
+tre falska notiser "… kan vara halvdöd". Antalet tystnader beror på måttet. Med
+appens eget mått (AISstreams meddelanden i app.log, även dem fusionen avvisar;
+en övre gräns eftersom avslagen bara loggas som urval) var de nio på minst
+15 min: k1 tre, k2 en, k3 fem, på 15,3–23,3 min. Talet elva (k1/k2: sex på
+16–20 min) räknar k1/k2 som glapp mellan pipeline-accepterade sampel i
+`ais.jsonl`, vilket ger längre och fler glapp; testet
+`tests/u29-korstystnad-25min.test.js` använder den strängare listan. **Gränsen för AISstream-sidans basnotis
 (`aisstream:silent`, även skuggvarianten `aisstream:silent:shadow`) och för
 statusen `degraded` är därför 25 min**
 (`CONNECTION_ALERT.AISSTREAM_CROSS_SILENCE_ALERT_MS`), med exakt samma villkor
 för båda (B2c: `degradeNow` läser `streamCrossSilent`). **Priset**, uttalat och
 godtaget av ägaren: en verkligt död AISstream syns tio minuter senare.
 Marginalen mot fältets längsta friska tystnad (23,33 min, k3 14/11 18:21:50Z)
-är 1,7 min.
+är 1,7 min. Den tystnaden slutade inte av sig själv: feed-vakten
+tvångsåteranslöt 18:42:50Z, och nästa meddelande kom 2 min 20 s senare, på den
+nya socketen. Det går inte att avgöra om det var ett naturligt uppehåll (som
+då kunde ha blivit längre än 23,33 min) eller en hängd prenumeration som vakten
+lagade. Granskarens skattning, som information (exponentiell svans anpassad
+till glappen över 10, 12 och 15 min; 100 h underlag från en årstid): med 25 min
+väntas ett falsklarm ungefär var 2–5 vecka i vintertrafik, mot cirka två per
+dygn med 15 min. Varje sådant falsklarm blir högst en notis per dygn och
+"Degraderad" tills nästa meddelande.
 
 **Ordningen feed-vakt före larm.** Feed-vakten
 (`UI_CONSTANTS.STALE_FEED_RECONNECT_MS`, 20 min, mätt som min(tid sedan
@@ -3556,7 +3569,12 @@ där appen redan försökt: socketen har återanslutits under tystnaden (då vä
 vakten ut ett helt tyst fönster på den nya socketen), eller socketen är nere
 (då äger klientens egen backoff återanslutningen och vakten ingriper inte).
 Låst av `tests/u29-korstystnad-25min.test.js` (vakten 20:09, larmet 25:09 i
-samma tick som "Degraderad", sedan 1 h, 4 h och 1 dygn som förut).
+samma tick som "Degraderad", sedan 1 h, 4 h och 1 dygn som förut) och av
+`tests/u29-e2e-riktiga-klienter.test.js`, som kör samma förlopp genom riktig
+`AISStreamClient` (fejkad `ws`), riktig `AISHubClient` (fejkad HTTP) och riktig
+mux: död men pongande källa, socket som inte pongar, socket nere, ett
+meddelande var 24:e respektive 27:e min, serverstängning under tystnaden
+(undantaget ovan), skuggläget och klocksteg bakåt.
 
 **Texten utan diagnos när anslutningen bevisligen lever.** "Halvdöd" var
 falskt varje gång i fält: nästa meddelande kom på samma socket. När socketen
@@ -3564,8 +3582,11 @@ falskt varje gång i fält: nästa meddelande kom på samma socket. När sockete
 (`lastPongAt`, nollställs per socket i `_stopPing`, som både en ny socket
 via `_startPing` och en stängd via `_clearTimers` går igenom) är yngre än
 pingvaktens fönster (`CONNECTION_ALERT.AISSTREAM_PONG_PROOF_WINDOW_MS`,
-2 × 30 s — samma gräns som pingvakten dödar en tyst socket vid) säger
-basnotisen:
+2 × 30 s) säger basnotisen nedanstående. Pingvakten pingar var 30:e s och
+terminerar socketen vid nästa tick om pingen inte besvarats, alltså när senaste
+pong är knappt 60 s gammal; en socket vars senaste ping just blivit obesvarad
+räknas därför som levande i upp till 30 s till. Socketen är då fortfarande
+öppen, så texten påstår inte mer än så:
 
 > AIS Tracker: AISstream är ansluten men har inte levererat några positioner
 > på N medan AISHub flödar. Appens vakter försöker återansluta automatiskt.
@@ -3599,6 +3620,18 @@ för marginalen) och får tillägget `[under larmgränsen 25 min (U29)]` så lä
 larmet inte gått. (5) **Släppet** av en degradering läser fortfarande den
 tysta källans tystnad mot 15 min; tystnaden sjunker bara när källan
 levererar, så bandet 15–25 min kan inte ge fladder.
+
+**B2c:s likhet förutsätter en klocka som inte går bakåt.** Med U29 sätts
+statusen över 25 min men släpps först under 15 min. Ställs väggklockan bakåt
+efter ett larm, så att den observerade tystnaden hamnar mellan 15 och 25 min,
+står "Degraderad" kvar medan notisvillkoret är falskt (granskningen: larm vid
+27 min, klockan 10 min bakåt, sex tick med status kvar och villkoret falskt).
+Statusen står då kvar tills källan levererar. Felet går åt det försiktiga
+hållet, eftersom den verkliga tystnaden fortfarande är över 25 min, och ingen
+kodändring görs. Före U29 var sättning och släpp samma gräns, så bandet fanns
+inte. Valet att släppet läser 15 min är låst av klockstegsprovet i
+`tests/u29-e2e-riktiga-klienter.test.js`: ett släpp på 25 min hade skrivit
+"connected" där.
 
 **Texterna anger den MÄTTA tystnaden** (K22, landat 2026-08-21) — BT-12, samma
 princip som redan styrde `hubPhrase`: texten får inte påstå mer än mätningen

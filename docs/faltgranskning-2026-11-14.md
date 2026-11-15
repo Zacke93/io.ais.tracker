@@ -598,7 +598,9 @@ trafiken" är de 24 låsta körningarna (cirka 485 h).
   ansluten men har inte levererat några positioner på N medan AISHub flödar. Appens vakter
   försöker återansluta automatiskt."; annars står "… kan vara halvdöd" kvar. AISHub-spegeln,
   trappans 1 h/4 h/dygn och blindhetslarmet är oförändrade. Fältkörning 3 (14–15 november) gav
-  fem tystnader till på 15,3–23,3 min; ingen av de elva hade larmat vid 25 min. Alternativ (d)
+  fem tystnader till på 15,3–23,3 min. Med appens eget mått i app.log är fältets tystnader på
+  minst 15 min nio på 100,2 h (k1: 3, k2: 1, k3: 5; siffrorna ovan för k1/k2 är jsonl-glapp, en
+  övre gräns); ingen hade larmat vid 25 min. Alternativ (d)
   valdes inte (docs/ARCHITECTURE.md §K22/U29, `tests/u29-korstystnad-25min.test.js`).
 
 **F13. ETA-etappen (U22) med fältets belägg**

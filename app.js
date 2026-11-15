@@ -13420,9 +13420,12 @@ class AISBridgeApp extends Homey.App {
         //  • socketen är öppen (perFeed.aisstream.isConnected), och
         //  • senaste pong på DEN socketen (lastPongAt, nollställs i klientens
         //    _stopPing, alltså vid varje ny och varje stängd socket)
-        //    är yngre än pingvaktens fönster (2 × 30 s). Pingvakten dödar en
-        //    socket som inte pongat inom samma fönster, så en öppen socket
-        //    med färsk pong är precis vad pingvakten själv kallar levande.
+        //    är yngre än pingvaktens fönster (2 × 30 s). Pingvakten pingar
+        //    var 30:e s och terminerar socketen vid nästa tick om pingen inte
+        //    besvarats, alltså när senaste pong är knappt 60 s gammal. En
+        //    socket vars senaste ping just blivit obesvarad räknas därför som
+        //    levande i upp till 30 s till, tills pingvakten stänger den; då är
+        //    den fortfarande öppen, och texten påstår inte mer än så.
         //    Fönstret är 60 000 ms brett; klientens och vaktens klockor
         //    skiljer 0–2 ms (50 ms i proven), så utfallet beror inte på dem.
         // Saknas pong (ny socket före första pingen, socketen nere, äldre
