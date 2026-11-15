@@ -5,6 +5,10 @@ handboken för att köra, tolka och underhålla valideringsbatteriet — utforma
 för att fungera utan att någon minns historiken. Arkitekturen står i
 `ARCHITECTURE.md`; textformatet i `bridgeTextFormat.md`.
 
+Aktuellt 2026-11-15: banken har 25 låsta korpusar (519,1 h), senast
+fältkörning 3 som `20261114-34h` (§Riktad nyregistrering). Stycket nedan
+beskriver läget inför fältprovet i september.
+
 Aktuellt inför fältprov 2026-09-09: bankens 20 körningar är låsta i text,
 närnotiser och öppningar. Sju har dessutom fulla händelsereferenser
 (`golden-events/`): tid, bro, riktning, ETA, text, källa och öppningsmedlemmar.
@@ -1107,8 +1111,9 @@ bufferten fäller vart och ett minst ett test.
 
 ## Buggjägaren — diagnosverktyg, INTE en gate (2026-11-04)
 
-`tests/replay-validation/bugHunt/hunt.js` letar fel offline ur de 24 låsta
-korpusarna och ur syntetiska världar med facit, så att appen inte behöver köras
+`tests/replay-validation/bugHunt/hunt.js` letar fel offline ur de låsta
+korpusarna (25 sedan 2026-11-15; de syntetiska världarnas kalibrering är fryst
+på de 24 före) och ur syntetiska världar med facit, så att appen inte behöver köras
 live och felsökas i efterhand. Den **rapporterar bara**: den rättar ingenting,
 låser aldrig om facit, sätter aldrig `REGEN_*` och ändrar inte
 beslutsregistret. Därför ingår den inte i `npm run validate` eller
@@ -1602,6 +1607,22 @@ korpus-id** och är ingen tillåtelse att ändra befintliga referenser.
    En röd äldre korpus är en regression att utreda, inte skäl för massomlåsning.
    En ofullständig historisk korpus behåller både sina assertions och sin
    `captureIntegrity: 'incomplete'`-klassning; regenereringsspärren kvarstår.
+
+**`20261114-34h` (2026-11-15).** Fältkörning 3 (koden `7eb350d`, 34,06 h,
+3 357 AIS-poster med startminne) är den första körningen sedan 18 september
+som klarar båda grindarna och är låst den här vägen: 24 närnotiser, åtta
+öppningsvarningar, åtta målpassager, tolv mellanpassager och 75 texter, fullt
+händelsefacit och 24 rådatakorsningar utan inferens. De delade filerna fick
+bara den nya id-posten, och alla äldre golden-, GT- och korpusfiler har samma
+SHA-256 som före. Kända gränser som körningen innehåller (F7, K6/F13) är låsta
+som de är, med noten som minne. Regressionstestet är
+`tests/november14-field-corpus.test.js`; granskningen står i
+`docs/faltgranskning-2026-11-14.md` §10. **Banken har därmed 25 låsta korpusar,
+519,1 h**, alla med låsta öppningar, tolv med fullt händelsefacit och fem med
+inspelat startminne (`20260909-80h`, `20260917-7h`, `20260917-16h`,
+`20260918-7h`, `20261114-34h`); `20260917-7h` är fortfarande ofullständig fångst.
+Buggjägarens kalibrering är fryst på de 24 korpusarna före låsningen, så
+jägaren varnar för den ändrade banken tills kalibreringen frysts om.
 
 ## Kända fällor för den som skriver nya tester
 

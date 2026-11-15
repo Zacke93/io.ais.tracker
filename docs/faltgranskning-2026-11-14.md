@@ -701,3 +701,81 @@ trafiken" är de 24 låsta körningarna (cirka 485 h).
 - [ ] Leta efter det som inte prövats: fritidsbåtar, Kajen och Gästhamnen, konvojer, GPS-hopp,
       omstart mitt i en anflygning, glesa klass B-sändare.
 - [ ] Avgör F16 före körningen om den ska kunna bli korpus.
+
+## 10. Fältkörning 3 och korpuslåsningen
+
+Tillagt 2026-11-15. Fältkörning 3 kördes på `7eb350d` (den rättade koden) på ägarens Homey
+Pro och är den första körningen sedan 18 september som klarar båda grindarna. Den är låst
+som korpus **`20261114-34h`** i `bc54021` enligt VALIDATION §Fältprov och §Riktad
+nyregistrering. F16 är inte infört; körningen blev korpus för att integriteten ändå var OK.
+
+| Körning | Intervall | Timmar | Loggrader | AIS-sampel | Notiser | Öppningsvarningar | Brotexter | Målbropassager |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| k3 | 14/11 08:16 – 15/11 18:20 | 34,1 | 315 800 | 3 357 | 24 | 8 | 75 | 8 |
+
+**Grindarna.** Integritetsgrinden mot hela källoggen: OK. Alla 3 357 rader är identiska
+med loggens sampel, källbokföringen är OK (408 bootförankrade AISHub-kontroller, 407
+fusionsfönster), och största luckan är 58,8 s vid starten, före första båten (UI-ticken
+loggar bara när båtar finns). Grinden bevisar inte svansen efter sista räknarrapporten
+(15/11 18:16:44, drygt tre minuter före loggens slut) och inte bortfall under 65 s som inte
+sväljer en poll. Fassvepet är grönt med alla sex standardförskjutningar, med och utan
+monitoring, utan undantag. Replay med och utan monitoring ger samma händelser och texter,
+0 processfel, 0 invariantutslag och inga kvarlämnade timers. Fältet och replay har samma
+notiser, varningar och texter utan innehållsskillnad.
+
+**Mot rådatan.** Rådatafacit har 24 korsningar och zonbesök utan inferens: 20 brolinjer
+och fyra zonbesök vid Kanalinfarten. En egen geometri, oberoende av `makeGtPassages.js`,
+ger samma 20 linjekorsningar inom 3 s. Alla 20 brolinjenotiser kommer på en fix före
+linjen, och Kanalinfartens fyra på första fixen inne i zonen. Varje målpassage har en
+varning före sig, 137,8–657,5 s före korsningen, och ingen varning är äldre än 20 min vid
+passagen. Mellan- och målpassagerna gäller samma fartyg och broar som rådatans korsningar,
+bokförda inom korsningsfönstret eller på nästa fix.
+
+**Rättning C2 prövad i fält.** Järnvägsbronotisen söderut går på Stridsbergsbrons
+passagefix: NAVEN 14/11 23:00:27 på 239 m, 100,7 s före korsningen, och NINA BRES 15/11
+01:25:31 på 150 m, 69,4 s före. Samma korpus på koden före C2 (`3fd74d5`) ger 23:01:00
+(68 s före) och 01:26:30 (10,6 s före); inget annat i händelser eller text skiljer.
+
+**Det körningen täcker.** Fyra genomresor med lastfartyg, en åt gången: NAVEN och NINA
+BRES söderut, LIDAN och SYLVIA norrut, 2,5–9,6 kn norr om Kanalinfarten. Tre förtöjda båtar
+vid Kanalinfarten i 34 h (PILOT 761, PRICKBJORN och CAPELLA, som flyttade sig högst 2, 7 och
+10 m): ingen notis, varning, passage eller text. Driftsidan fick en AISstream-server som
+stängde och vägrade anslutning 22:24–22:32 och feed-vaktens första återanslutning 18:42,
+båda utan båtar i rörelse.
+
+**Det körningen inte täcker.** Inga köer, konvojer eller vändningar, inga långa stopp
+(båtarna väntade bara 450 m söder om Kanalinfarten, utanför området) och inga kajbyten.
+Inga fritidsbåtar eller klass B-sändare, inget GPS-hopp, ingen omstart, ingen "cirka" eller
+"ETA okänd". Av rättningarna 14 november prövades bara C2:s huvudväg, UI-ticken (0 tidiga
+och 0 dubbla av 4 085 tick) och loggraden `[OPENING_HOLD]` (sex spärrar med en start och ett
+slut var) på hårdvara. A, B:s regel, C1, C3, D, E och F1 slog aldrig till, och F2:s kärna
+prövades inte eftersom AISHub aldrig var borta.
+
+**Kända gränser låsta som de är.** Korpusens not i `corpora.js` är minnet; när ETA-etappen
+(U28) eller en rättning av spärren gör utfallen rättare låses de om enligt U13.
+- *F7.* Stridsbergsbron#7 för LIDAN kom 137,8 s före passagen (130,7 s mot fixtiden), under
+  utlovade 150 s, och sa "om 5" när 2,3 min återstod. Hon gick 2,5–3,5 kn mot Järnvägsbron och
+  ökade till 4,4–5,1 kn; spärren släpptes först på fixen 352 m från bron.
+- *K6/F13.* Tre Klaffbronotiser sa "om 3–4 minuter" i samma pass som texten bytte till
+  "strax" 25 ms senare (NINA BRES, LIDAN, SYLVIA). Båtarna korsade 1,6–2,9 min senare.
+- *±10 m-bandet (avsnitt 6, C).* LIDANs Stridsbergspassage bokfördes på en fix 10 m före
+  linjen i 5,1 kn; texten blev "Inga båtar" 3,1 s före korsningen.
+- *Zonen korsad mellan två fixar (5.9).* LIDAN fick notisen för Stallbackabron 29 s och SYLVIA
+  för Stridsbergsbron 38 s före korsningen.
+
+**Följder i repot.** Regressionstestet `tests/november14-field-corpus.test.js` prövar
+Järnvägsbron söderut (fäller koden före C2), de åtta varningarna, de förtöjda båtarna och de
+två kända gränserna. Banken har nu 25 låsta korpusar, 519,1 h. Buggjägarens kalibrering är
+fryst på de 24 före och skrivs bara om med `freezeCalibration.js --write` och dess externa
+källor, så jägaren varnar för den ändrade banken tills dess; testet som räknar den levande
+banken (`geo-calib.test.js`) säger 25. Siffrorna i avsnitt 7 ("den inspelade trafiken", 24
+körningar) är mätta före låsningen och står kvar.
+
+**Batteriet efter låsningen**, varje steg med slutkod 0: jest 385 sviter och 5 670 test gröna
+(2 överhoppade); lint rent; `replay:all` med och utan monitoring, alla 25 korpusar matchar
+facit; `replay:synthetic` och `replay:openings` gröna; `replay:phase` över hela banken med och
+utan monitoring, 25 korpusar gröna; `replay:monitoring` stabil; `hunt:selftest` grönt
+(determinism, SHIFT30 och MMSI 25/25, med varningen om den frysta kalibreringen). I
+`measure:eta` mäts 90 påståenden i korpusen: median 0,70 min, p90 2,31 min, 83,3 % inom två
+minuter. Alla äldre golden-, GT- och korpusfiler har samma SHA-256 som före, och de delade
+filerna har bara fått den nya id-posten.

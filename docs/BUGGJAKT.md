@@ -9,7 +9,7 @@ Underlaget är fyra kartläggningar (harness, orakel, generering, felinjektion),
 
 Beslut som gäller v1:
 - **Motorn rapporterar bara.** Den rättar ingenting, låser aldrig om facit, sätter aldrig `REGEN_DISTRIBUTIONS` (eller någon annan `REGEN_*`) och ändrar inte beslutsregistret. Rättningar görs separat efter triage.
-- **Ingen passiv inspelning.** Underlaget är de 24 låsta korpusarna (485 h, 18 679 rader) plus syntetik som härleds ur deras fördelningar.
+- **Ingen passiv inspelning.** Underlaget är de 24 låsta korpusarna (485 h, 18 679 rader) plus syntetik som härleds ur deras fördelningar. Sedan 2026-11-15 har banken 25 korpusar (`20261114-34h`); bankspåret läser `corpora.js` och tar med den, medan kalibreringen är fryst på de 24 och självtestet varnar för den ändrade banken tills den frysts om.
 - **Offline.** Motorn gör inga nätverksanrop, schemalägger inget och använder inga externa tjänster. Replayharnessen nätisolerar redan appen: WS-stubb, kastande https och `ais_api_key = null`.
 - **Ett fynd är en kandidat.** Rapporttexten kallar det aldrig en bugg förrän ägaren har triagerat det.
 - **Motorn ingår medvetet inte i `npm run validate`.** Den är ett diagnosverktyg, inte en grind (samma skäl som för korpuslåsningens grindar). Exitkoden är 0 när motorn körde klart, även med fynd, 2 vid självtest- eller motorfel (och när git-vakten fäller) och 1 vid felaktig användning.

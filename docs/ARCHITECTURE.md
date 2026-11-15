@@ -2136,10 +2136,10 @@ Permanent valideringsverktyg — kör den RIKTIGA appen mot inspelad AIS-jsonl.
   position. `ctrl:'restart'` = äkta
   processomstart (:246–264): `onUninit()` → `new AISBridgeApp()` → `onInit()`;
   persistensen återläses ur samma mock-settings; notiser samlas över instanserna.
-- `corpora.js`: **20 låsta korpusar (374,1 h)**, inklusive 42h-körningen, med
+- `corpora.js`: **25 låsta korpusar (519,1 h, läget 2026-11-15)**, inklusive 42h-körningen, med
   `expectedNotifications` + motiverad `note` vid omlåsning = **facit**;
-  `corpora-distribution.json` låser fördelningen per fartyg+bro. Samtliga 20
-  låser även öppningar; sju har fullständiga `golden-events` för att upptäcka
+  `corpora-distribution.json` låser fördelningen per fartyg+bro. Samtliga 25
+  låser även öppningar; tolv har fullständiga `golden-events` för att upptäcka
   ändrade tider, ETA-token, medlemmar och passageposter. Räkna aldrig
   siffran ur den här raden — den ändras vid varje låsning; `npm run replay:all`
   skriver ut den aktuella. Jsonl:erna ligger byte-exakt i `corpora-data/`;
