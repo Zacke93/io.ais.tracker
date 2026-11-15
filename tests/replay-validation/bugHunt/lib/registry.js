@@ -312,6 +312,78 @@ function reversals(series, minM) {
 }
 
 /**
+ * 90 s-taket på uttömt "strax" (app.js: `const IMMINENT_EXHAUSTED_MAX_AGE_MS
+ * = 90 * 1000;`, B4/F10). Läses ur källtexten som appKonstant, men uttrycket
+ * är "N * 1000"; kan det inte läsas är värdet null och B4-varianten av
+ * U16-posten blir falsk i stället för att gissa.
+ * @returns {number|null} taket i ms
+ */
+function läsUttömdTak() {
+  try {
+    const text = fs.readFileSync(path.join(hygiene.REPO_ROOT, 'app.js'), 'utf8');
+    const t = [...text.matchAll(/\bconst\s+IMMINENT_EXHAUSTED_MAX_AGE_MS\s*=\s*(\d+)\s*\*\s*1000\s*;/g)];
+    return t.length === 1 ? Number(t[0][1]) * 1000 : null;
+  } catch (err) {
+    return null;
+  }
+}
+const IMMINENT_EXHAUSTED_MAX_AGE_MS = läsUttömdTak();
+
+/**
+ * Underlaget för B4-varianten av F40-studsen (U16, 2026-11-15; triagens
+ * beslutsfråga 3 (a): "när B4:s 90 s-tak släpper ett uttömt 'strax' …
+ * återgången med samma båts nästa fix"). Uttömningen syns inte i raderna, så
+ * provet läser appens läge vid varje publicerad text ur replayresultatets
+ * bridgeTextLeads (ETA-bärarna och båtarnas imminent-flagga, med om den bärs
+ * av en uttömd extrapolering och uttömningens stämpel). Kräver alla:
+ *  (a) vid nivån före hoppet bar båten 'strax' på en uttömd extrapolering
+ *      (imminent, fromExhausted, stämpel), och ingen annan båt med samma
+ *      målbro var imminent: hon bar det ensam;
+ *  (b) vid hoppet var hennes imminent-flagga släppt, taket hade löst ut
+ *      (hoppet mer än uttömdTakMs efter stämpeln), och klausulens ETA var en
+ *      annan båts: texten lånade nästa båts ETA;
+ *  (c) vid återgången bar hon 'strax' igen (imminent eller klausulens bärare).
+ * Positionsåldern, radierna, textgenereringen mellan taket och hoppet,
+ * kajkapslarna, återgången vid hennes rad utan annan rad emellan och
+ * styrraderna prövas av f40StudsVidNästaFix som för huvudvarianten.
+ * @returns {{uttömd: number, lånad: string}|{fel: string}} underlaget eller skälet
+ */
+function b4Underlag(ctx, bro, mmsi, före, hopp, åter, p) {
+  const L = ctx && ctx.resultat && ctx.resultat.bridgeTextLeads;
+  if (!Array.isArray(L)) return { fel: 'resultatet saknar ETA-bärarna (bridgeTextLeads), så uttömningen kan inte beläggas' };
+  if (!Number.isFinite(p.uttömdTakMs)) return { fel: 'taket IMMINENT_EXHAUSTED_MAX_AGE_MS kunde inte läsas ur app.js' };
+  const vid = (t) => {
+    const x = L.filter((y) => y && y.t === t && Array.isArray(y.vessels)).pop();
+    return x || null;
+  };
+  const fmt = (t) => new Date(Math.round(t)).toISOString().slice(11, 23);
+  const mF = vid(före.t);
+  const mH = vid(hopp.t);
+  const mÅ = vid(åter.t);
+  if (!mF || !mH || !mÅ) return { fel: 'ETA-bärarna saknas för nivån före, hoppet eller återgången' };
+  const hon = (m) => m.vessels.find((v) => String(v.mmsi) === String(mmsi)) || null;
+  const bärare = (m) => ((m.leads || []).find((l) => l && l.bridge === bro) || {}).mmsi || null;
+  const hF = hon(mF);
+  if (!hF || hF.imminent !== true || hF.fromExhausted !== true || !Number.isFinite(hF.exhaustedAt)) {
+    return { fel: `vid nivån före ${fmt(före.t)} bar båten inte 'strax' på en uttömd extrapolering` };
+  }
+  const annanImminent = mF.vessels.find((v) => String(v.mmsi) !== String(mmsi) && v.targetBridge === bro && v.imminent === true);
+  if (annanImminent) return { fel: `vid nivån före ${fmt(före.t)} var också ${annanImminent.mmsi} imminent: båten bar inte 'strax' ensam` };
+  const hH = hon(mH);
+  if (!hH || hH.imminent !== false) return { fel: `vid hoppet ${fmt(hopp.t)} var båtens imminent-flagga inte släppt` };
+  if (!(hopp.t - hF.exhaustedAt > p.uttömdTakMs)) {
+    return { fel: `hoppet ${fmt(hopp.t)} kom ${Math.round((hopp.t - hF.exhaustedAt) / 1000)} s efter uttömningen, inte efter taket ${p.uttömdTakMs / 1000} s` };
+  }
+  const lånad = bärare(mH);
+  if (!lånad || lånad === String(mmsi)) return { fel: `vid hoppet ${fmt(hopp.t)} visade klausulen ${lånad ? 'båtens egen ETA' : 'ingen båts ETA'}, inte en annan båts` };
+  const hÅ = hon(mÅ);
+  if (!(hÅ && hÅ.imminent === true && hÅ.fromExhausted !== true)) {
+    return { fel: `vid återgången ${fmt(åter.t)} bar båten inte 'strax' på en färsk fix (imminent utan uttömd extrapolering)` };
+  }
+  return { uttömd: hF.exhaustedAt, lånad };
+}
+
+/**
  * Första halvminutsticken vars textgenerering kan falla strikt inne i
  * glappet (a, b): ticken T = k · tickMs (absoluta halvminuter i epok-ms, som
  * UI-klockan) genererar sin text i [T; T + fördröjningMs], och det fönstret
@@ -1864,10 +1936,12 @@ const PREDICATES = {
   // hoppet. En förtöjd båt vid kajen norr om Klaffbron, tyst i 605 eller
   // 720 s och med en rad 35 ms före ULLA:s, gjorde då B4-studsen i F21:s
   // minsta repro till DESIGN (granskarens u16e2e), och ett hopp 0,8 s efter
-  // båtens färska rad godtogs. Tick-varianten, ETA-hoppet vid 600 s utan
-  // 'strax' och B4:s 90 s-tak på uttömt 'strax' (app.js:257; positionen är
-  // då yngre än 600 s) omfattas inte (BUGGJAKT §7 och §16). På den låsta
-  // banken gäller ingen registeramnesti.
+  // båtens färska rad godtogs. Tick-varianten och ETA-hoppet vid 600 s utan
+  // 'strax' omfattas inte (BUGGJAKT §7 och §16). B4:s 90 s-tak på uttömt
+  // 'strax' (positionen yngre än 600 s) omfattas sedan 2026-11-15 genom
+  // b4Underlag, med appens läge ur bridgeTextLeads som belägg för
+  // uttömningen (§7 rad 57; korten F04 och F05, standardvärld 1907). På den
+  // låsta banken gäller ingen registeramnesti.
   f40StudsVidNästaFix: {
     parametrar: {
       minÅlderS: C.UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS / 1000,
@@ -1878,6 +1952,7 @@ const PREDICATES = {
       straxRadieM: 500,
       tickS: 30,
       tickFördröjningMs: 40,
+      uttömdTakMs: IMMINENT_EXHAUSTED_MAX_AGE_MS,
     },
     fn(f, ctx, p) {
       if ((f.ursprung || {}).relation === 'BAS') return nej('låst bank: bara runAllCorpora:s exakta prefixmatch gäller, ingen registeramnesti');
@@ -1973,31 +2048,61 @@ const PREDICATES = {
       const dFörra = avstånd(förra);
       const dNästa = avstånd(nästa);
       const fix = fixText(mmsi, förra);
+      // B4-VARIANTEN (2026-11-15): positionen är yngre än 600 s, men
+      // "strax" bars av en uttömd extrapolering, och 90 s-taket på uttömt
+      // "strax" (app.js IMMINENT_EXHAUSTED_MAX_AGE_MS) löste ut (b4Underlag).
+      let b4 = null;
       if (!(ålder > ålderMs)) {
         const g = gammalNära();
-        return nej(`${vidRad}, men ${fix} var ${s1(ålder)} s gammal (högst ${p.minÅlderS} s: färsk i appen)${g ? `; ${g}` : ''}`);
+        const färsk = `${vidRad}, men ${fix} var ${s1(ålder)} s gammal (högst ${p.minÅlderS} s: färsk i appen)${g ? `; ${g}` : ''}`;
+        b4 = b4Underlag(ctx, f.bro, mmsi, före, hopp, åter, p);
+        if (b4.fel) return nej(`${färsk}; inte heller B4-varianten: ${b4.fel}`);
       }
-      const gammal = `${fix} var ${s1(ålder)} s gammal vid hoppet ${fmtMs(hopp.t)}, när hennes nästa rad ${fmtMs(nästa.aisTimestamp)} bearbetades`;
-      // Krav 4.
-      if (dFörra > p.radieM) return nej(`${gammal}, men fixen ligger ${Math.round(dFörra)} m från bron (> ${p.radieM} m)`);
-      if (dNästa > p.radieM) return nej(`${gammal}, men hennes nästa rad ligger ${Math.round(dNästa)} m från bron (> ${p.radieM} m)`);
-      // Krav 5: hoppet är den första textgenereringen efter 600 s-gränsen.
-      const gräns = stämpel + ålderMs;
+      const gammal = b4
+        ? `${fix} var ${s1(ålder)} s gammal; hennes 'strax' bars av en uttömd extrapolering (stämplad ${fmtMs(b4.uttömd)}), och 90 s-taket `
+          + `löste ut före hoppet ${fmtMs(hopp.t)}, när hennes nästa rad ${fmtMs(nästa.aisTimestamp)} bearbetades`
+        : `${fix} var ${s1(ålder)} s gammal vid hoppet ${fmtMs(hopp.t)}, när hennes nästa rad ${fmtMs(nästa.aisTimestamp)} bearbetades`;
+      // Krav 4. B4: den uttömda grenen sätter 'strax' inom straxRadieM (500 m).
+      const radie = b4 ? p.straxRadieM : p.radieM;
+      if (dFörra > radie) return nej(`${gammal}, men fixen ligger ${Math.round(dFörra)} m från bron (> ${radie} m)`);
+      if (dNästa > radie) return nej(`${gammal}, men hennes nästa rad ligger ${Math.round(dNästa)} m från bron (> ${radie} m)`);
+      // Krav 5: hoppet är den första textgenereringen efter gränsen (600 s
+      // efter fixen, eller B4: taket efter uttömningen).
+      const gräns = b4 ? b4.uttömd + p.uttömdTakMs : stämpel + ålderMs;
+      const vadGräns = b4 ? `90 s-taket på uttömt 'strax' löste ut ${fmtMs(gräns)}` : `åldern passerade ${p.minÅlderS} s ${fmtMs(gräns)}`;
       const text = övergångar.find((x) => x && Number.isFinite(x.t) && x.t > gräns && x.t < hopp.t);
       if (text) {
-        return nej(`${gammal}, men åldern passerade ${p.minÅlderS} s ${fmtMs(gräns)}, och brotexten publicerades ${fmtMs(text.t)}, före hoppet: `
+        return nej(`${gammal}, men ${vadGräns}, och brotexten publicerades ${fmtMs(text.t)}, före hoppet: `
           + 'bar båten \'strax\' hade appen tappat det där');
       }
       const tick = halvminutstickFas(gräns, hopp.t - p.tickFördröjningMs, p.tickS * 1000, p.tickFördröjningMs, fas);
       if (tick !== null) {
-        return nej(`${gammal}, men åldern passerade ${p.minÅlderS} s ${fmtMs(gräns)}, före halvminutsticken ${fmtMs(tick)}${fas ? ' (variantens fas)' : ''}: `
+        return nej(`${gammal}, men ${vadGräns}, före halvminutsticken ${fmtMs(tick)}${fas ? ' (variantens fas)' : ''}: `
           + 'bar båten \'strax\' hade appen tappat det vid ticken');
       }
       // Krav 6.
       const kaj = platser.capsuleOf(förra) || platser.capsuleOf(nästa);
       if (kaj) return nej(`${gammal}, men båten ligger i kajkapseln '${kaj.name}' (MOORING_ZONES), och en förtöjd båts glesa rader beläggs inte som 'strax'-bärare`);
-      // Krav 7: återgången hör till båtens rad.
-      if (!(åter.t > hopp.t) || åter.t - nästa.aisTimestamp > p.fönsterMs) {
+      // Krav 7: återgången hör till båtens rad. B4: återgången bärs av hennes
+      // färska fix (b4Underlag (c)) och publiceras vid första dräneringen
+      // efter raden: ingen text emellan, ingen egen rad emellan, och senast när
+      // nästa rad (vilken båt som helst) bearbetas. I standardvärld 1907
+      // (REPLAY_MONITORING=1) publicerades den vid nästa rad 11:02:03, där
+      // harnessen kör halvminutsticken 11:02:00 i samma klocksteg
+      // (tidsstegningen, VALIDATION §Fältprov); den rad som bearbetades där
+      // låg 631 m från bron och kunde inte bära 'strax'.
+      if (b4) {
+        const mellanText = övergångar.find((x) => x && Number.isFinite(x.t) && x.t > hopp.t && x.t < åter.t);
+        const egen = per.get(mmsi).find((r) => tider.get(r) > hopp.t && tider.get(r) <= åter.t);
+        const nästaRad = ctx.rader.filter((r) => r && Number.isFinite(r.lat) && tider.get(r) > hopp.t)
+          .sort((a, b) => tider.get(a) - tider.get(b))[0];
+        if (!(åter.t > hopp.t) || mellanText || egen || (nästaRad && åter.t > tider.get(nästaRad))) {
+          let varför = `efter nästa rad ${nästaRad ? fmtMs(tider.get(nästaRad)) : '?'}`;
+          if (mellanText) varför = `brotext ${fmtMs(mellanText.t)} emellan`;
+          else if (egen) varför = `hennes rad ${fmtMs(egen.aisTimestamp)} emellan`;
+          return nej(`${gammal}, men återgången till strax ${fmtMs(åter.t)} kom inte vid första dräneringen efter hennes rad (${varför})`);
+        }
+      } else if (!(åter.t > hopp.t) || åter.t - nästa.aisTimestamp > p.fönsterMs) {
         return nej(`${gammal}, men återgången till strax ${fmtMs(åter.t)} kom ${tid(åter.t - hopp.t)} efter radens bearbetning `
           + `(efter den och högst ${p.fönsterMs} ms efter radens tid)`);
       }
@@ -2018,6 +2123,13 @@ const PREDICATES = {
       const styr = ctx.rader.filter((r) => r && HARNESS_STYRRADER.has(r.ctrl) && tider.get(r) >= stämpel && tider.get(r) <= åter.t)
         .sort((a, b) => tider.get(a) - tider.get(b))[0];
       if (styr) return nej(`${gammal}, men styrraden ${styr.ctrl} ${fmtMs(styr.aisTimestamp)} bearbetades mellan båtens förra fix och återgången`);
+      if (b4) {
+        // Krav 9 och 10 i B4-varianten är appens eget läge (b4Underlag): hon
+        // bar 'strax' ensam före hoppet, och texten lånade en annan båts ETA.
+        return ok(`${gammal}; texten lånade ${b4.lånad}:s ETA (${nivå(hopp)}), och återgången till strax ${fmtMs(åter.t)} kom `
+          + `${Math.round(åter.t - hopp.t)} ms efter hennes rad, utan någon annan båts rad inom ${p.straxRadieM} m emellan: `
+          + 'F40-studsen i B4-varianten, 90 s-taket på uttömt strax (U16)');
+      }
       // Krav 9: båten kunde bära 'strax' vid sin förra fix.
       const egna = per.get(mmsi);
       let kunde = dFörra <= p.imminentRadieM;

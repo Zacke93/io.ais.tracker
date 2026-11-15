@@ -425,6 +425,15 @@ async function main() {
               mmsi: String(v.mmsi),
               targetBridge: v.targetBridge,
               waitingAt: waitingBridge(v) || null,
+              // U16:s B4-variant (2026-11-15): imminent-flaggan och om den bärs
+              // av en uttömd extrapolering (app.js IMMINENT_EXHAUSTED_MAX_AGE_MS,
+              // 90 s), med uttömningens stämpel. Fälten finns bara på det
+              // levande fartyget, inte på presentationskopian.
+              imminent: v._isImminentAtTargetBridge === true,
+              ...((live) => ({
+                fromExhausted: !!live && live._imminentFromExhausted === true,
+                exhaustedAt: live && Number.isFinite(live._etaExhaustedAtMs) ? live._etaExhaustedAtMs : null,
+              }))(instance.vesselDataService?.getVessel?.(v.mmsi)),
             })),
           };
         }
