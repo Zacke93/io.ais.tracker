@@ -448,8 +448,10 @@ describe('B2f: upptidsgrinden släcker inte längre larmet vid omanslutning (F-1
       },
     }));
 
+    // U29 (ägarbeslut 2026-11-15): AISstream-sidan larmar först över 25 min
+    // (var 15) — provet kör därför 26 min (var 16).
     app._checkAISFeedHealth();
-    jest.advanceTimersByTime(16 * MIN);
+    jest.advanceTimersByTime(26 * MIN);
     app._checkAISFeedHealth();
     await microFlush();
 
@@ -759,7 +761,9 @@ describe('P3: pollkällans färskhet + hysteres + startgrind', () => {
    *   • streamLastMessageAt — sätt för att låta aisstream vakna
    *   • hubPollsFrozenAt    — frys pollklockan (hubben slutar svara)
    */
-  function fieldRig({ streamSilentAtStart = 16 * MIN } = {}) {
+  // U29 (ägarbeslut 2026-11-15): AISstream-sidans larmgräns är 25 min, så
+  // riggen startar med 26 min tystnad (var 16 min mot K22:s 15).
+  function fieldRig({ streamSilentAtStart = 26 * MIN } = {}) {
     const app = makeHealthApp();
     const t0 = Date.now();
     const accepts = [t0];
@@ -816,7 +820,7 @@ describe('P3: pollkällans färskhet + hysteres + startgrind', () => {
 
   test('FLAPP-SCENARIOT: 130-210 s mellan accepterade ⇒ STABIL degraded, aldrig "connected"', async () => {
     const { app, acceptAges } = fieldRig();
-    app._checkAISFeedHealth(); // t0: aisstream redan tyst 16 min ⇒ degraderas
+    app._checkAISFeedHealth(); // t0: aisstream redan tyst 26 min ⇒ degraderas (U29: gräns 25)
     await microFlush();
     expect(statusWrites(app)).toEqual(['degraded']);
 
@@ -919,11 +923,13 @@ describe('P3: pollkällans färskhet + hysteres + startgrind', () => {
       uptime: 60 * MIN,
       lastOkResponseAt: now - okAgeMs,
     });
+    // U29: 30 min (var 20) — över AISstream-sidans larmgräns 25 min, så att
+    // 260 s-fallets "ingen degradering" beror på pollklockan och inget annat.
     const stream = {
       configured: true,
       isConnected: true,
-      lastMessageTime: now - 20 * MIN,
-      timeSinceLastMessage: 20 * MIN,
+      lastMessageTime: now - 30 * MIN,
+      timeSinceLastMessage: 30 * MIN,
       uptime: 60 * MIN,
     };
 
@@ -944,7 +950,8 @@ describe('P3: pollkällans färskhet + hysteres + startgrind', () => {
     const app = makeApp();
     app._checkCrossFeedSilence({
       aisstream: {
-        configured: true, isConnected: true, lastMessageTime: now - 20 * MIN, timeSinceLastMessage: 20 * MIN, uptime: 60 * MIN,
+        // U29: 30 min (var 20), över AISstream-sidans larmgräns 25 min.
+        configured: true, isConnected: true, lastMessageTime: now - 30 * MIN, timeSinceLastMessage: 30 * MIN, uptime: 60 * MIN,
       },
       aishub: {
         configured: true,
@@ -971,7 +978,8 @@ describe('P3: pollkällans färskhet + hysteres + startgrind', () => {
     const app = makeApp();
     app._checkCrossFeedSilence({
       aisstream: {
-        configured: true, isConnected: true, lastMessageTime: now - 20 * MIN, timeSinceLastMessage: 20 * MIN, uptime: 60 * MIN,
+        // U29: 30 min (var 20), över AISstream-sidans larmgräns 25 min.
+        configured: true, isConnected: true, lastMessageTime: now - 30 * MIN, timeSinceLastMessage: 30 * MIN, uptime: 60 * MIN,
       },
       aishub: {
         configured: true, isConnected: false, lastMessageTime: null, timeSinceLastMessage: null, uptime: 60 * MIN, lastOkResponseAt: null,
@@ -1198,8 +1206,13 @@ describe('F1/KX-1: "degraded" och notisen kräver att grannen LEVERERAR', () => 
    * ingen av källorna har levererat en position. `hubDeliveredMsAgo = null`
    * = hubben har aldrig levererat under fönstret.
    */
+  // U29 (ägarbeslut 2026-11-15): standardtystnaden är 30 min (var 20), över
+  // AISstream-sidans nya larmgräns 25 min — annars hade de negativa proven
+  // (TOM NATT, UNGT FÖNSTER) hållit bara för att 20 < 25. Riggen har ingen
+  // pongstämpel (lastPongAt), alltså är anslutningen inte bevisat levande
+  // och basnotisen behåller den gamla formuleringen.
   const nattPerFeed = ({
-    streamSilentMs = 20 * MIN,
+    streamSilentMs = 30 * MIN,
     hubDeliveredMsAgo = 40 * MIN,
     hubOkAgeMs = 10 * 1000,
     // Observationsfönstret KLÄMMER tystnaden (_observedFeedSilence): en källa
@@ -1307,10 +1320,12 @@ describe('F1/KX-1: "degraded" och notisen kräver att grannen LEVERERAR', () => 
     expect(statusWrites(app)).toEqual(['degraded']);
     expect(sentKeys(app)).toContain('aisstream:silent');
     // TEXTEN: K22 (2026-08-21) — siffran är den MÄTTA tystnaden (riggens
-    // streamSilentMs = 20 min), inte det tidigare hårdkodade "15 min" som var
-    // korstystnadsFÖNSTRET. Fyndet: fältet loggade 886 min och notiserade 15.
+    // streamSilentMs = 30 min sedan U29), inte det tidigare hårdkodade "15 min"
+    // som var korstystnadsFÖNSTRET. Fyndet: fältet loggade 886 min och
+    // notiserade 15. U29 (c): riggen saknar pong, så "halvdöd" står kvar; den
+    // nya texten för en bevisat levande anslutning låses i u29-provet.
     expect(notisTexter(app)).toContain(
-      'AIS Tracker: AISstream har inte levererat några positioner på 20 min '
+      'AIS Tracker: AISstream har inte levererat några positioner på 30 min '
       + 'medan AISHub flödar — anslutningen kan vara halvdöd. Appens vakter '
       + 'försöker återansluta automatiskt.',
     );

@@ -107,6 +107,10 @@ const excerpts = (app) => app.homey.notifications.createNotification.mock.calls
   .map((c) => c[0].excerpt);
 const logLines = (app) => app.log.mock.calls.map((c) => c.join(' '));
 
+// U29 (ägarbeslut 2026-11-15): AISstream-sidans korstystnad larmar först ÖVER
+// 25 min (var 15), så proven nedan kör AISstream tyst i 30 min (var 25 — exakt
+// 25 min hade nu legat på gränsen och gjort de negativa proven tomma).
+// AISHub-tvillingen döms fortfarande vid 15 min och behåller sina 25.
 const SHADOW_SETTINGS = {
   ais_source: 'shadow',
   ais_api_key: 'testnyckel',
@@ -127,8 +131,8 @@ describe('S12: skuggläget får ingen lugnande aisstream-notis', () => {
     jest.restoreAllMocks();
   });
 
-  test('SKUGGLÄGE, aisstream tyst 25 min, hubben svarar och levererar ⇒ INGEN aisstream:silent', async () => {
-    mux = await makeShadowMux(logger, { streamSilentMs: 25 * MIN, hubSilentMs: 40 * 1000 });
+  test('SKUGGLÄGE, aisstream tyst 30 min, hubben svarar och levererar ⇒ INGEN aisstream:silent', async () => {
+    mux = await makeShadowMux(logger, { streamSilentMs: 30 * MIN, hubSilentMs: 40 * 1000 });
     const { perFeed } = mux.getConnectionStats();
     // PREMISSEN som gör fyndet möjligt: muxen lämnar hubbens RÅVÄRDEN i
     // perFeed även i shadow — det är just därför hFresh blir sann.
@@ -162,7 +166,7 @@ describe('S12: skuggläget får ingen lugnande aisstream-notis', () => {
   });
 
   test('LOGGRADEN behålls men markerar skuggläget (fältdiagnostiken lever)', async () => {
-    mux = await makeShadowMux(logger, { streamSilentMs: 25 * MIN, hubSilentMs: 40 * 1000 });
+    mux = await makeShadowMux(logger, { streamSilentMs: 30 * MIN, hubSilentMs: 40 * 1000 });
     const app = makeApp(SHADOW_SETTINGS);
     app._checkCrossFeedSilence(mux.getConnectionStats().perFeed);
     await flush();
@@ -174,7 +178,7 @@ describe('S12: skuggläget får ingen lugnande aisstream-notis', () => {
   });
 
   test('KONTROLLARM both-läge: samma perFeed ⇒ notisen är SANN och går ut', async () => {
-    mux = await makeShadowMux(logger, { streamSilentMs: 25 * MIN, hubSilentMs: 40 * 1000 });
+    mux = await makeShadowMux(logger, { streamSilentMs: 30 * MIN, hubSilentMs: 40 * 1000 });
     const app = makeApp({ ...SHADOW_SETTINGS, ais_source: 'both' });
     expect(app._hubFeedsPipeline()).toBe(true);
     app._checkCrossFeedSilence(mux.getConnectionStats().perFeed);
@@ -216,8 +220,8 @@ describe('S12b: skuggläge med svarande socket och tyst kanal ⇒ blindhetstext 
     if (mux) mux.disconnect(); mux = null; jest.restoreAllMocks();
   });
 
-  test('socket UPPE, aisstream tyst 25 min, hubben ser trafik ⇒ aisstream:silent:shadow med sann text', async () => {
-    mux = await makeShadowMux(logger, { streamSilentMs: 25 * MIN, hubSilentMs: 40 * 1000 });
+  test('socket UPPE, aisstream tyst 30 min, hubben ser trafik ⇒ aisstream:silent:shadow med sann text', async () => {
+    mux = await makeShadowMux(logger, { streamSilentMs: 30 * MIN, hubSilentMs: 40 * 1000 });
     const { perFeed } = mux.getConnectionStats();
     // Riggens socket är nere; S12b gäller den UPPE-men-tysta kanalen — tvinga
     // projektionen (samma fält som produktionen läser: perFeed.aisstream.isConnected).
@@ -233,7 +237,7 @@ describe('S12b: skuggläge med svarande socket och tyst kanal ⇒ blindhetstext 
   });
 
   test('socket NERE ⇒ totalgrenen äger larmet, ingen shadow-notis (ingen dubblett)', async () => {
-    mux = await makeShadowMux(logger, { streamSilentMs: 25 * MIN, hubSilentMs: 40 * 1000 });
+    mux = await makeShadowMux(logger, { streamSilentMs: 30 * MIN, hubSilentMs: 40 * 1000 });
     const { perFeed } = mux.getConnectionStats();
     perFeed.aisstream.isConnected = false;
     const app = makeApp(SHADOW_SETTINGS);

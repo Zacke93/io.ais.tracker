@@ -591,6 +591,17 @@ trafiken" är de 24 låsta körningarna (cirka 485 h).
   sakna rörlig trafik i timmar (14,1 h i k1) eller veckor och en halvdöd AISstream då förblir
   olarmad.
 - *Rekommendation.* (c), eventuellt med (b).
+- **Beslutat 2026-11-15 (U29):** (b) + (c). Gränsen för AISstream-sidans basnotis och status
+  "Degraderad" är 25 min, med samma villkor för båda; en död AISstream syns 10 min senare, vilket
+  ägaren godtar. Feed-vaktens tvångsåteranslutning (20–21 min) kommer före larmet. När
+  anslutningen bevisligen lever (socketen öppen, pong inom 60 s) lyder notisen "AISstream är
+  ansluten men har inte levererat några positioner på N medan AISHub flödar. Appens vakter
+  försöker återansluta automatiskt."; annars står "… kan vara halvdöd" kvar. AISHub-spegeln,
+  trappans 1 h/4 h/dygn och blindhetslarmet är oförändrade. Fältkörning 3 (14–15 november) gav
+  fem tystnader till på 15,3–23,3 min. Med appens eget mått i app.log är fältets tystnader på
+  minst 15 min nio på 100,2 h (k1: 3, k2: 1, k3: 5; siffrorna ovan för k1/k2 är jsonl-glapp, en
+  övre gräns); ingen hade larmat vid 25 min. Alternativ (d)
+  valdes inte (docs/ARCHITECTURE.md §K22/U29, `tests/u29-korstystnad-25min.test.js`).
 
 **F13. ETA-etappen (U22) med fältets belägg**
 - *Situationen.* En stilla båt fick "om 4 minuter" fruset i 12,7 min och sedan en trappa till
