@@ -1105,6 +1105,40 @@ sampelnyckelvakten, nollställningen vid nytt målbyte, rensningen vid andra
 skäl, bevis i en `ETA_STALE_HARD`-hold och holdens sampel i den riktiga
 bufferten fäller vart och ett minst ett test.
 
+### F07, 2026-11-15: en extrapolerad baslinje som aldrig visades
+
+Ändringen (ARCHITECTURE §8 (e), "F07 gick in"; ETA-etappen under ägarbeslutet
+U28, "ingen enskild ETA-uppgift i banken blir sämre"): RC4-klampen i
+`_reconcilePublishedETA` släpper en Fix G-extrapolerad baslinje nedåt när en
+annan båt med samma målbro hade lägre giltig ETA, alltså när den
+extrapolerade siffran aldrig visades.
+
+**Banken** (`7eb350d` mot efter, 24 korpusar, `oattribuerade` 0 i båda,
+parning per korpus, typ, bro och mmsi inom 2 s): alla 3 102 påståenden är
+parade och oförändrade, i banden under 5 och under 10 min och totalt.
+Brotextövergångarna (2 542), notiserna (1 344), öppningsvarningarna (432) och
+strax-löftet (n 211, 63,0 % ≤ 3 min) är oförändrade. `replay:all` är grönt
+utan omlåsning. Fältkörningarna 1–3 ger bitlika texter, notiser och kort.
+
+**Buggjägaren** (standard, seed 1): kortet F03 (21h, δ −11,52 s) är borta,
+M-FAS ger 163 rena av 168 fasvarianter (förut 162), övriga kluster har samma
+nyckel och antal, och inga nya kort uppstår. Fyra kandidater är kvar.
+
+**Prövat och återtaget:** att släppa VARJE extrapolerad baslinje nedåt. Inga
+mätta påståenden ändrades, men två omätta blev sämre mot inferred-sanningen:
+SISU (21h 09:50:39, "om 10 → 3" mot 13,2) och IDUN (25h 07:11:28, "om 13 → 10"
+mot 21,2), båda ledare vars visade "om cirka N" låg närmare sanningen än den
+låga färska siffran. Den varianten flyttade dessutom ZORA:s låsta rad i 19h
+("om 6" → strax, sanning 2,7).
+
+**Regressionstest:** `tests/f07-oseedd-extrapolerad-baslinje.test.js`, 9
+tester. Fasvarianten byggs som buggjägarens M-FAS (hela korpusen flyttad,
+bitlik med kortets `variant.jsonl`), och enhetsfallen prövar den bakre båten
+och fem motfall (ensam båt, egen ledning, zombie, annan målbro, ogiltig ETA)
+samt att en högre färsk beräkning och en uppmätt baslinje dämpas som förut.
+På `7eb350d` fäller sviten två tester på beteende (den bakre båten och
+fasvarianten); motfallen är gröna där.
+
 ## Buggjägaren — diagnosverktyg, INTE en gate (2026-11-04)
 
 `tests/replay-validation/bugHunt/hunt.js` letar fel offline ur de 24 låsta

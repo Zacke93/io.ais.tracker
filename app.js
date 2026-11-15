@@ -42,7 +42,9 @@ const RouteOrderValidator = require('./lib/services/RouteOrderValidator'); // Va
 const AISSourceMultiplexer = require('./lib/connection/AISSourceMultiplexer'); // äger AISStreamClient + ev. AISHubClient
 
 // UTILITIES: Hjälpfunktioner
-const { etaDisplay, formatETABroOpeningClause, etaMinutesForDisplay } = require('./lib/utils/etaValidation');
+const {
+  etaDisplay, formatETABroOpeningClause, etaMinutesForDisplay, isValidETA,
+} = require('./lib/utils/etaValidation');
 const geometry = require('./lib/utils/geometry');
 const GPSJumpAnalyzer = require('./lib/utils/GPSJumpAnalyzer');
 const { waitingBridge, queueBridge, hasFreshPosition } = require('./lib/utils/bridgeQueue');
@@ -5693,6 +5695,32 @@ class AISBridgeApp extends Homey.App {
    * @returns {number|null} Publicerbar ETA
    * @private
    */
+  /**
+   * F07: leder en ANNAN båt fartygets målbrogrupp i brotexten med en lägre
+   * giltig ETA än `eta`? Samma urval som BridgeTextService gör för gruppens
+   * klausul: båtarna i presentationslistan (getVesselsForBridgeText) med
+   * samma målbro, utan bekräftad kö vid en annan bro (sådana får vänttext
+   * utan minuter), utan zombieläge (målbron redan i passedBridges) och med
+   * giltig ETA (isValidETA, _selectLeadVessel). Är svaret ja visades `eta`
+   * aldrig. Se _reconcilePublishedETA.
+   * @param {Object} vessel - fartyget vars baslinje prövas
+   * @param {number} eta - fartygets publicerade (extrapolerade) värde
+   * @returns {boolean}
+   * @private
+   */
+  _anotherLeadsTarget(vessel, eta) {
+    const vds = this.vesselDataService;
+    if (!vds || typeof vds.getVesselsForBridgeText !== 'function') return false;
+    const target = vessel.targetBridge;
+    return vds.getVesselsForBridgeText().some((v) => {
+      if (!v || String(v.mmsi) === String(vessel.mmsi) || v.targetBridge !== target) return false;
+      const queuedAt = waitingBridge(v);
+      if (queuedAt && queuedAt !== target) return false;
+      if (Array.isArray(v.passedBridges) && v.passedBridges.includes(target)) return false;
+      return isValidETA(v.etaMinutes) && v.etaMinutes < eta;
+    });
+  }
+
   _reconcilePublishedETA(vessel, freshETA) {
     // _etaPublishedValue är ett SEPARAT spårfält — vessel.etaMinutes duger
     // inte som referens eftersom meddelandevägen skriver över det innan
@@ -5761,7 +5789,40 @@ class AISBridgeApp extends Homey.App {
       );
     }
 
+    // F07 (buggjägarens F03, 20260708-21h i fasen δ −11,52 s; ETA-etappen
+    // under ägarbeslutet U28): EN EXTRAPOLERAD BASLINJE SOM ALDRIG VISADES
+    // FÖRSVARAS INTE MOT EN LÄGRE FÄRSK BERÄKNING.
+    // Fix G i _reevaluateVesselStatuses registrerar varje extrapolering som
+    // publicerad baslinje, även för en båt som inte leder sin målbros grupp i
+    // brotexten. Hennes siffra syns då aldrig, men klampen nedan försvarar
+    // den ändå när nästa fix kommer. AVALON (219009353) mätte 30,3 min på sitt
+    // första fix i 1,7 kn medan JAATTEN II ledde Klaffbrongruppen; Fix G
+    // räknade ned det osedda värdet till 25,3 och gjorde det till baslinje.
+    // Hennes färska 13,4 och 11,9 min klampades till 18,9, och när JAATTEN:s
+    // position blev 600 s gammal tog AVALON över texten med "om 19 minuter"
+    // (sanning 4,5 min; förut "om cirka 13"). Hoppet 13 → 19 är INV-3:s
+    // sågtand, och i bankens egen fas blir det 13 → 18 (låst golden).
+    // RÄTTNINGEN ÄR SMAL: baslinjen släpps bara NEDÅT, bara när den är en
+    // extrapolering, och bara när en annan båt med samma målbro hade lägre
+    // giltig ETA, alltså ledde gruppens klausul (_anotherLeadsTarget gör
+    // brotextens ledarval). En ledares visade "om cirka N" försvaras som förut:
+    // en oavgränsad variant (alla extrapolerade baslinjer) mättes och gjorde
+    // SISU (21h 09:50:39, "om 10 → 3" mot inferred 13,2) och IDUN (25h
+    // 07:11:28, "om 13 → 10" mot 21,2) sämre — där var den låga färska
+    // siffran fel och den visade extrapoleringen närmare sanningen.
+    // Mätt enligt docs/VALIDATION.md §REGELN: 0 av 3 102 påståenden ändras.
+    const unseenExtrapolationUndercut = vessel._etaIsExtrapolated === true
+      && Number.isFinite(freshETA) && published !== null && freshETA < published
+      && this._anotherLeadsTarget(vessel, published);
+    if (unseenExtrapolationUndercut) {
+      this.debug(
+        `🪜 [ETA_CLAMP_RELEASE] ${vessel.mmsi}: extrapolerad baslinje ${published.toFixed(1)} `
+        + `visades aldrig (annan båt leder ${vessel.targetBridge}) — publicerar färsk ${freshETA.toFixed(1)}`,
+      );
+    }
+
     if (!Number.isFinite(freshETA) || published === null || !sameTarget
+        || unseenExtrapolationUndercut
         // I "strax"-bandet (<3 min) släpps clampen: texten är binär där
         // (strax/om N) och ett golv på +3 skulle SKAPA artificiella
         // "om 3 minuter" för båtar som verkligen är strax framme.

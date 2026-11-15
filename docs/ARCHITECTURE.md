@@ -2524,6 +2524,35 @@ baslinje). E2 gör om ETA-utjämningen och spärren ovanpå F04-rättningen och
 mäter om E:s sex omlåsta rader och M9/V4-utfallet, eftersom PRIMA LADYs och
 SKONNERTENs värden beror på den dubbla EMA:n.
 
+**F07 gick in (ETA-etappen under ägarbeslutet U28, 2026-11-15): en
+extrapolerad baslinje som aldrig visades försvaras inte.** Buggjägarens kort
+F03 (standardkörningen 2026-11-14) är 21h-knivseggen ovan, i fasvarianten
+δ −11,52 s. Kedjan:
+- Fix G (`_reevaluateVesselStatuses`, extrapoleringen i SOFT-zonen)
+  registrerar varje extrapolering som publicerad baslinje (`_etaPublishedValue`),
+  även för en båt som inte leder sin målbros grupp och vars siffra alltså inte
+  syns i brotexten.
+- AVALON 219009353 mätte 30,3 min på sitt första fix (1,7 kn) medan JAATTEN II
+  ledde Klaffbrongruppen. Fix G räknade ned det osedda värdet till 25,3.
+- Hennes färska 13,4 och 11,9 min klampades av RC4 (`_reconcilePublishedETA`,
+  maxDelta = max(3, glapp + 0,25 · bas)) till 18,9.
+- När JAATTEN:s position blev 600 s gammal tog AVALON över texten: "om cirka
+  13" → "om 19 minuter", mot sanningen 4,5 min. Hoppet är INV-3:s sågtand; i
+  bankens egen fas blir det 13 → 18, som är låst i golden-text.
+
+Rättningen i `_reconcilePublishedETA` släpper baslinjen bara NEDÅT, bara när
+den är en extrapolering (`_etaIsExtrapolated`), och bara när en annan båt med
+samma målbro har lägre giltig ETA (`_anotherLeadsTarget`, som gör brotextens
+ledarval: presentationslistan, ingen kö vid en annan bro, ingen zombie,
+`isValidETA`). En ledares visade "om cirka N" försvaras som förut. Den
+oavgränsade varianten (släpp varje extrapolerad baslinje nedåt) mättes och
+återtogs: den gjorde SISU (21h 09:50:39, "om 10 → 3" mot inferred 13,2) och
+IDUN (25h 07:11:28, "om 13 → 10" mot 21,2) sämre, och flyttade dessutom
+ZORA:s låsta rad i 19h ("om 6" → strax, sanning 2,7). Mätt enligt VALIDATION.md §REGELN ("F07, 2026-11-15"): 0 av 3 102
+påståenden ändras, och buggjägarens F03 är borta utan nya kort. F06
+(inbromsningen) står kvar som öppet kort (F02 i körningen 2026-11-14).
+Regressionstest: `tests/f07-oseedd-extrapolerad-baslinje.test.js`.
+
 **FÄLTVALIDERINGENS REGEL: kasta det KORRUPTA FÄLTET, aldrig positionen
 (H34 — DIRIGENTBESLUT 2026-08-22).** *Var beslutet togs:* granskningsunderlaget
 (fältprov 10:s helkodsgranskning 2026-08-22) klassade H34 som BESLUTSBEROENDE
