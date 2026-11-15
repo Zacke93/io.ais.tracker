@@ -12850,6 +12850,9 @@ class AISBridgeApp extends Homey.App {
    * Etapp 2 ([FEED_SILENT], slutplanen §7): en KONFIGURERAD källa som inte
    * levererat en enda accepterad position på 15 min medan den andra flödar
    * är en tyst död — logga (rate-limitat 1/15 min) + notis (1/24h per källa).
+   * U29 (2026-11-15): för AISstream-sidan larmar notisen och statusen först
+   * efter 25 min (CONNECTION_ALERT.AISSTREAM_CROSS_SILENCE_ALERT_MS); loggraden
+   * börjar fortfarande vid 15 min.
    *
    * MÅTTET (B2e/B2f, 2026-08-08): OBSERVERAD tystnad per källa, se
    * _observedFeedSilence. Grunddatat är fortfarande lastMessageTime
@@ -12865,7 +12868,15 @@ class AISBridgeApp extends Homey.App {
    * @private
    */
   _checkCrossFeedSilence(perFeed) {
+    // SILENT_MS är K22:s korstystnadsfönster (15 min). Det gäller fortfarande
+    // AISHub-spegeln, blindhetsgrenen, "grannen levererar" (hubDelivering),
+    // loggraderna och släppet av degraderingen.
+    // U29 (ägarbeslut 2026-11-15): AISstream-sidans LARM — basnotisen och
+    // statusen, med samma villkor (B2c) — gatas i stället på STREAM_ALERT_MS
+    // (25 min). Vintertrafik gav AISstream-tystnader på 15–23 min med frisk
+    // anslutning; feed-vakten (20 min) hinner nu återansluta före larmet.
     const SILENT_MS = 15 * 60 * 1000;
+    const STREAM_ALERT_MS = CONNECTION_ALERT.AISSTREAM_CROSS_SILENCE_ALERT_MS;
     const FRESH_MS = 2 * 60 * 1000;
     // FRESH_POLL_MS (P3, söndagsfältet 2026-08-09): färskhetsmåttet för en
     // POLLANDE källa. FRESH_MS (2 min) mäter senaste ACCEPTERADE emission.
@@ -12948,8 +12959,9 @@ class AISBridgeApp extends Homey.App {
     // HÄRLEDNING AV TRÖSKELN: grannen räknas som levererande exakt när den
     // INTE själv skulle dömas tyst av grenarna nedan (> SILENT_MS, 15 min) —
     // samma konstant på båda sidor, alltså inget glapp där en källa vore både
-    // "tyst" och "frisk granne". FRESH_POLL_MS (210 s) duger INTE som
-    // leveransmått: en förtöjd Class A/B-sändare rapporterar var 3:e min och
+    // "tyst" och "frisk granne". (U29 höjde bara AISstream-sidans larmgräns;
+    // AISHub-sidan döms fortfarande vid SILENT_MS, så likheten står kvar.)
+    // FRESH_POLL_MS (210 s) duger INTE som leveransmått: en förtöjd Class A/B-sändare rapporterar var 3:e min och
     // pollkvantiseringen (65 s) lägger till upp till en cykel, så normaldrift
     // hade flaggats som leveransstopp. sinceMessageMs !== null krävs för att
     // ett UNGT observationsfönster (källa nyss konfigurerad, aldrig levererat)
@@ -13241,11 +13253,12 @@ class AISBridgeApp extends Homey.App {
     // (greppmönster) och får ett tillägg när korstystnaden är minst en
     // monitoringtick (60 s) kortare än tystnaden, så fältanalysen ser varför
     // notisen väntar eller varför dess tid är kortare än tystnaden.
-    const crossNote = (neighbour, cross, silence, aliveSince) => (
+    // U29: gränsen är grenens egen (AISstream-sidan 25 min, AISHub-sidan 15).
+    const crossNote = (neighbour, cross, silence, aliveSince, alertMs) => (
       silence - cross >= 60 * 1000 && Number.isFinite(aliveSince)
         ? ` [korstystnad ${Math.round(cross / 60000)} min: så länge ${neighbour} svarat under tystnaden; `
           + `${neighbour} svarar oavbrutet sedan ${new Date(aliveSince).toISOString().slice(11, 19)}Z`
-          + `${cross > SILENT_MS ? '' : ` — notiserna väntar tills den passerat ${Math.round(SILENT_MS / 60000)} min`}]`
+          + `${cross > alertMs ? '' : ` — notiserna väntar tills den passerat ${Math.round(alertMs / 60000)} min`}]`
         : '');
     // F1: TVÅ nivåer på aisstream-grenen. Den svagare (hubben SVARAR) bär bara
     // LOGGRADEN — den är fältdiagnostik och skiljer "hubben är borta" från
@@ -13257,7 +13270,10 @@ class AISBridgeApp extends Homey.App {
     const hubSilentStreamFresh = bothConfigured && hSilence > SILENT_MS && sFresh;
     // F2: KORSVILLKORET — tystnaden räknad som korstystnad. Det enda villkoret
     // för både notiserna och statusen (B2c: "EXAKT korstystnadsvillkoret").
-    const streamCrossSilent = streamSilentHubFresh && sCross > SILENT_MS;
+    // U29: AISstream-sidan larmar först över STREAM_ALERT_MS (25 min). Yttre
+    // grindarna ovan (sSilence > SILENT_MS) står kvar — de bär loggraden, som
+    // är fältdiagnostik och fortsatt ska visa tystnader från 15 min.
+    const streamCrossSilent = streamSilentHubFresh && sCross > STREAM_ALERT_MS;
     const hubCrossSilent = hubSilentStreamFresh && hCross > SILENT_MS;
 
     // B2c (etapp 7, 2026-08-08, användarbeslut U8): DEGRADERAT LÄGE PÅ ENHETEN.
@@ -13299,9 +13315,13 @@ class AISBridgeApp extends Homey.App {
     // tystnaden och bröt därmed likheten ovan: efter ett totalavbrott blev
     // statusen "degraded" i ticken efter hubbens återkomst, fast AISstream var
     // tillbaka och bara inte hunnit leverera (granskarens k1-prov: 06:55:09Z,
-    // socketen uppe sedan 06:54:15Z). Nu får ett totalavbrott samma 15 min nåd
-    // som när AISstream tappar ensam. SLÄPPET läser fortfarande den tysta
-    // källans egen tystnad — det är hennes leverans som häver degraderingen.
+    // socketen uppe sedan 06:54:15Z). Nu får ett totalavbrott samma nåd som
+    // när AISstream tappar ensam (25 min för AISstream-sidan sedan U29, 15 min
+    // för AISHub-sidan). SLÄPPET läser fortfarande den tysta källans egen
+    // tystnad mot SILENT_MS — det är hennes leverans som häver degraderingen;
+    // tystnaden sjunker bara när hon levererar, så släppgränsen behövde inte
+    // följa med U29 (bandet 15–25 min kan inte ge fladder: sättningen kräver
+    // > 25 min, släppet ≤ 15 min, och däremellan växer tystnaden bara).
     const degradeNow = hubFeedsPipeline && (streamCrossSilent || hubCrossSilent);
     let degraded = degradeNow;
     if (degradeNow) {
@@ -13340,7 +13360,12 @@ class AISBridgeApp extends Homey.App {
         'aisstream',
         `aisstream har inte levererat på ${Math.round(sSilence / 60000)} min ${hubPhrase}`
         + `${hubFeedsPipeline ? '' : ' (skuggläge — AISHub matar inte appen; appen är blind, se totalgrenen)'}`
-        + `${crossNote('AISHub', sCross, sSilence, hubAliveSince)}`,
+        + `${crossNote('AISHub', sCross, sSilence, hubAliveSince, STREAM_ALERT_MS)}`
+        // U29: loggraden börjar vid 15 min men larmet vid 25 — säg det, så att
+        // en fältläsare inte letar efter en notis eller statusändring som inte
+        // ska komma. Bara när grannen levererar (annars larmar grenen inte
+        // alls). Läggs sist så befintliga greppmönster står kvar.
+        + `${streamSilentHubFresh && !streamCrossSilent ? ` [under larmgränsen ${Math.round(STREAM_ALERT_MS / 60000)} min (U29)]` : ''}`,
       );
       // F1: NOTISERNA är gatade på leveransbeviset — och deras text HÄRLEDS ur
       // samma mätning som loggraden i stället för att hårdkoda "flödar". Båda
@@ -13385,10 +13410,35 @@ class AISBridgeApp extends Homey.App {
         );
       }
       if (streamCrossSilent && hubFeedsPipeline) {
+        // U29 (c) (ägarbeslut 2026-11-15): "halvdöd" är en DIAGNOS, och den
+        // var falsk varje gång i fält (k1–k3: socketen levde, nästa
+        // meddelande kom på samma socket). När anslutningen BEVISLIGEN lever
+        // säger texten bara det mätta — ansluten, inga positioner på N —
+        // utan diagnosen. Annars står den gamla formuleringen kvar.
+        // SIGNALEN är uttrycklig och läses ur stämplar, aldrig ur två
+        // härledda klockvärden på exakt likhet (familj F:s läxa, N1):
+        //  • socketen är öppen (perFeed.aisstream.isConnected), och
+        //  • senaste pong på DEN socketen (lastPongAt, nollställs i klientens
+        //    _stopPing, alltså vid varje ny och varje stängd socket)
+        //    är yngre än pingvaktens fönster (2 × 30 s). Pingvakten dödar en
+        //    socket som inte pongat inom samma fönster, så en öppen socket
+        //    med färsk pong är precis vad pingvakten själv kallar levande.
+        //    Fönstret är 60 000 ms brett; klientens och vaktens klockor
+        //    skiljer 0–2 ms (50 ms i proven), så utfallet beror inte på dem.
+        // Saknas pong (ny socket före första pingen, socketen nere, äldre
+        // stub utan fältet) räknas anslutningen INTE som bevisat levande.
+        // Samma nyckel för båda texterna: de beskriver samma tystnad, och en
+        // egen nyckel hade gett två basnotiser per dygn.
+        const pongAgeMs = Number.isFinite(s && s.lastPongAt) ? Math.max(0, now - s.lastPongAt) : null;
+        const streamProvenAlive = !!s && s.isConnected === true
+          && pongAgeMs !== null && pongAgeMs < CONNECTION_ALERT.AISSTREAM_PONG_PROOF_WINDOW_MS;
         this._notifyConnectionIssue(
-          `AIS Tracker: AISstream har inte levererat några positioner på ${this._formatSilence(sCross)} `
-          + `${hubPhrase} — anslutningen kan vara halvdöd. Appens vakter `
-          + 'försöker återansluta automatiskt.',
+          streamProvenAlive
+            ? `AIS Tracker: AISstream är ansluten men har inte levererat några positioner på ${this._formatSilence(sCross)} `
+              + `${hubPhrase}. Appens vakter försöker återansluta automatiskt.`
+            : `AIS Tracker: AISstream har inte levererat några positioner på ${this._formatSilence(sCross)} `
+              + `${hubPhrase} — anslutningen kan vara halvdöd. Appens vakter `
+              + 'försöker återansluta automatiskt.',
           'aisstream:silent',
         );
         // B2: eskalering — both-dygn 1:s 4,5 h-avbrott gav EN blink-bränd notis
@@ -13413,7 +13463,7 @@ class AISBridgeApp extends Homey.App {
         'aishub',
         `AISHub har inte levererat på ${Math.round(hSilence / 60000)} min medan aisstream flödar`
         + `${hubFeedsPipeline ? '' : ' (skuggläge — påverkar inte notiser/brotext, ingen användarnotis)'}`
-        + `${crossNote('AISstream', hCross, hSilence, streamAliveSince)}`,
+        + `${crossNote('AISstream', hCross, hSilence, streamAliveSince, SILENT_MS)}`,
       );
       // F2: spegelfallet — AISstream tillbaka först efter ett totalavbrott ska
       // inte ge "AISHub tyst i 4 h medan AISstream flödar". Gatas och formuleras

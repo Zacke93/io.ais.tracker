@@ -67,7 +67,8 @@ Moduler (ansvar / ägda tillstånd / in-ut):
   extraktion av mmsi/lat/lon/sog/cog/navStatus/shipName i `_extractAISData`
   (:463–515, avvisar 0,0; String()-wrap på Name). Reconnect-tillstånd (progressiva
   delays, medium 5 min ×12, slow 60 min; :521–529), ping/pong-watchdog
-  (`_awaitingPong` :35). Emitterar connected/disconnected/ais-message/static-name
+  (`_awaitingPong` :35; U29: `lastPongAt` stämplar senaste pong på den NUVARANDE
+  socketen och nollställs per socket — korsvaktens livssignal, se §K22/U29). Emitterar connected/disconnected/ais-message/static-name
   (typ 5/24-namn, :362–373)/auth-error/error/reconnect-needed/max-reconnects-reached.
   **Framdraget försök efter nätavbrott (F1, fältprovet 2026-11-11):** timfasen
   gällde även när nätet bevisligen var tillbaka — k1: AISHub svarade 06:54:21Z
@@ -3515,7 +3516,8 @@ struparen går PER LÄGE, så ett lägesbyte alltid syns direkt. Statusvärdet
 
 **B2-eskaleringstrappan efter K22** (användarbeslut 2026-08-20, ur fältprov 10).
 `CONNECTION_ALERT.ESCALATION_STEPS` går nu **15 min (basnotisen, =
-korstystnadsfönstret) → 1 h → 4 h → 1 dygn**. Varje nivå bär sin egen
+korstystnadsfönstret; för AISstream-sidan 25 min sedan U29, se nedan) → 1 h →
+4 h → 1 dygn**. Varje nivå bär sin egen
 dedup-nyckel (`<basnyckel>:<etikett>`, t.ex. `aisstream:silent:1 dygn`), och
 eftersom `_notifyConnectionIssue` dedupar per nyckel i 24 h ger trappan högst EN
 notis per nivå och dygn — en påminnelse, inte en serie. Dygnssteget tillkom
@@ -3526,6 +3528,77 @@ oskiljbara på enheten, vilket är precis vad trappan finns för att förhindra.
 24 h är härlett som nästa begripliga tidsskala ovanför 4 h (886 min föll mitt
 emellan) OCH som exakt dedupfönstrets längd, så steget kan strukturellt inte
 fyra oftare än en gång per dygn av oavbrutet avbrott.
+
+**Korstystnadens gräns för AISstream efter U29** (ägarbeslut 2026-11-15, fråga
+F12 i `docs/faltgranskning-2026-11-14.md`, alternativ b + c). På vintern rör sig
+ingen båt i området på 15–23 minuter, och AISstream levererar då inget alls fast
+anslutningen är frisk, medan AISHub fortsätter rapportera de förtöjda båtarna.
+Tre fältkörningar gav elva sådana tystnader (k1/k2: sex på 16–20 min på 61 h;
+k3: fem på 15,3–23,3 min på 34 h), sju episoder "Degraderad" och tre falska
+notiser "… kan vara halvdöd". **Gränsen för AISstream-sidans basnotis
+(`aisstream:silent`, även skuggvarianten `aisstream:silent:shadow`) och för
+statusen `degraded` är därför 25 min**
+(`CONNECTION_ALERT.AISSTREAM_CROSS_SILENCE_ALERT_MS`), med exakt samma villkor
+för båda (B2c: `degradeNow` läser `streamCrossSilent`). **Priset**, uttalat och
+godtaget av ägaren: en verkligt död AISstream syns tio minuter senare.
+Marginalen mot fältets längsta friska tystnad (23,33 min, k3 14/11 18:21:50Z)
+är 1,7 min.
+
+**Ordningen feed-vakt före larm.** Feed-vakten
+(`UI_CONSTANTS.STALE_FEED_RECONNECT_MS`, 20 min, mätt som min(tid sedan
+senaste meddelande, socketens upptid)) tvingar en återanslutning vid första
+monitoringtick med minst 20 min tystnad, alltså 20–21 min in (k3 18:42:50Z:
+"sinceMessage=21 min"); larmet kommer vid första tick ÖVER 25 min, alltså
+25–26 min in, fem (eller sex) monitoringtick efter vaktens ingrepp. Appen
+hinner därmed försöka laga felet själv innan den larmar, och en ny socket
+hinner pinga och ponga. Två undantag, båda
+där appen redan försökt: socketen har återanslutits under tystnaden (då väntar
+vakten ut ett helt tyst fönster på den nya socketen), eller socketen är nere
+(då äger klientens egen backoff återanslutningen och vakten ingriper inte).
+Låst av `tests/u29-korstystnad-25min.test.js` (vakten 20:09, larmet 25:09 i
+samma tick som "Degraderad", sedan 1 h, 4 h och 1 dygn som förut).
+
+**Texten utan diagnos när anslutningen bevisligen lever.** "Halvdöd" var
+falskt varje gång i fält: nästa meddelande kom på samma socket. När socketen
+är öppen (`perFeed.aisstream.isConnected`) OCH senaste pong på den socketen
+(`lastPongAt`, nollställs per socket i `_stopPing`, som både en ny socket
+via `_startPing` och en stängd via `_clearTimers` går igenom) är yngre än
+pingvaktens fönster (`CONNECTION_ALERT.AISSTREAM_PONG_PROOF_WINDOW_MS`,
+2 × 30 s — samma gräns som pingvakten dödar en tyst socket vid) säger
+basnotisen:
+
+> AIS Tracker: AISstream är ansluten men har inte levererat några positioner
+> på N medan AISHub flödar. Appens vakter försöker återansluta automatiskt.
+
+Annars (socketen nere, ingen pong ännu på en ny socket, pongen för gammal)
+står den gamla formuleringen kvar:
+
+> AIS Tracker: AISstream har inte levererat några positioner på N medan
+> AISHub flödar — anslutningen kan vara halvdöd. Appens vakter försöker
+> återansluta automatiskt.
+
+Signalen läses ur en absolut stämpel mot vaktens klocka och ett 60 s brett
+fönster, aldrig ur två härledda klockvärden på exakt likhet (familj F:s läxa
+N1); proven kör förloppen med statistiken 0/1/2/50 ms före vaktens now. Båda
+texterna delar nyckeln `aisstream:silent` (de beskriver samma tystnad; en egen
+nyckel hade gett två basnotiser per dygn). Trappans texter ("har varit tyst i
+över N … halverad redundans") innehöll aldrig "halvdöd" och är oförändrade.
+
+**Vad som INTE följde med U29, och varför.** (1) **AISHub-spegeln**
+(`aishub:silent`, AISHub tyst medan AISstream flödar) står kvar på 15 min:
+den gatas på att AISstream levererat inom 2 min, alltså på bevisad trafik i
+området just då, så vinterns tomma kanal kan inte utlösa den (fältet: noll
+`aishub:silent` i k1–k3). Därmed står också "grannen levererar"
+(`hubDelivering`, AISHub levererat inom 15 min) kvar — samma konstant som
+AISHub-sidans dom, som förut. (2) **Blindhetsgrenen** (`feeds:silent`)
+kräver att ingen källa svarar och har ingenting med trafikuppehåll att göra.
+(3) **Trappans steg** 1 h, 4 h och 1 dygn, och tom-kanal-nätet
+`feeds:empty:4h` (4 h), är oförändrade. (4) **Loggraden** `[FEED_SILENT]
+aisstream har inte levererat …` börjar fortfarande vid 15 min (fältdiagnostik
+för marginalen) och får tillägget `[under larmgränsen 25 min (U29)]` så länge
+larmet inte gått. (5) **Släppet** av en degradering läser fortfarande den
+tysta källans tystnad mot 15 min; tystnaden sjunker bara när källan
+levererar, så bandet 15–25 min kan inte ge fladder.
 
 **Texterna anger den MÄTTA tystnaden** (K22, landat 2026-08-21) — BT-12, samma
 princip som redan styrde `hubPhrase`: texten får inte påstå mer än mätningen
@@ -3583,7 +3656,8 @@ eller har levererat inom 2 min; AISHub har pollklockan inom 210 s). Vid
 grannens återkomst räknas bara tiden sedan återkomsten (den senare av senaste
 döda tick och källans egen återkomst ur `uptime`), så N är en sann undre
 gräns. En ny tystnadsepisod (källan levererar) börjar om räkningen.
-Notiserna gatas på att N passerat 15 min och texten bär N.
+Notiserna gatas på att N passerat 15 min (AISstream-sidan 25 min sedan U29)
+och texten bär N.
 
 Episodens IDENTITET (revision 2, omgranskningen N1) är en nyckel av lagrade
 stämplar: konfigurationsstämpeln och senaste meddelandets ABSOLUTA tid
@@ -3611,7 +3685,8 @@ högst grannens frånvaro (låst av granskarens förlopp i testfilen).
 Skuren av tre notiser i samma tick i k1 var en följd av samma felräkning,
 inte av K22-avvägningen ovan: N hoppade från 0 till 277 min.
 `connection_status` läser SAMMA mått: `degradeNow` är exakt korsnotisens
-villkor (B2c), så statusen får 15 min nåd efter ett totalavbrott precis som
+villkor (B2c), så statusen får samma nåd efter ett totalavbrott som basnotisen
+(25 min för AISstream-sidan sedan U29, 15 min för AISHub-sidan) precis som
 när AISstream tappar ensam (den första versionen lät statusen läsa den råa
 tystnaden och blinkade "degraded" efter varje totalavbrott). Släppet läser
 fortfarande den tysta källans egen tystnad. Tom-kanal-nätet (`feeds:empty:4h`,

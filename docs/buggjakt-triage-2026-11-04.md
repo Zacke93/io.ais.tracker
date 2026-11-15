@@ -543,6 +543,17 @@ docs/faltgranskning-2026-11-14.md. Två av besluten ovan berörs:
 - **Konvojfrågan** har fått mätt underlag (F1: när en gammal öppningsvarning ska sluta gälla,
   alternativen a–c över hela banken) men är fortfarande ägarens beslut.
 
+**Ägarens beslut efter fältgranskningen (2026-11-15):**
+- **U29 (F12, AISstream-tystnad i vintertrafik):** gränsen för AISstream-sidans korstystnad,
+  alltså notisen "AISstream har inte levererat … medan AISHub flödar" och statusen
+  "Degraderad", höjs från 15 till 25 min, med samma villkor för båda. En verkligt död AISstream
+  syns därmed 10 min senare; det godtas. När anslutningen bevisligen lever (socketen öppen och
+  pong inom pingvaktens fönster) säger notisen att AISstream är ansluten men inte har levererat
+  några positioner, utan ordet "halvdöd"; annars står den gamla texten kvar. Larmet villkoras
+  inte på att AISHub sett en båt i rörelse (alternativ d). AISHub-spegeln, trappan
+  1 h/4 h/1 dygn och blindhetslarmet ändras inte (docs/faltgranskning-2026-11-14.md F12,
+  docs/ARCHITECTURE.md §K22/U29).
+
 ## Ägarens beslut 2026-11-04
 
 Ägaren besvarade beslutsfrågorna 1–3 nedan och gav regeln för omlåsning:

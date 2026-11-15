@@ -33,6 +33,15 @@ const AISBridgeApp = require('../app');
  * går mellan klientens statistik och vaktens now. Proven kör därför
  * förloppen med statistiken 0/1/2/50 ms före vaktens now (statsLag) och
  * genom den riktiga _checkAISFeedHealth med klockan stegad däremellan.
+ *
+ * U29 (ägarbeslut 2026-11-15): AISstream-sidans larmgräns (basnotisen och
+ * statusen) är 25 min i stället för K22:s 15. Förväntade tider för
+ * 'aisstream:silent', 'aisstream:silent:shadow' och "Degraderad" är därför
+ * flyttade så att korstystnaden passerat 25 min; scenarierna är utökade där
+ * de annars hade slutat före den nya basnotisen. AISHub-sidan ('aishub:silent')
+ * och trappans 1h/4h/dygn är oförändrade. Riggarna har ingen pongstämpel, så
+ * texten "anslutningen kan vara halvdöd" står kvar i dem; den nya texten för
+ * en bevisat levande anslutning låses i tests/u29-korstystnad-25min.test.js.
  */
 
 const REAL_DATE_NOW = Date.now;
@@ -203,22 +212,23 @@ describe('F2: k1-förloppet — totalavbrott, sedan hubben tillbaka', () => {
     expect(logText(app)).toContain('aisstream har inte levererat på 277 min medan AISHub flödar');
     expect(logText(app)).toContain(
       '[korstystnad 6 min: så länge AISHub svarat under tystnaden; AISHub svarar oavbrutet sedan 06:54:21Z'
-      + ' — notiserna väntar tills den passerat 15 min]',
+      + ' — notiserna väntar tills den passerat 25 min]', // U29: var 15
     );
   });
 
-  test('FÄLTFALLET: står AISstream kvar tyst kommer EN basnotis när grannen levt 15 min av tystnaden, och trappan växer därifrån', async () => {
+  test('FÄLTFALLET: står AISstream kvar tyst kommer EN basnotis när grannen levt 25 min av tystnaden (U29), och trappan växer därifrån', async () => {
     const app = makeApp();
     await runTicks(app, k1PerFeed, at('2026-11-11T02:00:09Z'), at('2026-11-11T06:55:09Z'));
     const sent = await runTicks(app, k1PerFeed, at('2026-11-11T06:56:09Z'), at('2026-11-11T08:00:09Z'));
     const keys = sent.filter((s) => s.k.startsWith('aisstream:silent'));
     expect(keys.map((s) => [s.k, s.iso])).toEqual([
-      // 291 s före avbrottet + 48 s vid 06:55:09 + 60 s per tick ⇒ 939 s 07:05:09.
-      ['aisstream:silent', '2026-11-11T07:05:09.000Z'],
+      // 291 s före avbrottet + 48 s vid 06:55:09 + 60 s per tick ⇒ 1 539 s
+      // 07:15:09, första tick över 25 min (U29; med K22:s 15 min 939 s 07:05:09).
+      ['aisstream:silent', '2026-11-11T07:15:09.000Z'],
       // 3 639 s 07:50:09 ⇒ 1h-steget. Före rättningen (rå tystnad) kom det 06:55:09.
       ['aisstream:silent:1h', '2026-11-11T07:50:09.000Z'],
     ]);
-    expect(keys[0].text).toContain('på 15 min medan AISHub flödar');
+    expect(keys[0].text).toContain('på 25 min medan AISHub flödar');
     expect(keys[1].text).toContain('i över 1 h medan AISHub flödar');
     // M2: statusen degraderas i samma tick som basnotisen, inte före.
     expect(app._connectionFeedDegraded).toBe(true);
@@ -227,10 +237,10 @@ describe('F2: k1-förloppet — totalavbrott, sedan hubben tillbaka', () => {
   test('M2: statusen degraderas först i basnotisens tick', async () => {
     const app = makeApp();
     const degradedAt = [];
-    await runTicks(app, k1PerFeed, at('2026-11-11T02:00:09Z'), at('2026-11-11T07:10:09Z'), (t) => {
+    await runTicks(app, k1PerFeed, at('2026-11-11T02:00:09Z'), at('2026-11-11T07:20:09Z'), (t) => {
       if (app._connectionFeedDegraded && degradedAt.length === 0) degradedAt.push(iso(t));
     });
-    expect(degradedAt).toEqual(['2026-11-11T07:05:09.000Z']);
+    expect(degradedAt).toEqual(['2026-11-11T07:15:09.000Z']); // U29: var 07:05:09
   });
 
   test('SPEGELFALLET: AISstream tillbaka först, AISHub förblir tyst — basnotisen efter 15 min levande granne, sedan 1h-steget, aldrig "4 h" direkt', async () => {
@@ -265,7 +275,7 @@ describe('F2: k1-förloppet — totalavbrott, sedan hubben tillbaka', () => {
     expect(keysOf(sent, 'aisstream:silent')).toEqual([]);
   });
 
-  test('SKUGGLÄGE: skuggnotisen väntar in 15 min levande hubb, och tom-kanal-nätet räknar inte avbrottet (M3)', async () => {
+  test('SKUGGLÄGE: skuggnotisen väntar in 25 min levande hubb (U29), och tom-kanal-nätet räknar inte avbrottet (M3)', async () => {
     const app = makeApp({ hubFeedsPipeline: false });
     const STREAM_BACK = at('2026-11-11T06:55:30Z');
     const perFeedAt = (t) => {
@@ -275,8 +285,8 @@ describe('F2: k1-förloppet — totalavbrott, sedan hubben tillbaka', () => {
     };
     const sent = await runTicks(app, perFeedAt, at('2026-11-11T02:00:09Z'), at('2026-11-11T07:15:09Z'));
     const shadow = sent.filter((s) => s.k === 'aisstream:silent:shadow');
-    expect(shadow.map((s) => s.iso)).toEqual(['2026-11-11T07:05:09.000Z']);
-    expect(shadow[0].text).toContain('på 15 min');
+    expect(shadow.map((s) => s.iso)).toEqual(['2026-11-11T07:15:09.000Z']); // U29: var 07:05:09
+    expect(shadow[0].text).toContain('på 25 min');
     // Före rättningen gick feeds:empty:4h ("svarar men ingen båtdata på 4 h")
     // i ticken efter AISstreams återkomst — då den inte svarat på 4,5 h.
     expect(sentKeys(app)).not.toContain('feeds:empty:4h');
@@ -344,7 +354,7 @@ describe('F2: ett glapp hos grannen drar bara av sin egen längd (granskningen H
       at('2026-11-11T02:00:09Z'), at('2026-11-11T03:30:09Z'));
     const keys = sent.filter((s) => s.k.startsWith('aisstream:silent'));
     expect(keys.map((s) => [s.k, s.iso])).toEqual([
-      ['aisstream:silent', '2026-11-11T02:35:09.000Z'],
+      ['aisstream:silent', '2026-11-11T02:45:09.000Z'], // U29: 25 min efter 02:20 (var 02:35:09)
       ['aisstream:silent:1h', '2026-11-11T03:20:09.000Z'],
     ]);
     expect(logText(app)).not.toMatch(/korstystnad \d+ min/);
@@ -358,7 +368,7 @@ describe('F2: ett glapp hos grannen drar bara av sin egen längd (granskningen H
     // Hubben svarade inte 02:53:09–03:00:00 (6 min 51 s). Rå tystnad gav
     // 1h-steget 03:20:09; den första versionen av F2 nollställde och gav 04:00:09.
     expect(keys.map((s) => [s.k, s.iso])).toEqual([
-      ['aisstream:silent', '2026-11-11T02:35:09.000Z'],
+      ['aisstream:silent', '2026-11-11T02:45:09.000Z'], // U29 (var 02:35:09)
       ['aisstream:silent:1h', '2026-11-11T03:27:09.000Z'],
     ]);
     expect(keys[1].text).toContain('i över 1 h medan AISHub flödar');
@@ -381,13 +391,14 @@ describe('F2: ett glapp hos grannen drar bara av sin egen längd (granskningen H
         }),
       };
     };
-    const sent = await runTicks(app, perFeedAt, at('2026-11-11T02:00:09Z'), at('2026-11-11T02:45:09Z'));
+    const sent = await runTicks(app, perFeedAt, at('2026-11-11T02:00:09Z'), at('2026-11-11T02:55:09Z'));
     const base = sent.filter((s) => s.k === 'aisstream:silent');
     // Levande 02:20:00–02:33:09 (798 s), dött 02:34:09–02:37:09, tillbaka
-    // 02:38:09 (+60 s) ⇒ 918 s 02:39:09. Räknas flanken som liv (M2h) blir
-    // det "på 18 min" 02:38:09; nollställning hade gett 02:53.
-    expect(base.map((s) => s.iso)).toEqual(['2026-11-11T02:39:09.000Z']);
-    expect(base[0].text).toContain('på 15 min medan AISHub flödar');
+    // 02:38:09 (+60 s) ⇒ 918 s 02:39:09, 1 518 s 02:49:09 — första tick över
+    // U29:s 25 min (med K22:s 15 min: 02:39:09). Räknas flanken som liv (M2h)
+    // blir det 02:45:09; nollställning hade gett 03:02 (efter körningens slut).
+    expect(base.map((s) => s.iso)).toEqual(['2026-11-11T02:49:09.000Z']);
+    expect(base[0].text).toContain('på 25 min medan AISHub flödar');
     // Loggraden 02:38:09: hubben svarar sedan sista döda ticken, inte sedan
     // flankens gamla uppgång (M2c: upptiden har överlevt glappet).
     expect(logText(app)).toContain('AISHub svarar oavbrutet sedan 02:37:09Z');
@@ -440,13 +451,15 @@ describe('F2: ackumulatorns kantfall', () => {
     expect(oneHour.map((s) => s.iso)).toEqual(['2026-11-11T03:20:09.000Z']);
   });
 
-  test('stall: inga tick 02:40–03:10, grannen levde vid båda tickarna — tiden räknas som levande, som den observerade tystnaden', async () => {
+  // U29: stallet flyttat från 02:40–03:10 till 02:50–03:10, så att basnotisen
+  // (nu 25 min efter 02:20) fortfarande kommer före stallet och 1h-steget efter.
+  test('stall: inga tick 02:50–03:10, grannen levde vid båda tickarna — tiden räknas som levande, som den observerade tystnaden', async () => {
     const app = makeApp();
-    const before = await runTicks(app, healthy, at('2026-11-11T02:00:09Z'), at('2026-11-11T02:40:09Z'));
+    const before = await runTicks(app, healthy, at('2026-11-11T02:00:09Z'), at('2026-11-11T02:50:09Z'));
     const after = await runTicks(app, healthy, at('2026-11-11T03:10:09Z'), at('2026-11-11T03:25:09Z'));
     const keys = [...before, ...after].filter((s) => s.k.startsWith('aisstream:silent'));
     expect(keys.map((s) => [s.k, s.iso])).toEqual([
-      ['aisstream:silent', '2026-11-11T02:35:09.000Z'],
+      ['aisstream:silent', '2026-11-11T02:45:09.000Z'],
       ['aisstream:silent:1h', '2026-11-11T03:20:09.000Z'],
     ]);
   });
@@ -469,9 +482,9 @@ describe('F2: ackumulatorns kantfall', () => {
     const app2 = makeApp();
     const sent = await runTicks(app2, afterRestart, at('2026-11-11T02:31:09Z'), at('2026-11-11T03:35:09Z'));
     const keys = sent.filter((s) => s.k.startsWith('aisstream:silent'));
-    // Observationen börjar 02:31:00 (B2e): bas efter 15 min, 1h efter 60 min.
+    // Observationen börjar 02:31:00 (B2e): bas efter 25 min (U29), 1h efter 60 min.
     expect(keys.map((s) => [s.k, s.iso])).toEqual([
-      ['aisstream:silent', '2026-11-11T02:46:09.000Z'],
+      ['aisstream:silent', '2026-11-11T02:56:09.000Z'],
       ['aisstream:silent:1h', '2026-11-11T03:31:09.000Z'],
     ]);
   });
@@ -482,7 +495,8 @@ describe('F2: fröet och episodbytet (omgranskningen N2)', () => {
     // Ticken 02:31:09 ser hubben död. Sedan stall till 02:47:09. Under stallet
     // levererar AISstream sista gången 02:31:30 och tystnar; hubben kommer
     // tillbaka 02:46:09 (flank upp). Den nya episodens frö är 60 s, inte
-    // 15 min 39 s — annars hade "på 15 min medan AISHub flödar" gått direkt.
+    // 15 min 39 s — annars hade basnotisen gått direkt med K22:s 15 min, och
+    // med U29:s 25 min redan 02:57:09 i stället för 03:12:09.
     const app = makeApp();
     const HUB_DEAD_FROM = at('2026-11-11T02:27:00Z');
     const HUB_BACK2 = at('2026-11-11T02:46:09Z');
@@ -508,18 +522,19 @@ describe('F2: fröet och episodbytet (omgranskningen N2)', () => {
       };
     };
     const a = await runTicks(app, perFeedAt, at('2026-11-11T02:00:09Z'), at('2026-11-11T02:31:09Z'));
-    const b = await runTicks(app, perFeedAt, at('2026-11-11T02:47:09Z'), at('2026-11-11T03:05:09Z'));
+    const b = await runTicks(app, perFeedAt, at('2026-11-11T02:47:09Z'), at('2026-11-11T03:15:09Z'));
     const keys = [...a, ...b].filter((x) => x.k.startsWith('aisstream:silent'));
-    // 60 s + 60 s per tick ⇒ 960 s 03:02:09.
-    expect(keys.map((x) => [x.k, x.iso])).toEqual([['aisstream:silent', '2026-11-11T03:02:09.000Z']]);
-    expect(keys[0].text).toContain('på 16 min medan AISHub flödar');
+    // 60 s + 60 s per tick ⇒ 1 560 s 03:12:09, första tick över 25 min (U29;
+    // med K22:s 15 min 960 s 03:02:09).
+    expect(keys.map((x) => [x.k, x.iso])).toEqual([['aisstream:silent', '2026-11-11T03:12:09.000Z']]);
+    expect(keys[0].text).toContain('på 26 min medan AISHub flödar');
   });
 
   test('omkonfigurering av den tysta källan startar en ny episod (konfigurationsstämpeln i episodnyckeln)', async () => {
-    // AISstream tyst från 02:20 med frisk hubb ⇒ degraderad 02:35:09. AISstream
-    // avkonfigureras 03:00–03:10 (statusen släpps). Hubben är nere
-    // 03:05–03:30 (flank ner/upp). Efter omkonfigureringen är det en NY
-    // tystnad: hubben har levt sedan 03:30, så statusen degraderas 03:45:09 —
+    // AISstream tyst från 02:20 med frisk hubb ⇒ degraderad 02:45:09 (U29: 25
+    // min). AISstream avkonfigureras 03:00–03:10 (statusen släpps). Hubben är
+    // nere 03:05–03:30 (flank ner/upp). Efter omkonfigureringen är det en NY
+    // tystnad: hubben har levt sedan 03:30, så statusen degraderas 03:55:09 —
     // inte 03:30:09, som en fortsatt räkning från 02:20 hade gett.
     const app = makeApp();
     const H_DOWN = at('2026-11-11T03:05:00Z');
@@ -548,9 +563,9 @@ describe('F2: fröet och episodbytet (omgranskningen N2)', () => {
     }, SHAKY);
     const flips = status.filter((x, i) => i > 0 && x[1] !== status[i - 1][1]);
     expect(flips).toEqual([
-      ['2026-11-11T02:35:09.000Z', true],
+      ['2026-11-11T02:45:09.000Z', true],
       ['2026-11-11T03:00:09.000Z', false],
-      ['2026-11-11T03:45:09.000Z', true],
+      ['2026-11-11T03:55:09.000Z', true],
     ]);
   });
 
@@ -758,10 +773,11 @@ describe('F2: granskarens förlopp — hela K22-trappan när grannen hackar (reg
   test('S2 (M2): AISstream död, hubben flackig — "Degraderad" och notiserna kommer, med och utan ms-eftersläpning', async () => {
     const { sent, degraded } = await bothWays('S2', SILENT_FROM + 6 * HOUR);
     const keys = sent.filter((s) => s.k.startsWith('aisstream:silent'));
-    // Hubben levde ~2/3 av tiden ⇒ 15 min levande granne ~02:43.
+    // Hubben levde ~2/3 av tiden ⇒ 25 min levande granne (U29) ~02:57
+    // (med K22:s 15 min ~02:43).
     expect(degraded).toHaveLength(1);
-    expect(at(degraded[0])).toBeGreaterThanOrEqual(at('2026-11-11T02:40:00Z'));
-    expect(at(degraded[0])).toBeLessThanOrEqual(at('2026-11-11T02:47:00Z'));
+    expect(at(degraded[0])).toBeGreaterThanOrEqual(at('2026-11-11T02:52:00Z'));
+    expect(at(degraded[0])).toBeLessThanOrEqual(at('2026-11-11T03:00:00Z'));
     expect(keys.map((s) => s.k)).toEqual(['aisstream:silent', 'aisstream:silent:1h']);
     expect(keys[0].iso).toBe(degraded[0]); // B2c: samma villkor, samma tick
   });
@@ -777,7 +793,7 @@ describe('F2: granskarens förlopp — hela K22-trappan när grannen hackar (reg
     expect(empty[0].text).toContain('svarar men ingen båtdata på 4 h');
   });
 
-  test('D: kontroll utan glapp — trappan på exakt K22:s tider', async () => {
+  test('D: kontroll utan glapp — trappan på exakt K22:s tider (basnotisen på U29:s 25 min)', async () => {
     const app = makeApp();
     const perFeedAt = (t) => {
       const ok = lastOkWithGaps(t);
@@ -791,11 +807,11 @@ describe('F2: granskarens förlopp — hela K22-trappan när grannen hackar (reg
     const sent = await runTicks(app, perFeedAt, B + MIN, SILENT_FROM + DAY + 61 * MIN, null, SHAKY);
     const keys = sent.filter((s) => s.k.startsWith('aisstream:silent'));
     expect(keys.map((s) => [s.k, s.iso])).toEqual([
-      ['aisstream:silent', '2026-11-11T02:35:03.000Z'],
+      ['aisstream:silent', '2026-11-11T02:45:03.000Z'],
       ['aisstream:silent:1h', '2026-11-11T03:20:03.000Z'],
       ['aisstream:silent:4h', '2026-11-11T06:20:03.000Z'],
       ['aisstream:silent:1 dygn', '2026-11-12T02:20:03.000Z'],
-      ['aisstream:silent', '2026-11-12T02:35:03.000Z'],
+      ['aisstream:silent', '2026-11-12T02:45:03.000Z'],
       ['aisstream:silent:1h', '2026-11-12T03:20:03.000Z'],
     ]);
   });
@@ -977,7 +993,7 @@ describe('F2: den riktiga vägen genom _checkAISFeedHealth med klockan stegad me
 });
 
 describe('F2: utan avbrott hos grannen är korstystnaden oförändrad (K22)', () => {
-  test('AISstream dör medan hubben flödar hela tiden: bas efter 15 min, 1h och 4h i tur och ordning', async () => {
+  test('AISstream dör medan hubben flödar hela tiden: bas efter 25 min (U29), 1h och 4h i tur och ordning', async () => {
     const app = makeApp();
     const STREAM_DEAD = at('2026-11-11T02:10:00Z');
     const perFeedAt = (t) => ({
@@ -991,7 +1007,7 @@ describe('F2: utan avbrott hos grannen är korstystnaden oförändrad (K22)', ()
     const sent = await runTicks(app, perFeedAt, at('2026-11-11T02:00:09Z'), at('2026-11-11T06:30:09Z'));
     const keys = sent.filter((s) => s.k.startsWith('aisstream:silent'));
     expect(keys.map((s) => [s.k, s.iso])).toEqual([
-      ['aisstream:silent', '2026-11-11T02:25:09.000Z'],
+      ['aisstream:silent', '2026-11-11T02:35:09.000Z'], // U29 (var 02:25:09)
       ['aisstream:silent:1h', '2026-11-11T03:10:09.000Z'],
       ['aisstream:silent:4h', '2026-11-11T06:10:09.000Z'],
     ]);
@@ -1001,12 +1017,13 @@ describe('F2: utan avbrott hos grannen är korstystnaden oförändrad (K22)', ()
   });
 
   test('en ny tystnadsepisod (källan levererar) börjar om räkningen från noll', async () => {
-    // AISstream tyst 02:10–02:40 med hubben frisk ⇒ degraderad 02:25:09.
-    // AISstream levererar 02:40:00 ⇒ släpps 02:40:09. Ny tystnad från 02:40:00,
-    // men hubben svarar inte 02:40:20–02:50:00 (två missade pollar, flanken
-    // står). Den nya episodens korstystnad är bara hubbens levande tid sedan
-    // 02:40:00: 9 s + 60 s vid 02:50:09 + 60 s per tick ⇒ 909 s 03:04:09.
-    // Utan omstart hade episod 1:s 30 min burits över och gett 02:55:09.
+    // AISstream tyst 02:10–02:40 med hubben frisk ⇒ degraderad 02:35:09 (U29:
+    // 25 min). AISstream levererar 02:40:00 ⇒ släpps 02:40:09. Ny tystnad från
+    // 02:40:00, men hubben svarar inte 02:40:20–02:50:00 (två missade pollar,
+    // flanken står). Den nya episodens korstystnad är bara hubbens levande tid
+    // sedan 02:40:00: 9 s + 60 s vid 02:50:09 + 60 s per tick ⇒ 1 509 s
+    // 03:14:09. Utan omstart hade episod 1:s 30 min burits över, korstystnaden
+    // blivit lika med den observerade tystnaden och degraderingen kommit 03:05:09.
     const app = makeApp();
     const lastStream = (t) => {
       if (t < at('2026-11-11T02:10:00Z')) return t - 30 * SEC;
@@ -1025,14 +1042,14 @@ describe('F2: utan avbrott hos grannen är korstystnaden oförändrad (K22)', ()
       };
     };
     const status = [];
-    const sent = await runTicks(app, perFeedAt, at('2026-11-11T02:00:09Z'), at('2026-11-11T03:10:09Z'), (t) => {
+    const sent = await runTicks(app, perFeedAt, at('2026-11-11T02:00:09Z'), at('2026-11-11T03:20:09Z'), (t) => {
       status.push([iso(t), !!app._connectionFeedDegraded]);
     });
     const flips = status.filter((x, i) => i > 0 && x[1] !== status[i - 1][1]);
     expect(flips).toEqual([
-      ['2026-11-11T02:25:09.000Z', true],
+      ['2026-11-11T02:35:09.000Z', true],
       ['2026-11-11T02:40:09.000Z', false],
-      ['2026-11-11T03:04:09.000Z', true],
+      ['2026-11-11T03:14:09.000Z', true],
     ]);
     // Basnyckeln är bränd (24 h) — bara den första episodens notis.
     expect(keysOf(sent, 'aisstream:silent')).toEqual(['aisstream:silent']);

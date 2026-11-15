@@ -543,11 +543,14 @@ describe('FYND 17: AISHub-tystnadsnotisen kräver att hubben matar pipelinen', (
    * grenen men härled texten ur hubFeedsPipeline och stryk redundanspåståendet)
    * är ett eget beslut och togs inte här.
    */
+  // U29 (ägarbeslut 2026-11-15): AISstream-sidans larmgräns är 25 min. Båda
+  // proven nedan körs därför med 30 min tystnad (var 20) — annars hade
+  // skuggprovets "ingen aisstream:silent" hållit bara för att 20 < 25.
   test('S12: skuggläge ⇒ ingen lugnande aisstream-notis, men blindheten signaleras', () => {
     const app = makeSilenceApp('shadow');
     app._checkCrossFeedSilence({
       aisstream: {
-        configured: true, timeSinceLastMessage: 20 * 60 * 1000, uptime: 60 * 60 * 1000,
+        configured: true, timeSinceLastMessage: 30 * 60 * 1000, uptime: 60 * 60 * 1000,
       },
       aishub: {
         configured: true, timeSinceLastMessage: 30 * 1000, uptime: 60 * 60 * 1000,
@@ -567,7 +570,7 @@ describe('FYND 17: AISHub-tystnadsnotisen kräver att hubben matar pipelinen', (
     const app = makeSilenceApp('both');
     app._checkCrossFeedSilence({
       aisstream: {
-        configured: true, timeSinceLastMessage: 20 * 60 * 1000, uptime: 60 * 60 * 1000,
+        configured: true, timeSinceLastMessage: 30 * 60 * 1000, uptime: 60 * 60 * 1000,
       },
       aishub: {
         configured: true, timeSinceLastMessage: 30 * 1000, uptime: 60 * 60 * 1000,
