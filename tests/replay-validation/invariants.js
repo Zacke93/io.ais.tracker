@@ -664,6 +664,9 @@ function validateInvariants(result) {
  *        bearbetningscykel efter att rådatan fått första fixen bortom
  *        brolinjen, i notisens riktning. Kräver rådatafacit. WARN tills
  *        ägaren tagit ställning (tre utslag i bank + fält 2026-11-13).
+ *        Undantag (rev 2, 2026-11-15): båten korsar samma bro åt andra
+ *        hållet senast INV22_RETURN_WINDOW_MS (300 s) efter notisen; då var
+ *        det en förvarning inför returen.
  */
 /**
  * Rådatafacit (A2) för den korpus resultatet kommer ur.
@@ -694,6 +697,18 @@ function resolveGtPassages(result) {
 
 // INV-22: en bearbetningscykel. Se regeln i validateWarnInvariants.
 const INV22_SAME_CYCLE_MS = 1000;
+// INV-22, returkorsningen (rev 2, 2026-11-15): en förvarning som följs av
+// båtens korsning av samma bro åt andra hållet senast så här långt efter
+// notisen gäller returen, och "närmar sig" stämmer; bara riktningstoken är
+// den gamla, eftersom vändningen ännu inte är trodd (U18: två positioner).
+// Mätt i buggjägarens standardkörning (seed 1, 2 000 världar): de fem
+// utslagen före rättningen kom 28, 54, 78, 114 och 150 s före returkorsningen,
+// och i de 180 U-svängsvärldarna kom varje förvarning inför en returkorsning
+// (262 st, oavsett token) högst 276 s före den (p50 85 s, p90 146 s, p99
+// 208 s). 300 s täcker hela fördelningen. Bankens äkta utslag (OSPREY och
+// SINE BRES på e51c7b6) har ingen returkorsning alls inom fönstret: båtarna
+// fortsatte bort, och bankens returresor kom tidigast 21 min efter passagen.
+const INV22_RETURN_WINDOW_MS = 300000;
 
 let inv22Fairway = null;
 /**
@@ -1026,6 +1041,18 @@ function validateWarnInvariants(result, gtPassagesArg = null) {
   // annars `tTo` (bankens rådatafacit, där `tTo` redan är mottagningen av första
   // fixen bortom linjen). Utan det dömde regeln i sanningsspåret mot den sanna
   // korsningen och flaggade 33 notiser i samma cykel under bron som banken undantar.
+  //
+  // RETURKORSNINGEN (rev 2, 2026-11-15, fältgranskningen 2026-11-14 F14): i
+  // buggjägarens standardkörning gav regeln fem utslag (världarna 134 ULLA,
+  // 935 RUNA, 963 YRSA, 1480 ALVA och 1558 TROLLA), alla förvarningar efter
+  // passagen när båten redan vänt och var på väg tillbaka: returkorsningen kom
+  // 28–150 s senare. Texten stämmer för returen; bara notisens riktningstoken
+  // är den gamla, eftersom vändningen ännu inte är trodd (U18 kräver två
+  // positioner). En notis som följs av en korsning av samma bro åt andra
+  // hållet, observerad efter den senaste korsningen och högst
+  // INV22_RETURN_WINDOW_MS efter notisen (korsningens tid `t`), flaggas därför
+  // inte. Utan returkorsning, eller med en retur långt senare (bankens
+  // returresor kom tidigast 21 min efter), flaggas notisen som förut.
   {
     const obsT = (g) => (Number.isFinite(g.tObs) ? g.tObs : g.tTo);
     const crossings = (gtPassages || []).filter((g) => g && g.kind !== 'zone'
@@ -1051,6 +1078,13 @@ function validateWarnInvariants(result, gtPassagesArg = null) {
         if (!latest || latest.dir !== dir) continue;
         const beyond = positionBeyondLine(n, latest);
         if (beyond === false) continue;
+        // RETURKORSNINGEN (rev 2, se INV22_RETURN_WINDOW_MS): korsar båten
+        // samma bro åt andra hållet senast fönstret efter notisen var den en
+        // förvarning inför returen, och texten stämmer.
+        const ret = crossings.find((g) => String(g.mmsi) === String(n.mmsi) && g.bridge === n.bridge
+          && g.dir !== latest.dir && obsT(g) > obsT(latest) && Number.isFinite(g.t)
+          && g.t - n.t <= INV22_RETURN_WINDOW_MS);
+        if (ret) continue;
         const iso = (t) => new Date(Math.round(t)).toISOString();
         warnings.push(
           `INV-22 FÖRVARNING EFTER PASSAGE: ${n.mmsi}@${n.bridge} "${form}" ${iso(n.t)} `

@@ -595,6 +595,54 @@ describe('INV-22 förvarningsform efter rådatans passage (WARN)', () => {
     expect(inv22([approach(tTo + 1800000, { vesselLat: NORTH.lat, vesselLon: NORTH.lon })], [crossing(), back])).toEqual([]);
   });
 
+  // Rev 2 (2026-11-15, fältgranskningen F14): buggjägarens fem utslag var
+  // förvarningar inför en returkorsning 28–150 s senare (värld 134 ULLA:
+  // "närmar sig Järnvägsbron, om 3 minuter" med riktning söderut, 286 m söder
+  // om bron, returkorsningen norrut 150 s efter notisen). Texten stämmer för
+  // returen; bara token är den gamla eftersom vändningen ännu inte är trodd.
+  describe('returkorsningen (rev 2)', () => {
+    const tN = Date.parse('2026-11-13T13:57:24.700Z'); // notisen, 46 s efter tTo
+    const back = (dt, overrides = {}) => crossing({
+      dir: 'nord', t: tN + dt, iso: new Date(tN + dt).toISOString(), tFrom: tN + dt - 20000, tTo: tN + dt + 20000, ...overrides,
+    });
+    const notice = approach(tN, { message: 'ULLA närmar sig Järnvägsbron, beräknad ankomst om 3 minuter', eta: 3, distance: 286 });
+
+    test('värld 134-mönstret: korsning åt andra hållet 150 s efter notisen flaggas inte', () => {
+      expect(inv22([notice], [crossing(), back(150000)])).toEqual([]);
+    });
+
+    test('fönstret är 300 s från notisen till returkorsningen: 300 s undantas, 300,001 s flaggas', () => {
+      expect(inv22([notice], [crossing(), back(300000)])).toEqual([]);
+      expect(inv22([notice], [crossing(), back(300001)])).toHaveLength(1);
+    });
+
+    test('utan returkorsning, eller med returen 21 min senare, flaggas notisen som förut', () => {
+      expect(inv22([notice], [crossing()])).toHaveLength(1);
+      expect(inv22([notice], [crossing(), back(21 * 60000)])).toHaveLength(1);
+    });
+
+    test('returkorsningen räknas på korsningens tid t, även när fixen bortom linjen kommer senare', () => {
+      // Glest sänd retur: korsningen 120 s efter notisen, första fixen bortom
+      // linjen först 400 s efter. Det är korsningen som visar att texten stämde.
+      expect(inv22([notice], [crossing(), back(120000, { tFrom: tN + 60000, tTo: tN + 400000 })])).toEqual([]);
+    });
+
+    test('bara en korsning av samma båt och bro åt andra hållet, efter passagen, undantar', () => {
+      // Samma riktning igen (ingen retur): flaggas.
+      expect(inv22([notice], [crossing(), back(150000, { dir: 'syd' })])).toHaveLength(1);
+      // Annan båt eller annan bro: flaggas.
+      expect(inv22([notice], [crossing(), back(150000, { mmsi: '265999999' })])).toHaveLength(1);
+      expect(inv22([notice], [crossing(), back(150000, { bridge: 'Stridsbergsbron' })])).toHaveLength(1);
+      // En nordgående korsning FÖRE passagen är ingen retur efter den: flaggas.
+      const before = crossing({
+        dir: 'nord', t: tFrom - 600000, iso: new Date(tFrom - 600000).toISOString(), tFrom: tFrom - 620000, tTo: tFrom - 590000,
+      });
+      expect(inv22([notice], [before, crossing()])).toHaveLength(1);
+      // Ett zonbesök åt andra hållet är ingen linjekorsning: flaggas.
+      expect(inv22([notice], [crossing(), back(150000, { kind: 'zone' })])).toHaveLength(1);
+    });
+  });
+
   test('okänd riktning, annan båt, annan bro, zonbesök eller saknat facit: ingen dom', () => {
     const t = tTo + 46000;
     expect(inv22([approach(t, { direction: 'unknown' })])).toEqual([]);

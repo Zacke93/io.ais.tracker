@@ -381,6 +381,22 @@ en fix 20–26 m bortom linjen som vakthunden återanvände 30–50 s senare, sa
 mekanism som k2-granskningens fynd 1; replay av fältkörning 2 ger dessutom
 PRICKBJORN 13:57:24, som är en artefakt av replayns tidsstegning (fältet
 skickade passerad form på samma indata).
+**Returkorsningen (revision 2, 2026-11-15, fältgranskningen F14).** I
+buggjägarens standardkörning (seed 1) gav regeln fem utslag, världarna 134
+ULLA, 935 RUNA, 963 YRSA, 1480 ALVA och 1558 TROLLA. Alla var förvarningar
+efter passagen när båten redan vänt: returkorsningen av samma bro kom 28, 54,
+78, 114 och 150 s efter notisen, och texten ("närmar sig …, om 1–3 minuter")
+stämde för returen. Bara riktningstoken var den gamla, eftersom vändningen
+ännu inte var trodd (U18: två positioner). En notis som följs av en korsning
+av samma bro åt andra hållet, observerad efter den senaste korsningen och
+med korsningstiden högst 300 s efter notisen (`INV22_RETURN_WINDOW_MS`),
+flaggas därför inte. Gränsen är mätt: i standardkörningens 180
+U-svängsvärldar kom varje förvarning inför en returkorsning (262 st, oavsett
+token) högst 276 s före den (p50 85 s, p90 146 s, p99 208 s). Bankens äkta
+utslag på `e51c7b6` (OSPREY och SINE BRES) har ingen returkorsning alls,
+eftersom båtarna fortsatte bort, och flaggas som förut; bankens returresor
+kom tidigast 21 min efter passagen. Efter rättningen ger standardkörningen
+0 utslag och samma fem kandidatkort.
 Domarlogiken har EGNA enhetstester i `tests/replay-invariants-unit.test.js` —
 ändrar du en invariant, uppdatera dem.
 
