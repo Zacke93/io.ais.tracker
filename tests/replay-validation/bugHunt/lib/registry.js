@@ -734,6 +734,73 @@ function motornsTäckningsslut(eW, absT, domarIE, p) {
 }
 
 /**
+ * Den SENASTE tid då täckningsslutet får komma för en båt som släpptes vid
+ * täckningsslutet (U17 och K-NÄSTA, villkor (3″); 2026-11-15, BUGGJAKT A.9:s
+ * kända gräns: med täckningsslutet avsiktligt två minuter för sent tog U17 15
+ * av 18 nya utslag). Räknas ur händelsen så som appen räknar täckningen,
+ * oberoende av armens värde (BridgeOpeningService.js#_bindLooseArms och
+ * #_rebaseConvoyCoverage, ARCHITECTURE.md vid släppvägen: täckningsslutet
+ * räknas från bokföringen):
+ *  - vid absorptionen max(händelsens avfyrning, referensen) + fönsterMs, där
+ *    referensen är bokföringen av händelsens första passage när den redan var
+ *    känd och annars referensankomsten;
+ *  - en senare bokföring B kortar täckningen till max(avfyrningen, B) +
+ *    fönsterMs men förlänger den aldrig. Det är alltså en övre gräns också när
+ *    referensankomsten inte kan läsas.
+ * Avfyrningen är händelsens levererade varning, inte armens fält.
+ * Referensankomsten läses, som i motornsTäckningsslut (U25 och U26), ur U24:s
+ * underlag i hennes domar före passagen (windowEndMs = referensankomsten +
+ * fönsterMs). Finns varken bokföringen eller underlaget före släppet kan
+ * slutet inte räknas ur händelsen; då prövas bara armens eget slut (känd gräns,
+ * BUGGJAKT §7).
+ * @param {object} släpp - hennes dom 'täckningsslut'
+ * @param {object[]} ws - levererade varningar vid bron
+ * @param {object[]} cov - openingCoverage
+ * @param {object[]} spår - hennes domar vid bron
+ * @param {string} m - båtens mmsi
+ * @param {string} bro - bron
+ * @param {object} p - parametrarna (fönsterMs)
+ * @returns {{ms: number, hur: string, absT: number}|{fel: string}} den senaste tiden och absorptionen, eller skälet
+ */
+function täckningsslutetsGräns(släpp, ws, cov, spår, m, bro, p) {
+  const E = släpp.eventId;
+  const absE = cov.filter((c) => c.reason === 'absorbed' && String(c.mmsi) === m && c.bridge === bro && c.eventId === E
+    && Number.isFinite(c.t) && c.t <= släpp.t).sort((x, y) => x.t - y.t).pop();
+  if (!absE) return { fel: `hon var inte absorberad i ${E} före släppet vid täckningsslutet ${fmtT(släpp.t)}` };
+  const eW = ws.find((x) => x.eventId === E && x.t <= absE.t);
+  if (!eW) return { fel: `${E} har ingen levererad varning före hennes absorption ${fmtT(absE.t)}` };
+  const domarIE = spår.filter((v) => v.eventId === E && v.t >= absE.t && v.t <= släpp.t);
+  const bokförd = domarIE.find((v) => passageKändI(v));
+  const B = bokförd ? bokförd.event.firstPassageRegisteredAt : null;
+  const bokSlut = Number.isFinite(B) ? Math.max(eW.t, B) + p.fönsterMs : Infinity;
+  const bokTxt = `max(${E}:s varning ${fmtT(eW.t)}, bokföringen ${fmtT(B)}) + ${p.fönsterMs / 1000} s`;
+  if (Number.isFinite(B) && B <= absE.t) return { ms: bokSlut, hur: bokTxt, absT: absE.t };
+  const fönster = domarIE.filter((v) => !passageKändI(v) && Number.isFinite(v.verdict.windowEndMs)).map((v) => v.verdict.windowEndMs);
+  const ref = fönster.length ? Math.min(...fönster) - p.fönsterMs : null;
+  const refSlut = Number.isFinite(ref) ? Math.max(eW.t, ref) + p.fönsterMs : Infinity;
+  if (!Number.isFinite(bokSlut) && !Number.isFinite(refSlut)) {
+    // Varken bokföringen eller U24:s underlag (resultat från appen före U24,
+    // eller en händelse utan referensankomst): bara armens eget slut går att
+    // pröva. Det fäller ett sent släpp mot armens värde, som mutanten med
+    // täckningsslutet två minuter för sent, men inte ett för sent räknat värde.
+    if (!Number.isFinite(släpp.arm && släpp.arm.coverUntilMs)) {
+      return { fel: `${E}:s täckningsslut kan inte räknas: ingen bokföring, inget fönsterslut (windowEndMs) och inget armvärde` };
+    }
+    return {
+      ms: släpp.arm.coverUntilMs,
+      hur: `armens täckningsslut; ${E}:s första passage var inte bokförd vid släppet och domarna saknar U24:s fönsterslut`,
+      absT: absE.t,
+    };
+  }
+  if (refSlut <= bokSlut) {
+    return { ms: refSlut, hur: `max(${E}:s varning ${fmtT(eW.t)}, referensankomsten ${fmtT(ref)}) + ${p.fönsterMs / 1000} s`, absT: absE.t };
+  }
+  return {
+    ms: bokSlut, hur: `${bokTxt}${Number.isFinite(refSlut) ? ', som kortade täckningen' : ' (övre gräns: referensankomsten saknas)'}`, absT: absE.t,
+  };
+}
+
+/**
  * Den tidigaste bearbetade rad som visade att en båt som händelsen E täckte
  * hade korsat bron (U25 och U26). Appen bokför E:s första passage när den
  * bearbetar ett fix bortom bron av en båt som E täcker
@@ -2369,6 +2436,19 @@ const PREDICATES = {
   //            och då skulle posten dölja appens prognosfel (värld 790 och
   //            1794). Ingen tolerans: i de nio U17- och K-NÄSTA-sanna fallen
   //            ligger fysiken minst 27 s inom fönstret;
+  //       (3″) med domspår (2026-11-15): täckningsslutet kom i tid. Varje
+  //            släpp vid täckningsslutet från absorptionen till W (också i en
+  //            kedja av återabsorptioner) kommer högst tickMs efter det
+  //            tidigare av armens täckningsslut och det slut som motorn räknar
+  //            ur händelsen, eller efter absorptionen när slutet redan hade
+  //            passerat då (värld 1907) (täckningsslutetsGräns: vid
+  //            absorptionen max(E:s levererade varning, referensen) +
+  //            fönsterMs, referensen bokföringen när den var känd och annars
+  //            referensankomsten ur U24:s windowEndMs; en senare bokföring
+  //            kortar men förlänger aldrig). Utan det prövade posten bara att
+  //            W följde på hennes dom 'täckningsslut', inte när domen kom,
+  //            och med täckningsslutet två minuter för sent i appen tog U17
+  //            15 av 18 nya utslag (BUGGJAKT A.9);
   //      För T3 gäller dessutom att fixen i hennes sista rad före W låg före
   //      korsningen (tyst över korsningen; fixens tid, inte mottagningens,
   //      rättat i varv 2, M2);
@@ -2553,6 +2633,22 @@ const PREDICATES = {
         if (!släpp || w.t - släpp.t > p.tickMs) {
           return nej(`varningen ${w.eventId} ${fmtT(w.t)} följer inte inom en tick på ett släpp vid täckningsslutet `
             + `(${släpp ? `senast ${fmtT(släpp.t)} ur ${släpp.eventId}` : 'inget släpp i domspåret'})`);
+        }
+        // (3″) Täckningsslutet kom i tid (2026-11-15, BUGGJAKT A.9:s kända
+        // gräns): varje släpp vid täckningsslutet från absorptionen i E till
+        // W, också i en kedja av återabsorptioner (J13), kom högst en tick
+        // efter det täckningsslut som motorn räknar ur händelsen och
+        // bokföringen och efter armens eget, eller efter absorptionen när
+        // slutet redan hade passerat då (standardvärld 1907: absorberad i #29
+        // 11:50:56, täckt t.o.m. 11:47:30, släppt i samma utvärdering).
+        for (const s of spår.filter((v) => v.verdict.kind === 'täckningsslut')) {
+          const gräns = täckningsslutetsGräns(s, ws, cov, spår, m, f.bro, p);
+          if (gräns.fel) return nej(gräns.fel);
+          if (s.t - Math.max(gräns.absT, Math.min(gräns.ms, s.arm.coverUntilMs)) > p.tickMs) {
+            return nej(`släppet ${fmtT(s.t)} ur ${s.eventId} (varningen ${w.eventId} ${fmtT(w.t)}) kom mer än en tick efter `
+              + `täckningsslutet ${fmtT(gräns.ms)} som motorn räknar ur händelsen (${gräns.hur}; armens ${fmtT(s.arm.coverUntilMs)}, `
+              + `absorptionen ${fmtT(gräns.absT)}): släppet var sent, och U17 gäller säkerhetsvarningen vid täckningsslutet`);
+          }
         }
       }
       for (const r of föreW.filter((x) => x.p > bok)) {
