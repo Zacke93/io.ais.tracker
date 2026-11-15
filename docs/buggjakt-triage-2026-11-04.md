@@ -519,6 +519,9 @@ Två triagerare gick igenom fynden värld för värld. Mekanismerna rättades i 
   - A:s riktningskontroll ser inte en GPS-utliggare med vänd kurs bakom Järnvägsbron, som kan
     ge ett kort falsklarm för Klaffbron (ARCHITECTURE);
   - D:s restfönster: ett köfix under 2,8 kn strax efter tystnadsgränsen;
+  - T2:s tunna klass vid Stridsbergsbron norrut (spärren räknade restiden i fixets fart).
+    Delvis rättad 2026-11-15 genom fartökningen före en nära bro emellan (ARCHITECTURE,
+    spärren); avgång ur kö 360–440 m från bron står kvar som känd gräns;
   - F:s rimlighetskrav vid kajavgång tillåter 131 m på 3 min i 0,6 kn;
   - C:s grannfall vid återfödelse (ARCHITECTURE, känd gräns e).
 - **eta-accuracy-rendered** var lastkänsligt: barnprocessen tog 32–42 s mot gränsen 25 s

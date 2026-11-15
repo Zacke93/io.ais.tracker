@@ -1086,6 +1086,48 @@ båt.
   av 36. Det är T2:s tunna klass, inte golvet. Familj A:s punkt om returresor
   (spärren gäller från fixet efter vändningen) hänvisar till samma fråga, M6;
   dirigenten valde B och, efter omgranskningen, båda skärpningarna.
+  **Fartökning före en nära bro emellan (sparr, 2026-11-15; F7, dirigentens
+  beslut, `_accelBeforeNearEarlier`).** T2:s tunna klass ligger nästan helt
+  vid Stridsbergsbron norrut. Järnvägsbron ligger 257 m före, så en båt i mer
+  än 2,8 kn måste varnas medan hon ännu är före Järnvägsbron, och spärren
+  räknade restiden i fixets fart. Båtar kryper eller saktar in mot
+  Järnvägsbron och ökar när den öppnar, och då åt accelerationen efter
+  släppberäkningen upp ledtiden. Fältprovet 10–13 november och fältkörning 3
+  hade fyra sådana: NORDIC SOLA 107 s, LIDAN 138 s, LIANNE 157 s och NAVEN
+  150 s. I banken styrde spärren 8 av 13 passager under 150 s och alla tre
+  under 100 s. I buggjägaren styrde den 1 318 av 1 407 tunna fall, 1 334 av
+  dem vid Stridsbergsbron norrut. Rådatan pekar ut en signal: av fixen med
+  fartökning 300–400 m före Järnvägsbron följdes inget av kö före bron, medan
+  9–21 av alla rörelsefix i samma band gjorde det. Söderut mot Klaffbron
+  (Järnvägsbron 963 m före) följdes 8 av 25 fartökningsfix av väntan, så
+  regeln gäller bara en tidigare bro högst `EARLIER_BRIDGE_NEAR_M` (500 m) från
+  armens bro. Regeln: ett nytt fix högst `EARLIER_BRIDGE_ACCEL_BAND_M` (400 m)
+  före den nära bron, i minst `EARLIER_BRIDGE_ACCEL_MIN_SOG_KN` (1,5 kn), som
+  visar avgång ur stillhet (förra nya fixet under
+  `EARLIER_BRIDGE_ACCEL_DEPARTURE_KN`, kajgrindens 1 kn) eller ökning över
+  två fix (minst `EARLIER_BRIDGE_ACCEL_DSOG2_KN` 0,8 kn mot fixet före det
+  förra och minst `EARLIER_BRIDGE_ACCEL_DSOG_KN` 0,3 kn mot det förra). Förra
+  fixet får vara högst `EARLIER_BRIDGE_ACCEL_PREV_MAX_MS` (240 s) gammalt. Då
+  räknas spärrens restid i max(fart, `EARLIER_BRIDGE_ACCEL_KN`) (5 kn; fältets
+  median mellan broarna är 5,1 kn). Aldrig vid en bekräftad kö, med kursen bort
+  eller med en väntande vändning. Varför två fix: med ett fix (≥ 0,5 kn) kom en
+  varning 12 min före en kö på radiobrus (buggjägaren, värld 1068075178-824,
+  2,7 → 3,2 kn), och ett steg på 0,3 kn gav 10 sådana och en ny tunn passage
+  (309 → 125 s). Mätt: i banken och k1–k3 lyfts 6 passager över 150 s (fältets
+  fyra till 174, 206, 227 och 209 s). Ingen blir sämre, ingen varning kommer
+  före en kö, och inga varningar tillkommer eller försvinner. Fem låsta
+  varningar flyttas 7,6–68 s tidigare, och rådatan visar att alla blir
+  rättare. I buggjägarens 2 000 standardvärldar kom ingen ny varning före en
+  kö, T2 tunn gick 537 → 486 (R0) och 870 → 855 (R1), och inga nya
+  kandidatkort tillkom. Priset är 6 extra kort i konvojer: en följare som förut
+  absorberades i ledarens varning får eget kort med 159–179 s ledtid (samma
+  slags pris som U24; redovisat för ägaren). Scenarierna (i)–(vi) i
+  `runSyntheticScenarios.js` (F7) låser regeln och motfallen.
+  **Känd gräns (klass B):** avgång ur kö 360–440 m från Stridsbergsbron.
+  Första rörelsefixet ligger ofta redan inom 350 m, där spärren inte gäller,
+  och båten är framme på 140–170 s. Varningen kan bara komma tidigare om appen
+  varnar medan hon köar, och det är just det fel som spärren finns mot
+  (20260907-31h 80 s, 20260909-80h 131 s).
 - **Kedjearmen efter en bekräftad vändning (fältprovet 10–13 november, familj
   B; granskningen och dirigentens beslut 2026-11-14):** k1 11 nov vände PILOT
   761 222 m norr om Stridsbergsbron efter 30 min stopp. Vändningen tömde

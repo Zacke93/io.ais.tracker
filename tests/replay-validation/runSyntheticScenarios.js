@@ -3006,6 +3006,211 @@ const SCENARIOS = [
       noUnknownDuringStop: { bridge: 'Stridsbergsbron', extraS: 60 },
     },
   })),
+  // ---------------------------------------------------------------------
+  // FARTÖKNING FÖRE EN NÄRA BRO EMELLAN (sparr, 2026-11-15; F7). Spärren vid
+  // Järnvägsbron räknade restiden till Stridsbergsbron i fixets fart, och en
+  // båt som tog upp farten efter släppberäkningen fick varningen under 150 s
+  // (fältet: NORDIC SOLA 107 s, LIDAN 138 s, LIANNE 157 s, NAVEN 150 s). Ett
+  // nytt fix högst 400 m före Järnvägsbron som visar avgång ur stillhet eller
+  // ökning över två fix räknar nu restiden i minst 5 kn
+  // (BridgeOpeningService#_accelBeforeNearEarlier). Benen slutar på hela
+  // rapportsteg (67 s), så varje fart rapporteras på det fix där den börjar,
+  // och AISHub-fixen är 30 s gamla som i fältet. (i) och (ii) fäller basen
+  // 8c60237 (138 och 145 s); (iii)–(vi) låser skyddet åt andra hållet och är
+  // bitlika med basen.
+  {
+    // (i) LIDAN-formen: gång utan kö, 3,7 → 2,5 → 3,0 → 3,5 kn mot
+    // Järnvägsbron, fixet 500 m före Stridsbergsbron i 3,5 kn, sedan 5,6 kn.
+    // Basen släppte på restiden i 3,5 kn: 138 s före korsningen.
+    name: 'gång-med-fartökning-före-Järnvägsbron (LIDAN-formen, F7)',
+    seed: 5142,
+    vessels: [{
+      mmsi: '905142001',
+      name: 'SYNT-OKNING',
+      startS: METRICS.cum[2] - 500,
+      legs: (() => {
+        const st = (v) => v * 0.5144 * 67;
+        const b3 = METRICS.cum[4] - 500;
+        const b2 = b3 - st(3.0);
+        const A = { intervalS: 67, fixLagS: 30 };
+        return [
+          { toS: b2 - 3 * st(2.5), speedKn: 3.7, ...A },
+          { toS: b2, speedKn: 2.5, ...A },
+          { toS: b3, speedKn: 3.0, ...A },
+          { toS: b3 + st(3.5), speedKn: 3.5, ...A },
+          { toS: METRICS.cum[4] + 400, speedKn: 5.6, ...A },
+        ];
+      })(),
+    }],
+    expect: { openingLeadS: { Klaffbron: 150, Stridsbergsbron: 150 } },
+  },
+  {
+    // (ii) NAVEN-formen: kryp i 1,6 kn mot Järnvägsbron, ett fix i 3,8 kn
+    // 200 m före bron, sedan 5,5 kn. Basen: 145 s.
+    name: 'kryp-med-fartökning-före-Järnvägsbron (NAVEN-formen, F7)',
+    seed: 5122,
+    vessels: [{
+      mmsi: '905122001',
+      name: 'SYNT-KRYPOKNING',
+      startS: METRICS.cum[2] - 500,
+      legs: [
+        {
+          toS: METRICS.cum[3] - 700, speedKn: 4.0, intervalS: 67, fixLagS: 20,
+        },
+        {
+          toS: METRICS.cum[3] - 200, speedKn: 1.6, intervalS: 67, fixLagS: 20,
+        },
+        {
+          toS: METRICS.cum[3] - 70, speedKn: 3.8, intervalS: 67, fixLagS: 20,
+        },
+        {
+          toS: METRICS.cum[4] + 400, speedKn: 5.5, intervalS: 67, fixLagS: 20,
+        },
+      ],
+    }],
+    expect: { openingLeadS: { Klaffbron: 150, Stridsbergsbron: 150 } },
+  },
+  {
+    // (iii) Motfall: inbromsning 3,6 → 3,0 → 2,2 → 1,4 kn och kö 125 m före
+    // Järnvägsbron i 10 min. Ingen fartökning, så spärren väntar ut kön som
+    // förut; varningen kommer på avgången (basen: 165 s före korsningen).
+    name: 'inbromsning-och-kö-vid-Järnvägsbron-ingen-tidigare-varning (F7, motfall)',
+    seed: 5103,
+    vessels: [{
+      mmsi: '905103001',
+      name: 'SYNT-INBROMS',
+      startS: METRICS.cum[2] - 500,
+      legs: [
+        {
+          toS: METRICS.cum[3] - 600, speedKn: 3.6, intervalS: 67, fixLagS: 20,
+        },
+        {
+          toS: METRICS.cum[3] - 400, speedKn: 3.0, intervalS: 67, fixLagS: 20,
+        },
+        {
+          toS: METRICS.cum[3] - 250, speedKn: 2.2, intervalS: 67, fixLagS: 20,
+        },
+        {
+          toS: METRICS.cum[3] - 125, speedKn: 1.4, intervalS: 67, fixLagS: 20,
+        },
+        {
+          stopS: 600, stopIntervalS: 67, stopSog: 0, fixLagS: 20,
+        },
+        {
+          toS: METRICS.cum[4] + 400, speedKn: 4.5, intervalS: 67, fixLagS: 20,
+        },
+      ],
+    }],
+    expect: { openingLeadS: { Stridsbergsbron: 150 }, maxOpeningAgeS: { Stridsbergsbron: 400 } },
+  },
+  {
+    // (iv) Motfall: söderut mot Klaffbron med fartökning (2,0 → 3,2 kn) strax
+    // norr om Järnvägsbron. Järnvägsbron ligger 963 m före Klaffbron, alltså
+    // ingen nära bro: spärren släpper först bortom Järnvägsbron som förut.
+    name: 'söderut-fartökning-före-Järnvägsbron-mot-Klaffbron-oförändrat (F7, motfall)',
+    seed: 5104,
+    vessels: [{
+      mmsi: '905104001',
+      name: 'SYNT-SYDOKNING',
+      startS: METRICS.cum[4] + 800,
+      legs: [
+        {
+          toS: METRICS.cum[3] + 150, speedKn: 4.0, intervalS: 67, fixLagS: 20,
+        },
+        {
+          toS: METRICS.cum[3] + 70, speedKn: 2.0, intervalS: 67, fixLagS: 20,
+        },
+        {
+          toS: METRICS.cum[3] + 20, speedKn: 3.2, intervalS: 67, fixLagS: 20,
+        },
+        {
+          toS: METRICS.cum[2] - 400, speedKn: 4.5, intervalS: 67, fixLagS: 20,
+        },
+      ],
+    }],
+    expect: {
+      openingLeadS: { Klaffbron: 150 },
+      openingNotBeforeCrossing: { Klaffbron: 'Järnvägsbron' },
+    },
+  },
+  {
+    // (v) Motfall: ett ensamt fix 0,5 kn över marschfarten (3,0 → 3,5 kn,
+    // radiobrus som i buggjägarens värld 1068075178-824) 330 m före
+    // Järnvägsbron, sedan inbromsning och kö i 9 min. Ökningen syns inte över
+    // två fix, så regeln utlöses inte och kön väntas ut som förut.
+    name: 'ensamt-fartbrus-före-kö-vid-Järnvägsbron-utlöser-inte (F7, motfall)',
+    seed: 5105,
+    vessels: [{
+      mmsi: '905105001',
+      name: 'SYNT-BRUS',
+      startS: METRICS.cum[2] - 500,
+      legs: [
+        {
+          toS: METRICS.cum[3] - 330, speedKn: 3.0, intervalS: 67, fixLagS: 20,
+        },
+        {
+          toS: METRICS.cum[3] - 220, speedKn: 3.5, intervalS: 67, fixLagS: 20,
+        },
+        {
+          toS: METRICS.cum[3] - 125, speedKn: 1.6, intervalS: 67, fixLagS: 20,
+        },
+        {
+          stopS: 540, stopIntervalS: 67, stopSog: 0, fixLagS: 20,
+        },
+        {
+          toS: METRICS.cum[4] + 400, speedKn: 4.5, intervalS: 67, fixLagS: 20,
+        },
+      ],
+    }],
+    expect: { openingLeadS: { Stridsbergsbron: 150 }, maxOpeningAgeS: { Stridsbergsbron: 400 } },
+  },
+  {
+    // (vi) Låsning av konvojkostnaden: två båtar köar 120 och 160 m före
+    // Järnvägsbron och avgår 15 s isär. Följaren får eget kort med minst
+    // 150 s (dagens utfall, 180 s). I buggjägaren gav regeln 6 sådana extra
+    // kort på 2 000 världar; växer delningen syns det här (fler kort eller
+    // kortare ledtid).
+    name: 'konvoj-ur-kön-vid-Järnvägsbron-följaren-eget-kort (F7, låsning)',
+    seed: 5131,
+    vessels: [
+      {
+        mmsi: '905131001',
+        name: 'SYNT-KONVOJ-A',
+        startS: METRICS.cum[2] - 300,
+        legs: [
+          {
+            toS: METRICS.cum[3] - 120, speedKn: 3.5, intervalS: 67, fixLagS: 20,
+          },
+          {
+            stopS: 600, stopIntervalS: 67, stopSog: 0, fixLagS: 20,
+          },
+          {
+            toS: METRICS.cum[4] + 400, speedKn: 4.5, intervalS: 67, fixLagS: 20,
+          },
+        ],
+      },
+      {
+        mmsi: '905131002',
+        name: 'SYNT-KONVOJ-B',
+        startS: METRICS.cum[2] - 340,
+        legs: [
+          {
+            toS: METRICS.cum[3] - 160, speedKn: 3.5, intervalS: 67, fixLagS: 20,
+          },
+          {
+            stopS: 615, stopIntervalS: 67, stopSog: 0, fixLagS: 20,
+          },
+          {
+            toS: METRICS.cum[4] + 400, speedKn: 4.5, intervalS: 67, fixLagS: 20,
+          },
+        ],
+      },
+    ],
+    expect: {
+      openingLeadS: { Stridsbergsbron: 150 },
+      maxOpeningsPerBridge: { Stridsbergsbron: 2 },
+    },
+  },
 ];
 
 function runScenario(scenario) {

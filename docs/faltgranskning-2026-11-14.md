@@ -538,6 +538,14 @@ trafiken" är de 24 låsta körningarna (cirka 485 h).
   före Järnvägsbron: cirka 187 s för NAVEN, kostnaden för köerna omätt.
 - *Rekommendation.* Underlaget har ingen. Dirigentens förslag: (a) tills (c) är mätt, (b) i
   ETA-etappen.
+- *Dirigentens åtgärd 2026-11-15:* (c) mättes och förkastades i sin breda form, eftersom den
+  släppte spärren även före Klaffbron söderut och gav PILOT 761 en varning 38,6 min för
+  tidigt. I stället infördes (d2): ett fix högst 400 m före Järnvägsbron som visar avgång ur
+  stillhet eller fartökning över två fix räknar restiden till Stridsbergsbron i minst 5 kn
+  (ARCHITECTURE, spärren). NORDIC SOLA 107 → 174 s, LIDAN 138 → 206 s, LIANNE 157 → 227 s,
+  NAVEN 150 → 209 s; ingen varning före en kö i banken, fältet eller buggjägaren.
+  Konvojkostnaden (6 extra kort på 2 000 syntetiska världar, följaren får eget kort med
+  159–179 s) är redovisad för ägaren. Avgång ur kö 360–440 m från bron är känd gräns.
 - *Omgång 2:* en fartökningsregel är mätt och omgjord och omgranskas; nya alternativ i 11.5.
 
 **F8. Besök vid en bro som aldrig tar slut**
