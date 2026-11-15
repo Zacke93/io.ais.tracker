@@ -422,6 +422,115 @@ describe('INV-3/16 FP8-kalibreringen (2026-07-13, korpus 20260712-25h)', () => {
 });
 
 // ===========================================================================
+// INV-3 LEDARBYTE (2026-11-15, buggjägarens kort F01, standardvärld 246)
+// ===========================================================================
+// YRSA (Y) visas med "om 7 minuter" mot Stridsbergsbron, ställer sig i kö vid
+// Järnvägsbron (väntklausul utan minuter, rätt enligt textformatet) och
+// TROLLA 2 (T) tar över klausulen med "om 14 minuter". Två olika båtars
+// tider: ingen sågtand. replayRunner bokför vilken båt vars ETA klausulen
+// visar och båtarnas kö (bridgeTextLeads).
+describe('INV-3: ledarbyte när den förra båten bevisligen slutat bära klausulen', () => {
+  const Y = '265188662';
+  const T = '265188962';
+  const t0 = Date.parse('2026-09-21T16:54:07.997Z');
+  const på = (n) => `En båt på väg mot Stridsbergsbron, beräknad broöppning om ${n} minuter`;
+  const kö = 'En båt väntar vid Järnvägsbron på väg mot Stridsbergsbron';
+  const texter = [
+    [0, på(7)],
+    [30, kö],
+    [85, `${kö}; ${på(14)}`],
+    [145, `${kö}; ${på(13)}`],
+  ];
+  const tr = (s, text) => ({ t: t0 + s * 1000, iso: new Date(t0 + s * 1000).toISOString(), text });
+  const leads = (s, text, lead, vessels) => ({
+    t: t0 + s * 1000, text, leads: lead ? [{ bridge: 'Stridsbergsbron', mmsi: lead }] : [], vessels,
+  });
+  const yKö = { mmsi: Y, targetBridge: 'Stridsbergsbron', waitingAt: 'Järnvägsbron' };
+  const yRör = { mmsi: Y, targetBridge: 'Stridsbergsbron', waitingAt: null };
+  const tRör = { mmsi: T, targetBridge: 'Stridsbergsbron', waitingAt: null };
+  const resultat = ({
+    yVid85 = yKö, ledareVid85 = T, ledareVid0 = Y, utanUnderlag = false, text85 = texter[2][1], ...rest
+  } = {}) => {
+    const txt = texter.map(([s, x]) => [s, s === 85 ? text85 : x]);
+    return baseResult({
+      bridgeTextTransitions: txt.map(([s, x]) => tr(s, x)),
+      bridgeTextLeads: utanUnderlag ? undefined : [
+        leads(0, txt[0][1], ledareVid0, [yRör]),
+        leads(30, txt[1][1], null, [yKö]),
+        leads(85, txt[2][1], ledareVid85, [yVid85, tRör]),
+        leads(145, txt[3][1], ledareVid85, [yVid85, tRör]),
+      ],
+      ...rest,
+    });
+  };
+  const sågtand = (r) => validateInvariants(r).filter((x) => x.includes('SÅGTAND'));
+
+  test('värld 246: Y i kö vid Järnvägsbron, T tar över med 14 min; ingen sågtand', () => {
+    expect(sågtand(resultat())).toEqual([]);
+  });
+
+  test('utan underlaget (äldre resultat) döms 7 → 14 som förut', () => {
+    expect(sågtand(resultat({ utanUnderlag: true }))).toHaveLength(1);
+  });
+
+  test('samma båt som går 7 → 14 fälls som förut', () => {
+    expect(sågtand(resultat({ ledareVid85: Y }))).toHaveLength(1);
+  });
+
+  test('ledarbyte utan kö: den förra båten är fortfarande i rörelse mot bron; sågtand', () => {
+    expect(sågtand(resultat({ yVid85: yRör }))).toHaveLength(1);
+  });
+
+  test('kön måste synas i texten: utan "väntar vid Järnvägsbron" i texten är det ingen förklaring', () => {
+    expect(sågtand(resultat({ text85: `En båt väntar vid Klaffbron på väg mot Stridsbergsbron; ${på(14)}` }))).toHaveLength(1);
+  });
+
+  test('den förra båtens passage av bron mellan texterna förklarar bytet; utanför fönstret gör den det inte', () => {
+    const p = (s) => ({
+      t: t0 + s * 1000, iso: '', mmsi: Y, bridge: 'Stridsbergsbron',
+    });
+    expect(sågtand(resultat({ yVid85: yRör, targetPassages: [p(60)] }))).toEqual([]);
+    expect(sågtand(resultat({ yVid85: yRör, targetPassages: [p(-10)] }))).toHaveLength(1);
+    expect(sågtand(resultat({ yVid85: yRör, targetPassages: [p(100)] }))).toHaveLength(1);
+    expect(sågtand(resultat({ yVid85: yRör, targetPassages: [{ ...p(60), mmsi: T }] }))).toHaveLength(1);
+    expect(sågtand(resultat({ yVid85: yRör, targetPassages: [{ ...p(60), bridge: 'Klaffbron' }] }))).toHaveLength(1);
+  });
+
+  test('från "strax" är nivån inte den förra ledarens egen tid: ledarbytet förklarar inget', () => {
+    // strax → 14 → strax inom 120 s är studsklassen; "strax" kan bäras av en
+    // annan båts närhet, så ledarbytet får inte undanta den.
+    const r = resultat();
+    const strax = 'En båt på väg mot Stridsbergsbron, beräknad broöppning strax';
+    r.bridgeTextTransitions[0].text = strax;
+    r.bridgeTextLeads[0].text = strax;
+    r.bridgeTextTransitions[3].text = `${kö}; ${strax}`;
+    r.bridgeTextLeads[3].text = `${kö}; ${strax}`;
+    expect(sågtand(r)).toHaveLength(1);
+    // Samma studs med minuttid före (7 → 14 → 7) undantas av kön.
+    const r2 = resultat();
+    r2.bridgeTextTransitions[3].text = `${kö}; ${på(7)}`;
+    r2.bridgeTextLeads[3].text = `${kö}; ${på(7)}`;
+    expect(sågtand(r2)).toEqual([]);
+  });
+
+  test('kryphålet: två båtar vars ETA växelvis visas, utan kö eller passage, fälls', () => {
+    const t1 = Date.parse('2026-09-21T10:00:00Z');
+    const text = (n) => `Två båtar på väg mot Klaffbron, beräknad broöppning om ${n} minuter`;
+    const steg = [[0, 5, 'A'], [30, 12, 'B'], [60, 5, 'A'], [90, 12, 'B']];
+    const båtar = [{ mmsi: 'A', targetBridge: 'Klaffbron', waitingAt: null }, { mmsi: 'B', targetBridge: 'Klaffbron', waitingAt: null }];
+    const r = baseResult({
+      bridgeTextTransitions: steg.map(([s, n]) => ({ t: t1 + s * 1000, iso: new Date(t1 + s * 1000).toISOString(), text: text(n) })),
+      bridgeTextLeads: steg.map(([s, n, m]) => ({
+        t: t1 + s * 1000, text: text(n), leads: [{ bridge: 'Klaffbron', mmsi: m }], vessels: båtar,
+      })),
+    });
+    const v = validateInvariants(r);
+    expect(v.filter((x) => x.includes('SÅGTAND')).length).toBeGreaterThan(0);
+    expect(v.some((x) => x.includes('OSCILLATION'))).toBe(true);
+  });
+});
+
+// ===========================================================================
 // INV-21 (etapp 6, 2026-08-03) — ÖPPNINGSVARNING EFTER PASSAGE
 // ===========================================================================
 // Öppningsvarningen ska FÖRVARNA. Går den ut efter att en av dess egna

@@ -397,6 +397,24 @@ utslag på `e51c7b6` (OSPREY och SINE BRES) har ingen returkorsning alls,
 eftersom båtarna fortsatte bort, och flaggas som förut; bankens returresor
 kom tidigast 21 min efter passagen. Efter rättningen ger standardkörningen
 0 utslag och samma fem kandidatkort.
+**INV-3 och ledarbytet (2026-11-15, buggjägarens kort F01).** INV-3 bygger
+brons ETA-serie ur texten, och en väntklausul saknar minuter. När den båt vars
+ETA visas ställde sig i kö vid en tidigare bro och nästa båt tog över
+klausulen jämförde regeln två båtars tider (standardvärld 246: "En båt på väg
+mot Stridsbergsbron, beräknad broöppning om 7 minuter" → "En båt väntar vid
+Järnvägsbron på väg mot Stridsbergsbron" → "En båt väntar vid Järnvägsbron på
+väg mot Stridsbergsbron; En båt på väg mot Stridsbergsbron, beräknad
+broöppning om 14 minuter"). replayRunner bokför nu för varje publicerad text
+vilken båt vars ETA varje klausul visar och båtarnas kö (`bridgeTextLeads`).
+Ett upp-hopp undantas bara när bäraren bytts, nivån före var den förra
+båtens egen minuttid (inte "strax") och den förra båten står i kö vid en bro
+som texten nämner, eller har en bokförd passage av bron mellan texterna.
+Samma båt, ett byte utan sådant bevis (två båtar vars ETA växelvis visas, en
+ledare vars ETA försvann för att hon tystnade) och resultat utan underlaget
+döms som förut. Av F01-klustrets 30 världar i standardkörningen är det två
+(246 i kö, 1788 passerat); 23 är ledare vars ETA nollades medan hon fortfarande
+räknades i gruppen och 5 är hopp för samma båt eller från "strax", och de står
+kvar som kandidater att triagera.
 Domarlogiken har EGNA enhetstester i `tests/replay-invariants-unit.test.js` —
 ändrar du en invariant, uppdatera dem.
 

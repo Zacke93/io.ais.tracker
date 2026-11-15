@@ -162,7 +162,7 @@
       "id": "R2-MÅLBRO-EFTER-LINJEN",
       "klass": "DESIGN",
       "datum": "2026-11-04",
-      "källa": "docs/BUGGJAKT.md §7 (dirigentens beslut 2026-11-04 om R2:s fråga 2); lib/services/VesselDataService.js#_calculateTargetBridge (målbron väljs på latitud mot brons latitud); lib/constants.js#MOVEMENT_PROOF_SOG_KN och lib/constants.js#MOVEMENT_PROOF_NET_M (0,5 kn och 50 m: inget mål utan rörelsebevis); lib/services/VesselDataService.js#STALE_AIS_TIMEOUT_MS (raderingen gravlägger inte); tests/replay-validation/invariants.js:600–628 (INV-13); lib/constants.js#UNDER_BRIDGE_CLEAR_DISTANCE (70 m, appens under-bron-band); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 29 och 33)",
+      "källa": "docs/BUGGJAKT.md §7 (dirigentens beslut 2026-11-04 om R2:s fråga 2); lib/services/VesselDataService.js#_calculateTargetBridge (målbron väljs på latitud mot brons latitud); lib/constants.js#MOVEMENT_PROOF_SOG_KN och lib/constants.js#MOVEMENT_PROOF_NET_M (0,5 kn och 50 m: inget mål utan rörelsebevis); lib/services/VesselDataService.js#STALE_AIS_TIMEOUT_MS (raderingen gravlägger inte); tests/replay-validation/invariants.js#validateInvariants (INV-13); lib/constants.js#UNDER_BRIDGE_CLEAR_DISTANCE (70 m, appens under-bron-band); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 29 och 33)",
       "gäller": {
         "orakel": [
           "INV-F"
@@ -182,7 +182,7 @@
       "id": "MÄTGRÄNS-INV17-R0",
       "klass": "MÄTGRÄNS",
       "datum": "2026-07-03",
-      "källa": "tests/replay-validation/invariants.js:645 och :764–781 (INV-17 textflappbudget, kalibrerad mot fältkadens 2026-07-03)",
+      "källa": "tests/replay-validation/invariants.js#validateWarnInvariants och tests/replay-validation/invariants.js#budgetPerHour (INV-17 textflappbudget, kalibrerad mot fältkadens 2026-07-03)",
       "gäller": {
         "orakel": [
           "INV-W"
@@ -203,7 +203,7 @@
       "id": "MÄTGRÄNS-INV10-VÄNTKEDJA",
       "klass": "MÄTGRÄNS",
       "datum": "2026-11-04",
-      "källa": "tests/replay-validation/invariants.js:508–535 (INV-10 godtar bara ETT bekräftat väntintervall som når nästa övergång); tests/replay-validation/replayRunner.js#confirmedTargetWaits ( ett nytt intervall när nästa textgenerering kommer efter until, alltså vid varje fixglapp); docs/etapp7-plan-2026-08-08.md:15 (U6: 'strax' vid lång väntan är sanktionerat); lib/services/BridgeTextService.js#hasFreshPosition ( 'strax' kräver färsk position)",
+      "källa": "tests/replay-validation/invariants.js#STRAX_ZOMBIE_MS (INV-10 godtar bara ETT bekräftat väntintervall som når nästa övergång); tests/replay-validation/replayRunner.js#confirmedTargetWaits ( ett nytt intervall när nästa textgenerering kommer efter until, alltså vid varje fixglapp); docs/etapp7-plan-2026-08-08.md:15 (U6: 'strax' vid lång väntan är sanktionerat); lib/services/BridgeTextService.js#hasFreshPosition ( 'strax' kräver färsk position)",
       "gäller": {
         "orakel": [
           "INV-F"

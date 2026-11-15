@@ -21,7 +21,10 @@
  *        släppet eller inom 60 s efter, eller stannade inte där: nästa fix
  *        och minst hälften av samplen inom 60 s) som FÖR TIDIGT RETURSLÄPP.
  * INV-3  ETA-sågtand: upp-hopp ≥6 min inom ≤120 s i operativa bandet, och
- *        oscillation X→Y→X′ inom 240 s.
+ *        oscillation X→Y→X′ inom 240 s. Ett upp-hopp där den visade ETA:n
+ *        bytt båt och den förra båten bevisligen ställt sig i kö (och texten
+ *        säger det) eller passerat bron är två båtars tider, ingen sågtand
+ *        (2026-11-15, replayRunnerns bridgeTextLeads).
  * INV-4  Count-degradering: generisk "är i närheten"-text inklämd mellan
  *        två detaljerade inom 90 s.
  * INV-5  Journey: varje DETEKTERAD målbropassage ⇒ minst en notis för samma
@@ -303,17 +306,53 @@ function validateInvariants(result) {
   }
 
   // INV-3: ETA-sågtand (se huvuddoc).
-  const clauseSeries = new Map(); // bridge → [{t, iso, eta, count}]
+  // ETA-BÄRAREN (2026-11-15, buggjägarens kort F01): replayRunner bokför för
+  // varje publicerad text vilken båt vars ETA varje "på väg mot X"-klausul
+  // visar och båtarnas kö (bridgeTextLeads). Saknas underlaget (äldre
+  // resultat, fixturer) dömer regeln som förut.
+  const leadIndex = new Map();
+  for (const x of result.bridgeTextLeads || []) {
+    if (x && Number.isFinite(x.t) && typeof x.text === 'string') leadIndex.set(`${x.t}|${x.text}`, x);
+  }
+  const clauseSeries = new Map(); // bridge → [{t, iso, eta, count, text, lead, meta}]
   for (const t of transitions) {
+    const meta = leadIndex.get(`${t.t}|${t.text}`) || null;
     for (const clause of t.text.split('; ')) {
       const parsed = parseClause(clause);
       if (!parsed || parsed.eta === null) continue;
       if (!clauseSeries.has(parsed.bridge)) clauseSeries.set(parsed.bridge, []);
+      const lead = meta && Array.isArray(meta.leads) ? meta.leads.find((l) => l && l.bridge === parsed.bridge) : null;
       clauseSeries.get(parsed.bridge).push({
-        t: t.t, iso: t.iso, eta: parsed.eta, count: clause.split(' ')[0], approx: parsed.approx === true,
+        t: t.t,
+        iso: t.iso,
+        eta: parsed.eta,
+        count: clause.split(' ')[0],
+        approx: parsed.approx === true,
+        text: t.text,
+        lead: lead && lead.mmsi != null ? String(lead.mmsi) : null,
+        meta,
       });
     }
   }
+  const inv3Passages = [...(result.targetPassages || []), ...(result.intermediatePassages || [])];
+  // LEDARBYTE (2026-11-15, kort F01, värld 246): en uppgång i den visade tiden
+  // är ingen sågtand när den visade ETA:n bytt båt och den förra båten
+  // BEVISLIGEN slutat bära klausulen: hon står i kö vid en bro (waitingBridge,
+  // och texten säger "väntar vid" den bron), eller hon har passerat bron
+  // (bokförd passage mellan de två texterna). Då är det två olika båtars
+  // tider (YRSA 7 min → kö vid Järnvägsbron → TROLLA 2 14 min). Kräver att
+  // nivån före var den förra båtens egen minuttid (inte "strax", som kan
+  // komma från en annan båts närhet). Ett ledarbyte utan sådant bevis, till
+  // exempel två båtar vars ETA växelvis visas, eller en ledare vars ETA
+  // försvann för att hon tystnade, döms som förut.
+  const leaderChangeExplained = (prev, cur, bridge) => {
+    if (!prev.lead || !cur.lead || prev.lead === cur.lead || prev.eta < 1) return null;
+    const förra = cur.meta && Array.isArray(cur.meta.vessels) ? cur.meta.vessels.find((v) => v && String(v.mmsi) === prev.lead) : null;
+    if (förra && förra.waitingAt && cur.text.includes(`väntar vid ${förra.waitingAt}`)) return `${prev.lead} väntar vid ${förra.waitingAt}`;
+    const passage = inv3Passages.find((p) => p && String(p.mmsi) === prev.lead && p.bridge === bridge
+      && Number.isFinite(p.t) && p.t > prev.t && p.t <= cur.t);
+    return passage ? `${prev.lead} passerade ${bridge}` : null;
+  };
   for (const [bridge, series] of clauseSeries) {
     for (let i = 1; i < series.length; i++) {
       const dt = (series[i].t - series[i - 1].t) / 1000;
@@ -349,7 +388,7 @@ function validateInvariants(result) {
             }
           }
         }
-        if (!fromSoftZone || revertsQuickly) {
+        if ((!fromSoftZone || revertsQuickly) && !leaderChangeExplained(series[i - 1], series[i], bridge)) {
           violations.push(`ETA-SÅGTAND UPP: ${series[i].iso} ${bridge} ${series[i - 1].eta}→${series[i].eta} på ${Math.round(dt)}s`);
         }
       }

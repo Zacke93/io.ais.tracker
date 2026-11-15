@@ -8,8 +8,9 @@
  * ett stycke om förtöjning. Laddningen prövar redan att en `#symbol` definieras
  * i sin fil (lib/registry.js#checkRefs), men en radhänvisning prövades bara
  * på att filen fanns. Därför:
- *  - kod i app.js, lib/ och drivers/ citeras med symbol (`fil.js#namn`), aldrig
- *    med rader: den filen ändras med varje rättning;
+ *  - kod i app.js, lib/, drivers/ och harnessens invariants.js och
+ *    replayRunner.js citeras med symbol (`fil.js#namn`), aldrig med rader: de
+ *    filerna ändras med varje rättning;
  *  - varje radhänvisning (också fortsättningar som `och :15`) ska ligga inom
  *    filen och ha en post i FÖRVÄNTAT nedan: postens nyckelord på det citerade
  *    styckets FÖRSTA rad, och eventuella fler nyckelord någonstans i stycket.
@@ -50,7 +51,6 @@ const A = 'docs/ARCHITECTURE.md';
 const E7 = 'docs/etapp7-plan-2026-08-08.md';
 const RS = 'docs/reliability-spec.md';
 const H11 = 'docs/helgranskning-2026-11-03.md';
-const INV = 'tests/replay-validation/invariants.js';
 // [post, hänvisning, nyckelord på första raden, fler nyckelord i stycket]
 const FÖRVÄNTAT = [
   ['KIE-PER-KORPUS', 'tests/replay-validation/corpora.js:21–23', 'knownInvariantExceptions'],
@@ -63,10 +63,6 @@ const FÖRVÄNTAT = [
   ['U1-C11-TYST-FÖRE-DEFAULT', `${E7}:8`, 'U1 (strax-texten)'],
   ['U1-C11-TYST-FÖRE-DEFAULT', `${E7}:266–267`, 'C11b', ['U1-fixen']],
   ['M-BRUSBAND-RÖRELSEBEVIS', `${A}:1346–1383`, 'Fartprovet', ['(a) brusbandet', '(c) en sog=null-båt']],
-  ['R2-MÅLBRO-EFTER-LINJEN', `${INV}:600–628`, 'INV-13'],
-  ['MÄTGRÄNS-INV17-R0', `${INV}:645`, 'INV-17 Textflapp-budget'],
-  ['MÄTGRÄNS-INV17-R0', `${INV}:764–781`, 'INV-17', ['budgetPerHour']],
-  ['MÄTGRÄNS-INV10-VÄNTKEDJA', `${INV}:508–535`, 'INV-10'],
   ['MÄTGRÄNS-INV10-VÄNTKEDJA', `${E7}:15`, 'U6'],
   ['K20-FASKÄNSLIG-LEDARE', `${A}:1221–1231`, 'K20'],
   ['K20-FASKÄNSLIG-LEDARE', 'docs/VALIDATION.md:272–280', '6. **Fas-känsliga utfall**'],
@@ -111,6 +107,12 @@ const FÖRVÄNTAT = [
 ];
 
 const nyckel = (post, fil, rader) => `${post}|${fil}:${rader}`;
+// Kod som ändras med varje rättning: appen och harnessens domare och körare.
+// Där glider radnummer, och en symbol prövas av laddningen
+// (lib/registry.js#checkRefs). INV-3-rättningen 2026-11-15 sköt
+// invariants.js 40 rader och fällde testet på fyra sådana hänvisningar.
+const LEVANDE_KOD = (fil) => fil === 'app.js' || /^(lib|drivers)\//.test(fil)
+  || fil === 'tests/replay-validation/invariants.js' || fil === 'tests/replay-validation/replayRunner.js';
 const filrader = new Map();
 const raderI = (fil) => {
   if (!filrader.has(fil)) filrader.set(fil, fs.readFileSync(path.join(ROOT, fil), 'utf8').split('\n'));
@@ -132,8 +134,8 @@ function brister(poster, förväntat) {
   const använda = new Set();
   for (const r of alla) {
     const k = nyckel(r.post, r.fil, r.rader);
-    if (r.fil === 'app.js' || /^(lib|drivers)\//.test(r.fil)) {
-      fel.push(`${k}: kod i app.js, lib/ och drivers/ citeras med symbol (fil.js#namn), inte med rader`);
+    if (LEVANDE_KOD(r.fil)) {
+      fel.push(`${k}: kod i app.js, lib/, drivers/ och harnessens invariants.js och replayRunner.js citeras med symbol (fil.js#namn), inte med rader`);
       continue;
     }
     if (!fs.existsSync(path.join(ROOT, r.fil))) {
@@ -198,8 +200,10 @@ describe('kontrollen fäller de fel den finns till för', () => {
       .toMatch(/docs\/finns-inte\.md:162–172: filen finns inte/);
   });
 
-  test('kod i app.js eller lib/ citerad med rader', () => {
+  test('kod i app.js, lib/ eller harnessens invariants.js citerad med rader', () => {
     const fel = brister(ändrad('OMSTART-DEFAULT-FÖRE-FÖRSTA-FIX', 'app.js#onInit', 'app.js:487'), FÖRVÄNTAT);
-    expect(fel.join('\n')).toMatch(/OMSTART-DEFAULT-FÖRE-FÖRSTA-FIX\|app\.js:487: kod i app\.js, lib\/ och drivers\/ citeras med symbol/);
+    expect(fel.join('\n')).toMatch(/OMSTART-DEFAULT-FÖRE-FÖRSTA-FIX\|app\.js:487: kod i app\.js, lib\/, drivers\/ och harnessens invariants\.js och replayRunner\.js citeras med symbol/);
+    const inv = brister(ändrad('MÄTGRÄNS-INV10-VÄNTKEDJA', 'invariants.js#STRAX_ZOMBIE_MS', 'invariants.js:550'), FÖRVÄNTAT);
+    expect(inv.join('\n')).toMatch(/MÄTGRÄNS-INV10-VÄNTKEDJA\|tests\/replay-validation\/invariants\.js:550: kod i app\.js/);
   });
 });
