@@ -722,8 +722,9 @@ describe('U16 U16-F40-STRAX-STUDS: studsen vid den strax-bärande båtens nästa
     expect(e._params).toMatchObject({
       minÅlderS: 600, fönsterMs: 1000, radieM: 350, imminentRadieM: 300, väntRadieM: 270, straxRadieM: 500, tickS: 30, tickFördröjningMs: 40,
     });
-    // Raderna gäller aa71099, där U14 sköt dräneringen 30 rader nedåt (BUGGJAKT §7, rad 36).
-    expect(e.källa).toMatch(/tests\/replay-validation\/replayRunner\.js:86–88 och :542–551/);
+    // Dräneringen citeras med symbol sedan 2026-11-15 (BUGGJAKT §7, rad 56):
+    // radnumren gled med harnessen (aa71099 sköt dem 30 rader, rad 36).
+    expect(e.källa).toMatch(/tests\/replay-validation\/replayRunner\.js#drain och tests\/replay-validation\/replayRunner\.js#main/);
     // Ett INV-3-fynd utan brotextövergångar (som bankens kort i övriga
     // sviter) ger KANDIDAT med KIE-PER-KORPUS som närmast, som förut.
     const c = klassa(reg, {
