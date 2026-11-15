@@ -1322,6 +1322,18 @@ efteråt.
    sessionsledare). `sync_file` bygger nu sökvägen med parameterexpansion, och
    `tests/field-log-script-recovery.test.js` låser regeln statiskt och med en
    riktig pty vars master stängs.
+   **Nedstängningen är tyst (2026-11-15).** Vakterna, synkslingan och
+   nödbromsen tas ur bash jobbtabell (`disown`) direkt när de startas. Förut
+   skrev bash en rad "Killed: 9" med hela slingans text för varje sådant jobb
+   när nedstängningen dödade dem, fyra block brus vid varje Ctrl+C. Inget
+   annat ändras: pid:erna, nedstängningens `kill -KILL` och slingornas
+   `kill -0`-vakt är desamma. Testet kör hela skriptet med en falsk `homey`
+   vid INT, TERM, HUP, Ctrl+C (INT till processgruppen) och stängd terminal
+   och kräver logg, jsonl och summary i arkivet, larmen `[REPLAY-VAKT]`,
+   `[HÅLVAKT]` och `[INTEGRITET]` som förut och inget "Killed". Kvar: stängs
+   terminalen får hela processgruppen HUP, och då kan slingornas `sleep`
+   rapportera "Hangup: 1" till den döda terminalen; det syns inte och påverkar
+   inte nedstängningen.
 3. **GRIND 1 — logg-integriteten.** Summaryn (`bridge-text-summary-*.md`) har
    sektionen "Logg-integritet (tidshål + replay-fångst)" med tre kontroller och ett
    samlat verdikt. Replay-kontrollen granskar även källans bokföring:
