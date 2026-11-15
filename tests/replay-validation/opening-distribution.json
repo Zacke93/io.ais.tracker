@@ -132,5 +132,11 @@
   "20260918-7h": {
     "Klaffbron:southbound": 2,
     "Stridsbergsbron:southbound": 2
+  },
+  "20261114-34h": {
+    "Klaffbron:northbound": 2,
+    "Klaffbron:southbound": 2,
+    "Stridsbergsbron:northbound": 2,
+    "Stridsbergsbron:southbound": 2
   }
 }

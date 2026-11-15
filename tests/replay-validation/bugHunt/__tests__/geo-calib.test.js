@@ -137,8 +137,13 @@ describe('rng: seedade strömmar', () => {
     const h1 = computeBankHash();
     const h2 = computeBankHash();
     expect(h1.sha256).toBe(h2.sha256);
-    expect(h1.filer).toHaveLength(24);
-    expect(h1.filer.filter((f) => f.state)).toHaveLength(4);
+    // Den levande banken: 25 låsta korpusar sedan 20261114-34h (2026-11-15),
+    // fem med inspelat startminne. Den frysta kalibreringen nedan täcker
+    // fortfarande de 24 före den; jägaren varnar för skillnaden
+    // (lib/lanes/synth.js, checkBankHash) tills kalibreringen frysts om med
+    // tools/freezeCalibration.js --write.
+    expect(h1.filer).toHaveLength(25);
+    expect(h1.filer.filter((f) => f.state)).toHaveLength(5);
   });
 
   test('deepFreeze gör att skrivförsök kastar i strict mode', () => {

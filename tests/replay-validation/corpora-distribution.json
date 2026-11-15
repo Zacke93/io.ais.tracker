@@ -1911,5 +1911,39 @@
       "Stallbackabron",
       "Stridsbergsbron"
     ]
+  },
+  "20261114-34h": {
+    "231897000": [
+      "Järnvägsbron",
+      "Kanalinfarten",
+      "Klaffbron",
+      "Olidebron",
+      "Stallbackabron",
+      "Stridsbergsbron"
+    ],
+    "231920000": [
+      "Järnvägsbron",
+      "Kanalinfarten",
+      "Klaffbron",
+      "Olidebron",
+      "Stallbackabron",
+      "Stridsbergsbron"
+    ],
+    "304244000": [
+      "Järnvägsbron",
+      "Kanalinfarten",
+      "Klaffbron",
+      "Olidebron",
+      "Stallbackabron",
+      "Stridsbergsbron"
+    ],
+    "305288000": [
+      "Järnvägsbron",
+      "Kanalinfarten",
+      "Klaffbron",
+      "Olidebron",
+      "Stallbackabron",
+      "Stridsbergsbron"
+    ]
   }
 }

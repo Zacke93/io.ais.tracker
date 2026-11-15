@@ -2692,4 +2692,49 @@ module.exports = [
       + 'Öppningsvarningar (4), undertryckningar (0), målpassager (5) och mellanpassager (7) identiska; '
       + 'notis-, riktnings- och öppningsmultiset samt golden-text orörda.',
   },
+  {
+    id: '20261114-34h',
+    jsonl: path.join(CORPORA_DATA_DIR, 'ais-replay-20261114-091621.jsonl'),
+    appLog: path.join(LOGS_DIR, 'app-20261114-091621.log'),
+    hours: 34.06,
+    locked: true,
+    lockOpenings: true,
+    lockEvents: true,
+    expectedNotifications: 24,
+    note: 'Låst 2026-11-15: fältkörning 3, koden 7eb350d på ägarens Homey Pro, '
+      + '2026-11-14T08:16:41.212Z–2026-11-15T18:20:01.672Z (315800 loggrader, 3357 AIS-poster). '
+      + 'Riktad nyregistrering (VALIDATION §Riktad nyregistrering); inga andra korpusars referenser rörda. '
+      + 'jsonl och inspelat startminne är byteexakta kopior: jsonl:en byggd om ur loggens '
+      + 'AIS_REPLAY_SAMPLE-rader har samma SHA-256, och startminnet är lika med loggens AIS_REPLAY_STATE-rad. '
+      + 'Integritetsgrinden OK mot hela källoggen: 3357 av 3357 rader identiska med loggens sampel, '
+      + 'intern källbokföring OK (408 bootförankrade AISHub-kontroller, 407 fusionsfönster), största lucka '
+      + '58,8 s vid starten 08:16:42.601 före första båten; svansen efter sista räknarrapporten 18:16:44.293 '
+      + 'är inte fullständighetsbevisad. Sex fasvarianter passerar med och utan monitoring, utan undantag. '
+      + 'Låst: 24 närnotiser, åtta öppningsvarningar, åtta målpassager, tolv mellanpassager, noll '
+      + 'undertryckningar och 75 texter; normal- och monitoringkörningen är identiska, och fältet har samma '
+      + 'notiser, varningar och texter utan innehållsskillnad (replay:field). '
+      + 'Rådatafacit: 24 korsningar/zonbesök (20 brolinjer, fyra zonbesök vid Kanalinfarten), inga '
+      + 'intervallinferenser; en egen geometri utan makeGtPassages ger samma 20 linjekorsningar inom 3 s. '
+      + 'Trafiken är fyra genomresor med lastfartyg: NAVEN och NINA BRES söderut, LIDAN och SYLVIA norrut. '
+      + 'Alla 20 brolinjenotiser kommer före rådatans korsning; Kanalinfartens fyra på första fixen inne i zonen. '
+      + 'C2 prövad i fält: Järnvägsbron söderut går på Stridsbergsbrons passagefix, NAVEN 23:00:27.776 på 239 m '
+      + '100,7 s före korsningen 23:02:08.525 och NINA BRES 01:25:31.258 på 150 m 69,4 s före 01:26:40.697. '
+      + 'Varje målpassage har en varning före sig, 137,8–657,5 s före korsningen. '
+      + 'KÄNDA GRÄNSER LÅSTA SOM DE ÄR (docs/faltgranskning-2026-11-14.md): '
+      + '(1) F7: Stridsbergsbron#7 för LIDAN 06:27:42.577 (fältet 06:27:43.009) kom 137,8 s före korsningen '
+      + '06:30:00.363 (130,7 s i fixtid), under utlovade 150 s, och sa eta 5 när 2,3 min återstod. Spärren vid '
+      + 'Järnvägsbron släpptes först på fixen 352 m från bron (4,1 kn); hon hade gått 2,5–3,5 kn och ökade till 4,4–5,1 kn. '
+      + '(2) K6/F13: tre Klaffbronotiser sa om 3–4 minuter i samma pass som texten bytte till strax 25 ms senare: '
+      + 'NINA BRES 01:33:27.153 eta 4 (korsning 139,6 s senare), LIDAN 06:15:58.404 eta 4 (174,5 s) och '
+      + 'SYLVIA 15:48:23.955 eta 3 (94,2 s). '
+      + '(3) ±10 m-bandet (ARCHITECTURE P1; fältgranskningen §6 C): LIDANs Stridsbergspassage bokförs på fixen '
+      + '06:29:57.228 10 m före linjen, i 5,1 kn, och texten blir Inga båtar 3,1 s före rådatans korsning; '
+      + 'NINA BRES Järnvägspassage och SYLVIAs Olidepassage bekräftas på nästa fix efter en fix 1 respektive 10 m bortom linjen. '
+      + '(4) Tunn ledtid när 300 m-zonen korsas mellan två fixar (§5.9): LIDAN Stallbackabron 29,2 s, '
+      + 'SYLVIA Stridsbergsbron 37,8 s före korsningen. '
+      + 'De förtöjda PILOT 761 (navStatus 5), PRICKBJORN (5) och CAPELLA (0) låg 137–169 m från '
+      + 'Kanalinfartens punkt och flyttade sig högst 2, 7 respektive 10 m på 34 h: ingen notis, varning, passage eller text. '
+      + 'När ETA-etappen (U28) eller en rättning av spärren gör utfallen rättare låses de om enligt U13. '
+      + 'Se docs/faltgranskning-2026-11-14.md §10 och tests/november14-field-corpus.test.js.',
+  },
 ];
