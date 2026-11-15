@@ -2524,8 +2524,8 @@ baslinje). E2 gör om ETA-utjämningen och spärren ovanpå F04-rättningen och
 mäter om E:s sex omlåsta rader och M9/V4-utfallet, eftersom PRIMA LADYs och
 SKONNERTENs värden beror på den dubbla EMA:n.
 
-**F07 gick in (ETA-etappen under ägarbeslutet U28, 2026-11-15): en
-extrapolerad baslinje som aldrig visades försvaras inte.** Buggjägarens kort
+**F07 gick in (ETA-etappen under ägarbeslutet U28, 2026-11-15): klampen
+försvarar det användaren ser.** Buggjägarens kort
 F03 (standardkörningen 2026-11-14) är 21h-knivseggen ovan, i fasvarianten
 δ −11,52 s. Kedjan:
 - Fix G (`_reevaluateVesselStatuses`, extrapoleringen i SOFT-zonen)
@@ -2540,17 +2540,54 @@ F03 (standardkörningen 2026-11-14) är 21h-knivseggen ovan, i fasvarianten
   13" → "om 19 minuter", mot sanningen 4,5 min. Hoppet är INV-3:s sågtand; i
   bankens egen fas blir det 13 → 18, som är låst i golden-text.
 
-Rättningen i `_reconcilePublishedETA` släpper baslinjen bara NEDÅT, bara när
-den är en extrapolering (`_etaIsExtrapolated`), och bara när en annan båt med
-samma målbro har lägre giltig ETA (`_anotherLeadsTarget`, som gör brotextens
-ledarval: presentationslistan, ingen kö vid en annan bro, ingen zombie,
-`isValidETA`). En ledares visade "om cirka N" försvaras som förut. Den
-oavgränsade varianten (släpp varje extrapolerad baslinje nedåt) mättes och
-återtogs: den gjorde SISU (21h 09:50:39, "om 10 → 3" mot inferred 13,2) och
-IDUN (25h 07:11:28, "om 13 → 10" mot 21,2) sämre, och flyttade dessutom
-ZORA:s låsta rad i 19h ("om 6" → strax, sanning 2,7). Mätt enligt VALIDATION.md §REGELN ("F07, 2026-11-15"): 0 av 3 102
-påståenden ändras, och buggjägarens F03 är borta utan nya kort. F06
-(inbromsningen) står kvar som öppet kort (F02 i körningen 2026-11-14).
+**Principen: klampen försvarar det användaren ser** (granskningen av första
+versionen och dirigentens beslut 2026-11-15). RC4 finns för att texten inte ska
+hoppa, och för en båt som inte är den brotexten visar är hennes egen baslinje
+inget användaren har sett. I `_reconcilePublishedETA` gäller därför, när
+baslinjen är Fix G:s (`_etaPublishedFromExtrapolation`; nollas vid varje
+publicering, så andra passet på samma fix klampas mot första passets mätning)
+och texten visar en annan båt med lägre giltig ETA (`_presentedGroupLead`:
+brotextens eget val, `BridgeTextService.presentedLead`, över det som
+presenteras — `_processingRemoval` och GPS-hållningen filtreras som i
+publiceringen, köer vid en tidigare bro och zombier leder inte):
+- Ligger den färska beräkningen ÖVER det visade värdet förblir båten osedd.
+  Baslinjen följer den färska, och texten är oförändrad.
+- Ligger den UNDER det visade värdet dämpas hon mot det VISADE värdet med
+  klampens maxDelta (max(3, 0,25 · visat)), och burstens bas blir det visade
+  värdet så att även andra passet håller sig inom samma steg. Texten sjunker
+  alltså högst lika mycket på ett fix som för en ensam båt.
+- Men bara om fixet går ihop med båtens egen rörelse (`_fixKinematics`):
+  förflyttningen sedan förra fixet (fixtiderna, `_prevFixSample` i
+  VesselDataService) delad med den största fart båten rapporterade i de två
+  ändarna får vara högst `ETA_UNSEEN_BASELINE.FIX_KINEMATICS_MAX_RATIO` (1,35),
+  och fixet får inte vara GPS-misstänkt. Annars gäller klampen som förut.
+
+*Varför rimlighetsprovet finns:* granskningens `gps700` — en klass B-båt bakom
+ledaren vars första fix efter ett glapp ligger 700 m för långt fram — hade
+annars sänkt texten till "om 10" mot sanningen 14. Bekräftelse med två fix
+prövades först och föll: klass B-båtar har för få fix, och AVALON har bara två
+före sin passage. Kvoterna där sänkningen binder: AVALON 0,86, accstop 0,95,
+bankens enda fall 1,05, gps400 1,66, gps700 2,16. Över alla 9 920 fix efter
+ett glapp på minst 180 s i banken och k1–k3 ligger 20 (0,20 %) över 1,35,
+nästan alla båtar som rapporterar låg fart i båda ändarna men har rört sig
+emellan; för dem gäller basens klamp.
+
+*Utfall:* F03:s fasvariant visar "om 13" från 07:07:02 i stället för "om 19"
+07:11:30 (varje rad närmare sanningen än basen). gps700, gps400 och spik1 ger
+basens texter. accstop (båten accelererade under glappet och stannade sedan)
+sjunker 14,6 → 11,0 på ett fix, inom maxDelta 3,65. Banken och k1–k3 är
+oförändrade (VALIDATION.md "F07, 2026-11-15").
+
+*Medvetet inte rättat:* en UPPMÄTT osedd baslinje — bankens egen fas av 21h,
+där AVALON:s 30,3 från första fixet klampas och texten säger "om 18" 07:11:30
+mot sanningen 4,5 (låst golden). Det är steget R7, som mäts för sig. Även det
+kvarstående fönstret: ett lågt men osett värde över det visade blir båtens
+baslinje och syns först om ledaren försvinner före båtens nästa fix.
+Den första versionen (släpp varje osedd extrapolerad baslinje fritt) återtogs:
+den gjorde gps700 och accstop 4–8 min för optimistiska, och dess hjälpare
+läste inte presentationslistan (P1), släppte en uppmätt baslinje i andra passet
+(P2) och en tidigare visad baslinje (P3). En oavgränsad variant (alla
+extrapolerade baslinjer) gjorde SISU och IDUN sämre mot inferred-sanningen.
 Regressionstest: `tests/f07-oseedd-extrapolerad-baslinje.test.js`.
 
 **FÄLTVALIDERINGENS REGEL: kasta det KORRUPTA FÄLTET, aldrig positionen

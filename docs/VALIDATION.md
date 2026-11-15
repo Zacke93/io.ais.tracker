@@ -1105,13 +1105,15 @@ sampelnyckelvakten, nollställningen vid nytt målbyte, rensningen vid andra
 skäl, bevis i en `ETA_STALE_HARD`-hold och holdens sampel i den riktiga
 bufferten fäller vart och ett minst ett test.
 
-### F07, 2026-11-15: en extrapolerad baslinje som aldrig visades
+### F07, 2026-11-15: klampen försvarar det användaren ser
 
 Ändringen (ARCHITECTURE §8 (e), "F07 gick in"; ETA-etappen under ägarbeslutet
-U28, "ingen enskild ETA-uppgift i banken blir sämre"): RC4-klampen i
-`_reconcilePublishedETA` släpper en Fix G-extrapolerad baslinje nedåt när en
-annan båt med samma målbro hade lägre giltig ETA, alltså när den
-extrapolerade siffran aldrig visades.
+U28, "ingen enskild ETA-uppgift i banken blir sämre"): när en båts publicerade
+värde är Fix G:s extrapolering och texten visar en annan båt med lägre ETA
+följer baslinjen den färska beräkningen så länge båten förblir osedd. Går den
+färska under det visade värdet dämpas båten mot det visade värdet med klampens
+maxDelta, men bara om fixet klarar rimlighetsprovet (kvot ≤ 1,35, inte
+GPS-misstänkt).
 
 **Banken** (`7eb350d` mot efter, 24 korpusar, `oattribuerade` 0 i båda,
 parning per korpus, typ, bro och mmsi inom 2 s): alla 3 102 påståenden är
@@ -1120,24 +1122,32 @@ Brotextövergångarna (2 542), notiserna (1 344), öppningsvarningarna (432) och
 strax-löftet (n 211, 63,0 % ≤ 3 min) är oförändrade. `replay:all` är grönt
 utan omlåsning. Fältkörningarna 1–3 ger bitlika texter, notiser och kort.
 
+**Prövade varianter, mätta sida vid sida** (F03:s repro, granskningens fyra
+scenarier, proberna och banken):
+
+| Variant | F03 (07:11:30) | gps700 | accstop | Banken |
+|---|---|---|---|---|
+| första versionen: släpp fritt | "om 12" | "om 10" (sanning 14) | "om 6" (14) | 0 ändrade |
+| strikt: bara osynligt släpp | "om 19" (kvar) | som basen | som basen | 0 |
+| b: dämpa mot det visade | "om 13" | "om 11" (−3) | 14 → 11 | 0 |
+| b2: b med två fix som bekräftelse | "om 19" (kvar; AVALON har bara två fix) | som basen | som basen | 0 |
+| **b3: b med rimlighetsprov (vald)** | **"om 13"** | **som basen** | 14 → 11 (inom maxDelta) | **0** |
+
+**Rimlighetsprovets tröskel** (`ETA_UNSEEN_BASELINE.FIX_KINEMATICS_MAX_RATIO`):
+kvoterna där sänkningen binder är 0,86 (AVALON), 0,95 (accstop) och 1,05
+(41h, 210553000) för rimliga fix och 1,66 (gps400) och 2,16 (gps700) för
+utliggare; 1,35 ligger mitt i gapet. Av alla 9 920 fix efter ett glapp på
+minst 180 s i banken och k1–k3 ligger 20 (0,20 %) över tröskeln och 26 685
+fix totalt har 94 (0,35 %) över.
+
 **Buggjägaren** (standard, seed 1): kortet F03 (21h, δ −11,52 s) är borta,
-M-FAS ger 163 rena av 168 fasvarianter (förut 162), övriga kluster har samma
-nyckel och antal, och inga nya kort uppstår. Fyra kandidater är kvar.
+M-FAS ger 163 rena av 168 fasvarianter (förut 162), och inga nya kort uppstår.
 
-**Prövat och återtaget:** att släppa VARJE extrapolerad baslinje nedåt. Inga
-mätta påståenden ändrades, men två omätta blev sämre mot inferred-sanningen:
-SISU (21h 09:50:39, "om 10 → 3" mot 13,2) och IDUN (25h 07:11:28, "om 13 → 10"
-mot 21,2), båda ledare vars visade "om cirka N" låg närmare sanningen än den
-låga färska siffran. Den varianten flyttade dessutom ZORA:s låsta rad i 19h
-("om 6" → strax, sanning 2,7).
-
-**Regressionstest:** `tests/f07-oseedd-extrapolerad-baslinje.test.js`, 9
-tester. Fasvarianten byggs som buggjägarens M-FAS (hela korpusen flyttad,
-bitlik med kortets `variant.jsonl`), och enhetsfallen prövar den bakre båten
-och fem motfall (ensam båt, egen ledning, zombie, annan målbro, ogiltig ETA)
-samt att en högre färsk beräkning och en uppmätt baslinje dämpas som förut.
-På `7eb350d` fäller sviten två tester på beteende (den bakre båten och
-fasvarianten); motfallen är gröna där.
+**Regressionstest:** `tests/f07-oseedd-extrapolerad-baslinje.test.js`:
+enhetsfall för släppet, dämpningen, rimlighetsprovet, granskningens prober
+P1–P3, kögrenen (H3), egen mmsi (H1) och andra passet (P2), samt hela kedjan
+för granskningens fyra scenarier (`tests/fixtures/f07-*.jsonl`, syntetiska
+positioner) och F03:s fasvariant. Varje delvillkor är mutationsprövat.
 
 ## Buggjägaren — diagnosverktyg, INTE en gate (2026-11-04)
 

@@ -96,6 +96,7 @@ const {
   CONNECTION_ALERT, // B2: eskalerande källdödslarm (1h/4h-trappan)
   FEED_SILENCE, // U12: skyddsnätet för TOM KANAL (källorna svarar, noll data)
   AIS_CONFIG, // Etapp 2: AISHub-vaktens trösklar (AIS_CONFIG.AISHUB)
+  ETA_UNSEEN_BASELINE, // F07: rimlighetsprovets tröskel (klampen mot det visade värdet)
   BRIDGE_OPENING, // Etapp 6: öppningsvarningarnas trösklar (konvojfönster m.m.)
   PROTECTION_ZONE_RADIUS, // C1b: samma radie som BRIDGE_OPENING-hållningens säkerhetsventil
   UNDER_BRIDGE_CLEAR_DISTANCE, // C1b/C2: hysteresens släppavstånd för under-bridge
@@ -5695,32 +5696,6 @@ class AISBridgeApp extends Homey.App {
    * @returns {number|null} Publicerbar ETA
    * @private
    */
-  /**
-   * F07: leder en ANNAN båt fartygets målbrogrupp i brotexten med en lägre
-   * giltig ETA än `eta`? Samma urval som BridgeTextService gör för gruppens
-   * klausul: båtarna i presentationslistan (getVesselsForBridgeText) med
-   * samma målbro, utan bekräftad kö vid en annan bro (sådana får vänttext
-   * utan minuter), utan zombieläge (målbron redan i passedBridges) och med
-   * giltig ETA (isValidETA, _selectLeadVessel). Är svaret ja visades `eta`
-   * aldrig. Se _reconcilePublishedETA.
-   * @param {Object} vessel - fartyget vars baslinje prövas
-   * @param {number} eta - fartygets publicerade (extrapolerade) värde
-   * @returns {boolean}
-   * @private
-   */
-  _anotherLeadsTarget(vessel, eta) {
-    const vds = this.vesselDataService;
-    if (!vds || typeof vds.getVesselsForBridgeText !== 'function') return false;
-    const target = vessel.targetBridge;
-    return vds.getVesselsForBridgeText().some((v) => {
-      if (!v || String(v.mmsi) === String(vessel.mmsi) || v.targetBridge !== target) return false;
-      const queuedAt = waitingBridge(v);
-      if (queuedAt && queuedAt !== target) return false;
-      if (Array.isArray(v.passedBridges) && v.passedBridges.includes(target)) return false;
-      return isValidETA(v.etaMinutes) && v.etaMinutes < eta;
-    });
-  }
-
   _reconcilePublishedETA(vessel, freshETA) {
     // _etaPublishedValue är ett SEPARAT spårfält — vessel.etaMinutes duger
     // inte som referens eftersom meddelandevägen skriver över det innan
@@ -5790,39 +5765,88 @@ class AISBridgeApp extends Homey.App {
     }
 
     // F07 (buggjägarens F03, 20260708-21h i fasen δ −11,52 s; ETA-etappen
-    // under ägarbeslutet U28): EN EXTRAPOLERAD BASLINJE SOM ALDRIG VISADES
-    // FÖRSVARAS INTE MOT EN LÄGRE FÄRSK BERÄKNING.
-    // Fix G i _reevaluateVesselStatuses registrerar varje extrapolering som
-    // publicerad baslinje, även för en båt som inte leder sin målbros grupp i
-    // brotexten. Hennes siffra syns då aldrig, men klampen nedan försvarar
-    // den ändå när nästa fix kommer. AVALON (219009353) mätte 30,3 min på sitt
-    // första fix i 1,7 kn medan JAATTEN II ledde Klaffbrongruppen; Fix G
-    // räknade ned det osedda värdet till 25,3 och gjorde det till baslinje.
-    // Hennes färska 13,4 och 11,9 min klampades till 18,9, och när JAATTEN:s
-    // position blev 600 s gammal tog AVALON över texten med "om 19 minuter"
-    // (sanning 4,5 min; förut "om cirka 13"). Hoppet 13 → 19 är INV-3:s
-    // sågtand, och i bankens egen fas blir det 13 → 18 (låst golden).
-    // RÄTTNINGEN ÄR SMAL: baslinjen släpps bara NEDÅT, bara när den är en
-    // extrapolering, och bara när en annan båt med samma målbro hade lägre
-    // giltig ETA, alltså ledde gruppens klausul (_anotherLeadsTarget gör
-    // brotextens ledarval). En ledares visade "om cirka N" försvaras som förut:
-    // en oavgränsad variant (alla extrapolerade baslinjer) mättes och gjorde
-    // SISU (21h 09:50:39, "om 10 → 3" mot inferred 13,2) och IDUN (25h
-    // 07:11:28, "om 13 → 10" mot 21,2) sämre — där var den låga färska
-    // siffran fel och den visade extrapoleringen närmare sanningen.
-    // Mätt enligt docs/VALIDATION.md §REGELN: 0 av 3 102 påståenden ändras.
-    const unseenExtrapolationUndercut = vessel._etaIsExtrapolated === true
-      && Number.isFinite(freshETA) && published !== null && freshETA < published
-      && this._anotherLeadsTarget(vessel, published);
-    if (unseenExtrapolationUndercut) {
-      this.debug(
-        `🪜 [ETA_CLAMP_RELEASE] ${vessel.mmsi}: extrapolerad baslinje ${published.toFixed(1)} `
-        + `visades aldrig (annan båt leder ${vessel.targetBridge}) — publicerar färsk ${freshETA.toFixed(1)}`,
-      );
+    // under ägarbeslutet U28; granskningen av första versionen och
+    // dirigentens beslut 2026-11-15): KLAMPEN FÖRSVARAR DET ANVÄNDAREN SER.
+    // RC4 finns för att texten inte ska hoppa. För en båt som inte är den
+    // brotexten visar är hennes egen baslinje inget användaren har sett.
+    // Fix G registrerar ändå varje extrapolering som publicerad baslinje:
+    // AVALON (219009353) mätte 30,3 min på sitt första fix medan JAATTEN II
+    // ledde Klaffbrongruppen, Fix G räknade ned det osedda värdet till 25,3,
+    // och hennes färska 13,4 och 11,9 min klampades till 18,9 mot det. När
+    // JAATTEN:s position blev 600 s gammal visade texten "om 19 minuter" mot
+    // sanningen 4,5 min — fel båts tid i flera minuter.
+    // Regeln gäller när baslinjen är Fix G:s (_etaPublishedFromExtrapolation;
+    // nollas vid varje publicering här, så andra passet på samma fix klampas
+    // mot första passets mätning) och texten visar en ANNAN båt med lägre
+    // giltig ETA (_presentedGroupLead: brotextens eget val över det som
+    // presenteras). Då:
+    //  - ligger den färska beräkningen ÖVER det visade värdet förblir båten
+    //    osedd: baslinjen följer den färska, texten är oförändrad;
+    //  - ligger den UNDER det visade värdet dämpas hon mot det visade värdet
+    //    med klampens egen maxDelta (texten sjunker högst lika mycket på ett
+    //    fix som för en ensam båt), men bara om fixet går ihop med båtens egen
+    //    rörelse (_fixKinematics, ETA_UNSEEN_BASELINE.FIX_KINEMATICS_MAX_RATIO)
+    //    och inte är GPS-misstänkt. Annars gäller klampen som förut: en ensam
+    //    utliggare får inte sänka texten (granskningens gps700: ett fix 700 m
+    //    för långt fram gav annars "om 10" mot sanningen 14). Bekräftelse över
+    //    tid prövades och föll: AVALON har bara två fix före sin passage.
+    // MEDVETET INTE RÄTTAT: uppmätta osedda baslinjer (bankens egen fas av
+    // 21h, "om 18") — det är steget R7, som mäts för sig.
+    let unseenExtrapolationRelease = false;
+    let shownDampen = null;
+    let shownBase = null;
+    if (vessel._etaPublishedFromExtrapolation === true && Number.isFinite(freshETA)
+        && published !== null && sameTarget && freshETA < published) {
+      const lead = this._presentedGroupLead(vessel);
+      const unseen = !!lead && String(lead.mmsi) !== String(vessel.mmsi)
+        && isValidETA(lead.etaMinutes) && lead.etaMinutes < published;
+      if (unseen && freshETA > lead.etaMinutes) {
+        unseenExtrapolationRelease = true;
+        this.debug(
+          `🪜 [ETA_CLAMP_RELEASE] ${vessel.mmsi}: Fix G-baslinjen ${published.toFixed(1)} visas inte `
+          + `(${lead.mmsi} leder ${vessel.targetBridge} med ${lead.etaMinutes.toFixed(1)}) och färska `
+          + `${freshETA.toFixed(1)} ligger över det visade — publicerar färsk, texten oförändrad`,
+        );
+      } else if (unseen) {
+        const kin = this._fixKinematics(vessel);
+        const plausible = kin.ratio !== null
+          && kin.ratio <= ETA_UNSEEN_BASELINE.FIX_KINEMATICS_MAX_RATIO
+          && vessel._positionUncertain !== true && vessel._gpsJumpDetected !== true;
+        const ratioText = kin.ratio === null ? 'okänd' : kin.ratio.toFixed(2);
+        if (plausible) {
+          const shown = lead.etaMinutes;
+          shownDampen = Math.max(freshETA, shown - Math.max(3, 0.25 * shown));
+          shownBase = shown;
+          this.debug(
+            `🪜 [ETA_CLAMP_SHOWN] ${vessel.mmsi}: Fix G-baslinjen ${published.toFixed(1)} visas inte; färska `
+            + `${freshETA.toFixed(1)} under det visade ${shown.toFixed(1)} (${lead.mmsi}), fixet rimligt `
+            + `(kvot ${ratioText}) — dämpas mot det visade: ${shownDampen.toFixed(1)}`,
+          );
+        } else {
+          this.debug(
+            `🪜 [ETA_CLAMP_SHOWN] ${vessel.mmsi}: färska ${freshETA.toFixed(1)} under det visade `
+            + `${lead.etaMinutes.toFixed(1)}, men fixet går inte ihop med båtens rörelse (kvot ${ratioText}) `
+            + '— klampen gäller som förut',
+          );
+        }
+      }
+    }
+    // Varje publicering nedan är en mätning (släpp eller klamp), inte Fix G.
+    vessel._etaPublishedFromExtrapolation = false;
+    if (shownDampen !== null) {
+      // Burstens baslinje blir det VISADE värdet, så andra passet på samma fix
+      // (K6) dämpas mot samma referens och texten sjunker högst en maxDelta.
+      const nowMs = Date.now();
+      vessel._etaPublishedValue = shownDampen;
+      vessel._etaPublishedAtMs = nowMs;
+      vessel._etaBurstAtMs = nowMs;
+      vessel._etaBurstBase = shownBase;
+      vessel._etaBurstGapMin = 0;
+      return shownDampen;
     }
 
     if (!Number.isFinite(freshETA) || published === null || !sameTarget
-        || unseenExtrapolationUndercut
+        || unseenExtrapolationRelease
         // I "strax"-bandet (<3 min) släpps clampen: texten är binär där
         // (strax/om N) och ett golv på +3 skulle SKAPA artificiella
         // "om 3 minuter" för båtar som verkligen är strax framme.
@@ -5873,6 +5897,58 @@ class AISBridgeApp extends Homey.App {
     vessel._etaPublishedValue = result;
     vessel._etaPublishedAtMs = vessel._etaBurstAtMs;
     return result;
+  }
+
+  /**
+   * F07 (b3): går fixet ihop med båtens egen rörelse? Förflyttningen sedan
+   * förra fixet (rak linje, positionernas egna fixtider) delad med den
+   * största fart båten rapporterade i de två ändarna (golv 0,5 kn).
+   * @param {Object} vessel
+   * @returns {{ratio: number|null, moveKn: number|null, refKn: number|null, dtS: number|null}}
+   * @private
+   */
+  // eslint-disable-next-line class-methods-use-this
+  _fixKinematics(vessel) {
+    const prev = vessel && vessel._prevFixSample;
+    const none = {
+      ratio: null, moveKn: null, refKn: null, dtS: null,
+    };
+    if (!prev || !Number.isFinite(vessel.fixTs) || !Number.isFinite(prev.t)
+        || !Number.isFinite(vessel.lat) || !Number.isFinite(vessel.lon)) return none;
+    const dtS = (vessel.fixTs - prev.t) / 1000;
+    if (!(dtS > 0)) return { ...none, dtS };
+    const meters = geometry.calculateDistance(prev.lat, prev.lon, vessel.lat, vessel.lon);
+    if (!Number.isFinite(meters)) return { ...none, dtS };
+    const moveKn = meters / dtS / 0.514444;
+    const curSog = Number.isFinite(vessel._rawPositionSog) ? vessel._rawPositionSog : vessel.sog;
+    const sogs = [prev.sog, curSog].filter(Number.isFinite);
+    const refKn = Math.max(0.5, ...sogs);
+    return {
+      ratio: moveKn / refKn, moveKn, refKn, dtS,
+    };
+  }
+
+  /**
+   * F07: den båt vars ETA brotexten visar i fartygets målbroklausul just nu.
+   * Läser samma underlag som publiceringen (_findRelevantBoatsForBridgeText
+   * med _processingRemoval-filtret, sedan _bridgeTextPresentationVessels som
+   * tar bort eller ersätter GPS-hållna båtar) och samma val som texten
+   * (BridgeTextService.presentedLead: köer vid en tidigare bro utan minuter,
+   * zombier utan ETA-styrning, lägst giltig ETA). null om målbron saknar en
+   * klausul med prognos eller underlaget inte kan byggas.
+   * @param {Object} vessel
+   * @returns {Object|null}
+   * @private
+   */
+  _presentedGroupLead(vessel) {
+    try {
+      if (!this.bridgeTextService || typeof this.bridgeTextService.presentedLead !== 'function') return null;
+      const presented = this._bridgeTextPresentationVessels(this._findRelevantBoatsForBridgeText());
+      return this.bridgeTextService.presentedLead(presented, vessel.targetBridge, { includeGpsHeld: true });
+    } catch (error) {
+      this.debug(`⚠️ [ETA_CLAMP_RELEASE] ${vessel?.mmsi}: ledarvalet kunde inte byggas (${error.message}) — klampen gäller`);
+      return null;
+    }
   }
 
   /**
@@ -7482,6 +7558,7 @@ class AISBridgeApp extends Homey.App {
                 // baslinje så nästa färska beräkning dämpas mot det användaren såg
                 vessel._etaPublishedValue = extrapolated;
                 vessel._etaPublishedAtMs = Date.now();
+                vessel._etaPublishedFromExtrapolation = true; // F07: baslinjen är Fix G:s
                 if (!Number.isFinite(vessel._etaExtrapolationBaseValue)) {
                   vessel._etaExtrapolationBaseValue = baseETA;
                 }
