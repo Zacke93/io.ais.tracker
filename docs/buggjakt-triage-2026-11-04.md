@@ -334,6 +334,11 @@ F18 och F19 är beslut eller design och står under Beslutsfrågor (punkt 3).
   `measure:eta` (A/B), och för F07 `hunt:repro`.
 - **Prioritet:** medel för F04 (31 världar, varav 4 i idealradio), låg för
   F06 (inget fall i banken) och F07.
+- **F07 rättat 2026-11-15** (ETA-etappen under ägarbeslutet U28; kort F03 i
+  standardkörningen 2026-11-14): klampen försvarar det användaren ser, inte en
+  osedd extrapolerad baslinje (med rimlighetsprov av det fix som sänker
+  texten). `docs/ARCHITECTURE.md` §8 (e)
+  "F07 gick in", mätningen i `docs/VALIDATION.md` §ETA-mätharnessen.
 
 ### 8. LOW_SPEED/INSUFFICIENT_MOVEMENT-flappen
 

@@ -1109,6 +1109,70 @@ sampelnyckelvakten, nollställningen vid nytt målbyte, rensningen vid andra
 skäl, bevis i en `ETA_STALE_HARD`-hold och holdens sampel i den riktiga
 bufferten fäller vart och ett minst ett test.
 
+### F07, 2026-11-15: klampen försvarar det användaren ser
+
+Ändringen (ARCHITECTURE §8 (e), "F07 gick in"; ETA-etappen under ägarbeslutet
+U28, "ingen enskild ETA-uppgift i banken blir sämre"): när en båts publicerade
+värde är Fix G:s extrapolering och texten visar en annan båt med lägre ETA
+följer baslinjen den färska beräkningen så länge båten förblir osedd. Går den
+färska under det visade värdet dämpas båten mot det visade värdet med klampens
+maxDelta, men bara om fixet klarar rimlighetsprovet (kvot ≤ 1,35, inte
+GPS-misstänkt).
+
+**Banken** (`7eb350d` mot efter, 24 korpusar, `oattribuerade` 0 i båda,
+parning per korpus, typ, bro och mmsi inom 2 s): alla 3 102 påståenden är
+parade och oförändrade, i banden under 5 och under 10 min och totalt.
+Brotextövergångarna (2 542), notiserna (1 344), öppningsvarningarna (432) och
+strax-löftet (n 211, 63,0 % ≤ 3 min) är oförändrade. `replay:all` är grönt
+utan omlåsning. Fältkörningarna 1–3 ger bitlika texter, notiser och kort.
+
+**Prövade varianter, mätta sida vid sida** (F03:s repro, granskningens fyra
+scenarier, proberna och banken):
+
+| Variant | F03 (07:11:30) | gps700 | accstop | Banken |
+|---|---|---|---|---|
+| första versionen: släpp fritt | "om 12" | "om 10" (sanning 14) | "om 6" (14) | 0 ändrade |
+| strikt: bara osynligt släpp | "om 19" (kvar) | som basen | som basen | 0 |
+| b: dämpa mot det visade | "om 13" | "om 11" (−3) | 14 → 11 | 0 |
+| b2: b med två fix som bekräftelse | "om 19" (kvar; AVALON har bara två fix) | som basen | som basen | 0 |
+| **b3: b med rimlighetsprov (vald)** | **"om 13"** | **som basen** | 14 → 11 (inom maxDelta) | **0** |
+
+**Rimlighetsprovets tröskel** (`ETA_UNSEEN_BASELINE.FIX_KINEMATICS_MAX_RATIO`):
+kvoterna där sänkningen binder är 0,86 (AVALON), 0,95 (accstop) och 1,05
+(41h, 210553000) för rimliga fix och 1,66 (gps400) och 2,16 (gps700) för
+utliggare; 1,35 ligger mitt i gapet. Av alla 9 920 fix efter ett glapp på
+minst 180 s i banken och k1–k3 ligger 20 (0,20 %) över tröskeln och 26 685
+fix totalt har 94 (0,35 %) över.
+
+**Granskning 2 (8c4ff30 → denna version):** två osedda båtar som sänkte samma
+bro med 1 s mellanrum gav "om 11" och sedan "om 8" mot det visade 14,6
+(`f07-dubbel`). Nu delar sänkningarna en referens per bro och 30 s-fönster:
+14,6 → 11,0 med två och tre båtar och med 20 s mellan fixen. Referensfarten i
+rimlighetsprovet mättes om (max, medel, geometriskt medel, medel med golv;
+ARCHITECTURE och `lib/constants.js`); max behålls.
+
+**Granskning 3:** gruppens golv följer nu med när det visade värdet stiger
+inom fönstret (G1: 18 → 13,5 i stället för 18 → 9), och basen är det senast
+renderade ledarvärdet i stället för det levande (G2: 15 → 11,25 i stället för
+15 → 9 när ledarens eget fix kommer i samma tick). Fönstrets gränser (30,0 s
+in, 30,001 s ut, klocka som stegat bakåt) och broarnas egna referenser har
+egna test. Banken, k1–k3 och de sju fixturscenarierna är oförändrade.
+
+**Granskning 4:** det renderade ledarvärdet gäller tills nästa rendering för
+bron, högst två fönster (60 s), eftersom UI-ticken har samma period som
+fönstret. Testen kör tickeftersläpning 0, 1, 2 och 50 ms efter 30 s och ±1 ms
+kring 30 s och 60 s.
+
+**Buggjägaren** (standard, seed 1): kortet F03 (21h, δ −11,52 s) är borta,
+M-FAS ger 163 rena av 168 fasvarianter (förut 162), och inga nya kort uppstår.
+
+**Regressionstest:** `tests/f07-oseedd-extrapolerad-baslinje.test.js`:
+enhetsfall för släppet, dämpningen, rimlighetsprovet, brogruppens referens,
+granskningarnas prober (P1–P3, Q1–Q4), kögrenen (H3), egen mmsi (H1) och
+andra passet (P2), samt hela kedjan för granskningarnas scenarier
+(`tests/fixtures/f07-*.jsonl`, syntetiska positioner: gps700, gps400, spik1,
+accstop, dubbel, trippel, dubbel20) och F03:s fasvariant. Varje delvillkor är mutationsprövat.
+
 ## Buggjägaren — diagnosverktyg, INTE en gate (2026-11-04)
 
 `tests/replay-validation/bugHunt/hunt.js` letar fel offline ur de låsta

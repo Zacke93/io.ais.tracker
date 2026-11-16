@@ -42,7 +42,9 @@ const RouteOrderValidator = require('./lib/services/RouteOrderValidator'); // Va
 const AISSourceMultiplexer = require('./lib/connection/AISSourceMultiplexer'); // äger AISStreamClient + ev. AISHubClient
 
 // UTILITIES: Hjälpfunktioner
-const { etaDisplay, formatETABroOpeningClause, etaMinutesForDisplay } = require('./lib/utils/etaValidation');
+const {
+  etaDisplay, formatETABroOpeningClause, etaMinutesForDisplay, isValidETA,
+} = require('./lib/utils/etaValidation');
 const geometry = require('./lib/utils/geometry');
 const GPSJumpAnalyzer = require('./lib/utils/GPSJumpAnalyzer');
 const { waitingBridge, queueBridge, hasFreshPosition } = require('./lib/utils/bridgeQueue');
@@ -94,6 +96,7 @@ const {
   CONNECTION_ALERT, // B2: eskalerande källdödslarm (1h/4h-trappan)
   FEED_SILENCE, // U12: skyddsnätet för TOM KANAL (källorna svarar, noll data)
   AIS_CONFIG, // Etapp 2: AISHub-vaktens trösklar (AIS_CONFIG.AISHUB)
+  ETA_UNSEEN_BASELINE, // F07: rimlighetsprovets tröskel (klampen mot det visade värdet)
   BRIDGE_OPENING, // Etapp 6: öppningsvarningarnas trösklar (konvojfönster m.m.)
   PROTECTION_ZONE_RADIUS, // C1b: samma radie som BRIDGE_OPENING-hållningens säkerhetsventil
   UNDER_BRIDGE_CLEAR_DISTANCE, // C1b/C2: hysteresens släppavstånd för under-bridge
@@ -221,6 +224,16 @@ const UNDER_BRIDGE_HOLD_VALIDATION_MAX_M = PROTECTION_ZONE_RADIUS;
 // vars färska värde var MER fel än det clampade. Sweepen: 70 → −27,2,
 // 100/120 → −13,5, 150 → −8,8, 200 → −11,1, 250 → −0,4, 300 → +32,2.
 const ETA_CLAMP_RELEASE_DISTANCE_M = UNDER_BRIDGE_CLEAR_DISTANCE;
+// F07 (granskning 2, A): brogruppens fönster för sänkningar från osedda båtar —
+// samma 30 s som RC4:s burstskydd i _reconcilePublishedETA.
+const UNSEEN_GROUP_WINDOW_MS = 30000;
+// Granskning 4: det renderade ledarvärdets längsta giltighet — två fönster, så
+// att en UI-tick som kommer några ms efter 30 s inte tappar G2-skyddet.
+const RENDERED_LEAD_MAX_AGE_MS = 2 * UNSEEN_GROUP_WINDOW_MS;
+// Klampens steg för ett visat värde (RC4): max(3, 0,25 · värdet).
+const unseenMaxDelta = (shown) => Math.max(3, 0.25 * shown);
+// Inversen: det visade värde vars klampsteg landar på golvet.
+const unseenBaseForFloor = (floor) => (floor <= 9 ? floor + 3 : floor / 0.75);
 
 // C3b (etapp 7, 2026-08-09): skrivtakt för sista-kända-positioner
 // ('last_known_positions'). Samma flash-slitagehänsyn och samma 15 min som
@@ -5761,7 +5774,102 @@ class AISBridgeApp extends Homey.App {
       );
     }
 
+    // F07 (buggjägarens F03, 20260708-21h i fasen δ −11,52 s; ETA-etappen
+    // under ägarbeslutet U28; granskningen av första versionen och
+    // dirigentens beslut 2026-11-15): KLAMPEN FÖRSVARAR DET ANVÄNDAREN SER.
+    // RC4 finns för att texten inte ska hoppa. För en båt som inte är den
+    // brotexten visar är hennes egen baslinje inget användaren har sett.
+    // Fix G registrerar ändå varje extrapolering som publicerad baslinje:
+    // AVALON (219009353) mätte 30,3 min på sitt första fix medan JAATTEN II
+    // ledde Klaffbrongruppen, Fix G räknade ned det osedda värdet till 25,3,
+    // och hennes färska 13,4 och 11,9 min klampades till 18,9 mot det. När
+    // JAATTEN:s position blev 600 s gammal visade texten "om 19 minuter" mot
+    // sanningen 4,5 min — fel båts tid i flera minuter.
+    // Regeln gäller när baslinjen är Fix G:s (_etaPublishedFromExtrapolation;
+    // nollas vid varje publicering här, så andra passet på samma fix klampas
+    // mot första passets mätning) och texten visar en ANNAN båt med lägre
+    // giltig ETA (_presentedGroupLead: brotextens eget val över det som
+    // presenteras). Då:
+    //  - ligger den färska beräkningen ÖVER det visade värdet förblir båten
+    //    osedd: baslinjen följer den färska, texten är oförändrad;
+    //  - ligger den UNDER det visade värdet dämpas hon mot brogruppens
+    //    gemensamma golv (_unseenGroupReference: det renderade värdet när
+    //    fönstret öppnades och det som visas nu, vardera med sin maxDelta),
+    //    så att alla osedda båtar mot samma bro tillsammans sänker texten
+    //    högst lika mycket som en ensam båt
+    //    — men bara om fixet går ihop med båtens egen
+    //    rörelse (_fixKinematics, ETA_UNSEEN_BASELINE.FIX_KINEMATICS_MAX_RATIO)
+    //    och inte är GPS-misstänkt. Annars gäller klampen som förut: en ensam
+    //    utliggare får inte sänka texten (granskningens gps700: ett fix 700 m
+    //    för långt fram gav annars "om 10" mot sanningen 14). Bekräftelse över
+    //    tid prövades och föll: AVALON har bara två fix före sin passage.
+    // MEDVETET INTE RÄTTAT: uppmätta osedda baslinjer (bankens egen fas av
+    // 21h, "om 18") — det är steget R7, som mäts för sig.
+    let unseenExtrapolationRelease = false;
+    let shownDampen = null;
+    let shownBase = null;
+    if (vessel._etaPublishedFromExtrapolation === true && Number.isFinite(freshETA)
+        && published !== null && sameTarget && freshETA < published) {
+      const lead = this._presentedGroupLead(vessel);
+      const unseen = !!lead && String(lead.mmsi) !== String(vessel.mmsi)
+        && isValidETA(lead.etaMinutes) && lead.etaMinutes < published;
+      if (unseen && freshETA > lead.etaMinutes) {
+        unseenExtrapolationRelease = true;
+        this.debug(
+          `🪜 [ETA_CLAMP_RELEASE] ${vessel.mmsi}: Fix G-baslinjen ${published.toFixed(1)} visas inte `
+          + `(${lead.mmsi} leder ${vessel.targetBridge} med ${lead.etaMinutes.toFixed(1)}) och färska `
+          + `${freshETA.toFixed(1)} ligger över det visade — publicerar färsk, texten oförändrad`,
+        );
+      } else if (unseen) {
+        const kin = this._fixKinematics(vessel);
+        const plausible = kin.ratio !== null
+          && kin.ratio <= ETA_UNSEEN_BASELINE.FIX_KINEMATICS_MAX_RATIO
+          && vessel._positionUncertain !== true && vessel._gpsJumpDetected !== true;
+        const ratioText = kin.ratio === null ? 'okänd' : kin.ratio.toFixed(2);
+        if (plausible) {
+          // Brogruppens gemensamma golv (granskning 2, A; granskning 3, G1
+          // och G2): flera osedda båtar som sänker samma bro inom fönstret
+          // dämpas mot SAMMA golv, så de tillsammans inte kan sänka texten mer
+          // än en ensam båt hade kunnat — från värdet när fönstret öppnades
+          // eller från det som visas nu.
+          const ref = this._unseenGroupReference(vessel.targetBridge, lead.etaMinutes);
+          // Burstens bas är det visade värde vars klampsteg landar exakt på
+          // golvet, så andra passet (K6) håller samma gräns (= ref.base när
+          // fönstrets golv är det högsta).
+          const shown = unseenBaseForFloor(ref.floor);
+          shownDampen = Math.max(freshETA, ref.floor);
+          shownBase = shown;
+          this.debug(
+            `🪜 [ETA_CLAMP_SHOWN] ${vessel.mmsi}: Fix G-baslinjen ${published.toFixed(1)} visas inte; färska `
+            + `${freshETA.toFixed(1)} under det visade ${lead.etaMinutes.toFixed(1)} (${lead.mmsi}; gruppens bas `
+            + `${ref.base.toFixed(1)}, golv ${ref.floor.toFixed(1)}), fixet rimligt `
+            + `(kvot ${ratioText}) — dämpas mot det visade: ${shownDampen.toFixed(1)}`,
+          );
+        } else {
+          this.debug(
+            `🪜 [ETA_CLAMP_SHOWN] ${vessel.mmsi}: färska ${freshETA.toFixed(1)} under det visade `
+            + `${lead.etaMinutes.toFixed(1)}, men fixet går inte ihop med båtens rörelse (kvot ${ratioText}) `
+            + '— klampen gäller som förut',
+          );
+        }
+      }
+    }
+    // Varje publicering nedan är en mätning (släpp eller klamp), inte Fix G.
+    vessel._etaPublishedFromExtrapolation = false;
+    if (shownDampen !== null) {
+      // Burstens baslinje blir det VISADE värdet, så andra passet på samma fix
+      // (K6) dämpas mot samma referens som gruppen.
+      const nowMs = Date.now();
+      vessel._etaPublishedValue = shownDampen;
+      vessel._etaPublishedAtMs = nowMs;
+      vessel._etaBurstAtMs = nowMs;
+      vessel._etaBurstBase = shownBase;
+      vessel._etaBurstGapMin = 0;
+      return shownDampen;
+    }
+
     if (!Number.isFinite(freshETA) || published === null || !sameTarget
+        || unseenExtrapolationRelease
         // I "strax"-bandet (<3 min) släpps clampen: texten är binär där
         // (strax/om N) och ett golv på +3 skulle SKAPA artificiella
         // "om 3 minuter" för båtar som verkligen är strax framme.
@@ -5812,6 +5920,132 @@ class AISBridgeApp extends Homey.App {
     vessel._etaPublishedValue = result;
     vessel._etaPublishedAtMs = vessel._etaBurstAtMs;
     return result;
+  }
+
+  /**
+   * F07 (granskning 2, A): brogruppens gemensamma referens för sänkningar från
+   * osedda båtar. Samma tanke som RC4:s burst per båt, men per målbro: det
+   * visade värdet när fönstret öppnades och dess maxDelta (max(3, 0,25 ·
+   * bas); användaren ser värdet hela tiden, så inget glapptillägg). Fönstret
+   * är RC4:s 30 s. Inom det får varje sänkning — från vilken osedd båt som
+   * helst, i vilken ordning som helst — samma gräns; först därefter öppnas ett
+   * nytt fönster från det då visade värdet. Basen är det senast RENDERADE
+   * ledarvärdet (G2) när det finns, annars det levande; golvet är det högsta
+   * av fönstrets golv och golvet för det värde som visas nu (G1).
+   * @param {string} target - målbron
+   * @param {number} shownNow - det levande ledarvärdet
+   * @returns {{atMs: number, base: number, maxDelta: number, floor: number}}
+   * @private
+   */
+  _unseenGroupReference(target, shownNow) {
+    if (!this._unseenDampenRefs) this._unseenDampenRefs = new Map();
+    const nowMs = Date.now();
+    const rendered = this._renderedLeadEta(target);
+    let ref = this._unseenDampenRefs.get(target);
+    if (!ref || !(nowMs - ref.atMs >= 0 && nowMs - ref.atMs <= UNSEEN_GROUP_WINDOW_MS)) {
+      const base = rendered !== null ? rendered : shownNow;
+      ref = { atMs: nowMs, base, maxDelta: unseenMaxDelta(base) };
+      this._unseenDampenRefs.set(target, ref);
+    }
+    // Granskning 3, G1: golvet följer med när det visade värdet STIGER inom
+    // fönstret (ledaren har lämnat gruppen och en båt med högre ETA visas).
+    // Referensen får aldrig tillåta mer än en ensam båt med det NU visade
+    // värdet hade fått — vare sig det levande eller det renderade.
+    const now = Math.max(shownNow, rendered !== null ? rendered : -Infinity);
+    const floor = Math.max(ref.base - ref.maxDelta, now - unseenMaxDelta(now));
+    return { ...ref, floor };
+  }
+
+  /**
+   * F07 (granskning 3, G2): spara det ledarvärde texten renderade per målbro.
+   * @param {Array} presentationVessels - underlaget den renderade texten byggdes på
+   * @private
+   */
+  _rememberRenderedLeads(presentationVessels) {
+    if (!this._renderedLeadEtas) this._renderedLeadEtas = new Map();
+    if (!this.bridgeTextService || typeof this.bridgeTextService.presentedLead !== 'function') return;
+    const atMs = Date.now();
+    for (const target of TARGET_BRIDGES) {
+      let lead = null;
+      try {
+        lead = this.bridgeTextService.presentedLead(presentationVessels, target, { includeGpsHeld: true });
+      } catch (error) {
+        lead = null;
+      }
+      if (lead && isValidETA(lead.etaMinutes)) this._renderedLeadEtas.set(target, { eta: lead.etaMinutes, atMs });
+      else this._renderedLeadEtas.delete(target);
+    }
+  }
+
+  /**
+   * F07 (granskning 3, G2; granskning 4): det senast renderade ledarvärdet
+   * för målbron. Det gäller tills nästa rendering ersätter eller raderar det
+   * (_rememberRenderedLeads skriver vid varje generering som visas), dock
+   * högst RENDERED_LEAD_MAX_AGE_MS — så att ett värde från en text som inte
+   * längre genereras inte lever kvar. Gränsen är två fönster, inte ett:
+   * UI-ticken har samma period som fönstret (30 s), och vid tickgränsen är
+   * renderingen ofta 30,0x s gammal. Annars null (då gäller det levande).
+   * @param {string} target
+   * @returns {number|null}
+   * @private
+   */
+  _renderedLeadEta(target) {
+    const rec = this._renderedLeadEtas && this._renderedLeadEtas.get(target);
+    if (!rec) return null;
+    const age = Date.now() - rec.atMs;
+    return age >= 0 && age <= RENDERED_LEAD_MAX_AGE_MS ? rec.eta : null;
+  }
+
+  /**
+   * F07 (b3): går fixet ihop med båtens egen rörelse? Förflyttningen sedan
+   * förra fixet (rak linje, positionernas egna fixtider) delad med den
+   * största fart båten rapporterade i de två ändarna (golv 0,5 kn).
+   * @param {Object} vessel
+   * @returns {{ratio: number|null, moveKn: number|null, refKn: number|null, dtS: number|null}}
+   * @private
+   */
+  // eslint-disable-next-line class-methods-use-this
+  _fixKinematics(vessel) {
+    const prev = vessel && vessel._prevFixSample;
+    const none = {
+      ratio: null, moveKn: null, refKn: null, dtS: null,
+    };
+    if (!prev || !Number.isFinite(vessel.fixTs) || !Number.isFinite(prev.t)
+        || !Number.isFinite(vessel.lat) || !Number.isFinite(vessel.lon)) return none;
+    const dtS = (vessel.fixTs - prev.t) / 1000;
+    if (!(dtS > 0)) return { ...none, dtS };
+    const meters = geometry.calculateDistance(prev.lat, prev.lon, vessel.lat, vessel.lon);
+    if (!Number.isFinite(meters)) return { ...none, dtS };
+    const moveKn = meters / dtS / 0.514444;
+    const curSog = Number.isFinite(vessel._rawPositionSog) ? vessel._rawPositionSog : vessel.sog;
+    const sogs = [prev.sog, curSog].filter(Number.isFinite);
+    const refKn = Math.max(0.5, ...sogs);
+    return {
+      ratio: moveKn / refKn, moveKn, refKn, dtS,
+    };
+  }
+
+  /**
+   * F07: den båt vars ETA brotexten visar i fartygets målbroklausul just nu.
+   * Läser samma underlag som publiceringen (_findRelevantBoatsForBridgeText
+   * med _processingRemoval-filtret, sedan _bridgeTextPresentationVessels som
+   * tar bort eller ersätter GPS-hållna båtar) och samma val som texten
+   * (BridgeTextService.presentedLead: köer vid en tidigare bro utan minuter,
+   * zombier utan ETA-styrning, lägst giltig ETA). null om målbron saknar en
+   * klausul med prognos eller underlaget inte kan byggas.
+   * @param {Object} vessel
+   * @returns {Object|null}
+   * @private
+   */
+  _presentedGroupLead(vessel) {
+    try {
+      if (!this.bridgeTextService || typeof this.bridgeTextService.presentedLead !== 'function') return null;
+      const presented = this._bridgeTextPresentationVessels(this._findRelevantBoatsForBridgeText());
+      return this.bridgeTextService.presentedLead(presented, vessel.targetBridge, { includeGpsHeld: true });
+    } catch (error) {
+      this.debug(`⚠️ [ETA_CLAMP_RELEASE] ${vessel?.mmsi}: ledarvalet kunde inte byggas (${error.message}) — klampen gäller`);
+      return null;
+    }
   }
 
   /**
@@ -6257,6 +6491,14 @@ class AISBridgeApp extends Homey.App {
 
       // ENHANCED: Update devices with atomic change detection and dedupe
       const bridgeTextHash = this._hashString(bridgeText);
+      // F07 (granskning 3, G2): det senast renderade ledarvärdet per målbro.
+      // Det gäller tills nästa sådan rendering, högst två fönster.
+      // Brogruppens referens utgår från det användaren SER, inte från ett
+      // levande värde som ledarens eget fix just sänkt utan att texten hunnit
+      // renderas. Oförändrad text räknas också: den visade texten är densamma.
+      if (bridgeText === generatedBridgeText && !validationResult.shouldUseFallback) {
+        this._rememberRenderedLeads(presentationVessels);
+      }
       this.debug(`📱 [SNAPSHOT_PROCESS] Comparing: new="${bridgeText}" (hash: ${bridgeTextHash}) vs last="${this._lastBridgeText}" (hash: ${this._lastBridgeTextHash})`);
 
       // CRITICAL FIX: Use hash-based dedupe for exact change detection
@@ -7421,6 +7663,7 @@ class AISBridgeApp extends Homey.App {
                 // baslinje så nästa färska beräkning dämpas mot det användaren såg
                 vessel._etaPublishedValue = extrapolated;
                 vessel._etaPublishedAtMs = Date.now();
+                vessel._etaPublishedFromExtrapolation = true; // F07: baslinjen är Fix G:s
                 if (!Number.isFinite(vessel._etaExtrapolationBaseValue)) {
                   vessel._etaExtrapolationBaseValue = baseETA;
                 }
@@ -14079,6 +14322,8 @@ class AISBridgeApp extends Homey.App {
     this._watchdogOwner = null;
 
     if (this._lastBridgeTextVessels) this._lastBridgeTextVessels.clear();
+    if (this._renderedLeadEtas) this._renderedLeadEtas.clear();
+    if (this._unseenDampenRefs) this._unseenDampenRefs.clear();
 
     // Clear coalescing state maps
     if (this._microGraceBatches) this._microGraceBatches.clear();
