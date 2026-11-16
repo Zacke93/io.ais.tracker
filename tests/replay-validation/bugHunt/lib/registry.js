@@ -1311,7 +1311,7 @@ const PREDICATES = {
   // INV-21:s returresa till kontraktet, så en retur utan egen varning är en
   // kandidat (BUGGJAKT §7, rad 23).
   crossingWithinEventWindow: {
-    parametrar: { fönsterMs: C.BRIDGE_OPENING.CONVOY_WINDOW_MS, tickMs: C.BRIDGE_OPENING.TICK_INTERVAL_MS },
+    parametrar: { fönsterMs: C.BRIDGE_OPENING.CONVOY_WINDOW_MS, tickMs: C.BRIDGE_OPENING.TICK_INTERVAL_MS, golvMs: 60 * 1000 },
     fn(f, ctx, p) {
       const tc = crossingTimeOf(f);
       if (!Number.isFinite(tc) || !f.bro || !f.mmsi) return nej('saknar korsningstid, bro eller mmsi');
@@ -1327,6 +1327,16 @@ const PREDICATES = {
         if (längd.fel) return nej(längd.fel);
         return ok(`korsningen ${fmtT(tc)} ligger inom händelsens (${r.w.eventId || fmtT(r.w.t)}) första passage ${fmtT(r.first.t)} `
           + `+ ${p.fönsterMs / 1000} s, och båten var täckt av händelsen${längd.text}`);
+      }
+      // (ii) Den fysiska öppningen (2026-11-16, nattkorten F22 och F02 r2):
+      // en annan båt i en händelse som varnade minst golvMs före korsningen
+      // korsade inom fönstret från henne, och händelsen beskriver inte
+      // hennes egen passerade öppning (U15). konvoj.varnadFysiskÖppning.
+      const fys = konvoj.varnadFysiskÖppning({ mmsi: f.mmsi, bro: f.bro, tc }, { ...d, fönsterMs: p.fönsterMs, golvMs: p.golvMs });
+      if (fys.sant) {
+        return ok(`fysisk öppning: ${fys.y.mmsi} korsade ${fmtT(fys.y.t)}, ${Math.round(Math.abs(fys.y.t - tc) / 1000)} s från korsningen ${fmtT(tc)}, `
+          + `täckt av ${fys.w.eventId || fmtT(fys.w.t)} som varnade ${fmtT(fys.w.t)}, ${Math.round((tc - fys.w.t) / 1000)} s före (händelsens första korsning av en annan båt); `
+          + 'händelsen beskriver inte båtens egen passerade öppning (U15)');
       }
       if (!r.närmast) {
         return nej(r.otäckta
@@ -1811,11 +1821,18 @@ const PREDICATES = {
   // är hennes RECOVER-släpp, inte en första varning som kom sent. Den frågan
   // ägs av U17 (tystRecoverSammaÖppning), inte av varningsbarheten.
   missklassAccepterad: {
-    parametrar: { klasser: ['TYST_I_HORISONTEN', 'FÖRST_SEDD_FÖR_NÄRA', 'SNABBARE_ÄN_DEADLINE_TAKET', 'RÖRELSEBEVIS_FÖR_SENT', 'RIKTNINGSBEVIS_FÖR_SENT'] },
+    parametrar: {
+      klasser: ['TYST_I_HORISONTEN', 'FÖRST_SEDD_FÖR_NÄRA', 'SNABBARE_ÄN_DEADLINE_TAKET', 'RÖRELSEBEVIS_FÖR_SENT', 'RIKTNINGSBEVIS_FÖR_SENT', 'STILLA_KÖ_AVGÅNG_OSEDD'],
+      reservMs: C.UI_CONSTANTS.STALE_ETA_SOFT_THRESHOLD_MS,
+      tickMs: C.BRIDGE_OPENING.TICK_INTERVAL_MS,
+    },
     fn(f, ctx, p) {
       const named = p.klasser.find((k) => String(f.klass).includes(k));
       if (named) return ok(`missklassen ${named} är accepterad`);
       const b = f.belägg || {};
+      // T3:s bakåtblick bortom 10 min (2026-11-16) gäller bara U17-släppet vid
+      // täckningsslutet; där förklarar varningsbarheten inte varningen.
+      if (b.bakåtblick === 'täckningsslut') return nej('korsningen ligger mer än 10 min före varningen (T3:s bakåtblick till täckningsslutet): det är U17:s släpp, inte en fråga om varningsbarhet');
       const prov = [b.varningsbarhet, b.missklass].find((k) => p.klasser.includes(k));
       const tKors = f.orakel === 'T3' && b.sannPassage ? Date.parse(b.sannPassage.t) : NaN;
       const täckt = prov && Number.isFinite(tKors) && (((ctx && ctx.resultat && ctx.resultat.openingCoverage) || [])
@@ -1823,6 +1840,20 @@ const PREDICATES = {
       if (täckt) {
         return nej(`båten absorberades i ${täckt.eventId} ${fmtT(täckt.t)}, före sin korsning ${fmtT(tKors)}: varningen efter passagen är ett `
           + 'RECOVER-släpp (U17), inte en fråga om varningsbarhet');
+      }
+      // STILLA_KÖ_AVGÅNG_OSEDD (U38, 2026-11-16): reserven är priset bara om
+      // den kom i tid, högst en tick efter båtens sista fix före varningen +
+      // STALE_ETA_SOFT_THRESHOLD_MS. En senare reserv är ett fel i spärren.
+      if (prov === 'STILLA_KÖ_AVGÅNG_OSEDD') {
+        const v = b.varning || {};
+        const wT = Number.isFinite(v.t) ? v.t : Date.parse(v.t);
+        if (!Number.isFinite(wT)) return nej('STILLA_KÖ_AVGÅNG_OSEDD utan varningstid i belägget');
+        const sista = rowsOf(ctx, f.mmsi).filter((r) => Number.isFinite(r.lat) && r.aisTimestamp <= wT).pop();
+        if (!sista) return nej('STILLA_KÖ_AVGÅNG_OSEDD: ingen rad för båten före varningen');
+        if (wT - fixtid(sista) > p.reservMs + p.tickMs) {
+          return nej(`reserven ${fmtT(wT)} kom mer än ${p.reservMs / 1000} s + en tick efter sista fixen ${fmtT(fixtid(sista))}: spärren höll för länge (U38)`);
+        }
+        return ok(`båten var inte varningsbar: STILLA_KÖ_AVGÅNG_OSEDD, och reserven ${fmtT(wT)} kom inom ${p.reservMs / 1000} s + en tick efter sista fixen ${fmtT(fixtid(sista))} (U38)`);
       }
       if (prov) return ok(`båten var inte varningsbar: ${prov} (classifyMiss på världens rader)`);
       return nej(`varningsbarheten är ${b.varningsbarhet || b.missklass || 'okänd'} — ingen accepterad missklass`);

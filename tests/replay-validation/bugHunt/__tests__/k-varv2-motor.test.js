@@ -341,12 +341,21 @@ describe('Punkt 6: K-TYST-BÅT-NÄSTA-ÖPPNING gäller också T2 ÖPPNING-MISS:O
     expect(pred('tystRecoverSammaÖppning', { läge: 'nästa' })(fynd, ctx).skäl).toMatch(/604 s efter .* egen varning Stridsbergsbron#4 16:08:23 på tick, mer än 600 s/);
   });
 
-  test('[vakt] ingen egen varning efter korsningen (977, 1476, 1794): KANDIDAT', () => {
+  test('[vakt] ingen egen varning efter korsningen (977, 1476, 1794): K-NÄSTA gäller inte; 977 och 1794 KANDIDAT', () => {
     for (const k of ['w977', 'w1476', 'w1794']) {
       const { fynd, ctx } = fall(k);
-      expect([k, klassa(reg, fynd, ctx).klass]).toEqual([k, 'KANDIDAT']);
       expect(pred('tystRecoverSammaÖppning', { läge: 'nästa' })(fynd, ctx).skäl).toMatch(/ingen levererad varning för båten/);
     }
+    for (const k of ['w977', 'w1794']) {
+      const { fynd, ctx } = fall(k);
+      expect([k, klassa(reg, fynd, ctx).klass]).toEqual([k, 'KANDIDAT']);
+    }
+    // 1476 (2026-11-16, V1): 265848238 korsade 226 s efter 265848196, som
+    // Klaffbron#5 täckte och som varnades 678 s före hennes korsning. Öppningen
+    // var varnad (U2-VS-DEADLINE gren (ii), den fysiska öppningen); om varje
+    // båt ändå ska ha egen varning är postens öppna fråga.
+    const { fynd, ctx } = fall('w1476');
+    expect(klassa(reg, fynd, ctx)).toMatchObject({ klass: 'KÄND_ÖPPEN', post: 'U2-VS-DEADLINE', skäl: expect.stringMatching(/^fysisk öppning: 265848196 korsade 11:59:19/) });
   });
 
   test('[vakt] värld 1094 (triage A:s M4): fixet efter ledarens skattade passage hade prognosen efter fönstrets slut; KANDIDAT', () => {

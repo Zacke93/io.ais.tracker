@@ -237,8 +237,20 @@ describe('buggjägaren: beslutsregistret', () => {
       });
       expect(p(f(400), warnCtx([['211000010', 100], ['211000011', 400]], [['211000011', 50]])).sant).toBe(true);
       expect(p(f(900), warnCtx([['211000010', 100], ['211000011', 900]], [['211000011', 50]])).sant).toBe(false);
-      // M04: garantin förfaller bara medan båten är täckt av händelsen.
-      expect(p(f(400), warnCtx([['211000010', 100], ['211000011', 400]])).sant).toBe(false);
+      // M04: garantin förfaller bara medan båten är täckt av händelsen (gren
+      // (i), konvoj.inomHändelsefönster). Gren (ii), den fysiska öppningen
+      // (2026-11-16, V1), godtar en otäckt båt när händelsen varnade minst
+      // 60 s före hennes korsning och en annan täckt båt korsade inom fönstret.
+      const konvoj = require('../lib/konvoj');
+      const otäckt = warnCtx([['211000010', 100], ['211000011', 400]]);
+      const d = { varningar: otäckt.resultat.openingWarnings, korsningar: otäckt.gt, coverage: otäckt.resultat.openingCoverage };
+      expect(konvoj.inomHändelsefönster({ mmsi: '211000011', bro: 'Stridsbergsbron', tc: T0 + 400000 }, d).sant).toBe(false);
+      expect(p(f(400), otäckt)).toMatchObject({ sant: true, skäl: expect.stringMatching(/^fysisk öppning: 211000010 korsade/) });
+      // ... men inte när varningen kom under 60 s före hennes korsning, och
+      // inte när hon korsade mer än fönstret från den andra båten.
+      const sen = warnCtx([['211000010', 50], ['211000011', 40]]);
+      expect(p({ ...f(40), t: T0 + 40000 }, sen).sant).toBe(false);
+      expect(p(f(800), warnCtx([['211000010', 100], ['211000011', 800]])).sant).toBe(false);
     });
 
     test('crossingWithinEventWindow: båtens egen korsning är aldrig händelsens första passage (konvojbakkanten)', () => {

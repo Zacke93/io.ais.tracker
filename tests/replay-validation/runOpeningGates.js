@@ -42,7 +42,7 @@ const path = require('path');
 const { openingDeliveryFailures } = require('./openingDelivery');
 const corpora = require('./corpora');
 const {
-  BRIDGES, TARGET_BRIDGES, BRIDGE_OPENING, MOORING_DETECTION, QUAY_DEPARTURE_GATE,
+  BRIDGES, TARGET_BRIDGES, BRIDGE_OPENING, MOORING_DETECTION, QUAY_DEPARTURE_GATE, STATUS_HYSTERESIS, UI_CONSTANTS,
 } = require('../../lib/constants');
 const geometry = require('../../lib/utils/geometry');
 const { isNorthCog, isSouthCogStrict } = require('../../lib/utils/cogDirection');
@@ -397,6 +397,63 @@ function stillnessStay(inHorizon) {
 }
 
 /**
+ * STILLA_KÖ_AVGÅNG_OSEDD (2026-11-16, buggjägarens nattkort F02 r1/F06 r1;
+ * dirigentens beslut U38 på ägarens uppdrag: reservvarningen för en tyst båt
+ * i kö behåller 5 min). Båten låg stilla i kö före en ANNAN bro i
+ * färdriktningen, och avgången skedde i ett rapportglapp. Appens spärr vid en
+ * tidigare bro (docs/ARCHITECTURE.md, "Spärren vid en tidigare bro") håller då
+ * varningen tills ankaret + STALE_ETA_SOFT_THRESHOLD_MS (5 min) som reserv; en
+ * korsning före reserven + full ledtid gick inte att varna i tid utan att varna
+ * en halvtimme för tidigt för en båt som fortfarande väntar. Kraven, alla ur
+ * rådatan:
+ *   - de sista fixarna före passagen (minst två, minst 60 s, appens krav för
+ *     bekräftad kö i bridgeQueue.waitingBridge) ligger inom MOVE_POS_M från den
+ *     sista och har fart under MOVE_SOG_KN; ingen fix efter den sista;
+ *   - den sista ligger högst WAITING_CLEAR_DISTANCE från en annan bro än målbron
+ *     (inte Stallbackabron, som spärren inte räknar), på tillfartssidan i
+ *     passagens riktning (bridgeQueue.beforeBridge), och den bron ligger före
+ *     målbron i färdriktningen;
+ *   - passagen kom före sista fixen + STALE_ETA_SOFT_THRESHOLD_MS +
+ *     MIN_WARNABLE_MS: reserven kunde inte ge full ledtid. En senare passage är
+ *     OKLASSAD (reserven borde ha gått), liksom en båt som hördes i rörelse.
+ * Infört 2026-11-16 (V1). Triagen: S/omg2 natt-triage-r0 §1a, värld 3866.
+ * @param {object} passage - {t, bridge, dir, inferred}
+ * @param {object[]} inHorizon - {s, d, prev} i tidsordning
+ * @returns {string|null} beviset, eller null
+ */
+function unseenQueueDeparture(passage, inHorizon) {
+  if (passage.inferred || !inHorizon.length) return null;
+  const dir = { nord: 'north', syd: 'south' }[passage.dir] || null;
+  const target = TARGET_BRIDGE_POS.get(passage.bridge);
+  if (!dir || !target) return null;
+  const last = inHorizon[inHorizon.length - 1].s;
+  const still = (s) => Number.isFinite(s.sog) && s.sog < MOVE_SOG_KN;
+  if (!still(last)) return null;
+  let first = last;
+  let n = 0;
+  for (let i = inHorizon.length - 1; i >= 0; i--) {
+    const { s } = inHorizon[i];
+    const moved = geometry.calculateDistance(last.lat, last.lon, s.lat, s.lon);
+    if (!still(s) || !Number.isFinite(moved) || moved >= MOVE_POS_M) break;
+    first = s;
+    n++;
+  }
+  if (n < 2 || last.aisTimestamp - first.aisTimestamp < 60000) return null;
+  const ahead = (b) => (dir === 'north' ? b.lat < target.lat : b.lat > target.lat);
+  const queueAt = Object.values(BRIDGES).filter((b) => b && b.name !== passage.bridge && b.name !== 'Stallbackabron'
+    && ahead(b) && beforeBridge(last, b, dir))
+    .map((b) => ({ b, d: geometry.calculateDistance(last.lat, last.lon, b.lat, b.lon) }))
+    .filter((x) => Number.isFinite(x.d) && x.d <= STATUS_HYSTERESIS.WAITING_CLEAR_DISTANCE)
+    .sort((a, b) => a.d - b.d)[0];
+  if (!queueAt) return null;
+  const reserveMs = last.aisTimestamp + UI_CONSTANTS.STALE_ETA_SOFT_THRESHOLD_MS;
+  if (!(passage.t < reserveMs + MIN_WARNABLE_MS)) return null;
+  return `stilla i kö ${Math.round(queueAt.d)} m före ${queueAt.b.name} från ${iso(first.aisTimestamp)} till sista fixen `
+    + `${iso(last.aisTimestamp)} (${n} fixar, sog < ${MOVE_SOG_KN} kn), avgången osedd; passagen ${secs(passage.t - last.aisTimestamp)} `
+    + `efter sista fixen, före reserven (sista fixen + ${mins(UI_CONSTANTS.STALE_ETA_SOFT_THRESHOLD_MS)}) + ${secs(MIN_WARNABLE_MS)} (U38)`;
+}
+
+/**
  * Klassificera en MISS mot rådata.
  *
  * ACCEPTERADE klasser kräver mätbara hinder i jsonl:en:
@@ -413,6 +470,8 @@ function stillnessStay(inHorizon) {
  *                           nattens NANNA/SALTYX-klass.
  *   RIKTNINGSBEVIS_FÖR_SENT — tidigare rörelse avsåg motsatt/okänd riktning;
  *                           rätt anflygning blev belagd först för sent.
+ *   STILLA_KÖ_AVGÅNG_OSEDD — stilla i kö före en annan bro, avgången i ett
+ *                           rapportglapp före U38-reserven (unseenQueueDeparture).
  * Allt annat är OKLASSAD och RÖTT.
  *
  * RÖRELSEBEVISET HAR TRE LED (M2b, RUNDA 4, 2026-08-23). Grinden ska svara på
@@ -589,6 +648,15 @@ function classifyMiss(passage, samples, windowStartMs, includeWindowStart = fals
         : `första belagda anflygningen ${directionEvidence.label} ${iso(directionEvidence.t)} `
           + `(${directionEvidence.why}) — endast ${secs(passage.t - directionEvidence.t)} före passagen, `
           + `garantifönstret kräver ${secs(MIN_WARNABLE_MS)}`,
+    };
+  }
+
+  const queueDeparture = unseenQueueDeparture(passage, inHorizon);
+  if (queueDeparture) {
+    return {
+      klass: 'STILLA_KÖ_AVGÅNG_OSEDD',
+      accepted: true,
+      bevis: queueDeparture,
     };
   }
 

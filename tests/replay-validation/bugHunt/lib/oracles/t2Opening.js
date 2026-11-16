@@ -100,6 +100,17 @@ function explainT2(p, data, { ledtid = false, warnable = null } = {}) {
       eventId: u2.w.eventId,
     };
   }
+  // U2-VS-DEADLINE (ii), den fysiska öppningen (2026-11-16): samma definition
+  // som registrets predikat, i samma ordning.
+  const fys = konvoj.varnadFysiskÖppning(k, data);
+  if (fys.sant) {
+    return {
+      post: 'U2-VS-DEADLINE',
+      klass: 'KÄND_ÖPPEN',
+      varför: `fysisk öppning: ${fys.y.mmsi} korsade ${hms(fys.y.t)} inom CONVOY_WINDOW_MS, täckt av ${fys.w.eventId} som varnade ${hms(fys.w.t)}`,
+      eventId: fys.w.eventId,
+    };
+  }
   const j13 = konvoj.ickeMedlemEmellan(k, data);
   if (j13.sant) {
     return {
@@ -260,6 +271,46 @@ function judgeT2T3(ctx) {
     if (s) return `${s.kind === 'moor' ? 'förtöjd' : 'stopp'} ${hms(s.t0)}–${hms(s.t1)}`;
     return null;
   };
+  // U17-släppet efter passagen (2026-11-16, nattkorten F07 r2/r3 och F24):
+  // en tyst medlem som korsade medan en TIDIGARE händelse E täckte henne
+  // släpps vid E:s täckningsslut och varnas då, och det kan vara mer än
+  // LATE_LOOKBACK_MS efter hennes korsning när E:s första passage bokfördes
+  // sent (fönstret räknas från bokföringen, U17). Korsningen räknas då till
+  // varningen om varningen kom senast en tick efter E:s fönsterslut:
+  // max(E:s varning, bokföringen av E:s första passage) + CONVOY_WINDOW_MS
+  // ur domspåret, och utan bokföring armens täckningsslut i hennes dom i E.
+  // Släpptes hon vid E:s täckningsslut in i en annan händelse vid bron
+  // (återabsorption i samma utvärdering, J13-kedjan) gäller kedjans sista
+  // händelse. Utslaget blir VARNING-EFTER-SANN-PASSAGE, som registrets
+  // U17-post prövar med sina egna villkor; utan sådan händelse blir det
+  // FANTOM-UTAN-AVBROTT som förut. Triagen prövade 30 min fast bakåtblick;
+  // den här är bunden till händelsen.
+  const verdicts = Array.isArray(result.openingCoverageVerdicts) ? result.openingCoverageVerdicts : [];
+  const täckningsslutetVidKorsning = (w, x) => {
+    const E0 = warnings.filter((e) => e !== w && e.eventId !== w.eventId && e.bridge === w.bridge && e.t <= x.t
+      && konvoj.täcktAv(e, x.mmsi, coverage, x.t).sant).pop();
+    if (!E0) return false;
+    const m = String(x.mmsi);
+    let E = E0;
+    for (let steg = 0; steg < 10; steg++) {
+      const släpp = verdicts.filter((v) => v && String(v.mmsi) === m && v.eventId === E.eventId && v.bridge === w.bridge
+        && v.verdict && v.verdict.kind === 'täckningsslut' && v.t > x.t && v.t < w.t);
+      const nästa = coverage.find((c) => c.reason === 'absorbed' && String(c.mmsi) === m && c.bridge === w.bridge
+        && c.eventId !== E.eventId && c.eventId !== w.eventId && släpp.some((v) => Math.abs(c.t - v.t) <= BO.TICK_INTERVAL_MS));
+      const E2 = nästa ? warnings.find((e) => e.eventId === nästa.eventId) : null;
+      if (!E2) break;
+      E = E2;
+    }
+    const iE = verdicts.filter((v) => v && v.eventId === E.eventId);
+    const bok = iE.map((v) => v.event && v.event.firstPassageRegisteredAt).filter(Number.isFinite);
+    let slut = null;
+    if (bok.length) slut = Math.max(E.t, Math.min(...bok)) + CONVOY_MS;
+    else {
+      const arm = iE.filter((v) => String(v.mmsi) === String(x.mmsi) && v.arm && Number.isFinite(v.arm.coverUntilMs)).pop();
+      if (arm) slut = arm.arm.coverUntilMs;
+    }
+    return slut !== null && w.t <= slut + BO.TICK_INTERVAL_MS;
+  };
   const judgePhantom = (p, bucket) => {
     const w = p.warning;
     const mem = membersOf(w, coverage);
@@ -272,15 +323,21 @@ function judgeT2T3(ctx) {
     }
     // Varningen kom EFTER att en medlem enligt L0 redan passerat bron
     // (konvojfönstrets bakkant: täckningen släpps vid referensankomst + 10 min).
+    // Bakåtblicken är LATE_LOOKBACK_MS, eller längre när medlemmen var täckt
+    // av en tidigare händelse när hon korsade och varningen kom senast en tick
+    // efter den händelsens fönsterslut (täckningsslutetVidKorsning).
     const crossedBefore = L0 ? L0.crossings.filter((x) => x.bridge === w.bridge && mem.has(x.mmsi)
-      && x.t < w.t && x.t >= w.t - LATE_LOOKBACK_MS).pop() : null;
+      && x.t < w.t && (x.t >= w.t - LATE_LOOKBACK_MS || täckningsslutetVidKorsning(w, x))).pop() : null;
     if (crossedBefore) {
       // Var båten varningsbar inför den passagen? (samma prov som T2)
       const passage = {
         t: crossedBefore.t, mmsi: crossedBefore.mmsi, bridge: w.bridge, inferred: false, dir: crossedBefore.dir, tFrom: crossedBefore.t, tTo: crossedBefore.t,
       };
       const warnable = gates.classifyMiss(passage, samples, null);
-      const förklaring = warnable.accepted
+      // Bakåtblicken bortom LATE_LOOKBACK_MS gäller bara U17-släppet:
+      // varningsbarheten förklarar inte en varning så långt efter passagen.
+      const utvidgad = crossedBefore.t < w.t - LATE_LOOKBACK_MS;
+      const förklaring = warnable.accepted && !utvidgad
         ? { post: 'O1-ACCEPTERADE-MISSKLASSER', klass: 'ACCEPTERAD', varför: `${warnable.klass}: ${String(warnable.bevis || '').slice(0, 160)}` }
         : null;
       if (förklaring) note('T3', förklaring.post);
@@ -304,6 +361,7 @@ function judgeT2T3(ctx) {
           konvoj: convoyEvidence(crossedBefore.mmsi, w.bridge, crossedBefore.t),
           rådataklass: p.klass,
           varningsbarhet: warnable.klass,
+          ...(utvidgad ? { bakåtblick: 'täckningsslut' } : {}),
           förklaring,
         },
       }));
@@ -332,6 +390,23 @@ function judgeT2T3(ctx) {
         },
       }));
       return;
+    }
+    // KAJVOBBEL mot L0 (2026-11-16, nattkortet F19): rådataklassen säger att
+    // varningen gällde en stillaliggare, men L0 skiljer en båt i kö från en
+    // förtöjd. Låg medlemmen enligt L0 i kö (inte förtöjd) när varningen gick
+    // och korsade bron eller vände inom 120 min, var det en varning för en
+    // köande båt (spärren vid en tidigare bro släpper efter tystnad, familj
+    // D), inte en kajliggare; FALSKLARM-AVBRUTEN-GLES:s regel, tillämpad i
+    // oraklet. Kön själv räknas inte som avbrott. En förtöjd båt, eller en
+    // kö utan korsning eller vändning, fälls som förut.
+    if (L0 && bucket === 'FANTOM' && p.klass === 'KAJVOBBEL') {
+      const kö = L0.stops.find((x) => mem.has(x.mmsi) && x.kind !== 'moor' && x.t0 <= w.t && x.t1 >= w.t);
+      const sedan = kö && (L0.crossings.some((x) => x.bridge === w.bridge && x.mmsi === kö.mmsi && x.t >= w.t && x.t <= w.t + INTENT_MS)
+        || L0.uturns.some((x) => x.mmsi === kö.mmsi && x.t >= w.t && x.t <= w.t + INTENT_MS));
+      if (sedan) {
+        räknare.T3['accepterade'][`${p.klass} (kö enligt L0)`] = (räknare.T3['accepterade'][`${p.klass} (kö enligt L0)`] || 0) + 1;
+        return;
+      }
     }
     let förklaring = null;
     if (L0 && [...mem].some((m) => reversalsNear(L0, m, w.t) >= 2)) {
@@ -369,7 +444,15 @@ function judgeT2T3(ctx) {
       const list = samples.get(m) || [];
       let last = null;
       for (const s of list) if (s.aisTimestamp <= w.t) last = s;
-      if (last && w.t - last.aisTimestamp > FROZEN_FIX_MS) {
+      // En rätt och i tid varnad båt (2026-11-16, nattkortet F11 r1): korsar
+      // medlemmen enligt L0 bron 60 s–20 min efter varningen hade varningen
+      // full ledtid och gällde öppningen hon tog, hur gammal fixen än var
+      // (ZELDA i kö, varnad på ett 19,5 min gammalt fix vid täckningsslutet,
+      // korsade 620 s senare). En korsning före varningen + golvet, efter
+      // fönstret eller ingen alls fälls som förut.
+      const iTid = L0 && L0.crossings.some((x) => x.bridge === w.bridge && String(x.mmsi) === m
+        && x.t >= w.t + FLOOR_MS && x.t <= w.t + gates.PHANTOM_WINDOW_MS);
+      if (last && w.t - last.aisTimestamp > FROZEN_FIX_MS && !iTid) {
         out.push(fynd({
           orakel: 'T3',
           klass: 'VARNING-PÅ-FRUSET-FIX',

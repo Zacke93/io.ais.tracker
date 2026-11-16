@@ -95,7 +95,9 @@ describe('U18 U18-RETUR-BEKRÄFTAD-SENT: knuten till Fix D:s bekräftelse, inte 
   const p18 = pred('fixDBekräftarReturSent');
   const w18Skäl = (k) => {
     const c = klassa(reg, fall(k).fynd, fall(k).ctx);
-    return { c, skäl: (prövad(c, 'U18-RETUR-BEKRÄFTAD-SENT') || {}).skäl || c.skäl };
+    // U18:s eget skäl, också när en senare post tog utslaget.
+    const egen = (prövad(c, 'U18-RETUR-BEKRÄFTAD-SENT') || {}).skäl;
+    return { c, skäl: egen || (c.post === 'U18-RETUR-BEKRÄFTAD-SENT' ? c.skäl : p18(fall(k).fynd, fall(k).ctx).skäl) };
   };
 
   test('[träff] värld 18 (ALVA): OKLASSAD, en omvänd fix 11:42:45 före korsningen 11:46:35, bekräftad först 11:54:01', () => {
@@ -142,9 +144,12 @@ describe('U18 U18-RETUR-BEKRÄFTAD-SENT: knuten till Fix D:s bekräftelse, inte 
     expect(skäl).toMatch(/förklaras inte av U18/);
   });
 
-  test('[vakt] värld 1317 (OKLASSAD vid Stridsbergsbron): återkorsningen av Järnvägsbron bekräftade 100 s före korsningen; KANDIDAT', () => {
+  test('[vakt] värld 1317 (OKLASSAD vid Stridsbergsbron): återkorsningen av Järnvägsbron bekräftade 100 s före korsningen; U18 gäller inte', () => {
     const { c, skäl } = w18Skäl('w1317');
-    expect(c.klass).toBe('KANDIDAT');
+    // Sedan 2026-11-16 (V1) tar U2-VS-DEADLINE:s gren (ii) utslaget: Stridsbergsbron#5
+    // varnade 271 s före hennes korsning, och 265535649, som #5 täckte, korsade
+    // 452 s efter henne (den fysiska öppningen, KÄND_ÖPPEN). U18 avvisar som förut.
+    expect(c).toMatchObject({ klass: 'KÄND_ÖPPEN', post: 'U2-VS-DEADLINE', skäl: expect.stringMatching(/^fysisk öppning: 265535649/) });
     expect(skäl).toMatch(/riktningshändelse för båten 12:33:26 \(journeyResets\), efter vändningen 12:30:36 och före korsningen 12:35:06, men Fix D bekräftade 12:36:07/);
   });
 

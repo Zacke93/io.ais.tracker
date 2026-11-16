@@ -63,7 +63,11 @@
 // Etapp 6: armens maximala livslängd efter sitt sista fix. INV-21 använder
 // den som fönster — en öppningsvarning kan aldrig vila på en observation
 // äldre än så, och en passage längre bakåt tillhör därför en ANNAN resa.
-const { BRIDGE_OPENING } = require('../../lib/constants');
+const { BRIDGE_OPENING, UI_CONSTANTS } = require('../../lib/constants');
+
+// U21 (dirigentens beslut 2026-11-05, ARCHITECTURE "Returpassagen"): en
+// returnotis släpps högst så här långt efter den interpolerade korsningen.
+const U21_RETURN_MAX_LATENESS_MS = UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS;
 
 const COUNT_WORDS = '(En|Två|Tre|Fyra|Fem|Sex|Sju|Åtta|Nio|Tio|[2-9]\\d?)';
 const TARGET = '(Klaffbron|Stridsbergsbron)';
@@ -155,8 +159,21 @@ const DEFAULT_FLASH_FATAL_MAX_S = 300;
  * @param {object[]} targetPassages - appens egna registrerade målbropassager
  * @returns {object[]} {iso, spanS, bridge, count, fromT, toT} i textordning
  */
-function collectDefaultSandwiches(transitions, targetPassages) {
+function collectDefaultSandwiches(transitions, targetPassages, textLeads = null) {
   const out = [];
+  // Bärarna (2026-11-16, nattkortet F05): båtarna med målbron i texten före
+  // och efter, ur replayRunnerns bridgeTextLeads. 'olika' när båda sidor har
+  // underlaget och ingen båt finns på båda; null när underlaget saknas.
+  const leadIndex = new Map();
+  for (const x of textLeads || []) {
+    if (x && Number.isFinite(x.t) && typeof x.text === 'string' && Array.isArray(x.vessels)) leadIndex.set(`${x.t}|${x.text}`, x);
+  }
+  const båtarFör = (tr, bridge) => {
+    const meta = leadIndex.get(`${tr.t}|${tr.text}`);
+    if (!meta) return null;
+    const set = new Set(meta.vessels.filter((v) => v && v.targetBridge === bridge).map((v) => String(v.mmsi)));
+    return set.size ? set : null;
+  };
   const clauseSig = (text) => {
     const m = new Map();
     for (const clause of text.split('; ')) {
@@ -184,8 +201,12 @@ function collectDefaultSandwiches(transitions, targetPassages) {
         (p) => p.bridge === bridge && p.t >= prev.t && p.t <= next.t,
       );
       if (passageBetween) continue;
+      const före = båtarFör(prev, bridge);
+      const efter = båtarFör(next, bridge);
+      let bärare = null;
+      if (före && efter) bärare = [...före].some((m) => efter.has(m)) ? 'samma' : 'olika';
       out.push({
-        iso: transitions[i].iso, spanS, bridge, count: count.word, fromT: prev.t, toT: next.t,
+        iso: transitions[i].iso, spanS, bridge, count: count.word, fromT: prev.t, toT: next.t, bärare,
       });
     }
   }
@@ -229,6 +250,17 @@ function validateInvariants(result) {
   // notis om en passage som ännu inte skett ("har precis passerat" medan hon
   // väntar på bortre sidan); inte heller det legitimerar paret.
   const legitimateRelease = (r) => r && r.verdict !== 'bortre' && r.verdict !== 'för tidig';
+  // U14/U21 (2026-11-16, buggjägarens nattkort F08 och F15): notisen är
+  // ett legitimt returpassagesläpp (samma båt, bro och tick som en post i
+  // visitReturnReleases) som kom högst U21:s 10 min efter den interpolerade
+  // korsningen. Ett sådant släpp väntar per beslut på en fix som bevisar
+  // returen, så det kommer minuter efter korsningen och ofta långt från
+  // bron; INV-11 och INV-7 prövar det mot U21 i stället för mot 400 m och
+  // 60 s. Ett släpp utan post, med domen bortre eller för tidig, eller mer
+  // än 10 min sent döms som förut.
+  const u21ReturnRelease = (n) => (n && Number.isFinite(n.t) ? visitReturnReleases.find((r) => legitimateRelease(r)
+    && String(r.mmsi) === String(n.mmsi) && r.bridge === n.bridge && Number.isFinite(r.t) && Math.abs(r.t - n.t) <= 1000
+    && Number.isFinite(r.crossedAt) && n.t - r.crossedAt >= 0 && n.t - r.crossedAt <= U21_RETURN_MAX_LATENESS_MS) || null : null);
   for (const r of visitReturnReleases) {
     if (r && r.verdict === 'bortre') {
       violations.push(
@@ -361,14 +393,31 @@ function validateInvariants(result) {
   const INV3_LEADER_DROP_MIN = 6;
   const newLevelHolds = (series, i) => !series.slice(i + 1).some((s) => s.t - series[i].t <= INV3_LEADER_HOLD_MS
     && (s.lead === series[i].lead || s.count === series[i].count) && s.eta <= series[i].eta - INV3_LEADER_DROP_MIN);
+  // BEKRÄFTAD VÄNDNING (2026-11-16, buggjägarens nattkort F01 och F05): den
+  // förra bäraren vände, appen bekräftade vändningen (journeyReset mellan
+  // texterna) och hon bär inte längre klausulen (hon saknas i nya textens
+  // båtar eller har en annan målbro). Då är den nya tiden en annan båts
+  // (BRISEN "om 6" vänder, JOLLY "om 12", värld 19537). Nivån måste hålla
+  // som för de andra bevisen. En ensam båt som vänder bort och vars tid
+  // stiger innan vändningen bekräftats har ingen ny bärare och döms som förut.
+  const journeyResetsInv3 = Array.isArray(result.journeyResets) ? result.journeyResets : [];
   const leaderChangeExplained = (prev, cur, bridge) => {
     if (!prev.lead || !cur.lead || prev.lead === cur.lead || prev.eta < 1) return null;
     const förra = cur.meta && Array.isArray(cur.meta.vessels) ? cur.meta.vessels.find((v) => v && String(v.mmsi) === prev.lead) : null;
     if (förra && förra.waitingAt && cur.text.includes(`väntar vid ${förra.waitingAt}`)) return `${prev.lead} väntar vid ${förra.waitingAt}`;
     const passage = inv3Passages.find((p) => p && String(p.mmsi) === prev.lead && p.bridge === bridge
       && Number.isFinite(p.t) && p.t > prev.t && p.t <= cur.t);
-    return passage ? `${prev.lead} passerade ${bridge}` : null;
+    if (passage) return `${prev.lead} passerade ${bridge}`;
+    return bärarenVände(prev, cur, bridge);
   };
+  function bärarenVände(prev, cur, bridge) {
+    if (!prev.lead || !cur.lead || prev.lead === cur.lead || prev.eta < 1) return null;
+    if (!cur.meta || !Array.isArray(cur.meta.vessels)) return null;
+    const förra = cur.meta.vessels.find((v) => v && String(v.mmsi) === prev.lead);
+    if (förra && förra.targetBridge === bridge) return null;
+    const vände = journeyResetsInv3.find((r) => r && String(r.mmsi) === prev.lead && Number.isFinite(r.t) && r.t > prev.t && r.t <= cur.t);
+    return vände ? `${prev.lead} vände (journeyReset ${new Date(vände.t).toISOString()})` : null;
+  }
   for (const [bridge, series] of clauseSeries) {
     for (let i = 1; i < series.length; i++) {
       const dt = (series[i].t - series[i - 1].t) / 1000;
@@ -434,8 +483,14 @@ function validateInvariants(result) {
         // sample. Äkta oscillation (färsk→färsk→färsk) fälls som förut.
         const extrapolationCorrection = (x.approx === true && y.approx !== true)
           || (y.approx === true && x.approx !== true && x2.approx !== true);
+        // Bärarbyte efter bekräftad vändning (2026-11-16, nattkortet F05 r2,
+        // "13→17→12"): X′ är en annan båts tid när Y:s bärare vände mellan Y
+        // och X′ och slutade bära klausulen, och den nya nivån håller. Bara
+        // vändningen räknas här; köet och passagen gäller som förut bara
+        // upp-hoppet.
+        const vändBärare = bärarenVände(y, x2, bridge) && newLevelHolds(series, i);
         if (span <= 240 && Math.abs(y.eta - x.eta) >= oscThreshold && Math.abs(x2.eta - x.eta) <= 1
-            && x.count === y.count && y.count === x2.count && !extrapolationCorrection) {
+            && x.count === y.count && y.count === x2.count && !extrapolationCorrection && !vändBärare) {
           violations.push(`ETA-OSCILLATION: ${x2.iso} ${bridge} ${x.eta}→${y.eta}→${x2.eta} inom ${Math.round(span)}s`);
         }
       }
@@ -486,8 +541,12 @@ function validateInvariants(result) {
       .filter((t) => Number.isFinite(t))
       .sort((a, b) => a - b);
     const sortedPasses = [...passList].sort((a, b) => a.t - b.t);
+    // U21: ett returpassagesläpp för en korsning senast vid registreringen
+    // (+ 60 s) räknas i tid när det kom högst 10 min efter korsningen.
+    const u21Releases = (notifsByKey.get(key) || []).map((n) => ({ n, r: u21ReturnRelease(n) })).filter((x) => x.r);
     sortedPasses.forEach((p, idx) => {
-      const timelyCount = notifTimes.filter((t) => t <= p.t + 60000).length;
+      const timelyCount = notifTimes.filter((t) => t <= p.t + 60000
+        || u21Releases.some((x) => x.n.t === t && x.r.crossedAt <= p.t + 60000)).length;
       const totalForKey = notifTimes.length;
       // Flagga SEN bara när notiser FINNS för passagen (missen fångas av INV-5).
       if (totalForKey >= idx + 1 && timelyCount < idx + 1) {
@@ -521,8 +580,14 @@ function validateInvariants(result) {
   // flappade "på väg mot Klaffbron"↔"Inga båtar". INV-4 ser bara
   // 90 s-sandwichar med generisk text — den här klassen är längre och går
   // hela vägen till DEFAULT.
-  for (const s of collectDefaultSandwiches(transitions, targetPassages)) {
+  // SAMMA BÄRARE (2026-11-16, buggjägarens nattkort F05): en "Inga båtar"
+  // mellan texter om OLIKA båtar är ingen dold båt (VEGA vänder och tas bort,
+  // ALVA får sin målbro 30 s senare, värld 18022). Fälls när någon båt finns
+  // på båda sidor, eller när underlaget saknas (äldre resultat). INV-14W
+  // (WARN) dömer som förut.
+  for (const s of collectDefaultSandwiches(transitions, targetPassages, result.bridgeTextLeads)) {
     if (s.spanS > DEFAULT_FLASH_FATAL_MAX_S) continue;
+    if (s.bärare === 'olika') continue;
     violations.push(`DEFAULT-FLASH: ${s.iso} "Inga båtar" inklämd (${Math.round(s.spanS)}s) mellan två "${s.count} … ${s.bridge}"-texter utan passage`);
   }
 
@@ -637,7 +702,9 @@ function validateInvariants(result) {
     // INV-11 Distansrimlighet: proximity-källor inom triggerradien (+marginal);
     // fallback-/inferenskällor får vara sena men aldrig bortom 10 km-sanity.
     if (Number.isFinite(n.distance)) {
-      if (PROXIMITY_SOURCES.has(n.source) && n.distance > 400) {
+      if (PROXIMITY_SOURCES.has(n.source) && n.distance > 400 && n.distance <= 10000 && u21ReturnRelease(n)) {
+        // U21: returnotisen får komma långt från bron (se u21ReturnRelease).
+      } else if (PROXIMITY_SOURCES.has(n.source) && n.distance > 400) {
         violations.push(`INV-11 DISTANS: ${n.mmsi}@${n.bridge} @${n.distance}m via source=${n.source} (proximity-källa >400 m)`);
       } else if (n.distance > 10000) {
         violations.push(`INV-11 DISTANS: ${n.mmsi}@${n.bridge} @${n.distance}m via source=${n.source} (bortom 10 km-sanity)`);
