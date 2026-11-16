@@ -1294,9 +1294,34 @@ båt.
   positionerna ligger inom `BOUNDING_BOX`, GPS-hoppsanalysen behöver en föregående position
   (och den andra positionen stämmer med farten), och C6:s rimlighetsvakt (> 10 kn kräver
   positionsstöd) gäller bara öppningsbeväpningen. En båt som redan följs berörs inte, så en
-  enstaka orimlig fart får henne inte att försvinna. Kända gränser: en bil som först
-  rapporterar under 15 kn visas som båt, och en riktig båt som håller minst 15 kn från första
-  positionen visas först när hon saktar in; ingetdera finns i banken eller fältet.
+  enstaka orimlig fart får henne inte att försvinna. Banken och k1/k2 har inga positioner mellan
+  13 och 21,7 kn, så varje gräns mellan cirka 13,5 och 21,5 kn ger samma utfall där; 15 kn är
+  mittpunkten. *Kända gränser* (ingen av dem finns i banken eller fältet; siffrorna är
+  granskningens syntetiska prov, bas mot U41):
+  (a) **En verklig båt på minst 15 kn kostar notiser och ledtid.** Hon skapas först när hon
+  saktar in under 15 kn. Söderifrån mot Klaffbron (16 kn från Olidebron, saktar in 400 m före
+  bron) sjunker varningens ledtid från 276 till 156 s, och med 60 s mellan positionerna och
+  inbromsning 250 m före bron från 217 till 97 s; förvarningarna för Kanalinfarten och Olidebron
+  blir "passerade … under AIS-tystnad". Norrifrån (16 kn, saktar in 500 m före Stridsbergsbron)
+  går ledtiden från 404 till 194 s och förvarningen för Stallbackabron blir "passerade … under
+  AIS-tystnad". En båt som håller 16 kn hela vägen (en RIB under broarna) syns inte alls (basen:
+  5 notiser, 2 varningar, 7 texter).
+  (b) **"En båt som redan följs" gäller bara tills appen raderar henne.** Efter en omstart, en
+  närhetstimeout eller 30-minutersbackstoppen prövas hon som ny sändare, och en båt som då går
+  minst 15 kn är osynlig tills hon saktar in (prov: omstart mitt i en 16-knopssträcka, varningen
+  för Stridsbergsbron 60 s senare än i basen, ledtid 194 s).
+  (c) **Ett fordon som först rapporterar under 15 kn visas som båt.** Prov: 12 kn på
+  Stallbackabron, sedan 28 och 21,7 kn (den sista 877 m från farleden): notisen "Okänd båt närmar
+  sig Stallbackabron", texten "på väg mot Stridsbergsbron" i 19 min och en öppningsvarning för
+  Klaffbron, lika i bas och U41. Att ta bort en redan följd sändare när två positioner i rad
+  rapporterar minst 15 kn och förflyttningen mellan dem också motsvarar minst 15 kn (kostnad 0 i
+  banken; PRICKBJORNs spik faller inte på det, förflyttningen var 9,9 kn) är INTE byggt:
+  borttagningen går genom skyddszonen (300 m från en bro skjuter upp borttagningen), exit-
+  fallbacken i `_onVesselRemoved` (kan själv skicka notiser), och öppningstjänsten, som
+  medvetet behåller armen vid en borttagning (`BridgeOpeningService.removeVessel` släpper armar
+  bara med `force`, i dag endast vid journey-reset). Fordonets varning i provet kom ur just en
+  sådan kvarvarande arm; att släppa den kräver en egen granskad ändring av öppningstjänstens
+  tillstånd (händelser och konvojmedlemskap).
 - **Återinträdesspärren och återvändaren (nattjaktens F04, 2026-11-16).** I 10 min efter en
   avslutad resa avvisar `updateVessel` varje position för mmsi:t (`VESSEL_REENTRY_BLOCK`), och
   `_shouldAssignTargetBridge` spärrar målbron lika länge (`REENTRY_BLOCK`). Spärren finns mot

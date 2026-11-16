@@ -494,8 +494,9 @@ function classifyMiss(passage, samples, windowStartMs, includeWindowStart = fals
   // DEADLINE_MAX_SPEED_KN på anflygningen (dig3: 1798 sampel, MAX veff
   // 9,37 kn ⇒ 0 garantibrott vid CAP=10). Ett fartyg som faktiskt går
   // fortare är utanför den populationen och KAN inte varnas med utlovad
-  // marginal — det är fysik, inte bugg. Mätt: 218023240 @ Stridsbergsbron
-  // 2026-07-14 gick 2197 m på 210 s = 20,3 kn (sog-rapport 33,2 kn).
+  // marginal — det är fysik, inte bugg. Mätt: sändaren 218023240 (ett
+  // landfordon, U41) @ Stridsbergsbron 2026-07-14 gick 2197 m på 210 s =
+  // 20,3 kn (sog-rapport 33,2 kn).
   const veffKn = seenMs > 0 ? (first.d / (seenMs / 1000)) / KN_TO_MPS_BOS : null;
   if (!passage.inferred && veffKn !== null && veffKn > BRIDGE_OPENING.DEADLINE_MAX_SPEED_KN) {
     return {

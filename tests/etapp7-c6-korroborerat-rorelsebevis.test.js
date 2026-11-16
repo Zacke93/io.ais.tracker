@@ -108,6 +108,8 @@ describe('C6: korroborerat rörelsebevis', () => {
   test('ORIMLIG fart MED nettoförflyttning räknas som rörelsesampel', () => {
     // 218023240, korpus 20260713-41h: 33,2 kn följt av 21,7 kn med 2 020 m
     // nettoförflyttning mellan sampeln — fysiskt konsistent, inte artefakt.
+    // (Sändaren är ett landfordon och skapas inte längre som båt, U41; testet
+    // prövar C6-predikatet direkt.)
     const v = makeVessel({ sog: 33.2 });
     svc._updateMooringEvidence(v, 33.2); // net = 0 → informationslöst
     expect(v._corroboratedMovementPending).toBe(false);
