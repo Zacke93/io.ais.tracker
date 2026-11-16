@@ -7,10 +7,21 @@
  * `tools/foreslaKallrader.js` (förslag till nya rader när ett dokument har
  * ändrats). Nyckelordstabellen ligger i `kallrader-forvantat.json`:
  * [post, "fil:rader", nyckelord på det citerade styckets första rad,
- * [fler nyckelord någonstans i stycket]]. Se docs/BUGGJAKT.md §7
- * (Radhänvisningarna vid sammanslagning).
+ * [fler nyckelord någonstans i stycket], kontrollsumma av styckets text].
+ * Se docs/BUGGJAKT.md §7 (Radhänvisningarna vid sammanslagning).
+ *
+ * KONTROLLSUMMAN (2026-11-16, V1): att nyckelordet står någonstans i spannet
+ * räcker inte. Vid tre sammanslagningar valde förslagsskriptet ett NYTT
+ * stycke längre upp som råkade bära samma nyckelord (U17 och K-NÄSTA, där
+ * spannet blev 65 rader i stället för 16), och gav en fortsättning samma
+ * startrad som postens första hänvisning (S10). Både skriptet och testet var
+ * gröna, och `--skriv` låste felet i tabellen. Nu bär varje tabellrad
+ * sha256 (16 hexsiffror) av det citerade styckets exakta text, kontrollen
+ * fäller ett stycke som bytt innehåll, och förslaget väljer bara ett stycke
+ * med SAMMA text: exakt en träff, annars inget förslag.
  */
 
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
@@ -86,7 +97,12 @@ function läsare(root = ROOT) {
   return läs;
 }
 
-const tabellen = (förväntat) => new Map(förväntat.map(([post, ref, först, inom = []]) => [`${post}|${ref}`, { först, inom }]));
+const tabellen = (förväntat) => new Map(förväntat.map(([post, ref, först, inom = [], summa = null]) => [`${post}|${ref}`, { först, inom, summa }]));
+
+/** Kontrollsumman av raderna [från, till]: sha256 av den exakta texten, 16 hexsiffror. */
+function stycketsSumma(L, från, till) {
+  return crypto.createHash('sha256').update(L.slice(från - 1, till).join('\n')).digest('hex').slice(0, 16);
+}
 
 /** Håller stycket rader [från, till] postens nyckelord? */
 function håller(L, från, till, f) {
@@ -133,6 +149,11 @@ function brister(poster, förväntat, läs = läsare()) {
     const stycke = platt(L.slice(r.från - 1, r.till).join('\n'));
     if (!första.includes(f.först)) fel.push(`${k}: första raden saknar "${f.först}": ${första.trim().slice(0, 100)}`);
     for (const ord of f.inom) if (!stycke.includes(ord)) fel.push(`${k}: stycket saknar "${ord}"`);
+    if (!f.summa) fel.push(`${k}: saknar kontrollsumma i FÖRVÄNTAT (kvittera stycket med foreslaKallrader.js --kvittera=${r.post})`);
+    else if (stycketsSumma(L, r.från, r.till) !== f.summa) {
+      fel.push(`${k}: stycket har bytt innehåll mot förväntan (kontrollsumma ${stycketsSumma(L, r.från, r.till)}, väntad ${f.summa}): `
+        + 'läs stycket, rätta hänvisningen eller kvittera det nya innehållet');
+    }
   }
   for (const k of tabell.keys()) if (!använda.has(k)) fel.push(`${k}: används inte längre i registret`);
   return fel;
@@ -140,17 +161,20 @@ function brister(poster, förväntat, läs = läsare()) {
 
 /**
  * Förslag till nya rader för de hänvisningar som inte längre håller.
- * För varje underkänd hänvisning söks raderna där tabellens första nyckelord
- * står; för varje sådan rad prövas ett stycke av samma längd som förut, och
- * annars det kortaste stycket (högst `maxRader` rader) som bär alla
- * nyckelord. Kandidaten närmast den gamla raden vinner. Hittas ingen är
- * förslaget null: stycket har skrivits om och måste läsas för hand.
+ * Stycket söks på sin TEXT, inte på nyckelordet (2026-11-16, V1): det gamla
+ * stycket är det som tabellens kontrollsumma beskriver, eller, med
+ * `gammalText`, texten på de gamla raderna i en betrodd version (git-ref).
+ * Varje fönster av samma längd i dagens fil vars text är densamma, och vars
+ * nyckelord håller, är en kandidat. Exakt en kandidat ger förslaget; ingen
+ * eller flera ger inget förslag, och hänvisningen rättas för hand. Varje
+ * hänvisning prövas för sig, också fortsättningar som `och :3499–3505`.
  * @param {object[]} poster - registrets poster
  * @param {Array[]} förväntat - nyckelordstabellen
- * @param {{läs?: function, maxRader?: number}} [opt] - filläsare och sökgräns
- * @returns {object[]} [{post, fil, gammal, ny, kandidater, första}]
+ * @param {{läs?: function, gammalText?: function}} [opt] - filläsare, och
+ *   (fil, från, till) → raderna i den betrodda versionen eller null
+ * @returns {object[]} [{post, fil, gammal, ny, kandidater, första, skäl}]
  */
-function föreslå(poster, förväntat, { läs = läsare(), maxRader = 80 } = {}) {
+function föreslå(poster, förväntat, { läs = läsare(), gammalText = null } = {}) {
   const tabell = tabellen(förväntat);
   const ut = [];
   const sedda = new Set();
@@ -160,50 +184,75 @@ function föreslå(poster, förväntat, { läs = läsare(), maxRader = 80 } = {}
     sedda.add(k);
     const f = tabell.get(k);
     const L = läs(r.fil);
-    if (!f || !L || håller(L, r.från, r.till, f)) continue;
+    if (!f || !L) continue;
+    const summaNu = håller(L, r.från, r.till, f) ? stycketsSumma(L, r.från, r.till) : null;
+    const gammal = gammalText ? gammalText(r.fil, r.från, r.till) : null;
+    const väntad = gammal ? stycketsSumma(gammal, 1, gammal.length) : f.summa;
+    if (summaNu !== null && väntad && summaNu === väntad) continue;
+    if (summaNu !== null && !väntad) continue;
     const längd = r.till - r.från;
+    let skäl = null;
     const kandidater = [];
-    L.forEach((rad, i) => {
-      if (!rad.includes(f.först)) return;
-      const från = i + 1;
-      if (håller(L, från, Math.min(från + längd, L.length), f)) {
-        kandidater.push({ från, till: Math.min(från + längd, L.length) });
-        return;
+    if (!väntad) skäl = 'tabellen saknar kontrollsumma och ingen betrodd version angavs';
+    else if (gammal && f.summa && väntad !== f.summa) skäl = `den betrodda versionens stycke stämmer inte med tabellens kontrollsumma (${väntad} mot ${f.summa})`;
+    else {
+      for (let från = 1; från + längd <= L.length; från++) {
+        if (stycketsSumma(L, från, från + längd) === väntad && håller(L, från, från + längd, f)) kandidater.push({ från, till: från + längd });
       }
-      for (let till = från; till <= Math.min(L.length, från + maxRader); till++) {
-        if (håller(L, från, till, f)) {
-          kandidater.push({ från, till });
-          return;
-        }
-      }
-    });
-    ut.push({
-      post: r.post, fil: r.fil, gammal: r.rader, från: r.från, längd, kandidaterna: kandidater, L,
-    });
-  }
-  // Flera kandidater: välj den närmast den förskjutning som den närmaste
-  // entydiga hänvisningen i samma fil fick (ett nytt avsnitt flyttar alla
-  // stycken efter det lika långt), annars närmast den gamla raden. Bland
-  // lika nära vinner ett stycke av samma längd som förut.
-  const entydiga = ut.filter((x) => x.kandidaterna.length === 1);
-  for (const x of ut) {
-    const granne = entydiga.filter((e) => e.fil === x.fil && e !== x)
-      .sort((a, b) => Math.abs(a.från - x.från) - Math.abs(b.från - x.från))[0];
-    const väntad = x.från + (granne ? granne.kandidaterna[0].från - granne.från : 0);
-    const rang = (c) => Math.abs(c.från - väntad) * 2 + (c.till - c.från === x.längd ? 0 : 1);
-    const bäst = [...x.kandidaterna].sort((a, b) => rang(a) - rang(b))[0] || null;
+      if (!kandidater.length) skäl = 'ingen exakt träff: stycket har skrivits om eller flyttats med ändringar';
+      else if (kandidater.length > 1) skäl = `${kandidater.length} stycken har samma text: välj för hand`;
+    }
+    const bäst = kandidater.length === 1 ? kandidater[0] : null;
     const intervall = (c) => (c.från === c.till ? `${c.från}` : `${c.från}–${c.till}`);
-    x.ny = bäst ? intervall(bäst) : null;
-    x.kandidater = x.kandidaterna.length;
-    x.första = bäst ? x.L[bäst.från - 1].trim().slice(0, 100) : null;
+    ut.push({
+      post: r.post,
+      fil: r.fil,
+      gammal: r.rader,
+      ny: bäst ? intervall(bäst) : null,
+      kandidater: kandidater.length,
+      första: bäst ? L[bäst.från - 1].trim().slice(0, 100) : null,
+      skäl,
+    });
   }
-  return ut.map(({
-    post, fil, gammal, ny, kandidater, första,
-  }) => ({
-    post, fil, gammal, ny, kandidater, första,
-  }));
+  return ut;
+}
+
+/**
+ * Kvitterar styckena: tabellraderna för `poster` (id, eller 'alla') får
+ * kontrollsumman av dagens text bakom hänvisningen. Används när ett stycke
+ * medvetet skrivits om (läs det först) och när tabellen saknar summan.
+ * @returns {{förväntat: Array[], kvitterade: string[]}} ny tabell och nycklarna
+ */
+function kvittera(poster, förväntat, vilka, läs = läsare()) {
+  const alla = vilka.includes('alla');
+  const refs = new Map(poster.flatMap(radhänvisningar).map((r) => [nyckel(r.post, r.fil, r.rader), r]));
+  const kvitterade = [];
+  const ny = förväntat.map((rad) => {
+    const [post, ref, först, inom = []] = rad;
+    if (!alla && !vilka.includes(post)) return rad;
+    const r = refs.get(`${post}|${ref}`);
+    const L = r ? läs(r.fil) : null;
+    if (!r || !L || !(r.från >= 1 && r.till <= L.length)) return rad;
+    kvitterade.push(`${post}|${ref}`);
+    return [post, ref, först, inom, stycketsSumma(L, r.från, r.till)];
+  });
+  return { förväntat: ny, kvitterade };
 }
 
 module.exports = {
-  ROOT, REGISTER_FIL, FÖRVÄNTAT_FIL, RE, textfält, barahänvisningar, radhänvisningar, nyckel, LEVANDE_KOD, platt, läsare, brister, föreslå,
+  ROOT,
+  REGISTER_FIL,
+  FÖRVÄNTAT_FIL,
+  RE,
+  textfält,
+  barahänvisningar,
+  radhänvisningar,
+  nyckel,
+  LEVANDE_KOD,
+  platt,
+  läsare,
+  brister,
+  föreslå,
+  kvittera,
+  stycketsSumma,
 };

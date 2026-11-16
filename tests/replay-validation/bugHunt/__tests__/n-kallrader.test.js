@@ -25,7 +25,7 @@
 const fs = require('fs');
 const path = require('path');
 const {
-  ROOT, FÖRVÄNTAT_FIL, radhänvisningar, barahänvisningar, nyckel, brister, föreslå,
+  ROOT, FÖRVÄNTAT_FIL, radhänvisningar, barahänvisningar, nyckel, brister, föreslå, kvittera, stycketsSumma,
 } = require('../lib/kallrader');
 const { bytIText, bytIRegistret, bytITabellrad } = require('../tools/foreslaKallrader');
 
@@ -166,7 +166,8 @@ describe('förslag till nya rader efter en glidning', () => {
     const f = föreslå(REG.poster, FÖRVÄNTAT, { läs: med(ny) });
     // U17 och K-NÄSTA citerar samma stycke; "U17" står på flera ställen.
     expect(`${A}:${förslagFör(f, 'U17-TYST-BÅT-RECOVER').ny}`).toBe(flytta(u17, 50));
-    expect(förslagFör(f, 'U17-TYST-BÅT-RECOVER').kandidater).toBeGreaterThan(1);
+    // "U17" står på flera ställen, men bara ett stycke har samma text (V1).
+    expect(förslagFör(f, 'U17-TYST-BÅT-RECOVER').kandidater).toBe(1);
     expect(f.filter((x) => x.post === 'K-TYST-BÅT-NÄSTA-ÖPPNING' && x.gammal === rader(u17))[0].ny).toBe(rader(flytta(u17, 50)));
     // En hänvisning före avsnittet håller och får inget förslag.
     expect(förslagFör(f, 'U2-VS-DEADLINE')).toBeUndefined();
@@ -192,5 +193,101 @@ describe('förslag till nya rader efter en glidning', () => {
     expect(t1.md.split('\n')[2]).toBe('Text (`docs/ARCHITECTURE.md:13–15`) och :10–12.');
     expect(bytITabellrad(md, 'P1', A, '20–21', '22–23').md.split('\n')[0]).toContain('och :22–23');
     expect(bytITabellrad(md, 'P1', 'docs/etapp7-plan-2026-08-08.md', '15', '16').md.split('\n')[0]).toContain('etapp7-plan:16');
+  });
+});
+
+// Texten bakom hänvisningen (2026-11-16, V1): vid tre sammanslagningar valde
+// förslagsskriptet ett NYTT stycke med samma nyckelord (U17 och K-NÄSTA) och
+// gav en fortsättning i S10 samma startrad som postens första hänvisning,
+// medan både skriptet och testet var gröna. Nu bär tabellen styckets
+// kontrollsumma: kontrollen fäller ett stycke som bytt innehåll, och
+// förslaget väljer bara ett stycke med samma text (exakt en träff).
+describe('kontrollsumman: förslaget väljer stycket på dess text', () => {
+  const äkta = fs.readFileSync(path.join(ROOT, A), 'utf8').split('\n');
+  const med = (raderA) => {
+    const cache = new Map();
+    return (fil) => {
+      if (fil === A) return raderA;
+      if (!cache.has(fil)) cache.set(fil, fs.existsSync(path.join(ROOT, fil)) ? fs.readFileSync(path.join(ROOT, fil), 'utf8').split('\n') : null);
+      return cache.get(fil);
+    };
+  };
+  const u17 = ref('U17-TYST-BÅT-RECOVER');
+  const [u0, u1] = rader(u17).split('–').map(Number);
+  const förslag = (f, post, gammal) => f.find((x) => x.post === post && x.fil === A && x.gammal === gammal);
+
+  test('varje tabellrad bär en kontrollsumma som stämmer med dagens text', () => {
+    expect(FÖRVÄNTAT.every((x) => typeof x[4] === 'string' && /^[0-9a-f]{16}$/.test(x[4]))).toBe(true);
+    expect(stycketsSumma(äkta, u0, u1)).toBe(FÖRVÄNTAT.find((x) => x[0] === 'U17-TYST-BÅT-RECOVER' && x[1] === u17)[4]);
+  });
+
+  test('felet i U17 och K-NÄSTA: ett nytt stycke med samma nyckelord ovanför det gamla får inte förslaget', () => {
+    // Det nya stycket nämner "(U17)", "säkerhetsvarningen för en tyst båt" och
+    // "räknas däremot från bokföringen" på sin första rad, som vid
+    // sammanslagningen, och är 65 rader långt.
+    const nytt = ['- **Täckningsslutet (U17) räknas däremot från bokföringen: säkerhetsvarningen för en tyst båt, U13.**',
+      ...Array(64).fill('  nytt stycke')];
+    const vid = u0 - 40;
+    const L = [...äkta.slice(0, vid), ...nytt, ...äkta.slice(vid)];
+    const f = föreslå(REG.poster, FÖRVÄNTAT, { läs: med(L) });
+    const x = förslag(f, 'U17-TYST-BÅT-RECOVER', rader(u17));
+    expect(x.ny).toBe(`${u0 + 65}–${u1 + 65}`);
+    expect(x.kandidater).toBe(1);
+    expect(förslag(f, 'K-TYST-BÅT-NÄSTA-ÖPPNING', rader(u17)).ny).toBe(`${u0 + 65}–${u1 + 65}`);
+    // Det nya stycket bär nyckelorden: den gamla regeln (första
+    // nyckelordsträffen) hade godtagit det.
+    expect(L[vid]).toContain('U17');
+    // Kontrollen fäller samma läge utan rättning (det gamla spannet pekar nu
+    // in i det nya stycket).
+    const reg = REG.poster;
+    expect(brister(reg, FÖRVÄNTAT, med(L)).join('\n')).toMatch(new RegExp(`U17-TYST-BÅT-RECOVER\\|${A.replace('.', '\\.')}:${u0}–${u1}`));
+  });
+
+  test('ett stycke som ändrats på plats fälls av kontrollen även när nyckelorden står kvar, och får inget förslag', () => {
+    const L = [...äkta];
+    L[u0] = `${L[u0]} (ändrad)`;
+    const fel = brister(REG.poster, FÖRVÄNTAT, med(L)).join('\n');
+    expect(fel).toMatch(/U17-TYST-BÅT-RECOVER\|docs\/ARCHITECTURE\.md:\d+–\d+: stycket har bytt innehåll mot förväntan/);
+    const x = förslag(föreslå(REG.poster, FÖRVÄNTAT, { läs: med(L) }), 'U17-TYST-BÅT-RECOVER', rader(u17));
+    expect(x).toMatchObject({ ny: null, skäl: expect.stringMatching(/ingen exakt träff/) });
+  });
+
+  test('två stycken med samma text: inget förslag, posten rättas för hand', () => {
+    const kopia = äkta.slice(u0 - 1, u1);
+    const L = ['x', ...äkta.slice(0, u0 - 300), ...kopia, ...äkta.slice(u0 - 300)];
+    const x = förslag(föreslå(REG.poster, FÖRVÄNTAT, { läs: med(L) }), 'U17-TYST-BÅT-RECOVER', rader(u17));
+    expect(x).toMatchObject({ ny: null, kandidater: 2, skäl: expect.stringMatching(/2 stycken har samma text/) });
+  });
+
+  test('felet i S10: fortsättningen prövas för sig och får sitt eget stycke', () => {
+    const { källa } = REG.poster.find((p) => p.id === 'S10-VÄNDNING-BRON-BAKOM');
+    const m = /ARCHITECTURE\.md:(\d+)–(\d+) \(S10 i notisvägen[^)]*\)|ARCHITECTURE\.md:(\d+)–(\d+) och :(\d+)–(\d+)/.exec(källa);
+    const [a0, , b0, b1] = [m[3], m[4], m[5], m[6]].map(Number);
+    expect(Number.isFinite(b0)).toBe(true);
+    // Sju nya rader mellan den första hänvisningen och fortsättningen, och en
+    // ny rad med "S10" och "pending-reversal" strax före den första.
+    const L = [...äkta.slice(0, a0 - 2), 'S10: pending-reversal (nytt)', ...äkta.slice(a0 - 2, b0 - 3), ...Array(7).fill('ny'), ...äkta.slice(b0 - 3)];
+    const f = föreslå(REG.poster, FÖRVÄNTAT, { läs: med(L) });
+    const första = f.find((x) => x.post === 'S10-VÄNDNING-BRON-BAKOM' && x.gammal.startsWith(`${a0}–`));
+    const forts = förslag(f, 'S10-VÄNDNING-BRON-BAKOM', `${b0}–${b1}`);
+    expect(första.ny.split('–')[0]).toBe(String(a0 + 1));
+    expect(forts.ny).toBe(`${b0 + 8}–${b1 + 8}`);
+    expect(forts.ny.split('–')[0]).not.toBe(första.ny.split('–')[0]);
+  });
+
+  test('--ref: den betrodda versionens text används när tabellen saknar kontrollsumman', () => {
+    const utan = FÖRVÄNTAT.map((x) => (x[0] === 'U17-TYST-BÅT-RECOVER' ? x.slice(0, 4) : x));
+    const L = ['x', 'y', ...äkta];
+    const gammalText = (fil, från, till) => (fil === A ? äkta.slice(från - 1, till) : null);
+    const x = förslag(föreslå(REG.poster, utan, { läs: med(L), gammalText }), 'U17-TYST-BÅT-RECOVER', rader(u17));
+    expect(x.ny).toBe(`${u0 + 2}–${u1 + 2}`);
+    // Utan summa och utan betrodd version: inget förslag.
+    expect(förslag(föreslå(REG.poster, utan, { läs: med(L) }), 'U17-TYST-BÅT-RECOVER', rader(u17)))
+      .toMatchObject({ ny: null, skäl: expect.stringMatching(/saknar kontrollsumma/) });
+    // Och kontrollen kräver summan.
+    expect(brister(REG.poster, utan).join('\n')).toMatch(/U17-TYST-BÅT-RECOVER\|docs\/ARCHITECTURE\.md:\d+–\d+: saknar kontrollsumma/);
+    // Kvitteringen ger raden dagens summa.
+    const k = kvittera(REG.poster, utan, ['U17-TYST-BÅT-RECOVER']);
+    expect(k.förväntat).toEqual(FÖRVÄNTAT);
   });
 });

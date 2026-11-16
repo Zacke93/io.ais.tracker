@@ -406,27 +406,35 @@ Omgranskningen av verktygsgrenen (`d74880f..202f7a0`) lämnade tre gränser. De 
     kräva samma täckningsprov som U2. Båda ändrar vad posten säger och kräver ett beslut.
 
 **Radhänvisningarna vid sammanslagning.** `__tests__/n-kallrader.test.js` prövar varje radhänvisning i registret mot
-nyckelordstabellen `tests/replay-validation/bugHunt/kallrader-forvantat.json` (post, "fil:rader", nyckelordet på
-styckets första rad och fler nyckelord i stycket). Logiken finns i `lib/kallrader.js`. När andra grenar ändrar de
-citerade dokumenten (`docs/ARCHITECTURE.md`, `docs/VALIDATION.md` med flera) faller testet på sammanslagningsgrenen
-med "första raden saknar …" eller "stycket saknar …". Rätta så här:
-1. Kör `node tests/replay-validation/bugHunt/tools/foreslaKallrader.js`. Skriptet söker för varje underkänd
-   hänvisning postens nyckelord i dokumentet och föreslår nya rader. Det prövar först ett stycke av samma längd och
-   sedan det kortaste som bär alla nyckelord. Finns nyckelordet på flera ställen väljs den kandidat som ligger
-   närmast den förskjutning som närmaste entydiga hänvisning i samma fil fick, eftersom ett nytt avsnitt flyttar
-   alla stycken efter det lika långt. Skriptet skriver ingenting.
-2. Läs varje förslag mot dokumentet. Att nyckelordet finns betyder inte att stycket säger samma sak. "INGET FÖRSLAG"
-   betyder att stycket skrivits om, och då rättas hänvisningen för hand.
-3. Kör `… foreslaKallrader.js --skriv`. Det byter raderna i postens block i registret (alla fält, också fortsättningar
-   som `och :105`, utan att röra filens format), i nyckelordstabellen och i docs/BUGGJAKT.md. Där byts postens rad i
+tabellen `tests/replay-validation/bugHunt/kallrader-forvantat.json` (post, "fil:rader", nyckelordet på styckets
+första rad, fler nyckelord i stycket och en kontrollsumma av styckets exakta text: sha256, 16 hexsiffror). Logiken
+finns i `lib/kallrader.js`. När andra grenar ändrar de citerade dokumenten (`docs/ARCHITECTURE.md`,
+`docs/VALIDATION.md` med flera) faller testet på sammanslagningsgrenen med "första raden saknar …", "stycket
+saknar …" eller "stycket har bytt innehåll mot förväntan". Rätta så här:
+1. Kör `node tests/replay-validation/bugHunt/tools/foreslaKallrader.js` (eller med `--ref=<git-ref>` för att jämföra
+   mot texten på de gamla raderna i en betrodd version). Skriptet söker för varje underkänd hänvisning det stycke av
+   samma längd vars TEXT är densamma som förut (tabellens kontrollsumma, eller referensens text) och vars nyckelord
+   håller. Exakt en träff ger förslaget. Ingen träff (stycket har skrivits om eller flyttats med ändringar) eller
+   flera (två stycken med samma text) ger "INGET FÖRSLAG", och posten rättas för hand. Varje hänvisning prövas för
+   sig, också fortsättningar som `och :3499–3505`. Skriptet skriver ingenting.
+2. Kör `… foreslaKallrader.js --skriv`. Det byter raderna i postens block i registret (alla fält, också fortsättningar
+   som `och :105`, utan att röra filens format), i tabellen och i docs/BUGGJAKT.md. Där byts postens rad i
    §7-tabellen (förkortade namn som `ARCHITECTURE:972–994` och fortsättningar) och den fullständiga formen
-   `docs/ARCHITECTURE.md:972–994` var den än står.
+   `docs/ARCHITECTURE.md:972–994` var den än står. Kontrollsumman följer med oförändrad, eftersom texten är densamma.
+3. Har ett stycke skrivits om medvetet: läs det, rätta hänvisningen för hand och kvittera den nya texten med
+   `… foreslaKallrader.js --kvittera=POST` (`--kvittera=alla` bara när tabellen saknar summor).
 4. Kör testet igen.
 
-Byt aldrig nyckelordet för att få testet grönt, om inte stycket verkligen skrivits om. Kod citeras med symbol och
-glider inte. Testet prövar skriptet med en konstruerad glidning: tre rader överst, ett nytt avsnitt mitt i där
-nyckelordet står på flera ställen, och ett omskrivet stycke utan förslag. Infört 2026-11-16 vid sammanslagningen på
-`omg2/integration` (`57e4789`). Där föll 30 hänvisningar, alla i stycken som flyttats ordagrant.
+Byt aldrig nyckelordet eller kvittera för att få testet grönt, om inte stycket verkligen skrivits om. Kod citeras med
+symbol och glider inte. Testet prövar skriptet med en konstruerad glidning: tre rader överst, ett nytt avsnitt mitt i
+där nyckelordet står på flera ställen, ett omskrivet stycke utan förslag, och sedan 2026-11-16 (V1) de tre fel som
+förslagsskriptet gjorde vid sammanslagningarna samma dag: ett nytt stycke ovanför det gamla med samma nyckelord
+("(U17)", "räknas däremot från bokföringen", 65 rader långt; förut valdes det, nu det gamla stycket på sin text),
+ett stycke ändrat på plats (fälls av kontrollen, inget förslag), två stycken med samma text (inget förslag) och
+en fortsättning i S10 som förut fick postens första startrad (nu sitt eget stycke). Förut sökte skriptet
+nyckelordet och tog den närmaste träffen, och `--skriv` skrev förväntan efter förslaget, så att ett felval låste
+sig självt; kontrollen prövade bara att nyckelordet fanns i spannet. Infört 2026-11-16 vid sammanslagningen på
+`omg2/integration` (`57e4789`), kontrollsumman 2026-11-16 (V1).
 
 ### Registerändringar att granska (rättningsrundan 2026-11-04)
 
