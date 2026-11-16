@@ -2,6 +2,8 @@
 
 jest.mock('homey');
 
+const path = require('path');
+const { execFile } = require('child_process');
 const AISBridgeApp = require('../app');
 const BridgeRegistry = require('../lib/models/BridgeRegistry');
 const BridgeTextService = require('../lib/services/BridgeTextService');
@@ -220,7 +222,8 @@ describe('U33: notisen följer brotextens strax', () => {
       expect(app._imminentVerdict(vessel(320, { _isImminentAtTargetBridge: true })).imminent).toBe(true);
       // Echo-hållningen: osäker position behåller flaggan orörd.
       const held = app._imminentVerdict(vessel(600, { _positionUncertain: true, _isImminentAtTargetBridge: true }));
-      expect(held).toMatchObject({ keep: true, imminent: true });
+      expect(held.imminent).toBe(true);
+      expect(app._imminentVerdict(vessel(600, { _positionUncertain: true })).imminent).toBe(false);
       // Uttömd extrapolering: omvärderingen sätter flaggan, notisens fråga räknar den inte.
       const exhausted = vessel(420, { _etaExtrapolationExhausted: true, _etaExhaustedAtMs: now - 10000 });
       expect(app._imminentVerdict(exhausted)).toMatchObject({ imminent: true, fromExhausted: true });
@@ -275,5 +278,42 @@ describe('U33: notisen följer brotextens strax', () => {
       expect(svc.vesselSaysStrax({ ...v, targetBridge: 'Järnvägsbron' }, 'Järnvägsbron')).toBe(false);
       expect(STRIDS.name).toBe('Stridsbergsbron');
     });
+  });
+
+  // Granskningen av U33 (anmärkning 1), genom hela appen: OSAKER-4 går norrut
+  // i 3,3 kn med fix var 30:e s. Ett AIS-glapp tar henne från 800 m till 295 m
+  // före Klaffbron med kursen 62° fel, så fixet blir uncertain_movement:
+  // echo-hållningen låter imminent-flaggan vara falsk och texten säger
+  // "om 8 minuter" i 30 s. FLOW_TRIGGER_ETA_CAP sänker notisens lagrade 8,2
+  // till rå restid 2,77. Frågade regeln med notisens siffra blev notisen
+  // "om 2" mot textens "om 8"; med båtens egen siffra (den texten visar) blir
+  // den "om 3" som på basen. Nästa rena fix ger strax.
+  describe('genom hela appen', () => {
+    const replay = (file) => new Promise((resolve, reject) => {
+      execFile(process.execPath, [path.join(__dirname, 'replay-validation/replayRunner.js'), file], {
+        cwd: path.resolve(__dirname, '..'),
+        encoding: 'utf8',
+        maxBuffer: 64 * 1024 * 1024,
+        env: {
+          ...process.env, NODE_OPTIONS: '', REPLAY_VERBOSE: '', REPLAY_MONITORING: '',
+        },
+      }, (err, stdout) => (err ? reject(err) : resolve(JSON.parse(stdout.match(/__REPLAY_JSON__(.*?)__END__/s)[1]))));
+    });
+
+    test('osäker position efter glapp: notisen följer siffran texten visar, inte taket', async () => {
+      const result = await replay(path.join(__dirname, 'fixtures', 'u33-osaker-glapp.jsonl'));
+      const textAt = (t) => result.bridgeTextTransitions.filter((x) => x.t <= t + 1000).pop().text;
+      const notice = result.notifications.find((n) => n.bridge === 'Klaffbron' && !n.alreadyPassed);
+      expect(notice).toBeDefined();
+      expect(textAt(notice.t)).toBe('En båt på väg mot Klaffbron, beräknad broöppning om 8 minuter');
+      expect(notice.eta).toBe(3);
+      // Och allmänt: en målbronotis säger aldrig under 3 när texten i samma
+      // ögonblick visar en siffra för bron.
+      for (const n of result.notifications.filter((x) => ['Klaffbron', 'Stridsbergsbron'].includes(x.bridge))) {
+        if (n.eta >= 0 && n.eta < 3) {
+          expect(textAt(n.t)).not.toMatch(new RegExp(`mot ${n.bridge}, beräknad broöppning om (cirka )?([3-9]|\\d\\d)`));
+        }
+      }
+    }, 120000);
   });
 });

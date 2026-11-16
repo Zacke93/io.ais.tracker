@@ -7749,7 +7749,7 @@ class AISBridgeApp extends Homey.App {
         // U33: beslutet fattas av _imminentVerdict, som också notisvägen
         // frågar (_noticeEtaFollowsStrax). Här verkställs det.
         const imminentVerdict = this._imminentVerdict(vessel);
-        if (!imminentVerdict.keep) vessel._isImminentAtTargetBridge = imminentVerdict.imminent;
+        vessel._isImminentAtTargetBridge = imminentVerdict.imminent;
         if (imminentVerdict.fromExhausted !== undefined) {
           vessel._imminentFromExhausted = imminentVerdict.fromExhausted;
         }
@@ -7785,18 +7785,22 @@ class AISBridgeApp extends Homey.App {
    * @param {Object} vessel - det levande fartygsobjektet
    * @param {string} bridgeName - bron notisen gäller
    * @param {number} distance - avståndet till bron (m)
-   * @param {number} eta - notisens siffra före U33 (min)
    * @returns {boolean}
    */
-  _noticeEtaFollowsStrax(vessel, bridgeName, distance, eta) {
+  _noticeEtaFollowsStrax(vessel, bridgeName, distance) {
     if (!vessel || bridgeName !== vessel.targetBridge || !this.bridgeTextService) return false;
     const speedMs = (Number.isFinite(vessel.sog) ? vessel.sog : 0) * 0.5144;
     if (!(speedMs > 0.1) || !Number.isFinite(distance) || distance < 0) return false;
     if ((distance / speedMs) / 60 >= NOTICE_STRAX_REACH_MINUTES) return false;
     if (this.statusService?.isBraking?.(vessel) === true) return false;
     const { imminent } = this._imminentVerdict(vessel, { forNotice: true });
+    // Båtens egen siffra (vessel.etaMinutes), inte notisens: texten bygger
+    // på den, och notisens siffra kan vara sänkt av FLOW_TRIGGER_ETA_CAP.
+    // Med notisens siffra förutsade regeln "strax" för en båt vars text sa
+    // "om 8 minuter" (granskningen av U33: osäker position efter ett glapp,
+    // echo-hållningen lät flaggan vara falsk, taket sänkte 8,2 till 2,77).
     return this.bridgeTextService.vesselSaysStrax(
-      { ...vessel, etaMinutes: eta, _isImminentAtTargetBridge: imminent },
+      { ...vessel, _isImminentAtTargetBridge: imminent },
       bridgeName,
     );
   }
@@ -7811,8 +7815,7 @@ class AISBridgeApp extends Homey.App {
    *      brotexten, som byggs 25 ms efter notisen på samma fix, kommer att
    *      säga "strax" för båten.
    * Returnerar:
-   *   - imminent: flaggans nya värde;
-   *   - keep: true när flaggan ska stå orörd (echo-hållningen nedan);
+   *   - imminent: flaggans nya värde (i echo-hållningen nedan det gamla);
    *   - fromExhausted: nytt värde för _imminentFromExhausted, eller undefined
    *     när fältet ska stå orört;
    *   - note: loggraden ({ level: 'log' | 'debug', text }) eller null.
@@ -7824,11 +7827,11 @@ class AISBridgeApp extends Homey.App {
    * @private
    * @param {Object} vessel
    * @param {{forNotice?: boolean}} [options]
-   * @returns {{imminent: boolean, keep: boolean, fromExhausted: (boolean|undefined), note: ({level: string, text: string}|null)}}
+   * @returns {{imminent: boolean, fromExhausted: (boolean|undefined), note: ({level: string, text: string}|null)}}
    */
   _imminentVerdict(vessel, { forNotice = false } = {}) {
     const verdict = {
-      imminent: false, keep: false, fromExhausted: undefined, note: null,
+      imminent: false, fromExhausted: undefined, note: null,
     };
     const note = (level, text) => ({ level, text });
     const ageMs = Date.now() - this._lastConfirmedPositionMs(vessel);
@@ -7869,7 +7872,6 @@ class AISBridgeApp extends Homey.App {
     // geometri som waiting-hysteresen; statuslagret hade den redan).
     const wasImminent = vessel._isImminentAtTargetBridge === true;
     if (holdImminentForUncertain && !exhaustedImminentExpired) {
-      verdict.keep = true;
       verdict.imminent = wasImminent;
     } else if (holdImminentForUncertain) {
       // H17: hållningen står KVAR (echo-gaten äger fortfarande beslutet
@@ -11265,9 +11267,11 @@ class AISBridgeApp extends Homey.App {
     // samma sekund som texten bytte till "strax" (NINA BRES, LIDAN, SYLVIA;
     // båtarna korsade 1,6–2,9 min senare). Siffran ändras, aldrig notisens
     // tidpunkt, texten eller öppningsvarningen.
-    if (source === 'target' && Number.isFinite(eta)
+    // eta är här bara satt för källan 'target' (övriga källor fylls i längre
+    // ned), och _noticeEtaFollowsStrax kräver dessutom båtens målbro.
+    if (Number.isFinite(eta)
         && etaMinutesForDisplay(eta) > NOTICE_STRAX_MAX_MINUTES
-        && this._noticeEtaFollowsStrax(vessel, bridgeName, distance, eta)) {
+        && this._noticeEtaFollowsStrax(vessel, bridgeName, distance)) {
       this.debug(
         `⏱️ [FLOW_TRIGGER_ETA_STRAX] ${mmsiLabel}: brotexten säger strax för ${bridgeName} `
         + `(${Math.round(distance)} m @ ${vessel.sog} kn) — notisens ${eta.toFixed(2)} min `
