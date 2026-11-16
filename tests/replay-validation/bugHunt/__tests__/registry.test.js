@@ -108,7 +108,11 @@ describe('buggjägaren: beslutsregistret', () => {
     const { reg } = load();
     const r = reg.loadRegistry();
     expect(r.poster.map((e) => e.id)).not.toContain('INV5-VS-BESÖKSREGEL');
-    expect(r.poster.filter((e) => (e.gäller.inv || []).some((x) => x === 'INV-5' || x === 'INV-7'))).toEqual([]);
+    // Sedan 2026-11-16 (V1) finns två INV-5-poster med egna mekanismer
+    // (U21-RETUR-EFTER-10-MIN och U39-RETUR-EFTER-RADERING). Ingen av dem får
+    // förklara fixturens utslag, och ingen post gäller INV-7.
+    expect(r.poster.filter((e) => (e.gäller.inv || []).some((x) => x === 'INV-5' || x === 'INV-7')).map((e) => e.id).sort())
+      .toEqual(['U21-RETUR-EFTER-10-MIN', 'U39-RETUR-EFTER-RADERING']);
     const existing = require('../lib/oracles/existing');
     const inv5 = existing.judgeExisting({ result: usvang.resultat, rows: usvang.rader, gt: [] }).fynd.find((f) => f.inv === 'INV-5');
     const c = r.classify(inv5, { rader: usvang.rader, resultat: usvang.resultat });

@@ -734,6 +734,7 @@ describe('U16 U16-F40-STRAX-STUDS: studsen vid den strax-bärande båtens nästa
       orakel: 'INV-F', inv: 'INV-3', klass: 'INV-3 ETA-OSCILLATION', bro: 'Klaffbron', t: at('09:42:15.126'), detalj: 'x',
     }, { rader: [], resultat: {} });
     expect(c).toMatchObject({ klass: 'KANDIDAT', närmast: { post: 'KIE-PER-KORPUS' } });
-    expect(c.prövade.map((p) => p.post)).toEqual(['KIE-PER-KORPUS', U16]);
+    // LEDARBYTE-TYST-FRÄMSTA (U34, 2026-11-16) står efter U16 och prövas också.
+    expect(c.prövade.map((p) => p.post)).toEqual(['KIE-PER-KORPUS', U16, 'LEDARBYTE-TYST-FRÄMSTA']);
   });
 });

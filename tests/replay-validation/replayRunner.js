@@ -357,6 +357,14 @@ async function main() {
   const visitReentries = [];
   // U14: besök som avslutats av en returpassage (releaseReturnPassage).
   const visitReturnReleases = [];
+  // U39 (2026-11-16, buggjägarens nattkort F14 r1): när appen raderade en båt
+  // (VesselDataService 'vessel:removed') och när den persistenta notisspärren
+  // stoppade ett riktningsbyte yngre än 60 min ([PERSISTENT_DEDUP_RECENT]).
+  // Ren diagnostik som bara buggjägarens register läser; appens anropsväg är
+  // orörd (en extra lyssnare som bara bokför).
+  const vesselRemovals = [];
+  const persistentDedupBlocks = [];
+  const persistentDedupRe = /\[PERSISTENT_DEDUP_RECENT\] (\d+):(\S+?): direction flipped \((\w+) → (\w+)\) but entry only (\d+) min old/;
   // Fältprov 3 (2026-07-08): TARGET_RECALC (bekräftad riktningsreversal —
   // COG-debounce ELLER broskorsningsbevis) räknas som journey-reset: den
   // legitimerar returnotiser (INV-2) och U-svängskorrigerade målbro-som-
@@ -505,6 +513,13 @@ async function main() {
         };
       }
     }
+    if (instance.vesselDataService && typeof instance.vesselDataService.on === 'function') {
+      instance.vesselDataService.on('vessel:removed', (e) => {
+        vesselRemovals.push({
+          t: Date.now(), mmsi: String(e && e.mmsi), reason: e && e.reason ? String(e.reason) : null,
+        });
+      });
+    }
     if (monitoringEnabled) {
       const service = instance.vesselDataService;
       const sweep = service.sweepStaleVessels.bind(service);
@@ -630,6 +645,12 @@ async function main() {
       if (pm) {
         targetPassages.push({
           t: Date.now(), iso: new Date(Date.now()).toISOString(), mmsi: pm[1], bridge: pm[2],
+        });
+      }
+      const dm = line.match(persistentDedupRe);
+      if (dm) {
+        persistentDedupBlocks.push({
+          t: Date.now(), mmsi: dm[1], bridge: dm[2], from: dm[3], to: dm[4], ageMin: Number(dm[5]),
         });
       }
       const jm = line.match(journeyResetRe);
@@ -1095,6 +1116,8 @@ async function main() {
     journeyResets,
     visitReentries,
     visitReturnReleases,
+    vesselRemovals,
+    persistentDedupBlocks,
     intermediatePassages,
     leakDiagnostics,
   };
