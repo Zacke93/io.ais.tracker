@@ -3006,6 +3006,77 @@ const SCENARIOS = [
       noUnknownDuringStop: { bridge: 'Stridsbergsbron', extraS: 60 },
     },
   })),
+  // K1 (rättningsomgång 3, 2026-11-16; nattjaktens F16/F17, värld 9530):
+  // STOPP STRAX BORTOM MÅLBRON EFTER ETT GLAPP. Båten går i 4,1 kn (AIS säger
+  // 5,2) med fast rapporterad kurs, tystnar 400 m före bron och hörs igen
+  // först när hon stannat i kön 165 m BORTOM bron: sog 0 och en stillakurs
+  // ~44° från den gamla, ~51° fel mot förflyttningen. 589 m på 300 s blir
+  // `uncertain_movement`, och stillagrinden (S1) spärrade passagen tills nästa
+  // fix 16 min senare: "närmar sig" efter passagen och brotexten pekade på
+  // den passerade bron hela kön. PLACERINGEN ÄR TESTET: förflyttningen ska
+  // vara över 500 m (annars mellangrenen, ingen osäkerhet) men latitudhoppet
+  // under LARGE_JUMP_LAT_DEG (0,005°), annars bokför glappvägen (scenario B)
+  // passagen i samma tick och felet syns inte. Kursvärdena hör till seedet
+  // (generatorns brus är ±3°); byts seedet ska kursändringen (≤ 45°) och
+  // bäringsavvikelsen (> 45°) mätas om.
+  ...[
+    {
+      label: 'söderut genom Stridsbergsbron',
+      seed: 9530,
+      mmsi: '909530001',
+      bro: 'Stridsbergsbron',
+      startS: METRICS.cum[4] + 2200,
+      broS: METRICS.cum[4],
+      dir: -1,
+      legCog: 207,
+      stopCog: 166.8,
+      slutS: METRICS.cum[2] - 400,
+    },
+    {
+      label: 'norrut genom Klaffbron',
+      seed: 9531,
+      mmsi: '909531001',
+      bro: 'Klaffbron',
+      startS: METRICS.cum[2] - 2200,
+      broS: METRICS.cum[2],
+      dir: 1,
+      legCog: 25,
+      stopCog: 69.6,
+      slutS: METRICS.cum[4] + 600,
+    },
+  ].map((k) => ({
+    name: `stopp-165m-bortom-${k.bro}-efter-glapp, ${k.label} (nattjakten F16/F17, K1)`,
+    seed: k.seed,
+    vessels: [{
+      mmsi: k.mmsi,
+      name: `SYNT-KÖSTOPP-${k.seed}`,
+      startS: k.startS,
+      legs: [
+        {
+          toS: k.broS + k.dir * 165,
+          speedKn: 4.1,
+          reportSogKn: 5.2,
+          cogDeg: k.legCog,
+          intervalS: 60,
+          gapFromS: k.broS - k.dir * 400,
+          gapToS: k.broS + k.dir * 165,
+        },
+        // En stillafix, nästa fix först 16 min senare (klass B i kö)
+        {
+          stopS: 960, stopIntervalS: 960, stopSog: 0, stopCogDeg: k.stopCog,
+        },
+        { toS: k.slutS, speedKn: 4, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      minTargetPassages: 2,
+      noApproachNoticeAfterCrossing: [k.bro],
+      // Stillafixen kommer 1 140 s in i resan, nästa fix 2 100 s.
+      textCountWindows: [{
+        bridge: k.bro, fromS: 1145, toS: 2050, max: 0,
+      }],
+    },
+  })),
 ];
 
 function runScenario(scenario) {

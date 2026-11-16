@@ -273,6 +273,24 @@ Moduler (ansvar / ägda tillstånd / in-ut):
   bokföra bron en gång till, en målbro då som mellanbro (F12/F16 2026-11-04:
   JOLLY, glappvägen 16:03:34 och grindbekräftelsen 795 s senare). Andra broars
   kandidater ligger kvar.
+  **Stillagrinden (S1, 2026-08-23)** spärrar även koordinationsnivån `moderate`
+  (osäker position) när fixens sog är finit och under MOVEMENT_PROOF_SOG_KN:
+  en stilla båt har inte rört sig, så förflyttningen är brus (kajliggarens
+  brusprov). **K1 (2026-11-16, nattjaktens F16/F17)**: grinden spärrar INTE när
+  stoppet förklaras av färden före glappet (`_stopExplainedByPriorTransit`;
+  anroparna skickar segmentets startfix). Alla fyra villkor ska hålla: ren
+  startfix med rå sog ≥ MOVEMENT_PROOF_SOG_KN; förflyttningen ≤ startfart ×
+  fix-dt × 2,0; bäringen inom 45° från startkursen (okänd kurs prövas inte); och
+  stillafixen mer än UNDER_BRIDGE_CROSS_PROOF_JITTER_M från den prövade brons
+  linje (innanför kan en stilla fix inte bevisa sidan). Fallet: söderut i
+  5,2 kn, nästa fix 327 s senare 165 m bortom Stridsbergsbron med sog 0 och en
+  stillakurs 51° fel mot förflyttningen (`uncertain_movement`); spärren gav
+  "närmar sig" efter passagen och en brotext mot den passerade bron i 17 min.
+  Bandet är smalt: förflyttningen ska vara över 500 m (annars ingen osäkerhet)
+  och latitudhoppet under LARGE_JUMP_LAT_DEG (annars bokför glappvägen i samma
+  tick). Ett transit→stopp som analysen dömer som GPS-hopp (`likely_gps_error`,
+  både bäring och snittfart fel) hålls fortfarande av orimlighetsflaggan
+  (`needsPassageConfirmation`) — den rör K1 inte.
 - **PassageLatchService**: latch per båt+bro som blockerar retrograda statusar
   ("tidsresor"); 10 min latch-timeout. Konsumeras av StatusService via
   `shouldBlockStatus` (StatusService.js:772, 846, 912, 960, 1176).
