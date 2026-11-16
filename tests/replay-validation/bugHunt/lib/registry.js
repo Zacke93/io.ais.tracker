@@ -2985,6 +2985,20 @@ const PREDICATES = {
       if (passageKänd(slut)) return nej(`${E}:s första passage var känd vid täckningsslutet ${fmtT(slut.t)}: bakkanten efter passagen gällde`);
       // (2) E är L:s egen varning efter U24-släppet ur E0.
       const ws = deliveredWarnings(ctx, f.bro);
+      // (1′) Täckningsslutet i E kom i tid (2026-11-16, omgranskningen av
+      // verktygsgrenen): samma prov som U17:s (3″). Med släppet två minuter för
+      // sent (granskarens mutant u17slapp120) tog posten värld 143 med
+      // varningen två minuter senare än appen ger.
+      {
+        const gräns = täckningsslutetsGräns(slut, ws, res.openingCoverage || [], hennes, m, f.bro, p);
+        if (gräns.fel) return nej(gräns.fel);
+        const armSlut = slut.arm && Number.isFinite(slut.arm.coverUntilMs) ? slut.arm.coverUntilMs : null;
+        const gs = armSlut === null ? gräns.ms : Math.min(gräns.ms, armSlut);
+        if (!(slut.t - Math.max(gräns.absT, gs) <= p.tickMs)) {
+          return nej(`täckningsslutet ${fmtT(slut.t)} ur ${E} kom mer än en tick efter slutet ${fmtT(gräns.ms)} som motorn räknar ur händelsen `
+            + `(${gräns.hur}; armens ${fmtT(armSlut)}): släppet var sent, och U24 gäller varningen vid täckningsslutet`);
+        }
+      }
       const eW = ws.find((x) => x.eventId === E);
       if (!eW) return nej(`${E} har ingen levererad varning`);
       const L = String(eW.leadMmsi);
