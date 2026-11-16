@@ -48,6 +48,14 @@ const {
 const geometry = require('./lib/utils/geometry');
 const GPSJumpAnalyzer = require('./lib/utils/GPSJumpAnalyzer');
 const { waitingBridge, queueBridge, hasFreshPosition } = require('./lib/utils/bridgeQueue');
+// U36 (dirigentens beslut 2026-11-16, nattjaktens F13): en svepnotis efter en
+// vändning i glappet skickas inte när sist kända position är äldre än så här.
+// Samma ålder som designposten SKIPPA-BRO-ÅLDER-17MIN (beslutsregistret): en
+// bro korsad i ett långt glapp notifieras medvetet inte när slutsatsen är
+// äldre än cirka 17 min.
+const SWEEP_TURNED_STALE_MS = 17 * 60 * 1000;
+// U37 del 2: en formregel för alla passagenotiser.
+const { passageNoticeForm, segmentPassageForm, fixLatenessMs } = require('./lib/utils/passageNoticeForm');
 const { selectSettings } = require('./lib/utils/replayStartupState');
 // Fable-granskningen 2026-08-10 (FG-DIR): riktning-ur-COG som namngiven
 // predikatfamilj i stället för gradliterals. ⚠️ De tre sydpredikaten har
@@ -1367,30 +1375,102 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
-   * U14-revisionen 3 (omgranskningen 2026-11-05): returnotisens form ur
-   * släppets bevis. "passerade … under AIS-tystnad" (samma mening som
-   * failsafen och BN2 ger för en korsning mellan två rapporter) kräver två
-   * saker:
-   *  - korsningen låg i AIS-tystnad: korsningssegmentet är längre än två
-   *    AISHub-pollar (2 × AIS_CONFIG.AISHUB.POLL_INTERVAL_MS, 130 s), alltså
-   *    minst en uteblivna rapport även från det glesaste ordinarie flödet.
-   *    Appens vanliga kadens (Class B 30 s, AISHub 65 s) är ingen tystnad, och
-   *    en vanlig passage vid samma kadens får "har precis passerat" (S4);
-   *  - notisen kommer efter appens "precis passerat"-fönster
-   *    (PASSAGE_CLEAR_WINDOW_MS, 60 s) räknat från den interpolerade
-   *    korsningen.
-   * Annars är formen "har precis passerat". Omgranskningens u21-12 (12 min
-   * tystnad, notisen cirka 9 min efter korsningen) får alltså tystnadens
-   * mening, medan en retur vid AISHub-kadens behåller S4:s mening.
+   * U14-revisionen 3 (omgranskningen 2026-11-05), sedan U37 del 2 den gemensamma
+   * formregeln (lib/utils/passageNoticeForm.js): returnotisens form ur släppets
+   * bevis. "passerade … under AIS-tystnad" kräver att det var tyst i mer än
+   * två AISHub-pollar (130 s) kring korsningen och att notisen kommer mer än
+   * "precis passerat"-fönstret (60 s) efter korsningen, skattad ur släppfixen
+   * (avståndet bortom linjen delat med farten; ligger båten still, under 0,5 kn, är
+   * tiden okänd och tystnaden avgör). U21:s tidsgräns mäter fortfarande mot
+   * den interpolerade korsningen. Annars "har precis passerat". Tystnaden är sedan U37 det längsta
+   * leveransintervallet från fixen före korsningen till släppets fix
+   * (`silenceMs`), inte bara korsningssegmentet: nattjaktens F08 r1 (TROLLA)
+   * korsade Järnvägsbron i ett segment på 67 s, och sedan var det tyst i 135 s
+   * till släppet 174 s efter korsningen, 531 m bort. Omgranskningens u21-12
+   * (12 min tystnad, notisen cirka 9 min efter korsningen) får tystnadens
+   * mening, medan en retur vid AISHub-kadens behåller "har precis passerat".
    * @param {Object|null} released - releaseReturnPassage-beviset
    * @returns {'live'|'silence'|null} null när inget släpp skett
    * @private
    */
   _returnPassageForm(released) {
     if (!released) return null;
-    const silence = released.crossingGapMs > 2 * AIS_CONFIG.AISHUB.POLL_INTERVAL_MS
-      && released.latenessMs > BRIDGE_TEXT_CONSTANTS.PASSAGE_CLEAR_WINDOW_MS;
-    return silence ? 'silence' : 'live';
+    const latenessMs = fixLatenessMs({
+      now: Date.now(),
+      fixT: released.fixTs,
+      offsetM: released.offsetM,
+      sogKn: released.sogKn,
+      earliestT: released.segmentStartTs,
+      latestT: released.firstArrivalTs,
+    });
+    return passageNoticeForm({
+      silenceMs: Number.isFinite(released.silenceMs) ? released.silenceMs : released.crossingGapMs,
+      latenessMs,
+    }) ?? 'live';
+  }
+
+  /**
+   * U37 del 2 (dirigentens beslut 2026-11-16): formen för en passagenotis som
+   * inte är ett retursläpp (S4, just-passed, BN2, failsafen och svepet), ur
+   * segmentet fram till notisens fix. Segmentet börjar i föregående fix
+   * (`_prevFixSample`, fixklockan) eller, för en återfödd båt utan föregående
+   * fix, i sist kända position (dess `fixTs`; en äldre post utan fixtid
+   * prövas på mottagningsklockan, `posT` mot aktuell positions mottagning). Samma regel som retursläppen
+   * (passageNoticeForm.segmentPassageForm). null betyder att beviset saknas
+   * (ingen föregående position, okänd färdriktning eller båten på
+   * tillfartssidan); då behåller notisvägen sin egen form.
+   * @param {Object} vessel
+   * @param {string} bridgeName
+   * @returns {'live'|'silence'|null}
+   * @private
+   */
+  _segmentPassageForm(vessel, bridgeName) {
+    if (!vessel || !Number.isFinite(vessel.lat) || !Number.isFinite(vessel.lon)) return null;
+    const point = this.bridgeRegistry?.getBridgeByName?.(bridgeName)
+      || Object.values(TRIGGER_POINTS).find((tp) => tp.name === bridgeName);
+    if (!point) return null;
+    let from = null;
+    let to = null;
+    let sogKn = GPSJumpAnalyzer.positionSog(vessel);
+    const prev = vessel._prevFixSample;
+    if (prev && Number.isFinite(prev.t) && Number.isFinite(prev.lat) && Number.isFinite(prev.lon)
+        && Number.isFinite(vessel.fixTs)) {
+      from = { lat: prev.lat, lon: prev.lon, t: prev.t };
+      to = { lat: vessel.lat, lon: vessel.lon, t: vessel.fixTs };
+    } else {
+      const lastKnown = this._lastKnownPositions?.get(String(vessel.mmsi));
+      if (lastKnown && Number.isFinite(lastKnown.lat) && Number.isFinite(lastKnown.lon)) {
+        if (Number.isFinite(lastKnown.fixTs) && Number.isFinite(vessel.fixTs)) {
+          // Fixklockan i båda ändar, som för en levande båt.
+          from = { lat: lastKnown.lat, lon: lastKnown.lon, t: lastKnown.fixTs };
+          to = { lat: vessel.lat, lon: vessel.lon, t: vessel.fixTs };
+        } else {
+          // Äldre post utan fixtid: mottagningsklockan i båda ändar. Fixens
+          // ålder (AISHub 20–40 s) saknas då i dröjsmålet, så korsningstiden
+          // räknas som okänd (granskningen A4): efter en tystnad blir formen
+          // tystnadens. Posterna lever högst 6 h efter uppgraderingen.
+          sogKn = null;
+          const posT = Number.isFinite(lastKnown.posT) ? lastKnown.posT : lastKnown.t;
+          const nowT = Number.isFinite(vessel.lastPositionUpdate) ? vessel.lastPositionUpdate : vessel.timestamp;
+          if (Number.isFinite(posT) && Number.isFinite(nowT)) {
+            from = { lat: lastKnown.lat, lon: lastKnown.lon, t: posT };
+            to = { lat: vessel.lat, lon: vessel.lon, t: nowT };
+          }
+        }
+      }
+    }
+    if (!from) return null;
+    let travelSign = 0;
+    if (vessel._routeDirection === 'north') travelSign = 1;
+    else if (vessel._routeDirection === 'south') travelSign = -1;
+    const evidence = segmentPassageForm(from, to, point, travelSign, Date.now(), sogKn);
+    this.debug(
+      `🧾 [PASSAGE_NOTICE_FORM] ${vessel.mmsi}: ${bridgeName} form=${evidence.form ?? 'okänd'} `
+      + `(tystnad ${Number.isFinite(evidence.silenceMs) ? Math.round(evidence.silenceMs / 1000) : '?'} s, `
+      + `dröjsmål ${Number.isFinite(evidence.latenessMs) ? Math.round(evidence.latenessMs / 1000) : '?'} s`
+      + `${evidence.inSegment ? '' : ', korsningen före segmentet'})`,
+    );
+    return evidence.form;
   }
 
   /**
@@ -1420,12 +1500,16 @@ class AISBridgeApp extends Homey.App {
       if (!released) continue;
       const bridge = this.bridgeRegistry?.getBridgeByName?.(bridgeName);
       const distance = bridge ? geometry.calculateDistance(vessel.lat, vessel.lon, bridge.lat, bridge.lon) : null;
+      // Granskningen A2: släppets form följer med kandidaten, som i failsafen,
+      // så att samma bevis styr både källan och meningen.
+      const returnForm = this._returnPassageForm(released);
       // eslint-disable-next-line no-await-in-loop
       await this._triggerBoatNearFlowForBridge(vessel, {
         name: bridgeName,
         id: bridgeId,
         distance: Number.isFinite(distance) ? distance : 0,
-        source: this._returnPassageForm(released) === 'silence' ? 'passage-fallback' : 'just-passed',
+        source: returnForm === 'silence' ? 'passage-fallback' : 'just-passed',
+        returnForm,
       });
       if (!this._isCurrentRuntime(lifecycle)) return;
     }
@@ -3916,8 +4000,12 @@ class AISBridgeApp extends Homey.App {
       } else if (Number.isFinite(vessel.timestamp)) {
         posT = vessel.timestamp;
       }
+      // U37 del 2: fixens egen tid (AISHub-fixen kan vara 20–40 s gammal vid
+      // mottagningen), så att en återfödd båts passagenotis kan interpolera
+      // korsningen på fixklockan. Äldre poster saknar fältet.
+      const fixTs = Number.isFinite(vessel.fixTs) ? vessel.fixTs : undefined;
       this._lastKnownPositions.set(String(mmsi), {
-        lat: vessel.lat, lon: vessel.lon, t: Date.now(), posT,
+        lat: vessel.lat, lon: vessel.lon, t: Date.now(), posT, ...(fixTs !== undefined ? { fixTs } : {}),
       });
       this._persistLastKnownPositions();
     }
@@ -9015,6 +9103,8 @@ class AISBridgeApp extends Homey.App {
     // vilket gäller scenario B där hoppets ändpunkter är observerade).
     let provenLowLat = null;
     let provenHighLat = null;
+    // U36: sist kända position som scenario A:s fönster börjar i (återfödd båt).
+    let sweepLastKnown = null;
     if (isLargeJump) {
       // SCENARIO B: stort lat-hopp (>~550m) → broar mellan oldLat och newLat.
       // Riktningen härleds ur hoppets fysiska förflyttning.
@@ -9135,6 +9225,7 @@ class AISBridgeApp extends Homey.App {
       // [senast kända, nuvarande] — broar däremellan MÅSTE ha korsats.
       // (Hämtad + TTL-prövad ovan i reborn-evidensblocket.)
       const lastKnown = rebornLastKnown;
+      sweepLastKnown = lastKnown;
       let startBoundLat = null;
       if (lastKnown) {
         startBoundLat = lastKnown.lat;
@@ -9374,6 +9465,30 @@ class AISBridgeApp extends Homey.App {
     // (2026-07-03: trolig passage notifieras; sog≥2-, cog-band-, kajvakts-
     // och 2000 m-gaterna är skydden) äger. HERA II 07:24-fallet
     // dokumenteras som accepterad avvägning i stället.
+    // U36 (dirigentens beslut 2026-11-16 på ägarens uppdrag, fråga F24;
+    // nattjaktens F13): har appen själv sett att båten vände i glappet
+    // (sweepLockRelease: den rörelsebevisade levande kursen motsäger svepets
+    // nettoriktning) och är sist kända position äldre än cirka 17 min, gäller
+    // svepets passager en resa åt andra hållet som kan ha skett när som helst i
+    // glappet. FREJA fick "passerade Stallbackabron under AIS-tystnad" söderut
+    // för en passage 55 min tidigare, och tre minuter senare "närmar sig
+    // Stallbackabron" norrut. Notiserna hoppas över; låset och dess släpp sker
+    // som förut. Vändningar som appen inte sett (fart under 2 kn, osäker kurs),
+    // fall där kursen håller med nettot (vändning utanför området vid
+    // boxkanten) och färska återfödelser rörs inte. Scenario B har redan ett
+    // lås, och sweepLockRelease prövas inte där.
+    if (sweepLockRelease && sweepLastKnown) {
+      const knownAt = Number.isFinite(sweepLastKnown.posT) ? sweepLastKnown.posT : sweepLastKnown.t;
+      const ageMs = Date.now() - knownAt;
+      if (Number.isFinite(ageMs) && ageMs > SWEEP_TURNED_STALE_MS) {
+        this.log(
+          `⏭️ [SKIPPED_BRIDGES_STALE_AFTER_TURN] ${vessel.mmsi}: svepet sa '${sweepLockRelease.direction}' men `
+          + `kursen säger '${sweepLockRelease.liveDirection}' och sist kända position är ${Math.round(ageMs / 60000)} min gammal `
+          + `— båten vände i glappet; ingen notis för [${passedBridges.join(', ')}] (U36)`,
+        );
+        passedBridgeEntries.length = 0;
+      }
+    }
     for (const entry of passedBridgeEntries) {
       const bridgeName = entry.name;
       try {
@@ -10756,9 +10871,10 @@ class AISBridgeApp extends Homey.App {
    * bevisade fönster (≥ ~100 m). Bron ska ligga mellan positionerna (brolinjen,
    * se F08 nedan) och hoppet peka i båtens färdriktning. En återresa inom sex timmar har bron
    * FRAMFÖR sig och behåller förvarningen. Beviset är rumsligt och saknar
-   * tidskriterium, precis som passage-fallbackens scenario B: "under
-   * AIS-tystnad" avser att korsningen skedde mellan två rapporter, även vid
-   * normal Class B-kadens (HEY JOE efter 180 s). Kontrollen görs här, där alla tre
+   * tidskriterium. Det avgör bara att notisen får passerad form; VILKEN mening
+   * följer sedan U37 del 2 (_segmentPassageForm): HEY JOE, 180 s tystnad och
+   * fixen 11 m bortom Stallbackabron, korsade 4 s före notisen och får "har
+   * precis passerat", som förut "under AIS-tystnad". Kontrollen görs här, där alla tre
    * ingångar (STEG 2b, ENTERED och den uppskjutna statusnotisen) möts.
    * Källsträngen och distansen rörs inte; de bär dedupen och notisantalet.
    * @private
@@ -10894,13 +11010,14 @@ class AISBridgeApp extends Homey.App {
 
     // PASSERAD-FORM. De retroaktiva källorna delas MEDVETET i var sin
     // mening (F6 2026-08-10: tre stycken, se exit-grenen nedan).
-    // Bara 'passage-fallback' är AIS-tystnadsklassen: passagen
-    // inferreras i efterhand utan någon närhetsnotis före, och avståndet är
-    // begränsat först av FALLBACK_HARD_MAX_DISTANCE (2 000 m).
-    // 'just-passed' är en LIVE-passage — kandidaten läggs bara till inom
-    // PASSAGE_TRIGGER_GRACE_MS (15 s) efter stämpeln och inom notisradien,
-    // dvs. appen såg båten hela vägen. Att skriva "under AIS-tystnad" där
-    // hade varit en osann uppgift i en användarsynlig text.
+    // Sedan U37 del 2 (2026-11-16) väljer _triggerBoatNearFlowForBridge
+    // meningen för varje passagenotis med den gemensamma formregeln
+    // (lib/utils/passageNoticeForm.js) och skickar hit 'passage-fallback'
+    // ("under AIS-tystnad") eller 'just-passed' ("har precis passerat") som
+    // meningskälla. Källorna nedan är därför formens bärare; utan bevis för
+    // formen behåller varje väg sin gamla mening: 'passage-fallback' (passagen
+    // inferreras i efterhand utan närhetsnotis före) tystnad, 'just-passed' och
+    // S4 (appen såg båten vid bron) "har precis passerat" och BN2 tystnad.
     if (source === 'passage-fallback') {
       return `${name} passerade ${bridge} under AIS-tystnad`;
     }
@@ -11315,9 +11432,9 @@ class AISBridgeApp extends Homey.App {
     // varför källsträngen inte får röras.
     // U14: en returpassage som släpptes här är bevisad och har alltid
     // passerad form, även när S4 inte ser den (M1/M2: bokföringen ligger bara i
-    // passedAt[bro]). Formen följer beviset (_returnPassageForm): korsningen i
-    // ett AIS-glapp och notisen efter "precis passerat"-fönstret ger
-    // "passerade … under AIS-tystnad", annars "har precis passerat".
+    // passedAt[bro]). Formen följer beviset (_returnPassageForm, U37 del 2):
+    // mer än 130 s tystnad kring korsningen och notisen mer än 60 s efter den
+    // ger "passerade … under AIS-tystnad", annars "har precis passerat".
     // Failsafen släpper besöket innan den anropar hit och skickar då formen
     // med kandidaten (candidate.returnForm); släppet ovan blir då null.
     const returnForm = this._returnPassageForm(releasedReturn) ?? candidate.returnForm ?? null;
@@ -11425,9 +11542,18 @@ class AISBridgeApp extends Homey.App {
     // failsafen släppte får "har precis passerat" trots källan
     // 'passage-fallback' (fältprovet 13/11). Bara meningen byter källa;
     // källsträngen bär dedupsemantiken och står orörd.
+    // U37 del 2: samma formregel för varje passagenotis. Retursläppets form
+    // gäller först; annars prövas segmentet fram till notisens fix för
+    // failsafen och svepet (passage-fallback), just-passed, S4 och BN2.
+    // Saknas beviset behåller vägen sin egen mening. exit-fallback och
+    // trigger-punktens "har passerat" (H16) rörs inte.
+    let noticeForm = returnForm;
+    const passageNotice = (retroactiveSource && source !== 'exit-fallback')
+      || justPassedBridge || gapCrossedBridge;
+    if (noticeForm === null && passageNotice) noticeForm = this._segmentPassageForm(vessel, bridgeName);
     let messageSource = source;
-    if (returnForm === 'silence') messageSource = 'passage-fallback';
-    else if (returnForm === 'live' && source === 'passage-fallback') messageSource = 'just-passed';
+    if (noticeForm === 'silence') messageSource = 'passage-fallback';
+    else if (noticeForm === 'live' && (passageNotice || returnForm === 'live')) messageSource = 'just-passed';
     safeTokens.message = this._buildBoatNearMessage(
       safeTokens, messageSource,
       passedTriggerPoint, justPassedBridge, waitingAtBridge, gapCrossedBridge,

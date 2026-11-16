@@ -205,7 +205,9 @@ describe('F13: BN2 när kursen inte säger nord eller syd (östra dödbandet ell
       t: Date.parse('2026-06-18T08:57:32.513Z'),
       eta: -1,
       alreadyPassed: true,
-      message: 'SALTIS passerade Olidebron under AIS-tystnad',
+      // U37 del 2: korsningen (L0 08:56:38) låg 54 s före notisen; 115 m
+      // bortom bron i 5,7 kn ger samma skattning. "har precis passerat".
+      message: 'SALTIS har precis passerat Olidebron',
     });
     // Bara formen ändras: samma fem notiser, i samma ordning.
     expect(result.notifications.filter((n) => n.mmsi === MMSI).map((n) => n.bridge))
@@ -222,7 +224,9 @@ describe('F13: BN2 när kursen inte säger nord eller syd (östra dödbandet ell
       t: Date.parse('2026-06-18T08:57:32.513Z'),
       eta: -1,
       alreadyPassed: true,
-      message: 'SALTIS passerade Olidebron under AIS-tystnad',
+      // U37 del 2: korsningen (L0 08:56:38) låg 54 s före notisen; 115 m
+      // bortom bron i 5,7 kn ger samma skattning. "har precis passerat".
+      message: 'SALTIS har precis passerat Olidebron',
     });
     expect(result.notifications.filter((n) => n.mmsi === MMSI).map((n) => n.bridge))
       .toEqual(['Kanalinfarten', 'Olidebron', 'Stridsbergsbron', 'Järnvägsbron', 'Klaffbron']);

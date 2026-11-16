@@ -106,6 +106,9 @@ const OMSTART_SLOW_ZONE = {
  *  - noticeDirectionVsTruth: {bro: {mismatches: N}} — exakt N av båtens notiser
  *    vid bron har ett riktningsfält som motsäger den sanna färden under steget
  *    före notisen (nattjakten F12; minst en notis måste prövas)
+ *  - noticeForms: {bro: [form, …]} — notisernas form för bron i tidsordning:
+ *    'närmar', 'precis' ("har precis passerat"), 'tyst' ("passerade … under
+ *    AIS-tystnad") eller 'annan' (U37 del 2, formregeln)
  *  - toleratedInvariants: [RegExp] — fatala invariantrader som scenariot
  *    medvetet tål. Bara för KÄNDA fel utanför scenariots fråga, med motivering
  *    vid scenariot (U14-vakterna: passagelogikens falska bokföring vid linjen)
@@ -3489,6 +3492,135 @@ const SCENARIOS = [
       noticeMinEta: { Klaffbron: 3, Stridsbergsbron: 3 },
     },
   },
+  // U37 del 1 (rättningsomgång 3, 2026-11-16; nattjaktens F15, värld 16704):
+  // RETUR VID TÄT KADENS, KORSNINGSFIXEN INOM 30 m OCH SEDAN TYSTNAD. Båten
+  // passerar bron, vänder 176 m bortom och går tillbaka i 5,8 kn med 15–20 s
+  // kadens. Fixen före korsningen ligger 35 m på bortre sidan, korsningsfixen
+  // 20 s senare ~25 m ut på ankomstsidan, och nästa fix kommer först ~410 s
+  // senare, 1,2 km bort. U14 krävde 30 m ut vid tät kadens: returnotisen kom
+  // vid nästa fix, ~7 min sent. PLACERINGEN ÄR TESTET: korsningsfixen ska
+  // ligga entydigt (> 10 m) men under 30 m ut, och tystnaden börja direkt
+  // efter den. Benen startar vid bortre-sidans fix, så rutnätet är fast.
+  // Fältmotsvarigheten är aisstream klass A (fältets p97–98 för 421 s).
+  ...[
+    {
+      label: 'norrut ut, söderut tillbaka genom Klaffbron',
+      seed: 16704,
+      bro: 'Klaffbron',
+      broS: METRICS.cum[2],
+      dir: 1,
+    },
+    {
+      label: 'söderut ut, norrut tillbaka genom Stridsbergsbron',
+      seed: 16705,
+      bro: 'Stridsbergsbron',
+      broS: METRICS.cum[4],
+      dir: -1,
+    },
+  ].map((k) => ({
+    name: `retur-tät-kadens-korsningsfix-25m-sedan-tystnad, ${k.label} (nattjakten F15, U37)`,
+    seed: k.seed,
+    vessels: [{
+      mmsi: `9${k.seed}001`,
+      name: `SYNT-RETUR-${k.seed}`,
+      startS: k.broS - k.dir * 1500,
+      legs: [
+        { toS: k.broS + k.dir * 176, speedKn: 5.8, intervalS: 15 },
+        { toS: k.broS + k.dir * 35, speedKn: 5.8, intervalS: 15 },
+        {
+          toS: k.broS - k.dir * 1300,
+          speedKn: 5.8,
+          intervalS: 20,
+          gapFromS: k.broS - k.dir * 40,
+          gapToS: k.broS - k.dir * 1240,
+        },
+      ],
+    }],
+    expect: {
+      minPassagesPerBridge: { [k.bro]: 2 },
+      minNotifiedPerBridge: { [k.bro]: 2 },
+      maxNotifiedPerBridge: { [k.bro]: 2 },
+      maxNoticeDelayS: { [k.bro]: 60 },
+    },
+  })),
+  // U37 del 2 (rättningsomgång 3, 2026-11-16; granskningen av K1, L1): FORMEN
+  // PÅ EN SEN PASSAGENOTIS. Båten går norrut i 5 kn med 30 s kadens, tystnar
+  // 400 m före Klaffbron och hörs igen 200 m bortom bron: tystnad ~233 s,
+  // korsningen ~78 s före fixen. Bron bokförs i den fixen (S4), och notisen
+  // sa "har precis passerat" om en korsning över en minut tidigare. Formregeln
+  // (U14 rev. 3, nu för alla vägar) säger "passerade … under AIS-tystnad".
+  {
+    name: 'glapp-233s-över-Klaffbron-sen-passagenotis (U37 del 2)',
+    seed: 16707,
+    vessels: [{
+      mmsi: '916707001',
+      name: 'SYNT-SENFORM',
+      startS: METRICS.cum[2] - 1500,
+      legs: [{
+        toS: METRICS.cum[2] + 900,
+        speedKn: 5,
+        intervalS: 30,
+        gapFromS: METRICS.cum[2] - 400,
+        gapToS: METRICS.cum[2] + 190,
+      }],
+    }],
+    expect: { minTargetPassages: 1, noticeForms: { Klaffbron: ['tyst'] } },
+  },
+  // U37 del 2, spegeln: glapp på 180 s som slutar ~11 m bortom
+  // Stallbackabron i 10 kn (latitudhoppet över 0,005°; mellanbron bokförs inte
+  // i fixen, så glappvägen BN2 ger formen). Korsningen ligger några sekunder före fixen, så
+  // formregeln säger "har precis passerat"; förut gav glappvägen alltid
+  // "passerade … under AIS-tystnad" (HEY JOE i 20260713-41h: 180 s, fixen 11 m
+  // bortom Stallbackabron, korsningen 4 s före). Benet börjar vid fixen före
+  // glappet, så rutnätet ger fixen bortom bron 180 s senare.
+  {
+    name: 'glapp-180s-slutar-11m-bortom-Stallbackabron (U37 del 2)',
+    seed: 16708,
+    vessels: [{
+      mmsi: '916708001',
+      name: 'SYNT-PRECISFORM',
+      startS: METRICS.cum[5] + 2000,
+      legs: [
+        { toS: METRICS.cum[5] + 915, speedKn: 10, intervalS: 30 },
+        {
+          toS: METRICS.cum[5] - 1300,
+          speedKn: 10,
+          intervalS: 30,
+          gapFromS: METRICS.cum[5] + 900,
+          gapToS: METRICS.cum[5] - 5,
+        },
+      ],
+    }],
+    expect: { noticeForms: { Stallbackabron: ['precis'] } },
+  },
+  // U37 del 1, motfall: VÄNDER, GÅR TILLBAKA I 5,8 kn OCH STANNAR PÅ LINJEN
+  // vid tät kadens (10 s) med ±10 m brus, ligger där i 10 min och vänder sedan
+  // bort igen. Sanningen är EN passage. Inbromsningen sker i benet före
+  // stoppet, så stillafixarna rapporterar 0,1 kn och slumpad kurs: korsningsfixen
+  // i transitfart (U37 del 1) får aldrig uppstå. Passagelogikens falska
+  // bokföring vid linjen ger INV-5 som i U14-vakterna ovan.
+  {
+    name: 'vänder-och-stannar-på-Klaffbrons-linje-tät-AIS-efter-5,8kn (U37-vakt)',
+    seed: 16706,
+    vessels: [{
+      mmsi: '916706001',
+      name: 'SYNT-LINJESTOPP',
+      jitterM: 10,
+      startS: METRICS.cum[2] - 900,
+      legs: [
+        { toS: METRICS.cum[2] + 176, speedKn: 5.8, intervalS: 10 },
+        { toS: METRICS.cum[2] + 40, speedKn: 5.8, intervalS: 10 },
+        { toS: METRICS.cum[2], speedKn: 1.5, intervalS: 10 },
+        { stopS: 600, stopIntervalS: 10, stopCogRandom: true },
+        { toS: METRICS.cum[2] + 900, speedKn: 5, intervalS: 10 },
+      ],
+    }],
+    expect: {
+      minNotifiedBridges: ['Klaffbron'],
+      maxNotifiedPerBridge: { Klaffbron: 1 },
+      toleratedInvariants: [/^MISSAD MÅLBRO-NOTIS: \d{9}:Klaffbron — /],
+    },
+  },
 ];
 
 function runScenario(scenario) {
@@ -3808,6 +3940,23 @@ function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
     for (const [bridge, minN] of Object.entries(e.minNotifiedPerBridge)) {
       if ((counts[bridge] || 0) < minN) {
         problems.push(`SAKNAD RETURNOTIS: ${bridge} fick ${counts[bridge] || 0} notiser (minst ${minN})`);
+      }
+    }
+  }
+  // U37 del 2: notisernas form per bro, i tidsordning.
+  if (e.noticeForms) {
+    const formOf = (m) => {
+      if (/under AIS-tystnad/.test(m || '')) return 'tyst';
+      if (/har precis passerat/.test(m || '')) return 'precis';
+      if (/närmar sig/.test(m || '')) return 'närmar';
+      return 'annan';
+    };
+    for (const [bridge, forms] of Object.entries(e.noticeForms)) {
+      const got = notifications.filter((n) => n.bridge === bridge).sort((x, y) => x.t - y.t)
+        .map((n) => formOf(n.message));
+      if (JSON.stringify(got) !== JSON.stringify(forms)) {
+        const texts = notifications.filter((n) => n.bridge === bridge).map((n) => `"${n.message}"`).join(', ');
+        problems.push(`NOTISFORM vid ${bridge}: [${got.join(', ')}] ≠ [${forms.join(', ')}] (${texts})`);
       }
     }
   }

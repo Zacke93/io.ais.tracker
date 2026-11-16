@@ -104,7 +104,9 @@ describe('Fältdygn 23–24 augusti: rådatabelagd täckning genom hela appen', 
       source: 'passage-fallback',
       eta: -1,
       alreadyPassed: true,
-      message: 'TANGELA passerade Järnvägsbron under AIS-tystnad',
+      // U37 del 2: korsningen låg 17 s före notisen (23 m bortom bron i
+      // 2,7 kn, efter 952 s tystnad), så formregeln ger "har precis passerat".
+      message: 'TANGELA har precis passerat Järnvägsbron',
     });
   });
 
