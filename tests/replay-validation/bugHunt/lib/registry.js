@@ -835,7 +835,9 @@ function motornsTäckningsslut(eW, absT, domarIE, p) {
  * @returns {{ms: number, hur: string, absT: number}|{fel: string}} den senaste tiden och absorptionen, eller skälet
  */
 /**
- * U2-VS-DEADLINE: hade täckningen som höll båten vid korsningen rätt längd?
+ * U2-VS-DEADLINE och J13-J14-KONVOJSEMANTIK: hade täckningen som höll båten
+ * vid korsningen rätt längd? (J13 tillagd samma dag: den tog mutantens 1089
+ * och 1214 när U2 släppte dem.)
  * (2026-11-16, granskningen av verktygsgrenen, punkt 6.) Posten godtar en
  * utebliven varning när båten var täckt av en äldre händelse E och
  * korsningen ligger inom E:s första passage + fönstret. Med täckningen för
@@ -861,7 +863,18 @@ function täckningensLängd(ctx, f, w, tc, p) {
   const E = w.eventId;
   const v = V.filter((x) => x && String(x.mmsi) === String(f.mmsi) && x.bridge === f.bro && x.eventId === E
     && Number.isFinite(x.t) && x.t <= tc).sort((a, b) => a.t - b.t).pop();
-  if (!v) return { fel: `domspåret har ingen dom för båten i ${E} före korsningen ${fmtT(tc)}` };
+  if (!v) {
+    // En medlem eller ledare (täckningen 'fired') har ingen arm som kan bli
+    // för lång: hennes varning gick ut i E. Bara en absorberad båt utan dom
+    // i E före korsningen saknar underlaget (standardvärld 212, J13: ledare
+    // i sin egen händelse, 55 s före korsningen).
+    const cov = (ctx.resultat.openingCoverage || []).filter((c) => c && String(c.mmsi) === String(f.mmsi)
+      && c.bridge === f.bro && c.eventId === E && Number.isFinite(c.t) && c.t <= tc);
+    if (cov.length && !cov.some((c) => c.reason === 'absorbed')) {
+      return { text: ` (täckningens längd prövas inte: båten var medlem i ${E}, inte absorberad)` };
+    }
+    return { fel: `domspåret har ingen dom för båten i ${E} före korsningen ${fmtT(tc)}` };
+  }
   const B = v.event ? v.event.firstPassageRegisteredAt : null;
   if (!Number.isFinite(B)) return { text: ` (täckningens längd prövas inte: ${E}:s första passage var inte bokförd vid domen ${fmtT(v.t)})` };
   const avfyrad = v.event && Number.isFinite(v.event.firedAt) ? v.event.firedAt : w.t;
@@ -870,7 +883,7 @@ function täckningensLängd(ctx, f, w, tc, p) {
   if (!Number.isFinite(arm)) return { fel: `domen ${fmtT(v.t)} i ${E} saknar armens täckningsslut` };
   const vid = `max(${E}:s avfyrning ${fmtT(avfyrad)}, bokföringen ${fmtT(B)}) + ${p.fönsterMs / 1000} s = ${fmtT(slut)}`;
   if (arm - slut > p.tickMs) {
-    return { fel: `armens täckningsslut ${fmtT(arm)} i domen ${fmtT(v.t)} ligger mer än en tick efter ${vid}: täckningen var för lång, och då förklarar U2 inte den uteblivna varningen` };
+    return { fel: `armens täckningsslut ${fmtT(arm)} i domen ${fmtT(v.t)} ligger mer än en tick efter ${vid}: täckningen var för lång, och då förklarar konvojsemantiken (U2, J13) inte den uteblivna varningen` };
   }
   const fönster = v.verdict ? v.verdict.windowEndMs : null;
   if (Number.isFinite(fönster) && fönster - slut > p.tickMs) {
@@ -1322,14 +1335,22 @@ const PREDICATES = {
   },
 
   nonMemberCrossingBetween: {
-    parametrar: {},
-    fn(f, ctx) {
+    parametrar: { fönsterMs: C.BRIDGE_OPENING.CONVOY_WINDOW_MS, tickMs: C.BRIDGE_OPENING.TICK_INTERVAL_MS },
+    fn(f, ctx, p) {
       const tc = crossingTimeOf(f);
       if (!Number.isFinite(tc) || !f.bro || !f.mmsi) return nej('saknar korsningstid, bro eller mmsi');
       const d = convoyData(ctx, f.bro);
       if (!d.varningar.some((x) => x.t < tc)) return nej('ingen levererad varning före korsningen');
       const r = konvoj.ickeMedlemEmellan({ mmsi: f.mmsi, bro: f.bro, tc }, d);
-      if (r.sant) return ok(`icke-medlemmen ${r.x.mmsi} korsade ${fmtT(r.x.t)} mellan varningen ${r.w.eventId || ''} (${fmtT(r.w.t)}) och passagen`);
+      if (r.sant) {
+        // Samma prov som U2-VS-DEADLINE (2026-11-16): täckningen som höll
+        // båten i händelsen r.w vid korsningen måste ha haft rätt längd, annars
+        // kan ett räknefel i täckningen gömma sig bakom medlemskravet
+        // (granskarens mutant u17arm300, världarna 1089 och 1214).
+        const längd = täckningensLängd(ctx, f, r.w, tc, p);
+        if (längd.fel) return nej(längd.fel);
+        return ok(`icke-medlemmen ${r.x.mmsi} korsade ${fmtT(r.x.t)} mellan varningen ${r.w.eventId || ''} (${fmtT(r.w.t)}) och passagen${längd.text}`);
+      }
       return nej('ingen båt utanför en händelse som täckte båten korsade emellan medan händelsen var öppen (ingen täckt båt passerade mer än 600 s före)');
     },
   },
