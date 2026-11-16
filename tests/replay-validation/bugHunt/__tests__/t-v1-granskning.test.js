@@ -13,6 +13,7 @@
  *   M1-andra   en andra händelse vid samma bro inom 20 min avfyras inte
  *   M7         reserven för en tyst köande båt 3 min sen
  *   M3b-ledare ledaren byts när den främsta varit tyst 90–300 s
+ *   M3-eta     den visade tiden + 6 min i en halvminut (samma bärare)
  *   M5         appens U21-gräns + 15 min
  * Inga barnprocesser och inga timers.
  */
@@ -140,6 +141,14 @@ describe('H7: U34 gren (c) kräver uttömningens stämpel och tystnad över 300 
     const inv3 = mutant(k).filter((f) => f.inv === 'INV-3');
     expect(inv3.length).toBeGreaterThan(0);
     expect(inv3.filter((f) => f.register.post === 'LEDARBYTE-TYST-FRÄMSTA')).toEqual([]);
+  });
+});
+
+describe('U34: den nya nivån ska hålla (mutanten M3, uppblåst tid i en halvminut)', () => {
+  test('[mutant] M3-eta:s627: hoppet 4 → 10 bakom ett ledarbyte, som inte håller, är KANDIDAT', () => {
+    const f = mutant('M3-eta:s627').find((x) => x.inv === 'INV-3' && /ETA-SÅGTAND UPP/.test(x.klass) && /4→10/.test(x.detalj));
+    expect(f).toBeDefined();
+    expect(f.register.klass).toBe('KANDIDAT');
   });
 });
 

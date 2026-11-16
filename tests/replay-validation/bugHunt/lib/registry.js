@@ -4074,6 +4074,13 @@ const PREDICATES = {
       }
       const reset = (res.journeyResets || []).find((r) => r && String(r.mmsi) === L1 && Number.isFinite(r.t) && r.t >= egnaR[k].aisTimestamp && r.t <= efter.t);
       if (reset) return nej(`journeyReset för ${L1} ${fmtT(reset.t)} före hoppet: en vändning (U18), inte en tyst främsta båt`);
+      // 6. Den nya nivån håller (granskningen 2026-11-16, mutanten M3: en
+      // uppblåst tid i en halvminut hos L2 dolde sig bakom ett äkta
+      // ledarbyte). Ingen senare text inom 120 s där L2 bär klausulen visar
+      // 6 min eller mer lägre, samma gräns som INV-3:s M1. Att L1 hörs igen och
+      // tar tillbaka klausulen med sin lägre tid är U34:s mönster och räknas inte.
+      const fall = serie.slice(i + 1).find((x) => x.t - efter.t <= 120000 && x.lead === efter.lead && x.eta <= efter.eta - 6);
+      if (fall) return nej(`den nya nivån höll inte: ${fmtT(fall.t)} visar ${fall.eta} min, 6 min eller mer under hoppets ${efter.eta} min`);
       return ok(`U34: ${L1} bar klausulen (${före.eta} min ${fmtT(före.t)}) och tystnade, ${gren}; ${efter.lead} bär hoppet ${efter.eta} min ${fmtT(efter.t)}, `
         + `och ${L1} räknas kvar i gruppen (${efter.antal})`);
     },
