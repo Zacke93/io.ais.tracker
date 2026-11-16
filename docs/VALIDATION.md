@@ -1360,6 +1360,15 @@ efteråt.
    terminalen får hela processgruppen HUP, och då kan slingornas `sleep`
    rapportera "Hangup: 1" till den döda terminalen; det syns inte och påverkar
    inte nedstängningen.
+   **Inga kvarlämnade `sleep` (granskningen 2026-11-16, M2).** Förut levde
+   vakternas och nödbromsens `sleep` kvar med ppid 1 i upp till 300 s efter en
+   normal nedstängning (lika före `disown`). `kill_with_sleep` dödar nu
+   subskalet först, som förut, och sedan dess väntande `sleep` (insamlad med
+   `pgrep -x -P` före KILL; bara processer som heter sleep, så en pågående
+   kopiering i synkslingan löper klart). Testet lyssnar på `exit`, kräver att
+   processgruppen är tom strax efter och dödar den själv; förut avslutades
+   varje helskriptstest av sin egen nödbroms efter 45 s. Dödas sömnen före
+   subskalet hinner slingan köra ett varv till, och det fäller testet.
 3. **GRIND 1 — logg-integriteten.** Summaryn (`bridge-text-summary-*.md`) har
    sektionen "Logg-integritet (tidshål + replay-fångst)" med tre kontroller och ett
    samlat verdikt. Replay-kontrollen granskar även källans bokföring:

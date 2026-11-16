@@ -215,8 +215,10 @@ describe('Nedstängningen synkar arkivet före summaryn', () => {
     EXTRACT_DONE=0; REPLAY_GUARD_PID=""; HOLE_GUARD_PID=""; SYNC_PID=""
   `;
   // \`say\` finns från V4; funktionerna i övrigt fanns före.
+  // kill_with_sleep finns från granskningen 2026-11-16 (M2).
   const functions = ['sync_file', 'rebuild_replay_jsonl', 'find_log_holes', 'extract_bridge_text']
-    .concat(/^say\(\) \{/m.test(script) ? ['say'] : []);
+    .concat(/^say\(\) \{/m.test(script) ? ['say'] : [])
+    .concat(/^kill_with_sleep\(\) \{/m.test(script) ? ['kill_with_sleep'] : []);
 
   test('dödad mitt i summaryn: arkivets logg och jsonl är ändå kompletta', () => {
     // nl körs i summaryns brotextlista; SIGKILL där motsvarar utloggningen.
@@ -328,7 +330,7 @@ describe('Ingen inbyggd terminalskrivning där terminalen kan vara död', () => 
     const tail = mainTail();
     out.push(['efter wait "$PIPE_PID"', tail]);
     for (const name of ['finish_run', 'shutdown_and_exit', 'stop_capture', 'extract_bridge_text',
-      'cleanup_run_tempfiles', 'sync_file', 'rebuild_replay_jsonl']) {
+      'cleanup_run_tempfiles', 'sync_file', 'rebuild_replay_jsonl', 'kill_with_sleep']) {
       out.push([name, bashFunction(name)]);
     }
     for (const [label, start, end] of [
@@ -386,7 +388,7 @@ describe('Ingen inbyggd terminalskrivning där terminalen kan vara död', () => 
       }
       fs.writeFileSync(path.join(dir, 'live', 'app-ts.log'), `${lines.join('\n')}\n`);
       const fns = ['say', 'sync_file', 'rebuild_replay_jsonl', 'find_log_holes', 'extract_bridge_text',
-        'cleanup_run_tempfiles', 'stop_capture', 'finish_run'].map(bashFunction).join('\n');
+        'cleanup_run_tempfiles', 'kill_with_sleep', 'stop_capture', 'finish_run'].map(bashFunction).join('\n');
       // Skriptets egna rader efter wait, ordagrant, följda av EXIT-trap:ens finish_run.
       const tail = mainTail();
       const payload = `${fns}
@@ -532,12 +534,36 @@ done
       }
     }, 45000);
     child.on('error', reject);
-    child.on('close', (code, sig) => {
+    // Granskningen 2026-11-16 (M2): `close` kom förr först när nödbromsen dödat
+    // gruppen, eftersom kvarlämnade `sleep` höll stdout öppen. Testet lyssnar
+    // därför på `exit`, läser vad som finns kvar i processgruppen strax efter
+    // och dödar gruppen själv. `close` (alla rör stängda) avslutar.
+    let exited = null;
+    child.on('exit', (code, sig) => {
+      clearInterval(poll);
+      setTimeout(() => {
+        const ps = spawnSync('pgrep', ['-g', String(child.pid)], { encoding: 'utf8' });
+        const leftovers = (ps.stdout || '').split('\n').filter(Boolean)
+          .map((pid) => spawnSync('ps', ['-o', 'comm=', '-p', pid], { encoding: 'utf8' }).stdout.trim())
+          .filter(Boolean);
+        exited = { code, sig, leftovers };
+        try {
+          process.kill(-child.pid, 'SIGKILL');
+        } catch (e) {
+          // redan borta
+        }
+      }, 300);
+    });
+    child.on('close', () => {
       clearInterval(poll);
       clearTimeout(brake);
-      resolve({
-        code, sig, stdout, stderr,
-      });
+      const wait = setInterval(() => {
+        if (!exited) return;
+        clearInterval(wait);
+        resolve({
+          ...exited, stdout, stderr,
+        });
+      }, 20);
     });
   });
 
@@ -580,6 +606,8 @@ done
       noNoise(r);
       expectComplete(dir);
       expect(r.stdout).toMatch(/arkivsynk: OK/);
+      // Inga kvarlämnade processer (vakternas och nödbromsens sömn) i gruppen.
+      expect(r.leftovers).toEqual([]);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
