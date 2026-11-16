@@ -2615,6 +2615,54 @@ baslinje). E2 gör om ETA-utjämningen och spärren ovanpå F04-rättningen och
 mäter om E:s sex omlåsta rader och M9/V4-utfallet, eftersom PRIMA LADYs och
 SKONNERTENs värden beror på den dubbla EMA:n.
 
+**F02 gick in (ETA-etappen under ägarbeslutet U28, 2026-11-16): inbromsningen
+nära bron.** Buggjägarens kort F02 (standardkörningen 2026-11-14) är triagens
+F06 ovan. XENIA (värld 192) bromsar från 4,5 till 1,1 kn cirka 340 m före
+Klaffbron. Fartbufferten (tre sampel) bär fortfarande anloppsfarten, rå-ETA:n
+på medelfarten lovar strax (2,9) och EMA:n för värdet till 2,99. Texten sa
+"strax" 9,9 min före korsningen, sedan "om 4" när medelfarten hann ikapp och
+"strax" igen när imminent-flaggan (300 m) tog över.
+- *Regeln* (`ProgressiveETACalculator._processETAWithProtection`, efter
+  M9-hållningen och före historiken): ETA:n hålls på strax-tröskeln (3 min)
+  när medelfarten ENSAM lovar strax. Alla villkor: ett nytt inträde i strax
+  (förra värdet ≥ 3, det nya < 3), samplets egen mätning < 3, medelfarten minst
+  `DECEL_HOLD_MIN_RATIO` (1,2) gånger momentanfarten (golv 0,5 kn),
+  momentanfartens ETA minst `DECEL_HOLD_MIN_INSTANT_ETA_MINUTES` (3,5 min) och
+  imminent-flaggan av.
+- *Varför villkoren ser ut så:* det är E2:s inbromsningsregel (U20) med
+  E2-revisionens marginaler. Nytt inträde: en redan given strax lyftes annars
+  till "om 3" (RUNA, quick-värld 286). Kvoten och marginalen: utan dem höll
+  regeln 44 gånger i banken och gjorde fem uppfyllda strax till "om 3"
+  (NORDIC SOLA 19h 06:17:48: 4,6 → 4,1 kn, 2,8 min på snittet och 3,0 på
+  momentanfarten, korsade 2,8 min senare). E2 som helhet integrerades inte
+  (U22), eftersom K6-steget i den gjorde 45 påståenden sämre; regeln här står
+  för sig på dagens tvåpasskedja.
+- *Prövat och förkastat (C-hyst, 2026-11-15):* hysteres i publiceringen, så att
+  texten lämnar strax först vid 4 min. Den tog bort växlingen men höll kvar
+  XENIA:s för tidiga strax och gav nio fler ouppfyllda strax i banken
+  (strax-löftet 63,0 → 62,3 %).
+- *Rörs inte:* imminent-flaggan och dess 300/350 m, U16 och F40-studsen.
+  Regeln läser inte positionens ålder och kan bara hålla ETA:n uppe, aldrig ge
+  strax; åldersgrinden (Fix G och `BridgeTextService.hasFreshPosition`) är
+  orörd.
+- *Utfallet:* XENIA-formen ger "om 3", "om 4" och strax först vid imminent
+  (inom 300 m), utan den för tidiga strax och utan strax → om 4 → strax.
+  Kvar står ett steg 3 → 4 innan medelfarten hunnit ikapp. Mätningen och de
+  två flyttade raderna står i VALIDATION "### F02, 2026-11-16".
+- *Priset (till ägaren enligt U28):* MALUCA, 20260712-25h 07:42:16, bromsade
+  verkligen in vid bron (5,5 → 1,3 kn, 320 m söder om Klaffbron) och korsade
+  2,8 min senare. Hennes uppfyllda strax blir "om 3" (fel +0,2).
+- Samspel: fartspiksvakten (`omg2/ETA1-S`) ersätter bara en UPPÅT spikad fart
+  i bufferten, och i ett spiksampel är momentanfarten hög, så kvoten faller
+  under 1. Regeln och vakten kan därför inte slå till i samma sampel. U30:s
+  "ETA okänd" (`omg2/ETA1-F`) gäller en bevisat stilla båt mer än 350 m från
+  målbron och avgörs av presentationen i app.js; regeln ändrar bara värdet.
+  Regeln avfyras inte efter M9-hållningen, eftersom det hållna värdet redan
+  är 3.
+- Regressionstest: `tests/f02-inbromsning-nara-bron.test.js` (enhetsfall för
+  varje delvillkor åt båda håll och hela kedjan för fem syntetiska scenarier,
+  `tests/fixtures/f02-*.jsonl`).
+
 **F07 gick in (ETA-etappen under ägarbeslutet U28, 2026-11-15): klampen
 försvarar det användaren ser.** Buggjägarens kort
 F03 (standardkörningen 2026-11-14) är 21h-knivseggen ovan, i fasvarianten

@@ -1160,6 +1160,27 @@ sampelnyckelvakten, nollställningen vid nytt målbyte, rensningen vid andra
 skäl, bevis i en `ETA_STALE_HARD`-hold och holdens sampel i den riktiga
 bufferten fäller vart och ett minst ett test.
 
+### F02, 2026-11-16: inbromsningsregeln
+
+Regeln (ARCHITECTURE §8 (e) "F02 gick in") håller ETA:n på 3 min när buffertens medelfart ensam lovar strax vid en inbromsning nära bron. Kravet var att ingen enskild ETA-uppgift skulle bli sämre (U28).
+
+`measure:eta` mot baslinjen på `bfaeec4` (25 korpusar):
+- 0 av 3 198 parade påståenden ändras.
+- Ett påstående tillkommer, och det redovisas till ägaren: MALUCA 20260712-25h 07:42:16, "om 3" mot sanningen 2,8, fel +0,2. Det ersätter en uppfylld strax.
+- Strax-löftet går från n 218 och 65,14 % ≤ 3 min till n 216 och 65,28 %. MALUCA:s uppfyllda strax och 42h:s ouppfyllda strax 09:12:50 försvinner. Den senare strax 09:13:57 tillskrivs gruppdominans och räknas inte i löftet.
+- Notiser, öppningskort, antal brotextövergångar och oattribuerade är oförändrade.
+
+Två låsta golden-textrader flyttas. Ingen omlåsning är gjord (U13).
+- **20260712-25h 07:42:16, Klaffbron:** "Två båtar … strax" blir "… om 3 minuter". MALUCA bromsade från 5,5 till 1,3 kn 320 m före bron och korsade cirka 07:45:04. Strax var alltså ett uppfyllt löfte.
+- **20260806-42h, Stridsbergsbron:** "Fem båtar … strax" kommer 09:13:57 i stället för 09:12:50. Båtarna bromsade in och köade 90–260 m norr om bron. Ledaren AGULHAS korsar enligt mätningens härledda sanning cirka 53 min senare. Båda strax-siffrorna är för tidiga, och den nya kommer 67 s senare.
+- Den nya korpusen 20261114-34h och fältkörningarna k1–k3 är bitlika.
+
+Fem syntetiska scenarier är nya fixturer i `tests/f02-inbromsning-nara-bron.test.js` (egna positioner söderifrån mot Klaffbron, fix var 30:e sekund):
+- **XENIA-formen:** före regeln strax 10,0 min före korsningen, sedan "om 4" och strax igen. Nu kommer en enda strax, vid imminent inom 300 m.
+- **Fyra motfall** med låsta förväntningar, oförändrade mot basen: jämn fart, lätt inbromsning (kvot under 1,15), inbromsning först inom 300 m, och en position som blir gammal före bron.
+
+Enhetsfallen prövar varje delvillkor åt båda håll. Mutationsprovet fäller 12 av 13 mutanter. Den som överlever är villkoret "snitt > momentan", som är ekvivalent: en kvot under 1 faller ändå på tröskeln 1,2.
+
 ### F07, 2026-11-15: klampen försvarar det användaren ser
 
 Ändringen (ARCHITECTURE §8 (e), "F07 gick in"; ETA-etappen under ägarbeslutet

@@ -339,6 +339,12 @@ F18 och F19 är beslut eller design och står under Beslutsfrågor (punkt 3).
   osedd baslinje, sedan R7 extrapolerad eller uppmätt (med rimlighetsprov av det
   fix som sänker texten). `docs/ARCHITECTURE.md` §8 (e)
   "F07 gick in", mätningen i `docs/VALIDATION.md` §ETA-mätharnessen.
+- **F06 rättat 2026-11-16** (ETA-etappen under ägarbeslutet U28; kort F02 i
+  standardkörningen 2026-11-14): inbromsningsregeln håller ETA:n på 3 min när
+  buffertens medelfart ensam lovar strax (E2:s regel med revisionens
+  marginaler). Hysteres kring 3-minutersgränsen (rättningsriktningen ovan)
+  prövades och förkastades. `docs/ARCHITECTURE.md` §8 (e) "F02 gick in",
+  mätningen i `docs/VALIDATION.md` "### F02, 2026-11-16".
 
 ### 8. LOW_SPEED/INSUFFICIENT_MOVEMENT-flappen
 
