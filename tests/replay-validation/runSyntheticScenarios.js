@@ -3170,6 +3170,155 @@ const SCENARIOS = [
       }],
     },
   })),
+  // F04 (rättningsomgång 3, 2026-11-16; nattjaktens värld 19721): BÅTEN SOM
+  // LÄMNAR KANALEN OCH VÄNDER TILLBAKA. Hon går ut norrut genom
+  // Stallbackabron i 9,5 kn, saktar in och vänder 430 m bortom bron och kommer
+  // tillbaka i 4,5–8,8 kn. Återinträdesspärren (10 min efter avslutad resa)
+  // kastade varje position: varningen för Stridsbergsbron kom 136 s före
+  // korsningen och Stallbackabron fick bara en sen "passerade … under
+  // AIS-tystnad". PLACERINGEN ÄR TESTET: resan avslutas cirka 300 m bortom
+  // bron (STALLBACKABRON_EXIT_LAT), så vändningen måste ligga längre ut än så,
+  // och rutten norr om bron (en rak förlängning) lämnar boxen österut efter
+  // cirka 330 m. Fixarna bortom bron ligger därför 50–110 m västerut i sidled
+  // (lateralM); sidledet går nästan längs broaxeln och flyttar inte sidan om
+  // brolinjen.
+  {
+    name: 'återvändare-bortom-Stallbackabron (nattjakten F04)',
+    seed: 19721,
+    vessels: [{
+      mmsi: '901972101',
+      name: 'SYNT-ÅTERVÄNDARE-N',
+      startS: METRICS.cum[1] - 300,
+      legs: [
+        { toS: METRICS.cum[5] + 150, speedKn: 9.5, intervalS: 30 },
+        {
+          toS: METRICS.cum[5] + 300, speedKn: 8, intervalS: 30, lateralM: -50,
+        },
+        {
+          toS: METRICS.cum[5] + 430, speedKn: 4, intervalS: 30, lateralM: -110,
+        },
+        {
+          stopS: 30, stopIntervalS: 30, stopSog: 1.4, stopCogDeg: 195, lateralM: -110,
+        },
+        {
+          toS: METRICS.cum[5] + 310, speedKn: 4.5, intervalS: 30, lateralM: -110,
+        },
+        {
+          toS: METRICS.cum[5] + 150, speedKn: 8.5, intervalS: 30, lateralM: -50,
+        },
+        { toS: METRICS.cum[2] - 300, speedKn: 8.8, intervalS: 30 },
+      ],
+    }],
+    expect: {
+      openingLeadS: { Stridsbergsbron: 180 },
+      approachNoticeLeadS: { Stallbackabron: 30 },
+    },
+  },
+  // F04, söderut: samma mekanism vid Olidebron. Resan söderut avslutas först
+  // söder om KANALINFARTEN_EXIT_LAT (~830 m bortom Olidebron), och vägen
+  // tillbaka till Klaffbron är så kort att spärren åt upp notiserna för
+  // Kanalinfarten och Olidebron och varningen för Klaffbron (5 s före
+  // korsningen). Utfarten går västsydväst, så "mot bron" mäts mot brolinjen,
+  // inte mot ett kompassband.
+  {
+    name: 'återvändare-söder-om-Olidebron (nattjakten F04, söderut)',
+    seed: 19722,
+    vessels: [{
+      mmsi: '901972201',
+      name: 'SYNT-ÅTERVÄNDARE-S',
+      startS: METRICS.cum[5] + 250,
+      legs: [
+        { toS: METRICS.cum[1] - 1000, speedKn: 8, intervalS: 30 },
+        {
+          stopS: 30, stopIntervalS: 30, stopSog: 1.4, stopCogDeg: 120,
+        },
+        { toS: METRICS.cum[4] + 400, speedKn: 8, intervalS: 30 },
+      ],
+    }],
+    expect: {
+      openingLeadS: { Klaffbron: 180 },
+      approachNoticeLeadS: { Olidebron: 30 },
+    },
+  },
+  // Motfall F04: båten vänder bortom Stallbackabron men ligger sedan och
+  // vobblar (0,6 kn, slumpad kurs) i 15 min innan hon går vidare norrut.
+  // Ingen position går mot bron i 2 kn, så spärren står kvar som förut: ingen
+  // ny notis för Stallbackabron och ingen båt mot Stridsbergsbron i texten
+  // medan spärren gäller (resan avslutas cirka 1 100 s in). När spärren löpt
+  // ut (1 830 s) skapas hon som förut, med "om 120 minuter"; det är dagens
+  // beteende för en stilla båt bortom bron och inte prövat här.
+  {
+    name: 'utfart-norrut-ligger-still-bortom-Stallbackabron (motfall F04)',
+    seed: 19723,
+    vessels: [{
+      mmsi: '901972301',
+      name: 'SYNT-UTFART-STILLA',
+      startS: METRICS.cum[1] - 300,
+      legs: [
+        { toS: METRICS.cum[5] + 150, speedKn: 9.5, intervalS: 30 },
+        {
+          toS: METRICS.cum[5] + 300, speedKn: 8, intervalS: 30, lateralM: -50,
+        },
+        {
+          toS: METRICS.cum[5] + 430, speedKn: 4, intervalS: 30, lateralM: -110,
+        },
+        {
+          stopS: 900, stopIntervalS: 30, stopSog: 0.6, stopCogRandom: true, lateralM: -110,
+        },
+        {
+          toS: METRICS.cum[5] + 900, speedKn: 6, intervalS: 30, lateralM: -110,
+        },
+      ],
+    }],
+    expect: {
+      maxNotifiedPerBridge: { Stallbackabron: 1 },
+      textCountWindows: [{
+        bridge: 'Stridsbergsbron', fromS: 1150, toS: 1800, max: 0,
+      }],
+    },
+  },
+  // Motfall F04, den kända gränsen: båten vänder bortom Stallbackabron, går
+  // tillbaka mot bron i 3 kn i drygt en minut (130 m) och vänder sedan ut
+  // igen. Hon släpps på den andra positionen mot bron och står i texten "på
+  // väg mot Stridsbergsbron" i 90 s innan hon tas bort igen; förut syntes
+  // hon inte alls. Låset: ingen extra notis och ingen båt i texten efter att
+  // hon vänt ut igen.
+  {
+    name: 'utfart-norrut-vänder-in-och-ut-igen (motfall F04, känd gräns)',
+    seed: 19724,
+    vessels: [{
+      mmsi: '901972401',
+      name: 'SYNT-UTFART-VÄNDER-IGEN',
+      startS: METRICS.cum[1] - 300,
+      legs: [
+        { toS: METRICS.cum[5] + 150, speedKn: 9.5, intervalS: 30 },
+        {
+          toS: METRICS.cum[5] + 300, speedKn: 8, intervalS: 30, lateralM: -50,
+        },
+        {
+          toS: METRICS.cum[5] + 430, speedKn: 4, intervalS: 30, lateralM: -110,
+        },
+        {
+          stopS: 30, stopIntervalS: 30, stopSog: 1.4, stopCogDeg: 195, lateralM: -110,
+        },
+        {
+          toS: METRICS.cum[5] + 300, speedKn: 3, intervalS: 30, lateralM: -110,
+        },
+        {
+          stopS: 30, stopIntervalS: 30, stopSog: 1.0, stopCogDeg: 20, lateralM: -110,
+        },
+        {
+          toS: METRICS.cum[5] + 900, speedKn: 6, intervalS: 30, lateralM: -110,
+        },
+      ],
+    }],
+    expect: {
+      maxNotifiedPerBridge: { Stallbackabron: 1 },
+      textCountWindows: [{
+        bridge: 'Stridsbergsbron', fromS: 1440, toS: 1700, max: 0,
+      }],
+    },
+  },
 ];
 
 function runScenario(scenario) {

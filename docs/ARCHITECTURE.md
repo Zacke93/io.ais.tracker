@@ -1297,6 +1297,29 @@ båt.
   enstaka orimlig fart får henne inte att försvinna. Kända gränser: en bil som först
   rapporterar under 15 kn visas som båt, och en riktig båt som håller minst 15 kn från första
   positionen visas först när hon saktar in; ingetdera finns i banken eller fältet.
+- **Återinträdesspärren och återvändaren (nattjaktens F04, 2026-11-16).** I 10 min efter en
+  avslutad resa avvisar `updateVessel` varje position för mmsi:t (`VESSEL_REENTRY_BLOCK`), och
+  `_shouldAssignTargetBridge` spärrar målbron lika länge (`REENTRY_BLOCK`). Spärren finns mot
+  remove→recreate-churn för en båt som just lämnat området. Felet: en båt som gick ut genom
+  Stallbackabron, vände ~420 m bortom bron och kom tillbaka i 9–10 kn syntes först 232 m före
+  Stridsbergsbron; notisen, en sju minuter gammal notis för Stallbackabron och öppningsvarningen
+  kom på en gång, 51 s före korsningen. Söderut är det värre: resan avslutas först söder om
+  `KANALINFARTEN_EXIT_LAT`, och en återvändare når Klaffbron inom spärren. *Rättningen*
+  (`_releaseReturningVessel`): under spärren släpps båten igenom när två positioner i en obruten
+  följd ligger entydigt på utfartssidan av sista bron (nord ⇒ Stallbackabron, syd ⇒ Olidebron),
+  har kurs mot brolinjen (`courseBridgeSide`; utfarten söderut går västsydväst, så kompassband
+  duger inte) i minst `FIX_D_MIN_SOG` (2 kn), och den senare ligger minst `MOVEMENT_PROOF_NET_M`
+  (50 m) närmare linjen än den första, med en förflyttning som farten medger. Loggrader:
+  `[REENTRY_RETURN_CANDIDATE]` och `[REENTRY_RETURN_RELEASE]`. Posten får `returnReleased`, och
+  `_shouldAssignTargetBridge` tar då samma väg som när spärren löper ut (`REENTRY_NEW_JOURNEY`,
+  journey-reset med förra resans riktning). Bokföringen av avslutade resor och gravvården är
+  orörda (jfr L9 i §9). *Mätningen* (banken + k1/k2): 191 spärrade positioner, ingen gick mot
+  sista bron i 2 kn eller mer (17 hade kurs mot bron, alla ≤ 0,8 kn), och ingen spärrad båt
+  korsade sista bron tillbaka inom 30 min i rådatafacit; med regeln är banken och fältet
+  bitlika. *Känd gräns:* en båt som vänder in mot bron i drygt en minut och sedan går ut igen
+  släpps och står i texten tills hon tas bort igen (syntetiskt: 90 s med "om 27 minuter"); förut
+  syntes hon inte alls. En båt som ligger still eller går långsammare än 2 kn bortom bron är
+  spärrad som förut.
 - **M3 (rättningskampanjen varv 2, familj C, 2026-11-09): en återfödd båt med kurs i
   dödbandet får målbro ur förflyttningen.**
   - *Felet.* `_calculateTargetBridge` avstår vid kurs 46–134° och 226–314° (F18). En
@@ -3259,7 +3282,10 @@ helkodsgranskning-runda3.md och hkfix3-rapport.md.
   (ingen churn-ökning) föll ⇒ återkallad; karakteriseringstest låser dagens beteende.
   Krav på en framtida fix: koppla isär "avslutad resa" från "gravläggs inte" (t.ex.
   terminalzon-grind BARA för reentry-blocket, inte för gravvården) och mät churn + reentry
-  tillsammans.
+  tillsammans. *Tillägg 2026-11-16 (nattjaktens F04):* spärren släpper nu igenom en båt som
+  bevisligen går tillbaka mot sista bron (se "Återinträdesspärren och återvändaren" i §4); det
+  rör bara genomsläppet, inte bokföringen eller gravvården, och banken är bitlik. Kvar av L9:s
+  felmod är blackouten för en båt som ligger still eller går under 2 kn innanför utfarten.
 - **L5:s TREDJE systerställe — `TARGET_PROTECTION_ACTIVE`** (VDS ~:619, else-grenen
   när målbroskyddet är aktivt) hoppar över HELA grace-blocket (skapande OCH
   radering); en post från före skyddet åldras hela vistelsen. Mätt i fixrunda 3:

@@ -36,6 +36,11 @@
  * två latitudgrindarna — med IDENTISKA siffror, så kostnaden kommer från
  * latitudgrinden, inte från `lastPassedBridge`-kravet.
  *
+ * TILLÄGG 2026-11-16 (nattjaktens F04): återinträdesspärren släpper nu igenom
+ * en båt som bevisligen går tillbaka mot sista bron. Det rör inte bokföringen
+ * av avslutade resor eller gravvården (L9:s kostnad), bara spärrens genomsläpp.
+ * Blackouten står kvar för en båt som ligger still eller inte går mot bron.
+ *
  * Testet låser alltså DAGENS beteende, inklusive felmoden, så att nästa runda
  * inte behöver återupptäcka den — och så att en framtida åtstramning måste
  * vända assertionerna medvetet. Se rapporten för föreslagen klassregel.
@@ -102,19 +107,49 @@ describe('L9: timeout-completion utan terminalpositionskontroll (karakterisering
     expect(svc._completedJourneys.has(mmsi)).toBe(true);
   });
 
-  test('FÖLJDEN: 10 minuters total AIS-blackout för en båt som vänder innanför utfarten', () => {
+  // Nattjaktens F04 (2026-11-16): återinträdesspärren släpper igenom en båt som
+  // bevisligen går tillbaka mot sista bron (två positioner på utfartssidan,
+  // kurs mot brolinjen i minst 2 kn, minst 50 m närmare linjen;
+  // VesselDataService._releaseReturningVessel). Den här båten ligger söder om
+  // Olidebrons linje och går norrut mot bron, så hon släpps på den andra
+  // positionen. Blackouten står kvar för en båt som INTE går mot bron, och
+  // det är den delen av L9:s felmod som är kvar (testet nedan).
+  test('FÖLJDEN, efter F04: en båt som vänder innanför utfarten och går mot bron släpps på andra positionen', () => {
     const mmsi = '265900902';
     seedSouthboundInsideExit(mmsi);
     svc.removeVessel(mmsi, 'timeout');
 
     // U-svängen: båten går norrut igen i 8 kn, mitt i kanalen.
-    for (let i = 0; i < 16; i++) {
+    const results = [];
+    for (let i = 0; i < 4; i++) {
       jest.advanceTimersByTime(30 * 1000);
-      const res = svc.updateVessel(mmsi, {
+      results.push(svc.updateVessel(mmsi, {
         mmsi,
         lat: INNANFOR_UTFARTEN.lat + i * 0.0011, // ~122 m per sampel
         lon: INNANFOR_UTFARTEN.lon,
         sog: 8,
+        cog: 20,
+        name: 'L9-PROV',
+        timestamp: Date.now(),
+      }));
+    }
+    expect(results[0]).toBeNull(); // ankare
+    expect(results[1]).not.toBeNull(); // släppt
+    expect(svc._completedJourneys.has(mmsi)).toBe(false);
+  });
+
+  test('FÖLJDEN, kvar efter F04: 10 minuters total AIS-blackout för en båt som ligger still innanför utfarten', () => {
+    const mmsi = '265900906';
+    seedSouthboundInsideExit(mmsi);
+    svc.removeVessel(mmsi, 'timeout');
+
+    for (let i = 0; i < 16; i++) {
+      jest.advanceTimersByTime(30 * 1000);
+      const res = svc.updateVessel(mmsi, {
+        mmsi,
+        lat: INNANFOR_UTFARTEN.lat,
+        lon: INNANFOR_UTFARTEN.lon,
+        sog: 0.3,
         cog: 20,
         name: 'L9-PROV',
         timestamp: Date.now(),
