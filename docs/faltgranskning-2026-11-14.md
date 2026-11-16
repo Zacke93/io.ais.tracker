@@ -820,8 +820,9 @@ filerna har bara fått den nya id-posten.
 
 ## 11. Omgång 2: 15–16 november 2026
 
-Tillagt 2026-11-16. Omgången utgick från `7eb350d` och slogs ihop på grenen `omg2/integration`;
-avsnittet stämmer med dess spets `a883891`. Varje spår hade en egen rättare i en egen
+Tillagt 2026-11-16. Omgången utgick från `7eb350d` och slogs ihop på grenen `omg2/integration`,
+som sedan fördes över till arbetsgrenen. Slutbatteriet (11.8) kördes på `58857ab`; därefter har
+bara dokument ändrats. Varje spår hade en egen rättare i en egen
 arbetskopia och en oberoende granskare som mätte själv. Ändringen granskades om tills den blev
 godkänd. De tunga körningarna (hela jest, `measure:eta`, buggjägaren och fassvepet) gick genom
 en gemensam kö. Grenarna som inte slagits ihop är inte pushade. Alla tider är UTC.
@@ -841,8 +842,8 @@ en gemensam kö. Grenarna som inte slagits ihop är inte pushade. Alla tider är
 | Vakt söder om Olidebron | Senare varning vid förstakontakt | inte införd | `omg2/SPARR` (`9dc4f77`, prototyp) |
 | Sågtand vid tyst främsta båt | Nedräkning och kö-delen | inte införd | `omg2/sagtand` (`a38ebb5`, prototyp) |
 | K6 och tidsmedveten utjämning | En beräkning per fix; utjämning som räknar tiden | vilar | `omg2/ETA2` (prototyp) |
-| Spärren vid Järnvägsbron | Fartökningsregeln (F7) | omgranskas, sedan ägaren | `omg2/SPARR-d2` (`0b2f993`) |
-| Inbromsningsregeln | Buggjägarens kort F02 | godkänd, väntar på ägaren (F19) | `omg2/ETA2-C` |
+| Spärren vid Järnvägsbron | Fartökningsregeln (F7) | godkänd i tredje granskningen, väntar på ägaren (F7) | `omg2/SPARR-d2` (`a6dfb09`) |
+| Inbromsningsregeln | Buggjägarens kort F02 | godkänd i tredje kontrollen, väntar på ägaren (F19) | `omg2/ETA2-C` (`f6b0db0`) |
 | Notisen mot texten | Notisens tid när texten säger "strax" | prototyp, väntar på ägaren (F20) | `omg2/ETA2-BC` (`e634a30`) |
 
 ### 11.2 Ägarbesluten U28–U30
@@ -1084,8 +1085,12 @@ U31.
   redovisades inte.
 - *Den omgjorda regeln.* Den gäller bara en båt som redan är i gång, med båda föregående fixen
   i minst 1 kn. Båten ska öka farten tydligt två positioner i rad, högst 400 m före
-  Järnvägsbron, med kurs mot bron. Då räknar appen som om hon går minst 5 kn. Kortet visar den
-  lägre av ETA-kedjans siffra och regelns restid, avrundad uppåt.
+  Järnvägsbron, med kurs mot bron, och den sista positionen ska visa minst 2,8 kn (fartgolvet
+  efter omgranskningen; långsammare än 257 m på 3 min hinner varningen ändå gå efter
+  Järnvägsbron). Då räknar appen som om hon går minst 5 kn. Kortet visar den lägre av
+  ETA-kedjans siffra och regelns restid, avrundad uppåt. Regeln verkar bara när positionerna
+  kommer glest (AISHub-takt, en position per minut eller glesare). Med täta positioner syns
+  ökningen aldrig över två steg, och då gäller dagens varning.
 
   | Båt | Varning före passagen i dag | Med regeln |
   |---|---|---|
@@ -1101,16 +1106,30 @@ U31.
   `measure:eta` blir sämre. Fyra låsta varningar kommer tidigare (JAATTEN II, MONIKA, VISTEN och
   LIDAN), med kortet 3 i stället för 5–6. De är inte omlåsta.
 - *Kostnaden.* I all inspelad trafik och fältets tre körningar utlöstes regeln 13 gånger hos 8
-  båtar, och alla gick igenom utan att stanna eller vända. Konstruerat: en båt som ökar och
-  sedan ändå köar 10 min 150 m före Järnvägsbron får varningen 907 s före passagen i stället
-  för 105 s. Det fallet är låst i ett test. Tre båtar som lade ut ur kö 360–440 m från bron
+  båtar, och alla gick igenom utan att stanna eller vända. Det är ett tunt belägg. Konstruerat:
+  en båt som ökar till minst 2,8 kn och sedan ändå köar 10 min 150 m före Järnvägsbron får
+  varningen 907 s före passagen i stället för 105 s. Kostnaden gäller ända ner till golvet: en
+  ökning till exakt 2,8 kn följd av samma kö varnas 833 s före passagen mot 119 s. En långsam
+  ökning till 2,9–3,1 kn ger kortet "3" när 5,5–5,75 min återstår. Alla dessa fall är låsta i
+  test. Buggjägaren kan inte generera mönstret "ökning följd av kö", så att den är tyst säger
+  inget om kostnaden. Utan golvet varnades också
+  krypande köer (1,2 kn, ett ryck och sedan kö) 13–15 min för tidigt; golvet tar bort dem utan
+  att något i banken eller fältet ändras. Tre båtar som lade ut ur kö 360–440 m från bron
   (NORDIC SOLA, PRIMA LADY och ORANESS) får som i dag.
 - *Alternativ.* (A) Ingen regel. (B) Bara ökning i gång, som är införd på grenen. (C) Som B,
   plus avgång ur kö när nästa fix bekräftar den. C ger samma utfall som B i verklig trafik, men
   i en krypkö kom varningen för tidigt: 540 s mot 175 s med fix var 10 s, och 470 s mot 145 s
   med otur i fasen.
-- *Rekommendation.* (B), enligt rättaren och dirigenten. Regeln omgranskas.
-- *Omgranskningens utfall och buggjägarens körning:* förs in av dirigenten.
+- *Rekommendation.* (B) med fartgolvet, enligt rättaren, granskaren och dirigenten.
+- *Granskningen.* Tre varv. Första versionen underkändes: avgångsgrenen varnade 10–20 min för
+  tidigt i en krypkö. Den omgjorda regeln höll i banken och fältet, men granskaren visade att
+  en KRYPANDE kö fortfarande kunde utlösa den (kryp i 1,2 kn, ett ryck till 2,2 kn och sedan
+  kö: 808–834 s före passagen mot 157–181 s i dag) och föreslog fartgolvet. Med golvet godkändes
+  regeln (`5d28f06`): 57 konstruerade fall ger dagens utfall utom LIDAN-formen och de redovisade
+  kostnaderna; i banken och k1–k3 flyttas exakt sju varningar, alla tidigare, och inget annat;
+  inget påstående i `measure:eta` blir sämre; standardjakten är identisk med slutbatteriets (två
+  kandidatkort). Granskarens bedömning: i banken och fältet en ren förbättring, men en avvägning
+  som ägaren tar. Grenen är inte sammanslagen. Väljer ägaren (B) låses fyra varningar om (U13).
 
 **F19. Inbromsningsregeln: "strax" för en båt som bromsar in (buggjägarens kort F02)**
 - *Situationen.* I en syntetisk värld bromsar XENIA från 4,5 till 1,1 kn cirka 340 m före
@@ -1138,13 +1157,16 @@ U31.
   senare, och växlingen strax → om N → strax går från 34 till 2.
 - *Granskningen.* Första versionen underkändes, eftersom regeln också höll innanför 300 m och
   kunde ge notisen "om 3" mot textens strax. Andra versionen godkändes. Buggjägaren gav inga nya
-  kort.
+  kort. En tredje kontroll gällde rättarens egen rättning efter flytten till den
+  sammanslagna koden: regeln jämför nu med det som visades vid föregående fix. I granskarens sök
+  (900 båtar som stannar eller kryper 302–600 m före bron) gav den förra versionen tre nya
+  växlingar strax → om 3 → strax, den rättade inga, och 48 av dagens växlingar försvann.
 - *Alternativ.* (a) Godta regeln och MALUCA-raden, och lås om de två textraderna (U13).
   (b) Avstå, så står XENIA-felet kvar. Ett tredje alternativ, att låta texten lämna strax
   först vid 4 min, är förkastat: det behåller "strax" 9,9 min före passagen.
 - *Rekommendation.* (a), enligt dirigenten och granskaren. Grenen `omg2/ETA2-C` granskades som
-  `3c7a4ec` och `e073636` på `bfaeec4` och ligger nu ombaserad på `a883891` som `6785fac` och
-  `c5bfffe`.
+  `3c7a4ec` och `e073636` på `bfaeec4` och som `88706e0` på `a883891`, och ligger nu på
+  `58857ab` med spetsen `f6b0db0`.
 
 **F20. Notisen säger "om 3–4 minuter" när texten säger "strax"**
 - *Situationen.* Notisen för målbron byggs på första beräkningen av ett fix, och texten på den
@@ -1249,6 +1271,10 @@ Inget av detta är rättat.
 - **Kortet mot texten efter spärrändringen.** Med fartökningsregeln säger kortet 3, men texten
   säger 2–5 min mer i alla sju fallen. Kortet ligger närmast sanningen. Rättningen hör till
   ETA-kedjans avgångs-ETA, inte till F20.
+- **Ett andra kort efter passagen vid blandad källa.** I ett konstruerat fall med aisstream var
+  30:e sekund och AISHub i samma anflygning (LIDAN-formen) kom ett andra öppningskort för
+  Stridsbergsbron 29 s efter passagen, med eta 0. Det är lika före och efter fartökningsregeln
+  och hör inte till den (granskningen av spärren).
 - **Avgångar ur kö 360–440 m från Järnvägsbron.** Båtarna får fortfarande tunn ledtid
   vid Stridsbergsbron, eftersom första rörelsefixet redan ligger inom 350 m.
 - **Andra fixet vid Kanalinfarten.** Kommer en norrgående båts andra fix mer än cirka 195 s

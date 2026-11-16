@@ -2081,6 +2081,17 @@ adversariella granskningen 2026-08-10: selektiva noter på 7 korpusar).
   stilla-köare-i-luckan-med-kursbrus (granskning D), ETA-stigning
   Stridsbergsbron 7→15 min över 15 min utan passage medan köaren ligger
   still. Familjerna B, C, E, F och V lägger inte till några.
+  **Efter omgång 2 (2026-11-16, 112 scenarier): baslinjen är 16.** De tolv ovan och
+  fyra INV-18 ur U30:s egna scenarier, alla samma utslag: ETA-stigning
+  Stridsbergsbron 4→12 min över 4 min utan passage (06:07:00), i
+  stilla-460m-och-går-igen, kort-stopp-460m-under-fem-minuter,
+  stilla-460m-med-gammal-position-oförändrad och
+  stilla-460m-sedan-kryp-0,7kn-genom-bron. Stigningen kommer medan båten bromsar
+  in och stannar, INNAN U30:s fem minuter har gått (i kort-stopp-scenariot gäller
+  regeln aldrig), så texterna är desamma som utan U30; att tiden stiger för en båt
+  som stannar är rätt. F07, R7, verktygen och fartspikskandidaten lägger inte till
+  några. (Fördes in av dirigenten vid slutbatteriet; rättaren hade inte redovisat
+  dem.)
 - **O1:s missklassificerare (`classifyMiss`)** kräver nu KORROBORERAT rörelsebevis i tre
   led (position ≥ MOVEMENT_PROOF_NET_M från första horisontsampel; etablerad stillhets-
   vistelse ≥ ARM_STALE_TTL_MS inom 50 m + tätt fixpar med implicerad fart < 0,5 kn ⇒
