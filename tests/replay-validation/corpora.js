@@ -1213,8 +1213,25 @@ module.exports = [
     appLog: path.join(LOGS_DIR, 'app-20260713-221737.log'),
     hours: 41,
     locked: true,
-    expectedNotifications: 165,
-    note: 'GOLDEN OMLÅST 2026-11-09 (granskningen av familj F, M1 c — farledsbeviset genom en kajkapsel): '
+    expectedNotifications: 163,
+    note: 'NOTIS- OCH GOLDENFACIT OMLÅST 2026-11-16 (omgång 3, K3: BN2 och skippade broar prövar brolinjen): '
+      + 'notiser 165 → 163, övergångar 262 → 261. Transpondern 218023240 har två positioner. 13:17:01 ligger '
+      + 'den 127 m från Stallbackabron (4 m från brolinjen) i 33,2 kn med kurs 142,5° längs broaxeln. 13:20:31 '
+      + 'ligger den i 21,7 kn 924 m från Stridsbergsbron (871 m österut, 309 m söder om brons latitud) och '
+      + '1 025 m från Järnvägsbron (1 020 m österut, 100 m söder om brons latitud). Troligen ett landfordon på '
+      + 'Stallbackabron; mmsi:t saknas helt i gt-passages. Förut bokfördes Stridsbergsbron (målbropassage) och '
+      + 'Järnvägsbron (mellanbropassage) 13:20:31 på latitud, med notiserna "Okänd båt passerade Stridsbergsbron '
+      + 'under AIS-tystnad" och "Okänd båt passerade Järnvägsbron under AIS-tystnad". Positionen ligger entydigt '
+      + 'på tillfartssidan av brolinjerna, så båda passagerna och båda notiserna försvinner. Notisen för '
+      + 'Stallbackabron och de 52 öppningsvarningarna är oförändrade. Brotexten är lika fel före och efter i '
+      + 'fönstret 13:20:31–13:35:40, eftersom transpondern fortfarande visas som en båt: raden 13:20:31 "Två båtar '
+      + 'på väg mot Klaffbron, beräknad broöppning om 3 minuter" försvinner (texten från 13:20:02 med "… '
+      + 'Stridsbergsbron, beräknad broöppning strax" står kvar till 13:25:37); 13:25:37 "Två båtar på väg mot '
+      + 'Klaffbron, ETA okänd" blir "En båt på väg mot Klaffbron, ETA okänd; En båt på väg mot Stridsbergsbron, '
+      + 'ETA okänd"; 13:30:49 "En båt på väg mot Klaffbron, ETA okänd" blir "En båt på väg mot Stridsbergsbron, '
+      + 'ETA okänd". Rättare enligt U13 i notiser och passager; texten varken bättre eller sämre. Egen radvis '
+      + 'diff av dirigenten, och oberoende radfacit i granskningen av K3. '
+      + 'GOLDEN OMLÅST 2026-11-09 (granskningen av familj F, M1 c — farledsbeviset genom en kajkapsel): '
       + '264 → 262 övergångar. 265764760 norrut korsade Klaffbron 09:01:36 (gt, inferred) och hade en fix i Kajens '
       + 'kapsel 09:04:18 (288 m norr om Klaffbron, 25 m från linjen, 3,1 kn). Den fixen tömde förut hennes '
       + 'bekräftade anflygning mot Järnvägsbron och Stridsbergsbron (08:52:49); nu behålls den, eftersom hon gick '
