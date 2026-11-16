@@ -179,6 +179,8 @@ test('rå EBONITA genom hela appen: korsad i glappet ⇒ passerad form, samma ti
     source: 'target',
     eta: -1,
     alreadyPassed: true,
-    message: 'EBONITA  PRINCESS 40 passerade Stridsbergsbron under AIS-tystnad',
+    // U37 del 2 (2026-11-16): formregeln. 161 m bortom bron i 7,3 kn efter
+    // 871 s tystnad: korsningen låg 43 s före notisen, så "har precis passerat".
+    message: 'EBONITA  PRINCESS 40 har precis passerat Stridsbergsbron',
   });
 }, 120000);

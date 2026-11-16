@@ -36,20 +36,24 @@ function replay(id) {
 }
 
 // [korpus, mmsi, bro, notistid, källa, avstånd, meddelande, mellanpassage vid notisfixen]
+// U37 del 2 (2026-11-16): meningen följer formregeln, inte vägen. JOSELINA,
+// HEY JOE och KOLLAND korsade bron 53, 3 och 14 s före notisen (avståndet
+// bortom bron delat med farten; tystnad 449, 180 och 408 s) och får "har
+// precis passerat"; MARLIN och LOVA behåller tystnadsformen.
 const CASES = [
   // BN2, återfödd utan _routeDirection: cog-reserven bär riktningen (cog 22,9 / 10,1).
   ['20260702-11h', '265571760', 'Stallbackabron', '2026-07-02T10:16:13.829Z', 'current', 177,
     'MARLIN passerade Stallbackabron under AIS-tystnad', false],
   ['20260710-13h', '265063330', 'Stallbackabron', '2026-07-10T11:37:10.230Z', 'current', 211,
-    'JOSELINA passerade Stallbackabron under AIS-tystnad', false],
+    'JOSELINA har precis passerat Stallbackabron', false],
   // BN2, södergående scenario B vid Stallbackabron.
   ['20260713-41h', '211881090', 'Stallbackabron', '2026-07-14T12:11:09.930Z', 'current', 12,
-    'HEY JOE passerade Stallbackabron under AIS-tystnad', true],
+    'HEY JOE har precis passerat Stallbackabron', true],
   // BN2 vid Olidebron: återfödd (LOVA) och scenario B (KOLLAND).
   ['20260804-17h', '265530660', 'Olidebron', '2026-08-04T07:59:40.422Z', 'current', 196,
     'LOVA passerade Olidebron under AIS-tystnad', false],
   ['20260804-17h', '231915000', 'Olidebron', '2026-08-04T15:08:00.971Z', 'current', 26,
-    'KOLLAND passerade Olidebron under AIS-tystnad', true],
+    'KOLLAND har precis passerat Olidebron', true],
   // TP1: mellanbrons avståndsreserv.
   ['20260601-41h', '305170000', 'Stallbackabron', '2026-06-03T02:11:48.486Z', 'current', 38,
     'ELISE har precis passerat Stallbackabron', true],

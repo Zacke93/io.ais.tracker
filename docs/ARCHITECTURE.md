@@ -681,10 +681,14 @@ Dedup-lagren:
    och i slutet av varje fix (`_confirmReturnPassages`, utan
    bokföringsgräns; tiden mäts mot korsningen). En retur som bokförs vid linjen
    får alltså sin notis när en senare fix visar båten tydligt på ankomstsidan.
-   Formen följer beviset (`_returnPassageForm`): "passerade … under AIS-tystnad"
-   när korsningen låg i ett segment längre än två AISHub-pollar (130 s) och
-   notisen kommer efter "precis passerat"-fönstret (60 s), annars "har precis
-   passerat". Det gäller alla tre vägarna. Failsafen släpper besöket innan
+   Formen följer beviset (`_returnPassageForm`, sedan U37 del 2 den gemensamma
+   formregeln i `lib/utils/passageNoticeForm.js`): "passerade … under AIS-tystnad"
+   när det var tyst i mer än två AISHub-pollar (130 s) kring korsningen, alltså
+   det längsta leveransintervallet från fixen före korsningen till släppets fix
+   (`silenceMs`), och notisen kommer efter "precis passerat"-fönstret (60 s),
+   räknat från korsningen skattad ur släppfixen (avståndet bortom linjen delat
+   med farten; U21:s tidsgräns mäter fortfarande mot den interpolerade
+   korsningen), annars "har precis passerat". Det gäller alla tre vägarna. Failsafen släpper besöket innan
    notisvägen prövar sitt eget släpp och skickar därför formen med kandidaten
    (`returnForm`); källsträngen står kvar som `passage-fallback`, så dedup,
    ETA (−1), `already_passed` och INV-11:s undantag är oförändrade, och bara
@@ -729,14 +733,32 @@ att varje bortfiltrering byter notis mot täckningsmiss 1:1) och ändra TEXTEN.
 `already_passed` är boolean för den retroaktiva klassen (SSOT
 `_isRetroactiveNotificationSource`, samma predikat som persistent-dedupens
 `retroactiveSource`), och `message` är en färdig svensk mening:
-"X passerade Y under AIS-tystnad" (passage-fallback — klassen där passagen
-inferreras i efterhand ur en observerad position på ANDRA sidan bron; när
-failsafen släpper ett returbesök enligt U14 följer meningen i stället släppets
-bevis, se dedup-lager 3),
-"X har precis passerat Y" (just-passed — LIVE-passage inom 15 s grace, där
-AIS-tystnad hade varit ett osant påstående; sedan S4/fixrunda 6 även när källan är
-current/target/nearest men appen själv bokfört bron som passerad inom nådan — källsträngen
-orörd, eta=-1, already_passed sant), "X var på väg ut ur kanalen vid Y
+"X passerade Y under AIS-tystnad" och "X har precis passerat Y" för en
+passage som redan skett. **U37 del 2 (dirigentens beslut 2026-11-16):** meningen
+väljs av en gemensam formregel för alla passagenotiser (retursläppen, S4,
+just-passed, BN2, failsafen och svepet; `lib/utils/passageNoticeForm.js`):
+tystnadsform när det var tyst i mer än 130 s kring korsningen och notisen kommer
+mer än 60 s efter den, annars "har precis passerat". Korsningstiden skattas ur
+fixen efter korsningen: avståndet bortom linjen delat med den rapporterade
+farten (från 0,5 kn, appens rörelsebevis), aldrig före segmentets början. En
+båt som ligger still efter en tystnad får tystnadsformen (korsningstiden är
+okänd). Linjär interpolation över hela glappet lade korsningen för tidigt för
+båtar som väntat i kö före bron: i banken låg tolv båtar 18–56 s efter
+korsningen enligt farten men 62–148 s enligt interpolationen (PAX 54 m bortom
+Järnvägsbron i 5,3 kn efter 1 135 s tystnad); SALTIS (nattjaktens R2-fixtur)
+ligger 54 s efter L0-korsningen, som farten säger, mot 62 s interpolerat. För andra vägar än retursläppen är segmentet föregående fix
+(`_prevFixSample`, fixklockan) eller, för en återfödd båt, sist kända position
+fram till notisens fix (`_segmentPassageForm`). Ligger båda ändarna redan bortom
+linjen i färdriktningen gäller undre gränser (tystnadsform bara om de räcker);
+saknas beviset behåller vägen sin gamla mening: `passage-fallback` (passagen
+inferreras ur en position på andra sidan bron) och BN2 tystnad, `just-passed` och
+S4 (källan current/target/nearest men appen har bokfört bron inom nådan) "har
+precis passerat". Källsträngen, eta=-1 och already_passed rörs inte. Förut följde
+meningen källan: S4 sa "har precis passerat" efter 800 s tystnad och en korsning
+4 min före notisen, BN2 och failsafen "under AIS-tystnad" för en korsning 4 s
+före fixen. I banken byter 53 notiser form (40 till tystnadsform, 13 till "har
+precis passerat"), alla i linje med regeln på rådatan; fältkörningarna k1 och k2
+påverkas inte. Vidare "X var på väg ut ur kanalen vid Y
 när AIS-kontakten bröts" (exit-fallback, F6 2026-08-10 — här finns INGET
 passagebevis alls: sista position ligger norr om Kanalinfarten, så meningen
 påstår bara det gaterna belägger — rörelse, sydgående kurs/riktning inom
@@ -2130,7 +2152,7 @@ Flaggor (bärs av `_createVesselObject`-fältlistan, §8a): `_etaIsExtrapolated`
 | `ais_api_key` | :5005 (boot), :5144 | Homey-UI | API-nyckel; ändring ⇒ `reconnectWithKey` (F8, :379–397) |
 | `persistent_recent_triggers` | `_loadPersistentTriggers`:411 | `_persistRecentTriggers`:505 | 2h-notisdedupe `{ "mmsi:Bro": {t, dir} }` |
 | `known_vessel_names` | `_loadVesselNames`:529 | `_persistVesselNames`:561 | B1-namncache `{ mmsi: {name, t} }`, 30 d TTL, max 200 poster (äldst-först-eviction); skrivs via `_rememberVesselName`:593 bara vid nytt/ändrat namn eller >24 h sedan sist |
-| `last_known_positions` | `_loadLastKnownPositions`:615 | `_persistLastKnownPositions`:646 | `{ mmsi: {lat, lon, t} }`, 6 h TTL; skrivs vid removal (:1084–1090); begränsar skipped-bridges-scenario A för återfödda båtar (§3) |
+| `last_known_positions` | `_loadLastKnownPositions`:615 | `_persistLastKnownPositions`:646 | `{ mmsi: {lat, lon, t, posT, fixTs?} }`, 6 h TTL; skrivs vid removal (:1084–1090); begränsar skipped-bridges-scenario A för återfödda båtar (§3). `fixTs` (fixens egen tid, U37 del 2) låter en återfödd båts passagenotis mäta segmentet på fixklockan; äldre poster saknar fältet och prövas på mottagningsklockan |
 | `quay_stable_ledger` | `_loadQuayLedger` | `_persistQuayLedger` (STRYPT: max var 15:e min + tvingad vid `onUninit`) | V1-kajavgångsgrindens historik `{ mmsi: {stillAt, lat, lon} }`, TTL = `QUAY_DEPARTURE_GATE.MEMORY_MS` (2 h); rörelseräknaren `movingFixes` persisteras ALDRIG (den är ett påstående om innevarande sessions observationer). Utan persistensen återskapade en appomstart 5 s före kajavgången PRICKBJORN-fantomen exakt |
 | `persistent_opening_warnings` | `_loadPersistentOpeningWarnings` | `_persistOpeningWarnings` (vid varje avfyrning, ändring av ankomsten och konsumtion) | Etapp 6 + J15 (2026-08-22), ankomstspärr sedan 33b9fbf: öppningsvarningarnas dedup ÖVER omstart, `{ "Bro\|mmsi\|riktning": {arrivalActive: true, firedAt, closestDistance, lastFixTs, awayFixTs?, quayStop?} }`. Posten har INGEN tidsgräns (`_openingDedupActiveUntil` ger Infinity för `arrivalActive`): samma båt får inget nytt kort för samma bro och riktning förrän ankomsten tagit slut. Den tar slut genom (1) bekräftad passage — TRE konsumtionsvägar: bekräftad passage i `_observeBridgeOpening`, gap-inferrerad passage och backfill (L19); (2) bortfärd, två färska fix minst 350 m längre bort än närmaste läget (`OPENING_ARRIVAL_LEFT`); (3) ett bekräftat stopp följt av en verklig avgång (`OPENING_QUAY_DEPARTURE`, `_observeOpeningArrivals`). Stoppet bekräftas i en ritad kajzon (Kajens köare enligt U23), för en förtöjd båt mer än `DISARM_MOORED_MIN_DISTANCE_M` från bron (KINNE), och sedan familj A (fältprovet 2026-11-12) i farleden innanför 600 m när farledsstoppet (`fairway: true`, egen ålder som överlever glapp och omstart) är minst `MAX_STATIONARY_WAIT_MS` gammalt och klassningen inte håller båten som köare mot kortets bro; avgången från ett farledsstopp kräver två avgångsfix i följd (`departFixTs`) (§Förtöjningslagren). Äldre poster i formatet `{firedAt, expiresAt}` läses fortfarande till expiresAt. Riktningsledet gör att en U-svängares RETURPASSAGE aldrig tystas; sedan S11 (fixrunda 6) är riktningsledet MEDLEMMENS egen låsta riktning (`memberDirections` i payloaden), ledarens bara som fallback. S13:s härledning av expiresAt (armens förväntade ankomst `expectedArrivalMs`, kapad) hörde till det gamla fönstret; nya poster bär inget expiresAt. Känd avvägning: avbruten anflygning före omstart (§9) |
 | `trigger_point_visits` | konstruktorn (`TriggerPointVisitTracker.loadSnapshot`) | `_persistTriggerPointVisits` (vid varje fasbyte i `observe`, reservation/rollback av notis, stängning vid fullbordad resa och tvingad i `onUninit`) | Besöksregeln 2026-09-07: `{ version: 2, entries: { "mmsi:punkt": {startedAt, lastFixTs, outsideFixTs, exitedAt, lastLat, lastLon, lastPositionTs, arrivalLat, arrivalLon, farSign, farSideSeenAt} } }` för alla broar och Kanalinfarten. Ett notifierat besök spärrar nya notiser till observerad utfärd (två rena fixar > 350 m, passage följd av två fixar på bortre sidan, eller positionsbevisad fullbordad resa) och återkomst inom 300 m. U14 (2026-11-04): vid en bro avslutar också en bevisad passage tillbaka besöket (§3, dedup-lager 3); `farSign` och `farSideSeenAt` sparas, och första observationen på bortre sidan är ett fasbyte. Bokföringsstämplarna (`farSideBooking`, `returnBookedAt`), den noterade korsningen och fixens segment gäller bara det levande fartygsobjektet och sparas inte; efter en omstart noteras en korsning på nytt ur den sparade sista fixen. Äldre poster utan fälten, eller med skadade värden, får inget returpassagesläpp. Stängda poster gallras efter 6 h; tak 2048 poster |
@@ -3723,6 +3745,12 @@ passagen; en båt som guppar eller väntar vid bron får fortfarande en notis pe
   bokföring före segmentet, fixen på linjen vid tät kadens) släpps inte; låsta i `tests/u37-retur-linjefix-transit.test.js` för alla fem
   broar i båda riktningar och i de syntetiska scenarierna `retur-tät-kadens-…` och
   `vänder-och-stannar-på-Klaffbrons-linje-…`. Banken och fältkörningarna k1/k2 påverkas inte.
+- **U37 del 2 (samma omgång):** formregeln gäller nu alla passagenotiser (§3, P8/U10), och
+  retursläppets tystnad mäts fram till släppets fix. Nattjaktens F08 r1 (TROLLA) korsade
+  Järnvägsbron i ett segment på 67 s och var sedan tyst i 135 s; returnotisen 174 s efter
+  korsningen, 531 m bort, sa "har precis passerat" och säger nu "passerade … under
+  AIS-tystnad". Trigger-punktens "har passerat Kanalinfarten" (H16) och exit-fallbacken rörs
+  inte.
 
 ## 10. Söndagsfältet 2026-08-09/10 (commits a9f2a20, ce6a946, b1a7ba3 + WS-3)
 

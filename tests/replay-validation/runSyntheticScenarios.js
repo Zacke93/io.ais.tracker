@@ -103,6 +103,9 @@ const OMSTART_SLOW_ZONE = {
  *  - maxNoticeDelayS: {bro: N} — för varje sann korsning av bron ska båtens
  *    första notis för bron (vilken form som helst) komma senast N s efter
  *    korsningen (familj C3: ingen notis via failsafen minuter senare)
+ *  - noticeForms: {bro: [form, …]} — notisernas form för bron i tidsordning:
+ *    'närmar', 'precis' ("har precis passerat"), 'tyst' ("passerade … under
+ *    AIS-tystnad") eller 'annan' (U37 del 2, formregeln)
  *  - toleratedInvariants: [RegExp] — fatala invariantrader som scenariot
  *    medvetet tål. Bara för KÄNDA fel utanför scenariots fråga, med motivering
  *    vid scenariot (U14-vakterna: passagelogikens falska bokföring vid linjen)
@@ -3221,6 +3224,56 @@ const SCENARIOS = [
       maxNoticeDelayS: { [k.bro]: 60 },
     },
   })),
+  // U37 del 2 (rättningsomgång 3, 2026-11-16; granskningen av K1, L1): FORMEN
+  // PÅ EN SEN PASSAGENOTIS. Båten går norrut i 5 kn med 30 s kadens, tystnar
+  // 400 m före Klaffbron och hörs igen 200 m bortom bron: tystnad ~233 s,
+  // korsningen ~78 s före fixen. Bron bokförs i den fixen (S4), och notisen
+  // sa "har precis passerat" om en korsning över en minut tidigare. Formregeln
+  // (U14 rev. 3, nu för alla vägar) säger "passerade … under AIS-tystnad".
+  {
+    name: 'glapp-233s-över-Klaffbron-sen-passagenotis (U37 del 2)',
+    seed: 16707,
+    vessels: [{
+      mmsi: '916707001',
+      name: 'SYNT-SENFORM',
+      startS: METRICS.cum[2] - 1500,
+      legs: [{
+        toS: METRICS.cum[2] + 900,
+        speedKn: 5,
+        intervalS: 30,
+        gapFromS: METRICS.cum[2] - 400,
+        gapToS: METRICS.cum[2] + 190,
+      }],
+    }],
+    expect: { minTargetPassages: 1, noticeForms: { Klaffbron: ['tyst'] } },
+  },
+  // U37 del 2, spegeln: glapp på 180 s som slutar ~11 m bortom
+  // Stallbackabron i 10 kn (latitudhoppet över 0,005°; mellanbron bokförs inte
+  // i fixen, så glappvägen BN2 ger formen). Korsningen ligger några sekunder före fixen, så
+  // formregeln säger "har precis passerat"; förut gav glappvägen alltid
+  // "passerade … under AIS-tystnad" (HEY JOE i 20260713-41h: 180 s, fixen 11 m
+  // bortom Stallbackabron, korsningen 4 s före). Benet börjar vid fixen före
+  // glappet, så rutnätet ger fixen bortom bron 180 s senare.
+  {
+    name: 'glapp-180s-slutar-11m-bortom-Stallbackabron (U37 del 2)',
+    seed: 16708,
+    vessels: [{
+      mmsi: '916708001',
+      name: 'SYNT-PRECISFORM',
+      startS: METRICS.cum[5] + 2000,
+      legs: [
+        { toS: METRICS.cum[5] + 915, speedKn: 10, intervalS: 30 },
+        {
+          toS: METRICS.cum[5] - 1300,
+          speedKn: 10,
+          intervalS: 30,
+          gapFromS: METRICS.cum[5] + 900,
+          gapToS: METRICS.cum[5] - 5,
+        },
+      ],
+    }],
+    expect: { noticeForms: { Stallbackabron: ['precis'] } },
+  },
   // U37 del 1, motfall: VÄNDER, GÅR TILLBAKA I 5,8 kn OCH STANNAR PÅ LINJEN
   // vid tät kadens (10 s) med ±10 m brus, ligger där i 10 min och vänder sedan
   // bort igen. Sanningen är EN passage. Inbromsningen sker i benet före
@@ -3527,6 +3580,23 @@ function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
     for (const [bridge, minN] of Object.entries(e.minNotifiedPerBridge)) {
       if ((counts[bridge] || 0) < minN) {
         problems.push(`SAKNAD RETURNOTIS: ${bridge} fick ${counts[bridge] || 0} notiser (minst ${minN})`);
+      }
+    }
+  }
+  // U37 del 2: notisernas form per bro, i tidsordning.
+  if (e.noticeForms) {
+    const formOf = (m) => {
+      if (/under AIS-tystnad/.test(m || '')) return 'tyst';
+      if (/har precis passerat/.test(m || '')) return 'precis';
+      if (/närmar sig/.test(m || '')) return 'närmar';
+      return 'annan';
+    };
+    for (const [bridge, forms] of Object.entries(e.noticeForms)) {
+      const got = notifications.filter((n) => n.bridge === bridge).sort((x, y) => x.t - y.t)
+        .map((n) => formOf(n.message));
+      if (JSON.stringify(got) !== JSON.stringify(forms)) {
+        const texts = notifications.filter((n) => n.bridge === bridge).map((n) => `"${n.message}"`).join(', ');
+        problems.push(`NOTISFORM vid ${bridge}: [${got.join(', ')}] ≠ [${forms.join(', ')}] (${texts})`);
       }
     }
   }
