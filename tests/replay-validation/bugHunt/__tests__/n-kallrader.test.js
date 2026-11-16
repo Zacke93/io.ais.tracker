@@ -12,183 +12,35 @@
  *    replayRunner.js citeras med symbol (`fil.js#namn`), aldrig med rader: de
  *    filerna ändras med varje rättning;
  *  - varje radhänvisning (också fortsättningar som `och :15`) ska ligga inom
- *    filen och ha en post i FÖRVÄNTAT nedan: postens nyckelord på det citerade
- *    styckets FÖRSTA rad, och eventuella fler nyckelord någonstans i stycket.
- *    Glider dokumentet bara en rad faller testet, och då rättas hänvisningen
- *    (eller nyckelordet, om stycket skrivits om);
- *  - varje post i FÖRVÄNTAT används, så att tabellen inte ruttnar.
+ *    filen och ha en post i nyckelordstabellen (`kallrader-forvantat.json`):
+ *    postens nyckelord på det citerade styckets FÖRSTA rad, och eventuella fler
+ *    nyckelord någonstans i stycket. Glider dokumentet bara en rad faller
+ *    testet, och då rättas hänvisningen (eller nyckelordet, om stycket skrivits
+ *    om); `tools/foreslaKallrader.js` föreslår de nya raderna;
+ *  - varje post i tabellen används, så att tabellen inte ruttnar.
  * Motorns egna filer citeras med symbol (laddningen varnar annars).
+ * Logiken ligger i `lib/kallrader.js` (2026-11-16) och delas med skriptet.
  */
 
 const fs = require('fs');
 const path = require('path');
+const {
+  ROOT, FÖRVÄNTAT_FIL, radhänvisningar, barahänvisningar, nyckel, brister, föreslå,
+} = require('../lib/kallrader');
+const { bytIText, bytIRegistret, bytITabellrad } = require('../tools/foreslaKallrader');
 
-const ROOT = path.join(__dirname, '..', '..', '..', '..');
 const REG = JSON.parse(fs.readFileSync(path.join(ROOT, 'tests/replay-validation/bugHunt/beslutsregister.json'), 'utf8'));
-
-// Sökväg, eller en fortsättning (`och :15`, `, :267`) som gäller senaste sökväg.
-const RE = /\b((?:docs|lib|tests|drivers)\/[^\s,;:()#]+|app\.js)(?::(\d+(?:[–-]\d+)?))?|(?:^|[\s(,])(?:och\s+)?:(\d+(?:[–-]\d+)?)/g;
-
-/**
- * Postens textfält med hänvisningar, också nästlade (doktrinernas text och
- * källa): [[fältnamn, text]]. Granskningen 2026-11-16 (L3): förut lästes bara
- * `källa` och `orakelvakt`, och i `regel` och `doktriner` hade sju
- * radhänvisningar glidit (bland dem `invariants.js:334–351`, som INV-3-
- * rättningen själv flyttade, och tre i app.js).
- */
-function textfält(post) {
-  const ut = [];
-  const gå = (namn, v) => {
-    if (typeof v === 'string') ut.push([namn, v]);
-    else if (Array.isArray(v)) v.forEach((x, i) => gå(`${namn}[${i}]`, x));
-    else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) gå(`${namn}.${k}`, x);
-  };
-  for (const [k, v] of Object.entries(post)) if (k !== 'id') gå(k, v);
-  return ut;
-}
-
-// Ett filnamn med rader utan sökvägen framför (`invariants.js:334`) går
-// varken att slå upp eller att pröva; skriv hela sökvägen eller en symbol.
-const BART = /(^|[^\w/.-])([\w-]+\.(?:js|md|json|sh)):\d/g;
-/** Bara filnamn med rader i en post: [{post, fält, ref}]. */
-function barahänvisningar(post) {
-  return textfält(post).flatMap(([fält, text]) => [...text.matchAll(BART)].map((m) => ({
-    post: post.id, fält, ref: `${m[2]}:`,
-  })));
-}
-
-/** Radhänvisningarna i en post: [{post, fil, rader, från, till}]. */
-function radhänvisningar(post) {
-  const ut = [];
-  for (const [fält, text] of textfält(post)) {
-    let fil = null;
-    for (const m of text.matchAll(RE)) {
-      if (m[1]) fil = m[1].replace(/[.:]+$/, '');
-      const rader = m[2] || m[3];
-      if (!rader) continue;
-      const [från, till] = rader.split(/[–-]/).map(Number);
-      ut.push({
-        post: post.id, fält, fil, rader, från, till: Number.isFinite(till) ? till : från,
-      });
-    }
-  }
-  return ut;
-}
-
+const FÖRVÄNTAT = JSON.parse(fs.readFileSync(path.join(ROOT, FÖRVÄNTAT_FIL), 'utf8'));
 const A = 'docs/ARCHITECTURE.md';
-const E7 = 'docs/etapp7-plan-2026-08-08.md';
 const RS = 'docs/reliability-spec.md';
 const H11 = 'docs/helgranskning-2026-11-03.md';
-// [post, hänvisning, nyckelord på första raden, fler nyckelord i stycket]
-const FÖRVÄNTAT = [
-  ['KIE-PER-KORPUS', 'tests/replay-validation/corpora.js:21–23', 'knownInvariantExceptions'],
-  ['KIE-PER-KORPUS', 'tests/replay-validation/runAllCorpora.js:252–262', 'FP9'],
-  ['U16-F40-STRAX-STUDS', 'docs/helgranskning-2026-07-06.md:271–274', 'F40', ['aldrig strax på gammal position']],
-  ['U16-F40-STRAX-STUDS', `${E7}:8`, 'U1 (strax-texten)'],
-  ['U16-F40-STRAX-STUDS', `${E7}:15`, 'U6'],
-  ['U16-F40-STRAX-STUDS', `${E7}:267`, 'C11'],
-  ['U23-KAJZON-UTANFÖR-VÄNTZONEN', `${RS}:102`, 'D1'],
-  ['U1-C11-TYST-FÖRE-DEFAULT', `${E7}:8`, 'U1 (strax-texten)'],
-  ['U1-C11-TYST-FÖRE-DEFAULT', `${E7}:266–267`, 'C11b', ['U1-fixen']],
-  ['M-BRUSBAND-RÖRELSEBEVIS', `${A}:1346–1383`, 'Fartprovet', ['(a) brusbandet', '(c) en sog=null-båt']],
-  ['MÄTGRÄNS-INV10-VÄNTKEDJA', `${E7}:15`, 'U6'],
-  ['K20-FASKÄNSLIG-LEDARE', `${A}:1221–1231`, 'K20'],
-  ['K20-FASKÄNSLIG-LEDARE', 'docs/VALIDATION.md:272–280', '6. **Fas-känsliga utfall**'],
-  ['D4-RIKTNING-UNKNOWN', `${RS}:45`, 'D4'],
-  ['D4-RIKTNING-UNKNOWN', `${RS}:105`, 'D4'],
-  ['BN1-BOXKANT', `${H11}:162–172`, 'BN1'],
-  ['KANALINFARTEN-FP8-SYDGRIND', `${A}:514–519`, 'kanalrelevans'],
-  ['KANALINFARTEN-FP8-SYDGRIND', `${E7}:485`, 'FP8:s sydgrind'],
-  ['SKIPPA-BRO-ÅLDER-17MIN', 'tests/replay-validation/runSyntheticScenarios.js:1428–1431', '35-min-gap', ['gap-35min-över-Klaffbron', '>17 min']],
-  ['D3-2H-DEDUP', `${RS}:49`, 'D3'],
-  ['D3-2H-DEDUP', `${RS}:104`, 'D3'],
-  ['BESÖKSREGEL-2026-09-07', `${A}:588`, 'besöksregeln 2026-09-07'],
-  ['S10-VÄNDNING-BRON-BAKOM', `${A}:3260–3261`, 'FIXRUNDA 6 LIGHT', ['S10+S6 godkända']],
-  ['S10-VÄNDNING-BRON-BAKOM', `${A}:3203–3206`, 'S10'],
-  ['S10-VÄNDNING-BRON-BAKOM', `${A}:3294–3300`, 'S10', ['pending-reversal']],
-  ['KAJGRIND-UTAN-RÖRELSEBEVIS', `${A}:1788`, 'Förtöjningslagren'],
-  ['U10-BN2-PASSERAD-FORM', `${A}:675–714`, 'P8/U10'],
-  ['U2-VS-DEADLINE', `${E7}:310–349`, 'C-IV', ['C8']],
-  ['U2-VS-DEADLINE', `${A}:995–1024`, 'U15'],
-  ['J13-J14-KONVOJSEMANTIK', `${A}:2940–2960`, 'J13+J33', ['J14']],
-  ['J13-J14-KONVOJSEMANTIK', `${A}:995–1024`, 'U15'],
-  ['U18-RETUR-BEKRÄFTAD-SENT', `${A}:1547–1554`, 'U18', ['Anomali 18']],
-  ['U18-RETUR-BEKRÄFTAD-SENT', `${A}:995–1024`, 'U15'],
-  ['U17-TYST-BÅT-RECOVER', `${A}:2786–2801`, 'U17', ['säkerhetsvarningen för en tyst båt']],
-  ['K-TYST-BÅT-NÄSTA-ÖPPNING', `${A}:2786–2801`, 'U17'],
-  ['K-TYST-BÅT-NÄSTA-ÖPPNING', `${A}:2755–2762`, 'Täckningsslutet', ['räknas däremot från bokföringen', 'U13']],
-  ['U25-BAKKANT-VID-SEN-BOKFÖRING', `${A}:972–994`, 'Två sena varningar', ['U25', 'U26']],
-  ['U25-BAKKANT-VID-SEN-BOKFÖRING', `${A}:2802–2809`, 'U25 och U26'],
-  ['U26-STILLA-KÖ-SEN-VARNING', `${A}:972–994`, 'Två sena varningar', ['U25', 'U26']],
-  ['U26-STILLA-KÖ-SEN-VARNING', `${A}:2802–2809`, 'U25 och U26'],
-  ['U19-VARNING-UNDER-VÄNTANDE-VÄNDNING', `${A}:1655–1661`, 'U19'],
-  ['FALSKLARM-AVBRUTEN-GLES', `${A}:919–920`, 'Tystnad avväpnar aldrig'],
-  ['FIXD-SLINGA', `${A}:3360–3361`, 'ANYA ELAN', ['Slingskydd']],
-  ['OMSTART-ARMAR-EJ-PERSISTERADE', 'docs/trigger-etapp6-oppningsmotorn-2026-08-03.md:261–265', 'Ingen arm-persistens'],
-  ['OMSTART-ARMAR-EJ-PERSISTERADE', `${A}:1208–1214`, 'Dedup i TVÅ lager', ['persisterar inga armar']],
-  ['OMSTART-RESETILLSTÅND', `${A}:2086`, 'last_known_positions', ['skrivs vid removal']],
-  ['OMSTART-RESETILLSTÅND', `${RS}:104`, 'D3'],
-  ['LATENT-INBROMSNING', `${H11}:176–183`, 'Latenta fynd', ['Inbromsning efter glapp']],
-  ['P8-L6-SPÖKTEXT', `${H11}:148–161`, 'P8/L6'],
-  ['TVÅ-ÅTERKORSADE-BROAR-I-SAMMA-SEGMENT', `${A}:1541–1546`, 'kända luckor', ['två återkorsade broar i samma segment']],
-  ['U-SVÄNG-LÅNGSAM-ÅTERKORSNING', `${A}:1541–1546`, 'kända luckor', ['en tät långsam']],
-];
-
-const nyckel = (post, fil, rader) => `${post}|${fil}:${rader}`;
-// Kod som ändras med varje rättning: appen och harnessens domare och körare.
-// Där glider radnummer, och en symbol prövas av laddningen
-// (lib/registry.js#checkRefs). INV-3-rättningen 2026-11-15 sköt
-// invariants.js 40 rader och fällde testet på fyra sådana hänvisningar.
-const LEVANDE_KOD = (fil) => fil === 'app.js' || /^(lib|drivers)\//.test(fil)
-  || fil === 'tests/replay-validation/invariants.js' || fil === 'tests/replay-validation/replayRunner.js';
-const filrader = new Map();
-const raderI = (fil) => {
-  if (!filrader.has(fil)) filrader.set(fil, fs.readFileSync(path.join(ROOT, fil), 'utf8').split('\n'));
-  return filrader.get(fil);
+// Postens (första) hänvisning till `fil` ur tabellen: "fil:rader".
+const ref = (post, fil = A) => FÖRVÄNTAT.find((x) => x[0] === post && x[1].startsWith(`${fil}:`))[1];
+const rader = (r) => r.slice(r.lastIndexOf(':') + 1);
+const flytta = (r, d) => {
+  const [a, b] = rader(r).split('–').map(Number);
+  return `${r.slice(0, r.lastIndexOf(':') + 1)}${a + d}${Number.isFinite(b) ? `–${b + d}` : ''}`;
 };
-// Radbrytningar och indrag i markdown ska inte fälla ett nyckelord som löper över två rader.
-const platt = (s) => s.replace(/\s+/g, ' ');
-
-/**
- * Bristerna i registrets radhänvisningar mot tabellen.
- * @param {object[]} poster - registrets poster
- * @param {Array[]} förväntat - FÖRVÄNTAT
- * @returns {string[]} bristerna
- */
-function brister(poster, förväntat) {
-  const alla = poster.flatMap(radhänvisningar);
-  const tabell = new Map(förväntat.map(([post, ref, först, inom = []]) => [`${post}|${ref}`, { först, inom }]));
-  const fel = [];
-  const använda = new Set();
-  for (const r of alla) {
-    const k = nyckel(r.post, r.fil, r.rader);
-    if (LEVANDE_KOD(r.fil)) {
-      fel.push(`${k}: kod i app.js, lib/, drivers/ och harnessens invariants.js och replayRunner.js citeras med symbol (fil.js#namn), inte med rader`);
-      continue;
-    }
-    if (!fs.existsSync(path.join(ROOT, r.fil))) {
-      fel.push(`${k}: filen finns inte`);
-      continue;
-    }
-    const L = raderI(r.fil);
-    if (!(r.från >= 1 && r.från <= r.till && r.till <= L.length)) {
-      fel.push(`${k}: utanför filen (${L.length} rader)`);
-      continue;
-    }
-    const f = tabell.get(k);
-    if (!f) {
-      fel.push(`${k}: saknar nyckelord i FÖRVÄNTAT`);
-      continue;
-    }
-    använda.add(k);
-    const första = L[r.från - 1];
-    const stycke = platt(L.slice(r.från - 1, r.till).join('\n'));
-    if (!första.includes(f.först)) fel.push(`${k}: första raden saknar "${f.först}": ${första.trim().slice(0, 100)}`);
-    for (const ord of f.inom) if (!stycke.includes(ord)) fel.push(`${k}: stycket saknar "${ord}"`);
-  }
-  for (const k of tabell.keys()) if (!använda.has(k)) fel.push(`${k}: används inte längre i registret`);
-  return fel;
-}
 
 describe('beslutsregistrets radhänvisningar', () => {
   test('tolkningen hittar varje radhänvisning, också fortsättningarna', () => {
@@ -215,27 +67,28 @@ describe('kontrollen fäller de fel den finns till för', () => {
   const ändrad = (id, från, till) => REG.poster.map((p) => (p.id === id ? { ...p, källa: p.källa.split(från).join(till) } : p));
 
   test('en hänvisning som glidit en rad', () => {
-    const fel = brister(ändrad('U17-TYST-BÅT-RECOVER', `${A}:2786–2801`, `${A}:2787–2802`), FÖRVÄNTAT);
-    expect(fel.join('\n')).toMatch(/U17-TYST-BÅT-RECOVER\|docs\/ARCHITECTURE\.md:2787–2802: saknar nyckelord/);
-    expect(fel.join('\n')).toMatch(/U17-TYST-BÅT-RECOVER\|docs\/ARCHITECTURE\.md:2786–2801: används inte längre/);
+    const u17 = ref('U17-TYST-BÅT-RECOVER');
+    const fel = brister(ändrad('U17-TYST-BÅT-RECOVER', u17, flytta(u17, 1)), FÖRVÄNTAT).join('\n');
+    expect(fel).toContain(`U17-TYST-BÅT-RECOVER|${flytta(u17, 1)}: saknar nyckelord`);
+    expect(fel).toContain(`U17-TYST-BÅT-RECOVER|${u17}: används inte längre`);
   });
 
   test('en tabellpost vars första rad inte bär nyckelordet', () => {
     const förskjuten = FÖRVÄNTAT.map((x) => (x[0] === 'U19-VARNING-UNDER-VÄNTANDE-VÄNDNING' ? [x[0], x[1], 'U18'] : x));
-    expect(brister(REG.poster, förskjuten).join('\n')).toMatch(/U19-VARNING-UNDER-VÄNTANDE-VÄNDNING\|docs\/ARCHITECTURE\.md:1655–1661: första raden saknar "U18"/);
+    expect(brister(REG.poster, förskjuten).join('\n')).toContain(`U19-VARNING-UNDER-VÄNTANDE-VÄNDNING|${ref('U19-VARNING-UNDER-VÄNTANDE-VÄNDNING')}: första raden saknar "U18"`);
   });
 
   test('ett nyckelord som saknas i stycket', () => {
     const utan = FÖRVÄNTAT.map((x) => (x[0] === 'FIXD-SLINGA' ? [x[0], x[1], x[2], ['finns inte i stycket']] : x));
-    expect(brister(REG.poster, utan).join('\n')).toMatch(/FIXD-SLINGA\|docs\/ARCHITECTURE\.md:3360–3361: stycket saknar "finns inte i stycket"/);
+    expect(brister(REG.poster, utan).join('\n')).toContain(`FIXD-SLINGA|${ref('FIXD-SLINGA')}: stycket saknar "finns inte i stycket"`);
   });
 
   test('en rad utanför filen, en fortsättning utanför filen och en fil som saknas', () => {
-    expect(brister(ändrad('U19-VARNING-UNDER-VÄNTANDE-VÄNDNING', `${A}:1655–1661`, `${A}:99990–99999`), FÖRVÄNTAT).join('\n'))
+    expect(brister(ändrad('U19-VARNING-UNDER-VÄNTANDE-VÄNDNING', ref('U19-VARNING-UNDER-VÄNTANDE-VÄNDNING'), `${A}:99990–99999`), FÖRVÄNTAT).join('\n'))
       .toMatch(/docs\/ARCHITECTURE\.md:99990–99999: utanför filen/);
     expect(brister(ändrad('D4-RIKTNING-UNKNOWN', ' och :105 (', ' och :9999 ('), FÖRVÄNTAT).join('\n'))
       .toMatch(/D4-RIKTNING-UNKNOWN\|docs\/reliability-spec\.md:9999: utanför filen/);
-    expect(brister(ändrad('BN1-BOXKANT', `${H11}:162–172`, 'docs/finns-inte.md:162–172'), FÖRVÄNTAT).join('\n'))
+    expect(brister(ändrad('BN1-BOXKANT', ref('BN1-BOXKANT', H11), 'docs/finns-inte.md:162–172'), FÖRVÄNTAT).join('\n'))
       .toMatch(/docs\/finns-inte\.md:162–172: filen finns inte/);
   });
 
@@ -274,5 +127,70 @@ describe('kontrollen fäller de fel den finns till för', () => {
     expect(fel.join('\n')).toMatch(/OMSTART-DEFAULT-FÖRE-FÖRSTA-FIX\|app\.js:487: kod i app\.js, lib\/, drivers\/ och harnessens invariants\.js och replayRunner\.js citeras med symbol/);
     const inv = brister(ändrad('MÄTGRÄNS-INV10-VÄNTKEDJA', 'invariants.js#STRAX_ZOMBIE_MS', 'invariants.js:550'), FÖRVÄNTAT);
     expect(inv.join('\n')).toMatch(/MÄTGRÄNS-INV10-VÄNTKEDJA\|tests\/replay-validation\/invariants\.js:550: kod i app\.js/);
+  });
+});
+
+// Förslagsskriptet (tools/foreslaKallrader.js, 2026-11-16): efter en
+// konstruerad glidning i ett dokument föreslår det rätt rad, och skrivarna
+// byter bara den hänvisning som avses.
+describe('förslag till nya rader efter en glidning', () => {
+  const äkta = fs.readFileSync(path.join(ROOT, A), 'utf8').split('\n');
+  // Filläsare där ARCHITECTURE.md ersatts av `rader`, övriga filer äkta.
+  const med = (raderA) => {
+    const cache = new Map();
+    return (fil) => {
+      if (fil === A) return raderA;
+      if (!cache.has(fil)) cache.set(fil, fs.existsSync(path.join(ROOT, fil)) ? fs.readFileSync(path.join(ROOT, fil), 'utf8').split('\n') : null);
+      return cache.get(fil);
+    };
+  };
+  const förslagFör = (förslag, post) => förslag.find((x) => x.post === post && x.fil === A);
+
+  test('utan glidning finns inga förslag', () => {
+    expect(föreslå(REG.poster, FÖRVÄNTAT)).toEqual([]);
+  });
+
+  test('tre rader överst: varje hänvisning i ARCHITECTURE.md får sin gamla rad + 3', () => {
+    const f = föreslå(REG.poster, FÖRVÄNTAT, { läs: med(['x', 'y', 'z', ...äkta]) });
+    // Alla utom de vars nyckelord också står tre rader tidigare (U10:s
+    // "P8/U10" står även tre rader ovanför stycket) faller och får ett förslag.
+    expect(f.filter((x) => x.fil === A).length).toBeGreaterThan(20);
+    expect(förslagFör(f, 'J13-J14-KONVOJSEMANTIK').ny).toBe(rader(flytta(ref('J13-J14-KONVOJSEMANTIK'), 3)));
+    for (const x of f.filter((y) => y.fil === A)) expect([x.post, `${A}:${x.ny}`]).toEqual([x.post, flytta(`${A}:${x.gammal}`, 3)]);
+  });
+
+  test('ett nytt avsnitt mitt i: stycken före står kvar, stycken efter får + 50, också när nyckelordet står på flera ställen', () => {
+    const u17 = ref('U17-TYST-BÅT-RECOVER');
+    const vid = Number(rader(u17).split('–')[0]) - 300;
+    const ny = [...äkta.slice(0, vid), ...Array(50).fill('nytt avsnitt'), ...äkta.slice(vid)];
+    const f = föreslå(REG.poster, FÖRVÄNTAT, { läs: med(ny) });
+    // U17 och K-NÄSTA citerar samma stycke; "U17" står på flera ställen.
+    expect(`${A}:${förslagFör(f, 'U17-TYST-BÅT-RECOVER').ny}`).toBe(flytta(u17, 50));
+    expect(förslagFör(f, 'U17-TYST-BÅT-RECOVER').kandidater).toBeGreaterThan(1);
+    expect(f.filter((x) => x.post === 'K-TYST-BÅT-NÄSTA-ÖPPNING' && x.gammal === rader(u17))[0].ny).toBe(rader(flytta(u17, 50)));
+    // En hänvisning före avsnittet håller och får inget förslag.
+    expect(förslagFör(f, 'U2-VS-DEADLINE')).toBeUndefined();
+  });
+
+  test('ett omskrivet stycke (nyckelorden borta) får inget förslag', () => {
+    const borta = äkta.map((l) => l.split('säkerhetsvarningen för en tyst båt').join('omskrivet'));
+    const f = föreslå(REG.poster, FÖRVÄNTAT, { läs: med(['x', ...borta]) });
+    expect(förslagFör(f, 'U17-TYST-BÅT-RECOVER').ny).toBeNull();
+  });
+
+  test('skrivarna: fortsättningar i registret, förkortade namn och full form i BUGGJAKT', () => {
+    expect(bytIText('docs/reliability-spec.md:45 och :105 (D4)', RS, '105', '107').text).toBe('docs/reliability-spec.md:45 och :107 (D4)');
+    expect(bytIText(`${A}:105 och docs/VALIDATION.md:105`, RS, '105', '107').n).toBe(0);
+    const rå = `${JSON.stringify({ poster: [{ id: 'P1', källa: `${A}:10–12` }, { id: 'P2', källa: `${A}:10–12` }] }, null, 2)}\n`;
+    const r = bytIRegistret(rå, 'P2', A, '10–12', '13–15');
+    expect(r.n).toBe(1);
+    expect(r.rå).toBe(rå.replace(/(P2",\n {6}"källa": "docs\/ARCHITECTURE\.md:)10–12/, '$113–15'));
+    const md = '| P1 | x | y | ARCHITECTURE:10–12 och :20–21; etapp7-plan:15 |\n| P2 | ARCHITECTURE:10–12 |\nText (`docs/ARCHITECTURE.md:10–12`) och :10–12.\n';
+    const t1 = bytITabellrad(md, 'P1', A, '10–12', '13–15');
+    expect(t1.md.split('\n')[0]).toBe('| P1 | x | y | ARCHITECTURE:13–15 och :20–21; etapp7-plan:15 |');
+    expect(t1.md.split('\n')[1]).toBe('| P2 | ARCHITECTURE:10–12 |');
+    expect(t1.md.split('\n')[2]).toBe('Text (`docs/ARCHITECTURE.md:13–15`) och :10–12.');
+    expect(bytITabellrad(md, 'P1', A, '20–21', '22–23').md.split('\n')[0]).toContain('och :22–23');
+    expect(bytITabellrad(md, 'P1', 'docs/etapp7-plan-2026-08-08.md', '15', '16').md.split('\n')[0]).toContain('etapp7-plan:16');
   });
 });

@@ -883,7 +883,10 @@ function täckningensLängd(ctx, f, w, tc, p) {
   if (!Number.isFinite(arm)) return { fel: `domen ${fmtT(v.t)} i ${E} saknar armens täckningsslut` };
   const vid = `max(${E}:s avfyrning ${fmtT(avfyrad)}, bokföringen ${fmtT(B)}) + ${p.fönsterMs / 1000} s = ${fmtT(slut)}`;
   if (arm - slut > p.tickMs) {
-    return { fel: `armens täckningsslut ${fmtT(arm)} i domen ${fmtT(v.t)} ligger mer än en tick efter ${vid}: täckningen var för lång, och då förklarar konvojsemantiken (U2, J13) inte den uteblivna varningen` };
+    return {
+      fel: `armens täckningsslut ${fmtT(arm)} i domen ${fmtT(v.t)} ligger mer än en tick efter ${vid}: täckningen var för lång, `
+        + 'och då förklarar konvojsemantiken (U2, J13) inte den uteblivna varningen',
+    };
   }
   const fönster = v.verdict ? v.verdict.windowEndMs : null;
   if (Number.isFinite(fönster) && fönster - slut > p.tickMs) {
@@ -1322,7 +1325,8 @@ const PREDICATES = {
       if (r.sant) {
         const längd = täckningensLängd(ctx, f, r.w, tc, p);
         if (längd.fel) return nej(längd.fel);
-        return ok(`korsningen ${fmtT(tc)} ligger inom händelsens (${r.w.eventId || fmtT(r.w.t)}) första passage ${fmtT(r.first.t)} + ${p.fönsterMs / 1000} s, och båten var täckt av händelsen${längd.text}`);
+        return ok(`korsningen ${fmtT(tc)} ligger inom händelsens (${r.w.eventId || fmtT(r.w.t)}) första passage ${fmtT(r.first.t)} `
+          + `+ ${p.fönsterMs / 1000} s, och båten var täckt av händelsen${längd.text}`);
       }
       if (!r.närmast) {
         return nej(r.otäckta
@@ -1330,7 +1334,8 @@ const PREDICATES = {
           : 'ingen äldre händelse med en annan båts första passage före korsningen');
       }
       const dt = Math.round((tc - r.närmast.first.t) / 1000);
-      return nej(`korsningen ${fmtT(tc)} ligger ${dt} s efter händelsens (${r.närmast.w.eventId || fmtT(r.närmast.w.t)}) första passage ${fmtT(r.närmast.first.t)}, utanför +${p.fönsterMs / 1000} s`);
+      return nej(`korsningen ${fmtT(tc)} ligger ${dt} s efter händelsens (${r.närmast.w.eventId || fmtT(r.närmast.w.t)}) `
+        + `första passage ${fmtT(r.närmast.first.t)}, utanför +${p.fönsterMs / 1000} s`);
     },
   },
 
