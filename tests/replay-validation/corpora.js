@@ -731,7 +731,17 @@ module.exports = [
     locked: true,
     lockEvents: true,
     expectedNotifications: 54,
-    note: 'ÖPPNINGSFACIT OMLÅST 2026-11-16 (U32, fartökningsregeln vid Järnvägsbron, fråga F7): en post i openingWarnings '
+    note: 'NOTISTEXT OMLÅST 2026-11-16 (U37 del 2, en formregel för alla passagenotiser): 6 notiser byter mening; '
+      + 'tid, bro, riktning, siffra och antal är oförändrade. Regeln: var det tyst i mer än 130 s kring '
+      + 'korsningen och kommer notisen mer än 60 s efter den, lyder den "passerade … under AIS-tystnad", annars '
+      + '"har precis passerat". post 3 SELENE PRAHM 211219630 Klaffbron 8/7 02:38:15 → "under AIS-tystnad"; post '
+      + '4 SELENE PRAHM 211219630 Olidebron 8/7 02:48:33 → "under AIS-tystnad"; post 29 HALIFAX 228086830 '
+      + 'Järnvägsbron 8/7 09:03:39 → "under AIS-tystnad"; post 41 SOLANDE 211228640 Klaffbron 8/7 10:06:42 → "har '
+      + 'precis passerat"; post 43 SOLANDE 211228640 Olidebron 8/7 10:15:42 → "under AIS-tystnad"; post 44 '
+      + 'ELFKUNGEN 265573130 Klaffbron 8/7 10:23:01 → "under AIS-tystnad". Prövat rad för rad mot positionerna '
+      + '(tystnaden kring korsningen och dröjsmålet); dirigentens egen diff och ett oberoende radfacit i '
+      + 'granskningen. '
+      + 'ÖPPNINGSFACIT OMLÅST 2026-11-16 (U32, fartökningsregeln vid Järnvägsbron, fråga F7): en post i openingWarnings '
       + 'flyttas; händelse-id, medlemmar och originalDueMs är oförändrade. '
       + 'Stridsbergsbron#8 för JAATTEN II 257919970 kommer 8/7 07:25:59.124 i stället för 07:26:06.704 (468 m, '
       + 'deadline, oförändrat), och kortet säger 3 min i stället för 5. Korsningen 07:28:55.880 (gt, line): '
@@ -1000,7 +1010,15 @@ module.exports = [
     locked: true,
     lockEvents: true,
     expectedNotifications: 48,
-    note: `${SEPTEMBER_REVIEW}KNIGHT OWL 12/7: öppningar 12→13. Ren rörelsefix 07:42, `
+    note: 'NOTISTEXT OMLÅST 2026-11-16 (U37 del 2, en formregel för alla passagenotiser): 4 notiser byter mening; '
+      + 'tid, bro, riktning, siffra och antal är oförändrade. Regeln: var det tyst i mer än 130 s kring '
+      + 'korsningen och kommer notisen mer än 60 s efter den, lyder den "passerade … under AIS-tystnad", annars '
+      + '"har precis passerat". post 20 ELFKUNGEN 265573130 Olidebron 12/7 10:08:55 → "under AIS-tystnad"; post '
+      + '31 CALIMA 211844940 Järnvägsbron 12/7 11:26:40 → "under AIS-tystnad"; post 37 ELFKUNGEN 265573130 '
+      + 'Olidebron 12/7 12:32:12 → "har precis passerat"; post 43 ALICE 244790715 Järnvägsbron 12/7 13:05:32 → '
+      + '"under AIS-tystnad". Prövat rad för rad mot positionerna (tystnaden kring korsningen och dröjsmålet); '
+      + 'dirigentens egen diff och ett oberoende radfacit i granskningen. '
+      + `${SEPTEMBER_REVIEW}KNIGHT OWL 12/7: öppningar 12→13. Ren rörelsefix 07:42, `
       + '466 m förflyttning till Järnvägsbrons väntzon 08:04 och separat färsk bekräftelse 08:23 '
       + 'ger en Stridsbergsvarning och vänttext utan minuter. Järnvägsnotisen går vid väntplatsen '
       + '08:23 i stället för som efterhandsnotis 08:35; båda passagerna bokförs fortfarande 08:35. '
@@ -1053,7 +1071,15 @@ module.exports = [
     locked: true,
     lockEvents: true,
     expectedNotifications: 86,
-    note: 'GOLDEN OMLÅST 2026-11-16 (U31, inbromsningsregeln, fråga F19): en rad byter text, antalet övergångar är '
+    note: 'NOTISTEXT OMLÅST 2026-11-16 (U37 del 2, en formregel för alla passagenotiser): 1 notis byter mening; '
+      + 'tid, bro, riktning, siffra och antal är oförändrade. Regeln: var det tyst i mer än 130 s kring '
+      + 'korsningen och kommer notisen mer än 60 s efter den, lyder den "passerade … under AIS-tystnad", annars '
+      + '"har precis passerat". post 32 GALADRIEL 265042840 Järnvägsbron 13/7 08:59:15 → "under AIS-tystnad" '
+      + '(gränsfall). I gränsfallen låg korsningen i ett glapp på 203–529 s, och notisen kom 34–59 s efter '
+      + 'rådatafacits interpolerade korsning; appens fartskattning lägger korsningen tidigare. "Under '
+      + 'AIS-tystnad" är sant i båda fallen. Prövat rad för rad mot positionerna (tystnaden kring korsningen och '
+      + 'dröjsmålet); dirigentens egen diff och ett oberoende radfacit i granskningen. '
+      + 'GOLDEN OMLÅST 2026-11-16 (U31, inbromsningsregeln, fråga F19): en rad byter text, antalet övergångar är '
       + 'oförändrat (137). 13/7 07:42:16.830 "Två båtar på väg mot Klaffbron, beräknad broöppning strax" blir "… om '
       + '3 minuter". MALUCA 219028942 bromsade från 5,5 kn (07:39:49, 621 m före bron) till 1,3 kn (07:42:16, '
       + '320 m före) och korsade Klaffbron 07:45:06.885 (gt, line), 2,8 min efter raden. Regeln håller ETA:n på '
@@ -1751,7 +1777,17 @@ module.exports = [
     lockOpenings: true,
     lockEvents: true,
     expectedNotifications: 152,
-    note: 'NOTISFACIT OMLÅST 2026-11-16 (U33, fråga F20: notisen säger båtens restid i sin egen fart när brotexten '
+    note: 'NOTISTEXT OMLÅST 2026-11-16 (U37 del 2, en formregel för alla passagenotiser): 4 notiser byter mening; '
+      + 'tid, bro, riktning, siffra och antal är oförändrade. Regeln: var det tyst i mer än 130 s kring '
+      + 'korsningen och kommer notisen mer än 60 s efter den, lyder den "passerade … under AIS-tystnad", annars '
+      + '"har precis passerat". post 20 CARAT 211452170 Klaffbron 5/8 06:53:35 → "under AIS-tystnad" (gränsfall); '
+      + 'post 75 ELFKUNGEN 265573130 Klaffbron 5/8 10:15:46 → "under AIS-tystnad" (gränsfall); post 76 YOLO 2 '
+      + '265819150 Klaffbron 5/8 10:20:18 → "under AIS-tystnad"; post 126 S/Y THELMA 265565830 Stallbackabron 5/8 '
+      + '12:34:31 → "under AIS-tystnad". I gränsfallen låg korsningen i ett glapp på 203–529 s, och notisen kom '
+      + '34–59 s efter rådatafacits interpolerade korsning; appens fartskattning lägger korsningen tidigare. '
+      + '"Under AIS-tystnad" är sant i båda fallen. Prövat rad för rad mot positionerna (tystnaden kring '
+      + 'korsningen och dröjsmålet); dirigentens egen diff och ett oberoende radfacit i granskningen. '
+      + 'NOTISFACIT OMLÅST 2026-11-16 (U33, fråga F20: notisen säger båtens restid i sin egen fart när brotexten '
       + 'säger strax): 4 notiser byter siffra och mening; tid, bro, riktning, avstånd och antal är oförändrade. '
       + 'post 5 MS JUTLAND 211718360 Klaffbron 4/8 23:58:46 om 3 → om 2 (sanning 1,81 min); post 14 ANDREA '
       + '219031446 Klaffbron 5/8 00:51:45 om 3 → om 2 (sanning 1,64 min); post 33 LAURIERBORG 246924000 '
@@ -2422,7 +2458,15 @@ module.exports = [
       'DEFAULT-FLASH: 2026-08-06T08:47:00.040Z "Inga båtar" inklämd (30s) '
         + 'mellan två "En … Stridsbergsbron"-texter utan passage',
     ],
-    note: 'NOTISFACIT OMLÅST 2026-11-16 (U33, fråga F20: notisen säger båtens restid i sin egen fart när brotexten '
+    note: 'NOTISTEXT OMLÅST 2026-11-16 (U37 del 2, en formregel för alla passagenotiser): 1 notis byter mening; '
+      + 'tid, bro, riktning, siffra och antal är oförändrade. Regeln: var det tyst i mer än 130 s kring '
+      + 'korsningen och kommer notisen mer än 60 s efter den, lyder den "passerade … under AIS-tystnad", annars '
+      + '"har precis passerat". post 21 UTOPIA 265810170 Stallbackabron 6/8 09:15:32 → "under AIS-tystnad" '
+      + '(gränsfall). I gränsfallen låg korsningen i ett glapp på 203–529 s, och notisen kom 34–59 s efter '
+      + 'rådatafacits interpolerade korsning; appens fartskattning lägger korsningen tidigare. "Under '
+      + 'AIS-tystnad" är sant i båda fallen. Prövat rad för rad mot positionerna (tystnaden kring korsningen och '
+      + 'dröjsmålet); dirigentens egen diff och ett oberoende radfacit i granskningen. '
+      + 'NOTISFACIT OMLÅST 2026-11-16 (U33, fråga F20: notisen säger båtens restid i sin egen fart när brotexten '
       + 'säger strax): 6 notiser byter siffra och mening; tid, bro, riktning, avstånd och antal är oförändrade. '
       + 'post 47 ATHENA 265819940 Stridsbergsbron 6/8 14:51:57 om 3 → om 2 (sanning 1,70 min); post 52 ANDREA '
       + '219031446 Klaffbron 6/8 18:58:04 om 4 → om 2 (sanning 2,10 min); post 57 MONIKA 304482000 Klaffbron 6/8 '
@@ -2628,7 +2672,13 @@ module.exports = [
     lockOpenings: true,
     lockEvents: true,
     expectedNotifications: 23,
-    note: 'NOTISFACIT OMLÅST 2026-11-16 (U33, fråga F20: notisen säger båtens restid i sin egen fart när brotexten '
+    note: 'NOTISTEXT OMLÅST 2026-11-16 (U37 del 2, en formregel för alla passagenotiser): 1 notis byter mening; '
+      + 'tid, bro, riktning, siffra och antal är oförändrade. Regeln: var det tyst i mer än 130 s kring '
+      + 'korsningen och kommer notisen mer än 60 s efter den, lyder den "passerade … under AIS-tystnad", annars '
+      + '"har precis passerat". post 7 TANGELA 265070060 Järnvägsbron 24/8 08:55:39 → "har precis passerat". '
+      + 'Prövat rad för rad mot positionerna (tystnaden kring korsningen och dröjsmålet); dirigentens egen diff '
+      + 'och ett oberoende radfacit i granskningen. '
+      + 'NOTISFACIT OMLÅST 2026-11-16 (U33, fråga F20: notisen säger båtens restid i sin egen fart när brotexten '
       + 'säger strax): 1 notis byter siffra och mening; tid, bro, riktning, avstånd och antal är oförändrade. '
       + 'post 18 PRIMA LADY 230693000 Klaffbron 24/8 16:15:20 om 3 → om 2 (sanning 2,33 min). Rättare enligt U13 '
       + 'mot rådatafacits korsningar; dirigentens egen diff och ett oberoende radfacit i granskningen. '

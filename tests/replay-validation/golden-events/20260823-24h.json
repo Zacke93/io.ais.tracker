@@ -132,7 +132,7 @@
       "bridge": "Järnvägsbron",
       "direction": "northbound",
       "eta": -1,
-      "message": "TANGELA passerade Järnvägsbron under AIS-tystnad",
+      "message": "TANGELA har precis passerat Järnvägsbron",
       "alreadyPassed": true,
       "name": "TANGELA",
       "distance": 23,

@@ -384,7 +384,7 @@
       "bridge": "Stallbackabron",
       "direction": "northbound",
       "eta": -1,
-      "message": "UTOPIA har precis passerat Stallbackabron",
+      "message": "UTOPIA passerade Stallbackabron under AIS-tystnad",
       "alreadyPassed": true,
       "name": "UTOPIA",
       "distance": 120,
