@@ -1136,6 +1136,25 @@ nytt kandidatkluster. Självtest GRÖNT, låst bank och bankkalibrering oförän
 Standardprofilen: samma två kandidatkluster (INV-3) med 44 → 24 utslag. `replay:all`, synthetic, openings och
 fältkörningarna k1/k2 är bitlika med basen.
 
+### A.12 V1 efter granskningen (2026-11-16)
+
+Samma nattprofil på V1:s HEAD efter granskningens rättningar (gren ii borttagen, U25-vidgningen och R2 (c) borttagna,
+U34 snävad), mot basens nattjakt (`58857ab`) och mot A.11. Kluster 79 → 77 → 75, kandidatkluster 28 → 20 → 20,
+kandidatutslag 742 → 365 → 496. Per mekanism (bas / A.11 / nu): INV-3 SÅGTAND UPP 330 / 100 / 166, INV-3 OSCILLATION
+171 / 156 / 156, T2 LEDTID 36 / 26 / 71, T2 OKLASSAD 55 / 32 / 48, INV-13 5 / 2 / 5, T3 VARNING-EFTER-SANN-PASSAGE
+29 / 23 / 24; övriga som i A.11. Inget kandidatutslag från A.11 försvann. De 129 som kom tillbaka: 64 SÅGTAND som
+U34 inte längre godtar (stämpeln, tystnaden över 300 s och att nivån håller), 44 LEDTID och 16 OKLASSAD som gren
+(ii) dolde, 3 INV-13 (R2 utan villkor c), 1 U25 och 1 O1.
+
+**Öppen fråga, 35 LEDTID och 2 OKLASSAD mer än basen.** Den senaste bindningen i `konvoj.täcktAv` (F23 r1) gör
+att en båt som appen släppt ur händelse #1 och gett en egen varning inte längre räknas som täckt av #1. Basen kallade
+dem U2-VS-DEADLINE: korsningen ligger inom #1:s första passage + 600 s och täckningen slutade inom fristen
+(nattvärld 295: HAVSORN, varning #3 28 s före korsningen, 3 min efter #1:s första passage). I A.11 dolde gren (ii)
+klassen. Täcker U2:s konvojfönster en båt som appen själv släppt och varnat om på nytt? Det är ett domänbeslut.
+Verktyget säger KANDIDAT tills det är fattat. Standardprofilen: tre kandidatkluster (INV-3 två och T2 LEDTID med sex
+världar, samma klass). Självtest GRÖNT. `replay:all` (med och utan monitoring), synthetic och openings är bitlika med
+basen. Hela jest: 400 sviter gröna.
+
 ## Bilaga B — orakelkatalog
 
 Katalogen återges ur byggunderlaget med regler, trösklar och falsklarmsvakter. Raden **v1** säger vad som är byggt och var v1 avviker. Den uppdateras i samma commit som oraklen.
