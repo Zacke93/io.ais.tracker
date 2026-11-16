@@ -1884,7 +1884,8 @@ Flyttade golden-rader. Omlåsningen VÄNTAR (U13: rättaren låser inte om själ
 - **20260804-17h (Klaffbron):** ny rad "om 7" 17:21:33. "om 6" → "om 5"
   17:23:03. Ett öppningskort ändras: JEANNELLE 9 → 8 (17:21:43).
 - **20260804-both-21h:** strax för Stridsbergsbron kommer 08:25:06 i stället för
-  08:26:46. Passagen sker 08:27:24, så strax hamnar 2,3 min före, inom
+  08:26:46. Första korsningen i rådatan (ANYA ELAN 380) sker 08:26:30, så strax
+  hamnar 1,4 min före, där den förut kom 16 s efter; inom
   strax-löftet. "om 3" → "om 4" 11:26:50 och 11:27:57 räknas som bättre.
 - Notiser och kort som ändras: 20260610-19h ett kort 8 → 7 (sanning 6,6,
   bättre), 20260702-19h en notis CAVA 2 → 3 (sanning 3,6, bättre) och 17h

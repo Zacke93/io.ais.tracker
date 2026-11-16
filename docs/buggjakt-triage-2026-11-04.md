@@ -334,10 +334,10 @@ F18 och F19 är beslut eller design och står under Beslutsfrågor (punkt 3).
   `measure:eta` (A/B), och för F07 `hunt:repro`.
 - **Prioritet:** medel för F04 (31 världar, varav 4 i idealradio), låg för
   F06 (inget fall i banken) och F07.
-- **F07 rättat 2026-11-15** (ETA-etappen under ägarbeslutet U28; kort F03 i
+- **F07 rättat 2026-11-15/16** (ETA-etappen under ägarbeslutet U28; kort F03 i
   standardkörningen 2026-11-14): klampen försvarar det användaren ser, inte en
-  osedd extrapolerad baslinje (med rimlighetsprov av det fix som sänker
-  texten). `docs/ARCHITECTURE.md` §8 (e)
+  osedd baslinje, sedan R7 extrapolerad eller uppmätt (med rimlighetsprov av det
+  fix som sänker texten). `docs/ARCHITECTURE.md` §8 (e)
   "F07 gick in", mätningen i `docs/VALIDATION.md` §ETA-mätharnessen.
 
 ### 8. LOW_SPEED/INSUFFICIENT_MOVEMENT-flappen
@@ -561,7 +561,7 @@ docs/faltgranskning-2026-11-14.md. Två av besluten ovan berörs:
 - **U28 (2026-11-15):** ETA-uppskovet (U20/U22) hävs. ETA tas i små, mätta steg; ett steg går
   bara in om ingen enskild ETA-uppgift i banken blir sämre (measure:eta, hela bandet) OCH
   steget inte ger några nya kort i buggjägaren; annars lyfts de berörda påståendena och korten
-  till ägaren. Under U28 har F07 gått in. Fartspiksvakten (fältgranskningen F13) är mätt och
+  till ägaren. Under U28 har F07 gått in, med R7. Fartspiksvakten (fältgranskningen F13) är mätt och
   granskad men inte införd (dirigentens beslut 2026-11-16; grenen `omg2/ETA1-S` sparas, och
   signaturen loggas som `[ETA_SOG_SPIKE_CANDIDATE]` utan verkan).
 - **U30 (den frysta nedräkningen, fältgranskningen F5 och F13):** *Situationen:* en båt som
