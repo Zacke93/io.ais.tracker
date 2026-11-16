@@ -2,8 +2,8 @@
 
 /**
  * MOTFALLEN TILL FARTÖKNINGSREGELN (sparr, 2026-11-16; granskningen SPARR-d2,
- * H1 och punkt 4). Granskarens scenarier (S/granskning-SPARR-d2/scen, egna
- * positioner) som permanenta fixturer i tests/fixtures/sparr-motfall/.
+ * H1 och punkt 4). Granskarens syntetiska scenarier (egna positioner) som
+ * permanenta fixturer i tests/fixtures/sparr-motfall/.
  *
  * Den första versionen av regeln räknade ett ensamt fix ur stillhet som avgång
  * och varnade 10–20 min för tidigt när en båt ryckte fram i en kö före

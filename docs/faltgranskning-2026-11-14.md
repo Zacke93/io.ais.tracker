@@ -558,7 +558,7 @@ trafiken" är de 24 låsta körningarna (cirka 485 h).
   kort och mötande södergående båtar med kortare ledtid, alla minst 150 s) försvann med
   avgångsgrenen. Kortets siffra (alternativ (b), U28) är regelns restid i max(fart, 5 kn),
   uppåt till hel minut och aldrig mer än ETA-kedjans värde. Avvägningen går till ägaren
-  (S/omg2/rapporter/sparr-4.md). Avgång ur kö 360–440 m från bron är känd gräns.
+  (avsnitt 11.5 (F7)). Avgång ur kö 360–440 m från bron är känd gräns.
 - *Omgång 2:* en fartökningsregel är mätt och omgjord och omgranskas; nya alternativ i 11.5.
 
 **F8. Besök vid en bro som aldrig tar slut**

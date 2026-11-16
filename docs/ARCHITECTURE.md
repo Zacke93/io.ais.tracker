@@ -1139,7 +1139,7 @@ båt.
   fall finns i rådatan, och buggjägaren genererar aldrig mönstret ökning → kö.
   **Bara AISHub-takt:** med tät klass A (fix var 2–10 s) eller blandad källa
   visar två nya fix i rad aldrig 0,8 kn ökning, så regeln utlöses inte där;
-  LIDAN-formen får då basens 128–130 s. Vinsten gäller i praktiken AISHub. **Mätt** (S/omg2/rapporter/sparr-4.md): i
+  LIDAN-formen får då basens 128–130 s. Vinsten gäller i praktiken AISHub. **Mätt:** i
   banken och fältet lyfts BALTIC DREAM 107 → 186 s, VISTEN 132 → 192 s och
   LIDAN 138 → 206 s över 150 s, och MONIKA, LIANNE, NAVEN och JAATTEN II får
   51–70 s mer ledtid; NORDIC SOLA, PRIMA LADY och ORANESS (avgångar) får som
