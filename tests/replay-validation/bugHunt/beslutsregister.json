@@ -229,7 +229,7 @@
       "id": "K20-FASKÄNSLIG-LEDARE",
       "klass": "KÄND_ÖPPEN",
       "datum": "2026-08-21",
-      "källa": "docs/ARCHITECTURE.md:1348–1358 (K20, känd defekt ej åtgärdad); docs/VALIDATION.md:276–284 (Facit-fällan p. 6)",
+      "källa": "docs/ARCHITECTURE.md:1348–1358 (K20, känd defekt ej åtgärdad); docs/VALIDATION.md:281–289 (Facit-fällan p. 6)",
       "gäller": {
         "orakel": [
           "M-FAS"

@@ -254,6 +254,11 @@ Korpusarnas facit ÄR sanningen tills du bevisat motsatsen i rådata. Om en
    `relockGoldenText.js <id>` kan fortfarande omlåsa andra, verifierade
    korpusar, men avvisar den ofullständiga. Att låsa upp korpusen för att
    tysta dess regressioner är inte en reparation av fångsten.
+   Ett undantag är gjort, med dirigentens uttryckliga beslut (U33, 2026-11-16):
+   post 12 i `golden-events/20260917-7h.json` (SUSANNE, Stridsbergsbron
+   16:11:01) fick ny siffra och mening, "om 4" till "om 2" mot sanningen
+   1,79 min. Posten ligger före bortfallet och är uppmätt mot rådatafacit.
+   Inget annat i korpusens facit är ändrat, och klassningen står kvar.
 
    **Riktningsnycklarna är INTERNA trots att tokenen är svensk** (F5,
    2026-08-21): `replayRunner.js:83–99` översätter tillbaka med

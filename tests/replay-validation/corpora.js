@@ -1751,7 +1751,15 @@ module.exports = [
     lockOpenings: true,
     lockEvents: true,
     expectedNotifications: 152,
-    note: 'Omlåst 2026-11-04 (U14, kort B01): 151→152. ELFKUNGEN/265573130 får en egen notis för returpassagen '
+    note: 'NOTISFACIT OMLÅST 2026-11-16 (U33, fråga F20: notisen säger båtens restid i sin egen fart när brotexten '
+      + 'säger strax): 4 notiser byter siffra och mening; tid, bro, riktning, avstånd och antal är oförändrade. '
+      + 'post 5 MS JUTLAND 211718360 Klaffbron 4/8 23:58:46 om 3 → om 2 (sanning 1,81 min); post 14 ANDREA '
+      + '219031446 Klaffbron 5/8 00:51:45 om 3 → om 2 (sanning 1,64 min); post 33 LAURIERBORG 246924000 '
+      + 'Stridsbergsbron 5/8 07:40:03 om 3 → om 2 (sanning 2,46 min); post 35 ANYA ELAN 380 265705550 Klaffbron '
+      + '5/8 07:42:19 om 5 → om 3 (ingen korsning i rådatafacit: båten gick aldrig igenom, och notisen var falsk '
+      + 'redan förut). Rättare enligt U13 mot rådatafacits korsningar; dirigentens egen diff och ett oberoende '
+      + 'radfacit i granskningen. '
+      + 'Omlåst 2026-11-04 (U14, kort B01): 151→152. ELFKUNGEN/265573130 får en egen notis för returpassagen '
       + 'söderut över Klaffbron 5/8: "passerade Klaffbron under AIS-tystnad" 10:38:19.540, 175 m söder om bron, '
       + 'eta −1, already_passed. Rådatafacit (gt-passages): nordpassagen 10:15:12.558 (observerad), sydpassagen '
       + 'inferred i 11 min glapp (10:26:00→10:37:11, från 220 m norr till 12 m söder). Två verkliga passager; '
@@ -2414,7 +2422,15 @@ module.exports = [
       'DEFAULT-FLASH: 2026-08-06T08:47:00.040Z "Inga båtar" inklämd (30s) '
         + 'mellan två "En … Stridsbergsbron"-texter utan passage',
     ],
-    note: 'ÖPPNINGSFACIT OMLÅST 2026-11-16 (U32, fartökningsregeln vid Järnvägsbron, fråga F7): en post i openingWarnings '
+    note: 'NOTISFACIT OMLÅST 2026-11-16 (U33, fråga F20: notisen säger båtens restid i sin egen fart när brotexten '
+      + 'säger strax): 6 notiser byter siffra och mening; tid, bro, riktning, avstånd och antal är oförändrade. '
+      + 'post 47 ATHENA 265819940 Stridsbergsbron 6/8 14:51:57 om 3 → om 2 (sanning 1,70 min); post 52 ANDREA '
+      + '219031446 Klaffbron 6/8 18:58:04 om 4 → om 2 (sanning 2,10 min); post 57 MONIKA 304482000 Klaffbron 6/8 '
+      + '19:44:25 om 4 → om 3 (sanning 2,88 min); post 74 ELFKUNGEN 265573130 Klaffbron 7/8 10:16:07 om 3 → om 2 '
+      + '(sanning 1,68 min); post 90 MISTRAL 219025192 Klaffbron 7/8 12:22:47 om 4 → om 1 (sanning 1,77 min); '
+      + 'post 129 FARUREJ 261005370 Stridsbergsbron 7/8 16:03:02 om 3 → om 2 (sanning 2,43 min). Rättare enligt '
+      + 'U13 mot rådatafacits korsningar; dirigentens egen diff och ett oberoende radfacit i granskningen. '
+      + 'ÖPPNINGSFACIT OMLÅST 2026-11-16 (U32, fartökningsregeln vid Järnvägsbron, fråga F7): en post i openingWarnings '
       + 'flyttas; händelse-id, medlemmar och originalDueMs är oförändrade. '
       + 'Stridsbergsbron#23 för MONIKA 304482000 kommer 6/8 19:57:04.225 i stället för 19:57:55.256 (525 m i '
       + 'stället för 391 m, deadline), och kortet säger 3 min i stället för 6. Korsningen 20:01:08.145 (gt, line): '
@@ -2612,7 +2628,11 @@ module.exports = [
     lockOpenings: true,
     lockEvents: true,
     expectedNotifications: 23,
-    note: 'Omlåst 2026-11-04 (familj E, avgångs-ETA): PRIMA LADY 230693000 lämnar stillhet [0,4, 0,3, 0,4] '
+    note: 'NOTISFACIT OMLÅST 2026-11-16 (U33, fråga F20: notisen säger båtens restid i sin egen fart när brotexten '
+      + 'säger strax): 1 notis byter siffra och mening; tid, bro, riktning, avstånd och antal är oförändrade. '
+      + 'post 18 PRIMA LADY 230693000 Klaffbron 24/8 16:15:20 om 3 → om 2 (sanning 2,33 min). Rättare enligt U13 '
+      + 'mot rådatafacits korsningar; dirigentens egen diff och ett oberoende radfacit i granskningen. '
+      + 'Omlåst 2026-11-04 (familj E, avgångs-ETA): PRIMA LADY 230693000 lämnar stillhet [0,4, 0,3, 0,4] '
       + 'i 1,8 kn, 42 m från senaste stillasampel. Golden-text idx 65 16:34:01 "om 7 minuter" → "om 4 minuter" '
       + '(golvet 3,6 kn = 2 × 1,8; gt-passages: Stridsbergsbron +3,1 min), golden-events notis 16:35:10 eta 5 → 3 '
       + 'och öppningskortet Stridsbergsbron#8 etaMin 5 → 3 (gt: +1,9 min) — alla tre rättare. Tid, källa, antal '
@@ -2639,7 +2659,12 @@ module.exports = [
     lockOpenings: true,
     lockEvents: true,
     expectedNotifications: 24,
-    note: 'Omlåst 2026-11-04 (familj E, avgångs-ETA): OLA 265031670 lämnar stillhet [0,1, 0,0] i 5,3 kn, '
+    note: 'NOTISFACIT OMLÅST 2026-11-16 (U33, fråga F20: notisen säger båtens restid i sin egen fart när brotexten '
+      + 'säger strax): 2 notiser byter siffra och mening; tid, bro, riktning, avstånd och antal är oförändrade. '
+      + 'post 3 TROUBADOUR 275491000 Klaffbron 7/9 04:06:19 om 3 → om 2 (sanning 1,94 min); post 20 OLA 265031670 '
+      + 'Klaffbron 7/9 18:20:24 om 3 → om 2 (sanning 1,87 min). Rättare enligt U13 mot rådatafacits korsningar; '
+      + 'dirigentens egen diff och ett oberoende radfacit i granskningen. '
+      + 'Omlåst 2026-11-04 (familj E, avgångs-ETA): OLA 265031670 lämnar stillhet [0,1, 0,0] i 5,3 kn, '
       + '145 m från senaste stillasampel. Golden-events notis 18:50:04 eta 4 → 1 ("om 1 minut") och '
       + 'öppningskortet Stridsbergsbron#11 etaMin 4 → 1; gt-passages: Stridsbergsbron +1,3 min — rättare. '
       + 'Golden-text, tid, källa och antal består. '
@@ -2669,7 +2694,11 @@ module.exports = [
     lockOpenings: true,
     lockEvents: true,
     expectedNotifications: 23,
-    note: 'Låst 2026-09-12: samtliga 1905 AIS-poster är byteidentiska med fältloggen; '
+    note: 'NOTISFACIT OMLÅST 2026-11-16 (U33, fråga F20: notisen säger båtens restid i sin egen fart när brotexten '
+      + 'säger strax): 1 notis byter siffra och mening; tid, bro, riktning, avstånd och antal är oförändrade. '
+      + 'post 7 TINY 265679440 Stridsbergsbron 10/9 16:34:54 om 4 → om 2 (sanning 1,45 min). Rättare enligt U13 '
+      + 'mot rådatafacits korsningar; dirigentens egen diff och ett oberoende radfacit i granskningen. '
+      + 'Låst 2026-09-12: samtliga 1905 AIS-poster är byteidentiska med fältloggen; '
       + 'inspelade startinställningar följer med. Sex fasvarianter med monitoring passerar. '
       + '23 närnotiser, nio öppningsvarningar, åtta målpassager och tolv mellanpassager. '
       + 'Rådatafacit innehåller 24 korsningar/zonbesök. TINY varnas för Stridsbergsbron '
@@ -2697,7 +2726,13 @@ module.exports = [
     lockOpenings: true,
     lockEvents: true,
     expectedNotifications: 14,
-    note: 'Omklassad 2026-10-05: ofullständig fångst, ENBART regressionsreferens för bevarade sampel. '
+    note: 'NOTISFACIT OMLÅST 2026-11-16 (U33, fråga F20: notisen säger båtens restid i sin egen fart när brotexten '
+      + 'säger strax): 1 notis byter siffra och mening; tid, bro, riktning, avstånd och antal är oförändrade. '
+      + 'post 12 SUSANNE 244613000 Stridsbergsbron 17/9 16:11:01 om 4 → om 2 (sanning 1,79 min). Korpusen har en '
+      + 'ofullständig fångst och får annars inte låsas om; posten ligger före bortfallet, är uppmätt mot '
+      + 'rådatafacit och ändras med dirigentens uttryckliga beslut, allt annat i facit är orört. Rättare enligt '
+      + 'U13 mot rådatafacits korsningar; dirigentens egen diff och ett oberoende radfacit i granskningen. '
+      + 'Omklassad 2026-10-05: ofullständig fångst, ENBART regressionsreferens för bevarade sampel. '
       + 'Ett loggblock och minst en emitterad AISHub-fix saknas 17/9 cirka 17:13 UTC; '
       + 'poll-/hälsoräknarna och saknad UI-version 1001 bevisar bortfallet. Tidigare granskning '
       + 'likställde felaktigt JSONL = logg med komplett fångst. Befintliga assertions bevaras, '
@@ -2720,7 +2755,13 @@ module.exports = [
     lockOpenings: true,
     lockEvents: true,
     expectedNotifications: 38,
-    note: 'ÖPPNINGSFACIT OMLÅST 2026-11-16 (U32, fartökningsregeln vid Järnvägsbron, fråga F7): en post i openingWarnings '
+    note: 'NOTISFACIT OMLÅST 2026-11-16 (U33, fråga F20: notisen säger båtens restid i sin egen fart när brotexten '
+      + 'säger strax): 3 notiser byter siffra och mening; tid, bro, riktning, avstånd och antal är oförändrade. '
+      + 'post 2 VISTEN 210889000 Klaffbron 17/9 20:57:42 om 3 → om 2 (sanning 2,47 min); post 8 WILSON ALSTER '
+      + '314019000 Klaffbron 17/9 23:57:58 om 3 → om 2 (sanning 2,56 min; sämre, godtas uttryckligen i U33); post '
+      + '27 TUNA 244321000 Klaffbron 18/9 06:12:20 om 3 → om 2 (sanning 1,68 min). Rättare enligt U13 mot '
+      + 'rådatafacits korsningar; dirigentens egen diff och ett oberoende radfacit i granskningen. '
+      + 'ÖPPNINGSFACIT OMLÅST 2026-11-16 (U32, fartökningsregeln vid Järnvägsbron, fråga F7): en post i openingWarnings '
       + 'flyttas; händelse-id, medlemmar och originalDueMs är oförändrade. '
       + 'Stridsbergsbron#3 för VISTEN 210889000 kommer 17/9 21:07:40.213 i stället för 21:08:40.136 (564 m på '
       + 'deadline i stället för 353 m på fix), och kortet säger 3 min i stället för 5. Korsningen 21:10:51.864 '
@@ -2793,7 +2834,12 @@ module.exports = [
     lockOpenings: true,
     lockEvents: true,
     expectedNotifications: 24,
-    note: 'ÖPPNINGSFACIT OMLÅST 2026-11-16 (U32, fartökningsregeln vid Järnvägsbron, fråga F7): en post i openingWarnings '
+    note: 'NOTISFACIT OMLÅST 2026-11-16 (U33, fråga F20: notisen säger båtens restid i sin egen fart när brotexten '
+      + 'säger strax): 2 notiser byter siffra och mening; tid, bro, riktning, avstånd och antal är oförändrade. '
+      + 'post 14 LIDAN 231897000 Klaffbron 15/11 06:15:58 om 4 → om 3 (sanning 2,91 min); post 20 SYLVIA '
+      + '305288000 Klaffbron 15/11 15:48:23 om 3 → om 1 (sanning 1,57 min). Rättare enligt U13 mot rådatafacits '
+      + 'korsningar; dirigentens egen diff och ett oberoende radfacit i granskningen. '
+      + 'ÖPPNINGSFACIT OMLÅST 2026-11-16 (U32, fartökningsregeln vid Järnvägsbron, fråga F7): en post i openingWarnings '
       + 'flyttas; händelse-id, medlemmar och originalDueMs är oförändrade. '
       + 'Stridsbergsbron#7 för LIDAN 231897000 kommer 15/11 06:26:34.660 i stället för 06:27:42.577 (493 m i stället '
       + 'för 352 m, fix), och kortet säger 3 min i stället för 5. Korsningen 06:30:00.363 (gt, line): ledtiden går '
