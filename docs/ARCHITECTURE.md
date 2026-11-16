@@ -2622,6 +2622,15 @@ golden). Med R7 visar texten "om 13" från 07:07:13 och "om 18" försvinner.
 4 omätta (alla fyra rättare mot rådatan, se VALIDATION "### F07 R7"). Kvar
 står fönstret där ett lågt men osett värde över det visade blir båtens
 baslinje; det syns först om ledaren försvinner före båtens nästa fix.
+*Godtagen avvägning L1 (dirigenten 2026-11-16).* I de syntetiska fixturerna
+`f07-dubbel` och `f07-trippel` visar texten 10:08:01 "om 6" i 60 s i stället för
+F07:s "om 7" (sanning 13,0 min), följt av ett synligt steg 6 → 7. Den tredje
+båtens baslinje är uppmätt sedan förra fixet och osedd. R7 gäller henne, så ett
+nytt gruppfönster öppnas på det renderade 7 med golvet 4. Kvotprovet fångar
+bara fix som rört sig för fort, inte en båt som stannat. Godtaget eftersom
+scenariot är konstruerat, texten redan ligger 6 min fel där på F07, och banken
+får 20 rättare rader och ingen sämre. Utfallen är låsta i
+`tests/fixtures/f07-{dubbel,trippel,dubbel20}.expected.json`.
 Den första versionen (släpp varje osedd extrapolerad baslinje fritt) återtogs:
 den gjorde gps700 och accstop 4–8 min för optimistiska, och dess hjälpare
 läste inte presentationslistan (P1), släppte en uppmätt baslinje i andra passet

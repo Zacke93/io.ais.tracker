@@ -507,8 +507,12 @@ describe('F07: motfallen gps700 och accstop genom appen', () => {
   const texts = (result) => result.bridgeTextTransitions
     .map((t) => `${new Date(t.t).toISOString().slice(11, 19)} ${t.text}`);
 
+  // dubbel, trippel och dubbel20 är låsta på R7 (12b9477). dubbel och trippel
+  // visar där avvägningen L1 (godtagen av dirigenten 2026-11-16): 10:08:01
+  // "om 6" i 60 s mot F07:s "om 7" (sanning 13,0), sedan 6 → 7. Se
+  // ARCHITECTURE §8 (e) och VALIDATION "F07 R7".
   test.each([
-    ['gps700'], ['gps400'], ['spik1'], ['accstop'],
+    ['gps700'], ['gps400'], ['spik1'], ['accstop'], ['dubbel'], ['trippel'], ['dubbel20'],
   ])('%s: brotext och notiser som i den låsta förväntan', async (name) => {
     const expected = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', `f07-${name}.expected.json`), 'utf8'));
     const result = await replay(path.join(__dirname, 'fixtures', `f07-${name}.jsonl`));
