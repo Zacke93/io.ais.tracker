@@ -312,6 +312,12 @@ function generateJourney(opts, rnd) {
  * sekunder före mottagningen (`fixTs`, `feed: 'aishub'`), som i fältet där
  * AISHub levererar fixen 20–40 s gamla. Inga av fälten drar slumptal, och
  * ben utan dem genereras byte för byte som förut.
+ *
+ * Fartspikskandidaten (U28, 2026-11-16): `reportSogKn` ger ett gående ben en
+ * rapporterad fart som avviker från förflyttningen (benet flyttar båten i
+ * `speedKn` men raderna säger `reportSogKn`), som fältets AISHub-fix med
+ * 22,2 kn när båten gick 9,9. Fältet drar inga extra slumptal; ben utan det
+ * genereras byte för byte som förut.
  * @param {Object} opts - {mmsi, name, startS, legs, jitterM?, startOffsetS?}
  * @param {Function} rnd - seedad PRNG
  * @returns {Array<Object>} samples (jsonl-rader), med `truthPath`
@@ -369,7 +375,7 @@ function generateLegJourney(opts, rnd) {
     const inGap = (x) => Number.isFinite(leg.gapFromS) && Number.isFinite(leg.gapToS)
       && x >= Math.min(leg.gapFromS, leg.gapToS) && x <= Math.max(leg.gapFromS, leg.gapToS);
     while ((dir > 0 && s < leg.toS) || (dir < 0 && s > leg.toS)) {
-      if (!inGap(s)) push(s, leg.speedKn, dir, leg.cogDeg, leg.fixLagS);
+      if (!inGap(s)) push(s, Number.isFinite(leg.reportSogKn) ? leg.reportSogKn : leg.speedKn, dir, leg.cogDeg, leg.fixLagS);
       const dt = interval + (leg.intervalJitterS ? rnd() * leg.intervalJitterS : 0);
       tS += dt;
       s += dir * leg.speedKn * 0.5144 * dt;

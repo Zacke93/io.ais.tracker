@@ -512,6 +512,9 @@ trafiken" är de 24 låsta körningarna (cirka 485 h).
   ny text ("ligger still …"), vilket ändrar formatet.
 - *Rekommendation.* (a); rätta hellre den frusna nedräkningen (F13). Efter rättning A styr U27
   bara texten, inte varningen.
+- *Beslutat 2026-11-15 (U30):* 20 min behålls. Före släppet visas en båt som legat stilla i fem
+  minuter med färsk position, mer än 350 m från bron, som "En båt på väg mot <bro>, ETA okänd"
+  i stället för en frusen siffra (docs/bridgeTextFormat.md).
 
 **F6. Målbron när en båt lägger ut med kurs strax utanför sydbandet**
 - *Situationen.* PRICKBJORN lade ut 12/11 12:28 med kurs 225–232°; kanalen går cirka 220° vid
@@ -613,6 +616,25 @@ trafiken" är de 24 låsta körningarna (cirka 485 h).
   (liten), den frusna nedräkningen ihop med F5, den dubbla beräkningen sist (berör varje
   prognos och kräver omlåsning).
 - *Rekommendation.* Låt rättning E ligga kvar, och ta (b) i den ordningen.
+- *Beslutat 2026-11-15 (U28):* ETA-uppskovet hävs; ETA tas i små, mätta steg, och ett steg går
+  bara in om ingen enskild ETA-uppgift i banken blir sämre (measure:eta, hela bandet) OCH inga
+  nya kort uppstår i buggjägaren (annars lyfts påståendena och korten till ägaren).
+- *Fartspiken (punkt 2):* mätt och granskad 2026-11-15/16; inte införd (dirigentens beslut
+  2026-11-16). Fältfallet: körning 2, 13 nov 13:56Z, en AISHub-fix rapporterade 22,2 kn när
+  förflyttningen sedan förra fixen var 356 m på 70 s (9,9 kn), i samma sampel som målbytet till
+  Klaffbron; texten sa "strax" på 940 m i 3,8 min, och korsningen kom 3,7 min senare.
+  Varningen påverkades inte. Skälen: felet har setts en gång på ca 100 h fält och aldrig i 519 h
+  bank eller 2 000 jaktvärldar; vakten blev ca 300 rader i ETA-kedjans kärna med fyra nya
+  tillstånd, omskrivning av historiken och en signal in i publiceringslagret; tre
+  granskningsvarv där varje version påstod något som inte höll; och den vilar på antaganden som
+  nästa ETA-steg rör direkt (K6-rättningen, idle-decayn). Grenen `omg2/ETA1-S` sparas med
+  mätningarna (docs där). I stället loggas signaturen som `[ETA_SOG_SPIKE_CANDIDATE]` utan
+  verkan och räknas efter varje fältkörning (docs/VALIDATION.md §Fältprov), så att ägaren vet
+  hur ofta det händer innan vakten tas upp igen.
+- *Beslutat 2026-11-15 (U30):* den frusna nedräkningen rättas med alternativ A2: "ETA okänd" för
+  en båt som legat stilla i fem minuter med färsk position mer än 350 m från bron, tills hon rör
+  sig igen eller släpps (U27). Alternativ A (alla avstånd) ändrar en låst text i banken (TIM); B
+  löser inte fältfallet.
 
 **F14. Ska gamla varningar och "närmar sig" efter passagen fälla grindarna?**
 - *Situationen.* Verktygen räknade PRICKBJORNs fyra timmar gamla varning som täckning. Nu

@@ -166,6 +166,24 @@ const OMSTART_SLOW_ZONE = {
  *    BRO (fältprovet 10–13 november, familj B). Ingen varning för bron som
  *    täcker en båt med benresa får gå innan hon på vägen dit korsat den
  *    tidigare bron (sann bana, samma riktning, efter förra korsningen av bron).
+ *  STILLA BÅT UTANFÖR VÄNTZONEN (U30, 2026-11-15). Kräver EXAKT EN båt med
+ *  sann bana. Ett stopp är ett intervall där den sanna banan står still
+ *  (minst 60 s), oavsett rapporterad fart; avgången är när den åter rör sig. Texten prövas vid varje övergång och
+ *  som stående text var 30:e sekund; bara klausuler som nämner "mot <bro>".
+ *  - stillUnknown: {bridge, afterS} — från afterS sekunder in i varje stopp
+ *    till stoppets sista sampel ska bron visas som "ETA okänd" (ingen frusen
+ *    siffra, ingen trappa). Minst en sådan text måste finnas.
+ *  - noUnknownDuringStop: {bridge, extraS, windowS?} — från stoppets början
+ *    till extraS sekunder efter dess slut (eller, med windowS, till windowS
+ *    sekunder efter dess början) får bron aldrig visas som "ETA okänd".
+ *  - numericAfterMoveM: {bridge, moveM, graceS?} — när båten (sann bana) har
+ *    flyttat sig moveM från stoppet ska bron inte längre visas som "ETA
+ *    okänd" (efter graceS s, ett sampelintervall), och texten får aldrig gå
+ *    direkt från "ETA okänd" till "strax".
+ *  - maxFormChangesPerStop: {bridge, max} — från stoppets första sampel till
+ *    3 min efter avgången (eller stoppets slut) byter brons klausul form
+ *    (nedräkning, ETA okänd, vänttext, ingen) högst max gånger. Nedräkningen
+ *    är siffran och "strax": att räkna ned in i strax-bandet är inget formbyte.
  *  - maxOpeningAgeS: {bro: N} — spegeln av openingLeadS (familj A, fältprovet
  *    2026-11-12): den SENASTE varningen som täcker båten före varje sann
  *    korsning får vara högst N s gammal. En varning från en anflygning timmar
@@ -2728,6 +2746,266 @@ const SCENARIOS = [
       noDefaultWhileStopped: true,
     },
   },
+  // U30 (2026-11-15): STILLA BÅT UTANFÖR VÄNTZONEN. Fältfallet (körning 1,
+  // 12 nov 08:30–08:54Z): en båt söderut saktade in och låg stilla 460 m norr
+  // om Stridsbergsbron med färsk AIS; texten frös på "om 4 minuter" i 12,7 min
+  // och räknade sedan upp till 28 innan målbron släpptes (U27). Här: söderut
+  // i 5 kn, inbromsning i 2 kn, stopp 460 m norr om bron med AIS var 60:e s
+  // i 25 min, och båten går aldrig. Efter fem minuters stillhet ska bron visas
+  // som "ETA okänd" tills hon släpps — ingen frusen siffra, ingen trappa.
+  {
+    name: 'stilla-460m-från-målbron-ETA-okänd (fältprovet k1, U30)',
+    seed: 4450,
+    vessels: [{
+      mmsi: '904450101',
+      name: 'SYNT-STILLA',
+      startS: METRICS.cum[4] + 1700,
+      legs: [
+        { toS: METRICS.cum[4] + 610, speedKn: 5, intervalS: 30 },
+        { toS: METRICS.cum[4] + 460, speedKn: 2, intervalS: 30 },
+        {
+          stopS: 1500, stopIntervalS: 60, stopSog: 0.1, stopCogRandom: true,
+        },
+      ],
+    }],
+    expect: {
+      stillUnknown: { bridge: 'Stridsbergsbron', afterS: 420 },
+      maxFormChangesPerStop: { bridge: 'Stridsbergsbron', max: 2 },
+    },
+  },
+  // U30, motfall: samma stopp i 8 min, sedan går hon. Under stoppet "ETA
+  // okänd", och nedräkningen kommer tillbaka direkt när hon rör sig, utan
+  // att texten blinkar (högst två formbyten: siffra → okänd → siffra).
+  {
+    name: 'stilla-460m-och-går-igen (motfall U30)',
+    seed: 4451,
+    vessels: [{
+      mmsi: '904451101',
+      name: 'SYNT-GÅR-IGEN',
+      startS: METRICS.cum[4] + 1700,
+      legs: [
+        { toS: METRICS.cum[4] + 610, speedKn: 5, intervalS: 30 },
+        { toS: METRICS.cum[4] + 460, speedKn: 2, intervalS: 30 },
+        {
+          stopS: 480, stopIntervalS: 60, stopSog: 0.1, stopCogRandom: true,
+        },
+        { toS: METRICS.cum[4] - 400, speedKn: 4, intervalS: 30 },
+      ],
+    }],
+    expect: {
+      minTargetPassages: 1,
+      stillUnknown: { bridge: 'Stridsbergsbron', afterS: 420 },
+      maxFormChangesPerStop: { bridge: 'Stridsbergsbron', max: 2 },
+      departureEta: { bridge: 'Stridsbergsbron', maxOverMin: 3, maxUnderMin: 2 },
+    },
+  },
+  // U30, motfall: ett kort stopp under fem minuter ändras inte.
+  {
+    name: 'kort-stopp-460m-under-fem-minuter (motfall U30)',
+    seed: 4452,
+    vessels: [{
+      mmsi: '904452101',
+      name: 'SYNT-KORT',
+      startS: METRICS.cum[4] + 1700,
+      legs: [
+        { toS: METRICS.cum[4] + 610, speedKn: 5, intervalS: 30 },
+        { toS: METRICS.cum[4] + 460, speedKn: 2, intervalS: 30 },
+        {
+          stopS: 240, stopIntervalS: 60, stopSog: 0.1, stopCogRandom: true,
+        },
+        { toS: METRICS.cum[4] - 400, speedKn: 4, intervalS: 30 },
+      ],
+    }],
+    expect: {
+      minTargetPassages: 1,
+      noUnknownDuringStop: { bridge: 'Stridsbergsbron', extraS: 60 },
+    },
+  },
+  // U30, motfall: stilla 310 m från bron (TIM-klassen, innanför 350 m) ändras inte.
+  {
+    name: 'stilla-310m-från-målbron-oförändrad (motfall U30)',
+    seed: 4453,
+    vessels: [{
+      mmsi: '904453101',
+      name: 'SYNT-310',
+      startS: METRICS.cum[4] + 1700,
+      legs: [
+        { toS: METRICS.cum[4] + 460, speedKn: 5, intervalS: 30 },
+        { toS: METRICS.cum[4] + 310, speedKn: 2, intervalS: 30 },
+        {
+          stopS: 600, stopIntervalS: 60, stopSog: 0.1, stopCogRandom: true,
+        },
+        { toS: METRICS.cum[4] - 400, speedKn: 4, intervalS: 30 },
+      ],
+    }],
+    expect: {
+      minTargetPassages: 1,
+      noUnknownDuringStop: { bridge: 'Stridsbergsbron', extraS: 60 },
+    },
+  },
+  // U30, motfall: köaren i väntzonen (200 m) behåller vänttexten.
+  {
+    name: 'köare-i-väntzonen-200m-oförändrad (motfall U30)',
+    seed: 4454,
+    vessels: [{
+      mmsi: '904454101',
+      name: 'SYNT-VÄNT',
+      startS: METRICS.cum[4] + 1700,
+      legs: [
+        { toS: METRICS.cum[4] + 350, speedKn: 5, intervalS: 30 },
+        { toS: METRICS.cum[4] + 200, speedKn: 2, intervalS: 30 },
+        {
+          stopS: 600, stopIntervalS: 60, stopSog: 0.1, stopCogRandom: true,
+        },
+        { toS: METRICS.cum[4] - 400, speedKn: 4, intervalS: 30 },
+      ],
+    }],
+    expect: {
+      minTargetPassages: 1,
+      noUnknownDuringStop: { bridge: 'Stridsbergsbron', extraS: 60 },
+    },
+  },
+  // U30, motfall: GAMMAL POSITION. Stopp 460 m från bron i 4 min, sedan AIS-
+  // tystnad i 15 min medan hon ligger kvar, och hon går när hon hörs igen.
+  // Utan färsk position går läget aldrig in: de första 8 minuterna av stoppet
+  // (före åldersreglernas egen "ETA okänd", som räknas från senaste
+  // positionsändringen) får ingen "ETA okänd" komma från den nya regeln.
+  {
+    name: 'stilla-460m-med-gammal-position-oförändrad (motfall U30)',
+    seed: 4455,
+    vessels: [{
+      mmsi: '904455101',
+      name: 'SYNT-GAMMAL',
+      startS: METRICS.cum[4] + 1700,
+      legs: [
+        { toS: METRICS.cum[4] + 610, speedKn: 5, intervalS: 30 },
+        { toS: METRICS.cum[4] + 460, speedKn: 2, intervalS: 30 },
+        {
+          stopS: 240, stopIntervalS: 60, stopSog: 0.1, stopCogRandom: true,
+        },
+        {
+          stopS: 900, stopIntervalS: 900, stopSog: 0.1, stopCogRandom: true,
+        },
+        { toS: METRICS.cum[4] - 400, speedKn: 4, intervalS: 30 },
+      ],
+    }],
+    expect: {
+      noUnknownDuringStop: { bridge: 'Stridsbergsbron', windowS: 480 },
+    },
+  },
+  // U30-revisionen (granskningen 2026-11-15, H2/M1): FARTSPIKAR UTAN
+  // FÖRFLYTTNING på en stilla båt med MOGET stillhetsankare (35 min stilla, då
+  // överlever VDS:s stillhetsklocka spikarna). 1,5 kn varannan minut i 12 min,
+  // sedan går hon. Läget får inte lämnas av ett fartsampel: högst två
+  // formbyten (siffra → okänd → siffra vid avgången).
+  {
+    name: 'stilla-460m-spikar-med-moget-ankare (U30-revisionen)',
+    seed: 4456,
+    vessels: [{
+      mmsi: '904456101',
+      name: 'SYNT-SPIKAR',
+      startS: METRICS.cum[4] + 1700,
+      legs: [
+        { toS: METRICS.cum[4] + 610, speedKn: 5, intervalS: 30 },
+        { toS: METRICS.cum[4] + 460, speedKn: 2, intervalS: 30 },
+        {
+          stopS: 2100, stopIntervalS: 60, stopSog: 0.1, stopCogRandom: true,
+        },
+        ...Array.from({ length: 6 }, () => [
+          {
+            stopS: 60, stopIntervalS: 60, stopSog: 1.5, stopCogRandom: true,
+          },
+          {
+            stopS: 60, stopIntervalS: 60, stopSog: 0.1, stopCogRandom: true,
+          },
+        ]).flat(),
+        { toS: METRICS.cum[4] - 400, speedKn: 4, intervalS: 30 },
+      ],
+    }],
+    expect: {
+      stillUnknown: { bridge: 'Stridsbergsbron', afterS: 420 },
+      maxFormChangesPerStop: { bridge: 'Stridsbergsbron', max: 2 },
+    },
+  },
+  // U30-revisionen (H1): KRYPAREN. Stilla 6 min 460 m från bron, sedan kryp i
+  // 0,7 kn in mot och genom bron. När hon flyttat sig 60 m (lägets tröskel 50 m
+  // plus ett sampel) ska en siffra vara tillbaka, och texten får aldrig gå
+  // direkt från "ETA okänd" till "strax".
+  {
+    name: 'stilla-460m-sedan-kryp-0,7kn-genom-bron (U30-revisionen)',
+    seed: 4457,
+    vessels: [{
+      mmsi: '904457101',
+      name: 'SYNT-KRYP',
+      startS: METRICS.cum[4] + 1700,
+      legs: [
+        { toS: METRICS.cum[4] + 610, speedKn: 5, intervalS: 30 },
+        { toS: METRICS.cum[4] + 460, speedKn: 2, intervalS: 30 },
+        {
+          stopS: 360, stopIntervalS: 60, stopSog: 0.1, stopCogRandom: true,
+        },
+        { toS: METRICS.cum[4] - 400, speedKn: 0.7, intervalS: 30 },
+      ],
+    }],
+    expect: {
+      minTargetPassages: 1,
+      stillUnknown: { bridge: 'Stridsbergsbron', afterS: 330 },
+      numericAfterMoveM: { bridge: 'Stridsbergsbron', moveM: 60, graceS: 30 },
+      maxFormChangesPerStop: { bridge: 'Stridsbergsbron', max: 2 },
+    },
+  },
+  // U30-revisionen (M1, färskheten): stilla 460 m i 10 min, men varje fix är en
+  // AISHub-fix som levereras 13 min gammal (äldre än AISHUB.MAX_FIX_AGE_MS).
+  // Positionen är inte färsk enligt hasFreshPosition, så läget får inte gås in i.
+  {
+    name: 'stilla-460m-med-gamla-aishub-fix-oförändrad (U30-revisionen)',
+    seed: 4458,
+    vessels: [{
+      mmsi: '904458101',
+      name: 'SYNT-GAMLA-FIX',
+      startS: METRICS.cum[4] + 1700,
+      legs: [
+        { toS: METRICS.cum[4] + 610, speedKn: 5, intervalS: 30 },
+        { toS: METRICS.cum[4] + 460, speedKn: 2, intervalS: 30 },
+        {
+          stopS: 600, stopIntervalS: 60, stopSog: 0.1, stopCogRandom: true, fixLagS: 780,
+        },
+        { toS: METRICS.cum[4] - 400, speedKn: 4, intervalS: 30 },
+      ],
+    }],
+    expect: {
+      noUnknownDuringStop: { bridge: 'Stridsbergsbron', extraS: 60 },
+    },
+  },
+  // U30, motfall (omgranskningen 2026-11-16, M-A): KÖ VID EN TIDIGARE BRO.
+  // Norrut mot Stridsbergsbron, kö 300 m söder om Järnvägsbron (557 m från
+  // Stridsbergsbron) i 10 min, sedan 4 respektive 2 kn. Stillheten är belagd,
+  // men vid en kö vid en tidigare bro ska läget inte gå in (kövillkoret,
+  // queueBridge): utan villkoret visades "ETA okänd" vid avgången (sanning
+  // 4,5/9,0 min) där basen visar en siffra (granskarens prob kö.js).
+  ...[
+    ['4 kn', 4459, 4],
+    ['2 kn', 4460, 2],
+  ].map(([label, seed, go]) => ({
+    name: `kö-300m-söder-om-järnvägsbron-oförändrad, sedan ${label} (motfall U30)`,
+    seed,
+    vessels: [{
+      mmsi: String(904400000 + seed),
+      name: `SYNT-KÖ-${seed}`,
+      startS: METRICS.cum[2] - 700,
+      legs: [
+        { toS: METRICS.cum[3] - 300 - 150, speedKn: 5, intervalS: 30 },
+        { toS: METRICS.cum[3] - 300, speedKn: 2, intervalS: 30 },
+        {
+          stopS: 600, stopIntervalS: 60, stopSog: 0.1, stopCogRandom: true,
+        },
+        { toS: METRICS.cum[4] + 600, speedKn: go, intervalS: 30 },
+      ],
+    }],
+    expect: {
+      noUnknownDuringStop: { bridge: 'Stridsbergsbron', extraS: 60 },
+    },
+  })),
 ];
 
 function runScenario(scenario) {
@@ -2831,6 +3109,78 @@ function singleJourney(scenario, truthPaths, samples, bridge, tag, problems) {
   const sBridge = METRICS.cum[PATH_INDEX[bridge]];
   const crossings = truthCrossings(truthPath, sBridge).map((c) => BASE_TIME_MS + c.tS * 1000);
   return { stopEnds, crossingAfter: (t) => crossings.find((c) => c > t) };
+}
+
+/**
+ * U30: stoppen i scenariots enda båtresa, ur generatorns SANNA bana: ett
+ * stopp är ett intervall där båten inte flyttar sig (minst 60 s). Rapporterad
+ * fart spelar ingen roll, så fartspikar på en stilla båt delar inte stoppet
+ * (granskningen av ea684b8, H2). departure är tiden då båten åter flyttar sig
+ * (null om hon aldrig gör det); sStop är stoppets position längs rutten.
+ * @returns {Array<{t0:number, tEnd:number, departure:number|null, sStop:number}>|null}
+ */
+function journeyStops(scenario, truthPaths, samples, tag, problems) {
+  const paths = Object.entries(truthPaths || {});
+  if ((scenario.vessels || []).length !== 1 || paths.length !== 1) {
+    problems.push(`${tag}: förväntan kräver exakt en båt med sann bana (legs)`);
+    return null;
+  }
+  const tp = paths[0][1];
+  const stops = [];
+  let cur = null;
+  for (let i = 1; i < tp.length; i++) {
+    const still = Math.abs(tp[i].s - tp[i - 1].s) < 0.01 && tp[i].tS > tp[i - 1].tS;
+    if (still) {
+      if (!cur) cur = { t0: BASE_TIME_MS + tp[i - 1].tS * 1000, sStop: tp[i].s };
+      cur.tEnd = BASE_TIME_MS + tp[i].tS * 1000;
+    } else if (cur) {
+      cur.departure = cur.tEnd;
+      if (cur.tEnd - cur.t0 >= 60000) stops.push(cur);
+      cur = null;
+    }
+  }
+  if (cur && cur.tEnd - cur.t0 >= 60000) stops.push({ ...cur, departure: null });
+  if (stops.length === 0) problems.push(`${tag}: scenariot har inget stopp att döma`);
+  return stops;
+}
+
+/**
+ * U30: tiden då båten (sann bana) först är minst moveM från stoppets position
+ * efter stoppet, eller null.
+ */
+function movedFromStopMs(truthPaths, st, moveM) {
+  const tp = Object.values(truthPaths || {})[0] || [];
+  for (let i = 1; i < tp.length; i++) {
+    const t = BASE_TIME_MS + tp[i].tS * 1000;
+    if (t <= st.tEnd) continue;
+    if (Math.abs(tp[i].s - st.sStop) >= moveM) {
+      const a = tp[i - 1]; const b = tp[i];
+      const f = (moveM - Math.abs(a.s - st.sStop)) / Math.abs(b.s - a.s || 1);
+      return BASE_TIME_MS + (a.tS + Math.max(0, Math.min(1, f)) * (b.tS - a.tS)) * 1000;
+    }
+  }
+  return null;
+}
+
+/**
+ * U30: brons klausul i en text: 'num', 'strax', 'okänd', 'vänt' eller 'ingen'.
+ */
+function bridgeClauseForm(text, bridge) {
+  const clause = String(text || '').split('; ').find((c) => c.includes(`mot ${bridge}`));
+  if (!clause) return 'ingen';
+  if (/väntar/.test(clause)) return 'vänt';
+  if (clause.includes('ETA okänd')) return 'okänd';
+  if (clause.includes('broöppning strax')) return 'strax';
+  return /om (?:cirka )?\d+ minut/.test(clause) ? 'num' : 'ingen';
+}
+
+/** U30: stående text vid varje övergång och var 30:e s i [fromMs, toMs]. */
+function standingTexts(transitions, fromMs, toMs) {
+  const list = (transitions || []).filter((x) => Number.isFinite(x.t)).sort((a, b) => a.t - b.t);
+  const times = list.filter((x) => x.t >= fromMs && x.t <= toMs).map((x) => x.t);
+  for (let t = fromMs; t <= toMs; t += 30000) times.push(t);
+  return [...new Set(times)].sort((a, b) => a - b)
+    .map((t) => ({ t, text: (list.filter((x) => x.t <= t).pop() || {}).text || '' }));
 }
 
 // Räkneorden i docs/bridgeTextFormat.md (1–10 i ord, ≥ 11 som siffra).
@@ -3155,6 +3505,75 @@ function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
       });
       if (judged === 0) problems.push(`AVGÅNGS-ETA: ingen avgång före korsningen av ${bridge} att döma`);
       else if (points === 0) problems.push(`AVGÅNGS-ETA: ingen ETA-text för ${bridge} att döma efter avgången`);
+    }
+  }
+  // U30 (2026-11-15): stilla båt utanför väntzonen och gränserna runt den.
+  if (e.stillUnknown) {
+    const { bridge, afterS } = e.stillUnknown;
+    const stops = journeyStops(scenario, truthPaths, samples, 'STILLA-OKÄND', problems) || [];
+    let unknownSeen = 0;
+    for (const st of stops) {
+      for (const x of standingTexts(result.bridgeTextTransitions, st.t0 + afterS * 1000, st.tEnd)) {
+        const f = bridgeClauseForm(x.text, bridge);
+        if (f === 'okänd') unknownSeen += 1;
+        else if (f !== 'ingen') {
+          problems.push(`STILLA-OKÄND: ${new Date(x.t).toISOString()} "${x.text}" — ${bridge} ska vara "ETA okänd" `
+            + `${afterS} s in i stoppet`);
+        }
+      }
+    }
+    if (stops.length && unknownSeen === 0) problems.push(`STILLA-OKÄND: ingen "ETA okänd" för ${bridge} under stoppet`);
+  }
+  if (e.noUnknownDuringStop) {
+    const { bridge, extraS, windowS } = e.noUnknownDuringStop;
+    const stops = journeyStops(scenario, truthPaths, samples, 'INGEN-OKÄND', problems) || [];
+    for (const st of stops) {
+      const end = Number.isFinite(windowS) ? st.t0 + windowS * 1000 : st.tEnd + (extraS || 0) * 1000;
+      for (const x of standingTexts(result.bridgeTextTransitions, st.t0, end)) {
+        if (bridgeClauseForm(x.text, bridge) === 'okänd') {
+          problems.push(`INGEN-OKÄND: ${new Date(x.t).toISOString()} "${x.text}" — ${bridge} får inte vara "ETA okänd" här`);
+          break;
+        }
+      }
+    }
+  }
+  if (e.numericAfterMoveM) {
+    const { bridge, moveM, graceS } = e.numericAfterMoveM;
+    const stops = journeyStops(scenario, truthPaths, samples, 'SIFFRA-EFTER-RÖRELSE', problems) || [];
+    for (const st of stops) {
+      const movedMs = movedFromStopMs(truthPaths, st, moveM);
+      if (!Number.isFinite(movedMs)) continue;
+      const end = st.tEnd + 30 * 60000;
+      const pts = standingTexts(result.bridgeTextTransitions, movedMs + (graceS || 0) * 1000, end);
+      const bad = pts.find((x) => bridgeClauseForm(x.text, bridge) === 'okänd');
+      if (bad) {
+        problems.push(`SIFFRA-EFTER-RÖRELSE: ${new Date(bad.t).toISOString()} "${bad.text}" — båten har flyttat sig `
+          + `${moveM} m sedan ${new Date(movedMs).toISOString()}`);
+      }
+      // Aldrig "ETA okänd" direkt till "strax" för en båt som rört sig.
+      const list = (result.bridgeTextTransitions || []).filter((x) => x.t >= st.t0 && x.t <= end);
+      for (let i = 1; i < list.length; i++) {
+        const before = bridgeClauseForm(list[i - 1].text, bridge);
+        const nowForm = bridgeClauseForm(list[i].text, bridge);
+        if (before === 'okänd' && nowForm === 'strax') {
+          problems.push(`SIFFRA-EFTER-RÖRELSE: ${list[i].iso} "ETA okänd" direkt till "strax"`);
+        }
+      }
+    }
+  }
+  if (e.maxFormChangesPerStop) {
+    const { bridge, max } = e.maxFormChangesPerStop;
+    const stops = journeyStops(scenario, truthPaths, samples, 'FORMBYTEN', problems) || [];
+    for (const st of stops) {
+      const end = Number.isFinite(st.departure) ? st.departure + 180000 : st.tEnd;
+      const forms = standingTexts(result.bridgeTextTransitions, st.t0, end)
+        .map((x) => bridgeClauseForm(x.text, bridge))
+        .map((f) => (f === 'strax' ? 'num' : f));
+      const changes = forms.filter((f, i) => i > 0 && f !== forms[i - 1]).length;
+      if (changes > max) {
+        problems.push(`FORMBYTEN: ${bridge} byter form ${changes} gånger kring stoppet ${new Date(st.t0).toISOString()} `
+          + `(högst ${max}): ${forms.filter((f, i) => i === 0 || f !== forms[i - 1]).join(' → ')}`);
+      }
     }
   }
   // Familj E, revision 1 (granskningen 2026-11-13, A3): KRYP I KÖN OCH NY

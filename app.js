@@ -4700,7 +4700,7 @@ class AISBridgeApp extends Homey.App {
           // inte driva publicerade ETA-hopp — behåll värdet tills ett rent
           // sampel kommer (se tvillinggaten i _reevaluateVesselStatuses).
           const freshMsgETA = this.statusService.calculateETA(vessel, proximityData);
-          vessel.etaMinutes = this._reconcilePublishedETA(vessel, freshMsgETA);
+          vessel.etaMinutes = this._presentETA(vessel, this._reconcilePublishedETA(vessel, freshMsgETA));
         }
         // else: behåll nuvarande värde — Fix G/HARD-nullify styr presentationen
       } else {
@@ -5690,6 +5690,23 @@ class AISBridgeApp extends Homey.App {
     }
 
     return true;
+  }
+
+  /**
+   * U30 (2026-11-15): det värde som visas. I läget "ETA okänd" (en bevisat
+   * stilla båt utanför väntzonen, ProgressiveETACalculator._updateStillUnknown)
+   * publiceras null. Publiceringsklampens baslinje (_etaPublishedValue) har
+   * redan uppdaterats med det klampade värdet av _reconcilePublishedETA och
+   * står kvar dold, så när läget lämnas visas exakt det värde som hade visats
+   * utan läget.
+   * @param {Object} vessel
+   * @param {number|null} reconciledETA - värdet från _reconcilePublishedETA
+   * @returns {number|null}
+   * @private
+   */
+  _presentETA(vessel, reconciledETA) {
+    if (this.statusService?.isStillUnknownETA?.(vessel.mmsi) === true) return null;
+    return reconciledETA;
   }
 
   /**
@@ -7566,7 +7583,7 @@ class AISBridgeApp extends Homey.App {
             // maskerades tidigare av att distance_fallback felaktigt förklarade
             // ankommande båtar passerade — sidbyteskravet avslöjade den.
             const freshETA = this.statusService.calculateETA(vessel, proximityData);
-            vessel.etaMinutes = this._reconcilePublishedETA(vessel, freshETA);
+            vessel.etaMinutes = this._presentETA(vessel, this._reconcilePublishedETA(vessel, freshETA));
             vessel._positionUpdatedSinceLastETA = false;
             vessel._etaIsExtrapolated = false;
             vessel._etaExtrapolationBaseMs = Date.now();
@@ -7596,8 +7613,14 @@ class AISBridgeApp extends Homey.App {
             // klockorna och degraderingen slår som förut.
             const ageMs = Date.now() - this._lastConfirmedPositionMs(vessel);
             const queueAhead = queueBridge(vessel);
+            // U30: i läget "ETA okänd" är det publicerade värdet redan null,
+            // men stationär-holden ska armeras precis som på basen, där
+            // värdet var en siffra (granskningen 2026-11-15, L2) — annars
+            // skiljer sig beräkningen under ytan när positionen blir färsk igen.
+            const etaShownOrStillUnknown = vessel.etaMinutes !== null
+              || this.statusService.isStillUnknownETA?.(vessel.mmsi) === true;
             if (ageMs > UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS) {
-              if (vessel.etaMinutes !== null) {
+              if (etaShownOrStillUnknown) {
                 this.debug(
                   `⏰ [ETA_STALE_HARD] ${vessel.mmsi}: AIS ${Math.round(ageMs / 1000)}s old → clearing ETA`,
                 );
@@ -7625,7 +7648,7 @@ class AISBridgeApp extends Homey.App {
               // samma minuter fortfarande återstår efter ett hamnstopp.
               // Behåll spärren även vid nästa stillastående fix. Annars
               // når den redan nollade ETA:n aldrig tiominutersgrenens hold.
-              if (vessel.etaMinutes !== null) {
+              if (etaShownOrStillUnknown) {
                 this.statusService.armStationaryETAHold(String(vessel.mmsi), 'eta_stale_soft');
               }
               vessel.etaMinutes = null;
@@ -11161,8 +11184,12 @@ class AISBridgeApp extends Homey.App {
     if (justPassedBridge || gapCrossedBridge || waitingAtBridge) eta = null;
     // En uttryckligt spärrad målprognos får inte återuppstå genom distans/fart.
     // Holden bekräftar inte väntan; den färdiga texten får bara sakna minuter.
+    // U30: läget "ETA okänd" är en sådan spärr — texten säger då "ETA okänd",
+    // och notisen får inte säga emot den med en siffra ur avstånd/fart
+    // (granskningen 2026-11-15, H1).
     const targetETAHeld = bridgeName === vessel.targetBridge
-      && this.statusService?.hasStationaryETAHold?.(vessel.mmsi);
+      && (this.statusService?.hasStationaryETAHold?.(vessel.mmsi)
+        || this.statusService?.isStillUnknownETA?.(vessel.mmsi) === true);
     if (!passedBridgeSource && !waitingAtBridge && !targetETAHeld
         && (!Number.isFinite(eta) || eta < 0)) {
       const dist = candidate.distance;

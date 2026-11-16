@@ -558,6 +558,22 @@ docs/faltgranskning-2026-11-14.md. Två av besluten ovan berörs:
   inte på att AISHub sett en båt i rörelse (alternativ d). AISHub-spegeln, trappan
   1 h/4 h/1 dygn och blindhetslarmet ändras inte (docs/faltgranskning-2026-11-14.md F12,
   docs/ARCHITECTURE.md §K22/U29).
+- **U28 (2026-11-15):** ETA-uppskovet (U20/U22) hävs. ETA tas i små, mätta steg; ett steg går
+  bara in om ingen enskild ETA-uppgift i banken blir sämre (measure:eta, hela bandet) OCH
+  steget inte ger några nya kort i buggjägaren; annars lyfts de berörda påståendena och korten
+  till ägaren. Under U28 har F07 gått in. Fartspiksvakten (fältgranskningen F13) är mätt och
+  granskad men inte införd (dirigentens beslut 2026-11-16; grenen `omg2/ETA1-S` sparas, och
+  signaturen loggas som `[ETA_SOG_SPIKE_CANDIDATE]` utan verkan).
+- **U30 (den frysta nedräkningen, fältgranskningen F5 och F13):** *Situationen:* en båt som
+  stannar 300–500 m från Klaffbron eller Stridsbergsbron med färsk AIS fick en siffra som frös på
+  "om 4 minuter" (avstånd genom rask fart) och, efter ett beräkningsuppehåll, en trappa uppåt
+  (fältet: 12,7 min "om 4", sedan 9 → 28 innan U27 släppte båten). *Alternativen:* (A) "ETA okänd"
+  efter 5 min belagd stillhet på alla avstånd — flyttar en låst text och notis i banken (TIM);
+  (A2) samma men bara mer än 350 m från bron; (B) en siffra som växer med stillheten — löser inte
+  fältfallet; (C) som förut. *Valet:* A2. En båt som legat stilla i fem minuter med färsk
+  position, mer än 350 m från bron, visas som "En båt på väg mot <bro>, ETA okänd" tills hon rör
+  sig igen eller släpps (U27 styr som förut när hon lämnar texten). Formen "ETA okänd" finns
+  redan och används här i ett nytt läge (docs/bridgeTextFormat.md, docs/ARCHITECTURE.md §8 (e)).
 
 ## Ägarens beslut 2026-11-04
 
