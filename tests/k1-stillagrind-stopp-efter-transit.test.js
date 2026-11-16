@@ -35,6 +35,7 @@ const VesselDataService = require('../lib/services/VesselDataService');
 const BridgeRegistry = require('../lib/models/BridgeRegistry');
 const SystemCoordinator = require('../lib/services/SystemCoordinator');
 const GPSJumpGateService = require('../lib/services/GPSJumpGateService');
+const GPSJumpAnalyzer = require('../lib/utils/GPSJumpAnalyzer');
 const { BRIDGES, MOORING_DETECTION, UNDER_BRIDGE_CROSS_PROOF_JITTER_M } = require('../lib/constants');
 
 const REAL_DATE_NOW = Date.now;
@@ -410,5 +411,74 @@ describe('K1: predikatet villkor för villkor', () => {
     expect(spärrar(g, stopp({
       _positionUncertain: true, _positionAnalysis: { reason: 'medium_movement_speed_mismatch' },
     }), start())).toBe(true);
+  });
+
+  // K1-granskningen (L2): en återhämtningsstart (segmentets start när förra
+  // fixen var GPS-hoppflaggad) ska bära den RENA fixens råkurs, inte den
+  // osäkra fixens. Förut kom läget, tiden och farten från den rena fixen men
+  // råkursen från det flaggade fartygsobjektet.
+  describe('återhämtningsstart (passageSegmentStart)', () => {
+    const REAL_NOW = Date.now;
+    beforeEach(() => {
+      Date.now = () => T + 327000;
+    });
+    afterEach(() => {
+      Date.now = REAL_NOW;
+    });
+
+    const ren = (over = {}) => start({
+      _rawPositionSog: 5.2, _rawPositionCog: 209, ...over,
+    });
+    // Den osäkra fixen: hoppflaggad, ett annat läge och kurs 120°.
+    const flaggad = (renFix, over = {}) => ({
+      ...dest(STRID, SYD_BRG + 180, 300),
+      sog: 5.0,
+      _rawPositionSog: 5.0,
+      cog: 120,
+      _rawPositionCog: 120,
+      fixTs: T + 100000,
+      fixFeed: 'aisstream',
+      timestamp: T + 100000,
+      _gpsJumpDetected: true,
+      _passageRecoveryPosition: GPSJumpAnalyzer.passageRecoveryPosition(renFix),
+      ...over,
+    });
+
+    test('RÅKURSEN KOMMER FRÅN DEN RENA FIXEN ⇒ villkor 3 prövas mot rätt kurs (rött före L2)', () => {
+      const seg = GPSJumpAnalyzer.passageSegmentStart(flaggad(ren()));
+      expect(seg.lat).toBeCloseTo(startPos.lat, 9);
+      expect(seg._rawPositionCog).toBe(209);
+      expect(spärrar(bygg(), stopp(), seg)).toBe(false);
+    });
+
+    test('den rena fixens kurs > 45° fel ⇒ spärrar, oavsett den osäkra fixens kurs', () => {
+      const seg = GPSJumpAnalyzer.passageSegmentStart(flaggad(ren({ cog: 140, _rawPositionCog: 140 }), {
+        cog: 212, _rawPositionCog: 212,
+      }));
+      expect(seg._rawPositionCog).toBe(140);
+      expect(spärrar(bygg(), stopp(), seg)).toBe(true);
+    });
+
+    test('MOTFALL: kursen saknas på riktigt (båda fixarna) ⇒ villkor 3 prövas inte, som förut', () => {
+      const seg = GPSJumpAnalyzer.passageSegmentStart(flaggad(ren({ cog: null, _rawPositionCog: null }), {
+        cog: null, _rawPositionCog: null,
+      }));
+      expect(seg._rawPositionCog).toBeNull();
+      expect(spärrar(bygg(), stopp(), seg)).toBe(false);
+    });
+
+    test('den rena fixen saknar kurs men den osäkra har en ⇒ kursen räknas som okänd', () => {
+      const seg = GPSJumpAnalyzer.passageSegmentStart(flaggad(ren({ cog: null, _rawPositionCog: null })));
+      expect(seg._rawPositionCog).toBeNull();
+      expect(spärrar(bygg(), stopp(), seg)).toBe(false);
+    });
+
+    test('återhämtningspositionen (fixobjekt utan råfält) tar kursen ur cog', () => {
+      const pos = GPSJumpAnalyzer.passageRecoveryPosition({
+        ...startPos, sog: 5.2, cog: 205, timestamp: T,
+      });
+      expect(pos._rawPositionCog).toBe(205);
+      expect(pos._rawPositionSog).toBe(5.2);
+    });
   });
 });

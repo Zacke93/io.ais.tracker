@@ -282,13 +282,17 @@ Moduler (ansvar / ägda tillstånd / in-ut):
   startfix med rå sog ≥ MOVEMENT_PROOF_SOG_KN; förflyttningen ≤ startfart ×
   fix-dt × 2,0; bäringen inom 45° från startkursen (okänd kurs prövas inte); och
   stillafixen mer än UNDER_BRIDGE_CROSS_PROOF_JITTER_M från den prövade brons
-  linje (innanför kan en stilla fix inte bevisa sidan). Fallet: söderut i
+  linje (innanför kan en stilla fix inte bevisa sidan). Startkursen är fixens
+  råkurs; en återhämtningsstart bär den rena fixens råkurs
+  (`passageRecoveryPosition`), inte den osäkra fixens. Faktorn 2,0 och 45° är
+  kopior av analysatorns literaler och ska följa med om de ändras där. Fallet: söderut i
   5,2 kn, nästa fix 327 s senare 165 m bortom Stridsbergsbron med sog 0 och en
   stillakurs 51° fel mot förflyttningen (`uncertain_movement`); spärren gav
   "närmar sig" efter passagen och en brotext mot den passerade bron i 17 min.
-  Bandet är smalt: förflyttningen ska vara över 500 m (annars ingen osäkerhet)
-  och latitudhoppet under LARGE_JUMP_LAT_DEG (annars bokför glappvägen i samma
-  tick). Ett transit→stopp som analysen dömer som GPS-hopp (`likely_gps_error`,
+  Bandet är smalt: förflyttningen ska vara över 500 m (under 500 m dömer
+  analysen antingen ingen osäkerhet eller `medium_movement_speed_mismatch`, och
+  det fallet tar orimlighetsflaggan före S1) och latitudhoppet under
+  LARGE_JUMP_LAT_DEG (annars bokför glappvägen i samma tick). Ett transit→stopp som analysen dömer som GPS-hopp (`likely_gps_error`,
   både bäring och snittfart fel) hålls fortfarande av orimlighetsflaggan
   (`needsPassageConfirmation`) — den rör K1 inte.
 - **PassageLatchService**: latch per båt+bro som blockerar retrograda statusar
