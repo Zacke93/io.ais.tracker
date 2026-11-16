@@ -9117,6 +9117,20 @@ class AISBridgeApp extends Homey.App {
         }
       }
       if (bridgeLat > minLat && bridgeLat < maxLat) {
+        // F08-systerstället (nattjakten 2026-11-16): fönstret är latitud, men
+        // brolinjen går snett. Ligger båten nu entydigt (> 10 m) på
+        // tillfartssidan av brons linje har hon inte korsat den, även om hon är
+        // förbi brons latitud. Utan spärren bokfördes en båt som hoppat fram
+        // till kilen före linjen och väntade där som passerad.
+        if (!isTriggerPoint
+            && geometry.decisiveBridgeSide(vessel, bridge) === (direction === 'north' ? -1 : 1)) {
+          this.log(
+            `↩️ [SKIPPED_BRIDGES_BEFORE_LINE] ${vessel.mmsi}: ${bridgeName} inom latitudfönstret men `
+            + `${Math.round(Math.abs(geometry.bridgeLineOffsetM(vessel, bridge)))} m före brolinjen `
+            + `(${direction}) — inte korsad`,
+          );
+          continue;
+        }
         passedBridgeEntries.push({ name: bridgeName, lat: bridgeLat });
       }
     }
@@ -10624,8 +10638,8 @@ class AISBridgeApp extends Homey.App {
    * Beviset är detsamma som gap-kedjans egna fönster: föregående fix
    * (vessel.lastPosition) med scenario B:s hopp > 0,005°, eller för en återfödd
    * båt utan föregående fix en färsk sist känd position med scenario A:s
-   * bevisade fönster (≥ ~100 m). Bron ska ligga strikt mellan positionerna och
-   * hoppet peka i båtens färdriktning. En återresa inom sex timmar har bron
+   * bevisade fönster (≥ ~100 m). Bron ska ligga mellan positionerna (brolinjen,
+   * se F08 nedan) och hoppet peka i båtens färdriktning. En återresa inom sex timmar har bron
    * FRAMFÖR sig och behåller förvarningen. Beviset är rumsligt och saknar
    * tidskriterium, precis som passage-fallbackens scenario B: "under
    * AIS-tystnad" avser att korsningen skedde mellan två rapporter, även vid
@@ -10639,19 +10653,19 @@ class AISBridgeApp extends Homey.App {
     if (vessel._moored || this.vesselDataService?.hasGpsJumpHold?.(vessel.mmsi)) return false;
     const bridge = this.bridgeRegistry?.getBridgeByName?.(candidate.name);
     if (!bridge || !Number.isFinite(bridge.lat) || !Number.isFinite(vessel.lat)) return false;
-    let fromLat = null;
+    let from = null;
     if (vessel.lastPosition && Number.isFinite(vessel.lastPosition.lat)) {
-      if (Math.abs(vessel.lat - vessel.lastPosition.lat) > LARGE_JUMP_LAT_DEG) fromLat = vessel.lastPosition.lat;
+      if (Math.abs(vessel.lat - vessel.lastPosition.lat) > LARGE_JUMP_LAT_DEG) from = vessel.lastPosition;
     } else {
       const lastKnown = this._lastKnownPositions?.get(String(vessel.mmsi));
       if (lastKnown && Number.isFinite(lastKnown.lat) && Number.isFinite(lastKnown.t)
           && Date.now() - lastKnown.t < this._LAST_KNOWN_POSITION_TTL_MS
           && Math.abs(vessel.lat - lastKnown.lat) >= 100 / 111320) {
-        fromLat = lastKnown.lat;
+        from = lastKnown;
       }
     }
-    if (fromLat === null) return false;
-    if (!(bridge.lat > Math.min(fromLat, vessel.lat) && bridge.lat < Math.max(fromLat, vessel.lat))) return false;
+    if (from === null) return false;
+    const fromLat = from.lat;
     let travel = vessel._routeDirection || null;
     if (!travel && Number.isFinite(vessel.cog)) {
       if (isNorthCog(vessel.cog)) travel = 'north';
@@ -10678,7 +10692,29 @@ class AISBridgeApp extends Homey.App {
     // en bas som är högst 15 min gammal. Den ger aldrig 'south': ett hopp
     // söderut med dödbandskurs eller utan kurs behåller förvarningen.
     if (!travel && this._freshNorthProgressMps(vessel) !== null) travel = 'north';
-    return (vessel.lat > fromLat && travel === 'north') || (vessel.lat < fromLat && travel === 'south');
+    const jumpAlongTravel = (vessel.lat > fromLat && travel === 'north') || (vessel.lat < fromLat && travel === 'south');
+    if (!jumpAlongTravel) return false;
+    // F08 (nattjakten 2026-11-16, värld 16517): bron ligger "mellan" positionerna
+    // när brolinjen gör det, inte brons latitud. Linjen går snett (axel 130°,
+    // vid Stallbackabron 142°), så latitudlinjen genom brons punkt skär den i
+    // brons mitt och avviker med 0,84 m (130°) respektive 1,28 m (142°) längs
+    // kanalaxeln per meter i sidled. BRISEN låg 13 m FÖRE Stallbackabrons linje
+    // men norr om dess latitud (18 m i sidled), fick "passerade … under
+    // AIS-tystnad", besöket fick fel bortre sida och den riktiga korsningen
+    // 104 s senare gav en andra notis. Samma kil åt andra hållet gav
+    // förvarningsform till en båt som redan var förbi linjen. Därför:
+    //  - entydigt (> 10 m, geometry.decisiveBridgeSide, samma sida som
+    //    TriggerPointVisitTracker.reserve använder) på tillfartssidan: ingen
+    //    passerad form;
+    //  - entydigt på bortre sidan, och hoppet började inte entydigt bortom
+    //    linjen: passerad form (bron korsades i hoppet);
+    //  - annars, alltså inom ±10 m från linjen eller med båda positionerna
+    //    bortom den: latitudsvaret som förut.
+    const farSide = travel === 'north' ? 1 : -1;
+    const side = geometry.decisiveBridgeSide(vessel, bridge);
+    if (side === -farSide) return false;
+    if (side === farSide && geometry.decisiveBridgeSide(from, bridge) !== farSide) return true;
+    return bridge.lat > Math.min(fromLat, vessel.lat) && bridge.lat < Math.max(fromLat, vessel.lat);
   }
 
   /**

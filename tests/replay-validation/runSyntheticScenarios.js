@@ -858,6 +858,99 @@ const SCENARIOS = [
       maxNotifiedPerBridge: { Klaffbron: 2 },
     },
   },
+  // F08 (nattjakten 2026-11-16, värld 16517, BRISEN): BN2 jämförde brons
+  // LATITUD, men Stallbackabrons linje går snett (axel 142°). Ett hopp på
+  // 760 m (198 s glapp i 7,4 kn) landar 8 m före bron längs farleden och 18 m
+  // åt babord, alltså 13 m FÖRE brolinjen men 4 m norr om brons latitud, som
+  // fältfallets fix (−13,3 m, sidled −18 m). Nästa fix kommer 200 s senare,
+  // 750 m bortom bron. Positionerna är exakta (jitterM 0); placeringen ÄR
+  // testet. Räkna om om generatorn, rutten eller brons koordinat ändras.
+  {
+    // Norrut: på 03ec89b fick fixen före linjen "passerade … under
+    // AIS-tystnad", besöket fick fel bortre sida och den riktiga korsningen gav
+    // en returnotis 200 s senare (två notiser för en passage).
+    name: 'hopp-till-kilen-före-Stallbackabrons-linje (F08, värld 16517)',
+    seed: 16517,
+    vessels: [{
+      mmsi: '901016517',
+      name: 'SYNT-BRISEN',
+      startS: METRICS.cum[4] + 300,
+      jitterM: 0,
+      legs: [
+        { toS: METRICS.cum[5] - 768.2, speedKn: 7.4, intervalS: 60 },
+        { toS: METRICS.cum[5] - 8.2, speedKn: 7.4, intervalS: 760 / (7.4 * 0.5144) },
+        {
+          toS: METRICS.cum[5] + 751.8, speedKn: 7.4, intervalS: 760 / (7.4 * 0.5144), lateralM: -18,
+        },
+        { toS: METRICS.cum[6] - 10, speedKn: 7.4, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      minNotifiedBridges: ['Stallbackabron'],
+      maxNotifiedPerBridge: { Stallbackabron: 1 },
+    },
+  },
+  {
+    // Spegelfallet söderut: samma fix ligger då 13 m FÖRBI linjen men norr om
+    // latituden. På 03ec89b fick båten "närmar sig Stallbackabron, beräknad
+    // ankomst strax" för en bro hon redan passerat; nu passerad form.
+    name: 'hopp-till-kilen-förbi-Stallbackabrons-linje (F08-spegel)',
+    seed: 16518,
+    vessels: [{
+      mmsi: '901016518',
+      name: 'SYNT-SPEGEL',
+      startS: METRICS.cum[6] - 10,
+      jitterM: 0,
+      legs: [
+        { toS: METRICS.cum[5] + 751.8, speedKn: 7.4, intervalS: 60 },
+        { toS: METRICS.cum[5] - 8.2, speedKn: 7.4, intervalS: 760 / (7.4 * 0.5144) },
+        {
+          toS: METRICS.cum[5] - 768.2, speedKn: 7.4, intervalS: 760 / (7.4 * 0.5144), lateralM: -18,
+        },
+        { toS: METRICS.cum[4] - 300, speedKn: 7.4, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      minNotifiedBridges: ['Stallbackabron'],
+      maxNotifiedPerBridge: { Stallbackabron: 1 },
+      noApproachNoticeAfterCrossing: ['Stallbackabron'],
+    },
+  },
+  {
+    // F08-systerstället (_checkSkippedBridgesFallback, latitudfönstret): ett
+    // hopp på 800 m landar i kilen 15 m FÖRE Klaffbrons linje (8 m före bron
+    // längs farleden, 25 m åt babord, 2 m norr om brons latitud), och båten
+    // väntar där i 15 min innan hon går igenom. På 03ec89b bokfördes Klaffbron
+    // som passerad i hoppticken, notisen blev "passerade Klaffbron under
+    // AIS-tystnad", texten bytte till Stridsbergsbron och sedan till "Inga
+    // båtar" medan hon låg och väntade. Nu en förvarning, texten står kvar på
+    // Klaffbron och passagen bokförs efter den verkliga korsningen. Sidledet
+    // 25 m ligger mellan bankens p1 och p10 vid Klaffbrons linje; placeringen
+    // ÄR testet.
+    name: 'hopp-till-kilen-och-väntan-före-Klaffbrons-linje (F08-systerstället)',
+    seed: 16519,
+    vessels: [{
+      mmsi: '901016519',
+      name: 'SYNT-VANTAR',
+      startS: METRICS.cum[1] + 400,
+      jitterM: 0,
+      legs: [
+        { toS: METRICS.cum[2] - 808, speedKn: 6, intervalS: 60 },
+        { toS: METRICS.cum[2] - 8, speedKn: 6, intervalS: 800 / (6 * 0.5144) },
+        {
+          stopS: 900, stopIntervalS: 60, stopSog: 0.1, lateralM: -25,
+        },
+        {
+          toS: METRICS.cum[3] - 200, speedKn: 4, intervalS: 60, lateralM: -25,
+        },
+      ],
+    }],
+    expect: {
+      maxNotifiedPerBridge: { Klaffbron: 1 },
+      approachNoticeLeadS: { Klaffbron: 60 },
+      noDefaultWhileStopped: true,
+    },
+  },
   {
     // U14-vakten: en båt som ligger och guppar PÅ brolinjen i 40 min ska
     // fortfarande ha EN Klaffbronotis. Stoppet hamnar vid linjen och GPS-bruset
