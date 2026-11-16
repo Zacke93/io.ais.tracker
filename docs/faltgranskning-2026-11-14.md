@@ -1334,7 +1334,7 @@ Standardjaktens två kort är INV-3 ETA-OSCILLATION (inbromsningen, F19) och INV
 25 kort: 6 med felfri radio, 13 med fältlik radio och 6 under stress. Inget av dem är nytt för
 omgången. Alla 65 representanter kördes om med samma verktyg mot appkoden före omgången
 (`1f6dd46`) och gav ordagrant samma utslag. Korten visar alltså äldre egenskaper som den större
-körningen når. De är inte triagerade här.
+körningen når. Triagen står i 11.9.
 
 **Avsändaren.** Efter slutbatteriet byttes avsändaren på arbetsgrenens commits till samma
 anonyma identitet som `main` använder (ägarens besked 2026-11-16). Innehållet i varje commit är
@@ -1344,3 +1344,88 @@ lint, kontrollen av registrets radhänvisningar, de åtta berörda sviterna (172
 `replay:all` och `replay:synthetic` om, alla gröna. Tre hänvisningar i VALIDATION (`34c2b57`,
 `9c802ed` och `c6a765d`) pekar på prototyper som aldrig låg på någon gren. De stod så redan
 före omgången.
+
+### 11.9 Nattjaktens kort: jämförelsen och triagen
+
+**Jämförelsen.** Nattjakten kördes också på en jämförelsebas: samma verktyg och samma bank, men
+appkoden från före omgången (`1f6dd46`). Utfallen jämfördes kluster för kluster och värld för
+värld. Det som skiljer:
+- Åtta ETA-hopp (INV-3) finns bara på den gamla koden: fem syntetiska världar och bankens
+  fasvariant 2026-07-08 07:11:30 (Klaffbron 13 → 19 min), med och utan monitoring. Bankspårets
+  enda kandidatkort på basen försvann därmed.
+- Ett utslag finns bara på den nya koden, värld 11148, i den redan beslutade klassen U17. Det
+  är en flyttad varning, ingen ny. På den gamla koden fick en båt en extra varning för att
+  hennes ETA var 3 min för sen (8,1 mot verkliga 4,1). Den varningen råkade också täcka en tyst
+  båt bakom henne. Med R7 är ETA:n rätt (5,0), den extra varningen uteblir, och den tysta båten
+  får i stället säkerhetsvarningen enligt U17, 5 min efter sin passage. Båda versionerna ger
+  11 varningar och 37 notiser i världen. Utan den första båten ger båda samma U17-varning.
+- Inget annat skiljer. De 28 kandidatklustren är desamma.
+
+**Triagen.** Två utredare gick igenom de 25 korten mot reprona och koden. Korten heter F01–F25 i
+nattrapporten. Här skrivs de N01–N25, så att de inte blandas ihop med ägarfrågorna. Sju är äkta fel i
+appen, alla äldre än omgången. Ungefär arton kort eller delar av kort är beslutat beteende som
+verktyget inte kände igen, eller mätfel i verktyget.
+
+| Fel | Situationen | Kort | Hur vanligt |
+|---|---|---|---|
+| Kö strax bortom Stridsbergsbron | En båt går söderut genom bron och stannar 90–165 m bortom den. Första positionen efter bron har fart 0, och passagen bokförs först vid nästa position, i världen 16 min senare. Användaren får "närmar sig Stridsbergsbron" 2 min efter passagen, "ETA okänd" i 17 min och ingen passagenotis. Varningen var rätt. | N16, N17 | 1 värld; kräver ingen ovanlig manöver |
+| Konvojfönstrets ankare | Två båtar korsar under ett avbrott och bokförs i omvänd ordning. Fönstret räknas då från den senare korsningen, och en båt 14 min efter den första får ingen egen varning. | N02 r3, N23 r2 | Syns i 1 hel värld; felordningen finns 9 gånger i banken utan synlig följd |
+| Utebliven notis efter vändning | En båt passerar Stridsbergsbron norrut, raderas i ett glapp och kommer tillbaka söderut 28 min senare. Notisen stoppas av 60-minutersregeln för riktningsbyte. | N14 r1 | 1 värld |
+| Dubbelnotis vid Stallbackabron | En position 13 m före den sneda brolinjen räknas som "passerade under AIS-tystnad", och den riktiga passagen 104 s senare ger en andra notis. | N08 r3 | 1 värld |
+| Återvändare utanför sista bron | En båt lämnar kanalen norr om Stallbackabron, vänder cirka 400 m bort och kommer tillbaka i 9 kn. Appen ignorerar henne i 10 min, och varningen för Stridsbergsbron kommer 51 s före passagen. | N04 | 1 värld med felfri radio |
+| Riktningsfältet efter U-sväng | Notisens riktning står kvar på den gamla tills nästa bro. Texten stämmer. | N12 | 9 världar |
+| Parbron inom 70 m | En observerad passage av Järnvägsbron får ingen notis när nästa position kommer efter en U-sväng. | N10 r3 | 1 värld |
+
+De tre första raderna och dubbelnotisen rättas i omgång 3 (grenarna `omg3/K1`–`omg3/K3`).
+Återvändaren kräver en mätning först: rättningen kan ge fler "Inga båtar"-blink och extra
+notiser vid Stallbackabron för båtar som ligger och vänder vid utfarten. De två sista är små
+och väntar.
+
+Beslutat beteende eller mätfel, kort för kort:
+- **Redan hos ägaren:** inbromsningen (N03, fråga F19) och en tyst främsta båt (N20, N21,
+  fråga F21).
+- **Fattade beslut som verktyget inte kände igen:** U6 (N18), U14 och U21 (N08 r1/r2, N15,
+  N14 r2/r3), U15 (N02 r2, N23 r3), U17 (N07 r2/r3, N11 r2/r3, N24), U18 (N06 r2, N12 r3),
+  U19 (N07 r1), U25 (N06 r3, N25), R2 (N09), S10 (N10 r1/r2) och U1-C11 (N05 r3).
+- **Mätfel i verktyget:** N01 (texten byter båt efter en bekräftad vändning, och INV-3 jämför
+  två båtars tider), N05 r1/r2 ("Inga båtar" mellan texter om två olika båtar), N11 r1 (en
+  riktig varning på en gammal position), N19 (en köande båt som sedan vände), N22 (en båt i en
+  redan varnad öppning) och N23 r1 (verktyget minns en gammal bindning).
+
+Verktygets orakel och register behöver ungefär femton justeringar för att nästa nattjakt bara
+ska visa det som är fel. Ingen av dem ändrar något för användaren. R1:s radio är dessutom
+okalibrerad: AISHub-glapp över 25 min är fem till tio gånger vanligare i världarna än i banken.
+
+**Nya frågor till ägaren**
+
+**F24. En gammal passagenotis efter en vändning i ett långt glapp** (N13)
+- *Situationen.* En båt hörs söderut norr om Stallbackabron 09:15, tystnar i 58 min och hörs
+  igen 10:14 på väg norrut, 750 m söder om bron. Appen skickar då "passerade Stallbackabron
+  under AIS-tystnad" för sydpassagen, och 10:17 "närmar sig Stallbackabron" norrut. Den första
+  notisen är sann men 55 min gammal och pekar åt fel håll.
+- *Alternativ.* (a) Som i dag. (b) Hoppa över notisen när appen själv har sett att båten vände
+  under glappet och den senast kända positionen är äldre än cirka 17 min. (c) Hoppa över varje
+  sådan notis efter 17 min; då stryks också färska och riktiga notiser vid utfarterna.
+- *Rekommendation.* (b). Tre världar av 20 000, alla med AISHub-glapp nära fältets maximum.
+
+**F25. En returnotis som kommer minuter sent** (N08 r1/r2, N15)
+- *Situationen.* En båt vänder 176 m norr om Klaffbron och passerar den söderut 01:13. Nästa
+  position kommer 01:20, 1,2 km bort. Då kommer "har precis passerat Klaffbron" samtidigt med
+  "närmar sig Olidebron". Beteendet följer U14 och U21: returen släpps först när en senare
+  position bevisar den, högst 10 min efter korsningen.
+- *Alternativ.* (a) Som i dag. (b) Formen "passerade … under AIS-tystnad" när det var tyst i mer
+  än 130 s efter korsningen. (c) Släpp returen direkt vid positionen på brolinjen när båten går
+  i marschfart (över 3,13 kn), också vid täta positioner. Det släppet finns redan för glesa
+  positioner.
+- *Rekommendation.* (c). Notisen hade då kommit 10 s efter passagen.
+
+**F26. Reservvarningen för en tyst båt i kö** (N02 r1, N06 r1; sidofynd i N11, N16 och N18)
+- *Situationen.* En båt ligger i kö vid Järnvägsbron. Där varnar appen med avsikt inte för
+  nästa bro. Hörs hon inte på 5 min släpps spärren, och reservvarningen går. Det ger två sorters
+  fel. Låg hon kvar kommer varningen 24–39 min före passagen (tre världar). Avgick hon just när
+  strömmen bröts kom varningen 12 s efter passagen (en värld).
+- *Alternativ.* (a) Behåll 5 min. (b) Kortare, cirka 3,5 min: i avbrottsfallet hade varningen
+  kommit 78 s före, men fler köande båtar får en tidig varning. (c) Längre: färre tidiga
+  varningar, men en båt som avgår osedd varnas ännu senare.
+- *Rekommendation.* (a) tills fältet visar något av felen. Inget av dem är sett i drift, och
+  (b) och (c) är inte mätta.
