@@ -66,6 +66,15 @@ describe('Regeln', () => {
     })).toBeNull();
   });
 
+  test('korsningen läggs aldrig efter första positionen bortom linjen (granskningen A3)', () => {
+    const now = 10000000;
+    // Släppfixen 90 m ut i 1 kn: farten säger 175 s före fixen, men första
+    // positionen bortom linjen låg 300 s före fixen.
+    expect(Math.round(fixLatenessMs({
+      now, fixT: now, offsetM: 90, sogKn: 1, earliestT: now - 400000, latestT: now - 300000,
+    }) / 1000)).toBe(300);
+  });
+
   test('Kanalinfarten saknar broaxel och prövas mot sin latitud', () => {
     const tp = TRIGGER_POINTS.kanalinfarten;
     expect(lineOffsetM({ lat: tp.lat + 0.001, lon: tp.lon + 0.01 }, tp)).toBeCloseTo(111.32, 1);
@@ -170,6 +179,8 @@ describe('Retursläppet mäter tystnaden fram till släppets fix', () => {
       maxBookingAgeMs: Infinity, maxLatenessMs: 600000, sparseFixGapMs: 30000,
     });
     expect(result).toMatchObject({ crossingGapMs: 67000, silenceMs: 135000, sogKn: 5 });
+    // Första positionen på ankomstsidan: fixen 32 m ut, 135 s före släppet.
+    expect(result.firstArrivalTs).toBe(release.fixTs - 135000);
     expect(Math.round(result.offsetM)).toBe(531);
     const latenessMs = fixLatenessMs({
       now, fixT: result.fixTs, offsetM: result.offsetM, sogKn: result.sogKn, earliestT: result.segmentStartTs,
@@ -177,6 +188,40 @@ describe('Retursläppet mäter tystnaden fram till släppets fix', () => {
     // 531 m i 5 kn: korsningen ligger vid segmentets början (67 + 135 s före).
     expect(Math.round(latenessMs / 1000)).toBe(202);
     expect(passageNoticeForm({ silenceMs: result.silenceMs, latenessMs })).toBe('silence');
+  });
+});
+
+describe('Sist kända position bär fixens egen tid (granskningen A4)', () => {
+  test('VDS ögonblicksbild vid borttagning och appens post har fixTs', async () => {
+    const VesselDataService = require('../lib/services/VesselDataService');
+    const BridgeRegistry = require('../lib/models/BridgeRegistry');
+    const SystemCoordinator = require('../lib/services/SystemCoordinator');
+    const AISBridgeApp = require('../app');
+    const logger = {
+      log: () => {}, debug: () => {}, error: () => {}, warn: () => {},
+    };
+    const svc = new VesselDataService(logger, new BridgeRegistry(), new SystemCoordinator(logger));
+    const fixTs = Date.now() - 35000;
+    svc.updateVessel('265999003', {
+      lat: 58.2700, lon: 12.2700, sog: 5.2, cog: 20, timestamp: Date.now(), fixTs,
+    });
+    let snapshot = null;
+    svc.on('vessel:removed', (e) => {
+      snapshot = e.vessel;
+    });
+    svc.removeVessel('265999003', 'timeout');
+    expect(snapshot.fixTs).toBe(fixTs);
+    const app = Object.create(AISBridgeApp.prototype);
+    app.debug = () => {};
+    app.log = () => {};
+    app.error = () => {};
+    app._runtimeLifecycle = {};
+    app._isCurrentRuntime = () => true;
+    app._lastKnownPositions = new Map();
+    app._persistLastKnownPositions = () => {};
+    // Bara posten prövas: resten av borttagningen kräver en hel app och får kasta.
+    await app._onVesselRemoved({ mmsi: '265999003', vessel: snapshot, reason: 'timeout' }).catch(() => {});
+    expect(app._lastKnownPositions.get('265999003')).toMatchObject({ lat: 58.27, lon: 12.27, fixTs });
   });
 });
 
@@ -197,6 +242,8 @@ describe('Hela appen på nattjaktens F08 r1 (replay)', () => {
       'TROLLA passerade Stridsbergsbron under AIS-tystnad',
       'TROLLA passerade Järnvägsbron under AIS-tystnad',
     ]);
+    // Granskningen A2: släppets form styr både källan och meningen.
+    expect(late.map((n) => n.source)).toEqual(['current', 'passage-fallback']);
     expect(result.visitReturnReleases.map((r) => [r.bridge, r.verdict])).toEqual([
       ['Stridsbergsbron', 'ankomst'], ['Järnvägsbron', 'ankomst'],
     ]);

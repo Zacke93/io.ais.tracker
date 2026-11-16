@@ -167,6 +167,64 @@ describe('U37 del 1: korsningsfixen i transitfart släpper returen vid tät kade
 describe('U37 del 1: motfallen', () => {
   const KLAFF = BRIDGES.klaffbron;
   const STALL = BRIDGES.stallbackabron;
+  const STRIDS = BRIDGES.stridsbergsbron;
+
+  // Granskningen A1: en ensam GPS-utliggare som grinden släpper igenom, med
+  // fart och kurs som båtens, i samma fix som passagelogiken bokför bron.
+  // Båten kommer tillbaka mot bron i 3,5–4 kn och stannar 10 m före linjen.
+  const UTLIGGARE = [];
+  for (const bridge of [KLAFF, STRIDS]) {
+    for (const first of ['north', 'south']) {
+      for (const x of [15, 25]) for (const sog of [3.5, 4]) UTLIGGARE.push([bridge.name, first, x, sog, bridge]);
+    }
+  }
+
+  test.each(UTLIGGARE)('%s, utpassage %s: utliggare %s m förbi linjen i %s kn, båten passerar aldrig: inget släpp',
+    (_n, first, x, sog, bridge) => {
+      const v = visit(bridge, first);
+      v.observe(30, () => ({ ...v.passed, sog }), 10);
+      const outlier = v.observe(-x, () => ({ ...v.booked(), sog }), 10);
+      expect(v.release(outlier)).toBeNull();
+      const bookedAt = outlier.lastPassedBridgeTime;
+      const after = { lastPassedBridge: bridge.name, lastPassedBridgeTime: bookedAt };
+      for (const offsetM of [12, 10, 11, 9, 10]) {
+        const still = v.observe(offsetM, { ...after, sog: 0.2, cog: 300 }, 10);
+        expect(v.release(still, CONFIRM)).toBeNull();
+      }
+      // Båten går bort igen, mot bortre sidan.
+      for (const offsetM of [40, 90, 150]) {
+        const away = v.observe(offsetM, { ...after, sog: 4, cog: cogToward(bridge, v.far) }, 10);
+        expect(v.release(away, CONFIRM)).toBeNull();
+      }
+      expect(v.holds()).toBe(true);
+    });
+
+  test.each(UTLIGGARE)('%s, utpassage %s: utliggare %s m förbi i %s kn, passagen 5 min senare får notisen',
+    (_n, first, x, sog, bridge) => {
+      const v = visit(bridge, first);
+      v.observe(30, () => ({ ...v.passed, sog }), 10);
+      const outlier = v.observe(-x, () => ({ ...v.booked(), sog }), 10);
+      expect(v.release(outlier)).toBeNull();
+      const after = { lastPassedBridge: bridge.name, lastPassedBridgeTime: outlier.lastPassedBridgeTime };
+      for (let i = 0; i < 30; i++) v.observe(10 + (i % 3), { ...after, sog: 0.2, cog: (i * 61) % 360 }, 10);
+      // Den riktiga passagen: passagelogiken bokför bron i korsningsfixen.
+      // Fixen före korsningen ligger på linjen (4 m), så korsningsfixen 15 m ut
+      // väntar (7d kräver en entydig fix före); nästa fix 45 m ut släpper (7a).
+      v.observe(4, { ...after, sog: 3.5 }, 10);
+      const crossing = v.observe(-15, () => ({ ...v.booked(), sog: 3.5 }), 10);
+      expect(v.release(crossing)).toBeNull();
+      const real = { lastPassedBridge: bridge.name, lastPassedBridgeTime: crossing.lastPassedBridgeTime, sog: 3.5 };
+      const next = v.observe(-45, real, 10);
+      const result = v.release(next, CONFIRM);
+      expect(result).toMatchObject({ evidence: 'ankomstsidan' });
+      expect(result.crossedAt).toBeGreaterThan(outlier.fixTs + 290 * 1000);
+    });
+
+  test('F15 stämmer med farten (61 m på 24 s mot 5,8 kn) och släpps fortfarande', () => {
+    const v = visit(KLAFF, 'north');
+    v.observe(35, v.passed, 15);
+    expect(v.release(v.observe(-26, v.booked, 24))).toMatchObject({ evidence: 'linje-transit' });
+  });
 
   test.each([
     ['kursen pekar mot bortre sidan (vänder tillbaka)', (v, b) => ({ cog: cogToward(b, v.far) })],
@@ -264,6 +322,32 @@ describe('Hela appen på nattjaktens F15 (replay)', () => {
     return JSON.parse(out.match(/__REPLAY_JSON__(.*?)__END__/s)[1]);
   }
   const iso = (t) => new Date(t).toISOString().slice(11, 19);
+
+  // Granskningen A1 (granskarens svep, banor 70177 och 70250): båten passerar
+  // Klaffbron, vänder 176 m bortom, kommer tillbaka i 4 kn och stannar 10 m före
+  // linjen i 300 s. Fixen 06:08:20 är ersatt av en utliggare 15 m förbi linjen
+  // med fart 4 kn och kurs mot ankomstsidan, som grinden släpper igenom och
+  // passagelogiken bokför bron i.
+  test('utliggare 15 m förbi Klaffbron, båten passerar aldrig: ingen returnotis', () => {
+    const result = replay(path.join(FIXTURES, 'n2-a1-utliggare-klaffbron-passerar-aldrig.jsonl'));
+    const notices = result.notifications.filter((n) => n.bridge === 'Klaffbron');
+    expect(notices).toHaveLength(1);
+    expect(result.visitReturnReleases.filter((r) => r.bridge === 'Klaffbron')).toEqual([]);
+    expect(result.processErrors).toBe(0);
+  });
+
+  test('utliggare 15 m förbi Klaffbron, båten passerar 5 min senare: notisen kommer vid den riktiga passagen', () => {
+    const result = replay(path.join(FIXTURES, 'n2-a1-utliggare-klaffbron-passerar-senare.jsonl'));
+    const notices = result.notifications.filter((n) => n.bridge === 'Klaffbron');
+    expect(notices).toHaveLength(2);
+    // Utliggaren 06:08:20; den riktiga korsningen efter väntan, cirka 06:13–06:14.
+    expect(notices[1].t).toBeGreaterThan(Date.parse('2026-01-01T06:12:00Z'));
+    expect(notices[1].message).toMatch(/har precis passerat Klaffbron$/);
+    const releases = result.visitReturnReleases.filter((r) => r.bridge === 'Klaffbron');
+    expect(releases).toHaveLength(1);
+    expect(releases[0].verdict).toBe('ankomst');
+    expect(validateInvariants(result).filter((v) => /RETURSLÄPP|NOTIS-DUBBLETT/.test(v))).toEqual([]);
+  });
 
   test('LINNEA 2: returnotisen för Klaffbron kommer vid korsningsfixen 01:13:23, inte 01:20:24', () => {
     const result = replay(path.join(FIXTURES, 'n2-f15-linnea2-retur-linjefix.jsonl'));

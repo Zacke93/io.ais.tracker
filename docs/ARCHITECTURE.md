@@ -674,7 +674,10 @@ Dedup-lagren:
      räcker korsningsfixen vid vilken kadens som helst (bevis `linje-transit`):
      korsningen noterad i just den fixen, fixen entydigt (över 10 m) på
      ankomstsidan, föregående fix entydigt på bortre sidan, första fixen på
-     ankomstsidan och bokföringen i segmentet. LINNEA 2 korsade Klaffbron i 5,8 kn, fixen 9 s senare
+     ankomstsidan, bokföringen i segmentet och ett korsningssegment som går att
+     färdas i farten (högst 1,5 × farten + 0,5 m/s; granskningen A1: en ensam
+     GPS-utliggare 15–25 m förbi linjen, som grinden släpper igenom och
+     passagelogiken bokför bron i, gav annars falska returer). LINNEA 2 korsade Klaffbron i 5,8 kn, fixen 9 s senare
      låg 26 m ut (segment 24 s) och nästa fix kom 421 s senare; returnotisen kom
      7 min sent tillsammans med "närmar sig Olidebron". En båt i över 3 kn som är
      förbi linjen med kursen mot ankomstsidan hinner sällan vända inom bron. En fix
@@ -755,9 +758,18 @@ just-passed, BN2, failsafen och svepet; `lib/utils/passageNoticeForm.js`):
 tystnadsform när det var tyst i mer än 130 s kring korsningen och notisen kommer
 mer än 60 s efter den, annars "har precis passerat". Korsningstiden skattas ur
 fixen efter korsningen: avståndet bortom linjen delat med den rapporterade
-farten (från 0,5 kn, appens rörelsebevis), aldrig före segmentets början. En
-båt som ligger still efter en tystnad får tystnadsformen (korsningstiden är
-okänd). Linjär interpolation över hela glappet lade korsningen för tidigt för
+farten (från 0,5 kn, appens rörelsebevis), aldrig före segmentets början och
+aldrig efter första positionen bortom linjen. En båt som ligger still efter en
+tystnad får tystnadsformen (korsningstiden är okänd). Regeln bärs av en
+asymmetri: "passerade … under AIS-tystnad" är sant så snart korsningen låg i ett
+glapp över 130 s, medan "har precis passerat" kräver belägg; vid osäkerhet väljs
+tystnadsformen. Känd gräns: en båt som stannat efter bron och gått vidare, med
+en tystnad som täcker både korsningen och stoppet, får för litet dröjsmål och kan
+få "har precis passerat" om en gammal passage (18 av bankens 1 006 korsningar
+stannar inom 300 m efter linjen och går vidare, nästan alla vid
+Stridsbergsbron). En post i sist kända position utan `fixTs` (skriven av äldre
+kod, högst 6 h efter uppgradering) ger okänd korsningstid och alltså
+tystnadsformen efter en tystnad. Linjär interpolation över hela glappet lade korsningen för tidigt för
 båtar som väntat i kö före bron: i banken låg tolv båtar 18–56 s efter
 korsningen enligt farten men 62–148 s enligt interpolationen (PAX 54 m bortom
 Järnvägsbron i 5,3 kn efter 1 135 s tystnad); SALTIS (nattjaktens R2-fixtur)
@@ -3755,7 +3767,8 @@ passagen; en båt som guppar eller väntar vid bron får fortfarande en notis pe
   fixar, och antog att nästa fix kommer inom "precis passerat"-fönstret. Nattjaktens F15
   (aisstream klass A, glapp 421 s efter korsningsfixen, fältets p97–98) visade att det inte
   håller. Korsningsfixen i transitfart släpps nu direkt (villkor 7d i
-  `releaseReturnPassage`), när den ligger entydigt bortom linjen. Motfallen (stopp på
+  `releaseReturnPassage`), när den ligger entydigt bortom linjen och korsningssegmentet stämmer
+  med farten. Motfallen (stopp på
   linjen, guppande ±30 m i upp till 1,5 kn, kurs bort, fart 3,0 kn, osäker position,
   bokföring före segmentet, fixen på linjen vid tät kadens) släpps inte; låsta i `tests/u37-retur-linjefix-transit.test.js` för alla fem
   broar i båda riktningar och i de syntetiska scenarierna `retur-tät-kadens-…` och

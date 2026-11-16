@@ -1392,6 +1392,7 @@ class AISBridgeApp extends Homey.App {
       offsetM: released.offsetM,
       sogKn: released.sogKn,
       earliestT: released.segmentStartTs,
+      latestT: released.firstArrivalTs,
     });
     return passageNoticeForm({
       silenceMs: Number.isFinite(released.silenceMs) ? released.silenceMs : released.crossingGapMs,
@@ -1421,6 +1422,7 @@ class AISBridgeApp extends Homey.App {
     if (!point) return null;
     let from = null;
     let to = null;
+    let sogKn = GPSJumpAnalyzer.positionSog(vessel);
     const prev = vessel._prevFixSample;
     if (prev && Number.isFinite(prev.t) && Number.isFinite(prev.lat) && Number.isFinite(prev.lon)
         && Number.isFinite(vessel.fixTs)) {
@@ -1434,7 +1436,11 @@ class AISBridgeApp extends Homey.App {
           from = { lat: lastKnown.lat, lon: lastKnown.lon, t: lastKnown.fixTs };
           to = { lat: vessel.lat, lon: vessel.lon, t: vessel.fixTs };
         } else {
-          // Äldre post utan fixtid: mottagningsklockan i båda ändar.
+          // Äldre post utan fixtid: mottagningsklockan i båda ändar. Fixens
+          // ålder (AISHub 20–40 s) saknas då i dröjsmålet, så korsningstiden
+          // räknas som okänd (granskningen A4): efter en tystnad blir formen
+          // tystnadens. Posterna lever högst 6 h efter uppgraderingen.
+          sogKn = null;
           const posT = Number.isFinite(lastKnown.posT) ? lastKnown.posT : lastKnown.t;
           const nowT = Number.isFinite(vessel.lastPositionUpdate) ? vessel.lastPositionUpdate : vessel.timestamp;
           if (Number.isFinite(posT) && Number.isFinite(nowT)) {
@@ -1448,7 +1454,7 @@ class AISBridgeApp extends Homey.App {
     let travelSign = 0;
     if (vessel._routeDirection === 'north') travelSign = 1;
     else if (vessel._routeDirection === 'south') travelSign = -1;
-    const evidence = segmentPassageForm(from, to, point, travelSign, Date.now(), GPSJumpAnalyzer.positionSog(vessel));
+    const evidence = segmentPassageForm(from, to, point, travelSign, Date.now(), sogKn);
     this.debug(
       `🧾 [PASSAGE_NOTICE_FORM] ${vessel.mmsi}: ${bridgeName} form=${evidence.form ?? 'okänd'} `
       + `(tystnad ${Number.isFinite(evidence.silenceMs) ? Math.round(evidence.silenceMs / 1000) : '?'} s, `
@@ -1485,12 +1491,16 @@ class AISBridgeApp extends Homey.App {
       if (!released) continue;
       const bridge = this.bridgeRegistry?.getBridgeByName?.(bridgeName);
       const distance = bridge ? geometry.calculateDistance(vessel.lat, vessel.lon, bridge.lat, bridge.lon) : null;
+      // Granskningen A2: släppets form följer med kandidaten, som i failsafen,
+      // så att samma bevis styr både källan och meningen.
+      const returnForm = this._returnPassageForm(released);
       // eslint-disable-next-line no-await-in-loop
       await this._triggerBoatNearFlowForBridge(vessel, {
         name: bridgeName,
         id: bridgeId,
         distance: Number.isFinite(distance) ? distance : 0,
-        source: this._returnPassageForm(released) === 'silence' ? 'passage-fallback' : 'just-passed',
+        source: returnForm === 'silence' ? 'passage-fallback' : 'just-passed',
+        returnForm,
       });
       if (!this._isCurrentRuntime(lifecycle)) return;
     }
