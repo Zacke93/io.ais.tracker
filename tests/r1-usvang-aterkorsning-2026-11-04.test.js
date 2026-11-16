@@ -465,8 +465,12 @@ describe('svepets riktningslås mot rörelsebevisad levande kurs (F15)', () => {
     jest.useRealTimers();
   });
 
+  // U36 (2026-11-16): en svepnotis efter en sedd vändning skickas bara när sist
+  // kända position är högst 17 min gammal. Låsets prov nedan gäller svepets
+  // EGNA notiser, så positionen är här 10 min gammal (IRMA:s riktiga 43 min
+  // prövas i tests/u36-svepnotis-efter-vandning.test.js och i fixturerna nedan).
   const lastKnown = (app) => app._lastKnownPositions.set(MMSI, {
-    lat: 58.27257, lon: 12.27504, t: Date.now() - 13 * 60 * 1000, posT: Date.now() - 43 * 60 * 1000,
+    lat: 58.27257, lon: 12.27504, t: Date.now() - 8 * 60 * 1000, posT: Date.now() - 10 * 60 * 1000,
   });
 
   test('vänd i glappet: svepets egen notis bär norr, därefter inget lås och söderut', async () => {
@@ -590,15 +594,16 @@ describe('hela appen på buggjägarens minsta repro', () => {
 
   // Granskarens varianter av F15 (utan fixarna nära Olidebron före glappet):
   // återfödelsens kurs 193,5° respektive 290°. Glappassagen av Olidebron gick
-  // norrut; returpassagen 12:11 söderut.
+  // norrut; returpassagen 12:11 söderut. U36 (2026-11-16): svepets notis för
+  // glappassagen norrut (sist kända position 43 min gammal, vändningen sedd)
+  // skickas inte längre; notiserna efter återfödelsen bär söderut.
   test.each([
     ['r1-f15b-irma-svepnotis.jsonl'],
     ['r1-f15c-irma-kurs290.jsonl'],
-  ])('F15-variant %s: svepets notis bär svepets riktning, returen söderut', (fixture) => {
+  ])('F15-variant %s: ingen gammal svepnotis norrut (U36), returen söderut', (fixture) => {
     const result = replay(fixture, { monitoring: true });
     const after = result.notifications.filter((n) => n.t >= Date.parse('2026-08-20T12:05:00Z'));
     expect(after.map((n) => [n.bridge, n.direction, n.source])).toEqual([
-      ['Olidebron', 'northbound', 'passage-fallback'],
       ['Olidebron', 'southbound', 'current'],
       ['Kanalinfarten', 'southbound', 'trigger-point'],
     ]);

@@ -48,6 +48,12 @@ const {
 const geometry = require('./lib/utils/geometry');
 const GPSJumpAnalyzer = require('./lib/utils/GPSJumpAnalyzer');
 const { waitingBridge, queueBridge, hasFreshPosition } = require('./lib/utils/bridgeQueue');
+// U36 (dirigentens beslut 2026-11-16, nattjaktens F13): en svepnotis efter en
+// vändning i glappet skickas inte när sist kända position är äldre än så här.
+// Samma ålder som designposten SKIPPA-BRO-ÅLDER-17MIN (beslutsregistret): en
+// bro korsad i ett långt glapp notifieras medvetet inte när slutsatsen är
+// äldre än cirka 17 min.
+const SWEEP_TURNED_STALE_MS = 17 * 60 * 1000;
 // U37 del 2: en formregel för alla passagenotiser.
 const { passageNoticeForm, segmentPassageForm, fixLatenessMs } = require('./lib/utils/passageNoticeForm');
 const { selectSettings } = require('./lib/utils/replayStartupState');
@@ -8975,6 +8981,8 @@ class AISBridgeApp extends Homey.App {
     // vilket gäller scenario B där hoppets ändpunkter är observerade).
     let provenLowLat = null;
     let provenHighLat = null;
+    // U36: sist kända position som scenario A:s fönster börjar i (återfödd båt).
+    let sweepLastKnown = null;
     if (isLargeJump) {
       // SCENARIO B: stort lat-hopp (>~550m) → broar mellan oldLat och newLat.
       // Riktningen härleds ur hoppets fysiska förflyttning.
@@ -9095,6 +9103,7 @@ class AISBridgeApp extends Homey.App {
       // [senast kända, nuvarande] — broar däremellan MÅSTE ha korsats.
       // (Hämtad + TTL-prövad ovan i reborn-evidensblocket.)
       const lastKnown = rebornLastKnown;
+      sweepLastKnown = lastKnown;
       let startBoundLat = null;
       if (lastKnown) {
         startBoundLat = lastKnown.lat;
@@ -9334,6 +9343,30 @@ class AISBridgeApp extends Homey.App {
     // (2026-07-03: trolig passage notifieras; sog≥2-, cog-band-, kajvakts-
     // och 2000 m-gaterna är skydden) äger. HERA II 07:24-fallet
     // dokumenteras som accepterad avvägning i stället.
+    // U36 (dirigentens beslut 2026-11-16 på ägarens uppdrag, fråga F24;
+    // nattjaktens F13): har appen själv sett att båten vände i glappet
+    // (sweepLockRelease: den rörelsebevisade levande kursen motsäger svepets
+    // nettoriktning) och är sist kända position äldre än cirka 17 min, gäller
+    // svepets passager en resa åt andra hållet som kan ha skett när som helst i
+    // glappet. FREJA fick "passerade Stallbackabron under AIS-tystnad" söderut
+    // för en passage 55 min tidigare, och tre minuter senare "närmar sig
+    // Stallbackabron" norrut. Notiserna hoppas över; låset och dess släpp sker
+    // som förut. Vändningar som appen inte sett (fart under 2 kn, osäker kurs),
+    // fall där kursen håller med nettot (vändning utanför området vid
+    // boxkanten) och färska återfödelser rörs inte. Scenario B har redan ett
+    // lås, och sweepLockRelease prövas inte där.
+    if (sweepLockRelease && sweepLastKnown) {
+      const knownAt = Number.isFinite(sweepLastKnown.posT) ? sweepLastKnown.posT : sweepLastKnown.t;
+      const ageMs = Date.now() - knownAt;
+      if (Number.isFinite(ageMs) && ageMs > SWEEP_TURNED_STALE_MS) {
+        this.log(
+          `⏭️ [SKIPPED_BRIDGES_STALE_AFTER_TURN] ${vessel.mmsi}: svepet sa '${sweepLockRelease.direction}' men `
+          + `kursen säger '${sweepLockRelease.liveDirection}' och sist kända position är ${Math.round(ageMs / 60000)} min gammal `
+          + `— båten vände i glappet; ingen notis för [${passedBridges.join(', ')}] (U36)`,
+        );
+        passedBridgeEntries.length = 0;
+      }
+    }
     for (const entry of passedBridgeEntries) {
       const bridgeName = entry.name;
       try {

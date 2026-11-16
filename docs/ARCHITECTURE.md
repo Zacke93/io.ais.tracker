@@ -468,6 +468,21 @@ detektionsögonblicket.
   i 33 kn; ingen korsning i rådatafacit), fick två falska "passerade … under
   AIS-tystnad". Den omvända kilen (förbi linjen men inte förbi
   latituden) bokförs fortfarande först vid nästa fix.
+- **U36 (dirigentens beslut 2026-11-16, nattjaktens F13)**: har appen själv sett
+  att en återfödd båt vände i glappet (svepets riktningslås släpps, se
+  `SKIPPED_BRIDGES_DIRECTION_LOCK_RELEASED` i §4) och är sist kända position
+  (`posT`, annars borttagningstiden) äldre än 17 min (`SWEEP_TURNED_STALE_MS`,
+  samma ålder som designposten SKIPPA-BRO-ÅLDER-17MIN), skickas inga
+  svepnotiser (`SKIPPED_BRIDGES_STALE_AFTER_TURN`). Passagerna gäller resan åt
+  andra hållet och kan ha skett när som helst i glappet: FREJA fick "passerade
+  Stallbackabron under AIS-tystnad" söderut för en passage 55 min tidigare och
+  tre minuter senare "närmar sig Stallbackabron" norrut. Låset och dess släpp
+  sker som förut. Vändningar appen inte sett (fart under 2 kn, kurs i
+  dödbandet eller saknad), kurs som håller med nettot (vändning utanför
+  området vid boxkanten, 265573130-mönstret), återfödelser högst 17 min efter
+  sist kända position och scenario B (redan låst färdriktning) rörs inte.
+  Låsets släpp förekommer inte i banken eller fältkörningarna k1/k2, så
+  ingen notis där ändras.
 
 ### Gate-kedjan i `_triggerBoatNearFlowFallback` (app.js:4230–4417)
 
