@@ -189,6 +189,14 @@ const OMSTART_SLOW_ZONE = {
  *    korsning får vara högst N s gammal. En varning från en anflygning timmar
  *    tidigare är ingen förvarning för korsningen. Kräver ben (sann bana) och
  *    minst en korsning per bro; prövar inte ledtiden (lägg minOpeningLeadS).
+ *  NOTISEN MOT BROTEXTENS "STRAX" (U33, F20, 2026-11-16). Kräver EXAKT EN båt
+ *  — texten bär ingen identitet. En förvarning är en målbronotis som inte
+ *  bär passerad form; texten i ögonblicket är den senaste övergången högst
+ *  1 s efter notisen (texten byggs 25 ms efter notisen på samma fix).
+ *  - noticeNotAgainstStrax: [bro] — ingen förvarning för bron med eta ≥ 3
+ *    medan texten säger "strax" för bron. Minst en förvarning ska finnas.
+ *  - noticeMinEta: {bro: N} — varje förvarning för bron har eta ≥ N: en båt
+ *    som i sin fart inte når bron inom 3 min behåller sin siffra (motfallet).
  */
 const SCENARIOS = [
   {
@@ -3170,6 +3178,46 @@ const SCENARIOS = [
       }],
     },
   })),
+  // U33 (F20, fältkörning 3: NINA BRES, LIDAN, SYLVIA): notisen byggs på
+  // fixets första beräkning och texten på den andra 25 ms senare. I 3,5–4,5 kn
+  // gav nästan varje enbåtsresa "om 3" (söderut vid Stridsbergsbron "om 4")
+  // i notisen i samma ögonblick som texten bytte till "strax" vid 300 m.
+  // Notisen säger nu högst "om 2" när båten i sin fart når bron inom 3 min.
+  {
+    name: 'notis-följer-strax-nord (U33)',
+    seed: 3301,
+    vessels: [{
+      mmsi: '901033001', direction: 'north', speedKn: 4, reportIntervalS: 60,
+    }],
+    expect: {
+      minTargetPassages: 2,
+      noticeNotAgainstStrax: ['Klaffbron', 'Stridsbergsbron'],
+    },
+  },
+  {
+    name: 'notis-följer-strax-syd (U33)',
+    seed: 3302,
+    vessels: [{
+      mmsi: '901033002', direction: 'south', speedKn: 3.5, reportIntervalS: 60,
+    }],
+    expect: {
+      minTargetPassages: 2,
+      noticeNotAgainstStrax: ['Klaffbron', 'Stridsbergsbron'],
+    },
+  },
+  // Motfallet: i 2 kn tar de sista 300 m över 4 min. Texten säger "strax"
+  // inom 300 m, men notisen behåller sin siffra (beslutets fartvillkor).
+  {
+    name: 'notis-behåller-siffran-långsam (U33)',
+    seed: 3303,
+    vessels: [{
+      mmsi: '901033003', direction: 'south', speedKn: 2, reportIntervalS: 60,
+    }],
+    expect: {
+      minTargetPassages: 2,
+      noticeMinEta: { Klaffbron: 3, Stridsbergsbron: 3 },
+    },
+  },
 ];
 
 function runScenario(scenario) {
@@ -3405,6 +3453,38 @@ function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
     for (const [bridge, maxN] of Object.entries(e.maxPassagesPerBridge)) {
       const n = all.filter((p) => p.bridge === bridge).length;
       if (n > maxN) problems.push(`FANTOMPASSAGE: ${n} bokförda passager av ${bridge} (max ${maxN})`);
+    }
+  }
+  // U33: notisen mot brotextens "strax" (se förklaringen överst).
+  if (e.noticeNotAgainstStrax || e.noticeMinEta) {
+    const transitions = [...(result.bridgeTextTransitions || [])].sort((a, b) => a.t - b.t);
+    const textAt = (t) => {
+      let cur = null;
+      for (const x of transitions) {
+        if (x.t <= t + 1000) cur = x;
+        else break;
+      }
+      return cur ? cur.text : '';
+    };
+    const notices = (bridge) => notifications.filter((n) => n.bridge === bridge && !n.alreadyPassed);
+    for (const bridge of e.noticeNotAgainstStrax || []) {
+      const own = notices(bridge);
+      if (own.length === 0) problems.push(`U33: ingen förvarning för ${bridge} att pröva`);
+      for (const n of own) {
+        if (Number.isFinite(n.eta) && n.eta >= 3
+            && textAt(n.t).includes(`mot ${bridge}, beräknad broöppning strax`)) {
+          problems.push(`U33: notisen för ${bridge} säger "om ${n.eta} minuter" när texten säger strax (${n.distance} m)`);
+        }
+      }
+    }
+    for (const [bridge, minEta] of Object.entries(e.noticeMinEta || {})) {
+      const own = notices(bridge);
+      if (own.length === 0) problems.push(`U33: ingen förvarning för ${bridge} att pröva`);
+      for (const n of own) {
+        if (!(Number.isFinite(n.eta) && n.eta >= minEta)) {
+          problems.push(`U33: notisen för ${bridge} har eta ${n.eta} < ${minEta} (${n.distance} m)`);
+        }
+      }
     }
   }
   if (e.zeroNotifications && notifications.length > 0) {

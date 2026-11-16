@@ -1232,6 +1232,60 @@ på det ohållna värdet (K6-passet) och villkor 1 läst på förra passet i
 stället för förra fixet. Den överlevande är villkoret "snitt > momentan",
 som är ekvivalent: kvot ≥ 1,2 medför snitt > momentan.
 
+### U33, 2026-11-16: målbronotisen följer brotextens strax
+
+Regeln (ARCHITECTURE §8 (e) "U33 gick in"): säger brotexten "strax" för båten
+säger målbronotisen högst "om 2 minuter", när båten i sin fart når bron inom
+3 min och inte bromsar in. Bara notisens siffra ändras.
+
+`measure:eta` mot baslinjen på `9e4daf4` (25 korpusar, 3 198 påståenden):
+- 39 notiser ändras: 33 bättre, 3 sämre, 3 omätta. Texten, öppningskorten,
+  strax-löftet (n 216, 65,28 %), antalet övergångar och notiser är
+  oförändrade.
+- Notiser med sanning under 5 min: median |fel| 0,36 → 0,32, ≤ 2 min
+  94,5 → 95,8 %, bias +0,24 → +0,15.
+- De tre sämre (texten sa "strax" för båten i samma ögonblick; imminent
+  inom 300 m enligt loggen 25 ms efter notisen):
+  - HELGE 20260707-14h 11:14:21, Klaffbron, 297 m i 3,4 kn: 4 → 2 mot
+    sanningen 3,8. Texten sa strax för tidigt.
+  - CAVA (HR372) 20260702-19h 08:21:10, Stridsbergsbron, 275 m i 4,4 kn
+    (från 5,9): 3 → 2 mot 3,6. Texten sa strax för tidigt.
+  - WILSON ALSTER 20260917-16h 23:57:58, Klaffbron, 289 m i 3,9 kn: 3 → 2 mot
+    2,6. Texten sa strax med rätta; "om 3" låg 0,1 min närmare än "om 2".
+    Det följer av taket "högst om 2" självt.
+- Motsägelserna (målbronotis ≥ 3 medan texten säger strax för bron, senaste
+  övergången högst 1 s efter notisen): 94 → 55 i de 25 korpusarna, varav
+  20261114-34h 3 → 1 (NINA BRES kvar: 2,9 kn, 3,1 min till bron); k1 5 → 2,
+  k2 4 → 0. Varje ändrad notis (46 i banken och k1–k2) föll i ett ögonblick
+  då texten sa strax för bron. De kvarvarande i banken spärras av fart-
+  eller inbromsningsvillkoret, utom EUGENIE both-21h (källan 'current').
+
+Alternativen (samma kandidater: varje notis där texten säger strax för båten
+och siffran är minst 3; en notis siffra påverkar inget annat, så delmängderna
+är exakta):
+
+| Variant | Ändrade | Bättre | Sämre | Omätta |
+|---|---|---|---|---|
+| tak (inget fartvillkor) | 94 | 42 | 33 | 19 |
+| takfart: rå restid < 3 min (prototypen) | 45 | 35 | 6 | 4 |
+| takfart < 3 min och ingen inbromsning (vald) | 39 | 33 | 3 | 3 |
+| takfart < 2,75 min och ingen inbromsning | 32 | 29 | 2 | 1 |
+| takfart < 2,5 min | 33 | 28 | 4 | 1 |
+| takfart < 2 min | 20 | 20 | 0 | 0 |
+| takfart < 3,5 min | 56 | 38 | 11 | 7 |
+
+Inbromsningen mäts som i U31 (fartbuffertens medelfart minst 1,2 gånger
+momentanfarten). Den tar bort tre sämre (AIR 41h, sanning 10,5; CAVAT
+both-21h, 45,6; ELFKUNGEN 31h, 3,0) mot två bättre (BLADE both-21h,
+ELFKUNGEN 80h). Kortare räckvidd än 3 min tar bort LIDAN i fältkörning 3
+(2,95 min till bron, sanning 2,9), som var ett av fallen bakom beslutet.
+
+Fyra notiser i jest-fixturerna `tests/fixtures/f02-*.expected.json` (låsta
+mot basen) ändras: `momentan` 3 → 2 mot sanningen 2,67 (sämre, samma klass
+som WILSON ALSTER), `latt` 3 → 2 och `stilla332` 3 → 2 mot 2,42 (bättre),
+`stannar` 4 → 2 mot 2,42 (bättre); `stilla332` vid Stridsbergsbron 3 → 2
+saknar korsning i fixturen.
+
 ### F07, 2026-11-15: klampen försvarar det användaren ser
 
 Ändringen (ARCHITECTURE §8 (e), "F07 gick in"; ETA-etappen under ägarbeslutet
