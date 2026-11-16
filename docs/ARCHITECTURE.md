@@ -700,7 +700,7 @@ riktningen den ENDA kvarvarande källan till `unknown` i loggen — `[BRIDGE_TEX
 skriver numera `passed-recent-window` där den förr skrev `unknown` på reason-fältet,
 och det fältet stod för 96 av fältprov 10:s 104 unknown-rader och ledde
 riktningsutredningen fel), `eta_minutes` (target-källa =
-målbro-ETA, högst 2 när brotexten säger "strax" för båten (U33, §8 (e));
+målbro-ETA, restiden avstånd/fart när brotexten säger "strax" för båten (U33, §8 (e));
 övriga = dist/fart mot notisbron; de retroaktiva källorna
 `passage-fallback`/`just-passed`/`exit-fallback` ⇒ -1; nära+långsam
 icke-target ⇒ -1; sedan H16 även trigger-punkten BAKOM båten ⇒ -1;
@@ -2747,17 +2747,26 @@ på medelfarten lovar strax (2,9) och EMA:n för värdet till 2,99. Texten sa
 Notisen för målbron byggs på fixets första ETA-beräkning (K25) och brotexten
 på den andra, 25 ms senare i `_reevaluateVesselStatuses`, där Fix H också
 sätter imminent-flaggan (300 m, 350 m med hysteres). Notisradien är samma
-300 m. Notisen avrundade därför sin siffra (2,5–2,99 → 3, 3,5 → 4) i samma
-ögonblick som texten bytte till "strax": NINA BRES, LIDAN och SYLVIA i
-fältkörning 3 (båtarna korsade 1,6–2,9 min senare); 94 sådana motsägelser i
+300 m. Notisen avrundade därför sin utjämnade siffra (2,5–2,99 → 3, 3,5 → 4)
+i samma ögonblick som texten bytte till "strax": NINA BRES, LIDAN och SYLVIA
+i fältkörning 3 (båtarna korsade 1,6–2,9 min senare); 94 sådana motsägelser i
 banken och 9 i k1–k2.
 - *Regeln* (`_triggerBoatNearFlowForBridge`, efter FLOW_TRIGGER_ETA_CAP;
-  `_noticeEtaFollowsStrax`): källan 'target', siffran visas som 3 eller mer,
-  båten når bron inom `NOTICE_STRAX_REACH_MINUTES` (3 min) i sin fart
-  (avstånd/fart), hon bromsar inte in, och texten kommer att säga "strax" för
-  just henne ⇒ notisen säger `NOTICE_STRAX_MAX_MINUTES` ("om 2 minuter").
+  `_noticeStraxTravelMinutes`): notisen hade sagt 3 eller mer, båten når bron
+  inom `NOTICE_STRAX_REACH_MINUTES` (3 min) i sin fart (avstånd/fart), hon
+  bromsar inte in, och texten kommer att säga "strax" för just henne ⇒
+  notisen säger restiden avstånd/fart, avrundad som alla notiser, minst
+  `NOTICE_STRAX_MIN_MINUTES` (1) och aldrig mer än den annars hade sagt.
   Bara siffran ändras: inte notisens tidpunkt, texten, öppningsvarningen,
   båtens ETA eller flaggor. `eta_minutes` och `message` bär samma siffra.
+- *Preciserat efter granskningen: restiden, inte ett tak på "om 2".* Den
+  första versionen sa alltid "om 2". "Strax" betyder inom 300 m, och 300 m i
+  3,5 kn tar 2,8 min, så taket gjorde notisen sämre när sanningen låg på
+  2,5–3 min (WILSON ALSTER 16h, 3 → 2 mot 2,6). Restiden ger lägre medelfel i
+  banken och i ett svep över 225 slumpade världar, och färre sämre notiser i
+  svepet (siffrorna i VALIDATION "### U33"). Priset: när restiden avrundas
+  till 3 säger notisen "om 3" medan texten säger "strax" (LIDAN, 2,95 min,
+  korsade 2,91 min senare).
 - *Regeln på ett ställe.* Notisen kopierar inget av textens villkor. Fix H:s
   beslut är en ren funktion, `_imminentVerdict`, som omvärderingen verkställer
   (flaggan, `_imminentFromExhausted`, loggraden) och notisen frågar. Textens
@@ -2766,7 +2775,11 @@ banken och 9 i k1–k2.
   (`_asQueuedAtTarget`), närvaron (`_drivesStraxByPresence`: imminent eller
   under målbron, färsk position, ingen zombie) och klausulen själv
   (`formatETABroOpeningClause`: under 3 min för en färsk siffra, aldrig för en
-  extrapolerad). Inbromsningen mäts som i U31
+  extrapolerad). Frågan ställs med båtens egen siffra (`vessel.etaMinutes`,
+  den texten bygger på), inte notisens: notisens kan vara sänkt av
+  FLOW_TRIGGER_ETA_CAP, och då förutsade regeln "strax" för en båt vars text
+  sa "om 8 minuter" (granskningen: osäker position efter ett glapp, där
+  echo-hållningen låter flaggan vara falsk). Inbromsningen mäts som i U31
   (`ProgressiveETACalculator.isBraking`, samma kvot `DECEL_HOLD_MIN_RATIO`
   via `_decelerationRatio`). Refaktoreringen är bitlik i hela banken.
 - *Den uttömda grenen räknas inte för notisen* (`forNotice`): notisen byggs
@@ -2778,25 +2791,27 @@ banken och 9 i k1–k2.
   medan en annan båt är imminent). Mellanbroarnas notiser rörs inte (källan
   är inte 'target'). Väntan ("inväntar broöppning") och "ETA okänd" (U30)
   saknar siffra och påverkas inte.
-- *Fartvillkoret och inbromsningen* (ägarens variant "tak med fart", F20 (c)):
-  en båt som saktar in mot en kö (inom 300 m men i 0,5–2 kn) behåller sin
-  siffra, och likaså en båt som bromsar in: i banken väntade eller saktade
-  AIR, CAVAT och ELFKUNGEN 31h vidare efter notisen (sanning 10,5, 45,6 och
-  3,0 min). Inbromsningsvillkoret kostar två bättre notiser (BLADE,
-  ELFKUNGEN 80h) och kan bara lämna notisen som före U33.
+- *Fartvillkoret och inbromsningen* (ägarens variant "tak med fart", F20 (c),
+  med dirigentens tillägg om inbromsning): en båt som saktar in mot en kö
+  (inom 300 m men i 0,5–2 kn) behåller sin siffra, och likaså en båt som
+  bromsar in: i banken väntade eller saktade AIR, CAVAT och ELFKUNGEN 31h
+  vidare efter notisen (sanning 10,5, 45,6 och 3,0 min). Villkoren kan bara
+  lämna notisen som före U33.
 - *Priset* (U28; mätningen i VALIDATION "### U33, 2026-11-16"): texten säger
   "strax" även när båten inte når bron inom 3 min (HELGE 14h, sanning 3,8;
-  CAVA 19h, 3,6), och då följer notisen texten. Där båten når bron på
-  2,5–3,0 min säger texten "strax" med rätta men "om 3" låg närmare än
-  "om 2" (WILSON ALSTER 16h, sanning 2,6): det följer av taket "högst om 2"
-  självt.
+  CAVA 19h, 3,6), och då följer notisen restiden, som underskattar. WILSON
+  ALSTER (restid 2,40, sanning 2,56) blir "om 2" också med restiden.
 - *Kvar:* motsägelsen står kvar där fart- eller inbromsningsvillkoret
-  spärrar (en båt som kryper inom 300 m), där en annan båt driver strax, och
-  där andra passets siffra går under 3 utan att första gör det.
+  spärrar (en båt som kryper inom 300 m), där en annan båt driver strax, där
+  restiden avrundas till 3, och där andra passets siffra går under 3 utan att
+  första gör det.
 - Regressionstest: `tests/u33-notis-foljer-strax.test.js` (fallen och
-  motfallen, rutnätet som låser att `vesselSaysStrax` svarar som brotexten)
-  och de syntetiska scenarierna `notis-följer-strax-nord/syd (U33)` och
-  `notis-behåller-siffran-långsam (U33)`.
+  motfallen, rutnätet som låser att `vesselSaysStrax` svarar som brotexten,
+  och granskningens glappfall genom hela appen, `tests/fixtures/u33-osaker-glapp.jsonl`),
+  testet "U33: Klaffbronotisen säger restiden …" i
+  `tests/november14-field-corpus.test.js` (NINA BRES, LIDAN, SYLVIA mot
+  rådatan) och de syntetiska scenarierna `notis-följer-strax-nord/syd (U33)`
+  och `notis-behåller-siffran-långsam (U33)`.
 
 **F07 gick in (ETA-etappen under ägarbeslutet U28, 2026-11-15): klampen
 försvarar det användaren ser.** Buggjägarens kort

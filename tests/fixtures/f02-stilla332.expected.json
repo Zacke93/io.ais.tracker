@@ -99,7 +99,7 @@
    1784542620000,
    "265000305",
    "Klaffbron",
-   3
+   2
   ],
   [
    1784543160000,
@@ -131,7 +131,7 @@
    1784542620000,
    "265000305",
    "Klaffbron",
-   3
+   2
   ],
   [
    1784543160000,
@@ -146,5 +146,6 @@
    3
   ]
  ],
- "basTexterLika": true
+ "basTexterLika": true,
+ "u33": "U33 (2026-11-16): målbronotisens eta omräknad till restiden i båtens fart när texten säger strax; övriga fält oförändrade"
 }

@@ -11,12 +11,13 @@ const geometry = require('../lib/utils/geometry');
 const { BRIDGES, UI_CONSTANTS } = require('../lib/constants');
 
 // U33 (F20): målbronotisen säger inte "om 3–4 minuter" när brotexten säger
-// "strax" för samma båt och bro. Notisen byggs på fixets första beräkning och
+// "strax" för samma båt och bro, utan restiden i båtens egen fart. Notisen byggs på fixets första beräkning och
 // texten på den andra 25 ms senare; texten säger dessutom "strax" inom 300 m.
 // Fältkörning 3: NINA BRES, LIDAN och SYLVIA fick "om 3–4 minuter" i samma
 // sekund som texten bytte till "strax" och korsade 1,6–2,9 min senare.
-// Regeln: notisen säger högst "om 2 minuter", men bara när båten i sin fart
-// når bron inom 3 minuter. Positionerna ligger på linjen Olidebron–Klaffbron.
+// Regeln: notisen säger restiden avstånd/fart (avrundad, minst 1, aldrig mer
+// än notisen annars hade sagt), men bara när den är under 3 minuter och båten
+// inte bromsar in. Positionerna ligger på linjen Olidebron–Klaffbron.
 
 const KLAFF = BRIDGES.klaffbron;
 const OLIDE = BRIDGES.olidebron;
@@ -142,7 +143,9 @@ describe('U33: notisen följer brotextens strax', () => {
       app._triggerBoatNearFlowBest.mockClear();
       app._triggeredBoatNearKeys.clear();
       app._persistentRecentTriggers.clear();
-      expect((await send(vessel(d - 2, { sog: 3.0, etaMinutes: 3.6 }))).eta_minutes).toBe(2);
+      // Strax under 3 min: restiden 2,99 avrundas till "om 3" (sanningen i
+      // jämn fart), inte "om 4" som före U33.
+      expect((await send(vessel(d - 2, { sog: 3.0, etaMinutes: 3.6 }))).eta_minutes).toBe(3);
     });
 
     test('utanför 300 m med siffran 3,4: texten säger "om 3", notisen också', async () => {
@@ -168,6 +171,17 @@ describe('U33: notisen följer brotextens strax', () => {
         sog: 6, etaMinutes: 3.4, _etaExtrapolationExhausted: true, _etaExhaustedAtMs: now - 10000,
       }));
       expect(tokens.eta_minutes).toBe(3);
+    });
+
+    test('restiden avrundas och är minst 1: 100 m i 5 kn ger "om 1 minut"', async () => {
+      const tokens = await send(vessel(100, { sog: 5, etaMinutes: 3.2 }));
+      expect(tokens.eta_minutes).toBe(1);
+      expect(tokens.message).toBe('LIDAN närmar sig Klaffbron, beräknad ankomst om 1 minut');
+    });
+
+    test('siffran stiger aldrig: restid 2,9 mot notisens 3,2 ger "om 3"', async () => {
+      // 268 m i 3,0 kn = 2,9 min.
+      expect((await send(vessel(268, { sog: 3.0, etaMinutes: 3.2 }))).eta_minutes).toBe(3);
     });
 
     test('redan "om 2" eller lägre ändras inte', async () => {

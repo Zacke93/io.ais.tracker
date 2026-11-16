@@ -269,13 +269,14 @@ const NEW_JOURNEY_PENDING_MAX_AGE_MS = 15 * 60 * 1000;
 // släppvillkor — glider de isär återuppstår H17 tyst.
 const IMMINENT_EXHAUSTED_MAX_AGE_MS = 90 * 1000;
 
-// U33 (F20, 2026-11-16): målbronotisen följer brotextens "strax". Säger
-// texten "strax" för båten säger notisen högst "om 2 minuter", men bara när
-// båten i sin nuvarande fart (avstånd/fart) når bron inom 3 minuter och inte
-// bromsar in (U31:s mått). En båt som saktar in mot en kö behåller sin högre
-// siffra. Se _noticeEtaFollowsStrax.
-const NOTICE_STRAX_MAX_MINUTES = 2;
+// U33 (F20, 2026-11-16, preciserat efter granskningen): säger brotexten
+// "strax" för båten säger målbronotisen restiden i båtens egen fart
+// (avstånd/fart, avrundad, minst 1 minut och aldrig mer än notisen annars
+// hade sagt), men bara när den restiden är under 3 minuter och båten inte
+// bromsar in (U31:s mått). En båt som saktar in mot en kö behåller sin
+// siffra. Se _noticeStraxTravelMinutes.
 const NOTICE_STRAX_REACH_MINUTES = 3;
+const NOTICE_STRAX_MIN_MINUTES = 1;
 
 // Helkodsgranskning 2026-08-22, fixrunda 1b (H16-resten): SIDOMARGINALEN FÖR
 // TRIGGER-PUNKTENS LATITUDJÄMFÖRELSER. Talet är OFÖRÄNDRAT — det är exakt de
@@ -4418,7 +4419,8 @@ class AISBridgeApp extends Homey.App {
    * inte olika underliggande värde. Vill man ha teckenidentitet är åtgärden
    * att låta tokenen gå genom textens regel, inte att köa hårdare — det gör
    * U33 (2026-11-16) i _triggerBoatNearFlowForBridge: säger texten "strax"
-   * för båten säger notisen högst "om 2" (se _noticeEtaFollowsStrax).
+   * för båten säger notisen restiden i hennes egen fart (se
+   * _noticeStraxTravelMinutes).
    * @param {Object} vessel - Fartygsobjekt
    * @returns {Promise<void>} Löftet resolvas när notisvägen körts klart
    * @private
@@ -7747,7 +7749,7 @@ class AISBridgeApp extends Homey.App {
         // F4-E (2026-07-09): samma bekräftade-position-klocka som ETA-gaten —
         // en väntande båt som sänder oförändrad position är FÄRSK (SOKERI).
         // U33: beslutet fattas av _imminentVerdict, som också notisvägen
-        // frågar (_noticeEtaFollowsStrax). Här verkställs det.
+        // frågar (_noticeStraxTravelMinutes). Här verkställs det.
         const imminentVerdict = this._imminentVerdict(vessel);
         vessel._isImminentAtTargetBridge = imminentVerdict.imminent;
         if (imminentVerdict.fromExhausted !== undefined) {
@@ -7766,10 +7768,12 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
-   * U33 (F20): ska målbronotisens siffra följa brotextens "strax"?
-   * Sant när båten i sin nuvarande fart når bron inom
-   * NOTICE_STRAX_REACH_MINUTES OCH brotexten, som byggs strax efter notisen
-   * på samma fix, kommer att säga "strax" för just den här båten och bron.
+   * U33 (F20): restiden (min) som målbronotisen ska säga när brotexten säger
+   * "strax", eller null när notisen behåller sin siffra.
+   * Restiden är avstånd/fart i båtens nuvarande fart. Den ges när den är
+   * under NOTICE_STRAX_REACH_MINUTES OCH brotexten, som byggs strax efter
+   * notisen på samma fix, kommer att säga "strax" för just den här båten och
+   * bron. Anroparen avrundar som alla notiser och låter aldrig siffran stiga.
    * Det senare avgörs inte här: notisen frågar samma regler som texten,
    * imminent-beslutet (_imminentVerdict, som omvärderingen sedan verkställer)
    * och brotextens egen klausul (BridgeTextService.vesselSaysStrax). En
@@ -7784,25 +7788,33 @@ class AISBridgeApp extends Homey.App {
    * @private
    * @param {Object} vessel - det levande fartygsobjektet
    * @param {string} bridgeName - bron notisen gäller
+   * Varför restiden och inte ett tak på "om 2" (mätt efter granskningen,
+   * VALIDATION "### U33"): "strax" betyder inom 300 m, och 300 m i 3,5 kn tar
+   * 2,8 min. Taket gjorde notisen sämre när sanningen låg på 2,5–3 min
+   * (WILSON ALSTER 3 → 2 mot 2,6); restiden ger lägre medelfel i banken och
+   * i ett svep över 225 slumpade världar, till priset att notisen kan säga
+   * "om 3" medan texten säger "strax" när restiden avrundas till 3.
    * @param {number} distance - avståndet till bron (m)
-   * @returns {boolean}
+   * @returns {number|null}
    */
-  _noticeEtaFollowsStrax(vessel, bridgeName, distance) {
-    if (!vessel || bridgeName !== vessel.targetBridge || !this.bridgeTextService) return false;
+  _noticeStraxTravelMinutes(vessel, bridgeName, distance) {
+    if (!vessel || bridgeName !== vessel.targetBridge || !this.bridgeTextService) return null;
     const speedMs = (Number.isFinite(vessel.sog) ? vessel.sog : 0) * 0.5144;
-    if (!(speedMs > 0.1) || !Number.isFinite(distance) || distance < 0) return false;
-    if ((distance / speedMs) / 60 >= NOTICE_STRAX_REACH_MINUTES) return false;
-    if (this.statusService?.isBraking?.(vessel) === true) return false;
+    if (!(speedMs > 0.1) || !Number.isFinite(distance) || distance < 0) return null;
+    const travelMin = (distance / speedMs) / 60;
+    if (travelMin >= NOTICE_STRAX_REACH_MINUTES) return null;
+    if (this.statusService?.isBraking?.(vessel) === true) return null;
     const { imminent } = this._imminentVerdict(vessel, { forNotice: true });
     // Båtens egen siffra (vessel.etaMinutes), inte notisens: texten bygger
     // på den, och notisens siffra kan vara sänkt av FLOW_TRIGGER_ETA_CAP.
     // Med notisens siffra förutsade regeln "strax" för en båt vars text sa
     // "om 8 minuter" (granskningen av U33: osäker position efter ett glapp,
     // echo-hållningen lät flaggan vara falsk, taket sänkte 8,2 till 2,77).
-    return this.bridgeTextService.vesselSaysStrax(
+    const saysStrax = this.bridgeTextService.vesselSaysStrax(
       { ...vessel, _isImminentAtTargetBridge: imminent },
       bridgeName,
     );
+    return saysStrax ? travelMin : null;
   }
 
   /**
@@ -7811,7 +7823,7 @@ class AISBridgeApp extends Homey.App {
    * Beslutet bodde tidigare inne i _reevaluateVesselStatuses. Det är flyttat
    * hit oförändrat så att två vägar kan fråga SAMMA regel:
    *   1. _reevaluateVesselStatuses verkställer det (sätter flaggan, loggar);
-   *   2. notisvägen (_noticeEtaFollowsStrax) frågar det för att veta om
+   *   2. notisvägen (_noticeStraxTravelMinutes) frågar det för att veta om
    *      brotexten, som byggs 25 ms efter notisen på samma fix, kommer att
    *      säga "strax" för båten.
    * Returnerar:
@@ -11268,16 +11280,19 @@ class AISBridgeApp extends Homey.App {
     // båtarna korsade 1,6–2,9 min senare). Siffran ändras, aldrig notisens
     // tidpunkt, texten eller öppningsvarningen.
     // eta är här bara satt för källan 'target' (övriga källor fylls i längre
-    // ned), och _noticeEtaFollowsStrax kräver dessutom båtens målbro.
-    if (Number.isFinite(eta)
-        && etaMinutesForDisplay(eta) > NOTICE_STRAX_MAX_MINUTES
-        && this._noticeEtaFollowsStrax(vessel, bridgeName, distance)) {
+    // ned), och _noticeStraxTravelMinutes kräver dessutom båtens målbro.
+    // Prövas när notisen annars hade sagt 3 eller mer; siffran kan bara sjunka.
+    const straxTravelMin = (Number.isFinite(eta) && etaMinutesForDisplay(eta) >= NOTICE_STRAX_REACH_MINUTES)
+      ? this._noticeStraxTravelMinutes(vessel, bridgeName, distance)
+      : null;
+    if (straxTravelMin !== null) {
+      const followed = Math.min(eta, Math.max(NOTICE_STRAX_MIN_MINUTES, straxTravelMin));
       this.debug(
-        `⏱️ [FLOW_TRIGGER_ETA_STRAX] ${mmsiLabel}: brotexten säger strax för ${bridgeName} `
-        + `(${Math.round(distance)} m @ ${vessel.sog} kn) — notisens ${eta.toFixed(2)} min `
-        + `blir ${NOTICE_STRAX_MAX_MINUTES}`,
+        `⏱️ [FLOW_TRIGGER_ETA_STRAX] ${mmsiLabel}: brotexten kommer att säga strax för ${bridgeName} `
+        + `(${Math.round(distance)} m @ ${vessel.sog} kn, restid ${straxTravelMin.toFixed(2)} min) — `
+        + `notisens ${eta.toFixed(2)} min blir ${followed.toFixed(2)}`,
       );
-      eta = NOTICE_STRAX_MAX_MINUTES;
+      eta = followed;
     }
     // E-F3/N9 (2026-07-01): för en REDAN PASSERAD bro (failsafe/just-passed)
     // är en framräknad "ETA" riktningslöst nonsens — dist/fart mäter tid till

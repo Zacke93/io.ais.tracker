@@ -193,8 +193,10 @@ const OMSTART_SLOW_ZONE = {
  *  — texten bär ingen identitet. En förvarning är en målbronotis som inte
  *  bär passerad form; texten i ögonblicket är den senaste övergången högst
  *  1 s efter notisen (texten byggs 25 ms efter notisen på samma fix).
- *  - noticeNotAgainstStrax: [bro] — ingen förvarning för bron med eta ≥ 3
- *    medan texten säger "strax" för bron. Minst en förvarning ska finnas.
+ *  - noticeFollowsTravelTime: [bro] — en förvarning för bron, medan texten
+ *    säger "strax" för bron och båten i sin fart (avstånd/fart, farten ur
+ *    båtens senaste sampel) når bron inom 3 min, säger högst restiden
+ *    avrundad (minst 1). Minst en sådan förvarning ska finnas.
  *  - noticeMinEta: {bro: N} — varje förvarning för bron har eta ≥ N: en båt
  *    som i sin fart inte når bron inom 3 min behåller sin siffra (motfallet).
  */
@@ -3182,7 +3184,8 @@ const SCENARIOS = [
   // fixets första beräkning och texten på den andra 25 ms senare. I 3,5–4,5 kn
   // gav nästan varje enbåtsresa "om 3" (söderut vid Stridsbergsbron "om 4")
   // i notisen i samma ögonblick som texten bytte till "strax" vid 300 m.
-  // Notisen säger nu högst "om 2" när båten i sin fart når bron inom 3 min.
+  // Notisen säger nu restiden i båtens fart när den är under 3 min (söderut
+  // vid Stridsbergsbron 297 m i 3,5 kn: "om 3", sanningen 2,8).
   {
     name: 'notis-följer-strax-nord (U33)',
     seed: 3301,
@@ -3191,7 +3194,7 @@ const SCENARIOS = [
     }],
     expect: {
       minTargetPassages: 2,
-      noticeNotAgainstStrax: ['Klaffbron', 'Stridsbergsbron'],
+      noticeFollowsTravelTime: ['Klaffbron', 'Stridsbergsbron'],
     },
   },
   {
@@ -3202,7 +3205,7 @@ const SCENARIOS = [
     }],
     expect: {
       minTargetPassages: 2,
-      noticeNotAgainstStrax: ['Klaffbron', 'Stridsbergsbron'],
+      noticeFollowsTravelTime: ['Klaffbron', 'Stridsbergsbron'],
     },
   },
   // Motfallet: i 2 kn tar de sista 300 m över 4 min. Texten säger "strax"
@@ -3456,7 +3459,7 @@ function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
     }
   }
   // U33: notisen mot brotextens "strax" (se förklaringen överst).
-  if (e.noticeNotAgainstStrax || e.noticeMinEta) {
+  if (e.noticeFollowsTravelTime || e.noticeMinEta) {
     const transitions = [...(result.bridgeTextTransitions || [])].sort((a, b) => a.t - b.t);
     const textAt = (t) => {
       let cur = null;
@@ -3467,15 +3470,24 @@ function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
       return cur ? cur.text : '';
     };
     const notices = (bridge) => notifications.filter((n) => n.bridge === bridge && !n.alreadyPassed);
-    for (const bridge of e.noticeNotAgainstStrax || []) {
-      const own = notices(bridge);
-      if (own.length === 0) problems.push(`U33: ingen förvarning för ${bridge} att pröva`);
-      for (const n of own) {
-        if (Number.isFinite(n.eta) && n.eta >= 3
-            && textAt(n.t).includes(`mot ${bridge}, beräknad broöppning strax`)) {
-          problems.push(`U33: notisen för ${bridge} säger "om ${n.eta} minuter" när texten säger strax (${n.distance} m)`);
+    const sogAt = (mmsi, t) => {
+      const own = (samples || []).filter((x) => String(x.mmsi) === String(mmsi)
+        && Number.isFinite(x.aisTimestamp) && x.aisTimestamp <= t + 100);
+      return own.length ? own[own.length - 1].sog : null;
+    };
+    for (const bridge of e.noticeFollowsTravelTime || []) {
+      let tried = 0;
+      for (const n of notices(bridge)) {
+        const sog = sogAt(n.mmsi, n.t);
+        const travelMin = Number.isFinite(sog) && sog > 0 ? n.distance / (sog * 0.5144) / 60 : Infinity;
+        if (travelMin >= 3 || !textAt(n.t).includes(`mot ${bridge}, beräknad broöppning strax`)) continue;
+        tried += 1;
+        const maxEta = Math.max(1, Math.round(travelMin));
+        if (!(Number.isFinite(n.eta) && n.eta >= 0 && n.eta <= maxEta)) {
+          problems.push(`U33: notisen för ${bridge} säger "om ${n.eta} minuter" när texten säger strax och restiden är ${travelMin.toFixed(2)} min (${n.distance} m)`);
         }
       }
+      if (tried === 0) problems.push(`U33: ingen förvarning för ${bridge} att pröva`);
     }
     for (const [bridge, minEta] of Object.entries(e.noticeMinEta || {})) {
       const own = notices(bridge);

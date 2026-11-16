@@ -175,19 +175,40 @@ describe('Fält 14–15 november: passagefixen vid Järnvägsbron, varningarna o
     }
   });
 
-  test('känd gräns K6/F13: tre Klaffbronotiser säger minuter i samma pass som texten blir strax', () => {
-    // Låst som den ÄR: notisen bär första ETA-passets utjämnade värde, texten
-    // andra passets och avståndsregeln under 300 m. Ändras i ETA-etappen (U13).
-    const cases = [[NINA, 4], [LIDAN, 4], [SYLVIA, 3]];
-    for (const [mmsi, eta] of cases) {
+  test('U33: Klaffbronotisen säger restiden i båtens fart när texten blir strax (förr K6/F13)', () => {
+    // Före U33 sa notisen "om 4", "om 4" och "om 3" i samma pass som texten
+    // blev strax: notisen bar första ETA-passets utjämnade värde, texten andra
+    // passets och avståndsregeln inom 300 m. Nu säger notisen restiden
+    // avstånd/fart i båtens fart (avrundad, minst 1) när den är under 3 min
+    // och texten säger strax för båten. Sanningen är rådatans linjekorsning.
+    const check = (mmsi) => {
       const notice = replay.notifications.find((n) => n.mmsi === mmsi && n.bridge === 'Klaffbron');
-      expect(notice.eta).toBe(eta);
       const next = replay.bridgeTextTransitions.find((t) => t.t >= notice.t);
       expect(next.t - notice.t).toBeLessThan(100);
       expect(next.text).toBe('En båt på väg mot Klaffbron, beräknad broöppning strax');
+      const fix = recorded.filter((x) => String(x.mmsi) === mmsi && Number.isFinite(x.lat)
+        && x.aisTimestamp <= notice.t + 100).pop();
+      const travel = notice.distance / (fix.sog * 0.5144) / 60;
       const crossing = raw.find((p) => p.mmsi === mmsi && p.bridge === 'Klaffbron');
-      expect((crossing.t - notice.t) / 60000).toBeLessThan(eta);
-    }
+      return { eta: notice.eta, travel, truth: (crossing.t - notice.t) / 60000 };
+    };
+    // LIDAN: 300 m i 3,3 kn = 2,95 min → "om 3" (förr "om 4"); korsade 2,91 min senare.
+    const lidan = check(LIDAN);
+    expect(lidan.travel).toBeLessThan(3);
+    expect(lidan.eta).toBe(3);
+    expect(Math.abs(lidan.eta - lidan.truth)).toBeLessThan(0.1);
+    // SYLVIA: 175 m i 4,1 kn = 1,38 min → "om 1" (förr "om 3"); korsade 1,57 min senare.
+    const sylvia = check(SYLVIA);
+    expect(sylvia.eta).toBe(1);
+    expect(Math.abs(sylvia.eta - sylvia.truth)).toBeLessThan(Math.abs(3 - sylvia.truth));
+    // NINA BRES: 281 m i 2,9 kn = 3,14 min, alltså inte inom 3 min i sin fart:
+    // notisen behåller "om 4" medan texten säger strax. Motsägelsen står kvar
+    // enligt U33:s fartvillkor (en båt som saktar in mot en kö behåller sin
+    // siffra); hon korsade ändå före den utlovade tiden.
+    const nina = check(NINA);
+    expect(nina.travel).toBeGreaterThanOrEqual(3);
+    expect(nina.eta).toBe(4);
+    expect(nina.truth).toBeLessThan(4);
   });
 
   test('de förtöjda båtarna vid Kanalinfarten får ingen notis, varning, passage eller text', () => {
