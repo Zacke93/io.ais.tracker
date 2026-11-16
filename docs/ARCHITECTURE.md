@@ -2544,10 +2544,9 @@ F03 (standardkörningen 2026-11-14) är 21h-knivseggen ovan, i fasvarianten
 **Principen: klampen försvarar det användaren ser** (granskningen av första
 versionen och dirigentens beslut 2026-11-15). RC4 finns för att texten inte ska
 hoppa, och för en båt som inte är den brotexten visar är hennes egen baslinje
-inget användaren har sett. I `_reconcilePublishedETA` gäller därför, när
-baslinjen är Fix G:s (`_etaPublishedFromExtrapolation`; nollas vid varje
-publicering, så andra passet på samma fix klampas mot första passets mätning)
-och texten visar en annan båt med lägre giltig ETA (`_presentedGroupLead`:
+inget användaren har sett. I `_reconcilePublishedETA` gäller därför, för
+varje baslinje — Fix G:s extrapolering lika väl som en uppmätt (R7) — när
+texten visar en annan båt med lägre giltig ETA (`_presentedGroupLead`:
 brotextens eget val, `BridgeTextService.presentedLead`, över det som
 presenteras — `_processingRemoval` och GPS-hållningen filtreras som i
 publiceringen, köer vid en tidigare bro och zombier leder inte):
@@ -2616,11 +2615,23 @@ ny väg till "strax" som bara vilar på rimlighetsprovet (granskning 2, Q4).
 Ingen extra spärr: inget fall i banken, fältet eller granskningens scenarier
 ger "strax" för en båt som är mer än ett par minuter bort.
 
-*Medvetet inte rättat:* en UPPMÄTT osedd baslinje — bankens egen fas av 21h,
-där AVALON:s 30,3 från första fixet klampas och texten säger "om 18" 07:11:30
-mot sanningen 4,5 (låst golden). Det är steget R7, som mäts för sig. Även det
-kvarstående fönstret: ett lågt men osett värde över det visade blir båtens
-baslinje och syns först om ledaren försvinner före båtens nästa fix.
+*R7 (2026-11-16): regeln gäller även uppmätta baslinjer.* Steget gick in för
+sig efter granskning 3. I bankens egen fas av 21h klampades AVALON:s uppmätta
+30,3 från första fixet, och texten sa "om 18" 07:11:30 mot sanningen 4,5 (låst
+golden). Med R7 visar texten "om 13" från 07:07:13 och "om 18" försvinner.
+`measure:eta` mot `eta-bas`: 8 ändrade parade påståenden, 4 bättre, 0 sämre,
+4 omätta (alla fyra rättare mot rådatan, se VALIDATION "### F07 R7"). Kvar
+står fönstret där ett lågt men osett värde över det visade blir båtens
+baslinje; det syns först om ledaren försvinner före båtens nästa fix.
+*Godtagen avvägning L1 (dirigenten 2026-11-16).* I de syntetiska fixturerna
+`f07-dubbel` och `f07-trippel` visar texten 10:08:01 "om 6" i 60 s i stället för
+F07:s "om 7" (sanning 13,0 min), följt av ett synligt steg 6 → 7. Den tredje
+båtens baslinje är uppmätt sedan förra fixet och osedd. R7 gäller henne, så ett
+nytt gruppfönster öppnas på det renderade 7 med golvet 4. Kvotprovet fångar
+bara fix som rört sig för fort, inte en båt som stannat. Godtaget eftersom
+scenariot är konstruerat, texten redan ligger 6 min fel där på F07, och banken
+får 20 rättare rader och ingen sämre. Utfallen är låsta i
+`tests/fixtures/f07-{dubbel,trippel,dubbel20}.expected.json`.
 Den första versionen (släpp varje osedd extrapolerad baslinje fritt) återtogs:
 den gjorde gps700 och accstop 4–8 min för optimistiska, och dess hjälpare
 läste inte presentationslistan (P1), släppte en uppmätt baslinje i andra passet

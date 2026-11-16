@@ -75,7 +75,6 @@ describe('F07: klampen och en osedd Fix G-baslinje (enhet)', () => {
       lat: BRIDGES.klaffbron.lat - 0.011 - 480 / 111320, lon: BRIDGES.klaffbron.lon, sog: 1.7, t: now - 302000,
     },
     _etaIsExtrapolated: true,
-    _etaPublishedFromExtrapolation: true,
     _etaPublishTarget: 'Klaffbron',
     _etaPublishedValue: 25.26,
     _etaPublishedAtMs: now - 2300,
@@ -105,17 +104,16 @@ describe('F07: klampen och en osedd Fix G-baslinje (enhet)', () => {
     const v = rear();
     others = [v, other()];
     expect(app._reconcilePublishedETA(v, 13.39)).toBe(13.39);
-    expect(v._etaPublishedFromExtrapolation).toBe(false);
   });
 
-  test('P2 (granskningen): andra passet på samma fix klampas mot första passets MÄTNING', () => {
+  test('P2 (granskningen; R7): andra passet på samma fix släpps inte fritt — det dämpas mot det visade', () => {
     const v = rear();
     others = [v, other()];
     expect(app._reconcilePublishedETA(v, 13.39)).toBe(13.39);
-    // Baslinjen 13,39 är nu en mätning: RC4 ger 13,39 − max(3, 0,25 · 13,39) = 10,04.
-    // (I appen nollas _etaIsExtrapolated först efter snapshot-anropet.)
-    expect(v._etaIsExtrapolated).toBe(true);
-    expect(app._reconcilePublishedETA(v, 5)).toBeCloseTo(10.04, 1);
+    // Baslinjen 13,39 är nu en mätning, men fortfarande osedd (texten visar
+    // 10). Under R7 gäller gruppens golv: 10 − max(3, 2,5) = 7 — samma gräns
+    // som en ensam båt som visar 10. (Före R7: RC4 mot den egna 13,39 ⇒ 10,04.)
+    expect(app._reconcilePublishedETA(v, 5)).toBeCloseTo(7, 5);
   });
 
   test('den färska går UNDER det visade värdet och fixet är rimligt: dämpas mot det VISADE (17), inte mot den osedda 25,3', () => {
@@ -452,9 +450,23 @@ describe('F07: klampen och en osedd Fix G-baslinje (enhet)', () => {
     expect(out).toBeLessThan(32.5);
   });
 
-  test('en uppmätt baslinje (inte Fix G:s) försvaras som förut, även om _etaIsExtrapolated står', () => {
-    const v = rear({ _etaPublishedFromExtrapolation: false });
+  // R7: regeln gäller varje osedd baslinje, inte bara Fix G:s. En uppmätt
+  // baslinje (_etaIsExtrapolated falskt) som texten inte visar släpps likadant.
+  test('R7: en uppmätt osedd baslinje släpps som Fix G:s (färska över ledaren)', () => {
+    const v = rear({ _etaIsExtrapolated: false });
     others = [v, other()];
+    expect(app._reconcilePublishedETA(v, 13.39)).toBe(13.39);
+  });
+
+  test('R7: en uppmätt osedd baslinje dämpas mot gruppens golv (färska under ledaren, rimligt fix)', () => {
+    const v = rear({ _etaIsExtrapolated: false });
+    others = [v, other({ etaMinutes: 14.6 })];
+    expect(app._reconcilePublishedETA(v, 6.8)).toBeCloseTo(10.95, 2);
+  });
+
+  test('R7: en uppmätt baslinje som texten VISAR klampas som förut', () => {
+    const v = rear({ _etaIsExtrapolated: false });
+    others = [v, other({ etaMinutes: 30 })];
     expectClamped(app._reconcilePublishedETA(v, 13.39));
   });
 });
@@ -495,8 +507,12 @@ describe('F07: motfallen gps700 och accstop genom appen', () => {
   const texts = (result) => result.bridgeTextTransitions
     .map((t) => `${new Date(t.t).toISOString().slice(11, 19)} ${t.text}`);
 
+  // dubbel, trippel och dubbel20 är låsta på R7 (12b9477). dubbel och trippel
+  // visar där avvägningen L1 (godtagen av dirigenten 2026-11-16): 10:08:01
+  // "om 6" i 60 s mot F07:s "om 7" (sanning 13,0), sedan 6 → 7. Se
+  // ARCHITECTURE §8 (e) och VALIDATION "F07 R7".
   test.each([
-    ['gps700'], ['gps400'], ['spik1'], ['accstop'],
+    ['gps700'], ['gps400'], ['spik1'], ['accstop'], ['dubbel'], ['trippel'], ['dubbel20'],
   ])('%s: brotext och notiser som i den låsta förväntan', async (name) => {
     const expected = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', `f07-${name}.expected.json`), 'utf8'));
     const result = await replay(path.join(__dirname, 'fixtures', `f07-${name}.jsonl`));
