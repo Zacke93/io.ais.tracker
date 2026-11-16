@@ -373,6 +373,51 @@ Radhänvisningarna i tabellen och i `beslutsregister.json` gäller aa71099, prod
 - **Kända gränser:** referensankomsten i motorns täckningsslut läses ur U24:s underlag i appens domar (`windowEndMs`); bara händelsens levererade varning är oberoende av appen. Posterna räknar bara om U24:s grindar `kö`, `ingen-fysik` och `inom-fönstret`. Ett håll som bara en annan grind förklarar blir KANDIDAT, vilket är ett medvetet pris. Posterna gäller bara den klass som mekanismen ger i provvärldarna: T3 VARNING-EFTER-SANN-PASSAGE respektive T2 LEDTID.
 - **Känd gräns i U17, funnen i mutationsproven (A.9):** U17-TYST-BÅT-RECOVER prövade inte när täckningsslutet kom mot det slut som händelsen ger. Med täckningsslutet två minuter för sent tog U17 15 av 18 nya utslag (VARNING-PÅ-FRUSET-FIX). U26 prövar tiden. Med bokföringen tre minuter för sent blev värld 1038 ett RECOVER-släpp som U17 tog, vilket är samma gräns som i A.8 (fönstret bygger på appens bokföring). Båda gäller U17 och inte de nya posterna. **Den första är åtgärdad 2026-11-15** med villkor (3″) (rad 55, bilaga A.10); den andra står kvar.
 
+### Kända gränser i täckningsproven och breda poster (2026-11-16)
+
+Omgranskningen av verktygsgrenen (`058c6e9..03c667c`) lämnade tre gränser. De är kända, inte rättade.
+
+- **Täckningsprovet hoppas över utan bokföring före domen (U2-VS-DEADLINE, J13-J14-KONVOJSEMANTIK).**
+  - *Vad som inte syns:* en för lång täckning när händelsens första passage inte var bokförd vid båtens sista dom.
+    Det gäller också när bokföringen kom efter absorptionen och appens slut därför är referensankomsten + 600 s, om
+    armen ligger under den övre gränsen ur bokföringen.
+  - *Exempel:* granskarens mutant u17arm120 i standardvärld 449 och 1089. I 1089 är appens slut 07:40:46, mutantens
+    arm 07:42:46 och gränsen ur bokföringen 07:43:14. Samma sak gäller 449 under u17arm300.
+  - *Varför:* `täckningensLängd` räknar bara den övre gränsen max(avfyrningen, bokföringen) + CONVOY_WINDOW_MS. Utan
+    bokföring prövas längden inte alls.
+  - *Vad som skulle stänga det:* räkna slutet ur referensankomsten i domens `windowEndMs`, som U17:s
+    `täckningsslutetsGräns` redan gör. Då blir fallen KANDIDAT där underlaget finns. Gränsen kvarstår om mutanten
+    flyttar också `windowEndMs`, eftersom referensankomsten bara går att läsa ur appen (A.8).
+- **Ett sent släppbeslut maskeras som U2-VS-DEADLINE.**
+  - *Vad som inte syns:* att U24:s släpp på båtens egen deadline uteblev eller kom för sent, medan täckningens längd
+    var rätt.
+  - *Exempel:* standardvärld 1214 under mutanten u17slapp120. Armen och fönsterslutet är rätt (13:26:08), basen
+    släpper och varnar henne via U24 13:16:26, men mutanten varnar inte. Utslaget blir KÄND_ÖPPEN U2.
+  - *Varför:* U2-provet gäller per konstruktion täckningens *längd*, inte *släppbeslutet*.
+  - *Vad som skulle stänga det:* pröva U24:s villkor för båten i posten, som `u24Brott` i U24-DELAD-KÖ-EXTRA-VARNING:
+    var hon i rörelse utanför väntzonen, med båda prognoserna efter fönstret, och släpptes inte? Det ändrar vad posten
+    prövar och kräver ett beslut.
+- **FIXD-SLINGA är en bred post.**
+  - *Vad som inte syns:* allt i T3. Posten godtar alla T3-klasser (`.*`) för en båt i hållmönster (minst två
+    vändningar ≥ 150 m inom 60 min), oavsett mekanism. En sen varning av ett annat skäl, till exempel ett täckningsfel,
+    för en sådan båt sväljs.
+  - *Varför:* hållmönstret är postens förklaring till alla T3-utslag, och den prövar ingen mekanism.
+  - *Vad som skulle stänga det:* att begränsa posten till de T3-klasser som hållmönstret faktiskt ger, eller att
+    kräva samma täckningsprov som U2. Båda ändrar vad posten säger och kräver ett beslut.
+
+**Radhänvisningarna vid sammanslagning.** `__tests__/n-kallrader.test.js` prövar varje radhänvisning i registret mot
+nyckelordstabellen `FÖRVÄNTAT`. När andra grenar ändrar de citerade dokumenten (`docs/ARCHITECTURE.md`,
+`docs/VALIDATION.md` med flera) faller testet på sammanslagningsgrenen med "första raden saknar …" eller "stycket
+saknar …". Rätta så här:
+1. Kör testet.
+2. Sök för varje underkänd hänvisning nyckelordet ur `FÖRVÄNTAT` i filen (`grep -n`).
+3. Skriv in de nya raderna i registrets `källa` eller `doktriner` och i tabellen. Hänvisningens nyckel är post plus
+   fil:rader.
+4. Kör testet igen.
+
+Byt aldrig nyckelordet för att få testet grönt, om inte stycket verkligen skrivits om. Kod citeras med symbol och
+glider inte.
+
 ### Registerändringar att granska (rättningsrundan 2026-11-04)
 
 Rad 1–17 och 19–22 rättar motorfel eller registrerar en mätgräns i ett befintligt orakel och skriver inga nya ägarbeslut. Rad 18 speglar ägarens beslut U16 (2026-11-04, ovan), rad 19 och 21 snävar den posten efter motorfel, och rad 21 gör den till MÄTGRÄNS med beslutet U16 kvar som källa för beteendet. Rad 23–31 (registret 2026-11-07, på e088a51 med familjerna K, K2, M, E, R1 och R2 integrerade) speglar användarbesluten U15, U17, U18 och U19, dirigentens beslut om R2:s fråga 2 och familjernas kända gränser (ovan); de skriver inga nya beslut. Rad 32–33 (efterrättningen samma dag, efter granskningen av registret) snävar de posterna och O1:s T3-gren; de skriver inga nya beslut heller. Rad 34–36 (den andra granskningen samma dag, på aa71099 med alla sju kampanjfamiljer K, K2, M, E, R1, R2 och N integrerade, men inte E2 enligt U22) snävar U18, tar bort en KONFLIKT som U14 har avgjort och flyttar radhänvisningarna; de skriver inga nya beslut. Rad 37 och framåt (rättningskampanjens varv 2, 2026-11-09, familj E MOTOR, på c14938f) rättar motorfel i predikaten som triagen av restkorten hittade och skriver inga nya beslut; rad 40 speglar användarbeslutet U23 (ovan), rad 42 låter K-NÄSTA gälla även T2:s vy av samma händelse i stället för en ny mätgränspost, rad 45 och 52 speglar användarbeslutet U24 med en ny DESIGN-post, och rad 46 uppdaterar U2-VS-DEADLINE:s fråga efter U24. Rad 50–52 kommer ur granskningen av varv 2. Varje post pekar på sin källa. Ägaren bör granska listan, särskilt rad 42 (en KÄND_ÖPPEN post som kan ta en missad öppning) och rad 45.
