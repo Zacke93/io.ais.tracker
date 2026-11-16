@@ -507,6 +507,9 @@ describe('F07: motfallen gps700 och accstop genom appen', () => {
   const texts = (result) => result.bridgeTextTransitions
     .map((t) => `${new Date(t.t).toISOString().slice(11, 19)} ${t.text}`);
 
+  // U33 (2026-11-16): Klaffbronotisens eta i alla sju fixturerna är omräknad
+  // till restiden i båtens fart, 4 → 3 mot sanningen 2,68–2,86 min (fältet
+  // "u33" i fixturen). Texterna och övriga notiser är de låsta.
   // dubbel, trippel och dubbel20 är låsta på R7 (ca9e199). dubbel och trippel
   // visar där avvägningen L1 (godtagen av dirigenten 2026-11-16): 10:08:01
   // "om 6" i 60 s mot F07:s "om 7" (sanning 13,0), sedan 6 → 7. Se

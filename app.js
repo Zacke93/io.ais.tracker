@@ -269,6 +269,15 @@ const NEW_JOURNEY_PENDING_MAX_AGE_MS = 15 * 60 * 1000;
 // släppvillkor — glider de isär återuppstår H17 tyst.
 const IMMINENT_EXHAUSTED_MAX_AGE_MS = 90 * 1000;
 
+// U33 (F20, 2026-11-16, preciserat efter granskningen): säger brotexten
+// "strax" för båten säger målbronotisen restiden i båtens egen fart
+// (avstånd/fart, avrundad, minst 1 minut och aldrig mer än notisen annars
+// hade sagt), men bara när den restiden är under 3 minuter och båten inte
+// bromsar in (U31:s mått). En båt som saktar in mot en kö behåller sin
+// siffra. Se _noticeStraxTravelMinutes.
+const NOTICE_STRAX_REACH_MINUTES = 3;
+const NOTICE_STRAX_MIN_MINUTES = 1;
+
 // Helkodsgranskning 2026-08-22, fixrunda 1b (H16-resten): SIDOMARGINALEN FÖR
 // TRIGGER-PUNKTENS LATITUDJÄMFÖRELSER. Talet är OFÖRÄNDRAT — det är exakt de
 // 0,0009° som FP8-gaten i _getFlowTriggerCandidates redan krävde för samma
@@ -4407,8 +4416,11 @@ class AISBridgeApp extends Homey.App {
    * FÖRE K25 värdet 4 (förra fixets 3,8) och EFTER K25 värdet 3 (fixets egna
    * 3,0) mot sanning 2,24 min; brotexten växlade till "strax" 25–45 ms senare.
    * Divergensen siffra↔"strax" är olika RENDERINGSREGEL (imminent-overriden),
-   * inte olika underliggande värde, och kvarstår. Vill man ha teckenidentitet
-   * är åtgärden att låta tokenen gå genom etaValidation, inte att köa hårdare.
+   * inte olika underliggande värde. Vill man ha teckenidentitet är åtgärden
+   * att låta tokenen gå genom textens regel, inte att köa hårdare — det gör
+   * U33 (2026-11-16) i _triggerBoatNearFlowForBridge: säger texten "strax"
+   * för båten säger notisen restiden i hennes egen fart (se
+   * _noticeStraxTravelMinutes).
    * @param {Object} vessel - Fartygsobjekt
    * @returns {Promise<void>} Löftet resolvas när notisvägen körts klart
    * @private
@@ -7736,159 +7748,14 @@ class AISBridgeApp extends Homey.App {
         // position är >10 min gammal (Anomali-3-säkerhetsval).
         // F4-E (2026-07-09): samma bekräftade-position-klocka som ETA-gaten —
         // en väntande båt som sänder oförändrad position är FÄRSK (SOKERI).
-        const ageMs = Date.now() - this._lastConfirmedPositionMs(vessel);
-        const dataIsFreshEnough = ageMs <= UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS;
-        // Produktionsredo (2026-07-03, CONFIRMED): hold-vägen delar F40:s
-        // färskhetsgräns. Utan den höll en båt som fastnat med
-        // _positionUncertain och sedan TYSTNAT sitt gamla "strax" i upp till
-        // 20–25 min (tills STALE-removal) — echo-gaten är till för sekunders
-        // eko-flapp, inte som evig frysning av stale data.
-        // H17 (helkodsgranskning 2026-08-22): B4/F10:s 90 s-tak på uttömd
-        // "strax" satt BARA i SET-grenen längre ned. Echo-hållningen här
-        // hoppar över HELA återhärledningen, så en flagga som seedats av den
-        // uttömda grenen (_imminentFromExhausted) levde vidare tills
-        // färskhetsgränsen STALE_ETA_HARD föll — "beräknad broöppning strax"
-        // i upp till 10,5 min på en gissning som fick leva 90 s. Ett accepterat
-        // osäkert sampel stämplar dessutom om positionsklockan, så
-        // dataIsFreshEnough höll hållningen vid liv hur länge som helst.
-        // Taket prövas därför FÖRE hållningen.
-        // SAKNAD STÄMPEL = UTGÅNGEN: ETA-blocket ovan nollar _etaExhaustedAtMs
-        // i samma andetag som _etaExtrapolationExhausted, och utan den regeln
-        // hade en nollad stämpel frusit flaggan igen. (SET-grenens `: 0`-
-        // fallback betyder "nyss uttömd" och hör hemma där — den får aldrig
-        // styra ett SLÄPP.)
-        const exhaustedImminentAgeMs = Number.isFinite(vessel._etaExhaustedAtMs)
-          ? Date.now() - vessel._etaExhaustedAtMs
-          : Number.POSITIVE_INFINITY;
-        const exhaustedImminentExpired = vessel._imminentFromExhausted === true
-          && exhaustedImminentAgeMs > IMMINENT_EXHAUSTED_MAX_AGE_MS;
-        const holdImminentForUncertain = (vessel._positionUncertain === true
-          || vessel._gpsJumpDetected === true)
-          && vessel.targetBridge
-          && dataIsFreshEnough;
-        // Fable-granskningen 2026-07-10b (P1-3): hysteres på imminent-
-        // gränsen — den hårda 300 m-gränsen fick en ködrivande båt
-        // (285→315→290 m mellan accepterade sampel) att flappa
-        // "strax"↔"om N minuter" per tick. SET ≤300 / CLEAR >350 (samma
-        // geometri som waiting-hysteresen; statuslagret hade den redan).
-        const wasImminent = vessel._isImminentAtTargetBridge === true;
-        if (!holdImminentForUncertain) {
-          vessel._isImminentAtTargetBridge = false;
-        } else if (exhaustedImminentExpired) {
-          // H17: hållningen står KVAR (echo-gaten äger fortfarande beslutet
-          // att inte härleda om från en osäker position) — men den uttömda
-          // flaggan släcks, för B4/F10:s tak äger sanningen även här. Nästa
-          // rena sampel härleder om som vanligt. _imminentFromExhausted
-          // nollas i samma andetag så raden loggas EN gång per uttömning.
-          vessel._isImminentAtTargetBridge = false;
-          vessel._imminentFromExhausted = false;
-          // ÅLDERN SKRIVS ALDRIG SOM "Infinity" (F-9-läxan: sentinelen skrev
-          // 153 loggrader med Infinity i fältprovet) — saknad stämpel är ett
-          // eget, läsbart fall.
-          const alderText = Number.isFinite(exhaustedImminentAgeMs)
-            ? `i ${Math.round(exhaustedImminentAgeMs / 1000)}s`
-            : 'utan uttömningsstämpel (nollad av ETA-blocket)';
-          this.debug(
-            `🛡️ [IMMINENT_HOLD_EXPIRED] ${vessel.mmsi}: target=${vessel.targetBridge}, `
-            + `uttömd "strax" hölls av GPS-osäkerhet ${alderText} `
-            + `> ${IMMINENT_EXHAUSTED_MAX_AGE_MS / 1000}s — släpps`,
-          );
+        // U33: beslutet fattas av _imminentVerdict, som också notisvägen
+        // frågar (_noticeStraxTravelMinutes). Här verkställs det.
+        const imminentVerdict = this._imminentVerdict(vessel);
+        vessel._isImminentAtTargetBridge = imminentVerdict.imminent;
+        if (imminentVerdict.fromExhausted !== undefined) {
+          vessel._imminentFromExhausted = imminentVerdict.fromExhausted;
         }
-        if (vessel.targetBridge && !holdImminentForUncertain) {
-          const ageS = Math.round(ageMs / 1000);
-          if (!dataIsFreshEnough) {
-            this.debug(
-              `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, AIS too old (${ageS}s > ${UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS / 1000}s)`,
-            );
-          } else if (!Number.isFinite(vessel.lat) || !Number.isFinite(vessel.lon)) {
-            this.debug(
-              `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, lat/lon not finite (lat=${vessel.lat}, lon=${vessel.lon})`,
-            );
-          } else if (this.vesselDataService?.hasGpsJumpHold?.(vessel.mmsi)) {
-            this.debug(
-              `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, GPS jump hold active`,
-            );
-          } else if (!this.bridgeRegistry) {
-            this.debug(
-              `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, bridgeRegistry missing`,
-            );
-          } else {
-            const targetBridge = this.bridgeRegistry.getBridgeByName(vessel.targetBridge);
-            if (!targetBridge
-                || !Number.isFinite(targetBridge.lat)
-                || !Number.isFinite(targetBridge.lon)) {
-              this.debug(
-                `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge} not in registry or invalid coords`,
-              );
-            } else {
-              const distToTarget = geometry.calculateDistance(
-                vessel.lat, vessel.lon,
-                targetBridge.lat, targetBridge.lon,
-              );
-              // P1-3: hysteresgräns — se wasImminent-kommentaren ovan.
-              // R2 2026-07-11 (A3R2-1/P1R2-3 — 2 oberoende): hysteresen
-              // gäller ENDAST normal-seedad flagga (bevisad ≤300 m). En
-              // exhausted-seedad flagga (301–350 m-bandet) fick annars
-              // limit 350 nästa tick → ordinarie SET-grenen (utan
-              // exhaustedAgeMs-koll) återsatte den varje tick → B4/F10:s
-              // 90 s-tak kringgicks och falskt "strax" stod till HARD
-              // (10 min). Med limit 300 för exhausted-seedad faller bandet
-              // alltid in i >limit-grenen där 90 s-taket äger.
-              const imminentLimitM = ((wasImminent && vessel._imminentFromExhausted !== true)
-                || waitingBridge(vessel) === vessel.targetBridge)
-                ? 350 : 300;
-              if (!Number.isFinite(distToTarget)) {
-                this.debug(
-                  `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, distance not finite`,
-                );
-              } else if (distToTarget > imminentLimitM) {
-                // Anomali 3 fix (2026-05-06): även när vesseln är >300m kan vår
-                // egen extrapolation ha sagt att hon borde vara framme. Då är
-                // "strax" mer ärligt än "ETA okänd" — vi vet inte exakt var
-                // hon är just nu, men vi vet att broöppning är imminent enligt
-                // hennes senaste fart och kurs.
-                //
-                // Körning 2026-07-02: grenen saknade övre distansgräns och satte
-                // "strax" på 433 m (HAJH-LAIF — verklig öppning 25 min senare),
-                // 1016 m (YEMANJA II — som redan PASSERAT målet) och 1419 m
-                // (ELFKUNGEN). En uttömd extrapolation är en gissning byggd på
-                // ≥5 min gammal fart — bortom ~500 m (≈"strax"-bandets räckvidd
-                // vid 5 kn) är "ETA okänd" det ärliga svaret.
-                // B4 (körning 2026-07-03, F10): uttömd-strax är tidsbegränsad.
-                // ZWERK/PHILULA stod med fruset "strax" + antalsflimmer i
-                // 2–5 min på uttömd extrapolering (AIS 314–584 s gammal).
-                // 90 s täcker det ärliga fönstret "hon BORDE vara framme nu";
-                // därefter är "ETA okänd" det ärliga svaret tills färsk AIS.
-                const exhaustedAgeMs = Number.isFinite(vessel._etaExhaustedAtMs)
-                  ? Date.now() - vessel._etaExhaustedAtMs
-                  : 0;
-                const precedingQueue = queueBridge(vessel);
-                if (vessel._etaExtrapolationExhausted === true && distToTarget <= 500
-                    && (!precedingQueue || precedingQueue.name === vessel.targetBridge)
-                    && exhaustedAgeMs <= IMMINENT_EXHAUSTED_MAX_AGE_MS) {
-                  vessel._isImminentAtTargetBridge = true;
-                  vessel._imminentFromExhausted = true; // A3R2-1: ingen hysteres
-                  this.log(
-                    `✨ [IMMINENT_SET_EXHAUSTED] ${vessel.mmsi}: target=${vessel.targetBridge}, `
-                    + `dist=${Math.round(distToTarget)}m but extrapolation exhausted (AIS ${ageS}s old)`,
-                  );
-                } else {
-                  this.debug(
-                    `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, `
-                    + `dist=${Math.round(distToTarget)}m > ${imminentLimitM}m `
-                    + `(AIS ${ageS}s old, exhausted=${vessel._etaExtrapolationExhausted === true})`,
-                  );
-                }
-              } else {
-                vessel._isImminentAtTargetBridge = true;
-                vessel._imminentFromExhausted = false; // äkta ≤300-bevis → hysteres OK
-                this.debug(
-                  `✨ [IMMINENT_SET] ${vessel.mmsi}: target=${vessel.targetBridge}, dist=${Math.round(distToTarget)}m, AIS ${ageS}s old`,
-                );
-              }
-            }
-          }
-        }
+        if (imminentVerdict.note) this[imminentVerdict.note.level](imminentVerdict.note.text);
 
         if (statusResult.statusChanged) {
           this.debug(`🔄 [STATUS_UPDATE] ${vessel.mmsi}: ${statusResult.status} (${statusResult.statusReason})`);
@@ -7898,6 +7765,251 @@ class AISBridgeApp extends Homey.App {
         // Continue with next vessel
       }
     });
+  }
+
+  /**
+   * U33 (F20): restiden (min) som målbronotisen ska säga när brotexten säger
+   * "strax", eller null när notisen behåller sin siffra.
+   * Restiden är avstånd/fart i båtens nuvarande fart. Den ges när den är
+   * under NOTICE_STRAX_REACH_MINUTES OCH brotexten, som byggs strax efter
+   * notisen på samma fix, kommer att säga "strax" för just den här båten och
+   * bron. Anroparen avrundar som alla notiser och låter aldrig siffran stiga.
+   * Det senare avgörs inte här: notisen frågar samma regler som texten,
+   * imminent-beslutet (_imminentVerdict, som omvärderingen sedan verkställer)
+   * och brotextens egen klausul (BridgeTextService.vesselSaysStrax). En
+   * annan båts "strax" i samma grupp räknas inte.
+   * Fartvillkoret: där texten säger "strax" för en båt som saktar in mot en
+   * kö (till exempel inom 300 m men i 0,5 kn) behåller notisen sin siffra.
+   * Samma sak när båten bromsar in (StatusService.isBraking, inbromsningsregelns
+   * mått och gräns från U31): momentanfarten säger då inte när hon når bron.
+   * I banken tog villkoret bort tre sämre notiser (AIR, CAVAT och ELFKUNGEN
+   * 31h, som väntade eller saktade vidare) mot två bättre (BLADE,
+   * ELFKUNGEN 80h). Villkoret kan bara lämna notisen som före U33.
+   * @private
+   * @param {Object} vessel - det levande fartygsobjektet
+   * @param {string} bridgeName - bron notisen gäller
+   * Varför restiden och inte ett tak på "om 2" (mätt efter granskningen,
+   * VALIDATION "### U33"): "strax" betyder inom 300 m, och 300 m i 3,5 kn tar
+   * 2,8 min. Taket gjorde notisen sämre när sanningen låg på 2,5–3 min
+   * (WILSON ALSTER 3 → 2 mot 2,6); restiden ger lägre medelfel i banken och
+   * i ett svep över 225 slumpade världar, till priset att notisen kan säga
+   * "om 3" medan texten säger "strax" när restiden avrundas till 3.
+   * @param {number} distance - avståndet till bron (m)
+   * @returns {number|null}
+   */
+  _noticeStraxTravelMinutes(vessel, bridgeName, distance) {
+    if (!vessel || bridgeName !== vessel.targetBridge || !this.bridgeTextService) return null;
+    const speedMs = (Number.isFinite(vessel.sog) ? vessel.sog : 0) * 0.5144;
+    if (!(speedMs > 0.1) || !Number.isFinite(distance) || distance < 0) return null;
+    const travelMin = (distance / speedMs) / 60;
+    if (travelMin >= NOTICE_STRAX_REACH_MINUTES) return null;
+    if (this.statusService?.isBraking?.(vessel) === true) return null;
+    const { imminent } = this._imminentVerdict(vessel, { forNotice: true });
+    // Båtens egen siffra (vessel.etaMinutes), inte notisens: texten bygger
+    // på den, och notisens siffra kan vara sänkt av FLOW_TRIGGER_ETA_CAP.
+    // Med notisens siffra förutsade regeln "strax" för en båt vars text sa
+    // "om 8 minuter" (granskningen av U33: osäker position efter ett glapp,
+    // echo-hållningen lät flaggan vara falsk, taket sänkte 8,2 till 2,77).
+    const saysStrax = this.bridgeTextService.vesselSaysStrax(
+      { ...vessel, _isImminentAtTargetBridge: imminent },
+      bridgeName,
+    );
+    return saysStrax ? travelMin : null;
+  }
+
+  /**
+   * Fix H:s imminent-beslut för ett fartyg, UTAN sidoeffekter (U33).
+   *
+   * Beslutet bodde tidigare inne i _reevaluateVesselStatuses. Det är flyttat
+   * hit oförändrat så att två vägar kan fråga SAMMA regel:
+   *   1. _reevaluateVesselStatuses verkställer det (sätter flaggan, loggar);
+   *   2. notisvägen (_noticeStraxTravelMinutes) frågar det för att veta om
+   *      brotexten, som byggs 25 ms efter notisen på samma fix, kommer att
+   *      säga "strax" för båten.
+   * Returnerar:
+   *   - imminent: flaggans nya värde (i echo-hållningen nedan det gamla);
+   *   - fromExhausted: nytt värde för _imminentFromExhausted, eller undefined
+   *     när fältet ska stå orört;
+   *   - note: loggraden ({ level: 'log' | 'debug', text }) eller null.
+   * forNotice: true när notisvägen frågar. Den uttömda grenen (B4/F10) räknas
+   * då inte: notisen byggs innan omvärderingens ETA-block har nollat
+   * _etaExtrapolationExhausted för det nya fixet, så flaggan kan vara kvar
+   * från tystnaden före. Utan grenen svarar regeln "inte strax", och notisen
+   * behåller sin siffra som före U33.
+   * @private
+   * @param {Object} vessel
+   * @param {{forNotice?: boolean}} [options]
+   * @returns {{imminent: boolean, fromExhausted: (boolean|undefined), note: ({level: string, text: string}|null)}}
+   */
+  _imminentVerdict(vessel, { forNotice = false } = {}) {
+    const verdict = {
+      imminent: false, fromExhausted: undefined, note: null,
+    };
+    const note = (level, text) => ({ level, text });
+    const ageMs = Date.now() - this._lastConfirmedPositionMs(vessel);
+    const dataIsFreshEnough = ageMs <= UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS;
+    // Produktionsredo (2026-07-03, CONFIRMED): hold-vägen delar F40:s
+    // färskhetsgräns. Utan den höll en båt som fastnat med
+    // _positionUncertain och sedan TYSTNAT sitt gamla "strax" i upp till
+    // 20–25 min (tills STALE-removal) — echo-gaten är till för sekunders
+    // eko-flapp, inte som evig frysning av stale data.
+    // H17 (helkodsgranskning 2026-08-22): B4/F10:s 90 s-tak på uttömd
+    // "strax" satt BARA i SET-grenen längre ned. Echo-hållningen här
+    // hoppar över HELA återhärledningen, så en flagga som seedats av den
+    // uttömda grenen (_imminentFromExhausted) levde vidare tills
+    // färskhetsgränsen STALE_ETA_HARD föll — "beräknad broöppning strax"
+    // i upp till 10,5 min på en gissning som fick leva 90 s. Ett accepterat
+    // osäkert sampel stämplar dessutom om positionsklockan, så
+    // dataIsFreshEnough höll hållningen vid liv hur länge som helst.
+    // Taket prövas därför FÖRE hållningen.
+    // SAKNAD STÄMPEL = UTGÅNGEN: ETA-blocket i _reevaluateVesselStatuses
+    // (som körs före beslutet där) nollar _etaExhaustedAtMs
+    // i samma andetag som _etaExtrapolationExhausted, och utan den regeln
+    // hade en nollad stämpel frusit flaggan igen. (SET-grenens `: 0`-
+    // fallback betyder "nyss uttömd" och hör hemma där — den får aldrig
+    // styra ett SLÄPP.)
+    const exhaustedImminentAgeMs = Number.isFinite(vessel._etaExhaustedAtMs)
+      ? Date.now() - vessel._etaExhaustedAtMs
+      : Number.POSITIVE_INFINITY;
+    const exhaustedImminentExpired = vessel._imminentFromExhausted === true
+      && exhaustedImminentAgeMs > IMMINENT_EXHAUSTED_MAX_AGE_MS;
+    const holdImminentForUncertain = (vessel._positionUncertain === true
+      || vessel._gpsJumpDetected === true)
+      && vessel.targetBridge
+      && dataIsFreshEnough;
+    // Fable-granskningen 2026-07-10b (P1-3): hysteres på imminent-
+    // gränsen — den hårda 300 m-gränsen fick en ködrivande båt
+    // (285→315→290 m mellan accepterade sampel) att flappa
+    // "strax"↔"om N minuter" per tick. SET ≤300 / CLEAR >350 (samma
+    // geometri som waiting-hysteresen; statuslagret hade den redan).
+    const wasImminent = vessel._isImminentAtTargetBridge === true;
+    if (holdImminentForUncertain && !exhaustedImminentExpired) {
+      verdict.imminent = wasImminent;
+    } else if (holdImminentForUncertain) {
+      // H17: hållningen står KVAR (echo-gaten äger fortfarande beslutet
+      // att inte härleda om från en osäker position) — men den uttömda
+      // flaggan släcks, för B4/F10:s tak äger sanningen även här. Nästa
+      // rena sampel härleder om som vanligt. _imminentFromExhausted
+      // nollas i samma andetag så raden loggas EN gång per uttömning.
+      verdict.fromExhausted = false;
+      // ÅLDERN SKRIVS ALDRIG SOM "Infinity" (F-9-läxan: sentinelen skrev
+      // 153 loggrader med Infinity i fältprovet) — saknad stämpel är ett
+      // eget, läsbart fall.
+      const alderText = Number.isFinite(exhaustedImminentAgeMs)
+        ? `i ${Math.round(exhaustedImminentAgeMs / 1000)}s`
+        : 'utan uttömningsstämpel (nollad av ETA-blocket)';
+      verdict.note = note(
+        'debug',
+        `🛡️ [IMMINENT_HOLD_EXPIRED] ${vessel.mmsi}: target=${vessel.targetBridge}, `
+        + `uttömd "strax" hölls av GPS-osäkerhet ${alderText} `
+        + `> ${IMMINENT_EXHAUSTED_MAX_AGE_MS / 1000}s — släpps`,
+      );
+    }
+    if (vessel.targetBridge && !holdImminentForUncertain) {
+      const ageS = Math.round(ageMs / 1000);
+      if (!dataIsFreshEnough) {
+        verdict.note = note(
+          'debug',
+          `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, AIS too old (${ageS}s > ${UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS / 1000}s)`,
+        );
+      } else if (!Number.isFinite(vessel.lat) || !Number.isFinite(vessel.lon)) {
+        verdict.note = note(
+          'debug',
+          `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, lat/lon not finite (lat=${vessel.lat}, lon=${vessel.lon})`,
+        );
+      } else if (this.vesselDataService?.hasGpsJumpHold?.(vessel.mmsi)) {
+        verdict.note = note(
+          'debug',
+          `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, GPS jump hold active`,
+        );
+      } else if (!this.bridgeRegistry) {
+        verdict.note = note(
+          'debug',
+          `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, bridgeRegistry missing`,
+        );
+      } else {
+        const targetBridge = this.bridgeRegistry.getBridgeByName(vessel.targetBridge);
+        if (!targetBridge
+            || !Number.isFinite(targetBridge.lat)
+            || !Number.isFinite(targetBridge.lon)) {
+          verdict.note = note(
+            'debug',
+            `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge} not in registry or invalid coords`,
+          );
+        } else {
+          const distToTarget = geometry.calculateDistance(
+            vessel.lat, vessel.lon,
+            targetBridge.lat, targetBridge.lon,
+          );
+          // P1-3: hysteresgräns — se wasImminent-kommentaren ovan.
+          // R2 2026-07-11 (A3R2-1/P1R2-3 — 2 oberoende): hysteresen
+          // gäller ENDAST normal-seedad flagga (bevisad ≤300 m). En
+          // exhausted-seedad flagga (301–350 m-bandet) fick annars
+          // limit 350 nästa tick → ordinarie SET-grenen (utan
+          // exhaustedAgeMs-koll) återsatte den varje tick → B4/F10:s
+          // 90 s-tak kringgicks och falskt "strax" stod till HARD
+          // (10 min). Med limit 300 för exhausted-seedad faller bandet
+          // alltid in i >limit-grenen där 90 s-taket äger.
+          const imminentLimitM = ((wasImminent && vessel._imminentFromExhausted !== true)
+            || waitingBridge(vessel) === vessel.targetBridge)
+            ? 350 : 300;
+          if (!Number.isFinite(distToTarget)) {
+            verdict.note = note(
+              'debug',
+              `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, distance not finite`,
+            );
+          } else if (distToTarget > imminentLimitM) {
+            // Anomali 3 fix (2026-05-06): även när vesseln är >300m kan vår
+            // egen extrapolation ha sagt att hon borde vara framme. Då är
+            // "strax" mer ärligt än "ETA okänd" — vi vet inte exakt var
+            // hon är just nu, men vi vet att broöppning är imminent enligt
+            // hennes senaste fart och kurs.
+            //
+            // Körning 2026-07-02: grenen saknade övre distansgräns och satte
+            // "strax" på 433 m (HAJH-LAIF — verklig öppning 25 min senare),
+            // 1016 m (YEMANJA II — som redan PASSERAT målet) och 1419 m
+            // (ELFKUNGEN). En uttömd extrapolation är en gissning byggd på
+            // ≥5 min gammal fart — bortom ~500 m (≈"strax"-bandets räckvidd
+            // vid 5 kn) är "ETA okänd" det ärliga svaret.
+            // B4 (körning 2026-07-03, F10): uttömd-strax är tidsbegränsad.
+            // ZWERK/PHILULA stod med fruset "strax" + antalsflimmer i
+            // 2–5 min på uttömd extrapolering (AIS 314–584 s gammal).
+            // 90 s täcker det ärliga fönstret "hon BORDE vara framme nu";
+            // därefter är "ETA okänd" det ärliga svaret tills färsk AIS.
+            const exhaustedAgeMs = Number.isFinite(vessel._etaExhaustedAtMs)
+              ? Date.now() - vessel._etaExhaustedAtMs
+              : 0;
+            const precedingQueue = queueBridge(vessel);
+            if (!forNotice && vessel._etaExtrapolationExhausted === true && distToTarget <= 500
+                && (!precedingQueue || precedingQueue.name === vessel.targetBridge)
+                && exhaustedAgeMs <= IMMINENT_EXHAUSTED_MAX_AGE_MS) {
+              verdict.imminent = true;
+              verdict.fromExhausted = true; // A3R2-1: ingen hysteres
+              verdict.note = note(
+                'log',
+                `✨ [IMMINENT_SET_EXHAUSTED] ${vessel.mmsi}: target=${vessel.targetBridge}, `
+                + `dist=${Math.round(distToTarget)}m but extrapolation exhausted (AIS ${ageS}s old)`,
+              );
+            } else {
+              verdict.note = note(
+                'debug',
+                `🛡️ [IMMINENT_SKIP] ${vessel.mmsi}: target=${vessel.targetBridge}, `
+                + `dist=${Math.round(distToTarget)}m > ${imminentLimitM}m `
+                + `(AIS ${ageS}s old, exhausted=${vessel._etaExtrapolationExhausted === true})`,
+              );
+            }
+          } else {
+            verdict.imminent = true;
+            verdict.fromExhausted = false; // äkta ≤300-bevis → hysteres OK
+            verdict.note = note(
+              'debug',
+              `✨ [IMMINENT_SET] ${vessel.mmsi}: target=${vessel.targetBridge}, dist=${Math.round(distToTarget)}m, AIS ${ageS}s old`,
+            );
+          }
+        }
+      }
+    }
+    return verdict;
   }
 
   /**
@@ -11162,6 +11274,28 @@ class AISBridgeApp extends Homey.App {
           eta = rawEtaMin;
         }
       }
+    }
+    // U33 (F20): NOTISEN SÄGER INTE EMOT BROTEXTENS "STRAX". Notisen byggs på
+    // fixets första beräkning och brotexten på den andra, 25 ms senare, och
+    // texten säger dessutom "strax" inom 300 m (Fix H) — samma radie som
+    // notisens. I fältkörning 3 sa tre Klaffbronotiser "om 3–4 minuter" i
+    // samma sekund som texten bytte till "strax" (NINA BRES, LIDAN, SYLVIA;
+    // båtarna korsade 1,6–2,9 min senare). Siffran ändras, aldrig notisens
+    // tidpunkt, texten eller öppningsvarningen.
+    // eta är här bara satt för källan 'target' (övriga källor fylls i längre
+    // ned), och _noticeStraxTravelMinutes kräver dessutom båtens målbro.
+    // Prövas när notisen annars hade sagt 3 eller mer; siffran kan bara sjunka.
+    const straxTravelMin = (Number.isFinite(eta) && etaMinutesForDisplay(eta) >= NOTICE_STRAX_REACH_MINUTES)
+      ? this._noticeStraxTravelMinutes(vessel, bridgeName, distance)
+      : null;
+    if (straxTravelMin !== null) {
+      const followed = Math.min(eta, Math.max(NOTICE_STRAX_MIN_MINUTES, straxTravelMin));
+      this.debug(
+        `⏱️ [FLOW_TRIGGER_ETA_STRAX] ${mmsiLabel}: brotexten kommer att säga strax för ${bridgeName} `
+        + `(${Math.round(distance)} m @ ${vessel.sog} kn, restid ${straxTravelMin.toFixed(2)} min) — `
+        + `notisens ${eta.toFixed(2)} min blir ${followed.toFixed(2)}`,
+      );
+      eta = followed;
     }
     // E-F3/N9 (2026-07-01): för en REDAN PASSERAD bro (failsafe/just-passed)
     // är en framräknad "ETA" riktningslöst nonsens — dist/fart mäter tid till

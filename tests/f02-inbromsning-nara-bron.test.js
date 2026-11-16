@@ -294,6 +294,10 @@ describe('F02: inbromsningsregeln (enhet, _processETAWithProtection)', () => {
  * kvoten spärrar (kvot 1,167–1,2, mätningen 2,92–3,0 och förra värdet
  * 3,00–3,03) träffades inte i en sökning över 108 scenarier — och prövas i
  * enhetsfallen ovan.
+ *
+ * U33 (2026-11-16): målbronotisens eta i fixturerna latt, stilla332 och
+ * stannar är omräknad till restiden i båtens fart (notisen följer textens
+ * strax; fältet "u33" i fixturen). Texterna och övriga notisfält är de låsta.
  */
 describe('F02: inbromsningsregeln genom appen', () => {
   const run = (name) => new Promise((resolve, reject) => {

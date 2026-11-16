@@ -1270,6 +1270,71 @@ på det ohållna värdet (K6-passet) och villkor 1 läst på förra passet i
 stället för förra fixet. Den överlevande är villkoret "snitt > momentan",
 som är ekvivalent: kvot ≥ 1,2 medför snitt > momentan.
 
+### U33, 2026-11-16: målbronotisen följer brotextens strax
+
+Regeln (ARCHITECTURE §8 (e) "U33 gick in"): säger brotexten "strax" för båten
+säger målbronotisen restiden i båtens egen fart (avstånd/fart, avrundad, minst
+1, aldrig mer än den annars hade sagt), när restiden är under 3 min och båten
+inte bromsar in. Bara notisens siffra ändras.
+
+`measure:eta` mot baslinjen på `9e4daf4` (25 korpusar, 3 198 påståenden):
+- 34 notiser ändras: 29 bättre, 3 sämre, 2 omätta. Texten, öppningskorten,
+  strax-löftet (n 216, 65,28 %), antalet övergångar och notiser är
+  oförändrade.
+- Notiser med sanning under 5 min (n 525): medel |fel| 0,612 → 0,551, median
+  0,36 → 0,32, bias +0,24 → +0,15. De ändrade notisernas medel |fel| 0,37.
+- De tre sämre (texten sa "strax" för båten i samma ögonblick; imminent
+  inom 300 m enligt loggen 25 ms efter notisen):
+  - HELGE 20260707-14h 11:14:21, Klaffbron, 297 m i 3,4 kn: 4 → 3 mot
+    sanningen 3,8. Texten sa strax för tidigt.
+  - CAVA (HR372) 20260702-19h 08:21:10, Stridsbergsbron, 275 m i 4,4 kn
+    (från 5,9): 3 → 2 mot 3,6. Texten sa strax för tidigt.
+  - WILSON ALSTER 20260917-16h 23:57:58, Klaffbron, 289 m i 3,9 kn: restid
+    2,40, 3 → 2 mot 2,56. Texten sa strax med rätta; restiden underskattade.
+- Omätta: IN-AXXI 13h (4 → 3, härledd sanning 3,2) och ANYA ELAN 380
+  both-21h 07:42:19 (5 → 3). ANYA korsade aldrig Klaffbron igen (hon låg och
+  manövrerade norr om bron till 08:23 och gick sedan norrut): notisen är
+  falsk redan i basen, och regeln gör den bara mer bestämd.
+- Motsägelserna (målbronotis ≥ 3 medan texten säger strax för bron, senaste
+  övergången högst 1 s efter notisen): 94 → 65 i de 25 korpusarna, varav
+  20261114-34h 3 → 2 (NINA BRES, 3,1 min till bron, och LIDAN "om 3" med
+  restiden 2,95); k1 5 → 3, k2 4 → 0. Varje ändrad notis (41 i banken och
+  k1–k2) föll i ett ögonblick då texten sa strax för bron.
+
+**Restid eller tak "om 2"** (prövat efter granskningen; samma kandidater och
+villkor, notisens siffra påverkar inget annat):
+
+| | Taket "om 2" | Restiden (vald) |
+|---|---|---|
+| Banken: bättre / sämre / omätta | 33 / 3 / 3 | 29 / 3 / 2 |
+| Banken: medel absolutfel, ändrade mätta | 0,459 (n 36) | 0,369 (n 32) |
+| Banken: medel absolutfel, alla 36 mätta kandidater | 0,459 | 0,419 |
+| Banken: notiser < 5 min, medel absolutfel | 0,554 | 0,551 |
+| Banken: kandidater som fortfarande säger ≥ 3 | 0 | 10 |
+| Motsägelser bank / k1 / k2 | 55 / 2 / 0 | 65 / 3 / 0 |
+| Svep 225 världar: bättre / sämre | 169 / 51 | 152 / 31 |
+| Svep: medel absolutfel över 220 kandidater | 1,036 | 0,908 |
+| Svep, sanning 2,5–3,0 min (n 42): bättre / sämre, medel absolutfel | 13 / 29, 0,651 | 13 / 13, 0,434 |
+
+Rad för rad: HELGE 4 → 2 / 3 (sanning 3,79), CAVA 3 → 2 / 2 (3,56),
+WILSON ALSTER 3 → 2 / 2 (2,56), LIDAN 4 → 2 / 3 (2,91), MONIKA 4 → 2 / 3
+(2,88). Svepet är granskningens generator (1–3 båtar, båda riktningarna,
+inbromsning, kö 200–330 m före bron, glapp, AISHub-fördröjning, fix var
+10–180 s) körd på basen och på varje variant.
+
+Smalare villkor (med taket, prövade före granskningen): räckvidd < 2 min gav
+20 bättre och 0 sämre men tog bort LIDAN; < 2,75 min med inbromsning 29 / 2;
+utan inbromsningsvillkoret 35 / 6.
+
+Testen som låser notisens siffra är omräknade mot rådatan: fixturerna
+`f02-latt`, `f02-stilla332` och `f02-stannar` (3/3/4 → 2 mot sanningen 2,42,
+bättre) och alla sju `f07-*`-fixturer (åtta notiser, 4 → 3 mot 2,68–2,86,
+bättre; fältet "u33" i fixturen). `f02-momentan` är oförändrad med restiden
+(3 mot 2,67). Testet "känd gräns K6/F13" i `november14-field-corpus.test.js`
+är omskrivet till "U33: Klaffbronotisen säger restiden …": LIDAN "om 3" mot
+2,91, SYLVIA "om 1" mot 1,57, NINA BRES "om 4" kvar (3,14 min till bron, så
+fartvillkoret gäller och motsägelsen står kvar).
+
 ### F07, 2026-11-15: klampen försvarar det användaren ser
 
 Ändringen (ARCHITECTURE §8 (e), "F07 gick in"; ETA-etappen under ägarbeslutet
