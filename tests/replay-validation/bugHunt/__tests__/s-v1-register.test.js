@@ -118,10 +118,12 @@ describe('vidgade predikat inom fattade beslut', () => {
   test('[träff] U18 (F12 r3): notisen under Fix D:s debounce; [vakt] F12 r1/r2 utan målbro, och en andra omvänd fix före notisen', () => {
     const { f, ctx } = fall('F12-r3', /^T9 FEL-RIKTNING/);
     expect(post(f, ctx)).toEqual(['DESIGN', 'U18-RETUR-BEKRÄFTAD-SENT']);
-    for (const id of ['F12-r1', 'F12-r2']) {
-      const x = fall(id, /^T9 FEL-RIKTNING/);
-      expect([id, post(x.f, x.ctx)[0]]).toEqual([id, 'KANDIDAT']);
-    }
+    // F12 r2 (målbron borta) är KANDIDAT; F12 r1 är sedan U43 (2026-11-16)
+    // en känd gräns med egen post, men aldrig U18.
+    const r2 = fall('F12-r2', /^T9 FEL-RIKTNING/);
+    expect(post(r2.f, r2.ctx)[0]).toBe('KANDIDAT');
+    const r1 = fall('F12-r1', /^T9 FEL-RIKTNING/);
+    expect(post(r1.f, r1.ctx)).toEqual(['KÄND_ÖPPEN', 'U43-DÖDBAND-I-U-SVÄNG']);
     const c = kopia(ctx);
     const omvända = c.rader.filter((r) => r.mmsi === String(f.mmsi) && r.aisTimestamp < f.t && Number.isFinite(r.sog) && r.sog >= 2
       && (r.cog >= 315 || r.cog <= 45));
@@ -147,8 +149,9 @@ describe('vidgade predikat inom fattade beslut', () => {
   test('[träff] S10 (F10 r1): fram och tillbaka i samma glapp; [vakt] F10 r3 och en udda korsning i glappet', () => {
     const { f, ctx } = fall('F10-r1', /^T1 NOTIS-UTEBLIVEN/);
     expect(post(f, ctx)).toEqual(['DESIGN', 'S10-VÄNDNING-BRON-BAKOM']);
+    // F10 r3 är inte S10 (sedan U43, 2026-11-16, en känd gräns med egen post).
     const x = fall('F10-r3', /^T1 NOTIS-UTEBLIVEN/);
-    expect(post(x.f, x.ctx)[0]).toBe('KANDIDAT');
+    expect(post(x.f, x.ctx)).toEqual(['KÄND_ÖPPEN', 'U43-PARBRO-FÖRE-U-SVÄNG']);
     const c = kopia(ctx);
     const egna = c.sanning.crossings.filter((k) => String(k.mmsi) === String(f.mmsi) && k.bridge === f.bro);
     // Bara utpassagen i glappet, ingen korsning tillbaka: båten ligger på andra sidan.

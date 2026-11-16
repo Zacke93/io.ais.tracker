@@ -309,9 +309,9 @@ describe('de äkta felen ur nattens triage är fortfarande kandidater', () => {
     ['F02-r3', 'T2 ÖPPNING-MISS:OKLASSAD'],
     ['F23-r2', 'T2 ÖPPNING-MISS:OKLASSAD'],
     ['F04-r1', 'T2 LEDTID<60s'],
-    ['F12-r1', 'T9 FEL-RIKTNING'],
+    // F12 r1 och F10 r3 är sedan dirigentens beslut U43 (2026-11-16) kända
+    // gränser med egna poster (t-v1-granskning.test.js).
     ['F12-r2', 'T9 FEL-RIKTNING'],
-    ['F10-r3', 'T1 NOTIS-UTEBLIVEN'],
   ])('%s: %s är KANDIDAT', (id, klass) => {
     const f = döm(id).fynd.find((x) => `${x.orakel} ${x.klass}` === klass);
     expect(f.register.klass).toBe('KANDIDAT');

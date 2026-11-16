@@ -588,6 +588,42 @@
       "regel": "U18: Fix D tror på en vändning först efter två omvända positioner med minst FIX_D_MIN_SOG (2,0 kn, läst ur VesselDataService.js) inom FIX_D_PENDING_MAX_AGE_MS (15 min). En retur med gles AIS upptäcks därför sent, och det är en känd gräns. Posten är knuten till den mekanismen, inte bara till tiden: båten har en L0-vändning högst 30 min före den sanna korsningen och minst en omvänd fix med FIX_D_MIN_SOG mellan vändningen och korsningen, och Fix D:s bekräftelse, spelad på raderna efter vändningen (spelaFixD), kom sent. För ÖPPNING-MISS:OKLASSAD betyder sent efter korsningen eller aldrig (R1:s sju returer). För LEDTID och VARNING-EFTER-SANN-PASSAGE betyder sent mindre än 2 × TICK_INTERVAL_MS (60 s) före korsningen eller efter den, och dessutom är varningen båtens egen (ledare) och kom VID bekräftelsen: avfyrad av det bekräftande fixet (firedBy 'fix', högst 1 s från radens bearbetning i harnessen) eller av första ticken efter det (firedBy 'deadline', högst TICK_INTERVAL_MS + 40 ms efter bearbetningen och utan egen rad emellan). En egen returvarning som kom senare, till exempel vid nästa fix (världarna 936 och 1918), eller en bekräftelse som kom i tid, förklaras inte av U18 och blir KANDIDAT (K2-granskarens anmärkning om det föreslagna U15-RETUR-SEN, som bara byggde på tid; skärpt 2026-11-07 efter granskningen av registret, förut godtogs varningen upp till 60 s efter bekräftelsen). I båda fallen får vändningen inte ha varit bekräftad på en annan väg före korsningen: appen får inte ha bokfört någon riktningshändelse för båten (resultatets journeyResets; varje bekräftad vändning loggar [TARGET_RECALC], vilken väg som än bekräftade den, och en ny resa efter slutmålet [NEW_JOURNEY]) efter vändningen och senast vid korsningen, mer än 1 s före det bekräftande fixets bearbetning. Annars kände appen riktningen, och en sen eller utebliven varning beror inte på U18 (världarna 1274 och 1317: återkorsningen av Järnvägsbron bekräftade vändningen 391 respektive 100 s före korsningen, och målbron hölls tom; skärpt 2026-11-07 efter den andra granskningen). Ett resultat utan journeyResets ger nej. T9 FEL-RIKTNING på en NOTIS (2026-11-16, nattkortet F12 r3; ARCHITECTURE U18: 'Under debouncen bär notiser om broar framför båten det gamla låsets riktning'): notisens riktning är det gamla låset, L0 visar vändningen högst 30 min före notisen, Fix D spelad över hennes rader från vändningen till notisen har inte bekräftat, appen hade henne med målbro i varje publicerad text från vändningen till notisen, och appen bokförde ingen riktningshändelse för henne (journeyResets) efter vändningen och senast vid notisen, samma krav som postens äldre gren (granskningen 2026-11-16, H4: en bekräftad vändning före notisen är F12:s felklass) (registry.js#u18NotisUnderDebounce). En båt utan målbro efter vändningen (nattkorten F12 r1 och r2: utan målbro kan Fix D inte bekräfta alls, ett äkta fel) eller med en bekräftad vändning i spelet är KANDIDAT. Varningar på T9 ägs av U19."
     },
     {
+      "id": "U43-DÖDBAND-I-U-SVÄNG",
+      "klass": "KÄND_ÖPPEN",
+      "datum": "2026-11-16",
+      "källa": "docs/BUGGJAKT.md §7 (dirigentens beslut U43 (1) 2026-11-16 på ägarens uppdrag: känd gräns efter riktningsändringen, nattkortet F12 r1); lib/services/VesselDataService.js#FIX_D_MIN_SOG (Fix D-blocket i updateVessel: kursbanden, väntan och bekräftelsen); lib/utils/cogDirection.js#isNorthCog (nordbandet 315–45°); tests/replay-validation/replayRunner.js#journeyResets; tests/replay-validation/bugHunt/lib/registry.js#PREDICATES (predikatet dödbandNollarVändning)",
+      "gäller": {
+        "orakel": [
+          "T9"
+        ],
+        "klassRegex": "^FEL-RIKTNING$"
+      },
+      "predikat": {
+        "namn": "dödbandNollarVändning",
+        "parametrar": {}
+      },
+      "regel": "U43 (1): en kurs tvärs över kanalen (dödbandet mellan nord- och sydbandet) mitt i en U-sväng nollar vändningens första observation, så notisens riktningsfält kan stå kvar på det gamla hållet till nästa bro; texten stämmer. Posten gäller bara en NOTIS vars riktning är det gamla låset, när L0 visar vändningen högst 30 min före notisen, båten inte korsat någon bro emellan, appen inte bokfört någon riktningshändelse för henne emellan (journeyResets), Fix D spelad över hennes rader från vändningen till notisen inte bekräftat, minst en rad i rörelse (≥ FIX_D_MIN_SOG) har en kurs i dödbandet, och samma spel utan dödbandsraderna hade bekräftat senast vid notisen. Utan dödbandsraden, med en bekräftelse i spelet eller efter en riktningshändelse är fyndet KANDIDAT (eller U18 när Fix D bara inte hunnit). Varningar på T9 ägs av U19.",
+      "fråga": "Ska en kurs i dödbandet varken räknas eller bryta Fix D:s kedja när positionen flyttat sig minst 50 m i vändningens riktning (N3:s förslag (b))?"
+    },
+    {
+      "id": "U43-PARBRO-FÖRE-U-SVÄNG",
+      "klass": "KÄND_ÖPPEN",
+      "datum": "2026-11-16",
+      "källa": "docs/BUGGJAKT.md §7 (dirigentens beslut U43 (2) 2026-11-16 på ägarens uppdrag: känd gräns efter riktningsändringen, nattkortet F10 r3); docs/BUGGJAKT.md bilaga B, T1 (70 m-bandet, posten UNDER-BRO-BANDET-70M); tests/replay-validation/replayRunner.js#targetPassages och tests/replay-validation/replayRunner.js#intermediatePassages; tests/replay-validation/bugHunt/lib/registry.js#PREDICATES (predikatet parbroFöreUSväng)",
+      "gäller": {
+        "orakel": [
+          "T1"
+        ],
+        "klassRegex": "^NOTIS-UTEBLIVEN$"
+      },
+      "predikat": {
+        "namn": "parbroFöreUSväng",
+        "parametrar": {}
+      },
+      "regel": "U43 (2): parbron inom 70 m får ingen notis när nästa position kommer först efter en U-sväng. Posten gäller bara T1 NOTIS-UTEBLIVEN vid Järnvägsbron eller Stridsbergsbron när besöket har exakt en fix högst 300 m från bron inom 15 min från den sanna korsningen, den fixen ligger högst 70 m från bron och efter korsningen (bortom linjen), appen bokförde parbrons passage för båten vid samma fix (inom 1 s), nästa fix kommer efter en L0-vändning och ligger mer än 300 m från bron, och båten återkorsade bron före nästa fix. En fix till nära bron, en fix längre bort än 70 m, en fix före linjen eller nästa fix före vändningen är inte gränsen och blir KANDIDAT.",
+      "fråga": "Ska parbron bokföras i efterhand när nästa fix visar en bekräftad vändning (N3:s alternativ (b), en sen 'passerade … under AIS-tystnad'-notis)?"
+    },
+    {
       "id": "U17-TYST-BÅT-RECOVER",
       "klass": "DESIGN",
       "datum": "2026-11-04",

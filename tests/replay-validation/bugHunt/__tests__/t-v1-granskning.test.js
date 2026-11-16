@@ -15,6 +15,7 @@
  *   M3b-ledare ledaren byts när den främsta varit tyst 90–300 s
  *   M3-eta     den visade tiden + 6 min i en halvminut (samma bärare)
  *   M5         appens U21-gräns + 15 min
+ *   orörd:n295 nattvärld 295 med orörd app (U2-beslutet om den senaste bindningen)
  * Inga barnprocesser och inga timers.
  */
 
@@ -30,10 +31,11 @@ const post = (f, ctx) => {
   const c = klassa(f, ctx);
   return [c.klass, c.post || null];
 };
-/** Dömer en mutantkörning ur fixturen. */
-function mutant(nyckel) {
+/** Dömer en mutantkörning ur fixturen; `sanning(b)` får ändra den byggda världens sanning före domen. */
+function mutant(nyckel, sanning = null) {
   const x = kopia(M[nyckel]);
   const b = core.materialize(x.spec, { profile: x.radio });
+  if (sanning) sanning(b);
   const dom = core.judgeBuilt({
     built: b,
     utfall: x.utfall,
@@ -144,6 +146,46 @@ describe('H7: U34 gren (c) kräver uttömningens stämpel och tystnad över 300 
   });
 });
 
+describe('U2 och den senaste bindningen (dirigentens beslut 2026-11-16, nattvärld 295)', () => {
+  const HAVSORN = '265349432';
+  const ledtid = (fynd) => fynd.find((f) => f.orakel === 'T2' && /^LEDTID/.test(f.klass) && String(f.mmsi) === HAVSORN);
+
+  test('HAVSORN, släppt ur #1 och varnad i #3 28 s före korsningen 3 min efter #1:s första passage: U2-VS-DEADLINE', () => {
+    const f = ledtid(mutant('orörd:n295'));
+    expect(f).toBeDefined();
+    expect([f.register.klass, f.register.post]).toEqual(['KÄND_ÖPPEN', 'U2-VS-DEADLINE']);
+  });
+
+  test('[motfall] samma värld med #1:s första passage flyttad så att korsningen ligger 11 min efter den: KANDIDAT', () => {
+    const f = ledtid(mutant('orörd:n295', (b) => {
+      const egen = b.truth.L1.crossings.find((c) => String(c.mmsi) === HAVSORN && c.bridge === 'Stridsbergsbron');
+      const först = b.truth.L1.crossings.find((c) => String(c.mmsi) === '265349363' && c.bridge === 'Stridsbergsbron');
+      först.t = egen.t - 11 * MIN;
+      if (Number.isFinite(först.tTo)) först.tTo = först.t;
+      b.truth.L1.crossings.sort((x, y) => x.t - y.t);
+    }));
+    expect(f).toBeDefined();
+    expect(f.register.klass).toBe('KANDIDAT');
+  });
+
+  test('[motfall] en båt som aldrig var bunden till #1 täcks inte (gren ii kommer inte tillbaka)', () => {
+    const f = ledtid(mutant('orörd:n295', (b) => b)); // kontroll: samma värld
+    expect(f.register.post).toBe('U2-VS-DEADLINE');
+    const konvoj = require('../lib/konvoj');
+    const x = kopia(M['orörd:n295']);
+    const r = x.utfall.resultat;
+    const w1 = r.openingWarnings.find((w) => w.eventId === 'Stridsbergsbron#1');
+    const kors = [{ mmsi: '265349363', bridge: 'Stridsbergsbron', t: w1.t + 11 * MIN }, { mmsi: HAVSORN, bridge: 'Stridsbergsbron', t: w1.t + 14 * MIN }];
+    const utan = r.openingCoverage.filter((c) => !(String(c.mmsi) === HAVSORN && c.eventId === 'Stridsbergsbron#1'));
+    expect(konvoj.täcktAv(w1, HAVSORN, r.openingCoverage, kors[1].t, kors).sant).toBe(true);
+    expect(konvoj.täcktAv(w1, HAVSORN, utan, kors[1].t, kors).sant).toBe(false);
+  });
+
+  test('nattkortet F23 r1 (BRISEN släppt ur Klaffbron#1, korsade 207 s före dess första passage) döms som förut', () => {
+    expect(utslag(döm('F23-r1').fynd, /^T2 ÖPPNING-MISS/).register.post).toBe('U2-VS-DEADLINE');
+  });
+});
+
 describe('U34: den nya nivån ska hålla (mutanten M3, uppblåst tid i en halvminut)', () => {
   test('[mutant] M3-eta:s627: hoppet 4 → 10 bakom ett ledarbyte, som inte håller, är KANDIDAT', () => {
     const f = mutant('M3-eta:s627').find((x) => x.inv === 'INV-3' && /ETA-SÅGTAND UPP/.test(x.klass) && /4→10/.test(x.detalj));
@@ -193,5 +235,38 @@ describe('medel: R2 utan villkor (c), KAJVOBBEL kräver reservens tystnad', () =
       },
     });
     expect(utslag(fynd, /KAJVOBBEL/)).toBeDefined();
+  });
+});
+
+describe('U43: två kända gränser efter riktningsändringen (dirigentens beslut 2026-11-16)', () => {
+  test('(1) F12 r1: dödbandskursen 52° mitt i U-svängen: U43-DÖDBAND-I-U-SVÄNG; F12 r3 är fortfarande U18', () => {
+    expect(post(...Object.values(fall('F12-r1', /^T9 FEL-RIKTNING/)))).toEqual(['KÄND_ÖPPEN', 'U43-DÖDBAND-I-U-SVÄNG']);
+    expect(post(...Object.values(fall('F12-r3', /^T9 FEL-RIKTNING/)))).toEqual(['DESIGN', 'U18-RETUR-BEKRÄFTAD-SENT']);
+  });
+
+  test('[motfall] (1) F12 r1 med 52° utbytt mot en ren nordlig kurs (två omvända i följd, appen borde ha bekräftat): KANDIDAT', () => {
+    const { fynd } = döm('F12-r1', {
+      mutera: (r, b) => {
+        for (const x of b.rows) if (x.mmsi === '265313289' && x.cog === 52) x.cog = 17;
+      },
+    });
+    expect(utslag(fynd, /^T9 FEL-RIKTNING/).register.klass).toBe('KANDIDAT');
+  });
+
+  test('(2) F10 r3: enda fixen 13 m bortom Järnvägsbron, nästa först efter U-svängen: U43-PARBRO-FÖRE-U-SVÄNG', () => {
+    expect(post(...Object.values(fall('F10-r3', /^T1 NOTIS-UTEBLIVEN/)))).toEqual(['KÄND_ÖPPEN', 'U43-PARBRO-FÖRE-U-SVÄNG']);
+  });
+
+  test('[motfall] (2) F10 r3 med en fix till 30 s efter, söder om bron före vändningen: KANDIDAT', () => {
+    const { fynd } = döm('F10-r3', {
+      mutera: (r, b) => {
+        const x = b.rows.find((y) => y.mmsi === '265292276' && Math.abs(y.aisTimestamp - Date.parse('2026-08-21T08:26:36.432Z')) < 1000);
+        b.rows.push({
+          ...x, aisTimestamp: x.aisTimestamp + 30000, fixTs: (x.fixTs || x.aisTimestamp) + 30000, lat: x.lat - 0.0012,
+        });
+        b.rows.sort((y, z) => y.aisTimestamp - z.aisTimestamp);
+      },
+    });
+    expect(utslag(fynd, /^T1 NOTIS-UTEBLIVEN/).register.klass).toBe('KANDIDAT');
   });
 });
