@@ -1117,11 +1117,11 @@
       "error": null
     },
     {
-      "t": 1783495566704,
-      "iso": "2026-07-08T07:26:06.704Z",
+      "t": 1783495559124,
+      "iso": "2026-07-08T07:25:59.124Z",
       "bridge": "Stridsbergsbron",
       "direction": "northbound",
-      "etaMin": 5,
+      "etaMin": 3,
       "vesselCount": 1,
       "leadVessel": "JAATTEN II",
       "firedBy": "deadline",
@@ -1131,7 +1131,7 @@
         "257919970"
       ],
       "distance": 468,
-      "dueMs": 1783495566704,
+      "dueMs": 1783495559124,
       "originalDueMs": 1783495106171,
       "success": true,
       "error": null

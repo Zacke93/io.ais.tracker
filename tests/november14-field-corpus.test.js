@@ -157,19 +157,22 @@ describe('Fält 14–15 november: passagefixen vid Järnvägsbron, varningarna o
     }
   });
 
-  test('känd gräns F7: LIDANs Stridsbergsvarning kom 137,8 s före passagen och sa 5 minuter', () => {
-    // Låst som den ÄR. Spärren vid Järnvägsbron släpptes på fixen 352 m från
-    // bron efter 2,5–3,5 kn; hon ökade till 4,4–5,1 kn. Under utlovade 150 s,
-    // över det hårda golvet 60 s. Ändras när F7/U28 avgörs (U13).
+  test('F7/U32: LIDANs Stridsbergsvarning kommer 205,7 s före passagen och säger 3 minuter', () => {
+    // Fartökningsregeln (U32, 2026-11-16): LIDAN ökade i gång till över 2,8 kn
+    // före Järnvägsbron, och spärren släpper då varningen på fixen 493 m från
+    // Stridsbergsbron i stället för 352 m. Förut kom varningen 137,8 s före
+    // passagen och sa 5 minuter; sanningen vid den nya varningen är 3,4 min.
+    // Omlåst mot rådatafacit (U13): korsningen 06:30:00,363.
     const warning = replay.openingWarnings.find((w) => w.leadMmsi === LIDAN && w.bridge === 'Stridsbergsbron');
     expect(warning).toMatchObject({
-      eventId: 'Stridsbergsbron#7', direction: 'northbound', etaMin: 5, firedBy: 'fix', distance: 352, vesselCount: 1,
+      eventId: 'Stridsbergsbron#7', direction: 'northbound', etaMin: 3, firedBy: 'fix', distance: 493, vesselCount: 1,
     });
     const crossing = raw.find((p) => p.mmsi === LIDAN && p.bridge === 'Stridsbergsbron');
     const leadS = (crossing.t - warning.t) / 1000;
-    expect(leadS).toBeGreaterThan(137);
-    expect(leadS).toBeLessThan(138);
-    for (const other of replay.openingWarnings.filter((w) => w !== warning)) {
+    expect(leadS).toBeGreaterThan(205);
+    expect(leadS).toBeLessThan(206);
+    // Ingen varning i körningen ligger längre under utlovade 150 s.
+    for (const other of replay.openingWarnings) {
       const passage = raw.find((p) => other.mmsis.includes(p.mmsi) && p.bridge === other.bridge && p.t > other.t);
       expect(passage.t - other.t).toBeGreaterThanOrEqual(150000);
     }

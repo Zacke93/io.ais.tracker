@@ -2723,11 +2723,11 @@
       "error": null
     },
     {
-      "t": 1786046275256,
-      "iso": "2026-08-06T19:57:55.256Z",
+      "t": 1786046224225,
+      "iso": "2026-08-06T19:57:04.225Z",
       "bridge": "Stridsbergsbron",
       "direction": "northbound",
-      "etaMin": 6,
+      "etaMin": 3,
       "vesselCount": 1,
       "leadVessel": "MONIKA",
       "firedBy": "deadline",
@@ -2736,8 +2736,8 @@
       "mmsis": [
         "304482000"
       ],
-      "distance": 391,
-      "dueMs": 1786046275256,
+      "distance": 525,
+      "dueMs": 1786046224225,
       "originalDueMs": 1786045149000,
       "success": true,
       "error": null

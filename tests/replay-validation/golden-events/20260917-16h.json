@@ -708,21 +708,21 @@
       "error": null
     },
     {
-      "t": 1789679320136,
-      "iso": "2026-09-17T21:08:40.136Z",
+      "t": 1789679260213,
+      "iso": "2026-09-17T21:07:40.213Z",
       "bridge": "Stridsbergsbron",
       "direction": "northbound",
-      "etaMin": 5,
+      "etaMin": 3,
       "vesselCount": 1,
       "leadVessel": "VISTEN",
-      "firedBy": "fix",
+      "firedBy": "deadline",
       "eventId": "Stridsbergsbron#3",
       "leadMmsi": "210889000",
       "mmsis": [
         "210889000"
       ],
-      "distance": 353,
-      "dueMs": 1789679320136,
+      "distance": 564,
+      "dueMs": 1789679260213,
       "originalDueMs": 1789678460000,
       "success": true,
       "error": null

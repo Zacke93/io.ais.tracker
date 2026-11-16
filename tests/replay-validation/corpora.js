@@ -731,7 +731,14 @@ module.exports = [
     locked: true,
     lockEvents: true,
     expectedNotifications: 54,
-    note: 'Omlåst 2026-11-03: enbart SOLANDEs Klaffnotis 10:06:42.741 byter till passerad form ("passerade '
+    note: 'ÖPPNINGSFACIT OMLÅST 2026-11-16 (U32, fartökningsregeln vid Järnvägsbron, fråga F7): en post i openingWarnings '
+      + 'flyttas; händelse-id, medlemmar och originalDueMs är oförändrade. '
+      + 'Stridsbergsbron#8 för JAATTEN II 257919970 kommer 8/7 07:25:59.124 i stället för 07:26:06.704 (468 m, '
+      + 'deadline, oförändrat), och kortet säger 3 min i stället för 5. Korsningen 07:28:55.880 (gt, line): '
+      + 'ledtiden går 169 → 177 s, och sann restid vid varningen är 2,9 min. '
+      + 'Notiser, texter, passager och övriga varningar är oförändrade. Rättare enligt U13; dirigentens egen diff '
+      + 'mot rådatafacit. '
+      + 'Omlåst 2026-11-03: enbart SOLANDEs Klaffnotis 10:06:42.741 byter till passerad form ("passerade '
       + 'Klaffbron under AIS-tystnad", eta −1, already_passed). Föregående fix 09:48:44 låg 1 468 m norr om '
       + 'bron; rådatans korsning 10:05:50 ligger före notisfixen, som står 75 m söder om linjen. Fallbackens '
       + 'rättelse i samma tick dedupades bort. Tid, avstånd, källa, antal, kort, passager och brotexter består. '
@@ -2407,7 +2414,14 @@ module.exports = [
       'DEFAULT-FLASH: 2026-08-06T08:47:00.040Z "Inga båtar" inklämd (30s) '
         + 'mellan två "En … Stridsbergsbron"-texter utan passage',
     ],
-    note: 'GOLDEN OMLÅST 2026-11-16 (U31, inbromsningsregeln, fråga F19): en rad flyttas i tiden, antalet '
+    note: 'ÖPPNINGSFACIT OMLÅST 2026-11-16 (U32, fartökningsregeln vid Järnvägsbron, fråga F7): en post i openingWarnings '
+      + 'flyttas; händelse-id, medlemmar och originalDueMs är oförändrade. '
+      + 'Stridsbergsbron#23 för MONIKA 304482000 kommer 6/8 19:57:04.225 i stället för 19:57:55.256 (525 m i '
+      + 'stället för 391 m, deadline), och kortet säger 3 min i stället för 6. Korsningen 20:01:08.145 (gt, line): '
+      + 'ledtiden går 193 → 244 s, och sann restid vid varningen är 4,1 min. '
+      + 'Notiser, texter, passager och övriga varningar är oförändrade. Rättare enligt U13; dirigentens egen diff '
+      + 'mot rådatafacit. '
+      + 'GOLDEN OMLÅST 2026-11-16 (U31, inbromsningsregeln, fråga F19): en rad flyttas i tiden, antalet '
       + 'övergångar är oförändrat (292). 7/8 "Fem båtar på väg mot Stridsbergsbron, beräknad broöppning strax" '
       + 'kommer 09:13:57.873 i stället för 09:12:50.459; under de 67 sekunderna står "om 3 minuter" kvar. Första '
       + 'korsningen av Stridsbergsbron därefter är NIGE-O 211216440 09:36:19.744 (gt, line), alltså 22–23 min '
@@ -2706,7 +2720,14 @@ module.exports = [
     lockOpenings: true,
     lockEvents: true,
     expectedNotifications: 38,
-    note: 'ETA 2026-10-05: VISTENs Stridsnotis 17/9 21:09:21.837 rättas 4→2 min efter rent Järnvägssegment före '
+    note: 'ÖPPNINGSFACIT OMLÅST 2026-11-16 (U32, fartökningsregeln vid Järnvägsbron, fråga F7): en post i openingWarnings '
+      + 'flyttas; händelse-id, medlemmar och originalDueMs är oförändrade. '
+      + 'Stridsbergsbron#3 för VISTEN 210889000 kommer 17/9 21:07:40.213 i stället för 21:08:40.136 (564 m på '
+      + 'deadline i stället för 353 m på fix), och kortet säger 3 min i stället för 5. Korsningen 21:10:51.864 '
+      + '(gt, line): ledtiden går 132 → 192 s, och sann restid vid varningen är 3,2 min. '
+      + 'Notiser, texter, passager och övriga varningar är oförändrade. Rättare enligt U13; dirigentens egen diff '
+      + 'mot rådatafacit. '
+      + 'ETA 2026-10-05: VISTENs Stridsnotis 17/9 21:09:21.837 rättas 4→2 min efter rent Järnvägssegment före '
       + 'zonutgång. Råkorsning 21:10:22.045–21:10:53.801, interpolerad restid 1,50 min. Enbart notisens '
       + 'ETA/text ändras för VISTEN. SINE BRES får dessutom sin tidigare tappade Järnvägspassage '
       + 'registrerad 18/9 02:27:17.778: befintligt rå-GT visar korsning 02:26:08.016–02:26:30.446, '
@@ -2772,7 +2793,14 @@ module.exports = [
     lockOpenings: true,
     lockEvents: true,
     expectedNotifications: 24,
-    note: 'Låst 2026-11-15: fältkörning 3, koden 1f6dd46 på ägarens Homey Pro, '
+    note: 'ÖPPNINGSFACIT OMLÅST 2026-11-16 (U32, fartökningsregeln vid Järnvägsbron, fråga F7): en post i openingWarnings '
+      + 'flyttas; händelse-id, medlemmar och originalDueMs är oförändrade. '
+      + 'Stridsbergsbron#7 för LIDAN 231897000 kommer 15/11 06:26:34.660 i stället för 06:27:42.577 (493 m i stället '
+      + 'för 352 m, fix), och kortet säger 3 min i stället för 5. Korsningen 06:30:00.363 (gt, line): ledtiden går '
+      + '138 → 206 s, och sann restid vid varningen är 3,4 min. Punkt (1) nedan beskriver utfallet före regeln. '
+      + 'Notiser, texter, passager och övriga varningar är oförändrade. Rättare enligt U13; dirigentens egen diff '
+      + 'mot rådatafacit. '
+      + 'Låst 2026-11-15: fältkörning 3, koden 1f6dd46 på ägarens Homey Pro, '
       + '2026-11-14T08:16:41.212Z–2026-11-15T18:20:01.672Z (315800 loggrader, 3357 AIS-poster). '
       + 'Riktad nyregistrering (VALIDATION §Riktad nyregistrering); inga andra korpusars referenser rörda. '
       + 'jsonl och inspelat startminne är byteexakta kopior: jsonl:en byggd om ur loggens '

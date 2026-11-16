@@ -536,11 +536,11 @@
       "error": null
     },
     {
-      "t": 1794724062577,
-      "iso": "2026-11-15T06:27:42.577Z",
+      "t": 1794723994660,
+      "iso": "2026-11-15T06:26:34.660Z",
       "bridge": "Stridsbergsbron",
       "direction": "northbound",
-      "etaMin": 5,
+      "etaMin": 3,
       "vesselCount": 1,
       "leadVessel": "LIDAN",
       "firedBy": "fix",
@@ -549,8 +549,8 @@
       "mmsis": [
         "231897000"
       ],
-      "distance": 352,
-      "dueMs": 1794724062577,
+      "distance": 493,
+      "dueMs": 1794723994660,
       "originalDueMs": 1794723067257.4949,
       "success": true,
       "error": null
