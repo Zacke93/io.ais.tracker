@@ -255,7 +255,15 @@ Moduler (ansvar / ägda tillstånd / in-ut):
   Med fönstret aktivt står flaggan vilande. Ett senare pass på samma fix (vakthunden,
   en omkörning) rensar den: där var basens notis falsk (OSPREY-klassen, en 30–55 s
   gammal fix 15–34 m bortom linjen) och C2:s passerade form står kvar, ofta 39–130 s
-  senare. Den klassen är känd och ägarfråga 4 (passerad form redan på passagefixen)),
+  senare. Den klassen är känd och ägarfråga 4 (passerad form redan på passagefixen).
+  **Känd lucka (nattjakten F10 r3, 2026-11-16):** med fönstret aktivt väntar parbrons
+  bokföring på nästa fix. Vänder båten före den och nästa fix ligger på ankomstsidan,
+  bokförs parbron aldrig och ingen notis går för den (värld 2737, NORDVIND 13 m bortom
+  Järnvägsbron, nästa fix 5 min senare 282 m norr om Stridsbergsbron; inträdesbeviset
+  har då löpt ut). Att erbjuda parbron som kandidat inom under-bro-bandet stänger luckan
+  men ger PRICKBJORN (23 m, samma pass, samma fönster) "närmar sig … strax" igen i
+  stället för sann passerad form, och fäller C2:s tester; på passagefixen går de två
+  fallen inte att skilja åt),
   under-bridge-hysteres (:407–657). Äger CurrentBridgeManager, StatusStabilizer,
   PassageWindowManager, ProgressiveETACalculator. Emitterar `status:changed`.
 - **ProximityService**: stateless avståndsanalys fartyg↔broar

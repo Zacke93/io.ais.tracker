@@ -9446,7 +9446,10 @@ class AISBridgeApp extends Homey.App {
     // Norrut är parbron målbron och erbjuds som target. En parbro som båten
     // redan passerat erbjuds inte (se StatusService.isBeyondForcedWaitingBridge);
     // passerad form kommer när passagen bokförs (S4) eller, när nästa fix ligger
-    // utanför notisradien, från failsafen.
+    // utanför notisradien, från failsafen. KÄND LUCKA (nattjakten F10 r3): vänder
+    // båten före nästa fix bokförs parbron aldrig. Att erbjuda den här inom
+    // under-bro-bandet stänger luckan men ger PRICKBJORN-fallet (23 m bortom,
+    // samma pass) "närmar sig … strax" igen; se docs/ARCHITECTURE.md (FIX U).
     // D6 (etapp7-plan 2026-08-08, "Järnvägsbrofördröjningen", uppskjuten
     // 2026-08-05b) skisserade en annan rättning: undanta parbron från zonstoppet
     // i ProximityService. Den rörs inte här; se docs/ARCHITECTURE.md §Kandidatval.
