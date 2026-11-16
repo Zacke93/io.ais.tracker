@@ -506,11 +506,75 @@ describe('INV-3: ledarbyte när den förra båten bevisligen slutat bära klausu
     r.bridgeTextTransitions[3].text = `${kö}; ${strax}`;
     r.bridgeTextLeads[3].text = `${kö}; ${strax}`;
     expect(sågtand(r)).toHaveLength(1);
-    // Samma studs med minuttid före (7 → 14 → 7) undantas av kön.
+    // Samma studs med minuttid före (7 → 14 → 7): kön förklarar bytet, men
+    // T:s egen tid faller 7 min på 60 s, så den nya nivån håller inte (M1).
     const r2 = resultat();
     r2.bridgeTextTransitions[3].text = `${kö}; ${på(7)}`;
     r2.bridgeTextLeads[3].text = `${kö}; ${på(7)}`;
-    expect(sågtand(r2)).toEqual([]);
+    expect(sågtand(r2)).toHaveLength(1);
+  });
+
+  // Granskningen 2026-11-16 (M1): bytet förklarar vems tid det är, inte att
+  // den nya båtens första tid är rätt. Den nya nivån måste hålla: ingen
+  // senare tid för samma nya ledare inom 120 s får ligga 6 min eller mer under.
+  describe('den nya nivån måste hålla', () => {
+    const med = (ändr) => {
+      const r = resultat();
+      for (const [idx, n] of ändr) {
+        r.bridgeTextTransitions[idx].text = `${kö}; ${på(n)}`;
+        r.bridgeTextLeads[idx].text = `${kö}; ${på(n)}`;
+      }
+      return r;
+    };
+
+    test('mutantspiken i värld 246: 7 → 21 → 14 fälls', () => {
+      expect(sågtand(med([[2, 21], [3, 14]]))).toHaveLength(1);
+    });
+
+    test('passagebevis: en spik från mjukzonen (4 → 17 → 5) fälls trots bevisat byte', () => {
+      const r = resultat({
+        yVid85: yRör,
+        targetPassages: [{
+          t: t0 + 60000, iso: '', mmsi: Y, bridge: 'Stridsbergsbron',
+        }],
+      });
+      const sätt = (idx, x) => {
+        r.bridgeTextTransitions[idx].text = x;
+        r.bridgeTextLeads[idx].text = x;
+      };
+      // Från 4 (≤ 5, mjukzonen) prövas hoppet bara om tiden studsar tillbaka.
+      sätt(0, på(4));
+      sätt(2, `${kö}; ${på(17)}`);
+      sätt(3, `${kö}; ${på(5)}`);
+      expect(sågtand(r)).toHaveLength(1);
+      // Utan fallet (17 → 16) står bytet sig.
+      sätt(3, `${kö}; ${på(16)}`);
+      expect(sågtand(r)).toEqual([]);
+    });
+
+    test('en ny nivå som sjunker i normal takt (14 → 13) godtas', () => {
+      expect(sågtand(med([[2, 14], [3, 13]]))).toEqual([]);
+    });
+
+    test('gränsen är 6 min: 14 → 9 bryter inte nivån, 14 → 8 gör det', () => {
+      expect(sågtand(med([[2, 14], [3, 9]]))).toEqual([]);
+      expect(sågtand(med([[2, 14], [3, 8]]))).toHaveLength(1);
+    });
+
+    test('ett fall efter 120 s räknas inte', () => {
+      const r = med([[2, 14], [3, 7]]);
+      const sent = t0 + (85 + 121) * 1000;
+      r.bridgeTextTransitions[3].t = sent;
+      r.bridgeTextTransitions[3].iso = new Date(sent).toISOString();
+      r.bridgeTextLeads[3].t = sent;
+      expect(sågtand(r)).toEqual([]);
+    });
+
+    test('ett fall som bärs av en annan båt bryter inte den nya ledarens nivå', () => {
+      const r = med([[2, 14], [3, 7]]);
+      r.bridgeTextLeads[3].leads = [{ bridge: 'Stridsbergsbron', mmsi: 'annan' }];
+      expect(sågtand(r)).toEqual([]);
+    });
   });
 
   test('kryphålet: två båtar vars ETA växelvis visas, utan kö eller passage, fälls', () => {

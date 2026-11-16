@@ -415,6 +415,14 @@ döms som förut. Av F01-klustrets 30 världar i standardkörningen är det två
 (246 i kö, 1788 passerat); 23 är ledare vars ETA nollades medan hon fortfarande
 räknades i gruppen och 5 är hopp för samma båt eller från "strax", och de står
 kvar som kandidater att triagera.
+Bytet förklarar bara vems tid det är, inte att den nya båtens första tid är
+rätt (granskningen 2026-11-16, M1: en mutant med +7 min på första texten efter
+bytet gömdes i 246, 7 → 21 → 14, och 1788, 4 → 17 → 10). Undantaget gäller
+därför bara om den nya nivån håller: ingen senare tid för samma nya ledare inom
+120 s får ligga 6 min eller mer under. Gränserna är regelns egna fönster och
+steg. Båda mutantspikarna fälls, 246 och 1788 i den orättade appen undantas
+fortfarande, och banken och k1–k3 ger samma utslag. En bestående felnivå hos
+den nya ledaren kan regeln inte se.
 Domarlogiken har EGNA enhetstester i `tests/replay-invariants-unit.test.js` —
 ändrar du en invariant, uppdatera dem.
 

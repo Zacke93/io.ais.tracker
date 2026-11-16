@@ -345,6 +345,18 @@ function validateInvariants(result) {
   // komma från en annan båts närhet). Ett ledarbyte utan sådant bevis, till
   // exempel två båtar vars ETA växelvis visas, eller en ledare vars ETA
   // försvann för att hon tystnade, döms som förut.
+  // NIVÅN MÅSTE HÅLLA (granskningen 2026-11-16, M1): bytet förklarar bara att
+  // tiden tillhör en ny båt, inte att den nya båtens första tid är rätt. En
+  // spik på första texten efter bytet (värld 246: 7 → 21 → 14) gömdes annars.
+  // Därför godtas bytet bara om ingen senare tid för SAMMA nya ledare inom
+  // INV3_LEADER_HOLD_MS ligger INV3_LEADER_DROP_MIN eller mer under. Gränserna
+  // är regelns egna (120 s-fönstret och 6-minuterssteget): ett lika stort fall
+  // inom samma fönster för en och samma båt är den sågtand regeln finns för.
+  // En bestående felnivå hos den nya ledaren kan regeln inte se.
+  const INV3_LEADER_HOLD_MS = 120 * 1000;
+  const INV3_LEADER_DROP_MIN = 6;
+  const newLevelHolds = (series, i) => !series.slice(i + 1).some((s) => s.t - series[i].t <= INV3_LEADER_HOLD_MS
+    && s.lead === series[i].lead && s.eta <= series[i].eta - INV3_LEADER_DROP_MIN);
   const leaderChangeExplained = (prev, cur, bridge) => {
     if (!prev.lead || !cur.lead || prev.lead === cur.lead || prev.eta < 1) return null;
     const förra = cur.meta && Array.isArray(cur.meta.vessels) ? cur.meta.vessels.find((v) => v && String(v.mmsi) === prev.lead) : null;
@@ -388,7 +400,8 @@ function validateInvariants(result) {
             }
           }
         }
-        if ((!fromSoftZone || revertsQuickly) && !leaderChangeExplained(series[i - 1], series[i], bridge)) {
+        if ((!fromSoftZone || revertsQuickly)
+            && !(leaderChangeExplained(series[i - 1], series[i], bridge) && newLevelHolds(series, i))) {
           violations.push(`ETA-SÅGTAND UPP: ${series[i].iso} ${bridge} ${series[i - 1].eta}→${series[i].eta} på ${Math.round(dt)}s`);
         }
       }
