@@ -655,6 +655,17 @@ Dedup-lagren:
      ankomstsidan när båten rör sig i nuet (sog minst 2,0 kn, samma gräns som
      RE_CROSS och C2; utan fart ett segment på minst 100 m), eller till linjen
      (±10 m) i transitfart (`BRIDGE_OPENING.QUAY_TRANSIT_PROOF_SOG_KN`, 3,13 kn).
+     **U37 del 1** (dirigentens beslut 2026-11-16, nattjaktens F15): i transitfart
+     räcker korsningsfixen vid vilken kadens som helst (bevis `linje-transit`):
+     korsningen noterad i just den fixen, fixen entydigt (över 10 m) på
+     ankomstsidan, föregående fix entydigt på bortre sidan, första fixen på
+     ankomstsidan och bokföringen i segmentet. LINNEA 2 korsade Klaffbron i 5,8 kn, fixen 9 s senare
+     låg 26 m ut (segment 24 s) och nästa fix kom 421 s senare; returnotisen kom
+     7 min sent tillsammans med "närmar sig Olidebron". En båt i över 3 kn som är
+     förbi linjen med kursen mot ankomstsidan hinner sällan vända inom bron. En fix
+     PÅ linjen (inom ±10 m) släpps fortfarande bara vid gles kadens: i
+     motfallssvepet gav en båt som bromsar till 3,25 kn mot linjen och stannar
+     eller vänder 3–8 m förbi den annars 5 falska returer på 240 banor.
      En båt som bromsar in för att vänta vid linjen uppfyller inget av dem inom
      appens brusmodell: kravet på 30 m ut betyder att en båt som i själva verket
      ligger kvar på bortre sidan bara släpps av ett brus på över 30 m längs
@@ -3703,6 +3714,15 @@ passagen; en båt som guppar eller väntar vid bron får fortfarande en notis pe
   ankomstsidan. Uppmätt rest i revision 4: 5 av 48 banor vid tät AIS och 2 av 48 vid gles AIS
   ger ett falskt eller för tidigt släpp (revision 3: 11 och 13), 0 av 192 vid ±20–25 m.
   Registrerad som känd gräns.
+- **U37 del 1 (rättningsomgång 3, 2026-11-16):** vid tät kadens krävde beviset 30 m ut eller två
+  fixar, och antog att nästa fix kommer inom "precis passerat"-fönstret. Nattjaktens F15
+  (aisstream klass A, glapp 421 s efter korsningsfixen, fältets p97–98) visade att det inte
+  håller. Korsningsfixen i transitfart släpps nu direkt (villkor 7d i
+  `releaseReturnPassage`), när den ligger entydigt bortom linjen. Motfallen (stopp på
+  linjen, guppande ±30 m i upp till 1,5 kn, kurs bort, fart 3,0 kn, osäker position,
+  bokföring före segmentet, fixen på linjen vid tät kadens) släpps inte; låsta i `tests/u37-retur-linjefix-transit.test.js` för alla fem
+  broar i båda riktningar och i de syntetiska scenarierna `retur-tät-kadens-…` och
+  `vänder-och-stannar-på-Klaffbrons-linje-…`. Banken och fältkörningarna k1/k2 påverkas inte.
 
 ## 10. Söndagsfältet 2026-08-09/10 (commits a9f2a20, ce6a946, b1a7ba3 + WS-3)
 

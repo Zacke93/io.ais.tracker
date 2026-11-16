@@ -3170,6 +3170,85 @@ const SCENARIOS = [
       }],
     },
   })),
+  // U37 del 1 (rättningsomgång 3, 2026-11-16; nattjaktens F15, värld 16704):
+  // RETUR VID TÄT KADENS, KORSNINGSFIXEN INOM 30 m OCH SEDAN TYSTNAD. Båten
+  // passerar bron, vänder 176 m bortom och går tillbaka i 5,8 kn med 15–20 s
+  // kadens. Fixen före korsningen ligger 35 m på bortre sidan, korsningsfixen
+  // 20 s senare ~25 m ut på ankomstsidan, och nästa fix kommer först ~410 s
+  // senare, 1,2 km bort. U14 krävde 30 m ut vid tät kadens: returnotisen kom
+  // vid nästa fix, ~7 min sent. PLACERINGEN ÄR TESTET: korsningsfixen ska
+  // ligga entydigt (> 10 m) men under 30 m ut, och tystnaden börja direkt
+  // efter den. Benen startar vid bortre-sidans fix, så rutnätet är fast.
+  // Fältmotsvarigheten är aisstream klass A (fältets p97–98 för 421 s).
+  ...[
+    {
+      label: 'norrut ut, söderut tillbaka genom Klaffbron',
+      seed: 16704,
+      bro: 'Klaffbron',
+      broS: METRICS.cum[2],
+      dir: 1,
+    },
+    {
+      label: 'söderut ut, norrut tillbaka genom Stridsbergsbron',
+      seed: 16705,
+      bro: 'Stridsbergsbron',
+      broS: METRICS.cum[4],
+      dir: -1,
+    },
+  ].map((k) => ({
+    name: `retur-tät-kadens-korsningsfix-25m-sedan-tystnad, ${k.label} (nattjakten F15, U37)`,
+    seed: k.seed,
+    vessels: [{
+      mmsi: `9${k.seed}001`,
+      name: `SYNT-RETUR-${k.seed}`,
+      startS: k.broS - k.dir * 1500,
+      legs: [
+        { toS: k.broS + k.dir * 176, speedKn: 5.8, intervalS: 15 },
+        { toS: k.broS + k.dir * 35, speedKn: 5.8, intervalS: 15 },
+        {
+          toS: k.broS - k.dir * 1300,
+          speedKn: 5.8,
+          intervalS: 20,
+          gapFromS: k.broS - k.dir * 40,
+          gapToS: k.broS - k.dir * 1240,
+        },
+      ],
+    }],
+    expect: {
+      minPassagesPerBridge: { [k.bro]: 2 },
+      minNotifiedPerBridge: { [k.bro]: 2 },
+      maxNotifiedPerBridge: { [k.bro]: 2 },
+      maxNoticeDelayS: { [k.bro]: 60 },
+    },
+  })),
+  // U37 del 1, motfall: VÄNDER, GÅR TILLBAKA I 5,8 kn OCH STANNAR PÅ LINJEN
+  // vid tät kadens (10 s) med ±10 m brus, ligger där i 10 min och vänder sedan
+  // bort igen. Sanningen är EN passage. Inbromsningen sker i benet före
+  // stoppet, så stillafixarna rapporterar 0,1 kn och slumpad kurs: korsningsfixen
+  // i transitfart (U37 del 1) får aldrig uppstå. Passagelogikens falska
+  // bokföring vid linjen ger INV-5 som i U14-vakterna ovan.
+  {
+    name: 'vänder-och-stannar-på-Klaffbrons-linje-tät-AIS-efter-5,8kn (U37-vakt)',
+    seed: 16706,
+    vessels: [{
+      mmsi: '916706001',
+      name: 'SYNT-LINJESTOPP',
+      jitterM: 10,
+      startS: METRICS.cum[2] - 900,
+      legs: [
+        { toS: METRICS.cum[2] + 176, speedKn: 5.8, intervalS: 10 },
+        { toS: METRICS.cum[2] + 40, speedKn: 5.8, intervalS: 10 },
+        { toS: METRICS.cum[2], speedKn: 1.5, intervalS: 10 },
+        { stopS: 600, stopIntervalS: 10, stopCogRandom: true },
+        { toS: METRICS.cum[2] + 900, speedKn: 5, intervalS: 10 },
+      ],
+    }],
+    expect: {
+      minNotifiedBridges: ['Klaffbron'],
+      maxNotifiedPerBridge: { Klaffbron: 1 },
+      toleratedInvariants: [/^MISSAD MÅLBRO-NOTIS: \d{9}:Klaffbron — /],
+    },
+  },
 ];
 
 function runScenario(scenario) {
