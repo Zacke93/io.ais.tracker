@@ -1751,6 +1751,27 @@ efteråt.
    fördelningsmultiset i `corpora-distribution.json` (genereras från en
    verifierad körning).
 
+**Efter varje fältkörning: räkna fartspikskandidaterna (U28, dirigentens beslut
+2026-11-16).** Fartspiksvakten (grenen `omg2/ETA1-S`) är inte införd; i stället
+loggar kalkylatorn `[ETA_SOG_SPIKE_CANDIDATE]` (vanlig loggrad, inte debug)
+när dess signatur håller: samplet direkt efter ett målbyte (tom fartbuffert),
+förra fixen 20–90 s bakåt, båten på väg (förra farten ≥ 3 kn och bekräftad av
+förflyttningen), rapporterad fart ≥ 1,8 × både förra farten och
+förflyttningsfarten och minst 3 kn över, inget av samplen GPS-misstänkt.
+Raden ändrar ingenting. Räkna och redovisa dem i fältgranskningen:
+
+```bash
+grep -c 'ETA_SOG_SPIKE_CANDIDATE' dirigent/logs/app-<körning>.log
+grep 'ETA_SOG_SPIKE_CANDIDATE' dirigent/logs/app-<körning>.log
+```
+
+Varje rad bär mmsi, rapporterad fart, förflyttningsfart (meter och sekunder
+mellan fixen), förra farten och avståndet till målbron. Jämför med texten i
+samma minut: gav spiken ett för tidigt "strax"? Ägaren får därmed veta hur ofta
+det händer innan vakten tas upp igen (villkoren för det står i grenens
+docs/VALIDATION.md, avsnittet "Fartspiksvakten", och i fältgranskningen F13).
+Hittills: 1 fall på ca 100 h fält (körning 2, 13 nov 13:56Z), 0 i 519 h bank.
+
 ### F07 R7, 2026-11-16: regeln gäller även uppmätta osedda baslinjer
 
 Steget togs separat ovanpå F07 (granskning 4). Kravet för att det skulle få gå in var att
