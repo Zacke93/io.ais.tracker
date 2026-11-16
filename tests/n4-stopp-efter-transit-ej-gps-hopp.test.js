@@ -3,9 +3,10 @@
 /**
  * U40 (N4, 2026-11-16) — ETT STOPP SOM FÄRDEN FÖRKLARAR ÄR INGET GPS-HOPP.
  *
- * SITUATIONEN. En båt går söderut i 5,2 kn, 517 m norr om Stridsbergsbron.
+ * SITUATIONEN. En båt går söderut i 7 kn, 517 m norr om Stridsbergsbron.
  * Nästa fix kommer 200 s senare: 120 m bortom bron, sog 0 och en stillakurs
- * 44,8° från den gamla. 638 m på 200 s är 6,2 kn i snitt. Stillakursen pekar
+ * 44,8° från den gamla. 638 m på 200 s är 6,2 kn i snitt (0,89 × startfarten:
+ * hon har bromsat). Stillakursen pekar
  * ~50° fel mot förflyttningen och snittfarten är över 5 kn mot sog 0, så
  * legitimitetspoängen hamnar under 0,4 och analysen dömde fixen som GPS-hopp
  * (`likely_gps_error`). Orimlighetsflaggan spärrade passagen tills nästa fix
@@ -35,6 +36,7 @@ const BridgeRegistry = require('../lib/models/BridgeRegistry');
 const SystemCoordinator = require('../lib/services/SystemCoordinator');
 const GPSJumpGateService = require('../lib/services/GPSJumpGateService');
 const { BRIDGES } = require('../lib/constants');
+const geometry = require('../lib/utils/geometry');
 const { buildPath, pathMetrics, pointAt } = require('./replay-validation/scenarioGenerator');
 
 const REAL_DATE_NOW = Date.now;
@@ -89,8 +91,8 @@ describe('U40/N4 A+B: analysatorn', () => {
   };
   const STOPP = dest(STRID, SYD_BRG, 120);
 
-  test('KÄRNAN: transit 5,2 kn → stopp 120 m bortom bron på 200 s blir osäkert, inte GPS-hopp (rött före N4)', () => {
-    const r = analysera(STOPP);
+  test('KÄRNAN: transit 7 kn → stopp 120 m bortom bron på 200 s blir osäkert, inte GPS-hopp (rött före N4)', () => {
+    const r = analysera(STOPP, {}, { sog: 7, _rawPositionSog: 7 });
     expect(r.action).toBe('accept_with_caution');
     expect(r.reason).toBe('stop_after_transit');
     expect(r.isGPSJump).toBe(false);
@@ -134,13 +136,18 @@ describe('U40/N4 A+B: analysatorn', () => {
     expect(r).toMatchObject({ action: 'gps_jump_detected', reason: 'likely_gps_error' });
   });
 
-  test('MOTFALL skärpningen: snittfart över 1,2 × startfarten ⇒ fortfarande GPS-hopp', () => {
+  test('MOTFALL skärpningen: snittfart över 1,1 × startfarten ⇒ fortfarande GPS-hopp', () => {
     // 638 m på 150 s = 8,3 kn snitt mot 5,2 kn start (1,59 ×): ingen båt som
     // stannat tvärt hinner det. Villkor 2 (5,2 × 150 s × 2 = 802 m) håller.
     const r = analysera(STOPP, { dtS: 150 });
     expect(r).toMatchObject({ action: 'gps_jump_detected', reason: 'likely_gps_error' });
-    // 1,19 × (200 s) släpps
-    expect(analysera(STOPP).reason).toBe('stop_after_transit');
+    // Gränsen: kvot 1,09 släpps, kvot 1,11 spärras (5,2 kn start, samma sträcka;
+    // båda snittfarterna är över 5 kn, så analysen hamnar i hoppgrenen).
+    const d = geometry.calculateDistance(START_POS.lat, START_POS.lon, STOPP.lat, STOPP.lon);
+    const dtFör = (kvot) => (d / 1852 / (kvot * 5.2)) * 3600;
+    expect(analysera(STOPP, { dtS: dtFör(1.09) }).reason).toBe('stop_after_transit');
+    expect(analysera(STOPP, { dtS: dtFör(1.11) })).toMatchObject({ action: 'gps_jump_detected', reason: 'likely_gps_error' });
+    expect(GPSJumpAnalyzer.STOP_AFTER_TRANSIT_MAX_SPEED_RATIO).toBe(1.1);
   });
 
   test('SKÄRPNINGEN gäller bara hoppgrenen: K1:s regel är oförändrad', () => {
@@ -253,7 +260,8 @@ describe('U40/N4 C: riktiga pipelinen', () => {
   test('KÄRNAN: stopp 120 m bortom Stridsbergsbron efter 200 s bokför passagen på stillafixen (rött före N4)', () => {
     const { svc, gate } = bygg();
     const MMSI = '265994001';
-    transit(svc, MMSI);
+    // Startfixen i 7 kn: 638 m på 200 s är 0,89 × startfarten.
+    TRANSIT.forEach((r, i) => fix(svc, MMSI, i === TRANSIT.length - 1 ? { ...r, sog: 7 } : r));
     expect(svc.vessels.get(MMSI).targetBridge).toBe('Stridsbergsbron');
     const efter = fix(svc, MMSI, {
       s: 1086 + 200, ...dest(STRID, SYD_BRG, 120), sog: 0, cog: 164.1,
@@ -270,9 +278,9 @@ describe('U40/N4 C: riktiga pipelinen', () => {
     const { svc } = bygg();
     const MMSI = '265994005';
     TRANSIT.forEach((r, i) => fix(svc, MMSI, i === TRANSIT.length - 1 ? { ...r, sog: 7 } : r));
-    // 718 m på 180 s (7,8 kn snitt, 1,1 × startfarten; över 5 kn mot sog 0).
+    // 718 m på 190 s (7,3 kn snitt, 1,05 × startfarten; över 5 kn mot sog 0).
     const efter = fix(svc, MMSI, {
-      s: 1086 + 180, ...dest(STRID, SYD_BRG, 200), sog: 0, cog: 164.1,
+      s: 1086 + 190, ...dest(STRID, SYD_BRG, 200), sog: 0, cog: 164.1,
     });
     expect(efter._positionAnalysis.reason).toBe('stop_after_transit');
     expect(efter.passedBridges || []).toContain('Stridsbergsbron');
