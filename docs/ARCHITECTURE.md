@@ -2653,8 +2653,11 @@ på medelfarten lovar strax (2,9) och EMA:n för värdet till 2,99. Texten sa
   ett fix nudda 3,0 när EMA:n klättrar, fast texten (andra passet) säger
   strax hela tiden. Med förra passet som jämförelse gav regeln då strax →
   om 3 → strax. Föregående fix är den senaste historikposten från ett
-  annat sampel (`sampleKeyOf`: position, fart, kurs); en stillastående båt
-  har inget sådant, och regeln håller inte.
+  annat sampel (`sampleKeyOf`: position, fart, kurs). Sänder en
+  stillastående båt identiska ramar letar villkoret sig förbi dem tillbaka
+  till den sista fixen med ett annat sampel (i praktiken den sista rörliga),
+  så beslutet blir detsamma på varje identisk ram som på den första; finns
+  ingen sådan post håller regeln inte.
 - *Varför villkoren ser ut så:* det är E2:s inbromsningsregel (U20) med
   E2-revisionens marginaler. Nytt inträde: en redan given strax lyftes annars
   till "om 3" (RUNA, quick-värld 286). Kvoten och marginalen: utan dem höll

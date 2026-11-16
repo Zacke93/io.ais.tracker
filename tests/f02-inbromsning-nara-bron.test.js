@@ -179,6 +179,39 @@ describe('F02: inbromsningsregeln (enhet, _processETAWithProtection)', () => {
     expect(holdLines()).toHaveLength(0);
   });
 
+  // Identiska ramar (samma position, fart och kurs): villkor 1 letar sig
+  // förbi dem till den sista fixen med ett annat sampel, så beslutet blir
+  // detsamma på varje identisk ram som på den första.
+  test.each([
+    ['den första ramen håller (förra rörliga fixet "om 3")', 3.4, 1.1, true],
+    ['den första ramen håller inte (förra rörliga fixet strax)', 2.1, 1.1, false],
+  ])('identiska ramar: %s — samma beslut på varje identisk ram', (_l, movingPublished, sog, expectHold) => {
+    logger = {
+      debug: jest.fn(), log: jest.fn(), error: jest.fn(), warn: jest.fn(),
+    };
+    calc = new ProgressiveETACalculator(logger, new BridgeRegistry());
+    calc._recordETAHistory(MMSI, {
+      rawETA: movingPublished,
+      protectedETA: movingPublished,
+      processedETA: movingPublished,
+      timestamp: Date.now() - 30000,
+      decelSampleKey: '58.27:12.27:4.5:20',
+    });
+    calc._speedBuffers.set(MMSI, [4.5, 2.5, 1.1]);
+    const frame = () => ({
+      mmsi: MMSI, lat: 58.28, lon: 12.28, sog, cog: 20, status: 'en-route', targetBridge: null,
+    });
+    const outs = [1, 2, 3, 4].map(() => calc._processETAWithProtection(frame(), 2.0, null));
+    const held = holdLines().length;
+    if (expectHold) {
+      for (const o of outs) expect(o).toBe(3);
+      expect(held).toBe(4);
+    } else {
+      for (const o of outs) expect(o).toBeLessThan(3);
+      expect(held).toBe(0);
+    }
+  });
+
   // Granskningen av C-decel, M1: hållningen gäller bara det som publiceras.
   test('historiken bär det OHÅLLNA värdet; det hållna 3 bär bara publiceringen', () => {
     expect(run(XENIA)).toBe(3);
