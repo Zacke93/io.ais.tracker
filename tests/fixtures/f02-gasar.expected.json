@@ -1,0 +1,134 @@
+{
+ "kalla": "regelns utfall på C-decel ovanpå 57e4789 (texter och notiser)",
+ "bridgeTextTransitions": [
+  [
+   1784548800015,
+   "En båt på väg mot Klaffbron, beräknad broöppning om 12 minuter"
+  ],
+  [
+   1784548860040,
+   "En båt på väg mot Klaffbron, beräknad broöppning om 11 minuter"
+  ],
+  [
+   1784548920040,
+   "En båt på väg mot Klaffbron, beräknad broöppning om 10 minuter"
+  ],
+  [
+   1784548980040,
+   "En båt på väg mot Klaffbron, beräknad broöppning om 9 minuter"
+  ],
+  [
+   1784549040040,
+   "En båt på väg mot Klaffbron, beräknad broöppning om 8 minuter"
+  ],
+  [
+   1784549100040,
+   "En båt på väg mot Klaffbron, beräknad broöppning om 7 minuter"
+  ],
+  [
+   1784549160040,
+   "En båt på väg mot Klaffbron, beräknad broöppning om 6 minuter"
+  ],
+  [
+   1784549220040,
+   "En båt på väg mot Klaffbron, beräknad broöppning om 5 minuter"
+  ],
+  [
+   1784549280040,
+   "En båt på väg mot Klaffbron, beräknad broöppning om 4 minuter"
+  ],
+  [
+   1784549340040,
+   "En båt på väg mot Klaffbron, beräknad broöppning om 3 minuter"
+  ],
+  [
+   1784549460040,
+   "En båt på väg mot Klaffbron, beräknad broöppning strax"
+  ],
+  [
+   1784549580025,
+   "En båt på väg mot Stridsbergsbron, beräknad broöppning om 6 minuter"
+  ],
+  [
+   1784549640040,
+   "En båt på väg mot Stridsbergsbron, beräknad broöppning om 5 minuter"
+  ],
+  [
+   1784549700040,
+   "En båt på väg mot Stridsbergsbron, beräknad broöppning om 4 minuter"
+  ],
+  [
+   1784549820040,
+   "En båt på väg mot Stridsbergsbron, beräknad broöppning strax"
+  ],
+  [
+   1784549970060,
+   "Inga båtar är i närheten av Klaffbron eller Stridsbergsbron"
+  ]
+ ],
+ "notifications": [
+  [
+   1784548800000,
+   "265100867",
+   "Kanalinfarten",
+   1
+  ],
+  [
+   1784548980000,
+   "265100867",
+   "Olidebron",
+   1
+  ],
+  [
+   1784549460000,
+   "265100867",
+   "Klaffbron",
+   2
+  ],
+  [
+   1784549760000,
+   "265100867",
+   "Järnvägsbron",
+   2
+  ],
+  [
+   1784549880000,
+   "265100867",
+   "Stridsbergsbron",
+   1
+  ]
+ ],
+ "basNotiser": [
+  [
+   1784548800000,
+   "265100867",
+   "Kanalinfarten",
+   1
+  ],
+  [
+   1784548980000,
+   "265100867",
+   "Olidebron",
+   1
+  ],
+  [
+   1784549460000,
+   "265100867",
+   "Klaffbron",
+   2
+  ],
+  [
+   1784549760000,
+   "265100867",
+   "Järnvägsbron",
+   2
+  ],
+  [
+   1784549880000,
+   "265100867",
+   "Stridsbergsbron",
+   1
+  ]
+ ],
+ "basTexterLika": false
+}

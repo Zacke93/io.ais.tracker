@@ -1160,6 +1160,78 @@ sampelnyckelvakten, nollställningen vid nytt målbyte, rensningen vid andra
 skäl, bevis i en `ETA_STALE_HARD`-hold och holdens sampel i den riktiga
 bufferten fäller vart och ett minst ett test.
 
+### F02, 2026-11-16: inbromsningsregeln
+
+Regeln (ARCHITECTURE §8 (e) "F02 gick in") håller det publicerade värdet på
+3 min när buffertens medelfart ensam lovar strax vid en inbromsning UTANFÖR
+300 m från målbron. Kravet var att ingen enskild ETA-uppgift skulle bli
+sämre (U28). Efter granskningen (H1: avståndet prövas direkt; M1: historiken
+bär det ohållna värdet) är utfallet:
+
+`measure:eta` mot baslinjen på `187f31e` (25 korpusar):
+- 0 av 3 198 parade påståenden ändras.
+- Ett påstående tillkommer och redovisas till ägaren: MALUCA 20260712-25h
+  07:42:16, "om 3" mot sanningen 2,8, fel +0,2. Det ersätter en uppfylld
+  strax.
+- Strax-löftet går från n 218 och 65,14 % ≤ 3 min till n 216 och 65,28 %.
+  MALUCA:s uppfyllda strax och 42h:s ouppfyllda strax 09:12:50 försvinner.
+  Den senare strax 09:13:57 tillskrivs gruppdominans och räknas inte i
+  löftet, så en del av förbättringen är attribution.
+- Notiser, öppningskort, antal brotextövergångar och oattribuerade är
+  oförändrade i banken.
+
+Två låsta golden-textrader flyttas. Ingen omlåsning är gjord (U13).
+- **20260712-25h 07:42:16, Klaffbron:** "Två båtar … strax" blir "… om 3
+  minuter". MALUCA bromsade från 5,5 till 1,3 kn 320 m före bron och korsade
+  07:45:06 (`gt-passages`). Strax var alltså ett uppfyllt löfte.
+- **20260806-42h, Stridsbergsbron:** "Fem båtar … strax" kommer 09:13:57 i
+  stället för 09:12:50. Båtarna bromsade in och köade 90–260 m norr om
+  bron; ledaren AGULHAS korsar enligt mätningens härledda sanning cirka
+  53 min senare. Båda strax-siffrorna är för tidiga, och den nya kommer
+  67 s senare.
+- Den nya korpusen 20261114-34h och fältkörningarna k1–k3 är bitlika.
+
+Granskarens syntetiska rutnät (450 båtar mot Klaffbron, V 4–8 kn, fix var
+30/60/90 s; 144 båtar med fix var 120–180 s; 54 konvojer), före → efter
+rättningen av H1 och M1:
+- hållningar innanför 300 m: 180 → 0, 100 → 0 och 5 → 0;
+- Klaffbronotiser som ändras mot basen: 27 (22 bättre, 5 sämre) → 0,
+  2 (sämre) → 0 och 1 (sämre) → 0; inga öppningsvarningar ändras;
+- texten skiljer från basen för lika många båtar som förut (111, 29 och 0),
+  i samma klasser: strax kommer senare, aldrig tidigare. I tre fall med fix
+  var 180 s kommer strax aldrig före passagen ("om 3" mot sanningen 2,8–3,0);
+- oscillationen strax → om N → strax: 34 i basen, 2 med regeln. De två
+  (8 kn, fix var 90 s, kö eller kryp 400 m före) finns också i basen, och
+  regelns strax kommer där 1,5 min senare.
+
+Testen (`tests/f02-inbromsning-nara-bron.test.js`, syntetiska positioner
+söderifrån mot Klaffbron): enhetsfall för varje delvillkor åt båda håll,
+hela kedjan för XENIA-formen (före regeln strax 10,0 min före korsningen,
+sedan "om 4" och strax igen; nu en enda strax, vid imminent inom 300 m,
+också med U30 inne) och sju motfall med låsta förväntningar, oförändrade
+mot basen. Fyra av motfallen blir röda när just sitt villkor tas bort (nytt
+inträde, nytt inträde läst på föregående fix, momentanfartens ETA och
+avståndet till bron); tre är regressionslås (jämn fart, lätt inbromsning,
+gammal position). Tre utfall är låsta med regeln:
+- notisfallet ur granskarens rutnät (6 kn, fix var 60 s, broms till 1,8 kn
+  375 m före): målbronotisen "om 2" som i basen, röd med ett hållet värde i
+  historiken (M1) och när K6-passet inte håller;
+- samspelet med U30: bromsar 454 m före och står still 418 m före — "om 3",
+  stigande värden och "ETA okänd" efter 5 min, utan blink;
+- XENIA-formen med U30 inne.
+
+Samspelsprovet mot U30 (`57e4789`) hittade ett blink som regeln själv gav:
+en båt som stannar 332 m före bron fick strax → om 3 → strax, eftersom
+villkoret "nytt inträde" läste förra PASSET (3,0 när EMA:n klättrade) i
+stället för förra FIXET (texten sa strax). Villkoret läser nu föregående
+fix; banken, rutnätet och U28-mätningen är oförändrade av det.
+
+Mutationsprovet fäller 17 av 18 mutanter, bland dem avståndsprovet och dess
+gräns vid exakt 300,0 m, ett hållet värde i historiken (M1), villkor 1 läst
+på det ohållna värdet (K6-passet) och villkor 1 läst på förra passet i
+stället för förra fixet. Den överlevande är villkoret "snitt > momentan",
+som är ekvivalent: kvot ≥ 1,2 medför snitt > momentan.
+
 ### F07, 2026-11-15: klampen försvarar det användaren ser
 
 Ändringen (ARCHITECTURE §8 (e), "F07 gick in"; ETA-etappen under ägarbeslutet

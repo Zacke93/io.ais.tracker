@@ -339,6 +339,23 @@ F18 och F19 är beslut eller design och står under Beslutsfrågor (punkt 3).
   osedd baslinje, sedan R7 extrapolerad eller uppmätt (med rimlighetsprov av det
   fix som sänker texten). `docs/ARCHITECTURE.md` §8 (e)
   "F07 gick in", mätningen i `docs/VALIDATION.md` §ETA-mätharnessen.
+- **F06 rättat 2026-11-16** (ETA-etappen under ägarbeslutet U28; kort F02 i
+  standardkörningen 2026-11-14): inbromsningsregeln håller ETA:n på 3 min när
+  buffertens medelfart ensam lovar strax (E2:s regel med revisionens
+  marginaler). Hysteres kring 3-minutersgränsen (rättningsriktningen ovan)
+  prövades och förkastades. `docs/ARCHITECTURE.md` §8 (e) "F02 gick in",
+  mätningen i `docs/VALIDATION.md` "### F02, 2026-11-16".
+- **Kortet F02 står kvar som R0-kort efter rättningen, med en annan
+  mekanism** (granskningen av C-decel, buggjägaren standard seed 1 på
+  `187f31e` och med regeln). Klustret går från 16 till 15 världar; bara
+  XENIA (värld 192) försvinner. Den kvarvarande R0-världen 1183 (F-USVÄNG,
+  Stridsbergsbron 2026-07-18 11:25:38) är en egen sak, inte en inbromsning:
+  TROLLA:s strax leder Stridsbergsbron, och MASEN får målbron efter sin
+  U-sväng vid Järnvägsbron med tom historik medan hon accelererar (bufferten
+  2,7 kn). Hennes första värde, 3,79, tar över texten som "om 4", och 30 s
+  senare ger imminent-flaggan strax igen — strax → om 4 → strax genom ett
+  ledarbyte mellan två båtar (F01-släkt). Inte rättat; de 14 R1-medlemmarna
+  är inte spårade en och en.
 
 ### 8. LOW_SPEED/INSUFFICIENT_MOVEMENT-flappen
 
