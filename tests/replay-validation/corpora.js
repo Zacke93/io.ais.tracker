@@ -1046,7 +1046,14 @@ module.exports = [
     locked: true,
     lockEvents: true,
     expectedNotifications: 86,
-    note: 'Omlåst 2026-11-04 (U14, kort B01): 85→86. ELFKUNGEN/265573130 får en egen notis för returpassagen '
+    note: 'GOLDEN OMLÅST 2026-11-16 (U31, inbromsningsregeln, fråga F19): en rad byter text, antalet övergångar är '
+      + 'oförändrat (137). 13/7 07:42:16.830 "Två båtar på väg mot Klaffbron, beräknad broöppning strax" blir "… om '
+      + '3 minuter". MALUCA 219028942 bromsade från 5,5 kn (07:39:49, 621 m före bron) till 1,3 kn (07:42:16, '
+      + '320 m före) och korsade Klaffbron 07:45:06.885 (gt, line), 2,8 min efter raden. Regeln håller ETA:n på '
+      + '3 min när medelfarten ensam lovar strax och båten är utanför 300 m. Mot sanningen 2,8 min är "om 3 '
+      + 'minuter" 0,2 min för sent där "strax" räknades som uppfyllt; raden godtas uttryckligen i U31. Notiser, '
+      + 'öppningsvarningar och passager är oförändrade. Dirigentens egen radvisa diff. '
+      + 'Omlåst 2026-11-04 (U14, kort B01): 85→86. ELFKUNGEN/265573130 får en egen notis för returpassagen '
       + 'söderut över Stallbackabron 13/7: "passerade Stallbackabron under AIS-tystnad" 12:26:57.910, 1265 m söder '
       + 'om bron, eta −1, already_passed. Rådatafacit (gt-passages): nordpassagen 11:22:54 är inferred i 77 min '
       + 'glapp (11:03:29→12:20:57), sydpassagen 12:21:51.259 är observerad (12:20:57 på 223 m norr, 12:26:57 på '
@@ -2400,7 +2407,13 @@ module.exports = [
       'DEFAULT-FLASH: 2026-08-06T08:47:00.040Z "Inga båtar" inklämd (30s) '
         + 'mellan två "En … Stridsbergsbron"-texter utan passage',
     ],
-    note: 'ÖPPNINGSFACIT OMLÅST 2026-11-09 (granskningen av familj F, M3 kajavgångsgrinden; '
+    note: 'GOLDEN OMLÅST 2026-11-16 (U31, inbromsningsregeln, fråga F19): en rad flyttas i tiden, antalet '
+      + 'övergångar är oförändrat (292). 7/8 "Fem båtar på väg mot Stridsbergsbron, beräknad broöppning strax" '
+      + 'kommer 09:13:57.873 i stället för 09:12:50.459; under de 67 sekunderna står "om 3 minuter" kvar. Första '
+      + 'korsningen av Stridsbergsbron därefter är NIGE-O 211216440 09:36:19.744 (gt, line), alltså 22–23 min '
+      + 'senare: gruppen låg i kö. En för tidig "strax" kommer 67 s senare; rättare enligt U13. Notiser, '
+      + 'öppningsvarningar och passager är oförändrade. Dirigentens egen radvisa diff. '
+      + 'ÖPPNINGSFACIT OMLÅST 2026-11-09 (granskningen av familj F, M3 kajavgångsgrinden; '
       + 'helgranskning-2026-11-03 "S/V REBEL (42h)"): Klaffbron:southbound 18 → 19, och golden-events får '
       + 'en varning till och en spärr mindre. S/V REBEL 265827650 varnades dag 1 Klaffbron#13 2026-08-06T10:30:04 '
       + '(900 m), gick in i Gästhamnen 10:34:35 och låg där över natten (sog 0, 7–13 m från gästhamnslinjen; '
