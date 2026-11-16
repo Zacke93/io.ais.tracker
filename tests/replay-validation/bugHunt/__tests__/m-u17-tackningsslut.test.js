@@ -203,6 +203,40 @@ describe('U17 (3″): täckningsslutet kom i tid', () => {
     });
   });
 
+  describe('saknat armvärde i släppet (granskningen 2026-11-16, L2)', () => {
+    // Math.min(slut, undefined) blev NaN och jämförelsen godkände; null
+    // räknades som 0. Nu prövas bara slutet ur händelsen (här bokföringen).
+    // Nyckeln finns men värdet saknas (en saknad nyckel fälls redan av
+    // formkontrollen, se sista testet i blocket).
+    const utanArm = (fynd, ctx, värde) => {
+      for (const v of domar(fynd, ctx).filter((x) => x.verdict.kind === 'täckningsslut')) v.arm.coverUntilMs = värde;
+    };
+    test.each([['undefined', undefined], ['null', null]])(
+      '[vakt] släppet två minuter efter bokföringens slut, armvärdet %s; KANDIDAT (1973)',
+      (_namn, värde) => {
+        const { fynd, ctx } = fall('w1973');
+        senareSläpp(fynd, ctx, 2 * 60000);
+        utanArm(fynd, ctx, värde);
+        expect(p17(fynd, ctx).skäl).toMatch(/kom mer än en tick efter täckningsslutet 15:42:25 som motorn räknar ur händelsen/);
+        expect(klassa(reg, fynd, ctx).klass).toBe('KANDIDAT');
+      },
+    );
+    test.each([['undefined', undefined], ['null', null]])(
+      '[träff] släppet i tid mot bokföringens slut, armvärdet %s; U17 (1973)',
+      (_namn, värde) => {
+        const { fynd, ctx } = fall('w1973');
+        utanArm(fynd, ctx, värde);
+        expect(klassa(reg, fynd, ctx).post).toBe(U17);
+      },
+    );
+    test('[vakt] saknas nyckeln fäller formkontrollen; KANDIDAT (1973)', () => {
+      const { fynd, ctx } = fall('w1973');
+      for (const v of domar(fynd, ctx).filter((x) => x.verdict.kind === 'täckningsslut')) delete v.arm.coverUntilMs;
+      expect(p17(fynd, ctx).skäl).toMatch(/utan arm\.coverUntilMs; predikatet läser inte en okänd form/);
+      expect(klassa(reg, fynd, ctx).klass).toBe('KANDIDAT');
+    });
+  });
+
   test('[vakt] går slutet inte att räkna alls blir predikatet falskt, inte godkänt (972 utan armvärde); KANDIDAT', () => {
     const { fynd, ctx } = fall('w972');
     släppet(fynd, ctx).arm.coverUntilMs = null;

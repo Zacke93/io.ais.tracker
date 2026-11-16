@@ -2756,7 +2756,14 @@ const PREDICATES = {
         for (const s of spår.filter((v) => v.verdict.kind === 'täckningsslut')) {
           const gräns = täckningsslutetsGräns(s, ws, cov, spår, m, f.bro, p);
           if (gräns.fel) return nej(gräns.fel);
-          if (s.t - Math.max(gräns.absT, Math.min(gräns.ms, s.arm.coverUntilMs)) > p.tickMs) {
+          // Saknat armvärde (granskningen 2026-11-16, L2): Math.min med
+          // undefined blev NaN och godkändes, och null räknades som 0. Då
+          // prövas bara det slut motorn räknar ur händelsen; går inte heller
+          // det att räkna är svaret nej.
+          const armSlut = s.arm && Number.isFinite(s.arm.coverUntilMs) ? s.arm.coverUntilMs : null;
+          if (!Number.isFinite(gräns.ms)) return nej(`${s.eventId}:s täckningsslut kan inte räknas (${gräns.hur})`);
+          const slut = armSlut === null ? gräns.ms : Math.min(gräns.ms, armSlut);
+          if (!(s.t - Math.max(gräns.absT, slut) <= p.tickMs)) {
             return nej(`släppet ${fmtT(s.t)} ur ${s.eventId} (varningen ${w.eventId} ${fmtT(w.t)}) kom mer än en tick efter `
               + `täckningsslutet ${fmtT(gräns.ms)} som motorn räknar ur händelsen (${gräns.hur}; armens ${fmtT(s.arm.coverUntilMs)}, `
               + `absorptionen ${fmtT(gräns.absT)}): släppet var sent, och U17 gäller säkerhetsvarningen vid täckningsslutet`);
