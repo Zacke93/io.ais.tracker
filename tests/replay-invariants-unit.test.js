@@ -814,6 +814,39 @@ describe('INV-22 förvarningsform efter rådatans passage (WARN)', () => {
       // Ett zonbesök åt andra hållet är ingen linjekorsning: flaggas.
       expect(inv22([notice], [crossing(), back(150000, { kind: 'zone' })])).toHaveLength(1);
     });
+
+    // Granskningen 2026-11-16 (L1): där sanningen vet när båten vände (L0)
+    // krävs att hon vänt efter passagen och senast vid notisen.
+    describe('med sanningens vändningar (L0)', () => {
+      const medL0 = (uturns, gt = [crossing(), back(150000)]) => validateWarnInvariants(
+        baseResult({ notifications: [notice] }), gt, { uturns },
+      ).filter((x) => x.startsWith('INV-22'));
+      const vänd = (t, mmsi = '265012090') => ({ mmsi, t, s: 0 });
+      const passageT = crossing().t;
+
+      test('vändning mellan passagen och notisen: undantas', () => {
+        // Passagen (t) ligger 52 s före notisen.
+        expect(medL0([vänd(tN - 30000)])).toEqual([]);
+        expect(medL0([vänd(passageT + 1)])).toEqual([]);
+        expect(medL0([vänd(tN)])).toEqual([]);
+      });
+
+      test('ingen vändning, vändning efter notisen eller före passagen: flaggas', () => {
+        expect(medL0([])).toHaveLength(1);
+        expect(medL0([vänd(tN + 1)])).toHaveLength(1);
+        expect(medL0([vänd(passageT)])).toHaveLength(1);
+        expect(medL0([vänd(passageT - 60000)])).toHaveLength(1);
+      });
+
+      test('en annan båts vändning räknas inte', () => {
+        expect(medL0([vänd(tN - 30000, '265999999')])).toHaveLength(1);
+      });
+
+      test('utan L0 (banken) räcker returkorsningen som förut', () => {
+        expect(medL0(undefined)).toEqual([]);
+        expect(medL0(null)).toEqual([]);
+      });
+    });
   });
 
   test('okänd riktning, annan båt, annan bro, zonbesök eller saknat facit: ingen dom', () => {

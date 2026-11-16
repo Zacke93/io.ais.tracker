@@ -243,7 +243,9 @@ function judgeBuilt({
   const gtAll = asGt(built.truth.L1.crossings);
   for (const f of health.h1(utfall)) fynd.push(mk(f));
   for (const f of health.h3(utfall.stderr.h3, h3Baslinje, { simTimmar: built.simTimmar, exempel: utfall.stderr.exempel })) fynd.push(mk(f));
-  const ex = existing.judgeExisting({ result: utfall.resultat, rows: built.rows, gt: gtAll });
+  const ex = existing.judgeExisting({
+    result: utfall.resultat, rows: built.rows, gt: gtAll, uturns: built.truth.L0.uturns,
+  });
   for (const f of ex.fynd) fynd.push(mk(f));
   const truthCtx = {
     result: utfall.resultat, rows: built.rows, truth: built.truth, world: spec, jsonlPath, namespaceEventIds, opts: {},

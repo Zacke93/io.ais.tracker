@@ -761,6 +761,12 @@ const INV22_SAME_CYCLE_MS = 1000;
 // SINE BRES på e51c7b6) har ingen returkorsning alls inom fönstret: båtarna
 // fortsatte bort, och bankens returresor kom tidigast 21 min efter passagen.
 const INV22_RETURN_WINDOW_MS = 300000;
+// VÄNDNINGEN (granskningen 2026-11-16, L1): där sanningen vet när båten
+// vände (buggjägarens L0, `opts.uturns`) krävs dessutom att hon vänt efter
+// den senaste korsningen och senast när notisen kom. Utan vändning var det
+// ingen förvarning inför returen. Mätt i de 180 U-svängsvärldarna kom de fyra
+// undantagna notiserna 129–230 s efter vändningen. Banken saknar L0 och dömer
+// som förut.
 
 let inv22Fairway = null;
 /**
@@ -783,7 +789,8 @@ function positionBeyondLine(n, crossing) {
   return crossing.dir === 'nord' ? rel > 0 : rel < 0;
 }
 
-function validateWarnInvariants(result, gtPassagesArg = null) {
+function validateWarnInvariants(result, gtPassagesArg = null, opts = {}) {
+  const uturns = Array.isArray(opts && opts.uturns) ? opts.uturns : null;
   const warnings = [];
   const notifications = result.notifications || [];
   const transitions = result.bridgeTextTransitions || [];
@@ -1136,7 +1143,11 @@ function validateWarnInvariants(result, gtPassagesArg = null) {
         const ret = crossings.find((g) => String(g.mmsi) === String(n.mmsi) && g.bridge === n.bridge
           && g.dir !== latest.dir && obsT(g) > obsT(latest) && Number.isFinite(g.t)
           && g.t - n.t <= INV22_RETURN_WINDOW_MS);
-        if (ret) continue;
+        // Med L0:s vändningar (se INV22_RETURN_WINDOW_MS): bara om hon vänt
+        // efter den senaste korsningen och senast vid notisen.
+        const turned = !uturns || uturns.some((u) => u && String(u.mmsi) === String(n.mmsi)
+          && Number.isFinite(u.t) && u.t > latest.t && u.t <= n.t);
+        if (ret && turned) continue;
         const iso = (t) => new Date(Math.round(t)).toISOString();
         warnings.push(
           `INV-22 FÖRVARNING EFTER PASSAGE: ${n.mmsi}@${n.bridge} "${form}" ${iso(n.t)} `

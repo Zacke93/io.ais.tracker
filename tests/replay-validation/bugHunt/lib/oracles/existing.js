@@ -134,15 +134,18 @@ function fromDelivery(message) {
 
 /**
  * Kör de befintliga domarna på ett resultat.
- * @param {{result: object, rows?: object[], gt: object[]|null}} args - gt måste anges (null = inget facit)
+ * @param {{result: object, rows?: object[], gt: object[]|null, uturns?: object[]}} args - gt måste anges
+ *   (null = inget facit); uturns = sanningens vändningar (L0), när de finns
  * @returns {{fynd: object[], fatala: string[], warn: string[], leverans: string[]}} utfall
  */
-function judgeExisting({ result, rows = [], gt }) {
+function judgeExisting({
+  result, rows = [], gt, uturns,
+}) {
   if (gt === undefined) throw new Error('judgeExisting: gt måste skickas explicit (null betyder "inget facit")');
   const ns = namespaceEventIds(result, rows);
   const gtArg = Array.isArray(gt) ? gt : [];
   const fatala = invariants.validateInvariants(ns);
-  const warn = invariants.validateWarnInvariants(ns, gtArg);
+  const warn = invariants.validateWarnInvariants(ns, gtArg, { uturns });
   const leverans = delivery.openingDeliveryFailures(ns);
   const fynd = [
     ...fatala.map((v) => fromInvariant(v, 'INV-F', { resultat: ns })),

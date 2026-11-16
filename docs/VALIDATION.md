@@ -396,7 +396,11 @@ token) högst 276 s före den (p50 85 s, p90 146 s, p99 208 s). Bankens äkta
 utslag på `e51c7b6` (OSPREY och SINE BRES) har ingen returkorsning alls,
 eftersom båtarna fortsatte bort, och flaggas som förut; bankens returresor
 kom tidigast 21 min efter passagen. Efter rättningen ger standardkörningen
-0 utslag och samma fem kandidatkort.
+0 utslag och samma fem kandidatkort. Där sanningen vet när båten vände
+(buggjägarens L0) krävs dessutom att hon vänt efter passagen och senast när
+notisen kom (granskningen 2026-11-16, L1); i de 180 U-svängsvärldarna kom de
+fyra undantagna notiserna 129–230 s efter vändningen. Banken saknar L0 och
+dömer som förut.
 **INV-3 och ledarbytet (2026-11-15, buggjägarens kort F01).** INV-3 bygger
 brons ETA-serie ur texten, och en väntklausul saknar minuter. När den båt vars
 ETA visas ställde sig i kö vid en tidigare bro och nästa båt tog över

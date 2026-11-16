@@ -108,8 +108,10 @@ describe('buggjägaren: domarkärnan', () => {
     expect(() => existing.judgeExisting({ result: usvang.resultat, rows: usvang.rader })).toThrow(/gt måste skickas explicit/);
     expect(spy).toHaveBeenCalledTimes(2);
     for (const call of spy.mock.calls) {
-      expect(call).toHaveLength(2);
+      // Tredje argumentet bär sanningens vändningar (INV-22, L1 2026-11-16).
+      expect(call).toHaveLength(3);
       expect(Array.isArray(call[1])).toBe(true);
+      expect(call[2]).toEqual({ uturns: undefined });
     }
     expect(spy.mock.calls[0][1]).toBe(gt);
     spy.mockRestore();
@@ -123,5 +125,32 @@ describe('buggjägaren: domarkärnan', () => {
       orakel: 'INV-F', klass: 'INV-5 MISSAD MÅLBRO-NOTIS', allvar: 5, mmsi: '265025978', bro: 'Klaffbron',
     });
     for (const key of ['orakel', 'klass', 'allvar', 'mmsi', 'bro', 'riktning', 't', 'detalj', 'belägg']) expect(inv5).toHaveProperty(key);
+  });
+
+  test('(INV-22, L1) domarkärnan skickar sanningens vändningar vidare till returundantaget', () => {
+    // Granskningen 2026-11-16: med L0 krävs att båten vänt mellan passagen och
+    // notisen. Samma notis och returkorsning; bara vändningen skiljer.
+    const existing = require('../lib/oracles/existing');
+    const tN = Date.parse('2026-11-13T13:57:24.700Z');
+    const pass = {
+      mmsi: '265012090', bridge: 'Järnvägsbron', kind: 'line', dir: 'syd', t: tN - 52000, tFrom: tN - 112000, tTo: tN - 46000,
+    };
+    const back = {
+      ...pass, dir: 'nord', t: tN + 150000, tFrom: tN + 130000, tTo: tN + 170000,
+    };
+    const result = {
+      bridgeTextTransitions: [], targetPassages: [], journeyResets: [], firstNameSeen: {},
+      notifications: [{
+        mmsi: '265012090', bridge: 'Järnvägsbron', direction: 'southbound', eta: 3, t: tN, distance: 286, success: true,
+        source: 'current', message: 'ULLA närmar sig Järnvägsbron, beräknad ankomst om 3 minuter',
+        vesselLat: 58.29147, vesselLon: 12.29179,
+      }],
+    };
+    const inv22 = (uturns) => existing.judgeExisting({
+      result, rows: [], gt: [pass, back], uturns,
+    }).warn.filter((x) => x.startsWith('INV-22'));
+    expect(inv22(undefined)).toEqual([]);
+    expect(inv22([{ mmsi: '265012090', t: tN - 30000, s: 0 }])).toEqual([]);
+    expect(inv22([])).toHaveLength(1);
   });
 });
