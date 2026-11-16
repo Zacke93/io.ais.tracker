@@ -945,7 +945,9 @@ båt.
   `UNDER_BRIDGE_SET_DISTANCE`, i rörelse) med ankomst inom täckningen, eller om
   kursen leder bort från bron utanför väntzonen. Första passagens tid är den
   skattade korsningen (`_crossingEstimate`), inte bokföringstiden; den styr
-  medlemskapet och bakkanten. Täckningsslutet räknas fortfarande från
+  medlemskapet och bakkanten. En NY båt med minst två tick kvar prövas dessutom
+  mot händelsens tidigaste bokförda korsning (se K-familjen nedan, nattjaktens
+  F02 r3). Täckningsslutet räknas fortfarande från
   bokföringen, så en tyst båt släpps som förut. En ny båt som bara på grund av
   korsningen får en egen händelse, men som upptäcks under två tick före sin
   ankomst, absorberas som förut (`_anchorFloorHost`, golvet). Se §H29/H30 för
@@ -2988,6 +2990,40 @@ samma form: släpp på ren tid och avfyrning på den ärvda deadlinen. Rättning
   2 × `TICK_INTERVAL_MS` på ett färskt rent fix, absorberas hon som före
   rättningen, och bakkanten mäter henne mot täckningsslutet i stället för mot
   U2-fönstret. Samma golv som räddningsventilen.
+- **Nya båtar prövas mot den tidigaste bokförda korsningen** (nattjaktens F02 r3
+  och F23 r2, 2026-11-16; dirigentens val av den enkla varianten efter två
+  granskningsvarv). Händelsens första passage är den först BOKFÖRDA. Korsade två
+  medlemmar osedda och bokfördes i omvänd ordning, svalde fönstret nästa
+  öppning: i värld 11777 korsar PELLE Klaffbron 16:26:10 och FREJA 16:30:55 under
+  ett avbrott, FREJA bokförs först, och HAVSORN 2 hörs 16:34:14 och korsar
+  16:40:24 utan egen varning. Händelsen minns nu sin tidigaste bokförda
+  korsning (`earliestCrossingAt`, satt bara när en senare bokföring korsade
+  tidigare, och bara bakåt; `OPENING_PASSAGE_EARLIER`). I `_belongsToEvent`
+  räknas en båt inte till händelsen när hon har minst 2 × `TICK_INTERVAL_MS`
+  kvar och hennes ankomst ligger mer än `CONVOY_WINDOW_MS` från den tidigaste
+  korsningen. Hon får då en egen händelse och en egen varning som hinner göra
+  nytta. Med under två tick kvar gäller referensen som förut, så ingen båt
+  hamnar mellan medlemskapet och korsningsankarets golv. Villkoret prövas bara
+  när en LÖS båt binds. `firstPassageAt`, referensen, bakkanten, golven, U15,
+  täckningsslutet och domspåret är oförändrade. En tidigare version flyttade
+  `firstPassageAt` bakåt; den gav i granskningen senare eller uteblivna
+  varningar där den flyttade referensen mötte golven och U15 och lämnades.
+  **Känd begränsning 1:** en båt som redan absorberats innan den tidigare
+  korsningen bokfördes släpps inte av den (som före rättningen); hon släpps av
+  bakkanten mot det gamla fönstret eller vid täckningsslutet.
+  **Känd begränsning 2 (följdfall):** får en ny båt X en egen händelse genom
+  villkoret kan en senare båt C bindas i X:s händelse i stället för i den gamla
+  eller i en egen. Stannar C sedan och korsar mer än ett konvojfönster efter X,
+  släpper bakkanten henne mot X:s fönster, senare än basen hade varnat henne
+  (i det konstruerade svepet 46–286 s före korsningen mot 596–964 s på basen,
+  48 av 345 lägen, alla med 600 s stopp). Korsar C inom fönstret efter X täcks
+  hon av X:s varning (U2).
+  **Känd kostnad:** en för tidig skattning av den tidigare korsningen (rät
+  linje över ett glapp där båten saktade in osedd) kan ge en ny båt som enligt
+  U2 hör till öppningen en andra varning; före rättningen hände det bara när
+  den båten bokfördes först. Testen ligger i
+  `tests/k2-tidigaste-korsningen.test.js` och två syntetiska scenarier
+  (`omvänd-bokföring-efter-avbrott-vid-Klaffbron`).
 - **U17 (ägarbeslut 2026-11-04): säkerhetsvarningen för en tyst båt behålls.**
   Gäller en båt vars senaste position sa att hon skulle hinna igenom den
   gemensamma öppningen, men där appen inte vet om hon gjorde det. Ingen öppning
