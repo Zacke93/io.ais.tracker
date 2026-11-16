@@ -18,11 +18,11 @@ const { BRIDGES } = require('../lib/constants');
  * För en båt vars Fix G-baslinje texten inte visar (en annan båt leder med
  * lägre ETA) följer baslinjen den färska beräkningen så länge båten förblir
  * osedd. Går den färska under det visade värdet dämpas båten mot brogruppens
- * gemensamma referens (det visade värdet när fönstret öppnades, med dess
- * maxDelta) — men bara om fixet går ihop med båtens egen rörelse och inte är
+ * gemensamma golv (det renderade värdet när fönstret öppnades och det som
+ * visas nu, vardera med sin maxDelta) — men bara om fixet går ihop med båtens egen rörelse och inte är
  * GPS-misstänkt. Annars gäller RC4-klampen som förut. Se app.js
- * _reconcilePublishedETA, _presentedGroupLead, _unseenGroupReference och
- * _fixKinematics, och docs/ARCHITECTURE.md §8 (e) "F07 gick in".
+ * _reconcilePublishedETA, _presentedGroupLead, _unseenGroupReference,
+ * _rememberRenderedLeads och _fixKinematics, och docs/ARCHITECTURE.md §8 (e) "F07 gick in".
  */
 const ROOT = path.resolve(__dirname, '..');
 const logger = {
@@ -272,6 +272,86 @@ describe('F07: klampen och en osedd Fix G-baslinje (enhet)', () => {
     b.etaMinutes = app._reconcilePublishedETA(b, 6.2);
     // Nu visar texten a:s 10,95: 10,95 − max(3, 2,74) = 7,95.
     expect(b.etaMinutes).toBeCloseTo(7.95, 2);
+  });
+
+  // Granskning 3, G1: golvet följer med när det visade värdet STIGER inom
+  // fönstret. L1 visar 8 och U1 öppnar fönstret (bas 8); 20 s senare har L1
+  // och U1 lämnat gruppen och texten visar L2:s 18. U2 får inte sänka 18 → 9
+  // (den gamla basens golv 5) utan högst som en ensam båt: 18 − 4,5 = 13,5.
+  test('G1: det visade värdet stiger inom fönstret (8 → 18) — golvet följer med till 13,5', () => {
+    const l1 = other({ mmsi: '265000001', etaMinutes: 8 });
+    const l2 = other({ mmsi: '265000009', etaMinutes: 18, lat: BRIDGES.klaffbron.lat - 0.009 });
+    const u1 = rear({ mmsi: '265000002' });
+    others = [l1, l2, u1];
+    expect(app._reconcilePublishedETA(u1, 6)).toBe(6);
+    Date.now.mockReturnValue(now + 20000);
+    const u2 = rear({ mmsi: '265000003', lat: BRIDGES.klaffbron.lat - 0.0105 });
+    others = [l2, u2];
+    expect(app._reconcilePublishedETA(u2, 9)).toBeCloseTo(13.5, 5);
+    // Andra passet på samma fix (K6) håller samma golv.
+    u2._etaIsExtrapolated = false;
+    expect(app._reconcilePublishedETA(u2, 9)).toBeCloseTo(13.5, 5);
+  });
+
+  test('G1: även när det RENDERADE värdet ligger kvar på 8 och det levande är 18 gäller 13,5', () => {
+    const l1 = other({ mmsi: '265000001', etaMinutes: 8 });
+    app._rememberRenderedLeads([l1]);
+    Date.now.mockReturnValue(now + 5000);
+    const l2 = other({ mmsi: '265000009', etaMinutes: 18, lat: BRIDGES.klaffbron.lat - 0.009 });
+    const u = rear({ mmsi: '265000003' });
+    others = [l2, u];
+    expect(app._reconcilePublishedETA(u, 9)).toBeCloseTo(13.5, 5);
+  });
+
+  // Granskning 3, G2: referensen utgår från det RENDERADE ledarvärdet. Texten
+  // visade 15; ledarens eget fix har just sänkt honom till 12 (inte renderat).
+  // En osedd båt får inte lägga en maxDelta ovanpå det: 15 − 3,75 = 11,25,
+  // inte 12 − 3 = 9.
+  test('G2: samma tick som ledarens eget fix — referensen är det renderade 15, inte det levande 12', () => {
+    const l = other({ mmsi: '265000001', etaMinutes: 15 });
+    app._rememberRenderedLeads([l]);
+    l.etaMinutes = 12;
+    const u = rear({ mmsi: '265000002' });
+    others = [l, u];
+    expect(app._reconcilePublishedETA(u, 5)).toBeCloseTo(11.25, 5);
+  });
+
+  test('G2: en rendering äldre än fönstret (31 s) räknas inte — det levande värdet gäller', () => {
+    const l = other({ mmsi: '265000001', etaMinutes: 15 });
+    app._rememberRenderedLeads([l]);
+    Date.now.mockReturnValue(now + 31000);
+    l.etaMinutes = 12;
+    const u = rear({ mmsi: '265000002' });
+    others = [l, u];
+    expect(app._reconcilePublishedETA(u, 5)).toBeCloseTo(9, 5);
+  });
+
+  test('G2: renderingen sparar ingenting för en bro utan giltig ledare', () => {
+    app._rememberRenderedLeads([other({ mmsi: '265000001', etaMinutes: 15 })]);
+    expect(app._renderedLeadEta('Klaffbron')).toBe(15);
+    expect(app._renderedLeadEta('Stridsbergsbron')).toBeNull();
+    app._rememberRenderedLeads([]);
+    expect(app._renderedLeadEta('Klaffbron')).toBeNull();
+  });
+
+  // Granskning 3, G3: fönstrets gränser och broarnas egna referenser.
+  test('G3: 30,0 s räknas in i fönstret, 30,001 s inte', () => {
+    expect(app._unseenGroupReference('Klaffbron', 10).base).toBe(10);
+    Date.now.mockReturnValue(now + 30000);
+    expect(app._unseenGroupReference('Klaffbron', 20).base).toBe(10);
+    Date.now.mockReturnValue(now + 30001);
+    expect(app._unseenGroupReference('Klaffbron', 20).base).toBe(20);
+  });
+
+  test('G3: klockan stegar bakåt (NTP) — referensen öppnas om, ingen spärr tills klockan kommit ikapp', () => {
+    app._unseenGroupReference('Klaffbron', 10);
+    Date.now.mockReturnValue(now - 60000);
+    expect(app._unseenGroupReference('Klaffbron', 20).base).toBe(20);
+  });
+
+  test('G3: broarna har var sin referens', () => {
+    expect(app._unseenGroupReference('Klaffbron', 10).base).toBe(10);
+    expect(app._unseenGroupReference('Stridsbergsbron', 20).base).toBe(20);
   });
 
   test('Q1 (granskning 2): båten själv i kö vid Olidebron och den andra visar 30 — ingen dämpning UPPÅT', () => {

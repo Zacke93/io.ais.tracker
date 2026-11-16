@@ -227,6 +227,10 @@ const ETA_CLAMP_RELEASE_DISTANCE_M = UNDER_BRIDGE_CLEAR_DISTANCE;
 // F07 (granskning 2, A): brogruppens fönster för sänkningar från osedda båtar —
 // samma 30 s som RC4:s burstskydd i _reconcilePublishedETA.
 const UNSEEN_GROUP_WINDOW_MS = 30000;
+// Klampens steg för ett visat värde (RC4): max(3, 0,25 · värdet).
+const unseenMaxDelta = (shown) => Math.max(3, 0.25 * shown);
+// Inversen: det visade värde vars klampsteg landar på golvet.
+const unseenBaseForFloor = (floor) => (floor <= 9 ? floor + 3 : floor / 0.75);
 
 // C3b (etapp 7, 2026-08-09): skrivtakt för sista-kända-positioner
 // ('last_known_positions'). Samma flash-slitagehänsyn och samma 15 min som
@@ -5786,9 +5790,10 @@ class AISBridgeApp extends Homey.App {
     //  - ligger den färska beräkningen ÖVER det visade värdet förblir båten
     //    osedd: baslinjen följer den färska, texten är oförändrad;
     //  - ligger den UNDER det visade värdet dämpas hon mot brogruppens
-    //    gemensamma referens (_unseenGroupReference: det visade värdet när
-    //    fönstret öppnades och dess maxDelta), så att alla osedda båtar mot
-    //    samma bro tillsammans sänker texten högst lika mycket som en ensam båt
+    //    gemensamma golv (_unseenGroupReference: det renderade värdet när
+    //    fönstret öppnades och det som visas nu, vardera med sin maxDelta),
+    //    så att alla osedda båtar mot samma bro tillsammans sänker texten
+    //    högst lika mycket som en ensam båt
     //    — men bara om fixet går ihop med båtens egen
     //    rörelse (_fixKinematics, ETA_UNSEEN_BASELINE.FIX_KINEMATICS_MAX_RATIO)
     //    och inte är GPS-misstänkt. Annars gäller klampen som förut: en ensam
@@ -5819,19 +5824,22 @@ class AISBridgeApp extends Homey.App {
           && vessel._positionUncertain !== true && vessel._gpsJumpDetected !== true;
         const ratioText = kin.ratio === null ? 'okänd' : kin.ratio.toFixed(2);
         if (plausible) {
-          // Brogruppens gemensamma referens (granskning 2, A): det visade
-          // värdet när den första sänkningen i fönstret skedde, med dess
-          // maxDelta. Flera osedda båtar som sänker samma bro inom fönstret
-          // dämpas mot SAMMA bas, så de tillsammans inte kan sänka texten mer
-          // än en ensam båt hade kunnat på samma tid.
+          // Brogruppens gemensamma golv (granskning 2, A; granskning 3, G1
+          // och G2): flera osedda båtar som sänker samma bro inom fönstret
+          // dämpas mot SAMMA golv, så de tillsammans inte kan sänka texten mer
+          // än en ensam båt hade kunnat — från värdet när fönstret öppnades
+          // eller från det som visas nu.
           const ref = this._unseenGroupReference(vessel.targetBridge, lead.etaMinutes);
-          const shown = ref.base;
-          shownDampen = Math.max(freshETA, shown - ref.maxDelta);
+          // Burstens bas är det visade värde vars klampsteg landar exakt på
+          // golvet, så andra passet (K6) håller samma gräns (= ref.base när
+          // fönstrets golv är det högsta).
+          const shown = unseenBaseForFloor(ref.floor);
+          shownDampen = Math.max(freshETA, ref.floor);
           shownBase = shown;
           this.debug(
             `🪜 [ETA_CLAMP_SHOWN] ${vessel.mmsi}: Fix G-baslinjen ${published.toFixed(1)} visas inte; färska `
             + `${freshETA.toFixed(1)} under det visade ${lead.etaMinutes.toFixed(1)} (${lead.mmsi}; gruppens bas `
-            + `${shown.toFixed(1)}), fixet rimligt `
+            + `${ref.base.toFixed(1)}, golv ${ref.floor.toFixed(1)}), fixet rimligt `
             + `(kvot ${ratioText}) — dämpas mot det visade: ${shownDampen.toFixed(1)}`,
           );
         } else {
@@ -5918,21 +5926,67 @@ class AISBridgeApp extends Homey.App {
    * bas); användaren ser värdet hela tiden, så inget glapptillägg). Fönstret
    * är RC4:s 30 s. Inom det får varje sänkning — från vilken osedd båt som
    * helst, i vilken ordning som helst — samma gräns; först därefter öppnas ett
-   * nytt fönster från det då visade värdet.
+   * nytt fönster från det då visade värdet. Basen är det senast RENDERADE
+   * ledarvärdet (G2) när det finns, annars det levande; golvet är det högsta
+   * av fönstrets golv och golvet för det värde som visas nu (G1).
    * @param {string} target - målbron
-   * @param {number} shownNow - det värde texten visar nu
-   * @returns {{atMs: number, base: number, maxDelta: number}}
+   * @param {number} shownNow - det levande ledarvärdet
+   * @returns {{atMs: number, base: number, maxDelta: number, floor: number}}
    * @private
    */
   _unseenGroupReference(target, shownNow) {
     if (!this._unseenDampenRefs) this._unseenDampenRefs = new Map();
     const nowMs = Date.now();
+    const rendered = this._renderedLeadEta(target);
     let ref = this._unseenDampenRefs.get(target);
     if (!ref || !(nowMs - ref.atMs >= 0 && nowMs - ref.atMs <= UNSEEN_GROUP_WINDOW_MS)) {
-      ref = { atMs: nowMs, base: shownNow, maxDelta: Math.max(3, 0.25 * shownNow) };
+      const base = rendered !== null ? rendered : shownNow;
+      ref = { atMs: nowMs, base, maxDelta: unseenMaxDelta(base) };
       this._unseenDampenRefs.set(target, ref);
     }
-    return ref;
+    // Granskning 3, G1: golvet följer med när det visade värdet STIGER inom
+    // fönstret (ledaren har lämnat gruppen och en båt med högre ETA visas).
+    // Referensen får aldrig tillåta mer än en ensam båt med det NU visade
+    // värdet hade fått — vare sig det levande eller det renderade.
+    const now = Math.max(shownNow, rendered !== null ? rendered : -Infinity);
+    const floor = Math.max(ref.base - ref.maxDelta, now - unseenMaxDelta(now));
+    return { ...ref, floor };
+  }
+
+  /**
+   * F07 (granskning 3, G2): spara det ledarvärde texten renderade per målbro.
+   * @param {Array} presentationVessels - underlaget den renderade texten byggdes på
+   * @private
+   */
+  _rememberRenderedLeads(presentationVessels) {
+    if (!this._renderedLeadEtas) this._renderedLeadEtas = new Map();
+    if (!this.bridgeTextService || typeof this.bridgeTextService.presentedLead !== 'function') return;
+    const atMs = Date.now();
+    for (const target of TARGET_BRIDGES) {
+      let lead = null;
+      try {
+        lead = this.bridgeTextService.presentedLead(presentationVessels, target, { includeGpsHeld: true });
+      } catch (error) {
+        lead = null;
+      }
+      if (lead && isValidETA(lead.etaMinutes)) this._renderedLeadEtas.set(target, { eta: lead.etaMinutes, atMs });
+      else this._renderedLeadEtas.delete(target);
+    }
+  }
+
+  /**
+   * F07 (granskning 3, G2): det senast renderade ledarvärdet för målbron, om
+   * renderingen är högst ett gruppfönster gammal; annars null (då gäller det
+   * levande värdet).
+   * @param {string} target
+   * @returns {number|null}
+   * @private
+   */
+  _renderedLeadEta(target) {
+    const rec = this._renderedLeadEtas && this._renderedLeadEtas.get(target);
+    if (!rec) return null;
+    const age = Date.now() - rec.atMs;
+    return age >= 0 && age <= UNSEEN_GROUP_WINDOW_MS ? rec.eta : null;
   }
 
   /**
@@ -6430,6 +6484,13 @@ class AISBridgeApp extends Homey.App {
 
       // ENHANCED: Update devices with atomic change detection and dedupe
       const bridgeTextHash = this._hashString(bridgeText);
+      // F07 (granskning 3, G2): det senast renderade ledarvärdet per målbro.
+      // Brogruppens referens utgår från det användaren SER, inte från ett
+      // levande värde som ledarens eget fix just sänkt utan att texten hunnit
+      // renderas. Oförändrad text räknas också: den visade texten är densamma.
+      if (bridgeText === generatedBridgeText && !validationResult.shouldUseFallback) {
+        this._rememberRenderedLeads(presentationVessels);
+      }
       this.debug(`📱 [SNAPSHOT_PROCESS] Comparing: new="${bridgeText}" (hash: ${bridgeTextHash}) vs last="${this._lastBridgeText}" (hash: ${this._lastBridgeTextHash})`);
 
       // CRITICAL FIX: Use hash-based dedupe for exact change detection
@@ -14200,6 +14261,8 @@ class AISBridgeApp extends Homey.App {
     this._watchdogOwner = null;
 
     if (this._lastBridgeTextVessels) this._lastBridgeTextVessels.clear();
+    if (this._renderedLeadEtas) this._renderedLeadEtas.clear();
+    if (this._unseenDampenRefs) this._unseenDampenRefs.clear();
 
     // Clear coalescing state maps
     if (this._microGraceBatches) this._microGraceBatches.clear();

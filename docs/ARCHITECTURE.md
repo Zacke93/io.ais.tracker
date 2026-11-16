@@ -2553,14 +2553,25 @@ publiceringen, köer vid en tidigare bro och zombier leder inte):
 - Ligger den färska beräkningen ÖVER det visade värdet förblir båten osedd.
   Baslinjen följer den färska, och texten är oförändrad.
 - Ligger den UNDER det visade värdet dämpas hon mot brogruppens gemensamma
-  referens (`_unseenGroupReference`): det visade värdet när den första
-  sänkningen i fönstret skedde och dess maxDelta (max(3, 0,25 · visat)).
-  Fönstret är RC4:s 30 s. Alla osedda båtar som sänker samma bro inom fönstret
-  dämpas mot samma bas, och båtens egen burstbas blir samma värde så att även
-  andra passet (K6) håller sig inom steget. Flera osedda båtar kan alltså
-  tillsammans inte sänka texten mer än en ensam båt hade kunnat på samma tid
-  (granskning 2, A: utan gruppreferensen gav två båtar 1 s isär "om 11" och
-  sedan "om 8" mot det visade 14,6).
+  referens (`_unseenGroupReference`). Fönstret är RC4:s 30 s. Basen är det
+  visade ledarvärdet när den första sänkningen i fönstret skedde — det senast
+  RENDERADE (`_rememberRenderedLeads`, högst ett fönster gammalt), annars det
+  levande. Golvet är det högsta av två:
+  - fönstrets golv, bas − max(3, 0,25 · bas);
+  - golvet för det värde som visas NU (det högsta av levande och renderat),
+    nu − max(3, 0,25 · nu).
+  Alla osedda båtar som sänker samma bro inom fönstret dämpas mot samma golv,
+  och båtens burstbas sätts så att andra passet (K6) landar på samma golv.
+  Flera osedda båtar kan alltså tillsammans inte sänka texten mer än en ensam
+  båt hade kunnat — vare sig från värdet när fönstret öppnades eller från det
+  som visas nu. Granskningarnas fall:
+  - två båtar 1 s isär gav "om 11" och sedan "om 8" mot det visade 14,6 (A);
+  - det visade värdet steg inom fönstret (8 → 18 när ledaren lämnat gruppen),
+    och nästa osedda båt fick sänka 18 → 9 mot den gamla basen; nu 13,5 (G1);
+  - i samma tick som ledarens eget fix (renderat 15, ledaren själv → 12)
+    öppnades fönstret på det levande 12 och den osedda båten fick 9, så texten
+    gick 15 → 9 på ett tick; nu är basen det renderade 15 och golvet 11,25
+    (G2).
 - Men bara om fixet går ihop med båtens egen rörelse (`_fixKinematics`):
   förflyttningen sedan förra fixet (fixtiderna, `_prevFixSample` i
   VesselDataService) delad med den största fart båten rapporterade i de två
