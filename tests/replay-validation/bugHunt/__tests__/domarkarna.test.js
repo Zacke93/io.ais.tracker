@@ -138,13 +138,21 @@ describe('buggjägaren: domarkärnan', () => {
     const back = {
       ...pass, dir: 'nord', t: tN + 150000, tFrom: tN + 130000, tTo: tN + 170000,
     };
+    const notis = {
+      mmsi: '265012090',
+      bridge: 'Järnvägsbron',
+      direction: 'southbound',
+      eta: 3,
+      t: tN,
+      distance: 286,
+      success: true,
+      source: 'current',
+      message: 'ULLA närmar sig Järnvägsbron, beräknad ankomst om 3 minuter',
+      vesselLat: 58.29147,
+      vesselLon: 12.29179,
+    };
     const result = {
-      bridgeTextTransitions: [], targetPassages: [], journeyResets: [], firstNameSeen: {},
-      notifications: [{
-        mmsi: '265012090', bridge: 'Järnvägsbron', direction: 'southbound', eta: 3, t: tN, distance: 286, success: true,
-        source: 'current', message: 'ULLA närmar sig Järnvägsbron, beräknad ankomst om 3 minuter',
-        vesselLat: 58.29147, vesselLon: 12.29179,
-      }],
+      bridgeTextTransitions: [], targetPassages: [], journeyResets: [], firstNameSeen: {}, notifications: [notis],
     };
     const inv22 = (uturns) => existing.judgeExisting({
       result, rows: [], gt: [pass, back], uturns,
