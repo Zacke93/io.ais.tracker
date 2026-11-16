@@ -285,16 +285,35 @@ Moduler (ansvar / ägda tillstånd / in-ut):
   linje (innanför kan en stilla fix inte bevisa sidan). Startkursen är fixens
   råkurs; en återhämtningsstart bär den rena fixens råkurs
   (`passageRecoveryPosition`), inte den osäkra fixens. Faktorn 2,0 och 45° är
-  kopior av analysatorns literaler och ska följa med om de ändras där. Fallet: söderut i
+  kopior av analysatorns literaler (`GPSJumpAnalyzer.PRIOR_TRANSIT_*`) och ska följa med
+  om de ändras där. Villkor 1–3 är EN regel, `GPSJumpAnalyzer.stopExplainedByPriorTransit`,
+  som också analysatorn använder (U40 nedan). Fallet: söderut i
   5,2 kn, nästa fix 327 s senare 165 m bortom Stridsbergsbron med sog 0 och en
   stillakurs 51° fel mot förflyttningen (`uncertain_movement`); spärren gav
   "närmar sig" efter passagen och en brotext mot den passerade bron i 17 min.
   Bandet är smalt: förflyttningen ska vara över 500 m (under 500 m dömer
   analysen antingen ingen osäkerhet eller `medium_movement_speed_mismatch`, och
   det fallet tar orimlighetsflaggan före S1) och latitudhoppet under
-  LARGE_JUMP_LAT_DEG (annars bokför glappvägen i samma tick). Ett transit→stopp som analysen dömer som GPS-hopp (`likely_gps_error`,
-  både bäring och snittfart fel) hålls fortfarande av orimlighetsflaggan
-  (`needsPassageConfirmation`) — den rör K1 inte.
+  LARGE_JUMP_LAT_DEG (annars bokför glappvägen i samma tick).
+  **U40 (N4, 2026-11-16): ett stopp som färden förklarar är inget GPS-hopp.** När
+  stillafixens egen kurs pekar > 45° fel mot förflyttningen OCH snittfarten är över 5 kn
+  mot sog 0 hamnar legitimitetspoängen under 0,4, och analysen dömde förut fixen som
+  GPS-hopp (`likely_gps_error`); orimlighetsflaggan spärrade passagen till nästa fix och
+  K1 nåddes aldrig (söderut i 5,2 kn, 638 m på 200 s till 120 m bortom Stridsbergsbron).
+  Nu blir en sådan fix osäker (`accept_with_caution`, skälet `stop_after_transit`) när
+  fixens rå sog är finit och under MOVEMENT_PROOF_SOG_KN, `stopExplainedByPriorTransit`
+  håller mot förra fixen och fixen ligger mer än UNDER_BRIDGE_CROSS_PROOF_JITTER_M bortom
+  varje brolinje som segmentet korsat (inom bandet ser ett brusprov hos en båt som stannat strax före bron
+  likadant ut, och hoppdomen gör att nästa fix mäts från den rena startpositionen så att
+  ingen falsk passage bokförs); stillagrinden och K1 avgör sedan passagen per bro. Känd
+  gräns, samma som K1: ett brusprov mer än 60 m bortom linjen hos en båt som stannat före
+  bron bokförs som passage; sådant brus hos en stillaliggare finns inte i banken eller
+  fältet. Allt annat döms som förut: fysiskt omöjligt (F64)
+  kan regeln aldrig nå (villkoret förflyttning ≤ startfart × dt × 2,0 ligger inom taket
+  max(sog, 5) × dt × 2,0), och en rörlig fix (sog ≥ 0,5), en stilla startfix, ett hopp
+  längre än färden, ett bakåthopp eller en osäker startfix är fortfarande GPS-hopp. I
+  banken och fältkörningarna fälls `likely_gps_error` aldrig (orimlighetsflaggan fälls fyra
+  gånger: tre `medium_movement_speed_mismatch`, ett fysiskt omöjligt hopp).
 - **PassageLatchService**: latch per båt+bro som blockerar retrograda statusar
   ("tidsresor"); 10 min latch-timeout. Konsumeras av StatusService via
   `shouldBlockStatus` (StatusService.js:772, 846, 912, 960, 1176).
