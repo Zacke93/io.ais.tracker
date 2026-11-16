@@ -5785,10 +5785,10 @@ class AISBridgeApp extends Homey.App {
     // och hennes färska 13,4 och 11,9 min klampades till 18,9 mot det. När
     // JAATTEN:s position blev 600 s gammal visade texten "om 19 minuter" mot
     // sanningen 4,5 min — fel båts tid i flera minuter.
-    // Regeln gäller när baslinjen är Fix G:s (_etaPublishedFromExtrapolation;
-    // nollas vid varje publicering här, så andra passet på samma fix klampas
-    // mot första passets mätning) och texten visar en ANNAN båt med lägre
-    // giltig ETA (_presentedGroupLead: brotextens eget val över det som
+    // Regeln gäller varje baslinje — Fix G:s extrapolering lika väl som en
+    // uppmätt (R7, 2026-11-16: bankens egen fas av 21h låste "om 18" på
+    // AVALON:s mätta men osedda baslinje) — när texten visar en ANNAN båt med
+    // lägre giltig ETA (_presentedGroupLead: brotextens eget val över det som
     // presenteras). Då:
     //  - ligger den färska beräkningen ÖVER det visade värdet förblir båten
     //    osedd: baslinjen följer den färska, texten är oförändrad;
@@ -5803,20 +5803,18 @@ class AISBridgeApp extends Homey.App {
     //    utliggare får inte sänka texten (granskningens gps700: ett fix 700 m
     //    för långt fram gav annars "om 10" mot sanningen 14). Bekräftelse över
     //    tid prövades och föll: AVALON har bara två fix före sin passage.
-    // MEDVETET INTE RÄTTAT: uppmätta osedda baslinjer (bankens egen fas av
-    // 21h, "om 18") — det är steget R7, som mäts för sig.
-    let unseenExtrapolationRelease = false;
+    let unseenRelease = false;
     let shownDampen = null;
     let shownBase = null;
-    if (vessel._etaPublishedFromExtrapolation === true && Number.isFinite(freshETA)
+    if (Number.isFinite(freshETA)
         && published !== null && sameTarget && freshETA < published) {
       const lead = this._presentedGroupLead(vessel);
       const unseen = !!lead && String(lead.mmsi) !== String(vessel.mmsi)
         && isValidETA(lead.etaMinutes) && lead.etaMinutes < published;
       if (unseen && freshETA > lead.etaMinutes) {
-        unseenExtrapolationRelease = true;
+        unseenRelease = true;
         this.debug(
-          `🪜 [ETA_CLAMP_RELEASE] ${vessel.mmsi}: Fix G-baslinjen ${published.toFixed(1)} visas inte `
+          `🪜 [ETA_CLAMP_RELEASE] ${vessel.mmsi}: baslinjen ${published.toFixed(1)} visas inte `
           + `(${lead.mmsi} leder ${vessel.targetBridge} med ${lead.etaMinutes.toFixed(1)}) och färska `
           + `${freshETA.toFixed(1)} ligger över det visade — publicerar färsk, texten oförändrad`,
         );
@@ -5840,7 +5838,7 @@ class AISBridgeApp extends Homey.App {
           shownDampen = Math.max(freshETA, ref.floor);
           shownBase = shown;
           this.debug(
-            `🪜 [ETA_CLAMP_SHOWN] ${vessel.mmsi}: Fix G-baslinjen ${published.toFixed(1)} visas inte; färska `
+            `🪜 [ETA_CLAMP_SHOWN] ${vessel.mmsi}: baslinjen ${published.toFixed(1)} visas inte; färska `
             + `${freshETA.toFixed(1)} under det visade ${lead.etaMinutes.toFixed(1)} (${lead.mmsi}; gruppens bas `
             + `${ref.base.toFixed(1)}, golv ${ref.floor.toFixed(1)}), fixet rimligt `
             + `(kvot ${ratioText}) — dämpas mot det visade: ${shownDampen.toFixed(1)}`,
@@ -5854,8 +5852,6 @@ class AISBridgeApp extends Homey.App {
         }
       }
     }
-    // Varje publicering nedan är en mätning (släpp eller klamp), inte Fix G.
-    vessel._etaPublishedFromExtrapolation = false;
     if (shownDampen !== null) {
       // Burstens baslinje blir det VISADE värdet, så andra passet på samma fix
       // (K6) dämpas mot samma referens som gruppen.
@@ -5869,7 +5865,7 @@ class AISBridgeApp extends Homey.App {
     }
 
     if (!Number.isFinite(freshETA) || published === null || !sameTarget
-        || unseenExtrapolationRelease
+        || unseenRelease
         // I "strax"-bandet (<3 min) släpps clampen: texten är binär där
         // (strax/om N) och ett golv på +3 skulle SKAPA artificiella
         // "om 3 minuter" för båtar som verkligen är strax framme.
@@ -7663,7 +7659,6 @@ class AISBridgeApp extends Homey.App {
                 // baslinje så nästa färska beräkning dämpas mot det användaren såg
                 vessel._etaPublishedValue = extrapolated;
                 vessel._etaPublishedAtMs = Date.now();
-                vessel._etaPublishedFromExtrapolation = true; // F07: baslinjen är Fix G:s
                 if (!Number.isFinite(vessel._etaExtrapolationBaseValue)) {
                   vessel._etaExtrapolationBaseValue = baseETA;
                 }

@@ -98,9 +98,13 @@ describe('Rättad ruttdistans: utgången ETA och verklig återkomst', () => {
   });
 
   test('samma två båtar består när 7 blir okänd; ANTJE tar över först med färsk rörelse', () => {
-    const before = snapshots.find((s) => s.t === OLD_TEXT);
-    const after = snapshots.find((s) => s.t === NEW_TEXT);
-    const moving = snapshots.find((s) => s.t === MOVING_TEXT);
+    // Den SISTA avläsningen i samma millisekund är den texten byggdes på.
+    // Sedan R7 (F07, 2026-11-16) läser även klampen gruppens ledare via samma
+    // filter mitt i meddelandevägen, före båtens nya ETA är skriven.
+    const at = (t) => snapshots.filter((s) => s.t === t).pop();
+    const before = at(OLD_TEXT);
+    const after = at(NEW_TEXT);
+    const moving = at(MOVING_TEXT);
     expect(before).toBeDefined();
     expect(after).toBeDefined();
     expect(moving).toBeDefined();

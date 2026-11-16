@@ -1627,6 +1627,48 @@ efteråt.
    fördelningsmultiset i `corpora-distribution.json` (genereras från en
    verifierad körning).
 
+### F07 R7, 2026-11-16: regeln gäller även uppmätta osedda baslinjer
+
+Steget togs separat ovanpå F07 (granskning 4). Kravet för att det skulle få gå in var att
+inget påstående blev sämre (U28). `measure:eta` mot `eta-bas` gav följande:
+
+- 8 ändrade parade påståenden: 4 bättre, 0 sämre, 4 omätta.
+- Strax-löftet steg från 63,03 % till 63,81 %.
+- De oparade påståendena blev 11, mot 9 före. De 9 som försvann hade fel på 5,7–9,6 min.
+
+De omätta prövades mot rådatan, och alla fyra blev rättare:
+
+- **21h 07:12:30, AVALON, Klaffbron:** 12 → 8. Sanningen är cirka 3,5 min. AVALON
+  passerade cirka 07:16, vilket följer av fixen 07:07:13 (1 116 m S) och 07:35:13
+  (2 414 m N) med medelfart 4,1 kn.
+- **13h 11:37:54, VIRGO, Stridsbergsbron:** 8 → 9, mot sanningen 14,9.
+- **17h 17:21:43, öppningskortet för JEANNELLE vid Klaffbron:** 9 → 8. Den sista
+  fixen är 17:23:03, 703 m S i 6,1 kn. Det ger passage cirka 17:26:45 och sanningen
+  cirka 5,1 min.
+- **17h 17:23:03, JEANNELLE, brotexten:** 6 → 5, mot sanningen cirka 3,7 min.
+
+Flyttade golden-rader. Omlåsningen VÄNTAR (U13: rättaren låser inte om själv).
+
+- **20260708-21h (Klaffbron):**
+  - Borta: c16, c15, c14, c14 och c13 (07:08–07:11, fel +3…+3,6), "om 18"
+    07:11:30 (sanning 4,5) och c12 07:12:30.
+  - Nya: "om 13" 07:07:13 och 07:10:30, c8 07:12:30, c7 07:13:00, c4
+    07:16:00 och c3 07:17:00 (AVALON), samt "om 5" 07:17:26 (JAATTEN II, samma
+    värde som basen visar i det ögonblicket).
+  - Stridsbergsbron 07:28:30: "om 5" blir "om cirka 5", samma minuttal.
+  - Ett synligt steg 3 → 5 uppstår 07:17:26. Där tar JAATTEN II:s egen siffra
+    över efter AVALON, och basen visade samma 5 hela tiden.
+- **20260710-13h (Stridsbergsbron):** 8 → 9 vid 11:37:54. Strax → "om 4" vid
+  11:43:09 och 11:44:04, mot sanningen 4,6 och 3,7. Strax kommer i stället
+  11:45:24 (2,4).
+- **20260804-17h (Klaffbron):** ny rad "om 7" 17:21:33. "om 6" → "om 5"
+  17:23:03. Två öppningskort ändras från 9 till 8.
+- **20260804-both-21h:** strax för Stridsbergsbron kommer 08:25:06 i stället för
+  08:26:46. Passagen sker 08:27:24, så strax hamnar 2,3 min före, inom
+  strax-löftet. "om 3" → "om 4" 11:26:50 och 11:27:57 räknas som bättre.
+- Notiser och kort utan golden-text: 20260610-19h kort 8 → 7 (sanning 6,6,
+  bättre) och 20260702-19h notis CAVA 2 → 3 (sanning 3,6, bättre).
+
 ### Riktad nyregistrering när samlad regenerering är spärrad
 
 En verifierad ny körning får tillföras utan att regenerera äldre korpusar.
