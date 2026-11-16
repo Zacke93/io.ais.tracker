@@ -570,8 +570,28 @@ describe('INV-3: ledarbyte när den förra båten bevisligen slutat bära klausu
       expect(sågtand(r)).toEqual([]);
     });
 
-    test('ett fall som bärs av en annan båt bryter inte den nya ledarens nivå', () => {
+    // Omgranskningen 2026-11-16: bär en TREDJE båt klausulen under hela
+    // fönstret efter spiken gömdes 7 → 21 → 14 med kravet "samma ledare".
+    // Samma antalsord (samma grupp) räknas nu som samma ledare.
+    test('kryphålet: en tredje båt bär texten efter spiken (7 → 21 → 14), samma antal; sågtand', () => {
+      const r = med([[2, 21], [3, 14]]);
+      r.bridgeTextLeads[3].leads = [{ bridge: 'Stridsbergsbron', mmsi: 'tredje' }];
+      expect(sågtand(r)).toHaveLength(1);
+    });
+
+    test('samma nya ledare bryter nivån också när antalet ändrats (14 → "Två båtar … 7")', () => {
       const r = med([[2, 14], [3, 7]]);
+      const två = `${kö}; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 7 minuter`;
+      r.bridgeTextTransitions[3].text = två;
+      r.bridgeTextLeads[3].text = två;
+      expect(sågtand(r)).toHaveLength(1);
+    });
+
+    test('ett fall som bärs av en annan båt i en annan grupp (annat antal) bryter inte nivån', () => {
+      const r = med([[2, 14], [3, 7]]);
+      const två = `${kö}; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 7 minuter`;
+      r.bridgeTextTransitions[3].text = två;
+      r.bridgeTextLeads[3].text = två;
       r.bridgeTextLeads[3].leads = [{ bridge: 'Stridsbergsbron', mmsi: 'annan' }];
       expect(sågtand(r)).toEqual([]);
     });

@@ -353,10 +353,14 @@ function validateInvariants(result) {
   // är regelns egna (120 s-fönstret och 6-minuterssteget): ett lika stort fall
   // inom samma fönster för en och samma båt är den sågtand regeln finns för.
   // En bestående felnivå hos den nya ledaren kan regeln inte se.
+  // Samma antalsord räknas som samma ledare (omgranskningen 2026-11-16): bär
+  // en tredje båt klausulen under hela fönstret efter spiken (7 → 21 → 14)
+  // gömdes spiken annars. Samma antal betyder samma grupp, och en tid i
+  // gruppen 6 min lägre inom fönstret visar att spikens nivå inte höll.
   const INV3_LEADER_HOLD_MS = 120 * 1000;
   const INV3_LEADER_DROP_MIN = 6;
   const newLevelHolds = (series, i) => !series.slice(i + 1).some((s) => s.t - series[i].t <= INV3_LEADER_HOLD_MS
-    && s.lead === series[i].lead && s.eta <= series[i].eta - INV3_LEADER_DROP_MIN);
+    && (s.lead === series[i].lead || s.count === series[i].count) && s.eta <= series[i].eta - INV3_LEADER_DROP_MIN);
   const leaderChangeExplained = (prev, cur, bridge) => {
     if (!prev.lead || !cur.lead || prev.lead === cur.lead || prev.eta < 1) return null;
     const förra = cur.meta && Array.isArray(cur.meta.vessels) ? cur.meta.vessels.find((v) => v && String(v.mmsi) === prev.lead) : null;

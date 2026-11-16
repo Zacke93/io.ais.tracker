@@ -427,6 +427,11 @@ därför bara om den nya nivån håller: ingen senare tid för samma nya ledare 
 steg. Båda mutantspikarna fälls, 246 och 1788 i den orättade appen undantas
 fortfarande, och banken och k1–k3 ger samma utslag. En bestående felnivå hos
 den nya ledaren kan regeln inte se.
+Samma antalsord räknas som samma ledare (omgranskningen 2026-11-16): bar en
+tredje båt klausulen under hela fönstret efter spiken gömdes 7 → 21 → 14.
+Samma antal betyder samma grupp, och en tid i gruppen 6 min lägre inom
+fönstret visar att spikens nivå inte höll. Banken, k1–k3 och de 47
+INV-3-världarna ger samma utslag som förut, även under mutanterna.
 Domarlogiken har EGNA enhetstester i `tests/replay-invariants-unit.test.js` —
 ändrar du en invariant, uppdatera dem.
 
