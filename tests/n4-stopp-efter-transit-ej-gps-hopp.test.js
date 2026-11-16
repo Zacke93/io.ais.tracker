@@ -35,6 +35,7 @@ const BridgeRegistry = require('../lib/models/BridgeRegistry');
 const SystemCoordinator = require('../lib/services/SystemCoordinator');
 const GPSJumpGateService = require('../lib/services/GPSJumpGateService');
 const { BRIDGES } = require('../lib/constants');
+const { buildPath, pathMetrics, pointAt } = require('./replay-validation/scenarioGenerator');
 
 const REAL_DATE_NOW = Date.now;
 const R = 6371000;
@@ -127,13 +128,47 @@ describe('U40/N4 A+B: analysatorn', () => {
   });
 
   test('MOTFALL jitterbandet: stopp 55 m bortom brolinjen ⇒ fortfarande GPS-hopp', () => {
-    const r = analysera(dest(STRID, SYD_BRG, 55), { dtS: 115 });
+    // 572 m på 150 s från en startfix i 7 kn: 7,4 kn snitt (1,06 ×), så
+    // fartkvoten släpper; det är jitterbandet som håller emot.
+    const r = analysera(dest(STRID, SYD_BRG, 55), { dtS: 150 }, { sog: 7, _rawPositionSog: 7 });
     expect(r).toMatchObject({ action: 'gps_jump_detected', reason: 'likely_gps_error' });
+  });
+
+  test('MOTFALL skärpningen: snittfart över 1,2 × startfarten ⇒ fortfarande GPS-hopp', () => {
+    // 638 m på 150 s = 8,3 kn snitt mot 5,2 kn start (1,59 ×): ingen båt som
+    // stannat tvärt hinner det. Villkor 2 (5,2 × 150 s × 2 = 802 m) håller.
+    const r = analysera(STOPP, { dtS: 150 });
+    expect(r).toMatchObject({ action: 'gps_jump_detected', reason: 'likely_gps_error' });
+    // 1,19 × (200 s) släpps
+    expect(analysera(STOPP).reason).toBe('stop_after_transit');
+  });
+
+  test('SKÄRPNINGEN gäller bara hoppgrenen: K1:s regel är oförändrad', () => {
+    const t = T + 150000;
+    const cur = {
+      ...STOPP, fixTs: t, fixFeed: 'aisstream', timestamp: t,
+    };
+    expect(GPSJumpAnalyzer.stopExplainedByPriorTransit(cur, old())).toBe(true);
   });
 
   test('MOTFALL okänd fart på fixen (sog null) ⇒ ingen stoppklassning', () => {
     const r = analysera(STOPP, { sog: null });
     expect(r.reason).not.toBe('stop_after_transit');
+  });
+
+  test('JITTERBANDET räknar bara broar inom sin radie (en avlägsen bros förlängda linje träffar inte)', () => {
+    // 1 000 m längs Olidebrons linje (axel 130°): positionen ligger 30 m från
+    // linjen och starten 100 m på andra sidan, men bron är långt utanför sin
+    // radie (300 m). Utan radiekravet skulle "korsad och inom bandet" bli sant.
+    const OLIDE = BRIDGES.olidebron;
+    const pål = dest(OLIDE, OLIDE.axisBearing, 1000);
+    const pos = dest(pål, OLIDE.axisBearing - 90, 30);
+    const startPos = dest(pål, OLIDE.axisBearing + 90, 100);
+    expect(GPSJumpAnalyzer._crossedBridgeWithinJitterBand(startPos, pos)).toBe(false);
+    // Samma geometri vid bron själv är korsad och inom bandet
+    expect(GPSJumpAnalyzer._crossedBridgeWithinJitterBand(
+      dest(OLIDE, OLIDE.axisBearing + 90, 100), dest(OLIDE, OLIDE.axisBearing - 90, 30),
+    )).toBe(true);
   });
 
   test('REGELN är densamma som stillagrindens (stopExplainedByPriorTransit)', () => {
@@ -235,9 +270,9 @@ describe('U40/N4 C: riktiga pipelinen', () => {
     const { svc } = bygg();
     const MMSI = '265994005';
     TRANSIT.forEach((r, i) => fix(svc, MMSI, i === TRANSIT.length - 1 ? { ...r, sog: 7 } : r));
-    // 718 m på 120 s (11,6 kn snitt); 7 kn × 120 s × 2 = 864 m räcker.
+    // 718 m på 180 s (7,8 kn snitt, 1,1 × startfarten; över 5 kn mot sog 0).
     const efter = fix(svc, MMSI, {
-      s: 1086 + 120, ...dest(STRID, SYD_BRG, 200), sog: 0, cog: 164.1,
+      s: 1086 + 180, ...dest(STRID, SYD_BRG, 200), sog: 0, cog: 164.1,
     });
     expect(efter._positionAnalysis.reason).toBe('stop_after_transit');
     expect(efter.passedBridges || []).toContain('Stridsbergsbron');
@@ -250,10 +285,11 @@ describe('U40/N4 C: riktiga pipelinen', () => {
   test('MOTFALL: stillafixen 55 m bortom linjen (jitterbandet) ⇒ GPS-hopp som förut, ingen passage', () => {
     const { svc, gate } = bygg();
     const MMSI = '265994002';
-    transit(svc, MMSI);
-    // 572 m på 115 s (5,2 × 115 × 2 = 615 m ≥ 572, snitt 9,7 kn > 5).
+    TRANSIT.forEach((r, i) => fix(svc, MMSI, i === TRANSIT.length - 1 ? { ...r, sog: 7 } : r));
+    // 572 m på 150 s: 7,4 kn snitt (> 5 kn, 1,06 × startfarten 7 kn), så
+    // varken villkor 2 eller fartkvoten håller emot; det gör jitterbandet.
     const efter = fix(svc, MMSI, {
-      s: 1086 + 115, ...dest(STRID, SYD_BRG, 55), sog: 0, cog: 164.1,
+      s: 1086 + 150, ...dest(STRID, SYD_BRG, 55), sog: 0, cog: 164.1,
     });
     expect(efter._gpsJumpDetected).toBe(true);
     expect(efter._positionAnalysis.reason).toBe('likely_gps_error');
@@ -261,7 +297,7 @@ describe('U40/N4 C: riktiga pipelinen', () => {
     expect((gate._candidatePassages.get(MMSI) || []).map((k) => k.bridgeName)).toContain('Stridsbergsbron');
     // Båten ligger i själva verket 30 m FÖRE bron: nästa fix bokför ingen passage
     const sann = fix(svc, MMSI, {
-      s: 1086 + 115 + 180, ...dest(STRID, SYD_BRG + 180, 30), sog: 0, cog: 164.1,
+      s: 1086 + 150 + 180, ...dest(STRID, SYD_BRG + 180, 30), sog: 0, cog: 164.1,
     });
     expect(sann.passedBridges || []).not.toContain('Stridsbergsbron');
   });
@@ -296,5 +332,111 @@ describe('U40/N4 C: riktiga pipelinen', () => {
     });
     expect(efter._gpsJumpDetected).toBe(true);
     expect(efter.passedBridges || []).not.toContain('Klaffbron');
+  });
+});
+
+/**
+ * Granskningens angrepp (N4-skärpningen 2026-11-16): positionsutliggare med
+ * sog 0 och 110–300 m fel. Basen (f543190) dömer dem som GPS-hopp och bokför
+ * ingen passage på utliggaren; det ska N4 också göra. Geometrin följer
+ * kanalens polylinje (scenariogeneratorn), söderut genom Stridsbergsbron.
+ */
+describe('U40/N4 D: granskningens utliggare (samma utfall som basen)', () => {
+  const PATH = buildPath();
+  const MET = pathMetrics(PATH);
+  const S_STRID = MET.cum[4];
+  const J = MET.cum[4] - MET.cum[3]; // Stridsbergsbron → Järnvägsbron, ~257 m
+  const KN = 0.5144;
+  const liveServices = [];
+  let nu;
+  const T0 = 1_800_000_000_000;
+
+  beforeEach(() => {
+    nu = T0;
+    Date.now = () => nu;
+    global.__TEST_MODE__ = true;
+  });
+  afterEach(() => {
+    while (liveServices.length > 0) {
+      try {
+        liveServices.pop().clearAllTimers();
+      } catch (_) { /* tomt */ }
+    }
+    Date.now = REAL_DATE_NOW;
+    delete global.__TEST_MODE__;
+  });
+
+  const bygg = () => {
+    const logger = makeLogger();
+    const coordinator = new SystemCoordinator(logger);
+    const svc = new VesselDataService(logger, new BridgeRegistry(), coordinator);
+    svc.app = {
+      gpsJumpGateService: new GPSJumpGateService(logger, coordinator),
+      passageLatchService: null,
+      routeOrderValidator: null,
+      debug: jest.fn(),
+      log: jest.fn(),
+      error: jest.fn(),
+    };
+    liveServices.push(svc);
+    return svc;
+  };
+  /** m meter bortom Stridsbergsbron (söderut; negativt = före) */
+  const punkt = (m) => pointAt(PATH, MET, S_STRID - m);
+  const sydKurs = (m, avv = 0) => (((punkt(m).bearing + 180 + avv) % 360) + 360) % 360;
+  const fix = (svc, mmsi, tS, m, sog, cog) => {
+    nu = T0 + tS * 1000;
+    const p = punkt(m);
+    svc.updateVessel(mmsi, {
+      mmsi, lat: p.lat, lon: p.lon, sog, cog, name: 'N4-UTLIGGARE', fixFeed: 'aisstream', fixTs: nu,
+    });
+    return svc.vessels.get(mmsi);
+  };
+  /** Transit i kn fram till aM; returnerar tiden för startfixen A. */
+  const transit = (svc, mmsi, kn, aM, aCog) => {
+    let t = 0;
+    for (let m = -2600; m < aM - 1e-6; m += kn * KN * 60) {
+      fix(svc, mmsi, t, m, kn, sydKurs(m));
+      t += 60;
+    }
+    fix(svc, mmsi, t, aM, kn, aCog ?? sydKurs(aM, -7));
+    return t;
+  };
+
+  test('J1: båt i 3 kn får en sog 0-fix 261 m framåt (150 m bortom bron) ⇒ GPS-hopp, ingen passage förrän hon korsar', () => {
+    const svc = bygg();
+    const tA = transit(svc, '265995001', 3, -420);
+    const hopp = fix(svc, '265995001', tA + 200, 150, 0, sydKurs(150, -51.5));
+    expect(hopp._gpsJumpDetected).toBe(true);
+    expect(hopp.passedBridges || []).not.toContain('Stridsbergsbron');
+    // I själva verket 111 m före bron och på väg vidare
+    const före = fix(svc, '265995001', tA + 260, -111 + 3 * KN * 60, 3, sydKurs(-20));
+    expect(före.passedBridges || []).not.toContain('Stridsbergsbron');
+  });
+
+  test('J2: båten stannar 30 m före bron, brusfix 150 m bortom (180 m fel) ⇒ GPS-hopp, ingen passage', () => {
+    const svc = bygg();
+    const tA = transit(svc, '265995002', 3, -420);
+    const hopp = fix(svc, '265995002', tA + 200, 150, 0, sydKurs(150, -51.5));
+    expect(hopp._gpsJumpDetected).toBe(true);
+    expect(hopp.passedBridges || []).not.toContain('Stridsbergsbron');
+    const sann = fix(svc, '265995002', tA + 320, -30, 0, sydKurs(-30, -51.5));
+    expect(sann.passedBridges || []).not.toContain('Stridsbergsbron');
+  });
+
+  test('K3b: båten stannar 30 m före Järnvägsbron, brusfix 80 m bortom den ⇒ GPS-hopp, ingen Järnvägsbronpassage', () => {
+    const svc = bygg();
+    const tA = transit(svc, '265995003', 7, -300, 208.6);
+    const hopp = fix(svc, '265995003', tA + 120, J + 80, 0, 165);
+    expect(hopp._gpsJumpDetected).toBe(true);
+    expect(hopp.passedBridges || []).not.toContain('Järnvägsbron');
+  });
+
+  test('K3e: båten stannar 30 m bortom Stridsbergsbron, brusfix 70 m bortom Järnvägsbron ⇒ GPS-hopp, ingen Järnvägsbronpassage', () => {
+    const svc = bygg();
+    const tA = transit(svc, '265995004', 7, -300, 208.6);
+    const hopp = fix(svc, '265995004', tA + 120, J + 70, 0, 165);
+    expect(hopp._gpsJumpDetected).toBe(true);
+    expect(hopp.passedBridges || []).not.toContain('Järnvägsbron');
   });
 });

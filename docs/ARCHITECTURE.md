@@ -305,10 +305,21 @@ Moduler (ansvar / ägda tillstånd / in-ut):
   håller mot förra fixen och fixen ligger mer än UNDER_BRIDGE_CROSS_PROOF_JITTER_M bortom
   varje brolinje som segmentet korsat (inom bandet ser ett brusprov hos en båt som stannat strax före bron
   likadant ut, och hoppdomen gör att nästa fix mäts från den rena startpositionen så att
-  ingen falsk passage bokförs); stillagrinden och K1 avgör sedan passagen per bro. Känd
-  gräns, samma som K1: ett brusprov mer än 60 m bortom linjen hos en båt som stannat före
-  bron bokförs som passage; sådant brus hos en stillaliggare finns inte i banken eller
-  fältet. Allt annat döms som förut: fysiskt omöjligt (F64)
+  ingen falsk passage bokförs), OCH snittfarten över glappet är högst
+  `STOP_AFTER_TRANSIT_MAX_SPEED_RATIO` (1,2) × startfarten (skärpningen, dirigentens
+  beslut: en båt som stannat tvärt har bromsat; marginalen täcker att rapporterad och
+  verklig fart skiljer sig; i banken och fältet har inget transit→stopp med startfart minst
+  3 kn snittfart över 1,03 × startfarten). Kvoten gäller bara hoppgrenen, inte K1.
+  Stillagrinden och K1 avgör sedan passagen per bro. Känd gräns: en fix med sog 0 mer än
+  60 m bortom en korsad brolinje och med snittfart upp till 1,2 × startfarten bokförs som
+  passage även när den är en positionsutliggare, både hos en båt som stannat strax före
+  bron (brus bortom linjen) och hos en båt som går vidare med en enstaka sog 0-fix framåt
+  längs kursen (passagen kommer för tidigt och "närmar sig"-notisen uteblir). Utan kvoten
+  släpptes snittfarter upp till 2 × startfarten. Positionsfel på 110 m eller mer på en fix
+  med sog 0 finns inte i banken eller fältet. Nyttan är också hypotetisk: grenen nås aldrig
+  i banken eller fältet, och i det syntetiska bandet (2 646 varianter) rättas 14 av de 28
+  sena cellerna (de med kvot högst 1,2; 9 av dem har kvot högst 1,0, alltså verkliga tvära
+  stopp). Allt annat döms som förut: fysiskt omöjligt (F64)
   kan regeln aldrig nå (villkoret förflyttning ≤ startfart × dt × 2,0 ligger inom taket
   max(sog, 5) × dt × 2,0), och en rörlig fix (sog ≥ 0,5), en stilla startfix, ett hopp
   längre än färden, ett bakåthopp eller en osäker startfix är fortfarande GPS-hopp. I
