@@ -2,7 +2,7 @@
 
 // U30 (2026-11-15): läget "ETA okänd" för en bevisat stilla båt utanför
 // väntzonen (ProgressiveETACalculator._updateStillUnknown). Varje villkor har
-// ett fall precis innanför och utanför (granskningen av ea684b8, M1).
+// ett fall precis innanför och utanför (granskningen av b9c581a, M1).
 // Positionerna är syntetiska: en rak linje norr om Stridsbergsbron.
 
 const ProgressiveETACalculator = require('../lib/services/ProgressiveETACalculator');

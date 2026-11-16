@@ -164,7 +164,7 @@ describe('U17 (3″): täckningsslutet kom i tid', () => {
 
   describe('kedjan av återabsorptioner (standardvärld 1907, K-NÄSTA)', () => {
     // Fixturen fixtures/u17-kedja-1907-2026-11-15.json: värld 1907 i
-    // standardkörningen (basSeed 1) på 7eb350d, trimmad till 09:50–12:05 och
+    // standardkörningen (basSeed 1) på 1f6dd46, trimmad till 09:50–12:05 och
     // kontrollerad mot hela världen. 265183171 absorberas 11:24:30 i
     // Stridsbergsbron#26, korsar tyst 11:42:30, släpps vid #26:s
     // täckningsslut 11:42:31,935 och återabsorberas i #28 (bokförd 11:40:56,

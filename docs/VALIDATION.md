@@ -645,7 +645,7 @@ de gamla scenarierna genereras byte för byte som förut. Scenarierna:
   låta samma-tick-tilldelningen hoppa över kajprovet.
 - `förstakontakt-2,5kn-sedan-8kn-norrut-i-tystnad` och
   `omstart-120m-före-Stridsbergsbron-10kn-gles` (granskningen av familj B, H1) kräver
-  `openingLeadS` 150 s. De fäller regeln i sin första, breda form (`eb34e30`: alla båtar
+  `openingLeadS` 150 s. De fäller regeln i sin första, breda form (`c21ca8e`: alla båtar
   utan historik), som gav 58 respektive 115 s; regeln gäller nu bara efter en bekräftad
   vändning. Omstartsscenariot har `suppressedOpeningFires: 1` (omstartens dedup).
 - `vänder-norr-om-Stridsbergsbron-6kn-söderut-fix-var-6-min (M3, i tid)` kräver att
@@ -742,11 +742,11 @@ Sex scenarier, placeringen är testet:
 - `kajbyte-med-fartbrus-i-fristen (k1 PRICKBJORN, M1)`, seed 4405: samma kajbyte, men
   andra kajsamplet (260 s, i nådafristen) rapporterar 2,5 kn på samma punkt (stoppben
   med `stopSog`). Fönstret 330–900 s kräver noll båtar mot Klaffbron. Rött mot `e51c7b6`,
-  mot revision 0 (`65c05dd`) och med fartregeln bortkopplad (släpp först 390 s).
+  mot revision 0 (`c154f93`) och med fartregeln bortkopplad (släpp först 390 s).
 - `kajbyte-9-m-norr-om-punktens-latitud (k1 PRICKBJORN, R1-M1)`, seed 4406: svängen
   kommer 9 m söder om punktens latitud och kajen ligger 7–20 m NORR om den (micro-ben om
   0,3 m), som PRICKBJORNs kajplats den 12 november. Fönstret 330–2 000 s kräver noll båtar
-  mot Klaffbron. Rött mot `e51c7b6` och mot revision 1 (`ea8d24b`, gränsen på linjen).
+  mot Klaffbron. Rött mot `e51c7b6` och mot revision 1 (`9e0aad4`, gränsen på linjen).
   Motfallet strax utanför den vidgade gränsen (allt som på basen) ligger i jest-sviten.
 - `krypande-insegling-med-släpande-fart-söder-om-Kanalinfarten (familj D, L2)`, seed 4404:
   söder om punkten tre fixar 60 m isär med 180 s mellanrum (mellanfixarna stryks med glapp)
@@ -761,7 +761,7 @@ Sex scenarier, placeringen är testet:
 - `stilla-köare-i-luckan-med-kursbrus (granskning D)`, seed 4403 (granskarens scenario):
   en köare mot Stridsbergsbron ligger 15 min 420 m norr om Klaffbron med `stopSog: 0.1`
   och `stopCogRandom`, utanför kö-zonen och utan skyddszon. `noDefaultWhileStopped`.
-  Rött mot revision 0 (`65c05dd`, grinden gällde överallt) och med regionsvillkoret
+  Rött mot revision 0 (`c154f93`, grinden gällde överallt) och med regionsvillkoret
   bortkopplat; grönt mot `e51c7b6` och med rättningen.
 
 Två delar prövas bara av jest-sviten `falt-k1-manoverskyddets-kursben`: att samplets
@@ -1170,7 +1170,7 @@ färska under det visade värdet dämpas båten mot det visade värdet med klamp
 maxDelta, men bara om fixet klarar rimlighetsprovet (kvot ≤ 1,35, inte
 GPS-misstänkt).
 
-**Banken** (`7eb350d` mot efter, 24 korpusar, `oattribuerade` 0 i båda,
+**Banken** (`1f6dd46` mot efter, 24 korpusar, `oattribuerade` 0 i båda,
 parning per korpus, typ, bro och mmsi inom 2 s): alla 3 102 påståenden är
 parade och oförändrade, i banden under 5 och under 10 min och totalt.
 Brotextövergångarna (2 542), notiserna (1 344), öppningsvarningarna (432) och
@@ -1195,7 +1195,7 @@ utliggare; 1,35 ligger mitt i gapet. Av alla 9 920 fix efter ett glapp på
 minst 180 s i banken och k1–k3 ligger 20 (0,20 %) över tröskeln och 26 685
 fix totalt har 94 (0,35 %) över.
 
-**Granskning 2 (8c4ff30 → denna version):** två osedda båtar som sänkte samma
+**Granskning 2 (c922338 → denna version):** två osedda båtar som sänkte samma
 bro med 1 s mellanrum gav "om 11" och sedan "om 8" mot det visade 14,6
 (`f07-dubbel`). Nu delar sänkningarna en referens per bro och 30 s-fönster:
 14,6 → 11,0 med två och tre båtar och med 20 s mellan fixen. Referensfarten i
@@ -1234,7 +1234,7 @@ utanför väntzonen"); beräkningen under ytan och publiceringsklampens baslinje
 är oförändrade. Fältfallet är körning 1,
 12 nov 08:30–08:54Z: "om 4 minuter" i 12,7 min och sedan trappan 9 → 28.
 
-**Banken** (mätt 2026-11-15 mot `7eb350d` och mot grenen med fartspiksvakten, som inte är införd; på `omg2/U30` mäts mot `bfaeec4`, se slutet av avsnittet; 24 korpusar,
+**Banken** (mätt 2026-11-15 mot `1f6dd46` och mot grenen med fartspiksvakten, som inte är införd; på `omg2/U30` mäts mot `187f31e`, se slutet av avsnittet; 24 korpusar,
 `rendering-saknas` 0): alla 3 102 påståenden parade och **oförändrade**,
 och regeln slår inte till i någon korpus (antalet stämplade stderr-rader är
 identiskt per korpus). Banden under 5 och 10 min (parad n = 789 respektive
@@ -1265,7 +1265,7 @@ ETA-fel över 2 min för en köare 450 m från bron som går efter 15 min 770 �
 
 **Scenarierna** (`replay:synthetic`, nya förväntningar `stillUnknown`,
 `noUnknownDuringStop`, `maxFormChangesPerStop`): "stilla-460m-från-målbron-ETA-okänd"
-och "stilla-460m-och-går-igen" fäller `7eb350d` (texten fryser på "om 4");
+och "stilla-460m-och-går-igen" fäller `1f6dd46` (texten fryser på "om 4");
 motfallen kort stopp under 5 min, stilla 310 m, köare i väntzonen 200 m och
 gammal position är gröna på båda, och regeln slår inte till i dem.
 
@@ -1285,7 +1285,7 @@ Mätt mot grenen med fartspiksvakten (`omg2/ETA1-S`, inte införd) som bas, i gr
 - *Fartspikar utan förflyttning* (1,5 och 3 kn, varannan och var tionde minut,
   ungt ankare och 35 min stilla först): **0 formbyten** under stoppet; formerna
   är nedräkning → "ETA okänd" → nedräkning vid avgången. Granskarens
-  blinkprov (12 formbyten på `ea684b8`) ger 2.
+  blinkprov (12 formbyten på `b9c581a`) ger 2.
 - *Kryparen* 0,5/0,7/0,9 kn från 460 m: "ETA okänd" står tills hon förflyttat
   sig 50 m från lägets ankarpunkt (4,5 / 3,5 / 3 min efter inträdet med 30 s-fix);
   därefter visas exakt basens
@@ -1959,7 +1959,7 @@ korpus-id** och är ingen tillåtelse att ändra befintliga referenser.
    En ofullständig historisk korpus behåller både sina assertions och sin
    `captureIntegrity: 'incomplete'`-klassning; regenereringsspärren kvarstår.
 
-**`20261114-34h` (2026-11-15).** Fältkörning 3 (koden `7eb350d`, 34,06 h,
+**`20261114-34h` (2026-11-15).** Fältkörning 3 (koden `1f6dd46`, 34,06 h,
 3 357 AIS-poster med startminne) är den första körningen sedan 18 september
 som klarar båda grindarna och är låst den här vägen: 24 närnotiser, åtta
 öppningsvarningar, åtta målpassager, tolv mellanpassager och 75 texter, fullt

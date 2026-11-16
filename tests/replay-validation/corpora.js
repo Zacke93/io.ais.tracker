@@ -2742,7 +2742,7 @@ module.exports = [
     lockOpenings: true,
     lockEvents: true,
     expectedNotifications: 24,
-    note: 'Låst 2026-11-15: fältkörning 3, koden 7eb350d på ägarens Homey Pro, '
+    note: 'Låst 2026-11-15: fältkörning 3, koden 1f6dd46 på ägarens Homey Pro, '
       + '2026-11-14T08:16:41.212Z–2026-11-15T18:20:01.672Z (315800 loggrader, 3357 AIS-poster). '
       + 'Riktad nyregistrering (VALIDATION §Riktad nyregistrering); inga andra korpusars referenser rörda. '
       + 'jsonl och inspelat startminne är byteexakta kopior: jsonl:en byggd om ur loggens '

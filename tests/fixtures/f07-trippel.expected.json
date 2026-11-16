@@ -1,5 +1,5 @@
 {
- "källa": "granskningarna av F07 (adv/gen.js, syntetiska positioner); förväntan = R7 (12b9477). Avvägningen L1 (dirigenten 2026-11-16): 10:08:01 \"om 6\" mot F07:s \"om 7\" i 60 s, sanning 13,0 — se ARCHITECTURE §8 (e) och VALIDATION \"F07 R7\".",
+ "källa": "granskningarna av F07 (adv/gen.js, syntetiska positioner); förväntan = R7 (ca9e199). Avvägningen L1 (dirigenten 2026-11-16): 10:08:01 \"om 6\" mot F07:s \"om 7\" i 60 s, sanning 13,0 — se ARCHITECTURE §8 (e) och VALIDATION \"F07 R7\".",
  "texts": [
   "10:00:00 En båt på väg mot Klaffbron, beräknad broöppning om 21 minuter",
   "10:00:01 Två båtar på väg mot Klaffbron, beräknad broöppning om 21 minuter",

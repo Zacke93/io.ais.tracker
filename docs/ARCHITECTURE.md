@@ -2537,7 +2537,7 @@ decayn. `ProgressiveETACalculator._updateStillUnknown` håller reda på läget
 `app.js` `_presentETA` publicerar null ("ETA okänd") medan läget står, medan
 publiceringsklampens baslinje (`_etaPublishedValue`) uppdateras dolt. När
 läget lämnas visas därför exakt det värde basen hade visat (granskningen av
-`ea684b8`: efter en fartspik publicerades annars kalkylatorns värde oklampat,
+`b9c581a`: efter en fartspik publicerades annars kalkylatorns värde oklampat,
 okänd → 25).
 *Inträde*, alla villkor: VesselDataService:s stillhetsklocka
 (`vessel._stationarySince`) har gått minst 5 min; positionen har legat inom

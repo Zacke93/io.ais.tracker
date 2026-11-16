@@ -1,6 +1,6 @@
 'use strict';
 
-// Fältkörning 3 (14–15 november 2026, koden 7eb350d på ägarens Homey Pro),
+// Fältkörning 3 (14–15 november 2026, koden 1f6dd46 på ägarens Homey Pro),
 // låst som korpus 20261114-34h. Testet prövar de granskade fältfallen mot
 // rådatan, inte mot appens egen bokföring: Järnvägsbron söderut på
 // passagefixen (rättning C2 i fält), åtta varningar före åtta passager och

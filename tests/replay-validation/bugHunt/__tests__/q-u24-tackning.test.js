@@ -13,7 +13,7 @@
  * U17:s villkor (3″) (täckningsslutetsGräns).
  *
  * Fixturen fixtures/u24-tackning-2026-11-16.json (standardkörningen, basSeed 1,
- * trimmad och kontrollerad mot hela världen): bas143 (058c6e9, oförändrad
+ * trimmad och kontrollerad mot hela världen): bas143 (d74880f, oförändrad
  * app; baslinjens enda U24-utslag), arm120w143 och slapp120w143 (mutanterna).
  * Inga barnprocesser och inga timers.
  */

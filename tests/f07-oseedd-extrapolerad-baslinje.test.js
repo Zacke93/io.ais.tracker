@@ -475,7 +475,7 @@ describe('F07: klampen och en osedd Fix G-baslinje (enhet)', () => {
  * Hela kedjan: granskningens syntetiska motfall (egna positioner, byggda med
  * granskarens generator). En klass B-båt bakom en ledare får efter ett glapp
  * på 6,5 min en färsk siffra under ledarens visade värde. Texten ska vara
- * exakt som på 7eb350d: klampen gäller, och ingen för optimistisk siffra tar
+ * exakt som på 1f6dd46: klampen gäller, och ingen för optimistisk siffra tar
  * över gruppens klausul.
  */
 describe('F07: motfallen gps700 och accstop genom appen', () => {
@@ -507,7 +507,7 @@ describe('F07: motfallen gps700 och accstop genom appen', () => {
   const texts = (result) => result.bridgeTextTransitions
     .map((t) => `${new Date(t.t).toISOString().slice(11, 19)} ${t.text}`);
 
-  // dubbel, trippel och dubbel20 är låsta på R7 (12b9477). dubbel och trippel
+  // dubbel, trippel och dubbel20 är låsta på R7 (ca9e199). dubbel och trippel
   // visar där avvägningen L1 (godtagen av dirigenten 2026-11-16): 10:08:01
   // "om 6" i 60 s mot F07:s "om 7" (sanning 13,0), sedan 6 → 7. Se
   // ARCHITECTURE §8 (e) och VALIDATION "F07 R7".
@@ -588,7 +588,7 @@ describe('F07: 20260708-21h i fasvarianten δ −11,52 s', () => {
       .map((t) => (t.text.match(/på väg mot Klaffbron, beräknad broöppning (om (?:cirka )?\d+ minuter|strax)/) || [])[1])
       .filter(Boolean);
     expect(klaff.length).toBeGreaterThan(0);
-    // 7eb350d: "om 19 minuter" 07:11:30. Nu "om 13" från 07:07:02.
+    // 1f6dd46: "om 19 minuter" 07:11:30. Nu "om 13" från 07:07:02.
     expect(klaff).not.toContain('om 19 minuter');
     expect(klaff).not.toContain('om 18 minuter');
     expect(klaff).toContain('om 13 minuter');

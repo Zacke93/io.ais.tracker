@@ -680,7 +680,7 @@ const SCENARIOS = [
   // vändning. För en båt utan historik och utan vändning håller spärren en arm
   // som saknar kadens, och tystnadsregeln (två intervall) kan inte skydda den.
   // Båda motexemplen gav kort ledtid eller ingen varning med regeln för alla
-  // båtar utan historik (eb34e30) och minst 181 s i basen.
+  // båtar utan historik (c21ca8e) och minst 181 s i basen.
   {
     // Förstakontakt 250 m söder om Klaffbron i 2,5 kn, sedan 8 kn norrut utan
     // fix i 358 s. Med den breda regeln hölls kedjearmen Stridsbergsbron 300 s
@@ -2312,7 +2312,7 @@ const SCENARIOS = [
     // söder om Järnvägsbron), 10 min ny väntan och verklig avgång 1,1 → 3,7 →
     // 6,5 kn. Krypsamplet kan inte skiljas från en avgång: holdens bevis
     // armerar golvet (2 × 2,0 kn, högst 4 kn) och prognosen blir för låg,
-    // precis som i buffertvägen utan målbyte. Dagens utfall (efter 9d06a82):
+    // precis som i buffertvägen utan målbyte. Dagens utfall (efter 272f16b):
     // "om 9, om 8" mot sann restid 19,1 och 18,1 min (fel −10,1), "om 8" står
     // kvar 12,5 min under den nya väntan, och öppningskortet Klaffbron#3
     // (deadline 06:28:25) har eta 8 mot sann restid 17,0 (fel −9,0). Före
@@ -3115,7 +3115,7 @@ function singleJourney(scenario, truthPaths, samples, bridge, tag, problems) {
  * U30: stoppen i scenariots enda båtresa, ur generatorns SANNA bana: ett
  * stopp är ett intervall där båten inte flyttar sig (minst 60 s). Rapporterad
  * fart spelar ingen roll, så fartspikar på en stilla båt delar inte stoppet
- * (granskningen av ea684b8, H2). departure är tiden då båten åter flyttar sig
+ * (granskningen av b9c581a, H2). departure är tiden då båten åter flyttar sig
  * (null om hon aldrig gör det); sStop är stoppets position längs rutten.
  * @returns {Array<{t0:number, tEnd:number, departure:number|null, sStop:number}>|null}
  */

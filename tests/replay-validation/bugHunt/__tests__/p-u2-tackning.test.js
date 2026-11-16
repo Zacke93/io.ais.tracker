@@ -17,7 +17,7 @@
  * Fixturen fixtures/u2-tackning-2026-11-16.json (standardkörningen, basSeed 1,
  * trimmad och kontrollerad mot hela världen):
  *  - mut449, mut1089, mut1214: världarna körda med mutanten;
- *  - bas8, bas1089: två av baslinjens 27 U2-utslag på 058c6e9 (oförändrad app).
+ *  - bas8, bas1089: två av baslinjens 27 U2-utslag på d74880f (oförändrad app).
  * Inga barnprocesser och inga timers.
  */
 

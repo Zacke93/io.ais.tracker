@@ -5,8 +5,8 @@ granskare gick igenom loggarna: integriteten, driften, öppningsvarningarna resp
 notiserna och brotexten i varje körning, och de tio mekanismerna från 3–9 november. Felen
 rättades i sju familjer. Varje rättning granskades adversariellt av en annan agent och
 reviderades tills granskaren godkände den. Familjerna slogs sedan ihop ovanpå `e51c7b6`
-(commitlistan i avsnitt 5). Dokumentet stämmer med `e439f58` (25 commits ovanpå `e51c7b6`,
-med omlåsningen `014d024` och rättningen av C2 efter buggjägarens körning). Alla tider är UTC;
+(commitlistan i avsnitt 5). Dokumentet stämmer med `1d8e0f9` (25 commits ovanpå `e51c7b6`,
+med omlåsningen `b40488f` och rättningen av C2 efter buggjägarens körning). Alla tider är UTC;
 svensk tid var UTC+1. Fältloggarna ligger inte i repot.
 
 ## 1. Sammanfattning
@@ -35,7 +35,7 @@ tappade sex block utan att något larmade.
 Kvar är 18 beslutsfrågor (avsnitt 7). Viktigast är när en gammal varning ska sluta gälla,
 som hör ihop med den uppskjutna konvojfrågan, och hur appen ska väga tidig mot sen varning
 när en båt vänder och sedan inte hörs. Prognosarbetet (U22) är fortfarande uppskjutet.
-**Omgång 2** (15–16 november, U28–U30, avsnitt 11) hävde uppskovet; avsnitt 10–11 stämmer med `a883891`.
+**Omgång 2** (15–16 november, U28–U30, avsnitt 11) hävde uppskovet; avsnitt 10–11 stämmer med `57e4789`.
 
 ## 2. Körningarna och vad de täcker — och inte täcker
 
@@ -139,20 +139,20 @@ logg om nätet faller igen.
 
 | Commit | Familj | Rättning |
 |---|---|---|
-| `c742d72` | A | Ankomstspärren i farleden: avgången efter ett stopp på minst två timmar är en ny ankomst |
-| `00f493b` | B | Kedjearmens spärr gäller från första målbrofixet efter en bekräftad vändning |
-| `3fd74d5`, `8af8efd` | C | C1 failsafens retursläpp följer formregeln; C2 Järnvägsbron söderut |
-| `b9a43ad` | E | Avgångsgolvet armeras efter en målbroövergång |
-| `bad8a74` | D | Manöverskyddet kräver verklig rörelse vid kajerna söder om Kanalinfarten |
-| `5088bcb`, `ba8bc1c`, `7b2eb3c`, `c2de493` | F | UI-ticken, loggraden, AISstream efter nätavbrott, korsnotiserna |
-| `2fb64c6` … `6302dc6` (elva) | V | Varningens ålder, INV-22, tidsstegningen, tidshål, loggskriptet, `replay:field` |
-| `33f2b07` | – | VALIDATION: antalet syntetiska scenarier (100; 101 med C3) och WARN-baslinjen |
-| `014d024` | – | Omlåsning av golden-events för sju korpusar (C, U13) |
-| `6d4149f`, `e439f58` | C | C3: FIX U behåller väntan under parbron i positionens eget pass (felet i C2 som buggjägaren hittade), och en skärpt scenarioförväntan |
+| `5129215` | A | Ankomstspärren i farleden: avgången efter ett stopp på minst två timmar är en ny ankomst |
+| `2abc7ca` | B | Kedjearmens spärr gäller från första målbrofixet efter en bekräftad vändning |
+| `7e4997e`, `897ba8d` | C | C1 failsafens retursläpp följer formregeln; C2 Järnvägsbron söderut |
+| `b0b4f83` | E | Avgångsgolvet armeras efter en målbroövergång |
+| `77d843e` | D | Manöverskyddet kräver verklig rörelse vid kajerna söder om Kanalinfarten |
+| `b99d8b1`, `80e6020`, `09dc72d`, `f7e1ac6` | F | UI-ticken, loggraden, AISstream efter nätavbrott, korsnotiserna |
+| `f85075a` … `24b0048` (elva) | V | Varningens ålder, INV-22, tidsstegningen, tidshål, loggskriptet, `replay:field` |
+| `c13ca74` | – | VALIDATION: antalet syntetiska scenarier (100; 101 med C3) och WARN-baslinjen |
+| `b40488f` | – | Omlåsning av golden-events för sju korpusar (C, U13) |
+| `2556d7b`, `1d8e0f9` | C | C3: FIX U behåller väntan under parbron i positionens eget pass (felet i C2 som buggjägaren hittade), och en skärpt scenarioförväntan |
 
 Familjerna är squashade; varje commitmeddelande nämner familjens egna commits.
 
-### 5.1 Ankomstspärren i farleden (A, `c742d72`)
+### 5.1 Ankomstspärren i farleden (A, `5129215`)
 
 **Situationen.** PRICKBJORN vände norr om Stridsbergsbron 12/11 och gick söderut i 6–7 kn.
 Stridsbergsbron#19 gick 08:30:31 (09:30 svensk tid). 08:34:57 stannade hon 460 m norr om bron,
@@ -186,7 +186,7 @@ spärrade återavfyrningar (F1), priset för två fix (F3). Två basfel bör utr
 falskt Klaffbronkort cirka 2 min efter ett GPS-hopp hos en förtöjd båt, och ett andra
 Klaffbronkort till CHARLYS DREAM efter en omstart 12:25 i 20260804-both-21h.
 
-### 5.2 Kedjearmen efter en vändning (B, `00f493b`)
+### 5.2 Kedjearmen efter en vändning (B, `2abc7ca`)
 
 **Situationen.** PILOT 761 låg 222 m norr om Stridsbergsbron 11/11 12:00–12:31 och vände
 söderut. Klaffbron#7 gick 12:34:57 med "eta 25". Hon låg 34 min i kön vid Järnvägsbron och
@@ -212,7 +212,7 @@ ovarnad passage, där basen gav minst 181 s. Regeln begränsades till bekräftad
 (472 → 280 s, "eta okänd"), kortets siffra 12 mot verkliga 10 min (F13). Klaffbron får nu två
 kort för troligen en öppning, PILOT 13:15 och MONIKA 13:23 (F1).
 
-### 5.3 Järnvägsbron söderut (C2, `8af8efd`)
+### 5.3 Järnvägsbron söderut (C2, `897ba8d`)
 
 **Situationen.** I k2 kom alla tre sydgående notiser för Järnvägsbron vid eller efter
 passagen: ASPEN 01:33:00 (korsning 01:32:50), WILSON ALSTER 02:11:30 (02:11:34) och NORDIC
@@ -240,7 +240,7 @@ Prövas av `tests/c2-jarnvagsbron-soderut.test.js`, ett F08-test i
 20260712-25h, 20260804-both-21h, 20260806-42h, 20260909-80h, 20260917-16h och 20260918-7h: 22
 ändrar bara tiden, ELFKUNGEN texten, SINE BRES tid och position, och i both-21h byter en notis
 plats. Inga öppningar eller passager ändras. Rådatabelägg i `corpora.js`-noterna (U13).
-Omlåst i `014d024`, efter dirigentens egen jämförelse av gammalt mot nytt facit: exakt 24
+Omlåst i `b40488f`, efter dirigentens egen jämförelse av gammalt mot nytt facit: exakt 24
 notiser ändras, alla flyttade kommer tidigare mot rådatans korsning, och de två som förut kom
 efter korsningen (TIDAN 14 s efter, SINE BRES 34 s efter) kommer nu före (41 respektive 18 s).
 De nya filerna är byte för byte lika med dem granskaren och sammanslagaren tog fram var för sig.
@@ -249,7 +249,7 @@ De nya filerna är byte för byte lika med dem granskaren och sammanslagaren tog
 D6 nämnt och en loggrad när parbron läggs till. C2 tog också bort ett fasberoende: korpusen
 med SINE BRES gav på basen 60 olika notisströmmar i 121 tidsförskjutningar, nu en.
 
-**Felet som buggjägaren hittade efter sammanslagningen (C3, `6d4149f`).** Familjens tester,
+**Felet som buggjägaren hittade efter sammanslagningen (C3, `2556d7b`).** Familjens tester,
 banken och granskarens 13 motexempel godkände C2, men buggjägarens standardkörning på den
 sammanslagna koden visade att räknaren för sena notiser gått från 1 till 4. Gränsen 10 m
 bortom linjen var mindre än en båtlängd. När en båt redan låg låst under Stridsbergsbron (så
@@ -265,14 +265,14 @@ ingen klockjämförelse). Ett senare pass på samma position (vakthunden) rensar
 OSPREY-klassen behåller sann passerad form. Alla nio notiser har tillbaka basens tid; inget
 annat av de 35 142 flyttas, banken och fältkörningarna är byte för byte oförändrade, och
 omlåsningen står kvar. Granskaren godkände C3 efter 520 F08-följder och 121 tidsförskjutningar;
-`e439f58` skärper en scenarioförväntan som annars kunde bli grön utan att pröva något.
+`1d8e0f9` skärper en scenarioförväntan som annars kunde bli grön utan att pröva något.
 
 **Inte rättat.** 18 förvarningar där båten redan är förbi bron (F9); "strax" på en position
 upp till 50 m bortom linjen i positionens eget pass, 3–21 s efter korsningen (med 25 s
 AISHub-latens upp till 46 s — basens beteende, F9); och F08:s kända lucka (en mellanposition
 40–55 m bortom linjen). C2 rättar på annat sätt det ägaren sköt upp som D6 (F18).
 
-### 5.4 Avgångsgolvet efter målbyte (E, `b9a43ad`)
+### 5.4 Avgångsgolvet efter målbyte (E, `b0b4f83`)
 
 **Situationen.** PRICKBJORN passerade Stridsbergsbron söderut 12/11 12:35:22, väntade 175 m
 norr om Järnvägsbron till 12:52 med rätt vänttext och lade ut 12:53:33 i 1,1 kn. Texten sa
@@ -297,7 +297,7 @@ som avgång och ger för låg ETA (kortet säger 8, sanningen 17); klassen är d
 i ett informativt scenario. **Inte rättat:** EMA-svansen, golvet på dubbla
 igångsättningsfarten ("om 16" mot 6,7) och avgångar där inget sampel når kalkylatorn (F13).
 
-### 5.5 Falsk "under AIS-tystnad" (C1, `3fd74d5`)
+### 5.5 Falsk "under AIS-tystnad" (C1, `7e4997e`)
 
 PRICKBJORN kom tillbaka söderut 13/11 13:46:49 efter 6,5 h borta, låg 13:48:44 8 m från
 Stallbackabron utan förvarning (morgonens besök stod öppet, F8) och fick 13:49:53
@@ -308,7 +308,7 @@ failsafen formen med kandidaten och notisen säger "har precis passerat"; källa
 `passage-fallback` står kvar, så dedup och INV-11 är oförändrade. Prövas i
 `tests/u14-returpassage-notis.test.js`, där ett test som låste tystnadsmeningen är ändrat.
 
-### 5.6 Manöverskyddet söder om Kanalinfarten (D, `bad8a74`)
+### 5.6 Manöverskyddet söder om Kanalinfarten (D, `77d843e`)
 
 **Situationen.** PRICKBJORN fick målbro Klaffbron 11/11 13:24:50 vid Kanalinfarten, vände
 13:25:44 och låg från 13:27:47 still vid kaj 166 m från punkten. Texten sa "Två båtar på väg
@@ -332,7 +332,7 @@ PILOT 761:s falskstart 11/11 10:15 och ELFKUNGENs i juli kom av verkliga svänga
 
 ### 5.7 Driften (F)
 
-**AISstream efter nätavbrottet (`7b2eb3c`).** Homey var utan nät 11/11 02:20–06:53 (03:20–07:53
+**AISstream efter nätavbrottet (`09dc72d`).** Homey var utan nät 11/11 02:20–06:53 (03:20–07:53
 svensk tid). AISHub svarade 06:54:21, AISstream först 07:31:34: klienten hade gått in i
 timfasen och inget drog fram försöket, så statusen var "Degraderad" i 38 min. Nu drar muxen
 fram AISstreams försök till 5 s plus jitter när AISHub kommer tillbaka (`nudgeReconnect`), om
@@ -340,7 +340,7 @@ socketen är nere, snabbfasen passerad, ingen rate-limit-spärr gäller, senaste
 nådde servern och inget dragits fram på 5 min. En server som inte svarar på TCP/TLS-nivå kan
 då få 4–5 extra försök per timme (`tests/f1-aisstream-tidigt-forsok-efter-natavbrott.test.js`).
 
-**Korsnotiserna (`c2de493`).** 06:55:09, 48 s efter att AISHub kommit tillbaka, gick tre
+**Korsnotiserna (`f7e1ac6`).** 06:55:09, 48 s efter att AISHub kommit tillbaka, gick tre
 tidslinjenotiser inom 17 ms: "AISstream har varit tyst i över 4 h medan AISHub flödar" två
 gånger och "… kan vara halvdöd". Båda källorna hade varit borta (BT-12: texten får inte påstå
 mer än mätningen bär). Nu räknas bara tiden då grannen faktiskt levt, ackumulerat över glapp;
@@ -351,9 +351,9 @@ klockor skiljer 0–2 ms, vilket bara syns med riktig klocka. Slutversionen kän
 episoden på lagrade stämplar och är provad med förskjutning och riktig klocka
 (`tests/f2-korstystnad-efter-totalavbrott.test.js`).
 
-**UI-ticken (`5088bcb`)** fyrade 1 ms före halvminuten 13 gånger och en gång dubbelt (12/11
+**UI-ticken (`b99d8b1`)** fyrade 1 ms före halvminuten 13 gånger och en gång dubbelt (12/11
 03:53:59.999 och 03:54:00.001); nu bär timern sin målgräns. Replayns klocka löser aldrig ut
-tidigt, så felet prövas bara i jest. **Loggraden (`ba8bc1c`)** kallade AISHubs nätfel "AIS
+tidigt, så felet prövas bara i jest. **Loggraden (`80e6020`)** kallade AISHubs nätfel "AIS
 stream error"; nu står källan. **Heapen** steg cirka 1 MB per dygn i fält; en soak på 14 dygn
 med forcerad GC visade att golvet planar ut efter 1–2 dygn (V8:s uppvärmning, ingen läcka).
 
@@ -388,7 +388,7 @@ två fixar): känd gräns (open3, radien 300 m). PRICKBJORN gick 10,3 kn mot dea
 tak 10 kn utan följd, eftersom ETA-grenen varnade 261 s före; värt en mätning i banken.
 Händelser som städas utan att avfyras loggas fortfarande inte.
 
-**Slutbatteriet på den sammanslagna koden (`e439f58`), varje steg med slutkod 0:**
+**Slutbatteriet på den sammanslagna koden (`1d8e0f9`), varje steg med slutkod 0:**
 
 | Steg | Utfall |
 |---|---|
@@ -409,7 +409,7 @@ och ett fall i OSPREY-klassen, F9), och den nya kontrollen för förvarning efte
 fem utslag som alla är en lucka i kontrollens regel (F14). Före rättningen av C2 var räknaren
 för sena notiser 4; se avsnitt 5.3.
 
-**Fältkörningarna i replay på `e439f58`**, med och utan monitoring: k1 ger 44 notiser, 17
+**Fältkörningarna i replay på `1d8e0f9`**, med och utan monitoring: k1 ger 44 notiser, 17
 öppningsvarningar (en mer än i fält: PRICKBJORN vid Stridsbergsbron 12/11 12:32:48) och 156
 brotexter; k2 ger 35, 12 och 90. Varje skillnad mot `e51c7b6` är redovisad av sin familj, och
 ingen samverkan mellan rättningarna syns.
@@ -516,7 +516,7 @@ trafiken" är de 24 låsta körningarna (cirka 485 h).
   bara texten, inte varningen.
 - *Beslutat 2026-11-15 (U30):* 20 min behålls. Före släppet visas en båt som legat stilla i fem
   minuter med färsk position, mer än 350 m från bron, som "En båt på väg mot <bro>, ETA okänd"
-  i stället för en frusen siffra (docs/bridgeTextFormat.md). Infört i `a883891` (11.3.5).
+  i stället för en frusen siffra (docs/bridgeTextFormat.md). Infört i `57e4789` (11.3.5).
 
 **F6. Målbron när en båt lägger ut med kurs strax utanför sydbandet**
 - *Situationen.* PRICKBJORN lade ut 12/11 12:28 med kurs 225–232°; kanalen går cirka 220° vid
@@ -608,7 +608,7 @@ trafiken" är de 24 låsta körningarna (cirka 485 h).
   minst 15 min nio på 100,2 h (k1: 3, k2: 1, k3: 5; siffrorna ovan för k1/k2 är jsonl-glapp, en
   övre gräns); ingen hade larmat vid 25 min. Alternativ (d)
   valdes inte (docs/ARCHITECTURE.md §K22/U29, `tests/u29-korstystnad-25min.test.js`).
-  Infört i `f8ab951` (11.3.1); marginalen är fråga F23.
+  Infört i `bb546c2` (11.3.1); marginalen är fråga F23.
 
 **F13. ETA-etappen (U22) med fältets belägg**
 - *Situationen.* En stilla båt fick "om 4 minuter" fruset i 12,7 min och sedan en trappa till
@@ -722,7 +722,7 @@ trafiken" är de 24 låsta körningarna (cirka 485 h).
 
 ## 9. Inför nästa fältprov
 
-- [ ] Installera grenens HEAD (`e439f58` eller senare) och anteckna commiten; bestäm om versionsnummer och
+- [ ] Installera grenens HEAD (`1d8e0f9` eller senare) och anteckna commiten; bestäm om versionsnummer och
       `.homeychangelog.json` ska ändras.
 - [ ] Homey med nätverkskabel; automatiska macOS-uppdateringar och "Installera i natt"
       avstängda; datorn vaken; körning under `tmux` eller `nohup`.
@@ -742,9 +742,9 @@ trafiken" är de 24 låsta körningarna (cirka 485 h).
 
 ## 10. Fältkörning 3 och korpuslåsningen
 
-Tillagt 2026-11-15. Fältkörning 3 kördes på `7eb350d` (den rättade koden) på ägarens Homey
+Tillagt 2026-11-15. Fältkörning 3 kördes på `1f6dd46` (den rättade koden) på ägarens Homey
 Pro och är den första körningen sedan 18 september som klarar båda grindarna. Den är låst
-som korpus **`20261114-34h`** i `bc54021` enligt VALIDATION §Fältprov och §Riktad
+som korpus **`20261114-34h`** i `f44b8dc` enligt VALIDATION §Fältprov och §Riktad
 nyregistrering. F16 är inte infört; körningen blev korpus för att integriteten ändå var OK.
 
 | Körning | Intervall | Timmar | Loggrader | AIS-sampel | Notiser | Öppningsvarningar | Brotexter | Målbropassager |
@@ -771,7 +771,7 @@ bokförda inom korsningsfönstret eller på nästa fix.
 
 **Rättning C2 prövad i fält.** Järnvägsbronotisen söderut går på Stridsbergsbrons
 passagefix: NAVEN 14/11 23:00:27 på 239 m, 100,7 s före korsningen, och NINA BRES 15/11
-01:25:31 på 150 m, 69,4 s före. Samma korpus på koden före C2 (`3fd74d5`) ger 23:01:00
+01:25:31 på 150 m, 69,4 s före. Samma korpus på koden före C2 (`7e4997e`) ger 23:01:00
 (68 s före) och 01:26:30 (10,6 s före); inget annat i händelser eller text skiljer.
 
 **Det körningen täcker.** Fyra genomresor med lastfartyg, en åt gången: NAVEN och NINA
@@ -820,8 +820,8 @@ filerna har bara fått den nya id-posten.
 
 ## 11. Omgång 2: 15–16 november 2026
 
-Tillagt 2026-11-16. Omgången utgick från `7eb350d` och slogs ihop på grenen `omg2/integration`,
-som sedan fördes över till arbetsgrenen. Slutbatteriet (11.8) kördes på `58857ab`; därefter har
+Tillagt 2026-11-16. Omgången utgick från `1f6dd46` och slogs ihop på grenen `omg2/integration`,
+som sedan fördes över till arbetsgrenen. Slutbatteriet (11.8) kördes på `2d1aa75`; därefter har
 bara dokument ändrats. Varje spår hade en egen rättare i en egen
 arbetskopia och en oberoende granskare som mätte själv. Ändringen granskades om tills den blev
 godkänd. De tunga körningarna (hela jest, `measure:eta`, buggjägaren och fassvepet) gick genom
@@ -831,20 +831,20 @@ en gemensam kö. Grenarna som inte slagits ihop är inte pushade. Alla tider är
 
 | Spår | Vad | Utfall | Commits / gren |
 |---|---|---|---|
-| Fältkörning 3 | Låst som korpus `20261114-34h` (avsnitt 10) | inne | `bc54021`, `8c60237` |
-| U29 | AISstream-tystnaden larmar efter 25 min; "halvdöd" bara utan livsbevis | inne, godkänd i första granskningen | `8f2334a`, `34eb844`; `f8ab951` |
-| F07 | Klampen försvarar det användaren ser | inne, godkänd i fjärde granskningen | `1195842` … `49938eb`; `bc87374` |
-| F07 R7 | Samma regel för varje osedd baslinje | inne, golden-text omlåst i fyra korpusar | `12b9477`, `86a0f43`; `cad2a82`; `bfaeec4` |
-| Verktygen | Buggjägarens luckor, invarianterna, `run-with-logs.sh`; appen orörd | inne, godkänd i andra granskningen | `81601dd` … `8182ac1`; `2fca802` |
-| U30 | En stilla båt visas som "ETA okänd" | inne, godkänd efter omgörning | `4cbef9c`; `a883891` |
-| Fartspikskandidaten | Loggrad utan verkan | inne | `1c72fb7` |
-| Fartspiksvakten | Ersätter en orimlig fart i målbytessamplet | inte införd | `omg2/ETA1-S` (`c3e4b4f`) |
-| Vakt söder om Olidebron | Senare varning vid förstakontakt | inte införd | `omg2/SPARR` (`9dc4f77`, prototyp) |
-| Sågtand vid tyst främsta båt | Nedräkning och kö-delen | inte införd | `omg2/sagtand` (`a38ebb5`, prototyp) |
+| Fältkörning 3 | Låst som korpus `20261114-34h` (avsnitt 10) | inne | `f44b8dc`, `6c74eac` |
+| U29 | AISstream-tystnaden larmar efter 25 min; "halvdöd" bara utan livsbevis | inne, godkänd i första granskningen | `3c7654c`, `3847d56`; `bb546c2` |
+| F07 | Klampen försvarar det användaren ser | inne, godkänd i fjärde granskningen | `00b378b` … `102344d`; `8b60f57` |
+| F07 R7 | Samma regel för varje osedd baslinje | inne, golden-text omlåst i fyra korpusar | `ca9e199`, `d4964e4`; `397ade0`; `187f31e` |
+| Verktygen | Buggjägarens luckor, invarianterna, `run-with-logs.sh`; appen orörd | inne, godkänd i andra granskningen | `4c02b82` … `dcaa423`; `225f826` |
+| U30 | En stilla båt visas som "ETA okänd" | inne, godkänd efter omgörning | `60242ad`; `57e4789` |
+| Fartspikskandidaten | Loggrad utan verkan | inne | `764d7c6` |
+| Fartspiksvakten | Ersätter en orimlig fart i målbytessamplet | inte införd | `omg2/ETA1-S` (`208df56`) |
+| Vakt söder om Olidebron | Senare varning vid förstakontakt | inte införd | `omg2/SPARR` (`e03694c`, prototyp) |
+| Sågtand vid tyst främsta båt | Nedräkning och kö-delen | inte införd | `omg2/sagtand` (`b9b3eb9`, prototyp) |
 | K6 och tidsmedveten utjämning | En beräkning per fix; utjämning som räknar tiden | vilar | `omg2/ETA2` (prototyp) |
-| Spärren vid Järnvägsbron | Fartökningsregeln (F7) | godkänd i tredje granskningen, väntar på ägaren (F7) | `omg2/SPARR-d2` (`a6dfb09`) |
-| Inbromsningsregeln | Buggjägarens kort F02 | godkänd i tredje kontrollen, väntar på ägaren (F19) | `omg2/ETA2-C` (`f6b0db0`) |
-| Notisen mot texten | Notisens tid när texten säger "strax" | prototyp, väntar på ägaren (F20) | `omg2/ETA2-BC` (`e634a30`) |
+| Spärren vid Järnvägsbron | Fartökningsregeln (F7) | godkänd i tredje granskningen, väntar på ägaren (F7) | `omg2/SPARR-d2` (`22a4e37`) |
+| Inbromsningsregeln | Buggjägarens kort F02 | godkänd i tredje kontrollen, väntar på ägaren (F19) | `omg2/ETA2-C` (`1237091`) |
+| Notisen mot texten | Notisens tid när texten säger "strax" | prototyp, väntar på ägaren (F20) | `omg2/ETA2-BC` (`6ee78f8`) |
 
 ### 11.2 Ägarbesluten U28–U30
 
@@ -865,7 +865,7 @@ en gemensam kö. Grenarna som inte slagits ihop är inte pushade. Alla tider är
 
 ### 11.3 Det som gick in
 
-#### 11.3.1 U29: AISstream-tystnaden larmar efter 25 minuter (`f8ab951`)
+#### 11.3.1 U29: AISstream-tystnaden larmar efter 25 minuter (`bb546c2`)
 
 **Situationen.** På vintern rör sig ofta ingen båt i området på 15–23 minuter. AISstream
 levererar då ingenting fast anslutningen är frisk, medan AISHub fortsätter rapportera de
@@ -882,7 +882,7 @@ före larmet.
 
 **Granskningen.** Godkänd i första varvet. En död AISstream larmar fortfarande vid första
 minutkontrollen efter 25 min, sedan efter 1 h, 4 h och ett dygn. Vaktens återanslutning
-nollställer inte tystnaden. De fem låga anmärkningarna är åtgärdade i `34eb844` utan ändrat
+nollställer inte tystnaden. De fem låga anmärkningarna är åtgärdade i `3847d56` utan ändrat
 beteende. Där står bland annat att ett klocksteg bakåt kan hålla kvar "Degraderad" och att
 granskarens prov genom riktiga klienter nu är ett permanent test.
 
@@ -895,7 +895,7 @@ avgöra om den var naturlig eller en hängning som vakten lagade. Granskaren ska
 falsklarmen till ungefär ett var 2–5 vecka i vintertrafik, mot cirka två per dygn med 15 min.
 Underlaget är 100 h under en årstid.
 
-#### 11.3.2 F07: klampen försvarar det användaren ser (`bc87374`)
+#### 11.3.2 F07: klampen försvarar det användaren ser (`8b60f57`)
 
 **Situationen.** Buggjägarens bankkort F03 kommer ur en tidsförskjuten uppspelning
 (δ −11,52 s) av den inspelade körningen 20260708-21h. JAATTEN II ledde texten mot Klaffbron.
@@ -919,7 +919,7 @@ högst 60 s.
 - Gruppens golv följde inte med när det visade värdet steg inom fönstret, så att texten kunde
   gå 18 → 9 i ett steg.
 
-Godkänd på `4dbf0bb`. I `e8d346c` åtgärdades granskarens låga anmärkningar, och `49938eb` lade
+Godkänd på `aea67c6`. I `aef07ff` åtgärdades granskarens låga anmärkningar, och `102344d` lade
 till ett test som mutationsprovet saknade.
 
 **Mätningen.** `measure:eta` gav 0 ändrade av 3 102 påståenden. Banken och k1–k3 var bitlika.
@@ -932,7 +932,7 @@ Två godtagna avvägningar står i ARCHITECTURE §8 (e):
 - Golvet kan bli högre än för en ensam båt om ledaren själv sjunker inom fönstret (15 → 9 ger
   11,25).
 
-#### 11.3.3 F07 R7: samma regel för varje osedd baslinje (`cad2a82`, omlåsning `bfaeec4`)
+#### 11.3.3 F07 R7: samma regel för varje osedd baslinje (`397ade0`, omlåsning `187f31e`)
 
 **Situationen.** I bankens egen fas av 20260708-21h hade AVALON en uppmätt tid på 30,3 min från
 sitt första fix. Den visades aldrig, eftersom JAATTEN II ledde. Klampen höll texten på "om 18"
@@ -964,7 +964,7 @@ dömd mot rådatans korsning i dirigentens egen jämförelse.
 
 Notiser, varningar och händelsefacit är orörda.
 
-#### 11.3.4 Verktygen (`2fca802`)
+#### 11.3.4 Verktygen (`225f826`)
 
 Appens kod är orörd. Grenen täpper till luckor där buggjägaren kunde gömma ett fel bakom en
 beslutad post:
@@ -985,10 +985,10 @@ beslutad post:
 Första granskningen underkände INV-3-undantaget: det svalde en konstruerad spik på +7 min i
 första texten efter ett byte (världarna 246 och 1788: 7 → 21 → 14 och 4 → 17 → 10). Andra
 granskningen godkände. I standardjakten gick utslagen från 240 till 238, och rättningarna
-efter första granskningen (till `3b76438`) ändrade inget utslag. Kvarstående gränser i
+efter första granskningen (till `f806e0f`) ändrade inget utslag. Kvarstående gränser i
 täckningsproven står i BUGGJAKT §7.
 
-#### 11.3.5 U30: en stilla båt visas som "ETA okänd" (`4cbef9c`, `a883891`)
+#### 11.3.5 U30: en stilla båt visas som "ETA okänd" (`60242ad`, `57e4789`)
 
 **Situationen.** PRICKBJORN gick söderut 12/11 (k1) och stannade 463 m norr om
 Stridsbergsbron. Texten sa "om 4" i 12,7 min från 08:35:34. Sedan steg den 08:48:13–08:53:09
@@ -1015,7 +1015,7 @@ fem kort som förut. Banken var bitlik. I k1 ändras bara PRICKBJORNs stopp: "ET
 08:40:37–08:54:18, och trappan är borta. "Om 4" står kvar 08:35:34–08:40:37, alltså fem
 minuter plus ett sampelintervall. Notiser, varningar och passager är oförändrade.
 
-**Fartspikskandidaten (`1c72fb7`).** Kalkylatorn loggar `[ETA_SOG_SPIKE_CANDIDATE]` när
+**Fartspikskandidaten (`764d7c6`).** Kalkylatorn loggar `[ETA_SOG_SPIKE_CANDIDATE]` när
 fartspiksvaktens villkor håller (11.4), utan att ändra något. I fältet gav k2 exakt en rad och
 k1, k3 och banken ingen. Raden räknas efter varje fältkörning (VALIDATION §Fältprov).
 
@@ -1125,7 +1125,7 @@ U31.
   tidigt i en krypkö. Den omgjorda regeln höll i banken och fältet, men granskaren visade att
   en KRYPANDE kö fortfarande kunde utlösa den (kryp i 1,2 kn, ett ryck till 2,2 kn och sedan
   kö: 808–834 s före passagen mot 157–181 s i dag) och föreslog fartgolvet. Med golvet godkändes
-  regeln (`5d28f06`): 57 konstruerade fall ger dagens utfall utom LIDAN-formen och de redovisade
+  regeln (`15602c3`): 57 konstruerade fall ger dagens utfall utom LIDAN-formen och de redovisade
   kostnaderna; i banken och k1–k3 flyttas exakt sju varningar, alla tidigare, och inget annat;
   inget påstående i `measure:eta` blir sämre; standardjakten är identisk med slutbatteriets (två
   kandidatkort). Granskarens bedömning: i banken och fältet en ren förbättring, men en avvägning
@@ -1165,8 +1165,8 @@ U31.
   (b) Avstå, så står XENIA-felet kvar. Ett tredje alternativ, att låta texten lämna strax
   först vid 4 min, är förkastat: det behåller "strax" 9,9 min före passagen.
 - *Rekommendation.* (a), enligt dirigenten och granskaren. Grenen `omg2/ETA2-C` granskades som
-  `3c7a4ec` och `e073636` på `bfaeec4` och som `88706e0` på `a883891`, och ligger nu på
-  `58857ab` med spetsen `f6b0db0`.
+  `3c7a4ec` och `e073636` på `187f31e` och som `88706e0` på `57e4789`, och ligger nu på
+  `2d1aa75` med spetsen `1237091`.
 
 **F20. Notisen säger "om 3–4 minuter" när texten säger "strax"**
 - *Situationen.* Notisen för målbron byggs på första beräkningen av ett fix, och texten på den
@@ -1186,8 +1186,8 @@ U31.
 
   Varken texten, varningen eller notisens tidpunkt ändras, och buggjägaren ger inga nya kort.
   Noll sämre går inte: där texten säger "strax" fel blir en notis som följer texten också fel.
-- *Rekommendation.* (c), enligt dirigenten. Prototypen ligger på `omg2/ETA2-BC` (`e634a30`)
-  och är mätt om på F07-koden (`49938eb`) med samma utfall.
+- *Rekommendation.* (c), enligt dirigenten. Prototypen ligger på `omg2/ETA2-BC` (`6ee78f8`)
+  och är mätt om på F07-koden (`102344d`) med samma utfall.
 
 **F21. Texten när den främsta båten tystnat**
 - *Situationen.* Den båt vars tid texten visar tystnar, och appen nollar hennes tid. Det sker

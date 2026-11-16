@@ -15,7 +15,7 @@
  * appens läge vid varje publicerad text (bridgeTextLeads).
  *
  * Fixturen fixtures/u16-b4-2026-11-15.json är byggd ur standardkörningen
- * (basSeed 1) på 7275e7f med harnessens nya bokföring, trimmad och
+ * (basSeed 1) på 17a9881 med harnessens nya bokföring, trimmad och
  * kontrollerad mot hela världen:
  *  - w1907: B4-varianten (F04 och F05);
  *  - w1608: huvudvarianten (positionen 604,8 s gammal), som förut;
