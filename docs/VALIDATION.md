@@ -76,7 +76,7 @@ Eller stegen var för sig:
 |---|---|---|
 | Enhetstester | `npm test > /tmp/ais-jest.log 2>&1` (läs sedan slutraderna) | Alla tester passerar, exitkod 0 och inga öppna handtag. Aktuellt antal står i körningens sammanfattning. Omdirigeringen bevarar Jest:s exitkod; en pipe till `tail` gör inte det. |
 | Korpusarna | `npm run replay:all` | Samtliga korpusar (aktuellt antal och timmar står i skriptets utskrift) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + exakt (mmsi,bro,riktning)-fördelning + EXAKT bridge_text-transitionsström (golden-text/) + alla invarianter. Ofullständig fångst redovisas separat och får bara utgöra regression för bevarade sampel. |
-| Syntetiska | `npm run replay:synthetic` | 112 scenarier (gap, U-svängar även med gles AIS, GPS-hopp, kajliggare, köer i Kajens kapsel (U23), sog=null, omstart, 2h-prune-stillaliggare, krypfart förbi passerad bro, återfödelse med kurs i dödbandet, köer i Kajens kapsel (U23) …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
+| Syntetiska | `npm run replay:synthetic` | 116 scenarier (gap, U-svängar även med gles AIS, GPS-hopp, kajliggare, köer i Kajens kapsel (U23), sog=null, omstart, 2h-prune-stillaliggare, krypfart förbi passerad bro, återfödelse med kurs i dödbandet, köer i Kajens kapsel (U23) …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
 | Öppningsgrindarna | `npm run replay:openings` | ETAPP 6: det proaktiva lagret (`bridge_opening_soon`). **O1** varje målbropassage i SAMTLIGA korpusar (låsta som olåsta — antalet står i skriptets utskrift, inte här) har en öppningsvarning FÖRE passagen — varje miss klassad mot rådata (oklassad = rött); en KONVOJTÄCKNING underkänns om bron bevisligen öppnat och stängt för någon annan emellan. **O2** varje varning utan passage inom 20 min klassas mot rådata (KAJVOBBEL och UTANFÖR_HORISONTEN = rött; avbruten approach, gles anflygning och garantipris = accepterade) — även SEN_PASSAGE-hinken klassas. **O2b** (S14, 2026-08-23) SAMMA fantommätning mot RÅDATAFACIT (A2, `gt-passages`) i stället för appens egna passager — O1b:s mönster: appens passageregistreringar delar grindarnas blindfläck, så en varning kan kallas BEKRÄFTAD av appens egen bokföring medan rådatan inte känner korsningen. Serierna redovisas BREDVID varandra (annars går körningsloggar inte att jämföra bakåt). `inferred`-poster (korsning bevisad, tidpunkt = fönster) bär ALDRIG hinkindelningen utan hamnar i egen hink INFERRERAD_TID — hinkarna ÄR en tidsfönstermätning. **O2b är INFORMATIV: den ändrar inte exitkoden** (grinden ligger kvar på appserien precis som O1:s täckning i fas A); `OPENING_GT_STRICT` flyttar den hit när fas C är klar. Vid införandet: 0 röda i BÅDA serierna, 118 av 360 varningar byter hink (98 blir omätbara `inferred`) och EN varning byter åt det farliga hållet (JAATTEN II @ Stridsbergsbron i 20260708-21h — samma fall INV-21 redan fäller). **O3** A/B-nattens båda armar: 6/6 öppningar varnade före, konvojen som EN varning, boat_near byte-identisk med nattens facit. Dessutom **avfyrningsfönstret** (`t − dueMs` inom två tick — kontraktet "avfyra så sent som garantin tillåter") och **ledtidsgolvet** (hårt golv 60 s; tunnare än utlovade 150 s rapporteras). **Varningens ålder** (V1, 2026-11-13) rapporteras som WARN och fäller inte, se stycket under tabellen. |
 | Soaken | `node tests/replay-validation/runSoak.js` | 72 h blandtrafik: 0 processfel, inga läckor, fatala invarianter rena |
 | Driftens minutloop | `npm run replay:monitoring` | Samma 72 h med riktig monitoring/stale-städning även efter omstarter; samtliga timers avvecklade efter shutdown |
@@ -767,6 +767,44 @@ Sex scenarier, placeringen är testet:
 Två delar prövas bara av jest-sviten `falt-k1-manoverskyddets-kursben`: att samplets
 egen fart (`_rawPositionSog`) läses i stället för den ärvda (generatorn levererar inga
 sampel utan fart i benläge), och fixpar som går över punkten.
+
+**Fartökning före en nära bro emellan (sparr, 2026-11-15/16, F7).** Fyra syntetiska
+scenarier (seed 5142, 5122, 5105, 5131). Benen slutar på hela rapportsteg (67 s), så varje
+fart rapporteras på det fix där den börjar, och AISHub-fixen är 20–30 s gamla som i fältet.
+- (i) LIDAN-formen (gång 2,5 → 3,0 → 3,5 kn, sedan 5,6 kn) och (ii) NAVEN-formen (kryp
+  1,6 kn, ett fix i 3,8 kn 200 m före Järnvägsbron, sedan 5,5 kn) kräver
+  `openingLeadS` 150 s vid Stridsbergsbron. Båda är röda mot `6c74eac` (138 och 145 s).
+- (v) ett ensamt fartbrusfix (3,0 → 3,5 kn) före en kö på 9 min kräver `maxOpeningAgeS`
+  400 s, alltså ingen varning före kön.
+- (vi) en konvoj ur kön låser konvojkostnaden: följaren får eget kort med minst 150 s
+  (`maxOpeningsPerBridge` 2).
+
+Den första versionens (iii) inbromsning och (iv) söderut prövade aldrig regeln
+(granskningen SPARR-d2, M1) och är borttagna.
+
+Två jest-sviter låser resten:
+- `opening-accel-rule-villkor` har ett fall per villkor i regeln: bandet 390/410 m, i gång
+  0,9/1,1 kn för båda föregående fixen, steget 0,3 kn, ökningen 0,8 kn, fartgolvet 2,8 kn
+  (2,6 utlöser inte, 2,9 utlöser), åldern 240 s för båda stegen, kurs bort, väntande
+  vändning, ett sent levererat äldre fix och söderut mot Klaffbron. Den har också fall för
+  regelns ankomst på armen och för kortets siffra (minimum, uppåt och epsilonet).
+- `opening-accel-motfall` kör granskarens motfall som fixturer
+  (`tests/fixtures/sparr-motfall/`): krypköer i flera takter och faser, fartbrus hos en
+  stillastående båt, NICOLINE med syntetisk historia och ett ryck följt av vändning. Den
+  låser också den kända kostnaden (ökning i gång och sedan kö, 850–960 s) och LIDAN-formen.
+  Den första versionen av regeln fäller 11 av 13 fall. Omgranskningens krypande köer (N1 i
+  tre faser, N1b, N2 med stopp 100/150/250 m, N3 och N4) och en långsam ökning under golvet
+  kräver högst 300 s; versionen utan golv (01a72a4) fäller alla elva. Precis över golvet
+  (2,0 → 2,4 → 2,9 kn) låses som känd kostnad: 320–370 s och kortet 3. Likaså 2,2 → 2,7 →
+  3,1 kn (305–355 s, kortet 3) och ökning till exakt 2,8 kn följd av kö (800–870 s); ökning
+  till 2,7 kn följd av kö kräver högst 300 s. Villkorssviten prövar 2,7 och exakt 2,8 kn.
+
+Kortets siffra när regeln släpper varningen (U28) prövas av jest-sviten
+`opening-accel-card-eta`. Den kör LIDAN- och NAVEN-formen, och i båda ska varningen
+komma minst 150 s före den sanna korsningen och kortets `eta_minutes` ligga högst 0,75 min
+från den sanna restiden. Basen `6c74eac` fäller ledtiden och `da6bcb5` fäller siffran
+(6 och 5 min mot 3,3 och 3,0). Fixturerna SWIX och AMELIA i `eta-wait-resume-recovery` är
+avgångar ur kö och omfattas inte av regeln.
 
 ## Täckningskartan — diagnosverktyg, INTE en gate
 

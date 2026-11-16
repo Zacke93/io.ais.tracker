@@ -538,6 +538,27 @@ trafiken" är de 24 låsta körningarna (cirka 485 h).
   före Järnvägsbron: cirka 187 s för NAVEN, kostnaden för köerna omätt.
 - *Rekommendation.* Underlaget har ingen. Dirigentens förslag: (a) tills (c) är mätt, (b) i
   ETA-etappen.
+- *Dirigentens åtgärd 2026-11-15/16:* (c) mättes och förkastades i sin breda form, eftersom den
+  släppte spärren även före Klaffbron söderut och gav PILOT 761 en varning 38,6 min för
+  tidigt. En smal regel (d2) prövades, men granskningen SPARR-d2 visade att dess avgångsgren
+  (ett enda fix ur stillhet) varnade 10–20 min för tidigt när en båt ryckte fram i en kö före
+  Järnvägsbron (NICOLINE i 20260712-25h och syntetiska krypköer). Den tidigare raden här
+  ("ingen varning före en kö") var fel. Regeln är omgjord till bara ökning i gång: ett fix
+  högst 400 m före Järnvägsbron efter två fix i minst 1 kn, med minst 0,8 kn ökning över två
+  fix och minst 2,8 kn (fartgolvet efter omgranskningen: under 257 m / 180 s hinner varningen
+  ändå gå efter bron), räknar restiden till Stridsbergsbron i minst 5 kn. Den vinner BALTIC DREAM 107 → 186 s,
+  VISTEN 132 → 192 s och LIDAN 138 → 206 s, och 51–70 s mer åt MONIKA, LIANNE, NAVEN och
+  JAATTEN II. NORDIC SOLA (107 s), PRIMA LADY (117 s) och ORANESS (93 s) var avgångar och får
+  som förut. Känd kostnad efter golvet: en båt som ökar i gång till minst 2,8 kn och sedan köar
+  varnas cirka 15 min för tidigt, och en långsam ökning till 2,9–3,1 kn ger kortet 3 min när
+  5,5–5,75 återstår (syntetiskt; i rådatan gick alla 13 utlösningar hos 8 båtar igenom, ett
+  tunt belägg, och buggjägaren genererar inte mönstret). Krypande köer under 2,8 kn omfattas
+  inte. I
+  buggjägaren är utfallet som basen; den första versionens konvojkostnad (följare med eget
+  kort och mötande södergående båtar med kortare ledtid, alla minst 150 s) försvann med
+  avgångsgrenen. Kortets siffra (alternativ (b), U28) är regelns restid i max(fart, 5 kn),
+  uppåt till hel minut och aldrig mer än ETA-kedjans värde. Avvägningen går till ägaren
+  (avsnitt 11.5 (F7)). Avgång ur kö 360–440 m från bron är känd gräns.
 - *Omgång 2:* en fartökningsregel är mätt och omgjord och omgranskas; nya alternativ i 11.5.
 
 **F8. Besök vid en bro som aldrig tar slut**

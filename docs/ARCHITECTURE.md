@@ -1121,6 +1121,86 @@ båt.
   av 36. Det är T2:s tunna klass, inte golvet. Familj A:s punkt om returresor
   (spärren gäller från fixet efter vändningen) hänvisar till samma fråga, M6;
   dirigenten valde B och, efter omgranskningen, båda skärpningarna.
+  **Fartökning före en nära bro emellan (sparr, 2026-11-15/16; F7,
+  `_accelBeforeNearEarlier`; omgjord efter granskningen SPARR-d2).** T2:s tunna
+  klass ligger nästan helt vid Stridsbergsbron norrut. Järnvägsbron ligger
+  257 m före, så en båt i mer än 2,8 kn måste varnas medan hon ännu är före
+  Järnvägsbron, och spärren räknade restiden i fixets fart. Båtar kryper eller
+  saktar in mot Järnvägsbron och ökar när den öppnar, och då åt accelerationen
+  efter släppberäkningen upp ledtiden (fältet: LIDAN 138 s, LIANNE 157 s, NAVEN
+  150 s, NORDIC SOLA 107 s). Regeln: ett nytt fix högst
+  `EARLIER_BRIDGE_ACCEL_BAND_M` (400 m) före en tidigare bro som ligger högst
+  `EARLIER_BRIDGE_NEAR_M` (500 m) från armens bro, efter två föregående nya fix
+  i minst `EARLIER_BRIDGE_ACCEL_MOVING_KN` (kajgrindens 1 kn), med minst
+  `EARLIER_BRIDGE_ACCEL_DSOG2_KN` (0,8 kn) ökning mot fixet före det förra och
+  minst `EARLIER_BRIDGE_ACCEL_DSOG_KN` (0,3 kn) mot det förra, det utlösande
+  fixet i minst `EARLIER_BRIDGE_ACCEL_FLOOR_KN` (2,8 kn = 257 m /
+  `WARNING_LEAD_MS`), varje steg högst `EARLIER_BRIDGE_ACCEL_PREV_MAX_MS` (240 s),
+  kurs mot bron och ingen väntande vändning. Då räknas spärrens restid i max(fart, `EARLIER_BRIDGE_ACCEL_KN`)
+  (5 kn; fältets median mellan broarna är 5,1 kn). Geometrin, inte ett villkor,
+  gör att det bara gäller Järnvägsbron före Stridsbergsbron norrut (963 m till
+  Klaffbron, 1 363 m från Olidebron, ingen öppningsbar bro söder om
+  Stridsbergsbron). **Ingen avgångsgren:** den första versionen räknade också
+  ett ensamt fix ur stillhet (under 1 kn, nu minst 1,5 kn). Granskningen
+  SPARR-d2 (H1) visade att den varnade 10–20 min för tidigt när en båt ryckte
+  fram i en kö 100–400 m före Järnvägsbron: NICOLINE i 20260712-25h (0,9 → 1,9
+  kn 358 m före bron, sedan kö i 10 min; i korpusen dolt av att basen redan
+  varnat), krypköer, fartbrus hos en stillastående båt och ett ryck följt av
+  vändning (falsklarm). En avgång bekräftad av två fix i gång räddade inget i
+  banken och fältet men varnade fortfarande tidigt i krypkön med klass A och i
+  en fas med AISHub, så den finns inte heller. Den förra texten här ("av
+  fixen med fartökning följdes inget av kö", "ingen varning före en kö") var
+  fel: den gällde en skanning med 2 kn och ett steg, inte regelns villkor.
+  Med regelns nuvarande villkor utlöses regeln 13 gånger hos 8 båtar i
+  rådatan (25 korpusar och k1–k3), och alla gick igenom utan att stanna; det
+  är ett tunt belägg. **Fartgolvet (omgranskningen, R2):** kravet på gång stänger
+  ute en stilla kö men inte en krypande. Granskarens former (kryp 1,2 kn, ryck
+  2,2 kn och kö; 1,2 → 2,1 → 2,5 kn och stopp; en båt som driver men rapporterar
+  1 kn med en spik på 2,0; en bakre båt som följer den främres ryck) varnade
+  5–15 min för tidigt. Under 2,8 kn hinner varningen ändå gå efter
+  Järnvägsbron, så golvet kostar inget: banken och fältet är bitlika med
+  versionen utan golv (alla bindande utlösningar har minst 3,0 kn, LIANNE
+  lägst), och alla formerna får basens utfall. 2,5 kn räcker inte
+  (1,2 → 2,1 → 2,5 kn och stopp varnar då 13–15 min för tidigt); 3,0 kn tar
+  bort ett långsamt kort till men ligger precis på LIANNE:s 3,0. I rådatan
+  finns sex krypfaser (minst tre nya fix i 1,0–1,9 kn 0–600 m före
+  Järnvägsbron); två slutade i stopp (PRIMA LADY, SKONNERTEN JYLLAND), och
+  ingen av de två utlöser regeln. **Känd kostnad:** en båt som ökar i gång till
+  minst 2,8 kn och sedan stannar i en kö före bron går inte att skilja från
+  LIDAN-formen i ögonblicket; syntetiskt (2 → 3 → 3,5 kn, kö 10 min 150 m före
+  Järnvägsbron) kommer varningen 907 s före korsningen i stället för 105 s. En
+  långsam ökning till 2,9–3,1 kn ger kortet "3" när 5,5–5,75 min återstår
+  (basen 4 med 3,0 kvar). Båda låses i `opening-accel-motfall`. Inget sådant
+  fall finns i rådatan, och buggjägaren genererar aldrig mönstret ökning → kö.
+  **Bara AISHub-takt:** med tät klass A (fix var 2–10 s) eller blandad källa
+  visar två nya fix i rad aldrig 0,8 kn ökning, så regeln utlöses inte där;
+  LIDAN-formen får då basens 128–130 s. Vinsten gäller i praktiken AISHub. **Mätt:** i
+  banken och fältet lyfts BALTIC DREAM 107 → 186 s, VISTEN 132 → 192 s och
+  LIDAN 138 → 206 s över 150 s, och MONIKA, LIANNE, NAVEN och JAATTEN II får
+  51–70 s mer ledtid; NORDIC SOLA, PRIMA LADY och ORANESS (avgångar) får som
+  förut. Ingen passage blir sämre. I buggjägarens 2 000 standardvärldar är
+  utfallet som basen 187f31e: T2 tunn 537 / 870, samma kandidatkort, en varning
+  7 s tidigare. Den första versionens konvojkostnad (tre följare med eget kort
+  och fyra mötande södergående båtar med kortare ledtid, alla ≥ 150 s)
+  försvann med avgångsgrenen. `opening-accel-rule-villkor`
+  har ett fall per villkor och `opening-accel-motfall` granskarens motfall.
+  **Kortets siffra (U28):** när regeln förkortade spärren bär armen
+  `accelArrivalMs` (ankaret + avståndet i max(fart, 5 kn)), och
+  `_warningLeadInfo` låter kortets `eta_minutes` bli den lägsta av
+  ETA-kedjans värde och regelns restid, uppåt till hel minut (granskningen,
+  M3). Regeln avfyrar därför att den tror att båten går i minst 5 kn; kortet
+  får då inte i samma ögonblick påstå kedjans ETA ur den lägre farten. Andra
+  kort är orörda, och en okänd ETA förblir okänd.
+  **Känd gräns (klass B):** avgång ur kö 360–440 m från Stridsbergsbron.
+  Första rörelsefixet ligger ofta redan inom 350 m, där spärren inte gäller,
+  och båten är framme på 140–170 s. Varningen kan bara komma tidigare om appen
+  varnar medan hon köar, och det är just det fel som spärren finns mot
+  (20260907-31h 80 s, 20260909-80h 131 s). **Känd gräns (förstakontakt söder
+  om Olidebron):** utan historik spärras hon inte (H1), och Klaffbronvarningen
+  går på 10-knopsdeadlinen från första fixet, i banken 26 gånger 9–38 min före
+  Klaffbron. En vakt vid Olidebron mättes 2026-11-16 och infördes inte: den
+  bröt 10-knopsgarantin för en förstakontakt som tystnar och går 8–10 kn (5–125 s
+  mot 181–276 s); fältgranskningen 2026-11-14, F2.
 - **Kedjearmen efter en bekräftad vändning (fältprovet 10–13 november, familj
   B; granskningen och dirigentens beslut 2026-11-14):** k1 11 nov vände PILOT
   761 222 m norr om Stridsbergsbron efter 30 min stopp. Vändningen tömde
