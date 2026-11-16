@@ -255,7 +255,15 @@ Moduler (ansvar / ägda tillstånd / in-ut):
   Med fönstret aktivt står flaggan vilande. Ett senare pass på samma fix (vakthunden,
   en omkörning) rensar den: där var basens notis falsk (OSPREY-klassen, en 30–55 s
   gammal fix 15–34 m bortom linjen) och C2:s passerade form står kvar, ofta 39–130 s
-  senare. Den klassen är känd och ägarfråga 4 (passerad form redan på passagefixen)),
+  senare. Den klassen är känd och ägarfråga 4 (passerad form redan på passagefixen).
+  **Känd lucka (nattjakten F10 r3, 2026-11-16):** med fönstret aktivt väntar parbrons
+  bokföring på nästa fix. Vänder båten före den och nästa fix ligger på ankomstsidan,
+  bokförs parbron aldrig och ingen notis går för den (värld 2737, NORDVIND 13 m bortom
+  Järnvägsbron, nästa fix 5 min senare 282 m norr om Stridsbergsbron; inträdesbeviset
+  har då löpt ut). Att erbjuda parbron som kandidat inom under-bro-bandet stänger luckan
+  men ger PRICKBJORN (23 m, samma pass, samma fönster) "närmar sig … strax" igen i
+  stället för sann passerad form, och fäller C2:s tester; på passagefixen går de två
+  fallen inte att skilja åt),
   under-bridge-hysteres (:407–657). Äger CurrentBridgeManager, StatusStabilizer,
   PassageWindowManager, ProgressiveETACalculator. Emitterar `status:changed`.
 - **ProximityService**: stateless avståndsanalys fartyg↔broar
@@ -1670,6 +1678,19 @@ båt.
   korsningen). Under debouncen bär notiser om broar framför båten det gamla låsets riktning
   (1731: "närmar sig Järnvägsbron" 11:01:04 söderut). U18 gäller öppningsvarningen och
   riktningen; returens bokföring i de kända luckorna ovan är ett eget öppet kort.
+  **Målbron borta i väntans fix (nattjakten F12, 2026-11-16).** Fix D-blocket kräver
+  målbro. Tog samma fix som satte väntan också bort målbron (MOVING_AWAY: avståndet växer,
+  vilket är vändningen själv), prövades den andra omvända positionen aldrig, och låset stod
+  kvar till nästa brokorsning (värld 2931, HAVSORN: "närmar sig Järnvägsbron" 12:01:50 med
+  riktningen söderut efter två omvända positioner i följd). `_confirmFixDPendingWithoutTarget`
+  bekräftar nu en sådan väntan utan målbro, med Fix D:s grindar (2 kn, kursbanden, 15 min),
+  bara på fixen direkt efter väntans fix (`_fixDPendingReversal.fixTs`) och inte efter ett
+  avslutat slutmål, där NEW_JOURNEY äger vändningen. Utfallet är det Fix D hade gett om målbron
+  levt en fix till. U18 rörs inte: ingen fix utan målbro startar en väntan, och en mellanfix i
+  dödbandet (46–134°) bryter kedjan som förut. Den gränsen, inte målbron, förklarar tre av
+  kortets nio världar (2125, 6244, 16784) och är kvar som känd gräns under U18; i två till
+  (7262, 18849) kom bara en omvänd position före varningen.
+  Positionsbenen under 2 kn har kvar sitt målbrokrav (deras prov läser målbrons geometri).
 - **Målbron i samma tick som bekräftelsen (varv 2, familj A, 2026-11-09).** Två vägar
   bekräftade en vändning men lämnade måltilldelningen åt NÄSTA fix:
   - (M1) app-lagrets NEW_JOURNEY i `_onVesselUpdated`, som körs efter att `updateVessel`
