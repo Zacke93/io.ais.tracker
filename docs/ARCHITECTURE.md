@@ -2518,6 +2518,96 @@ scenariot "kryp-i-kön-efter-målbyte-och-ny-väntan" (förväntan `creepEta`: h
 ändring som gör klassen större syns. Att göra den mindre hör till ETA-etappen
 (U20/U22).
 
+**Stilla båt utanför väntzonen ⇒ "ETA okänd" (U30, 2026-11-15).** Fältprovet,
+körning 1, 12 nov 08:30–08:54Z: PRICKBJORN saktade in och låg stilla 460 m norr
+om Stridsbergsbron med färsk AIS (passage fyra timmar senare). Farten 0 gav
+fartgolvet 0,5 kn och rå-ETA 30 min; monotoniskyddet, absolutklampen och
+tillväxtklampen höll ned värdet, idle-decayn (status `approaching`) tvingade
+ned det till golvet avstånd / rask kanalfart = 3,7 min, och i K6:s andra pass
+höll outlierfallbacken samma värde. "Om 4 minuter" blev en fixpunkt i 12,7 min.
+När positionen inte ändrats på 10 min räknades ingen ETA (app.js
+`positionFresh`), och när den räknades igen tömde gap-reseten historiken och
+publiceringsklampen (RC4) trappade 9 → 12 → 16 → 21 → 27 → 28 innan U27 släppte
+målbron. M9-principen ("inget rörelsevillkor i idle-decayn; äkta köares
+nedräkning ska fortsätta, bara inte ned i strax-bandet", TIM 212571000) gäller
+fortfarande för decayn, men golvet visade här en frusen undre gräns och ingen
+nedräkning. Regeln är därför ett PUBLICERINGSLÄGE, inte ett rörelsevillkor i
+decayn. `ProgressiveETACalculator._updateStillUnknown` håller reda på läget
+`_stillUnknown`; kalkylatorn räknar och returnerar sitt värde som förut, och
+`app.js` `_presentETA` publicerar null ("ETA okänd") medan läget står, medan
+publiceringsklampens baslinje (`_etaPublishedValue`) uppdateras dolt. När
+läget lämnas visas därför exakt det värde basen hade visat (granskningen av
+`ea684b8`: efter en fartspik publicerades annars kalkylatorns värde oklampat,
+okänd → 25).
+*Inträde*, alla villkor: VesselDataService:s stillhetsklocka
+(`vessel._stationarySince`) har gått minst 5 min; positionen har legat inom
+50 m (`MOORING_DETECTION.MOVEMENT_PROOF_NET_M`) från samma punkt i minst 5 min,
+hela tiden i status `approaching` mot samma målbro och utan kö vid en tidigare
+bro (`_stillWatch`; `queueBridge` — där visar texten vänttexten); samplet är
+under 0,5 kn; positionen är färsk och ren (`hasFreshPosition`, inget GPS-hopp);
+ingen imminent-flagga; avståndet till målbron är större än
+`STATUS_HYSTERESIS.WAITING_CLEAR_DISTANCE` (350 m).
+*Utträde* ("tills hon rör sig"): en ren position minst 50 m från lägets
+ankarpunkt (belagd rörelse, samma bevisklass som VesselDataService), eller
+målbyte, annan status än `approaching`, eller imminent-flaggan. Ett
+fartsampel utan förflyttning lämnar inte läget (granskningen, H2: med "ett
+sampel ≥ 1 kn släpper" blinkade texten vid varje sampel efter 30 min stillhet),
+och en krypare lämnar det efter 50 m (H1: förut stod hon som "ETA okänd" ända
+in till "strax"). Ett nytt inträde kräver fem minuters stillhet på den nya
+platsen. Notisvägens spärr (`targetETAHeld`) omfattar läget, så notisens ETA
+byggs aldrig ur avstånd/fart medan texten säger "ETA okänd" — geometriskt kan
+en notis (≤ 300 m) bara nås i läget om båten rört sig minst 50 m utan att det
+belagts (GPS-misstänkta positioner), så spärren är försvar på djupet.
+*När positionen blir gammal under läget* (L2): snapshotvägens åldersgrenar
+armerar stationär-holden även när det publicerade värdet redan är null på grund
+av läget (`app.js`, `etaShownOrStillUnknown`), exakt som på basen där värdet var
+en siffra. Steg för steg: läget visar "ETA okänd"; efter 5 min utan ny position
+(SOFT, fart < 1 kn) armeras holden och baslinjen nollas, som på basen (där
+texten först nu blir "ETA okänd"); efter 10 min (HARD) samma; när hon hörs igen
+svarar holden "ETA okänd" under 1 kn, och läget står kvar tills hon förflyttat
+sig 50 m. Texten och notisen är alltså "ETA okänd" hela tiden; efter avgången
+visas basens värden (prövat i två scenarier med 7 och 12 min tystnad).
+*Öppningsvarningen påverkas inte, och skälet är geometriskt:* armen läser
+`vessel.etaMinutes` (null i läget) och faller då tillbaka på avstånd/fart
+(M7-grinden "en-prognos"), men deadlinen (avstånd / 10 kn − 180 s) har redan
+passerat för alla avstånd ≤ 926 m, alltså i hela regelns zon 350–580 m, så
+varningen har gått innan läget kan gå in.
+*Hur länge står den stilla båten i texten?* Det styrs inte av U30. U27:s
+köundantag (`_isInTargetQueueZone`) kräver aktivitet inom 20 min, och
+`lastActiveTime` stämplas av ett enda fartsampel över 2,0 kn
+(VesselDataService:5495) eller av belagd förflyttning ≥ 50 m; dessutom håller
+manöverskyddet kvar målbron när kursen hoppar (k1-granskningens F4). En båt med
+fast kurs och fartbrus ≤ 2 kn släpps efter 20 min; spikar över 2 kn minst var
+20:e minut, eller slumpad kurs, håller henne kvar till tvåtimmarsgränsen.
+Det är snävare än de två tillbakatagna rörelsevillkoren: fältprov 7 (`9c03238`,
+"stationär + tom historik ⇒ null" utan armering, fällde 19h-korpusen och gav en
+fatal oscillation) och J10b (färskhetsregel för fartgolvet, `measure:eta` 2,30
+→ 2,38). Kvar: frysningen står i 5 min innan läget går in; sker ingen
+beräkning mellan minut 5 och 10 av stillheten (gles sändare utan
+positionsändring) går läget aldrig in; en båt som DRIVER långsamt (0,1–0,3 kn)
+lämnar läget efter 50 m och kan gå in igen efter fem nya minuter, och däremellan
+visas basens siffra. Ägarbeslut U30, mätning i docs/VALIDATION.md
+§ETA-mätharnessen. Bara en position som är NYARE än lägets ankarpunkt (fixTs,
+annars timestamp) är bevis för rörelse; ett sent AISHub-eko från före
+ankarpunkten lämnar inte läget och flyttar inte stillhetsbevakningen
+(omgranskningen 2026-11-16, L-A).
+*Kända gränser (omgranskningen 2026-11-16):*
+(1) **INV-18 räknar bara stigningsserier på högst 15 min.** "ETA okänd" kan
+korta en serie som basen redan hade så att den syns i invarianten (granskarens
+"gles 240 s": texten identisk med basen fram till 06:12:30, basens serie 5 → 30
+tog 16 min). Det är ett verktygsfynd, inte en ändring i vad användaren ser.
+(2) **En grupp med en stilla båt främst och en gående bakom:** texten går
+"Två båtar … om 5" → "om 13" och räknar sedan ned efter den gående båten. Det
+är ett synligt hopp uppåt, men rättare: den stilla båtens frusna siffra ersätts
+(fel −6,7 → +2,3 min mot sanningen 10,7/12,0).
+(3) **Siffran efter ett långt stopp är inte rättad av U30:** 45 min stilla och
+sedan 8 kn ger "om 18–20" mot sanningen 1,4 min, lika på basen. Den kommer ur
+kalkylatorns historik, inte ur den dolda publiceringsbaslinjen; uppföljning i
+ETA-etappen (avgångskontext efter långt stopp).
+(4) **Långsam drift 0,1–0,3 kn** växlar mellan "ETA okänd" och basens siffra,
+med minst fem minuter mellan inträdena. Beteendet står kvar tills ägaren
+säger annat.
+
 Till familj E2 (användarbeslut U20, 2026-11-04): ETA-oscillationen vid
 inbromsning (buggjägarens F06, K6:s dubbla EMA mot den binära
 3-minutersgränsen) och 21h-knivseggen (F07, RC4-clampen mot en extrapolerad

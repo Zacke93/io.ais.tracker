@@ -76,7 +76,7 @@ Eller stegen var för sig:
 |---|---|---|
 | Enhetstester | `npm test > /tmp/ais-jest.log 2>&1` (läs sedan slutraderna) | Alla tester passerar, exitkod 0 och inga öppna handtag. Aktuellt antal står i körningens sammanfattning. Omdirigeringen bevarar Jest:s exitkod; en pipe till `tail` gör inte det. |
 | Korpusarna | `npm run replay:all` | Samtliga korpusar (aktuellt antal och timmar står i skriptets utskrift) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + exakt (mmsi,bro,riktning)-fördelning + EXAKT bridge_text-transitionsström (golden-text/) + alla invarianter. Ofullständig fångst redovisas separat och får bara utgöra regression för bevarade sampel. |
-| Syntetiska | `npm run replay:synthetic` | 101 scenarier (gap, U-svängar även med gles AIS, GPS-hopp, kajliggare, köer i Kajens kapsel (U23), sog=null, omstart, 2h-prune-stillaliggare, krypfart förbi passerad bro, återfödelse med kurs i dödbandet, köer i Kajens kapsel (U23) …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
+| Syntetiska | `npm run replay:synthetic` | 112 scenarier (gap, U-svängar även med gles AIS, GPS-hopp, kajliggare, köer i Kajens kapsel (U23), sog=null, omstart, 2h-prune-stillaliggare, krypfart förbi passerad bro, återfödelse med kurs i dödbandet, köer i Kajens kapsel (U23) …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
 | Öppningsgrindarna | `npm run replay:openings` | ETAPP 6: det proaktiva lagret (`bridge_opening_soon`). **O1** varje målbropassage i SAMTLIGA korpusar (låsta som olåsta — antalet står i skriptets utskrift, inte här) har en öppningsvarning FÖRE passagen — varje miss klassad mot rådata (oklassad = rött); en KONVOJTÄCKNING underkänns om bron bevisligen öppnat och stängt för någon annan emellan. **O2** varje varning utan passage inom 20 min klassas mot rådata (KAJVOBBEL och UTANFÖR_HORISONTEN = rött; avbruten approach, gles anflygning och garantipris = accepterade) — även SEN_PASSAGE-hinken klassas. **O2b** (S14, 2026-08-23) SAMMA fantommätning mot RÅDATAFACIT (A2, `gt-passages`) i stället för appens egna passager — O1b:s mönster: appens passageregistreringar delar grindarnas blindfläck, så en varning kan kallas BEKRÄFTAD av appens egen bokföring medan rådatan inte känner korsningen. Serierna redovisas BREDVID varandra (annars går körningsloggar inte att jämföra bakåt). `inferred`-poster (korsning bevisad, tidpunkt = fönster) bär ALDRIG hinkindelningen utan hamnar i egen hink INFERRERAD_TID — hinkarna ÄR en tidsfönstermätning. **O2b är INFORMATIV: den ändrar inte exitkoden** (grinden ligger kvar på appserien precis som O1:s täckning i fas A); `OPENING_GT_STRICT` flyttar den hit när fas C är klar. Vid införandet: 0 röda i BÅDA serierna, 118 av 360 varningar byter hink (98 blir omätbara `inferred`) och EN varning byter åt det farliga hållet (JAATTEN II @ Stridsbergsbron i 20260708-21h — samma fall INV-21 redan fäller). **O3** A/B-nattens båda armar: 6/6 öppningar varnade före, konvojen som EN varning, boat_near byte-identisk med nattens facit. Dessutom **avfyrningsfönstret** (`t − dueMs` inom två tick — kontraktet "avfyra så sent som garantin tillåter") och **ledtidsgolvet** (hårt golv 60 s; tunnare än utlovade 150 s rapporteras). **Varningens ålder** (V1, 2026-11-13) rapporteras som WARN och fäller inte, se stycket under tabellen. |
 | Soaken | `node tests/replay-validation/runSoak.js` | 72 h blandtrafik: 0 processfel, inga läckor, fatala invarianter rena |
 | Driftens minutloop | `npm run replay:monitoring` | Samma 72 h med riktig monitoring/stale-städning även efter omstarter; samtliga timers avvecklade efter shutdown |
@@ -1172,6 +1172,125 @@ granskningarnas prober (P1–P3, Q1–Q4), kögrenen (H3), egen mmsi (H1) och
 andra passet (P2), samt hela kedjan för granskningarnas scenarier
 (`tests/fixtures/f07-*.jsonl`, syntetiska positioner: gps700, gps400, spik1,
 accstop, dubbel, trippel, dubbel20) och F03:s fasvariant. Varje delvillkor är mutationsprövat.
+
+### Stilla båt utanför väntzonen (U30, 2026-11-15): mätt enligt REGELN
+
+Ändringen: en båt som legat bevisat stilla i minst 5 min (VesselDataService:s
+stillhetsklocka) med färsk position, i status `approaching` och mer än 350 m
+från målbron, publiceras som "ETA okänd" tills hon bevisligen förflyttat sig
+50 m (eller byter målbro eller status) (ARCHITECTURE §8 (e), "Stilla båt
+utanför väntzonen"); beräkningen under ytan och publiceringsklampens baslinje
+är oförändrade. Fältfallet är körning 1,
+12 nov 08:30–08:54Z: "om 4 minuter" i 12,7 min och sedan trappan 9 → 28.
+
+**Banken** (mätt 2026-11-15 mot `7eb350d` och mot grenen med fartspiksvakten, som inte är införd; på `omg2/U30` mäts mot `bfaeec4`, se slutet av avsnittet; 24 korpusar,
+`rendering-saknas` 0): alla 3 102 påståenden parade och **oförändrade**,
+och regeln slår inte till i någon korpus (antalet stämplade stderr-rader är
+identiskt per korpus). Banden under 5 och 10 min (parad n = 789 respektive
+1 301, oparad n = 0), brotextövergångarna (2 542) och strax-löftet (n 211,
+63,03 %) är oförändrade.
+
+**Varför 350 m.** Utan avståndsgränsen (prototypens alternativ A) slår regeln
+till på ett enda ställe i banken, TIM 212571000 i 20260804-both-21h (stilla
+5,4 min 303 m från Klaffbron, sedan passage): texten "om 3" 00:02:18 (sanning
+5,7 min) och notisen "TIM närmar sig Klaffbron, beräknad ankomst om 3
+minuter" blir "ETA okänd" respektive notis utan tid, och låst golden-text och
+golden-events flyttas. 350 m är väntstatusens släppavstånd
+(`STATUS_HYSTERESIS.WAITING_CLEAR_DISTANCE`); innanför det kan en stilla båt
+bli `waiting` utan att röra sig. Ägaren valde gränsen (U30).
+
+**Fältkörningarna** (sanning ur `groundTruth`): k1 "om 4" 08:35:34–08:40:37,
+därefter "ETA okänd" till släppet 08:54:18; trappans sex siffror (9, 12, 16, 21,
+27, 28) försvinner; de mättes mot korsningen fyra timmar senare (sanning
+222–227 min) och ligger utanför banden. Inga andra påståenden, notiser eller
+varningar i k1–k3 ändras.
+
+**Syntetiska köare** (prototypmätningen, kanalgeometrin, AIS var 60:e s;
+tidsviktat från stoppets början till korsningen, REGELN punkt 5): tid med
+ETA-fel över 2 min för en köare 450 m från bron som går efter 15 min 770 →
+320 s, efter 25 min 1 370 → 320 s, 380 m och 12 min 620 → 310 s; i väntzonen
+(290 m) och 305–320 m oförändrat; ett alternativ med växande golv (B) gav
+770 → 740 och 1 370 → 1 400 s och löste inte fältfallet.
+
+**Scenarierna** (`replay:synthetic`, nya förväntningar `stillUnknown`,
+`noUnknownDuringStop`, `maxFormChangesPerStop`): "stilla-460m-från-målbron-ETA-okänd"
+och "stilla-460m-och-går-igen" fäller `7eb350d` (texten fryser på "om 4");
+motfallen kort stopp under 5 min, stilla 310 m, köare i väntzonen 200 m och
+gammal position är gröna på båda, och regeln slår inte till i dem.
+
+**Revision efter granskningen 2026-11-15 (H1, H2, M1, L1, L2).** Granskaren
+visade att läget släpptes av ETT fartsampel ≥ 1 kn: en krypare in mot bron
+(0,5–0,9 kn) stod som "ETA okänd" ända in till "strax" och fick en notis-ETA
+ur avstånd/fart (eta 15 mot basens 10 och sanningen 8,5), och en stilla båt med
+fartbrus ≥ 1 kn och moget stillhetsankare blinkade "om N" ↔ "ETA okänd" vid
+varje sampel (12 formbyten på 12 min). Rättat: läget lämnas på belagd rörelse
+(en ren position 50 m från lägets ankarpunkt), aldrig på ett fartsampel; ett
+nytt inträde kräver fem minuters stillhet på den nya platsen i status
+`approaching` och utan kö vid en tidigare bro; notisvägens spärr omfattar
+läget; app.js publicerar null men behåller klampens baslinje, så att värdet
+efter läget är basens; åldersgrenarna armerar stationär-holden även i läget.
+Mätt mot grenen med fartspiksvakten (`omg2/ETA1-S`, inte införd) som bas, i granskarens 32 prov
+(`prob/adv.js`, `adv2.js`) och 20 egna:
+- *Fartspikar utan förflyttning* (1,5 och 3 kn, varannan och var tionde minut,
+  ungt ankare och 35 min stilla först): **0 formbyten** under stoppet; formerna
+  är nedräkning → "ETA okänd" → nedräkning vid avgången. Granskarens
+  blinkprov (12 formbyten på `ea684b8`) ger 2.
+- *Kryparen* 0,5/0,7/0,9 kn från 460 m: "ETA okänd" står tills hon förflyttat
+  sig 50 m från lägets ankarpunkt (4,5 / 3,5 / 3 min efter inträdet med 30 s-fix);
+  därefter visas exakt basens
+  värden (0,9 kn: om 13, 14, 13, 12, 11 mot sanningen 14,6 … 11,1, notisen 10
+  som basen). Aldrig "ETA okänd" direkt till "strax".
+- *Långsam drift* mot bron i 30 min efter 6 min stillhet: 0,1 kn ger ett inträde
+  (2 formbyten), 0,3 kn ett inträde och ett utträde efter 50 m, 0,2 kn två
+  inträden (4 formbyten: läget lämnas efter 50 m, går in igen efter fem minuter
+  på den nya platsen). Däremellan visas basens siffra ("om 3", "strax" — lika
+  fel som basen mot sanningen 13–23 min).
+- *Gränsen för formbyten:* för en båt som inte förflyttar sig 50 m byter texten
+  form högst två gånger per stopp (in i läget och ut vid avgången, målbyte
+  eller släpp). Varje belagd förflyttning på 50 m under stoppet kan ge ett par
+  formbyten till, med minst fem minuter mellan inträdena. Förväntan
+  `maxFormChangesPerStop` prövas nu i scenarier där brus korsar trösklarna
+  (spikar med moget ankare, kryparen). Påståendet "högst två" i den första
+  versionen höll bara för brus under 1 kn.
+- *Avgångar:* första siffran kommer när båten bevisligen förflyttat sig 50 m
+  från lägets ankarpunkt; värdet är basens. Omgranskningen 2026-11-16 mätte
+  nio kombinationer (2/5/9 kn × fix var 30/70/180 s): 2 kn med fix var 30 s ger
+  siffran i tredje gående samplet (50 m i 2 kn ≈ 49 s; basen ändrade text
+  06:17:00, U30 06:17:30, "om 7" mot sanning 6,5), 2 kn med fix var 70 s 70 s
+  senare än basen, och 5 och 9 kn med fix var 180 s "ETA okänd" ända till
+  passagen (basen visade där ett fruset "om 4" mot sanning 3,0). Varningar och
+  notiser är identiska med basen i alla nio och i alla 20 avgångsprov; varningen
+  gick redan före stoppet, eftersom deadlinen har passerat för alla avstånd
+  ≤ 926 m. Rörelse mot bron som alternativ bevis (25 m närmare och sog ≥ 1 kn)
+  vann ett sampel i 2 kn/30 s och inget annat; koden lämnas. Fördröjningen
+  sitter i fixtakten, inte i tröskeln. Granskningsprovet "kö 300 m söder om Järnvägsbron" (557 m från
+  Stridsbergsbron, vänttext under kön) gav först ett sampel "ETA okänd" vid
+  avgången; kravet på stillhet i `approaching` utan kö vid en tidigare bro tog
+  bort det, och alla fyra mellanbroprov är identiska med basen.
+- *Fältfallet och positionsspridningen:* PRICKBJORN låg under stoppet i k1 inom
+  9 m från en ankarpunkt satt fem minuter in (11 m från den första
+  positionen); texten är "ETA okänd" 08:40:37–08:54:18 utan formbyte. I banken
+  och k1–k3 finns 269 stilla episoder ≥ 5 min; 215 håller sig inom 10 m, 245
+  inom 30 m och 250 under 50 m från ankarpunkten fem minuter in. De 19 över
+  50 m är glapp där båten flyttade sig under tystnaden eller låg vid en kaj
+  långt från broarna. Bland de 48 episoderna 300–600 m från Klaffbron eller
+  Stridsbergsbron ligger 41 under 10 m och 43 under 30 m (PRICKBJORN k1 10:24
+  20 m, JEANNELLE 10 m); de fem över 50 m (FRAM 53 m, ELIZABETH GREENWOOD 60 m,
+  SAGESSE 183 m, TRUNTEN 210 m, SOLUTION 395 m) är glest samplade vistelser där
+  båten flyttade sig mellan fixarna. Ingen stilla båt ligger nära tröskeln.
+- *Gammal position under läget (L2):* med 7 och 12 min tystnad mitt i läget är
+  texten "ETA okänd" hela tiden och värdena efter avgången identiska med basen.
+- *Omgranskningen 2026-11-16:* kövillkoret (`queueBridge`) prövas nu av två
+  scenarier, "kö 300 m söder om Järnvägsbron, sedan 4 respektive 2 kn" (557 m
+  från Stridsbergsbron, `noUnknownDuringStop`): mutanten utan villkoret ger
+  "ETA okänd" 06:20:30 vid avgången och fäller båda. En gammal fix räknas inte
+  längre som belagd rörelse (L-A): bara en position vars fixtid är nyare än
+  ankarpunktens (respektive stillhetsbevakningens) lämnar läget eller flyttar
+  bevakningen. Enhetstest åt båda hållen (ett eko 58 m bort med fixtid före
+  ankarpunkten står kvar; samma plats i en ny fix lämnar läget; ekot flyttar
+  inte bevakningen); tre mutanter (bevis utan nyare-krav i läget respektive
+  bevakningen, nyare = högst 10 min äldre) dödas. Kända gränser:
+  ARCHITECTURE §8 (e), "Stilla båt utanför väntzonen".
 
 ## Buggjägaren — diagnosverktyg, INTE en gate (2026-11-04)
 
