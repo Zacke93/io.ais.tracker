@@ -157,6 +157,43 @@ describe('F08: BN2 prövar brolinjen, inte brons latitud', () => {
     expect(app._hasGapCrossedNotifiedBridge(v, { name: b.name }, 'current')).toBe(false);
   });
 
+  // F08-systerstället: _checkSkippedBridgesFallback stryker en bro där båten
+  // ligger entydigt på tillfartssidan av linjen, även inom latitudfönstret.
+  describe('skippade broar: linjefiltret (SKIPPED_BRIDGES_BEFORE_LINE)', () => {
+    const sweep = async (app, pos) => {
+      const b = BRIDGES.klaffbron;
+      const old = { ...at(b, -800), sog: 6, cog: 25 };
+      const v = vessel(pos, old, 'north', {
+        name: 'VANTAR', targetBridge: 'Klaffbron', passedBridges: ['Olidebron'], lastPassedBridge: 'Olidebron',
+      });
+      const fallback = jest.spyOn(app, '_triggerBoatNearFlowFallback').mockResolvedValue();
+      const inferred = jest.spyOn(app.vesselDataService, 'applyInferredPassage').mockImplementation(() => {});
+      await app._checkSkippedBridgesFallback(v, old);
+      return {
+        fallbackBridges: fallback.mock.calls.map(([, name]) => name),
+        inferredBridges: inferred.mock.calls.map(([, , name]) => name),
+        logged: app.log.mock.calls.some(([line]) => String(line).includes('SKIPPED_BRIDGES_BEFORE_LINE')),
+      };
+    };
+
+    test('hopp till kilen 15 m före Klaffbrons linje (förbi latituden): ingen bokföring, ingen failsafe', async () => {
+      const app = await boot();
+      const pos = at(BRIDGES.klaffbron, -15, -25);
+      expect(pos.lat).toBeGreaterThan(BRIDGES.klaffbron.lat);
+      const out = await sweep(app, pos);
+      expect(out.logged).toBe(true);
+      expect(out.fallbackBridges).not.toContain('Klaffbron');
+      expect(out.inferredBridges).not.toContain('Klaffbron');
+    });
+
+    test('motfall: hopp till 40 m förbi linjen bokför Klaffbron som förut', async () => {
+      const app = await boot();
+      const out = await sweep(app, at(BRIDGES.klaffbron, 40));
+      expect(out.logged).toBe(false);
+      expect(out.fallbackBridges).toContain('Klaffbron');
+    });
+  });
+
   test('återfödd båt vars sist kända position redan låg bortom linjen: latitudsvaret som förut', async () => {
     const app = await boot();
     const b = BRIDGES.stridsbergsbron;

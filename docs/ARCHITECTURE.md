@@ -440,9 +440,11 @@ detektionsögonblicket.
   hon har inte korsat den. Gäller alla scenarier, inte Kanalinfarten. Förut
   bokfördes en båt som hoppat fram till kilen före linjen och väntade där som
   passerad (texten bytte bro och sedan till "Inga båtar" medan hon väntade), och
-  en snabb båt i älven 850 m öster om Stridsbergsbron och Järnvägsbron
-  (218023240 i 20260713-41h, ingen korsning i rådatafacit) fick två falska
-  "passerade … under AIS-tystnad". Den omvända kilen (förbi linjen men inte förbi
+  en transponder utanför farleden, 850–890 m öster om Stridsbergsbron och
+  Järnvägsbron (218023240 i 20260713-41h, troligen ett landfordon på
+  Stallbackabron: första positionen 4 m från brolinjen med kursen längs broaxeln
+  i 33 kn; ingen korsning i rådatafacit), fick två falska "passerade … under
+  AIS-tystnad". Den omvända kilen (förbi linjen men inte förbi
   latituden) bokförs fortfarande först vid nästa fix.
 
 ### Gate-kedjan i `_triggerBoatNearFlowFallback` (app.js:4230–4417)
