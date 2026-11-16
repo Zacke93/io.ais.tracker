@@ -2625,7 +2625,8 @@ på medelfarten lovar strax (2,9) och EMA:n för värdet till 2,99. Texten sa
 - *Regeln* (`ProgressiveETACalculator._processETAWithProtection`, efter
   M9-hållningen och före historiken): det PUBLICERADE värdet hålls på
   strax-tröskeln (3 min) när medelfarten ENSAM lovar strax. Alla villkor:
-  ett nytt inträde i strax (förra publicerade värdet ≥ 3, det nya < 3),
+  ett nytt inträde i strax (värdet som publicerades för föregående FIX ≥ 3,
+  det nya < 3),
   samplets egen mätning < 3, medelfarten minst `DECEL_HOLD_MIN_RATIO` (1,2)
   gånger momentanfarten (golv 0,5 kn), momentanfartens ETA minst
   `DECEL_HOLD_MIN_INSTANT_ETA_MINUTES` (3,5 min), och båten utanför
@@ -2647,6 +2648,13 @@ på medelfarten lovar strax (2,9) och EMA:n för värdet till 2,99. Texten sa
   hållningen nästa värde uppåt när båten gasade igen, och målbronotisen
   kunde gå 2 → 3 (fem sämre notiser i granskarens rutnät, sanning 1,3–1,8
   min).
+- *Varför föregående fix, inte föregående pass* (prövat 2026-11-16 i samspelet
+  med U30): för en båt som stannat 300–350 m före bron kan första passet på
+  ett fix nudda 3,0 när EMA:n klättrar, fast texten (andra passet) säger
+  strax hela tiden. Med förra passet som jämförelse gav regeln då strax →
+  om 3 → strax. Föregående fix är den senaste historikposten från ett
+  annat sampel (`sampleKeyOf`: position, fart, kurs); en stillastående båt
+  har inget sådant, och regeln håller inte.
 - *Varför villkoren ser ut så:* det är E2:s inbromsningsregel (U20) med
   E2-revisionens marginaler. Nytt inträde: en redan given strax lyftes annars
   till "om 3" (RUNA, quick-värld 286). Kvoten och marginalen: utan dem höll
@@ -2681,13 +2689,18 @@ på medelfarten lovar strax (2,9) och EMA:n för värdet till 2,99. Texten sa
   igenom får sin strax ett fix senare (granskarens rutnät: i snitt 1,3 min
   vid fix var 30–90 s, 2,1 min vid 120–180 s; i tre fall vid 180 s kom strax
   aldrig, "om 3" mot sanningen 2,8–3,0 min).
-- *Samspel:* U30:s "ETA okänd" (`omg2/U30`) gäller en bevisat stilla båt mer
-  än 350 m från målbron och avgörs av presentationen i app.js; regeln kan
-  inte slå till på en sådan båt (bufferten nära 0, mätningen långt över 3).
+- *Samspel med U30:* "ETA okänd" gäller en bevisat stilla båt mer än 350 m
+  från målbron och avgörs av presentationen i app.js. Regeln kan inte slå
+  till på en sådan båt (bufferten nära 0, mätningen långt över 3), men de
+  kan följa på varandra: en båt som bromsar 454 m före bron och står still
+  418 m före får först regelns "om 3" (basen: strax), sedan stigande värden
+  och efter 5 min U30:s "ETA okänd", utan blink (`f02-stannar`).
   Regeln avfyras inte efter M9-hållningen, eftersom det hållna värdet redan
   är 3.
 - Regressionstest: `tests/f02-inbromsning-nara-bron.test.js` (enhetsfall för
-  varje delvillkor åt båda håll, hela kedjan för XENIA-formen och sex motfall,
+  varje delvillkor åt båda håll, hela kedjan för XENIA-formen, sju motfall
+  låsta mot basen och tre utfall låsta med regeln — notisfallet ur
+  granskarens rutnät, samspelet med U30 och XENIA med U30 inne —
   `tests/fixtures/f02-*.jsonl`).
 
 **F07 gick in (ETA-etappen under ägarbeslutet U28, 2026-11-15): klampen

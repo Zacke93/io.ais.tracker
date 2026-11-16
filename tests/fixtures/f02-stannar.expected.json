@@ -1,0 +1,130 @@
+{
+ "kalla": "regelns utfall på C-decel ovanpå a883891 (texter och notiser)",
+ "bridgeTextTransitions": [
+  [
+   1784541600015,
+   "En båt på väg mot Klaffbron, beräknad broöppning om 9 minuter"
+  ],
+  [
+   1784541660040,
+   "En båt på väg mot Klaffbron, beräknad broöppning om 8 minuter"
+  ],
+  [
+   1784541750040,
+   "En båt på väg mot Klaffbron, beräknad broöppning om 7 minuter"
+  ],
+  [
+   1784541810040,
+   "En båt på väg mot Klaffbron, beräknad broöppning om 6 minuter"
+  ],
+  [
+   1784541870040,
+   "En båt på väg mot Klaffbron, beräknad broöppning om 5 minuter"
+  ],
+  [
+   1784541930040,
+   "En båt på väg mot Klaffbron, beräknad broöppning om 4 minuter"
+  ],
+  [
+   1784541990040,
+   "En båt på väg mot Klaffbron, beräknad broöppning om 3 minuter"
+  ],
+  [
+   1784542050040,
+   "En båt på väg mot Klaffbron, beräknad broöppning om 4 minuter"
+  ],
+  [
+   1784542080040,
+   "En båt på väg mot Klaffbron, beräknad broöppning om 5 minuter"
+  ],
+  [
+   1784542350040,
+   "En båt på väg mot Klaffbron, ETA okänd"
+  ],
+  [
+   1784542530040,
+   "En båt på väg mot Klaffbron, beräknad broöppning om 5 minuter"
+  ],
+  [
+   1784542560040,
+   "En båt på väg mot Klaffbron, beräknad broöppning om 4 minuter"
+  ],
+  [
+   1784542590040,
+   "En båt på väg mot Klaffbron, beräknad broöppning strax"
+  ],
+  [
+   1784542740025,
+   "En båt på väg mot Stridsbergsbron, beräknad broöppning om 11 minuter"
+  ],
+  [
+   1784542800040,
+   "En båt på väg mot Stridsbergsbron, beräknad broöppning om 10 minuter"
+  ],
+  [
+   1784542890040,
+   "En båt på väg mot Stridsbergsbron, beräknad broöppning om 9 minuter"
+  ],
+  [
+   1784542950040,
+   "En båt på väg mot Stridsbergsbron, beräknad broöppning om 8 minuter"
+  ],
+  [
+   1784543010040,
+   "En båt på väg mot Stridsbergsbron, beräknad broöppning om 7 minuter"
+  ],
+  [
+   1784543070040,
+   "En båt på väg mot Stridsbergsbron, beräknad broöppning om 6 minuter"
+  ],
+  [
+   1784543400040,
+   "En båt på väg mot Stridsbergsbron, ETA okänd"
+  ],
+  [
+   1784544000040,
+   "Inga båtar är i närheten av Klaffbron eller Stridsbergsbron"
+  ]
+ ],
+ "notifications": [
+  [
+   1784541600000,
+   "265000306",
+   "Kanalinfarten",
+   1
+  ],
+  [
+   1784541660000,
+   "265000306",
+   "Olidebron",
+   1
+  ],
+  [
+   1784542590000,
+   "265000306",
+   "Klaffbron",
+   4
+  ]
+ ],
+ "basNotiser": [
+  [
+   1784541600000,
+   "265000306",
+   "Kanalinfarten",
+   1
+  ],
+  [
+   1784541660000,
+   "265000306",
+   "Olidebron",
+   1
+  ],
+  [
+   1784542590000,
+   "265000306",
+   "Klaffbron",
+   4
+  ]
+ ],
+ "basTexterLika": false
+}

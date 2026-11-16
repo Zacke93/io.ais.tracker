@@ -1207,15 +1207,30 @@ rättningen av H1 och M1:
 Testen (`tests/f02-inbromsning-nara-bron.test.js`, syntetiska positioner
 söderifrån mot Klaffbron): enhetsfall för varje delvillkor åt båda håll,
 hela kedjan för XENIA-formen (före regeln strax 10,0 min före korsningen,
-sedan "om 4" och strax igen; nu en enda strax, vid imminent inom 300 m)
-och sex motfall med låsta förväntningar, oförändrade mot basen. Tre av
-motfallen blir röda när just sitt villkor tas bort (nytt inträde,
-momentanfartens ETA och avståndet till bron); tre är regressionslås (jämn
-fart, lätt inbromsning, gammal position). Mutationsprovet fäller 16 av 17
-mutanter, bland dem avståndsprovet och dess gräns vid exakt 300,0 m, ett
-hållet värde i historiken (M1) och villkor 1 läst på det ohållna värdet
-(K6-passet). Den överlevande är villkoret "snitt > momentan", som är
-ekvivalent: kvot ≥ 1,2 medför snitt > momentan.
+sedan "om 4" och strax igen; nu en enda strax, vid imminent inom 300 m,
+också med U30 inne) och sju motfall med låsta förväntningar, oförändrade
+mot basen. Fyra av motfallen blir röda när just sitt villkor tas bort (nytt
+inträde, nytt inträde läst på föregående fix, momentanfartens ETA och
+avståndet till bron); tre är regressionslås (jämn fart, lätt inbromsning,
+gammal position). Tre utfall är låsta med regeln:
+- notisfallet ur granskarens rutnät (6 kn, fix var 60 s, broms till 1,8 kn
+  375 m före): målbronotisen "om 2" som i basen, röd med ett hållet värde i
+  historiken (M1) och när K6-passet inte håller;
+- samspelet med U30: bromsar 454 m före och står still 418 m före — "om 3",
+  stigande värden och "ETA okänd" efter 5 min, utan blink;
+- XENIA-formen med U30 inne.
+
+Samspelsprovet mot U30 (`a883891`) hittade ett blink som regeln själv gav:
+en båt som stannar 332 m före bron fick strax → om 3 → strax, eftersom
+villkoret "nytt inträde" läste förra PASSET (3,0 när EMA:n klättrade) i
+stället för förra FIXET (texten sa strax). Villkoret läser nu föregående
+fix; banken, rutnätet och U28-mätningen är oförändrade av det.
+
+Mutationsprovet fäller 17 av 18 mutanter, bland dem avståndsprovet och dess
+gräns vid exakt 300,0 m, ett hållet värde i historiken (M1), villkor 1 läst
+på det ohållna värdet (K6-passet) och villkor 1 läst på förra passet i
+stället för förra fixet. Den överlevande är villkoret "snitt > momentan",
+som är ekvivalent: kvot ≥ 1,2 medför snitt > momentan.
 
 ### F07, 2026-11-15: klampen försvarar det användaren ser
 
