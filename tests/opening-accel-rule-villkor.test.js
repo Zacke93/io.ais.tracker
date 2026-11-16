@@ -144,7 +144,7 @@ describe('fartökningsregeln: ett fall per villkor', () => {
     if (fires) expect(on).toBeLessThan(off); else expect(on).toBe(off);
   });
 
-  test.each([[[1.8, 2.2, 2.6], false], [[2.0, 2.4, 2.9], true]])('fartgolvet 2,8 kn: %j utlöser=%s', (sogs, fires) => {
+  test.each([[[1.8, 2.2, 2.6], false], [[1.8, 2.2, 2.7], false], [[1.8, 2.2, 2.8], true], [[2.0, 2.4, 2.9], true]])('fartgolvet 2,8 kn: %j utlöser=%s', (sogs, fires) => {
     const [on, off] = compare(three(300, sogs));
     if (fires) expect(on).toBeLessThan(off); else expect(on).toBe(off);
   });

@@ -1108,7 +1108,9 @@ U31.
   Järnvägsbron, med kurs mot bron, och den sista positionen ska visa minst 2,8 kn (fartgolvet
   efter omgranskningen; långsammare än 257 m på 3 min hinner varningen ändå gå efter
   Järnvägsbron). Då räknar appen som om hon går minst 5 kn. Kortet visar den lägre av
-  ETA-kedjans siffra och regelns restid, avrundad uppåt.
+  ETA-kedjans siffra och regelns restid, avrundad uppåt. Regeln verkar bara när positionerna
+  kommer glest (AISHub-takt, en position per minut eller glesare). Med täta positioner syns
+  ökningen aldrig över två steg, och då gäller dagens varning.
 
   | Båt | Varning före passagen i dag | Med regeln |
   |---|---|---|
@@ -1126,8 +1128,11 @@ U31.
 - *Kostnaden.* I all inspelad trafik och fältets tre körningar utlöstes regeln 13 gånger hos 8
   båtar, och alla gick igenom utan att stanna eller vända. Det är ett tunt belägg. Konstruerat:
   en båt som ökar till minst 2,8 kn och sedan ändå köar 10 min 150 m före Järnvägsbron får
-  varningen 907 s före passagen i stället för 105 s, och en långsam ökning till 2,9–3,1 kn ger
-  kortet "3" när 5,5–5,75 min återstår. Båda fallen är låsta i test. Utan golvet varnades också
+  varningen 907 s före passagen i stället för 105 s. Kostnaden gäller ända ner till golvet: en
+  ökning till exakt 2,8 kn följd av samma kö varnas 833 s före passagen mot 119 s. En långsam
+  ökning till 2,9–3,1 kn ger kortet "3" när 5,5–5,75 min återstår. Alla dessa fall är låsta i
+  test. Buggjägaren kan inte generera mönstret "ökning följd av kö", så att den är tyst säger
+  inget om kostnaden. Utan golvet varnades också
   krypande köer (1,2 kn, ett ryck och sedan kö) 13–15 min för tidigt; golvet tar bort dem utan
   att något i banken eller fältet ändras. Tre båtar som lade ut ur kö 360–440 m från bron
   (NORDIC SOLA, PRIMA LADY och ORANESS) får som i dag.

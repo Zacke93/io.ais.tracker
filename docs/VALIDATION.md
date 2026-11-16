@@ -795,7 +795,9 @@ Två jest-sviter låser resten:
   Den första versionen av regeln fäller 11 av 13 fall. Omgranskningens krypande köer (N1 i
   tre faser, N1b, N2 med stopp 100/150/250 m, N3 och N4) och en långsam ökning under golvet
   kräver högst 300 s; versionen utan golv (8f851dd) fäller alla elva. Precis över golvet
-  (2,0 → 2,4 → 2,9 kn) låses som känd kostnad: 320–370 s och kortet 3.
+  (2,0 → 2,4 → 2,9 kn) låses som känd kostnad: 320–370 s och kortet 3. Likaså 2,2 → 2,7 →
+  3,1 kn (305–355 s, kortet 3) och ökning till exakt 2,8 kn följd av kö (800–870 s); ökning
+  till 2,7 kn följd av kö kräver högst 300 s. Villkorssviten prövar 2,7 och exakt 2,8 kn.
 
 Kortets siffra när regeln släpper varningen (U28) prövas av jest-sviten
 `opening-accel-card-eta`. Den kör LIDAN- och NAVEN-formen, och i båda ska varningen

@@ -33,7 +33,9 @@
  * utan fartgolvet. Med golvet 2,8 kn får de basens utfall, och här krävs högst
  * 300 s. Långsam ökning 1,5 → 1,9 → 2,4 kn (under golvet) likaså. Precis över
  * golvet (2,0 → 2,4 → 2,9 kn) gäller regeln; det låses som känd kostnad
- * (kortet 3 min när 5,75 återstår).
+ * (kortet 3 min när 5,75 återstår), liksom 2,2 → 2,7 → 3,1 kn (5,5 min) och
+ * ökning till exakt 2,8 kn följd av kö (833 s mot basens 119 s; omgranskning 3).
+ * Ökning till 2,7 kn följd av kö utlöser inte.
  */
 
 const fs = require('fs');
@@ -98,6 +100,8 @@ const QUEUE = [
   'N3-driver-brus1kn-350.jsonl',
   ['N4-bakre-foljer-ryck.jsonl', '921000302'],
   'langsam-okning-15-19-24.jsonl',
+  // Omgranskning 3: ökning till 2,7 kn (under golvet) och sedan kö 150 m före bron.
+  'golv-okning-till-2_7-sedan-ko150.jsonl',
 ];
 
 describe('fartökningsregelns motfall (granskningen SPARR-d2)', () => {
@@ -138,6 +142,30 @@ describe('fartökningsregelns motfall (granskningen SPARR-d2)', () => {
     // Basen 181 s och kortet 4; regeln ger 345 s och kortet 3.
     expect(tc - w.t).toBeGreaterThanOrEqual(320000);
     expect(tc - w.t).toBeLessThanOrEqual(370000);
+    expect(w.etaMin).toBe(3);
+  }, 90000);
+
+  test('KÄND KOSTNAD golv-okning-till-2_8-sedan-ko150: ökning till exakt golvet (1,8 → 2,0 → 2,8 kn) och sedan kö varnas 800–870 s före korsningen', () => {
+    const file = 'golv-okning-till-2_8-sedan-ko150.jsonl';
+    const mmsi = firstMmsi(file);
+    const result = replay(file);
+    const tc = crossing(file, mmsi);
+    const [w] = result.openingWarnings.filter((x) => x.bridge === 'Stridsbergsbron' && x.mmsis.includes(mmsi));
+    // Basen 119 s; regeln ger 833 s och kortet 3. Kostnaden gäller ända ner till golvet.
+    expect(tc - w.t).toBeGreaterThanOrEqual(800000);
+    expect(tc - w.t).toBeLessThanOrEqual(870000);
+    expect(w.etaMin).toBe(3);
+  }, 90000);
+
+  test('KÄND KOSTNAD langsam-okning-22-27-31: långsam ökning till 3,1 kn ger kortet 3 min när 5,5 återstår', () => {
+    const file = 'langsam-okning-22-27-31.jsonl';
+    const mmsi = firstMmsi(file);
+    const result = replay(file);
+    const tc = crossing(file, mmsi);
+    const [w] = result.openingWarnings.filter((x) => x.bridge === 'Stridsbergsbron' && x.mmsis.includes(mmsi));
+    // Basen 181 s och kortet 4; regeln ger 328 s och kortet 3.
+    expect(tc - w.t).toBeGreaterThanOrEqual(305000);
+    expect(tc - w.t).toBeLessThanOrEqual(355000);
     expect(w.etaMin).toBe(3);
   }, 90000);
 
