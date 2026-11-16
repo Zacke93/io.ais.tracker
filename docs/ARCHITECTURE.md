@@ -455,6 +455,19 @@ detektionsögonblicket.
   måltransition (+ protection-släpp 'inferred-passage'), mellanbro →
   `registerConfirmedIntermediatePassage` (RC9-inferens om bron ligger bortom
   target). Notisloopen (:4009–4015) skickar `{ detectionTs, inferredFlush: true }`.
+- **Brolinjen (F08-systerstället, nattjakten 2026-11-16)**: fönstret är latitud,
+  men brolinjerna går snett (axel 130°, Stallbackabron 142°). En bro där båten nu
+  ligger entydigt (> 10 m, `geometry.decisiveBridgeSide`) på tillfartssidan av
+  linjen i svepets riktning stryks ur fönstret (`SKIPPED_BRIDGES_BEFORE_LINE`):
+  hon har inte korsat den. Gäller alla scenarier, inte Kanalinfarten. Förut
+  bokfördes en båt som hoppat fram till kilen före linjen och väntade där som
+  passerad (texten bytte bro och sedan till "Inga båtar" medan hon väntade), och
+  en transponder utanför farleden, 850–890 m öster om Stridsbergsbron och
+  Järnvägsbron (218023240 i 20260713-41h, troligen ett landfordon på
+  Stallbackabron: första positionen 4 m från brolinjen med kursen längs broaxeln
+  i 33 kn; ingen korsning i rådatafacit), fick två falska "passerade … under
+  AIS-tystnad". Den omvända kilen (förbi linjen men inte förbi
+  latituden) bokförs fortfarande först vid nästa fix.
 
 ### Gate-kedjan i `_triggerBoatNearFlowFallback` (app.js:4230–4417)
 
@@ -3589,8 +3602,18 @@ Underlaget står i `docs/helgranskning-2026-11-03.md`; varje fynd prövades med 
   bron; kom den på fixen bortom bron stod bron kvar i `passedBridges` tills R1
   (rättningskampanjen 2026-11-04, se U-svängspunkten ovan).
 - `_hasGapCrossedNotifiedBridge` är en tredje passerad-formsignal bredvid S4 och H16. Bron ska
-  ligga strikt mellan föregående (eller sist kända) och aktuell position i gap-kedjans fönster,
-  och hoppet ska gå i färdriktningen. Källsträng och distans lämnas orörda. Färdriktningen tas ur
+  ligga mellan föregående (eller sist kända) och aktuell position i gap-kedjans fönster,
+  och hoppet ska gå i färdriktningen. Källsträng och distans lämnas orörda. **F08 (nattjakten
+  2026-11-16):** "mellan" avgörs av brolinjen, inte av brons latitud. Latitudlinjen genom brons
+  punkt avviker från brolinjen med 0,84 m (axel 130°) respektive 1,28 m (Stallbackabron, 142°)
+  längs kanalaxeln per meter i sidled; vid linjen ligger bankens fixar −30…+30 m i sidled vid
+  Klaffbron (p1–p99) och −25…+19 m vid Stallbackabron (p1–p90), så kilen är upp till ett par tiotal meter.
+  BRISEN låg 13 m före Stallbackabrons linje men norr om latituden, fick "passerade … under
+  AIS-tystnad", besöket fick fel bortre sida och den riktiga korsningen gav en returnotis (två
+  notiser). Regeln: entydigt (> 10 m) på tillfartssidan ger ingen passerad form; entydigt på
+  bortre sidan ger passerad form när hoppet inte började entydigt bortom linjen; i övrigt (inom
+  ±10 m, eller båda positionerna bortom linjen) gäller latitudsvaret som förut. Banken och k1/k2
+  har inget BN2-fall i kilen. Färdriktningen tas ur
   ruttlåset, annars ur kursen (nordbandet, det breda sydbandet). När kursen inte säger nord eller
   syd, alltså i östra dödbandet 46–134° och när kursen saknas (AIS 360 "ej tillgänglig" och
   ogiltiga värden blir null i `_validateAISMessage`), bär K1:s färska nordprogress riktningen

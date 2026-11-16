@@ -318,6 +318,12 @@ function generateJourney(opts, rnd) {
  * `speedKn` men raderna säger `reportSogKn`), som fältets AISHub-fix med
  * 22,2 kn när båten gick 9,9. Fältet drar inga extra slumptal; ben utan det
  * genereras byte för byte som förut.
+ *
+ * F08 (nattjakten 2026-11-16): `lateralM` lägger ett bens fixar (gående eller stopp) så
+ * många meter vinkelrätt mot farledens bäring (positivt åt styrbord för en
+ * norrgående båt). Brolinjerna går snett mot latitudlinjen, så ett sidoläge
+ * behövs för att pröva en fix som ligger före linjen men förbi brons latitud.
+ * Fältet drar inga slumptal; ben utan det genereras byte för byte som förut.
  * @param {Object} opts - {mmsi, name, startS, legs, jitterM?, startOffsetS?}
  * @param {Function} rnd - seedad PRNG
  * @returns {Array<Object>} samples (jsonl-rader), med `truthPath`
@@ -330,8 +336,15 @@ function generateLegJourney(opts, rnd) {
   let tS = opts.startOffsetS || 0;
   let s = opts.startS;
   const truthPath = [{ tS, s }];
-  const push = (sNow, sog, dir, cogOverride, fixLagS) => {
+  const push = (sNow, sog, dir, cogOverride, fixLagS, lateralM) => {
     const p = pointAt(path, metrics, sNow);
+    // Sidoläge (lateralM): förskjutning vinkelrätt mot farledens bäring,
+    // positivt åt styrbord för en norrgående båt. Drar inga slumptal.
+    if (Number.isFinite(lateralM) && lateralM !== 0) {
+      const side = ((p.bearing + 90) * Math.PI) / 180;
+      p.lat += (lateralM * Math.cos(side)) / M_PER_DEG_LAT;
+      p.lon += (lateralM * Math.sin(side)) / mPerDegLon(p.lat);
+    }
     const dLat = ((rnd() * 2 - 1) * jitter) / M_PER_DEG_LAT;
     const dLon = ((rnd() * 2 - 1) * jitter) / mPerDegLon(p.lat);
     let cog = Number.isFinite(cogOverride) ? cogOverride : p.bearing;
@@ -365,7 +378,7 @@ function generateLegJourney(opts, rnd) {
       const stopInterval = leg.stopIntervalS || interval;
       while (tS < end) {
         const stopCog = leg.stopCogRandom ? rnd() * 360 : leg.stopCogDeg;
-        push(s, Number.isFinite(leg.stopSog) ? leg.stopSog : 0.1, 1, stopCog, leg.fixLagS);
+        push(s, Number.isFinite(leg.stopSog) ? leg.stopSog : 0.1, 1, stopCog, leg.fixLagS, leg.lateralM);
         tS += stopInterval;
       }
       truthPath.push({ tS, s });
@@ -375,7 +388,7 @@ function generateLegJourney(opts, rnd) {
     const inGap = (x) => Number.isFinite(leg.gapFromS) && Number.isFinite(leg.gapToS)
       && x >= Math.min(leg.gapFromS, leg.gapToS) && x <= Math.max(leg.gapFromS, leg.gapToS);
     while ((dir > 0 && s < leg.toS) || (dir < 0 && s > leg.toS)) {
-      if (!inGap(s)) push(s, Number.isFinite(leg.reportSogKn) ? leg.reportSogKn : leg.speedKn, dir, leg.cogDeg, leg.fixLagS);
+      if (!inGap(s)) push(s, Number.isFinite(leg.reportSogKn) ? leg.reportSogKn : leg.speedKn, dir, leg.cogDeg, leg.fixLagS, leg.lateralM);
       const dt = interval + (leg.intervalJitterS ? rnd() * leg.intervalJitterS : 0);
       tS += dt;
       s += dir * leg.speedKn * 0.5144 * dt;
