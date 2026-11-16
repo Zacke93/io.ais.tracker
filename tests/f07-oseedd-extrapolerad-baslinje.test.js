@@ -659,3 +659,70 @@ describe('F07: brogruppens gemensamma referens genom appen', () => {
     for (const x of inWindow) expect(base - x.v).toBeLessThanOrEqual(Math.max(3, 0.25 * base) + 1);
   }, 120000);
 });
+
+/**
+ * Granskning 3–4, G2 genom publiceringen: _processUIUpdate sparar det
+ * renderade ledarvärdet per bro vid varje generering som visas — också när
+ * texten är oförändrad (samma minuttal), eftersom den visade texten då är
+ * densamma.
+ */
+describe('F07: det renderade ledarvärdet sparas av publiceringen', () => {
+  // eslint-disable-next-line global-require
+  const { __mockHomey: mockHomey } = require('homey');
+  let app;
+  let savedTestMode;
+
+  beforeEach(async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-09-08T10:00:00Z'));
+    savedTestMode = global.__TEST_MODE__;
+    global.__TEST_MODE__ = true;
+    app = new AISBridgeApp();
+    app.log = jest.fn(); app.debug = jest.fn(); app.error = jest.fn();
+    app.homey = {
+      ...mockHomey,
+      settings: {
+        get: () => null, set: jest.fn(), on: jest.fn(), off: jest.fn(),
+      },
+      flow: { ...mockHomey.flow },
+    };
+    await app.onInit();
+  });
+
+  afterEach(async () => {
+    if (!app._shuttingDown) await app.onUninit();
+    jest.clearAllTimers();
+    jest.useRealTimers();
+    global.__TEST_MODE__ = savedTestMode;
+  });
+
+  const snapshot = (eta) => ({
+    relevantVessels: [{
+      mmsi: '265000123',
+      lat: 58.287,
+      lon: 12.295,
+      targetBridge: 'Stridsbergsbron',
+      status: 'en-route',
+      etaMinutes: eta,
+      sog: 3,
+      timestamp: Date.now(),
+      lastPositionUpdate: Date.now(),
+      passedBridges: [],
+    }],
+    vesselCount: 1,
+    vesselsBeingRemoved: new Set(),
+    timestamp: Date.now(),
+  });
+
+  test('ny text sparas, och en oförändrad text (om 8 → om 8) uppdaterar värdet', async () => {
+    await app._processUIUpdate(snapshot(8.2));
+    expect(app._lastBridgeText).toMatch(/Stridsbergsbron, beräknad broöppning om 8 minuter/);
+    expect(app._renderedLeadEta('Stridsbergsbron')).toBeCloseTo(8.2, 5);
+    expect(app._renderedLeadEta('Klaffbron')).toBeNull();
+    jest.advanceTimersByTime(5000);
+    const text = app._lastBridgeText;
+    await app._processUIUpdate(snapshot(7.8));
+    expect(app._lastBridgeText).toBe(text);
+    expect(app._renderedLeadEta('Stridsbergsbron')).toBeCloseTo(7.8, 5);
+  });
+});
