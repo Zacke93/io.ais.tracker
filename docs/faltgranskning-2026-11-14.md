@@ -1164,8 +1164,8 @@ U31.
 - *Alternativ.* (a) Godta regeln och MALUCA-raden, och lås om de två textraderna (U13).
   (b) Avstå, så står XENIA-felet kvar. Ett tredje alternativ, att låta texten lämna strax
   först vid 4 min, är förkastat: det behåller "strax" 9,9 min före passagen.
-- *Rekommendation.* (a), enligt dirigenten och granskaren. Grenen `omg2/ETA2-C` granskades som
-  `3c7a4ec` och `e073636` på `187f31e` och som `88706e0` på `57e4789`, och ligger nu på
+- *Rekommendation.* (a), enligt dirigenten och granskaren. Grenen `omg2/ETA2-C` granskades i
+  två versioner på `187f31e` och i en tredje på `57e4789`, och ligger nu på
   `2d1aa75` med spetsen `1237091`.
 
 **F20. Notisen säger "om 3–4 minuter" när texten säger "strax"**
@@ -1309,4 +1309,38 @@ Tillägg till avsnitt 8.
 
 ### 11.8 Slutbatteriet
 
-Förs in av dirigenten när slutbatteriet är kört.
+Kört 2026-11-16 på `2d1aa75`, sammanslagningsgrenens sista commit med kod.
+
+| Steg | Utfall |
+|---|---|
+| Lint | rent |
+| Hela jest | 395 sviter gröna: 5 919 test, 2 överhoppade |
+| `replay:all`, utan och med monitoring | grönt på 25 korpusar; 17 WARN-rader, som baslinjen |
+| `replay:synthetic` | 112 scenarier rena; 16 WARN-rader (baslinjen i VALIDATION) |
+| `replay:openings` | grönt; 0 oklassade missar, 37 varningar med okänd ordning mot passagen, som förut |
+| Soak och `replay:monitoring` (72 h) | stabila, 0 processfel |
+| `measure:eta` | 3 198 mätta påståenden, bitlikt med mätningen efter den sista kodsammanslagningen; median 1,37 min, p90 20,28 min |
+| Fassvepet, utan och med monitoring | OK på 25 korpusar, inget odokumenterat fasberoende |
+| `hunt:selftest` | grönt |
+| `hunt:quick` (300 världar) | 2 kandidatkort |
+| `npm run hunt` (2 000 världar) | 220 utslag i sanningsspåret, 2 kandidatkort; bankspåret 170 av 175 fasvarianter rena, 0 kandidatkluster |
+| `hunt:night` (20 000 världar) | 2 571 utslag i sanningsspåret, 28 kandidatkluster och 25 kort; bankspåret 636 av 650 fasvarianter rena, 0 kandidatkluster |
+
+Fasvarianterna som inte är rena hör till ett kluster som redan har en registerpost.
+Standardjaktens två kort är INV-3 ETA-OSCILLATION (inbromsningen, F19) och INV-3 ETA-SÅGTAND UPP
+(en tyst främsta båt, F21).
+
+**Nattjaktens kort.** Nattjakten prövar tio gånger så många världar som standardjakten och gav
+25 kort: 6 med felfri radio, 13 med fältlik radio och 6 under stress. Inget av dem är nytt för
+omgången. Alla 65 representanter kördes om med samma verktyg mot appkoden före omgången
+(`1f6dd46`) och gav ordagrant samma utslag. Korten visar alltså äldre egenskaper som den större
+körningen når. De är inte triagerade här.
+
+**Avsändaren.** Efter slutbatteriet byttes avsändaren på arbetsgrenens commits till samma
+anonyma identitet som `main` använder (ägarens besked 2026-11-16). Innehållet i varje commit är
+bitlikt, men alla commits efter `e51c7b6` fick nya beteckningar. Hänvisningarna i dokument,
+testkommentarer och commit-meddelanden är omräknade (123 ställen i 19 filer). Därefter kördes
+lint, kontrollen av registrets radhänvisningar, de åtta berörda sviterna (172 test),
+`replay:all` och `replay:synthetic` om, alla gröna. Tre hänvisningar i VALIDATION (`34c2b57`,
+`9c802ed` och `c6a765d`) pekar på prototyper som aldrig låg på någon gren. De stod så redan
+före omgången.
