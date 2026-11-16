@@ -108,13 +108,13 @@ describe('L9: timeout-completion utan terminalpositionskontroll (karakterisering
   });
 
   // Nattjaktens F04 (2026-11-16): återinträdesspärren släpper igenom en båt som
-  // bevisligen går tillbaka mot sista bron (två positioner på utfartssidan,
-  // kurs mot brolinjen i minst 2 kn, minst 50 m närmare linjen;
-  // VesselDataService._releaseReturningVessel). Den här båten ligger söder om
-  // Olidebrons linje och går norrut mot bron, så hon släpps på den andra
-  // positionen. Blackouten står kvar för en båt som INTE går mot bron, och
+  // bevisligen går tillbaka mot sista bron (en kedja av positioner på
+  // utfartssidan med kurs mot brolinjen i minst 3 kn, 100 m närmare linjen
+  // netto; VesselDataService._releaseReturningVessel). Den här båten ligger
+  // söder om Olidebrons linje och går norrut mot bron (93 m per position mot
+  // linjen), så hon släpps på den tredje positionen. Blackouten står kvar för en båt som INTE går mot bron, och
   // det är den delen av L9:s felmod som är kvar (testet nedan).
-  test('FÖLJDEN, efter F04: en båt som vänder innanför utfarten och går mot bron släpps på andra positionen', () => {
+  test('FÖLJDEN, efter F04: en båt som vänder innanför utfarten och går mot bron släpps på tredje positionen', () => {
     const mmsi = '265900902';
     seedSouthboundInsideExit(mmsi);
     svc.removeVessel(mmsi, 'timeout');
@@ -134,7 +134,8 @@ describe('L9: timeout-completion utan terminalpositionskontroll (karakterisering
       }));
     }
     expect(results[0]).toBeNull(); // ankare
-    expect(results[1]).not.toBeNull(); // släppt
+    expect(results[1]).toBeNull(); // 93 m närmare: inte 100 m än
+    expect(results[2]).not.toBeNull(); // släppt
     expect(svc._completedJourneys.has(mmsi)).toBe(false);
   });
 
