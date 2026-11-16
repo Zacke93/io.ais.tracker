@@ -3621,6 +3621,76 @@ const SCENARIOS = [
       toleratedInvariants: [/^MISSAD MÅLBRO-NOTIS: \d{9}:Klaffbron — /],
     },
   },
+  // U40 (N4, 2026-11-16): SAMMA STOPP, MEN ANALYSEN DÖMDE GPS-HOPP. Båten går
+  // i 6,5 kn och tystnar 400 m före bron; första fixen kommer när hon stannat
+  // 165 m bortom bron, med sog 0 och en stillakurs ~42° från den gamla och
+  // ~50° fel mot förflyttningen. 757 m på 240 s är 6,3 kn i snitt: både
+  // bäringen och snittfarten (> 5 kn mot sog 0) ser "fel" ut, poängen hamnar
+  // under 0,4 och fixen dömdes som GPS-hopp (`likely_gps_error`), så K1:s
+  // undantag nåddes aldrig. Passagen kom först med nästa fix 16 min senare och
+  // brotexten pekade på den passerade bron hela kön. Kursvärdena hör till
+  // seedet (brus ±3°); byts seedet ska kursändringen (≤ 45°) och
+  // bäringsavvikelsen (> 45°) mätas om.
+  ...[
+    {
+      label: 'söderut genom Stridsbergsbron',
+      seed: 9540,
+      mmsi: '909540001',
+      bro: 'Stridsbergsbron',
+      startS: METRICS.cum[4] + 2200,
+      broS: METRICS.cum[4],
+      dir: -1,
+      legCog: 207,
+      stopCog: 165.8,
+      slutS: METRICS.cum[2] - 400,
+    },
+    {
+      label: 'norrut genom Klaffbron',
+      seed: 9541,
+      mmsi: '909541001',
+      bro: 'Klaffbron',
+      startS: METRICS.cum[2] - 2200,
+      broS: METRICS.cum[2],
+      dir: 1,
+      legCog: 30,
+      stopCog: 72.8,
+      slutS: METRICS.cum[4] + 600,
+    },
+  ].map((k) => ({
+    name: `stopp-165m-bortom-${k.bro}-efter-glapp-i-6,5-kn, ${k.label} (U40, N4)`,
+    seed: k.seed,
+    vessels: [{
+      mmsi: k.mmsi,
+      name: `SYNT-HOPPSTOPP-${k.seed}`,
+      startS: k.startS,
+      legs: [
+        {
+          toS: k.broS + k.dir * 165,
+          speedKn: 6.5,
+          cogDeg: k.legCog,
+          intervalS: 60,
+          gapFromS: k.broS - k.dir * 400,
+          gapToS: k.broS + k.dir * 165,
+        },
+        // En stillafix, nästa fix först 16 min senare (klass B i kö)
+        {
+          stopS: 960, stopIntervalS: 960, stopSog: 0, stopCogDeg: k.stopCog,
+        },
+        { toS: k.slutS, speedKn: 4, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      minTargetPassages: 2,
+      noApproachNoticeAfterCrossing: [k.bro],
+      // Första notisen för bron senast 120 s efter den sanna korsningen
+      // (stillafixen kommer ~25 s efter korsningen; förut 16 min).
+      maxNoticeDelayS: { [k.bro]: 120 },
+      // Stillafixen kommer 720 s in i resan, nästa fix 1 680 s.
+      textCountWindows: [{
+        bridge: k.bro, fromS: 725, toS: 1630, max: 0,
+      }],
+    },
+  })),
 ];
 
 function runScenario(scenario) {
