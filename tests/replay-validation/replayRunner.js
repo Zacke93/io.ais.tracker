@@ -331,6 +331,15 @@ async function main() {
   const confirmedTargetWaits = [];
   const lastTargetWait = new Map();
   let lastBridgeText = null;
+  // ETA-BÄRARNA (2026-11-15, INV-3): för varje publicerad text, vilken båt vars
+  // ETA varje "på väg mot X"-klausul visar (BridgeTextService#_selectLeadVessel
+  // inne i _buildGroupPhrase) och båtarnas läge mot sin målbro när texten
+  // byggdes (kö vid en bro enligt waitingBridge, eller målbron redan passerad).
+  // Ren diagnostik; appens anropsväg är orörd. INV-3 binder sågtandsprovet
+  // till båtens identitet med detta underlag.
+  const bridgeTextLeads = [];
+  let lastGeneratedLeads = null;
+  let currentLeads = null;
 
   // ---- Fånga MÅLBRO-passager för journey-invarianten (2026-06-11) ----
   // INV-5 ("varje detekterad målbro-passage ⇒ minst en notis för den bron")
@@ -380,9 +389,55 @@ async function main() {
 
   // ---- Instrumentera en app-instans (körs igen efter ctrl:'restart') ----
   const instrumentApp = (instance) => {
-    const generateText = instance.bridgeTextService.generateBridgeText.bind(instance.bridgeTextService);
-    instance.bridgeTextService.generateBridgeText = (vessels, ...args) => {
-      const text = generateText(vessels, ...args);
+    const bts = instance.bridgeTextService;
+    // ETA-bärarna (se bridgeTextLeads): läs vilken båt _buildGroupPhrase valde
+    // som ledare, utan att ändra valet.
+    let lastLead = null;
+    const selectLead = bts._selectLeadVessel.bind(bts);
+    bts._selectLeadVessel = (vs) => {
+      lastLead = selectLead(vs);
+      return lastLead;
+    };
+    const buildGroupPhrase = bts._buildGroupPhrase.bind(bts);
+    bts._buildGroupPhrase = (vs, targetBridge) => {
+      lastLead = null;
+      const phrase = buildGroupPhrase(vs, targetBridge);
+      if (currentLeads) {
+        currentLeads.push({ bridge: targetBridge, mmsi: lastLead && lastLead.mmsi != null ? String(lastLead.mmsi) : null });
+      }
+      return phrase;
+    };
+    const generateText = bts.generateBridgeText.bind(bts);
+    bts.generateBridgeText = (vessels, ...args) => {
+      const outer = currentLeads;
+      currentLeads = [];
+      let text;
+      try {
+        text = generateText(vessels, ...args);
+      } finally {
+        const leads = currentLeads;
+        currentLeads = outer;
+        if (typeof text === 'string') {
+          lastGeneratedLeads = {
+            text,
+            leads,
+            vessels: (vessels || []).filter((v) => v && v.targetBridge).map((v) => ({
+              mmsi: String(v.mmsi),
+              targetBridge: v.targetBridge,
+              waitingAt: waitingBridge(v) || null,
+              // U16:s B4-variant (2026-11-15): imminent-flaggan och om den bärs
+              // av en uttömd extrapolering (app.js IMMINENT_EXHAUSTED_MAX_AGE_MS,
+              // 90 s), med uttömningens stämpel. Fälten finns bara på det
+              // levande fartyget, inte på presentationskopian.
+              imminent: v._isImminentAtTargetBridge === true,
+              ...((live) => ({
+                fromExhausted: !!live && live._imminentFromExhausted === true,
+                exhaustedAt: live && Number.isFinite(live._etaExhaustedAtMs) ? live._etaExhaustedAtMs : null,
+              }))(instance.vesselDataService?.getVessel?.(v.mmsi)),
+            })),
+          };
+        }
+      }
       for (const vessel of vessels || []) {
         // Ägarbeslut U23 (2026-11-09): köaren vid "Kajen norr om Klaffbron" är
         // bekräftad väntan vid målbron, fast queueBridge ger null i en kajzon
@@ -523,6 +578,10 @@ async function main() {
       if (capability === 'bridge_text' && value !== lastBridgeText) {
         const t = Date.now();
         bridgeTextLog.push({ t, iso: new Date(t).toISOString(), text: value });
+        const match = lastGeneratedLeads && lastGeneratedLeads.text === value ? lastGeneratedLeads : null;
+        bridgeTextLeads.push({
+          t, text: value, leads: match ? match.leads : null, vessels: match ? match.vessels : null,
+        });
         lastBridgeText = value;
       }
       return origUpdateCap(capability, value);
@@ -996,6 +1055,7 @@ async function main() {
     processErrors,
     runtimeDiagnostics,
     bridgeTextTransitions: bridgeTextLog,
+    bridgeTextLeads,
     confirmedTargetWaits,
     notifications,
     notificationCount: notifications.length,

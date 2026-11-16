@@ -21,7 +21,10 @@
  *        släppet eller inom 60 s efter, eller stannade inte där: nästa fix
  *        och minst hälften av samplen inom 60 s) som FÖR TIDIGT RETURSLÄPP.
  * INV-3  ETA-sågtand: upp-hopp ≥6 min inom ≤120 s i operativa bandet, och
- *        oscillation X→Y→X′ inom 240 s.
+ *        oscillation X→Y→X′ inom 240 s. Ett upp-hopp där den visade ETA:n
+ *        bytt båt och den förra båten bevisligen ställt sig i kö (och texten
+ *        säger det) eller passerat bron är två båtars tider, ingen sågtand
+ *        (2026-11-15, replayRunnerns bridgeTextLeads).
  * INV-4  Count-degradering: generisk "är i närheten"-text inklämd mellan
  *        två detaljerade inom 90 s.
  * INV-5  Journey: varje DETEKTERAD målbropassage ⇒ minst en notis för samma
@@ -303,17 +306,69 @@ function validateInvariants(result) {
   }
 
   // INV-3: ETA-sågtand (se huvuddoc).
-  const clauseSeries = new Map(); // bridge → [{t, iso, eta, count}]
+  // ETA-BÄRAREN (2026-11-15, buggjägarens kort F01): replayRunner bokför för
+  // varje publicerad text vilken båt vars ETA varje "på väg mot X"-klausul
+  // visar och båtarnas kö (bridgeTextLeads). Saknas underlaget (äldre
+  // resultat, fixturer) dömer regeln som förut.
+  const leadIndex = new Map();
+  for (const x of result.bridgeTextLeads || []) {
+    if (x && Number.isFinite(x.t) && typeof x.text === 'string') leadIndex.set(`${x.t}|${x.text}`, x);
+  }
+  const clauseSeries = new Map(); // bridge → [{t, iso, eta, count, text, lead, meta}]
   for (const t of transitions) {
+    const meta = leadIndex.get(`${t.t}|${t.text}`) || null;
     for (const clause of t.text.split('; ')) {
       const parsed = parseClause(clause);
       if (!parsed || parsed.eta === null) continue;
       if (!clauseSeries.has(parsed.bridge)) clauseSeries.set(parsed.bridge, []);
+      const lead = meta && Array.isArray(meta.leads) ? meta.leads.find((l) => l && l.bridge === parsed.bridge) : null;
       clauseSeries.get(parsed.bridge).push({
-        t: t.t, iso: t.iso, eta: parsed.eta, count: clause.split(' ')[0], approx: parsed.approx === true,
+        t: t.t,
+        iso: t.iso,
+        eta: parsed.eta,
+        count: clause.split(' ')[0],
+        approx: parsed.approx === true,
+        text: t.text,
+        lead: lead && lead.mmsi != null ? String(lead.mmsi) : null,
+        meta,
       });
     }
   }
+  const inv3Passages = [...(result.targetPassages || []), ...(result.intermediatePassages || [])];
+  // LEDARBYTE (2026-11-15, kort F01, värld 246): en uppgång i den visade tiden
+  // är ingen sågtand när den visade ETA:n bytt båt och den förra båten
+  // BEVISLIGEN slutat bära klausulen: hon står i kö vid en bro (waitingBridge,
+  // och texten säger "väntar vid" den bron), eller hon har passerat bron
+  // (bokförd passage mellan de två texterna). Då är det två olika båtars
+  // tider (YRSA 7 min → kö vid Järnvägsbron → TROLLA 2 14 min). Kräver att
+  // nivån före var den förra båtens egen minuttid (inte "strax", som kan
+  // komma från en annan båts närhet). Ett ledarbyte utan sådant bevis, till
+  // exempel två båtar vars ETA växelvis visas, eller en ledare vars ETA
+  // försvann för att hon tystnade, döms som förut.
+  // NIVÅN MÅSTE HÅLLA (granskningen 2026-11-16, M1): bytet förklarar bara att
+  // tiden tillhör en ny båt, inte att den nya båtens första tid är rätt. En
+  // spik på första texten efter bytet (värld 246: 7 → 21 → 14) gömdes annars.
+  // Därför godtas bytet bara om ingen senare tid för SAMMA nya ledare inom
+  // INV3_LEADER_HOLD_MS ligger INV3_LEADER_DROP_MIN eller mer under. Gränserna
+  // är regelns egna (120 s-fönstret och 6-minuterssteget): ett lika stort fall
+  // inom samma fönster för en och samma båt är den sågtand regeln finns för.
+  // En bestående felnivå hos den nya ledaren kan regeln inte se.
+  // Samma antalsord räknas som samma ledare (omgranskningen 2026-11-16): bär
+  // en tredje båt klausulen under hela fönstret efter spiken (7 → 21 → 14)
+  // gömdes spiken annars. Samma antal betyder samma grupp, och en tid i
+  // gruppen 6 min lägre inom fönstret visar att spikens nivå inte höll.
+  const INV3_LEADER_HOLD_MS = 120 * 1000;
+  const INV3_LEADER_DROP_MIN = 6;
+  const newLevelHolds = (series, i) => !series.slice(i + 1).some((s) => s.t - series[i].t <= INV3_LEADER_HOLD_MS
+    && (s.lead === series[i].lead || s.count === series[i].count) && s.eta <= series[i].eta - INV3_LEADER_DROP_MIN);
+  const leaderChangeExplained = (prev, cur, bridge) => {
+    if (!prev.lead || !cur.lead || prev.lead === cur.lead || prev.eta < 1) return null;
+    const förra = cur.meta && Array.isArray(cur.meta.vessels) ? cur.meta.vessels.find((v) => v && String(v.mmsi) === prev.lead) : null;
+    if (förra && förra.waitingAt && cur.text.includes(`väntar vid ${förra.waitingAt}`)) return `${prev.lead} väntar vid ${förra.waitingAt}`;
+    const passage = inv3Passages.find((p) => p && String(p.mmsi) === prev.lead && p.bridge === bridge
+      && Number.isFinite(p.t) && p.t > prev.t && p.t <= cur.t);
+    return passage ? `${prev.lead} passerade ${bridge}` : null;
+  };
   for (const [bridge, series] of clauseSeries) {
     for (let i = 1; i < series.length; i++) {
       const dt = (series[i].t - series[i - 1].t) / 1000;
@@ -349,7 +404,8 @@ function validateInvariants(result) {
             }
           }
         }
-        if (!fromSoftZone || revertsQuickly) {
+        if ((!fromSoftZone || revertsQuickly)
+            && !(leaderChangeExplained(series[i - 1], series[i], bridge) && newLevelHolds(series, i))) {
           violations.push(`ETA-SÅGTAND UPP: ${series[i].iso} ${bridge} ${series[i - 1].eta}→${series[i].eta} på ${Math.round(dt)}s`);
         }
       }
@@ -664,6 +720,9 @@ function validateInvariants(result) {
  *        bearbetningscykel efter att rådatan fått första fixen bortom
  *        brolinjen, i notisens riktning. Kräver rådatafacit. WARN tills
  *        ägaren tagit ställning (tre utslag i bank + fält 2026-11-13).
+ *        Undantag (rev 2, 2026-11-15): båten korsar samma bro åt andra
+ *        hållet senast INV22_RETURN_WINDOW_MS (300 s) efter notisen; då var
+ *        det en förvarning inför returen.
  */
 /**
  * Rådatafacit (A2) för den korpus resultatet kommer ur.
@@ -694,6 +753,24 @@ function resolveGtPassages(result) {
 
 // INV-22: en bearbetningscykel. Se regeln i validateWarnInvariants.
 const INV22_SAME_CYCLE_MS = 1000;
+// INV-22, returkorsningen (rev 2, 2026-11-15): en förvarning som följs av
+// båtens korsning av samma bro åt andra hållet senast så här långt efter
+// notisen gäller returen, och "närmar sig" stämmer; bara riktningstoken är
+// den gamla, eftersom vändningen ännu inte är trodd (U18: två positioner).
+// Mätt i buggjägarens standardkörning (seed 1, 2 000 världar): de fem
+// utslagen före rättningen kom 28, 54, 78, 114 och 150 s före returkorsningen,
+// och i de 180 U-svängsvärldarna kom varje förvarning inför en returkorsning
+// (262 st, oavsett token) högst 276 s före den (p50 85 s, p90 146 s, p99
+// 208 s). 300 s täcker hela fördelningen. Bankens äkta utslag (OSPREY och
+// SINE BRES på e51c7b6) har ingen returkorsning alls inom fönstret: båtarna
+// fortsatte bort, och bankens returresor kom tidigast 21 min efter passagen.
+const INV22_RETURN_WINDOW_MS = 300000;
+// VÄNDNINGEN (granskningen 2026-11-16, L1): där sanningen vet när båten
+// vände (buggjägarens L0, `opts.uturns`) krävs dessutom att hon vänt efter
+// den senaste korsningen och senast när notisen kom. Utan vändning var det
+// ingen förvarning inför returen. Mätt i de 180 U-svängsvärldarna kom de fyra
+// undantagna notiserna 129–230 s efter vändningen. Banken saknar L0 och dömer
+// som förut.
 
 let inv22Fairway = null;
 /**
@@ -716,7 +793,8 @@ function positionBeyondLine(n, crossing) {
   return crossing.dir === 'nord' ? rel > 0 : rel < 0;
 }
 
-function validateWarnInvariants(result, gtPassagesArg = null) {
+function validateWarnInvariants(result, gtPassagesArg = null, opts = {}) {
+  const uturns = Array.isArray(opts && opts.uturns) ? opts.uturns : null;
   const warnings = [];
   const notifications = result.notifications || [];
   const transitions = result.bridgeTextTransitions || [];
@@ -1026,6 +1104,18 @@ function validateWarnInvariants(result, gtPassagesArg = null) {
   // annars `tTo` (bankens rådatafacit, där `tTo` redan är mottagningen av första
   // fixen bortom linjen). Utan det dömde regeln i sanningsspåret mot den sanna
   // korsningen och flaggade 33 notiser i samma cykel under bron som banken undantar.
+  //
+  // RETURKORSNINGEN (rev 2, 2026-11-15, fältgranskningen 2026-11-14 F14): i
+  // buggjägarens standardkörning gav regeln fem utslag (världarna 134 ULLA,
+  // 935 RUNA, 963 YRSA, 1480 ALVA och 1558 TROLLA), alla förvarningar efter
+  // passagen när båten redan vänt och var på väg tillbaka: returkorsningen kom
+  // 28–150 s senare. Texten stämmer för returen; bara notisens riktningstoken
+  // är den gamla, eftersom vändningen ännu inte är trodd (U18 kräver två
+  // positioner). En notis som följs av en korsning av samma bro åt andra
+  // hållet, observerad efter den senaste korsningen och högst
+  // INV22_RETURN_WINDOW_MS efter notisen (korsningens tid `t`), flaggas därför
+  // inte. Utan returkorsning, eller med en retur långt senare (bankens
+  // returresor kom tidigast 21 min efter), flaggas notisen som förut.
   {
     const obsT = (g) => (Number.isFinite(g.tObs) ? g.tObs : g.tTo);
     const crossings = (gtPassages || []).filter((g) => g && g.kind !== 'zone'
@@ -1051,6 +1141,17 @@ function validateWarnInvariants(result, gtPassagesArg = null) {
         if (!latest || latest.dir !== dir) continue;
         const beyond = positionBeyondLine(n, latest);
         if (beyond === false) continue;
+        // RETURKORSNINGEN (rev 2, se INV22_RETURN_WINDOW_MS): korsar båten
+        // samma bro åt andra hållet senast fönstret efter notisen var den en
+        // förvarning inför returen, och texten stämmer.
+        const ret = crossings.find((g) => String(g.mmsi) === String(n.mmsi) && g.bridge === n.bridge
+          && g.dir !== latest.dir && obsT(g) > obsT(latest) && Number.isFinite(g.t)
+          && g.t - n.t <= INV22_RETURN_WINDOW_MS);
+        // Med L0:s vändningar (se INV22_RETURN_WINDOW_MS): bara om hon vänt
+        // efter den senaste korsningen och senast vid notisen.
+        const turned = !uturns || uturns.some((u) => u && String(u.mmsi) === String(n.mmsi)
+          && Number.isFinite(u.t) && u.t > latest.t && u.t <= n.t);
+        if (ret && turned) continue;
         const iso = (t) => new Date(Math.round(t)).toISOString();
         warnings.push(
           `INV-22 FÖRVARNING EFTER PASSAGE: ${n.mmsi}@${n.bridge} "${form}" ${iso(n.t)} `

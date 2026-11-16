@@ -275,6 +275,14 @@ echo "Tryck Ctrl+C för att stoppa"
   fi
 ) &
 REPLAY_GUARD_PID=$!
+# TYST NEDSTÄNGNING (2026-11-15): nedstängningen dödar vakterna med KILL
+# (extract_bridge_text), och bash skrev då en rad "Killed: 9" med hela
+# slingans text för varje sådant jobb i sin jobbtabell — brus vid varje
+# normal Ctrl+C. disown tar bara bort jobbet ur tabellen: pid:en,
+# nedstängningens kill -KILL och slingans egen kill -0-vakt är oförändrade,
+# och bash skördar ändå barnet. Samma sak för de två andra slingorna nedan
+# och för nödbromsen i stop_capture. Låst i tests/field-log-script-recovery.test.js.
+disown "$REPLAY_GUARD_PID" 2>/dev/null || true
 
 # HÅLDETEKTOR, runtime (F4-A, gräns V4 2026-11-13): på debugnivå detailed/full
 # skriver monitoringloopen [COORDINATION_CLEANUP] varje minut, så en logg som
@@ -303,6 +311,7 @@ REPLAY_GUARD_PID=$!
   done
 ) &
 HOLE_GUARD_PID=$!
+disown "$HOLE_GUARD_PID" 2>/dev/null || true
 
 # PERIODISK SYNK (F4-A): kopiera live-filerna till OneDrive-mappen var 10:e
 # minut — kraschskydd utan att live-skrivningen någonsin väntar på synken.
@@ -344,6 +353,7 @@ HOLE_GUARD_PID=$!
   done
 ) &
 SYNC_PID=$!
+disown "$SYNC_PID" 2>/dev/null || true
 
 # K24: EXIT-trap:en ensam är INTE tillräcklig. Två fel bevisade i riggen:
 #  (1) en icke-interaktiv bash som tar emot SIGINT UTAN egen INT-hanterare dör
@@ -373,6 +383,25 @@ APP_PID=""
 # tee skriver klart av sig själv, så loggen är komplett när grinden läser den.
 # Utan det här steget skulle `kill <skriptets pid>` lämna kvar en föräldralös
 # `homey app run` som fortsätter mata en tee vars förälder är borta.
+# KILL på ett bakgrundssubskal (vakt eller nödbroms) och sedan på dess
+# väntande `sleep` (granskningen 2026-11-16, M2). Annars levde sömnen kvar med
+# ppid 1 i upp till 300 s och höll skriptets stdout öppen efter avslutet.
+# Subskalet dödas först, precis som förut: väcks det inte ur sömnen kan det
+# inte köra ett varv till. Barnen samlas in före KILL (efteråt har de bytt
+# förälder) och bara de som heter sleep, så att en pågående kopiering i
+# synkvakten löper klart som förut. Saknas pgrep blir det som förut.
+kill_with_sleep() {
+    local pid=$1 sleeps=""
+    [ -n "$pid" ] || return 0
+    if command -v pgrep >/dev/null 2>&1; then
+        sleeps=$(pgrep -x -P "$pid" sleep 2>/dev/null) || sleeps=""
+    fi
+    kill -KILL "$pid" 2>/dev/null || true
+    # shellcheck disable=SC2086 # en pid per ord
+    [ -n "$sleeps" ] && kill -KILL $sleeps 2>/dev/null
+    return 0
+}
+
 stop_capture() {
     local killer
     [ -n "$PIPE_PID" ] || return 0
@@ -385,6 +414,8 @@ stop_capture() {
       kill -TERM "$PIPE_PID" 2>/dev/null
     ) &
     killer=$!
+    # Ur jobbtabellen, så att KILL nedan inte ger "Killed: 9" (se vakterna).
+    disown "$killer" 2>/dev/null || true
     # tee avslutar själv när appen dött (EOF) — då är loggen komplett.
     wait "$PIPE_PID" 2>/dev/null || true
     # -KILL, inte -TERM: nödbromsen väntar på sitt `sleep`-barn, och bash
@@ -392,8 +423,9 @@ stop_capture() {
     # (exakt samma regel som gjorde att `kill <pid>` hängde hela skriptet).
     # Med KILL dör subskalet direkt; dess `sleep` blir en tom process som
     # bara löper ut — nödbromsens kill-kommandon körs aldrig, så en
-    # återanvänd pid kan inte träffas av misstag.
-    kill -KILL "$killer" 2>/dev/null || true
+    # återanvänd pid kan inte träffas av misstag. Sömnen dödas med (se
+    # kill_with_sleep).
+    kill_with_sleep "$killer"
     PIPE_PID=""
 }
 
@@ -451,9 +483,10 @@ extract_bridge_text() {
     # jsonl:en med en äldre, kortare — summaryn skulle beskriva en fil som inte
     # längre finns. Med KILL dör skalet direkt och ingen `mv` kan köras; en
     # halvskriven temp-fil städas av cleanup_run_tempfiles.
-    kill -KILL "$REPLAY_GUARD_PID" 2>/dev/null || true
-    kill -KILL "$HOLE_GUARD_PID" 2>/dev/null || true
-    kill -KILL "$SYNC_PID" 2>/dev/null || true
+    # Vakternas `sleep` dödas med (kill_with_sleep), i samma ordning.
+    kill_with_sleep "$REPLAY_GUARD_PID"
+    kill_with_sleep "$HOLE_GUARD_PID"
+    kill_with_sleep "$SYNC_PID"
 
     # SLUTSYNK FÖRST (V4, fältprovet 2026-11-13). Körning 2 avslutades av en
     # macOS-uppdatering: utloggningen dödade skriptet EFTER summaryn men FÖRE

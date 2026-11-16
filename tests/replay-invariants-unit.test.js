@@ -422,6 +422,199 @@ describe('INV-3/16 FP8-kalibreringen (2026-07-13, korpus 20260712-25h)', () => {
 });
 
 // ===========================================================================
+// INV-3 LEDARBYTE (2026-11-15, buggjägarens kort F01, standardvärld 246)
+// ===========================================================================
+// YRSA (Y) visas med "om 7 minuter" mot Stridsbergsbron, ställer sig i kö vid
+// Järnvägsbron (väntklausul utan minuter, rätt enligt textformatet) och
+// TROLLA 2 (T) tar över klausulen med "om 14 minuter". Två olika båtars
+// tider: ingen sågtand. replayRunner bokför vilken båt vars ETA klausulen
+// visar och båtarnas kö (bridgeTextLeads).
+describe('INV-3: ledarbyte när den förra båten bevisligen slutat bära klausulen', () => {
+  const Y = '265188662';
+  const T = '265188962';
+  const t0 = Date.parse('2026-09-21T16:54:07.997Z');
+  const på = (n) => `En båt på väg mot Stridsbergsbron, beräknad broöppning om ${n} minuter`;
+  const kö = 'En båt väntar vid Järnvägsbron på väg mot Stridsbergsbron';
+  const texter = [
+    [0, på(7)],
+    [30, kö],
+    [85, `${kö}; ${på(14)}`],
+    [145, `${kö}; ${på(13)}`],
+  ];
+  const tr = (s, text) => ({ t: t0 + s * 1000, iso: new Date(t0 + s * 1000).toISOString(), text });
+  const leads = (s, text, lead, vessels) => ({
+    t: t0 + s * 1000, text, leads: lead ? [{ bridge: 'Stridsbergsbron', mmsi: lead }] : [], vessels,
+  });
+  const yKö = { mmsi: Y, targetBridge: 'Stridsbergsbron', waitingAt: 'Järnvägsbron' };
+  const yRör = { mmsi: Y, targetBridge: 'Stridsbergsbron', waitingAt: null };
+  const tRör = { mmsi: T, targetBridge: 'Stridsbergsbron', waitingAt: null };
+  const resultat = ({
+    yVid85 = yKö, ledareVid85 = T, ledareVid0 = Y, utanUnderlag = false, text85 = texter[2][1], ...rest
+  } = {}) => {
+    const txt = texter.map(([s, x]) => [s, s === 85 ? text85 : x]);
+    return baseResult({
+      bridgeTextTransitions: txt.map(([s, x]) => tr(s, x)),
+      bridgeTextLeads: utanUnderlag ? undefined : [
+        leads(0, txt[0][1], ledareVid0, [yRör]),
+        leads(30, txt[1][1], null, [yKö]),
+        leads(85, txt[2][1], ledareVid85, [yVid85, tRör]),
+        leads(145, txt[3][1], ledareVid85, [yVid85, tRör]),
+      ],
+      ...rest,
+    });
+  };
+  const sågtand = (r) => validateInvariants(r).filter((x) => x.includes('SÅGTAND'));
+
+  test('värld 246: Y i kö vid Järnvägsbron, T tar över med 14 min; ingen sågtand', () => {
+    expect(sågtand(resultat())).toEqual([]);
+  });
+
+  test('utan underlaget (äldre resultat) döms 7 → 14 som förut', () => {
+    expect(sågtand(resultat({ utanUnderlag: true }))).toHaveLength(1);
+  });
+
+  test('samma båt som går 7 → 14 fälls som förut', () => {
+    expect(sågtand(resultat({ ledareVid85: Y }))).toHaveLength(1);
+  });
+
+  test('ledarbyte utan kö: den förra båten är fortfarande i rörelse mot bron; sågtand', () => {
+    expect(sågtand(resultat({ yVid85: yRör }))).toHaveLength(1);
+  });
+
+  test('kön måste synas i texten: utan "väntar vid Järnvägsbron" i texten är det ingen förklaring', () => {
+    expect(sågtand(resultat({ text85: `En båt väntar vid Klaffbron på väg mot Stridsbergsbron; ${på(14)}` }))).toHaveLength(1);
+  });
+
+  test('den förra båtens passage av bron mellan texterna förklarar bytet; utanför fönstret gör den det inte', () => {
+    const p = (s) => ({
+      t: t0 + s * 1000, iso: '', mmsi: Y, bridge: 'Stridsbergsbron',
+    });
+    expect(sågtand(resultat({ yVid85: yRör, targetPassages: [p(60)] }))).toEqual([]);
+    expect(sågtand(resultat({ yVid85: yRör, targetPassages: [p(-10)] }))).toHaveLength(1);
+    expect(sågtand(resultat({ yVid85: yRör, targetPassages: [p(100)] }))).toHaveLength(1);
+    expect(sågtand(resultat({ yVid85: yRör, targetPassages: [{ ...p(60), mmsi: T }] }))).toHaveLength(1);
+    expect(sågtand(resultat({ yVid85: yRör, targetPassages: [{ ...p(60), bridge: 'Klaffbron' }] }))).toHaveLength(1);
+  });
+
+  test('från "strax" är nivån inte den förra ledarens egen tid: ledarbytet förklarar inget', () => {
+    // strax → 14 → strax inom 120 s är studsklassen; "strax" kan bäras av en
+    // annan båts närhet, så ledarbytet får inte undanta den.
+    const r = resultat();
+    const strax = 'En båt på väg mot Stridsbergsbron, beräknad broöppning strax';
+    r.bridgeTextTransitions[0].text = strax;
+    r.bridgeTextLeads[0].text = strax;
+    r.bridgeTextTransitions[3].text = `${kö}; ${strax}`;
+    r.bridgeTextLeads[3].text = `${kö}; ${strax}`;
+    expect(sågtand(r)).toHaveLength(1);
+    // Samma studs med minuttid före (7 → 14 → 7): kön förklarar bytet, men
+    // T:s egen tid faller 7 min på 60 s, så den nya nivån håller inte (M1).
+    const r2 = resultat();
+    r2.bridgeTextTransitions[3].text = `${kö}; ${på(7)}`;
+    r2.bridgeTextLeads[3].text = `${kö}; ${på(7)}`;
+    expect(sågtand(r2)).toHaveLength(1);
+  });
+
+  // Granskningen 2026-11-16 (M1): bytet förklarar vems tid det är, inte att
+  // den nya båtens första tid är rätt. Den nya nivån måste hålla: ingen
+  // senare tid för samma nya ledare inom 120 s får ligga 6 min eller mer under.
+  describe('den nya nivån måste hålla', () => {
+    const med = (ändr) => {
+      const r = resultat();
+      for (const [idx, n] of ändr) {
+        r.bridgeTextTransitions[idx].text = `${kö}; ${på(n)}`;
+        r.bridgeTextLeads[idx].text = `${kö}; ${på(n)}`;
+      }
+      return r;
+    };
+
+    test('mutantspiken i värld 246: 7 → 21 → 14 fälls', () => {
+      expect(sågtand(med([[2, 21], [3, 14]]))).toHaveLength(1);
+    });
+
+    test('passagebevis: en spik från mjukzonen (4 → 17 → 5) fälls trots bevisat byte', () => {
+      const r = resultat({
+        yVid85: yRör,
+        targetPassages: [{
+          t: t0 + 60000, iso: '', mmsi: Y, bridge: 'Stridsbergsbron',
+        }],
+      });
+      const sätt = (idx, x) => {
+        r.bridgeTextTransitions[idx].text = x;
+        r.bridgeTextLeads[idx].text = x;
+      };
+      // Från 4 (≤ 5, mjukzonen) prövas hoppet bara om tiden studsar tillbaka.
+      sätt(0, på(4));
+      sätt(2, `${kö}; ${på(17)}`);
+      sätt(3, `${kö}; ${på(5)}`);
+      expect(sågtand(r)).toHaveLength(1);
+      // Utan fallet (17 → 16) står bytet sig.
+      sätt(3, `${kö}; ${på(16)}`);
+      expect(sågtand(r)).toEqual([]);
+    });
+
+    test('en ny nivå som sjunker i normal takt (14 → 13) godtas', () => {
+      expect(sågtand(med([[2, 14], [3, 13]]))).toEqual([]);
+    });
+
+    test('gränsen är 6 min: 14 → 9 bryter inte nivån, 14 → 8 gör det', () => {
+      expect(sågtand(med([[2, 14], [3, 9]]))).toEqual([]);
+      expect(sågtand(med([[2, 14], [3, 8]]))).toHaveLength(1);
+    });
+
+    test('ett fall efter 120 s räknas inte', () => {
+      const r = med([[2, 14], [3, 7]]);
+      const sent = t0 + (85 + 121) * 1000;
+      r.bridgeTextTransitions[3].t = sent;
+      r.bridgeTextTransitions[3].iso = new Date(sent).toISOString();
+      r.bridgeTextLeads[3].t = sent;
+      expect(sågtand(r)).toEqual([]);
+    });
+
+    // Omgranskningen 2026-11-16: bär en TREDJE båt klausulen under hela
+    // fönstret efter spiken gömdes 7 → 21 → 14 med kravet "samma ledare".
+    // Samma antalsord (samma grupp) räknas nu som samma ledare.
+    test('kryphålet: en tredje båt bär texten efter spiken (7 → 21 → 14), samma antal; sågtand', () => {
+      const r = med([[2, 21], [3, 14]]);
+      r.bridgeTextLeads[3].leads = [{ bridge: 'Stridsbergsbron', mmsi: 'tredje' }];
+      expect(sågtand(r)).toHaveLength(1);
+    });
+
+    test('samma nya ledare bryter nivån också när antalet ändrats (14 → "Två båtar … 7")', () => {
+      const r = med([[2, 14], [3, 7]]);
+      const två = `${kö}; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 7 minuter`;
+      r.bridgeTextTransitions[3].text = två;
+      r.bridgeTextLeads[3].text = två;
+      expect(sågtand(r)).toHaveLength(1);
+    });
+
+    test('ett fall som bärs av en annan båt i en annan grupp (annat antal) bryter inte nivån', () => {
+      const r = med([[2, 14], [3, 7]]);
+      const två = `${kö}; Två båtar på väg mot Stridsbergsbron, beräknad broöppning om 7 minuter`;
+      r.bridgeTextTransitions[3].text = två;
+      r.bridgeTextLeads[3].text = två;
+      r.bridgeTextLeads[3].leads = [{ bridge: 'Stridsbergsbron', mmsi: 'annan' }];
+      expect(sågtand(r)).toEqual([]);
+    });
+  });
+
+  test('kryphålet: två båtar vars ETA växelvis visas, utan kö eller passage, fälls', () => {
+    const t1 = Date.parse('2026-09-21T10:00:00Z');
+    const text = (n) => `Två båtar på väg mot Klaffbron, beräknad broöppning om ${n} minuter`;
+    const steg = [[0, 5, 'A'], [30, 12, 'B'], [60, 5, 'A'], [90, 12, 'B']];
+    const båtar = [{ mmsi: 'A', targetBridge: 'Klaffbron', waitingAt: null }, { mmsi: 'B', targetBridge: 'Klaffbron', waitingAt: null }];
+    const r = baseResult({
+      bridgeTextTransitions: steg.map(([s, n]) => ({ t: t1 + s * 1000, iso: new Date(t1 + s * 1000).toISOString(), text: text(n) })),
+      bridgeTextLeads: steg.map(([s, n, m]) => ({
+        t: t1 + s * 1000, text: text(n), leads: [{ bridge: 'Klaffbron', mmsi: m }], vessels: båtar,
+      })),
+    });
+    const v = validateInvariants(r);
+    expect(v.filter((x) => x.includes('SÅGTAND')).length).toBeGreaterThan(0);
+    expect(v.some((x) => x.includes('OSCILLATION'))).toBe(true);
+  });
+});
+
+// ===========================================================================
 // INV-21 (etapp 6, 2026-08-03) — ÖPPNINGSVARNING EFTER PASSAGE
 // ===========================================================================
 // Öppningsvarningen ska FÖRVARNA. Går den ut efter att en av dess egna
@@ -593,6 +786,87 @@ describe('INV-22 förvarningsform efter rådatans passage (WARN)', () => {
     expect(inv22([returnTrip], [crossing(), back])).toEqual([]);
     // Men en ny sydgående förvarning efter en nordgående korsning flaggas inte heller.
     expect(inv22([approach(tTo + 1800000, { vesselLat: NORTH.lat, vesselLon: NORTH.lon })], [crossing(), back])).toEqual([]);
+  });
+
+  // Rev 2 (2026-11-15, fältgranskningen F14): buggjägarens fem utslag var
+  // förvarningar inför en returkorsning 28–150 s senare (värld 134 ULLA:
+  // "närmar sig Järnvägsbron, om 3 minuter" med riktning söderut, 286 m söder
+  // om bron, returkorsningen norrut 150 s efter notisen). Texten stämmer för
+  // returen; bara token är den gamla eftersom vändningen ännu inte är trodd.
+  describe('returkorsningen (rev 2)', () => {
+    const tN = Date.parse('2026-11-13T13:57:24.700Z'); // notisen, 46 s efter tTo
+    const back = (dt, overrides = {}) => crossing({
+      dir: 'nord', t: tN + dt, iso: new Date(tN + dt).toISOString(), tFrom: tN + dt - 20000, tTo: tN + dt + 20000, ...overrides,
+    });
+    const notice = approach(tN, { message: 'ULLA närmar sig Järnvägsbron, beräknad ankomst om 3 minuter', eta: 3, distance: 286 });
+
+    test('värld 134-mönstret: korsning åt andra hållet 150 s efter notisen flaggas inte', () => {
+      expect(inv22([notice], [crossing(), back(150000)])).toEqual([]);
+    });
+
+    test('fönstret är 300 s från notisen till returkorsningen: 300 s undantas, 300,001 s flaggas', () => {
+      expect(inv22([notice], [crossing(), back(300000)])).toEqual([]);
+      expect(inv22([notice], [crossing(), back(300001)])).toHaveLength(1);
+    });
+
+    test('utan returkorsning, eller med returen 21 min senare, flaggas notisen som förut', () => {
+      expect(inv22([notice], [crossing()])).toHaveLength(1);
+      expect(inv22([notice], [crossing(), back(21 * 60000)])).toHaveLength(1);
+    });
+
+    test('returkorsningen räknas på korsningens tid t, även när fixen bortom linjen kommer senare', () => {
+      // Glest sänd retur: korsningen 120 s efter notisen, första fixen bortom
+      // linjen först 400 s efter. Det är korsningen som visar att texten stämde.
+      expect(inv22([notice], [crossing(), back(120000, { tFrom: tN + 60000, tTo: tN + 400000 })])).toEqual([]);
+    });
+
+    test('bara en korsning av samma båt och bro åt andra hållet, efter passagen, undantar', () => {
+      // Samma riktning igen (ingen retur): flaggas.
+      expect(inv22([notice], [crossing(), back(150000, { dir: 'syd' })])).toHaveLength(1);
+      // Annan båt eller annan bro: flaggas.
+      expect(inv22([notice], [crossing(), back(150000, { mmsi: '265999999' })])).toHaveLength(1);
+      expect(inv22([notice], [crossing(), back(150000, { bridge: 'Stridsbergsbron' })])).toHaveLength(1);
+      // En nordgående korsning FÖRE passagen är ingen retur efter den: flaggas.
+      const before = crossing({
+        dir: 'nord', t: tFrom - 600000, iso: new Date(tFrom - 600000).toISOString(), tFrom: tFrom - 620000, tTo: tFrom - 590000,
+      });
+      expect(inv22([notice], [before, crossing()])).toHaveLength(1);
+      // Ett zonbesök åt andra hållet är ingen linjekorsning: flaggas.
+      expect(inv22([notice], [crossing(), back(150000, { kind: 'zone' })])).toHaveLength(1);
+    });
+
+    // Granskningen 2026-11-16 (L1): där sanningen vet när båten vände (L0)
+    // krävs att hon vänt efter passagen och senast vid notisen.
+    describe('med sanningens vändningar (L0)', () => {
+      const medL0 = (uturns, gt = [crossing(), back(150000)]) => validateWarnInvariants(
+        baseResult({ notifications: [notice] }), gt, { uturns },
+      ).filter((x) => x.startsWith('INV-22'));
+      const vänd = (t, mmsi = '265012090') => ({ mmsi, t, s: 0 });
+      const passageT = crossing().t;
+
+      test('vändning mellan passagen och notisen: undantas', () => {
+        // Passagen (t) ligger 52 s före notisen.
+        expect(medL0([vänd(tN - 30000)])).toEqual([]);
+        expect(medL0([vänd(passageT + 1)])).toEqual([]);
+        expect(medL0([vänd(tN)])).toEqual([]);
+      });
+
+      test('ingen vändning, vändning efter notisen eller före passagen: flaggas', () => {
+        expect(medL0([])).toHaveLength(1);
+        expect(medL0([vänd(tN + 1)])).toHaveLength(1);
+        expect(medL0([vänd(passageT)])).toHaveLength(1);
+        expect(medL0([vänd(passageT - 60000)])).toHaveLength(1);
+      });
+
+      test('en annan båts vändning räknas inte', () => {
+        expect(medL0([vänd(tN - 30000, '265999999')])).toHaveLength(1);
+      });
+
+      test('utan L0 (banken) räcker returkorsningen som förut', () => {
+        expect(medL0(undefined)).toEqual([]);
+        expect(medL0(null)).toEqual([]);
+      });
+    });
   });
 
   test('okänd riktning, annan båt, annan bro, zonbesök eller saknat facit: ingen dom', () => {

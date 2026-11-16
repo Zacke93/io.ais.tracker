@@ -312,6 +312,78 @@ function reversals(series, minM) {
 }
 
 /**
+ * 90 s-taket på uttömt "strax" (app.js: `const IMMINENT_EXHAUSTED_MAX_AGE_MS
+ * = 90 * 1000;`, B4/F10). Läses ur källtexten som appKonstant, men uttrycket
+ * är "N * 1000"; kan det inte läsas är värdet null och B4-varianten av
+ * U16-posten blir falsk i stället för att gissa.
+ * @returns {number|null} taket i ms
+ */
+function läsUttömdTak() {
+  try {
+    const text = fs.readFileSync(path.join(hygiene.REPO_ROOT, 'app.js'), 'utf8');
+    const t = [...text.matchAll(/\bconst\s+IMMINENT_EXHAUSTED_MAX_AGE_MS\s*=\s*(\d+)\s*\*\s*1000\s*;/g)];
+    return t.length === 1 ? Number(t[0][1]) * 1000 : null;
+  } catch (err) {
+    return null;
+  }
+}
+const IMMINENT_EXHAUSTED_MAX_AGE_MS = läsUttömdTak();
+
+/**
+ * Underlaget för B4-varianten av F40-studsen (U16, 2026-11-15; triagens
+ * beslutsfråga 3 (a): "när B4:s 90 s-tak släpper ett uttömt 'strax' …
+ * återgången med samma båts nästa fix"). Uttömningen syns inte i raderna, så
+ * provet läser appens läge vid varje publicerad text ur replayresultatets
+ * bridgeTextLeads (ETA-bärarna och båtarnas imminent-flagga, med om den bärs
+ * av en uttömd extrapolering och uttömningens stämpel). Kräver alla:
+ *  (a) vid nivån före hoppet bar båten 'strax' på en uttömd extrapolering
+ *      (imminent, fromExhausted, stämpel), och ingen annan båt med samma
+ *      målbro var imminent: hon bar det ensam;
+ *  (b) vid hoppet var hennes imminent-flagga släppt, taket hade löst ut
+ *      (hoppet mer än uttömdTakMs efter stämpeln), och klausulens ETA var en
+ *      annan båts: texten lånade nästa båts ETA;
+ *  (c) vid återgången bar hon 'strax' igen (imminent eller klausulens bärare).
+ * Positionsåldern, radierna, textgenereringen mellan taket och hoppet,
+ * kajkapslarna, återgången vid hennes rad utan annan rad emellan och
+ * styrraderna prövas av f40StudsVidNästaFix som för huvudvarianten.
+ * @returns {{uttömd: number, lånad: string}|{fel: string}} underlaget eller skälet
+ */
+function b4Underlag(ctx, bro, mmsi, före, hopp, åter, p) {
+  const L = ctx && ctx.resultat && ctx.resultat.bridgeTextLeads;
+  if (!Array.isArray(L)) return { fel: 'resultatet saknar ETA-bärarna (bridgeTextLeads), så uttömningen kan inte beläggas' };
+  if (!Number.isFinite(p.uttömdTakMs)) return { fel: 'taket IMMINENT_EXHAUSTED_MAX_AGE_MS kunde inte läsas ur app.js' };
+  const vid = (t) => {
+    const x = L.filter((y) => y && y.t === t && Array.isArray(y.vessels)).pop();
+    return x || null;
+  };
+  const fmt = (t) => new Date(Math.round(t)).toISOString().slice(11, 23);
+  const mF = vid(före.t);
+  const mH = vid(hopp.t);
+  const mÅ = vid(åter.t);
+  if (!mF || !mH || !mÅ) return { fel: 'ETA-bärarna saknas för nivån före, hoppet eller återgången' };
+  const hon = (m) => m.vessels.find((v) => String(v.mmsi) === String(mmsi)) || null;
+  const bärare = (m) => ((m.leads || []).find((l) => l && l.bridge === bro) || {}).mmsi || null;
+  const hF = hon(mF);
+  if (!hF || hF.imminent !== true || hF.fromExhausted !== true || !Number.isFinite(hF.exhaustedAt)) {
+    return { fel: `vid nivån före ${fmt(före.t)} bar båten inte 'strax' på en uttömd extrapolering` };
+  }
+  const annanImminent = mF.vessels.find((v) => String(v.mmsi) !== String(mmsi) && v.targetBridge === bro && v.imminent === true);
+  if (annanImminent) return { fel: `vid nivån före ${fmt(före.t)} var också ${annanImminent.mmsi} imminent: båten bar inte 'strax' ensam` };
+  const hH = hon(mH);
+  if (!hH || hH.imminent !== false) return { fel: `vid hoppet ${fmt(hopp.t)} var båtens imminent-flagga inte släppt` };
+  if (!(hopp.t - hF.exhaustedAt > p.uttömdTakMs)) {
+    return { fel: `hoppet ${fmt(hopp.t)} kom ${Math.round((hopp.t - hF.exhaustedAt) / 1000)} s efter uttömningen, inte efter taket ${p.uttömdTakMs / 1000} s` };
+  }
+  const lånad = bärare(mH);
+  if (!lånad || lånad === String(mmsi)) return { fel: `vid hoppet ${fmt(hopp.t)} visade klausulen ${lånad ? 'båtens egen ETA' : 'ingen båts ETA'}, inte en annan båts` };
+  const hÅ = hon(mÅ);
+  if (!(hÅ && hÅ.imminent === true && hÅ.fromExhausted !== true)) {
+    return { fel: `vid återgången ${fmt(åter.t)} bar båten inte 'strax' på en färsk fix (imminent utan uttömd extrapolering)` };
+  }
+  return { uttömd: hF.exhaustedAt, lånad };
+}
+
+/**
  * Första halvminutsticken vars textgenerering kan falla strikt inne i
  * glappet (a, b): ticken T = k · tickMs (absoluta halvminuter i epok-ms, som
  * UI-klockan) genererar sin text i [T; T + fördröjningMs], och det fönstret
@@ -734,6 +806,131 @@ function motornsTäckningsslut(eW, absT, domarIE, p) {
 }
 
 /**
+ * Den SENASTE tid då täckningsslutet får komma för en båt som släpptes vid
+ * täckningsslutet (U17 och K-NÄSTA, villkor (3″); 2026-11-15, BUGGJAKT A.9:s
+ * kända gräns: med täckningsslutet avsiktligt två minuter för sent tog U17 15
+ * av 18 nya utslag). Räknas ur händelsen så som appen räknar täckningen,
+ * oberoende av armens värde (BridgeOpeningService.js#_bindLooseArms och
+ * #_rebaseConvoyCoverage, ARCHITECTURE.md vid släppvägen: täckningsslutet
+ * räknas från bokföringen):
+ *  - vid absorptionen max(händelsens avfyrning, referensen) + fönsterMs, där
+ *    referensen är bokföringen av händelsens första passage när den redan var
+ *    känd och annars referensankomsten;
+ *  - en senare bokföring B kortar täckningen till max(avfyrningen, B) +
+ *    fönsterMs men förlänger den aldrig. Det är alltså en övre gräns också när
+ *    referensankomsten inte kan läsas.
+ * Avfyrningen är händelsens levererade varning, inte armens fält.
+ * Referensankomsten läses, som i motornsTäckningsslut (U25 och U26), ur U24:s
+ * underlag i hennes domar före passagen (windowEndMs = referensankomsten +
+ * fönsterMs). Finns varken bokföringen eller underlaget före släppet kan
+ * slutet inte räknas ur händelsen; då prövas bara armens eget slut (känd gräns,
+ * BUGGJAKT §7).
+ * @param {object} släpp - hennes dom 'täckningsslut'
+ * @param {object[]} ws - levererade varningar vid bron
+ * @param {object[]} cov - openingCoverage
+ * @param {object[]} spår - hennes domar vid bron
+ * @param {string} m - båtens mmsi
+ * @param {string} bro - bron
+ * @param {object} p - parametrarna (fönsterMs)
+ * @returns {{ms: number, hur: string, absT: number}|{fel: string}} den senaste tiden och absorptionen, eller skälet
+ */
+/**
+ * U2-VS-DEADLINE och J13-J14-KONVOJSEMANTIK: hade täckningen som höll båten
+ * vid korsningen rätt längd? (J13 tillagd samma dag: den tog mutantens 1089
+ * och 1214 när U2 släppte dem.)
+ * (2026-11-16, granskningen av verktygsgrenen, punkt 6.) Posten godtar en
+ * utebliven varning när båten var täckt av en äldre händelse E och
+ * korsningen ligger inom E:s första passage + fönstret. Med täckningen för
+ * lång (granskarens mutant u17arm300, världarna 449, 1089 och 1214) uteblev
+ * U24:s släpp på hennes egen deadline och varningen, fast appen hade släppt
+ * och varnat henne; posten kallade det den kända U2-konflikten. Därför: i
+ * hennes sista dom i E före korsningen får varken armens täckningsslut
+ * (coverUntilMs) eller domens fönsterslut (windowEndMs, som U24 avgör mot)
+ * ligga mer än en tick efter max(E:s avfyrning, bokföringen av E:s första
+ * passage) + fönstret. Det slutet är det längsta appens regel tillåter när
+ * passagen är bokförd (en senare bokföring kortar men förlänger aldrig,
+ * BridgeOpeningService.js#_bindLooseArms och #_rebaseConvoyCoverage; samma
+ * regel som U17:s villkor (3″)). Var passagen inte bokförd vid domen går
+ * längden inte att pröva ur händelsen, och posten dömer som förut (en känd
+ * gräns, som i (3″)). Ett resultat utan domspåret (äldre resultat, handgjorda
+ * fixturer) döms som förut, som U17:s kvotregel. Finns domspåret men ingen
+ * dom i E före korsningen, eller saknar domen armens värde, är svaret nej.
+ * @returns {{text: string}|{fel: string}} tillägg till skälet, eller skälet till nej
+ */
+function täckningensLängd(ctx, f, w, tc, p) {
+  const V = ctx && ctx.resultat && ctx.resultat.openingCoverageVerdicts;
+  if (!Array.isArray(V)) return { text: ' (täckningens längd prövas inte: resultatet saknar släppvägens domspår, openingCoverageVerdicts)' };
+  const E = w.eventId;
+  const v = V.filter((x) => x && String(x.mmsi) === String(f.mmsi) && x.bridge === f.bro && x.eventId === E
+    && Number.isFinite(x.t) && x.t <= tc).sort((a, b) => a.t - b.t).pop();
+  if (!v) {
+    // En medlem eller ledare (täckningen 'fired') har ingen arm som kan bli
+    // för lång: hennes varning gick ut i E. Bara en absorberad båt utan dom
+    // i E före korsningen saknar underlaget (standardvärld 212, J13: ledare
+    // i sin egen händelse, 55 s före korsningen).
+    const cov = (ctx.resultat.openingCoverage || []).filter((c) => c && String(c.mmsi) === String(f.mmsi)
+      && c.bridge === f.bro && c.eventId === E && Number.isFinite(c.t) && c.t <= tc);
+    if (cov.length && !cov.some((c) => c.reason === 'absorbed')) {
+      return { text: ` (täckningens längd prövas inte: båten var medlem i ${E}, inte absorberad)` };
+    }
+    return { fel: `domspåret har ingen dom för båten i ${E} före korsningen ${fmtT(tc)}` };
+  }
+  const B = v.event ? v.event.firstPassageRegisteredAt : null;
+  if (!Number.isFinite(B)) return { text: ` (täckningens längd prövas inte: ${E}:s första passage var inte bokförd vid domen ${fmtT(v.t)})` };
+  const avfyrad = v.event && Number.isFinite(v.event.firedAt) ? v.event.firedAt : w.t;
+  const slut = Math.max(avfyrad, B) + p.fönsterMs;
+  const arm = v.arm ? v.arm.coverUntilMs : null;
+  if (!Number.isFinite(arm)) return { fel: `domen ${fmtT(v.t)} i ${E} saknar armens täckningsslut` };
+  const vid = `max(${E}:s avfyrning ${fmtT(avfyrad)}, bokföringen ${fmtT(B)}) + ${p.fönsterMs / 1000} s = ${fmtT(slut)}`;
+  if (arm - slut > p.tickMs) {
+    return { fel: `armens täckningsslut ${fmtT(arm)} i domen ${fmtT(v.t)} ligger mer än en tick efter ${vid}: täckningen var för lång, och då förklarar konvojsemantiken (U2, J13) inte den uteblivna varningen` };
+  }
+  const fönster = v.verdict ? v.verdict.windowEndMs : null;
+  if (Number.isFinite(fönster) && fönster - slut > p.tickMs) {
+    return { fel: `domens fönsterslut ${fmtT(fönster)} (${fmtT(v.t)}) ligger mer än en tick efter ${vid}: U24 avgjorde mot ett för sent fönster` };
+  }
+  return { text: `; täckningens slut ${fmtT(arm)} ligger inom ${vid}` };
+}
+
+function täckningsslutetsGräns(släpp, ws, cov, spår, m, bro, p) {
+  const E = släpp.eventId;
+  const absE = cov.filter((c) => c.reason === 'absorbed' && String(c.mmsi) === m && c.bridge === bro && c.eventId === E
+    && Number.isFinite(c.t) && c.t <= släpp.t).sort((x, y) => x.t - y.t).pop();
+  if (!absE) return { fel: `hon var inte absorberad i ${E} före släppet vid täckningsslutet ${fmtT(släpp.t)}` };
+  const eW = ws.find((x) => x.eventId === E && x.t <= absE.t);
+  if (!eW) return { fel: `${E} har ingen levererad varning före hennes absorption ${fmtT(absE.t)}` };
+  const domarIE = spår.filter((v) => v.eventId === E && v.t >= absE.t && v.t <= släpp.t);
+  const bokförd = domarIE.find((v) => passageKändI(v));
+  const B = bokförd ? bokförd.event.firstPassageRegisteredAt : null;
+  const bokSlut = Number.isFinite(B) ? Math.max(eW.t, B) + p.fönsterMs : Infinity;
+  const bokTxt = `max(${E}:s varning ${fmtT(eW.t)}, bokföringen ${fmtT(B)}) + ${p.fönsterMs / 1000} s`;
+  if (Number.isFinite(B) && B <= absE.t) return { ms: bokSlut, hur: bokTxt, absT: absE.t };
+  const fönster = domarIE.filter((v) => !passageKändI(v) && Number.isFinite(v.verdict.windowEndMs)).map((v) => v.verdict.windowEndMs);
+  const ref = fönster.length ? Math.min(...fönster) - p.fönsterMs : null;
+  const refSlut = Number.isFinite(ref) ? Math.max(eW.t, ref) + p.fönsterMs : Infinity;
+  if (!Number.isFinite(bokSlut) && !Number.isFinite(refSlut)) {
+    // Varken bokföringen eller U24:s underlag (resultat från appen före U24,
+    // eller en händelse utan referensankomst): bara armens eget slut går att
+    // pröva. Det fäller ett sent släpp mot armens värde, som mutanten med
+    // täckningsslutet två minuter för sent, men inte ett för sent räknat värde.
+    if (!Number.isFinite(släpp.arm && släpp.arm.coverUntilMs)) {
+      return { fel: `${E}:s täckningsslut kan inte räknas: ingen bokföring, inget fönsterslut (windowEndMs) och inget armvärde` };
+    }
+    return {
+      ms: släpp.arm.coverUntilMs,
+      hur: `armens täckningsslut; ${E}:s första passage var inte bokförd vid släppet och domarna saknar U24:s fönsterslut`,
+      absT: absE.t,
+    };
+  }
+  if (refSlut <= bokSlut) {
+    return { ms: refSlut, hur: `max(${E}:s varning ${fmtT(eW.t)}, referensankomsten ${fmtT(ref)}) + ${p.fönsterMs / 1000} s`, absT: absE.t };
+  }
+  return {
+    ms: bokSlut, hur: `${bokTxt}${Number.isFinite(refSlut) ? ', som kortade täckningen' : ' (övre gräns: referensankomsten saknas)'}`, absT: absE.t,
+  };
+}
+
+/**
  * Den tidigaste bearbetade rad som visade att en båt som händelsen E täckte
  * hade korsat bron (U25 och U26). Appen bokför E:s första passage när den
  * bearbetar ett fix bortom bron av en båt som E täcker
@@ -1111,7 +1308,7 @@ const PREDICATES = {
   // INV-21:s returresa till kontraktet, så en retur utan egen varning är en
   // kandidat (BUGGJAKT §7, rad 23).
   crossingWithinEventWindow: {
-    parametrar: { fönsterMs: C.BRIDGE_OPENING.CONVOY_WINDOW_MS },
+    parametrar: { fönsterMs: C.BRIDGE_OPENING.CONVOY_WINDOW_MS, tickMs: C.BRIDGE_OPENING.TICK_INTERVAL_MS },
     fn(f, ctx, p) {
       const tc = crossingTimeOf(f);
       if (!Number.isFinite(tc) || !f.bro || !f.mmsi) return nej('saknar korsningstid, bro eller mmsi');
@@ -1123,7 +1320,9 @@ const PREDICATES = {
       // förklarade posten bort konvojfönstrets bakkant och U-svängsreturer.
       const r = konvoj.inomHändelsefönster({ mmsi: f.mmsi, bro: f.bro, tc }, { ...d, fönsterMs: p.fönsterMs });
       if (r.sant) {
-        return ok(`korsningen ${fmtT(tc)} ligger inom händelsens (${r.w.eventId || fmtT(r.w.t)}) första passage ${fmtT(r.first.t)} + ${p.fönsterMs / 1000} s, och båten var täckt av händelsen`);
+        const längd = täckningensLängd(ctx, f, r.w, tc, p);
+        if (längd.fel) return nej(längd.fel);
+        return ok(`korsningen ${fmtT(tc)} ligger inom händelsens (${r.w.eventId || fmtT(r.w.t)}) första passage ${fmtT(r.first.t)} + ${p.fönsterMs / 1000} s, och båten var täckt av händelsen${längd.text}`);
       }
       if (!r.närmast) {
         return nej(r.otäckta
@@ -1136,14 +1335,22 @@ const PREDICATES = {
   },
 
   nonMemberCrossingBetween: {
-    parametrar: {},
-    fn(f, ctx) {
+    parametrar: { fönsterMs: C.BRIDGE_OPENING.CONVOY_WINDOW_MS, tickMs: C.BRIDGE_OPENING.TICK_INTERVAL_MS },
+    fn(f, ctx, p) {
       const tc = crossingTimeOf(f);
       if (!Number.isFinite(tc) || !f.bro || !f.mmsi) return nej('saknar korsningstid, bro eller mmsi');
       const d = convoyData(ctx, f.bro);
       if (!d.varningar.some((x) => x.t < tc)) return nej('ingen levererad varning före korsningen');
       const r = konvoj.ickeMedlemEmellan({ mmsi: f.mmsi, bro: f.bro, tc }, d);
-      if (r.sant) return ok(`icke-medlemmen ${r.x.mmsi} korsade ${fmtT(r.x.t)} mellan varningen ${r.w.eventId || ''} (${fmtT(r.w.t)}) och passagen`);
+      if (r.sant) {
+        // Samma prov som U2-VS-DEADLINE (2026-11-16): täckningen som höll
+        // båten i händelsen r.w vid korsningen måste ha haft rätt längd, annars
+        // kan ett räknefel i täckningen gömma sig bakom medlemskravet
+        // (granskarens mutant u17arm300, världarna 1089 och 1214).
+        const längd = täckningensLängd(ctx, f, r.w, tc, p);
+        if (längd.fel) return nej(längd.fel);
+        return ok(`icke-medlemmen ${r.x.mmsi} korsade ${fmtT(r.x.t)} mellan varningen ${r.w.eventId || ''} (${fmtT(r.w.t)}) och passagen${längd.text}`);
+      }
       return nej('ingen båt utanför en händelse som täckte båten korsade emellan medan händelsen var öppen (ingen täckt båt passerade mer än 600 s före)');
     },
   },
@@ -1797,10 +2004,12 @@ const PREDICATES = {
   // hoppet. En förtöjd båt vid kajen norr om Klaffbron, tyst i 605 eller
   // 720 s och med en rad 35 ms före ULLA:s, gjorde då B4-studsen i F21:s
   // minsta repro till DESIGN (granskarens u16e2e), och ett hopp 0,8 s efter
-  // båtens färska rad godtogs. Tick-varianten, ETA-hoppet vid 600 s utan
-  // 'strax' och B4:s 90 s-tak på uttömt 'strax' (app.js:257; positionen är
-  // då yngre än 600 s) omfattas inte (BUGGJAKT §7 och §16). På den låsta
-  // banken gäller ingen registeramnesti.
+  // båtens färska rad godtogs. Tick-varianten och ETA-hoppet vid 600 s utan
+  // 'strax' omfattas inte (BUGGJAKT §7 och §16). B4:s 90 s-tak på uttömt
+  // 'strax' (positionen yngre än 600 s) omfattas sedan 2026-11-15 genom
+  // b4Underlag, med appens läge ur bridgeTextLeads som belägg för
+  // uttömningen (§7 rad 57; korten F04 och F05, standardvärld 1907). På den
+  // låsta banken gäller ingen registeramnesti.
   f40StudsVidNästaFix: {
     parametrar: {
       minÅlderS: C.UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS / 1000,
@@ -1811,6 +2020,13 @@ const PREDICATES = {
       straxRadieM: 500,
       tickS: 30,
       tickFördröjningMs: 40,
+      uttömdTakMs: IMMINENT_EXHAUSTED_MAX_AGE_MS,
+      // Harnessens längsta klocksteg utan dränering: replayRunner stegar ett
+      // glapp mellan två rader i bitar om högst 30 s och dränerar efter varje
+      // (korpus #9, ILLUSION-fönstret). B4-återgången ska komma vid den
+      // första dräneringen efter hennes rad, alltså senast så här långt efter
+      // raden (granskningen 2026-11-16, L5).
+      dräneringMs: 30 * 1000,
     },
     fn(f, ctx, p) {
       if ((f.ursprung || {}).relation === 'BAS') return nej('låst bank: bara runAllCorpora:s exakta prefixmatch gäller, ingen registeramnesti');
@@ -1906,31 +2122,72 @@ const PREDICATES = {
       const dFörra = avstånd(förra);
       const dNästa = avstånd(nästa);
       const fix = fixText(mmsi, förra);
+      // B4-VARIANTEN (2026-11-15): positionen är yngre än 600 s, men
+      // "strax" bars av en uttömd extrapolering, och 90 s-taket på uttömt
+      // "strax" (app.js IMMINENT_EXHAUSTED_MAX_AGE_MS) löste ut (b4Underlag).
+      let b4 = null;
       if (!(ålder > ålderMs)) {
         const g = gammalNära();
-        return nej(`${vidRad}, men ${fix} var ${s1(ålder)} s gammal (högst ${p.minÅlderS} s: färsk i appen)${g ? `; ${g}` : ''}`);
+        const färsk = `${vidRad}, men ${fix} var ${s1(ålder)} s gammal (högst ${p.minÅlderS} s: färsk i appen)${g ? `; ${g}` : ''}`;
+        b4 = b4Underlag(ctx, f.bro, mmsi, före, hopp, åter, p);
+        if (b4.fel) return nej(`${färsk}; inte heller B4-varianten: ${b4.fel}`);
       }
-      const gammal = `${fix} var ${s1(ålder)} s gammal vid hoppet ${fmtMs(hopp.t)}, när hennes nästa rad ${fmtMs(nästa.aisTimestamp)} bearbetades`;
-      // Krav 4.
-      if (dFörra > p.radieM) return nej(`${gammal}, men fixen ligger ${Math.round(dFörra)} m från bron (> ${p.radieM} m)`);
-      if (dNästa > p.radieM) return nej(`${gammal}, men hennes nästa rad ligger ${Math.round(dNästa)} m från bron (> ${p.radieM} m)`);
-      // Krav 5: hoppet är den första textgenereringen efter 600 s-gränsen.
-      const gräns = stämpel + ålderMs;
+      const gammal = b4
+        ? `${fix} var ${s1(ålder)} s gammal; hennes 'strax' bars av en uttömd extrapolering (stämplad ${fmtMs(b4.uttömd)}), och 90 s-taket `
+          + `löste ut före hoppet ${fmtMs(hopp.t)}, när hennes nästa rad ${fmtMs(nästa.aisTimestamp)} bearbetades`
+        : `${fix} var ${s1(ålder)} s gammal vid hoppet ${fmtMs(hopp.t)}, när hennes nästa rad ${fmtMs(nästa.aisTimestamp)} bearbetades`;
+      // Krav 4. B4: den uttömda grenen sätter 'strax' inom straxRadieM (500 m).
+      const radie = b4 ? p.straxRadieM : p.radieM;
+      if (dFörra > radie) return nej(`${gammal}, men fixen ligger ${Math.round(dFörra)} m från bron (> ${radie} m)`);
+      if (dNästa > radie) return nej(`${gammal}, men hennes nästa rad ligger ${Math.round(dNästa)} m från bron (> ${radie} m)`);
+      // Krav 5: hoppet är den första textgenereringen efter gränsen (600 s
+      // efter fixen, eller B4: taket efter uttömningen).
+      const gräns = b4 ? b4.uttömd + p.uttömdTakMs : stämpel + ålderMs;
+      const vadGräns = b4 ? `90 s-taket på uttömt 'strax' löste ut ${fmtMs(gräns)}` : `åldern passerade ${p.minÅlderS} s ${fmtMs(gräns)}`;
       const text = övergångar.find((x) => x && Number.isFinite(x.t) && x.t > gräns && x.t < hopp.t);
       if (text) {
-        return nej(`${gammal}, men åldern passerade ${p.minÅlderS} s ${fmtMs(gräns)}, och brotexten publicerades ${fmtMs(text.t)}, före hoppet: `
+        return nej(`${gammal}, men ${vadGräns}, och brotexten publicerades ${fmtMs(text.t)}, före hoppet: `
           + 'bar båten \'strax\' hade appen tappat det där');
       }
       const tick = halvminutstickFas(gräns, hopp.t - p.tickFördröjningMs, p.tickS * 1000, p.tickFördröjningMs, fas);
       if (tick !== null) {
-        return nej(`${gammal}, men åldern passerade ${p.minÅlderS} s ${fmtMs(gräns)}, före halvminutsticken ${fmtMs(tick)}${fas ? ' (variantens fas)' : ''}: `
+        return nej(`${gammal}, men ${vadGräns}, före halvminutsticken ${fmtMs(tick)}${fas ? ' (variantens fas)' : ''}: `
           + 'bar båten \'strax\' hade appen tappat det vid ticken');
       }
       // Krav 6.
       const kaj = platser.capsuleOf(förra) || platser.capsuleOf(nästa);
       if (kaj) return nej(`${gammal}, men båten ligger i kajkapseln '${kaj.name}' (MOORING_ZONES), och en förtöjd båts glesa rader beläggs inte som 'strax'-bärare`);
-      // Krav 7: återgången hör till båtens rad.
-      if (!(åter.t > hopp.t) || åter.t - nästa.aisTimestamp > p.fönsterMs) {
+      // Krav 7: återgången hör till båtens rad. B4: återgången bärs av hennes
+      // färska fix (b4Underlag (c)) och publiceras vid första dräneringen
+      // efter raden: ingen text emellan, ingen egen rad emellan, senast när
+      // nästa rad (vilken båt som helst) bearbetas och senast ett klocksteg
+      // (dräneringMs, 30 s) efter raden, eftersom harnessen dränerar efter
+      // varje steg också i ett glapp utan rader (granskningen 2026-11-16, L5:
+      // utan stegets gräns kunde ett avbrott i en gles värld bli minuter).
+      // Avbrottet blir då högst ett steg; hoppet självt ligger före första
+      // texten och första halvminutsticken efter taket (krav 5). I
+      // standardvärld 1907 (REPLAY_MONITORING=1) publicerades återgången vid
+      // nästa rad 11:02:03, 22 s efter hennes rad, där harnessen kör
+      // halvminutsticken 11:02:00 i samma klocksteg (tidsstegningen,
+      // VALIDATION §Fältprov); den rad som bearbetades där låg 631 m från
+      // bron och kunde inte bära 'strax'.
+      if (b4) {
+        const mellanText = övergångar.find((x) => x && Number.isFinite(x.t) && x.t > hopp.t && x.t < åter.t);
+        const egen = per.get(mmsi).find((r) => tider.get(r) > hopp.t && tider.get(r) <= åter.t);
+        const nästaRad = ctx.rader.filter((r) => r && Number.isFinite(r.lat) && tider.get(r) > hopp.t)
+          .sort((a, b) => tider.get(a) - tider.get(b))[0];
+        const stegSlut = tider.get(nästa) + p.dräneringMs;
+        if (!(åter.t > hopp.t) || mellanText || egen || (nästaRad && åter.t > tider.get(nästaRad))
+            || !(åter.t <= stegSlut)) {
+          let varför = `efter nästa rad ${nästaRad ? fmtMs(tider.get(nästaRad)) : '?'}`;
+          if (mellanText) varför = `brotext ${fmtMs(mellanText.t)} emellan`;
+          else if (egen) varför = `hennes rad ${fmtMs(egen.aisTimestamp)} emellan`;
+          else if (!(åter.t <= stegSlut)) {
+            varför = `${tid(åter.t - tider.get(nästa))} efter hennes rad, mer än ett klocksteg (${p.dräneringMs / 1000} s)`;
+          }
+          return nej(`${gammal}, men återgången till strax ${fmtMs(åter.t)} kom inte vid första dräneringen efter hennes rad (${varför})`);
+        }
+      } else if (!(åter.t > hopp.t) || åter.t - nästa.aisTimestamp > p.fönsterMs) {
         return nej(`${gammal}, men återgången till strax ${fmtMs(åter.t)} kom ${tid(åter.t - hopp.t)} efter radens bearbetning `
           + `(efter den och högst ${p.fönsterMs} ms efter radens tid)`);
       }
@@ -1951,6 +2208,13 @@ const PREDICATES = {
       const styr = ctx.rader.filter((r) => r && HARNESS_STYRRADER.has(r.ctrl) && tider.get(r) >= stämpel && tider.get(r) <= åter.t)
         .sort((a, b) => tider.get(a) - tider.get(b))[0];
       if (styr) return nej(`${gammal}, men styrraden ${styr.ctrl} ${fmtMs(styr.aisTimestamp)} bearbetades mellan båtens förra fix och återgången`);
+      if (b4) {
+        // Krav 9 och 10 i B4-varianten är appens eget läge (b4Underlag): hon
+        // bar 'strax' ensam före hoppet, och texten lånade en annan båts ETA.
+        return ok(`${gammal}; texten lånade ${b4.lånad}:s ETA (${nivå(hopp)}), och återgången till strax ${fmtMs(åter.t)} kom `
+          + `${Math.round(åter.t - hopp.t)} ms efter hennes rad, utan någon annan båts rad inom ${p.straxRadieM} m emellan: `
+          + 'F40-studsen i B4-varianten, 90 s-taket på uttömt strax (U16)');
+      }
       // Krav 9: båten kunde bära 'strax' vid sin förra fix.
       const egna = per.get(mmsi);
       let kunde = dFörra <= p.imminentRadieM;
@@ -2369,6 +2633,19 @@ const PREDICATES = {
   //            och då skulle posten dölja appens prognosfel (värld 790 och
   //            1794). Ingen tolerans: i de nio U17- och K-NÄSTA-sanna fallen
   //            ligger fysiken minst 27 s inom fönstret;
+  //       (3″) med domspår (2026-11-15): täckningsslutet kom i tid. Varje
+  //            släpp vid täckningsslutet från absorptionen till W (också i en
+  //            kedja av återabsorptioner) kommer högst tickMs efter det
+  //            tidigare av armens täckningsslut och det slut som motorn räknar
+  //            ur händelsen, eller efter absorptionen när slutet redan hade
+  //            passerat då (värld 1907) (täckningsslutetsGräns: vid
+  //            absorptionen max(E:s levererade varning, referensen) +
+  //            fönsterMs, referensen bokföringen när den var känd och annars
+  //            referensankomsten ur U24:s windowEndMs; en senare bokföring
+  //            kortar men förlänger aldrig). Utan det prövade posten bara att
+  //            W följde på hennes dom 'täckningsslut', inte när domen kom,
+  //            och med täckningsslutet två minuter för sent i appen tog U17
+  //            15 av 18 nya utslag (BUGGJAKT A.9);
   //      För T3 gäller dessutom att fixen i hennes sista rad före W låg före
   //      korsningen (tyst över korsningen; fixens tid, inte mottagningens,
   //      rättat i varv 2, M2);
@@ -2554,6 +2831,29 @@ const PREDICATES = {
           return nej(`varningen ${w.eventId} ${fmtT(w.t)} följer inte inom en tick på ett släpp vid täckningsslutet `
             + `(${släpp ? `senast ${fmtT(släpp.t)} ur ${släpp.eventId}` : 'inget släpp i domspåret'})`);
         }
+        // (3″) Täckningsslutet kom i tid (2026-11-15, BUGGJAKT A.9:s kända
+        // gräns): varje släpp vid täckningsslutet från absorptionen i E till
+        // W, också i en kedja av återabsorptioner (J13), kom högst en tick
+        // efter det täckningsslut som motorn räknar ur händelsen och
+        // bokföringen och efter armens eget, eller efter absorptionen när
+        // slutet redan hade passerat då (standardvärld 1907: absorberad i #29
+        // 11:50:56, täckt t.o.m. 11:47:30, släppt i samma utvärdering).
+        for (const s of spår.filter((v) => v.verdict.kind === 'täckningsslut')) {
+          const gräns = täckningsslutetsGräns(s, ws, cov, spår, m, f.bro, p);
+          if (gräns.fel) return nej(gräns.fel);
+          // Saknat armvärde (granskningen 2026-11-16, L2): Math.min med
+          // undefined blev NaN och godkändes, och null räknades som 0. Då
+          // prövas bara det slut motorn räknar ur händelsen; går inte heller
+          // det att räkna är svaret nej.
+          const armSlut = s.arm && Number.isFinite(s.arm.coverUntilMs) ? s.arm.coverUntilMs : null;
+          if (!Number.isFinite(gräns.ms)) return nej(`${s.eventId}:s täckningsslut kan inte räknas (${gräns.hur})`);
+          const slut = armSlut === null ? gräns.ms : Math.min(gräns.ms, armSlut);
+          if (!(s.t - Math.max(gräns.absT, slut) <= p.tickMs)) {
+            return nej(`släppet ${fmtT(s.t)} ur ${s.eventId} (varningen ${w.eventId} ${fmtT(w.t)}) kom mer än en tick efter `
+              + `täckningsslutet ${fmtT(gräns.ms)} som motorn räknar ur händelsen (${gräns.hur}; armens ${fmtT(s.arm.coverUntilMs)}, `
+              + `absorptionen ${fmtT(gräns.absT)}): släppet var sent, och U17 gäller säkerhetsvarningen vid täckningsslutet`);
+          }
+        }
       }
       for (const r of föreW.filter((x) => x.p > bok)) {
         if (kursBort(r, f.bro, p)) continue;
@@ -2685,6 +2985,20 @@ const PREDICATES = {
       if (passageKänd(slut)) return nej(`${E}:s första passage var känd vid täckningsslutet ${fmtT(slut.t)}: bakkanten efter passagen gällde`);
       // (2) E är L:s egen varning efter U24-släppet ur E0.
       const ws = deliveredWarnings(ctx, f.bro);
+      // (1′) Täckningsslutet i E kom i tid (2026-11-16, omgranskningen av
+      // verktygsgrenen): samma prov som U17:s (3″). Med släppet två minuter för
+      // sent (granskarens mutant u17slapp120) tog posten värld 143 med
+      // varningen två minuter senare än appen ger.
+      {
+        const gräns = täckningsslutetsGräns(slut, ws, res.openingCoverage || [], hennes, m, f.bro, p);
+        if (gräns.fel) return nej(gräns.fel);
+        const armSlut = slut.arm && Number.isFinite(slut.arm.coverUntilMs) ? slut.arm.coverUntilMs : null;
+        const gs = armSlut === null ? gräns.ms : Math.min(gräns.ms, armSlut);
+        if (!(slut.t - Math.max(gräns.absT, gs) <= p.tickMs)) {
+          return nej(`täckningsslutet ${fmtT(slut.t)} ur ${E} kom mer än en tick efter slutet ${fmtT(gräns.ms)} som motorn räknar ur händelsen `
+            + `(${gräns.hur}; armens ${fmtT(armSlut)}): släppet var sent, och U24 gäller varningen vid täckningsslutet`);
+        }
+      }
       const eW = ws.find((x) => x.eventId === E);
       if (!eW) return nej(`${E} har ingen levererad varning`);
       const L = String(eW.leadMmsi);
@@ -3780,6 +4094,16 @@ function validateEntry(e, i, ids, problems, warnings, root, läst = new Map()) {
     const refs = typeof e.orakelvakt === 'string' ? sourceRefs(e.orakelvakt) : [];
     if (!refs.length) problems.push(`${at}: en post med verkan iOraklet måste ange orakelvakt (fil#symbol där oraklet tillämpar regeln)`);
     checkRefs(e, refs, 'orakelvaktens fil', root, warnings, läst);
+  }
+  // Hänvisningar i regeltexten och doktrinerna prövas likadant som källans
+  // (granskningen 2026-11-16, L3): förut prövades bara källa och orakelvakt,
+  // och sju radhänvisningar i `regel` och en i `doktriner` hade glidit.
+  if (typeof e.regel === 'string') checkRefs(e, sourceRefs(e.regel), 'regelns fil', root, warnings, läst);
+  if (Array.isArray(e.doktriner)) {
+    for (const d of e.doktriner) {
+      const text = d && typeof d === 'object' ? `${d.källa || ''} ${d.text || ''}` : String(d || '');
+      checkRefs(e, sourceRefs(text), 'doktrinens fil', root, warnings, läst);
+    }
   }
 }
 

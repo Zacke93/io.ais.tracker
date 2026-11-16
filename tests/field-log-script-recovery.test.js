@@ -3,7 +3,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { spawnSync } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 
 const script = fs.readFileSync(path.join(__dirname, '..', 'run-with-logs.sh'), 'utf8');
 
@@ -215,8 +215,10 @@ describe('Nedstängningen synkar arkivet före summaryn', () => {
     EXTRACT_DONE=0; REPLAY_GUARD_PID=""; HOLE_GUARD_PID=""; SYNC_PID=""
   `;
   // \`say\` finns från V4; funktionerna i övrigt fanns före.
+  // kill_with_sleep finns från granskningen 2026-11-16 (M2).
   const functions = ['sync_file', 'rebuild_replay_jsonl', 'find_log_holes', 'extract_bridge_text']
-    .concat(/^say\(\) \{/m.test(script) ? ['say'] : []);
+    .concat(/^say\(\) \{/m.test(script) ? ['say'] : [])
+    .concat(/^kill_with_sleep\(\) \{/m.test(script) ? ['kill_with_sleep'] : []);
 
   test('dödad mitt i summaryn: arkivets logg och jsonl är ändå kompletta', () => {
     // nl körs i summaryns brotextlista; SIGKILL där motsvarar utloggningen.
@@ -328,7 +330,7 @@ describe('Ingen inbyggd terminalskrivning där terminalen kan vara död', () => 
     const tail = mainTail();
     out.push(['efter wait "$PIPE_PID"', tail]);
     for (const name of ['finish_run', 'shutdown_and_exit', 'stop_capture', 'extract_bridge_text',
-      'cleanup_run_tempfiles', 'sync_file', 'rebuild_replay_jsonl']) {
+      'cleanup_run_tempfiles', 'sync_file', 'rebuild_replay_jsonl', 'kill_with_sleep']) {
       out.push([name, bashFunction(name)]);
     }
     for (const [label, start, end] of [
@@ -386,7 +388,7 @@ describe('Ingen inbyggd terminalskrivning där terminalen kan vara död', () => 
       }
       fs.writeFileSync(path.join(dir, 'live', 'app-ts.log'), `${lines.join('\n')}\n`);
       const fns = ['say', 'sync_file', 'rebuild_replay_jsonl', 'find_log_holes', 'extract_bridge_text',
-        'cleanup_run_tempfiles', 'stop_capture', 'finish_run'].map(bashFunction).join('\n');
+        'cleanup_run_tempfiles', 'kill_with_sleep', 'stop_capture', 'finish_run'].map(bashFunction).join('\n');
       // Skriptets egna rader efter wait, ordagrant, följda av EXIT-trap:ens finish_run.
       const tail = mainTail();
       const payload = `${fns}
@@ -444,4 +446,241 @@ sys.exit(os.WEXITSTATUS(st) if os.WIFEXITED(st) else 128 + os.WTERMSIG(st))
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
+});
+
+// TYST NEDSTÄNGNING (2026-11-15): hela skriptet körs i en sandlåda med en
+// falsk `homey` i PATH. Nedstängningen dödar vakterna och nödbromsen med KILL,
+// och bash skrev förut "Killed: 9" med hela slingans text för varje sådant jobb
+// (fyra block brus vid varje Ctrl+C). Skriptet tar dem ur jobbtabellen
+// (disown). Testen låser både tystnaden och att nedstängningen är oförändrad:
+// logg, jsonl och summary i arkivet vid INT, TERM, HUP, Ctrl+C (INT till hela
+// processgruppen) och stängd terminal, och larmen syns som förut.
+describe('Hela skriptet: nedstängningen är tyst och komplett', () => {
+  const hasBash = process.platform !== 'win32' && fs.existsSync('/bin/bash');
+  const FAKE_APP = `#!/bin/bash
+i=0
+while true; do
+  i=$((i+1))
+  t=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
+  echo "$t [log] [AISBridgeApp] [DEBUG] 🧹 [COORDINATION_CLEANUP] Cleaned old coordination state"
+  if [ -z "$AUDIT_NO_SAMPLES" ]; then
+    echo "$t [log] [AISBridgeApp] [AIS_REPLAY_SAMPLE] {\\"mmsi\\":\\"265012090\\",\\"n\\":$i}"
+  fi
+  echo "$t [log] [AISBridgeApp] 📱 [UI_UPDATE] Bridge text updated: \\"Inga båtar $i\\""
+  if [ -n "$AUDIT_SILENT_AFTER_FIRST" ]; then exec sleep 600; fi
+  sleep 0.2
+done
+`;
+
+  // Sandlåda: repo/run-with-logs.sh med arkivet ../logs och HOME för
+  // live-katalogen. `patches` kortar vakternas väntetider i kopian.
+  const sandbox = (patches = []) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ais-log-whole-'));
+    for (const sub of ['repo', 'logs', 'home', 'bin']) fs.mkdirSync(path.join(dir, sub));
+    let text = script;
+    for (const [from, to] of patches) {
+      if (!text.includes(from)) throw new Error(`Saknad rad att korta i testet: ${from}`);
+      text = text.split(from).join(to);
+    }
+    fs.writeFileSync(path.join(dir, 'repo', 'run-with-logs.sh'), text);
+    fs.writeFileSync(path.join(dir, 'bin', 'homey'), FAKE_APP, { mode: 0o755 });
+    return dir;
+  };
+  const envFor = (dir, extra = {}) => ({
+    ...process.env, HOME: path.join(dir, 'home'), PATH: `${path.join(dir, 'bin')}:${process.env.PATH}`, ...extra,
+  });
+
+  // Live-loggen i sandlådan (HOME/.ais-tracker-logs/app-*.log), eller ''.
+  const liveLog = (dir) => {
+    const live = path.join(dir, 'home', '.ais-tracker-logs');
+    const n = fs.existsSync(live) ? fs.readdirSync(live).find((x) => /^app-.*\.log$/.test(x)) : null;
+    return n ? fs.readFileSync(path.join(live, n), 'utf8') : '';
+  };
+  // Har appen hunnit logga minst ett sampel? (Villkoret, inte en fast väntan:
+  // under tung last tar det sekunder innan den falska appen ens startat.)
+  const hasSample = (dir) => liveLog(dir).includes('[AIS_REPLAY_SAMPLE]');
+
+  // Startar skriptet i en egen processgrupp, väntar tills `ready(stdout)` är
+  // sant (högst 20 s) och skickar signalen till skriptet eller (med `group`)
+  // till hela gruppen, som Ctrl+C.
+  const runAndSignal = (dir, signal, { group = false, ready = () => hasSample(dir), env = {} } = {}) => new Promise((resolve, reject) => {
+    const child = spawn('/bin/bash', [path.join(dir, 'repo', 'run-with-logs.sh')], {
+      cwd: dir, env: envFor(dir, env), detached: true, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (b) => {
+      stdout += b;
+    });
+    child.stderr.on('data', (b) => {
+      stderr += b;
+    });
+    const started = Date.now();
+    const poll = setInterval(() => {
+      if (!ready(stdout) && Date.now() - started < 20000) return;
+      clearInterval(poll);
+      try {
+        process.kill(group ? -child.pid : child.pid, signal);
+      } catch (e) {
+        reject(e);
+      }
+    }, 100);
+    // Nödbroms: hänger nedstängningen dödas hela gruppen och testet faller på slutkoden.
+    const brake = setTimeout(() => {
+      try {
+        process.kill(-child.pid, 'SIGKILL');
+      } catch (e) {
+        // redan borta
+      }
+    }, 45000);
+    child.on('error', reject);
+    // Granskningen 2026-11-16 (M2): `close` kom förr först när nödbromsen dödat
+    // gruppen, eftersom kvarlämnade `sleep` höll stdout öppen. Testet lyssnar
+    // därför på `exit`, läser vad som finns kvar i processgruppen strax efter
+    // och dödar gruppen själv. `close` (alla rör stängda) avslutar.
+    let exited = null;
+    child.on('exit', (code, sig) => {
+      clearInterval(poll);
+      setTimeout(() => {
+        const ps = spawnSync('pgrep', ['-g', String(child.pid)], { encoding: 'utf8' });
+        const leftovers = (ps.stdout || '').split('\n').filter(Boolean)
+          .map((pid) => spawnSync('ps', ['-o', 'comm=', '-p', pid], { encoding: 'utf8' }).stdout.trim())
+          .filter(Boolean);
+        exited = { code, sig, leftovers };
+        try {
+          process.kill(-child.pid, 'SIGKILL');
+        } catch (e) {
+          // redan borta
+        }
+      }, 300);
+    });
+    child.on('close', () => {
+      clearInterval(poll);
+      clearTimeout(brake);
+      const wait = setInterval(() => {
+        if (!exited) return;
+        clearInterval(wait);
+        resolve({
+          ...exited, stdout, stderr,
+        });
+      }, 20);
+    });
+  });
+
+  const archive = (dir) => {
+    const names = fs.readdirSync(path.join(dir, 'logs')).sort();
+    const read = (re) => {
+      const n = names.find((x) => re.test(x));
+      return n ? fs.readFileSync(path.join(dir, 'logs', n), 'utf8') : null;
+    };
+    return {
+      log: read(/^app-.*\.log$/), jsonl: read(/^ais-replay-.*\.jsonl$/), summary: read(/^bridge-text-summary-.*\.md$/),
+    };
+  };
+  const expectComplete = (dir) => {
+    const a = archive(dir);
+    expect(a.log).not.toBeNull();
+    expect(a.jsonl).not.toBeNull();
+    expect(a.summary).not.toBeNull();
+    const samples = (a.log.match(/\[AIS_REPLAY_SAMPLE\]/g) || []).length;
+    expect(samples).toBeGreaterThan(0);
+    expect(a.jsonl.trim().split('\n')).toHaveLength(samples);
+    expect(a.summary).toMatch(/före summaryn: \*\*OK\*\*/);
+    expect(a.summary).toMatch(/Logg-integritet: OK/);
+  };
+  const noNoise = (r) => {
+    expect(`${r.stdout}${r.stderr}`).not.toMatch(/Killed|Terminated/);
+    expect(r.stderr).toBe('');
+  };
+
+  (hasBash ? test.each : test.skip.each)([
+    ['INT till skriptet', 'SIGINT', false, 130],
+    ['TERM till skriptet', 'SIGTERM', false, 143],
+    ['HUP till skriptet', 'SIGHUP', false, 129],
+    ['Ctrl+C: INT till hela processgruppen', 'SIGINT', true, 130],
+  ])('%s: arkivet är komplett och inget "Killed"-brus', async (_label, signal, group, code) => {
+    const dir = sandbox();
+    try {
+      const r = await runAndSignal(dir, signal, { group });
+      expect(r.code).toBe(code);
+      noNoise(r);
+      expectComplete(dir);
+      expect(r.stdout).toMatch(/arkivsynk: OK/);
+      // Inga kvarlämnade processer (vakternas och nödbromsens sömn) i gruppen.
+      expect(r.leftovers).toEqual([]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60000);
+
+  (hasBash ? test : test.skip)('larmen [REPLAY-VAKT], [HÅLVAKT] och [INTEGRITET] syns som förut, utan brus', async () => {
+    // Vakterna kortas från 120/240/60 s och gränsen 65/180 s till en sekund;
+    // appen skriver en rad utan sampel och tystnar sedan.
+    const dir = sandbox([
+      ['  sleep 120\n', '  sleep 1\n'],
+      ['  sleep 240\n', '  sleep 1\n'],
+      ['    sleep 60\n', '    sleep 1\n'],
+      ['LIMIT=$(current_hole_limit "$LOGFILE")', 'LIMIT=1'],
+    ]);
+    try {
+      const r = await runAndSignal(dir, 'SIGINT', {
+        // Också appens rad i loggen: under tung last kan vakterna larma innan
+        // den falska appen ens hunnit starta, och då är loggen tom.
+        ready: (out) => out.includes('[REPLAY-VAKT]') && out.includes('[HÅLVAKT]') && liveLog(dir).includes('COORDINATION_CLEANUP'),
+        env: { AUDIT_NO_SAMPLES: '1', AUDIT_SILENT_AFTER_FIRST: '1' },
+      });
+      expect(r.code).toBe(130);
+      noNoise(r);
+      expect(r.stdout).toMatch(/\[REPLAY-VAKT\] Inga \[AIS_REPLAY_SAMPLE\]-rader/);
+      expect(r.stdout).toMatch(/\[HÅLVAKT\] Loggfilen har inte växt/);
+      expect(r.stdout).toMatch(/\[INTEGRITET\] Logg-integritet: FEL/);
+      const a = archive(dir);
+      expect(a.log).toMatch(/COORDINATION_CLEANUP/);
+      expect(a.summary).toMatch(/Logg-integritet: FEL/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60000);
+
+  const hasPty = hasBash
+    && spawnSync('python3', ['-c', 'import pty, select, signal'], { encoding: 'utf8' }).status === 0;
+  (hasPty ? test : test.skip)('stängd terminal: arkivet är komplett', () => {
+    const dir = sandbox();
+    try {
+      // Mastern stängs när skriptet skrivit sin startbanderoll och appen hunnit
+      // logga ett sampel (villkor, inte fast väntan; terminalen läses hela
+      // tiden så att tee aldrig blockerar); kärnan skickar då HUP till
+      // terminalens processgrupp.
+      const harness = `
+import glob, os, pty, select, sys, time
+d = sys.argv[1]
+pid, fd = pty.fork()
+if pid == 0:
+    os.execv('/bin/bash', ['/bin/bash', os.path.join(d, 'repo', 'run-with-logs.sh')])
+def sampled():
+    for p in glob.glob(os.path.join(d, 'home', '.ais-tracker-logs', 'app-*.log')):
+        with open(p, 'rb') as f:
+            if b'[AIS_REPLAY_SAMPLE]' in f.read():
+                return True
+    return False
+buf = b''
+deadline = time.time() + 20
+while time.time() < deadline and not (b'Ctrl+C' in buf and sampled()):
+    r, _, _ = select.select([fd], [], [], 0.05)
+    if r:
+        try:
+            buf += os.read(fd, 65536)
+        except OSError:
+            break
+os.close(fd)
+_, st = os.waitpid(pid, 0)
+sys.exit(os.WEXITSTATUS(st) if os.WIFEXITED(st) else 128 + os.WTERMSIG(st))
+`;
+      const r = spawnSync('python3', ['-c', harness, dir], { env: envFor(dir), encoding: 'utf8', timeout: 50000 });
+      expect(r.status).toBe(129);
+      expectComplete(dir);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60000);
 });

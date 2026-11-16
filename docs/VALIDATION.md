@@ -385,6 +385,57 @@ en fix 20–26 m bortom linjen som vakthunden återanvände 30–50 s senare, sa
 mekanism som k2-granskningens fynd 1; replay av fältkörning 2 ger dessutom
 PRICKBJORN 13:57:24, som är en artefakt av replayns tidsstegning (fältet
 skickade passerad form på samma indata).
+**Returkorsningen (revision 2, 2026-11-15, fältgranskningen F14).** I
+buggjägarens standardkörning (seed 1) gav regeln fem utslag, världarna 134
+ULLA, 935 RUNA, 963 YRSA, 1480 ALVA och 1558 TROLLA. Alla var förvarningar
+efter passagen när båten redan vänt: returkorsningen av samma bro kom 28, 54,
+78, 114 och 150 s efter notisen, och texten ("närmar sig …, om 1–3 minuter")
+stämde för returen. Bara riktningstoken var den gamla, eftersom vändningen
+ännu inte var trodd (U18: två positioner). En notis som följs av en korsning
+av samma bro åt andra hållet, observerad efter den senaste korsningen och
+med korsningstiden högst 300 s efter notisen (`INV22_RETURN_WINDOW_MS`),
+flaggas därför inte. Gränsen är mätt: i standardkörningens 180
+U-svängsvärldar kom varje förvarning inför en returkorsning (262 st, oavsett
+token) högst 276 s före den (p50 85 s, p90 146 s, p99 208 s). Bankens äkta
+utslag på `e51c7b6` (OSPREY och SINE BRES) har ingen returkorsning alls,
+eftersom båtarna fortsatte bort, och flaggas som förut; bankens returresor
+kom tidigast 21 min efter passagen. Efter rättningen ger standardkörningen
+0 utslag och samma fem kandidatkort. Där sanningen vet när båten vände
+(buggjägarens L0) krävs dessutom att hon vänt efter passagen och senast när
+notisen kom (granskningen 2026-11-16, L1); i de 180 U-svängsvärldarna kom de
+fyra undantagna notiserna 129–230 s efter vändningen. Banken saknar L0 och
+dömer som förut.
+**INV-3 och ledarbytet (2026-11-15, buggjägarens kort F01).** INV-3 bygger
+brons ETA-serie ur texten, och en väntklausul saknar minuter. När den båt vars
+ETA visas ställde sig i kö vid en tidigare bro och nästa båt tog över
+klausulen jämförde regeln två båtars tider (standardvärld 246: "En båt på väg
+mot Stridsbergsbron, beräknad broöppning om 7 minuter" → "En båt väntar vid
+Järnvägsbron på väg mot Stridsbergsbron" → "En båt väntar vid Järnvägsbron på
+väg mot Stridsbergsbron; En båt på väg mot Stridsbergsbron, beräknad
+broöppning om 14 minuter"). replayRunner bokför nu för varje publicerad text
+vilken båt vars ETA varje klausul visar och båtarnas kö (`bridgeTextLeads`).
+Ett upp-hopp undantas bara när bäraren bytts, nivån före var den förra
+båtens egen minuttid (inte "strax") och den förra båten står i kö vid en bro
+som texten nämner, eller har en bokförd passage av bron mellan texterna.
+Samma båt, ett byte utan sådant bevis (två båtar vars ETA växelvis visas, en
+ledare vars ETA försvann för att hon tystnade) och resultat utan underlaget
+döms som förut. Av F01-klustrets 30 världar i standardkörningen är det två
+(246 i kö, 1788 passerat); 23 är ledare vars ETA nollades medan hon fortfarande
+räknades i gruppen och 5 är hopp för samma båt eller från "strax", och de står
+kvar som kandidater att triagera.
+Bytet förklarar bara vems tid det är, inte att den nya båtens första tid är
+rätt (granskningen 2026-11-16, M1: en mutant med +7 min på första texten efter
+bytet gömdes i 246, 7 → 21 → 14, och 1788, 4 → 17 → 10). Undantaget gäller
+därför bara om den nya nivån håller: ingen senare tid för samma nya ledare inom
+120 s får ligga 6 min eller mer under. Gränserna är regelns egna fönster och
+steg. Båda mutantspikarna fälls, 246 och 1788 i den orättade appen undantas
+fortfarande, och banken och k1–k3 ger samma utslag. En bestående felnivå hos
+den nya ledaren kan regeln inte se.
+Samma antalsord räknas som samma ledare (omgranskningen 2026-11-16): bar en
+tredje båt klausulen under hela fönstret efter spiken gömdes 7 → 21 → 14.
+Samma antal betyder samma grupp, och en tid i gruppen 6 min lägre inom
+fönstret visar att spikens nivå inte höll. Banken, k1–k3 och de 47
+INV-3-världarna ger samma utslag som förut, även under mutanterna.
 Domarlogiken har EGNA enhetstester i `tests/replay-invariants-unit.test.js` —
 ändrar du en invariant, uppdatera dem.
 
@@ -1375,6 +1426,27 @@ efteråt.
    sessionsledare). `sync_file` bygger nu sökvägen med parameterexpansion, och
    `tests/field-log-script-recovery.test.js` låser regeln statiskt och med en
    riktig pty vars master stängs.
+   **Nedstängningen är tyst (2026-11-15).** Vakterna, synkslingan och
+   nödbromsen tas ur bash jobbtabell (`disown`) direkt när de startas. Förut
+   skrev bash en rad "Killed: 9" med hela slingans text för varje sådant jobb
+   när nedstängningen dödade dem, fyra block brus vid varje Ctrl+C. Inget
+   annat ändras: pid:erna, nedstängningens `kill -KILL` och slingornas
+   `kill -0`-vakt är desamma. Testet kör hela skriptet med en falsk `homey`
+   vid INT, TERM, HUP, Ctrl+C (INT till processgruppen) och stängd terminal
+   och kräver logg, jsonl och summary i arkivet, larmen `[REPLAY-VAKT]`,
+   `[HÅLVAKT]` och `[INTEGRITET]` som förut och inget "Killed". Kvar: stängs
+   terminalen får hela processgruppen HUP, och då kan slingornas `sleep`
+   rapportera "Hangup: 1" till den döda terminalen; det syns inte och påverkar
+   inte nedstängningen.
+   **Inga kvarlämnade `sleep` (granskningen 2026-11-16, M2).** Förut levde
+   vakternas och nödbromsens `sleep` kvar med ppid 1 i upp till 300 s efter en
+   normal nedstängning (lika före `disown`). `kill_with_sleep` dödar nu
+   subskalet först, som förut, och sedan dess väntande `sleep` (insamlad med
+   `pgrep -x -P` före KILL; bara processer som heter sleep, så en pågående
+   kopiering i synkslingan löper klart). Testet lyssnar på `exit`, kräver att
+   processgruppen är tom strax efter och dödar den själv; förut avslutades
+   varje helskriptstest av sin egen nödbroms efter 45 s. Dödas sömnen före
+   subskalet hinner slingan köra ett varv till, och det fäller testet.
 3. **GRIND 1 — logg-integriteten.** Summaryn (`bridge-text-summary-*.md`) har
    sektionen "Logg-integritet (tidshål + replay-fångst)" med tre kontroller och ett
    samlat verdikt. Replay-kontrollen granskar även källans bokföring:

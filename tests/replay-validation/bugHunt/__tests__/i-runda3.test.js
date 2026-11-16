@@ -519,7 +519,8 @@ describe('U16 U16-F40-STRAX-STUDS: studsen vid den strax-bärande båtens nästa
       texter: TEXTER,
       rader: [...masenUtan('09:32:10.242'), rad('265855773', tHopp - 600060, 58.28451, 12.28434, 5, 198.3),
         rad(MASEN, tHopp - 600030, 58.29403, 12.29559, 0, null), ...ANDRA],
-      skäl: /^hoppet 09:42:15\.101 .*, men 265855691:s fix 09:32:15\.071 \(82 m från Stridsbergsbron, bearbetad 09:32:15\.101\) var 600\.0 s gammal \(högst 600 s: färsk i appen\)$/,
+      skäl: new RegExp('^hoppet 09:42:15\\.101 .*, men 265855691:s fix 09:32:15\\.071 \\(82 m från Stridsbergsbron, bearbetad 09:32:15\\.101\\) '
+        + 'var 600\\.0 s gammal \\(högst 600 s: färsk i appen\\); inte heller B4-varianten: resultatet saknar ETA-bärarna'),
     },
     // En omstart mellan MASEN 2:s förra fix och återgången.
     omstart: {
@@ -583,19 +584,21 @@ describe('U16 U16-F40-STRAX-STUDS: studsen vid den strax-bärande båtens nästa
       texter: [...TEXTER.slice(0, 2), ['09:42:15.173', TVÅ('om 8 minuter')], ['09:42:15.198', TVÅ('strax')], TEXTER[4]],
       rader: [...masenUtan('09:42:15.101'), ...ANDRA],
       skäl: new RegExp('^hoppet 09:42:15\\.173 publicerades när harnessen bearbetade 265855485:s rad 09:42:15\\.173, men 265855485:s fix 09:41:09\\.805 .* '
-        + 'var 65\\.4 s gammal \\(högst 600 s: färsk i appen\\); 265855691:s fix 09:32:10\\.242 .* bearbetades 274\\.3 s efter hoppet$'),
+        + 'var 65\\.4 s gammal \\(högst 600 s: färsk i appen\\); 265855691:s fix 09:32:10\\.242 .* bearbetades 274\\.3 s efter hoppet; inte heller B4-varianten: resultatet saknar ETA-bärarna'),
     },
     // Exakt 600 000 ms: färsk i appen (dataIsFreshEnough, ålder ≤ 600 s).
     ålder600000: {
       texter: TEXTER,
       rader: [...masenUtan('09:32:10.242'), rad(MASEN, tHopp - 600000, 58.29403, 12.29559, 0, null), ...ANDRA],
-      skäl: /^hoppet 09:42:15\.101 publicerades när harnessen bearbetade 265855691:s rad 09:42:15\.101, men 265855691:s fix 09:32:15\.101 .* var 600\.0 s gammal \(högst 600 s: färsk i appen\)$/,
+      skäl: new RegExp('^hoppet 09:42:15\\.101 publicerades när harnessen bearbetade 265855691:s rad 09:42:15\\.101, men 265855691:s fix 09:32:15\\.101 '
+        + '.* var 600\\.0 s gammal \\(högst 600 s: färsk i appen\\); inte heller B4-varianten: resultatet saknar ETA-bärarna'),
     },
     // B4-varianten: fixen 407 s gammal (r2 i F18/F19, värld 1907).
     b4: {
       texter: TEXTER,
       rader: [...masenUtan('09:32:10.242'), rad(MASEN, tHopp - 407100, 58.29403, 12.29559, 0, null), ...ANDRA],
-      skäl: /^hoppet 09:42:15\.101 publicerades när harnessen bearbetade 265855691:s rad 09:42:15\.101, men 265855691:s fix 09:35:28\.001 .* var 407\.1 s gammal \(högst 600 s: färsk i appen\)$/,
+      skäl: new RegExp('^hoppet 09:42:15\\.101 publicerades när harnessen bearbetade 265855691:s rad 09:42:15\\.101, men 265855691:s fix 09:35:28\\.001 '
+        + '.* var 407\\.1 s gammal \\(högst 600 s: färsk i appen\\); inte heller B4-varianten: resultatet saknar ETA-bärarna'),
     },
     // F21:s minsta repro utan kajbåten: ULLA:s fix 407 s gammal (B4).
     b4Klaffbron: {
@@ -722,8 +725,9 @@ describe('U16 U16-F40-STRAX-STUDS: studsen vid den strax-bärande båtens nästa
     expect(e._params).toMatchObject({
       minÅlderS: 600, fönsterMs: 1000, radieM: 350, imminentRadieM: 300, väntRadieM: 270, straxRadieM: 500, tickS: 30, tickFördröjningMs: 40,
     });
-    // Raderna gäller aa71099, där U14 sköt dräneringen 30 rader nedåt (BUGGJAKT §7, rad 36).
-    expect(e.källa).toMatch(/tests\/replay-validation\/replayRunner\.js:86–88 och :542–551/);
+    // Dräneringen citeras med symbol sedan 2026-11-15 (BUGGJAKT §7, rad 56):
+    // radnumren gled med harnessen (aa71099 sköt dem 30 rader, rad 36).
+    expect(e.källa).toMatch(/tests\/replay-validation\/replayRunner\.js#drain och tests\/replay-validation\/replayRunner\.js#main/);
     // Ett INV-3-fynd utan brotextövergångar (som bankens kort i övriga
     // sviter) ger KANDIDAT med KIE-PER-KORPUS som närmast, som förut.
     const c = klassa(reg, {
