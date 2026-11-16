@@ -2552,10 +2552,15 @@ presenteras — `_processingRemoval` och GPS-hållningen filtreras som i
 publiceringen, köer vid en tidigare bro och zombier leder inte):
 - Ligger den färska beräkningen ÖVER det visade värdet förblir båten osedd.
   Baslinjen följer den färska, och texten är oförändrad.
-- Ligger den UNDER det visade värdet dämpas hon mot det VISADE värdet med
-  klampens maxDelta (max(3, 0,25 · visat)), och burstens bas blir det visade
-  värdet så att även andra passet håller sig inom samma steg. Texten sjunker
-  alltså högst lika mycket på ett fix som för en ensam båt.
+- Ligger den UNDER det visade värdet dämpas hon mot brogruppens gemensamma
+  referens (`_unseenGroupReference`): det visade värdet när den första
+  sänkningen i fönstret skedde och dess maxDelta (max(3, 0,25 · visat)).
+  Fönstret är RC4:s 30 s. Alla osedda båtar som sänker samma bro inom fönstret
+  dämpas mot samma bas, och båtens egen burstbas blir samma värde så att även
+  andra passet (K6) håller sig inom steget. Flera osedda båtar kan alltså
+  tillsammans inte sänka texten mer än en ensam båt hade kunnat på samma tid
+  (granskning 2, A: utan gruppreferensen gav två båtar 1 s isär "om 11" och
+  sedan "om 8" mot det visade 14,6).
 - Men bara om fixet går ihop med båtens egen rörelse (`_fixKinematics`):
   förflyttningen sedan förra fixet (fixtiderna, `_prevFixSample` i
   VesselDataService) delad med den största fart båten rapporterade i de två
@@ -2577,6 +2582,19 @@ emellan; för dem gäller basens klamp.
 basens texter. accstop (båten accelererade under glappet och stannade sedan)
 sjunker 14,6 → 11,0 på ett fix, inom maxDelta 3,65. Banken och k1–k3 är
 oförändrade (VALIDATION.md "F07, 2026-11-15").
+
+*Redovisad avvägning (`accstop`):* en båt som accelererade under glappet och
+sedan stannar sänker texten 14,6 → 11,0 (sanningen 14) och vid nästa fix till
+7 (basen 9, sanningen 13). Det är i sak samma utfall som en ensam båt får med
+samma fix — klampen begränsar steget, rimlighetsprovet godkänner fixet — och
+inte ett fel i den här regeln.
+
+*Känd gräns ("strax"):* visar ledaren 5,0 och en osedd båt har färska 1,0
+med rimligt fix dämpas hon till 2,0, och texten säger "strax". Det är inom
+maxDelta från det visade och samma utfall som en ensam båt får, men det är en
+ny väg till "strax" som bara vilar på rimlighetsprovet (granskning 2, Q4).
+Ingen extra spärr: inget fall i banken, fältet eller granskningens scenarier
+ger "strax" för en båt som är mer än ett par minuter bort.
 
 *Medvetet inte rättat:* en UPPMÄTT osedd baslinje — bankens egen fas av 21h,
 där AVALON:s 30,3 från första fixet klampas och texten säger "om 18" 07:11:30

@@ -14,11 +14,15 @@ const { BRIDGES } = require('../lib/constants');
 
 /**
  * F07 (buggjägarens kort F03 i standardkörningen 2026-11-14; ETA-etappen under
- * ägarbeslutet U28): RC4-klampen släpper en Fix G-baslinje som texten inte
- * visar, men bara när släppet är osynligt — den färska beräkningen ligger
- * över det värde gruppens klausul visar, så texten är oförändrad i samma
- * ögonblick. Se app.js _reconcilePublishedETA och _presentedGroupLead, och
- * granskningen av den första versionen (P1–P3, kögrenen, gps700/accstop).
+ * ägarbeslutet U28; två granskningar): klampen försvarar det användaren ser.
+ * För en båt vars Fix G-baslinje texten inte visar (en annan båt leder med
+ * lägre ETA) följer baslinjen den färska beräkningen så länge båten förblir
+ * osedd. Går den färska under det visade värdet dämpas båten mot brogruppens
+ * gemensamma referens (det visade värdet när fönstret öppnades, med dess
+ * maxDelta) — men bara om fixet går ihop med båtens egen rörelse och inte är
+ * GPS-misstänkt. Annars gäller RC4-klampen som förut. Se app.js
+ * _reconcilePublishedETA, _presentedGroupLead, _unseenGroupReference och
+ * _fixKinematics, och docs/ARCHITECTURE.md §8 (e) "F07 gick in".
  */
 const ROOT = path.resolve(__dirname, '..');
 const logger = {
@@ -145,6 +149,11 @@ describe('F07: klampen och en osedd Fix G-baslinje (enhet)', () => {
         lat: 58.27, lon: 12.28, sog: 3, t: Date.parse('2026-07-08T07:07:02.344Z'),
       },
     }],
+    ['föregående fix med SENARE fixtid (negativ tid)', {
+      _prevFixSample: {
+        lat: 58.27, lon: 12.28, sog: 3, t: Date.parse('2026-07-08T07:08:02.344Z'),
+      },
+    }],
   ])('%s: sänkningen tillåts inte, klampen gäller som förut', (_label, extra) => {
     const v = rear(extra);
     others = [v, other({ etaMinutes: 17 })];
@@ -223,6 +232,109 @@ describe('F07: klampen och en osedd Fix G-baslinje (enhet)', () => {
     const v = rear();
     others = [v, ...make()];
     expectClamped(app._reconcilePublishedETA(v, 13.39));
+  });
+
+  // Granskning 2, A: flera osedda båtar som sänker samma bro delar EN
+  // referens. Samma tick, 1 s och 29 s isär ger samma gräns; efter fönstret
+  // (30 s) öppnas ett nytt från det då visade värdet.
+  test.each([
+    ['samma tick', 0], ['1 s isär', 1000], ['29 s isär', 29000],
+  ])('A: två osedda båtar (%s) sänker tillsammans texten högst en maxDelta', (_label, dtMs) => {
+    const a = rear({ mmsi: '265000002' });
+    const b = rear({
+      mmsi: '265000003', etaMinutes: 18.5, _etaPublishedValue: 18.5, lat: BRIDGES.klaffbron.lat - 0.0105,
+    });
+    others = [other({ etaMinutes: 14.6 }), a, b];
+    a.etaMinutes = app._reconcilePublishedETA(a, 6.8);
+    expect(a.etaMinutes).toBeCloseTo(14.6 - 3.65, 2);
+    Date.now.mockReturnValue(now + dtMs);
+    b.etaMinutes = app._reconcilePublishedETA(b, 6.2);
+    expect(b.etaMinutes).toBeCloseTo(14.6 - 3.65, 2);
+  });
+
+  test('A: tre osedda båtar i samma tick — samma gräns för alla', () => {
+    const boats = ['265000002', '265000003', '265000004'].map((m, i) => rear({
+      mmsi: m, etaMinutes: 18 + i, _etaPublishedValue: 18 + i, lat: BRIDGES.klaffbron.lat - 0.010 - 0.0005 * i,
+    }));
+    others = [other({ etaMinutes: 14.6 }), ...boats];
+    for (const v of boats) v.etaMinutes = app._reconcilePublishedETA(v, 5);
+    for (const v of boats) expect(v.etaMinutes).toBeCloseTo(10.95, 2);
+  });
+
+  test('A: efter fönstret (31 s) gäller det då visade värdet som ny bas', () => {
+    const a = rear({ mmsi: '265000002' });
+    const b = rear({
+      mmsi: '265000003', etaMinutes: 18.5, _etaPublishedValue: 18.5, lat: BRIDGES.klaffbron.lat - 0.0105,
+    });
+    others = [other({ etaMinutes: 14.6 }), a, b];
+    a.etaMinutes = app._reconcilePublishedETA(a, 6.8); // 10,95
+    Date.now.mockReturnValue(now + 31000);
+    b.etaMinutes = app._reconcilePublishedETA(b, 6.2);
+    // Nu visar texten a:s 10,95: 10,95 − max(3, 2,74) = 7,95.
+    expect(b.etaMinutes).toBeCloseTo(7.95, 2);
+  });
+
+  test('Q1 (granskning 2): båten själv i kö vid Olidebron och den andra visar 30 — ingen dämpning UPPÅT', () => {
+    const q = rear({
+      lat: BRIDGES.olidebron.lat - 0.0006,
+      lon: BRIDGES.olidebron.lon,
+      sog: 0,
+      _rawPositionSog: 0,
+      etaMinutes: 18,
+      _etaPublishedValue: 18,
+      _bridgeQueueApproaches: { Olidebron: { confirmedAt: now - 300000, waitConfirmedAt: now - 240000, direction: 'north' } },
+      _prevFixSample: {
+        lat: BRIDGES.olidebron.lat - 0.0006, lon: BRIDGES.olidebron.lon, sog: 0, t: now - 60000,
+      },
+    });
+    others = [q, other({ etaMinutes: 30 })];
+    // Klampen mot hennes egen 18 (maxDelta 4,5) ⇒ 13,5.
+    expect(app._reconcilePublishedETA(q, 13.39)).toBeCloseTo(13.5, 1);
+  });
+
+  test('Q2 (granskning 2): båten själv i kö och den andra saknar ETA — klampen gäller', () => {
+    const q = rear({
+      lat: BRIDGES.olidebron.lat - 0.0006,
+      lon: BRIDGES.olidebron.lon,
+      sog: 0,
+      _rawPositionSog: 0,
+      etaMinutes: 18,
+      _etaPublishedValue: 18,
+      _bridgeQueueApproaches: { Olidebron: { confirmedAt: now - 300000, waitConfirmedAt: now - 240000, direction: 'north' } },
+    });
+    others = [q, other({ etaMinutes: null })];
+    expect(app._reconcilePublishedETA(q, 10)).toBeCloseTo(13.5, 1);
+  });
+
+  test('Q4 (granskning 2, känd gräns): ledaren visar 5,0, osedd båt med färska 1,0 och rimligt fix — 2,0 (strax), som för en ensam båt', () => {
+    const v = rear();
+    others = [v, other({ etaMinutes: 5.0 })];
+    expect(app._reconcilePublishedETA(v, 1.0)).toBeCloseTo(2.0, 5);
+  });
+
+  test('M26: båda ändarna rapporterade 0 kn men båten drev 100 m på 300 s — golvet 0,5 kn gör det rimligt (kvot 1,3)', () => {
+    const v = rear({
+      sog: 0,
+      _rawPositionSog: 0,
+      _prevFixSample: {
+        lat: BRIDGES.klaffbron.lat - 0.011 - 100 / 111320, lon: BRIDGES.klaffbron.lon, sog: 0, t: now - 300000,
+      },
+    });
+    others = [v, other({ etaMinutes: 17 })];
+    expect(app._reconcilePublishedETA(v, 13.39)).toBe(13.39);
+  });
+
+  test('M21: föregående ändes fart räknas — 6 kn före glappet och 2 kn efter, förflyttning ≈ 4,4 kn, är rimligt', () => {
+    // 4,4 kn i 390 s ≈ 883 m. Mot bara aktuell fart (2 kn) vore kvoten 2,2.
+    const v = rear({
+      sog: 2,
+      _rawPositionSog: 2,
+      _prevFixSample: {
+        lat: BRIDGES.klaffbron.lat - 0.011 - 883 / 111320, lon: BRIDGES.klaffbron.lon, sog: 6, t: now - 390000,
+      },
+    });
+    others = [v, other({ etaMinutes: 17 })];
+    expect(app._reconcilePublishedETA(v, 13.39)).toBe(13.39);
   });
 
   test('bara nedåt: en högre färsk beräkning dämpas som förut', () => {
@@ -406,4 +518,37 @@ describe('F07: _prevFixSample i VesselDataService', () => {
     });
     expect(v2._prevFixSample).toMatchObject({ lat: lat0, sog: 1.7, t: t0 });
   });
+});
+
+/**
+ * Granskning 2, A, genom appen: två och tre osedda båtar med rimliga fix
+ * (samma sekund ± 1 s, och med 20 s mellan fixen). Inom fönstret efter den
+ * första sänkningen får texten aldrig ligga mer än en maxDelta under det värde
+ * som visades när fönstret öppnades.
+ */
+describe('F07: brogruppens gemensamma referens genom appen', () => {
+  const run = (jsonl) => new Promise((resolve, reject) => {
+    execFile(process.execPath, [path.join(ROOT, 'tests/replay-validation/replayRunner.js'), jsonl], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      maxBuffer: 256 * 1024 * 1024,
+      env: {
+        ...process.env, NODE_OPTIONS: '', REPLAY_VERBOSE: '', REPLAY_MONITORING: '',
+      },
+    }, (err, stdout) => (err ? reject(err) : resolve(JSON.parse(stdout.match(/__REPLAY_JSON__(.*?)__END__/s)[1]))));
+  });
+  test.each([['dubbel'], ['trippel'], ['dubbel20']])('%s: högst en maxDelta under fönstrets bas', async (name) => {
+    const result = await run(path.join(__dirname, 'fixtures', `f07-${name}.jsonl`));
+    const seq = result.bridgeTextTransitions.map((t) => {
+      const m = t.text.match(/Klaffbron, beräknad broöppning om (?:cirka )?(\d+) minuter/);
+      return m ? { t: t.t, v: Number(m[1]) } : null;
+    }).filter(Boolean);
+    const i = seq.findIndex((x, k) => k + 1 < seq.length && x.v - seq[k + 1].v > 1);
+    expect(i).toBeGreaterThanOrEqual(0);
+    const base = seq[i].v;
+    const start = seq[i + 1].t;
+    const inWindow = seq.filter((x) => x.t >= start && x.t <= start + 30000);
+    // Det visade 14,6 renderas "om 15"; maxDelta 3,65; avrundningen ger högst 1 min.
+    for (const x of inWindow) expect(base - x.v).toBeLessThanOrEqual(Math.max(3, 0.25 * base) + 1);
+  }, 120000);
 });

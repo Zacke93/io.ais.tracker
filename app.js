@@ -224,6 +224,9 @@ const UNDER_BRIDGE_HOLD_VALIDATION_MAX_M = PROTECTION_ZONE_RADIUS;
 // vars färska värde var MER fel än det clampade. Sweepen: 70 → −27,2,
 // 100/120 → −13,5, 150 → −8,8, 200 → −11,1, 250 → −0,4, 300 → +32,2.
 const ETA_CLAMP_RELEASE_DISTANCE_M = UNDER_BRIDGE_CLEAR_DISTANCE;
+// F07 (granskning 2, A): brogruppens fönster för sänkningar från osedda båtar —
+// samma 30 s som RC4:s burstskydd i _reconcilePublishedETA.
+const UNSEEN_GROUP_WINDOW_MS = 30000;
 
 // C3b (etapp 7, 2026-08-09): skrivtakt för sista-kända-positioner
 // ('last_known_positions'). Samma flash-slitagehänsyn och samma 15 min som
@@ -5782,9 +5785,11 @@ class AISBridgeApp extends Homey.App {
     // presenteras). Då:
     //  - ligger den färska beräkningen ÖVER det visade värdet förblir båten
     //    osedd: baslinjen följer den färska, texten är oförändrad;
-    //  - ligger den UNDER det visade värdet dämpas hon mot det visade värdet
-    //    med klampens egen maxDelta (texten sjunker högst lika mycket på ett
-    //    fix som för en ensam båt), men bara om fixet går ihop med båtens egen
+    //  - ligger den UNDER det visade värdet dämpas hon mot brogruppens
+    //    gemensamma referens (_unseenGroupReference: det visade värdet när
+    //    fönstret öppnades och dess maxDelta), så att alla osedda båtar mot
+    //    samma bro tillsammans sänker texten högst lika mycket som en ensam båt
+    //    — men bara om fixet går ihop med båtens egen
     //    rörelse (_fixKinematics, ETA_UNSEEN_BASELINE.FIX_KINEMATICS_MAX_RATIO)
     //    och inte är GPS-misstänkt. Annars gäller klampen som förut: en ensam
     //    utliggare får inte sänka texten (granskningens gps700: ett fix 700 m
@@ -5814,12 +5819,19 @@ class AISBridgeApp extends Homey.App {
           && vessel._positionUncertain !== true && vessel._gpsJumpDetected !== true;
         const ratioText = kin.ratio === null ? 'okänd' : kin.ratio.toFixed(2);
         if (plausible) {
-          const shown = lead.etaMinutes;
-          shownDampen = Math.max(freshETA, shown - Math.max(3, 0.25 * shown));
+          // Brogruppens gemensamma referens (granskning 2, A): det visade
+          // värdet när den första sänkningen i fönstret skedde, med dess
+          // maxDelta. Flera osedda båtar som sänker samma bro inom fönstret
+          // dämpas mot SAMMA bas, så de tillsammans inte kan sänka texten mer
+          // än en ensam båt hade kunnat på samma tid.
+          const ref = this._unseenGroupReference(vessel.targetBridge, lead.etaMinutes);
+          const shown = ref.base;
+          shownDampen = Math.max(freshETA, shown - ref.maxDelta);
           shownBase = shown;
           this.debug(
             `🪜 [ETA_CLAMP_SHOWN] ${vessel.mmsi}: Fix G-baslinjen ${published.toFixed(1)} visas inte; färska `
-            + `${freshETA.toFixed(1)} under det visade ${shown.toFixed(1)} (${lead.mmsi}), fixet rimligt `
+            + `${freshETA.toFixed(1)} under det visade ${lead.etaMinutes.toFixed(1)} (${lead.mmsi}; gruppens bas `
+            + `${shown.toFixed(1)}), fixet rimligt `
             + `(kvot ${ratioText}) — dämpas mot det visade: ${shownDampen.toFixed(1)}`,
           );
         } else {
@@ -5835,7 +5847,7 @@ class AISBridgeApp extends Homey.App {
     vessel._etaPublishedFromExtrapolation = false;
     if (shownDampen !== null) {
       // Burstens baslinje blir det VISADE värdet, så andra passet på samma fix
-      // (K6) dämpas mot samma referens och texten sjunker högst en maxDelta.
+      // (K6) dämpas mot samma referens som gruppen.
       const nowMs = Date.now();
       vessel._etaPublishedValue = shownDampen;
       vessel._etaPublishedAtMs = nowMs;
@@ -5897,6 +5909,30 @@ class AISBridgeApp extends Homey.App {
     vessel._etaPublishedValue = result;
     vessel._etaPublishedAtMs = vessel._etaBurstAtMs;
     return result;
+  }
+
+  /**
+   * F07 (granskning 2, A): brogruppens gemensamma referens för sänkningar från
+   * osedda båtar. Samma tanke som RC4:s burst per båt, men per målbro: det
+   * visade värdet när fönstret öppnades och dess maxDelta (max(3, 0,25 ·
+   * bas); användaren ser värdet hela tiden, så inget glapptillägg). Fönstret
+   * är RC4:s 30 s. Inom det får varje sänkning — från vilken osedd båt som
+   * helst, i vilken ordning som helst — samma gräns; först därefter öppnas ett
+   * nytt fönster från det då visade värdet.
+   * @param {string} target - målbron
+   * @param {number} shownNow - det värde texten visar nu
+   * @returns {{atMs: number, base: number, maxDelta: number}}
+   * @private
+   */
+  _unseenGroupReference(target, shownNow) {
+    if (!this._unseenDampenRefs) this._unseenDampenRefs = new Map();
+    const nowMs = Date.now();
+    let ref = this._unseenDampenRefs.get(target);
+    if (!ref || !(nowMs - ref.atMs >= 0 && nowMs - ref.atMs <= UNSEEN_GROUP_WINDOW_MS)) {
+      ref = { atMs: nowMs, base: shownNow, maxDelta: Math.max(3, 0.25 * shownNow) };
+      this._unseenDampenRefs.set(target, ref);
+    }
+    return ref;
   }
 
   /**

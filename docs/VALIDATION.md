@@ -1140,14 +1140,22 @@ utliggare; 1,35 ligger mitt i gapet. Av alla 9 920 fix efter ett glapp på
 minst 180 s i banken och k1–k3 ligger 20 (0,20 %) över tröskeln och 26 685
 fix totalt har 94 (0,35 %) över.
 
+**Granskning 2 (8c4ff30 → denna version):** två osedda båtar som sänkte samma
+bro med 1 s mellanrum gav "om 11" och sedan "om 8" mot det visade 14,6
+(`f07-dubbel`). Nu delar sänkningarna en referens per bro och 30 s-fönster:
+14,6 → 11,0 med två och tre båtar och med 20 s mellan fixen. Referensfarten i
+rimlighetsprovet mättes om (max, medel, geometriskt medel, medel med golv;
+ARCHITECTURE och `lib/constants.js`); max behålls.
+
 **Buggjägaren** (standard, seed 1): kortet F03 (21h, δ −11,52 s) är borta,
 M-FAS ger 163 rena av 168 fasvarianter (förut 162), och inga nya kort uppstår.
 
 **Regressionstest:** `tests/f07-oseedd-extrapolerad-baslinje.test.js`:
-enhetsfall för släppet, dämpningen, rimlighetsprovet, granskningens prober
-P1–P3, kögrenen (H3), egen mmsi (H1) och andra passet (P2), samt hela kedjan
-för granskningens fyra scenarier (`tests/fixtures/f07-*.jsonl`, syntetiska
-positioner) och F03:s fasvariant. Varje delvillkor är mutationsprövat.
+enhetsfall för släppet, dämpningen, rimlighetsprovet, brogruppens referens,
+granskningarnas prober (P1–P3, Q1–Q4), kögrenen (H3), egen mmsi (H1) och
+andra passet (P2), samt hela kedjan för granskningarnas scenarier
+(`tests/fixtures/f07-*.jsonl`, syntetiska positioner: gps700, gps400, spik1,
+accstop, dubbel, trippel, dubbel20) och F03:s fasvariant. Varje delvillkor är mutationsprövat.
 
 ## Buggjägaren — diagnosverktyg, INTE en gate (2026-11-04)
 
