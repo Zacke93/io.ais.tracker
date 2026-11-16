@@ -142,6 +142,19 @@ const OMSTART_SLOW_ZONE = {
  *    generatorns sanna bana (truthPath), inte ur appens bokföring, som vid
  *    gles AIS kommer ett fix efter korsningen. Samma krav som buggjägarens
  *    T2-orakel (LEDTID ≥ 60 s).
+ *  - ownOpeningLeadS: {bro: {mmsi: N | {minLeadS, maxAgeS}}} — EGEN VARNING
+ *    (K2, nattjaktens F02 r3): båten ska vara medlem eller ledare i en
+ *    levererad varning (success inte false) för bron, i hennes riktning när
+ *    varningen bär en (northbound/southbound), minst minLeadS (N) s och högst
+ *    maxAgeS s (standard 900) före varje sann korsning, och efter sin förra.
+ *    Till skillnad från openingLeadS räknas absorption INTE: en båt som korsar
+ *    mer än CONVOY_WINDOW_MS efter händelsens första korsning hör enligt U2
+ *    till nästa öppning, och en absorption i den gamla händelsen är just
+ *    felet. Åldersgränsen gör att medlemskap i en tidigare öppnings varning
+ *    inte räknas som varning för den här korsningen (granskningen av K2).
+ *    En varning med riktningen 'mixed' (mötande medlemmar, bron öppnar för
+ *    båda) eller 'unknown' (ingen ledare) godtas: båten måste ändå vara
+ *    medlem eller ledare.
  *
  * AVGÅNGS-ETA (fältprovet 2026-11-12, familj E; revision 1 efter
  * granskningen 2026-11-13, A5). Båda förväntningarna kräver EXAKT EN båt med
@@ -3314,6 +3327,58 @@ const SCENARIOS = [
       maxOpeningsPerBridge: { Stridsbergsbron: 2 },
     },
   },
+  // FÖNSTRET ANKRAS I DEN TIDIGASTE KORSNINGEN (nattjaktens F02 r3, värld
+  // 11777, och F23 r2, värld 3603; triagen 2026-11-16 avsnitt 1b). Båda
+  // startar norr om Olidebron och varnas tillsammans för Klaffbron: A 1250 m
+  // före bron i 5 kn (korsar t ≈ 486 s), B 1300 m före i 4 kn (korsar
+  // t ≈ 632 s). A är osedd från 250 m före till 650 m bortom bron, B från
+  // 200 m före till 100 m bortom. B hörs bortom bron först (t = 690 s) och
+  // bokförs FÖRE A (t = 750 s). C hörs första gången t = 765 s (avbrottet i
+  // F02 r3) och korsar 700 s efter A, alltså nästa öppning enligt U2. Förut
+  // räknades hon mot B:s korsning (fönstret till ≈ 1232 s) och absorberades
+  // utan egen varning; nu prövas hon som ny båt också mot A:s korsning
+  // (≈ 1086 s) och får en egen. Motfallet: C korsar 540 s efter A, samma
+  // öppning, ingen andra varning. Placeringen ÄR testet.
+  ...[
+    // [etikett, seed, C:s korsning efter A (s), förväntan]
+    ['C 700 s efter A, egen varning', 11777, 700, { ownOpeningLeadS: { Klaffbron: { 911777003: 120 } } }],
+    ['C 540 s efter A, samma öppning (motfall)', 11778, 540, { maxOpeningsPerBridge: { Klaffbron: 1 } }],
+  ].map(([label, seed, cAfterA, expect]) => {
+    const klaff = METRICS.cum[2];
+    const v5 = 5 * 0.5144;
+    const crossA = 1250 / v5;
+    const cStartOffsetS = 765;
+    return {
+      name: `omvänd-bokföring-efter-avbrott-vid-Klaffbron: ${label} (F02 r3)`,
+      seed,
+      vessels: [
+        {
+          mmsi: `9${seed}001`,
+          name: 'SYNT-A',
+          startS: klaff - 1250,
+          legs: [{
+            toS: klaff + 1700, speedKn: 5, intervalS: 30, gapFromS: klaff - 250, gapToS: klaff + 650,
+          }],
+        },
+        {
+          mmsi: `9${seed}002`,
+          name: 'SYNT-B',
+          startS: klaff - 1300,
+          legs: [{
+            toS: klaff + 1700, speedKn: 4, intervalS: 30, gapFromS: klaff - 200, gapToS: klaff + 100,
+          }],
+        },
+        {
+          mmsi: `9${seed}003`,
+          name: 'SYNT-C',
+          startOffsetS: cStartOffsetS,
+          startS: klaff - (crossA + cAfterA - cStartOffsetS) * v5,
+          legs: [{ toS: klaff + 1700, speedKn: 5, intervalS: 30 }],
+        },
+      ],
+      expect,
+    };
+  }),
 ];
 
 function runScenario(scenario) {
@@ -3771,6 +3836,38 @@ function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
             problems.push(`KORT LEDTID vid ${bridge} ${new Date(crossingMs).toISOString()} (${mmsi}, ${c.dir}): `
               + `${best === null ? 'ingen täckande varning' : `bästa varningen ${Math.round(best)} s`} före den sanna `
               + `korsningen (krav ≥ ${minLeadS} s)`);
+          }
+          previousMs = crossingMs;
+        }
+      }
+    }
+  }
+  // K2 (nattjaktens F02 r3): egen varning, absorption räknas inte (se huvudet).
+  if (e.ownOpeningLeadS) {
+    for (const [bridge, perVessel] of Object.entries(e.ownOpeningLeadS)) {
+      const sBridge = METRICS.cum[PATH_INDEX[bridge]];
+      for (const [mmsi, spec] of Object.entries(perVessel)) {
+        const minLeadS = typeof spec === 'number' ? spec : spec.minLeadS;
+        const maxAgeS = typeof spec === 'number' || !Number.isFinite(spec.maxAgeS) ? 900 : spec.maxAgeS;
+        const truthPath = (truthPaths || {})[mmsi];
+        const crossings = truthPath ? truthCrossings(truthPath, sBridge) : [];
+        if (crossings.length === 0) {
+          problems.push(`EGEN VARNING: ${mmsi} har ingen sann korsning av ${bridge} att pröva`);
+          continue;
+        }
+        let previousMs = -Infinity;
+        for (const c of crossings) {
+          const crossingMs = BASE_TIME_MS + c.tS * 1000;
+          const wantDir = c.dir === 'north' ? 'northbound' : 'southbound';
+          const own = openings.filter((w) => w.bridge === bridge && Number.isFinite(w.t) && w.success !== false
+            && w.t > previousMs && w.t < crossingMs && crossingMs - w.t <= maxAgeS * 1000
+            && (!['northbound', 'southbound'].includes(w.direction) || w.direction === wantDir)
+            && ((w.mmsis || []).map(String).includes(mmsi) || String(w.leadMmsi) === mmsi));
+          const best = own.length ? Math.max(...own.map((w) => (crossingMs - w.t) / 1000)) : null;
+          if (best === null || best < minLeadS) {
+            problems.push(`EGEN VARNING SAKNAS vid ${bridge} ${new Date(crossingMs).toISOString()} (${mmsi}): `
+              + `${best === null ? 'ingen varning där båten är medlem' : `bästa egna varningen ${Math.round(best)} s`} `
+              + `före den sanna korsningen (krav ${minLeadS}–${maxAgeS} s, levererad, rätt riktning; absorption räknas inte)`);
           }
           previousMs = crossingMs;
         }
