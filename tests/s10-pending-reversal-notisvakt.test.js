@@ -178,7 +178,8 @@ describe('S10: fältfallet ELFKUNGEN', () => {
 
     // RIGGKONTROLL — produktionskoden ska ha satt BÅDA sidorna av motsägelsen.
     expect(vessel._routeDirection).toBe('north');
-    expect(vessel._fixDPendingReversal).toEqual({ dir: 'south', time: NOW });
+    // fixTs (nattjakten F12) är väntans fixtid; S10-vakten läser den inte.
+    expect(vessel._fixDPendingReversal).toEqual({ dir: 'south', time: NOW, fixTs: NOW });
     expect(app._getDirectionString(vessel)).toBe('northbound');
     // …och kandidatvägen ska fortfarande erbjuda Klaffbron (annars mäter
     // testet en helt annan grind).

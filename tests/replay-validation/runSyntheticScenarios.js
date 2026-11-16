@@ -103,6 +103,9 @@ const OMSTART_SLOW_ZONE = {
  *  - maxNoticeDelayS: {bro: N} — för varje sann korsning av bron ska båtens
  *    första notis för bron (vilken form som helst) komma senast N s efter
  *    korsningen (familj C3: ingen notis via failsafen minuter senare)
+ *  - noticeDirectionVsTruth: {bro: {mismatches: N}} — exakt N av båtens notiser
+ *    vid bron har ett riktningsfält som motsäger den sanna färden under steget
+ *    före notisen (nattjakten F12; minst en notis måste prövas)
  *  - toleratedInvariants: [RegExp] — fatala invariantrader som scenariot
  *    medvetet tål. Bara för KÄNDA fel utanför scenariots fråga, med motivering
  *    vid scenariot (U14-vakterna: passagelogikens falska bokföring vid linjen)
@@ -3170,6 +3173,62 @@ const SCENARIOS = [
       }],
     },
   })),
+  // Nattjakten F12 (rättningsomgång 3, 2026-11-16; värld 2931, HAVSORN):
+  // RIKTNINGSFÄLTET EFTER EN U-SVÄNG NÄR MÅLBRON FÖRSVANN I VÄNTANS FIX.
+  // Söderut genom Stridsbergsbron och Järnvägsbron, vändning 450 m norr om
+  // Klaffbron. Den första omvända fixen (39°) sätter Fix D:s väntan, två fixar
+  // i dödbandet (68° och 70°) bryter den, och manöverskyddet håller målbron
+  // till 150 s efter vändningen. Fixen 70° (efter skyddet) startar fristen,
+  // fixen 35° sätter väntan igen och tar bort målbron (MOVING_AWAY, 70 s), och
+  // fixen 27° är den andra omvända observationen i följd, 190 m före
+  // Järnvägsbron. Förut prövades den aldrig (Fix D kräver målbro): låset stod
+  // kvar söderut till återkorsningen, notisen "närmar sig Järnvägsbron" fick
+  // riktningen söderut och Stridsbergsbrons returvarning kom först vid
+  // återkorsningen av Järnvägsbron. PLACERINGEN ÄR TESTET: fristen måste
+  // starta efter skyddet och löpa ut på fixen 35°, och fixen 27° måste ligga
+  // inom 300 m från Järnvägsbron. Ändras skyddets längd eller fristen ska
+  // tiderna räknas om, inte förväntan tas bort.
+  // Motfallet (U18): en fix till i dödbandet mellan 35° och 27° bryter kedjan,
+  // och notisen bär det gamla låsets riktning som förut (känd gräns).
+  ...[
+    { label: 'andra omvända fixen i följd', seed: 2931, mismatches: 0 },
+    { label: 'dödbandsfix emellan, U18 oförändrad', seed: 2932, mismatches: 1 },
+  ].map((k) => ({
+    name: `u-sväng-målbron-borta-i-väntans-fix, ${k.label} (nattjakten F12)`,
+    seed: k.seed,
+    vessels: [{
+      mmsi: String(902900000 + k.seed),
+      name: `SYNT-F12-${k.seed}`,
+      startS: METRICS.cum[4] + 900,
+      legs: [
+        { toS: METRICS.cum[2] + 450, speedKn: 5, intervalS: 65 },
+        {
+          toS: METRICS.cum[2] + 470, speedKn: 3.1, intervalS: 70, cogDeg: 39,
+        },
+        {
+          toS: METRICS.cum[2] + 560, speedKn: 1.5, reportSogKn: 3.8, intervalS: 120, cogDeg: 68,
+        },
+        {
+          toS: METRICS.cum[2] + 650, speedKn: 2.6, reportSogKn: 3.6, intervalS: 70, cogDeg: 70,
+        },
+        {
+          toS: METRICS.cum[2] + 770, speedKn: 3.5, intervalS: 70, cogDeg: 35,
+        },
+        ...(k.mismatches === 0 ? [] : [{
+          toS: METRICS.cum[2] + 810, speedKn: 3.6, intervalS: 25, cogDeg: 70,
+        }]),
+        {
+          toS: METRICS.cum[2] + (k.mismatches === 0 ? 890 : 930), speedKn: 3.6, intervalS: 70, cogDeg: 27,
+        },
+        { toS: METRICS.cum[4] + 800, speedKn: 5, intervalS: 65 },
+      ],
+    }],
+    expect: {
+      minNotifiedPerBridge: { Järnvägsbron: 2 },
+      noticeDirectionVsTruth: { Järnvägsbron: { mismatches: k.mismatches } },
+      ...(k.mismatches === 0 ? { openingLeadS: { Stridsbergsbron: 120 } } : {}),
+    },
+  })),
 ];
 
 function runScenario(scenario) {
@@ -3850,6 +3909,33 @@ function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
       }
       if (tested === 0) {
         problems.push(`maxNoticeDelayS: ingen sann korsning av ${bridge} att pröva — förväntan mäter ingenting`);
+      }
+    }
+  }
+  // Nattjakten F12 (2026-11-16): NOTISENS RIKTNINGSFÄLT MOT DEN SANNA BANAN.
+  // Riktningen är båtens färd under steget fram till notisen (sann bana, s
+  // växer = norrut; ett stillastående steg ärver föregående rörliga). Antalet
+  // notiser vid bron med fel riktning ska vara exakt `mismatches`: 0 i
+  // rättningens fall, 1 i U18-motfallet där den kända gränsen låses.
+  if (e.noticeDirectionVsTruth) {
+    for (const [bridge, { mismatches }] of Object.entries(e.noticeDirectionVsTruth)) {
+      let tested = 0;
+      const wrong = [];
+      for (const [mmsi, truthPath] of Object.entries(truthPaths || {})) {
+        for (const n of notifications.filter((x) => String(x.mmsi) === mmsi && x.bridge === bridge && Number.isFinite(x.t))) {
+          const tS = (n.t - BASE_TIME_MS) / 1000;
+          let i = truthPath.findIndex((p, k) => k > 0 && truthPath[k - 1].tS < tS && p.tS >= tS);
+          while (i > 0 && truthPath[i].s === truthPath[i - 1].s) i--;
+          if (i <= 0) continue;
+          tested++;
+          const truthDir = truthPath[i].s > truthPath[i - 1].s ? 'northbound' : 'southbound';
+          if (n.direction !== truthDir) wrong.push(`${n.iso || new Date(n.t).toISOString()} "${n.message}" ${n.direction} (sant ${truthDir})`);
+        }
+      }
+      if (tested === 0) problems.push(`noticeDirectionVsTruth: ingen notis vid ${bridge} att pröva`);
+      if (wrong.length !== mismatches) {
+        problems.push(`RIKTNINGSFÄLT vid ${bridge}: ${wrong.length} notiser med fel riktning (förväntat ${mismatches})`
+          + `${wrong.length ? `: ${wrong.join('; ')}` : ''}`);
       }
     }
   }
