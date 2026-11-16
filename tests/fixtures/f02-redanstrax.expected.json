@@ -1,0 +1,63 @@
+{
+ "kalla": "bfaeec4 (före inbromsningsregeln)",
+ "bridgeTextTransitions": [
+  [
+   1784541600015,
+   "En båt på väg mot Klaffbron, beräknad broöppning om 6 minuter"
+  ],
+  [
+   1784541690040,
+   "En båt på väg mot Klaffbron, beräknad broöppning om 5 minuter"
+  ],
+  [
+   1784541750040,
+   "En båt på väg mot Klaffbron, beräknad broöppning om 4 minuter"
+  ],
+  [
+   1784541810040,
+   "En båt på väg mot Klaffbron, beräknad broöppning om 3 minuter"
+  ],
+  [
+   1784541840040,
+   "En båt på väg mot Klaffbron, beräknad broöppning strax"
+  ],
+  [
+   1784541900040,
+   "En båt på väg mot Klaffbron, beräknad broöppning om 4 minuter"
+  ],
+  [
+   1784541930040,
+   "En båt på väg mot Klaffbron, beräknad broöppning om 5 minuter"
+  ],
+  [
+   1784542140040,
+   "En båt på väg mot Klaffbron, beräknad broöppning om 4 minuter"
+  ],
+  [
+   1784542470040,
+   "En båt på väg mot Klaffbron, beräknad broöppning strax"
+  ],
+  [
+   1784542590040,
+   "En båt på väg mot Klaffbron, ETA okänd"
+  ],
+  [
+   1784543670040,
+   "Inga båtar är i närheten av Klaffbron eller Stridsbergsbron"
+  ]
+ ],
+ "notifications": [
+  [
+   1784541600000,
+   "265000202",
+   "Olidebron",
+   1
+  ],
+  [
+   1784541600000,
+   "265000202",
+   "Kanalinfarten",
+   -1
+  ]
+ ]
+}

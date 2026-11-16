@@ -1,0 +1,11 @@
+{"mmsi":"265000201","msgType":"PositionReport","lat":58.271707917774876,"lon":12.273859821865742,"sog":7,"cog":32.5,"shipName":"BROMSKORT","aisTimestamp":1784541600000,"receivedAt":"2026-07-20T10:00:00.005Z"}
+{"mmsi":"265000201","msgType":"PositionReport","lat":58.2743047203774,"lon":12.27632823234844,"sog":7,"cog":22.2,"shipName":"BROMSKORT","aisTimestamp":1784541690000,"receivedAt":"2026-07-20T10:01:30.005Z"}
+{"mmsi":"265000201","msgType":"PositionReport","lat":58.277003243363865,"lon":12.278423288316638,"sog":7,"cog":22.2,"shipName":"BROMSKORT","aisTimestamp":1784541780000,"receivedAt":"2026-07-20T10:03:00.005Z"}
+{"mmsi":"265000201","msgType":"PositionReport","lat":58.279701766350335,"lon":12.280518344284836,"sog":7,"cog":22.2,"shipName":"BROMSKORT","aisTimestamp":1784541870000,"receivedAt":"2026-07-20T10:04:30.005Z"}
+{"mmsi":"265000201","msgType":"PositionReport","lat":58.282400289336806,"lon":12.282613400253034,"sog":1.8,"cog":22.2,"shipName":"BROMSKORT","aisTimestamp":1784541960000,"receivedAt":"2026-07-20T10:06:00.005Z"}
+{"mmsi":"265000201","msgType":"PositionReport","lat":58.28505829342843,"lon":12.284654957573062,"sog":7,"cog":21.6,"shipName":"BROMSKORT","aisTimestamp":1784542050000,"receivedAt":"2026-07-20T10:07:30.005Z"}
+{"mmsi":"265000201","msgType":"PositionReport","lat":58.287624074177884,"lon":12.28723868660661,"sog":7,"cog":32.1,"shipName":"BROMSKORT","aisTimestamp":1784542140000,"receivedAt":"2026-07-20T10:09:00.005Z"}
+{"mmsi":"265000201","msgType":"PositionReport","lat":58.2900941316447,"lon":12.290182446173498,"sog":7,"cog":32.1,"shipName":"BROMSKORT","aisTimestamp":1784542230000,"receivedAt":"2026-07-20T10:10:30.005Z"}
+{"mmsi":"265000201","msgType":"PositionReport","lat":58.2925296432043,"lon":12.293224872222208,"sog":7,"cog":35.3,"shipName":"BROMSKORT","aisTimestamp":1784542320000,"receivedAt":"2026-07-20T10:12:00.005Z"}
+{"mmsi":"265000201","msgType":"PositionReport","lat":58.29491723632349,"lon":12.296405959337884,"sog":7,"cog":34.7,"shipName":"BROMSKORT","aisTimestamp":1784542410000,"receivedAt":"2026-07-20T10:13:30.005Z"}
+{"mmsi":"265000201","msgType":"PositionReport","lat":58.297311952482865,"lon":12.299567997390204,"sog":7,"cog":34.7,"shipName":"BROMSKORT","aisTimestamp":1784542500000,"receivedAt":"2026-07-20T10:15:00.005Z"}
