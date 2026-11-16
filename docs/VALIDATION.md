@@ -786,6 +786,14 @@ rapporteras på det fix där den börjar, och AISHub-fixen är 20–30 s gamla s
 
 (iii)–(vi) är bitlika med basen.
 
+Kortets siffra när regeln släpper varningen (U28) prövas av jest-sviten
+`opening-accel-card-eta`. Den kör LIDAN-, NAVEN- och avgångsformen (som SWIX), och i
+alla tre ska varningen komma minst 150 s före den sanna korsningen och kortets
+`eta_minutes` ligga högst 0,75 min från den sanna restiden. Basen `8c60237` fäller
+ledtiden och `8ca8a61` (regeln utan kortets siffra) fäller siffran: 6, 5 och 4 min mot
+3,3, 3,0 och 3,1. Fixturerna SWIX och AMELIA i `eta-wait-resume-recovery` vaktar samma
+sak mot fältdata.
+
 ## Täckningskartan — diagnosverktyg, INTE en gate
 
 `tests/replay-validation/coverageMap.js` (etapp 6) svarar på frågan **var längs

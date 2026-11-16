@@ -546,6 +546,9 @@ trafiken" är de 24 låsta körningarna (cirka 485 h).
   NAVEN 150 → 209 s; ingen varning före en kö i banken, fältet eller buggjägaren.
   Konvojkostnaden (6 extra kort på 2 000 syntetiska världar, följaren får eget kort med
   159–179 s) är redovisad för ägaren. Avgång ur kö 360–440 m från bron är känd gräns.
+  Kortets siffra (alternativ (b), U28): när regeln släpper varningen säger kortet regelns
+  egen restid i max(fart, 5 kn), dock aldrig mer än ETA-kedjans värde. Utan det sa kortet
+  väntans ETA vid avgångsfixet (fixturerna SWIX och AMELIA: 8 och 16 min mot cirka 3).
 - *Omgång 2:* en fartökningsregel är mätt och omgjord och omgranskas; nya alternativ i 11.5.
 
 **F8. Besök vid en bro som aldrig tar slut**

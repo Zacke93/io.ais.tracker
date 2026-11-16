@@ -1122,12 +1122,24 @@ båt.
   kandidatkort tillkom. Priset är 6 extra kort i konvojer: en följare som förut
   absorberades i ledarens varning får eget kort med 159–179 s ledtid (samma
   slags pris som U24; redovisat för ägaren). Scenarierna (i)–(vi) i
-  `runSyntheticScenarios.js` (F7) låser regeln och motfallen.
+  `runSyntheticScenarios.js` (F7) låser regeln och motfallen. **Kortets
+  siffra (U28):** när regeln satte spärrens slut bär armen `accelArrivalMs`
+  (ankaret + avståndet i max(fart, 5 kn)), och `_warningLeadInfo` låter kortets
+  `eta_minutes` bli den lägsta av ETA-kedjans värde och regelns restid. Regeln
+  avfyrar därför att den tror att båten går i minst 5 kn; kortet får då inte i
+  samma ögonblick påstå väntans ETA (fixturerna SWIX och AMELIA: 8 och 16 min
+  mot cirka 3, `eta-wait-resume-recovery`). Andra kort är orörda, och en okänd
+  ETA förblir okänd.
   **Känd gräns (klass B):** avgång ur kö 360–440 m från Stridsbergsbron.
   Första rörelsefixet ligger ofta redan inom 350 m, där spärren inte gäller,
   och båten är framme på 140–170 s. Varningen kan bara komma tidigare om appen
   varnar medan hon köar, och det är just det fel som spärren finns mot
-  (20260907-31h 80 s, 20260909-80h 131 s).
+  (20260907-31h 80 s, 20260909-80h 131 s). **Känd gräns (förstakontakt söder
+  om Olidebron):** utan historik spärras hon inte (H1), och Klaffbronvarningen
+  går på 10-knopsdeadlinen från första fixet, i banken 26 gånger 9–38 min före
+  Klaffbron. En vakt vid Olidebron mättes 2026-11-16 och infördes inte: den
+  bröt 10-knopsgarantin för en förstakontakt som tystnar och går 8–10 kn (5–125 s
+  mot 181–276 s); fältgranskningen 2026-11-14, F2.
 - **Kedjearmen efter en bekräftad vändning (fältprovet 10–13 november, familj
   B; granskningen och dirigentens beslut 2026-11-14):** k1 11 nov vände PILOT
   761 222 m norr om Stridsbergsbron efter 30 min stopp. Vändningen tömde
