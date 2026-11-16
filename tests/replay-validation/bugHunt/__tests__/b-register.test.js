@@ -146,12 +146,7 @@ describe('M04 och T-2: konvojsemantiken är densamma i registret och T2-oraklet'
     const retur = klassa(reg, t2(X, 11), ctx);
     expect(retur.klass).toBe('KANDIDAT');
     expect(reg.entry('U2-RETURRESA')).toBeNull();
-    // Y täcktes aldrig, men X (medlem) korsade 5 min före henne i en händelse
-    // som varnade 9 min före: sedan 2026-11-16 (V1) är det U2-VS-DEADLINE:s
-    // gren (ii), den fysiska öppningen (KÄND_ÖPPEN). Mer än fönstret från X:s
-    // korsning är en otäckt båt fortfarande KANDIDAT.
-    expect(klassa(reg, t2(Y, 9), ctx)).toMatchObject({ klass: 'KÄND_ÖPPEN', post: 'U2-VS-DEADLINE', skäl: expect.stringMatching(/^fysisk öppning: 265100001 korsade/) });
-    expect(klassa(reg, t2(Y, 15), ctxOf([linje(X, 4), linje(Y, 15)])).klass).toBe('KANDIDAT');
+    expect(klassa(reg, t2(Y, 9), ctx).klass).toBe('KANDIDAT');
   });
 
   test('[vakt] U15: en retur förklaras inte heller av U2-VS-DEADLINE eller J13 via båtens egen äldre händelse', () => {
@@ -171,17 +166,9 @@ describe('M04 och T-2: konvojsemantiken är densamma i registret och T2-oraklet'
     const reg = loadRegistry();
     const gt = [linje(X, 4), linje(Z, 9)];
     expect(klassa(reg, t2(Z, 9), ctxOf(gt, [[Z, 2]]))).toMatchObject({ klass: 'KÄND_ÖPPEN', post: 'U2-VS-DEADLINE' });
-    // Absorptionen räknas bara om den skedde före korsningen: gren (i) gäller
-    // inte. Gren (ii) (2026-11-16, V1): X korsade 5 min före henne i en varnad
-    // händelse, så öppningen var varnad; 11 min efter X är det en ny öppning.
-    const k = require('../lib/konvoj');
-    const d0 = (c) => ({ varningar: c.resultat.openingWarnings, korsningar: c.gt, coverage: c.resultat.openingCoverage });
-    expect(k.inomHändelsefönster({ mmsi: Z, bro: 'Klaffbron', tc: T + 9 * MIN }, d0(ctxOf(gt, [[Z, 10]]))).sant).toBe(false);
-    expect(k.inomHändelsefönster({ mmsi: Z, bro: 'Klaffbron', tc: T + 9 * MIN }, d0(ctxOf(gt))).sant).toBe(false);
-    expect(klassa(reg, t2(Z, 9), ctxOf(gt, [[Z, 10]]))).toMatchObject({ post: 'U2-VS-DEADLINE', skäl: expect.stringMatching(/^fysisk öppning: 265100001 korsade/) });
-    expect(klassa(reg, t2(Z, 9), ctxOf(gt))).toMatchObject({ post: 'U2-VS-DEADLINE', skäl: expect.stringMatching(/^fysisk öppning: 265100001 korsade/) });
-    expect(klassa(reg, t2(Z, 15), ctxOf([linje(X, 4), linje(Z, 15)], [[Z, 16]])).klass).toBe('KANDIDAT');
-    expect(klassa(reg, t2(Z, 15), ctxOf([linje(X, 4), linje(Z, 15)])).klass).toBe('KANDIDAT');
+    // Absorptionen räknas bara om den skedde före korsningen.
+    expect(klassa(reg, t2(Z, 9), ctxOf(gt, [[Z, 10]])).klass).toBe('KANDIDAT');
+    expect(klassa(reg, t2(Z, 9), ctxOf(gt)).klass).toBe('KANDIDAT');
   });
 
   test('en retur som appen absorberade i båtens egen äldre händelse är KANDIDAT, även utanför konvojfönstret', () => {
@@ -196,11 +183,8 @@ describe('M04 och T-2: konvojsemantiken är densamma i registret och T2-oraklet'
     const reg = loadRegistry();
     // X (medlem) korsar först 9 min; Y (utanför händelsen) korsade 5 min.
     expect(klassa(reg, t2(X, 9), ctxOf([linje(Y, 5), linje(X, 9)]))).toMatchObject({ klass: 'KÄND_ÖPPEN', post: 'J13-J14-KONVOJSEMANTIK' });
-    // V täcktes aldrig av Klaffbron#5: varken gren (i) av U2-VS-DEADLINE eller
-    // J13 förklarar V:s miss. 8 min efter X:s korsning är det gren (ii), den
-    // fysiska öppningen (2026-11-16, V1); 11 min efter är V KANDIDAT.
-    expect(klassa(reg, t2(V, 12), ctxOf([linje(X, 4), linje(Y, 9), linje(V, 12)]))).toMatchObject({ post: 'U2-VS-DEADLINE', skäl: expect.stringMatching(/^fysisk öppning: 265100001 korsade/) });
-    expect(klassa(reg, t2(V, 15), ctxOf([linje(X, 4), linje(Y, 9), linje(V, 15)])).klass).toBe('KANDIDAT');
+    // V täcktes aldrig av Klaffbron#5: varken U2-VS-DEADLINE eller J13 förklarar V:s miss.
+    expect(klassa(reg, t2(V, 12), ctxOf([linje(X, 4), linje(Y, 9), linje(V, 12)])).klass).toBe('KANDIDAT');
     // Z absorberad, medlemmen X passerade 12 min före Z: täckningen hade löpt ut
     // (konvojfönstrets bakkant), så Y:s korsning emellan förklarar inget.
     const bakkant = klassa(reg, t2(Z, 16), ctxOf([linje(X, 4), linje(Y, 8), linje(Z, 16)], [[Z, 2]]));

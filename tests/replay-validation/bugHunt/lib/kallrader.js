@@ -101,7 +101,10 @@ const tabellen = (förväntat) => new Map(förväntat.map(([post, ref, först, i
 
 /** Kontrollsumman av raderna [från, till]: sha256 av den exakta texten, 16 hexsiffror. */
 function stycketsSumma(L, från, till) {
-  return crypto.createHash('sha256').update(L.slice(från - 1, till).join('\n')).digest('hex').slice(0, 16);
+  // CRLF räknas som LF (granskningen 2026-11-16, låg): en utcheckning med
+  // Windows-radslut ska inte göra alla summor röda.
+  const text = L.slice(från - 1, till).map((x) => String(x).replace(/\r$/, '')).join('\n');
+  return crypto.createHash('sha256').update(text).digest('hex').slice(0, 16);
 }
 
 /** Håller stycket rader [från, till] postens nyckelord? */
@@ -124,6 +127,20 @@ function brister(poster, förväntat, läs = läsare()) {
   const tabell = tabellen(förväntat);
   const fel = [];
   const använda = new Set();
+  // Dubbla nycklar (granskningen 2026-11-16, medel): samma hänvisning två
+  // gånger i samma fält, eller två tabellrader med samma nyckel, är spåret av
+  // ett kedjat byte (två hänvisningar som hamnat på samma stycke).
+  const iFält = new Map();
+  for (const r of alla) {
+    const k = `${nyckel(r.post, r.fil, r.rader)}|${r.fält}`;
+    if (iFält.has(k)) fel.push(`${nyckel(r.post, r.fil, r.rader)}: samma hänvisning två gånger i fältet ${r.fält}`);
+    iFält.set(k, true);
+  }
+  const tabellNycklar = new Set();
+  for (const [post, ref] of förväntat) {
+    if (tabellNycklar.has(`${post}|${ref}`)) fel.push(`${post}|${ref}: två rader i FÖRVÄNTAT med samma nyckel`);
+    tabellNycklar.add(`${post}|${ref}`);
+  }
   for (const r of alla) {
     const k = nyckel(r.post, r.fil, r.rader);
     if (LEVANDE_KOD(r.fil)) {
@@ -224,7 +241,9 @@ function föreslå(poster, förväntat, { läs = läsare(), gammalText = null } 
  * @returns {{förväntat: Array[], kvitterade: string[]}} ny tabell och nycklarna
  */
 function kvittera(poster, förväntat, vilka, läs = läsare()) {
-  const alla = vilka.includes('alla');
+  // Bara namngivna poster (granskningen 2026-11-16, medel: 'alla' kvitterade
+  // också ändrade stycken utan villkor).
+  const alla = false;
   const refs = new Map(poster.flatMap(radhänvisningar).map((r) => [nyckel(r.post, r.fil, r.rader), r]));
   const kvitterade = [];
   const ny = förväntat.map((rad) => {

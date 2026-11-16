@@ -27,7 +27,9 @@ const path = require('path');
 const {
   ROOT, FÖRVÄNTAT_FIL, radhänvisningar, barahänvisningar, nyckel, brister, föreslå, kvittera, stycketsSumma,
 } = require('../lib/kallrader');
-const { bytIText, bytIRegistret, bytITabellrad } = require('../tools/foreslaKallrader');
+const {
+  bytIText, bytIRegistret, bytITabellrad, skrivFörslag,
+} = require('../tools/foreslaKallrader');
 
 const REG = JSON.parse(fs.readFileSync(path.join(ROOT, 'tests/replay-validation/bugHunt/beslutsregister.json'), 'utf8'));
 const FÖRVÄNTAT = JSON.parse(fs.readFileSync(path.join(ROOT, FÖRVÄNTAT_FIL), 'utf8'));
@@ -289,5 +291,59 @@ describe('kontrollsumman: förslaget väljer stycket på dess text', () => {
     // Kvitteringen ger raden dagens summa.
     const k = kvittera(REG.poster, utan, ['U17-TYST-BÅT-RECOVER']);
     expect(k.förväntat).toEqual(FÖRVÄNTAT);
+  });
+});
+
+// Granskningen 2026-11-16 (medel): --skriv bytte ett förslag i taget, och
+// sju rader överst i etapp7-plan gav U16 ":22 (U1), :22 (U6)" medan kontrollen
+// var grön; --kvittera=alla kvitterade utan villkor; CRLF gjorde alla summor röda.
+describe('granskningen: kedjade byten, dubbla nycklar, kvittering och CRLF', () => {
+  const E7 = 'docs/etapp7-plan-2026-08-08.md';
+  const äktaE7 = fs.readFileSync(path.join(ROOT, E7), 'utf8').split('\n');
+  const medE7 = (raderE7) => {
+    const cache = new Map();
+    return (fil) => {
+      if (fil === E7) return raderE7;
+      if (!cache.has(fil)) cache.set(fil, fs.existsSync(path.join(ROOT, fil)) ? fs.readFileSync(path.join(ROOT, fil), 'utf8').split('\n') : null);
+      return cache.get(fil);
+    };
+  };
+  const rå = fs.readFileSync(path.join(ROOT, 'tests/replay-validation/bugHunt/beslutsregister.json'), 'utf8');
+  const md = fs.readFileSync(path.join(ROOT, 'docs/BUGGJAKT.md'), 'utf8');
+
+  test('sju rader överst i etapp7-plan: U16 får :15 (U1) och :22 (U6), inte :22 två gånger, och kontrollen är grön efteråt', () => {
+    const L = [...Array(7).fill('ny rad'), ...äktaE7];
+    const förslag = föreslå(REG.poster, FÖRVÄNTAT, { läs: medE7(L) });
+    const ut = skrivFörslag(förslag, { rå, md, förväntat: FÖRVÄNTAT });
+    const u16 = JSON.parse(ut.rå).poster.find((x) => x.id === 'U16-F40-STRAX-STUDS');
+    expect(JSON.stringify(u16)).toContain(`${E7}:15 (U1), :22 (U6) och :274 (C11`);
+    expect(brister(JSON.parse(ut.rå).poster, ut.förväntat, medE7(L))).toEqual([]);
+  });
+
+  test('kontrollen fäller samma hänvisning två gånger i ett fält och två tabellrader med samma nyckel', () => {
+    const kedjad = REG.poster.map((x) => (x.id === 'U16-F40-STRAX-STUDS' ? { ...x, källa: x.källa.replace(`${E7}:8 (U1), :15 (U6)`, `${E7}:15 (U1), :15 (U6)`) } : x));
+    expect(brister(kedjad, FÖRVÄNTAT).join('\n')).toMatch(/U16-F40-STRAX-STUDS\|docs\/etapp7-plan-2026-08-08\.md:15: samma hänvisning två gånger i fältet källa/);
+    const dubbel = [...FÖRVÄNTAT, FÖRVÄNTAT[0]];
+    expect(brister(REG.poster, dubbel).join('\n')).toMatch(/två rader i FÖRVÄNTAT med samma nyckel/);
+  });
+
+  test('två förslag i samma post som pekar på samma nya stycke skrivs inte', () => {
+    const f = [{
+      post: 'P', fil: A, gammal: '10–12', ny: '20–22',
+    }, {
+      post: 'P', fil: A, gammal: '30–32', ny: '20–22',
+    }];
+    const källa = `${A}:10–12 och :30–32`;
+    const r = `${JSON.stringify({ poster: [{ id: 'P', källa }] }, null, 2)}\n`;
+    const ut = skrivFörslag(f, { rå: r, md: '', förväntat: [] });
+    expect(ut.vägrade).toHaveLength(2);
+    expect(JSON.parse(ut.rå).poster[0].källa).toBe(källa);
+  });
+
+  test('kvittering kräver namngivna poster ("alla" kvitterar ingenting), och CRLF ger samma summa som LF', () => {
+    const utan = FÖRVÄNTAT.map((x) => x.slice(0, 4));
+    expect(kvittera(REG.poster, utan, ['alla']).kvitterade).toEqual([]);
+    const rader = ['a', 'b', 'c'];
+    expect(stycketsSumma(rader.map((x) => `${x}\r`), 1, 3)).toBe(stycketsSumma(rader, 1, 3));
   });
 });
