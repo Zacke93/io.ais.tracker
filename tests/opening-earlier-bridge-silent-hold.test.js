@@ -139,22 +139,15 @@ describe('Spärren vid en tidigare bro i tystnad (värld 263)', () => {
   // sekund. Sista rörliga fixet ligger 709 m före Stridsbergsbron (453 m före
   // Järnvägsbron). Under 2 kn sänder klass B var 3:e minut, så nästa fix kommer
   // 204 respektive 269 s senare (värld 29), i kön vid Järnvägsbron. Efter kön
-  // går hon vidare, och c14938f varnade på fixet 300 m före bron.
-  // Fartökningen före en nära bro emellan (sparr, 2026-11-15,
-  // _accelBeforeNearEarlier) flyttar varningen ett fix tidigare, till
-  // avgångsfixet 400 m före bron (stilla i kön → 2,6 kn, 143 m före
-  // Järnvägsbron). Det är fortfarande EFTER kön, alltså det testet skyddar,
-  // och 66 s mer ledtid: i glappet 204 s når båten bron cirka 1 532 s in
-  // (90 m i 4 kn efter fixet 1 488 s), så ledtiden går från cirka 176 till 242 s. Tystnadsregeln jämförs som förut mot c14938f:s
-  // tystnadsgräns (samma fartökningsregel i båda), och de ska vara lika.
+  // går hon vidare, och c14938f varnar på fixet 300 m före bron.
   const KO_APPROACH = [[0, 1207, 2.4], [66, 1146, 2.4], [132, 1063, 2.7], [201, 946, 2.6], [269, 903, 2.6],
     [334, 778, 2.3], [400, 709, 2.5, { fixAgeS: 13 }]];
   test.each([
     ['204 s', [queued(604, 430, 590), queued(808, 431, 590), queued(1012, 431, 590), queued(1216, 430, 590),
-      [1290, 400, 2.6], [1356, 300, 3.0], [1422, 200, 3.5], [1488, 90, 4.0]], 1290],
+      [1290, 400, 2.6], [1356, 300, 3.0], [1422, 200, 3.5], [1488, 90, 4.0]], 1356],
     ['269 s', [queued(669, 428, 600), queued(873, 431, 600), queued(1077, 431, 600),
-      [1150, 400, 2.6], [1216, 300, 3.0], [1282, 200, 3.5], [1348, 90, 4.0]], 1150],
-  ])('en kö som börjar under tystnaden varnas inte före kön, utan på avgångsfixet (glapp %s)', (_label, rest, expectedS) => {
+      [1150, 400, 2.6], [1216, 300, 3.0], [1282, 200, 3.5], [1348, 90, 4.0]], 1216],
+  ])('en kö som börjar under tystnaden varnas inte tidigare än på c14938f (glapp %s)', (_label, rest, expectedS) => {
     const withRule = make();
     const without = make(C14938F);
     const [a, b] = play([...KO_APPROACH, ...rest], expectedS + 300, [withRule, without]);

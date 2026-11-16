@@ -538,17 +538,23 @@ trafiken" är de 24 låsta körningarna (cirka 485 h).
   före Järnvägsbron: cirka 187 s för NAVEN, kostnaden för köerna omätt.
 - *Rekommendation.* Underlaget har ingen. Dirigentens förslag: (a) tills (c) är mätt, (b) i
   ETA-etappen.
-- *Dirigentens åtgärd 2026-11-15:* (c) mättes och förkastades i sin breda form, eftersom den
+- *Dirigentens åtgärd 2026-11-15/16:* (c) mättes och förkastades i sin breda form, eftersom den
   släppte spärren även före Klaffbron söderut och gav PILOT 761 en varning 38,6 min för
-  tidigt. I stället infördes (d2): ett fix högst 400 m före Järnvägsbron som visar avgång ur
-  stillhet eller fartökning över två fix räknar restiden till Stridsbergsbron i minst 5 kn
-  (ARCHITECTURE, spärren). NORDIC SOLA 107 → 174 s, LIDAN 138 → 206 s, LIANNE 157 → 227 s,
-  NAVEN 150 → 209 s; ingen varning före en kö i banken, fältet eller buggjägaren.
-  Konvojkostnaden (6 extra kort på 2 000 syntetiska världar, följaren får eget kort med
-  159–179 s) är redovisad för ägaren. Avgång ur kö 360–440 m från bron är känd gräns.
-  Kortets siffra (alternativ (b), U28): när regeln släpper varningen säger kortet regelns
-  egen restid i max(fart, 5 kn), dock aldrig mer än ETA-kedjans värde. Utan det sa kortet
-  väntans ETA vid avgångsfixet (fixturerna SWIX och AMELIA: 8 och 16 min mot cirka 3).
+  tidigt. En smal regel (d2) prövades, men granskningen SPARR-d2 visade att dess avgångsgren
+  (ett enda fix ur stillhet) varnade 10–20 min för tidigt när en båt ryckte fram i en kö före
+  Järnvägsbron (NICOLINE i 20260712-25h och syntetiska krypköer). Den tidigare raden här
+  ("ingen varning före en kö") var fel. Regeln är omgjord till bara ökning i gång: ett fix
+  högst 400 m före Järnvägsbron efter två fix i minst 1 kn, med minst 0,8 kn ökning över två
+  fix, räknar restiden till Stridsbergsbron i minst 5 kn. Den vinner BALTIC DREAM 107 → 186 s,
+  VISTEN 132 → 192 s och LIDAN 138 → 206 s, och 51–70 s mer åt MONIKA, LIANNE, NAVEN och
+  JAATTEN II. NORDIC SOLA (107 s), PRIMA LADY (117 s) och ORANESS (93 s) var avgångar och får
+  som förut. Känd kostnad: en båt som ökar i gång och sedan köar varnas 13–16 min för tidigt
+  (syntetiskt; inget fall i rådatan, där alla 13 utlösningar hos 8 båtar gick igenom). I
+  buggjägaren är utfallet som basen; den första versionens konvojkostnad (följare med eget
+  kort och mötande södergående båtar med kortare ledtid, alla minst 150 s) försvann med
+  avgångsgrenen. Kortets siffra (alternativ (b), U28) är regelns restid i max(fart, 5 kn),
+  uppåt till hel minut och aldrig mer än ETA-kedjans värde. Avvägningen går till ägaren
+  (S/omg2/rapporter/sparr-4.md). Avgång ur kö 360–440 m från bron är känd gräns.
 - *Omgång 2:* en fartökningsregel är mätt och omgjord och omgranskas; nya alternativ i 11.5.
 
 **F8. Besök vid en bro som aldrig tar slut**

@@ -8,17 +8,17 @@
  * släpper spärren därför att regeln räknar med att båten går i minst
  * EARLIER_BRIDGE_ACCEL_KN. Kortet får då inte i samma ögonblick säga ETA-kedjans
  * väntans-ETA. På 8ca8a61 (regeln utan kortets siffra) sa kortet 6 och 5 min i
- * LIDAN- och NAVEN-formen när bron öppnade om drygt 3, och fixturerna SWIX och
- * AMELIA (eta-wait-resume-recovery) 8 och 16 min mot cirka 2,5. Nu säger kortet
- * den lägsta av kedjans värde och regelns restid i max(fart, 5 kn).
+ * LIDAN- och NAVEN-formen när bron öppnade om drygt 3. Nu säger kortet den
+ * lägsta av kedjans värde och regelns restid i max(fart, 5 kn), uppåt till hel
+ * minut.
  *
- * Tre former med egna positioner (samma ben som i runSyntheticScenarios, F7):
- * gång med fartökning (LIDAN), kryp med fartökning (NAVEN) och avgång ur kö som
- * SWIX (stilla 480 m före Stridsbergsbron, ett fix i 1,9 kn och sedan 5,5 kn). I
- * alla tre ska varningen komma minst 150 s före den sanna korsningen och kortets
- * siffra ligga högst 0,75 min från den sanna restiden (avrundningen till hela
- * minuter är 0,5). Basen 8c60237 fäller alla tre (ledtid 138, 145 och 99 s),
- * och 8ca8a61 fäller siffran i alla tre (6 mot 3,3, 5 mot 3,0 och 4 mot 3,1 min).
+ * Två former med egna positioner (samma ben som i runSyntheticScenarios, F7):
+ * gång med fartökning (LIDAN) och kryp med fartökning (NAVEN). I båda ska
+ * varningen komma minst 150 s före den sanna korsningen och kortets siffra ligga
+ * högst 0,75 min från den sanna restiden (avrundningen till hela minuter är
+ * 0,5). Basen 8c60237 fäller båda (ledtid 138 och 145 s), och 8ca8a61 fäller
+ * siffran (6 mot 3,3 och 5 mot 3,0 min). Avgång ur stillhet omfattas inte av
+ * regeln efter granskningen SPARR-d2 (H1); den formen är borttagen här.
  */
 
 const path = require('path');
@@ -77,30 +77,6 @@ const FORMS = [
           },
           {
             toS: SB + 400, speedKn: 5.5, intervalS: 67, fixLagS: 20,
-          },
-        ],
-      }],
-    },
-  },
-  {
-    name: 'avgångsformen (stilla 480 m före bron, 1,9 kn, sedan 5,5 kn)',
-    scenario: {
-      seed: 5150,
-      vessels: [{
-        mmsi: '905150001',
-        startS: KB - 500,
-        legs: [
-          {
-            toS: SB - 480, speedKn: 3.5, intervalS: 67, fixLagS: 20,
-          },
-          {
-            stopS: 900, stopIntervalS: 67, stopSog: 0, fixLagS: 20,
-          },
-          {
-            toS: SB - 470, speedKn: 1.9, intervalS: 20, fixLagS: 20,
-          },
-          {
-            toS: SB + 400, speedKn: 5.5, intervalS: 67, fixLagS: 20, gapFromS: SB - 470, gapToS: SB - 465,
           },
         ],
       }],
