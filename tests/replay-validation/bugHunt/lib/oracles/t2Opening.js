@@ -59,6 +59,9 @@ const INTENT_MS = 120 * 60000;
 const FROZEN_FIX_MS = 19 * 60000;
 const LATE_LOOKBACK_MS = 10 * 60000; // en varning upp till 10 min efter sann passage hör till samma öppning
 const STOP_MIN_MS = 10 * 60000;
+// U38 (dirigentens beslut 2026-11-16): reserven för en tyst båt i kö går 5 min
+// efter sista fixen. Verktygets eget tal (granskningen 2026-11-16, M2).
+const { U38_RESERVE_MS } = gates;
 
 /** Medlemmar i en varning: mmsis, ledaren och konvojtäckning för samma eventId. */
 function membersOf(w, coverage) {
@@ -98,17 +101,6 @@ function explainT2(p, data, { ledtid = false, warnable = null } = {}) {
       klass: 'KÄND_ÖPPEN',
       varför: `korsningen ${Math.round((k.tc - u2.first.t) / 1000)} s efter händelsens första passage (${hms(u2.first.t)}, ${u2.first.mmsi}), inom CONVOY_WINDOW_MS; båten täckt av ${u2.w.eventId}`,
       eventId: u2.w.eventId,
-    };
-  }
-  // U2-VS-DEADLINE (ii), den fysiska öppningen (2026-11-16): samma definition
-  // som registrets predikat, i samma ordning.
-  const fys = konvoj.varnadFysiskÖppning(k, data);
-  if (fys.sant) {
-    return {
-      post: 'U2-VS-DEADLINE',
-      klass: 'KÄND_ÖPPEN',
-      varför: `fysisk öppning: ${fys.y.mmsi} korsade ${hms(fys.y.t)} inom CONVOY_WINDOW_MS, täckt av ${fys.w.eventId} som varnade ${hms(fys.w.t)}`,
-      eventId: fys.w.eventId,
     };
   }
   const j13 = konvoj.ickeMedlemEmellan(k, data);
@@ -401,7 +393,13 @@ function judgeT2T3(ctx) {
     // kö utan korsning eller vändning, fälls som förut.
     if (L0 && bucket === 'FANTOM' && p.klass === 'KAJVOBBEL') {
       const kö = L0.stops.find((x) => mem.has(x.mmsi) && x.kind !== 'moor' && x.t0 <= w.t && x.t1 >= w.t);
-      const sedan = kö && (L0.crossings.some((x) => x.bridge === w.bridge && x.mmsi === kö.mmsi && x.t >= w.t && x.t <= w.t + INTENT_MS)
+      // Varningen ska vara spärrens reserv i tystnad (granskningen 2026-11-16,
+      // M4): tidigast vid medlemmens sista mottagna rad + U38:s 5 min. En
+      // varning medan båten fortfarande hördes i kön är för tidig och fälls.
+      let sistaRad = null;
+      if (kö) for (const x of samples.get(String(kö.mmsi)) || []) if (x.aisTimestamp <= w.t) sistaRad = x;
+      const tyst = !!sistaRad && w.t - sistaRad.aisTimestamp >= U38_RESERVE_MS;
+      const sedan = kö && tyst && (L0.crossings.some((x) => x.bridge === w.bridge && x.mmsi === kö.mmsi && x.t >= w.t && x.t <= w.t + INTENT_MS)
         || L0.uturns.some((x) => x.mmsi === kö.mmsi && x.t >= w.t && x.t <= w.t + INTENT_MS));
       if (sedan) {
         räknare.T3['accepterade'][`${p.klass} (kö enligt L0)`] = (räknare.T3['accepterade'][`${p.klass} (kö enligt L0)`] || 0) + 1;

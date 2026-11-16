@@ -25,9 +25,12 @@
  * Tider är epok-ms. Funktionerna filtrerar själva på bron.
  */
 
-const C = require('../../../../lib/constants');
-
-const { CONVOY_WINDOW_MS } = C.BRIDGE_OPENING; // 600 s
+// U2:s fönster, 600 s (dig9; appens BRIDGE_OPENING.CONVOY_WINDOW_MS).
+// Verktygets eget tal (granskningen 2026-11-16, M2): ett ändrat värde i appen
+// ska inte flytta konvojsemantiken med sig. Vakttestet
+// __tests__/t-v1-granskning.test.js fäller om appens konstant avviker.
+const U2_FÖNSTER_MS = 600 * 1000;
+const CONVOY_WINDOW_MS = U2_FÖNSTER_MS;
 
 const same = (a, b) => a !== undefined && a !== null && b !== undefined && b !== null && String(a) === String(b);
 
@@ -201,40 +204,8 @@ function ickeMedlemEmellan({ mmsi, bro, tc }, {
   return { sant: false };
 }
 
-/**
- * U2:s "fysiska öppning" (2026-11-16, nattkorten F22 och F02 r2; triagens
- * avsnitt "En gemensam oraklegräns"): korsningen tc ligger i en öppning som
- * redan var varnad, fast båten inte var bunden till händelsen. En annan båt Y
- * korsade bron medan en levererad händelse w täckte henne, inom
- * CONVOY_WINDOW_MS från w:s första passage (Y hör till w:s öppning) och inom
- * CONVOY_WINDOW_MS från tc (samma öppning enligt U2, dig9); w gick minst
- * golvMs före tc; och w beskriver inte båtens egen passerade öppning (U15:
- * en retur i den är en egen öppning och ska ha egen varning). Ur användarens
- * synvinkel var öppningen varnad; om varje båt ändå ska ha sin egen varning
- * är U2-VS-DEADLINE:s öppna fråga, så posten förblir KÄND_ÖPPEN.
- * Händelserna prövas från den senaste bakåt.
- * @returns {{sant: boolean, w?: object, y?: object, first?: object}} utfall
- */
-function varnadFysiskÖppning({ mmsi, bro, tc }, {
-  varningar, korsningar, coverage, fönsterMs = CONVOY_WINDOW_MS, golvMs = 60000,
-}) {
-  for (const w of vid(varningar, bro, (x) => x.t <= tc - golvMs).reverse()) {
-    if (beskriverPasseradÖppning(w, { mmsi, bro, tc }, korsningar, coverage || [])) continue;
-    // Öppningen räknas från dess TIDIGASTE korsning (U2, dig9): Y är den
-    // första korsningen vid eller efter varningen av en annan båt som w
-    // täckte då, och båtens korsning ska ligga inom fönstret från den (före
-    // eller efter). En senare medlem nära båten räcker inte: ligger hon mer
-    // än fönstret efter den första är det en ny öppning (nattkorten F02 r3
-    // och F23 r2, där appens fönster ankrades i fel passage, ska förbli
-    // kandidater).
-    const y = (korsningar || []).find((x) => x.bridge === bro && !same(x.mmsi, mmsi) && x.t >= w.t
-      && täcktAv(w, x.mmsi, coverage, x.t).sant);
-    if (y && Math.abs(y.t - tc) <= fönsterMs) return { sant: true, w, y };
-  }
-  return { sant: false };
-}
-
 module.exports = {
+  U2_FÖNSTER_MS,
   CONVOY_WINDOW_MS,
   täcktAv,
   förstaPassage,
@@ -242,5 +213,4 @@ module.exports = {
   beskriverPasseradÖppning,
   inomHändelsefönster,
   ickeMedlemEmellan,
-  varnadFysiskÖppning,
 };

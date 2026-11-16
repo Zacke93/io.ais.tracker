@@ -425,7 +425,7 @@ saknar …" eller "stycket har bytt innehåll mot förväntan". Rätta så här:
    §7-tabellen (förkortade namn som `ARCHITECTURE:972–994` och fortsättningar) och den fullständiga formen
    `docs/ARCHITECTURE.md:972–994` var den än står. Kontrollsumman följer med oförändrad, eftersom texten är densamma.
 3. Har ett stycke skrivits om medvetet: läs det, rätta hänvisningen för hand och kvittera den nya texten med
-   `… foreslaKallrader.js --kvittera=POST` (`--kvittera=alla` bara när tabellen saknar summor).
+   `… foreslaKallrader.js --kvittera=POST[,POST]`. Det finns ingen kvittering av alla poster på en gång.
 4. Kör testet igen.
 
 Byt aldrig nyckelordet eller kvittera för att få testet grönt, om inte stycket verkligen skrivits om. Kod citeras med
@@ -438,6 +438,14 @@ en fortsättning i S10 som förut fick postens första startrad (nu sitt eget st
 nyckelordet och tog den närmaste träffen, och `--skriv` skrev förväntan efter förslaget, så att ett felval låste
 sig självt; kontrollen prövade bara att nyckelordet fanns i spannet. Infört 2026-11-16 vid sammanslagningen på
 `omg2/integration` (`57e4789`), kontrollsumman 2026-11-16 (V1).
+
+**Rättat efter granskningen av V1 (2026-11-16).** Kontrollsumman ensam räckte inte: `--skriv` bytte ett förslag i
+taget med sök-och-ersätt, och när en hänvisnings nya rad var en senare hänvisnings gamla byttes värdet två gånger
+(sju rader överst i `etapp7-plan` gav U16 ":22 (U1), :22 (U6)") medan kontrollen var grön. V1:s påstående att ett
+felval inte längre kunde låsa sig självt stämde alltså inte. Nu skriver `--skriv` alla förslag i ett pass (varje
+gammalt värde byts först mot en markör, sedan alla markörer mot de nya värdena), två förslag i samma post som
+pekar på samma nya stycke vägras, och kontrollen fäller samma hänvisning två gånger i ett fält och två tabellrader
+med samma nyckel. `--kvittera` kräver namngivna poster. Kontrollsumman räknar CRLF som LF.
 
 ### Besluten U34, U38 och U39 och verktygsomgången V1 (2026-11-16)
 
@@ -457,18 +465,23 @@ godtar ett utfall som det är och speglas här för motorn:
   persistenta spärrens stopp (`persistentDedupBlocks`); ren diagnostik, appens anropsväg är orörd.
 
 Verktygsomgången V1 lärde dessutom oraklen och registret besluten bakom ungefär arton av nattjaktens 25 kort, utan att
-röra appen (rad 61–77 nedan). Kortet för kortet står i omgångens resultat. De sju äkta felen ur triagen (F02 r3, F23
+röra appen (rad 61–77 nedan, med granskningens rättningar på rad 78–85). Kortet för kortet står i omgångens resultat. De sju äkta felen ur triagen (F02 r3, F23
 r2, F04, F12 r1/r2, F10 r3; F14 r1 är U39) står kvar som kandidater.
 
 **Kända gränser efter V1 (inte lösta):**
-- **Den fysiska öppningen (U2-VS-DEADLINE gren (ii)) är bred.** En båt som appen aldrig varnade godtas när en annan
-  båt i en händelse som varnade minst 60 s före hennes korsning korsade inom CONVOY_WINDOW_MS från henne. Ett fel i
-  hennes egen arm (en båt som borde ha fått en egen varning) syns då inte, så länge en sådan granne finns. Det är
-  ägarens öppna fråga i posten (räcker det att öppningen var varnad?), därför KÄND_ÖPPEN. Två jest-vakter som byggde
-  på principen "en otäckt båt är alltid KANDIDAT" (M04) prövar nu att gren (i) fortfarande kräver täckning och att en
-  otäckt båt mer än fönstret från grannen är KANDIDAT; standardvärld 1476 och kampanjvärld 1317 klassas om till gren
-  (ii). Öppningen räknas från dess tidigaste korsning av en annan täckt båt, så nattkorten F02 r3 och F23 r2 (äkta fel)
-  står kvar.
+- **Den fysiska öppningen förklaras inte.** V1:s gren (ii) i U2-VS-DEADLINE (en båt som appen inte band till
+  händelsen korsar inom fönstret från en annan båts korsning i en varnad händelse) togs bort efter granskningen:
+  appmutanten som tystar en andra händelse vid samma bro inom 20 min gav 1 351 nya kandidatutslag med basens
+  verktyg, och grenen kallade 646 av dem KÄND_ÖPPEN; i 176 av 443 drabbade världar syntes mutanten inte alls. Att skilja
+  ut fallen kräver att appen bokför sina förfallna, ovarnade armar, vilket den inte gör. Nattkorten F22 r1 och F02 r2
+  står därför kvar som KANDIDAT, och ägarens fråga (räcker det att öppningen var varnad?) är öppen.
+- **AVBRUTEN_APPROACH med köns stopp som avbrott (gammal lucka, granskningen 2026-11-16, M4).** Med spärren vid en
+  tidigare bro bortkopplad i appen varnades en kövärld 76 min före korsningen utan utslag, i basen och i V1: T3
+  godtar en AVBRUTEN_APPROACH när L0 visar ett stopp på minst 10 min, och kön själv är ett sådant stopp. V1:s
+  KAJVOBBEL-undantag kräver numera att varningen var reserven i tystnad (sista fixen + 5 min), men den äldre
+  AVBRUTEN_APPROACH-vägen är inte stängd; det kräver att avbrottet räknas efter varningen och inte kön som pågår.
+- **INV-14:s bärarprov** kan i teorin släppa en dold båt som ersätts av en ny båt med samma antalsord inom 5 min.
+  Stickproven (granskarens fem och rättarens fyra) visade inget sådant fall.
 - **En ensam båt som vänder och vars tid stiger innan vändningen bekräftats** (nattkort F01 r1, F21 r2) har ingen ny
   bärare och fälls av INV-3 som förut. Triagen rekommenderade att godta beteendet (D-lätt); det kräver ett beslut.
 - **F06 r2 (U18):** varningen vid returens nästa fix, när Fix D bekräftade vändningen under golvet före korsningen.
@@ -480,6 +493,9 @@ r2, F04, F12 r1/r2, F10 r3; F14 r1 är U39) står kvar som kandidater.
   område (U32), inte V1:s.
 - **U21-posten** mäter returkorsningen i L0 mot 10 min, appen mot sin interpolerade korsning; nära gränsen kan de
   skilja.
+- **U25 och R2 är som före V1.** V1:s vidgning av U25 (skattningsfelet) och R2:s villkor (c) (ingen målbro i appen)
+  togs bort efter granskningen: den första godtog ett skattningsfel av vilken storlek som helst, den andra använde
+  appens utdata som ursäkt för appen. Nattkorten F06 r3 och F09 r1–r3 står som KANDIDAT.
 
 ### Registerändringar att granska (rättningsrundan 2026-11-04)
 
@@ -552,7 +568,7 @@ Rad 1–17 och 19–22 rättar motorfel eller registrerar en mätgräns i ett be
 | 63 | INV-11 och INV-7 i `invariants.js` (2026-11-16, V1; F08 r1/r2, F15) | En notis som är ett legitimt returpassagesläpp (samma båt, bro och tick i visitReturnReleases) högst 10 min efter korsningen prövas mot U21 i stället för 400 m och 60 s; 10 km-taket står kvar. | U14/U21: returen släpps först när en senare fix bevisar den. Motfall: utan post, med domen bortre eller mer än 10 min sent fälls. |
 | 64 | `konvoj.täcktAv` (2026-11-16, V1; F23 r1) | Den senaste bindningen gäller: en senare fired- eller absorbed-rad i en annan händelse vid samma bro avslutar täckningen. | BRISEN släpptes ur Klaffbron#1 och fick egen varning #2 men räknades som #1:s första passage. |
 | 65 | `konvoj.egenKorsningEfter` och `beskriverPasseradÖppning` (2026-11-16, V1; F02 r2, F23 r3) | U15:s villkor (a)–(c) i stället för "varningen före egen korsning"; returens egen händelse (avfyrad efter passagen med henne som medlem) beskriver aldrig den passerade öppningen. | ARCHITECTURE U15: en händelse för en senare öppning täcker returen som vanligt. |
-| 66 | U2-VS-DEADLINE gren (ii), den fysiska öppningen (2026-11-16, V1; F22, F02 r2) | Se regeln; `konvoj.varnadFysiskÖppning`, delad med T2-oraklet. Fortfarande KÄND_ÖPPEN. | Triagens gemensamma oraklegräns; känd gräns ovan. |
+| 66 | U2-VS-DEADLINE gren (ii), den fysiska öppningen (2026-11-16, V1; F22, F02 r2) | **Borttagen efter granskningen (rad 78).** | Grenen svalde ett fel i båtens egen varning. |
 | 67 | T3:s bakåtblick (2026-11-16, V1; F07 r2/r3, F24) | En medlems korsning före varningen räknas också när en tidigare händelse täckte henne vid korsningen och varningen kom senast en tick efter den händelsens fönsterslut (via täckningsslutets kedja); utslaget blir VARNING-EFTER-SANN-PASSAGE, och O1 förklarar det inte. | U17-släppet 10–14 min efter passagen. Motfall: utan täckning eller efter fönsterslutet blir det FANTOM-UTAN-AVBROTT. |
 | 68 | T3 VARNING-PÅ-FRUSET-FIX (2026-11-16, V1; F11 r1) | Inget utslag när L0 visar medlemmen korsa 60 s–20 min efter varningen. | En rätt varnad köande båt. |
 | 69 | T3 FANTOM:KAJVOBBEL och FALSKLARM-AVBRUTEN-GLES (2026-11-16, V1; F19) | Tyst när L0 visar medlemmen i kö (inte förtöjd) vid varningen och sedan korsning eller vändning inom 120 min. | Kö, inte kajliggare. |
@@ -560,10 +576,18 @@ Rad 1–17 och 19–22 rättar motorfel eller registrerar en mätgräns i ett be
 | 71 | MÄTGRÄNS-INV10-VÄNTKEDJA (2026-11-16, V1; F18, U6) | Startvillkoret räknas från stillhetens första fix. | Väntan bekräftas vid andra stillafixen, 475 s efter den första. |
 | 72 | U1-C11-TYST-FÖRE-DEFAULT (2026-11-16, V1; F05 r3) | Kursen räknas inte under 0,5 kn. | En stilla köares kurs är brus. |
 | 73 | U17-TYST-BÅT-RECOVER och K-TYST-BÅT-NÄSTA-ÖPPNING (2026-11-16, V1; F25 r2/r3) | En dom i en annan händelse vid exakt absorptionens tid hör inte till E. | Släppet ur den förra händelsen och absorptionen i E sker i samma utvärdering. |
-| 74 | U25-BAKKANT-VID-SEN-BOKFÖRING (2026-11-16, V1; F06 r3) | Appens skattning av den sena första passagen före den sanna godtas när släppet följde appens fönster och hon korsade före motorns fönsterslut. | Utredarens fråga "varför matchade inte U25": motorn räknade fönstret ur den sanna korsningen, appen ur skattningen. |
+| 74 | U25-BAKKANT-VID-SEN-BOKFÖRING (2026-11-16, V1; F06 r3) | **Borttagen efter granskningen (rad 81).** | Skattningsfelet godtogs oavsett storlek. |
 | 75 | U18-RETUR-BEKRÄFTAD-SENT (2026-11-16, V1; F12 r3) | Gäller också T9 FEL-RIKTNING på en notis under Fix D:s debounce, när appen hade båten med målbro i varje text sedan vändningen. | ARCHITECTURE U18. F12 r1/r2 (ingen målbro, äkta fel) står kvar. |
 | 76 | U19, S10 och R2 (2026-11-16, V1; F07 r1, F10 r1/r2, F09) | U19: radion tystnade före bekräftelsen och L0 visar vändningen. S10: dubbelkorsning fram och tillbaka i samma glapp före besökets första fix. R2: villkor (c), ingen målbro i appen före F. | Triagens förslag; delegerade beslut U19, S10 och R2. |
 | 77 | Nya poster (2026-11-16, V1) | LEDARBYTE-TYST-FRÄMSTA (U34), U21-RETUR-EFTER-10-MIN (U21; F14 r2/r3) och U39-RETUR-EFTER-RADERING (U39; F14 r1). | Besluten ovan. |
+| 78 | U2-VS-DEADLINE (granskningen av V1, 2026-11-16, H1) | Gren (ii), den fysiska öppningen, borttagen ur `crossingWithinEventWindow`, `t2Opening.js#explainT2` och `konvoj.js`. | Appmutanten M1 (en andra händelse vid samma bro inom 20 min avfyras inte): 646 av 1 351 nya utslag KÄND_ÖPPEN. Riktning, ordning och ålder prövades inte, och appen bokför inga förfallna armar som skulle skilja fallen åt. |
+| 79 | `classifyMiss` STILLA_KÖ_AVGÅNG_OSEDD (H2) | Passagen ska ligga senast vid sista fixen + 5 min + en tick (förut + 210 s). Talen är verktygets egna (`runOpeningGates.js#U38_RESERVE_MS`). | Mutanten M7 (reserven 3 min sen) gav ingen varning i nattvärld 8967 och 0 utslag. |
+| 80 | U21-RETUR-EFTER-10-MIN och U39-RETUR-EFTER-RADERING (H3) | Varje saknad notis ska ha sin egen förklaring: antalet förklarade returer, var och en knuten till en bokförd passage, ska vara lika med INV-5:s underskott. U39:s spärr ska ligga vid den saknade passagens bokföring. | Ett underskott på två förklarades av en enda retur. |
+| 81 | U25-BAKKANT-VID-SEN-BOKFÖRING (H5) | V1:s vidgning (rad 74) borttagen; posten är som före V1. | Skattningsfelet 3, 6 eller 9 min större gav fortfarande ACCEPTERAD; U25 stod inte på beslutslistan. |
+| 82 | U18 T9-grenen (H4), MÄTGRÄNS-INV10-VÄNTKEDJA (H6), LEDARBYTE-TYST-FRÄMSTA (H7) | U18: ingen riktningshändelse efter vändningen och senast vid notisen. INV10: stillheten gäller bara den båt som bar 'strax'. U34 (c): uttömningens stämpel satt och positionen äldre än 300 s. | F12 r3 med en reset före notisen var DESIGN; en annan stilla båt gav MÄTGRÄNS; mutanten M3b (ledarbyte efter 90–300 s tystnad) gav ACCEPTERAD. |
+| 83 | R2-MÅLBRO-EFTER-LINJEN (medel) | Villkor (c) borttaget; posten är som före V1. | (c) använde appens utdata som ursäkt för appen. |
+| 84 | FALSKLARM-AVBRUTEN-GLES, KAJVOBBEL (medel) | Undantaget kräver att varningen kom tidigast vid medlemmens sista rad + 5 min (reserven i tystnad). | Utan det vilade undantaget på den gamla AVBRUTEN_APPROACH-luckan (känd gräns ovan). |
+| 85 | Invarianten SEN RETURNOTIS och verktygets egna tal (medel) | `invariants.js` fäller ett returpassagesläpp med `latenessMs` över U21:s 10 min. U21:s 10 min, U2:s 600 s, U38:s 5 min, tick 30 s och tystnadsgrenarnas 300/600 s är verktygets egna konstanter; `__tests__/t-v1-granskning.test.js` fäller om appens konstanter avviker. | Mutanten M5 (appens U21-gräns + 15 min) gav en notis 754 s sent och 1 760 m bort utan utslag. |
 
 **Valet för M12, per post** (flytta vakten till registret eller märka posten):
 - **KAJGRIND-UTAN-RÖRELSEBEVIS: märkt.** T1:s förutsättning 3 (`t1Notice.js#judgeT1`, rörelsebeviset med MOVE_KN) dömer inget besök utan en fix med sog ≥ 1,0 kn i [tIn − 10 min; max(tOut, första fixen)] och räknar dem i `utanRörelsebevis`. Registrets fönster skilde bara med högst 120 s i svansen. Att flytta vakten till registret hade gjort varje kajliggare till ett rått T1-utslag.
@@ -1181,7 +1205,7 @@ Katalogen återges ur byggunderlaget med regler, trösklar och falsklarmsvakter.
 - **Regel:** För varje L1-punktobserverbar målbrokorsning (Klaffbron, Stridsbergsbron) körs runOpeningGates.analyseCoverage med resultatet (eventId i namnrymd), världens rader via loadSamples och L1-punktgt. Korsningen är täckt om båten var medlem i en varning, eller absorberad i openingCoverage före korsningen, utan någon mellanliggande punktobserverbar passage. Om korsningen inte är täckt körs classifyMiss på världens rader. Om den är täckt beräknas ledtiden som sann L0-korsning − varningens t.
 - **Tröskel:** OKLASSAD ger KANDIDAT med allvar 5. Täckt med ledtid < 60 s ger KANDIDAT LEDTID<60s; 60 s är det hårda golvet enligt etapp7-plan C-IV och runOpeningGates ledtidsgolv. Ledtid 60–150 s ger räknaren ’tunn’. För enbåtsvärldar (kanarier) gäller golvet max(60 s; WARNING_LEAD_MS − TICK_INTERVAL_MS − kadens − 10 s), alltså 110 s vid 30 s kadens och 80 s för klass B med 60 s kadens. Uppmätt ledtid vid Stridsbergsbron norrut: 132–160 s.
 - **Falsklarmsvakt:** Accepterade missklasser är tysta (O1-ACCEPTERADE-MISSKLASSER): TYST_I_HORISONTEN, FÖRST_SEDD_FÖR_NÄRA (< 210 s), SNABBARE_ÄN_DEADLINE_TAKET (> 10 kn), RÖRELSEBEVIS_FÖR_SENT och RIKTNINGSBEVIS_FÖR_SENT. Bara punktobserverbara L1-korsningar skickas in, även för andra båtar, eftersom exakt sanning för osedda korsningar gav falska OKLASSAD. U2-VS-DEADLINE → KÄND_ÖPPEN när båten var täckt av en äldre händelse (medlem, ledare eller absorberad före korsningen) och korsningen ligger inom [händelsens första passage; + CONVOY_WINDOW_MS], där den första passagen är en annan båts (etapp7-plan C-IV: garantin förfaller medan båten är täckt). J13-J14-KONVOJSEMANTIK → KÄND_ÖPPEN när en båt utanför en händelse som täckte båten korsade mellan varningen och passagen, och händelsen fortfarande var öppen enligt medlemskravet (ingen täckt båt passerade mer än CONVOY_WINDOW_MS före; ARCHITECTURE §9, runda 2, och J14). Ingen av dem förklarar en returresa: har båten själv korsat bron efter händelsens varning är returen en egen öppning (U15), och U2-RETURRESA är borttagen (registret 2026-11-07, §7 rad 23). Definitionerna finns i `lib/konvoj.js` och delas av oraklets förklaring och registrets predikat; oraklet prövar dem i registrets ordning (§6, M04 och triagens T-2). Världar med stresstäthet redovisas i en egen sektion.
-- **V1 (2026-11-16):** förklaringarna följer konvojsemantikens rättningar: den senaste bindningen gäller i "täckt av händelsen", returen prövas mot U15:s villkor (a)–(c), och U2-VS-DEADLINE har grenen den fysiska öppningen (`konvoj.varnadFysiskÖppning`, §7). Ny accepterad missklass STILLA_KÖ_AVGÅNG_OSEDD (U38, `runOpeningGates.js#unseenQueueDeparture`).
+- **V1 (2026-11-16):** förklaringarna följer konvojsemantikens rättningar: den senaste bindningen gäller i "täckt av händelsen", och returen prövas mot U15:s villkor (a)–(c). (Grenen "fysisk öppning" i U2-VS-DEADLINE togs bort efter granskningen, §7 rad 78.) Ny accepterad missklass STILLA_KÖ_AVGÅNG_OSEDD (U38, `runOpeningGates.js#unseenQueueDeparture`).
 - **v1:** byggt (`oracles/t2Opening.js`). LEDTID<60s prövar båtens varningsbarhet med classifyMiss; en båt som inte var varningsbar är ACCEPTERAD via O1. Filens två jämförelser mellan varningens tid och medlemmarnas rader (avbrottsfönstret och VARNING-PÅ-FRUSET-FIX) hör till T3; se där om tidslika rader (E6).
 
 ### T3 FANTOMVARNING MOT AVSIKT
@@ -1190,7 +1214,7 @@ Katalogen återges ur byggunderlaget med regler, trösklar och falsklarmsvakter.
 - **Tröskel:** Klasserna KAJVOBBEL, UTANFÖR_HORISONTEN, INGA_SAMPEL_FÖRE, OFÖRKLARAD_TIDIGHET, FANTOM-UTAN-AVBROTT och VARNING-PÅ-FRUSET-FIX ger KANDIDAT med allvar 4.
 - **Falsklarmsvakt:** AVBRUTEN_APPROACH och GLES_ANFLYGNING är ACCEPTERADE (runOpeningGates classifyPhantom; tystnad avväpnar aldrig), men bara när L0 bekräftar avbrottet. DEADLINE-10KN-GARANTIPRIS: sena passager med veff < 10 kn är garantins pris (helgranskning 2026-11-03). Båda tillämpas i oraklet och i runOpeningGates, och registerposterna har verkan iOraklet (§7, M12). FIXD-SLINGA → KÄND_ÖPPEN vid minst 2 vändningar på minst 150 m inom 60 min (ARCHITECTURE §9, helgranskning 2026-11-03). Klassen fryst arm rättades i etapp 7 (etapp7-plan C-IV, C7b/F-4), så ett återfall är en kandidat, inte ett känt fall.
 - **v1:** byggt. Avbrottet räknas från medlemmens senaste observerade fix. Ny klass VARNING-EFTER-SANN-PASSAGE (allvar 4): en varning upp till 10 min efter att en medlem enligt L0 passerat bron.
-- **V1 (2026-11-16):** bakåtblicken för VARNING-EFTER-SANN-PASSAGE når också längre bakåt när en tidigare händelse täckte medlemmen vid korsningen och varningen kom senast en tick efter den händelsens fönsterslut, max(varningen, bokförd första passage) + CONVOY_WINDOW_MS (armens täckningsslut utan bokföring), också genom en kedja av återabsorptioner vid täckningsslutet. Utslaget bär då `belägg.bakåtblick: 'täckningsslut'`, och O1 förklarar det inte; U17-posten prövar det (nattkort F07 r2/r3, F24). VARNING-PÅ-FRUSET-FIX fäller inte när medlemmen enligt L0 korsar bron 60 s–20 min efter varningen (F11 r1). FANTOM:KAJVOBBEL är tyst när L0 visar medlemmen i kö (inte förtöjd) vid varningen och sedan korsning eller vändning inom 120 min (F19).
+- **V1 (2026-11-16):** bakåtblicken för VARNING-EFTER-SANN-PASSAGE når också längre bakåt när en tidigare händelse täckte medlemmen vid korsningen och varningen kom senast en tick efter den händelsens fönsterslut, max(varningen, bokförd första passage) + CONVOY_WINDOW_MS (armens täckningsslut utan bokföring), också genom en kedja av återabsorptioner vid täckningsslutet. Utslaget bär då `belägg.bakåtblick: 'täckningsslut'`, och O1 förklarar det inte; U17-posten prövar det (nattkort F07 r2/r3, F24). VARNING-PÅ-FRUSET-FIX fäller inte när medlemmen enligt L0 korsar bron 60 s–20 min efter varningen (F11 r1). FANTOM:KAJVOBBEL är tyst när L0 visar medlemmen i kö (inte förtöjd) vid varningen, varningen kom tidigast vid hennes sista rad + 5 min (reserven i tystnad) och hon sedan korsade eller vände inom 120 min (F19).
 - **Tidslika rader (analyserat 2026-11-04, runda 2, E6; inte ändrat):** avbrottsfönstret (`lastSeenFixTs`) och VARNING-PÅ-FRUSET-FIX tar med en rad på exakt varningens tid (`<=`), och det är rätt för de varningar där tidslikheten förekommer. En fix-varning (firedBy 'fix') går ut medan raden som utlöste den matas in, så den raden hade appen. En deadline-varning går ut i klockstegningen före nästa rad, men har nästan aldrig en rad på exakt sin tid. Sonden i standardens 2 000 världar (se T1) gav följande.
   - Av 11 866 levererade varningar var 2 844 fix-utlösta och 9 022 deadline-utlösta. 2 352 medlemsrader hade exakt varningens tid. 2 351 av dem hörde till fix-varningar (2 350 var ledarens egen rad, en var en täckt medlems), och i 2 347 av de fallen var raden världens enda rad på den tiden.
   - Den enda deadline-varningen med tidslik rad ändrade inget utfall: fixen före var 300 s gammal, och varningen prövades inte mot något avbrott.

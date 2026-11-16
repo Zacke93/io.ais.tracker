@@ -3,8 +3,8 @@
 /**
  * V1 (2026-11-16): registerposterna för nattjaktens kort. Nya poster för
  * dirigentens beslut U34 och U39 (på ägarens uppdrag) och U21, och vidgade
- * predikat inom U1-C11, U6 (MÄTGRÄNS-INV10-VÄNTKEDJA), U17, U25, U18, U19,
- * S10 och R2. Varje ändring har [träff] ur nattens representant och [vakt]:
+ * predikat inom U1-C11, U6 (MÄTGRÄNS-INV10-VÄNTKEDJA), U17, U18, U19 och
+ * S10 (U25:s och R2:s vidgningar togs bort efter granskningen). Varje ändring har [träff] ur nattens representant och [vakt]:
  * samma värld med det som skiljer beslutet från ett äkta fel ändrat, som
  * ska förbli KANDIDAT. Fixturen: fixtures/natt-v1-2026-11-16.json (nattV1.js).
  * Inga barnprocesser och inga timers.
@@ -115,14 +115,6 @@ describe('vidgade predikat inom fattade beslut', () => {
     expect(post(f, c)[0]).toBe('KANDIDAT');
   });
 
-  test('[träff] U25 (F06 r3): appens skattning 99 s för tidig; [vakt] släppet före appens eget fönsterslut', () => {
-    const { f, ctx } = fall('F06-r3', /^T3 VARNING-EFTER-SANN-PASSAGE/);
-    expect(post(f, ctx)).toEqual(['ACCEPTERAD', 'U25-BAKKANT-VID-SEN-BOKFÖRING']);
-    const c = kopia(ctx);
-    for (const v of c.resultat.openingCoverageVerdicts) if (v.verdict.kind === 'bakkant') v.verdict.windowEndMs = v.verdict.arrivalMs + 60000;
-    expect(post(f, c)[0]).toBe('KANDIDAT');
-  });
-
   test('[träff] U18 (F12 r3): notisen under Fix D:s debounce; [vakt] F12 r1/r2 utan målbro, och en andra omvänd fix före notisen', () => {
     const { f, ctx } = fall('F12-r3', /^T9 FEL-RIKTNING/);
     expect(post(f, ctx)).toEqual(['DESIGN', 'U18-RETUR-BEKRÄFTAD-SENT']);
@@ -162,15 +154,6 @@ describe('vidgade predikat inom fattade beslut', () => {
     // Bara utpassagen i glappet, ingen korsning tillbaka: båten ligger på andra sidan.
     const sista = egna[egna.length - 1].t;
     c.sanning.crossings = c.sanning.crossings.filter((k) => !(String(k.mmsi) === String(f.mmsi) && k.bridge === f.bro && k.t === sista));
-    expect(post(f, c)[0]).toBe('KANDIDAT');
-  });
-
-  test('[träff] R2 (c) (F09 r1): ingen målbro i appen före bron; [vakt] samma båt med målbro i en text före bron', () => {
-    const { f, ctx } = fall('F09-r1', /^INV-F INV-13/);
-    expect(post(f, ctx)).toEqual(['DESIGN', 'R2-MÅLBRO-EFTER-LINJEN']);
-    const c = kopia(ctx);
-    const t = c.resultat.bridgeTextLeads.find((x) => x.t < f.t);
-    t.vessels = [...(t.vessels || []), { mmsi: String(f.mmsi), targetBridge: 'Stridsbergsbron', waitingAt: null }];
     expect(post(f, c)[0]).toBe('KANDIDAT');
   });
 });

@@ -42,7 +42,7 @@ const path = require('path');
 const { openingDeliveryFailures } = require('./openingDelivery');
 const corpora = require('./corpora');
 const {
-  BRIDGES, TARGET_BRIDGES, BRIDGE_OPENING, MOORING_DETECTION, QUAY_DEPARTURE_GATE, STATUS_HYSTERESIS, UI_CONSTANTS,
+  BRIDGES, TARGET_BRIDGES, BRIDGE_OPENING, MOORING_DETECTION, QUAY_DEPARTURE_GATE, STATUS_HYSTERESIS,
 } = require('../../lib/constants');
 const geometry = require('../../lib/utils/geometry');
 const { isNorthCog, isSouthCogStrict } = require('../../lib/utils/cogDirection');
@@ -396,6 +396,16 @@ function stillnessStay(inHorizon) {
   };
 }
 
+// Beslutade tal som verktyget äger själv (granskningen 2026-11-16, M2): ett
+// ändrat värde i lib/constants.js ska inte flytta oraklet med sig. Ett
+// jest-test (bugHunt/__tests__/t-v1-granskning.test.js) fäller om appens
+// konstanter avviker.
+// U38 (dirigentens beslut 2026-11-16 på ägarens uppdrag): reserven för en
+// tyst båt i kö går 5 min efter sista fixen (appens STALE_ETA_SOFT_THRESHOLD_MS),
+// och appen prövar den på ticken (TICK_INTERVAL_MS, 30 s).
+const U38_RESERVE_MS = 5 * 60 * 1000;
+const U38_TICK_MS = 30 * 1000;
+
 /**
  * STILLA_KÖ_AVGÅNG_OSEDD (2026-11-16, buggjägarens nattkort F02 r1/F06 r1;
  * dirigentens beslut U38 på ägarens uppdrag: reservvarningen för en tyst båt
@@ -413,9 +423,9 @@ function stillnessStay(inHorizon) {
  *     (inte Stallbackabron, som spärren inte räknar), på tillfartssidan i
  *     passagens riktning (bridgeQueue.beforeBridge), och den bron ligger före
  *     målbron i färdriktningen;
- *   - passagen kom före sista fixen + STALE_ETA_SOFT_THRESHOLD_MS +
- *     MIN_WARNABLE_MS: reserven kunde inte ge full ledtid. En senare passage är
- *     OKLASSAD (reserven borde ha gått), liksom en båt som hördes i rörelse.
+ *   - passagen kom senast vid sista fixen + 5 min (U38) + en tick, innan
+ *     reserven kunde gå. En senare passage är OKLASSAD (reserven borde ha gått
+ *     och gav en varning), liksom en båt som hördes i rörelse.
  * Infört 2026-11-16 (V1). Triagen: S/omg2 natt-triage-r0 §1a, värld 3866.
  * @param {object} passage - {t, bridge, dir, inferred}
  * @param {object[]} inHorizon - {s, d, prev} i tidsordning
@@ -446,11 +456,15 @@ function unseenQueueDeparture(passage, inHorizon) {
     .filter((x) => Number.isFinite(x.d) && x.d <= STATUS_HYSTERESIS.WAITING_CLEAR_DISTANCE)
     .sort((a, b) => a.d - b.d)[0];
   if (!queueAt) return null;
-  const reserveMs = last.aisTimestamp + UI_CONSTANTS.STALE_ETA_SOFT_THRESHOLD_MS;
-  if (!(passage.t < reserveMs + MIN_WARNABLE_MS)) return null;
+  // Reserven går vid sista fixen + U38:s 5 min, senast en tick senare. En
+  // passage efter det skulle ha fått reservens varning; uteblev den är det
+  // ett fel i spärren, inte priset (granskningen 2026-11-16, mutanten med
+  // reserven 3 min sen: förut godtogs passager upp till reserven + 210 s).
+  const reserveMs = last.aisTimestamp + U38_RESERVE_MS;
+  if (!(passage.t <= reserveMs + U38_TICK_MS)) return null;
   return `stilla i kö ${Math.round(queueAt.d)} m före ${queueAt.b.name} från ${iso(first.aisTimestamp)} till sista fixen `
     + `${iso(last.aisTimestamp)} (${n} fixar, sog < ${MOVE_SOG_KN} kn), avgången osedd; passagen ${secs(passage.t - last.aisTimestamp)} `
-    + `efter sista fixen, före reserven (sista fixen + ${mins(UI_CONSTANTS.STALE_ETA_SOFT_THRESHOLD_MS)}) + ${secs(MIN_WARNABLE_MS)} (U38)`;
+    + `efter sista fixen, före reserven (sista fixen + ${mins(U38_RESERVE_MS)}) + en tick (U38)`;
 }
 
 /**
@@ -2422,6 +2436,8 @@ if (require.main === module) {
 }
 
 module.exports = {
+  U38_RESERVE_MS,
+  U38_TICK_MS,
   gtTargetPassages,
   classifyMiss,
   stillnessStay,

@@ -63,11 +63,14 @@
 // Etapp 6: armens maximala livslängd efter sitt sista fix. INV-21 använder
 // den som fönster — en öppningsvarning kan aldrig vila på en observation
 // äldre än så, och en passage längre bakåt tillhör därför en ANNAN resa.
-const { BRIDGE_OPENING, UI_CONSTANTS } = require('../../lib/constants');
+const { BRIDGE_OPENING } = require('../../lib/constants');
 
 // U21 (dirigentens beslut 2026-11-05, ARCHITECTURE "Returpassagen"): en
 // returnotis släpps högst så här långt efter den interpolerade korsningen.
-const U21_RETURN_MAX_LATENESS_MS = UI_CONSTANTS.STALE_ETA_HARD_THRESHOLD_MS;
+// Invariantens eget tal (granskningen 2026-11-16, M2): ett ändrat värde i
+// appens STALE_ETA_HARD_THRESHOLD_MS ska fällas, inte flytta gränsen med sig.
+// Vakttestet bugHunt/__tests__/t-v1-granskning.test.js jämför dem.
+const U21_RETURN_MAX_LATENESS_MS = 10 * 60 * 1000;
 
 const COUNT_WORDS = '(En|Två|Tre|Fyra|Fem|Sex|Sju|Åtta|Nio|Tio|[2-9]\\d?)';
 const TARGET = '(Klaffbron|Stridsbergsbron)';
@@ -267,7 +270,18 @@ function validateInvariants(result) {
         `FALSKT RETURSLÄPP: ${r.mmsi}:${r.bridge} ${new Date(r.t).toISOString()} — båten lämnade `
         + 'bron på bortre sidan, ingen verklig passage tillbaka',
       );
-    } else if (r && r.verdict === 'för tidig') {
+    }
+    // U21 (granskningen 2026-11-16, medel M1): ett returpassagesläpp som kom
+    // mer än 10 min efter korsningen är en notis som beslutet säger inte ska
+    // skickas ("passerade … under AIS-tystnad" 754 s sent och 1 760 m bort
+    // under en mutant av appens gräns). Förut fällde ingen invariant det.
+    if (r && Number.isFinite(r.latenessMs) && r.latenessMs > U21_RETURN_MAX_LATENESS_MS) {
+      violations.push(
+        `SEN RETURNOTIS: ${r.mmsi}:${r.bridge} ${new Date(r.t).toISOString()} — returpassagesläppet kom `
+        + `${Math.round(r.latenessMs / 1000)} s efter korsningen, mer än U21:s ${U21_RETURN_MAX_LATENESS_MS / 1000} s`,
+      );
+    }
+    if (r && r.verdict === 'för tidig') {
       violations.push(
         `FÖR TIDIGT RETURSLÄPP: ${r.mmsi}:${r.bridge} ${new Date(r.t).toISOString()} — båten låg inte `
         + 'entydigt på ankomstsidan vid släppet eller inom 60 s efter, eller stannade inte där',
@@ -1235,4 +1249,4 @@ function validateWarnInvariants(result, gtPassagesArg = null, opts = {}) {
   return warnings;
 }
 
-module.exports = { validateInvariants, validateWarnInvariants };
+module.exports = { U21_RETURN_MAX_LATENESS_MS, validateInvariants, validateWarnInvariants };

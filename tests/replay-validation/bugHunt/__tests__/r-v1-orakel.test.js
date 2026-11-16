@@ -125,10 +125,11 @@ describe('INV-11 och INV-7: returpassagesläppet prövas mot U21:s 10 min (F08, 
 });
 
 // ---------------------------------------------------------------------------
-// Konvojsemantiken: senaste bindningen, U15 och den fysiska öppningen
+// Konvojsemantiken: senaste bindningen och U15 (den fysiska öppningen togs
+// bort efter granskningen, se t-v1-granskning.test.js)
 // ---------------------------------------------------------------------------
 
-describe('konvoj: senaste bindningen, U15 (a)–(c) och den fysiska öppningen', () => {
+describe('konvoj: senaste bindningen och U15 (a)–(c)', () => {
   const T = Date.UTC(2026, 6, 1, 10, 0, 0);
   const w1 = {
     eventId: 'K#1', bridge: 'Klaffbron', t: T, mmsis: ['265000001'], leadMmsi: '265000001', etaMin: 8,
@@ -177,26 +178,9 @@ describe('konvoj: senaste bindningen, U15 (a)–(c) och den fysiska öppningen',
     expect(konvoj.beskriverPasseradÖppning(egen, { mmsi: X, bro: 'Klaffbron', tc: T + 8 * MIN }, [k(X, 4)], [])).toBeNull();
   });
 
-  test('[träff] F22 r1 och F02 r2: den fysiska öppningen (U2-VS-DEADLINE gren ii)', () => {
-    expect(sammanfattning(döm('F22-r1').fynd)).toEqual([['T2 LEDTID<60s', 'KÄND_ÖPPEN', 'U2-VS-DEADLINE']]);
-    expect(utslag(döm('F22-r1').fynd, /^T2/).register.skäl).toMatch(/^fysisk öppning: 265797765 korsade 07:56:12, 136 s från/);
-    expect(sammanfattning(döm('F02-r2').fynd)).toEqual([['T2 ÖPPNING-MISS:OKLASSAD', 'KÄND_ÖPPEN', 'U2-VS-DEADLINE']]);
-  });
-
   test('[vakt] de äkta felen F02 r3 och F23 r2 (fönstret ankrat i fel passage) står kvar som KANDIDAT', () => {
     expect(sammanfattning(döm('F02-r3').fynd)).toEqual([['T2 ÖPPNING-MISS:OKLASSAD', 'KANDIDAT', null]]);
     expect(sammanfattning(döm('F23-r2').fynd)).toEqual([['T2 ÖPPNING-MISS:OKLASSAD', 'KANDIDAT', null]]);
-  });
-
-  test('[vakt] F22 r1 med grannens händelse avfyrad under 60 s före korsningen: KANDIDAT', () => {
-    const { fynd } = döm('F22-r1', {
-      mutera: (r) => {
-        const t = iso('2026-07-24T07:53:56.000Z') - 30000;
-        for (const w of r.openingWarnings.filter((x) => x.eventId === 'Stridsbergsbron#5')) w.t = t;
-        for (const c of r.openingCoverage.filter((x) => x.eventId === 'Stridsbergsbron#5')) c.t = Math.max(c.t, t);
-      },
-    });
-    expect(utslag(fynd, /^T2 LEDTID/).register.klass).toBe('KANDIDAT');
   });
 
   test('[träff] F23 r1 (senaste bindningen) och F23 r3 (U15 b: referensen 609 s från passagen) är U2-VS-DEADLINE', () => {
