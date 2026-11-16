@@ -316,14 +316,41 @@ describe('F07: klampen och en osedd Fix G-baslinje (enhet)', () => {
     expect(app._reconcilePublishedETA(u, 5)).toBeCloseTo(11.25, 5);
   });
 
-  test('G2: en rendering äldre än fönstret (31 s) räknas inte — det levande värdet gäller', () => {
+  // Granskning 4: det renderade värdet gäller tills nästa rendering, högst
+  // två fönster (60 s). UI-ticken har samma period som fönstret, så en tick
+  // som kommer 0–50 ms efter 30 s får inte tappa skyddet.
+  const g2At = (ageMs) => {
     const l = other({ mmsi: '265000001', etaMinutes: 15 });
     app._rememberRenderedLeads([l]);
-    Date.now.mockReturnValue(now + 31000);
+    Date.now.mockReturnValue(now + ageMs);
     l.etaMinutes = 12;
     const u = rear({ mmsi: '265000002' });
     others = [l, u];
-    expect(app._reconcilePublishedETA(u, 5)).toBeCloseTo(9, 5);
+    return app._reconcilePublishedETA(u, 5);
+  };
+  test.each([0, 1, 2, 50])('G2: tick %i ms efter 30 s — det renderade 15 gäller fortfarande (11,25)', (lag) => {
+    expect(g2At(30000 + lag)).toBeCloseTo(11.25, 5);
+  });
+  test.each([29999, 30000, 30001])('G2: %i ms — det renderade 15 gäller (11,25)', (age) => {
+    expect(g2At(age)).toBeCloseTo(11.25, 5);
+  });
+  test.each([59999, 60000])('G2: %i ms — fortfarande inom två fönster, det renderade gäller (11,25)', (age) => {
+    expect(g2At(age)).toBeCloseTo(11.25, 5);
+  });
+  test('G2: 60 001 ms — renderingen har gått ut, det levande 12 gäller (9)', () => {
+    expect(g2At(60001)).toBeCloseTo(9, 5);
+  });
+
+  test('G2: en ny rendering ersätter den gamla (15 → 12) och dess ålder räknas från den', () => {
+    const l = other({ mmsi: '265000001', etaMinutes: 15 });
+    app._rememberRenderedLeads([l]);
+    Date.now.mockReturnValue(now + 50000);
+    l.etaMinutes = 12;
+    app._rememberRenderedLeads([l]);
+    Date.now.mockReturnValue(now + 100000);
+    expect(app._renderedLeadEta('Klaffbron')).toBe(12);
+    Date.now.mockReturnValue(now + 110001);
+    expect(app._renderedLeadEta('Klaffbron')).toBeNull();
   });
 
   test('G2: renderingen sparar ingenting för en bro utan giltig ledare', () => {

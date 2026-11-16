@@ -2555,8 +2555,10 @@ publiceringen, köer vid en tidigare bro och zombier leder inte):
 - Ligger den UNDER det visade värdet dämpas hon mot brogruppens gemensamma
   referens (`_unseenGroupReference`). Fönstret är RC4:s 30 s. Basen är det
   visade ledarvärdet när den första sänkningen i fönstret skedde — det senast
-  RENDERADE (`_rememberRenderedLeads`, högst ett fönster gammalt), annars det
-  levande. Golvet är det högsta av två:
+  RENDERADE (`_rememberRenderedLeads`; det gäller tills nästa rendering för
+  bron ersätter det, dock högst två fönster, eftersom UI-ticken har samma
+  period som fönstret och renderingen vid tickgränsen ofta är 30,0x s gammal),
+  annars det levande. Golvet är det högsta av två:
   - fönstrets golv, bas − max(3, 0,25 · bas);
   - golvet för det värde som visas NU (det högsta av levande och renderat),
     nu − max(3, 0,25 · nu).
@@ -2572,6 +2574,12 @@ publiceringen, köer vid en tidigare bro och zombier leder inte):
     öppnades fönstret på det levande 12 och den osedda båten fick 9, så texten
     gick 15 → 9 på ett tick; nu är basen det renderade 15 och golvet 11,25
     (G2).
+
+  *Godtagen avvägning (granskning 4):* sjunker ledaren SJÄLV inom fönstret
+  (till exempel 15 → 9) håller fönstrets golv 11,25 den osedda båten dold,
+  fast en ensam båt som visar 9 hade fått gå till 6. Golvet kan alltså bli
+  högre än för en ensam båt med det nu visade värdet, aldrig lägre — det
+  pessimistiska hållet. Det varar högst fönstret ut (30 s).
 - Men bara om fixet går ihop med båtens egen rörelse (`_fixKinematics`):
   förflyttningen sedan förra fixet (fixtiderna, `_prevFixSample` i
   VesselDataService) delad med den största fart båten rapporterade i de två

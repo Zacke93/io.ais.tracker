@@ -227,6 +227,9 @@ const ETA_CLAMP_RELEASE_DISTANCE_M = UNDER_BRIDGE_CLEAR_DISTANCE;
 // F07 (granskning 2, A): brogruppens fönster för sänkningar från osedda båtar —
 // samma 30 s som RC4:s burstskydd i _reconcilePublishedETA.
 const UNSEEN_GROUP_WINDOW_MS = 30000;
+// Granskning 4: det renderade ledarvärdets längsta giltighet — två fönster, så
+// att en UI-tick som kommer några ms efter 30 s inte tappar G2-skyddet.
+const RENDERED_LEAD_MAX_AGE_MS = 2 * UNSEEN_GROUP_WINDOW_MS;
 // Klampens steg för ett visat värde (RC4): max(3, 0,25 · värdet).
 const unseenMaxDelta = (shown) => Math.max(3, 0.25 * shown);
 // Inversen: det visade värde vars klampsteg landar på golvet.
@@ -5975,9 +5978,13 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
-   * F07 (granskning 3, G2): det senast renderade ledarvärdet för målbron, om
-   * renderingen är högst ett gruppfönster gammal; annars null (då gäller det
-   * levande värdet).
+   * F07 (granskning 3, G2; granskning 4): det senast renderade ledarvärdet
+   * för målbron. Det gäller tills nästa rendering ersätter eller raderar det
+   * (_rememberRenderedLeads skriver vid varje generering som visas), dock
+   * högst RENDERED_LEAD_MAX_AGE_MS — så att ett värde från en text som inte
+   * längre genereras inte lever kvar. Gränsen är två fönster, inte ett:
+   * UI-ticken har samma period som fönstret (30 s), och vid tickgränsen är
+   * renderingen ofta 30,0x s gammal. Annars null (då gäller det levande).
    * @param {string} target
    * @returns {number|null}
    * @private
@@ -5986,7 +5993,7 @@ class AISBridgeApp extends Homey.App {
     const rec = this._renderedLeadEtas && this._renderedLeadEtas.get(target);
     if (!rec) return null;
     const age = Date.now() - rec.atMs;
-    return age >= 0 && age <= UNSEEN_GROUP_WINDOW_MS ? rec.eta : null;
+    return age >= 0 && age <= RENDERED_LEAD_MAX_AGE_MS ? rec.eta : null;
   }
 
   /**
@@ -6485,6 +6492,7 @@ class AISBridgeApp extends Homey.App {
       // ENHANCED: Update devices with atomic change detection and dedupe
       const bridgeTextHash = this._hashString(bridgeText);
       // F07 (granskning 3, G2): det senast renderade ledarvärdet per målbro.
+      // Det gäller tills nästa sådan rendering, högst två fönster.
       // Brogruppens referens utgår från det användaren SER, inte från ett
       // levande värde som ledarens eget fix just sänkt utan att texten hunnit
       // renderas. Oförändrad text räknas också: den visade texten är densamma.

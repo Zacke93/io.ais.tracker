@@ -1154,6 +1154,11 @@ renderade ledarvärdet i stället för det levande (G2: 15 → 11,25 i stället 
 in, 30,001 s ut, klocka som stegat bakåt) och broarnas egna referenser har
 egna test. Banken, k1–k3 och de sju fixturscenarierna är oförändrade.
 
+**Granskning 4:** det renderade ledarvärdet gäller tills nästa rendering för
+bron, högst två fönster (60 s), eftersom UI-ticken har samma period som
+fönstret. Testen kör tickeftersläpning 0, 1, 2 och 50 ms efter 30 s och ±1 ms
+kring 30 s och 60 s.
+
 **Buggjägaren** (standard, seed 1): kortet F03 (21h, δ −11,52 s) är borta,
 M-FAS ger 163 rena av 168 fasvarianter (förut 162), och inga nya kort uppstår.
 
