@@ -813,7 +813,24 @@ module.exports = [
       + 'fältet t, texterna ordagrant lika — SELENE PRAHM 02:30:00 → 02:29:15 (16 → 61 s före rådatans '
       + 'korsning 02:30:15) och MAJALISA 09:01:30 → 09:00:40 (61 → 110 s före korsningen 09:02:30, inferred). '
       + 'Öppningsvarningar (20), undertryckningar (1), målpassager (16) och mellanpassager (23) identiska; '
-      + 'notis-, riktnings- och öppningsmultiset samt golden-text orörda.',
+      + 'notis-, riktnings- och öppningsmultiset samt golden-text orörda. '
+      + 'GOLDEN OMLÅST (2026-11-16, F07 R7 — klampen försvarar inte en osedd baslinje; U28, U13; '
+      + 'dirigentens egen radvisa diff av gammal mot ny golden, samstämmig med granskarens dom): 87 → 88 '
+      + 'övergångar, 7 rader borta och 8 nya, alla i Klaffbronklausulen 07:07–07:17 utom en "cirka"-rad '
+      + 'för Stridsbergsbron. MEKANISM: AVALON låg bakom JAATTEN II i texten och bar en uppmätt baslinje '
+      + '(30,3 min) som aldrig visats; RC4-klampen försvarade den, så texten visade JAATTEN II:s "om '
+      + 'cirka 17…13" och 07:11:30 "om 18" fast AVALON kom först. Nu dämpas en osedd båt mot det '
+      + 'brotexten visar. RÅDATA (gt-passages, kind=line): AVALON korsar Klaffbron 07:16:01, JAATTEN II '
+      + '07:18:16. BORTA: 07:08:00 "cirka 16" (sann 8,0), 07:09:00 "cirka 15" (7,0), 07:10:00 och '
+      + '07:10:30 "cirka 14" (6,0 och 5,5), 07:11:00 "cirka 13" (5,0), 07:11:30 "om 18" (4,5), 07:12:30 '
+      + '"cirka 12" (3,5). NYA: 07:07:13 "om 13" (sann 8,8), 07:10:30 "om 13" (5,5), 07:12:30 "cirka 8" '
+      + '(3,5), 07:13:00 "cirka 7" (3,0), 07:16:00 "cirka 4" (0,0; förut stod "om 5" kvar sedan '
+      + '07:13:26), 07:17:00 "cirka 3" (1,3 till JAATTEN II; förut "om 5"), 07:17:26 "om 5" (0,8; JAATTEN '
+      + 'II:s egen siffra, samma värde som texten visade förut i det ögonblicket — men nu ett synligt '
+      + 'steg 3 → 5, eftersom en annan båts tid tar över när AVALON passerat), samt 07:28:30 '
+      + 'Stridsbergsbron "om cirka 5" (förut "om 5" sedan 07:25:57; samma minuttal). Ingen rad ligger '
+      + 'längre från sanningen än förut. Notiser (54), öppningsvarningar (20), händelsefacit och multiset '
+      + 'ORÖRDA.',
   },
   {
     id: '20260710-13h',
@@ -933,7 +950,14 @@ module.exports = [
         + '(measure:eta-parning: pub 9 mot sanning 9,83 respektive pub 13 mot sanning 17,95) — '
         + 'omlåsningen bär alltså ingen informationsskillnad och är bokförd som mätartefakt, inte '
         + 'som beteendeändring. Notis-, fördelnings-, riktnings- och öppningsfacit ORÖRDA (80/80 '
-        + 'notiser, 20 öppningsvarningar).',
+        + 'notiser, 20 öppningsvarningar). '
+        + 'GOLDEN OMLÅST (2026-11-16, F07 R7 — klampen försvarar inte en osedd baslinje; U28, U13; '
+        + 'dirigentens egen radvisa diff av gammal mot ny golden, samstämmig med granskarens dom): 127 → '
+        + '128 övergångar, 3 rader borta och 4 nya, alla i Stridsbergsbronklausulen. RÅDATA (gt-passages, '
+        + 'kind=line): PILOT 761 korsar Stridsbergsbron 11:47:07, VIRGO 11:52:51. 11:37:54 "om 8" → "om 9" '
+        + '(sann 9,2). 11:43:09 och 11:44:04 "strax" → "om 4" (sann 4,0 och 3,0 — det borttagna "strax" kom '
+        + 'för tidigt), och "strax" kommer i stället som ny rad 11:45:24 (sann 1,7). Klaffbronklausulen, '
+        + 'notiser (80), öppningsvarningar och multiset ORÖRDA.',
   },
   {
     id: '20260711-7h',
@@ -1676,7 +1700,16 @@ module.exports = [
         + 'FASSVEPT 2026-08-23 (6 faser, −2,5 till −25 s): dimensionen "notiser" avviker i '
         + 'INGEN fasvariant. Korpusens sedan tidigare kända fasberoende (101 avvikelser i '
         + 'oppningar + brotext) är OFÖRÄNDRAT mot HEAD d767d4a, ARM-mätt i isolerat git '
-        + 'archive-träd.',
+        + 'archive-träd. '
+        + 'GOLDEN OMLÅST (2026-11-16, F07 R7 — klampen försvarar inte en osedd baslinje; U28, U13; '
+        + 'dirigentens egen radvisa diff av gammal mot ny golden, samstämmig med granskarens dom): 190 → '
+        + '191 övergångar, 1 rad borta och 2 nya, Klaffbron. RÅDATA: gt-passages har EUGENIE 17:27:51 '
+        + '(kind=line). JEANNELLE:s korsning saknas i gt men följer av hennes sista fix 17:23:03 (703 m '
+        + 'söder om bron i 6,1 kn): cirka 17:26:47 — rättarens och granskarens räkning ur rådatan, INGEN '
+        + 'tillagd gt-post. NY rad 17:21:33 "Tre båtar … om 7 minuter" (sann cirka 5,2; förut stod "om 9" '
+        + 'kvar sedan 17:19:10). 17:23:03 "om 6" → "om 5" (sann cirka 3,7). Öppningskortet för JEANNELLE '
+        + '17:21:43 säger 8 i stället för 9 (korpusen har inget låst händelsefacit; ändringen syns i '
+        + 'measure:eta som bättre). Notiser (116) och multiset ORÖRDA.',
   },
   {
     id: '20260804-both-21h',
@@ -2325,7 +2358,15 @@ module.exports = [
         + 'Stridsbergsbron, CAVAT och CHARLYS DREAM Järnvägsbron); ordningen är deterministisk och '
         + 'fasstabil (granskarens δ-rutnät, 25 förskjutningar — fassvepet jämför bara multiset). '
         + 'Öppningsvarningar (39), undertryckningar (2), målpassager (41) och mellanpassager (68) '
-        + 'identiska; notis-, riktnings- och öppningsmultiset samt golden-text orörda.',
+        + 'identiska; notis-, riktnings- och öppningsmultiset samt golden-text orörda. '
+        + 'GOLDEN OMLÅST (2026-11-16, F07 R7 — klampen försvarar inte en osedd baslinje; U28, U13; '
+        + 'dirigentens egen radvisa diff av gammal mot ny golden, samstämmig med granskarens dom): 273 → '
+        + '273 övergångar, 3 rader ändrade, Stridsbergsbron. RÅDATA (gt-passages, kind=line): ANYA ELAN 380 '
+        + 'korsar Stridsbergsbron 08:26:30 (EUGENIE 08:27:31, ANTJE 08:27:38, JEANNELLE 08:28:14). "Fyra '
+        + 'båtar … strax" kommer 08:25:06,452 i stället för 08:26:46,693 — förut 16 s EFTER första '
+        + 'korsningen, nu 1,4 min före. 5/8 11:26:50 och 11:27:57: Stridsbergsbron "om 3" → "om 4"; ingen '
+        + 'korsning där före 12:12:27, så båda siffrorna är lika fel i sak (båtar som stannat — känd klass, '
+        + 'inte rättad här). Notiser (152), öppningsvarningar (39), händelsefacit och multiset ORÖRDA.',
   },
   {
     id: '20260806-42h',
