@@ -834,6 +834,51 @@ function motornsTäckningsslut(eW, absT, domarIE, p) {
  * @param {object} p - parametrarna (fönsterMs)
  * @returns {{ms: number, hur: string, absT: number}|{fel: string}} den senaste tiden och absorptionen, eller skälet
  */
+/**
+ * U2-VS-DEADLINE: hade täckningen som höll båten vid korsningen rätt längd?
+ * (2026-11-16, granskningen av verktygsgrenen, punkt 6.) Posten godtar en
+ * utebliven varning när båten var täckt av en äldre händelse E och
+ * korsningen ligger inom E:s första passage + fönstret. Med täckningen för
+ * lång (granskarens mutant u17arm300, världarna 449, 1089 och 1214) uteblev
+ * U24:s släpp på hennes egen deadline och varningen, fast appen hade släppt
+ * och varnat henne; posten kallade det den kända U2-konflikten. Därför: i
+ * hennes sista dom i E före korsningen får varken armens täckningsslut
+ * (coverUntilMs) eller domens fönsterslut (windowEndMs, som U24 avgör mot)
+ * ligga mer än en tick efter max(E:s avfyrning, bokföringen av E:s första
+ * passage) + fönstret. Det slutet är det längsta appens regel tillåter när
+ * passagen är bokförd (en senare bokföring kortar men förlänger aldrig,
+ * BridgeOpeningService.js#_bindLooseArms och #_rebaseConvoyCoverage; samma
+ * regel som U17:s villkor (3″)). Var passagen inte bokförd vid domen går
+ * längden inte att pröva ur händelsen, och posten dömer som förut (en känd
+ * gräns, som i (3″)). Ett resultat utan domspåret (äldre resultat, handgjorda
+ * fixturer) döms som förut, som U17:s kvotregel. Finns domspåret men ingen
+ * dom i E före korsningen, eller saknar domen armens värde, är svaret nej.
+ * @returns {{text: string}|{fel: string}} tillägg till skälet, eller skälet till nej
+ */
+function täckningensLängd(ctx, f, w, tc, p) {
+  const V = ctx && ctx.resultat && ctx.resultat.openingCoverageVerdicts;
+  if (!Array.isArray(V)) return { text: ' (täckningens längd prövas inte: resultatet saknar släppvägens domspår, openingCoverageVerdicts)' };
+  const E = w.eventId;
+  const v = V.filter((x) => x && String(x.mmsi) === String(f.mmsi) && x.bridge === f.bro && x.eventId === E
+    && Number.isFinite(x.t) && x.t <= tc).sort((a, b) => a.t - b.t).pop();
+  if (!v) return { fel: `domspåret har ingen dom för båten i ${E} före korsningen ${fmtT(tc)}` };
+  const B = v.event ? v.event.firstPassageRegisteredAt : null;
+  if (!Number.isFinite(B)) return { text: ` (täckningens längd prövas inte: ${E}:s första passage var inte bokförd vid domen ${fmtT(v.t)})` };
+  const avfyrad = v.event && Number.isFinite(v.event.firedAt) ? v.event.firedAt : w.t;
+  const slut = Math.max(avfyrad, B) + p.fönsterMs;
+  const arm = v.arm ? v.arm.coverUntilMs : null;
+  if (!Number.isFinite(arm)) return { fel: `domen ${fmtT(v.t)} i ${E} saknar armens täckningsslut` };
+  const vid = `max(${E}:s avfyrning ${fmtT(avfyrad)}, bokföringen ${fmtT(B)}) + ${p.fönsterMs / 1000} s = ${fmtT(slut)}`;
+  if (arm - slut > p.tickMs) {
+    return { fel: `armens täckningsslut ${fmtT(arm)} i domen ${fmtT(v.t)} ligger mer än en tick efter ${vid}: täckningen var för lång, och då förklarar U2 inte den uteblivna varningen` };
+  }
+  const fönster = v.verdict ? v.verdict.windowEndMs : null;
+  if (Number.isFinite(fönster) && fönster - slut > p.tickMs) {
+    return { fel: `domens fönsterslut ${fmtT(fönster)} (${fmtT(v.t)}) ligger mer än en tick efter ${vid}: U24 avgjorde mot ett för sent fönster` };
+  }
+  return { text: `; täckningens slut ${fmtT(arm)} ligger inom ${vid}` };
+}
+
 function täckningsslutetsGräns(släpp, ws, cov, spår, m, bro, p) {
   const E = släpp.eventId;
   const absE = cov.filter((c) => c.reason === 'absorbed' && String(c.mmsi) === m && c.bridge === bro && c.eventId === E
@@ -1250,7 +1295,7 @@ const PREDICATES = {
   // INV-21:s returresa till kontraktet, så en retur utan egen varning är en
   // kandidat (BUGGJAKT §7, rad 23).
   crossingWithinEventWindow: {
-    parametrar: { fönsterMs: C.BRIDGE_OPENING.CONVOY_WINDOW_MS },
+    parametrar: { fönsterMs: C.BRIDGE_OPENING.CONVOY_WINDOW_MS, tickMs: C.BRIDGE_OPENING.TICK_INTERVAL_MS },
     fn(f, ctx, p) {
       const tc = crossingTimeOf(f);
       if (!Number.isFinite(tc) || !f.bro || !f.mmsi) return nej('saknar korsningstid, bro eller mmsi');
@@ -1262,7 +1307,9 @@ const PREDICATES = {
       // förklarade posten bort konvojfönstrets bakkant och U-svängsreturer.
       const r = konvoj.inomHändelsefönster({ mmsi: f.mmsi, bro: f.bro, tc }, { ...d, fönsterMs: p.fönsterMs });
       if (r.sant) {
-        return ok(`korsningen ${fmtT(tc)} ligger inom händelsens (${r.w.eventId || fmtT(r.w.t)}) första passage ${fmtT(r.first.t)} + ${p.fönsterMs / 1000} s, och båten var täckt av händelsen`);
+        const längd = täckningensLängd(ctx, f, r.w, tc, p);
+        if (längd.fel) return nej(längd.fel);
+        return ok(`korsningen ${fmtT(tc)} ligger inom händelsens (${r.w.eventId || fmtT(r.w.t)}) första passage ${fmtT(r.first.t)} + ${p.fönsterMs / 1000} s, och båten var täckt av händelsen${längd.text}`);
       }
       if (!r.närmast) {
         return nej(r.otäckta
