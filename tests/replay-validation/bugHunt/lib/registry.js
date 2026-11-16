@@ -3996,6 +3996,16 @@ function validateEntry(e, i, ids, problems, warnings, root, läst = new Map()) {
     if (!refs.length) problems.push(`${at}: en post med verkan iOraklet måste ange orakelvakt (fil#symbol där oraklet tillämpar regeln)`);
     checkRefs(e, refs, 'orakelvaktens fil', root, warnings, läst);
   }
+  // Hänvisningar i regeltexten och doktrinerna prövas likadant som källans
+  // (granskningen 2026-11-16, L3): förut prövades bara källa och orakelvakt,
+  // och sju radhänvisningar i `regel` och en i `doktriner` hade glidit.
+  if (typeof e.regel === 'string') checkRefs(e, sourceRefs(e.regel), 'regelns fil', root, warnings, läst);
+  if (Array.isArray(e.doktriner)) {
+    for (const d of e.doktriner) {
+      const text = d && typeof d === 'object' ? `${d.källa || ''} ${d.text || ''}` : String(d || '');
+      checkRefs(e, sourceRefs(text), 'doktrinens fil', root, warnings, läst);
+    }
+  }
 }
 
 /**

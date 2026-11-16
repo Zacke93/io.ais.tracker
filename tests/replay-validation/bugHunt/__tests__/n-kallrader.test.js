@@ -29,12 +29,40 @@ const REG = JSON.parse(fs.readFileSync(path.join(ROOT, 'tests/replay-validation/
 // Sökväg, eller en fortsättning (`och :15`, `, :267`) som gäller senaste sökväg.
 const RE = /\b((?:docs|lib|tests|drivers)\/[^\s,;:()#]+|app\.js)(?::(\d+(?:[–-]\d+)?))?|(?:^|[\s(,])(?:och\s+)?:(\d+(?:[–-]\d+)?)/g;
 
+/**
+ * Postens textfält med hänvisningar, också nästlade (doktrinernas text och
+ * källa): [[fältnamn, text]]. Granskningen 2026-11-16 (L3): förut lästes bara
+ * `källa` och `orakelvakt`, och i `regel` och `doktriner` hade sju
+ * radhänvisningar glidit (bland dem `invariants.js:334–351`, som INV-3-
+ * rättningen själv flyttade, och tre i app.js).
+ */
+function textfält(post) {
+  const ut = [];
+  const gå = (namn, v) => {
+    if (typeof v === 'string') ut.push([namn, v]);
+    else if (Array.isArray(v)) v.forEach((x, i) => gå(`${namn}[${i}]`, x));
+    else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) gå(`${namn}.${k}`, x);
+  };
+  for (const [k, v] of Object.entries(post)) if (k !== 'id') gå(k, v);
+  return ut;
+}
+
+// Ett filnamn med rader utan sökvägen framför (`invariants.js:334`) går
+// varken att slå upp eller att pröva; skriv hela sökvägen eller en symbol.
+const BART = /(^|[^\w/.-])([\w-]+\.(?:js|md|json|sh)):\d/g;
+/** Bara filnamn med rader i en post: [{post, fält, ref}]. */
+function barahänvisningar(post) {
+  return textfält(post).flatMap(([fält, text]) => [...text.matchAll(BART)].map((m) => ({
+    post: post.id, fält, ref: `${m[2]}:`,
+  })));
+}
+
 /** Radhänvisningarna i en post: [{post, fil, rader, från, till}]. */
 function radhänvisningar(post) {
   const ut = [];
-  for (const fält of ['källa', 'orakelvakt']) {
+  for (const [fält, text] of textfält(post)) {
     let fil = null;
-    for (const m of String(post[fält] || '').matchAll(RE)) {
+    for (const m of text.matchAll(RE)) {
       if (m[1]) fil = m[1].replace(/[.:]+$/, '');
       const rader = m[2] || m[3];
       if (!rader) continue;
@@ -164,11 +192,22 @@ function brister(poster, förväntat) {
 
 describe('beslutsregistrets radhänvisningar', () => {
   test('tolkningen hittar varje radhänvisning, också fortsättningarna', () => {
-    expect(REG.poster.flatMap(radhänvisningar)).toHaveLength(FÖRVÄNTAT.length);
+    // Samma hänvisning kan stå i flera fält i en post (källan och doktrinen).
+    const unika = new Set(REG.poster.flatMap(radhänvisningar).map((r) => nyckel(r.post, r.fil, r.rader)));
+    expect(unika.size).toBe(FÖRVÄNTAT.length);
   });
 
   test('varje radhänvisning ligger inom filen och pekar på ett stycke med postens nyckelord', () => {
     expect(brister(REG.poster, FÖRVÄNTAT)).toEqual([]);
+  });
+
+  test('alla fält läses, också regeln och doktrinerna', () => {
+    const fält = new Set(REG.poster.flatMap(radhänvisningar).map((r) => r.fält.replace(/\[\d+\]/g, '[]')));
+    expect([...fält].sort()).toEqual(['doktriner[].källa', 'källa']);
+  });
+
+  test('inget filnamn med rader utan sökväg', () => {
+    expect(REG.poster.flatMap(barahänvisningar)).toEqual([]);
   });
 });
 
@@ -198,6 +237,36 @@ describe('kontrollen fäller de fel den finns till för', () => {
       .toMatch(/D4-RIKTNING-UNKNOWN\|docs\/reliability-spec\.md:9999: utanför filen/);
     expect(brister(ändrad('BN1-BOXKANT', `${H11}:162–172`, 'docs/finns-inte.md:162–172'), FÖRVÄNTAT).join('\n'))
       .toMatch(/docs\/finns-inte\.md:162–172: filen finns inte/);
+  });
+
+  test('en glidning i regeltexten eller i en doktrin fälls (granskningen 2026-11-16, L3)', () => {
+    const iRegel = REG.poster.map((p) => (p.id === 'D4-RIKTNING-UNKNOWN'
+      ? { ...p, regel: `${p.regel} Se ${RS}:46.` } : p));
+    expect(brister(iRegel, FÖRVÄNTAT).join('\n')).toMatch(/D4-RIKTNING-UNKNOWN\|docs\/reliability-spec\.md:46: saknar nyckelord/);
+    const iDoktrin = REG.poster.map((p) => (p.id === 'OMSTART-RESETILLSTÅND'
+      ? { ...p, doktriner: p.doktriner.map((d, i) => (i === 0 ? { ...d, källa: `${A}:1102` } : d)) } : p));
+    expect(brister(iDoktrin, FÖRVÄNTAT).join('\n')).toMatch(/OMSTART-RESETILLSTÅND\|docs\/ARCHITECTURE\.md:1102: saknar nyckelord/);
+    const appRegel = REG.poster.map((p) => (p.id === 'MÄTGRÄNS-INV10-VÄNTKEDJA'
+      ? { ...p, regel: p.regel.replace('app.js#_initializeCoalescingSystem', 'app.js:13259–13266') } : p));
+    expect(brister(appRegel, FÖRVÄNTAT).join('\n')).toMatch(/MÄTGRÄNS-INV10-VÄNTKEDJA\|app\.js:13259–13266: kod i app\.js/);
+  });
+
+  test('laddningen prövar symbolerna i regeln och doktrinerna som i källan', () => {
+    const { loadRegistry } = require('../lib/registry');
+    const med = (id, ändra) => loadRegistry({ ...REG, poster: REG.poster.map((p) => (p.id === id ? ändra(p) : p)) }, { root: ROOT });
+    expect(med('U16-F40-STRAX-STUDS', (p) => p).varningar).toEqual([]);
+    const iRegel = med('U16-F40-STRAX-STUDS', (p) => ({ ...p, regel: p.regel.replace('app.js#_publishUpdate', 'app.js#_finnsInte') }));
+    expect(iRegel.varningar).toEqual(['U16-F40-STRAX-STUDS: regelns fil app.js definierar inte _finnsInte']);
+    const iDoktrin = med('OMSTART-RESETILLSTÅND', (p) => ({
+      ...p, doktriner: p.doktriner.map((d, i) => (i === 0 ? { ...d, källa: 'app.js#_finnsInte' } : d)),
+    }));
+    expect(iDoktrin.varningar).toEqual(['OMSTART-RESETILLSTÅND: doktrinens fil app.js definierar inte _finnsInte']);
+  });
+
+  test('ett bart filnamn med rader fälls, i vilket fält som helst', () => {
+    const bar = REG.poster.map((p) => (p.id === 'U16-F40-STRAX-STUDS'
+      ? { ...p, regel: p.regel.replace('tests/replay-validation/invariants.js#validateInvariants, fromSoftZone', 'invariants.js:334–351, fromSoftZone') } : p));
+    expect(bar.flatMap(barahänvisningar)).toEqual([{ post: 'U16-F40-STRAX-STUDS', fält: 'regel', ref: 'invariants.js:' }]);
   });
 
   test('kod i app.js, lib/ eller harnessens invariants.js citerad med rader', () => {
