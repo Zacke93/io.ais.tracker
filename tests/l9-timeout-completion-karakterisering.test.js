@@ -109,7 +109,7 @@ describe('L9: timeout-completion utan terminalpositionskontroll (karakterisering
 
   // Nattjaktens F04 (2026-11-16): återinträdesspärren släpper igenom en båt som
   // bevisligen går tillbaka mot sista bron (en kedja av positioner på
-  // utfartssidan med kurs mot brolinjen i minst 3 kn, 100 m närmare linjen
+  // utfartssidan med kurs mot brolinjen i minst 4,5 kn, 100 m närmare linjen
   // netto; VesselDataService._releaseReturningVessel). Den här båten ligger
   // söder om Olidebrons linje och går norrut mot bron (93 m per position mot
   // linjen), så hon släpps på den tredje positionen. Blackouten står kvar för en båt som INTE går mot bron, och

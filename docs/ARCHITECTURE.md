@@ -1333,7 +1333,7 @@ båt.
   (`_releaseReturningVessel`): under spärren bygger appen en kedja av godkända positioner. En
   position är godkänd när den ligger entydigt på utfartssidan av sista bron (nord ⇒
   Stallbackabron, syd ⇒ Olidebron), har kurs mot brolinjen (`courseBridgeSide`; utfarten söderut
-  går västsydväst, så kompassband duger inte), går i minst `REENTRY_RETURN.MIN_SOG_KN` (3 kn) och
+  går västsydväst, så kompassband duger inte), går i minst `REENTRY_RETURN.MIN_SOG_KN` (4,5 kn) och
   har ett steg från förra godkända positionen som farten medger (2 × fart × tid + 50 m). Den första
   godkända positionen ankrar kedjan; båten släpps när en senare position ligger minst
   `REENTRY_RETURN.MIN_APPROACH_M` (100 m) närmare linjen än ankaret, netto. En underkänd position
@@ -1343,24 +1343,33 @@ båt.
   och gravvården är orörda (jfr L9 i §9). *Mätningen* (banken + k1/k2): 191 spärrade positioner,
   ingen gick mot sista bron ens i 2 kn (17 hade kurs mot bron, alla ≤ 0,8 kn), och ingen spärrad
   båt korsade sista bron tillbaka inom 30 min i rådatafacit; med regeln är banken och fältet
-  bitlika. *Talen* 3 kn och 100 m kommer ur granskningen av N5: med 2 kn och 50 m släpptes en båt
-  som driver i 2,2 kn mot bron till 150–250 m (förvarning "närmar sig Stallbackabron, beräknad
-  ankomst om 4 minuter" fast hon aldrig korsar, och spöktext i 3–5 min), en kajmanöver i 2,5 kn
-  söder om Olidebron (spöktext 3,5 min) och en ankrad båt med ett enda brusigt positionspar (sog
-  2,1, 58 m närmare: "på väg mot Stridsbergsbron, om 36–43 minuter" i 7 min). De är låsta som
-  syntetiska motfall med basens utfall. *Utfallet för en återvändare* (syntetiskt, vänder 430 m
-  bortom bron): i 9 kn kommer varningen för Stridsbergsbron 290/272/245 s före korsningen med
-  positioner var 10/30/60 s (basen 54/94/154 s), och söderut för Klaffbron i 6–9 kn 247–415 s före
-  (basen 166–226 s, i 9 kn ingen varning före korsningen). I 4–6 kn hinner spärren löpa ut före
-  varningen i båda; det som ändras är att förvarningen för sista bron kommer före korsningen i
-  stället för som "passerade … under AIS-tystnad".
-  *Kända gränser:* (1) en båt som verkligen går mot bron i minst 3 kn och kommer 100 m närmare,
-  men sedan vänder ut igen, släpps och får en förvarning, i syntetiskt prov "VAND-F närmar sig
-  Stallbackabron, beräknad ankomst om 3 minuter" och 3 min i texten — samma utfall som för en båt
-  inne i kanalen som närmar sig en bro och vänder; (2) en återvändare i exakt 3 kn (rapporterat
-  2,9–3,1) får kedjan bruten av positionerna under 3 kn och släpps inte; (3) med glesa positioner
-  (180 s) ligger högst en position bortom bron på vägen tillbaka, och då hjälper regeln inte;
-  (4) en båt som ligger still eller går under 3 kn bortom bron är spärrad som förut.
+  bitlika. *Talen* 4,5 kn och 100 m kommer ur två granskningsvarv av N5. Med 2 kn och 50 m
+  släpptes en båt som driver i 2,2 kn mot bron till 150–250 m (förvarning "närmar sig
+  Stallbackabron, beräknad ankomst om 4 minuter" fast hon aldrig korsar, och spöktext i 3–5 min),
+  en kajmanöver i 2,5 kn söder om Olidebron och en ankrad båt med ett brusigt positionspar. Med
+  3 kn släpptes fortfarande båtar i 3,1–3,5 kn som driver eller går mot bron och sedan stannar
+  eller vänder ("DRIV31-A närmar sig Stallbackabron, beräknad ankomst om 35 minuter" 300 m från
+  bron, med ETA:n till Stridsbergsbron) och en ankrad båt med tre brusiga positioner i rad
+  (3,2 kn). 4,5 kn skiljer en båt i marschfart från en som driver eller ligger för ankar. Alla
+  dessa är låsta som syntetiska motfall med basens utfall. *Utfallet för en återvändare*
+  (syntetiskt, vänder 430 m bortom Stallbackabron respektive cirka 1 000 m söder om Olidebron):
+  i 9 kn kommer varningen för Stridsbergsbron 290/272/245 s före korsningen med positioner var
+  10/30/60 s (basen 54/94/154 s); söderut för Klaffbron i 5–9 kn 247–415 s före (basen 166–370 s,
+  i 9 kn ingen varning före korsningen). I 4,5–6 kn norrut hinner spärren löpa ut före varningen i
+  båda; det som ändras är att förvarningen för sista bron kommer före korsningen i stället för som
+  "passerade … under AIS-tystnad" 4–6 min efter. Under 4,5 kn är utfallet basens.
+  *Kända gränser:* (1) en återvändare under 4,5 kn syns först när spärren löpt ut, som förut;
+  (2) en båt som verkligen går mot bron i minst 4,5 kn och kommer 100 m närmare, men sedan vänder
+  eller stannar, släpps och får en förvarning: i syntetiskt prov (5 kn från 430 till 250 m
+  bortom Stallbackabron) "VAND5 närmar sig Stallbackabron, beräknad ankomst om 2 minuter" och
+  1,5 min i texten innan hon vänt ut (ETA:n stiger 16 → 22 min när hon vänder, INV-3); stannar hon i stället (STOPP5) står hon i texten i cirka
+  40 min (ETA okänd efter 5 min) och får en öppningsvarning för Stridsbergsbron på deadline cirka
+  20 min senare. Det är exakt basens utfall för en ny båt som kommer norrifrån och stannar 250 m
+  före Stallbackabron (samma notis, samma text, samma varning); (3) med glesa positioner (180 s)
+  norrut ligger högst en position bortom bron på vägen tillbaka, och då hjälper regeln inte;
+  (4) utan fusionen bryter ett AISHub-eko ur ordning kedjan (basens utfall). Produktionens väg
+  ('both', FixFusionPolicy) sorterar bort ekot, och släppet fungerar där (jest-test
+  `f04-aterintrade-fusion`).
 - **M3 (rättningskampanjen varv 2, familj C, 2026-11-09): en återfödd båt med kurs i
   dödbandet får målbro ur förflyttningen.**
   - *Felet.* `_calculateTargetBridge` avstår vid kurs 46–134° och 226–314° (F18). En
@@ -3326,7 +3335,7 @@ helkodsgranskning-runda3.md och hkfix3-rapport.md.
   tillsammans. *Tillägg 2026-11-16 (nattjaktens F04):* spärren släpper nu igenom en båt som
   bevisligen går tillbaka mot sista bron (se "Återinträdesspärren och återvändaren" i §4); det
   rör bara genomsläppet, inte bokföringen eller gravvården, och banken är bitlik. Kvar av L9:s
-  felmod är blackouten för en båt som ligger still eller går under 3 kn innanför utfarten.
+  felmod är blackouten för en båt som ligger still eller går under 4,5 kn innanför utfarten.
 - **L5:s TREDJE systerställe — `TARGET_PROTECTION_ACTIVE`** (VDS ~:619, else-grenen
   när målbroskyddet är aktivt) hoppar över HELA grace-blocket (skapande OCH
   radering); en post från före skyddet åldras hela vistelsen. Mätt i fixrunda 3:

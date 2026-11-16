@@ -12,9 +12,11 @@
  *
  * Regeln (`VesselDataService._releaseReturningVessel`): under spärren släpps
  * båten igenom när en obruten kedja av godkända positioner (utfartssidan av
- * sista bron, kurs mot brolinjen, minst 3 kn, rimligt steg mot farten) har
- * kommit minst 100 m närmare linjen, räknat från kedjans första position.
- * (Granskningen av N5 höjde talen från 2 kn och 50 m.)
+ * sista bron, kurs mot brolinjen, minst REENTRY_RETURN.MIN_SOG_KN = 4,5 kn,
+ * rimligt steg mot farten) har kommit minst 100 m närmare linjen, räknat från
+ * kedjans första position. Granskningen av N5 höjde talen i två varv (2 kn och
+ * 50 m, sedan 3 kn): drift och manövrer i 2,2–3,5 kn och ankrade båtar med
+ * brusiga positioner släpptes och gav falska notiser och spöktext.
  * Mätningen över banken och k1/k2: ingen av 191 spärrade positioner gick mot
  * sista bron i 2 kn eller mer, så regeln slår inte till där.
  */
@@ -24,6 +26,7 @@ jest.mock('homey');
 const VesselDataService = require('../lib/services/VesselDataService');
 const BridgeRegistry = require('../lib/models/BridgeRegistry');
 const SystemCoordinator = require('../lib/services/SystemCoordinator');
+const { REENTRY_RETURN } = require('../lib/constants');
 
 function makeLogger() {
   return {
@@ -31,21 +34,24 @@ function makeLogger() {
   };
 }
 
-// F04-världens positioner efter vändningen (repro.jsonl, värld 19721).
+// F04-världens positioner efter vändningen (repro.jsonl, värld 19721), 30 s isär.
 const NORR_UT = {
   lat: 58.31328726167153, lon: 12.319276419907794, sog: 2.8, cog: 15.2,
 };
 const VANDER = {
   lat: 58.313359598621325, lon: 12.319313937473229, sog: 1.4, cog: 195.2,
 };
-const RETUR_1 = {
+const UNDER_GOLVET = { // 11:53:35, 330 m bortom bron, 3,7 kn
   lat: 58.3130159901186, lon: 12.319135724892773, sog: 3.7, cog: 195.2,
 };
-const RETUR_2 = {
+const RETUR_1 = { // 11:54:05, 267 m bortom bron, 6 kn
   lat: 58.31237171072125, lon: 12.31872524100432, sog: 6, cog: 199.9,
 };
-const RETUR_3 = {
+const RETUR_2 = { // 11:54:35, 95 m närmare linjen än RETUR_1
   lat: 58.311428206900125, lon: 12.318073799931042, sog: 8.4, cog: 199.9,
+};
+const RETUR_3 = { // 11:55:05, 226 m närmare linjen än RETUR_1, 9 s före korsningen
+  lat: 58.31025887419219, lon: 12.316957229782973, sog: 10, cog: 209.3,
 };
 
 describe('F04: återvändaren släpps igenom återinträdesspärren', () => {
@@ -80,16 +86,29 @@ describe('F04: återvändaren släpps igenom återinträdesspärren', () => {
   const tagged = (tag, mmsi) => [...logger.debug.mock.calls, ...logger.log.mock.calls]
     .map((a) => String(a[0]))
     .filter((l) => l.includes(`[${tag}] ${mmsi}`));
+  // En position längs linjen RETUR_1 → RETUR_3 (andel f), med given fart.
+  const along = (f, sog) => ({
+    lat: RETUR_1.lat + f * (RETUR_3.lat - RETUR_1.lat),
+    lon: RETUR_1.lon + f * (RETUR_3.lon - RETUR_1.lon),
+    sog,
+    cog: 205,
+  });
+
+  test('golvet är 4,5 kn och kravet 100 m netto', () => {
+    expect(REENTRY_RETURN).toEqual({ MIN_SOG_KN: 4.5, MIN_APPROACH_M: 100 });
+  });
 
   test('F04: släpps när kedjan kommit 100 m närmare bron och får en ny resa', () => {
     const mmsi = '265255496';
     complete(mmsi, 'north');
     expect(send(mmsi, NORR_UT)).toBeNull();
-    expect(send(mmsi, VANDER)).toBeNull(); // 1,4 kn: under 3 kn
+    expect(send(mmsi, VANDER)).toBeNull(); // 1,4 kn
+    expect(send(mmsi, UNDER_GOLVET)).toBeNull(); // 3,7 kn: under golvet, inget ankare
     expect(send(mmsi, RETUR_1)).toBeNull(); // ankare
-    expect(send(mmsi, RETUR_2)).toBeNull(); // 63 m närmare: inte 100 m än
-    const v = send(mmsi, RETUR_3); // 158 m närmare än ankaret
+    expect(send(mmsi, RETUR_2)).toBeNull(); // 95 m närmare: inte 100 m än
+    const v = send(mmsi, RETUR_3); // 226 m närmare än ankaret
     expect(v).not.toBeNull();
+    expect(tagged('REENTRY_RETURN_CANDIDATE', mmsi)).toHaveLength(1);
     expect(tagged('REENTRY_RETURN_RELEASE', mmsi)).toHaveLength(1);
     // Samma väg som när spärren löper ut: ny resa med förra resans riktning.
     expect(svc._completedJourneys.has(mmsi)).toBe(false);
@@ -98,55 +117,50 @@ describe('F04: återvändaren släpps igenom återinträdesspärren', () => {
     expect(v.targetBridge).toBe('Stridsbergsbron');
   });
 
-  test('motfall: en enda position mot bron släpper inte igenom', () => {
+  test('motfall: en kedja som bryts av en position som går ut släpper inte', () => {
     const mmsi = '265900501';
     complete(mmsi, 'north');
     expect(send(mmsi, RETUR_1)).toBeNull();
-    // Nästa position går ut igen: följden bryts, ankaret nollas.
-    expect(send(mmsi, { ...RETUR_2, cog: 20 })).toBeNull();
-    expect(send(mmsi, RETUR_2)).toBeNull(); // nytt ankare
-    expect(send(mmsi, RETUR_3)).toBeNull(); // bara 95 m från det nya ankaret
+    expect(send(mmsi, { ...RETUR_2, cog: 20 })).toBeNull(); // på väg ut: kedjan nollas
+    expect(send(mmsi, RETUR_3)).toBeNull(); // nytt ankare
     expect(tagged('REENTRY_RETURN_RELEASE', mmsi)).toHaveLength(0);
     expect(svc.vessels.has(mmsi)).toBe(false);
   });
 
-  test('motfall: under 3 kn mot bron (drift, kajmanöver) släpper inte igenom', () => {
-    const mmsi = '265900502';
-    complete(mmsi, 'north');
-    expect(send(mmsi, { ...RETUR_1, sog: 2.9 })).toBeNull();
-    expect(send(mmsi, { ...RETUR_2, sog: 2.9 })).toBeNull();
-    expect(send(mmsi, { ...RETUR_3, sog: 2.9 })).toBeNull();
-    expect(svc.vessels.has(mmsi)).toBe(false);
+  test('motfall (granskningens F och N1): 3,1–4,4 kn mot bron släpper inte igenom', () => {
+    for (const [mmsi, sog] of [['265900502', 3.1], ['265900513', 3.5], ['265900514', 4.4]]) {
+      complete(mmsi, 'north');
+      expect(send(mmsi, { ...RETUR_1, sog })).toBeNull();
+      expect(send(mmsi, { ...RETUR_2, sog })).toBeNull();
+      expect(send(mmsi, { ...RETUR_3, sog }, 60)).toBeNull();
+      expect(svc.vessels.has(mmsi)).toBe(false);
+    }
   });
 
-  test('motfall: en position under 3 kn mitt i kedjan nollar den', () => {
+  test('motfall: en position under 4,5 kn mitt i kedjan nollar den', () => {
     const mmsi = '265900510';
     complete(mmsi, 'north');
     expect(send(mmsi, RETUR_1)).toBeNull();
-    expect(send(mmsi, { ...RETUR_2, sog: 2.5 })).toBeNull(); // underkänd: kedjan nollas
+    expect(send(mmsi, { ...RETUR_2, sog: 4.4 })).toBeNull(); // underkänd: kedjan nollas
     expect(send(mmsi, RETUR_3)).toBeNull(); // nytt ankare
     expect(svc.vessels.has(mmsi)).toBe(false);
   });
 
-  test('motfall (granskningens J): ett brusigt positionspar hos en ankrad båt släpper inte', () => {
+  test('motfall (granskningens N2): tre brusiga positioner i 3,2 kn hos en ankrad båt släpper inte', () => {
     const mmsi = '265900511';
     complete(mmsi, 'north');
-    // Två positioner i rad med kurs mot bron, den andra 58 m närmare, i 3,2 kn.
-    expect(send(mmsi, { ...RETUR_1, sog: 3.2 })).toBeNull();
-    const dLat = (RETUR_2.lat - RETUR_1.lat) * (58 / 63);
-    const dLon = (RETUR_2.lon - RETUR_1.lon) * (58 / 63);
-    expect(send(mmsi, {
-      lat: RETUR_1.lat + dLat, lon: RETUR_1.lon + dLon, sog: 3.2, cog: 199,
-    })).toBeNull();
+    expect(send(mmsi, { ...along(0, 3.2) })).toBeNull();
+    expect(send(mmsi, { ...along(0.25, 3.2) })).toBeNull();
+    expect(send(mmsi, { ...along(0.5, 3.2) })).toBeNull();
     expect(svc.vessels.has(mmsi)).toBe(false);
   });
 
   test('motfall: en position på kanalsidan av brolinjen ingår inte i kedjan', () => {
     const mmsi = '265900512';
     complete(mmsi, 'north');
-    expect(send(mmsi, RETUR_1)).toBeNull(); // ankare 330 m bortom bron
+    expect(send(mmsi, RETUR_1)).toBeNull(); // ankare 267 m bortom bron
     // 60 s senare 15 m in på kanalsidan av Stallbackabrons linje, kurs mot
-    // söder i 8,4 kn: steget är rimligt och 315 m närmare linjen, men
+    // söder i 8,4 kn: steget är rimligt och 250 m närmare linjen, men
     // positionen ligger inte på utfartssidan och underkänns (kedjan nollas).
     expect(send(mmsi, {
       lat: 58.309719, lon: 12.316546, sog: 8.4, cog: 200,
@@ -169,10 +183,10 @@ describe('F04: återvändaren släpps igenom återinträdesspärren', () => {
   test('motfall: ett GPS-hopp mot bron räknas inte som förflyttning', () => {
     const mmsi = '265900504';
     complete(mmsi, 'north');
-    expect(send(mmsi, RETUR_1)).toBeNull();
-    // 30 s senare 480 m närmare bron i rapporterade 4 kn: orimligt.
+    expect(send(mmsi, { ...RETUR_1, sog: 5 })).toBeNull();
+    // 30 s senare 300 m närmare bron i rapporterade 5 kn (77 m möjliga): orimligt.
     expect(send(mmsi, {
-      lat: 58.3099, lon: 12.3170, sog: 4, cog: 200,
+      lat: 58.3101, lon: 12.3168, sog: 5, cog: 205,
     })).toBeNull();
     expect(svc.vessels.has(mmsi)).toBe(false);
   });
@@ -180,15 +194,9 @@ describe('F04: återvändaren släpps igenom återinträdesspärren', () => {
   test('tät AIS: små steg samlas mot ankaret tills båten kommit 100 m närmare', () => {
     const mmsi = '265900505';
     complete(mmsi, 'north');
-    // 3,5 kn med 10 s mellan positionerna ≈ 18 m per position.
-    const dLat = (RETUR_3.lat - RETUR_1.lat) / 12;
-    const dLon = (RETUR_3.lon - RETUR_1.lon) / 12;
+    // 5 kn med 10 s mellan positionerna ≈ 19 m per position mot linjen.
     const results = [];
-    for (let i = 0; i <= 12; i++) {
-      results.push(send(mmsi, {
-        lat: RETUR_1.lat + i * dLat, lon: RETUR_1.lon + i * dLon, sog: 3.5, cog: 200,
-      }, 10));
-    }
+    for (let i = 0; i <= 12; i++) results.push(send(mmsi, along(i / 12, 5), 10));
     const firstReleased = results.findIndex((r) => r !== null);
     expect(firstReleased).toBeGreaterThan(4);
     expect(firstReleased).toBeLessThan(12);
@@ -222,7 +230,19 @@ describe('F04: återvändaren släpps igenom återinträdesspärren', () => {
     const mmsi = '265900508';
     complete(mmsi, null);
     expect(send(mmsi, RETUR_1)).toBeNull();
-    expect(send(mmsi, RETUR_2)).toBeNull();
+    expect(send(mmsi, RETUR_3, 60)).toBeNull();
+  });
+
+  test('en släppt post spärrar inte nästa position, även om den inte själv är en återvändares', () => {
+    // Släppet markeras på posten och raderas normalt i samma tick av
+    // _shouldAssignTargetBridge. Hinner båten tas bort dessförinnan ska en ny
+    // position ändå inte spärras av samma post.
+    const mmsi = '265900515';
+    svc._completedJourneys.set(mmsi, {
+      completedAt: Date.now(), direction: 'north', returnReleased: true,
+    });
+    expect(send(mmsi, { ...RETUR_1, sog: 1, cog: 20 })).not.toBeNull();
+    expect(tagged('VESSEL_REENTRY_BLOCK', mmsi)).toHaveLength(0);
   });
 
   test('efter släppet gäller vanlig logik: en ny avslutad resa ger en ny spärr', () => {
