@@ -1098,6 +1098,20 @@ Körd 2026-11-15 med appen på 1f6dd46 (Node 24, macOS, 16 CPU under tung främm
 | Oförändrad app, motorn med (3″) | de 53 världar som bär U17 eller K-NÄSTA i baslinjen dömda om: samma 69 utfall. Standardvärld 1907 (K-NÄSTA) blev KANDIDAT i ett första utkast som jämförde med armens slut ensamt: hon återabsorberas i #29 11:50:56 när #29:s täckning redan slutat 11:47:30 och släpps i samma utvärdering. Absorptionen räknas därför. |
 | Jest | `m-u17-tackningsslut.test.js`: 21 test (träffar och vakter, se §7 rad 55). Nio mutationer av villkoret (bort helt, bara armens slut, bara motorns slut, utan bokföringsgränsen, utan `windowEndMs`, tre ticks marginal, fel som godkänt, utan absorptionen, bara sista släppet) fälls alla; utan villkoret fälls 17 test. |
 
+### A.11 Verktygsomgången V1 (2026-11-16)
+
+Nattprofilen (20 000 världar, seed 1) på V1:s registercommit mot nattjakten på `58857ab` (appen har ändrats emellan:
+stillagrinden K1 och brolinjeprovet K3). Kluster 79 → 77, kandidatkluster 28 → 20, kandidatutslag 742 → 365.
+Per mekanism: INV-3 SÅGTAND UPP 330 → 100, INV-3 OSCILLATION 171 → 156, INV-14 47 → 7, T2 OKLASSAD 55 → 32, T2 LEDTID
+36 → 26, T3 VARNING-EFTER-SANN-PASSAGE 29 → 23, T3 FANTOM-UTAN-AVBROTT 24 → 2, VARNING-PÅ-FRUSET-FIX 11 → 5, T9 9 → 6,
+T1 7 → 2, INV-13 5 → 2, INV-11 5 → 0, INV-5 4 → 0, INV-2 4 → 4, INV-7, INV-10, KAJVOBBEL och T10 till 0. De gamla
+kandidatutslagen blev LEDARBYTE-TYST-FRÄMSTA 237, inget utslag 63, U2-VS-DEADLINE 30, U1-C11 20 och övriga poster
+1–5 vardera. Tre utslag gick åt andra hållet (KÄND_ÖPPEN → KANDIDAT): den senaste bindningen tar bort en gammal
+förklaring (nattvärld 18014: en returvarning 37 s före korsningen efter ett sent U15-släpp). Inget
+nytt kandidatkluster. Självtest GRÖNT, låst bank och bankkalibrering oförändrade, alla tre nya poster använda.
+Standardprofilen: samma två kandidatkluster (INV-3) med 44 → 24 utslag. `replay:all`, synthetic, openings och
+fältkörningarna k1/k2 är bitlika med basen.
+
 ## Bilaga B — orakelkatalog
 
 Katalogen återges ur byggunderlaget med regler, trösklar och falsklarmsvakter. Raden **v1** säger vad som är byggt och var v1 avviker. Den uppdateras i samma commit som oraklen.
