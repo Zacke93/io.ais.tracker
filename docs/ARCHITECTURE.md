@@ -675,9 +675,13 @@ Dedup-lagren:
      korsningen noterad i just den fixen, fixen entydigt (över 10 m) på
      ankomstsidan, föregående fix entydigt på bortre sidan, första fixen på
      ankomstsidan, bokföringen i segmentet och ett korsningssegment som går att
-     färdas i farten (högst 1,5 × farten + 0,5 m/s; granskningen A1: en ensam
-     GPS-utliggare 15–25 m förbi linjen, som grinden släpper igenom och
-     passagelogiken bokför bron i, gav annars falska returer). LINNEA 2 korsade Klaffbron i 5,8 kn, fixen 9 s senare
+     färdas i farten (högst 1,5 × farten + 0,5 m/s och högst 15 m längre än
+     farten medger, oavsett kadens; granskningen A1 och B1: en ensam
+     GPS-utliggare 12–25 m förbi linjen, som grinden släpper igenom och
+     passagelogiken bokför bron i, gav annars falska returer vid 10–30 s
+     kadens). Alla krav står samlade i `isTransitCrossingFix` med vad vart och
+     ett skyddar mot; ett segment som inte klarar dem släpps vid nästa
+     position, som på basen. LINNEA 2 korsade Klaffbron i 5,8 kn, fixen 9 s senare
      låg 26 m ut (segment 24 s) och nästa fix kom 421 s senare; returnotisen kom
      7 min sent tillsammans med "närmar sig Olidebron". En båt i över 3 kn som är
      förbi linjen med kursen mot ankomstsidan hinner sällan vända inom bron. En fix
@@ -3768,7 +3772,7 @@ passagen; en båt som guppar eller väntar vid bron får fortfarande en notis pe
   (aisstream klass A, glapp 421 s efter korsningsfixen, fältets p97–98) visade att det inte
   håller. Korsningsfixen i transitfart släpps nu direkt (villkor 7d i
   `releaseReturnPassage`), när den ligger entydigt bortom linjen och korsningssegmentet stämmer
-  med farten. Motfallen (stopp på
+  med farten (kvot och tak 15 m). Motfallen (stopp på
   linjen, guppande ±30 m i upp till 1,5 kn, kurs bort, fart 3,0 kn, osäker position,
   bokföring före segmentet, fixen på linjen vid tät kadens) släpps inte; låsta i `tests/u37-retur-linjefix-transit.test.js` för alla fem
   broar i båda riktningar och i de syntetiska scenarierna `retur-tät-kadens-…` och

@@ -225,6 +225,68 @@ describe('Sist kända position bär fixens egen tid (granskningen A4)', () => {
   });
 });
 
+describe('Notisvägens bevis (granskningens andra varv)', () => {
+  const AISBridgeApp = require('../app');
+  const BridgeRegistry = require('../lib/models/BridgeRegistry');
+  const bare = () => {
+    const app = Object.create(AISBridgeApp.prototype);
+    app.debug = () => {};
+    app.log = () => {};
+    app.error = () => {};
+    app.bridgeRegistry = new BridgeRegistry();
+    app._lastKnownPositions = new Map();
+    return app;
+  };
+
+  test('_confirmReturnPassages skickar släppets form med kandidaten (A2)', async () => {
+    const app = bare();
+    const now = Date.now();
+    app._triggerPointVisits = { openBridgeVisits: () => ['Klaffbron'] };
+    app._hasUntrustedNotificationPosition = () => false;
+    app._isCurrentRuntime = () => true;
+    app._releaseVisitOnReturnPassage = () => ({
+      silenceMs: 200000,
+      crossingGapMs: 60000,
+      fixTs: now - 5000,
+      offsetM: 500,
+      sogKn: 5,
+      segmentStartTs: now - 205000,
+      firstArrivalTs: now - 150000,
+      latenessMs: 180000,
+    });
+    const calls = [];
+    app._triggerBoatNearFlowForBridge = async (_v, candidate) => {
+      calls.push(candidate);
+    };
+    await app._confirmReturnPassages({ mmsi: '265999004', ...posAt(KLAFF, -500) });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ name: 'Klaffbron', source: 'passage-fallback', returnForm: 'silence' });
+  });
+
+  test('återfödd båt med äldre post utan fixTs: korsningstiden okänd, tystnadsform (A4)', () => {
+    const app = bare();
+    const now = Date.now();
+    const vessel = {
+      mmsi: '265999005',
+      ...posAt(KLAFF, 12),
+      sog: 6,
+      cog: 40,
+      _routeDirection: 'north',
+      fixTs: now - 30000,
+      lastPositionUpdate: now,
+      timestamp: now,
+    };
+    // Sist känd 600 m före bron, 10 min sedan; båten nu 12 m förbi i 6 kn.
+    app._lastKnownPositions.set('265999005', { ...posAt(KLAFF, -600), t: now - 9 * 60000, posT: now - 10 * 60000 });
+    expect(app._segmentPassageForm(vessel, 'Klaffbron')).toBe('silence');
+    // Med fixens egen tid i posten räknas farten: korsningen ~34 s före notisen.
+    app._lastKnownPositions.set('265999005', {
+      ...posAt(KLAFF, -600), t: now - 9 * 60000, posT: now - 10 * 60000, fixTs: now - 10 * 60000 - 20000,
+    });
+    expect(app._segmentPassageForm(vessel, 'Klaffbron')).toBe('live');
+  });
+});
+
 describe('Hela appen på nattjaktens F08 r1 (replay)', () => {
   test('TROLLA: returen över Järnvägsbron 174 s efter korsningen säger "under AIS-tystnad"', () => {
     const env = { ...process.env, NODE_OPTIONS: '', REPLAY_VERBOSE: '' };

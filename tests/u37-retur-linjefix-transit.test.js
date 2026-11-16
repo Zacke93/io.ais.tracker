@@ -300,16 +300,71 @@ describe('U37 del 1: motfallen', () => {
     expect(v.holds()).toBe(true);
   });
 
-  test('vänder först efter linjen: korsningsfixen släpper (passagen tillbaka har skett)', () => {
-    // Ett känt pris: en båt som är förbi linjen i över 3 kn med kursen mot
-    // ankomstsidan, och SEDAN vänder, har korsat bron. Returnotisen gäller en
-    // verklig passage.
+  test('korsningsfixen 15 m förbi linjen i 3,5 kn efter 30 m på bortre sidan: släpps (segmentet ryms i farten)', () => {
+    // 45 m på 20 s mot rapporterade 3,5 kn (36 m): 9 m överskott.
     const v = visit(KLAFF, 'north');
     v.observe(30, v.passed, 15);
-    const crossing = v.observe(-15, () => ({ ...v.booked(), sog: 3.5 }), 15);
+    const crossing = v.observe(-15, () => ({ ...v.booked(), sog: 3.5 }), 20);
     expect(v.release(crossing)).toMatchObject({ evidence: 'linje-transit' });
     expect(geometry.decisiveBridgeSide(crossing, KLAFF)).toBe(-1);
   });
+
+  test('ett segment mer än 15 m längre än farten medger släpps inte direkt, utan vid nästa position (granskningen B1)', () => {
+    // 45 m på 15 s mot rapporterade 3,5 kn (27 m): 18 m överskott. Som på
+    // basen kommer notisen vid nästa position, ute på ankomstsidan (7a).
+    const v = visit(KLAFF, 'north');
+    v.observe(30, v.passed, 15);
+    const crossing = v.observe(-15, () => ({ ...v.booked(), sog: 3.5 }), 15);
+    expect(v.release(crossing)).toBeNull();
+    const next = v.observe(-45, { lastPassedBridge: KLAFF.name, lastPassedBridgeTime: crossing.lastPassedBridgeTime, sog: 3.5 }, 15);
+    expect(v.release(next, CONFIRM)).toMatchObject({ evidence: 'ankomstsidan' });
+  });
+
+  // Granskningens andra varv (B1): vid Class B-kadens 20–30 s ryms en
+  // utliggare 12–20 m förbi linjen i kvoten 1,5 × farten + 0,5 m/s. Båten
+  // kommer tillbaka i 3,5–4 kn och väntar 10 m före linjen; positionen före
+  // utliggaren ligger en kadens längre bort (36–62 m).
+  const UTLIGGARE_B = [];
+  for (const bridge of [KLAFF, STRIDS]) {
+    for (const first of ['north', 'south']) {
+      for (const [iv, sog] of [[20, 4], [30, 3.5]]) {
+        for (const x of [12, 20]) UTLIGGARE_B.push([bridge.name, first, iv, x, sog, bridge]);
+      }
+    }
+  }
+
+  test.each(UTLIGGARE_B)('%s, utpassage %s, kadens %s s: utliggare %s m förbi i %s kn, båten passerar aldrig: inget släpp',
+    (_n, first, iv, x, sog, bridge) => {
+      const v = visit(bridge, first);
+      const prev = 10 + sog * 0.514444 * iv;
+      v.observe(prev, () => ({ ...v.passed, sog }), iv);
+      const outlier = v.observe(-x, () => ({ ...v.booked(), sog }), iv);
+      expect(v.release(outlier)).toBeNull();
+      const after = { lastPassedBridge: bridge.name, lastPassedBridgeTime: outlier.lastPassedBridgeTime };
+      for (const offsetM of [11, 9, 10, 12]) expect(v.release(v.observe(offsetM, { ...after, sog: 0.2, cog: 300 }, iv), CONFIRM)).toBeNull();
+      for (const offsetM of [60, 150]) {
+        expect(v.release(v.observe(offsetM, { ...after, sog: 4, cog: cogToward(bridge, v.far) }, iv), CONFIRM)).toBeNull();
+      }
+      expect(v.holds()).toBe(true);
+    });
+
+  test.each(UTLIGGARE_B)('%s, utpassage %s, kadens %s s: utliggare %s m förbi i %s kn, passagen 5 min senare får notisen',
+    (_n, first, iv, x, sog, bridge) => {
+      const v = visit(bridge, first);
+      const prev = 10 + sog * 0.514444 * iv;
+      v.observe(prev, () => ({ ...v.passed, sog }), iv);
+      const outlier = v.observe(-x, () => ({ ...v.booked(), sog }), iv);
+      expect(v.release(outlier)).toBeNull();
+      const after = { lastPassedBridge: bridge.name, lastPassedBridgeTime: outlier.lastPassedBridgeTime };
+      for (let i = 0; i < Math.ceil(300 / iv); i++) v.observe(10 + (i % 3), { ...after, sog: 0.2, cog: (i * 61) % 360 }, iv);
+      // Den riktiga passagen i 4 kn: från 10 m före linjen till 20 m förbi.
+      const crossing = v.observe(-(sog * 0.514444 * iv - 10), () => ({ ...v.booked(), sog }), iv);
+      const result = v.release(crossing) || v.release(v.observe(-(2 * sog * 0.514444 * iv - 10), {
+        lastPassedBridge: bridge.name, lastPassedBridgeTime: crossing.lastPassedBridgeTime, sog,
+      }, iv), CONFIRM);
+      expect(result).not.toBeNull();
+      expect(result.crossedAt).toBeGreaterThan(outlier.fixTs + 290 * 1000);
+    });
 });
 
 describe('Hela appen på nattjaktens F15 (replay)', () => {
@@ -346,6 +401,29 @@ describe('Hela appen på nattjaktens F15 (replay)', () => {
     const releases = result.visitReturnReleases.filter((r) => r.bridge === 'Klaffbron');
     expect(releases).toHaveLength(1);
     expect(releases[0].verdict).toBe('ankomst');
+    expect(validateInvariants(result).filter((v) => /RETURSLÄPP|NOTIS-DUBBLETT/.test(v))).toEqual([]);
+  });
+
+  // Granskningens andra varv (B1): samma utliggare vid Class B-kadens, ur
+  // granskarens svep3 (banor 70437, 70434, 71265 och 71458).
+  test.each([
+    ['20 s, Klaffbron', 'n2-b1-utliggare-20s-klaffbron-passerar-aldrig.jsonl', 'Klaffbron'],
+    ['30 s, Stridsbergsbron', 'n2-b1-utliggare-30s-stridsbergsbron-passerar-aldrig.jsonl', 'Stridsbergsbron'],
+  ])('utliggare vid %s, båten passerar aldrig: ingen returnotis', (_l, file, bro) => {
+    const result = replay(path.join(FIXTURES, file));
+    expect(result.notifications.filter((n) => n.bridge === bro)).toHaveLength(1);
+    expect(result.visitReturnReleases.filter((r) => r.bridge === bro)).toEqual([]);
+  });
+
+  test.each([
+    ['20 s, Klaffbron', 'n2-b1-utliggare-20s-klaffbron-passerar-senare.jsonl', 'Klaffbron', '06:13:44'],
+    ['30 s, Stridsbergsbron', 'n2-b1-utliggare-30s-stridsbergsbron-passerar-senare.jsonl', 'Stridsbergsbron', '06:14:04'],
+  ])('utliggare vid %s, båten passerar senare: notisen kommer vid den riktiga passagen', (_l, file, bro, crossIso) => {
+    const result = replay(path.join(FIXTURES, file));
+    const notices = result.notifications.filter((n) => n.bridge === bro);
+    expect(notices).toHaveLength(2);
+    // Utliggaren 06:08:20–06:08:30; notisen tidigast vid den sanna korsningen.
+    expect(notices[1].t).toBeGreaterThanOrEqual(Date.parse(`2026-01-01T${crossIso}Z`) - 1000);
     expect(validateInvariants(result).filter((v) => /RETURSLÄPP|NOTIS-DUBBLETT/.test(v))).toEqual([]);
   });
 
