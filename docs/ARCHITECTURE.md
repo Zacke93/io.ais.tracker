@@ -1098,9 +1098,10 @@ båt.
   `EARLIER_BRIDGE_NEAR_M` (500 m) från armens bro, efter två föregående nya fix
   i minst `EARLIER_BRIDGE_ACCEL_MOVING_KN` (kajgrindens 1 kn), med minst
   `EARLIER_BRIDGE_ACCEL_DSOG2_KN` (0,8 kn) ökning mot fixet före det förra och
-  minst `EARLIER_BRIDGE_ACCEL_DSOG_KN` (0,3 kn) mot det förra, varje steg högst
-  `EARLIER_BRIDGE_ACCEL_PREV_MAX_MS` (240 s), kurs mot bron och ingen väntande
-  vändning. Då räknas spärrens restid i max(fart, `EARLIER_BRIDGE_ACCEL_KN`)
+  minst `EARLIER_BRIDGE_ACCEL_DSOG_KN` (0,3 kn) mot det förra, det utlösande
+  fixet i minst `EARLIER_BRIDGE_ACCEL_FLOOR_KN` (2,8 kn = 257 m /
+  `WARNING_LEAD_MS`), varje steg högst `EARLIER_BRIDGE_ACCEL_PREV_MAX_MS` (240 s),
+  kurs mot bron och ingen väntande vändning. Då räknas spärrens restid i max(fart, `EARLIER_BRIDGE_ACCEL_KN`)
   (5 kn; fältets median mellan broarna är 5,1 kn). Geometrin, inte ett villkor,
   gör att det bara gäller Järnvägsbron före Stridsbergsbron norrut (963 m till
   Klaffbron, 1 363 m från Olidebron, ingen öppningsbar bro söder om
@@ -1116,12 +1117,29 @@ båt.
   fixen med fartökning följdes inget av kö", "ingen varning före en kö") var
   fel: den gällde en skanning med 2 kn och ett steg, inte regelns villkor.
   Med regelns nuvarande villkor utlöses regeln 13 gånger hos 8 båtar i
-  rådatan (25 korpusar och k1–k3), och alla gick igenom utan att stanna.
-  **Känd kostnad:** en båt som ökar i gång och sedan stannar i en kö före bron
-  går inte att skilja från LIDAN-formen i ögonblicket; syntetiskt (2 → 3 →
-  3,5 kn, kö 10 min 150 m före Järnvägsbron) kommer varningen 907 s före
-  korsningen i stället för 105 s (`opening-accel-motfall` låser det). Inget
-  sådant fall finns i rådatan. **Mätt** (S/omg2/rapporter/sparr-4.md): i
+  rådatan (25 korpusar och k1–k3), och alla gick igenom utan att stanna; det
+  är ett tunt belägg. **Fartgolvet (omgranskningen, R2):** kravet på gång stänger
+  ute en stilla kö men inte en krypande. Granskarens former (kryp 1,2 kn, ryck
+  2,2 kn och kö; 1,2 → 2,1 → 2,5 kn och stopp; en båt som driver men rapporterar
+  1 kn med en spik på 2,0; en bakre båt som följer den främres ryck) varnade
+  5–15 min för tidigt. Under 2,8 kn hinner varningen ändå gå efter
+  Järnvägsbron, så golvet kostar inget: banken och fältet är bitlika med
+  versionen utan golv (alla bindande utlösningar har minst 3,0 kn, LIANNE
+  lägst), och alla formerna får basens utfall. 2,5 kn räcker inte
+  (1,2 → 2,1 → 2,5 kn och stopp varnar då 13–15 min för tidigt); 3,0 kn tar
+  bort ett långsamt kort till men ligger precis på LIANNE:s 3,0. I rådatan
+  finns sex krypfaser (minst tre nya fix i 1,0–1,9 kn 0–600 m före
+  Järnvägsbron); två slutade i stopp (PRIMA LADY, SKONNERTEN JYLLAND), och
+  ingen av de två utlöser regeln. **Känd kostnad:** en båt som ökar i gång till
+  minst 2,8 kn och sedan stannar i en kö före bron går inte att skilja från
+  LIDAN-formen i ögonblicket; syntetiskt (2 → 3 → 3,5 kn, kö 10 min 150 m före
+  Järnvägsbron) kommer varningen 907 s före korsningen i stället för 105 s. En
+  långsam ökning till 2,9–3,1 kn ger kortet "3" när 5,5–5,75 min återstår
+  (basen 4 med 3,0 kvar). Båda låses i `opening-accel-motfall`. Inget sådant
+  fall finns i rådatan, och buggjägaren genererar aldrig mönstret ökning → kö.
+  **Bara AISHub-takt:** med tät klass A (fix var 2–10 s) eller blandad källa
+  visar två nya fix i rad aldrig 0,8 kn ökning, så regeln utlöses inte där;
+  LIDAN-formen får då basens 128–130 s. Vinsten gäller i praktiken AISHub. **Mätt** (S/omg2/rapporter/sparr-4.md): i
   banken och fältet lyfts BALTIC DREAM 107 → 186 s, VISTEN 132 → 192 s och
   LIDAN 138 → 206 s över 150 s, och MONIKA, LIANNE, NAVEN och JAATTEN II får
   51–70 s mer ledtid; NORDIC SOLA, PRIMA LADY och ORANESS (avgångar) får som

@@ -24,6 +24,16 @@
  *    varningen kommer 907 s före korsningen (basen 105 s). Ledtiden låses till
  *    850–960 s så att en ändring syns åt båda hållen;
  *  - LIDAN-formen: minst 150 s (basen 102 s).
+ *
+ * Omgranskningen (R1/R2): kravet på gång stänger ute en stilla kö men inte en
+ * krypande. Granskarens former N1 (kryp 1,2 kn, ryck 2,2 kn, kö 10 min 300 m
+ * före Järnvägsbron, tre faser), N1b (upprepade ryck), N2 (1,2 → 2,1 → 2,5 kn och
+ * stopp 100/150/250 m före bron), N3 (driver men rapporterar 1 kn, spik 2,0)
+ * och N4 (den bakre båten följer den främres ryck) varnade 5–15 min för tidigt
+ * utan fartgolvet. Med golvet 2,8 kn får de basens utfall, och här krävs högst
+ * 300 s. Långsam ökning 1,5 → 1,9 → 2,4 kn (under golvet) likaså. Precis över
+ * golvet (2,0 → 2,4 → 2,9 kn) gäller regeln; det låses som känd kostnad
+ * (kortet 3 min när 5,75 återstår).
  */
 
 const fs = require('fs');
@@ -76,11 +86,23 @@ const QUEUE = [
   'brus-stilla-300-pos15.jsonl',
   'brus-stilla-380-pos50.jsonl',
   'nicoline-historia.jsonl',
+  // Omgranskningen (R1/R2): krypande köer under fartgolvet 2,8 kn.
+  'N1-kryp12-ryck22-ko300-aishub65.jsonl',
+  'N1-kryp12-ryck22-ko300-aishub65-f20.jsonl',
+  'N1-kryp12-ryck22-ko300-aishub65-f40.jsonl',
+  'N1b-kryp-ryck-upprepat.jsonl',
+  'N2-12-21-25-stopp100.jsonl',
+  'N2-12-21-25-stopp150.jsonl',
+  'N2-12-21-25-stopp250.jsonl',
+  'N3-driver-brus1kn-250.jsonl',
+  'N3-driver-brus1kn-350.jsonl',
+  ['N4-bakre-foljer-ryck.jsonl', '921000302'],
+  'langsam-okning-15-19-24.jsonl',
 ];
 
 describe('fartökningsregelns motfall (granskningen SPARR-d2)', () => {
-  test.each(QUEUE)('%s: ingen varning för Stridsbergsbron mer än 300 s före korsningen', (file) => {
-    const mmsi = firstMmsi(file);
+  test.each(QUEUE.map((q) => (Array.isArray(q) ? q : [q, 'första båten'])))('%s: ingen varning för Stridsbergsbron mer än 300 s före korsningen (%s)', (file, given) => {
+    const mmsi = given === 'första båten' ? firstMmsi(file) : given;
     const result = replay(file);
     const tc = crossing(file, mmsi);
     expect(tc).not.toBeNull();
@@ -105,6 +127,18 @@ describe('fartökningsregelns motfall (granskningen SPARR-d2)', () => {
     const [w] = result.openingWarnings.filter((x) => x.bridge === 'Stridsbergsbron' && x.mmsis.includes(mmsi));
     expect(tc - w.t).toBeGreaterThanOrEqual(850000);
     expect(tc - w.t).toBeLessThanOrEqual(960000);
+  }, 90000);
+
+  test('KÄND KOSTNAD langsam-okning-20-24-29: precis över golvet (2,9 kn) gäller regeln, och kortet säger 3 min när 5,75 återstår', () => {
+    const file = 'langsam-okning-20-24-29.jsonl';
+    const mmsi = firstMmsi(file);
+    const result = replay(file);
+    const tc = crossing(file, mmsi);
+    const [w] = result.openingWarnings.filter((x) => x.bridge === 'Stridsbergsbron' && x.mmsis.includes(mmsi));
+    // Basen 181 s och kortet 4; regeln ger 345 s och kortet 3.
+    expect(tc - w.t).toBeGreaterThanOrEqual(320000);
+    expect(tc - w.t).toBeLessThanOrEqual(370000);
+    expect(w.etaMin).toBe(3);
   }, 90000);
 
   test('lidan-form-utan-dubblett: minst 150 s före korsningen', () => {

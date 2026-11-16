@@ -784,14 +784,18 @@ Den första versionens (iii) inbromsning och (iv) söderut prövade aldrig regel
 
 Två jest-sviter låser resten:
 - `opening-accel-rule-villkor` har ett fall per villkor i regeln: bandet 390/410 m, i gång
-  0,9/1,1 kn för båda föregående fixen, steget 0,3 kn, ökningen 0,8 kn, åldern 240 s för
-  båda stegen, kurs bort, väntande vändning, ett sent levererat äldre fix och söderut mot
-  Klaffbron. Den har också fall för regelns ankomst på armen och för kortets siffra.
+  0,9/1,1 kn för båda föregående fixen, steget 0,3 kn, ökningen 0,8 kn, fartgolvet 2,8 kn
+  (2,6 utlöser inte, 2,9 utlöser), åldern 240 s för båda stegen, kurs bort, väntande
+  vändning, ett sent levererat äldre fix och söderut mot Klaffbron. Den har också fall för
+  regelns ankomst på armen och för kortets siffra (minimum, uppåt och epsilonet).
 - `opening-accel-motfall` kör granskarens motfall som fixturer
   (`tests/fixtures/sparr-motfall/`): krypköer i flera takter och faser, fartbrus hos en
   stillastående båt, NICOLINE med syntetisk historia och ett ryck följt av vändning. Den
   låser också den kända kostnaden (ökning i gång och sedan kö, 850–960 s) och LIDAN-formen.
-  Den första versionen av regeln fäller 11 av 13 fall.
+  Den första versionen av regeln fäller 11 av 13 fall. Omgranskningens krypande köer (N1 i
+  tre faser, N1b, N2 med stopp 100/150/250 m, N3 och N4) och en långsam ökning under golvet
+  kräver högst 300 s; versionen utan golv (8f851dd) fäller alla elva. Precis över golvet
+  (2,0 → 2,4 → 2,9 kn) låses som känd kostnad: 320–370 s och kortet 3.
 
 Kortets siffra när regeln släpper varningen (U28) prövas av jest-sviten
 `opening-accel-card-eta`. Den kör LIDAN- och NAVEN-formen, och i båda ska varningen

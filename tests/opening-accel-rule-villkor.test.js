@@ -6,8 +6,9 @@
  *
  * BridgeOpeningService#_accelBeforeNearEarlier: ett nytt fix högst 400 m före
  * Järnvägsbron, efter två föregående nya fix i minst 1 kn, med minst 0,8 kn
- * ökning mot fixet före det förra och minst 0,3 kn mot det förra, varje steg
- * högst 240 s, kurs mot bron och ingen väntande vändning, ger spärrens restid i
+ * ökning mot fixet före det förra och minst 0,3 kn mot det förra, i minst 2,8 kn
+ * (fartgolvet, omgranskningen R2), varje steg högst 240 s, kurs mot bron och
+ * ingen väntande vändning, ger spärrens restid i
  * max(fart, 5 kn). Varje villkor har här ett fall som fäller sin mutation:
  * tjänsten med regeln jämförs med samma tjänst där regeln är avstängd
  * (EARLIER_BRIDGE_ACCEL_BAND_M −1). "Utlöser" betyder att varningen kommer
@@ -124,12 +125,12 @@ describe('fartökningsregeln: ett fall per villkor', () => {
   });
 
   test.each([[0.9, false], [1.1, true]])('i gång: fixet före det förra i %d kn utlöser=%s', (v, fires) => {
-    const [on, off] = compare(three(300, [v, 2.0, 2.8]));
+    const [on, off] = compare(three(300, [v, 2.1, 2.9]));
     if (fires) expect(on).toBeLessThan(off); else expect(on).toBe(off);
   });
 
   test.each([[0.9, false], [1.1, true]])('i gång: det förra fixet i %d kn utlöser=%s', (v, fires) => {
-    const [on, off] = compare(three(300, [1.5, v, 2.4]));
+    const [on, off] = compare(three(300, [1.6, v, 2.9]));
     if (fires) expect(on).toBeLessThan(off); else expect(on).toBe(off);
   });
 
@@ -138,7 +139,12 @@ describe('fartökningsregeln: ett fall per villkor', () => {
     if (fires) expect(on).toBeLessThan(off); else expect(on).toBe(off);
   });
 
-  test.each([[[2.0, 2.3, 2.7], false], [[2.0, 2.4, 2.9], true]])('ökningen över två fix (≥ 0,8 kn): %j utlöser=%s', (sogs, fires) => {
+  test.each([[[2.3, 2.6, 3.0], false], [[2.2, 2.6, 3.1], true]])('ökningen över två fix (≥ 0,8 kn): %j utlöser=%s', (sogs, fires) => {
+    const [on, off] = compare(three(300, sogs));
+    if (fires) expect(on).toBeLessThan(off); else expect(on).toBe(off);
+  });
+
+  test.each([[[1.8, 2.2, 2.6], false], [[2.0, 2.4, 2.9], true]])('fartgolvet 2,8 kn: %j utlöser=%s', (sogs, fires) => {
     const [on, off] = compare(three(300, sogs));
     if (fires) expect(on).toBeLessThan(off); else expect(on).toBe(off);
   });
@@ -223,6 +229,11 @@ describe('fartökningsregeln: ett fall per villkor', () => {
     test('regelns restid uppåt till hel minut när den är lägre än kedjan', () => {
       const { service } = make();
       const info = service._warningLeadInfo([lead({ expectedArrivalMs: now + 6 * 60000, accelArrivalMs: now + 2.3 * 60000 })], now);
+      expect(info.etaMinutes).toBe(3);
+    });
+    test('en hel minut med flyttalsbrus blir inte en minut för mycket', () => {
+      const { service } = make();
+      const info = service._warningLeadInfo([lead({ expectedArrivalMs: now + 6 * 60000, accelArrivalMs: now + 180000.003 })], now);
       expect(info.etaMinutes).toBe(3);
     });
     test('aldrig högre än kedjan', () => {

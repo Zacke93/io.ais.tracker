@@ -545,11 +545,15 @@ trafiken" är de 24 låsta körningarna (cirka 485 h).
   Järnvägsbron (NICOLINE i 20260712-25h och syntetiska krypköer). Den tidigare raden här
   ("ingen varning före en kö") var fel. Regeln är omgjord till bara ökning i gång: ett fix
   högst 400 m före Järnvägsbron efter två fix i minst 1 kn, med minst 0,8 kn ökning över två
-  fix, räknar restiden till Stridsbergsbron i minst 5 kn. Den vinner BALTIC DREAM 107 → 186 s,
+  fix och minst 2,8 kn (fartgolvet efter omgranskningen: under 257 m / 180 s hinner varningen
+  ändå gå efter bron), räknar restiden till Stridsbergsbron i minst 5 kn. Den vinner BALTIC DREAM 107 → 186 s,
   VISTEN 132 → 192 s och LIDAN 138 → 206 s, och 51–70 s mer åt MONIKA, LIANNE, NAVEN och
   JAATTEN II. NORDIC SOLA (107 s), PRIMA LADY (117 s) och ORANESS (93 s) var avgångar och får
-  som förut. Känd kostnad: en båt som ökar i gång och sedan köar varnas 13–16 min för tidigt
-  (syntetiskt; inget fall i rådatan, där alla 13 utlösningar hos 8 båtar gick igenom). I
+  som förut. Känd kostnad efter golvet: en båt som ökar i gång till minst 2,8 kn och sedan köar
+  varnas cirka 15 min för tidigt, och en långsam ökning till 2,9–3,1 kn ger kortet 3 min när
+  5,5–5,75 återstår (syntetiskt; i rådatan gick alla 13 utlösningar hos 8 båtar igenom, ett
+  tunt belägg, och buggjägaren genererar inte mönstret). Krypande köer under 2,8 kn omfattas
+  inte. I
   buggjägaren är utfallet som basen; den första versionens konvojkostnad (följare med eget
   kort och mötande södergående båtar med kortare ledtid, alla minst 150 s) försvann med
   avgångsgrenen. Kortets siffra (alternativ (b), U28) är regelns restid i max(fart, 5 kn),
@@ -1101,8 +1105,10 @@ U31.
   redovisades inte.
 - *Den omgjorda regeln.* Den gäller bara en båt som redan är i gång, med båda föregående fixen
   i minst 1 kn. Båten ska öka farten tydligt två positioner i rad, högst 400 m före
-  Järnvägsbron, med kurs mot bron. Då räknar appen som om hon går minst 5 kn. Kortet visar den
-  lägre av ETA-kedjans siffra och regelns restid, avrundad uppåt.
+  Järnvägsbron, med kurs mot bron, och den sista positionen ska visa minst 2,8 kn (fartgolvet
+  efter omgranskningen; långsammare än 257 m på 3 min hinner varningen ändå gå efter
+  Järnvägsbron). Då räknar appen som om hon går minst 5 kn. Kortet visar den lägre av
+  ETA-kedjans siffra och regelns restid, avrundad uppåt.
 
   | Båt | Varning före passagen i dag | Med regeln |
   |---|---|---|
@@ -1118,9 +1124,12 @@ U31.
   `measure:eta` blir sämre. Fyra låsta varningar kommer tidigare (JAATTEN II, MONIKA, VISTEN och
   LIDAN), med kortet 3 i stället för 5–6. De är inte omlåsta.
 - *Kostnaden.* I all inspelad trafik och fältets tre körningar utlöstes regeln 13 gånger hos 8
-  båtar, och alla gick igenom utan att stanna eller vända. Konstruerat: en båt som ökar och
-  sedan ändå köar 10 min 150 m före Järnvägsbron får varningen 907 s före passagen i stället
-  för 105 s. Det fallet är låst i ett test. Tre båtar som lade ut ur kö 360–440 m från bron
+  båtar, och alla gick igenom utan att stanna eller vända. Det är ett tunt belägg. Konstruerat:
+  en båt som ökar till minst 2,8 kn och sedan ändå köar 10 min 150 m före Järnvägsbron får
+  varningen 907 s före passagen i stället för 105 s, och en långsam ökning till 2,9–3,1 kn ger
+  kortet "3" när 5,5–5,75 min återstår. Båda fallen är låsta i test. Utan golvet varnades också
+  krypande köer (1,2 kn, ett ryck och sedan kö) 13–15 min för tidigt; golvet tar bort dem utan
+  att något i banken eller fältet ändras. Tre båtar som lade ut ur kö 360–440 m från bron
   (NORDIC SOLA, PRIMA LADY och ORANESS) får som i dag.
 - *Alternativ.* (A) Ingen regel. (B) Bara ökning i gång, som är införd på grenen. (C) Som B,
   plus avgång ur kö när nästa fix bekräftar den. C ger samma utfall som B i verklig trafik, men
