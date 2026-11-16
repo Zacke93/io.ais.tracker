@@ -1953,6 +1953,12 @@ const PREDICATES = {
       tickS: 30,
       tickFördröjningMs: 40,
       uttömdTakMs: IMMINENT_EXHAUSTED_MAX_AGE_MS,
+      // Harnessens längsta klocksteg utan dränering: replayRunner stegar ett
+      // glapp mellan två rader i bitar om högst 30 s och dränerar efter varje
+      // (korpus #9, ILLUSION-fönstret). B4-återgången ska komma vid den
+      // första dräneringen efter hennes rad, alltså senast så här långt efter
+      // raden (granskningen 2026-11-16, L5).
+      dräneringMs: 30 * 1000,
     },
     fn(f, ctx, p) {
       if ((f.ursprung || {}).relation === 'BAS') return nej('låst bank: bara runAllCorpora:s exakta prefixmatch gäller, ingen registeramnesti');
@@ -2085,21 +2091,32 @@ const PREDICATES = {
       if (kaj) return nej(`${gammal}, men båten ligger i kajkapseln '${kaj.name}' (MOORING_ZONES), och en förtöjd båts glesa rader beläggs inte som 'strax'-bärare`);
       // Krav 7: återgången hör till båtens rad. B4: återgången bärs av hennes
       // färska fix (b4Underlag (c)) och publiceras vid första dräneringen
-      // efter raden: ingen text emellan, ingen egen rad emellan, och senast när
-      // nästa rad (vilken båt som helst) bearbetas. I standardvärld 1907
-      // (REPLAY_MONITORING=1) publicerades den vid nästa rad 11:02:03, där
-      // harnessen kör halvminutsticken 11:02:00 i samma klocksteg
-      // (tidsstegningen, VALIDATION §Fältprov); den rad som bearbetades där
-      // låg 631 m från bron och kunde inte bära 'strax'.
+      // efter raden: ingen text emellan, ingen egen rad emellan, senast när
+      // nästa rad (vilken båt som helst) bearbetas och senast ett klocksteg
+      // (dräneringMs, 30 s) efter raden, eftersom harnessen dränerar efter
+      // varje steg också i ett glapp utan rader (granskningen 2026-11-16, L5:
+      // utan stegets gräns kunde ett avbrott i en gles värld bli minuter).
+      // Avbrottet blir då högst ett steg; hoppet självt ligger före första
+      // texten och första halvminutsticken efter taket (krav 5). I
+      // standardvärld 1907 (REPLAY_MONITORING=1) publicerades återgången vid
+      // nästa rad 11:02:03, 22 s efter hennes rad, där harnessen kör
+      // halvminutsticken 11:02:00 i samma klocksteg (tidsstegningen,
+      // VALIDATION §Fältprov); den rad som bearbetades där låg 631 m från
+      // bron och kunde inte bära 'strax'.
       if (b4) {
         const mellanText = övergångar.find((x) => x && Number.isFinite(x.t) && x.t > hopp.t && x.t < åter.t);
         const egen = per.get(mmsi).find((r) => tider.get(r) > hopp.t && tider.get(r) <= åter.t);
         const nästaRad = ctx.rader.filter((r) => r && Number.isFinite(r.lat) && tider.get(r) > hopp.t)
           .sort((a, b) => tider.get(a) - tider.get(b))[0];
-        if (!(åter.t > hopp.t) || mellanText || egen || (nästaRad && åter.t > tider.get(nästaRad))) {
+        const stegSlut = tider.get(nästa) + p.dräneringMs;
+        if (!(åter.t > hopp.t) || mellanText || egen || (nästaRad && åter.t > tider.get(nästaRad))
+            || !(åter.t <= stegSlut)) {
           let varför = `efter nästa rad ${nästaRad ? fmtMs(tider.get(nästaRad)) : '?'}`;
           if (mellanText) varför = `brotext ${fmtMs(mellanText.t)} emellan`;
           else if (egen) varför = `hennes rad ${fmtMs(egen.aisTimestamp)} emellan`;
+          else if (!(åter.t <= stegSlut)) {
+            varför = `${tid(åter.t - tider.get(nästa))} efter hennes rad, mer än ett klocksteg (${p.dräneringMs / 1000} s)`;
+          }
           return nej(`${gammal}, men återgången till strax ${fmtMs(åter.t)} kom inte vid första dräneringen efter hennes rad (${varför})`);
         }
       } else if (!(åter.t > hopp.t) || åter.t - nästa.aisTimestamp > p.fönsterMs) {

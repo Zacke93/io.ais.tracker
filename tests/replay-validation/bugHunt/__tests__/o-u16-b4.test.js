@@ -140,6 +140,48 @@ describe('U16 B4: 90 s-taket på uttömt strax (standardvärld 1907, korten F04 
     expect(p16(b.fynd, b.ctx).skäl).toMatch(/kom inte vid första dräneringen efter hennes rad \(brotext 11:01:55/);
   });
 
+  // Granskningen 2026-11-16 (L5): harnessen dränerar efter varje klocksteg om
+  // högst 30 s, också i ett glapp utan rader. Återgången ska komma vid den
+  // första dräneringen efter hennes rad; förut godtogs den fram till nästa
+  // rad av vilken båt som helst, och i en gles värld kunde avbrottet bli minuter.
+  describe('återgången senast ett klocksteg (30 s) efter hennes rad', () => {
+    const glesare = (nyÅter) => {
+      const { fynd, ctx } = fall('w1907', SÅG);
+      // Inga rader mellan hoppet och den nya återgången; texten vid
+      // återgången flyttas dit.
+      ctx.rader = ctx.rader.filter((r) => !(r.aisTimestamp > HOPP && r.aisTimestamp <= nyÅter));
+      for (const x of [...ctx.resultat.bridgeTextTransitions, ...ctx.resultat.bridgeTextLeads]) {
+        if (x.t === ÅTER) {
+          x.t = nyÅter;
+          if ('iso' in x) x.iso = new Date(nyÅter).toISOString();
+        }
+      }
+      if (fynd.klass === OSC || fynd.t === ÅTER) fynd.t = nyÅter;
+      return { fynd, ctx };
+    };
+
+    test('[träff] 1907: återgången 22,1 s efter hennes rad, inom steget; U16', () => {
+      expect(PREDICATES.f40StudsVidNästaFix.parametrar.dräneringMs).toBe(30000);
+      const { fynd, ctx } = glesare(iso('11:02:10.985'));
+      expect(klassa(reg, fynd, ctx)).toMatchObject({ klass: 'MÄTGRÄNS', post: U16 });
+    });
+
+    test('[vakt] gles värld: återgången 30,1 s efter hennes rad, efter första dräneringen; KANDIDAT', () => {
+      const { fynd, ctx } = glesare(iso('11:02:11.085'));
+      expect(p16(fynd, ctx).skäl).toMatch(/kom inte vid första dräneringen efter hennes rad \(30\.1 s efter hennes rad, mer än ett klocksteg \(30 s\)\)/);
+      expect(klassa(reg, fynd, ctx).klass).toBe('KANDIDAT');
+    });
+
+    test('[vakt] ett långt avbrott (3 min) sväljs inte; KANDIDAT', () => {
+      // Fixturens senare texter tas bort, så att bara stegets gräns fäller.
+      const { fynd, ctx } = glesare(HOPP + 3 * 60000);
+      const nyÅter = HOPP + 3 * 60000;
+      ctx.resultat.bridgeTextTransitions = ctx.resultat.bridgeTextTransitions.filter((x) => !(x.t > HOPP && x.t < nyÅter));
+      expect(p16(fynd, ctx).skäl).toMatch(/180\.0 s efter hennes rad, mer än ett klocksteg/);
+      expect(klassa(reg, fynd, ctx).klass).toBe('KANDIDAT');
+    });
+  });
+
   test('[vakt] en annan båts rad inom 500 m mellan hoppet och återgången; KANDIDAT', () => {
     const { fynd, ctx } = fall('w1907', SÅG);
     const mall = ctx.rader.find((r) => String(r.mmsi) === ULLA && r.aisTimestamp === HOPP);
