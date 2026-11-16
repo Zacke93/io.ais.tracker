@@ -1281,6 +1281,22 @@ båt.
 
 - Tilldelning: `_shouldAssignTargetBridge` (:1753, kräver bl.a. rörelsebevis,
   ej `_moored`) → `_calculateTargetBridge` (:2026, COG-riktning + position).
+- **U41 (2026-11-16): en sändare med en fart som ingen båt håller skapas inte.**
+  `updateVessel` skapar ingen båt när en sändare som appen inte följer rapporterar minst
+  `IMPLAUSIBLE_NEW_VESSEL_SOG_KN` (15 kn); loggraden är `[VESSEL_IMPLAUSIBLE_SPEED]` och
+  nästa position prövas på nytt. Fältfallet är ett landfordon, 218023240 i 20260713-41h:
+  33,2 kn på Stallbackabrons körbana (kursen längs broaxeln) och 21,7 kn på en stamväg 877 m
+  från farleden. Det visades som båt i 18 min och fick en notis för Stallbackabron på sin
+  första position, så regeln verkar på ett enda sampel. Mätningen (banken + k1/k2, 30 719
+  positioner): den snabbaste båten som korsar en bro rapporterar 10,6 kn, och över 12 kn finns
+  bara fordonets två positioner, PRICKBJORNs enstaka spik (22,2 kn mitt i ett spår, k2) och ett
+  enkelsampel på 13 kn i farleden (211488728). Ingen befintlig vakt tog fallet: båda
+  positionerna ligger inom `BOUNDING_BOX`, GPS-hoppsanalysen behöver en föregående position
+  (och den andra positionen stämmer med farten), och C6:s rimlighetsvakt (> 10 kn kräver
+  positionsstöd) gäller bara öppningsbeväpningen. En båt som redan följs berörs inte, så en
+  enstaka orimlig fart får henne inte att försvinna. Kända gränser: en bil som först
+  rapporterar under 15 kn visas som båt, och en riktig båt som håller minst 15 kn från första
+  positionen visas först när hon saktar in; ingetdera finns i banken eller fältet.
 - **M3 (rättningskampanjen varv 2, familj C, 2026-11-09): en återfödd båt med kurs i
   dödbandet får målbro ur förflyttningen.**
   - *Felet.* `_calculateTargetBridge` avstår vid kurs 46–134° och 226–314° (F18). En
