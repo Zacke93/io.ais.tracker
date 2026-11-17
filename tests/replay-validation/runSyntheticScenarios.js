@@ -3691,10 +3691,537 @@ const SCENARIOS = [
       }],
     },
   })),
+  // F04 (rättningsomgång 3, 2026-11-16; nattjaktens värld 19721): BÅTEN SOM
+  // LÄMNAR KANALEN OCH VÄNDER TILLBAKA. Hon går ut norrut genom
+  // Stallbackabron i 9,5 kn, saktar in och vänder 430 m bortom bron och kommer
+  // tillbaka i 4,5–8,8 kn. Återinträdesspärren (10 min efter avslutad resa)
+  // kastade varje position: varningen för Stridsbergsbron kom 136 s före
+  // korsningen och Stallbackabron fick bara en sen "passerade … under
+  // AIS-tystnad". PLACERINGEN ÄR TESTET: resan avslutas cirka 300 m bortom
+  // bron (STALLBACKABRON_EXIT_LAT), så vändningen måste ligga längre ut än så,
+  // och rutten norr om bron (en rak förlängning) lämnar boxen österut efter
+  // cirka 330 m. Fixarna bortom bron ligger därför 50–110 m västerut i sidled
+  // (lateralM); sidledet går nästan längs broaxeln och flyttar inte sidan om
+  // brolinjen.
+  {
+    name: 'återvändare-bortom-Stallbackabron (nattjakten F04)',
+    seed: 19721,
+    vessels: [{
+      mmsi: '901972101',
+      name: 'SYNT-ÅTERVÄNDARE-N',
+      startS: METRICS.cum[1] - 300,
+      legs: [
+        { toS: METRICS.cum[5] + 150, speedKn: 9.5, intervalS: 30 },
+        {
+          toS: METRICS.cum[5] + 300, speedKn: 8, intervalS: 30, lateralM: -50,
+        },
+        {
+          toS: METRICS.cum[5] + 430, speedKn: 4, intervalS: 30, lateralM: -110,
+        },
+        {
+          stopS: 30, stopIntervalS: 30, stopSog: 1.4, stopCogDeg: 195, lateralM: -110,
+        },
+        {
+          toS: METRICS.cum[5] + 310, speedKn: 4.5, intervalS: 30, lateralM: -110,
+        },
+        {
+          toS: METRICS.cum[5] + 150, speedKn: 8.5, intervalS: 30, lateralM: -50,
+        },
+        { toS: METRICS.cum[2] - 300, speedKn: 8.8, intervalS: 30 },
+      ],
+    }],
+    expect: {
+      openingLeadS: { Stridsbergsbron: 180 },
+      approachNoticeLeadS: { Stallbackabron: 30 },
+    },
+  },
+  // F04, söderut: samma mekanism vid Olidebron. Resan söderut avslutas först
+  // söder om KANALINFARTEN_EXIT_LAT (~830 m bortom Olidebron), och vägen
+  // tillbaka till Klaffbron är så kort att spärren åt upp notiserna för
+  // Kanalinfarten och Olidebron och varningen för Klaffbron (5 s före
+  // korsningen). Utfarten går västsydväst, så "mot bron" mäts mot brolinjen,
+  // inte mot ett kompassband.
+  {
+    name: 'återvändare-söder-om-Olidebron (nattjakten F04, söderut)',
+    seed: 19722,
+    vessels: [{
+      mmsi: '901972201',
+      name: 'SYNT-ÅTERVÄNDARE-S',
+      startS: METRICS.cum[5] + 250,
+      legs: [
+        { toS: METRICS.cum[1] - 1000, speedKn: 8, intervalS: 30 },
+        {
+          stopS: 30, stopIntervalS: 30, stopSog: 1.4, stopCogDeg: 120,
+        },
+        { toS: METRICS.cum[4] + 400, speedKn: 8, intervalS: 30 },
+      ],
+    }],
+    expect: {
+      openingLeadS: { Klaffbron: 180 },
+      approachNoticeLeadS: { Olidebron: 30 },
+    },
+  },
+  // Motfall F04: båten vänder bortom Stallbackabron men ligger sedan och
+  // vobblar (0,6 kn, slumpad kurs) i 15 min innan hon går vidare norrut.
+  // Ingen position går mot bron i 2 kn, så spärren står kvar som förut: ingen
+  // ny notis för Stallbackabron och ingen båt mot Stridsbergsbron i texten
+  // medan spärren gäller (resan avslutas cirka 1 100 s in). När spärren löpt
+  // ut (1 830 s) skapas hon som förut, med "om 120 minuter"; det är dagens
+  // beteende för en stilla båt bortom bron och inte prövat här.
+  {
+    name: 'utfart-norrut-ligger-still-bortom-Stallbackabron (motfall F04)',
+    seed: 19723,
+    vessels: [{
+      mmsi: '901972301',
+      name: 'SYNT-UTFART-STILLA',
+      startS: METRICS.cum[1] - 300,
+      legs: [
+        { toS: METRICS.cum[5] + 150, speedKn: 9.5, intervalS: 30 },
+        {
+          toS: METRICS.cum[5] + 300, speedKn: 8, intervalS: 30, lateralM: -50,
+        },
+        {
+          toS: METRICS.cum[5] + 430, speedKn: 4, intervalS: 30, lateralM: -110,
+        },
+        {
+          stopS: 900, stopIntervalS: 30, stopSog: 0.6, stopCogRandom: true, lateralM: -110,
+        },
+        {
+          toS: METRICS.cum[5] + 900, speedKn: 6, intervalS: 30, lateralM: -110,
+        },
+      ],
+    }],
+    expect: {
+      maxNotifiedPerBridge: { Stallbackabron: 1 },
+      textCountWindows: [{
+        bridge: 'Stridsbergsbron', fromS: 1150, toS: 1800, max: 0,
+      }],
+    },
+  },
+  // Motfall F04 (granskarens D): båten vänder bortom Stallbackabron, går
+  // tillbaka mot bron i 3 kn (rapporterat 2,9–3,1) i drygt en minut (130 m)
+  // och vänder sedan ut igen. Med 2 kn och 50 m släpptes hon och stod 90 s i
+  // texten "på väg mot Stridsbergsbron"; med 3 kn och 100 m netto släpps hon
+  // inte, och utfallet är basens.
+  {
+    name: 'utfart-norrut-vänder-in-och-ut-igen (motfall F04)',
+    seed: 19724,
+    vessels: [{
+      mmsi: '901972401',
+      name: 'SYNT-UTFART-VÄNDER-IGEN',
+      startS: METRICS.cum[1] - 300,
+      legs: [
+        { toS: METRICS.cum[5] + 150, speedKn: 9.5, intervalS: 30 },
+        {
+          toS: METRICS.cum[5] + 300, speedKn: 8, intervalS: 30, lateralM: -50,
+        },
+        {
+          toS: METRICS.cum[5] + 430, speedKn: 4, intervalS: 30, lateralM: -110,
+        },
+        {
+          stopS: 30, stopIntervalS: 30, stopSog: 1.4, stopCogDeg: 195, lateralM: -110,
+        },
+        {
+          toS: METRICS.cum[5] + 300, speedKn: 3, intervalS: 30, lateralM: -110,
+        },
+        {
+          stopS: 30, stopIntervalS: 30, stopSog: 1.0, stopCogDeg: 20, lateralM: -110,
+        },
+        {
+          toS: METRICS.cum[5] + 900, speedKn: 6, intervalS: 30, lateralM: -110,
+        },
+      ],
+    }],
+    expect: {
+      maxNotifiedPerBridge: { Stallbackabron: 1 },
+      textCountWindows: [{
+        bridge: 'Stridsbergsbron', fromS: 1440, toS: 1700, max: 0,
+      }],
+    },
+  },
+  // === Granskningen av N5 (2026-11-16): motfall till F04-släppet ===
+  // Alla börjar med en vanlig utfart norrut genom Stallbackabron och vänder
+  // 430 m bortom bron (sidled som i återvändarscenariot ovan). Ingen av dem
+  // korsar bron tillbaka. Med 2 kn och 50 m släpptes E, E2, H, J och K och
+  // gav falska notiser och spöktext; med 3 kn och 100 m netto är utfallet
+  // basens. F är den kända gränsen.
+  ...[
+    {
+      tag: 'E', seed: 7101, mmsi: '907100101', till: 250, fran: 900, tillS: 1130,
+    },
+    {
+      tag: 'E2', seed: 7102, mmsi: '907100201', till: 150, fran: 900, tillS: 1220,
+    },
+  ].map((k) => ({
+    name: `driver-i-2,2kn-mot-Stallbackabron-till-${k.till}m-och-ut (motfall F04, granskningens ${k.tag})`,
+    seed: k.seed,
+    vessels: [{
+      mmsi: k.mmsi,
+      name: `DRIV-${k.tag}`,
+      startS: METRICS.cum[2] + 300,
+      legs: [
+        { toS: METRICS.cum[5] + 150, speedKn: 9.5, intervalS: 30 },
+        {
+          toS: METRICS.cum[5] + 300, speedKn: 8, intervalS: 30, lateralM: -50,
+        },
+        {
+          toS: METRICS.cum[5] + 430, speedKn: 4, intervalS: 30, lateralM: -110,
+        },
+        {
+          stopS: 30, stopIntervalS: 30, stopSog: 0.5, stopCogDeg: 215, lateralM: -110,
+        },
+        {
+          toS: METRICS.cum[5] + k.till, speedKn: 2.2, intervalS: 30, lateralM: -110,
+        },
+        {
+          stopS: 60, stopIntervalS: 30, stopSog: 0.3, stopCogRandom: true, lateralM: -110,
+        },
+        {
+          toS: METRICS.cum[5] + 900, speedKn: 6, intervalS: 30, lateralM: -110,
+        },
+      ],
+    }],
+    expect: {
+      maxNotifiedPerBridge: { Stallbackabron: 1 },
+      textCountWindows: [{
+        bridge: 'Stridsbergsbron', fromS: k.fran, toS: k.tillS, max: 0,
+      }],
+    },
+  })),
+  {
+    // Granskningens H: ut söderut genom Olidebron, manövrerar 200 m tillbaka
+    // mot bron i 2,5 kn till en kaj och ligger still.
+    name: 'kajmanöver-2,5kn-söder-om-Olidebron (motfall F04, granskningens H)',
+    seed: 7106,
+    vessels: [{
+      mmsi: '907100601',
+      name: 'KAJ-H',
+      startS: METRICS.cum[2] + 300,
+      legs: [
+        { toS: METRICS.cum[0] + 300, speedKn: 7, intervalS: 30 },
+        {
+          stopS: 60, stopIntervalS: 30, stopSog: 0.3, stopCogRandom: true,
+        },
+        { toS: METRICS.cum[0] + 500, speedKn: 2.5, intervalS: 30 },
+        {
+          stopS: 1500, stopIntervalS: 60, stopSog: 0.1, stopCogRandom: true,
+        },
+      ],
+    }],
+    expect: {
+      maxNotifiedPerBridge: { Olidebron: 1 },
+      textCountWindows: [{
+        bridge: 'Klaffbron', fromS: 930, toS: 1160, max: 0,
+      }],
+    },
+  },
+  {
+    // Granskningens J: ankrad 430 m bortom Stallbackabron (0,3 kn) med ETT
+    // brusigt positionspar mitt i stoppet: sog 2,1, kurs mot bron och den
+    // andra positionen 60 m närmare linjen. Med 2 kn och 50 m släpptes hon
+    // och stod 7 min i texten "på väg mot Stridsbergsbron, om 36–43 minuter".
+    name: 'ankrad-bortom-Stallbackabron-ett-brusigt-positionspar (motfall F04, granskningens J)',
+    seed: 7202,
+    vessels: [{
+      mmsi: '907200201',
+      name: 'HOPP-J',
+      startS: METRICS.cum[2] + 300,
+      legs: [
+        { toS: METRICS.cum[5] + 150, speedKn: 9.5, intervalS: 30 },
+        {
+          toS: METRICS.cum[5] + 300, speedKn: 8, intervalS: 30, lateralM: -50,
+        },
+        {
+          toS: METRICS.cum[5] + 430, speedKn: 4, intervalS: 30, lateralM: -110,
+        },
+        {
+          stopS: 600, stopIntervalS: 30, stopSog: 0.3, stopCogRandom: true, lateralM: -110,
+        },
+        {
+          toS: METRICS.cum[5] + 900, speedKn: 6, intervalS: 30, lateralM: -110,
+        },
+      ],
+    }],
+    patchSamples: (samples) => {
+      const stop = samples.filter((r) => r.mmsi === '907200201' && r.lat > 58.3125 && r.sog < 1);
+      const a = stop[6];
+      const b = stop[7];
+      a.sog = 2.1;
+      a.cog = 215;
+      b.sog = 2.1;
+      b.cog = 215;
+      const brg = (35.6 * Math.PI) / 180;
+      b.lat = a.lat - (60 * Math.cos(brg)) / 111320;
+      b.lon = a.lon - (60 * Math.sin(brg)) / (111320 * Math.cos((a.lat * Math.PI) / 180));
+    },
+    expect: {
+      maxNotifiedPerBridge: { Stallbackabron: 1 },
+      textCountWindows: [{
+        bridge: 'Stridsbergsbron', fromS: 1000, toS: 1460, max: 0,
+      }],
+    },
+  },
+  {
+    // Granskningens K: som E (drift i 2,2 kn mot bron till 200 m) plus en
+    // riktig båt söderut mot Stridsbergsbron. Den riktiga båtens notiser och
+    // varningar ska stå kvar, och texten ska bara räkna henne.
+    name: 'drift-mot-Stallbackabron-och-en-riktig-båt-söderut (motfall F04, granskningens K)',
+    seed: 7203,
+    vessels: [
+      {
+        mmsi: '907200301',
+        name: 'DRIV-K',
+        startS: METRICS.cum[2] + 300,
+        legs: [
+          { toS: METRICS.cum[5] + 150, speedKn: 9.5, intervalS: 30 },
+          {
+            toS: METRICS.cum[5] + 300, speedKn: 8, intervalS: 30, lateralM: -50,
+          },
+          {
+            toS: METRICS.cum[5] + 430, speedKn: 4, intervalS: 30, lateralM: -110,
+          },
+          {
+            stopS: 30, stopIntervalS: 30, stopSog: 0.5, stopCogDeg: 215, lateralM: -110,
+          },
+          {
+            toS: METRICS.cum[5] + 200, speedKn: 2.2, intervalS: 30, lateralM: -110,
+          },
+          {
+            stopS: 60, stopIntervalS: 30, stopSog: 0.3, stopCogRandom: true, lateralM: -110,
+          },
+          {
+            toS: METRICS.cum[5] + 900, speedKn: 6, intervalS: 30, lateralM: -110,
+          },
+        ],
+      },
+      {
+        mmsi: '907200302',
+        name: 'ANNAN-K',
+        startS: METRICS.cum[5] - 200,
+        startOffsetS: 700,
+        legs: [{ toS: METRICS.cum[2] - 300, speedKn: 6, intervalS: 30 }],
+      },
+    ],
+    expect: {
+      // DRIV-K:s utfart och ANNAN-K:s passage söderut (som i basen).
+      maxNotifiedPerBridge: { Stallbackabron: 2 },
+      expectedOpenings: ['Stridsbergsbron'],
+      textCountWindows: [{
+        bridge: 'Stridsbergsbron', fromS: 920, toS: 1160, max: 1,
+      }],
+    },
+  },
+  {
+    // Granskningens F: båten vänder bortom Stallbackabron, går mot bron i
+    // 3,5 kn in till 180 m och vänder ut igen. Med golvet 3 kn släpptes hon och
+    // fick "VAND-F närmar sig Stallbackabron, beräknad ankomst om 3 minuter";
+    // med 4,5 kn är utfallet basens.
+    name: 'vänder-in-till-180m-i-3,5kn-och-ut-igen (motfall F04, granskningens F)',
+    seed: 7103,
+    vessels: [{
+      mmsi: '907100301',
+      name: 'VAND-F',
+      startS: METRICS.cum[2] + 300,
+      legs: [
+        { toS: METRICS.cum[5] + 150, speedKn: 9.5, intervalS: 30 },
+        {
+          toS: METRICS.cum[5] + 300, speedKn: 8, intervalS: 30, lateralM: -50,
+        },
+        {
+          toS: METRICS.cum[5] + 430, speedKn: 4, intervalS: 30, lateralM: -110,
+        },
+        {
+          stopS: 30, stopIntervalS: 30, stopSog: 1.4, stopCogDeg: 195, lateralM: -110,
+        },
+        {
+          toS: METRICS.cum[5] + 180, speedKn: 3.5, intervalS: 30, lateralM: -110,
+        },
+        {
+          stopS: 30, stopIntervalS: 30, stopSog: 1.0, stopCogDeg: 20, lateralM: -110,
+        },
+        {
+          toS: METRICS.cum[5] + 900, speedKn: 6, intervalS: 30, lateralM: -110,
+        },
+      ],
+    }],
+    expect: {
+      maxNotifiedPerBridge: { Stallbackabron: 1 },
+      textCountWindows: [{
+        bridge: 'Stridsbergsbron', fromS: 880, toS: 1400, max: 0,
+      }],
+    },
+  },
+  // Granskningens andra varv (N1, N1b, N2): båtar strax över golvet 3 kn som
+  // släpptes utan att korsa. Med 4,5 kn är utfallet basens.
+  ...[
+    {
+      tag: 'N1', seed: 7301, mmsi: '907300101', till: 280, tillS: 1100,
+    },
+    {
+      tag: 'N1b', seed: 7302, mmsi: '907300201', till: 150, tillS: 1160,
+    },
+  ].map((k) => ({
+    // N1 fick "DRIV31-A närmar sig Stallbackabron, beräknad ankomst om 35
+    // minuter" 300 m från bron (ETA:n var den till Stridsbergsbron), N1b
+    // "… om 3 minuter", och båda stod 2–3 min i texten.
+    name: `driver-i-3,1kn-mot-Stallbackabron-till-${k.till}m-och-ut (motfall F04, granskningens ${k.tag})`,
+    seed: k.seed,
+    vessels: [{
+      mmsi: k.mmsi,
+      name: `DRIV31-${k.tag}`,
+      startS: METRICS.cum[2] + 300,
+      legs: [
+        { toS: METRICS.cum[5] + 150, speedKn: 9.5, intervalS: 30 },
+        {
+          toS: METRICS.cum[5] + 300, speedKn: 8, intervalS: 30, lateralM: -50,
+        },
+        {
+          toS: METRICS.cum[5] + 430, speedKn: 4, intervalS: 30, lateralM: -110,
+        },
+        {
+          stopS: 30, stopIntervalS: 30, stopSog: 0.5, stopCogDeg: 215, lateralM: -110,
+        },
+        {
+          toS: METRICS.cum[5] + k.till, speedKn: 3.1, intervalS: 30, lateralM: -110,
+        },
+        {
+          stopS: 60, stopIntervalS: 30, stopSog: 0.3, stopCogRandom: true, lateralM: -110,
+        },
+        {
+          toS: METRICS.cum[5] + 900, speedKn: 6, intervalS: 30, lateralM: -110,
+        },
+      ],
+    }],
+    expect: {
+      maxNotifiedPerBridge: { Stallbackabron: 1 },
+      textCountWindows: [{
+        bridge: 'Stridsbergsbron', fromS: 940, toS: k.tillS, max: 0,
+      }],
+    },
+  })),
+  {
+    // N2: ankrad 430 m bortom bron med TRE brusiga positioner i rad (3,2 kn,
+    // kurs mot bron, 55 m var). Med golvet 3 kn släpptes hon och stod 4,5 min
+    // i texten "på väg mot Stridsbergsbron, om 26 minuter".
+    name: 'ankrad-bortom-Stallbackabron-tre-brusiga-positioner (motfall F04, granskningens N2)',
+    seed: 7304,
+    vessels: [{
+      mmsi: '907300401',
+      name: 'ANKAR3',
+      startS: METRICS.cum[2] + 300,
+      legs: [
+        { toS: METRICS.cum[5] + 150, speedKn: 9.5, intervalS: 30 },
+        {
+          toS: METRICS.cum[5] + 300, speedKn: 8, intervalS: 30, lateralM: -50,
+        },
+        {
+          toS: METRICS.cum[5] + 430, speedKn: 4, intervalS: 30, lateralM: -110,
+        },
+        {
+          stopS: 600, stopIntervalS: 30, stopSog: 0.3, stopCogRandom: true, lateralM: -110,
+        },
+        {
+          toS: METRICS.cum[5] + 900, speedKn: 6, intervalS: 30, lateralM: -110,
+        },
+      ],
+    }],
+    patchSamples: (samples) => {
+      const stop = samples.filter((r) => r.mmsi === '907300401' && r.lat > 58.3125 && r.sog < 1);
+      const base = stop[6];
+      const brg = (35.6 * Math.PI) / 180;
+      for (let k = 0; k < 3; k++) {
+        const r = stop[6 + k];
+        r.sog = 3.2;
+        r.cog = 215;
+        r.lat = base.lat - (55 * k * Math.cos(brg)) / 111320;
+        r.lon = base.lon - (55 * k * Math.sin(brg)) / (111320 * Math.cos((base.lat * Math.PI) / 180));
+      }
+    },
+    expect: {
+      maxNotifiedPerBridge: { Stallbackabron: 1 },
+      textCountWindows: [{
+        bridge: 'Stridsbergsbron', fromS: 1000, toS: 1400, max: 0,
+      }],
+    },
+  },
+  // KÄND GRÄNS (docs/ARCHITECTURE.md, återinträdesspärren): en båt som
+  // verkligen går mot bron i 5 kn från 430 till 250 m bortom Stallbackabron
+  // släpps (kedjan når 100 m netto) och får notisen "VAND5 närmar sig
+  // Stallbackabron, beräknad ankomst om 2 minuter", fast hon sedan vänder ut
+  // (VAND5) eller stannar (STOPP5). Det är samma slags utfall som för en ny
+  // båt som kommer norrifrån och stannar 250 m före bron (basen: samma notis,
+  // texten i 40 min och en varning för Stridsbergsbron på deadline; varningens
+  // eta och tiden till "ETA okänd" skiljer). Låset: en enda
+  // extra notis för Stallbackabron, och för VAND5 ingen båt i texten efter
+  // att hon vänt ut.
+  ...[
+    {
+      tag: 'VAND5',
+      seed: 7501,
+      mmsi: '907500101',
+      slut: [
+        {
+          stopS: 30, stopIntervalS: 30, stopSog: 1.0, stopCogDeg: 20, lateralM: -110,
+        },
+        {
+          toS: METRICS.cum[5] + 900, speedKn: 6, intervalS: 30, lateralM: -110,
+        },
+      ],
+      fonster: [{
+        bridge: 'Stridsbergsbron', fromS: 1030, toS: 1300, max: 0,
+      }],
+      // När hon vänder ut stiger ETA:n i texten 16 → 22 min på 30 s (INV-3
+      // ETA-SÅGTAND UPP). Texten följer båten; det är en del av den kända
+      // gränsen, inte en egen fråga här.
+      tolerera: [/^ETA-SÅGTAND UPP: \S+ Stridsbergsbron 16→22 på \d+s$/],
+    },
+    {
+      tag: 'STOPP5',
+      seed: 7502,
+      mmsi: '907500201',
+      slut: [{
+        stopS: 900, stopIntervalS: 60, stopSog: 0.1, stopCogRandom: true, lateralM: -110,
+      }],
+      fonster: [],
+      tolerera: [],
+    },
+  ].map((k) => ({
+    name: `går-mot-Stallbackabron-i-5kn-till-250m-${k.tag === 'VAND5' ? 'och-vänder-ut' : 'och-stannar'} (känd gräns F04)`,
+    seed: k.seed,
+    vessels: [{
+      mmsi: k.mmsi,
+      name: k.tag,
+      startS: METRICS.cum[2] + 300,
+      legs: [
+        { toS: METRICS.cum[5] + 150, speedKn: 9.5, intervalS: 30 },
+        {
+          toS: METRICS.cum[5] + 300, speedKn: 8, intervalS: 30, lateralM: -50,
+        },
+        {
+          toS: METRICS.cum[5] + 430, speedKn: 4, intervalS: 30, lateralM: -110,
+        },
+        {
+          stopS: 30, stopIntervalS: 30, stopSog: 1.4, stopCogDeg: 195, lateralM: -110,
+        },
+        {
+          toS: METRICS.cum[5] + 250, speedKn: 5, intervalS: 30, lateralM: -110,
+        },
+        ...k.slut,
+      ],
+    }],
+    expect: {
+      maxNotifiedPerBridge: { Stallbackabron: 2 },
+      textCountWindows: k.fonster,
+      toleratedInvariants: k.tolerera,
+    },
+  })),
 ];
 
 function runScenario(scenario) {
   const samples = generateScenario(scenario);
+  // Ett scenario kan ändra enstaka genererade rader på plats (t.ex. ett
+  // GPS-hopp mitt i ett stopp, granskarens F04-J). Sanna banan rörs inte.
+  if (typeof scenario.patchSamples === 'function') scenario.patchSamples(samples);
   const { truthPaths } = samples;
   const tmpFile = path.join(os.tmpdir(), `synthetic-${scenario.seed}.jsonl`);
   fs.writeFileSync(tmpFile, samples.map((s) => JSON.stringify(s)).join('\n'));

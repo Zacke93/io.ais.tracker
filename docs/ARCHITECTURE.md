@@ -1470,6 +1470,96 @@ båt.
 
 - Tilldelning: `_shouldAssignTargetBridge` (:1753, kräver bl.a. rörelsebevis,
   ej `_moored`) → `_calculateTargetBridge` (:2026, COG-riktning + position).
+- **U41 (2026-11-16): en sändare med en fart som ingen båt håller skapas inte.**
+  `updateVessel` skapar ingen båt när en sändare som appen inte följer rapporterar minst
+  `IMPLAUSIBLE_NEW_VESSEL_SOG_KN` (15 kn); loggraden är `[VESSEL_IMPLAUSIBLE_SPEED]` och
+  nästa position prövas på nytt. Fältfallet är ett landfordon, 218023240 i 20260713-41h:
+  33,2 kn på Stallbackabrons körbana (kursen längs broaxeln) och 21,7 kn på en stamväg 877 m
+  från farleden. Det visades som båt i 18 min och fick en notis för Stallbackabron på sin
+  första position, så regeln verkar på ett enda sampel. Mätningen (banken + k1/k2, 30 719
+  positioner): den snabbaste båten som korsar en bro rapporterar 10,6 kn, och över 12 kn finns
+  bara fordonets två positioner, PRICKBJORNs enstaka spik (22,2 kn mitt i ett spår, k2) och ett
+  enkelsampel på 13 kn i farleden (211488728). Ingen befintlig vakt tog fallet: båda
+  positionerna ligger inom `BOUNDING_BOX`, GPS-hoppsanalysen behöver en föregående position
+  (och den andra positionen stämmer med farten), och C6:s rimlighetsvakt (> 10 kn kräver
+  positionsstöd) gäller bara öppningsbeväpningen. En båt som redan följs berörs inte, så en
+  enstaka orimlig fart får henne inte att försvinna. Banken och k1/k2 har inga positioner mellan
+  13 och 21,7 kn, så varje gräns mellan cirka 13,5 och 21,5 kn ger samma utfall där; 15 kn är
+  mittpunkten. *Kända gränser* (ingen av dem finns i banken eller fältet; siffrorna är
+  granskningens syntetiska prov, bas mot U41):
+  (a) **En verklig båt på minst 15 kn kostar notiser och ledtid.** Hon skapas först när hon
+  saktar in under 15 kn. Söderifrån mot Klaffbron (16 kn från Olidebron, saktar in 400 m före
+  bron) sjunker varningens ledtid från 276 till 156 s, och med 60 s mellan positionerna och
+  inbromsning 250 m före bron från 217 till 97 s; förvarningarna för Kanalinfarten och Olidebron
+  blir "passerade … under AIS-tystnad". Norrifrån (16 kn, saktar in 500 m före Stridsbergsbron)
+  går ledtiden från 404 till 194 s och förvarningen för Stallbackabron blir "passerade … under
+  AIS-tystnad". En båt som håller 16 kn hela vägen (en RIB under broarna) syns inte alls (basen:
+  5 notiser, 2 varningar, 7 texter).
+  (b) **"En båt som redan följs" gäller bara tills appen raderar henne.** Efter en omstart, en
+  närhetstimeout eller 30-minutersbackstoppen prövas hon som ny sändare, och en båt som då går
+  minst 15 kn är osynlig tills hon saktar in (prov: omstart mitt i en 16-knopssträcka, varningen
+  för Stridsbergsbron 60 s senare än i basen, ledtid 194 s).
+  (c) **Ett fordon som först rapporterar under 15 kn visas som båt.** Prov: 12 kn på
+  Stallbackabron, sedan 28 och 21,7 kn (den sista 877 m från farleden): notisen "Okänd båt närmar
+  sig Stallbackabron", texten "på väg mot Stridsbergsbron" i 19 min och en öppningsvarning för
+  Klaffbron, lika i bas och U41. Att ta bort en redan följd sändare när två positioner i rad
+  rapporterar minst 15 kn och förflyttningen mellan dem också motsvarar minst 15 kn (kostnad 0 i
+  banken; PRICKBJORNs spik faller inte på det, förflyttningen var 9,9 kn) är INTE byggt:
+  borttagningen går genom skyddszonen (300 m från en bro skjuter upp borttagningen), exit-
+  fallbacken i `_onVesselRemoved` (kan själv skicka notiser), och öppningstjänsten, som
+  medvetet behåller armen vid en borttagning (`BridgeOpeningService.removeVessel` släpper armar
+  bara med `force`, i dag endast vid journey-reset). Fordonets varning i provet kom ur just en
+  sådan kvarvarande arm; att släppa den kräver en egen granskad ändring av öppningstjänstens
+  tillstånd (händelser och konvojmedlemskap).
+- **Återinträdesspärren och återvändaren (nattjaktens F04, 2026-11-16).** I 10 min efter en
+  avslutad resa avvisar `updateVessel` varje position för mmsi:t (`VESSEL_REENTRY_BLOCK`), och
+  `_shouldAssignTargetBridge` spärrar målbron lika länge (`REENTRY_BLOCK`). Spärren finns mot
+  remove→recreate-churn för en båt som just lämnat området. Felet: en båt som gick ut genom
+  Stallbackabron, vände ~420 m bortom bron och kom tillbaka i 9–10 kn syntes först 232 m före
+  Stridsbergsbron; notisen, en sju minuter gammal notis för Stallbackabron och öppningsvarningen
+  kom på en gång, 51 s före korsningen. Söderut är det värre: resan avslutas först söder om
+  `KANALINFARTEN_EXIT_LAT`, och en återvändare når Klaffbron inom spärren. *Rättningen*
+  (`_releaseReturningVessel`): under spärren bygger appen en kedja av godkända positioner. En
+  position är godkänd när den ligger entydigt på utfartssidan av sista bron (nord ⇒
+  Stallbackabron, syd ⇒ Olidebron), har kurs mot brolinjen (`courseBridgeSide`; utfarten söderut
+  går västsydväst, så kompassband duger inte), går i minst `REENTRY_RETURN.MIN_SOG_KN` (4,5 kn) och
+  har ett steg från förra godkända positionen som farten medger (2 × fart × tid + 50 m). Den första
+  godkända positionen ankrar kedjan; båten släpps när en senare position ligger minst
+  `REENTRY_RETURN.MIN_APPROACH_M` (100 m) närmare linjen än ankaret, netto. En underkänd position
+  nollar kedjan. Loggrader: `[REENTRY_RETURN_CANDIDATE]` och `[REENTRY_RETURN_RELEASE]`. Posten får
+  `returnReleased`, och `_shouldAssignTargetBridge` tar då samma väg som när spärren löper ut
+  (`REENTRY_NEW_JOURNEY`, journey-reset med förra resans riktning). Bokföringen av avslutade resor
+  och gravvården är orörda (jfr L9 i §9). *Mätningen* (banken + k1/k2): 191 spärrade positioner,
+  ingen gick mot sista bron ens i 2 kn (17 hade kurs mot bron, alla ≤ 0,8 kn), och ingen spärrad
+  båt korsade sista bron tillbaka inom 30 min i rådatafacit; med regeln är banken och fältet
+  bitlika. *Talen* 4,5 kn och 100 m kommer ur två granskningsvarv av N5. Med 2 kn och 50 m
+  släpptes en båt som driver i 2,2 kn mot bron till 150–250 m (förvarning "närmar sig
+  Stallbackabron, beräknad ankomst om 4 minuter" fast hon aldrig korsar, och spöktext i 3–5 min),
+  en kajmanöver i 2,5 kn söder om Olidebron och en ankrad båt med ett brusigt positionspar. Med
+  3 kn släpptes fortfarande båtar i 3,1–3,5 kn som driver eller går mot bron och sedan stannar
+  eller vänder ("DRIV31-A närmar sig Stallbackabron, beräknad ankomst om 35 minuter" 300 m från
+  bron, med ETA:n till Stridsbergsbron) och en ankrad båt med tre brusiga positioner i rad
+  (3,2 kn). 4,5 kn skiljer en båt i marschfart från en som driver eller ligger för ankar. Alla
+  dessa är låsta som syntetiska motfall med basens utfall. *Utfallet för en återvändare*
+  (syntetiskt, vänder 430 m bortom Stallbackabron respektive cirka 1 000 m söder om Olidebron):
+  i 9 kn kommer varningen för Stridsbergsbron 290/272/245 s före korsningen med positioner var
+  10/30/60 s (basen 54/94/154 s); söderut för Klaffbron i 5–9 kn 247–415 s före (basen 166–370 s,
+  i 9 kn ingen varning före korsningen). I 4,5–6 kn norrut hinner spärren löpa ut före varningen i
+  båda; det som ändras är att förvarningen för sista bron kommer före korsningen i stället för som
+  "passerade … under AIS-tystnad" 4–6 min efter. Under 4,5 kn är utfallet basens.
+  *Kända gränser:* (1) en återvändare under 4,5 kn syns först när spärren löpt ut, som förut;
+  (2) en båt som verkligen går mot bron i minst 4,5 kn och kommer 100 m närmare, men sedan vänder
+  eller stannar, släpps och får en förvarning: i syntetiskt prov (5 kn från 430 till 250 m
+  bortom Stallbackabron) "VAND5 närmar sig Stallbackabron, beräknad ankomst om 2 minuter" och
+  1,5 min i texten innan hon vänt ut (ETA:n stiger 16 → 22 min när hon vänder, INV-3); stannar hon i stället (STOPP5) står hon i texten i cirka
+  40 min (ETA okänd efter 5 min) och får en öppningsvarning för Stridsbergsbron på deadline cirka
+  20 min senare. En ny båt som kommer norrifrån och stannar 250 m före Stallbackabron får samma
+  notis och samma slags text och varning (där bär varningen eta 15 mot 22 här, och "ETA okänd"
+  kommer efter 20 min mot 5 här); (3) med glesa positioner (180 s)
+  norrut ligger högst en position bortom bron på vägen tillbaka, och då hjälper regeln inte;
+  (4) utan fusionen bryter ett AISHub-eko ur ordning kedjan (basens utfall). Produktionens väg
+  ('both', FixFusionPolicy) sorterar bort ekot, och släppet fungerar där (jest-test
+  `f04-aterintrade-fusion`).
 - **M3 (rättningskampanjen varv 2, familj C, 2026-11-09): en återfödd båt med kurs i
   dödbandet får målbro ur förflyttningen.**
   - *Felet.* `_calculateTargetBridge` avstår vid kurs 46–134° och 226–314° (F18). En
@@ -3653,7 +3743,10 @@ helkodsgranskning-runda3.md och hkfix3-rapport.md.
   (ingen churn-ökning) föll ⇒ återkallad; karakteriseringstest låser dagens beteende.
   Krav på en framtida fix: koppla isär "avslutad resa" från "gravläggs inte" (t.ex.
   terminalzon-grind BARA för reentry-blocket, inte för gravvården) och mät churn + reentry
-  tillsammans.
+  tillsammans. *Tillägg 2026-11-16 (nattjaktens F04):* spärren släpper nu igenom en båt som
+  bevisligen går tillbaka mot sista bron (se "Återinträdesspärren och återvändaren" i §4); det
+  rör bara genomsläppet, inte bokföringen eller gravvården, och banken är bitlik. Kvar av L9:s
+  felmod är blackouten för en båt som ligger still eller går under 4,5 kn innanför utfarten.
 - **L5:s TREDJE systerställe — `TARGET_PROTECTION_ACTIVE`** (VDS ~:619, else-grenen
   när målbroskyddet är aktivt) hoppar över HELA grace-blocket (skapande OCH
   radering); en post från före skyddet åldras hela vistelsen. Mätt i fixrunda 3:

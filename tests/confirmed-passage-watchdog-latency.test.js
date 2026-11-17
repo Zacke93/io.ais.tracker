@@ -11,6 +11,13 @@ const App = require('../app');
 // Klaffpassage. Replayens 30 s-steg förstorar då en verklig 200 ms-paus
 // till 30 s. Här dränerar Jest löften mellan varje timer och mäter hela
 // vägen från rå AIS till publicerad text, med övriga båtar kvar.
+//
+// U41 (2026-11-16): båten på väg mot Stridsbergsbron i scenariot var
+// 218023240, ett landfordon (33,2 kn på Stallbackabrons körbana). Appen skapar
+// det inte längre som båt, och då försvinner också den kritiska övergången vid
+// Stallbackabron som ger pausen före publiceringen. Testet gäller tidsvägen,
+// inte fordonet, så samma position matas här med en båtfart (9,5 kn) under
+// U41-gränsen. Övriga rader är fältets rådata.
 describe('Säker passage direkt efter watchdog-publicering', () => {
   let app;
   let savedTestMode;
@@ -23,6 +30,7 @@ describe('Säker passage direkt efter watchdog-publicering', () => {
     .filter((row) => ids.has(String(row.mmsi))
       && row.aisTimestamp >= Date.parse('2026-07-14T12:30:00Z')
       && row.aisTimestamp <= PASSAGE)
+    .map((row) => (String(row.mmsi) === '218023240' ? { ...row, sog: 9.5 } : row))
     .sort((a, b) => a.aisTimestamp - b.aisTimestamp);
 
   beforeEach(async () => {
