@@ -2503,3 +2503,326 @@ minuter efter båtens korsning. Standardjakten visar det: 40 sådana utslag med 
 på appkoden `56762d0`, 53 med V1:s verktyg på `f543190` och 53 i slutbatteriet. Varningen är
 beslutad (U17: ingen öppning får missas), och i världarna kommer den ungefär en gång per 90
 simulerade timmar. Fältet får visa hur ofta den kommer i kanalen.
+
+## 13. Omgång 4: 17 november 2026
+
+Tillagt 2026-11-17. Ägaren frågade efter omgång 3 om inte de kända felen borde rättas före nästa
+fältprov. Omgången prövade därför varje känt fel som såg ut att ha en säker rättning, och gick
+dessutom igenom de utslag i nattjakten som låg bakom registerposter och kort (12.7). Den utgick
+från `6fad291` och slogs ihop på grenen `omg4/integration`. Arbetsformen var densamma som i omgång
+2 och 3: en rättare per spår i en egen arbetskopia, en oberoende granskare som mätte själv, och en
+dirigent som slog samman och låste om facit enligt U13 efter en egen radvis jämförelse mot
+rådatan. Beteendebesluten fattade dirigenten på ägarens uppdrag (12.2); ägaren kan ändra vart och
+ett. Alla tider är UTC; tiderna i nattjaktens världar är syntetiska.
+
+Det viktigaste utfallet är att granskningarna fällde mer än de släppte igenom. Tre ändringar gick
+in (U45, U46 och U51). Fyra rättningar och verktygsspåret fälldes eller sköts upp, alla med ett
+prövat förslag sparat till nästa försök. Regeln i omgången var: en rättning som är svårare att
+lita på än felet ska inte in.
+
+### 13.1 Översikt
+
+| Spår | Vad | Utfall | Commits / gren |
+|---|---|---|---|
+| R1 | Genomgång av registrets poster "känt fall med öppet beslut" och O1 (över 800 utslag om utebliven eller sen öppningsvarning) | utredning; gav U45 och belägg för U2 upp till 445 s | – |
+| T1 | Triage av nattjaktens 314 kandidatutslag om restiden i texten | utredning; inga äkta fel (198 beslutat beteende, 106 mätfel i verktyget, 10 under U50) | – |
+| T2 | Triage av nattjaktens övriga 125 kandidatutslag | utredning; tre äkta fel (U48 i två delar, U49), resten beslutat beteende eller mätfel | – |
+| D5 (U45) | En annan båts passage förbrukar den varnade öppningen | inne, godkänd i tredje granskningen; sex korpusar omlåsta | `db3c2ff`, `cd1fe6c`, `e00ce55`; `6eb2533`; `ae586a1` |
+| D6 (U46) | En båt som lämnar kanalen vid en ytterpunkt avslutar sitt besök | inne, godkänd i första granskningen (testen kompletterade i andra) | `709eccd`, `3f71f51`; `bb83ec2` |
+| D6 (U51) | En båt som legat förtöjd minst 2 h vid en ytterpunkt får en notis när hon lägger ut | inne, godkänd i andra granskningen; tre korpusar omlåsta | `d222ed0`, `d122103`; `bb83ec2`; `e068249` |
+| D1 | Falsk passage bakåt över brolinjen efter en osäker position | inte införd, underkänd två gånger; känd gräns | `omg4/D1` |
+| D3 | Förvarning för en långsam båt bortom en bro (U44 punkt 3) | inte införd, underkänd två gånger; känd gräns som förut | `omg4/D3` |
+| D8, del A (U48) | Riktning ur förflyttningen för en båt i fart med osäker kurs | inte införd: utfallen i verklig data blev sämre | `omg4/D8` |
+| D8, del B | En bekräftad vändning ger målbro direkt även vid osäker kurs | inte införd, underkänd i första granskningen | `omg4/D8B` |
+| D9 (U49) | En båt i fart vid brolinjen när konvojens täckning löper ut | byggd men inte granskad; väntar | `omg4/D9` |
+| D2 (U47) | Sent släpp av en returbåt vid konvojfönstrets kant | ingen kodändring; känd gräns | – |
+| D4 | Öppningstjänstens latitudprov mot brolinjen | ingen kodändring; provet står kvar | – |
+| E1, E2 | Mätning av restidens eftersläpning och av en åldrad utjämning | ingen kodändring; egen ETA-etapp efter fältprovet | – |
+| V2 | Buggjägarens register och orakel lär sig besluten bakom nattjaktens utslag | inte införd, underkänd: verktyget blev blint för byggda fel | `omg4/V2` |
+
+Grenarna i högerkolumnen utan commit i `main` fördes inte in. De finns bara i dirigentens
+arbetskopior, så hänvisningarna går inte att följa i repot.
+
+### 13.2 Besluten U45–U51
+
+- **U45. En annan båts passage förbrukar den varnade öppningen.** Har en båt som inte hör till
+  den varnade öppningen gått igenom bron efter varningen, får en varnad båt som kommer mer än
+  fönstrets längd (600 s) senare en ny varning. Hon släpps bara när appen i samma ögonblick hade
+  varnat henne som en ny båt: på hennes egen position efter fönstrets slut, i minst 2 kn, utanför
+  väntzonen 350 m och inte hållen av en tidigare bros spärr. Skäl: bron har bevisligen öppnats och
+  stängts emellan, och en missad öppning är värre än en varning för mycket. Infört (13.3).
+- **U46. En båt som lämnar kanalen vid en ytterpunkt har avslutat sitt besök.** En utåtriktad
+  transit vid Kanalinfarten eller Stallbackabron (yttre sidan, minst 50 m utåt längs kanalaxeln,
+  minst 2 kn), bekräftad av att nästa position kommer minst 10 min senare, räknas som utfärd. Skäl:
+  användaren ska få notisen när båten kommer in i kanalen igen. Infört (13.3).
+- **U47. En returbåt vid konvojfönstrets kant behåller dagens regel.** Sex varianter mättes i
+  8 748 byggda lägen. De som rättade fallet tog bort 212–552 returvarningar som i dag kommer i tid,
+  och de som inte kostade något rättade inte fallet. Känd gräns (13.5).
+- **U48. En båt i fart med osäker kurs får sin riktning ur förflyttningen.** Beslutet står kvar i
+  sak men genomförs inte före fältprovet: båda delarna gjorde utfallen sämre eller fälldes (13.4).
+- **U49. En båt i fart vid brolinjen räknas som framme enligt fysiken.** Beslutet löd först att
+  täckningskravet i under-bro-hållet skulle tas bort. Rättaren visade att det hade hållit krypande
+  och väntande båtar utan varning för gott (88 800 uteblivna varningar i ett rutnät på 230 400
+  fall, varav 19 680 för båtar som gick igenom). Beslutet läses därför så: för en båt i minst 2 kn
+  mäts ankomsten med den tidigare av appens prognos och avståndet delat med farten. Byggt, inte
+  granskat (13.4).
+- **U50. Texten visar båtens restid tills en vändning är bekräftad.** Dagens beteende behålls, på
+  samma grund som U19: appen kan inte veta att båten vänt förrän vändningen är belagd.
+- **U51. En båt som legat förtöjd minst 2 h vid en ytterpunkt får en notis när hon lägger ut.**
+  Förtöjningen ska vara belagd med stilla positioner (tystnad räknas inte), och avgången med fart
+  mot punktens linje. Regeln gäller bara Kanalinfarten och Stallbackabron: vid broarna hade den
+  gett tillbaka en enda notis i hela banken, just den som besöksregeln 2026-09-07 tog bort. En båt
+  som redan ligger förbi linjen när notisen går får "har passerat", aldrig en förvarning med
+  minuttal. Beslutet vänder låsningen av DIANA från 2026-09-09 (13.3). Infört.
+
+Nästa lediga nummer är U52.
+
+### 13.3 Det som gick in
+
+**U45, den missade öppningen (D5).** *Situationen* (20260710-13h): Klaffbron varnar för DELFIN
+10:52:11 och för ANTARES 10:58:04. COMETOGETHER, som inte hör till de varningarna, går igenom
+norrut 11:00:39. DELFIN och ANTARES ligger sedan stilla 1,3 km norr om bron och går igenom runt
+11:38 utan någon ny varning. *Orsaken:* en båt som var med i varningen när den gick ut hade ingen
+väg ut ur händelsen (H29), och appens spärr mot dubbla kort hade dessutom tystat en ny varning som
+samma ankomst. *Rättningen* (`lib/services/BridgeOpeningService.js`, `app.js`): den första
+passagen efter varningen av en båt utanför händelsen sparas i egna fält (händelsens egen referens
+och täckningsslut rörs inte), en egen släppdom prövas på båtens position efter fönstrets slut, och
+kortet för en släppt båt bär en märkning som låter appen släppa den gamla spärren.
+
+Vägen dit tog tre varv. Första versionen släppte på tick och prognos och gav varningar 17 s före
+och 8 s efter passagen samt ett utfall i verklig data som berodde på klockans fas. Andra varvet
+stramade åt släppet till villkoren i U45. Granskningen av det fann att märkningen följde med när
+den släppta båten togs upp i en annan händelse, så att en säkerhetsvarning (U17) minuter senare
+gick ut efter passagen (ANTARES 11:44:44); en rad rättade det.
+
+I banken går varningarna från 469 till 479, och notiser, brotexter och passager är oförändrade:
+
+| Korpus | Ändring | Rådata | Dom |
+|---|---|---|---|
+| 20260710-13h | ny: DELFIN 11:29:38 (834 m norr om bron i 5,3 kn) | DELFIN korsar mellan 11:34:38 och 11:44:04, ANTARES mellan 11:35:04 och 11:49:37 | rättare: öppningen var ovarnad |
+| 20260713-41h | ny: JOY 09:02:54 (888 m, 6,2 kn) | JOY korsar mellan 09:09:57 och 09:13:55, SEEBAER III strax efter | rättare: öppningen var ovarnad |
+| 20260806-42h | ny: ALINDE 14:07:32 (930 m, 6 kn) | ALINDE korsar mellan 14:15:04 och 14:16:04 | rättare: öppningen var ovarnad |
+| 20260713-41h | ny: HEY JOE 13:08:31 (579 m, 6 kn) | korsar mellan 13:16:02 och 13:19:32; den förra varningen vid bron gick 12:59:22 | rättare om den andra båten gick igenom efter 12:59:22 (bara fönster i rådatan) |
+| 20260711-16h | ny: QUEEN ELAN GT5 10:34:27 (700 m, 5,8 kn) | korsar mellan 10:56:26 och 10:57:26; förra varningen 37 min före | likvärdig, närmare korsningen |
+| 20260707-14h | HERA II 08:31:57 och LYS 08:50:48 i stället för en gemensam 08:44:30 | bara fönster för korsningarna; öppningen låg kring 09:02 | likvärdig |
+| 20260804-both-21h | CHARLYS DREAM 12:20:23 i stället för WANDA 12:20:25 | de fyra båtarna går igenom 12:28–12:32 | likvärdig |
+| 20260711-16h | ny: CALIMA 11:26:40 (746 m, 5,2 kn) | korsar först 13:42 | kostnad: en varning för mycket |
+| 20260713-41h | ny: PILGRIM 13:05:53 (957 m, 5,2 kn) | korsar först nästa morgon | kostnad |
+| 20260806-42h | ny: DORY MAN 14:10:56 (443 m, 4 kn) | korsar inte efter varningen | kostnad |
+| 20260804-both-21h | ny: ELIZABETH GREENWOOD 12:21:52 | samma öppning som CHARLYS DREAM, 89 s senare | kostnad: dubbel varning |
+
+Kostnaderna är beslutade i U45: de tre första gällde båtar som gick mot bron i minst 2 kn utanför
+väntzonen. Fältkörningarna k1 och k2 är oförändrade. Omlåsningen (`ae586a1`) rör
+`opening-distribution.json`, `golden-events` för tre korpusar, det låsta antalet i
+`opening-new-members-field.test.js` (39 → 40) och noten för varje korpus.
+
+**U46, utfärden vid ytterpunkterna (D6).** *Situationen:* en båt går ut förbi Kanalinfarten utan
+att appen hinner se två positioner bortom 350 m. Besöket står då öppet, och när hon kommer
+tillbaka, även dagen efter, får hon ingen notis. *Rättningen*
+(`lib/services/TriggerPointVisitTracker.js`): utåtbeviset enligt U46 stänger besöket och sparas
+över omstart. I banken och k1 ändras ingenting. I k2 får PRICKBJORN "närmar sig Stallbackabron,
+beräknad ankomst strax" på brolinjen 13:48:44 i stället för "har precis passerat" 13:49:53.
+
+**U51, avgången från kaj (D6).** *Situationen:* ELFKUNGEN har sin kajplats cirka 300 m från
+Kanalinfarten. När hon lade ut efter 21 timmar tystades notisen, eftersom besöket från ankomsten
+stod öppet. *Rättningen:* förtöjningsbelägget följs position för position i besöket (stilla
+positioner inom 40 m, högst 60 min mellan dem, minst 2 h) och avgångsbelägget kräver fart mot
+punktens linje nära punkten. Tre nya notiser i banken, alla belagda mot båtens positioner:
+
+| Korpus | Ny notis | Rådata |
+|---|---|---|
+| 20260806-42h | ELFKUNGEN 7/8 10:07:00 "har passerat Kanalinfarten" | stilla vid kajen i 21 h; 203 m förbi punkten i 5,8 kn på den position notisen går |
+| 20260823-24h | DIANA 24/8 16:48:04 "närmar sig Kanalinfarten, beräknad ankomst strax" | stilla i 2 h 27 min; 16 m före linjen i 4,8 kn, 63 m förbi den 26 s senare |
+| 20260909-80h | ELFKUNGEN 10/9 16:01:36 "närmar sig Kanalinfarten, beräknad ankomst strax" | stilla i minst 4 h 27 min; 23 m före linjen i 5,6 kn |
+
+I fältkörningarna får PRICKBJORN en notis när hon lägger ut från lotskajen (k1 12/11 07:08:07, k2
+13/11 06:48:54). PILOT 761 (förtöjd 75 min) och JUNO (102 min utan positioner) får ingen.
+
+*DIANA-låsningen vänds.* Testet i `latest-field-corpus.test.js` låste sedan 2026-09-09 en notis för
+hela hamnstoppet. Den låsningen skyddade mot en andra notis som kom bara för att 2 h-spärren löpt
+ut medan båten låg kvar. Den andra notisen kommer nu av ett annat skäl, belagd förtöjning och
+belagd avgång, och testet prövar båda notiserna med tid, avstånd och text. Ankomstnotisen 14:17:46
+löd "beräknad ankomst om 5 minuter"; hon gick in i kanalen två och en halv timme senare.
+Omlåsningen (`e068249`) rör `expectedNotifications`, de två fördelningsfilerna, `golden-events` för
+de tre korpusarna och testet.
+
+### 13.4 Det som inte gick in, och varför
+
+- **D1, den falska passagen bakåt.** *Felet:* appen har dömt en position som osäker men mäter ändå
+  nästa förflyttning från den, och förflyttningen ser då ut att korsa brolinjen baklänges. Det har
+  aldrig inträffat i inspelningarna (0 av 1 025 bokförda passager). *Varför inte:* regeln stoppade
+  i båda varven också verkliga passager. I första varvet tappades returen vid en U-sväng strax
+  bortom bron (20 av 96 byggda lägen), i andra varvet en retur i under 2 kn (72 av 96): båten gick
+  genom Stridsbergsbron utan varning och texten sa "på väg mot Klaffbron" i nästan en halvtimme.
+  *Nästa försök:* granskarens tredje variant (rörelse räknas från 0,5 kn, och regeln avstår när
+  positionen saknar fart) gav 0 skillnader mot dagens kod i alla band med hela nyttan kvar, men är
+  inte körd genom hela batteriet.
+- **D3, den långsamma båten bortom en bro (U44 punkt 3).** *Felet:* HALIFAX fick 08:29 en
+  förvarning för Olidebron söderut "om 6 minuter" och gick igenom norrut 11,6 min senare; EUGENIE
+  fick en förvarning för Klaffbron som hon aldrig passerade. *Varför inte:* första varvet höll inne
+  förvarningen också för en båt som verkligen kryper mot bron med fel låst riktning (25 av 60
+  byggda världar fick den 24–29 s före passagen). Andra varvets undantag, "minst 10 m närmare
+  sedan föregående position", beror på rapporttakten: 10 m på 10 s kräver nästan 2 kn, så vid tät
+  rapportering släpper det aldrig (21 av 60 världar utan positionsbrus), och brus på 10–20 m
+  släpper in den falska notisen igen. *Nästa försök:* ett ankare per båt och bro (läget längst
+  från linjen medan förvarningen hålls inne) och släpp när kursen pekar mot bron och båten ligger
+  minst 30 m närmare än ankaret; banken och fältkörningarna 0 skillnader i granskarens prov.
+- **D8 del A, riktning ur förflyttningen (U48).** Rättar sju av tio nattvärldar, men banken har
+  ingen missad varning att rätta. Där slår regeln till 17 gånger, nästan alltid för båtar som
+  lämnar väntområdet söder om Kanalinfarten i 2–3 kn: de får målbron en position tidigare, den
+  första restiden räknas på den låga farten och utjämningen bär den höga siffran i några minuter.
+  Tio restidspåståenden blir 1–4 min sämre och två bättre (bryter U28), ATHENA varnas 30 min före
+  passagen i stället för 11, och en lotsbåt får "om 38/46 minuter" i 3,5 min när hon lägger till.
+  Prövas på nytt tillsammans med ETA-etappen, eftersom kostnaden kommer ur samma eftersläpning.
+- **D8 del B, den bekräftade vändningen.** En nordgående båt som svänger in mot Gästhamnen eller
+  kajen norr om Klaffbron rapporterar kurs 340 → 300 → 280 → 265° i 2–3 kn. Appen läser det redan
+  i dag som en vändning, men det strikta kursbandet gör att hon inte får någon målbro. Med
+  rättningen fick hon Klaffbron som mål: en falsk öppningsvarning och texten "En båt på väg mot
+  Klaffbron, om 6–9 minuter" i upp till 65 min (21 av 21 byggda fall). I inspelningarna slår regeln
+  aldrig till. Nästa försök ska kräva att bekräftelsens förflyttning går längs farleden.
+- **D9, båten vid brolinjen (U49).** Byggd enligt den rättade lydelsen i 13.2: de två nattvärldarna
+  (en varning 58 respektive 73 s efter passagen) rättas, banken och fältkörningarna är bitlika.
+  Mekanismen är att appens restid nära bron ligger cirka 0,3 min för högt, så prognosen hamnar
+  några sekunder efter täckningsslutet. Rättningen är inte granskad och väntar därför.
+- **V2, verktygsspåret.** Rättaren sorterade nattjaktens 439 kandidatutslag: 102 mätfel i INV-3,
+  276 med registerpost och 61 kvar som kandidater. Granskaren fick samma siffror, men byggde 16
+  egna fel i appen, och tio av dem syntes i färre världar med det nya verktyget än med det gamla:
+  ett hopp i restiden på 10 min godtogs som beslutat (24 → 2 världar), "strax" 500 m från bron
+  likaså (17 → 2), och en varning 51 s före passagen i stället för nästan 6 min togs av den nya
+  posten för spärren vid en tidigare bro. Ett verktyg som har blivit blint är sämre än ett som
+  larmar för mycket. De 16 mutanterna är godkännandeprovet för nästa försök.
+- **E1 och E2, restidens eftersläpning.** Appens förväntade ankomst ligger i median cirka 40 s för
+  sent i banken, eftersom utjämningen inte åldrar sitt förra värde. Tre varianter av åldring
+  mättes. Eftersläpningen försvinner (+41 s blir +3 s inom 100 m), men 344 av 347 sämre
+  restidspåståenden blir för låga: råvärdet räknar med jämn fart och är för optimistiskt när en
+  båt bromsar, köar eller kryper, och eftersläpningen har dolt det. "Strax"-löftet håller i 58,5 %
+  mot 65,3 %, tre båtar får sin varning sent eller efter passagen, regeln om en enda "strax" (U31)
+  bryts, och 1 300–1 700 låsta textrader flyttas. En ETA-etapp är ett eget arbete (en
+  inbromsnings- och kömodell i råvärdet, översyn av de regler som är trimmade mot eftersläpningen)
+  och görs efter fältprovet.
+
+### 13.5 Kända gränser och uppföljning
+
+Nya eller preciserade kända gränser efter omgången:
+
+- **U45.** BEAUTYFIELD (20260707-14h), felets första exempel, får fortfarande ingen ny varning:
+  hon kröp i under 2 kn och hölls av spärren vid Järnvägsbron, och hennes enda position efter
+  fönstrets slut låg 140 m från bron. MAJALISA likaså. Att ta dem kräver släpp på tick eller
+  prognos, alltså första versionens fel. En stilla båt 400 m från bron med en ensam falsk
+  fartuppgift på minst 2 kn kan få en falsk varning (4 av 24 byggda världar; i banken har 4 av
+  14 483 stillaliggande positioner en sådan fart). Två sanna varningar för samma öppning kan gå ut
+  när en släppt båt och en ny båt går i konvoj genom Järnvägsbron (64 av 180 byggda båtfall).
+- **U51.** Ett GPS-hopp vid kaj till nära punkten kan ge en falsk notis (0 av 18 050 kajpositioner
+  i data har ett sådant hopp). Med gles AIS kan en avgång bli utan notis (JUNO), men aldrig fler
+  än förut. Vid Stallbackabron finns ingen förtöjning i data; regeln är prövad där bara i test.
+- **U47.** En returbåt vid konvojfönstrets kant kan få en extra, sen varning för en redan varnad
+  öppning (två världar av 20 000).
+- **D4.** Öppningstjänsten dömer "bron bakom" på brons latitud på fyra ställen. Bytet till
+  brolinjen var bitlikt i all data, och nyttan fanns bara i byggda fall i den 3–14 m breda kilen
+  mellan latituden och linjen; latitudprovet skyddar dessutom mot sändare långt utanför farleden.
+  En ny båt som först hörs i kilen 13 m före en målbro får nästa bro som mål.
+- **U44 punkt 3, D1 och U48** står kvar som före omgången (13.4).
+
+Uppföljningslistan, i den ordning nyttan i verklig trafik motiverar:
+
+1. D3 med ankaret (13.4), D1 med granskarens tredje variant och D9 (U49) med en oberoende
+   granskning. Alla tre har ett färdigt förslag.
+2. ETA-etappen (E1, E2), och tillsammans med den U48 och bakkantens för höga restid nära bron.
+3. Verktygsspåret: registerändringarna efter R1, T1 och T2, med granskarens 16 mutanter som
+   godkännandeprov.
+4. Spärren vid Järnvägsbron i krypfart (en båt som kryper förbi och ökar osedd får varningen för
+   Stridsbergsbron 41–59 s före passagen i byggda världar; banken har ingen under 60 s), och två
+   återkorsade broar i samma glapp.
+5. Två små luckor från granskningen av U45: ett test som låser att märkningen behålls vid ett
+   släpp på färsk position, och en mening i docblocket om att U24:s släpp sker på tid.
+6. U45 för en ny båt innanför väntzonen: en båt som först hörs 87–147 m från bron vid
+   600 s-fönstrets kant efter en annan båts passage får en egen varning 24–48 s före sin
+   passage (två världar i nattjakten, 13.8). Regeln för nya båtar saknar väntzonsvillkoret
+   som släppet har.
+
+### 13.6 Fältprovet ska mäta
+
+Utöver listan i 12.5 (raderna `[ETA_SOG_SPIKE_CANDIDATE]`, hur ofta den sena säkerhetsvarningen
+U17 kommer, kostnaden i U32 och reservvarningen U38):
+
+- Par av korsningar 300–900 s isär vid samma målbro: stannade den senare båten före bron, eller
+  gick hon rakt igenom? Det avgör svansen i U2 (rådatan stöder regeln upp till 445 s).
+- Hur ofta U45 ger en ny varning, och om båten sedan kom.
+- Notiserna vid Kanalinfarten för båtar som lägger ut från kaj, särskilt lotsbåten.
+- Hur ofta en båt med osäker kurs tystnar före bron (U48), och ledtiden vid Stridsbergsbron för
+  båtar som kryper förbi Järnvägsbron.
+- Tiden från omstart till första båttext, "Inga båtar" som blinkar till mellan två texter om
+  samma båt, och hur länge en båttext står kvar nattetid.
+
+### 13.7 Lärdomar
+
+- **"Inget nytt kort" betyder inte "inga kända fel".** Nattjaktens kort triagerades i omgång 2 på
+  tre representanter per kort, och registrets klass för kända fall med öppet beslut döljer utslag
+  från kortlistan. Räkna utslagen per registerklass och post, inte bara korten. Genomgången gav
+  omgångens viktigaste fynd (U45).
+- **Ett beslut ska prövas mot det villkor det tar bort.** U49 löd först "ta bort täckningskravet".
+  Rättaren mätte vad kravet skyddade mot innan något ändrades, och fann 88 800 uteblivna varningar.
+- **En granskares förslag är också en rättning.** Två av granskarnas egna förslag (D1 varv 1, D3
+  varv 1) hade samma slags hål som det de rättade, och hittades först när nästa varv byggde nya
+  fall. Ett förslag ska prövas lika hårt som rättarens kod.
+- **Bevis ur förflyttning mellan två positioner beror på rapporttakten.** "Minst 10 m närmare"
+  betyder olika saker vid 10 s och 60 s mellan positionerna. Mät mot ett ankare, inte mot
+  föregående position.
+- **Nyttan ska finnas i verklig data.** U48 del A rättade sju byggda världar och gjorde tio
+  restider och en varning sämre i banken. Ett fel som bara finns i byggda världar väger lätt mot
+  en kostnad som syns i inspelningarna.
+- **Ett verktyg som lär sig besluten ska prövas med nya fel.** V2 klarade rättarens elva mutanter
+  men inte granskarens sexton. En registerpost är smal nog först när ett byggt fel av samma slag
+  fortfarande syns.
+
+### 13.8 Slutbatteriet
+
+Kört på `9b3728b`, alltså sammanslagningen med omlåsningarna och VALIDATION; efter den commiten
+ändras bara detta dokument. Alla steg slutade med kod 0.
+
+| Steg | Utfall |
+|---|---|
+| `npm run lint` | 0 |
+| hela jest (`--detectOpenHandles`) | 420 sviter, 6 619 test gröna, 2 överhoppade |
+| `replay:all`, med och utan monitoring | alla låsta korpusar matchar facit |
+| `replay:synthetic` | 169 scenarier rena, WARN 16 |
+| `replay:openings` | standardgrindarna godkända |
+| soak och `replay:monitoring` | 0 |
+| `measure:eta` | identisk med slutbatteriet i 12.7 (ETA-vägen är orörd) |
+| fassvepet, med och utan monitoring | 0 |
+| `hunt:selftest` | grönt |
+| snabbjakten | 45 utslag (48 i 12.7), samma 2 kandidatkluster |
+| standardjakten | 220 utslag (231), samma 2 kandidatkluster och 26 kandidatutslag |
+| nattjakten (20 000 världar) | 2 387 utslag (2 555), 16 kandidatkluster som förut, 436 kandidatutslag (439) |
+| `git status --porcelain` efter batteriet | tom |
+
+**Nattjakten värld för värld mot 12.7** (samma seed, samma världar): inget nytt kandidatutslag.
+151 utslag försvann, räknat per värld och klass. Av dem är 125 missade öppningar under posterna
+U2-VS-DEADLINE (78) och J13-J14-KONVOJSEMANTIK (47), och 2 är kandidatmissar. Det är U45:s verkan
+i världarna.
+
+Sju utslag i sex världar är nya, alla under registrerade poster. En registerpost kan dölja ett
+nytt fel (13.7), så de sex världarna kördes på koden före och efter omgången:
+
+- **2868 och 3723:** en öppning som förut var ovarnad får en varning cirka fem minuter före. I
+  3723 får dessutom en båt som gick igenom tyst en säkerhetsvarning (U17) 18 min efter sin
+  passage. I 2868 kommer en säkerhetsvarning som fanns förut 14 min senare.
+- **3068:** en båt varnades 10:54:30 och gick igenom Klaffbron 11:15:45, efter att en annan båt
+  passerat 11:00:27. Hon får nu en ny varning 11:10:23. En mötande båt, som förut hade en egen
+  varning 11:17:43, tas upp i den händelsen och går igenom 11:25:25, 580 s efter den första
+  passagen; hon gick igenom tyst och får en säkerhetsvarning 147 s efteråt.
+- **10299 och 17578:** en ny båt som först hörs 87–147 m från bron, vid 600 s-fönstrets kant
+  efter en annan båts passage, får en egen varning 24–48 s före sin passage. Förut fick hon ingen
+  ny varning. Ingen varning försvinner. Fört till uppföljningslistan (13.5, punkt 6).
+- **15056:** tre båtar i följd varnas 05:05:03 och 05:10:32 i stället för 05:08:20, 05:10:19 och
+  05:10:32; den tredje båten täcks av den första varningen i stället för att få en egen.
+
+I ingen av de sex världarna försvinner en varning utan att öppningen är varnad på annat sätt.
+Säkerhetsvarningarna efter passagen hör till den beslutade klassen U17, och 3068 ligger i den del
+av konvojfönstret (445–600 s) som rådatan ännu inte belägger och som fältprovet ska mäta (13.6).
+Registerklassen för beslutat beteende minskar totalt från 1 037 till 1 016 utslag och klassen för
+kända fall med öppet beslut från 446 till 301.
+
+De 16 kandidatkorten är desamma som i 12.7. De 439 utslagen bakom dem är genomgångna i T1 och T2
+(13.1): tre äkta fel, som alla står på uppföljningslistan (U48 i två delar och U49).
+
