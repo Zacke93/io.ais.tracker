@@ -1303,6 +1303,13 @@ class AISBridgeApp extends Homey.App {
     let recentTriggersChanged = false;
     for (const pointName of NOTIFICATION_POINT_NAMES) {
       const result = this._triggerPointVisits.observe(vessel, pointName);
+      // U51, granskningen H1: en förtöjd båt som släpps på en fix förbi punktens
+      // linje har redan passerat. Flaggan lever en tick (den finns inte i
+      // _createVesselObject:s fältlista), som _tpSweepCandidate, och läses av
+      // _hasPassedTriggerPoint så att notisen får passerad form.
+      if (result.pastLine && Object.values(TRIGGER_POINTS).some((tp) => tp.name === pointName)) {
+        vessel._tpMooredDeparturePastLine = pointName;
+      }
       if (result.reentered) {
         // Återkomsten frigör endast den här båtens besök vid just denna bro,
         // även inom två timmar. Närliggande broar behåller sina egna besök.
@@ -10689,6 +10696,9 @@ class AISBridgeApp extends Homey.App {
     // (a) Observerad genomkorsning i detta sampelpar.
     const sweep = vessel._tpSweepCandidate;
     if (sweep && sweep.name === candidate.name) return true;
+    // U51 (granskningen H1): besöksspårarens avgångsbevis säger i samma tick att
+    // en förtöjd båt är förbi punktens linje.
+    if (vessel._tpMooredDeparturePastLine === candidate.name) return true;
 
     if (!Number.isFinite(vessel.lat)) return false;
     // RESEANKARET, inte episodankaret (H12-B, fixrunda 1b 2026-08-22).

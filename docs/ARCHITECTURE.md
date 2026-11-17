@@ -806,13 +806,18 @@ Dedup-lagren:
    **U51 (dirigentens beslut 2026-11-17, F8 alternativ (c)):** vid ytterpunkterna får en båt
    som legat förtöjd minst 2 h ett nytt besök när hon lägger ut. `observe` följer ett
    förtöjningsbelägg i besöket (`moorLat/moorLon/moorSince/moorLastTs/moorProven`, sparas):
-   stilla fixar (navstatus förtöjd/ankrad, fart under 0,3 kn, eller utan fartgivare inom
-   40 m) inom 40 m från ankaret med högst 60 min mellan dem, som spänner minst 2 h
+   stilla fixar (navstatus förtöjd/ankrad eller fart under 0,3 kn; en fix utan fart räknas
+   bara inom 40 m från ett ankare som redan satts, så en båt utan fart och navstatus 1/5 får
+   inget belägg) inom 40 m från ankaret med högst 60 min mellan dem, som spänner minst 2 h
    (`MOORING_DETECTION.MAX_STATIONARY_WAIT_MS`). Ett belagt belägg står kvar till avgången.
    Avgången är belagd när båten i minst 2,0 kn (föregående fix minst 0,5 kn, kursen inte
    tillbaka) är högst 50 m från punktens linje eller förbi den och har gått minst 50 m mot
-   linjen från ankaret, med ett segment på högst 10 min som stämmer med farten. Då tas
-   besöket bort som vid en återkomst (`reentered`), och avgången får sin notis.
+   linjen från ankaret, före linjen dessutom högst 70 m från punkten (granskningen M2), med
+   ett segment på högst 10 min som stämmer med farten. Då tas besöket bort som vid en
+   återkomst (`reentered`), och avgången får sin notis. Ligger fixen entydigt förbi linjen
+   returnerar `observe` `pastLine`, appen sätter den entickiga flaggan
+   `_tpMooredDeparturePastLine`, och `_hasPassedTriggerPoint` ger passerad form ("har passerat
+   Kanalinfarten") i stället för en förvarning med minuttal (granskningen H1).
 
 Tokens: `vessel_name` (B1: känt namn → cache-uppslag → "Okänd båt", :4464),
 `bridge_name`, `direction` (`_getDirectionString`:4639: låst rutt-riktning
@@ -4379,15 +4384,33 @@ passagen; en båt som guppar eller väntar vid bron får fortfarande en notis pe
   203 m in i kanalen) och 10/9 16:01:36 ("närmar sig …, beräknad ankomst strax", 23 m), DIANA 24/8
   16:48:04 (förtöjd 2 h 24 min, "närmar sig …, strax", 16 m); i fältet PRICKBJORN 12/11 07:08:07
   (k1, "har passerat", 63 m) och 13/11 06:48:54 (k2, "närmar sig …, strax", 36 m). PILOT 761 11/11
-  11:42 hade legat 75 min (under 2 h) och JUNO 4/8 fick en fix i 0,7 kn efter 1 h 42 min och hördes
-  nästa gång 454 m in i kanalen: ingen av dem får notis. Vid broarna (mätt, inte infört) skulle
+  11:42 hade legat 75 min (under 2 h) och JUNO 4/8 har ett glapp på 102 min utan fixar vid kajen
+  (glappregeln river belägget) och hördes efter avgången först 454 m in i kanalen: ingen av dem
+  får notis. U51 vänder låsningen 2026-09-09 (DIANA: en Kanalinfartsnotis för hamnstoppet på 2,5 h):
+  den skyddade mot en andra notis för samma zonbesök när 2 h-dedupen löpte ut; nu kommer den andra
+  notisen bara efter belagd förtöjning i minst 2 h och belagd avgång. Vid broarna (mätt, inte infört) skulle
   regeln ge ANDREA en andra Stridsbergsnotis efter två timmar i brokön, den notis besöksregeln
   2026-09-07 tog bort; därför bara ytterpunkterna.
+- **Granskningen (andra varvet).** H1: med 30–120 s mellan fixarna kom släppet oftast på första
+  fixen förbi linjen, och formregeln (reseankarets latitud med 100 m marginal; lotskajen ligger
+  inom marginalen) gav då "närmar sig … om 1–3 minuter" för en båt 15–290 m inne i kanalen,
+  3 av 12 avgångar vid 30 s och 8 av 12 vid 60 s i granskarens rutnät. Släppet bär nu sidan
+  (`pastLine`), och rutnätet ger 0 fel form vid alla fixtakter. M2: före linjen högst 70 m från
+  punkten; närmaste kajplats ligger 123 m från punkten, granskarens förhalning i sidled slutade
+  114 m från den, och de verkliga släppen före linjen låg 16–36 m från den.
 - **Kända gränser.** Avgångsnotisen kommer vid första fixen i bandet eller förbi linjen; en båt
-  som går igenom bandet mellan två fixar får den först innanför linjen (ELFKUNGEN 42h: "har
-  passerat", 203 m). En lotsbåt får en notis vid varje avgång efter minst 2 h vid kaj. Låst i
-  `tests/u51-fortojd-avgang.test.js` och tre syntetiska scenarier (`förtöjd-3h-…`,
-  `förtöjd-1h30-…`, `förtöjd-3h-byter-kajplats-…`).
+  som går igenom bandet mellan två fixar får den först innanför linjen, i passerad form
+  (ELFKUNGEN 42h: "har passerat", 203 m). En lotsbåt får en notis vid varje avgång efter minst
+  2 h vid kaj. Ett GPS-hopp från kajen till bandet nära punkten (till exempel 30 m före linjen i
+  2,5 kn) efter en fix i minst 0,5 kn vid kajen ger en falsk avgångsnotis; det kräver två
+  samtidiga fel och finns inte i data (0 av 18 050 kajfixar med stilla grannar har ett hopp på
+  50 m mot linjen, 0 har fart ≥ 2 kn). Vid Stallbackabron kan notisens riktning bli fel när
+  kursen ligger i det osäkra bandet (förtöjd söder om bron, sedan norrut med kurs 52°, utanför
+  norrbandet 315–45°: notisen säger "southbound"); det är riktningslogiken, inte U51, och det
+  finns ingen förtöjning vid Stallbackabron i data. Låst i `tests/u51-fortojd-avgang.test.js`,
+  `tests/u51-granskning-helkedja.test.js` (H1 och M2 genom hela appen) och tre syntetiska
+  scenarier (`förtöjd-3h-…`, `förtöjd-1h30-…`, `förtöjd-3h-byter-kajplats-…`). Mutationsprovet:
+  varje villkor i avgången och belägget fäller minst ett test när det tas bort.
 
 ## 10. Söndagsfältet 2026-08-09/10 (commits a9f2a20, ce6a946, b1a7ba3 + WS-3)
 

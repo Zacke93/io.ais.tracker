@@ -32,6 +32,19 @@ function along(point, m) {
   };
 }
 
+/**
+ * Position `m` meter längs kanalaxeln och `side` meter i sidled (längs punktens
+ * linje, axisBearing; negativt mot kajraden väster om Kanalinfarten).
+ */
+function at2(point, m, side) {
+  const base = along(point, m);
+  const dir = ((point.axisBearing || 125) * Math.PI) / 180;
+  return {
+    lat: base.lat + (side * Math.cos(dir)) / M_LAT,
+    lon: base.lon + (side * Math.sin(dir)) / (M_LAT * Math.cos((point.lat * Math.PI) / 180)),
+  };
+}
+
 describe('U51: förtöjd minst 2 h vid en ytterpunkt, ny notis vid avgången', () => {
   let now;
   let tracker;
@@ -67,7 +80,7 @@ describe('U51: förtöjd minst 2 h vid en ytterpunkt, ny notis vid avgången', (
       step(60000, along(KANAL, -200), { sog: 3, cog: 300 });
       moor(LOTSKAJ, 11 * 60);
       expect(holds()).toBe(true);
-      expect(lotskajDeparture()).toEqual({ changed: true, reentered: true });
+      expect(lotskajDeparture()).toEqual({ changed: true, reentered: true, pastLine: false });
       expect(holds()).toBe(false);
     });
 
@@ -85,8 +98,16 @@ describe('U51: förtöjd minst 2 h vid en ytterpunkt, ny notis vid avgången', (
       step(9 * MIN, ...elf(58.2663, 12.26631, 2.1, 55.1));
       // 69 m från punkten men 69 m ut från linjen: inte i avgångsbandet.
       expect(step(85000, ...elf(58.2675, 12.26868, 6, 32.9)).reentered).toBe(false);
-      // Förbi linjen, 203 m in i kanalen.
-      expect(step(90000, ...elf(58.26957, 12.27116, 5.8, 32.2)).reentered).toBe(true);
+      // Förbi linjen, 203 m in i kanalen: passagen är gjord (granskningen H1).
+      expect(step(90000, ...elf(58.26957, 12.27116, 5.8, 32.2))).toEqual({ changed: true, reentered: true, pastLine: true });
+    });
+
+    test('M2-gränsen åt andra hållet: 45 m före linjen och 65 m från punkten släpps (ingen kajplats ligger närmare än 123 m)', () => {
+      tracker.reserve(fix(along(KANAL, -250), { sog: 5, cog: 35 }));
+      moor(LOTSKAJ, 180);
+      const side = -Math.sqrt(65 * 65 - 45 * 45);
+      step(60000, at2(KANAL, -100, side), { sog: 2.5, cog: 35 });
+      expect(step(40000, at2(KANAL, -45, side), { sog: 3, cog: 35 })).toEqual({ changed: true, reentered: true, pastLine: false });
     });
 
     test('omstart under förtöjningen: belägget sparas, och en förtöjning före beviset fortsätter efter omstarten', () => {
@@ -211,6 +232,52 @@ describe('U51: förtöjd minst 2 h vid en ytterpunkt, ny notis vid avgången', (
       moor(LOTSKAJ, 180);
       step(60000, LOTSKAJ, { sog: 1.0, cog: 35 });
       expect(step(11 * MIN, along(KANAL, -20), { sog: 5, cog: 35 }).reentered).toBe(false);
+    });
+
+    // Granskningen av U51 (M1): varje kärnvillkor i avgången fäller ett eget fall.
+    test('förtöjd 3 h i bandet (30 m före linjen, 50 m från punkten) och rör sig i sidled i 3 kn: under 50 m mot linjen, inget släpp', () => {
+      tracker.reserve(fix(along(KANAL, -250), { sog: 5, cog: 35 }));
+      const kaj = at2(KANAL, -30, -40);
+      step(60000, kaj, { sog: 0 });
+      moor(kaj, 180);
+      step(60000, at2(KANAL, -25, 0), { sog: 3, cog: 125 });
+      expect(step(40000, at2(KANAL, -20, 30), { sog: 3, cog: 125 }).reentered).toBe(false);
+      expect(holds()).toBe(true);
+    });
+
+    test('fix i bandet i 3 kn efter en fix i fart, men kursen tillbaka mot kajen: inget släpp', () => {
+      tracker.reserve(fix(along(KANAL, -250), { sog: 5, cog: 35 }));
+      moor(LOTSKAJ, 180);
+      step(60000, along(KANAL, -100), { sog: 2.5, cog: 35 });
+      expect(step(40000, along(KANAL, -20), { sog: 3, cog: 215 }).reentered).toBe(false);
+      expect(holds()).toBe(true);
+    });
+
+    test('ett hopp in i bandet på 100 m på 10 s (10 m/s mot rapporterade 3 kn) efter en fix i fart: inget släpp', () => {
+      tracker.reserve(fix(along(KANAL, -250), { sog: 5, cog: 35 }));
+      moor(LOTSKAJ, 180);
+      step(60000, along(KANAL, -120), { sog: 2.5, cog: 35 });
+      expect(step(10000, along(KANAL, -20), { sog: 3, cog: 35 }).reentered).toBe(false);
+      expect(holds()).toBe(true);
+    });
+
+    test('förhalning genom bandet i 1,5 kn (under 2 kn): inget släpp', () => {
+      tracker.reserve(fix(along(KANAL, -250), { sog: 5, cog: 35 }));
+      moor(LOTSKAJ, 180);
+      step(100000, along(KANAL, -100), { sog: 1.5, cog: 35 });
+      expect(step(100000, along(KANAL, -20), { sog: 1.5, cog: 35 }).reentered).toBe(false);
+      expect(holds()).toBe(true);
+    });
+
+    // Granskningen av U51 (M2): före linjen högst 70 m från punkten. B1 slutade
+    // 48 m före linjen och 114 m från punkten; grannarna 90 och 75 m.
+    test.each([114, 90, 75])('förhalning i sidled från lotskajen till 45 m före linjen, %i m från punkten: inget släpp', (dist) => {
+      tracker.reserve(fix(along(KANAL, -250), { sog: 5, cog: 35 }));
+      moor(LOTSKAJ, 180);
+      const side = -Math.sqrt(dist * dist - 45 * 45);
+      step(60000, at2(KANAL, -100, side), { sog: 2.2, cog: 35 });
+      expect(step(40000, at2(KANAL, -45, side), { sog: 2.2, cog: 35 }).reentered).toBe(false);
+      expect(holds()).toBe(true);
     });
 
     test('andra broar än ytterpunkterna berörs inte (Klaffbron)', () => {
