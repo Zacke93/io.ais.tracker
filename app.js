@@ -10877,6 +10877,8 @@ class AISBridgeApp extends Homey.App {
    * precis passerat", som förut "under AIS-tystnad". Kontrollen görs här, där alla tre
    * ingångar (STEG 2b, ENTERED och den uppskjutna statusnotisen) möts.
    * Källsträngen och distansen rörs inte; de bär dedupen och notisantalet.
+   * N6: en båt utan föregående fix och utan färsk sist känd position prövas
+   * med svepets portgissning (_isNewVesselPastNotifiedBridge).
    * @private
    */
   _hasGapCrossedNotifiedBridge(vessel, candidate, source) {
@@ -10889,10 +10891,12 @@ class AISBridgeApp extends Homey.App {
       if (Math.abs(vessel.lat - vessel.lastPosition.lat) > LARGE_JUMP_LAT_DEG) from = vessel.lastPosition;
     } else {
       const lastKnown = this._lastKnownPositions?.get(String(vessel.mmsi));
-      if (lastKnown && Number.isFinite(lastKnown.lat) && Number.isFinite(lastKnown.t)
-          && Date.now() - lastKnown.t < this._LAST_KNOWN_POSITION_TTL_MS
-          && Math.abs(vessel.lat - lastKnown.lat) >= 100 / 111320) {
+      const lastKnownFresh = lastKnown && Number.isFinite(lastKnown.lat) && Number.isFinite(lastKnown.t)
+        && Date.now() - lastKnown.t < this._LAST_KNOWN_POSITION_TTL_MS;
+      if (lastKnownFresh && Math.abs(vessel.lat - lastKnown.lat) >= 100 / 111320) {
         from = lastKnown;
+      } else if (!lastKnownFresh) {
+        return this._isNewVesselPastNotifiedBridge(vessel, bridge, candidate);
       }
     }
     if (from === null) return false;
@@ -10946,6 +10950,62 @@ class AISBridgeApp extends Homey.App {
     if (side === -farSide) return false;
     if (side === farSide && geometry.decisiveBridgeSide(from, bridge) !== farSide) return true;
     return bridge.lat > Math.min(fromLat, vessel.lat) && bridge.lat < Math.max(fromLat, vessel.lat);
+  }
+
+  /**
+   * N6 (granskningen av N2, sidofyndet; ägarfråga F9): BN2 FÖR EN NY BÅT.
+   *
+   * En båt som syns första gången (ingen föregående fix och ingen sist känd
+   * position) prövas av svepets scenario A, portgissningen i
+   * _checkSkippedBridgesFallback: i minst 2 kn och med kurs i nord- eller
+   * sydbandet, och utan start vid en känd eller inlärd kajplats, antas hon ha
+   * kommit in genom kanalens port, och broarna mellan porten och positionen
+   * notifieras som passerade ("passerade … under AIS-tystnad", som Klaffbron för
+   * SIR HENRY i 20260918-7h). Men närhetsnotisen går före svepet, och för den bro
+   * som ligger närmast bakom båten (inom 300 m) hann den gå ut i förvarningsform
+   * och svepets notis dedupades bort. I banken och fältkörningarna gällde det
+   * nio båtar 74–252 m bortom Olidebron norrut och Stallbackabron söderut, alla i
+   * 4,8–6,9 kn bort från bron: "NEST närmar sig Stallbackabron, beräknad ankomst
+   * om 1 minut" 248 m efter bron.
+   *
+   * Beviset är portgissningens egna grindar (samma fart, samma kursband, samma
+   * kajvakt), och dessutom att positionen ligger entydigt (> 10 m) bortom
+   * brolinjen i den riktningen. Svepet själv godtar en position inom ±10 m
+   * från linjen om latituden säger förbi; det gör inte den här regeln.
+   *
+   * VID BRON. Inom UNDER_BRIDGE_CLEAR_DISTANCE (70 m), appens egen gräns för
+   * att båten är vid bron (samma som ETA-taket i notisvägen använder), står
+   * förvarningen kvar: "beräknad ankomst strax" om en båt 10–40 m bortom
+   * linjen betyder i praktiken nu (JOY 15 m, GRETA AF HAMMARO 21 m, HELGE 10 m,
+   * SIR HENRY 39 m, 3–11 s efter korsningen i sin fart). Utanför den är bron
+   * bakom båten och förvarningen osann.
+   *
+   * Formen följer U37 del 2 som för BN2: utan segment finns inget belägg för
+   * att korsningen var nyss, och meningen blir BN2:s egen, "passerade … under
+   * AIS-tystnad", samma som svepet hade gett.
+   * @private
+   */
+  _isNewVesselPastNotifiedBridge(vessel, bridge, candidate) {
+    if (!Number.isFinite(vessel.sog) || vessel.sog < 2.0 || !Number.isFinite(vessel.cog)) return false;
+    let travel = null;
+    if (isNorthCog(vessel.cog)) travel = 'north';
+    else if (isSouthCogStrict(vessel.cog)) travel = 'south';
+    if (!travel) return false;
+    if (vessel._routeDirection && vessel._routeDirection !== travel) return false;
+    // Målbron ligger per definition framför båten: säger appen att det är den
+    // här bron, är kursen och målbron oense och förvarningen står kvar.
+    if (vessel.targetBridge === bridge.name) return false;
+    const startedAtQuay = this.vesselDataService?.isNearMooringZone?.(
+      vessel._firstSeenLat, vessel._firstSeenLon, 100,
+    ) === true
+      || this._isNearLearnedMooringSpot(vessel._firstSeenLat, vessel._firstSeenLon, 100);
+    if (startedAtQuay) return false;
+    const farSide = travel === 'north' ? 1 : -1;
+    if (geometry.decisiveBridgeSide(vessel, bridge) !== farSide) return false;
+    const distance = Number.isFinite(candidate?.distance)
+      ? candidate.distance
+      : geometry.calculateDistance(vessel.lat, vessel.lon, bridge.lat, bridge.lon);
+    return Number.isFinite(distance) && distance > UNDER_BRIDGE_CLEAR_DISTANCE;
   }
 
   /**

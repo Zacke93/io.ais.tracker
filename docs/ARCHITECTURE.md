@@ -4018,6 +4018,26 @@ Underlaget står i `docs/helgranskning-2026-11-03.md`; varje fynd prövades med 
   fall i banken). Kantfall: en båt som korsat bron norrut under tystnaden och redan vänt, men
   har kurs 46–134° eller ingen kurs, får "passerade" i stället för "närmar sig". Påståendet är
   sant för korsningen under tystnaden; returen får en egen notis enligt U14.
+  **N6 (granskningen av N2, ägarfråga F9, 2026-11-16): en ny båt.** Saknar båten både
+  föregående fix och sist känd position prövar BN2 svepets portgissning (scenario A i
+  `_checkSkippedBridgesFallback`, `_isNewVesselPastNotifiedBridge`): minst 2 kn, kurs i
+  nordbandet eller det strikta sydbandet, inget motsägande ruttlås, bron är inte båtens målbro
+  (målbron ligger framför), ingen start vid en känd eller inlärd kajplats, positionen entydigt bortom brolinjen i den riktningen och mer än
+  `UNDER_BRIDGE_CLEAR_DISTANCE` (70 m, appens gräns för "vid bron", samma som ETA-taket i
+  notisvägen) från bron. Svepet notifierar redan en sådan båts broar bakom henne som passerade,
+  men närhetsnotisen gick först och tog den närmaste i förvarningsform; svepets notis dedupades
+  bort. I banken nio båtar 74–252 m efter Olidebron norrut och Stallbackabron söderut, i
+  4,8–6,9 kn: "NEST närmar sig Stallbackabron, beräknad ankomst om 1 minut" 248 m efter bron,
+  och SABETH fick i samma sekund "passerade Kanalinfarten under AIS-tystnad" och "närmar sig
+  Olidebron, beräknad ankomst om 1 minut" 88 m efter Olidebron. Nu "passerade … under
+  AIS-tystnad" (U37 del 2 utan segment: BN2:s egen mening, samma som svepets). Inom 70 m står
+  förvarningen kvar: "beräknad ankomst strax" om en båt 10–40 m bortom linjen betyder nu (JOY
+  15 m, GRETA AF HAMMARO 21 m, HELGE 10 m, SIR HENRY 39 m). Kvar i förvarningsform, kända
+  gränser: en långsam båt (HALIFAX 1,1 kn, 194 m söder om Olidebron) och en båt som lagt ut från
+  en kaj bortom bron och har föregående positioner (EUGENIE 1,9 kn från gästhamnen norr om
+  Klaffbron, 268 m); där har appen inget belägg för en passage. En båt som lagt ut från en okänd
+  kajplats bortom bron i minst 2 kn får "passerade" om en bro hon aldrig korsat, som svepet
+  redan ger för broarna längre bak.
 - Mellanbrons avståndsreserv i `_hasPassedBridge` täcker bandet mellan
   `UNDER_BRIDGE_CROSS_SEGMENT_MAX_M` och `LARGE_JUMP_LAT_DEG` (den delade hoppgränsen, förut
   hårdkodad 0,005).

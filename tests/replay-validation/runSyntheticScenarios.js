@@ -3649,6 +3649,36 @@ const SCENARIOS = [
       noticeForms: { Järnvägsbron: ['närmar', 'precis'] },
     },
   },
+  // N6 (ägarfråga F9): EN NY BÅT SOM SYNS FÖRST 150 m EFTER STALLBACKABRON på
+  // väg söderut i 6 kn. Svepets portgissning notifierar bron som passerad, men
+  // närhetsnotisen gick först i förvarningsform ("närmar sig Stallbackabron,
+  // beräknad ankomst om 1 minut"; NEST i 20260713-41h, 248 m efter bron). Nu
+  // samma mening som svepet: "passerade … under AIS-tystnad".
+  {
+    name: 'ny-båt-först-sedd-150m-efter-Stallbackabron-söderut (N6)',
+    seed: 73401,
+    vessels: [{
+      mmsi: '973401001',
+      name: 'SYNT-N6-NY',
+      startS: METRICS.cum[5] - 150,
+      legs: [{ toS: METRICS.cum[4] + 800, speedKn: 6, intervalS: 30 }],
+    }],
+    expect: { noticeForms: { Stallbackabron: ['tyst'] } },
+  },
+  // N6, motfall: samma båt först sedd 30 m efter bron. Inom appens gräns för
+  // "vid bron" (70 m) betyder "beräknad ankomst strax" i praktiken nu, och
+  // förvarningen står kvar (JOY i 20260713-41h, 15 m).
+  {
+    name: 'ny-båt-först-sedd-30m-efter-Stallbackabron-vid-bron (N6, motfall)',
+    seed: 73402,
+    vessels: [{
+      mmsi: '973402001',
+      name: 'SYNT-N6-VIDBRON',
+      startS: METRICS.cum[5] - 30,
+      legs: [{ toS: METRICS.cum[4] + 800, speedKn: 6, intervalS: 30 }],
+    }],
+    expect: { noticeForms: { Stallbackabron: ['närmar'] } },
+  },
 ];
 
 function runScenario(scenario) {

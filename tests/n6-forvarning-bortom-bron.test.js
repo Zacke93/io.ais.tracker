@@ -15,14 +15,24 @@
  * I banken: HALIFAX (20260708-21h) syntes första gången 194 m söder om
  * Olidebron på väg söderut, fick "närmar sig Olidebron" och fick ingen notis
  * när hon vände och passerade Olidebron norrut 12 min senare.
-
+ *
+ * (a) Formen för en ny båt. Svepets portgissning (scenario A) notifierar en ny
+ * båts broar bakom henne som passerade, men närhetsnotisen går först och tar
+ * den närmaste i förvarningsform: "NEST närmar sig Stallbackabron, beräknad
+ * ankomst om 1 minut" 248 m efter bron (nio sådana i banken, 74–252 m). BN2
+ * prövar nu också portgissningen; inom 70 m (vid bron) står förvarningen kvar.
  */
+
+jest.mock('homey');
 
 const path = require('path');
 const { execFileSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
+const { __mockHomey: mockHomey } = require('homey');
+const AISBridgeApp = require('../app');
 const TriggerPointVisitTracker = require('../lib/services/TriggerPointVisitTracker');
+const geometry = require('../lib/utils/geometry');
 const { BRIDGES } = require('../lib/constants');
 const { generateScenario, buildPath, pathMetrics } = require('./replay-validation/scenarioGenerator');
 
@@ -197,6 +207,155 @@ describe('N6 (b): besökets bortre sida när förvarningen går ut bortom linjen
       expect(release(step(-160, { sog: 4 }, 30))).toBeFalsy();
       expect(tracker.holds(MMSI, JVB.name)).toBe(true);
     });
+  });
+});
+
+describe('N6 (a): BN2 prövar också svepets portgissning för en ny båt', () => {
+  let apps;
+  let savedTestMode;
+
+  const boot = async () => {
+    const store = {};
+    const app = new AISBridgeApp();
+    app.log = jest.fn();
+    app.debug = jest.fn();
+    app.error = jest.fn();
+    app.homey = {
+      ...mockHomey,
+      settings: {
+        get: (key) => (store[key] === undefined ? undefined : JSON.parse(JSON.stringify(store[key]))),
+        set: jest.fn((key, value) => {
+          store[key] = JSON.parse(JSON.stringify(value));
+        }),
+        on: jest.fn(),
+        off: jest.fn(),
+      },
+    };
+    await app.onInit();
+    apps.push(app);
+    jest.spyOn(app._boatNearTrigger, 'trigger');
+    return app;
+  };
+
+  // Första fixen för en båt som aldrig setts: ingen föregående fix, ingen sist känd position.
+  const newVessel = (pos, travel, extra = {}) => ({
+    mmsi: '261435000',
+    name: 'NEST',
+    ...pos,
+    lastPosition: null,
+    _firstSeenLat: pos.lat,
+    _firstSeenLon: pos.lon,
+    sog: 5.6,
+    cog: travel === 'north' ? 40 : 222.4,
+    _routeDirection: null,
+    targetBridge: null,
+    status: 'en-route',
+    timestamp: Date.now(),
+    lastPositionUpdate: Date.now(),
+    ...extra,
+  });
+  const cand = (bridge, pos, source = 'current') => ({
+    name: bridge.name,
+    id: Object.keys(BRIDGES).find((k) => BRIDGES[k] === bridge),
+    distance: geometry.calculateDistance(pos.lat, pos.lon, bridge.lat, bridge.lon),
+    source,
+  });
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-07-13T09:51:58.000Z'));
+    savedTestMode = global.__TEST_MODE__;
+    global.__TEST_MODE__ = true;
+    apps = [];
+  });
+
+  afterEach(async () => {
+    for (const app of apps) {
+      // eslint-disable-next-line no-await-in-loop
+      if (!app._shuttingDown) await app.onUninit();
+    }
+    await jest.advanceTimersByTimeAsync(0);
+    global.__TEST_MODE__ = savedTestMode;
+    jest.useRealTimers();
+  });
+
+  test('NEST-fallet: ny båt 248 m söder om Stallbackabron söderut får passerad form', async () => {
+    const app = await boot();
+    const stall = BRIDGES.stallbackabron;
+    // Fältets position (20260713-41h 09:51:58).
+    const pos = { lat: 58.308121666666665, lon: 12.313858333333334 };
+    expect(geometry.bridgeLineOffsetM(pos, stall)).toBeLessThan(-200);
+    const v = newVessel(pos, 'south');
+    const candidate = cand(stall, pos);
+    expect(app._hasGapCrossedNotifiedBridge(v, candidate, 'current')).toBe(true);
+    await app._triggerBoatNearFlowForBridge(v, candidate);
+    const [[tokens]] = app._boatNearTrigger.trigger.mock.calls;
+    expect(tokens.already_passed).toBe(true);
+    expect(tokens.eta_minutes).toBe(-1);
+    expect(tokens.message).toBe('NEST passerade Stallbackabron under AIS-tystnad');
+  });
+
+  // [bro, färd, d m bortom linjen i färdriktningen, väntat]
+  const CASES = [];
+  for (const key of ['olidebron', 'klaffbron', 'jarnvagsbron', 'stridsbergsbron', 'stallbackabron']) {
+    const b = BRIDGES[key];
+    CASES.push(
+      // 120 m norr om Klaffbron ligger kajen (kajvakten avstår, som svepet).
+      [b.name, 'north', 120, key !== 'klaffbron'],
+      [b.name, 'south', 120, true],
+      // Vid bron (inom 70 m): förvarningen står kvar.
+      [b.name, 'north', 40, false],
+      [b.name, 'south', 40, false],
+      // Före linjen: bron ligger framför.
+      [b.name, 'north', -120, false],
+      [b.name, 'south', -120, false],
+    );
+  }
+  test.each(CASES)('%s %s %s m bortom linjen: %s', async (name, travel, d, expected) => {
+    const app = await boot();
+    const b = Object.values(BRIDGES).find((x) => x.name === name);
+    const pos = at(b, travel === 'north' ? d : -d);
+    expect(app._hasGapCrossedNotifiedBridge(newVessel(pos, travel), cand(b, pos), 'current')).toBe(expected);
+  });
+
+  test.each([
+    ['långsam båt (1,1 kn, HALIFAX)', { sog: 1.1 }],
+    ['kurs i östbandet', { cog: 90 }],
+    ['kurs saknas', { cog: null }],
+    ['ruttlåset säger motsatt håll', { _routeDirection: 'north' }],
+    ['målbron är den här bron (flow-trigger-bridges: 110 m söder om Klaffbron, kurs söderut)', { targetBridge: 'Stallbackabron' }],
+    ['GPS-hopp hålls', { _gpsJumpDetected: true }],
+  ])('motfall: %s ger förvarningen som förut', async (_label, extra) => {
+    const app = await boot();
+    const stall = BRIDGES.stallbackabron;
+    const pos = at(stall, -150);
+    const v = newVessel(pos, 'south', extra);
+    if (extra._gpsJumpDetected) jest.spyOn(app.vesselDataService, 'hasGpsJumpHold').mockReturnValue(true);
+    expect(app._hasGapCrossedNotifiedBridge(v, cand(stall, pos), 'current')).toBe(false);
+  });
+
+  test('motfall: första positionen vid en kajplats (kajvakten) ger förvarningen som förut', async () => {
+    const app = await boot();
+    const klaff = BRIDGES.klaffbron;
+    const pos = at(klaff, 150);
+    jest.spyOn(app.vesselDataService, 'isNearMooringZone').mockReturnValue(true);
+    expect(app._hasGapCrossedNotifiedBridge(newVessel(pos, 'north'), cand(klaff, pos), 'current')).toBe(false);
+  });
+
+  test('motfall: båt med föregående fix (EUGENIE, ingen ny båt) ger förvarningen som förut', async () => {
+    const app = await boot();
+    const klaff = BRIDGES.klaffbron;
+    const pos = at(klaff, 268);
+    const v = newVessel(pos, 'north', { lastPosition: at(klaff, 232), sog: 1.9 });
+    expect(app._hasGapCrossedNotifiedBridge(v, cand(klaff, pos), 'current')).toBe(false);
+  });
+
+  test('motfall: återfödd båt med sist känd position nära (under 100 m) prövas inte som ny', async () => {
+    const app = await boot();
+    const stall = BRIDGES.stallbackabron;
+    const pos = at(stall, -150);
+    app._lastKnownPositions.set('261435000', { ...at(stall, -100), t: Date.now() - 5 * 60 * 1000 });
+    expect(app._hasGapCrossedNotifiedBridge(newVessel(pos, 'south'), cand(stall, pos), 'current')).toBe(false);
   });
 });
 
