@@ -74,6 +74,24 @@
       "vesselLatNext": 58.28992
     },
     {
+      "t": 1789056096749,
+      "bridge": "Kanalinfarten",
+      "direction": "northbound",
+      "eta": 0,
+      "message": "ELFKUNGEN närmar sig Kanalinfarten, beräknad ankomst strax",
+      "alreadyPassed": false,
+      "name": "ELFKUNGEN",
+      "distance": 23,
+      "source": "trigger-point",
+      "stateBridge": "kanalinfarten",
+      "mmsi": "265573130",
+      "success": true,
+      "error": null,
+      "vesselLat": 58.267835,
+      "vesselLon": 12.269133333333334,
+      "vesselLatNext": 58.270035
+    },
+    {
       "t": 1789056277436,
       "bridge": "Olidebron",
       "direction": "northbound",

@@ -2535,14 +2535,24 @@ module.exports = [
     locked: true,
     lockEvents: true,
     pollEraMinutes: 10,
-    expectedNotifications: 131,
+    expectedNotifications: 132,
     // Exakt textheuristiskt falsklarm: sista AIS passerade 25-minutersgränsen.
     // Rådatagap och verklig visningsgräns låses av utopia-stale-display-field.test.js.
     knownInvariantExceptions: [
       'DEFAULT-FLASH: 2026-08-06T08:47:00.040Z "Inga båtar" inklämd (30s) '
         + 'mellan två "En … Stridsbergsbron"-texter utan passage',
     ],
-    note: 'ÖPPNINGSVARNINGAR OMLÅSTA 2026-11-17 (omgång 4, U45: har en annan båt gått igenom bron efter varningen '
+    note: 'NOTISFACIT OMLÅST 2026-11-17 (omgång 4, U51: en båt som legat förtöjd minst 2 h vid Kanalinfarten eller '
+      + 'Stallbackabron får en notis när hon lägger ut in i kanalen; förtöjningen ska vara belagd med stilla '
+      + 'positioner och avgången med fart mot punktens linje): 131 → 132 notiser. +1 ELFKUNGEN 265573130 '
+      + 'Kanalinfarten norrut 7/8 10:07:00, "har passerat Kanalinfarten". Rådata: stilla vid kajen 300 m från '
+      + 'punkten från 6/8 12:44:32 till 7/8 10:01:32 (21 h, 217 positioner, längsta glapp 45 min). Hon lägger ut '
+      + '10:03:58 (2,1 kn), är 69 m före punkten 10:05:23 i 6 kn och 203 m förbi den 10:06:53 i 5,8 kn kurs 32°; '
+      + 'notisen går på den positionen och har därför passerad form. Förut fick hon ingen notis om avgången, '
+      + 'eftersom besöket från ankomsten dagen före stod öppet. Rättare enligt U13. Öppningsvarningar, brotexter '
+      + 'och passager är oförändrade. Egen radvis diff av dirigenten mot båtens positioner, och oberoende '
+      + 'radfacit i granskningen av D6. '
+      + 'ÖPPNINGSVARNINGAR OMLÅSTA 2026-11-17 (omgång 4, U45: har en annan båt gått igenom bron efter varningen '
       + 'får en varnad båt som kommer mer än tio minuter senare en ny varning, om hon då hörs i minst 2 kn mot '
       + 'bron utanför väntzonen): Klaffbron söderut 19 → 21 (7/8). Nya: ALINDE 14:07:32 (930 m norr om bron i 6 '
       + 'kn) och DORY MAN 14:10:56 (443 m norr om bron i 4 kn). ALINDE korsar mellan 14:15:04 (35 m norr om bron) '
@@ -2764,8 +2774,19 @@ module.exports = [
     locked: true,
     lockOpenings: true,
     lockEvents: true,
-    expectedNotifications: 23,
-    note: 'NOTISTEXT OMLÅST 2026-11-16 (U37 del 2, en formregel för alla passagenotiser): 1 notis byter mening; '
+    expectedNotifications: 24,
+    note: 'NOTISFACIT OMLÅST 2026-11-17 (omgång 4, U51: en båt som legat förtöjd minst 2 h vid Kanalinfarten eller '
+      + 'Stallbackabron får en notis när hon lägger ut in i kanalen; förtöjningen ska vara belagd med stilla '
+      + 'positioner och avgången med fart mot punktens linje): 23 → 24 notiser. +1 DIANA 265576710 Kanalinfarten '
+      + 'norrut 24/8 16:48:04, "närmar sig Kanalinfarten, beräknad ankomst strax". Rådata: stilla vid kajen 267 m '
+      + 'från punkten 14:16:43–16:43:41 (2 h 27 min, 43 positioner, längsta glapp 6 min). Hon lägger ut 16:44:16, '
+      + 'är 16 m före punktens linje 16:48:04 i 4,8 kn kurs 33° och 63 m förbi den 26 s senare. Ankomstnotisen '
+      + '14:17:46 löd "beräknad ankomst om 5 minuter"; hon gick in i kanalen två och en halv timme senare. Detta '
+      + 'VÄNDER låsningen från 2026-09-09 (en notis för hela hamnstoppet), som skyddade mot en andra notis när 2 '
+      + 'h-spärren löpt ut medan båten låg kvar. Den andra notisen kommer nu bara efter belagd förtöjning och '
+      + 'belagd avgång. Rättare enligt U13. Öppningsvarningar, brotexter och passager är oförändrade. Egen radvis '
+      + 'diff av dirigenten mot båtens positioner, och oberoende radfacit i granskningen av D6. '
+      + 'NOTISTEXT OMLÅST 2026-11-16 (U37 del 2, en formregel för alla passagenotiser): 1 notis byter mening; '
       + 'tid, bro, riktning, siffra och antal är oförändrade. Regeln: var det tyst i mer än 130 s kring '
       + 'korsningen och kommer notisen mer än 60 s efter den, lyder den "passerade … under AIS-tystnad", annars '
       + '"har precis passerat". post 7 TANGELA 265070060 Järnvägsbron 24/8 08:55:39 → "har precis passerat". '
@@ -2836,8 +2857,17 @@ module.exports = [
     locked: true,
     lockOpenings: true,
     lockEvents: true,
-    expectedNotifications: 23,
-    note: 'NOTISFACIT OMLÅST 2026-11-16 (U33, fråga F20: notisen säger båtens restid i sin egen fart när brotexten '
+    expectedNotifications: 24,
+    note: 'NOTISFACIT OMLÅST 2026-11-17 (omgång 4, U51: en båt som legat förtöjd minst 2 h vid Kanalinfarten eller '
+      + 'Stallbackabron får en notis när hon lägger ut in i kanalen; förtöjningen ska vara belagd med stilla '
+      + 'positioner och avgången med fart mot punktens linje): 23 → 24 notiser. +1 ELFKUNGEN 265573130 '
+      + 'Kanalinfarten norrut 10/9 16:01:36, "närmar sig Kanalinfarten, beräknad ankomst strax". Rådata: stilla '
+      + 'vid kajen 298 m från punkten 11:28:41–15:55:40 (4 h 27 min, 76 positioner, längsta glapp 15 min). Hon '
+      + 'lägger ut 15:58:42, gör 4,7 kn 170 m från punkten 16:00:34, är 23 m före linjen 16:01:36 i 5,6 kn kurs '
+      + '33° och 265 m förbi den 16:03:06. Förut fick hon ingen notis om avgången. Rättare enligt U13. '
+      + 'Öppningsvarningar, brotexter och passager är oförändrade. Egen radvis diff av dirigenten mot båtens '
+      + 'positioner, och oberoende radfacit i granskningen av D6. '
+      + 'NOTISFACIT OMLÅST 2026-11-16 (U33, fråga F20: notisen säger båtens restid i sin egen fart när brotexten '
       + 'säger strax): 1 notis byter siffra och mening; tid, bro, riktning, avstånd och antal är oförändrade. '
       + 'post 7 TINY 265679440 Stridsbergsbron 10/9 16:34:54 om 4 → om 2 (sanning 1,45 min). Rättare enligt U13 '
       + 'mot rådatafacits korsningar; dirigentens egen diff och ett oberoende radfacit i granskningen. '

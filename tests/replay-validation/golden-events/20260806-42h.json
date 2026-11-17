@@ -1316,6 +1316,24 @@
       "vesselLatNext": 58.29498
     },
     {
+      "t": 1786097220523,
+      "bridge": "Kanalinfarten",
+      "direction": "northbound",
+      "eta": -1,
+      "message": "ELFKUNGEN har passerat Kanalinfarten",
+      "alreadyPassed": true,
+      "name": "ELFKUNGEN",
+      "distance": 203,
+      "source": "trigger-point",
+      "stateBridge": "kanalinfarten",
+      "mmsi": "265573130",
+      "success": true,
+      "error": null,
+      "vesselLat": 58.26957,
+      "vesselLon": 12.27116,
+      "vesselLatNext": 58.27093
+    },
+    {
       "t": 1786097287019,
       "bridge": "Olidebron",
       "direction": "northbound",

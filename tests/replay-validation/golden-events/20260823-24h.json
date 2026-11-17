@@ -398,6 +398,24 @@
       "vesselLatNext": 58.30907
     },
     {
+      "t": 1787590084218,
+      "bridge": "Kanalinfarten",
+      "direction": "northbound",
+      "eta": 0,
+      "message": "DIANA närmar sig Kanalinfarten, beräknad ankomst strax",
+      "alreadyPassed": false,
+      "name": "DIANA",
+      "distance": 16,
+      "source": "trigger-point",
+      "stateBridge": "kanalinfarten",
+      "mmsi": "265576710",
+      "success": true,
+      "error": null,
+      "vesselLat": 58.26788,
+      "vesselLon": 12.269218333333333,
+      "vesselLatNext": 58.26849
+    },
+    {
       "t": 1787590257927,
       "bridge": "Olidebron",
       "direction": "northbound",

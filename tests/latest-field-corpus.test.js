@@ -52,7 +52,9 @@ describe('Fältdygn 23–24 augusti: rådatabelagd täckning genom hela appen', 
     const passageKey = (p) => `${p.mmsi}|${p.bridge}`;
     const expected = unique(rawPassages.map(passageKey));
     expect(expected).toHaveLength(23);
-    expect(replay.notifications).toHaveLength(23);
+    // U51 (2026-11-17): 23 → 24 notiser, fortfarande 23 unika nycklar. DIANA får en
+    // andra Kanalinfarten-notis när hon lägger ut efter 2 h 27 min vid kaj.
+    expect(replay.notifications).toHaveLength(24);
     expect(unique(replay.notifications.map(passageKey))).toEqual(expected);
   });
 
@@ -118,10 +120,29 @@ describe('Fältdygn 23–24 augusti: rådatabelagd täckning genom hela appen', 
     ].sort());
   });
 
-  test('DIANAs 2,5 timmar långa hamnstopp ger en Kanalinfarten-notis för samma besök', () => {
+  // U51 (dirigentens beslut 2026-11-17) VÄNDER låsningen från 2026-09-09, som sa en
+  // notis för hela hamnstoppet. Den låsningen skyddade mot en andra notis som kom
+  // bara för att 2 h-spärren löpt ut medan hon låg kvar. Nu kommer den andra notisen
+  // av ett annat skäl: förtöjningen är belagd med stilla positioner i minst 2 h, och
+  // avgången är belagd med fart mot punktens linje. Rådata: stilla 267 m från
+  // punkten 14:16:43–16:43:41 (43 positioner, längsta glapp 6 min); 16:48:04 är hon
+  // 16 m före linjen i 4,8 kn kurs 33°, och 26 s senare 63 m förbi den.
+  test('DIANAs 2,5 timmar långa hamnstopp ger en notis vid ankomsten och en när hon lägger ut (U51)', () => {
     const notices = replay.notifications.filter((n) => n.mmsi === '265576710' && n.bridge === 'Kanalinfarten');
-    expect(notices).toHaveLength(1);
-    expect(notices[0].direction).toBe('northbound');
+    expect(notices).toHaveLength(2);
+    expect(notices[0]).toMatchObject({
+      t: Date.parse('2026-08-24T14:17:46.036Z'),
+      direction: 'northbound',
+      distance: 293,
+    });
+    expect(notices[1]).toMatchObject({
+      t: Date.parse('2026-08-24T16:48:04.218Z'),
+      direction: 'northbound',
+      distance: 16,
+      eta: 0,
+      alreadyPassed: false,
+      message: 'DIANA närmar sig Kanalinfarten, beräknad ankomst strax',
+    });
   });
 
   test('PHOENIX åldras vid samma tid i båda startfaser, utan fasundantag', () => {
