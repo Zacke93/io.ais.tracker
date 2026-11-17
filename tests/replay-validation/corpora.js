@@ -639,7 +639,18 @@ module.exports = [
     hours: 14,
     locked: true,
     expectedNotifications: 74,
-    note: `${SEPTEMBER_REVIEW}GOLDEN-tid omprövad 2026-09-06 (fältprov 11 P8): EN tidsstämpel, idx101, `
+    note: 'ÖPPNINGSVARNINGAR OMLÅSTA 2026-11-17 (omgång 4, U45: har en annan båt gått igenom bron efter varningen '
+      + 'får en varnad båt som kommer mer än tio minuter senare en ny varning, om hon då hörs i minst 2 kn mot '
+      + 'bron utanför väntzonen): Stridsbergsbron söderut 5 → 6. Borta: den gemensamma varningen 08:44:30 för LYS '
+      + 'och HERA II. Nya: HERA II 08:31:57 (1 959 m norr om bron i 6,3 kn) och LYS 08:50:48 (stilla 177 m norr '
+      + 'om bron). GRETA AF HAMMARO gick igenom norrut 08:27:23, efter varningen 08:15:50 för KINN, som aldrig '
+      + 'kom. HERA II kommer mer än tio minuter efter den passagen och binds därför inte längre till KINN:s '
+      + 'händelse utan varnas på sin egen tid. Rådatan ger bara fönster för korsningarna: HERA II mellan 08:42:09 '
+      + '(239 m norr om bron) och 09:15:08, LYS mellan 08:48:40 och 09:06:11; HAVBO går igenom norrut 09:02:56. '
+      + 'Likvärdigt mot rådatan: två varningar i stället för en, den senare närmare öppningen. Notiser, brotexter '
+      + 'och passager är oförändrade. Egen radvis diff av dirigenten mot båtarnas positioner, och oberoende '
+      + 'radfacit i granskningen av D5. '
+      + `${SEPTEMBER_REVIEW}GOLDEN-tid omprövad 2026-09-06 (fältprov 11 P8): EN tidsstämpel, idx101, `
       + '20:24:35.988 → 20:24:25.946; alla 111 texter ordagrant oförändrade. '
       + 'Rådata: EKEN passerade Stridsbergsbron 20:22:35 och är 20:24:35 vid '
       + '58.295828/12.299162, 5,9 kn norrut. Tvingad väntan vid den redan passerade '
@@ -856,7 +867,17 @@ module.exports = [
     hours: 13.5,
     locked: true,
     expectedNotifications: 80,
-    note: 'Omlåst 2026-10-05: PILOT 761 lämnar krypväntan vid Järnvägsbron med bekräftad passage12:14:51.495. '
+    note: 'ÖPPNINGSVARNINGAR OMLÅSTA 2026-11-17 (omgång 4, U45: har en annan båt gått igenom bron efter varningen '
+      + 'får en varnad båt som kommer mer än tio minuter senare en ny varning, om hon då hörs i minst 2 kn mot '
+      + 'bron utanför väntzonen): Klaffbron söderut 7 → 8. Ny: DELFIN 11:29:38 (834 m norr om bron i 5,3 kn). '
+      + 'DELFIN varnades 10:52:11 och ANTARES 10:58:04, COMETOGETHER gick igenom norrut 11:00:39, och båda låg '
+      + 'sedan stilla 1,3 km norr om bron. DELFIN korsar mellan 11:34:38 (197 m norr om bron) och 11:44:04, '
+      + 'ANTARES mellan 11:35:04 (337 m norr om bron) och 11:49:37, alltså minst fem minuter efter den nya '
+      + 'varningen. Förut gick båda igenom utan varning sedan COMETOGETHER:s passage. Rättare enligt U13. '
+      + 'Säkerhetsvarningen för ANTARES 11:44:44, efter hennes passage, tystas som samma ankomst. Notiser, '
+      + 'brotexter och passager är oförändrade. Egen radvis diff av dirigenten mot båtarnas positioner, och '
+      + 'oberoende radfacit i granskningen av D5. '
+      + 'Omlåst 2026-10-05: PILOT 761 lämnar krypväntan vid Järnvägsbron med bekräftad passage12:14:51.495. '
       + 'Råfart1,9→4,7kn och fysisk rörelse motbevisar outlier-skyddets gamla väntbaslinje. Klafftext14→9min '
       + 'och9→7min; nästa5min visas12:16:30.249. Råkorsningsintervall12:21:48.842–12:22:48.797; '
       + 'textström128→127, oförändrade kort och passager. Se docs/faltgranskning-2026-10-05.md.  '
@@ -1010,7 +1031,17 @@ module.exports = [
     locked: true,
     lockEvents: true,
     expectedNotifications: 48,
-    note: 'NOTISTEXT OMLÅST 2026-11-16 (U37 del 2, en formregel för alla passagenotiser): 4 notiser byter mening; '
+    note: 'ÖPPNINGSVARNINGAR OMLÅSTA 2026-11-17 (omgång 4, U45: har en annan båt gått igenom bron efter varningen '
+      + 'får en varnad båt som kommer mer än tio minuter senare en ny varning, om hon då hörs i minst 2 kn mot '
+      + 'bron utanför väntzonen): Klaffbron söderut 4 → 6 (12/7). Nya: QUEEN ELAN GT5 10:34:27 (700 m norr om '
+      + 'bron i 5,8 kn) och CALIMA 11:26:40 (746 m norr om bron i 5,2 kn). QUEEN ELAN GT5 varnades 10:04:55, '
+      + 'ELFKUNGEN gick igenom norrut mellan 10:08:55 och 10:34:25, och QUEEN ELAN GT5 korsar mellan 10:56:26 och '
+      + '10:57:26, 22 min efter den nya varningen; den förra varningen vid bron låg 37 min före. CALIMA gick mot '
+      + 'bron i 5,2 kn men korsade först mellan 13:40:53 och 13:52:19: en varning för mycket, som U45 godtar för '
+      + 'en båt i minst 2 kn mot bron. I openingSuppressions pekar raden för CALIMA 13:28:21 (samma ankomst) nu '
+      + 'på den nya varningen. Notiser, brotexter och passager är oförändrade. Egen radvis diff av dirigenten mot '
+      + 'båtarnas positioner, och oberoende radfacit i granskningen av D5. '
+      + 'NOTISTEXT OMLÅST 2026-11-16 (U37 del 2, en formregel för alla passagenotiser): 4 notiser byter mening; '
       + 'tid, bro, riktning, siffra och antal är oförändrade. Regeln: var det tyst i mer än 130 s kring '
       + 'korsningen och kommer notisen mer än 60 s efter den, lyder den "passerade … under AIS-tystnad", annars '
       + '"har precis passerat". post 20 ELFKUNGEN 265573130 Olidebron 12/7 10:08:55 → "under AIS-tystnad"; post '
@@ -1267,7 +1298,19 @@ module.exports = [
     hours: 41,
     locked: true,
     expectedNotifications: 162,
-    note: 'NOTIS-, FÖRDELNINGS- OCH GOLDENFACIT OMLÅST 2026-11-17 (omgång 3, U41: en ny sändare som rapporterar '
+    note: 'ÖPPNINGSVARNINGAR OMLÅSTA 2026-11-17 (omgång 4, U45: har en annan båt gått igenom bron efter varningen '
+      + 'får en varnad båt som kommer mer än tio minuter senare en ny varning, om hon då hörs i minst 2 kn mot '
+      + 'bron utanför väntzonen): Klaffbron söderut 12 → 15 (14/7). Nya: JOY 09:02:54 (888 m norr om bron i 6,2 '
+      + 'kn), PILGRIM 13:05:53 (957 m norr om bron i 5,2 kn) och HEY JOE 13:08:31 (579 m norr om bron i 6 kn). '
+      + 'JOY varnades 08:41:27, IL PUNTO gick igenom norrut 08:44:45, och JOY korsar mellan 09:09:57 (232 m norr '
+      + 'om bron) och 09:13:55, minst sju minuter efter den nya varningen, följd av SEEBAER III 09:14:19; förut '
+      + 'gick båda igenom utan varning sedan IL PUNTO:s passage. Rättare enligt U13. HEY JOE korsar mellan '
+      + '13:16:02 och 13:19:32, minst sju minuter efter varningen; den förra varningen vid bron gick 12:59:22, '
+      + 'och rådatan kan inte avgöra om ELFKUNGEN (söderut, bara fönster) gick igenom före eller efter den. '
+      + 'PILGRIM gick mot bron i 5,2 kn men korsade först nästa morgon: en varning för mycket, som U45 godtar för '
+      + 'en båt i minst 2 kn mot bron. Notiser, brotexter och passager är oförändrade. Egen radvis diff av '
+      + 'dirigenten mot båtarnas positioner, och oberoende radfacit i granskningen av D5. '
+      + 'NOTIS-, FÖRDELNINGS- OCH GOLDENFACIT OMLÅST 2026-11-17 (omgång 3, U41: en ny sändare som rapporterar '
       + 'över 15 kn skapas inte som båt): notiser 163 → 162, övergångar 261 → 259. Transpondern 218023240 har två '
       + 'positioner i hela korpusen, i 33,2 och 21,7 kn, den andra 877 m från farleden; den saknas i gt-passages, '
       + 'och ingen båt som korsar en bro i banken rapporterar mer än 10,6 kn. Den är ett landfordon och skapas '
@@ -1807,7 +1850,18 @@ module.exports = [
     lockOpenings: true,
     lockEvents: true,
     expectedNotifications: 152,
-    note: 'NOTISTEXT OMLÅST 2026-11-16 (U37 del 2, en formregel för alla passagenotiser): 4 notiser byter mening; '
+    note: 'ÖPPNINGSVARNINGAR OMLÅSTA 2026-11-17 (omgång 4, U45: har en annan båt gått igenom bron efter varningen '
+      + 'får en varnad båt som kommer mer än tio minuter senare en ny varning, om hon då hörs i minst 2 kn mot '
+      + 'bron utanför väntzonen): Klaffbron söderut 13 → 14 (5/8). Borta: WANDA 12:20:25. Nya: CHARLYS DREAM '
+      + '12:20:23 (628 m norr om bron) och ELIZABETH GREENWOOD 12:21:52 (519 m norr om bron i 3,3 kn). BLADE gick '
+      + 'igenom norrut 12:10:24, och de fyra väntande båtarna går sedan igenom i följd: CHARLYS DREAM mellan '
+      + '12:27:48 och 12:28:52, ELIZABETH GREENWOOD mellan 12:28:18 och 12:31:52, WANDA mellan 12:30:27 och '
+      + '12:31:55. CHARLYS DREAM:s varning är likvärdig med WANDA:s (2 s tidigare, samma öppning). ELIZABETH '
+      + 'GREENWOOD:s är en andra varning för samma öppning 89 s senare: känd kostnad för U45 (en båt som hölls '
+      + 'vid Järnvägsbron när den första varningen gick räknar den inte som sin, F09). Notiser, brotexter och '
+      + 'passager är oförändrade. Egen radvis diff av dirigenten mot båtarnas positioner, och oberoende radfacit '
+      + 'i granskningen av D5. '
+      + 'NOTISTEXT OMLÅST 2026-11-16 (U37 del 2, en formregel för alla passagenotiser): 4 notiser byter mening; '
       + 'tid, bro, riktning, siffra och antal är oförändrade. Regeln: var det tyst i mer än 130 s kring '
       + 'korsningen och kommer notisen mer än 60 s efter den, lyder den "passerade … under AIS-tystnad", annars '
       + '"har precis passerat". post 20 CARAT 211452170 Klaffbron 5/8 06:53:35 → "under AIS-tystnad" (gränsfall); '
@@ -2488,7 +2542,16 @@ module.exports = [
       'DEFAULT-FLASH: 2026-08-06T08:47:00.040Z "Inga båtar" inklämd (30s) '
         + 'mellan två "En … Stridsbergsbron"-texter utan passage',
     ],
-    note: 'NOTISTEXT OMLÅST 2026-11-16 (U37 del 2, en formregel för alla passagenotiser): 1 notis byter mening; '
+    note: 'ÖPPNINGSVARNINGAR OMLÅSTA 2026-11-17 (omgång 4, U45: har en annan båt gått igenom bron efter varningen '
+      + 'får en varnad båt som kommer mer än tio minuter senare en ny varning, om hon då hörs i minst 2 kn mot '
+      + 'bron utanför väntzonen): Klaffbron söderut 19 → 21 (7/8). Nya: ALINDE 14:07:32 (930 m norr om bron i 6 '
+      + 'kn) och DORY MAN 14:10:56 (443 m norr om bron i 4 kn). ALINDE korsar mellan 14:15:04 (35 m norr om bron) '
+      + 'och 14:16:04, drygt sju minuter efter varningen; förut gick hon igenom utan varning sedan de föregående '
+      + 'båtarnas passager (MARY och LENYA söderut, bara fönster i rådatan). Rättare enligt U13. DORY MAN gick '
+      + 'mot bron i 4 kn men korsade inte efter varningen: en varning för mycket, som U45 godtar för en båt i '
+      + 'minst 2 kn mot bron. Notiser, brotexter och passager är oförändrade. Egen radvis diff av dirigenten mot '
+      + 'båtarnas positioner, och oberoende radfacit i granskningen av D5. '
+      + 'NOTISTEXT OMLÅST 2026-11-16 (U37 del 2, en formregel för alla passagenotiser): 1 notis byter mening; '
       + 'tid, bro, riktning, siffra och antal är oförändrade. Regeln: var det tyst i mer än 130 s kring '
       + 'korsningen och kommer notisen mer än 60 s efter den, lyder den "passerade … under AIS-tystnad", annars '
       + '"har precis passerat". post 21 UTOPIA 265810170 Stallbackabron 6/8 09:15:32 → "under AIS-tystnad" '

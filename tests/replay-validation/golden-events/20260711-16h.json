@@ -1049,6 +1049,26 @@
       "error": null
     },
     {
+      "t": 1783852467357,
+      "iso": "2026-07-12T10:34:27.357Z",
+      "bridge": "Klaffbron",
+      "direction": "southbound",
+      "etaMin": 5,
+      "vesselCount": 1,
+      "leadVessel": "QUEEN ELAN GT5",
+      "firedBy": "fix",
+      "eventId": "Klaffbron#10",
+      "leadMmsi": "265801960",
+      "mmsis": [
+        "265801960"
+      ],
+      "distance": 700,
+      "dueMs": 1783852467357,
+      "originalDueMs": 1783850695223,
+      "success": true,
+      "error": null
+    },
+    {
       "t": 1783854809016,
       "iso": "2026-07-12T11:13:29.016Z",
       "bridge": "Klaffbron",
@@ -1057,7 +1077,7 @@
       "vesselCount": 1,
       "leadVessel": "NICOLINE",
       "firedBy": "deadline",
-      "eventId": "Klaffbron#10",
+      "eventId": "Klaffbron#11",
       "leadMmsi": "211727200",
       "mmsis": [
         "211727200"
@@ -1077,7 +1097,7 @@
       "vesselCount": 1,
       "leadVessel": "NICOLINE",
       "firedBy": "deadline",
-      "eventId": "Stridsbergsbron#11",
+      "eventId": "Stridsbergsbron#12",
       "leadMmsi": "211727200",
       "mmsis": [
         "211727200"
@@ -1085,6 +1105,26 @@
       "distance": 2454,
       "dueMs": 1783855347959,
       "originalDueMs": 1783855347959,
+      "success": true,
+      "error": null
+    },
+    {
+      "t": 1783855600505,
+      "iso": "2026-07-12T11:26:40.505Z",
+      "bridge": "Klaffbron",
+      "direction": "southbound",
+      "etaMin": 5,
+      "vesselCount": 1,
+      "leadVessel": "CALIMA",
+      "firedBy": "fix",
+      "eventId": "Klaffbron#13",
+      "leadMmsi": "211844940",
+      "mmsis": [
+        "211844940"
+      ],
+      "distance": 746,
+      "dueMs": 1783855600505,
+      "originalDueMs": 1783851010720,
       "success": true,
       "error": null
     },
@@ -1097,7 +1137,7 @@
       "vesselCount": 1,
       "leadVessel": "ALICE",
       "firedBy": "deadline",
-      "eventId": "Klaffbron#12",
+      "eventId": "Klaffbron#14",
       "leadMmsi": "244790715",
       "mmsis": [
         "244790715"
@@ -1117,7 +1157,7 @@
       "vesselCount": 1,
       "leadVessel": "ALICE",
       "firedBy": "deadline",
-      "eventId": "Stridsbergsbron#13",
+      "eventId": "Stridsbergsbron#15",
       "leadMmsi": "244790715",
       "mmsis": [
         "244790715"
@@ -1133,13 +1173,13 @@
     {
       "suppressed": "same-arrival",
       "t": 1783862901097,
-      "eventId": "Klaffbron#14",
+      "eventId": "Klaffbron#16",
       "bridge": "Klaffbron",
       "members": [
         {
           "mmsi": "211844940",
           "key": "Klaffbron|211844940|southbound",
-          "firedAt": 1783851580250
+          "firedAt": 1783855600505
         }
       ]
     }

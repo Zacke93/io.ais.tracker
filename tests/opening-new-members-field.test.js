@@ -76,7 +76,10 @@ describe('ANYA/ANTJE: nytillkomna båten får sitt kort utan att ANYA upprepas',
   });
 
   test('båda ankomsterna varnas före passage med var sitt kvitterat kort', () => {
-    expect(result.openingWarnings).toHaveLength(39);
+    // U45 (2026-11-17): 39 → 40. WANDA:s varning 12:20:25 ersätts av CHARLYS DREAM:s
+    // 12:20:23, och ELIZABETH GREENWOOD får en egen 12:21:52; se korpusnoten för
+    // 20260804-both-21h.
+    expect(result.openingWarnings).toHaveLength(40);
     // U14 (2026-11-04): 151 → 152. ELFKUNGENs returpassage över Klaffbron 5/8
     // 10:38:19 får egen notis; se korpusnoten för 20260804-both-21h.
     expect(result.notificationCount).toBe(152);

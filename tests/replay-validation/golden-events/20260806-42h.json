@@ -3109,6 +3109,46 @@
       "error": null
     },
     {
+      "t": 1786111652459,
+      "iso": "2026-08-07T14:07:32.459Z",
+      "bridge": "Klaffbron",
+      "direction": "southbound",
+      "etaMin": 8,
+      "vesselCount": 1,
+      "leadVessel": "ALINDE",
+      "firedBy": "fix",
+      "eventId": "Klaffbron#44",
+      "leadMmsi": "265614580",
+      "mmsis": [
+        "265614580"
+      ],
+      "distance": 930,
+      "dueMs": 1786111652459,
+      "originalDueMs": 1786108902000,
+      "success": true,
+      "error": null
+    },
+    {
+      "t": 1786111856376,
+      "iso": "2026-08-07T14:10:56.376Z",
+      "bridge": "Klaffbron",
+      "direction": "southbound",
+      "etaMin": 5,
+      "vesselCount": 1,
+      "leadVessel": "DORY MAN",
+      "firedBy": "fix",
+      "eventId": "Klaffbron#45",
+      "leadMmsi": "211411410",
+      "mmsis": [
+        "211411410"
+      ],
+      "distance": 443,
+      "dueMs": 1786111856376,
+      "originalDueMs": 1786108841755.9211,
+      "success": true,
+      "error": null
+    },
+    {
       "t": 1786115941370,
       "iso": "2026-08-07T15:19:01.370Z",
       "bridge": "Klaffbron",
@@ -3117,7 +3157,7 @@
       "vesselCount": 1,
       "leadVessel": "VALKYRIA",
       "firedBy": "deadline",
-      "eventId": "Klaffbron#45",
+      "eventId": "Klaffbron#47",
       "leadMmsi": "275049245",
       "mmsis": [
         "275049245"
@@ -3137,7 +3177,7 @@
       "vesselCount": 1,
       "leadVessel": "VALKYRIA",
       "firedBy": "deadline",
-      "eventId": "Stridsbergsbron#46",
+      "eventId": "Stridsbergsbron#48",
       "leadMmsi": "275049245",
       "mmsis": [
         "275049245"
@@ -3157,7 +3197,7 @@
       "vesselCount": 1,
       "leadVessel": "FARUREJ",
       "firedBy": "deadline",
-      "eventId": "Stridsbergsbron#47",
+      "eventId": "Stridsbergsbron#49",
       "leadMmsi": "261005370",
       "mmsis": [
         "261005370"
@@ -3177,7 +3217,7 @@
       "vesselCount": 1,
       "leadVessel": "FARUREJ",
       "firedBy": "fix",
-      "eventId": "Klaffbron#48",
+      "eventId": "Klaffbron#50",
       "leadMmsi": "261005370",
       "mmsis": [
         "261005370"

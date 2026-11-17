@@ -3386,22 +3386,42 @@
       "error": null
     },
     {
-      "t": 1785932425861,
-      "iso": "2026-08-05T12:20:25.861Z",
+      "t": 1785932423551,
+      "iso": "2026-08-05T12:20:23.551Z",
       "bridge": "Klaffbron",
       "direction": "southbound",
-      "etaMin": 6,
+      "etaMin": 5,
       "vesselCount": 1,
-      "leadVessel": "WANDA",
-      "firedBy": "deadline",
+      "leadVessel": "CHARLYS DREAM",
+      "firedBy": "fix",
       "eventId": "Klaffbron#42",
-      "leadMmsi": "211133370",
+      "leadMmsi": "211644790",
       "mmsis": [
-        "211133370"
+        "211644790"
       ],
-      "distance": 929,
-      "dueMs": 1785932425860.0635,
-      "originalDueMs": 1785932186000,
+      "distance": 628,
+      "dueMs": 1785932423551,
+      "originalDueMs": 1785929211000,
+      "success": true,
+      "error": null
+    },
+    {
+      "t": 1785932512445,
+      "iso": "2026-08-05T12:21:52.445Z",
+      "bridge": "Klaffbron",
+      "direction": "southbound",
+      "etaMin": 4,
+      "vesselCount": 1,
+      "leadVessel": "ELIZABETH GREENWOOD",
+      "firedBy": "fix",
+      "eventId": "Klaffbron#43",
+      "leadMmsi": "265805640",
+      "mmsis": [
+        "265805640"
+      ],
+      "distance": 519,
+      "dueMs": 1785932512445,
+      "originalDueMs": 1785929306912.2183,
       "success": true,
       "error": null
     },
@@ -3414,7 +3434,7 @@
       "vesselCount": 1,
       "leadVessel": "ARESTEL",
       "firedBy": "deadline",
-      "eventId": "Klaffbron#43",
+      "eventId": "Klaffbron#44",
       "leadMmsi": "265700360",
       "mmsis": [
         "265700360"
@@ -3434,7 +3454,7 @@
       "vesselCount": 1,
       "leadVessel": "ARESTEL",
       "firedBy": "deadline",
-      "eventId": "Stridsbergsbron#44",
+      "eventId": "Stridsbergsbron#45",
       "leadMmsi": "265700360",
       "mmsis": [
         "265700360"
@@ -3454,7 +3474,7 @@
       "vesselCount": 1,
       "leadVessel": "PLAYTIME",
       "firedBy": "deadline",
-      "eventId": "Stridsbergsbron#45",
+      "eventId": "Stridsbergsbron#46",
       "leadMmsi": "265763070",
       "mmsis": [
         "265763070"
@@ -3474,7 +3494,7 @@
       "vesselCount": 1,
       "leadVessel": "PLAYTIME",
       "firedBy": "deadline",
-      "eventId": "Klaffbron#46",
+      "eventId": "Klaffbron#47",
       "leadMmsi": "265763070",
       "mmsis": [
         "265763070"
@@ -3494,7 +3514,7 @@
       "vesselCount": 1,
       "leadVessel": "ANNA",
       "firedBy": "deadline",
-      "eventId": "Stridsbergsbron#47",
+      "eventId": "Stridsbergsbron#48",
       "leadMmsi": "265651340",
       "mmsis": [
         "265651340"
@@ -3514,7 +3534,7 @@
       "vesselCount": 1,
       "leadVessel": "ANNA",
       "firedBy": "deadline",
-      "eventId": "Klaffbron#48",
+      "eventId": "Klaffbron#49",
       "leadMmsi": "265651340",
       "mmsis": [
         "265651340"
