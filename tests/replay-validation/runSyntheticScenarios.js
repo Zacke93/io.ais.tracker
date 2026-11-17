@@ -36,6 +36,9 @@ const METRICS = pathMetrics(PATH);
 // [3]=Järnvägsbron, [4]=Stridsbergsbron, [5]=Stallbackabron, [6]=nord-ext.
 const FRAC_KLAFFBRON = METRICS.cum[2] / METRICS.total;
 const FRAC_STRIDSBERG = METRICS.cum[4] / METRICS.total;
+// U46: ruttens närmaste punkt till Kanalinfarten (112 m öster om punkten).
+// Söder därom ligger den yttre sidan; 300 m söderut är 310 m från punkten.
+const S_KANALINFARTEN = 885;
 /** Sekunder tills en norrgående båt (speedKn) når given ruttandel. */
 const northSecondsToFraction = (frac, speedKn) => Math.round((frac * METRICS.total) / (speedKn * 0.5144));
 
@@ -4326,6 +4329,127 @@ const SCENARIOS = [
       legs: [{ toS: METRICS.cum[4] + 800, speedKn: 6, intervalS: 30 }],
     }],
     expect: { noticeForms: { Stallbackabron: ['närmar'] } },
+  },
+  // U46 (dirigentens beslut 2026-11-17, BN1-BOXKANT): EN BÅT SOM LÄMNAR KANALEN
+  // UTÅT VID EN YTTERPUNKT UTAN TVÅ FIXAR ÖVER 350 m har avslutat sitt besök.
+  // PRICKBJORN i fältet 13/11: norrut genom Stallbackabron i 10 kn, sista fixen
+  // 288 m norr om bron, tyst i 6,5 h, tillbaka söderut utan förvarning (besöket
+  // stod öppet; U14:s retursläpp gav "har precis passerat" först efter bron).
+  // Här lämnar banan boxens östkant (12,32) cirka 330 m norr om bron. Nu
+  // stänger utåtbeviset följt av tystnad besöket, och återkomsten får sin
+  // förvarning vid första fixen inom 300 m.
+  {
+    name: 'utfärd-norr-om-Stallbackabron-tyst-6h-åter-söderut (U46)',
+    seed: 74601,
+    vessels: [{
+      mmsi: '974601001',
+      name: 'SYNT-U46-STALL',
+      startS: METRICS.cum[5] - 1500,
+      legs: [
+        { toS: METRICS.cum[5] + 300, speedKn: 10, intervalS: 65 },
+        {
+          toS: METRICS.cum[5] + 1150, speedKn: 0.08, gapFromS: METRICS.cum[5] + 300, gapToS: METRICS.cum[5] + 1150,
+        },
+        // Boxens östkant korsar rutten cirka 330 m norr om bron: inga fixar utanför.
+        {
+          toS: METRICS.cum[5] - 1500, speedKn: 10, intervalS: 65, gapFromS: METRICS.cum[5] + 1150, gapToS: METRICS.cum[5] + 330,
+        },
+      ],
+    }],
+    expect: {
+      minNotifiedPerBridge: { Stallbackabron: 2 },
+      maxNotifiedPerBridge: { Stallbackabron: 2 },
+      noticeForms: { Stallbackabron: ['närmar', 'närmar'] },
+    },
+  },
+  // U46, Kanalinfarten (S/V REBEL i 20260806-42h): söderut ut förbi punkten i
+  // 4,5 kn, sista fixen på den yttre sidan, tyst i 6 h, tillbaka norrut. Före
+  // U46 stod besöket öppet och återkomsten fick ingen Kanalinfartsnotis.
+  {
+    name: 'utfärd-söder-om-Kanalinfarten-tyst-6h-åter-norrut (U46)',
+    seed: 74602,
+    vessels: [{
+      mmsi: '974602001',
+      name: 'SYNT-U46-KANAL',
+      startS: METRICS.cum[1] + 400,
+      legs: [
+        { toS: S_KANALINFARTEN - 300, speedKn: 4.5, intervalS: 60 },
+        {
+          toS: 0, speedKn: 0.05, gapFromS: S_KANALINFARTEN - 300, gapToS: 0,
+        },
+        {
+          toS: METRICS.cum[1] + 400, speedKn: 5, intervalS: 60, gapFromS: 0, gapToS: S_KANALINFARTEN - 450,
+        },
+      ],
+    }],
+    expect: {
+      minNotifiedPerBridge: { Kanalinfarten: 2 },
+      maxNotifiedPerBridge: { Kanalinfarten: 2 },
+    },
+  },
+  // U46, motfall (ELFKUNGEN i 20260806-42h och 20260909-80h): ut förbi
+  // Kanalinfarten och in till en kaj strax utanför zonkanten, förtöjd i 5 h med
+  // en fix var 3:e minut, sedan norrut genom zonen. Hon hörs i zonen direkt
+  // efter utåtparet, så besöket står kvar (besöksregeln 2026-09-07: förtöjning
+  // är ingen utfärd). Utan tystnadsvillkoret gav utåtparet en andra notis vid
+  // kajen ("har passerat Kanalinfarten"), mätt i 42h: elva båtar.
+  {
+    name: 'ut-förbi-Kanalinfarten-och-förtöjd-vid-zonkanten (U46, motfall)',
+    seed: 74603,
+    vessels: [{
+      mmsi: '974603001',
+      name: 'SYNT-U46-KAJ',
+      startS: METRICS.cum[1] + 400,
+      legs: [
+        { toS: S_KANALINFARTEN - 270, speedKn: 4.5, intervalS: 60 },
+        {
+          stopS: 5 * 3600, stopIntervalS: 180, stopSog: 0, stopCogDeg: 275,
+        },
+        { toS: METRICS.cum[1] + 400, speedKn: 5, intervalS: 60 },
+      ],
+    }],
+    expect: { maxNotifiedPerBridge: { Kanalinfarten: 1 } },
+  },
+  // U46, motfall: samma tilläggning, men AIS är tyst i 12 min direkt efter
+  // utåtparet (glesa AISHub-fixar vid kajen; ELFKUNGEN hade glapp på upp till
+  // 45 min där). Hon hörs igen stilla på samma plats: det är ingen återkomst.
+  {
+    name: 'ut-förbi-Kanalinfarten-förtöjd-tyst-12min-direkt (U46, motfall)',
+    seed: 74605,
+    vessels: [{
+      mmsi: '974605001',
+      name: 'SYNT-U46-KAJTYST',
+      startS: METRICS.cum[1] + 400,
+      legs: [
+        { toS: S_KANALINFARTEN - 270, speedKn: 4.5, intervalS: 60 },
+        {
+          stopS: 5 * 3600, stopIntervalS: 180, stopSog: 0, stopCogDeg: 275,
+        },
+        { toS: METRICS.cum[1] + 400, speedKn: 5, intervalS: 60 },
+      ],
+    }],
+    // De fyra första kajfixarna (12 min) försvinner.
+    patchSamples(samples) {
+      const first = samples.findIndex((x) => x.sog < 0.5);
+      samples.splice(first, 4);
+    },
+    expect: { maxNotifiedPerBridge: { Kanalinfarten: 1 } },
+  },
+  // U46, motfall: vänder strax utanför Kanalinfarten och går tillbaka in medan
+  // hon hörs. Besöksregeln gäller oförändrad: ingen ny notis.
+  {
+    name: 'vänder-strax-utanför-Kanalinfarten (U46, motfall)',
+    seed: 74604,
+    vessels: [{
+      mmsi: '974604001',
+      name: 'SYNT-U46-VAND',
+      startS: METRICS.cum[1] + 400,
+      legs: [
+        { toS: S_KANALINFARTEN - 260, speedKn: 4.5, intervalS: 60 },
+        { toS: METRICS.cum[1] + 400, speedKn: 4.5, intervalS: 60 },
+      ],
+    }],
+    expect: { maxNotifiedPerBridge: { Kanalinfarten: 1 } },
   },
 ];
 

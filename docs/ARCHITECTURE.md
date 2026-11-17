@@ -789,7 +789,20 @@ Dedup-lagren:
    EN notis, även vid gles AIS, när hennes AIS rapporterar 0,5–1 kn och när
    GPS-bruset ger passagelogiken falska bokföringar, så länge bruset håller sig
    inom appens brusmodell (se U14, kvarvarande gränser).
-   Kanalinfarten har ingen brolinje och följer besöksregeln oförändrad.
+   Kanalinfarten har ingen brolinje och följer besöksregeln, med U46:s utfärdsbevis.
+   **U46 (dirigentens beslut 2026-11-17, BN1-BOXKANT):** vid de två ytterpunkterna
+   (Kanalinfarten och Stallbackabron) räknas också en utåtriktad transit som utfärd när
+   båten sedan är tyst. `observe` sätter utåtbeviset (`outwardFixTs`) på en ren fix som
+   ligger entydigt på den yttre sidan (norr om Stallbackabron, sydväst om Kanalinfarten),
+   har gått minst 50 m utåt längs kanalaxeln sedan förra fixen, rör sig i minst 2,0 kn med
+   en kurs som inte pekar inåt och har ett segment på högst 10 min som går att färdas i
+   farten. Beviset gäller bara den senaste fixen. Besöket stängs först när nästa rena fix
+   kommer minst `STALE_ETA_HARD_THRESHOLD_MS` (10 min, fixklockan) senare och visar att båten
+   varit borta (`_isReturnAfterSilence`: utanför radien + 50 m, på den inre sidan, eller på
+   väg inåt i minst 2,0 kn); därefter gäller återkomstregeln (inom 300 m). Hörs båten
+   tidigare, eller stilla på den yttre sidan i zonen efter tystnaden, gäller dagens regler för
+   den fixen, så en båt som går ut förbi punkten och lägger till, vänder eller guppar i zonen
+   behåller sitt besök. Se "Rättningsomgång 4" under §9.
 
 Tokens: `vessel_name` (B1: känt namn → cache-uppslag → "Okänd båt", :4464),
 `bridge_name`, `direction` (`_getDirectionString`:4639: låst rutt-riktning
@@ -2436,7 +2449,7 @@ Flaggor (bärs av `_createVesselObject`-fältlistan, §8a): `_etaIsExtrapolated`
 | `last_known_positions` | `_loadLastKnownPositions`:615 | `_persistLastKnownPositions`:646 | `{ mmsi: {lat, lon, t, posT, fixTs?} }`, 6 h TTL; skrivs vid removal (:1084–1090); begränsar skipped-bridges-scenario A för återfödda båtar (§3). `fixTs` (fixens egen tid, U37 del 2) låter en återfödd båts passagenotis mäta segmentet på fixklockan; äldre poster saknar fältet och prövas på mottagningsklockan |
 | `quay_stable_ledger` | `_loadQuayLedger` | `_persistQuayLedger` (STRYPT: max var 15:e min + tvingad vid `onUninit`) | V1-kajavgångsgrindens historik `{ mmsi: {stillAt, lat, lon} }`, TTL = `QUAY_DEPARTURE_GATE.MEMORY_MS` (2 h); rörelseräknaren `movingFixes` persisteras ALDRIG (den är ett påstående om innevarande sessions observationer). Utan persistensen återskapade en appomstart 5 s före kajavgången PRICKBJORN-fantomen exakt |
 | `persistent_opening_warnings` | `_loadPersistentOpeningWarnings` | `_persistOpeningWarnings` (vid varje avfyrning, ändring av ankomsten och konsumtion) | Etapp 6 + J15 (2026-08-22), ankomstspärr sedan 33b9fbf: öppningsvarningarnas dedup ÖVER omstart, `{ "Bro\|mmsi\|riktning": {arrivalActive: true, firedAt, closestDistance, lastFixTs, awayFixTs?, quayStop?} }`. Posten har INGEN tidsgräns (`_openingDedupActiveUntil` ger Infinity för `arrivalActive`): samma båt får inget nytt kort för samma bro och riktning förrän ankomsten tagit slut. Den tar slut genom (1) bekräftad passage — TRE konsumtionsvägar: bekräftad passage i `_observeBridgeOpening`, gap-inferrerad passage och backfill (L19); (2) bortfärd, två färska fix minst 350 m längre bort än närmaste läget (`OPENING_ARRIVAL_LEFT`); (3) ett bekräftat stopp följt av en verklig avgång (`OPENING_QUAY_DEPARTURE`, `_observeOpeningArrivals`). Stoppet bekräftas i en ritad kajzon (Kajens köare enligt U23), för en förtöjd båt mer än `DISARM_MOORED_MIN_DISTANCE_M` från bron (KINNE), och sedan familj A (fältprovet 2026-11-12) i farleden innanför 600 m när farledsstoppet (`fairway: true`, egen ålder som överlever glapp och omstart) är minst `MAX_STATIONARY_WAIT_MS` gammalt och klassningen inte håller båten som köare mot kortets bro; avgången från ett farledsstopp kräver två avgångsfix i följd (`departFixTs`) (§Förtöjningslagren). Äldre poster i formatet `{firedAt, expiresAt}` läses fortfarande till expiresAt. Riktningsledet gör att en U-svängares RETURPASSAGE aldrig tystas; sedan S11 (fixrunda 6) är riktningsledet MEDLEMMENS egen låsta riktning (`memberDirections` i payloaden), ledarens bara som fallback. S13:s härledning av expiresAt (armens förväntade ankomst `expectedArrivalMs`, kapad) hörde till det gamla fönstret; nya poster bär inget expiresAt. Känd avvägning: avbruten anflygning före omstart (§9) |
-| `trigger_point_visits` | konstruktorn (`TriggerPointVisitTracker.loadSnapshot`) | `_persistTriggerPointVisits` (vid varje fasbyte i `observe`, reservation/rollback av notis, stängning vid fullbordad resa och tvingad i `onUninit`) | Besöksregeln 2026-09-07: `{ version: 2, entries: { "mmsi:punkt": {startedAt, lastFixTs, outsideFixTs, exitedAt, lastLat, lastLon, lastPositionTs, arrivalLat, arrivalLon, farSign, farSideSeenAt} } }` för alla broar och Kanalinfarten. Ett notifierat besök spärrar nya notiser till observerad utfärd (två rena fixar > 350 m, passage följd av två fixar på bortre sidan, eller positionsbevisad fullbordad resa) och återkomst inom 300 m. U14 (2026-11-04): vid en bro avslutar också en bevisad passage tillbaka besöket (§3, dedup-lager 3); `farSign` och `farSideSeenAt` sparas, och första observationen på bortre sidan är ett fasbyte. Bokföringsstämplarna (`farSideBooking`, `returnBookedAt`), den noterade korsningen och fixens segment gäller bara det levande fartygsobjektet och sparas inte; efter en omstart noteras en korsning på nytt ur den sparade sista fixen. Äldre poster utan fälten, eller med skadade värden, får inget returpassagesläpp. Stängda poster gallras efter 6 h; tak 2048 poster |
+| `trigger_point_visits` | konstruktorn (`TriggerPointVisitTracker.loadSnapshot`) | `_persistTriggerPointVisits` (vid varje fasbyte i `observe`, reservation/rollback av notis, stängning vid fullbordad resa och tvingad i `onUninit`) | Besöksregeln 2026-09-07: `{ version: 2, entries: { "mmsi:punkt": {startedAt, lastFixTs, outsideFixTs, exitedAt, lastLat, lastLon, lastPositionTs, arrivalLat, arrivalLon, farSign, farSideSeenAt} } }` för alla broar och Kanalinfarten. Ett notifierat besök spärrar nya notiser till observerad utfärd (två rena fixar > 350 m, passage följd av två fixar på bortre sidan, positionsbevisad fullbordad resa, eller vid Kanalinfarten och Stallbackabron ett utåtbevis följt av minst 10 min tystnad, U46) och återkomst inom 300 m. U46:s utåtbevis `outwardFixTs` sparas och gäller bara besökets senaste fix (äldre poster och skadade värden saknar det). U14 (2026-11-04): vid en bro avslutar också en bevisad passage tillbaka besöket (§3, dedup-lager 3); `farSign` och `farSideSeenAt` sparas, och första observationen på bortre sidan är ett fasbyte. Bokföringsstämplarna (`farSideBooking`, `returnBookedAt`), den noterade korsningen och fixens segment gäller bara det levande fartygsobjektet och sparas inte; efter en omstart noteras en korsning på nytt ur den sparade sista fixen. Äldre poster utan fälten, eller med skadade värden, får inget returpassagesläpp. Stängda poster gallras efter 6 h; tak 2048 poster |
 | `opening_quay_ledger` | `_loadOpeningQuayLedger` | `_persistQuayLedger` (samma strypta 15-min-klocka som V1-kartan + tvingad flush i `onUninit`; skrivtakt ~96→192/dygn) | M11 (2026-08-23): öppningslagrets kajbokföring `{ mmsi: {bandSince, stillAt, lat, lon, moving} }`, TTL = `QUAY_DEPARTURE_GATE.MEMORY_MS`. Utan persistens var kajvobbelgrinden BLIND 5 min efter varje omstart (bandSince sessionslokal) och efter ETT fix utanför 500 m-bandet; nu hysteres (en tolererad fix, `MIN_MOVING_FIXES`-härledd) + persistens. `movingFixes`, `prevFix`, `lastFix` persisteras ALDRIG (påståenden om innevarande session) |
 
 **Kajbokföringens TVÅ kartor.** `_quayStableLedger` (persisterad, ovan) bokför
@@ -4211,7 +4224,8 @@ Underlaget står i `docs/helgranskning-2026-11-03.md`; varje fynd prövades med 
   hårdkodad 0,005).
 
 **Beslutspunkter (användarens):** L6/P8 med ny mätning: 11 % av båttext → DEFAULT hålls i
-produktion, se nedan. BN1: utfarter vid boxkanten lämnar besök öppna (VISTEN, REBEL, JUNO). open3:
+produktion, se nedan. BN1: utfarter vid boxkanten lämnar besök öppna (VISTEN, REBEL, JUNO; beslutat som U46
+2026-11-17, se "Rättningsomgång 4"). open3:
 ETA utan fixålder (D2). Latenta fynd utan uppmätt effekt är listade i rapporten.
 
 ### Rättningskampanjen 2026-11-04 — U14, en notis per passage (kort B01)
@@ -4296,6 +4310,43 @@ passagen; en båt som guppar eller väntar vid bron får fortfarande en notis pe
   korsningen, 531 m bort, sa "har precis passerat" och säger nu "passerade … under
   AIS-tystnad". Trigger-punktens "har passerat Kanalinfarten" (H16) och exit-fallbacken rörs
   inte.
+
+### Rättningsomgång 4 (2026-11-17) — U46, utfärd vid ytterpunkterna
+
+- **Situationen.** En båt som lämnar området utåt vid en ytterpunkt utan att appen ser två
+  positioner bortom 350 m lämnade ett öppet besök, och öppna besök gallras aldrig. Boxens östkant
+  (12,32) ligger 140 m öster om Stallbackabron, så en nordgående båt lämnar boxen 300–500 m norr
+  om bron, ofta före fullbordad-resa-latituden 58,3125. PRICKBJORN i fältet 13/11 (k2): norrut
+  genom bron i 10,1 kn, sista fixen 288 m norr, tyst i 6,5 h; när hon kom tillbaka söderut
+  13:48:44, 8 m från bron, kom ingen förvarning, och U14:s retursläpp gav "har precis passerat"
+  13:49:53. VISTEN (20260917-16h, 267 m norr i 7,6 kn) och S/V REBEL (42h, 378 m sydväst om
+  Kanalinfarten i 3,0 kn) lämnade besök öppna på samma sätt.
+- **Rättningen** (`TriggerPointVisitTracker._isOutwardTransitFix`, `_isReturnAfterSilence` och
+  `observe`): utåtbeviset enligt §3, dedup-lager 3, och utfärden bekräftad av minst 10 min
+  tystnad följd av en fix som visar att båten varit borta. Tystnaden skiljer en båt som lämnat
+  boxen från en som går ut förbi punkten och lägger till: ELFKUNGEN går in till sin kaj
+  297–305 m sydväst om Kanalinfarten via 170 → 276 m i 4,5/2,7 kn och hörs 60–84 s senare vid
+  kajen. Kravet på en återkomstfix (utanför zonen, inre sidan eller på väg inåt) tar fallet där
+  AIS är tyst i över 10 min just när hon lägger till (glapp på upp till 45 min vid kajen):
+  hörd stilla på samma plats behåller hon besöket (syntetiska scenariot
+  `ut-förbi-Kanalinfarten-förtöjd-tyst-12min-direkt` gav annars en andra notis). Utan tystnadsvillkoret (prov i 42h) gav utåtparet en andra notis ("har
+  passerat Kanalinfarten") för elva båtar som gick ut söderut förbi Kanalinfarten och fortsatte
+  höras i zonen, och en förvarning till för en båt vid Stallbackabron.
+- **Utfall.** Banken (25 korpusar) och k1 oförändrade. I k2 får PRICKBJORN "närmar sig
+  Stallbackabron, beräknad ankomst strax" 13:48:44 i stället för "har precis passerat" 13:49:53.
+  Bankens två BN1-träffar (ELFKUNGEN vid Kanalinfarten i 42h och 80h) är ingen utfart: hon låg
+  förtöjd vid zonkanten i 21 h respektive tre dygn och fick ingen notis när hon lade ut. Det är
+  fältgranskningens F8 (c), som inte är beslutad; besöksregeln säger att förtöjning inte är en
+  utfärd. Nattjaktens fem BN1-världar är returer inifrån kanalen (båten vänder innanför
+  ytterpunkten under ett glapp) och ändras inte heller.
+- **Kända gränser.** En båt som stannar på den yttre sidan direkt efter utåtparet, är tyst i minst
+  10 min och sedan hörs på väg inåt i minst 2 kn får ett nytt besök (hon har legat stilla i minst
+  10 min; FP8/FP9/V1-grindarna står kvar). En båt som kommer tillbaka efter en utfärd men först
+  hörs stilla eller långsam på den yttre sidan i zonen behåller sitt gamla besök (som före U46).
+  En båt som lämnar boxen utan rapporterad fart, med kursen inåt eller med ett segment som inte
+  stämmer med farten får inget bevis. Låst i `tests/u46-utfard-ytterpunkt.test.js` och fem
+  syntetiska scenarier (`utfärd-…-tyst-6h-…`, `ut-förbi-Kanalinfarten-och-förtöjd-vid-zonkanten`,
+  `ut-förbi-Kanalinfarten-förtöjd-tyst-12min-direkt`, `vänder-strax-utanför-Kanalinfarten`).
 
 ## 10. Söndagsfältet 2026-08-09/10 (commits a9f2a20, ce6a946, b1a7ba3 + WS-3)
 
