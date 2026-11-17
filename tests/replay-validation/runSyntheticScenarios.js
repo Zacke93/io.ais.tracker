@@ -3395,6 +3395,55 @@ const SCENARIOS = [
       expect,
     };
   }),
+  // U45 (omgång 4): EN ANNAN BÅTS PASSAGE ANVÄNDER DEN VARNADE ÖPPNINGEN.
+  // Som BEAUTYFIELD i 20260707-14h: M (söderut) ligger 1 420 m norr om
+  // Klaffbron, strax norr om Stridsbergsbron, i 0,8 kn med fix var 6:e minut.
+  // Spärren vid Stridsbergsbron löper ut mellan fixen, och Klaffbron varnas för
+  // henne långt i förväg. H (norrut) går igenom Klaffbron vid t ≈ 767 s. M
+  // ligger kvar och går sedan i 4,5 kn genom alla tre broarna. I huvudfallet
+  // korsar hon Klaffbron mer än 600 s efter H och ska få en egen varning i tid
+  // (förut ingen: bara en egen medlems passage stängde händelsen och en varnad
+  // medlem hade ingen släppväg). I motfallet korsar hon inom 600 s efter H
+  // (samma öppning) och får ingen andra varning. Placeringen ÄR testet.
+  ...[
+    // [etikett, seed, M:s stopp (s), förväntan]
+    // Huvudfallet: varningen ska komma efter H:s passage. M ligger kvar i
+    // ytterligare cirka 10 min efter släppet, och spärren vid Stridsbergsbron
+    // löper ut mellan hennes glesa fix, så den nya varningen kommer cirka
+    // 17 min före hennes korsning (maxAgeS 1200). Basens enda varning kom
+    // 29 min före.
+    ['M korsar långt efter H, egen varning', 4501, 1200,
+      { ownOpeningLeadS: { Klaffbron: { 904501001: { minLeadS: 120, maxAgeS: 1200 } } } }],
+    ['M korsar inom 600 s efter H, samma öppning (motfall)', 4502, 280, { maxOpeningsPerBridge: { Klaffbron: 2 } }],
+  ].map(([label, seed, stopS, expect]) => {
+    const klaff = METRICS.cum[2];
+    return {
+      name: `annan-båts-passage-använder-den-varnade-öppningen-vid-Klaffbron: ${label} (U45)`,
+      seed,
+      vessels: [
+        {
+          mmsi: `90${seed}001`,
+          name: 'SYNT-M',
+          startS: klaff + 1500,
+          legs: [
+            { toS: klaff + 1420, speedKn: 3, intervalS: 60 },
+            {
+              stopS, stopIntervalS: 360, stopSog: 0.8,
+            },
+            { toS: klaff - 700, speedKn: 4.5, intervalS: 60 },
+          ],
+        },
+        {
+          mmsi: `90${seed}002`,
+          name: 'SYNT-H',
+          startOffsetS: 300,
+          startS: klaff - 1200,
+          legs: [{ toS: klaff + 500, speedKn: 5, intervalS: 30 }],
+        },
+      ],
+      expect,
+    };
+  }),
   // Nattjakten F12 (rättningsomgång 3, 2026-11-16; värld 2931, HAVSORN):
   // RIKTNINGSFÄLTET EFTER EN U-SVÄNG NÄR MÅLBRON FÖRSVANN I VÄNTANS FIX.
   // Söderut genom Stridsbergsbron och Järnvägsbron, vändning 450 m norr om

@@ -3441,7 +3441,8 @@ FÖRSTA FAKTISKA PASSAGEN, och en båt som anländer efter den plus
 
 **K-familjen (rättningskampanjen 2026-11-04) — KRAVEN tillämpade på
 RECOVER-vägen.** H29:s varnade medlemmar har fortfarande ingen släppväg (fixen är
-inte gjord om). Buggjägarens kort F02, F03, F11, F14, F17, F20, F22, F23 och F01
+inte gjord om), utom i ett fall: när en annan båt har använt öppningen (U45,
+`_releaseForeignPassageMembers`, med kraven (1)–(4) och ett lägesvillkor). Buggjägarens kort F02, F03, F11, F14, F17, F20, F22, F23 och F01
 gällde i stället `_releaseStrandedArms`, de ABSORBERADE armarnas släpp, som hade
 samma form: släpp på ren tid och avfyrning på den ärvda deadlinen. Rättningen
 (`_coverageVerdict`, `_crossingEstimate`) följer kraven så här:
@@ -3544,6 +3545,83 @@ samma form: släpp på ren tid och avfyrning på den ärvda deadlinen. Rättning
   den båten bokfördes först. Testen ligger i
   `tests/k2-tidigaste-korsningen.test.js` och två syntetiska scenarier
   (`omvänd-bokföring-efter-avbrott-vid-Klaffbron`).
+- **En annan båts passage använder den varnade öppningen** (beslut U45, omgång 4,
+  registerposten J13-J14-KONVOJSEMANTIK). I 20260707-14h varnar Klaffbron#15 för
+  BEAUTYFIELD 11:01:34 medan hon ligger 1,4 km norr om bron. HELGE, med egen
+  händelse, korsar Klaffbron norrut 11:18:08, och BEAUTYFIELD korsar 11:35:10
+  utan ny varning (likadant DELFIN i 20260710-13h och JOY i 20260713-41h). Alla
+  tre var MEDLEMMAR vid avfyrningen, inte absorberade. Regeln: den första
+  bokförda passagen vid bron av en beväpnad båt som inte hör till händelsen,
+  efter varningen (`crossedAt > firedAt`), i en avfyrad händelse vars kort gick
+  ut och som saknar egen passage, sparas i egna fält (`foreignPassageAt`,
+  `foreignPassageMmsi`; `_noteForeignPassage`; bokföringstiden står i loggraden).
+  `firstPassageAt`, referensen, bokföringen och täckningsslutet rörs aldrig, och
+  när en egen passage bokförs gäller den som förut (en första version som satte
+  `firstPassageAt` flyttade den låsta raden 20260712-25h 265806230 08:37:18 →
+  08:36:19: NICOLINE bokfördes före MALUCA, som korsade först). Domen
+  `_foreignPassageVerdict` släpper en båt bara när appen i samma ögonblick hade
+  varnat henne som en ny båt (dirigentens precisering av U45, varv 2): på HENNES
+  EGET fix, tillämpat i utvärderingen och mottaget efter att fönstret max(varningen,
+  passagens korsning) + `CONVOY_WINDOW_MS` har löpt ut (för en absorberad arm det
+  tidigare av det och täckningsslutet); fixet rent och efter passagens korsning,
+  bron inte bakom, utanför väntzonen (U24 (c)), minst 2 kn (`MOVING_SOG_KN`, som
+  U46 och U48) med fysikankomst, ingen spärr vid en tidigare bro, ankomst efter
+  fönstrets slut, minst två tick kvar och kursen inte bort. Ett tick eller en annan
+  båts fix släpper aldrig, så utfallet beror inte på tickens fas. Varför varje grind
+  finns: att släppa på en prognos bortom fönstret, som bakkanten efter en egen
+  passage gör, gav i U45-svepet i omgång 4 (7 344 lägen) 134 andra varningar i samma
+  öppning för båtar som kröp och sedan ökade; ett släpp på tick efter fönstret gav
+  buggjägaren ett fasberoende i 20260711-16h och en varning 8 s efter passagen på ett
+  fix från före en tystnad; ett släpp under spärren vid en tidigare bro gav varningar
+  17 och 54 s före korsningen; 0,5 kn som rörelsegräns släppte båtar som drev långt
+  ute och aldrig kom. Den gäller (a) en absorberad arm, före U24 i `_coverageVerdict` (släpper
+  den inte gäller U24 och täckningsslutet som förut); (b) en varnad medlem, i en
+  egen släppväg (`_releaseForeignPassageMembers`), som annars saknas (H29).
+  Medlemmen släpps bara på domen, aldrig vid täckningsslutet, och `_fire` lägger
+  hennes mmsi i `reopenedMmsis` så att appen släpper den gamla ankomstens
+  dedupspärr (som vid egen passage, J15); utan det hade kortet tystats som samma
+  ankomst. (c) En ny båt med minst två tick kvar hör inte till händelsen när
+  hon kommer mer än `CONVOY_WINDOW_MS` efter passagen (`_belongsToEvent`, bara
+  nej). `foreignReleasedFrom` följer med när en släppt båt absorberas i en annan
+  händelse; ett släpp vid täckningsslutet (U17) nollar den (varv 3), annars hade
+  säkerhetsvarningen för en tyst båt öppnat den gamla dedupspärren och nått
+  användaren efter passagen (ANTARES 11:44:44 i 20260710-13h). Mätt i banken
+  (25 korpusar, k1, k2): 469 → 479 varningar, k1 och k2 bitlika. Del 1–2
+  (släppen) ger 478, del 3 (`_belongsToEvent`) ensam ändringen i 20260707-14h
+  (HERA II binds inte i KINN:s händelse och varnas själv; LYS får U17:s varning
+  ur HERA II:s händelse). Tre verkliga öppningar som förut var ovarnade får en
+  varning 8–10 min före (DELFIN med ANTARES, JOY med SEEBAER III, ALINDE), och
+  HEY JOE (516 s) är en vinst om den andra båtens inferrerade korsning ligger
+  efter basens senaste varning. BEAUTYFIELD och MAJALISA får ingen: ingen av dem
+  har något eget fix efter fönstrets slut utanför väntzonen (BEAUTYFIELD:s enda
+  ligger 140 m från bron, 79 s före korsningen; HALIFAX:s passage bokfördes först
+  efter MAJALISA:s enda fix). Att ta dem kräver släpp på tick eller prognos,
+  alltså första versionens fel. Kostnaden är tre varningar för båtar som gick
+  minst 2 kn mot bron och sedan lade till 330–490 m ute (CALIMA, PILGRIM, DORY
+  MAN) och ett sant men dubbelt kort i samma öppning (ELIZABETH GREENWOOD, F09).
+  **Kända gränser:** en medlem som köar inom väntzonen när bron öppnar för en
+  annan båt släpps inte (TIM i 20260804-both-21h gick in 445 s efter MS JUTLAND
+  utan att behöva en ny öppning; utan kögrinden fick hon en andra varning). En
+  tyst medlem står kvar. En armlös passage räknas inte (J14). Inget sparas över
+  omstart; en omstart mellan passagen och släppet ger ingen ny varning
+  (dedupspärren står kvar). Den nya varningen kommer på medlemmens vanliga
+  deadline ur det senaste fixet. En medlem som hålls av en tidigare bros spärr
+  tills hon är inne i väntzonen, eller som aldrig gör 2 kn utanför den, släpps
+  inte (BEAUTYFIELD). En släppt båt som hölls vid en tidigare bro när en annan
+  händelse varnade binds inte i den (F09) och kan få en egen varning för samma
+  öppning: ELIZABETH GREENWOOD i both-21h, 89 s efter CHARLYS DREAM:s, och i
+  granskningens byggda konvojer genom Järnvägsbron 64 av 180 båtfall. På basen
+  kunde det inte hända, eftersom hon stod kvar i sin gamla händelse. Ett enda
+  fix med falsk fart på minst 2 kn kan släppa en stilla båt utanför väntzonen
+  (4 av 24 byggda världar 400 m från bron); ett krav på minskat avstånd sedan
+  förra fixet tog inte bort dem (armen hade inte tillämpat krypfixen emellan)
+  och kostade vinster, så det är inte infört. En släppt och absorberad båt som
+  bakkanten sedan släpper nära bron (utan golv) får sitt kort, eftersom flaggan
+  öppnar dedupspärren (1 av 594 byggda världar, 15 s ledtid); den korta
+  ledtiden är bakkantens.
+  Testen ligger i `tests/u45-annan-bats-passage.test.js`,
+  `tests/u45-dedup-app.test.js` och två syntetiska scenarier
+  (`annan-båts-passage-använder-den-varnade-öppningen-vid-Klaffbron`).
 - **U17 (ägarbeslut 2026-11-04): säkerhetsvarningen för en tyst båt behålls.**
   Gäller en båt vars senaste position sa att hon skulle hinna igenom den
   gemensamma öppningen, men där appen inte vet om hon gjorde det. Ingen öppning
@@ -3719,6 +3797,10 @@ uppträder när klassen finns och (b) utfallet är sant mot rådata:
   lovade "hängslen" för armlösa vägar var osann och är omskriven (fixrunda 2).
   U2-tolkningen "första FAKTISKA passagen oavsett medlemskap" är det
   alternativa valet — tas i samma beslut som J13+J33.
+  Omgång 4 (U45): en annan båts passage bokförs fortfarande inte på händelsen,
+  men den startar händelsens fönster i egna fält när händelsen saknar egen
+  passage; se "En annan båts passage använder den varnade öppningen" vid
+  K-familjen.
 - **J19 — F6b-offseten är inte domäninvariant**: `applyAccept` lagrar den
   KORRIGERADE stämpeln; när offseten först blir negativ jämförs nya stämplar
   mot referenser lagrade med offset 0, så F1/F6 kan avvisa 1–2 färska hubbfixar
