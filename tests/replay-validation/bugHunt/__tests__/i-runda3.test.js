@@ -211,6 +211,18 @@ describe('L2 definesSymbol: en kommentar eller en import definierar inte symbole
     expect(definesSymbol("import { judgeT1 } from './t1Notice';\nimport judgePhantom from './t2Opening';", 'judgeT1')).toBe(false);
   });
 
+  // Omgång 3 (sammanslagningen av V1 och N6): en metod vars parameterlista har
+  // ett anrop som standardvärde är en definition; ett anrop av metoden är det
+  // inte.
+  test('[omgång 3] en metod med ett anrop som standardvärde i parameterlistan räknas som definition', () => {
+    const metod = "class T {\n  reserve(vessel, pointName = 'K', { passageBehind = false, travelSign = routeSign(vessel) } = {}) {\n    return 1;\n  }\n}";
+    expect(definesSymbol(metod, 'reserve')).toBe(true);
+    expect(definesSymbol('class T {\n  async reserve(a = f(b), c = g()) {\n  }\n}', 'reserve')).toBe(true);
+    expect(definesSymbol('function kör(t, vessel) {\n  t.reserve(vessel, routeSign(vessel));\n}', 'reserve')).toBe(false);
+    expect(definesSymbol('function kör(vessel) {\n  reserve(vessel, routeSign(vessel));\n}', 'reserve')).toBe(false);
+    expect(definesSymbol('function kör(vessel) {\n  if (\n    reserve(vessel, routeSign(vessel))\n  ) {\n    klart();\n  }\n}', 'reserve')).toBe(false);
+  });
+
   // Efterrättningen R3b (granskarens varv r3, nytt problem 2): en egenskap
   // vars värde är en import eller bara ett annat namn återexporterar det.
   test('[efterrättning] en egenskap vars värde är en import eller ett annat namn räknas inte som definition', () => {

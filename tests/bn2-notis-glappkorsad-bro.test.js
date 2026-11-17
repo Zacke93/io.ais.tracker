@@ -133,6 +133,14 @@ describe('BN2: passerad form för en bro korsad i ett observerat hopp', () => {
     expect(app._hasGapCrossedNotifiedBridge(reborn, candidateFor(reborn, 'current'), 'current')).toBe(true);
     app._lastKnownPositions.set(MMSI, { ...northOf(STRIDS, -400), t: Date.now() - 7 * 60 * 60 * 1000 });
     expect(app._hasGapCrossedNotifiedBridge(reborn, candidateFor(reborn, 'current'), 'current')).toBe(false);
+    // N6: med en utgången post är båten ny för svepet, och BN2 prövar svepets
+    // portgissning. Den avstår här (målbron är Stridsbergsbron, alltså framför
+    // båten enligt appen) och i 1,5 kn, men ger passerad form för en båt utan
+    // målbro i 6 kn norrut 160 m bortom bron.
+    const slow = { ...reborn, sog: 1.5, targetBridge: null };
+    expect(app._hasGapCrossedNotifiedBridge(slow, candidateFor(slow, 'current'), 'current')).toBe(false);
+    const noTarget = { ...reborn, targetBridge: null };
+    expect(app._hasGapCrossedNotifiedBridge(noTarget, candidateFor(noTarget, 'current'), 'current')).toBe(true);
   });
 
   test('EBONITA-fallet: notisen säger passerade, utan ETA', async () => {

@@ -4509,10 +4509,17 @@ function kodFörMatchning(text) {
   return kod;
 }
 
-/** Definitionsmönstren i definesSymbol, på redan rensad källtext. */
+/**
+ * Definitionsmönstren i definesSymbol, på redan rensad källtext. En metods
+ * parameterlista får innehålla ett anrop som standardvärde, en nivå djupt
+ * (`reserve(vessel, { travelSign = routeSign(vessel) } = {}) {`, omgång 3:
+ * förut bröt första högerparentesen listan, och en metod som fått ett sådant
+ * standardvärde räknades som odefinierad).
+ */
 function definierar(kod, symbol) {
   const s = symbol.replace(/\$/g, '\\$');
-  return new RegExp(`(?:\\bfunction\\s*\\*?\\s*${s}\\s*\\(|\\b(?:const|let|var|class)\\s+${s}\\b|^[ \\t]*(?:async\\s+)?${s}\\s*(?:\\([^)\\n]*\\)\\s*\\{|:))`, 'm')
+  const parametrar = '\\((?:[^()\\n]|\\([^()\\n]*\\))*\\)';
+  return new RegExp(`(?:\\bfunction\\s*\\*?\\s*${s}\\s*\\(|\\b(?:const|let|var|class)\\s+${s}\\b|^[ \\t]*(?:async\\s+)?${s}\\s*(?:${parametrar}\\s*\\{|:))`, 'm')
     .test(kod);
 }
 

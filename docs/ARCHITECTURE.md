@@ -686,7 +686,26 @@ Dedup-lagren:
    notifierade passagen leder till (`farSign`: ankomstsidans motsats vid
    förvarning, ankomstsidan vid passerad form via `reserve(…, { passageBehind })`)
    och när båten senast setts entydigt där (`farSideSeenAt`, ±10 m via
-   `geometry.decisiveBridgeSide`). Därefter följer `observe` varje ren fix: när
+   `geometry.decisiveBridgeSide`). **N6 (granskningen av N2, 2026-11-16):** en
+   förvarning som går ut på en position entydigt bortom linjen i notisens
+   färdriktning (`reserve(…, { travelSign })`: ruttlåset, annars kursen, samma
+   riktning som notisen bär) har bron bakom sig, och då är ankomstsidan den bortre,
+   utom när kursen pekar tillbaka mot bron (ett ruttlås som ännu inte vänt efter en
+   U-sväng). **Vakten (granskningens H1, dirigentens beslut U44):** bron räknas som
+   bakom båten bara när det är belagt i nuet, alltså när båten rör sig i minst 2 kn
+   (`RETURN_SPARSE_MOVING_SOG_KN`, appens gräns för rörelse i nuet vid ett
+   korsningsbevis) eller när föregående position (`vessel.lastPosition`) låg
+   entydigt på andra sidan linjen. Utan vakten fick en båt som driver bort från bron
+   på tillfartssidan (0,8–1,5 kn, kursen och det av driften satta ruttlåset bort) och
+   sedan går igenom två notiser för en passage: granskarens driftsvep 44 av 60
+   världar, gles kadens 16 av 20, basen 0; HALIFAX i 20260708-21h är det fallet.
+   Bortre sidan räknas som sedd först vid nästa rena fix där, så en väntande båt
+   vars förvarning gick ut på en brusposition bortom linjen inte kan få ett
+   retursläpp. Förut vändes besöket: i granskarens svep (120 s kadens, förvarningen
+   22 m söder om Järnvägsbron) gav en ensam brusfix på andra sidan en falsk "har
+   precis passerat" 12 min efter passagen, och en verklig retur gav ingen notis (48
+   av 48 banor). Med vakten är de falska returerna 0 och banken oförändrad av den
+   här delen. Därefter följer `observe` varje ren fix: när
    båtens signerade avstånd till linjen (`geometry.bridgeLineOffsetM`) byter
    tecken från bortre sidan till ankomstsidan noteras en **korsning**, med tiden
    interpolerad på segmentet (fixklockan, som `gt-passages`). En fix tillbaka på
@@ -827,7 +846,9 @@ linjen i färdriktningen gäller undre gränser (tystnadsform bara om de räcker
 saknas beviset behåller vägen sin gamla mening: `passage-fallback` (passagen
 inferreras ur en position på andra sidan bron) och BN2 tystnad, `just-passed` och
 S4 (källan current/target/nearest men appen har bokfört bron inom nådan) "har
-precis passerat". Källsträngen, eta=-1 och already_passed rörs inte. Förut följde
+precis passerat". En ny båt (BN2:s portgissning, N6/U44) har inget segment men
+prövas med samma regel och okänd tystnad räknad som tystnad (`_newVesselPassageForm`).
+Källsträngen, eta=-1 och already_passed rörs inte. Förut följde
 meningen källan: S4 sa "har precis passerat" efter 800 s tystnad och en korsning
 4 min före notisen, BN2 och failsafen "under AIS-tystnad" för en korsning 4 s
 före fixen. I banken byter 53 notiser form (40 till tystnadsform, 13 till "har
@@ -4132,6 +4153,59 @@ Underlaget står i `docs/helgranskning-2026-11-03.md`; varje fynd prövades med 
   fall i banken). Kantfall: en båt som korsat bron norrut under tystnaden och redan vänt, men
   har kurs 46–134° eller ingen kurs, får "passerade" i stället för "närmar sig". Påståendet är
   sant för korsningen under tystnaden; returen får en egen notis enligt U14.
+  **N6 (granskningen av N2, ägarfråga F9, 2026-11-16): en ny båt.** Saknar båten både
+  föregående fix och sist känd position prövar BN2 svepets portgissning (scenario A i
+  `_checkSkippedBridgesFallback`, `_isNewVesselPastNotifiedBridge`): minst 2 kn, kurs i
+  nordbandet eller det strikta sydbandet, inget motsägande ruttlås, bron är inte båtens målbro
+  (målbron ligger framför), ingen start vid en känd eller inlärd kajplats, positionen entydigt bortom brolinjen i den riktningen och mer än
+  `UNDER_BRIDGE_CLEAR_DISTANCE` (70 m, appens gräns för "vid bron", samma som ETA-taket i
+  notisvägen) från bron. Svepet notifierar redan en sådan båts broar bakom henne som passerade,
+  men närhetsnotisen gick först och tog den närmaste i förvarningsform; svepets notis dedupades
+  bort. I banken nio båtar 74–252 m efter Olidebron norrut och Stallbackabron söderut, i
+  4,8–6,9 kn: "NEST närmar sig Stallbackabron, beräknad ankomst om 1 minut" 248 m efter bron,
+  och SABETH fick i samma sekund "passerade Kanalinfarten under AIS-tystnad" och "närmar sig
+  Olidebron, beräknad ankomst om 1 minut" 88 m efter Olidebron. Nu passerad form, och meningen
+  följer U37 del 2 (dirigentens beslut U44, `_newVesselPassageForm`): tystnaden är okänd för en ny
+  båt och räknas som tystnad (`passageNoticeForm` med `silenceMs = Infinity`), och dröjsmålet
+  skattas som avståndet bortom linjen delat med farten (`fixLatenessMs`). Högst 60 s efter den
+  skattade korsningen "har precis passerat", annars "passerade … under AIS-tystnad". I banken
+  får sex av de nio "har precis passerat" (korsningen 23–53 s före notisen) och tre
+  tystnadsformen (67–86 s). Inom 70 m står förvarningen kvar: "beräknad ankomst strax" om en båt
+  10–40 m bortom linjen betyder nu (JOY 15 m, GRETA AF HAMMARO 21 m, HELGE 10 m, SIR HENRY 39 m).
+  **Kända gränser (granskningen av N6):**
+  - *70 m mäts mot brons punkt* (`candidate.distance`), inte längs kanalaxeln (L2): i
+    granskarens sidledsprov (160 världar) får en båt 45 m bortom linjen men 60 m i sidled (75 m
+    från punkten) passerad form, och en båt 69 m bortom linjen mitt i farleden "strax". Passerad
+    form före linjen förekom aldrig (0 av 96 världar 15–30 m före bron eller 20 m bortom den,
+    sidlägen ±35 och ±60 m). Ingen sådan rad i banken.
+  - *Kajavgång bortom en bro* (L3): en ny båt som lägger ut från en kajplats appen inte känner
+    till, bortom bron, och vars första position kommer i minst 2 kn mer än 70 m från bron, får
+    "passerade <bron>" om en bro hon aldrig korsat. I granskarens kajprov (100 världar, första
+    fix 60–250 m bortom en bro i 2,2 eller 4 kn) skiljer 48 från basen, varje gång exakt
+    "närmar sig X, beräknad ankomst om 1 minut" → passerad form, med samma antal notiser; basen
+    ger i samma tick svepets "passerade <bron längre bak> under AIS-tystnad". Ett osant
+    påstående byts alltså mot ett annat. Realistisk plats: väntytan mellan Järnvägsbron och
+    Stridsbergsbron. 0 fall i banken och k1/k2.
+  - *Långsamma båtar bortom bron* (F9 (b), inte rättat): en båt som syns första gången, eller
+    lägger ut från en kaj, bortom en bro och rör sig bort i under 2 kn behåller "närmar sig
+    <bron bakom>": HALIFAX (20260708-21h, 1,1 kn, 194 m söder om Olidebron på väg söderut; hon
+    passerade aldrig söderut utan vände och gick norrut genom bron 11,6 min senare) och EUGENIE
+    (20260804-both-21h, 1,9 kn, 268 m norr om Klaffbron ur gästhamnen; hon har aldrig korsat
+    Klaffbron). 2 av bankens och k1/k2:s 805 förvarningar. Granskarens prov av regeln "skjut upp
+    notisen för en båt som först hörs bortom en bro och rör sig bort i under 2 kn" (probe4):
+    exakt de två raderna ändras; HALIFAX får en enda notis, "närmar sig Olidebron, beräknad
+    ankomst om 1 minut" norrut 68 s före korsningen, och EUGENIEs falska Klaffbronotis
+    försvinner; i driftsvepet (60 världar) får varje värld exakt en notis, 2–8 min senare än
+    basens men före passagen. Regeln ändrar notisantal och kandidatval och tas som egen granskad
+    ändring i en senare omgång (U44).
+  - *Gränsen 2 kn i vakten är skarp* (granskningens andra varv): en båt som rör sig bort från bron
+    på tillfartssidan i strax över 2 kn och sedan går igenom får två notiser för en passage,
+    förvarningen medan hon rör sig bort och "har precis passerat" när hon korsar. I granskarens
+    prov gällde det 12 av 20 världar i 2,1 kn och 0 av 20 i 1,9 kn (som basen). Ingen sådan rad i
+    banken.
+  - *Vakten litar på föregående position* (granskningens andra varv): är den en utliggare 25 m
+    bortom linjen hamnar bortre sidan fel för en båt som driver i 1 kn. Det syns i trackern men
+    gick inte att få fram i replay (0 av 40 världar); släppet kräver ändå hela U14-beviset.
 - Mellanbrons avståndsreserv i `_hasPassedBridge` täcker bandet mellan
   `UNDER_BRIDGE_CROSS_SEGMENT_MAX_M` och `LARGE_JUMP_LAT_DEG` (den delade hoppgränsen, förut
   hårdkodad 0,005).

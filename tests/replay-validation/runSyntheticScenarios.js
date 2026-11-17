@@ -4215,6 +4215,118 @@ const SCENARIOS = [
       toleratedInvariants: k.tolerera,
     },
   })),
+  // N6 (granskningen av N2, sidofyndet): FÖRVARNINGEN PÅ EN POSITION BORTOM
+  // BRON VÄNDE BROBESÖKET. Granskarens bana: söderut i 5 kn med 120 s kadens,
+  // fixarna ~280 m norr om Järnvägsbron och sedan ~25 m söder om den, där
+  // förvarningen går ut ("beräknad ankomst strax", vid bron, står kvar). Båten
+  // fortsätter 176 m söderut, vänder, ligger 4 m söder om linjen i 300 s och
+  // går sedan tillbaka norrut genom bron. Besöket fick bortre sidan norr (fel),
+  // och den verkliga returen gav ingen notis. PLACERINGEN ÄR TESTET: benen och
+  // kadensen ger förvarningsfixen bortom linjen (granskarens svep, 48 av 48).
+  {
+    name: 'förvarning-25m-bortom-Järnvägsbron-120s-sedan-retur-norrut (N6)',
+    seed: 73316,
+    vessels: [{
+      mmsi: '973316001',
+      name: 'SYNT-N6-RETUR',
+      startS: METRICS.cum[3] + 900,
+      legs: [
+        { toS: METRICS.cum[3] - 176, speedKn: 5, intervalS: 120 },
+        { toS: METRICS.cum[3] - 4, speedKn: 3.5, intervalS: 120 },
+        { stopS: 300, stopIntervalS: 120, stopCogRandom: true },
+        { toS: METRICS.cum[3] + 900, speedKn: 4, intervalS: 120 },
+      ],
+    }],
+    expect: {
+      minNotifiedPerBridge: { Järnvägsbron: 2 },
+      maxNotifiedPerBridge: { Järnvägsbron: 2 },
+      noticeForms: { Järnvägsbron: ['närmar', 'precis'] },
+    },
+  },
+  // N6 (ägarfråga F9): EN NY BÅT SOM SYNS FÖRST 150 m EFTER STALLBACKABRON på
+  // väg söderut i 6 kn. Svepets portgissning notifierar bron som passerad, men
+  // närhetsnotisen gick först i förvarningsform ("närmar sig Stallbackabron,
+  // beräknad ankomst om 1 minut"; NEST i 20260713-41h, 248 m efter bron). Nu
+  // passerad form, och meningen följer U37 del 2 med okänd tystnad räknad som
+  // tystnad (U44): 150 m i 6 kn är ~49 s efter korsningen, "har precis passerat".
+  {
+    name: 'ny-båt-först-sedd-150m-efter-Stallbackabron-söderut (N6)',
+    seed: 73401,
+    vessels: [{
+      mmsi: '973401001',
+      name: 'SYNT-N6-NY',
+      startS: METRICS.cum[5] - 150,
+      legs: [{ toS: METRICS.cum[4] + 800, speedKn: 6, intervalS: 30 }],
+    }],
+    expect: { noticeForms: { Stallbackabron: ['precis'] } },
+  },
+  // Samma båt först sedd 250 m efter bron: ~81 s efter korsningen, mer än
+  // "precis passerat"-fönstret, alltså "passerade … under AIS-tystnad".
+  {
+    name: 'ny-båt-först-sedd-250m-efter-Stallbackabron-söderut (N6)',
+    seed: 73405,
+    vessels: [{
+      mmsi: '973405001',
+      name: 'SYNT-N6-NY250',
+      startS: METRICS.cum[5] - 250,
+      legs: [{ toS: METRICS.cum[4] + 800, speedKn: 6, intervalS: 30 }],
+    }],
+    expect: { noticeForms: { Stallbackabron: ['tyst'] } },
+  },
+  // N6, granskningens H1 (U44), motfall: EN BÅT SOM DRIVER BORT FRÅN BRON PÅ
+  // TILLFARTSSIDAN OCH SEDAN GÅR IGENOM. Ny båt 140 m söder om Olidebron driver
+  // söderut till 230 m i 0,8 kn (kursen och ruttlåset säger söderut), väntar
+  // 240 s och går sedan norrut genom bron i 4 kn. Sanningen är EN passage.
+  // Utan vakten fick besöket bortre sidan söder och passagen blev ett
+  // retursläpp: två notiser (granskarens driftsvep 44 av 60). Tät kadens.
+  {
+    name: 'driver-bort-söder-om-Olidebron-sedan-genom-30s (N6-H1, motfall)',
+    seed: 73403,
+    vessels: [{
+      mmsi: '973403001',
+      name: 'SYNT-N6-DRIFT',
+      startS: METRICS.cum[1] - 140,
+      legs: [
+        { toS: METRICS.cum[1] - 230, speedKn: 0.8, intervalS: 30 },
+        {
+          stopS: 240, stopIntervalS: 30, stopSog: 0.6, stopCogRandom: true,
+        },
+        { toS: METRICS.cum[1] + 700, speedKn: 4, intervalS: 30 },
+      ],
+    }],
+    expect: { maxNotifiedPerBridge: { Olidebron: 1 } },
+  },
+  // Samma vid gles kadens: driver 1 kn bort från Klaffbron och korsar sedan
+  // utan någon position i fart före bron (120 s), granskarens "hopp"-svep
+  // (16 av 20 med två notiser utan vakten).
+  {
+    name: 'driver-bort-söder-om-Klaffbron-sedan-genom-120s (N6-H1, motfall)',
+    seed: 73404,
+    vessels: [{
+      mmsi: '973404001',
+      name: 'SYNT-N6-HOPP',
+      startS: METRICS.cum[2] - 140,
+      legs: [
+        { toS: METRICS.cum[2] - 200, speedKn: 1, intervalS: 60 },
+        { toS: METRICS.cum[2] + 900, speedKn: 4, intervalS: 120 },
+      ],
+    }],
+    expect: { maxNotifiedPerBridge: { Klaffbron: 1 } },
+  },
+  // N6, motfall: samma båt först sedd 30 m efter bron. Inom appens gräns för
+  // "vid bron" (70 m) betyder "beräknad ankomst strax" i praktiken nu, och
+  // förvarningen står kvar (JOY i 20260713-41h, 15 m).
+  {
+    name: 'ny-båt-först-sedd-30m-efter-Stallbackabron-vid-bron (N6, motfall)',
+    seed: 73402,
+    vessels: [{
+      mmsi: '973402001',
+      name: 'SYNT-N6-VIDBRON',
+      startS: METRICS.cum[5] - 30,
+      legs: [{ toS: METRICS.cum[4] + 800, speedKn: 6, intervalS: 30 }],
+    }],
+    expect: { noticeForms: { Stallbackabron: ['närmar'] } },
+  },
 ];
 
 function runScenario(scenario) {

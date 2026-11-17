@@ -624,10 +624,23 @@ describe('TriggerPointVisitTracker: bara en bevisad returpassage avslutar besök
     expect(release(vessel)).toMatchObject({ farSign: -1 });
   });
 
-  test('samma förlopp utan passageBehind tolkar bortre sidan fel och släpper inte', () => {
+  // N6 (2026-11-16): utan passageBehind tolkades bortre sidan förut fel och
+  // besöket släpptes aldrig. Nu tas bortre sidan ur färdriktningen när
+  // ankomsten redan ligger bortom linjen (förvarning på en position förbi bron).
+  test('samma förlopp utan passageBehind: bortre sidan ur färdriktningen, släpper', () => {
     tick();
     const arrival = at(-30, { ...southbound, ...booked() });
     expect(tracker.reserve(arrival, KLAFF.name)).not.toBeNull();
+    observe(-150, southbound);
+    observe(-120, northbound);
+    const { vessel } = observe(45, () => ({ ...northbound, ...booked() }));
+    expect(release(vessel)).toMatchObject({ farSign: -1 });
+  });
+
+  test('samma förlopp utan passageBehind och utan färdriktning tolkar bortre sidan fel och släpper inte', () => {
+    tick();
+    const arrival = at(-30, { _routeDirection: null, cog: SOUTH_COG, ...booked() });
+    expect(tracker.reserve(arrival, KLAFF.name, { travelSign: 0 })).not.toBeNull();
     observe(-150, southbound);
     observe(-120, northbound);
     const { vessel } = observe(45, () => ({ ...northbound, ...booked() }));
