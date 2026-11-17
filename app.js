@@ -2911,7 +2911,11 @@ class AISBridgeApp extends Homey.App {
    * till första FAKTISKA passagen, men att låta vilken båt som helst stänga en
    * annans öppningshändelse rör låst öppningsfacit i flera korpusar och kräver
    * eget beslut (se docs/ARCHITECTURE.md §9). Ändras det ska det ändras i
-   * servicen — inte här.
+   * servicen — inte här. Omgång 4 (U45): en annan båts passage stänger
+   * fortfarande inte händelsen, men servicen låter den starta händelsens
+   * fönster när händelsen saknar egen passage (_noteForeignPassage).
+   * Kortet för en medlem som släpps då bär reopenedMmsis, och
+   * _onBridgeOpeningWarning släpper hennes gamla dedupspärr.
    * @param {Object} vessel - Fartygsobjekt
    * @private
    */
@@ -8710,6 +8714,20 @@ class AISBridgeApp extends Homey.App {
         return own === 'northbound' || own === 'southbound' ? own : warnDir;
       };
       const openKey = (mmsi) => `${payload.bridge}|${mmsi}|${openDirFor(mmsi)}`;
+      // U45: en annan båt använde den öppning medlemmen varnats för, och
+      // servicen har släppt henne till en egen öppning. Den gamla ankomstens
+      // spärr är förbrukad på samma sätt som vid hennes egen passage (J15).
+      if (this._persistentOpeningWarnings && Array.isArray(payload.reopenedMmsis)) {
+        let reopenedCleared = 0;
+        for (const mmsi of payload.reopenedMmsis) {
+          if (warnMembers.includes(String(mmsi))) {
+            reopenedCleared += this._consumeOpeningDedupForPassage(mmsi, payload.bridge);
+          }
+        }
+        if (reopenedCleared > 0) {
+          this._logOpeningDedupConsumed(payload.reopenedMmsis.join(','), reopenedCleared, 'annan båts passage (U45)');
+        }
+      }
       if (this._persistentOpeningWarnings) {
         const newMembers = warnMembers.filter((mmsi) => !(this._openingDedupActiveUntil(
           this._persistentOpeningWarnings.get(openKey(mmsi)),
