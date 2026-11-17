@@ -232,6 +232,13 @@ const UNDER_BRIDGE_HOLD_VALIDATION_MAX_M = PROTECTION_ZONE_RADIUS;
 // vars färska värde var MER fel än det clampade. Sweepen: 70 → −27,2,
 // 100/120 → −13,5, 150 → −8,8, 200 → −11,1, 250 → −0,4, 300 → +32,2.
 const ETA_CLAMP_RELEASE_DISTANCE_M = UNDER_BRIDGE_CLEAR_DISTANCE;
+// U44 punkt 3 (omgång 4): under den här farten är kursen inget belägg för
+// färdriktningen, och en förvarning om en bro som ligger bakom båten i notisens
+// riktning hålls inne (_isSlowVesselPastNotifiedBridge). Samma 2 kn som
+// portgissningen (_checkSkippedBridgesFallback), BN2:s nya båt
+// (_isNewVesselPastNotifiedBridge, U44 punkt 1) och brobesökets bortre sida
+// (U44 punkt 4), så att reglerna möts utan glapp vid 2 kn.
+const SLOW_BRIDGE_BEHIND_MAX_KN = 2.0;
 // F07 (granskning 2, A): brogruppens fönster för sänkningar från osedda båtar —
 // samma 30 s som RC4:s burstskydd i _reconcilePublishedETA.
 const UNSEEN_GROUP_WINDOW_MS = 30000;
@@ -4029,6 +4036,8 @@ class AISBridgeApp extends Homey.App {
     this.debug(`🗑️ [VESSEL_REMOVED] Vessel: ${mmsi} (${reason})`);
     // Fältprov 3: städa svep-idempotensposten (en per mmsi)
     if (this._skippedBridgesSweepSeen) this._skippedBridgesSweepSeen.delete(String(mmsi));
+    // U44 punkt 3: spärren för en bro bakom en långsam båt (en post per mmsi).
+    if (this._slowBridgeBehindHolds) this._slowBridgeBehindHolds.delete(String(mmsi));
 
     // F2-följdfix (körning 2026-07-03, SPIKEN-klassen): minns senaste kända
     // position vid removal. När fartyget återföds behandlas det som "ny båt"
@@ -11077,6 +11086,85 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * U44 punkt 3 (omgång 4): INGEN FÖRVARNING OM EN BRO SOM LIGGER BAKOM EN
+   * LÅNGSAM BÅT, FÖRRÄN RIKTNINGEN ÄR BELAGD.
+   *
+   * SITUATIONEN. HALIFAX (20260708-21h) hördes första gången 194 m söder om
+   * Olidebron i 1,1 kn med kursen 205°. Notisens riktning blev söderut, och i
+   * den riktningen låg bron bakom henne, men hon fick "närmar sig Olidebron,
+   * beräknad ankomst om 6 minuter". I själva verket låg hon och drev på
+   * tillfartssidan och gick norrut genom bron elva minuter senare. EUGENIE
+   * (20260804-both-21h) låg 268 m norr om Klaffbron i 1,9 kn, kurs 38°, fick
+   * "närmar sig Klaffbron" och korsade aldrig bron. Under 2 kn är kursen inte
+   * ett belägg för riktningen (samma fartgräns som portgissningen och U44
+   * punkt 1 och 4 använder), så appen kan inte avgöra i ögonblicket om bron
+   * ligger bakom eller framför båten.
+   *
+   * REGELN. Notisen hålls inne, utan att någon nyckel eller något besök
+   * skrivs, så att nästa position prövas på nytt, när positionen ligger
+   * entydigt (> 10 m, geometry.decisiveBridgeSide) bortom brolinjen i
+   * notisens riktning och
+   *  (a) farten är under 2 kn: riktningen är inte belagd. Spärren minns bron
+   *      och sidan. Notisen kommer när riktningen pekar mot bron (HALIFAX
+   *      norrut 08:39:34, 160 m före bron, "om 1 minut"), eller i passerad form
+   *      när appen ser korsningen;
+   *  (b) eller båten har hållits inne för samma bro på samma sida och går nu
+   *      i minst 2 kn med kursen i notisens riktning: riktningen är belagd och
+   *      bron ligger bakom henne. Utan den här delen fick en båt som först hörs
+   *      i krypfart strax bortom bron och sedan sätter fart bort samma osanna
+   *      förvarning en position senare. Pekar kursen mot bron (hon har vänt
+   *      medan ruttlåset står kvar) går förvarningen ut som förut.
+   * Dessutom (c): är riktningen okänd hålls en båt som redan hålls inne kvar
+   * så länge hon ligger entydigt på samma sida; annars kom notisen när hon låg
+   * still med slumpad kurs, med en ETA ur avstånd och krypfart. Utan tidigare
+   * spärr ger okänd riktning notisen som förut.
+   *
+   * Utanför regeln: en passagenotis (passerad form) går alltid ut; formen
+   * bestäms som förut av S4, BN2 och U37 del 2. En båt som korsar bron i ett
+   * glapp mellan driften och nästa position får passagenotisen när korsningen
+   * syns. En ny båt i minst 2 kn följer U44 punkt 1 (_isNewVesselPastNotifiedBridge),
+   * och punkt 2 ("strax" inom 70 m) gäller bara båtar i minst 2 kn.
+   *
+   * Spärren minns per båt och bro i _slowBridgeBehindHolds (sidan, +1 eller
+   * −1), som städas i _onVesselRemoved. Den sparas inte över en omstart (känd
+   * gräns). En gammal spärr kan bara hålla inne en förvarning för en bro som
+   * entydigt ligger bakom båten på samma sida.
+   * @param {Object} vessel
+   * @param {string} bridgeName
+   * @param {string} notificationDirection - 'northbound' | 'southbound' | 'unknown'
+   * @returns {boolean} true när förvarningen ska hållas inne denna gång
+   * @private
+   */
+  _isSlowVesselPastNotifiedBridge(vessel, bridgeName, notificationDirection) {
+    if (!vessel || !Number.isFinite(vessel.sog)) return false;
+    let travelSign = 0;
+    if (notificationDirection === 'northbound') travelSign = 1;
+    else if (notificationDirection === 'southbound') travelSign = -1;
+    const bridge = this.bridgeRegistry?.getBridgeByName?.(bridgeName);
+    if (!bridge) return false;
+    const side = geometry.decisiveBridgeSide(vessel, bridge);
+    const mmsi = String(vessel.mmsi);
+    const holds = this._slowBridgeBehindHolds?.get(mmsi);
+    if (travelSign === 0) {
+      // Okänd riktning är inte en belagd riktning: en båt som redan hålls
+      // inne och ligger kvar på samma sida väntar vidare (annars kom notisen
+      // när hon låg still med slumpad kurs, med en ETA ur avstånd/krypfart).
+      return side !== 0 && holds?.get(bridgeName) === side;
+    }
+    // Bron ligger framför båten eller hon är vid linjen: ingen spärr.
+    if (side !== travelSign) return false;
+    if (vessel.sog < SLOW_BRIDGE_BEHIND_MAX_KN) {
+      if (!this._slowBridgeBehindHolds) this._slowBridgeBehindHolds = new Map();
+      if (!this._slowBridgeBehindHolds.has(mmsi)) this._slowBridgeBehindHolds.set(mmsi, new Map());
+      this._slowBridgeBehindHolds.get(mmsi).set(bridgeName, side);
+      return true;
+    }
+    if (holds?.get(bridgeName) !== side || !Number.isFinite(vessel.cog)) return false;
+    const courseAlong = travelSign === 1 ? isNorthCog(vessel.cog) : isSouthCogStrict(vessel.cog);
+    return courseAlong;
+  }
+
+  /**
    * Speglar StatusService:s bekräftade väntbro för just den här notisen.
    * currentBridge kan vara en annan, närmare bro. vessel.status kan ännu
    * vara föregående status när status:changed avfyrar en timer-notis.
@@ -11592,6 +11680,18 @@ class AISBridgeApp extends Homey.App {
       || passedTriggerPoint
       || justPassedBridge
       || gapCrossedBridge;
+    // U44 punkt 3: en förvarning om en bro som ligger bakom en långsam båt i
+    // notisens riktning väntar tills riktningen är belagd. Placeringen är
+    // avsiktlig: efter dedupbesluten och passageformerna (en passagenotis går
+    // alltid ut), före besöket och nycklarna (inget skrivs, nästa position
+    // prövas på nytt). Se _isSlowVesselPastNotifiedBridge.
+    if (!passedBridgeSource && this._isSlowVesselPastNotifiedBridge(vessel, bridgeName, notificationDirection)) {
+      this.log(
+        `⏸️ [FLOW_TRIGGER_SLOW_BRIDGE_BEHIND] ${mmsiLabel}: "${bridgeName}" ligger bakom båten i notisens `
+        + `riktning (${notificationDirection}, ${vessel.sog} kn) — ingen notis förrän riktningen är belagd`,
+      );
+      return;
+    }
     const waitingAtBridge = !passedBridgeSource && this._isWaitingAtNotifiedBridge(vessel, candidate);
     // S4-kontraktet (granskarfynd fixrunda 6): passerad-formen bär ALDRIG en
     // framräknad ETA — även när källsträngen är 'target' och vessel.etaMinutes

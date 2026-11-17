@@ -4296,22 +4296,51 @@ Underlaget står i `docs/helgranskning-2026-11-03.md`; varje fynd prövades med 
     ger i samma tick svepets "passerade <bron längre bak> under AIS-tystnad". Ett osant
     påstående byts alltså mot ett annat. Realistisk plats: väntytan mellan Järnvägsbron och
     Stridsbergsbron. 0 fall i banken och k1/k2.
-  - *Långsamma båtar bortom bron* (F9 (b), inte rättat): en båt som syns första gången, eller
-    lägger ut från en kaj, bortom en bro och rör sig bort i under 2 kn behåller "närmar sig
-    <bron bakom>": HALIFAX (20260708-21h, 1,1 kn, 194 m söder om Olidebron på väg söderut; hon
-    passerade aldrig söderut utan vände och gick norrut genom bron 11,6 min senare) och EUGENIE
-    (20260804-both-21h, 1,9 kn, 268 m norr om Klaffbron ur gästhamnen; hon har aldrig korsat
-    Klaffbron). 2 av bankens och k1/k2:s 805 förvarningar. Granskarens prov av regeln "skjut upp
-    notisen för en båt som först hörs bortom en bro och rör sig bort i under 2 kn" (probe4):
-    exakt de två raderna ändras; HALIFAX får en enda notis, "närmar sig Olidebron, beräknad
-    ankomst om 1 minut" norrut 68 s före korsningen, och EUGENIEs falska Klaffbronotis
-    försvinner; i driftsvepet (60 världar) får varje värld exakt en notis, 2–8 min senare än
-    basens men före passagen. Regeln ändrar notisantal och kandidatval och tas som egen granskad
-    ändring i en senare omgång (U44).
+  **U44 punkt 3 (omgång 4): långsamma båtar bortom bron.** En förvarning om en bro som ligger
+  entydigt (> 10 m) bortom en båt i notisens riktning hålls inne när farten är under 2 kn
+  (`SLOW_BRIDGE_BEHIND_MAX_KN`, samma gräns som portgissningen, punkt 1 och punkt 4): kursen är då
+  inget belägg för riktningen (`_isSlowVesselPastNotifiedBridge`, anropad i
+  `_triggerBoatNearFlowForBridge` efter dedupbesluten och passageformerna men före besöket och
+  nycklarna, så inget skrivs och nästa position prövas på nytt). Har båten hållits inne för en bro
+  hålls förvarningen också (b) när hon sedan går bort i minst 2 kn med kursen i notisens riktning
+  på samma sida (riktningen är då belagd och bron ligger bakom henne), och (c) medan riktningen
+  är okänd och hon ligger kvar på samma sida. Spärren minns per båt och bro
+  (`_slowBridgeBehindHolds`, städas i `_onVesselRemoved`). En passagenotis (S4, BN2,
+  retroaktiva källor) går alltid ut, och en ny båt i minst 2 kn följer punkt 1. HALIFAX
+  (20260708-21h, 194 m söder om Olidebron i 1,1 kn med kursen söderut; hon låg och drev på
+  tillfartssidan och gick norrut genom bron 11,6 min senare) får i stället för "närmar sig
+  Olidebron, beräknad ankomst om 6 minuter" söderut 08:29 en förvarning norrut 08:39:34, 160 m före
+  bron, "om 1 minut", 68 s före korsningen. EUGENIEs falska "närmar sig Klaffbron" (20260804-both-21h,
+  1,9 kn, 268 m norr om bron; hon korsade aldrig Klaffbron) försvinner. Inga andra rader i banken
+  eller k1/k2 ändras. En båt som korsar bron i ett glapp efter driften får passagenotisen enligt
+  U37 del 2 när korsningen syns: av 90 byggda världar (alla broar, båda hållen, första position
+  efter glappet 40–250 m bortom bron, i fart eller långsamt) fick 84 passagenotisen, 5 en
+  förvarning 37–39 m bortom bron där appen inte bokförde korsningen och ruttlåset från driften
+  pekade fel (3 av dem exakt som förut), och 1 ingen notis (se gränserna nedan). Förut fick 72 av
+  de 90 en förvarning i fel riktning innan glappet.
+  - *Förvarningen kommer senare* för en båt som driver bort från bron och sedan går igenom: i
+    driftsvepet (60 världar) median 111 s före korsningen mot 471 s förut, i gles drift (20
+    världar) 97 mot 217 s; fel riktning 46 → 24 respektive 16 → 8. Den tidigare förvarningen
+    nämnde rätt bro men fel riktning och fel minuttal (HALIFAX: 11,6 min före passagen, "om 6
+    minuter", söderut).
+  - *Järnvägsbron och Stridsbergsbron i samma glapp*: hålls Järnvägsbrons förvarning inne för en
+    båt söder om bron, och nästa position kommer först bortom Stridsbergsbron (ett hopp under
+    `LARGE_JUMP_LAT_DEG`), bokförs Stridsbergsbron först och Järnvägsbrons passage spärras av
+    ruttordningsvalideringen (bakåtsekvens): Järnvägsbron får ingen notis (1 av 90 byggda
+    världar). Förut fick hon förvarningen söderut innan glappet. 0 fall i banken och k1/k2.
+  - *Krypfart utan notisförsök*: spärren (b) kräver att en notis hållits inne. En båt vars första
+    långsamma position inte gav något notisförsök (till exempel utan målbro söderut ur
+    Klaffbron) och som sedan sätter fart bort inom 300 m får förvarningen om bron bakom sig som
+    förut (5 av 20 byggda världar). 0 fall i banken och k1/k2.
+  - *Inom 70 m* gäller punkt 2 ("strax") bara båtar i minst 2 kn; en långsam båt 10–70 m bortom
+    linjen hålls inne. Spärren sparas inte över en omstart.
   - *Gränsen 2 kn i vakten är skarp* (granskningens andra varv): en båt som rör sig bort från bron
     på tillfartssidan i strax över 2 kn och sedan går igenom får två notiser för en passage,
-    förvarningen medan hon rör sig bort och "har precis passerat" när hon korsar. I granskarens
-    prov gällde det 12 av 20 världar i 2,1 kn och 0 av 20 i 1,9 kn (som basen). Ingen sådan rad i
+    "passerade" medan hon rör sig bort (punkt 1, eller svepets portgissning) och "har precis
+    passerat" när hon korsar. Omgång 4 mätte på `6fad291`: 20 av 20 världar i 2,1 kn (12 genom
+    punkt 1, 8 genom portgissningen som fanns före N6), 0 av 20 i 1,9 kn; U44 punkt 3 ändrar
+    inget av det. Att flytta alla tre grindarna (portgissningen, punkt 1 och punkt 3) till 3 kn
+    gav 0 av 20 i 2,1, 2,5 och 2,9 kn, alltså samma klippa vid 3 kn i stället. Ingen sådan rad i
     banken.
   - *Vakten litar på föregående position* (granskningens andra varv): är den en utliggare 25 m
     bortom linjen hamnar bortre sidan fel för en båt som driver i 1 kn. Det syns i trackern men
