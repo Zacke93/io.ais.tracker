@@ -1253,8 +1253,25 @@ module.exports = [
     appLog: path.join(LOGS_DIR, 'app-20260713-221737.log'),
     hours: 41,
     locked: true,
-    expectedNotifications: 163,
-    note: 'NOTIS- OCH GOLDENFACIT OMLÅST 2026-11-16 (omgång 3, K3: BN2 och skippade broar prövar brolinjen): '
+    expectedNotifications: 162,
+    note: 'NOTIS-, FÖRDELNINGS- OCH GOLDENFACIT OMLÅST 2026-11-17 (omgång 3, U41: en ny sändare som rapporterar '
+      + 'över 15 kn skapas inte som båt): notiser 163 → 162, övergångar 261 → 259. Transpondern 218023240 har två '
+      + 'positioner i hela korpusen, i 33,2 och 21,7 kn, den andra 877 m från farleden; den saknas i gt-passages, '
+      + 'och ingen båt som korsar en bro i banken rapporterar mer än 10,6 kn. Den är ett landfordon och skapas '
+      + 'inte längre. Notisen "Okänd båt närmar sig Stallbackabron, beräknad ankomst strax" 13:17:01 utgår, och '
+      + 'med den posten i fördelningen och riktningsfördelningen. Golden: raderna 13:17:01 ("… Två båtar på väg '
+      + 'mot Stridsbergsbron, beräknad broöppning strax") och 13:25:37 utgår. 13:19:30 blir "Två båtar på väg mot '
+      + 'Klaffbron, beräknad broöppning strax": ELFKUNGEN (sista position 12:54:22) hade då passerat båda '
+      + 'målbroarna och hörs 13:21:37 söder om Klaffbron, så ingen båt var på väg mot Stridsbergsbron. Raden '
+      + '13:20:02 kommer 13:19:32 som "En båt på väg mot Klaffbron, ETA okänd": HEY JOE korsade Klaffbron '
+      + '13:17:07 och bokförs på positionen 13:19:32, och PILGRIM ligger stilla cirka 300 m norr om bron. '
+      + '13:30:49 blir "Inga båtar är i närheten av Klaffbron eller Stridsbergsbron": PILGRIM släpps, ELFKUNGEN '
+      + 'och HEY JOE är söder om Olidebron (13:23:45 och 13:25:54), FREE WILLY norr om Stallbackabron (13:23:39), '
+      + 'S/Y ONA IX går norrut norr om Stridsbergsbron, och nästa båt är NENJA 13:35:40. De 52 öppningsvarningarna '
+      + 'är oförändrade. Rättare enligt U13 på varje rad. Egen radvis diff av dirigenten mot positionerna, och '
+      + 'oberoende radfacit i granskningen av N5. Det noten från K3 nedan säger om texten (att transpondern '
+      + 'fortfarande visas som en båt) gäller inte längre. '
+      + 'NOTIS- OCH GOLDENFACIT OMLÅST 2026-11-16 (omgång 3, K3: BN2 och skippade broar prövar brolinjen): '
       + 'notiser 165 → 163, övergångar 262 → 261. Transpondern 218023240 har två positioner. 13:17:01 ligger '
       + 'den 127 m från Stallbackabron (4 m från brolinjen) i 33,2 kn med kurs 142,5° längs broaxeln. 13:20:31 '
       + 'ligger den i 21,7 kn 924 m från Stridsbergsbron (871 m österut, 309 m söder om brons latitud) och '
