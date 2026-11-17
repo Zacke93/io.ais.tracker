@@ -161,9 +161,11 @@ describe('U45: en annan båts passage startar den varnade öppningens fönster',
     // H går igenom bron efter varningen.
     const hCross = passerH(200);
     // M fortsätter i låg fart, ökar sedan och korsar mer än 600 s efter H.
-    const dAt = track('M', 1100 - 240 * 1.2 * KN, 1.2, 240, 1080);
-    const mCross = 1080 + 30 + dAt / (5 * KN);
-    track('M', dAt, 5, 1110, Math.floor(mCross) - 1);
+    // Fortsatt krypfart (0,6 kn) tills fönstret har gått, sedan 5 kn: hon
+    // släpps på sitt första egna fix i rörelse efter fönstrets slut.
+    const dAt = track('M', 1100 - 240 * 1.2 * KN, 0.6, 240, 1140);
+    const mCross = 1140 + 30 + dAt / (5 * KN);
+    track('M', dAt, 5, 1170, Math.floor(mCross) - 1);
     cross('M', mCross, 5);
     expect(mCross - hCross).toBeGreaterThan(W / S);
 
@@ -371,6 +373,64 @@ describe('U45: en annan båts passage startar den varnade öppningens fönster',
     expect(e.foreignPassageAt ?? null).toBeNull();
   });
 
+  describe('varv 2: släppet döms bara på hennes eget fix efter fönstrets slut', () => {
+    // Gemensamt: M varnas 1100 m ute; H korsar ≈ 550 s; fönstret slutar ≈ 1150 s.
+    const setup = () => {
+      track('M', 1100, 1.2, 0, 180);
+      return passerH(200);
+    };
+
+    test('tick utan nytt fix släpper aldrig (gammalt fix i rörelse, fönstret har gått)', () => {
+      setup();
+      // Sista fixet före fönstrets slut: 900 m ute i 5 kn. Sedan tyst.
+      at(1100, () => obs('M', 'north', 900, 5));
+      advanceTo(T0 + 1500 * S);
+      expect(ownWarnings('M')).toHaveLength(1);
+      expect(debugLines('[OPENING_FOREIGN_RELEASE]')).toHaveLength(0);
+    });
+
+    test('en annan båts fix efter fönstrets slut släpper inte på hennes gamla fix', () => {
+      setup();
+      at(1100, () => obs('M', 'north', 900, 5));
+      // N hörs vid bron efter fönstrets slut och utvärderar Klaffbron.
+      for (let t = 1200; t <= 1500; t += 60) at(t, () => obs('N', 'north', 2000, 5));
+      expect(ownWarnings('M')).toHaveLength(1);
+      expect(debugLines('[OPENING_FOREIGN_RELEASE]')).toHaveLength(0);
+    });
+
+    test('under 2 kn släpps hon inte; på första egna fixet i minst 2 kn släpps hon', () => {
+      setup();
+      for (let t = 1200; t <= 1500; t += 60) at(t, () => obs('M', 'north', 1000 - (t - 1200) * 1.5 * KN, 1.5));
+      expect(ownWarnings('M')).toHaveLength(1);
+      at(1560, () => obs('M', 'north', 780, 2.5));
+      advanceTo(T0 + 1620 * S);
+      expect(ownWarnings('M')).toHaveLength(2);
+      expect(ownWarnings('M')[1].reopenedMmsis).toEqual(['M']);
+    });
+
+    test('spärrad av en tidigare bro släpps hon inte; efter spärren släpps hon på eget fix', () => {
+      setup();
+      // Söder om Olidebron (opasserad bro emellan) i 3 kn efter fönstrets slut.
+      const hist = { extra: { passedBridges: ['Kanalinfarten'] } };
+      for (let t = 1200; t <= 1380; t += 60) at(t, () => svc.observeVessel(boat('M', 'north', 2000 - (t - 1200) * 3 * KN, 3, hist)));
+      expect(armOf('M').earlierBridge).toBe('Olidebron');
+      expect(debugLines('[OPENING_FOREIGN_RELEASE]')).toHaveLength(0);
+      expect(ownWarnings('M')).toHaveLength(1);
+      // Förbi Olidebron, 1 000 m kvar: spärren är borta och hon släpps.
+      at(1440, () => svc.observeVessel(boat('M', 'north', 1000, 3, { extra: { passedBridges: ['Kanalinfarten', 'Olidebron'] } })));
+      expect(armOf('M').earlierBridge).toBeNull();
+      expect(debugLines('[OPENING_FOREIGN_RELEASE]')).toHaveLength(1);
+    });
+
+    test('egna fix efter fönstrets slut i rörelse: släpps på första fixet', () => {
+      setup();
+      at(1200, () => obs('M', 'north', 900, 5));
+      expect(debugLines('[OPENING_FOREIGN_RELEASE]')).toHaveLength(1);
+      advanceTo(T0 + 1260 * S);
+      expect(ownWarnings('M')).toHaveLength(2);
+    });
+  });
+
   describe('[NY] domens grindar, en i taget', () => {
     const base = () => {
       const now = T0 + 2000 * S;
@@ -381,7 +441,7 @@ describe('U45: en annan båts passage startar den varnade öppningens fönster',
       const arm = {
         mmsi: 'M',
         bridge: 'Klaffbron',
-        lastSeenAt: now - 10 * S,
+        lastSeenAt: now,
         lastFixClean: true,
         lastObservedAt: null,
         lat: p.lat,
@@ -421,8 +481,17 @@ describe('U45: en annan båts passage startar den varnade öppningens fönster',
       ['kö', (b) => {
         b.arm.waitingAtBridge = 'Klaffbron';
       }],
-      ['ingen-fysik', (b) => {
+      ['under-2-kn', (b) => {
         b.arm.physicsArrivalMs = null;
+      }],
+      ['under-2-kn', (b) => {
+        b.arm.sog = 1.9;
+      }],
+      ['spärr', (b) => {
+        b.arm.earlierBridge = 'Olidebron'; b.arm.earlierBridgeUntilMs = b.now + 60 * S;
+      }],
+      ['eget-fix', (b) => {
+        b.arm.lastSeenAt = b.now - 1;
       }],
       ['inom-fönstret', (b) => {
         b.arm.expectedArrivalMs = T0 + 900 * S; b.arm.physicsArrivalMs = T0 + 900 * S;
