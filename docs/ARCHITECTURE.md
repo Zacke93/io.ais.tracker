@@ -812,7 +812,9 @@ linjen i färdriktningen gäller undre gränser (tystnadsform bara om de räcker
 saknas beviset behåller vägen sin gamla mening: `passage-fallback` (passagen
 inferreras ur en position på andra sidan bron) och BN2 tystnad, `just-passed` och
 S4 (källan current/target/nearest men appen har bokfört bron inom nådan) "har
-precis passerat". Källsträngen, eta=-1 och already_passed rörs inte. Förut följde
+precis passerat". En ny båt (BN2:s portgissning, N6/U44) har inget segment men
+prövas med samma regel och okänd tystnad räknad som tystnad (`_newVesselPassageForm`).
+Källsträngen, eta=-1 och already_passed rörs inte. Förut följde
 meningen källan: S4 sa "har precis passerat" efter 800 s tystnad och en korsning
 4 min före notisen, BN2 och failsafen "under AIS-tystnad" för en korsning 4 s
 före fixen. I banken byter 53 notiser form (40 till tystnadsform, 13 till "har
@@ -4035,15 +4037,40 @@ Underlaget står i `docs/helgranskning-2026-11-03.md`; varje fynd prövades med 
   bort. I banken nio båtar 74–252 m efter Olidebron norrut och Stallbackabron söderut, i
   4,8–6,9 kn: "NEST närmar sig Stallbackabron, beräknad ankomst om 1 minut" 248 m efter bron,
   och SABETH fick i samma sekund "passerade Kanalinfarten under AIS-tystnad" och "närmar sig
-  Olidebron, beräknad ankomst om 1 minut" 88 m efter Olidebron. Nu "passerade … under
-  AIS-tystnad" (U37 del 2 utan segment: BN2:s egen mening, samma som svepets). Inom 70 m står
-  förvarningen kvar: "beräknad ankomst strax" om en båt 10–40 m bortom linjen betyder nu (JOY
-  15 m, GRETA AF HAMMARO 21 m, HELGE 10 m, SIR HENRY 39 m). Kvar i förvarningsform, kända
-  gränser: en långsam båt (HALIFAX 1,1 kn, 194 m söder om Olidebron) och en båt som lagt ut från
-  en kaj bortom bron och har föregående positioner (EUGENIE 1,9 kn från gästhamnen norr om
-  Klaffbron, 268 m); där har appen inget belägg för en passage. En båt som lagt ut från en okänd
-  kajplats bortom bron i minst 2 kn får "passerade" om en bro hon aldrig korsat, som svepet
-  redan ger för broarna längre bak.
+  Olidebron, beräknad ankomst om 1 minut" 88 m efter Olidebron. Nu passerad form, och meningen
+  följer U37 del 2 (dirigentens beslut U44, `_newVesselPassageForm`): tystnaden är okänd för en ny
+  båt och räknas som tystnad (`passageNoticeForm` med `silenceMs = Infinity`), och dröjsmålet
+  skattas som avståndet bortom linjen delat med farten (`fixLatenessMs`). Högst 60 s efter den
+  skattade korsningen "har precis passerat", annars "passerade … under AIS-tystnad". I banken
+  får sex av de nio "har precis passerat" (korsningen 23–53 s före notisen) och tre
+  tystnadsformen (67–86 s). Inom 70 m står förvarningen kvar: "beräknad ankomst strax" om en båt
+  10–40 m bortom linjen betyder nu (JOY 15 m, GRETA AF HAMMARO 21 m, HELGE 10 m, SIR HENRY 39 m).
+  **Kända gränser (granskningen av N6):**
+  - *70 m mäts mot brons punkt* (`candidate.distance`), inte längs kanalaxeln (L2): i
+    granskarens sidledsprov (160 världar) får en båt 45 m bortom linjen men 60 m i sidled (75 m
+    från punkten) passerad form, och en båt 69 m bortom linjen mitt i farleden "strax". Passerad
+    form före linjen förekom aldrig (0 av 96 världar 15–30 m före bron eller 20 m bortom den,
+    sidlägen ±35 och ±60 m). Ingen sådan rad i banken.
+  - *Kajavgång bortom en bro* (L3): en ny båt som lägger ut från en kajplats appen inte känner
+    till, bortom bron, och vars första position kommer i minst 2 kn mer än 70 m från bron, får
+    "passerade <bron>" om en bro hon aldrig korsat. I granskarens kajprov (100 världar, första
+    fix 60–250 m bortom en bro i 2,2 eller 4 kn) skiljer 48 från basen, varje gång exakt
+    "närmar sig X, beräknad ankomst om 1 minut" → passerad form, med samma antal notiser; basen
+    ger i samma tick svepets "passerade <bron längre bak> under AIS-tystnad". Ett osant
+    påstående byts alltså mot ett annat. Realistisk plats: väntytan mellan Järnvägsbron och
+    Stridsbergsbron. 0 fall i banken och k1/k2.
+  - *Långsamma båtar bortom bron* (F9 (b), inte rättat): en båt som syns första gången, eller
+    lägger ut från en kaj, bortom en bro och rör sig bort i under 2 kn behåller "närmar sig
+    <bron bakom>": HALIFAX (20260708-21h, 1,1 kn, 194 m söder om Olidebron på väg söderut; hon
+    passerade aldrig söderut utan vände och gick norrut genom bron 11,6 min senare) och EUGENIE
+    (20260804-both-21h, 1,9 kn, 268 m norr om Klaffbron ur gästhamnen; hon har aldrig korsat
+    Klaffbron). 2 av bankens och k1/k2:s 805 förvarningar. Granskarens prov av regeln "skjut upp
+    notisen för en båt som först hörs bortom en bro och rör sig bort i under 2 kn" (probe4):
+    exakt de två raderna ändras; HALIFAX får en enda notis, "närmar sig Olidebron, beräknad
+    ankomst om 1 minut" norrut 68 s före korsningen, och EUGENIEs falska Klaffbronotis
+    försvinner; i driftsvepet (60 världar) får varje värld exakt en notis, 2–8 min senare än
+    basens men före passagen. Regeln ändrar notisantal och kandidatval och tas som egen granskad
+    ändring i en senare omgång (U44).
 - Mellanbrons avståndsreserv i `_hasPassedBridge` täcker bandet mellan
   `UNDER_BRIDGE_CROSS_SEGMENT_MAX_M` och `LARGE_JUMP_LAT_DEG` (den delade hoppgränsen, förut
   hårdkodad 0,005).

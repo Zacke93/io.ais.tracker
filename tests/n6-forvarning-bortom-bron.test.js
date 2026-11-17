@@ -22,6 +22,9 @@
  * den närmaste i förvarningsform: "NEST närmar sig Stallbackabron, beräknad
  * ankomst om 1 minut" 248 m efter bron (nio sådana i banken, 74–252 m). BN2
  * prövar nu också portgissningen; inom 70 m (vid bron) står förvarningen kvar.
+ * Meningen följer U37 del 2 med okänd tystnad räknad som tystnad (U44): högst
+ * 60 s efter den skattade korsningen "har precis passerat", annars "passerade
+ * … under AIS-tystnad".
  */
 
 jest.mock('homey');
@@ -356,6 +359,38 @@ describe('N6 (a): BN2 prövar också svepets portgissning för en ny båt', () =
     expect(tokens.already_passed).toBe(true);
     expect(tokens.eta_minutes).toBe(-1);
     expect(tokens.message).toBe('NEST passerade Stallbackabron under AIS-tystnad');
+  });
+
+  // U44 (granskningens L1): meningen följer U37 del 2. SABETH (20260610-19h) låg
+  // 88 m bortom Olidebron i 5,5 kn: korsningen ~31 s före notisen, alltså "har
+  // precis passerat". NEST ovan: ~86 s, tystnadsformen.
+  test('SABETH-fallet: ny båt 88 m norr om Olidebron i 5,5 kn får "har precis passerat"', async () => {
+    const app = await boot();
+    const olide = BRIDGES.olidebron;
+    const pos = { lat: 58.273291666666665, lon: 12.276213333333335 };
+    expect(geometry.bridgeLineOffsetM(pos, olide)).toBeCloseTo(88, 0);
+    const v = newVessel(pos, 'north', {
+      mmsi: '211478350', name: 'SABETH', sog: 5.5, cog: 44.5, fixTs: Date.now(),
+    });
+    const candidate = cand(olide, pos);
+    await app._triggerBoatNearFlowForBridge(v, candidate);
+    const [[tokens]] = app._boatNearTrigger.trigger.mock.calls;
+    expect(tokens).toMatchObject({ already_passed: true, eta_minutes: -1 });
+    expect(tokens.message).toBe('SABETH har precis passerat Olidebron');
+  });
+
+  test.each([
+    // [avstånd bortom linjen, fart kn, väntad form] — gränsen 60 s efter korsningen
+    [150, 5, 'har precis passerat'],
+    [160, 5, 'passerade Stallbackabron under AIS-tystnad'],
+  ])('formens gräns: %s m bortom Stallbackabron i %s kn ger "%s"', async (d, sog, expected) => {
+    const app = await boot();
+    const stall = BRIDGES.stallbackabron;
+    const pos = at(stall, -d);
+    const v = newVessel(pos, 'south', { sog, fixTs: Date.now() });
+    await app._triggerBoatNearFlowForBridge(v, cand(stall, pos));
+    const [[tokens]] = app._boatNearTrigger.trigger.mock.calls;
+    expect(tokens.message).toContain(expected);
   });
 
   // [bro, färd, d m bortom linjen i färdriktningen, väntat]

@@ -1474,6 +1474,46 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * N6 (dirigentens beslut U44, granskningens L1): formen för en NY båts
+   * passagenotis (BN2:s portgissning, _isNewVesselPastNotifiedBridge). Båten
+   * har ingen föregående position, så segmentet saknas och _segmentPassageForm
+   * ger null. Formregeln i U37 del 2 gäller ändå: appen har aldrig hört båten
+   * före fixen, så tystnaden räknas som tystnad (silenceMs = Infinity), och
+   * dröjsmålet skattas som för retursläppen, avståndet bortom linjen delat med
+   * farten (fixLatenessMs). Kommer notisen högst 60 s efter den skattade
+   * korsningen blir meningen "har precis passerat", annars "passerade … under
+   * AIS-tystnad". I banken: SABETH 88 m bortom Olidebron i 5,5 kn, korsningen
+   * ~31 s före notisen, "har precis passerat"; NEST 248 m i 5,6 kn, ~86 s,
+   * tystnadsformen.
+   * @param {Object} vessel
+   * @param {string} bridgeName
+   * @returns {'live'|'silence'|null} null när båten inte är ny eller måtten saknas
+   * @private
+   */
+  _newVesselPassageForm(vessel, bridgeName) {
+    if (!vessel || vessel._prevFixSample || vessel.lastPosition) return null;
+    // Samma villkor som BN2:s gren för en ny båt: en färsk sist känd position
+    // är ett segment (återfödd båt) och prövas av _segmentPassageForm.
+    const lastKnown = this._lastKnownPositions?.get(String(vessel.mmsi));
+    if (lastKnown && Number.isFinite(lastKnown.t)
+        && Date.now() - lastKnown.t < this._LAST_KNOWN_POSITION_TTL_MS) return null;
+    const bridge = this.bridgeRegistry?.getBridgeByName?.(bridgeName);
+    if (!bridge || !Number.isFinite(vessel.fixTs)) return null;
+    const latenessMs = fixLatenessMs({
+      now: Date.now(),
+      fixT: vessel.fixTs,
+      offsetM: geometry.bridgeLineOffsetM(vessel, bridge),
+      sogKn: GPSJumpAnalyzer.positionSog(vessel),
+    });
+    const form = passageNoticeForm({ silenceMs: Infinity, latenessMs });
+    this.debug(
+      `🧾 [PASSAGE_NOTICE_FORM] ${vessel.mmsi}: ${bridgeName} form=${form ?? 'okänd'} `
+      + `(ny båt, tystnad okänd, dröjsmål ${Number.isFinite(latenessMs) ? Math.round(latenessMs / 1000) : '?'} s)`,
+    );
+    return form;
+  }
+
+  /**
    * U14-revisionen: en retur som appen bokförde medan båten ännu låg vid
    * brolinjen, eller redan när en väntande båt nådde linjen, bevisas först när
    * hon ligger tydligt på ankomstsidan, en eller flera fixar senare. Då kan
@@ -11611,6 +11651,9 @@ class AISBridgeApp extends Homey.App {
     const passageNotice = (retroactiveSource && source !== 'exit-fallback')
       || justPassedBridge || gapCrossedBridge;
     if (noticeForm === null && passageNotice) noticeForm = this._segmentPassageForm(vessel, bridgeName);
+    // N6 (U44): en ny båt som BN2 gav passerad form har inget segment. Samma
+    // formregel med okänd tystnad räknad som tystnad (_newVesselPassageForm).
+    if (noticeForm === null && gapCrossedBridge) noticeForm = this._newVesselPassageForm(vessel, bridgeName);
     let messageSource = source;
     if (noticeForm === 'silence') messageSource = 'passage-fallback';
     else if (noticeForm === 'live' && (passageNotice || returnForm === 'live')) messageSource = 'just-passed';

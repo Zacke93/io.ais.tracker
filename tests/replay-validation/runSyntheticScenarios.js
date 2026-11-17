@@ -3653,7 +3653,8 @@ const SCENARIOS = [
   // väg söderut i 6 kn. Svepets portgissning notifierar bron som passerad, men
   // närhetsnotisen gick först i förvarningsform ("närmar sig Stallbackabron,
   // beräknad ankomst om 1 minut"; NEST i 20260713-41h, 248 m efter bron). Nu
-  // samma mening som svepet: "passerade … under AIS-tystnad".
+  // passerad form, och meningen följer U37 del 2 med okänd tystnad räknad som
+  // tystnad (U44): 150 m i 6 kn är ~49 s efter korsningen, "har precis passerat".
   {
     name: 'ny-båt-först-sedd-150m-efter-Stallbackabron-söderut (N6)',
     seed: 73401,
@@ -3661,6 +3662,19 @@ const SCENARIOS = [
       mmsi: '973401001',
       name: 'SYNT-N6-NY',
       startS: METRICS.cum[5] - 150,
+      legs: [{ toS: METRICS.cum[4] + 800, speedKn: 6, intervalS: 30 }],
+    }],
+    expect: { noticeForms: { Stallbackabron: ['precis'] } },
+  },
+  // Samma båt först sedd 250 m efter bron: ~81 s efter korsningen, mer än
+  // "precis passerat"-fönstret, alltså "passerade … under AIS-tystnad".
+  {
+    name: 'ny-båt-först-sedd-250m-efter-Stallbackabron-söderut (N6)',
+    seed: 73405,
+    vessels: [{
+      mmsi: '973405001',
+      name: 'SYNT-N6-NY250',
+      startS: METRICS.cum[5] - 250,
       legs: [{ toS: METRICS.cum[4] + 800, speedKn: 6, intervalS: 30 }],
     }],
     expect: { noticeForms: { Stallbackabron: ['tyst'] } },
