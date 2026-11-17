@@ -4388,8 +4388,8 @@ const SCENARIOS = [
     },
   },
   // U46, motfall (ELFKUNGEN i 20260806-42h och 20260909-80h): ut förbi
-  // Kanalinfarten och in till en kaj strax utanför zonkanten, förtöjd i 5 h med
-  // en fix var 3:e minut, sedan norrut genom zonen. Hon hörs i zonen direkt
+  // Kanalinfarten och in till en kaj strax utanför zonkanten, förtöjd i 90 min
+  // med en fix var 3:e minut, sedan norrut genom zonen. Hon hörs i zonen direkt
   // efter utåtparet, så besöket står kvar (besöksregeln 2026-09-07: förtöjning
   // är ingen utfärd). Utan tystnadsvillkoret gav utåtparet en andra notis vid
   // kajen ("har passerat Kanalinfarten"), mätt i 42h: elva båtar.
@@ -4402,8 +4402,10 @@ const SCENARIOS = [
       startS: METRICS.cum[1] + 400,
       legs: [
         { toS: S_KANALINFARTEN - 270, speedKn: 4.5, intervalS: 60 },
+        // 90 min: under U51:s 2 h, så att motfallet prövar tilläggningen efter
+        // utåtparet och inte en förtöjd avgång (se U51-scenarierna nedan).
         {
-          stopS: 5 * 3600, stopIntervalS: 180, stopSog: 0, stopCogDeg: 275,
+          stopS: 90 * 60, stopIntervalS: 180, stopSog: 0, stopCogDeg: 275,
         },
         { toS: METRICS.cum[1] + 400, speedKn: 5, intervalS: 60 },
       ],
@@ -4422,8 +4424,10 @@ const SCENARIOS = [
       startS: METRICS.cum[1] + 400,
       legs: [
         { toS: S_KANALINFARTEN - 270, speedKn: 4.5, intervalS: 60 },
+        // 90 min: under U51:s 2 h, så att motfallet prövar tilläggningen efter
+        // utåtparet och inte en förtöjd avgång (se U51-scenarierna nedan).
         {
-          stopS: 5 * 3600, stopIntervalS: 180, stopSog: 0, stopCogDeg: 275,
+          stopS: 90 * 60, stopIntervalS: 180, stopSog: 0, stopCogDeg: 275,
         },
         { toS: METRICS.cum[1] + 400, speedKn: 5, intervalS: 60 },
       ],
@@ -4447,6 +4451,78 @@ const SCENARIOS = [
       legs: [
         { toS: S_KANALINFARTEN - 260, speedKn: 4.5, intervalS: 60 },
         { toS: METRICS.cum[1] + 400, speedKn: 4.5, intervalS: 60 },
+      ],
+    }],
+    expect: { maxNotifiedPerBridge: { Kanalinfarten: 1 } },
+  },
+  // U51 (dirigentens beslut 2026-11-17, F8 alternativ (c)): EN BÅT SOM LEGAT
+  // FÖRTÖJD MINST 2 h VID EN YTTERPUNKT FÅR EN NY NOTIS NÄR HON LÄGGER UT.
+  // PRICKBJORN i fältet 13/11: förtöjd vid lotskajen 166 m från Kanalinfarten
+  // sedan kvällen före, lade ut norrut 06:47 och fick ingen notis (besöket från
+  // ankomsten stod öppet). Här som ELFKUNGEN: ut söderut förbi Kanalinfarten,
+  // förtöjd 3 h på den yttre sidan med en fix var 3:e minut, sedan norrut in i
+  // kanalen.
+  {
+    name: 'förtöjd-3h-vid-Kanalinfarten-avgång-norrut (U51)',
+    seed: 75101,
+    vessels: [{
+      mmsi: '975101001',
+      name: 'SYNT-U51-KAJ3H',
+      startS: METRICS.cum[1] + 400,
+      legs: [
+        { toS: S_KANALINFARTEN - 150, speedKn: 5, intervalS: 60 },
+        {
+          stopS: 3 * 3600, stopIntervalS: 180, stopSog: 0, stopCogDeg: 172,
+        },
+        { toS: METRICS.cum[1] + 400, speedKn: 5, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      minNotifiedPerBridge: { Kanalinfarten: 2 },
+      maxNotifiedPerBridge: { Kanalinfarten: 2 },
+    },
+  },
+  // U51, motfall: samma båt förtöjd 1 h 30 min. Under 2 h är det väntan, inte
+  // förtöjning: ingen ny notis (besöksregeln 2026-09-07).
+  {
+    name: 'förtöjd-1h30-vid-Kanalinfarten-avgång-norrut (U51, motfall)',
+    seed: 75102,
+    vessels: [{
+      mmsi: '975102001',
+      name: 'SYNT-U51-KAJ90',
+      startS: METRICS.cum[1] + 400,
+      legs: [
+        { toS: S_KANALINFARTEN - 150, speedKn: 5, intervalS: 60 },
+        {
+          stopS: 90 * 60, stopIntervalS: 180, stopSog: 0, stopCogDeg: 172,
+        },
+        { toS: METRICS.cum[1] + 400, speedKn: 5, intervalS: 60 },
+      ],
+    }],
+    expect: { maxNotifiedPerBridge: { Kanalinfarten: 1 } },
+  },
+  // U51, motfall: förtöjd 3 h långt ut, byter kajplats 120 m mot punkten i
+  // 2,5 kn, ligger 1 h och går sedan ut ur kanalen söderut. Kajbytet når inte
+  // avgångsbandet (50 m från linjen): ingen ny notis.
+  {
+    name: 'förtöjd-3h-byter-kajplats-och-går-söderut (U51, motfall)',
+    seed: 75103,
+    vessels: [{
+      mmsi: '975103001',
+      name: 'SYNT-U51-KAJBYTE',
+      startS: METRICS.cum[1] + 400,
+      legs: [
+        // Kajerna ligger norr om utfartslatituden (58,2653) och inom zonen;
+        // längre söderut stänger en borttagning med fullbordad resa besöket.
+        { toS: S_KANALINFARTEN - 230, speedKn: 5, intervalS: 60 },
+        {
+          stopS: 3 * 3600, stopIntervalS: 180, stopSog: 0, stopCogDeg: 172,
+        },
+        { toS: S_KANALINFARTEN - 110, speedKn: 2.5, intervalS: 60 },
+        {
+          stopS: 3600, stopIntervalS: 180, stopSog: 0, stopCogDeg: 172,
+        },
+        { toS: 0, speedKn: 4, intervalS: 60 },
       ],
     }],
     expect: { maxNotifiedPerBridge: { Kanalinfarten: 1 } },
