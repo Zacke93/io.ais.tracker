@@ -1071,7 +1071,20 @@ module.exports = [
     locked: true,
     lockEvents: true,
     expectedNotifications: 86,
-    note: 'NOTISTEXT OMLÅST 2026-11-16 (U37 del 2, en formregel för alla passagenotiser): 1 notis byter mening; '
+    note: 'NOTISER OMLÅSTA 2026-11-17 (omgång 3, N6/U44: en ny båt mer än 70 m bortom en bro får en passagenotis i '
+      + 'stället för en förvarning): 4 notiser byter mening, eta 1 → −1 och alreadyPassed; tid, bro, riktning, '
+      + 'avstånd och antal är oförändrade. Alla fyra är båtens första position i korpusen, bortom brolinjen och '
+      + 'på väg bort från bron; förut löd de "närmar sig <bron>, beräknad ankomst om 1 minut". Meningen följer '
+      + 'formregeln i U37 del 2 med korsningen skattad som avståndet bortom linjen delat med farten. '
+      + '07:35:45 219031624, 142 m norr om Olidebron i 5,6 kn kurs 44° (nästa position 647 m norr om bron): '
+      + 'korsningen 49 s före, "har precis passerat Olidebron". 08:17:46 265806230, 229 m söder om '
+      + 'Stallbackabron i 6,6 kn kurs 221° (nästa 640 m söder om): 67 s före, "passerade Stallbackabron under '
+      + 'AIS-tystnad". 13:33:57 MARJELCHE, 115 m söder om Stallbackabron i 6,1 kn (nästa 1 461 m söder om): 37 s '
+      + 'före, "har precis passerat Stallbackabron". 15:13:40 265013440, 187 m söder om Stallbackabron i 6,9 kn '
+      + '(nästa 1 023 m söder om): 53 s före, "har precis passerat Stallbackabron". Rättare enligt U13: bron låg '
+      + 'bakom båten på alla fyra raderna. Egen radvis diff av dirigenten mot positionerna, och oberoende '
+      + 'radfacit i granskningen av N6. '
+      + 'NOTISTEXT OMLÅST 2026-11-16 (U37 del 2, en formregel för alla passagenotiser): 1 notis byter mening; '
       + 'tid, bro, riktning, siffra och antal är oförändrade. Regeln: var det tyst i mer än 130 s kring '
       + 'korsningen och kommer notisen mer än 60 s efter den, lyder den "passerade … under AIS-tystnad", annars '
       + '"har precis passerat". post 32 GALADRIEL 265042840 Järnvägsbron 13/7 08:59:15 → "under AIS-tystnad" '
