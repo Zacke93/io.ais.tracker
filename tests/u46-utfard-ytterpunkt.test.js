@@ -241,6 +241,37 @@ describe('U46: utfärd vid ytterpunkterna', () => {
       }
     });
 
+    // Granskningen av U46 (M1): vart och ett av utåtbevisets villkor ska fälla
+    // ett eget fall. Alla tre följs av 12 min tystnad och en fix som räknas som
+    // återkomst; utan villkoret blir det ett falskt släpp.
+    test.each([
+      ['Kanalinfarten söderut mot punkten', KANAL, 280, 150, 215],
+      ['Stallbackabron norrut mot bron', STALL, -280, -150, 37],
+    ])('på den inre sidan, i fart utåt mot punkten (%s): inget bevis, besöket står kvar efter 12 min tystnad', (_l, point, from, to, cog) => {
+      tracker.reserve(at(point, from, { sog: 5, cog }), point.name);
+      step(60000, point, at(point, to, { sog: 5, cog }));
+      expect(proof(tracker, MMSI, point)).toBeNull();
+      expect(step(12 * MIN, point, at(point, to / 1.5, { sog: 1, cog })).reentered).toBe(false);
+      expect(tracker.holds(MMSI, point.name)).toBe(true);
+    });
+
+    test('utåt i över 2 kn men under 50 m mellan fixarna: inget bevis', () => {
+      tracker.reserve(at(KANAL, 150, { sog: 5, cog: 212 }), KANAL.name);
+      step(60000, KANAL, at(KANAL, -40, { sog: 4.5, cog: 212 }));
+      step(30000, KANAL, at(KANAL, -80, { sog: 2.6, cog: 215 }));
+      expect(proof(tracker, MMSI, KANAL)).toBeNull();
+      expect(step(12 * MIN, KANAL, at(KANAL, -60, { sog: 3, cog: 35 })).reentered).toBe(false);
+      expect(tracker.holds(MMSI, KANAL.name)).toBe(true);
+    });
+
+    test('kursen inåt med fart och 190 m utåt (rimligt segment): inget bevis', () => {
+      tracker.reserve(at(KANAL, 150, { sog: 5, cog: 212 }), KANAL.name);
+      step(60000, KANAL, at(KANAL, -40, { sog: 4.5, cog: 35 }));
+      expect(proof(tracker, MMSI, KANAL)).toBeNull();
+      expect(step(12 * MIN, KANAL, at(KANAL, -60, { sog: 3, cog: 35 })).reentered).toBe(false);
+      expect(tracker.holds(MMSI, KANAL.name)).toBe(true);
+    });
+
     test('andra broar än ytterpunkterna berörs inte (Klaffbron)', () => {
       tracker.reserve(at(KLAFF, -150, { sog: 6, cog: 40, _routeDirection: 'north' }), KLAFF.name);
       step(60000, KLAFF, at(KLAFF, 46, { sog: 6, cog: 40 }));

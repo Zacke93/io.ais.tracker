@@ -4439,6 +4439,83 @@ const SCENARIOS = [
     },
     expect: { maxNotifiedPerBridge: { Kanalinfarten: 1 } },
   },
+  // U46, motfall (granskningen M1): en nordgående båt INNE I KANALEN på väg mot
+  // Stallbackabron går utåt längs axeln i 5 kn men ligger på den inre sidan
+  // (söder om bron). AIS är tyst i 14 min 112 m före bron, och hon hörs igen
+  // 40 m före den. Utan kravet på den yttre sidan blev det ett utåtbevis, tystnaden
+  // en utfärd och fixen på inre sidan en återkomst: en andra förvarning för
+  // samma passage. (Vid Kanalinfarten stoppar FP8:s sydgrind den andra notisen
+  // för en återfödd båt, så fallet prövas vid Stallbackabron.)
+  {
+    name: 'norrut-mot-Stallbackabron-tyst-14min-på-inre-sidan (U46, motfall)',
+    seed: 74606,
+    vessels: [{
+      mmsi: '974606001',
+      name: 'SYNT-U46-INRE',
+      startS: METRICS.cum[5] - 1500,
+      legs: [
+        // Notisen 266 m före bron, sista fixen före tystnaden 112 m före bron.
+        { toS: METRICS.cum[5] - 100, speedKn: 5, intervalS: 60 },
+        {
+          toS: METRICS.cum[5] - 40, speedKn: 0.15, gapFromS: METRICS.cum[5] - 100, gapToS: METRICS.cum[5] - 40,
+        },
+        // Boxens östkant korsar rutten cirka 330 m norr om bron.
+        { toS: METRICS.cum[5] + 300, speedKn: 5, intervalS: 60 },
+      ],
+    }],
+    expect: { maxNotifiedPerBridge: { Stallbackabron: 1 } },
+  },
+  // U46, motfall (granskningen M1): som `utfärd-söder-om-Kanalinfarten-…` men
+  // de sista fixarna på den yttre sidan rapporterar kurs 30° (inåt) fast båten
+  // går utåt. En kurs mot kanalen är inget utåtbevis: besöket står kvar, och
+  // återkomsten 6 h senare får ingen ny notis (som före U46).
+  {
+    name: 'ut-söder-om-Kanalinfarten-med-kurs-inåt-tyst-6h (U46, motfall)',
+    seed: 74607,
+    vessels: [{
+      mmsi: '974607001',
+      name: 'SYNT-U46-KURS',
+      startS: METRICS.cum[1] + 400,
+      legs: [
+        { toS: S_KANALINFARTEN - 60, speedKn: 4.5, intervalS: 60 },
+        {
+          toS: S_KANALINFARTEN - 300, speedKn: 4.5, intervalS: 60, cogDeg: 30,
+        },
+        {
+          toS: 0, speedKn: 0.05, gapFromS: S_KANALINFARTEN - 300, gapToS: 0,
+        },
+        {
+          toS: METRICS.cum[1] + 400, speedKn: 5, intervalS: 60, gapFromS: 0, gapToS: S_KANALINFARTEN - 450,
+        },
+      ],
+    }],
+    expect: { maxNotifiedPerBridge: { Kanalinfarten: 1 } },
+  },
+  // U46, motfall (granskningen M1): ut på den yttre sidan i 37 m per fix
+  // (1,2 kn, AIS rapporterar 2,5 kn), tyst 6 h, tillbaka. Under 50 m utåt mellan
+  // två fixar är inget utåtbevis.
+  {
+    name: 'ut-söder-om-Kanalinfarten-37m-per-fix-tyst-6h (U46, motfall)',
+    seed: 74608,
+    vessels: [{
+      mmsi: '974608001',
+      name: 'SYNT-U46-SAKTA',
+      startS: METRICS.cum[1] + 400,
+      legs: [
+        { toS: S_KANALINFARTEN - 60, speedKn: 4.5, intervalS: 60 },
+        {
+          toS: S_KANALINFARTEN - 300, speedKn: 1.2, reportSogKn: 2.5, intervalS: 60,
+        },
+        {
+          toS: 0, speedKn: 0.05, gapFromS: S_KANALINFARTEN - 300, gapToS: 0,
+        },
+        {
+          toS: METRICS.cum[1] + 400, speedKn: 5, intervalS: 60, gapFromS: 0, gapToS: S_KANALINFARTEN - 450,
+        },
+      ],
+    }],
+    expect: { maxNotifiedPerBridge: { Kanalinfarten: 1 } },
+  },
   // U46, motfall: vänder strax utanför Kanalinfarten och går tillbaka in medan
   // hon hörs. Besöksregeln gäller oförändrad: ingen ny notis.
   {

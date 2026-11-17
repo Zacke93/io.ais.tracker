@@ -4354,9 +4354,13 @@ passagen; en båt som guppar eller väntar vid bron får fortfarande en notis pe
   10 min; FP8/FP9/V1-grindarna står kvar). En båt som kommer tillbaka efter en utfärd men först
   hörs stilla eller långsam på den yttre sidan i zonen behåller sitt gamla besök (som före U46).
   En båt som lämnar boxen utan rapporterad fart, med kursen inåt eller med ett segment som inte
-  stämmer med farten får inget bevis. Låst i `tests/u46-utfard-ytterpunkt.test.js` och fem
+  stämmer med farten får inget bevis. Låst i `tests/u46-utfard-ytterpunkt.test.js` och åtta
   syntetiska scenarier (`utfärd-…-tyst-6h-…`, `ut-förbi-Kanalinfarten-och-förtöjd-vid-zonkanten`,
-  `ut-förbi-Kanalinfarten-förtöjd-tyst-12min-direkt`, `vänder-strax-utanför-Kanalinfarten`).
+  `ut-förbi-Kanalinfarten-förtöjd-tyst-12min-direkt`, `vänder-strax-utanför-Kanalinfarten`, och
+  efter granskningen (M1) ett per villkor: `norrut-mot-Stallbackabron-tyst-14min-på-inre-sidan`,
+  `ut-söder-om-Kanalinfarten-med-kurs-inåt-tyst-6h`, `ut-söder-om-Kanalinfarten-37m-per-fix-tyst-6h`).
+  Mutationsprovet: varje villkor (yttre sidan, 50 m utåt, kurs, fart, segment, återkomstkrav,
+  tystnad) fäller minst ett test när det tas bort.
 
 ### Rättningsomgång 4 (2026-11-17) — U51, förtöjd båt som lägger ut vid en ytterpunkt
 
