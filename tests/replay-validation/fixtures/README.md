@@ -63,3 +63,15 @@ LC_ALL=C sed 's/^.*AIS_REPLAY_SAMPLE\] //' "$FIX/app-20260819-003935.first20.log
 
 Ändras någon fixtur faller sha256-låset i testet — och det är meningen: de här
 filerna är facit för själva grinden och ska inte "råka" byggas om.
+
+## U51: förtöjd båt som lägger ut (granskningen av D6, 2026-11-17)
+
+Två byggda körningar (inga fältdata; påhittade MMSI 2659990xx/2659991xx) som
+`tests/u51-granskning-helkedja.test.js` kör genom hela appen:
+
+- `u51-lotskaj-avgang-60s.jsonl` — TESTLOTS förtöjd 3 h vid lotskajen, avgång
+  norrut med 60 s fixtakt; första fixen i avgångsbandet ligger 135 m in i
+  kanalen. Notisen ska ha passerad form (H1).
+- `u51-forhalning-i-sidled.jsonl` — TEST3 förtöjd 3 h vid lotskajen, förhalar i
+  2,2 kn till en plats 48 m före linjen men 114 m från punkten och lägger till.
+  Ingen ny notis (M2).
