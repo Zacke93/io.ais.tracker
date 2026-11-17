@@ -3665,6 +3665,46 @@ const SCENARIOS = [
     }],
     expect: { noticeForms: { Stallbackabron: ['tyst'] } },
   },
+  // N6, granskningens H1 (U44), motfall: EN BÅT SOM DRIVER BORT FRÅN BRON PÅ
+  // TILLFARTSSIDAN OCH SEDAN GÅR IGENOM. Ny båt 140 m söder om Olidebron driver
+  // söderut till 230 m i 0,8 kn (kursen och ruttlåset säger söderut), väntar
+  // 240 s och går sedan norrut genom bron i 4 kn. Sanningen är EN passage.
+  // Utan vakten fick besöket bortre sidan söder och passagen blev ett
+  // retursläpp: två notiser (granskarens driftsvep 44 av 60). Tät kadens.
+  {
+    name: 'driver-bort-söder-om-Olidebron-sedan-genom-30s (N6-H1, motfall)',
+    seed: 73403,
+    vessels: [{
+      mmsi: '973403001',
+      name: 'SYNT-N6-DRIFT',
+      startS: METRICS.cum[1] - 140,
+      legs: [
+        { toS: METRICS.cum[1] - 230, speedKn: 0.8, intervalS: 30 },
+        {
+          stopS: 240, stopIntervalS: 30, stopSog: 0.6, stopCogRandom: true,
+        },
+        { toS: METRICS.cum[1] + 700, speedKn: 4, intervalS: 30 },
+      ],
+    }],
+    expect: { maxNotifiedPerBridge: { Olidebron: 1 } },
+  },
+  // Samma vid gles kadens: driver 1 kn bort från Klaffbron och korsar sedan
+  // utan någon position i fart före bron (120 s), granskarens "hopp"-svep
+  // (16 av 20 med två notiser utan vakten).
+  {
+    name: 'driver-bort-söder-om-Klaffbron-sedan-genom-120s (N6-H1, motfall)',
+    seed: 73404,
+    vessels: [{
+      mmsi: '973404001',
+      name: 'SYNT-N6-HOPP',
+      startS: METRICS.cum[2] - 140,
+      legs: [
+        { toS: METRICS.cum[2] - 200, speedKn: 1, intervalS: 60 },
+        { toS: METRICS.cum[2] + 900, speedKn: 4, intervalS: 120 },
+      ],
+    }],
+    expect: { maxNotifiedPerBridge: { Klaffbron: 1 } },
+  },
   // N6, motfall: samma båt först sedd 30 m efter bron. Inom appens gräns för
   // "vid bron" (70 m) betyder "beräknad ankomst strax" i praktiken nu, och
   // förvarningen står kvar (JOY i 20260713-41h, 15 m).

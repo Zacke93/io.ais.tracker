@@ -12,9 +12,10 @@
  * - en ensam brusposition på andra sidan följd av en fix söderut gav en falsk
  *   "har precis passerat Järnvägsbron" 12 min efter den verkliga passagen;
  * - en verklig retur norrut genom bron gav ingen notis alls (48 av 48 banor).
- * I banken: HALIFAX (20260708-21h) syntes första gången 194 m söder om
- * Olidebron på väg söderut, fick "närmar sig Olidebron" och fick ingen notis
- * när hon vände och passerade Olidebron norrut 12 min senare.
+ * Granskningen av N6 (H1, U44): bron räknas som bakom båten bara när det är
+ * belagt i nuet (minst 2 kn, eller föregående position på andra sidan linjen).
+ * Annars fick en båt som driver bort från bron på tillfartssidan och sedan går
+ * igenom två notiser för en passage (granskarens driftsvep 44 av 60; HALIFAX).
  *
  * (a) Formen för en ny båt. Svepets portgissning (scenario A) notifierar en ny
  * båts broar bakom henne som passerade, men närhetsnotisen går först och tar
@@ -56,10 +57,14 @@ const at = (bridge, d, L = 0) => {
 describe('N6 (b): besökets bortre sida när förvarningen går ut bortom linjen', () => {
   let now;
   let tracker;
+  // Föregående position (vessel.lastPosition), som appen alltid har för en
+  // båt som setts förut; step() för den vidare.
+  let prev;
 
   beforeEach(() => {
     now = Date.parse('2026-11-16T10:00:00Z');
     tracker = new TriggerPointVisitTracker({ now: () => now });
+    prev = null;
   });
 
   const fix = (d, extra = {}) => ({
@@ -68,16 +73,24 @@ describe('N6 (b): besökets bortre sida när förvarningen går ut bortom linjen
     sog: 5,
     cog: SOUTH_COG,
     _routeDirection: 'south',
+    lastPosition: prev,
     timestamp: now,
     lastPositionUpdate: now,
     fixTs: now,
     fixFeed: 'aisstream',
     ...extra,
   });
+  // Reservationens fix: föregående position anges uttryckligen.
+  const first = (d, lastD, extra = {}) => {
+    const vessel = fix(d, { lastPosition: lastD === null ? null : at(JVB, lastD), ...extra });
+    prev = { lat: vessel.lat, lon: vessel.lon };
+    return vessel;
+  };
   const step = (d, extra = {}, seconds = 120) => {
     now += seconds * 1000;
     const vessel = fix(d, typeof extra === 'function' ? extra() : extra);
     tracker.observe(vessel, JVB.name);
+    prev = { lat: vessel.lat, lon: vessel.lon };
     return vessel;
   };
   const farSign = () => tracker.exportSnapshot().entries[`${MMSI}:${JVB.name}`].farSign;
@@ -85,7 +98,8 @@ describe('N6 (b): besökets bortre sida när förvarningen går ut bortom linjen
 
   /** Granskarens bana: förvarningen på fixen 22 m söder om linjen, sedan utpassagens bokföring 176 m söderut. */
   function noticeBeyondThenOutbound() {
-    expect(tracker.reserve(fix(-22), JVB.name, { passageBehind: false, travelSign: -1 })).not.toBeNull();
+    // Föregående fix 279 m norr om linjen (granskarens bana).
+    expect(tracker.reserve(first(-22, 279), JVB.name, { passageBehind: false, travelSign: -1 })).not.toBeNull();
     const outAt = now + 120000;
     step(-176, () => ({ lastPassedBridge: JVB.name, lastPassedBridgeTime: outAt, passedBridges: [JVB.name] }));
     return outAt;
@@ -121,28 +135,75 @@ describe('N6 (b): besökets bortre sida när förvarningen går ut bortom linjen
   });
 
   test('motfall: förvarning före linjen ger bortre sidan framför båten som förut', () => {
-    tracker.reserve(fix(200), JVB.name, { travelSign: -1 });
+    tracker.reserve(first(200, 500), JVB.name, { travelSign: -1 });
     expect(farSign()).toBe(-1);
   });
 
   test('motfall: kursen pekar tillbaka mot bron (ruttlåset ännu inte vänt): bortre sidan som förut', () => {
-    tracker.reserve(fix(-22, { cog: NORTH_COG }), JVB.name, { travelSign: -1 });
+    tracker.reserve(first(-22, 279, { cog: NORTH_COG }), JVB.name, { travelSign: -1 });
     expect(farSign()).toBe(1);
   });
 
   test('motfall: okänd färdriktning ger bortre sidan som förut', () => {
-    tracker.reserve(fix(-22, { _routeDirection: null }), JVB.name, { travelSign: 0 });
+    tracker.reserve(first(-22, 279, { _routeDirection: null }), JVB.name, { travelSign: 0 });
     expect(farSign()).toBe(1);
   });
 
   test('motfall: på linjen (±10 m) följer bortre sidan ruttriktningen som förut', () => {
-    tracker.reserve(fix(-6), JVB.name, { travelSign: -1 });
+    tracker.reserve(first(-6, 279), JVB.name, { travelSign: -1 });
     expect(farSign()).toBe(-1);
   });
 
   test('utan travelSign gäller ruttlåset (äldre anrop)', () => {
-    tracker.reserve(fix(-22), JVB.name);
+    tracker.reserve(first(-22, 279), JVB.name);
     expect(farSign()).toBe(-1);
+  });
+
+  // H1-vakten, ben 1: farten bär beviset när föregående position saknas eller
+  // också låg bortom linjen.
+  test('farten bär: 25 m bortom linjen i 5 kn utan föregående position, bortre sidan söder', () => {
+    tracker.reserve(first(-25, null), JVB.name, { travelSign: -1 });
+    expect(farSign()).toBe(-1);
+  });
+
+  test('farten bär: föregående position också bortom linjen, i 5 kn', () => {
+    tracker.reserve(first(-120, -60), JVB.name, { travelSign: -1 });
+    expect(farSign()).toBe(-1);
+  });
+
+  describe('H1 (granskningen av N6): driver bort från bron på tillfartssidan och går sedan igenom', () => {
+    // Båten ligger söder om Järnvägsbron och ska norrut genom den. Hon driver
+    // söderut, bort från bron, i 1 kn; kursen och ruttlåset (som driften satt)
+    // säger söderut, så förvarningen (söderut) går ut på en position "bortom"
+    // linjen. Hon har inte passerat bron, och hennes passage norrut är den
+    // enda: ingen andra notis. Med (b) utan vakten fick hon bortre sidan söder,
+    // och passagen blev ett retursläpp (granskarens driftsvep: 44 av 60).
+    const drifting = { _routeDirection: 'south', sog: 1.0, cog: SOUTH_COG };
+    const north = { _routeDirection: 'north', sog: 4, cog: NORTH_COG };
+
+    test('tät kadens (30 s): bortre sidan norr som förut, passagen ger inget retursläpp', () => {
+      tracker.reserve(first(-200, -180, drifting), JVB.name, { travelSign: -1 });
+      expect(farSign()).toBe(1);
+      for (const d of [-215, -230, -228, -231]) step(d, { ...drifting, sog: 0.6, cog: 120 }, 30);
+      for (const d of [-170, -110, -50]) expect(release(step(d, north, 30))).toBeFalsy();
+      const booked = () => ({
+        ...north, lastPassedBridge: JVB.name, lastPassedBridgeTime: now, passedBridges: [JVB.name],
+      });
+      expect(release(step(10, booked, 30))).toBeFalsy();
+      expect(release(step(70, north, 30))).toBeFalsy();
+      expect(tracker.holds(MMSI, JVB.name)).toBe(true);
+    });
+
+    test('gles kadens (120 s): nästa position redan norr om bron, inget retursläpp', () => {
+      tracker.reserve(first(-200, -170, drifting), JVB.name, { travelSign: -1 });
+      expect(farSign()).toBe(1);
+      const booked = () => ({
+        ...north, lastPassedBridge: JVB.name, lastPassedBridgeTime: now, passedBridges: [JVB.name],
+      });
+      expect(release(step(150, booked, 120))).toBeFalsy();
+      expect(release(step(400, north, 120))).toBeFalsy();
+      expect(tracker.holds(MMSI, JVB.name)).toBe(true);
+    });
   });
 
   // Alla fem broarna åt båda hållen: förvarningen 25 m bortom linjen ger bortre
@@ -159,7 +220,8 @@ describe('N6 (b): besökets bortre sida när förvarningen går ut bortom linjen
     const v = (d, extra) => ({
       mmsi: MMSI, ...at(b, sign * d), timestamp: now, lastPositionUpdate: now, fixTs: now, fixFeed: 'aisstream', ...extra,
     });
-    expect(tracker.reserve(v(25, ahead), name, { travelSign: sign })).not.toBeNull();
+    // Föregående position 200 m före linjen: korsningen skedde i segmentet.
+    expect(tracker.reserve(v(25, { ...ahead, lastPosition: at(b, -sign * 200) }), name, { travelSign: sign })).not.toBeNull();
     expect(tracker.exportSnapshot().entries[`${MMSI}:${name}`].farSign).toBe(sign);
     now += 60000;
     tracker.observe(v(200, { ...ahead, lastPassedBridge: name, lastPassedBridgeTime: now }), name);
@@ -173,10 +235,11 @@ describe('N6 (b): besökets bortre sida när förvarningen går ut bortom linjen
 
   describe('motfall: väntar strax FÖRE bron, förvarningen gick ut på en brusposition bortom linjen', () => {
     // Båten går söderut och väntar 14–18 m norr om linjen (entydigt på
-    // tillfartssidan); förvarningen gick ut på en brusfix 13 m söder om den. Besöket får bortre sidan söder men
-    // noterar den inte som sedd.
+    // tillfartssidan); förvarningen gick ut på en brusfix 13 m söder om den,
+    // med föregående position 16 m norr om linjen (H1-vaktens ben 2: korsningen
+    // i segmentet). Besöket får bortre sidan söder men noterar den inte som sedd.
     function waitWithNoise() {
-      expect(tracker.reserve(fix(-13, { sog: 0.3, cog: 200 }), JVB.name, { travelSign: -1 })).not.toBeNull();
+      expect(tracker.reserve(first(-13, 16, { sog: 0.3, cog: 200 }), JVB.name, { travelSign: -1 })).not.toBeNull();
       for (const d of [16, 14, 18, 15]) step(d, { sog: 0.2, cog: 90 }, 30);
     }
 

@@ -657,15 +657,21 @@ Dedup-lagren:
    färdriktning (`reserve(…, { travelSign })`: ruttlåset, annars kursen, samma
    riktning som notisen bär) har bron bakom sig, och då är ankomstsidan den bortre,
    utom när kursen pekar tillbaka mot bron (ett ruttlås som ännu inte vänt efter en
-   U-sväng). Bortre sidan räknas som sedd först vid nästa rena fix där, så en
-   väntande båt vars förvarning gick ut på en brusposition bortom linjen inte kan
-   få ett retursläpp. Förut vändes besöket: i granskarens svep (120 s kadens,
-   förvarningen 22 m söder om Järnvägsbron) gav en ensam brusfix på andra sidan en
-   falsk "har precis passerat" 12 min efter passagen, och en verklig retur gav
-   ingen notis (48 av 48 banor). I banken fick HALIFAX (20260708-21h), först sedd
-   194 m söder om Olidebron på väg söderut, ingen notis när hon vände och passerade
-   Olidebron norrut 12 min senare; nu "har precis passerat Olidebron" 52 s efter
-   korsningen. Därefter följer `observe` varje ren fix: när
+   U-sväng). **Vakten (granskningens H1, dirigentens beslut U44):** bron räknas som
+   bakom båten bara när det är belagt i nuet, alltså när båten rör sig i minst 2 kn
+   (`RETURN_SPARSE_MOVING_SOG_KN`, appens gräns för rörelse i nuet vid ett
+   korsningsbevis) eller när föregående position (`vessel.lastPosition`) låg
+   entydigt på andra sidan linjen. Utan vakten fick en båt som driver bort från bron
+   på tillfartssidan (0,8–1,5 kn, kursen och det av driften satta ruttlåset bort) och
+   sedan går igenom två notiser för en passage: granskarens driftsvep 44 av 60
+   världar, gles kadens 16 av 20, basen 0; HALIFAX i 20260708-21h är det fallet.
+   Bortre sidan räknas som sedd först vid nästa rena fix där, så en väntande båt
+   vars förvarning gick ut på en brusposition bortom linjen inte kan få ett
+   retursläpp. Förut vändes besöket: i granskarens svep (120 s kadens, förvarningen
+   22 m söder om Järnvägsbron) gav en ensam brusfix på andra sidan en falsk "har
+   precis passerat" 12 min efter passagen, och en verklig retur gav ingen notis (48
+   av 48 banor). Med vakten är de falska returerna 0 och banken oförändrad av den
+   här delen. Därefter följer `observe` varje ren fix: när
    båtens signerade avstånd till linjen (`geometry.bridgeLineOffsetM`) byter
    tecken från bortre sidan till ankomstsidan noteras en **korsning**, med tiden
    interpolerad på segmentet (fixklockan, som `gt-passages`). En fix tillbaka på
