@@ -431,6 +431,85 @@ describe('U45: en annan båts passage startar den varnade öppningens fönster',
     });
   });
 
+  describe('varv 3: flaggans livscykel och passagens villkor', () => {
+    // M1 och M2 varnas tillsammans; H passerar; båda släpps på egna fix efter
+    // fönstret; M2 absorberas i M1:s nya händelse och är tyst över bron.
+    const chain = () => {
+      const v5 = 5 * KN;
+      at(0, () => {
+        obs('M1', 'north', 1100, 1.2); obs('M2', 'north', 1120, 1.2);
+      });
+      at(60, () => {
+        obs('M1', 'north', 1063, 1.2); obs('M2', 'north', 1083, 1.2);
+      });
+      passerH(200);
+      at(1200, () => obs('M1', 'north', 900, 5));
+      at(1210, () => obs('M2', 'north', 960, 5));
+      at(1560, () => obs('M1', 'north', 900 - 360 * v5, 5));
+      at(1600, () => obs('M1', 'north', 40 * v5, 5, { beyond: true }));
+    };
+
+    test('[FÄLLER] flaggan nollas i _fire och vid täckningsslutet; U17-varningen ber inte om återöppning', () => {
+      chain();
+      expect(armOf('M1')).toBeUndefined(); // M1 har passerat
+      const m1New = warnings.find((w) => w.mmsis.includes('M1') && w.reopenedMmsis);
+      expect(m1New.reopenedMmsis).toEqual(['M1']);
+      const m2 = armOf('M2');
+      expect(m2.absorbedAt).not.toBeNull();
+      expect(m2.eventId).toBe(m1New.eventId);
+      expect(typeof m2.foreignReleasedFrom).toBe('string'); // följer med genom absorptionen
+      advanceTo(T0 + 2700 * S);
+      const late = warnings.filter((w) => w.mmsis.includes('M2')).pop();
+      expect(late.mmsis).toEqual(['M2']);
+      expect(late.reopenedMmsis).toBeUndefined();
+      expect(armOf('M2').foreignReleasedFrom).toBeNull();
+    });
+
+    test('låser (mutation): flaggan nollas av _fire för den som varnas', () => {
+      const v5 = 5 * KN;
+      at(0, () => {
+        obs('M1', 'north', 1100, 1.2); obs('M2', 'north', 1120, 1.2);
+      });
+      at(60, () => {
+        obs('M1', 'north', 1063, 1.2); obs('M2', 'north', 1083, 1.2);
+      });
+      passerH(200);
+      at(1200, () => obs('M1', 'north', 900, 5));
+      advanceTo(T0 + 1240 * S);
+      const own = warnings.filter((w) => w.mmsis.includes('M1')).pop();
+      expect(own.reopenedMmsis).toEqual(['M1']);
+      expect(armOf('M1').warnedAt).toBe(own.t);
+      expect(armOf('M1').foreignReleasedFrom).toBeNull();
+      expect(900 - 40 * v5).toBeGreaterThan(350);
+    });
+
+    test('låser (mutation): en korsning FÖRE varningen som bokförs EFTER den startar inget fönster', () => {
+      // M varnas ≈ 90 s; H korsar osedd ≈ 39 s och bokförs först 400 s.
+      at(0, () => {
+        obs('M', 'north', 1250, 1.2); obs('H', 'south', 100, 5);
+      });
+      advanceTo(T0 + 120 * S);
+      const e = events().find((x) => x.id === armOf('M').eventId);
+      expect(e.firedAt).toBeGreaterThan(T0 + 39 * S);
+      at(400, () => obs('H', 'south', (400 - 39) * 5 * KN, 5, { beyond: true }));
+      expect(e.foreignPassageAt).toBeNull();
+    });
+
+    test('låser (mutation): en andra främmande passage flyttar inte fönstret', () => {
+      track('M', 1100, 1.2, 0, 180);
+      const hCross = passerH(200);
+      const e = events().find((x) => x.id === armOf('M').eventId);
+      const first = e.foreignPassageAt;
+      expect(first).toBeCloseTo(T0 + hCross * S, -4);
+      const v = 5 * KN;
+      at(800, () => obs('K', 'south', 900, 5));
+      at(980, () => obs('K', 'south', 900 - 180 * v, 5));
+      at(800 + 900 / v + 60, () => obs('K', 'south', 60 * v, 5, { beyond: true }));
+      expect(e.foreignPassageAt).toBe(first);
+      expect(e.foreignPassageMmsi).toBe('H');
+    });
+  });
+
   describe('[NY] domens grindar, en i taget', () => {
     const base = () => {
       const now = T0 + 2000 * S;
@@ -504,6 +583,9 @@ describe('U45: en annan båts passage startar den varnade öppningens fönster',
       }],
       ['fönstret-pågår', (b) => {
         b.event.foreignPassageAt = b.now - 9 * 60 * S;
+      }],
+      ['fönstret-pågår', (b) => {
+        b.event.foreignPassageAt = b.now - W; // exakt vid fönstrets slut
       }],
     ])('grinden %s håller henne', (gate, mutate) => {
       const b = base();

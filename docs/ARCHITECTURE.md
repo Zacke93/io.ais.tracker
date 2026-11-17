@@ -3554,7 +3554,7 @@ samma form: släpp på ren tid och avfyrning på den ärvda deadlinen. Rättning
   bokförda passagen vid bron av en beväpnad båt som inte hör till händelsen,
   efter varningen (`crossedAt > firedAt`), i en avfyrad händelse vars kort gick
   ut och som saknar egen passage, sparas i egna fält (`foreignPassageAt`,
-  `foreignPassageRegisteredAt`, `foreignPassageMmsi`; `_noteForeignPassage`).
+  `foreignPassageMmsi`; `_noteForeignPassage`; bokföringstiden står i loggraden).
   `firstPassageAt`, referensen, bokföringen och täckningsslutet rörs aldrig, och
   när en egen passage bokförs gäller den som förut (en första version som satte
   `firstPassageAt` flyttade den låsta raden 20260712-25h 265806230 08:37:18 →
@@ -3582,14 +3582,23 @@ samma form: släpp på ren tid och avfyrning på den ärvda deadlinen. Rättning
   dedupspärr (som vid egen passage, J15); utan det hade kortet tystats som samma
   ankomst. (c) En ny båt med minst två tick kvar hör inte till händelsen när
   hon kommer mer än `CONVOY_WINDOW_MS` efter passagen (`_belongsToEvent`, bara
-  nej). Mätt i banken (25 korpusar, k1, k2): 469 → 480 varningar, k1 och k2
-  bitlika. Fyra verkliga öppningar som förut var ovarnade får en varning 8–10 min
-  före: DELFIN med ANTARES (508 s), JOY med SEEBAER III (585 s), ALINDE (492 s)
-  och HEY JOE (516 s). BEAUTYFIELD och MAJALISA får ingen: de gör under 2 kn eller
-  hålls av spärren vid Järnvägsbron tills de är inne i väntzonen. Kostnaden är tre
-  varningar för båtar som gjorde minst 2 kn mot bron och sedan inte kom inom en
-  timme (CALIMA, PILGRIM, DORY MAN) och en säkerhetsvarning (U17) efter passagen
-  för ANTARES, som absorberas i DELFIN:s nya händelse och var tyst över bron.
+  nej). `foreignReleasedFrom` följer med när en släppt båt absorberas i en annan
+  händelse; ett släpp vid täckningsslutet (U17) nollar den (varv 3), annars hade
+  säkerhetsvarningen för en tyst båt öppnat den gamla dedupspärren och nått
+  användaren efter passagen (ANTARES 11:44:44 i 20260710-13h). Mätt i banken
+  (25 korpusar, k1, k2): 469 → 479 varningar, k1 och k2 bitlika. Del 1–2
+  (släppen) ger 478, del 3 (`_belongsToEvent`) ensam ändringen i 20260707-14h
+  (HERA II binds inte i KINN:s händelse och varnas själv; LYS får U17:s varning
+  ur HERA II:s händelse). Tre verkliga öppningar som förut var ovarnade får en
+  varning 8–10 min före (DELFIN med ANTARES, JOY med SEEBAER III, ALINDE), och
+  HEY JOE (516 s) är en vinst om den andra båtens inferrerade korsning ligger
+  efter basens senaste varning. BEAUTYFIELD och MAJALISA får ingen: ingen av dem
+  har något eget fix efter fönstrets slut utanför väntzonen (BEAUTYFIELD:s enda
+  ligger 140 m från bron, 79 s före korsningen; HALIFAX:s passage bokfördes först
+  efter MAJALISA:s enda fix). Att ta dem kräver släpp på tick eller prognos,
+  alltså första versionens fel. Kostnaden är tre varningar för båtar som gick
+  minst 2 kn mot bron och sedan lade till 330–490 m ute (CALIMA, PILGRIM, DORY
+  MAN) och ett sant men dubbelt kort i samma öppning (ELIZABETH GREENWOOD, F09).
   **Kända gränser:** en medlem som köar inom väntzonen när bron öppnar för en
   annan båt släpps inte (TIM i 20260804-both-21h gick in 445 s efter MS JUTLAND
   utan att behöva en ny öppning; utan kögrinden fick hon en andra varning). En
@@ -3600,7 +3609,16 @@ samma form: släpp på ren tid och avfyrning på den ärvda deadlinen. Rättning
   tills hon är inne i väntzonen, eller som aldrig gör 2 kn utanför den, släpps
   inte (BEAUTYFIELD). En släppt båt som hölls vid en tidigare bro när en annan
   händelse varnade binds inte i den (F09) och kan få en egen varning för samma
-  öppning (ELIZABETH GREENWOOD i both-21h, 89 s efter CHARLYS DREAM:s).
+  öppning: ELIZABETH GREENWOOD i both-21h, 89 s efter CHARLYS DREAM:s, och i
+  granskningens byggda konvojer genom Järnvägsbron 64 av 180 båtfall. På basen
+  kunde det inte hända, eftersom hon stod kvar i sin gamla händelse. Ett enda
+  fix med falsk fart på minst 2 kn kan släppa en stilla båt utanför väntzonen
+  (4 av 24 byggda världar 400 m från bron); ett krav på minskat avstånd sedan
+  förra fixet tog inte bort dem (armen hade inte tillämpat krypfixen emellan)
+  och kostade vinster, så det är inte infört. En släppt och absorberad båt som
+  bakkanten sedan släpper nära bron (utan golv) får sitt kort, eftersom flaggan
+  öppnar dedupspärren (1 av 594 byggda världar, 15 s ledtid); den korta
+  ledtiden är bakkantens.
   Testen ligger i `tests/u45-annan-bats-passage.test.js`,
   `tests/u45-dedup-app.test.js` och två syntetiska scenarier
   (`annan-båts-passage-använder-den-varnade-öppningen-vid-Klaffbron`).
