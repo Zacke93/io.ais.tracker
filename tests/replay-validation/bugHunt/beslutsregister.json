@@ -849,7 +849,7 @@
           "fönsterMin": 30
         }
       },
-      "regel": "Rådatafacitet bokför ingen korsning när en fix i paret ligger mer än 250 m från farleden; en app-passage för en sådan båt kan sakna facitkorsning utan att vara fel (RIB 218023240, fix 877 m utanför farleden)."
+      "regel": "Rådatafacitet bokför ingen korsning när en fix i paret ligger mer än 250 m från farleden; en app-passage för en sådan båt kan sakna facitkorsning utan att vara fel (sändaren 218023240, troligen ett landfordon, fix 877 m utanför farleden)."
     },
     {
       "id": "TVÅ-ÅTERKORSADE-BROAR-I-SAMMA-SEGMENT",
