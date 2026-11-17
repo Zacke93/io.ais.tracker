@@ -3621,6 +3621,34 @@ const SCENARIOS = [
       toleratedInvariants: [/^MISSAD MÅLBRO-NOTIS: \d{9}:Klaffbron — /],
     },
   },
+  // N6 (granskningen av N2, sidofyndet): FÖRVARNINGEN PÅ EN POSITION BORTOM
+  // BRON VÄNDE BROBESÖKET. Granskarens bana: söderut i 5 kn med 120 s kadens,
+  // fixarna ~280 m norr om Järnvägsbron och sedan ~25 m söder om den, där
+  // förvarningen går ut ("beräknad ankomst strax", vid bron, står kvar). Båten
+  // fortsätter 176 m söderut, vänder, ligger 4 m söder om linjen i 300 s och
+  // går sedan tillbaka norrut genom bron. Besöket fick bortre sidan norr (fel),
+  // och den verkliga returen gav ingen notis. PLACERINGEN ÄR TESTET: benen och
+  // kadensen ger förvarningsfixen bortom linjen (granskarens svep, 48 av 48).
+  {
+    name: 'förvarning-25m-bortom-Järnvägsbron-120s-sedan-retur-norrut (N6)',
+    seed: 73316,
+    vessels: [{
+      mmsi: '973316001',
+      name: 'SYNT-N6-RETUR',
+      startS: METRICS.cum[3] + 900,
+      legs: [
+        { toS: METRICS.cum[3] - 176, speedKn: 5, intervalS: 120 },
+        { toS: METRICS.cum[3] - 4, speedKn: 3.5, intervalS: 120 },
+        { stopS: 300, stopIntervalS: 120, stopCogRandom: true },
+        { toS: METRICS.cum[3] + 900, speedKn: 4, intervalS: 120 },
+      ],
+    }],
+    expect: {
+      minNotifiedPerBridge: { Järnvägsbron: 2 },
+      maxNotifiedPerBridge: { Järnvägsbron: 2 },
+      noticeForms: { Järnvägsbron: ['närmar', 'precis'] },
+    },
+  },
 ];
 
 function runScenario(scenario) {

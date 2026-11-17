@@ -11637,8 +11637,13 @@ class AISBridgeApp extends Homey.App {
       this._triggeredBoatNearKeys.add(dedupeKey);
       // U14: en notis i passerad form gäller en passage som redan skett; besöket
       // behöver det för att veta vilken sida av bron som är den bortre.
+      // N6: notisens egen färdriktning följer med, så att en förvarning på en
+      // position redan bortom linjen inte vänder besöket.
+      let travelSign = 0;
+      if (notificationDirection === 'northbound') travelSign = 1;
+      else if (notificationDirection === 'southbound') travelSign = -1;
       ownVisitEntry = this._triggerPointVisits?.reserve(
-        vessel, bridgeName, { passageBehind: passedBridgeSource },
+        vessel, bridgeName, { passageBehind: passedBridgeSource, travelSign },
       ) || null;
       if (ownVisitEntry) this._persistTriggerPointVisits();
       // Anomali 9 fix: lagra också i persistent map som inte clearas vid

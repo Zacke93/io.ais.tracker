@@ -1,0 +1,266 @@
+'use strict';
+
+/**
+ * N6 (granskningen av N2, sidofyndet vid Järnvägsbron; ägarfråga F9): EN
+ * FÖRVARNING PÅ EN POSITION SOM REDAN LIGGER BORTOM BRON.
+ *
+ * (b) Besökets bortre sida. En förvarning ("närmar sig …") reserverar brobesöket
+ * med bortre sidan MOTSATT positionens sida: passagen antogs ligga framför
+ * båten. Med glesa positioner kan förvarningen gå ut på en position som redan
+ * ligger entydigt bortom linjen i färdriktningen (granskarens bana: 120 s
+ * kadens söderut, fixen 22 m söder om Järnvägsbron). Besöket vändes då, och
+ * - en ensam brusposition på andra sidan följd av en fix söderut gav en falsk
+ *   "har precis passerat Järnvägsbron" 12 min efter den verkliga passagen;
+ * - en verklig retur norrut genom bron gav ingen notis alls (48 av 48 banor).
+ * I banken: HALIFAX (20260708-21h) syntes första gången 194 m söder om
+ * Olidebron på väg söderut, fick "närmar sig Olidebron" och fick ingen notis
+ * när hon vände och passerade Olidebron norrut 12 min senare.
+
+ */
+
+const path = require('path');
+const { execFileSync } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+const TriggerPointVisitTracker = require('../lib/services/TriggerPointVisitTracker');
+const { BRIDGES } = require('../lib/constants');
+const { generateScenario, buildPath, pathMetrics } = require('./replay-validation/scenarioGenerator');
+
+const ROOT = path.resolve(__dirname, '..');
+const RUNNER = path.join(ROOT, 'tests/replay-validation/replayRunner.js');
+const JVB = BRIDGES.jarnvagsbron;
+const MMSI = '265799290';
+const LIMITS = { maxBookingAgeMs: Infinity, maxLatenessMs: 10 * 60 * 1000, sparseFixGapMs: 30000 };
+const NORTH_COG = 40;
+const SOUTH_COG = 220;
+
+/** Position d m från brolinjen längs kanalaxeln (+ = nordöstra sidan), L m i sidled. */
+const at = (bridge, d, L = 0) => {
+  const pe = ((bridge.axisBearing - 90) * Math.PI) / 180;
+  const ax = (bridge.axisBearing * Math.PI) / 180;
+  const n = d * Math.cos(pe) + L * Math.cos(ax);
+  const e = d * Math.sin(pe) + L * Math.sin(ax);
+  return { lat: bridge.lat + n / 111320, lon: bridge.lon + e / (111320 * Math.cos((bridge.lat * Math.PI) / 180)) };
+};
+
+describe('N6 (b): besökets bortre sida när förvarningen går ut bortom linjen', () => {
+  let now;
+  let tracker;
+
+  beforeEach(() => {
+    now = Date.parse('2026-11-16T10:00:00Z');
+    tracker = new TriggerPointVisitTracker({ now: () => now });
+  });
+
+  const fix = (d, extra = {}) => ({
+    mmsi: MMSI,
+    ...at(JVB, d),
+    sog: 5,
+    cog: SOUTH_COG,
+    _routeDirection: 'south',
+    timestamp: now,
+    lastPositionUpdate: now,
+    fixTs: now,
+    fixFeed: 'aisstream',
+    ...extra,
+  });
+  const step = (d, extra = {}, seconds = 120) => {
+    now += seconds * 1000;
+    const vessel = fix(d, typeof extra === 'function' ? extra() : extra);
+    tracker.observe(vessel, JVB.name);
+    return vessel;
+  };
+  const farSign = () => tracker.exportSnapshot().entries[`${MMSI}:${JVB.name}`].farSign;
+  const release = (vessel) => tracker.releaseReturnPassage(vessel, JVB.name, LIMITS);
+
+  /** Granskarens bana: förvarningen på fixen 22 m söder om linjen, sedan utpassagens bokföring 176 m söderut. */
+  function noticeBeyondThenOutbound() {
+    expect(tracker.reserve(fix(-22), JVB.name, { passageBehind: false, travelSign: -1 })).not.toBeNull();
+    const outAt = now + 120000;
+    step(-176, () => ({ lastPassedBridge: JVB.name, lastPassedBridgeTime: outAt, passedBridges: [JVB.name] }));
+    return outAt;
+  }
+
+  test('förvarningen 22 m söder om linjen söderut: bortre sidan är söder (förut norr)', () => {
+    noticeBeyondThenOutbound();
+    expect(farSign()).toBe(-1);
+  });
+
+  test('vänder, väntar 4 m söder om linjen, en brusfix 14 m norr om den och sedan 248 m söderut: ingen falsk retur', () => {
+    const outAt = noticeBeyondThenOutbound();
+    const turned = {
+      _routeDirection: 'south', sog: 0.1, cog: 300, lastPassedBridge: JVB.name, lastPassedBridgeTime: outAt,
+    };
+    expect(release(step(-4, turned))).toBeFalsy();
+    // Brusfixen: farten är inflygningens (3,5 kn) och utpassagens bokföring står kvar.
+    expect(release(step(14, { ...turned, sog: 3.5, cog: NORTH_COG }))).toBeFalsy();
+    const away = step(-248, {
+      _routeDirection: 'south', sog: 4, cog: SOUTH_COG, lastPassedBridge: JVB.name, lastPassedBridgeTime: outAt,
+    });
+    expect(release(away)).toBeFalsy();
+    expect(tracker.holds(MMSI, JVB.name)).toBe(true);
+  });
+
+  test('verklig retur norrut genom bron: besöket släpps (förut ingen notis)', () => {
+    noticeBeyondThenOutbound();
+    step(-60, { _routeDirection: 'north', sog: 4, cog: NORTH_COG });
+    const back = step(60, () => ({
+      _routeDirection: 'north', sog: 4, cog: NORTH_COG, lastPassedBridge: JVB.name, lastPassedBridgeTime: now,
+    }));
+    expect(release(back)).toMatchObject({ farSign: -1, evidence: 'ankomstsidan' });
+  });
+
+  test('motfall: förvarning före linjen ger bortre sidan framför båten som förut', () => {
+    tracker.reserve(fix(200), JVB.name, { travelSign: -1 });
+    expect(farSign()).toBe(-1);
+  });
+
+  test('motfall: kursen pekar tillbaka mot bron (ruttlåset ännu inte vänt): bortre sidan som förut', () => {
+    tracker.reserve(fix(-22, { cog: NORTH_COG }), JVB.name, { travelSign: -1 });
+    expect(farSign()).toBe(1);
+  });
+
+  test('motfall: okänd färdriktning ger bortre sidan som förut', () => {
+    tracker.reserve(fix(-22, { _routeDirection: null }), JVB.name, { travelSign: 0 });
+    expect(farSign()).toBe(1);
+  });
+
+  test('motfall: på linjen (±10 m) följer bortre sidan ruttriktningen som förut', () => {
+    tracker.reserve(fix(-6), JVB.name, { travelSign: -1 });
+    expect(farSign()).toBe(-1);
+  });
+
+  test('utan travelSign gäller ruttlåset (äldre anrop)', () => {
+    tracker.reserve(fix(-22), JVB.name);
+    expect(farSign()).toBe(-1);
+  });
+
+  // Alla fem broarna åt båda hållen: förvarningen 25 m bortom linjen ger bortre
+  // sidan där båten ligger, och en verklig retur släpps.
+  const BOTH = [];
+  for (const key of ['olidebron', 'klaffbron', 'jarnvagsbron', 'stridsbergsbron', 'stallbackabron']) {
+    BOTH.push([BRIDGES[key].name, 'south'], [BRIDGES[key].name, 'north']);
+  }
+  test.each(BOTH)('%s %s: förvarning 25 m bortom linjen, sedan verklig retur', (name, travel) => {
+    const b = Object.values(BRIDGES).find((x) => x.name === name);
+    const sign = travel === 'north' ? 1 : -1;
+    const ahead = { _routeDirection: travel, cog: travel === 'north' ? NORTH_COG : SOUTH_COG, sog: 5 };
+    const back = { _routeDirection: travel === 'north' ? 'south' : 'north', cog: travel === 'north' ? SOUTH_COG : NORTH_COG, sog: 4 };
+    const v = (d, extra) => ({
+      mmsi: MMSI, ...at(b, sign * d), timestamp: now, lastPositionUpdate: now, fixTs: now, fixFeed: 'aisstream', ...extra,
+    });
+    expect(tracker.reserve(v(25, ahead), name, { travelSign: sign })).not.toBeNull();
+    expect(tracker.exportSnapshot().entries[`${MMSI}:${name}`].farSign).toBe(sign);
+    now += 60000;
+    tracker.observe(v(200, { ...ahead, lastPassedBridge: name, lastPassedBridgeTime: now }), name);
+    now += 60000;
+    tracker.observe(v(60, back), name);
+    now += 60000;
+    const ret = v(-60, { ...back, lastPassedBridge: name, lastPassedBridgeTime: now });
+    tracker.observe(ret, name);
+    expect(tracker.releaseReturnPassage(ret, name, LIMITS)).toMatchObject({ farSign: sign, evidence: 'ankomstsidan' });
+  });
+
+  describe('motfall: väntar strax FÖRE bron, förvarningen gick ut på en brusposition bortom linjen', () => {
+    // Båten går söderut och väntar 14–18 m norr om linjen (entydigt på
+    // tillfartssidan); förvarningen gick ut på en brusfix 13 m söder om den. Besöket får bortre sidan söder men
+    // noterar den inte som sedd.
+    function waitWithNoise() {
+      expect(tracker.reserve(fix(-13, { sog: 0.3, cog: 200 }), JVB.name, { travelSign: -1 })).not.toBeNull();
+      for (const d of [16, 14, 18, 15]) step(d, { sog: 0.2, cog: 90 }, 30);
+    }
+
+    test('bortre sidan är söder, men den är inte sedd', () => {
+      waitWithNoise();
+      expect(farSign()).toBe(-1);
+      expect(tracker.exportSnapshot().entries[`${MMSI}:${JVB.name}`].farSideSeenAt).toBeNull();
+    });
+
+    test('vänder och åker norrut igen med en falsk bokföring vid linjen: ingen retur', () => {
+      waitWithNoise();
+      const booked = () => ({
+        _routeDirection: 'north', sog: 3.5, cog: NORTH_COG, lastPassedBridge: JVB.name, lastPassedBridgeTime: now,
+      });
+      expect(release(step(5, booked, 30))).toBeFalsy();
+      expect(release(step(60, booked, 30))).toBeFalsy();
+      expect(release(step(150, { _routeDirection: 'north', sog: 4, cog: NORTH_COG }, 30))).toBeFalsy();
+    });
+
+    // Förut (bortre sidan norr) gav den verkliga passagen ett retursläpp: en
+    // andra notis, "har precis passerat", för samma passage.
+    test('passerar söderut när bron öppnar: ingen andra notis för samma passage', () => {
+      waitWithNoise();
+      const booked = () => ({
+        sog: 4, lastPassedBridge: JVB.name, lastPassedBridgeTime: now, passedBridges: [JVB.name],
+      });
+      expect(release(step(-40, booked, 30))).toBeFalsy();
+      expect(release(step(-160, { sog: 4 }, 30))).toBeFalsy();
+      expect(tracker.holds(MMSI, JVB.name)).toBe(true);
+    });
+  });
+});
+
+describe('N6: granskarens bana i replay (120 s kadens, Järnvägsbron söderut)', () => {
+  const P = buildPath();
+  const M = pathMetrics(P);
+  const b = M.cum[3];
+
+  // Svepets bana: söderut i 5 kn förbi bron, till 176 m bortom, tillbaka till
+  // 4 m bortom i 3,5 kn, stopp 300 s, sedan bort söderut eller tillbaka norrut.
+  function run(efter, seed, outlierX = null) {
+    const legs = [
+      { toS: b - 176, speedKn: 5, intervalS: 120 },
+      { toS: b - 4, speedKn: 3.5, intervalS: 120 },
+      { stopS: 300, stopIntervalS: 120, stopCogRandom: true },
+      efter === 'bort' ? { toS: b - 900, speedKn: 4, intervalS: 120 } : { toS: b + 900, speedKn: 4, intervalS: 120 },
+    ];
+    const samples = generateScenario({
+      name: 'N6',
+      seed,
+      vessels: [{
+        mmsi: `94${String(seed).padStart(7, '0')}`, name: 'GRSVEP', jitterM: 3, startS: b + 900, legs,
+      }],
+    });
+    if (outlierX !== null) {
+      // Brusfixen: den inflygningsfix som ligger närmast stoppunkten flyttas X m norr om bron.
+      const { pointAt } = require('./replay-validation/scenarioGenerator');
+      const stop = pointAt(P, M, b - 4);
+      let best = -1;
+      let bd = Infinity;
+      samples.forEach((s, i) => {
+        if (s.sog > 1) {
+          const d = Math.hypot((s.lat - stop.lat) * 111320, (s.lon - stop.lon) * 111320 * Math.cos((s.lat * Math.PI) / 180));
+          if (d < bd) {
+            bd = d;
+            best = i;
+          }
+        }
+      });
+      const q = pointAt(P, M, b + outlierX);
+      samples[best].lat = q.lat;
+      samples[best].lon = q.lon;
+      samples[best].sog = 3.5;
+    }
+    const tmp = path.join(os.tmpdir(), `n6-${process.pid}-${seed}.jsonl`);
+    fs.writeFileSync(tmp, samples.map((s) => JSON.stringify(s)).join('\n'));
+    try {
+      const out = execFileSync('node', [RUNNER, tmp], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 << 20 });
+      const r = JSON.parse(out.match(/__REPLAY_JSON__([\s\S]*?)__END__/)[1]);
+      return r.notifications.filter((x) => x.bridge === JVB.name).map((x) => x.message);
+    } finally {
+      fs.unlinkSync(tmp);
+    }
+  }
+
+  test('bort med brusfix 14 m norr om bron: en notis, ingen sen falsk "har precis passerat"', () => {
+    const msgs = run('bort', 73265, 14);
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toMatch(/närmar sig Järnvägsbron/);
+  }, 120000);
+
+  test('passerar tillbaka norrut, utan brusfix: returen får sin notis', () => {
+    const msgs = run('passerar', 73316);
+    expect(msgs).toHaveLength(2);
+    expect(msgs[1]).toMatch(/har precis passerat Järnvägsbron|passerade Järnvägsbron under AIS-tystnad/);
+  }, 120000);
+});
