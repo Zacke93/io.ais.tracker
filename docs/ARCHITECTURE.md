@@ -4304,8 +4304,18 @@ Underlaget står i `docs/helgranskning-2026-11-03.md`; varje fynd prövades med 
   nycklarna, så inget skrivs och nästa position prövas på nytt). Har båten hållits inne för en bro
   hålls förvarningen också (b) när hon sedan går bort i minst 2 kn med kursen i notisens riktning
   på samma sida (riktningen är då belagd och bron ligger bakom henne), och (c) medan riktningen
-  är okänd och hon ligger kvar på samma sida. Spärren minns per båt och bro
-  (`_slowBridgeBehindHolds`, städas i `_onVesselRemoved`). En passagenotis (S4, BN2,
+  är okänd och hon ligger kvar på samma sida. **Undantaget i (a) (granskningen av D3, H1):**
+  notisens riktning kommer i första hand ur ruttlåset, och ett enda omvänt kursvärde i krypfart
+  kan låsa det åt fel håll; låset vänder först i fart. Rör sig båten belagt mot bron hålls därför
+  inget inne (`_slowVesselHeadsForBridge`): kursen är giltig (minst `MIN_VIABLE_SPEED_KN`) och
+  pekar mot bron (`geometry.courseBridgeSide`), och positionen har sedan föregående position
+  kommit minst `SLOW_BRIDGE_APPROACH_MIN_M` (10 m, mer än positionsbruset) närmare linjen på
+  samma sida. Förvarningen får då låsets riktning, som förut. Granskarens förslag med bara
+  kursen öppnade den falska notisen igen för en båt bortom bron med brus i kursen (byggda
+  världar: stilla med slumpad kurs 7 → 15 av 20, glider bort med ett omvänt kursvärde 8 → 16,
+  krypfart och fart bort 8 → 20); med förflyttningskravet är de som utan undantaget (7, 8, 8).
+  Spärren minns per båt och bro (`_slowBridgeBehindHolds`, städas i `_onVesselRemoved`); den
+  första inhållna positionen per båt och bro loggas i fältloggen, resten som debug. En passagenotis (S4, BN2,
   retroaktiva källor) går alltid ut, och en ny båt i minst 2 kn följer punkt 1. HALIFAX
   (20260708-21h, 194 m söder om Olidebron i 1,1 kn med kursen söderut; hon låg och drev på
   tillfartssidan och gick norrut genom bron 11,6 min senare) får i stället för "närmar sig
@@ -4318,11 +4328,26 @@ Underlaget står i `docs/helgranskning-2026-11-03.md`; varje fynd prövades med 
   förvarning 37–39 m bortom bron där appen inte bokförde korsningen och ruttlåset från driften
   pekade fel (3 av dem exakt som förut), och 1 ingen notis (se gränserna nedan). Förut fick 72 av
   de 90 en förvarning i fel riktning innan glappet.
-  - *Förvarningen kommer senare* för en båt som driver bort från bron och sedan går igenom: i
-    driftsvepet (60 världar) median 111 s före korsningen mot 471 s förut, i gles drift (20
-    världar) 97 mot 217 s; fel riktning 46 → 24 respektive 16 → 8. Den tidigare förvarningen
-    nämnde rätt bro men fel riktning och fel minuttal (HALIFAX: 11,6 min före passagen, "om 6
-    minuter", söderut).
+  - *Förvarningen kommer senare* för en båt som driver bort från bron, ligger still och sedan går
+    igenom. Driftsvepet (60 världar), första notisen mot den sanna korsningen (antal, därav rätt
+    riktning), `6fad291` → nu: efter korsningen 4 (4) → 4 (4); 0–59 s 6 (6) → 6 (6); 60–119 s 2
+    (2) → 30 (6); 120–299 s 0 → 14 (14); 300–599 s 48 (1) → 6 (5). 22 världar går från fel till rätt
+    riktning (median 472 → 232 s), 13 är rätt och oförändrade, och **25 förblir i fel riktning med
+    ledtiden kapad från median 472 till 112 s**: ruttlåset från driften pekar bort från bron, båten
+    ligger still med slumpad kurs (ingen förflyttning, alltså inget undantag) och notisen går ut
+    först när hon går i fart. Gles drift (20 världar): 217 → 97 s, fel riktning 16 → 8. En stilla
+    båt med slumpad kurs ser likadan ut på tillfartssidan (ska få notisen) och bortom bron (ska inte
+    få den); regeln väljer att hålla inne. Samma sak för en väntande båt 100 m före bron med fel lås
+    (granskarens VQ): 4 av 20 får förvarningen 49 s före korsningen i fel riktning, som utan
+    undantaget (förut 589–649 s, också fel riktning). Den tidigare förvarningen nämnde rätt bro men
+    fel riktning och fel minuttal (HALIFAX: 11,6 min före passagen, "om 6 minuter", söderut).
+  - *Krypfart genom bron hela vägen* (granskarens KK, 30 världar i 1,0–1,9 kn utan någon position
+    i fart): när båten ligger på linjen (±10 m) släpper spärren och förvarningen går ut med
+    låsets riktning; i 2 av 30 blir det "närmar sig … strax" 3 s efter korsningen (5 utan
+    undantaget, 0 på `6fad291`, där förvarningen kom 237–297 s före i fel riktning). 9 av de 30 får
+    med undantaget förvarningen i fel riktning 196–444 s före, som på `6fad291`, i stället för vad
+    de fick utan undantaget (8 passagenotisen 36–44 s efter korsningen, 1 en förvarning i rätt
+    riktning 57 s före).
   - *Järnvägsbron och Stridsbergsbron i samma glapp*: hålls Järnvägsbrons förvarning inne för en
     båt söder om bron, och nästa position kommer först bortom Stridsbergsbron (ett hopp under
     `LARGE_JUMP_LAT_DEG`), bokförs Stridsbergsbron först och Järnvägsbrons passage spärras av

@@ -239,6 +239,9 @@ const ETA_CLAMP_RELEASE_DISTANCE_M = UNDER_BRIDGE_CLEAR_DISTANCE;
 // (_isNewVesselPastNotifiedBridge, U44 punkt 1) och brobesökets bortre sida
 // (U44 punkt 4), så att reglerna möts utan glapp vid 2 kn.
 const SLOW_BRIDGE_BEHIND_MAX_KN = 2.0;
+// Granskningen av D3 (H1): minsta förflyttning mot brolinjen sedan föregående
+// position för att en kurs mot bron ska räknas som belagd (mer än ±10 m brus).
+const SLOW_BRIDGE_APPROACH_MIN_M = 10;
 // F07 (granskning 2, A): brogruppens fönster för sänkningar från osedda båtar —
 // samma 30 s som RC4:s burstskydd i _reconcilePublishedETA.
 const UNSEEN_GROUP_WINDOW_MS = 30000;
@@ -4038,6 +4041,11 @@ class AISBridgeApp extends Homey.App {
     if (this._skippedBridgesSweepSeen) this._skippedBridgesSweepSeen.delete(String(mmsi));
     // U44 punkt 3: spärren för en bro bakom en långsam båt (en post per mmsi).
     if (this._slowBridgeBehindHolds) this._slowBridgeBehindHolds.delete(String(mmsi));
+    if (this._slowBridgeBehindLogged) {
+      for (const key of this._slowBridgeBehindLogged) {
+        if (key.startsWith(`${mmsi}:`)) this._slowBridgeBehindLogged.delete(key);
+      }
+    }
 
     // F2-följdfix (körning 2026-07-03, SPIKEN-klassen): minns senaste kända
     // position vid removal. När fartyget återföds behandlas det som "ny båt"
@@ -11107,7 +11115,9 @@ class AISBridgeApp extends Homey.App {
    *  (a) farten är under 2 kn: riktningen är inte belagd. Spärren minns bron
    *      och sidan. Notisen kommer när riktningen pekar mot bron (HALIFAX
    *      norrut 08:39:34, 160 m före bron, "om 1 minut"), eller i passerad form
-   *      när appen ser korsningen;
+   *      när appen ser korsningen. Undantag (granskningen av D3, H1): pekar en
+   *      giltig kurs (minst MIN_VIABLE_SPEED_KN) mot bron hålls inget inne, för
+   *      då är det ruttlåset som pekar fel, inte bron som ligger bakom;
    *  (b) eller båten har hållits inne för samma bro på samma sida och går nu
    *      i minst 2 kn med kursen i notisens riktning: riktningen är belagd och
    *      bron ligger bakom henne. Utan den här delen fick en båt som först hörs
@@ -11127,8 +11137,9 @@ class AISBridgeApp extends Homey.App {
    *
    * Spärren minns per båt och bro i _slowBridgeBehindHolds (sidan, +1 eller
    * −1), som städas i _onVesselRemoved. Den sparas inte över en omstart (känd
-   * gräns). En gammal spärr kan bara hålla inne en förvarning för en bro som
-   * entydigt ligger bakom båten på samma sida.
+   * gräns). En gammal spärr kan bara hålla inne en förvarning för en bro när
+   * båten ligger entydigt på samma sida som när spärren sattes: i (b) ligger
+   * bron då bakom henne, i (c) är riktningen okänd.
    * @param {Object} vessel
    * @param {string} bridgeName
    * @param {string} notificationDirection - 'northbound' | 'southbound' | 'unknown'
@@ -11154,6 +11165,15 @@ class AISBridgeApp extends Homey.App {
     // Bron ligger framför båten eller hon är vid linjen: ingen spärr.
     if (side !== travelSign) return false;
     if (vessel.sog < SLOW_BRIDGE_BEHIND_MAX_KN) {
+      // Granskningen av D3 (H1): pekar den aktuella kursen MOT bron är det
+      // riktningen som är fel, inte bron som ligger bakom. Riktningen kommer i
+      // första hand ur ruttlåset, och ett enda omvänt kursvärde i krypfart kan
+      // låsa det åt fel håll; låset vänder först i fart. Utan undantaget hölls
+      // en båt som kröp mot Klaffbron norrifrån (låset norr, kursen 210°) inne
+      // i tolv minuter och fick förvarningen 29 s före korsningen, fortfarande
+      // norrut. Kursen räknas bara när den är giltig (minst
+      // MIN_VIABLE_SPEED_KN, samma gräns som notisriktningen ur kursen).
+      if (this._slowVesselHeadsForBridge(vessel, bridge, side)) return false;
       if (!this._slowBridgeBehindHolds) this._slowBridgeBehindHolds = new Map();
       if (!this._slowBridgeBehindHolds.has(mmsi)) this._slowBridgeBehindHolds.set(mmsi, new Map());
       this._slowBridgeBehindHolds.get(mmsi).set(bridgeName, side);
@@ -11162,6 +11182,37 @@ class AISBridgeApp extends Homey.App {
     if (holds?.get(bridgeName) !== side || !Number.isFinite(vessel.cog)) return false;
     const courseAlong = travelSign === 1 ? isNorthCog(vessel.cog) : isSouthCogStrict(vessel.cog);
     return courseAlong;
+  }
+
+  /**
+   * U44 punkt 3, undantaget i (a) (granskningen av D3, H1): rör sig båten
+   * belagt MOT bron trots att notisens riktning säger att bron ligger bakom?
+   * Då är det riktningen (ruttlåset) som är fel och förvarningen ska gå ut.
+   * Två oberoende belägg krävs, eftersom ett ensamt kursvärde i krypfart är
+   * brus (D3 varv 2: med bara kursen kom den falska notisen tillbaka för en
+   * båt bortom bron med slumpad kurs i 15 av 20 byggda världar, mot 7 utan
+   * undantaget):
+   *  - kursen är giltig (minst MIN_VIABLE_SPEED_KN) och pekar mot bron
+   *    (geometry.courseBridgeSide, samma normal som brolinjen), och
+   *  - positionen har sedan föregående position kommit minst
+   *    SLOW_BRIDGE_APPROACH_MIN_M närmare brolinjen på samma sida, mer än
+   *    positionsbruset (±10 m, samma marginal som decisiveBridgeSide).
+   * @param {Object} vessel
+   * @param {Object} bridge
+   * @param {number} side - båtens entydiga sida (+1/−1)
+   * @returns {boolean}
+   * @private
+   */
+  _slowVesselHeadsForBridge(vessel, bridge, side) {
+    if (!Number.isFinite(vessel.cog) || !(vessel.sog >= MIN_VIABLE_SPEED_KN)) return false;
+    if (geometry.courseBridgeSide(vessel.cog, bridge) !== -side) return false;
+    const prev = vessel.lastPosition;
+    if (!prev || !Number.isFinite(prev.lat) || !Number.isFinite(prev.lon)) return false;
+    const prevOffset = geometry.bridgeLineOffsetM(prev, bridge);
+    const nowOffset = geometry.bridgeLineOffsetM(vessel, bridge);
+    if (!Number.isFinite(prevOffset) || !Number.isFinite(nowOffset)) return false;
+    if (Math.sign(prevOffset) !== side) return false;
+    return (prevOffset - nowOffset) * side >= SLOW_BRIDGE_APPROACH_MIN_M;
   }
 
   /**
@@ -11686,8 +11737,14 @@ class AISBridgeApp extends Homey.App {
     // alltid ut), före besöket och nycklarna (inget skrivs, nästa position
     // prövas på nytt). Se _isSlowVesselPastNotifiedBridge.
     if (!passedBridgeSource && this._isSlowVesselPastNotifiedBridge(vessel, bridgeName, notificationDirection)) {
-      this.log(
-        `⏸️ [FLOW_TRIGGER_SLOW_BRIDGE_BEHIND] ${mmsiLabel}: "${bridgeName}" ligger bakom båten i notisens `
+      // Fältloggen får raden första gången per båt och bro, därefter debug.
+      if (!this._slowBridgeBehindLogged) this._slowBridgeBehindLogged = new Set();
+      const holdLogKey = `${mmsiLabel}:${bridgeName}`;
+      const firstHoldLog = !this._slowBridgeBehindLogged.has(holdLogKey);
+      if (firstHoldLog) this._slowBridgeBehindLogged.add(holdLogKey);
+      (firstHoldLog ? this.log : this.debug).call(
+        this,
+        `⏸️ [FLOW_TRIGGER_SLOW_BRIDGE_BEHIND] ${mmsiLabel}: "${bridgeName}" ligger bortom båten i notisens `
         + `riktning (${notificationDirection}, ${vessel.sog} kn) — ingen notis förrän riktningen är belagd`,
       );
       return;

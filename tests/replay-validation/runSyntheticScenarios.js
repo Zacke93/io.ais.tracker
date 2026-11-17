@@ -4757,6 +4757,40 @@ const SCENARIOS = [
       noticeDirections: { Klaffbron: ['northbound'] },
     },
   },
+  // Granskningen av D3 (H1): FEL RUTTLÅS FÖR EN BÅT SOM VERKLIGEN NÄRMAR SIG.
+  // Båten kryper i 1,5 kn söderut mot Klaffbron från 290 m norr om bron. Första
+  // positionen rapporterar kursen 30° (brus i krypfart) och ger ruttlåset
+  // norrut; resten ~210°. Hon väntar 60 m före bron och går igenom i 4 kn.
+  // Låset vänder först i fart, så notisens riktning säger norrut och bron
+  // ligger "bakom" henne: regel (a) höll inne förvarningen under hela
+  // inflygningen och väntan och släppte den först i fart, under en minut före
+  // korsningen (granskarens värld i 1 kn: 29 s). Nu går den ut när kursen och
+  // förflyttningen båda visar att hon rör sig mot bron (riktningen är låsets,
+  // som förut). PLACERINGEN ÄR TESTET: tillfartssidan, ett omvänt kursvärde
+  // först.
+  {
+    name: 'kryper-mot-Klaffbron-söderut-fel-ruttlås-ur-första-kursen (U44:3, H1)',
+    seed: 74406,
+    vessels: [{
+      mmsi: '974406001',
+      name: 'SYNT-U44-FELLAS',
+      startS: METRICS.cum[2] + 290,
+      legs: [
+        {
+          toS: METRICS.cum[2] + 260, speedKn: 1.5, intervalS: 60, cogDeg: 30,
+        },
+        { toS: METRICS.cum[2] + 60, speedKn: 1.5, intervalS: 60 },
+        {
+          stopS: 240, stopIntervalS: 60, stopSog: 0.3, stopCogRandom: true,
+        },
+        { toS: METRICS.cum[2] - 700, speedKn: 4, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      maxNotifiedPerBridge: { Klaffbron: 1 },
+      noticeLeadS: { Klaffbron: 300 },
+    },
+  },
 ];
 
 function runScenario(scenario) {
@@ -5107,6 +5141,26 @@ function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
         .map((n) => n.direction);
       if (JSON.stringify(got) !== JSON.stringify(dirs)) {
         problems.push(`NOTISRIKTNING vid ${bridge}: [${got.join(', ')}] ≠ [${dirs.join(', ')}]`);
+      }
+    }
+  }
+  // U44 punkt 3, granskningen av D3 (H1): förvarningens ledtid mot den SANNA
+  // korsningen (generatorns truthPath). Första notisen för bron före båtens
+  // första korsning ska vara en förvarning minst N s före korsningen.
+  if (e.noticeLeadS) {
+    for (const [bridge, minLeadS] of Object.entries(e.noticeLeadS)) {
+      const sBridge = METRICS.cum[PATH_INDEX[bridge]];
+      for (const [mmsi, truthPath] of Object.entries(truthPaths || {})) {
+        const [first] = truthCrossings(truthPath, sBridge);
+        if (!first) continue;
+        const crossingMs = BASE_TIME_MS + first.tS * 1000;
+        const own = notifications.filter((n) => n.bridge === bridge && String(n.mmsi) === mmsi)
+          .sort((x, y) => x.t - y.t);
+        const n = own[0];
+        const leadS = n ? (crossingMs - n.t) / 1000 : null;
+        if (!n || n.alreadyPassed || leadS < minLeadS) {
+          problems.push(`FÖRVARNINGENS LEDTID vid ${bridge} (${mmsi}): ${n ? `${Math.round(leadS)} s` : 'ingen notis'} före sann korsning, krav minst ${minLeadS} s`);
+        }
       }
     }
   }

@@ -17,6 +17,11 @@
  * hållits inne för samma bro på samma sida och går nu bort i minst 2 kn med
  * kursen i notisens riktning, eller (c) har redan hållits inne och riktningen
  * är okänd. Ingen nyckel och inget besök skrivs. Passagenotiser går ut.
+ *
+ * Granskningen av D3 (H1): i (a) hålls inget inne när båten belagt rör sig
+ * mot bron (giltig kurs mot bron OCH minst 10 m närmare linjen sedan
+ * föregående position). Då är det ruttlåset som pekar fel. Ett ensamt
+ * kursvärde mot bron utan förflyttning (brus i krypfart) räcker inte.
  */
 
 jest.mock('homey');
@@ -278,6 +283,149 @@ describe('U44 punkt 3: förvarning om en bro bakom en långsam båt', () => {
     const sent = await notify(app, OLIDE, v);
     expect(sent).toHaveLength(1);
     expect(sent[0].message).toBe('SABETH har precis passerat Olidebron');
+  });
+
+  describe('H1 (granskningen av D3): fel ruttlås för en båt som verkligen närmar sig', () => {
+    // Kryper söderut mot Klaffbron norrifrån; låset norr (ur ett omvänt första
+    // kursvärde), så bron ligger "bakom" henne i notisens riktning.
+    const kryp = (d, extra = {}) => vessel(at(KLAFF, d), {
+      mmsi: '940047001', name: 'KRYPBRUS', sog: 1.0, cog: 210, _routeDirection: 'north', ...extra,
+    });
+
+    test('kursen mot bron och 30 m närmare linjen: förvarningen går ut', async () => {
+      const app = await boot();
+      const v = kryp(230, { lastPosition: at(KLAFF, 260) });
+      expect(app._getNotificationDirection(v, cand(KLAFF, v))).toBe('northbound');
+      const sent = await notify(app, KLAFF, v);
+      expect(sent).toHaveLength(1);
+      expect(sent[0].message).toMatch(/^KRYPBRUS närmar sig Klaffbron/);
+    });
+
+    test('efter en spärr: när hon sedan kryper mot bron går förvarningen ut', async () => {
+      const app = await boot();
+      expect(await notify(app, KLAFF, kryp(260, { cog: 30, lastPosition: at(KLAFF, 262) }))).toEqual([]);
+      jest.advanceTimersByTime(60000);
+      expect(await notify(app, KLAFF, kryp(229, { lastPosition: at(KLAFF, 260) }))).toHaveLength(1);
+    });
+
+    test('(ii) kursen mot bron men ingen förflyttning (brus i krypfart bortom bron): hålls inne', async () => {
+      const app = await boot();
+      expect(await notify(app, KLAFF, kryp(230, { sog: 0.6, lastPosition: at(KLAFF, 233) }))).toEqual([]);
+    });
+
+    test('(ii) kursen mot bron men båten glider bort från bron: hålls inne', async () => {
+      const app = await boot();
+      expect(await notify(app, KLAFF, kryp(250, { lastPosition: at(KLAFF, 220) }))).toEqual([]);
+    });
+
+    test('förflyttning mot bron men kursen bort från bron: hålls inne', async () => {
+      const app = await boot();
+      expect(await notify(app, KLAFF, kryp(230, { cog: 30, lastPosition: at(KLAFF, 260) }))).toEqual([]);
+    });
+
+    test('(iii) kursen saknas: hålls inne', async () => {
+      const app = await boot();
+      expect(await notify(app, KLAFF, kryp(230, { cog: null, lastPosition: at(KLAFF, 260) }))).toEqual([]);
+    });
+
+    test('(iii) kursen ogiltig (fart under 0,5 kn): hålls inne', async () => {
+      const app = await boot();
+      expect(await notify(app, KLAFF, kryp(230, { sog: 0.4, lastPosition: at(KLAFF, 260) }))).toEqual([]);
+    });
+
+    test('ingen föregående position: hålls inne', async () => {
+      const app = await boot();
+      expect(await notify(app, KLAFF, kryp(230))).toEqual([]);
+    });
+
+    test('HALIFAX hålls inne som förut (kursen 205° söder om bron pekar bort från den)', async () => {
+      const app = await boot();
+      const v = vessel(at(OLIDE, -194), { lastPosition: at(OLIDE, -180) });
+      expect(await notify(app, OLIDE, v)).toEqual([]);
+    });
+  });
+
+  describe('M1 (granskningen av D3): (b) och (c) med fällande test', () => {
+    test('(b) hålls inne norr om Klaffbron och går sedan norrut i 3 kn 150 m bortom: ingen notis', async () => {
+      const app = await boot();
+      expect(await notify(app, KLAFF, vessel(at(KLAFF, 90), {
+        mmsi: '265000011', name: 'B2', sog: 1.0, cog: 30,
+      }))).toEqual([]);
+      jest.advanceTimersByTime(120000);
+      const v = vessel(at(KLAFF, 150), {
+        mmsi: '265000011', name: 'B2', sog: 3, cog: 32, lastPosition: at(KLAFF, 120),
+      });
+      expect(await notify(app, KLAFF, v)).toEqual([]);
+    });
+
+    test('(b) kursen i östra dödbandet (inte belagd norr) efter spärren: förvarningen går ut', async () => {
+      const app = await boot();
+      expect(await notify(app, KLAFF, vessel(at(KLAFF, 90), {
+        mmsi: '265000012', name: 'B3', sog: 1.0, cog: 30, _routeDirection: 'north',
+      }))).toEqual([]);
+      jest.advanceTimersByTime(60000);
+      const v = vessel(at(KLAFF, 121), {
+        mmsi: '265000012', name: 'B3', sog: 5, cog: 90, _routeDirection: 'north', lastPosition: at(KLAFF, 90),
+      });
+      expect(await notify(app, KLAFF, v)).toHaveLength(1);
+    });
+
+    test('(b) spärren norr om bron gäller inte söder om den: söderut i 4 kn 120 m söder om bron ger notisen', async () => {
+      const app = await boot();
+      expect(await notify(app, KLAFF, vessel(at(KLAFF, 90), {
+        mmsi: '265000013', name: 'B4', sog: 1.0, cog: 30,
+      }))).toEqual([]);
+      jest.advanceTimersByTime(600000);
+      const v = vessel(at(KLAFF, -120), {
+        mmsi: '265000013', name: 'B4', sog: 4, cog: 212, lastPosition: at(KLAFF, -60),
+      });
+      expect(await notify(app, KLAFF, v)).toHaveLength(1);
+    });
+
+    test('(c) hålls inne och ligger senare på annan plats på samma sida, okänd riktning: ingen notis', async () => {
+      const app = await boot();
+      expect(await notify(app, KLAFF, vessel(at(KLAFF, 90), {
+        mmsi: '265000014', name: 'C2', sog: 1.0, cog: 30,
+      }))).toEqual([]);
+      jest.advanceTimersByTime(300000);
+      const v = vessel(at(KLAFF, 160), {
+        mmsi: '265000014', name: 'C2', sog: 0.3, cog: 200, lastPosition: at(KLAFF, 150),
+      });
+      expect(app._getNotificationDirection(v, cand(KLAFF, v))).toBe('unknown');
+      expect(await notify(app, KLAFF, v)).toEqual([]);
+    });
+
+    test('(c) hålls inne söder om Olidebron, ligger sedan 15 m norr om bron i 0,3 kn med okänd riktning: notisen går ut', async () => {
+      const app = await boot();
+      expect(await notify(app, OLIDE, vessel(at(OLIDE, -194)))).toEqual([]);
+      jest.advanceTimersByTime(600000);
+      const v = vessel(at(OLIDE, 15), { sog: 0.3, cog: 123, lastPosition: at(OLIDE, 10) });
+      expect(app._getNotificationDirection(v, cand(OLIDE, v))).toBe('unknown');
+      expect(await notify(app, OLIDE, v)).toHaveLength(1);
+    });
+
+    test('(c) hålls inne norr om Klaffbron, ligger sedan 40 m söder om bron i 0,2 kn med okänd riktning: notisen går ut', async () => {
+      const app = await boot();
+      expect(await notify(app, KLAFF, vessel(at(KLAFF, 90), {
+        mmsi: '265000015', name: 'C3', sog: 1.0, cog: 30,
+      }))).toEqual([]);
+      jest.advanceTimersByTime(600000);
+      const v = vessel(at(KLAFF, -40), {
+        mmsi: '265000015', name: 'C3', sog: 0.2, cog: 300, lastPosition: at(KLAFF, -38),
+      });
+      expect(app._getNotificationDirection(v, cand(KLAFF, v))).toBe('unknown');
+      expect(await notify(app, KLAFF, v)).toHaveLength(1);
+    });
+  });
+
+  test('fältloggen får raden första gången per båt och bro, därefter debug', async () => {
+    const app = await boot();
+    await notify(app, OLIDE, vessel(at(OLIDE, -194)));
+    jest.advanceTimersByTime(60000);
+    await notify(app, OLIDE, vessel(at(OLIDE, -230), { sog: 0.9, lastPosition: at(OLIDE, -194) }));
+    const rader = (fn) => fn.mock.calls.filter(([m]) => String(m).includes('FLOW_TRIGGER_SLOW_BRIDGE_BEHIND')).length;
+    expect(rader(app.log)).toBe(1);
+    expect(rader(app.debug)).toBe(1);
   });
 
   test('spärren städas när båten raderas', async () => {
