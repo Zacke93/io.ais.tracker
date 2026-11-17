@@ -1154,9 +1154,22 @@ att en båt som appen släppt ur händelse #1 och gett en egen varning inte län
 dem U2-VS-DEADLINE: korsningen ligger inom #1:s första passage + 600 s och täckningen slutade inom fristen
 (nattvärld 295: HAVSORN, varning #3 28 s före korsningen, 3 min efter #1:s första passage). I A.11 dolde gren (ii)
 klassen. Täcker U2:s konvojfönster en båt som appen själv släppt och varnat om på nytt? Det är ett domänbeslut.
-Verktyget säger KANDIDAT tills det är fattat. Standardprofilen: tre kandidatkluster (INV-3 två och T2 LEDTID med sex
+Verktyget sa KANDIDAT tills beslutet var fattat (det är fattat, se A.13 och §7 rad 86). Standardprofilen: tre kandidatkluster (INV-3 två och T2 LEDTID med sex
 världar, samma klass). Självtest GRÖNT. `replay:all` (med och utan monitoring), synthetic och openings är bitlika med
 basen. Hela jest: 400 sviter gröna.
+
+### A.13 U2-beslutet och U43 (2026-11-17)
+
+Nattprofilen på V1:s HEAD efter dirigentens beslut om U2 (§7 rad 86) och de två U43-posterna (rad 87–88). Kluster
+79 / 75 / 77, kandidatkluster 28 / 20 / 19, kandidatutslag 742 / 496 / 460 (bas, A.12, nu). T2 LEDTID 36 / 71 / 38,
+T2 OKLASSAD 55 / 48 / 47, T9 9 / 6 / 5, T1 7 / 2 / 1; övriga som i A.12. Mot A.12 kom inget nytt kandidatutslag, och
+36 försvann: 34 blev U2-VS-DEADLINE (33 LEDTID, 1 OKLASSAD), 1 U43-DÖDBAND-I-U-SVÄNG och 1 U43-PARBRO-FÖRE-U-SVÄNG.
+Mot basen finns 3 nya kandidatutslag, alla med U15-släpp och utan U2-täckning: nattvärld 18014 (U15 (b): händelsen
+beskriver öppningen hon redan passerat, returvarningen 37 s före korsningen), 2566 (#3:s första passage är inte
+punktobserverbar, fönstret går inte att visa) och 19724 (returen efter en U-sväng, utanför #2:s fönster). Standardprofilen
+har två kandidatkluster (INV-3) som i A.11, och T2 LEDTID-klustret från A.12 är borta. Självtest GRÖNT. `replay:all`
+(med och utan monitoring), synthetic och openings är bitlika med basen. Hela jest: 400 sviter gröna. Två identiska
+nattkörningar överlappade (köns omslag avbröts utifrån och skriptet fortsatte); rapporten är hel och deterministisk.
 
 ## Bilaga B — orakelkatalog
 
