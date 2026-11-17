@@ -5,26 +5,53 @@
  *
  * När ett citerat dokument ändras (en annan gren, en sammanslagning) glider
  * radhänvisningarna, och `__tests__/n-kallrader.test.js` fäller dem. Skriptet
- * söker för varje underkänd hänvisning postens nyckelord ur
- * `kallrader-forvantat.json` i dokumentet och föreslår de nya raderna.
+ * söker för varje underkänd hänvisning det stycke vars TEXT är densamma som
+ * förut: tabellens kontrollsumma i `kallrader-forvantat.json`, eller med
+ * `--ref=<git-ref>` texten på de gamla raderna i den versionen. Exakt en
+ * träff ger förslaget; ingen eller flera ger inget förslag, och posten rättas
+ * för hand. Nyckelordet ensamt väljer aldrig stycke (2026-11-16, V1: förut
+ * togs första nyckelordsträffen, och vid tre sammanslagningar hamnade U17,
+ * K-NÄSTA och en fortsättning i S10 på fel stycke medan allt var grönt).
  *
- *   node tests/replay-validation/bugHunt/tools/foreslaKallrader.js
+ *   node tests/replay-validation/bugHunt/tools/foreslaKallrader.js [--ref=HEAD]
  *       visar förslagen (skriver ingenting)
- *   node tests/replay-validation/bugHunt/tools/foreslaKallrader.js --skriv
- *       skriver förslagen i registret (alla fält i posten), i
- *       nyckelordstabellen och i postens rad i docs/BUGGJAKT.md §7
+ *   … --skriv
+ *       skriver förslagen i registret (alla fält i posten), i tabellen och i
+ *       postens rad i docs/BUGGJAKT.md §7; kontrollsumman följer med oförändrad
+ *   … --kvittera=POST[,POST]
+ *       ger de namngivna posternas tabellrader kontrollsumman av dagens text
+ *       bakom hänvisningen (efter att stycket lästs och godkänts). Det finns
+ *       ingen kvittering av alla poster på en gång.
  *
- * Läs varje förslag mot dokumentet innan det skrivs: att nyckelordet finns
- * betyder inte att stycket säger samma sak som förut. En hänvisning utan
- * förslag gäller ett stycke som skrivits om; den rättas för hand.
  * Slutkod: 0 när allt håller eller allt fick förslag, 1 när något saknar förslag.
  */
 
+const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const {
-  ROOT, REGISTER_FIL, FÖRVÄNTAT_FIL, RE, föreslå,
+  ROOT, REGISTER_FIL, FÖRVÄNTAT_FIL, RE, föreslå, kvittera,
 } = require('../lib/kallrader');
+
+/** Raderna [från, till] i `fil` på git-referensen, eller null. */
+function gitText(ref) {
+  const cache = new Map();
+  return (fil, från, till) => {
+    if (!cache.has(fil)) {
+      let rader = null;
+      try {
+        rader = execFileSync('git', ['show', `${ref}:${fil}`], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split('\n');
+      } catch (e) {
+        rader = null;
+      }
+      cache.set(fil, rader);
+    }
+    const L = cache.get(fil);
+    return L && från >= 1 && till <= L.length ? L.slice(från - 1, till) : null;
+  };
+}
+
+const skrivTabell = (förväntat) => `[\n${förväntat.map((x) => `  ${JSON.stringify(x)}`).join(',\n')}\n]\n`;
 
 const BUGGJAKT = 'docs/BUGGJAKT.md';
 
@@ -88,37 +115,88 @@ function bytITabellrad(md, postId, fil, gammal, ny) {
   return { md: rader.join('\n'), n };
 }
 
+/**
+ * Skriver förslagen i ETT pass (granskningen 2026-11-16, medel): förut byttes
+ * ett förslag i taget med sök-och-ersätt, och när en hänvisnings nya rad var
+ * en senare hänvisnings gamla byttes värdet två gånger (sju rader överst i
+ * etapp7-plan gav U16 ":22 (U1), :22 (U6)") medan kontrollen var grön. Nu
+ * byts varje gammalt värde först mot en markör och sedan alla markörer mot de
+ * nya värdena. Två förslag i samma post som pekar på samma nya stycke vägras
+ * (de skrivs inte), och kontrollen fäller dubbla nycklar.
+ * @param {object[]} förslag - föreslå()
+ * @param {{rå: string, md: string, förväntat: Array[]}} in - registrets råtext, BUGGJAKT och tabellen
+ * @returns {{rå: string, md: string, förväntat: Array[], logg: string[], vägrade: object[]}} resultat
+ */
+function skrivFörslag(förslag, { rå, md, förväntat }) {
+  const med = förslag.filter((x) => x.ny);
+  const vägrade = [];
+  const godtagna = med.filter((f) => {
+    const krock = med.some((g) => g !== f && g.post === f.post && g.fil === f.fil && g.ny === f.ny && g.gammal !== f.gammal);
+    if (krock) vägrade.push(f);
+    return !krock;
+  });
+  const logg = vägrade.map((f) => `  VÄGRAR ${f.post} ${f.fil}:${f.gammal} → :${f.ny}: två hänvisningar i posten skulle peka på samma stycke; rätta för hand`);
+  const markör = (i) => `\u27E6V${i}\u27E7`;
+  let r = rå;
+  let m = md;
+  const tabell = förväntat.map((x) => [...x]);
+  godtagna.forEach((f, i) => {
+    r = bytIRegistret(r, f.post, f.fil, f.gammal, markör(i)).rå;
+    m = bytITabellrad(m, f.post, f.fil, f.gammal, markör(i)).md;
+    for (const rad of tabell) if (rad[0] === f.post && rad[1] === `${f.fil}:${f.gammal}`) rad[1] = `${f.fil}:${markör(i)}`;
+  });
+  godtagna.forEach((f, i) => {
+    const nR = r.split(markör(i)).length - 1;
+    const nM = m.split(markör(i)).length - 1;
+    r = r.split(markör(i)).join(f.ny);
+    m = m.split(markör(i)).join(f.ny);
+    for (const rad of tabell) if (rad[1] === `${f.fil}:${markör(i)}`) rad[1] = `${f.fil}:${f.ny}`;
+    logg.push(`  skrev ${f.post}: ${nR} i registret, ${nM} i ${BUGGJAKT}`);
+  });
+  return {
+    rå: r, md: m, förväntat: tabell, logg, vägrade,
+  };
+}
+
 function main(argv = process.argv.slice(2)) {
   const skriv = argv.includes('--skriv');
+  const refArg = argv.find((a) => a.startsWith('--ref='));
+  const kvArg = argv.find((a) => a.startsWith('--kvittera='));
   const reg = JSON.parse(fs.readFileSync(path.join(ROOT, REGISTER_FIL), 'utf8'));
   const förväntat = JSON.parse(fs.readFileSync(path.join(ROOT, FÖRVÄNTAT_FIL), 'utf8'));
-  const förslag = föreslå(reg.poster, förväntat);
+  if (kvArg) {
+    const vilka = kvArg.slice('--kvittera='.length).split(',').filter(Boolean);
+    if (!vilka.length || vilka.includes('alla')) {
+      console.error('--kvittera kräver namngivna poster (--kvittera=POST[,POST]); läs varje stycke först');
+      return 1;
+    }
+    const k = kvittera(reg.poster, förväntat, vilka);
+    fs.writeFileSync(path.join(ROOT, FÖRVÄNTAT_FIL), skrivTabell(k.förväntat));
+    console.log(`Kvitterade ${k.kvitterade.length} hänvisningar: ${k.kvitterade.join(', ') || '—'}`);
+    return 0;
+  }
+  const förslag = föreslå(reg.poster, förväntat, refArg ? { gammalText: gitText(refArg.slice('--ref='.length)) } : {});
   if (!förslag.length) {
     console.log('Alla radhänvisningar håller.');
     return 0;
   }
   for (const f of förslag) {
     console.log(f.ny
-      ? `${f.post} ${f.fil}:${f.gammal} → :${f.ny}${f.kandidater > 1 ? ` (${f.kandidater} kandidater, närmast vald)` : ''}\n    ${f.första}`
-      : `${f.post} ${f.fil}:${f.gammal} → INGET FÖRSLAG: nyckelordet står inte i ett stycke som håller; läs stycket och rätta för hand`);
+      ? `${f.post} ${f.fil}:${f.gammal} → :${f.ny} (samma text)\n    ${f.första}`
+      : `${f.post} ${f.fil}:${f.gammal} → INGET FÖRSLAG: ${f.skäl}; posten rättas för hand`);
   }
   if (skriv) {
-    let md = fs.readFileSync(path.join(ROOT, BUGGJAKT), 'utf8');
-    let rå = fs.readFileSync(path.join(ROOT, REGISTER_FIL), 'utf8');
-    for (const f of förslag.filter((x) => x.ny)) {
-      const r = bytIRegistret(rå, f.post, f.fil, f.gammal, f.ny);
-      rå = r.rå;
-      for (const rad of förväntat) {
-        if (rad[0] === f.post && rad[1] === `${f.fil}:${f.gammal}`) rad[1] = `${f.fil}:${f.ny}`;
-      }
-      const t = bytITabellrad(md, f.post, f.fil, f.gammal, f.ny);
-      md = t.md;
-      console.log(`  skrev ${f.post}: ${r.n} i registret, ${t.n} i tabellen i ${BUGGJAKT}`);
-    }
-    JSON.parse(rå);
-    fs.writeFileSync(path.join(ROOT, REGISTER_FIL), rå);
-    fs.writeFileSync(path.join(ROOT, FÖRVÄNTAT_FIL), `[\n${förväntat.map((x) => `  ${JSON.stringify(x)}`).join(',\n')}\n]\n`);
-    fs.writeFileSync(path.join(ROOT, BUGGJAKT), md);
+    const ut = skrivFörslag(förslag, {
+      rå: fs.readFileSync(path.join(ROOT, REGISTER_FIL), 'utf8'),
+      md: fs.readFileSync(path.join(ROOT, BUGGJAKT), 'utf8'),
+      förväntat,
+    });
+    for (const rad of ut.logg) console.log(rad);
+    JSON.parse(ut.rå);
+    fs.writeFileSync(path.join(ROOT, REGISTER_FIL), ut.rå);
+    fs.writeFileSync(path.join(ROOT, FÖRVÄNTAT_FIL), skrivTabell(ut.förväntat));
+    fs.writeFileSync(path.join(ROOT, BUGGJAKT), ut.md);
+    if (ut.vägrade.length) return 1;
   }
   return förslag.some((x) => !x.ny) ? 1 : 0;
 }
@@ -126,5 +204,5 @@ function main(argv = process.argv.slice(2)) {
 if (require.main === module) process.exitCode = main();
 
 module.exports = {
-  bytIText, bytIRegistret, bytITabellrad, main,
+  bytIText, bytIRegistret, bytITabellrad, gitText, skrivFörslag, main,
 };

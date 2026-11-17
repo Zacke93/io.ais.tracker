@@ -25,9 +25,12 @@
  * Tider är epok-ms. Funktionerna filtrerar själva på bron.
  */
 
-const C = require('../../../../lib/constants');
-
-const { CONVOY_WINDOW_MS } = C.BRIDGE_OPENING; // 600 s
+// U2:s fönster, 600 s (dig9; appens BRIDGE_OPENING.CONVOY_WINDOW_MS).
+// Verktygets eget tal (granskningen 2026-11-16, M2): ett ändrat värde i appen
+// ska inte flytta konvojsemantiken med sig. Vakttestet
+// __tests__/t-v1-granskning.test.js fäller om appens konstant avviker.
+const U2_FÖNSTER_MS = 600 * 1000;
+const CONVOY_WINDOW_MS = U2_FÖNSTER_MS;
 
 const same = (a, b) => a !== undefined && a !== null && b !== undefined && b !== null && String(a) === String(b);
 
@@ -39,16 +42,65 @@ const same = (a, b) => a !== undefined && a !== null && b !== undefined && b !==
  * @param {string} mmsi - båten
  * @param {object[]} coverage - openingCoverage
  * @param {number} t - tiden (epok-ms); absorption efter t räknas inte
+ * @param {object[]|null} [korsningar] - punktkorsningarna; med dem gäller
+ *   U2-fönstrets undantag från den senaste bindningen (se nedan), utan dem
+ *   avslutar varje senare bindning täckningen
  * @returns {{sant: boolean, hur: string|null, t?: number}} utfall
  */
-function täcktAv(w, mmsi, coverage, t) {
+function täcktAv(w, mmsi, coverage, t, korsningar = null) {
   if (!w) return { sant: false, hur: null };
-  if ((w.mmsis || []).some((m) => same(m, mmsi))) return { sant: true, hur: 'medlem' };
-  if (same(w.leadMmsi, mmsi)) return { sant: true, hur: 'ledare' };
-  if (!w.eventId) return { sant: false, hur: null };
-  const rad = (coverage || []).find((c) => c && c.reason === 'absorbed' && c.eventId === w.eventId && same(c.mmsi, mmsi)
-    && Number.isFinite(c.t) && (!Number.isFinite(t) || c.t <= t));
-  return rad ? { sant: true, hur: 'absorberad', t: rad.t } : { sant: false, hur: null };
+  let bindning = null;
+  if ((w.mmsis || []).some((m) => same(m, mmsi))) bindning = { hur: 'medlem', t: w.t };
+  else if (same(w.leadMmsi, mmsi)) bindning = { hur: 'ledare', t: w.t };
+  else if (w.eventId) {
+    // Absorptionerna i händelsen senast vid t: t i svaret är den första (som
+    // förut), bindningen som en senare händelse kan avsluta är den senaste.
+    const rader = (coverage || []).filter((c) => c && c.reason === 'absorbed' && c.eventId === w.eventId && same(c.mmsi, mmsi)
+      && Number.isFinite(c.t) && (!Number.isFinite(t) || c.t <= t)).sort((a, b) => a.t - b.t);
+    if (rader.length) bindning = { hur: 'absorberad', t: rader[rader.length - 1].t, först: rader[0].t };
+  }
+  if (!bindning) return { sant: false, hur: null };
+  // Den senaste bindningen gäller (2026-11-16, nattkortet F23 r1): släpptes
+  // båten ur händelsen och bands sedan till en ANNAN händelse vid samma bro
+  // (en fired- eller absorbed-rad efter bindningen, senast vid t), täcker
+  // händelsen henne inte längre. Förut räknades varje absorption som
+  // täckning för gott, och BRISEN, som släppts ur Klaffbron#1 och fått egen
+  // varning #2, blev #1:s första passage (värld 15273). En rad vid exakt
+  // samma tid som bindningen räknas inte: appen släpper ur den förra
+  // händelsen och binder till nästa i samma utvärdering.
+  const bro = w.bridge;
+  if (bro && w.eventId) {
+    const senare = (coverage || []).find((c) => c && (c.reason === 'fired' || c.reason === 'absorbed') && c.eventId
+      && c.eventId !== w.eventId && same(c.mmsi, mmsi) && c.bridge === bro && Number.isFinite(c.t)
+      && c.t > bindning.t && (!Number.isFinite(t) || c.t <= t));
+    if (senare) {
+      const avslutad = { eventId: senare.eventId, t: senare.t, reason: senare.reason };
+      // Undantaget (dirigentens beslut om U2, 2026-11-16, nattvärld 295:
+      // HAVSORN absorberad i #1, släppt och varnad om igen i #3 28 s före
+      // korsningen, 3 min efter #1:s första passage): den senare bindningen
+      // avslutar täckningen genom w BARA när båtens korsning vid t ligger
+      // utanför w:s fönster, [w:s tidigaste korsning; + U2_FÖNSTER_MS]. Inom
+      // fönstret korsade hon i samma öppning, som w redan varnat för.
+      // Förutsättningar: t är hennes egen korsning av bron, hon var medlem
+      // i eller absorberad av w före den (bindningen ovan, senast vid t),
+      // och w:s varning levererades före den. w:s tidigaste korsning är den
+      // första korsningen vid eller efter varningen av en båt som w täcker
+      // UTAN undantaget, så en släppt båt kan aldrig bli w:s första passage
+      // (nattkortet F23 r1: BRISEN, släppt ur Klaffbron#1 och varnad i #2,
+      // korsade 207 s före #1:s första passage och står utanför fönstret).
+      // En båt som aldrig var bunden till w täcks inte (gren (ii) är
+      // borttagen och kommer inte tillbaka den här vägen).
+      if (!Array.isArray(korsningar) || !Number.isFinite(t) || !(w.t < t)) return { sant: false, hur: null, avslutad };
+      const egen = korsningar.some((k) => k.bridge === bro && same(k.mmsi, mmsi) && Math.abs(k.t - t) < 1000);
+      if (!egen) return { sant: false, hur: null, avslutad };
+      const först = korsningar.filter((k) => k.bridge === bro && Number.isFinite(k.t) && k.t >= w.t)
+        .sort((a, b) => a.t - b.t).find((k) => täcktAv(w, k.mmsi, coverage, k.t).sant);
+      if (!först || t < först.t || t > först.t + U2_FÖNSTER_MS) return { sant: false, hur: null, avslutad };
+      const svar = bindning.hur === 'absorberad' ? { sant: true, hur: 'absorberad', t: bindning.först } : { sant: true, hur: bindning.hur };
+      return { ...svar, inomFönster: { avslutad, först: { mmsi: String(först.mmsi), t: först.t } } };
+    }
+  }
+  return bindning.hur === 'absorberad' ? { sant: true, hur: 'absorberad', t: bindning.först } : { sant: true, hur: bindning.hur };
 }
 
 /**
@@ -57,7 +109,7 @@ function täcktAv(w, mmsi, coverage, t) {
  * @returns {object|null} korsningen
  */
 function förstaPassage(w, korsningar, coverage) {
-  return (korsningar || []).find((x) => x.bridge === w.bridge && x.t >= w.t && täcktAv(w, x.mmsi, coverage, x.t).sant) || null;
+  return (korsningar || []).find((x) => x.bridge === w.bridge && x.t >= w.t && täcktAv(w, x.mmsi, coverage, x.t, korsningar).sant) || null;
 }
 
 const vid = (varningar, bro, villkor) => (varningar || []).filter((w) => w.bridge === bro && villkor(w));
@@ -72,8 +124,51 @@ const vid = (varningar, bro, villkor) => (varningar || []).filter((w) => w.bridg
  * (standardvärld 1316).
  * @returns {boolean} båten har en egen tidigare korsning i (w.t; tc − 1 s)
  */
-function egenKorsningEfter(w, { mmsi, bro, tc }, korsningar) {
-  return (korsningar || []).some((k) => k.bridge === bro && same(k.mmsi, mmsi) && k.t >= w.t && k.t < tc - 1000);
+function egenKorsningEfter(w, { mmsi, bro, tc }, korsningar, coverage = null) {
+  return !!beskriverPasseradÖppning(w, { mmsi, bro, tc }, korsningar, coverage);
+}
+
+/**
+ * U15 villkor (a)–(c) (docs/ARCHITECTURE.md, "Returresan är en egen öppning",
+ * BridgeOpeningService#_describesPassedOpening): beskriver händelsen w den
+ * öppning som båten redan passerat före korsningen tc? Hennes passerade
+ * öppning är hennes senaste egna korsning k av bron före tc. w beskriver den
+ * när (a) hon var täckt av w när hon korsade (k efter varningen), (b) w:s
+ * referensankomst ligger inom CONVOY_WINDOW_MS från k: referensen är den
+ * första korsningen vid eller efter varningen av en ANNAN båt som w täckte
+ * då, före tc, och annars prognosen när varningen gick ut (w.t + etaMin),
+ * eller (c) referensen saknas och varningen gick vid eller före k.
+ * En händelse för en SENARE öppning, mer än ett konvojfönster från hennes
+ * passage, täcker returen som vanligt (U2), oavsett om den gick före eller
+ * efter passagen.
+ *
+ * Rättat 2026-11-16 (nattkorten F02 r2 och F23 r3): förut avvisades VARJE
+ * händelse vars varning kom före båtens egen tidigare korsning, också den
+ * som enligt U15 täcker returen (CORDELIA:s Klaffbron#4 med referensen
+ * 645 s efter YRSA:s passage, värld 15932).
+ * Utan coverage prövas bara den gamla regeln (egen korsning efter varningen),
+ * så att äldre anrop dömer som förut.
+ * @returns {{villkor: string, k: object}|null} villkoret som gällde, eller null
+ */
+function beskriverPasseradÖppning(w, { mmsi, bro, tc }, korsningar, coverage = null) {
+  const egna = (korsningar || []).filter((k) => k.bridge === bro && same(k.mmsi, mmsi) && k.t < tc - 1000);
+  if (!coverage) {
+    const k0 = egna.find((k) => k.t >= w.t);
+    return k0 ? { villkor: 'egen korsning efter varningen', k: k0 } : null;
+  }
+  const k = egna[egna.length - 1];
+  if (!k) return null;
+  if (k.t >= w.t && täcktAv(w, mmsi, coverage, k.t, korsningar).sant) return { villkor: '(a)', k };
+  // En händelse som avfyrades EFTER hennes passage med henne som medlem
+  // eller ledare är returens egen varning (returarmen), ingen händelse som
+  // täcker returen (baslinjevärld 212: Klaffbron#19 för 265817494).
+  if (w.t > k.t && ((w.mmsis || []).some((m) => same(m, mmsi)) || same(w.leadMmsi, mmsi))) return null;
+  const ref = (korsningar || []).find((x) => x.bridge === bro && !same(x.mmsi, mmsi) && x.t >= w.t && x.t < tc
+    && täcktAv(w, x.mmsi, coverage, x.t, korsningar).sant);
+  let refT = ref ? ref.t : null;
+  if (refT === null && Number.isFinite(w.etaMin) && w.etaMin >= 0) refT = w.t + w.etaMin * 60000;
+  if (refT !== null) return Math.abs(refT - k.t) <= CONVOY_WINDOW_MS ? { villkor: '(b)', k, refT } : null;
+  return w.t <= k.t ? { villkor: '(c)', k } : null;
 }
 
 /**
@@ -92,11 +187,11 @@ function inomHändelsefönster({ mmsi, bro, tc }, {
   let närmast = null;
   let otäckta = 0;
   for (const w of vid(varningar, bro, (x) => x.t <= tc).reverse()) {
-    if (!täcktAv(w, mmsi, coverage, tc).sant) {
+    if (!täcktAv(w, mmsi, coverage, tc, korsningar).sant) {
       otäckta++;
       continue;
     }
-    if (egenKorsningEfter(w, { mmsi, bro, tc }, korsningar)) continue;
+    if (egenKorsningEfter(w, { mmsi, bro, tc }, korsningar, coverage || [])) continue;
     const first = förstaPassage(w, korsningar, coverage);
     if (!first || same(first.mmsi, mmsi)) continue;
     if (tc >= first.t && tc <= first.t + fönsterMs) return { sant: true, w, first };
@@ -125,18 +220,25 @@ function ickeMedlemEmellan({ mmsi, bro, tc }, {
 }) {
   const korsningenSjälv = (k) => same(k.mmsi, mmsi) && Math.abs(k.t - tc) < 1000;
   for (const w of vid(varningar, bro, (x) => x.t < tc).reverse()) {
-    if (!täcktAv(w, mmsi, coverage, tc).sant) continue;
-    if (egenKorsningEfter(w, { mmsi, bro, tc }, korsningar)) continue;
+    if (!täcktAv(w, mmsi, coverage, tc, korsningar).sant) continue;
+    if (egenKorsningEfter(w, { mmsi, bro, tc }, korsningar, coverage || [])) continue;
     const förstaTäckta = (korsningar || []).find((k) => k.bridge === bro && k.t >= w.t && k.t < tc && !korsningenSjälv(k)
-      && täcktAv(w, k.mmsi, coverage, k.t).sant);
+      && täcktAv(w, k.mmsi, coverage, k.t, korsningar).sant);
     if (förstaTäckta && tc > förstaTäckta.t + fönsterMs) continue;
     const x = (korsningar || []).find((k) => k.bridge === bro && k.t > w.t && k.t < tc && !same(k.mmsi, mmsi)
-      && !täcktAv(w, k.mmsi, coverage, k.t).sant);
+      && !täcktAv(w, k.mmsi, coverage, k.t, korsningar).sant);
     if (x) return { sant: true, w, x };
   }
   return { sant: false };
 }
 
 module.exports = {
-  CONVOY_WINDOW_MS, täcktAv, förstaPassage, egenKorsningEfter, inomHändelsefönster, ickeMedlemEmellan,
+  U2_FÖNSTER_MS,
+  CONVOY_WINDOW_MS,
+  täcktAv,
+  förstaPassage,
+  egenKorsningEfter,
+  beskriverPasseradÖppning,
+  inomHändelsefönster,
+  ickeMedlemEmellan,
 };

@@ -467,11 +467,29 @@ describe('U19 U19-VARNING-UNDER-VÄNTANDE-VÄNDNING', () => {
   });
 
   test('[vakt] en flagga som aldrig bekräftas (båten fortsatte) ger KANDIDAT', () => {
+    // Båten fortsatte: inga rader efter flaggan OCH ingen vändning i L0.
+    // (2026-11-16, V1: utan raderna men med L0-vändningen är det radion som
+    // tystnade före bekräftelsen, och det godtas, se nästa test.)
     const { fynd, ctx } = fall('w188');
     ctx.rader = ctx.rader.filter((r) => r.aisTimestamp < Date.parse('2026-09-26T14:54:30Z'));
+    ctx.sanning = { ...ctx.sanning, uturns: (ctx.sanning.uturns || []).filter((u) => String(u.mmsi) !== String(fynd.mmsi)) };
     const c = klassa(reg, fynd, ctx);
     expect(c.klass).toBe('KANDIDAT');
-    expect(prövad(c, 'U19-VARNING-UNDER-VÄNTANDE-VÄNDNING').skäl).toMatch(/bekräftades aldrig/);
+    expect(prövad(c, 'U19-VARNING-UNDER-VÄNTANDE-VÄNDNING').skäl).toMatch(/bekräftades aldrig.*ingen L0-vändning före flaggan/);
+  });
+
+  test('[träff] radion tystnade före bekräftelsen men L0 visar vändningen (nattkortet F07 r1); [vakt] en rad som kunde bekräfta, eller en vändning tillbaka', () => {
+    const { fynd, ctx } = fall('w188');
+    const tyst = (c) => {
+      c.rader = c.rader.filter((r) => r.aisTimestamp < Date.parse('2026-09-26T14:54:30Z')); return c;
+    };
+    const c1 = tyst(kopia(ctx));
+    expect(klassa(reg, fynd, c1)).toMatchObject({ klass: 'ACCEPTERAD', post: 'U19-VARNING-UNDER-VÄNTANDE-VÄNDNING', skäl: expect.stringMatching(/radion tystnade/) });
+    // Vakt: en vändning tillbaka i L0 före flaggan + 15 min.
+    const c2 = tyst(kopia(ctx));
+    const u = c2.sanning.uturns.filter((x) => String(x.mmsi) === String(fynd.mmsi)).pop();
+    c2.sanning = { ...c2.sanning, uturns: [...c2.sanning.uturns, { ...u, t: u.t + 6 * 60000 }] };
+    expect(klassa(reg, fynd, c2).klass).toBe('KANDIDAT');
   });
 
   test('[vakt] ett RECOVER-släpp (absorbed-rad före varningen) och ett notisanspråk faller på predikatet', () => {
