@@ -452,22 +452,22 @@
       "vesselLatNext": 58.30448
     },
     {
-      "t": 1783499344651,
+      "t": 1783499974111,
       "bridge": "Olidebron",
-      "direction": "southbound",
-      "eta": 6,
-      "message": "HALIFAX närmar sig Olidebron, beräknad ankomst om 6 minuter",
+      "direction": "northbound",
+      "eta": 1,
+      "message": "HALIFAX närmar sig Olidebron, beräknad ankomst om 1 minut",
       "alreadyPassed": false,
       "name": "HALIFAX",
-      "distance": 195,
+      "distance": 160,
       "source": "current",
       "stateBridge": "olidebron",
       "mmsi": "228086830",
       "success": true,
       "error": null,
-      "vesselLat": 58.271305,
-      "vesselLon": 12.273216666666666,
-      "vesselLatNext": 58.27074666666667
+      "vesselLat": 58.27158,
+      "vesselLon": 12.273496666666666,
+      "vesselLatNext": 58.27261
     },
     {
       "t": 1783501240520,

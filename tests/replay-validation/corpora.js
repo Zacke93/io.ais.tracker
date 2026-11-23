@@ -742,7 +742,16 @@ module.exports = [
     locked: true,
     lockEvents: true,
     expectedNotifications: 54,
-    note: 'NOTISTEXT OMLÅST 2026-11-16 (U37 del 2, en formregel för alla passagenotiser): 6 notiser byter mening; '
+    note: 'NOTIS OMLÅST 2026-11-23 (omgång 5, U44 punkt 3: en långsam båt bortom en bro får förvarningen först '
+      + 'när riktningen är belagd): en notis flyttas, antalet är oförändrat 54. HALIFAX 228086830 Olidebron: '
+      + 'förvarningen 8/7 08:29:04 "närmar sig Olidebron, beräknad ankomst om 6 minuter" söderut ersätts av '
+      + '08:39:34 "beräknad ankomst om 1 minut" norrut. Positionerna: 08:29:04 195 m från bron i 1,1 kn med kurs '
+      + '205° (bort från bron), 08:31:37 266 m, tyst i åtta minuter, 08:39:34 160 m i 4,2 kn med kurs 34°, '
+      + '08:40:34 19 m, 08:41:34 128 m bortom; korsningen norrut 08:40:41,7 (gt). Förut fel riktning och "om 6 '
+      + 'minuter" mot verkliga 11,6; nu rätt riktning, 68 s före korsningen. Följdändring: '
+      + 'corpora-direction-distribution.json 228086830:Olidebron southbound → northbound. Rättare enligt U13; '
+      + 'dirigentens egen radvisa diff och positionskontroll, och oberoende granskning. '
+      + 'NOTISTEXT OMLÅST 2026-11-16 (U37 del 2, en formregel för alla passagenotiser): 6 notiser byter mening; '
       + 'tid, bro, riktning, siffra och antal är oförändrade. Regeln: var det tyst i mer än 130 s kring '
       + 'korsningen och kommer notisen mer än 60 s efter den, lyder den "passerade … under AIS-tystnad", annars '
       + '"har precis passerat". post 3 SELENE PRAHM 211219630 Klaffbron 8/7 02:38:15 → "under AIS-tystnad"; post '
@@ -1849,8 +1858,17 @@ module.exports = [
     locked: true,
     lockOpenings: true,
     lockEvents: true,
-    expectedNotifications: 152,
-    note: 'ÖPPNINGSVARNINGAR OMLÅSTA 2026-11-17 (omgång 4, U45: har en annan båt gått igenom bron efter varningen '
+    expectedNotifications: 151,
+    note: 'NOTIS OMLÅST 2026-11-23 (omgång 5, U44 punkt 3: en långsam båt bortom en bro får förvarningen först '
+      + 'när riktningen är belagd): 152 → 151 notiser. Borta: EUGENIE 265788210 "närmar sig Klaffbron, beräknad '
+      + 'ankomst om 5 minuter" norrut 5/8 07:50:34. Hon låg 266–407 m norr om Klaffbron från 07:20 i 0,2–0,6 kn, '
+      + 'satte fart norrut 07:50:34 (1,9 kn, kurs 38°, 282 m bortom bron) och korsade Järnvägsbron 08:25:53, '
+      + 'Stridsbergsbron 08:27:31 och Stallbackabron 08:39:27 (gt). Klaffbron korsade hon aldrig, så notisen var '
+      + 'falsk. Följdändringar: corpora-distribution.json 265788210 utan Klaffbron och '
+      + 'corpora-direction-distribution.json utan 265788210:Klaffbron:northbound. Öppningsvarningar, brotexter '
+      + 'och passager är oförändrade. Rättare enligt U13; dirigentens egen radvisa diff och positionskontroll, '
+      + 'och oberoende granskning. '
+      + 'ÖPPNINGSVARNINGAR OMLÅSTA 2026-11-17 (omgång 4, U45: har en annan båt gått igenom bron efter varningen '
       + 'får en varnad båt som kommer mer än tio minuter senare en ny varning, om hon då hörs i minst 2 kn mot '
       + 'bron utanför väntzonen): Klaffbron söderut 13 → 14 (5/8). Borta: WANDA 12:20:25. Nya: CHARLYS DREAM '
       + '12:20:23 (628 m norr om bron) och ELIZABETH GREENWOOD 12:21:52 (519 m norr om bron i 3,3 kn). BLADE gick '

@@ -686,24 +686,6 @@
       "vesselLatNext": 58.28533
     },
     {
-      "t": 1785916234645,
-      "bridge": "Klaffbron",
-      "direction": "northbound",
-      "eta": 5,
-      "message": "EUGENIE närmar sig Klaffbron, beräknad ankomst om 5 minuter",
-      "alreadyPassed": false,
-      "name": "EUGENIE",
-      "distance": 282,
-      "source": "current",
-      "stateBridge": "klaffbron",
-      "mmsi": "265788210",
-      "success": true,
-      "error": null,
-      "vesselLat": 58.286458333333336,
-      "vesselLon": 12.285698333333332,
-      "vesselLatNext": 58.28666
-    },
-    {
       "t": 1785916685172,
       "bridge": "Klaffbron",
       "direction": "southbound",

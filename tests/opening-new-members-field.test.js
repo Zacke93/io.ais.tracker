@@ -82,7 +82,9 @@ describe('ANYA/ANTJE: nytillkomna båten får sitt kort utan att ANYA upprepas',
     expect(result.openingWarnings).toHaveLength(40);
     // U14 (2026-11-04): 151 → 152. ELFKUNGENs returpassage över Klaffbron 5/8
     // 10:38:19 får egen notis; se korpusnoten för 20260804-both-21h.
-    expect(result.notificationCount).toBe(152);
+    // U44 punkt 3 (2026-11-23): 152 → 151. EUGENIEs falska förvarning för Klaffbron 5/8
+    // 07:50:34 försvinner (hon korsade aldrig bron); se korpusnoten.
+    expect(result.notificationCount).toBe(151);
     for (const mmsi of [ANYA, ANTJE]) {
       const cards = result.openingWarnings.filter((entry) => entry.bridge === 'Stridsbergsbron' && entry.mmsis.includes(mmsi));
       expect(cards).toHaveLength(1);
