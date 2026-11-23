@@ -138,14 +138,18 @@ describe('Review C2 — _underBridgeSince preserved across AIS updates', () => {
 });
 
 describe('Review H2 — ETA clause helper as SSOT across all paths', () => {
-  // Behaviour was tightened after review follow-up: no upper cap on large
-  // ETAs (values are honest), and invalid ETA renders as "ETA okänd" rather
-  // than "strax" (which falsely promised an imminent opening).
+  // Behaviour was tightened after review follow-up: invalid ETA renders as
+  // "ETA okänd" rather than "strax" (which falsely promised an imminent
+  // opening). U54 (2026-11-23) added the 60-min cap ("ETA okänd" above).
 
-  test('formatETABroOpeningClause returns verbatim text for large values (no cap)', () => {
+  // U54 (2026-11-23): taket 60 min — över det "ETA okänd" (förut ordagrant).
+  test('formatETABroOpeningClause: verbatim up to 60 min, "ETA okänd" above (U54)', () => {
     expect(formatETABroOpeningClause(45)).toBe('beräknad broöppning om 45 minuter');
-    expect(formatETABroOpeningClause(106)).toBe('beräknad broöppning om 106 minuter');
+    expect(formatETABroOpeningClause(60)).toBe('beräknad broöppning om 60 minuter');
+    expect(formatETABroOpeningClause(106)).toBe('ETA okänd');
     expect(formatETABroOpeningClause(31)).toBe('beräknad broöppning om 31 minuter');
+    expect(formatETABroOpeningClause(70, { extrapolated: true })).toBe('ETA okänd');
+    expect(formatETABroOpeningClause(118, { imminent: true })).toBe('beräknad broöppning strax');
   });
 
   test('formatETABroOpeningClause returns normal text for >= 3min', () => {
@@ -174,11 +178,11 @@ describe('Review H2 — ETA clause helper as SSOT across all paths', () => {
     expect(etaMinutesForDisplay(NaN)).toBeNull();
   });
 
-  test('BridgeTextService delegates to helper (large value shown verbatim)', () => {
+  test('BridgeTextService delegates to helper (over 60 min → "ETA okänd", U54)', () => {
     const service = new BridgeTextService(null, mockLogger());
     const vessels = [{ mmsi: '1', targetBridge: 'Klaffbron', etaMinutes: 85 }];
     expect(service.generateBridgeText(vessels))
-      .toBe('En båt på väg mot Klaffbron, beräknad broöppning om 85 minuter');
+      .toBe('En båt på väg mot Klaffbron, ETA okänd');
   });
 });
 

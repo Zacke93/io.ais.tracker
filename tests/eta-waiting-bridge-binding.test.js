@@ -96,7 +96,11 @@ test('0,8 kn genom Olidebron ger ingen falsk låg mål-ETA följd av 28→54-min
       },
     });
     const result = JSON.parse(output.match(/__REPLAY_JSON__([\s\S]*?)__END__/)[1]);
-    const times = ['2026-01-01T06:55:01Z', '2026-01-01T07:00:01Z', '2026-01-01T07:05:01Z'];
+    // U54 (2026-11-23): restid över 60 min visas som "ETA okänd" (06:55 var
+    // förut "om 69 minuter"), så prövningen läggs där siffran visas.
+    const before = result.bridgeTextTransitions.filter((entry) => entry.t <= Date.parse('2026-01-01T06:55:01Z')).at(-1);
+    expect(before.text).toBe('En båt på väg mot Klaffbron, ETA okänd');
+    const times = ['2026-01-01T07:00:01Z', '2026-01-01T07:05:01Z', '2026-01-01T07:10:01Z'];
     const estimates = times.map((time) => {
       const row = result.bridgeTextTransitions.filter((entry) => entry.t <= Date.parse(time)).at(-1);
       expect(row).toBeDefined();

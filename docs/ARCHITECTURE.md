@@ -2494,13 +2494,66 @@ Flaggor (bärs av `_createVesselObject`-fältlistan, §8a): `_etaIsExtrapolated`
    målbroar nämns. ETA-klausul via `formatETABroOpeningClause` (SSOT,
    etaValidation): ogiltig ⇒ "ETA okänd"; <3 min ELLER imminent ⇒ "beräknad
    broöppning strax" (imminent gäller HELA gruppen, F45 :146–147); ≥3 min ⇒
-   "om N minuter" (extrapolerad ⇒ "om cirka N minuter"). **B6-zombieundantaget**
+   "om N minuter" (extrapolerad ⇒ "om cirka N minuter"); avrundat över 60 min ⇒
+   "ETA okänd" (U54, 2026-11-23, `MAX_SHOWN_ETA_MINUTES`; ingen av 18 rader över
+   60 min i underlaget var sann; notisernas eta_minutes har inget tak). Känd
+   gräns (granskningen, L7): taket döljer att ETA-kedjans dolda värde sjunker
+   långsamt efter ett långt stopp — en båt som driver vid Stallbackabron och
+   sedan går 5 kn visade på basen "om 120 → 68" i 13 min där det verkliga var
+   14; nu "ETA okänd" i samma tid. Återhämtningen hör till ETA-omgången. **B6-zombieundantaget**
    (:134–151): fartyg vars target redan ligger i `passedBridges` räknas i
    antalet men driver varken imminent eller lead-ETA (isZombie :134–135; lead
    väljs ur zombie-fria mängden :136–138). Lead-båt = lägst giltig ETA, annars
    kortast distans (`_selectLeadVessel`:164–178). Separator "; ", Klaffbron först
    (:91–110). Tom input ⇒ DEFAULT_MESSAGE ("Inga båtar är i närheten av Klaffbron
    eller Stridsbergsbron").
+   **Vänttexten** ("[Räkneord] båt(ar) väntar vid X [på väg mot målbro]") kommer
+   ur `_targetGroups`, som läser `bridgeQueue.waitingBridgeForText`: köbeviset
+   (`waitingBridge`, 350 m, samma som status, notiser och öppningstjänst) eller
+   **U53 (2026-11-23)** textens kö vid en MELLANBRO (`intermediateTextQueue`):
+   bron ligger mellan båten och målbron, högst `INTERMEDIATE_TEXT_QUEUE.MAX_DISTANCE_M`
+   (800 m) bort, och köposten bär textstillheten `textWaitConfirmedAt`
+   (VDS `_noteIntermediateTextWait`: varje fix ≤ 1 kn och ankare inom 50 m i
+   60 s, utan kravet sog ≤ 0,5; bekräftad väntan hålls till 1,5 kn och 850 m).
+   Övriga förutsättningar som `queueBridge` (färsk säker position, ingen kajzon,
+   inte förtöjd, bekräftad anflygning, bron opasserad och framför). Aldrig
+   målbron. Samma funktion läses av `presentedLead` (F07), av app.js
+   UI-utlösare och av replayharnessens `waitingAt` (INV-3). Medan textkön
+   står och båten går högst 1 kn håller ETA-kedjan den dolda ETA:n
+   (`ETA_TEXT_QUEUE_HOLD`, ingen ökning; `_processETAWithProtection`); över 1 kn
+   får avgångens prognos rätta sig uppåt dolt medan hysteresen håller texten. Kvar utanför: glest AIS (klass B var 6–12 min)
+   tappar vänttexten efter 10 min; en båt som först syns när hon redan ligger
+   still saknar bekräftad anflygning; avgångssiffran efter väntan är bättre men
+   inte rätt (kömodellen, ETA-omgången).
+   **Kajzonerna och kantmarginalen** (granskningen av U53, M1): kajzonen "Kajen
+   norr om Klaffbron" täcker farleden 644–788 m söder om Järnvägsbron, så bandet
+   ger i praktiken vänttext 350–644 m (och 788–800 m) söder om bron. En redan
+   bekräftad textväntan räknas som inne i en kajzon först
+   `INTERMEDIATE_TEXT_QUEUE.ZONE_EDGE_MARGIN_M` (12 m) innanför radien, både i
+   `intermediateTextQueue` och i VDS:s zongren (som då behåller köposten och
+   prövar textstillheten); annars växlade en köare vid zonkanten med GPS-brus
+   mellan "väntar" och "om N". Farledens mittlinje ligger bara 15,7–23,5 m från
+   Kajens segment (radie 30 m), så en bekräftad väntan i farleden räknas i
+   praktiken som utanför zonen på det mesta av Kajen-sträckan, utom cirka
+   664–709 m söder om Järnvägsbron (i ett byggt fall höll väntan till 721 m). En
+   båt som ligger vid kajen (inom 18 m från segmentet) döljs fortfarande.
+   **Kända gränser** (granskningen av U53):
+   - *En ensam fartspik släpper väntan* (L2): ett fix över 1,5 kn släpper
+     textkön även när förflyttningen inte bekräftar farten (k3 19/11: sog 3,3,
+     netto 0,88 kn), och den hållna, för låga siffran rättar sig då synligt
+     uppåt ("om 9 → 13"). Att kräva två fix i rad prövades och mättes sämre
+     (banken och k1–k3: 46 min ändrad text och 32 låsta rader; 16 min ny
+     vänttext utan rådatabelagd väntan, och siffror sämre med 16 felminuter
+     mot 7 bättre, eftersom väntan då hölls in i verkliga avgångar) och togs
+     inte in.
+   - *Jämn gång i 1,0–1,5 kn håller "väntar"* (L3): bekräftelsen släpps bara
+     av ett fix över 1,5 kn eller en förflyttning över 1,5 kn × gap; ett byggt
+     fall gick 1,3–1,4 kn i 6 min och 206 m med vänttext (basen visade "om 16 →
+     12" mot sant 8,2).
+   - *Notisen kan bära en siffra medan texten säger "väntar"* (L6):
+     `_isWaitingAtNotifiedBridge` läser köbeviset (350 m), inte textkön. Notisen
+     är oförändrad mot före U53; frågan hör till notisernas restid
+     (ETA-omgången).
 4. **UI-coalescing** (app.js): `_updateUI`:2139 → `_scheduleCoalescedUpdate`:2147
    (micro-grace 15/25/40 ms per signifikans; critical/immediate bypassar;
    high-event krymper till 10 ms). `_actuallyUpdateUI` (:2251) kan lägga 200 ms
@@ -2986,14 +3039,24 @@ okänd → 25).
 *Inträde*, alla villkor: VesselDataService:s stillhetsklocka
 (`vessel._stationarySince`) har gått minst 5 min; positionen har legat inom
 50 m (`MOORING_DETECTION.MOVEMENT_PROOF_NET_M`) från samma punkt i minst 5 min,
-hela tiden i status `approaching` mot samma målbro och utan kö vid en tidigare
-bro (`_stillWatch`; `queueBridge` — där visar texten vänttexten); samplet är
+hela tiden i en status ur `STILL_UNKNOWN_STATUSES` (`approaching`, sedan U55
+2026-11-23 också `en-route` och `stallbacka-waiting`; fältprov 2: PRICKBJORN
+låg stilla vid Stallbackabron och texten visade "om 18" i 24 min och sedan
+"om 27 … 120") mot samma målbro och utan kö vid en tidigare
+bro (`_stillWatch`; `queueBridge` eller sedan U53 textens kö vid en mellanbro,
+`waitingBridgeForText` — där visar texten vänttexten); samplet är
 under 0,5 kn; positionen är färsk och ren (`hasFreshPosition`, inget GPS-hopp);
 ingen imminent-flagga; avståndet till målbron är större än
 `STATUS_HYSTERESIS.WAITING_CLEAR_DISTANCE` (350 m).
 *Utträde* ("tills hon rör sig"): en ren position minst 50 m från lägets
 ankarpunkt (belagd rörelse, samma bevisklass som VesselDataService), eller
-målbyte, annan status än `approaching`, eller imminent-flaggan. Ett
+målbyte, en status utanför `STILL_UNKNOWN_STATUSES`, eller imminent-flaggan.
+U55 i praktiken: en `en-route`-båt som stannar långt från bron tappar målbron
+(`TARGET_CHANGE` LOW_SPEED efter nådafristen) och lämnar texten innan fem
+minuter gått, så grenen gäller främst `stallbacka-waiting`. Långsam drift
+(U35) är oförändrad. Efter ett långt stopp vid Stallbackabron står ETA-kedjans
+dolda värde högt (fartgolvet 0,5 kn); det visas som "ETA okänd" (U54) tills
+det sjunkit under 60 min, i stället för "om 110 minuter". Ett
 fartsampel utan förflyttning lämnar inte läget (granskningen, H2: med "ett
 sampel ≥ 1 kn släpper" blinkade texten vid varje sampel efter 30 min stillhet),
 och en krypare lämnar det efter 50 m (H1: förut stod hon som "ETA okänd" ända
@@ -3015,7 +3078,9 @@ visas basens värden (prövat i två scenarier med 7 och 12 min tystnad).
 `vessel.etaMinutes` (null i läget) och faller då tillbaka på avstånd/fart
 (M7-grinden "en-prognos"), men deadlinen (avstånd / 10 kn − 180 s) har redan
 passerat för alla avstånd ≤ 926 m, alltså i hela regelns zon 350–580 m, så
-varningen har gått innan läget kan gå in.
+varningen har gått innan läget kan gå in. U55 vidgar läget till `en-route`
+och `stallbacka-waiting` längre bort, där det geometriska skälet inte gäller;
+mätt: i banken, k1–k3 och U55-scenarierna ändras ingen varning.
 *Hur länge står den stilla båten i texten?* Det styrs inte av U30. U27:s
 köundantag (`_isInTargetQueueZone`) kräver aktivitet inom 20 min, och
 `lastActiveTime` stämplas av ett enda fartsampel över 2,0 kn

@@ -638,7 +638,11 @@ describe('hela appen: en väntande båt vänds inte av ett GPS-sprang (omgranskn
     // mot Klaffbron (DEFAULT-sandwich, WARN INV-14W).
     const window = result.bridgeTextTransitions.filter((b) => b.iso >= '2026-06-02T13:40:00' && b.iso < '2026-06-02T13:55:00');
     expect(window.map((b) => b.text)).not.toContain(DEFAULT_TEXT);
-    expect(window.find((b) => b.iso.startsWith('2026-06-02T13:42:40')).text)
+    // U53 (2026-11-23): textens kö vid Järnvägsbron (bekräftad 13:39:40) står
+    // kvar över outliern 13:42:40 och släpper på nästa fix 13:43:39; förut
+    // släppte den på outliern. Första texten efter outliern ska vara målet
+    // Klaffbron (ingen vändning), som förut "om 11 minuter".
+    expect(window.find((b) => b.iso >= '2026-06-02T13:42:40').text)
       .toBe('En båt på väg mot Klaffbron, beräknad broöppning om 11 minuter');
   }, 120000);
 

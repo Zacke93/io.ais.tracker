@@ -73,7 +73,7 @@ describe('U30: läget "ETA okänd" går in', () => {
     expect(run(makeCalculator(), 10, () => vessel(340))[10]).toBe(false);
   });
 
-  test('inte i annan status än approaching, inte med imminent-flaggan', () => {
+  test('inte i status waiting (utanför lägets statusar, U55), inte med imminent-flaggan', () => {
     expect(run(makeCalculator(), 8, () => vessel(460, { status: 'waiting' }))[8]).toBe(false);
     expect(run(makeCalculator(), 8, () => vessel(460, { _isImminentAtTargetBridge: true }))[8]).toBe(false);
   });
@@ -174,8 +174,17 @@ describe('U30: läget hålls och lämnas', () => {
 
   test('målbyte, statusbyte och imminent-flaggan lämnar läget', () => {
     expect(step(entered(), 7, vessel(460, { targetBridge: 'Klaffbron' }))).toBe(false);
-    expect(step(entered(), 7, vessel(460, { status: 'en-route' }))).toBe(false);
+    // U55 (2026-11-23): en-route och stallbacka-waiting ingår i lägets statusar;
+    // ett byte till 'waiting' (väntan äger texten) lämnar det.
+    expect(step(entered(), 7, vessel(460, { status: 'waiting' }))).toBe(false);
+    expect(step(entered(), 7, vessel(460, { status: 'en-route' }))).toBe(true);
     expect(step(entered(), 7, vessel(460, { _isImminentAtTargetBridge: true }))).toBe(false);
+  });
+
+  test('U55: läget går in också i status en-route och stallbacka-waiting', () => {
+    expect(run(makeCalculator(), 8, () => vessel(460, { status: 'en-route' }))[8]).toBe(true);
+    expect(run(makeCalculator(), 8, () => vessel(2200, { status: 'stallbacka-waiting' }))[8]).toBe(true);
+    expect(run(makeCalculator(), 8, () => vessel(460, { status: 'under-bridge' }))[8]).toBe(false);
   });
 
   test('clearVesselETAHistory tar bort läget', () => {
