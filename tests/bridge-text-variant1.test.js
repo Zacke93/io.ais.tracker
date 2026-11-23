@@ -191,10 +191,21 @@ describe('BridgeTextService — Variant-1 format contract', () => {
       );
     });
 
-    test('ETA = 120 min → "om 120 minuter" (no upper cap)', () => {
+    // U54 (2026-11-23): en restid över 60 min visas som "ETA okänd" (förut
+    // "om 120 minuter", inget tak).
+    test('ETA = 120 min → "ETA okänd" (U54, taket 60 min)', () => {
       const v = mkVessel({ etaMinutes: 120 });
       expect(makeService().generateBridgeText([v])).toBe(
-        'En båt på väg mot Klaffbron, beräknad broöppning om 120 minuter',
+        'En båt på väg mot Klaffbron, ETA okänd',
+      );
+    });
+
+    test('ETA = 60 min → "om 60 minuter"; 60,6 min → "ETA okänd" (U54, avrundat)', () => {
+      expect(makeService().generateBridgeText([mkVessel({ etaMinutes: 60.4 })])).toBe(
+        'En båt på väg mot Klaffbron, beräknad broöppning om 60 minuter',
+      );
+      expect(makeService().generateBridgeText([mkVessel({ etaMinutes: 60.6 })])).toBe(
+        'En båt på väg mot Klaffbron, ETA okänd',
       );
     });
   });

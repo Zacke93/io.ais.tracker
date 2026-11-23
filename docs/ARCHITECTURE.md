@@ -2427,7 +2427,9 @@ Flaggor (bärs av `_createVesselObject`-fältlistan, §8a): `_etaIsExtrapolated`
    målbroar nämns. ETA-klausul via `formatETABroOpeningClause` (SSOT,
    etaValidation): ogiltig ⇒ "ETA okänd"; <3 min ELLER imminent ⇒ "beräknad
    broöppning strax" (imminent gäller HELA gruppen, F45 :146–147); ≥3 min ⇒
-   "om N minuter" (extrapolerad ⇒ "om cirka N minuter"). **B6-zombieundantaget**
+   "om N minuter" (extrapolerad ⇒ "om cirka N minuter"); avrundat över 60 min ⇒
+   "ETA okänd" (U54, 2026-11-23, `MAX_SHOWN_ETA_MINUTES`; ingen av 18 rader över
+   60 min i underlaget var sann; notisernas eta_minutes har inget tak). **B6-zombieundantaget**
    (:134–151): fartyg vars target redan ligger i `passedBridges` räknas i
    antalet men driver varken imminent eller lead-ETA (isZombie :134–135; lead
    väljs ur zombie-fria mängden :136–138). Lead-båt = lägst giltig ETA, annars

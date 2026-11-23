@@ -44,6 +44,7 @@ Klausulen avgörs i prioritetsordning (`lib/utils/etaValidation.js → formatETA
 |---|---|
 | **imminent** (vessel <300 m från målbro) | `beräknad broöppning strax` |
 | `null`, `undefined`, `NaN`, ogiltig ETA | `ETA okänd` |
+| `N > 60` efter avrundning (U54) | `ETA okänd` |
 | **extrapolerad** och `etaMinutes < 3` | `beräknad broöppning om cirka 2 minuter` |
 | `etaMinutes < 3` (färsk data) | `beräknad broöppning strax` |
 | **extrapolerad** (AIS 5–10 min stale) och `N ≥ 3` | `beräknad broöppning om cirka N minuter` |
@@ -76,9 +77,13 @@ uppräknad tid. För båtar under gång kan
 imminent-flaggan ge ”strax” inom 300 m från målbron. Flaggan kräver färsk
 position och skydd mot GPS-störningar.
 
-**Inget presentationsmässigt tak på giltig ETA.** Höga prognoser kan visas för
-båtar under gång. En bekräftat stillastående kö vid en tidigare bro får ingen
-minutprognos.
+**Taket 60 minuter (U54, 2026-11-23).** En restid som avrundas över 60 minuter
+visas som `ETA okänd`. I hela underlaget (25 korpusar och tre fältkörningar) var
+ingen av 18 textrader över 60 minuter sann (till exempel "om 118 minuter" för en
+båt som låg nästan stilla vid Stallbackabron), och ingen av 20 över 45; över 30
+minuter var 5 av 40 sanna, så taket ligger inte lägre. En bekräftat
+stillastående kö vid en tidigare bro får ingen minutprognos. Notisernas
+`eta_minutes` har inget tak.
 
 **Strax-tröskeln är 3 min** (justerad från 1 min efter produktionsanalys april 2026). Med tidigare 1-min-tröskel hoppade Class B AIS (30 s intervall) ofta över den ~30 m breda strax-zonen. Med 3-min-tröskel blir zonen ~460 m vid 5 knop och praktiskt taget alla båtar får "strax" under sin passage.
 
@@ -86,7 +91,7 @@ minutprognos.
 - **5–10 min utan positionsuppdatering (SOFT):** ETA extrapoleras ned (senaste ETA minus förfluten tid) och markeras "cirka" så att texten är ärlig om osäkerheten.
 - **> 10 min utan positionsuppdatering (HARD):** ETA nollställs → `ETA okänd` (data är för gammal för att lita på).
 
-**"ETA okänd"** triggas alltså vid: > 10 min utan positionsuppdatering, ogiltig/saknad ETA, eller internt beräkningsfel (sällsynt — felsökning krävs om det inträffar i normal drift). OBS: imminent-flaggan (<300 m) överstyr detta till "strax".
+**"ETA okänd"** triggas alltså vid: > 10 min utan positionsuppdatering, ogiltig/saknad ETA, en restid över 60 minuter (U54), eller internt beräkningsfel (sällsynt — felsökning krävs om det inträffar i normal drift). OBS: imminent-flaggan (<300 m) överstyr detta till "strax".
 
 **Stilla båt utanför väntzonen (U30, 2026-11-15):** en båt som legat bevisat stilla i minst 5 min med färsk position, på väg mot målbron (status `approaching`) och mer än 350 m från den, visas som `En båt på väg mot <bro>, ETA okänd` tills hon bevisligen rör sig igen (en ren position minst 50 m från där läget började; ett fartsampel utan förflyttning räcker inte), byter målbro eller status, eller lämnar texten. När hon lämnar texten styrs av samma regler som förut (U27 m.fl.; se docs/ARCHITECTURE.md §8 (e)). Formen är densamma som ovan; en frusen siffra (avstånd genom rask fart) var ingen prognos. Innanför 350 m, i väntzonen, i kö vid en tidigare bro och med gammal position gäller reglerna ovan som förut. När läget lämnas visas samma siffra som utan läget.
 

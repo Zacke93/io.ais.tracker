@@ -5009,6 +5009,48 @@ const SCENARIOS = [
     }],
     expect: { maxWaitToggles: { at: 'Järnvägsbron', max: 0 } },
   },
+  // ---------------------------------------------------------------------------
+  // U54 (2026-11-23): en restid över 60 min visas som "ETA okänd".
+  // ---------------------------------------------------------------------------
+  // En båt söderut kryper 0,6 kn norr om Stallbackabron, drygt 2 km från
+  // Stridsbergsbron: restiden är långt över 60 min. Ingen siffra över 60.
+  {
+    name: 'kryp-0,6kn-2km-norr-om-Stridsbergsbron-restid-över-60 (U54)',
+    seed: 5401,
+    vessels: [{
+      mmsi: '905401001',
+      name: 'SYNT-U54-LANG',
+      startS: METRICS.cum[5] + 600,
+      legs: [
+        { toS: METRICS.cum[5] + 300, speedKn: 4, intervalS: 60 },
+        { toS: METRICS.cum[5] - 300, speedKn: 0.6, intervalS: 60 },
+        { toS: METRICS.cum[4] - 400, speedKn: 5, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      etaNeverAbove: { bridge: 'Stridsbergsbron', max: 60 },
+      unknownSeen: ['Stridsbergsbron'],
+    },
+  },
+  // Motfall: samma sträcka i 1,3 kn — restiden 40–55 min visas som siffra.
+  {
+    name: 'sakta-1,3kn-norr-om-Stridsbergsbron-restid-40–55-visas (motfall U54)',
+    seed: 5402,
+    vessels: [{
+      mmsi: '905402001',
+      name: 'SYNT-U54-SAKTA',
+      startS: METRICS.cum[5] + 600,
+      legs: [
+        { toS: METRICS.cum[5] + 300, speedKn: 4, intervalS: 60 },
+        { toS: METRICS.cum[4] + 400, speedKn: 1.3, intervalS: 60 },
+        { toS: METRICS.cum[4] - 400, speedKn: 5, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      etaSeenAtLeast: { bridge: 'Stridsbergsbron', min: 40 },
+      etaNeverAbove: { bridge: 'Stridsbergsbron', max: 60 },
+    },
+  },
 ];
 
 function runScenario(scenario) {

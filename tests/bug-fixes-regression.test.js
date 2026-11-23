@@ -271,10 +271,11 @@ describe('Bug #11 follow-up — no upper cap, honest large-ETA values', () => {
       .toBe('En båt på väg mot Klaffbron, beräknad broöppning om 45 minuter');
   });
 
-  test('ETA = 106 min (seen in log) → "om 106 minuter"', () => {
+  // U54 (2026-11-23): över 60 min visas "ETA okänd" (förut "om 106 minuter").
+  test('ETA = 106 min (seen in log) → "ETA okänd" (U54)', () => {
     const vessels = [{ mmsi: '1', targetBridge: 'Stridsbergsbron', etaMinutes: 106 }];
     expect(makeService().generateBridgeText(vessels))
-      .toBe('En båt på väg mot Stridsbergsbron, beräknad broöppning om 106 minuter');
+      .toBe('En båt på väg mot Stridsbergsbron, ETA okänd');
   });
 
   test('ETA = 30 min → "om 30 minuter"', () => {
