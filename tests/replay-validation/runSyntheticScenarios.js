@@ -4791,6 +4791,64 @@ const SCENARIOS = [
       noticeLeadS: { Klaffbron: 300 },
     },
   },
+  // Omgång 5 (granskningen av D3 varv 2, fel 1): SAMMA FEL LÅS VID TÄT
+  // RAPPORTERING I KRYPFART. Som scenariot ovan, men en position var 12:e
+  // sekund och utan GPS-brus: 9 m per position i 1,5 kn. Varv 2 krävde 10 m
+  // närmare linjen sedan föregående position; undantaget släppte aldrig och
+  // förvarningen kom 29 s före korsningen. Nu jämförs med spärrens ankare, och
+  // förvarningen går ut när hon ligger 30 m närmare än det. PLACERINGEN ÄR
+  // TESTET: kadensen och jitterM 0. Ingen dubblettgräns: med fel lås kan
+  // vändningen vid passagen ge en andra förvarning (riktningsflippen), också på
+  // `7633653`; det är inte den här mekanismen. (1 kn på 10 s gav textflapp-WARN
+  // och 0,9 kn på 20 s ETA-WARN ur det felaktiga låset, på alla kodrötter.)
+  {
+    name: 'kryper-mot-Klaffbron-söderut-fel-ruttlås-tät-kadens-utan-brus (U44:3, varv 2 fel 1)',
+    seed: 81001,
+    vessels: [{
+      mmsi: '974407001',
+      name: 'SYNT-U44-TATKRYP',
+      jitterM: 0,
+      startS: METRICS.cum[2] + 290,
+      legs: [
+        {
+          toS: METRICS.cum[2] + 285, speedKn: 1.5, intervalS: 12, cogDeg: 30,
+        },
+        { toS: METRICS.cum[2] + 60, speedKn: 1.5, intervalS: 12 },
+        {
+          stopS: 240, stopIntervalS: 30, stopSog: 0.3, stopCogRandom: true,
+        },
+        { toS: METRICS.cum[2] - 700, speedKn: 4, intervalS: 30 },
+      ],
+    }],
+    expect: { noticeLeadS: { Klaffbron: 300 } },
+  },
+  // Omgång 5 (granskningen av D3 varv 2, fel 2): EN STILLA BÅT BORTOM BRON
+  // MED GPS-BRUS OCH KURSEN MOT BRON. Båten hörs 120 m norr om Klaffbron på
+  // väg bort i 0,8 kn (ruttlåset norrut), ligger sedan i 10 minuter 150 m norr
+  // om bron i 0,6 kn med kursen mot bron och ±8 m brus, och går därefter bort
+  // norrut. Hon korsar aldrig Klaffbron. Varv 2 släppte förvarningen när två
+  // brusfixar råkade ligga 10 m isär mot bron; på `7633653` kommer den falska
+  // notisen direkt. Nu släpper bruset inte 30 m närmare än ankaret. (Med 10–15 m
+  // brus ger den stilla båten en ETA-WARN ur låset på alla kodrötter; ±12 m
+  // prövas i jest-testet.)
+  {
+    name: 'ligger-still-norr-om-Klaffbron-kursen-mot-bron-gps-brus (U44:3, varv 2 fel 2)',
+    seed: 81206,
+    vessels: [{
+      mmsi: '974408001',
+      name: 'SYNT-U44-BRUSSTILL',
+      jitterM: 8,
+      startS: METRICS.cum[2] + 120,
+      legs: [
+        { toS: METRICS.cum[2] + 150, speedKn: 0.8, intervalS: 30 },
+        {
+          stopS: 600, stopIntervalS: 30, stopSog: 0.6, stopCogDeg: 209,
+        },
+        { toS: METRICS.cum[2] + 900, speedKn: 4, intervalS: 60 },
+      ],
+    }],
+    expect: { forbiddenNotifiedBridges: ['Klaffbron'] },
+  },
 ];
 
 function runScenario(scenario) {
@@ -5005,6 +5063,12 @@ function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
   if ((result.processErrors || 0) > 0) problems.push(`${result.processErrors} processfel`);
   if (result.leakDiagnostics && result.leakDiagnostics.vessels !== 0) {
     problems.push(`${result.leakDiagnostics.vessels} fartyg kvar efter efterspel`);
+  }
+  // U44 punkt 3 (D3): spärrens minne städas när båten raderas.
+  if (result.leakDiagnostics && result.leakDiagnostics.vessels === 0
+      && (result.leakDiagnostics.slowBridgeBehindHolds || result.leakDiagnostics.slowBridgeBehindLogged)) {
+    problems.push(`spärrens minne kvar efter efterspel (${result.leakDiagnostics.slowBridgeBehindHolds}/`
+      + `${result.leakDiagnostics.slowBridgeBehindLogged})`);
   }
   if (e.minTargetPassages != null && passages.length < e.minTargetPassages) {
     problems.push(`målbro-passager ${passages.length} < förväntade ${e.minTargetPassages}`);

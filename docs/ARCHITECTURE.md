@@ -4304,18 +4304,39 @@ Underlaget står i `docs/helgranskning-2026-11-03.md`; varje fynd prövades med 
   nycklarna, så inget skrivs och nästa position prövas på nytt). Har båten hållits inne för en bro
   hålls förvarningen också (b) när hon sedan går bort i minst 2 kn med kursen i notisens riktning
   på samma sida (riktningen är då belagd och bron ligger bakom henne), och (c) medan riktningen
-  är okänd och hon ligger kvar på samma sida. **Undantaget i (a) (granskningen av D3, H1):**
+  är okänd och hon ligger kvar på samma sida. **Undantaget i (a) (granskningen av D3, H1; omgång 5):**
   notisens riktning kommer i första hand ur ruttlåset, och ett enda omvänt kursvärde i krypfart
   kan låsa det åt fel håll; låset vänder först i fart. Rör sig båten belagt mot bron hålls därför
   inget inne (`_slowVesselHeadsForBridge`): kursen är giltig (minst `MIN_VIABLE_SPEED_KN`) och
-  pekar mot bron (`geometry.courseBridgeSide`), och positionen har sedan föregående position
-  kommit minst `SLOW_BRIDGE_APPROACH_MIN_M` (10 m, mer än positionsbruset) närmare linjen på
-  samma sida. Förvarningen får då låsets riktning, som förut. Granskarens förslag med bara
-  kursen öppnade den falska notisen igen för en båt bortom bron med brus i kursen (byggda
-  världar: stilla med slumpad kurs 7 → 15 av 20, glider bort med ett omvänt kursvärde 8 → 16,
-  krypfart och fart bort 8 → 20); med förflyttningskravet är de som utan undantaget (7, 8, 8).
-  Spärren minns per båt och bro (`_slowBridgeBehindHolds`, städas i `_onVesselRemoved`); den
-  första inhållna positionen per båt och bro loggas i fältloggen, resten som debug. En passagenotis (S4, BN2,
+  pekar mot bron (`geometry.courseBridgeSide`), och positionen ligger minst
+  `SLOW_BRIDGE_APPROACH_MIN_M` (30 m) närmare linjen än spärrens **ankare**. Ankaret
+  (`_slowBridgeBehindHolds`, mmsi → bro → `{side, anchorM}`) sätts vid första inhållna
+  positionen för bron, på hennes avstånd till linjen, och flyttas ut när en inhållen position
+  och föregående position båda ligger längre bort (till det kortare av de två): det följer en
+  båt som glider bort, men en ensam brusfix eller utliggare flyttar det inte. Vid första
+  försöket för bron (inget ankare) mäts mot föregående position, om den ligger entydigt på samma
+  sida; Järnvägsbron och Stridsbergsbron ligger 257 m isär, och den andra bron blir ofta kandidat
+  först när båten redan är på väg mot den. Förvarningen får låsets riktning, som förut. Varv 2
+  krävde i stället 10 m sedan föregående position; det släppte aldrig vid tät rapportering i
+  krypfart (10 m på 10 s kräver 1,94 kn: förvarningen kom 29 s före korsningen) och släppte på
+  GPS-brus (två fixar med ±10–20 m brus kan ligga 10 m isär). Ankarets post tas bort när en
+  notis för bron har gått ut och när båten raderas; den sparas inte över en omstart (första
+  positionen efter omstarten hålls inne och sätter ett nytt ankare, föregående position finns
+  inte). Läckdiagnostiken i replay räknar ankarkartan och loggmängden, och `replay:all` och
+  `replay:synthetic` fäller en körning där de inte är tomma efter efterspelet. Den första
+  inhållna positionen per båt och bro loggas i fältloggen, resten som debug.
+  *Valet av gräns och ankare (omgång 5, 840 byggda världar i 15 familjer: alla fem broar, båda
+  sidor, 0,3–3 kn, kadens 10–180 s, brus 0–20 m, kurs med, mot och tvärs, stilla, vändningar,
+  AIS-glapp, omstart, utliggare).* Förvarning under 60 s före korsningen / falsk notis för en bro
+  båten aldrig korsar, summerat: `7633653` (ingen regel) 6 / 305; regeln utan undantag 129 /
+  167; varv 2 48 / 207; ankaret längst bort av enstaka positioner (granskarens förslag, med
+  föregående position) 20 m 24 / 200, 30 m 30 / 190, 40 m 38 / 179; ankaret vid första
+  inhållna positionen 44 / 167 (20 och 30 m), 53 / 167 (40 m); **valt: två positioner i rad,
+  föregående position vid första försöket**, 20 m 30 / 182, **30 m 32 / 169**, 40 m 41 / 167.
+  Det valda ankaret ger lika få falska notiser som regeln utan undantag utom 2 (stilla med 20 m
+  brus) och nästan lika få sena förvarningar som granskarens förslag; det förslaget gav 23 fler
+  falska notiser, alla ur brus eller en enstaka utliggare som flyttade ankaret. Två båtar vid
+  samma bro samtidigt (30 världar): 0 sena, falska 30 → 9 (varv 2: 1 sen, 12 falska). En passagenotis (S4, BN2,
   retroaktiva källor) går alltid ut, och en ny båt i minst 2 kn följer punkt 1. HALIFAX
   (20260708-21h, 194 m söder om Olidebron i 1,1 kn med kursen söderut; hon låg och drev på
   tillfartssidan och gick norrut genom bron 11,6 min senare) får i stället för "närmar sig
@@ -4341,6 +4362,17 @@ Underlaget står i `docs/helgranskning-2026-11-03.md`; varje fynd prövades med 
     (granskarens VQ): 4 av 20 får förvarningen 49 s före korsningen i fel riktning, som utan
     undantaget (förut 589–649 s, också fel riktning). Den tidigare förvarningen nämnde rätt bro men
     fel riktning och fel minuttal (HALIFAX: 11,6 min före passagen, "om 6 minuter", söderut).
+    Omgång 5, egen VQ-familj med brus 0–20 m och kadens 10–120 s: 18 av 40 får förvarningen
+    under 60 s före korsningen (varv 2: 11, där brus ibland släppte henne; regeln utan undantag:
+    22). Över alla 504 byggda världar med korsning, första notisen (antal, därav rätt riktning),
+    `7633653` → nu: under 60 s 6 (6) → 32 (10); 60–119 s 9 (6) → 42 (12); 120–299 s 64 (51) →
+    135 (69); 300 s eller mer 414 (106) → 283 (183); passagenotis 10 → 11; efter korsningen 1 → 1.
+  - *Ankaret ser bara positioner där bron var kandidat* (omgång 5): mellan Järnvägsbron och
+    Stridsbergsbron är den närmare bron kandidat, så positioner där båten låg närmare den andra
+    bron flyttar inte den förstas ankare. En båt som drev bort mot Stridsbergsbron, vände och
+    stannade 50 m före Järnvägsbron fick förvarningen 24 s före korsningen (2 av 80 driftvärldar;
+    granskarens förslag 0, eftersom det räknade föregående position vid varje försök, vilket
+    också släppte på en enstaka utliggare). 0 fall i banken och k1–k3.
   - *Krypfart genom bron hela vägen* (granskarens KK, 30 världar i 1,0–1,9 kn utan någon position
     i fart): när båten ligger på linjen (±10 m) släpper spärren och förvarningen går ut med
     låsets riktning; i 2 av 30 blir det "närmar sig … strax" 3 s efter korsningen (5 utan
@@ -4358,7 +4390,9 @@ Underlaget står i `docs/helgranskning-2026-11-03.md`; varje fynd prövades med 
     Klaffbron) och som sedan sätter fart bort inom 300 m får förvarningen om bron bakom sig som
     förut (5 av 20 byggda världar). 0 fall i banken och k1/k2.
   - *Inom 70 m* gäller punkt 2 ("strax") bara båtar i minst 2 kn; en långsam båt 10–70 m bortom
-    linjen hålls inne. Spärren sparas inte över en omstart.
+    linjen hålls inne. Spärren och ankaret sparas inte över en omstart: första positionen efter
+    omstarten hålls inne och sätter ett nytt ankare (omstartsfamiljen, 30 världar: 0 sena
+    förvarningar, 9 falska notiser som utan undantaget).
   - *Gränsen 2 kn i vakten är skarp* (granskningens andra varv): en båt som rör sig bort från bron
     på tillfartssidan i strax över 2 kn och sedan går igenom får två notiser för en passage,
     "passerade" medan hon rör sig bort (punkt 1, eller svepets portgissning) och "har precis

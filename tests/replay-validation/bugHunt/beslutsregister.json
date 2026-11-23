@@ -28,7 +28,7 @@
       "id": "KIE-PER-KORPUS",
       "klass": "ACCEPTERAD",
       "datum": "2026-07-18",
-      "källa": "tests/replay-validation/corpora.js:21–23 (knownInvariantExceptions, prefixmatch); tests/replay-validation/runAllCorpora.js:252–262 (FP9)",
+      "källa": "tests/replay-validation/corpora.js:21–23 (knownInvariantExceptions, prefixmatch); tests/replay-validation/runAllCorpora.js:256–266 (FP9)",
       "gäller": {
         "orakel": [
           "INV-F",

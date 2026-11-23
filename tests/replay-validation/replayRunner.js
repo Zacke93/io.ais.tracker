@@ -1022,6 +1022,11 @@ async function main() {
     triggeredBoatNearKeys: sizeOf(app._triggeredBoatNearKeys),
     persistentRecentTriggers: sizeOf(app._persistentRecentTriggers),
     triggerPointVisits: sizeOf(app._triggerPointVisits?._entries),
+    // U44 punkt 3 (D3, omgång 5): spärrens ankare per båt och bro, och vilka
+    // båt/bro-par som redan fått sin loggrad. Båda städas när båten raderas,
+    // så efter efterspelet (0 fartyg) ska båda vara tomma.
+    slowBridgeBehindHolds: sizeOf(app._slowBridgeBehindHolds) ?? 0,
+    slowBridgeBehindLogged: sizeOf(app._slowBridgeBehindLogged) ?? 0,
     vesselRemovalTimers: sizeOf(app._vesselRemovalTimers),
     processingRemoval: sizeOf(app._processingRemoval),
     gpsGateGatedVessels: app.gpsJumpGateService

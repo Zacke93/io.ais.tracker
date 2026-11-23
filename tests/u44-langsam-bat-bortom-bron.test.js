@@ -19,9 +19,13 @@
  * är okänd. Ingen nyckel och inget besök skrivs. Passagenotiser går ut.
  *
  * Granskningen av D3 (H1): i (a) hålls inget inne när båten belagt rör sig
- * mot bron (giltig kurs mot bron OCH minst 10 m närmare linjen sedan
- * föregående position). Då är det ruttlåset som pekar fel. Ett ensamt
- * kursvärde mot bron utan förflyttning (brus i krypfart) räcker inte.
+ * mot bron (giltig kurs mot bron OCH minst 30 m närmare linjen än spärrens
+ * ankare: läget längst från linjen som båten nått med två positioner i rad
+ * medan förvarningen hållits inne på samma sida, vid första försöket
+ * föregående position). Då är det ruttlåset som pekar fel. Ett ensamt kursvärde mot bron
+ * utan förflyttning (brus i krypfart) räcker inte. Omgång 5: i varv 2 mättes
+ * förflyttningen sedan föregående position (10 m), vilket aldrig släppte vid
+ * tät rapportering i krypfart och släppte på GPS-brus (granskarens två fel).
  */
 
 jest.mock('homey');
@@ -288,54 +292,172 @@ describe('U44 punkt 3: förvarning om en bro bakom en långsam båt', () => {
   describe('H1 (granskningen av D3): fel ruttlås för en båt som verkligen närmar sig', () => {
     // Kryper söderut mot Klaffbron norrifrån; låset norr (ur ett omvänt första
     // kursvärde), så bron ligger "bakom" henne i notisens riktning.
+    // Omgång 5: undantaget jämför med spärrens ankare (läget längst från
+    // linjen som båten nått med två positioner i rad medan förvarningen
+    // hållits inne; vid första försöket föregående position), inte med
+    // föregående position som i varv 2.
+    const MMSI = '940047001';
     const kryp = (d, extra = {}) => vessel(at(KLAFF, d), {
-      mmsi: '940047001', name: 'KRYPBRUS', sog: 1.0, cog: 210, _routeDirection: 'north', ...extra,
+      mmsi: MMSI, name: 'KRYPBRUS', sog: 1.0, cog: 210, _routeDirection: 'north', ...extra,
     });
+    // Första inhållna positionen: kursen bort från bron (det omvända värdet).
+    const ankare = async (app, d) => {
+      expect(await notify(app, KLAFF, kryp(d, { cog: 30 }))).toEqual([]);
+      jest.advanceTimersByTime(60000);
+    };
+    /** Kör positionerna i tur och ordning; ger indexet för den första som gav en notis, annars -1. */
+    const serie = async (app, avstand, extra = {}, stegMs = 10000) => {
+      let prev = null;
+      for (const [i, d] of avstand.entries()) {
+        // eslint-disable-next-line no-await-in-loop
+        const sent = await notify(app, KLAFF, kryp(d, { lastPosition: prev, ...extra }));
+        if (sent.length > 0) return i;
+        prev = at(KLAFF, d);
+        jest.advanceTimersByTime(stegMs);
+      }
+      return -1;
+    };
 
-    test('kursen mot bron och 30 m närmare linjen: förvarningen går ut', async () => {
+    test('kursen mot bron och 30 m närmare linjen än ankaret: förvarningen går ut', async () => {
       const app = await boot();
-      const v = kryp(230, { lastPosition: at(KLAFF, 260) });
+      await ankare(app, 260);
+      const v = kryp(229, { lastPosition: at(KLAFF, 260) });
       expect(app._getNotificationDirection(v, cand(KLAFF, v))).toBe('northbound');
       const sent = await notify(app, KLAFF, v);
       expect(sent).toHaveLength(1);
       expect(sent[0].message).toMatch(/^KRYPBRUS närmar sig Klaffbron/);
     });
 
-    test('efter en spärr: när hon sedan kryper mot bron går förvarningen ut', async () => {
+    test('första försöket utan föregående position hålls inne och sätter ankaret', async () => {
       const app = await boot();
-      expect(await notify(app, KLAFF, kryp(260, { cog: 30, lastPosition: at(KLAFF, 262) }))).toEqual([]);
+      expect(await notify(app, KLAFF, kryp(230))).toEqual([]);
+      expect(app._slowBridgeBehindHolds.get(MMSI).get('Klaffbron')).toEqual({ side: 1, anchorM: expect.closeTo(230, 0) });
+    });
+
+    test('första försöket: föregående position 32 m längre bort och kursen mot bron släpper', async () => {
+      // Järnvägsbron och Stridsbergsbron ligger 257 m isär; den andra bron blir
+      // ofta kandidat först när båten redan är på väg mot den.
+      const app = await boot();
+      expect(await notify(app, KLAFF, kryp(230, { lastPosition: at(KLAFF, 262) }))).toHaveLength(1);
+    });
+
+    test('första försöket: föregående position 25 m längre bort hålls inne; ankaret blir positionens eget avstånd', async () => {
+      const app = await boot();
+      expect(await notify(app, KLAFF, kryp(230, { lastPosition: at(KLAFF, 255) }))).toEqual([]);
+      expect(app._slowBridgeBehindHolds.get(MMSI).get('Klaffbron').anchorM).toBeCloseTo(230, 0);
+      jest.advanceTimersByTime(30000);
+      expect(await notify(app, KLAFF, kryp(205, { lastPosition: at(KLAFF, 230) }))).toEqual([]);
+      jest.advanceTimersByTime(30000);
+      expect(await notify(app, KLAFF, kryp(199, { lastPosition: at(KLAFF, 205) }))).toHaveLength(1);
+    });
+
+    test('föregående position på andra sidan av linjen räknas inte till ankaret', async () => {
+      const app = await boot();
+      expect(await notify(app, KLAFF, kryp(230, { lastPosition: at(KLAFF, -40) }))).toEqual([]);
+      expect(app._slowBridgeBehindHolds.get(MMSI).get('Klaffbron').anchorM).toBeCloseTo(230, 0);
+    });
+
+    test('granskarens fel 1: tät rapportering i krypfart utan brus (1 kn, 10 s, 5 m per position) släpper vid 30 m', async () => {
+      const app = await boot();
+      await ankare(app, 230);
+      // 225, 220, … 195: första positionen minst 30 m närmare än 230 är 200 (index 5).
+      expect(await serie(app, [225, 220, 215, 210, 205, 200, 195])).toBe(5);
+    });
+
+    test('granskarens fel 1: sakta krypfart på glesare kadens (0,3 kn, 60 s, 9 m per position) släpper vid 30 m', async () => {
+      const app = await boot();
+      await ankare(app, 250);
+      expect(await serie(app, [241, 232, 223, 214, 205], { sog: 0.6 }, 60000)).toBe(3);
+    });
+
+    test('granskarens fel 2: stilla bortom bron med ±12 m brus och kursen mot bron: hålls inne', async () => {
+      const app = await boot();
+      await ankare(app, 150);
+      // Hopp om 19–24 m mellan två fixar mot bron, men aldrig 30 m närmare än det
+      // längsta läget (162 m).
+      expect(await serie(app, [161, 140, 159, 138, 162, 141, 160, 139], { sog: 0.6 }, 30000)).toBe(-1);
+    });
+
+    test('gränsen: 29 m närmare ankaret hålls inne, 30 m släpper', async () => {
+      const app = await boot();
+      await ankare(app, 260);
+      expect(await notify(app, KLAFF, kryp(231, { lastPosition: at(KLAFF, 260) }))).toEqual([]);
+      jest.advanceTimersByTime(30000);
+      expect(await notify(app, KLAFF, kryp(229.5, { lastPosition: at(KLAFF, 231) }))).toHaveLength(1);
+    });
+
+    test('ankaret följer en båt som glider bort (två positioner i rad): 25 m närmare hålls inne, 31 m släpper', async () => {
+      const app = await boot();
+      await ankare(app, 230);
+      // Glider bort till 280 och 282 m (inhållen, kursen bort): ankaret flyttas
+      // först när två positioner i rad har nått längre bort, till det kortare (280).
+      expect(await notify(app, KLAFF, kryp(280, { cog: 30, lastPosition: at(KLAFF, 230) }))).toEqual([]);
+      expect(app._slowBridgeBehindHolds.get(MMSI).get('Klaffbron').anchorM).toBeCloseTo(230, 0);
       jest.advanceTimersByTime(60000);
-      expect(await notify(app, KLAFF, kryp(229, { lastPosition: at(KLAFF, 260) }))).toHaveLength(1);
+      expect(await notify(app, KLAFF, kryp(282, { cog: 30, lastPosition: at(KLAFF, 280) }))).toEqual([]);
+      expect(app._slowBridgeBehindHolds.get(MMSI).get('Klaffbron').anchorM).toBeCloseTo(280, 0);
+      jest.advanceTimersByTime(60000);
+      expect(await notify(app, KLAFF, kryp(255, { lastPosition: at(KLAFF, 282) }))).toEqual([]);
+      jest.advanceTimersByTime(60000);
+      expect(await notify(app, KLAFF, kryp(249, { lastPosition: at(KLAFF, 255) }))).toHaveLength(1);
     });
 
-    test('(ii) kursen mot bron men ingen förflyttning (brus i krypfart bortom bron): hålls inne', async () => {
+    test('en ensam utliggare längre bort flyttar inte ankaret: nästa vanliga position med kursen mot bron hålls inne', async () => {
       const app = await boot();
-      expect(await notify(app, KLAFF, kryp(230, { sog: 0.6, lastPosition: at(KLAFF, 233) }))).toEqual([]);
-    });
-
-    test('(ii) kursen mot bron men båten glider bort från bron: hålls inne', async () => {
-      const app = await boot();
-      expect(await notify(app, KLAFF, kryp(250, { lastPosition: at(KLAFF, 220) }))).toEqual([]);
+      await ankare(app, 150);
+      // En brusfix 100 m längre bort (inhållen, kursen bort) och sedan tillbaka vid 148 m.
+      expect(await notify(app, KLAFF, kryp(250, { cog: 30, lastPosition: at(KLAFF, 150) }))).toEqual([]);
+      jest.advanceTimersByTime(30000);
+      expect(await notify(app, KLAFF, kryp(148, { sog: 0.6, lastPosition: at(KLAFF, 250) }))).toEqual([]);
+      expect(app._slowBridgeBehindHolds.get(MMSI).get('Klaffbron').anchorM).toBeCloseTo(150, 0);
     });
 
     test('förflyttning mot bron men kursen bort från bron: hålls inne', async () => {
       const app = await boot();
-      expect(await notify(app, KLAFF, kryp(230, { cog: 30, lastPosition: at(KLAFF, 260) }))).toEqual([]);
+      await ankare(app, 260);
+      expect(await notify(app, KLAFF, kryp(220, { cog: 30, lastPosition: at(KLAFF, 260) }))).toEqual([]);
     });
 
     test('(iii) kursen saknas: hålls inne', async () => {
       const app = await boot();
-      expect(await notify(app, KLAFF, kryp(230, { cog: null, lastPosition: at(KLAFF, 260) }))).toEqual([]);
+      await ankare(app, 260);
+      expect(await notify(app, KLAFF, kryp(220, { cog: null, lastPosition: at(KLAFF, 260) }))).toEqual([]);
     });
 
     test('(iii) kursen ogiltig (fart under 0,5 kn): hålls inne', async () => {
       const app = await boot();
-      expect(await notify(app, KLAFF, kryp(230, { sog: 0.4, lastPosition: at(KLAFF, 260) }))).toEqual([]);
+      await ankare(app, 260);
+      expect(await notify(app, KLAFF, kryp(220, { sog: 0.4, lastPosition: at(KLAFF, 260) }))).toEqual([]);
     });
 
-    test('ingen föregående position: hålls inne', async () => {
+    test('ankaret på andra sidan gäller inte: på nya sidan sätts ett nytt ankare', async () => {
       const app = await boot();
-      expect(await notify(app, KLAFF, kryp(230))).toEqual([]);
+      await ankare(app, 260);
+      // Nu söder om bron med låset söder; kursen norrut mot bron, 230 m från det gamla
+      // ankaret räknat längs linjen men på andra sidan: första positionen här hålls inne.
+      const syd = (d, extra) => kryp(d, { _routeDirection: 'south', cog: 30, ...extra });
+      expect(await notify(app, KLAFF, syd(-200))).toEqual([]);
+      expect(app._slowBridgeBehindHolds.get(MMSI).get('Klaffbron')).toEqual({ side: -1, anchorM: expect.closeTo(200, 0) });
+      jest.advanceTimersByTime(60000);
+      expect(await notify(app, KLAFF, syd(-169, { lastPosition: at(KLAFF, -200) }))).toHaveLength(1);
+    });
+
+    test('ankaret städas när notisen för bron har gått ut', async () => {
+      const app = await boot();
+      await ankare(app, 260);
+      expect(await notify(app, KLAFF, kryp(229, { lastPosition: at(KLAFF, 260) }))).toHaveLength(1);
+      expect(app._slowBridgeBehindHolds.has(MMSI)).toBe(false);
+    });
+
+    test('omstart: den nya instansen har inget ankare, och första positionen efter omstarten hålls inne', async () => {
+      const app = await boot();
+      await ankare(app, 260);
+      await app.onUninit();
+      const app2 = await boot();
+      // Efter en omstart byggs båten upp på nytt: ingen föregående position.
+      expect(await notify(app2, KLAFF, kryp(229))).toEqual([]);
+      jest.advanceTimersByTime(60000);
+      expect(await notify(app2, KLAFF, kryp(199, { lastPosition: at(KLAFF, 229) }))).toHaveLength(1);
     });
 
     test('HALIFAX hålls inne som förut (kursen 205° söder om bron pekar bort från den)', async () => {
@@ -432,7 +554,7 @@ describe('U44 punkt 3: förvarning om en bro bakom en långsam båt', () => {
     const app = await boot();
     const v = vessel(at(OLIDE, -194));
     await notify(app, OLIDE, v);
-    expect(app._slowBridgeBehindHolds.get('228086830').get('Olidebron')).toBe(-1);
+    expect(app._slowBridgeBehindHolds.get('228086830').get('Olidebron')).toEqual({ side: -1, anchorM: expect.closeTo(194, 0) });
     await app._onVesselRemoved({ mmsi: '228086830', vessel: v, reason: 'test' });
     expect(app._slowBridgeBehindHolds.has('228086830')).toBe(false);
   });
