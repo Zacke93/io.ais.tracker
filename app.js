@@ -232,6 +232,22 @@ const UNDER_BRIDGE_HOLD_VALIDATION_MAX_M = PROTECTION_ZONE_RADIUS;
 // vars färska värde var MER fel än det clampade. Sweepen: 70 → −27,2,
 // 100/120 → −13,5, 150 → −8,8, 200 → −11,1, 250 → −0,4, 300 → +32,2.
 const ETA_CLAMP_RELEASE_DISTANCE_M = UNDER_BRIDGE_CLEAR_DISTANCE;
+// U44 punkt 3 (omgång 4): under den här farten är kursen inget belägg för
+// färdriktningen, och en förvarning om en bro som ligger bakom båten i notisens
+// riktning hålls inne (_isSlowVesselPastNotifiedBridge). Samma 2 kn som
+// portgissningen (_checkSkippedBridgesFallback), BN2:s nya båt
+// (_isNewVesselPastNotifiedBridge, U44 punkt 1) och brobesökets bortre sida
+// (U44 punkt 4), så att reglerna möts utan glapp vid 2 kn.
+const SLOW_BRIDGE_BEHIND_MAX_KN = 2.0;
+// Granskningen av D3 (H1, omgång 5): hur mycket närmare brolinjen än spärrens
+// ankare (_slowBridgeBehindAnchorM) båten ska ligga för att en kurs mot bron
+// ska räknas som belagd. Kumulativt, inte sedan föregående position: då hängde
+// beviset på hur ofta båten rapporterar (10 m på 10 s kräver nästan 2 kn) och
+// på GPS-bruset (två fixar med ±10–20 m brus kan ligga 10 m isär). 30 m är mer
+// än två brusfixar längs normalen och mindre än en minuts krypfart i 1 kn.
+// Svept 20/30/40 m och tre ankarregler i 840 byggda världar (ARCHITECTURE.md,
+// U44 punkt 3): 20 m gav fler falska notiser, 40 m fler sena förvarningar.
+const SLOW_BRIDGE_APPROACH_MIN_M = 30;
 // F07 (granskning 2, A): brogruppens fönster för sänkningar från osedda båtar —
 // samma 30 s som RC4:s burstskydd i _reconcilePublishedETA.
 const UNSEEN_GROUP_WINDOW_MS = 30000;
@@ -4029,6 +4045,13 @@ class AISBridgeApp extends Homey.App {
     this.debug(`🗑️ [VESSEL_REMOVED] Vessel: ${mmsi} (${reason})`);
     // Fältprov 3: städa svep-idempotensposten (en per mmsi)
     if (this._skippedBridgesSweepSeen) this._skippedBridgesSweepSeen.delete(String(mmsi));
+    // U44 punkt 3: spärren för en bro bakom en långsam båt (en post per mmsi).
+    if (this._slowBridgeBehindHolds) this._slowBridgeBehindHolds.delete(String(mmsi));
+    if (this._slowBridgeBehindLogged) {
+      for (const key of this._slowBridgeBehindLogged) {
+        if (key.startsWith(`${mmsi}:`)) this._slowBridgeBehindLogged.delete(key);
+      }
+    }
 
     // F2-följdfix (körning 2026-07-03, SPIKEN-klassen): minns senaste kända
     // position vid removal. När fartyget återföds behandlas det som "ny båt"
@@ -11077,6 +11100,238 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * U44 punkt 3 (omgång 4): INGEN FÖRVARNING OM EN BRO SOM LIGGER BAKOM EN
+   * LÅNGSAM BÅT, FÖRRÄN RIKTNINGEN ÄR BELAGD.
+   *
+   * SITUATIONEN. HALIFAX (20260708-21h) hördes första gången 194 m söder om
+   * Olidebron i 1,1 kn med kursen 205°. Notisens riktning blev söderut, och i
+   * den riktningen låg bron bakom henne, men hon fick "närmar sig Olidebron,
+   * beräknad ankomst om 6 minuter". I själva verket låg hon och drev på
+   * tillfartssidan och gick norrut genom bron elva minuter senare. EUGENIE
+   * (20260804-both-21h) låg 268 m norr om Klaffbron i 1,9 kn, kurs 38°, fick
+   * "närmar sig Klaffbron" och korsade aldrig bron. Under 2 kn är kursen inte
+   * ett belägg för riktningen (samma fartgräns som portgissningen och U44
+   * punkt 1 och 4 använder), så appen kan inte avgöra i ögonblicket om bron
+   * ligger bakom eller framför båten.
+   *
+   * REGELN. Notisen hålls inne, utan att någon nyckel eller något besök
+   * skrivs, så att nästa position prövas på nytt, när positionen ligger
+   * entydigt (> 10 m, geometry.decisiveBridgeSide) bortom brolinjen i
+   * notisens riktning och
+   *  (a) farten är under 2 kn: riktningen är inte belagd. Notisen kommer när
+   *      riktningen pekar mot bron (HALIFAX norrut 08:39:34, 160 m före bron,
+   *      "om 1 minut"), eller i passerad form när appen ser korsningen.
+   *      Undantag (granskningen av D3, H1): rör sig båten belagt mot bron
+   *      (_slowVesselHeadsForBridge: kursen mot bron och minst
+   *      SLOW_BRIDGE_APPROACH_MIN_M närmare linjen än spärrens ankare) hålls
+   *      inget inne, för då är det ruttlåset som pekar fel, inte bron som
+   *      ligger bakom;
+   *  (b) eller båten har hållits inne för samma bro på samma sida och går nu
+   *      i minst 2 kn med kursen i notisens riktning: riktningen är belagd och
+   *      bron ligger bakom henne. Utan den här delen fick en båt som först hörs
+   *      i krypfart strax bortom bron och sedan sätter fart bort samma osanna
+   *      förvarning en position senare. Pekar kursen mot bron (hon har vänt
+   *      medan ruttlåset står kvar) går förvarningen ut som förut.
+   * Dessutom (c): är riktningen okänd hålls en båt som redan hålls inne kvar
+   * så länge hon ligger entydigt på samma sida; annars kom notisen när hon låg
+   * still med slumpad kurs, med en ETA ur avstånd och krypfart. Utan tidigare
+   * spärr ger okänd riktning notisen som förut.
+   *
+   * Utanför regeln: en passagenotis (passerad form) går alltid ut; formen
+   * bestäms som förut av S4, BN2 och U37 del 2. En båt som korsar bron i ett
+   * glapp mellan driften och nästa position får passagenotisen när korsningen
+   * syns. En ny båt i minst 2 kn följer U44 punkt 1 (_isNewVesselPastNotifiedBridge),
+   * och punkt 2 ("strax" inom 70 m) gäller bara båtar i minst 2 kn.
+   *
+   * SPÄRRENS MINNE (_slowBridgeBehindHolds, mmsi → bro → {side, anchorM}).
+   * Skapas vid första inhållna positionen för bron; anchorM är avståndet till
+   * linjen där. En inhållen position på samma sida flyttar ankaret ut till det
+   * avstånd som både hon och föregående position har nått (det kortare av
+   * de två): ankaret följer en båt som glider bort, men en ensam brusfix
+   * eller utliggare längre bort flyttar det inte. Inhållen på andra sidan:
+   * nytt ankare där. Posten tas bort när en notis för bron har kvitterats
+   * (_clearSlowBridgeBehindHold) och när båten raderas (_onVesselRemoved),
+   * högst en per bro. En notis som är okvitterad efter tidsgränsen
+   * (BOAT_NEAR_UNCONFIRMED) städar inte posten; den ligger då kvar till
+   * raderingen, vilket är ofarligt eftersom dedupnyckeln spärrar bron. En
+   * post finns också kvar för en levande båt vars bro slutar vara kandidat
+   * utan notis. Minnet sparas inte över en
+   * omstart (känd gräns): första positionen efter omstarten sätter ett nytt
+   * ankare. En gammal post kan bara hålla inne en förvarning när båten ligger
+   * entydigt på samma sida som ankaret: i (b) ligger bron då bakom henne, i
+   * (c) är riktningen okänd.
+   * @param {Object} vessel
+   * @param {string} bridgeName
+   * @param {string} notificationDirection - 'northbound' | 'southbound' | 'unknown'
+   * @returns {boolean} true när förvarningen ska hållas inne denna gång
+   * @private
+   */
+  _isSlowVesselPastNotifiedBridge(vessel, bridgeName, notificationDirection) {
+    if (!vessel || !Number.isFinite(vessel.sog)) return false;
+    let travelSign = 0;
+    if (notificationDirection === 'northbound') travelSign = 1;
+    else if (notificationDirection === 'southbound') travelSign = -1;
+    const bridge = this.bridgeRegistry?.getBridgeByName?.(bridgeName);
+    if (!bridge) return false;
+    const side = geometry.decisiveBridgeSide(vessel, bridge);
+    const mmsi = String(vessel.mmsi);
+    const hold = this._slowBridgeBehindHolds?.get(mmsi)?.get(bridgeName) || null;
+    const sameSideHold = side !== 0 && hold?.side === side ? hold : null;
+    if (travelSign === 0) {
+      // Okänd riktning är inte en belagd riktning: en båt som redan hålls
+      // inne och ligger kvar på samma sida väntar vidare (annars kom notisen
+      // när hon låg still med slumpad kurs, med en ETA ur avstånd/krypfart).
+      if (!sameSideHold) return false;
+      this._recordSlowBridgeBehindHold(mmsi, bridgeName, vessel, bridge, side, sameSideHold);
+      return true;
+    }
+    // Bron ligger framför båten eller hon är vid linjen: ingen spärr.
+    if (side !== travelSign) return false;
+    if (vessel.sog < SLOW_BRIDGE_BEHIND_MAX_KN) {
+      // Granskningen av D3 (H1): rör sig båten belagt MOT bron är det
+      // riktningen som är fel, inte bron som ligger bakom. Riktningen kommer i
+      // första hand ur ruttlåset, och ett enda omvänt kursvärde i krypfart kan
+      // låsa det åt fel håll; låset vänder först i fart. Utan undantaget hölls
+      // en båt som kröp mot Klaffbron norrifrån (låset norr, kursen 210°) inne
+      // i tolv minuter och fick förvarningen 29 s före korsningen, fortfarande
+      // norrut. Beviset mäts mot ankaret (_slowBridgeBehindAnchorM).
+      if (this._slowVesselHeadsForBridge(vessel, bridge, side, sameSideHold)) return false;
+      this._recordSlowBridgeBehindHold(mmsi, bridgeName, vessel, bridge, side, sameSideHold);
+      return true;
+    }
+    if (!sameSideHold || !Number.isFinite(vessel.cog)) return false;
+    const courseAlong = travelSign === 1 ? isNorthCog(vessel.cog) : isSouthCogStrict(vessel.cog);
+    if (courseAlong) this._recordSlowBridgeBehindHold(mmsi, bridgeName, vessel, bridge, side, sameSideHold);
+    return courseAlong;
+  }
+
+  /**
+   * U44 punkt 3: spärrens ankare för bron på båtens sida, i meter från
+   * linjen, som undantaget i (a) mäter mot. Finns en post på samma sida är det
+   * postens ankare. Annars (första försöket för bron) föregående position, om
+   * den ligger entydigt på samma sida: vid Järnvägsbron och Stridsbergsbron
+   * (257 m isär) blir den andra bron ofta kandidat först när båten redan är på
+   * väg mot den och strax stannar för att vänta. NaN när inget av dem finns.
+   * @param {Object} vessel
+   * @param {Object} bridge
+   * @param {number} side - båtens entydiga sida (+1/−1)
+   * @param {{side:number, anchorM:number}|null} hold - posten på samma sida
+   * @returns {number}
+   * @private
+   */
+  _slowBridgeBehindAnchorM(vessel, bridge, side, hold) {
+    if (Number.isFinite(hold?.anchorM)) return hold.anchorM;
+    return this._sameSidePrevDistanceM(vessel, bridge, side);
+  }
+
+  /**
+   * U44 punkt 3: föregående positions avstånd till brolinjen, om den ligger
+   * entydigt på samma sida som båten nu; annars NaN.
+   * @param {Object} vessel
+   * @param {Object} bridge
+   * @param {number} side - båtens entydiga sida (+1/−1)
+   * @returns {number}
+   * @private
+   */
+  _sameSidePrevDistanceM(vessel, bridge, side) {
+    const prev = vessel.lastPosition;
+    if (!prev || geometry.decisiveBridgeSide(prev, bridge) !== side) return NaN;
+    return Math.abs(geometry.bridgeLineOffsetM(prev, bridge));
+  }
+
+  /**
+   * U44 punkt 3: bokför en inhållen position i spärrens minne. Ingen post
+   * eller en post på andra sidan: nytt ankare på positionens avstånd. Post på
+   * samma sida: ankaret flyttas ut till det kortare av positionens och
+   * föregående positions avstånd, om det är längre än ankaret. Två positioner
+   * i rad krävs alltså för att flytta ankaret, så att en ensam brusfix eller
+   * utliggare längre bort inte gör nästa vanliga position till ett "närmande"
+   * (omgång 5: med läget längst bort av enstaka positioner kom den falska
+   * notisen tillbaka för en stilla båt med 15–20 m brus eller en utliggare).
+   * @param {string} mmsi
+   * @param {string} bridgeName
+   * @param {Object} vessel
+   * @param {Object} bridge
+   * @param {number} side - båtens entydiga sida (+1/−1)
+   * @param {{side:number, anchorM:number}|null} hold - posten på samma sida
+   * @private
+   */
+  _recordSlowBridgeBehindHold(mmsi, bridgeName, vessel, bridge, side, hold) {
+    const distM = Math.abs(geometry.bridgeLineOffsetM(vessel, bridge));
+    if (!Number.isFinite(distM)) return;
+    if (hold) {
+      const reachedM = Math.min(distM, this._sameSidePrevDistanceM(vessel, bridge, side));
+      if (reachedM > hold.anchorM) hold.anchorM = reachedM;
+      return;
+    }
+    if (!this._slowBridgeBehindHolds) this._slowBridgeBehindHolds = new Map();
+    if (!this._slowBridgeBehindHolds.has(mmsi)) this._slowBridgeBehindHolds.set(mmsi, new Map());
+    this._slowBridgeBehindHolds.get(mmsi).set(bridgeName, { side, anchorM: distM });
+  }
+
+  /**
+   * U44 punkt 3: en notis för bron har gått ut; spärrens post för bron behövs
+   * inte längre (en ny förvarning för bron kräver att dedupnyckeln släpps, och
+   * då ska ett gammalt ankare inte styra).
+   * @param {string} mmsi
+   * @param {string} bridgeName
+   * @private
+   */
+  _clearSlowBridgeBehindHold(mmsi, bridgeName) {
+    const perBridge = this._slowBridgeBehindHolds?.get(String(mmsi));
+    if (!perBridge) return;
+    perBridge.delete(bridgeName);
+    if (perBridge.size === 0) this._slowBridgeBehindHolds.delete(String(mmsi));
+  }
+
+  /**
+   * U44 punkt 3, undantaget i (a) (granskningen av D3, H1; omgång 5): rör sig
+   * båten belagt MOT bron trots att notisens riktning säger att bron ligger
+   * bakom? Då är det riktningen (ruttlåset) som är fel och förvarningen ska gå
+   * ut. Är kursen ogiltig (stilla nu) räcker förflyttningen, om två positioner
+   * i rad (den aktuella och föregående) ligger minst SLOW_BRIDGE_APPROACH_MIN_M
+   * närmare linjen än postens ankare; annars hölls en båt som närmat sig bron
+   * mellan två glesa positioner och nu väntar inne tills hon satte fart. Två oberoende belägg krävs, eftersom ett ensamt kursvärde i krypfart
+   * är brus (D3 varv 2: med bara kursen kom den falska notisen tillbaka för en
+   * båt bortom bron med slumpad kurs i 15 av 20 byggda världar):
+   *  - kursen är giltig (minst MIN_VIABLE_SPEED_KN) och pekar mot bron
+   *    (geometry.courseBridgeSide, samma normal som brolinjen), och
+   *  - positionen ligger minst SLOW_BRIDGE_APPROACH_MIN_M närmare linjen än
+   *    spärrens ankare (_slowBridgeBehindAnchorM: läget längst från linjen
+   *    som båten nått med två positioner i rad medan förvarningen hållits
+   *    inne på samma sida; vid första försöket föregående position). Beviset är båtens samlade rörelse, oberoende av hur ofta hon
+   *    rapporterar; i varv 2 krävdes 10 m sedan föregående position, och då
+   *    släppte undantaget aldrig vid tät rapportering i krypfart (10 m på 10 s
+   *    kräver nästan 2 kn) men släppte på GPS-brus.
+   * @param {Object} vessel
+   * @param {Object} bridge
+   * @param {number} side - båtens entydiga sida (+1/−1)
+   * @param {{side:number, anchorM:number}|null} hold - spärrens post på samma sida
+   * @returns {boolean}
+   * @private
+   */
+  _slowVesselHeadsForBridge(vessel, bridge, side, hold) {
+    const distM = Math.abs(geometry.bridgeLineOffsetM(vessel, bridge));
+    if (!Number.isFinite(distM)) return false;
+    if (!Number.isFinite(vessel.cog) || !(vessel.sog >= MIN_VIABLE_SPEED_KN)) {
+      // Granskningen av D3, omgång 5: ligger hon still nu (kursen är inget
+      // belägg) men har två positioner i rad legat minst
+      // SLOW_BRIDGE_APPROACH_MIN_M närmare linjen än ankaret, har hon närmat
+      // sig bron mellan två glesa positioner (klass B rapporterar var tredje
+      // minut under 2 kn). En ensam utliggare närmare bron räcker inte.
+      if (!hold) return false;
+      const prevM = this._sameSidePrevDistanceM(vessel, bridge, side);
+      return Number.isFinite(prevM)
+        && hold.anchorM - distM >= SLOW_BRIDGE_APPROACH_MIN_M
+        && hold.anchorM - prevM >= SLOW_BRIDGE_APPROACH_MIN_M;
+    }
+    if (geometry.courseBridgeSide(vessel.cog, bridge) !== -side) return false;
+    const anchorM = this._slowBridgeBehindAnchorM(vessel, bridge, side, hold);
+    if (!Number.isFinite(anchorM)) return false;
+    return anchorM - distM >= SLOW_BRIDGE_APPROACH_MIN_M;
+  }
+
+  /**
    * Speglar StatusService:s bekräftade väntbro för just den här notisen.
    * currentBridge kan vara en annan, närmare bro. vessel.status kan ännu
    * vara föregående status när status:changed avfyrar en timer-notis.
@@ -11592,6 +11847,24 @@ class AISBridgeApp extends Homey.App {
       || passedTriggerPoint
       || justPassedBridge
       || gapCrossedBridge;
+    // U44 punkt 3: en förvarning om en bro som ligger bakom en långsam båt i
+    // notisens riktning väntar tills riktningen är belagd. Placeringen är
+    // avsiktlig: efter dedupbesluten och passageformerna (en passagenotis går
+    // alltid ut), före besöket och nycklarna (inget skrivs, nästa position
+    // prövas på nytt). Se _isSlowVesselPastNotifiedBridge.
+    if (!passedBridgeSource && this._isSlowVesselPastNotifiedBridge(vessel, bridgeName, notificationDirection)) {
+      // Fältloggen får raden första gången per båt och bro, därefter debug.
+      if (!this._slowBridgeBehindLogged) this._slowBridgeBehindLogged = new Set();
+      const holdLogKey = `${mmsiLabel}:${bridgeName}`;
+      const firstHoldLog = !this._slowBridgeBehindLogged.has(holdLogKey);
+      if (firstHoldLog) this._slowBridgeBehindLogged.add(holdLogKey);
+      (firstHoldLog ? this.log : this.debug).call(
+        this,
+        `⏸️ [FLOW_TRIGGER_SLOW_BRIDGE_BEHIND] ${mmsiLabel}: "${bridgeName}" ligger bortom båten i notisens `
+        + `riktning (${notificationDirection}, ${vessel.sog} kn) — ingen notis förrän riktningen är belagd`,
+      );
+      return;
+    }
     const waitingAtBridge = !passedBridgeSource && this._isWaitingAtNotifiedBridge(vessel, candidate);
     // S4-kontraktet (granskarfynd fixrunda 6): passerad-formen bär ALDRIG en
     // framräknad ETA — även när källsträngen är 'target' och vessel.etaMinutes
@@ -11829,6 +12102,8 @@ class AISBridgeApp extends Homey.App {
         return;
       }
       this.log(successLine);
+      // U44 punkt 3: notisen för bron har gått ut; spärrens ankare städas.
+      this._clearSlowBridgeBehindHold(mmsiLabel, bridgeName);
 
       this.debug(`🔒 [FLOW_TRIGGER_DEDUPE_SET] ${vessel.mmsi}: Added "${dedupeKey}" to dedupe set (total keys: ${this._triggeredBoatNearKeys.size})`);
     } catch (triggerError) {

@@ -4653,6 +4653,202 @@ const SCENARIOS = [
     }],
     expect: { maxNotifiedPerBridge: { Kanalinfarten: 1 } },
   },
+  // U44 punkt 3 (omgång 4): EN LÅNGSAM BÅT SOM FÖRST HÖRS BORTOM EN BRO i
+  // notisens riktning får ingen förvarning om den bron förrän riktningen är
+  // belagd. HALIFAX (20260708-21h): första position 194 m söder om Olidebron i
+  // 1,1 kn med kursen söderut, 265 m i 0,7 kn, sedan tyst i åtta minuter och
+  // 160 m söder om bron norrut i 4,2 kn. Förut "närmar sig Olidebron, beräknad
+  // ankomst om 6 minuter" söderut vid första positionen; nu en förvarning
+  // norrut när hon går mot bron. PLACERINGEN ÄR TESTET: driften ligger på
+  // tillfartssidan och kursen pekar bort från bron.
+  {
+    name: 'driver-bort-söder-om-Olidebron-tyst-sedan-norrut-genom (U44:3, HALIFAX)',
+    seed: 74401,
+    vessels: [{
+      mmsi: '974401001',
+      name: 'SYNT-U44-HALIFAX',
+      startS: METRICS.cum[1] - 194,
+      legs: [
+        { toS: METRICS.cum[1] - 265, speedKn: 0.9, intervalS: 150 },
+        {
+          toS: METRICS.cum[1] - 170, speedKn: 0.25, intervalS: 60, gapFromS: METRICS.cum[1] - 266, gapToS: METRICS.cum[1] - 171,
+        },
+        { toS: METRICS.cum[1] + 700, speedKn: 4.2, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      maxNotifiedPerBridge: { Olidebron: 1 },
+      noticeForms: { Olidebron: ['närmar'] },
+      noticeDirections: { Olidebron: ['northbound'] },
+    },
+  },
+  // Samma båt, men hon korsar bron i ett glapp: driften bort i 0,8 kn, sedan
+  // ingen position förrän 150 m norr om bron i 4,5 kn. Ingen position i fart
+  // före bron. Hon ska få passagenotisen enligt U37 del 2 (glappet är längre
+  // än 130 s och notisen kommer mer än 60 s efter korsningen: tystnadsformen),
+  // inte tystnad och inte förvarningen söderut som förut.
+  {
+    name: 'driver-bort-söder-om-Olidebron-korsar-i-glapp (U44:3)',
+    seed: 74402,
+    vessels: [{
+      mmsi: '974402001',
+      name: 'SYNT-U44-GLAPP',
+      startS: METRICS.cum[1] - 150,
+      legs: [
+        { toS: METRICS.cum[1] - 210, speedKn: 0.8, intervalS: 60 },
+        {
+          toS: METRICS.cum[1] + 900, speedKn: 4.5, intervalS: 30, gapFromS: METRICS.cum[1] - 215, gapToS: METRICS.cum[1] + 145,
+        },
+      ],
+    }],
+    expect: { noticeForms: { Olidebron: ['tyst'] } },
+  },
+  // EUGENIE (20260804-both-21h): hörs först 230 m norr om Klaffbron och glider
+  // norrut i krypfart ut ur notisradien. Hon korsade aldrig Klaffbron; förut
+  // "närmar sig Klaffbron, beräknad ankomst om 5 minuter".
+  {
+    name: 'hörs-först-norr-om-Klaffbron-krypfart-norrut-korsar-aldrig (U44:3, EUGENIE)',
+    seed: 74403,
+    vessels: [{
+      mmsi: '974403001',
+      name: 'SYNT-U44-EUGENIE',
+      startS: METRICS.cum[2] + 230,
+      legs: [{ toS: METRICS.cum[2] + 340, speedKn: 1.5, intervalS: 60 }],
+    }],
+    expect: { forbiddenNotifiedBridges: ['Klaffbron'] },
+  },
+  // Samma, men hon sätter fart norrut medan Klaffbron ännu ligger inom 300 m:
+  // riktningen blir belagd och bron ligger bakom henne. Utan regelns andra
+  // del kom samma osanna förvarning en position senare.
+  {
+    name: 'hörs-först-norr-om-Klaffbron-krypfart-sedan-fart-norrut (U44:3)',
+    seed: 74404,
+    vessels: [{
+      mmsi: '974404001',
+      name: 'SYNT-U44-ACCEL',
+      startS: METRICS.cum[2] + 90,
+      legs: [
+        { toS: METRICS.cum[2] + 120, speedKn: 1.0, intervalS: 60 },
+        { toS: METRICS.cum[3] - 300, speedKn: 5, intervalS: 30 },
+      ],
+    }],
+    expect: { forbiddenNotifiedBridges: ['Klaffbron'] },
+  },
+  // Motfall: kryper fram i kö mot Klaffbron på rätt sida i 1 kn, väntar 70 m
+  // före bron och går sedan igenom. Förvarningen norrut kommer som förut.
+  {
+    name: 'kryper-i-kö-mot-Klaffbron-norrut-väntar-går-igenom (U44:3, motfall)',
+    seed: 74405,
+    vessels: [{
+      mmsi: '974405001',
+      name: 'SYNT-U44-KO',
+      startS: METRICS.cum[2] - 280,
+      legs: [
+        { toS: METRICS.cum[2] - 70, speedKn: 1.0, intervalS: 60 },
+        {
+          stopS: 300, stopIntervalS: 60, stopSog: 0.3, stopCogRandom: true,
+        },
+        { toS: METRICS.cum[2] + 700, speedKn: 4, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      maxNotifiedPerBridge: { Klaffbron: 1 },
+      noticeForms: { Klaffbron: ['närmar'] },
+      noticeDirections: { Klaffbron: ['northbound'] },
+    },
+  },
+  // Granskningen av D3 (H1): FEL RUTTLÅS FÖR EN BÅT SOM VERKLIGEN NÄRMAR SIG.
+  // Båten kryper i 1,5 kn söderut mot Klaffbron från 290 m norr om bron. Första
+  // positionen rapporterar kursen 30° (brus i krypfart) och ger ruttlåset
+  // norrut; resten ~210°. Hon väntar 60 m före bron och går igenom i 4 kn.
+  // Låset vänder först i fart, så notisens riktning säger norrut och bron
+  // ligger "bakom" henne: regel (a) höll inne förvarningen under hela
+  // inflygningen och väntan och släppte den först i fart, under en minut före
+  // korsningen (granskarens värld i 1 kn: 29 s). Nu går den ut när kursen och
+  // förflyttningen båda visar att hon rör sig mot bron (riktningen är låsets,
+  // som förut). PLACERINGEN ÄR TESTET: tillfartssidan, ett omvänt kursvärde
+  // först.
+  {
+    name: 'kryper-mot-Klaffbron-söderut-fel-ruttlås-ur-första-kursen (U44:3, H1)',
+    seed: 74406,
+    vessels: [{
+      mmsi: '974406001',
+      name: 'SYNT-U44-FELLAS',
+      startS: METRICS.cum[2] + 290,
+      legs: [
+        {
+          toS: METRICS.cum[2] + 260, speedKn: 1.5, intervalS: 60, cogDeg: 30,
+        },
+        { toS: METRICS.cum[2] + 60, speedKn: 1.5, intervalS: 60 },
+        {
+          stopS: 240, stopIntervalS: 60, stopSog: 0.3, stopCogRandom: true,
+        },
+        { toS: METRICS.cum[2] - 700, speedKn: 4, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      maxNotifiedPerBridge: { Klaffbron: 1 },
+      noticeLeadS: { Klaffbron: 300 },
+    },
+  },
+  // Omgång 5 (granskningen av D3 varv 2, fel 1): SAMMA FEL LÅS VID TÄT
+  // RAPPORTERING I KRYPFART. Som scenariot ovan, men en position var 12:e
+  // sekund och utan GPS-brus: 9 m per position i 1,5 kn. Varv 2 krävde 10 m
+  // närmare linjen sedan föregående position; undantaget släppte aldrig och
+  // förvarningen kom 29 s före korsningen. Nu jämförs med spärrens ankare, och
+  // förvarningen går ut när hon ligger 30 m närmare än det. PLACERINGEN ÄR
+  // TESTET: kadensen och jitterM 0. Ingen dubblettgräns: med fel lås kan
+  // vändningen vid passagen ge en andra förvarning (riktningsflippen), också på
+  // `7633653`; det är inte den här mekanismen. (1 kn på 10 s gav textflapp-WARN
+  // och 0,9 kn på 20 s ETA-WARN ur det felaktiga låset, på alla kodrötter.)
+  {
+    name: 'kryper-mot-Klaffbron-söderut-fel-ruttlås-tät-kadens-utan-brus (U44:3, varv 2 fel 1)',
+    seed: 81001,
+    vessels: [{
+      mmsi: '974407001',
+      name: 'SYNT-U44-TATKRYP',
+      jitterM: 0,
+      startS: METRICS.cum[2] + 290,
+      legs: [
+        {
+          toS: METRICS.cum[2] + 285, speedKn: 1.5, intervalS: 12, cogDeg: 30,
+        },
+        { toS: METRICS.cum[2] + 60, speedKn: 1.5, intervalS: 12 },
+        {
+          stopS: 240, stopIntervalS: 30, stopSog: 0.3, stopCogRandom: true,
+        },
+        { toS: METRICS.cum[2] - 700, speedKn: 4, intervalS: 30 },
+      ],
+    }],
+    expect: { noticeLeadS: { Klaffbron: 300 } },
+  },
+  // Omgång 5 (granskningen av D3 varv 2, fel 2): EN STILLA BÅT BORTOM BRON
+  // MED GPS-BRUS OCH KURSEN MOT BRON. Båten hörs 120 m norr om Klaffbron på
+  // väg bort i 0,8 kn (ruttlåset norrut), ligger sedan i 10 minuter 150 m norr
+  // om bron i 0,6 kn med kursen mot bron och ±8 m brus, och går därefter bort
+  // norrut. Hon korsar aldrig Klaffbron. Varv 2 släppte förvarningen när två
+  // brusfixar råkade ligga 10 m isär mot bron; på `7633653` kommer den falska
+  // notisen direkt. Nu släpper bruset inte 30 m närmare än ankaret. (Med 10–15 m
+  // brus ger den stilla båten en ETA-WARN ur låset på alla kodrötter; ±12 m
+  // prövas i jest-testet.)
+  {
+    name: 'ligger-still-norr-om-Klaffbron-kursen-mot-bron-gps-brus (U44:3, varv 2 fel 2)',
+    seed: 81206,
+    vessels: [{
+      mmsi: '974408001',
+      name: 'SYNT-U44-BRUSSTILL',
+      jitterM: 8,
+      startS: METRICS.cum[2] + 120,
+      legs: [
+        { toS: METRICS.cum[2] + 150, speedKn: 0.8, intervalS: 30 },
+        {
+          stopS: 600, stopIntervalS: 30, stopSog: 0.6, stopCogDeg: 209,
+        },
+        { toS: METRICS.cum[2] + 900, speedKn: 4, intervalS: 60 },
+      ],
+    }],
+    expect: { forbiddenNotifiedBridges: ['Klaffbron'] },
+  },
 ];
 
 function runScenario(scenario) {
@@ -4868,6 +5064,12 @@ function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
   if (result.leakDiagnostics && result.leakDiagnostics.vessels !== 0) {
     problems.push(`${result.leakDiagnostics.vessels} fartyg kvar efter efterspel`);
   }
+  // U44 punkt 3 (D3): spärrens minne städas när båten raderas.
+  if (result.leakDiagnostics && result.leakDiagnostics.vessels === 0
+      && (result.leakDiagnostics.slowBridgeBehindHolds || result.leakDiagnostics.slowBridgeBehindLogged)) {
+    problems.push(`spärrens minne kvar efter efterspel (${result.leakDiagnostics.slowBridgeBehindHolds}/`
+      + `${result.leakDiagnostics.slowBridgeBehindLogged})`);
+  }
   if (e.minTargetPassages != null && passages.length < e.minTargetPassages) {
     problems.push(`målbro-passager ${passages.length} < förväntade ${e.minTargetPassages}`);
   }
@@ -4992,6 +5194,37 @@ function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
       if (JSON.stringify(got) !== JSON.stringify(forms)) {
         const texts = notifications.filter((n) => n.bridge === bridge).map((n) => `"${n.message}"`).join(', ');
         problems.push(`NOTISFORM vid ${bridge}: [${got.join(', ')}] ≠ [${forms.join(', ')}] (${texts})`);
+      }
+    }
+  }
+  // U44 punkt 3 (omgång 4): notisernas riktningsfält per bro, i tidsordning
+  // (internt värde: northbound/southbound/unknown).
+  if (e.noticeDirections) {
+    for (const [bridge, dirs] of Object.entries(e.noticeDirections)) {
+      const got = notifications.filter((n) => n.bridge === bridge).sort((x, y) => x.t - y.t)
+        .map((n) => n.direction);
+      if (JSON.stringify(got) !== JSON.stringify(dirs)) {
+        problems.push(`NOTISRIKTNING vid ${bridge}: [${got.join(', ')}] ≠ [${dirs.join(', ')}]`);
+      }
+    }
+  }
+  // U44 punkt 3, granskningen av D3 (H1): förvarningens ledtid mot den SANNA
+  // korsningen (generatorns truthPath). Första notisen för bron före båtens
+  // första korsning ska vara en förvarning minst N s före korsningen.
+  if (e.noticeLeadS) {
+    for (const [bridge, minLeadS] of Object.entries(e.noticeLeadS)) {
+      const sBridge = METRICS.cum[PATH_INDEX[bridge]];
+      for (const [mmsi, truthPath] of Object.entries(truthPaths || {})) {
+        const [first] = truthCrossings(truthPath, sBridge);
+        if (!first) continue;
+        const crossingMs = BASE_TIME_MS + first.tS * 1000;
+        const own = notifications.filter((n) => n.bridge === bridge && String(n.mmsi) === mmsi)
+          .sort((x, y) => x.t - y.t);
+        const n = own[0];
+        const leadS = n ? (crossingMs - n.t) / 1000 : null;
+        if (!n || n.alreadyPassed || leadS < minLeadS) {
+          problems.push(`FÖRVARNINGENS LEDTID vid ${bridge} (${mmsi}): ${n ? `${Math.round(leadS)} s` : 'ingen notis'} före sann korsning, krav minst ${minLeadS} s`);
+        }
       }
     }
   }

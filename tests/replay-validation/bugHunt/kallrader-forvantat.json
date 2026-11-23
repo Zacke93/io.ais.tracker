@@ -1,6 +1,6 @@
 [
   ["KIE-PER-KORPUS","tests/replay-validation/corpora.js:21–23","knownInvariantExceptions",[],"6494cdb9057286f6"],
-  ["KIE-PER-KORPUS","tests/replay-validation/runAllCorpora.js:252–262","FP9",[],"a85fe95e88442642"],
+  ["KIE-PER-KORPUS","tests/replay-validation/runAllCorpora.js:256–266","FP9",[],"a85fe95e88442642"],
   ["U16-F40-STRAX-STUDS","docs/helgranskning-2026-07-06.md:271–274","F40",["aldrig strax på gammal position"],"084450b742aa40cc"],
   ["U16-F40-STRAX-STUDS","docs/etapp7-plan-2026-08-08.md:8","U1 (strax-texten)",[],"9603ebe3285202a2"],
   ["U16-F40-STRAX-STUDS","docs/etapp7-plan-2026-08-08.md:15","U6",[],"6bc79db826927bb6"],

@@ -139,6 +139,10 @@ for (const corpus of corpora) {
   }
   if (processErrors > 0) problems.push(`${processErrors} processfel`);
   if (vesselsLeft !== 0) problems.push(`${vesselsLeft} fartyg kvar efter efterspel`);
+  // U44 punkt 3 (D3): spärrens minne städas när båten raderas.
+  if (vesselsLeft === 0 && (leaks.slowBridgeBehindHolds || leaks.slowBridgeBehindLogged)) {
+    problems.push(`spärrens minne kvar efter efterspel (${leaks.slowBridgeBehindHolds}/${leaks.slowBridgeBehindLogged})`);
+  }
   if (corpus.locked && notifications !== corpus.expectedNotifications) {
     problems.push(`notiser ${notifications} ≠ facit ${corpus.expectedNotifications}`);
   }
