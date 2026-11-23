@@ -1373,7 +1373,37 @@ båt.
   Första rörelsefixet ligger ofta redan inom 350 m, där spärren inte gäller,
   och båten är framme på 140–170 s. Varningen kan bara komma tidigare om appen
   varnar medan hon köar, och det är just det fel som spärren finns mot
-  (20260907-31h 80 s, 20260909-80h 131 s). **Känd gräns (förstakontakt söder
+  (20260907-31h 80 s, 20260909-80h 131 s).
+  **Känd gräns: sen varning efter väntan vid Järnvägsbron (beslut U56,
+  återtaget 2026-11-24).** En båt norrut som väntar eller kryper före
+  Järnvägsbron får varningen för Stridsbergsbron först när hon syns gå, och
+  den kommer sent: i fältprov 2 kom 7 av 9 varningar för Stridsbergsbron
+  norrut 37–218 s före passagen. Båten avgår ur stillhet (som U32 inte tar,
+  eftersom regeln kräver ökning i gång) och når Stridsbergsbron 44–236 s
+  efter att hon börjat röra sig. Mätningen över 93 passager av
+  Stridsbergsbron norrut (25 korpusar och fältkörningarna k1–k3) visade att
+  inget i datan förebådar öppningen utom båtens egen avgång: väntan varar
+  4–52 min utan mönster, en sydgående båt i samma öppning fanns i 4 av 35
+  väntor, och Järnvägsbrons öppningar klustrar bara grovt i timmen. I fem
+  avgångar låg första positionen i rörelse redan vid Järnvägsbron (37–131 s
+  kvar), så ingen regel på båtens egna positioner kan varna dem tidigare.
+  Tre alternativ prövades och avstods. *Sänkt fartgolv i U32* (2,0, 1,5
+  eller 0 kn) hjälpte en passage och varnade krypköer 10–15 min för tidigt
+  (`opening-accel-motfall`). *Varning under väntan* hade kommit i median
+  9–11 min för tidigt, med en svans på 30–50 min och utan tid på kortet.
+  *Avgång ur kö* (U56: första fixet i minst 2,0 kn och 20 m framsteg efter
+  appens köbelägg) gav 9–78 s tidigare varning i fyra av 39 passager i
+  AISHub-takt, men ett ryck i kön (25–60 m i drygt 2 kn för att ge plats,
+  drift med rapporterad fart 2 kn, eller en enda felaktig position) går inte
+  att skilja från avgången i ögonblicket: kortet "om 3" kom då 12–35 min för
+  tidigt och inget kort kom vid den verkliga avgången, där dagens kod varnar
+  64–148 s före, och ryck följt av vändning gav ett falsklarm. I rådatan gick
+  två verkliga ryck (OLA 20260907-31h och PRICKBJORN 18/11) 2,1 kn i verklig
+  medelfart och klarade sig bara för att den enda positionens rapporterade
+  fart råkade vara 1,2 och 1,5 kn. `opening-queue-jerk` låser dagens utfall
+  för rycken (fixturer i `tests/fixtures/ko-ryck/`): ingen varning vid
+  rycket, varningen vid den verkliga avgången, och ingen varning när båten
+  vänder. **Känd gräns (förstakontakt söder
   om Olidebron):** utan historik spärras hon inte (H1), och Klaffbronvarningen
   går på 10-knopsdeadlinen från första fixet, i banken 26 gånger 9–38 min före
   Klaffbron. En vakt vid Olidebron mättes 2026-11-16 och infördes inte: den
