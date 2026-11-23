@@ -4316,7 +4316,13 @@ Underlaget står i `docs/helgranskning-2026-11-03.md`; varje fynd prövades med 
   båt som glider bort, men en ensam brusfix eller utliggare flyttar det inte. Vid första
   försöket för bron (inget ankare) mäts mot föregående position, om den ligger entydigt på samma
   sida; Järnvägsbron och Stridsbergsbron ligger 257 m isär, och den andra bron blir ofta kandidat
-  först när båten redan är på väg mot den. Förvarningen får låsets riktning, som förut. Varv 2
+  först när båten redan är på väg mot den. Är kursen ogiltig (stilla nu, under
+  `MIN_VIABLE_SPEED_KN` eller saknas) släpps hon om två positioner i rad, den aktuella och
+  föregående, ligger minst 30 m närmare linjen än ankaret (granskningen av varv 3): en båt med fel
+  lås som närmat sig bron mellan två glesa positioner (klass B rapporterar var tredje minut under
+  2 kn) och nu väntar nära bron fick annars förvarningen först när hon satte fart, 19 s före
+  korsningen (10 av 40 byggda världar; med regeln 2). En ensam utliggare närmare bron räcker inte
+  (med en position: 17 → 30 falska av 40). Förvarningen får låsets riktning, som förut. Varv 2
   krävde i stället 10 m sedan föregående position; det släppte aldrig vid tät rapportering i
   krypfart (10 m på 10 s kräver 1,94 kn: förvarningen kom 29 s före korsningen) och släppte på
   GPS-brus (två fixar med ±10–20 m brus kan ligga 10 m isär). Ankarets post tas bort när en
@@ -4332,10 +4338,13 @@ Underlaget står i `docs/helgranskning-2026-11-03.md`; varje fynd prövades med 
   167; varv 2 48 / 207; ankaret längst bort av enstaka positioner (granskarens förslag, med
   föregående position) 20 m 24 / 200, 30 m 30 / 190, 40 m 38 / 179; ankaret vid första
   inhållna positionen 44 / 167 (20 och 30 m), 53 / 167 (40 m); **valt: två positioner i rad,
-  föregående position vid första försöket**, 20 m 30 / 182, **30 m 32 / 169**, 40 m 41 / 167.
+  föregående position vid första försöket**, 20 m 30 / 182, **30 m 32 / 169**, 40 m 41 / 167;
+  med släppet för en stilla båt (två positioner i rad) 31 / 170: en sen färre (24 → 93 s mellan
+  Järnvägsbron och Stridsbergsbron) och en falsk till (stilla med 20 m brus efter ett AIS-glapp,
+  två brusfixar i rad 33–41 m närmare än ankaret).
   Det valda ankaret ger lika få falska notiser som regeln utan undantag utom 2 (stilla med 20 m
-  brus) och nästan lika få sena förvarningar som granskarens förslag; det förslaget gav 23 fler
-  falska notiser, alla ur brus eller en enstaka utliggare som flyttade ankaret. Två båtar vid
+  brus) och nästan lika få sena förvarningar som granskarens förslag; det förslaget gav 21 fler
+  falska notiser än det valda (23 fler än regeln utan undantag), alla ur brus eller en enstaka utliggare som flyttade ankaret. Två båtar vid
   samma bro samtidigt (30 världar): 0 sena, falska 30 → 9 (varv 2: 1 sen, 12 falska). En passagenotis (S4, BN2,
   retroaktiva källor) går alltid ut, och en ny båt i minst 2 kn följer punkt 1. HALIFAX
   (20260708-21h, 194 m söder om Olidebron i 1,1 kn med kursen söderut; hon låg och drev på
@@ -4365,13 +4374,26 @@ Underlaget står i `docs/helgranskning-2026-11-03.md`; varje fynd prövades med 
     Omgång 5, egen VQ-familj med brus 0–20 m och kadens 10–120 s: 18 av 40 får förvarningen
     under 60 s före korsningen (varv 2: 11, där brus ibland släppte henne; regeln utan undantag:
     22). Över alla 504 byggda världar med korsning, första notisen (antal, därav rätt riktning),
-    `7633653` → nu: under 60 s 6 (6) → 32 (10); 60–119 s 9 (6) → 42 (12); 120–299 s 64 (51) →
+    `7633653` → nu: under 60 s 6 (6) → 31 (10); 60–119 s 9 (6) → 43 (12); 120–299 s 64 (51) →
     135 (69); 300 s eller mer 414 (106) → 283 (183); passagenotis 10 → 11; efter korsningen 1 → 1.
+  - *Fel lås nära bron, sedan krypfart genom bron* (granskningen av varv 3, 40 byggda världar):
+    första positionen 20–80 m bortom bron med omvänd kurs (fel lås), väntan 2–5 min, sedan
+    krypfart tillbaka genom bron i 0,7–1,9 kn. Ankaret ligger då under 80 m, så "30 m närmare" kan
+    bara ske de sista metrarna. 8 av 40 får ingen förvarning (passagenotisen kommer 5–37 s efter
+    korsningen, i rätt riktning) och 9 får den 9–56 s före; `7633653` gav alla 40 förvarningen
+    3–8 min före, men i fel riktning i 35 av 40.
+  - *Hörs första gången medan hon väntar, med fel lås ur första kursen* (granskningen av varv 3,
+    60 världar före Järnvägsbron norrut och Klaffbron söderut): 9 får förvarningen 33–107 s före i
+    stället för 10–20 min (samma fel riktning), 2 får riktningen rättad. Den väntande båten med
+    fel lås i omgång 5:s egen familj (VQ): 18 av 40 får förvarningen under 60 s före.
+  - Inget av de två fallen ovan, och inte VQ, finns i banken eller fältkörningarna k1–k3.
+    Avvägningen är beslutad (omgång 4): en falsk notis för en båt som aldrig kommer väger tyngre
+    än en sen förvarning, och en stilla båt med fel lås ser likadan ut före och bortom bron.
   - *Ankaret ser bara positioner där bron var kandidat* (omgång 5): mellan Järnvägsbron och
     Stridsbergsbron är den närmare bron kandidat, så positioner där båten låg närmare den andra
     bron flyttar inte den förstas ankare. En båt som drev bort mot Stridsbergsbron, vände och
-    stannade 50 m före Järnvägsbron fick förvarningen 24 s före korsningen (2 av 80 driftvärldar;
-    granskarens förslag 0, eftersom det räknade föregående position vid varje försök, vilket
+    stannade 50 m före Järnvägsbron fick förvarningen 24 s före korsningen (1 av 80 driftvärldar
+    med släppet för en stilla båt, 2 utan; granskarens förslag 0, eftersom det räknade föregående position vid varje försök, vilket
     också släppte på en enstaka utliggare). 0 fall i banken och k1–k3.
   - *Krypfart genom bron hela vägen* (granskarens KK, 30 världar i 1,0–1,9 kn utan någon position
     i fart): när båten ligger på linjen (±10 m) släpper spärren och förvarningen går ut med

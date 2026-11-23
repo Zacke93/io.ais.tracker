@@ -460,6 +460,69 @@ describe('U44 punkt 3: förvarning om en bro bakom en långsam båt', () => {
       expect(await notify(app2, KLAFF, kryp(199, { lastPosition: at(KLAFF, 229) }))).toHaveLength(1);
     });
 
+    test('stilla nu men två positioner i rad minst 30 m närmare ankaret (närmade sig mellan två glesa positioner): förvarningen går ut vid andra stilla positionen', async () => {
+      const app = await boot();
+      await ankare(app, 175);
+      // Klass B under 2 kn: var tredje minut. Kursen mot bron i 1,8 kn vid 175 m, sedan still vid 46 och 40 m.
+      expect(await notify(app, KLAFF, kryp(176, { sog: 1.8, lastPosition: at(KLAFF, 175) }))).toEqual([]);
+      jest.advanceTimersByTime(150000);
+      expect(await notify(app, KLAFF, kryp(46, { sog: 0.2, cog: 189, lastPosition: at(KLAFF, 176) }))).toEqual([]);
+      jest.advanceTimersByTime(60000);
+      expect(await notify(app, KLAFF, kryp(40, { sog: 0.2, cog: 32, lastPosition: at(KLAFF, 46) }))).toHaveLength(1);
+    });
+
+    test('stilla: en ensam utliggare 60 m närmare bron släpper inte', async () => {
+      const app = await boot();
+      await ankare(app, 180);
+      expect(await notify(app, KLAFF, kryp(178, { sog: 0.2, cog: 100, lastPosition: at(KLAFF, 180) }))).toEqual([]);
+      jest.advanceTimersByTime(30000);
+      expect(await notify(app, KLAFF, kryp(118, { sog: 0.2, cog: 316, lastPosition: at(KLAFF, 178) }))).toEqual([]);
+      jest.advanceTimersByTime(30000);
+      expect(await notify(app, KLAFF, kryp(177, { sog: 0.2, cog: 242, lastPosition: at(KLAFF, 118) }))).toEqual([]);
+    });
+
+    test('(b) flyttar ankaret: hålls inne medan hon går bort i 3 kn, och kryper sedan tillbaka 32 m från det nya ankaret: förvarningen går ut', async () => {
+      const app = await boot();
+      await ankare(app, 150);
+      // (b): fart bort med kursen i låsets riktning, två positioner längre bort (200, 230 m).
+      expect(await notify(app, KLAFF, kryp(200, { sog: 3, cog: 30, lastPosition: at(KLAFF, 150) }))).toEqual([]);
+      jest.advanceTimersByTime(30000);
+      expect(await notify(app, KLAFF, kryp(230, { sog: 3, cog: 30, lastPosition: at(KLAFF, 200) }))).toEqual([]);
+      jest.advanceTimersByTime(60000);
+      // Ankaret står nu på 200 m; 168 m med kursen mot bron är 32 m närmare.
+      expect(await notify(app, KLAFF, kryp(168, { lastPosition: at(KLAFF, 230) }))).toHaveLength(1);
+    });
+
+    test('(c) flyttar ankaret: glider bort med okänd riktning, kryper sedan tillbaka 32 m från det nya ankaret: förvarningen går ut', async () => {
+      const app = await boot();
+      await ankare(app, 150);
+      // (c): okänd riktning (inget lås, under 0,5 kn), två positioner längre bort.
+      const okand = (d, prev) => kryp(d, {
+        _routeDirection: null, sog: 0.3, cog: 200, lastPosition: at(KLAFF, prev),
+      });
+      expect(app._getNotificationDirection(okand(200, 150), cand(KLAFF, okand(200, 150)))).toBe('unknown');
+      expect(await notify(app, KLAFF, okand(200, 150))).toEqual([]);
+      jest.advanceTimersByTime(60000);
+      expect(await notify(app, KLAFF, okand(210, 200))).toEqual([]);
+      jest.advanceTimersByTime(60000);
+      expect(await notify(app, KLAFF, kryp(168, { lastPosition: at(KLAFF, 210) }))).toHaveLength(1);
+    });
+
+    test('när notisen gått ut gäller inte det gamla ankaret om bron blir aktuell igen', async () => {
+      const app = await boot();
+      await ankare(app, 260);
+      expect(await notify(app, KLAFF, kryp(229, { lastPosition: at(KLAFF, 260) }))).toHaveLength(1);
+      // Dedupen släpps (som vid en ny resa); samma läge prövas på nytt utan föregående position.
+      app._triggeredBoatNearKeys.delete(`${MMSI}:Klaffbron`);
+      app._persistentRecentTriggers?.delete(`${MMSI}:Klaffbron`);
+      app._triggerPointVisits._entries.delete(`${MMSI}:Klaffbron`);
+      jest.advanceTimersByTime(60000);
+      expect(await notify(app, KLAFF, kryp(229))).toEqual([]);
+      // Det nya ankaret (229 m) släpper först 30 m närmare: notiser går alltså att få.
+      jest.advanceTimersByTime(60000);
+      expect(await notify(app, KLAFF, kryp(198, { lastPosition: at(KLAFF, 229) }))).toHaveLength(1);
+    });
+
     test('HALIFAX hålls inne som förut (kursen 205° söder om bron pekar bort från den)', async () => {
       const app = await boot();
       const v = vessel(at(OLIDE, -194), { lastPosition: at(OLIDE, -180) });

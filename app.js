@@ -11149,10 +11149,13 @@ class AISBridgeApp extends Homey.App {
    * avstånd som både hon och föregående position har nått (det kortare av
    * de två): ankaret följer en båt som glider bort, men en ensam brusfix
    * eller utliggare längre bort flyttar det inte. Inhållen på andra sidan:
-   * nytt ankare där. Posten tas bort när en notis för bron har gått
-   * ut (_clearSlowBridgeBehindHold) och när båten raderas (_onVesselRemoved);
-   * en post kan alltså bara finnas medan båten lever och förvarningen för
-   * bron ännu inte gått ut, högst en per bro. Minnet sparas inte över en
+   * nytt ankare där. Posten tas bort när en notis för bron har kvitterats
+   * (_clearSlowBridgeBehindHold) och när båten raderas (_onVesselRemoved),
+   * högst en per bro. En notis som är okvitterad efter tidsgränsen
+   * (BOAT_NEAR_UNCONFIRMED) städar inte posten; den ligger då kvar till
+   * raderingen, vilket är ofarligt eftersom dedupnyckeln spärrar bron. En
+   * post finns också kvar för en levande båt vars bro slutar vara kandidat
+   * utan notis. Minnet sparas inte över en
    * omstart (känd gräns): första positionen efter omstarten sätter ett nytt
    * ankare. En gammal post kan bara hålla inne en förvarning när båten ligger
    * entydigt på samma sida som ankaret: i (b) ligger bron då bakom henne, i
@@ -11285,7 +11288,10 @@ class AISBridgeApp extends Homey.App {
    * U44 punkt 3, undantaget i (a) (granskningen av D3, H1; omgång 5): rör sig
    * båten belagt MOT bron trots att notisens riktning säger att bron ligger
    * bakom? Då är det riktningen (ruttlåset) som är fel och förvarningen ska gå
-   * ut. Två oberoende belägg krävs, eftersom ett ensamt kursvärde i krypfart
+   * ut. Är kursen ogiltig (stilla nu) räcker förflyttningen, om två positioner
+   * i rad (den aktuella och föregående) ligger minst SLOW_BRIDGE_APPROACH_MIN_M
+   * närmare linjen än postens ankare; annars hölls en båt som närmat sig bron
+   * mellan två glesa positioner och nu väntar inne tills hon satte fart. Två oberoende belägg krävs, eftersom ett ensamt kursvärde i krypfart
    * är brus (D3 varv 2: med bara kursen kom den falska notisen tillbaka för en
    * båt bortom bron med slumpad kurs i 15 av 20 byggda världar):
    *  - kursen är giltig (minst MIN_VIABLE_SPEED_KN) och pekar mot bron
@@ -11305,11 +11311,23 @@ class AISBridgeApp extends Homey.App {
    * @private
    */
   _slowVesselHeadsForBridge(vessel, bridge, side, hold) {
-    if (!Number.isFinite(vessel.cog) || !(vessel.sog >= MIN_VIABLE_SPEED_KN)) return false;
-    if (geometry.courseBridgeSide(vessel.cog, bridge) !== -side) return false;
     const distM = Math.abs(geometry.bridgeLineOffsetM(vessel, bridge));
+    if (!Number.isFinite(distM)) return false;
+    if (!Number.isFinite(vessel.cog) || !(vessel.sog >= MIN_VIABLE_SPEED_KN)) {
+      // Granskningen av D3, omgång 5: ligger hon still nu (kursen är inget
+      // belägg) men har två positioner i rad legat minst
+      // SLOW_BRIDGE_APPROACH_MIN_M närmare linjen än ankaret, har hon närmat
+      // sig bron mellan två glesa positioner (klass B rapporterar var tredje
+      // minut under 2 kn). En ensam utliggare närmare bron räcker inte.
+      if (!hold) return false;
+      const prevM = this._sameSidePrevDistanceM(vessel, bridge, side);
+      return Number.isFinite(prevM)
+        && hold.anchorM - distM >= SLOW_BRIDGE_APPROACH_MIN_M
+        && hold.anchorM - prevM >= SLOW_BRIDGE_APPROACH_MIN_M;
+    }
+    if (geometry.courseBridgeSide(vessel.cog, bridge) !== -side) return false;
     const anchorM = this._slowBridgeBehindAnchorM(vessel, bridge, side, hold);
-    if (!Number.isFinite(distM) || !Number.isFinite(anchorM)) return false;
+    if (!Number.isFinite(anchorM)) return false;
     return anchorM - distM >= SLOW_BRIDGE_APPROACH_MIN_M;
   }
 
