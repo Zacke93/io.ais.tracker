@@ -1882,6 +1882,22 @@ båt.
   (app.js:897–952, debounce `_newJourneyPending`) nollar passedBridges + dedupe
   + target-protection för returresan och tilldelar målbron i samma tick (varv 2,
   se nedan).
+- **U52, lång förtöjning är en resegräns** (`_applyLongMooringDeparture`, anropas i
+  `updateVessel` direkt efter förtöjningsdetekteringen, före målbrologiken). När
+  förtöjningsklassningen `_moored` släpper efter minst `MAX_STATIONARY_WAIT_MS` (2 h,
+  stillhetsklockan i fixen före släppet) öppnas ett fönster (`_longMooringDeparture`,
+  i fältlistan, inte i graven). Första fixen i minst `FIX_D_MIN_SOG` släpper förra
+  resans riktning (`_routeDirection`, `_finalTarget*`, väntande vändningar); två fixar
+  i rad i minst 2,0 kn med kurs i samma band (nord 315–45°, syd 135–315°, som
+  NEW_JOURNEY) bekräftar den nya resan: broar i `passedBridges` som ligger FRAMFÖR
+  förtöjningsplatsen i den nya riktningen tas bort (riktningsrelativt som N1; broar
+  bakom står kvar så spärren #44 gäller), dedupnycklarna för dem rensas via
+  `vessel:journey-reset` (N1-vägen i app-lagret), ruttlåset sätts och reseankaret
+  ankras i förtöjningsplatsen utan vändningsmärke. Under fönstret väljer
+  `_calculateTargetBridge` ingen målbro när en målbro som förra resan passerade ligger
+  framför båten (FIX Z:s roll när slutmålet är släppt). Fönstret står kvar genom korta
+  nya förtöjningar och stängs vid bekräftelsen eller vid en ny passage. Se
+  "Rättningsomgång 5" under §9.
 - N1-resetten i `_confirmDirectionReversal` släpper broar framför båten i den nya
   riktningen. R1 (rättningskampanjen 2026-11-04, buggjägarens F10/W750): Fix D och
   positionsbevisets två ben bekräftar före tickens detektering, ofta på fixen bortom bron
@@ -4493,6 +4509,37 @@ passagen; en båt som guppar eller väntar vid bron får fortfarande en notis pe
   `tests/u51-granskning-helkedja.test.js` (H1 och M2 genom hela appen) och tre syntetiska
   scenarier (`förtöjd-3h-…`, `förtöjd-1h30-…`, `förtöjd-3h-byter-kajplats-…`). Mutationsprovet:
   varje villkor i avgången och belägget fäller minst ett test när det tas bort.
+
+### Rättningsomgång 5 (2026-11-23) — U52, ny resa efter lång förtöjning
+
+- **Situationen (fältprov 2, k3).** Lotsbåten PRICKBJORN låg 69 h vid lotskajen utanför
+  Kanalinfarten; fartygsposten levde hela tiden (båten sände) och `passedBridges=[Olidebron]`
+  stod kvar från resan 20/11, som slutade söderut utan målbro och därmed utan slutmål. När hon
+  lade ut norrut 23/11 höll spärren #44 (`alreadyPassedThisJourney`, `FLOW_TRIGGER_DEDUPE_EXPIRED_HOLD`)
+  notisen vid Olidebron. 19/11 gick U51-notisen "har passerat Kanalinfarten" med riktningen
+  söderut: tokenen läser `_finalTargetDirection || _routeDirection` före kursen, och NEW_JOURNEY
+  bekräftar vändningen först på nästa fix. Förtöjningen var ingen resegräns.
+- **Rättningen** (`_applyLongMooringDeparture`, beskriven under resebokföringen i §3). Släpp
+  av förtöjningsklassningen efter minst 2 h öppnar ett fönster; första fixen i minst 2,0 kn
+  släpper förra resans riktning; två fixar i rad i samma kursband (fixen före släppet räknas när
+  den redan visade gång, som i NEW_JOURNEY) bekräftar den nya resan och tar bort broar framför
+  förtöjningsplatsen ur `passedBridges`. En målbro vald under fönstret väljs om när riktningen
+  eller en nollställd målbro gör den fel, och `_calculateTargetBridge` väljer ingen målbro under
+  fönstret när en av förra resans passerade målbroar ligger framför båten.
+- **Utfall.** Banken (25 korpusar), k1 och k2: inga ändringar i notiser, varningar eller texter
+  (15 långa släpp i all data, alla bekräftade; 4 med kvarvarande passerade broar, alla i k3). k3:
+  PRICKBJORN 19/11 08:59:59 får riktningen norrut i avgångsnotisen, och 23/11 08:10:28 kommer
+  "närmar sig Olidebron, beräknad ankomst om 1 minut". 19/11, 20/11 och PILOT 761 18/11 12:51 går
+  den nya vägen i stället för NEW_JOURNEY med samma notiser, varningar och texter.
+- **Kända gränser.** En båt som lägger ut tillbaka genom en bro hon passerat strax innan
+  förtöjningen (Gästhamnen, 380 m norr om Klaffbron, söderut) får målbron först på andra fixen;
+  varningen kommer före passagen men bara sekunder före (i dag ingen alls; en båt som syns första
+  gången där får den en fix tidigare). En kajbytare som gör två fixar i 2+ kn åt ett håll och
+  sedan går åt andra hållet bekräftar åt kajbytets håll; broar i andra riktningen nollställs inte
+  (samma utfall som före rättningen). Fönstret sparas inte över en omstart, men efter en omstart
+  finns heller ingen resebokföring att nollställa. Låst i
+  `tests/u52-ny-resa-efter-lang-fortojning.test.js` och åtta syntetiska scenarier (`… (U52)`);
+  mutationsprovet: varje villkor fäller minst ett test när det tas bort.
 
 ## 10. Söndagsfältet 2026-08-09/10 (commits a9f2a20, ce6a946, b1a7ba3 + WS-3)
 
