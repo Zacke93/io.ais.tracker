@@ -2434,6 +2434,24 @@ Flaggor (bärs av `_createVesselObject`-fältlistan, §8a): `_etaIsExtrapolated`
    kortast distans (`_selectLeadVessel`:164–178). Separator "; ", Klaffbron först
    (:91–110). Tom input ⇒ DEFAULT_MESSAGE ("Inga båtar är i närheten av Klaffbron
    eller Stridsbergsbron").
+   **Vänttexten** ("[Räkneord] båt(ar) väntar vid X [på väg mot målbro]") kommer
+   ur `_targetGroups`, som läser `bridgeQueue.waitingBridgeForText`: köbeviset
+   (`waitingBridge`, 350 m, samma som status, notiser och öppningstjänst) eller
+   **U53 (2026-11-23)** textens kö vid en MELLANBRO (`intermediateTextQueue`):
+   bron ligger mellan båten och målbron, högst `INTERMEDIATE_TEXT_QUEUE.MAX_DISTANCE_M`
+   (800 m) bort, och köposten bär textstillheten `textWaitConfirmedAt`
+   (VDS `_noteIntermediateTextWait`: varje fix ≤ 1 kn och ankare inom 50 m i
+   60 s, utan kravet sog ≤ 0,5; bekräftad väntan hålls till 1,5 kn och 850 m).
+   Övriga förutsättningar som `queueBridge` (färsk säker position, ingen kajzon,
+   inte förtöjd, bekräftad anflygning, bron opasserad och framför). Aldrig
+   målbron. Samma funktion läses av `presentedLead` (F07), av app.js
+   UI-utlösare och av replayharnessens `waitingAt` (INV-3). Medan textkön
+   står och båten går högst 1 kn håller ETA-kedjan den dolda ETA:n
+   (`ETA_TEXT_QUEUE_HOLD`, ingen ökning; `_processETAWithProtection`); över 1 kn
+   får avgångens prognos rätta sig uppåt dolt medan hysteresen håller texten. Kvar utanför: glest AIS (klass B var 6–12 min)
+   tappar vänttexten efter 10 min; en båt som först syns när hon redan ligger
+   still saknar bekräftad anflygning; avgångssiffran efter väntan är bättre men
+   inte rätt (kömodellen, ETA-omgången).
 4. **UI-coalescing** (app.js): `_updateUI`:2139 → `_scheduleCoalescedUpdate`:2147
    (micro-grace 15/25/40 ms per signifikans; critical/immediate bypassar;
    high-event krymper till 10 ms). `_actuallyUpdateUI` (:2251) kan lägga 200 ms
@@ -2920,7 +2938,8 @@ okänd → 25).
 (`vessel._stationarySince`) har gått minst 5 min; positionen har legat inom
 50 m (`MOORING_DETECTION.MOVEMENT_PROOF_NET_M`) från samma punkt i minst 5 min,
 hela tiden i status `approaching` mot samma målbro och utan kö vid en tidigare
-bro (`_stillWatch`; `queueBridge` — där visar texten vänttexten); samplet är
+bro (`_stillWatch`; `queueBridge` eller sedan U53 textens kö vid en mellanbro,
+`waitingBridgeForText` — där visar texten vänttexten); samplet är
 under 0,5 kn; positionen är färsk och ren (`hasFreshPosition`, inget GPS-hopp);
 ingen imminent-flagga; avståndet till målbron är större än
 `STATUS_HYSTERESIS.WAITING_CLEAR_DISTANCE` (350 m).

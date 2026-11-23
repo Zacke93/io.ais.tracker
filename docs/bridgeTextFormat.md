@@ -57,7 +57,22 @@ data/imminent; extrapolationen säger ärligt "cirka". (Exhausted-vägen går vi
 imminent-flaggan och behåller strax.)*
 
 **Bekräftad väntan vid en tidigare bro går före ETA.** Vid själva målbron
-får bekräftad väntan i stället ge ”strax”. För båtar under gång kan
+får bekräftad väntan i stället ge ”strax”.
+
+**Väntan vid en mellanbro (U53, 2026-11-23):** en båt som belagt ligger still
+eller kryper före en mellanbro på väg mot målbron (Järnvägsbron på väg mot
+Stridsbergsbron eller Klaffbron, Olidebron på väg mot Klaffbron) visas som
+`En båt väntar vid <mellanbro> på väg mot <målbro>` upp till 800 m från
+mellanbron, inte bara inom köbevisets 350 m. Stillheten bekräftas när varje
+position i minst 60 s har fart högst 1 kn och båten inte flyttat sig 50 m från
+ankaret (kravet att farten någon gång varit högst 0,5 kn gäller inte här). En
+bekräftad väntan står kvar till 1,5 kn och 850 m, så att fartbrus och GPS-brus
+inte växlar texten. Regeln gäller bara texten och aldrig målbron: väntan vid
+målbron ger ”strax” som ovan, och en stilla båt mer än 350 m från målbron får
+”ETA okänd” (U30). Kajzonerna (Kajen och Gästhamnen norr om Klaffbron) ger
+ingen vänttext. Medan texten visar kön och båten går högst 1 kn får den dolda
+tiden till målbron inte stiga, så att första siffran efter väntan inte är en
+uppräknad tid. För båtar under gång kan
 imminent-flaggan ge ”strax” inom 300 m från målbron. Flaggan kräver färsk
 position och skydd mot GPS-störningar.
 

@@ -47,7 +47,9 @@ const {
 } = require('./lib/utils/etaValidation');
 const geometry = require('./lib/utils/geometry');
 const GPSJumpAnalyzer = require('./lib/utils/GPSJumpAnalyzer');
-const { waitingBridge, queueBridge, hasFreshPosition } = require('./lib/utils/bridgeQueue');
+const {
+  waitingBridge, waitingBridgeForText, queueBridge, hasFreshPosition,
+} = require('./lib/utils/bridgeQueue');
 // U36 (dirigentens beslut 2026-11-16, nattjaktens F13): en svepnotis efter en
 // vändning i glappet skickas inte när sist kända position är äldre än så här.
 // Samma ålder som designposten SKIPPA-BRO-ÅLDER-17MIN (beslutsregistret): en
@@ -8264,8 +8266,10 @@ class AISBridgeApp extends Homey.App {
       this.debug(`🔍 [_updateUIIfNeeded] ${vessel.mmsi}: ${key}: "${oldVal}" → "${newVal}" (changed: ${changed})`);
     });
 
+    // U53: också textens mellanbrokö (waitingBridgeForText) är en synlig ändring.
     const hasSignificantChange = significantChanges.some((key) => vessel[key] !== oldVessel?.[key])
-      || waitingBridge(vessel) !== waitingBridge(oldVessel);
+      || waitingBridge(vessel) !== waitingBridge(oldVessel)
+      || waitingBridgeForText(vessel) !== waitingBridgeForText(oldVessel);
 
     this.debug(`🔍 [_updateUIIfNeeded] ${vessel.mmsi}: hasSignificantChange=${hasSignificantChange}`);
 

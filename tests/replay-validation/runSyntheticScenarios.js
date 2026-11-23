@@ -221,6 +221,28 @@ const OMSTART_SLOW_ZONE = {
  *    avrundad (minst 1). Minst en sådan förvarning ska finnas.
  *  - noticeMinEta: {bro: N} — varje förvarning för bron har eta ≥ N: en båt
  *    som i sin fart inte når bron inom 3 min behåller sin siffra (motfallet).
+ *  VÄNTAN VID EN MELLANBRO (U53, 2026-11-23). Fönstren läggs på en båts SANNA
+ *  bana: från första gången hon når ruttläget fromS (plus delayS sekunder) till
+ *  första gången hon når toS. Texten prövas vid varje övergång och var 30:e s.
+ *  (durationS i stället för toS: fönstret är så många sekunder efter fromS + delayS.)
+ *  - waitTextWindows: [{mmsi, fromS, toS, delayS?, at, target?, must, count?}] —
+ *    must=true: varje text i fönstret har klausulen "<antal> väntar vid <at>
+ *    [på väg mot <target>]" (med exakt count båtar om count ges); must=false:
+ *    ingen text i fönstret har en vänttext vid <at>.
+ *  - textCountAlong: [{mmsi, fromS, toS, delayS?, bridge, min?, max?}] — som
+ *    textCountWindows, men fönstret ligger på båtens sanna bana.
+ *  - etaNotRaisedOverWait: {bridge, at} — för varje period med vänttext vid
+ *    <at> mot <bridge>: första siffran för bron efter perioden är högst den
+ *    sista före perioden (den dolda tiden har inte stigit under väntan). Minst
+ *    en period måste kunna dömas. Kräver en ensam båt mot bron.
+ *  - maxWaitToggles: {at, max} — vänttexten vid <at> kommer och går högst max
+ *    gånger sammanlagt över hela körningen (flimmerprovet).
+ *  RESTID ÖVER 60 MIN (U54) OCH U30 I FLER STATUSAR (U55).
+ *  - etaNeverAbove: {bridge, max} — ingen text visar "om N minuter" för bron
+ *    med N > max.
+ *  - etaSeenAtLeast: {bridge, min} — minst en text visar "om N minuter" för
+ *    bron med N ≥ min (motfallet: en sann lång restid visas).
+ *  - unknownSeen: [bro] — minst en text visar "ETA okänd" för bron.
  */
 const SCENARIOS = [
   {
@@ -4653,6 +4675,340 @@ const SCENARIOS = [
     }],
     expect: { maxNotifiedPerBridge: { Kanalinfarten: 1 } },
   },
+  // ---------------------------------------------------------------------------
+  // U53 (2026-11-23, spår C omgång 5): VÄNTAN VID EN MELLANBRO I TEXTEN.
+  // Fältprov 2: båtar norrut kröp 0,5–1 kn från 550–800 m söder om Järnvägsbron
+  // i 8–29 min; texten räknade uppåt och sa "väntar" först innanför 350 m.
+  // Egna positioner och tider (samma geometri som fältets fall).
+  // ---------------------------------------------------------------------------
+  // KINNE-formen: 1,5 kn från 800 m, kryp 0,8 kn från 560 m till 330 m, kort
+  // stopp, sedan igenom.
+  // "Väntar vid Järnvägsbron" ska stå från fyra minuter in i krypet, och första
+  // siffran efter väntan får inte vara högre än den sista före (dold tid hålls).
+  {
+    name: 'kryp-0,8kn-från-560m-söder-om-Järnvägsbron (U53, KINNE-formen)',
+    seed: 5301,
+    vessels: [{
+      mmsi: '905301001',
+      name: 'SYNT-U53-KRYP',
+      startS: METRICS.cum[2] - 700,
+      legs: [
+        { toS: METRICS.cum[3] - 800, speedKn: 4, intervalS: 60 },
+        { toS: METRICS.cum[3] - 560, speedKn: 1.5, intervalS: 65 },
+        { toS: METRICS.cum[3] - 330, speedKn: 0.8, intervalS: 65 },
+        { stopS: 240, stopIntervalS: 65, stopSog: 0.4 },
+        { toS: METRICS.cum[4] + 700, speedKn: 4.5, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      minTargetPassages: 2,
+      waitTextWindows: [{
+        mmsi: '905301001',
+        fromS: METRICS.cum[3] - 560,
+        delayS: 240,
+        toS: METRICS.cum[3] - 335,
+        at: 'Järnvägsbron',
+        target: 'Stridsbergsbron',
+        must: true,
+        count: 1,
+      }],
+      etaNotRaisedOverWait: { bridge: 'Stridsbergsbron', at: 'Järnvägsbron' },
+    },
+  },
+  // VISTEN-formen: samma kryp från 680 m, men var tredje fix rapporterar 1,3 kn
+  // (fartbrus). Hysteresen (1,5 kn när väntan är bekräftad) håller texten.
+  {
+    name: 'kryp-med-fartbrus-1,3kn-söder-om-Järnvägsbron (U53, VISTEN-formen)',
+    seed: 5302,
+    vessels: [{
+      mmsi: '905302001',
+      name: 'SYNT-U53-BRUS',
+      startS: METRICS.cum[2] - 700,
+      legs: [
+        { toS: METRICS.cum[3] - 680, speedKn: 4, intervalS: 60 },
+        ...Array.from({ length: 6 }, (_, i) => [
+          { toS: METRICS.cum[3] - 680 + 66 * i + 44, speedKn: 0.6, intervalS: 65 },
+          {
+            toS: METRICS.cum[3] - 680 + 66 * i + 66, speedKn: 0.6, intervalS: 65, reportSogKn: 1.3,
+          },
+        ]).flat(),
+        { stopS: 180, stopIntervalS: 65, stopSog: 0.3 },
+        { toS: METRICS.cum[4] + 700, speedKn: 4.5, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      minTargetPassages: 2,
+      waitTextWindows: [{
+        mmsi: '905302001',
+        fromS: METRICS.cum[3] - 680,
+        delayS: 420,
+        toS: METRICS.cum[3] - 300,
+        at: 'Järnvägsbron',
+        target: 'Stridsbergsbron',
+        must: true,
+        count: 1,
+      }],
+      maxWaitToggles: { at: 'Järnvägsbron', max: 2 },
+    },
+  },
+  // Motfall: båten saktar in till 0,8 kn i en halv minut 600 m före Järnvägsbron
+  // och går sedan vidare. Ingen vänttext.
+  {
+    name: 'kort-inbromsning-600m-före-Järnvägsbron (motfall U53)',
+    seed: 5303,
+    vessels: [{
+      mmsi: '905303001',
+      name: 'SYNT-U53-KORT',
+      startS: METRICS.cum[2] - 700,
+      legs: [
+        { toS: METRICS.cum[3] - 620, speedKn: 4, intervalS: 30 },
+        { toS: METRICS.cum[3] - 600, speedKn: 0.8, intervalS: 30 },
+        { toS: METRICS.cum[4] + 700, speedKn: 4, intervalS: 30 },
+      ],
+    }],
+    expect: { minTargetPassages: 2, maxWaitToggles: { at: 'Järnvägsbron', max: 0 } },
+  },
+  // Motfall: marschfart förbi Klaffbron och Järnvägsbron, 700 m och närmare.
+  {
+    name: 'marschfart-förbi-Järnvägsbron (motfall U53)',
+    seed: 5304,
+    vessels: [{
+      mmsi: '905304001',
+      name: 'SYNT-U53-MARSCH',
+      startS: METRICS.cum[2] - 700,
+      legs: [{ toS: METRICS.cum[4] + 700, speedKn: 4.5, intervalS: 60 }],
+    }],
+    expect: { minTargetPassages: 2, maxWaitToggles: { at: 'Järnvägsbron', max: 0 } },
+  },
+  // Motfall: just förbi Klaffbron går båten 1,2–1,4 kn ända fram till 150 m
+  // före Järnvägsbron utan att stanna (800 m-gränsen når nästan Klaffbron).
+  {
+    name: 'sakta-1,3kn-efter-Klaffbron-utan-väntan (motfall U53)',
+    seed: 5305,
+    vessels: [{
+      mmsi: '905305001',
+      name: 'SYNT-U53-SAKTA',
+      startS: METRICS.cum[2] - 700,
+      legs: [
+        { toS: METRICS.cum[2] + 60, speedKn: 4, intervalS: 60 },
+        { toS: METRICS.cum[3] - 150, speedKn: 1.3, intervalS: 60 },
+        { toS: METRICS.cum[4] + 700, speedKn: 4, intervalS: 60 },
+      ],
+    }],
+    expect: { minTargetPassages: 2, maxWaitToggles: { at: 'Järnvägsbron', max: 0 } },
+  },
+  // Motfall: båten lägger till i Gästhamnen norr om Klaffbron (600 m från
+  // Järnvägsbron, kajzon) i 30 min och går sedan norrut. Ingen vänttext.
+  {
+    name: 'lägger-till-i-Gästhamnen-600m-före-Järnvägsbron (motfall U53)',
+    seed: 5306,
+    vessels: [{
+      mmsi: '905306001',
+      name: 'SYNT-U53-GASTHAMN',
+      startS: METRICS.cum[2] - 700,
+      legs: [
+        { toS: 3200, speedKn: 4, intervalS: 60 },
+        {
+          toS: 3232, speedKn: 1, intervalS: 60, lateralM: -50,
+        },
+        {
+          toS: 3238, speedKn: 0.5, intervalS: 60, lateralM: -90,
+        },
+        {
+          stopS: 1800, stopIntervalS: 180, stopSog: 0, lateralM: -90,
+        },
+        { toS: METRICS.cum[4] + 700, speedKn: 4, intervalS: 60 },
+      ],
+    }],
+    expect: { maxWaitToggles: { at: 'Järnvägsbron', max: 0 } },
+  },
+  // Motfall: kö 450 m före MÅLBRON Klaffbron norrut. U53 gäller aldrig målbron;
+  // U30 ger "ETA okänd" som förut.
+  {
+    name: 'stilla-450m-före-målbron-Klaffbron (motfall U53)',
+    seed: 5307,
+    vessels: [{
+      mmsi: '905307001',
+      name: 'SYNT-U53-MALBRO',
+      startS: METRICS.cum[1] - 600,
+      legs: [
+        { toS: METRICS.cum[2] - 450, speedKn: 4, intervalS: 60 },
+        { stopS: 600, stopIntervalS: 60, stopSog: 0.1 },
+        { toS: METRICS.cum[2] + 300, speedKn: 4, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      maxWaitToggles: { at: 'Klaffbron', max: 0 },
+      stillUnknown: { bridge: 'Klaffbron', afterS: 330 },
+    },
+  },
+  // Söderut, kö mellan Stridsbergsbron och Järnvägsbron (150 m före Järnvägsbron,
+  // målbro Klaffbron). Fungerade redan med köbeviset; ska stå kvar.
+  {
+    name: 'kö-söderut-150m-före-Järnvägsbron (U53, söderut)',
+    seed: 5308,
+    vessels: [{
+      mmsi: '905308001',
+      name: 'SYNT-U53-SYD',
+      startS: METRICS.cum[4] + 900,
+      legs: [
+        { toS: METRICS.cum[3] + 150, speedKn: 4, intervalS: 60 },
+        { stopS: 600, stopIntervalS: 60, stopSog: 0.1 },
+        { toS: METRICS.cum[2] - 600, speedKn: 4, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      waitTextWindows: [{
+        mmsi: '905308001',
+        fromS: METRICS.cum[3] + 150,
+        delayS: 180,
+        durationS: 360,
+        at: 'Järnvägsbron',
+        target: 'Klaffbron',
+        must: true,
+        count: 1,
+      }],
+    },
+  },
+  // Motfall söderut: stilla 450 m norr om MÅLBRON Stridsbergsbron. Järnvägsbron
+  // ligger bortom målbron och är ingen mellanbro; ingen vänttext.
+  {
+    name: 'stilla-450m-norr-om-målbron-Stridsbergsbron (motfall U53, söderut)',
+    seed: 5309,
+    vessels: [{
+      mmsi: '905309001',
+      name: 'SYNT-U53-SYDMAL',
+      startS: METRICS.cum[4] + 1400,
+      legs: [
+        { toS: METRICS.cum[4] + 450, speedKn: 4, intervalS: 60 },
+        { stopS: 600, stopIntervalS: 60, stopSog: 0.1 },
+        { toS: METRICS.cum[3] - 300, speedKn: 4, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      maxWaitToggles: { at: 'Järnvägsbron', max: 0 },
+      stillUnknown: { bridge: 'Stridsbergsbron', afterS: 330 },
+    },
+  },
+  // Olidebron: kryp 0,7 kn från 600 m till 350 m söder om Olidebron (målbro
+  // Klaffbron) och kort stopp. Samma regel som vid Järnvägsbron. Fönstret är
+  // kort: bandet ligger vid Kanalinfarten, där basen redan tar bort en båt som
+  // kryper (borttagning 'timeout' cirka fem minuter in i krypet, före och efter
+  // U53); den frågan hör inte till U53.
+  {
+    name: 'kryp-0,7kn-från-600m-söder-om-Olidebron (U53, Olidebron)',
+    seed: 5310,
+    vessels: [{
+      mmsi: '905310001',
+      name: 'SYNT-U53-OLIDE',
+      startS: 100,
+      legs: [
+        { toS: METRICS.cum[1] - 600, speedKn: 4, intervalS: 60 },
+        { toS: METRICS.cum[1] - 350, speedKn: 0.7, intervalS: 65 },
+        { stopS: 180, stopIntervalS: 65, stopSog: 0.3 },
+        { toS: METRICS.cum[2] + 300, speedKn: 4, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      waitTextWindows: [{
+        mmsi: '905310001',
+        fromS: METRICS.cum[1] - 600,
+        delayS: 150,
+        durationS: 45,
+        at: 'Olidebron',
+        target: 'Klaffbron',
+        must: true,
+        count: 1,
+      }],
+      // Basen (7633653) ger samma två "Inga båtar"-blinkningar i det här
+      // scenariot (borttagningen vid Kanalinfarten ovan); de hör inte till U53.
+      toleratedInvariants: [/DEFAULT-FLASH/],
+    },
+  },
+  // Två båtar: den ena kryper före Järnvägsbron (KINNE-formen), den andra kommer
+  // i marschfart och passerar. Texten ska räkna en väntande och två mot bron.
+  {
+    name: 'en-väntar-en-kommer-i-marschfart (U53, två båtar)',
+    seed: 5311,
+    vessels: [{
+      mmsi: '905311001',
+      name: 'SYNT-U53-VANTAR',
+      startS: METRICS.cum[2] - 700,
+      legs: [
+        { toS: METRICS.cum[3] - 560, speedKn: 4, intervalS: 60 },
+        { toS: METRICS.cum[3] - 330, speedKn: 0.7, intervalS: 65 },
+        { stopS: 240, stopIntervalS: 65, stopSog: 0.4 },
+        { toS: METRICS.cum[4] + 700, speedKn: 4.5, intervalS: 60 },
+      ],
+    }, {
+      mmsi: '905311002',
+      name: 'SYNT-U53-KOMMER',
+      startS: METRICS.cum[2] - 700,
+      startOffsetS: 600,
+      legs: [{ toS: METRICS.cum[4] + 700, speedKn: 4.5, intervalS: 60 }],
+    }],
+    expect: {
+      waitTextWindows: [{
+        mmsi: '905311001',
+        fromS: METRICS.cum[3] - 560,
+        delayS: 240,
+        toS: METRICS.cum[3] - 335,
+        at: 'Järnvägsbron',
+        target: 'Stridsbergsbron',
+        must: true,
+        count: 1,
+      }],
+      textCountAlong: [{
+        mmsi: '905311002',
+        fromS: METRICS.cum[2] + 150,
+        toS: METRICS.cum[3] - 600,
+        bridge: 'Stridsbergsbron',
+        min: 2,
+        max: 2,
+      }],
+    },
+  },
+  // Flimmer: väntan bekräftas (0,6 kn), sedan pendlar farten 1,4/1,6 kn. Texten
+  // får komma och gå högst en gång var.
+  {
+    name: 'fart-pendlar-kring-1,5kn-i-kön (flimmerprov U53)',
+    seed: 5312,
+    vessels: [{
+      mmsi: '905312001',
+      name: 'SYNT-U53-PENDEL',
+      startS: METRICS.cum[2] - 700,
+      legs: [
+        { toS: METRICS.cum[3] - 700, speedKn: 4, intervalS: 60 },
+        { toS: METRICS.cum[3] - 640, speedKn: 0.6, intervalS: 65 },
+        ...Array.from({ length: 5 }, (_, i) => [
+          { toS: METRICS.cum[3] - 640 + 98 * i + 47, speedKn: 1.4, intervalS: 65 },
+          { toS: METRICS.cum[3] - 640 + 98 * i + 98, speedKn: 1.6, intervalS: 65 },
+        ]).flat(),
+        { toS: METRICS.cum[4] + 700, speedKn: 4.5, intervalS: 60 },
+      ],
+    }],
+    expect: { minTargetPassages: 2, maxWaitToggles: { at: 'Järnvägsbron', max: 2 } },
+  },
+  // Motfall: båten ligger still 800 m söder om Järnvägsbron med 15 m GPS-brus.
+  // Platsen är Kajen norr om Klaffbron (kajzon, 30–80 m bort): hon klassas
+  // förtöjd som förut och får ingen vänttext. (Avståndshysteresen 800/850 m
+  // prövas i tests/u53-mellanbro-textko.test.js.)
+  {
+    name: 'stilla-vid-Kajen-800m-från-Järnvägsbron-med-brus (motfall U53)',
+    seed: 5313,
+    vessels: [{
+      mmsi: '905313001',
+      name: 'SYNT-U53-GRANS',
+      startS: METRICS.cum[2] - 700,
+      jitterM: 15,
+      legs: [
+        { toS: METRICS.cum[3] - 800, speedKn: 4, intervalS: 60 },
+        { stopS: 900, stopIntervalS: 60, stopSog: 0.2 },
+        { toS: METRICS.cum[4] + 700, speedKn: 4.5, intervalS: 60 },
+      ],
+    }],
+    expect: { maxWaitToggles: { at: 'Järnvägsbron', max: 0 } },
+  },
 ];
 
 function runScenario(scenario) {
@@ -4854,6 +5210,42 @@ function vesselCountInText(text, bridge) {
       const n = /^\d+$/.test(word) ? Number(word) : COUNT_WORDS[word];
       return sum + (Number.isFinite(n) ? n : 0);
     }, 0);
+}
+
+/** U53: första tidpunkten (ms) då båtens sanna bana når ruttläget sTarget. */
+function truthReachMs(truthPaths, mmsi, sTarget) {
+  const tp = (truthPaths || {})[mmsi] || [];
+  if (tp.length && tp[0].s === sTarget) return BASE_TIME_MS + tp[0].tS * 1000;
+  for (let i = 1; i < tp.length; i++) {
+    const a = tp[i - 1]; const b = tp[i];
+    if (b.s === sTarget) return BASE_TIME_MS + b.tS * 1000;
+    if (a.s !== b.s && (a.s - sTarget) * (b.s - sTarget) < 0) {
+      const f = (sTarget - a.s) / (b.s - a.s);
+      return BASE_TIME_MS + (a.tS + f * (b.tS - a.tS)) * 1000;
+    }
+  }
+  return null;
+}
+
+/** U53: antal båtar i textens vänttext vid <at> (mot <target>), 0 om ingen. */
+function waitClauseCount(text, at, target) {
+  for (const clause of String(text || '').split('; ')) {
+    const m = clause.match(/^(\S+) (?:båt|båtar) väntar vid (\S+?)(?: på väg mot (\S+))?$/);
+    if (!m || m[2] !== at) continue;
+    if (target && (m[3] || m[2]) !== target) continue;
+    return COUNT_WORDS[m[1].toLowerCase()] || Number(m[1]) || 0;
+  }
+  return 0;
+}
+
+/** U54: siffran i brons klausul "om [cirka] N minuter", annars null. */
+function etaMinutesFor(text, bridge) {
+  for (const clause of String(text || '').split('; ')) {
+    if (!clause.includes(`på väg mot ${bridge},`)) continue;
+    const m = clause.match(/om (?:cirka )?(\d+) minut/);
+    if (m) return Number(m[1]);
+  }
+  return null;
 }
 
 function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
@@ -5247,6 +5639,100 @@ function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
       else if (points === 0) problems.push(`AVGÅNGS-ETA: ingen ETA-text för ${bridge} att döma efter avgången`);
     }
   }
+  // U53 (2026-11-23): textens kö vid en mellanbro.
+  const transitionsU53 = (result.bridgeTextTransitions || []).filter((x) => Number.isFinite(x.t));
+  const alongWindow = (w, tag) => {
+    const from = truthReachMs(truthPaths, w.mmsi, w.fromS);
+    const to = Number.isFinite(w.durationS) ? from + ((w.delayS || 0) + w.durationS) * 1000
+      : truthReachMs(truthPaths, w.mmsi, w.toS);
+    if (!Number.isFinite(from) || !Number.isFinite(to)) {
+      problems.push(`${tag}: ${w.mmsi} når aldrig ${!Number.isFinite(from) ? w.fromS : w.toS} på sin sanna bana`);
+      return null;
+    }
+    return [from + (w.delayS || 0) * 1000, to];
+  };
+  for (const w of e.waitTextWindows || []) {
+    const win = alongWindow(w, 'VÄNTTEXT');
+    if (!win) continue;
+    const pts = standingTexts(transitionsU53, win[0], win[1]);
+    if (pts.length === 0) problems.push(`VÄNTTEXT: tomt fönster för ${w.mmsi}`);
+    for (const x of pts) {
+      const n = waitClauseCount(x.text, w.at, w.target);
+      const bad = w.must ? (n === 0 || (Number.isFinite(w.count) && n !== w.count)) : waitClauseCount(x.text, w.at) > 0;
+      if (bad) {
+        problems.push(`VÄNTTEXT: ${new Date(x.t).toISOString()} "${x.text}" — ${w.must
+          ? `ska säga ${w.count ? `${w.count} ` : ''}väntar vid ${w.at}${w.target ? ` på väg mot ${w.target}` : ''}`
+          : `får inte säga väntar vid ${w.at}`}`);
+        break;
+      }
+    }
+  }
+  for (const w of e.textCountAlong || []) {
+    const win = alongWindow(w, 'ANTAL LÄNGS BANAN');
+    if (!win) continue;
+    for (const x of standingTexts(transitionsU53, win[0], win[1])) {
+      const n = vesselCountInText(x.text, w.bridge);
+      if ((Number.isFinite(w.min) && n < w.min) || (Number.isFinite(w.max) && n > w.max)) {
+        problems.push(`ANTAL LÄNGS BANAN: ${n} mot ${w.bridge} ${new Date(x.t).toISOString()} ("${x.text}"), `
+          + `förväntat ${w.min ?? 0}–${w.max ?? '∞'}`);
+        break;
+      }
+    }
+  }
+  if (e.etaNotRaisedOverWait) {
+    const { bridge, at } = e.etaNotRaisedOverWait;
+    let judged = 0;
+    let lastNum = null;
+    let inWait = false;
+    let before = null;
+    for (const x of transitionsU53) {
+      const waiting = waitClauseCount(x.text, at, bridge) > 0;
+      const n = etaMinutesFor(x.text, bridge);
+      if (waiting && !inWait) {
+        inWait = true; before = lastNum;
+      }
+      if (!waiting && inWait) {
+        inWait = false;
+        if (before !== null && n !== null) {
+          judged += 1;
+          if (n > before) {
+            problems.push(`TIDEN STEG UNDER VÄNTAN: "om ${before}" före vänttexten vid ${at}, `
+              + `"om ${n}" efter (${new Date(x.t).toISOString()})`);
+          }
+        }
+      }
+      if (n !== null) lastNum = n;
+    }
+    if (judged === 0) problems.push(`TIDEN UNDER VÄNTAN: ingen vänttext vid ${at} med siffra före och efter att döma`);
+  }
+  if (e.maxWaitToggles) {
+    const { at, max } = e.maxWaitToggles;
+    let toggles = 0;
+    let prev = false;
+    for (const x of transitionsU53) {
+      const now = waitClauseCount(x.text, at) > 0;
+      if (now !== prev) toggles += 1;
+      prev = now;
+    }
+    if (toggles > max) problems.push(`FLIMMER: vänttexten vid ${at} kom och gick ${toggles} gånger (högst ${max})`);
+  }
+  // U54 (2026-11-23): restid över 60 min visas som "ETA okänd".
+  if (e.etaNeverAbove) {
+    const { bridge, max } = e.etaNeverAbove;
+    const bad = transitionsU53.find((x) => (etaMinutesFor(x.text, bridge) ?? 0) > max);
+    if (bad) problems.push(`RESTID ÖVER ${max}: ${new Date(bad.t).toISOString()} "${bad.text}"`);
+  }
+  if (e.etaSeenAtLeast) {
+    const { bridge, min } = e.etaSeenAtLeast;
+    if (!transitionsU53.some((x) => (etaMinutesFor(x.text, bridge) ?? -1) >= min)) {
+      problems.push(`RESTID: ingen text visar minst "om ${min} minuter" för ${bridge}`);
+    }
+  }
+  for (const bridge of e.unknownSeen || []) {
+    if (!transitionsU53.some((x) => bridgeClauseForm(x.text, bridge) === 'okänd')) {
+      problems.push(`ETA OKÄND: ingen text visar "ETA okänd" för ${bridge}`);
+    }
+  }
   // U30 (2026-11-15): stilla båt utanför väntzonen och gränserna runt den.
   if (e.stillUnknown) {
     const { bridge, afterS } = e.stillUnknown;
@@ -5582,10 +6068,13 @@ function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
 }
 
 let failed = false;
+// SYNTH_FILTER=<text>: kör bara scenarier vars namn innehåller texten (felsökning).
+const SELECTED = process.env.SYNTH_FILTER
+  ? SCENARIOS.filter((x) => x.name.includes(process.env.SYNTH_FILTER)) : SCENARIOS;
 console.log('\n=== SYNTETISK SCENARIOSVIT ===');
-console.log(`${SCENARIOS.length} scenarier (seedade, deterministiska)\n`);
+console.log(`${SELECTED.length} scenarier (seedade, deterministiska)\n`);
 
-for (const scenario of SCENARIOS) {
+for (const scenario of SELECTED) {
   let outcome;
   try {
     const {

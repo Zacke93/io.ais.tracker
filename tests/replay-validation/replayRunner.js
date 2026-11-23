@@ -78,7 +78,7 @@ Module.prototype.require = function requireOverride(id) {
 const mockHomeyModule = require(path.join(ROOT, 'tests', '__mocks__', 'homey'));
 const mockHomey = mockHomeyModule.__mockHomey;
 const AISBridgeApp = require(path.join(ROOT, 'app'));
-const { waitingBridge, hasFreshPosition } = require('../../lib/utils/bridgeQueue');
+const { waitingBridge, waitingBridgeForText, hasFreshPosition } = require('../../lib/utils/bridgeQueue');
 const { UI_CONSTANTS, AIS_CONFIG } = require('../../lib/constants');
 
 // Äkta setImmediate (sparas innan klockan installeras) för microtask-dränering.
@@ -432,7 +432,8 @@ async function main() {
             vessels: (vessels || []).filter((v) => v && v.targetBridge).map((v) => ({
               mmsi: String(v.mmsi),
               targetBridge: v.targetBridge,
-              waitingAt: waitingBridge(v) || null,
+              // U53: väntbron som texten visar (också mellanbrokön upp till 800 m).
+              waitingAt: waitingBridgeForText(v) || null,
               // U16:s B4-variant (2026-11-15): imminent-flaggan och om den bärs
               // av en uttömd extrapolering (app.js IMMINENT_EXHAUSTED_MAX_AGE_MS,
               // 90 s), med uttömningens stämpel. Fälten finns bara på det
