@@ -84,6 +84,341 @@ const OMSTART_SLOW_ZONE = {
   speedKn: 2.0,
 };
 
+// ---------------------------------------------------------------------------
+// U52 (dirigentens beslut 2026-11-23): NY RESA EFTER LÅNG FÖRTÖJNING
+// ---------------------------------------------------------------------------
+// En båt som legat förtöjd minst 2 h börjar en ny resa när hon lägger ut; den
+// förra resans passerade broar, riktning och slutmål ska inte styra notiser,
+// varningar och texter. Fältfallen (fältprov 2): en lotsbåt låg 69 h vid kajen
+// utanför Kanalinfarten med Olidebron kvar som passerad från resan tre dagar
+// tidigare, och notisen vid Olidebron uteblev när hon lade ut norrut; en annan
+// dag fick avgångsnotisen vid Kanalinfarten riktningen söderut (ruttlåset från
+// ankomsten) fast hon gick norrut. Positionerna nedan är egna; bara förloppen
+// är fältets. Motfallen låser det som ska stå kvar: broar BAKOM förtöjnings-
+// platsen förblir passerade (ingen ny notis för en bro båten nyss passerat).
+const S_OLIDEBRON = METRICS.cum[1];
+const S_KLAFFBRON = METRICS.cum[2];
+const S_STRIDSBERG = METRICS.cum[4];
+const S_STALLBACKA = METRICS.cum[5];
+const U52_SCENARIOS = [
+  // Fältets 23/11-förlopp: resan söderut börjar vid en kaj mellan Olidebron och
+  // Klaffbron (ingen målbro söderut, alltså inget slutmål), passerar Olidebron
+  // och Kanalinfarten, förtöjd 7 h på den yttre sidan, sedan norrut genom
+  // kanalen. Olidebron ska notifieras även på den nya resan. Längden spelar
+  // roll: efter 6 h gallras besöksposten för Olidebron, och då släpper ingen
+  // återkomst notisnyckeln; kvar står bara spärren för en passerad bro.
+  {
+    name: 'ny-resa-efter-7h-förtöjning-Olidebron-kvar-från-förra-resan (U52)',
+    seed: 75201,
+    vessels: [{
+      mmsi: '975201001',
+      name: 'SYNT-U52-OLIDE',
+      startS: S_OLIDEBRON + 600,
+      legs: [
+        {
+          stopS: 20 * 60, stopIntervalS: 60, stopSog: 0, stopCogDeg: 200,
+        },
+        { toS: S_KANALINFARTEN - 150, speedKn: 7, intervalS: 60 },
+        {
+          stopS: 7 * 3600, stopIntervalS: 60, stopSog: 0, stopCogDeg: 172,
+        },
+        { toS: S_KLAFFBRON + 600, speedKn: 6.5, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      minNotifiedPerBridge: { Olidebron: 2 },
+      maxNotifiedPerBridge: { Olidebron: 2, Klaffbron: 1 },
+      minNotifiedBridges: ['Klaffbron'],
+    },
+  },
+  // Samma förlopp med en omstart av appen mitt i förtöjningen. Efter omstarten
+  // skapas båten på nytt utan resebokföring; U51:s förtöjningsbelägg sparas.
+  {
+    name: 'ny-resa-efter-7h-förtöjning-omstart-mitt-i (U52)',
+    seed: 75202,
+    vessels: [{
+      mmsi: '975202001',
+      name: 'SYNT-U52-OMSTART',
+      startS: S_OLIDEBRON + 600,
+      legs: [
+        {
+          stopS: 20 * 60, stopIntervalS: 60, stopSog: 0, stopCogDeg: 200,
+        },
+        { toS: S_KANALINFARTEN - 150, speedKn: 7, intervalS: 60 },
+        {
+          stopS: 7 * 3600, stopIntervalS: 60, stopSog: 0, stopCogDeg: 172,
+        },
+        { toS: S_KLAFFBRON + 600, speedKn: 6.5, intervalS: 60 },
+      ],
+    }],
+    events: [{ ctrl: 'restart', atOffsetS: 20 * 60 + 400 + 4 * 3600 }],
+    expect: {
+      minNotifiedPerBridge: { Olidebron: 2 },
+      maxNotifiedPerBridge: { Olidebron: 2, Klaffbron: 1, Kanalinfarten: 2 },
+      minNotifiedBridges: ['Klaffbron'],
+    },
+  },
+  // Fältets 19/11-förlopp: hel resa söderut (slutmål söderut), förtöjd 3 h på
+  // den yttre sidan av Kanalinfarten, lägger ut med en fix i kurs 94° (ut från
+  // kajen) och sedan norrut. Avgångsnotisen kommer på första fixen med nordlig
+  // kurs, där den gamla resans ruttlås och slutmål styrde riktningen.
+  {
+    name: 'ny-resa-efter-3h-förtöjning-avgångsnotisens-riktning (U52)',
+    seed: 75203,
+    vessels: [{
+      mmsi: '975203001',
+      name: 'SYNT-U52-RIKTNING',
+      startS: S_KLAFFBRON + 700,
+      legs: [
+        {
+          stopS: 20 * 60, stopIntervalS: 60, stopSog: 0, stopCogDeg: 200,
+        },
+        { toS: S_KANALINFARTEN - 150, speedKn: 7, intervalS: 60 },
+        {
+          stopS: 3 * 3600, stopIntervalS: 60, stopSog: 0, stopCogDeg: 172,
+        },
+        // Första fixen i fart ligger kvar vid kajen med kurs ut från den (94°);
+        // nästa fix, förbi linjen, har nordlig kurs.
+        {
+          toS: S_KANALINFARTEN + 50, speedKn: 6.5, cogDeg: 94, intervalS: 60,
+        },
+        { toS: S_KLAFFBRON + 700, speedKn: 6.5, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      noticeDirectionVsTruth: { Kanalinfarten: { mismatches: 0 } },
+      minNotifiedPerBridge: { Olidebron: 2, Klaffbron: 2 },
+      maxNotifiedPerBridge: { Olidebron: 2, Klaffbron: 2 },
+    },
+  },
+  // Motfall: förtöjd 3 h i Gästhamnen mitt i en resa norrut och fortsätter
+  // norrut. Klaffbron och Olidebron ligger bakom förtöjningsplatsen och förblir
+  // passerade: ingen ny notis och ingen ny öppningsvarning för Klaffbron.
+  {
+    name: 'förtöjd-3h-i-Gästhamnen-fortsätter-norrut (U52, motfall)',
+    seed: 75204,
+    vessels: [{
+      mmsi: '975204001',
+      name: 'SYNT-U52-GAST-N',
+      startS: S_OLIDEBRON - 400,
+      legs: [
+        { toS: S_KLAFFBRON + 380, speedKn: 6, intervalS: 60 },
+        {
+          stopS: 3 * 3600, stopIntervalS: 60, stopSog: 0, stopCogDeg: 30, lateralM: 35,
+        },
+        { toS: S_STRIDSBERG + 800, speedKn: 6, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      maxNotifiedPerBridge: { Olidebron: 1, Klaffbron: 1, Stridsbergsbron: 1 },
+      minNotifiedBridges: ['Järnvägsbron', 'Stridsbergsbron'],
+      expectedOpenings: ['Stridsbergsbron'],
+      maxOpeningsPerBridge: { Klaffbron: 1, Stridsbergsbron: 1 },
+    },
+  },
+  // Förtöjd 3 h i Gästhamnen efter en resa norrut genom Klaffbron, går sedan
+  // tillbaka söderut: Klaffbron och Olidebron ligger framför förtöjnings-
+  // platsen i den nya riktningen och ska notifieras och varnas på nytt.
+  {
+    name: 'förtöjd-3h-i-Gästhamnen-tillbaka-söderut (U52)',
+    seed: 75205,
+    vessels: [{
+      mmsi: '975205001',
+      name: 'SYNT-U52-GAST-S',
+      startS: S_OLIDEBRON - 400,
+      legs: [
+        { toS: S_KLAFFBRON + 380, speedKn: 6, intervalS: 60 },
+        {
+          stopS: 3 * 3600, stopIntervalS: 60, stopSog: 0, stopCogDeg: 30, lateralM: 35,
+        },
+        { toS: S_KANALINFARTEN - 150, speedKn: 6, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      minNotifiedPerBridge: { Olidebron: 2, Klaffbron: 2 },
+      maxNotifiedPerBridge: { Olidebron: 2, Klaffbron: 2 },
+      noticeDirectionVsTruth: { Klaffbron: { mismatches: 0 }, Olidebron: { mismatches: 0 } },
+      // Varningen före returpassagen kommer (i dag ingen alls), men bara några
+      // sekunder före korsningen: avgången bekräftas på andra fixen, 165 m från
+      // bron, och kajgrinden beväpnar först fixen därpå. En båt som syns första
+      // gången i Gästhamnen får målbron redan på första fixen. Känd gräns (U52).
+      expectedOpenings: ['Klaffbron'],
+      maxOpeningsPerBridge: { Klaffbron: 2 },
+    },
+  },
+  // Samma retur, men första fixen i fart går norrut (ut från kajen) och får
+  // målbron Stridsbergsbron; sedan söderut. Målbron från fönstret ska släppas
+  // när avgången söderut är belagd, så att texten inte säger "på väg mot
+  // Stridsbergsbron" för en båt på väg söderut genom Klaffbron.
+  {
+    name: 'förtöjd-3h-i-Gästhamnen-en-fix-norrut-sedan-söderut (U52)',
+    seed: 75208,
+    vessels: [{
+      mmsi: '975208001',
+      name: 'SYNT-U52-GAST-NS',
+      startS: S_OLIDEBRON - 400,
+      legs: [
+        { toS: S_KLAFFBRON + 380, speedKn: 6, intervalS: 60 },
+        {
+          stopS: 3 * 3600, stopIntervalS: 60, stopSog: 0, stopCogDeg: 30, lateralM: 35,
+        },
+        { toS: S_KLAFFBRON + 470, speedKn: 3, intervalS: 60 },
+        { toS: S_KANALINFARTEN - 150, speedKn: 6, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      minNotifiedPerBridge: { Olidebron: 2, Klaffbron: 2 },
+      maxNotifiedPerBridge: { Olidebron: 2, Klaffbron: 2, Stridsbergsbron: 0 },
+      noticeDirectionVsTruth: { Klaffbron: { mismatches: 0 } },
+      forbiddenOpeningBridges: ['Stridsbergsbron'],
+      expectedOpenings: ['Klaffbron'],
+    },
+  },
+  // Motfall: förtöjd 7 h vid Kajen norr om Klaffbron (inom 300 m från bron;
+  // efter 6 h är besöksposten för Klaffbron gallrad), lägger ut med EN fix
+  // 60 m söderut i 2,5 kn ut från kajen (så att förtöjningen släpper) och går
+  // sedan norrut. Klaffbron ligger bakom: ingen ny notis och ingen ny varning
+  // för den. Låser tvåfixkravet (granskningen, anm. 4): med en fix räcker
+  // bekräftas en resa söderut och Klaffbron varnas.
+  {
+    name: 'förtöjd-7h-vid-Kajen-norr-om-Klaffbron-en-fix-söderut-sedan-norrut (U52, motfall)',
+    seed: 75206,
+    vessels: [{
+      mmsi: '975206001',
+      name: 'SYNT-U52-KAJ-N',
+      startS: S_OLIDEBRON - 400,
+      legs: [
+        { toS: S_KLAFFBRON + 200, speedKn: 6, intervalS: 60 },
+        {
+          stopS: 7 * 3600, stopIntervalS: 60, stopSog: 0, stopCogDeg: 30,
+        },
+        { toS: S_STRIDSBERG + 800, speedKn: 6, intervalS: 60 },
+      ],
+    }],
+    patchSamples: (samples) => {
+      const still = samples.filter((r) => r.mmsi === '975206001' && r.sog < 0.5);
+      const r = still[still.length - 1];
+      r.sog = 2.5;
+      r.cog = 200;
+      r.lat -= 60 / 111320;
+    },
+    expect: {
+      maxNotifiedPerBridge: { Olidebron: 1, Klaffbron: 1, Stridsbergsbron: 1 },
+      minNotifiedBridges: ['Stridsbergsbron'],
+      maxOpeningsPerBridge: { Klaffbron: 1, Stridsbergsbron: 1 },
+    },
+  },
+  // Motfall (#44-klassen, PILOT-resume): parkerad 7 h 250 m bortom
+  // Stallbackabron efter passagen norrut, fortsätter norrut bort från bron.
+  {
+    name: 'parkerad-7h-bortom-Stallbackabron-fortsätter-norrut (U52, motfall)',
+    seed: 75207,
+    vessels: [{
+      mmsi: '975207001',
+      name: 'SYNT-U52-STALL',
+      startS: S_STRIDSBERG + 400,
+      legs: [
+        { toS: S_STALLBACKA + 250, speedKn: 6, intervalS: 60 },
+        {
+          stopS: 7 * 3600, stopIntervalS: 60, stopSog: 0, stopCogDeg: 30,
+        },
+        { toS: METRICS.total, speedKn: 6, intervalS: 60 },
+      ],
+    }],
+    expect: { maxNotifiedPerBridge: { Stallbackabron: 1 } },
+  },
+  // Granskningen R-A3: retur söderut efter 3 h 400 m norr om Stridsbergsbron,
+  // avgången 2,3 kn → 1,5 kn → 5 kn. Den långsamma fixen mitt i avgången får
+  // inte nolla den väntande riktningen (NEW_JOURNEY gör det inte); annars kom
+  // bekräftelsen och öppningsvarningen en fix senare än före U52.
+  {
+    name: 'förtöjd-3h-norr-om-Stridsbergsbron-retur-med-långsam-fix (U52, R-A3)',
+    seed: 75209,
+    vessels: [{
+      mmsi: '975209001',
+      name: 'SYNT-U52-STRIDS-RET',
+      startS: S_KLAFFBRON - 300,
+      legs: [
+        { toS: S_STRIDSBERG + 400, speedKn: 6, intervalS: 60 },
+        {
+          stopS: 3 * 3600, stopIntervalS: 60, stopSog: 0, stopCogDeg: 30,
+        },
+        { toS: S_STRIDSBERG + 340, speedKn: 2.3, intervalS: 60 },
+        { toS: S_STRIDSBERG + 300, speedKn: 1.5, intervalS: 60 },
+        { toS: S_KLAFFBRON - 600, speedKn: 5, intervalS: 60 },
+      ],
+    }],
+    // Före U52 (och med R-A3) kommer varningen söderut cirka 2 min före
+    // korsningen; utan R-A3 en fix senare, under 1 min före.
+    expect: { openingLeadS: { Stridsbergsbron: 90 } },
+  },
+  // Granskningen, anm. 4: förtöjd 4 h i Gästhamnen, en ensam brusposition
+  // (70 m söderut, 3 kn, kurs 200°), tillbaka, sedan norrut. Ingen ny resa
+  // söderut: ingen varning och ingen text för Klaffbron under stoppet.
+  {
+    name: 'förtöjd-4h-i-Gästhamnen-ensam-brusposition (U52, motfall)',
+    seed: 75210,
+    vessels: [{
+      mmsi: '975210001',
+      name: 'SYNT-U52-GAST-BRUS',
+      startS: S_OLIDEBRON - 400,
+      legs: [
+        { toS: S_KLAFFBRON + 380, speedKn: 6, intervalS: 60 },
+        {
+          stopS: 4 * 3600, stopIntervalS: 60, stopSog: 0, stopCogDeg: 30, lateralM: 35,
+        },
+        { toS: S_STRIDSBERG + 800, speedKn: 6, intervalS: 60 },
+      ],
+    }],
+    patchSamples: (samples) => {
+      const still = samples.filter((r) => r.mmsi === '975210001' && r.sog < 0.5);
+      const r = still[200];
+      r.sog = 3;
+      r.cog = 200;
+      r.lat -= 70 / 111320;
+    },
+    expect: {
+      maxOpeningsPerBridge: { Klaffbron: 1 },
+      maxNotifiedPerBridge: { Klaffbron: 1 },
+      textCountWindows: [{
+        bridge: 'Klaffbron', fromS: 12600, toS: 15000, max: 0,
+      }],
+    },
+  },
+  // 15-minutersgränsen för den väntande riktningen (som NEW_JOURNEY): förtöjd
+  // 3 h 400 m norr om Stridsbergsbron (ingen kajzon), en brusposition 60 m
+  // söderut i 2,5 kn, stilla en timme utan ny förtöjningsklassning, en ny
+  // brusposition söderut, sedan norrut ut ur kanalen. Två fixar en timme isär
+  // är inte en avgång: ingen ny resa söderut, ingen varning för
+  // Stridsbergsbron.
+  {
+    name: 'förtöjd-3h-norr-om-Stridsbergsbron-två-bruspositioner-en-timme-isär (U52, motfall)',
+    seed: 75211,
+    vessels: [{
+      mmsi: '975211001',
+      name: 'SYNT-U52-BRUS-TIMME',
+      startS: S_KLAFFBRON - 300,
+      legs: [
+        { toS: S_STRIDSBERG + 400, speedKn: 6, intervalS: 60 },
+        {
+          stopS: 5 * 3600, stopIntervalS: 60, stopSog: 0, stopCogDeg: 30,
+        },
+        { toS: S_STALLBACKA + 600, speedKn: 6, intervalS: 60 },
+      ],
+    }],
+    patchSamples: (samples) => {
+      const still = samples.filter((r) => r.mmsi === '975211001' && r.sog < 0.5);
+      for (const k of [190, 250]) {
+        const r = still[k];
+        r.sog = 2.5;
+        r.cog = 205;
+        r.lat -= 60 / 111320;
+      }
+    },
+    expect: { maxOpeningsPerBridge: { Stridsbergsbron: 1 }, maxNotifiedPerBridge: { Stridsbergsbron: 1 } },
+  },
+];
+
 /**
  * Kurerad scenariomatris. Förväntningar:
  *  - minTargetPassages: minst N detekterade målbro-passager (detektering + INV-5 ⇒ notiser)
@@ -5002,6 +5337,7 @@ const SCENARIOS = [
       expect: k.expect,
     };
   }),
+  ...U52_SCENARIOS,
 ];
 
 function runScenario(scenario) {
