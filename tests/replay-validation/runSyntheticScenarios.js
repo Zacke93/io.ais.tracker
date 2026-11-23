@@ -5051,6 +5051,49 @@ const SCENARIOS = [
       etaNeverAbove: { bridge: 'Stridsbergsbron', max: 60 },
     },
   },
+  // ---------------------------------------------------------------------------
+  // U55 (2026-11-23): U30 ("ETA okänd" efter fem minuters stillhet) också i
+  // status stallbacka-waiting och en-route.
+  // ---------------------------------------------------------------------------
+  // PRICKBJORN-formen: söderut, stannar 30 m norr om Stallbackabron (status
+  // stallbacka-waiting, 2,2 km från Stridsbergsbron) i 20 min och går sedan.
+  {
+    name: 'stilla-20min-vid-Stallbackabron (U55, PRICKBJORN-formen)',
+    seed: 5501,
+    vessels: [{
+      mmsi: '905501001',
+      name: 'SYNT-U55-STALLB',
+      startS: METRICS.cum[5] + 900,
+      legs: [
+        { toS: METRICS.cum[5] + 30, speedKn: 4, intervalS: 65 },
+        { stopS: 1200, stopIntervalS: 65, stopSog: 0 },
+        { toS: METRICS.cum[4] - 300, speedKn: 4.5, intervalS: 65 },
+      ],
+    }],
+    // Efter avgången står ETA-kedjans dolda värde högt (fartgolvet 0,5 kn under
+    // stoppet) och visas över 60 min som "ETA okänd" (U54) tills det sjunkit;
+    // återhämtningen hör till ETA-kedjan, inte till U55.
+    expect: {
+      stillUnknown: { bridge: 'Stridsbergsbron', afterS: 330 },
+      etaNeverAbove: { bridge: 'Stridsbergsbron', max: 60 },
+    },
+  },
+  // Motfall: samma plats men bara 4 min stilla — tiden visas hela stoppet.
+  {
+    name: 'stilla-4min-vid-Stallbackabron (motfall U55)',
+    seed: 5502,
+    vessels: [{
+      mmsi: '905502001',
+      name: 'SYNT-U55-KORT',
+      startS: METRICS.cum[5] + 900,
+      legs: [
+        { toS: METRICS.cum[5] + 30, speedKn: 4, intervalS: 65 },
+        { stopS: 240, stopIntervalS: 65, stopSog: 0 },
+        { toS: METRICS.cum[4] - 300, speedKn: 4.5, intervalS: 65 },
+      ],
+    }],
+    expect: { noUnknownDuringStop: { bridge: 'Stridsbergsbron', extraS: 60 } },
+  },
 ];
 
 function runScenario(scenario) {

@@ -2939,7 +2939,10 @@ okänd → 25).
 *Inträde*, alla villkor: VesselDataService:s stillhetsklocka
 (`vessel._stationarySince`) har gått minst 5 min; positionen har legat inom
 50 m (`MOORING_DETECTION.MOVEMENT_PROOF_NET_M`) från samma punkt i minst 5 min,
-hela tiden i status `approaching` mot samma målbro och utan kö vid en tidigare
+hela tiden i en status ur `STILL_UNKNOWN_STATUSES` (`approaching`, sedan U55
+2026-11-23 också `en-route` och `stallbacka-waiting`; fältprov 2: PRICKBJORN
+låg stilla vid Stallbackabron och texten visade "om 18" i 24 min och sedan
+"om 27 … 120") mot samma målbro och utan kö vid en tidigare
 bro (`_stillWatch`; `queueBridge` eller sedan U53 textens kö vid en mellanbro,
 `waitingBridgeForText` — där visar texten vänttexten); samplet är
 under 0,5 kn; positionen är färsk och ren (`hasFreshPosition`, inget GPS-hopp);
@@ -2947,7 +2950,13 @@ ingen imminent-flagga; avståndet till målbron är större än
 `STATUS_HYSTERESIS.WAITING_CLEAR_DISTANCE` (350 m).
 *Utträde* ("tills hon rör sig"): en ren position minst 50 m från lägets
 ankarpunkt (belagd rörelse, samma bevisklass som VesselDataService), eller
-målbyte, annan status än `approaching`, eller imminent-flaggan. Ett
+målbyte, en status utanför `STILL_UNKNOWN_STATUSES`, eller imminent-flaggan.
+U55 i praktiken: en `en-route`-båt som stannar långt från bron tappar målbron
+(`TARGET_CHANGE` LOW_SPEED efter nådafristen) och lämnar texten innan fem
+minuter gått, så grenen gäller främst `stallbacka-waiting`. Långsam drift
+(U35) är oförändrad. Efter ett långt stopp vid Stallbackabron står ETA-kedjans
+dolda värde högt (fartgolvet 0,5 kn); det visas som "ETA okänd" (U54) tills
+det sjunkit under 60 min, i stället för "om 110 minuter". Ett
 fartsampel utan förflyttning lämnar inte läget (granskningen, H2: med "ett
 sampel ≥ 1 kn släpper" blinkade texten vid varje sampel efter 30 min stillhet),
 och en krypare lämnar det efter 50 m (H1: förut stod hon som "ETA okänd" ända
@@ -2969,7 +2978,9 @@ visas basens värden (prövat i två scenarier med 7 och 12 min tystnad).
 `vessel.etaMinutes` (null i läget) och faller då tillbaka på avstånd/fart
 (M7-grinden "en-prognos"), men deadlinen (avstånd / 10 kn − 180 s) har redan
 passerat för alla avstånd ≤ 926 m, alltså i hela regelns zon 350–580 m, så
-varningen har gått innan läget kan gå in.
+varningen har gått innan läget kan gå in. U55 vidgar läget till `en-route`
+och `stallbacka-waiting` längre bort, där det geometriska skälet inte gäller;
+mätt: i banken, k1–k3 och U55-scenarierna ändras ingen varning.
 *Hur länge står den stilla båten i texten?* Det styrs inte av U30. U27:s
 köundantag (`_isInTargetQueueZone`) kräver aktivitet inom 20 min, och
 `lastActiveTime` stämplas av ett enda fartsampel över 2,0 kn
