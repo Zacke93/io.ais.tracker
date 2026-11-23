@@ -1133,7 +1133,8 @@ båt.
   eta-tokenen och ETA-texten läser inte fysiken (U22); (b) **vid täckningsslut** hålls armen kvar (`OPENING_RECOVER_HOLD`,
   nästa fix avgör) om bron ligger bakom henne (avväpnas som passage), om armen
   är fryst, om ankomstfysik saknas, om hon låg under bron (≤
-  `UNDER_BRIDGE_SET_DISTANCE`, i rörelse) med ankomst inom täckningen, eller om
+  `UNDER_BRIDGE_SET_DISTANCE`, i rörelse) med ankomst inom täckningen (från
+  2 kn den tidigare av appens prognos och avstånd genom fart, U49), eller om
   kursen leder bort från bron utanför väntzonen. Första passagens tid är den
   skattade korsningen (`_crossingEstimate`), inte bokföringstiden; den styr
   medlemskapet och bakkanten. En NY båt med minst två tick kvar prövas dessutom
@@ -3482,7 +3483,27 @@ samma form: släpp på ren tid och avfyrning på den ärvda deadlinen. Rättning
   Under-bron-hållet strider inte mot U17 (dirigentens beslut 2026-11-05): en
   båt som senast sågs högst 50 m från bron, i rörelse och med ankomst inom
   täckningen, är vid brolinjen och har i praktiken passerat. Visar nästa
-  position att hon inte har det, släpps hon som förut.
+  position att hon inte har det, släpps hon som förut. **U49 (dirigentens
+  beslut i omgång 4, genomfört i omgång 5):** från `MOVING_SOG_KN` (2 kn) är ankomsten den
+  tidigare av appens prognos och armens fysik (`physicsArrivalMs`, avstånd
+  genom fart ur samma fix). Appens ETA nära bron är pessimistisk (utliggar-
+  skyddet och utjämningen lyfter 0,3 min till 1,3 min), och prognosen ensam
+  fällde hållet med 0,5–3,4 s i nattjaktens världar 8814 (43 m i 4,5 kn) och
+  18489 (24 m i 5,7 kn), som varnades 58 och 73 s efter passagen. Kravet att
+  ankomsten ligger inom täckningen står kvar, för det gör att hållet bara
+  varar till nästa fix (ett fix efter täckningsslutet har ankomsten efter
+  slutet). Mätt och avvisat: att ta bort kravet, som beslutets ordalydelse
+  säger. Då förnyas hållet på varje fix inom 50 m i minst 0,5 kn, och en
+  krypare som korsar efter täckningsslutet eller en väntande båt med brusfart
+  vid linjen får ingen varning. Under 2 kn gäller prognosen som förut (ETA-
+  kedjans golv lägger den före fysiken). Kostnad som U49 godtar: en båt vars
+  sista fix visar rörelse vid linjen men som sedan stannar varnas först på
+  nästa fix, och aldrig om hon tystnar för gott. I bankens korpusar och
+  fältkörningarna k1–k3 korsade alla 93 båtar som setts i rörelse inom 50 m
+  före bron; en stannade drygt en minut med fixar emellan. Hållet läser inte
+  U45:s fält (en annan båts passage): U45:s dom gäller före täckningsslutet och
+  utanför väntzonen. En U45-släppt båt i hållet behåller `foreignReleasedFrom`
+  tills hon passerar eller släpps vid täckningsslutet, som nollar flaggan.
 - **(3)** Utan finit ankomstfysik släpps hon inte (hängslen: `_canArm` kräver ett
   finit avstånd, så ingen arm i drift når grenen). **(4)** gäller bakkanten: den
   släpper på ett färskt, rent fix efter den första passagen, och deadlinen

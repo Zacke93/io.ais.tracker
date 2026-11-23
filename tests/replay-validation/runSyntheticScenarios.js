@@ -4653,6 +4653,93 @@ const SCENARIOS = [
     }],
     expect: { maxNotifiedPerBridge: { Kanalinfarten: 1 } },
   },
+  // U49 (rättningsomgång 4, nattjaktens värld 8814): UNDER-BRO-HÅLLET MÄTER
+  // ANKOMSTEN MED FYSIKEN. VEGA varnas för Stridsbergsbron söderut och tystnar
+  // 420 m före bron, så ingen passage bokförs och täckningen räknas från hennes
+  // referensankomst (06:20:32). BRISEN absorberas, och hennes sista fix
+  // (AISHub, 39 s gammalt) ligger 45 m före bron i 4,5 kn. Appens ETA nära bron
+  // (1,3–1,4 min) lägger prognosen efter täckningsslutet, avstånd genom fart
+  // lägger ankomsten före. Hon korsar 06:20:21 osedd och hörs nästa gång
+  // bortom bron. Förut släpptes hon vid täckningsslutet och varnades 12 s
+  // efter passagen; nu hålls hon till nästa fix (passagen). PLACERINGEN ÄR
+  // TESTET: fixet måste ligga mellan täckningsslutet minus appens ETA och
+  // täckningsslutet minus restiden. Ändras ETA-kedjan nära bron eller
+  // täckningens längd ska tiderna räknas om, inte förväntan tas bort.
+  // Motfallen (dagens beteende står kvar, och båda fäller ett håll utan
+  // täckningskrav): (i) en krypare i 0,8 kn vars sista fix före slutet ligger
+  // 34 m före bron och som korsar 78 s efter slutet får sin egen varning vid
+  // täckningsslutet; (ii) en båt som stannar 40 m före bron och väntar i 600 s
+  // med brusfart 0,8 kn och slumpad kurs släpps på första fixet efter slutet
+  // och varnas minuter före korsningen.
+  ...[
+    {
+      label: 'i 4,5 kn, tyst över bron: ingen varning efter passagen',
+      seed: 88141,
+      fOff: 264,
+      fStart: 2214.3,
+      legs: (strid) => [{
+        toS: strid - 1200, speedKn: 4.5, intervalS: 67, fixLagS: 39, gapFromS: strid + 42, gapToS: strid - 160,
+      }],
+      expect: { maxOpeningsPerBridge: { Stridsbergsbron: 1 } },
+    },
+    {
+      label: 'krypare i 0,8 kn korsar efter täckningen: egen varning (motfall)',
+      seed: 88142,
+      fOff: 221,
+      fStart: 1521.7,
+      legs: (strid) => [
+        {
+          toS: strid + 200, speedKn: 4.5, intervalS: 67, fixLagS: 39,
+        },
+        {
+          toS: strid - 1200, speedKn: 0.8, intervalS: 67, fixLagS: 39,
+        },
+      ],
+      expect: { ownOpeningLeadS: { Stridsbergsbron: { 988142002: 60 } } },
+    },
+    {
+      label: 'väntar 40 m före bron med brusfart: egen varning (motfall)',
+      seed: 88143,
+      fOff: 200,
+      fStart: 1961,
+      legs: (strid) => [
+        {
+          toS: strid + 40, speedKn: 4.5, intervalS: 67, fixLagS: 39,
+        },
+        {
+          stopS: 600, stopIntervalS: 67, stopSog: 0.8, stopCogRandom: true, fixLagS: 39,
+        },
+        {
+          toS: strid - 1200, speedKn: 4.5, intervalS: 67, fixLagS: 39,
+        },
+      ],
+      expect: { ownOpeningLeadS: { Stridsbergsbron: { 988143002: 180 } } },
+    },
+  ].map((k) => {
+    const strid = METRICS.cum[4];
+    return {
+      name: `vid-brolinjen-när-täckningen-löper-ut-söderut: ${k.label} (U49, nattjakten 8814)`,
+      seed: k.seed,
+      vessels: [
+        {
+          mmsi: `9${k.seed}001`,
+          name: 'SYNT-VEGA',
+          startS: strid + 1500,
+          legs: [{
+            toS: strid + 200, speedKn: 5, intervalS: 60, gapFromS: strid + 420, gapToS: strid + 100,
+          }],
+        },
+        {
+          mmsi: `9${k.seed}002`,
+          name: 'SYNT-BRISEN',
+          startOffsetS: k.fOff,
+          startS: strid + k.fStart,
+          legs: k.legs(strid),
+        },
+      ],
+      expect: k.expect,
+    };
+  }),
 ];
 
 function runScenario(scenario) {
