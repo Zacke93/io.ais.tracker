@@ -160,7 +160,16 @@ module.exports = [
     hours: 41,
     locked: true,
     expectedNotifications: 84,
-    note: 'Omlåst 2026-11-04 (familj E, avgångs-ETA): SKONNERTEN JYLLAND 220276000 lämnar stillhet '
+    note: 'BROTEXT OMLÅST 2026-11-23 (omgång 5, U53: väntan vid en mellanbro visas som väntan upp till 800 m från bron, '
+      + 'utan kravet att farten varit högst 0,5 kn, och tiden hålls under väntan; U54: en restid över 60 minuter visas '
+      + 'som "ETA okänd"): 178 → 172 övergångar. (1) LECKO 244063000 norrut 2/6: "En båt väntar vid Järnvägsbron på väg '
+      + 'mot Stridsbergsbron" kommer 07:17:03 i stället för 07:18:03; hon låg då 241 m söder om Järnvägsbron i 0,7 kn och '
+      + 'saktade in (1,4, 0,9, 0,7, 0,5 kn), och korsade Järnvägsbron först 07:29:32. (2) AIR 265671650 2/6 17:48–18:01: '
+      + 'raderna "om 73 … 86 minuter" (sex rader och en mellanliggande "ETA okänd") ersätts av en rad "ETA okänd" '
+      + '17:48:26; hon låg 2,8–3,0 km norr om Stridsbergsbron i 0–2 kn och korsade aldrig bron, så ingen av siffrorna var '
+      + 'en prognos. Notiser, passager och öppningsvarningarnas tid, bro och medlemmar är oförändrade. Rättare enligt '
+      + 'U13; dirigentens egen radvisa diff och positionskontroll, och oberoende radfacit i granskningen. '
+      + 'Omlåst 2026-11-04 (familj E, avgångs-ETA): SKONNERTEN JYLLAND 220276000 lämnar stillhet '
       + '[0,0, 0,1, 0,0] 2026-06-03 07:30:11 i 3,4 kn, 72 m från senaste stillasampel. Golden-text idx 127 '
       + '"om 8 minuter" → "om 3 minuter" (07:30:11; golvet 4 kn hade lovat strax, M9 håller 3). gt-passages: '
       + 'korsning av Stridsbergsbron 2,1 min efter 07:30:11 (kind=line) — rättare. Antalet övergångar (178), '
@@ -2560,7 +2569,21 @@ module.exports = [
       'DEFAULT-FLASH: 2026-08-06T08:47:00.040Z "Inga båtar" inklämd (30s) '
         + 'mellan två "En … Stridsbergsbron"-texter utan passage',
     ],
-    note: 'NOTISFACIT OMLÅST 2026-11-17 (omgång 4, U51: en båt som legat förtöjd minst 2 h vid Kanalinfarten eller '
+    note: 'BROTEXT OMLÅST 2026-11-23 (omgång 5, U53: väntan vid en mellanbro visas som väntan upp till 800 m från bron, '
+      + 'utan kravet att farten varit högst 0,5 kn, och tiden hålls under väntan; U54: en restid över 60 minuter visas '
+      + 'som "ETA okänd"): 292 → 287 övergångar, och en post i openingWarnings byter minutsiffra. (1) ANDREA 219031446 '
+      + 'söderut 6/8: "om 16" och "om 15 minuter" 18:36:38–18:37:45 blir "En båt väntar vid Järnvägsbron på väg mot '
+      + 'Klaffbron" från 18:36:38 (förut först 18:38:54); hon korsade Stridsbergsbron 18:36:13, låg 222 m norr om '
+      + 'Järnvägsbron i 0,6 kn 18:37:25 och sedan 111–187 m i 0–0,4 kn till 18:51, och korsade Järnvägsbron 18:52:46 och '
+      + 'Klaffbron 19:00:10. Efter väntan "om 9" och "om 10" i stället för "om 10" och "om 11" (verkligt 7,8 och 6,6 '
+      + 'min), och öppningsvarningen för Klaffbron 18:53:32 säger 9 i stället för 10 min (samma tid, bro och medlem). (2) '
+      + 'MOKENDEIST 211214850, MISTRAL 219025192 och en tredje båt söderut 7/8 11:49–11:58: den tredje båtens "om 12–14 '
+      + 'minuter" blir väntan ("Två båtar väntar … ETA okänd" 11:53:00, "Tre båtar väntar vid Järnvägsbron på väg mot '
+      + 'Klaffbron" från 11:53:39 i stället för 11:58:11); MOKENDEIST låg 92–97 m och MISTRAL 130–143 m norr om '
+      + 'Järnvägsbron i 0–1,2 kn, och de korsade bron först 12:13:54–12:13:56. Notiser, passager och öppningsvarningarnas '
+      + 'tid, bro och medlemmar är oförändrade. Rättare enligt U13; dirigentens egen radvisa diff och positionskontroll, '
+      + 'och oberoende radfacit i granskningen. '
+      + 'NOTISFACIT OMLÅST 2026-11-17 (omgång 4, U51: en båt som legat förtöjd minst 2 h vid Kanalinfarten eller '
       + 'Stallbackabron får en notis när hon lägger ut in i kanalen; förtöjningen ska vara belagd med stilla '
       + 'positioner och avgången med fart mot punktens linje): 131 → 132 notiser. +1 ELFKUNGEN 265573130 '
       + 'Kanalinfarten norrut 7/8 10:07:00, "har passerat Kanalinfarten". Rådata: stilla vid kajen 300 m från '
@@ -2793,7 +2816,16 @@ module.exports = [
     lockOpenings: true,
     lockEvents: true,
     expectedNotifications: 24,
-    note: 'NOTISFACIT OMLÅST 2026-11-17 (omgång 4, U51: en båt som legat förtöjd minst 2 h vid Kanalinfarten eller '
+    note: 'BROTEXT OMLÅST 2026-11-23 (omgång 5, U53: väntan vid en mellanbro visas som väntan upp till 800 m från bron, '
+      + 'utan kravet att farten varit högst 0,5 kn, och tiden hålls under väntan; U54: en restid över 60 minuter visas '
+      + 'som "ETA okänd"): 81 → 79 övergångar. PRIMA LADY 230693000 norrut 24/8: "om 6" och "om 5 minuter" '
+      + '16:28:21–16:29:02 blir "En båt väntar vid Järnvägsbron på väg mot Stridsbergsbron" från 16:28:21 (förut först '
+      + '16:30:38); hon låg 218 m söder om Järnvägsbron i 0,7 kn 16:28:20, saktade till 0,3–0,4 kn och korsade '
+      + 'Järnvägsbron 16:35:18 och Stridsbergsbron 16:37:07 (8,8 min efter den första raden). Vid avgången 16:34:01 "om '
+      + '3" i stället för "om 4 minuter" (verkligt 3,1). Notiser, passager och öppningsvarningarnas tid, bro och '
+      + 'medlemmar är oförändrade. Rättare enligt U13; dirigentens egen radvisa diff och positionskontroll, och oberoende '
+      + 'radfacit i granskningen. '
+      + 'NOTISFACIT OMLÅST 2026-11-17 (omgång 4, U51: en båt som legat förtöjd minst 2 h vid Kanalinfarten eller '
       + 'Stallbackabron får en notis när hon lägger ut in i kanalen; förtöjningen ska vara belagd med stilla '
       + 'positioner och avgången med fart mot punktens linje): 23 → 24 notiser. +1 DIANA 265576710 Kanalinfarten '
       + 'norrut 24/8 16:48:04, "närmar sig Kanalinfarten, beräknad ankomst strax". Rådata: stilla vid kajen 267 m '
@@ -2841,7 +2873,16 @@ module.exports = [
     lockOpenings: true,
     lockEvents: true,
     expectedNotifications: 24,
-    note: 'NOTISFACIT OMLÅST 2026-11-16 (U33, fråga F20: notisen säger båtens restid i sin egen fart när brotexten '
+    note: 'BROTEXT OMLÅST 2026-11-23 (omgång 5, U53: väntan vid en mellanbro visas som väntan upp till 800 m från bron, '
+      + 'utan kravet att farten varit högst 0,5 kn, och tiden hålls under väntan; U54: en restid över 60 minuter visas '
+      + 'som "ETA okänd"): 75 → 76 övergångar. OLA 265031670 norrut 7/9: "om 5 minuter" 18:30:52 blir "En båt väntar vid '
+      + 'Järnvägsbron på väg mot Stridsbergsbron"; hon låg då knappt 290 m söder om Järnvägsbron i 0,6 kn och korsade '
+      + 'bron först 18:49:54 (Stridsbergsbron 18:51:24, 20,5 min efter raden). Ny rad 18:32:29 "om 5 minuter": hon ryckte '
+      + 'fram till 127 m i 1,2 kn, väntan släppte och siffran visas igen tills nästa vänttext; det är samma siffra som '
+      + 'förut och en känd gräns (en fartspik släpper väntan). Notiser, passager och öppningsvarningarnas tid, bro och '
+      + 'medlemmar är oförändrade. Rättare enligt U13; dirigentens egen radvisa diff och positionskontroll, och oberoende '
+      + 'radfacit i granskningen. '
+      + 'NOTISFACIT OMLÅST 2026-11-16 (U33, fråga F20: notisen säger båtens restid i sin egen fart när brotexten '
       + 'säger strax): 2 notiser byter siffra och mening; tid, bro, riktning, avstånd och antal är oförändrade. '
       + 'post 3 TROUBADOUR 275491000 Klaffbron 7/9 04:06:19 om 3 → om 2 (sanning 1,94 min); post 20 OLA 265031670 '
       + 'Klaffbron 7/9 18:20:24 om 3 → om 2 (sanning 1,87 min). Rättare enligt U13 mot rådatafacits korsningar; '

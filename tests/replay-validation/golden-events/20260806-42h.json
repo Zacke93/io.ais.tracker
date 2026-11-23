@@ -2705,7 +2705,7 @@
       "iso": "2026-08-06T18:53:32.946Z",
       "bridge": "Klaffbron",
       "direction": "southbound",
-      "etaMin": 10,
+      "etaMin": 9,
       "vesselCount": 1,
       "leadVessel": "ANDREA",
       "firedBy": "fix",
