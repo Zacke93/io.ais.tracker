@@ -71,7 +71,12 @@ bekräftad väntan står kvar till 1,5 kn och 850 m, så att fartbrus och GPS-br
 inte växlar texten. Regeln gäller bara texten och aldrig målbron: väntan vid
 målbron ger ”strax” som ovan, och en stilla båt mer än 350 m från målbron får
 ”ETA okänd” (U30). Kajzonerna (Kajen och Gästhamnen norr om Klaffbron) ger
-ingen vänttext. Medan texten visar kön och båten går högst 1 kn får den dolda
+ingen vänttext; Kajen täcker farleden 644–788 m söder om Järnvägsbron, så där
+gäller bandet i praktiken 350–644 m. En redan bekräftad väntan räknas som inne i
+en kajzon först 12 m innanför zonens kant, så att GPS-brus vid kanten inte
+växlar texten. Kända gränser: en jämn gång i 1,0–1,5 kn håller vänttexten, och
+ett enda fix över 1,5 kn släpper den även om båten inte flyttat sig (se
+docs/ARCHITECTURE.md §5). Medan texten visar kön och båten går högst 1 kn får den dolda
 tiden till målbron inte stiga, så att första siffran efter väntan inte är en
 uppräknad tid. För båtar under gång kan
 imminent-flaggan ge ”strax” inom 300 m från målbron. Flaggan kräver färsk
@@ -83,7 +88,8 @@ ingen av 18 textrader över 60 minuter sann (till exempel "om 118 minuter" för 
 båt som låg nästan stilla vid Stallbackabron), och ingen av 20 över 45; över 30
 minuter var 5 av 40 sanna, så taket ligger inte lägre. En bekräftat
 stillastående kö vid en tidigare bro får ingen minutprognos. Notisernas
-`eta_minutes` har inget tak.
+`eta_minutes` har inget tak. Taket döljer också att restiden efter ett långt
+stopp återhämtar sig långsamt (en känd gräns i ETA-kedjan, ETA-omgången).
 
 **Strax-tröskeln är 3 min** (justerad från 1 min efter produktionsanalys april 2026). Med tidigare 1-min-tröskel hoppade Class B AIS (30 s intervall) ofta över den ~30 m breda strax-zonen. Med 3-min-tröskel blir zonen ~460 m vid 5 knop och praktiskt taget alla båtar får "strax" under sin passage.
 

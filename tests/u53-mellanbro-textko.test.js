@@ -186,3 +186,100 @@ describe('U53: textstillheten (VesselDataService._noteIntermediateTextWait)', ()
     expect(run([[600, 0.5], [590, 0.5], [580, 0.5]], { confirmedAt: null })).toEqual([false, false, false]);
   });
 });
+
+// Granskningen av U53, M1: en punkt `offM` meter vinkelrätt från mitten av
+// kajzonen "Kajen norr om Klaffbron" (radie 30 m), österut mot farleden.
+function offKajen(offM) {
+  const zone = MOORING_ZONES.find((z) => z.name.startsWith('Kajen'));
+  const mid = { lat: (zone.start.lat + zone.end.lat) / 2, lon: (zone.start.lon + zone.end.lon) / 2 };
+  const dLat = zone.end.lat - zone.start.lat;
+  const dLon = (zone.end.lon - zone.start.lon) * Math.cos((mid.lat * Math.PI) / 180);
+  const len = Math.hypot(dLat, dLon);
+  // Normalen (öster om segmentet), i meter omräknat till grader.
+  const nLat = -dLon / len; const nLon = dLat / len;
+  return {
+    lat: mid.lat + (nLat * offM) / 111320,
+    lon: mid.lon + (nLon * offM) / (111320 * Math.cos((mid.lat * Math.PI) / 180)),
+  };
+}
+
+describe('U53: kajzonens kantmarginal för en bekräftad textväntan (granskningens M1)', () => {
+  beforeEach(() => {
+    jest.spyOn(Date, 'now').mockImplementation(() => NOW);
+  });
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test('bekräftad väntan står kvar 25 m från Kajens mittlinje (inom radien, utanför marginalen)', () => {
+    const edge = offKajen(25);
+    const zone = MOORING_ZONES.find((z) => z.name.startsWith('Kajen'));
+    expect(geometry.distancePointToSegmentM(edge.lat, edge.lon, zone.start.lat, zone.start.lon, zone.end.lat, zone.end.lon))
+      .toBeLessThan(zone.radiusM);
+    expect(intermediateTextQueue(vesselAt(edge))).toBe('Järnvägsbron');
+  });
+
+  test('djupt inne i zonen, eller obekräftad vid kanten: ingen textkö', () => {
+    expect(intermediateTextQueue(vesselAt(offKajen(8)))).toBeNull();
+    expect(intermediateTextQueue(vesselAt(offKajen(25), {
+      _bridgeQueueApproaches: {
+        Järnvägsbron: { direction: 'north', confirmedAt: NOW - 600000, textWaitConfirmedAt: null },
+      },
+    }))).toBeNull();
+  });
+});
+
+// Granskningen av U53, L4: U30:s köundantag läser också textens mellanbrokö.
+// En båt som ligger still i textkö 560 m före Järnvägsbron (756 m från målbron,
+// alltså utanför U30:s 350 m) går inte in i "ETA okänd"; utan textkön gör hon det.
+describe('U53: U30 går inte in för en båt i textens mellanbrokö', () => {
+  const ProgressiveETACalculator = require('../lib/services/ProgressiveETACalculator');
+  let now;
+  beforeEach(() => {
+    now = NOW;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+  });
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  function stillStates(withTextQueue) {
+    const calc = new ProgressiveETACalculator(
+      { debug: jest.fn(), log: jest.fn(), error: jest.fn() },
+      new BridgeRegistry(),
+    );
+    const pos = southOfJvb(560);
+    const states = [];
+    for (let m = 0; m <= 7; m++) {
+      now = NOW + m * 60000;
+      const v = vesselAt(pos, {
+        sog: 0.1,
+        status: 'approaching',
+        _stationarySince: NOW,
+        timestamp: now,
+        lastPositionUpdate: now,
+        fixTs: now,
+        fixFeed: 'aisstream',
+        _bridgeQueueApproaches: {
+          Järnvägsbron: {
+            bridge: 'Järnvägsbron',
+            direction: 'north',
+            confirmedAt: NOW - 600000,
+            textWaitConfirmedAt: withTextQueue ? NOW - 60000 : null,
+          },
+        },
+      });
+      calc._updateStillUnknown(v, 10);
+      states.push(calc.isStillUnknown(v.mmsi));
+    }
+    return states;
+  }
+
+  test('i textkö: inget "ETA okänd" efter sju minuters stillhet', () => {
+    expect(stillStates(true).some(Boolean)).toBe(false);
+  });
+
+  test('motfallet utan textkö: läget går in efter fem minuter', () => {
+    expect(stillStates(false)[7]).toBe(true);
+  });
+});

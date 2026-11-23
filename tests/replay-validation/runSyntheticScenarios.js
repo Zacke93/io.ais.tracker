@@ -5009,6 +5009,50 @@ const SCENARIOS = [
     }],
     expect: { maxWaitToggles: { at: 'Järnvägsbron', max: 0 } },
   },
+  // Granskningen av U53 (M1): kajzonen "Kajen norr om Klaffbron" täcker farleden
+  // 644–788 m söder om Järnvägsbron. En köare som ligger vid zonkanten (645 m)
+  // med 12 m GPS-brus ska inte växla mellan "väntar" och "om N" (granskarens
+  // värld F7, seed 9217: före rättningen fyra växlingar på nio minuter).
+  {
+    name: 'kö-vid-Kajens-zonkant-645m-med-brus (U53, granskningens M1)',
+    seed: 9217,
+    vessels: [{
+      mmsi: '905314001',
+      name: 'SYNT-U53-ZONKANT',
+      startS: METRICS.cum[2] - 700,
+      jitterM: 12,
+      legs: [
+        { toS: METRICS.cum[3] - 660, speedKn: 4, intervalS: 60 },
+        { toS: METRICS.cum[3] - 645, speedKn: 0.5, intervalS: 60 },
+        { stopS: 900, stopIntervalS: 60, stopSog: 0.6 },
+        { toS: METRICS.cum[4] + 600, speedKn: 4, intervalS: 60 },
+      ],
+    }],
+    expect: { maxWaitToggles: { at: 'Järnvägsbron', max: 2 } },
+  },
+  // Motfall: båten lägger till vid Kajen (inne i zonen, 20 m väster om
+  // farledens mitt, ~720 m söder om Järnvägsbron) i 12 min och går sedan norrut.
+  // Ingen vänttext: kantmarginalen gäller bara zonens kant.
+  {
+    name: 'lägger-till-vid-Kajen-720m-före-Järnvägsbron (motfall U53, M1)',
+    seed: 5315,
+    vessels: [{
+      mmsi: '905315001',
+      name: 'SYNT-U53-KAJEN',
+      startS: METRICS.cum[2] - 700,
+      legs: [
+        { toS: 3080, speedKn: 4, intervalS: 60 },
+        {
+          toS: 3106, speedKn: 0.8, intervalS: 60, lateralM: -20,
+        },
+        {
+          stopS: 720, stopIntervalS: 60, stopSog: 0.1, lateralM: -20,
+        },
+        { toS: METRICS.cum[4] + 600, speedKn: 4, intervalS: 60 },
+      ],
+    }],
+    expect: { maxWaitToggles: { at: 'Järnvägsbron', max: 0 } },
+  },
   // ---------------------------------------------------------------------------
   // U54 (2026-11-23): en restid över 60 min visas som "ETA okänd".
   // ---------------------------------------------------------------------------

@@ -2429,7 +2429,11 @@ Flaggor (bärs av `_createVesselObject`-fältlistan, §8a): `_etaIsExtrapolated`
    broöppning strax" (imminent gäller HELA gruppen, F45 :146–147); ≥3 min ⇒
    "om N minuter" (extrapolerad ⇒ "om cirka N minuter"); avrundat över 60 min ⇒
    "ETA okänd" (U54, 2026-11-23, `MAX_SHOWN_ETA_MINUTES`; ingen av 18 rader över
-   60 min i underlaget var sann; notisernas eta_minutes har inget tak). **B6-zombieundantaget**
+   60 min i underlaget var sann; notisernas eta_minutes har inget tak). Känd
+   gräns (granskningen, L7): taket döljer att ETA-kedjans dolda värde sjunker
+   långsamt efter ett långt stopp — en båt som driver vid Stallbackabron och
+   sedan går 5 kn visade på basen "om 120 → 68" i 13 min där det verkliga var
+   14; nu "ETA okänd" i samma tid. Återhämtningen hör till ETA-omgången. **B6-zombieundantaget**
    (:134–151): fartyg vars target redan ligger i `passedBridges` räknas i
    antalet men driver varken imminent eller lead-ETA (isZombie :134–135; lead
    väljs ur zombie-fria mängden :136–138). Lead-båt = lägst giltig ETA, annars
@@ -2454,6 +2458,31 @@ Flaggor (bärs av `_createVesselObject`-fältlistan, §8a): `_etaIsExtrapolated`
    tappar vänttexten efter 10 min; en båt som först syns när hon redan ligger
    still saknar bekräftad anflygning; avgångssiffran efter väntan är bättre men
    inte rätt (kömodellen, ETA-omgången).
+   **Kajzonerna och kantmarginalen** (granskningen av U53, M1): kajzonen "Kajen
+   norr om Klaffbron" täcker farleden 644–788 m söder om Järnvägsbron, så bandet
+   ger i praktiken vänttext 350–644 m (och 788–800 m) söder om bron. En redan
+   bekräftad textväntan räknas som inne i en kajzon först
+   `INTERMEDIATE_TEXT_QUEUE.ZONE_EDGE_MARGIN_M` (12 m) innanför radien, både i
+   `intermediateTextQueue` och i VDS:s zongren (som då behåller köposten och
+   prövar textstillheten); annars växlade en köare vid zonkanten med GPS-brus
+   mellan "väntar" och "om N".
+   **Kända gränser** (granskningen av U53):
+   - *En ensam fartspik släpper väntan* (L2): ett fix över 1,5 kn släpper
+     textkön även när förflyttningen inte bekräftar farten (k3 19/11: sog 3,3,
+     netto 0,88 kn), och den hållna, för låga siffran rättar sig då synligt
+     uppåt ("om 9 → 13"). Att kräva två fix i rad prövades och mättes sämre
+     (banken och k1–k3: 46 min ändrad text och 32 låsta rader; 16 min ny
+     vänttext utan rådatabelagd väntan, och siffror sämre med 16 felminuter
+     mot 7 bättre, eftersom väntan då hölls in i verkliga avgångar) och togs
+     inte in.
+   - *Jämn gång i 1,0–1,5 kn håller "väntar"* (L3): bekräftelsen släpps bara
+     av ett fix över 1,5 kn eller en förflyttning över 1,5 kn × gap; ett byggt
+     fall gick 1,3–1,4 kn i 6 min och 206 m med vänttext (basen visade "om 16 →
+     12" mot sant 8,2).
+   - *Notisen kan bära en siffra medan texten säger "väntar"* (L6):
+     `_isWaitingAtNotifiedBridge` läser köbeviset (350 m), inte textkön. Notisen
+     är oförändrad mot före U53; frågan hör till notisernas restid
+     (ETA-omgången).
 4. **UI-coalescing** (app.js): `_updateUI`:2139 → `_scheduleCoalescedUpdate`:2147
    (micro-grace 15/25/40 ms per signifikans; critical/immediate bypassar;
    high-event krymper till 10 ms). `_actuallyUpdateUI` (:2251) kan lägga 200 ms
