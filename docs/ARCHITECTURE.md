@@ -3496,11 +3496,26 @@ samma form: släpp på ren tid och avfyrning på den ärvda deadlinen. Rättning
   säger. Då förnyas hållet på varje fix inom 50 m i minst 0,5 kn, och en
   krypare som korsar efter täckningsslutet eller en väntande båt med brusfart
   vid linjen får ingen varning. Under 2 kn gäller prognosen som förut (ETA-
-  kedjans golv lägger den före fysiken). Kostnad som U49 godtar: en båt vars
-  sista fix visar rörelse vid linjen men som sedan stannar varnas först på
-  nästa fix, och aldrig om hon tystnar för gott. I bankens korpusar och
-  fältkörningarna k1–k3 korsade alla 93 båtar som setts i rörelse inom 50 m
-  före bron; en stannade drygt en minut med fixar emellan. Hållet läser inte
+  kedjans golv lägger den före fysiken). **Känd kostnad (U49, bekräftad av
+  dirigenten i omgång 5):** en båt som setts i minst 2 kn högst 50 m före bron
+  och som sedan stannar och aldrig hörs mer får ingen öppningsvarning för den
+  bron. Hörs hon igen varnas hon på det fixet, ett fixintervall senare än
+  förut. Mätt: i bankens 27 korpusfiler och fältkörningarna k1–k3 finns 90
+  episoder där en båt setts i minst 2 kn med kurs mot Klaffbron eller
+  Stridsbergsbron högst 50 m före bron (94 från 0,5 kn). Alla 90 korsade, ingen
+  tystnade före bron, och en stannade (lotsbåten i k1 vid Klaffbron, 40 m i
+  3,6 kn, stilla 79 s med fix emellan, korsade efter 250 s): 0 av 90 hade
+  tappat sin varning. I granskningens band av byggda världar kring brolinjen
+  (864 världar vid Stridsbergsbron söderut) blev 1 sådan, och där kom
+  kedjevarningen för nästa bro ändå. **Känd gräns, systerstället vid
+  bakkanten (omgång 5, rörs inte):** före täckningsslutet jämför bakkanten
+  appens prognos (över 2,5 kn) med fönstrets slut, och samma för höga restid
+  nära bron kan släppa en följare som ligger vid linjen. Granskningens prov:
+  ledarens passage bokförd, följaren 43 m före bron i 4,5 kn med prognosen 3 s
+  efter fönstrets slut och fysiken 57 s före; hon får ett eget kort 18,6 s före
+  korsningen med ett omedelbart fix, men 20,4 s efter korsningen med ett 39 s
+  gammalt AISHub-fix. Utfallet är detsamma före och efter U49, och fallet är
+  inte sett i banken eller i k1–k3. Hållet läser inte
   U45:s fält (en annan båts passage): U45:s dom gäller före täckningsslutet och
   utanför väntzonen. En U45-släppt båt i hållet behåller `foreignReleasedFrom`
   tills hon passerar eller släpps vid täckningsslutet, som nollar flaggan.

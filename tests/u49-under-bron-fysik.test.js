@@ -30,6 +30,12 @@
  * borttaget (U49 ordagrant) är krypar- och brusmotfallen röda. I blocket om
  * samspelet med U45 (sist i filen) är på 7633653 de fall röda där hållet
  * ändrar utfallet (A1, A3, B1, B2, F1); A1b, A2 och C1 är gröna där också.
+ *
+ * MUTATIONSPROVEN (granskningen i omgång 5). Var och en fälls av ett eget test:
+ * täckningskravet borttaget från 2 kn, eller när fysiken ligger före
+ * prognosen ("hållet varar bara till nästa fix också i rörelse"); `> 2` i
+ * stället för `>= 2` ("gränsen: exakt 2,0 kn"); bara fysiken i stället för det
+ * tidigaste av ("det tidigaste av: 2,2 kn").
  */
 
 global.__TEST_MODE__ = true;
@@ -206,6 +212,18 @@ describe.each(CASES)('U49: under-bro-hållet mäter ankomsten med fysiken ($brid
     expect(own('FOLLOWER')).toHaveLength(1);
   });
 
+  it('motfall: hållet varar bara till nästa fix också i rörelse — 40 m i 2,5 kn efter slutet släpper henne på det fixet', () => {
+    const cover = stageConvoyWithoutPassage();
+    lastFix(cover, 75.5, 43, 4.5, 3.4);
+    advanceTo(cover + 40 * S);
+    expect(own('FOLLOWER')).toHaveLength(0);
+    // Hon manövrerar vid bron i 2,5 kn: fysiken ur ett fix efter slutet
+    // ligger efter slutet, så täckningskravet släpper henne nu.
+    svc.observeVessel(boat('FOLLOWER', 40, 2.5, { etaMinutes: 1.2 }));
+    expect(own('FOLLOWER')).toHaveLength(1);
+    expect(own('FOLLOWER')[0].t).toBeLessThanOrEqual(cover + 40 * S);
+  });
+
   it('motfall: väntande båt med brusfart vid brolinjen släpps på första fixet efter slutet', () => {
     const cover = stageConvoyWithoutPassage();
     lastFix(cover, 75.5, 43, 4.5, 3.4);
@@ -223,6 +241,43 @@ describe.each(CASES)('U49: under-bro-hållet mäter ankomsten med fysiken ($brid
     expect(armOf('FOLLOWER').physicsArrivalMs).toBeLessThan(cover);
     advanceTo(cover + 31 * S);
     expect(own('FOLLOWER')).toHaveLength(1);
+  });
+
+  // GRÄNSEN VID EXAKT 2,0 KN (granskningen, anmärkning 2): fysiken läses från
+  // och med MOVING_SOG_KN, samma >= som i _courseAway och bakkanten. 45 m i
+  // 2,0 kn ger fysiken 44 s; fixet 60 s före slutet lägger den 16 s före
+  // slutet, prognosen 10 s efter. Hon hålls; 1,99 kn varnas som förut.
+  it('gränsen: exakt 2,0 kn läser fysiken och hålls', () => {
+    const cover = stageConvoyWithoutPassage();
+    lastFix(cover, 60, 45, 2.0, 10);
+    expect(armOf('FOLLOWER').physicsArrivalMs).toBeLessThan(cover);
+    expect(armOf('FOLLOWER').expectedArrivalMs).toBeGreaterThan(cover);
+    advanceTo(cover + 31 * S);
+    expect(own('FOLLOWER')).toHaveLength(0);
+    expect(holdLines().some((l) => l.includes('under bron') && l.includes('fysiken'))).toBe(true);
+  });
+
+  it('gränsen, motfall: 1,99 kn med samma läge läser inte fysiken ⇒ egen varning vid täckningsslutet', () => {
+    const cover = stageConvoyWithoutPassage();
+    lastFix(cover, 60, 45, 1.99, 10);
+    expect(armOf('FOLLOWER').physicsArrivalMs).toBeLessThan(cover);
+    advanceTo(cover + 31 * S);
+    expect(own('FOLLOWER')).toHaveLength(1);
+  });
+
+  // DET TIDIGASTE AV PROGNOSEN OCH FYSIKEN, ÅT ANDRA HÅLLET (granskningen,
+  // anmärkning 3): i 2,2 kn kan appens prognos ligga FÖRE fysiken (ETA-kedjans
+  // golv 2,5 kn). 45 m i 2,2 kn ger fysiken 40 s; fixet 20 s före slutet lägger
+  // den 20 s efter slutet, prognosen 10 s före. Prognosen inom täckningen håller
+  // henne, som före U49; en variant som bara läser fysiken hade släppt henne.
+  it('det tidigaste av: 2,2 kn, prognosen inom och fysiken efter täckningen ⇒ hålls (prognosen avgör)', () => {
+    const cover = stageConvoyWithoutPassage();
+    lastFix(cover, 20, 45, 2.2, -10);
+    expect(armOf('FOLLOWER').physicsArrivalMs).toBeGreaterThan(cover);
+    expect(armOf('FOLLOWER').expectedArrivalMs).toBeLessThan(cover);
+    advanceTo(cover + 31 * S);
+    expect(own('FOLLOWER')).toHaveLength(0);
+    expect(holdLines().some((l) => l.includes('under bron'))).toBe(true);
   });
 
   it('motfall: under 0,5 kn eller bortom 50 m hålls hon inte (som förut)', () => {
@@ -511,8 +566,9 @@ describe.each(CASES_U45)('U49 och U45: hållet bredvid en annan båts passage ($
   // B: KOSTNADEN SOM U49 GODTAR. 45 m i 2,5 kn, fysiken inom täckningen och
   // prognosen efter: hålls. Stannar hon och tystnar varnas hon aldrig (B1; på
   // 7633653 vid täckningsslutet); hörs hon igen varnas hon på det fixet (B2).
-  // I rådatan (bankens korpusar och k1–k3) korsade alla 94 båtar som setts i
-  // rörelse högst 50 m före bron; en stannade 79 s med fixar emellan.
+  // I rådatan (bankens 27 korpusfiler och k1–k3) finns 90 episoder där en båt
+  // setts i minst 2 kn högst 50 m före bron (94 från 0,5 kn): alla korsade,
+  // ingen tystnade, en stannade 79 s med fix emellan.
   it('B1: 45 m i 2,5 kn, fysiken inom, prognosen efter, hon stannar och tystnar: ingen varning (U49:s kostnad)', () => {
     const cover = stage();
     lastFix('FOLLOWER', cover, 50, 45, 2.5, 10);
