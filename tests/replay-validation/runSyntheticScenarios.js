@@ -222,6 +222,50 @@ const OMSTART_SLOW_ZONE = {
  *  - noticeMinEta: {bro: N} — varje förvarning för bron har eta ≥ N: en båt
  *    som i sin fart inte når bron inom 3 min behåller sin siffra (motfallet).
  */
+/**
+ * U57 (2026-11-23): transit i 5,2 kn mot bron `B` i riktningen `dir` ('S'/'N'),
+ * glapp 200 s från 560 m före bron (båten passerar under glappet), en stillafix
+ * `D` m bortom (sog 0, kurs framåt; osäker, S1 håller passagen) och direkt
+ * tillbaka genom bron i `retKn` var 60:e sekund. `utanFart` tar bort farten på
+ * returraderna (stillafixen behåller sin). Låser att den verkliga returen
+ * bokförs (D1-granskningens U-svängsband; se U57 i ARCHITECTURE).
+ */
+function u57Vandning(seed, mmsi, name, B, dir, D, retKn, expect, { utanFart = false } = {}) {
+  const sgn = dir === 'S' ? -1 : 1;
+  const step = 5.2 * 0.5144 * 60;
+  const brgFwd = pointAt(PATH, METRICS, B + sgn * D).bearing;
+  return {
+    name,
+    seed,
+    vessels: [{
+      mmsi,
+      name: 'SYNT-U57-VAND',
+      startS: B - sgn * (560 + 11 * step),
+      legs: [
+        {
+          toS: B + sgn * D, speedKn: 5.2, intervalS: 60, gapFromS: B - sgn * 559, gapToS: B + sgn * (D - 1),
+        },
+        {
+          stopS: 60, stopIntervalS: 60, stopSog: 0, stopCogDeg: dir === 'N' ? brgFwd : (brgFwd + 180) % 360,
+        },
+        { toS: B - sgn * 1200, speedKn: retKn, intervalS: 60 },
+      ],
+    }],
+    patchSamples: (samples) => {
+      const own = samples.filter((r) => r.mmsi === mmsi);
+      const iStop = own.findIndex((r) => r.sog < 0.5);
+      // Glappet blir 200 s (generatorns steg ger 240 s).
+      own[iStop].aisTimestamp -= 40000;
+      own[iStop].receivedAt = new Date(own[iStop].aisTimestamp).toISOString();
+      // Generatorns första returrad ligger kvar på stoppets plats; i
+      // granskarens bana ligger nästa fix redan tillbaka över linjen.
+      samples.splice(samples.indexOf(own[iStop + 1]), 1);
+      if (utanFart) for (const r of own.slice(iStop + 2)) r.sog = null;
+    },
+    expect,
+  };
+}
+
 const SCENARIOS = [
   {
     name: 'ren-nord-normal',
@@ -4849,6 +4893,28 @@ const SCENARIOS = [
     }],
     expect: { forbiddenNotifiedBridges: ['Klaffbron'] },
   },
+  // U57 (2026-11-23, D1 förs inte in): VERKLIGA RETURER STRAX BORTOM BRON
+  // BOKFÖRS. Båten passerar under ett glapp, ligger 15 m bortom Järnvägsbron
+  // söderut med sog 0 (osäker, S1 håller passagen) och vänder norrut i 1,5 kn.
+  // Bron är inte bokförd, så återkorsningsvägen nås inte, och under 2 kn
+  // bekräftar Fix D inte vändningen. En regel som stoppade passagen på
+  // returfixen tog bort "har precis passerat Järnvägsbron", "närmar sig
+  // Stridsbergsbron" och öppningsvarningen.
+  // Vid Järnvägsbron väntas bara passagenotisen: positionen 15 m BORTOM bron
+  // med sog 0 gav förut dessutom "närmar sig Järnvägsbron" söderut, en falsk
+  // förvarning för en bro hon redan hade bakom sig. U44 punkt 3 håller inne
+  // den (en långsam båt bortom en bro får ingen förvarning förrän riktningen
+  // är belagd); allt annat i scenariot är oförändrat.
+  u57Vandning(74105, '974105001', 'u-sväng-15m-bortom-Järnvägsbron-söderut-retur-1,5kn (U57)',
+    METRICS.cum[3], 'S', 15, 1.5, { noticeForms: { Järnvägsbron: ['precis'], Stridsbergsbron: ['tyst', 'närmar'] } }),
+  // Stopp 15 m bortom Klaffbron söderut, retur norrut i 1,5 kn: samma regel gav
+  // en falsk "ÖPPNINGSVARNING Klaffbron eta 0" när båten redan var på väg bort.
+  u57Vandning(74106, '974106001', 'u-sväng-15m-bortom-Klaffbron-söderut-retur-1,5kn (U57)',
+    METRICS.cum[2], 'S', 15, 1.5, { maxOpeningsPerBridge: { Klaffbron: 1 } }),
+  // Fartlös retur i 3 kn från 25 m bortom Järnvägsbron söderut (93 m segment):
+  // med "under 100 m utan fart = stilla" uteblev "närmar sig Stridsbergsbron".
+  u57Vandning(74107, '974107001', 'u-sväng-25m-bortom-Järnvägsbron-söderut-fartlös-retur-3kn (U57)',
+    METRICS.cum[3], 'S', 25, 3, { noticeForms: { Stridsbergsbron: ['tyst', 'närmar'] } }, { utanFart: true }),
 ];
 
 function runScenario(scenario) {

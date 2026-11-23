@@ -337,6 +337,25 @@ Moduler (ansvar / ägda tillstånd / in-ut):
   längre än färden, ett bakåthopp eller en osäker startfix är fortfarande GPS-hopp. I
   banken och fältkörningarna fälls `likely_gps_error` aldrig (orimlighetsflaggan fälls fyra
   gånger: tre `medium_movement_speed_mismatch`, ett fysiskt omöjligt hopp).
+  **Känd gräns (beslut U57, 2026-11-23): falsk passage bakåt efter en brusposition.** En båt
+  stannar strax före en bro direkt efter ett AIS-glapp, och första stillapositionen är brus som
+  hamnar 10–60 m BORTOM brolinjen. Analysen dömer den osäker (`uncertain_movement`) och S1
+  spärrar passagen på den. På nästa position, den riktiga före bron, mäts segmentet ändå från
+  bruspositionen (bara GPS-hopp får en återhämtningsstart), och korsningen bakåt bokförs som
+  passage: målbron byter och ingen notis går vid den verkliga passagen. Rättningen D1 (tre varv,
+  rättningsomgång 4 och 5) försökte stoppa passagen när segmentet går bakåt från en osäker
+  position och fördes inte in. En regel som bara ser de två positionerna kan inte skilja felet
+  från dess spegelbild: båten har verkligen passerat under glappet och ligger strax bortom bron,
+  och NÄSTA position är stilla brus före linjen (eller båten vänder verkligen tillbaka). Båda är
+  en osäker position bortom bron följd av en stilla position före. I rättarens svep (31 440
+  byggda världar) försvann de falska passagerna (1 528 → 62) bara när den riktiga positionen
+  hade en fart under 0,5 kn; i gengäld förlorade 162 av 1 440 världar med omvänt brus en sann
+  passagenotis, 54 av dem också öppningsvarningen, och verkliga returer under 0,5 kn fick fel
+  utfall i 71 av 283 världar. Felet har aldrig setts i banken eller i fältkörningarna k1–k3.
+  Den enda väg som tar båda är att vänta en position med beslutet (bortom igen ⇒ verklig
+  passage, kvar före ⇒ brus), vilket kräver en ombyggnad av GPS-grinden och sidokontraktet.
+  Dagens beteende för verkliga returer strax bortom bron låses av
+  `tests/u57-returer-strax-bortom-bron.test.js` och scenarierna `u-sväng-… (U57)`.
 - **PassageLatchService**: latch per båt+bro som blockerar retrograda statusar
   ("tidsresor"); 10 min latch-timeout. Konsumeras av StatusService via
   `shouldBlockStatus` (StatusService.js:772, 846, 912, 960, 1176).
