@@ -161,7 +161,7 @@
       "id": "M-BRUSBAND-RÖRELSEBEVIS",
       "klass": "KÄND_ÖPPEN",
       "datum": "2026-11-05",
-      "källa": "docs/ARCHITECTURE.md:1710–1747 (Target-livscykeln: fartprovet över tid och kända gränser (a)–(c), beslutade 2026-11-05 utan hysteres); lib/services/VesselDataService.js#_targetSpeedGate (0,7 kn mer än 500 m och 0,1 kn 300–500 m från närmaste bro, alla broar medräknade) och FIX B (ANCHOR_BLOCK 0,3 kn efter en passage); tests/m-krypfart-malbron-2026-11-04.test.js; lib/constants.js#MIN_APPROACH_DISTANCE; docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 25 och 33)",
+      "källa": "docs/ARCHITECTURE.md:1729–1766 (Target-livscykeln: fartprovet över tid och kända gränser (a)–(c), beslutade 2026-11-05 utan hysteres); lib/services/VesselDataService.js#_targetSpeedGate (0,7 kn mer än 500 m och 0,1 kn 300–500 m från närmaste bro, alla broar medräknade) och FIX B (ANCHOR_BLOCK 0,3 kn efter en passage); tests/m-krypfart-malbron-2026-11-04.test.js; lib/constants.js#MIN_APPROACH_DISTANCE; docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 25 och 33)",
       "gäller": {
         "orakel": [
           "INV-F"
@@ -289,7 +289,7 @@
       "id": "K20-FASKÄNSLIG-LEDARE",
       "klass": "KÄND_ÖPPEN",
       "datum": "2026-08-21",
-      "källa": "docs/ARCHITECTURE.md:1495–1505 (K20, känd defekt ej åtgärdad); docs/VALIDATION.md:281–289 (Facit-fällan p. 6)",
+      "källa": "docs/ARCHITECTURE.md:1514–1524 (K20, känd defekt ej åtgärdad); docs/VALIDATION.md:281–289 (Facit-fällan p. 6)",
       "gäller": {
         "orakel": [
           "M-FAS"
@@ -353,7 +353,7 @@
       "id": "KANALINFARTEN-FP8-SYDGRIND",
       "klass": "DESIGN",
       "datum": "2026-08-08",
-      "källa": "docs/ARCHITECTURE.md:607–612 (Trigger-punktens två grenar: sydgående kräver kanalrelevans, FP8); docs/etapp7-plan-2026-08-08.md:485 (FP8:s sydgrind stoppade ANNA och S/Y DESIREE i 42h)",
+      "källa": "docs/ARCHITECTURE.md:626–631 (Trigger-punktens två grenar: sydgående kräver kanalrelevans, FP8); docs/etapp7-plan-2026-08-08.md:485 (FP8:s sydgrind stoppade ANNA och S/Y DESIREE i 42h)",
       "gäller": {
         "orakel": [
           "T1"
@@ -373,7 +373,7 @@
       "id": "SKIPPA-BRO-ÅLDER-17MIN",
       "klass": "DESIGN",
       "datum": "2026-08-08",
-      "källa": "tests/replay-validation/runSyntheticScenarios.js:1571–1574 (gap-35min-över-Klaffbron: notisen är då >17 min gammal = medvetet inte notifierad)",
+      "källa": "tests/replay-validation/runSyntheticScenarios.js:1615–1618 (gap-35min-över-Klaffbron: notisen är då >17 min gammal = medvetet inte notifierad)",
       "gäller": {
         "orakel": [
           "T1"
@@ -412,7 +412,7 @@
       "id": "BESÖKSREGEL-2026-09-07",
       "klass": "DESIGN",
       "datum": "2026-09-07",
-      "källa": "lib/services/TriggerPointVisitTracker.js#TriggerPointVisitTracker (besöket varar tills faktisk utfärd och återkomst observerats); docs/ARCHITECTURE.md:681 (Besöksspärren TriggerPointVisitTracker, besöksregeln 2026-09-07)",
+      "källa": "lib/services/TriggerPointVisitTracker.js#TriggerPointVisitTracker (besöket varar tills faktisk utfärd och återkomst observerats); docs/ARCHITECTURE.md:700 (Besöksspärren TriggerPointVisitTracker, besöksregeln 2026-09-07)",
       "gäller": {
         "orakel": [
           "T1"
@@ -433,7 +433,7 @@
       "id": "S10-VÄNDNING-BRON-BAKOM",
       "klass": "DESIGN",
       "datum": "2026-08-23",
-      "källa": "docs/ARCHITECTURE.md:4134–4135 (FIXRUNDA 6 LIGHT, användarbeslut 2026-08-23: S10 och S6 godkända); docs/ARCHITECTURE.md:4077–4080 och :4168–4174 (S10 i notisvägen: avstå när Fix D:s färska pending-reversal motsäger tokenriktningen och bron ligger bakom fartyget); app.js#_fixDReversalContradictsNotification (tre krav) och app.js#_triggerBoatNearFlowForBridge (FLOW_TRIGGER_SKIP_PENDING_REVERSAL); lib/services/VesselDataService.js#FIX_D_MIN_SOG (Fix D-blocket i updateVessel: blockets yttre villkor, kursbanden mot riktningslåset, pending-flaggan, den bekräftande fixen och nollningen); lib/services/VesselDataService.js#_createVesselObject (en rad utan finit sog eller cog får fartygets senast kända värde, och Fix D och S10-vakten prövar det); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-16, V1)",
+      "källa": "docs/ARCHITECTURE.md:4153–4154 (FIXRUNDA 6 LIGHT, användarbeslut 2026-08-23: S10 och S6 godkända); docs/ARCHITECTURE.md:4096–4099 och :4187–4193 (S10 i notisvägen: avstå när Fix D:s färska pending-reversal motsäger tokenriktningen och bron ligger bakom fartyget); app.js#_fixDReversalContradictsNotification (tre krav) och app.js#_triggerBoatNearFlowForBridge (FLOW_TRIGGER_SKIP_PENDING_REVERSAL); lib/services/VesselDataService.js#FIX_D_MIN_SOG (Fix D-blocket i updateVessel: blockets yttre villkor, kursbanden mot riktningslåset, pending-flaggan, den bekräftande fixen och nollningen); lib/services/VesselDataService.js#_createVesselObject (en rad utan finit sog eller cog får fartygets senast kända värde, och Fix D och S10-vakten prövar det); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-16, V1)",
       "gäller": {
         "orakel": [
           "T1"
@@ -454,7 +454,7 @@
       "klass": "DESIGN",
       "verkan": "iOraklet",
       "datum": "2026-09-06",
-      "källa": "lib/constants.js#TRANSIT_SOG_KN (QUAY_DEPARTURE_GATE.TRANSIT_SOG_KN); docs/ARCHITECTURE.md:2165 (Förtöjningslagren)",
+      "källa": "lib/constants.js#TRANSIT_SOG_KN (QUAY_DEPARTURE_GATE.TRANSIT_SOG_KN); docs/ARCHITECTURE.md:2184 (Förtöjningslagren)",
       "gäller": {
         "orakel": [
           "T1"
@@ -476,7 +476,7 @@
       "klass": "DESIGN",
       "verkan": "iOraklet",
       "datum": "2026-11-03",
-      "källa": "docs/ARCHITECTURE.md:838–906 (P8/U10, retro-notisernas text); docs/helgranskning-2026-11-03.md (BN2)",
+      "källa": "docs/ARCHITECTURE.md:857–925 (P8/U10, retro-notisernas text); docs/helgranskning-2026-11-03.md (BN2)",
       "gäller": {
         "orakel": [
           "T1"
@@ -516,7 +516,7 @@
       "id": "U2-VS-DEADLINE",
       "klass": "KÄND_ÖPPEN",
       "datum": "2026-08-09",
-      "källa": "docs/etapp7-plan-2026-08-08.md:310–349 (ETAPP C-IV:s utfall: U2 och deadline-garantin är ömsesidigt oförenliga, C8 återkallad); docs/ARCHITECTURE.md:1189–1218 (U15, returresan är en egen öppning); docs/BUGGJAKT.md §7 (användarbeslut U24 2026-11-09; varv 2, rad 46); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-16, V1)",
+      "källa": "docs/etapp7-plan-2026-08-08.md:310–349 (ETAPP C-IV:s utfall: U2 och deadline-garantin är ömsesidigt oförenliga, C8 återkallad); docs/ARCHITECTURE.md:1208–1237 (U15, returresan är en egen öppning); docs/BUGGJAKT.md §7 (användarbeslut U24 2026-11-09; varv 2, rad 46); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-16, V1)",
       "gäller": {
         "orakel": [
           "T2"
@@ -536,7 +536,7 @@
       "id": "J13-J14-KONVOJSEMANTIK",
       "klass": "KÄND_ÖPPEN",
       "datum": "2026-08-22",
-      "källa": "docs/ARCHITECTURE.md:3807–3827 (J13+J33 konvojbindningens värdval, J14 notePassage bokför inte armlösa båtars passager); docs/ARCHITECTURE.md:1189–1218 (U15, returresan är en egen öppning); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-16, V1)",
+      "källa": "docs/ARCHITECTURE.md:3826–3846 (J13+J33 konvojbindningens värdval, J14 notePassage bokför inte armlösa båtars passager); docs/ARCHITECTURE.md:1208–1237 (U15, returresan är en egen öppning); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-16, V1)",
       "gäller": {
         "orakel": [
           "T2"
@@ -572,7 +572,7 @@
       "id": "U18-RETUR-BEKRÄFTAD-SENT",
       "klass": "DESIGN",
       "datum": "2026-11-04",
-      "källa": "docs/ARCHITECTURE.md:1911–1918 (U18, användarbeslut 2026-11-04: Fix D kräver två positioner, Anomali 18) och :1189–1218 (U15, returresan är en egen öppning; värld 227); lib/services/VesselDataService.js#FIX_D_MIN_SOG (Fix D-blocket i updateVessel: kursbanden, pending-flaggan och bekräftelsen) och #_confirmDirectionReversal ([TARGET_RECALC] för varje väg som bekräftar en vändning); tests/replay-validation/replayRunner.js#journeyResets (resultatets journeyResets); lib/constants.js#TICK_INTERVAL_MS; docs/BUGGJAKT.md §7 (användarbeslut U18; registerändringarna 2026-11-07, rad 26, 33 och 34); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-16, V1)",
+      "källa": "docs/ARCHITECTURE.md:1930–1937 (U18, användarbeslut 2026-11-04: Fix D kräver två positioner, Anomali 18) och :1208–1237 (U15, returresan är en egen öppning; värld 227); lib/services/VesselDataService.js#FIX_D_MIN_SOG (Fix D-blocket i updateVessel: kursbanden, pending-flaggan och bekräftelsen) och #_confirmDirectionReversal ([TARGET_RECALC] för varje väg som bekräftar en vändning); tests/replay-validation/replayRunner.js#journeyResets (resultatets journeyResets); lib/constants.js#TICK_INTERVAL_MS; docs/BUGGJAKT.md §7 (användarbeslut U18; registerändringarna 2026-11-07, rad 26, 33 och 34); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-16, V1)",
       "gäller": {
         "orakel": [
           "T2",
@@ -627,7 +627,7 @@
       "id": "U17-TYST-BÅT-RECOVER",
       "klass": "DESIGN",
       "datum": "2026-11-04",
-      "källa": "docs/ARCHITECTURE.md:3653–3668 (U17, ägarbeslut 2026-11-04: säkerhetsvarningen för en tyst båt behålls); lib/services/BridgeOpeningService.js#_coverageVerdict (täckningsslutet, bakkanten, hållen under bron (1c) och kursen bort (1d)), #_courseAway, #_bindLooseArms och #_leadOf (gemensam RECOVER); lib/services/BridgeOpeningService.js#_bindLooseArms och #_rebaseConvoyCoverage (täckningsslutet räknat ur händelsen, villkor (3″)); tests/replay-validation/replayRunner.js#instrumentCoverageVerdicts (släppvägens domspår, openingCoverageVerdicts); lib/services/BridgeOpeningService.js#MOVING_SOG_KN; lib/constants.js#UNDER_BRIDGE_SET_DISTANCE, lib/constants.js#MINIMUM_VIABLE_SPEED, lib/constants.js#CONVOY_WINDOW_MS, lib/constants.js#WAITING_CLEAR_DISTANCE; KAMPANJ.md, dirigentens beslut 2026-11-05 (under bron-hållet); docs/BUGGJAKT.md §7 (användarbeslut U17; registerändringarna 2026-11-07, rad 27 och 32; varv 2, rad 37, 38, 41, 43, 48, 49 och 50); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-16, V1)",
+      "källa": "docs/ARCHITECTURE.md:3672–3687 (U17, ägarbeslut 2026-11-04: säkerhetsvarningen för en tyst båt behålls); lib/services/BridgeOpeningService.js#_coverageVerdict (täckningsslutet, bakkanten, hållen under bron (1c) och kursen bort (1d)), #_courseAway, #_bindLooseArms och #_leadOf (gemensam RECOVER); lib/services/BridgeOpeningService.js#_bindLooseArms och #_rebaseConvoyCoverage (täckningsslutet räknat ur händelsen, villkor (3″)); tests/replay-validation/replayRunner.js#instrumentCoverageVerdicts (släppvägens domspår, openingCoverageVerdicts); lib/services/BridgeOpeningService.js#MOVING_SOG_KN; lib/constants.js#UNDER_BRIDGE_SET_DISTANCE, lib/constants.js#MINIMUM_VIABLE_SPEED, lib/constants.js#CONVOY_WINDOW_MS, lib/constants.js#WAITING_CLEAR_DISTANCE; KAMPANJ.md, dirigentens beslut 2026-11-05 (under bron-hållet); docs/BUGGJAKT.md §7 (användarbeslut U17; registerändringarna 2026-11-07, rad 27 och 32; varv 2, rad 37, 38, 41, 43, 48, 49 och 50); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-16, V1)",
       "gäller": {
         "orakel": [
           "T3"
@@ -646,7 +646,7 @@
       "id": "K-TYST-BÅT-NÄSTA-ÖPPNING",
       "klass": "KÄND_ÖPPEN",
       "datum": "2026-11-05",
-      "källa": "docs/ARCHITECTURE.md:3653–3668 (U17) och :3508–3515 (täckningsslutet räknas från bokföringen, dirigentens beslut 2026-11-05, U13); lib/services/BridgeOpeningService.js#_coverageVerdict; lib/constants.js#CONVOY_WINDOW_MS; docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 28 och 32; varv 2, rad 37, 38, 41, 43, 48, 49 och 50); tests/replay-validation/replayRunner.js#instrumentCoverageVerdicts (släppvägens domspår); docs/BUGGJAKT.md §7 (varv 2, rad 42: T2-vyn ÖPPNING-MISS:OKLASSAD); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-16, V1)",
+      "källa": "docs/ARCHITECTURE.md:3672–3687 (U17) och :3527–3534 (täckningsslutet räknas från bokföringen, dirigentens beslut 2026-11-05, U13); lib/services/BridgeOpeningService.js#_coverageVerdict; lib/constants.js#CONVOY_WINDOW_MS; docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 28 och 32; varv 2, rad 37, 38, 41, 43, 48, 49 och 50); tests/replay-validation/replayRunner.js#instrumentCoverageVerdicts (släppvägens domspår); docs/BUGGJAKT.md §7 (varv 2, rad 42: T2-vyn ÖPPNING-MISS:OKLASSAD); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-16, V1)",
       "gäller": {
         "orakel": [
           "T2",
@@ -684,7 +684,7 @@
       "id": "U25-BAKKANT-VID-SEN-BOKFÖRING",
       "klass": "ACCEPTERAD",
       "datum": "2026-11-09",
-      "källa": "docs/ARCHITECTURE.md:1166–1188 och :3669–3676 (ägarbesluten U25 och U26 2026-11-09: kända gränser, inte avsett beteende); docs/BUGGJAKT.md §7 (användarbesluten U25 och U26; varv 2, rad 53); lib/services/BridgeOpeningService.js#_coverageVerdict (bakkanten efter bokföringen: KRAV (2), rent fix, kursen och fönstrets slut), lib/services/BridgeOpeningService.js#_recordPassage (bokföringen på fixet bortom bron) och lib/services/BridgeOpeningService.js#_crossingEstimate (den skattade korsningen); lib/services/BridgeOpeningService.js#_bindLooseArms och lib/services/BridgeOpeningService.js#_rebaseConvoyCoverage (täckningen ur händelsen); lib/services/BridgeOpeningService.js#_ownDeadlineVerdict (U24 före passagen); tests/replay-validation/replayRunner.js#instrumentCoverageVerdicts (släppvägens domspår, openingCoverageVerdicts); tests/replay-validation/bugHunt/lib/oracles/t2Opening.js#FLOOR_MS (ledtidsgolvet 60 s, triage A:s M10 (i)); lib/constants.js#BRIDGE_OPENING (CONVOY_WINDOW_MS, TICK_INTERVAL_MS), lib/constants.js#STATUS_HYSTERESIS (WAITING_CLEAR_DISTANCE) och lib/constants.js#PASSAGE_TIMING (MINIMUM_VIABLE_SPEED)",
+      "källa": "docs/ARCHITECTURE.md:1185–1207 och :3688–3695 (ägarbesluten U25 och U26 2026-11-09: kända gränser, inte avsett beteende); docs/BUGGJAKT.md §7 (användarbesluten U25 och U26; varv 2, rad 53); lib/services/BridgeOpeningService.js#_coverageVerdict (bakkanten efter bokföringen: KRAV (2), rent fix, kursen och fönstrets slut), lib/services/BridgeOpeningService.js#_recordPassage (bokföringen på fixet bortom bron) och lib/services/BridgeOpeningService.js#_crossingEstimate (den skattade korsningen); lib/services/BridgeOpeningService.js#_bindLooseArms och lib/services/BridgeOpeningService.js#_rebaseConvoyCoverage (täckningen ur händelsen); lib/services/BridgeOpeningService.js#_ownDeadlineVerdict (U24 före passagen); tests/replay-validation/replayRunner.js#instrumentCoverageVerdicts (släppvägens domspår, openingCoverageVerdicts); tests/replay-validation/bugHunt/lib/oracles/t2Opening.js#FLOOR_MS (ledtidsgolvet 60 s, triage A:s M10 (i)); lib/constants.js#BRIDGE_OPENING (CONVOY_WINDOW_MS, TICK_INTERVAL_MS), lib/constants.js#STATUS_HYSTERESIS (WAITING_CLEAR_DISTANCE) och lib/constants.js#PASSAGE_TIMING (MINIMUM_VIABLE_SPEED)",
       "gäller": {
         "orakel": [
           "T3"
@@ -701,7 +701,7 @@
       "id": "U26-STILLA-KÖ-SEN-VARNING",
       "klass": "ACCEPTERAD",
       "datum": "2026-11-09",
-      "källa": "docs/ARCHITECTURE.md:1166–1188 och :3669–3676 (ägarbesluten U25 och U26 2026-11-09: kända gränser, inte avsett beteende); docs/BUGGJAKT.md §7 (användarbesluten U25 och U26; varv 2, rad 54); lib/services/BridgeOpeningService.js#_coverageVerdict (täckningsslutet) och lib/services/BridgeOpeningService.js#_bindLooseArms (täckningen vid absorptionen); lib/services/BridgeOpeningService.js#_ownDeadlineVerdict, lib/services/BridgeOpeningService.js#_ownDeadlineBasis och lib/services/BridgeOpeningService.js#_ownDeadlineGate (U24: ingen fysik, väntzonen och fönstrets slut); lib/services/BridgeOpeningService.js#_refreshArm (deadlinen ur fixet); tests/replay-validation/replayRunner.js#instrumentCoverageVerdicts (släppvägens domspår, openingCoverageVerdicts); lib/constants.js#BRIDGE_OPENING (CONVOY_WINDOW_MS, TICK_INTERVAL_MS, DEADLINE_MAX_SPEED_KN, WARNING_LEAD_MS), lib/constants.js#STATUS_HYSTERESIS (WAITING_CLEAR_DISTANCE) och lib/constants.js#PASSAGE_TIMING (MINIMUM_VIABLE_SPEED)",
+      "källa": "docs/ARCHITECTURE.md:1185–1207 och :3688–3695 (ägarbesluten U25 och U26 2026-11-09: kända gränser, inte avsett beteende); docs/BUGGJAKT.md §7 (användarbesluten U25 och U26; varv 2, rad 54); lib/services/BridgeOpeningService.js#_coverageVerdict (täckningsslutet) och lib/services/BridgeOpeningService.js#_bindLooseArms (täckningen vid absorptionen); lib/services/BridgeOpeningService.js#_ownDeadlineVerdict, lib/services/BridgeOpeningService.js#_ownDeadlineBasis och lib/services/BridgeOpeningService.js#_ownDeadlineGate (U24: ingen fysik, väntzonen och fönstrets slut); lib/services/BridgeOpeningService.js#_refreshArm (deadlinen ur fixet); tests/replay-validation/replayRunner.js#instrumentCoverageVerdicts (släppvägens domspår, openingCoverageVerdicts); lib/constants.js#BRIDGE_OPENING (CONVOY_WINDOW_MS, TICK_INTERVAL_MS, DEADLINE_MAX_SPEED_KN, WARNING_LEAD_MS), lib/constants.js#STATUS_HYSTERESIS (WAITING_CLEAR_DISTANCE) och lib/constants.js#PASSAGE_TIMING (MINIMUM_VIABLE_SPEED)",
       "gäller": {
         "orakel": [
           "T2"
@@ -718,7 +718,7 @@
       "id": "U19-VARNING-UNDER-VÄNTANDE-VÄNDNING",
       "klass": "ACCEPTERAD",
       "datum": "2026-11-04",
-      "källa": "docs/ARCHITECTURE.md:2032–2038 (U19, användarbeslut 2026-11-04: en planerad öppningsvarning skickas även när en obekräftad vändning väntar); lib/services/VesselDataService.js#FIX_D_MIN_SOG (Fix D-blocket i updateVessel: pending-flaggan och bekräftelsen); docs/BUGGJAKT.md §7 (användarbeslut U19; registerändringarna 2026-11-07, rad 29); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-16, V1)",
+      "källa": "docs/ARCHITECTURE.md:2051–2057 (U19, användarbeslut 2026-11-04: en planerad öppningsvarning skickas även när en obekräftad vändning väntar); lib/services/VesselDataService.js#FIX_D_MIN_SOG (Fix D-blocket i updateVessel: pending-flaggan och bekräftelsen); docs/BUGGJAKT.md §7 (användarbeslut U19; registerändringarna 2026-11-07, rad 29); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-16, V1)",
       "gäller": {
         "orakel": [
           "T9",
@@ -737,7 +737,7 @@
       "klass": "ACCEPTERAD",
       "verkan": "iOraklet",
       "datum": "2026-08-22",
-      "källa": "tests/replay-validation/runOpeningGates.js#classifyPhantom ( AVBRUTEN_APPROACH, GLES_ANFLYGNING); docs/ARCHITECTURE.md:1111–1112 (tystnad avväpnar aldrig); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-16, V1)",
+      "källa": "tests/replay-validation/runOpeningGates.js#classifyPhantom ( AVBRUTEN_APPROACH, GLES_ANFLYGNING); docs/ARCHITECTURE.md:1130–1131 (tystnad avväpnar aldrig); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-16, V1)",
       "gäller": {
         "orakel": [
           "T3"
@@ -779,7 +779,7 @@
       "id": "FIXD-SLINGA",
       "klass": "KÄND_ÖPPEN",
       "datum": "2026-11-04",
-      "källa": "docs/ARCHITECTURE.md:4234–4235 (väntslinga ger accepterat AVBRUTEN_APPROACH-kort, ANYA ELAN i both-21h; slingskydd är ett användarbeslut)",
+      "källa": "docs/ARCHITECTURE.md:4253–4254 (väntslinga ger accepterat AVBRUTEN_APPROACH-kort, ANYA ELAN i both-21h; slingskydd är ett användarbeslut)",
       "gäller": {
         "orakel": [
           "T3",
@@ -802,7 +802,7 @@
       "id": "OMSTART-ARMAR-EJ-PERSISTERADE",
       "klass": "KOSTNAD",
       "datum": "2026-08-03",
-      "källa": "docs/trigger-etapp6-oppningsmotorn-2026-08-03.md:261–265 (ingen arm-persistens över omstart i v1); docs/ARCHITECTURE.md:1482–1488 (v1 persisterar inga armar; dedupen över omstart)",
+      "källa": "docs/trigger-etapp6-oppningsmotorn-2026-08-03.md:261–265 (ingen arm-persistens över omstart i v1); docs/ARCHITECTURE.md:1501–1507 (v1 persisterar inga armar; dedupen över omstart)",
       "gäller": {
         "orakel": [
           "T11"
@@ -822,7 +822,7 @@
       "id": "OMSTART-RESETILLSTÅND",
       "klass": "KONFLIKT",
       "datum": "2026-11-04",
-      "källa": "docs/ARCHITECTURE.md:2464 (last_known_positions skrivs bara vid removal) mot docs/reliability-spec.md:104 (D3: dedupen ska överleva omstart)",
+      "källa": "docs/ARCHITECTURE.md:2483 (last_known_positions skrivs bara vid removal) mot docs/reliability-spec.md:104 (D3: dedupen ska överleva omstart)",
       "gäller": {
         "orakel": [
           "T11"
@@ -840,7 +840,7 @@
       "doktriner": [
         {
           "text": "Persistensen: last_known_positions skrivs vid removal, inte för båtar som fortfarande är i farten.",
-          "källa": "docs/ARCHITECTURE.md:2464"
+          "källa": "docs/ARCHITECTURE.md:2483"
         },
         {
           "text": "D3: notisdedupen ska överleva omstart — omstarten ska varken ge dubbletter eller tappa beslut.",
@@ -952,7 +952,7 @@
       "id": "TVÅ-ÅTERKORSADE-BROAR-I-SAMMA-SEGMENT",
       "klass": "KÄND_ÖPPEN",
       "datum": "2026-11-05",
-      "källa": "docs/ARCHITECTURE.md:1905–1910 (U-svängspunkten, kända luckor); lib/services/VesselDataService.js#_confirmDirectionReversal och lib/services/VesselDataService.js#FIX_D_MIN_SOG (Fix D-blocket i updateVessel); tests/r1-usvang-aterkorsning-2026-11-04.test.js (testet 'KÄND LUCKA: två återkorsade broar i samma segment'); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 30 och 33)",
+      "källa": "docs/ARCHITECTURE.md:1924–1929 (U-svängspunkten, kända luckor); lib/services/VesselDataService.js#_confirmDirectionReversal och lib/services/VesselDataService.js#FIX_D_MIN_SOG (Fix D-blocket i updateVessel); tests/r1-usvang-aterkorsning-2026-11-04.test.js (testet 'KÄND LUCKA: två återkorsade broar i samma segment'); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 30 och 33)",
       "gäller": {
         "orakel": [
           "T10"
@@ -970,7 +970,7 @@
       "id": "U-SVÄNG-LÅNGSAM-ÅTERKORSNING",
       "klass": "KÄND_ÖPPEN",
       "datum": "2026-11-05",
-      "källa": "docs/ARCHITECTURE.md:1905–1910 (U-svängspunkten, kända luckor); lib/services/VesselDataService.js#_slowReCrossEvidence (den långsamma vägens fyra villkor och KÄND LUCKA) och lib/services/VesselDataService.js#FIX_D_MIN_SOG (Fix D-blocket i updateVessel); lib/constants.js#TRANSIT_SOG_KN (QUAY_DEPARTURE_GATE.TRANSIT_SOG_KN); tests/r1-usvang-aterkorsning-2026-11-04.test.js (testen 'KÄND LUCKA' och enhetsfallen för den långsamma vägen); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 31 och 33)",
+      "källa": "docs/ARCHITECTURE.md:1924–1929 (U-svängspunkten, kända luckor); lib/services/VesselDataService.js#_slowReCrossEvidence (den långsamma vägens fyra villkor och KÄND LUCKA) och lib/services/VesselDataService.js#FIX_D_MIN_SOG (Fix D-blocket i updateVessel); lib/constants.js#TRANSIT_SOG_KN (QUAY_DEPARTURE_GATE.TRANSIT_SOG_KN); tests/r1-usvang-aterkorsning-2026-11-04.test.js (testen 'KÄND LUCKA' och enhetsfallen för den långsamma vägen); docs/BUGGJAKT.md §7 (registerändringarna 2026-11-07, rad 31 och 33)",
       "gäller": {
         "orakel": [
           "T10"
