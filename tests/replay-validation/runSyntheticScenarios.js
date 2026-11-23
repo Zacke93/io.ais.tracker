@@ -275,9 +275,11 @@ const U52_SCENARIOS = [
     },
   },
   // Motfall: förtöjd 7 h vid Kajen norr om Klaffbron (inom 300 m från bron;
-  // efter 6 h är besöksposten för Klaffbron gallrad), lägger ut med en fix
-  // söderut ut från kajen och går sedan norrut. Klaffbron ligger bakom: ingen
-  // ny notis och ingen ny varning för den.
+  // efter 6 h är besöksposten för Klaffbron gallrad), lägger ut med EN fix
+  // 60 m söderut i 2,5 kn ut från kajen (så att förtöjningen släpper) och går
+  // sedan norrut. Klaffbron ligger bakom: ingen ny notis och ingen ny varning
+  // för den. Låser tvåfixkravet (granskningen, anm. 4): med en fix räcker
+  // bekräftas en resa söderut och Klaffbron varnas.
   {
     name: 'förtöjd-7h-vid-Kajen-norr-om-Klaffbron-en-fix-söderut-sedan-norrut (U52, motfall)',
     seed: 75206,
@@ -290,10 +292,16 @@ const U52_SCENARIOS = [
         {
           stopS: 7 * 3600, stopIntervalS: 60, stopSog: 0, stopCogDeg: 30,
         },
-        { toS: S_KLAFFBRON + 150, speedKn: 2.5, intervalS: 60 },
         { toS: S_STRIDSBERG + 800, speedKn: 6, intervalS: 60 },
       ],
     }],
+    patchSamples: (samples) => {
+      const still = samples.filter((r) => r.mmsi === '975206001' && r.sog < 0.5);
+      const r = still[still.length - 1];
+      r.sog = 2.5;
+      r.cog = 200;
+      r.lat -= 60 / 111320;
+    },
     expect: {
       maxNotifiedPerBridge: { Olidebron: 1, Klaffbron: 1, Stridsbergsbron: 1 },
       minNotifiedBridges: ['Stridsbergsbron'],
@@ -318,6 +326,96 @@ const U52_SCENARIOS = [
       ],
     }],
     expect: { maxNotifiedPerBridge: { Stallbackabron: 1 } },
+  },
+  // Granskningen R-A3: retur söderut efter 3 h 400 m norr om Stridsbergsbron,
+  // avgången 2,3 kn → 1,5 kn → 5 kn. Den långsamma fixen mitt i avgången får
+  // inte nolla den väntande riktningen (NEW_JOURNEY gör det inte); annars kom
+  // bekräftelsen och öppningsvarningen en fix senare än före U52.
+  {
+    name: 'förtöjd-3h-norr-om-Stridsbergsbron-retur-med-långsam-fix (U52, R-A3)',
+    seed: 75209,
+    vessels: [{
+      mmsi: '975209001',
+      name: 'SYNT-U52-STRIDS-RET',
+      startS: S_KLAFFBRON - 300,
+      legs: [
+        { toS: S_STRIDSBERG + 400, speedKn: 6, intervalS: 60 },
+        {
+          stopS: 3 * 3600, stopIntervalS: 60, stopSog: 0, stopCogDeg: 30,
+        },
+        { toS: S_STRIDSBERG + 340, speedKn: 2.3, intervalS: 60 },
+        { toS: S_STRIDSBERG + 300, speedKn: 1.5, intervalS: 60 },
+        { toS: S_KLAFFBRON - 600, speedKn: 5, intervalS: 60 },
+      ],
+    }],
+    // Före U52 (och med R-A3) kommer varningen söderut cirka 2 min före
+    // korsningen; utan R-A3 en fix senare, under 1 min före.
+    expect: { openingLeadS: { Stridsbergsbron: 90 } },
+  },
+  // Granskningen, anm. 4: förtöjd 4 h i Gästhamnen, en ensam brusposition
+  // (70 m söderut, 3 kn, kurs 200°), tillbaka, sedan norrut. Ingen ny resa
+  // söderut: ingen varning och ingen text för Klaffbron under stoppet.
+  {
+    name: 'förtöjd-4h-i-Gästhamnen-ensam-brusposition (U52, motfall)',
+    seed: 75210,
+    vessels: [{
+      mmsi: '975210001',
+      name: 'SYNT-U52-GAST-BRUS',
+      startS: S_OLIDEBRON - 400,
+      legs: [
+        { toS: S_KLAFFBRON + 380, speedKn: 6, intervalS: 60 },
+        {
+          stopS: 4 * 3600, stopIntervalS: 60, stopSog: 0, stopCogDeg: 30, lateralM: 35,
+        },
+        { toS: S_STRIDSBERG + 800, speedKn: 6, intervalS: 60 },
+      ],
+    }],
+    patchSamples: (samples) => {
+      const still = samples.filter((r) => r.mmsi === '975210001' && r.sog < 0.5);
+      const r = still[200];
+      r.sog = 3;
+      r.cog = 200;
+      r.lat -= 70 / 111320;
+    },
+    expect: {
+      maxOpeningsPerBridge: { Klaffbron: 1 },
+      maxNotifiedPerBridge: { Klaffbron: 1 },
+      textCountWindows: [{
+        bridge: 'Klaffbron', fromS: 12600, toS: 15000, max: 0,
+      }],
+    },
+  },
+  // 15-minutersgränsen för den väntande riktningen (som NEW_JOURNEY): förtöjd
+  // 3 h 400 m norr om Stridsbergsbron (ingen kajzon), en brusposition 60 m
+  // söderut i 2,5 kn, stilla en timme utan ny förtöjningsklassning, en ny
+  // brusposition söderut, sedan norrut ut ur kanalen. Två fixar en timme isär
+  // är inte en avgång: ingen ny resa söderut, ingen varning för
+  // Stridsbergsbron.
+  {
+    name: 'förtöjd-3h-norr-om-Stridsbergsbron-två-bruspositioner-en-timme-isär (U52, motfall)',
+    seed: 75211,
+    vessels: [{
+      mmsi: '975211001',
+      name: 'SYNT-U52-BRUS-TIMME',
+      startS: S_KLAFFBRON - 300,
+      legs: [
+        { toS: S_STRIDSBERG + 400, speedKn: 6, intervalS: 60 },
+        {
+          stopS: 5 * 3600, stopIntervalS: 60, stopSog: 0, stopCogDeg: 30,
+        },
+        { toS: S_STALLBACKA + 600, speedKn: 6, intervalS: 60 },
+      ],
+    }],
+    patchSamples: (samples) => {
+      const still = samples.filter((r) => r.mmsi === '975211001' && r.sog < 0.5);
+      for (const k of [190, 250]) {
+        const r = still[k];
+        r.sog = 2.5;
+        r.cog = 205;
+        r.lat -= 60 / 111320;
+      }
+    },
+    expect: { maxOpeningsPerBridge: { Stridsbergsbron: 1 }, maxNotifiedPerBridge: { Stridsbergsbron: 1 } },
   },
 ];
 

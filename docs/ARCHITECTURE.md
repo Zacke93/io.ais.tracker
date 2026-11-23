@@ -1889,7 +1889,8 @@ båt.
   i fältlistan, inte i graven). Första fixen i minst `FIX_D_MIN_SOG` släpper förra
   resans riktning (`_routeDirection`, `_finalTarget*`, väntande vändningar); två fixar
   i rad i minst 2,0 kn med kurs i samma band (nord 315–45°, syd 135–315°, som
-  NEW_JOURNEY) bekräftar den nya resan: broar i `passedBridges` som ligger FRAMFÖR
+  NEW_JOURNEY; en fix under 2 kn däremellan nollar inte den väntande riktningen, som
+  gäller i 15 min, `FIX_D_PENDING_MAX_AGE_MS`) bekräftar den nya resan: broar i `passedBridges` som ligger FRAMFÖR
   förtöjningsplatsen i den nya riktningen tas bort (riktningsrelativt som N1; broar
   bakom står kvar så spärren #44 gäller), dedupnycklarna för dem rensas via
   `vessel:journey-reset` (N1-vägen i app-lagret), ruttlåset sätts och reseankaret
@@ -4522,7 +4523,8 @@ passagen; en båt som guppar eller väntar vid bron får fortfarande en notis pe
 - **Rättningen** (`_applyLongMooringDeparture`, beskriven under resebokföringen i §3). Släpp
   av förtöjningsklassningen efter minst 2 h öppnar ett fönster; första fixen i minst 2,0 kn
   släpper förra resans riktning; två fixar i rad i samma kursband (fixen före släppet räknas när
-  den redan visade gång, som i NEW_JOURNEY) bekräftar den nya resan och tar bort broar framför
+  den redan visade gång, en långsam fix däremellan nollar inte den väntande riktningen och den
+  gäller i 15 min, allt som i NEW_JOURNEY) bekräftar den nya resan och tar bort broar framför
   förtöjningsplatsen ur `passedBridges`. En målbro vald under fönstret väljs om när riktningen
   eller en nollställd målbro gör den fel, och `_calculateTargetBridge` väljer ingen målbro under
   fönstret när en av förra resans passerade målbroar ligger framför båten.
@@ -4531,15 +4533,35 @@ passagen; en båt som guppar eller väntar vid bron får fortfarande en notis pe
   PRICKBJORN 19/11 08:59:59 får riktningen norrut i avgångsnotisen, och 23/11 08:10:28 kommer
   "närmar sig Olidebron, beräknad ankomst om 1 minut". 19/11, 20/11 och PILOT 761 18/11 12:51 går
   den nya vägen i stället för NEW_JOURNEY med samma notiser, varningar och texter.
-- **Kända gränser.** En båt som lägger ut tillbaka genom en bro hon passerat strax innan
-  förtöjningen (Gästhamnen, 380 m norr om Klaffbron, söderut) får målbron först på andra fixen;
-  varningen kommer före passagen men bara sekunder före (i dag ingen alls; en båt som syns första
-  gången där får den en fix tidigare). En kajbytare som gör två fixar i 2+ kn åt ett håll och
+- **Kända gränser.** Avvägningen är beslutad (U52): nyttan är att en båt som legat över natten
+  och går tillbaka genom samma bro får sin notis och sin öppningsvarning, vilket hon inte fick
+  före rättningen. Priset och de kvarvarande hålen:
+  - *Kajbyte mot en passerad bro.* En båt som legat förtöjd i minst 2 h och byter kaj 60–100 m i
+    över 2 kn mot en bro hon passerade på förra resan (eller får två bruspositioner i rad i minst
+    2 kn åt samma håll) behandlas som en båt på ny resa åt det hållet: hon kan få en falsk
+    öppningsvarning, och i Gästhamnen också en falsk notis ("närmar sig Klaffbron … om 5
+    minuter") och texten "på väg mot Klaffbron, beräknad broöppning strax" i upp till en timme
+    medan hon ligger vid den nya kajen. En båt som syns första gången vid kajen och gör samma sak
+    får exakt detta redan i dag. Inget sådant fall finns i banken eller fältkörningarna. Ingen
+    liten rättning finns: vid den fix där varningen måste gå ser en verklig avgång och ett
+    kajbyte likadana ut, och att inte räkna fixen före släppet försenar varningen för en verklig
+    avgång (PILOT 761 18/11).
+  - *Lång vistelse utan förtöjningsklassning.* En båt som kryper eller svajar längre än 6 h utan
+    att klassas förtöjd (till exempel fram och tillbaka 80 m i 0,7 kn utanför Kanalinfarten, eller
+    på svajankare med nettoförflyttning över 50 m) tappar fortfarande notisen för en bro hon
+    passerade på förra resan: besöksposten är gallrad och spärren #44 håller. Lika före och efter
+    rättningen; gränsen hör till spärren, inte till förtöjningen.
+  - En båt som lägger ut tillbaka genom en bro hon passerat strax innan förtöjningen (Gästhamnen,
+    380 m norr om Klaffbron, söderut) får målbron först på andra fixen; varningen kommer cirka 50 s
+    före passagen (före rättningen ingen alls; en båt som syns första gången där får den en fix
+    tidigare). En kajbytare som gör två fixar i 2+ kn åt ett håll och
   sedan går åt andra hållet bekräftar åt kajbytets håll; broar i andra riktningen nollställs inte
   (samma utfall som före rättningen). Fönstret sparas inte över en omstart, men efter en omstart
   finns heller ingen resebokföring att nollställa. Låst i
-  `tests/u52-ny-resa-efter-lang-fortojning.test.js` och åtta syntetiska scenarier (`… (U52)`);
-  mutationsprovet: varje villkor fäller minst ett test när det tas bort.
+  `tests/u52-ny-resa-efter-lang-fortojning.test.js` och elva syntetiska scenarier (`… (U52…)`,
+  bland dem granskningens långsamma avgångsfix norr om Stridsbergsbron, en ensam brusposition i
+  Gästhamnen och två bruspositioner en timme isär); mutationsprovet: varje villkor fäller minst
+  ett test när det tas bort, och tvåfixkravet och 15-minutersgränsen fälls av scenarier.
 
 ## 10. Söndagsfältet 2026-08-09/10 (commits a9f2a20, ce6a946, b1a7ba3 + WS-3)
 

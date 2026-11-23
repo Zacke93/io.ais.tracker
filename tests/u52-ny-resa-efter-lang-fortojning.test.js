@@ -199,6 +199,39 @@ describe('U52: ny resa efter lång förtöjning', () => {
     expect(v3.passedBridges).toEqual(['Olidebron']);
   });
 
+  test('en långsam fix mitt i avgången nollar inte den väntande riktningen (granskningen R-A3)', () => {
+    const prev = moored();
+    const v1 = fix(prev);
+    vds._applyLongMooringDeparture(v1, prev);
+    now += 60000;
+    const v2 = fix(v1, { sog: 1.5, _rawPositionSog: 1.5 });
+    vds._applyLongMooringDeparture(v2, v1);
+    expect(v2._longMooringDeparture).toMatchObject({ pendingDir: 'north' });
+    now += 60000;
+    const v3 = fix(v2);
+    vds._applyLongMooringDeparture(v3, v2);
+    expect(v3.passedBridges).toEqual([]);
+    expect(v3._routeDirection).toBe('north');
+  });
+
+  test('den väntande riktningen gäller i 15 min: två fixar en timme isär bekräftar ingenting', () => {
+    const prev = moored();
+    const v1 = fix(prev);
+    vds._applyLongMooringDeparture(v1, prev);
+    now += 60 * 60000; // en timme stilla, ingen ny förtöjningsklassning
+    const v2 = fix(v1, { sog: 0, _rawPositionSog: 0 });
+    vds._applyLongMooringDeparture(v2, v1);
+    const v3 = fix(v2);
+    vds._applyLongMooringDeparture(v3, v2);
+    expect(v3.passedBridges).toEqual(['Olidebron']);
+    expect(v3._longMooringDeparture).toMatchObject({ pendingDir: 'north', pendingAt: now });
+    // Inom gränsen bekräftar nästa fix.
+    now += 14 * 60000;
+    const v4 = fix(v3);
+    vds._applyLongMooringDeparture(v4, v3);
+    expect(v4.passedBridges).toEqual([]);
+  });
+
   test('en ny kort förtöjning i fönstret bryter följden men stänger inte fönstret', () => {
     const prev = moored();
     const v1 = fix(prev);
