@@ -2465,7 +2465,11 @@ Flaggor (bärs av `_createVesselObject`-fältlistan, §8a): `_etaIsExtrapolated`
    `INTERMEDIATE_TEXT_QUEUE.ZONE_EDGE_MARGIN_M` (12 m) innanför radien, både i
    `intermediateTextQueue` och i VDS:s zongren (som då behåller köposten och
    prövar textstillheten); annars växlade en köare vid zonkanten med GPS-brus
-   mellan "väntar" och "om N".
+   mellan "väntar" och "om N". Farledens mittlinje ligger bara 15,7–23,5 m från
+   Kajens segment (radie 30 m), så en bekräftad väntan i farleden räknas i
+   praktiken som utanför zonen på det mesta av Kajen-sträckan, utom cirka
+   664–709 m söder om Järnvägsbron (i ett byggt fall höll väntan till 721 m). En
+   båt som ligger vid kajen (inom 18 m från segmentet) döljs fortfarande.
    **Kända gränser** (granskningen av U53):
    - *En ensam fartspik släpper väntan* (L2): ett fix över 1,5 kn släpper
      textkön även när förflyttningen inte bekräftar farten (k3 19/11: sog 3,3,

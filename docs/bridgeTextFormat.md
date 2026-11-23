@@ -74,7 +74,11 @@ målbron ger ”strax” som ovan, och en stilla båt mer än 350 m från målbr
 ingen vänttext; Kajen täcker farleden 644–788 m söder om Järnvägsbron, så där
 gäller bandet i praktiken 350–644 m. En redan bekräftad väntan räknas som inne i
 en kajzon först 12 m innanför zonens kant, så att GPS-brus vid kanten inte
-växlar texten. Kända gränser: en jämn gång i 1,0–1,5 kn håller vänttexten, och
+växlar texten. Farledens mittlinje ligger bara 15,7–23,5 m från Kajens segment,
+så en bekräftad väntan i farleden räknas i praktiken som utanför zonen på det
+mesta av Kajen-sträckan (utom cirka 664–709 m söder om Järnvägsbron; i ett
+byggt fall höll väntan till 721 m). En båt som ligger vid kajen döljs
+fortfarande. Kända gränser: en jämn gång i 1,0–1,5 kn håller vänttexten, och
 ett enda fix över 1,5 kn släpper den även om båten inte flyttat sig (se
 docs/ARCHITECTURE.md §5). Medan texten visar kön och båten går högst 1 kn får den dolda
 tiden till målbron inte stiga, så att första siffran efter väntan inte är en

@@ -283,3 +283,82 @@ describe('U53: U30 går inte in för en båt i textens mellanbrokö', () => {
     expect(stillStates(false)[7]).toBe(true);
   });
 });
+
+// Omgranskningen av M1 (K1): vid zonkanten prövas textstillheten som utanför
+// zonen, så att en båt som går iväg släpps där. Fallet: en bekräftad väntan
+// 24 m från Kajens mittlinje (inom radien 30 m, utanför marginalen 12 m) går
+// 60 m längs kajen på 30 s med sog 1,4 — förflyttningen är över hysteresen
+// (20 m + 1,5 kn × 30 s ≈ 43 m), så väntan släpps.
+function alongKajen(frac, offM) {
+  const zone = MOORING_ZONES.find((z) => z.name.startsWith('Kajen'));
+  const base = {
+    lat: zone.start.lat + (zone.end.lat - zone.start.lat) * frac,
+    lon: zone.start.lon + (zone.end.lon - zone.start.lon) * frac,
+  };
+  const mid = offKajen(offM);
+  const center = offKajen(0);
+  return { lat: base.lat + (mid.lat - center.lat), lon: base.lon + (mid.lon - center.lon) };
+}
+
+describe('U53: en långsam avgång inom kajzonens kantband släpper väntan (omgranskningen, K1)', () => {
+  let service;
+  beforeEach(() => {
+    global.__TEST_MODE__ = true;
+    jest.spyOn(Date, 'now').mockImplementation(() => NOW + 30000);
+    const logger = {
+      debug: jest.fn(), log: jest.fn(), warn: jest.fn(), error: jest.fn(),
+    };
+    service = new VesselDataService(logger, new BridgeRegistry(), new SystemCoordinator(logger));
+  });
+  afterEach(() => {
+    service.clearAllTimers();
+    jest.restoreAllMocks();
+    delete global.__TEST_MODE__;
+  });
+
+  function edgeVessel(pos, t, entry) {
+    return {
+      mmsi: '905399002',
+      ...pos,
+      sog: 1.4,
+      fixTs: t,
+      timestamp: t,
+      lastPositionUpdate: t,
+      fixFeed: 'aisstream',
+      targetBridge: 'Stridsbergsbron',
+      _routeDirection: 'north',
+      passedBridges: ['Olidebron', 'Klaffbron'],
+      _bridgeQueueApproaches: { Järnvägsbron: entry },
+    };
+  }
+
+  test('förflyttning över hysteresen vid kanten släpper textväntan; stillhet vid kanten håller den', () => {
+    const zone = MOORING_ZONES.find((z) => z.name.startsWith('Kajen'));
+    const a = alongKajen(0.2, 24);
+    const b = alongKajen(0.8, 24);
+    for (const p of [a, b]) {
+      const d = geometry.distancePointToSegmentM(p.lat, p.lon, zone.start.lat, zone.start.lon, zone.end.lat, zone.end.lon);
+      expect(d).toBeLessThan(zone.radiusM);
+      expect(d).toBeGreaterThan(zone.radiusM - INTERMEDIATE_TEXT_QUEUE.ZONE_EDGE_MARGIN_M);
+    }
+    expect(geometry.calculateDistance(a.lat, a.lon, b.lat, b.lon)).toBeGreaterThan(55);
+    const entry = () => ({
+      bridge: 'Järnvägsbron',
+      direction: 'north',
+      confirmedAt: NOW - 600000,
+      textWaitConfirmedAt: NOW - 60000,
+      textWaitAnchor: { ...a, t: NOW - 60000 },
+    });
+    const old = edgeVessel(a, NOW, entry());
+    const moving = edgeVessel(b, NOW + 30000, entry());
+    service._noteBridgeQueueApproach(moving, old);
+    expect(moving._bridgeQueueApproaches['Järnvägsbron'].textWaitConfirmedAt).toBeNull();
+    expect(intermediateTextQueue(moving)).toBeNull();
+
+    const still = edgeVessel(alongKajen(0.2, 25), NOW + 30000, entry());
+    still.sog = 0.3;
+    service._noteBridgeQueueApproach(still, edgeVessel(a, NOW, entry()));
+    expect(still._bridgeQueueApproaches['Järnvägsbron'].textWaitConfirmedAt).toBe(NOW - 60000);
+    expect(intermediateTextQueue(still)).toBe('Järnvägsbron');
+  });
+});
