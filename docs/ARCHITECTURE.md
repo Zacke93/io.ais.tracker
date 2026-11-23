@@ -1152,7 +1152,8 @@ båt.
   eta-tokenen och ETA-texten läser inte fysiken (U22); (b) **vid täckningsslut** hålls armen kvar (`OPENING_RECOVER_HOLD`,
   nästa fix avgör) om bron ligger bakom henne (avväpnas som passage), om armen
   är fryst, om ankomstfysik saknas, om hon låg under bron (≤
-  `UNDER_BRIDGE_SET_DISTANCE`, i rörelse) med ankomst inom täckningen, eller om
+  `UNDER_BRIDGE_SET_DISTANCE`, i rörelse) med ankomst inom täckningen (från
+  2 kn den tidigare av appens prognos och avstånd genom fart, U49), eller om
   kursen leder bort från bron utanför väntzonen. Första passagens tid är den
   skattade korsningen (`_crossingEstimate`), inte bokföringstiden; den styr
   medlemskapet och bakkanten. En NY båt med minst två tick kvar prövas dessutom
@@ -3501,7 +3502,42 @@ samma form: släpp på ren tid och avfyrning på den ärvda deadlinen. Rättning
   Under-bron-hållet strider inte mot U17 (dirigentens beslut 2026-11-05): en
   båt som senast sågs högst 50 m från bron, i rörelse och med ankomst inom
   täckningen, är vid brolinjen och har i praktiken passerat. Visar nästa
-  position att hon inte har det, släpps hon som förut.
+  position att hon inte har det, släpps hon som förut. **U49 (dirigentens
+  beslut i omgång 4, genomfört i omgång 5):** från `MOVING_SOG_KN` (2 kn) är ankomsten den
+  tidigare av appens prognos och armens fysik (`physicsArrivalMs`, avstånd
+  genom fart ur samma fix). Appens ETA nära bron är pessimistisk (utliggar-
+  skyddet och utjämningen lyfter 0,3 min till 1,3 min), och prognosen ensam
+  fällde hållet med 0,5–3,4 s i nattjaktens världar 8814 (43 m i 4,5 kn) och
+  18489 (24 m i 5,7 kn), som varnades 58 och 73 s efter passagen. Kravet att
+  ankomsten ligger inom täckningen står kvar, för det gör att hållet bara
+  varar till nästa fix (ett fix efter täckningsslutet har ankomsten efter
+  slutet). Mätt och avvisat: att ta bort kravet, som beslutets ordalydelse
+  säger. Då förnyas hållet på varje fix inom 50 m i minst 0,5 kn, och en
+  krypare som korsar efter täckningsslutet eller en väntande båt med brusfart
+  vid linjen får ingen varning. Under 2 kn gäller prognosen som förut (ETA-
+  kedjans golv lägger den före fysiken). **Känd kostnad (U49, bekräftad av
+  dirigenten i omgång 5):** en båt som setts i minst 2 kn högst 50 m före bron
+  och som sedan stannar och aldrig hörs mer får ingen öppningsvarning för den
+  bron. Hörs hon igen varnas hon på det fixet, ett fixintervall senare än
+  förut. Mätt: i bankens 27 korpusfiler och fältkörningarna k1–k3 finns 90
+  episoder där en båt setts i minst 2 kn med kurs mot Klaffbron eller
+  Stridsbergsbron högst 50 m före bron (94 från 0,5 kn). Alla 90 korsade, ingen
+  tystnade före bron, och en stannade (lotsbåten i k1 vid Klaffbron, 40 m i
+  3,6 kn, stilla 79 s med fix emellan, korsade efter 250 s): 0 av 90 hade
+  tappat sin varning. I granskningens band av byggda världar kring brolinjen
+  (864 världar vid Stridsbergsbron söderut) blev 1 sådan, och där kom
+  kedjevarningen för nästa bro ändå. **Känd gräns, systerstället vid
+  bakkanten (omgång 5, rörs inte):** före täckningsslutet jämför bakkanten
+  appens prognos (över 2,5 kn) med fönstrets slut, och samma för höga restid
+  nära bron kan släppa en följare som ligger vid linjen. Granskningens prov:
+  ledarens passage bokförd, följaren 43 m före bron i 4,5 kn med prognosen 3 s
+  efter fönstrets slut och fysiken 57 s före; hon får ett eget kort 18,6 s före
+  korsningen med ett omedelbart fix, men 20,4 s efter korsningen med ett 39 s
+  gammalt AISHub-fix. Utfallet är detsamma före och efter U49, och fallet är
+  inte sett i banken eller i k1–k3. Hållet läser inte
+  U45:s fält (en annan båts passage): U45:s dom gäller före täckningsslutet och
+  utanför väntzonen. En U45-släppt båt i hållet behåller `foreignReleasedFrom`
+  tills hon passerar eller släpps vid täckningsslutet, som nollar flaggan.
 - **(3)** Utan finit ankomstfysik släpps hon inte (hängslen: `_canArm` kräver ett
   finit avstånd, så ingen arm i drift når grenen). **(4)** gäller bakkanten: den
   släpper på ett färskt, rent fix efter den första passagen, och deadlinen
