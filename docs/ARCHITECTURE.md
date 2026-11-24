@@ -2256,13 +2256,17 @@ båt.
    Inom 300 m från bron (190–300 m, nästan hela kapseln) står hon kvar i
    texten ("på väg mot Klaffbron, beräknad broöppning strax", enligt
    imminent-regeln och U6) tills hon kör vidare, sänder navstatus 1/5
-   (lager 3) eller legat still i MAX_STATIONARY_WAIT_MS (lager 5).
+   (lager 3) eller legat still i MAX_STATIONARY_WAIT_MS (lager 5). Sedan U65
+   (ägarens beslut 2026-11-24) får farledsköaren på samma avstånd vänttexten
+   "En båt väntar vid Klaffbron" (köbeviset, §5 nedan); köaren vid Kajen har
+   inget köbevis (`queueBridge` ger null i en kajzon) och behåller "strax".
    **Kapselns norra spets (300–320 m) beter sig som farleden på samma
    avstånd:** målbron släpps efter 20 min stillhet (`_isInTargetQueueZone`,
    aktivitetsfönstret från valideringskörningen 2026-07-02), och texten visar
    till dess hennes senaste ETA i stället för "strax", eftersom hon varken har
    imminent-flaggan (över 300 m) eller bekräftad väntan (`queueBridge` ger
-   null i en kajzon). Utan målbro håller undantaget inte längre, så zonlagret
+   null i en kajzon; farledsköaren på samma avstånd har köbeviset och visas
+   sedan U65 som "väntar vid Klaffbron", tidigare "strax"). Utan målbro håller undantaget inte längre, så zonlagret
    klassar henne efter 3 min. Avgången är ändå samma ankomst, eftersom stoppet
    minns att klassningen höll henne (`heldAsQueue` nedan): hon behåller sin
    första varning som farledsköaren på samma avstånd (granskningens prov
@@ -2521,7 +2525,8 @@ Flaggor (bärs av `_createVesselObject`-fältlistan, §8a): `_etaIsExtrapolated`
    eller Stridsbergsbron").
    **Vänttexten** ("[Räkneord] båt(ar) väntar vid X [på väg mot målbro]") kommer
    ur `_targetGroups`, som läser `bridgeQueue.waitingBridgeForText`: köbeviset
-   (`waitingBridge`, 350 m, samma som status, notiser och öppningstjänst) eller
+   (`waitingBridge`, 350 m, samma som status, notiser och öppningstjänst; vid en
+   tidigare bro eller, sedan U65, vid målbron själv) eller
    **U53 (2026-11-23)** textens kö vid en MELLANBRO (`intermediateTextQueue`):
    bron ligger mellan båten och målbron, högst `INTERMEDIATE_TEXT_QUEUE.MAX_DISTANCE_M`
    (800 m) bort, och köposten bär textstillheten `textWaitConfirmedAt`
@@ -2537,6 +2542,38 @@ Flaggor (bärs av `_createVesselObject`-fältlistan, §8a): `_etaIsExtrapolated`
    tappar vänttexten efter 10 min; en båt som först syns när hon redan ligger
    still saknar bekräftad anflygning; avgångssiffran efter väntan är bättre men
    inte rätt (kömodellen, ETA-omgången).
+   **U65 (ägarens beslut 2026-11-24): väntan vid målbron.** Köbeviset vid
+   båtens egen målbro (`waitingBridge(vessel) === vessel.targetBridge`) ger
+   vänttexten "En båt väntar vid <målbro>" (flera: "Två båtar väntar vid
+   Klaffbron") i en egen väntgrupp, först bland målbrons köer och före gruppen
+   under gång. Ersätter U1/U6 (2026-08-08) och beslutet 2026-09-12, där samma
+   kö räknades till gruppen under gång med imminent-flaggan
+   (`_asQueuedAtTarget`, borttagen) och gav hela gruppen "strax". Inget nytt
+   avstånd och ingen ny stillhetsregel (U62 står kvar). Följderna:
+   `presentedLead` (F07) väljer ledaren bara bland båtar under gång, så en
+   väntande båt dämpar aldrig osedda båtars ETA och lagras aldrig som
+   renderat ledarvärde; `vesselSaysStrax` svarar nej för en båt i målbrons
+   väntgrupp, så notisen behåller sin siffra som före U33 (U33 gäller båtar
+   under gång). Köbeviset, statusarna, imminent-flaggan (350 m-hysteresen för
+   en köande båt, `_imminentVerdict`), ETA-kedjan och UI-utlösaren
+   (`waitingBridge` jämförs redan mellan fixar) är oförändrade. Kön vid
+   målbron har redan ETA-kedjans hållning `ETA_WAIT_CLAMP` (status `waiting`,
+   96 % av vänttextens minuter i underlaget); `ETA_TEXT_QUEUE_HOLD` gäller som
+   förut bara mellanbroarna. Mätt på banken och fältkörningarna (omgång 8):
+   41 väntor, 1 175 båtminuter vänttext; händelsefacit (notiser, varningar,
+   passager) identiskt i alla körningar. Restidsvärdena skiljer i sju korta
+   stycken i två korpusar, ingen i texten, notiserna eller korten: fler
+   textbyten flyttar nästa UI-cykel, och publiceringstiden är en indata
+   (C12; samma skillnader med det gamla ledarvalet). **Kända gränser:** (a) med en
+   position 5–10 min gammal står vänttexten kvar, också när båten under
+   glappet gått igenom bron (50,5 min i underlaget, samma minuter som förut
+   sa "strax"); (b) ett fix över 1 kn släpper köbeviset för ett stycke, och
+   texten växlar "väntar vid" → "på väg mot …, strax" → "väntar vid" (6
+   stycken, 1,1–7,9 min; förut stod "strax" kvar); (c) blir köarens position
+   äldre än 10 min går hon till gruppen under gång och kan stå under en annan
+   båts siffra ("om 8", "om 15") där förut en annan köares "strax" stod; (d)
+   köaren vid Kajen norr om Klaffbron (U23) har inget köbevis och behåller
+   "strax".
    **Kajzonerna och kantmarginalen** (granskningen av U53, M1): kajzonen "Kajen
    norr om Klaffbron" täcker farleden 644–788 m söder om Järnvägsbron, så bandet
    ger i praktiken vänttext 350–644 m (och 788–800 m) söder om bron. En redan
@@ -3450,8 +3487,9 @@ banken och 9 i k1–k2.
   beslut är en ren funktion, `_imminentVerdict`, som omvärderingen verkställer
   (flaggan, `_imminentFromExhausted`, loggraden) och notisen frågar. Textens
   per-båt-regel är `BridgeTextService.vesselSaysStrax`, byggd av samma delar
-  som `_buildGroupPhrase`/`_targetGroups`: kö vid målbron räknas som imminent
-  (`_asQueuedAtTarget`), närvaron (`_drivesStraxByPresence`: imminent eller
+  som `_buildGroupPhrase`/`_targetGroups`: kö vid målbron ger sedan U65
+  vänttexten och aldrig "strax" (före U65 räknades den som imminent,
+  `_asQueuedAtTarget`), närvaron (`_drivesStraxByPresence`: imminent eller
   under målbron, färsk position, ingen zombie) och klausulen själv
   (`formatETABroOpeningClause`: under 3 min för en färsk siffra, aldrig för en
   extrapolerad). Frågan ställs med båtens egen siffra (`vessel.etaMinutes`,

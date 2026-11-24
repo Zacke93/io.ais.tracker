@@ -3,9 +3,10 @@
 ## Designprincip
 
 Brotexten grupperar båtar efter målbro och faktisk väntplats. Båtar under gång
-får en ankomstprognos. En bekräftad kö vid en tidigare bro får vänttext utan
-minuter. Bekräftad väntan direkt vid målbron behåller ”beräknad broöppning
-strax” enligt beslutet 2026-09-12. Samma båt räknas en gång. Texten bygger
+får en ankomstprognos. En bekräftad kö får vänttext utan minuter, både vid en
+tidigare bro och, sedan U65 (ägarens beslut 2026-11-24), direkt vid målbron.
+U65 ersätter U1/U6 (2026-08-08) och beslutet 2026-09-12, då väntan vid målbron
+gav ”beräknad broöppning strax”. Samma båt räknas en gång. Texten bygger
 på AIS; appen känner inte brons öppningsläge.
 
 Väntan kräver färska positionsrapporter över minst en minut, stillhet och
@@ -15,6 +16,7 @@ upphör gäller ordinarie åldringsregler; en avstängd AIS hålls inte kvar fö
 
 ```
 En båt på väg mot Stridsbergsbron, beräknad broöppning strax
+En båt väntar vid Stridsbergsbron
 En båt väntar vid Järnvägsbron på väg mot Klaffbron
 ```
 
@@ -57,8 +59,29 @@ från bron och korrigerades uppåt 67 s senare. "Strax" reserveras för färsk
 data/imminent; extrapolationen säger ärligt "cirka". (Exhausted-vägen går via
 imminent-flaggan och behåller strax.)*
 
-**Bekräftad väntan vid en tidigare bro går före ETA.** Vid själva målbron
-får bekräftad väntan i stället ge ”strax”.
+**Bekräftad väntan går före ETA**, vid en tidigare bro och vid själva målbron.
+
+**Väntan vid målbron (U65, ägarens beslut 2026-11-24):** en båt med köbeviset
+vid sin målbro (`bridgeQueue.waitingBridge(vessel) === vessel.targetBridge`:
+färsk position, stilla i minst en minut med två positionsrapporter, belagd
+anflygning, bron opasserad och framför båten, högst 350 m bort, ingen kajzon,
+ingen öppning pågår) visas som `En båt väntar vid <målbro>`, flera som
+`Två båtar väntar vid Klaffbron`. Det är samma bevis som tidigare gav
+”beräknad broöppning strax”; inget avstånd eller stillhetsmått är nytt. De
+väntande är en egen grupp, före gruppen under gång mot samma bro. Båtar under
+gång mot samma bro behåller sin egen klausul (minuter, ”strax” genom
+imminent-flaggan eller en ETA under 3 min, ”ETA okänd”); en väntande båt ger
+inte längre den gruppen ”strax”. När köbeviset släpper (ett fix över 1 kn, eller 0,5 kn innan väntan
+bekräftats; öppning pågår; positionen äldre än 10 min; målbron passerad) går
+båten tillbaka till gruppen under gång och får ”strax” genom imminent-flaggan
+inom 300–350 m som förut. En köare vid Kajen norr om Klaffbron (U23) har inget
+köbevis (kajzonen) och behåller ”strax” genom imminent-flaggan. Köbeviset,
+statusarna, notiserna och öppningsvarningarna är oförändrade; notisens siffra
+följer inte ”strax” för en båt i vänttexten (U33 gäller bara båtar under gång).
+Kända gränser (mätta på banken och fältkörningarna, docs/ARCHITECTURE.md §5):
+med en position 5–10 min gammal står vänttexten kvar, också när båten under
+glappet har gått igenom bron; ett fartfix över 1 kn släpper vänttexten för ett
+stycke (”strax” en till några minuter, sedan ”väntar vid” igen).
 
 **Väntan vid en mellanbro (U53, 2026-11-23):** en båt som belagt ligger still
 eller kryper före en mellanbro på väg mot målbron (Järnvägsbron på väg mot
@@ -68,9 +91,9 @@ mellanbron, inte bara inom köbevisets 350 m. Stillheten bekräftas när varje
 position i minst 60 s har fart högst 1 kn och båten inte flyttat sig 50 m från
 ankaret (kravet att farten någon gång varit högst 0,5 kn gäller inte här). En
 bekräftad väntan står kvar till 1,5 kn och 850 m, så att fartbrus och GPS-brus
-inte växlar texten. Regeln gäller bara texten och aldrig målbron: väntan vid
-målbron ger ”strax” som ovan, och en stilla båt mer än 350 m från målbron får
-”ETA okänd” (U30). Kajzonerna (Kajen och Gästhamnen norr om Klaffbron) ger
+inte växlar texten. Regeln gäller bara texten och bara mellanbroarna: vid
+målbron gäller köbeviset (350 m) och vänttexten ovan (U65), och en stilla båt
+mer än 350 m från målbron får ”ETA okänd” (U30). Kajzonerna (Kajen och Gästhamnen norr om Klaffbron) ger
 ingen vänttext; Kajen täcker farleden 644–788 m söder om Järnvägsbron, så där
 gäller bandet i praktiken 350–644 m. En redan bekräftad väntan räknas som inne i
 en kajzon först 12 m innanför zonens kant, så att GPS-brus vid kanten inte
@@ -108,21 +131,27 @@ stopp återhämtar sig långsamt (en känd gräns i ETA-kedjan, ETA-omgången).
 ## Semikolon-separering
 
 Klausuler separeras med `"; "`. Klaffbrons grupper kommer före Stridsbergsbrons.
-En målbro kan ha både en väntgrupp och en separat grupp under gång.
+En målbro kan ha väntgrupper och en separat grupp under gång. Ordningen inom en
+målbro (U65): kön vid själva målbron, sedan köer vid tidigare broar, sist
+gruppen under gång.
 
 ```
 En båt på väg mot Klaffbron, beräknad broöppning om 3 minuter; En båt på väg mot Stridsbergsbron, beräknad broöppning om 8 minuter
+En båt väntar vid Stridsbergsbron; En båt på väg mot Stridsbergsbron, beräknad broöppning om 7 minuter
+En båt väntar vid Stridsbergsbron; En båt väntar vid Järnvägsbron på väg mot Stridsbergsbron
 ```
 
 ## Multi-vessel inom samma målbro
 
-Båtar med samma mål och väntplats vid en tidigare bro aggregeras med räkneord.
-Båtar under gång grupperas separat; deras ETA kommer från den ledande båten
-(närmaste i tid). Bekräftad väntan vid målbron ingår i målgruppen och ger
-gruppen ”strax”.
+Båtar med samma mål och samma väntplats (en tidigare bro eller målbron)
+aggregeras med räkneord. Båtar under gång grupperas separat; deras ETA kommer
+från den ledande båten (närmaste i tid), och en väntande båt kan aldrig vara
+ledare. Bekräftad väntan vid målbron är sedan U65 en egen väntgrupp och ger inte
+gruppen under gång ”strax”.
 
 ```
 Två båtar på väg mot Klaffbron, beräknad broöppning om 3 minuter
+Två båtar väntar vid Klaffbron
 Tre båtar på väg mot Stridsbergsbron, beräknad broöppning strax
 Tio båtar på väg mot Klaffbron, beräknad broöppning om 5 minuter
 11 båtar på väg mot Klaffbron, beräknad broöppning om 7 minuter
@@ -152,7 +181,8 @@ Ingen "precis passerat"-text visas — båten övergår direkt till nästa målb
 ## Mellanbroar (Olidebron, Järnvägsbron, Stallbackabron)
 
 Olidebron och Järnvägsbron nämns när båten bekräftat väntar där på väg mot
-sin målbro. Stallbackabron är fast och får ingen vänttext om broöppning.
+sin målbro (”väntar vid Järnvägsbron på väg mot Klaffbron”). Väntan vid
+målbron nämner bara målbron (”väntar vid Klaffbron”, U65). Stallbackabron är fast och får ingen vänttext om broöppning.
 `boat_near` kan notifiera alla fem broar och Kanalinfarten, oavsett vilka
 broar användaren för tillfället valt i sina Flow-kort.
 

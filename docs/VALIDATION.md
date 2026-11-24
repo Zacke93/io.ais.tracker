@@ -76,7 +76,7 @@ Eller stegen var för sig:
 |---|---|---|
 | Enhetstester | `npm test > /tmp/ais-jest.log 2>&1` (läs sedan slutraderna) | Alla tester passerar, exitkod 0 och inga öppna handtag. Aktuellt antal står i körningens sammanfattning. Omdirigeringen bevarar Jest:s exitkod; en pipe till `tail` gör inte det. |
 | Korpusarna | `npm run replay:all` | Samtliga korpusar (aktuellt antal och timmar står i skriptets utskrift) ger EXAKT facit-antal notiser + exakt (mmsi,bro)-fördelning + exakt (mmsi,bro,riktning)-fördelning + EXAKT bridge_text-transitionsström (golden-text/) + alla invarianter. Ofullständig fångst redovisas separat och får bara utgöra regression för bevarade sampel. |
-| Syntetiska | `npm run replay:synthetic` | 228 scenarier (gap, U-svängar även med gles AIS, GPS-hopp, kajliggare, köer i Kajens kapsel (U23), sog=null, omstart, 2h-prune-stillaliggare, krypfart förbi passerad bro, återfödelse med kurs i dödbandet, köer i Kajens kapsel (U23) …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
+| Syntetiska | `npm run replay:synthetic` | 230 scenarier (gap, U-svängar även med gles AIS, GPS-hopp, kajliggare, köer i Kajens kapsel (U23), köer vid målbron (U65), sog=null, omstart, 2h-prune-stillaliggare, krypfart förbi passerad bro, återfödelse med kurs i dödbandet, köer i Kajens kapsel (U23) …) håller sina kontrakt. OBS: "rena" = inga FATALA utslag; WARN-invarianter (t.ex. INV-18) är informativa och fäller inte. Se §Syntetiska scenarier nedan för omstartsscenariots särskilda placeringskrav. |
 | Öppningsgrindarna | `npm run replay:openings` | ETAPP 6: det proaktiva lagret (`bridge_opening_soon`). **O1** varje målbropassage i SAMTLIGA korpusar (låsta som olåsta — antalet står i skriptets utskrift, inte här) har en öppningsvarning FÖRE passagen — varje miss klassad mot rådata (oklassad = rött); en KONVOJTÄCKNING underkänns om bron bevisligen öppnat och stängt för någon annan emellan. **O2** varje varning utan passage inom 20 min klassas mot rådata (KAJVOBBEL och UTANFÖR_HORISONTEN = rött; avbruten approach, gles anflygning och garantipris = accepterade) — även SEN_PASSAGE-hinken klassas. **O2b** (S14, 2026-08-23) SAMMA fantommätning mot RÅDATAFACIT (A2, `gt-passages`) i stället för appens egna passager — O1b:s mönster: appens passageregistreringar delar grindarnas blindfläck, så en varning kan kallas BEKRÄFTAD av appens egen bokföring medan rådatan inte känner korsningen. Serierna redovisas BREDVID varandra (annars går körningsloggar inte att jämföra bakåt). `inferred`-poster (korsning bevisad, tidpunkt = fönster) bär ALDRIG hinkindelningen utan hamnar i egen hink INFERRERAD_TID — hinkarna ÄR en tidsfönstermätning. **O2b är INFORMATIV: den ändrar inte exitkoden** (grinden ligger kvar på appserien precis som O1:s täckning i fas A); `OPENING_GT_STRICT` flyttar den hit när fas C är klar. Vid införandet: 0 röda i BÅDA serierna, 118 av 360 varningar byter hink (98 blir omätbara `inferred`) och EN varning byter åt det farliga hållet (JAATTEN II @ Stridsbergsbron i 20260708-21h — samma fall INV-21 redan fäller). **O3** A/B-nattens båda armar: 6/6 öppningar varnade före, konvojen som EN varning, boat_near byte-identisk med nattens facit. Dessutom **avfyrningsfönstret** (`t − dueMs` inom två tick — kontraktet "avfyra så sent som garantin tillåter") och **ledtidsgolvet** (hårt golv 60 s; tunnare än utlovade 150 s rapporteras). **Varningens ålder** (V1, 2026-11-13) rapporteras som WARN och fäller inte, se stycket under tabellen. |
 | Soaken | `node tests/replay-validation/runSoak.js` | 72 h blandtrafik: 0 processfel, inga läckor, fatala invarianter rena |
 | Driftens minutloop | `npm run replay:monitoring` | Samma 72 h med riktig monitoring/stale-städning även efter omstarter; samtliga timers avvecklade efter shutdown |
@@ -536,8 +536,10 @@ korsningen.
 
 `kö-60min-i-Kajens-kapsel-med-annan-trafik (U23, INV-10)` är samma kö i 60 min,
 och en senare båt kommer in i texten 39 min efter att köaren fick "strax". Den
-strax-texten slutar alltså utan passage efter mer än INV-10:s 35 min, och
-texten är densamma som för en köare i farleden (U6). Harnessen räknar därför
+strax-texten slutar alltså utan passage efter mer än INV-10:s 35 min. Före U65
+var texten densamma som för en köare i farleden (U6); sedan U65 (2026-11-24) får
+farledsköaren "En båt väntar vid Klaffbron", medan köaren i kapseln, som saknar
+köbeviset, behåller "strax". Harnessen räknar därför
 Kajens köare som bekräftad väntan: `replayRunner.js` godtar
 `VesselDataService.holdsQuayQueue` på den levande båten med färsk position och
 minst en minuts stillhet, samma krav som `waitingBridge`. `queueBridge` ger
@@ -1599,6 +1601,49 @@ Mätt mot `5d606eb` (samma appkod som `1b255af`, baslinjen
   ignoreras, ingen signal till publiceringen). Fartgrinden, 1,5×-grinden,
   förbrukningen, nyare-kravet och målbrokravet låses bara av enhetstesten.
 
+### U65, 2026-11-24: väntan vid målbron ger vänttext
+
+Ägarens beslut: en båt med köbeviset vid sin målbro visas som "En båt väntar vid
+<målbro>" i stället för "… på väg mot <målbro>, beräknad broöppning strax" (formatet:
+docs/bridgeTextFormat.md; följderna: ARCHITECTURE §5). Mätt mot `8f3bd07` på bankens
+25 korpusar och fältkörningarna k1–k3, normalt och med `REPLAY_MONITORING=1`:
+
+- Händelsefacit (notiser med ETA och text, öppningsvarningar, täckning, passager,
+  resenollställningar, borttagningar, bekräftade väntor) identiskt i alla körningar.
+  `replay:openings` och `measure:eta` för notiser (599) och kort (202) oförändrade.
+  Båtarnas restidsvärden skiljer i sju korta stycken (20260804-both-21h och
+  20260806-42h, längst 5 min för en båt som inte ledde texten, 15,7 → 15,2): fler
+  textbyten flyttar nästa UI-cykel, och samma skillnader kommer med det gamla
+  ledarvalet, så de hör till publiceringstiden (C12), inte till F07.
+- Texten ändras i tio låsta korpusar och i k1 och k3: 194 textrader, 751,6 min, varav
+  44 rader (455,7 min) ren ersättning av "strax" med vänttexten, 146 rader (294,9 min)
+  där målgruppen delas i en väntgrupp och en grupp under gång, och 4 rader (1 min) där
+  publiceringstiden flyttats (ms till 30 s, C12:s mekanism: publiceringstiden är en
+  indata till texten).
+- 41 väntor och 1 175,5 båtminuter vänttext. Där sa texten förut "strax" med passagen
+  inom 3 min i 76 av minuterna. Enligt rådatan låg båten still eller kröp före bron i
+  968 min och hade en position äldre än 5 min men låg kvar på samma plats vid nästa fix
+  i 108,5 min; i 45,5 min var positionen gammal och nästa fix på annan plats, i 50,5 min
+  hade båten redan gått igenom bron (nästan alla under ett radioglapp), och i 3 min gick
+  hon över 1,5 kn.
+- Gruppen under gång visar sin egen klausul i 214 min där den förut sa "strax"; i de 72
+  min som går att mäta (passage inom 60 min, siffra) är den bättre i 69 min, sämre i 1,5
+  och lika i 1,5 (felmängd 1 335 → 969 min·min).
+- `replay:all`: GOLDEN-TEXT i de tio låsta korpusarna (omlåsning), inget annat. WARN:
+  INV-18 försvinner i 20260710-13h (11:32, strax → 17) och tillkommer i 20260713-41h
+  (14/7 08:41, en båt under gång vars egen tid stiger 4 → 13 när väntarens "strax" inte
+  längre täcker den) och 20260806-42h (7/8 10:35, en väntares fartspik ger "strax" i
+  gruppen under gång, och nästa båt i gruppen har "om 18"; serien byter båt men inte
+  antalsord).
+- `measure:eta`, brotexten: 66 nya minutpåståenden (1 478 → 1 544) där gruppen under
+  gång förut doldes av väntarnas "strax", de flesta en båt som kommer fram till kön
+  (MARY 7/8 "om 18 → 4" medan sanningen var 45–49 min; förut "strax" i samma minuter);
+  "strax" 564 → 552, strax-löftet inom 3 min 65,3 → 67,0 %.
+- Syntetiska sviten: 228 → 230 scenarier, WARN oförändrat 25 rader i 24 scenarier.
+- Regressionstest: `tests/bridge-text-u65-vantan-vid-malbron.test.js` och scenarierna
+  "kö-150m-norr-om-målbron-Stridsbergsbron (U65)" och "kö-150m-söder-om-målbron-Klaffbron
+  (U65)" (båda röda på koden före U65).
+
 ## Buggjägaren — diagnosverktyg, INTE en gate (2026-11-04)
 
 `tests/replay-validation/bugHunt/hunt.js` letar fel offline ur de låsta
@@ -2385,6 +2430,10 @@ adversariella granskningen 2026-08-10: selektiva noter på 7 korpusar).
   med farten". De
   övriga 13 av omgångens 15 nya scenarier (U59 och de kända gränserna för U59 och U60)
   lägger inte till några.
+  **Efter omgång 8 (2026-11-24, U65, 230 scenarier): baslinjen är oförändrat 25 rader i
+  24 scenarier**, samma rader. De två nya scenarierna (kö vid målbron Stridsbergsbron
+  och Klaffbron, U65) lägger inte till några, och inget av de 228 äldre scenarierna
+  ändrar utfall.
 - **O1:s missklassificerare (`classifyMiss`)** kräver nu KORROBORERAT rörelsebevis i tre
   led (position ≥ MOVEMENT_PROOF_NET_M från första horisontsampel; etablerad stillhets-
   vistelse ≥ ARM_STALE_TTL_MS inom 50 m + tätt fixpar med implicerad fart < 0,5 kn ⇒
