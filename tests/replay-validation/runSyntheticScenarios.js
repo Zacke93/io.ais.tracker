@@ -564,7 +564,7 @@ const U52_SCENARIOS = [
  *  (durationS i stället för toS: fönstret är så många sekunder efter fromS + delayS.)
  *  - waitTextWindows: [{mmsi, fromS, toS, delayS?, at, target?, must, count?}] —
  *    must=true: varje text i fönstret har klausulen "<antal> väntar vid <at>
- *    [på väg mot <target>]" (med exakt count båtar om count ges); must=false:
+ *    [på väg mot <target>]" (count: exakt antal; at = target: U65); must=false:
  *    ingen text i fönstret har en vänttext vid <at>.
  *  - textCountAlong: [{mmsi, fromS, toS, delayS?, bridge, min?, max?}] — som
  *    textCountWindows, men fönstret ligger på båtens sanna bana.
@@ -5541,6 +5541,66 @@ const SCENARIOS = [
       stillUnknown: { bridge: 'Klaffbron', afterS: 330 },
     },
   },
+  // U65 (ägarens beslut 2026-11-24): köbeviset vid MÅLBRON ger vänttexten
+  // "En båt väntar vid <målbro>" (förut "på väg mot <målbro>, beräknad
+  // broöppning strax"). Söderut, still 150 m norr om Stridsbergsbron i 10 min,
+  // sedan igenom. Vänttexten ska stå från tre minuter in i stoppet och komma
+  // och gå en gång var (inget flimmer i en ren väntan).
+  {
+    name: 'kö-150m-norr-om-målbron-Stridsbergsbron (U65)',
+    seed: 6501,
+    vessels: [{
+      mmsi: '906501001',
+      name: 'SYNT-U65-STRIDS',
+      startS: METRICS.cum[4] + 900,
+      legs: [
+        { toS: METRICS.cum[4] + 150, speedKn: 4, intervalS: 60 },
+        { stopS: 600, stopIntervalS: 60, stopSog: 0.1 },
+        { toS: METRICS.cum[3] - 300, speedKn: 4, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      waitTextWindows: [{
+        mmsi: '906501001',
+        fromS: METRICS.cum[4] + 150,
+        delayS: 180,
+        durationS: 360,
+        at: 'Stridsbergsbron',
+        target: 'Stridsbergsbron',
+        must: true,
+        count: 1,
+      }],
+      maxWaitToggles: { at: 'Stridsbergsbron', max: 2 },
+    },
+  },
+  // U65, norrut mot Klaffbron: still 150 m söder om bron i 10 min, sedan igenom.
+  {
+    name: 'kö-150m-söder-om-målbron-Klaffbron (U65)',
+    seed: 6502,
+    vessels: [{
+      mmsi: '906502001',
+      name: 'SYNT-U65-KLAFF',
+      startS: METRICS.cum[1] + 300,
+      legs: [
+        { toS: METRICS.cum[2] - 150, speedKn: 4, intervalS: 60 },
+        { stopS: 600, stopIntervalS: 60, stopSog: 0.1 },
+        { toS: METRICS.cum[2] + 600, speedKn: 4, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      waitTextWindows: [{
+        mmsi: '906502001',
+        fromS: METRICS.cum[2] - 150,
+        delayS: 180,
+        durationS: 360,
+        at: 'Klaffbron',
+        target: 'Klaffbron',
+        must: true,
+        count: 1,
+      }],
+      maxWaitToggles: { at: 'Klaffbron', max: 2 },
+    },
+  },
   // Söderut, kö mellan Stridsbergsbron och Järnvägsbron (150 m före Järnvägsbron,
   // målbro Klaffbron). Fungerade redan med köbeviset; ska stå kvar.
   {
@@ -6862,7 +6922,8 @@ function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
       const bad = w.must ? (n === 0 || (Number.isFinite(w.count) && n !== w.count)) : waitClauseCount(x.text, w.at) > 0;
       if (bad) {
         problems.push(`VÄNTTEXT: ${new Date(x.t).toISOString()} "${x.text}" — ${w.must
-          ? `ska säga ${w.count ? `${w.count} ` : ''}väntar vid ${w.at}${w.target ? ` på väg mot ${w.target}` : ''}`
+          // U65: vid målbron (at === target) har vänttexten inget "på väg mot".
+          ? `ska säga ${w.count ? `${w.count} ` : ''}väntar vid ${w.at}${w.target && w.target !== w.at ? ` på väg mot ${w.target}` : ''}`
           : `får inte säga väntar vid ${w.at}`}`);
         break;
       }
