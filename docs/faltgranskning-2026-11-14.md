@@ -41,7 +41,7 @@ när en båt vänder och sedan inte hörs. Prognosarbetet (U22) är fortfarande 
 **Omgång 5** (23–24 november, U52–U58, avsnitt 14) rättade fynden ur fältprov 2 (17–23 november) och en evig slinga i appens krockskydd; avsnitt 14 stämmer med `bf646fe`.
 **Omgång 6** (24 november, U59–U61, avsnitt 15) mätte var restiden är fel över hela underlaget och lät restiden räknas om från avgången efter ett långt stopp; avsnitt 15 stämmer med `9bbc276`.
 **Omgång 7** (24 november, U62–U64, avsnitt 16) mätte hur ofta en väntande båt saknas i brotexten och ändrade ingen kod; tre kända gränser är beskrivna med mätningen.
-**Omgång 8** (24 november, U65, avsnitt 17) bytte "beräknad broöppning strax" mot "En båt väntar vid <målbro>" medan en båt väntar vid sin målbro, på ägarens beslut samma dag.
+**Omgång 8** (24 november, U65, avsnitt 17) bytte "beräknad broöppning strax" mot "En båt väntar vid <målbro>" medan en båt väntar vid sin målbro, på ägarens beslut samma dag. Avsnitt 17 stämmer med `a065019`.
 
 ## 2. Körningarna och vad de täcker — och inte täcker
 
@@ -3651,3 +3651,76 @@ I fält är skillnaden tiondels sekunder.
 5. En minutsiffra bredvid en väntgrupp (17.4, punkt 4).
 6. Uppföljningslistorna i 14.6, 15.6 och 16.4, bland annat raderna `ETA_STILL_RELEASE` och
    omstarter.
+
+### 17.10 Slutbatteriet
+
+Kört på `a065019`; efter den commiten ändras bara detta dokument. Alla steg slutade med kod 0.
+Jämförelsen görs mot slutbatteriet i omgång 6 (`9bbc276`, 15.8); omgång 7 ändrade varken kod
+eller test.
+
+| Steg | Utfall |
+|---|---|
+| `npm run lint` | 0 |
+| hela jest (`--detectOpenHandles`) | 433 sviter, 6 877 test gröna, 2 överhoppade |
+| `replay:all`, med och utan monitoring | alla låsta korpusar matchar facit |
+| `replay:synthetic` | 230 scenarier rena, WARN-raderna lika med omgång 6 |
+| `replay:openings` | standardgrindarna godkända, utskriften lika med omgång 6 |
+| soak och `replay:monitoring` | 0 |
+| `measure:eta` | notis och öppningskort lika med omgång 6; brotexten se nedan |
+| fassvepet, med och utan monitoring | 0 |
+| `hunt:selftest` | grönt |
+| snabbjakten | 45 utslag, utslag för utslag lika med omgång 6 |
+| standardjakten | 218 utslag (220), 2 kandidatkluster som förut |
+| nattjakten (20 000 världar) | 2 373 utslag (2 385), 16 kandidatkluster som förut, 429 kandidatutslag (434) |
+| `git status --porcelain` efter batteriet | tom |
+
+De tre nya jestsviterna är U65:s (17 test), buggjägarens två omprövade registerposter (5) och
+INV-10 efter U65 (5); därtill ett test för loggskriptets räknare. De två nya scenarierna är
+köerna vid målbron (17.2). Inga kvarglömda körningar fanns före eller efter batteriet.
+
+**WARN-utslagen i `replay:all`** flyttar sig i tre korpusar, alla INV-18 (restiden stiger utan
+passage) vid Stridsbergsbron: ett försvinner i 20260710-13h, ett kommer till i 20260713-41h
+(14/7 08:41, "strax" → "om 13 minuter") och ett i 20260806-42h (7/8 10:35, "strax" → "om 18
+minuter", efter en växling på ett fartfix). Det är gruppen under gång som visar sin egen klausul
+där köarens "strax" stod förut (17.4, punkt 2–4).
+
+**Restidsmätningen mot omgång 6.** Notiser och öppningskort är lika, påstående för påstående.
+Brotexten har 66 fler mätta minutsiffror (1 478 → 1 544), och felsumman stiger från 24 011 till
+26 024 minuter. Alla nya siffror står i en text med en väntgrupp, där gruppen förut sa "strax";
+ett "strax" för en hel grupp mäts inte som siffra, så det gamla felet låg utanför summan.
+Ökningen fördelar sig så här:
+
+- **1 324 min är ett enda påstående.** S/V REBEL 6/8 10:38 visar "om 4 minuter" bredvid "En båt
+  väntar vid Klaffbron" i en dryg minut. Samma siffra för samma båt står 10:31 och 10:41 både
+  före och efter; restiden stod still på 3,9 minuter, och hon gick igenom bron 22 timmar senare.
+- **535 min är fem båtar på väg mot en bro med kö** (17.4, punkt 4): MARY 330 (sju påståenden,
+  45–49 min för tidigt), ALINDE 116, SEEBAER III 44, IL PUNTO 27 och SKYBIRD 18.
+- **57 min är ett oförändrat påstående räknat två gånger till** (MOKENDEIST mot Klaffbron 7/8
+  11:43), eftersom texten byts oftare.
+- **99 min är övriga 45 påståenden**, i snitt 2,2 minuter fel (WANDA 5/8 11:58–12:13 med 25
+  påståenden inom 0–5 minuter). Ett av dem ersätter ett likadant en sekund tidigare, så nettot
+  är 66 påståenden och 2 012 minuter.
+
+"Strax"-löftet, mätt där en enskild båt bär det, håller i 67,0 % av fallen (65,3 %).
+
+**Jakterna värld för värld mot omgång 6** (samma seed, samma världar). I standardjakten
+försvinner tre utslag (världarna 1507 och 1608) och ett kommer till under en registrerad post
+(859). I nattjakten försvinner 19 utslag och 6 kommer till, och en värld (6713) får ett andra
+utslag under samma registrerade post:
+
+- **Borta:** sju INV-10 (ett "strax" som stod 37–49 minuter utan passage; texten säger nu
+  "väntar vid"), tio kandidatutslag i INV-3 (köarens "strax" följt av en annan båts siffra) och
+  två under posten för "strax"-studsen (värld 1608).
+- **Nya:** fem kandidatutslag i INV-3 (världarna 2140, 2224, 8453, 11358 och 19599) och ett
+  under posten för ledarbyte (859). I alla fem är det gruppen under gång som visar sin egen
+  klausul bredvid en väntgrupp: en båt passerar och nästa har 14 minuter kvar (2140), en båt
+  tappar närhetsflaggan och gruppen visar ledarens 11 minuter (2224), ledaren byts från båten
+  som går igenom bron till nästa (8453) eller från 6 till 15 minuter (19599), eller
+  "strax"-båten blir väntande och nästa kommer in med 3 minuter (11358). Förut dolde köarens
+  "strax" samma växlingar.
+
+Alla 23 världar som skiljer sig i utslag kördes på koden före och efter omgången. Passager,
+borttagningar, resenollställningar, notiser och öppningsvarningar är lika, och båtarnas flaggor
+är lika vid varje gemensam tidpunkt; bara textregeln skiljer. Registerklasserna i nattjakten:
+beslutat beteende 1 016 och kända fall med öppet beslut 301 som förut, accepterade 623 (621),
+mätgränser 4 (13). De 16 kandidatkorten är desamma som i 15.8.
