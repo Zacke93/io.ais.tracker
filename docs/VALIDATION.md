@@ -1661,6 +1661,11 @@ docs/bridgeTextFormat.md; följderna: ARCHITECTURE §5). Mätt mot `8f3bd07` på
 - Regressionstest: `tests/bridge-text-u65-vantan-vid-malbron.test.js` och scenarierna
   "kö-150m-norr-om-målbron-Stridsbergsbron (U65)" och "kö-150m-söder-om-målbron-Klaffbron
   (U65)" (båda röda på koden före U65).
+- INV-10 (STRAX-ZOMBIE) är skärpt: en "strax" som står över 35 min utan passage förklaras
+  bara av en bekräftad kö vid Kajen (harnessens `confirmedQuayWaits`, U23), inte längre av
+  köbeviset vid målbron, som nu ger vänttexten. Ett äldre resultat utan fältet prövas som
+  förut. Inget nytt utslag i banken, den syntetiska sviten eller snabb- och standardjakten;
+  test: `tests/inv10-u65-kajvantan.test.js`.
 
 ## Buggjägaren — diagnosverktyg, INTE en gate (2026-11-04)
 

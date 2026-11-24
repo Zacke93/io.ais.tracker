@@ -660,7 +660,14 @@ function validateInvariants(result) {
       const passageInWindow = targetPassages.some(
         (p) => p.bridge === bridge && p.t >= t.t && p.t <= t.t + stoodMs,
       );
-      const confirmedWait = (result.confirmedTargetWaits || []).some((wait) => wait.bridge === bridge
+      // U65 (ägarens beslut 2026-11-24): köbeviset vid målbron ger vänttexten
+      // "väntar vid <bro>" och bär aldrig "strax". Bara köaren vid Kajen (U23,
+      // inget köbevis i kajzonen) kan bära en lång "strax", så ett resultat med
+      // confirmedQuayWaits prövas mot dem. Ett äldre resultat utan fältet
+      // prövas som förut mot alla bekräftade väntor.
+      const straxWaits = Array.isArray(result.confirmedQuayWaits)
+        ? result.confirmedQuayWaits : (result.confirmedTargetWaits || []);
+      const confirmedWait = straxWaits.some((wait) => wait.bridge === bridge
         && Number.isFinite(wait.from) && Number.isFinite(wait.until)
         && wait.from <= t.t + 10 * 60000 && wait.until >= nextT);
       if (!passageInWindow && !confirmedWait) {
