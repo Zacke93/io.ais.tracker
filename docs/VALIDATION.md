@@ -1540,28 +1540,64 @@ Mätt mot grenen med fartspiksvakten (`omg2/ETA1-S`, inte införd) som bas, i gr
 Mätt mot `5d606eb` (samma appkod som `1b255af`, baslinjen
 `dirigent/omg5/slut/eta/`), påstående för påstående med `allClaims`:
 
-- `measure:eta`: 3 182 av 3 182 påståenden oförändrade (0 bättre, 0 sämre). Inga
-  låsta rader i `replay:all`, synthetic eller openings flyttas.
+- `measure:eta`: 3 182 av 3 182 påståenden och alla totaler oförändrade (0
+  bättre, 0 sämre). Dubbelkörningsdiagnostiken ändras i 20260823-24h (ändrade par
+  75 → 74, outlierrader 10 → 9, utjämningsrader 159 → 157): regeln slår till där
+  utan synlig verkan. Inga låsta rader i `replay:all`, synthetic eller openings
+  flyttas.
 - Fältkörningarna: k1 PRICKBJORN 12/11 12:55 "om 11" → "om 8" (sanning 5,0) och
   kortet 9 → 7 (3,9); k3 PRICKBJORN 19/11 11:23 "om 9" → "om 4" (3,6), 11:24
   "om 5" → "om 3" (2,4), kortet 9 → 4 (3,6), notisen 11:25 1 → 2 (1,3, sämre) och
   notisen 20/11 10:22 3 → 2 (omätbar). Notisernas och varningarnas tid, bro och antal är
   oförändrade.
-- Byggda världar (20 och 45 min stopp vid Stallbackabron, 15 respektive 10 frön):
-  basen fallerar i 4 av 15 och 8 av 10 ("om 59", kortet 45–54); med U59 är kortet
-  "om 7" (sanning 6,3) i alla och första siffran "om 14–24".
-- Rycksvepet (svep i omgång 6, 1 440 världar: kö 250–800 m vid Järnvägsbron
-  norrut, Stridsbergsbron söderut och Olidebron norrut, köfart 0,2 och 0,7 kn, ryck
-  15–150 m i 2–3,5 kn, ny väntan 2–30 min): inget kort flyttar i tid, inget kort
-  och ingen notis tillkommer eller försvinner; 24 kortminuter ändras (19 rättare,
-  5 sämre med 1 min), 5 notisminuter (3 rättare). Texten under rycket och den nya
-  väntan blir lägre i 25 världar (28,5 min, högst 5 min lägre), vid den verkliga
-  avgången rättare i 120 världar (126 min).
+- Byggda världar (20 och 45 min stopp vid Stallbackabron, 40 frön var): koden
+  före U59 fallerar i 6 av 40 respektive 27 av 40 ("ETA okänd" i sju minuter och
+  sedan "om 59", kortet 45–54 där 6–7 återstår); med U59 ligger kortet inom 0,7
+  min i alla 80, men den första siffran är upp till 25 min för hög i två minuter i
+  6 av 80 (släpp på U30-beviset medan fartbufferten bär stillheten). Utfallet är
+  detsamma i faserna 0 och −11,52 s och med `REPLAY_MONITORING=1`.
+- **Priset: ryck i kön och en enda felaktig fix** (granskningens svep, 6 064
+  världar, egna positioner; köer före Järnvägsbron norrut, före Klaffbron i båda
+  riktningarna, före Stridsbergsbron söderut och mellan Stridsbergsbron och
+  Järnvägsbron söderut; första stopp 3–50 min, ryck 40–400 m i 2,5–6 kn, ny väntan
+  4–30 min, två och tre ryck, fem AIS-takter, fartspik, positionshopp, två och tre
+  båtar, tystnad över rycket):
+
+  | delsvep (världar) | kort i tid / nya / borta | ny klart för låg text (min, världar, djupast) |
+  |---|---|---|
+  | ryck (3 456) | 0 / 0 / 0 | 120,5 min, 82, 28,6 |
+  | flera ryck (376) | 0 / 0 / 0 | 86,5 min, 33, 19,9 |
+  | felaktig fix (864) | 0 / 0 / 0 | 92 min, 22, 22,8 |
+  | två–tre båtar (672) | 0 / 0 / 4 | 50,5 min, 14, 10,4 |
+  | AIS-takt (512) | 0 / 0 / 0 | 10,5 min, 4, 6,6 |
+  | tystnad över rycket (184) | 0 / 0 / 0 | 0 |
+
+  Summa 360 min ny klart för låg text i 155 världar, som mest 28,6 min under
+  sanningen; inget kort flyttar i tid och inget tillkommer. De fyra kort som
+  försvinner är följebåtars egna kort vid den verkliga avgången, där ledbåtens kort
+  (före U59 "om 19" mot 2,75, nu "om 5") täcker konvojen. Fall (omkörda frö för frö
+  mot koden före U59): kortet "om 3" där 34,0 återstod (före U59 "om 21"), notisen
+  "om 2" där 12,5 återstod (före "om 15"), en ensam fartspik som ger "om 5" i nästan
+  20 minuter där 35 → 16 återstod (före "om 32", sedan ett fruset "om 27"), och vid
+  avgång ur kön 150 m norr om Järnvägsbron kortet 5 → 8 där 5,5 återstod. I frön
+  utan beräkningslucka visar koden före U59 samma låga siffror efter ett ryck.
+  Rättarens eget svep (2 112 världar, smalare: 8 min första stopp, ryck 15–150 m i
+  2–3,5 kn, inga köer före Klaffbron söderut, inga ryck i följd) såg inget av detta
+  och redovisas inte längre som mått på priset.
 - Regressionstest: `tests/u59-stillhet-avgang.test.js` (varje villkor innanför och
   utanför) och scenarierna "stilla-20min/45min-vid-Stallbackabron-sedan-5kn
   (U59)" med motfallen (saktar in 0,6/1/2 kn, kort stopp 2 och 5 min, AIS-tystnad
   över avgången, omstart mitt i stoppet). Förväntningen `etaTruthAlong` och
-  kortgränserna i `departureEta` är nya.
+  kortgränserna i `departureEta` är nya. Priset är låst i dagens storlek av
+  "kö-250m-söder-om-Järnvägsbron-ryck-120m-6kn-och-ny-väntan (känd gräns, U59)"
+  och "en-fartspik-i-30min-väntan-600m-norr-om-Klaffbron (känd gräns, U59)", och
+  "saktar-in-1kn-10min-sedan-5kn-utan-stillhetsbevis (känd gräns, U59)" låser att
+  en båt utan stillhetsbevis inte berörs. Mutationsprov (16 mutationer av
+  `_releaseStillBaseline` och `_stillnessProof`): varje mutation fäller minst ett
+  enhetstest; synthetic fäller sex (inget stillhetsbevis krävs, tom historik släpps
+  på U30-beviset, U30 utan närmare-krav, historiken töms inte, U30-beviset
+  ignoreras, ingen signal till publiceringen). Fartgrinden, 1,5×-grinden,
+  förbrukningen, nyare-kravet och målbrokravet låses bara av enhetstesten.
 
 ## Buggjägaren — diagnosverktyg, INTE en gate (2026-11-04)
 

@@ -3130,7 +3130,8 @@ säger annat.
 En båt som ligger still 20 min 30 m norr om Stallbackabron och sedan går i 5 kn
 mot Stridsbergsbron (sann restid 14,6 min) visade "ETA okänd" i sju minuter och
 sedan "om 59" när sju minuter återstod, och kortet "om 53"; efter 45 min stopp
-"om 59 → 45". Fältprov 2: PRICKBJORN 19/11 (kö norr om Järnvägsbron, målbro
+likadant ("ETA okänd" i sju minuter, sedan "om 59 → 51 → 41" och kortet "om 45"),
+och i en värld där luckan kom tidigare "om 44" när 12,6 återstod. Fältprov 2: PRICKBJORN 19/11 (kö norr om Järnvägsbron, målbro
 Klaffbron) "om 9" och kortet "om 9 minuter" när 3,2 respektive 3,6 återstod.
 Orsaken: under stoppet räknar kedjan på fartgolvet 0,5 kn, och efter avgången
 försvaras det höga värdet av outlierskyddets blandning, `ETA_MOVING_CLAMP` (ett
@@ -3147,26 +3148,59 @@ monotoniskyddets gräns i andra riktningen), töms kalkylatorns historik och
 publiceringsklampen får samma engångssignal som ANTJE/MISTRAL-släppet
 (`_etaWaitingBaselineRelease`, bara sänkning). Med tom historik (gap-reset i
 samma sampel) släpps bara klampen, och bara efter familj E:s avgång, vars rå-ETA
-räknas utan väntans sampel. Beviset förbrukas: ett släpp per stillhet. En båt
+räknas utan väntans sampel. Beviset förbrukas: ett släpp per bevis (är familj
+E:s bevis förbrukat kan U30-beviset ge ett andra så länge U30-läget står; efter
+första släppet håller 1,5×-villkoret sällan). En båt
 som bara saktar in har inget bevis och berörs inte. 2 kn är beslutets gräns och
 samma tal som `ETA_APPROACH_LIMIT` och VesselDataService:s aktivitetsstämpel.
 *Mätt* (docs/VALIDATION.md §ETA-mätharnessen, "U59"): `measure:eta` oförändrad i
-alla 3 182 påståenden; inga låsta rader; k1 och k3 ändrar två kort, två notiser
-och fyra textrader (minutsiffror, ingen tid, bro eller antal).
-*Kända gränser:* (1) Utan familj E-avgång (fartbufferten har efter luckan bara
-ett stillasampel) är den första siffran fortfarande 6–9 min för hög i en minut
-("om 21" mot 14,6). (2) En båt som accelererar och stannar igen får siffran
-från avgången och sedan den vanliga uppräkningen under den nya väntan ("om 20 →
-23" mot sanningen 30 i fem minuter, där basen dolde det höga värdet som "ETA
-okänd"); efter fem minuter går U30 in igen. (3) Familj E-beviset finns också i
-en kö: en båt som ligger under 0,5 kn och rycker fram i minst 2 kn får redan i
-dag avgångsgolvet, och U59 släpper då baslinjen. I rycksvepet (1 440 byggda
-världar, kö vid Järnvägsbron, Stridsbergsbron och Olidebron) flyttar inget kort i
-tid och inget kort eller ingen notis tillkommer eller försvinner; texten blir
-lägre under rycket och den nya väntan i 25 världar (28,5 min, största sänkning
-5 min, nästan bara där basen redan var mer än 2 min för låg), och rättare vid den
-verkliga avgången i 120 världar (126 min, till exempel "om 29" → "om 5" mot
-sanningen 3,5).
+alla 3 182 påståenden och alla totaler (dubbelkörningsdiagnostiken ändras i
+20260823-24h, där regeln slår till utan synlig verkan); inga låsta rader; k1 och
+k3 ändrar två kort, två notiser och fyra textrader (minutsiffror, ingen tid, bro
+eller antal).
+*Kända gränser:* (1) Släpps baslinjen på U30-beviset medan fartbufferten bär
+stillheten (familj E kände inte igen avgången), är den första siffran fortfarande
+för hög: upp till 25 min i två minuter ("om 39 → 33 → 29 → 23 → 16" mot 14 → 12)
+i 6 av 80 körningar (40 frön, 20 och 45 min stopp; utan U59 fallerar 33 av 80
+kraftigare). Regressionsscenarierna använder frön där U59 klarar gränsen +8. (2) En
+båt som accelererar och stannar igen får siffran från avgången och sedan den vanliga
+uppräkningen under den nya väntan ("om 20 → 23" mot sanningen 30 i fem minuter,
+där koden före U59 dolde det höga värdet som "ETA okänd"); efter fem minuter går U30
+in igen. (3) **Ryck i kön och en enda felaktig fix.** Familj E-beviset och U30-beviset
+finns också för en båt som ligger i kö. Ett ryck i minst 2 kn, eller en enda fix med
+fart utan förflyttning, släpper baslinjen, och siffran under den nya väntan blir lika
+låg som efter en verklig avgång. Granskningens svep (6 064 byggda världar: köer före
+Järnvägsbron, Klaffbron och Stridsbergsbron i båda riktningarna där de finns, första
+stopp 3–50 min, ryck 40–400 m i 2,5–6 kn, flera ryck, fem AIS-takter, felaktig fix, två
+och tre båtar, tystnad över rycket): ny klart för låg text (mer än 2 min, där koden
+före U59 inte var det) i 360 min i 155 världar, som mest 28,6 min under sanningen.
+Exempel: kö 250 m söder om Järnvägsbron norrut i 25 min, ryck 120 m i 6 kn, ny väntan
+30 min: öppningskortet för Stridsbergsbron "om 3" där 34 återstod (före U59 "om 21",
+samma avfyrningstid) och texten "strax" där 33,5 återstod (före U59 "om 19"). Tre
+båtar i kö 100 m söder om Järnvägsbron, den främsta rycker 60 m i 5 kn: notisen för
+Stridsbergsbron "om 2" där 12,5 återstod till passagen (före U59 "om 15"; mot
+ankomsten till väntplatsen, U61, går 2 att försvara). En ensam fartspik (3 kn utan
+förflyttning) 9 min in i en väntan 600 m norr om Klaffbron söderut: "om 5" i nästan
+20 minuter där 35 → 16 återstod (före U59 "om 32" och sedan ett fruset "om 27").
+Inget öppningskort flyttar i tid och inget tillkommer; fyra följebåtars kort
+försvinner vid den verkliga avgången, eftersom ledbåtens kort (före U59 "om 19" där
+2,75 återstod, nu "om 5") då täcker konvojen. *Nyansen:* i körningar utan
+beräkningslucka visar koden före U59 samma låga siffror efter ett ryck (det frusna
+värdet över 60 min dolt som "ETA okänd" fanns bara i luckfrön, som en följd av felet
+U59 rättar). U59 inför alltså ingen ny felklass men gör den vanligare. *Varför regeln
+ändå är inne* (beslut U59 efter granskningen): varje väntan slutar med en verklig
+avgång, ryck finns i ungefär 2 av 35–39 inspelade väntor, och felet som rättas är
+40–50 min (kortet "om 45–54" där 6–7 återstår). Granskningen fann ingen smal ändring
+som tog bort priset utan att ta bort nyttan (ett krav på 50 m förflyttning stoppade
+fartspikar men tog bort det mesta av vinsten och inte de stora rycken). Det är U56:s och U60:s lärdom:
+ett ryck går inte att skilja från avgången i ögonblicket. Låst i dagens storlek av
+scenarierna "kö-250m-söder-om-Järnvägsbron-ryck-120m-6kn-och-ny-väntan (känd gräns,
+U59)" och "en-fartspik-i-30min-väntan-600m-norr-om-Klaffbron (känd gräns, U59)".
+(4) **Avgång ur väntan vid Järnvägsbron.** U59 tömmer historiken i första
+avgångssamplet, så väntbaslinjens släpp (ANTJE/MISTRAL) gäller inte i andra samplet,
+och kortet kan bli upp till 3 min sämre (kö 150 m norr om Järnvägsbron söderut: "om
+5 → 8" där 5,5 återstod), medan texten vid samma avgång blir rättare ("om 51 → 42" blir
+"om 9 → 11" där 6,6 → 6,1 återstod).
 
 **Känd gräns: ingen avgång ur kryp (U60 avstått 2026-11-24).** Familj E:s avgång
 kräver buffrade sampel under 0,5 kn. En båt som kryper i kön (0,5–0,99 kn) och

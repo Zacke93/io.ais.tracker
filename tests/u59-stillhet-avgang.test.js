@@ -116,7 +116,7 @@ describe('U59: baslinjen släpps efter U30-läget', () => {
     expect(calc._releaseStillBaseline(staleHistory(60), unsure.position, 7, unsure.v)).toBe(false);
   });
 
-  test('beviset förbrukas: ett släpp per stillhet', () => {
+  test('beviset förbrukas: ett släpp per bevis', () => {
     enterStillUnknown();
     const a = departureSample(860, 4);
     expect(calc._releaseStillBaseline(staleHistory(60), a.position, 7, a.v)).toBe(true);
