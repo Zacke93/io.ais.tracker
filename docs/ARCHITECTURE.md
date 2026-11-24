@@ -3237,6 +3237,11 @@ avgångssamplet, så väntbaslinjens släpp (ANTJE/MISTRAL) gäller inte i andra
 och kortet kan bli upp till 3 min sämre (kö 150 m norr om Järnvägsbron söderut: "om
 5 → 8" där 5,5 återstod), medan texten vid samma avgång blir rättare ("om 51 → 42" blir
 "om 9 → 11" där 6,6 → 6,1 återstod).
+(5) **Inbromsning utan stillhet.** En båt som saktar in till 1 kn i tio minuter utan
+att ligga still har inget stillhetsbevis, och baslinjen släpps inte: norr om
+Stallbackabron, sedan 5 kn, visas "om 57 → 47 → 40 → 33" där 14 → 13 återstod, som före
+U59. Låst av scenariot "saktar-in-1kn-10min-sedan-5kn-utan-stillhetsbevis (känd gräns,
+U59)", så att en regel som släpper baslinjen utan stillhetsbevis prövas medvetet.
 
 **Känd gräns: ingen avgång ur kryp (U60 avstått 2026-11-24).** Familj E:s avgång
 kräver buffrade sampel under 0,5 kn. En båt som kryper i kön (0,5–0,99 kn) och
