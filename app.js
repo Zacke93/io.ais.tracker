@@ -56,6 +56,12 @@ const {
 // bro korsad i ett långt glapp notifieras medvetet inte när slutsatsen är
 // äldre än cirka 17 min.
 const SWEEP_TURNED_STALE_MS = 17 * 60 * 1000;
+// U58 (2026-11-24): krockskyddets översvämningsspärr. Högst så här många
+// [FATAL]-rader per fönster; resten räknas och summeras i en rad. Spärren
+// bryter varje slinga där krockskyddets egen loggning ger nya ofångade fel,
+// vilken väg felet än tar. Ett fel som inträffar en eller några gånger loggas
+// alltid. Fönstret räknas med Date.now(), utan timers.
+const FATAL_LOG_FLOOD = { MAX_PER_WINDOW: 10, WINDOW_MS: 60 * 1000 };
 // U37 del 2: en formregel för alla passagenotiser.
 const { passageNoticeForm, segmentPassageForm, fixLatenessMs } = require('./lib/utils/passageNoticeForm');
 const { selectSettings } = require('./lib/utils/replayStartupState');
@@ -442,14 +448,40 @@ class AISBridgeApp extends Homey.App {
     // kan starta om en app i samma process; anonyma process-lyssnare skulle
     // annars ackumuleras per omstart → MaxListenersExceeded + döda app-instanser
     // hålls vid liv (minnesläcka).
+    //
+    // U58 (2026-11-24): en trasig loggkanal får inte hålla appen i en evig
+    // slinga. Appens logg går via console till stdout/stderr och därifrån till
+    // Homeys kärna. Försvinner mottagaren misslyckas varje skrivning (EPIPE);
+    // utan lyssnare blev felet ett ofångat fel, krockskyddet loggade det, den
+    // loggningen misslyckades likadant, och kedjan svälte händelseslingan.
+    // Nu: (1) skrivfel på stdout/stderr sväljs och räknas, de loggas aldrig;
+    // (2) krockskyddets loggning kan inte kasta ut ur hanteraren; (3) en
+    // översvämningsspärr (FATAL_LOG_FLOOD) bryter slingan också om felet tar
+    // en annan väg. Igenkänning på felkod görs inte: ett EPIPE från
+    // AIS-anslutningens socket ser likadant ut och ska loggas. Appen fortsätter
+    // med notiser, varningar och brotext utan logg.
+    this._removeGlobalErrorHandlers(); // en tidigare onInit utan onUninit
+    this._logChannelErrors = { stdout: 0, stderr: 0 };
+    this._fatalLogFailures = 0;
+    this._fatalFlood = {
+      windowStart: null, logged: 0, suppressed: 0, firstAt: null, lastAt: null, firstText: null,
+    };
+    this._onStdoutError = () => {
+      this._logChannelErrors.stdout++;
+    };
+    this._onStderrError = () => {
+      this._logChannelErrors.stderr++;
+    };
     this._onUncaughtException = (err) => {
-      this.error('[FATAL] Uncaught exception:', err);
+      this._logFatal('ofångat fel', err, '[FATAL] Uncaught exception:', err);
       // Logga men exit inte - låt process fortsätta om möjligt
     };
     this._onUnhandledRejection = (reason, promise) => {
-      this.error('[FATAL] Unhandled rejection at:', promise, 'reason:', reason);
+      this._logFatal('avvisat löfte', reason, '[FATAL] Unhandled rejection at:', promise, 'reason:', reason);
       // Logga men exit inte - låt process fortsätta om möjligt
     };
+    process.stdout.on('error', this._onStdoutError);
+    process.stderr.on('error', this._onStderrError);
     process.on('uncaughtException', this._onUncaughtException);
     process.on('unhandledRejection', this._onUnhandledRejection);
 
@@ -15126,7 +15158,29 @@ class AISBridgeApp extends Homey.App {
       this.homey.settings.off('set', this._onSettingsChanged);
     }
 
+    // U58: spärrade [FATAL]-rader summeras innan krockskyddet tas bort, men
+    // bara när loggkanalen inte har rapporterat något skrivfel (en rad till en
+    // trasig kanal når ingen och ger bara ett nytt skrivfel).
+    const flood = this._fatalFlood;
+    const channel = this._logChannelErrors;
+    if (flood && flood.suppressed > 0 && channel && channel.stdout === 0 && channel.stderr === 0) {
+      this._writeFatal(this._fatalFloodSummary(flood));
+    }
+    if (flood) this._resetFatalSuppression(flood);
     // F54: avregistrera process-nivå-lyssnarna (annars läcker de över omstart)
+    this._removeGlobalErrorHandlers();
+
+    this.log('✅ AIS Bridge shutdown complete with proper cleanup');
+  }
+
+  /**
+   * F54/U58: tar bort krockskyddets och loggkanalens lyssnare med sina egna
+   * referenser, så att Homeys eller testmiljöns lyssnare aldrig rörs.
+   * Anropas i onUninit och först i onInit (en återanvänd instans som startas
+   * utan onUninit emellan får inte dubbla lyssnare).
+   * @private
+   */
+  _removeGlobalErrorHandlers() {
     if (this._onUncaughtException) {
       process.removeListener('uncaughtException', this._onUncaughtException);
       this._onUncaughtException = null;
@@ -15135,8 +15189,121 @@ class AISBridgeApp extends Homey.App {
       process.removeListener('unhandledRejection', this._onUnhandledRejection);
       this._onUnhandledRejection = null;
     }
+    if (this._onStdoutError) {
+      process.stdout.removeListener('error', this._onStdoutError);
+      this._onStdoutError = null;
+    }
+    if (this._onStderrError) {
+      process.stderr.removeListener('error', this._onStderrError);
+      this._onStderrError = null;
+    }
+  }
 
-    this.log('✅ AIS Bridge shutdown complete with proper cleanup');
+  /**
+   * U58: krockskyddets loggning. Högst FATAL_LOG_FLOOD.MAX_PER_WINDOW rader per
+   * fönster; resten räknas och summeras i en rad när nästa fel kommer efter
+   * fönstret (eller i onUninit). Med fungerande loggkanal och enstaka fel är
+   * utskriften exakt densamma som före U58.
+   * @param {string} kind - 'ofångat fel' eller 'avvisat löfte' (för summeringen)
+   * @param {*} cause - felet eller avvisningsorsaken (sparas bara som kort text)
+   * @param {...*} args - raden till this.error, oförändrad
+   * @private
+   */
+  _logFatal(kind, cause, ...args) {
+    const flood = this._fatalFlood;
+    const now = Date.now();
+    // Nytt fönster när det förra löpt ut, eller när klockan hoppat bakåt förbi
+    // fönstrets start. Ett mindre hopp bakåt förlänger fönstret med hoppets
+    // storlek, alltid till under två fönster.
+    if (flood.windowStart === null || now < flood.windowStart
+      || now - flood.windowStart >= FATAL_LOG_FLOOD.WINDOW_MS) {
+      if (flood.suppressed > 0) this._writeFatal(this._fatalFloodSummary(flood));
+      this._resetFatalSuppression(flood);
+      flood.windowStart = now;
+      flood.logged = 0;
+    }
+    if (flood.logged >= FATAL_LOG_FLOOD.MAX_PER_WINDOW) {
+      // Bara en kort sträng sparas, aldrig felobjektet (inga stora objekt
+      // hålls vid liv av spärren).
+      if (flood.suppressed === 0) {
+        flood.firstAt = now;
+        flood.firstText = `${kind} ${this._describeFatalCause(cause)}`;
+      }
+      flood.lastAt = now;
+      flood.suppressed++;
+      return;
+    }
+    flood.logged++;
+    this._writeFatal(...args);
+  }
+
+  /** @private */
+  _resetFatalSuppression(flood) {
+    flood.suppressed = 0;
+    flood.firstAt = null;
+    flood.lastAt = null;
+    flood.firstText = null;
+  }
+
+  /**
+   * U58: summeringsraden. Bär antalet, tidsspannet för de spärrade felen och
+   * det första spärrade felet, eftersom de loggade raderna i fönstret kan ha
+   * gällt helt andra fel.
+   * @private
+   */
+  _fatalFloodSummary(flood) {
+    let span = '';
+    try {
+      span = ` ${new Date(flood.firstAt).toISOString()}–${new Date(flood.lastAt).toISOString()}`;
+    } catch (e) {
+      span = '';
+    }
+    return `[FATAL] Översvämningsspärren höll inne ${flood.suppressed} rader${span} (högst `
+      + `${FATAL_LOG_FLOOD.MAX_PER_WINDOW} per ${FATAL_LOG_FLOOD.WINDOW_MS / 1000} s); `
+      + `första spärrade: ${flood.firstText}`;
+  }
+
+  /**
+   * U58: en rad, högst 200 tecken, om ett fel eller ett godtyckligt kastat
+   * värde. Får aldrig kasta: ett fel med kastande message, toString eller
+   * getter ger en fast text.
+   * @private
+   */
+  _describeFatalCause(cause) {
+    try {
+      let text;
+      if (cause instanceof Error) {
+        const name = typeof cause.name === 'string' && cause.name ? cause.name : 'Error';
+        const message = typeof cause.message === 'string' ? cause.message : '';
+        text = message ? `${name}: ${message}` : name;
+      } else if (cause !== null && typeof cause === 'object') {
+        text = Object.prototype.toString.call(cause);
+      } else {
+        text = String(cause);
+      }
+      // Kort, ny kopia först: en slice av en stor sträng håller hela
+      // ursprungssträngen vid liv (V8), och normaliseringen ska inte gå över
+      // megabyte. Array.from(...).join('') ger en ny, platt sträng och kapar
+      // på hela tecken.
+      const head = Array.from(String(text).slice(0, 400)).join('');
+      return Array.from(head.replace(/\s+/g, ' ').trim()).slice(0, 200).join('');
+    } catch (e) {
+      return '(felet gick inte att beskriva)';
+    }
+  }
+
+  /**
+   * U58: loggningen i krockskyddet får aldrig kasta ut ur hanteraren. Ett kast
+   * inifrån uncaughtException-hanteraren avslutar annars processen, och ett
+   * loggfel ska inte ta ned appen. Kastet räknas, det loggas inte.
+   * @private
+   */
+  _writeFatal(...args) {
+    try {
+      this.error(...args);
+    } catch (e) {
+      this._fatalLogFailures++;
+    }
   }
 
   /**
