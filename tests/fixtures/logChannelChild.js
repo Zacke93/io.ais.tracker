@@ -12,6 +12,8 @@
  *   'loggar'    – bara loggrader under livstiden
  *   'kast'      – dessutom ett ofångat fel (ett verkligt fel, inte loggkanalens)
  *   'avvisning' – dessutom ett ofångat avvisat löfte
+ * Med U58_SLUT=naturligt avslutas barnet inte med process.exit(0) efter
+ * onUninit utan får ta slut av sig själv.
  * Med argv[3] = 'utan-stromlyssnare' tas appens error-lyssnare på stdout och
  * stderr bort efter onInit, så att bara krockskyddets egna skydd återstår
  * (slingan måste då brytas av översvämningsspärren).
@@ -20,6 +22,7 @@
  * fel → loggning → skrivfel …), så barnet kom aldrig fram till "klar".
  */
 
+require('./u58Vakt');
 const fs = require('fs');
 const path = require('path');
 const Module = require('module');
@@ -85,7 +88,10 @@ async function main() {
   report(`sparr ${JSON.stringify(app._fatalFlood || null)}`);
   await app.onUninit();
   report('klar');
-  // Som Homey: processen tas ned direkt efter onUninit.
+  // Som Homey: processen tas ned direkt efter onUninit. Med
+  // U58_SLUT=naturligt får processen i stället ta slut av sig själv, så att
+  // den kända gränsen (skrivfel efter avregistreringen) syns.
+  if (process.env.U58_SLUT === 'naturligt') return;
   process.exit(0);
 }
 

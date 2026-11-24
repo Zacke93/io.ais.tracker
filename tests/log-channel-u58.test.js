@@ -18,6 +18,7 @@ const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
 
 const CHILD = path.join(__dirname, 'fixtures', 'logChannelChild.js');
+const VAKT = path.join(__dirname, 'fixtures', 'u58Vakt.js');
 // Barnet går på under en sekund på en ledig maskin. Gränsen är generös så att
 // testet håller under last; en slinga snurrar ändå tills den dödas.
 const CHILD_LIMIT_MS = 30000;
@@ -129,6 +130,28 @@ describe('U58 del 1: appen går klart med trasig loggkanal (barnprocess)', () =>
     expect(flood.logged).toBe(10);
     expect(flood.suppressed).toBeGreaterThan(0);
   });
+
+  // KÄND GRÄNS (låst som den är, se ARCHITECTURE om krockskyddet): sista raden
+  // i onUninit skrivs efter att lyssnarna tagits bort. Är stdout trasig kommer
+  // skrivfelet när ingen lyssnare finns kvar, och processen avslutas med ett
+  // ofångat fel (slutkod 1), ordnat och utan slinga. Ändras det här utfallet
+  // ska gränsen och dokumentationen ses över.
+  test('känd gräns: trasig stdout vid nedstängning avslutar processen med slutkod 1, utan slinga', async () => {
+    const r = await spawnAndWait([CHILD, 'loggar'], { closed: ['stdout'], env: { REPLAY_VERBOSE: '', U58_SLUT: 'naturligt' } });
+    expect(r.timedOut).toBe(false);
+    expect(r.report).toMatch(/^klar$/m);
+    expect(r.code).toBe(1);
+  });
+
+  test('motfall till gränsen: trasig stderr eller hel kanal vid nedstängning ger slutkod 0', async () => {
+    for (const closed of [['stderr'], []]) {
+      // eslint-disable-next-line no-await-in-loop
+      const r = await spawnAndWait([CHILD, 'loggar'], { closed, env: { REPLAY_VERBOSE: '', U58_SLUT: 'naturligt' } });
+      expect(r.timedOut).toBe(false);
+      expect(r.report).toMatch(/^klar$/m);
+      expect(r.code).toBe(0);
+    }
+  });
 });
 
 describe('U58 del 3: en kvarglömd verbos replay går klart med stängd stderr', () => {
@@ -145,7 +168,7 @@ describe('U58 del 3: en kvarglömd verbos replay går klart med stängd stderr',
     const file = path.join(dir, 'omstart.jsonl');
     fs.writeFileSync(file, `${lines.join('\n')}\n`);
     try {
-      const r = await spawnAndWait([path.join(__dirname, 'replay-validation', 'replayRunner.js'), file], {
+      const r = await spawnAndWait(['-r', VAKT, path.join(__dirname, 'replay-validation', 'replayRunner.js'), file], {
         closed: ['stderr'], stdio: ['ignore', 'pipe', 'pipe'], env: { REPLAY_VERBOSE: '1' },
       });
       expect(r.timedOut).toBe(false);
@@ -263,6 +286,79 @@ describe('U58 del 2: krockskyddet och lyssnarstädningen', () => {
       [expect.stringMatching(/^\[FATAL\] Översvämningsspärren höll inne 15 rader/)],
       ['[FATAL] Uncaught exception:', next],
     ]);
+  });
+
+  test('summeringen namnger skredet också när de tio loggade raderna var andra fel', async () => {
+    await app.onInit();
+    app.error.mockClear();
+    for (let i = 0; i < 10; i++) app._onUncaughtException(new Error(`annat fel ${i}`));
+    jest.setSystemTime(Date.now() + 2000);
+    for (let i = 0; i < 19; i++) {
+      app._onUncaughtException(new Error(`SKRED nr ${i + 11}`));
+      jest.setSystemTime(Date.now() + 1000);
+    }
+    expect(app.error).toHaveBeenCalledTimes(10);
+    jest.setSystemTime(new Date('2026-11-24T10:01:30Z'));
+    app.error.mockClear();
+    app._onUncaughtException(new Error('senare'));
+    const summary = app.error.mock.calls[0][0];
+    expect(summary).toBe('[FATAL] Översvämningsspärren höll inne 19 rader '
+      + '2026-11-24T10:00:02.000Z–2026-11-24T10:00:20.000Z (högst 10 per 60 s); '
+      + 'första spärrade: ofångat fel Error: SKRED nr 11');
+    expect(summary).not.toMatch(/står ovan/);
+  });
+
+  test('ovanliga kastade värden ger en kort rad och kastar aldrig ut ur krockskyddet', async () => {
+    await app.onInit();
+    const badMessage = new Error('x');
+    Object.defineProperty(badMessage, 'message', {
+      get() {
+        throw new Error('getter kastar');
+      },
+    });
+    const badTag = {
+      get [Symbol.toStringTag]() {
+        throw new Error('tagg kastar');
+      },
+    };
+    const cases = [
+      ['uncaught', new Error(), 'ofångat fel Error'],
+      ['uncaught', 'sträng', 'ofångat fel sträng'],
+      ['uncaught', null, 'ofångat fel null'],
+      ['uncaught', undefined, 'ofångat fel undefined'],
+      ['uncaught', { a: 1 }, 'ofångat fel [object Object]'],
+      ['uncaught', badMessage, 'ofångat fel (felet gick inte att beskriva)'],
+      ['uncaught', badTag, 'ofångat fel (felet gick inte att beskriva)'],
+      ['uncaught', new TypeError(`rad ett\nrad två ${'x'.repeat(300)}`), `ofångat fel TypeError: rad ett rad två ${'x'.repeat(300)}`.slice(0, 12 + 200)],
+      ['rejection', 'sträng', 'avvisat löfte sträng'],
+      ['rejection', null, 'avvisat löfte null'],
+      ['rejection', badMessage, 'avvisat löfte (felet gick inte att beskriva)'],
+    ];
+    for (const [kind, cause, expected] of cases) {
+      jest.setSystemTime(Date.now() + 61 * 1000);
+      for (let i = 0; i < 10; i++) app._onUncaughtException(new Error(`fyll ${i}`));
+      const fire = kind === 'uncaught'
+        ? () => app._onUncaughtException(cause)
+        : () => app._onUnhandledRejection(cause, Promise.resolve());
+      expect(fire).not.toThrow();
+      jest.setSystemTime(Date.now() + 61 * 1000);
+      app.error.mockClear();
+      expect(() => app._onUncaughtException(new Error('nästa'))).not.toThrow();
+      const summary = app.error.mock.calls[0][0];
+      expect(summary.endsWith(`första spärrade: ${expected}`)).toBe(true);
+      expect(summary).not.toMatch(/\n/);
+    }
+  });
+
+  test('enstaka fel: inga summeringsrader och inga sparade fel', async () => {
+    await app.onInit();
+    app.error.mockClear();
+    for (let i = 0; i < 10; i++) app._onUncaughtException(new Error(`fel ${i}`));
+    jest.setSystemTime(Date.now() + 61 * 1000);
+    app._onUncaughtException(new Error('fel 10'));
+    expect(app.error).toHaveBeenCalledTimes(11);
+    expect(app.error.mock.calls.every((c) => c[0] === '[FATAL] Uncaught exception:')).toBe(true);
+    expect(app._fatalFlood.firstText).toBeNull();
   });
 
   test('undertryckta rader summeras vid onUninit när loggkanalen är hel', async () => {

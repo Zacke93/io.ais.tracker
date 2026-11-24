@@ -463,7 +463,9 @@ class AISBridgeApp extends Homey.App {
     this._removeGlobalErrorHandlers(); // en tidigare onInit utan onUninit
     this._logChannelErrors = { stdout: 0, stderr: 0 };
     this._fatalLogFailures = 0;
-    this._fatalFlood = { windowStart: null, logged: 0, suppressed: 0 };
+    this._fatalFlood = {
+      windowStart: null, logged: 0, suppressed: 0, firstAt: null, lastAt: null, firstText: null,
+    };
     this._onStdoutError = () => {
       this._logChannelErrors.stdout++;
     };
@@ -471,11 +473,11 @@ class AISBridgeApp extends Homey.App {
       this._logChannelErrors.stderr++;
     };
     this._onUncaughtException = (err) => {
-      this._logFatal('[FATAL] Uncaught exception:', err);
+      this._logFatal('ofångat fel', err, '[FATAL] Uncaught exception:', err);
       // Logga men exit inte - låt process fortsätta om möjligt
     };
     this._onUnhandledRejection = (reason, promise) => {
-      this._logFatal('[FATAL] Unhandled rejection at:', promise, 'reason:', reason);
+      this._logFatal('avvisat löfte', reason, '[FATAL] Unhandled rejection at:', promise, 'reason:', reason);
       // Logga men exit inte - låt process fortsätta om möjligt
     };
     process.stdout.on('error', this._onStdoutError);
@@ -15162,9 +15164,9 @@ class AISBridgeApp extends Homey.App {
     const flood = this._fatalFlood;
     const channel = this._logChannelErrors;
     if (flood && flood.suppressed > 0 && channel && channel.stdout === 0 && channel.stderr === 0) {
-      this._writeFatal(this._fatalFloodSummary(flood.suppressed));
-      flood.suppressed = 0;
+      this._writeFatal(this._fatalFloodSummary(flood));
     }
+    if (flood) this._resetFatalSuppression(flood);
     // F54: avregistrera process-nivå-lyssnarna (annars läcker de över omstart)
     this._removeGlobalErrorHandlers();
 
@@ -15199,25 +15201,35 @@ class AISBridgeApp extends Homey.App {
 
   /**
    * U58: krockskyddets loggning. Högst FATAL_LOG_FLOOD.MAX_PER_WINDOW rader per
-   * fönster; resten räknas och summeras i en rad när nästa fönster öppnas
-   * (eller i onUninit). Med fungerande loggkanal och enstaka fel är utskriften
-   * exakt densamma som före U58.
+   * fönster; resten räknas och summeras i en rad när nästa fel kommer efter
+   * fönstret (eller i onUninit). Med fungerande loggkanal och enstaka fel är
+   * utskriften exakt densamma som före U58.
+   * @param {string} kind - 'ofångat fel' eller 'avvisat löfte' (för summeringen)
+   * @param {*} cause - felet eller avvisningsorsaken (sparas bara som kort text)
+   * @param {...*} args - raden till this.error, oförändrad
    * @private
    */
-  _logFatal(...args) {
+  _logFatal(kind, cause, ...args) {
     const flood = this._fatalFlood;
     const now = Date.now();
-    // Nytt fönster när det förra löpt ut, eller när klockan hoppat bakåt
-    // (annars kunde spärren tysta längre än ett fönster).
+    // Nytt fönster när det förra löpt ut, eller när klockan hoppat bakåt förbi
+    // fönstrets start. Ett mindre hopp bakåt förlänger fönstret med hoppets
+    // storlek, alltid till under två fönster.
     if (flood.windowStart === null || now < flood.windowStart
       || now - flood.windowStart >= FATAL_LOG_FLOOD.WINDOW_MS) {
-      const { suppressed } = flood;
+      if (flood.suppressed > 0) this._writeFatal(this._fatalFloodSummary(flood));
+      this._resetFatalSuppression(flood);
       flood.windowStart = now;
       flood.logged = 0;
-      flood.suppressed = 0;
-      if (suppressed > 0) this._writeFatal(this._fatalFloodSummary(suppressed));
     }
     if (flood.logged >= FATAL_LOG_FLOOD.MAX_PER_WINDOW) {
+      // Bara en kort sträng sparas, aldrig felobjektet (inga stora objekt
+      // hålls vid liv av spärren).
+      if (flood.suppressed === 0) {
+        flood.firstAt = now;
+        flood.firstText = `${kind} ${this._describeFatalCause(cause)}`;
+      }
+      flood.lastAt = now;
       flood.suppressed++;
       return;
     }
@@ -15226,9 +15238,53 @@ class AISBridgeApp extends Homey.App {
   }
 
   /** @private */
-  _fatalFloodSummary(suppressed) {
-    return `[FATAL] Översvämningsspärren höll inne ${suppressed} rader (högst `
-      + `${FATAL_LOG_FLOOD.MAX_PER_WINDOW} per ${FATAL_LOG_FLOOD.WINDOW_MS / 1000} s); de första står ovan`;
+  _resetFatalSuppression(flood) {
+    flood.suppressed = 0;
+    flood.firstAt = null;
+    flood.lastAt = null;
+    flood.firstText = null;
+  }
+
+  /**
+   * U58: summeringsraden. Bär antalet, tidsspannet för de spärrade felen och
+   * det första spärrade felet, eftersom de loggade raderna i fönstret kan ha
+   * gällt helt andra fel.
+   * @private
+   */
+  _fatalFloodSummary(flood) {
+    let span = '';
+    try {
+      span = ` ${new Date(flood.firstAt).toISOString()}–${new Date(flood.lastAt).toISOString()}`;
+    } catch (e) {
+      span = '';
+    }
+    return `[FATAL] Översvämningsspärren höll inne ${flood.suppressed} rader${span} (högst `
+      + `${FATAL_LOG_FLOOD.MAX_PER_WINDOW} per ${FATAL_LOG_FLOOD.WINDOW_MS / 1000} s); `
+      + `första spärrade: ${flood.firstText}`;
+  }
+
+  /**
+   * U58: en rad, högst 200 tecken, om ett fel eller ett godtyckligt kastat
+   * värde. Får aldrig kasta: ett fel med kastande message, toString eller
+   * getter ger en fast text.
+   * @private
+   */
+  _describeFatalCause(cause) {
+    try {
+      let text;
+      if (cause instanceof Error) {
+        const name = typeof cause.name === 'string' && cause.name ? cause.name : 'Error';
+        const message = typeof cause.message === 'string' ? cause.message : '';
+        text = message ? `${name}: ${message}` : name;
+      } else if (cause !== null && typeof cause === 'object') {
+        text = Object.prototype.toString.call(cause);
+      } else {
+        text = String(cause);
+      }
+      return text.replace(/\s+/g, ' ').trim().slice(0, 200);
+    } catch (e) {
+      return '(felet gick inte att beskriva)';
+    }
   }
 
   /**
