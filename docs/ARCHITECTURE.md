@@ -3168,6 +3168,23 @@ lägre under rycket och den nya väntan i 25 världar (28,5 min, största sänkn
 verkliga avgången i 120 världar (126 min, till exempel "om 29" → "om 5" mot
 sanningen 3,5).
 
+**Känd gräns: ingen avgång ur kryp (U60 avstått 2026-11-24).** Familj E:s avgång
+kräver buffrade sampel under 0,5 kn. En båt som kryper i kön (0,5–0,99 kn) och
+sedan sätter fart får därför inget avgångsgolv, och första siffran räknas på
+buffertens snitt: KINNE (fältprov 2, 22/11) fick "om 10" där 3,6 återstod och
+kortet "om 8" där 2,2 återstod. En regel som känner igen avgången också ur kryp
+(alla buffrade sampel under 1 kn, nytt sampel minst 2 kn, på platsen och närmare
+målbron) prövades och avstods, med U56:s lärdom: ett ryck i kön går inte att
+skilja från avgången. I rycksvepet (2 112 byggda världar) gav den klart för låg
+text (mer än 2 min) där dagens kod inte hade det i 72,5 min i 32 världar, upp
+till 16 min lägre än i dag, och en enstaka felaktig fix (fartspik eller
+positionshopp) räckte för upp till 14 min. Den avstådda nyttan är främst KINNE-
+fallet ovan. Dagens beteende är låst som känd gräns i
+`tests/u60-kryp-avgang.test.js` (ingen avgång ur kryp; LA FEMME-klassen orörd)
+och i scenarierna "kryp-0,7kn-i-kön-… (känd gräns, U60 avstått)" och
+"kryp-0,7kn-ryck-60m-och-ny-väntan (känd gräns, U60 avstått)"; en krypregel
+fäller dem och ska låsas om först efter ett nytt rycksvep.
+
 Till familj E2 (användarbeslut U20, 2026-11-04): ETA-oscillationen vid
 inbromsning (buggjägarens F06, K6:s dubbla EMA mot den binära
 3-minutersgränsen) och 21h-knivseggen (F07, RC4-clampen mot en extrapolerad

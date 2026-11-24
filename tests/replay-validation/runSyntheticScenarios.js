@@ -589,7 +589,9 @@ const U52_SCENARIOS = [
  *    med maxOverMin, högst så mycket för hög. Med kortgränserna prövas också
  *    varje öppningskort för bron i fönstret. Minst en text (och, med
  *    kortgränser, ett kort) måste kunna dömas. Kräver en ensam båt mot bron:
- *    hela texten tillskrivs henne.
+ *    hela texten tillskrivs henne. Med minErrMin (KÄND GRÄNS, U60 avstått)
+ *    måste minst en text i fönstret ligga minst så många minuter för HÖGT:
+ *    dagens fel låses, så att en regel som rättar det låses om medvetet.
  */
 /**
  * U57 (2026-11-23): transit i 5,2 kn mot bron `B` i riktningen `dir` ('S'/'N'),
@@ -5949,6 +5951,76 @@ const SCENARIOS = [
     events: [{ ctrl: 'restart', atOffsetS: 900 }],
     expect: { departureEta: { bridge: 'Stridsbergsbron', maxOverMin: 2, maxUnderMin: 2 } },
   },
+  // ---------------------------------------------------------------------------
+  // KÄND GRÄNS (U60 avstått 2026-11-24): ingen avgång ur kryp. KINNE-formen:
+  // norrut kryp 0,7 kn från 600 till 320 m söder om Järnvägsbron, sedan 2,1, 3,7
+  // och 5 kn (respektive direkt 4,5 kn). Familj E kräver buffrade sampel under
+  // 0,5 kn, så första siffran efter krypet räknas på buffertens snitt och blir
+  // för hög: i dag "om 13" respektive "om 10" när 4,7 och 4,1 återstod, kortet
+  // 7 och 8 när 2,7 och 3,1 återstod. minErrMin låser att felet finns (minst
+  // 4 min för högt); övre gränserna låser att det inte växer. En regel som
+  // känner igen avgången ur kryp fäller scenarierna och ska låsa om dem medvetet,
+  // efter rycksvepet (ARCHITECTURE §8 e, "Känd gräns: ingen avgång ur kryp").
+  // ---------------------------------------------------------------------------
+  ...[[6001, 'stegvis'], [6002, 'direkt']].map(([seed, how]) => ({
+    name: `kryp-0,7kn-i-kön-söder-om-Järnvägsbron-avgång-${how} (känd gräns, U60 avstått)`,
+    seed,
+    vessels: [{
+      mmsi: `9${seed}0001`,
+      name: `SYNT-U60-${how === 'direkt' ? 'DIR' : 'KRYP'}`,
+      startS: METRICS.cum[2] - 600,
+      legs: [
+        { toS: METRICS.cum[3] - 900, speedKn: 3.9, intervalS: 60 },
+        { toS: METRICS.cum[3] - 600, speedKn: 1.3, intervalS: 65 },
+        { toS: METRICS.cum[3] - 320, speedKn: 0.7, intervalS: 65 },
+        ...(how === 'direkt' ? [{ toS: METRICS.cum[4] + 400, speedKn: 4.5, intervalS: 60 }] : [
+          { toS: METRICS.cum[3] - 270, speedKn: 2.1, intervalS: 60 },
+          { toS: METRICS.cum[3] - 160, speedKn: 3.7, intervalS: 60 },
+          { toS: METRICS.cum[4] + 400, speedKn: 5, intervalS: 60 },
+        ]),
+      ],
+    }],
+    expect: {
+      etaTruthAlong: [{
+        mmsi: `9${seed}0001`,
+        fromS: METRICS.cum[3] - 319,
+        toS: METRICS.cum[4],
+        bridge: 'Stridsbergsbron',
+        maxUnderMin: 2,
+        maxOverMin: 10,
+        minErrMin: 4,
+        cardMaxUnderMin: 2,
+        cardMaxOverMin: 6,
+      }],
+    },
+  })),
+  // Motfallet som fällde U60 (U56:s lärdom): ryck i kön och ny väntan. Kryp
+  // 0,7 kn, ryck 60 m i 2,5 kn och tio minuter ny väntan. I dag visar texten
+  // under rycket "om 12 → 10" mot sanningen 16 (högst 5,2 min för låg). Gränsen
+  // 6 min låser dagens nivå; U60:s krypregel gav "om 5 → 6 → 7" (11,2 min för låg).
+  {
+    name: 'kryp-0,7kn-ryck-60m-och-ny-väntan (känd gräns, U60 avstått)',
+    seed: 6003,
+    vessels: [{
+      mmsi: '960030001',
+      name: 'SYNT-U60-RYCK',
+      startS: METRICS.cum[2] - 600,
+      legs: [
+        { toS: METRICS.cum[3] - 900, speedKn: 3.9, intervalS: 60 },
+        { toS: METRICS.cum[3] - 600, speedKn: 1.3, intervalS: 65 },
+        { toS: METRICS.cum[3] - 380, speedKn: 0.7, intervalS: 65 },
+        { toS: METRICS.cum[3] - 320, speedKn: 2.5, intervalS: 30 },
+        { stopS: 600, stopIntervalS: 65, stopSog: 0.7 },
+        { toS: METRICS.cum[3] - 270, speedKn: 2.1, intervalS: 60 },
+        { toS: METRICS.cum[4] + 400, speedKn: 5, intervalS: 60 },
+      ],
+    }],
+    expect: {
+      etaTruthAlong: [{
+        mmsi: '960030001', fromS: METRICS.cum[3] - 380, toS: METRICS.cum[3] - 300, bridge: 'Stridsbergsbron', maxUnderMin: 6,
+      }],
+    },
+  },
 ];
 
 function runScenario(scenario) {
@@ -6744,6 +6816,10 @@ function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
     }
     const pts = etaTextPoints(result.bridgeTextTransitions, w.bridge, win[0], Math.min(win[1], crossing), crossing);
     if (pts.length === 0) problems.push(`RESTID LÄNGS BANAN: ingen ETA-text för ${w.bridge} att döma i fönstret`);
+    if (Number.isFinite(w.minErrMin) && pts.length > 0 && !pts.some((p) => p.err >= w.minErrMin)) {
+      problems.push(`RESTID LÄNGS BANAN (KÄND GRÄNS): ingen text för ${w.bridge} i fönstret ligger minst `
+        + `${w.minErrMin} min för högt — beteendet har ändrats; lås om medvetet (ARCHITECTURE §8 e)`);
+    }
     for (const p of pts) {
       if (p.err < -w.maxUnderMin || (Number.isFinite(w.maxOverMin) && p.err > w.maxOverMin)) {
         problems.push(`RESTID LÄNGS BANAN: ${new Date(p.t).toISOString()} "${p.label}" mot sann restid `
