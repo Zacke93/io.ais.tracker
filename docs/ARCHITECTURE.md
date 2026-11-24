@@ -2500,7 +2500,8 @@ Flaggor (bärs av `_createVesselObject`-fältlistan, §8a): `_etaIsExtrapolated`
    gräns (granskningen, L7): taket döljer att ETA-kedjans dolda värde sjunker
    långsamt efter ett långt stopp — en båt som driver vid Stallbackabron och
    sedan går 5 kn visade på basen "om 120 → 68" i 13 min där det verkliga var
-   14; nu "ETA okänd" i samma tid. Återhämtningen hör till ETA-omgången. **B6-zombieundantaget**
+   14; nu "ETA okänd" i samma tid. Sedan U59 (2026-11-24) släpps baslinjen från
+   stillheten vid belagd avgång (§8 e, "Efter ett långt stopp"). **B6-zombieundantaget**
    (:134–151): fartyg vars target redan ligger i `passedBridges` räknas i
    antalet men driver varken imminent eller lead-ETA (isZombie :134–135; lead
    väljs ur zombie-fria mängden :136–138). Lead-båt = lägst giltig ETA, annars
@@ -3056,7 +3057,8 @@ U55 i praktiken: en `en-route`-båt som stannar långt från bron tappar målbro
 minuter gått, så grenen gäller främst `stallbacka-waiting`. Långsam drift
 (U35) är oförändrad. Efter ett långt stopp vid Stallbackabron står ETA-kedjans
 dolda värde högt (fartgolvet 0,5 kn); det visas som "ETA okänd" (U54) tills
-det sjunkit under 60 min, i stället för "om 110 minuter". Ett
+det sjunkit under 60 min, i stället för "om 110 minuter"; sedan U59 släpps det
+värdet när båten belagt går (stycket "Efter ett långt stopp" nedan). Ett
 fartsampel utan förflyttning lämnar inte läget (granskningen, H2: med "ett
 sampel ≥ 1 kn släpper" blinkade texten vid varje sampel efter 30 min stillhet),
 och en krypare lämnar det efter 50 m (H1: förut stod hon som "ETA okänd" ända
@@ -3109,13 +3111,53 @@ tog 16 min). Det är ett verktygsfynd, inte en ändring i vad användaren ser.
 "Två båtar … om 5" → "om 13" och räknar sedan ned efter den gående båten. Det
 är ett synligt hopp uppåt, men rättare: den stilla båtens frusna siffra ersätts
 (fel −6,7 → +2,3 min mot sanningen 10,7/12,0).
-(3) **Siffran efter ett långt stopp är inte rättad av U30:** 45 min stilla och
-sedan 8 kn ger "om 18–20" mot sanningen 1,4 min, lika på basen. Den kommer ur
-kalkylatorns historik, inte ur den dolda publiceringsbaslinjen; uppföljning i
-ETA-etappen (avgångskontext efter långt stopp).
+(3) **Siffran efter ett långt stopp rättas inte av U30** utan av U59 (stycket
+nedan): den kommer ur kalkylatorns historik och den dolda publiceringsbaslinjen.
 (4) **Långsam drift 0,1–0,3 kn** växlar mellan "ETA okänd" och basens siffra,
 med minst fem minuter mellan inträdena. Beteendet står kvar tills ägaren
 säger annat.
+
+**Efter ett långt stopp räknas restiden om från avgången (U59, 2026-11-24).**
+En båt som ligger still 20 min 30 m norr om Stallbackabron och sedan går i 5 kn
+mot Stridsbergsbron (sann restid 14,6 min) visade "ETA okänd" i sju minuter och
+sedan "om 59" när sju minuter återstod, och kortet "om 53"; efter 45 min stopp
+"om 59 → 45". Fältprov 2: PRICKBJORN 19/11 (kö norr om Järnvägsbron, målbro
+Klaffbron) "om 9" och kortet "om 9 minuter" när 3,2 respektive 3,6 återstod.
+Orsaken: under stoppet räknar kedjan på fartgolvet 0,5 kn, och efter avgången
+försvaras det höga värdet av outlierskyddets blandning, `ETA_MOVING_CLAMP` (ett
+fall större än 15 min lyfts tillbaka till förra − 5) och EMA:n, medan
+publiceringsklampens dolda baslinje har följt det höga värdet under U30-läget.
+Felet syns bara när stoppet har en beräkningslucka över 3 min (gap-reseten);
+annars klarar kedjan sig.
+*Regeln* (`ProgressiveETACalculator._releaseStillBaseline`, konstanten
+`STILL_RELEASE_MIN_SOG_KN`): på en ren, färsk position med fart minst 2 kn,
+efter belagd stillhet — familj E:s avgångskontext eller U30-läget (samma målbro,
+en fix nyare än ankarpunkten) — och närmare målbron än där båten låg, när förra
+värdet är minst 1,5 gånger rå-ETA:n (`1 + _monotonicThresholdPercent`,
+monotoniskyddets gräns i andra riktningen), töms kalkylatorns historik och
+publiceringsklampen får samma engångssignal som ANTJE/MISTRAL-släppet
+(`_etaWaitingBaselineRelease`, bara sänkning). Med tom historik (gap-reset i
+samma sampel) släpps bara klampen, och bara efter familj E:s avgång, vars rå-ETA
+räknas utan väntans sampel. Beviset förbrukas: ett släpp per stillhet. En båt
+som bara saktar in har inget bevis och berörs inte. 2 kn är beslutets gräns och
+samma tal som `ETA_APPROACH_LIMIT` och VesselDataService:s aktivitetsstämpel.
+*Mätt* (docs/VALIDATION.md §ETA-mätharnessen, "U59"): `measure:eta` oförändrad i
+alla 3 182 påståenden; inga låsta rader; k1 och k3 ändrar två kort, två notiser
+och fyra textrader (minutsiffror, ingen tid, bro eller antal).
+*Kända gränser:* (1) Utan familj E-avgång (fartbufferten har efter luckan bara
+ett stillasampel) är den första siffran fortfarande 6–9 min för hög i en minut
+("om 21" mot 14,6). (2) En båt som accelererar och stannar igen får siffran
+från avgången och sedan den vanliga uppräkningen under den nya väntan ("om 20 →
+23" mot sanningen 30 i fem minuter, där basen dolde det höga värdet som "ETA
+okänd"); efter fem minuter går U30 in igen. (3) Familj E-beviset finns också i
+en kö: en båt som ligger under 0,5 kn och rycker fram i minst 2 kn får redan i
+dag avgångsgolvet, och U59 släpper då baslinjen. I rycksvepet (1 440 byggda
+världar, kö vid Järnvägsbron, Stridsbergsbron och Olidebron) flyttar inget kort i
+tid och inget kort eller ingen notis tillkommer eller försvinner; texten blir
+lägre under rycket och den nya väntan i 25 världar (28,5 min, största sänkning
+5 min, nästan bara där basen redan var mer än 2 min för låg), och rättare vid den
+verkliga avgången i 120 världar (126 min, till exempel "om 29" → "om 5" mot
+sanningen 3,5).
 
 Till familj E2 (användarbeslut U20, 2026-11-04): ETA-oscillationen vid
 inbromsning (buggjägarens F06, K6:s dubbla EMA mot den binära

@@ -507,12 +507,14 @@ const U52_SCENARIOS = [
  * sampel ≥ 1,0 kn efter ett stopp. Texten prövas vid varje övergång och som
  * stående text var 30:e sekund; "strax" (< 3 min) prövas bara mot undre
  * gränsen. Notiser prövas inte.
- *  - departureEta: {bridge, maxOverMin, maxUnderMin} — varje avgång före den
+ *  - departureEta: {bridge, maxOverMin, maxUnderMin, cardMaxOverMin?,
+ *    cardMaxUnderMin?} — varje avgång före den
  *    sanna korsningen av bron döms: från avgången till korsningen (eller nästa
  *    avgång) får ETA-texten ligga högst maxOverMin minuter över och högst
  *    maxUnderMin minuter under den sanna restiden, och första texten efter
  *    avgången måste vara numerisk. Ingen avgång eller ingen ETA-text att döma
- *    är ett FEL, inte ett tyst godkännande.
+ *    är ett FEL, inte ett tyst godkännande. Med kortgränserna (U59) döms också
+ *    varje öppningskort för bron i samma fönster, och minst ett måste finnas.
  *  - creepEta: {bridge, maxUnderMin, maxCardUnderMin} — INFORMATIV LÅSNING
  *    av en känd svaghet (kryp i kön och ny väntan, ARCHITECTURE §8 (e) "Kvar
  *    utanför klassen"). Från första avgången till den sista får ingen
@@ -578,6 +580,16 @@ const U52_SCENARIOS = [
  *  - etaSeenAtLeast: {bridge, min} — minst en text visar "om N minuter" för
  *    bron med N ≥ min (motfallet: en sann lång restid visas).
  *  - unknownSeen: [bro] — minst en text visar "ETA okänd" för bron.
+ *  RESTIDEN MOT DEN SANNA KORSNINGEN (U59, 2026-11-24).
+ *  - etaTruthAlong: [{mmsi, fromS, toS?, durationS?, delayS?, bridge, maxUnderMin,
+ *    maxOverMin?, cardMaxUnderMin?, cardMaxOverMin?}] — i fönstret på båtens
+ *    sanna bana (som waitTextWindows) prövas brons ETA-text mot båtens nästa
+ *    sanna korsning av bron, vid varje övergång och som stående text var 30:e
+ *    s ("strax" bara mot undre gränsen): högst maxUnderMin minuter för låg och,
+ *    med maxOverMin, högst så mycket för hög. Med kortgränserna prövas också
+ *    varje öppningskort för bron i fönstret. Minst en text (och, med
+ *    kortgränser, ett kort) måste kunna dömas. Kräver en ensam båt mot bron:
+ *    hela texten tillskrivs henne.
  */
 /**
  * U57 (2026-11-23): transit i 5,2 kn mot bron `B` i riktningen `dir` ('S'/'N'),
@@ -5799,9 +5811,9 @@ const SCENARIOS = [
         { toS: METRICS.cum[4] - 300, speedKn: 4.5, intervalS: 65 },
       ],
     }],
-    // Efter avgången står ETA-kedjans dolda värde högt (fartgolvet 0,5 kn under
-    // stoppet) och visas över 60 min som "ETA okänd" (U54) tills det sjunkit;
-    // återhämtningen hör till ETA-kedjan, inte till U55.
+    // Efter avgången stod ETA-kedjans dolda värde högt (fartgolvet 0,5 kn under
+    // stoppet) och visades över 60 min som "ETA okänd" (U54) tills det sjunkit;
+    // sedan U59 släpps det vid avgången (scenarierna "… (U59)" nedan).
     expect: {
       stillUnknown: { bridge: 'Stridsbergsbron', afterS: 330 },
       etaNeverAbove: { bridge: 'Stridsbergsbron', max: 60 },
@@ -5822,6 +5834,120 @@ const SCENARIOS = [
       ],
     }],
     expect: { noUnknownDuringStop: { bridge: 'Stridsbergsbron', extraS: 60 } },
+  },
+  // ---------------------------------------------------------------------------
+  // U59 (2026-11-24): efter ett långt stopp räknas restiden om från avgången.
+  // En båt söderut ligger still 30 m norr om Stallbackabron och går sedan i
+  // 5 kn mot Stridsbergsbron (sann restid 14,6 min). Basen visade "ETA okänd"
+  // i sju minuter och sedan "om 59" (20 min stopp), "om 59 → 45" (45 min), och
+  // kortet "om 53" respektive "om 45" när knappt sju minuter återstod. Fröna
+  // är valda så att stoppet har en beräkningslucka över 3 min (gap-reseten och
+  // fartgolvets 120 min); utan luckan klarade basen sig.
+  // ---------------------------------------------------------------------------
+  ...[[5902, 20], [5919, 45]].map(([seed, min]) => ({
+    name: `stilla-${min}min-vid-Stallbackabron-sedan-5kn (U59)`,
+    seed,
+    vessels: [{
+      mmsi: `9059${String(min).padStart(2, '0')}001`,
+      name: `SYNT-U59-STOPP${min}`,
+      startS: METRICS.cum[5] + 900,
+      legs: [
+        { toS: METRICS.cum[5] + 30, speedKn: 5, intervalS: 30 },
+        { stopS: min * 60, stopIntervalS: 60, stopSog: 0 },
+        { toS: METRICS.cum[4] - 400, speedKn: 5, intervalS: 30 },
+      ],
+    }],
+    // Första siffran kan ligga upp till 8 min för högt i en minut: efter luckan
+    // har fartbufferten bara ett stillasampel, så familj E känner inte igen
+    // avgången och det första snittet bär stoppet (känd gräns, ARCHITECTURE §8 e;
+    // samma nivå som basen efter ett kort stopp, se motfallen nedan).
+    expect: {
+      stillUnknown: { bridge: 'Stridsbergsbron', afterS: 330 },
+      departureEta: {
+        bridge: 'Stridsbergsbron', maxOverMin: 8, maxUnderMin: 2, cardMaxOverMin: 2, cardMaxUnderMin: 2,
+      },
+    },
+  })),
+  // Motfall U59: en båt som bara saktar in (0,6, 1 och 2 kn i 8–10 min norr om
+  // Stallbackabron) har inget stillhetsbevis och ska aldrig få en för låg siffra.
+  ...[[5904, 0.6, 480], [5905, 1, 600], [5906, 2, 600]].map(([seed, kn, slowS]) => ({
+    name: `saktar-in-${String(kn).replace('.', ',')}kn-norr-om-Stallbackabron (motfall U59)`,
+    seed,
+    vessels: [{
+      mmsi: `9${seed}0001`,
+      name: `SYNT-U59-SAKTA${seed % 10}`,
+      startS: METRICS.cum[5] + 1200,
+      legs: [
+        { toS: METRICS.cum[5] + 600, speedKn: 5, intervalS: 30 },
+        { toS: METRICS.cum[5] + 600 - kn * 0.5144 * slowS, speedKn: kn, intervalS: 30 },
+        { toS: METRICS.cum[4] - 400, speedKn: 5, intervalS: 30 },
+      ],
+    }],
+    expect: {
+      etaTruthAlong: [{
+        mmsi: `9${seed}0001`, fromS: METRICS.cum[5] + 600, toS: METRICS.cum[4], bridge: 'Stridsbergsbron', maxUnderMin: 2,
+      }],
+    },
+  })),
+  // Motfall U59: ett kort stopp (2 och 5 min) — samma beteende som förut. Den
+  // första minuten efter avgången bär fartbufferten stoppets sampel och visar
+  // "om 20–21" mot sanningen 14 (basens nivå; gränsen låser att den inte växer).
+  ...[[5907, 2], [5908, 5]].map(([seed, min]) => ({
+    name: `stilla-${min}min-vid-Stallbackabron (motfall U59, kort stopp)`,
+    seed,
+    vessels: [{
+      mmsi: `9${seed}0001`,
+      name: `SYNT-U59-KORT${min}`,
+      startS: METRICS.cum[5] + 900,
+      legs: [
+        { toS: METRICS.cum[5] + 30, speedKn: 5, intervalS: 30 },
+        { stopS: min * 60, stopIntervalS: 60, stopSog: 0 },
+        { toS: METRICS.cum[4] - 400, speedKn: 5, intervalS: 30 },
+      ],
+    }],
+    expect: {
+      noUnknownDuringStop: { bridge: 'Stridsbergsbron', extraS: 60 },
+      departureEta: { bridge: 'Stridsbergsbron', maxOverMin: 8, maxUnderMin: 2 },
+    },
+  })),
+  // Motfall U59: AIS-tystnad över avgången (330 m, drygt 2 min). Bara U30-beviset
+  // och tom historik efter gap-reseten: inget släpp, basens nedräkning står kvar.
+  {
+    name: 'stilla-20min-vid-Stallbackabron-tystnad-över-avgången (motfall U59)',
+    seed: 5910,
+    vessels: [{
+      mmsi: '905910001',
+      name: 'SYNT-U59-TYST',
+      startS: METRICS.cum[5] + 900,
+      legs: [
+        { toS: METRICS.cum[5] + 30, speedKn: 5, intervalS: 30 },
+        { stopS: 1200, stopIntervalS: 60, stopSog: 0 },
+        {
+          toS: METRICS.cum[4] - 400, speedKn: 5, intervalS: 30, gapFromS: METRICS.cum[5] + 30, gapToS: METRICS.cum[5] - 300,
+        },
+      ],
+    }],
+    expect: { departureEta: { bridge: 'Stridsbergsbron', maxOverMin: 9, maxUnderMin: 2 } },
+  },
+  // Motfall U59: omstart av appen mitt i stoppet (efter 9 min). Den nya
+  // instansen har ingen baslinje från stillheten och inget bevis; båten syns
+  // igen först när hon går (basens beteende, en INV-14W-WARN på alla kodrötter),
+  // och avgången räknas som för en ny båt. Med REPLAY_MONITORING=1 likadant.
+  {
+    name: 'stilla-20min-vid-Stallbackabron-omstart-mitt-i-stoppet (U59)',
+    seed: 5913,
+    vessels: [{
+      mmsi: '905913001',
+      name: 'SYNT-U59-OMSTART',
+      startS: METRICS.cum[5] + 900,
+      legs: [
+        { toS: METRICS.cum[5] + 30, speedKn: 5, intervalS: 30 },
+        { stopS: 1200, stopIntervalS: 60, stopSog: 0 },
+        { toS: METRICS.cum[4] - 400, speedKn: 5, intervalS: 30 },
+      ],
+    }],
+    events: [{ ctrl: 'restart', atOffsetS: 900 }],
+    expect: { departureEta: { bridge: 'Stridsbergsbron', maxOverMin: 2, maxUnderMin: 2 } },
   },
 ];
 
@@ -6488,6 +6614,27 @@ function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
       });
       if (judged === 0) problems.push(`AVGÅNGS-ETA: ingen avgång före korsningen av ${bridge} att döma`);
       else if (points === 0) problems.push(`AVGÅNGS-ETA: ingen ETA-text för ${bridge} att döma efter avgången`);
+      // U59: öppningskortets minut i samma fönster (avgång till korsning).
+      const { cardMaxOverMin, cardMaxUnderMin } = e.departureEta;
+      if (Number.isFinite(cardMaxOverMin) || Number.isFinite(cardMaxUnderMin)) {
+        let cards = 0;
+        stopEnds.forEach((departure, i) => {
+          const crossing = crossingAfter(departure.aisTimestamp);
+          if (!Number.isFinite(crossing)) return;
+          const end = Math.min(crossing, i + 1 < stopEnds.length ? stopEnds[i + 1].aisTimestamp : Infinity);
+          for (const w of openings.filter((x) => x.bridge === bridge && x.t >= departure.aisTimestamp && x.t < end)) {
+            cards += 1;
+            const err = w.etaMin - (crossing - w.t) / 60000;
+            if ((Number.isFinite(cardMaxOverMin) && err > cardMaxOverMin)
+                || (Number.isFinite(cardMaxUnderMin) && err < -cardMaxUnderMin)) {
+              problems.push(`AVGÅNGS-ETA: öppningskortet ${w.eventId} ${w.iso} eta ${w.etaMin} mot sann restid `
+                + `${((crossing - w.t) / 60000).toFixed(1)} min (fel ${err >= 0 ? '+' : ''}${err.toFixed(1)}, tillåtet `
+                + `−${cardMaxUnderMin ?? '∞'} till +${cardMaxOverMin ?? '∞'})`);
+            }
+          }
+        });
+        if (cards === 0) problems.push(`AVGÅNGS-ETA: inget öppningskort för ${bridge} efter avgången att döma`);
+      }
     }
   }
   // U53 (2026-11-23): textens kö vid en mellanbro.
@@ -6582,6 +6729,39 @@ function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
   for (const bridge of e.unknownSeen || []) {
     if (!transitionsU53.some((x) => bridgeClauseForm(x.text, bridge) === 'okänd')) {
       problems.push(`ETA OKÄND: ingen text visar "ETA okänd" för ${bridge}`);
+    }
+  }
+  // U59 (2026-11-24): restiden mot den sanna korsningen i ett fönster på banan.
+  for (const w of e.etaTruthAlong || []) {
+    const win = alongWindow(w, 'RESTID LÄNGS BANAN');
+    if (!win) continue;
+    const sBridge = METRICS.cum[PATH_INDEX[w.bridge]];
+    const crossing = truthCrossings((truthPaths || {})[w.mmsi] || [], sBridge)
+      .map((c) => BASE_TIME_MS + c.tS * 1000).find((t) => t > win[0]);
+    if (!Number.isFinite(crossing)) {
+      problems.push(`RESTID LÄNGS BANAN: ${w.mmsi} korsar aldrig ${w.bridge} efter fönstrets början`);
+      continue;
+    }
+    const pts = etaTextPoints(result.bridgeTextTransitions, w.bridge, win[0], Math.min(win[1], crossing), crossing);
+    if (pts.length === 0) problems.push(`RESTID LÄNGS BANAN: ingen ETA-text för ${w.bridge} att döma i fönstret`);
+    for (const p of pts) {
+      if (p.err < -w.maxUnderMin || (Number.isFinite(w.maxOverMin) && p.err > w.maxOverMin)) {
+        problems.push(`RESTID LÄNGS BANAN: ${new Date(p.t).toISOString()} "${p.label}" mot sann restid `
+          + `${p.truthMin.toFixed(1)} min (fel ${p.err >= 0 ? '+' : ''}${p.err.toFixed(1)}, tillåtet `
+          + `−${w.maxUnderMin} till +${w.maxOverMin ?? '∞'})`);
+      }
+    }
+    if (Number.isFinite(w.cardMaxOverMin) || Number.isFinite(w.cardMaxUnderMin)) {
+      const cards = openings.filter((x) => x.bridge === w.bridge && x.t >= win[0] && x.t < Math.min(win[1], crossing));
+      if (cards.length === 0) problems.push(`RESTID LÄNGS BANAN: inget öppningskort för ${w.bridge} i fönstret`);
+      for (const c of cards) {
+        const err = c.etaMin - (crossing - c.t) / 60000;
+        if ((Number.isFinite(w.cardMaxOverMin) && err > w.cardMaxOverMin)
+            || (Number.isFinite(w.cardMaxUnderMin) && err < -w.cardMaxUnderMin)) {
+          problems.push(`RESTID LÄNGS BANAN: öppningskortet ${c.eventId} ${c.iso} eta ${c.etaMin} mot sann restid `
+            + `${((crossing - c.t) / 60000).toFixed(1)} min (fel ${err >= 0 ? '+' : ''}${err.toFixed(1)})`);
+        }
+      }
     }
   }
   // U30 (2026-11-15): stilla båt utanför väntzonen och gränserna runt den.

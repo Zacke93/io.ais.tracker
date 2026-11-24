@@ -1523,6 +1523,34 @@ Mätt mot grenen med fartspiksvakten (`omg2/ETA1-S`, inte införd) som bas, i gr
   bevakningen, nyare = högst 10 min äldre) dödas. Kända gränser:
   ARCHITECTURE §8 (e), "Stilla båt utanför väntzonen".
 
+### U59, 2026-11-24: baslinjen från stillheten släpps vid belagd avgång
+
+Mätt mot `5d606eb` (samma appkod som `1b255af`, baslinjen
+`dirigent/omg5/slut/eta/`), påstående för påstående med `allClaims`:
+
+- `measure:eta`: 3 182 av 3 182 påståenden oförändrade (0 bättre, 0 sämre). Inga
+  låsta rader i `replay:all`, synthetic eller openings flyttas.
+- Fältkörningarna: k1 PRICKBJORN 12/11 12:55 "om 11" → "om 8" (sanning 5,0) och
+  kortet 9 → 7 (3,9); k3 PRICKBJORN 19/11 11:23 "om 9" → "om 4" (3,6), 11:24
+  "om 5" → "om 3" (2,4), kortet 9 → 4 (3,6), notisen 11:25 1 → 2 (1,3, sämre) och
+  notisen 20/11 10:22 3 → 2 (omätbar). Notisernas och varningarnas tid, bro och antal är
+  oförändrade.
+- Byggda världar (20 och 45 min stopp vid Stallbackabron, 15 respektive 10 frön):
+  basen fallerar i 4 av 15 och 8 av 10 ("om 59", kortet 45–54); med U59 är kortet
+  "om 7" (sanning 6,3) i alla och första siffran "om 14–24".
+- Rycksvepet (svep i omgång 6, 1 440 världar: kö 250–800 m vid Järnvägsbron
+  norrut, Stridsbergsbron söderut och Olidebron norrut, köfart 0,2 och 0,7 kn, ryck
+  15–150 m i 2–3,5 kn, ny väntan 2–30 min): inget kort flyttar i tid, inget kort
+  och ingen notis tillkommer eller försvinner; 24 kortminuter ändras (19 rättare,
+  5 sämre med 1 min), 5 notisminuter (3 rättare). Texten under rycket och den nya
+  väntan blir lägre i 25 världar (28,5 min, högst 5 min lägre), vid den verkliga
+  avgången rättare i 120 världar (126 min).
+- Regressionstest: `tests/u59-stillhet-avgang.test.js` (varje villkor innanför och
+  utanför) och scenarierna "stilla-20min/45min-vid-Stallbackabron-sedan-5kn
+  (U59)" med motfallen (saktar in 0,6/1/2 kn, kort stopp 2 och 5 min, AIS-tystnad
+  över avgången, omstart mitt i stoppet). Förväntningen `etaTruthAlong` och
+  kortgränserna i `departureEta` är nya.
+
 ## Buggjägaren — diagnosverktyg, INTE en gate (2026-11-04)
 
 `tests/replay-validation/bugHunt/hunt.js` letar fel offline ur de låsta
