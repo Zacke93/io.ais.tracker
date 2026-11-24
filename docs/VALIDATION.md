@@ -902,6 +902,18 @@ Mätarens rena delar (textparser, utpekning, statistik, parräkning) är
 enhetstestade i `tests/eta-accuracy-unit.test.js` (33 tester, körs med
 `npm test`).
 
+**Notisernas restid mäts mot passagen, men betyder ankomst (U61, 2026-11-24).**
+`measure:eta` mäter varje påstående mot nästa linjekorsning. För notiser är det
+fel mått när båten väntar före bron: notisens "beräknad ankomst" avser ankomsten
+till bron eller väntplatsen (ARCHITECTURE, "Vad 'beräknad ankomst' betyder"). M1
+(omgång 6) mätte de 52 notiser i bank och fält där båten sedan väntar: median 1,9
+min fel mot ankomsten, 10,2 mot passagen. Läs därför notisraderna i
+`measure:eta` med det i minnet; en stor notisfelsumma kan vara väntan, inte fel.
+**Öppningskorten med sanning inom 60 min.** Rapporten har sedan U61 tabellen
+"PER PÅSTÅENDETYP (mätta, sanning ≤ 60 min)" (json `total.byKindWithin60`). Bland
+korten står sju där båten sedan låg förtöjd i 2–22 timmar för 79 % av kortens
+felsumma; tabellen visar korten utan dem. Inga andra tal i rapporten ändras.
+
 ### Vad K25 gjorde — det arbetade exemplet på varför bandet, inte summan
 
 Mätning av arbetsträdet (K25 + K19, K6 backad) mot baslinjen ovan, samma

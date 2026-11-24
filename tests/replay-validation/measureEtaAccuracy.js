@@ -1191,6 +1191,10 @@ function buildReport(corpusResults, opts) {
       measuredWithin60: summarize(allMeasured.filter((c) => c.truth <= ROBUST_TRUTH_WINDOW_MIN)),
       status: statusCounts(allClaims),
       byKind: breakdown(allMeasured, (c) => c.kind),
+      // U61 (2026-11-24): per påståendetyp också inom robustfönstret. Bland
+      // öppningskorten står ett fåtal där båten sedan låg förtöjd i timmar för
+      // större delen av felsumman; tabellen visar korten utan dem.
+      byKindWithin60: breakdown(allMeasured.filter((c) => c.truth <= ROBUST_TRUTH_WINDOW_MIN), (c) => c.kind),
       byBridge: breakdown(allMeasured, (c) => c.bridge),
       bySource: breakdown(allMeasured, (c) => c.source),
       textAttribution: mergeCounts(corpusResults.map((r) => r.textStats.byConfidence)),
@@ -1301,6 +1305,14 @@ function renderText(report) {
   L.push('PER PÅSTÅENDETYP (mätta)');
   L.push('-'.repeat(78));
   for (const [k, v] of Object.entries(report.total.byKind)) {
+    L.push(`  ${k.padEnd(14)} n=${fmt(v.n, 5, 0)}  summa|f|=${fmt(v.sumAbsErr, 9, 1)}`
+      + `  median=${fmt(v.medianAbsErr, 6, 2)}  p90=${fmt(v.p90AbsErr, 6, 2)}`
+      + `  bias=${fmt(v.bias, 7, 2)}  ≤2min=${fmt(v.within2, 6, 1)}%`);
+  }
+  L.push('');
+  L.push(`PER PÅSTÅENDETYP (mätta, sanning ≤ ${ROBUST_TRUTH_WINDOW_MIN} min)`);
+  L.push('-'.repeat(78));
+  for (const [k, v] of Object.entries(report.total.byKindWithin60 || {})) {
     L.push(`  ${k.padEnd(14)} n=${fmt(v.n, 5, 0)}  summa|f|=${fmt(v.sumAbsErr, 9, 1)}`
       + `  median=${fmt(v.medianAbsErr, 6, 2)}  p90=${fmt(v.p90AbsErr, 6, 2)}`
       + `  bias=${fmt(v.bias, 7, 2)}  ≤2min=${fmt(v.within2, 6, 1)}%`);
@@ -1476,6 +1488,8 @@ async function main() {
 }
 
 module.exports = {
+  buildReport,
+  renderText,
   installBridgeTextCapture,
   makeStderrCollector,
   collectClaims,

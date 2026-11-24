@@ -923,6 +923,15 @@ dedup-nycklar och trigger-state är orörda.
 Golden-text låser `bridge_text`-capabilityns skrivningar, inte notistexter, så
 dimensionen är per konstruktion blind för `message`; NOLL DIFF över samtliga
 18 korpusar bekräftade det.
+**Vad "beräknad ankomst" betyder (U61, 2026-11-24).** Notisens restid
+(`eta_minutes` och "beräknad ankomst om N minuter") är tiden till båtens ANKOMST
+till bron eller till väntplatsen före bron, inte till passagen: ingen kan veta när
+bron öppnar. Mätt över banken och fältkörningarna k1–k3 (mätspåret M1, omgång 6):
+för de 52 notiser där båten sedan väntar före bron är felet mot ankomsten median
+1,9 min (medel 3,3, 54 % inom 2 min), mot passagen median 10,2 min (medel 16,0);
+för de 645 notiser utan väntan är ankomst och passage samma (median 0,3). Notisernas
+restid har inget tak (högst 21 min i 1 025 notiser; brotextens tak U54 gäller bara
+texten), och notistexten är oförändrad.
 
 **H16 (2026-08-22) — redan-passerad-vakt för trigger-punkten.** Exit-vägen
 (`_triggerExitPointFallback`) har alltid haft vakten "söder om punkten =
