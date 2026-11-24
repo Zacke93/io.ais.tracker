@@ -2554,26 +2554,53 @@ Flaggor (bärs av `_createVesselObject`-fältlistan, §8a): `_etaIsExtrapolated`
    väntande båt dämpar aldrig osedda båtars ETA och lagras aldrig som
    renderat ledarvärde; `vesselSaysStrax` svarar nej för en båt i målbrons
    väntgrupp, så notisen behåller sin siffra som före U33 (U33 gäller båtar
-   under gång). Köbeviset, statusarna, imminent-flaggan (350 m-hysteresen för
-   en köande båt, `_imminentVerdict`), ETA-kedjan och UI-utlösaren
-   (`waitingBridge` jämförs redan mellan fixar) är oförändrade. Kön vid
-   målbron har redan ETA-kedjans hållning `ETA_WAIT_CLAMP` (status `waiting`,
-   96 % av vänttextens minuter i underlaget); `ETA_TEXT_QUEUE_HOLD` gäller som
-   förut bara mellanbroarna. Mätt på banken och fältkörningarna (omgång 8):
-   41 väntor, 1 175 båtminuter vänttext; händelsefacit (notiser, varningar,
-   passager) identiskt i alla körningar. Restidsvärdena skiljer i sju korta
-   stycken i två korpusar, ingen i texten, notiserna eller korten: fler
-   textbyten flyttar nästa UI-cykel, och publiceringstiden är en indata
-   (C12; samma skillnader med det gamla ledarvalet). **Kända gränser:** (a) med en
-   position 5–10 min gammal står vänttexten kvar, också när båten under
-   glappet gått igenom bron (50,5 min i underlaget, samma minuter som förut
-   sa "strax"); (b) ett fix över 1 kn släpper köbeviset för ett stycke, och
-   texten växlar "väntar vid" → "på väg mot …, strax" → "väntar vid" (6
-   stycken, 1,1–7,9 min; förut stod "strax" kvar); (c) blir köarens position
-   äldre än 10 min går hon till gruppen under gång och kan stå under en annan
-   båts siffra ("om 8", "om 15") där förut en annan köares "strax" stod; (d)
-   köaren vid Kajen norr om Klaffbron (U23) har inget köbevis och behåller
-   "strax".
+   under gång). En teoretisk skillnad: för en GPS-hållen köare visar texten den
+   sparade kopian ("väntar vid") medan notisvägen frågar den levande båten, som
+   saknar köbevis, så notisen kan ta U33:s restid fast texten inte säger
+   "strax" (inte sett i någon körning). Köbeviset, statusarna, imminent-flaggan
+   (350 m-hysteresen för en köande båt, `_imminentVerdict`), ETA-kedjan och
+   UI-utlösaren (`waitingBridge` jämförs redan mellan fixar) är oförändrade.
+   Kön vid målbron har redan ETA-kedjans hållning `ETA_WAIT_CLAMP` (status
+   `waiting`, 96 % av vänttextens minuter i underlaget); `ETA_TEXT_QUEUE_HOLD`
+   gäller som förut bara mellanbroarna. Mätt på banken och fältkörningarna
+   (omgång 8): 41 väntor, 1 175 båtminuter vänttext; händelsefacit (notiser,
+   varningar, passager) identiskt i alla körningar. Textövergångarna blir fler
+   i de tätaste körningarna (42h 287 → 338, both-21h 273 → 311); inget av appens
+   flowkort (`boat_near`, `bridge_opening_soon`, `boat_at_bridge`) läser texten,
+   som bara skrivs till capabilityn `bridge_text` och token `global_bridge_text`.
+   Restidsvärdena skiljer i sju korta stycken i två korpusar, ingen i texten,
+   notiserna eller korten, och några textrader byter tidpunkt: en publicerad
+   textändring ger en uppdatering som följer inom några sekunder 200 ms
+   mikroanstånd (`_shouldApplyMicroGrace`), och i replay-harnessen varar
+   anståndet tills klockan stegats till nästa AIS-rad (6–30 s) och blockerar
+   halvminutsticken under tiden. I fält blir skillnaden några tiondels
+   sekunder. Samma skillnader kommer med det gamla ledarvalet. **Kända
+   gränser:** (a) med en position 5–10 min gammal står vänttexten kvar, också
+   när båten under glappet går igenom bron: i just passageminuterna var det
+   gamla "strax" rätt, och texten säger nu att båten fortfarande väntar (50,5 min
+   i underlaget, nästan alla under ett radioglapp; ANTARES 10/7 8–9 min). Att
+   kräva en position högst 5 min gammal för vänttexten prövades och avstods:
+   det tar bort mer sann vänttext (101 min) än felaktig (29 min passerad); (b)
+   ett fix över 1 kn släpper köbeviset för ett stycke, och texten växlar
+   "väntar vid" → "på väg mot …, strax" → "väntar vid" (6 stycken, 1,1–7,9 min;
+   förut stod "strax" kvar); (c) blir köarens position äldre än 10 min går hon
+   till gruppen under gång och kan stå under en annan båts siffra ("om 8",
+   "om 15") där förut en annan köares "strax" stod; (d) gruppen under gång visar
+   nu sin egen restid till bron eller väntplatsen (samma betydelse som U61 ger
+   notisen), och den bortser från kön framför (ingen kömodell): MARY 7/8
+   10:39–10:57 "om 18 → 4 minuter" bredvid "Tre båtar väntar vid
+   Stridsbergsbron" och korsade efter 48–66 min, 265614580 7/8 13:31 "om 15/14"
+   mot 43 min, 211327190 14/7 08:36 "om 4" mot 25 min; i 42h är 20,5 av 39 sådana
+   minuter fel med mer än 10 min (granskningens mätning). Förut stod "strax" i
+   samma minuter, som också var fel; (e) köaren vid Kajen norr om Klaffbron
+   (U23) har inget köbevis och behåller "strax" genom imminent-flaggan. Köbeviset
+   kan inte användas där: `VesselDataService._noteBridgeQueueApproach` tar bort
+   anflygningsposten i en kajzon under 0,5 kn (och `queueBridge` ger null i
+   zonen). Granskningens mätning: 19 båtar med målbro Klaffbron syns i texten i
+   Kajens kapsel, 88 min, varav 60,6 min med eget "strax"; strikt stilla
+   (två fix i stillhet) 7,8 min; ingen ligger kvar över natten. Dirigentens
+   beslut 2026-11-24: inget byggs nu; frågan tas upp med ägaren efter fältprov 3
+   om Kajen-köer syns där.
    **Kajzonerna och kantmarginalen** (granskningen av U53, M1): kajzonen "Kajen
    norr om Klaffbron" täcker farleden 644–788 m söder om Järnvägsbron, så bandet
    ger i praktiken vänttext 350–644 m (och 788–800 m) söder om bron. En redan

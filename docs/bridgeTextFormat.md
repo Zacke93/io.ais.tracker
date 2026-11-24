@@ -80,8 +80,12 @@ statusarna, notiserna och öppningsvarningarna är oförändrade; notisens siffr
 följer inte ”strax” för en båt i vänttexten (U33 gäller bara båtar under gång).
 Kända gränser (mätta på banken och fältkörningarna, docs/ARCHITECTURE.md §5):
 med en position 5–10 min gammal står vänttexten kvar, också när båten under
-glappet har gått igenom bron; ett fartfix över 1 kn släpper vänttexten för ett
-stycke (”strax” en till några minuter, sedan ”väntar vid” igen).
+glappet har gått igenom bron (där var det gamla ”strax” rätt); ett fartfix över
+1 kn släpper vänttexten för ett stycke (”strax” en till några minuter, sedan
+”väntar vid” igen); gruppen under gång bredvid en väntgrupp visar sin restid
+till bron eller väntplatsen, som bortser från kön framför (ingen kömodell),
+till exempel ”om 4 minuter” bredvid ”Tre båtar väntar vid Stridsbergsbron” för
+en båt som kom igenom först 48 min senare.
 
 **Väntan vid en mellanbro (U53, 2026-11-23):** en båt som belagt ligger still
 eller kryper före en mellanbro på väg mot målbron (Järnvägsbron på väg mot

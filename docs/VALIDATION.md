@@ -1612,23 +1612,36 @@ docs/bridgeTextFormat.md; följderna: ARCHITECTURE §5). Mätt mot `8f3bd07` på
   resenollställningar, borttagningar, bekräftade väntor) identiskt i alla körningar.
   `replay:openings` och `measure:eta` för notiser (599) och kort (202) oförändrade.
   Båtarnas restidsvärden skiljer i sju korta stycken (20260804-both-21h och
-  20260806-42h, längst 5 min för en båt som inte ledde texten, 15,7 → 15,2): fler
-  textbyten flyttar nästa UI-cykel, och samma skillnader kommer med det gamla
-  ledarvalet, så de hör till publiceringstiden (C12), inte till F07.
+  20260806-42h, längst 5 min för en båt som inte ledde texten, 15,7 → 15,2). Samma
+  skillnader kommer med det gamla ledarvalet, så de hör inte till F07 utan till
+  tidpunkten: en publicerad textändring ger en uppdatering som följer inom några
+  sekunder 200 ms mikroanstånd (`_shouldApplyMicroGrace`), och i harnessen varar
+  anståndet tills klockan stegats till nästa AIS-rad (6–30 s) och blockerar
+  halvminutsticken under tiden. I fält blir skillnaden några tiondels sekunder.
 - Texten ändras i tio låsta korpusar och i k1 och k3: 194 textrader, 751,6 min, varav
   44 rader (455,7 min) ren ersättning av "strax" med vänttexten, 146 rader (294,9 min)
   där målgruppen delas i en väntgrupp och en grupp under gång, och 4 rader (1 min) där
-  publiceringstiden flyttats (ms till 30 s, C12:s mekanism: publiceringstiden är en
-  indata till texten).
+  publiceringstiden flyttats 0,1–30 s av samma mikroanstånd. Textövergångarna blir fler
+  i de tätaste körningarna (42h 287 → 338, both-21h 273 → 311); inget av appens flowkort
+  läser texten.
 - 41 väntor och 1 175,5 båtminuter vänttext. Där sa texten förut "strax" med passagen
   inom 3 min i 76 av minuterna. Enligt rådatan låg båten still eller kröp före bron i
   968 min och hade en position äldre än 5 min men låg kvar på samma plats vid nästa fix
   i 108,5 min; i 45,5 min var positionen gammal och nästa fix på annan plats, i 50,5 min
-  hade båten redan gått igenom bron (nästan alla under ett radioglapp), och i 3 min gick
-  hon över 1,5 kn.
+  hade båten redan gått igenom bron (nästan alla under ett radioglapp; där var det gamla
+  "strax" rätt och vänttexten fel), och i 3 min gick hon över 1,5 kn. En gräns på 5 min
+  position för vänttexten hade tagit bort 29 av de 50,5 passerade minuterna men också
+  101 min sann eller troligen sann vänttext, och avstods.
 - Gruppen under gång visar sin egen klausul i 214 min där den förut sa "strax"; i de 72
   min som går att mäta (passage inom 60 min, siffra) är den bättre i 69 min, sämre i 1,5
-  och lika i 1,5 (felmängd 1 335 → 969 min·min).
+  och lika i 1,5 (felmängd 1 335 → 969 min·min). Bättre betyder inte rätt: siffran är
+  restiden till bron eller väntplatsen och bortser från kön framför (känd gräns, ingen
+  kömodell). I 42h är 20,5 av 39 sådana minuter fel med mer än 10 min (granskningens
+  mätning), till exempel MARY 7/8 10:39–10:57 "om 18 → 4 minuter" bredvid "Tre båtar
+  väntar vid Stridsbergsbron", korsade efter 48–66 min.
+- Köaren vid Kajen (U23) har inget köbevis och behåller "strax" (granskningens mätning:
+  19 båtar, 88 min i kapseln i texten, 60,6 min med eget "strax", strikt stilla 7,8 min).
+  Inget byggs nu (dirigentens beslut); frågan tas upp efter fältprov 3.
 - `replay:all`: GOLDEN-TEXT i de tio låsta korpusarna (omlåsning), inget annat. WARN:
   INV-18 försvinner i 20260710-13h (11:32, strax → 17) och tillkommer i 20260713-41h
   (14/7 08:41, en båt under gång vars egen tid stiger 4 → 13 när väntarens "strax" inte
@@ -1640,6 +1653,11 @@ docs/bridgeTextFormat.md; följderna: ARCHITECTURE §5). Mätt mot `8f3bd07` på
   (MARY 7/8 "om 18 → 4" medan sanningen var 45–49 min; förut "strax" i samma minuter);
   "strax" 564 → 552, strax-löftet inom 3 min 65,3 → 67,0 %.
 - Syntetiska sviten: 228 → 230 scenarier, WARN oförändrat 25 rader i 24 scenarier.
+- Buggjägaren: `MÄTGRÄNS-INV10-VÄNTKEDJA` förklarar sedan U65 en lång "strax" bara med
+  köarens väntor vid Kajen (`replayRunner.js#confirmedQuayWaits`), och
+  `U16-F40-STRAX-STUDS` gäller inte en båt som stod i målbrons vänttext (BUGGJAKT §7 rad
+  89–90). `run-with-logs.sh` räknar "väntar vid" för sig i fältsammanfattningen, så att
+  den lägre "strax"-räknaren i fältprov 3 inte läses som en regression.
 - Regressionstest: `tests/bridge-text-u65-vantan-vid-malbron.test.js` och scenarierna
   "kö-150m-norr-om-målbron-Stridsbergsbron (U65)" och "kö-150m-söder-om-målbron-Klaffbron
   (U65)" (båda röda på koden före U65).
