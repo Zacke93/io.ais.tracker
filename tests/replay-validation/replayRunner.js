@@ -263,6 +263,14 @@ async function main() {
 
   // Tysta console-spam under replay (vi vill bara ha vår JSON på stdout).
   // REPLAY_VERBOSE=1 behåller loggarna på stderr — felsökningsläge.
+  // U58 (2026-11-24): stderr bär bara felsökningsutskrift. Har mottagaren
+  // stängts (föräldern dödad) misslyckas varje skrivning med EPIPE. Appens
+  // krockskydd sväljer det under appens livstid, men harnessen skriver också
+  // före onInit, mellan onUninit och onInit vid ctrl:'restart' och efter sista
+  // onUninit; där blev felet ofångat och tog ned körningen. Harnessen är en
+  // engångsprocess, så lyssnaren behöver aldrig tas bort. stdout (kanalen för
+  // resultatet) lämnas som den är.
+  process.stderr.on('error', () => {});
   const origLog = console.log;
   console.log = process.env.REPLAY_VERBOSE
     ? (...args) => process.stderr.write(`${args.join(' ')}\n`)

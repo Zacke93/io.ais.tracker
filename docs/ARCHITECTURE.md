@@ -2622,6 +2622,23 @@ strypt till 15 min, så utan tvingad flush hade upp till en kvarts kajhistorik
 gått förlorad i just den omstart grinden ska överleva); removeAllListeners +
 lyssnare av (:5411–5435).
 
+**Globala felhanterare (krockskyddet, `onInit` STEG 1).** `uncaughtException` och
+`unhandledRejection` loggas med `[FATAL]` och processen lever vidare. Lyssnarna
+sparas som referenser och tas bort i `onUninit` med just de referenserna (F54:
+Homey kan starta om appen i samma process; Homeys och testmiljöns egna lyssnare
+rörs aldrig). U58 (2026-11-24): en trasig loggkanal får inte hålla appen i en evig
+slinga. Försvinner mottagaren av stdout/stderr misslyckas varje skrivning (EPIPE);
+förut blev felet ett ofångat fel som krockskyddet loggade, och den loggningen gav
+nästa fel, i full processorlast. Nu har `process.stdout` och `process.stderr` en
+`error`-lyssnare i samma steg som sväljer och räknar felen (`_logChannelErrors`,
+loggas aldrig), krockskyddets loggning kan inte kasta ut ur hanteraren, och en
+översvämningsspärr släpper högst 10 `[FATAL]`-rader per 60 s (resten summeras i en
+rad, utan timers). Felen känns inte igen på felkod: ett EPIPE från AIS-anslutningen
+loggas som förut. Appen fortsätter med notiser, varningar och brotext utan logg.
+Känd gräns: en loggrad som skrivs i själva `onUninit` mot en redan trasig kanal ger
+sitt fel först efter avregistreringen (nästa tick); replay-harnessen har därför en
+egen sväljande `error`-lyssnare på stderr för hela körningen.
+
 ## 7. Replay-/testharnessen (tests/replay-validation/)
 
 Permanent valideringsverktyg — kör den RIKTIGA appen mot inspelad AIS-jsonl.
