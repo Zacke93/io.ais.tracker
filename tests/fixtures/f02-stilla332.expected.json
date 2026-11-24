@@ -38,6 +38,14 @@
    "En båt på väg mot Klaffbron, beräknad broöppning strax"
   ],
   [
+   1784542200040,
+   "En båt väntar vid Klaffbron"
+  ],
+  [
+   1784542590040,
+   "En båt på väg mot Klaffbron, beräknad broöppning strax"
+  ],
+  [
    1784542770025,
    "En båt på väg mot Stridsbergsbron, beräknad broöppning om 11 minuter"
   ],
@@ -147,5 +155,6 @@
   ]
  ],
  "basTexterLika": true,
- "u33": "U33 (2026-11-16): målbronotisens eta omräknad till restiden i båtens fart när texten säger strax; övriga fält oförändrade"
+ "u33": "U33 (2026-11-16): målbronotisens eta omräknad till restiden i båtens fart när texten säger strax; övriga fält oförändrade",
+ "u65": "U65 (2026-11-24, ägarens beslut): kön 332 m före Klaffbron har köbeviset och visas som \"En båt väntar vid Klaffbron\" 10:10:00–10:16:30 i stället för \"strax\"; när köbeviset släpper vid avgången står \"strax\" igen (imminent-flaggan). Övriga texter och notiserna oförändrade"
 }

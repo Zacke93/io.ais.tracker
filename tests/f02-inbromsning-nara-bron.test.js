@@ -298,6 +298,8 @@ describe('F02: inbromsningsregeln (enhet, _processETAWithProtection)', () => {
  * U33 (2026-11-16): målbronotisens eta i fixturerna latt, stilla332 och
  * stannar är omräknad till restiden i båtens fart (notisen följer textens
  * strax; fältet "u33" i fixturen). Texterna och övriga notisfält är de låsta.
+ * U65 (2026-11-24): i stilla332 ligger båten i kö vid målbron och texten visar
+ * "En båt väntar vid Klaffbron" medan köbeviset står (fältet "u65").
  */
 describe('F02: inbromsningsregeln genom appen', () => {
   const run = (name) => new Promise((resolve, reject) => {
