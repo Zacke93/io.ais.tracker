@@ -501,23 +501,28 @@ describe('BridgeTextService — köare vid Kajen norr om Klaffbron (U23)', () =>
     });
   };
 
-  test('inom 300 m: köaren vid Kajen och farledsköaren får samma text, "strax"', () => {
+  // U65 (ägarens beslut 2026-11-24): farledsköaren har köbeviset vid målbron
+  // och får vänttexten. Köaren vid Kajen har inget köbevis (queueBridge ger
+  // null i en kajzon) och behåller "strax" genom imminent-flaggan; U65 gäller
+  // just köbeviset, inget annat avstånd eller stillhetsmått.
+  test('inom 300 m: farledsköaren får vänttexten (U65), köaren vid Kajen "strax"', () => {
     const kaj = queuer(KAJ_MITT, { _isImminentAtTargetBridge: true });
     const farled = queuer(FARLED, { _isImminentAtTargetBridge: true });
     expect(waitingBridge(kaj)).toBeNull();
     expect(waitingBridge(farled)).toBe('Klaffbron');
     expect(makeService().generateBridgeText([kaj])).toBe(STRAX);
-    expect(makeService().generateBridgeText([farled])).toBe(STRAX);
+    expect(makeService().generateBridgeText([farled])).toBe('En båt väntar vid Klaffbron');
   });
 
   test('kapselns norra spets (310 m): varken imminent-flagga eller bekräftad väntan ⇒ ordinarie ETA-klausul', () => {
     // Farledsköaren på samma avstånd har bekräftad väntan vid målbron och
-    // behåller "strax" (docs/ARCHITECTURE.md §Förtöjningslagren, lager 4).
+    // får vänttexten (U65; förut "strax", docs/ARCHITECTURE.md
+    // §Förtöjningslagren, lager 4).
     const kaj = queuer(KAJ_SPETS, { _isImminentAtTargetBridge: false });
     const farled = queuer(FARLED_310, { _isImminentAtTargetBridge: false });
     expect(makeService().generateBridgeText([kaj]))
       .toBe('En båt på väg mot Klaffbron, beräknad broöppning om 4 minuter');
-    expect(makeService().generateBridgeText([farled])).toBe(STRAX);
+    expect(makeService().generateBridgeText([farled])).toBe('En båt väntar vid Klaffbron');
   });
 
   test('köaren vid Kajen med positionen äldre än 10 min ⇒ "ETA okänd"', () => {

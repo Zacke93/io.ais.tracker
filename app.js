@@ -6251,7 +6251,7 @@ class AISBridgeApp extends Homey.App {
    * Läser samma underlag som publiceringen (_findRelevantBoatsForBridgeText
    * med _processingRemoval-filtret, sedan _bridgeTextPresentationVessels som
    * tar bort eller ersätter GPS-hållna båtar) och samma val som texten
-   * (BridgeTextService.presentedLead: köer vid en tidigare bro utan minuter,
+   * (BridgeTextService.presentedLead: köer utan minuter, även målbrons (U65),
    * zombier utan ETA-styrning, lägst giltig ETA). null om målbron saknar en
    * klausul med prognos eller underlaget inte kan byggas.
    * @param {Object} vessel
@@ -7972,8 +7972,8 @@ class AISBridgeApp extends Homey.App {
    * bron. Anroparen avrundar som alla notiser och låter aldrig siffran stiga.
    * Det senare avgörs inte här: notisen frågar samma regler som texten,
    * imminent-beslutet (_imminentVerdict, som omvärderingen sedan verkställer)
-   * och brotextens egen klausul (BridgeTextService.vesselSaysStrax). En
-   * annan båts "strax" i samma grupp räknas inte.
+   * och brotextens egen klausul (BridgeTextService.vesselSaysStrax). En annan
+   * båts "strax" räknas inte, och en köare vid målbron får aldrig det (U65).
    * Fartvillkoret: där texten säger "strax" för en båt som saktar in mot en
    * kö (till exempel inom 300 m men i 0,5 kn) behåller notisen sin siffra.
    * Samma sak när båten bromsar in (StatusService.isBraking, inbromsningsregelns
