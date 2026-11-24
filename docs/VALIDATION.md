@@ -2377,7 +2377,12 @@ adversariella granskningen 2026-08-10: selektiva noter på 7 korpusar).
   minuter; samma klass som återfödd-i-kö). INV-18 och INV-14W i
   en-fartspik-i-30min-väntan-600m-norr-om-Klaffbron (känd gräns, U59): restiden stiger 6 → 39
   minuter på fyra minuter när båten börjar vänta, och hon tappar målbron i perioder under den
-  långa väntan ("Inga båtar" i tolv minuter). De
+  långa väntan ("Inga båtar" i tolv minuter). Mätningen 2026-11-24 (omgång 7, U62–U64) visar
+  mekanismen och att ingen av de två gränserna förekommer i bankens 25 korpusar eller de tre
+  fältkörningarna: scenariots båt väntar 600 m från bron med stadig kurs och 0,4 kn genom hela
+  stoppet, så att varken kursbruset håller kvar målbron eller stillhetsklockan (under 0,3 kn)
+  startar; se ARCHITECTURE, styckena "Köare 300–800 m före en bro" och "U30 mäter stillheten
+  med farten". De
   övriga 13 av omgångens 15 nya scenarier (U59 och de kända gränserna för U59 och U60)
   lägger inte till några.
 - **O1:s missklassificerare (`classifyMiss`)** kräver nu KORROBORERAT rörelsebevis i tre

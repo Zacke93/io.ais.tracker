@@ -1871,7 +1871,9 @@ båt.
   av F21). Revision 0 av rättningen gällde överallt och tappade 15 av
   granskningens 26 konstruerade köfall i 9–14 min; den vidgade också U27, som
   beslutades med premissen "kräver fart exakt 0". Om stilla köare i luckan ska
-  skyddas av något annat än kursbruset är en öppen fråga hos ägaren. Utfall:
+  skyddas av något annat än kursbruset var en öppen fråga hos ägaren; den är
+  avgjord 2026-11-24 (U62, inget eget skydd; stycket "Köare 300–800 m före en
+  bro" i ETA-avsnittet). Utfall:
   bara k1 ändras (PRICKBJORN släpps 13:28:15 i stället för 13:30:33); banken är
   byte-identisk. Kända gränser: (1) skyddet gäller på alla avstånd, så en verklig
   sväng mot en kaj söder om punkten skyddas fortfarande (PILOT 761 k1 10:16,
@@ -3099,7 +3101,8 @@ ankarpunkt (belagd rörelse, samma bevisklass som VesselDataService), eller
 målbyte, en status utanför `STILL_UNKNOWN_STATUSES`, eller imminent-flaggan.
 U55 i praktiken: en `en-route`-båt som stannar långt från bron tappar målbron
 (`TARGET_CHANGE` LOW_SPEED efter nådafristen) och lämnar texten innan fem
-minuter gått, så grenen gäller främst `stallbacka-waiting`. Långsam drift
+minuter gått, så grenen gäller främst `stallbacka-waiting` (mätt 2026-11-24,
+stycket "Köare 300–800 m före en bro" nedan). Långsam drift
 (U35) är oförändrad. Efter ett långt stopp vid Stallbackabron står ETA-kedjans
 dolda värde högt (fartgolvet 0,5 kn); det visas som "ETA okänd" (U54) tills
 det sjunkit under 60 min, i stället för "om 110 minuter"; sedan U59 släpps det
@@ -3259,6 +3262,67 @@ fallet ovan. Dagens beteende är låst som känd gräns i
 och i scenarierna "kryp-0,7kn-i-kön-… (känd gräns, U60 avstått)" och
 "kryp-0,7kn-ryck-60m-och-ny-väntan (känd gräns, U60 avstått)"; en krypregel
 fäller dem och ska låsas om först efter ett nytt rycksvep.
+
+**Köare 300–800 m före en bro får inget eget skydd (U62, mätning 2026-11-24).**
+En båt som stannar mer än 300 m från närmaste bro och utanför kö-zonen (600 m
+från målbron) behåller målbron bara så länge något skydd gäller; i praktiken är
+det kursbruset (manöverskyddet). Med stadig kurs fäller 2-READINGS och
+fartgrinden henne, målbron tas bort efter nådafristen (`TARGET_CHANGE` med
+etiketten LOW_SPEED eller STOPPED) och hon lämnar texten efter 1–3 minuter.
+GPS-brus kan ge henne målbron tillbaka en stund (återinträdesbeviset kräver 10 m
+närmande), så texten kan visa en siffra och sedan tappa henne igen. Mätt över
+bankens 25 korpusar och de tre fältkörningarna (28 körningar): målbron togs bort
+för låg fart eller stopp 10 gånger, och ingen av båtarna korsade bron inom 60
+minuter (fem låg kvar i timmar, två vände). Av 57 väntor i farleden som slutade
+med passage inom en timme låg 54 inom 300 m från en öppningsbar bro, där
+skyddszonen håller kvar målbron; två låg längre ut (ANTJE 432 m, KINNE 354 m),
+kröp i 1,4–1,5 kn och visades hela tiden; den sista är slutet på PILOT 761:s två
+timmar vid Stallbackabron (förtöjningsklassad). Väntarna stod i texten 94 % av
+tiden, och ingen lucka i texten i underlaget har den här orsaken. Två
+ändringar prövades som prototyper och avstods: kö-zonen vidgad till 800 m, också
+mot en mellanbro, stängde ingen lucka i inspelad trafik och gav tre falska
+episoder i fältkörningarna (PILOT 761 och PRICKBJORN "på väg" i 6–24 minuter
+medan de låg still i timmar; i byggda världar 42 % kortare luckor för väntare
+mot 6–12 minuter falsk text per liggare, vändare eller drivare); att ett tappat
+mål inte tömmer restidens historik och stillhetsläget ändrade ingenting i
+inspelad trafik. I bandet 300–800 m går en väntare inte att skilja från en
+lotsbåt eller långliggare med det appen ser (2 väntare mot 2 långliggare och 2
+vändare i underlaget; ingen stoppad båt sände navstatus för ankar eller
+förtöjning), och riktningen är FP9-H′:s: hellre tyst än falsk måltext. Felet
+finns i byggda världar (scenariot "en-fartspik-i-30min-väntan-600m-norr-om-
+Klaffbron (känd gräns, U59)": "Inga båtar" i tolv minuter) och står kvar som känd
+gräns.
+
+**Känd gräns: U30 mäter stillheten med farten (U64, mätning 2026-11-24).**
+Läget "ETA okänd" kräver att stillhetsklockan (`vessel._stationarySince`) har
+gått fem minuter, och klockan startar först på ett sampel under 0,3 kn
+(`MOORING_DETECTION.STATIONARY_SOG_KN`); gråzonen 0,3–0,5 kn varken startar eller
+nollar den. En båt som rapporterar 0,3–0,5 kn genom hela stoppet når därför
+aldrig läget, och en siffra kan stå kvar medan hon ligger still. I de 28
+körningarna finns inget sådant fall: av 5 273 minuter med stilla båtar i området
+låg farten i 0,3–0,5 kn hela tiden i 3 minuter, och ingen av dem med en
+minutsiffra i texten. Verkliga stilla båtar sänder 0–0,2 kn. Felet uppträder i
+byggda världar som ger väntande båtar 0,4 kn genom hela stoppet (samma scenario
+som ovan, där det förklarar att "ETA okänd" aldrig kommer). Ingen ändring:
+klockan styr också förtöjningsklassningen.
+
+**Känd gräns: en stilla båt efter omstart eller vid första kontakt (U63, mätning
+2026-11-24).** Rörelsebeviset sparas inte över en omstart, och en båt utan
+rörelsebevis får ingen målbro (förtöjningslager 1, 2026-06-10, som kom till
+efter en falsk notis för en kajförtöjd båt vid appstart). En båt som ligger
+still i kön när appen startar, eller som appen hör första gången medan hon
+ligger still, saknas därför i texten tills hon rör sig (0,5 kn eller 50 m).
+BLADE 12/7 (korpus 20260712-25h): appen startade 15:45, hon låg still 110 m norr
+om Stridsbergsbron, och texten sa "Inga båtar" tills hon passerat 15:55; notisen
+kom 15:50. I underlaget: två luckor efter 28 starter (10,5 min), och fyra
+episoder (cirka 40 min) när båtar som hördes första gången stilla räknas med.
+Fältkörningarna startade en gång var, utan väntande båt. Två vägar är beskrivna
+men inte byggda: att spara båtarnas läge över en ordnad omstart (täcker inte
+första kontakt, och för in sparat tillstånd som kan återställas fel), eller att
+visa en stilla båt direkt i farleden inom 300 m från en öppningsbar bro
+(riktningen måste då tas ur läget, och en fel gissning ger falsk text och falsk
+notis). Ingen av dem är införd. Scenariot "stilla-20min-vid-Stallbackabron-
+omstart-mitt-i-stoppet (U59)" visar gränsen ("Inga båtar" i tio minuter).
 
 Till familj E2 (användarbeslut U20, 2026-11-04): ETA-oscillationen vid
 inbromsning (buggjägarens F06, K6:s dubbla EMA mot den binära

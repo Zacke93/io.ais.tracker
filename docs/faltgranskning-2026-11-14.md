@@ -40,6 +40,7 @@ när en båt vänder och sedan inte hörs. Prognosarbetet (U22) är fortfarande 
 **Omgång 4** (17 november, U45–U51, avsnitt 13) lät en annan båts passage förbruka den varnade öppningen och gav notis vid utfärd och avgång från kaj vid kanalens ytterpunkter; avsnitt 13 stämmer med `9b3728b`.
 **Omgång 5** (23–24 november, U52–U58, avsnitt 14) rättade fynden ur fältprov 2 (17–23 november) och en evig slinga i appens krockskydd; avsnitt 14 stämmer med `bf646fe`.
 **Omgång 6** (24 november, U59–U61, avsnitt 15) mätte var restiden är fel över hela underlaget och lät restiden räknas om från avgången efter ett långt stopp; avsnitt 15 stämmer med `9bbc276`.
+**Omgång 7** (24 november, U62–U64, avsnitt 16) mätte hur ofta en väntande båt saknas i brotexten och ändrade ingen kod; tre kända gränser är beskrivna med mätningen.
 
 ## 2. Körningarna och vad de täcker — och inte täcker
 
@@ -3305,12 +3306,14 @@ Uppföljning, i ordning:
    Stridsbergsbron", som är sann i varje minut. Det vänder ägarens beslut 2026-08-08 (U6) och
    2026-09-12, så frågan är ställd till ägaren.
 2. **"Inga båtar" efter en omstart.** En stillaliggande båt i kön försvinner ur texten i upp till
-   tio minuter efter en omstart, tills hon rör sig. Funnet av granskaren, finns före omgången,
-   inte utrett.
+   tio minuter efter en omstart, tills hon rör sig. Funnet av granskaren, finns före omgången.
+   Mätt i omgång 7 (avsnitt 16, U63).
 3. **Målbron tappas gång på gång för en båt som väntar i 0,3–0,5 kn utanför väntzonen.** Varje
    byte tömmer restidens historik och stillhetsläget, så "ETA okänd" kommer aldrig; i stället står
    en frusen siffra i upp till 20 minuter, och båten försvinner ur texten i perioder. Funnet av
    granskaren i fartspiksscenariot, finns före omgången. Hör ihop med 14.6, punkt 4.
+   Mätt i omgång 7 (avsnitt 16, U62 och U64): felet finns inte i inspelad trafik, och att "ETA
+   okänd" aldrig kommer beror främst på att stillhetsklockan startar först under 0,3 kn.
 4. **Hur ofta beräkningen står över för stilla båtar i fält.** Det avgör hur ofta U59:s nytta och
    pris uppträder. Nästa fältprov räknar släppen i loggen (`ETA_STILL_RELEASE`).
 5. Uppföljningslistan i 14.6 i övrigt (punkt 2–5).
@@ -3378,3 +3381,120 @@ siffran efter avgången. Notiser och öppningsvarningar är lika.
 Det är U59:s verkan i alla tre, och texten är närmare sanningen i varje fall. Inga utslag under
 registrerade poster kom till eller försvann; registerklasserna är oförändrade (beslutat beteende
 1 016, kända fall med öppet beslut 301). De 16 kandidatkorten är desamma som i 14.8.
+
+## 16. Omgång 7, väntande båtar som saknas i texten: 24 november 2026
+
+Tillagt 2026-11-24. Granskaren av omgång 6 fann två fel utanför rättningen (15.6, punkt 2 och 3):
+en båt som väntar i mycket låg fart en bit från bron tappar målbron gång på gång, och en
+stillaliggande båt försvinner ur texten efter en omstart. Omgång 7 mätte hur stora felen är i
+bankens 25 korpusar och de tre fältkörningarna (28 körningar) och prövade rättningar som
+prototyper. Dirigenten fattade tre beslut på ägarens uppdrag (U62–U64); ägaren kan ändra vart
+och ett. Ingen kod ändrades. Omgången utgick från `omg6/integration` och ligger på grenen
+`omg7/integration`. Alla tider är UTC.
+
+### 16.1 Mätningen
+
+Brotexten provades var 30:e sekund. En båt räknas som på väg när hon korsar Klaffbron eller
+Stridsbergsbron inom 120 minuter utan att vända (rådatans linjekorsning), och området är det
+avstånd före målbron där båtar i rörelse visas i minst 94 % av proven.
+
+**Luckorna.** Av 7 165 minuter med en båt på väg i området saknades hon i texten i 1 098.
+Luckor på minst två minuter: 47 episoder, 1 091 minuter.
+
+| Orsak | Episoder | Minuter | Beslut |
+|---|---|---|---|
+| Förtöjd eller utan rörelsebevis vid Gästhamnen och Kajen | 32 | 615,5 | kajzonerna, förtöjningslagren |
+| Långliggare i farleden (PRICKBJORN 4 h, PILOT 761 2 h) | 4 | 323,5 | U27 och tvåtimmarsregeln |
+| Ingen målbro tilldelad (bland annat turbåtens rundor) | 6 | 79 | – |
+| Hörd första gången medan hon låg still | 4 | 39,5 | förtöjningslager 1 (2026-06-10) |
+| Målbron borttagen efter passagen, före en vändning (PILOT 761 11/11) | 1 | 33,5 | – |
+
+Ingen episod gäller en båt som väntade och tappade målbron för låg fart. Två beror på en
+appstart (BLADE 8,5 minuter, HOKUS POKUS 2).
+
+**Borttagningarna.** Appen tog bort målbron för låg fart eller stopp tio gånger. Ingen av
+båtarna korsade bron inom 60 minuter: fem låg kvar i timmar (bland dem AIR 14 timmar och
+PRICKBJORN 18), två vände, och de övriga korsade aldrig eller först efter 72–93 minuter.
+
+**Väntorna.** Av 57 väntor i farleden som slutade med passage inom en timme låg 54 inom 300 m
+från en öppningsbar bro, där skyddszonen håller kvar målbron. Två låg längre ut (ANTJE 432 m,
+KINNE 354 m), kröp i 1,4–1,5 kn och visades hela tiden. Den sista är slutet på PILOT 761:s två
+timmar vid Stallbackabron. Väntarna stod i texten 94 % av tiden.
+
+**Kännetecknen.** Fem minuter in i ett stopp skiljer avståndet bäst: inom 300 m från bron
+framför är tre av fyra stopp en väntan, på 300–800 m ett av fyra (3 väntare, 5 långliggare, 4
+vändare). Att båten kom i fart mot bron skiljer inte (CALIMA, ANDREA och PRICKBJORN kom i 3–7 kn
+och låg sedan i en till fyra timmar), en annan stilla båt i närheten pekar mot gästhamn, och
+ingen stoppad båt sände navstatus för ankar eller förtöjning.
+
+**Stillhet och fart.** En minutsiffra stod i texten för en båt vars position legat still i fem
+minuter i 29 minuter (20 episoder): 11,5 där U30 enligt beslut inte gäller eller ännu räknar
+upp, 17,5 efter en fartspik fast positionen stod still (PILLE 4/8, 10 minuter), och 0 för en båt
+som rapporterade 0,3–0,5 kn. Verkliga stilla båtar sänder 0–0,2 kn.
+
+### 16.2 Besluten U62–U64
+
+- **U62. Köare 300–800 m före en bro får inget eget skydd.** Frågan stod som öppen hos ägaren
+  i `docs/ARCHITECTURE.md` (om köare i luckan ska skyddas av något annat än kursbruset). Felet
+  finns inte i inspelad trafik, regeln tog rätt beslut tio gånger av tio, och en väntare går
+  inte att skilja från en lotsbåt eller långliggare i det bandet. Riktningen är ägarens från
+  2026-07-18: hellre tyst än falsk måltext.
+- **U63. En stilla båt efter omstart eller vid första kontakt: ingen ändring nu.** Storleken är
+  fyra episoder och cirka 40 minuter i hela underlaget, notisen kommer ändå när båten rör sig,
+  och båda vägarna att rätta det för in en ny risk för falsk text.
+- **U64. U30 gäller inte 0,3–0,5 kn: ingen ändring.** Stillhetsklockan startar först under
+  0,3 kn och styr också förtöjningsklassningen. Inget fall finns i underlaget.
+
+### 16.3 Det som prövades och inte gick in
+
+- **Kö-zonen vidgad till 800 m, också mot en mellanbro.** Stängde ingen lucka i banken eller
+  fältkörningarna och gav tre falska episoder: PILOT 761 11/11 10:21–10:45, still vid lotskajen
+  söder om Olidebron, visad som "på väg mot Klaffbron, om 22–27 minuter" (hon korsade 93
+  minuter senare); PRICKBJORN samma dag 13:30 i sex minuter (låg 18 timmar); PRICKBJORN 20/11
+  07:51 i 20 minuter (vände). I byggda världar (240 körningar med väntare, 80 motfall) blev
+  väntarnas luckor 42 % kortare (2 144 → 1 247 minuter), mot 450 minuter falsk "på väg" i
+  motfallen (6–12 minuter per liggare, vändare eller drivare), och notisens och öppningskortets
+  minut ändrades i 8 respektive 5 körningar.
+- **Ett tappat mål tömmer inte restidens historik och stillhetsläget.** Ingen ändring i banken
+  eller fältkörningarna; liten och blandad verkan i de byggda världarna.
+- **Omstarten.** Två vägar beskrevs men byggdes inte: att spara båtarnas läge över en ordnad
+  omstart, eller att visa en stilla båt direkt i farleden inom 300 m från en öppningsbar bro. Den
+  senare hade i en räkning över stoppen stängt tre luckor (BLADE, ILLUSION 3, SOLUTION, cirka 45
+  minuter) utan att visa någon ny långliggare, men riktningen måste då gissas ur läget, och
+  regeln som hindrar det kom till efter en falsk notis vid appstart.
+
+### 16.4 Kända gränser och uppföljning
+
+Tre kända gränser är beskrivna med mekanism och mätning i `docs/ARCHITECTURE.md`: köare 300–800 m
+före en bro (U62), U30 och fart 0,3–0,5 kn (U64), och en stilla båt efter omstart eller vid
+första kontakt (U63). De två första syns bara i byggda världar; scenariot
+"en-fartspik-i-30min-väntan-600m-norr-om-Klaffbron (känd gräns, U59)" visar dem, eftersom dess båt
+väntar med stadig kurs och 0,4 kn genom hela stoppet. Det rättar förklaringen i 15.6, punkt 3:
+målbytena tömmer stillhetsläget, men det som hindrar "ETA okänd" där är främst att
+stillhetsklockan aldrig startar. 14.6, punkt 4, är samma gräns som U62.
+
+Uppföljning:
+
+1. **Omstarter i fält.** Fältkörningarna startade en gång var, utan väntande båt, så omstarten
+   är oprövad i fält. Blir omstarter vanliga hör U63 hemma i en egen omgång tillsammans med
+   registrets tre omstartsposter.
+2. **Fartspikar på en stilla båt** (17,5 minuter i underlaget): en siffra står kvar en stund
+   fast positionen står still. Inte utrett.
+3. Uppföljningslistorna i 14.6 och 15.6 i övrigt; frågan om "strax" (15.6, punkt 1) ligger hos
+   ägaren.
+
+### 16.5 Lärdomar
+
+- **Ett fel i en byggd värld ska mätas i inspelad trafik innan det rättas.** Båda felen var
+  verkliga i scenarierna och frånvarande i 28 körningar. Scenariots båt (stadig kurs, 0,4 kn i
+  30 minuter) finns inte bland 5 273 inspelade stillaminuter.
+- **Det omvända måttet avgör priset.** Att räkna vad båtarna gjorde efter att regeln slagit till
+  (tio av tio gick inte) sade mer än att räkna luckor.
+- **En prototyp i fältkörningarna visar priset tidigare än ett svep.** Den vidgade kö-zonen såg
+  bra ut i byggda världar och gav bara falska texter i fält.
+
+### 16.6 Kontroller
+
+Omgången ändrar dokumentationen och radhänvisningarna i registret, ingen kod och inga test.
+Källradsverktyget säger att alla radhänvisningar håller, och de jestsviter som läser
+dokumentationen och registret är gröna. Slutbatteriet i 15.8 gäller oförändrat för koden.
