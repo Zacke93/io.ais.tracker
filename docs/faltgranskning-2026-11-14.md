@@ -38,7 +38,7 @@ när en båt vänder och sedan inte hörs. Prognosarbetet (U22) är fortfarande 
 **Omgång 2** (15–16 november, U28–U30, avsnitt 11) hävde uppskovet; avsnitt 10–11 stämmer med `57e4789`.
 **Omgång 3** (16–17 november, U31–U44, avsnitt 12) rättade de äkta felen ur nattjaktens triage och tog in inbromsnings- och fartökningsregeln; avsnitt 12 stämmer med `d6e4d94`.
 **Omgång 4** (17 november, U45–U51, avsnitt 13) lät en annan båts passage förbruka den varnade öppningen och gav notis vid utfärd och avgång från kaj vid kanalens ytterpunkter; avsnitt 13 stämmer med `9b3728b`.
-**Omgång 5** (23–24 november, U52–U57, avsnitt 14) rättade fynden ur fältprov 2 (17–23 november); avsnitt 14 stämmer med `1b255af`.
+**Omgång 5** (23–24 november, U52–U58, avsnitt 14) rättade fynden ur fältprov 2 (17–23 november) och en evig slinga i appens krockskydd; avsnitt 14 stämmer med `bf646fe`.
 
 ## 2. Körningarna och vad de täcker — och inte täcker
 
@@ -2847,6 +2847,11 @@ Järnvägsbron (U56, återtaget efter granskningen) och spärren mot en falsk pa
 efter rättarens eget svep). För båda gick dokumentationen av den kända gränsen och test som
 låser dagens beteende in i stället.
 
+Efter slutbatteriet hittades ett fel till, inte i fältet utan i arbetet med omgången: tio
+kvarglömda testkörningar gick på full processorlast i tio timmar. Orsaken låg i appens eget
+krockskydd (U58). Rättningen gick in som en femte ändring (`bf646fe`), och slutbatteriet kördes
+om i sin helhet (14.8).
+
 ### 14.1 Fältprov 2
 
 Körningen gick 2026-11-17 22:45 till 2026-11-23 11:45 (133 h, 9 476 positioner) och stoppades
@@ -2887,8 +2892,9 @@ ordnat.
 | D9 (U49) | En båt i fart vid brolinjen när konvojens täckning löper ut | inne, godkänd i första granskningen | `1bc974e`, `400e158`; `9642c19` |
 | B (U56) | Varningen för Stridsbergsbron norrut efter väntan vid Järnvägsbron | regeln inte införd (beslutet återtaget efter granskningen); känd gräns och test inne | `a7e6d60`; `45cc053` |
 | D1 (U57) | Falsk passage bakåt över brolinjen efter en osäker position | regeln inte införd efter tre varv; känd gräns och test inne | `5b842aa`; `eeeecc2` |
+| E (U58) | Ett fel i loggkanalen håller inte appen i en evig slinga | inne i tredje varvet, godkänd efter granskarens ändring | `b53bc30`, `c107258`, `53b2f45`; `bf646fe` |
 
-### 14.3 Besluten U52–U57
+### 14.3 Besluten U52–U58
 
 - **U52. En lång förtöjning är en resegräns.** En båt som legat förtöjd i minst två timmar (appens
   befintliga förtöjningsklassning, samma två timmar som U51) börjar en ny resa när hon lägger ut.
@@ -2907,6 +2913,11 @@ ordnat.
   röra sig mot bron i minst 2,0 kn får varningen för Stridsbergsbron direkt. Granskningen visade
   att ett ryck i kön inte går att skilja från avgången (14.5), och regeln fördes inte in.
 - **U57. Den falska passagen bakåt står kvar som känd gräns.** Rättningen förs inte in (14.5).
+- **U58. Ett fel i loggkanalen får inte hålla appen i en evig slinga.** Appen ska överleva en
+  trasig loggkanal tyst: fel från stdout och stderr sväljs och räknas men loggas aldrig, och
+  krockskyddet får inte kunna hålla sig självt vid liv. Appen fortsätter med notiser, varningar
+  och brotext utan logg. Avstått: att avsluta processen när loggkanalen går sönder (appen slutar
+  då fungera där den kunde ha fortsatt).
 - **U49, preciserat.** Under-bro-hållet mäter ankomsten med det tidigaste av appens prognos och
   avstånd genom fart för en båt i minst 2 kn; kravet att ankomsten ligger inom täckningen står
   kvar. Känd kostnad: en båt i minst 2 kn vid linjen som stannar och aldrig hörs mer får ingen
@@ -2965,6 +2976,30 @@ förvarning för Klaffbron som hon aldrig korsade.
 fältkörningarna är oförändrade rad för rad. Kostnaden har inte hänt i någon av 90 inspelade
 episoder med en båt i minst 2 kn högst 50 m före bron (alla korsade, ingen tystnade).
 
+**U58, loggkanalen.** Tio replay-körningar från ett av spårens svep låg kvar utan förälder efter
+slutbatteriet och gick på full processorlast i tio timmar, där samma filer annars är klara på
+någon sekund. Mekanismen är återskapad på `7633653`: när mottagaren av loggen försvinner
+misslyckas varje skrivning (EPIPE). Felet kommer upp som ett ofångat fel, appens krockskydd
+(`_onUncaughtException`) loggar det, den loggningen misslyckas på samma sätt, och så vidare,
+omkring 9 000 varv per sekund utan att händelseslingan släpps fram. Är bara stdout trasig blir
+det ingen slinga, men en `[FATAL]`-rad för varje misslyckad loggrad. På Homey går loggen genom
+samma slags kanal till Homeys kärna. Felet har inte setts i fältproven (drygt 200 timmar), men
+skulle där låsa appen på full last tills Homey stänger av den.
+
+Rättningen har tre delar. Loggkanalens två strömmar får var sin lyssnare som bara räknar felen.
+Krockskyddet loggar som förut, men inom `try/catch` och med en spärr: högst tio `[FATAL]`-rader
+per minut, resten räknas och summeras i en rad som namnger det första spärrade felet. Lyssnarna
+tas bort i `onUninit` och sätts om i `onInit`, så att två starter i rad inte ger dubbla.
+Testverktygets replay fick dessutom en egen lyssnare, eftersom det skriver också mellan appens
+stopp och start. Krockskyddet känner inte igen felet på felkoden: ett EPIPE från AIS-anslutningen
+ser likadant ut och ska loggas.
+
+Notiser, öppningsvarningar och brotexter är identiska i banken och de tre fältkörningarna.
+Granskningen gick i tre varv. Det första fann att testens egna barnprocesser blev föräldralösa
+och snurrade när jest dödades mitt i körningen, alltså just det fel rättningen gällde; de fick en
+vakt i en egen tråd. Det andra fann att summeringsraden höll kvar ett 80 MB stort felmeddelande
+i minnet; rättningen var två rader som granskaren själv hade prövat.
+
 ### 14.5 Det som inte gick in, och varför
 
 **U56, varningen för Stridsbergsbron norrut.** Båtar norrut väntar söder om Järnvägsbron, som
@@ -3021,6 +3056,10 @@ Kända gränser som omgången lämnar, alla beskrivna i `docs/ARCHITECTURE.md`:
 - **U49:** en båt i minst 2 kn vid brolinjen som stannar och aldrig hörs mer får ingen varning för
   bron; bakkantens systerställe (kortet 20 s efter korsningen med en 39 s gammal position).
 - **U57:** en falsk passage bakåt efter en brusposition.
+- **U58:** går stdout sönder just när appen stängs skrivs den sista loggraden efter att
+  lyssnarna tagits bort, och processen slutar med kod 1 i stället för 0 (låst av test; på Homey
+  tas processen ändå ned). Att Homeys SDK loggar via stdout och stderr är belagt av SDK:ns typer
+  och fältloggens form, inte av SDK:ns källkod.
 
 Uppföljning, i ordning:
 
@@ -3055,12 +3094,16 @@ Uppföljning, i ordning:
   tidsgränser under last och gick gröna ensamma. Slutbatteriet kördes när maskinen var ledig.
 - **Arbetsmappen är inte beständig.** Verktygen från omgång 4 var borta efter fältprovets fem
   dygn. Omlåsningsverktyg och kö läggs nu i det beständiga underlaget så fort de skapas.
+- **En körning som borde vara klar på sekunder men lever i timmar är ett fynd.** Tio föräldralösa
+  replayer gick på full last genom hela det första slutbatteriet utan att något test föll, och
+  de var lätta att ta för brus. Orsaken var ett verkligt fel i appen (U58). Processlistan
+  kontrolleras nu före varje batteri.
 
 ### 14.8 Slutbatteriet
 
 Kört på `1b255af`, alltså sammanslagningen med omlåsningarna och VALIDATION; efter den commiten
-ändras bara detta dokument och datumet för U56:s återtagande på två kommentarsrader (23 november,
-inte 24). Alla steg slutade med kod 0.
+ändras bara detta dokument, datumet för U56:s återtagande på två kommentarsrader (23 november,
+inte 24) och U58, som har sitt eget batteri sist i avsnittet. Alla steg slutade med kod 0.
 
 | Steg | Utfall |
 |---|---|
@@ -3112,3 +3155,10 @@ visas som väntande i tio minuter. Inga utslag under registrerade poster kom til
 registerklasserna är oförändrade (beslutat beteende 1 016, kända fall med öppet beslut 301).
 
 De 16 kandidatkorten är desamma som i 13.8.
+
+**Slutbatteri 2 på `bf646fe`** (koden med U58, kört 2026-11-24). Alla steg slutade med kod 0.
+Hela jest gav 427 sviter och 6 827 gröna test, 2 överhoppade; den nya sviten är U58:s.
+Restidsmätningen är lika med det första batteriet i varje påstående (bara tidsstämpeln skiljer).
+Snabbjakten, standardjakten och nattjaktens 20 000 världar är utslag för utslag lika med det
+första batteriet, med samma 16 kandidatkort. Det är det väntade utfallet: U58 rör loggkanalen och
+krockskyddet, inte båtlogiken. Inga kvarglömda körningar fanns före eller efter batteriet.
