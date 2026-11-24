@@ -246,6 +246,56 @@ describe('Nedstängningen synkar arkivet före summaryn', () => {
   });
 });
 
+// U65 (ägarens beslut 2026-11-24): väntan vid målbron visas som "väntar vid
+// <målbro>", inte "strax". Summaryns räknare ska skilja dem åt, så att en lägre
+// "strax"-räknare i fältprov 3 inte läses som en regression (FP8-fällan).
+describe('Summaryn räknar vänttexten för sig (U65)', () => {
+  let dir;
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ais-log-u65-'));
+    fs.mkdirSync(path.join(dir, 'live'));
+    fs.mkdirSync(path.join(dir, 'arkiv'));
+    const texts = [
+      'En båt på väg mot Stridsbergsbron, beräknad broöppning strax',
+      'En båt väntar vid Stridsbergsbron',
+      'Två båtar väntar vid Klaffbron; En båt på väg mot Klaffbron, beräknad broöppning om 7 minuter',
+      'En båt väntar vid Järnvägsbron på väg mot Stridsbergsbron',
+      'En båt på väg mot Klaffbron, ETA okänd',
+      'Inga båtar är i närheten av Klaffbron eller Stridsbergsbron',
+    ];
+    const lines = [
+      '2026-11-24T18:00:00.000Z [log] [AISBridgeApp] AIS Bridge starting with modular architecture v2.0',
+    ];
+    texts.forEach((text, i) => {
+      const t = new Date(Date.UTC(2026, 10, 24, 18, 0, (i + 1) * 30)).toISOString();
+      lines.push(`${t} [log] [AISBridgeApp] [DEBUG] 🧹 [COORDINATION_CLEANUP] Cleaned old coordination state`);
+      lines.push(`${t} [log] [AISBridgeApp] [AIS_REPLAY_SAMPLE] {"mmsi":"265012090","n":${i}}`);
+      lines.push(`${t} [log] [AISBridgeApp] 📱 [UI_UPDATE] Bridge text updated: "${text}"`);
+    });
+    fs.writeFileSync(path.join(dir, 'live', 'app-ts.log'), `${lines.join('\n')}\n`);
+  });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  test('"strax", "väntar vid" och "väntar vid" vid målbron räknas var för sig', () => {
+    const setup = `
+      LIVE_DIR="$AUDIT_DIR/live"; LOGS_DIR="$AUDIT_DIR/arkiv"; SCRIPT_DIR="$AUDIT_DIR"; TIMESTAMP=ts
+      LOGFILE="$LIVE_DIR/app-ts.log"; AIS_REPLAY_FILE="$LIVE_DIR/ais-replay-ts.jsonl"
+      BRIDGE_TEXT_SUMMARY="$LIVE_DIR/bridge-text-summary-ts.md"
+      FINAL_LOGFILE="$LOGS_DIR/app-ts.log"; FINAL_REPLAY="$LOGS_DIR/ais-replay-ts.jsonl"
+      FINAL_SUMMARY="$LOGS_DIR/bridge-text-summary-ts.md"
+      EXTRACT_DONE=0; REPLAY_GUARD_PID=""; HOLE_GUARD_PID=""; SYNC_PID=""
+    `;
+    const functions = ['sync_file', 'rebuild_replay_jsonl', 'find_log_holes', 'extract_bridge_text', 'say', 'kill_with_sleep'];
+    runBash(functions, `${setup}\nextract_bridge_text`, { AUDIT_DIR: dir });
+    const summary = fs.readFileSync(path.join(dir, 'arkiv', 'bridge-text-summary-ts.md'), 'utf8');
+    expect(summary).toMatch(/Total Bridge Text Updates:\*\* 6/);
+    expect(summary).toMatch(/"strax"-Updates:\*\* 1/);
+    expect(summary).toMatch(/"väntar vid"-Updates:\*\* 3 \(varav vid målbron, U65: 2\)/);
+    expect(summary).toMatch(/"ETA okänd"-Updates:\*\* 1/);
+    expect(summary).toMatch(/"Inga båtar"-Updates:\*\* 1/);
+  });
+});
+
 describe('Misslyckad replay-extraktion bevarar senast hela filer', () => {
   let dir;
   let jsonl;

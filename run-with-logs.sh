@@ -542,19 +542,27 @@ EOL
 
     # FP8 (2026-07-13): räknarna moderniserade. De gamla grep-mönstren
     # ("Broöppning pågår"/"inväntar broöppning"/"närmar sig") tillhör ett
-    # textformat appen inte längre producerar (designbeslut "alternativ 1":
-    # under-bridge/waiting renderas som "beräknad broöppning strax") —
-    # summaryn visade permanent 0/0/0 och utlöste en falsk regressions-
-    # misstanke i fältprov 8-granskningen. Nu räknas det som finns.
+    # textformat appen inte längre producerar — summaryn visade permanent
+    # 0/0/0 och utlöste en falsk regressionsmisstanke i fältprov
+    # 8-granskningen. Nu räknas det som finns.
+    # U65 (ägarens beslut 2026-11-24): bekräftad väntan vid målbron visas som
+    # "En båt väntar vid <målbro>" och inte längre som "beräknad broöppning
+    # strax"; "strax" står bara för båtar under gång (imminent-flaggan eller
+    # en ETA under 3 min). Därför sjunker "strax"-räknaren jämfört med
+    # fältproven före U65, och "väntar vid" räknas för sig: alla vänttexter
+    # och de vid själva målbron (utan "på väg mot").
     TOTAL_UPDATES=$(grep -c "📱 \[UI_UPDATE\] Bridge text updated:" "$LOGFILE")
     NOTIFICATIONS=$(grep -c "\[FLOW_TRIGGER_SUCCESS\]" "$LOGFILE")
     STRAX_UPDATES=$(grep "📱 \[UI_UPDATE\] Bridge text updated:" "$LOGFILE" | grep -c "broöppning strax")
+    WAIT_UPDATES=$(grep "📱 \[UI_UPDATE\] Bridge text updated:" "$LOGFILE" | grep -c "väntar vid")
+    WAIT_TARGET_UPDATES=$(grep "📱 \[UI_UPDATE\] Bridge text updated:" "$LOGFILE" | grep -cE 'väntar vid (Klaffbron|Stridsbergsbron)(;|")')
     ETA_UNKNOWN=$(grep "📱 \[UI_UPDATE\] Bridge text updated:" "$LOGFILE" | grep -c "ETA okänd")
     DEFAULT_UPDATES=$(grep "📱 \[UI_UPDATE\] Bridge text updated:" "$LOGFILE" | grep -c "Inga båtar är i närheten")
 
     echo "- **Total Bridge Text Updates:** $TOTAL_UPDATES" >> "$SUMMARY_TMP"
     echo "- **boat_near Notifications:** $NOTIFICATIONS" >> "$SUMMARY_TMP"
     echo "- **\"strax\"-Updates:** $STRAX_UPDATES" >> "$SUMMARY_TMP"
+    echo "- **\"väntar vid\"-Updates:** $WAIT_UPDATES (varav vid målbron, U65: $WAIT_TARGET_UPDATES)" >> "$SUMMARY_TMP"
     echo "- **\"ETA okänd\"-Updates:** $ETA_UNKNOWN" >> "$SUMMARY_TMP"
     echo "- **\"Inga båtar\"-Updates:** $DEFAULT_UPDATES" >> "$SUMMARY_TMP"
 
