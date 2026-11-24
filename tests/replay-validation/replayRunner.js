@@ -338,6 +338,14 @@ async function main() {
   const bridgeTextLog = [];
   const confirmedTargetWaits = [];
   const lastTargetWait = new Map();
+  // U65 (ägarens beslut 2026-11-24): köbeviset vid målbron ger vänttexten och
+  // bär aldrig "strax"; en köare vid Kajen (U23, inget köbevis i kajzonen)
+  // bär fortfarande "strax" genom imminent-flaggan. Hennes väntor bokförs
+  // därför också för sig, så att buggjägarens MÄTGRÄNS-INV10-VÄNTKEDJA bara
+  // förklarar "strax" med en väntan som kan bära det. Ren diagnostik;
+  // confirmedTargetWaits (INV-10) är oförändrad.
+  const confirmedQuayWaits = [];
+  const lastQuayWait = new Map();
   let lastBridgeText = null;
   // ETA-BÄRARNA (2026-11-15, INV-3): för varje publicerad text, vilken båt vars
   // ETA varje "på väg mot X"-klausul visar (BridgeTextService#_selectLeadVessel
@@ -479,6 +487,15 @@ async function main() {
           const wait = { bridge, from: Date.now(), until };
           confirmedTargetWaits.push(wait);
           lastTargetWait.set(bridge, wait);
+        }
+        if (!waitingBridge(vessel)) {
+          const lastQuay = lastQuayWait.get(bridge);
+          if (lastQuay && lastQuay.until >= Date.now()) lastQuay.until = Math.max(lastQuay.until, until);
+          else {
+            const wait = { bridge, from: Date.now(), until };
+            confirmedQuayWaits.push(wait);
+            lastQuayWait.set(bridge, wait);
+          }
         }
       }
       return text;
@@ -1092,6 +1109,7 @@ async function main() {
     bridgeTextTransitions: bridgeTextLog,
     bridgeTextLeads,
     confirmedTargetWaits,
+    confirmedQuayWaits,
     notifications,
     notificationCount: notifications.length,
     // Etapp 3: fusionsstatistik (REPLAY_FUSION-grinden asserterar att F1-F5

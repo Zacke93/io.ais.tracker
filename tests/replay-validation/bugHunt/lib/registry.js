@@ -2056,6 +2056,15 @@ const PREDICATES = {
   // (högst maxSvansS, den första ticken efter `until`) behålls. Rättat
   // 2026-11-04 (runda 2, E2): förut godtogs varje glapp ≤ 30 s, även ett
   // över ticken 09:00:00 (granskarens inv10tick-b: 'högst 25 s').
+  //
+  // U65 (ägarens beslut 2026-11-24): köbeviset vid målbron ger vänttexten
+  // "väntar vid <bro>" och bär aldrig 'strax'. Bara köaren vid Kajen (U23;
+  // inget köbevis i kajzonen, 'strax' genom imminent-flaggan) kan bära en
+  // lång 'strax'. Kedjan byggs därför av hennes väntor (belägg.väntan.
+  // kajIntervall, harnessens confirmedQuayWaits) när resultatet har dem;
+  // ett äldre resultat utan fältet dömer som förut. Fallet som posten finns
+  // för står kvar: värld 129 (F-KONVOJ), en båt still 248 m norr om
+  // Klaffbron i Kajens kapsel, "strax" i 38 min.
   chainedConfirmedWait: {
     parametrar: {
       maxGlappS: 30,
@@ -2070,7 +2079,12 @@ const PREDICATES = {
     fn(f, ctx, p) {
       const v = f.belägg && f.belägg.väntan;
       if (!v || !Number.isFinite(v.från) || !Number.isFinite(v.till) || !Array.isArray(v.intervall)) return nej('fyndet saknar väntintervallen (belägg.väntan)');
-      const list = v.intervall.filter((x) => x && Number.isFinite(x.från) && Number.isFinite(x.till))
+      const kaj = Array.isArray(v.kajIntervall);
+      const källa = kaj ? v.kajIntervall : v.intervall;
+      if (kaj && !källa.length && v.intervall.length) {
+        return nej(`väntan vid ${v.bro} var bara köbevis, som sedan U65 ger vänttexten och aldrig 'strax'; ingen bekräftad kö vid Kajen bar 'strax'`);
+      }
+      const list = källa.filter((x) => x && Number.isFinite(x.från) && Number.isFinite(x.till))
         .sort((a, b) => (a.från - b.från) || (a.till - b.till));
       // Startvillkoret mäts från STILLHETENS FÖRSTA FIX (2026-11-16, nattkortet
       // F18, U6): appen bekräftar väntan först vid den andra stillafixen
@@ -2426,6 +2440,27 @@ const PREDICATES = {
       const styr = ctx.rader.filter((r) => r && HARNESS_STYRRADER.has(r.ctrl) && tider.get(r) >= stämpel && tider.get(r) <= åter.t)
         .sort((a, b) => tider.get(a) - tider.get(b))[0];
       if (styr) return nej(`${gammal}, men styrraden ${styr.ctrl} ${fmtMs(styr.aisTimestamp)} bearbetades mellan båtens förra fix och återgången`);
+      // Krav 9b (U65, ägarens beslut 2026-11-24): en båt i målbrons väntgrupp
+      // ("väntar vid <bro>", köbeviset) bär aldrig 'strax'. Visar ETA-bärarna
+      // (bridgeTextLeads) henne i kön vid bron vid nivån före hoppet eller vid
+      // återgången, och står målbrons vänttext i just den texten, var 'strax'
+      // där en annan båts, och studsen är inte hennes. Före U65 fanns ingen
+      // vänttext vid målbron (köaren bar då 'strax'), så ett äldre resultat
+      // dömer som förut (värld 1608 i fixturen u16-b4); likaså utan underlaget.
+      const leads = ctx.resultat && ctx.resultat.bridgeTextLeads;
+      if (Array.isArray(leads)) {
+        const vänttext = new RegExp(`(^|; )\\S+ båt(ar)? väntar vid ${f.bro}(;|$)`);
+        const iKön = (t) => {
+          const x = leads.filter((y) => y && y.t === t && Array.isArray(y.vessels)).pop();
+          const hon = x && x.vessels.find((w) => w && String(w.mmsi) === String(mmsi));
+          return !!hon && hon.targetBridge === f.bro && hon.waitingAt === f.bro && vänttext.test(String(x.text || ''));
+        };
+        const när = [['nivån före hoppet', före.t], ['återgången', åter.t]].find(([, t]) => iKön(t));
+        if (när) {
+          return nej(`${gammal}, men båten stod i kön vid ${f.bro} ("väntar vid", U65) vid ${när[0]} ${fmtMs(när[1])}: `
+            + "köbeviset vid målbron bär aldrig 'strax'");
+        }
+      }
       if (b4) {
         // Krav 9 och 10 i B4-varianten är appens eget läge (b4Underlag): hon
         // bar 'strax' ensam före hoppet, och texten lånade en annan båts ETA.

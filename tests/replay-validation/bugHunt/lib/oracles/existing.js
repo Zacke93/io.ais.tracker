@@ -78,13 +78,17 @@ function straxEvidence(message, result) {
   const i = trans.findIndex((x) => x && x.t === t);
   if (i < 0) return null;
   const till = i + 1 < trans.length ? trans[i + 1].t : trans[trans.length - 1].t;
-  const intervall = ((result && result.confirmedTargetWaits) || [])
+  const urval = (waits) => (waits || [])
     .filter((w) => w && w.bridge === bro && Number.isFinite(w.from) && Number.isFinite(w.until) && w.until >= t && w.from <= till)
     .map((w) => ({ från: w.from, till: w.until }))
     .sort((a, b) => (a.från - b.från) || (a.till - b.till))
     .slice(0, VÄNTAN_MAX);
+  const intervall = urval(result && result.confirmedTargetWaits);
+  // U65: väntorna som kan bära "strax" (köaren vid Kajen). null när
+  // resultatet är äldre än harnessens confirmedQuayWaits.
+  const kajIntervall = result && Array.isArray(result.confirmedQuayWaits) ? urval(result.confirmedQuayWaits) : null;
   return {
-    bro, från: t, till, intervall,
+    bro, från: t, till, intervall, kajIntervall,
   };
 }
 
