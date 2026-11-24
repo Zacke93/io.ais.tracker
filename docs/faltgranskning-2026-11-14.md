@@ -41,6 +41,7 @@ när en båt vänder och sedan inte hörs. Prognosarbetet (U22) är fortfarande 
 **Omgång 5** (23–24 november, U52–U58, avsnitt 14) rättade fynden ur fältprov 2 (17–23 november) och en evig slinga i appens krockskydd; avsnitt 14 stämmer med `bf646fe`.
 **Omgång 6** (24 november, U59–U61, avsnitt 15) mätte var restiden är fel över hela underlaget och lät restiden räknas om från avgången efter ett långt stopp; avsnitt 15 stämmer med `9bbc276`.
 **Omgång 7** (24 november, U62–U64, avsnitt 16) mätte hur ofta en väntande båt saknas i brotexten och ändrade ingen kod; tre kända gränser är beskrivna med mätningen.
+**Omgång 8** (24 november, U65, avsnitt 17) bytte "beräknad broöppning strax" mot "En båt väntar vid <målbro>" medan en båt väntar vid sin målbro, på ägarens beslut samma dag.
 
 ## 2. Körningarna och vad de täcker — och inte täcker
 
@@ -3305,6 +3306,7 @@ Uppföljning, i ordning:
    60). Det står för 27,5 % av brotextens felmängd. Alternativet är formen "En båt väntar vid
    Stridsbergsbron", som är sann i varje minut. Det vänder ägarens beslut 2026-08-08 (U6) och
    2026-09-12, så frågan är ställd till ägaren.
+   Avgjord av ägaren 2026-11-24: texten byts (U65, avsnitt 17).
 2. **"Inga båtar" efter en omstart.** En stillaliggande båt i kön försvinner ur texten i upp till
    tio minuter efter en omstart, tills hon rör sig. Funnet av granskaren, finns före omgången.
    Mätt i omgång 7 (avsnitt 16, U63).
@@ -3480,8 +3482,8 @@ Uppföljning:
    registrets tre omstartsposter.
 2. **Fartspikar på en stilla båt** (17,5 minuter i underlaget): en siffra står kvar en stund
    fast positionen står still. Inte utrett.
-3. Uppföljningslistorna i 14.6 och 15.6 i övrigt; frågan om "strax" (15.6, punkt 1) ligger hos
-   ägaren.
+3. Uppföljningslistorna i 14.6 och 15.6 i övrigt; frågan om "strax" (15.6, punkt 1) avgjordes
+   av ägaren 2026-11-24 (U65, avsnitt 17).
 
 ### 16.5 Lärdomar
 
@@ -3498,3 +3500,154 @@ Uppföljning:
 Omgången ändrar dokumentationen och radhänvisningarna i registret, ingen kod och inga test.
 Källradsverktyget säger att alla radhänvisningar håller, och de jestsviter som läser
 dokumentationen och registret är gröna. Slutbatteriet i 15.8 gäller oförändrat för koden.
+
+## 17. Omgång 8, väntan vid målbron: 24 november 2026
+
+Tillagt 2026-11-24. Mätningen i omgång 6 visade att 27,5 % av brotextens felmängd var texten
+"beräknad broöppning strax" medan en båt väntar direkt vid målbron (15.6, punkt 1). Frågan låg
+hos ägaren, som den 24 november svarade att texten får ändras. Omgång 8 byter texten (U65) och
+ändrar ingenting annat i appens beteende. Omgången utgick från `omg7/integration` och ligger på
+grenen `omg8/integration`. Alla tider är UTC.
+
+### 17.1 Beslutet U65
+
+**Ägarens beslut 2026-11-24:** en båt som väntar vid sin målbro ska visas som väntande, inte som
+"beräknad broöppning strax". Det ersätter U1/U6 (2026-08-08) och beslutet 2026-09-12, som behöll
+"strax" under hela väntan.
+
+Utformningen är dirigentens, och ägaren kan ändra den:
+
+1. Formen är `En båt väntar vid Stridsbergsbron` (flera: `Två båtar väntar vid Klaffbron`), samma
+   form som mellanbroarnas vänttext men utan "på väg mot".
+2. Villkoret är köbeviset vid målbron, alltså samma bevis som förut gav "strax". Inget nytt
+   avstånd och ingen ny stillhetsregel (U62 står kvar).
+3. De väntande är en egen grupp, före båtarna under gång mot samma bro. Båtar under gång behåller
+   sin egen rad med minuter, "strax" eller "ETA okänd". En väntande båt gör inte längre att hela
+   gruppen säger "strax".
+4. När köbeviset släpper (båten sätter fart, öppning pågår) går hon tillbaka till raden under gång
+   och får "strax" av närhetsflaggan som förut. "Strax" betyder då åter att passagen är nära.
+5. Notiser, öppningsvarningar, målbro, statusar och restidsvärden ändras inte.
+
+### 17.2 Det som gick in
+
+- **Texten** (`lib/services/BridgeTextService.js`): kön vid målbron räknas till köerna i stället
+  för till gruppen under gång. Ordningen inom en målbro är kön vid målbron, köerna vid tidigare
+  broar, sist båtarna under gång.
+- **Notisens "strax"-regel (U33)** svarar nej för en båt i målbrons väntgrupp, så att notisen
+  behåller sin siffra när texten inte säger "strax" för just den båten. Ingen notis ändras i
+  någon inspelad körning.
+- **Ledarvalet** för den visade restiden väljer bara bland båtar under gång. En variant med det
+  gamla ledarvalet gav identiska texter, restider och notiser i alla körningar.
+- **Test:** en ny svit med 17 test och två nya syntetiska scenarier (kö 150 m före
+  Stridsbergsbron och Klaffbron), alla röda på koden före U65 utom fem avsedda regressionsskydd.
+- **Loggskriptet** `run-with-logs.sh` räknar "väntar vid" i fältsammanfattningen, alla och de
+  vid själva målbron, så att den lägre "strax"-räknaren i fältprov 3 inte läses som en
+  försämring.
+- **Verktygen:** kontrollen av långvarig "strax" (INV-10) godtar bara en bekräftad kö vid Kajen
+  som förklaring, inte längre köbeviset vid målbron. Replayn bokför väntorna vid Kajen för sig,
+  och buggjägarens två registerposter som byggde på att en köare bär "strax" är omprövade:
+  kedjan av väntor räknar bara köer vid Kajen, och en "strax"-studs binds inte till en båt som
+  står i vänttexten.
+- **Dokumentationen:** `docs/bridgeTextFormat.md`, `docs/ARCHITECTURE.md` (§5 med kostnaderna),
+  `docs/VALIDATION.md` (sektionen U65) och `docs/reliability-spec.md`.
+
+### 17.3 Mätningen
+
+Underlaget är bankens 25 korpusar och fältkörningarna, körda på koden före och efter, normalt och
+med `REPLAY_MONITORING=1`.
+
+- **Händelserna är lika.** Notiser med alla fält, öppningsvarningar, täckning, passager,
+  resenollställningar, borttagningar och bekräftade väntor är identiska i varje körning.
+- **Texten ändras i tio korpusar och två fältkörningar:** 194 stycken, 751,6 minuter. 44 stycken
+  (455,7 min) är ren ersättning av "strax" med vänttexten, 146 (294,9 min) är en grupp som delas
+  i väntgrupp och grupp under gång, och 4 (1,0 min, alla i 20260806-42h) skiljer bara i tidpunkt.
+- **Vänttexten är oftast sann.** Av 1 175,5 båtminuter vänttext (41 väntor) låg båten still eller
+  kröp före bron i 968 och hade en position äldre än fem minuter men låg kvar vid nästa fix i
+  108,5. Förut stod "strax" i samma minuter, och passagen kom inom tre minuter i 76 av dem; i
+  354 minuter dröjde den mer än en timme. MISTRAL (145 min), MOKENDEIST (142), ANDREA (130 och
+  110), FILOU (101) och CALIMA (64) har sann vänttext genom hela väntan utom i glappen nedan.
+- **Efter vänttexten** kommer "strax" i 17 av 41 väntor (passagen 0,2–4,3 min senare), "ETA
+  okänd" i 11 (positionen har blivit gammal), nästa målbro efter passagen i 8, en minutsiffra i
+  4 och i ett fall försvinner båten. Ingen väntande båt går till en siffra som är hennes egen
+  och fel.
+- **Gruppen under gång** visar sin egen klausul i 214 minuter där den förut sa "strax". I de 72
+  minuter som går att mäta är den bättre i 69 och sämre i 1,5.
+
+### 17.4 Kostnader och kända gränser
+
+Alla står med mekanism i `docs/ARCHITECTURE.md` §5.
+
+1. **Passerad under ett radioglapp** (50,5 min): en båt som tystnar vid bron och hörs nästa gång
+   bortom den visas som väntande tills positionen är tio minuter gammal (ANTARES 8–9 min, AGULHAS
+   och PHOENIX 7,5). I just passageminuterna var det gamla "strax" rätt. De flesta fallen ligger i
+   äldre korpusar med tio minuter mellan positionerna.
+2. **Växling på ett fartfix** (6 stycken, 1,1–7,9 min): ett fix över 1 kn släpper köbeviset, och
+   texten säger "strax" tills stillheten bekräftats igen. FILOU 7/8 växlar sex gånger på 101
+   minuter (tre på fart, tre på gammal position). Mitt i växlingen står samma "strax" som förut.
+3. **En köare med gammal position under en annan båts siffra** (3 fall): CAVAT "om 15 minuter" i
+   2,2 min, ELIZABETH GREENWOOD "om 8", FILOU "om 2" i 0,7 min. Förut höll en annan köares
+   "strax" gruppen.
+4. **Restiden bortser från kön framför.** En båt som närmar sig en bro där andra väntar visar sin
+   egen tid till bron: MARY 7/8 10:39–10:57 "om 18 → 4 minuter" bredvid "Tre båtar väntar vid
+   Stridsbergsbron", och hon gick igenom efter 48–66 minuter. Förut stod "strax" i samma minuter.
+   Siffran är ankomsten till bron eller väntplatsen (U61); appen har ingen kömodell.
+5. **Köaren vid Kajen (U23)** behåller "strax". Köbeviset gäller inte i en kajzon, så en båt som
+   väntar vid Kajen norr om Klaffbron visas som förut. I underlaget syns 19 sådana båtar i 88
+   minuter, varav 60,6 med eget "strax"; ingen låg över natten. Se 17.5.
+
+### 17.5 Det som prövades och inte gick in
+
+- **En hållning upp till 1,5 kn** (som U53 för mellanbroarna) tar bort tre av de sex
+  fartväxlingarna men döljer två verkliga avgångar: CAVAT 5/8 12:15 i 2,2 minuter (hon går igenom
+  bron innan hållningen släpper) och PILOT 761 18/11 13:05 i 1,2.
+- **Vänttext bara med en position högst fem minuter gammal** tar bort 29 av de 50,5 passerade
+  minuterna men också cirka 100 minuter sann vänttext.
+- **Vänttext också vid Kajen.** Kräver ett eget, svagare bevis än köbeviset (anflygningen
+  bokförs inte i en kajzon), för 8–22 minuter verklig stillhet i hela underlaget. Tas upp med
+  ägaren efter fältprov 3 om köer vid Kajen syns där.
+
+### 17.6 Omlåsningen (U13)
+
+Textfacit är omlåst i tio korpusar (20260702-2h, 20260710-13h, 20260711-16h, 20260712-25h,
+20260713-41h, 20260804-17h, 20260804-both-21h, 20260806-42h, 20260823-24h, 20260909-80h) med
+`relockGoldenText`, som kräver att notiser, fördelning, riktning, öppningar, händelsefacit och
+fatala invarianter är oförändrade. Dirigentens egen radvisa diff gav 191 stycken i de tio
+korpusarna (41 ren ersättning, 146 delad grupp, 4 tidpunkt), samma som rättarens tal för banken,
+med lika antal båtar per målbro i gammal och ny text i varje stycke utom de fyra tidsstyckena.
+En kontroll mot rådatan (rätt antal båtar med senaste fix inom 400 m från bron i högst 1,5 kn)
+stöder vänttexten i 744,7 av 747,0 minuter. Noterna i `corpora.js` anger rådatan per korpus och
+de kända kostnaderna där de förekommer.
+
+### 17.7 Granskningen
+
+Den oberoende granskaren godkände koden utan fynd och begärde ändringar i verktyg och
+beskrivningar: loggskriptets räknare, mekanismen bakom de fyra tidsstyckena, och två kostnader
+som saknades eller var för milt beskrivna (17.4, punkt 1 och 4). Granskarens egna prov: 12 av
+de 17 nya testen röda på koden före (de fem övriga är avsedda regressionsskydd), sju mutationer
+som alla fälls, den gamla textregeln körd på den nya körningens indata (varje ändrat stycke är
+ren regelverkan utom de fyra tidsstyckena), och fassvepet grönt på de två tätaste korpusarna.
+
+**De fyra tidsstyckena.** En publicerad textändring ger nästa uppdatering 200 ms anstånd. I
+replayn varar anståndet tills klockan stegats till nästa AIS-rad (6–30 s), så en båt som kommer
+till eller byter målbro kan synas upp till 30 s senare när en ny textändring ligger precis före.
+I fält är skillnaden tiondels sekunder.
+
+### 17.8 Lärdomar
+
+- **Sök läsare av texten utanför appkoden.** Loggskriptets sammanfattning räknade "strax" och
+  hade gett en falsk misstanke om försämring i fältprov 3.
+- **Kör den gamla regeln på den nya körningens indata.** Det skiljer regelns verkan från
+  följdändringar i tid och gjorde de fyra tidsstyckena förklarliga.
+- **En rättning kan göra en gammal gräns synlig.** Restiden utan kömodell fanns förut bakom
+  "strax"; nu står den som en siffra bredvid vänttexten.
+
+### 17.9 Fältprov 3 ska mäta
+
+1. Hur ofta och hur länge "väntar vid <målbro>" visas, och vad som står direkt efter.
+2. Växlingar till "strax" på ett fartfix och efter gammal position (17.4, punkt 2 och 3).
+3. Båtar som går igenom bron under vänttexten (17.4, punkt 1): hur långa är glappen med dagens
+   AIS-källor?
+4. Köer vid Kajen norr om Klaffbron (17.5).
+5. En minutsiffra bredvid en väntgrupp (17.4, punkt 4).
+6. Uppföljningslistorna i 14.6, 15.6 och 16.4, bland annat raderna `ETA_STILL_RELEASE` och
+   omstarter.
