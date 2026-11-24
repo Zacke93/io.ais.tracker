@@ -524,7 +524,16 @@ module.exports = [
     hours: 2,
     locked: true,
     expectedNotifications: 33,
-    note: `${SEPTEMBER_REVIEW}HAJH-LAIF: 30 min 26 s utan AIS avslutar den gamla livscykeln `
+    note: 'BROTEXT OMLÅST 2026-11-24 (omgång 8, U65, ägarens beslut: en båt i bekräftad kö vid själva målbron visas som '
+      + '"En båt väntar vid <målbro>" i en egen grupp i stället för att ge målgruppen "beräknad broöppning strax"): 34 → '
+      + '40 övergångar; sex stycken (7,4 min), alla en grupp som delas. CLABBYDOO 211536930 låg 103 m från Klaffbron i '
+      + '0,4 kn 11:37–11:44 och gick igenom 11:44:45–11:46:15; "Två båtar på väg mot Klaffbron, beräknad broöppning '
+      + 'strax" blir "En båt väntar vid Klaffbron; En båt på väg mot Klaffbron, …" med den andra båtens egen klausul '
+      + '("om 12 minuter", "om cirka 7–4 minuter", "strax"). Notiser, öppningsvarningar, passager och övrigt '
+      + 'händelsefacit är oförändrade, också med REPLAY_MONITORING=1. Rättare enligt U13: i de tio omlåsta korpusarna '
+      + 'har rätt antal båtar sitt senaste fix (högst 10 min gammalt) inom 400 m från bron i högst 1,5 kn under 744,7 av '
+      + '747,0 minuter vänttext; dirigentens egen radvisa diff och rådatakontroll, och oberoende granskning. '
+      + `${SEPTEMBER_REVIEW}HAJH-LAIF: 30 min 26 s utan AIS avslutar den gamla livscykeln `
       + 'före återkomsten, även om minutstädningen inte hunnit. Ren ETA-historik ger 7 i stället för '
       + '6 minuter; samma utfall i alla sex faser med och utan monitoring. '
       + 'Eftermiddagskörningen 2026-07-02 (nio fartyg, källa till de åtta felen i '
@@ -885,7 +894,17 @@ module.exports = [
     hours: 13.5,
     locked: true,
     expectedNotifications: 80,
-    note: 'ÖPPNINGSVARNINGAR OMLÅSTA 2026-11-17 (omgång 4, U45: har en annan båt gått igenom bron efter varningen '
+    note: 'BROTEXT OMLÅST 2026-11-24 (omgång 8, U65, ägarens beslut: en båt i bekräftad kö vid själva målbron visas som '
+      + '"En båt väntar vid <målbro>" i en egen grupp i stället för att ge målgruppen "beräknad broöppning strax"): 128 '
+      + '→ 132 övergångar; ett stycke ren ersättning (1,2 min) och sju delade grupper (19,5 min). ANTARES 230167390 låg '
+      + '161–162 m från Stridsbergsbron i 0 kn 11:11–11:23 och 211690580 108 m från bron i 0 kn. Känd kostnad: ANTARES '
+      + 'tystnade 11:23:06 och hördes nästa gång 11:35:04 bortom bron, så vänttexten 11:24–11:33 står delvis kvar för en '
+      + 'båt som gått igenom (förut "strax" i samma minuter; köbeviset gäller tills positionen är 10 min gammal). '
+      + 'Notiser, öppningsvarningar, passager och övrigt händelsefacit är oförändrade, också med REPLAY_MONITORING=1. '
+      + 'Rättare enligt U13: i de tio omlåsta korpusarna har rätt antal båtar sitt senaste fix (högst 10 min gammalt) '
+      + 'inom 400 m från bron i högst 1,5 kn under 744,7 av 747,0 minuter vänttext; dirigentens egen radvisa diff och '
+      + 'rådatakontroll, och oberoende granskning. '
+      + 'ÖPPNINGSVARNINGAR OMLÅSTA 2026-11-17 (omgång 4, U45: har en annan båt gått igenom bron efter varningen '
       + 'får en varnad båt som kommer mer än tio minuter senare en ny varning, om hon då hörs i minst 2 kn mot '
       + 'bron utanför väntzonen): Klaffbron söderut 7 → 8. Ny: DELFIN 11:29:38 (834 m norr om bron i 5,3 kn). '
       + 'DELFIN varnades 10:52:11 och ANTARES 10:58:04, COMETOGETHER gick igenom norrut 11:00:39, och båda låg '
@@ -1049,7 +1068,15 @@ module.exports = [
     locked: true,
     lockEvents: true,
     expectedNotifications: 48,
-    note: 'ÖPPNINGSVARNINGAR OMLÅSTA 2026-11-17 (omgång 4, U45: har en annan båt gått igenom bron efter varningen '
+    note: 'BROTEXT OMLÅST 2026-11-24 (omgång 8, U65, ägarens beslut: en båt i bekräftad kö vid själva målbron visas som '
+      + '"En båt väntar vid <målbro>" i en egen grupp i stället för att ge målgruppen "beräknad broöppning strax"): 68 → '
+      + '71 övergångar; tolv stycken ren ersättning (56,2 min) och fyra delade grupper (14,3 min). CALIMA 211844940 låg '
+      + '155–157 m från Stridsbergsbron i 0–0,1 kn 12/7 10:37–11:10 och gick igenom 11:23:40–11:26:40; förut stod '
+      + '"beräknad broöppning strax" hela väntan. Notiser, öppningsvarningar, passager och övrigt händelsefacit är '
+      + 'oförändrade, också med REPLAY_MONITORING=1. Rättare enligt U13: i de tio omlåsta korpusarna har rätt antal '
+      + 'båtar sitt senaste fix (högst 10 min gammalt) inom 400 m från bron i högst 1,5 kn under 744,7 av 747,0 minuter '
+      + 'vänttext; dirigentens egen radvisa diff och rådatakontroll, och oberoende granskning. '
+      + 'ÖPPNINGSVARNINGAR OMLÅSTA 2026-11-17 (omgång 4, U45: har en annan båt gått igenom bron efter varningen '
       + 'får en varnad båt som kommer mer än tio minuter senare en ny varning, om hon då hörs i minst 2 kn mot '
       + 'bron utanför väntzonen): Klaffbron söderut 4 → 6 (12/7). Nya: QUEEN ELAN GT5 10:34:27 (700 m norr om '
       + 'bron i 5,8 kn) och CALIMA 11:26:40 (746 m norr om bron i 5,2 kn). QUEEN ELAN GT5 varnades 10:04:55, '
@@ -1120,7 +1147,16 @@ module.exports = [
     locked: true,
     lockEvents: true,
     expectedNotifications: 86,
-    note: 'NOTISER OMLÅSTA 2026-11-17 (omgång 3, N6/U44: en ny båt mer än 70 m bortom en bro får en passagenotis i '
+    note: 'BROTEXT OMLÅST 2026-11-24 (omgång 8, U65, ägarens beslut: en båt i bekräftad kö vid själva målbron visas som '
+      + '"En båt väntar vid <målbro>" i en egen grupp i stället för att ge målgruppen "beräknad broöppning strax"): 137 '
+      + '→ 138 övergångar; två stycken ren ersättning (6,7 min) och en delad grupp (3,5 min). VENTICELLO 211844250 låg '
+      + '141 m från Stridsbergsbron i 0 kn 13/7 08:53:49. Känd kostnad: nästa fix 09:05:18 ligger bortom bron, så '
+      + 'vänttexten 08:53:49–09:02:43 står delvis kvar för en båt som gått igenom (förut "strax"). Notiser, '
+      + 'öppningsvarningar, passager och övrigt händelsefacit är oförändrade, också med REPLAY_MONITORING=1. Rättare '
+      + 'enligt U13: i de tio omlåsta korpusarna har rätt antal båtar sitt senaste fix (högst 10 min gammalt) inom 400 m '
+      + 'från bron i högst 1,5 kn under 744,7 av 747,0 minuter vänttext; dirigentens egen radvisa diff och '
+      + 'rådatakontroll, och oberoende granskning. '
+      + 'NOTISER OMLÅSTA 2026-11-17 (omgång 3, N6/U44: en ny båt mer än 70 m bortom en bro får en passagenotis i '
       + 'stället för en förvarning): 4 notiser byter mening, eta 1 → −1 och alreadyPassed; tid, bro, riktning, '
       + 'avstånd och antal är oförändrade. Alla fyra är båtens första position i korpusen, bortom brolinjen och '
       + 'på väg bort från bron; förut löd de "närmar sig <bron>, beräknad ankomst om 1 minut". Meningen följer '
@@ -1316,7 +1352,17 @@ module.exports = [
     hours: 41,
     locked: true,
     expectedNotifications: 162,
-    note: 'ÖPPNINGSVARNINGAR OMLÅSTA 2026-11-17 (omgång 4, U45: har en annan båt gått igenom bron efter varningen '
+    note: 'BROTEXT OMLÅST 2026-11-24 (omgång 8, U65, ägarens beslut: en båt i bekräftad kö vid själva målbron visas som '
+      + '"En båt väntar vid <målbro>" i en egen grupp i stället för att ge målgruppen "beräknad broöppning strax"): 259 '
+      + '→ 266 övergångar; två stycken ren ersättning (3,9 min) och nio delade grupper (41,3 min). 265663660 låg 157–159 '
+      + 'm från Stridsbergsbron i 0 kn 14/7 11:16–11:42 och gick igenom 11:55:14–11:57:46; den andra båten i gruppen '
+      + 'visar "ETA okänd" i stället för väntarens "strax". Känd kostnad: 14/7 08:36 visar 211327190 "om 4 minuter" '
+      + 'bredvid vänttexten och gick igenom efter 25 min (restiden gäller ankomsten och bortser från kön; förut '
+      + '"strax"). Notiser, öppningsvarningar, passager och övrigt händelsefacit är oförändrade, också med '
+      + 'REPLAY_MONITORING=1. Rättare enligt U13: i de tio omlåsta korpusarna har rätt antal båtar sitt senaste fix '
+      + '(högst 10 min gammalt) inom 400 m från bron i högst 1,5 kn under 744,7 av 747,0 minuter vänttext; dirigentens '
+      + 'egen radvisa diff och rådatakontroll, och oberoende granskning. '
+      + 'ÖPPNINGSVARNINGAR OMLÅSTA 2026-11-17 (omgång 4, U45: har en annan båt gått igenom bron efter varningen '
       + 'får en varnad båt som kommer mer än tio minuter senare en ny varning, om hon då hörs i minst 2 kn mot '
       + 'bron utanför väntzonen): Klaffbron söderut 12 → 15 (14/7). Nya: JOY 09:02:54 (888 m norr om bron i 6,2 '
       + 'kn), PILGRIM 13:05:53 (957 m norr om bron i 5,2 kn) och HEY JOE 13:08:31 (579 m norr om bron i 6 kn). '
@@ -1607,7 +1653,15 @@ module.exports = [
     hours: 17,
     locked: true,
     expectedNotifications: 116,
-    note: 'Omlåst 2026-11-03 (mellanbroreserven): ORCAs segment 13:56:15.903→14:00:43.502 slutar 27 m söder om '
+    note: 'BROTEXT OMLÅST 2026-11-24 (omgång 8, U65, ägarens beslut: en båt i bekräftad kö vid själva målbron visas som '
+      + '"En båt väntar vid <målbro>" i en egen grupp i stället för att ge målgruppen "beräknad broöppning strax"): 191 '
+      + '→ 198 övergångar; två stycken ren ersättning (23,9 min) och nio delade grupper (22,3 min). 265625860 låg '
+      + '144–146 m från Stridsbergsbron i 0 kn 16:36–17:07 och gick igenom 17:07:28–17:10:28. Notiser, '
+      + 'öppningsvarningar, passager och övrigt händelsefacit är oförändrade, också med REPLAY_MONITORING=1. Rättare '
+      + 'enligt U13: i de tio omlåsta korpusarna har rätt antal båtar sitt senaste fix (högst 10 min gammalt) inom 400 m '
+      + 'från bron i högst 1,5 kn under 744,7 av 747,0 minuter vänttext; dirigentens egen radvisa diff och '
+      + 'rådatakontroll, och oberoende granskning. '
+      + 'Omlåst 2026-11-03 (mellanbroreserven): ORCAs segment 13:56:15.903→14:00:43.502 slutar 27 m söder om '
       + 'Järnvägsbron; rådatans korsning 14:00:31.026. Passagen bokförs vid korsningsfixen och notisen blir '
       + '"har precis passerat" 14:00:43.502 i stället för "närmar sig …, strax" 14:01:43.833. En textövergång '
       + 'flyttar 14:04:14.161→14:04:30.040 med samma text. Antal, multiset och övriga texter består.  '
@@ -1868,7 +1922,18 @@ module.exports = [
     lockOpenings: true,
     lockEvents: true,
     expectedNotifications: 151,
-    note: 'NOTIS OMLÅST 2026-11-23 (omgång 5, U44 punkt 3: en långsam båt bortom en bro får förvarningen först '
+    note: 'BROTEXT OMLÅST 2026-11-24 (omgång 8, U65, ägarens beslut: en båt i bekräftad kö vid själva målbron visas som '
+      + '"En båt väntar vid <målbro>" i en egen grupp i stället för att ge målgruppen "beräknad broöppning strax"): 273 '
+      + '→ 311 övergångar; sex stycken ren ersättning (171,7 min) och 49 delade grupper (60,8 min). ANDREA 219031446 låg '
+      + '134–149 m från Stridsbergsbron i 0–0,5 kn 5/8 01:08:39–03:19:03 (146 fix) och gick igenom 03:19–03:20; förut '
+      + 'stod "strax" i 130 min. Kända kostnader 5/8: CAVAT 12:07:29 "om 15 minuter" i 2,2 min och ELIZABETH GREENWOOD '
+      + '12:13:00 "om 8 minuter" (en köare vars position blivit över 10 min gammal räknas i gruppen under gång under en '
+      + 'annan båts siffra; förut en annan köares "strax"), och YOLO 2 växlar 09:05 och 09:14 till "strax" på ett '
+      + 'fartfix (1,3 och 1,6 kn) och tillbaka. Notiser, öppningsvarningar, passager och övrigt händelsefacit är '
+      + 'oförändrade, också med REPLAY_MONITORING=1. Rättare enligt U13: i de tio omlåsta korpusarna har rätt antal '
+      + 'båtar sitt senaste fix (högst 10 min gammalt) inom 400 m från bron i högst 1,5 kn under 744,7 av 747,0 minuter '
+      + 'vänttext; dirigentens egen radvisa diff och rådatakontroll, och oberoende granskning. '
+      + 'NOTIS OMLÅST 2026-11-23 (omgång 5, U44 punkt 3: en långsam båt bortom en bro får förvarningen först '
       + 'när riktningen är belagd): 152 → 151 notiser. Borta: EUGENIE 265788210 "närmar sig Klaffbron, beräknad '
       + 'ankomst om 5 minuter" norrut 5/8 07:50:34. Hon låg 266–407 m norr om Klaffbron från 07:20 i 0,2–0,6 kn, '
       + 'satte fart norrut 07:50:34 (1,9 kn, kurs 38°, 282 m bortom bron) och korsade Järnvägsbron 08:25:53, '
@@ -2569,7 +2634,21 @@ module.exports = [
       'DEFAULT-FLASH: 2026-08-06T08:47:00.040Z "Inga båtar" inklämd (30s) '
         + 'mellan två "En … Stridsbergsbron"-texter utan passage',
     ],
-    note: 'BROTEXT OMLÅST 2026-11-23 (omgång 5, U53: väntan vid en mellanbro visas som väntan upp till 800 m från bron, '
+    note: 'BROTEXT OMLÅST 2026-11-24 (omgång 8, U65, ägarens beslut: en båt i bekräftad kö vid själva målbron visas som '
+      + '"En båt väntar vid <målbro>" i en egen grupp i stället för att ge målgruppen "beräknad broöppning strax"): 287 '
+      + '→ 338 övergångar; tolv stycken ren ersättning (160,4 min), 61 delade grupper (125,7 min) och fyra stycken (1,0 '
+      + 'min) där bara tidpunkten skiljer (6/8 10:27:47, 7/8 10:38:36, 13:31:35 och 13:32:44: en publicerad textändring '
+      + 'ger nästa uppdatering ett mikroanstånd som i replayn varar till nästa AIS-rad). ANDREA 219031446 låg 14–200 m '
+      + 'från Stridsbergsbron i 0–1 kn 6/8 16:47–18:36 (98 fix) och gick igenom 18:35–18:37; MISTRAL 219025192, FILOU '
+      + '211593250, MOKENDEIST 211214850 och MARY 219028537 låg 90–204 m från bron i 0–0,2 kn 7/8 11:03–11:19 ("Fyra '
+      + 'båtar väntar vid Stridsbergsbron"), och MISTRAL gick igenom 11:43–11:45. Kända kostnader 7/8: FILOU växlar tre '
+      + 'gånger till "strax" på ett fartfix (10:35, 10:41, 11:18) och tre gånger på gammal position; MARY visar "om 18 → '
+      + '4 minuter" 10:39–10:57 bredvid "Tre båtar väntar vid Stridsbergsbron" och gick igenom efter 48–66 min (restiden '
+      + 'gäller ankomsten och bortser från kön; förut "strax"). Notiser, öppningsvarningar, passager och övrigt '
+      + 'händelsefacit är oförändrade, också med REPLAY_MONITORING=1. Rättare enligt U13: i de tio omlåsta korpusarna '
+      + 'har rätt antal båtar sitt senaste fix (högst 10 min gammalt) inom 400 m från bron i högst 1,5 kn under 744,7 av '
+      + '747,0 minuter vänttext; dirigentens egen radvisa diff och rådatakontroll, och oberoende granskning. '
+      + 'BROTEXT OMLÅST 2026-11-23 (omgång 5, U53: väntan vid en mellanbro visas som väntan upp till 800 m från bron, '
       + 'utan kravet att farten varit högst 0,5 kn, och tiden hålls under väntan; U54: en restid över 60 minuter visas '
       + 'som "ETA okänd"): 292 → 287 övergångar, och en post i openingWarnings byter minutsiffra. (1) ANDREA 219031446 '
       + 'söderut 6/8: "om 16" och "om 15 minuter" 18:36:38–18:37:45 blir "En båt väntar vid Järnvägsbron på väg mot '
@@ -2816,7 +2895,16 @@ module.exports = [
     lockOpenings: true,
     lockEvents: true,
     expectedNotifications: 24,
-    note: 'BROTEXT OMLÅST 2026-11-23 (omgång 5, U53: väntan vid en mellanbro visas som väntan upp till 800 m från bron, '
+    note: 'BROTEXT OMLÅST 2026-11-24 (omgång 8, U65, ägarens beslut: en båt i bekräftad kö vid själva målbron visas som '
+      + '"En båt väntar vid <målbro>" i en egen grupp i stället för att ge målgruppen "beräknad broöppning strax"): 79 → '
+      + '79 övergångar; två stycken ren ersättning (20,7 min). PHOENIX 276015380 låg 112–113 m från Stridsbergsbron i 0 '
+      + 'kn 24/8 14:38:00 och 14:50:18. Känd kostnad: nästa fix 15:02:19 ligger bortom bron, så vänttexten '
+      + '14:50:18–15:00:30 står delvis kvar för en båt som gått igenom (förut "strax"). Notiser, öppningsvarningar, '
+      + 'passager och övrigt händelsefacit är oförändrade, också med REPLAY_MONITORING=1. Rättare enligt U13: i de tio '
+      + 'omlåsta korpusarna har rätt antal båtar sitt senaste fix (högst 10 min gammalt) inom 400 m från bron i högst '
+      + '1,5 kn under 744,7 av 747,0 minuter vänttext; dirigentens egen radvisa diff och rådatakontroll, och oberoende '
+      + 'granskning. '
+      + 'BROTEXT OMLÅST 2026-11-23 (omgång 5, U53: väntan vid en mellanbro visas som väntan upp till 800 m från bron, '
       + 'utan kravet att farten varit högst 0,5 kn, och tiden hålls under väntan; U54: en restid över 60 minuter visas '
       + 'som "ETA okänd"): 81 → 79 övergångar. PRIMA LADY 230693000 norrut 24/8: "om 6" och "om 5 minuter" '
       + '16:28:21–16:29:02 blir "En båt väntar vid Järnvägsbron på väg mot Stridsbergsbron" från 16:28:21 (förut först '
@@ -2917,7 +3005,15 @@ module.exports = [
     lockOpenings: true,
     lockEvents: true,
     expectedNotifications: 24,
-    note: 'NOTISFACIT OMLÅST 2026-11-17 (omgång 4, U51: en båt som legat förtöjd minst 2 h vid Kanalinfarten eller '
+    note: 'BROTEXT OMLÅST 2026-11-24 (omgång 8, U65, ägarens beslut: en båt i bekräftad kö vid själva målbron visas som '
+      + '"En båt väntar vid <målbro>" i en egen grupp i stället för att ge målgruppen "beräknad broöppning strax"): 68 → '
+      + '72 övergångar; två stycken ren ersättning (4,8 min). TINY 265679440 låg 109–111 m från Klaffbron i 0,1–0,3 kn '
+      + '10/9 15:37–15:40 och gick igenom 15:39:44–15:40:12; EMBLA 265566930 låg 141 m från Stridsbergsbron i 0,8 kn '
+      + '11/9 16:48:36 och gick igenom 16:51–16:52. Notiser, öppningsvarningar, passager och övrigt händelsefacit är '
+      + 'oförändrade, också med REPLAY_MONITORING=1. Rättare enligt U13: i de tio omlåsta korpusarna har rätt antal '
+      + 'båtar sitt senaste fix (högst 10 min gammalt) inom 400 m från bron i högst 1,5 kn under 744,7 av 747,0 minuter '
+      + 'vänttext; dirigentens egen radvisa diff och rådatakontroll, och oberoende granskning. '
+      + 'NOTISFACIT OMLÅST 2026-11-17 (omgång 4, U51: en båt som legat förtöjd minst 2 h vid Kanalinfarten eller '
       + 'Stallbackabron får en notis när hon lägger ut in i kanalen; förtöjningen ska vara belagd med stilla '
       + 'positioner och avgången med fart mot punktens linje): 23 → 24 notiser. +1 ELFKUNGEN 265573130 '
       + 'Kanalinfarten norrut 10/9 16:01:36, "närmar sig Kanalinfarten, beräknad ankomst strax". Rådata: stilla '
