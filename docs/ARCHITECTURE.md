@@ -1375,7 +1375,7 @@ båt.
   varnar medan hon köar, och det är just det fel som spärren finns mot
   (20260907-31h 80 s, 20260909-80h 131 s).
   **Känd gräns: sen varning efter väntan vid Järnvägsbron (beslut U56,
-  återtaget 2026-11-24).** En båt norrut som väntar eller kryper före
+  återtaget 2026-11-23).** En båt norrut som väntar eller kryper före
   Järnvägsbron får varningen för Stridsbergsbron först när hon syns gå, och
   den kommer sent: i fältprov 2 kom 7 av 9 varningar för Stridsbergsbron
   norrut 37–218 s före passagen. Båten avgår ur stillhet (som U32 inte tar,

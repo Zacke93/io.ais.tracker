@@ -37,6 +37,8 @@ som hör ihop med den uppskjutna konvojfrågan, och hur appen ska väga tidig mo
 när en båt vänder och sedan inte hörs. Prognosarbetet (U22) är fortfarande uppskjutet.
 **Omgång 2** (15–16 november, U28–U30, avsnitt 11) hävde uppskovet; avsnitt 10–11 stämmer med `57e4789`.
 **Omgång 3** (16–17 november, U31–U44, avsnitt 12) rättade de äkta felen ur nattjaktens triage och tog in inbromsnings- och fartökningsregeln; avsnitt 12 stämmer med `d6e4d94`.
+**Omgång 4** (17 november, U45–U51, avsnitt 13) lät en annan båts passage förbruka den varnade öppningen och gav notis vid utfärd och avgång från kaj vid kanalens ytterpunkter; avsnitt 13 stämmer med `9b3728b`.
+**Omgång 5** (23–24 november, U52–U57, avsnitt 14) rättade fynden ur fältprov 2 (17–23 november); avsnitt 14 stämmer med `1b255af`.
 
 ## 2. Körningarna och vad de täcker — och inte täcker
 
@@ -2826,3 +2828,287 @@ kända fall med öppet beslut från 446 till 301.
 De 16 kandidatkorten är desamma som i 12.7. De 439 utslagen bakom dem är genomgångna i T1 och T2
 (13.1): tre äkta fel, som alla står på uppföljningslistan (U48 i två delar och U49).
 
+## 14. Fältprov 2 och omgång 5: 17–23 november 2026
+
+Tillagt 2026-11-24. Omgång 4 (`7633653`) gick i fält på ägarens Homey i 133 timmar. Provet visade
+att appen är stabil och att öppningsvarningarna kommer före passagen, och det visade ett fåtal
+verkliga fel. Ägaren bad dirigenten rätta dem ("fixa appen och se till att den blir så bra den
+bara kan"). Omgång 5 utgick från `7633653` och slogs ihop på grenen `omg5/integration`.
+Arbetsformen var densamma som förut: en rättare per spår i en egen arbetskopia, en oberoende
+granskare som mätte själv, och en dirigent som slog samman och låste om facit enligt U13 efter en
+egen radvis jämförelse mot rådatan. Nytt för omgången var två mätspår, där en utredare mätte
+alternativen över hela underlaget innan dirigenten fattade beslut. Beteendebesluten fattade
+dirigenten på ägarens uppdrag; ägaren kan ändra vart och ett. Alla tider är UTC.
+
+Fyra ändringar gick in: en lång förtöjning är en resegräns (U52), brotexten under väntan och vid
+orimlig restid (U53–U55), och de två sparade rättningarna från omgång 4 som nu klarade
+granskningen (U44 punkt 3 och U49). Två regler fördes inte in: varningen vid avgång ur kön vid
+Järnvägsbron (U56, återtaget efter granskningen) och spärren mot en falsk passage bakåt (U57,
+efter rättarens eget svep). För båda gick dokumentationen av den kända gränsen och test som
+låser dagens beteende in i stället.
+
+### 14.1 Fältprov 2
+
+Körningen gick 2026-11-17 22:45 till 2026-11-23 11:45 (133 h, 9 476 positioner) och stoppades
+ordnat.
+
+- **Stabilitet.** En appstart, inga krascher och inga oväntade fel. 15 avbrott i AIS-strömmen,
+  alla upptäckta av appens egen vakt och återanslutna på 2–15 s. Minnet planade ut på 19–20 MB
+  efter andra dygnet (gränsen är 70 MB).
+- **Fält = replay.** Alla 92 notiser, 31 öppningsvarningar och 358 brotexter var identiska när
+  samma positioner kördes om.
+- **Loggens integritet föll.** Loggströmmen från Homey till datorn hade tre hål (90, 90 och 180 s;
+  minst fem positioner saknas i loggen). Appen gick igenom hålen, men körningen kan inte låsas som
+  korpus (`docs/VALIDATION.md`, Fältprov). Regressionstesten i omgången är därför byggda som
+  syntetiska scenarier med egna positioner.
+- **Öppningsvarningarna.** 30 av 30 verkliga passager av Klaffbron och Stridsbergsbron var varnade
+  före passagen, i median 356 s före (37–1 095 s). Ingen varning kom efter passagen. En varning
+  var falsk: lotsbåten PRICKBJORN gick 20/11 mot Klaffbron i 6,6 kn och lade sedan till vid en kaj.
+  För Stridsbergsbron norrut kom 7 av 9 varningar 37–218 s före (14.5, U56).
+- **Notiserna.** 92 notiser mot 88 korsningar och zonbesök. En notis saknades och en hade fel
+  riktning, båda för samma båt efter en lång förtöjning (U52). Restiden låg inom en minut i 72 %
+  av notiserna och inom två i 82 %; de största felen gällde båtar som sedan väntade vid
+  Järnvägsbron.
+- **Brotexten.** Under väntan före Järnvägsbron räknade texten uppåt (KINNE 22/11: "om 10" till
+  "om 27 minuter" på 18 minuter), och 23/11 visade den "om 117–120 minuter" i 45 minuter för en
+  båt som låg nästan stilla vid Stallbackabron (U53–U55).
+- **Mätlistan i 13.6.** Fartspiksvakten gav inga kandidater. U45 noterade en annan båts passage
+  en gång och gav ingen ny varning; trafiken var för gles för att pröva regeln. U51 gav fem
+  avgångsnotiser. Inga par av korsningar låg 300–900 s isär, och ingen sen säkerhetsvarning (U17)
+  gick. Fältet har alltså ännu inte prövat U45, U46 eller konvojfönstrets svans.
+
+### 14.2 Översikt
+
+| Spår | Vad | Utfall | Commits |
+|---|---|---|---|
+| A (U52) | En lång förtöjning är en resegräns | inne, godkänd i andra granskningen | `587e89f`, `b89e505`; `0734038` |
+| C (U53–U55) | Brotexten under väntan och vid orimlig restid | inne; U54 och U55 godkända i första granskningen, U53 i andra; fyra korpusar omlåsta | `d6d41df`, `2c555f7`, `5bdb59f`, `2c3f1d9`, `66d4b20`; `9f93d91`; `833f40a` |
+| D3 (U44 punkt 3) | Förvarning för en långsam båt bortom en bro | inne i tredje varvet, godkänd efter granskarens ändring; två korpusar omlåsta | `afd0778`, `1ead192`, `35b59e6`, `edc300b`; `6d778c3`; `15b2bb6` |
+| D9 (U49) | En båt i fart vid brolinjen när konvojens täckning löper ut | inne, godkänd i första granskningen | `1bc974e`, `400e158`; `9642c19` |
+| B (U56) | Varningen för Stridsbergsbron norrut efter väntan vid Järnvägsbron | regeln inte införd (beslutet återtaget efter granskningen); känd gräns och test inne | `a7e6d60`; `45cc053` |
+| D1 (U57) | Falsk passage bakåt över brolinjen efter en osäker position | regeln inte införd efter tre varv; känd gräns och test inne | `5b842aa`; `eeeecc2` |
+
+### 14.3 Besluten U52–U57
+
+- **U52. En lång förtöjning är en resegräns.** En båt som legat förtöjd i minst två timmar (appens
+  befintliga förtöjningsklassning, samma två timmar som U51) börjar en ny resa när hon lägger ut.
+  Den första positionen i minst 2,0 kn släpper förra resans riktning, och två positioner i rad i
+  samma kursband, högst 15 minuter isär, bekräftar den nya resan. Bara broar framför
+  förtöjningsplatsen i den nya riktningen nollställs. En båt som väntar vid en bro räknas inte.
+- **U53. Väntan vid en mellanbro visas som väntan.** Brotexten säger "väntar vid Järnvägsbron på
+  väg mot …" (och motsvarande vid Olidebron) när en båt belagt ligger still eller kryper före en
+  mellanbro, upp till 800 m från bron, utan det tidigare kravet att farten någon gång varit högst
+  0,5 kn. Väntan släpps över 1,5 kn eller bortom 850 m. Medan texten visar kö hålls den dolda
+  tiden (upp till 1 kn). Det gäller bara texten och aldrig målbron.
+- **U54. En restid över 60 minuter visas som "ETA okänd"** i brotexten.
+- **U55. En båt som legat still i fem minuter får "ETA okänd"** också när hon har status på väg
+  eller väntar vid Stallbackabron (regeln i U30 utsträckt). Långsam drift (U35) ändras inte.
+- **U56. Återtaget.** Beslutet var att en båt som haft köbelägg vid Järnvägsbron och sedan syns
+  röra sig mot bron i minst 2,0 kn får varningen för Stridsbergsbron direkt. Granskningen visade
+  att ett ryck i kön inte går att skilja från avgången (14.5), och regeln fördes inte in.
+- **U57. Den falska passagen bakåt står kvar som känd gräns.** Rättningen förs inte in (14.5).
+- **U49, preciserat.** Under-bro-hållet mäter ankomsten med det tidigaste av appens prognos och
+  avstånd genom fart för en båt i minst 2 kn; kravet att ankomsten ligger inom täckningen står
+  kvar. Känd kostnad: en båt i minst 2 kn vid linjen som stannar och aldrig hörs mer får ingen
+  varning för den bron.
+
+### 14.4 Det som gick in
+
+**U52, en lång förtöjning är en resegräns.** Lotsbåten PRICKBJORN ligger vid lotskajen vid
+Kanalinfarten mellan sina turer och sänder hela tiden, så fartygsposten levde kvar med förra
+resans bokföring. 23/11 lade hon ut norrut efter 69 timmar; notisen vid Olidebron uteblev,
+eftersom bron stod som passerad från resan 20/11. 19/11 gick avgångsnotisen (U51) ut med
+riktningen söderut, eftersom ruttlåset från ankomsten dagen före fortfarande gällde vid den första
+positionen. Felet med den uteblivna notisen kräver dessutom mer än sex timmars förtöjning; vid
+kortare förtöjning släpper besöksposten nyckeln och notisen kommer ändå. Med rättningen ändras
+exakt de två notiserna i fältprov 2 (riktningen norrut 19/11; "närmar sig Olidebron, beräknad
+ankomst om 1 minut" 23/11 08:10:28). Banken och de två tidigare fältkörningarna är oförändrade.
+Den största nyttan syns inte i fältet: en båt som legat över natten och går tillbaka genom samma
+bro fick förut varken notis eller öppningsvarning.
+
+Granskningen fällde första versionen på en punkt: en långsam position mitt i avgången nollade den
+väntande riktningen, så att öppningsvarningen kom en minut senare än förut (upp till tre med gles
+AIS). Rättningen var en rad. Rättaren visade sedan att två brus-positioner med en timmes mellanrum
+kunde bekräfta en resa, och lade till 15-minutersgränsen (samma som för en vändning).
+
+**U53–U55, brotexten.** Mätningen över banken och de tre fältkörningarna (2 227 textrader med tid)
+visade att 10 % av raderna är mer än tre minuter fel när båten går i marschfart, men 66 % när hon
+väntar före Järnvägsbron norrut. Båtar norrut väntade där i 1 052 minuter, och texten sa "väntar"
+i 271 av dem. Det som hindrade vänttexten var i tur och ordning gles AIS, kravet på en position
+med högst 0,5 kn, obekräftad anflygning och avståndsgränsen 350 m. Av restider över 60 minuter var
+ingen av 18 sann; över 30 minuter var 5 av 40 sanna, så taket sattes inte lägre.
+
+I fältprov 2 visar texten nu "väntar vid Järnvägsbron" för KINNE från 20:41:56 i stället för
+20:52:10 och för VISTEN utan avbrott från 20:35:43, och "ETA okänd" för PRICKBJORN från 10:42:55
+23/11 i stället för "om 27" till "om 120 minuter". Notiserna är oförändrade i hela underlaget.
+Ingen öppningsvarning ändrar tid, bro eller medlemmar; tre kort får en annan minutsiffra, alla
+närmare det verkliga (KINNE 14 → 8 där 2,2 återstod, PRICKBJORN 18/11 4 → 3 där 2,0 återstod,
+ANDREA i banken 10 → 9 där 6,6 återstod). I banken flyttas 38 textrader i fyra korpusar; varje
+rad är prövad mot positionerna.
+
+Granskningen fällde U53 på flimmer vid Kajens zonkant (kajzonen täcker farleden 644–788 m söder om
+Järnvägsbron): en båt vid kanten med 12 m positionsbrus växlade mellan "väntar" och en restid fyra
+gånger på nio minuter. En marginal på 12 m för en redan bekräftad väntan tog bort det.
+
+**U44 punkt 3, en långsam båt bortom en bro (tredje varvet).** Förvarningen hålls inne tills
+riktningen är belagd, och släpps när båten med kursen mot bron ligger minst 30 m närmare linjen än
+spärrens ankare. Ankaret är den position där båten hölls inne; det flyttas utåt först när två
+positioner i rad ligger längre bort. En båt utan giltig kurs släpps när två positioner i rad
+ligger minst 30 m närmare. I rättarens 840 byggda världar ger koden 170 falska notiser mot 305
+förut, och 31 förvarningar under 60 s före korsningen mot 6 förut. I banken ändras två notiser:
+HALIFAX (20260708-21h) får förvarningen vid Olidebron i rätt riktning 68 s före korsningen i
+stället för i fel riktning elva minuter före, och EUGENIE (20260804-both-21h) slipper en falsk
+förvarning för Klaffbron som hon aldrig korsade.
+
+**U49, under-bro-hållet.** Felet (en varning 58–73 s efter passagen) fanns i 2 av nattjaktens
+20 000 världar; i båda var öppningen redan varnad i tid av en annan varning. Banken och
+fältkörningarna är oförändrade rad för rad. Kostnaden har inte hänt i någon av 90 inspelade
+episoder med en båt i minst 2 kn högst 50 m före bron (alla korsade, ingen tystnade).
+
+### 14.5 Det som inte gick in, och varför
+
+**U56, varningen för Stridsbergsbron norrut.** Båtar norrut väntar söder om Järnvägsbron, som
+öppnas mellan tågen, och når sedan Stridsbergsbron ett par minuter efter att de satt fart.
+Mätningen över 93 passager visade att inget i datan förebådar öppningen utom båtens egen avgång:
+väntan varar 4–52 minuter utan mönster, en annan båt går före i samma öppning i 7 av 35 fall (en
+mötande i 4, en norrgående bara sekunder före i 3), och i fem fall ligger redan den första
+positionen i rörelse vid Järnvägsbron.
+Tre alternativ avstods på mätningen: ett sänkt fartgolv i U32 (hjälpte en båt och gav krypköer en
+varning 10–15 minuter för tidigt), en varning redan under väntan (median 9–11 minuter för tidigt,
+svans 30–50 minuter, ingen tid på kortet i 17 av 39 fall) och en varning i tidtabellens fönster.
+Det fjärde, en varning när en köande båt sätter fart från 2,0 kn med minst 20 m framsteg, byggdes:
+det gav 9–78 s tidigare varning i fyra av 39 passager och inga falska varningar i banken och
+fältet. Granskaren visade ändå att ett ryck i kön inte går att skilja från avgången i den position
+där regeln bestämmer sig. En båt som flyttar sig 25–60 m i drygt 2 kn för att ge plats, driver,
+eller får en enda felaktig position fick kortet "om 3 minuter" 12–35 minuter för tidigt och sedan
+inget kort vid den verkliga avgången, där koden utan regeln varnar 64–148 s före. Två verkliga
+ryck i rådatan (OLA 7/9 och PRICKBJORN 18/11, båda 2,1 kn i verklig medelfart) klarade sig bara
+för att den enda positionens rapporterade fart var 1,2 och 1,5 kn. Den sena varningen står därför
+kvar som känd gräns, och tio syntetiska fall låser att ett ryck i kön inte ger någon varning.
+
+**U57, den falska passagen bakåt.** Regeln (ingen passage bakåt över brolinjen från en position
+appen dömt osäker) fälldes två gånger i omgång 4. I tredje varvet byggde rättaren granskarens
+variant och svepte själv 31 440 världar. Där felet finns försvinner de falska passagerna (1 528 →
+62) bara när den riktiga positionen har en fart under 0,5 kn. I gengäld förlorar 162 av 1 440
+världar en sann passagenotis när båten verkligen har passerat under ett AIS-glapp och nästa
+position är brus före linjen, 54 av dem också öppningsvarningen. Felet och dess spegelbild ser
+likadana ut i den position där regeln bestämmer sig. Enda vägen som tar båda är att vänta en
+position med beslutet, vilket är en ombyggnad av GPS-grinden. Felet har aldrig setts i banken
+eller fältkörningarna.
+
+**Avstått inom spåren.** I brotexten: ett generellt håll av tiden för långsamma båtar (fler rader
+sämre än bättre), ett tak på 30 minuter (tar bort nästan rätta siffror), en ny textform "tidigast
+om N minuter", och att släppa väntan först efter två positioner i rad över hysteresfarten (höll
+"väntar" in i verkliga avgångar; 16 felminuter sämre mot 7 bättre). I U52: att nollställa även
+broar bakom båten.
+
+### 14.6 Kända gränser och uppföljning
+
+Kända gränser som omgången lämnar, alla beskrivna i `docs/ARCHITECTURE.md`:
+
+- **Stridsbergsbron norrut:** varningen kommer 37–218 s före passagen efter en väntan vid
+  Järnvägsbron (U56).
+- **U52:** en båt som legat förtöjd i minst två timmar och byter kaj 60–100 m i över 2 kn mot en
+  bro hon passerade på förra resan behandlas som en förstakontakt och kan få en falsk
+  öppningsvarning. En båt som kryper eller svajar i mer än sex timmar utan att klassas förtöjd
+  tappar fortfarande notisen för en bro från förra resan.
+- **U53:** jämn gång i 1,0–1,5 kn mot bron visas som väntan; en ensam fartspik kan släppa väntan
+  så att en restid visas en stund; kajzonen gör att bandet i praktiken är 350–644 m söder om
+  Järnvägsbron.
+- **U44 punkt 3:** en båt som hörs första gången medan hon ligger still nära en bro, med en första
+  kurs som pekar fel, kan få förvarningen sent eller inte alls (förut i god tid men i fel
+  riktning). Inget sådant fall finns i banken eller fältkörningarna.
+- **U49:** en båt i minst 2 kn vid brolinjen som stannar och aldrig hörs mer får ingen varning för
+  bron; bakkantens systerställe (kortet 20 s efter korsningen med en 39 s gammal position).
+- **U57:** en falsk passage bakåt efter en brusposition.
+
+Uppföljning, i ordning:
+
+1. **Restiden (ETA-etappen).** Tiden som visas innan en båt norrut börjar vänta före Järnvägsbron
+   är fel i 88 % av raderna (median 12 minuter); 42 % av passagerna norrut har en väntan, i median
+   17 minuter. Hit hör också den första tiden efter väntan, notisernas restid för en båt som sedan
+   väntar (vad "beräknad ankomst" ska betyda), ett tak för restiden i notiser, den långsamma
+   återhämtningen efter ett långt stopp, och den åldrade utjämningen från omgång 4 (E2).
+2. **Spärren "bron är redan passerad på den här resan"** för en båt som ligger länge utan att
+   klassas förtöjd.
+3. **Loggströmmens hål.** Tre hål på 90–180 s gjorde att fältprov 2 inte kunde låsas som korpus.
+   Orsaken är inte utredd.
+4. En krypande båt vid Kanalinfarten tas bort ur texten efter cirka fem minuter, och en båt som
+   ligger helt stilla 350–800 m före en mellanbro tappar målbron efter cirka fyra minuter.
+5. Uppföljningslistan i 13.5 i övrigt: U48, verktygsspåret, U45 för en ny båt innanför väntzonen.
+
+### 14.7 Lärdomar
+
+- **"Noll fall i rådatan" är inte ett bevis när marginalen är slumpen.** Regeln i U56 hade inga
+  falska utslag i 35 inspelade avgångar. Granskaren räknade den verkliga medelfarten mellan
+  positionerna i stället för den rapporterade farten och fann två ryck som låg över regelns gräns.
+  Fråga vad som skiljer de inspelade fallen från felet, och om det är regeln eller turen.
+- **Mät före beslutet, och granska ändå.** De två mätspåren gav bättre beslut än dirigentens
+  första antaganden (det var inte fartgolvet 2,8 kn som fördröjde varningen, utan kravet på två
+  positioner i rörelse före ökningen). Men mätningen såg inte ryckfallen; det gjorde granskaren.
+- **En rättare som själv avråder är ett fullgott resultat.** Rättaren av U57 byggde det brett band
+  som granskaren annars hade byggt, och visade själv att regeln bytte ett fel mot dess spegelbild.
+- **Test som låser dagens beteende kan låsa ett fel.** Ett av de nya scenarierna låste en falsk
+  förvarning som en annan rättning i samma omgång tog bort. Vid sammanslagningen ska varje test
+  som faller prövas mot positionerna, inte anpassas.
+- **Sex agenter på en dator gör tidskänsliga test opålitliga.** Två sviter föll på sina
+  tidsgränser under last och gick gröna ensamma. Slutbatteriet kördes när maskinen var ledig.
+- **Arbetsmappen är inte beständig.** Verktygen från omgång 4 var borta efter fältprovets fem
+  dygn. Omlåsningsverktyg och kö läggs nu i det beständiga underlaget så fort de skapas.
+
+### 14.8 Slutbatteriet
+
+Kört på `1b255af`, alltså sammanslagningen med omlåsningarna och VALIDATION; efter den commiten
+ändras bara detta dokument och datumet för U56:s återtagande på två kommentarsrader (23 november,
+inte 24). Alla steg slutade med kod 0.
+
+| Steg | Utfall |
+|---|---|
+| `npm run lint` | 0 |
+| hela jest (`--detectOpenHandles`) | 426 sviter, 6 804 test gröna, 2 överhoppade |
+| `replay:all`, med och utan monitoring | alla låsta korpusar matchar facit |
+| `replay:synthetic` | 213 scenarier rena, WARN 22 |
+| `replay:openings` | standardgrindarna godkända |
+| soak och `replay:monitoring` | 0 |
+| `measure:eta` | brotexten bättre, inget sämre (se nedan) |
+| fassvepet, med och utan monitoring | 0 |
+| `hunt:selftest` | grönt |
+| snabbjakten | 45 utslag som i 13.8, samma 2 kandidatkluster |
+| standardjakten | 220 utslag, samma 2 kandidatkluster; utslag för utslag lika med `7633653` |
+| nattjakten (20 000 världar) | 2 386 utslag (2 387), 16 kandidatkluster som förut, 435 kandidatutslag (436) |
+| `git status --porcelain` efter batteriet | tom |
+
+**Restidsmätningen mot `7633653`** (samma mätning körd på båda kodlägena; sanningen är rådatans
+korsningar):
+
+| | mätta påståenden | summa fel (min) | median (min) | inom 2 min |
+|---|---|---|---|---|
+| brotext | 1 495 → 1 478 | 28 885 → 24 011 | 2,17 → 2,12 | 47,8 → 48,4 % |
+| notis | 599 → 599 | 2 292 → 2 286 | 0,39 → 0,38 | 85,1 → 85,3 % |
+| öppningskort | 202 → 202 | 4 708 → 4 707 | 1,50 → 1,50 | 56,4 → 56,4 % |
+
+Rad för rad: 20 påståenden är borta (18 minutsiffror i brotexten som nu är "väntar" eller "ETA
+okänd", HALIFAX förvarning i fel riktning och EUGENIE:s falska förvarning), 2 är nya (HALIFAX i
+rätt riktning och en flyttad textrad för OLA), 4 har en minutsiffra närmare sanningen och ingen
+har en sämre. Den stora posten är 20260601-41h, där AIR:s "om 73–86 minuter" stod för drygt
+4 700 av felminuterna.
+
+**Nattjakten värld för värld mot 13.8** (samma seed, samma världar): tre världar skiljer sig i
+utslag, och var och en kördes på koden före och efter omgången.
+
+- **8814 och 18489:** varningen som kom 58 och 73 s efter att båten passerat Stridsbergsbron är
+  borta, och inget annat ändras (17 → 16 och 4 → 3 varningar). Det är U49:s verkan.
+- **17318:** ett nytt kandidatutslag, ETA-OSCILLATION vid Stridsbergsbron ("strax" → "om 4
+  minuter" → "strax" på 142 s). Notiser och varningar är lika, och brotexten skiljer sig på en
+  rad: vänttexten vid Järnvägsbron står kvar 30 s längre (U53), så att mellanledet "om 5 minuter"
+  12:03:06 inte publiceras. Förut var följden "strax", väntan, "om 5", "om 4", "strax" med samma
+  tider; mätaren räknar tre led som en oscillation men inte fyra. Samma beteende, alltså, och
+  inget nytt fel. Språnget från "om 4 minuter" till "strax" på 30 s när en båt lämnar väntan hör
+  till avgångssiffran i ETA-etappen (14.6, punkt 1).
+
+I en fjärde värld (13085) ändras bara tiden i ett utslag som fanns förut (sågtanden 15 → 23
+minuter vid Klaffbron på 53 s i stället för 71), eftersom en krypande båt före Järnvägsbron nu
+visas som väntande i tio minuter. Inga utslag under registrerade poster kom till eller försvann;
+registerklasserna är oförändrade (beslutat beteende 1 016, kända fall med öppet beslut 301).
+
+De 16 kandidatkorten är desamma som i 13.8.

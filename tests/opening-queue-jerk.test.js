@@ -2,7 +2,7 @@
 
 /**
  * RYCK I KÖN VID JÄRNVÄGSBRON GER INGEN VARNING FÖR STRIDSBERGSBRON (känd gräns,
- * beslut U56, återtaget 2026-11-24; docs/ARCHITECTURE.md vid fartökningsregeln).
+ * beslut U56, återtaget 2026-11-23; docs/ARCHITECTURE.md vid fartökningsregeln).
  *
  * Varningen för Stridsbergsbron norrut efter väntan vid Järnvägsbron kommer sent
  * (fältprov 2: 37–218 s före passagen). En regel som släpper varningen på första
