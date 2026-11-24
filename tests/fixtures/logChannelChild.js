@@ -83,6 +83,18 @@ async function main() {
     });
   }
   if (mode === 'avvisning') Promise.reject(new Error('U58-provavvisning'));
+  if (mode === 'minne') {
+    // Ett spärrat fel med ett mycket långt meddelande: bara en kort text får
+    // finnas kvar efter att felet släppts (kräver node --expose-gc).
+    for (let i = 0; i < 10; i++) app._onUncaughtException(new Error(`fyll ${i}`));
+    global.gc();
+    const before = process.memoryUsage().heapUsed;
+    (() => {
+      app._onUncaughtException(new Error(`${'z'.repeat(64 * 1024 * 1024)} slut`));
+    })();
+    global.gc();
+    report(`minne ${Math.round((process.memoryUsage().heapUsed - before) / 1e6)}`);
+  }
   for (let i = 0; i < 20; i++) await nextTurn(); // eslint-disable-line no-await-in-loop
   report(`loggkanalfel ${JSON.stringify(app._logChannelErrors || null)}`);
   report(`sparr ${JSON.stringify(app._fatalFlood || null)}`);

@@ -2636,8 +2636,10 @@ loggas aldrig), krockskyddets loggning kan inte kasta ut ur hanteraren, och en
 inte igen på felkod: ett EPIPE från AIS-anslutningen loggas som förut. Appen
 fortsätter med notiser, varningar och brotext utan logg.
 - Spärrens summeringsrad bär antalet spärrade rader, tidsspannet för dem och det
-  första spärrade felets namn och meddelande (en rad, högst 200 tecken; bara texten
-  sparas, aldrig felobjektet). Den skrivs när nästa fel kommer efter fönstret, eller i
+  första spärrade felets namn och meddelande (en rad, högst 200 tecken). Texten kapas
+  till 400 tecken innan den bearbetas och kopieras sedan till en ny sträng, så att
+  varken felobjektet eller dess meddelande hålls kvar i minnet (en kapad sträng pekar
+  annars på hela ursprunget). Den skrivs när nästa fel kommer efter fönstret, eller i
   `onUninit`. I `onUninit` uteblir den om kanalen har haft något skrivfel under
   livstiden.
 - Fönstret räknas med `Date.now()`. Ett hopp bakåt förbi fönstrets start öppnar ett

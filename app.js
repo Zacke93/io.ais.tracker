@@ -15281,7 +15281,12 @@ class AISBridgeApp extends Homey.App {
       } else {
         text = String(cause);
       }
-      return text.replace(/\s+/g, ' ').trim().slice(0, 200);
+      // Kort, ny kopia först: en slice av en stor sträng håller hela
+      // ursprungssträngen vid liv (V8), och normaliseringen ska inte gå över
+      // megabyte. Array.from(...).join('') ger en ny, platt sträng och kapar
+      // på hela tecken.
+      const head = Array.from(String(text).slice(0, 400)).join('');
+      return Array.from(head.replace(/\s+/g, ' ').trim()).slice(0, 200).join('');
     } catch (e) {
       return '(felet gick inte att beskriva)';
     }

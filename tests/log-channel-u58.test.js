@@ -131,6 +131,13 @@ describe('U58 del 1: appen går klart med trasig loggkanal (barnprocess)', () =>
     expect(flood.suppressed).toBeGreaterThan(0);
   });
 
+  test('ett spärrat fel med 64 MB meddelande håller inte kvar den stora strängen', async () => {
+    const r = await spawnAndWait(['--expose-gc', CHILD, 'minne'], { closed: [], env: { REPLAY_VERBOSE: '' } });
+    expect(r.code).toBe(0);
+    const kvar = Number(r.report.match(/^minne (-?\d+)$/m)[1]);
+    expect(kvar).toBeLessThan(16);
+  });
+
   // KÄND GRÄNS (låst som den är, se ARCHITECTURE om krockskyddet): sista raden
   // i onUninit skrivs efter att lyssnarna tagits bort. Är stdout trasig kommer
   // skrivfelet när ingen lyssnare finns kvar, och processen avslutas med ett
