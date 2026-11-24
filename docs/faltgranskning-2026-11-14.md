@@ -39,6 +39,7 @@ när en båt vänder och sedan inte hörs. Prognosarbetet (U22) är fortfarande 
 **Omgång 3** (16–17 november, U31–U44, avsnitt 12) rättade de äkta felen ur nattjaktens triage och tog in inbromsnings- och fartökningsregeln; avsnitt 12 stämmer med `d6e4d94`.
 **Omgång 4** (17 november, U45–U51, avsnitt 13) lät en annan båts passage förbruka den varnade öppningen och gav notis vid utfärd och avgång från kaj vid kanalens ytterpunkter; avsnitt 13 stämmer med `9b3728b`.
 **Omgång 5** (23–24 november, U52–U58, avsnitt 14) rättade fynden ur fältprov 2 (17–23 november) och en evig slinga i appens krockskydd; avsnitt 14 stämmer med `bf646fe`.
+**Omgång 6** (24 november, U59–U61, avsnitt 15) mätte var restiden är fel över hela underlaget och lät restiden räknas om från avgången efter ett långt stopp; avsnitt 15 stämmer med `9bbc276`.
 
 ## 2. Körningarna och vad de täcker — och inte täcker
 
@@ -3162,3 +3163,218 @@ Restidsmätningen är lika med det första batteriet i varje påstående (bara t
 Snabbjakten, standardjakten och nattjaktens 20 000 världar är utslag för utslag lika med det
 första batteriet, med samma 16 kandidatkort. Det är det väntade utfallet: U58 rör loggkanalen och
 krockskyddet, inte båtlogiken. Inga kvarglömda körningar fanns före eller efter batteriet.
+
+## 15. Omgång 6, restiden: 24 november 2026
+
+Tillagt 2026-11-24. Omgång 5 pekade ut restiden som nästa steg (14.6, punkt 1). Omgång 6 började
+med en mätning över hela underlaget, bankens 25 korpusar och de tre fältkörningarna, av var
+restiden i brotexten, notiserna och öppningskorten är fel och vad appen kan veta i det ögonblick
+den skriver siffran. Därefter fattade dirigenten tre beslut på ägarens uppdrag (U59–U61); ägaren
+kan ändra vart och ett. Arbetsformen var densamma som i omgång 5. Omgången utgick från
+`omg5/integration` och slogs ihop på grenen `omg6/integration`. Alla tider är UTC.
+
+En ändring av beteendet gick in: efter ett långt stopp räknas restiden om från avgången (U59).
+En regel fördes inte in: avgångsgolvet efter kryp (U60), som rättarens eget svep fällde. U61 är en
+definition i dokumentationen. Mätningens viktigaste besked är att det mesta av restidens fel inte
+går att räkna bort: 68 % av brotextens felmängd ligger kring väntan vid en bro, och ingenting
+appen ser förutsäger väntan.
+
+### 15.1 Mätningen
+
+Felmängden är summan av brotextens fel i minuter, provad var 30:e sekund över 28 körningar
+(25 076 totalt). Sanningen är rådatans linjekorsning.
+
+- **Kring väntan: 68 %.** Före en väntan 32 % (siffran räknar med fri väg; median 13,8 min fel),
+  under väntan vid målbron 15 % ("strax" medan bron inte öppnar), under väntan vid en mellanbro
+  7 % och stilla länge 14 %.
+- **I marschfart: 9 %**, med median 1,3 min fel och 67 % inom två minuter. I de sista minuterna
+  före passagen ligger 80 % inom två minuter.
+- **Notiserna** är träffsäkra: median 0,4 min och 87 % inom två minuter. För de 52 notiser där
+  båten sedan väntade är medianen 1,9 min mot ankomsten till väntplatsen och 10,2 mot passagen.
+- **Öppningskorten:** 79 % av felsumman kommer från sju kort där båten sedan låg förtöjd i 2–22
+  timmar. Med sanningen inom 60 minuter är medianen 1,2 min.
+- **Väntan går inte att förutsäga.** Klockslag, månad, minut i timmen, väntande och mötande
+  båtar, tid sedan förra öppningen, fart och rapporttakt prövades. Ingen modell slog "ingen
+  väntan" i korsvalidering per korpus (bästa 9,4 mot 9,7 min medelfel norrut, ingen vinst
+  söderut). Två iakttagelser utan praktisk nytta: nattetid väntar nästan ingen (1 av 23), och
+  Järnvägsbron öppnar sällan minut 36–44 i timmen.
+
+### 15.2 Översikt
+
+| Spår | Vad | Utfall | Commits |
+|---|---|---|---|
+| M1 | Mätning av restiden över hela underlaget | rapport, ingen kod | – |
+| R1 (U59) | Restiden efter ett långt stopp | inne med oförändrad kod; godkänd i andra granskningen sedan priset skrivits ut och låsts | `612fb35`, `7e902e5`; `f44003b`; `9bbc276` |
+| R1 (U60) | Avgångsgolvet också efter kryp | regeln inte införd (rättarens eget svep); känd gräns och test inne | `52129f8` |
+| R1 (U61) | Notisens "beräknad ankomst"; mätverktygets tabell inom 60 min | inne | `0cdd2b4` |
+
+### 15.3 Besluten U59–U61
+
+- **U59. Efter ett långt stopp räknas restiden om från avgången.** När en båt belagt har legat
+  still (familj E:s avgångskontext eller U30-läget) och sedan går i minst 2 kn, närmare målbron
+  än där hon låg, släpps utgångsvärdet från stillheten. En båt som bara saktar in berörs inte.
+- **U60. Avstått.** Beslutet var villkorat: avgångsgolvet skulle gälla också när alla buffrade
+  positioner är under 1 kn och den nya är minst 2 kn, om det inte gick att få regeln att visa en
+  klart för låg tid för en båt som rycker i kön. Det gick (15.5).
+- **U61. "Beräknad ankomst" i notisen betyder ankomsten till bron eller väntplatsen,** inte
+  passagen. Ingen kodändring och inget tak för notisernas restid (högst 21 min har förekommit i
+  1 025 notiser).
+
+### 15.4 Det som gick in
+
+**U59, restiden efter ett långt stopp.** En båt ligger still i 20 minuter vid Stallbackabron och
+går sedan i 5 kn mot Stridsbergsbron. Förut visade texten "ETA okänd" i sju minuter och sedan "om
+59 minuter" när sju återstod, och öppningskortet "om 45–54 minuter" när 6–7 återstod. Mekanismen:
+under stoppet räknar kedjan på fartgolvet 0,5 kn, och efter avgången försvaras det värdet av
+utjämningen, som bara släpper ned det i små steg. Felet syns bara när beräkningen har stått över
+i mer än tre minuter under stoppet (33 av 80 körningar med 20 och 45 minuters stopp); annars
+räknar appen redan om från avgången. Rättningen släpper utgångsvärdet när avgången är
+belagd, i kalkylatorn och i publiceringen, med samma signal som väntbaslinjens släpp.
+
+Banken är oförändrad i alla 3 182 påståenden och i varje notis, öppningskort och textrad. I
+fältet ändras fyra saker: PRICKBJORN 12/11 "om 11" → "om 8" där 5,0 återstod och kortet 9 → 7
+där 3,9 återstod; 19/11 "om 9" → "om 4" och kortet 9 → 4 där 3,6 återstod; samma dag en notis
+1 → 2 där 1,3 återstod; och 20/11 en notis 3 → 2 för en båt som redan var på väntplatsen och
+aldrig korsade bron. I de byggda världarna ligger kortet inom 0,7 min från sanningen i alla
+körningar, och felet står kvar i 6 av 80 (15.6).
+
+**Priset.** Granskaren byggde 6 064 egna världar med köer, ryck och felaktiga positioner. En båt
+som legat still länge i kön och sedan rycker fram, eller får en enda position med felaktig fart,
+får nu en för låg tid: öppningskortet "om 3" där 34 återstod (förut "om 21"), notisen "om 2" där
+12,5 återstod till passagen (förut "om 15"), och "om 5" i nästan 20 minuter där 35 → 16 återstod
+(förut "om 32" och sedan ett fruset "om 27"). Texten blev ny klart för låg i 360 minuter i 155
+världar (2,6 %). Ingen öppningsvarning flyttade i tid och ingen kom till. Fyra följekort försvann
+vid verkliga avgångar, där ledbåtens kort nu täcker konvojen.
+
+Dirigenten tog in regeln ändå. Det är inget nytt beteende: i de körningar där beräkningen inte
+stått över visar koden före rättningen samma låga siffror efter ett ryck. Det frusna värdet var
+rätt vid ett ryck av en slump och fel vid varje verklig avgång. Varje väntan slutar med en avgång,
+medan ryck finns i ungefär 2 av 35–39 inspelade väntor. Granskaren prövade ett krav på 50 m
+förflyttning före släppet; det tog bort 76–97 % av nyttan och lät priset stå kvar.
+
+Priset är låst i dagens storlek av två scenarier (ryck 120 m i kön söder om Järnvägsbron och en
+ensam fartspik i en lång väntan norr om Klaffbron): kortet får inte komma tidigare, och text och
+kort får inte bli lägre. Varje villkor i regeln har ett enhetstest som faller när villkoret tas
+bort (16 av 16 mutationer), och scenarierna fäller 6 av de 16, bland dem en kod utan krav på
+stillhetsbevis.
+
+**U61, notisens restid och mätverktyget.** Definitionen står i `docs/ARCHITECTURE.md` och
+`docs/VALIDATION.md`. `measure:eta` har fått en tabell över påståendetyperna med sanningen inom
+60 minuter (öppningskorten: 195 kort, median 1,22 min, p90 14,3), så att de sju korten för båtar
+som sedan förtöjde inte dränker resten.
+
+### 15.5 Det som inte gick in, och varför
+
+**U60, avgångsgolvet efter kryp.** En båt som krupit i kön under 1 kn och sedan sätter fart får i
+dag en för hög första siffra: KINNE 22/11 "om 10" där 3,6 återstod och kortet "om 8" där 2,2
+återstod. Regeln hade gjort fem av sex kort rättare. Rättarens svep över 2 112 byggda världar
+fällde den: en båt som kryper i 0,7 kn, rycker 60 m i kön och väntar tio minuter till fick "om 5
+→ 6 → 7" där 16 återstod (förut "om 12 → 10"). Klart för låg text där koden förut inte hade det
+i 72,5 minuter i 32 världar, som mest 16 minuter lägre, och en enda felaktig position räckte. I
+banken blev tre påståenden sämre (LA FEMME två, LILLI ett), eftersom golvet antar att båten
+accelererar. Skillnaden mot U59: U60 var en ny regel som gav för låga tider som koden aldrig
+annars visar, och den vann några minuter där U59 vinner 40–50. KINNE-fallet står kvar som känd
+gräns, låst av fyra enhetstest och tre scenarier.
+
+**Avstått på mätningen.**
+
+- **En statistisk väntetid** ovanpå siffran före en väntan: väntarna går från 15,8 till 10,3 min
+  medelfel, de som inte väntar från 6,4 till 10,4–11,3. Felet flyttas, det minskar inte.
+- **"ETA okänd" före en mellanbro:** tar bort 174 minuter fel siffror norrut och 105 minuter
+  rätta; söderut 509 rätta mot 201 fel.
+- **Tak för notisernas restid:** inget fall i underlaget berörs.
+- **Öppningskortens stora fel:** kommer från båtar som sedan förtöjde; ingen kodändring.
+
+### 15.6 Kända gränser och uppföljning
+
+Kända gränser som omgången lämnar, beskrivna i `docs/ARCHITECTURE.md`:
+
+- **U59:** för låg tid efter ett ryck i kön eller en ensam fartspik efter lång stillhet (15.4).
+  Går en båt iväg och stannar igen visas siffran från avgången i upp till sju minuter ("om 9–14"
+  där 33–36 återstod) innan U55 tar över. Utan familj E:s avgång kan första siffran vara upp till
+  25 min för hög i två minuter (6 av 80 körningar). Kortet vid avgång ur väntan vid Järnvägsbron
+  kan bli upp till 3 min sämre (5 → 8 där 5,5 återstod). En båt som saktar in till 1 kn i tio
+  minuter utan att ligga still har inget stillhetsbevis och rättas inte: "om 57" där 14 återstod.
+- **U60:** ingen avgång ur kryp; första siffran efter kryp är för hög.
+
+Uppföljning, i ordning:
+
+1. **"Strax" medan en båt väntar vid målbron.** Texten säger "beräknad broöppning strax" hela
+   tiden en båt väntar direkt vid Klaffbron eller Stridsbergsbron (CALIMA i 48 minuter, ANDREA i
+   60). Det står för 27,5 % av brotextens felmängd. Alternativet är formen "En båt väntar vid
+   Stridsbergsbron", som är sann i varje minut. Det vänder ägarens beslut 2026-08-08 (U6) och
+   2026-09-12, så frågan är ställd till ägaren.
+2. **"Inga båtar" efter en omstart.** En stillaliggande båt i kön försvinner ur texten i upp till
+   tio minuter efter en omstart, tills hon rör sig. Funnet av granskaren, finns före omgången,
+   inte utrett.
+3. **Målbron tappas gång på gång för en båt som väntar i 0,3–0,5 kn utanför väntzonen.** Varje
+   byte tömmer restidens historik och stillhetsläget, så "ETA okänd" kommer aldrig; i stället står
+   en frusen siffra i upp till 20 minuter, och båten försvinner ur texten i perioder. Funnet av
+   granskaren i fartspiksscenariot, finns före omgången. Hör ihop med 14.6, punkt 4.
+4. **Hur ofta beräkningen står över för stilla båtar i fält.** Det avgör hur ofta U59:s nytta och
+   pris uppträder. Nästa fältprov räknar släppen i loggen (`ETA_STILL_RELEASE`).
+5. Uppföljningslistan i 14.6 i övrigt (punkt 2–5).
+
+### 15.7 Lärdomar
+
+- **Mätningen kan säga att något inte går.** Det största felet (tiden före en väntan) har ingen
+  rättning i koden, eftersom ingenting appen ser förutsäger väntan. Det beskedet sparade en omgång
+  av modeller som bara hade flyttat felet.
+- **Rättarens eget svep är inte granskarens.** Rättaren fällde U60 med sitt svep men friade U59
+  ("högst 5 min lägre"). Granskaren byggde längre stopp, större ryck och felaktiga positioner och
+  fann ett pris som var flera gånger större. Dokumentationen ska bära granskarens tal.
+- **Ett villkor ska skrivas för alla regler det gäller.** Villkoret "ingen klart för låg tid vid
+  ryck" sattes för U60 men gällde efter bokstaven också U59. Det som skilde dem var om felet var
+  nytt eller redan fanns, och det skälet står nu i beslutet.
+- **Ett fel som beror på slumpen i körningen kräver frön i testen.** U59:s fel syns bara i en del
+  av körningarna; regressionstesten använder frön där det syns, och granskaren svepte 80.
+
+### 15.8 Slutbatteriet
+
+Kört på `9bbc276`, alltså sammanslagningen med VALIDATION; efter den commiten ändras bara detta
+dokument. Alla steg slutade med kod 0. Jämförelsen görs mot slutbatteri 2 i omgång 5 (`bf646fe`,
+14.8), som har samma appkod som omgång 6 utgick från.
+
+| Steg | Utfall |
+|---|---|
+| `npm run lint` | 0 |
+| hela jest (`--detectOpenHandles`) | 430 sviter, 6 849 test gröna, 2 överhoppade |
+| `replay:all`, med och utan monitoring | alla låsta korpusar matchar facit |
+| `replay:synthetic` | 228 scenarier rena, WARN 25 rader i 24 scenarier |
+| `replay:openings` | standardgrindarna godkända, utskriften lika med omgång 5 |
+| soak och `replay:monitoring` | 0 |
+| `measure:eta` | alla 3 182 påståenden lika med omgång 5 (se nedan) |
+| fassvepet, med och utan monitoring | 0 |
+| `hunt:selftest` | grönt |
+| snabbjakten | 45 utslag, utslag för utslag lika med omgång 5 |
+| standardjakten | 220 utslag, utslag för utslag lika med omgång 5 |
+| nattjakten (20 000 världar) | 2 385 utslag (2 386), 16 kandidatkluster som förut, 434 kandidatutslag (435) |
+| `git status --porcelain` efter batteriet | tom |
+
+De tre nya jestsviterna är U59:s (16 test), U60:s kända gräns (4) och mätverktygets tabell (2).
+Inga kvarglömda körningar fanns före eller efter batteriet.
+
+**Restidsmätningen mot omgång 5.** Varje påstående är lika: 3 182 totalt, 2 279 mätta, samma
+summa, median och andel inom två minuter för brotext, notis och öppningskort som i 14.8. Det som
+skiljer är den nya tabellen med sanningen inom 60 minuter (15.4) och räknare över kalkylatorns
+interna loggrader i sju korpusar. Banken har alltså inget fall där U59 ändrar en publicerad
+siffra, vilket stämmer med 15.4.
+
+**Nattjakten värld för värld mot omgång 5** (samma seed, samma världar): tre världar skiljer sig
+i utslag, och var och en kördes på koden före och efter omgången. I alla tre lämnar en båt kön
+vid Järnvägsbron efter 16–60 minuters väntan, och brotexten ändras på en enda rad, den första
+siffran efter avgången. Notiser och öppningsvarningar är lika.
+
+- **14915:** "om 16 minuter" blir "om 3 minuter" där 2,9 minuter återstod till Stridsbergsbron.
+  Kandidatutslaget ETA-OSCILLATION ("strax" → "om 16 minuter" → "strax" på 238 s) försvinner.
+- **17318:** "om 4 minuter" blir "om 3 minuter" där 2,0 återstod. Utslaget som kom till i 14.8
+  försvinner.
+- **3560:** "om 20 minuter" följt av "om 4 minuter" 30 s senare blir "om 4 minuter" direkt, där
+  3,9 återstod. Ett nytt kandidatutslag kommer till, ETA-OSCILLATION ("om 4 minuter" → "strax" →
+  "om 4 minuter" på 224 s): mätaren räknar tre led som en oscillation men inte fyra, och förut
+  stod "om 20 minuter" emellan. De två första leden gäller en annan båt, som passerar
+  Stridsbergsbron medan köbåten väntar. Inget nytt fel.
+
+Det är U59:s verkan i alla tre, och texten är närmare sanningen i varje fall. Inga utslag under
+registrerade poster kom till eller försvann; registerklasserna är oförändrade (beslutat beteende
+1 016, kända fall med öppet beslut 301). De 16 kandidatkorten är desamma som i 14.8.
