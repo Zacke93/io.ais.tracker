@@ -2150,6 +2150,34 @@ båt.
   kortets nio världar (2125, 6244, 16784) och är kvar som känd gräns under U18; i två till
   (7262, 18849) kom bara en omvänd position före varningen.
   Positionsbenen under 2 kn har kvar sitt målbrokrav (deras prov läser målbrons geometri).
+- **Känd gräns: returen från kaj nära en passerad målbro (beslut U75, 2026-11-27, under
+  U18).** Situationen: en båt passerar en målbro, lägger till vid en kaj inom ungefär 300 m
+  bortom den och går efter en stund tillbaka genom samma bro. Kajen norr om Klaffbron ligger
+  190–295 m från bron; en båt som lägger ut där i 4–5 kn är vid bron på 60–90 s och hörs med
+  AISHubs takt (60–70 s) högst en gång däremellan. Mekanismen: i kajzonen klassas båten förtöjd
+  och tappar sin målbro (efter Klaffbron norrut var den Stridsbergsbron). Bron hon kom genom är
+  passerad på resan, och Fix D kräver en målbro, så avgångspositionen startar ingen väntande
+  vändning ("redan passerat … → ingen målbro"). Vändningen bekräftas först av återkorsningen
+  (`RE_CROSS_EVIDENCED`) under eller strax bortom bron, och returen får ingen öppningsvarning.
+  Hon lämnade aldrig brons 300 m-zon, så besöket från uppresan ligger kvar och ingen "närmar
+  sig"-notis går; passagenotisen för returen kommer ("har precis passerat", eller "under
+  AIS-tystnad" efter ett långt glapp). Mätt i banken och k1–k4 (omgång 9, spår V): 70
+  korsningar av en målbro föregicks av minst 5 min stillhet inom 500 m från en målbro; 3 av dem
+  är returer från kaj (ELFKUNGEN 20260804-both-21h och 20260806-42h vid Kajen, PILOT 761 k1 vid
+  kajen norr om Stridsbergsbron), och alla tre fick varningen sent eller inte alls (ELFKUNGEN
+  ingen; PILOT 761 146 s före med båda källorna, ingen med en källa). Av 8 båtar som lade till
+  bortom en passerad målbro (utom Järnvägsbrons kö) återvände 3; en varning före avgången vore
+  alltså falsk för 5 av 8 och kan inte tidsättas. Varför ingen rättning: den smalaste regeln
+  (stillhetsläget plus en position i minst 2 kn mot bron och minst 50 m närmare räknas som
+  bekräftad vändning) slår till 2 gånger i hela underlaget, 53 och 10 s före korsningen, bryter
+  U18 och hade också slagit till för en båt som gick 150 m mot en bro och vände (PRICKBJORN k3).
+  Öppningsgrinden (`replay:openings`, O1b) godtar fallen i den accepterade klassen
+  RIKTNINGSBEVIS_FÖR_SENT; i O1 syns de inte, eftersom returen bokförs som mellanbropassage utan
+  målbro. Medan båten ligger vid kajen kan reservsläppet dessutom ge en varning för nästa
+  målbro (ELFKUNGEN båda dagarna, Stridsbergsbron, "eta okänd"): spärren vid den tidigare bron
+  löper ut 300 s efter sista positionen innan kajklassningen hunnit demotera henne. Det är
+  U38/M6 val B och beskrivs under U70 (en enda källa, T2 och T3). Låst av scenariot "(känd
+  gräns, U75)" i `runSyntheticScenarios.js`.
 - **Målbron i samma tick som bekräftelsen (varv 2, familj A, 2026-11-09).** Två vägar
   bekräftade en vändning men lämnade måltilldelningen åt NÄSTA fix:
   - (M1) app-lagrets NEW_JOURNEY i `_onVesselUpdated`, som körs efter att `updateVessel`
