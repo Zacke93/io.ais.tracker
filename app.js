@@ -5613,6 +5613,28 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * U69 (omgång 9): en position från en sändare som inte är ett fartyg
+   * (ITU-R M.585, lib/utils/mmsiClass.js) ignoreras. Loggar en rad på
+   * felsökningsnivå med klassen, högst en gång per sändare och
+   * NON_VESSEL_LOG_INTERVAL_MS. Minnet för loggraderna töms när det passerat
+   * NON_VESSEL_LOG_MAX poster.
+   * @param {string|number} mmsi
+   * @param {string} klass - klassens namn ur nonVesselMmsiClass
+   * @private
+   */
+  _noteNonVesselIgnored(mmsi, klass) {
+    if (!this._nonVesselLogTimes) this._nonVesselLogTimes = new Map();
+    const key = String(mmsi).trim();
+    const now = Date.now();
+    const last = this._nonVesselLogTimes.get(key);
+    if (last === undefined || now - last > NON_VESSEL_LOG_INTERVAL_MS) {
+      if (this._nonVesselLogTimes.size >= NON_VESSEL_LOG_MAX) this._nonVesselLogTimes.clear();
+      this._nonVesselLogTimes.set(key, now);
+      this.debug(`🚁 [NON_VESSEL_IGNORED] ${key}: ${klass}, inte ett fartyg — positionen ignoreras (U69)`);
+    }
+  }
+
+  /**
    * ==========================================================================
    * AIS MESSAGE PROCESSNING - KÄRNLOGIK
    * ==========================================================================
@@ -5647,28 +5669,6 @@ class AISBridgeApp extends Homey.App {
    * @param {string} [message.shipName] - Båtens namn
    * @private
    */
-  /**
-   * U69 (omgång 9): en position från en sändare som inte är ett fartyg
-   * (ITU-R M.585, lib/utils/mmsiClass.js) ignoreras. Loggar en rad på
-   * felsökningsnivå med klassen, högst en gång per sändare och
-   * NON_VESSEL_LOG_INTERVAL_MS. Minnet för loggraderna töms när det passerat
-   * NON_VESSEL_LOG_MAX poster.
-   * @param {string|number} mmsi
-   * @param {string} klass - klassens namn ur nonVesselMmsiClass
-   * @private
-   */
-  _noteNonVesselIgnored(mmsi, klass) {
-    if (!this._nonVesselLogTimes) this._nonVesselLogTimes = new Map();
-    const key = String(mmsi).trim();
-    const now = Date.now();
-    const last = this._nonVesselLogTimes.get(key);
-    if (last === undefined || now - last > NON_VESSEL_LOG_INTERVAL_MS) {
-      if (this._nonVesselLogTimes.size >= NON_VESSEL_LOG_MAX) this._nonVesselLogTimes.clear();
-      this._nonVesselLogTimes.set(key, now);
-      this.debug(`🚁 [NON_VESSEL_IGNORED] ${key}: ${klass}, inte ett fartyg — positionen ignoreras (U69)`);
-    }
-  }
-
   _processAISMessage(message) {
     try {
       // STEG 1: VALIDERA AIS-MEDDELANDE
@@ -5707,19 +5707,19 @@ class AISBridgeApp extends Homey.App {
         );
       }
 
-      // U69 (omgång 9): är sändaren något annat än ett fartyg (räddningsflyg
-      // 111, nödsändare 970/972/974, autonom radioanordning 979, sjömärke 99,
-      // kuststation och gruppanrop 0)? Fältprov 3 visade ett räddningsflyg som
-      // "En båt på väg mot Stridsbergsbron, beräknad broöppning strax".
-      // Positionen spelas in som rå indata (replay-fångsten nedan) men når
-      // varken namncachen eller updateVessel; uppspelningen går genom samma
-      // ingång och ignorerar den på samma ställe. Felformade MMSI klassas inte
-      // av hjälparen (valideringens sak).
-      const nonVesselClass = nonVesselMmsiClass(message.mmsi);
-
       // STEG 2: NORMALISERA MMSI TILL STRING
       // Backend använder strings för MMSI (mer flexibelt)
       const mmsiStr = String(message.mmsi);
+      // U69 (omgång 9): är sändaren något annat än ett fartyg (räddningsflyg
+      // 111, nödsändare 970/972/974, autonom radioanordning 979, sjömärke 99,
+      // kuststation och gruppanrop 0, de med landskod bara när den är giltig)?
+      // Fältprov 3 visade Sjöfartsverkets räddningshelikopter som "En båt på
+      // väg mot Stridsbergsbron, beräknad broöppning strax". Positionen spelas
+      // in som rå indata (replay-fångsten nedan) men når varken namncachen
+      // eller updateVessel; uppspelningen går genom samma ingång och ignorerar
+      // den på samma ställe. Klassningen läser samma MMSI-sträng som resten av
+      // ingången; felformade MMSI klassas inte av hjälparen (valideringens sak).
+      const nonVesselClass = nonVesselMmsiClass(mmsiStr);
       const normalizedSog = Number.isFinite(message.sog) ? message.sog : null;
       const normalizedCog = Number.isFinite(message.cog) ? message.cog : null;
       // Förtöjningsdetektering lager 3: AIS-navigationsstatus (Class A).

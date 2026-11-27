@@ -29,6 +29,12 @@ describe('U69: nonVesselMmsiClass', () => {
     ['021910001', 'gruppanrop'],
     [111219001, 'räddningsflyg'],
     [992191001, 'sjömärke'],
+    // Landskodens gränser (201–775) för klasserna som bär den.
+    ['111201001', 'räddningsflyg'], ['111775001', 'räddningsflyg'],
+    ['992010001', 'sjömärke'], ['997750001', 'sjömärke'],
+    ['992658001', 'sjömärke'], // mobilt sjömärke (99MID8…)
+    ['002010000', 'kuststation'], ['007750000', 'kuststation'],
+    ['020100001', 'gruppanrop'], ['077500001', 'gruppanrop'],
   ])('%p är %s', (mmsi, klass) => {
     expect(nonVesselMmsiClass(mmsi)).toBe(klass);
   });
@@ -39,6 +45,10 @@ describe('U69: nonVesselMmsiClass', () => {
     '219000001', '265012345', '305000001', '412000001', '538000001', '636000001', '710000001',
     '112219001', // 11 men inte 111
     '971219001', '973219001', '975219001', '978219001', // grannar till nödsändarna och AMRD
+    // Dummy-MMSI från felprogrammerade sändare: ingen giltig landskod, släpps som före U69.
+    '111111111', '999999999', '000000000',
+    // Landskod utanför 201–775 på sin plats.
+    '111200001', '111776001', '992000001', '997760001', '002000000', '007760000', '020000001', '077600001',
   ])('%s släpps igenom', (mmsi) => {
     expect(nonVesselMmsiClass(mmsi)).toBeNull();
   });
@@ -46,6 +56,8 @@ describe('U69: nonVesselMmsiClass', () => {
   test.each([
     [null], [undefined], [''], ['0'], [0], ['11121900'], ['1112190011'], ['111a19001'],
     [2655000], // tal som tappat inledande nollor: formfel, inte en klass
+    ['2655000'], ['02655000'], // korta siffersträngar fylls aldrig ut med nollor
+    ['0026550000'], ['1112650011'], // längre än nio siffror
     [{}],
   ])('felformat %p klassas inte (valideringens sak)', (mmsi) => {
     expect(nonVesselMmsiClass(mmsi)).toBeNull();
@@ -89,6 +101,33 @@ describe('U69: app._processAISMessage ignorerar sändare som inte är fartyg', (
       expect(rad.shipName).toBe('SYNT-U69');
     },
   );
+
+  test.each([['Unknown'], [''], [undefined]])(
+    'utan riktigt namn (%p) läses namncachen inte, och raden spelas in som "Unknown"',
+    (shipName) => {
+      const app = makeApp();
+      app._lookupVesselName = jest.fn(() => 'CACHAT NAMN');
+      app._processAISMessage(pos('111219001', { shipName }));
+      expect(app._lookupVesselName).not.toHaveBeenCalled();
+      expect(app._rememberVesselName).not.toHaveBeenCalled();
+      expect(app._captureAISReplaySample.mock.calls[0][0].shipName).toBe('Unknown');
+      expect(app.vesselDataService.updateVessel).not.toHaveBeenCalled();
+    },
+  );
+
+  test('ett fartyg utan riktigt namn får fortfarande namnet ur cachen (motfall)', () => {
+    const app = makeApp();
+    app._lookupVesselName = jest.fn(() => 'CACHAT NAMN');
+    app._processAISMessage(pos('265012345', { shipName: 'Unknown' }));
+    expect(app._lookupVesselName).toHaveBeenCalledWith('265012345');
+    expect(app._captureAISReplaySample.mock.calls[0][0].shipName).toBe('CACHAT NAMN');
+  });
+
+  test.each(['111111111', '999999999'])('dummy-MMSI %s behandlas som ett fartyg, som före U69', (mmsi) => {
+    const app = makeApp();
+    app._processAISMessage(pos(mmsi));
+    expect(app.vesselDataService.updateVessel).toHaveBeenCalledTimes(1);
+  });
 
   test('den inspelade raden ger uppspelad genom samma ingång inget fartyg och ingen ny inspelning av fartyg', () => {
     const inspelning = makeApp();
@@ -142,7 +181,7 @@ describe('U69: app._processAISMessage ignorerar sändare som inte är fartyg', (
 
   test('loggminnet växer inte utan gräns', () => {
     const app = makeApp();
-    for (let i = 0; i < 2000; i++) app._processAISMessage(pos(`111${String(i).padStart(6, '0')}`));
+    for (let i = 0; i < 2000; i++) app._processAISMessage(pos(`111${201 + (i % 575)}${String(Math.floor(i / 575)).padStart(3, '0')}`));
     expect(app._nonVesselLogTimes.size).toBeLessThanOrEqual(500);
     expect(app.vesselDataService.updateVessel).not.toHaveBeenCalled();
   });

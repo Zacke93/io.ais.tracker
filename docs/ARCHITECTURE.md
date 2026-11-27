@@ -451,9 +451,19 @@ namncachen från typ 5/24-namn och uppdaterar levande "Unknown"-fartyg på plats
 **U69 (dirigentens beslut 2026-11-27, omgång 9): sändare som inte är fartyg
 ignoreras.** Efter valideringen och startgrinden klassar hjälparen
 `nonVesselMmsiClass` (`lib/utils/mmsiClass.js`) MMSI:t enligt ITU-R M.585:
-`111…` räddningsflyg, `970…` AIS-SART, `972…` MOB, `974…` EPIRB-AIS, `979…`
-autonom radioanordning (AMRD grupp B), `99…` sjömärke, `00…` kuststation och
-övriga `0…` (gruppanrop). En sådan position spelas in i replay-fångsten
+`111MID…` räddningsflyg, `970…` AIS-SART, `972…` MOB, `974…` EPIRB-AIS, `979…`
+autonom radioanordning (AMRD grupp B), `99MID…` sjömärke (fysiskt, virtuellt
+eller mobilt, `99MID8…`; ett fartyg som bär eller bogserar ett mobilt märke
+har eget MMSI), `00MID…` kuststation och övriga `0MID…` (gruppanrop). Listan
+är kontrollerad mot USCG NAVCEN:s sammanställning av M.585-9 och Wikipedias
+artikel om MMSI; standardens senare utgåvor ska läsas innan den ändras. De
+klasser som bär en landskod gäller bara när landskoden (MID) på sin plats är
+giltig (201–775): ett "dummy-MMSI" från en felprogrammerad fritidsbåt
+(`111111111`, `999999999`, `000000000`) släpps igenom som före U69.
+Nödsändarna och AMRD har ingen landskod på den platsen och klassas på
+prefixet. Båda livekällorna gör om MMSI till tal, så `0…` och `00…` nås i
+praktiken bara i uppspelning och test; kuststationer filtreras alltså inte i
+fält av den här regeln. En sådan position spelas in i replay-fångsten
 (`[AIS_REPLAY_SAMPLE]`) som förut, så att fältfångsten är rå indata och en
 korpus kan pröva spärren i efterhand, och ignoreras direkt därefter (före
 `updateVessel`): inget fartyg, ingen text, ingen notis, ingen varning. Den rör
@@ -468,14 +478,19 @@ sändare och 30 min (minnet töms vid 500 poster). Ingången är gemensam för b
 källorna, replay-harnessen och utvecklingsläget; `lib/connection/` är orört, så
 multiplexerns fusionsläge och tystnadsbokföring ser fortfarande sändaren, utan
 verkan på fartyg eller text. Släpps igenom: `98…` (farkost knuten till ett
-moderfartyg), `8…` (handhållen VHF) och vanliga fartyg (`2…`–`7…`). Hjälparen
-klassar bara exakt nio siffror; felformade MMSI hör till valideringen ovan.
-Bakgrund: fältprov 3 (k4 2026-11-25 12:41) visade räddningsflyget LIFEGUARD 007
-(MMSI 111 + landskod 265) som "En båt på väg mot Stridsbergsbron, beräknad
+moderfartyg), `8…` (handhållen VHF), vanliga fartyg (`2…`–`7…`) och
+otilldelade nummer (övriga `1…` och `9…`, som testdatan använder). Hjälparen
+klassar bara exakt nio siffror och fyller aldrig ut med nollor: kortare och
+längre siffersträngar släpps igenom, och felformade MMSI hör till valideringen
+ovan. Bakgrund: fältprov 3 (k4 2026-11-25 12:41) visade LIFEGUARD 007,
+Sjöfartsverkets räddningshelikopter (anropssignal SE-JRN, MMSI 111 + landskod
+265), som "En båt på väg mot Stridsbergsbron, beräknad
 broöppning strax" i fem minuter och i texten i femton; hon var den enda sändaren
 som inte var ett fartyg i de 31 inspelade filerna (42 300 positioner). Scenariot
 `räddningsflyg-111-längs-farleden-över-Stridsbergsbron-ignoreras (U69)` låser
-beteendet; enhetstesten står i `tests/u69-ej-fartyg-mmsi.test.js`.
+beteendet och motfallet `dummy-mmsi-111111111-… (U69, motfall)` att en båt med
+dummy-MMSI får samma text och notiser som före U69; enhetstesten står i
+`tests/u69-ej-fartyg-mmsi.test.js`.
 
 ### De FYRA notisvägarna
 
@@ -2660,8 +2675,9 @@ Flaggor (bärs av `_createVesselObject`-fältlistan, §8a): `_etaIsExtrapolated`
    `en-enda-position-14kn-utanför-farleden-vid-Stridsbergsbron-aldrig-mer
    (känd gräns, U68)` låser förloppet för ett vanligt fartygs-MMSI. Fallet som
    startade mätningen, LIFEGUARD 007 (k4 25/11 12:41, 14,6 kn, fryst ETA 1,3
-   min, "strax" i 5 min och i texten i 15), var ingen båt utan räddningsflyg
-   (MMSI 111…) och är åtgärdat av U69 (§3, Inflöde). Hennes position låg 569 m
+   min, "strax" i 5 min och i texten i 15), var ingen båt utan Sjöfartsverkets
+   räddningshelikopter (anropssignal SE-JRN, MMSI 111…) och är åtgärdat av U69
+   (§3, Inflöde). Hennes position låg 569 m
    från kanalens farledslinje; ingen annan sändare i texten har legat mer än
    250 m från den i underlaget. En regel som kräver att en båt ligger nära
    farleden för att få målbro är en möjlig följdfråga, inte prövad. **Prövat och avstått:** "strax" bara på

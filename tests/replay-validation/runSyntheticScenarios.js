@@ -6237,7 +6237,7 @@ const SCENARIOS = [
     name: 'en-enda-position-14kn-utanför-farleden-vid-Stridsbergsbron-aldrig-mer (känd gräns, U68)',
     seed: 6801,
     vessels: [{
-      mmsi: '968010001',
+      mmsi: '265681001',
       name: 'SYNT-U68-SNABB',
       startS: METRICS.cum[4] + 560,
       legs: [{
@@ -6246,7 +6246,7 @@ const SCENARIOS = [
     }],
     patchSamples: (samples) => {
       for (const x of samples) {
-        if (x.mmsi !== '968010001') continue;
+        if (x.mmsi !== '265681001') continue;
         x.lat = 58.29691;
         x.lon = 12.28864;
         x.cog = 210;
@@ -6257,7 +6257,7 @@ const SCENARIOS = [
       zeroNotifications: true,
       zeroOpeningWarnings: true,
       clauseWindows: [{
-        mmsi: '968010001',
+        mmsi: '265681001',
         anchor: 'first',
         bridge: 'Stridsbergsbron',
         windows: [[1, 285, 'strax'], [330, 885, 'okänd'], [930, 2400, 'ingen']],
@@ -6337,6 +6337,25 @@ const SCENARIOS = [
       legs: [{ toS: METRICS.cum[3] - 600, speedKn: 14, intervalS: 30 }],
     }],
     expect: { noVesselText: true, zeroNotifications: true, zeroOpeningWarnings: true },
+  },
+  // U69, motfall: en felprogrammerad fritidsbåt med "dummy-MMSI" 111111111 har
+  // ingen giltig landskod (111 är ingen MID) och behandlas som ett fartyg, som
+  // före U69: samma bana som räddningsflyget ovan ger text och notiser.
+  {
+    name: 'dummy-mmsi-111111111-längs-farleden-över-Stridsbergsbron-syns (U69, motfall)',
+    seed: 6902,
+    vessels: [{
+      mmsi: '111111111',
+      name: 'SYNT-U69-DUMMY',
+      startS: METRICS.cum[4] + 1200,
+      legs: [{ toS: METRICS.cum[3] - 600, speedKn: 14, intervalS: 30 }],
+    }],
+    expect: {
+      minNotifiedBridges: ['Stridsbergsbron'],
+      textCountWindows: [{
+        bridge: 'Stridsbergsbron', fromS: 30, toS: 120, min: 1,
+      }],
+    },
   },
 ];
 
