@@ -1198,7 +1198,17 @@ båt.
   `getVesselName` → `_lookupVesselName` (B1), `onWarning` →
   `_onBridgeOpeningWarning`, `onCoverage` → `_onBridgeOpeningCoverage`.
   Matningen sker i `_observeBridgeOpening` (:1218) från `_onVesselEntered`/
-  `_onVesselUpdated`, direkt efter `_noteQuayStability`.
+  `_onVesselUpdated`, direkt efter `_noteQuayStability`. Omgång 9 (spår R): ett
+  fartygsobjekt som redan ersatts av ett nyare i `VesselDataService` observeras inte
+  (`OPENING_OBSERVE_SUPERSEDED`). Anropet ligger efter första `await` i ingångarna, och
+  när flera fix för samma båt behandlas synkront i följd (websocketramar i samma läsning
+  efter ett nätstopp, alla med samma mottagningstid) körs fortsättningarna först när alla
+  fix analyserats. Objekten delar `passedAt`, så det gamla fixets fortsättning såg den
+  senare passagen och nollade öppningsdedupen, och nästa gamla fortsättning beväpnade och
+  avfyrade en andra varning för den redan passerade bron (återskapat: tre fix över
+  Klaffbrons linje gav två varningar, tio minuters paus med klumpleverans sju). Det nyaste
+  fixets fortsättning observerar. I vanlig drift och i replay (mikrouppgifterna dräneras
+  mellan meddelandena) slår vakten aldrig till. Låst av `tests/r9-synkron-fixfoljd.test.js`.
 - **TICK-DOKTRINEN:** servicen äger **INGA timers**. `tick()` anropas från den
   BEFINTLIGA 30 s-watchdogen i `_initializeCoalescingSystem`, och anropet MÅSTE
   ligga FÖRE watchdogens tomkanals-retur — annars dör deadline-motorn exakt när
