@@ -325,7 +325,11 @@ function observeBlandad({
     }
     return knut.get(k);
   };
-  const gps = (tS, moving) => {
+  // Tiden räknas från världens start, så att felet följer med när hela
+  // världen flyttas (bekräftelsens SHIFT30 och M-FAS); med epoktid flyttade
+  // knutarna sig mot raderna och +30 s gav ett annat utfall.
+  const gps = (tAbsS, moving) => {
+    const tS = tAbsS - (T0 / 1000);
     const k = Math.floor(tS / 20);
     const f = (tS / 20) - k;
     const a = knutVärde(k);

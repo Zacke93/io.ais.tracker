@@ -256,6 +256,17 @@ describe('(b) fältvärldarna', () => {
     expect(över / n).toBeLessThan(0.05);
   });
 
+  test('varv 4: hela världen flyttad +30 s ger samma rader 30 s senare (bekräftelsens SHIFT30)', () => {
+    for (const fam of families.FÄLTFAMILJER) {
+      const spec = fältVärld(fam, 2);
+      const flyttad = { ...JSON.parse(JSON.stringify(spec)), startMs: spec.startMs + 30000 };
+      const norm = (r, d) => JSON.stringify({
+        ...r, aisTimestamp: r.aisTimestamp - d, fixTs: r.fixTs === undefined ? undefined : r.fixTs - d, receivedAt: undefined,
+      });
+      expect(observe(flyttad, 'R1').map((r) => norm(r, 30000))).toEqual(observe(spec, 'R1').map((r) => norm(r, 0)));
+    }
+  });
+
   test('fältvärldarna är deterministiska ur sin JSON-spec (rundresan)', () => {
     for (const fam of families.FÄLTFAMILJER) {
       const spec = fältVärld(fam, 1);
