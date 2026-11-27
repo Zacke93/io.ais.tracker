@@ -146,9 +146,6 @@ const BOAT_NEAR_TRIGGER_TIMEOUT_MS = 60 * 1000;
 // returvärdet: replayharnessen omsluter _triggerBoatNearFlowBest med exakt tre
 // parametrar, och en extra parameter hade inte nått fram.
 const BOAT_NEAR_UNCONFIRMED = Symbol('boat_near-unconfirmed');
-// U72 (omgång 9, spår R): samma tidsgräns för tidslinjenotisen
-// (createNotification) som för boat_near-kortet.
-const CONNECTION_NOTIFY_TIMEOUT_MS = BOAT_NEAR_TRIGGER_TIMEOUT_MS;
 
 // U72 (omgång 9, spår R): ett klocksteg bakåt som är större än detta loggas en
 // gång som [CLOCK_STEP]. Steget i sig är en känd gräns (se _checkClockStep).
@@ -5398,38 +5395,7 @@ class AISBridgeApp extends Homey.App {
       // loggas (annars kunde en gammal stämpel tysta hela nästa dygn).
       this._connectionIssueDedupCount.delete(feedKey);
       this._connectionIssueDedupLoggedAt.delete(feedKey);
-      // U72 (omgång 9, spår R): samma tidsgräns som flow-korten. Ett anrop som
-      // aldrig svarade lämnade stämpeln stående, så samma varning var spärrad i
-      // 24 h fast ingen notis bevisligen gått ut. Vid tidsgränsen rullas
-      // stämpeln tillbaka som vid ett fel; landar anropet sent stämplas nyckeln
-      // då, om inget nyare försök redan gjort det.
-      // Anropet görs synkront (ett synkront kast går till catch nedan, som förut).
-      const delivery = Promise.resolve(this.homey.notifications.createNotification({ excerpt: message }));
-      let notifyTimer = null;
-      const outcome = await Promise.race([
-        delivery.then(() => 'levererad'),
-        new Promise((resolve) => {
-          notifyTimer = setTimeout(() => resolve('tidsgräns'), CONNECTION_NOTIFY_TIMEOUT_MS);
-          if (notifyTimer && typeof notifyTimer.unref === 'function') notifyTimer.unref();
-        }),
-      ]).finally(() => clearTimeout(notifyTimer));
-      if (outcome === 'tidsgräns') {
-        if (prev === undefined) this._connectionIssueNotifiedAt.delete(feedKey);
-        else this._connectionIssueNotifiedAt.set(feedKey, prev);
-        this.error(
-          `⏱️ [AIS_CONNECTION] Timeline-notisen svarade inte inom ${Math.round(CONNECTION_NOTIFY_TIMEOUT_MS / 1000)} s `
-          + `(nyckel '${feedKey}') — spärren släpps så nästa varning kan gå`,
-        );
-        const lifecycle = this._runtimeLifecycle;
-        delivery.then(() => {
-          if (this._shuttingDown || this._runtimeLifecycle !== lifecycle) return;
-          this.log(`🔔 [AIS_CONNECTION] Timeline-notis skickad sent (nyckel '${feedKey}'): ${String(message).slice(0, 120)}`);
-          if (!this._connectionIssueNotifiedAt.has(feedKey) || this._connectionIssueNotifiedAt.get(feedKey) === prev) {
-            this._connectionIssueNotifiedAt.set(feedKey, Date.now());
-          }
-        }, () => {});
-        return;
-      }
+      await this.homey.notifications.createNotification({ excerpt: message });
       // A13: kvittot. Loggas EFTER await — före det vet vi inte att den gick.
       this.log(
         `🔔 [AIS_CONNECTION] Timeline-notis skickad (nyckel '${feedKey}'): `

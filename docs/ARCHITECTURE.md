@@ -1738,11 +1738,6 @@ båt.
 - **Anslutningsnotiser** — `_notifyConnectionIssue` (:1769): timeline-notis max
   1/24 h (:1771–1776); vid max-reconnects (:1801), auth-fel (:1818) och saknad
   API-nyckel (:1852, :5015). connected/disconnected ger ENBART connection_status.
-  U72 (omgång 9, spår R): `createNotification` har samma tidsgräns som flow-korten
-  (`CONNECTION_NOTIFY_TIMEOUT_MS`, 60 s). Svarar anropet inte rullas 24 h-stämpeln
-  tillbaka som vid ett fel, så nästa varning kan gå; landar det sent stämplas nyckeln
-  om inget nyare försök gjort det. Förut spärrade ett hängande anrop samma varning i
-  24 h. Låst av `tests/r9-tidslinjenotis-tidsgrans.test.js`.
 
 ## 4. Tillståndsmaskiner
 
