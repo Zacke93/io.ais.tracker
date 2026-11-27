@@ -120,10 +120,13 @@ describe('Notisspärren med framtida stämplar', () => {
     expect(app._persistentDedupCheck(KEY, vessel).blocked).toBe(true);
   });
 
-  // Granskningen L3: systerkartan last_known_positions hade samma ensidiga
-  // tidsfilter. En position med framtida stämpel räknades som färsk, och en båt
-  // som kom tillbaka på en ny resa fick "har passerat"-notiser ur den gamla
-  // positionen. Den släpps nu vid laddning och i städningen.
+  // Granskningen L3 och M3: systerkartan last_known_positions hade samma ensidiga
+  // tidsfilter. En position med framtida stämpel räknades som färsk tills den
+  // passerats, och en båt som kom tillbaka på en ny resa dagar senare fick
+  // "har passerat"-notiser ur den gamla positionen. Stämpeln sätts nu till "nu"
+  // vid laddning och i städningen, så posten förfaller efter de vanliga 6 h.
+  // Att radera den i städningen (första versionen) tog bort riktiga positioner
+  // efter ett klocksteg bakåt (M3).
   describe('sista kända positioner med framtida stämpel', () => {
     const POS = '265099202';
     function withPositions() {
@@ -133,33 +136,46 @@ describe('Notisspärren med framtida stämplar', () => {
       return app;
     }
 
-    test('laddning: posten läses inte och lagringen skrivs om utan den', () => {
+    test('laddning: stämplarna sätts till nu och lagringen skrivs om', () => {
       store.last_known_positions = {
-        [POS]: { lat: 58.27, lon: 12.27, t: now + 30 * 24 * HOUR },
+        [POS]: {
+          lat: 58.27, lon: 12.27, t: now + 30 * 24 * HOUR, posT: now + 30 * 24 * HOUR,
+        },
         265099203: { lat: 58.28, lon: 12.28, t: now - HOUR },
       };
       const app = withPositions();
       app._loadLastKnownPositions();
-      expect(app._lastKnownPositions.has(POS)).toBe(false);
-      expect(app._lastKnownPositions.has('265099203')).toBe(true);
-      expect(store.last_known_positions[POS]).toBeUndefined();
-      expect(store.last_known_positions['265099203']).toBeDefined();
+      expect(app._lastKnownPositions.get(POS)).toEqual({
+        lat: 58.27, lon: 12.27, t: now, posT: now,
+      });
+      expect(app._lastKnownPositions.get('265099203').t).toBe(now - HOUR);
+      expect(store.last_known_positions[POS].t).toBe(now);
     });
 
-    test('städningen tar bort en post som hamnat i framtiden', () => {
+    test('dagar senare: den klampade posten har förfallit och ger inget passagebevis', () => {
+      store.last_known_positions = { [POS]: { lat: 58.27, lon: 12.27, t: now + 30 * 24 * HOUR } };
       const app = withPositions();
-      app._lastKnownPositions.set(POS, { lat: 58.27, lon: 12.27, t: now + 3 * HOUR });
-      app._lastKnownPositions.set('265099203', { lat: 58.28, lon: 12.28, t: now - HOUR });
+      app._loadLastKnownPositions();
+      jest.setSystemTime(now + 6 * HOUR + 60 * 1000);
       app._pruneLastKnownPositionsTtl();
       expect(app._lastKnownPositions.has(POS)).toBe(false);
-      expect(app._lastKnownPositions.has('265099203')).toBe(true);
     });
 
-    test('motfall: en stämpel inom klockmarginalen behålls', () => {
+    test('städningen sätter en post som hamnat i framtiden till nu i stället för att radera den', () => {
+      const app = withPositions();
+      app._lastKnownPositions.set(POS, { lat: 58.27, lon: 12.27, t: now + 30 * 60 * 1000 });
+      app._lastKnownPositions.set('265099203', { lat: 58.28, lon: 12.28, t: now - HOUR });
+      app._pruneLastKnownPositionsTtl();
+      expect(app._lastKnownPositions.get(POS)).toEqual({ lat: 58.27, lon: 12.27, t: now });
+      expect(app._lastKnownPositions.get('265099203').t).toBe(now - HOUR);
+      expect(store.last_known_positions[POS].t).toBe(now);
+    });
+
+    test('motfall: en stämpel inom klockmarginalen lämnas orörd', () => {
       store.last_known_positions = { [POS]: { lat: 58.27, lon: 12.27, t: now + SKEW - 1000 } };
       const app = withPositions();
       app._loadLastKnownPositions();
-      expect(app._lastKnownPositions.has(POS)).toBe(true);
+      expect(app._lastKnownPositions.get(POS).t).toBe(now + SKEW - 1000);
     });
   });
 });

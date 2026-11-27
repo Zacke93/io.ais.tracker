@@ -3231,18 +3231,18 @@ class AISBridgeApp extends Homey.App {
       for (const [mmsi, entry] of Object.entries(stored)) {
         if (entry && Number.isFinite(entry.lat) && Number.isFinite(entry.lon)
             && Number.isFinite(entry.t) && now - entry.t < this._LAST_KNOWN_POSITION_TTL_MS) {
-          // Omgång 9 (spår R, granskningen L3): en position med stämpel i
-          // framtiden har okänd ålder och bevisar ingen färd. Förut räknades
-          // den som färsk tills stämpeln passerats, så en båt som kom tillbaka
+          // Omgång 9 (spår R, granskningen L3/M3): en stämpel i framtiden
+          // räknades som färsk tills den passerats, så en båt som kom tillbaka
           // på en ny resa dagar senare fick skipped-bridges-svepets
-          // "har passerat"-notiser för broarna mellan den gamla positionen och
-          // den nya. Den släpps (till skillnad från notisspärren, där en
-          // spärr som gäller nu är det försiktiga valet).
-          if (entry.t - now > AIS_CONFIG.AISHUB.SEEN_MAX_FUTURE_SKEW_MS) {
-            future++;
-            continue;
-          }
-          candidates.push([String(mmsi), entry]);
+          // "har passerat"-notiser ur den gamla positionen. Den sätts till "nu"
+          // (samma regel som notisspärren och minutstädningen), och posten
+          // förfaller då efter de vanliga 6 h. Att släppa den avstods: efter
+          // ett klocksteg bakåt strax före en omstart är positionerna riktiga,
+          // och utan dem tappar en återfödd båt sina passagenotiser (en
+          // utebliven notis väger tyngre än en extra).
+          const clamped = this._clampFutureLastKnown(entry, now);
+          if (clamped !== entry) future++;
+          candidates.push([String(mmsi), clamped]);
         }
       }
       // U72: tak vid laddning, de nyaste behålls.
@@ -3253,7 +3253,7 @@ class AISBridgeApp extends Homey.App {
         this.log(`✂️ [LAST_KNOWN_CAP] ${dropped} sparade positioner lästes inte (tak ${PERSISTED_LOAD_CAP}, de nyaste behölls)`);
       }
       if (future > 0) {
-        this.log(`🕰️ [LAST_KNOWN_FUTURE] ${future} sparade positioner hade en stämpel i framtiden och lästes inte`);
+        this.log(`🕰️ [LAST_KNOWN_FUTURE] ${future} sparade positioner hade en stämpel i framtiden — gäller som sedda nu`);
         this._persistLastKnownPositions(true);
       }
       if (loaded > 0) {
@@ -14874,20 +14874,47 @@ class AISBridgeApp extends Homey.App {
    * försvann (oförändrat villkor).
    * @private
    */
+  /**
+   * Omgång 9 (spår R): en sista känd position vars stämplar ligger mer än
+   * SEEN_MAX_FUTURE_SKEW_MS fram får dem satta till `now` (ny post), annars
+   * returneras samma post. Gäller `t` och, om de finns, `posT` och `fixTs`.
+   * @private
+   */
+  _clampFutureLastKnown(entry, now) {
+    const skew = AIS_CONFIG.AISHUB.SEEN_MAX_FUTURE_SKEW_MS;
+    let copy = null;
+    for (const field of ['t', 'posT', 'fixTs']) {
+      if (Number.isFinite(entry[field]) && entry[field] - now > skew) {
+        if (!copy) copy = { ...entry };
+        copy[field] = now;
+      }
+    }
+    return copy || entry;
+  }
+
   _pruneLastKnownPositionsTtl() {
     if (!this._lastKnownPositions || this._lastKnownPositions.size === 0) return;
     const posNow = Date.now();
     const posTtl = this._LAST_KNOWN_POSITION_TTL_MS || 6 * 60 * 60 * 1000;
     let posExpired = 0;
+    let posClamped = 0;
     for (const [mmsi, entry] of this._lastKnownPositions.entries()) {
-      if (!entry || !Number.isFinite(entry.t) || posNow - entry.t >= posTtl
-          || entry.t - posNow > AIS_CONFIG.AISHUB.SEEN_MAX_FUTURE_SKEW_MS) {
-        // Granskningen L3: samma framtidsregel som laddningen.
+      if (!entry || !Number.isFinite(entry.t) || posNow - entry.t >= posTtl) {
         this._lastKnownPositions.delete(mmsi);
         posExpired++;
+      } else {
+        // Granskningen M3: efter ett klocksteg bakåt ligger nyss skrivna,
+        // riktiga positioner i framtiden. De sätts till "nu" i stället för att
+        // raderas (en raderad post fick en återfödd båt i kö att tappa sina
+        // passagenotiser), samma regel som laddningen och notisspärren.
+        const clamped = this._clampFutureLastKnown(entry, posNow);
+        if (clamped !== entry) {
+          this._lastKnownPositions.set(mmsi, clamped);
+          posClamped++;
+        }
       }
     }
-    if (posExpired > 0) this._persistLastKnownPositions();
+    if (posExpired > 0 || posClamped > 0) this._persistLastKnownPositions(posClamped > 0);
   }
 
   /**
