@@ -7,7 +7,7 @@
  * om den kraschar. Svepet svarar på frågan: vad ser användaren över en omstart
  * mitt i trafiken, jämfört med samma körning utan omstart? Det spelar upp en
  * körning en gång utan omstart och sedan en gång per omstartspunkt med EN
- * omstart inlagd (replayRunner.js, RESTART_AT/RESTART_PAUSE_MS/RESTART_MODE):
+ * omstart inlagd (replayRunner.js, REPLAY_RESTART_AT/_PAUSE_MS/_MODE):
  * appen stängs med onUninit (graceful) eller "dör" (hard: det onUninit skrev
  * till inställningarna kastas), ingen app finns under pausen och rader som
  * kommer då tas aldrig emot, och sedan startar en ny instans mot samma
@@ -24,14 +24,21 @@
  *    kraschen finns kvar.
  *
  * JÄMFÖRELSEN (per omstart, fönstret från omstarten till --horizon efter
- * pausen):
- *  - Varningar: en basvarning är utebliven om varianten inte varnade samma bro
- *    för någon av samma båtar inom 20 min; "efter, hörd" när båten hördes minst
- *    2 min före basens varning efter pausen. En variantvarning utan motsvarighet
- *    är ny; den är dubbel om samma båt redan varnats för samma bro inom 60 min.
- *  - Notiser: antal per båt och bro; underskott är uteblivna, överskott extra.
- *  - Text: var femte sekund i 90 min efter pausen, minuter med "Inga båtar" fast
- *    basen visar en båt.
+ * pausen), mot samma körning utan omstart, med det stränga mått som granskaren
+ * använde i omgång 10 (jamfor-strikt.js):
+ *  - Notiser paras per båt och bro (närmast i tid, högst 60 min isär). Fel är
+ *    en utebliven notis, en extra, fel riktning och mer än 120 s fel tid.
+ *  - Varningar paras per bro och båt (någon gemensam, högst 20 min isär). Fel
+ *    är en utebliven, en ny och mer än 5 min fel tid.
+ *  - Text: var femte sekund i 90 min från omstarten, efter pausen: sekunder med
+ *    "Inga båtar" fast basen visar en båt och sekunder med annan text. Andra
+ *    minuttal och en båt som visas fast basen säger "Inga båtar" räknas INTE.
+ *  - För tidiga "passerade": mer än 120 s före båtens passage utan omstart.
+ *  Måttet ser inte notisens text i övrigt (form, ETA-siffra), inte vilken båt
+ *  en konvojvarning nämner, och inte texten under själva pausen.
+ *  --compare jämför två svep i samma punkter (före och efter en ändring): en
+ *  omstart är sämre om notisfelen eller varningsfelen ökar eller felaktig text
+ *  ökar med mer än 60 s, bättre om inget blir sämre och något blir bättre.
  * Allt utom processfel och kvarlämnade timers är INFORMATIVT: en omstart får
  * kosta något, och svepet mäter hur mycket.
  *
@@ -39,6 +46,7 @@
  *   npm run replay:restart -- <jsonl> [...]        en eller flera körningar
  *   npm run replay:restart                         hela banken (corpora.js)
  *   node tests/replay-validation/runRestartSweep.js <jsonl> --raster=60 --targeted --pauses=20,120,600 --modes=graceful,hard
+ *   npm run replay:restart -- --compare=<utkatalog före>,<utkatalog efter>
  *
  * FLAGGOR
  *   --raster=<min>       omstart var N:e minut (standard 120; 0 = av)
@@ -49,7 +57,9 @@
  *   --pauses=<s,...>     pauser i sekunder (standard 120)
  *   --modes=<lista>      graceful och/eller hard (standard graceful)
  *   --horizon=<min>      jämförelsefönster efter pausen (standard 180)
- *   --out=<katalog>      skriv en rad per omstart (JSON) till <katalog>/<id>.jsonl
+ *   --out=<katalog>      skriv basen och en rad per omstart: <katalog>/<id>/bas.json
+ *                        och <katalog>/<id>/varianter.jsonl (det --compare läser)
+ *   --compare=<a>,<b>    jämför två utkataloger i samma punkter (ingen uppspelning)
  *   --examples=<n>       så många exempel per klass i utskriften (standard 5)
  *
  * TID: en uppspelning tar 1–10 s beroende på korpus; standardrastret (120 min,
@@ -74,7 +84,6 @@ const RUNNER = path.join(__dirname, 'replayRunner.js');
 const MAX_BUFFER = 256 * 1024 * 1024;
 const RUN_TIMEOUT_MS = 15 * 60 * 1000;
 const DEFAULT_TEXT = 'Inga båtar är i närheten av Klaffbron eller Stridsbergsbron';
-const W20 = 20 * 60000;
 
 function parseArgs(argv) {
   const o = {
@@ -92,6 +101,7 @@ function parseArgs(argv) {
     else if (k === '--horizon') o.horizon = Number(v);
     else if (k === '--out') o.out = path.resolve(v);
     else if (k === '--examples') o.examples = Number(v);
+    else if (k === '--compare') o.compare = v.split(',').map((d) => path.resolve(d));
     else if (k === '--help' || k === '-h') o.help = true;
     else if (k.startsWith('-')) throw new Error(`Okänd flagga: ${k}`);
     else o.files.push(path.resolve(a));
@@ -181,6 +191,13 @@ function restartPoints(bas, samples, o) {
 
 const ok = (x) => x.success !== false && Number.isFinite(x.t);
 const inter = (a, b) => (a || []).map(String).some((m) => (b || []).map(String).includes(m));
+const iso = (t) => new Date(t).toISOString().slice(0, 19).replace('T', ' ');
+const form = (msg) => (/passera/.test(msg || '') ? 'pass' : 'nar');
+const dirOf = (d) => {
+  if (/north|norr/.test(d || '')) return 'N';
+  if (/south|söder/.test(d || '')) return 'S';
+  return '?';
+};
 
 function textAt(transitions) {
   const tr = (transitions || []).filter((e) => typeof e.text === 'string');
@@ -188,95 +205,212 @@ function textAt(transitions) {
   let cur = null;
   return (t) => {
     while (i < tr.length && tr[i].t <= t) {
-      cur = tr[i].text; i++;
+      cur = tr[i].text;
+      i++;
     }
     return cur;
   };
 }
 
+function classifyText(b, v) {
+  const bd = !b || b === DEFAULT_TEXT;
+  const vd = !v || v === DEFAULT_TEXT;
+  if (vd && !bd) return 'tom';
+  if (bd && !vd) return 'fantom';
+  const norm = (s) => s.replace(/om \d+ minuter?/g, 'om N').replace(/strax/g, 'om N');
+  return norm(b) === norm(v) ? 'minuter' : 'annan';
+}
+
 /**
- * Jämför en variant med basen. Ren funktion (testad i
- * tests/o10-omstartssvep.test.js).
+ * En variant som rad: varianternas notiser och varningar efter omstarten och
+ * textskillnaderna mot basen (var femte sekund i 90 min från omstarten, efter
+ * pausen). Formatet är detsamma som omstartssvepets utkataloger i omgång 10,
+ * så att två svep kan jämföras med compareSweeps (och med granskarens
+ * jamfor-strikt.js).
  */
-function compareRestart(bas, vari, plan, samples) {
-  const resume = plan.at + plan.pauseMs;
+function variantRow(bas, vari, plan, samples) {
   const lastFix = samples.length ? samples[samples.length - 1].aisTimestamp : Infinity;
-  const cutoff = Math.min(resume + plan.horizonMs, lastFix);
-  const heard = new Map();
-  for (const s of samples) {
-    if (!heard.has(String(s.mmsi))) heard.set(String(s.mmsi), []);
-    heard.get(String(s.mmsi)).push(s.aisTimestamp);
-  }
-  const heardInTime = (mmsis, t) => (mmsis || []).some((m) => (heard.get(String(m)) || []).some((h) => h >= resume && h <= t - 120000));
-  const res = {
-    varningUtPaus: 0,
-    varningUtTyst: 0,
-    varningUtHord: 0,
-    varningFelTid: 0,
-    varningNy: 0,
-    varningDubbel: 0,
-    notisUtPaus: 0,
-    notisUtTyst: 0,
-    notisUtHord: 0,
-    notisExtra: 0,
-    tomS: 0,
-    exempel: [],
-  };
-  const bw = (bas.openingWarnings || []).filter(ok).filter((w) => w.t >= plan.at && w.t < cutoff);
-  const vw = (vari.openingWarnings || []).filter(ok).filter((w) => w.t >= plan.at && w.t < cutoff);
-  for (const w of bw) {
-    const near = vw.some((v) => v.bridge === w.bridge && inter(v.mmsis, w.mmsis) && Math.abs(v.t - w.t) <= W20);
-    if (near) continue;
-    if (vw.some((v) => v.bridge === w.bridge && inter(v.mmsis, w.mmsis))) {
-      res.varningFelTid++; continue;
-    }
-    if (w.t < resume) res.varningUtPaus++;
-    else if (heardInTime(w.mmsis, w.t)) {
-      res.varningUtHord++;
-      res.exempel.push(`varning utebliven fast båten hördes: ${w.bridge} ${JSON.stringify(w.mmsis)} basen ${new Date(w.t).toISOString()}`);
-    } else res.varningUtTyst++;
-  }
-  const allVw = (vari.openingWarnings || []).filter(ok);
-  const priorBw = (bas.openingWarnings || []).filter(ok).filter((w) => w.t < plan.at);
-  for (const v of vw) {
-    if (bw.some((w) => w.bridge === v.bridge && inter(v.mmsis, w.mmsis))) continue;
-    const earlier = [...priorBw, ...allVw.filter((x) => x.t < v.t && x.t >= plan.at)]
-      .some((w) => w.bridge === v.bridge && inter(v.mmsis, w.mmsis) && v.t - w.t > 0 && v.t - w.t <= 60 * 60000);
-    if (earlier) {
-      res.varningDubbel++;
-      res.exempel.push(`dubbel varning: ${v.bridge} ${JSON.stringify(v.mmsis)} ${new Date(v.t).toISOString()}`);
-    } else res.varningNy++;
-  }
-  const bn = (bas.notifications || []).filter(ok).filter((n) => n.t >= plan.at && n.t < cutoff);
-  const vn = (vari.notifications || []).filter(ok).filter((n) => n.t >= plan.at && n.t < cutoff);
-  const key = (n) => `${n.mmsi}|${n.bridge}`;
-  for (const k of new Set([...bn, ...vn].map(key))) {
-    const b = bn.filter((n) => key(n) === k);
-    const v = vn.filter((n) => key(n) === k);
-    for (const n of b.slice(v.length)) {
-      if (n.t < resume) res.notisUtPaus++;
-      else if (heardInTime([n.mmsi], n.t)) res.notisUtHord++;
-      else res.notisUtTyst++;
-    }
-    if (v.length > b.length) {
-      res.notisExtra += v.length - b.length;
-      for (const n of v.slice(b.length)) res.exempel.push(`extra notis: ${n.name || n.mmsi} ${n.bridge} "${n.message}"`);
-    }
-  }
+  const effCutoff = Math.min(plan.at + plan.pauseMs + plan.horizonMs, lastFix);
+  const resume = plan.at + plan.pauseMs;
+  const vn = (vari.notifications || []).filter(ok).filter((n) => n.t >= plan.at && n.t < effCutoff)
+    .map((n) => ({
+      t: n.t, bridge: n.bridge, mmsi: n.mmsi, dir: n.direction, msg: n.message, name: n.name,
+    }));
+  const vw = (vari.openingWarnings || []).filter(ok).filter((w) => w.t >= plan.at && w.t < effCutoff)
+    .map((w) => ({
+      t: w.t, bridge: w.bridge, mmsis: w.mmsis, firedBy: w.firedBy,
+    }));
   const fb = textAt(bas.bridgeTextTransitions);
   const fv = textAt(vari.bridgeTextTransitions);
-  const end = Math.min(cutoff, resume + 90 * 60000);
+  const text = {
+    pausen: {
+      tom: 0, fantom: 0, minuter: 0, annan: 0,
+    },
+    efter: {
+      tom: 0, fantom: 0, minuter: 0, annan: 0,
+    },
+  };
+  const end = Math.min(effCutoff, plan.at + 90 * 60000);
   for (let t = plan.at; t < end; t += 5000) {
     const b = fb(t);
     const v = fv(t);
-    if (t >= resume && b !== v && (!v || v === DEFAULT_TEXT) && b && b !== DEFAULT_TEXT) res.tomS += 5;
+    if (b !== v) text[t < resume ? 'pausen' : 'efter'][classifyText(b, v)] += 5;
   }
-  return res;
+  return {
+    at: plan.at, pauseMs: plan.pauseMs, mode: plan.mode, horizonMs: plan.horizonMs, vn, vw, text, textModel: 2,
+  };
 }
 
-const SUMMA_FALT = ['varningUtPaus', 'varningUtTyst', 'varningUtHord', 'varningFelTid', 'varningNy', 'varningDubbel',
-  'notisUtPaus', 'notisUtTyst', 'notisUtHord', 'notisExtra', 'tomS'];
-const nollor = () => SUMMA_FALT.reduce((acc, k) => ({ ...acc, [k]: 0 }), {});
+/** Notisfel mot körningen utan omstart: utebliven, extra, fel riktning, mer än 120 s fel tid. */
+function noticeErrors(ref, vn) {
+  const used = new Set();
+  const errs = [];
+  for (const b of ref) {
+    let best = -1;
+    let bestDt = Infinity;
+    vn.forEach((v, i) => {
+      if (used.has(i) || String(v.mmsi) !== String(b.mmsi) || v.bridge !== b.bridge) return;
+      const dt = Math.abs(v.t - b.t);
+      if (dt <= 3600000 && dt < bestDt) {
+        best = i;
+        bestDt = dt;
+      }
+    });
+    if (best < 0) {
+      errs.push(`utebliven ${b.name || b.mmsi} ${b.bridge} ${iso(b.t)}`);
+      continue;
+    }
+    used.add(best);
+    const v = vn[best];
+    if (dirOf(v.dir) !== dirOf(b.direction)) errs.push(`fel riktning ${b.name || b.mmsi} ${b.bridge} ${dirOf(b.direction)}→${dirOf(v.dir)}`);
+    if (Math.abs(v.t - b.t) > 120000) errs.push(`fel tid ${b.name || b.mmsi} ${b.bridge} ${Math.round((v.t - b.t) / 1000)} s`);
+  }
+  vn.forEach((v, i) => {
+    if (!used.has(i)) errs.push(`extra ${v.name || v.mmsi} ${v.bridge} ${iso(v.t)} "${(v.msg || '').slice(0, 60)}"`);
+  });
+  return errs;
+}
+
+/** Varningsfel: utebliven (ingen inom 20 min för samma bro och båt), ny, mer än 5 min fel tid. */
+function warningErrors(ref, vw) {
+  const used = new Set();
+  const errs = [];
+  for (const w of ref) {
+    let best = -1;
+    let bestDt = Infinity;
+    vw.forEach((v, i) => {
+      if (used.has(i) || v.bridge !== w.bridge || !inter(v.mmsis, w.mmsis)) return;
+      const dt = Math.abs(v.t - w.t);
+      if (dt <= 20 * 60000 && dt < bestDt) {
+        best = i;
+        bestDt = dt;
+      }
+    });
+    if (best < 0) {
+      errs.push(`utebliven varning ${w.bridge} ${JSON.stringify(w.mmsis)} ${iso(w.t)}`);
+      continue;
+    }
+    used.add(best);
+    if (Math.abs(vw[best].t - w.t) > 5 * 60000) errs.push(`varning fel tid ${w.bridge} ${Math.round((vw[best].t - w.t) / 60000)} min`);
+  }
+  vw.forEach((v, i) => {
+    if (!used.has(i)) errs.push(`ny varning ${v.bridge} ${JSON.stringify(v.mmsis)} ${iso(v.t)}`);
+  });
+  return errs;
+}
+
+/** "Passerade" före båtens passage i körningen utan omstart (mer än 120 s före, ingen passage de senaste 6 h). */
+function prematurePass(bas, vn) {
+  const pass = [...(bas.targetPassages || []), ...(bas.intermediatePassages || [])];
+  const out = [];
+  for (const v of vn) {
+    if (form(v.msg) !== 'pass') continue;
+    const same = pass.filter((p) => String(p.mmsi) === String(v.mmsi) && p.bridge === v.bridge);
+    const before = same.some((p) => p.t <= v.t + 120000 && p.t > v.t - 6 * 3600000);
+    const later = same.find((p) => p.t > v.t + 120000 && p.t < v.t + 3600000);
+    if (!before && later) out.push(`för tidig "passerade" ${v.name || v.mmsi} ${v.bridge} ${Math.round((later.t - v.t) / 60000)} min före passagen`);
+  }
+  return out;
+}
+
+/**
+ * Det stränga måttet för en omstart (samma som granskarens jamfor-strikt.js i
+ * omgång 10): notisfel, varningsfel och sekunder fel text ("Inga båtar" och
+ * annan text; minutskillnader och en båt som visas fast basen säger "Inga
+ * båtar" räknas inte), mot körningen utan omstart.
+ */
+function strictErrors(bas, row) {
+  const cutoff = row.at + row.pauseMs + (row.horizonMs || 180 * 60000);
+  const refN = (bas.notifications || []).filter(ok).filter((n) => n.t >= row.at && n.t < cutoff);
+  const refW = (bas.openingWarnings || []).filter(ok).filter((w) => w.t >= row.at && w.t < cutoff);
+  const vn = row.vn.filter((n) => n.t < cutoff);
+  return {
+    notis: noticeErrors(refN, vn),
+    varning: warningErrors(refW, row.vw.filter((w) => w.t < cutoff)),
+    textS: (row.text.efter.tom || 0) + (row.text.efter.annan || 0),
+    tomS: row.text.efter.tom || 0,
+    fortida: prematurePass(bas, vn),
+  };
+}
+
+/**
+ * Jämför två svep i samma punkter (före och efter en ändring) med det stränga
+ * måttet. En omstart är sämre om notisfelen eller varningsfelen ökar eller
+ * felaktig text ökar med mer än 60 s; bättre om inget blir sämre och något
+ * blir bättre.
+ */
+function compareSweeps(dirA, dirB) {
+  const load = (dir, id) => {
+    const f = path.join(dir, id, 'varianter.jsonl');
+    const m = new Map();
+    if (!fs.existsSync(f)) return m;
+    for (const l of fs.readFileSync(f, 'utf8').split('\n').filter(Boolean)) {
+      const r = JSON.parse(l);
+      if (!r.fel && r.vw && r.vn && r.textModel === 2) m.set(`${r.at}|${r.pauseMs}|${r.mode}|${r.lage}`, r);
+    }
+    return m;
+  };
+  const tot = {
+    rader: 0, battre: 0, samre: 0, lika: 0, nA: 0, nB: 0, wA: 0, wB: 0, tA: 0, tB: 0, pA: 0, pB: 0,
+  };
+  const worse = [];
+  for (const id of fs.readdirSync(dirA).filter((x) => fs.existsSync(path.join(dirB, x, 'varianter.jsonl')))) {
+    const basF = path.join(dirA, id, 'bas.json');
+    if (!fs.existsSync(basF)) continue;
+    const bas = JSON.parse(fs.readFileSync(basF, 'utf8'));
+    const A = load(dirA, id);
+    const B = load(dirB, id);
+    for (const [k, ra] of A) {
+      const rb = B.get(k);
+      if (!rb) continue;
+      const a = strictErrors(bas, { ...ra, horizonMs: 180 * 60000 });
+      const b = strictErrors(bas, { ...rb, horizonMs: 180 * 60000 });
+      tot.rader++;
+      tot.nA += a.notis.length;
+      tot.nB += b.notis.length;
+      tot.wA += a.varning.length;
+      tot.wB += b.varning.length;
+      tot.tA += a.textS;
+      tot.tB += b.textS;
+      tot.pA += a.fortida.length;
+      tot.pB += b.fortida.length;
+      const isWorse = b.notis.length > a.notis.length || b.varning.length > a.varning.length || b.textS - a.textS > 60;
+      const isBetter = b.notis.length < a.notis.length || b.varning.length < a.varning.length || a.textS - b.textS > 60;
+      if (isWorse) {
+        tot.samre++;
+        worse.push(`${id} ${ra.lage} ${iso(ra.at)} paus ${ra.pauseMs / 1000}s: notisfel ${a.notis.length}→${b.notis.length}, `
+          + `varningsfel ${a.varning.length}→${b.varning.length}, text ${Math.round(a.textS / 60)}→${Math.round(b.textS / 60)} min`);
+      } else if (isBetter) tot.battre++;
+      else tot.lika++;
+    }
+  }
+  return { tot, worse };
+}
+
+function writeBas(outDir, id, bas) {
+  fs.mkdirSync(path.join(outDir, id), { recursive: true });
+  fs.writeFileSync(path.join(outDir, id, 'bas.json'), JSON.stringify(bas));
+}
 
 function main() {
   let o;
@@ -290,6 +424,21 @@ function main() {
     console.log('Se filhuvudet i tests/replay-validation/runRestartSweep.js.');
     process.exit(0);
   }
+  if (o.compare) {
+    const [dirA, dirB] = o.compare;
+    if (!dirA || !dirB || !fs.existsSync(dirA) || !fs.existsSync(dirB)) {
+      console.error('❌ --compare kräver två befintliga utkataloger: --compare=<före>,<efter>');
+      process.exit(2);
+    }
+    const { tot, worse } = compareSweeps(dirA, dirB);
+    console.log(`omstarter: ${tot.rader}; bättre ${tot.battre}, sämre ${tot.samre}, lika ${tot.lika}`);
+    console.log(`notisfel (utebliven, extra, riktning, tid > 120 s) ${tot.nA} → ${tot.nB}`);
+    console.log(`varningsfel (utebliven, ny, tid > 5 min) ${tot.wA} → ${tot.wB}`);
+    console.log(`fel text efter pausen ${Math.round(tot.tA / 60)} → ${Math.round(tot.tB / 60)} min`);
+    console.log(`för tidiga "passerade" ${tot.pA} → ${tot.pB}`);
+    for (const s of worse.slice(0, o.examples * 10)) console.log(`  sämre: ${s}`);
+    process.exit(0);
+  }
   if (o.files.length === 0) {
     // eslint-disable-next-line global-require
     const corpora = require('./corpora');
@@ -301,14 +450,19 @@ function main() {
       process.exit(2);
     }
   }
-  if (o.out) fs.mkdirSync(o.out, { recursive: true });
   console.log('\n=== OMSTARTSSVEPET ===');
   console.log(`raster ${o.raster} min, riktade punkter ${o.targeted ? `ja (högst ${o.maxPoints} per läge)` : 'nej'}, pauser ${o.pauses.join('/')} s, ${o.modes.join('/')}, fönster ${o.horizon} min`);
-  console.log('Prövar inte: fusionen, AISHub efter omstarten, fler än en omstart per uppspelning.\n');
-  const total = nollor();
-  let restarts = 0;
+  console.log('Prövar inte: fusionen, AISHub efter omstarten, fler än en omstart per uppspelning.');
+  console.log('Fel räknas mot samma körning utan omstart (strängt mått: utebliven, extra, riktning, tid).\n');
+  const total = {
+    n: 0, notis: 0, varning: 0, textS: 0, tomS: 0, fortida: 0,
+  };
   let hardFailures = 0;
-  const examples = [];
+  const examples = new Map();
+  const addEx = (kind, s) => {
+    if (!examples.has(kind)) examples.set(kind, []);
+    examples.get(kind).push(s);
+  };
   for (const file of o.files) {
     const id = path.basename(file, '.jsonl') === 'ais' ? path.basename(path.dirname(file)) : path.basename(file, '.jsonl');
     let bas;
@@ -319,72 +473,64 @@ function main() {
       hardFailures++;
       continue;
     }
+    if (o.out) writeBas(o.out, id, bas);
     const samples = readSamples(file);
-    const points = restartPoints(bas, samples, o);
-    const sum = nollor();
-    let n = 0;
-    for (const p of points) {
+    const sum = {
+      n: 0, notis: 0, varning: 0, textS: 0, tomS: 0, fortida: 0,
+    };
+    for (const p of restartPoints(bas, samples, o)) {
       for (const pause of o.pauses) {
         for (const mode of o.modes) {
           const plan = {
             at: p.at, pauseMs: pause * 1000, mode, horizonMs: o.horizon * 60000,
           };
+          const label = `${id} ${p.lage} ${iso(p.at)} ${pause}s ${mode}`;
           let row;
           try {
             const vari = runReplay(file, {
-              RESTART_AT: String(p.at),
-              RESTART_PAUSE_MS: String(plan.pauseMs),
-              RESTART_MODE: mode,
-              RESTART_TRUNCATE_AT: String(p.at + plan.pauseMs + plan.horizonMs),
-              RESTART_SLIM: '1',
+              REPLAY_RESTART_AT: String(p.at),
+              REPLAY_RESTART_PAUSE_MS: String(plan.pauseMs),
+              REPLAY_RESTART_MODE: mode,
+              REPLAY_RESTART_TRUNCATE_AT: String(p.at + plan.pauseMs + plan.horizonMs),
+              REPLAY_RESTART_SLIM: '1',
             });
-            const cmp = compareRestart(bas, vari, plan, samples);
+            row = { ...variantRow(bas, vari, plan, samples), lage: p.lage };
+            const e = strictErrors(bas, row);
             const timers = (vari.runtimeDiagnostics && vari.runtimeDiagnostics.timersAfterRestartShutdown) || [];
-            const fel = (vari.processErrors || 0) > 0 || timers.some((x) => x > 0);
-            if (fel) {
+            if ((vari.processErrors || 0) > 0 || timers.some((x) => x > 0)) {
               hardFailures++;
-              examples.push(`❌ ${id} ${p.lage} ${new Date(p.at).toISOString()} ${pause}s ${mode}: processfel ${vari.processErrors}, timers kvar ${JSON.stringify(timers)}`);
+              addEx('fel', `❌ ${label}: processfel ${vari.processErrors}, timers kvar ${JSON.stringify(timers)}`);
             }
-            for (const k of SUMMA_FALT) sum[k] += cmp[k];
-            for (const ex of cmp.exempel) examples.push(`${id} ${p.lage} ${new Date(p.at).toISOString()} ${pause}s ${mode}: ${ex}`);
-            row = {
-              id,
-              ...p,
-              pauseMs: plan.pauseMs,
-              mode,
-              ...cmp,
+            sum.n++;
+            sum.notis += e.notis.length;
+            sum.varning += e.varning.length;
+            sum.textS += e.textS;
+            sum.tomS += e.tomS;
+            sum.fortida += e.fortida.length;
+            for (const x of [...e.notis, ...e.varning, ...e.fortida]) addEx(x.split(' ').slice(0, 2).join(' '), `${label}: ${x}`);
+            Object.assign(row, {
               processErrors: vari.processErrors,
               timersAfterRestartShutdown: timers,
               settingsChangedByUninit: vari.restart && vari.restart.settingsChangedByUninit,
-            };
-            n++;
-          } catch (e) {
+            });
+          } catch (err) {
             hardFailures++;
-            examples.push(`💥 ${id} ${p.lage} ${new Date(p.at).toISOString()} ${pause}s ${mode}: ${e.message.slice(0, 200)}`);
+            addEx('fel', `💥 ${label}: ${err.message.slice(0, 200)}`);
             row = {
-              id, ...p, pauseMs: plan.pauseMs, mode, fel: e.message.slice(0, 500),
+              at: p.at, lage: p.lage, pauseMs: plan.pauseMs, mode, fel: err.message.slice(0, 500),
             };
           }
-          if (o.out) fs.appendFileSync(path.join(o.out, `${id}.jsonl`), `${JSON.stringify(row)}\n`);
+          if (o.out) fs.appendFileSync(path.join(o.out, id, 'varianter.jsonl'), `${JSON.stringify(row)}\n`);
         }
       }
     }
-    restarts += n;
-    for (const k of SUMMA_FALT) total[k] += sum[k];
-    console.log(`  ${id}: ${n} omstarter; varningar uteblivna ${sum.varningUtPaus}/${sum.varningUtTyst}/${sum.varningUtHord} (pausen/tyst/hörd), `
-      + `fel tid ${sum.varningFelTid}, nya ${sum.varningNy}, dubbla ${sum.varningDubbel}; notiser uteblivna ${sum.notisUtPaus}/${sum.notisUtTyst}/${sum.notisUtHord}, `
-      + `extra ${sum.notisExtra}; "Inga båtar" fast båt fanns ${Math.round(sum.tomS / 60)} min`);
+    for (const k of Object.keys(total)) total[k] += sum[k];
+    console.log(`  ${id}: ${sum.n} omstarter; notisfel ${sum.notis}, varningsfel ${sum.varning}, fel text ${Math.round(sum.textS / 60)} min `
+      + `(varav "Inga båtar" fast båt fanns ${Math.round(sum.tomS / 60)}), för tidiga "passerade" ${sum.fortida}`);
   }
-  console.log(`\nSUMMA: ${restarts} omstarter; varningar uteblivna ${total.varningUtPaus}/${total.varningUtTyst}/${total.varningUtHord} (i pausen/efter, tyst båt/efter, hörd båt), `
-    + `> 20 min fel ${total.varningFelTid}, nya ${total.varningNy}, dubbla ${total.varningDubbel}; notiser uteblivna `
-    + `${total.notisUtPaus}/${total.notisUtTyst}/${total.notisUtHord}, extra ${total.notisExtra}; "Inga båtar" fast båt fanns ${Math.round(total.tomS / 60)} min`);
-  const byKind = new Map();
-  for (const ex of examples) {
-    const kind = ex.includes('❌') || ex.includes('💥') ? 'fel' : ex.split(': ')[1].split(':')[0];
-    if (!byKind.has(kind)) byKind.set(kind, []);
-    byKind.get(kind).push(ex);
-  }
-  for (const [kind, list] of byKind) {
+  console.log(`\nSUMMA: ${total.n} omstarter; notisfel ${total.notis}, varningsfel ${total.varning}, fel text ${Math.round(total.textS / 60)} min `
+    + `(varav "Inga båtar" ${Math.round(total.tomS / 60)}), för tidiga "passerade" ${total.fortida}`);
+  for (const [kind, list] of examples) {
     console.log(`\n  ${kind} (${list.length}):`);
     for (const ex of list.slice(0, kind === 'fel' ? 50 : o.examples)) console.log(`    ${ex}`);
   }
@@ -392,12 +538,12 @@ function main() {
     console.log(`\n❌ ${hardFailures} omstart(er) med processfel, timer kvar efter onUninit eller kastande uppspelning.`);
     process.exit(1);
   }
-  console.log('\n✅ Inga processfel och inga timers kvar efter onUninit (jämförelsen ovan är informativ).');
+  console.log('\n✅ Inga processfel och inga timers kvar efter onUninit (felen ovan är informativa).');
   process.exit(0);
 }
 
 if (require.main === module) main();
 
 module.exports = {
-  parseArgs, restartPoints, compareRestart,
+  parseArgs, restartPoints, variantRow, strictErrors, compareSweeps,
 };

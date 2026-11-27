@@ -223,11 +223,11 @@ async function main() {
     now: initialState ? initialState.capturedAt : samples[0].aisTimestamp,
     toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
   });
-  // OMSTARTSSVEPET (omgång 10, spår O): med RESTART_TIMER_STACKS=1 bokförs var
+  // OMSTARTSSVEPET (omgång 10, spår O): med REPLAY_RESTART_TIMER_STACKS=1 bokförs var
   // varje timer skapades, så att en timer som ligger kvar efter onUninit kan
   // spåras (resultatets restart.leftTimers). Av som standard.
   const timerStacks = new Map();
-  if (process.env.RESTART_TIMER_STACKS === '1') {
+  if (process.env.REPLAY_RESTART_TIMER_STACKS === '1') {
     for (const name of ['setTimeout', 'setInterval']) {
       const orig = global[name];
       global[name] = (...a) => {
@@ -754,25 +754,25 @@ async function main() {
   let processErrors = 0;
 
   // ---- OMSTART MED PAUS (omgång 10, spår O; runRestartSweep.js) ----
-  // RESTART_AT (ms) lägger in EN omstart: appen stängs med onUninit
-  // (RESTART_MODE=graceful, standard) eller "dör" (hard: det onUninit skrev
+  // REPLAY_RESTART_AT (ms) lägger in EN omstart: appen stängs med onUninit
+  // (REPLAY_RESTART_MODE=graceful, standard) eller "dör" (hard: det onUninit skrev
   // till inställningarna kastas, det som skrivits dessförinnan står kvar, som
-  // efter en krasch). Under RESTART_PAUSE_MS finns ingen app: klockan går och
+  // efter en krasch). Under REPLAY_RESTART_PAUSE_MS finns ingen app: klockan går och
   // rader som kommer under pausen tas aldrig emot (ingen AISHub-hämtning i
   // efterhand). Sedan startas en ny instans mot samma inställningar, och
   // enhetens onInit skriver appens text som i Homey
   // (drivers/bridge_status/device.js: en ny instans har ingen, alltså DEFAULT).
-  // RESTART_TRUNCATE_AT avbryter uppspelningen utan efterspel; RESTART_SLIM=1
+  // REPLAY_RESTART_TRUNCATE_AT avbryter uppspelningen utan efterspel; REPLAY_RESTART_SLIM=1
   // ger smalare utdata. Utan variablerna är allt som förut; ctrl:'restart'
   // nedan är oförändrad (ögonblicklig, ingen enhetsskrivning).
   const numEnv = (k) => (process.env[k] !== undefined && process.env[k] !== '' ? Number(process.env[k]) : null);
-  const restartPlan = Number.isFinite(numEnv('RESTART_AT')) ? {
-    at: numEnv('RESTART_AT'),
-    pauseMs: numEnv('RESTART_PAUSE_MS') || 0,
-    mode: process.env.RESTART_MODE === 'hard' ? 'hard' : 'graceful',
+  const restartPlan = Number.isFinite(numEnv('REPLAY_RESTART_AT')) ? {
+    at: numEnv('REPLAY_RESTART_AT'),
+    pauseMs: numEnv('REPLAY_RESTART_PAUSE_MS') || 0,
+    mode: process.env.REPLAY_RESTART_MODE === 'hard' ? 'hard' : 'graceful',
   } : null;
   if (restartPlan) restartPlan.resumeAt = restartPlan.at + restartPlan.pauseMs;
-  const truncateAt = Number.isFinite(numEnv('RESTART_TRUNCATE_AT')) ? numEnv('RESTART_TRUNCATE_AT') : null;
+  const truncateAt = Number.isFinite(numEnv('REPLAY_RESTART_TRUNCATE_AT')) ? numEnv('REPLAY_RESTART_TRUNCATE_AT') : null;
   let restartDone = false;
   const restartInfo = restartPlan ? { ...restartPlan, droppedDuringPause: 0 } : null;
   const snapshotVessels = (instance) => {
@@ -1281,11 +1281,11 @@ async function main() {
     leakDiagnostics,
   };
 
-  // Omstartssvepet: omstartens uppgifter (bara med RESTART_AT) och smalare
-  // utdata med RESTART_SLIM=1.
+  // Omstartssvepet: omstartens uppgifter (bara med REPLAY_RESTART_AT) och smalare
+  // utdata med REPLAY_RESTART_SLIM=1.
   if (restartInfo) result.restart = restartInfo;
   if (truncateAt !== null) result.truncateAt = truncateAt;
-  if (process.env.RESTART_SLIM === '1') {
+  if (process.env.REPLAY_RESTART_SLIM === '1') {
     for (const k of ['bridgeTextLeads', 'preFusionLog', 'openingCoverageVerdicts', 'openingCoverage', 'visitReturnReleases']) delete result[k];
   }
 
