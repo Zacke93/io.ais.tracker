@@ -3126,7 +3126,7 @@ coalescing-/immediate-/watchdog-timers + mappar (:5368–5392); `VDS.clearAllTim
 på write-through + monitoring) och av `quay_stable_ledger` (V1: skrivtakten är
 strypt till 15 min, så utan tvingad flush hade upp till en kvarts kajhistorik
 gått förlorad i just den omstart grinden ska överleva); removeAllListeners +
-lyssnare av (:5411–5435). Före flushen av `last_known_positions` bokförs de levande båtarnas positioner i kartan som vid en radering (O1, omgång 10), så att en båt som var i kanalen vid omstarten efteråt är en återfödd båt och inte en ny.
+lyssnare av (:5411–5435). Före flushen av `last_known_positions` bokförs de levande båtarnas positioner i kartan som vid en radering (O1, omgång 10), så att en båt som var i kanalen vid omstarten efteråt är en återfödd båt och inte en ny. En pågående mikrograce-paus (`_sleep`) rensas och löses upp (`_releaseSleepTimers`, omgång 10, spår O): förut låg dess 200 ms-timer kvar efter avstängningen.
 
 **En andra `onInit` utan `onUninit`** (omgång 9, spår R) kör först `onUninit` när en
 tidigare körning finns och inte stängts. Förut levde allt från den första starten kvar

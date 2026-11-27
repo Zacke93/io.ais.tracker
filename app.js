@@ -7163,12 +7163,37 @@ class AISBridgeApp extends Homey.App {
 
   /**
    * Sleep utility for micro-grace delays
+   *
+   * Omgång 10, spår O (fynd 7): timern spåras, så att `onUninit` kan rensa den
+   * och lösa upp pausen (`_releaseSleepTimers`). Förut låg en pågående
+   * mikrograce-paus kvar som en 200 ms-timer efter avstängningen; den gjorde
+   * ingenting (livscykelvakten i `_actuallyUpdateUI`), men `runSoak.js`
+   * underkänner en timer kvar efter en omstart.
    * @private
    */
   _sleep(ms) {
     return new Promise((resolve) => {
-      setTimeout(resolve, ms);
+      if (!this._sleepTimers) this._sleepTimers = new Map();
+      const timer = setTimeout(() => {
+        if (this._sleepTimers) this._sleepTimers.delete(timer);
+        resolve();
+      }, ms);
+      this._sleepTimers.set(timer, resolve);
     });
+  }
+
+  /**
+   * Rensar pågående `_sleep`-timers och löser upp pauserna direkt; den som
+   * väntar ser sedan att livscykeln är slut och avbryter.
+   * @private
+   */
+  _releaseSleepTimers() {
+    if (!this._sleepTimers) return;
+    for (const [timer, resolve] of this._sleepTimers) {
+      clearTimeout(timer);
+      resolve();
+    }
+    this._sleepTimers.clear();
   }
 
   /**
@@ -15609,6 +15634,9 @@ class AISBridgeApp extends Homey.App {
       clearTimeout(this._simulateTestDataTimer);
       this._simulateTestDataTimer = null;
     }
+
+    // Fynd 7 (omgång 10, spår O): en pågående mikrograce-paus.
+    this._releaseSleepTimers();
 
     // COALESCING CLEANUP: Clear all coalescing timers and state
     if (this._microGraceTimers) {
