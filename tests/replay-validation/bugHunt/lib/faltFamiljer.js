@@ -183,21 +183,22 @@ function arbetsbåt(rnd, world, f) {
 //   krypfarten p50 0,7–1,0 kn; farten under 3 kn från p50 500–1 100 m före;
 //   54–61 % av krypraderna ligger söder om kanalinfarten (hamnen).
 // Järnvägsbron och Stridsbergsbron ligger 257 m isär och behandlas som ett
-// bropar: profilen läggs före den första i färdriktningen och krypet
-// fortsätter genom den andra.
+// bropar: profilen läggs före den första i färdriktningen. Krypet slutar
+// 20–80 m före bron och båten sätter fart genom den: av 956 inspelade
+// korsningar gick 0,6 % under 1 kn och 3,2 % under 2 kn (matt/korsfart.txt).
 // ---------------------------------------------------------------------------
 const INFLYGNING = Object.freeze([
   {
     broar: ['Olidebron'], pKryp: 0.25, pStopp: 0.6, stoppM: [40, 300],
   },
   {
-    broar: ['Klaffbron'], pKryp: 0.22, pStopp: 0.6, stoppM: [100, 320],
+    broar: ['Klaffbron'], pKryp: 0.22, pStopp: 0.6, stoppM: [100, 300],
   },
   {
     broar: ['Järnvägsbron', 'Stridsbergsbron'], pKryp: 0.35, pStopp: 0.65, stoppM: [60, 300],
   },
   {
-    broar: ['Stallbackabron'], pKryp: 0.05, pStopp: 0.5, stoppM: [100, 400],
+    broar: ['Stallbackabron'], pKryp: 0.05, pStopp: 0.5, stoppM: [100, 300],
   },
 ]);
 const P_HAMN = 0.7;
@@ -242,21 +243,21 @@ function inflygning(rnd, b, h) {
           });
         }
       }
-      plan.push({
-        op: 'crawl', bridge: först, withinM: Math.min(distM + 5, Math.round(rnd.range(60, 250))), kn,
-      });
+      // Efter kön kryper hon fram till 20–80 m före bron och sätter sedan fart
+      // genom bron (inspelat: 0,6 % av korsningarna under 1 kn).
+      const toM = Math.round(rnd.range(20, 80));
+      if (distM > toM + 10) {
+        plan.push({
+          op: 'slow', bridge: först, fromM: distM + 5, toM, kn,
+        });
+      }
     } else {
       const withinM = Math.round(rnd.range(60, 250));
       plan.push({
         op: 'slow', bridge: först, fromM: Math.max(fromM, withinM + 50), toM: withinM, kn: Math.round(rnd.range(1.5, 3) * 10) / 10,
       });
       plan.push({
-        op: 'crawl', bridge: först, withinM, kn,
-      });
-    }
-    if (andra && nås(andra)) {
-      plan.push({
-        op: 'crawl', bridge: andra, withinM: 260, kn,
+        op: 'slow', bridge: först, fromM: withinM, toM: Math.round(rnd.range(20, 80)), kn,
       });
     }
     harBro.add(först);
