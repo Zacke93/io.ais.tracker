@@ -216,6 +216,44 @@ describe('U84: obekräftat hopp som sist känd position', () => {
     expect(vds._vesselGraves.get('910030010').lat).toBe(58.2757);
   });
 
+  // O3 (kajkartan): en förtöjd båt behåller sin klassning genom ett hopp, och
+  // varje förtöjd fix lär kajkartan sin plats (365 dygn). Hoppets punkt i
+  // farleden blev en kajplats, och en båt som sågs första gången där behandlades
+  // som kajavgång: inga "passerade … under AIS-tystnad" för broarna hon kommit
+  // förbi. Nu lärs det rena ankaret (den riktiga kajen), aldrig hoppet.
+  test('kajkartan: hopp från en förtöjd båt lärs inte som kajplats', async () => {
+    await start({});
+    const KAJ = '910030011';
+    const ob = BRIDGES.olidebron;
+    const kb = BRIDGES.klaffbron;
+    const resa = journey('910030012', 'PROV NY');
+    const iP = resa.findIndex((x) => x.lat > ob.lat
+      && geometry.calculateDistance(x.lat, x.lon, ob.lat, ob.lon) > 550
+      && geometry.calculateDistance(x.lat, x.lon, kb.lat, kb.lon) > 550);
+    const P = resa[iP];
+    const kaj = {
+      mmsi: KAJ, lat: 58.300, lon: 12.305, sog: 0, cog: 0, shipName: 'PROV KAJ',
+    };
+    for (let i = 0; i < 6; i++) {
+      feed(kaj, { navStatus: 5 });
+      await jest.advanceTimersByTimeAsync(MIN);
+    }
+    feed({ ...kaj, lat: P.lat + 0.0002, lon: P.lon }, { navStatus: 5 });
+    await jest.advanceTimersByTimeAsync(60);
+    const v = app.vesselDataService.getVessel(KAJ);
+    expect(v._gpsJumpDetected).toBe(true);
+    expect(v._moored).toBe(true);
+    const nara = (lat, lon) => app._learnedMooringSpots
+      .some((x) => geometry.calculateDistance(x.lat, x.lon, lat, lon) < 100);
+    expect(nara(kaj.lat, kaj.lon)).toBe(true);
+    expect(nara(P.lat, P.lon)).toBe(false);
+    await jest.advanceTimersByTimeAsync(60 * MIN);
+    const n0 = notices().length;
+    await play(resa.slice(iP));
+    const after = notices().slice(n0).filter((n) => /PROV NY/.test(n.msg));
+    expect(after.some((n) => n.bridge === 'Olidebron' && /passerade Olidebron under AIS-tystnad/.test(n.msg))).toBe(true);
+  });
+
   // Ingen ren position: en kedja av obekräftade hopp (fram och tillbaka mellan
   // båtens plats och en punkt norr om Järnvägsbron) längre än 20 min tappar det
   // rena ankaret. Då sparas ingenting, varken vid radering eller vid en ordnad
