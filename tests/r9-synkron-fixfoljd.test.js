@@ -48,6 +48,18 @@ function message(s) {
 
 const klaffSide = (s) => (s.lat - BRIDGES.klaffbron.lat) * 111320;
 
+// Granskningen av första varvet (H1): en båt som syns första gången i en klump
+// med två fix och sedan tystnar. Klumpens första fix är det enda giltiga (det
+// andra har rört sig utan tidsskillnad och avvisas av GPS-grinden).
+function firstSeenJourney(direction) {
+  return generateScenario({
+    seed: 5,
+    vessels: [{
+      mmsi: '265099102', name: 'PROV KLUMP', direction, speedKn: 6.5, reportIntervalS: 30,
+    }],
+  });
+}
+
 describe('Synkron fixföljd för samma båt (nätstopp utan nedkoppling)', () => {
   let app;
   let savedTestMode;
@@ -117,6 +129,40 @@ describe('Synkron fixföljd för samma båt (nätstopp utan nedkoppling)', () =>
     const klaff = warnings().filter((w) => w.startsWith('Klaffbron'));
     expect(klaff).toHaveLength(1);
     expect(warnings().filter((w) => w.startsWith('Stridsbergsbron'))).toHaveLength(1);
+  });
+
+  // Två fix (a och a+2) i samma läsning DIST m före bron, sedan SILENCE min tystnad.
+  async function firstSeenInBurst(direction, bridgeKey, dist, silenceMin) {
+    const samples = firstSeenJourney(direction);
+    const b = BRIDGES[bridgeKey];
+    const before = (s) => (direction === 'north' ? s.lat < b.lat : s.lat > b.lat);
+    const a = samples.findIndex((s) => before(s) && geometry.calculateDistance(s.lat, s.lon, b.lat, b.lon) <= dist);
+    expect(a).toBeGreaterThan(0);
+    await jest.advanceTimersByTimeAsync(samples[a + 2].aisTimestamp - Date.now());
+    const t0 = Date.now();
+    app._processAISMessage(message(samples[a]));
+    app._processAISMessage(message(samples[a + 2]));
+    await jest.advanceTimersByTimeAsync(silenceMin * 60 * 1000);
+    return app._bridgeOpeningTrigger.triggerCalls.filter((c) => c.success)
+      .map((c) => ({ bridge: c.tokens.bridge_name, afterS: Math.round((Date.parse(c.timestamp) - t0) / 1000) }));
+  }
+
+  test('H1: ny båt i klump 1 560 m före Klaffbron norrut, sedan 20 min tystnad, får Klaffbronvarningen', async () => {
+    const got = await firstSeenInBurst('north', 'klaffbron', 1600, 20);
+    expect(got.map((w) => w.bridge)).toEqual(['Klaffbron']);
+    expect(got[0].afterS).toBeLessThanOrEqual(130);
+  });
+
+  test('H1: ny båt i klump 560 m före Klaffbron norrut, sedan 20 min tystnad, får båda varningarna', async () => {
+    const got = await firstSeenInBurst('north', 'klaffbron', 600, 20);
+    expect(got.map((w) => w.bridge)).toEqual(['Klaffbron', 'Stridsbergsbron']);
+    expect(got[0].afterS).toBeLessThanOrEqual(5);
+  });
+
+  test('H1: ny båt i klump 1 540 m före Stridsbergsbron söderut, sedan 20 min tystnad, får Stridsbergsbronvarningen', async () => {
+    const got = await firstSeenInBurst('south', 'stridsbergsbron', 1550, 20);
+    expect(got.map((w) => w.bridge)[0]).toBe('Stridsbergsbron');
+    expect(got[0].afterS).toBeLessThanOrEqual(120);
   });
 
   test('motfall: samma resa utan följd ger en varning per bro', async () => {

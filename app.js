@@ -3076,29 +3076,33 @@ class AISBridgeApp extends Homey.App {
    */
   _observeBridgeOpening(vessel) {
     if (!this.bridgeOpeningService || !vessel) return;
-    // Omgång 9 (spår R, felinjektion): ETT ERSATT FARTYGSOBJEKT OBSERVERAS INTE.
-    // Anropet ligger efter första await i _onVesselEntered/_onVesselUpdated. När
-    // flera fix för samma båt behandlas synkront i följd (websocketen levererar
-    // flera ramar i samma läsning efter ett nätstopp, aisstream stämplar alla med
-    // mottagningstiden) körs fortsättningarna först när ALLA fix redan
-    // analyserats. Objekten delar passedAt med det nyaste, så det gamla fixets
-    // fortsättning såg en senare passage (notePassage, dedupen nollad) och nästa
-    // gamla fortsättning, fortfarande före bron med målbron kvar, beväpnade och
-    // avfyrade en ny varning för en redan passerad bro. Det nyaste fixets egen
-    // fortsättning observerar med den sanna lägesbilden. Saknas båten i
-    // tjänsten (borttagen under väntan) gäller dagens beteende. I vanlig drift
-    // (ett meddelande per makrouppgift, och i replay) är objektet alltid det
-    // aktuella när fortsättningen körs.
+    // Omgång 9 (spår R, felinjektion, andra varvet): ETT ERSATT FARTYGSOBJEKT
+    // OBSERVERAS, MEN BOKFÖR INGEN PASSAGE HÄR. Anropet ligger efter första
+    // await i _onVesselEntered/_onVesselUpdated. När flera fix för samma båt
+    // behandlas synkront i följd (websocketen levererar flera ramar i samma
+    // läsning efter ett nätstopp, aisstream stämplar alla med mottagningstiden)
+    // körs fortsättningarna först när ALLA fix redan analyserats. Objekten delar
+    // passedAt med det nyaste, så passageblocket nedan i det gamla fixets
+    // fortsättning såg en senare passage (notePassage, öppningsdedupen nollad),
+    // och nästa gamla fortsättning, fortfarande före bron med målbron kvar,
+    // beväpnade och avfyrade en ny varning för en redan passerad bro. Passagen
+    // tillhör det nyare fixet, vars egen fortsättning bokför den. Själva
+    // observationen behålls: i en klump är det första fixet ofta det enda
+    // giltiga (de senare har rört sig utan tidsskillnad och avvisas av
+    // tjänstens GPS-grind), och första varvet, som hoppade över hela
+    // observationen, gav därför uteblivna och för tidiga varningar
+    // (granskningen, H1). I vanlig drift (ett meddelande per makrouppgift, och i
+    // replay) är objektet alltid det aktuella när fortsättningen körs.
     const current = typeof this.vesselDataService?.getVessel === 'function'
       ? this.vesselDataService.getVessel(vessel.mmsi) : null;
-    if (current && current !== vessel) {
-      this._supersededOpeningObservations = (this._supersededOpeningObservations || 0) + 1;
-      this.log(`⏭️ [OPENING_OBSERVE_SUPERSEDED] ${vessel.mmsi}: ett nyare fix för båten har redan behandlats `
-        + `— öppningslagret observerar det i stället (totalt ${this._supersededOpeningObservations})`);
-      return;
-    }
+    const superseded = Boolean(current && current !== vessel);
     try {
       this.bridgeOpeningService.observeVessel(vessel);
+      if (superseded) {
+        this.debug(`⏭️ [OPENING_OBSERVE_SUPERSEDED] ${vessel.mmsi}: ett nyare fix för båten är redan analyserat `
+          + '— observerat utan passagebokföring (den tillhör det nyare fixet)');
+        return;
+      }
 
       // Färska passage-ankringar (samma 2000 ms-fönster som BUG C och
       // MULTI_PASSAGE_FALLBACK använder för "registrerad denna tick").
