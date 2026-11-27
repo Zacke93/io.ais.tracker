@@ -4008,7 +4008,23 @@ skillnad: en klump som korsar en mellanbro (Stallbackabron norrut, Järnvägsbro
 bokför inte den mellanbrons passage, eftersom `StatusService._noteUnderBridgeLineCross`
 avvisar ett segment som rört sig utan tidsskillnad. Notiserna och texten blev ändå
 oförändrade i proverna. En rättning hör hemma i klientens tidsstämpling (spår K), inte i
-fysikgrinden.
+fysikgrinden. Kvar finns också (granskningen M2): en båt vars första observation är en
+klump över en bro kan få två varningar för den bron. Klumpens första fix går in på
+entered-vägen (två `await` före observationen) och de övriga på updated-vägen (en), så det
+äldsta fixet observeras sist, efter att passagen bokförts, och tolkas som en returresa.
+I granskarens 96 fall gav basen 3–12 varningar i 48 av dem och spetsen högst två (20 fall);
+ingen bro tappade sin varning. Rättningen (en löpande sekvens per objekt och den senast
+observerade per MMSI) är inte gjord.
+
+**Känd gräns: en hängande tidslinjenotis spärrar samma anslutningsvarning i 24 h (omgång 9,
+spår R).** `_notifyConnectionIssue` stämplar nyckeln före `createNotification` och rullar
+bara tillbaka vid fel. Svarar anropet aldrig står stämpeln kvar, och samma varning går inte
+ut igen förrän efter 24 h, fast ingen notis bevisligen levererats; varje försök lämnar ett
+hängande löfte. En tidsgräns på 60 s med återrullning prövades (U72) och ströks: granskningen
+mätte att en notistjänst som svarar långsamt men levererar (90 eller 150 s) då gav en
+tidslinjenotis i minuten, 30 på 30 minuter mot 1 utan tidsgräns, eftersom ett sent svar inte
+stämplade nyckeln och nästa försök rullade tillbaka. Anslutningsläget syns ändå i
+`connection_status`.
 
 ## 9. Granskningsfynd (kvarvarande avvikelser i KODEN)
 

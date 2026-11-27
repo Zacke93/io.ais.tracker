@@ -3102,6 +3102,12 @@ class AISBridgeApp extends Homey.App {
     // observationen, gav därför uteblivna och för tidiga varningar
     // (granskningen, H1). I vanlig drift (ett meddelande per makrouppgift, och i
     // replay) är objektet alltid det aktuella när fortsättningen körs.
+    // KÄND GRÄNS (granskningen M2): en båt vars FÖRSTA observation är en klump över
+    // en bro kan fortfarande få två varningar för den bron. Klumpens första fix går
+    // in på entered-vägen (två await före anropet) och de övriga på updated-vägen
+    // (en), så fortsättningarna körs inte i fixordning: det äldsta fixet observeras
+    // sist, efter att passagen bokförts, och tolkas som en returresa. Spetsen är
+    // aldrig sämre än basen, som gav 3–12 varningar i samma läge.
     const current = typeof this.vesselDataService?.getVessel === 'function'
       ? this.vesselDataService.getVessel(vessel.mmsi) : null;
     const superseded = Boolean(current && current !== vessel);
