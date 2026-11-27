@@ -6212,6 +6212,110 @@ const SCENARIOS = [
       }],
     },
   },
+  // ---------------------------------------------------------------------------
+  // KÄND GRÄNS (U68, omgång 9): vad texten säger om en båt medan hon är tyst.
+  // Mätningen över banken och fältkörningarna (ARCHITECTURE §5, "Tysta båtar")
+  // hittade ingen regel som gör fler minuter sanna utan att ta bort sann text,
+  // och dirigenten lät beteendet stå. Scenarierna låser dagens förlopp minut för
+  // minut (clauseWindows, räknat från båtens egen rad), så att en ändring av
+  // gränserna (fryst ETA i 5 min, "strax" till 10 min enligt U16, visningstrappan
+  // 15/20 min) syns och låses om medvetet.
+  // ---------------------------------------------------------------------------
+  // (a) LIFEGUARD-typen: en enda AISHub-position i 14 kn och kurs 210°, drygt
+  // 500 m nordväst om Stridsbergsbron och lika långt från kanalens farledslinje
+  // (alltså inte i farleden mot bron), och aldrig mer. Appen ger henne målbron
+  // ur avstånd och kurs. ETA:n (cirka 1,2 min) står fryst i 5 min och ger
+  // "strax"; sedan extrapoleras den till noll, och utanför 500 m blir det "ETA
+  // okänd" i stället för uttömd "strax". Målbroklassens 15 min tar henne ur
+  // texten. Ingen notis (Stallbackabron ligger över 2 km bort) och ingen
+  // öppningsvarning (hon var aldrig inom 300 m). Positionen sätts med
+  // patchSamples, eftersom scenariobanan följer farleden.
+  {
+    name: 'en-enda-position-14kn-utanför-farleden-vid-Stridsbergsbron-aldrig-mer (känd gräns, U68)',
+    seed: 6801,
+    vessels: [{
+      mmsi: '968010001',
+      name: 'SYNT-U68-SNABB',
+      startS: METRICS.cum[4] + 560,
+      legs: [{
+        toS: METRICS.cum[4] + 559, speedKn: 14, intervalS: 30, fixLagS: 10,
+      }],
+    }],
+    patchSamples: (samples) => {
+      for (const x of samples) {
+        if (x.mmsi !== '968010001') continue;
+        x.lat = 58.29691;
+        x.lon = 12.28864;
+        x.cog = 210;
+        x.sog = 14;
+      }
+    },
+    expect: {
+      zeroNotifications: true,
+      zeroOpeningWarnings: true,
+      clauseWindows: [{
+        mmsi: '968010001',
+        anchor: 'first',
+        bridge: 'Stridsbergsbron',
+        windows: [[1, 285, 'strax'], [330, 885, 'okänd'], [930, 2400, 'ingen']],
+      }],
+    },
+  },
+  // (b) En båt i 6 kn söderut tystnar 200 m norr om Stridsbergsbron, går igenom
+  // Stridsbergsbron, Järnvägsbron och Klaffbron i glappet, lägger sig 400 m
+  // söder om Klaffbron och hörs igen först 40 min efter sista positionen.
+  // Imminent-flaggan håller "strax" tills positionen är 10 min gammal (U16),
+  // sedan "ETA okänd" tills mitt-i-passage-nivån (20 min) tar henne ur texten.
+  // När hon hörs igen är hon raderad (30 min) och ny för appen, stilla bortom
+  // den sista bron, och kommer inte tillbaka i texten. Passagesvepet ger då
+  // "passerade … under AIS-tystnad" för Järnvägsbron och Klaffbron; för
+  // Stridsbergsbron gick "närmar sig" före glappet, och besöksdedupen spärrar
+  // en andra notis. Notisen för Stallbackabron är förstakontaktens (U44).
+  // Varningen för Klaffbron går under glappet (U17).
+  {
+    name: 'tystnar-200m-före-Stridsbergsbron-6kn-passerar-i-glappet-hörs-efter-40min (känd gräns, U68)',
+    seed: 6802,
+    vessels: [{
+      mmsi: '968020001',
+      name: 'SYNT-U68-GLAPP',
+      startS: METRICS.cum[4] + 1500,
+      legs: [
+        { toS: METRICS.cum[4] + 200, speedKn: 6, intervalS: 30 },
+        {
+          toS: METRICS.cum[2] - 400, speedKn: 6, intervalS: 30, gapFromS: METRICS.cum[4] + 200, gapToS: METRICS.cum[2] - 400,
+        },
+        { stopS: 2700, stopIntervalS: 60, stopSog: 0 },
+      ],
+    }],
+    // Stoppets rader under de första 40 min efter sista positionen tas bort, så
+    // att tystnaden blir 40 min (ett gående ben kan inte vara så långt i kanalen).
+    patchSamples: (samples) => {
+      const own = samples.filter((x) => x.mmsi === '968020001');
+      let t0 = null;
+      for (let i = 0; i + 1 < own.length; i++) {
+        if (own[i + 1].aisTimestamp - own[i].aisTimestamp > 120000) {
+          t0 = own[i].aisTimestamp; break;
+        }
+      }
+      for (let i = samples.length - 1; i >= 0; i--) {
+        const x = samples[i];
+        if (x.mmsi === '968020001' && x.aisTimestamp > t0 && x.aisTimestamp < t0 + 2400 * 1000) samples.splice(i, 1);
+      }
+    },
+    expect: {
+      clauseWindows: [{
+        mmsi: '968020001',
+        anchor: 'largestGap',
+        bridge: 'Stridsbergsbron',
+        windows: [[1, 585, 'strax'], [630, 1185, 'okänd'], [1230, 3000, 'ingen']],
+      }],
+      noticeForms: {
+        Stallbackabron: ['tyst'], Stridsbergsbron: ['närmar'], Järnvägsbron: ['tyst'], Klaffbron: ['tyst'], Olidebron: [],
+      },
+      expectedOpenings: ['Stridsbergsbron', 'Klaffbron'],
+      maxOpeningsPerBridge: { Stridsbergsbron: 1, Klaffbron: 1 },
+    },
+  },
 ];
 
 function runScenario(scenario) {
@@ -6988,6 +7092,38 @@ function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
     const { bridge, min } = e.etaSeenAtLeast;
     if (!transitionsU53.some((x) => (etaMinutesFor(x.text, bridge) ?? -1) >= min)) {
       problems.push(`RESTID: ingen text visar minst "om ${min} minuter" för ${bridge}`);
+    }
+  }
+  // U68 (omgång 9, känd gräns): brotextens klausul för en bro i fönster som
+  // räknas i sekunder från en av båtens egna rader: 'first' (första raden) eller
+  // 'largestGap' (sista raden före hennes längsta glapp). Formerna är
+  // bridgeClauseForm:s (strax, okänd, num, vänt, ingen); varje stående text i
+  // fönstret (övergångar och var 30:e s) ska ha formen.
+  for (const w of e.clauseWindows || []) {
+    const own = (samples || []).filter((x) => x.mmsi === w.mmsi && Number.isFinite(x.aisTimestamp))
+      .map((x) => x.aisTimestamp).sort((a, b) => a - b);
+    let anchor = own.length ? own[0] : null;
+    if (w.anchor === 'largestGap') {
+      let best = -1;
+      for (let i = 0; i + 1 < own.length; i++) {
+        if (own[i + 1] - own[i] > best) {
+          best = own[i + 1] - own[i]; anchor = own[i];
+        }
+      }
+      if (best < 0) anchor = null;
+    }
+    if (!Number.isFinite(anchor)) {
+      problems.push(`KLAUSUL: ${w.mmsi} saknar rader att räkna fönstren från`);
+      continue;
+    }
+    for (const [fromS, toS, form] of w.windows) {
+      const pts = standingTexts(transitionsU53, anchor + fromS * 1000, anchor + toS * 1000);
+      const bad = pts.find((x) => bridgeClauseForm(x.text, w.bridge) !== form);
+      if (bad) {
+        problems.push(`KLAUSUL: ${new Date(bad.t).toISOString()} (${Math.round((bad.t - anchor) / 1000)} s efter `
+          + `${w.mmsi}:s rad) "${bad.text}" — ${w.bridge} ska vara "${form}" under ${fromS}–${toS} s; `
+          + 'beteendet har ändrats, lås om medvetet (ARCHITECTURE §5, U68)');
+      }
     }
   }
   for (const bridge of e.unknownSeen || []) {
