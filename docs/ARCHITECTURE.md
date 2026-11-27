@@ -5701,6 +5701,33 @@ AISHub nere, bara AISstream, skuggläget, taket, nedkopplad socket, pågående
 omstarter på ett dygn, en AISstream som dör mitt i trafik ger omstart vid
 20 min).
 
+**AISstream-larmet kräver belägg från AISHub (N5)** (förslag till ägaren,
+omgång 9 spår K; U29 är ägarens beslut och den här ändringen gäller först
+efter ägarens ja). I läget `both` kräver basnotisen `aisstream:silent`,
+trappan (1 h, 4 h, dygn) och statusen `degraded`, med samma villkor för alla
+tre (B2c: `streamCrossSilent`), utöver U29:s 25 min att AISHub sedan AISstreams
+senaste position har levererat minst
+`CONNECTION_ALERT.AISSTREAM_SILENCE_ALERT_MIN_HUB_FIXES` (40) nya positioner
+(muxens beviskonto, se U66). Utan beviskonto (bara AISstream, skuggläget) och
+när AISHub inte svarar gäller U29:s villkor som förut. *Mätningen:* på 476 h
+inspelad trafik (fältets fyra novemberkörningar och bankens åtta
+tvåkällskorpusar) gav U29 ensam 9 meddelanden, varav 2 vid verkliga fel (ett
+nätavbrott med AISstream i timvis backoff, och sommarkorpusen där AISstream dog
+2026-08-05); de 7 andra kom när bara förtöjda båtar fanns och AISstream
+levererade igen inom 1–14 min. Med N5: 2 meddelanden, båda verkliga, 0 falska.
+I fältprov 3 var U29:s villkor uppfyllt i 28 av 37 tystnader; dygnsspärren
+släppte igenom ett per dygn. *Priset:* en död AISstream syns senare när
+trafiken är gles (en förtöjd båt som rapporterar var tredje minut: cirka 2 h;
+en tyst sommarkorpus i median 3–4,5 h), och under den tiden ger AISHub ensam i
+stort sett samma utfall som båda källorna (se modulen
+AISSourceMultiplexer). *Kända gränser:* (1) när larmet släpps efter mer än
+1 h går trappans redan passerade nivåer ut i samma tick som basnotisen (två
+notiser samtidigt), som när ett avbrott upptäcks sent; (2) gränsfallet 14/11
+hade 31 nya AISHub-positioner på 23,3 min, alltså 9 under gränsen; (3) 40 ligger
+över U66:s 31, så att vakten hinner starta om AISstream före larmet, som U29
+förutsätter. Loggraden `[FEED_SILENT]` säger när tiden passerats men beviset
+saknas. Låst av `tests/n5-larm-bevis.test.js`.
+
 **Texten utan diagnos när anslutningen bevisligen lever.** "Halvdöd" var
 falskt varje gång i fält: nästa meddelande kom på samma socket. När socketen
 är öppen (`perFeed.aisstream.isConnected`) OCH senaste pong på den socketen
