@@ -524,6 +524,46 @@ const U70_SCENARIOS = [
       maxPassagesPerBridge: { Klaffbron: 0, Stridsbergsbron: 0 },
     },
   },
+  // U81 (dirigentens beslut 2026-11-27, spår P omgång 10): reservsläppets andra
+  // sida. En båt söderut ligger stilla 220 m norr om Stridsbergsbron (hörs var
+  // 3:e minut, i bekräftad kö), lägger ut i samma ögonblick som sista
+  // positionen i 6 kn och hörs inte förrän söder om Klaffbron; hon korsar
+  // Klaffbron 468 s efter sista positionen (inspelat: DIANA 3/7 i sommarbanken,
+  // med bara AISstream, 470 s). Med dagens 300 s kommer reservvarningen för
+  // Klaffbron 168 s före korsningen. Mätt med spår P:s prototyper: spärren för
+  // en stilla båt 420 s ger 48 s, dubbla mottagningsintervallet 108 s, 600 s
+  // och "håll en båt i kö vid den andra målbron" ingen varning före korsningen.
+  {
+    name: 'söderut-stilla-220m-norr-om-Stridsbergsbron-tyst-avgång-6kn-genom-tre-broar (U81)',
+    seed: 77005,
+    vessels: [{
+      mmsi: '977005001',
+      name: 'SYNT-U81',
+      startS: S_STRIDSBERG + 1800,
+      legs: [
+        { toS: S_STRIDSBERG + 220, speedKn: 5.5, intervalS: 60 },
+        {
+          stopS: 9 * 60, stopIntervalS: 180, stopSog: 0, stopCogDeg: 210,
+        },
+        // Sista stilla positionen i samma ögonblick som hon lägger ut.
+        {
+          stopS: 1, stopIntervalS: 1, stopSog: 0, stopCogDeg: 210,
+        },
+        {
+          toS: S_KLAFFBRON - 600,
+          speedKn: 6,
+          intervalS: 60,
+          gapFromS: S_STRIDSBERG + 220,
+          gapToS: S_KLAFFBRON - 250,
+        },
+      ],
+    }],
+    // I dag: Klaffbronvarningen på reservsläppet ("ETA okänd") 300 s efter sista
+    // positionen, 168 s före korsningen. Kravet: minst 120 s före. Blir
+    // scenariot rött har reservsläppet för en stilla båt skjutits upp; det är
+    // prövat och förkastat (U81, docs/ARCHITECTURE.md §bridge_opening_soon).
+    expect: { openingLeadS: { Klaffbron: 120 } },
+  },
   // N1: norrut i 6 kn genom kanalen och ut förbi Stallbackabron; AISstream hör
   // henne sista gången 600 m före bron (fältet: NORDIC SOLA och NAVEN, som
   // lämnade området norrut). Utan position i zonen kommer ingen närmar-notis,
