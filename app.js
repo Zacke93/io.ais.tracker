@@ -83,6 +83,7 @@ const { toUserDirection, INTERNAL_TO_USER } = require('./lib/utils/directionToke
 // och den här sista saneringen i appen anropar — det var glidningen mellan
 // kopiorna som VAR felet.
 const { normalizeNavStatus } = require('./lib/utils/aisFieldNormalization');
+const { nonVesselMmsiClass } = require('./lib/utils/mmsiClass');
 // M2 (helkodsgranskning RUNDA 4, 2026-08-23): kajgrindens enkelsampel-undantag
 // får inte öppnas av ETT brusigt sog-värde. Modulen är DELAD med
 // tests/replay-validation/runOpeningGates.js (som ärvde samma defekt genom sin
@@ -300,6 +301,10 @@ const NEW_JOURNEY_PENDING_MAX_AGE_MS = 15 * 60 * 1000;
 // ställen nu måste dela exakt samma gräns: SET-grenen och echo-hållningens
 // släppvillkor — glider de isär återuppstår H17 tyst.
 const IMMINENT_EXHAUSTED_MAX_AGE_MS = 90 * 1000;
+// U69: loggraden för en sändare som inte är ett fartyg skrivs högst en gång
+// per sändare och 30 min; minnet för raderna har ett tak.
+const NON_VESSEL_LOG_INTERVAL_MS = 30 * 60 * 1000;
+const NON_VESSEL_LOG_MAX = 500;
 
 // U33 (F20, 2026-11-16, preciserat efter granskningen): säger brotexten
 // "strax" för båten säger målbronotisen restiden i båtens egen fart
@@ -5097,6 +5102,8 @@ class AISBridgeApp extends Homey.App {
   _onStaticName(data) {
     try {
       if (!data || !data.mmsi || !data.shipName) return;
+      // U69: en sändare som inte är ett fartyg får ingen post i namncachen.
+      if (nonVesselMmsiClass(data.mmsi)) return;
       this._rememberVesselName(data.mmsi, data.shipName);
       const vessel = this.vesselDataService && this.vesselDataService.getVessel
         ? this.vesselDataService.getVessel(String(data.mmsi))
@@ -5640,6 +5647,30 @@ class AISBridgeApp extends Homey.App {
    * @param {string} [message.shipName] - Båtens namn
    * @private
    */
+  /**
+   * U69 (omgång 9): är sändaren något annat än ett fartyg (ITU-R M.585,
+   * lib/utils/mmsiClass.js)? Loggar då en rad på felsökningsnivå med klassen,
+   * högst en gång per sändare och NON_VESSEL_LOG_INTERVAL_MS. Minnet för
+   * loggraderna töms när det passerat NON_VESSEL_LOG_MAX poster.
+   * @param {string|number} mmsi
+   * @returns {boolean} true om positionen ska ignoreras
+   * @private
+   */
+  _ignoreNonVesselMmsi(mmsi) {
+    const klass = nonVesselMmsiClass(mmsi);
+    if (!klass) return false;
+    if (!this._nonVesselLogTimes) this._nonVesselLogTimes = new Map();
+    const key = String(mmsi).trim();
+    const now = Date.now();
+    const last = this._nonVesselLogTimes.get(key);
+    if (last === undefined || now - last > NON_VESSEL_LOG_INTERVAL_MS) {
+      if (this._nonVesselLogTimes.size >= NON_VESSEL_LOG_MAX) this._nonVesselLogTimes.clear();
+      this._nonVesselLogTimes.set(key, now);
+      this.debug(`🚁 [NON_VESSEL_IGNORED] ${key}: ${klass}, inte ett fartyg — positionen ignoreras (U69)`);
+    }
+    return true;
+  }
+
   _processAISMessage(message) {
     try {
       // STEG 1: VALIDERA AIS-MEDDELANDE
@@ -5677,6 +5708,16 @@ class AISBridgeApp extends Homey.App {
           'första accepterade positionen passerade pipelinen',
         );
       }
+
+      // U69 (omgång 9): en sändare som inte är ett fartyg (räddningsflyg 111,
+      // nödsändare 970/972/974, sjömärke 99, kuststation och gruppanrop 0)
+      // ignoreras helt: inget fartyg, ingen namnpost, ingen inspelningsrad.
+      // Fältprov 3 visade ett räddningsflyg som "En båt på väg mot
+      // Stridsbergsbron, beräknad broöppning strax". Står här, i den ingång som
+      // båda källorna och replay-harnessen delar, efter valideringen och
+      // startgrinden (en giltig position bevisar ändå att källan svarar).
+      // Felformade MMSI klassas inte av hjälparen (valideringens sak).
+      if (this._ignoreNonVesselMmsi(message.mmsi)) return;
 
       // STEG 2: NORMALISERA MMSI TILL STRING
       // Backend använder strings för MMSI (mer flexibelt)

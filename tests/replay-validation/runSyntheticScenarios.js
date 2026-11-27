@@ -4806,7 +4806,7 @@ const SCENARIOS = [
     name: 'utfärd-norr-om-Stallbackabron-tyst-6h-åter-söderut (U46)',
     seed: 74601,
     vessels: [{
-      mmsi: '974601001',
+      mmsi: '274601001',
       name: 'SYNT-U46-STALL',
       startS: METRICS.cum[5] - 1500,
       legs: [
@@ -4833,7 +4833,7 @@ const SCENARIOS = [
     name: 'utfärd-söder-om-Kanalinfarten-tyst-6h-åter-norrut (U46)',
     seed: 74602,
     vessels: [{
-      mmsi: '974602001',
+      mmsi: '274602001',
       name: 'SYNT-U46-KANAL',
       startS: METRICS.cum[1] + 400,
       legs: [
@@ -4861,7 +4861,7 @@ const SCENARIOS = [
     name: 'ut-förbi-Kanalinfarten-och-förtöjd-vid-zonkanten (U46, motfall)',
     seed: 74603,
     vessels: [{
-      mmsi: '974603001',
+      mmsi: '274603001',
       name: 'SYNT-U46-KAJ',
       startS: METRICS.cum[1] + 400,
       legs: [
@@ -4883,7 +4883,7 @@ const SCENARIOS = [
     name: 'ut-förbi-Kanalinfarten-förtöjd-tyst-12min-direkt (U46, motfall)',
     seed: 74605,
     vessels: [{
-      mmsi: '974605001',
+      mmsi: '274605001',
       name: 'SYNT-U46-KAJTYST',
       startS: METRICS.cum[1] + 400,
       legs: [
@@ -4914,7 +4914,7 @@ const SCENARIOS = [
     name: 'norrut-mot-Stallbackabron-tyst-14min-på-inre-sidan (U46, motfall)',
     seed: 74606,
     vessels: [{
-      mmsi: '974606001',
+      mmsi: '274606001',
       name: 'SYNT-U46-INRE',
       startS: METRICS.cum[5] - 1500,
       legs: [
@@ -4937,7 +4937,7 @@ const SCENARIOS = [
     name: 'ut-söder-om-Kanalinfarten-med-kurs-inåt-tyst-6h (U46, motfall)',
     seed: 74607,
     vessels: [{
-      mmsi: '974607001',
+      mmsi: '274607001',
       name: 'SYNT-U46-KURS',
       startS: METRICS.cum[1] + 400,
       legs: [
@@ -4962,7 +4962,7 @@ const SCENARIOS = [
     name: 'ut-söder-om-Kanalinfarten-37m-per-fix-tyst-6h (U46, motfall)',
     seed: 74608,
     vessels: [{
-      mmsi: '974608001',
+      mmsi: '274608001',
       name: 'SYNT-U46-SAKTA',
       startS: METRICS.cum[1] + 400,
       legs: [
@@ -4986,7 +4986,7 @@ const SCENARIOS = [
     name: 'vänder-strax-utanför-Kanalinfarten (U46, motfall)',
     seed: 74604,
     vessels: [{
-      mmsi: '974604001',
+      mmsi: '274604001',
       name: 'SYNT-U46-VAND',
       startS: METRICS.cum[1] + 400,
       legs: [
@@ -5080,7 +5080,7 @@ const SCENARIOS = [
     name: 'driver-bort-söder-om-Olidebron-tyst-sedan-norrut-genom (U44:3, HALIFAX)',
     seed: 74401,
     vessels: [{
-      mmsi: '974401001',
+      mmsi: '274401001',
       name: 'SYNT-U44-HALIFAX',
       startS: METRICS.cum[1] - 194,
       legs: [
@@ -5106,7 +5106,7 @@ const SCENARIOS = [
     name: 'driver-bort-söder-om-Olidebron-korsar-i-glapp (U44:3)',
     seed: 74402,
     vessels: [{
-      mmsi: '974402001',
+      mmsi: '274402001',
       name: 'SYNT-U44-GLAPP',
       startS: METRICS.cum[1] - 150,
       legs: [
@@ -5125,7 +5125,7 @@ const SCENARIOS = [
     name: 'hörs-först-norr-om-Klaffbron-krypfart-norrut-korsar-aldrig (U44:3, EUGENIE)',
     seed: 74403,
     vessels: [{
-      mmsi: '974403001',
+      mmsi: '274403001',
       name: 'SYNT-U44-EUGENIE',
       startS: METRICS.cum[2] + 230,
       legs: [{ toS: METRICS.cum[2] + 340, speedKn: 1.5, intervalS: 60 }],
@@ -5139,7 +5139,7 @@ const SCENARIOS = [
     name: 'hörs-först-norr-om-Klaffbron-krypfart-sedan-fart-norrut (U44:3)',
     seed: 74404,
     vessels: [{
-      mmsi: '974404001',
+      mmsi: '274404001',
       name: 'SYNT-U44-ACCEL',
       startS: METRICS.cum[2] + 90,
       legs: [
@@ -5155,7 +5155,7 @@ const SCENARIOS = [
     name: 'kryper-i-kö-mot-Klaffbron-norrut-väntar-går-igenom (U44:3, motfall)',
     seed: 74405,
     vessels: [{
-      mmsi: '974405001',
+      mmsi: '274405001',
       name: 'SYNT-U44-KO',
       startS: METRICS.cum[2] - 280,
       legs: [
@@ -5187,7 +5187,7 @@ const SCENARIOS = [
     name: 'kryper-mot-Klaffbron-söderut-fel-ruttlås-ur-första-kursen (U44:3, H1)',
     seed: 74406,
     vessels: [{
-      mmsi: '974406001',
+      mmsi: '274406001',
       name: 'SYNT-U44-FELLAS',
       startS: METRICS.cum[2] + 290,
       legs: [
@@ -5220,7 +5220,7 @@ const SCENARIOS = [
     name: 'kryper-mot-Klaffbron-söderut-fel-ruttlås-tät-kadens-utan-brus (U44:3, varv 2 fel 1)',
     seed: 81001,
     vessels: [{
-      mmsi: '974407001',
+      mmsi: '274407001',
       name: 'SYNT-U44-TATKRYP',
       jitterM: 0,
       startS: METRICS.cum[2] + 290,
@@ -5250,7 +5250,7 @@ const SCENARIOS = [
     name: 'ligger-still-norr-om-Klaffbron-kursen-mot-bron-gps-brus (U44:3, varv 2 fel 2)',
     seed: 81206,
     vessels: [{
-      mmsi: '974408001',
+      mmsi: '274408001',
       name: 'SYNT-U44-BRUSSTILL',
       jitterM: 8,
       startS: METRICS.cum[2] + 120,
@@ -5276,15 +5276,15 @@ const SCENARIOS = [
   // förvarning för en bro hon redan hade bakom sig. U44 punkt 3 håller inne
   // den (en långsam båt bortom en bro får ingen förvarning förrän riktningen
   // är belagd); allt annat i scenariot är oförändrat.
-  u57Vandning(74105, '974105001', 'u-sväng-15m-bortom-Järnvägsbron-söderut-retur-1,5kn (U57)',
+  u57Vandning(74105, '274105001', 'u-sväng-15m-bortom-Järnvägsbron-söderut-retur-1,5kn (U57)',
     METRICS.cum[3], 'S', 15, 1.5, { noticeForms: { Järnvägsbron: ['precis'], Stridsbergsbron: ['tyst', 'närmar'] } }),
   // Stopp 15 m bortom Klaffbron söderut, retur norrut i 1,5 kn: samma regel gav
   // en falsk "ÖPPNINGSVARNING Klaffbron eta 0" när båten redan var på väg bort.
-  u57Vandning(74106, '974106001', 'u-sväng-15m-bortom-Klaffbron-söderut-retur-1,5kn (U57)',
+  u57Vandning(74106, '274106001', 'u-sväng-15m-bortom-Klaffbron-söderut-retur-1,5kn (U57)',
     METRICS.cum[2], 'S', 15, 1.5, { maxOpeningsPerBridge: { Klaffbron: 1 } }),
   // Fartlös retur i 3 kn från 25 m bortom Järnvägsbron söderut (93 m segment):
   // med "under 100 m utan fart = stilla" uteblev "närmar sig Stridsbergsbron".
-  u57Vandning(74107, '974107001', 'u-sväng-25m-bortom-Järnvägsbron-söderut-fartlös-retur-3kn (U57)',
+  u57Vandning(74107, '274107001', 'u-sväng-25m-bortom-Järnvägsbron-söderut-fartlös-retur-3kn (U57)',
     METRICS.cum[3], 'S', 25, 3, { noticeForms: { Stridsbergsbron: ['tyst', 'närmar'] } }, { utanFart: true }),
   // U49 (rättningsomgång 4, nattjaktens värld 8814): UNDER-BRO-HÅLLET MÄTER
   // ANKOMSTEN MED FYSIKEN. VEGA varnas för Stridsbergsbron söderut och tystnar
@@ -6221,7 +6221,10 @@ const SCENARIOS = [
   // gränserna (fryst ETA i 5 min, "strax" till 10 min enligt U16, visningstrappan
   // 15/20 min) syns och låses om medvetet.
   // ---------------------------------------------------------------------------
-  // (a) LIFEGUARD-typen: en enda AISHub-position i 14 kn och kurs 210°, drygt
+  // (a) En riktig båt (vanligt fartygs-MMSI) som hörs en enda gång. Fallet som
+  // startade mätningen, LIFEGUARD 007, var räddningsflyg och ignoreras sedan
+  // U69 (scenariot "räddningsflyg-111-…" nedan); för en båt gäller detta.
+  // En enda AISHub-position i 14 kn och kurs 210°, drygt
   // 500 m nordväst om Stridsbergsbron och lika långt från kanalens farledslinje
   // (alltså inte i farleden mot bron), och aldrig mer. Appen ger henne målbron
   // ur avstånd och kurs. ETA:n (cirka 1,2 min) står fryst i 5 min och ger
@@ -6315,6 +6318,25 @@ const SCENARIOS = [
       expectedOpenings: ['Stridsbergsbron', 'Klaffbron'],
       maxOpeningsPerBridge: { Stridsbergsbron: 1, Klaffbron: 1 },
     },
+  },
+  // U69 (omgång 9): en sändare som inte är ett fartyg ignoreras helt. Ett
+  // räddningsflyg (MMSI 111 + landskod) flyger längs farleden söderut i 14 kn
+  // och passerar Stridsbergsbron; före U69 blev det "En båt på väg mot
+  // Stridsbergsbron, beräknad broöppning strax", notiser och en
+  // öppningsvarning. Nu: ingen text, ingen notis, ingen varning. (Scenariot
+  // "en-enda-position-14kn-… (känd gräns, U68)" ovan är en riktig båt och står
+  // kvar.) Scenarierna för U44:3, U46 och U57 hade MMSI 974… (EPIRB-AIS enligt
+  // ITU-R M.585) och bytte vid U69 till 274… med samma sista siffror.
+  {
+    name: 'räddningsflyg-111-längs-farleden-över-Stridsbergsbron-ignoreras (U69)',
+    seed: 6901,
+    vessels: [{
+      mmsi: '111219001',
+      name: 'SYNT-U69-SAR',
+      startS: METRICS.cum[4] + 1200,
+      legs: [{ toS: METRICS.cum[3] - 600, speedKn: 14, intervalS: 30 }],
+    }],
+    expect: { noVesselText: true, zeroNotifications: true, zeroOpeningWarnings: true },
   },
 ];
 

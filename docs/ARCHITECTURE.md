@@ -448,6 +448,29 @@ injicerar namncachen (B1, :1930–1937: riktigt namn registreras via
 `VDS.updateVessel` (:1964). Parallellt fyller `_onStaticName` (:1730, kopplad :768)
 namncachen från typ 5/24-namn och uppdaterar levande "Unknown"-fartyg på plats.
 
+**U69 (dirigentens beslut 2026-11-27, omgång 9): sändare som inte är fartyg
+ignoreras.** Direkt efter valideringen och startgrinden, före namncachen,
+replay-inspelningen och `updateVessel`, frågar `_ignoreNonVesselMmsi` hjälparen
+`nonVesselMmsiClass` (`lib/utils/mmsiClass.js`) om MMSI:t enligt ITU-R M.585 hör
+till en sändare som inte är ett fartyg: `111…` räddningsflyg, `970…` AIS-SART,
+`972…` MOB, `974…` EPIRB-AIS, `99…` sjömärke, `00…` kuststation och övriga `0…`
+(gruppanrop). Positionen ignoreras då helt (inget fartyg, ingen namnpost, ingen
+inspelningsrad), och `_onStaticName` lägger inget namn i cachen. En rad
+`[NON_VESSEL_IGNORED]` med klassen skrivs på felsökningsnivå högst en gång per
+sändare och 30 min (minnet töms vid 500 poster). Ingången är gemensam för båda
+källorna, replay-harnessen och utvecklingsläget; `lib/connection/` är orört, så
+multiplexerns fusionsläge och tystnadsbokföring ser fortfarande sändaren, utan
+verkan på fartyg eller text. Släpps igenom: `98…` (farkost knuten till ett
+moderfartyg), `8…` (handhållen VHF) och vanliga fartyg (`2…`–`7…`). Hjälparen
+klassar bara exakt nio siffror; felformade MMSI hör till valideringen ovan.
+`979…` (autonoma radioanordningar, AMRD grupp B i M.585-9) ingår inte i U69.
+Bakgrund: fältprov 3 (k4 2026-11-25 12:41) visade räddningsflyget LIFEGUARD 007
+(MMSI 111 + landskod 265) som "En båt på väg mot Stridsbergsbron, beräknad
+broöppning strax" i fem minuter och i texten i femton; hon var den enda sändaren
+som inte var ett fartyg i de 31 inspelade filerna (42 300 positioner). Scenariot
+`räddningsflyg-111-längs-farleden-över-Stridsbergsbron-ignoreras (U69)` låser
+beteendet; enhetstesten står i `tests/u69-ej-fartyg-mmsi.test.js`.
+
 ### De FYRA notisvägarna
 
 1. **Proximity** — `_triggerBoatNearFlow` (app.js:3693). Anropas från
@@ -2624,14 +2647,18 @@ Flaggor (bärs av `_createVesselObject`-fältlistan, §8a): `_etaIsExtrapolated`
    (känd gräns, U68)` låser förloppet; (b) vänttexten efter en passage i
    glappet: se (a) i stycket om U65 ovan; omgång 9 mätte 114,5 min fel (36
    säkert) mot 916,5 min sann vänttext; (c) en båt som hörs en enda gång i hög
-   fart nära en bro: LIFEGUARD 007 (k4 25/11 12:41), en AISHub-position i
-   14,6 kn 569 m från Stridsbergsbron och lika långt från farledslinjen. Den
-   frysta ETA:n (1,3 min) gav "strax" i 5 min och sedan "ETA okänd" till 15 min;
-   ingen notis och ingen varning. Hon hördes aldrig igen. I hela underlaget
-   finns två sådana båtar (den andra i banken, 13 kn), och ingen av dem hördes
-   igen; ingen annan båt i texten låg mer än 250 m från farledslinjen. Scenariot
+   fart nära en bro: den frysta ETA:n (under 3 min) ger "strax" i 5 min och
+   sedan "ETA okänd" (över 500 m från bron) tills målbroklassens 15 min tar
+   henne ur texten, utan notis eller varning. I hela underlaget finns en sådan
+   båt (2026-08-04, 13 kn, utan namn), och hon hördes aldrig igen. Scenariot
    `en-enda-position-14kn-utanför-farleden-vid-Stridsbergsbron-aldrig-mer
-   (känd gräns, U68)` låser förloppet. **Prövat och avstått:** "strax" bara på
+   (känd gräns, U68)` låser förloppet för ett vanligt fartygs-MMSI. Fallet som
+   startade mätningen, LIFEGUARD 007 (k4 25/11 12:41, 14,6 kn, fryst ETA 1,3
+   min, "strax" i 5 min och i texten i 15), var ingen båt utan räddningsflyg
+   (MMSI 111…) och är åtgärdat av U69 (§3, Inflöde). Hennes position låg 569 m
+   från kanalens farledslinje; ingen annan sändare i texten har legat mer än
+   250 m från den i underlaget. En regel som kräver att en båt ligger nära
+   farleden för att få målbro är en möjlig följdfråga, inte prövad. **Prövat och avstått:** "strax" bara på
    en position yngre än 5 min gör 98 min falskt löfte till "ETA okänd" och tar
    löftet från 206 min "strax" för en passerad båt, men kostar 18,5 min sann
    "strax", ökar växlingarna "strax" ↔ "ETA okänd" (29 → 39), skärper

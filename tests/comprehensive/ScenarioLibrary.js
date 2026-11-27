@@ -877,7 +877,9 @@ class ScenarioLibrary {
             // namnlösa fallet, och det får inte störa textbygget.
             description: 'Namnlös båt (shipName="Unknown") renderas normalt i count-baserad text',
             vessels: [{
-              mmsi: '999999999',
+              // U69: 99… är ett sjömärke (ITU-R M.585) och ignoreras; ett
+              // fartygs-MMSI behövs för att pröva den namnlösa båten.
+              mmsi: '265999999',
               name: 'Unknown', // aisstreams platshållare — det äkta namnlösa fallet
               ...this._calculatePosition('klaffbron', 260, 'south'),
               sog: 5.0,
