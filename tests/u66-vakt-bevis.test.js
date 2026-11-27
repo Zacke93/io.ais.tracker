@@ -166,7 +166,7 @@ let rigs = [];
  * @param {string} source
  * @param {{burnNotices?: boolean}} [opts] - burnNotices (standard): AISstream-
  *   tystnadens notisnycklar är redan förbrukade (dygnsspärren), så att provet
- *   mäter vaktens grind ensam. K2-proven bygger utan.
+ *   mäter vaktens grind ensam. Proven av ordningen vakt före larm bygger utan.
  */
 function build(source = 'both', { burnNotices = true } = {}) {
   const store = {};
@@ -459,28 +459,21 @@ describe('U66: grindens belägg för att AISHub lever (K1, K5)', () => {
 });
 
 /**
- * K2: varje AISstream-tystnadsnotis som går ut ska ha föregåtts av, eller
- * följas i samma tick av, en omstart sedan förra notisen (eller sedan
- * tystnadens början). Returnerar de notiser som bryter mot det.
+ * Ordningen vakt före larm (U66 + U73): tystnadens första AISstream-notis
+ * (basnotisen, eller en nivå om den kommer först) ska ha en vaktomstart före
+ * sig under tystnaden. Vakten körs före korstystnaden i samma tick, så en
+ * omstart i notisens tick räknas som före. Senare nivåer i trappan (1 h, 4 h,
+ * dygn) kräver ingen ny omstart: vaktens egen trappa fortsätter (texten säger
+ * "Vakterna fortsätter återansluta"). Returnerar de notiser som bryter mot det.
  */
 function noticesWithoutRestart(rig, S) {
-  const sent = rig.ev.filter((e) => e.k.startsWith('aisstream:silent') && !e.k.includes('shadow'));
-  const bad = [];
-  let ref = S;
-  let prevT = null;
-  for (const n of sent) {
-    // Notiser i samma tick (basnotisen och en redan passerad nivå) är ett larm.
-    if (n.t !== prevT) {
-      if (!rig.reconnects.some((r) => r > ref && r <= n.t)) bad.push(`${n.k}@${Math.round((n.t - S) / MIN)}`);
-      ref = n.t;
-      prevT = n.t;
-    }
-  }
-  return bad;
+  const first = rig.ev.find((e) => e.k.startsWith('aisstream:silent') && !e.k.includes('shadow'));
+  if (!first) return [];
+  return rig.reconnects.some((r) => r > S && r <= first.t) ? [] : [`${first.k}@${Math.round((first.t - S) / MIN)}`];
 }
 
-describe('U66, granskningen K2: när tystnadslarmet skickas startar vakten om', () => {
-  test('E3: förtöjd båt var 3:e min, AISstream död ett dygn — varje notis har en omstart bakom sig', async () => {
+describe('U66 + U73: vakten startar om före larmet', () => {
+  test('E3: förtöjd båt var 3:e min, AISstream död ett dygn — första larmet har en omstart före sig', async () => {
     hub.boats = [{ ...MOORED, periodMs: 3 * MIN }];
     const rig = build('both', { burnNotices: false });
     const S = await warm(rig);
@@ -492,24 +485,7 @@ describe('U66, granskningen K2: när tystnadslarmet skickas startar vakten om', 
     expect(rig.reconnects[0]).toBeLessThanOrEqual(sent[0].t);
   }, 600000);
 
-  test('E3 utan larmbeviset: omstarten kommer i samma tick som basnotisen och loggas med skälet', async () => {
-    hub.boats = [{ ...MOORED, periodMs: 3 * MIN }];
-    const rig = build('both', { burnNotices: false });
-    const S = await warm(rig);
-    await run(rig, S + 40 * MIN);
-    const base = rig.ev.find((e) => e.k === 'aisstream:silent');
-    if (base) {
-      // Utan U73 går basnotisen vid 26 min: omstarten ska ligga i samma tick.
-      expect(rig.reconnects).toContain(base.t);
-      expect(rig.logs.some((l) => l.includes('[U66: larmet går ut'))).toBe(true);
-    } else {
-      // Med U73 har larmet inte gått än, och då har vakten inte heller startat om.
-      expect(rig.reconnects).toEqual([]);
-    }
-    expect(noticesWithoutRestart(rig, S)).toEqual([]);
-  }, 300000);
-
-  test('D1: källbyte both → aisstream vid 10 min och tillbaka vid 40 min — varje notis har en omstart bakom sig', async () => {
+  test('D1: källbyte both → aisstream vid 10 min och tillbaka vid 40 min — första larmet har en omstart före sig', async () => {
     hub.boats = [{ ...MOORED, periodMs: 195 * SEC }];
     const rig = build('both', { burnNotices: false });
     const S = await warm(rig);
@@ -523,7 +499,7 @@ describe('U66, granskningen K2: när tystnadslarmet skickas startar vakten om', 
     expect(noticesWithoutRestart(rig, S)).toEqual([]);
   }, 600000);
 
-  test('E1: AISHub tillbaka efter 40 min avbrott — varje notis har en omstart bakom sig', async () => {
+  test('E1: AISHub tillbaka efter 40 min avbrott — första larmet har en omstart före sig', async () => {
     hub.boats = [{ ...MOORED, periodMs: 195 * SEC }];
     const rig = build('both', { burnNotices: false });
     const S = await warm(rig);
@@ -536,7 +512,7 @@ describe('U66, granskningen K2: när tystnadslarmet skickas startar vakten om', 
     expect(noticesWithoutRestart(rig, S)).toEqual([]);
   }, 600000);
 
-  test('A2: AISHub svarar bara var 4:e poll — varje notis har en omstart bakom sig', async () => {
+  test('A2: AISHub svarar bara var 4:e poll — första larmet har en omstart före sig', async () => {
     const rig = build('both', { burnNotices: false });
     const S = await warm(rig);
     hub.mode = 'every';
@@ -547,7 +523,43 @@ describe('U66, granskningen K2: när tystnadslarmet skickas startar vakten om', 
     expect(noticesWithoutRestart(rig, S)).toEqual([]);
   }, 600000);
 
-  test('dagens regel orörd: bara AISstream, notisen ger ingen extra omstart (vakten startade redan vid 20)', async () => {
+  test('F6: AISHub nere 10 av varje 30 min — första larmet har en omstart före sig', async () => {
+    hub.boats = [{ ...MOORED, periodMs: 3 * MIN }];
+    const rig = build('both', { burnNotices: false });
+    const S = await warm(rig);
+    while (Date.now() < S + 6 * HOUR) {
+      const i = Math.round((Date.now() - S) / MIN);
+      hub.mode = (i % 30) < 10 ? 'down' : 'ok';
+      // eslint-disable-next-line no-await-in-loop
+      await run(rig, Date.now() + MIN);
+    }
+    expect(rig.ev.some((e) => e.k.startsWith('aisstream:silent'))).toBe(true);
+    expect(noticesWithoutRestart(rig, S)).toEqual([]);
+  }, 600000);
+
+  test('F1: tidslinjenotisen avvisas gång på gång — inte fler omstarter än med dagens regel (20, 61, 142)', async () => {
+    hub.boats = [{ ...MOORED, periodMs: 3 * MIN }];
+    const rig = build('both', { burnNotices: false });
+    rig.app.homey.notifications.createNotification = jest.fn().mockRejectedValue(new Error('Too many notifications'));
+    const S = await warm(rig);
+    await run(rig, S + 3 * HOUR);
+    expect(rig.app.homey.notifications.createNotification).toHaveBeenCalled();
+    expect(rig.reconnects.length).toBeLessThanOrEqual(3);
+    expect(rig.reconnects.every((r) => r - S >= 20 * MIN)).toBe(true);
+  }, 600000);
+
+  test('F1b: notisen avvisas medan AISHub har trafik — som dagens regel', async () => {
+    hub.boats = [0, 1, 2, 3].map((i) => ({
+      mmsi: 211000030 + i, lat: 58.28 + i * 0.003, lon: 12.28 + i * 0.002, sog: 5, periodMs: 30 * SEC,
+    }));
+    const rig = build('both', { burnNotices: false });
+    rig.app.homey.notifications.createNotification = jest.fn().mockRejectedValue(new Error('Too many notifications'));
+    const S = await warm(rig);
+    await run(rig, S + 3 * HOUR);
+    expect(mins(rig.reconnects, S)).toEqual([20, 61, 142]);
+  }, 600000);
+
+  test('dagens regel orörd: bara AISstream, notisen ger ingen omstart (vakten startade redan vid 20)', async () => {
     const rig = build('aisstream', { burnNotices: false });
     const S = await warm(rig);
     await run(rig, S + 65 * MIN);
@@ -584,7 +596,7 @@ describe('U66: fältets två lägen, syntetiska ankomster', () => {
     expect(rig.reconnects).toEqual([]);
   }, 600000);
 
-  test('samma sändare utan förbrända notiser: omstarter bara i en notis tick, högst en per notis (K2)', async () => {
+  test('samma sändare utan förbrända notiser: 0 omstarter och inga AISstream-notiser på ett dygn (U66 + U73)', async () => {
     hub.boats = [{ ...MOORED, periodMs: 3 * MIN }];
     const rig = build('both', { burnNotices: false });
     const S = Date.now();
@@ -596,12 +608,8 @@ describe('U66: fältets två lägen, syntetiska ankomster', () => {
     const deliverAt = [];
     for (let t = S + 3 * MIN; t < S + DAY; t += 3 * MIN) if (rnd() < 0.2) deliverAt.push(t + 5 * SEC);
     await run(rig, S + DAY, { deliverAt });
-    // Dygnsspärren släpper högst en notis per nyckel (bas, 1 h, 4 h) och dygn;
-    // utan larmbeviset går basnotisen ut, med det (U73) ingen.
-    const noticeTicks = [...new Set(rig.ev.filter((e) => e.k.startsWith('aisstream:silent')).map((e) => e.t))];
-    expect(rig.reconnects.length).toBeLessThanOrEqual(noticeTicks.length);
-    expect(rig.reconnects.length).toBeLessThanOrEqual(CONNECTION_ALERT.ESCALATION_STEPS.length + 1);
-    for (const r of rig.reconnects) expect(noticeTicks).toContain(r);
+    expect(rig.reconnects).toEqual([]);
+    expect(rig.ev.filter((e) => e.k.startsWith('aisstream:silent'))).toEqual([]);
   }, 600000);
 
   test('AISstream dör mitt i trafik: omstart vid 20 min', async () => {

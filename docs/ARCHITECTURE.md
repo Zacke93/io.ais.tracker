@@ -5680,30 +5680,29 @@ hängd" och "AISHub tom och AISstream hängd" får alltså alltid omstart efter
 20 min. *Tak:* efter `STALE_FEED_RESTART_MAX_SILENCE_MS` (120 min) räknat
 från AISstreams senaste position, eller appstarten, startas anslutningen om
 ändå. Trappan och strike-räknaren är oförändrade; avstår vakten räknas strike
-inte upp, och en loggrad skrivs en gång per tystnad. *Omstart när larmet går ut
-(granskningen K2):* när tystnadslarmet för AISstream (basnotisen
-`aisstream:silent` eller en nivå i trappan 1 h, 4 h, dygn) faktiskt skickas,
-och grinden har hållit inne vaktens omstart under den här tystnaden, startas
-anslutningen om i samma tick, om ingen omstart skett sedan förra notisen (eller
-sedan tystnaden började). Då är U29-textens "Appens vakter försöker återansluta
-automatiskt" sann, och ägarens villkor och text rörs inte. Omstarten kopplas
-till att notisen går ut, inte till larmvillkoret: villkoret var uppfyllt i 28
-av 37 tystnader i fältprov 3, notisen gick ut en gång per dygn (dygnsspärren).
-Har grinden aldrig hållit inne under tystnaden styr trappan som förut, minut
-för minut; en nedkopplad socket lämnas åt klientens backoff. *Simulerat* på
-fältets fyra novemberkörningar och bankens åtta tvåkällskorpusar (476 h,
-AISHub-beviset räknat som koden ur loggens `[AISHUB_POLL]`, under antagandet att
-en omstart inte ändrar när nästa position kommer, vilket mätningen stöder och
-som återger fältets faktiska 15 och 37 omstarter exakt): 71 omstarter med
-dagens regel, 15 med U66. Av de 15 kom 4 under nätavbrottet 11/11 i fältprov 1
-(AISHub svarade inte, så dagens regel; socketen var nere och vakten agerade
-inte), 3 från sommarkorpusen där AISstream dog 2026-08-05 13:29 (2 av beviset,
-1 när larmet gick), 1 av beviset i gränsfallet nedan och 7 när larmet gick ut
-(fältprov 2: 2, fältprov 3: 3, banken 2), alltså högst en per dygn. Taket och
-villkoret att AISHub levererar (K1) gav 0 extra omstarter. *Kända gränser:*
+inte upp, och en loggrad skrivs en gång per tystnad. *U66 och U73 hör ihop*
+(dirigentens beslut efter granskningens andra varv): utan larmbeviset (U73) kom
+U29-larmet vid 25 min med texten "Appens vakter försöker återansluta
+automatiskt" medan vakten fortfarande väntade på belägg. Med U73 kommer larmet
+alltid efter vaktens omstart: beviset för omstarten (31 positioner) kommer före
+larmets (40), och vaktens tak (120 min) före larmets (150 min); granskaren
+bekräftade ordningen i alla byggda lägen utom när socketen är nere (då äger
+klientens backoff återanslutningen och texten säger "kan vara halvdöd"). En
+prövad variant som i stället startade om när notisen gick ut (K2) ströks: när
+`createNotification` avvisades blev det en omstart per minut. Säger ägaren nej
+till U73 går U66 inte in, och vakten lämnas som förut. *Simulerat* på fältets
+fyra novemberkörningar och bankens åtta tvåkällskorpusar (476 h, AISHub-beviset
+räknat som koden ur loggens `[AISHUB_POLL]`, under antagandet att en omstart
+inte ändrar när nästa position kommer, vilket mätningen stöder och som återger
+fältets faktiska 15 och 37 omstarter exakt): 71 omstarter med dagens regel, 8
+med U66 (U73 ändrar inga omstarter). Av de 8 kom 4 under nätavbrottet 11/11 i
+fältprov 1 (AISHub svarade inte, så dagens regel; socketen var nere och vakten
+agerade inte), 3 av beviset i sommarkorpusen där AISstream dog 2026-08-05 13:29
+och 1 av beviset i gränsfallet nedan. Taket och villkoret att AISHub levererar
+(K1) gav 0 extra omstarter. *Kända gränser:*
 (1) en hängd prenumeration med frisk pong lagas senare, i median efter 77 min
-en lugn vintervecka (p90 126 min), senast när larmet går ut eller vid taket
-120 min; under tiden bär AISHub datan (levererar AISHub inte gäller dagens
+en lugn vintervecka (p90 126 min), senast vid taket 120 min; under tiden bär
+AISHub datan (levererar AISHub inte gäller dagens
 regel). (2) Gränsfallet 14/11 18:21: AISstream tyst i 23,3 min medan AISHub
 levererade minst 31 positioner från tre förtöjda båtar (räknat ur jsonl, alltså
 en undre gräns för vad koden ser), slut 2 min 20 s efter vaktens omstart. Det
@@ -5721,9 +5720,10 @@ trappan (`reconnectWithKey`), så varje omstart börjar med tio snabba försök.
 Låst av `tests/u66-vakt-bevis.test.js` (riktiga klienter: bara nya positioner
 räknas, kontot nollställs av AISstream och av ett nytt AISHub-användarnamn,
 AISHub nere, tom eller med bara gamla fixar, bara AISstream, skuggläget, taket
-med gles AISHub, varje larm har en omstart bakom sig vid förtöjd båt ett dygn,
-källbyte, AISHub tillbaka efter avbrott och ojämn AISHub, grindens hälsovillkor
-var för sig, nedkopplad socket, pågående
+med gles AISHub, vakten före larmet vid förtöjd båt ett dygn, källbyte, AISHub
+tillbaka efter avbrott, ojämn och växlande AISHub, en avvisad tidslinjenotis
+ger inte fler omstarter än dagens regel, grindens hälsovillkor var för sig,
+nedkopplad socket, pågående
 återanslutning, en förtöjd sändare som AISstream hör var femte gång ger 0
 omstarter på ett dygn, en AISstream som dör mitt i trafik ger omstart vid
 20 min).
@@ -5755,8 +5755,8 @@ släppte igenom ett per dygn. *Priset:* en död AISstream syns senare när trafi
 (40 nya positioner), senast efter 150 min; en lugn vintervecka i median cirka
 1,5 h. Under den tiden ger AISHub ensam i stort sett samma utfall som båda
 källorna (se modulen AISSourceMultiplexer). *Samspelet med U66:* larmet kommer
-nästan alltid efter vaktens omstart (31 < 40, 120 < 150); kommer det före startar
-vakten om i samma tick (U66, K2). *Kända gränser:* (1) när larmet släpps efter
+efter vaktens omstart (31 < 40, 120 < 150); därför hör U66 och U73 ihop (se U66
+ovan). *Kända gränser:* (1) när larmet släpps efter
 mer än 1 h går trappans redan passerade nivåer ut i samma tick som basnotisen
 (två notiser samtidigt), som i basen när ett avbrott upptäcks sent (fältprov 1,
 11/11 06:55: `:1h`, `:4h` och basnotisen inom 17 ms). Att i stället markera
