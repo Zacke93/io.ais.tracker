@@ -1952,7 +1952,17 @@ efteråt.
      körningen har täckning, rätt källa eller stabilt utfall är steg 4:s och
      analysens sak, inte grindens.
 
-   - **Löpnummer (U71, omgång 9)** — på `debug_level = full` numrerar appen
+   - **Löpnummer (U71, omgång 9)** — **Bara den enkla körningen kan bli OK:**
+     en numrerad logg med exakt en appstart (en boot-rad) och exakt en
+     fångstström (`[CAPTURE_START]`). Har loggen en omstart, eller ett byte av
+     loggnivå som ger en ny ström, blir verdiktet som bäst DELVIS ("ENKEL
+     KÖRNING KRÄVS … omstart eller byte av loggnivå i körningen: fångsten kan
+     inte bevisas hel", med antalet appstarter och strömmar), och körningen
+     låses inte utan handbedömning. Fel som grinden hittar ger fortfarande FEL.
+     Skälet: granskningen fann i fyra varv i rad nya vägar till falskt godkänt
+     genom omstarter och byten av ström, och de lyftes ut ur beviset i stället
+     för att lagas en i taget. Ett fältprov startas alltså en gång på full nivå
+     och stoppas en gång. På `debug_level = full` numrerar appen
      fångstraderna (`#<sid>:<nr> ` före meddelandet), skickar dem igen efter
      2 och 10 minuter (`[CAPTURE_RESEND]`) och skriver en kontrollpunkt per
      minut (`[CAPTURE_SEQ] … dropped=…`). Se `docs/ARCHITECTURE.md`,
@@ -1984,10 +1994,11 @@ efteråt.
      eller ±hh:mm>` och `--quiet-s <s>`) och kräver att (loggens sista rad −
      sista kontrollpunkten) i appens tid plus tystnaden i datorns tid är högst
      65 s. De två klockorna blandas inte, så skillnaden mellan Homeys och
-     datorns klocka spelar ingen roll för beviset. Startade appen om efter
+     datorns klocka spelar ingen roll för beviset. (Startade appen om efter
      strömmens sista rad räknas samma mått från boot-raden, utom när det
      onumrerade `[AIS_REPLAY_STATE]` efter omstarten visar en annan loggnivå
-     än full (då fanns ingen fångst att bevisa). **Tystnaden får bara komma
+     än full. Den regeln kan numera bara ge FEL eller DELVIS, eftersom en
+     omstart gör körningen till som bäst DELVIS.) **Tystnaden får bara komma
      från skriptets stoppfil, aldrig anges för hand** (`--quiet-s` är till för
      att pröva en stoppfils värden); den som läker efter ett hårdstopp ska nöja
      sig med DELVIS. Stopptiden prövas bara för rimlighet: utan tidszon, mer än
@@ -2032,8 +2043,9 @@ efteråt.
      släpps igenom, eftersom strömmen räknas som aktiv först vid dess första
      synliga original eller kontrollpunkt (det kräver både ett anropsställe
      förbi journalen och en förlorad start). En omstart av appen under den
-     sista minuten före stoppet ger falskt FEL, eftersom den nya strömmen inte
-     hunnit få en kontrollpunkt.
+     sista minuten före stoppet ger FEL i stället för DELVIS, eftersom den nya
+     strömmen inte hunnit få en kontrollpunkt (ingen körning med omstart kan
+     ändå bli OK).
      Loggar utan journalrader (k1–k4, banken) döms exakt som förut.
 
    Den interna bokföringen kan bevisa vissa tidigare dolda blockbortfall,

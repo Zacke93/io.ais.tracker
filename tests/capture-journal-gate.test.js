@@ -106,10 +106,13 @@ describe('U71 grinden: hela körningar', () => {
     }
   });
 
-  test('omstart utan hål: OK (två strömmar)', () => {
+  // Spärren (efter granskningens fjärde varv): en omstart gör körningen till
+  // som bäst DELVIS, också när inget fattas.
+  test('omstart utan hål: inga fel, men DELVIS (två appstarter, två strömmar)', () => {
     const { lines } = base({ segments: [{ atMin: 0, kind: 'boot' }, { atMin: 30.1, kind: 'boot' }] });
     const r = judge(lines);
     expect(problemsText(r)).toBe('');
+    expect(r.verdict).toBe('DELVIS');
     expect(r.journal.streams).toHaveLength(2);
   });
 
@@ -783,12 +786,12 @@ describe('U71 grinden: händelser utan nummer efter att strömmen slutat (N2)', 
     expect(r.verdict).toBe('OK');
   });
 
-  test('omstart till basic efter en full ström, textbyte utan nummer efteråt: OK', () => {
+  test('omstart till basic efter en full ström, textbyte utan nummer efteråt: inga fel, DELVIS (spärren)', () => {
     const { lines, startMs } = base({ minutes: 50, segments: [{ atMin: 0, kind: 'boot' }, { atMin: 45.05, kind: 'boot-basic' }] });
     expect(lines.some((l) => l.t > startMs + 45.1 * MIN && /\] #[0-9a-z]+-\d+:\d+ /.test(l.line))).toBe(false);
     const r = judge(insert(lines, plain(startMs + 47 * MIN)));
     expect(problemsText(r)).toBe('');
-    expect(r.verdict).toBe('OK');
+    expect(r.verdict).toBe('DELVIS');
   });
 });
 
@@ -806,18 +809,20 @@ describe('U71 grinden: svansen efter en omstart (B1)', () => {
     expect(problemsText(r)).toMatch(/svansen är obevisad: omstarten 2026-11-20T15:45:00.000Z, .*loggfilen tyst 300 s vid stoppet/);
   });
 
-  test('omstart på full nivå där den nya strömmen kommer fram: OK', () => {
+  test('omstart på full nivå där den nya strömmen kommer fram: inga fel, DELVIS (spärren)', () => {
     const { lines } = base({ minutes: 50, passages: [[40, 50]], segments: [{ atMin: 0, kind: 'boot' }, { atMin: 45, kind: 'boot' }] });
     const r = judge(lines);
     expect(problemsText(r)).toBe('');
-    expect(r.verdict).toBe('OK');
+    expect(r.verdict).toBe('DELVIS');
     expect(r.journal.streams).toHaveLength(2);
   });
 
-  test('omstart till basic: starttillståndet visar basic, ingen svans att bevisa (OK)', () => {
+  test('omstart till basic: starttillståndet visar basic, ingen svans att bevisa (inga fel, DELVIS: spärren)', () => {
     const { lines, startMs } = base({ minutes: 50, segments: [{ atMin: 0, kind: 'boot' }, { atMin: 45.05, kind: 'boot-basic' }] });
     expect(lines.some((l) => l.t >= startMs + 45 * MIN && l.line.includes('"debug_level":"basic"'))).toBe(true);
-    expect(judge(lines, { stop: startMs + 50 * MIN, quiet: 2 }).verdict).toBe('OK');
+    const r = judge(lines, { stop: startMs + 50 * MIN, quiet: 2 });
+    expect(problemsText(r)).toBe('');
+    expect(r.verdict).toBe('DELVIS');
   });
 
   test('omstart till basic men starttillståndet försvann: svansen prövas från omstarten (FEL)', () => {
@@ -826,5 +831,67 @@ describe('U71 grinden: svansen efter en omstart (B1)', () => {
     const r = judge(cut, { stop: startMs + 50 * MIN, quiet: 2 });
     expect(r.verdict).toBe('FEL');
     expect(problemsText(r)).toMatch(/svansen är obevisad: omstarten/);
+  });
+});
+
+// Dirigentens beslut efter granskningens fjärde varv: grinden kan bara ge OK för
+// den enkla körningen (exakt en appstart och exakt en fångstström). Granskarens
+// omstartsfall ska aldrig bli OK.
+describe('U71 grinden: spärren för omstarter och byten av ström', () => {
+  const bootIdx = (lines, k) => lines.map((l, i) => (l.line.includes('AIS Bridge starting') ? i : -1)).filter((i) => i >= 0)[k];
+  const samplesBetween = (lines, a, b) => lines.slice(a, b).filter((l) => /\] #.*AIS_REPLAY_SAMPLE/.test(l.line)).length;
+  const notOk = (r) => expect(['FEL', 'DELVIS']).toContain(r.verdict);
+
+  test('K1 (V4): omstart 40 på full, den mellersta processen borta i 150 s, omstart 42,5 på basic', () => {
+    const segments = [{ atMin: 0, kind: 'boot' }, { atMin: 40, kind: 'boot' }, { atMin: 42.49, kind: 'level-off' }, { atMin: 42.5, kind: 'boot' }];
+    const { lines, startMs } = simulateLog({ minutes: 50, passages: [[30, 50]], segments });
+    const b1 = bootIdx(lines, 1);
+    const b2 = bootIdx(lines, 2);
+    expect(samplesBetween(lines, b1 + 1, b2)).toBeGreaterThan(5);
+    const r = judge(lines.filter((l, i) => i <= b1 || i >= b2), { stop: startMs + 50 * MIN, quiet: 2 });
+    notOk(r);
+    expect(r.notes.join('\n')).toMatch(/ENKEL KÖRNING KRÄVS \(U71\): loggen har 3 appstart\(er\)/);
+  });
+
+  test('K1 (V4b): krasch-slinga på full nivå, den mellersta processen borta, ström C syns', () => {
+    const { lines, startMs } = simulateLog({ minutes: 50, passages: [[30, 50]], segments: [{ atMin: 0, kind: 'boot' }, { atMin: 40, kind: 'boot' }, { atMin: 42.5, kind: 'boot' }] });
+    const b1 = bootIdx(lines, 1);
+    const b2 = bootIdx(lines, 2);
+    const r = judge(lines.filter((l, i) => i <= b1 || i >= b2), { stop: startMs + 50 * MIN });
+    notOk(r);
+    expect(r.notes.join('\n')).toMatch(/omstart eller byte av loggnivå i körningen: fångsten kan inte bevisas hel/i);
+    expect(r.partialNote || '').toMatch(/omstart eller byte av loggnivå/);
+  });
+
+  test('K2 (V5): omstart till basic 45, full 47, allt efter nivåbytet borta till stoppet', () => {
+    const segments = [{ atMin: 0, kind: 'boot' }, { atMin: 44.9, kind: 'level-off' }, { atMin: 45, kind: 'boot' }, { atMin: 47, kind: 'level-on' }];
+    const { lines, startMs } = simulateLog({ minutes: 50, passages: [[30, 50]], segments });
+    const on = lines.findIndex((l) => l.line.includes('Debug level changed to: full'));
+    expect(samplesBetween(lines, on + 1)).toBeGreaterThan(5);
+    notOk(judge(lines.slice(0, on + 1), { stop: startMs + 50 * MIN }));
+  });
+
+  test('B1: omstart vid 45 på full, allt efter boot-raden borta: aldrig OK', () => {
+    const { lines, startMs } = simulateLog({ minutes: 50, passages: [[40, 50]], segments: [{ atMin: 0, kind: 'boot' }, { atMin: 45, kind: 'boot' }] });
+    const b = bootIdx(lines, 1);
+    notOk(judge(lines.slice(0, b + 1), { stop: startMs + 50 * MIN }));
+  });
+
+  test('en appstart men två strömmar (den andra boot-raden försvann): DELVIS', () => {
+    const { lines } = base({ minutes: 50, segments: [{ atMin: 0, kind: 'boot' }, { atMin: 30.1, kind: 'boot' }] });
+    const b = bootIdx(lines, 1);
+    const r = judge(lines.filter((_, i) => i !== b));
+    expect(problemsText(r)).toBe('');
+    expect(r.verdict).toBe('DELVIS');
+    expect(r.notes.join('\n')).toMatch(/1 appstart\(er\) och 2 fångstström\(mar\)/);
+  });
+
+  test('den enkla körningen: frisk ger OK, ett läkt hål ger OK med hålet redovisat', () => {
+    const { lines, startMs } = base();
+    expect(judge(lines).verdict).toBe('OK');
+    const r = judge(cutHole(lines, startMs + 20 * MIN + 1, startMs + 21.5 * MIN));
+    expect(r.verdict).toBe('OK');
+    expect(healedNotes(r)).toHaveLength(1);
+    expect(r.notes.join('\n')).not.toMatch(/ENKEL KÖRNING KRÄVS/);
   });
 });

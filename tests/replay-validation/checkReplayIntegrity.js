@@ -815,6 +815,22 @@ function checkPair(jsonlPath, logPath, opts) {
       result.partial = true;
       result.partialNote = 'fångsten bevisad fram till sista kontrollpunkten; stopptid eller tystnad saknas, svansen obevisad';
     }
+    // SPÄRREN (dirigentens beslut efter granskningens fjärde varv): grinden kan
+    // bara ge OK för den enkla körningen, en numrerad logg med exakt en appstart
+    // och exakt en fångstström. Fyra varv i rad hittade vägar till falskt
+    // godkänt genom omstarter och byten av ström, så de lyfts ut ur beviset:
+    // en sådan körning blir som bäst DELVIS och får bedömas för hand. Alla fel
+    // som hittas ovan ger fortfarande FEL (problemen går före DELVIS i domen).
+    const { bootCount } = journal;
+    const streamCount = journal.streams.length;
+    result.journal.bootCount = bootCount;
+    if (bootCount !== 1 || streamCount !== 1) {
+      result.partial = true;
+      result.partialNote = 'omstart eller byte av loggnivå i körningen: fångsten kan inte bevisas hel '
+        + `(${bootCount} appstart(er), ${streamCount} fångstström(mar)); bara en körning med en appstart och en ström kan bli OK`;
+      result.notes.push(`ENKEL KÖRNING KRÄVS (U71): loggen har ${bootCount} appstart(er) och ${streamCount} fångstström(mar). `
+        + 'Omstart eller byte av loggnivå i körningen: fångsten kan inte bevisas hel. Låses inte utan handbedömning.');
+    }
     result.notes.push(...journal.notes);
     result.problems.push(...journal.problems);
     logSamples = journal.healedSamples;

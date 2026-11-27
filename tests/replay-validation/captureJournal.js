@@ -602,6 +602,9 @@ function createJournalAudit() {
         }
       }
       result.restoredLines.sort((a, b) => a.t - b.t);
+      // Spärren (dirigentens beslut efter granskningens fjärde varv): antalet
+      // appstarter (boot-rader) och fångstströmmar, för domslutet.
+      result.bootCount = boots.length;
       return result;
     },
   };
