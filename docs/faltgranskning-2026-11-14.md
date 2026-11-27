@@ -4914,4 +4914,40 @@ Fältprov 4 går på `a7e83bb` (omgång 9). Ingenting från omgång 10 finns i d
 
 ### 19.9 Slutbatteriet
 
-Utfallet förs in när slutbatteriet är kört på omgångens slutliga spets.
+Kört 2026-11-27 kl. 21:15–23:07 lokal tid i en fristående kopia av integrationsgrenens spets
+`332ddf2`, med de tunga stegen genom kön. Det är spetsen före den här dokumentcommiten, som bara
+rör dokumentationen. Alla 18 steg slutade med kod 0. Jämförelsen görs mot slutbatteriet i omgång
+9 (18.10).
+
+| Steg | Utfall |
+|---|---|
+| `npm run lint` | 0 |
+| hela jest (`--detectOpenHandles`) | 456 sviter, 7 229 test gröna, 2 överhoppade (omgång 9: 450 och 7 175; skillnaden är omgång 10:s nya test) |
+| `replay:all`, med och utan monitoring | alla låsta korpusar matchar facit; loggarna identiska med omgång 9 |
+| `replay:synthetic` | 245 scenarier rena; 25 WARN-rader i 24 scenarier, samma som omgång 9 (de sex nya ger ingen) |
+| `replay:openings` | loggen identisk med omgång 9 |
+| soak och `replay:monitoring` (72 h) | samma utfall som omgång 9; bara minnesanvändningen skiljer (38 mot 42 MB och 42 mot 43 MB) |
+| `measure:eta` | alla tal identiska med omgång 9 |
+| fassvepet, med och utan monitoring | identiska med omgång 9 utöver tider och sökvägar |
+| omstartssvepet (`replay:restart` på 20260804-17h-dag, raster 120 min, pauser 2 och 30 min, ordnad och hård omstart) | inga processfel och inga timers kvar efter `onUninit` |
+| `hunt:selftest` | grönt |
+| snabbjakten och standardjakten | 45 utslag i 19 kluster och 218 i 38 kluster, 2 kandidater vardera; kluster, registerklasser, hälsa och motorfel lika med omgång 9 |
+| nattjakten (20 000 världar) | 2 373 utslag i 72 kluster, 16 kandidater (2 360 råa utslag i sanningsspåret, 52 kluster med registerpost), 0 körfel och 0 häng; kluster, registerklasser, hälsa och motorfel lika med omgång 9 |
+| `git status --porcelain` före och efter nattjakten | tom |
+
+**Nattjakten** jämfördes med omgång 9 utslag för utslag (värld, klass, bro, båt och tid): 0 nya och
+0 försvunna, och radernas fingeravtryck är detsamma. Det enda som skiljer är att 85 utslag pekar på
+en radhänvisning i `docs/ARCHITECTURE.md` som flyttats (1345–1374 blev 1360–1389) eftersom
+dokumentet vuxit, och därmed fyndens kontrollsumma.
+
+**`measure:eta`** skiljer sig i utdata bara i en räknad loggrad till i 20260710-13h: O1:s rad
+`[LAST_KNOWN_SHUTDOWN]` om de levande båtar som sparas vid stoppet, i den körning som slutar med en
+levande båt.
+
+**Omstartssvepet** listar uteblivna notiser vid 30 minuters paus; de är informativa och är den
+kända gränsen vid lång paus i 19.7.
+
+**Slutsatsen:** i alla uppspelningar och alla 22 300 byggda världar beter sig appen exakt som i
+omgång 9. Omgång 10:s appkod (O1, U83, U84 och O3) verkar bara över en omstart och vid ett
+obekräftat GPS-hopp, och det syns bara där det ska: i de nya testen, de nya scenarierna och
+omstartssvepet.
