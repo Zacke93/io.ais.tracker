@@ -3990,6 +3990,28 @@ stället väggklockans och den monotona klockans steg mellan två körningar
 mer än `CLOCK_STEP_LOG_MS` (60 s) bakåt, så att ett fältfall kan förklaras. Låst av
 `tests/r9-klocksteg-bakat-kand-grans.test.js` (märkt känd gräns).
 
+**Känd gräns: kostnaden per meddelande växer med antalet båtar (U72, omgång 9, spår R).**
+Mätt med hela appen på utvecklingsdatorn, båtar som går genom kanalen med 30 s kadens:
+30 / 100 / 300 samtidiga båtar gav 2,5 / 5,6 / 14 ms per meddelande (linjärt med antalet)
+och heap efter GC 9 / 13 / 32 MB över start, utan fel; längsta brotext 138 tecken.
+Homey är flera gånger långsammare än utvecklingsdatorn, så 300 båtar (cirka tio
+meddelanden i sekunden) mättar sannolikt Homey. Fälten har haft ungefär 20 samtidiga
+båtar. En lång körning (60 dygn, 480 unika båtar, produktionens timers) höll heapen på
+17–19 MB.
+
+**Känd gräns: klumpleverans av positioner (omgång 9, spår R).** Levererar websocketen
+flera positioner för samma båt i samma läsning efter ett nätstopp bär de samma
+mottagningstid (`AISStreamClient`, `lib/connection/`). Klumpprovet (3, 5 och 10
+positioner i följd över varje startpunkt längs en resa, båda riktningarna, också genom
+muxen i `both`-läge, och tio minuters paus med klumpleverans) gav samma notiser,
+notistexter och brotext/restid som när bara klumpens sista position levereras (ett
+glapp); öppningsvarningarna skyddas av vakten i `_observeBridgeOpening`. Kvar finns en
+skillnad: en klump som korsar en mellanbro (Stallbackabron norrut, Järnvägsbron söderut)
+bokför inte den mellanbrons passage, eftersom `StatusService._noteUnderBridgeLineCross`
+avvisar ett segment som rört sig utan tidsskillnad. Notiserna och texten blev ändå
+oförändrade i proverna. En rättning hör hemma i klientens tidsstämpling (spår K), inte i
+fysikgrinden.
+
 ## 9. Granskningsfynd (kvarvarande avvikelser i KODEN)
 
 §9.1–9.4 från helrevisionen 2026-07-05 var redan åtgärdade i koden när
