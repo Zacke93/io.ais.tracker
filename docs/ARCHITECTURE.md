@@ -66,7 +66,11 @@ Moduler (ansvar / ägda tillstånd / in-ut):
   AISstream.io. Bounding box-prenumeration (:254), meddelandetypfilter (:379–386),
   extraktion av mmsi/lat/lon/sog/cog/navStatus/shipName i `_extractAISData`
   (:463–515, avvisar 0,0; String()-wrap på Name). Reconnect-tillstånd (progressiva
-  delays, medium 5 min ×12, slow 60 min; :521–529), ping/pong-watchdog
+  delays, medium 5 min ×12, slow 60 min; :521–529), handskakningens tidsgräns
+  30 s (`HANDSHAKE_TIMEOUT_MS`, U67 2026-11-27: var 15 s; i fältprov 3 tog lyckade
+  handskakningar 11,5 s i median och 73 % av försöken löpte ut vid 15 s; en server
+  som aldrig svarar upptäcks nu 15 s senare, connect-deadlinen 60 s står kvar;
+  felinjektionen i `tests/k-aterkoppling-felinjektion.test.js`), ping/pong-watchdog
   (`_awaitingPong` :35; U29: `lastPongAt` stämplar senaste pong på den NUVARANDE
   socketen och nollställs per socket — korsvaktens livssignal, se §K22/U29). Emitterar connected/disconnected/ais-message/static-name
   (typ 5/24-namn, :362–373)/auth-error/error/reconnect-needed/max-reconnects-reached.
