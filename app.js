@@ -5648,17 +5648,16 @@ class AISBridgeApp extends Homey.App {
    * @private
    */
   /**
-   * U69 (omgång 9): är sändaren något annat än ett fartyg (ITU-R M.585,
-   * lib/utils/mmsiClass.js)? Loggar då en rad på felsökningsnivå med klassen,
-   * högst en gång per sändare och NON_VESSEL_LOG_INTERVAL_MS. Minnet för
-   * loggraderna töms när det passerat NON_VESSEL_LOG_MAX poster.
+   * U69 (omgång 9): en position från en sändare som inte är ett fartyg
+   * (ITU-R M.585, lib/utils/mmsiClass.js) ignoreras. Loggar en rad på
+   * felsökningsnivå med klassen, högst en gång per sändare och
+   * NON_VESSEL_LOG_INTERVAL_MS. Minnet för loggraderna töms när det passerat
+   * NON_VESSEL_LOG_MAX poster.
    * @param {string|number} mmsi
-   * @returns {boolean} true om positionen ska ignoreras
+   * @param {string} klass - klassens namn ur nonVesselMmsiClass
    * @private
    */
-  _ignoreNonVesselMmsi(mmsi) {
-    const klass = nonVesselMmsiClass(mmsi);
-    if (!klass) return false;
+  _noteNonVesselIgnored(mmsi, klass) {
     if (!this._nonVesselLogTimes) this._nonVesselLogTimes = new Map();
     const key = String(mmsi).trim();
     const now = Date.now();
@@ -5668,7 +5667,6 @@ class AISBridgeApp extends Homey.App {
       this._nonVesselLogTimes.set(key, now);
       this.debug(`🚁 [NON_VESSEL_IGNORED] ${key}: ${klass}, inte ett fartyg — positionen ignoreras (U69)`);
     }
-    return true;
   }
 
   _processAISMessage(message) {
@@ -5709,15 +5707,15 @@ class AISBridgeApp extends Homey.App {
         );
       }
 
-      // U69 (omgång 9): en sändare som inte är ett fartyg (räddningsflyg 111,
-      // nödsändare 970/972/974, sjömärke 99, kuststation och gruppanrop 0)
-      // ignoreras helt: inget fartyg, ingen namnpost, ingen inspelningsrad.
-      // Fältprov 3 visade ett räddningsflyg som "En båt på väg mot
-      // Stridsbergsbron, beräknad broöppning strax". Står här, i den ingång som
-      // båda källorna och replay-harnessen delar, efter valideringen och
-      // startgrinden (en giltig position bevisar ändå att källan svarar).
-      // Felformade MMSI klassas inte av hjälparen (valideringens sak).
-      if (this._ignoreNonVesselMmsi(message.mmsi)) return;
+      // U69 (omgång 9): är sändaren något annat än ett fartyg (räddningsflyg
+      // 111, nödsändare 970/972/974, autonom radioanordning 979, sjömärke 99,
+      // kuststation och gruppanrop 0)? Fältprov 3 visade ett räddningsflyg som
+      // "En båt på väg mot Stridsbergsbron, beräknad broöppning strax".
+      // Positionen spelas in som rå indata (replay-fångsten nedan) men når
+      // varken namncachen eller updateVessel; uppspelningen går genom samma
+      // ingång och ignorerar den på samma ställe. Felformade MMSI klassas inte
+      // av hjälparen (valideringens sak).
+      const nonVesselClass = nonVesselMmsiClass(message.mmsi);
 
       // STEG 2: NORMALISERA MMSI TILL STRING
       // Backend använder strings för MMSI (mer flexibelt)
@@ -5767,9 +5765,10 @@ class AISBridgeApp extends Homey.App {
       let effectiveName;
       if (rawShipName && rawShipName !== 'Unknown') {
         effectiveName = rawShipName;
-        this._rememberVesselName(mmsiStr, rawShipName);
+        // U69: en sändare som inte är ett fartyg rör inte namncachen.
+        if (!nonVesselClass) this._rememberVesselName(mmsiStr, rawShipName);
       } else {
-        effectiveName = this._lookupVesselName(mmsiStr) || 'Unknown';
+        effectiveName = nonVesselClass ? 'Unknown' : (this._lookupVesselName(mmsiStr) || 'Unknown');
       }
       const vesselPatch = {
         lat: message.lat,
@@ -5819,6 +5818,12 @@ class AISBridgeApp extends Homey.App {
         feed: normalizedFixFeed,
         receivedAt: new Date().toISOString(),
       });
+
+      // U69: inspelad som rå indata ovan, ignoreras här (inget fartyg).
+      if (nonVesselClass) {
+        this._noteNonVesselIgnored(mmsiStr, nonVesselClass);
+        return;
+      }
 
       // STEG 3: UPPDATERA VESSEL I DATA SERVICE
       // Detta startar hela kedjan av processning:

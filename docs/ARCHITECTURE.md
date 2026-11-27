@@ -449,13 +449,20 @@ injicerar namncachen (B1, :1930–1937: riktigt namn registreras via
 namncachen från typ 5/24-namn och uppdaterar levande "Unknown"-fartyg på plats.
 
 **U69 (dirigentens beslut 2026-11-27, omgång 9): sändare som inte är fartyg
-ignoreras.** Direkt efter valideringen och startgrinden, före namncachen,
-replay-inspelningen och `updateVessel`, frågar `_ignoreNonVesselMmsi` hjälparen
-`nonVesselMmsiClass` (`lib/utils/mmsiClass.js`) om MMSI:t enligt ITU-R M.585 hör
-till en sändare som inte är ett fartyg: `111…` räddningsflyg, `970…` AIS-SART,
-`972…` MOB, `974…` EPIRB-AIS, `99…` sjömärke, `00…` kuststation och övriga `0…`
-(gruppanrop). Positionen ignoreras då helt (inget fartyg, ingen namnpost, ingen
-inspelningsrad), och `_onStaticName` lägger inget namn i cachen. En rad
+ignoreras.** Efter valideringen och startgrinden klassar hjälparen
+`nonVesselMmsiClass` (`lib/utils/mmsiClass.js`) MMSI:t enligt ITU-R M.585:
+`111…` räddningsflyg, `970…` AIS-SART, `972…` MOB, `974…` EPIRB-AIS, `979…`
+autonom radioanordning (AMRD grupp B), `99…` sjömärke, `00…` kuststation och
+övriga `0…` (gruppanrop). En sådan position spelas in i replay-fångsten
+(`[AIS_REPLAY_SAMPLE]`) som förut, så att fältfångsten är rå indata och en
+korpus kan pröva spärren i efterhand, och ignoreras direkt därefter (före
+`updateVessel`): inget fartyg, ingen text, ingen notis, ingen varning. Den rör
+inte namncachen (inget `_rememberVesselName`, ingen `_lookupVesselName`; den
+inspelade raden bär det rapporterade namnet eller "Unknown"), och
+`_onStaticName` lägger inget namn i cachen. Mellan kontrollen och
+inspelningen ligger bara normaliseringen av sog, cog, navStatus och fixtid
+och bygget av patchen, utan räknare eller grindar; uppspelningen går genom
+samma ingång och ignorerar raden på samma ställe. En rad
 `[NON_VESSEL_IGNORED]` med klassen skrivs på felsökningsnivå högst en gång per
 sändare och 30 min (minnet töms vid 500 poster). Ingången är gemensam för båda
 källorna, replay-harnessen och utvecklingsläget; `lib/connection/` är orört, så
@@ -463,7 +470,6 @@ multiplexerns fusionsläge och tystnadsbokföring ser fortfarande sändaren, uta
 verkan på fartyg eller text. Släpps igenom: `98…` (farkost knuten till ett
 moderfartyg), `8…` (handhållen VHF) och vanliga fartyg (`2…`–`7…`). Hjälparen
 klassar bara exakt nio siffror; felformade MMSI hör till valideringen ovan.
-`979…` (autonoma radioanordningar, AMRD grupp B i M.585-9) ingår inte i U69.
 Bakgrund: fältprov 3 (k4 2026-11-25 12:41) visade räddningsflyget LIFEGUARD 007
 (MMSI 111 + landskod 265) som "En båt på väg mot Stridsbergsbron, beräknad
 broöppning strax" i fem minuter och i texten i femton; hon var den enda sändaren
