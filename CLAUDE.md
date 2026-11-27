@@ -21,6 +21,9 @@ Svar och kodkommentarer på svenska.
   fältkörning, inte en kodändring): `node tests/replay-validation/checkReplayIntegrity.js`
   (jsonl mot logg) och `npm run replay:phase` (fassvepet). Kriterier i
   `docs/VALIDATION.md` §Fältprov, steg 3 och 4.
+  - På full loggnivå har fångstraderna löpnummer och omsänds (U71); grinden godkänner
+    ett tidshål bara när varje nummer finns. Läk jsonl ur en logg:
+    `node tests/replay-validation/captureJournal.js --jsonl <app.log>`.
   - Ett bart `npm run replay:phase` sveper olåsta korpusar, annars hela banken. UI-klockan
     följer fasta halvminuter och konvojernas täckning har egna deadlines;
     startberoende utfall ska undersökas, inte förväntas eller undantas.

@@ -14,6 +14,9 @@ describe('Fältrapporten läser öppningskortets riktiga leveranslogg', () => {
     const app = {
       _bridgeOpeningTrigger: { trigger: jest.fn().mockResolvedValue(undefined) },
       log: (message) => logs.push(line(message)),
+      // U71: raden går genom fångstjournalens väg; utan journal (som här) är den
+      // exakt this.log som förut.
+      _logCaptured: App.prototype._logCaptured,
     };
     const tokens = {
       bridge_name: 'Stridsbergsbron',
@@ -60,6 +63,7 @@ describe('Fältrapporten läser öppningskortets riktiga leveranslogg', () => {
     const app = {
       _bridgeOpeningTrigger: { trigger: jest.fn().mockRejectedValue(new Error('nekad')) },
       log: (message) => logs.push(line(message)),
+      _logCaptured: App.prototype._logCaptured,
     };
     await expect(App.prototype._triggerBridgeOpeningFlow.call(app, {}, {})).rejects.toThrow('nekad');
     expect(parseFieldLog(logs.join('\n')).openingWarnings).toEqual([]);

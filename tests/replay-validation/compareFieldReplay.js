@@ -15,6 +15,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { fromUserDirection } = require('../../lib/utils/directionTokens');
 const { checkPair, createTimeGapAudit } = require('./checkReplayIntegrity');
+const { healLogFile } = require('./captureJournal');
 const { buildFacit } = require('./makeGtPassages');
 const { validateInvariants, validateWarnInvariants } = require('./invariants');
 const { analyzeCorpus, buildFairway } = require('./coverageMap');
@@ -28,7 +29,14 @@ const ISO_RE = /^(\d{4}-\d{2}-\d{2}T[\d:.]+Z)/;
 const keyOf = (n) => `${n.mmsi}|${n.bridge}`;
 const openingKeyOf = (n) => `${n.bridge}|${n.leadVessel}|${n.direction}`;
 
-function parseFieldLog(text) {
+/**
+ * @param {string} text - fältloggen
+ * @param {Array<{t:number,line:string}>} [restored] - U71: journalrader som
+ *   saknades i loggen men återställts ur omsändningarna. De läses som
+ *   fältets händelser på sin ursprungliga tid; tidshålen mäts bara på loggens
+ *   egna rader, så ett läkt hål redovisas fortfarande som hål.
+ */
+function parseFieldLog(text, restored = []) {
   const tokens = new Map();
   const pending = [];
   const notifications = [];
@@ -45,9 +53,21 @@ function parseFieldLog(text) {
   if (logLines[logLines.length - 1] === '') logLines.pop();
   const lines = logLines.length;
   let lineNumber = 0;
+  // Återställda rader läggs in före första loggrad med senare tid.
+  const merged = [];
+  let ri = 0;
   for (const line of logLines) {
-    lineNumber += 1;
-    gapAudit.take(line, lineNumber);
+    const stamp = ISO_RE.exec(line);
+    const t = stamp ? Date.parse(stamp[1]) : null;
+    while (t !== null && ri < restored.length && restored[ri].t < t) merged.push({ line: restored[ri++].line, restored: true });
+    merged.push({ line, restored: false });
+  }
+  while (ri < restored.length) merged.push({ line: restored[ri++].line, restored: true });
+  for (const { line, restored: isRestored } of merged) {
+    if (!isRestored) {
+      lineNumber += 1;
+      gapAudit.take(line, lineNumber);
+    }
     const stamp = ISO_RE.exec(line);
     if (!stamp) continue;
     const t = Date.parse(stamp[1]);
@@ -290,7 +310,9 @@ function makeReport(logPath, jsonlPath, replay) {
   const integrity = checkPair(jsonlPath, logPath, {});
   if (integrity.verdict === 'ANROPSFEL') throw new Error(`Replay-integritet ANROPSFEL: ${integrity.problems.join('; ')}`);
   const banner = integrityBanner(integrity);
-  const field = parseFieldLog(fs.readFileSync(logPath, 'utf8'));
+  // U71: i en löpnummerlogg läses också de händelser som läkts ur omsändningarna.
+  const healed = integrity.journal ? healLogFile(logPath) : null;
+  const field = parseFieldLog(fs.readFileSync(logPath, 'utf8'), healed ? healed.restoredLines : []);
   const gt = buildFacit(jsonlPath);
   const coverage = analyzeCorpus({ id: path.basename(jsonlPath), jsonl: jsonlPath }, buildFairway());
   const notis = splitAtStop(replay.notifications, field.stopMs);

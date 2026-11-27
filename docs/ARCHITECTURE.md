@@ -4123,6 +4123,35 @@ servar en trappad signal först när förgrundskommandot är klart — med den
 oändliga pipelinen i förgrunden sköts `INT`/`TERM`/`HUP`-trap:en upp i evighet
 och körningen gick varken att stoppa eller avsluta med summary.
 
+**Fångstjournalen (U71, omgång 9 — 2026-11-27):** strömmen Homey →
+`homey app run` tappar ibland 1–3 minuter loggrader medan appen går vidare (nio
+gånger på cirka 255 h fältlogg; kommandoradsverktyget prenumererar utan kvittens,
+så det som sänds medan anslutningen är bruten är borta). På `debug_level =
+full` numrerar därför `lib/utils/CaptureJournal.js` de rader som uppspelningen
+och fältjämförelsen läser: `[AIS_REPLAY_SAMPLE]`, `[AIS_REPLAY_STATE]`,
+`[FLOW_TRIGGER_SAFE_TOKENS]`, `[FLOW_TRIGGER_ATTEMPT]`,
+`[FLOW_TRIGGER_SUCCESS]`, `[FLOW_TRIGGER_ERROR]`, `[OPENING_TRIGGER_SUCCESS]` och
+`[UI_UPDATE] Bridge text updated`. Raden skrivs som förut med
+`#<sid>:<nr> ` före meddelandet (`sid` = starttid i base36 och aktiveringens
+nummer), så alla befintliga sökmönster och jsonl-raderna är oförändrade. Posten
+hålls i en buffert (tak 1 000, den äldsta släpps och räknas) och skrivs igen
+som `[CAPTURE_RESEND] {"sid","seq","at","b64"}` när den blivit 2 och 10 minuter
+gammal; base64 innehåller aldrig `_`, så ingen tagg kan träffas i en
+omsändning. Minutloopen skriver sist i varje varv `[CAPTURE_SEQ] sid=… seq=…
+buffered=… dropped=… errors=…`. Post 1 i varje ström är `[CAPTURE_START]`;
+`[CAPTURE_END]` skrivs när nivån lämnar full och i `onUninit`. På alla andra
+nivåer finns ingen journal och raderna loggas exakt som förut
+(`_logCaptured`, `_logReplaySample`). Journalen kastar aldrig: varje skrivning
+sker i try/catch och ett fel räknas men loggas aldrig (U58). Den har ingen egen
+timer och påverkar inget apptillstånd, så uppspelningarna är bitlika på alla
+nivåer (`tests/capture-journal-replay.test.js`, även med saboterad journal).
+Loggskriptet läker en löpnummerlogg i nedstängningen med
+`tests/replay-validation/captureJournal.js --jsonl` (dubbletter bort på löpnumret, sampeln i nummerordning; starttillståndet
+med `--state`), och grinden i `checkReplayIntegrity.js` godkänner ett tidshål
+bara när varje löpnummer finns (villkoren i `docs/VALIDATION.md` §Fältprov,
+steg 3). `compareFieldReplay.js` läser också de händelser som läkts ur
+omsändningarna; tidshålen redovisas ändå.
+
 Åtgärdat sedan 2026-07-03: "Fem lager"-kommentaren rättad (constants.js:193);
 MessageBuilder/ETAFormatter/StallbackabronHelper raderade — noll levande
 förekomster (grep 2026-07-05); `shouldDebounceBridgeText` numera privat i

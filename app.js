@@ -50,6 +50,8 @@ const GPSJumpAnalyzer = require('./lib/utils/GPSJumpAnalyzer');
 const {
   waitingBridge, waitingBridgeForText, queueBridge, hasFreshPosition,
 } = require('./lib/utils/bridgeQueue');
+// U71 (omgång 9): fångstjournalen — löpnummer och omsändning på full loggnivå.
+const { CaptureJournal } = require('./lib/utils/CaptureJournal');
 // U36 (dirigentens beslut 2026-11-16, nattjaktens F13): en svepnotis efter en
 // vändning i glappet skickas inte när sist kända position är äldre än så här.
 // Samma ålder som designposten SKIPPA-BRO-ÅLDER-17MIN (beslutsregistret): en
@@ -569,11 +571,15 @@ class AISBridgeApp extends Homey.App {
 
     // --- SETTINGS OCH KONFIGURATION ---
     this.debugLevel = this.homey.settings.get('debug_level') || 'basic';
+    // U71: fångstjournalen startar här, före starttillståndet och första
+    // sampel, när nivån redan är full (annars när inställningen ändras).
+    this._syncCaptureJournal('boot');
     this._replayStartupState = null;
     try {
       const state = { version: 1, capturedAt: Date.now(), settings: selectSettings((key) => this.homey.settings.get(key)) };
       this._replayStartupState = state;
-      this.log(`[AIS_REPLAY_STATE] ${JSON.stringify(state)}`);
+      // U71: starttillståndet är uppspelningens indata och journalförs som sampeln.
+      this._logCaptured(`[AIS_REPLAY_STATE] ${JSON.stringify(state)}`);
     } catch (error) {
       this.error('[AIS_REPLAY_STATE_ERROR] Starttillståndet kunde inte fångas:', error.message || error);
     }
@@ -1044,6 +1050,8 @@ class AISBridgeApp extends Homey.App {
         if (allowed.includes(newLevel)) {
           this.debugLevel = newLevel;
           this.log(`🎛️ Debug level changed to: ${this.debugLevel}`);
+          // U71: journalen följer nivån (skapas på full, töms och släpps annars).
+          this._syncCaptureJournal('level');
         } else {
           this.log(`⚠️ Ignoring invalid debug_level value: ${newLevel}`);
         }
@@ -7001,7 +7009,7 @@ class AISBridgeApp extends Homey.App {
         // ändringshistorik. [UI_UPDATE] = texten ÄNDRADES; [UI_REFRESH] =
         // samma text omskriven (keepalive). Summary-verktyg filtrerar på tagg.
         if (textActuallyChanged) {
-          this.log(`📱 [UI_UPDATE] Bridge text updated: "${bridgeText}"`);
+          this._logCaptured(`📱 [UI_UPDATE] Bridge text updated: "${bridgeText}"`);
         } else {
           this.log(`🔁 [UI_REFRESH] Bridge text refreshed (unchanged): "${bridgeText}"`);
         }
@@ -9185,7 +9193,7 @@ class AISBridgeApp extends Homey.App {
    */
   async _triggerBridgeOpeningFlow(tokens, state) {
     await this._bridgeOpeningTrigger.trigger(tokens, state);
-    this.log(
+    this._logCaptured(
       `✅ [OPENING_TRIGGER_SUCCESS] ${state.eventId}: bridge_opening_soon avfyrad för ${tokens.bridge_name} `
       + `(${tokens.vessel_count} båt(ar), ledande ${tokens.vessel_name}, `
       + `eta=${tokens.eta_minutes === -1 ? 'okänd' : `${tokens.eta_minutes} min`}, `
@@ -12206,14 +12214,14 @@ class AISBridgeApp extends Homey.App {
     );
 
     // ENHANCED DEBUG: Log final tokens and ETA status
-    this.debug(`🔍 [FLOW_TRIGGER_SAFE_TOKENS] ${vessel.mmsi}: Safe tokens = ${JSON.stringify(safeTokens)}`);
+    this._logCaptured(`🔍 [FLOW_TRIGGER_SAFE_TOKENS] ${vessel.mmsi}: Safe tokens = ${JSON.stringify(safeTokens)}`, 'debug');
     if (safeTokens.eta_minutes === -1) {
       this.debug(`⚠️ [FLOW_TRIGGER_ETA] ${vessel.mmsi}: ETA unavailable - sending eta_minutes=-1 to flow`);
     } else {
       this.debug(`✅ [FLOW_TRIGGER_ETA] ${vessel.mmsi}: ETA available - sending eta_minutes=${safeTokens.eta_minutes} to flow`);
     }
 
-    this.log(
+    this._logCaptured(
       `🚀 [FLOW_TRIGGER_ATTEMPT] ${vessel.mmsi}: bridge=${bridgeName} (${Math.round(distance)}m, source=${source}), `
       + `direction=${safeTokens.direction}, ETA=${safeTokens.eta_minutes}`,
     );
@@ -12266,10 +12274,11 @@ class AISBridgeApp extends Homey.App {
         );
       }
       const lateTag = late ? ' late=true' : '';
-      this.error(
+      this._logCaptured(
         `❌ [FLOW_TRIGGER_ERROR] ${vessel.mmsi}: boat_near failed for ${bridgeName} `
         + `(ID=${bridgeId}, distance=${Math.round(distance)}m, status=${vessel.status}): `
         + `${(triggerError && triggerError.message) || triggerError}${lateTag}`,
+        'error',
       );
       this.error(`❌ [FLOW_TRIGGER_ERROR_TOKENS] Failed tokens: ${JSON.stringify(safeTokens)}`);
       this.error(`❌ [FLOW_TRIGGER_ERROR_STATE] State: { bridge: "${bridgeId}" }`);
@@ -12335,7 +12344,7 @@ class AISBridgeApp extends Homey.App {
           + `${Math.round(BOAT_NEAR_TRIGGER_TIMEOUT_MS / 1000)} s — dedupen behålls, sent svar loggas`,
         );
         outcome.delivery.then(() => {
-          if (this._isCurrentRuntime(lifecycle)) this.log(`${successLine} late=true`);
+          if (this._isCurrentRuntime(lifecycle)) this._logCaptured(`${successLine} late=true`);
         }, (lateError) => {
           if (this._isCurrentRuntime(lifecycle)) rollbackOwnState(lateError, true);
         }).catch((err) => {
@@ -12343,7 +12352,7 @@ class AISBridgeApp extends Homey.App {
         });
         return;
       }
-      this.log(successLine);
+      this._logCaptured(successLine);
       // U44 punkt 3: notisen för bron har gått ut; spärrens ankare städas.
       this._clearSlowBridgeBehindHold(mmsiLabel, bridgeName);
 
@@ -13283,6 +13292,88 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * U71 (omgång 9): fångstjournalen följer loggnivån. På 'full' finns en
+   * journal (löpnummer, buffert, omsändning, kontrollpunkt); på alla andra
+   * nivåer finns ingen, och de journalförda raderna loggas exakt som förut.
+   * Byte av nivå avslutar strömmen och släpper bufferten; nästa aktivering
+   * är en ny ström. Får aldrig kasta in i appen (U58).
+   * @param {string} reason - 'boot' | 'level' | 'uninit'
+   * @private
+   */
+  _syncCaptureJournal(reason) {
+    try {
+      const want = this.debugLevel === 'full' && reason !== 'uninit';
+      const current = this._captureJournal || null;
+      if (want && !current) {
+        if (!Number.isFinite(this._captureBootMs)) this._captureBootMs = Date.now();
+        this._captureEpoch = (Number.isInteger(this._captureEpoch) ? this._captureEpoch : 0) + 1;
+        const journal = new CaptureJournal({
+          log: (line) => this.log(line),
+          error: (line) => this.error(line),
+          bootMs: this._captureBootMs,
+          epoch: this._captureEpoch,
+        });
+        this._captureJournal = journal;
+        journal.start(reason);
+      } else if (!want && current) {
+        this._captureJournal = null;
+        current.end(reason);
+      }
+    } catch (err) {
+      // Journalen är en mätanordning: utan den loggar appen som förut.
+      this._captureJournal = null;
+    }
+  }
+
+  /**
+   * Skriver en rad som fältjämförelsen läser (notiser, öppningsvarningar,
+   * textbyten). Med journal: numrerad och buffrad. Utan: exakt som förut
+   * (this.log, this.error eller this.debug).
+   * @param {string} message
+   * @param {'log'|'error'|'debug'} [kind]
+   * @private
+   */
+  _logCaptured(message, kind = 'log') {
+    const journal = this._captureJournal;
+    if (journal) {
+      try {
+        journal.record(kind === 'debug' ? `[DEBUG] ${message}` : message, kind === 'error' ? 'err' : 'log');
+        return;
+      } catch (err) {
+        // CaptureJournal.record kastar aldrig; skyddet gäller en ersatt journal.
+      }
+    }
+    if (kind === 'debug') this.debug(message);
+    else if (kind === 'error') this.error(message);
+    else this.log(message);
+  }
+
+  /** Sampelraden: med journal numrerad, annars exakt som förut (två argument). */
+  _logReplaySample(json) {
+    const journal = this._captureJournal;
+    if (journal) {
+      try {
+        journal.record(`[AIS_REPLAY_SAMPLE] ${json}`);
+        return;
+      } catch (err) {
+        // Som i _logCaptured.
+      }
+    }
+    this.log('[AIS_REPLAY_SAMPLE]', json);
+  }
+
+  /** Minutslaget för journalen (omsändning och kontrollpunkt). */
+  _tickCaptureJournal() {
+    const journal = this._captureJournal;
+    if (!journal) return;
+    try {
+      journal.tick();
+    } catch (err) {
+      // CaptureJournal.tick kastar aldrig; skyddet gäller en ersatt journal.
+    }
+  }
+
+  /**
    * Capture AIS data for replay if AIS_REPLAY_CAPTURE_FILE is set.
    * @private
    * @param {Object} sample - Normalized AIS sample
@@ -13298,7 +13389,7 @@ class AISBridgeApp extends Homey.App {
     const replayLoggingEnabled = this.debugLevel === 'full' || this._replayCaptureFile;
     if (!this._replayCaptureFile || !sample || !sample.mmsi) {
       if (replayLoggingEnabled && sample && sample.mmsi) {
-        this.log('[AIS_REPLAY_SAMPLE]', JSON.stringify(sample));
+        this._logReplaySample(JSON.stringify(sample));
       }
       return;
     }
@@ -13309,7 +13400,7 @@ class AISBridgeApp extends Homey.App {
     };
 
     // Emit to stdout as well for belt-and-braces capture when filesystem is sandboxed
-    this.log('[AIS_REPLAY_SAMPLE]', JSON.stringify(payload));
+    this._logReplaySample(JSON.stringify(payload));
 
     fs.appendFile(this._replayCaptureFile, `${JSON.stringify(payload)}\n`, (err) => {
       if (err && !this._replayCaptureErrorLogged) {
@@ -15134,6 +15225,10 @@ class AISBridgeApp extends Homey.App {
       // A14 (etapp 7): process-minnesraden SIST — ren observation, egen
       // 10-minutersstrupning, får aldrig påverka städningarnas ordning.
       this._logProcessMemoryStats();
+
+      // U71: fångstjournalens minutslag efter allt annat — bara loggrader,
+      // ingen ny timer, och städningarnas ordning ovan är oförändrad.
+      this._tickCaptureJournal();
     }, UI_CONSTANTS.MONITORING_INTERVAL_MS); // Every minute
   }
 
@@ -15290,6 +15385,8 @@ class AISBridgeApp extends Homey.App {
     // inte redan registrerade .then-continuations — _shuttingDown-flaggan
     // gör att sena kedjelänkar och nya skrivförsök blir no-ops.
     this._shuttingDown = true;
+    // U71: strömmen avslutas uttryckligen ([CAPTURE_END]) och bufferten släpps.
+    this._syncCaptureJournal('uninit');
     if (this._capWriteChains) {
       this._capWriteChains.clear();
       this._capWriteChains = null;

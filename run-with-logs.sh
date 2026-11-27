@@ -119,33 +119,64 @@ sync_file() {
 # LC_ALL=C: samma läxa som summaryn nedan (fältprov 1) — GNU grep under
 # UTF-8-locale kan hoppa över rader med ogiltiga byte-sekvenser.
 rebuild_replay_jsonl() {
-    local tmp
+    local tmp healer healed=0 mode="${1:-}"
     local -a extract_status
     [ -f "$LOGFILE" ] || return 0
     tmp="$LIVE_DIR/.ais-replay-$TIMESTAMP.jsonl.tmp.$$.$RANDOM"
-    LC_ALL=C grep 'AIS_REPLAY_SAMPLE' "$LOGFILE" 2>/dev/null \
-      | sed 's/^.*AIS_REPLAY_SAMPLE\] //' > "$tmp" 2>/dev/null
-    extract_status=("${PIPESTATUS[@]}")
-    # grep 1 = "inga träffar än" (normalt de första minuterna) och ska ge en
-    # tom fil. Både läsningen och sed-skrivningen måste lyckas: ett diskfel
-    # efter grep kan annars ersätta en hel fil med ett atomiskt bytt fragment.
-    if [ "${extract_status[0]}" -le 1 ] && [ "${extract_status[1]}" -eq 0 ]; then
-        mv -f "$tmp" "$AIS_REPLAY_FILE" 2>/dev/null || rm -f "$tmp" 2>/dev/null || true
-    else
+    # U71 (omgång 9): med argumentet "heal" läks en löpnummerlogg ur appens
+    # omsändningar. Läkningen tar bort dubbletterna på löpnumret och lägger
+    # sampeln i nummerordning, så att ett hål i loggströmmen inte blir ett hål
+    # i fångsten. Den görs i nedstängningen (en sista gång, i förgrunden), inte
+    # var 5:e minut: den läser hela loggen i node (~1,4 s på 95 MB mot grep:s
+    # 0,2 s), och det löpande priset ska vara lika lågt som förut. Saknas node
+    # eller läkaren, eller misslyckas den, blir det grep+sed som förut (och
+    # grinden fäller då ett hål som inte läkts). Efter ett hårdstopp läks filen
+    # med kommandot i docs/VALIDATION.md.
+    healer="$SCRIPT_DIR/tests/replay-validation/captureJournal.js"
+    if [ "$mode" = heal ] && [ -f "$healer" ] && command -v node >/dev/null 2>&1 && is_journal_log "$LOGFILE"; then
+        if node "$healer" --jsonl "$LOGFILE" > "$tmp" 2>/dev/null; then
+            if mv -f "$tmp" "$AIS_REPLAY_FILE" 2>/dev/null; then healed=1; fi
+        fi
         rm -f "$tmp" 2>/dev/null || true
     fi
+    if [ "$healed" -ne 1 ]; then
+        LC_ALL=C grep 'AIS_REPLAY_SAMPLE' "$LOGFILE" 2>/dev/null \
+          | sed 's/^.*AIS_REPLAY_SAMPLE\] //' > "$tmp" 2>/dev/null
+        extract_status=("${PIPESTATUS[@]}")
+        # grep 1 = "inga träffar än" (normalt de första minuterna) och ska ge en
+        # tom fil. Både läsningen och sed-skrivningen måste lyckas: ett diskfel
+        # efter grep kan annars ersätta en hel fil med ett atomiskt bytt fragment.
+        if [ "${extract_status[0]}" -le 1 ] && [ "${extract_status[1]}" -eq 0 ]; then
+            mv -f "$tmp" "$AIS_REPLAY_FILE" 2>/dev/null || rm -f "$tmp" 2>/dev/null || true
+        else
+            rm -f "$tmp" 2>/dev/null || true
+        fi
+    fi
     # Starttillståndet har en egen fil: AIS-jsonl förblir råa, oförändrade fix.
-    # Första booten är facit för denna körnings början.
-    local state_tmp
+    # Första booten är facit för denna körnings början. I en löpnummerlogg
+    # läks även den raden (U71).
+    local state_tmp state_done=0
     state_tmp="$LIVE_DIR/.ais-state-$TIMESTAMP.tmp.$$.$RANDOM"
-    LC_ALL=C grep -m 1 'AIS_REPLAY_STATE]' "$LOGFILE" 2>/dev/null \
-      | sed 's/^.*AIS_REPLAY_STATE\] //' > "$state_tmp" 2>/dev/null
-    extract_status=("${PIPESTATUS[@]}")
-    if [ "${extract_status[0]}" -eq 0 ] && [ "${extract_status[1]}" -eq 0 ] && [ -s "$state_tmp" ]; then
-        mv -f "$state_tmp" "${AIS_REPLAY_FILE%.jsonl}.state.json" 2>/dev/null || true
+    if [ "$healed" -eq 1 ]; then
+        if node "$healer" --state "$LOGFILE" > "$state_tmp" 2>/dev/null && [ -s "$state_tmp" ]; then
+            mv -f "$state_tmp" "${AIS_REPLAY_FILE%.jsonl}.state.json" 2>/dev/null && state_done=1
+        fi
+    fi
+    if [ "$state_done" -ne 1 ]; then
+        LC_ALL=C grep -m 1 'AIS_REPLAY_STATE]' "$LOGFILE" 2>/dev/null \
+          | sed 's/^.*AIS_REPLAY_STATE\] //' > "$state_tmp" 2>/dev/null
+        extract_status=("${PIPESTATUS[@]}")
+        if [ "${extract_status[0]}" -eq 0 ] && [ "${extract_status[1]}" -eq 0 ] && [ -s "$state_tmp" ]; then
+            mv -f "$state_tmp" "${AIS_REPLAY_FILE%.jsonl}.state.json" 2>/dev/null || true
+        fi
     fi
     rm -f "$state_tmp" 2>/dev/null || true
 
+}
+
+# U71: har loggen fångstjournalens rader (löpnummer och omsändning)?
+is_journal_log() {
+    LC_ALL=C grep -q -E '\[CAPTURE_(START|SEQ|RESEND|END)\]' "$1" 2>/dev/null
 }
 
 # Varje stat-försök behöver en egen fångst. GNU tolkar BSD:s -f som
@@ -500,7 +531,8 @@ extract_bridge_text() {
 
     # SLUTLIG FÅNGST (K24): bygg jsonl:en ur den färdiga loggen INNAN grinden
     # mäter. Kör till EOF i förgrunden — inget kan ligga kvar i en buffert.
-    rebuild_replay_jsonl
+    # U71: här läks en löpnummerlogg ur omsändningarna.
+    rebuild_replay_jsonl heal
     sync_file "$AIS_REPLAY_FILE" "$FINAL_REPLAY" || FINAL_SYNC_STATUS="FEL"
     sync_file "${AIS_REPLAY_FILE%.jsonl}.state.json" "${FINAL_REPLAY%.jsonl}.state.json" || FINAL_SYNC_STATUS="FEL"
     if [ "$FINAL_SYNC_STATUS" != "OK" ]; then
@@ -579,7 +611,18 @@ EOL
     echo "" >> "$SUMMARY_TMP"
     HOLES=$(find_log_holes "$LOGFILE")
     INTEGRITY_FAIL=0
-    if [ -n "$HOLES" ]; then
+    # U71: i en löpnummerlogg avgör node-grinden om hålen är läkta (varje
+    # löpnummer finns, kontrollpunkterna stämmer, inga poster släppta). Utan
+    # node och grind fäller ett hål som förut.
+    REPLAY_CHECKER="$SCRIPT_DIR/tests/replay-validation/checkReplayIntegrity.js"
+    HOLES_PENDING=0
+    if [ -n "$HOLES" ] && is_journal_log "$LOGFILE" \
+        && command -v node >/dev/null 2>&1 && [ -f "$REPLAY_CHECKER" ]; then
+        HOLES_PENDING=1
+        echo "⏳ **TIDSHÅL FUNNA i loggen — löpnumren avgör nedan om fångsten ändå är hel (U71):**" >> "$SUMMARY_TMP"
+        echo "" >> "$SUMMARY_TMP"
+        echo "$HOLES" >> "$SUMMARY_TMP"
+    elif [ -n "$HOLES" ]; then
         INTEGRITY_FAIL=1
         echo "⚠️ **TIDSHÅL FUNNA — körningen är OFULLSTÄNDIG och får inte korpuslåsas:**" >> "$SUMMARY_TMP"
         echo "" >> "$SUMMARY_TMP"
@@ -641,21 +684,47 @@ EOL
     elif [ "$JSONL_LINES" -lt "$LOG_SAMPLES" ]; then
         REPLAY_FAIL=1
         echo "- ⚠️ $((LOG_SAMPLES - JSONL_LINES)) av $LOG_SAMPLES sampel SAKNAS i jsonl:en" >> "$SUMMARY_TMP"
+    elif [ "$JSONL_LINES" -gt "$LOG_SAMPLES" ] && is_journal_log "$LOGFILE" \
+        && command -v node >/dev/null 2>&1 && [ -f "$REPLAY_CHECKER" ]; then
+        # U71: läkta sampel ur omsändningarna; node-grinden nedan jämför dem
+        # rad för rad med den läkta fångsten och är bindande.
+        echo "- $((JSONL_LINES - LOG_SAMPLES)) sampel läkta ur omsändningarna (U71), prövas av node-kontrollen nedan" >> "$SUMMARY_TMP"
     elif [ "$JSONL_LINES" -gt "$LOG_SAMPLES" ]; then
         REPLAY_FAIL=1
         echo "- ⚠️ $((JSONL_LINES - LOG_SAMPLES)) FLER rader än loggens sampel — dubbelskrivning?" >> "$SUMMARY_TMP"
     fi
 
     # Node-kontrollen jämför dessutom rad för rad och validerar JSON:en.
-    # Skalgrinden ovan är den bindande — den fungerar även utan node.
-    REPLAY_CHECKER="$SCRIPT_DIR/tests/replay-validation/checkReplayIntegrity.js"
+    # Skalgrinden ovan är den bindande — den fungerar även utan node. I en
+    # löpnummerlogg med tidshål är node-grinden bindande också för hålen (U71).
+    CHECK_RAN=0
+    CHECK_STATUS=1
+    HEALED_HOLES=0
     if command -v node >/dev/null 2>&1 && [ -f "$REPLAY_CHECKER" ]; then
         CHECK_OUT=$(node "$REPLAY_CHECKER" "$AIS_REPLAY_FILE" "$LOGFILE" --brief 2>&1)
         CHECK_STATUS=$?
+        CHECK_RAN=1
         echo "" >> "$SUMMARY_TMP"
         echo "$CHECK_OUT" >> "$SUMMARY_TMP"
         if [ "$CHECK_STATUS" -ne 0 ]; then
             REPLAY_FAIL=1
+        fi
+    fi
+    if [ "$HOLES_PENDING" -eq 1 ]; then
+        echo "" >> "$SUMMARY_TMP"
+        if [ "$CHECK_RAN" -eq 1 ] && [ "$CHECK_STATUS" -eq 0 ]; then
+            # Här-sträng, inte printf: ingen inbyggd skrivning utanför filer (V4).
+            HEALED_HOLES=$(sed -n 's/.*Läkta tidshål (U71): \([0-9][0-9]*\) av.*/\1/p' <<< "$CHECK_OUT" | head -n 1)
+            case "$HEALED_HOLES" in ''|*[!0-9]*) HEALED_HOLES=0 ;; esac
+            echo "✅ **$HEALED_HOLES tidshål läkta** ur appens omsändningar (U71): varje löpnummer finns, fångsten är hel." >> "$SUMMARY_TMP"
+            say ""
+            say "✅ [U71] $HEALED_HOLES tidshål i loggen läkta ur omsändningarna — fångsten är hel."
+        else
+            INTEGRITY_FAIL=1
+            echo "⚠️ **TIDSHÅL SOM INTE LÄKTS — körningen är OFULLSTÄNDIG och får inte korpuslåsas** (se löpnummerkontrollen ovan)." >> "$SUMMARY_TMP"
+            say ""
+            say "🚨🚨 [HÅLVAKT] Tidshål som inte läkts — se $BRIDGE_TEXT_SUMMARY"
+            say "$HOLES"
         fi
     fi
 
@@ -663,7 +732,11 @@ EOL
     # "Logg-integritet: OK" för att en körning ska få låsas som korpus.
     echo "" >> "$SUMMARY_TMP"
     if [ "$INTEGRITY_FAIL" -eq 0 ] && [ "$REPLAY_FAIL" -eq 0 ]; then
-        echo "✅ **Logg-integritet: OK** — obruten tidslinje och komplett replay-fångst (korpuslåsning tillåten)." >> "$SUMMARY_TMP"
+        if [ "$HOLES_PENDING" -eq 1 ]; then
+            echo "✅ **Logg-integritet: OK** — $HEALED_HOLES tidshål läkta ur omsändningarna (U71) och komplett replay-fångst (korpuslåsning tillåten)." >> "$SUMMARY_TMP"
+        else
+            echo "✅ **Logg-integritet: OK** — obruten tidslinje och komplett replay-fångst (korpuslåsning tillåten)." >> "$SUMMARY_TMP"
+        fi
     else
         echo "🚨 **Logg-integritet: FEL** — körningen är OFULLSTÄNDIG: **korpuslåsning EJ tillåten**." >> "$SUMMARY_TMP"
         say ""

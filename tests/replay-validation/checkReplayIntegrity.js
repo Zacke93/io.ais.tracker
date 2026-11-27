@@ -58,6 +58,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { StringDecoder } = require('string_decoder');
 const { UI_CONSTANTS } = require('../../lib/constants');
+const { createJournalAudit } = require('./captureJournal');
 
 // Samma mönster som fångsten i run-with-logs.sh greppar på — grinden måste
 // räkna EXAKT det fångsten räknar, annars mäter den något annat än den vaktar.
@@ -437,11 +438,15 @@ function readLogSamples(filePath) {
   let lineNumber = 0;
   const sourceAudit = createSourceAudit();
   const timeGapAudit = createTimeGapAudit();
+  // U71: fångstjournalen (löpnummer och omsändning). En logg utan journalrader
+  // ger journal=false och döms exakt som förut.
+  const journalAudit = createJournalAudit();
   const take = (raw) => {
     const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
     lineNumber += 1;
     sourceAudit.take(line, lineNumber);
     timeGapAudit.take(line, lineNumber);
+    journalAudit.take(line, lineNumber);
     if (line.indexOf(RESPONSE_MARKER) !== -1) responses += 1;
     if (line.indexOf(SAMPLE_MARKER) === -1) return;
     matched += 1;
@@ -465,6 +470,7 @@ function readLogSamples(filePath) {
   } finally {
     fs.closeSync(fd);
   }
+  const gapResult = timeGapAudit.finish();
   return {
     path: filePath,
     samples,
@@ -472,8 +478,14 @@ function readLogSamples(filePath) {
     responses,
     bytes: fs.statSync(filePath).size,
     sourceAudit: sourceAudit.finish(),
-    timeGapAudit: timeGapAudit.finish(),
+    timeGapAudit: gapResult,
+    journal: journalAudit.finish(gapResult.gaps),
   };
+}
+
+/** Ligger ett godkänt (läkt) tidshål inom loggradsintervallet? */
+function excusedHoleWithin(journal, fromLine, toLine) {
+  return journal.holes.some((h) => h.excused && h.from.line >= fromLine && h.to.line <= toLine);
 }
 
 /** Letar upp källoggen. Filnamnets tidsstämpel först, byte-identitet sedan. */
@@ -659,6 +671,8 @@ function checkPair(jsonlPath, logPath, opts) {
     + `(${audit.checkedHubReports} bootförankrade AISHub-kontroller, ${audit.checkedFusionWindows} fusionsfönster). `
     + 'Detta är en separat kontroll från jsonl = bevarad logg.');
   result.notes.push(...audit.diagnostics);
+  const { journal } = log;
+  const journalMode = Boolean(journal && journal.journal);
   if (audit.lastHubReport) {
     result.notes.push(`Senast lästa AISHub-räknarrapport: ${audit.lastHubReport.time || `loggrad ${audit.lastHubReport.line}`}; `
       + 'övriga loggrader och svansen efter sista räknarrapporten är inte fullständighetsbevisade.');
@@ -666,7 +680,13 @@ function checkPair(jsonlPath, logPath, opts) {
   for (const gap of audit.gaps) {
     const from = gap.from.time || `rad ${gap.from.line}`;
     const to = gap.to.time || `rad ${gap.to.line}`;
-    if (gap.kind === 'missing_poll_rows') {
+    if (gap.kind === 'missing_poll_rows' && journalMode
+        && excusedHoleWithin(journal, gap.from.line, gap.to.line)) {
+      // U71: pollraden försvann i ett hål som löpnumren bevisar läkt. Sampeln
+      // själva är numrerade och finns; underskottet förklaras av hålet.
+      result.notes.push(`Källbokföringens underskott inom ett läkt tidshål (U71): ${gap.missingEmissionsAtLeast} `
+        + `pollbokförd(a) fix(ar) saknar pollrad mellan ${from} och ${to}; sampeln finns enligt löpnumren.`);
+    } else if (gap.kind === 'missing_poll_rows') {
       result.problems.push(`KÄLLOGGEN ÄR OFULLSTÄNDIG: AISHub har emitterat ${gap.to.accepted} fixar `
         + `men bevarade pollrader sedan boot deklarerar bara ${gap.to.declared}. `
         + `Minst ${gap.missingEmissionsAtLeast} ytterligare fix(ar) saknar pollbokföring; `
@@ -704,20 +724,58 @@ function checkPair(jsonlPath, logPath, opts) {
       + `${HEARTBEAT_MARKER}-hjärtslag, så hålgränsen föll tillbaka på ${sek(tg.fallbackLimitMs)}. `
       + 'Har hjärtslagsraden bytt namn i appen (lib/services/SystemCoordinator.js)?');
   }
-  for (const gap of tg.gaps) {
+  tg.gaps.forEach((gap, i) => {
+    const hole = journalMode ? journal.holes[i] : null;
+    if (hole && hole.excused) {
+      result.notes.push(`TIDSHÅL LÄKT (U71): ${gap.from.time} → ${gap.to.time} (${sek(gap.ms)} utan loggrader, `
+        + `loggrader ${gap.from.line}–${gap.to.line}); löpnumren visar att ingen fångstrad saknas, `
+        + `${hole.restored} post(er) från hålet återställda ur omsändningarna.`);
+      return;
+    }
     result.problems.push(`TIDSHÅL I LOGGEN: ${gap.from.time} → ${gap.to.time} (${sek(gap.ms)} utan loggrader, `
       + `loggrader ${gap.from.line}–${gap.to.line}; gräns ${sek(gap.limitMs)}`
-      + `${gap.heartbeat ? ', 60 s-hjärtslaget var belagt' : ''}). Rader har tappats mellan appen och filen.`);
+      + `${gap.heartbeat ? ', 60 s-hjärtslaget var belagt' : ''}). Rader har tappats mellan appen och filen.`
+      + `${hole ? ` Löpnumren läker det inte: ${hole.reason}.` : ''}`);
+  });
+
+  // U71: löpnummerkontrollen. Bara i en logg med journalrader.
+  let logSamples = log.samples;
+  let logCount = log.count;
+  if (journalMode) {
+    const healedHoles = journal.holes.filter((h) => h.excused).length;
+    result.journal = {
+      streams: journal.streams,
+      restoredEntries: journal.restoredEntries,
+      healedSamples: journal.healedSamples.length,
+      holes: journal.holes.length,
+      healedHoles,
+    };
+    result.notes.push(`Löpnummerkontroll (U71): ${journal.streams.length} ström(mar), `
+      + `${journal.streams.reduce((a, st) => a + st.entries, 0)} poster, ${journal.restoredEntries} återställda ur omsändningarna, `
+      + `${journal.healedSamples.length} sampel i den läkta fångsten (${log.count} som original i loggen).`);
+    result.notes.push(`Läkta tidshål (U71): ${healedHoles} av ${journal.holes.length}`);
+    result.notes.push(...journal.notes);
+    result.problems.push(...journal.problems);
+    logSamples = journal.healedSamples;
+    logCount = journal.healedSamples.length;
   }
 
   if (log.bytes === 0) {
     result.notes.push('källoggen är 0 byte — själva loggen gick förlorad (icke-atomisk synk?)');
   }
 
-  const diff = data.complete - log.count;
+  // U71: i en löpnummerlogg ska jsonl vara exakt den läkta fångsten. Ingen
+  // tolkning som härledd tvåkällig korpus: en fältfångst är aldrig en sådan.
+  if (journalMode && data.complete !== logCount) {
+    const missing = logCount - data.complete;
+    result.problems.push(missing > 0
+      ? `${missing} av ${logCount} sampel SAKNAS i jsonl:en jämfört med den läkta fångsten`
+      : `${-missing} FLER rader i jsonl:en än i den läkta fångsten (${logCount})`);
+  }
+  const diff = journalMode ? 0 : data.complete - logCount;
   if (diff < 0) {
-    const pct = log.count > 0 ? ((-diff / log.count) * 100).toFixed(1) : '100.0';
-    result.problems.push(`${-diff} av ${log.count} sampel SAKNAS i jsonl:en (${pct} %)`);
+    const pct = logCount > 0 ? ((-diff / logCount) * 100).toFixed(1) : '100.0';
+    result.problems.push(`${-diff} av ${logCount} sampel SAKNAS i jsonl:en (${pct} %)`);
   } else if (diff > 0) {
     // Fler rader än sampel: två skrivare mot samma path, eller en logg som i
     // sin tur är trunkerad. Båda gör korpusen otillförlitlig som facit.
@@ -725,11 +783,11 @@ function checkPair(jsonlPath, logPath, opts) {
     if (derived) {
       result.notes.push(`${diff} fler rader än loggens sampel — fördelning per feed: ${result.feeds.map(([f, c]) => `${f}=${c}`).join(', ')}`);
       const aisstream = data.feeds.get('aisstream') || 0;
-      if (aisstream === log.count) {
+      if (aisstream === logCount) {
         // Jämför den loggbara delen på riktigt — annars vore "matchar exakt"
         // ett antagande om antal, inte en mätning av innehåll.
         const streamLines = data.lines.filter((_, i) => data.lineFeeds[i] === 'aisstream');
-        const div = firstDivergence(streamLines, log.samples);
+        const div = firstDivergence(streamLines, logSamples);
         if (div > 0) {
           result.problems.push(`aisstream-delens rad ${div} skiljer sig från loggens motsvarande sampel (innehållet matchar inte)`);
         } else {
@@ -743,22 +801,22 @@ function checkPair(jsonlPath, logPath, opts) {
           result.notes.push(`aishub-delens ${diff} rader är parseade ur loggens ${log.responses} [${RESPONSE_MARKER}]-svar (ett svar = många fartygsrader) och kan INTE jämföras rad mot rad`);
         }
       } else {
-        result.problems.push(`${diff} fler rader än loggens sampel och aisstream-delen (${aisstream}) matchar inte heller (${log.count})`);
+        result.problems.push(`${diff} fler rader än loggens sampel och aisstream-delen (${aisstream}) matchar inte heller (${logCount})`);
       }
     } else {
       result.problems.push(`${diff} FLER rader än loggens sampel — dubbelskrivning eller trunkerad logg`);
     }
   }
 
-  if (diff === 0 && log.count > 0) {
-    const div = firstDivergence(data.lines, log.samples);
+  if (diff === 0 && logCount > 0 && (!journalMode || data.complete === logCount)) {
+    const div = firstDivergence(data.lines, logSamples);
     if (div > 0) {
       result.problems.push(`rad ${div} skiljer sig från loggens motsvarande sampel (innehållet matchar inte)`);
     } else {
-      result.notes.push(`alla ${log.count} rader är identiska med loggens sampel, position för position`);
+      result.notes.push(`alla ${logCount} rader är identiska med loggens sampel, position för position`);
     }
-  } else if (diff < 0 && log.count > 0) {
-    const div = firstDivergence(data.lines, log.samples);
+  } else if (diff < 0 && logCount > 0) {
+    const div = firstDivergence(data.lines, logSamples);
     if (div > 0) {
       result.problems.push(`de bevarade raderna är inte ens ett rent prefix — första avvikelsen på rad ${div}`);
     } else if (data.complete > 0) {

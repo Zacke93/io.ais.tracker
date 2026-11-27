@@ -1800,8 +1800,9 @@ körningar i september. Sedan V4 fångar integritetsgrinden luckor över 65 s d�
 monitoringloopens minutslag är belagt (alla sex bortfallen) och, som förut,
 pollrader som saknas i källbokföringen. Den fångar INTE ett bortfall som är
 kortare än gränsen och inte sväljer en pollrad med `accepted > 0`, och den
-kan inte säga vilka rader som saknades; det kräver löpnummer i fångstraderna
-(inte infört). En körning med belagt bortfall är fältbevis, aldrig facit.
+kan inte säga vilka rader som saknades. Sedan U71 (omgång 9) har fångstraderna
+löpnummer och omsänds; se grind 1, "Löpnummer". En körning med bortfall som
+löpnumren inte läker är fältbevis, aldrig facit.
 
 Inför nästa fältprov:
 - Koppla Homey med **kabel**. De korta bortfallen skedde med fungerande
@@ -1950,6 +1951,38 @@ efteråt.
      ände, och verdiktet blir grönt. Den säger heller ingenting om DATAT: att
      körningen har täckning, rätt källa eller stabilt utfall är steg 4:s och
      analysens sak, inte grindens.
+
+   - **Löpnummer (U71, omgång 9)** — på `debug_level = full` numrerar appen
+     fångstraderna (`#<sid>:<nr> ` före meddelandet), skickar dem igen efter
+     2 och 10 minuter (`[CAPTURE_RESEND]`) och skriver en kontrollpunkt per
+     minut (`[CAPTURE_SEQ] … dropped=…`). Se `docs/ARCHITECTURE.md`,
+     "Fångstjournalen". Loggskriptet läker jsonl och starttillstånd ur
+     omsändningarna i nedstängningen; den löpande ombyggnaden var 5:e minut är
+     grep+sed som förut. Efter ett hårdstopp, eller för hand:
+     `node tests/replay-validation/captureJournal.js --jsonl <app.log> > ny.jsonl`
+     (och `--state` för starttillståndet). En logg med journalrader prövas mot alla
+     dessa villkor, annars FEL: varje ström har post 1 = `[CAPTURE_START]`;
+     alla nummer 1..max finns i original eller omsändning; originalen kommer
+     i stigande ordning och aldrig efter sin omsändning eller efter en
+     kontrollpunkt som redan täckte dem; kontrollpunkterna sjunker aldrig;
+     samma nummer två gånger har samma innehåll och ett original förekommer
+     en gång; inga rader efter `[CAPTURE_END]`; ingen ny ström efter en som
+     slutade för att loggnivån sänktes (fångsten var avstängd emellan); inga
+     sampel utan nummer; kontrollpunkterna kommer med högst 65 s mellanrum
+     utom över ett tidshål; jsonl är exakt den läkta fångsten. **Ett tidshål
+     godkänns** bara när samma ström är aktiv närmast före och efter hålet, en
+     kontrollpunkt i den strömmen kommer efter hålet med `dropped=0`, och
+     allt ovan håller. Då står det som `TIDSHÅL LÄKT (U71)` i grindens notiser
+     och som "N tidshål läkta" i summaryn, och AISHub-bokföringens underskott
+     inom hålet blir en notis. **En läkt körning** har alltså hål i loggen men
+     en hel fångst: varje sampel, starttillståndet och varje notis, varning och
+     textbyte finns, och `replay:field` läser de läkta händelserna. Det som
+     saknas är felsökningsrader (vakthunden, UI-cykler), som facit inte bygger
+     på. Kända gränser: ett hål över 10 minuter med poster i läks inte (FEL);
+     svansen efter sista kontrollpunkten bevisas inte; ett bortfall under 65 s
+     som bara sväljer en kontrollpunkt ger FEL fast inget fattas; ordningen
+     prövas bara för stdout-originalen (`[FLOW_TRIGGER_ERROR]` går på stderr).
+     Loggar utan journalrader (k1–k4, banken) döms exakt som förut.
 
    Den interna bokföringen kan bevisa vissa tidigare dolda blockbortfall,
    men certifierar inte alla loggrader. Sista kontrollerade hälsorapportens
