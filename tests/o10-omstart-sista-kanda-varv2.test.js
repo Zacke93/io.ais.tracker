@@ -15,8 +15,10 @@ const geometry = require('../lib/utils/geometry');
  *      sist känd (annars falska "passerade … under AIS-tystnad");
  *  A2: posten från en ordnad omstart förbrukas när båten fått sin andra fix,
  *      så att en senare krasch inte laddar den;
- *  A3: posten gäller bara om appen startar inom 15 min; efter en lång paus
- *      (båten har vänt) är utfallet som före O1. Klocksteg: en stämpel i
+ *  A3: posten gäller bara om appen startar inom 15 min. Efter en paus över
+ *      15 min kastas positionen från stoppet vid laddningen, och testet visar
+ *      att notiserna då är de som basen ger i det läget (båten har vänt, och
+ *      ingen sparad position finns). Klocksteg: en stämpel i
  *      framtiden klampas till "nu" (omgång 9) och gäller; ett steg framåt
  *      gör posten för gammal;
  *  L1: ett fel i sparandet hindrar inte resten av onUninit.
@@ -190,7 +192,7 @@ describe('O1 andra varvet: sist kända positioner över en omstart', () => {
     expect(app._lastKnownPositions.has(MMSI)).toBe(false);
   });
 
-  test('A2: vänd båt vid Kajen, krasch efter en ordnad omstart: rätt bro, riktning och varning (som före O1)', async () => {
+  test('A2: vänd båt vid Kajen, krasch efter en ordnad omstart: rätt bro, riktning och varning (som på basen)', async () => {
     await start({});
     const MMSI = '910020008';
     const s = journey(MMSI, 'PROV KAJ');
@@ -223,7 +225,7 @@ describe('O1 andra varvet: sist kända positioner över en omstart', () => {
     expect(allWarnings().slice(w0)).toContain('Klaffbron');
   });
 
-  test('A3: 5 h paus, båten har vänt: samma notiser som före O1', async () => {
+  test('A3: 5 h paus, båten har vänt: positionen från stoppet kastas, notiserna är basens', async () => {
     await start({});
     const MMSI = '910020005';
     const n = journey(MMSI, 'PROV LÅNG');
