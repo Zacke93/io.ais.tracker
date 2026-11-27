@@ -2921,6 +2921,55 @@ const SCENARIOS = [
     },
   },
   {
+    // KÄND GRÄNS (U75, omgång 9): RETUR FRÅN KAJEN. Båten går norrut genom
+    // Klaffbron (målbron blir Stridsbergsbron), ligger 15 min vid Kajen norr om
+    // Klaffbron, 220 m från bron (kapseln, se scenarierna ovan), och går söderut
+    // genom bron igen. AISHub-takt: fixen är 20 s gamla, stillheten rapporteras
+    // var 3:e minut, och mellan kajen och bron hörs hon EN gång (glappet stryker
+    // benets första rad på kajplatsen; fixet ligger 65 m norr om bron, nästa 90 m
+    // söder). Förtöjd i kajzonen har hon ingen målbro, Klaffbron är passerad på
+    // resan, och vändningen bekräftas först av återkorsningen (U18: två
+    // positioner). Ingen öppningsvarning för returen; den enda Klaffbronvarningen
+    // är uppresans. Passagenotisen för returen kommer. Efterbildar ELFKUNGEN
+    // 2026-08-07 (20260806-42h); positionerna är generatorns.
+    name: 'retur-från-Kajen-220m-norr-om-Klaffbron-en-fix-före-bron (känd gräns, U75)',
+    seed: 7501,
+    vessels: [{
+      mmsi: '907501001',
+      name: 'SYNT-U75-KAJRETUR',
+      startS: S_OLIDEBRON - 400,
+      legs: [
+        {
+          toS: S_KLAFFBRON + 220, speedKn: 5, intervalS: 67, fixLagS: 20,
+        },
+        {
+          stopS: 900, stopIntervalS: 180, stopSog: 0, stopCogDeg: 48, fixLagS: 20,
+        },
+        {
+          toS: S_OLIDEBRON - 400,
+          speedKn: 4.5,
+          intervalS: 67,
+          fixLagS: 20,
+          gapFromS: S_KLAFFBRON + 219,
+          gapToS: S_KLAFFBRON + 221,
+        },
+      ],
+    }],
+    // Låser dagens utfall: en Klaffbronvarning (uppresans), båda passagerna
+    // bokförda, och notiserna "närmar sig" (upp) och "har precis passerat"
+    // (returen, högst 120 s efter den sanna korsningen, riktning söderut). En
+    // rättning som ger returen en varning fäller maxOpeningsPerBridge och ska
+    // prövas mot U18 och U75 (docs/ARCHITECTURE.md), inte låsas om i tysthet.
+    expect: {
+      expectedOpenings: ['Klaffbron'],
+      maxOpeningsPerBridge: { Klaffbron: 1 },
+      minPassagesPerBridge: { Klaffbron: 2 },
+      noticeForms: { Klaffbron: ['närmar', 'precis'] },
+      maxNoticeDelayS: { Klaffbron: 120 },
+      noticeDirectionVsTruth: { Klaffbron: { mismatches: 0 } },
+    },
+  },
+  {
     // Fältprovet 2026-11-12 (körning 1, familj E): avgång ur väntan vid en
     // mellanbro direkt efter en målbroövergång. Efterbildar PRICKBJORN
     // 265012090: passerar Stridsbergsbron söderut (målbytet till Klaffbron
