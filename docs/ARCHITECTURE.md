@@ -1526,35 +1526,54 @@ båt.
   varnar medan hon köar, och det är just det fel som spärren finns mot
   (20260907-31h 80 s, 20260909-80h 131 s).
   **Känd gräns: sen varning efter väntan vid Järnvägsbron (beslut U56,
-  återtaget 2026-11-23).** En båt norrut som väntar eller kryper före
-  Järnvägsbron får varningen för Stridsbergsbron först när hon syns gå, och
-  den kommer sent: i fältprov 2 kom 7 av 9 varningar för Stridsbergsbron
-  norrut 37–218 s före passagen. Båten avgår ur stillhet (som U32 inte tar,
-  eftersom regeln kräver ökning i gång) och når Stridsbergsbron 44–236 s
-  efter att hon börjat röra sig. Mätningen över 93 passager av
-  Stridsbergsbron norrut (25 korpusar och fältkörningarna k1–k3) visade att
-  inget i datan förebådar öppningen utom båtens egen avgång: väntan varar
-  4–52 min utan mönster, en sydgående båt i samma öppning fanns i 4 av 35
-  väntor, och Järnvägsbrons öppningar klustrar bara grovt i timmen. I fem
-  avgångar låg första positionen i rörelse redan vid Järnvägsbron (37–131 s
-  kvar), så ingen regel på båtens egna positioner kan varna dem tidigare.
-  Tre alternativ prövades och avstods. *Sänkt fartgolv i U32* (2,0, 1,5
-  eller 0 kn) hjälpte en passage och varnade krypköer 10–15 min för tidigt
-  (`opening-accel-motfall`). *Varning under väntan* hade kommit i median
-  9–11 min för tidigt, med en svans på 30–50 min och utan tid på kortet.
-  *Avgång ur kö* (U56: första fixet i minst 2,0 kn och 20 m framsteg efter
-  appens köbelägg) gav 9–78 s tidigare varning i fyra av 39 passager i
-  AISHub-takt, men ett ryck i kön (25–60 m i drygt 2 kn för att ge plats,
-  drift med rapporterad fart 2 kn, eller en enda felaktig position) går inte
-  att skilja från avgången i ögonblicket: kortet "om 3" kom då 12–35 min för
-  tidigt och inget kort kom vid den verkliga avgången, där dagens kod varnar
-  64–148 s före, och ryck följt av vändning gav ett falsklarm. I rådatan gick
-  två verkliga ryck (OLA 20260907-31h och PRICKBJORN 18/11) 2,1 kn i verklig
-  medelfart och klarade sig bara för att den enda positionens rapporterade
-  fart råkade vara 1,2 och 1,5 kn. `opening-queue-jerk` låser dagens utfall
-  för rycken (fixturer i `tests/fixtures/ko-ryck/`): ingen varning vid
-  rycket, varningen vid den verkliga avgången, och ingen varning när båten
-  vänder. **Känd gräns (förstakontakt söder
+  återtaget 2026-11-23; U79, 2026-11-27).** En båt norrut som väntar eller
+  kryper före Järnvägsbron får varningen för Stridsbergsbron först när hon
+  syns gå, och den kommer sent. Mätt i omgång 10 (spår J) på 25 korpusar och
+  fältkörningarna k1–k4: 13 av 47 passager efter en väntan varnades under
+  150 s före passagen, i november 8 av 11 med median 129 s. *Vad som
+  begränsar.* Köplatsen ligger 120–160 m före Järnvägsbron, alltså 380–420 m
+  före Stridsbergsbron, och från första rörelsen till passagen går 117–292 s
+  (median 223): det är ledtiden även om varningen gått i samma ögonblick som
+  båten satte fart, och 5 av de 13 sena hade ändå fått under 180 s. Sedan
+  dröjer det 25–110 s (median 80) innan första positionen i rörelse når appen
+  (AISHub hämtas var 67:e sekund; AISstream hör sällan en båt som ligger
+  still). Appen väntar därefter en position till, 0–141 s (median 67), och det
+  är den positionen som skiljer ett ryck från en avgång: den första positionen
+  i rörelse visar ofta 1,2–1,9 kn, under spärrens 2-knopsgräns. I fältet (k4)
+  kom varningarna 0,5 s efter samma positioner som i uppspelningen; appen
+  väntar inte någon annanstans. *Ryck och avgång* går inte att skilja i
+  ögonblicket: i rådatan överlappar fart (avgång 1,2–6,1 kn, ryck
+  1,0–2,3 kn), framsteg, avstånd till bron, väntetid och positionens ålder,
+  och OLA (20260907-31h) ryckte 165 m till 123 m före bron och PRICKBJORN
+  (18/11) 115 m till 134 m före, där avgångarna ligger. Bara nästa position
+  skiljer, och att vänta på den är dagens beteende. *Prövat och avstått.*
+  A1, U56-regeln (första positionen efter kön i minst 2,0 kn och 20 m
+  framsteg): 4 passager 9–82 s tidigare, men byggda ryck i 2,1–2,5 kn ger
+  kortet 12–35 min för tidigt och ryck följt av vändning ett falsklarm. A2
+  (1,0 kn och 20 m, högst 200 m före bron): 7 sena når 152–211 s, men OLA:s
+  och PRICKBJORN:s ryck ger kortet 18,7 och 8,6 min för tidigt, och i 209
+  slumpade världar blir 55 sena tidigare mot 9 ryck 6,6–10,4 min för tidigt.
+  A3 (som A2 utan avståndsgräns): 4 ryck 8,6–21 min för tidigt och en falsk
+  varning. A4 (1,5 kn och 30 m): 2 ryck och en falsk varning. A5 (två
+  positioner, den andra minst 2,5 kn): bara 2 passager 14–68 s tidigare,
+  eftersom appen oftast redan varnar på den andra. A6 (en annan båt har just
+  passerat Järnvägsbron): ingen nytta och 4 falska varningar. A7 (varning
+  redan när väntan börjar): 5–60 min före passagen, 9 av 47 mer än 10 min
+  före och 2 för båtar som inte passerade inom en timme; det är ett annat
+  budskap än "öppnas snart". Sänkt fartgolv i U32 (2,0, 1,5 eller 0 kn)
+  varnade krypköer 10–15 min för tidigt (`opening-accel-motfall`). *Den tidiga
+  signalen norrut* är notisen för Järnvägsbron, som går ut med riktning när
+  båten kommer dit, och brotexten säger "väntar vid Järnvägsbron på väg mot
+  Stridsbergsbron" (U53). *Söderut* finns inte felet: Klaffbron fick 0 av 39
+  sena varningar efter en väntan vid Järnvägsbron, som ligger 963 m norr om
+  Klaffbron. *Antaget, inte mätt:* om Stridsbergsbron i praktiken öppnas
+  redan när båten släpps vid Järnvägsbron är passagen fel mått för varningen.
+  Låsning: `opening-queue-jerk` (fixturer i `tests/fixtures/ko-ryck/`, köer
+  250–310 m före bron): ingen varning vid rycket, varningen vid den verkliga
+  avgången och ingen varning när båten vänder; det syntetiska scenariot
+  "kö-140m-söder-om-Järnvägsbron-ryck-35m-och-ny-väntan (känd gräns, U79)"
+  låser samma sak med kön på det verkliga avståndet, där A2 fäller det.
+  **Känd gräns (förstakontakt söder
   om Olidebron):** utan historik spärras hon inte (H1), och Klaffbronvarningen
   går på 10-knopsdeadlinen från första fixet, i banken 26 gånger 9–38 min före
   Klaffbron. En vakt vid Olidebron mättes 2026-11-16 och infördes inte: den
