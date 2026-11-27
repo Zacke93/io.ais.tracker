@@ -4368,7 +4368,18 @@ class AISBridgeApp extends Homey.App {
     // korsat (porten-antagandet). Med sista kända positionen begränsas
     // inferensfönstret till [senast kända, nuvarande] — belagd evidens i
     // stället för gissning. TTL i _startMonitoring-loopen.
-    if (vessel && Number.isFinite(vessel.lat) && Number.isFinite(vessel.lon)) {
+    // U84 (omgång 10, spår O, ärende O2): en obekräftad GPS-hoppposition får inte
+    // bli sist känd position (GPSJumpAnalyzer.needsPassageConfirmation, samma
+    // regel som för levande båtar och vid omstart, A1). Båtens rena ankare
+    // (`_passageRecoveryPosition`) sparas i stället. Till skillnad från
+    // passageRecoveryPosition gäller ingen 20-minutersgräns: vid en radering
+    // har båten varit tyst i minst en tidsgräns, så ankaret är nästan alltid
+    // äldre än så, och åldern spelar ingen roll för sist-känd-fönstret (t är
+    // raderingstiden, posT positionens egen tid). Finns inget ankare (en kedja
+    // av obekräftade hopp längre än 20 min tappar det) sparas ingenting.
+    const lastKnownSource = GPSJumpAnalyzer.needsPassageConfirmation(vessel)
+      ? vessel._passageRecoveryPosition : vessel;
+    if (vessel && lastKnownSource && Number.isFinite(lastKnownSource.lat) && Number.isFinite(lastKnownSource.lon)) {
       if (!this._lastKnownPositions) this._lastKnownPositions = new Map();
       // Fältprov 3 (2026-07-08): t = removaltid (TTL-ankaret — fönsterlogiken
       // "broar mellan två kända positioner måste ha korsats" är sund oavsett
@@ -4377,17 +4388,17 @@ class AISBridgeApp extends Homey.App {
       // positionens EGEN tid, för ärlig åldersloggning (ELFKUNGEN 12:54
       // loggades "1 min old" för en 31 min gammal position).
       let posT = Date.now();
-      if (Number.isFinite(vessel.lastPositionUpdate)) {
-        posT = vessel.lastPositionUpdate;
-      } else if (Number.isFinite(vessel.timestamp)) {
-        posT = vessel.timestamp;
+      if (Number.isFinite(lastKnownSource.lastPositionUpdate)) {
+        posT = lastKnownSource.lastPositionUpdate;
+      } else if (Number.isFinite(lastKnownSource.timestamp)) {
+        posT = lastKnownSource.timestamp;
       }
       // U37 del 2: fixens egen tid (AISHub-fixen kan vara 20–40 s gammal vid
       // mottagningen), så att en återfödd båts passagenotis kan interpolera
       // korsningen på fixklockan. Äldre poster saknar fältet.
-      const fixTs = Number.isFinite(vessel.fixTs) ? vessel.fixTs : undefined;
+      const fixTs = Number.isFinite(lastKnownSource.fixTs) ? lastKnownSource.fixTs : undefined;
       this._lastKnownPositions.set(String(mmsi), {
-        lat: vessel.lat, lon: vessel.lon, t: Date.now(), posT, ...(fixTs !== undefined ? { fixTs } : {}),
+        lat: lastKnownSource.lat, lon: lastKnownSource.lon, t: Date.now(), posT, ...(fixTs !== undefined ? { fixTs } : {}),
       });
       this._persistLastKnownPositions();
     }
