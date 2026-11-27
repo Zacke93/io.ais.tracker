@@ -2968,7 +2968,8 @@ utom processlyssnarna (U58): minutloopen skrevs över utan `clearInterval`, tjä
 städintervall och inställningslyssnaren låg kvar, och den läckta minutloopen tog bort
 båtar ur den nya tjänsten även efter avstängningen. `onUninit` är prövad efter avbrutna
 och misslyckade starter och sparar den förra körningens minne innan det läses igen.
-Låst av `tests/r9-dubbel-oninit.test.js`.
+Städningen är bästa försök: kastar den (t.ex. `settings.off` eller `aisClient.disconnect`)
+loggas felet och starten fortsätter (granskningen L4). Låst av `tests/r9-dubbel-oninit.test.js`.
 
 **Globala felhanterare (krockskyddet, `onInit` STEG 1).** `uncaughtException` och
 `unhandledRejection` loggas med `[FATAL]` och processen lever vidare. Lyssnarna

@@ -495,7 +495,14 @@ class AISBridgeApp extends Homey.App {
     // även efter onUninit. onUninit är prövad efter avbrutna och misslyckade
     // starter, och den sparar den förra körningens minne innan det läses igen.
     if (this._runtimeLifecycle && !this._shuttingDown) {
-      await this.onUninit();
+      // Granskningen L4: städningen är bästa försök och får aldrig hindra
+      // starten. Kastar den (t.ex. settings.off eller aisClient.disconnect)
+      // startar appen ändå, som före rättningen.
+      try {
+        await this.onUninit();
+      } catch (error) {
+        this.error('[INIT] Städningen av förra körningen misslyckades:', error && error.message ? error.message : error);
+      }
     }
     // En återanvänd app-instans måste öppna skrivvägarna efter onUninit.
     // Identiteten gör samtidigt köade skrivningar från förra starten inaktuella.

@@ -88,6 +88,29 @@ describe('En andra onInit utan onUninit', () => {
     expect(app._persistentRecentTriggers.has('265099301:Klaffbron')).toBe(true);
   });
 
+  // Granskningen L4: städningen av den förra körningen får aldrig hindra starten.
+  test.each([
+    ['settings.off', () => {
+      settings.off = () => {
+        throw new Error('off trasig');
+      };
+    }],
+    ['aisClient.disconnect', () => {
+      app.aisClient.disconnect = () => {
+        throw new Error('disconnect trasig');
+      };
+    }],
+  ])('kastar %s i städningen startar den andra onInit ändå', async (_namn, inject) => {
+    await init();
+    inject();
+    await expect(init()).resolves.toBeUndefined();
+    expect(app._shuttingDown).toBe(false);
+    expect(app.vesselDataService).toBeTruthy();
+    expect(jest.getTimerCount()).toBeGreaterThan(0);
+    expect(app.error.mock.calls.map((c) => c.join(' ')).some((l) => l.includes('[INIT] Städningen av förra körningen misslyckades'))).toBe(true);
+    delete settings.off;
+  });
+
   test('motfall: onInit efter onUninit fungerar som förut', async () => {
     await init();
     await app.onUninit();
