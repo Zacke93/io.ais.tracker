@@ -223,6 +223,20 @@ async function main() {
     now: initialState ? initialState.capturedAt : samples[0].aisTimestamp,
     toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
   });
+  // OMSTARTSSVEPET (omgång 10, spår O): med RESTART_TIMER_STACKS=1 bokförs var
+  // varje timer skapades, så att en timer som ligger kvar efter onUninit kan
+  // spåras (resultatets restart.leftTimers). Av som standard.
+  const timerStacks = new Map();
+  if (process.env.RESTART_TIMER_STACKS === '1') {
+    for (const name of ['setTimeout', 'setInterval']) {
+      const orig = global[name];
+      global[name] = (...a) => {
+        const id = orig(...a);
+        timerStacks.set(typeof id === 'object' ? Number(id) : id, new Error('skapad').stack);
+        return id;
+      };
+    }
+  }
   const monitoringEnabled = process.env.REPLAY_MONITORING === '1';
   const runtimeDiagnostics = {
     monitoringEnabled,
@@ -738,7 +752,119 @@ async function main() {
 
   // ---- Spela upp samples kronologiskt med fake-klockan ----
   let processErrors = 0;
+
+  // ---- OMSTART MED PAUS (omgång 10, spår O; runRestartSweep.js) ----
+  // RESTART_AT (ms) lägger in EN omstart: appen stängs med onUninit
+  // (RESTART_MODE=graceful, standard) eller "dör" (hard: det onUninit skrev
+  // till inställningarna kastas, det som skrivits dessförinnan står kvar, som
+  // efter en krasch). Under RESTART_PAUSE_MS finns ingen app: klockan går och
+  // rader som kommer under pausen tas aldrig emot (ingen AISHub-hämtning i
+  // efterhand). Sedan startas en ny instans mot samma inställningar, och
+  // enhetens onInit skriver appens text som i Homey
+  // (drivers/bridge_status/device.js: en ny instans har ingen, alltså DEFAULT).
+  // RESTART_TRUNCATE_AT avbryter uppspelningen utan efterspel; RESTART_SLIM=1
+  // ger smalare utdata. Utan variablerna är allt som förut; ctrl:'restart'
+  // nedan är oförändrad (ögonblicklig, ingen enhetsskrivning).
+  const numEnv = (k) => (process.env[k] !== undefined && process.env[k] !== '' ? Number(process.env[k]) : null);
+  const restartPlan = Number.isFinite(numEnv('RESTART_AT')) ? {
+    at: numEnv('RESTART_AT'),
+    pauseMs: numEnv('RESTART_PAUSE_MS') || 0,
+    mode: process.env.RESTART_MODE === 'hard' ? 'hard' : 'graceful',
+  } : null;
+  if (restartPlan) restartPlan.resumeAt = restartPlan.at + restartPlan.pauseMs;
+  const truncateAt = Number.isFinite(numEnv('RESTART_TRUNCATE_AT')) ? numEnv('RESTART_TRUNCATE_AT') : null;
+  let restartDone = false;
+  const restartInfo = restartPlan ? { ...restartPlan, droppedDuringPause: 0 } : null;
+  const snapshotVessels = (instance) => {
+    const out = [];
+    const vmap = instance && instance.vesselDataService && instance.vesselDataService.vessels;
+    if (!vmap || typeof vmap.values !== 'function') return out;
+    for (const v of vmap.values()) {
+      out.push({
+        mmsi: String(v.mmsi),
+        name: v.name || null,
+        status: v.status || null,
+        targetBridge: v.targetBridge || null,
+        sog: Number.isFinite(v.sog) ? v.sog : null,
+        hasMovementProof: v._hasMovementProof === true,
+      });
+    }
+    return out;
+  };
+  const tickTo = async (target) => {
+    let g = target - Date.now();
+    while (g > 0) {
+      const st = Math.min(g, 30000);
+      clock.tick(st);
+      g -= st;
+      // eslint-disable-next-line no-await-in-loop
+      await drain();
+    }
+    await drain();
+  };
+  const performRestart = async () => {
+    await tickTo(restartPlan.at);
+    const before = JSON.parse(JSON.stringify(mockHomey.app.settings));
+    restartInfo.vesselsAtRestart = snapshotVessels(app);
+    restartInfo.textAtRestart = lastBridgeText;
+    try {
+      await app.onUninit();
+    } catch (e) {
+      processErrors++;
+      runtimeDiagnostics.shutdownErrors++;
+      console.error(`[REPLAY] processfel i onUninit vid omstart: ${e.message || e}`);
+    }
+    await drain();
+    const after = JSON.parse(JSON.stringify(mockHomey.app.settings));
+    const changed = {};
+    for (const k of new Set([...Object.keys(before), ...Object.keys(after)])) {
+      const a = JSON.stringify(before[k]);
+      const b = JSON.stringify(after[k]);
+      if (a !== b) changed[k] = { beforeLen: a ? a.length : 0, afterLen: b ? b.length : 0 };
+    }
+    restartInfo.settingsChangedByUninit = changed;
+    if (restartPlan.mode === 'hard') mockHomey.app.settings = before;
+    runtimeDiagnostics.timersAfterRestartShutdown.push(clock.countTimers());
+    if (clock.countTimers() > 0) {
+      restartInfo.leftTimers = Object.values(clock.timers || {}).map((tm) => ({
+        inMs: tm.callAt - Date.now(),
+        func: String(tm.func).slice(0, 200),
+        stack: timerStacks.has(tm.id) ? String(timerStacks.get(tm.id)).slice(0, 2000) : null,
+      }));
+    }
+    await tickTo(restartPlan.resumeAt);
+    global.__TEST_MODE__ = true;
+    app = new AISBridgeApp();
+    app.homey = mockHomey;
+    await app.onInit();
+    await drain();
+    instrumentApp(app);
+    enableFusionRouting(app);
+    global.__TEST_MODE__ = undefined;
+    startMonitoring(app);
+    // Enhetens onInit skriver appens text (ny instans ⇒ DEFAULT).
+    const { BRIDGE_TEXT_CONSTANTS: BTC } = require('../../lib/constants'); // eslint-disable-line global-require
+    const deviceText = app._lastBridgeText || BTC.DEFAULT_MESSAGE;
+    if (deviceText !== lastBridgeText) {
+      const t = Date.now();
+      bridgeTextLog.push({ t, iso: new Date(t).toISOString(), text: deviceText });
+      lastBridgeText = deviceText;
+    }
+    restartInfo.textAfterInit = lastBridgeText;
+    restartDone = true;
+  };
+
   for (const s of samples) {
+    if (truncateAt !== null && s.aisTimestamp > truncateAt) break;
+    if (restartPlan && !restartDone && s.aisTimestamp >= restartPlan.at) {
+      // eslint-disable-next-line no-await-in-loop
+      await performRestart();
+    }
+    if (restartPlan && restartDone && s.aisTimestamp < restartPlan.resumeAt) {
+      inputCursor += 1;
+      restartInfo.droppedDuringPause++;
+      continue;
+    }
     // 1) Stega klockan fram till samplets tid → fyrar cleanup/STALE_AIS/
     //    protection-timrar i gapet, och monitoring när det uttryckligen aktiverats.
     // Korpus #9 (2026-07-08, ILLUSION-fönstret): CHUNKA stora gap i 30 s-steg
@@ -876,7 +1002,8 @@ async function main() {
   // ---- Slutstädning: stega fram klockan rejält så att kvarvarande
   //      cleanup-/grace-timrar löser ut (post-resa) och slut-texten fångas.
   //      Chunkat av samma skäl som huvudloopen (korpus #9, 2026-07-08).
-  for (let left = 40 * 60 * 1000; left > 0; left -= 30000) {
+  if (truncateAt !== null) await tickTo(truncateAt); // omstartssvepet: inget efterspel vid avkortning
+  for (let left = truncateAt !== null ? 0 : 40 * 60 * 1000; left > 0; left -= 30000) {
     clock.tick(Math.min(left, 30000));
     // eslint-disable-next-line no-await-in-loop
     await drain();
@@ -1153,6 +1280,14 @@ async function main() {
     intermediatePassages,
     leakDiagnostics,
   };
+
+  // Omstartssvepet: omstartens uppgifter (bara med RESTART_AT) och smalare
+  // utdata med RESTART_SLIM=1.
+  if (restartInfo) result.restart = restartInfo;
+  if (truncateAt !== null) result.truncateAt = truncateAt;
+  if (process.env.RESTART_SLIM === '1') {
+    for (const k of ['bridgeTextLeads', 'preFusionLog', 'openingCoverageVerdicts', 'openingCoverage', 'visitReturnReleases']) delete result[k];
+  }
 
   // Städa ned appen FÖRE utskriften och avsluta i write-CALLBACKEN.
   // Soak-lärdomen (2026-07-03): för stora resultat (72h-soaken ger megabyte-

@@ -12,6 +12,7 @@
     "replay:field": "node tests/replay-validation/compareFieldReplay.js",
     "replay:monitoring": "node tests/replay-validation/runSoak.js --monitoring",
     "replay:phase": "node tests/replay-validation/runPhaseSweep.js",
+    "replay:restart": "node tests/replay-validation/runRestartSweep.js",
     "measure:eta": "node tests/replay-validation/measureEtaAccuracy.js",
     "hunt": "node tests/replay-validation/bugHunt/hunt.js",
     "hunt:quick": "node tests/replay-validation/bugHunt/hunt.js --profile=quick",

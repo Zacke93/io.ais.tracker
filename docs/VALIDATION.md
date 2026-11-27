@@ -2574,3 +2574,30 @@ adversariella granskningen 2026-08-10: selektiva noter på 7 korpusar).
   även körningen med `REPLAY_MONITORING=1` ska vara grön före fältprov.
 - **Mäthygien:** ARM-jämförelser görs i TVÅ isolerade träd (git archive HEAD resp. rsync
   av arbetsträdet); påståendet "HEAD var redan röd" ska styrkas med loggfil från HEAD-trädet.
+
+## Omstartssvepet — diagnosverktyg, INTE en gate (omgång 10, spår O)
+
+`npm run replay:restart -- <jsonl> [...]` (utan filer: hela banken) spelar upp en körning en gång
+utan omstart och sedan en gång per omstartspunkt med EN omstart inlagd, och jämför notiser,
+öppningsvarningar och brotext med körningen utan omstart. Omstarten görs i `replayRunner.js`
+(`RESTART_AT`, `RESTART_PAUSE_MS`, `RESTART_MODE=graceful|hard`, `RESTART_TRUNCATE_AT`,
+`RESTART_SLIM`; utan variablerna är uppspelningen som förut): appen stängs med `onUninit`
+(graceful) eller "dör" (hard: det `onUninit` skrev till inställningarna kastas), ingen app
+finns under pausen och raderna som kommer då tas aldrig emot, sedan startar en ny instans mot
+samma inställningar och enheten skriver appens text ("Inga båtar" i en ny instans).
+
+- Punkter: raster var `--raster` minut (standard 120) och med `--targeted` riktade punkter ur
+  basen (väntan vid målbron, före och mitt i en målbropassage, efter en öppningsvarning, mitt i
+  ett långt stopp; högst `--max-points` per läge). Pauser `--pauses` (s), lägen `--modes`.
+- Utfall per omstart: uteblivna varningar (i pausen, efter pausen för en tyst båt, efter pausen
+  för en båt som hördes i tid), varningar mer än 20 min fel, nya och dubbla varningar, uteblivna och
+  extra notiser, minuter "Inga båtar" fast en båt fanns. Jämförelsen är informativ; slutkoden blir
+  1 bara vid processfel, en timer kvar efter `onUninit` eller en uppspelning som kastar.
+- Prövar INTE: fusionen (uppspelningen går i bypass), AISHub efter omstarten (i Homey kommer
+  alla båtars position inom ungefär en minut; svepet väntar på nästa inspelade rad, så tiden till
+  första position är en övre gräns) och fler än en omstart per uppspelning.
+- Tid: en dygnskorpus med standardrastret tar under en halv minut. Hela banken med riktade
+  punkter och flera pauser är tungt: kör genom kön. `--out=<katalog>` sparar en rad per omstart;
+  lägg den utanför repot när korpusen är en fältkörning.
+- Används vid ändringar i livscykel och sparat tillstånd (`onInit`, `onUninit`,
+  `homey.settings`). Mätningen i omgång 10 står i fältgranskningen (spår O).

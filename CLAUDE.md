@@ -30,6 +30,8 @@ Svar och kodkommentarer på svenska.
     startberoende utfall ska undersökas, inte förväntas eller undantas.
     Kör namngivna korpusar med `npm run replay:phase -- <jsonl>` och även
     `REPLAY_MONITORING=1` när ändringen rör tidsstyrning eller livscykel.
+- Omstartssvepet (informativt, ingår inte i `validate`): `npm run replay:restart -- <jsonl>`;
+  kör vid ändringar i livscykel och sparat tillstånd (`docs/VALIDATION.md` §Omstartssvepet).
 - Lint: `npm run lint`
 - Buggjägaren (rapporterar bara, ingår MEDVETET inte i `validate`): `npm run hunt`, `hunt:quick`,
   `hunt:night`, `hunt:selftest`, `hunt:repro -- <fynd>`; utdata i git-ignorerade `dirigent/hunt/`. Se `docs/BUGGJAKT.md`.
