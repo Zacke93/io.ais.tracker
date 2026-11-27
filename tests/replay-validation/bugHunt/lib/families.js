@@ -454,6 +454,13 @@ function buildWorld(seed, opts = {}) {
     parametrar: focal.parametrar,
     nyckel: KEY_PARAMS[family],
   };
+  // Profilen blandad (BUGGJAKT §4.6): samma värld, omlagd med inflygnings-
+  // profilen och båda källorna. Utan flaggan är världen orörd.
+  if (opts.inflygning) {
+    return falt.inflygningsläge(world, seed, {
+      simulateBoat, orderPlan,
+    });
+  }
   return world;
 }
 

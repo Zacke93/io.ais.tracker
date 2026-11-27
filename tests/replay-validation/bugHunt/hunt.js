@@ -46,7 +46,7 @@ const CALIBRATION = path.join(__dirname, 'calibration.json');
 
 const USAGE = `Användning: node tests/replay-validation/bugHunt/hunt.js [flaggor]
 
-  --profile=quick|standard|night|falt  profil (standard; falt = fältfamiljerna, §4.6)
+  --profile=quick|standard|night|falt|blandad  profil (standard; falt = fältfamiljerna, blandad = de gamla med inflygning, §4.6)
   --worlds=N                       budget i antal världar (sanningsspåret)
   --seed=S                         bas-seed (1)
   --corpus=id,…                    delmängd för bankspåret (självtestet märks "delmängd")

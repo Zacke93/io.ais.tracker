@@ -17,8 +17,8 @@
  *   stop{atS, durS}             stannar vid farledskoordinaten atS
  *   crawl{bridge, withinM, kn}  kryper med kn inom withinM före bron
  *   uturn{atS}                  bromsar, vänder 180° och kör tillbaka
- *   slow{bridge, fromM, toM, kn} saktar in till kn mellan fromM och toM före
- *                               bron (fältfamiljerna, inflygningsprofilen)
+ *   slow{bridge, fromM, toM, kn} saktar in linjärt till kn mellan fromM och
+ *                               toM före bron (fältfamiljerna, inflygningsprofilen)
  *   slowzone{fromS, toS, kn}    låg fart på farledssträckan fromS → toS
  *   role 'moored'               ligger vid kaj {lat, lon} i durS sekunder
  *
@@ -127,10 +127,14 @@ function simulateBoat(b) {
       } else if (step.op === 'slow') {
         // Inflygningsprofilen (fältfamiljerna, BUGGJAKT §4.6): sakta in till kn
         // från fromM till toM före bron; klar vid toM.
+        // Farten avtar linjärt med avståndet från marschfarten vid fromM till
+        // kn vid toM (varv 3: en tvär inbromsning 300–700 m före en målbro
+        // finns i 0,8 % av de inspelade fallen).
         const ahead = (geo.stationByName[step.bridge].s - s) * dir;
         if (ahead <= step.toM) step.done = true;
         else if (ahead <= step.fromM) {
-          vDes = Math.min(vDes, step.kn * KN);
+          const andel = (ahead - step.toM) / Math.max(1, step.fromM - step.toM);
+          vDes = Math.min(vDes, (step.kn * KN) + (Math.max(0, vDes - (step.kn * KN)) * andel));
           phase = 'slow';
         }
       } else if (step.op === 'slowzone') {

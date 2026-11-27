@@ -157,11 +157,9 @@ describe('(b) fältvärldarna', () => {
       const sMin = Math.min(...traj.map((p) => p.s));
       const sMax = Math.max(...traj.map((p) => p.s));
       for (const st of geo.STATIONS) expect(st.s > sMin && st.s < sMax).toBe(false);
-      // Flytten kommer aldrig närmare än 500 m från en målbro (eller stannar där hon började).
-      for (const st of geo.STATIONS.filter((x) => geo.TARGETS.includes(x.name))) {
-        const minD = Math.min(...traj.map((p) => Math.abs(p.s - st.s)));
-        expect(minD >= 499 || minD >= Math.abs(arb.sKaj - st.s) - 1).toBe(true);
-      }
+      // Flytten är en av bankens inspelade kajflyttar (± 10 m).
+      const [första] = arb.flyttar;
+      expect(falt.KAJFLYTTAR.some((k) => Math.abs(k.från - arb.sKaj) <= 10 && Math.abs(k.till - första.tillS) <= 10)).toBe(true);
       expect(traj.filter((p) => p.v !== 0).length).toBeGreaterThan(0);
       expect(stops.every((s) => s.kind === 'moor')).toBe(true);
       expect(traj[traj.length - 1].t - traj[0].t).toBe(arb.durS);
@@ -201,6 +199,32 @@ describe('(b) fältvärldarna', () => {
       const v = ['p10', 'p25', 'p50', 'p75', 'p90', 'p95', 'p99'].map((k) => tab[k]);
       for (let k = 1; k < v.length; k++) expect(v[k]).toBeGreaterThanOrEqual(v[k - 1]);
     }
+  });
+});
+
+describe('(d) profilen blandad: de gamla familjerna med inflygning och båda källorna', () => {
+  test('samma båtar och familj som utan läget, men inflygning, blandad radio och aldrig kortare värld', () => {
+    for (let i = 200000; i < 200004; i++) {
+      const gammal = families.sampleWorld(1, i, { hours: 2.5 });
+      const ny = families.sampleWorld(1, i, { hours: 2.5, families: families.FAMILIES, inflygning: true });
+      expect(ny.familj).toBe(gammal.familj);
+      expect(ny.boats.map((b) => b.mmsi)).toEqual(gammal.boats.map((b) => b.mmsi));
+      expect(ny.boats.map((b) => b.tStartS)).toEqual(gammal.boats.map((b) => b.tStartS));
+      expect(ny.era).toBe('blandad');
+      expect(gammal.era).not.toBe('blandad');
+      expect(ny.durS).toBeGreaterThanOrEqual(gammal.durS);
+      expect(ny.boats.filter((b) => b.role === 'transit').every((b) => (b.tags || []).includes('inflygning'))).toBe(true);
+      const feeds = new Set(observe(ny, 'R1').filter((r) => !r.ctrl).map((r) => r.feed));
+      expect([...feeds].sort()).toEqual(['aishub', 'aisstream']);
+    }
+  });
+
+  test('profilen blandad har egna index och drar ur FAMILIES', () => {
+    const p = profiles.getProfile('blandad');
+    expect(p.indexBas).toBe(200000);
+    expect(p.inflygning).toBe(true);
+    expect([...p.familjer]).toEqual(families.FAMILIES);
+    expect(lane.laneOptions({ profil: 'blandad' }).families).toEqual(families.FAMILIES);
   });
 });
 

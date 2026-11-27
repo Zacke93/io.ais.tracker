@@ -15,7 +15,9 @@
  *   ungefärligTid    — dokumentär uppskattning (för rapportens huvud)
  *   familjer         — (bara falt) familjerna som världarna dras ur; utan
  *                      fältet gäller families.FAMILIES
- *   indexBas         — (bara falt) första världsindex; världarna får index
+ *   inflygning       — (bara blandad) världen läggs om med inflygningsprofilen
+ *                      och radiomodellen blandad (faltFamiljer.inflygningsläge)
+ *   indexBas         — (falt, blandad) första världsindex; världarna får index
  *                      indexBas … indexBas + världar − 1, så att de aldrig
  *                      delar index (och därmed seed) med de andra profilerna
  *
@@ -63,6 +65,20 @@ const PROFILES = Object.freeze({
     familjer: Object.freeze(['F-LÅGSÄSONG', 'F-KÄLLBORTFALL', 'F-ENGÅNG', 'F-MÅLBROVÄNTAN']),
     indexBas: 100000,
     ungefärligTid: '~10 min',
+  }),
+  // De nio gamla familjerna med inflygningsprofilen och båda källorna
+  // (BUGGJAKT §4.6, omgång 9 varv 3). Egna index från 200 000.
+  blandad: Object.freeze({
+    namn: 'blandad',
+    världar: 2000,
+    r0Andel: 0.3,
+    fasDeltaS: Object.freeze([7, -11.52]),
+    fasMonitoring: Object.freeze([false]),
+    representanter: Object.freeze({ kluster: 25, perKluster: 2 }),
+    familjer: Object.freeze(['F-TRANSIT', 'F-KONVOJ', 'F-MÖTE', 'F-KÖ', 'F-KRYP', 'F-USVÄNG', 'F-KAJ', 'F-SENFÖDD', 'F-AVBROTT']),
+    inflygning: true,
+    indexBas: 200000,
+    ungefärligTid: '~20 min',
   }),
 });
 

@@ -35,6 +35,7 @@
 
 const geo = require('./geo');
 const cal = require('./calib');
+const { stream } = require('./rng');
 
 const FÄLTFAMILJER = Object.freeze(['F-LÅGSÄSONG', 'F-KÄLLBORTFALL', 'F-ENGÅNG', 'F-MÅLBROVÄNTAN']);
 
@@ -115,41 +116,46 @@ function kajOffset(quay) {
 }
 
 /**
- * Arbetsbåt vid kaj: ligger still och flyttar sig 1–3 gånger 40–300 m längs
- * farleden i 0,8–2,6 kn, aldrig förbi en brolinje och aldrig närmare än 500 m
- * från en målbro (world.js simulerar rollen 'arbetsbåt'). Positionen hålls i
- * kajens sidoffset. Snävat efter triagen i omgång 9: de 18 inspelade
- * kajflyttarna var 40–770 m (median 180 m) och gav inga apphändelser, medan
- * världens längre flyttar mot broarna gav fem kandidatkort (F01–F05).
+ * Kajflyttarna i banken (omgång 9, varv 3): åtta inspelade flyttar mellan två
+ * stillaepisoder på minst 10 min (o9/S/verktyg/kajflytt.js), som farleds-
+ * koordinat från → till (avrundad till 10 m) och högsta sog under flytten.
+ * Fältproven (k1–k4) har tio till i samma områden (hamnen söder om infarten,
+ * vid Klaffbron och Stallbackabron) men står inte här: fältets positioner
+ * hör inte hemma i repot.
+ */
+const KAJFLYTTAR = Object.freeze([
+  { från: 6130, till: 6420, kn: 6.8 },
+  { från: 6420, till: 6130, kn: 0.5 },
+  { från: 2650, till: 3130, kn: 2.3 },
+  { från: -60, till: -160, kn: 2.2 },
+  { från: 140, till: -40, kn: 0.2 },
+  { från: 40, till: -120, kn: 1.5 },
+  { från: 80, till: -100, kn: 2.6 },
+  { från: 50, till: -120, kn: 0.1 },
+].map((x) => Object.freeze(x)));
+
+/**
+ * Arbetsbåt vid kaj (varv 3): flyttar sig som en av bankens inspelade
+ * kajflyttar (KAJFLYTTAR, ± 10 m), i 0,8–3 kn (den inspelade högsta farten,
+ * klippt), och i hälften av fallen tillbaka efter 10–60 min. Sidoffseten är
+ * närmaste kajplats i calibration.json (inom 300 m längs farleden), annars
+ * 30 m. Förut flyttade den sig från vilken kajplats som helst, och fyra kort
+ * i fältjakten kom från flyttar vid Klaffbron som inte finns i inspelad trafik.
  */
 function arbetsbåt(rnd, world, f) {
-  const quay = rnd.pick(cal.QUAYS);
-  const k = kajOffset(quay);
-  const n = rnd.int(1, 3);
+  const k = rnd.pick(KAJFLYTTAR);
+  const sKaj = Math.round(k.från + rnd.range(-10, 10));
+  const till = Math.round(k.till + rnd.range(-10, 10));
+  const kn = round1(Math.min(3, Math.max(0.8, k.kn)));
+  const nära = cal.QUAYS.map((q) => ({ q, d: Math.abs(q.s - sKaj) })).sort((a, b) => a.d - b.d)[0];
+  const quay = nära.q;
+  const l = nära.d <= 300 ? kajOffset(quay).l : 30;
   const flyttar = [];
-  let { s } = k;
-  let t = Math.round(rnd.range(600, 1800));
-  for (let i = 0; i < n && t < world.durS - 900; i++) {
-    const d = rnd.range(40, 300);
-    const kn = round1(rnd.range(0.8, 2.6));
-    let till = null;
-    const först = rnd.chance(0.5) ? 1 : -1;
-    for (const sign of [först, -först]) {
-      // Utrymmet åt det hållet: fram till 40 m före närmaste brolinje och aldrig
-      // närmare än 500 m från en målbro (eller kartans kant). I inspelad trafik
-      // (banken och k1–k4) finns 18 kajflyttar, och ingen kom närmare en målbro
-      // än 465 m; mot Olidebron, Järnvägsbron, Stallbackabron och Kanalinfarten
-      // kom de 30–150 m (o9/S/matt/kajflytt.txt).
-      const gränser = geo.STATIONS.map((st) => ({ d: (st.s - s) * sign, marg: geo.TARGETS.includes(st.name) ? 500 : 40 }))
-        .filter((x) => x.d > 0).map((x) => x.d - x.marg);
-      const rum = Math.min(gränser.length ? Math.min(...gränser) : Infinity, sign > 0 ? 6900 - s : s);
-      if (till === null && rum >= 40) till = Math.round(s + (sign * Math.min(d, rum)));
-    }
-    if (till === null) break;
-    flyttar.push({ atS: t, tillS: till, kn });
-    const tidS = (Math.abs(till - s) / (kn * KN)) + 120;
-    s = till;
-    t = Math.round(t + tidS + rnd.range(600, 3600));
+  let t = Math.round(rnd.range(600, Math.max(601, world.durS - 2400)));
+  flyttar.push({ atS: t, tillS: till, kn });
+  if (rnd.chance(0.5)) {
+    t = Math.round(t + (Math.abs(till - sKaj) / (kn * KN)) + 120 + rnd.range(600, 3600));
+    if (t < world.durS - 600) flyttar.push({ atS: t, tillS: sKaj, kn });
   }
   const m = f.moored({ quay, durS: world.durS, extraTags: ['arbetsbåt'] });
   return {
@@ -157,14 +163,14 @@ function arbetsbåt(rnd, world, f) {
     name: m.name,
     cls: 'A',
     role: 'arbetsbåt',
-    dir: flyttar.length && flyttar[0].tillS < k.s ? 'south' : 'north',
-    sKaj: Math.round(k.s),
-    laneM: k.l,
+    dir: till < sKaj ? 'south' : 'north',
+    sKaj,
+    laneM: l,
     flyttar,
     navStillStatus: 5,
     tStartS: 0,
     durS: world.durS,
-    tags: ['arbetsbåt', `kaj@${quay.nearest}${quay.dist}m`, `${flyttar.length} flytt`],
+    tags: ['arbetsbåt', `kajflytt ${k.från}→${k.till}`, `${flyttar.length} flytt`],
     seed: m.seed,
     fokal: true,
   };
@@ -189,13 +195,13 @@ function arbetsbåt(rnd, world, f) {
 // ---------------------------------------------------------------------------
 const INFLYGNING = Object.freeze([
   {
-    broar: ['Olidebron'], pKryp: 0.25, pStopp: 0.6, stoppM: [40, 300],
+    broar: ['Olidebron'], pKryp: 0.35, pStopp: 0.3, stoppM: [40, 300],
   },
   {
-    broar: ['Klaffbron'], pKryp: 0.22, pStopp: 0.6, stoppM: [100, 300],
+    broar: ['Klaffbron'], pKryp: 0.3, pStopp: 0.3, stoppM: [100, 300],
   },
   {
-    broar: ['Järnvägsbron', 'Stridsbergsbron'], pKryp: 0.35, pStopp: 0.65, stoppM: [60, 300],
+    broar: ['Järnvägsbron', 'Stridsbergsbron'], pKryp: 0.5, pStopp: 0.35, stoppM: [60, 300],
   },
   {
     broar: ['Stallbackabron'], pKryp: 0.05, pStopp: 0.5, stoppM: [100, 300],
@@ -243,9 +249,11 @@ function inflygning(rnd, b, h) {
           });
         }
       }
-      // Efter kön kryper hon fram till 20–80 m före bron och sätter sedan fart
-      // genom bron (inspelat: 0,6 % av korsningarna under 1 kn).
-      const toM = Math.round(rnd.range(20, 80));
+      // Efter kön kryper hon 20–60 m framåt och sätter sedan fart genom bron
+      // (inspelat: 0,6 % av korsningarna under 1 kn; köerna ligger 74–575 m
+      // före bron, o9/S/matt/koplats.txt). Varv 2 lät henne krypa ända fram
+      // till 20–80 m före bron, vilket gav kortet F06 i varv 2:s slutkörning.
+      const toM = Math.max(20, Math.round(distM - rnd.range(20, 60)));
       if (distM > toM + 10) {
         plan.push({
           op: 'slow', bridge: först, fromM: distM + 5, toM, kn,
@@ -394,14 +402,13 @@ const BUILDERS = {
     };
   },
   'F-MÅLBROVÄNTAN': (rnd, world, f, h) => {
-    // Köplatserna: Stridsbergsbron och Klaffbron söderut är bankens (calibration.json);
-    // Klaffbron norrut 120–300 m är ANTAGEN (banken och fältet har ingen kö där).
+    // Köplatserna är bankens (calibration.json): Stridsbergsbron och Klaffbron
+    // söderut. Klaffbron norrut, som varv 1 och 2 antog, är borttagen i varv 3:
+    // banken och k1–k4 har 0 väntor före Klaffbron norrut (o9/S/matt/koplats.txt),
+    // och den köplatsen gav kortet F07 (sågtand med tre båtar i kö).
     const site = rnd.weighted([
       [{ bridge: 'Stridsbergsbron', dir: 'south', distM: [80, 193] }, 26],
       [{ bridge: 'Klaffbron', dir: 'south', distM: [221, 307] }, 3],
-      [{
-        bridge: 'Klaffbron', dir: 'north', distM: [120, 300], antagen: true,
-      }, 6],
     ]);
     const distM = Math.round(rnd.range(site.distM[0], site.distM[1]));
     const durS = Math.round(rnd.range(300, 2400));
@@ -535,6 +542,48 @@ function buildFältWorld(rnd, family, seed, opts, h) {
   return world;
 }
 
+/**
+ * Profilen `blandad` (omgång 9, varv 3): de nio gamla familjerna med
+ * inflygningsprofilen och radiomodellen blandad. Världen byggs först exakt som
+ * förut (families.buildWorld), och läggs sedan om här med en egen slumpström
+ * (`inflygning`), så att resten av specen är densamma som för samma seed utan
+ * läget. Täthet, datum och familjernas fokala planer behålls; varje transit
+ * utan egen plan vid en bro får inflygningsprofilen, världen får båda
+ * källorna och förlängs (högst 5 h) tills de fokala transiterna lämnat
+ * området. Familjernas tidsberoende parametrar (konvojens Δ, mötets Δ,
+ * avbrottets läge) är satta före profilen och stämmer därför bara ungefär.
+ * @param {object} world - världens spec (ändras)
+ * @param {number} seed - världens seed
+ * @param {object} h - families.js hjälpare
+ * @returns {object} världens spec
+ */
+function inflygningsläge(world, seed, h) {
+  const rnd = stream(seed, 'inflygning');
+  world.era = 'blandad';
+  world.generator = `${world.generator} + inflygning`;
+  world.källfel = [];
+  for (const b of world.boats) if (b.role === 'transit' && !b.fastFart) inflygning(rnd, b, h);
+  for (const b of world.boats) {
+    if (!b.fokal || b.role !== 'transit') continue;
+    const tr = h.simulateBoat(b).traj;
+    if (tr.length) world.durS = Math.max(world.durS, Math.min(5 * 3600, Math.round(tr[tr.length - 1].t + 300)));
+  }
+  for (const b of world.boats) if (b.role === 'moored') b.durS = world.durS;
+  return world;
+}
+
 module.exports = {
-  FÄLTFAMILJER, FÄLT_VIKTER, FÄLT_NYCKLAR, VINTER, vinter, VINTER_TAKTFAKTOR, BUILDERS, buildFältWorld, kajOffset, INFLYGNING, inflygning,
+  FÄLTFAMILJER,
+  FÄLT_VIKTER,
+  FÄLT_NYCKLAR,
+  VINTER,
+  vinter,
+  VINTER_TAKTFAKTOR,
+  BUILDERS,
+  buildFältWorld,
+  kajOffset,
+  INFLYGNING,
+  inflygning,
+  KAJFLYTTAR,
+  inflygningsläge,
 };

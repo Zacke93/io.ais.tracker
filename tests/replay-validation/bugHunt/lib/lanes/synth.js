@@ -314,7 +314,9 @@ async function självtest(körning) {
   const fp = körning.profil && körning.profil.familjer;
   const rtF = fp
     ? selftestSynth.roundTrip({
-      specs: Array.from({ length: 20 }, (_, i) => sampleWorld(körning.seed, (körning.profil.indexBas || 0) + i, { families: [...fp] })),
+      specs: Array.from({ length: 20 }, (_, i) => sampleWorld(körning.seed, (körning.profil.indexBas || 0) + i, {
+        families: [...fp], ...(körning.profil.inflygning ? { inflygning: true } : {}),
+      })),
     })
     : { avvikelser: [], prövade: 0 };
   const avvikelser = [...rt.avvikelser, ...rtK.avvikelser, ...rtF.avvikelser];
@@ -415,7 +417,7 @@ function reproFor(f, w) {
 async function judgeWorld(körning, i, { radios, families, dir }) {
   const { seed } = körning;
   const radio = profileFor(seed, i, radios, körning.profil.r0Andel);
-  const spec = sampleWorld(seed, i, { families });
+  const spec = sampleWorld(seed, i, körning.profil.inflygning ? { families, inflygning: true } : { families });
   const built = core.materialize(spec, { profile: radio });
   const namn = `w${built.spec.seed}-${i}-${radio}`;
   const monitoring = i % 4 === 3;
