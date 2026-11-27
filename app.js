@@ -290,8 +290,14 @@ const LAST_KNOWN_PERSIST_INTERVAL_MS = 15 * 60 * 1000;
 // appen startar inom 15 minuter från att den skrevs. En uppdatering eller en
 // omstart av Homey tar sekunder till minuter; efter en längre paus vet appen
 // inte vad båten gjort (vändning under pausen gav falska passagenotiser).
-// Äldre sådana poster kastas vid laddningen och appen beter sig som före O1.
-// Poster som skrivs vid radering behåller sina 6 h.
+// Gränsen gäller appens paus och prövas vid laddningen. Äldre sådana poster
+// kastas, och eftersom posten skrev över en eventuell äldre raderingspost för
+// samma båt startar appen då utan kunskap om båten (känd gräns, V2-5 i
+// granskningen: ELFKUNGEN i 20260804-17h, 30 min paus, fem uteblivna notiser;
+// vid 30 min och 2 h paus 12 omstarter bättre och 7 sämre av 1 319). En båt som
+// inte hörs efter omstarten behåller posten i minnet som en vanlig sist känd
+// position (6 h), som en raderad båt utan omstart (V2-1). Poster som skrivs
+// vid radering behåller sina 6 h.
 const LAST_KNOWN_SHUTDOWN_MAX_AGE_MS = 15 * 60 * 1000;
 
 // Helkodsgranskning 2026-08-22 (H14): livslängden för en OBEKRÄFTAD
