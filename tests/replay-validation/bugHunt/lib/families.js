@@ -19,6 +19,7 @@ const geo = require('./geo');
 const cal = require('./calib');
 const { stream, deriveSeed } = require('./rng');
 const { simulateBoat, KN } = require('./world');
+const falt = require('./faltFamiljer');
 
 const FAMILIES = ['F-TRANSIT', 'F-KONVOJ', 'F-MÖTE', 'F-KÖ', 'F-KRYP', 'F-USVÄNG', 'F-KAJ', 'F-SENFÖDD', 'F-AVBROTT'];
 
@@ -400,8 +401,15 @@ function addBackground(rnd, world, f, stress) {
 function buildWorld(seed, opts = {}) {
   const rnd = stream(seed, 'värld');
   const families = opts.families && opts.families.length ? opts.families : FAMILIES;
-  for (const fam of families) if (!BUILDERS[fam]) throw new Error(`Okänd familj: ${fam}`);
-  const family = opts.family || rnd.weighted(families.map((x) => [x, FAMILY_WEIGHTS[x]]));
+  for (const fam of families) if (!BUILDERS[fam] && !falt.BUILDERS[fam]) throw new Error(`Okänd familj: ${fam}`);
+  const family = opts.family || rnd.weighted(families.map((x) => [x, FAMILY_WEIGHTS[x] || falt.FÄLT_VIKTER[x]]));
+  // Fältfamiljerna (BUGGJAKT §4.6) bygger egna vintervärldar. De ingår inte i
+  // FAMILIES, så de gamla profilerna når aldrig den här grenen.
+  if (falt.BUILDERS[family]) {
+    return falt.buildFältWorld(rnd, family, seed, opts, {
+      makeFactory, transitNeedS, focalStart, timeAtDistanceBefore, crossingTimeS, poisson, simulateBoat,
+    });
+  }
   if (!BUILDERS[family]) throw new Error(`Okänd familj: ${family}`);
   const stressDraw = rnd.chance(STRESS_SHARE);
   const stress = typeof opts.stress === 'boolean' ? opts.stress : stressDraw;
@@ -507,6 +515,8 @@ function canarySpec(p) {
   };
 }
 
+const { FÄLTFAMILJER } = falt;
+
 module.exports = {
-  FAMILIES, FAMILY_WEIGHTS, KEY_PARAMS, BUILDERS, buildWorld, sampleWorld, canarySpec, crossingTimeS, timeAtDistanceBefore, orderPlan,
+  FÄLTFAMILJER, FAMILIES, FAMILY_WEIGHTS, KEY_PARAMS, BUILDERS, buildWorld, sampleWorld, canarySpec, crossingTimeS, timeAtDistanceBefore, orderPlan,
 };

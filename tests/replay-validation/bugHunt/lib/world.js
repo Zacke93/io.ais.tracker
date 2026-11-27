@@ -52,6 +52,7 @@ const sectorFactor = (s, dir) => FACTOR[dir][geo.sectorIndex(s)];
  * @returns {{traj:object[], stops:object[], uturns:object[]}} bana och händelser
  */
 function simulateBoat(b) {
+  if (b.role === 'arbetsbåt') return simulateArbetsbåt(b);
   const traj = [];
   const stops = [];
   const uturns = [];
@@ -84,7 +85,8 @@ function simulateBoat(b) {
   let guard = 0;
   while (s >= S_MIN && s <= S_MAX && guard++ < MAX_SIM_S) {
     const step = plan.find((p) => !p.done);
-    let vDes = b.cruiseKn * KN * sectorFactor(s, dir);
+    // fastFart (fältfamiljen F-ENGÅNG): marschfarten utan sektorfaktor.
+    let vDes = b.cruiseKn * KN * (b.fastFart ? 1 : sectorFactor(s, dir));
     let phase = 'cruise';
     if (waitUntil !== null) {
       v = 0;
@@ -146,6 +148,65 @@ function simulateBoat(b) {
     if (endS !== null && endS !== undefined && ((dir === 1 && s >= endS) || (dir === -1 && s <= endS))) break;
   }
   return { traj, stops, uturns };
+}
+
+/**
+ * Arbetsbåt vid kaj (fältfamiljen F-LÅGSÄSONG, BUGGJAKT §4.6): ligger still
+ * vid farledskoordinaten sKaj med sidoffset laneM och flyttar sig enligt
+ * `flyttar` [{atS, tillS, kn}] (atS i världens sekunder, tillS en
+ * farledskoordinat), med samma acceleration och inbromsning som en transit.
+ * Stilla sträckor bokförs som kajstopp (kind 'moor'). Specen läses bara.
+ * @param {object} b - båtens spec
+ * @returns {{traj:object[], stops:object[], uturns:object[]}} bana och händelser
+ */
+function simulateArbetsbåt(b) {
+  const traj = [];
+  const stops = [];
+  const flyttar = [...(b.flyttar || [])].sort((x, y) => x.atS - y.atS);
+  let s = b.sKaj;
+  const l = b.laneM || 0;
+  let v = 0;
+  let k = 0;
+  let stillaFrån = b.tStartS;
+  const slut = b.tStartS + b.durS;
+  for (let t = b.tStartS; t <= slut; t += 1) {
+    const m = flyttar[k];
+    let dir = 0;
+    let phase = 'moored';
+    if (m && t >= m.atS) {
+      const kvar = m.tillS - s;
+      dir = Math.sign(kvar);
+      if (Math.abs(kvar) < 0.5) {
+        s = m.tillS;
+        v = 0;
+        dir = 0;
+        k++;
+        stillaFrån = t;
+      } else {
+        if (v === 0 && stillaFrån !== null) {
+          stops.push({
+            t0: stillaFrån, t1: t, s: Math.round(s), kind: 'moor', lat: null, lon: null,
+          });
+          stillaFrån = null;
+        }
+        const vDes = Math.min(m.kn * KN, Math.sqrt(2 * A_DN * Math.abs(kvar)));
+        if (v < vDes) v = Math.min(vDes, v + A_UP);
+        else v = Math.max(vDes, v - A_DN);
+        v = Math.max(v, 0.05);
+        s += dir * Math.min(v, Math.abs(kvar));
+        phase = 'kajflytt';
+      }
+    }
+    traj.push({
+      t, s, l, v: dir * v, dir, phase,
+    });
+  }
+  if (stillaFrån !== null) {
+    stops.push({
+      t0: stillaFrån, t1: slut, s: Math.round(s), kind: 'moor', lat: null, lon: null,
+    });
+  }
+  return { traj, stops, uturns: [] };
 }
 
 /**

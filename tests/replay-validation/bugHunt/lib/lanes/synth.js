@@ -40,7 +40,8 @@ const realism = require('../realism');
 const calib = require('../calib');
 const report = require('../report');
 const bankOps = require('../bankOps');
-const { FAMILIES, sampleWorld } = require('../families');
+const { FAMILIES, FÄLTFAMILJER, sampleWorld } = require('../families');
+const profiles = require('../profiles');
 const { profileFor } = require('../synthLane');
 const { hashJson } = require('../rng');
 const { bankTruth, truthToJson } = require('../truth');
@@ -80,7 +81,10 @@ report.registerOracleText('S-KANARIE', 'kanariens produktförväntningar — en 
 
 function laneOptions(flaggor) {
   const radios = flaggor.radio || [...RADIOS];
-  const families = flaggor.familjer || [...FAMILIES];
+  // Profilen falt drar ur fältfamiljerna (BUGGJAKT §4.6); övriga profiler
+  // saknar fältet och får FAMILIES som förut.
+  const profil = flaggor.profil && profiles.PROFILES[flaggor.profil];
+  const families = flaggor.familjer || (profil && profil.familjer ? [...profil.familjer] : [...FAMILIES]);
   return { radios, families };
 }
 
@@ -97,7 +101,7 @@ function kontrollera(flaggor) {
   }
   for (const f of families) {
     if (f === 'F-OMSTART') throw fel('--families=F-OMSTART är sträckmål S1 (kräver T11) och finns inte i v1');
-    if (!FAMILIES.includes(f)) throw fel(`okänd familj "${f}" (kända: ${FAMILIES.join(', ')})`);
+    if (!FAMILIES.includes(f) && !FÄLTFAMILJER.includes(f)) throw fel(`okänd familj "${f}" (kända: ${[...FAMILIES, ...FÄLTFAMILJER].join(', ')})`);
   }
 }
 
@@ -306,8 +310,15 @@ async function självtest(körning) {
   // S-RUNDRESA
   const rt = selftestSynth.roundTrip({ seed: körning.seed, n: 20 });
   const rtK = selftestSynth.roundTrip({ specs: selftestSynth.loadCanaries().map((k) => k.spec), profiles: ['R0'] });
-  const avvikelser = [...rt.avvikelser, ...rtK.avvikelser];
-  const prövade = rt.prövade + rtK.prövade;
+  // Profilen falt prövar också 20 fältvärldar ur sina egna index (BUGGJAKT §4.6).
+  const fp = körning.profil && körning.profil.familjer;
+  const rtF = fp
+    ? selftestSynth.roundTrip({
+      specs: Array.from({ length: 20 }, (_, i) => sampleWorld(körning.seed, (körning.profil.indexBas || 0) + i, { families: [...fp] })),
+    })
+    : { avvikelser: [], prövade: 0 };
+  const avvikelser = [...rt.avvikelser, ...rtK.avvikelser, ...rtF.avvikelser];
+  const prövade = rt.prövade + rtK.prövade + rtF.prövade;
   h.rundresa = { prövade, avvikelser };
   if (avvikelser.length) körning.stoppa(0, `S-RUNDRESA: ${avvikelser.length} av ${prövade} världar gav inte bitlika rader ur sin JSON-spec`);
   const ledtid = kan.kanarier.flatMap((k) => (k.ledtider || []).map((l) => `${k.id} ${l.bro} ${l.ledtidS} s`)).slice(0, 6).join(', ');
@@ -498,7 +509,9 @@ async function kör(körning) {
   const dir = path.join(körning.temp, 'synt');
   fs.mkdirSync(dir, { recursive: true });
   const N = körning.världar;
-  const indices = Array.from({ length: N }, (_, i) => i);
+  // Profilen falt har egna index från indexBas (BUGGJAKT §4.6).
+  const bas = körning.profil.indexBas || 0;
+  const indices = Array.from({ length: N }, (_, i) => bas + i);
   const recs = await mapPool(indices, körning.pool.jobb, (i) => judgeWorld(körning, i, { radios, families, dir }), körning.tidenUte);
   let prefix = recs.findIndex((r) => r === undefined);
   if (prefix < 0) prefix = recs.length;

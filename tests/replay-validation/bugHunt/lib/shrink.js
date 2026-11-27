@@ -380,6 +380,55 @@ function searchableParams(spec, mål) {
       },
     });
   }
+  // Fältfamiljerna (BUGGJAKT §4.6): källbortfallets längd, den väntande
+  // båtens tystnad och avståndet till bron vid den enda fixen.
+  if (fam === 'F-KÄLLBORTFALL' && Array.isArray(spec.källfel) && spec.källfel.length) {
+    out.push({
+      namn: 'avbrottS',
+      etikett: `${spec.källfel[0].källa} tyst`,
+      enhet: 's',
+      min: 30,
+      max: 4 * 3600,
+      decimaler: 0,
+      get: (s) => s.källfel[0].tillS - s.källfel[0].frånS,
+      set: (s, v) => {
+        s.källfel[0].tillS = s.källfel[0].frånS + v;
+      },
+    });
+  }
+  if (fam === 'F-MÅLBROVÄNTAN' && fb[0] && Array.isArray(fb[0].tystnad) && fb[0].tystnad.length) {
+    const m = fb[0].mmsi;
+    out.push({
+      namn: 'tystnadS',
+      etikett: `tystnad i kön (${m})`,
+      enhet: 's',
+      min: 30,
+      max: 3600,
+      decimaler: 0,
+      get: (s) => boatOf(s, m).tystnad[0].tillS - boatOf(s, m).tystnad[0].frånS,
+      set: (s, v) => {
+        const w = boatOf(s, m).tystnad[0];
+        w.tillS = w.frånS + v;
+      },
+    });
+  }
+  if (fam === 'F-ENGÅNG' && fb[0] && fb[0].enfix && spec.fokal && spec.fokal.parametrar && spec.fokal.parametrar.bro) {
+    const m = fb[0].mmsi;
+    const st = geo.stationByName[spec.fokal.parametrar.bro];
+    const sida = Math.sign(fb[0].enfix.s - st.s) || 1;
+    out.push({
+      namn: 'avståndM',
+      etikett: `den enda fixens avstånd från ${st.name}`,
+      enhet: 'm',
+      min: 50,
+      max: 1500,
+      decimaler: 0,
+      get: (s) => Math.abs(boatOf(s, m).enfix.s - st.s),
+      set: (s, v) => {
+        boatOf(s, m).enfix.s = Math.round(st.s + (sida * v));
+      },
+    });
+  }
   if (!out.length && bro && mål.mmsi) {
     // KONVOJPAR: målbåten och den båt som korsar samma bro närmast före den.
     const others = (mål.mmsis || []).filter((x) => x !== String(mål.mmsi) && boatOf(spec, x));
@@ -676,7 +725,7 @@ async function shrinkSpec(spec0, mål, deps) {
   if (radio !== 'R0' && spec.era !== 'aisstream') {
     const c = clone(spec);
     c.era = 'aisstream';
-    await tryAccept(c, 'källa AISHub → aisstream');
+    await tryAccept(c, spec.era === 'blandad' ? 'två källor → bara aisstream' : 'källa AISHub → aisstream');
   }
 
   // (D) korta världen: kajliggarna slutar 15 min efter utslaget.

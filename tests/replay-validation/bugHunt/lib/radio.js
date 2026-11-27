@@ -60,6 +60,7 @@ const geo = require('./geo');
 const cal = require('./calib');
 const { stream } = require('./rng');
 const { truthAt, KN } = require('./world');
+const falt = require('./faltFamiljer');
 
 const M_PER_DEG_LAT = 111320;
 
@@ -204,6 +205,25 @@ function silenceWindows(world) {
   return out;
 }
 
+/**
+ * Båtens egen radiotystnad (fältfamiljen F-MÅLBROVÄNTAN, BUGGJAKT §4.6):
+ * transpondern sänder inte i intervallen `tystnad` [{frånS, tillS}]. Gäller
+ * båda källorna och alla radioprofiler, även R0. En båt utan fältet påverkas
+ * inte, och inga slumptal dras.
+ * @param {object} b - båtens spec
+ * @param {number} tS - fixtid (s från världens start)
+ * @returns {boolean} true om båten är tyst
+ */
+const båtTyst = (b, tS) => Array.isArray(b.tystnad) && b.tystnad.some((w) => tS >= w.frånS && tS < w.tillS);
+
+/**
+ * Källans tystnad (fältfamiljen F-KÄLLBORTFALL): `world.källfel`
+ * [{källa, frånS, tillS}] tystar en källa för alla båtar. Bara i
+ * radiomodellen 'blandad' (R1); R0 är en idealiserad enkällsradio.
+ */
+const källTyst = (world, källa, tS) => Array.isArray(world.källfel)
+  && world.källfel.some((k) => k.källa === källa && tS >= k.frånS && tS < k.tillS);
+
 /** AISHub-pollens tider (s) — en världsström, oberoende av båtarna. */
 function pollTimes(radioSeed, fromS, toS) {
   const rnd = stream(radioSeed, 'aishub-poll');
@@ -215,6 +235,152 @@ function pollTimes(radioSeed, fromS, toS) {
     P += 65 + rnd.range(0, 5);
   }
   return out;
+}
+
+/**
+ * En båt som hörs EN gång (fältfamiljen F-ENGÅNG): en enda rad när banan
+ * passerar farledskoordinaten `enfix.s` (i färdriktningen), sedan inget.
+ * Källan är `enfix.källa` i radiomodellen 'blandad' och annars världens era
+ * (R0: aisstream). En AISHub-rad får fältets vinterålder vid mottagandet.
+ * Egen slumpström (`radio-<mmsi>-enfix`).
+ */
+function observeEnfix({
+  bt, profile, era, baseSeed, T0, silent, rows,
+}) {
+  const b = bt.spec;
+  const rnd = stream(baseSeed, `radio-${b.mmsi}-enfix`);
+  const sign = b.dir === 'south' ? -1 : 1;
+  const p = bt.traj.find((x) => (x.s - b.enfix.s) * sign >= 0);
+  if (!p || !geo.inRadioBox(p.lat, p.lon) || silent(p.t) || båtTyst(b, p.t)) return;
+  const feed = era === 'blandad' ? b.enfix.källa : era;
+  const cls = profile.forceClassA ? 'A' : b.cls;
+  const ctx = {
+    rnd, b, cls, noise: profile.noise && b.noise !== false, nameState: () => b.name,
+  };
+  const fixMs = T0 + (Math.floor(p.t) * 1000);
+  const recvMs = feed === 'aishub' ? fixMs + Math.round(falt.vinter.ageMove(rnd.u()) * 1000) + rnd.int(0, 150) : fixMs;
+  rows.push(makeRow(ctx, p, fixMs, recvMs, feed));
+}
+
+/**
+ * Radiomodellen 'blandad' (fältfamiljerna, BUGGJAKT §4.6): båda källorna
+ * samtidigt, som i fält sedan fältprov 2. Varje båt får aisstream-rader
+ * (ström `radio-<mmsi>`) och AISHub-rader (ström `radio-<mmsi>-aishub`) med
+ * fältprov 2–3:s vinterkvantiler för kadens och fixålder (faltFamiljer.vinter):
+ * aisstream är gles för stilla båtar (p50 489 s) och i transit (p50 180 s),
+ * AISHub tar nästan varje poll (p50 68–70 s). `world.källfel` tystar en
+ * källa och `b.tystnad` båtens transponder. Logiken i övrigt är densamma som
+ * i erornas vägar: taktbyte vid avgång, sen födelse, namnbackfill för klass B
+ * i aisstream, fixålder och sekundupplöst fixTs i AISHub, inget under ctrl.
+ *
+ * FUSIONENS F6 (lib/connection/FixFusionPolicy.js) tillämpas på båtens rader:
+ * en AISHub-rad levereras bara när dess fixtid är strikt nyare än den senast
+ * levererade fixen för båten, oavsett källa. Fältets jsonl spelas in efter
+ * fusionen (fältprov 2 och 3: 0 av 9 501 AISHub-rader var äldre än båtens
+ * senaste fix), medan replay i bypass-läge matar appen direkt. Utan filtret
+ * fick appen äldre AISHub-positioner efter färskare aisstream-positioner, och
+ * den första fältkörningen gav tre kandidatkort som bara var den artefakten
+ * (riktning bakåt, dubbel målbropassage, varning efter passagen).
+ */
+function observeBlandad({
+  bt, world, profile, baseSeed, T0, silent, rows, realisation, allaPollar,
+}) {
+  const b = bt.spec;
+  const tr = bt.traj;
+  const cls = profile.forceClassA ? 'A' : b.cls;
+  const noise = profile.noise && b.noise !== false;
+  const rndS = stream(baseSeed, `radio-${b.mmsi}`);
+  const rndH = stream(baseSeed, `radio-${b.mmsi}-aishub`);
+  let nameKnownAtMs = -Infinity;
+  if (profile.nameLag && cls === 'B') {
+    let delayMin = null;
+    if (b.nameLagMin !== undefined && b.nameLagMin !== null) delayMin = b.nameLagMin;
+    else if (rndS.chance(0.25)) delayMin = rndS.chance(0.15) ? 'aldrig' : cal.nameDelayMin(rndS.u());
+    if (delayMin === 'aldrig') nameKnownAtMs = Infinity;
+    else if (Number.isFinite(delayMin) && delayMin > 0) nameKnownAtMs = T0 + ((tr[0].t + (delayMin * 60)) * 1000);
+    if (delayMin !== null && delayMin !== 0) {
+      realisation[b.mmsi] = { nameUnknownMin: delayMin === 'aldrig' ? 'aldrig' : Math.round(delayMin * 100) / 100 };
+    }
+  }
+  const ctxS = {
+    rnd: rndS, b, cls, noise, nameState: (tMs) => (tMs < nameKnownAtMs ? 'Unknown' : b.name),
+  };
+  const ctxH = {
+    rnd: rndH, b, cls, noise, nameState: () => b.name,
+  };
+  const lateBirth = profile.lateBirth && Number.isFinite(b.firstHeardS);
+  const firstHeard = (p) => !lateBirth || (b.dir === 'north' ? p.s >= b.firstHeardS : p.s <= b.firstHeardS);
+  const fixedIv = Number.isFinite(b.fixedIntervalS) ? b.fixedIntervalS : profile.intervalS;
+  const iv = (feed, rnd, moving) => (Number.isFinite(fixedIv) ? fixedIv : falt.vinter[feed][moving ? 'move' : 'still'](rnd.u()));
+  const tEnd = tr[tr.length - 1].t;
+  const egna = [];
+  // aisstream.
+  let heard = false;
+  let tS = tr[0].t + (Number.isFinite(fixedIv) ? rndS.range(0, fixedIv) : rndS.range(0, 30));
+  while (tS <= tEnd) {
+    const p = truthAt(bt, tS);
+    if (!p) break;
+    const moving = inMotion(p);
+    heard = heard || firstHeard(p);
+    if (!heard || !geo.inRadioBox(p.lat, p.lon)) {
+      tS += 10;
+      continue;
+    }
+    if (!silent(tS) && !båtTyst(b, tS) && !källTyst(world, 'aisstream', tS)) {
+      const tMs = T0 + Math.round(tS * 1000);
+      egna.push(makeRow(ctxS, p, tMs, tMs, 'aisstream'));
+    }
+    const nästa = tS + Math.max(10, iv('aisstream', rndS, moving));
+    if (moving || Number.isFinite(fixedIv) || profile.taktbyte === false) tS = nästa;
+    else {
+      const avg = avgångMellan(bt, tS, nästa);
+      tS = avg === null ? nästa : Math.min(nästa, avg + Math.max(10, iv('aisstream', rndS, true)));
+    }
+  }
+  // AISHub.
+  heard = false;
+  let lastFix = -Infinity;
+  let due = tr[0].t;
+  let avg = null;
+  for (const P of allaPollar()) {
+    if (P < tr[0].t) continue;
+    if (P > tEnd + 70) break;
+    const pNow = truthAt(bt, Math.min(P, tEnd));
+    if (!pNow) continue;
+    const moving = inMotion(pNow);
+    const age = moving ? falt.vinter.ageMove(rndH.u()) : falt.vinter.ageStill(rndH.u());
+    const fixS = Math.floor(P - age);
+    const tröskel = avg && fixS >= avg.D ? Math.min(due, avg.dueNy) : due;
+    if (fixS < tröskel - 35 || fixS <= lastFix) continue;
+    const p = truthAt(bt, fixS);
+    if (!p) continue;
+    heard = heard || firstHeard(p);
+    if (!heard || !geo.inRadioBox(p.lat, p.lon) || silent(P) || båtTyst(b, fixS) || källTyst(world, 'aishub', P)) {
+      due = fixS + 60;
+      continue;
+    }
+    lastFix = fixS;
+    due = fixS + iv('aishub', rndH, moving);
+    const recvMs = T0 + Math.round(P * 1000) + rndH.int(0, 150);
+    egna.push(makeRow(ctxH, p, T0 + (fixS * 1000), recvMs, 'aishub'));
+    avg = null;
+    if (!moving && !Number.isFinite(fixedIv) && profile.taktbyte !== false) {
+      const D = avgångMellan(bt, P, due);
+      if (D !== null) {
+        const egen = stream(baseSeed, `radio-${b.mmsi}-avgång-${D}`);
+        avg = { D, dueNy: Math.min(due, D + falt.vinter.aishub.move(egen.u())) };
+      }
+    }
+  }
+  // F6: i mottagningsordning, en AISHub-rad bara om fixen är strikt nyare än
+  // båtens senast levererade fix (aisstream släpps alltid igenom).
+  egna.sort((x, y) => (x.aisTimestamp - y.aisTimestamp) || (x.feed === 'aisstream' ? -1 : 1));
+  let senasteFix = -Infinity;
+  for (const r of egna) {
+    if (r.feed === 'aishub' && r.fixTs <= senasteFix) continue;
+    senasteFix = Math.max(senasteFix, r.fixTs);
+    rows.push(r);
+  }
 }
 
 /**
@@ -235,10 +401,32 @@ function observeWorld(sim, opts = {}) {
   const rows = [];
   const realisation = {};
   let polls = null;
+  const allaPollar = () => {
+    if (!polls) {
+      const tMax = Math.max(...sim.boats.map((x) => (x.traj.length ? x.traj[x.traj.length - 1].t : 0)));
+      polls = pollTimes(baseSeed, 0, tMax + 70);
+    }
+    return polls;
+  };
   for (const bt of sim.boats) {
     const b = bt.spec;
     const tr = bt.traj;
     if (!tr.length) continue;
+    // Fältfamiljerna (BUGGJAKT §4.6): en båt som hörs en enda gång, och
+    // radiomodellen 'blandad'. Båtar och världar utan fälten går vidare
+    // till de oförändrade vägarna nedan.
+    if (b.enfix) {
+      observeEnfix({
+        bt, profile, era, baseSeed, T0, silent, rows,
+      });
+      continue;
+    }
+    if (era === 'blandad') {
+      observeBlandad({
+        bt, world, profile, baseSeed, T0, silent, rows, realisation, allaPollar,
+      });
+      continue;
+    }
     const rnd = stream(baseSeed, `radio-${b.mmsi}`);
     const cls = profile.forceClassA ? 'A' : b.cls;
     const noise = profile.noise && b.noise !== false;
@@ -300,7 +488,7 @@ function observeWorld(sim, opts = {}) {
           tS += 10; // utanför hörhåll: avsök i stället för att slösa ett svansintervall
           continue;
         }
-        if (!silent(tS)) {
+        if (!silent(tS) && !båtTyst(b, tS)) {
           const tMs = T0 + Math.round(tS * 1000);
           rows.push(makeRow(ctx, p, tMs, tMs, 'aisstream'));
         }
@@ -309,10 +497,7 @@ function observeWorld(sim, opts = {}) {
       }
     } else {
       // AISHub: pollkvantiserad leverans, fixålder och sekundupplöst fixTs.
-      if (!polls) {
-        const tMax = Math.max(...sim.boats.map((x) => (x.traj.length ? x.traj[x.traj.length - 1].t : 0)));
-        polls = pollTimes(baseSeed, 0, tMax + 70);
-      }
+      allaPollar();
       let lastFix = -Infinity;
       let due = tr[0].t;
       // Avgången mitt i det senaste stillaintervallet: {D, dueNy}, eller null.
@@ -332,7 +517,7 @@ function observeWorld(sim, opts = {}) {
         const p = truthAt(bt, fixS);
         if (!p) continue;
         heard = heard || firstHeard(p);
-        if (!heard || !geo.inRadioBox(p.lat, p.lon) || silent(P)) {
+        if (!heard || !geo.inRadioBox(p.lat, p.lon) || silent(P) || båtTyst(b, fixS)) {
           due = fixS + 60;
           continue;
         }
@@ -393,5 +578,5 @@ function checkRows(rows) {
 const toJsonl = (rows) => `${rows.map((x) => JSON.stringify(x)).join('\n')}\n`;
 
 module.exports = {
-  PROFILES, resolveProfile, inMotion, avgångMellan, observeWorld, silenceWindows, pollTimes, checkRows, toJsonl,
+  PROFILES, resolveProfile, inMotion, avgångMellan, observeWorld, silenceWindows, pollTimes, checkRows, toJsonl, båtTyst, källTyst,
 };

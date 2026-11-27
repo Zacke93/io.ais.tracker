@@ -13,6 +13,11 @@
  *   representanter   — {kluster, perKluster}: hur många kluster som får
  *                      representanter i fas 4 och hur många var
  *   ungefärligTid    — dokumentär uppskattning (för rapportens huvud)
+ *   familjer         — (bara falt) familjerna som världarna dras ur; utan
+ *                      fältet gäller families.FAMILIES
+ *   indexBas         — (bara falt) första världsindex; världarna får index
+ *                      indexBas … indexBas + världar − 1, så att de aldrig
+ *                      delar index (och därmed seed) med de andra profilerna
  *
  * Nattens 13 δ-värden är valda symmetriskt runt halvminutsrutnätet:
  * ±2,5, ±5, ±7, −11,52 (fältprov 10:s fas), ±15, ±20 och ±25 s.
@@ -45,6 +50,19 @@ const PROFILES = Object.freeze({
     fasMonitoring: Object.freeze([false, true]),
     representanter: Object.freeze({ kluster: 40, perKluster: 3 }),
     ungefärligTid: '60–90 min',
+  }),
+  // Fältfamiljerna (BUGGJAKT §4.6, omgång 9): vintervärldar med båda
+  // källorna, källbortfall, en båt som hörs en gång och väntan vid målbron.
+  falt: Object.freeze({
+    namn: 'falt',
+    världar: 1000,
+    r0Andel: 0.2,
+    fasDeltaS: Object.freeze([7, -11.52]),
+    fasMonitoring: Object.freeze([false]),
+    representanter: Object.freeze({ kluster: 15, perKluster: 2 }),
+    familjer: Object.freeze(['F-LÅGSÄSONG', 'F-KÄLLBORTFALL', 'F-ENGÅNG', 'F-MÅLBROVÄNTAN']),
+    indexBas: 100000,
+    ungefärligTid: '~10 min',
   }),
 });
 

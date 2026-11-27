@@ -176,6 +176,28 @@ Ankomsterna följer en Poissonprocess i två täthetsnivåer: realistisk täthet
 - Kadensen dras vid varje fix ur tillståndet just då, och en avgång mitt i ett stillaintervall drar om nästa fixtid (varv 2, M9): nästa fix kommer avgången + ett rörelseintervall, aldrig senare än den först dragna tiden, som när en verklig transponder byter takt. Förut hördes en båt som lämnade kön strax efter ett stillafix först när stillaintervallet löpt ut (världarna 290 och 625 i triagen av restkorten, med 164 s respektive 11,6 min tystnad efter avgången). Det motsatta bytet modelleras inte: en båt som stannar mitt i ett rörelseintervall hörs vid nästa rörelsetid, alltså tätare än en verklig transponder, och det döljer inget för appen. I AISHub gäller den omdragna tiden bara fixar från avgången och framåt (en poll med en äldre fix prövas mot den gamla tiden), och rörelseintervallet dras ur avgångens egen ström, så båtens ström är orörd fram till den första färska fixen. Den första hörda fixen efter avgången kommer därför aldrig senare än i den gamla modellen, och raderna före avgången är bitlika. Förut kunde en tidigare poll leverera ett stillafix och lägga nästa rörelseintervall efter det: 57 av 251 avgångar hördes senare (median +27 s, max +272 s), raderna före avgången skilde sig i 2, och i värld 1527 hördes DAGNY 334 s efter avgången i stället för 62 s (granskningen av varv 2, L1). Mätt över standardens 2 000 världar: aisstream 242 avgångar, 181 hörs tidigare och 61 samtidigt; AISHub 130 avgångar som ändras, alla tidigare (första fixen p50/p90/max 57/96/147 s mot 199/549/1 371 s); inga rader före avgången och inga båtar utan avgång ändras, och R0 är bitlik.
 - R1:s cog-brus är fältets fel mot farleden vid sog ≥ 2 kn. Vid krypfart är verklig GPS-kurs betydligt brusigare.
 
+### 4.6 Fältfamiljerna (profilen `falt`, omgång 9)
+
+Fältprov 2 och 3 (november 2026, 189 h) visade trafik som de nio familjerna ovan aldrig bygger. Verklighetsmåttet (samma definitioner på banken, fältet och 2 000 standardvärldar) fann bland annat att ingen värld har två källor samtidigt (fältet: alla transiter), att världarna är tre gånger tätare än banken och nio gånger tätare än vintern (1,12 Klaffbronkorsningar per timme mot 0,40 och 0,12), att ingen båt hörs bara en gång och att AISHub-fixarna är yngre än i fält (p50 14,5 s mot 20,6 s). Fyra fältfamiljer bygger det som saknades. De ingår **inte** i `FAMILIES`, så de gamla profilerna väljer dem aldrig och samma profil, seed och index ger samma värld som före omgång 9 (jest `v-faltfamiljer.test.js` fryser tio världars radhashar från a0d8706).
+
+| Familj | Fokalt beteende | Nyckelparameter |
+|---|---|---|
+| F-LÅGSÄSONG | ett ensamt lastfartyg (klass A, 6–8 kn) genom hela kanalen efter minst en timme tom kanal, en förtöjd lotsbåt och en arbetsbåt som flyttar sig 1–3 gånger 100–400 m längs kajen i 1–3 kn utan att korsa en brolinje och aldrig närmare än 500 m från en målbro (i banken och k1–k4 finns 18 kajflyttar, ingen närmare en målbro än 465 m); världen är 4–8 h och har ingen annan transit | marschfart |
+| F-KÄLLBORTFALL | en transit och ett källfel: AISstream nere hela världen, AISstream tyst 2 min–3 h över korsningen (log-likformigt), AISstream tyst tills båten är 0–1 500 m före målbron (källan kommer tillbaka mitt i passagen), eller AISHub tyst 10–15 min medan AISstream levererar (fältets längsta AISHub-tystnad var 15 min) | källfelets längd |
+| F-ENGÅNG | en båt i 10–16 kn (utan sektorfaktor; räddningsbåten i fältprov 3 gick 14,6 kn) som hörs exakt en gång 200–700 m från en bro och aldrig mer; hon fortsätter genom bron, vänder före den eller är på väg bort | fixens avstånd från bron |
+| F-MÅLBROVÄNTAN | kö vid målbron (U65): Stridsbergsbron eller Klaffbron söderut på bankens köplatser, Klaffbron norrut 120–300 m (antagen; varken banken eller fältet har kö där); väntar 5–40 min, kryper i hälften av världarna fram till en ny köplats 30–90 m närmare, tystnar 5–25 min medan hon väntar eller går igenom bron under radioglappet (tystnaden slutar 30–300 s efter korsningen), och i hälften av världarna närmar sig en andra båt kön och lämnar sin köplats efter den första | kötid, tystnadens längd |
+
+Alla fältvärldar är vintervärldar: startdatum i november (lokal tid = UTC + 1 h), bakgrundstrafik med 30 % av bankens timtakt och 10 % följare (fältet: 0,12 korsningar per timme och 4,5 % av målbrokorsningarna med en annan båt inom 15 min), 1–3 kajliggare, och radiomodellen **blandad**:
+- **Båda källorna samtidigt** (R1). Varje båt får aisstream-rader ur sin vanliga ström och AISHub-rader ur en egen (`radio-<mmsi>-aishub`), med fältprov 2–3:s vinterkvantiler (`lib/faltFamiljer.js`, `VINTER`; bara aggregerade intervall och fixåldrar): aisstream är gles, p50 180 s i transit och 489 s stilla, och AISHub tar nästan varje poll (p50 68 s i transit, 70 s stilla) med fixåldern p50 17 s i rörelse och 21 s stilla. Taktbytet vid avgång, sen födelse och namnbackfill (bara aisstream) gäller som i erorna.
+- **Fusionens F6** (`lib/connection/FixFusionPolicy.js`) ingår i modellen: en AISHub-rad levereras bara när fixen är strikt nyare än båtens senast levererade fix, oavsett källa. Fältets jsonl spelas in efter fusionen (fältprov 2 och 3: 0 av 9 501 AISHub-rader var äldre än båtens senaste fix), men replay i bypass-läge matar appen direkt. Utan F6 fick appen äldre AISHub-positioner efter färskare aisstream-positioner, och den första körningen av profilen gav kort som bara var den artefakten (riktning bakåt, dubbel målbropassage, varning efter passagen).
+- **Källfel** (`world.källfel` [{källa, frånS, tillS}]) tystar en källa för alla båtar. R0 är fortfarande en idealiserad enkällsradio (aisstream var 30 s) och struntar i källfelen; en R0-värld i F-KÄLLBORTFALL prövar alltså bara trafiken.
+- **Båtens tystnad** (`b.tystnad`) och **den enda fixen** (`b.enfix` {s, källa}) är transponderns egenskaper och gäller i alla profiler, även R0 (en egen ström `radio-<mmsi>-enfix`).
+- Krympningens steg C prövar "två källor → bara aisstream", och steg E söker källfelets längd, tystnadens längd och den enda fixens avstånd.
+
+Profilen `falt` (§10) kör 1 000 världar ur fältfamiljerna med 20 % R0 och världsindex från 100 000, så att ingen fältvärld delar index eller seed med de andra profilerna. Självtestets rundresa prövar då också 20 fältvärldar (rundresa 85/85 i stället för 45/45). `--families=F-ENGÅNG,…` kör en fältfamilj med valfri profil, men då med profilens egna index.
+
+Mätt på 1 000 fältvärldar (R1 blandad) mot vintern: AISHub-andelen 82,3 % (fältet 82,7 %), kombinerat intervall i transit p50/p90 66/71 s (66/70 s), aisstream tyst under en resa p50 15 min (15 min), kajradernas AISHub-andel 84,2 % (83,8 %). Kvar som skiljer: Klaffbronkorsningarna 0,35 per timme (fältet 0,12; varje värld har sina fokala båtar), andelen rader i krypfart 0,3–2 kn under en transitresa (2 % mot fältets 26 % och bankens 18 %; inflygningsprofilen saknas fortfarande, §4.5) och klass B i aisstream (46 % mot fältets 0 %).
+
 ## 5. Bankspåret
 
 ### 5.1 Exakta relationer (självtest)
@@ -770,12 +792,12 @@ npm run hunt -- --seed=7 --worlds=500 --corpus=20260806-42h,20260710-13h
 
 | Flagga | Betydelse |
 |---|---|
-| `--profile=quick\|standard\|night` | välj profil |
+| `--profile=quick\|standard\|night\|falt` | välj profil (falt: fältfamiljerna, §4.6) |
 | `--worlds=N` | budget i antal världar |
 | `--seed=S` | bas-seed |
 | `--corpus=id,…` | delmängd för bankspåret; självtestet märks då ”delmängd” och instrumentkraven blir varningar |
 | `--lanes=selftest,bank,synth` | vilka spår som körs (utan självtestet kör sanningsspåret själv basen och S-KALIBRERING) |
-| `--families=F-KÖ,…` | vilka familjer som genereras (F-OMSTART ger exit 1: sträckmål) |
+| `--families=F-KÖ,…` | vilka familjer som genereras, också fältfamiljerna (F-OMSTART ger exit 1: sträckmål) |
 | `--radio=R0,R1` | vilka radioprofiler som används (R2 ger exit 1: v1.1) |
 | `--jobs=N` | parallellitet, standard min(4, antal CPU) |
 | `--out=KATALOG` | utkatalog. Ingenting skrivs utanför den, och en icke-tom katalog godtas bara när den innehåller en tidigare motorkörning. Loggfiler (`*.log`) får ligga där och lämnas orörda, så `… --out=X 2>&1 \| tee X/hunt.log` fungerar (§3). |
@@ -789,6 +811,7 @@ npm run hunt -- --seed=7 --worlds=500 --corpus=20260806-42h,20260710-13h
 | quick | 300 | +7 och −11,52 s | topp 5 kluster × 1 | 1 min 20 s |
 | standard | 2 000 | ±2,5, ±7, −11,52, +15, −20 s | ≤ 25 kluster × 2 | 4 min 55 s |
 | night | 20 000 | 13 värden, även med REPLAY_MONITORING=1 | ≤ 40 kluster × 3 | uppskattat 40–60 min (inte körd i acceptansen) |
+| falt | 1 000 ur fältfamiljerna (§4.6), index från 100 000, ≈ 20 % R0 | +7 och −11,52 s | ≤ 15 kluster × 2 | cirka 10 min |
 
 R0-andelen dras per värld ur (bas-seed, ’profil-i’), så den är cirka 30 % och inte exakt; rapportens huvud visar utfallet.
 
@@ -1173,6 +1196,12 @@ har två kandidatkluster (INV-3) som i A.11, och T2 LEDTID-klustret från A.12 �
 (med och utan monitoring), synthetic och openings är bitlika med basen. Hela jest: 400 sviter gröna. Två identiska
 nattkörningar överlappade (köns omslag avbröts utifrån och skriptet fortsatte); rapporten är hel och deterministisk.
 
+### A.14 Fältfamiljerna (omgång 9, 2026-11-27)
+
+**Bitlikhet.** Snabbjakten och standardjakten (seed 1) med fältfamiljerna inbyggda gav samma `rapport.json` som slutbatteriet efter omgång 8, utom HEAD, körnings-id:t, arbetsträdets läge, fingeravtrycket (där HEAD ingår) och tidsblocket: 0 skillnader i övrigt (45 respektive 206 råa utslag i sanningsspåret, samma kluster och kort). Spec, rader i R0 och R1 och sanningen L0/L1 för standardens 2 000 världar har samma hash som på a0d8706. Självtestet är GRÖNT med samma tal (rundresa 45/45).
+
+**Profilen falt** (seed 1, 1 000 världar, R0 208, R1 792, 4 007 simulerade timmar): självtest GRÖNT (rundresa 85/85), 68 råa utslag i sanningsspåret, 10 kandidatkluster (R0 6, R1 4) och 5 kluster med registerpost. Den första körningen, utan fusionens F6 i radiomodellen och med arbetsbåtar som flyttade sig mot målbroarna, gav 13 kandidatkluster; tre kort var F6-artefakten (T3 varning efter passagen, T9 riktning bakåt och INV-5 dubbel målbropassage, dessutom två av tre världar i ett T10-kort) och försvann med F6. Fem av de tio korten gäller arbetsbåten i F-LÅGSÄSONG; i inspelad trafik gav de 18 kajflyttarna inga apphändelser (triagen i omgångens underlag).
+
 ## Bilaga B — orakelkatalog
 
 Katalogen återges ur byggunderlaget med regler, trösklar och falsklarmsvakter. Raden **v1** säger vad som är byggt och var v1 avviker. Den uppdateras i samma commit som oraklen.
@@ -1367,7 +1396,7 @@ Alla sökvägar under `tests/replay-validation/bugHunt/`.
 | Fil | Innehåll |
 |---|---|
 | `hunt.js` | CLI, körningsobjektet och faserna 0–5; exitkoderna |
-| `lib/profiles.js` | profilerna quick, standard och night, nivåvikter, KNIVSEGG-faktorn och kortgränsen |
+| `lib/profiles.js` | profilerna quick, standard, night och falt, nivåvikter, KNIVSEGG-faktorn och kortgränsen |
 | `lib/hygiene.js` | utkatalog, tempkatalog, git-vakt, miljöskrubb och körnings-id |
 | `lib/pool.js` | barnprocesspoolen, tidsgränsmodellen, SIGKILL, omkörning och stderr-histogram |
 | `lib/schema.js` | schemavalideringen av rader |
@@ -1380,6 +1409,7 @@ Alla sökvägar under `tests/replay-validation/bugHunt/`.
 | `lib/oracles/t1Notice.js`, `t2Opening.js`, `t9Direction.js`, `t10Passage.js`, `truthJudge.js`, `truthCommon.js` | sanningsoraklen |
 | `lib/rng.js`, `lib/geo.js`, `lib/calib.js`, `lib/bankHash.js`, `calibration.json` | slump, farledsgeometri och den frysta kalibreringen (skrivs bara av `tools/freezeCalibration.js --write`) |
 | `lib/world.js`, `lib/families.js`, `lib/radio.js`, `lib/truth.js` | världsmodellen, familjerna, radioprofilerna och sanningen L0/L1 |
+| `lib/faltFamiljer.js` | fältfamiljerna, vinterbakgrunden och vinterkvantilerna för radiomodellen blandad (§4.6) |
 | `lib/synthCore.js` | en spec → dömd och klassad värld (delas av fas 2, fas 4 och hunt:repro) |
 | `lib/shrink.js`, `lib/confirm.js` | krympningen på specnivå och bekräftelsen |
 | `lib/selftestSynth.js`, `canaries/kanarier.json`, `tools/writeCanaries.js` | kanarierna, rundresan och bankkalibreringens byggstenar |
