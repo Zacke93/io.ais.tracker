@@ -13892,7 +13892,7 @@ class AISBridgeApp extends Homey.App {
       // sidan av _aisstreamWatchdogStrikes/_aishubWatchdogStrikes; den räknas
       // bara i tester. Läs inte legacy-räknaren som fältevidens.
       if (stats.perFeed) {
-        this._checkAisstreamFeedHealthPerFeed(stats.perFeed.aisstream);
+        this._checkAisstreamFeedHealthPerFeed(stats.perFeed.aisstream, stats.perFeed.aishub);
         this._checkAishubFeedHealth(stats.perFeed.aishub);
         this._checkCrossFeedSilence(stats.perFeed);
         return;
@@ -13967,10 +13967,16 @@ class AISBridgeApp extends Homey.App {
    * loggen redovisar tre storheter i stället för den klampade siffran (A7(a))
    * och omanslutningen bär skälet 'watchdog' (A7(b)). TRÖSKLARNA OCH
    * INGRIPANDET ÄR OFÖRÄNDRADE — silenceMs (min:ad mot uptime) styr än.
+   *
+   * U66 (dirigentens beslut 2026-11-27): när tröskeln och trappan är nådda
+   * frågar vakten dessutom _aisstreamRestartGate om AISHub ger skäl till
+   * omstarten (läget 'both'). Utan bevis och före taket avstår vakten, och
+   * strike räknas inte upp.
    * @param {object} feedStats - stats.perFeed.aisstream
+   * @param {object} [hubStats] - stats.perFeed.aishub (U66: AISHubs belägg)
    * @private
    */
-  _checkAisstreamFeedHealthPerFeed(feedStats) {
+  _checkAisstreamFeedHealthPerFeed(feedStats, hubStats = null) {
     // Fable-granskningen 2026-08-10 (FG-A2): strike-räknaren nollställs nu vid
     // AVKONFIGURERING, precis som AISHub-tvillingen redan gjorde. Utan detta
     // överlevde backoff-tillståndet ett källbyte: en användare som växlar till
@@ -14015,17 +14021,23 @@ class AISBridgeApp extends Homey.App {
       return;
     }
 
+    // U66: dagens tröskel och trappa är nådda — har AISHub gett skäl?
+    const gate = this._aisstreamRestartGate(feedStats.silenceEvidence, hubStats, Date.now());
+    if (!gate.restart) return;
+
     const apiKey = this.homey.settings.get('ais_api_key');
     if (!apiKey || typeof this.aisClient.reconnectWithKey !== 'function') {
       return;
     }
 
     // A7(a): TRE storheter; klampen (silenceMs) redovisas som ingreppsklocka.
+    // U66: skälet (dagens regel, AISHub-bevis eller taket) står sist.
     this.log(
       '🐕 [FEED_WATCHDOG] aisstream: no messages while connected — '
       + `${this._describeFeedSilence('aisstream', feedStats).text} `
       + `(ingreppsklocka ${Math.round(silenceMs / 60000)} min) — `
-      + `forcing reconnect + resubscribe (strike ${strikes + 1}; harmless if the canal is just quiet)`,
+      + `forcing reconnect + resubscribe (strike ${strikes + 1}; harmless if the canal is just quiet) `
+      + `[U66: ${gate.reason}]`,
     );
     this._persistFeedSilenceLedger(true); // sanningen ska överleva omanslutningen
     this._aisstreamWatchdogStrikes = strikes + 1;
@@ -14033,6 +14045,73 @@ class AISBridgeApp extends Homey.App {
     this.aisClient.reconnectWithKey(String(apiKey).trim(), 'watchdog').catch((err) => {
       this.error('[FEED_WATCHDOG] Forced reconnect failed:', err);
     });
+  }
+
+  /**
+   * U66 (dirigentens beslut 2026-11-27, spår K i omgång 9): HAR AISHUB GETT
+   * SKÄL TILL EN OMSTART AV AISSTREAM?
+   *
+   * Fältprov 2 och 3: vakten startade om en ansluten men tyst AISstream 52
+   * gånger utan att laga något. Socketen levde, AISstream hör bara 22–28 % av
+   * ett fartygs rapporter, och med en enda förtöjd sändare i området är 20–25
+   * minuters tystnad normal. I fältprov 3 kostade omstarterna 93 utlöpta
+   * handskakningar och 66 minuter utan socket.
+   *
+   * Anropas först när dagens tröskel och trappa redan är nådda. Utfall:
+   *  • inget beviskonto (silenceEvidence null/saknas: bara AISstream,
+   *    skuggläge, äldre stubbar) ⇒ omstart, dagens regel;
+   *  • AISHub ger inget belägg för att den lever ⇒ omstart, dagens regel.
+   *    Belägget är det som redan finns i lagret: hubbklientens egen
+   *    anslutningsflagga (perFeed.aishub.isConnected, nere efter tre missade
+   *    hämtningar eller när senaste välformade svar är äldre än SILENT_FEED_MS)
+   *    OCH senaste välformade svar (lastOkResponseAt) yngre än korstystnadens
+   *    FRESH_POLL_MS, 3 × (pollintervall + jitter). Fallet "AISHub nere och
+   *    AISstream hängd" får därmed alltid dagens omstart;
+   *  • minst STALE_FEED_RESTART_MIN_HUB_FIXES nya AISHub-positioner sedan
+   *    AISstreams senaste position ⇒ omstart (bevis);
+   *  • tystnaden har nått STALE_FEED_RESTART_MAX_SILENCE_MS ⇒ omstart (tak);
+   *  • annars ingen omstart. En loggrad per tystnad (nyckel: sinceAt).
+   * Tystnaden för taket räknas från beviskontots sinceAt (senaste AISstream-
+   * position eller muxens start), inte från klientens timeSinceLastMessage,
+   * som är oändlig vid appstart och då hade släppt taket direkt.
+   * @param {{sinceAt:number, hubNewFixes:number}|null|undefined} evidence
+   * @param {object|null} hubStats - perFeed.aishub
+   * @param {number} now
+   * @returns {{restart: boolean, reason: string}}
+   * @private
+   */
+  _aisstreamRestartGate(evidence, hubStats, now) {
+    if (!evidence || !Number.isFinite(evidence.sinceAt) || !Number.isFinite(evidence.hubNewFixes)) {
+      return { restart: true, reason: 'dagens regel (inget AISHub-bevis i det här läget)' };
+    }
+    const freshPollMs = 3 * (AIS_CONFIG.AISHUB.POLL_INTERVAL_MS + AIS_CONFIG.AISHUB.POLL_JITTER_MS);
+    const hubResponding = !!hubStats && hubStats.configured === true && hubStats.isConnected === true
+      && Number.isFinite(hubStats.lastOkResponseAt) && now - hubStats.lastOkResponseAt < freshPollMs;
+    if (!hubResponding) {
+      return { restart: true, reason: 'dagens regel (AISHub svarar inte)' };
+    }
+    const minFixes = UI_CONSTANTS.STALE_FEED_RESTART_MIN_HUB_FIXES;
+    if (evidence.hubNewFixes >= minFixes) {
+      return { restart: true, reason: `bevis: AISHub ${evidence.hubNewFixes} nya positioner under tystnaden` };
+    }
+    const silenceMs = Math.max(0, now - evidence.sinceAt);
+    const capMs = UI_CONSTANTS.STALE_FEED_RESTART_MAX_SILENCE_MS;
+    if (silenceMs >= capMs) {
+      return {
+        restart: true,
+        reason: `tak: ${Math.round(silenceMs / 60000)} min tystnad (AISHub ${evidence.hubNewFixes} nya positioner)`,
+      };
+    }
+    if (this._aisstreamGateLoggedFor !== evidence.sinceAt) {
+      this._aisstreamGateLoggedFor = evidence.sinceAt;
+      this.log(
+        `🐕 [FEED_WATCHDOG] aisstream: tyst i ${Math.round(silenceMs / 60000)} min men AISHub har bara `
+        + `levererat ${evidence.hubNewFixes} nya positioner under tystnaden (< ${minFixes}) — `
+        + 'ingen omstart (U66: gles AISstream-täckning, inte ett fel); '
+        + `omstart senast vid ${Math.round(capMs / 60000)} min tystnad`,
+      );
+    }
+    return { restart: false, reason: 'för lite AISHub-bevis' };
   }
 
   /**
