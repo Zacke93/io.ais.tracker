@@ -3281,6 +3281,46 @@ class AISBridgeApp extends Homey.App {
   }
 
   /**
+   * O1 (omgång 10, spår O): bokför de levande båtarnas positioner i
+   * sist-kända-kartan inför en ordnad omstart, med samma post som
+   * `_onVesselRemoved` skriver (`t` = nu som TTL-ankare, `posT` = positionens
+   * egen tid, `fixTs` när den finns). Efter omstarten hanteras båten då som en
+   * återfödd båt: notiser och riktning slutleds ur [sparad position, ny
+   * position] i stället för ur en gissning om kanalens port. Rörelsebevis,
+   * målbro och riktningslås sparas inte (U63, OMSTART-RESETILLSTÅND); en sparad
+   * position ger rörelsebevis bara vid ett hopp på minst 500 m (FP8), så en
+   * stilla båt efter omstarten behandlas som förut. Anropas bara från onUninit:
+   * en krasch eller ett strömavbrott hinner inte skriva något (känd gräns).
+   * @returns {number} antal bokförda båtar
+   * @private
+   */
+  _rememberLiveVesselPositions() {
+    const vessels = this.vesselDataService && this.vesselDataService.vessels;
+    if (!vessels || typeof vessels.values !== 'function') return 0;
+    if (!this._lastKnownPositions) this._lastKnownPositions = new Map();
+    const now = Date.now();
+    let remembered = 0;
+    for (const vessel of vessels.values()) {
+      if (!vessel || !Number.isFinite(vessel.lat) || !Number.isFinite(vessel.lon)) continue;
+      let posT = now;
+      if (Number.isFinite(vessel.lastPositionUpdate)) {
+        posT = vessel.lastPositionUpdate;
+      } else if (Number.isFinite(vessel.timestamp)) {
+        posT = vessel.timestamp;
+      }
+      const fixTs = Number.isFinite(vessel.fixTs) ? vessel.fixTs : undefined;
+      this._lastKnownPositions.set(String(vessel.mmsi), {
+        lat: vessel.lat, lon: vessel.lon, t: now, posT, ...(fixTs !== undefined ? { fixTs } : {}),
+      });
+      remembered++;
+    }
+    if (remembered > 0) {
+      this.log(`🔁 [LAST_KNOWN_SHUTDOWN] ${remembered} levande båtar sparade som sist kända positioner inför omstarten`);
+    }
+    return remembered;
+  }
+
+  /**
    * SPIKEN-vaktens persistens: skriv mappen till settings.
    *
    * C3b (etapp 7, 2026-08-09): STRYPT SKRIVTAKT. Kommentaren "låg frekvens,
@@ -15610,6 +15650,12 @@ class AISBridgeApp extends Homey.App {
     // gå förlorade vid en kontrollerad omstart, och SPIKEN-vaktens
     // inferensfönster föll då tillbaka på gissning i stället för belagd
     // evidens. Anropet SAKNADES helt före den här etappen.
+    // O1 (omgång 10, spår O): de båtar som lever vid omstarten bokförs först,
+    // som om de raderats nu. Annars blev varje båt i kanalen en ny båt utan
+    // historik efter omstarten, och appen gissade att hon kom från kanalens
+    // port: falska "passerade … under AIS-tystnad" för broar bakom henne, eller
+    // inga notiser alls för broar hon passerat under omstarten.
+    if (this._runtimeStateReady) this._rememberLiveVesselPositions();
     if (this._runtimeStateReady) this._persistLastKnownPositions(true);
     // Fable-granskningen 2026-08-10 (FG-A3): tystnadsbokföringen force-flushades
     // vid varje strike men ALDRIG vid onUninit. Skrivtakten är strypt till 60

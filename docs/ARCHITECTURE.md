@@ -3126,7 +3126,7 @@ coalescing-/immediate-/watchdog-timers + mappar (:5368–5392); `VDS.clearAllTim
 på write-through + monitoring) och av `quay_stable_ledger` (V1: skrivtakten är
 strypt till 15 min, så utan tvingad flush hade upp till en kvarts kajhistorik
 gått förlorad i just den omstart grinden ska överleva); removeAllListeners +
-lyssnare av (:5411–5435).
+lyssnare av (:5411–5435). Före flushen av `last_known_positions` bokförs de levande båtarnas positioner i kartan som vid en radering (O1, omgång 10), så att en båt som var i kanalen vid omstarten efteråt är en återfödd båt och inte en ny.
 
 **En andra `onInit` utan `onUninit`** (omgång 9, spår R) kör först `onUninit` när en
 tidigare körning finns och inte stängts. Förut levde allt från den första starten kvar
@@ -3825,7 +3825,7 @@ första kontakt, och för in sparat tillstånd som kan återställas fel), eller
 visa en stilla båt direkt i farleden inom 300 m från en öppningsbar bro
 (riktningen måste då tas ur läget, och en fel gissning ger falsk text och falsk
 notis). Ingen av dem är införd. Scenariot "stilla-20min-vid-Stallbackabron-
-omstart-mitt-i-stoppet (U59)" visar gränsen ("Inga båtar" i tio minuter).
+omstart-mitt-i-stoppet (U59)" visar gränsen ("Inga båtar" i tio minuter). Sedan O1 (omgång 10) sparas båtarnas sista positioner över en ordnad omstart, men bara positionerna: en sparad position ger rörelsebevis först vid ett hopp på minst 500 m, så gränsen ovan står kvar.
 
 Till familj E2 (användarbeslut U20, 2026-11-04): ETA-oscillationen vid
 inbromsning (buggjägarens F06, K6:s dubbla EMA mot den binära

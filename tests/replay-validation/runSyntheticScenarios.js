@@ -2451,6 +2451,75 @@ const SCENARIOS = [
       suppressedOpeningFires: 1,
     },
   },
+  // ---------------------------------------------------------------------------
+  // O1 (omgång 10, spår O): en ordnad omstart medan en båt är tyst i kanalen.
+  // Båtarnas sista positioner sparas (last_known_positions) när de raderas, så
+  // att en båt som hörs igen bara får notiser för broarna mellan den sparade
+  // positionen och den nya. En omstart släppte de levande båtarna utan att
+  // spara dem: efter omstarten gissade appen att båten kom från kanalens port.
+  // Två fall ur banken med egna positioner:
+  // (a) som EBONITA PRINCESS 40 2026-06-03: tyst från 500 m söder om Klaffbron
+  //     till norr om Stridsbergsbron, första fixet efter tystnaden med kursen
+  //     50° (utanför portgissningens nordband). Utan sparad position kom inga
+  //     notiser för Klaffbron, Järnvägsbron och Stridsbergsbron och inga
+  //     målbropassager.
+  // (b) som BRANIF 2026-06-02: lägger ut från Kajen norr om Klaffbron, tyst
+  //     förbi Järnvägsbron och Stridsbergsbron. Utan sparad position gissade
+  //     appen porten och notifierade Klaffbron, som ligger bakom henne.
+  // Motfallen är samma världar utan omstart: notiserna ska vara desamma.
+  ...[false, true].map((omstart) => ({
+    name: `tyst-förbi-tre-broar-kurs-50${omstart ? '-omstart-i-tystnaden' : ''} (O1${omstart ? '' : ', motfall'})`,
+    seed: omstart ? 1001 : 1002,
+    vessels: [{
+      mmsi: omstart ? '910001001' : '910001002',
+      name: omstart ? 'SYNT-O1-OMSTART' : 'SYNT-O1-UTAN',
+      startS: S_OLIDEBRON + 300,
+      legs: [
+        { toS: S_KLAFFBRON - 400, speedKn: 6, intervalS: 60 },
+        {
+          toS: S_STRIDSBERG + 150, speedKn: 6, intervalS: 60, gapFromS: S_KLAFFBRON - 400, gapToS: S_STRIDSBERG + 150,
+        },
+        {
+          toS: S_STRIDSBERG + 400, speedKn: 6, intervalS: 60, cogDeg: 50,
+        },
+        { toS: S_STALLBACKA + 600, speedKn: 6, intervalS: 60 },
+      ],
+    }],
+    // Två minuter efter sista fixet före tystnaden (fixet vid 180 s).
+    events: omstart ? [{ ctrl: 'restart', atOffsetS: 300 }] : [],
+    // Målbropassagerna bokförs inte för en återfödd båt (samma som efter en
+    // radering i dag); notiserna är det rättningen återställer.
+    expect: {
+      minNotifiedBridges: ['Klaffbron', 'Järnvägsbron', 'Stridsbergsbron', 'Stallbackabron'],
+      maxNotifiedPerBridge: {
+        Klaffbron: 1, Järnvägsbron: 1, Stridsbergsbron: 1, Stallbackabron: 1,
+      },
+    },
+  })),
+  ...[false, true].map((omstart) => ({
+    name: `från-Kajen-tyst-förbi-Järnvägsbron-och-Stridsbergsbron${omstart ? '-omstart-i-tystnaden' : ''} (O1${omstart ? '' : ', motfall'})`,
+    seed: omstart ? 1003 : 1004,
+    vessels: [{
+      mmsi: omstart ? '910001003' : '910001004',
+      name: omstart ? 'SYNT-O1-KAJ-OMSTART' : 'SYNT-O1-KAJ-UTAN',
+      startS: S_KLAFFBRON + 250,
+      legs: [
+        { stopS: 600, stopIntervalS: 60, stopSog: 0 },
+        { toS: S_KLAFFBRON + 500, speedKn: 5, intervalS: 60 },
+        {
+          toS: S_STRIDSBERG + 500, speedKn: 5, intervalS: 60, gapFromS: S_KLAFFBRON + 500, gapToS: S_STRIDSBERG + 500,
+        },
+        { toS: S_STRIDSBERG + 1500, speedKn: 5, intervalS: 60 },
+      ],
+    }],
+    // Två minuter efter sista fixet före tystnaden (fixet vid 660 s).
+    events: omstart ? [{ ctrl: 'restart', atOffsetS: 780 }] : [],
+    expect: {
+      minNotifiedBridges: ['Järnvägsbron', 'Stridsbergsbron'],
+      forbiddenNotifiedBridges: ['Klaffbron', 'Olidebron', 'Kanalinfarten'],
+      maxNotifiedPerBridge: { Järnvägsbron: 1, Stridsbergsbron: 1 },
+    },
+  })),
   // === Utökning 2026-07-06 (helgranskningens teststärkning) ===
   {
     // sog=null-klassen (helgranskningen 2026-07-06, F1): Class B-transponder
