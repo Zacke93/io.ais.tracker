@@ -419,6 +419,133 @@ const U52_SCENARIOS = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// U70 (dirigentens beslut 2026-11-27): FELEN NÄR EN ENDA KÄLLA BÄR TRAFIKEN
+// ---------------------------------------------------------------------------
+// Kända gränser, inga rättningar (docs/ARCHITECTURE.md §bridge_opening_soon,
+// "Känd gräns: en enda källa bär trafiken", och §Gate-kedjan). Fältkörningarna
+// k1–k4 spelades upp med bara AISHub och bara AISstream; scenarierna nedan
+// bygger förloppen med egna positioner och låser dagens utfall, så att en
+// ändring syns. Talen i kommentarerna är uppmätta i dagens träd.
+const S_JARNVAG = METRICS.cum[3];
+const U70_SCENARIOS = [
+  // H1: en båt ligger 3 h 460 m norr om Stridsbergsbron och lägger ut söderut i
+  // AISHub-takt (var 67:e s, fixen 36 s gamla). U52 tömmer historiken, så
+  // Klaffbron beväpnas utan spärr vid Järnvägsbron, och 10-knopsdeadlinen löper
+  // ut före nästa fix. Hon väntar sedan 17 min vid Järnvägsbron. Varningen för
+  // Klaffbron kommer därför långt före passagen (fältet: PRICKBJORN 12/11, 26,5
+  // min). Prövat och avstått: vändningsmärket vid U52-avgången (P2) varnade en
+  // tyst avgång i 9–10 kn bara 36–66 s före passagen.
+  {
+    name: 'förtöjd-3h-norr-om-Stridsbergsbron-lägger-ut-i-AISHub-takt-väntar-vid-Järnvägsbron (känd gräns, U70)',
+    seed: 77001,
+    vessels: [{
+      mmsi: '977001001',
+      name: 'SYNT-U70-H1',
+      startS: S_STRIDSBERG + 460,
+      legs: [
+        {
+          stopS: 3 * 3600, stopIntervalS: 180, stopSog: 0, stopCogDeg: 200, fixLagS: 36,
+        },
+        {
+          toS: S_STRIDSBERG + 160,
+          speedKn: 2.5,
+          intervalS: 67,
+          fixLagS: 36,
+          gapFromS: S_STRIDSBERG + 170,
+          gapToS: S_STRIDSBERG + 459,
+        },
+        {
+          toS: S_JARNVAG + 75, speedKn: 2.0, intervalS: 67, fixLagS: 36,
+        },
+        {
+          stopS: 17 * 60, stopIntervalS: 67, stopSog: 0.1, stopCogDeg: 220, fixLagS: 36,
+        },
+        {
+          toS: S_KLAFFBRON - 600, speedKn: 5, intervalS: 67, fixLagS: 36,
+        },
+      ],
+    }],
+    // I dag: Stridsbergsbron på fixet 164 m före bron, Klaffbron på deadlinen
+    // 52 s efter att fixet kom, 1 382 m bort (eta 20), cirka 29 min före korsningen.
+    // Kravet låser att varningen kommer minst 20 min före. Blir scenariot rött
+    // har mekanismen ändrats: pröva då P2:s motfall (ARCHITECTURE) och lås om
+    // medvetet, inte genom att sänka kravet.
+    expect: { openingLeadS: { Klaffbron: 1200, Stridsbergsbron: 90 } },
+  },
+  // T2: norrut i 4 kn med en position var 330:e s (AISstreams glapp) och 25 min
+  // väntan vid Järnvägsbron. Spärren vid den tidigare bron släpps 300 s efter
+  // sista fixet, och varningen för Stridsbergsbron går med "ETA okänd" medan
+  // hon ännu är söder om Klaffbron (fältet: VISTEN 21/11, 33,1 min före).
+  {
+    name: 'norrut-4kn-fix-var-330s-väntar-25min-vid-Järnvägsbron-reservsläpp (känd gräns, U70)',
+    seed: 77002,
+    vessels: [{
+      mmsi: '977002001',
+      name: 'SYNT-U70-T2',
+      startS: S_OLIDEBRON - 800,
+      legs: [
+        { toS: S_JARNVAG - 80, speedKn: 4, intervalS: 330 },
+        {
+          stopS: 25 * 60, stopIntervalS: 330, stopSog: 0.1, stopCogDeg: 30,
+        },
+        { toS: S_STRIDSBERG + 700, speedKn: 4, intervalS: 330 },
+      ],
+    }],
+    // I dag: Klaffbron på 10-knopsdeadlinen 2 165 m bort, cirka 18 min före;
+    // Stridsbergsbron på reservsläppet med "ETA okänd" 2 017 m bort, cirka 44 min
+    // före korsningen. Kravet låser minst 20 min för Stridsbergsbron.
+    expect: { openingLeadS: { Stridsbergsbron: 1200, Klaffbron: 60 } },
+  },
+  // T3 (U38): norrut i 6,6 kn mot Klaffbron, sedan stilla 700 m söder om bron i
+  // 40 min med en position var 570:e s. Reservsläppet för en stilla båt ger en
+  // varning för Stridsbergsbron fast hon ligger kvar (fältet: PRICKBJORN 20/11).
+  // Prövat och avstått: 600 s i stället för 300 s (P1) varnade en båt som gick
+  // under tystnaden efter passagen.
+  {
+    name: 'norrut-mot-Klaffbron-stannar-700m-före-fix-var-570s-reservsläpp-utan-passage (känd gräns, U70)',
+    seed: 77003,
+    vessels: [{
+      mmsi: '977003001',
+      name: 'SYNT-U70-T3',
+      startS: S_OLIDEBRON - 600,
+      legs: [
+        { toS: S_KLAFFBRON - 700, speedKn: 6.6, intervalS: 120 },
+        {
+          stopS: 40 * 60, stopIntervalS: 570, stopSog: 0, stopCogDeg: 20,
+        },
+      ],
+    }],
+    // I dag: Klaffbron på deadlinen medan hon går (samma avbrutna anflygning som
+    // med båda källorna), Stridsbergsbron på reservsläppet 1 915 m bort när hon
+    // legat stilla i 5 min utan ny position. Ingen bro korsas.
+    expect: {
+      expectedOpenings: ['Klaffbron', 'Stridsbergsbron'],
+      maxPassagesPerBridge: { Klaffbron: 0, Stridsbergsbron: 0 },
+    },
+  },
+  // N1: norrut i 6 kn genom kanalen och ut förbi Stallbackabron; AISstream hör
+  // henne sista gången 600 m före bron (fältet: NORDIC SOLA och NAVEN, som
+  // lämnade området norrut). Utan position i zonen kommer ingen närmar-notis,
+  // och utan position bortom bron ingen passagenotis. (Ett glapp som slutar
+  // bortom bron ger i stället "passerade … under AIS-tystnad" även 6 min efter
+  // korsningen; det är prövat och ingår inte här.)
+  {
+    name: 'norrut-6kn-hörs-sista-gången-600m-före-Stallbackabron (känd gräns, U70)',
+    seed: 77004,
+    vessels: [{
+      mmsi: '977004001',
+      name: 'SYNT-U70-N1',
+      startS: 200,
+      legs: [{ toS: S_STALLBACKA - 600, speedKn: 6, intervalS: 60 }],
+    }],
+    expect: {
+      minNotifiedBridges: ['Klaffbron', 'Stridsbergsbron'],
+      maxNotifiedPerBridge: { Stallbackabron: 0 },
+    },
+  },
+];
+
 /**
  * Kurerad scenariomatris. Förväntningar:
  *  - minTargetPassages: minst N detekterade målbro-passager (detektering + INV-5 ⇒ notiser)
@@ -5374,6 +5501,7 @@ const SCENARIOS = [
     };
   }),
   ...U52_SCENARIOS,
+  ...U70_SCENARIOS,
   // ---------------------------------------------------------------------------
   // U53 (2026-11-23, spår C omgång 5): VÄNTAN VID EN MELLANBRO I TEXTEN.
   // Fältprov 2: båtar norrut kröp 0,5–1 kn från 550–800 m söder om Järnvägsbron
