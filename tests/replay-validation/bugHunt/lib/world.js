@@ -17,6 +17,9 @@
  *   stop{atS, durS}             stannar vid farledskoordinaten atS
  *   crawl{bridge, withinM, kn}  kryper med kn inom withinM före bron
  *   uturn{atS}                  bromsar, vänder 180° och kör tillbaka
+ *   slow{bridge, fromM, toM, kn} saktar in till kn mellan fromM och toM före
+ *                               bron (fältfamiljerna, inflygningsprofilen)
+ *   slowzone{fromS, toS, kn}    låg fart på farledssträckan fromS → toS
  *   role 'moored'               ligger vid kaj {lat, lon} i durS sekunder
  *
  * SPECEN ÄNDRAS ALDRIG. Simulatorn läser den och bygger egna objekt, så den
@@ -120,6 +123,22 @@ function simulateBoat(b) {
         else if (ahead < step.withinM) {
           vDes = Math.min(vDes, step.kn * KN);
           phase = 'crawl';
+        }
+      } else if (step.op === 'slow') {
+        // Inflygningsprofilen (fältfamiljerna, BUGGJAKT §4.6): sakta in till kn
+        // från fromM till toM före bron; klar vid toM.
+        const ahead = (geo.stationByName[step.bridge].s - s) * dir;
+        if (ahead <= step.toM) step.done = true;
+        else if (ahead <= step.fromM) {
+          vDes = Math.min(vDes, step.kn * KN);
+          phase = 'slow';
+        }
+      } else if (step.op === 'slowzone') {
+        // Låg fart på en farledssträcka [fromS, toS] (hamnen söder om infarten).
+        if ((s - step.toS) * dir >= 0) step.done = true;
+        else if ((s - step.fromS) * dir >= 0) {
+          vDes = Math.min(vDes, step.kn * KN);
+          phase = 'slowzone';
         }
       } else if (step.op === 'uturn') {
         const ahead = (step.atS - s) * dir;

@@ -136,10 +136,13 @@ describe('(b) fältvärldarna', () => {
     for (let i = 0; i < 60 && par < 4; i++) {
       const spec = fältVärld('F-MÅLBROVÄNTAN', i);
       const [a, b] = spec.fokal.mmsis.map((m) => spec.boats.find((x) => x.mmsi === m));
-      expect(geo.TARGETS).toContain(a.plan[0].bridge);
+      expect(geo.TARGETS).toContain(spec.fokal.parametrar.bro);
+      expect(a.plan.some((x) => x.op === 'queue' && x.bridge === spec.fokal.parametrar.bro)).toBe(true);
       if (!b) continue;
-      const sa = simulateBoat(a).stops.filter((s) => s.kind === 'queue');
-      const sb = simulateBoat(b).stops.filter((s) => s.kind === 'queue');
+      // Bara köstoppen vid målbron (inflygningsprofilen kan lägga stopp vid andra broar).
+      const vidBron = (st) => st.kind === 'queue' && Math.abs(st.s - geo.stationByName[spec.fokal.parametrar.bro].s) < 500;
+      const sa = simulateBoat(a).stops.filter(vidBron);
+      const sb = simulateBoat(b).stops.filter(vidBron);
       expect(sb[0].t1).toBeGreaterThan(sa[sa.length - 1].t1);
       par++;
     }

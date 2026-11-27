@@ -200,7 +200,11 @@ function makeFactory(rnd, world) {
 
 /** Planen i färdordning; element efter en U-sväng nås aldrig och tas bort. */
 function orderPlan(plan, dir) {
-  const posOf = (p) => (p.op === 'uturn' || p.op === 'stop' ? p.atS : geo.stationByName[p.bridge].s);
+  const posOf = (p) => {
+    if (p.op === 'uturn' || p.op === 'stop') return p.atS;
+    if (p.op === 'slowzone') return p.fromS; // fältfamiljernas inflygningsprofil (BUGGJAKT §4.6)
+    return geo.stationByName[p.bridge].s;
+  };
   const out = [...plan].sort((a, b) => (dir === 'north' ? posOf(a) - posOf(b) : posOf(b) - posOf(a)));
   const u = out.findIndex((p) => p.op === 'uturn');
   if (u >= 0) out.splice(u + 1);
@@ -407,7 +411,7 @@ function buildWorld(seed, opts = {}) {
   // FAMILIES, så de gamla profilerna når aldrig den här grenen.
   if (falt.BUILDERS[family]) {
     return falt.buildFältWorld(rnd, family, seed, opts, {
-      makeFactory, transitNeedS, focalStart, timeAtDistanceBefore, crossingTimeS, poisson, simulateBoat,
+      makeFactory, transitNeedS, focalStart, timeAtDistanceBefore, crossingTimeS, poisson, simulateBoat, orderPlan,
     });
   }
   if (!BUILDERS[family]) throw new Error(`Okänd familj: ${family}`);

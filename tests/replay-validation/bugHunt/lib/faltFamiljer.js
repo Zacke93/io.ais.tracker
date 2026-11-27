@@ -115,9 +115,12 @@ function kajOffset(quay) {
 }
 
 /**
- * Arbetsbåt vid kaj: ligger still och flyttar sig 1–3 gånger 100–400 m längs
- * farleden i 1–3 kn, aldrig förbi en brolinje (world.js simulerar rollen
- * 'arbetsbåt'). Positionen hålls i kajens sidoffset.
+ * Arbetsbåt vid kaj: ligger still och flyttar sig 1–3 gånger 40–300 m längs
+ * farleden i 0,8–2,6 kn, aldrig förbi en brolinje och aldrig närmare än 500 m
+ * från en målbro (world.js simulerar rollen 'arbetsbåt'). Positionen hålls i
+ * kajens sidoffset. Snävat efter triagen i omgång 9: de 18 inspelade
+ * kajflyttarna var 40–770 m (median 180 m) och gav inga apphändelser, medan
+ * världens längre flyttar mot broarna gav fem kandidatkort (F01–F05).
  */
 function arbetsbåt(rnd, world, f) {
   const quay = rnd.pick(cal.QUAYS);
@@ -127,8 +130,8 @@ function arbetsbåt(rnd, world, f) {
   let { s } = k;
   let t = Math.round(rnd.range(600, 1800));
   for (let i = 0; i < n && t < world.durS - 900; i++) {
-    const d = rnd.range(100, 400);
-    const kn = round1(rnd.range(1, 3));
+    const d = rnd.range(40, 300);
+    const kn = round1(rnd.range(0.8, 2.6));
     let till = null;
     const först = rnd.chance(0.5) ? 1 : -1;
     for (const sign of [först, -först]) {
@@ -140,7 +143,7 @@ function arbetsbåt(rnd, world, f) {
       const gränser = geo.STATIONS.map((st) => ({ d: (st.s - s) * sign, marg: geo.TARGETS.includes(st.name) ? 500 : 40 }))
         .filter((x) => x.d > 0).map((x) => x.d - x.marg);
       const rum = Math.min(gränser.length ? Math.min(...gränser) : Infinity, sign > 0 ? 6900 - s : s);
-      if (till === null && rum >= 100) till = Math.round(s + (sign * Math.min(d, rum)));
+      if (till === null && rum >= 40) till = Math.round(s + (sign * Math.min(d, rum)));
     }
     if (till === null) break;
     flyttar.push({ atS: t, tillS: till, kn });
@@ -167,6 +170,115 @@ function arbetsbåt(rnd, world, f) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Inflygningsprofilen (omgång 9): fältets transiter saktar in, kryper mot
+// bron, står nästan still, rycker fram i kön och sätter fart efter bron.
+// Mätt i banken och k1–k4 (o9/S/matt/inflygning-inspelad.txt, per korsning
+// i en transitresa, fönstret 1 500 m före bron):
+//   Olidebron       kryp < 2 kn 40–45 %, stod 24–42 %
+//   Klaffbron       kryp 17–49 %, stod 17–33 %
+//   Järnvägsbron    kryp 56–70 %, stod 39–48 %, stopp p50 175–263 m före
+//   Stridsbergsbron kryp 47–63 %, stod 31–40 %
+//   Stallbackabron  kryp 2–7 %
+//   krypfarten p50 0,7–1,0 kn; farten under 3 kn från p50 500–1 100 m före;
+//   54–61 % av krypraderna ligger söder om kanalinfarten (hamnen).
+// Järnvägsbron och Stridsbergsbron ligger 257 m isär och behandlas som ett
+// bropar: profilen läggs före den första i färdriktningen och krypet
+// fortsätter genom den andra.
+// ---------------------------------------------------------------------------
+const INFLYGNING = Object.freeze([
+  {
+    broar: ['Olidebron'], pKryp: 0.25, pStopp: 0.6, stoppM: [40, 300],
+  },
+  {
+    broar: ['Klaffbron'], pKryp: 0.22, pStopp: 0.6, stoppM: [100, 320],
+  },
+  {
+    broar: ['Järnvägsbron', 'Stridsbergsbron'], pKryp: 0.35, pStopp: 0.65, stoppM: [60, 300],
+  },
+  {
+    broar: ['Stallbackabron'], pKryp: 0.05, pStopp: 0.5, stoppM: [100, 400],
+  },
+]);
+const P_HAMN = 0.7;
+const lognorm = (rnd, median, sigma, lo, hi) => Math.min(hi, Math.max(lo, median * Math.exp(rnd.normal() * sigma)));
+
+/**
+ * Lägg inflygningsprofilen i en transits plan, för de broar (bropar) som
+ * planen inte redan har ett element för. Planen ordnas om (orderPlan) och
+ * ändrar inte de element som fanns.
+ * @param {object} rnd - världens slumpström
+ * @param {object} b - transitbåtens spec (ändras)
+ * @param {object} h - families.js hjälpare (orderPlan)
+ */
+function inflygning(rnd, b, h) {
+  const plan = [...(b.plan || [])];
+  const harBro = new Set(plan.filter((p) => p.bridge).map((p) => p.bridge));
+  const u = plan.find((p) => p.op === 'uturn');
+  const sign = b.dir === 'north' ? 1 : -1;
+  const nås = (bro) => !u || (geo.stationByName[bro].s - u.atS) * sign < 0;
+  for (const enh of INFLYGNING) {
+    const broar = b.dir === 'north' ? enh.broar : [...enh.broar].reverse();
+    if (broar.some((x) => harBro.has(x)) || !nås(broar[0])) continue;
+    if (!rnd.chance(enh.pKryp)) continue;
+    const [först, andra] = broar;
+    const kn = Math.round(lognorm(rnd, 0.8, 0.45, 0.3, 1.8) * 10) / 10;
+    const fromM = Math.round(rnd.range(400, 1200));
+    if (rnd.chance(enh.pStopp)) {
+      let distM = Math.round(rnd.range(enh.stoppM[0], enh.stoppM[1]));
+      plan.push({
+        op: 'slow', bridge: först, fromM, toM: distM + 50, kn: Math.round(rnd.range(1.5, 2.5) * 10) / 10,
+      });
+      plan.push({
+        op: 'queue', bridge: först, distM, durS: Math.round(lognorm(rnd, 300, 0.9, 60, 2700)),
+      });
+      // Ryck i kön: 1–2 korta stopp 20–70 m närmare.
+      if (rnd.chance(0.25)) {
+        const n = rnd.int(1, 2);
+        for (let k = 0; k < n && distM > 40; k++) {
+          distM = Math.max(20, Math.round(distM - rnd.range(20, 70)));
+          plan.push({
+            op: 'queue', bridge: först, distM, durS: Math.round(rnd.range(30, 240)),
+          });
+        }
+      }
+      plan.push({
+        op: 'crawl', bridge: först, withinM: Math.min(distM + 5, Math.round(rnd.range(60, 250))), kn,
+      });
+    } else {
+      const withinM = Math.round(rnd.range(60, 250));
+      plan.push({
+        op: 'slow', bridge: först, fromM: Math.max(fromM, withinM + 50), toM: withinM, kn: Math.round(rnd.range(1.5, 3) * 10) / 10,
+      });
+      plan.push({
+        op: 'crawl', bridge: först, withinM, kn,
+      });
+    }
+    if (andra && nås(andra)) {
+      plan.push({
+        op: 'crawl', bridge: andra, withinM: 260, kn,
+      });
+    }
+    harBro.add(först);
+    if (andra) harBro.add(andra);
+  }
+  // Hamnen söder om infarten: låg fart på in- eller utvägen.
+  if (!plan.some((p) => p.op === 'slowzone') && rnd.chance(P_HAMN)) {
+    const kn = Math.round(lognorm(rnd, 1.3, 0.35, 0.5, 2.5) * 10) / 10;
+    if (b.dir === 'north') {
+      plan.push({
+        op: 'slowzone', fromS: -350, toS: 250, kn,
+      });
+    } else if (!u) {
+      plan.push({
+        op: 'slowzone', fromS: 250, toS: -350, kn,
+      });
+    }
+  }
+  b.plan = h.orderPlan(plan, b.dir);
+  b.tags = [...(b.tags || []), 'inflygning'];
+}
+
 /** Vinterbakgrund: Poisson med 30 % av bankens timtakt, 10 % följare, 1–3 kajliggare. */
 function vinterBakgrund(rnd, world, f, h, { transiter = true } = {}) {
   const boats = [];
@@ -179,8 +291,13 @@ function vinterBakgrund(rnd, world, f, h, { transiter = true } = {}) {
         const t = (hr * 3600) + rnd.range(0, 3600);
         if (t >= lastArrival) continue;
         const b = f.transit({ tStartS: t, cls: rnd.chance(0.8) ? 'A' : 'B' });
+        inflygning(rnd, b, h);
         boats.push(b);
-        if (rnd.chance(VINTER_FÖLJARE)) boats.push(f.transit({ tStartS: t + rnd.range(30, 360), dir: b.dir, extraTags: ['konvojföljare'] }));
+        if (rnd.chance(VINTER_FÖLJARE)) {
+          const fo = f.transit({ tStartS: t + rnd.range(30, 360), dir: b.dir, extraTags: ['konvojföljare'] });
+          inflygning(rnd, fo, h);
+          boats.push(fo);
+        }
       }
     }
   }
@@ -195,6 +312,7 @@ const BUILDERS = {
     const cargo = f.transit({
       cls: 'A', cruiseKn: round2(rnd.range(6, 8)), plan: [], fokal: true, extraTags: ['lastfartyg'],
     });
+    inflygning(rnd, cargo, h);
     const need = h.transitNeedS(cargo);
     // Minst en timme tom kanal före lastfartyget (lågsäsongens långa tomma perioder).
     if (world.durS < need + 3600 + 900) world.durS = Math.round(need + 3600 + 900);
@@ -215,6 +333,7 @@ const BUILDERS = {
     const b = f.transit({
       cls: rnd.chance(0.8) ? 'A' : 'B', plan: [], tags: [`källbortfall@${bro}`], fokal: true,
     });
+    inflygning(rnd, b, h);
     b.tStartS = h.focalStart(rnd, world, h.transitNeedS(b));
     const variant = rnd.weighted([['aisstream-nere', 2], ['aisstream-tyst', 3], ['återkomst-mitt-i', 3], ['aishub-tyst', 1]]);
     const tCross = h.crossingTimeS(b, bro);
@@ -295,8 +414,15 @@ const BUILDERS = {
       });
     }
     const a = f.transit({
-      dir: site.dir, cls: rnd.chance(0.75) ? 'A' : 'B', plan, tags: [`målbrokö@${site.bridge}`, ...(kryper ? ['kryper i kön'] : [])], fokal: true,
+      dir: site.dir,
+      cls: rnd.chance(0.75) ? 'A' : 'B',
+      plan: [{
+        op: 'slow', bridge: site.bridge, fromM: Math.round(rnd.range(400, 1200)), toM: distM + 50, kn: Math.round(rnd.range(1.5, 2.5) * 10) / 10,
+      }, ...plan],
+      tags: [`målbrokö@${site.bridge}`, ...(kryper ? ['kryper i kön'] : [])],
+      fokal: true,
     });
+    inflygning(rnd, a, h);
     a.tStartS = h.focalStart(rnd, world, h.transitNeedS(a));
     const simA = h.simulateBoat(a);
     const köer = simA.stops.filter((s) => s.kind === 'queue');
@@ -324,15 +450,18 @@ const BUILDERS = {
         dir: a.dir,
         cls: rnd.chance(0.75) ? 'A' : 'B',
         plan: [{
+          op: 'slow', bridge: site.bridge, fromM: Math.round(rnd.range(400, 1200)), toM: distB + 50, kn: Math.round(rnd.range(1.5, 2.5) * 10) / 10,
+        }, {
           op: 'queue', bridge: site.bridge, distM: distB, durS: 60,
         }],
         tags: [`målbrokö@${site.bridge}`, 'andra i kön'],
         fokal: true,
       });
+      inflygning(rnd, b, h);
       const tq = h.timeAtDistanceBefore({ ...b, tStartS: 0 }, site.bridge, distB);
       const Ta = q0 + rnd.range(60, Math.max(61, (dep - q0) + 300));
       b.tStartS = Math.max(60, Math.round(Ta - (tq !== null ? tq : 1800)));
-      b.plan[0].durS = Math.max(60, Math.round((dep + rnd.range(30, 180)) - Ta));
+      b.plan.find((p) => p.op === 'queue' && p.bridge === site.bridge && p.distM === distB).durS = Math.max(60, Math.round((dep + rnd.range(30, 180)) - Ta));
       boats.push(b);
       world.durS = Math.max(world.durS, Math.min(5 * 3600, b.tStartS + h.transitNeedS(b) + 300));
     }
@@ -386,6 +515,14 @@ function buildFältWorld(rnd, family, seed, opts, h) {
   const focal = BUILDERS[family](rnd, world, f, h);
   const background = vinterBakgrund(rnd, world, f, h, { transiter: !focal.utanTransitBakgrund });
   world.boats = [...focal.boats, ...background];
+  // Inflygningsprofilen förlänger transiterna: världen räcker tills den sista
+  // fokala transiten lämnat området (högst 8 h för F-LÅGSÄSONG, annars 5 h).
+  const tak = (family === 'F-LÅGSÄSONG' ? 8 : 5) * 3600;
+  for (const b of focal.boats) {
+    if (b.role !== 'transit') continue;
+    const tr = h.simulateBoat(b).traj;
+    if (tr.length) world.durS = Math.max(world.durS, Math.min(tak, Math.round(tr[tr.length - 1].t + 300)));
+  }
   for (const b of world.boats) if (b.role === 'moored' || b.role === 'arbetsbåt') b.durS = world.durS;
   if (!world.källfel) world.källfel = [];
   world.fokal = {
@@ -398,5 +535,5 @@ function buildFältWorld(rnd, family, seed, opts, h) {
 }
 
 module.exports = {
-  FÄLTFAMILJER, FÄLT_VIKTER, FÄLT_NYCKLAR, VINTER, vinter, VINTER_TAKTFAKTOR, BUILDERS, buildFältWorld, kajOffset,
+  FÄLTFAMILJER, FÄLT_VIKTER, FÄLT_NYCKLAR, VINTER, vinter, VINTER_TAKTFAKTOR, BUILDERS, buildFältWorld, kajOffset, INFLYGNING, inflygning,
 };
