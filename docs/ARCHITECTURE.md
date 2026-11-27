@@ -1579,6 +1579,47 @@ båt.
   Klaffbron. En vakt vid Olidebron mättes 2026-11-16 och infördes inte: den
   bröt 10-knopsgarantin för en förstakontakt som tystnar och går 8–10 kn (5–125 s
   mot 181–276 s); fältgranskningen 2026-11-14, F2.
+- **Känd gräns: appen vet inte när bron öppnar (beslut U80, 2026-11-27).**
+  Varningen och minutsiffran räknar med båtens tidigaste ankomst. För en båt
+  som redan är framme och väntar vet appen inte när bron öppnar. Det är den
+  största orsaken till att varningen kommer mer än 15 min före passagen i
+  sommartrafik. Mätt över bankens 25 korpusar och k1–k4 (521 passager av
+  målbroarna, svensk lokal tid):
+  - **Väntan sitter vid järnvägsparet.** Mitt på sommardagen (09–19) väntade
+    35–47 % av båtarna minst 5 min före Järnvägsbron och Stridsbergsbron, mot
+    2–5 % före Klaffbron. 29 av 30 väntor på 10 min–3 h låg vid järnvägsparet,
+    och bara en av dem hade ett yrkesfartyg vid bron inom 10 min. I
+    sommarbokslutet gällde 68 av 104 för tidiga varningar Stridsbergsbron.
+  - **Offentliga regler.** Fritidsbåtar får passera broar och slussar mellan
+    Lilla Edet och Gropbron "daily between 09.00-19.00 local time"
+    (Sjöfartsverket, sidan om Trollhätte kanal,
+    https://sjofartsverket.se/en/services/bridges-and-canals/trollhatte-kanal/,
+    läst 2026-11-27). Datan följer regeln: 296 av 315 passager av fritidsbåtar
+    (klass B) låg 09–19. Fritidsfartyg ska lämna företräde åt fartyg vid broar
+    (TSFS 2019:97, 24 §). Det finns inga fasta öppningstider och inga
+    rusningsstopp för broarna i Trollhättan. Sådana regler finns på andra
+    håll, till exempel vid Jordfallsbron.
+  - **Praxis och antagande.** Att "tågtrafiken styr öppningar av
+    järnvägsbroar" står på en turistsida (Västsverige, uppdaterad 2025-02-21),
+    inte hos förvaltaren. Att det är tågen som orsakar väntan vid
+    järnvägsparet är antaget, inte mätt; tågtiderna finns inte i underlaget.
+  - **Klockslag.** I novembertrafiken (bara yrkesfartyg) låg 63 % av
+    Stridsbergsbrons öppningar inom ±5 min från hel- eller halvtimme, mot 33 %
+    av slump (n = 40). Klaffbron visar inget sådant. På sommaren samlas
+    öppningarna inte vid någon minut, inte heller när en båt väntade.
+  - **Varför ingen klockregel (U80).** Av 105 för tidiga varningar gick 101
+    mellan 09 och 19 med passagen samma dag, så ingen klockregel når dem.
+    (B) Att hålla fritidsbåtarnas varningar utanför 09–19 rättade ingen
+    varning, och 13 av 16 berörda varningar hade kommit efter passagen. (C) Ett
+    rusningsstopp vardagar 15–17 rättade ingen varning, och 20 av 23 berörda
+    hade kommit efter passagen; båtar som kom fram då kom igenom efter 3–31
+    min. (D) Att flytta Stridsbergsbrons utlovade tid till nästa :00/:30 gav
+    netto noll på sommaren (351 min brotext blev rätt, 343 fel) och var sämre i
+    november (35 rätt, 99 fel). (E) Sjöfartsverkets lista över planerade
+    avstängningar gäller någon enstaka dag om året och måste föras in för
+    hand. Tåg i realtid ur en yttre tjänst är inte prövat och är ägarens val.
+    Ett besked om tillfälliga fördröjningar vardagar 16–18 fanns bara i ett
+    sökutdrag och kunde inte kontrolleras; det är inte underlag här.
 - **Känd gräns: en enda källa bär trafiken (beslut U70, 2026-11-27).** Den
   övergripande bilden av källorna (AISHub ensam ger i stort sett samma utfall
   som båda, AISstream ensam är klart sämre) står vid AISSourceMultiplexer i §1.
