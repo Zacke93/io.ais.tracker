@@ -6390,6 +6390,44 @@ const SCENARIOS = [
     },
   },
   // ---------------------------------------------------------------------------
+  // KÄND GRÄNS (U79, omgång 10): sen varning för Stridsbergsbron efter väntan vid
+  // Järnvägsbron, med kön på det verkliga avståndet. Inspelade köer ligger 120–160 m
+  // före Järnvägsbron; köryckfixturerna (opening-queue-jerk) ligger 250–310 m före
+  // och kan därför inte fälla en regel som bara verkar närmare bron. Båten väntar
+  // 15 min 140 m före bron, rycker 35 m i 1,4 kn och står 10 min till, och går
+  // sedan igenom. I dag kommer ingen varning på rycket och ett enda kort vid den
+  // verkliga avgången, 143 s före passagen med "om 2" (ARCHITECTURE, "Känd gräns:
+  // sen varning efter väntan vid Järnvägsbron"). En regel som varnar på första
+  // raden i rörelse efter kön (spår J:s alternativ A2: 1 kn, 20 m, högst 200 m
+  // före bron) ger kortet på rycket 878 s före och fäller scenariot. MMSI i
+  // serien 970–979 (nödsändare) duger inte här: appen ger dem ingen målbro.
+  // ---------------------------------------------------------------------------
+  {
+    name: 'kö-140m-söder-om-Järnvägsbron-ryck-35m-och-ny-väntan (känd gräns, U79)',
+    seed: 7901,
+    vessels: [{
+      mmsi: '957900001',
+      name: 'SYNT-U79-KO',
+      startS: METRICS.cum[3] - 140 - 1300,
+      legs: [
+        { toS: METRICS.cum[3] - 140 - 250, speedKn: 4.5, intervalS: 65 },
+        { toS: METRICS.cum[3] - 140, speedKn: 1.5, intervalS: 65 },
+        { stopS: 900, stopIntervalS: 65, stopSog: 0.1 },
+        { toS: METRICS.cum[3] - 105, speedKn: 1.4, intervalS: 20 },
+        { stopS: 600, stopIntervalS: 65, stopSog: 0.1 },
+        { toS: METRICS.cum[3] - 75, speedKn: 1.8, intervalS: 65 },
+        { toS: METRICS.cum[4] + 500, speedKn: 4.5, intervalS: 65 },
+      ],
+    }],
+    expect: {
+      // Ett enda kort för Stridsbergsbron, och det kommer vid den verkliga
+      // avgången: minst 100 s och högst 160 s före den sanna korsningen.
+      maxOpeningsPerBridge: { Stridsbergsbron: 1 },
+      openingLeadS: { Stridsbergsbron: 100 },
+      maxOpeningAgeS: { Stridsbergsbron: 160 },
+    },
+  },
+  // ---------------------------------------------------------------------------
   // KÄND GRÄNS (U68, omgång 9): vad texten säger om en båt medan hon är tyst.
   // Mätningen över banken och fältkörningarna (ARCHITECTURE §5, "Tysta båtar")
   // hittade ingen regel som gör fler minuter sanna utan att ta bort sann text,
