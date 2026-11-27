@@ -1135,21 +1135,34 @@ class AISBridgeApp extends Homey.App {
       // för samma-riktnings-gaten (RONJA-klassen).
       const windowMs = this._PERSISTENT_DEDUP_RETENTION_MS || this._PERSISTENT_DEDUP_WINDOW_MS;
       let loaded = 0;
+      let clamped = 0;
       for (const [key, value] of Object.entries(stored)) {
         // Körning 2026-07-02 (ELFKUNGEN): nytt format {t, dir} — riktningen
         // gör dedupen resemedveten över omstarter. Äldre lagrade poster är
         // rena tal; de accepteras utan riktning (konservativ blockering).
-        const ts = typeof value === 'number' ? value : value && value.t;
+        let ts = typeof value === 'number' ? value : value && value.t;
+        // Omgång 9 (spår R): en stämpel i framtiden (klockan gick fel framåt
+        // när notisen skickades, eller skadad inställning) blev "färsk" för
+        // evigt: negativ ålder spärrade båt+bro tills stämpeln passerats, och
+        // städningen tog aldrig bort posten. Samma marginal som besöksminnet
+        // och öppningsdedupen använder; posten gäller som en notis skickad nu.
+        if (Number.isFinite(ts) && ts - now > AIS_CONFIG.AISHUB.SEEN_MAX_FUTURE_SKEW_MS) {
+          ts = now;
+          clamped++;
+        }
         if (Number.isFinite(ts) && now - ts < windowMs) {
           this._persistentRecentTriggers.set(
             key,
-            typeof value === 'number' ? { t: value, dir: null } : { t: ts, dir: value.dir || null },
+            typeof value === 'number' ? { t: ts, dir: null } : { t: ts, dir: value.dir || null },
           );
           loaded++;
         }
       }
       if (loaded > 0) {
         this.log(`🔁 [PERSISTENT_DEDUP] Restored ${loaded} recent trigger entries from settings (survives restart)`);
+      }
+      if (clamped > 0) {
+        this.log(`🕰️ [PERSISTENT_DEDUP_FUTURE] ${clamped} sparade notisspärr(ar) hade en stämpel i framtiden — gäller som skickade nu`);
       }
     } catch (error) {
       this.error('[PERSISTENT_DEDUP] Failed to load persisted triggers:', error.message || error);
@@ -14595,16 +14608,28 @@ class AISBridgeApp extends Homey.App {
       const persistentWindow = this._PERSISTENT_DEDUP_RETENTION_MS
         || this._PERSISTENT_DEDUP_WINDOW_MS || 2 * 60 * 60 * 1000;
       const persistentExpired = [];
+      let persistentClamped = 0;
       for (const [key, value] of this._persistentRecentTriggers.entries()) {
         const ts = typeof value === 'number' ? value : value && value.t;
         if (!Number.isFinite(ts) || persistentNow - ts > persistentWindow) {
           persistentExpired.push(key);
+        } else if (ts - persistentNow > AIS_CONFIG.AISHUB.SEEN_MAX_FUTURE_SKEW_MS) {
+          // Omgång 9 (spår R): samma framtidsregel som _loadPersistentTriggers.
+          // Efter ett klocksteg bakåt ligger nyss skrivna poster i framtiden;
+          // de gäller som skickade nu i stället för i 2 h plus stegets storlek.
+          this._persistentRecentTriggers.set(key, {
+            t: persistentNow, dir: typeof value === 'object' && value ? value.dir || null : null,
+          });
+          persistentClamped++;
         }
       }
-      if (persistentExpired.length > 0) {
+      if (persistentExpired.length > 0 || persistentClamped > 0) {
         persistentExpired.forEach((key) => this._persistentRecentTriggers.delete(key));
         this._persistRecentTriggers(); // P2: håll persisterat tillstånd i synk
         this.debug(`🧹 [CLEANUP] Removed ${persistentExpired.length} expired persistent dedup entries`);
+        if (persistentClamped > 0) {
+          this.log(`🕰️ [PERSISTENT_DEDUP_FUTURE] ${persistentClamped} notisspärr(ar) låg i framtiden (klocksteg bakåt) — gäller som skickade nu`);
+        }
       }
     }
 
