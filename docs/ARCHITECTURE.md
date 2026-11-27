@@ -1253,7 +1253,8 @@ båt.
   passageblocket (2000 ms-fönstret med `notePassage` och nollningen av öppningsdedupen)
   hoppas över för det (`OPENING_OBSERVE_SUPERSEDED`, debugnivå). Anropet ligger efter
   första `await` i ingångarna, och när flera fix för samma båt behandlas synkront i följd
-  (websocketramar i samma läsning efter ett nätstopp, alla med samma mottagningstid) körs
+  (websocketramar i samma läsning efter ett kort nätstopp eller en frusen process, alla med
+  samma mottagningstid; se den kända gränsen om klumpleverans i §8) körs
   fortsättningarna först när alla fix analyserats. Objekten delar `passedAt`, så det gamla
   fixets passageblock såg den senare passagen och nollade öppningsdedupen, och nästa gamla
   fortsättning beväpnade och avfyrade en andra varning för den redan passerade bron
@@ -4069,24 +4070,74 @@ meddelanden i sekunden) mättar sannolikt Homey. Fälten har haft ungefär 20 sa
 båtar. En lång körning (60 dygn, 480 unika båtar, produktionens timers) höll heapen på
 17–19 MB.
 
-**Känd gräns: klumpleverans av positioner (omgång 9, spår R).** Levererar websocketen
-flera positioner för samma båt i samma läsning efter ett nätstopp bär de samma
-mottagningstid (`AISStreamClient`, `lib/connection/`). Klumpprovet (3, 5 och 10
-positioner i följd över varje startpunkt längs en resa, båda riktningarna, också genom
-muxen i `both`-läge, och tio minuters paus med klumpleverans) gav samma notiser,
-notistexter och brotext/restid som när bara klumpens sista position levereras (ett
-glapp); öppningsvarningarna skyddas av vakten i `_observeBridgeOpening`. Kvar finns en
-skillnad: en klump som korsar en mellanbro (Stallbackabron norrut, Järnvägsbron söderut)
-bokför inte den mellanbrons passage, eftersom `StatusService._noteUnderBridgeLineCross`
-avvisar ett segment som rört sig utan tidsskillnad. Notiserna och texten blev ändå
-oförändrade i proverna. En rättning hör hemma i klientens tidsstämpling (spår K), inte i
-fysikgrinden. Kvar finns också (granskningen M2): en båt vars första observation är en
-klump över en bro kan få två varningar för den bron. Klumpens första fix går in på
-entered-vägen (två `await` före observationen) och de övriga på updated-vägen (en), så det
-äldsta fixet observeras sist, efter att passagen bokförts, och tolkas som en returresa.
-I granskarens 96 fall gav basen 3–12 varningar i 48 av dem och spetsen högst två (20 fall);
-ingen bro tappade sin varning. Rättningen (en löpande sekvens per objekt och den senast
-observerade per MMSI) är inte gjord.
+**Känd gräns: klumpleverans av positioner (omgång 9, spår R; omgång 10, spår N, U78).**
+Levererar websocketen flera positioner för samma båt i samma läsning bär de samma
+mottagningstid (`AISStreamClient`, `lib/connection/`): `ws` emitterar alla hela ramar i en
+läsning synkront, och `fixTs` för aisstream är mottagningstiden.
+
+*Vad som händer vid ett nätstopp* (mätt i omgång 10 med den riktiga klienten mot en lokal
+server bakom en proxy som fryser trafiken; låst av `tests/n-natstopp-pingvakt.test.js`).
+Klienten buffrar ingenting själv; det som håller kvar data under ett stopp är TCP.
+Pingvakten (30 s) river socketen vid en kontroll där förra pingen saknar pong och inget
+meddelande kommit sedan förra kontrollen. Ett stopp överlevs därför till pingvaktens andra
+kontroll efter att det började: knappt 60 s om det började strax efter en kontroll, drygt
+30 s om det började strax före. Ett kortare stopp ger en klump när nätet kommer tillbaka
+(i provet 55 s: 33 meddelanden, det äldsta 52 s gammalt). Ett längre stopp river socketen;
+handskakningarna under stoppet löper ut, klienten ansluter på nytt efter stoppet, och en ny
+prenumeration får ingen gammal data, så stoppets positioner är förlorade. AISHub ger
+aktuella positioner med egen fixtid vid nästa hämtning (en post per båt, aldrig en klump).
+Längre klumpar än cirka en minut uppstår bara när appens process fryser medan nätet går
+(pingvakten går i samma frusna process): i provet gav 70 s frysning en klump på 39
+meddelanden och 150 s en på 90, utan att socketen revs. Antaget, inte mätt: vid verklig
+paketförlust sänder TCP om med växande intervall, så data kan komma några sekunder efter att
+nätet kommit tillbaka och fler stopp slutar som glapp. Omgång 9:s inställning "nätstopp 2 min
+med klump" är alltså ett läge klienten inte kan hamna i vid nätstopp, bara vid frysning.
+
+*Fältet.* Ingen klump i någon inspelning: av 14 289 aisstream-mottagningar i banken och fyra
+fältkörningar (november 2026, fältprov 2 och 3 inräknade) ligger 3 par inom 20 ms, alla olika båtar, och ett enda par för samma båt
+inom 1 s (en båt som låg still). Pingvaktens rad "No pong since last ping" finns inte i
+någon av de fyra körningarnas loggar. aisstream är gles här: av intervallen mellan två positioner för en rörlig
+båt är 3,8 % kortare än 30 s och 16,6 % kortare än 60 s.
+
+*Mätningen* (banken + fältprov 2 och 3, varje körning med stopp jämförd med samma körning
+utan stopp; uteblivna / extra / sena > 60 s / tidiga > 60 s öppningsvarningar av 497).
+Stoppen ligger i början av varje tiominutersfönster i hela körningen, alltså långt tätare
+än i verkligheten; talen visar känslighet, inte förväntat antal fel.
+
+| Stopp var 10:e min | klump (dagens kod) | bara nyaste per båt | egen tid | positionerna tappas |
+|---|---|---|---|---|
+| 30 s | 0/1/2/1 | 0/1/2/1 | 0/1/0/1 | – |
+| 60 s | 3/3/5/7 | 4/3/5/7 | 0/1/1/5 | 7/5/17/21 |
+| 120 s | 4/6/33/27 | 4/5/32/27 | 3/6/17/22 | 27/16/32/47 |
+
+Vid 120 s är det verkliga utfallet kolumnen där positionerna tappas (pingvakten), 27
+uteblivna varningar mot 4 med klump. Klump och glapp skiljer sig högst en varning i varje
+inställning: det som kostar är förseningen, inte att positionerna delar tid.
+
+*Varför ingen ändring (U78).* Att bara skicka vidare nyaste positionen per båt var inte
+bättre i någon inställning (mellanpositionerna bär information), och kräver att klienten
+håller inne varje meddelande till slutet av läsningen. Att ge varje position sin egen tid
+var klart bättre i mätningen (vid 60 s 16 varningar närmare utan stopp, ingen sämre; vid
+120 s 32 bättre och 4 sämre, 150–190 s för tidiga), men källan skulle vara aisstreams fält
+`MetaData.time_utc`, som inte är dokumenterat (antaget: serverns mottagningstid), och
+ändringen bryter fusionens kontrakt att aisstreams fixtid är mottagningstid (F6, F6b:s
+parbevis, `tests/kallkontrakt-fixfalt-v7.test.js`), för ett läge som aldrig setts i fält.
+Replay går förbi klienten och inspelningen saknar `time_utc`, så ingen av ändringarna hade
+kunnat prövas där. Uppföljning: en loggrad när mottagningen ligger mer än några sekunder
+efter `time_utc` räknat mot en löpande baslinje, och `time_utc` i inspelningen, så att ett
+fältprov kan visa om klumpar förekommer; först om det visar klumpar, egen tid i smal form
+(mottagningstiden behålls utom när förseningen överstiger tröskeln).
+
+*Kvar från omgång 9.* En klump som korsar en mellanbro (Stallbackabron norrut,
+Järnvägsbron söderut) bokför inte den mellanbrons passage, eftersom
+`StatusService._noteUnderBridgeLineCross` avvisar ett segment som rört sig utan
+tidsskillnad; notiserna och texten blev ändå oförändrade i proverna. En båt vars första
+observation är en klump över en bro kan få två varningar för den bron (granskningen M2):
+klumpens första fix går in på entered-vägen (två `await` före observationen) och de övriga
+på updated-vägen (en), så det äldsta fixet observeras sist, efter att passagen bokförts, och
+tolkas som en returresa. I granskarens 96 fall gav basen 3–12 varningar i 48 av dem och
+spetsen högst två (20 fall); ingen bro tappade sin varning. Rättningen (en löpande sekvens
+per objekt och den senast observerade per MMSI) är inte gjord.
 
 **Känd gräns: en hängande tidslinjenotis spärrar samma anslutningsvarning i 24 h (omgång 9,
 spår R).** `_notifyConnectionIssue` stämplar nyckeln före `createNotification` och rullar
@@ -5563,7 +5614,9 @@ leveransbevis (en socket som bevisligen levererar meddelanden termineras inte
 för utebliven pong). Aktivt nyckel-/källbyte bryter cooldownen; watchdogen gör
 det inte. Hubbens återkomst efter ett avbrott drar fram AISstreams nästa
 försök när AISstreams försök aldrig nått servern (F1, se AISStreamClient i
-modullistan); spärrar och HTTP-fel följer fortfarande sin egen takt.
+modullistan); spärrar och HTTP-fel följer fortfarande sin egen takt. Ett nätstopp längre än
+pingvaktens två kontroller (30 till knappt 60 s) river socketen, och stoppets aisstream-positioner
+kommer aldrig; kortare stopp ger en klump (känd gräns om klumpleverans i §8, U78).
 
 **connection_status-semantiken** (B2c fullbordad): `degraded` kräver BEVISAD
 ASYMMETRI — den friska källan måste själv LEVERERA (silence ≤ 15 min), inte
