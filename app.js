@@ -2379,10 +2379,14 @@ class AISBridgeApp extends Homey.App {
       }
     }
 
+    // O3 (omgång 10, spår O): en osäker position (GPS-hopp) bevisar varken att
+    // båten lämnat närområdet eller var hon ligger — samma regel som
+    // öppningslagrets band ovan. Posten behåller den senaste rena positionen.
+    const gpsSuspect = vessel._gpsJumpDetected === true || vessel._positionUncertain === true;
     if (!nearPoint(triggerPoints)) {
       // Ute ur närområdet = i transit: släpp bokföringen (bounded minne, och
       // en återkomst prövas som förut tills nytt stillasample bokförts).
-      this._quayStableLedger.delete(mmsi);
+      if (!gpsSuspect) this._quayStableLedger.delete(mmsi);
       // M11 (RUNDA 4): skrivningen längst ned nås aldrig på den här vägen, och
       // det är EXAKT målbrofallet — Kanalinfarten ligger 1982 m från Klaffbron
       // och 3197 m från Stridsbergsbron, så ett fartyg som kajligger vid en
@@ -2411,8 +2415,10 @@ class AISBridgeApp extends Homey.App {
     if (vessel._moored === true || onLearnedQuay
         || (sog !== null && sog < MOORING_DETECTION.MOVEMENT_PROOF_SOG_KN)) {
       entry.stillAt = Date.now();
-      entry.lat = vessel.lat;
-      entry.lon = vessel.lon;
+      if (!gpsSuspect) {
+        entry.lat = vessel.lat;
+        entry.lon = vessel.lon;
+      }
       entry.movingFixes = 0;
     } else if (sog !== null) {
       // DÖDBANDET 0,5-1,0 kn NOLLSTÄLLER (granskningsrunda 2): "två PÅ

@@ -254,6 +254,35 @@ describe('U84: obekräftat hopp som sist känd position', () => {
     expect(after.some((n) => n.bridge === 'Olidebron' && /passerade Olidebron under AIS-tystnad/.test(n.msg))).toBe(true);
   });
 
+  // O3 (kajbokföringen vid Kanalinfarten): en båt som ligger stilla inom
+  // 500 m från Kanalinfarten bokförs, och kajgrinden kräver sedan belagd
+  // avfärd innan "närmar sig Kanalinfarten" får gå ut (kajvobbel är ingen
+  // avfärd). Ett hopp utanför närområdet raderade posten, och ett vobbel i
+  // fart på samma plats gav en falsk notis. Nu behåller posten den senaste
+  // rena positionen.
+  test('kajbokföringen: hopp ut ur Kanalinfartens närområde raderar inte kajhistoriken', async () => {
+    await start({});
+    const MMSI = '910030013';
+    const { TRIGGER_POINTS } = require('../lib/constants');
+    const tp = TRIGGER_POINTS.kanalinfarten;
+    const resa = journey(MMSI, 'PROV VOBBEL');
+    const i0 = resa.findIndex((x) => x.lat < tp.lat && geometry.calculateDistance(x.lat, x.lon, tp.lat, tp.lon) < 280);
+    const still = { ...resa[i0], mmsi: MMSI };
+    await hold(still, 15);
+    const n0 = notices().length;
+    await jest.advanceTimersByTimeAsync(20 * 1000);
+    feed({ ...still, lat: still.lat - 0.02 }, { sog: 0.2 });
+    await jest.advanceTimersByTimeAsync(60);
+    expect(app.vesselDataService.getVessel(MMSI)._gpsJumpDetected).toBe(true);
+    expect(app._quayStableLedger.get(MMSI).lat).toBeCloseTo(still.lat, 6);
+    for (let k = 0; k < 4; k++) {
+      await jest.advanceTimersByTimeAsync(MIN);
+      feed({ ...still, lat: still.lat + 0.00003 * (k % 2) }, { sog: 1.4, cog: 20 });
+    }
+    await hold(still, 10);
+    expect(notices().slice(n0).filter((n) => n.bridge === 'Kanalinfarten')).toHaveLength(0);
+  });
+
   // Ingen ren position: en kedja av obekräftade hopp (fram och tillbaka mellan
   // båtens plats och en punkt norr om Järnvägsbron) längre än 20 min tappar det
   // rena ankaret. Då sparas ingenting, varken vid radering eller vid en ordnad
