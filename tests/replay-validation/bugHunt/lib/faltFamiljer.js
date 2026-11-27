@@ -116,17 +116,18 @@ function kajOffset(quay) {
 }
 
 /**
- * Kajflyttarna i banken (omgång 9, varv 3): åtta inspelade flyttar mellan två
+ * Kajflyttarna i banken (omgång 9, varv 3 och 4): sju inspelade flyttar mellan två
  * stillaepisoder på minst 10 min (o9/S/verktyg/kajflytt.js), som farleds-
  * koordinat från → till (avrundad till 10 m) och högsta sog under flytten.
  * Fältproven (k1–k4) har tio till i samma områden (hamnen söder om infarten,
  * vid Klaffbron och Stallbackabron) men står inte här: fältets positioner
- * hör inte hemma i repot.
+ * hör inte hemma i repot. Varv 4: flytten 2 650 → 3 130 (20260711-16h) är
+ * borttagen; spår V visade att den var en avgång från Gästhamnen till
+ * Järnvägsbrons kö och vidare genom Stridsbergsbron, ingen kajflytt.
  */
 const KAJFLYTTAR = Object.freeze([
   { från: 6130, till: 6420, kn: 6.8 },
   { från: 6420, till: 6130, kn: 0.5 },
-  { från: 2650, till: 3130, kn: 2.3 },
   { från: -60, till: -160, kn: 2.2 },
   { från: 140, till: -40, kn: 0.2 },
   { från: 40, till: -120, kn: 1.5 },
@@ -195,7 +196,7 @@ function arbetsbåt(rnd, world, f) {
 // ---------------------------------------------------------------------------
 const INFLYGNING = Object.freeze([
   {
-    broar: ['Olidebron'], pKryp: 0.35, pStopp: 0.3, stoppM: [40, 300],
+    broar: ['Olidebron'], pKryp: 0.35, pStopp: 0.3, stoppM: [40, 300], krypSlutM: [200, 350],
   },
   {
     broar: ['Klaffbron'], pKryp: 0.3, pStopp: 0.3, stoppM: [100, 300],
@@ -207,7 +208,12 @@ const INFLYGNING = Object.freeze([
     broar: ['Stallbackabron'], pKryp: 0.05, pStopp: 0.5, stoppM: [100, 300],
   },
 ]);
-const P_HAMN = 0.7;
+// Hamnkrypet (varv 4): norrgående kryper bara på en del av sträckan söder om
+// infarten, innan appen ger målbron (inspelat: 30 % av korsningarna av
+// Olidebron norrut har kryp i hamnen och 22 % av hamnraderna är kryp; med hela
+// sträckan till s 250 i 70 % av fallen fick världarna 78 % och 83 %).
+const P_HAMN_NORR = 0.3;
+const P_HAMN_SÖDER = 0.5;
 const lognorm = (rnd, median, sigma, lo, hi) => Math.min(hi, Math.max(lo, median * Math.exp(rnd.normal() * sigma)));
 
 /**
@@ -260,23 +266,28 @@ function inflygning(rnd, b, h) {
         });
       }
     } else {
-      const withinM = Math.round(rnd.range(60, 250));
+      // Krypet slutar 20–80 m före bron, vid Olidebron 200–350 m (varv 4:
+      // inspelat har 11 % av korsningarna av Olidebron norrut en rad under
+      // 2 kn inom 200 m före linjen; med 20–80 m fick världarna 32 %).
+      const [s0, s1] = enh.krypSlutM || [20, 80];
+      const slutM = Math.round(rnd.range(s0, s1));
+      const withinM = Math.max(slutM + 40, Math.round(rnd.range(60, 250)));
       plan.push({
         op: 'slow', bridge: först, fromM: Math.max(fromM, withinM + 50), toM: withinM, kn: Math.round(rnd.range(1.5, 3) * 10) / 10,
       });
       plan.push({
-        op: 'slow', bridge: först, fromM: withinM, toM: Math.round(rnd.range(20, 80)), kn,
+        op: 'slow', bridge: först, fromM: withinM, toM: slutM, kn,
       });
     }
     harBro.add(först);
     if (andra) harBro.add(andra);
   }
   // Hamnen söder om infarten: låg fart på in- eller utvägen.
-  if (!plan.some((p) => p.op === 'slowzone') && rnd.chance(P_HAMN)) {
+  if (!plan.some((p) => p.op === 'slowzone') && rnd.chance(b.dir === 'north' ? P_HAMN_NORR : P_HAMN_SÖDER)) {
     const kn = Math.round(lognorm(rnd, 1.3, 0.35, 0.5, 2.5) * 10) / 10;
     if (b.dir === 'north') {
       plan.push({
-        op: 'slowzone', fromS: -350, toS: 250, kn,
+        op: 'slowzone', fromS: -350, toS: Math.round(rnd.range(-250, -50)), kn,
       });
     } else if (!u) {
       plan.push({

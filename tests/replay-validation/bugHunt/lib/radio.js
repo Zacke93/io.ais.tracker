@@ -129,7 +129,13 @@ function makeRow(ctx, p, tFixMs, tRecvMs, feed) {
   const moving = inMotion(p);
   let { lat } = p;
   let { lon } = p;
-  if (noise) {
+  if (noise && ctx.gps) {
+    // Radiomodellen blandad (varv 4): GPS-felet är en funktion av fixtiden,
+    // gemensam för båda källorna (se observeBlandad).
+    const o = ctx.gps(tFixMs / 1000, moving);
+    lat = p.lat + (o.dN / M_PER_DEG_LAT);
+    lon = p.lon + (o.dE / (M_PER_DEG_LAT * Math.cos((p.lat * Math.PI) / 180)));
+  } else if (noise) {
     // 1 % uteliggare på 15–40 m, annars 3,5 m i rörelse och 2 m stilla.
     let sigma = moving ? 3.5 : 2.0;
     if (rnd.chance(0.01)) sigma = rnd.range(15, 40);
@@ -302,12 +308,42 @@ function observeBlandad({
       realisation[b.mmsi] = { nameUnknownMin: delayMin === 'aldrig' ? 'aldrig' : Math.round(delayMin * 100) / 100 };
     }
   }
+  // GPS-felet (varv 4): samma sändning hörs av båda källorna, så två rader för
+  // nästan samma fixögonblick ska bära nästan samma position. Felet är en
+  // funktion av fixtiden: knutar var 20:e sekund med ett eget slumptal
+  // (`radio-<mmsi>-gps-<k>`, N(0; 1) per axel, 1 % uteliggare 15–40 m), linjärt
+  // interpolerade och skalade med 3,5 m i rörelse och 2 m stilla. Förut drog
+  // varje rad sitt eget brus, och två rader 1 s isär kunde ligga på var sin
+  // sida om en brolinje (inspelat: 0 av 4 179 radpar nära broar med ett sådant
+  // bakåtsteg inom 5 s; världarna 41 av 17 338).
+  const knut = new Map();
+  const knutVärde = (k) => {
+    if (!knut.has(k)) {
+      const g = stream(baseSeed, `radio-${b.mmsi}-gps-${k}`);
+      const ute = g.chance(0.01) ? g.range(15, 40) : null;
+      knut.set(k, { n: g.normal(), e: g.normal(), ute });
+    }
+    return knut.get(k);
+  };
+  const gps = (tS, moving) => {
+    const k = Math.floor(tS / 20);
+    const f = (tS / 20) - k;
+    const a = knutVärde(k);
+    const c = knutVärde(k + 1);
+    const sa = a.ute || (moving ? 3.5 : 2.0);
+    const sc = c.ute || (moving ? 3.5 : 2.0);
+    return { dN: ((1 - f) * a.n * sa) + (f * c.n * sc), dE: ((1 - f) * a.e * sa) + (f * c.e * sc) };
+  };
   const ctxS = {
-    rnd: rndS, b, cls, noise, nameState: (tMs) => (tMs < nameKnownAtMs ? 'Unknown' : b.name),
+    rnd: rndS, b, cls, noise, gps, nameState: (tMs) => (tMs < nameKnownAtMs ? 'Unknown' : b.name),
   };
   const ctxH = {
-    rnd: rndH, b, cls, noise, nameState: () => b.name,
+    rnd: rndH, b, cls, noise, gps, nameState: () => b.name,
   };
+  // Takten (varv 4): en transit i kö sänder som under gång (motorn igång), inte
+  // som en förtöjd båt. I k1–k4 kommer rader från båtar under 2 kn nära broar
+  // var 66–70 s (0,9 % över 120 s); med stillakvantilen blev det 13–18 %.
+  const iGång = (p) => inMotion(p) || b.role === 'transit';
   const lateBirth = profile.lateBirth && Number.isFinite(b.firstHeardS);
   const firstHeard = (p) => !lateBirth || (b.dir === 'north' ? p.s >= b.firstHeardS : p.s <= b.firstHeardS);
   const fixedIv = Number.isFinite(b.fixedIntervalS) ? b.fixedIntervalS : profile.intervalS;
@@ -320,7 +356,7 @@ function observeBlandad({
   while (tS <= tEnd) {
     const p = truthAt(bt, tS);
     if (!p) break;
-    const moving = inMotion(p);
+    const moving = iGång(p);
     heard = heard || firstHeard(p);
     if (!heard || !geo.inRadioBox(p.lat, p.lon)) {
       tS += 10;
@@ -347,7 +383,7 @@ function observeBlandad({
     if (P > tEnd + 70) break;
     const pNow = truthAt(bt, Math.min(P, tEnd));
     if (!pNow) continue;
-    const moving = inMotion(pNow);
+    const moving = iGång(pNow);
     const age = moving ? falt.vinter.ageMove(rndH.u()) : falt.vinter.ageStill(rndH.u());
     const fixS = Math.floor(P - age);
     const tröskel = avg && fixS >= avg.D ? Math.min(due, avg.dueNy) : due;

@@ -216,6 +216,46 @@ describe('(b) fältvärldarna', () => {
     }
   });
 
+  test('varv 4: två källors rader för nästan samma fixögonblick bär nästan samma position', () => {
+    let par = 0;
+    for (let i = 0; i < 12; i++) {
+      const rows = observe(fältVärld('F-KÄLLBORTFALL', i), 'R1').filter((r) => !r.ctrl);
+      const by = {};
+      for (const r of rows) (by[r.mmsi] = by[r.mmsi] || []).push(r);
+      for (const tr of Object.values(by)) {
+        for (const a of tr.filter((r) => r.feed === 'aisstream')) {
+          for (const c of tr.filter((r) => r.feed === 'aishub' && Math.abs(r.fixTs - a.fixTs) <= 3000)) {
+            const d = geo.calculateDistance(a.lat, a.lon, c.lat, c.lon);
+            const fart = Math.max(a.sog, c.sog) * 0.514444;
+            expect(d).toBeLessThan((fart * Math.abs(c.fixTs - a.fixTs) / 1000) + 3);
+            par++;
+          }
+        }
+      }
+    }
+    expect(par).toBeGreaterThan(5);
+  });
+
+  test('varv 4: en transit i kö hörs i gångtakt (högst 5 % av intervallen över 120 s, alla källor; k1–k4 0,9 %)', () => {
+    let n = 0;
+    let över = 0;
+    for (let i = 0; i < 60; i++) {
+      const spec = fältVärld('F-MÅLBROVÄNTAN', i);
+      const a = spec.boats.find((x) => x.mmsi === spec.fokal.mmsis[0]);
+      if (a.tystnad || spec.källfel.length) continue;
+      for (const kö of simulateBoat(a).stops.filter((st) => st.kind === 'queue')) {
+        const ah = observe(spec, 'R1').filter((r) => r.mmsi === a.mmsi
+          && r.fixTs >= spec.startMs + (kö.t0 * 1000) && r.fixTs <= spec.startMs + (kö.t1 * 1000)).map((r) => r.fixTs).sort((x, y) => x - y);
+        for (let k = 1; k < ah.length; k++) {
+          n++;
+          if (ah[k] - ah[k - 1] > 120000) över++;
+        }
+      }
+    }
+    expect(n).toBeGreaterThan(50);
+    expect(över / n).toBeLessThan(0.05);
+  });
+
   test('fältvärldarna är deterministiska ur sin JSON-spec (rundresan)', () => {
     for (const fam of families.FÄLTFAMILJER) {
       const spec = fältVärld(fam, 1);
