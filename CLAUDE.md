@@ -22,7 +22,8 @@ Svar och kodkommentarer på svenska.
   (jsonl mot logg) och `npm run replay:phase` (fassvepet). Kriterier i
   `docs/VALIDATION.md` §Fältprov, steg 3 och 4.
   - På full loggnivå har fångstraderna löpnummer och omsänds (U71); grinden godkänner
-    ett tidshål bara när varje nummer finns. Läk jsonl ur en logg:
+    ett tidshål bara när varje nummer finns, och bara i en körning med en appstart och
+    en fångstström utan byte av loggnivå (U77). Läk jsonl ur en logg:
     `node tests/replay-validation/captureJournal.js --jsonl <app.log>`.
   - Ett bart `npm run replay:phase` sveper olåsta korpusar, annars hela banken. UI-klockan
     följer fasta halvminuter och konvojernas täckning har egna deadlines;

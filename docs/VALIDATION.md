@@ -2557,6 +2557,11 @@ adversariella granskningen 2026-08-10: selektiva noter på 7 korpusar).
   24 scenarier**, samma rader. De två nya scenarierna (kö vid målbron Stridsbergsbron
   och Klaffbron, U65) lägger inte till några, och inget av de 228 äldre scenarierna
   ändrar utfall.
+  **Efter omgång 9 (2026-11-27, 239 scenarier): baslinjen är oförändrat 25 rader i
+  24 scenarier**, samma rader. De nio nya scenarierna (tysta båtar och en sändare som
+  inte är ett fartyg, U68 och U69; en enda källa, U70; returen från kaj, U75) lägger inte
+  till några, och inget av de 230 äldre scenarierna ändrar utfall. I 19 av dem byttes ett
+  MMSI som börjar på 974 (en nödsändare enligt U69) mot 274; utfallet är bitlikt.
 - **O1:s missklassificerare (`classifyMiss`)** kräver nu KORROBORERAT rörelsebevis i tre
   led (position ≥ MOVEMENT_PROOF_NET_M från första horisontsampel; etablerad stillhets-
   vistelse ≥ ARM_STALE_TTL_MS inom 50 m + tätt fixpar med implicerad fart < 0,5 kn ⇒

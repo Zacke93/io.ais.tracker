@@ -360,6 +360,20 @@ Moduler (ansvar / ägda tillstånd / in-ut):
   passage, kvar före ⇒ brus), vilket kräver en ombyggnad av GPS-grinden och sidokontraktet.
   Dagens beteende för verkliga returer strax bortom bron låses av
   `tests/u57-returer-strax-bortom-bron.test.js` och scenarierna `u-sväng-… (U57)`.
+  **Känd gräns (beslut U74, 2026-11-27, bredvid U57): en rörlig brusposition bortom brolinjen
+  bokför passagen för tidigt.** Situationen: en båt kryper eller väntar mindre än 150 m före en
+  målbro, och en enda position i minst 0,5 kn (över rörelsebeviset) hamnar inom jitterbandet
+  (60 m) bortom linjen. S1 spärrar bara stilla positioner, och förflyttningen är rimlig för
+  farten, så passagen bokförs framåt på bruspositionen: texten byter till nästa målbro medan
+  båten ligger kvar före bron, och den verkliga korsningen bokförs sedan inte. I buggjägarens
+  fältprofil (värld 100989, omgång 9) väntade båten 25 m före Stridsbergsbron, en
+  AISHub-position i 2,7 kn hamnade 41 m bortom linjen, och passagen bokfördes sex minuter för
+  tidigt. U57 är spegelfallet: en stilla brusposition och en passage bakåt på nästa position.
+  Mätt i banken och k1–k4 (omgång 9, spår S): 257 grannpar under 3 kn inom 150 m före en målbro
+  (11 inom 50 m), och i inget av dem avviker en position på andra sidan linjen mer än 40 m från
+  grannarna. Varför ingen rättning: som i U57 går bruset bara att skilja från en verklig passage
+  genom att vänta en position med beslutet, vilket är samma ombyggnad av GPS-grinden. Står också
+  i `docs/BUGGJAKT.md` §7 (omgång 9), utan registerpost.
 - **PassageLatchService**: latch per båt+bro som blockerar retrograda statusar
   ("tidsresor"); 10 min latch-timeout. Konsumeras av StatusService via
   `shouldBlockStatus` (StatusService.js:772, 846, 912, 960, 1176).
@@ -2156,6 +2170,23 @@ båt.
   startfixet och två återkorsade broar i samma segment (bara den första bokförs). Där bokförs
   returen inte; testerna "KÄND LUCKA" i `tests/r1-usvang-aterkorsning-2026-11-04.test.js` visar
   dagens beteende.
+- **Känd gräns: återkorsningsbeviset jämför bara latitud (beslut U76, 2026-11-27).**
+  `_evidencedCrossingDirection` i `VesselDataService` prövar att bron ligger mellan förra och nya
+  positionen på brons latitud, inte på brolinjen. Situationen: två positioner för nästan samma
+  ögonblick, 1 s isär (först AISstream, sedan AISHub), ligger 3 m bakåt i latitud på var sin sida
+  om brons mittlatitud medan farten är minst 2 kn. Appen loggar `RE_CROSS_EVIDENCED`, bekräftar
+  en vändning som inte skett och ger en andra öppningsvarning för den redan passerade bron
+  (buggjägarens profil `blandad`, värld 200684: Stridsbergsbron "eta 0" 40 s efter passagen
+  norrut, och texten räknade en båt för mycket i 10 s). Mätt i banken och k1–k4 (omgång 9, spår
+  W): 3 `RE_CROSS_EVIDENCED` i 29 körningar, alla äkta vändningar, och 0 av 4 179 radpar nära
+  broarna spänner över en bros mittlatitud (1 har ett bakåtsteg i minst 2 kn alls). Felet
+  utlöstes av att världen gav två källors rader för samma sändning olika brus; världen är
+  rättad. Varför ingen rättning nu: ett krav på segmentets längd kan fälla en äkta långsam
+  återkorsning, och ett villkor på brolinjens tecken hade fällt det äkta fallet i k3 (båten låg
+  9 m söder om Stallbackabrons linje på båda positionerna). De tre äkta segmenten är cirka 224,
+  121 och 210 m; ett villkor väljs först när segmenten i äkta återkorsningar är mätta.
+  Systerstället `_hasGapCrossedNotifiedBridge` rättades av samma skäl efter nattjaktens kort F08
+  (2026-11-16).
 - **U18 (användarbeslut 2026-11-04): Fix D kräver TVÅ positioner innan appen tror på en
   vändning, som förut (Anomali 18).** En retur med gles AIS, där den andra omvända positionen
   kommer först efter korsningen, får därför sin öppningsvarning sent eller inte alls; det är en
@@ -2205,6 +2236,21 @@ båt.
   löper ut 300 s efter sista positionen innan kajklassningen hunnit demotera henne. Det är
   U38/M6 val B och beskrivs under U70 (en enda källa, T2 och T3). Låst av scenariot "(känd
   gräns, U75)" i `runSyntheticScenarios.js`.
+- **Känd gräns: returen efter en U-sväng i farleden när målbron släpps före bekräftelsen
+  (omgång 9).** Situationen, i en byggd värld i buggjägarens fältprofil: en båt går söderut
+  genom Järnvägsbron, vänder ungefär 576 m norr om Klaffbron och går tillbaka norrut i
+  2,2–2,7 kn. Appen sätter en väntande vändning, men nästa position har kursen 54° (i dödbandet)
+  och bekräftar inte, och fixen därefter tar bort målbron eftersom avståndet till Klaffbron
+  växer. Fix D-blocket kräver målbro, och `_confirmFixDPendingWithoutTarget` gäller bara fixen
+  direkt efter väntans fix, så vändningen bekräftas först av återkorsningen av Järnvägsbron
+  (`RE_CROSS_EVIDENCED`). Under tiden går "närmar sig Järnvägsbron" ut med riktningen söderut,
+  och varningen för Stridsbergsbron kommer 43 s före korsningen. Mätt i banken och k1–k4 (omgång
+  9, spår S): av 16 inspelade vändningar korsade 5 en målbro i den nya riktningen inom 30 min. De
+  tre ute i farleden (PILOT 761 i 20260710-13h och k1, PRICKBJORN i k3) fick varningen 170–418 s
+  före korsningen och notiserna med rätt riktning; de två från Kajen norr om Klaffbron
+  (ELFKUNGEN) är U75 ovan. Ingen av de fem är det här fallet. Ingen rättning tills ett inspelat
+  fall finns; den smalaste vore att låta en väntande Fix D-vändning bekräftas också när målbron
+  släppts mellan de två positionerna.
 - **Målbron i samma tick som bekräftelsen (varv 2, familj A, 2026-11-09).** Två vägar
   bekräftade en vändning men lämnade måltilldelningen åt NÄSTA fix:
   - (M1) app-lagrets NEW_JOURNEY i `_onVesselUpdated`, som körs efter att `updateVessel`
@@ -2831,8 +2877,9 @@ Flaggor (bärs av `_createVesselObject`-fältlistan, §8a): `_etaIsExtrapolated`
    startade mätningen, LIFEGUARD 007 (k4 25/11 12:41, 14,6 kn, fryst ETA 1,3
    min, "strax" i 5 min och i texten i 15), var ingen båt utan Sjöfartsverkets
    räddningshelikopter (anropssignal SE-JRN, MMSI 111…) och är åtgärdat av U69
-   (§3, Inflöde). Hennes position låg 569 m
-   från kanalens farledslinje; ingen annan sändare i texten har legat mer än
+   (§3, Inflöde). Hennes enda position låg 569 m
+   från kanalens farledslinje, i höjd med bron (569 m från Stridsbergsbron enligt appens
+   avståndsmått); ingen annan sändare i texten har legat mer än
    250 m från den i underlaget. En regel som kräver att en båt ligger nära
    farleden för att få målbro är en möjlig följdfråga, inte prövad. **Prövat och avstått:** "strax" bara på
    en position yngre än 5 min gör 98 min falskt löfte till "ETA okänd" och tar
@@ -4151,9 +4198,15 @@ med `--state`), och grinden i `checkReplayIntegrity.js` godkänner ett tidshål
 bara när varje löpnummer finns (villkoren i `docs/VALIDATION.md` §Fältprov,
 steg 3). `compareFieldReplay.js` läser också de händelser som läkts ur
 omsändningarna; tidshålen redovisas ändå. I fält kommer `[CAPTURE_END]` aldrig fram
-(kommandoradsverktyget avinstallerar appen först), så loggskriptet skriver stopptiden
-i `ais-replay-<ts>.stop` och grinden kräver en kontrollpunkt högst 65 s före den;
-utan stopptid är svansen obevisad (DELVIS).
+(kommandoradsverktyget avinstallerar appen först). Loggskriptet skriver därför vid stoppet
+stopptiden och hur länge loggfilen varit tyst, mätt med datorns klocka, i
+`ais-replay-<ts>.stop`, och grinden kräver att tiden från sista kontrollpunkten till stoppet
+(loggens sista rad minus kontrollpunkten i appens tid, plus tystnaden i datorns tid) är högst
+65 s, så att Homeys och datorns klockor aldrig blandas; utan stoppfil är svansen obevisad
+(DELVIS). Grinden godkänner bara den enkla körningen (U77): exakt en appstart och exakt en
+fångstström utan byte av loggnivå. En omstart, en andra ström eller ett byte av loggnivå ger som
+bäst DELVIS, och en sådan körning låses inte utan handbedömning; granskningen fann i fyra varv
+var sin väg till falskt godkänt genom omstarter och strömbyten.
 
 Åtgärdat sedan 2026-07-03: "Fem lager"-kommentaren rättad (constants.js:193);
 MessageBuilder/ETAFormatter/StallbackabronHelper raderade — noll levande

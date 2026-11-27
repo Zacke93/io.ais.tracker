@@ -400,7 +400,8 @@ const BUILDERS = {
     const b = f.transit({
       dir, cls: rnd.chance(0.7) ? 'A' : 'B', cruiseKn: round2(rnd.range(10, 16)), plan, tags: [`engång@${bro}`, variant], fokal: true,
     });
-    // Räddningsbåten i fältprov 3 gick 14,6 kn: farten hålls utan sektorfaktor.
+    // Engångssändaren i fältprov 3 (en räddningshelikopter, U69) gick 14,6 kn:
+    // farten hålls utan sektorfaktor.
     b.fastFart = true;
     b.v0Kn = b.cruiseKn;
     b.enfix = { s: Math.round(fixS), källa: rnd.chance(0.8) ? 'aishub' : 'aisstream' };
