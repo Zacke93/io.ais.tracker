@@ -822,7 +822,7 @@
       "id": "OMSTART-RESETILLSTÅND",
       "klass": "KONFLIKT",
       "datum": "2026-11-04",
-      "källa": "docs/ARCHITECTURE.md:3081 (last_known_positions skrivs bara vid removal) mot docs/reliability-spec.md:104 (D3: dedupen ska överleva omstart)",
+      "källa": "docs/ARCHITECTURE.md:3081 (last_known_positions skrivs vid removal och, sedan O1 i omgång 10, för levande båtar bara i onUninit) mot docs/reliability-spec.md:104 (D3: dedupen ska överleva omstart)",
       "gäller": {
         "orakel": [
           "T11"
@@ -836,10 +836,10 @@
           "efterMin": 0
         }
       },
-      "regel": "Levande fartygs resetillstånd (lastPassedBridge, riktningslåset, senaste position) överlever inte en graciös omstart, så en notis kan tappas efter omstarten.",
+      "regel": "Levande fartygs resetillstånd (lastPassedBridge, riktningslåset) överlever inte en graciös omstart, så en notis kan tappas efter omstarten. Senaste positionen sparas sedan O1 (omgång 10) vid en graciös omstart, men inte vid en krasch.",
       "doktriner": [
         {
-          "text": "Persistensen: last_known_positions skrivs vid removal, inte för båtar som fortfarande är i farten.",
+          "text": "Persistensen: last_known_positions skrivs vid removal; för båtar som fortfarande är i farten skrivs den sedan O1 (omgång 10) bara i onUninit, alltså vid en graciös omstart men inte vid en krasch.",
           "källa": "docs/ARCHITECTURE.md:3081"
         },
         {
@@ -847,7 +847,7 @@
           "källa": "docs/reliability-spec.md:104"
         }
       ],
-      "fråga": "Ska levande fartygs resetillstånd (lastPassedBridge, riktningslåset och last_known_positions) överleva en graciös omstart?"
+      "fråga": "Ska levande fartygs resetillstånd (lastPassedBridge och riktningslåset; last_known_positions gör det sedan O1) överleva en graciös omstart?"
     },
     {
       "id": "LATENT-INBROMSNING",
