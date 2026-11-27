@@ -414,6 +414,32 @@ function keepNewestCapped(items, stampOf, cap = PERSISTED_LOAD_CAP) {
   return { kept: items.filter((item) => keep.has(item)), dropped: items.length - cap };
 }
 
+/**
+ * Omgång 9 (spår R, dirigentens beslut efter U72): MMSI i appens gemensamma
+ * inflöde blir en sträng med enbart siffror. Tal och sträng för samma båt ger
+ * samma nyckel och blanksteg tas bort. Det som inte är rena siffror efter det
+ * (`-1`, `1e9` som sträng, decimaltal) och MMSI 0 avvisas; MMSI 0 avvisas redan
+ * av båda källorna. Ett kort men numeriskt MMSI behålls, eftersom
+ * felprogrammerade sändare sitter på riktiga båtar. Förut blev varje sådan
+ * variant ett eget fartyg, och besöksminnet (som kräver nio siffror) skyddade
+ * dem inte mot dubbla notiser.
+ * @param {*} value
+ * @returns {string|null} normaliserat MMSI, eller null om det ska avvisas
+ */
+function normalizeMmsi(value) {
+  let text;
+  if (typeof value === 'number') {
+    if (!Number.isSafeInteger(value) || value <= 0) return null;
+    text = String(value);
+  } else if (typeof value === 'string') {
+    text = value.replace(/\s+/g, '');
+  } else {
+    return null;
+  }
+  if (!/^\d+$/.test(text) || /^0+$/.test(text)) return null;
+  return text;
+}
+
 function fmtMeasure(value, digits = 0) {
   return Number.isFinite(value) ? value.toFixed(digits) : 'okänt';
 }
@@ -5834,7 +5860,8 @@ class AISBridgeApp extends Homey.App {
 
       // STEG 2: NORMALISERA MMSI TILL STRING
       // Backend använder strings för MMSI (mer flexibelt)
-      const mmsiStr = String(message.mmsi);
+      // Omgång 9: samma nyckel för tal och sträng, blanksteg borttagna.
+      const mmsiStr = normalizeMmsi(message.mmsi);
       // U69 (omgång 9): är sändaren något annat än ett fartyg (räddningsflyg
       // 111, nödsändare 970/972/974, autonom radioanordning 979, sjömärke 99,
       // kuststation och gruppanrop 0, de med landskod bara när den är giltig)?
@@ -5988,7 +6015,8 @@ class AISBridgeApp extends Homey.App {
     }
 
     // CRITICAL FIX: Accept both string and number MMSI with more robust validation
-    if (!message.mmsi || (typeof message.mmsi !== 'string' && typeof message.mmsi !== 'number') || String(message.mmsi).trim() === '') {
+    // Omgång 9: regeln ägs av normalizeMmsi (enbart siffror, inte 0).
+    if (normalizeMmsi(message.mmsi) === null) {
       this.debug(`⚠️ [AIS_VALIDATION] Missing or invalid MMSI: ${message.mmsi}`);
       return false;
     }

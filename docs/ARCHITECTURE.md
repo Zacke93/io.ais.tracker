@@ -496,6 +496,14 @@ beteendet och motfallet `dummy-mmsi-111111111-… (U69, motfall)` att en båt me
 dummy-MMSI får samma text och notiser som före U69; enhetstesten står i
 `tests/u69-ej-fartyg-mmsi.test.js`.
 
+MMSI normaliseras i samma inflöde (`normalizeMmsi`, omgång 9, spår R): en sträng med
+enbart siffror, där tal och sträng för samma båt ger samma nyckel och blanksteg tas
+bort. Det som inte är rena siffror efter det (`-1`, `1e9` som sträng, decimaltal) och
+MMSI 0 avvisas; ett kort men numeriskt MMSI behålls (felprogrammerade sändare sitter på
+riktiga båtar). Förut blev varje variant ett eget fartyg, och besöksminnet, som kräver
+nio siffror, skyddade dem inte mot dubbla notiser. Klienterna i `lib/connection/` rörs
+inte; båda avvisar redan MMSI 0. Låst av `tests/r9-mmsi-normalisering.test.js`.
+
 ### De FYRA notisvägarna
 
 1. **Proximity** — `_triggerBoatNearFlow` (app.js:3693). Anropas från
