@@ -72,6 +72,12 @@ const BOOT_MARK = 'AIS Bridge starting with modular architecture';
 // över det här är ett korrupt nummer: det fälls direkt i stället för att
 // grinden ska räkna upp till det (granskningen, L5).
 const MAX_SEQ_JUMP = 100000;
+// N1: stopptiden (datorns klocka) får ligga högst så här mycket före loggens
+// sista rad (appens klocka) — loggskriptet tar den efter sista raden, så mer än
+// några sekunder före betyder fel fil, fel tidszon eller en Homey-klocka före.
+const STOP_SLACK_MS = 5000;
+// ... och högst ett dygn efter: senare hör den inte till körningen.
+const STOP_MAX_AFTER_MS = 24 * 3600 * 1000;
 const B64_RE = /^[A-Za-z0-9+/]*={0,2}$/;
 
 const MAX_LISTED = 5;
@@ -101,6 +107,8 @@ function createJournalAudit() {
   let malformed = 0;
   let firstMalformed = null;
   let activeSid = null;
+  let lastBootLine = null;
+  const boots = []; // { line, t }: omstarter, så att en ström utan slut slutar vid nästa boot
   let plainEvents = 0;
   let firstPlainEventLine = null;
 
@@ -138,7 +146,12 @@ function createJournalAudit() {
 
   // Rader utan journalens kännetecken: sampel och starttillstånd utan nummer.
   const takePlain = (line, lineNumber) => {
-    if (line.indexOf(BOOT_MARK) !== -1) activeSid = null;
+    if (line.indexOf(BOOT_MARK) !== -1) {
+      activeSid = null;
+      lastBootLine = lineNumber;
+      const bt = timeOf(line);
+      boots.push({ line: lineNumber, t: bt ? bt.t : null });
+    }
     if (activeSid !== null && EVENT_TAGS.some((tag) => line.indexOf(tag) !== -1)) {
       plainEvents += 1;
       if (firstPlainEventLine === null) firstPlainEventLine = lineNumber;
@@ -321,11 +334,16 @@ function createJournalAudit() {
     /**
      * @param {Array} gaps - tidshål från createTimeGapAudit (from/to med t och line)
      * @param {Object} [opts]
-     * @param {number} [opts.stopTime] - när loggskriptet började stoppa körningen (ms).
-     *   Utan den bevisas inte svansen efter sista kontrollpunkten (granskningen, L1).
+     * @param {number} [opts.stopTime] - när loggskriptet började stoppa körningen (ms,
+     *   datorns klocka). Bara en rimlighetskontroll mot loggen (granskningen, N1).
+     * @param {number} [opts.quietMs] - hur länge loggfilen varit tyst när stoppet
+     *   började, mätt med datorns klocka. Svansens bevis (oberoende av Homeys klocka).
+     * @param {string} [opts.stopError] - stopptiden gick inte att läsa (t.ex. saknad tidszon).
      */
     finish(gaps = [], opts = {}) {
       const stopTime = Number.isFinite(opts.stopTime) ? opts.stopTime : null;
+      const quietMs = Number.isFinite(opts.quietMs) ? opts.quietMs : null;
+      const stopError = opts.stopError || null;
       const result = {
         journal: journalSeen,
         streams: [],
@@ -388,22 +406,38 @@ function createJournalAudit() {
           problem(s, `${missingCount} post(er) saknas och kunde inte läkas (nummer ${missing.join(', ')}`
             + `${missingCount > MAX_LISTED ? ', …' : ''})`);
         }
-        // Svansen (L1): den sista strömmen utan [CAPTURE_END] var aktiv när
-        // körningen stoppades. Allt fram till sista kontrollpunkten är bevisat;
-        // därefter bara om kontrollpunkten ligger högst 65 s före stoppet.
-        if (i === streamList.length - 1 && !s.end) {
+        // Svansen (L1, N1): den sista strömmen utan [CAPTURE_END], och utan en
+        // senare boot-rad (omstart), var aktiv när körningen stoppades. Allt fram
+        // till sista kontrollpunkten är bevisat. Därefter bara om tiden från sista
+        // kontrollpunkten till stoppet är högst 65 s, räknat utan att blanda
+        // klockor: (loggens sista rad − sista kontrollpunkten) i appens tid plus
+        // loggfilens tystnad vid stoppet i datorns tid. Stopptiden själv prövas
+        // bara för rimlighet mot loggen.
+        if (i === streamList.length - 1 && !s.end && !(lastBootLine !== null && lastBootLine > s.lastLine)) {
           const lastCheckpoint = s.checkpoints[s.checkpoints.length - 1] || null;
           const cpT = lastCheckpoint ? lastCheckpoint.t : null;
           result.tail = {
-            sid: s.sid, lastCheckpointT: cpT, stopTime, proven: false,
+            sid: s.sid, lastCheckpointT: cpT, lastLineT: lastT, stopTime, quietMs, proven: false, missing: false,
           };
-          if (stopTime === null) {
-            result.notes.push('SVANSEN OBEVISAD (U71): stopptid saknas. Fångsten är bevisad fram till sista kontrollpunkten '
-              + `${cpT === null ? '(ingen)' : new Date(cpT).toISOString()}; poster efter den kan saknas utan att grinden ser det.`);
-          } else if (cpT === null || stopTime - cpT > CHECKPOINT_LIMIT_MS) {
-            problem(s, `svansen är obevisad: sista kontrollpunkten ${cpT === null ? 'saknas' : new Date(cpT).toISOString()}, `
-              + `körningen stoppades ${new Date(stopTime).toISOString()}`
-              + `${cpT === null ? '' : ` (${Math.round((stopTime - cpT) / 100) / 10} s, gräns ${CHECKPOINT_LIMIT_MS / 1000} s)`}`
+          const fmt = (t) => new Date(t).toISOString();
+          if (stopError) {
+            problem(s, `stopptiden går inte att använda: ${stopError}`);
+          } else if (stopTime === null || quietMs === null) {
+            result.tail.missing = true;
+            result.notes.push(`SVANSEN OBEVISAD (U71): ${stopTime === null ? 'stopptid' : 'loggfilens tystnad vid stoppet'} saknas. `
+              + `Fångsten är bevisad fram till sista kontrollpunkten ${cpT === null ? '(ingen)' : fmt(cpT)}; `
+              + 'poster efter den kan saknas utan att grinden ser det.');
+          } else if (lastT !== null && stopTime < lastT - STOP_SLACK_MS) {
+            problem(s, `stopptiden ${fmt(stopTime)} ligger före loggens sista rad ${fmt(lastT)} — fel stoppfil, `
+              + 'fel tidszon eller en Homey-klocka som går före datorn');
+          } else if (lastT !== null && stopTime > lastT + STOP_MAX_AFTER_MS) {
+            problem(s, `stopptiden ${fmt(stopTime)} ligger mer än ett dygn efter loggens sista rad ${fmt(lastT)} — `
+              + 'den hör inte till körningen');
+          } else if (cpT === null || lastT === null || (lastT - cpT) + quietMs > CHECKPOINT_LIMIT_MS) {
+            const sinceCp = cpT === null || lastT === null ? null : (lastT - cpT) + quietMs;
+            problem(s, `svansen är obevisad: sista kontrollpunkten ${cpT === null ? 'saknas' : fmt(cpT)}, loggens sista rad `
+              + `${lastT === null ? 'saknas' : fmt(lastT)}, loggfilen tyst ${Math.round(quietMs / 1000)} s vid stoppet`
+              + `${sinceCp === null ? '' : ` (${Math.round(sinceCp / 100) / 10} s från kontrollpunkten till stoppet, gräns ${CHECKPOINT_LIMIT_MS / 1000} s)`}`
               + ' — ett hål kan ha nått stoppet');
           } else {
             result.tail.proven = true;
@@ -411,7 +445,9 @@ function createJournalAudit() {
         }
         // Villkor 8: kontrollpunkternas takt.
         let endT = s.lastT;
+        const bootAfter = boots.find((b) => b.line > s.lastLine && b.t !== null);
         if (s.end) endT = s.end.t;
+        else if (bootAfter && (i + 1 >= streamList.length || bootAfter.line < streamList[i + 1].firstLine)) endT = bootAfter.t;
         else if (i + 1 < streamList.length) endT = streamList[i + 1].firstT;
         else if (lastT !== null) endT = lastT;
         const points = [s.firstT, ...s.checkpoints.map((c) => c.t)];

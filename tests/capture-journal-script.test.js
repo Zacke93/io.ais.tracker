@@ -25,7 +25,7 @@ function bashFunction(name) {
 
 const FUNCTIONS = ['sync_file', 'is_journal_log', 'rebuild_replay_jsonl', 'find_log_holes', 'extract_bridge_text', 'say', 'kill_with_sleep'];
 
-function runFinish(dir, scriptDir, stopTime) {
+function runFinish(dir, scriptDir, stopTime, quietS = stopTime ? '1' : '') {
   const setup = `
     LIVE_DIR="$AUDIT_DIR/live"; LOGS_DIR="$AUDIT_DIR/arkiv"; SCRIPT_DIR="$AUDIT_SCRIPT_DIR"; TIMESTAMP=ts
     LOGFILE="$LIVE_DIR/app-ts.log"; AIS_REPLAY_FILE="$LIVE_DIR/ais-replay-ts.jsonl"
@@ -33,12 +33,12 @@ function runFinish(dir, scriptDir, stopTime) {
     FINAL_LOGFILE="$LOGS_DIR/app-ts.log"; FINAL_REPLAY="$LOGS_DIR/ais-replay-ts.jsonl"
     FINAL_SUMMARY="$LOGS_DIR/bridge-text-summary-ts.md"
     EXTRACT_DONE=0; REPLAY_GUARD_PID=""; HOLE_GUARD_PID=""; SYNC_PID=""
-    STOP_TIME="$AUDIT_STOP"
+    STOP_TIME="$AUDIT_STOP"; STOP_QUIET_S="$AUDIT_QUIET"
   `;
   const r = spawnSync('bash', ['-s'], {
     input: `${FUNCTIONS.map(bashFunction).join('\n')}\n${setup}\nextract_bridge_text\n`,
     env: {
-      ...process.env, AUDIT_DIR: dir, AUDIT_SCRIPT_DIR: scriptDir, AUDIT_STOP: stopTime || '',
+      ...process.env, AUDIT_DIR: dir, AUDIT_SCRIPT_DIR: scriptDir, AUDIT_STOP: stopTime || '', AUDIT_QUIET: quietS,
     },
     encoding: 'utf8',
     timeout: 60000,
@@ -141,7 +141,7 @@ describe('U71: loggskriptet läker en löpnummerlogg', () => {
     expect(out.summary).toMatch(/Logg-integritet: OK\*\* — obruten tidslinje/);
     expect(out.summary).toMatch(/Svansen bevisad \(U71\)/);
     // Stopptiden ligger i arkivet bredvid jsonl:en (L1).
-    expect(fs.readFileSync(path.join(dir, 'arkiv', 'ais-replay-ts.stop'), 'utf8')).toBe(`${stopAfter(lines)}\n`);
+    expect(fs.readFileSync(path.join(dir, 'arkiv', 'ais-replay-ts.stop'), 'utf8')).toBe(`${stopAfter(lines)}\nquiet_s=1\n`);
   });
 
   maybe('starttillståndet läks av skriptet när originalraden försvann (L7: prövar rättningen, inte bara läkaren)', () => {
@@ -161,9 +161,40 @@ describe('U71: loggskriptet läker en löpnummerlogg', () => {
     const cut = lines.filter((l) => l.t < startMs + 45 * MIN + 1);
     const dir = sandbox(cut);
     dirs.push(dir);
-    const out = runFinish(dir, ROOT, new Date(startMs + 50 * MIN).toISOString());
+    const out = runFinish(dir, ROOT, new Date(startMs + 50 * MIN).toISOString(), '300');
     expect(out.summary).toMatch(/svansen är obevisad/);
     expect(out.summary).toMatch(/Logg-integritet: FEL/);
+  });
+
+  maybe('finish_run mäter loggfilens tystnad med datorns klocka innan appen stoppas (N1)', () => {
+    const { lines } = simulateLog({ minutes: 20 });
+    const dir = sandbox(lines);
+    dirs.push(dir);
+    const log = path.join(dir, 'live', 'app-ts.log');
+    const quietFor = 30;
+    fs.utimesSync(log, new Date(Date.now() - quietFor * 1000), new Date(Date.now() - quietFor * 1000));
+    const fns = ['sync_file', 'is_journal_log', 'rebuild_replay_jsonl', 'find_log_holes', 'extract_bridge_text', 'say',
+      'kill_with_sleep', 'file_mtime', 'stop_capture', 'cleanup_run_tempfiles', 'finish_run'];
+    const setup = `
+      LIVE_DIR="$AUDIT_DIR/live"; LOGS_DIR="$AUDIT_DIR/arkiv"; SCRIPT_DIR="$AUDIT_SCRIPT_DIR"; TIMESTAMP=ts
+      LOGFILE="$LIVE_DIR/app-ts.log"; AIS_REPLAY_FILE="$LIVE_DIR/ais-replay-ts.jsonl"
+      BRIDGE_TEXT_SUMMARY="$LIVE_DIR/bridge-text-summary-ts.md"
+      FINAL_LOGFILE="$LOGS_DIR/app-ts.log"; FINAL_REPLAY="$LOGS_DIR/ais-replay-ts.jsonl"
+      FINAL_SUMMARY="$LOGS_DIR/bridge-text-summary-ts.md"
+      EXTRACT_DONE=0; REPLAY_GUARD_PID=""; HOLE_GUARD_PID=""; SYNC_PID=""; PIPE_PID=""; APP_PID=""
+    `;
+    const r = spawnSync('bash', ['-s'], {
+      input: `${fns.map(bashFunction).join('\n')}\n${setup}\nfinish_run\n`,
+      env: { ...process.env, AUDIT_DIR: dir, AUDIT_SCRIPT_DIR: ROOT },
+      encoding: 'utf8',
+      timeout: 60000,
+    });
+    expect(r.stderr).toBe('');
+    const stop = fs.readFileSync(path.join(dir, 'arkiv', 'ais-replay-ts.stop'), 'utf8').split('\n');
+    expect(stop[0]).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    const quiet = Number(/^quiet_s=(\d+)$/.exec(stop[1])[1]);
+    expect(quiet).toBeGreaterThanOrEqual(quietFor - 1);
+    expect(quiet).toBeLessThanOrEqual(quietFor + 10);
   });
 
   maybe('utan stopptid fäller skriptet en löpnummerlogg (svansen obevisad)', () => {
@@ -171,7 +202,7 @@ describe('U71: loggskriptet läker en löpnummerlogg', () => {
     const dir = sandbox(lines);
     dirs.push(dir);
     const out = runFinish(dir, ROOT, '');
-    expect(out.summary).toMatch(/svansen efter sista kontrollpunkten är obevisad \(stopptid saknas\)/);
+    expect(out.summary).toMatch(/svansen efter sista kontrollpunkten är obevisad \(stopptid eller loggfilens tystnad saknas\)/);
     expect(out.summary).toMatch(/Logg-integritet: FEL/);
   });
 });

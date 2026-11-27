@@ -481,10 +481,20 @@ finish_run() {
     # PIPE/TTOU (V4, fältprovet 2026-11-13): när terminalen försvinner
     # (utloggning, stängt fönster) får en skrivning dit inte döda skriptet.
     trap '' INT TERM HUP PIPE TTOU
-    # U71 (granskningen, L1): stopptiden tas INNAN appen stoppas. Grinden kräver
-    # en kontrollpunkt högst 65 s före den, så att ett hål som når stoppet syns
+    # U71 (granskningen, L1 och N1): stoppet mäts INNAN appen stoppas
     # (kommandoradsverktyget avinstallerar appen innan [CAPTURE_END] kommer fram).
+    # Stopptiden prövas av grinden bara för rimlighet mot loggen; svansen bevisas
+    # med loggfilens tystnad nedan, så att ett hål som når stoppet syns.
     STOP_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || STOP_TIME=""
+    # N1: hur länge loggfilen varit tyst vid stoppet, med DATORNS klocka. Grinden
+    # bevisar svansen med den och loggens egna tider, utan att blanda klockor.
+    STOP_QUIET_S=""
+    if [ -f "$LOGFILE" ] && STOP_NOW=$(date +%s 2>/dev/null) && STOP_MTIME=$(file_mtime "$LOGFILE"); then
+        case "$STOP_NOW" in ''|*[!0-9]*) ;; *)
+            STOP_QUIET_S=$((STOP_NOW - STOP_MTIME))
+            [ "$STOP_QUIET_S" -lt 0 ] && STOP_QUIET_S=0 ;;
+        esac
+    fi
     stop_capture
     extract_bridge_text
     cleanup_run_tempfiles
@@ -538,7 +548,10 @@ extract_bridge_text() {
     # U71: stopptiden bredvid jsonl:en; grinden läser den därifrån (<jsonl>.stop).
     STOP_FILE="${AIS_REPLAY_FILE%.jsonl}.stop"
     FINAL_STOP_FILE="${FINAL_REPLAY%.jsonl}.stop"
-    if [ -n "${STOP_TIME:-}" ]; then
+    if [ -n "${STOP_TIME:-}" ] && [ -n "${STOP_QUIET_S:-}" ]; then
+        printf '%s\nquiet_s=%s\n' "$STOP_TIME" "$STOP_QUIET_S" > "$STOP_FILE" 2>/dev/null || true
+        sync_file "$STOP_FILE" "$FINAL_STOP_FILE" || FINAL_SYNC_STATUS="FEL"
+    elif [ -n "${STOP_TIME:-}" ]; then
         printf '%s\n' "$STOP_TIME" > "$STOP_FILE" 2>/dev/null || true
         sync_file "$STOP_FILE" "$FINAL_STOP_FILE" || FINAL_SYNC_STATUS="FEL"
     fi
@@ -732,7 +745,7 @@ EOL
         # kontrollpunkten inte är bevisad (stopptid saknas). Det räcker inte för låsning.
         if is_journal_log "$LOGFILE" && LC_ALL=C grep -q 'Replay-integritet: DELVIS' <<< "$CHECK_OUT"; then
             REPLAY_FAIL=1
-            echo "- ⚠️ svansen efter sista kontrollpunkten är obevisad (stopptid saknas) — korpuslåsning kräver stopptiden" >> "$SUMMARY_TMP"
+            echo "- ⚠️ svansen efter sista kontrollpunkten är obevisad (stopptid eller loggfilens tystnad saknas) — korpuslåsning kräver båda" >> "$SUMMARY_TMP"
         fi
     fi
     if [ "$HOLES_PENDING" -eq 1 ]; then

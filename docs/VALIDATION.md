@@ -1977,14 +1977,27 @@ efteråt.
      `[CAPTURE_SEQ]` gör inte en gammal logg till en löpnummerlogg.
      **Svansen** (granskningen av U71): kommandoradsverktyget avinstallerar
      appen innan `[CAPTURE_END]` hinner fram, så i fält slutar strömmen utan
-     slut. Loggskriptet skriver därför stopptiden (`ais-replay-<ts>.stop`, tagen
-     innan appen stoppas), och grinden kräver att sista kontrollpunkten ligger
-     högst 65 s före den (`--stop <ISO-tid>`, annars läses filen bredvid
-     jsonl:en). Ett hål som når stoppet fäller då. Saknas stopptiden blir
-     verdiktet DELVIS ("SVANSEN OBEVISAD"): fångsten är bevisad fram till sista
-     kontrollpunkten, men poster efter den kan saknas utan att grinden ser det.
-     **För låsning krävs** att grinden kört med stopptiden och säger `Svansen
-     bevisad (U71)` (loggskriptet gör det; en löpnummerlogg med DELVIS ger
+     slut. Loggskriptet mäter därför stoppet innan appen stoppas och skriver
+     `ais-replay-<ts>.stop`: första raden stopptiden (ISO med `Z`), andra
+     raden `quiet_s=<s>` = hur länge loggfilen varit tyst, båda med datorns
+     klocka. Grinden läser filen bredvid jsonl:en (eller `--stop <ISO med Z
+     eller ±hh:mm>` och `--quiet-s <s>`) och kräver att (loggens sista rad −
+     sista kontrollpunkten) i appens tid plus tystnaden i datorns tid är högst
+     65 s. De två klockorna blandas inte, så skillnaden mellan Homeys och
+     datorns klocka spelar ingen roll för beviset. Stopptiden prövas bara för
+     rimlighet: utan tidszon, mer än 5 s före loggens sista rad (fel fil, fel
+     tidszon eller en Homey-klocka som går före datorn) eller mer än ett dygn
+     efter är det FEL. Saknas stopptiden eller tystnaden blir verdiktet DELVIS
+     ("SVANSEN OBEVISAD"). **Vad som då är bevisat:** varje post med nummer
+     upp till sista kontrollpunkten. **Vad som återstår:** poster som skrevs
+     efter sista kontrollpunkten och försvann tillsammans med alla senare
+     rader. Fönstret är som mest 65 s före stoppet, i praktiken den sista
+     minuten (granskaren: med rätt stopp gav 15 av 3 000 slumpkörningar OK
+     trots förlust, alla inom de sista 20 s). En Homey-klocka som går före
+     datorn ger falskt FEL via rimlighetskontrollen, aldrig falskt OK. En som
+     går efter påverkar inte domen. **För låsning krävs** att grinden kört med
+     stoppfilen och säger `Svansen bevisad (U71)` (loggskriptet gör det; en
+     löpnummerlogg med DELVIS ger
      `Logg-integritet: FEL` i summaryn). **Ett tidshål
      godkänns** bara när samma ström är aktiv närmast före och efter hålet, en
      kontrollpunkt i den strömmen kommer efter hålet med `dropped=0`, och
@@ -2009,6 +2022,13 @@ efteråt.
      listan greppar loggens egna rader, och `makeFieldFusionCorpus.js`,
      `tests/_dump_all_texts.js` och `tests/_debug_stallbacka.js` läser bara
      originalen. I en läkt körning saknas där händelserna från hålen.
+     **Små kända lägen** (granskningens andra varv): en onumrerad händelse
+     direkt efter en ström vars `[CAPTURE_START]` bara finns i omsändningen
+     släpps igenom, eftersom strömmen räknas som aktiv först vid dess första
+     synliga original eller kontrollpunkt (det kräver både ett anropsställe
+     förbi journalen och en förlorad start). En omstart av appen under den
+     sista minuten före stoppet ger falskt FEL, eftersom den nya strömmen inte
+     hunnit få en kontrollpunkt.
      Loggar utan journalrader (k1–k4, banken) döms exakt som förut.
 
    Den interna bokföringen kan bevisa vissa tidigare dolda blockbortfall,

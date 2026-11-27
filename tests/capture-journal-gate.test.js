@@ -36,9 +36,17 @@ function judge(lines, opts = {}) {
   fs.writeFileSync(jsonlPath, jsonl.length ? `${jsonl.join('\n')}\n` : '');
   // Stopptiden (L1): som loggskriptet, strax efter loggens sista rad, om inte
   // testet säger annat (opts.stop = null betyder att den saknas).
+  // Tystnaden (N1) som datorn mäter: med lika klockor tiden från loggens sista
+  // rad till stoppet, om inte testet anger den (opts.quiet i sekunder).
   let stopTime = opts.stop;
   if (stopTime === undefined && typeof lines !== 'string') stopTime = lines[lines.length - 1].t + 1000;
-  const r = checkPair(jsonlPath, logPath, { stopTime: stopTime === undefined ? null : stopTime });
+  let quietS = opts.quiet;
+  if (quietS === undefined && typeof stopTime === 'number' && typeof lines !== 'string') {
+    quietS = Math.max(0, Math.round((stopTime - lines[lines.length - 1].t) / 1000));
+  }
+  const r = checkPair(jsonlPath, logPath, {
+    stopTime: stopTime === undefined ? null : stopTime, quietS: quietS === undefined ? null : quietS,
+  });
   r.healed = healed;
   return r;
 }
@@ -555,7 +563,7 @@ describe('U71 grinden: svansen mot stopptiden (L1)', () => {
     const cut = lines.filter((l) => l.t < startMs + 45 * MIN + 1);
     const r = judge(cut, { stop: startMs + 50 * MIN });
     expect(r.verdict).toBe('FEL');
-    expect(problemsText(r)).toMatch(/svansen är obevisad: sista kontrollpunkten 2026-11-20T15:44:00.200Z, körningen stoppades 2026-11-20T15:50:00.000Z/);
+    expect(problemsText(r)).toMatch(/svansen är obevisad: sista kontrollpunkten 2026-11-20T15:44:00.200Z, loggens sista rad 2026-11-20T15:45:00.000Z, loggfilen tyst 300 s vid stoppet/);
   });
 
   test('utan stopptid: DELVIS, och utskriften säger vad som inte är bevisat', () => {
@@ -587,8 +595,13 @@ describe('U71 grinden: svansen mot stopptiden (L1)', () => {
     const jsonlPath = path.join(dir, 'ais-stopfil.jsonl');
     fs.writeFileSync(logPath, text(lines));
     fs.writeFileSync(jsonlPath, `${healLogFile(logPath).healedSamples.join('\n')}\n`);
-    fs.writeFileSync(path.join(dir, 'ais-stopfil.stop'), `${new Date(lines[lines.length - 1].t + 1000).toISOString()}\n`);
+    fs.writeFileSync(path.join(dir, 'ais-stopfil.stop'), `${new Date(lines[lines.length - 1].t + 1000).toISOString()}\nquiet_s=1\n`);
     expect(checkPair(jsonlPath, logPath, {}).verdict).toBe('OK');
+    // Bara stopptiden, utan tystnaden: svansen obevisad.
+    fs.writeFileSync(path.join(dir, 'ais-stopfil.stop'), `${new Date(lines[lines.length - 1].t + 1000).toISOString()}\n`);
+    const r = checkPair(jsonlPath, logPath, {});
+    expect(r.verdict).toBe('DELVIS');
+    expect(r.notes.join('\n')).toMatch(/SVANSEN OBEVISAD \(U71\): loggfilens tystnad vid stoppet saknas/);
   });
 });
 
@@ -666,5 +679,108 @@ describe('U71 grinden: övriga skärpningar efter granskningen', () => {
     const r = judge(m);
     expect(r.verdict).toBe('FEL');
     expect(problemsText(r)).toMatch(/journalrad\(er\) går inte att läsa/);
+  });
+});
+
+// Granskningens andra varv, N1: stopptiden prövas mot loggen, och svansen
+// bevisas med loggfilens tystnad (datorns klocka) och loggens egna tider (appens
+// klocka), utan att blanda dem.
+describe('U71 grinden: stopptidens rimlighet och svansen oberoende av Homeys klocka (N1)', () => {
+  const healthy = () => base({ minutes: 50 });
+  const lastT = (lines) => lines[lines.length - 1].t;
+
+  test('frisk körning med rätt stopptid och kort tystnad: OK', () => {
+    const { lines } = healthy();
+    const r = judge(lines, { stop: lastT(lines) + 2000, quiet: 2 });
+    expect(r.verdict).toBe('OK');
+    expect(r.notes.join('\n')).toMatch(/Svansen bevisad \(U71\): .*loggfilen tyst 2 s/);
+  });
+
+  test('stoppfil 20 min för tidig: FEL', () => {
+    const { lines, startMs } = healthy();
+    const r = judge(lines, { stop: startMs + 30 * MIN, quiet: 2 });
+    expect(r.verdict).toBe('FEL');
+    expect(problemsText(r)).toMatch(/stopptiden 2026-11-20T15:30:00.000Z ligger före loggens sista rad/);
+  });
+
+  test('stopptid före loggens början: FEL', () => {
+    const { lines, startMs } = healthy();
+    const r = judge(lines, { stop: startMs - 3600000, quiet: 2 });
+    expect(r.verdict).toBe('FEL');
+    expect(problemsText(r)).toMatch(/ligger före loggens sista rad/);
+  });
+
+  test('stopptid mer än ett dygn efter loggens slut: FEL', () => {
+    const { lines } = healthy();
+    const r = judge(lines, { stop: lastT(lines) + 25 * 3600000, quiet: 2 });
+    expect(r.verdict).toBe('FEL');
+    expect(problemsText(r)).toMatch(/hör inte till körningen/);
+  });
+
+  test('stopptid utan tidszon avvisas, också när den lokala tolkningen hade varit rimlig', () => {
+    const { lines } = healthy();
+    const t = lastT(lines) + 2000;
+    // Väggklockan i maskinens egen tidszon: utan tidszonskontrollen tolkas den exakt rätt.
+    const local = new Date(t - new Date(t).getTimezoneOffset() * 60000).toISOString().slice(0, 19);
+    const r = judge(lines, { stop: local, quiet: 2 });
+    expect(r.verdict).toBe('FEL');
+    expect(problemsText(r)).toMatch(/ingen ISO-tid med tidszon \(Z eller ±hh:mm krävs\)/);
+    expect(judge(lines, { stop: `${new Date(t).toISOString().slice(0, 19)}+00:00`, quiet: 2 }).verdict).toBe('OK');
+  });
+
+  test('ett hål som når stoppet med Homeys klocka 120 s före datorns: FEL (tystnaden fäller)', () => {
+    const { lines, startMs } = base({ minutes: 50, passages: [[40, 50]] });
+    // Hålet börjar 48:00 i Homeys tid; stoppet är 50:00 i Homeys tid = 48:00 i
+    // datorns. Datorn har sett en tyst loggfil i 120 s.
+    const cut = cutHole(lines, startMs + 48 * MIN, startMs + 51 * MIN);
+    const r = judge(cut, { stop: startMs + 48 * MIN, quiet: 120 });
+    expect(r.verdict).toBe('FEL');
+    expect(problemsText(r)).toMatch(/svansen är obevisad: .*loggfilen tyst 120 s vid stoppet/);
+  });
+
+  test('en frisk körning med Homeys klocka 120 s före datorns ger falskt FEL (aldrig falskt OK)', () => {
+    const { lines } = healthy();
+    const r = judge(lines, { stop: lastT(lines) - 118000, quiet: 2 });
+    expect(r.verdict).toBe('FEL');
+    expect(problemsText(r)).toMatch(/ligger före loggens sista rad/);
+  });
+
+  test('en frisk körning med Homeys klocka 120 s efter datorns: OK (tystnaden är klockoberoende)', () => {
+    const { lines } = healthy();
+    expect(judge(lines, { stop: lastT(lines) + 122000, quiet: 2 }).verdict).toBe('OK');
+  });
+
+  test('tystnad som inte är ett antal sekunder: FEL', () => {
+    const { lines } = healthy();
+    const r = judge(lines, { stop: lastT(lines) + 2000, quiet: 'mycket' });
+    expect(r.verdict).toBe('FEL');
+    expect(problemsText(r)).toMatch(/stopptiden går inte att använda: tystnaden "mycket"/);
+  });
+});
+
+// Granskningens andra varv, N2: regeln att en ström blir inaktiv efter
+// [CAPTURE_END] och efter en ny boot-rad.
+describe('U71 grinden: händelser utan nummer efter att strömmen slutat (N2)', () => {
+  const plain = (t) => ({ t, line: `${new Date(t).toISOString()} [log] [AISBridgeApp] 📱 [UI_UPDATE] Bridge text updated: "Inga båtar"` });
+  const insert = (lines, ev) => {
+    const k = lines.findIndex((l) => l.t > ev.t);
+    const m = lines.slice();
+    m.splice(k < 0 ? m.length : k, 0, ev);
+    return m;
+  };
+
+  test('full → basic 5 min före stoppet, textbyte utan nummer efteråt: OK', () => {
+    const { lines, startMs } = base({ minutes: 50, segments: [{ atMin: 0, kind: 'boot' }, { atMin: 45.05, kind: 'level-off' }] });
+    const r = judge(insert(lines, plain(startMs + 47 * MIN)));
+    expect(problemsText(r)).toBe('');
+    expect(r.verdict).toBe('OK');
+  });
+
+  test('omstart till basic efter en full ström, textbyte utan nummer efteråt: OK', () => {
+    const { lines, startMs } = base({ minutes: 50, segments: [{ atMin: 0, kind: 'boot' }, { atMin: 45.05, kind: 'boot-basic' }] });
+    expect(lines.some((l) => l.t > startMs + 45.1 * MIN && /\] #[0-9a-z]+-\d+:\d+ /.test(l.line))).toBe(false);
+    const r = judge(insert(lines, plain(startMs + 47 * MIN)));
+    expect(problemsText(r)).toBe('');
+    expect(r.verdict).toBe('OK');
   });
 });

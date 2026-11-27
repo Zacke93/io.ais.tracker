@@ -20,7 +20,7 @@ const HEARTBEAT = '[DEBUG] 🧹 [COORDINATION_CLEANUP] Cleaned old coordination 
  * @param {Object} opts
  * @param {number} opts.startMs
  * @param {number} opts.minutes
- * @param {Array} [opts.segments] - [{ atMin, kind: 'boot'|'level-on'|'level-off' }];
+ * @param {Array} [opts.segments] - [{ atMin, kind: 'boot'|'boot-basic'|'level-on'|'level-off' }];
  *   standard: en start vid minut 0 på full nivå.
  * @param {Array} [opts.passages] - [[fromMin, toMin]] med tätare positioner
  * @param {number} [opts.maxEntries]
@@ -78,15 +78,17 @@ function simulateLog(opts) {
   const pending = actions.slice();
   // Minutslagen räknas från varje boot (60,2 s efter start), som i fältet.
   const ticks = [];
-  for (const s of segments.filter((x) => x.kind === 'boot')) {
-    const next = segments.find((x) => x.kind === 'boot' && x.t > s.t);
+  const isBoot = (x) => x.kind === 'boot' || x.kind === 'boot-basic';
+  for (const s of segments.filter(isBoot)) {
+    const next = segments.find((x) => isBoot(x) && x.t > s.t);
     const stop = next ? next.t : endMs;
     for (let t = s.t + 60200; t < stop; t += 60000) ticks.push({ t, kind: 'tick', order: 1 });
   }
   const all = pending.concat(ticks).sort((x, y) => x.t - y.t || x.order - y.order);
   for (const a of all) {
     now = a.t;
-    if (a.kind === 'boot') {
+    if (a.kind === 'boot-basic') level = 'basic'; // omstart där nivån inte längre är full
+    if (a.kind === 'boot' || a.kind === 'boot-basic') {
       if (journal) journal = null; // processen dog utan slut (omstart)
       bootMs = now;
       epoch = 0;

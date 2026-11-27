@@ -39,8 +39,9 @@
  *   node tests/replay-validation/checkReplayIntegrity.js <jsonl> [logg]
  *   node tests/replay-validation/checkReplayIntegrity.js --dir <katalog>
  *   node tests/replay-validation/checkReplayIntegrity.js --corpora
- *   Flaggor: --log-dir <katalog> (upprepningsbar), --stop <ISO-tid> (U71: när
- *            körningen stoppades; annars läses <jsonl>.stop), --markdown, --brief,
+ *   Flaggor: --log-dir <katalog> (upprepningsbar), --stop <ISO-tid med Z> och
+ *            --quiet-s <s> (U71: stoppet och loggfilens tystnad då; annars läses
+ *            <jsonl>.stop), --markdown, --brief,
  *            --json, --quiet
  *
  * Exit-koder (run-with-logs.sh grindar på !== 0):
@@ -484,24 +485,53 @@ function readLogSamples(filePath, journalOpts = {}) {
   };
 }
 
+// Stopptid med uttrycklig tidszon (Z eller ±hh:mm); utan tidszon tolkar
+// Date.parse den som lokal tid (granskningen, N1).
+const STOP_ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/;
+
+function parseStopTime(raw) {
+  if (typeof raw === 'number') return Number.isFinite(raw) ? { t: raw } : { error: 'stopptiden är inte ett tal' };
+  const text = String(raw).trim();
+  if (!STOP_ISO_RE.test(text)) {
+    return { error: `"${text.slice(0, 40)}" är ingen ISO-tid med tidszon (Z eller ±hh:mm krävs)` };
+  }
+  const t = Date.parse(text);
+  return Number.isFinite(t) ? { t } : { error: `"${text.slice(0, 40)}" är ingen giltig tid` };
+}
+
 /**
- * U71 (granskningen, L1): när loggskriptet började stoppa körningen. Från
- * `opts.stopTime` (ms eller ISO, kommandoradens --stop) eller filen
- * `<jsonl utan .jsonl>.stop` bredvid jsonl:en, som loggskriptet skriver.
- * null = okänd; då är svansen efter sista kontrollpunkten obevisad.
+ * U71 (granskningen, L1 och N1): stoppet. Från `opts.stopTime` och
+ * `opts.quietS` (kommandoradens --stop och --quiet-s) eller filen
+ * `<jsonl utan .jsonl>.stop` bredvid jsonl:en, som loggskriptet skriver:
+ * första raden stopptiden (ISO med tidszon), sedan `quiet_s=<sekunder>` =
+ * hur länge loggfilen varit tyst när stoppet började, mätt med datorns klocka.
+ * Saknas en del är svansen obevisad; en oläslig stopptid är ett fel.
  */
-function resolveStopTime(jsonlPath, opts) {
-  const raw = opts && opts.stopTime !== undefined && opts.stopTime !== null ? opts.stopTime : null;
-  if (raw !== null) {
-    const t = typeof raw === 'number' ? raw : Date.parse(String(raw).trim());
-    return Number.isFinite(t) ? t : null;
+function resolveStop(jsonlPath, opts) {
+  const out = { stopTime: null, quietMs: null, stopError: null };
+  let rawStop = opts && opts.stopTime !== undefined && opts.stopTime !== null ? opts.stopTime : null;
+  let rawQuiet = opts && opts.quietS !== undefined && opts.quietS !== null ? opts.quietS : null;
+  if (rawStop === null) {
+    try {
+      const lines = fs.readFileSync(`${jsonlPath.replace(/\.jsonl$/, '')}.stop`, 'utf8').split('\n').map((l) => l.trim()).filter(Boolean);
+      if (lines.length > 0) rawStop = lines[0];
+      const q = lines.map((l) => /^quiet_s=(\d+)$/.exec(l)).find(Boolean);
+      if (q && rawQuiet === null) rawQuiet = Number(q[1]);
+    } catch (err) {
+      // Ingen stoppfil: svansen obevisad.
+    }
   }
-  try {
-    const t = Date.parse(fs.readFileSync(`${jsonlPath.replace(/\.jsonl$/, '')}.stop`, 'utf8').trim());
-    return Number.isFinite(t) ? t : null;
-  } catch (err) {
-    return null;
+  if (rawStop !== null) {
+    const parsed = parseStopTime(rawStop);
+    if (parsed.error) out.stopError = parsed.error;
+    else out.stopTime = parsed.t;
   }
+  if (rawQuiet !== null) {
+    const q = Number(rawQuiet);
+    if (Number.isFinite(q) && q >= 0) out.quietMs = q * 1000;
+    else out.stopError = out.stopError || `tystnaden "${rawQuiet}" är inget antal sekunder`;
+  }
+  return out;
 }
 
 /** Ligger ett godkänt (läkt) tidshål inom loggradsintervallet? */
@@ -678,7 +708,7 @@ function checkPair(jsonlPath, logPath, opts) {
 
   let log;
   try {
-    log = readLogSamples(logPath, { stopTime: resolveStopTime(jsonlPath, opts) });
+    log = readLogSamples(logPath, resolveStop(jsonlPath, opts));
   } catch (err) {
     result.verdict = result.problems.length > 0 ? 'FEL' : 'OKÄNT';
     result.problems.push(`kan inte läsa loggen: ${err.message}`);
@@ -778,11 +808,12 @@ function checkPair(jsonlPath, logPath, opts) {
     result.journal.tail = journal.tail;
     if (journal.tail && journal.tail.proven) {
       result.notes.push(`Svansen bevisad (U71): sista kontrollpunkten ${new Date(journal.tail.lastCheckpointT).toISOString()}, `
-        + `stopp ${new Date(journal.tail.stopTime).toISOString()}.`);
-    } else if (journal.tail && journal.tail.stopTime === null) {
+        + `loggens sista rad ${new Date(journal.tail.lastLineT).toISOString()}, loggfilen tyst ${Math.round(journal.tail.quietMs / 1000)} s `
+        + `vid stoppet ${new Date(journal.tail.stopTime).toISOString()}.`);
+    } else if (journal.tail && journal.tail.missing) {
       // Bevisat så långt mätningen räcker: DELVIS, aldrig ett bart OK.
       result.partial = true;
-      result.partialNote = 'fångsten bevisad fram till sista kontrollpunkten; stopptid saknas, svansen obevisad';
+      result.partialNote = 'fångsten bevisad fram till sista kontrollpunkten; stopptid eller tystnad saknas, svansen obevisad';
     }
     result.notes.push(...journal.notes);
     result.problems.push(...journal.problems);
@@ -958,6 +989,7 @@ function main(argv) {
   let format = 'text';
   let quiet = false;
   let stopTime = null;
+  let quietS = null;
   let brief = false;
 
   for (let i = 0; i < args.length; i += 1) {
@@ -972,9 +1004,10 @@ function main(argv) {
       mode = 'dir'; positionals.push(args[i += 1]);
     } else if (a === '--log-dir') logDirs.push(args[i += 1]);
     else if (a === '--stop') stopTime = args[i += 1];
+    else if (a === '--quiet-s') quietS = args[i += 1];
     else if (a === '--help' || a === '-h') {
       console.log('Användning: node checkReplayIntegrity.js <jsonl> [logg] | --dir <katalog> | --corpora');
-      console.log('Flaggor: --log-dir <katalog> (upprepningsbar), --stop <ISO-tid>, --markdown, --brief, --json, --quiet');
+      console.log('Flaggor: --log-dir <katalog> (upprepningsbar), --stop <ISO-tid med Z>, --quiet-s <s>, --markdown, --brief, --json, --quiet');
       return 0;
     } else if (a.startsWith('--')) {
       console.error(`Okänd flagga: ${a}`);
@@ -1017,7 +1050,7 @@ function main(argv) {
       logPath = found.log;
       logMethod = found.method;
     }
-    results.push(checkPair(t.jsonl, logPath, { logMethod, stopTime }));
+    results.push(checkPair(t.jsonl, logPath, { logMethod, stopTime, quietS }));
   }
 
   if (!quiet) {

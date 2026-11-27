@@ -442,7 +442,10 @@ describe('Ingen inbyggd terminalskrivning där terminalen kan vara död', () => 
       fs.writeFileSync(path.join(dir, 'live', 'app-ts.log'), `${lines.join('\n')}\n`);
       const fns = ['say', 'sync_file', 'rebuild_replay_jsonl', 'find_log_holes', 'extract_bridge_text',
         'cleanup_run_tempfiles', 'kill_with_sleep', 'stop_capture', 'finish_run']
-        .concat(/^is_journal_log\(\) \{/m.test(script) ? ['is_journal_log'] : []).map(bashFunction).join('\n');
+        .concat(/^is_journal_log\(\) \{/m.test(script) ? ['is_journal_log'] : [])
+        // U71 (N1): finish_run mäter loggfilens tystnad vid stoppet.
+        .concat(/^file_mtime\(\) \{/m.test(script) && /file_mtime "\$LOGFILE"\); then/.test(script) ? ['file_mtime'] : [])
+        .map(bashFunction).join('\n');
       // Skriptets egna rader efter wait, ordagrant, följda av EXIT-trap:ens finish_run.
       const tail = mainTail();
       const payload = `${fns}
