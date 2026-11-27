@@ -433,6 +433,16 @@ class AISBridgeApp extends Homey.App {
    * 9. Initiera UI-uppdateringssystem
    */
   async onInit() {
+    // Omgång 9 (spår R): en andra onInit utan onUninit emellan stänger först den
+    // förra körningen på den vanliga vägen. Förut levde allt från den första
+    // starten kvar (U58 rättade bara processlyssnarna): minutloopen skrevs över
+    // utan clearInterval, tjänsternas städintervall och inställningslyssnaren
+    // låg kvar, och den läckta minutloopen tog bort båtar ur den nya tjänsten
+    // även efter onUninit. onUninit är prövad efter avbrutna och misslyckade
+    // starter, och den sparar den förra körningens minne innan det läses igen.
+    if (this._runtimeLifecycle && !this._shuttingDown) {
+      await this.onUninit();
+    }
     // En återanvänd app-instans måste öppna skrivvägarna efter onUninit.
     // Identiteten gör samtidigt köade skrivningar från förra starten inaktuella.
     this._shuttingDown = false;

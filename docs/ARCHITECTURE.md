@@ -2934,6 +2934,14 @@ strypt till 15 min, så utan tvingad flush hade upp till en kvarts kajhistorik
 gått förlorad i just den omstart grinden ska överleva); removeAllListeners +
 lyssnare av (:5411–5435).
 
+**En andra `onInit` utan `onUninit`** (omgång 9, spår R) kör först `onUninit` när en
+tidigare körning finns och inte stängts. Förut levde allt från den första starten kvar
+utom processlyssnarna (U58): minutloopen skrevs över utan `clearInterval`, tjänsternas
+städintervall och inställningslyssnaren låg kvar, och den läckta minutloopen tog bort
+båtar ur den nya tjänsten även efter avstängningen. `onUninit` är prövad efter avbrutna
+och misslyckade starter och sparar den förra körningens minne innan det läses igen.
+Låst av `tests/r9-dubbel-oninit.test.js`.
+
 **Globala felhanterare (krockskyddet, `onInit` STEG 1).** `uncaughtException` och
 `unhandledRejection` loggas med `[FATAL]` och processen lever vidare. Lyssnarna
 sparas som referenser och tas bort i `onUninit` med just de referenserna (F54:
