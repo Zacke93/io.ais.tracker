@@ -44,7 +44,7 @@
   ["FIXD-SLINGA","docs/ARCHITECTURE.md:5253–5254","ANYA ELAN",["Slingskydd"],"0a7cfd9c87532529"],
   ["OMSTART-ARMAR-EJ-PERSISTERADE","docs/trigger-etapp6-oppningsmotorn-2026-08-03.md:261–265","Ingen arm-persistens",[],"d082f97cf985148f"],
   ["OMSTART-ARMAR-EJ-PERSISTERADE","docs/ARCHITECTURE.md:1846–1852","Dedup i TVÅ lager",["persisterar inga armar"],"ae0df3275ee9d187"],
-  ["OMSTART-RESETILLSTÅND","docs/ARCHITECTURE.md:3081","last_known_positions",["skrivs vid removal"],"a67bd16a2bc023a6"],
+  ["OMSTART-RESETILLSTÅND","docs/ARCHITECTURE.md:3081","last_known_positions",["skrivs vid removal"],"e34f5993a96236ac"],
   ["OMSTART-RESETILLSTÅND","docs/reliability-spec.md:104","D3",[],"56b90a761b83a924"],
   ["LATENT-INBROMSNING","docs/helgranskning-2026-11-03.md:176–183","Latenta fynd",["Inbromsning efter glapp"],"11bc5bdaf5e3d0d2"],
   ["P8-L6-SPÖKTEXT","docs/helgranskning-2026-11-03.md:148–161","P8/L6",[],"92204cea29ac8c2f"],

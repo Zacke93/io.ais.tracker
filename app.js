@@ -285,6 +285,15 @@ const unseenBaseForFloor = (floor) => (floor <= 9 ? floor + 3 : floor / 0.75);
 // SAMTLIGA settings-skrivningar.
 const LAST_KNOWN_PERSIST_INTERVAL_MS = 15 * 60 * 1000;
 
+// O1, andra varvet (omgång 10, spår O, dirigentens beslut A3): en sist-känd-post
+// som onUninit skrivit för en LEVANDE båt (`shutdown: true`) används bara om
+// appen startar inom 15 minuter från att den skrevs. En uppdatering eller en
+// omstart av Homey tar sekunder till minuter; efter en längre paus vet appen
+// inte vad båten gjort (vändning under pausen gav falska passagenotiser).
+// Äldre sådana poster kastas vid laddningen och appen beter sig som före O1.
+// Poster som skrivs vid radering behåller sina 6 h.
+const LAST_KNOWN_SHUTDOWN_MAX_AGE_MS = 15 * 60 * 1000;
+
 // Helkodsgranskning 2026-08-22 (H14): livslängden för en OBEKRÄFTAD
 // U-svängsflagga (_newJourneyPending). Talet är OFÖRÄNDRAT — det är samma
 // 15 min som bekräftelsegrenen i _onVesselUpdated redan använde som lokal
@@ -3244,6 +3253,7 @@ class AISBridgeApp extends Homey.App {
       const now = Date.now();
       const candidates = [];
       let future = 0;
+      let shutdownStale = 0;
       for (const [mmsi, entry] of Object.entries(stored)) {
         if (entry && Number.isFinite(entry.lat) && Number.isFinite(entry.lon)
             && Number.isFinite(entry.t) && now - entry.t < this._LAST_KNOWN_POSITION_TTL_MS) {
@@ -3257,6 +3267,14 @@ class AISBridgeApp extends Homey.App {
           // och utan dem tappar en återfödd båt sina passagenotiser (en
           // utebliven notis väger tyngre än en extra).
           const clamped = this._clampFutureLastKnown(entry, now);
+          // A3: en post från en ordnad omstart gäller bara 15 min. Åldern
+          // räknas efter klampningen (omgång 9): en stämpel i framtiden efter
+          // ett klocksteg bakåt blir "nu" och posten gäller; ett klocksteg
+          // framåt gör den äldre och kastar den.
+          if (clamped.shutdown === true && now - clamped.t > LAST_KNOWN_SHUTDOWN_MAX_AGE_MS) {
+            shutdownStale++;
+            continue;
+          }
           if (clamped !== entry) future++;
           candidates.push([String(mmsi), clamped]);
         }
@@ -3267,6 +3285,9 @@ class AISBridgeApp extends Homey.App {
       const loaded = kept.length;
       if (dropped > 0) {
         this.log(`✂️ [LAST_KNOWN_CAP] ${dropped} sparade positioner lästes inte (tak ${PERSISTED_LOAD_CAP}, de nyaste behölls)`);
+      }
+      if (shutdownStale > 0) {
+        this.log(`⌛ [LAST_KNOWN_SHUTDOWN_STALE] ${shutdownStale} positioner från en ordnad omstart äldre än 15 min lästes inte (appen vet inte vad båtarna gjort sedan dess)`);
       }
       if (future > 0) {
         this.log(`🕰️ [LAST_KNOWN_FUTURE] ${future} sparade positioner hade en stämpel i framtiden — gäller som sedda nu`);
@@ -3291,33 +3312,76 @@ class AISBridgeApp extends Homey.App {
    * position ger rörelsebevis bara vid ett hopp på minst 500 m (FP8), så en
    * stilla båt efter omstarten behandlas som förut. Anropas bara från onUninit:
    * en krasch eller ett strömavbrott hinner inte skriva något (känd gräns).
+   * Andra varvet (granskningen): en obekräftad hoppposition sparas inte (A1),
+   * posten märks `shutdown` och gäller bara om appen startar inom 15 min (A3,
+   * LAST_KNOWN_SHUTDOWN_MAX_AGE_MS), och den förbrukas vid båtens andra fix efter
+   * omstarten (A2, `_consumeShutdownLastKnown`).
    * @returns {number} antal bokförda båtar
    * @private
    */
   _rememberLiveVesselPositions() {
-    const vessels = this.vesselDataService && this.vesselDataService.vessels;
-    if (!vessels || typeof vessels.values !== 'function') return 0;
-    if (!this._lastKnownPositions) this._lastKnownPositions = new Map();
-    const now = Date.now();
-    let remembered = 0;
-    for (const vessel of vessels.values()) {
-      if (!vessel || !Number.isFinite(vessel.lat) || !Number.isFinite(vessel.lon)) continue;
-      let posT = now;
-      if (Number.isFinite(vessel.lastPositionUpdate)) {
-        posT = vessel.lastPositionUpdate;
-      } else if (Number.isFinite(vessel.timestamp)) {
-        posT = vessel.timestamp;
+    // L1 (granskningen): funktionen får aldrig hindra resten av onUninit
+    // (notisspärren, besöksminnet och öppningsdedupen skrivs efter den).
+    try {
+      const vessels = this.vesselDataService && this.vesselDataService.vessels;
+      if (!vessels || typeof vessels.values !== 'function') return 0;
+      if (!this._lastKnownPositions) this._lastKnownPositions = new Map();
+      const now = Date.now();
+      let remembered = 0;
+      for (const vessel of vessels.values()) {
+        if (!vessel || !Number.isFinite(vessel.lat) || !Number.isFinite(vessel.lon)) continue;
+        // A1 (granskningen): en obekräftad hoppposition får inte bli en
+        // ändpunkt i ett passagesegment (GPSJumpAnalyzer.needsPassageConfirmation,
+        // samma regel som för levande båtar). Spara den senaste rena fixen, och
+        // hoppa över båten om ingen sådan finns.
+        let pos = vessel;
+        if (GPSJumpAnalyzer.needsPassageConfirmation(vessel)) {
+          pos = GPSJumpAnalyzer.passageRecoveryPosition(vessel);
+          if (!pos) continue;
+        }
+        let posT = now;
+        if (Number.isFinite(pos.lastPositionUpdate)) {
+          posT = pos.lastPositionUpdate;
+        } else if (Number.isFinite(pos.timestamp)) {
+          posT = pos.timestamp;
+        }
+        const fixTs = Number.isFinite(pos.fixTs) ? pos.fixTs : undefined;
+        this._lastKnownPositions.set(String(vessel.mmsi), {
+          lat: pos.lat,
+          lon: pos.lon,
+          t: now,
+          posT,
+          ...(fixTs !== undefined ? { fixTs } : {}),
+          // A3: märket ger posten 15 min giltighet vid laddningen; A2: den
+          // förbrukas när båten fått sin andra fix efter omstarten.
+          shutdown: true,
+        });
+        remembered++;
       }
-      const fixTs = Number.isFinite(vessel.fixTs) ? vessel.fixTs : undefined;
-      this._lastKnownPositions.set(String(vessel.mmsi), {
-        lat: vessel.lat, lon: vessel.lon, t: now, posT, ...(fixTs !== undefined ? { fixTs } : {}),
-      });
-      remembered++;
+      if (remembered > 0) {
+        this.log(`🔁 [LAST_KNOWN_SHUTDOWN] ${remembered} levande båtar sparade som sist kända positioner inför omstarten`);
+      }
+      return remembered;
+    } catch (error) {
+      this.error('[LAST_KNOWN_SHUTDOWN] Kunde inte spara de levande båtarnas positioner:', error.message || error);
+      return 0;
     }
-    if (remembered > 0) {
-      this.log(`🔁 [LAST_KNOWN_SHUTDOWN] ${remembered} levande båtar sparade som sist kända positioner inför omstarten`);
-    }
-    return remembered;
+  }
+
+  /**
+   * A2 (granskningen, omgång 10): en post som O1 skrev vid en ordnad omstart
+   * förbrukas när båten fått sin andra fix efter omstarten (då har
+   * återfödelsen redan använt den), och kartan skrivs direkt. Annars låg den
+   * kvar orörd i inställningarna, och en krasch inom giltighetstiden laddade
+   * en position som inte längre stämde. Poster från raderingar rörs inte.
+   * @param {string|number} mmsi
+   * @private
+   */
+  _consumeShutdownLastKnown(mmsi) {
+    const entry = this._lastKnownPositions?.get(String(mmsi));
+    if (!entry || entry.shutdown !== true) return;
+    this._lastKnownPositions.delete(String(mmsi));
+    this._persistLastKnownPositions(true);
   }
 
   /**
@@ -3727,6 +3791,8 @@ class AISBridgeApp extends Homey.App {
     try {
       this.debug(`📝 [VESSEL_UPDATED] Vessel: ${mmsi}`);
       this._observeTriggerPointVisits(vessel);
+      // A2: andra fixen efter en återfödelse förbrukar en post från en ordnad omstart.
+      if (oldVessel) this._consumeShutdownLastKnown(mmsi);
 
       // STEG 0 (H14, helkodsgranskning 2026-08-22): ÅLDRA UT en obekräftad
       // U-svängsflagga FÖRE all annan behandling. Se _ageOutPendingReversal —
