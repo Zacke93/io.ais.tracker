@@ -132,7 +132,10 @@ describe('Separat bekräftad brokö efter en förlorad avgångsfix', () => {
     ['tidigare passerad bro', { passedBridges: ['Klaffbron'] }],
     ['gammal hubfix', { fixFeed: 'aishub', fixTs: DEPARTURE - 20 * 60000 }],
   ])('%s är ingen ny avgångskandidat', (_label, extra) => {
-    expect(seed(departure(extra))._queueArrivalCandidate).toBeNull();
+    // O3: ett GPS-hopp utan rent ankare ger ingen grav alls, och då rör
+    // återfödelsen inte fältet (undefined i den här fixturen; null i ett
+    // fartygsobjekt från _createVesselObject). Ingen kandidat i båda fallen.
+    expect(seed(departure(extra))._queueArrivalCandidate ?? null).toBeNull();
   });
 
   test('oförändrad kajposition kan inte ge en kandidat av en fartspik', () => {
