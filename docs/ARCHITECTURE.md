@@ -2601,6 +2601,56 @@ Flaggor (bärs av `_createVesselObject`-fältlistan, §8a): `_etaIsExtrapolated`
    (två fix i stillhet) 7,8 min; ingen ligger kvar över natten. Dirigentens
    beslut 2026-11-24: inget byggs nu; frågan tas upp med ägaren efter fältprov 3
    om Kajen-köer syns där.
+   **Tysta båtar (U68, dirigentens beslut 2026-11-27, omgång 9): texten lämnas
+   som den är.** Vad texten säger om en båt vars position blivit gammal följer
+   av reglerna i §4 och ovan: siffran står fryst i 5 min (en ETA under 3 min ger
+   då "strax"), extrapoleras 5–10 min ("om cirka N"; uttömd "strax" högst 90 s
+   inom 500 m), imminent-flaggan ger "strax" tills positionen är 10 min gammal
+   (U16), och därefter står "ETA okänd" tills visningstrappan (10/15/20/25 min,
+   punkt 1) tar båten ur texten. Mätningen (spår T): ett prov var 30 s för varje
+   båt med målbro vars position är äldre än 90 s, mot rådatans linjekorsning och
+   korsningens tidsgränser. Banken utan AISHub (16 korpusar, 254 h, 305
+   målbropassager): 3 712 båtminuter, 2 063 felminuter (68 per 10 passager).
+   Banken med AISHub (9 korpusar, 262 h, 142 passager): 1 314 och 426 (30 per
+   10). Fältet k1–k4 (255 h, 72 passager): 60,5 och 2,5 (0,3 per 10). Felen
+   finns alltså i sommartrafikens radioskugga vid broarna, nästan inte i
+   november med båda källorna. **Kända gränser:** (a) en båt som tystnar inom
+   300 m och går igenom bron i glappet får "strax" till 10 min och sedan "ETA
+   okänd" till 20 eller 25 min. "Strax" för en tyst båt var fel i 836,5 av 994
+   min (508 säkert), varav 493,5 min för en båt som redan passerat; ELFKUNGEN 4/8
+   12:00 ("strax" 9 min och "ETA okänd" 15 min, korsade 1,4 min efter sista
+   positionen), MINANDRA 12/7 09:20 (korsade efter 1,1 min). Scenariot
+   `tystnar-200m-före-Stridsbergsbron-6kn-passerar-i-glappet-hörs-efter-40min
+   (känd gräns, U68)` låser förloppet; (b) vänttexten efter en passage i
+   glappet: se (a) i stycket om U65 ovan; omgång 9 mätte 114,5 min fel (36
+   säkert) mot 916,5 min sann vänttext; (c) en båt som hörs en enda gång i hög
+   fart nära en bro: LIFEGUARD 007 (k4 25/11 12:41), en AISHub-position i
+   14,6 kn 569 m från Stridsbergsbron och lika långt från farledslinjen. Den
+   frysta ETA:n (1,3 min) gav "strax" i 5 min och sedan "ETA okänd" till 15 min;
+   ingen notis och ingen varning. Hon hördes aldrig igen. I hela underlaget
+   finns två sådana båtar (den andra i banken, 13 kn), och ingen av dem hördes
+   igen; ingen annan båt i texten låg mer än 250 m från farledslinjen. Scenariot
+   `en-enda-position-14kn-utanför-farleden-vid-Stridsbergsbron-aldrig-mer
+   (känd gräns, U68)` låser förloppet. **Prövat och avstått:** "strax" bara på
+   en position yngre än 5 min gör 98 min falskt löfte till "ETA okänd" och tar
+   löftet från 206 min "strax" för en passerad båt, men kostar 18,5 min sann
+   "strax", ökar växlingarna "strax" ↔ "ETA okänd" (29 → 39), skärper
+   ägarbeslutet U16 och ändrar 0 min i fältet; med 2–3 min blir flimret större
+   (50–83 växlingar), eftersom gränsen hamnar på klass B:s rapporttakt i låg
+   fart. Att ta bort en tyst båt nära bron (efter 3 min, eller när hon i sin
+   fart borde ha nått bron) gör 402–408 min sanna men tar bort 155–191 min en
+   båt som ligger kvar och väntar (NEST 15/7, TRUNTEN 4/8 och DIONE 5/8 korsade
+   38–45 min senare). Att visa en båt som hörts en gång utan löfte tills hon
+   hörts igen hade fördröjt siffran för 169 av 172 sådana båtar (median 1,5
+   min, 90:e percentilen 5,8) för att rätta tre. Att räkna ned den frysta
+   siffran redan efter 90 s gör felmängden större (516,5 min sämre mot 303,5
+   bättre), eftersom köer framför bromsar båten, och rör ETA-vägen (U28). En
+   kortare åldersgräns för vänttexten tar bort 245 min sann vänttext (5 min).
+   En kortare visningstid tar bort lika mycket ärlig text som felaktig: efter
+   15 min gällde 177 min "ETA okänd" båtar som fortfarande låg före bron och
+   158,5 min båtar som passerat. Ingen textregel ovan ändrar notiser eller
+   öppningsvarningar (prototypen av 5-minutersgränsen: identiska i 29
+   körningar och 120 slumpade världar).
    **Kajzonerna och kantmarginalen** (granskningen av U53, M1): kajzonen "Kajen
    norr om Klaffbron" täcker farleden 644–788 m söder om Järnvägsbron, så bandet
    ger i praktiken vänttext 350–644 m (och 788–800 m) söder om bron. En redan
