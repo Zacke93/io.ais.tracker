@@ -745,7 +745,7 @@ EOL
         # kontrollpunkten inte är bevisad (stopptid saknas). Det räcker inte för låsning.
         if is_journal_log "$LOGFILE" && LC_ALL=C grep -q 'Replay-integritet: DELVIS' <<< "$CHECK_OUT"; then
             REPLAY_FAIL=1
-            echo "- ⚠️ svansen efter sista kontrollpunkten är obevisad (stopptid eller loggfilens tystnad saknas) — korpuslåsning kräver båda" >> "$SUMMARY_TMP"
+            echo "- ⚠️ grinden gav DELVIS i en löpnummerlogg (skälet står i grindens rad ovan: svansen obevisad, eller omstart eller byte av loggnivå) — korpuslåsning EJ tillåten utan handbedömning" >> "$SUMMARY_TMP"
         fi
     fi
     if [ "$HOLES_PENDING" -eq 1 ]; then

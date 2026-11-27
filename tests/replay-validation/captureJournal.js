@@ -109,6 +109,7 @@ function createJournalAudit() {
   let firstMalformed = null;
   let activeSid = null;
   const boots = []; // { line, t }: omstarter, så att en ström utan slut slutar vid nästa boot
+  const levelChangeLines = []; // rader "Debug level changed to:" (spärren, U77)
   let plainEvents = 0;
   let firstPlainEventLine = null;
 
@@ -146,6 +147,7 @@ function createJournalAudit() {
 
   // Rader utan journalens kännetecken: sampel och starttillstånd utan nummer.
   const takePlain = (line, lineNumber) => {
+    if (line.indexOf('Debug level changed to:') !== -1) levelChangeLines.push(lineNumber);
     if (line.indexOf(BOOT_MARK) !== -1) {
       activeSid = null;
       const bt = timeOf(line);
@@ -605,6 +607,11 @@ function createJournalAudit() {
       // Spärren (dirigentens beslut efter granskningens fjärde varv): antalet
       // appstarter (boot-rader) och fångstströmmar, för domslutet.
       result.bootCount = boots.length;
+      // ... och byte av loggnivå efter att fångsten börjat: en ström som slutade
+      // med reason=level, eller en nivåbytesrad efter första strömmens första rad.
+      const firstStreamLine = streamList.length > 0 ? streamList[0].firstLine : null;
+      result.levelChange = streamList.some((st) => st.end && st.end.reason === 'level')
+        || (firstStreamLine !== null && levelChangeLines.some((ln) => ln > firstStreamLine));
       return result;
     },
   };

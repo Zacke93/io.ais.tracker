@@ -1953,9 +1953,12 @@ efteråt.
      analysens sak, inte grindens.
 
    - **Löpnummer (U71, omgång 9)** — **Bara den enkla körningen kan bli OK:**
-     en numrerad logg med exakt en appstart (en boot-rad) och exakt en
-     fångstström (`[CAPTURE_START]`). Har loggen en omstart, eller ett byte av
-     loggnivå som ger en ny ström, blir verdiktet som bäst DELVIS ("ENKEL
+     en numrerad logg med exakt en appstart (en boot-rad), exakt en
+     fångstström (`[CAPTURE_START]`) och oförändrad loggnivå, alltså en ström
+     som står öppen till körningens slut eller avslutas av nedstängningen. Har
+     loggen en omstart, en andra ström, en ström som slutar med `[CAPTURE_END]
+     reason=level`, eller någon rad "Debug level changed to:" efter strömmens
+     start (också när full sparas igen), blir verdiktet som bäst DELVIS ("ENKEL
      KÖRNING KRÄVS … omstart eller byte av loggnivå i körningen: fångsten kan
      inte bevisas hel", med antalet appstarter och strömmar), och körningen
      låses inte utan handbedömning. Fel som grinden hittar ger fortfarande FEL.

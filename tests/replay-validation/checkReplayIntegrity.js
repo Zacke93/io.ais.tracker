@@ -823,12 +823,18 @@ function checkPair(jsonlPath, logPath, opts) {
     // som hittas ovan ger fortfarande FEL (problemen går före DELVIS i domen).
     const { bootCount } = journal;
     const streamCount = journal.streams.length;
+    // U77 fullt ut: också ett byte av loggnivå efter att fångsten börjat (en
+    // ström som slutar med reason=level, eller en nivåbytesrad efter strömmens start).
+    const levelChange = Boolean(journal.levelChange);
     result.journal.bootCount = bootCount;
-    if (bootCount !== 1 || streamCount !== 1) {
+    result.journal.levelChange = levelChange;
+    if (bootCount !== 1 || streamCount !== 1 || levelChange) {
       result.partial = true;
       result.partialNote = 'omstart eller byte av loggnivå i körningen: fångsten kan inte bevisas hel '
-        + `(${bootCount} appstart(er), ${streamCount} fångstström(mar)); bara en körning med en appstart och en ström kan bli OK`;
-      result.notes.push(`ENKEL KÖRNING KRÄVS (U71): loggen har ${bootCount} appstart(er) och ${streamCount} fångstström(mar). `
+        + `(${bootCount} appstart(er), ${streamCount} fångstström(mar)${levelChange ? ', byte av loggnivå' : ''}); `
+        + 'bara en körning med en appstart, en ström och oförändrad loggnivå kan bli OK';
+      result.notes.push(`ENKEL KÖRNING KRÄVS (U71): loggen har ${bootCount} appstart(er) och ${streamCount} fångstström(mar)`
+        + `${levelChange ? ' och ett byte av loggnivå efter fångstens start' : ''}. `
         + 'Omstart eller byte av loggnivå i körningen: fångsten kan inte bevisas hel. Låses inte utan handbedömning.');
     }
     result.notes.push(...journal.notes);

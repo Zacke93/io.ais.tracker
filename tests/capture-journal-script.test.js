@@ -197,12 +197,24 @@ describe('U71: loggskriptet läker en löpnummerlogg', () => {
     expect(quiet).toBeLessThanOrEqual(quietFor + 10);
   });
 
+  maybe('en omstart ger DELVIS i grinden och FEL i summaryn, med rätt skäl', () => {
+    const { lines } = simulateLog({ minutes: 50, segments: [{ atMin: 0, kind: 'boot' }, { atMin: 30.1, kind: 'boot' }] });
+    const dir = sandbox(lines);
+    dirs.push(dir);
+    const out = runFinish(dir, ROOT, stopAfter(lines));
+    expect(out.summary).toMatch(/Replay-integritet: DELVIS verifierad\*\* \(omstart eller byte av loggnivå i körningen/);
+    expect(out.summary).toMatch(/grinden gav DELVIS i en löpnummerlogg/);
+    expect(out.summary).not.toMatch(/stopptid eller loggfilens tystnad saknas/);
+    expect(out.summary).toMatch(/Logg-integritet: FEL/);
+  });
+
   maybe('utan stopptid fäller skriptet en löpnummerlogg (svansen obevisad)', () => {
     const { lines } = simulateLog({ minutes: 30 });
     const dir = sandbox(lines);
     dirs.push(dir);
     const out = runFinish(dir, ROOT, '');
-    expect(out.summary).toMatch(/svansen efter sista kontrollpunkten är obevisad \(stopptid eller loggfilens tystnad saknas\)/);
+    expect(out.summary).toMatch(/grinden gav DELVIS i en löpnummerlogg \(skälet står i grindens rad ovan/);
+    expect(out.summary).toMatch(/Replay-integritet: DELVIS verifierad\*\* \(fångsten bevisad fram till sista kontrollpunkten; stopptid eller tystnad saknas/);
     expect(out.summary).toMatch(/Logg-integritet: FEL/);
   });
 });

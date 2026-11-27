@@ -120,6 +120,9 @@ describe('U71 grinden: hela körningar', () => {
     const { lines } = base({ segments: [{ atMin: 0, kind: 'level-off' }, { atMin: 0, kind: 'boot' }, { atMin: 12.3, kind: 'level-on' }] });
     const r = judge(lines);
     expect(problemsText(r)).toBe('');
+    // Nivåbytet till full står före strömmens start och räknas inte som byte (U77).
+    expect(lines.some((l) => l.line.includes('Debug level changed to: full'))).toBe(true);
+    expect(r.verdict).toBe('OK');
   });
 
   test('släppta poster utan hål: OK med notis', () => {
@@ -779,11 +782,11 @@ describe('U71 grinden: händelser utan nummer efter att strömmen slutat (N2)', 
     return m;
   };
 
-  test('full → basic 5 min före stoppet, textbyte utan nummer efteråt: OK', () => {
+  test('full → basic 5 min före stoppet, textbyte utan nummer efteråt: inga fel, DELVIS (U77: byte av loggnivå)', () => {
     const { lines, startMs } = base({ minutes: 50, segments: [{ atMin: 0, kind: 'boot' }, { atMin: 45.05, kind: 'level-off' }] });
     const r = judge(insert(lines, plain(startMs + 47 * MIN)));
     expect(problemsText(r)).toBe('');
-    expect(r.verdict).toBe('OK');
+    expect(r.verdict).toBe('DELVIS');
   });
 
   test('omstart till basic efter en full ström, textbyte utan nummer efteråt: inga fel, DELVIS (spärren)', () => {
@@ -892,6 +895,62 @@ describe('U71 grinden: spärren för omstarter och byten av ström', () => {
     const r = judge(cutHole(lines, startMs + 20 * MIN + 1, startMs + 21.5 * MIN));
     expect(r.verdict).toBe('OK');
     expect(healedNotes(r)).toHaveLength(1);
+    expect(r.notes.join('\n')).not.toMatch(/ENKEL KÖRNING KRÄVS/);
+  });
+});
+
+// U77 fullt ut (granskningens femte varv): ett byte av loggnivå efter att
+// fångsten börjat lyfts också ut ur beviset.
+describe('U71 grinden: spärren gäller också byte av loggnivå', () => {
+  const lost = (lines) => lines.filter((l) => /\] #.*AIS_REPLAY_SAMPLE/.test(l.line)).length;
+  const notOk = (r) => expect(['FEL', 'DELVIS']).toContain(r.verdict);
+  const segments = [{ atMin: 0, kind: 'boot' }, { atMin: 40, kind: 'level-off' }, { atMin: 45, kind: 'level-on' }];
+
+  test('S1: full → basic vid 40, full igen vid 45, allt efter nivåbytesraden borta till stoppet', () => {
+    const { lines, startMs } = simulateLog({ minutes: 50, passages: [[30, 50]], segments });
+    const on = lines.findIndex((l) => l.line.includes('Debug level changed to: full'));
+    expect(lost(lines.slice(on + 1))).toBeGreaterThan(10);
+    const r = judge(lines.slice(0, on + 1), { stop: startMs + 50 * MIN });
+    notOk(r);
+    expect(r.notes.join('\n')).toMatch(/ENKEL KÖRNING KRÄVS \(U71\): .*byte av loggnivå efter fångstens start/);
+  });
+
+  test('S1b: som S1, men hålet tar också nivåbytesraden', () => {
+    const { lines, startMs } = simulateLog({ minutes: 50, passages: [[30, 50]], segments });
+    const before = lines.findIndex((l) => l.t >= startMs + 44.9 * MIN);
+    notOk(judge(lines.slice(0, before), { stop: startMs + 50 * MIN }));
+  });
+
+  test('S1d: som S1b, och nivåbytesraden till basic försvann också (bara slutet med reason=level kvar)', () => {
+    const { lines, startMs } = simulateLog({ minutes: 50, passages: [[30, 50]], segments });
+    const before = lines.findIndex((l) => l.t >= startMs + 44.9 * MIN);
+    const cut = lines.slice(0, before).filter((l) => !l.line.includes('Debug level changed to:'));
+    expect(cut.some((l) => /\[CAPTURE_END\] .*reason=level/.test(l.line))).toBe(true);
+    notOk(judge(cut, { stop: startMs + 50 * MIN }));
+  });
+
+  test('X3: en numrerad logg utan appstart (boot-raden bortskuren) godkänns inte', () => {
+    const { lines } = base();
+    const r = judge(lines.filter((l) => !l.line.includes('AIS Bridge starting')));
+    expect(r.verdict).toBe('DELVIS');
+    expect(r.notes.join('\n')).toMatch(/loggen har 0 appstart\(er\)/);
+  });
+
+  test('en nivåbytesrad mitt i strömmen utan att strömmen slutar (full sparas igen): DELVIS', () => {
+    const { lines, startMs } = base();
+    const at = startMs + 25 * MIN + 500;
+    const k = lines.findIndex((l) => l.t > at);
+    const m = lines.slice();
+    m.splice(k, 0, { t: at, line: `${new Date(at).toISOString()} [log] [AISBridgeApp] 🎛️ Debug level changed to: full` });
+    const r = judge(m);
+    expect(problemsText(r)).toBe('');
+    expect(r.verdict).toBe('DELVIS');
+  });
+
+  test('den enkla körningen ger fortfarande OK (full nivå hela tiden)', () => {
+    const { lines } = base();
+    const r = judge(lines);
+    expect(r.verdict).toBe('OK');
     expect(r.notes.join('\n')).not.toMatch(/ENKEL KÖRNING KRÄVS/);
   });
 });
