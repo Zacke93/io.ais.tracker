@@ -700,14 +700,14 @@ describe('U71 grinden: stopptidens rimlighet och svansen oberoende av Homeys klo
     const { lines, startMs } = healthy();
     const r = judge(lines, { stop: startMs + 30 * MIN, quiet: 2 });
     expect(r.verdict).toBe('FEL');
-    expect(problemsText(r)).toMatch(/stopptiden 2026-11-20T15:30:00.000Z ligger före loggens sista rad/);
+    expect(problemsText(r)).toMatch(/stopptiden 2026-11-20T15:30:00.000Z ligger mer än 5 min före loggens sista rad/);
   });
 
   test('stopptid före loggens början: FEL', () => {
     const { lines, startMs } = healthy();
     const r = judge(lines, { stop: startMs - 3600000, quiet: 2 });
     expect(r.verdict).toBe('FEL');
-    expect(problemsText(r)).toMatch(/ligger före loggens sista rad/);
+    expect(problemsText(r)).toMatch(/ligger mer än 5 min före loggens sista rad/);
   });
 
   test('stopptid mer än ett dygn efter loggens slut: FEL', () => {
@@ -738,11 +738,18 @@ describe('U71 grinden: stopptidens rimlighet och svansen oberoende av Homeys klo
     expect(problemsText(r)).toMatch(/svansen är obevisad: .*loggfilen tyst 120 s vid stoppet/);
   });
 
-  test('en frisk körning med Homeys klocka 120 s före datorns ger falskt FEL (aldrig falskt OK)', () => {
+  // B3: beviset bärs av tystnaden, så en vanlig klockskillnad fäller inte en
+  // frisk körning; marginalen åt det hållet är 5 min.
+  test.each([60, 120, 295])('en frisk körning med Homeys klocka %i s före datorns: OK', (aheadS) => {
     const { lines } = healthy();
-    const r = judge(lines, { stop: lastT(lines) - 118000, quiet: 2 });
+    expect(judge(lines, { stop: lastT(lines) - aheadS * 1000 + 2000, quiet: 2 }).verdict).toBe('OK');
+  });
+
+  test('en frisk körning med Homeys klocka 6 min före datorns: falskt FEL (aldrig falskt OK)', () => {
+    const { lines } = healthy();
+    const r = judge(lines, { stop: lastT(lines) - 360000 + 2000, quiet: 2 });
     expect(r.verdict).toBe('FEL');
-    expect(problemsText(r)).toMatch(/ligger före loggens sista rad/);
+    expect(problemsText(r)).toMatch(/ligger mer än 5 min före loggens sista rad/);
   });
 
   test('en frisk körning med Homeys klocka 120 s efter datorns: OK (tystnaden är klockoberoende)', () => {
@@ -782,5 +789,42 @@ describe('U71 grinden: händelser utan nummer efter att strömmen slutat (N2)', 
     const r = judge(insert(lines, plain(startMs + 47 * MIN)));
     expect(problemsText(r)).toBe('');
     expect(r.verdict).toBe('OK');
+  });
+});
+
+// Granskningens tredje varv, B1: en omstart nära slutet stänger inte av
+// svanskravet. Svansen prövas från boot-raden, utom när starttillståndet efter
+// omstarten (utan nummer) visar en annan loggnivå än full.
+describe('U71 grinden: svansen efter en omstart (B1)', () => {
+  test('omstart vid 45 min på full nivå, allt efter boot-raden borta till stoppet: FEL', () => {
+    const { lines, startMs } = base({ minutes: 50, passages: [[40, 50]], segments: [{ atMin: 0, kind: 'boot' }, { atMin: 45, kind: 'boot' }] });
+    const bootIdx = lines.findIndex((l) => l.t >= startMs + 45 * MIN && l.line.includes('AIS Bridge starting'));
+    const lost = lines.slice(bootIdx + 1).filter((l) => /\] #[0-9a-z]+-\d+:\d+ \[AIS_REPLAY_SAMPLE\]/.test(l.line)).length;
+    expect(lost).toBeGreaterThan(10);
+    const r = judge(lines.slice(0, bootIdx + 1), { stop: startMs + 50 * MIN });
+    expect(r.verdict).toBe('FEL');
+    expect(problemsText(r)).toMatch(/svansen är obevisad: omstarten 2026-11-20T15:45:00.000Z, .*loggfilen tyst 300 s vid stoppet/);
+  });
+
+  test('omstart på full nivå där den nya strömmen kommer fram: OK', () => {
+    const { lines } = base({ minutes: 50, passages: [[40, 50]], segments: [{ atMin: 0, kind: 'boot' }, { atMin: 45, kind: 'boot' }] });
+    const r = judge(lines);
+    expect(problemsText(r)).toBe('');
+    expect(r.verdict).toBe('OK');
+    expect(r.journal.streams).toHaveLength(2);
+  });
+
+  test('omstart till basic: starttillståndet visar basic, ingen svans att bevisa (OK)', () => {
+    const { lines, startMs } = base({ minutes: 50, segments: [{ atMin: 0, kind: 'boot' }, { atMin: 45.05, kind: 'boot-basic' }] });
+    expect(lines.some((l) => l.t >= startMs + 45 * MIN && l.line.includes('"debug_level":"basic"'))).toBe(true);
+    expect(judge(lines, { stop: startMs + 50 * MIN, quiet: 2 }).verdict).toBe('OK');
+  });
+
+  test('omstart till basic men starttillståndet försvann: svansen prövas från omstarten (FEL)', () => {
+    const { lines, startMs } = base({ minutes: 50, segments: [{ atMin: 0, kind: 'boot' }, { atMin: 45.05, kind: 'boot-basic' }] });
+    const cut = lines.filter((l) => !l.line.includes('"debug_level":"basic"'));
+    const r = judge(cut, { stop: startMs + 50 * MIN, quiet: 2 });
+    expect(r.verdict).toBe('FEL');
+    expect(problemsText(r)).toMatch(/svansen är obevisad: omstarten/);
   });
 });

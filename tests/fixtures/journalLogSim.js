@@ -95,6 +95,8 @@ function simulateLog(opts) {
       hubPolls = 0;
       hubAccepted = 0;
       write('AIS Bridge starting with modular architecture v2.0');
+      // Som appen: starttillståndet utan nummer när nivån inte är full (B1).
+      if (level !== 'full') write(`[AIS_REPLAY_STATE] {"version":1,"capturedAt":${now},"settings":{"debug_level":"${level}"}}`);
       if (level === 'full') {
         journal = mk();
         journal.start('boot');

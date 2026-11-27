@@ -807,7 +807,7 @@ function checkPair(jsonlPath, logPath, opts) {
     result.notes.push(`Läkta tidshål (U71): ${healedHoles} av ${journal.holes.length}`);
     result.journal.tail = journal.tail;
     if (journal.tail && journal.tail.proven) {
-      result.notes.push(`Svansen bevisad (U71): sista kontrollpunkten ${new Date(journal.tail.lastCheckpointT).toISOString()}, `
+      result.notes.push(`Svansen bevisad (U71): ${journal.tail.anchor} ${new Date(journal.tail.anchorT).toISOString()}, `
         + `loggens sista rad ${new Date(journal.tail.lastLineT).toISOString()}, loggfilen tyst ${Math.round(journal.tail.quietMs / 1000)} s `
         + `vid stoppet ${new Date(journal.tail.stopTime).toISOString()}.`);
     } else if (journal.tail && journal.tail.missing) {

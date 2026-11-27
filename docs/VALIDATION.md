@@ -1984,18 +1984,23 @@ efteråt.
      eller ±hh:mm>` och `--quiet-s <s>`) och kräver att (loggens sista rad −
      sista kontrollpunkten) i appens tid plus tystnaden i datorns tid är högst
      65 s. De två klockorna blandas inte, så skillnaden mellan Homeys och
-     datorns klocka spelar ingen roll för beviset. Stopptiden prövas bara för
-     rimlighet: utan tidszon, mer än 5 s före loggens sista rad (fel fil, fel
-     tidszon eller en Homey-klocka som går före datorn) eller mer än ett dygn
-     efter är det FEL. Saknas stopptiden eller tystnaden blir verdiktet DELVIS
+     datorns klocka spelar ingen roll för beviset. Startade appen om efter
+     strömmens sista rad räknas samma mått från boot-raden, utom när det
+     onumrerade `[AIS_REPLAY_STATE]` efter omstarten visar en annan loggnivå
+     än full (då fanns ingen fångst att bevisa). **Tystnaden får bara komma
+     från skriptets stoppfil, aldrig anges för hand** (`--quiet-s` är till för
+     att pröva en stoppfils värden); den som läker efter ett hårdstopp ska nöja
+     sig med DELVIS. Stopptiden prövas bara för rimlighet: utan tidszon, mer än
+     5 min före loggens sista rad (en stoppfil från fel körning eller fel
+     tidszon) eller mer än ett dygn efter är det FEL. Saknas stopptiden eller tystnaden blir verdiktet DELVIS
      ("SVANSEN OBEVISAD"). **Vad som då är bevisat:** varje post med nummer
      upp till sista kontrollpunkten. **Vad som återstår:** poster som skrevs
      efter sista kontrollpunkten och försvann tillsammans med alla senare
      rader. Fönstret är som mest 65 s före stoppet, i praktiken den sista
      minuten (granskaren: med rätt stopp gav 15 av 3 000 slumpkörningar OK
-     trots förlust, alla inom de sista 20 s). En Homey-klocka som går före
-     datorn ger falskt FEL via rimlighetskontrollen, aldrig falskt OK. En som
-     går efter påverkar inte domen. **För låsning krävs** att grinden kört med
+     trots förlust, alla inom de sista 20 s). En Homey-klocka som går mer än
+     5 min före datorn ger falskt FEL via rimlighetskontrollen, aldrig falskt
+     OK. En mindre skillnad, åt något håll, påverkar inte domen. **För låsning krävs** att grinden kört med
      stoppfilen och säger `Svansen bevisad (U71)` (loggskriptet gör det; en
      löpnummerlogg med DELVIS ger
      `Logg-integritet: FEL` i summaryn). **Ett tidshål

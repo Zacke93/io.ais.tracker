@@ -72,10 +72,11 @@ const BOOT_MARK = 'AIS Bridge starting with modular architecture';
 // över det här är ett korrupt nummer: det fälls direkt i stället för att
 // grinden ska räkna upp till det (granskningen, L5).
 const MAX_SEQ_JUMP = 100000;
-// N1: stopptiden (datorns klocka) får ligga högst så här mycket före loggens
-// sista rad (appens klocka) — loggskriptet tar den efter sista raden, så mer än
-// några sekunder före betyder fel fil, fel tidszon eller en Homey-klocka före.
-const STOP_SLACK_MS = 5000;
+// N1/B3: stopptiden (datorns klocka) får ligga högst så här mycket före loggens
+// sista rad (appens klocka). Beviset bärs av tystnaden, inte av stopptiden, så
+// marginalen tål en vanlig klockskillnad (Homey före datorn) men fäller en
+// stoppfil från fel körning (minuter eller timmar för tidig).
+const STOP_SLACK_MS = 5 * 60 * 1000;
 // ... och högst ett dygn efter: senare hör den inte till körningen.
 const STOP_MAX_AFTER_MS = 24 * 3600 * 1000;
 const B64_RE = /^[A-Za-z0-9+/]*={0,2}$/;
@@ -107,7 +108,6 @@ function createJournalAudit() {
   let malformed = 0;
   let firstMalformed = null;
   let activeSid = null;
-  let lastBootLine = null;
   const boots = []; // { line, t }: omstarter, så att en ström utan slut slutar vid nästa boot
   let plainEvents = 0;
   let firstPlainEventLine = null;
@@ -148,9 +148,19 @@ function createJournalAudit() {
   const takePlain = (line, lineNumber) => {
     if (line.indexOf(BOOT_MARK) !== -1) {
       activeSid = null;
-      lastBootLine = lineNumber;
       const bt = timeOf(line);
-      boots.push({ line: lineNumber, t: bt ? bt.t : null });
+      boots.push({ line: lineNumber, t: bt ? bt.t : null, level: null });
+    }
+    // B1: starttillståndet efter en omstart visar processens loggnivå. Står det
+    // utan nummer och inte på full, var fångsten avstängd efter omstarten.
+    if (boots.length > 0 && boots[boots.length - 1].level === null && line.indexOf(STATE_CUT) !== -1) {
+      try {
+        const st = JSON.parse(line.slice(line.lastIndexOf(STATE_CUT) + STATE_CUT.length));
+        const lvl = st && st.settings && st.settings.debug_level;
+        boots[boots.length - 1].level = typeof lvl === 'string' ? lvl : 'okänd';
+      } catch (err) {
+        boots[boots.length - 1].level = 'okänd';
+      }
     }
     if (activeSid !== null && EVENT_TAGS.some((tag) => line.indexOf(tag) !== -1)) {
       plainEvents += 1;
@@ -406,18 +416,24 @@ function createJournalAudit() {
           problem(s, `${missingCount} post(er) saknas och kunde inte läkas (nummer ${missing.join(', ')}`
             + `${missingCount > MAX_LISTED ? ', …' : ''})`);
         }
-        // Svansen (L1, N1): den sista strömmen utan [CAPTURE_END], och utan en
-        // senare boot-rad (omstart), var aktiv när körningen stoppades. Allt fram
-        // till sista kontrollpunkten är bevisat. Därefter bara om tiden från sista
-        // kontrollpunkten till stoppet är högst 65 s, räknat utan att blanda
-        // klockor: (loggens sista rad − sista kontrollpunkten) i appens tid plus
-        // loggfilens tystnad vid stoppet i datorns tid. Stopptiden själv prövas
-        // bara för rimlighet mot loggen.
-        if (i === streamList.length - 1 && !s.end && !(lastBootLine !== null && lastBootLine > s.lastLine)) {
+        // Svansen (L1, N1, B1): den sista strömmen utan [CAPTURE_END] var aktiv
+        // när körningen stoppades, eller så startade appen om efter den. Allt fram
+        // till ankaret är bevisat: sista kontrollpunkten, eller boot-raden om en
+        // omstart följde. Därefter bara om tiden från ankaret till stoppet är högst
+        // 65 s, räknat utan att blanda klockor: (loggens sista rad − ankaret) i
+        // appens tid plus loggfilens tystnad vid stoppet i datorns tid. Undantag:
+        // starttillståndet efter omstarten står utan nummer och visar en annan
+        // loggnivå än full; då fanns ingen fångst efter omstarten att bevisa.
+        // Stopptiden själv prövas bara för rimlighet mot loggen.
+        const lastBootAfter = boots.filter((b) => b.line > s.lastLine && b.t !== null).pop() || null;
+        const captureOffAfterBoot = lastBootAfter !== null && lastBootAfter.level !== null && lastBootAfter.level !== 'full';
+        if (i === streamList.length - 1 && !s.end && !captureOffAfterBoot) {
           const lastCheckpoint = s.checkpoints[s.checkpoints.length - 1] || null;
           const cpT = lastCheckpoint ? lastCheckpoint.t : null;
+          const anchorT = lastBootAfter ? lastBootAfter.t : cpT;
+          const anchorName = lastBootAfter ? 'omstarten' : 'sista kontrollpunkten';
           result.tail = {
-            sid: s.sid, lastCheckpointT: cpT, lastLineT: lastT, stopTime, quietMs, proven: false, missing: false,
+            sid: s.sid, lastCheckpointT: cpT, anchorT, anchor: anchorName, lastLineT: lastT, stopTime, quietMs, proven: false, missing: false,
           };
           const fmt = (t) => new Date(t).toISOString();
           if (stopError) {
@@ -425,19 +441,20 @@ function createJournalAudit() {
           } else if (stopTime === null || quietMs === null) {
             result.tail.missing = true;
             result.notes.push(`SVANSEN OBEVISAD (U71): ${stopTime === null ? 'stopptid' : 'loggfilens tystnad vid stoppet'} saknas. `
-              + `Fångsten är bevisad fram till sista kontrollpunkten ${cpT === null ? '(ingen)' : fmt(cpT)}; `
+              + `Fångsten är bevisad fram till ${anchorName} ${anchorT === null ? '(ingen)' : fmt(anchorT)}; `
               + 'poster efter den kan saknas utan att grinden ser det.');
           } else if (lastT !== null && stopTime < lastT - STOP_SLACK_MS) {
-            problem(s, `stopptiden ${fmt(stopTime)} ligger före loggens sista rad ${fmt(lastT)} — fel stoppfil, `
-              + 'fel tidszon eller en Homey-klocka som går före datorn');
+            problem(s, `stopptiden ${fmt(stopTime)} ligger mer än 5 min före loggens sista rad ${fmt(lastT)} — fel stoppfil `
+              + 'eller fel tidszon');
           } else if (lastT !== null && stopTime > lastT + STOP_MAX_AFTER_MS) {
             problem(s, `stopptiden ${fmt(stopTime)} ligger mer än ett dygn efter loggens sista rad ${fmt(lastT)} — `
               + 'den hör inte till körningen');
-          } else if (cpT === null || lastT === null || (lastT - cpT) + quietMs > CHECKPOINT_LIMIT_MS) {
-            const sinceCp = cpT === null || lastT === null ? null : (lastT - cpT) + quietMs;
-            problem(s, `svansen är obevisad: sista kontrollpunkten ${cpT === null ? 'saknas' : fmt(cpT)}, loggens sista rad `
+          } else if (anchorT === null || lastT === null || (lastT - anchorT) + quietMs > CHECKPOINT_LIMIT_MS) {
+            const sinceAnchor = anchorT === null || lastT === null ? null : (lastT - anchorT) + quietMs;
+            problem(s, `svansen är obevisad: ${anchorName} ${anchorT === null ? 'saknas' : fmt(anchorT)}, loggens sista rad `
               + `${lastT === null ? 'saknas' : fmt(lastT)}, loggfilen tyst ${Math.round(quietMs / 1000)} s vid stoppet`
-              + `${sinceCp === null ? '' : ` (${Math.round(sinceCp / 100) / 10} s från kontrollpunkten till stoppet, gräns ${CHECKPOINT_LIMIT_MS / 1000} s)`}`
+              + `${sinceAnchor === null ? '' : ` (${Math.round(sinceAnchor / 100) / 10} s från ${lastBootAfter ? 'omstarten' : 'kontrollpunkten'} `
+              + `till stoppet, gräns ${CHECKPOINT_LIMIT_MS / 1000} s)`}`
               + ' — ett hål kan ha nått stoppet');
           } else {
             result.tail.proven = true;
