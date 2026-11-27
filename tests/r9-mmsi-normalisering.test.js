@@ -51,7 +51,12 @@ describe('MMSI-normalisering i inflödet', () => {
     const app = makeApp();
     expect(keyFor(app, '2650995')).toBe('2650995');
     expect(keyFor(app, 2650995)).toBe('2650995');
-    expect(keyFor(app, '002650995')).toBe('002650995');
+    // Exemplet med ledande nolla är valt så att det inte hör till en klass som
+    // U69 ignorerar: på landskodens plats står 123, som inte är en giltig
+    // landskod. Ett nummer som är `00` + giltig landskod är en kuststation och
+    // ignoreras av U69 före fartygstjänsten (raden nedan).
+    expect(keyFor(app, '012345678')).toBe('012345678');
+    expect(keyFor(app, '002650995')).toBeNull();
   });
 
   // Granskningen L6: ett MMSI har högst nio siffror.
