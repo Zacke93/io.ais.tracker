@@ -113,12 +113,10 @@ const APPKONSTANTER = Object.freeze([
   {
     namn: 'MOVING_SOG_KN',
     fil: 'lib/services/BridgeOpeningService.js',
-    predikat: Object.freeze(['tystRecoverSammaÖppning', 'bakkantVidSenBokföring', 'stillaKöVidTäckningsslut', 'enFixFörVarning']),
+    predikat: Object.freeze(['tystRecoverSammaÖppning', 'bakkantVidSenBokföring', 'stillaKöVidTäckningsslut']),
     parameter: 'rörelseKn',
   },
 ].map((k) => Object.freeze({ ...k, värde: appKonstant(k.fil, k.namn) })));
-// Broarna som U62:s 300 m-gräns gäller (alla fem öppningsbara broar).
-const BROAR_U62 = Object.freeze(['Olidebron', 'Klaffbron', 'Järnvägsbron', 'Stridsbergsbron', 'Stallbackabron']);
 const FIX_D_MIN_SOG = APPKONSTANTER.find((k) => k.namn === 'FIX_D_MIN_SOG').värde;
 const TARGET_REMOVAL_GRACE_PERIOD = APPKONSTANTER.find((k) => k.namn === 'TARGET_REMOVAL_GRACE_PERIOD').värde;
 const MOVING_SOG_KN = APPKONSTANTER.find((k) => k.namn === 'MOVING_SOG_KN').värde;
@@ -4363,70 +4361,6 @@ const PREDICATES = {
       return ok(förklarade.map((x) => `U39: ${x.radering ? `appen raderade båten ${fmtT(x.radering.t)} (${x.radering.reason})` : `omstart ${fmtT(x.omstart.aisTimestamp)}`} efter notisen för `
         + `korsningen ${fmtT(x.gammal.t)} (${x.gammal.dir}); returen ${fmtT(x.ny.t)} (${x.ny.dir}), bokförd ${fmtT(x.pass.t)}, `
         + `stoppades av spärren (${x.spärr.ageMin} min < ${p.maxÅlderMin})`).join('; '));
-    },
-  },
-
-  // U62 (dirigentens beslut 2026-11-24, omgång 7; posten införd omgång 9):
-  // köaren ligger 300–800 m före fyndets bro och mer än 300 m från alla broar.
-  // en köare 300–800 m före bron får inget eget skydd. Båtens sista L0-stopp
-  // före korsningen slutade högst 30 min före den, och varje rad som radion
-  // levererade under stoppet låg 300–800 m från bron; inget annat stopp kom
-  // emellan. Ett stopp närmare än 300 m, ett stopp längre ut än 800 m, ett
-  // stopp utan rader och en båt utan stopp blir KANDIDAT.
-  köare300till800M: {
-    parametrar: { minM: 300, maxM: 800, föreMin: 30 },
-    fn(f, ctx, p) {
-      if (!f.bro) return nej('fyndet saknar bro');
-      const s = ctx && ctx.sanning;
-      if (!s) return nej('saknar L0');
-      const k = fyndetsKorsning(f);
-      if (!Number.isFinite(k.t)) return nej('saknar korsningstid');
-      const stopp = (s.stops || []).filter((x) => String(x.mmsi) === k.mmsi && x.tOut <= k.t && x.tOut >= k.t - (p.föreMin * MIN))
-        .sort((a, b) => a.tOut - b.tOut);
-      const st = stopp[stopp.length - 1];
-      if (!st) return nej(`inget L0-stopp för båten de sista ${p.föreMin} min före korsningen ${fmtT(k.t)}`);
-      const rader = rowsOf(ctx, k.mmsi).filter((r) => fixtid(r) >= st.tIn && fixtid(r) <= st.tOut);
-      if (!rader.length) return nej(`radion levererade ingen rad under stoppet ${fmtT(st.tIn)}–${fmtT(st.tOut)}`);
-      const d = rader.map((r) => platser.distanceToPoint(r, f.bro));
-      const lo = Math.min(...d);
-      const hi = Math.max(...d);
-      if (lo < p.minM || hi > p.maxM) {
-        return nej(`stoppet ${fmtT(st.tIn)}–${fmtT(st.tOut)} låg ${Math.round(lo)}–${Math.round(hi)} m från ${f.bro}, utanför ${p.minM}–${p.maxM} m`);
-      }
-      // U62 gäller en väntan som inte ligger inom 300 m från NÅGON bro: där
-      // håller appen målbron kvar (omgång 7: 54 av 57 inspelade väntor).
-      for (const bro of BROAR_U62) {
-        const nära = Math.min(...rader.map((r) => platser.distanceToPoint(r, bro)));
-        if (nära < p.minM) return nej(`stoppet låg ${Math.round(nära)} m från ${bro}, inom ${p.minM} m från en bro`);
-      }
-      return ok(`U62: båten väntade ${Math.round(lo)}–${Math.round(hi)} m före ${f.bro} ${fmtT(st.tIn)}–${fmtT(st.tOut)}, `
-        + `sista stoppet före korsningen ${fmtT(k.t)}`);
-    },
-  },
-
-  // U17 för en båt som hörts en gång (dirigentens beslut 2026-11-27, omgång 9,
-  // kortet F10): säkerhetsvarningen för en tyst båt står kvar också när båten
-  // bara hörts en enda gång. Kraven: fyndets varning är levererad och
-  // avfyrad av ticken (firedBy 'deadline'); fyndets båt är medlem eller ledare;
-  // radion hade levererat exakt en rad för båten före varningen, i minst
-  // rörelsefarten (MOVING_SOG_KN, 2 kn) och minst STALE_ETA_HARD (10 min)
-  // före varningen; ingen rad för båten kom mellan den raden och varningen.
-  enFixFörVarning: {
-    parametrar: { rörelseKn: MOVING_SOG_KN, minÅlderMs: STALE_HARD_MS, maxRader: 1 },
-    fn(f, ctx, p) {
-      const w = fyndetsVarning(f, ctx);
-      if (!w) return nej('fyndets varning finns inte bland de levererade');
-      if (w.firedBy !== 'deadline') return nej(`varningen avfyrades av ${w.firedBy || 'okänt'}, inte av ticken`);
-      const m = String(f.mmsi);
-      if (String(w.leadMmsi) !== m && !(w.mmsis || []).map(String).includes(m)) return nej('fyndets båt är varken ledare eller medlem i varningen');
-      const före = rowsOf(ctx, m).filter((r) => r.aisTimestamp <= w.t);
-      if (före.length > p.maxRader) return nej(`båten hade ${före.length} rader före varningen ${fmtT(w.t)}, inte en enda`);
-      if (!före.length) return nej('båten hade ingen rad före varningen');
-      const r = före[0];
-      if (!Number.isFinite(r.sog) || r.sog < p.rörelseKn) return nej(`den enda raden hade sog ${r.sog}, under ${p.rörelseKn} kn`);
-      if (w.t - r.aisTimestamp < p.minÅlderMs) return nej(`den enda raden var ${Math.round((w.t - r.aisTimestamp) / 1000)} s gammal vid varningen, under ${p.minÅlderMs / 1000} s`);
-      return ok(`U17: båten hördes en enda gång ${fmtT(r.aisTimestamp)} (${r.sog} kn) och leder eller ingår i tickens varning ${fmtT(w.t)}, `
-        + `${Math.round((w.t - r.aisTimestamp) / MIN)} min senare`);
     },
   },
 };

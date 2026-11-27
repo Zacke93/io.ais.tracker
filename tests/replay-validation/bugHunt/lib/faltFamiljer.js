@@ -8,7 +8,7 @@
  *
  *   F-LÅGSÄSONG     ett ensamt lastfartyg i 6–8 kn genom hela kanalen efter
  *                   minst en timme utan trafik, en förtöjd lotsbåt och en
- *                   arbetsbåt som flyttar sig 100–400 m längs kajen; 4–8 h
+ *                   arbetsbåt som gör en av bankens inspelade kajflyttar; 4–8 h
  *   F-KÄLLBORTFALL  AISstream nere hela världen, tyst i minuter till timmar,
  *                   tyst tills båten ligger mitt i sin anflygning, eller
  *                   AISHub tyst 10–15 min medan AISstream levererar
@@ -407,9 +407,19 @@ const BUILDERS = {
     // banken och k1–k4 har 0 väntor före Klaffbron norrut (o9/S/matt/koplats.txt),
     // och den köplatsen gav kortet F07 (sågtand med tre båtar i kö).
     const site = rnd.weighted([
-      [{ bridge: 'Stridsbergsbron', dir: 'south', distM: [80, 193] }, 26],
-      [{ bridge: 'Klaffbron', dir: 'south', distM: [221, 307] }, 3],
+      [{
+        bridge: 'Stridsbergsbron', dir: 'south', distM: [80, 193], maxB: 320,
+      }, 26],
+      [{
+        bridge: 'Klaffbron', dir: 'south', distM: [221, 307], maxB: 410,
+      }, 3],
     ]);
+    // Köstopp vid målbron: före bron i färdriktningen och högst 600 m ut
+    // (granskningen av varv 2, S1: inflygningsprofilen lägger också köer vid
+    // andra broar, och de får inte styra tystnaden eller den andra båten).
+    const bs = geo.stationByName[site.bridge].s;
+    const vidMålbron = (st) => st.kind === 'queue' && ((st.s - bs) * (site.dir === 'south' ? 1 : -1)) >= 0
+      && ((st.s - bs) * (site.dir === 'south' ? 1 : -1)) <= 600;
     const distM = Math.round(rnd.range(site.distM[0], site.distM[1]));
     const durS = Math.round(rnd.range(300, 2400));
     const kryper = rnd.chance(0.5);
@@ -433,7 +443,7 @@ const BUILDERS = {
     inflygning(rnd, a, h);
     a.tStartS = h.focalStart(rnd, world, h.transitNeedS(a));
     const simA = h.simulateBoat(a);
-    const köer = simA.stops.filter((s) => s.kind === 'queue');
+    const köer = simA.stops.filter(vidMålbron);
     const q0 = köer.length ? köer[0].t0 : a.tStartS + 1800;
     const dep = köer.length ? köer[köer.length - 1].t1 : q0 + durS;
     const tCross = h.crossingTimeS(a, site.bridge);
@@ -453,7 +463,10 @@ const BUILDERS = {
     let andraBåt = false;
     if (rnd.chance(0.5)) {
       andraBåt = true;
-      const distB = distM + Math.round(rnd.range(40, 150));
+      // Den andra båten 40–150 m bakom den första, men inte längre ut än de
+      // inspelade köerna vid bron (Stridsbergsbron söderut högst 319 m,
+      // Klaffbron söderut högst 408 m; o9/S/matt/koplats.txt).
+      const distB = Math.max(distM + 30, Math.min(site.maxB, distM + Math.round(rnd.range(40, 150))));
       const b = f.transit({
         dir: a.dir,
         cls: rnd.chance(0.75) ? 'A' : 'B',
@@ -466,12 +479,17 @@ const BUILDERS = {
         fokal: true,
       });
       inflygning(rnd, b, h);
-      const tq = h.timeAtDistanceBefore({ ...b, tStartS: 0 }, site.bridge, distB);
-      const Ta = q0 + rnd.range(60, Math.max(61, (dep - q0) + 300));
-      b.tStartS = Math.max(60, Math.round(Ta - (tq !== null ? tq : 1800)));
-      b.plan.find((p) => p.op === 'queue' && p.bridge === site.bridge && p.distM === distB).durS = Math.max(60, Math.round((dep + rnd.range(30, 180)) - Ta));
-      boats.push(b);
-      world.durS = Math.max(world.durS, Math.min(5 * 3600, b.tStartS + h.transitNeedS(b) + 300));
+      // Ankomsten till köplatsen ur hennes egen simulering (med inflygningens
+      // köer vid andra broar), och hon ska nå kön medan den första väntar.
+      const kb = h.simulateBoat({ ...b, tStartS: 0 }).stops.filter(vidMålbron)[0];
+      const tq = kb ? kb.t0 : null;
+      const Ta = q0 + rnd.range(60, Math.max(61, (dep - q0) - 60));
+      if (tq !== null && Ta - tq >= 60) {
+        b.tStartS = Math.round(Ta - tq);
+        b.plan.find((p) => p.op === 'queue' && p.bridge === site.bridge && p.distM === distB).durS = Math.max(60, Math.round((dep + rnd.range(30, 180)) - Ta));
+        boats.push(b);
+        world.durS = Math.max(world.durS, Math.min(5 * 3600, b.tStartS + h.transitNeedS(b) + 300));
+      } else andraBåt = false;
     }
     world.durS = Math.max(world.durS, Math.min(5 * 3600, a.tStartS + h.transitNeedS(a) + 300));
     return {

@@ -149,6 +149,38 @@ describe('(b) fältvärldarna', () => {
     expect(par).toBe(4);
   });
 
+  test('granskningen S1: tystnaden ligger i målbrons kö och den andra båten når kön medan den första väntar', () => {
+    let tystnader = 0;
+    let par = 0;
+    for (let i = 0; i < 300; i++) {
+      const spec = families.sampleWorld(1, 100000 + i, { families: families.FÄLTFAMILJER });
+      if (spec.familj !== 'F-MÅLBROVÄNTAN') continue;
+      const pr = spec.fokal.parametrar;
+      const bs = geo.stationByName[pr.bro].s;
+      const vid = (st) => st.kind === 'queue' && (st.s - bs) * (pr.riktning === 'south' ? 1 : -1) >= 0
+        && (st.s - bs) * (pr.riktning === 'south' ? 1 : -1) <= 600;
+      const [a, b] = spec.fokal.mmsis.map((m) => spec.boats.find((x) => x.mmsi === m));
+      const köA = simulateBoat(a).stops.filter(vid);
+      expect(köA.length).toBeGreaterThan(0);
+      if (pr.tystnad !== 'ingen' && a.tystnad) {
+        const [w] = a.tystnad;
+        expect(w.tillS).toBeGreaterThan(w.frånS);
+        expect(w.frånS).toBeGreaterThanOrEqual(köA[0].t0);
+        expect(w.frånS).toBeLessThanOrEqual(köA[köA.length - 1].t1);
+        tystnader++;
+      }
+      if (b) {
+        const köB = simulateBoat(b).stops.filter(vid);
+        expect(köB.length).toBeGreaterThan(0);
+        expect(köB[0].t0).toBeLessThan(köA[köA.length - 1].t1);
+        expect(Math.abs(köB[0].s - bs)).toBeLessThanOrEqual(pr.bro === 'Klaffbron' ? 411 : 321);
+        par++;
+      }
+    }
+    expect(tystnader).toBeGreaterThan(20);
+    expect(par).toBeGreaterThan(10);
+  });
+
   test('arbetsbåten flyttar sig längs kajen utan att korsa en brolinje och ligger annars still', () => {
     for (let i = 0; i < 10; i++) {
       const spec = fältVärld('F-LÅGSÄSONG', i);

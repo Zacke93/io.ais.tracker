@@ -382,7 +382,10 @@ function searchableParams(spec, mål) {
   }
   // Fältfamiljerna (BUGGJAKT §4.6): källbortfallets längd, den väntande
   // båtens tystnad och avståndet till bron vid den enda fixen.
-  if (fam === 'F-KÄLLBORTFALL' && Array.isArray(spec.källfel) && spec.källfel.length) {
+  // Varianten aisstream-nere varar hela världen; dess längd är ingen sökbar gräns
+  // (granskningen av varv 2, S5).
+  if (fam === 'F-KÄLLBORTFALL' && Array.isArray(spec.källfel) && spec.källfel.length
+    && !(spec.fokal && spec.fokal.parametrar && spec.fokal.parametrar.variant === 'aisstream-nere')) {
     out.push({
       namn: 'avbrottS',
       etikett: `${spec.källfel[0].källa} tyst`,
