@@ -160,6 +160,62 @@ describe('U84: obekräftat hopp som sist känd position', () => {
     expect(app._lastKnownPositions.get(MMSI).lat).toBeCloseTo(still.lat, 6);
   });
 
+  // O3 (graven): samma läge, men båten hörs igen inom gravens 15 min. Graven
+  // avgör om återfödelsen sker på plats (200 m) och låter då rörelsebevisen
+  // följa med. Med hoppets punkt i graven låg den stilla båten "2 km bort", och
+  // bevisen kastades. En båt utan fartgivare (sog saknas) som sänder var tredje
+  // minut bygger inte upp något nytt rörelsebevis under resan, så hela resan
+  // norrut blev tyst. Med ankaret i graven kommer notiserna som utan hopp.
+  test('graven: hopp som sista fix före radering kastar inte rörelsebevisen', async () => {
+    await start({});
+    const MMSI = '910030008';
+    const {
+      s, cut, still, spike,
+    } = setup(MMSI, 'PROV GRAV');
+    await play(s.slice(0, cut));
+    await hold(still, 5);
+    await jest.advanceTimersByTimeAsync(20 * 1000);
+    feed(spike, { sog: 0.2, cog: 20 });
+    await jest.advanceTimersByTimeAsync(60);
+    expect(app.vesselDataService.getVessel(MMSI)._gpsJumpDetected).toBe(true);
+    const n0 = notices().length;
+    let tyst = 0;
+    while (app.vesselDataService.getVessel(MMSI) && tyst < 60) {
+      await jest.advanceTimersByTimeAsync(MIN);
+      tyst++;
+    }
+    expect(app.vesselDataService.getVessel(MMSI)).toBeFalsy();
+    const grav = app.vesselDataService._vesselGraves.get(MMSI);
+    expect(grav).toBeTruthy();
+    expect(grav.lat).toBeCloseTo(still.lat, 6);
+    await jest.advanceTimersByTimeAsync(3 * MIN);
+    feed(still, { sog: 0 });
+    await jest.advanceTimersByTimeAsync(60);
+    expect(app.vesselDataService.getVessel(MMSI)._hasMovementProof).toBe(true);
+    await hold(still, 2);
+    const resume = s.findIndex((x) => x.aisTimestamp > s[cut - 1].aisTimestamp);
+    await play(s.slice(resume).filter((x, i) => i % 3 === 0).map((x) => ({ ...x, mmsi: MMSI, sog: null })));
+    const after = notices().slice(n0);
+    expect(after.map((n) => n.bridge)).toEqual(['Klaffbron', 'Järnvägsbron', 'Stridsbergsbron', 'Stallbackabron']);
+    expect(after.every((n) => /närmar sig/.test(n.msg))).toBe(true);
+  });
+
+  // Utan ren position (en kedja av hopp längre än 20 min har tappat ankaret)
+  // skrivs ingen grav alls, i stället för en grav på hoppets punkt. Prövas
+  // direkt på gravläggningen: i ett helt förlopp hamnar en sådan båt nära
+  // broarna under målbroskydd och raderas som STALE_AIS, som aldrig gravläggs.
+  test('graven: utan ren position skrivs ingen grav (hoppet sparas inte)', async () => {
+    await start({});
+    const vds = app.vesselDataService;
+    const hopp = {
+      lat: 58.2934, lon: 12.2946, _gpsJumpDetected: true, _passageRecoveryPosition: null,
+    };
+    vds._buryVessel('910030009', hopp);
+    expect(vds._vesselGraves.has('910030009')).toBe(false);
+    vds._buryVessel('910030010', { ...hopp, _passageRecoveryPosition: { lat: 58.2757, lon: 12.2790 } });
+    expect(vds._vesselGraves.get('910030010').lat).toBe(58.2757);
+  });
+
   // Ingen ren position: en kedja av obekräftade hopp (fram och tillbaka mellan
   // båtens plats och en punkt norr om Järnvägsbron) längre än 20 min tappar det
   // rena ankaret. Då sparas ingenting, varken vid radering eller vid en ordnad
