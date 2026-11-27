@@ -85,7 +85,7 @@ const FakeWS = require('ws');
 const AISBridgeApp = require('../app');
 const AISSourceMultiplexer = require('../lib/connection/AISSourceMultiplexer');
 const AISHubClient = require('../lib/connection/AISHubClient');
-const { UI_CONSTANTS } = require('../lib/constants');
+const { UI_CONSTANTS, CONNECTION_ALERT } = require('../lib/constants');
 
 const KEY = 'k'.repeat(40);
 const SEC = 1000;
@@ -100,26 +100,36 @@ const MOORED2 = { mmsi: 211000002, lat: 58.2711, lon: 12.2712 };
 
 /**
  * AISHub-läget. `boats`: [{ mmsi, lat, lon, sog, periodMs }], där fixtiden byts
- * var periodMs (en ny rapport); `mode`: 'ok' | 'down' | 'empty'.
+ * var periodMs (en ny rapport); `mode`: 'ok' | 'down' | 'empty' | 'stale'
+ * (posterna har en frusen fixtid två timmar bakåt: en död station i AISHubs
+ * cache) | 'every' (svarar välformat bara var `every`:e poll, annars nätfel).
  */
-const hub = { mode: 'ok', boats: [] };
+const hub = { mode: 'ok', boats: [], every: 1 };
+let pollNo = 0;
 
-function hubTime(periodMs) {
-  const d = new Date(Math.floor(Date.now() / periodMs) * periodMs);
+function hubTime(periodMs, fixedAt = null) {
+  const d = new Date(fixedAt !== null ? fixedAt : Math.floor(Date.now() / periodMs) * periodMs);
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} `
     + `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())} GMT`;
 }
 
 function hubResponse() {
+  pollNo++;
+  if (hub.mode === 'every' && pollNo % hub.every !== 0) {
+    const err = new Error('connect ETIMEDOUT');
+    err.code = 'ETIMEDOUT';
+    return Promise.reject(err);
+  }
   if (hub.mode === 'down') {
     const err = new Error('connect ENETUNREACH 1.2.3.4:443');
     err.code = 'ENETUNREACH';
     return Promise.reject(err);
   }
+  const stale = hub.mode === 'stale';
   const recs = hub.mode === 'empty' ? [] : hub.boats.map((b) => ({
     MMSI: b.mmsi,
-    TIME: hubTime(b.periodMs || SEC),
+    TIME: stale ? hubTime(DAY, T0 - 2 * HOUR) : hubTime(b.periodMs || SEC),
     LATITUDE: b.lat,
     LONGITUDE: b.lon,
     COG: 200,
@@ -152,7 +162,13 @@ function streamMsg(b = MOORED) {
 
 let rigs = [];
 
-function build(source = 'both') {
+/**
+ * @param {string} source
+ * @param {{burnNotices?: boolean}} [opts] - burnNotices (standard): AISstream-
+ *   tystnadens notisnycklar är redan förbrukade (dygnsspärren), så att provet
+ *   mäter vaktens grind ensam. K2-proven bygger utan.
+ */
+function build(source = 'both', { burnNotices = true } = {}) {
   const store = {};
   const mux = new AISSourceMultiplexer(
     { log: () => {}, debug: () => {}, error: () => {} },
@@ -188,6 +204,19 @@ function build(source = 'both') {
   app._sourceEverResponded = true;
   app._lastConnectionStatus = 'connected';
   app._updateDeviceCapability = () => {};
+  const ev = [];
+  const origNotify = app._notifyConnectionIssue.bind(app);
+  app._notifyConnectionIssue = (message, key) => {
+    const before = app._connectionIssueNotifiedAt ? app._connectionIssueNotifiedAt.get(key) : undefined;
+    const p = origNotify(message, key);
+    const after = app._connectionIssueNotifiedAt ? app._connectionIssueNotifiedAt.get(key) : undefined;
+    if (after !== before) ev.push({ t: Date.now(), k: key, text: message });
+    return p;
+  };
+  if (burnNotices) {
+    const keys = ['aisstream:silent', ...CONNECTION_ALERT.ESCALATION_STEPS.map((x) => `aisstream:silent:${x.label}`)];
+    app._connectionIssueNotifiedAt = new Map(keys.map((k) => [k, T0 + 7 * DAY]));
+  }
   app.aisClient = mux;
   const reconnects = [];
   const origRwk = mux.reconnectWithKey.bind(mux);
@@ -197,7 +226,7 @@ function build(source = 'both') {
   };
   mux.applySourceConfig({ source, apiKey: KEY, aishubUsername: 'u' });
   const rig = {
-    app, mux, reconnects, logs, tick: () => app._checkAISFeedHealth(),
+    app, mux, reconnects, logs, ev, tick: () => app._checkAISFeedHealth(),
   };
   rigs.push(rig);
   return rig;
@@ -244,6 +273,8 @@ beforeEach(() => {
   FakeWS.instances.length = 0;
   FakeWS.mode = 'ok';
   hub.mode = 'ok';
+  hub.every = 1;
+  pollNo = 0;
   hub.boats = [MOORED, MOORED2];
   rigs = [];
 });
@@ -324,16 +355,51 @@ describe('U66: vaktens omstart kräver belägg från AISHub', () => {
     expect(mins(rig.reconnects, S)).toEqual([20]);
   }, 300000);
 
-  test('taket: AISHub svarar men levererar inget — omstart vid 120 min, sedan dagens trappa', async () => {
+  test('taket: AISHub levererar glest (en ny position var 10:e min) — omstart vid 120 min, sedan dagens trappa', async () => {
+    hub.boats = [{ ...MOORED, periodMs: 10 * MIN }];
+    const rig = build();
+    const S = await warm(rig);
+    await run(rig, S + 119 * MIN);
+    expect(rig.reconnects).toEqual([]);
+    expect(evidence(rig).hubNewFixes).toBeLessThan(UI_CONSTANTS.STALE_FEED_RESTART_MIN_HUB_FIXES);
+    await run(rig, S + 3 * HOUR);
+    expect(mins(rig.reconnects, S)).toEqual([120, 161]);
+    expect(rig.logs.some((l) => l.includes('[U66: tak'))).toBe(true);
+  }, 300000);
+
+  test('K1: AISHub svarar tomt — dagens regel (omstart vid 20 min), inte taket', async () => {
     const rig = build();
     const S = await warm(rig);
     hub.mode = 'empty';
-    await run(rig, S + 119 * MIN);
-    expect(rig.reconnects).toEqual([]);
+    await run(rig, S + 65 * MIN);
     expect(rig.mux.getConnectionStats().perFeed.aishub.isConnected).toBe(true);
-    await run(rig, S + 3 * HOUR);
-    expect(mins(rig.reconnects, S)).toEqual([120, 161]);
-    expect(rig.logs.some((l) => l.includes('tak'))).toBe(true);
+    expect(mins(rig.reconnects, S)).toEqual([20, 61]);
+    expect(rig.logs.some((l) => l.includes('AISHub levererar inga nya positioner'))).toBe(true);
+  }, 300000);
+
+  test('K1: AISHub svarar bara med gamla fixar (död station i cachen) — dagens regel', async () => {
+    const rig = build();
+    const S = await warm(rig);
+    hub.mode = 'stale';
+    await run(rig, S + 65 * MIN);
+    expect(rig.mux.getConnectionStats().perFeed.aishub.isConnected).toBe(true);
+    expect(mins(rig.reconnects, S)).toEqual([20, 61]);
+  }, 300000);
+
+  test('K5: byte av AISHub-användarnamn mitt i tystnaden — räkningen börjar om', async () => {
+    hub.boats = [0, 1, 2, 3].map((i) => ({
+      mmsi: 211000020 + i, lat: 58.28 + i * 0.003, lon: 12.28 + i * 0.002, periodMs: 65 * SEC,
+    }));
+    const rig = build();
+    const S = await warm(rig);
+    await run(rig, S + 10 * MIN);
+    const fore = evidence(rig);
+    expect(fore.hubNewFixes).toBeGreaterThan(30);
+    rig.mux.applySourceConfig({ source: 'both', apiKey: KEY, aishubUsername: 'u2' });
+    await jest.advanceTimersByTimeAsync(2 * SEC);
+    const efter = evidence(rig);
+    expect(efter.hubNewFixes).toBeLessThan(5);
+    expect(efter.sinceAt).toBe(fore.sinceAt); // tystnadens start står kvar
   }, 300000);
 
   test('vakten agerar inte på en nedkopplad socket, hur starkt beviset än är', async () => {
@@ -368,6 +434,127 @@ describe('U66: vaktens omstart kräver belägg från AISHub', () => {
   }, 300000);
 });
 
+describe('U66: grindens belägg för att AISHub lever (K1, K5)', () => {
+  const NOW = T0 + 5 * HOUR;
+  const app = new AISBridgeApp();
+  app.log = () => {};
+  const ev = (fixes, silenceMin = 30) => ({ sinceAt: NOW - silenceMin * MIN, hubNewFixes: fixes });
+  const hubOk = (over = {}) => ({
+    configured: true, isConnected: true, lastOkResponseAt: NOW - 30 * SEC, lastMessageTime: NOW - 2 * MIN, ...over,
+  });
+  test.each([
+    ['frisk AISHub, för lite bevis', ev(10), hubOk(), false],
+    ['frisk AISHub, 31 nya positioner', ev(31), hubOk(), true],
+    ['frisk AISHub, taket 120 min', ev(10, 120), hubOk(), true],
+    ['isConnected kvar men senaste svar 5 min gammalt', ev(10), hubOk({ lastOkResponseAt: NOW - 5 * MIN }), true],
+    ['svar färskt men isConnected nere', ev(10), hubOk({ isConnected: false }), true],
+    ['inget svar alls ännu', ev(10), hubOk({ lastOkResponseAt: null }), true],
+    ['senaste nya position 16 min gammal', ev(10), hubOk({ lastMessageTime: NOW - 16 * MIN }), true],
+    ['aldrig någon ny position', ev(10), hubOk({ lastMessageTime: null }), true],
+    ['hubben inte konfigurerad', ev(10), hubOk({ configured: false }), true],
+    ['inget beviskonto', null, hubOk(), true],
+  ])('%s ⇒ omstart %s', (namn, evidence, hubStats, expected) => {
+    expect(app._aisstreamRestartGate(evidence, hubStats, NOW).restart).toBe(expected);
+  });
+});
+
+/**
+ * K2: varje AISstream-tystnadsnotis som går ut ska ha föregåtts av, eller
+ * följas i samma tick av, en omstart sedan förra notisen (eller sedan
+ * tystnadens början). Returnerar de notiser som bryter mot det.
+ */
+function noticesWithoutRestart(rig, S) {
+  const sent = rig.ev.filter((e) => e.k.startsWith('aisstream:silent') && !e.k.includes('shadow'));
+  const bad = [];
+  let ref = S;
+  let prevT = null;
+  for (const n of sent) {
+    // Notiser i samma tick (basnotisen och en redan passerad nivå) är ett larm.
+    if (n.t !== prevT) {
+      if (!rig.reconnects.some((r) => r > ref && r <= n.t)) bad.push(`${n.k}@${Math.round((n.t - S) / MIN)}`);
+      ref = n.t;
+      prevT = n.t;
+    }
+  }
+  return bad;
+}
+
+describe('U66, granskningen K2: när tystnadslarmet skickas startar vakten om', () => {
+  test('E3: förtöjd båt var 3:e min, AISstream död ett dygn — varje notis har en omstart bakom sig', async () => {
+    hub.boats = [{ ...MOORED, periodMs: 3 * MIN }];
+    const rig = build('both', { burnNotices: false });
+    const S = await warm(rig);
+    await run(rig, S + DAY + 5 * MIN);
+    const sent = rig.ev.filter((e) => e.k.startsWith('aisstream:silent'));
+    expect(sent.length).toBeGreaterThanOrEqual(4); // bas, 1 h, 4 h, dygn
+    expect(noticesWithoutRestart(rig, S)).toEqual([]);
+    // Före första notisen har vakten bara startat om om beviset räckte.
+    expect(rig.reconnects[0]).toBeLessThanOrEqual(sent[0].t);
+  }, 600000);
+
+  test('E3 utan larmbeviset: omstarten kommer i samma tick som basnotisen och loggas med skälet', async () => {
+    hub.boats = [{ ...MOORED, periodMs: 3 * MIN }];
+    const rig = build('both', { burnNotices: false });
+    const S = await warm(rig);
+    await run(rig, S + 40 * MIN);
+    const base = rig.ev.find((e) => e.k === 'aisstream:silent');
+    if (base) {
+      // Utan U73 går basnotisen vid 26 min: omstarten ska ligga i samma tick.
+      expect(rig.reconnects).toContain(base.t);
+      expect(rig.logs.some((l) => l.includes('[U66: larmet går ut'))).toBe(true);
+    } else {
+      // Med U73 har larmet inte gått än, och då har vakten inte heller startat om.
+      expect(rig.reconnects).toEqual([]);
+    }
+    expect(noticesWithoutRestart(rig, S)).toEqual([]);
+  }, 300000);
+
+  test('D1: källbyte both → aisstream vid 10 min och tillbaka vid 40 min — varje notis har en omstart bakom sig', async () => {
+    hub.boats = [{ ...MOORED, periodMs: 195 * SEC }];
+    const rig = build('both', { burnNotices: false });
+    const S = await warm(rig);
+    await run(rig, S + 10 * MIN);
+    rig.mux.applySourceConfig({ source: 'aisstream', apiKey: KEY, aishubUsername: 'u' });
+    await run(rig, S + 40 * MIN);
+    rig.mux.applySourceConfig({ source: 'both', apiKey: KEY, aishubUsername: 'u' });
+    await run(rig, S + 4 * HOUR);
+    expect(mins(rig.reconnects, S)[0]).toBe(20); // dagens regel i läget aisstream
+    expect(rig.ev.some((e) => e.k.startsWith('aisstream:silent'))).toBe(true);
+    expect(noticesWithoutRestart(rig, S)).toEqual([]);
+  }, 600000);
+
+  test('E1: AISHub tillbaka efter 40 min avbrott — varje notis har en omstart bakom sig', async () => {
+    hub.boats = [{ ...MOORED, periodMs: 195 * SEC }];
+    const rig = build('both', { burnNotices: false });
+    const S = await warm(rig);
+    hub.mode = 'down';
+    await run(rig, S + 40 * MIN);
+    hub.mode = 'ok';
+    await run(rig, S + 4 * HOUR);
+    expect(mins(rig.reconnects, S)[0]).toBe(20); // AISHub nere: dagens regel
+    expect(rig.ev.some((e) => e.k.startsWith('aisstream:silent'))).toBe(true);
+    expect(noticesWithoutRestart(rig, S)).toEqual([]);
+  }, 600000);
+
+  test('A2: AISHub svarar bara var 4:e poll — varje notis har en omstart bakom sig', async () => {
+    const rig = build('both', { burnNotices: false });
+    const S = await warm(rig);
+    hub.mode = 'every';
+    hub.every = 4;
+    hub.boats = [{ ...MOORED, periodMs: 195 * SEC }];
+    await run(rig, S + 6 * HOUR);
+    expect(rig.ev.some((e) => e.k.startsWith('aisstream:silent'))).toBe(true);
+    expect(noticesWithoutRestart(rig, S)).toEqual([]);
+  }, 600000);
+
+  test('dagens regel orörd: bara AISstream, notisen ger ingen extra omstart (vakten startade redan vid 20)', async () => {
+    const rig = build('aisstream', { burnNotices: false });
+    const S = await warm(rig);
+    await run(rig, S + 65 * MIN);
+    expect(mins(rig.reconnects, S)).toEqual([20, 61]);
+  }, 300000);
+});
+
 describe('U66: fältets två lägen, syntetiska ankomster', () => {
   test('en förtöjd sändare som AISstream hör var femte gång: 0 omstarter på ett dygn', async () => {
     // Rapport var 3:e min. AISHub får varje rapport; AISstream hör var femte
@@ -395,6 +582,26 @@ describe('U66: fältets två lägen, syntetiska ankomster', () => {
     expect(longest).toBeLessThan(UI_CONSTANTS.STALE_FEED_RESTART_MAX_SILENCE_MS);
     await run(rig, S + DAY, { deliverAt });
     expect(rig.reconnects).toEqual([]);
+  }, 600000);
+
+  test('samma sändare utan förbrända notiser: omstarter bara i en notis tick, högst en per notis (K2)', async () => {
+    hub.boats = [{ ...MOORED, periodMs: 3 * MIN }];
+    const rig = build('both', { burnNotices: false });
+    const S = Date.now();
+    let seed = 7;
+    const rnd = () => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed / 2147483648;
+    };
+    const deliverAt = [];
+    for (let t = S + 3 * MIN; t < S + DAY; t += 3 * MIN) if (rnd() < 0.2) deliverAt.push(t + 5 * SEC);
+    await run(rig, S + DAY, { deliverAt });
+    // Dygnsspärren släpper högst en notis per nyckel (bas, 1 h, 4 h) och dygn;
+    // utan larmbeviset går basnotisen ut, med det (U73) ingen.
+    const noticeTicks = [...new Set(rig.ev.filter((e) => e.k.startsWith('aisstream:silent')).map((e) => e.t))];
+    expect(rig.reconnects.length).toBeLessThanOrEqual(noticeTicks.length);
+    expect(rig.reconnects.length).toBeLessThanOrEqual(CONNECTION_ALERT.ESCALATION_STEPS.length + 1);
+    for (const r of rig.reconnects) expect(noticeTicks).toContain(r);
   }, 600000);
 
   test('AISstream dör mitt i trafik: omstart vid 20 min', async () => {

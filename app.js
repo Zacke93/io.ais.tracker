@@ -14025,26 +14025,75 @@ class AISBridgeApp extends Homey.App {
     const gate = this._aisstreamRestartGate(feedStats.silenceEvidence, hubStats, Date.now());
     if (!gate.restart) return;
 
-    const apiKey = this.homey.settings.get('ais_api_key');
-    if (!apiKey || typeof this.aisClient.reconnectWithKey !== 'function') {
-      return;
-    }
-
     // A7(a): TRE storheter; klampen (silenceMs) redovisas som ingreppsklocka.
     // U66: skälet (dagens regel, AISHub-bevis eller taket) står sist.
-    this.log(
+    this._restartAisstreamFromWatchdog(
       '🐕 [FEED_WATCHDOG] aisstream: no messages while connected — '
       + `${this._describeFeedSilence('aisstream', feedStats).text} `
       + `(ingreppsklocka ${Math.round(silenceMs / 60000)} min) — `
       + `forcing reconnect + resubscribe (strike ${strikes + 1}; harmless if the canal is just quiet) `
       + `[U66: ${gate.reason}]`,
     );
+  }
+
+  /**
+   * Vaktens omstart av AISstream (en väg för både tystnadsvakten och U66:s
+   * notisomstart). Loggar, sparar tystnadsbokföringen, räknar upp strike och
+   * stämplar tiden (U66, granskningen K2: notisvägen frågar om vakten redan
+   * startat om under tystnaden). A7(b): skälet 'watchdog' skiljs från
+   * nyckelbyte i klientens logg.
+   * @param {string} logLine
+   * @returns {boolean} true om en omstart beordrades
+   * @private
+   */
+  _restartAisstreamFromWatchdog(logLine) {
+    const apiKey = this.homey.settings.get('ais_api_key');
+    if (!apiKey || typeof this.aisClient.reconnectWithKey !== 'function') {
+      return false;
+    }
+    this.log(logLine);
     this._persistFeedSilenceLedger(true); // sanningen ska överleva omanslutningen
-    this._aisstreamWatchdogStrikes = strikes + 1;
-    // A7(b): watchdog-skälet skiljs från nyckelbyte i klientens logg.
+    this._aisstreamWatchdogStrikes = (this._aisstreamWatchdogStrikes || 0) + 1;
+    this._aisstreamLastWatchdogRestartAt = Date.now();
     this.aisClient.reconnectWithKey(String(apiKey).trim(), 'watchdog').catch((err) => {
       this.error('[FEED_WATCHDOG] Forced reconnect failed:', err);
     });
+    return true;
+  }
+
+  /**
+   * U66, granskningen K2 (dirigentens beslut 2026-11-27): när tystnadslarmet
+   * för AISstream (basnotisen 'aisstream:silent' eller en nivå i trappan)
+   * faktiskt skickas, och U66-grinden har hållit inne vaktens omstart under
+   * den här tystnaden, startas anslutningen om i samma tick — om ingen
+   * omstart skett sedan förra notisen (eller sedan tystnadens början). Då är
+   * notistexten "Appens vakter försöker återansluta automatiskt" sann, och
+   * ägarens U29 (villkoret och texten) rörs inte. Kopplas MEDVETET till att
+   * notisen går ut, inte till larmvillkoret: villkoret var uppfyllt i 28 av
+   * 37 tystnader i fältprov 3, notisen gick ut en gång per dygn.
+   * Har grinden aldrig hållit inne under tystnaden styr vaktens trappa som
+   * förut (dagens regel, oförändrad minut för minut). En nedkopplad socket
+   * lämnas åt klientens egen backoff, som vakten.
+   * @param {object} streamStats - perFeed.aisstream
+   * @param {number} now
+   * @private
+   */
+  _restartAisstreamOnSilenceNotice(streamStats, now) {
+    const evidence = streamStats && streamStats.silenceEvidence;
+    if (!evidence || !Number.isFinite(evidence.sinceAt)) return;
+    const prev = this._aisstreamSilenceNoticeAt;
+    const ref = prev && prev.sinceAt === evidence.sinceAt ? Math.max(evidence.sinceAt, prev.at) : evidence.sinceAt;
+    this._aisstreamSilenceNoticeAt = { sinceAt: evidence.sinceAt, at: now };
+    if (this._aisstreamGateHeldFor !== evidence.sinceAt) return;
+    if (streamStats.isConnected !== true) return;
+    // Strikt efter: en omstart i förra notisens tick räknas inte som "sedan förra notisen".
+    if (Number.isFinite(this._aisstreamLastWatchdogRestartAt) && this._aisstreamLastWatchdogRestartAt > ref) return;
+    this._restartAisstreamFromWatchdog(
+      `🐕 [FEED_WATCHDOG] aisstream: tystnadslarmet skickas efter ${Math.round(Math.max(0, now - evidence.sinceAt) / 60000)} min `
+      + `och vakten har inte startat om sedan ${prev && prev.sinceAt === evidence.sinceAt ? 'förra larmet' : 'tystnaden började'} — `
+      + `forcing reconnect + resubscribe (strike ${(this._aisstreamWatchdogStrikes || 0) + 1}) `
+      + `[U66: larmet går ut, AISHub ${evidence.hubNewFixes} nya positioner]`,
+    );
   }
 
   /**
@@ -14067,6 +14116,11 @@ class AISBridgeApp extends Homey.App {
    *    OCH senaste välformade svar (lastOkResponseAt) yngre än korstystnadens
    *    FRESH_POLL_MS, 3 × (pollintervall + jitter). Fallet "AISHub nere och
    *    AISstream hängd" får därmed alltid dagens omstart;
+   *  • AISHub levererar inte ⇒ omstart, dagens regel (granskningen K1): ingen
+   *    ny AISHub-position (perFeed.aishub.lastMessageTime, bumpas bara av nya
+   *    fixar) på 15 min, samma mått som korstystnadens hubDelivering. En hubb
+   *    som svarar tomt eller bara med gamla fixar bär ingen data, och då ska
+   *    en hängd AISstream inte vänta på taket;
    *  • minst STALE_FEED_RESTART_MIN_HUB_FIXES nya AISHub-positioner sedan
    *    AISstreams senaste position ⇒ omstart (bevis);
    *  • tystnaden har nått STALE_FEED_RESTART_MAX_SILENCE_MS ⇒ omstart (tak);
@@ -14090,6 +14144,12 @@ class AISBridgeApp extends Homey.App {
     if (!hubResponding) {
       return { restart: true, reason: 'dagens regel (AISHub svarar inte)' };
     }
+    // K1: 15 min = korstystnadens SILENT_MS / hubDelivering (_checkCrossFeedSilence).
+    const deliveringMs = 15 * 60 * 1000;
+    const hubDelivering = Number.isFinite(hubStats.lastMessageTime) && now - hubStats.lastMessageTime <= deliveringMs;
+    if (!hubDelivering) {
+      return { restart: true, reason: 'dagens regel (AISHub levererar inga nya positioner)' };
+    }
     const minFixes = UI_CONSTANTS.STALE_FEED_RESTART_MIN_HUB_FIXES;
     if (evidence.hubNewFixes >= minFixes) {
       return { restart: true, reason: `bevis: AISHub ${evidence.hubNewFixes} nya positioner under tystnaden` };
@@ -14102,6 +14162,8 @@ class AISBridgeApp extends Homey.App {
         reason: `tak: ${Math.round(silenceMs / 60000)} min tystnad (AISHub ${evidence.hubNewFixes} nya positioner)`,
       };
     }
+    // K2: notisvägen behöver veta att grinden hållit inne under DEN HÄR tystnaden.
+    this._aisstreamGateHeldFor = evidence.sinceAt;
     if (this._aisstreamGateLoggedFor !== evidence.sinceAt) {
       this._aisstreamGateLoggedFor = evidence.sinceAt;
       this.log(
@@ -14836,6 +14898,13 @@ class AISBridgeApp extends Homey.App {
         // stub utan fältet) räknas anslutningen INTE som bevisat levande.
         // Samma nyckel för båda texterna: de beskriver samma tystnad, och en
         // egen nyckel hade gett två basnotiser per dygn.
+        // U66/K2: stämplarna före notiserna — ändras någon av dem i det här
+        // ticket gick en notis ut (stämpeln sätts synkront före leveransen).
+        const noticeStamps = () => ['aisstream:silent', ...CONNECTION_ALERT.ESCALATION_STEPS
+          .map((step) => `aisstream:silent:${step.label}`)]
+          .map((k) => (this._connectionIssueNotifiedAt ? this._connectionIssueNotifiedAt.get(k) : undefined))
+          .join('|');
+        const stampsBefore = noticeStamps();
         const pongAgeMs = Number.isFinite(s && s.lastPongAt) ? Math.max(0, now - s.lastPongAt) : null;
         const streamProvenAlive = !!s && s.isConnected === true
           && pongAgeMs !== null && pongAgeMs < CONNECTION_ALERT.AISSTREAM_PONG_PROOF_WINDOW_MS;
@@ -14857,6 +14926,7 @@ class AISBridgeApp extends Homey.App {
           + `${hubPhrase} — appen kör på halverad redundans. Vakterna fortsätter `
           + 'återansluta; kontrollera din AISstream-nyckel om det består.'
         ));
+        if (noticeStamps() !== stampsBefore) this._restartAisstreamOnSilenceNotice(s, now);
       }
     }
     if (hubSilentStreamFresh) {

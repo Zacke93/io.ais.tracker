@@ -123,7 +123,8 @@ Moduler (ansvar / ägda tillstånd / in-ut):
   tyst avväpna F1/F6, segmentbevisets källgrind eller fysik-dt:t.
   **Beviskontot för AISstream-tystnaden (U66, 2026-11-27):** `_onChildMessage`
   för också `{ sinceAt, hubNewFixes }`: en AISstream-position (även en som
-  fusionen sedan avvisar) nollställer kontot, en AISHub-position räknar upp det.
+  fusionen sedan avvisar) nollställer kontot, en AISHub-position räknar upp det
+  (också den räknas före fusionen, alltså även fixar som fusionen avvisar).
   AISHub-klienten släpper bara nya fixar, så räknaren räknar inga dubbletter;
   livstecken räknas inte, och kontot nollställs inte av vaktens omstart.
   `perFeed.aisstream.silenceEvidence` bär kontot bara i läget `both` (annars
@@ -5665,38 +5666,64 @@ omstarterna 93 handskakningar som löpte ut och 66 minuter utan socket (längst
 AISstreams senaste position har levererat minst
 `UI_CONSTANTS.STALE_FEED_RESTART_MIN_HUB_FIXES` (31) nya positioner. Med 20 %
 täckning missar en frisk AISstream 31 rapporter i rad med under 0,1 %
-sannolikhet; flest nya AISHub-positioner under en frisk tystnad i fält var 23.
-Undantag där dagens regel gäller oförändrad: bara AISstream eller skuggläge
-(inget beviskonto), och AISHub som inte svarar (hubbklientens
-`isConnected` nere eller senaste välformade svar äldre än `FRESH_POLL_MS`,
-210 s). Fallet "AISHub nere och AISstream hängd" får alltså alltid omstart
-efter 20 min. *Tak:* efter `STALE_FEED_RESTART_MAX_SILENCE_MS` (120 min) räknat
+sannolikhet. Räkningen omfattar varje AISHub-position som når muxen, även de
+som fusionen sedan avvisar (loggens `[AISHUB_POLL] accepted=N`, i fält 16–20 %
+fler än de fusionsaccepterade raderna i jsonl). Flest under en frisk tystnad i
+fält: 24 (fältprov 3, 24/11, 36 min). Undantag där dagens regel gäller
+oförändrad: bara AISstream eller skuggläge (inget beviskonto); AISHub som inte
+svarar (hubbklientens `isConnected` nere eller senaste välformade svar äldre än
+`FRESH_POLL_MS`, 210 s); och AISHub som svarar men inte levererar (ingen ny
+position på 15 min, samma mått som korstystnadens `hubDelivering`; granskningen
+K1). En AISHub som svarar tomt eller bara med gamla fixar bär ingen data, och då
+ska en hängd AISstream inte vänta på taket. Fallen "AISHub nere och AISstream
+hängd" och "AISHub tom och AISstream hängd" får alltså alltid omstart efter
+20 min. *Tak:* efter `STALE_FEED_RESTART_MAX_SILENCE_MS` (120 min) räknat
 från AISstreams senaste position, eller appstarten, startas anslutningen om
 ändå. Trappan och strike-räknaren är oförändrade; avstår vakten räknas strike
-inte upp, och en loggrad skrivs en gång per tystnad. *Simulerat* på fältets
-fyra novemberkörningar och bankens åtta tvåkällskorpusar (476 h, under
-antagandet att en omstart inte ändrar när nästa position kommer, vilket
-mätningen stöder och som återger fältets faktiska 15 och 37 omstarter exakt):
-71 omstarter med dagens regel, 7 med U66. Av de 7 kom 3 från sommarkorpusen
-där AISstream dog 2026-08-05 13:29, 1 från gränsfallet nedan och 3 från taket
-under ett nätavbrott där socketen ändå var nere (vakten agerar inte då, och
-AISHub svarade inte, så dagens regel hade gällt). I de tysta vinterkörningarna
-gav taket 0 omstarter. *Kända gränser:* (1) en hängd prenumeration med frisk
-pong lagas senare, en lugn vintervecka i median efter 77 min (p90 126 min),
-högst efter 120 min; under tiden bär AISHub datan. (2) Gränsfallet 14/11
-18:21: AISstream tyst i 23,3 min medan AISHub levererade 31 positioner från
-tre förtöjda båtar, slut 2 min 20 s efter vaktens omstart. Det kan ha varit en
-verklig hängning (31 missar i rad är osannolikt med oberoende missar), och det
-är skälet till att gränsen inte ligger högre. (3) Inte mätt: hur ofta en hängd
+inte upp, och en loggrad skrivs en gång per tystnad. *Omstart när larmet går ut
+(granskningen K2):* när tystnadslarmet för AISstream (basnotisen
+`aisstream:silent` eller en nivå i trappan 1 h, 4 h, dygn) faktiskt skickas,
+och grinden har hållit inne vaktens omstart under den här tystnaden, startas
+anslutningen om i samma tick, om ingen omstart skett sedan förra notisen (eller
+sedan tystnaden började). Då är U29-textens "Appens vakter försöker återansluta
+automatiskt" sann, och ägarens villkor och text rörs inte. Omstarten kopplas
+till att notisen går ut, inte till larmvillkoret: villkoret var uppfyllt i 28
+av 37 tystnader i fältprov 3, notisen gick ut en gång per dygn (dygnsspärren).
+Har grinden aldrig hållit inne under tystnaden styr trappan som förut, minut
+för minut; en nedkopplad socket lämnas åt klientens backoff. *Simulerat* på
+fältets fyra novemberkörningar och bankens åtta tvåkällskorpusar (476 h,
+AISHub-beviset räknat som koden ur loggens `[AISHUB_POLL]`, under antagandet att
+en omstart inte ändrar när nästa position kommer, vilket mätningen stöder och
+som återger fältets faktiska 15 och 37 omstarter exakt): 71 omstarter med
+dagens regel, 15 med U66. Av de 15 kom 4 under nätavbrottet 11/11 i fältprov 1
+(AISHub svarade inte, så dagens regel; socketen var nere och vakten agerade
+inte), 3 från sommarkorpusen där AISstream dog 2026-08-05 13:29 (2 av beviset,
+1 när larmet gick), 1 av beviset i gränsfallet nedan och 7 när larmet gick ut
+(fältprov 2: 2, fältprov 3: 3, banken 2), alltså högst en per dygn. Taket och
+villkoret att AISHub levererar (K1) gav 0 extra omstarter. *Kända gränser:*
+(1) en hängd prenumeration med frisk pong lagas senare, i median efter 77 min
+en lugn vintervecka (p90 126 min), senast när larmet går ut eller vid taket
+120 min; under tiden bär AISHub datan (levererar AISHub inte gäller dagens
+regel). (2) Gränsfallet 14/11 18:21: AISstream tyst i 23,3 min medan AISHub
+levererade minst 31 positioner från tre förtöjda båtar (räknat ur jsonl, alltså
+en undre gräns för vad koden ser), slut 2 min 20 s efter vaktens omstart. Det
+kan ha varit en verklig hängning (31 missar i rad är osannolikt med oberoende
+missar), och det är skälet till att gränsen inte ligger högre: marginalen mot
+fältets flest under en frisk tystnad (24) är 7. (3) Inte mätt: hur ofta en hängd
 prenumeration med frisk pong faktiskt inträffar; ingen sådan har setts i
-fält. (4) Ordningen "vakten före larmet" ovan gäller i läget `both` bara när
-beviset finns: utan 31 nya AISHub-positioner kan larmet vid 25 min komma utan
-att vakten startat om. Två dokumenterade gränser som U66 medvetet inte rör: en
-socket som överlever 120 s nollställer återanslutningstrappan även utan data
-(RC-S1), och vaktens omstart nollställer trappan (`reconnectWithKey`), så varje
-omstart börjar med tio snabba försök. Låst av `tests/u66-vakt-bevis.test.js`
-(riktiga klienter: bara nya positioner räknas, kontot nollställs av AISstream,
-AISHub nere, bara AISstream, skuggläget, taket, nedkopplad socket, pågående
+fält. (4) Ett klocksteg bakåt skjuter upp taket lika mycket (`sinceAt` mäts med
+`Date.now()`), samma mekanism som dagens tröskel; framåt släpper taket direkt.
+Klocksteg är en känd gräns (U72). (5) Beviskontot sparas inte: efter en
+appomstart räknas beviset och taket från starten. Två dokumenterade gränser som
+U66 medvetet inte rör: en socket som överlever 120 s nollställer
+återanslutningstrappan även utan data (RC-S1), och vaktens omstart nollställer
+trappan (`reconnectWithKey`), så varje omstart börjar med tio snabba försök.
+Låst av `tests/u66-vakt-bevis.test.js` (riktiga klienter: bara nya positioner
+räknas, kontot nollställs av AISstream och av ett nytt AISHub-användarnamn,
+AISHub nere, tom eller med bara gamla fixar, bara AISstream, skuggläget, taket
+med gles AISHub, varje larm har en omstart bakom sig vid förtöjd båt ett dygn,
+källbyte, AISHub tillbaka efter avbrott och ojämn AISHub, grindens hälsovillkor
+var för sig, nedkopplad socket, pågående
 återanslutning, en förtöjd sändare som AISstream hör var femte gång ger 0
 omstarter på ett dygn, en AISstream som dör mitt i trafik ger omstart vid
 20 min).
