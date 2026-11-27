@@ -42,7 +42,7 @@ när en båt vänder och sedan inte hörs. Prognosarbetet (U22) är fortfarande 
 **Omgång 6** (24 november, U59–U61, avsnitt 15) mätte var restiden är fel över hela underlaget och lät restiden räknas om från avgången efter ett långt stopp; avsnitt 15 stämmer med `9bbc276`.
 **Omgång 7** (24 november, U62–U64, avsnitt 16) mätte hur ofta en väntande båt saknas i brotexten och ändrade ingen kod; tre kända gränser är beskrivna med mätningen.
 **Omgång 8** (24 november, U65, avsnitt 17) bytte "beräknad broöppning strax" mot "En båt väntar vid <målbro>" medan en båt väntar vid sin målbro, på ägarens beslut samma dag. Avsnitt 17 stämmer med `a065019`.
-**Omgång 9** (26–27 november, U66–U77, avsnitt 18) gick vid sidan av fältprov 3: sändare som inte är fartyg ignoreras, handskakningen mot AISstream får 30 s, fältfångsten får löpnummer och omsändning, och robusthetsfel funna med felinjektion är rättade; paketet U66 + U73 väntar på ägaren. Avsnitt 18 stämmer med `8d42be9`.
+**Omgång 9** (26–27 november, U66–U77, avsnitt 18) gick vid sidan av fältprov 3: sändare som inte är fartyg ignoreras, handskakningen mot AISstream får 30 s, fältfångsten får löpnummer och omsändning, och robusthetsfel funna med felinjektion är rättade; paketet U66 + U73 är infört efter ägarens ja till U73. Avsnitt 18 stämmer med `e40f856`.
 
 ## 2. Körningarna och vad de täcker — och inte täcker
 
@@ -3739,16 +3739,16 @@ fältkörningarna, k3 är fältprov 2).
 Arbetsformen var densamma som förut: rättare och utredare i egna spår, oberoende granskare som
 försökte fälla varje rättning med egna fall, och en dirigent som beslutade och slog samman.
 Beteendebesluten fattade dirigenten på ägarens uppdrag, och ägaren kan ändra vart och ett; två
-frågor rör uttryckliga ägarbeslut och väntar på ägaren (18.3). Omgången ligger på grenen
-`omg9/integration` (52 commits ovanpå `a0d8706`). Paketet U66 + U73 är byggt och godkänt av
-granskaren men inte infört; det ligger på en egen gren, `omg9/integration-U73`, som väljs om
-ägaren säger ja till U73. Sammanslagning i huvudkopian och push väntar tills fältprovet är
-stoppat och ägaren sagt till. Alla tider är UTC.
+frågor rörde uttryckliga ägarbeslut (18.3): ägaren sa ja till U73 den 27 november, och den andra
+väntar fortfarande på ägaren. Omgången ligger på grenen `omg9/integration-U73` (59 commits ovanpå
+`a0d8706`). Paketet U66 + U73 lades sist och på en egen gren tills ägaren svarat. Samma dag sa
+ägaren ja till push av omgången till `main` och till att stoppa fältprov 3 och starta ett nytt på
+den nya versionen. Alla tider är UTC.
 
 Åtta utrednings- och rättningsspår, och därefter sammanslagningen:
 
 - **Datakällorna (K):** handskakningen mot AISstream får 30 s (U67, inne); vaktens omstart på
-  AISHubs belägg (U66) och ett belägg för larmet (U73) är godkända men går in bara på ägarens ja.
+  AISHubs belägg (U66) och ett belägg för larmet (U73) är inne efter ägarens ja.
 - **Båtar som tystnar (T):** texten för en tyst båt lämnas som den är (U68), och sändare som inte
   är fartyg ignoreras (U69, inne); den "båt" som startade spåret var en räddningshelikopter.
 - **En enda källa (G):** felen när bara den ena källan levererar är kända gränser (U70).
@@ -3791,9 +3791,9 @@ ett enskilt fältfynd. Hålen gav spår L, och G, V och W kom till ur det de and
 
 ### 18.2 Översikt
 
-| Spår | Utfall | Commits på `omg9/integration` |
+| Spår | Utfall | Commits på `omg9/integration-U73` |
 |---|---|---|
-| K (U66, U67, U73) | U67 inne; paketet U66 + U73 godkänt i tredje granskningen men inte infört, väntar på ägaren | `0cc927f`; `7f6a618` |
+| K (U66, U67, U73) | U67 inne; paketet U66 + U73 godkänt i tredje granskningen och infört efter ägarens ja | `0cc927f`, `c373880`, `0e0d096`, `43c9eeb`, `1c540a0`, `d7986ba`; `7f6a618`, `e40f856` |
 | T (U68, U69) | U68 dokumentation och två scenarier, U69 inne; båda godkända | `2b48709`, `a3aed68`, `fd674eb`, `7096761`, `785377e`, `d155576` |
 | G (U70) | ingen kod; kända gränser och fyra scenarier | `1ff638e`, `cb30d20`; `d7e5f5f` |
 | R (U72) | R1–R3, klockstegets loggrad, taket vid laddning och MMSI-normaliseringen inne; tidsgränsen för tidslinjenotisen införd och återtagen | `a899d6e` … `ea9e7de` (15 commits); `dba7de3`, `8c8a093` |
@@ -3809,7 +3809,7 @@ registerposter som `114bf5a` lade in. `51b23c3` sätter antalet syntetiska scena
 
 ### 18.3 Besluten U66–U77
 
-**Väntar på ägaren.**
+**Frågorna till ägaren.**
 
 - **U73, larmet kräver belägg (rör ägarens U29), och U66 följer med.** En förtöjd lotsbåt
   rapporterar var tredje minut och AISstream hör ungefär var fjärde rapport, så tystnader på 20–25
@@ -3820,13 +3820,15 @@ registerposter som `114bf5a` lade in. `51b23c3` sätter antalet syntetiska scena
   senare, i fältprov 3:s trafik i median efter 93 minuter i stället för 25; under tiden ger AISHub
   ensam samma notiser och varningar (18.6). **Dirigenten rekommenderar U73.** U66 och U73 hör ihop:
   utan U73 kan larmet komma före vaktens första omstart medan texten säger att vakterna försöker
-  återansluta; med U73 kommer det alltid efter (31 positioner före 40, 120 minuter före 150). Säger
-  ägaren nej går bara U67 in, och vakten lämnas som i dag. Paketet ligger färdigt och godkänt på
-  grenen `omg9/integration-U73`.
+  återansluta; med U73 kommer det alltid efter (31 positioner före 40, 120 minuter före 150).
+  **Ägaren sa ja den 27 november 2026** ("låter bra"): U73 ändrar ägarens beslut U29 på ägarens
+  besked, och U66 följer med eftersom de två hör ihop. Paketet är infört: `c373880`, `0e0d096`,
+  `43c9eeb`, `1c540a0` och `d7986ba`, och radhänvisningarna i `e40f856`.
 - **Ett möjligt val, inte rekommenderat nu: aldrig "strax" på en position äldre än 5 minuter i
   stället för 10 (rör ägarens U16).** Priset och nyttan står i 18.5; i fält med båda källorna är
-  skillnaden 0–3 minuter. Prototypen och mätningen är sparade i omgångens underlag.
-- Inget besked är givet om push eller ny version.
+  skillnaden 0–3 minuter. Prototypen och mätningen är sparade i omgångens underlag. Väntar på
+  ägaren.
+- Ägaren har sagt ja till push och till ett nytt fältprov på den nya versionen (ingressen).
 
 **Dirigentens beslut.**
 
@@ -3837,7 +3839,7 @@ registerposter som `114bf5a` lade in. `51b23c3` sätter antalet syntetiska scena
   oavsett. Skäl: ingen av vaktens 52 omstarter i fältprov 2 och 3 lagade något, och i fältprov 3
   kostade de 93 utlöpta handskakningar och 66 minuter utan anslutning. Priset: en hängd
   prenumeration lagas senare (median 77 minuter en lugn vintervecka, högst 120). Går in bara med
-  U73.
+  U73, och båda är inne.
 - **U67. Handskakningen får 30 s i stället för 15.** I fältprov 3 tog lyckade handskakningar 11,5 s
   i median, och 73 % av försöken löpte ut vid 15 s.
 - **U68. Texten för en tyst båt lämnas som den är.** Ingen regel gör fler minuter sanna utan att ta
@@ -4255,8 +4257,7 @@ på full loggnivå och stoppas en gång med loggskriptet (U77).
    sommartrafiken kommer? Hörs fler båtar en enda gång i hög fart, och ligger de i farleden?
 4. Med omgång 9 i nästa fältprov: vilka sändare `[NON_VESSEL_IGNORED]` ignorerar; att löpnumren är
    hela och svansen bevisad; att `[CLOCK_STEP]`, `[PERSISTENT_DEDUP_FUTURE]`, `[LAST_KNOWN_FUTURE]`
-   och kapningen vid laddning inte förekommer; och, om ägaren sagt ja, omstarterna och larmen med
-   U66 + U73.
+   och kapningen vid laddning inte förekommer; och omstarterna och larmen med U66 + U73.
 5. Båtar i texten mer än 250 m från farledslinjen, returer från kaj och avgångar efter lång
    förtöjning nära en bro, särskilt när AISstream är nere.
 6. Uppföljningslistorna i 14.6, 15.6 och 16.4.
@@ -4325,3 +4326,10 @@ dokumentationen. Batteriet kördes om på slutspetsen före det här avsnittet, 
 alla slutkod 0: lint, `replay:all` (alla låsta korpusar matchar facit), de 239 scenarierna (rena,
 samma 24 WARN-rader), openings (loggen identisk med omgång 8:s), hela jest (448 sviter, 7 155
 godkända, 2 överhoppade) och buggjägarens självtest; arbetsträdet var rent.
+
+Efter sammanslagningen av paketet kördes batteriet om på paketgrenens spets `e40f856`, och alla
+steg gav slutkod 0: lint, `replay:all` (alla låsta korpusar matchar facit), de 239 scenarierna
+(rena, samma 24 WARN-rader), openings (loggen identisk med omgång 8:s), hela jest (450 sviter,
+7 195 godkända, 2 överhoppade), buggjägarens självtest och snabbjakten (0 skillnader mot omgång
+8:s rapport); arbetsträdet var rent. Slutbatteriet med nattjakten ovan kördes på samma kod i
+`app.js` och `lib/`: den är lika mellan den körningen (`927d98d`) och `e40f856`.

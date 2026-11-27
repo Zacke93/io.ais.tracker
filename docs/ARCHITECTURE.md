@@ -5690,7 +5690,7 @@ bekräftade ordningen i alla byggda lägen utom när socketen är nere (då äge
 klientens backoff återanslutningen och texten säger "kan vara halvdöd"). En
 prövad variant som i stället startade om när notisen gick ut (K2) ströks: när
 `createNotification` avvisades blev det en omstart per minut. Säger ägaren nej
-till U73 går U66 inte in, och vakten lämnas som förut. *Simulerat* på fältets
+till U73 går U66 inte in, och vakten lämnas som förut; ägaren sa ja 2026-11-27. *Simulerat* på fältets
 fyra novemberkörningar och bankens åtta tvåkällskorpusar (476 h, AISHub-beviset
 räknat som koden ur loggens `[AISHUB_POLL]`, under antagandet att en omstart
 inte ändrar när nästa position kommer, vilket mätningen stöder och som återger
@@ -5730,7 +5730,7 @@ omstarter på ett dygn, en AISstream som dör mitt i trafik ger omstart vid
 
 **AISstream-larmet kräver belägg från AISHub (U73)** (förslag till ägaren,
 omgång 9 spår K, i första varvet kallat N5; U29 är ägarens beslut och den här
-ändringen gäller först efter ägarens ja). I läget `both` kräver basnotisen
+ändringen gäller först efter ägarens ja, som kom 2026-11-27). I läget `both` kräver basnotisen
 `aisstream:silent`, trappan (1 h, 4 h, dygn) och statusen `degraded`, med samma
 villkor för alla tre (B2c: `streamCrossSilent`), utöver U29:s 25 min att AISHub
 sedan AISstreams senaste position har levererat minst
