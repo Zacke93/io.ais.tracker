@@ -390,6 +390,27 @@ const PASSAGE_TRIGGER_GRACE_MS = 15000;
  * @param {number} [digits=0]
  * @returns {string} avrundat tal, eller 'okänt' när värdet inte är finit
  */
+/**
+ * U72 (omgång 9, spår R): tak vid laddning för sparade kartor, samma som
+ * öppningsdedupen och besöksminnet har. Vid vanlig trafik begränsas kartorna av
+ * sina egna tider; taket skyddar mot en skadad eller översvämmad inställning,
+ * där varje persistering annars skrev om alla poster.
+ */
+const PERSISTED_LOAD_CAP = 2048;
+
+/**
+ * Behåll de nyaste posterna (högst `cap`) i ursprunglig ordning.
+ * @param {Array} items
+ * @param {Function} stampOf - post → tidsstämpel (ms)
+ * @param {number} [cap]
+ * @returns {{kept: Array, dropped: number}}
+ */
+function keepNewestCapped(items, stampOf, cap = PERSISTED_LOAD_CAP) {
+  if (items.length <= cap) return { kept: items, dropped: 0 };
+  const keep = new Set([...items].sort((a, b) => stampOf(b) - stampOf(a)).slice(0, cap));
+  return { kept: items.filter((item) => keep.has(item)), dropped: items.length - cap };
+}
+
 function fmtMeasure(value, digits = 0) {
   return Number.isFinite(value) ? value.toFixed(digits) : 'okänt';
 }
@@ -1148,8 +1169,8 @@ class AISBridgeApp extends Homey.App {
       // tillämpas tidsbaserat i _persistentDedupCheck; äldre poster behövs
       // för samma-riktnings-gaten (RONJA-klassen).
       const windowMs = this._PERSISTENT_DEDUP_RETENTION_MS || this._PERSISTENT_DEDUP_WINDOW_MS;
-      let loaded = 0;
       let clamped = 0;
+      const candidates = [];
       for (const [key, value] of Object.entries(stored)) {
         // Körning 2026-07-02 (ELFKUNGEN): nytt format {t, dir} — riktningen
         // gör dedupen resemedveten över omstarter. Äldre lagrade poster är
@@ -1165,12 +1186,15 @@ class AISBridgeApp extends Homey.App {
           clamped++;
         }
         if (Number.isFinite(ts) && now - ts < windowMs) {
-          this._persistentRecentTriggers.set(
-            key,
-            typeof value === 'number' ? { t: ts, dir: null } : { t: ts, dir: value.dir || null },
-          );
-          loaded++;
+          candidates.push([key, typeof value === 'number' ? { t: ts, dir: null } : { t: ts, dir: value.dir || null }]);
         }
+      }
+      // U72: tak vid laddning, de nyaste behålls.
+      const { kept, dropped } = keepNewestCapped(candidates, (c) => c[1].t);
+      for (const [key, entry] of kept) this._persistentRecentTriggers.set(key, entry);
+      const loaded = kept.length;
+      if (dropped > 0) {
+        this.log(`✂️ [PERSISTENT_DEDUP_CAP] ${dropped} sparade notisspärrar lästes inte (tak ${PERSISTED_LOAD_CAP}, de nyaste behölls)`);
       }
       if (loaded > 0) {
         this.log(`🔁 [PERSISTENT_DEDUP] Restored ${loaded} recent trigger entries from settings (survives restart)`);
@@ -2106,9 +2130,17 @@ class AISBridgeApp extends Homey.App {
       const stored = this.homey.settings.get('learned_mooring_spots');
       if (!Array.isArray(stored)) return;
       const now = Date.now();
-      this._learnedMooringSpots = stored.filter((s) => s
+      const valid = stored.filter((s) => s
         && Number.isFinite(s.lat) && Number.isFinite(s.lon)
         && Number.isFinite(s.t) && now - s.t < this._LEARNED_SPOT_TTL_MS);
+      // U72: tak vid laddning, de nyaste behålls. Inlärningen håller själv
+      // högst 200 platser (fältet har 16), så taket kapar bara en skadad
+      // inställning.
+      const { kept, dropped } = keepNewestCapped(valid, (spot) => spot.t);
+      this._learnedMooringSpots = kept;
+      if (dropped > 0) {
+        this.log(`✂️ [MOORING_SPOTS_CAP] ${dropped} sparade kajplatser lästes inte (tak ${PERSISTED_LOAD_CAP}, de nyaste behölls)`);
+      }
       if (this._learnedMooringSpots.length > 0) {
         this.log(`⚓ [MOORING_SPOTS] Restored ${this._learnedMooringSpots.length} learned mooring spots (survives restart)`);
       }
@@ -2522,9 +2554,14 @@ class AISBridgeApp extends Homey.App {
       if (!stored || typeof stored !== 'object') return;
       const now = Date.now();
       let restored = 0;
-      for (const [mmsi, e] of Object.entries(stored)) {
-        if (!e || !Number.isFinite(e.stillAt)) continue;
-        if (now - e.stillAt > QUAY_DEPARTURE_GATE.MEMORY_MS) continue;
+      const candidates = Object.entries(stored).filter(([, e]) => e && Number.isFinite(e.stillAt)
+        && now - e.stillAt <= QUAY_DEPARTURE_GATE.MEMORY_MS);
+      // U72: tak vid laddning, de nyaste behålls.
+      const { kept, dropped } = keepNewestCapped(candidates, (c) => c[1].stillAt);
+      if (dropped > 0) {
+        this.log(`✂️ [QUAY_LEDGER_CAP] ${dropped} sparade kajposter lästes inte (tak ${PERSISTED_LOAD_CAP}, de nyaste behölls)`);
+      }
+      for (const [mmsi, e] of kept) {
         this._quayStableLedger.set(String(mmsi), {
           stillAt: e.stillAt,
           lat: Number.isFinite(e.lat) ? e.lat : null,
@@ -3149,13 +3186,19 @@ class AISBridgeApp extends Homey.App {
         return;
       }
       const now = Date.now();
-      let loaded = 0;
+      const candidates = [];
       for (const [mmsi, entry] of Object.entries(stored)) {
         if (entry && Number.isFinite(entry.lat) && Number.isFinite(entry.lon)
             && Number.isFinite(entry.t) && now - entry.t < this._LAST_KNOWN_POSITION_TTL_MS) {
-          this._lastKnownPositions.set(String(mmsi), entry);
-          loaded++;
+          candidates.push([String(mmsi), entry]);
         }
+      }
+      // U72: tak vid laddning, de nyaste behålls.
+      const { kept, dropped } = keepNewestCapped(candidates, (c) => c[1].t);
+      for (const [mmsi, entry] of kept) this._lastKnownPositions.set(mmsi, entry);
+      const loaded = kept.length;
+      if (dropped > 0) {
+        this.log(`✂️ [LAST_KNOWN_CAP] ${dropped} sparade positioner lästes inte (tak ${PERSISTED_LOAD_CAP}, de nyaste behölls)`);
       }
       if (loaded > 0) {
         this.log(`🔁 [LAST_KNOWN] Restored ${loaded} last-known positions from settings (survives restart)`);
