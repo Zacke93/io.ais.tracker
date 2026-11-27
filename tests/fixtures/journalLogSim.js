@@ -24,6 +24,7 @@ const HEARTBEAT = '[DEBUG] 🧹 [COORDINATION_CLEANUP] Cleaned old coordination 
  *   standard: en start vid minut 0 på full nivå.
  * @param {Array} [opts.passages] - [[fromMin, toMin]] med tätare positioner
  * @param {number} [opts.maxEntries]
+ * @param {string} [opts.hubName] - lotsbåtens namn (standard TESTLOTS)
  * @param {Array} [opts.events] - [{ atMin, message, err }]
  * @returns {{ lines: Array<{t:number,line:string}>, journals: CaptureJournal[] }}
  */
@@ -62,7 +63,7 @@ function simulateLog(opts) {
   // AISHub-bokföringen som grinden läser: pollraden före fixen, hälsoraden var 5:e min.
   for (let t = startMs + 300000; t < endMs; t += 300000) actions.push({ t, kind: 'health', order: 5 });
   for (const [a, b] of passages) {
-    for (let t = a + 7000; t < b; t += 20000) actions.push({ t, kind: 'stream', order: 3 });
+    for (let t = a + 7000; t < Math.min(b, endMs); t += 20000) actions.push({ t, kind: 'stream', order: 3 });
   }
   for (const e of opts.events || []) {
     actions.push({
@@ -136,7 +137,7 @@ function simulateLog(opts) {
         lon: 12.27,
         sog: a.kind === 'hub' ? 0 : 4.2,
         cog: 10,
-        shipName: a.kind === 'hub' ? 'TESTLOTS' : 'TESTBÅT Å',
+        shipName: a.kind === 'hub' ? (opts.hubName || 'TESTLOTS') : 'TESTBÅT Å',
         feed: a.kind === 'hub' ? 'aishub' : 'aisstream',
         receivedAt: new Date(now).toISOString(),
       };

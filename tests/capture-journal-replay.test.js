@@ -92,6 +92,23 @@ describe('U71: uppspelningarna är bitlika med fångstjournalen', () => {
     expect(results.fullMonSabotage.processErrors).toBe(0);
   });
 
+  // Granskningen, M2: varje journalfört anropsställe i app.js ska skriva sin rad
+  // med löpnummer. Ett ställe som går tillbaka till this.log fäller här.
+  test.each([
+    ['textbyte', '[UI_UPDATE] Bridge text updated:'],
+    ['notisens tokens', '[FLOW_TRIGGER_SAFE_TOKENS]'],
+    ['notisförsök', '[FLOW_TRIGGER_ATTEMPT]'],
+    ['notis', '[FLOW_TRIGGER_SUCCESS]'],
+    ['öppningsvarning', '[OPENING_TRIGGER_SUCCESS]'],
+    ['starttillstånd', '[AIS_REPLAY_STATE]'],
+    ['sampel', '[AIS_REPLAY_SAMPLE]'],
+  ])('full nivå: varje %s bär löpnummer', (_label, tag) => {
+    const rows = verbose.fullMon.split('\n').filter((l) => l.includes(tag));
+    expect(rows.length).toBeGreaterThan(0);
+    const unnumbered = rows.filter((l) => !/#[0-9a-z]+-\d+:\d+ /.test(l.slice(0, l.indexOf(tag))));
+    expect(unnumbered).toEqual([]);
+  });
+
   test('full nivå med minutloop skriver journalen: original, omsändning och kontrollpunkt', () => {
     const log = verbose.fullMon;
     expect(log).toMatch(/#[0-9a-z]+-1:1 \[CAPTURE_START\] sid=[0-9a-z]+-1 reason=boot/);

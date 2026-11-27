@@ -34,7 +34,11 @@ function judge(lines, opts = {}) {
   const healed = healLogFile(logPath).healedSamples;
   const jsonl = opts.jsonl !== undefined ? opts.jsonl : healed;
   fs.writeFileSync(jsonlPath, jsonl.length ? `${jsonl.join('\n')}\n` : '');
-  const r = checkPair(jsonlPath, logPath, {});
+  // Stopptiden (L1): som loggskriptet, strax efter loggens sista rad, om inte
+  // testet säger annat (opts.stop = null betyder att den saknas).
+  let stopTime = opts.stop;
+  if (stopTime === undefined && typeof lines !== 'string') stopTime = lines[lines.length - 1].t + 1000;
+  const r = checkPair(jsonlPath, logPath, { stopTime: stopTime === undefined ? null : stopTime });
   r.healed = healed;
   return r;
 }
@@ -136,6 +140,9 @@ describe('U71 grinden: förvanskade loggar ger FEL', () => {
     expect(r.verdict).toBe('FEL');
     expect(problemsText(r)).toMatch(/TIDSHÅL I LOGGEN.*Löpnumren läker det inte/);
     expect(problemsText(r)).toMatch(/saknas och kunde inte läkas/);
+    // Pollraden i det oläkta hålet: underskottet står kvar som fel, inte som notis (G10).
+    expect(problemsText(r)).toMatch(/KÄLLOGGEN ÄR OFULLSTÄNDIG/);
+    expect(r.notes.join('\n')).not.toMatch(/Källbokföringens underskott inom ett läkt tidshål/);
   });
 
   test('hål längre än omsändningen täcker (12 min med sampel i)', () => {
@@ -467,5 +474,197 @@ describe('U71 grinden: varje ordningsvillkor för sig', () => {
     expect(r.verdict).toBe('FEL');
     expect(healedNotes(r)).toHaveLength(0);
     expect(problemsText(r)).toMatch(/TIDSHÅL I LOGGEN.*Löpnumren läker det inte: loggen har löpnummerfel/);
+  });
+});
+
+// Granskningens fall F1–F5 (o9/granskning-L/verktyg/mutantfall.js), körda som
+// granskaren körde dem: utan stopptid. Alla ska ge FEL; varje fall skiljer
+// grinden från en mutant som annars gav ett falskt OK (G1–G3, G8, G9, G11).
+describe('U71 grinden: granskningens fall F1–F5', () => {
+  const noStop = { stop: null };
+
+  test('F1: originalet med kontrollpunktens nummer borta, loggen slutar efter kontrollpunkten', () => {
+    const { lines } = simulateLog({ minutes: 30, passages: [[5, 30]] });
+    const cps = lines.map((l, i) => (l.line.includes('[CAPTURE_SEQ]') ? i : -1)).filter((i) => i >= 0);
+    const cpIdx = cps[cps.length - 3];
+    const cpSeq = Number(/seq=(\d+)/.exec(lines[cpIdx].line)[1]);
+    const kept = lines.slice(0, cpIdx + 1).filter((l) => !(origLineOf([l], cpSeq) === 0));
+    const r = judge(kept, noStop);
+    expect(r.verdict).toBe('FEL');
+    expect(problemsText(r)).toMatch(new RegExp(`1 post\\(er\\) saknas och kunde inte läkas \\(nummer ${cpSeq}\\)`));
+  });
+
+  test('F2: sista sampel före [CAPTURE_END] borta (slutet säger seq=N)', () => {
+    const { lines, journals } = simulateLog({ minutes: 30, passages: [[5, 30]] });
+    const last = lines[lines.length - 1];
+    const j = journals[journals.length - 1];
+    const t = last.t + 1000;
+    const out = lines.concat([{ t: t + 10, line: `${new Date(t + 10).toISOString()} [log] [AISBridgeApp] [CAPTURE_END] sid=${j.sid} seq=${j.seq + 1} dropped=0 errors=0 reason=uninit` }]);
+    const r = judge(out, noStop);
+    expect(r.verdict).toBe('FEL');
+    expect(problemsText(r)).toMatch(new RegExp(`saknas och kunde inte läkas \\(nummer ${j.seq + 1}\\)`));
+  });
+
+  test('F3: journalens rader upphör 10 min före loggens slut', () => {
+    const { lines, startMs } = simulateLog({ minutes: 40, passages: [[5, 40]] });
+    const stop = startMs + 30 * MIN;
+    const isJ = (l) => l.line.includes('[CAPTURE_SEQ]') || l.line.includes('[CAPTURE_RESEND]') || /\] #[0-9a-z]+-\d+:\d+ /.test(l.line);
+    const out = lines.filter((l) => l.t < stop || !isJ(l));
+    const r = judge(out, noStop);
+    expect(r.verdict).toBe('FEL');
+    expect(problemsText(r)).toMatch(/kontrollpunkt saknas mellan 2026-11-20T15:29/);
+  });
+
+  test('F3 med en sista rad som börjar med en siffra men saknar tidsstämpel (L7)', () => {
+    const { lines, startMs } = simulateLog({ minutes: 40, passages: [[5, 40]] });
+    const stop = startMs + 30 * MIN;
+    const isJ = (l) => l.line.includes('[CAPTURE_SEQ]') || l.line.includes('[CAPTURE_RESEND]') || /\] #[0-9a-z]+-\d+:\d+ /.test(l.line);
+    const out = lines.filter((l) => l.t < stop || !isJ(l));
+    const r = judge(`${text(out)}12 vessels (fortsättningsrad)\n`);
+    expect(r.verdict).toBe('FEL');
+    expect(problemsText(r)).toMatch(/kontrollpunkt saknas mellan 2026-11-20T15:29.* och 2026-11-20T15:39/);
+  });
+
+  test('F4: en kontrollpunkt borta vid 11 min (inget tidshål där) och ett läkt hål vid 40 min', () => {
+    const { lines, startMs } = simulateLog({ minutes: 60, passages: [[5, 50]] });
+    let out = cutHole(lines, startMs + 40 * MIN + 1, startMs + 40 * MIN + 91000);
+    const cps = out.map((l, i) => (l.line.includes('[CAPTURE_SEQ]') ? i : -1)).filter((i) => i >= 0);
+    out = out.filter((_, i) => i !== cps[10]);
+    const r = judge(out, noStop);
+    expect(r.verdict).toBe('FEL');
+    expect(problemsText(r)).toMatch(/kontrollpunkt saknas mellan 2026-11-20T15:10/);
+  });
+
+  test('F5: två tidshål, det första läkbart, det andra i slutet utan kontrollpunkt efter', () => {
+    const { lines, startMs } = simulateLog({ minutes: 60, passages: [[5, 30]] });
+    let out = cutHole(lines, startMs + 20 * MIN + 1, startMs + 20 * MIN + 91000);
+    out = cutHole(out, startMs + 2973500, startMs + 3039900).filter((l) => l.t <= startMs + 3040000);
+    const r = judge(out, noStop);
+    expect(r.verdict).toBe('FEL');
+    const gapProblems = r.problems.filter((p) => p.startsWith('TIDSHÅL I LOGGEN'));
+    expect(gapProblems).toHaveLength(1);
+    expect(gapProblems[0]).toMatch(/2026-11-20T15:49.*Löpnumren läker det inte/);
+    expect(healedNotes(r)).toHaveLength(1);
+    expect(healedNotes(r)[0]).toMatch(/2026-11-20T15:20/);
+  });
+});
+
+describe('U71 grinden: svansen mot stopptiden (L1)', () => {
+  test('ett hål som når stoppet fäller', () => {
+    const { lines, startMs } = base({ minutes: 50 });
+    const cut = lines.filter((l) => l.t < startMs + 45 * MIN + 1);
+    const r = judge(cut, { stop: startMs + 50 * MIN });
+    expect(r.verdict).toBe('FEL');
+    expect(problemsText(r)).toMatch(/svansen är obevisad: sista kontrollpunkten 2026-11-20T15:44:00.200Z, körningen stoppades 2026-11-20T15:50:00.000Z/);
+  });
+
+  test('utan stopptid: DELVIS, och utskriften säger vad som inte är bevisat', () => {
+    const { lines } = base();
+    const r = judge(lines, { stop: null });
+    expect(r.verdict).toBe('DELVIS');
+    expect(r.notes.join('\n')).toMatch(/SVANSEN OBEVISAD \(U71\): stopptid saknas\. Fångsten är bevisad fram till sista kontrollpunkten 2026-11-20T15:59:00\.200Z; poster efter den kan saknas/);
+  });
+
+  test('med stopptid strax efter sista kontrollpunkten: OK och "Svansen bevisad"', () => {
+    const { lines } = base();
+    const r = judge(lines);
+    expect(r.verdict).toBe('OK');
+    expect(r.notes.join('\n')).toMatch(/Svansen bevisad \(U71\)/);
+  });
+
+  test('gränsen: 65 s från sista kontrollpunkten godkänns, 66 s fäller', () => {
+    const { lines, startMs } = base({ minutes: 50 });
+    const cps = lines.filter((l) => l.line.includes('[CAPTURE_SEQ]'));
+    const lastCp = cps[cps.length - 1].t;
+    expect(judge(lines, { stop: lastCp + 65000 }).verdict).toBe('OK');
+    expect(judge(lines, { stop: lastCp + 66000 }).verdict).toBe('FEL');
+    expect(startMs).toBeLessThan(lastCp);
+  });
+
+  test('stopptiden läses från <jsonl>.stop när den inte anges', () => {
+    const { lines } = base({ minutes: 20 });
+    const logPath = path.join(dir, 'stopfil.log');
+    const jsonlPath = path.join(dir, 'ais-stopfil.jsonl');
+    fs.writeFileSync(logPath, text(lines));
+    fs.writeFileSync(jsonlPath, `${healLogFile(logPath).healedSamples.join('\n')}\n`);
+    fs.writeFileSync(path.join(dir, 'ais-stopfil.stop'), `${new Date(lines[lines.length - 1].t + 1000).toISOString()}\n`);
+    expect(checkPair(jsonlPath, logPath, {}).verdict).toBe('OK');
+  });
+});
+
+describe('U71 grinden: övriga skärpningar efter granskningen', () => {
+  test('M2: en journalförd händelse utan nummer medan strömmen är aktiv fäller', () => {
+    const { lines } = base();
+    const i = origLineOf(lines, 30);
+    const m = lines.slice();
+    m.splice(i + 1, 0, { t: m[i].t, line: `${new Date(m[i].t).toISOString()} [log] [AISBridgeApp] 📱 [UI_UPDATE] Bridge text updated: "En båt"` });
+    const r = judge(m);
+    expect(r.verdict).toBe('FEL');
+    expect(problemsText(r)).toMatch(/1 journalförd\(a\) händelse\(r\).*saknar löpnummer medan en ström var aktiv/);
+  });
+
+  test('M2 motfall: händelser utan nummer före första strömmen (basic vid start) är tillåtna', () => {
+    const { lines, startMs } = base({ segments: [{ atMin: 0, kind: 'level-off' }, { atMin: 0, kind: 'boot' }, { atMin: 12.3, kind: 'level-on' }] });
+    const m = lines.slice();
+    const at = startMs + 5 * MIN;
+    const k = m.findIndex((l) => l.t > at);
+    m.splice(k, 0, { t: at, line: `${new Date(at).toISOString()} [log] [AISBridgeApp] 📱 [UI_UPDATE] Bridge text updated: "Inga båtar"` });
+    expect(problemsText(judge(m))).toBe('');
+  });
+
+  test('L4: en gammal logg med "[CAPTURE_SEQ]" i ett båtnamn döms som förut', () => {
+    const t0 = Date.UTC(2026, 10, 20, 15, 0, 0);
+    const mk = (name) => {
+      const out = [];
+      for (let s = 0; s < 600; s += 30) {
+        const ts = new Date(t0 + s * 1000).toISOString();
+        out.push(`${ts} [log] [AISBridgeApp] [DEBUG] 🧹 [COORDINATION_CLEANUP] Cleaned old coordination state`);
+        out.push(`${ts} [log] [AISBridgeApp] [AIS_REPLAY_SAMPLE] {"mmsi":"1","shipName":"${name}","n":${s}}`);
+      }
+      return `${out.join('\n')}\n`;
+    };
+    const plain = judge(mk('VANLIG'));
+    const odd = judge(mk('[CAPTURE_SEQ] sid=x-1 seq=1'));
+    expect(odd.verdict).toBe(plain.verdict);
+    expect(odd.verdict).toBe('OK');
+    expect(odd.journal).toBeUndefined();
+  });
+
+  test('L4: i en löpnummerlogg är ett båtnamn med en journaltagg ingen oläslig journalrad', () => {
+    const { lines } = base({ hubName: '[CAPTURE_SEQ] sid=x-1 seq=1' });
+    expect(lines.some((l) => l.line.includes('"shipName":"[CAPTURE_SEQ] sid=x-1 seq=1"'))).toBe(true);
+    expect(problemsText(judge(lines))).toBe('');
+  });
+
+  test('L5: ett korrupt jättelöpnummer ger ett snabbt FEL', () => {
+    const { lines } = base();
+    const i = origLineOf(lines, 30);
+    const m = lines.slice();
+    m.splice(i + 1, 0, { t: m[i].t, line: m[i].line.replace(/:30 /, ':1000000000 ') });
+    const t0 = Date.now();
+    const r = judge(m);
+    expect(Date.now() - t0).toBeLessThan(5000);
+    expect(r.verdict).toBe('FEL');
+    expect(problemsText(r)).toMatch(/orimligt löpnummer 1000000000/);
+  });
+
+  test('G26: räknaren för släppta poster som sjunker fäller', () => {
+    const { lines } = base({ maxEntries: 3 });
+    const cps = lines.map((l, i) => (l.line.includes('[CAPTURE_SEQ]') ? i : -1)).filter((i) => i >= 0);
+    const m = lines.slice();
+    m[cps[30]] = { ...m[cps[30]], line: m[cps[30]].line.replace(/dropped=\d+/, 'dropped=0') };
+    const r = judge(m);
+    expect(r.verdict).toBe('FEL');
+    expect(problemsText(r)).toMatch(/räknaren för släppta poster sjönk/);
+  });
+
+  test('G4: en omsändning i icke-kanonisk base64 (utan utfyllnad) är oläslig', () => {
+    const { lines } = base();
+    const k = lines.findIndex((l) => l.line.includes('[CAPTURE_RESEND]') && /"b64":"[^"]*="/.test(l.line));
+    const m = lines.slice();
+    m[k] = { ...m[k], line: m[k].line.replace(/=+"/, '"') };
+    const r = judge(m);
+    expect(r.verdict).toBe('FEL');
+    expect(problemsText(r)).toMatch(/journalrad\(er\) går inte att läsa/);
   });
 });

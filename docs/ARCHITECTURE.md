@@ -4150,7 +4150,10 @@ Loggskriptet läker en löpnummerlogg i nedstängningen med
 med `--state`), och grinden i `checkReplayIntegrity.js` godkänner ett tidshål
 bara när varje löpnummer finns (villkoren i `docs/VALIDATION.md` §Fältprov,
 steg 3). `compareFieldReplay.js` läser också de händelser som läkts ur
-omsändningarna; tidshålen redovisas ändå.
+omsändningarna; tidshålen redovisas ändå. I fält kommer `[CAPTURE_END]` aldrig fram
+(kommandoradsverktyget avinstallerar appen först), så loggskriptet skriver stopptiden
+i `ais-replay-<ts>.stop` och grinden kräver en kontrollpunkt högst 65 s före den;
+utan stopptid är svansen obevisad (DELVIS).
 
 Åtgärdat sedan 2026-07-03: "Fem lager"-kommentaren rättad (constants.js:193);
 MessageBuilder/ETAFormatter/StallbackabronHelper raderade — noll levande

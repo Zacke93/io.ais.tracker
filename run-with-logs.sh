@@ -174,9 +174,11 @@ rebuild_replay_jsonl() {
 
 }
 
-# U71: har loggen fångstjournalens rader (löpnummer och omsändning)?
+# U71: har loggen fångstjournalens rader (löpnummer och omsändning)? Bara rader
+# där journalen står direkt efter appens prefix räknas (granskningen, L4): ett
+# båtnamn med texten "[CAPTURE_SEQ]" gör inte en gammal logg till en löpnummerlogg.
 is_journal_log() {
-    LC_ALL=C grep -q -E '\[CAPTURE_(START|SEQ|RESEND|END)\]' "$1" 2>/dev/null
+    LC_ALL=C grep -q -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z \[(log|err)\] \[[^]]*\] (\[CAPTURE_(SEQ|RESEND|END)\]|#[0-9a-z]+-[0-9]+:[0-9]+ )' "$1" 2>/dev/null
 }
 
 # Varje stat-försök behöver en egen fångst. GNU tolkar BSD:s -f som
@@ -479,6 +481,10 @@ finish_run() {
     # PIPE/TTOU (V4, fältprovet 2026-11-13): när terminalen försvinner
     # (utloggning, stängt fönster) får en skrivning dit inte döda skriptet.
     trap '' INT TERM HUP PIPE TTOU
+    # U71 (granskningen, L1): stopptiden tas INNAN appen stoppas. Grinden kräver
+    # en kontrollpunkt högst 65 s före den, så att ett hål som når stoppet syns
+    # (kommandoradsverktyget avinstallerar appen innan [CAPTURE_END] kommer fram).
+    STOP_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || STOP_TIME=""
     stop_capture
     extract_bridge_text
     cleanup_run_tempfiles
@@ -528,6 +534,14 @@ extract_bridge_text() {
     # arkivet ändå komplett, och summaryn går att göra om ur filerna.
     FINAL_SYNC_STATUS="OK"
     sync_file "$LOGFILE" "$FINAL_LOGFILE" || FINAL_SYNC_STATUS="FEL"
+
+    # U71: stopptiden bredvid jsonl:en; grinden läser den därifrån (<jsonl>.stop).
+    STOP_FILE="${AIS_REPLAY_FILE%.jsonl}.stop"
+    FINAL_STOP_FILE="${FINAL_REPLAY%.jsonl}.stop"
+    if [ -n "${STOP_TIME:-}" ]; then
+        printf '%s\n' "$STOP_TIME" > "$STOP_FILE" 2>/dev/null || true
+        sync_file "$STOP_FILE" "$FINAL_STOP_FILE" || FINAL_SYNC_STATUS="FEL"
+    fi
 
     # SLUTLIG FÅNGST (K24): bygg jsonl:en ur den färdiga loggen INNAN grinden
     # mäter. Kör till EOF i förgrunden — inget kan ligga kvar i en buffert.
@@ -597,6 +611,11 @@ EOL
     echo "- **\"väntar vid\"-Updates:** $WAIT_UPDATES (varav vid målbron, U65: $WAIT_TARGET_UPDATES)" >> "$SUMMARY_TMP"
     echo "- **\"ETA okänd\"-Updates:** $ETA_UNKNOWN" >> "$SUMMARY_TMP"
     echo "- **\"Inga båtar\"-Updates:** $DEFAULT_UPDATES" >> "$SUMMARY_TMP"
+    # U71 (granskningen, L6): räknarna ovan greppar loggens egna rader; i en
+    # läkt körning saknas händelserna från hålen här men finns i grinden och replay:field.
+    if is_journal_log "$LOGFILE"; then
+        echo "- Räknarna gäller loggens egna rader. Händelser som läkts ur omsändningarna (U71) räknas inte här; se Logg-integritet och \`replay:field\`." >> "$SUMMARY_TMP"
+    fi
 
     # HÅLDETEKTOR, efterhand (F4-A, gräns V4 2026-11-13): tidsstämpelluckor
     # över 65 s där monitoringloopens minutslag är belagt (annars 180 s) =
@@ -708,6 +727,12 @@ EOL
         echo "$CHECK_OUT" >> "$SUMMARY_TMP"
         if [ "$CHECK_STATUS" -ne 0 ]; then
             REPLAY_FAIL=1
+        fi
+        # U71: i en löpnummerlogg betyder DELVIS att svansen efter sista
+        # kontrollpunkten inte är bevisad (stopptid saknas). Det räcker inte för låsning.
+        if is_journal_log "$LOGFILE" && LC_ALL=C grep -q 'Replay-integritet: DELVIS' <<< "$CHECK_OUT"; then
+            REPLAY_FAIL=1
+            echo "- ⚠️ svansen efter sista kontrollpunkten är obevisad (stopptid saknas) — korpuslåsning kräver stopptiden" >> "$SUMMARY_TMP"
         fi
     fi
     if [ "$HOLES_PENDING" -eq 1 ]; then

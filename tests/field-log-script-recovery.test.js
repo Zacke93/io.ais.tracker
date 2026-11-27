@@ -218,7 +218,9 @@ describe('Nedstängningen synkar arkivet före summaryn', () => {
   // kill_with_sleep finns från granskningen 2026-11-16 (M2).
   const functions = ['sync_file', 'rebuild_replay_jsonl', 'find_log_holes', 'extract_bridge_text']
     .concat(/^say\(\) \{/m.test(script) ? ['say'] : [])
-    .concat(/^kill_with_sleep\(\) \{/m.test(script) ? ['kill_with_sleep'] : []);
+    .concat(/^kill_with_sleep\(\) \{/m.test(script) ? ['kill_with_sleep'] : [])
+    // U71: summaryn och den sista ombyggnaden frågar om loggen är en löpnummerlogg.
+    .concat(/^is_journal_log\(\) \{/m.test(script) ? ['is_journal_log'] : []);
 
   test('dödad mitt i summaryn: arkivets logg och jsonl är ändå kompletta', () => {
     // nl körs i summaryns brotextlista; SIGKILL där motsvarar utloggningen.
@@ -285,7 +287,8 @@ describe('Summaryn räknar vänttexten för sig (U65)', () => {
       FINAL_SUMMARY="$LOGS_DIR/bridge-text-summary-ts.md"
       EXTRACT_DONE=0; REPLAY_GUARD_PID=""; HOLE_GUARD_PID=""; SYNC_PID=""
     `;
-    const functions = ['sync_file', 'rebuild_replay_jsonl', 'find_log_holes', 'extract_bridge_text', 'say', 'kill_with_sleep'];
+    const functions = ['sync_file', 'rebuild_replay_jsonl', 'find_log_holes', 'extract_bridge_text', 'say', 'kill_with_sleep']
+      .concat(/^is_journal_log\(\) \{/m.test(script) ? ['is_journal_log'] : []);
     runBash(functions, `${setup}\nextract_bridge_text`, { AUDIT_DIR: dir });
     const summary = fs.readFileSync(path.join(dir, 'arkiv', 'bridge-text-summary-ts.md'), 'utf8');
     expect(summary).toMatch(/Total Bridge Text Updates:\*\* 6/);
@@ -438,7 +441,8 @@ describe('Ingen inbyggd terminalskrivning där terminalen kan vara död', () => 
       }
       fs.writeFileSync(path.join(dir, 'live', 'app-ts.log'), `${lines.join('\n')}\n`);
       const fns = ['say', 'sync_file', 'rebuild_replay_jsonl', 'find_log_holes', 'extract_bridge_text',
-        'cleanup_run_tempfiles', 'kill_with_sleep', 'stop_capture', 'finish_run'].map(bashFunction).join('\n');
+        'cleanup_run_tempfiles', 'kill_with_sleep', 'stop_capture', 'finish_run']
+        .concat(/^is_journal_log\(\) \{/m.test(script) ? ['is_journal_log'] : []).map(bashFunction).join('\n');
       // Skriptets egna rader efter wait, ordagrant, följda av EXIT-trap:ens finish_run.
       const tail = mainTail();
       const payload = `${fns}

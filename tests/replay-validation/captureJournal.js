@@ -60,6 +60,18 @@ const CHECKPOINT_RE = /^(\d{4}-\d{2}-\d{2}T[\d:.]+Z) \[(log|err)\] \[[^\]]*\] \[
 const END_RE = /^(\d{4}-\d{2}-\d{2}T[\d:.]+Z) \[(log|err)\] \[[^\]]*\] \[CAPTURE_END\] sid=([0-9a-z]+-[0-9]+) seq=([0-9]+) dropped=([0-9]+) errors=([0-9]+) reason=(\S+)$/;
 const START_MSG_RE = /^\[CAPTURE_START\] sid=([0-9a-z]+-[0-9]+) reason=(\S+)$/;
 const JOURNAL_TAGS = ['[CAPTURE_START]', '[CAPTURE_SEQ]', '[CAPTURE_RESEND]', '[CAPTURE_END]'];
+// En journaltagg räknas bara direkt efter appens prefix (granskningen, L4): ett
+// båtnamn med texten "[CAPTURE_SEQ]" gör inte en gammal logg till en löpnummerlogg.
+const TAG_AT_PREFIX_RE = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z \[(log|err)\] \[[^\]]*\] \[CAPTURE_(START|SEQ|RESEND|END)\]/;
+// Journalförda händelser (app.js _logCaptured). Utan nummer medan en ström är
+// aktiv betyder det att ett anropsställe gått förbi journalen (granskningen, M2).
+const EVENT_TAGS = ['[AIS_REPLAY_STATE] ', '[FLOW_TRIGGER_SAFE_TOKENS]', '[FLOW_TRIGGER_ATTEMPT]',
+  '[FLOW_TRIGGER_SUCCESS]', '[FLOW_TRIGGER_ERROR]', '[OPENING_TRIGGER_SUCCESS]', '[UI_UPDATE] Bridge text updated:'];
+const BOOT_MARK = 'AIS Bridge starting with modular architecture';
+// Ett löpnummer kan bara hoppa så långt som ett hål sväljer poster. Ett hopp
+// över det här är ett korrupt nummer: det fälls direkt i stället för att
+// grinden ska räkna upp till det (granskningen, L5).
+const MAX_SEQ_JUMP = 100000;
 const B64_RE = /^[A-Za-z0-9+/]*={0,2}$/;
 
 const MAX_LISTED = 5;
@@ -88,6 +100,9 @@ function createJournalAudit() {
   let lastStampLine = null;
   let malformed = 0;
   let firstMalformed = null;
+  let activeSid = null;
+  let plainEvents = 0;
+  let firstPlainEventLine = null;
 
   const getStream = (sid, lineNumber, t) => {
     let s = streams.get(sid);
@@ -123,6 +138,11 @@ function createJournalAudit() {
 
   // Rader utan journalens kännetecken: sampel och starttillstånd utan nummer.
   const takePlain = (line, lineNumber) => {
+    if (line.indexOf(BOOT_MARK) !== -1) activeSid = null;
+    if (activeSid !== null && EVENT_TAGS.some((tag) => line.indexOf(tag) !== -1)) {
+      plainEvents += 1;
+      if (firstPlainEventLine === null) firstPlainEventLine = lineNumber;
+    }
     if (firstPlainState === null && line.indexOf(STATE_CUT) !== -1) {
       firstPlainState = { line: lineNumber, json: line.slice(line.lastIndexOf(STATE_CUT) + STATE_CUT.length) };
     }
@@ -136,6 +156,13 @@ function createJournalAudit() {
   const noteMalformed = (lineNumber) => {
     malformed += 1;
     if (firstMalformed === null) firstMalformed = lineNumber;
+  };
+
+  // L5: ett orimligt hopp i numret fälls och räknas inte som sett.
+  const absurd = (s, seq, lineNumber) => {
+    if (seq <= s.maxSeen + MAX_SEQ_JUMP) return false;
+    problem(s, `orimligt löpnummer ${seq} efter ${s.maxSeen} (loggrad ${lineNumber}) — raden är korrupt`);
+    return true;
   };
 
   const putEntry = (s, seq, entry, lineNumber) => {
@@ -155,8 +182,10 @@ function createJournalAudit() {
     take(line, lineNumber) {
       // Snabbväg: en fältlogg har hundratusentals rader, och bara de med
       // journalens kännetecken behöver tidsstämpel och reguljära uttryck.
+      // Bara rader med tidsstämpel (granskningen, L7): en fortsättningsrad som
+      // råkar börja med en siffra får inte bli loggens sista tid.
       const code = line.charCodeAt(0);
-      if (code >= 48 && code <= 57) lastStampLine = line;
+      if (code >= 48 && code <= 57 && line.charCodeAt(4) === 45 && line.charCodeAt(10) === 84) lastStampLine = line;
       if (line.indexOf('[CAPTURE_') === -1 && line.indexOf('] #') === -1) {
         takePlain(line, lineNumber);
         return;
@@ -171,6 +200,8 @@ function createJournalAudit() {
         const message = m[5];
         const isErr = m[2] === 'err';
         const s = getStream(sid, lineNumber, t);
+        if (absurd(s, seq, lineNumber)) return;
+        if (!s.end) activeSid = sid;
         marks.push({
           line: lineNumber, t, sid, kind: 'orig',
         });
@@ -221,6 +252,7 @@ function createJournalAudit() {
           return;
         }
         const s = getStream(payload.sid, lineNumber, t);
+        if (absurd(s, payload.seq, lineNumber)) return;
         marks.push({
           line: lineNumber, t, sid: payload.sid, kind: 'resend',
         });
@@ -239,6 +271,8 @@ function createJournalAudit() {
         const dropped = Number(m[6]);
         const errors = Number(m[7]);
         const s = getStream(sid, lineNumber, t);
+        if (absurd(s, seq, lineNumber)) return;
+        if (!s.end) activeSid = sid;
         marks.push({
           line: lineNumber, t, sid, kind: 'checkpoint',
         });
@@ -260,6 +294,8 @@ function createJournalAudit() {
         const sid = m[3];
         const seq = Number(m[4]);
         const s = getStream(sid, lineNumber, t);
+        if (absurd(s, seq, lineNumber)) return;
+        if (activeSid === sid) activeSid = null;
         marks.push({
           line: lineNumber, t, sid, kind: 'end',
         });
@@ -273,8 +309,8 @@ function createJournalAudit() {
         s.maxSeen = Math.max(s.maxSeen, seq);
         return;
       }
-      if (JOURNAL_TAGS.some((tag) => line.includes(tag))) {
-        // En journaltagg som inte går att läsa är aldrig "ingenting".
+      if (TAG_AT_PREFIX_RE.test(line)) {
+        // En journaltagg direkt efter prefixet som inte går att läsa är aldrig "ingenting".
         journalSeen = true;
         noteMalformed(lineNumber);
         return;
@@ -284,8 +320,12 @@ function createJournalAudit() {
 
     /**
      * @param {Array} gaps - tidshål från createTimeGapAudit (from/to med t och line)
+     * @param {Object} [opts]
+     * @param {number} [opts.stopTime] - när loggskriptet började stoppa körningen (ms).
+     *   Utan den bevisas inte svansen efter sista kontrollpunkten (granskningen, L1).
      */
-    finish(gaps = []) {
+    finish(gaps = [], opts = {}) {
+      const stopTime = Number.isFinite(opts.stopTime) ? opts.stopTime : null;
       const result = {
         journal: journalSeen,
         streams: [],
@@ -296,6 +336,7 @@ function createJournalAudit() {
         restoredLines: [],
         state: null,
         holes: [],
+        tail: null,
       };
       const lastStamp = lastStampLine === null ? null : timeOf(lastStampLine);
       const lastT = lastStamp ? lastStamp.t : null;
@@ -309,6 +350,10 @@ function createJournalAudit() {
       }
       if (plainSamples > 0) {
         globalProblems.push(`${plainSamples} sampel saknar löpnummer i en löpnummerlogg (första loggrad ${firstPlainLine})`);
+      }
+      if (plainEvents > 0) {
+        globalProblems.push(`${plainEvents} journalförd(a) händelse(r) (notis, varning, textbyte eller starttillstånd) `
+          + `saknar löpnummer medan en ström var aktiv (första loggrad ${firstPlainEventLine})`);
       }
 
       const streamList = order.filter((seg) => seg.sid).map((seg) => streams.get(seg.sid));
@@ -328,17 +373,41 @@ function createJournalAudit() {
         if (!startMatch || startMatch[1] !== s.sid) {
           problem(s, 'post 1 är inte strömmens [CAPTURE_START] — starten saknas');
         }
-        // Villkor 2.
+        // Villkor 2. Saknade nummer räknas utan att alla lagras (L5).
         const missing = [];
+        let missingCount = 0;
         let restored = 0;
         for (let k = 1; k <= s.maxSeen; k += 1) {
           const e = s.entries.get(k);
-          if (!e) missing.push(k);
-          else if (e.via === 'resend') restored += 1;
+          if (!e) {
+            missingCount += 1;
+            if (missing.length < MAX_LISTED) missing.push(k);
+          } else if (e.via === 'resend') restored += 1;
         }
-        if (missing.length > 0) {
-          problem(s, `${missing.length} post(er) saknas och kunde inte läkas (nummer ${missing.slice(0, MAX_LISTED).join(', ')}`
-            + `${missing.length > MAX_LISTED ? ', …' : ''})`);
+        if (missingCount > 0) {
+          problem(s, `${missingCount} post(er) saknas och kunde inte läkas (nummer ${missing.join(', ')}`
+            + `${missingCount > MAX_LISTED ? ', …' : ''})`);
+        }
+        // Svansen (L1): den sista strömmen utan [CAPTURE_END] var aktiv när
+        // körningen stoppades. Allt fram till sista kontrollpunkten är bevisat;
+        // därefter bara om kontrollpunkten ligger högst 65 s före stoppet.
+        if (i === streamList.length - 1 && !s.end) {
+          const lastCheckpoint = s.checkpoints[s.checkpoints.length - 1] || null;
+          const cpT = lastCheckpoint ? lastCheckpoint.t : null;
+          result.tail = {
+            sid: s.sid, lastCheckpointT: cpT, stopTime, proven: false,
+          };
+          if (stopTime === null) {
+            result.notes.push('SVANSEN OBEVISAD (U71): stopptid saknas. Fångsten är bevisad fram till sista kontrollpunkten '
+              + `${cpT === null ? '(ingen)' : new Date(cpT).toISOString()}; poster efter den kan saknas utan att grinden ser det.`);
+          } else if (cpT === null || stopTime - cpT > CHECKPOINT_LIMIT_MS) {
+            problem(s, `svansen är obevisad: sista kontrollpunkten ${cpT === null ? 'saknas' : new Date(cpT).toISOString()}, `
+              + `körningen stoppades ${new Date(stopTime).toISOString()}`
+              + `${cpT === null ? '' : ` (${Math.round((stopTime - cpT) / 100) / 10} s, gräns ${CHECKPOINT_LIMIT_MS / 1000} s)`}`
+              + ' — ett hål kan ha nått stoppet');
+          } else {
+            result.tail.proven = true;
+          }
         }
         // Villkor 8: kontrollpunkternas takt.
         let endT = s.lastT;

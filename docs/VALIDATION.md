@@ -1962,14 +1962,30 @@ efteråt.
      `node tests/replay-validation/captureJournal.js --jsonl <app.log> > ny.jsonl`
      (och `--state` för starttillståndet). En logg med journalrader prövas mot alla
      dessa villkor, annars FEL: varje ström har post 1 = `[CAPTURE_START]`;
-     alla nummer 1..max finns i original eller omsändning; originalen kommer
-     i stigande ordning och aldrig efter sin omsändning eller efter en
+     alla nummer 1..max finns i original eller omsändning (ett nummer mer än
+     100 000 över det föregående är korrupt och fäller direkt); originalen
+     kommer i stigande ordning och aldrig efter sin omsändning eller efter en
      kontrollpunkt som redan täckte dem; kontrollpunkterna sjunker aldrig;
      samma nummer två gånger har samma innehåll och ett original förekommer
      en gång; inga rader efter `[CAPTURE_END]`; ingen ny ström efter en som
      slutade för att loggnivån sänktes (fångsten var avstängd emellan); inga
-     sampel utan nummer; kontrollpunkterna kommer med högst 65 s mellanrum
-     utom över ett tidshål; jsonl är exakt den läkta fångsten. **Ett tidshål
+     sampel utan nummer, och ingen journalförd händelse (notis, varning,
+     textbyte, starttillstånd) utan nummer medan en ström är aktiv;
+     kontrollpunkterna kommer med högst 65 s mellanrum utom över ett tidshål;
+     jsonl är exakt den läkta fångsten. Journalraderna känns igen på hela
+     formen direkt efter appens prefix, så ett båtnamn som innehåller
+     `[CAPTURE_SEQ]` gör inte en gammal logg till en löpnummerlogg.
+     **Svansen** (granskningen av U71): kommandoradsverktyget avinstallerar
+     appen innan `[CAPTURE_END]` hinner fram, så i fält slutar strömmen utan
+     slut. Loggskriptet skriver därför stopptiden (`ais-replay-<ts>.stop`, tagen
+     innan appen stoppas), och grinden kräver att sista kontrollpunkten ligger
+     högst 65 s före den (`--stop <ISO-tid>`, annars läses filen bredvid
+     jsonl:en). Ett hål som når stoppet fäller då. Saknas stopptiden blir
+     verdiktet DELVIS ("SVANSEN OBEVISAD"): fångsten är bevisad fram till sista
+     kontrollpunkten, men poster efter den kan saknas utan att grinden ser det.
+     **För låsning krävs** att grinden kört med stopptiden och säger `Svansen
+     bevisad (U71)` (loggskriptet gör det; en löpnummerlogg med DELVIS ger
+     `Logg-integritet: FEL` i summaryn). **Ett tidshål
      godkänns** bara när samma ström är aktiv närmast före och efter hålet, en
      kontrollpunkt i den strömmen kommer efter hålet med `dropped=0`, och
      allt ovan håller. Då står det som `TIDSHÅL LÄKT (U71)` i grindens notiser
@@ -1979,9 +1995,20 @@ efteråt.
      textbyte finns, och `replay:field` läser de läkta händelserna. Det som
      saknas är felsökningsrader (vakthunden, UI-cykler), som facit inte bygger
      på. Kända gränser: ett hål över 10 minuter med poster i läks inte (FEL);
-     svansen efter sista kontrollpunkten bevisas inte; ett bortfall under 65 s
-     som bara sväljer en kontrollpunkt ger FEL fast inget fattas; ordningen
-     prövas bara för stdout-originalen (`[FLOW_TRIGGER_ERROR]` går på stderr).
+     ett bortfall under 65 s som bara sväljer en kontrollpunkt ger FEL fast
+     inget fattas; ordningen prövas bara för stdout-originalen
+     (`[FLOW_TRIGGER_ERROR]` går på stderr). **Marginalen vid start:** första
+     intervallet räknas från `[CAPTURE_START]`, men minutloopen startas först
+     efter fyra `await` i `onInit`; i k1–k4 kom första minutslaget 60,1–60,2 s
+     efter start, så marginalen mot 65 s är knappt 5 s, och en ovanligt
+     långsam start ger falskt FEL. **Ett enda släpp** ur bufferten (`dropped`
+     är kumulativ) gör alla senare hål i samma ström oläkbara, fast villkoret
+     om saknade nummer redan visar om något fattas: konservativt, inte farligt.
+     **Läkta händelser syns bara i grinden och `replay:field`:** summaryns
+     räknare (antal brotexter, notiser, "strax" m.fl.) och den kronologiska
+     listan greppar loggens egna rader, och `makeFieldFusionCorpus.js`,
+     `tests/_dump_all_texts.js` och `tests/_debug_stallbacka.js` läser bara
+     originalen. I en läkt körning saknas där händelserna från hålen.
      Loggar utan journalrader (k1–k4, banken) döms exakt som förut.
 
    Den interna bokföringen kan bevisa vissa tidigare dolda blockbortfall,

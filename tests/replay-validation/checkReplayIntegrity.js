@@ -39,7 +39,8 @@
  *   node tests/replay-validation/checkReplayIntegrity.js <jsonl> [logg]
  *   node tests/replay-validation/checkReplayIntegrity.js --dir <katalog>
  *   node tests/replay-validation/checkReplayIntegrity.js --corpora
- *   Flaggor: --log-dir <katalog> (upprepningsbar), --markdown, --brief,
+ *   Flaggor: --log-dir <katalog> (upprepningsbar), --stop <ISO-tid> (U71: när
+ *            körningen stoppades; annars läses <jsonl>.stop), --markdown, --brief,
  *            --json, --quiet
  *
  * Exit-koder (run-with-logs.sh grindar på !== 0):
@@ -427,7 +428,7 @@ function createTimeGapAudit() {
  * StringDecoder håller kvar en ofullständig byte-sekvens till nästa bit;
  * `decoder.end()` släpper ut en eventuell rest efter sista biten.
  */
-function readLogSamples(filePath) {
+function readLogSamples(filePath, journalOpts = {}) {
   const fd = fs.openSync(filePath, 'r');
   const buf = Buffer.alloc(READ_CHUNK);
   const decoder = new StringDecoder('utf8');
@@ -479,8 +480,28 @@ function readLogSamples(filePath) {
     bytes: fs.statSync(filePath).size,
     sourceAudit: sourceAudit.finish(),
     timeGapAudit: gapResult,
-    journal: journalAudit.finish(gapResult.gaps),
+    journal: journalAudit.finish(gapResult.gaps, journalOpts),
   };
+}
+
+/**
+ * U71 (granskningen, L1): när loggskriptet började stoppa körningen. Från
+ * `opts.stopTime` (ms eller ISO, kommandoradens --stop) eller filen
+ * `<jsonl utan .jsonl>.stop` bredvid jsonl:en, som loggskriptet skriver.
+ * null = okänd; då är svansen efter sista kontrollpunkten obevisad.
+ */
+function resolveStopTime(jsonlPath, opts) {
+  const raw = opts && opts.stopTime !== undefined && opts.stopTime !== null ? opts.stopTime : null;
+  if (raw !== null) {
+    const t = typeof raw === 'number' ? raw : Date.parse(String(raw).trim());
+    return Number.isFinite(t) ? t : null;
+  }
+  try {
+    const t = Date.parse(fs.readFileSync(`${jsonlPath.replace(/\.jsonl$/, '')}.stop`, 'utf8').trim());
+    return Number.isFinite(t) ? t : null;
+  } catch (err) {
+    return null;
+  }
 }
 
 /** Ligger ett godkänt (läkt) tidshål inom loggradsintervallet? */
@@ -657,7 +678,7 @@ function checkPair(jsonlPath, logPath, opts) {
 
   let log;
   try {
-    log = readLogSamples(logPath);
+    log = readLogSamples(logPath, { stopTime: resolveStopTime(jsonlPath, opts) });
   } catch (err) {
     result.verdict = result.problems.length > 0 ? 'FEL' : 'OKÄNT';
     result.problems.push(`kan inte läsa loggen: ${err.message}`);
@@ -754,6 +775,15 @@ function checkPair(jsonlPath, logPath, opts) {
       + `${journal.streams.reduce((a, st) => a + st.entries, 0)} poster, ${journal.restoredEntries} återställda ur omsändningarna, `
       + `${journal.healedSamples.length} sampel i den läkta fångsten (${log.count} som original i loggen).`);
     result.notes.push(`Läkta tidshål (U71): ${healedHoles} av ${journal.holes.length}`);
+    result.journal.tail = journal.tail;
+    if (journal.tail && journal.tail.proven) {
+      result.notes.push(`Svansen bevisad (U71): sista kontrollpunkten ${new Date(journal.tail.lastCheckpointT).toISOString()}, `
+        + `stopp ${new Date(journal.tail.stopTime).toISOString()}.`);
+    } else if (journal.tail && journal.tail.stopTime === null) {
+      // Bevisat så långt mätningen räcker: DELVIS, aldrig ett bart OK.
+      result.partial = true;
+      result.partialNote = 'fångsten bevisad fram till sista kontrollpunkten; stopptid saknas, svansen obevisad';
+    }
     result.notes.push(...journal.notes);
     result.problems.push(...journal.problems);
     logSamples = journal.healedSamples;
@@ -927,6 +957,7 @@ function main(argv) {
   let mode = 'pair';
   let format = 'text';
   let quiet = false;
+  let stopTime = null;
   let brief = false;
 
   for (let i = 0; i < args.length; i += 1) {
@@ -940,9 +971,10 @@ function main(argv) {
     else if (a === '--dir') {
       mode = 'dir'; positionals.push(args[i += 1]);
     } else if (a === '--log-dir') logDirs.push(args[i += 1]);
+    else if (a === '--stop') stopTime = args[i += 1];
     else if (a === '--help' || a === '-h') {
       console.log('Användning: node checkReplayIntegrity.js <jsonl> [logg] | --dir <katalog> | --corpora');
-      console.log('Flaggor: --log-dir <katalog> (upprepningsbar), --markdown, --brief, --json, --quiet');
+      console.log('Flaggor: --log-dir <katalog> (upprepningsbar), --stop <ISO-tid>, --markdown, --brief, --json, --quiet');
       return 0;
     } else if (a.startsWith('--')) {
       console.error(`Okänd flagga: ${a}`);
@@ -985,7 +1017,7 @@ function main(argv) {
       logPath = found.log;
       logMethod = found.method;
     }
-    results.push(checkPair(t.jsonl, logPath, { logMethod }));
+    results.push(checkPair(t.jsonl, logPath, { logMethod, stopTime }));
   }
 
   if (!quiet) {
