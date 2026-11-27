@@ -65,6 +65,8 @@ describe('Notisspärren med framtida stämplar', () => {
     const app = makeApp();
     app._loadPersistentTriggers();
     expect(app._persistentRecentTriggers.get(KEY)).toEqual({ t: now, dir: 'north' });
+    // Granskningen L2: klampningen skrivs tillbaka, så en omstart förnyar inte spärren.
+    expect(store.persistent_recent_triggers[KEY]).toEqual({ t: now, dir: 'north' });
     expect(app._persistentDedupCheck(KEY, vessel).blocked).toBe(true);
     jest.setSystemTime(now + 2 * HOUR + 1000);
     expect(app._persistentDedupCheck(KEY, vessel).blocked).toBe(false);
@@ -116,5 +118,48 @@ describe('Notisspärren med framtida stämplar', () => {
     const app = makeApp();
     app._loadPersistentTriggers();
     expect(app._persistentDedupCheck(KEY, vessel).blocked).toBe(true);
+  });
+
+  // Granskningen L3: systerkartan last_known_positions hade samma ensidiga
+  // tidsfilter. En position med framtida stämpel räknades som färsk, och en båt
+  // som kom tillbaka på en ny resa fick "har passerat"-notiser ur den gamla
+  // positionen. Den släpps nu vid laddning och i städningen.
+  describe('sista kända positioner med framtida stämpel', () => {
+    const POS = '265099202';
+    function withPositions() {
+      const app = makeApp();
+      app._lastKnownPositions = new Map();
+      app._LAST_KNOWN_POSITION_TTL_MS = 6 * HOUR;
+      return app;
+    }
+
+    test('laddning: posten läses inte och lagringen skrivs om utan den', () => {
+      store.last_known_positions = {
+        [POS]: { lat: 58.27, lon: 12.27, t: now + 30 * 24 * HOUR },
+        265099203: { lat: 58.28, lon: 12.28, t: now - HOUR },
+      };
+      const app = withPositions();
+      app._loadLastKnownPositions();
+      expect(app._lastKnownPositions.has(POS)).toBe(false);
+      expect(app._lastKnownPositions.has('265099203')).toBe(true);
+      expect(store.last_known_positions[POS]).toBeUndefined();
+      expect(store.last_known_positions['265099203']).toBeDefined();
+    });
+
+    test('städningen tar bort en post som hamnat i framtiden', () => {
+      const app = withPositions();
+      app._lastKnownPositions.set(POS, { lat: 58.27, lon: 12.27, t: now + 3 * HOUR });
+      app._lastKnownPositions.set('265099203', { lat: 58.28, lon: 12.28, t: now - HOUR });
+      app._pruneLastKnownPositionsTtl();
+      expect(app._lastKnownPositions.has(POS)).toBe(false);
+      expect(app._lastKnownPositions.has('265099203')).toBe(true);
+    });
+
+    test('motfall: en stämpel inom klockmarginalen behålls', () => {
+      store.last_known_positions = { [POS]: { lat: 58.27, lon: 12.27, t: now + SKEW - 1000 } };
+      const app = withPositions();
+      app._loadLastKnownPositions();
+      expect(app._lastKnownPositions.has(POS)).toBe(true);
+    });
   });
 });

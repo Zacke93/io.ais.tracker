@@ -1230,6 +1230,9 @@ class AISBridgeApp extends Homey.App {
       }
       if (clamped > 0) {
         this.log(`🕰️ [PERSISTENT_DEDUP_FUTURE] ${clamped} sparade notisspärr(ar) hade en stämpel i framtiden — gäller som skickade nu`);
+        // Granskningen L2: skriv tillbaka, annars förnyas spärren vid varje
+        // omstart så länge den sparade stämpeln ligger i framtiden.
+        this._persistRecentTriggers();
       }
     } catch (error) {
       this.error('[PERSISTENT_DEDUP] Failed to load persisted triggers:', error.message || error);
@@ -3220,9 +3223,21 @@ class AISBridgeApp extends Homey.App {
       }
       const now = Date.now();
       const candidates = [];
+      let future = 0;
       for (const [mmsi, entry] of Object.entries(stored)) {
         if (entry && Number.isFinite(entry.lat) && Number.isFinite(entry.lon)
             && Number.isFinite(entry.t) && now - entry.t < this._LAST_KNOWN_POSITION_TTL_MS) {
+          // Omgång 9 (spår R, granskningen L3): en position med stämpel i
+          // framtiden har okänd ålder och bevisar ingen färd. Förut räknades
+          // den som färsk tills stämpeln passerats, så en båt som kom tillbaka
+          // på en ny resa dagar senare fick skipped-bridges-svepets
+          // "har passerat"-notiser för broarna mellan den gamla positionen och
+          // den nya. Den släpps (till skillnad från notisspärren, där en
+          // spärr som gäller nu är det försiktiga valet).
+          if (entry.t - now > AIS_CONFIG.AISHUB.SEEN_MAX_FUTURE_SKEW_MS) {
+            future++;
+            continue;
+          }
           candidates.push([String(mmsi), entry]);
         }
       }
@@ -3232,6 +3247,10 @@ class AISBridgeApp extends Homey.App {
       const loaded = kept.length;
       if (dropped > 0) {
         this.log(`✂️ [LAST_KNOWN_CAP] ${dropped} sparade positioner lästes inte (tak ${PERSISTED_LOAD_CAP}, de nyaste behölls)`);
+      }
+      if (future > 0) {
+        this.log(`🕰️ [LAST_KNOWN_FUTURE] ${future} sparade positioner hade en stämpel i framtiden och lästes inte`);
+        this._persistLastKnownPositions(true);
       }
       if (loaded > 0) {
         this.log(`🔁 [LAST_KNOWN] Restored ${loaded} last-known positions from settings (survives restart)`);
@@ -14888,7 +14907,9 @@ class AISBridgeApp extends Homey.App {
     const posTtl = this._LAST_KNOWN_POSITION_TTL_MS || 6 * 60 * 60 * 1000;
     let posExpired = 0;
     for (const [mmsi, entry] of this._lastKnownPositions.entries()) {
-      if (!entry || !Number.isFinite(entry.t) || posNow - entry.t >= posTtl) {
+      if (!entry || !Number.isFinite(entry.t) || posNow - entry.t >= posTtl
+          || entry.t - posNow > AIS_CONFIG.AISHUB.SEEN_MAX_FUTURE_SKEW_MS) {
+        // Granskningen L3: samma framtidsregel som laddningen.
         this._lastKnownPositions.delete(mmsi);
         posExpired++;
       }
