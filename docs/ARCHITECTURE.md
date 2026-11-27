@@ -1688,6 +1688,41 @@ båt.
   under tystnaden varnas efter passagen). Ingen gräns tar bort båda, och med 300 s kom
   ingen reservvarning efter passagen i fältkörningarna och deras varianter. Låst av scenarierna
   "(känd gräns, U70)".
+  **U81 (dirigentens beslut 2026-11-27, spår P omgång 10): U38 behålls med 300 s
+  även mot hela sommarbokslutet, och ingen av de prövade reglerna införs.**
+  Bokslutet räknade 195 av bankens 450 varningar som reservsläpp; de stod för
+  45 av 64 varningar utan passage inom en timme och 54 av 104 som kom mer än 15
+  min före. Mätt över bankens 25 korpusar, bankens åtta korpusar med båda
+  källorna en källa i taget och k1–k4 i alla tre varianterna:
+  (1) *Släppet bär garantin.* Med spärren kvar till nästa egna position blev 33
+  falska och 50 för tidiga varningar färre i banken, men 56 passager blev utan
+  varning och 38 fick den under 2 min före. Kön vid Järnvägsbron norrut visar
+  varför: Stridsbergsbron ligger 257 m efter, så en båt som inte varnas medan hon
+  väntar varnas först på första positionen bortom Järnvägsbron (en båt 4
+  augusti: 24,7 min före med släppet, 0,7 min utan).
+  (2) *Bara 64 av de 195 gäller grenen för en stilla båt.* 131 gällde en båt i
+  gång vid sista positionen, och för 74 av dem kom släppet högst 2 min efter
+  10-knopsfristen räknad ur sista positionen: där är det grundgarantin, inte
+  reservsläppet, som ger de tidiga och falska korten.
+  (3) *300 s ligger nära gränsen.* Den kortaste tysta passagen för en stilla båt
+  i underlaget var 373 s från sista positionen till korsningen (i ett glapp),
+  därefter 470 s: en båt låg nästan still 220 m norr om Stridsbergsbron, hördes
+  inte på 14 min och korsade Klaffbron, varnad 2,8 min före.
+  Förkastat, med det som fällde det: *spärren för en stilla båt 420 s* (2
+  passager under 2 min: 470 s-båten 0,8 min, en båt som lade ut strax efter
+  släppet 1,5 min); *600 s* (5 sämre: 470 s-båten 2,2 min och LIANNE 12/11 med
+  AISstream ensam 0,9 min efter passagen); *dubbla hennes längsta
+  mottagningsintervall, minst 300 s* (3 sämre: 470 s-båten 1,2 min efter
+  passagen); *inget släpp för en stilla båt* (31 sämre, 14 nya utan varning);
+  *håll en stilla båt så länge en kökamrat inom 300 m hörs stilla* och *håll en
+  stilla båt i bekräftad kö vid den andra målbron till nästa position* (ingen
+  försämring i inspelad trafik och två falska och två för tidiga färre var, men
+  utan tidsgräns: en båt som lägger ut tyst ur kön får ingen varning, i en byggd
+  värld och för köregeln också i buggjägarens värld 200 071, där 6,0 min före
+  blev ingen varning; köregeln med taket 600 s varnar den byggda båten 1,4 min
+  efter passagen). En utebliven varning väger tyngre än en för tidig (U17,
+  U24). Låst av scenariot "(U81)" i `runSyntheticScenarios.js`: i dag 168 s
+  före korsningen; 420 s, 600 s, det dubbla intervallet och köregeln fäller det.
 - **Kedjearmen efter en bekräftad vändning (fältprovet 10–13 november, familj
   B; granskningen och dirigentens beslut 2026-11-14):** k1 11 nov vände PILOT
   761 222 m norr om Stridsbergsbron efter 30 min stopp. Vändningen tömde
