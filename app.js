@@ -147,6 +147,10 @@ const BOAT_NEAR_TRIGGER_TIMEOUT_MS = 60 * 1000;
 // parametrar, och en extra parameter hade inte nått fram.
 const BOAT_NEAR_UNCONFIRMED = Symbol('boat_near-unconfirmed');
 
+// U72 (omgång 9, spår R): ett klocksteg bakåt som är större än detta loggas en
+// gång som [CLOCK_STEP]. Steget i sig är en känd gräns (se _checkClockStep).
+const CLOCK_STEP_LOG_MS = 60 * 1000;
+
 // P8-vaktens tystnadsgräns (helkodsgranskning runda 2, J30). Talet fanns i TVÅ
 // exemplar: removal-vägens lokala FEED_SILENT_GUARD_MS och UI-vägens
 // hårdkodade `5 * 60 * 1000`. Det är samma doktrin på båda ställena ("ansluten
@@ -15083,6 +15087,7 @@ class AISBridgeApp extends Homey.App {
       if (!isCurrent()) return;
       this._watchdogTimer = setTimeout(() => {
         if (!isCurrent()) return;
+        this._checkClockStep();
         const now = Date.now();
         if (now < target) {
           arm(nextSlotAfter(now));
@@ -15092,9 +15097,46 @@ class AISBridgeApp extends Homey.App {
         arm(nextSlotAfter(Date.now()));
       }, Math.max(1, target - Date.now()));
     };
+    this._clockStepRef = null;
     arm(nextSlotAfter(Date.now()));
 
     this.debug('✅ [COALESCING] Micro-grace coalescing system initialized');
+  }
+
+  /**
+   * U72 (omgång 9, spår R): KLOCKSTEG BAKÅT ÄR EN KÄND GRÄNS, men det ska synas
+   * i loggen. Appen mäter åldrar som Date.now() minus en stämpel. Ställs
+   * väggklockan bakåt blir åldrarna negativa och räknas som färska, medan
+   * Nodes timers går på monoton tid och inte påverkas. Mätt med ett steg på en
+   * timme när båtens AIS tystnar 4 minuter före Klaffbron: brotexten står kvar
+   * på "beräknad broöppning om 4 minuter" i 30 minuter (tills
+   * borttagningstimern tar båten) i stället för att bli "ETA okänd" efter 4–5
+   * minuter, och öppningsvarningens deadline skjuts upp lika mycket som
+   * steget, så varningen kom cirka 35 minuter efter att båten tagits bort.
+   * Vakthunden jämför därför väggklockans steg med den monotona klockans
+   * mellan två körningar och skriver en rad när väggklockan gått mer än
+   * CLOCK_STEP_LOG_MS bakåt. Referensen flyttas varje körning, så ett steg ger
+   * en rad. Steg framåt loggas inte. Metoden får aldrig kasta.
+   * @private
+   */
+  _checkClockStep() {
+    try {
+      const hr = process.hrtime();
+      const mono = hr[0] * 1000 + hr[1] / 1e6;
+      const wall = Date.now();
+      const ref = this._clockStepRef;
+      this._clockStepRef = { mono, wall };
+      if (!ref || !Number.isFinite(mono) || !Number.isFinite(wall)) return;
+      const stepMs = (wall - ref.wall) - (mono - ref.mono);
+      if (stepMs < -CLOCK_STEP_LOG_MS) {
+        this.log(
+          `🕰️ [CLOCK_STEP] Väggklockan gick cirka ${Math.round(-stepMs / 1000)} s bakåt mellan två kontroller `
+          + '— åldrar och deadlines som mäts med väggklockan förlängs lika mycket (känd gräns)',
+        );
+      }
+    } catch (error) {
+      // Diagnostik får aldrig stoppa vakthunden.
+    }
   }
 
   /**

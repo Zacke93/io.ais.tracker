@@ -3946,6 +3946,21 @@ källparitet råder. **TESTLÅS SOM LOSSADES, med spår:** `cog: 720` och
 Facitpåverkan är noll av konstruktion: 0 av 14 836 cog-fält i korpusdata ligger
 utanför 0–360 (1 373 null, 0 exakt 360).
 
+**Känd gräns: klocksteg bakåt (U72, omgång 9, spår R).** Appen mäter åldrar som
+`Date.now()` minus en stämpel, medan Nodes timers går på monoton tid. Ställs Homeys
+väggklocka bakåt blir åldrarna negativa och räknas som färska. Mätt med ett steg på en
+timme när båtens AIS tystnar fyra minuter före Klaffbron: brotexten står kvar på
+"beräknad broöppning om 4 minuter" i 30 minuter, tills borttagningstimern tar båten,
+i stället för att bli "ETA okänd" efter 4–5 minuter. Öppningsvarningens deadline
+skjuts upp lika mycket som steget, så varningen för Stridsbergsbron kom cirka
+35 minuter efter att båten tagits bort. Med tio minuters steg förskjuts allt tio
+minuter. Steg framåt (+10 och +120 min) och en väggklocka som står still gav inga fel.
+Att räkna åldrar på monoton tid avstods (ingrepp i hela kodbasen). Vakthunden jämför i
+stället väggklockans och den monotona klockans steg mellan två körningar
+(`_checkClockStep`) och skriver `[CLOCK_STEP]` en gång per steg när väggklockan gått
+mer än `CLOCK_STEP_LOG_MS` (60 s) bakåt, så att ett fältfall kan förklaras. Låst av
+`tests/r9-klocksteg-bakat-kand-grans.test.js` (märkt känd gräns).
+
 ## 9. Granskningsfynd (kvarvarande avvikelser i KODEN)
 
 §9.1–9.4 från helrevisionen 2026-07-05 var redan åtgärdade i koden när
