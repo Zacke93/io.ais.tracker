@@ -498,9 +498,12 @@ dummy-MMSI får samma text och notiser som före U69; enhetstesten står i
 
 MMSI normaliseras i samma inflöde (`normalizeMmsi`, omgång 9, spår R): en sträng med
 enbart siffror, där tal och sträng för samma båt ger samma nyckel och blanksteg tas
-bort. Det som inte är rena siffror efter det (`-1`, `1e9` som sträng, decimaltal) och
-MMSI 0 avvisas; ett kort men numeriskt MMSI behålls (felprogrammerade sändare sitter på
-riktiga båtar). Förut blev varje variant ett eget fartyg, och besöksminnet, som kräver
+bort. Det som inte är rena siffror efter det (`-1`, `1e9` som sträng, decimaltal), fler
+än nio siffror (talet `1e9` blir tio) och MMSI 0 avvisas; ett kort men numeriskt MMSI
+behålls utan nollutfyllnad (felprogrammerade sändare sitter på riktiga båtar). Känd gräns
+(granskningen L7): namnvägen (`_rememberVesselName`/`getVessel` i `_onStaticName`) och
+`noteVesselSeen` använder fortfarande `String(mmsi)`, så för en sändare med blanksteg i
+MMSI hamnar namnet på en annan nyckel än fartyget. Förut blev varje variant ett eget fartyg, och besöksminnet, som kräver
 nio siffror, skyddade dem inte mot dubbla notiser. Klienterna i `lib/connection/` rörs
 inte; båda avvisar redan MMSI 0. Låst av `tests/r9-mmsi-normalisering.test.js`.
 

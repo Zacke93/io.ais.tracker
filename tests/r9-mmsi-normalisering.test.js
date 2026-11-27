@@ -8,8 +8,8 @@ const AISBridgeApp = require('../app');
  * Omgång 9 (spår R, dirigentens beslut): MMSI i appens gemensamma inflöde blir
  * en sträng med enbart siffror. Tal och sträng för samma båt ger samma nyckel,
  * blanksteg tas bort, och det som inte är rena siffror efter det avvisas
- * (liksom MMSI 0, som källorna redan avvisar). Ett kort men numeriskt MMSI
- * behålls. Förut blev `-1`, `1e9` och ett MMSI med blanksteg egna fartyg.
+ * (liksom MMSI 0, som källorna redan avvisar, och fler än nio siffror). Ett kort
+ * men numeriskt MMSI behålls utan nollutfyllnad. Förut blev `-1`, `1e9` och ett MMSI med blanksteg egna fartyg.
  */
 describe('MMSI-normalisering i inflödet', () => {
   function makeApp() {
@@ -54,8 +54,12 @@ describe('MMSI-normalisering i inflödet', () => {
     expect(keyFor(app, '002650995')).toBe('002650995');
   });
 
-  test('motfall: talet 1e9 är ett heltal och blir siffersträngen', () => {
+  // Granskningen L6: ett MMSI har högst nio siffror.
+  test('fler än nio siffror avvisas, som tal och som sträng', () => {
     const app = makeApp();
-    expect(keyFor(app, 1e9)).toBe('1000000000');
+    for (const bad of [1e9, '1000000000', 999999999999, '999999999999', '0265099501']) {
+      expect(keyFor(app, bad)).toBeNull();
+    }
+    expect(keyFor(app, 999999999)).toBe('999999999');
   });
 });

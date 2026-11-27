@@ -415,8 +415,9 @@ function keepNewestCapped(items, stampOf, cap = PERSISTED_LOAD_CAP) {
  * Omgång 9 (spår R, dirigentens beslut efter U72): MMSI i appens gemensamma
  * inflöde blir en sträng med enbart siffror. Tal och sträng för samma båt ger
  * samma nyckel och blanksteg tas bort. Det som inte är rena siffror efter det
- * (`-1`, `1e9` som sträng, decimaltal) och MMSI 0 avvisas; MMSI 0 avvisas redan
- * av båda källorna. Ett kort men numeriskt MMSI behålls, eftersom
+ * (`-1`, `1e9` som sträng, decimaltal), fler än nio siffror (talet `1e9` blir
+ * tio siffror) och MMSI 0 avvisas; MMSI 0 avvisas redan av båda källorna. Ett
+ * kort men numeriskt MMSI behålls utan nollutfyllnad, eftersom
  * felprogrammerade sändare sitter på riktiga båtar. Förut blev varje sådan
  * variant ett eget fartyg, och besöksminnet (som kräver nio siffror) skyddade
  * dem inte mot dubbla notiser.
@@ -433,7 +434,8 @@ function normalizeMmsi(value) {
   } else {
     return null;
   }
-  if (!/^\d+$/.test(text) || /^0+$/.test(text)) return null;
+  // Granskningen L6: ett MMSI har högst nio siffror; längre avvisas.
+  if (!/^\d+$/.test(text) || /^0+$/.test(text) || text.length > 9) return null;
   return text;
 }
 
