@@ -609,6 +609,33 @@ och Kanalinfarten bokförs aldrig i `passedBridges`/`passedAt`. Taggen är
 INTERN: dedup, ETA (-1) och `already_passed` är oförändrade via
 `_isRetroactiveNotificationSource`; bara `message` och två loggrader skiljer.
 
+**Känd gräns: notiser när en enda källa bär trafiken (beslut U70, 2026-11-27).**
+Med bara AISstream saknades 13 notiser i fältkörningarna k1–k3 som båda
+källorna gav (AISHub ensam: 0; källornas helhetsbild står vid
+AISSourceMultiplexer i §1). **N1 (6, alla Stallbackabron):** appen har ingen
+position på ena sidan av bron inom området. Fyra båtar hördes sista gången
+1 000–2 400 m söder om bron och lämnade området norrut, en hördes första gången
+söder om bron i under 2 kn (U44 del 3) och en återföddes söder om bron efter 5 h
+utan position, så svepet begränsade passagefönstret till hennes senast kända
+läge. Utan position i zonen kommer ingen närmar-notis, och utan bevisad
+korsning ingen passagenotis. Ett glapp som slutar på andra sidan bron inom
+området ger däremot "passerade … under AIS-tystnad", också 6 min efter
+korsningen (stale-grinden räknar från när appen fick veta). **N2 (4):**
+lotsbåtarna lägger ut från kajen vid Kanalinfarten och nästa position ligger
+530–1 517 m bort; besöket från ankomsten är fortfarande notifierat och U51:s
+avgångsnotis kräver en rörelseposition i zonen. **N3 (3):** en vändning
+bekräftas inte i AISstreams glapp (två fix i rad i minst 2 kn), så förra resans
+passerade broar och besök står kvar: PRICKBJORN 19/11 vid Stallbackabron
+(ingen passagenotis för Stallbackabron, ingen närmar-notis för
+Stridsbergsbron) och PILOT 761 11/11 vid Stridsbergsbron (ingen passagenotis;
+samma förlopp som H2). Två notiser till som såg ut att saknas gick
+i själva verket, men med riktningen "okänd". Notiser som kommer senare med
+AISstream ensam kommer vid första positionen i zonen, i median 2,4–3,2 min
+senare. Ingen rättning är lättare att lita på än felet: N1 saknar en position att
+grunda en notis på, N2 skulle kräva en avgångsnotis 0,5–1,5 km från punkten,
+och N3 en svagare vändningsbekräftelse. N1 låses av scenariot "(känd gräns, U70)";
+U44 del 3 har egna scenarier.
+
 ### Kandidatval (:4022), dedup-lagren och tokens (`_triggerBoatNearFlowForBridge`:4424)
 
 Kandidatval: tröskel 300 m (FLOW_TRIGGER_DISTANCE_THRESHOLD). Källor i ordning
@@ -1462,6 +1489,74 @@ båt.
   Klaffbron. En vakt vid Olidebron mättes 2026-11-16 och infördes inte: den
   bröt 10-knopsgarantin för en förstakontakt som tystnar och går 8–10 kn (5–125 s
   mot 181–276 s); fältgranskningen 2026-11-14, F2.
+- **Känd gräns: en enda källa bär trafiken (beslut U70, 2026-11-27).** Den
+  övergripande bilden av källorna (AISHub ensam ger i stort sett samma utfall
+  som båda, AISstream ensam är klart sämre) står vid AISSourceMultiplexer i §1.
+  Här står vad det betyder för öppningsvarningen. Fältkörningarna k1–k4
+  (november 2026) spelades upp med båda källorna, med bara AISHub och med bara
+  AISstream; talen nedan är i den ordningen. AISstream hör bara cirka var
+  fjärde rapport från ett fartyg, med glapp på 1,5–3,3 min i median och 5–12
+  min i p90.
+  - **T1, 10-knopsdeadlinen löper ut i ett glapp (0 / 0 / 8).** Deadlinen
+    varnar 180 s före ankomst i 10 kn från senaste fixet. Med täta positioner
+    flyttas fristen hela tiden; med AISstream ensam löper den ut på en gammal
+    position och varningen kommer 3,5–20 min tidigare än med båda källorna
+    (VISTEN 21/11 Klaffbron 16,0 min före passagen mot 11,1).
+  - **T2, reservsläppet för en båt i gång (0 / 0 / 6).** Spärren vid en
+    tidigare bro släpps 300 s efter sista fixet. Med AISstream ensam ger det
+    varningar med "ETA okänd" 6–35 min för tidigt för båtar som sedan väntar
+    vid Järnvägsbron (VISTEN 21/11 Stridsbergsbron 33,1 min före passagen mot
+    1,2; ASPEN 23/11 34,8 mot 1,7).
+  - **T3, reservsläppet för en stilla båt, U38 (0 / 0 / 3).** Två av tre är
+    falska: PRICKBJORN 12/11 Klaffbron (passerade 4,5 h senare) och PRICKBJORN
+    20/11 Stridsbergsbron (passerade tre dygn senare), båda medan hon låg
+    stilla och AISstream var tyst i mer än 5 min. Båda har en syster som är
+    falsk även med båda källorna (Stridsbergsbron 12/11 08:30, se
+    fältgranskningen 5.1, och Klaffbron 20/11 07:44, avsnitt 14): AISstream
+    ensam lägger till varningen för den andra bron i samma avbrutna
+    anflygning.
+  - **H1, ingen spärr efter avgång från lång förtöjning (0 / 1 / 1).** U52
+    tömmer `passedBridges` och köposterna, och `_earlierBridgeAhead` räknar en
+    opasserad bro emellan bara med historik, köpost eller bekräftad vändning
+    (nästa punkt). PRICKBJORN 12/11 lade ut efter 3 h 53 min 460 m norr om
+    Stridsbergsbron; Klaffbron beväpnades utan spärr på ett 36 s gammalt
+    AISHub-fix med fristen 52 s bort, nästa AISHub-fix kom 14 s för sent, och
+    varningen gick 26,5 min före passagen i stället för 3,8. Med båda källorna
+    kom en AISstream-position 37 s före fristen.
+  - **H2 och H3, vändning vid kaj nära en bro (0 / 1 / 1).** PILOT 761 11/11 låg
+    222 m norr om Stridsbergsbron och vände söderut. Vändningen kräver två fix
+    i rad i minst 2,0 kn; AISHub gav 1,1–1,7 kn tills hon låg under bron, så hon
+    fick ingen målbro och ingen varning (med båda källorna 2,4 min före). Som
+    följd lades köposten vid Järnvägsbron först 77 m från bron, där hon sedan
+    låg 35 min; köbeviset (50 m anflygning) uppfylldes aldrig, och texten sa "En
+    båt på väg mot Klaffbron, beräknad broöppning om 13 minuter" i stället för
+    "En båt väntar vid Järnvägsbron på väg mot Klaffbron". Det är PILOT 761
+    11/11 som har textfelet, inte PRICKBJORN 12/11, vars text var densamma med
+    båda källorna.
+
+  Med båda källorna gick i fält ingen varning på en position äldre än 120 s
+  (74 av 74). I bankens sommartrafik med båda källorna (de åtta korpusarna som
+  har båda) gick 26 av 97 varningar på reservsläpp eller frist i ett glapp, och
+  15 av dem var falska mot rådatan: fritidsbåtar i klass B sänder var tredje
+  minut under 2 kn, så mekanismen finns där båtens egen sändare är gles.
+  **Prövat och förkastat (U70):** *P1, reservsläppet för en stilla båt efter
+  600 s* tog bort båda falska varningarna men flyttade LIANNE 12/11 med
+  AISstream ensam från 3,9 min före till 1,1 min efter passagen och ändrade 73
+  av 450 varningar i bankens 25 korpusar, med två ledtider ner till 1,4 min.
+  *P3, spärren för en båt i gång längre än 300 s (restiden i egen fart)* förde
+  T2-fallen 4–26 min närmare men gav 31 och 36 s ledtid i `replay:openings`
+  (golvet är 60 s), en varning efter passagen i banken och rött
+  `replay:synthetic`. *P2, avgång efter lång förtöjning får vändningsmärket*
+  rättade H1 utan att ändra något i inspelad trafik, men i en byggd värld (tyst
+  avgång i 9–10 kn genom tre broar) kom varningen 36–66 s före passagen i
+  stället för 202–232 s; en sen varning väger tyngre än en tidig. H2 och H3
+  lämnas: att bekräfta en vändning på svagare underlag ger falska vändningar
+  för förtöjda båtar vid broarna. **U38:s skäl efter mätningen:** 300 s ger med
+  AISstream ensam F26:s första fel (stilla eller köande båt varnas för tidigt; i
+  fält 16–35 min och två falska), och 600 s ger F26:s andra fel (en båt som går
+  under tystnaden varnas efter passagen). Ingen gräns tar bort båda, och med 300 s kom
+  ingen reservvarning efter passagen i fältkörningarna och deras varianter. Låst av scenarierna
+  "(känd gräns, U70)".
 - **Kedjearmen efter en bekräftad vändning (fältprovet 10–13 november, familj
   B; granskningen och dirigentens beslut 2026-11-14):** k1 11 nov vände PILOT
   761 222 m norr om Stridsbergsbron efter 30 min stopp. Vändningen tömde
