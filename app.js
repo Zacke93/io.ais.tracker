@@ -14722,9 +14722,11 @@ class AISBridgeApp extends Homey.App {
     // U29: AISstream-sidan larmar först över STREAM_ALERT_MS (25 min). Yttre
     // grindarna ovan (sSilence > SILENT_MS) står kvar — de bär loggraden, som
     // är fältdiagnostik och fortsatt ska visa tystnader från 15 min.
-    // N5 (förslag till ägaren, omgång 9 spår K): i läget 'both' kräver larmet
+    // U73 (förslag till ägaren, omgång 9 spår K): i läget 'both' kräver larmet
     // dessutom minst AISSTREAM_SILENCE_ALERT_MIN_HUB_FIXES nya AISHub-
-    // positioner sedan AISstreams senaste position (muxens beviskonto, U66).
+    // positioner sedan AISstreams senaste position (muxens beviskonto, U66),
+    // utom när tystnaden nått AISSTREAM_SILENCE_ALERT_EVIDENCE_CAP_MS (taket,
+    // granskningen N-1): då släpps larmet oavsett antalet.
     // AISstream hör 22–28 % av ett fartygs rapporter; med en förtöjd sändare
     // är 25 minuters tystnad normal och larmade nästan varje dygn i fält.
     // Utan beviskonto (bara AISstream, skuggläge, äldre stubbar) gäller U29
@@ -14732,7 +14734,8 @@ class AISBridgeApp extends Homey.App {
     // villkor. Samma variabel styr notisen, trappan och statusen (B2c).
     const streamEvidence = s && s.silenceEvidence;
     const streamEvidenceShort = !!streamEvidence && Number.isFinite(streamEvidence.hubNewFixes)
-      && streamEvidence.hubNewFixes < CONNECTION_ALERT.AISSTREAM_SILENCE_ALERT_MIN_HUB_FIXES;
+      && streamEvidence.hubNewFixes < CONNECTION_ALERT.AISSTREAM_SILENCE_ALERT_MIN_HUB_FIXES
+      && sSilence < CONNECTION_ALERT.AISSTREAM_SILENCE_ALERT_EVIDENCE_CAP_MS;
     const streamCrossSilent = streamSilentHubFresh && sCross > STREAM_ALERT_MS && !streamEvidenceShort;
     const hubCrossSilent = hubSilentStreamFresh && hCross > SILENT_MS;
 
@@ -14826,11 +14829,12 @@ class AISBridgeApp extends Homey.App {
         // ska komma. Bara när grannen levererar (annars larmar grenen inte
         // alls). Läggs sist så befintliga greppmönster står kvar.
         + `${streamSilentHubFresh && !streamCrossSilent && sCross <= STREAM_ALERT_MS ? ` [under larmgränsen ${Math.round(STREAM_ALERT_MS / 60000)} min (U29)]` : ''}`
-        // N5: över tidsgränsen men för lite AISHub-bevis — säg det, så att
+        // U73: över tidsgränsen men för lite AISHub-bevis — säg det, så att
         // fältläsaren inte letar efter en notis som inte ska komma.
         + `${streamSilentHubFresh && !streamCrossSilent && sCross > STREAM_ALERT_MS && streamEvidenceShort
           ? ` [AISHub ${streamEvidence.hubNewFixes} nya positioner under tystnaden, larmet kräver `
-            + `${CONNECTION_ALERT.AISSTREAM_SILENCE_ALERT_MIN_HUB_FIXES} (N5)]`
+            + `${CONNECTION_ALERT.AISSTREAM_SILENCE_ALERT_MIN_HUB_FIXES}, senast vid `
+            + `${Math.round(CONNECTION_ALERT.AISSTREAM_SILENCE_ALERT_EVIDENCE_CAP_MS / 60000)} min (U73)]`
           : ''}`,
       );
       // F1: NOTISERNA är gatade på leveransbeviset — och deras text HÄRLEDS ur

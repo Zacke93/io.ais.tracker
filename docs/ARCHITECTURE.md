@@ -5728,32 +5728,43 @@ var för sig, nedkopplad socket, pågående
 omstarter på ett dygn, en AISstream som dör mitt i trafik ger omstart vid
 20 min).
 
-**AISstream-larmet kräver belägg från AISHub (N5)** (förslag till ägaren,
-omgång 9 spår K; U29 är ägarens beslut och den här ändringen gäller först
-efter ägarens ja). I läget `both` kräver basnotisen `aisstream:silent`,
-trappan (1 h, 4 h, dygn) och statusen `degraded`, med samma villkor för alla
-tre (B2c: `streamCrossSilent`), utöver U29:s 25 min att AISHub sedan AISstreams
-senaste position har levererat minst
+**AISstream-larmet kräver belägg från AISHub (U73)** (förslag till ägaren,
+omgång 9 spår K, i första varvet kallat N5; U29 är ägarens beslut och den här
+ändringen gäller först efter ägarens ja). I läget `both` kräver basnotisen
+`aisstream:silent`, trappan (1 h, 4 h, dygn) och statusen `degraded`, med samma
+villkor för alla tre (B2c: `streamCrossSilent`), utöver U29:s 25 min att AISHub
+sedan AISstreams senaste position har levererat minst
 `CONNECTION_ALERT.AISSTREAM_SILENCE_ALERT_MIN_HUB_FIXES` (40) nya positioner
-(muxens beviskonto, se U66). Utan beviskonto (bara AISstream, skuggläget) och
-när AISHub inte svarar gäller U29:s villkor som förut. *Mätningen:* på 476 h
-inspelad trafik (fältets fyra novemberkörningar och bankens åtta
+(muxens beviskonto, se U66; även fixar som fusionen avvisar räknas). *Taket
+(granskningen N-1):* när AISstream varit tyst i
+`AISSTREAM_SILENCE_ALERT_EVIDENCE_CAP_MS` (150 min) släpps larmet oavsett antalet;
+vakten har då startat om senast vid U66:s tak 120 min. Utan taket kom larmet för
+en död AISstream efter 352 min när AISHub svarade var fjärde poll, och i värsta
+fall efter cirka 10 h (40 positioner à en per 15 min, så länge AISHub räknas som
+levererande). Utan beviskonto (bara AISstream, skuggläget) och när AISHub inte
+svarar eller inte levererar gäller U29:s villkor som förut. *Mätningen:* på
+476 h inspelad trafik (fältets fyra novemberkörningar och bankens åtta
 tvåkällskorpusar) gav U29 ensam 9 meddelanden, varav 2 vid verkliga fel (ett
 nätavbrott med AISstream i timvis backoff, och sommarkorpusen där AISstream dog
 2026-08-05); de 7 andra kom när bara förtöjda båtar fanns och AISstream
-levererade igen inom 1–14 min. Med N5: 2 meddelanden, båda verkliga, 0 falska.
+levererade igen inom 1–14 min. Med U73: 2 meddelanden, båda verkliga, 0 falska;
+taket slår aldrig till i den inspelade trafiken (ingen frisk tystnad på 150 min).
 I fältprov 3 var U29:s villkor uppfyllt i 28 av 37 tystnader; dygnsspärren
-släppte igenom ett per dygn. *Priset:* en död AISstream syns senare när
-trafiken är gles (en förtöjd båt som rapporterar var tredje minut: cirka 2 h;
-en tyst sommarkorpus i median 3–4,5 h), och under den tiden ger AISHub ensam i
-stort sett samma utfall som båda källorna (se modulen
-AISSourceMultiplexer). *Kända gränser:* (1) när larmet släpps efter mer än
-1 h går trappans redan passerade nivåer ut i samma tick som basnotisen (två
-notiser samtidigt), som när ett avbrott upptäcks sent; (2) gränsfallet 14/11
-hade 31 nya AISHub-positioner på 23,3 min, alltså 9 under gränsen; (3) 40 ligger
-över U66:s 31, så att vakten hinner starta om AISstream före larmet, som U29
-förutsätter. Loggraden `[FEED_SILENT]` säger när tiden passerats men beviset
-saknas. Låst av `tests/n5-larm-bevis.test.js`.
+släppte igenom ett per dygn. *Priset:* en död AISstream syns senare när trafiken
+är gles: med en förtöjd båt som rapporterar var tredje minut efter cirka 2 h
+(40 nya positioner), senast efter 150 min; en lugn vintervecka i median cirka
+1,5 h. Under den tiden ger AISHub ensam i stort sett samma utfall som båda
+källorna (se modulen AISSourceMultiplexer). *Samspelet med U66:* larmet kommer
+nästan alltid efter vaktens omstart (31 < 40, 120 < 150); kommer det före startar
+vakten om i samma tick (U66, K2). *Kända gränser:* (1) när larmet släpps efter
+mer än 1 h går trappans redan passerade nivåer ut i samma tick som basnotisen
+(två notiser samtidigt), som i basen när ett avbrott upptäcks sent (fältprov 1,
+11/11 06:55: `:1h`, `:4h` och basnotisen inom 17 ms). Att i stället markera
+passerade nivåer som skickade rör ägarens trappa och är inte gjort (granskningen
+N-2). (2) Gränsfallet 14/11 hade minst 31 nya AISHub-positioner på 23,3 min,
+under gränsen 40. (3) Ett klocksteg bakåt skjuter upp taket (U72). Loggraden
+`[FEED_SILENT]` säger när tiden passerats men beviset saknas. Låst av
+`tests/u73-larm-bevis.test.js`.
 
 **Texten utan diagnos när anslutningen bevisligen lever.** "Halvdöd" var
 falskt varje gång i fält: nästa meddelande kom på samma socket. När socketen

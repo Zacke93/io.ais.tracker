@@ -2,7 +2,7 @@
 
 /**
  * =============================================================================
- * N5 (förslag till ägaren, omgång 9 spår K): TIDSLINJEMEDDELANDET OCH STATUSEN
+ * U73 (förslag till ägaren, omgång 9 spår K): TIDSLINJEMEDDELANDET OCH STATUSEN
  * "DEGRADERAD" FÖR AISSTREAM-TYSTNAD KRÄVER BELÄGG FRÅN AISHUB
  * =============================================================================
  *
@@ -10,8 +10,10 @@
  * 4 h, dygn) och statusen 'degraded' går ut när AISstream varit tyst i 25 min
  * medan AISHub levererar. På 476 h inspelad trafik gav villkoret 9
  * meddelanden; 2 pekade på verkliga fel, 7 kom när bara förtöjda båtar fanns
- * och AISstream levererade igen inom 1–14 min. N5 kräver dessutom minst 40
- * nya AISHub-positioner under tystnaden (2 meddelanden, båda verkliga).
+ * och AISstream levererade igen inom 1–14 min. U73 kräver dessutom minst 40
+ * nya AISHub-positioner under tystnaden (2 meddelanden, båda verkliga), men
+ * släpper larmet senast vid 150 min tystnad (taket, granskningen N-1).
+ * Förslaget hette N5 i första varvet; namnet krockade med en äldre post.
  * Samma villkor för notisen, trappan och statusen (B2c). Utan beviskonto
  * (bara AISstream, skuggläge) gäller U29 som förut.
  *
@@ -95,7 +97,8 @@ const MOORED2 = { mmsi: 211000002, lat: 58.2711, lon: 12.2712 };
  * AISHub-läget. `boats`: [{ mmsi, lat, lon, sog, periodMs }], där fixtiden byts
  * var periodMs (en ny rapport); `mode`: 'ok' | 'down' | 'empty'.
  */
-const hub = { mode: 'ok', boats: [] };
+const hub = { mode: 'ok', boats: [], every: 1 };
+let pollNo = 0;
 
 function hubTime(periodMs) {
   const d = new Date(Math.floor(Date.now() / periodMs) * periodMs);
@@ -105,6 +108,12 @@ function hubTime(periodMs) {
 }
 
 function hubResponse() {
+  pollNo++;
+  if (hub.mode === 'every' && pollNo % hub.every !== 0) {
+    const err = new Error('connect ETIMEDOUT');
+    err.code = 'ETIMEDOUT';
+    return Promise.reject(err);
+  }
   if (hub.mode === 'down') {
     const err = new Error('connect ENETUNREACH 1.2.3.4:443');
     err.code = 'ENETUNREACH';
@@ -245,6 +254,8 @@ beforeEach(() => {
   FakeWS.instances.length = 0;
   FakeWS.mode = 'ok';
   hub.mode = 'ok';
+  hub.every = 1;
+  pollNo = 0;
   hub.boats = [MOORED, MOORED2];
   rigs = [];
 });
@@ -260,10 +271,27 @@ afterEach(() => {
 const sent = (rig) => rig.ev.filter((e) => e.k !== 'STATUS');
 const status = (rig) => rig.ev.filter((e) => e.k === 'STATUS');
 
-describe('N5: AISstream-larmet kräver 40 nya AISHub-positioner under tystnaden', () => {
-  test('konstanten är 40', () => {
+describe('U73: AISstream-larmet kräver 40 nya AISHub-positioner under tystnaden, senast vid 150 min', () => {
+  test('konstanterna: 40 nya positioner, tak 150 min', () => {
     expect(CONNECTION_ALERT.AISSTREAM_SILENCE_ALERT_MIN_HUB_FIXES).toBe(40);
+    expect(CONNECTION_ALERT.AISSTREAM_SILENCE_ALERT_EVIDENCE_CAP_MS).toBe(150 * MIN);
   });
+
+  test('taket (granskningen N-1): AISHub svarar bara var 4:e poll — larmet senast strax efter 150 min', async () => {
+    const rig = build();
+    const S = await warm(rig);
+    hub.mode = 'every';
+    hub.every = 4;
+    hub.boats = [{ ...MOORED, periodMs: 195 * SEC }];
+    await run(rig, S + 149 * MIN);
+    expect(sent(rig).filter((e) => e.k === 'aisstream:silent')).toEqual([]);
+    await run(rig, S + 3 * HOUR);
+    const base = sent(rig).filter((e) => e.k === 'aisstream:silent');
+    expect(base).toHaveLength(1);
+    const at = (base[0].t - S) / MIN;
+    expect(at).toBeGreaterThanOrEqual(150);
+    expect(at).toBeLessThanOrEqual(156);
+  }, 300000);
 
   test('en förtöjd båt var 3:e min: inget larm och ingen "Degraderad" vid 26 min, larm när beviset når 40', async () => {
     hub.boats = [{ ...MOORED, periodMs: 3 * MIN }];
