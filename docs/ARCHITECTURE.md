@@ -3099,7 +3099,20 @@ vobbel efter hoppet en falsk "närmar sig Kanalinfarten"). Två ställen är med
 lämnade. Öppningslagrets kajankare kan få hoppets punkt när den första stilla fixen efter
 rörelse är ett hopp, men proberna gav samma varningar och notiser som utan hopp.
 Stillhetsankaret (`_stillnessAnchor`) kan också få hoppets punkt, men nästa stilla fix
-rättar det. Låst av `tests/o10-hopp-sist-kand.test.js`.
+rättar det. Känt pris i graven (U86): är den sista positionen ett obekräftat hopp sparas
+den senaste rena positionen, och ingen grav alls om ingen ren finns. Var hoppet verkligt
+och båten hörs igen vid hoppets punkt ärver hon då inte gravens tillstånd; för en båt utan
+fartgivare kan öppningsvarningarna utebli. Kedjan (flaggat hopp, radering direkt efter,
+återfödelse inom 15 min) har aldrig setts i inspelad trafik: banken och fältkörningarna har
+ett enda flaggat hopp (OSPREY, 2026-06-02), och det var en verklig förflyttning som nästa
+position bekräftade. Kajbokföringens bredare predikat räknar också `_positionUncertain`
+med orsakerna `uncertain_movement` och `stop_after_transit` som osäkra, vilket graven och
+kajkartan inte gör. Priset (O3-2): för en båt där varje position är osäker raderas posten
+inte när hon lämnar närområdet, utan står kvar tills stillhetsminnet går ut efter 2 h.
+Grinden blir då strängare, inte falskare. Inte prövat (O3-3): reseankaret
+(`_journeyStartLat`) på vändnings-, ACCELERATED- och NEW_JOURNEY-vägarna, och
+ETA-räknarens minnen. Att två ställen är medvetet lämnade betyder alltså inte att alla
+andra är prövade. Låst av `tests/o10-hopp-sist-kand.test.js`.
 
 **Tak vid laddning (U72, omgång 9, spår R).** `persistent_recent_triggers`,
 `last_known_positions`, `quay_stable_ledger` och `learned_mooring_spots` läser högst

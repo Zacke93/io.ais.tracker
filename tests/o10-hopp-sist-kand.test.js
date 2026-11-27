@@ -7,6 +7,7 @@ const App = require('../app');
 const { generateScenario, BASE_TIME_MS } = require('./replay-validation/scenarioGenerator');
 const { BRIDGES } = require('../lib/constants');
 const geometry = require('../lib/utils/geometry');
+const GPSJumpAnalyzer = require('../lib/utils/GPSJumpAnalyzer');
 
 /**
  * U84 (omgång 10, spår O, ärende O2): en obekräftad GPS-hoppposition blir inte
@@ -281,6 +282,84 @@ describe('U84: obekräftat hopp som sist känd position', () => {
     }
     await hold(still, 10);
     expect(notices().slice(n0).filter((n) => n.bridge === 'Kanalinfarten')).toHaveLength(0);
+  });
+
+  // O3, andra varvet: kajbokföringens regel prövad direkt på bokföringen
+  // (_noteQuayStability), så att varje led har ett eget test.
+  //
+  // Predikatet är `_gpsJumpDetected || _positionUncertain`, det bredare: samma
+  // prövning som öppningslagrets band i samma funktion, som redan gått i fält.
+  // Graven och kajkartan använder needsPassageConfirmation, som bara räknar
+  // _positionUncertain med orsaken medium_movement_speed_mismatch. Skillnaden är
+  // orsakerna uncertain_movement och stop_after_transit: här räknas de som
+  // osäkra. Känd gräns: för en båt där varje position är osäker raderas posten
+  // inte när hon lämnar närområdet, utan står kvar tills stillhetsminnet
+  // (QUAY_DEPARTURE_GATE.MEMORY_MS, 2 h) går ut. Grinden blir då strängare,
+  // inte falskare.
+  function kajfix(mmsi, lat, lon, flaggor = {}) {
+    return {
+      mmsi,
+      lat,
+      lon,
+      sog: 0,
+      cog: 0,
+      timestamp: Date.now(),
+      fixTs: Date.now(),
+      fixFeed: 'aisstream',
+      _moored: false,
+      _gpsJumpDetected: false,
+      _positionUncertain: false,
+      ...flaggor,
+    };
+  }
+
+  function kajstart(mmsi) {
+    const { TRIGGER_POINTS } = require('../lib/constants');
+    const tp = TRIGGER_POINTS.kanalinfarten;
+    const resa = journey(mmsi, 'PROV KAJREGEL');
+    const still = resa.find((x) => x.lat < tp.lat && geometry.calculateDistance(x.lat, x.lon, tp.lat, tp.lon) < 280);
+    app._noteQuayStability(kajfix(mmsi, still.lat, still.lon));
+    expect(app._quayStableLedger.get(mmsi).lat).toBe(still.lat);
+    return { tp, still };
+  }
+
+  test('kajbokföringen: ett stilla hopp INOM närområdet flyttar inte positionen', async () => {
+    await start({});
+    const MMSI = '910030014';
+    const { tp, still } = kajstart(MMSI);
+    // Hoppet landar 330 m norr om Kanalinfarten, alltså inom 500 m.
+    const inne = { lat: tp.lat + 0.003, lon: tp.lon };
+    expect(geometry.calculateDistance(inne.lat, inne.lon, tp.lat, tp.lon)).toBeLessThan(500);
+    await jest.advanceTimersByTimeAsync(MIN);
+    app._noteQuayStability(kajfix(MMSI, inne.lat, inne.lon, { sog: 0.2, _gpsJumpDetected: true }));
+    const post = app._quayStableLedger.get(MMSI);
+    expect(post.lat).toBe(still.lat);
+    expect(post.lon).toBe(still.lon);
+    // En ren stilla fix på samma punkt flyttar positionen som förut.
+    await jest.advanceTimersByTimeAsync(MIN);
+    app._noteQuayStability(kajfix(MMSI, inne.lat, inne.lon));
+    expect(app._quayStableLedger.get(MMSI).lat).toBe(inne.lat);
+  });
+
+  test('kajbokföringen: en osäker position utan hoppflagga varken raderar eller flyttar posten', async () => {
+    await start({});
+    const MMSI = '910030015';
+    const { tp, still } = kajstart(MMSI);
+    const osaker = { _positionUncertain: true, _positionAnalysis: { reason: 'uncertain_movement' } };
+    // Fixen är inget obekräftat hopp i needsPassageConfirmations mening; det är
+    // just den skillnaden testet låser.
+    expect(GPSJumpAnalyzer.needsPassageConfirmation(kajfix(MMSI, tp.lat, tp.lon, osaker))).toBe(false);
+    await jest.advanceTimersByTimeAsync(MIN);
+    app._noteQuayStability(kajfix(MMSI, tp.lat + 0.003, tp.lon, osaker));
+    expect(app._quayStableLedger.get(MMSI).lat).toBe(still.lat);
+    await jest.advanceTimersByTimeAsync(MIN);
+    app._noteQuayStability(kajfix(MMSI, still.lat - 0.02, still.lon, osaker));
+    expect(app._quayStableLedger.has(MMSI)).toBe(true);
+    expect(app._quayStableLedger.get(MMSI).lat).toBe(still.lat);
+    // En ren fix utanför närområdet raderar posten som förut.
+    await jest.advanceTimersByTimeAsync(MIN);
+    app._noteQuayStability(kajfix(MMSI, still.lat - 0.02, still.lon));
+    expect(app._quayStableLedger.has(MMSI)).toBe(false);
   });
 
   // Ingen ren position: en kedja av obekräftade hopp (fram och tillbaka mellan
