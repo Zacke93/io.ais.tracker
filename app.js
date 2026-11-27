@@ -5719,6 +5719,9 @@ class AISBridgeApp extends Homey.App {
       // eller updateVessel; uppspelningen går genom samma ingång och ignorerar
       // den på samma ställe. Klassningen läser samma MMSI-sträng som resten av
       // ingången; felformade MMSI klassas inte av hjälparen (valideringens sak).
+      // Vid sammanslagningen med spår R, som normaliserar MMSI på just de här
+      // raderna: klassningen ska läsa den normaliserade strängen (mmsiStr), inte
+      // message.mmsi.
       const nonVesselClass = nonVesselMmsiClass(mmsiStr);
       const normalizedSog = Number.isFinite(message.sog) ? message.sog : null;
       const normalizedCog = Number.isFinite(message.cog) ? message.cog : null;

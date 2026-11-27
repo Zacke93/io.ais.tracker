@@ -24,6 +24,8 @@ describe('U69: nonVesselMmsiClass', () => {
     ['972219001', 'MOB'],
     ['974219001', 'EPIRB-AIS'],
     ['979219001', 'AMRD grupp B'],
+    // Nödsändarna och AMRD har ingen landskod: de klassas också med ogiltig MID på den platsen.
+    ['970010001', 'AIS-SART'], ['972010001', 'MOB'], ['974010001', 'EPIRB-AIS'], ['979000001', 'AMRD grupp B'],
     ['992191001', 'sjömärke'],
     ['002191000', 'kuststation'],
     ['021910001', 'gruppanrop'],
