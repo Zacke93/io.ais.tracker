@@ -4333,3 +4333,585 @@ steg gav slutkod 0: lint, `replay:all` (alla låsta korpusar matchar facit), de 
 7 195 godkända, 2 överhoppade), buggjägarens självtest och snabbjakten (0 skillnader mot omgång
 8:s rapport); arbetsträdet var rent. Slutbatteriet med nattjakten ovan kördes på samma kod i
 `app.js` och `lib/`: den är lika mellan den körningen (`927d98d`) och `e40f856`.
+
+## 19. Omgång 10, vid sidan av fältprov 4: 27 november 2026
+
+Tillagt 2026-11-27. Omgång 9 pushades till `main` (`a7e83bb`) samma dag, och fältprov 4 startades
+på den versionen. Efter beskeden om omgång 9 frågade ägaren om det fanns mer att rätta innan nästa
+fältprov ("känns inte som appen är så robust just nu"), och invände mot att sommartrafiken inte
+skulle gå att pröva förrän till sommaren: "vi har ju data från i somras och kan därigenom simulera
+mycket av det och se svagheter/styrkor". Dirigentens svar var att inget känt fel med en säker
+rättning stod orättat, och att de verkliga svagheterna var den sena varningen efter väntan vid
+Järnvägsbron, nätstopp, omstarter och sommartrafikens glesa sändare. Ägaren hade rätt om sommaren:
+den inspelade sommartrafiken spelas upp i varje batteri, men batteriet säger bara att utfallet är
+oförändrat, och ett samlat bokslut över om utfallet var rätt hade aldrig gjorts.
+
+Ramarna var desamma som i omgång 9: huvudkopian, där fältprovets loggskript körs, rördes inte; allt
+arbete gick i egna arbetskopior utgångna från `a7e83bb`; tunga körningar gick genom en kö med sänkt
+prioritet; varje ändring fick en oberoende granskare; inga tillägg utanför uppdraget; ingen push
+utan ägarens besked. Besluten U78–U86 fattade dirigenten på ägarens uppdrag, och ägaren kan ändra
+vart och ett. Alla tider är UTC om inget annat sägs.
+
+Sju utrednings- och rättningsspår och en förstudie, och därefter sammanslagningen på grenen
+`omg10/integration`:
+
+- **Genomgången av fältprov 3 (F):** hela körningen, 67,7 timmar (19.1).
+- **Sommarbokslutet (M):** appen på `main` uppspelad mot all inspelad trafik och dömd mot rådatan
+  (19.2).
+- **Den sena varningen efter väntan vid Järnvägsbron (J):** ingen ny regel (U79); den kända gränsen
+  omskriven med mätningen och ett scenario (19.3).
+- **När broarna öppnar (ÖT):** ingen klockregel (U80); en ny känd gräns, "appen vet inte när bron
+  öppnar" (19.4).
+- **Reservsläppet (P):** behålls med 300 s (U81); skälet omskrivet och ett scenario (19.5).
+- **Nätstopp (N):** ingen kodändring (U78); bilden av vad klienten gör rättad och låst med ett test
+  (19.6).
+- **Omstarter (O):** en ordnad omstart sparar de levande båtarnas sista positioner (O1, U83), ett
+  GPS-hopp sparas inte heller vid radering (U84) eller på något annat ställe där en position sparas
+  som belägg (O3, U86), ankomstspärren är känd gräns (U82), och omstartssvepet blir ett stående
+  verktyg (19.7).
+- **Förstudien om resetillståndet (RT):** ska båtarnas rörelsebevis, målbro och riktning sparas
+  över en omstart? Nej (U85, 19.7).
+
+Spåren F och M ändrade ingenting i repot. Spåren N, J, ÖT och P ändrade ingen appkod; spår O är
+omgångens enda appkod (`app.js` och `lib/services/VesselDataService.js`). I integrationsgrenen: N
+`5035335`, `ebfd499`; J `b11909d`, `a478e9f`; ÖT `738abe3`; P `4492c46`, `31e4e64`; radhänvisningarna
+efter J, ÖT och P i `ce73d94`, `edfe453` och `9c38465`; O `b34d22e`, `907b7d6`, `6fe1bcf`,
+`d104adb`, `637fd90`, `f4a16f8`, `5c9cf76`, `c489af6`, `8f950a1`; antalet scenarier i
+`49299a8`; O3 `ab6ae95`, `2f5c609`, `3b814b7`, `4df8854`, `b795226`, `061d612` och `489b419`, med
+radhänvisningarna efter O3 i `611ed4f` och `647ca6d`.
+
+### 19.1 Fältprov 3 i sin helhet
+
+Körningen gick 2026-11-24 14:46 – 2026-11-27 10:26 (67,7 timmar) på `a0d8706` och stoppades
+ordnat. 18.1 gällde de första 56 timmarna; det här är hela körningen.
+
+- **Notiser och varningar.** Åtta fartyg gick genom kanalen, ett i taget (aldrig två samtidigt).
+  Alla 48 notiser kom, sex per fartyg, med rätt bro och riktning och ingen extra; 38 av 40 mätbara
+  notiser låg inom en minut från den utlovade tiden. Alla 16 öppningsvarningar kom före passagen
+  och ingen var falsk. Ledtiden, här och i resten av avsnittet tiden från varningen till att båten
+  korsar brolinjen enligt rådatan, var som kortast 130 och 131 s (punkt 1 nedan). Genomgången av
+  hela provet angav ledtiderna 130–626 s med korsningen räknad på tiderna då positionerna togs
+  emot. Det här avsnittet räknar på positionernas egna tider, vilket ger LIDAN 131 s i stället för
+  147 s; positioner från AISHub är upp till en halv minut gamla när de tas emot. Den utlovade
+  tiden var som mest 3,4 minuter fel (INGRID B: lovat 7, blev 10,4).
+- **Fältet och uppspelningen är lika.** 48 av 48 notiser, 16 av 16 varningar och 157 av 157
+  brotexter med samma innehåll; två textbyten kom 30 s senare i uppspelningen, vilket är
+  uppspelningens kända tidsstegning. Fassvepet är grönt. Den nya versionen (`a7e83bb`) ger samma
+  notiser och varningar; bara räddningsflygets tre textrader försvinner.
+- **Driften var stabil.** En appstart, inga krascher, minnet 14,4 → 19,9 MB och plant (0,03 MB per
+  timme dygn 2–3), inga fel utöver AISstreams utlöpta handskakningar, och alla 64 flödeskort
+  lyckades.
+
+Det som var fel för användaren, i allvarsordning:
+
+1. **Sen varning för Stridsbergsbron norrut efter väntan vid Järnvägsbron.** LIDAN (26/11) och
+   SYLVIA (27/11) väntade söder om Järnvägsbron, stilla (under 0,5 kn) i 15 respektive 33
+   minuter och i kö (under 1 kn) i 18 respektive 37 minuter. De fick varningen för
+   Stridsbergsbron med ledtiden 131 respektive 130 s, ungefär två minuter efter att de börjat
+   röra sig. Öppningslagret höll Stridsbergsbron bakom Järnvägsbron hela väntan och släppte först
+   på positionen där båten låg 27–36 m söder om Järnvägsbron i över 2,8 kn. Mekanismen är utredd i 19.3.
+2. **Restiden före väntan vid Järnvägsbron.** Innan de stannade visade texten "om 10 → 7" (LIDAN)
+   och "om 11 → 7" (SYLVIA) när 30–20 respektive 50–40 minuter återstod, och notisen för
+   Järnvägsbron sa "om 7" och "om 5" för båtar som korsade efter 20 och 40 minuter. Det är de två
+   enda av 40 mätbara notiser som var mer än en minut fel. Appen har ingen modell för väntan före
+   Järnvägsbron; restiden räknas på farten (14.6, punkt 1).
+3. **Räddningsflyget LIFEGUARD 007** gav 15,3 minuter falsk text (5,3 min "strax" och 10 min "ETA
+   okänd"). Borta i den nya versionen (U69).
+4. **Hålen i loggströmmen.** Två hål, ingen kostnad för användaren. Det första (25/11 20:09:31,
+   78,6 s) tappade en AISHub-position, troligen INGRID B:s; uppspelningen utan den ger samma notiser
+   och texter. Det andra (27/11 02:14:00, 142,3 s) är nytt i sitt slag: AISHub-räknaren för nätfel
+   gick från 0 till 1 just då (det enda nätfelet på 67,7 timmar; fältprov 2 hade 0 på 133), och
+   AISstream-anslutningen byttes ut inne i hålet. Slutsatsen att Homey kort tappade nätet, och
+   därmed både internet och loggströmmen, är antagen, inte bevisad. De nio tidigare hålen hade
+   oförändrad räknare.
+5. **AISstream var fortsatt gles.** 48 omstarter av vakten (17 per dygn mot 2,7 i fältprov 2), 113
+   utlöpta handskakningar (0) och 3 tidslinjemeddelanden. Alla omstarter kom efter 20–21 minuters
+   tystnad medan AISHub bara levererade förtöjda båtar eller båtar på väg ut, och AISstream dog
+   aldrig (längsta tystnad 54 minuter). Simulerat på de råa ankomsterna hade den nya versionen gett
+   0 omstarter (U66; AISHub levererade som mest 23 positioner under en tystnad, kravet är 31) och 0
+   meddelanden (U73).
+6. **Lågt: för hög siffra vid inbromsning före Stridsbergsbron söderut.** INGRID B saktade in från
+   6 till 2,1 kn och siffran steg "8 → 9 → 10"; 7 minuter av hennes text var mer än 2 minuter för
+   hög. KINNE samma mönster i mindre skala (lovat 7, blev 9,9).
+
+**Brotexten** för de åtta fartygen, klassad var 30:e sekund mot rådatan: 221 av 270,5 minuter
+rätt. Felen är 22,5 minuter för låg siffra före väntan vid Järnvägsbron (punkt 2), 12 minuter för
+låg siffra längst norrut i hög fart, 13 minuter för hög siffra vid inbromsning (punkt 6), 0,5
+minut "strax" efter passagen och 1,5 minut vänttext medan en båt gled in. Gränserna för rätt
+(inom 2 minuter eller 25 %; "strax" om högst 3 minuter återstod) är genomgångens, inte appens.
+Efter varje målbropassage bytte texten inom 58 s.
+
+**Mätlistan från 17.9 och 18.8:** "väntar vid <målbro>" (U65) visades 0 gånger, eftersom ingen båt
+låg still inom 300 m från en målbro; vänttexten vid Järnvägsbron var rätt i 51 av 52,5 minuter. 0
+växlingar till "strax" på ett fartfix, 0 passager under vänttext, 0 köer vid Kajen, aldrig två
+båtar i texten. Ingen båt i texten låg mer än 32 m från farledslinjen (verktygens linje; appen har
+ingen). PRICKBJORN lade ut efter 927 minuter vid Kanalinfarten och gick söderut utanför kanalen;
+appen släppte förtöjningen och förra resan, och ingen notis gick ut, vilket var rätt. Restiden i
+notiserna var bättre än i fältprov 2 (95 % inom en minut mot 72 %), men nästan alla båtar gick
+jämnt utan väntan.
+
+**Körningen kan inte låsas som korpus.** En AISHub-position saknas (hål 1) och kan inte
+återskapas, `a0d8706` har ingen fångstjournal som visar att inget mer saknas, och det finns ingen
+stoppfil. Som fältbevis är den god; som facit får den inte användas.
+
+### 19.2 Sommarbokslutet
+
+Appen på `main` spelades upp mot bankens 25 inspelade körningar (516 timmar räknat från varje
+körnings start till dess sista position, 24 körningar från maj–september 2026 och en från
+november), och varje öppningsvarning, notis och brotext dömdes mot rådatan: när båtarna korsade
+brolinjen och om de låg still. Körningarna innehöll 444 passager av Klaffbron och Stridsbergsbron
+(436 från sommaren) och 1 212 passager av alla broar och Kanalinfarten. Därtill fältproven k1–k4
+(november, båda källorna, 255 timmar räknat på samma sätt; loggarna är tillsammans 266,8 timmar
+från appstart till loggens slut), varianterna med en källa i taget och 2 000 byggda världar.
+Varningens fönster (i tid 2–10 minuter före passagen, tidig 10–15, för tidig över 15, sen under 2)
+är bokslutets val; passagen mäts mot korsningen, eftersom när bron öppnade inte syns i data.
+
+**Styrkorna.**
+
+1. **En notis per passage, med rätt riktning.** 1 199 av 1 212 passager fick exakt en notis; åtta
+   fick ingen, och fem fick två (alla fem samma lokala båt som vänder vid områdets ändar).
+   Riktningen var fel i 5 av 1 170 bedömda notiser.
+2. **Varningen kommer nästan aldrig för sent.** Ingen av de 444 passagerna fick varningen efter
+   passagen, och 7 fick den mindre än 2 minuter före. Ingen av 450 varningar hade fel riktning.
+3. **"Väntar vid" stämmer** i 99 % av 1 207 minuter.
+4. **"Inga båtar" stämmer.** Säkert fel i 84 av 24 571 minuter (0,3 %); i ytterligare 6 % av tiden
+   låg en båt tyst och korsade under ett avbrott, så att ingen kan säga exakt när.
+5. **Med båda källorna och jämn trafik är appen bra.** I novemberfältet fick 92 % av 72 passager
+   varningen 2–15 minuter före, ingen blev utan, och 2 av 74 varningar följdes inte av en passage.
+
+**Svagheterna, största först.**
+
+1. **Varningen kommer mer än 15 minuter före i 104 av 444 passager (23 %; 24 % med båda
+   källorna).** Tio kom mer än en timme före, medianen för de 104 var 31 minuter. I 97 av dem låg
+   båten sedan still i minst fem minuter eller kröp i under 3 knop: hon väntade på öppningen.
+   Exempel: den 5 augusti 11:21 fick tre båtar söderut "om 9 minuter" för Stridsbergsbron, låg still
+   27–38 minuter och passerade 12:12–12:16.
+2. **64 av 450 varningar (14 %) följs inte av någon passage inom en timme.** 45 av dem är
+   reservsläpp (en båt som inte hörts på fem minuter); i 34 av de 64 öppnade bron ändå för en annan
+   båt inom timmen.
+3. **Minutsiffran stämmer i 37 % av de bedömbara minuterna.** Oftast kom passagen senare än
+   utlovat, och i fyra av tio sådana minuter hade båten legat still vid bron före passagen.
+4. **"Strax" stämmer i 35 % av minuterna** (44 % med båda källorna, 30 % med bara AISstream). En
+   femtedel av alla "strax"-minuter gällde en båt som redan passerat men inte hörts efter bron.
+5. **Tysta båtar.** Med bara AISstream skedde 117 av 302 passager (39 %) medan båten var tyst, och
+   36 % av brönotiserna blev "passerade … under AIS-tystnad"; med båda källorna 14 % och 7 %.
+
+**Vad båda källorna betyder.** I de sju sommarkörningarna med båda källorna, uppspelade också med en
+källa i taget, rättar AISHub det som beror på glesa positioner: uteblivna varningar 3 mot 14 med
+bara AISstream, uteblivna notiser 0 mot 32, notiser mer än 2 minuter efter passagen 8 mot 34. Det
+rättar inte köerna: falska varningar är 12 i alla tre varianterna, och andelen varningar mer än 15
+minuter före är 24–27 % med eller utan AISHub, mot 1 % i novemberfältet. Sommarens fritidsbåtar
+köar, kryper och lägger till; vintertrafiken är yrkesfartyg som går jämnt.
+
+**Reservsläppet** (U38) står för 195 av de 450 varningarna, 45 av de 64 falska och 54 av de 104 för
+tidiga.
+
+**Världarna är för snälla mot de största svagheterna.** I 2 000 världar ur profilen `blandad` kom
+8–9 % av varningarna mer än 15 minuter före (inspelat 24 %), 1,1–1,4 % var falska (13 %), och
+minutsiffran stämde i 55 % (41 %). Världarna saknar långa väntor på öppningen, båtar som lägger
+till eller vänder efter en varning och glesa fritidsbåtar som tystnar. Mot sena varningar efter
+väntan är de i stället strängare: 5,3 % under 2 minuter mot 2 % inspelat.
+
+**Dirigentens slutsats:** sommarens stora fel är inte brus eller buggar, utan att appen inte vet
+när bron öppnar för en båt som är framme. Det gav spåren ÖT (19.4) och P (19.5).
+
+### 19.3 Den sena varningen efter väntan vid Järnvägsbron (U79)
+
+**Situationen.** En båt på väg norrut väntar söder om Järnvägsbron, som ligger 257 m före
+Stridsbergsbron. När hon sätter fart passerar hon Stridsbergsbron inom några minuter, och varningen
+för Stridsbergsbron kommer sent. U56 (omgång 5) försökte rätta det och återtogs, eftersom ett ryck
+i kön inte gick att skilja från avgången.
+
+**Mätningen.** Banken, k1–k4 och 209 världar ur profilerna `falt` och `blandad`, med passagerna ur
+rådatan: 112 passager av Stridsbergsbron norrut, 47 av dem efter en väntan på minst 2 minuter. 13
+av de 47 varnades under 150 s före passagen; i november 8 av 11 (median 129 s). Med bara AISstream
+och fritidsbåtar på sommaren kommer varningen i stället i median 28 minuter för tidigt
+(reservsläppet). Söderut finns inte felet: Klaffbron fick 0 sena varningar av 39 efter en väntan
+vid Järnvägsbron, som ligger 963 m norr om Klaffbron.
+
+**Det som begränsar är geometrin och källornas takt, inte en regel.** Kön ligger 120–160 m före
+Järnvägsbron, alltså 380–420 m före Stridsbergsbron:
+
+| Del | Spännvidd (median) |
+|---|---|
+| Från första rörelsen till passagen | 117–292 s (223) |
+| Från första rörelsen till att första positionen i rörelse når appen | 25–110 s (80) |
+| Appens väntan på ytterligare en position, den som skiljer ett ryck från en avgång | 0–141 s (67) |
+| Ledtiden i dag för de 13 sena | 37–131 s (100) |
+
+Även en perfekt avgångsdetektor hade gett 5 av de 13 under 180 s. I rådatan finns 21 avgångar och 12
+ryck där en regel kan spela roll, och de överlappar i fart (avgång 1,2–6,1 kn, ryck 1,0–2,3 kn),
+framsteg, avstånd, väntetid och positionens ålder. OLA (2026-09-07) ryckte 165 m fram till 123 m
+före bron och stod sedan 18 minuter.
+
+**U79 (dirigentens beslut): ingen ny regel.** Den bästa regeln (varna på första positionen i minst
+1,0 kn och 20 m framsteg, högst 200 m före Järnvägsbron) flyttar 7 båtar från 100–131 s till
+152–211 s, men ger två verkliga ryck varningen 8,6 och 18,7 minuter för tidigt, och i världarna 9
+ryck 6,6–10,4 minuter för tidigt. Det är samma byte som fick U56 att återtas. Sex andra alternativ
+prövades, från U56-regeln till en varning redan när väntan börjar. Det enda utan nya för tidiga
+eller falska varningar i inspelad trafik (två positioner, den andra i minst 2,5 kn) flyttar bara 2
+av de 13, med 14–68 s.
+
+Den kända gränsen står med mätningen i `docs/ARCHITECTURE.md` (öppningstjänsten), och scenariot
+"kö-140m-söder-om-Järnvägsbron-ryck-35m-och-ny-väntan (känd gräns, U79)" låser den med kön på det
+verkliga avståndet: dagens varning kommer 143 s före passagen, och den bästa regeln ger den på
+rycket 878 s före och fäller scenariot.
+
+**Råd till ägaren, inget beslut:** notisen för Järnvägsbron går ut när en båt norrut kommer dit,
+och brotexten säger "väntar vid Järnvägsbron på väg mot Stridsbergsbron"; det är den tidiga
+signalen för Stridsbergsbron. Öppen fråga, inte mätt: om Stridsbergsbron i praktiken öppnas redan
+när båten släpps vid Järnvägsbron är passagen fel mått för varningen.
+
+### 19.4 Klockslag och öppningstider (U80)
+
+**Frågan.** Följer broöppningarna klockan eller yttre regler (öppettider, rusningstrafik, tågtider),
+och hade en sådan regel rättat de för tidiga varningarna i 19.2? Underlaget var banken och k1–k4:
+756 observerade timmar och 521 passager av Klaffbron och Stridsbergsbron. Observerad tid är här
+tiden med data, alltså utan perioder då ingen källa gav en position på mer än 30 minuter: 494
+timmar i banken och 262 i k1–k4 (där en paus på fyra och en halv timme i k1 faller bort).
+Klockslagen i det här avsnittet är svensk lokal tid.
+
+**De offentliga reglerna** (lästa 2026-11-27): fritidsbåtar får passera broarna och slussarna mellan
+Lilla Edet och Vänersborg kl. 09–19 (Sjöfartsverket); yrkestrafiken går dygnet runt och har
+företräde (Transportstyrelsens föreskrifter TSFS 2019:97, 24 §). Det finns inga fasta öppningstider
+och inga rusningsstopp för Klaffbron, Stridsbergsbron eller Järnvägsbron. Enligt en turistsida,
+alltså inte förvaltaren, styr tågen järnvägsbrons öppningar. Ingen tågtidtabell för Järnvägsbron
+gick att hitta.
+
+**I datan:**
+
+- **09–19 håller.** 296 av 315 passager av fritidsbåtar låg 09–19, och 9 av de 19 undantagen låg i
+  kanten.
+- **Väntan sitter vid Järnvägsbron och Stridsbergsbron, inte vid Klaffbron.** Mitt på sommardagen
+  väntade 35–47 % av båtarna minst fem minuter där, mot 2–5 % vid Klaffbron, och 68 av de 104 för
+  tidiga varningarna i 19.2 gällde Stridsbergsbron. Att tågen orsakar väntan är antaget, inte mätt.
+- **Ingen klocktid på sommaren.** Öppningarna samlas inte vid någon minut i timmen. En tidig
+  snabbräkning som tydde på det räknade varje båt i en kö för sig; per öppning är fördelningen
+  jämn. I november låg 63 % av Stridsbergsbrons öppningar inom fem minuter från hel- eller
+  halvtimme, mot 33 % av slump (n = 40).
+- **Klaffbron vardagar 15–17 har färre öppningar, men inget stopp:** 12 av 14 båtar som kom fram då
+  kom igenom 3–31 minuter senare.
+
+**U80 (dirigentens beslut): ingen klockregel för broöppningar.** Av de 105 varningar som kom mer än
+15 minuter före passagen (104 i banken, 1 i fältet) gick 101 mellan 09 och 19, och alla hade
+passagen samma dag: båtarna väntade medan broarna var i drift och öppnades efter behov. En regel om
+09–19 rättar 0 av 105 och gör att 13 av 16 berörda varningar kommer efter passagen; ett
+rusningsstopp 15–17 rättar 0 och ger 20 av 23 efter passagen. Att flytta Stridsbergsbrons utlovade
+tid till nästa hel- eller halvtimme ger på sommaren lika många rätta som fel textminuter, och i
+november 35 rätta mot 99 fel. Den kända gränsen "appen vet inte när bron öppnar" står med källorna i
+`docs/ARCHITECTURE.md` (öppningstjänsten).
+
+**Möjliga vägar framåt, ägarens val och inte påbörjade:** tågtrafiken i realtid ur Trafikverkets
+öppna gränssnitt (ett nytt yttre beroende, inte prövat), och en regel som utgår från att båten
+lämnar väntläget (rör ägarbeslutet U2 och den sena varningen i 19.3).
+
+### 19.5 Reservsläppet (U81)
+
+**Frågan.** En båt som hålls tillbaka av spärren vid en tidigare bro och inte hörts på fem minuter
+får sin varning ändå (U38), så att ingen öppning blir utan varning. I sommarbokslutet stod de här
+reservsläppen för 45 av 64 varningar utan passage och 54 av 104 för tidiga. Går reservsläppet att
+göra träffsäkrare utan att någon varning uteblir eller kommer efter passagen?
+
+Varje alternativ spelades upp över banken, bankens åtta körningar med båda källorna en källa i
+taget och k1–k4 i alla tre varianterna, och dömdes passage för passage mot rådatan; två alternativ
+också i 600 världar och i byggda fall.
+
+| Alternativ | Banken: falska / mer än 15 min / sena / uteblivna | Sämre (utan varning eller under 2 min) | Dom |
+|---|---|---|---|
+| I dag: 300 s | 64 / 104 / 7 / 19 | – | – |
+| Inget reservsläpp alls | 31 / 54 / 45 / 75 | 169 | förkastat |
+| Inget släpp för en stilla båt | 54 / 84 / 12 / 33 | 31 | förkastat |
+| Stilla båt: 420 s | 63 / 99 / 9 / 19 | 2 | förkastat |
+| Stilla båt: 600 s | 59 / 96 / 11 / 19 | 5 | förkastat |
+| Stilla båt: dubbla mottagningsintervallet | 62 / 101 / 9 / 19 | 3 | förkastat |
+| Håll så länge en kökamrat hörs stilla | 62 / 102 / 7 / 19 | 0 | avstått: en byggd båt utan varning |
+| Håll en båt i kö vid den andra målbron | 61 / 102 / 7 / 19 | 0 (1 i världarna) | förkastat: en värld utan varning |
+
+Det som bär slutsatsen:
+
+- **Släppet bär garantin.** Utan det hade banken fått 33 falska och 50 för tidiga varningar färre,
+  men 56 passager hade blivit utan varning och 38 fått den under 2 minuter före. En båt i kön vid
+  Järnvägsbron som inte varnas medan hon väntar varnas först bortom Järnvägsbron, under en minut
+  före Stridsbergsbron (en båt den 4 augusti: 24,7 minuter före med släppet, 0,7 utan).
+- **Bara 64 av de 195 reservsläppen gäller en stilla båt.** 131 gällde en båt i gång, och för 74
+  av dem kom släppet högst två minuter efter den vanliga säkerhetsfristen (varna tre minuter före
+  tidigaste ankomst i 10 knop). Där är det grundgarantin som ger de tidiga och falska varningarna.
+- **Fem minuter ligger nära gränsen.** En fritidsbåt låg den 3 juli nästan still 220 m norr om
+  Stridsbergsbron, hördes inte på 14 minuter och passerade Klaffbron 470 s efter sin sista
+  position, varnad 2,8 minuter före. Den kortaste tysta passagen för en stilla båt i underlaget var
+  373 s.
+- **Inget appen vet när spärren löper ut skiljer de rimliga varningarna från de för tidiga**
+  (prövat: källa, sändningstakt, fart, kajzon, avstånd, kö och andra båtar i kön).
+- **De två regler som inte försämrade något i inspelad trafik saknar tidsgräns.** De tog bort två
+  falska och två för tidiga varningar var, men en båt som lägger ut tyst ur kön får ingen varning
+  alls.
+
+**U81 (dirigentens beslut): reservsläppet (U38) behålls med 300 s.** En utebliven varning är värre än
+en för tidig. Skälet står i `docs/ARCHITECTURE.md` (öppningstjänsten), och scenariot
+"söderut-stilla-220m-norr-om-Stridsbergsbron-tyst-avgång-6kn-genom-tre-broar (U81)" låser det: i
+dag kommer varningen 168 s före korsningen, och 420 s, 600 s, det dubbla intervallet och köregeln
+fäller scenariot.
+
+**Läsningen av sommarbokslutet efter 19.3–19.5.** De för tidiga och falska varningarna i
+sommartrafik är priset för att ingen öppning ska bli utan varning, givet att appen inte ser när
+bron öppnar. Ingen regel på det appen ser i dag rättar dem utan att bryta garantin. Det som kunde
+ändra bilden är ny information utifrån, som tågtider, och det är ägarens val.
+
+### 19.6 Nätstopp (U78)
+
+**Situationen.** Omgång 9 rättade en dubbel öppningsvarning efter en klumpleverans (flera
+positioner för samma båt levererade i samma ögonblick, med samma mottagningstid) och mätte resten
+med inlagda nätstopp på två minuter. Frågan nu var vad klienten faktiskt gör vid ett nätstopp, och
+om en ändring i klienten skulle hjälpa.
+
+**Vad klienten gör**, mätt med den riktiga klienten mot en lokal server bakom en proxy som fryser
+trafiken åt båda hållen:
+
+- Klienten buffrar ingenting själv. Pingvakten skickar en ping var 30:e sekund och river
+  anslutningen när förra pingen saknar svar och inget meddelande kommit sedan förra kontrollen.
+- Ett stopp överlevs därför bara till pingvaktens andra kontroll, 30 till knappt 60 s. Då kommer
+  stoppets positioner i en klump (ett stopp på 55 s gav 33 meddelanden, det äldsta 52 s gammalt).
+- Ett längre stopp river anslutningen, och en ny prenumeration får ingen gammal data: stoppets
+  positioner från AISstream är förlorade. AISHub ger aktuella positioner vid nästa hämtning.
+- En klump längre än ungefär en minut uppstår bara om appens process fryser medan nätet går.
+  Omgång 9:s tvåminutersklump är alltså ett läge klienten inte kan hamna i vid ett nätstopp.
+
+I banken och fältkörningarna finns ingen klump: av 14 289 mottagningar från AISstream låg ett enda
+par för samma båt inom en sekund (en båt som låg still), och pingvakten har aldrig rivit en
+anslutning i fältproven.
+
+**Mätningen**, banken och fältprov 2 och 3 med ett stopp i början av varje tiominutersperiod (långt
+tätare än i verkligheten; talen visar känsligheten). Uteblivna / extra / mer än en minut sena / mer
+än en minut för tidiga varningar av 497:
+
+| Stopp | Klump (dagens kod) | Bara nyaste positionen per båt | Varje position med egen tid | Positionerna försvinner |
+|---|---|---|---|---|
+| 30 s | 0/1/2/1 | 0/1/2/1 | 0/1/0/1 | – |
+| 60 s | 3/3/5/7 | 4/3/5/7 | 0/1/1/5 | 7/5/17/21 |
+| 120 s | 4/6/33/27 | 4/5/32/27 | 3/6/17/22 | 27/16/32/47 |
+
+Vid två minuter är det verkliga utfallet den sista kolumnen: 27 uteblivna varningar, mot 4 med
+klump. Det som kostar är att informationen kommer sent eller inte alls, inte att positionerna delar
+tid.
+
+**U78 (dirigentens beslut): ingen kodändring för nätstopp.** Ett stopp längre än pingvakten tillåter
+går inte att rätta i klienten, eftersom positionerna inte finns. Att bara skicka vidare klumpens
+nyaste position var inte bättre i någon inställning. Att ge varje position sin egen tid var bättre i
+mätningen (vid 60 s 16 varningar bättre och ingen sämre), men tiden skulle komma från ett
+odokumenterat fält i AISstreams meddelanden, ändringen bryter sammanslagningens regel att
+AISstreams tid är mottagningstiden, och läget har aldrig setts i fält. Under ett nätavbrott är
+appen blind, och positionerna från avbrottet går inte att få i efterhand.
+
+Bilden i `docs/ARCHITECTURE.md` (§8) är rättad, och testet `tests/n-natstopp-pingvakt.test.js`
+låser det mätta beteendet genom det riktiga websocketbiblioteket: ett stopp på 59 s överlevs och
+ger en klump, och ett stopp som når kontrollen efter nästa river anslutningen och dess positioner
+kommer aldrig.
+
+**Uppföljning:** en loggrad när en position från AISstream kommer mer än några sekunder efter
+meddelandets egen tid, och den tiden i inspelningen, så att ett fältprov kan visa om klumpar
+förekommer; först därefter eventuellt egen tid i smal form. Det kan tidigast komma med nästa
+fältprov efter fältprov 4, eftersom ändringen ändrar inspelningens format.
+
+### 19.7 Omstarter (O1, O3, U82–U86)
+
+**Situationen.** Appen startar om vid varje appuppdatering, när Homey startar om och om den
+kraschar. Fältproven har startat en gång var och utan väntande båt (16.4, punkt 1), så vad
+användaren ser över en omstart mitt i trafiken var oprövat utöver fyra syntetiska scenarier och
+soakens två omstarter, som bara kontrollerar processfel och kvarlämnade strukturer.
+
+**Hur det mättes.** Omstartssvepet spelar upp en körning en gång utan omstart och sedan en gång
+per omstartspunkt med en omstart inlagd: appen stängs ordnat (`onUninit`) eller "dör" (det
+`onUninit` skrev kastas), ingen app finns under pausen och raderna som kommer då tas aldrig emot,
+och en ny instans startar mot samma inställningar. Punkterna låg på ett raster varje timme och
+riktat: i en väntan vid målbron, före en målbropassage, direkt efter en öppningsvarning, när
+texten visade två båtar och mitt i ett långt stopp. Svepet prövar inte sammanslagningen av
+källorna, inte AISHub-hämtningen efter omstarten (i Homey kommer alla båtars position inom
+ungefär en minut; svepet väntar på nästa inspelade rad, så tiden till första position är en övre
+gräns) och inte fler än en omstart per uppspelning.
+
+På `a7e83bb`, 1 890 omstarter med två minuters paus över banken och k1–k4 (summor över
+omstarterna):
+
+| | Antal |
+|---|---|
+| Uteblivna varningar: i pausen / efter, tyst båt / efter, båten hördes i tid | 33 / 77 / 75 |
+| Varningar mer än 20 min fel | 104 |
+| Nya varningar (varav en andra varning för en redan varnad öppning) | 42 (38) |
+| Uteblivna notiser: i pausen / efter, tyst båt / efter, båten hördes | 121 / 256 / 43 |
+| Extra notiser | 64 |
+| Dubbla notiser för samma passage | 0 |
+| "Inga båtar" fast en båt fanns | 4 374 min (mer än en minut i 491 omstarter, längst 88 min) |
+
+Hård och ordnad omstart gav samma utfall i 267 av 277 punkter. Ingen båt som själv varnats före
+omstarten varnades igen för samma ankomst: notisspärren, besöksminnet och öppningsdedupen håller.
+
+**Det som var fel: de levande båtarnas positioner sparades inte vid stoppet.** Appens minne av
+båtarnas sista kända position (`last_known_positions`) skrevs bara när en båt raderades, och en
+ordnad omstart raderar inga båtar. Efter omstarten var varje båt ny, och appen gissade att hon kom
+in genom kanalens ände. EBONITA PRINCESS 40 (2026-06-01) miste tre "passerade … under
+AIS-tystnad", BRANIF fick en falsk för Klaffbron, och ELFKUNGEN (2026-07-12) fick tre 45 minuter
+för tidigt.
+
+**Det som ändrats (O1, U83, U84).**
+
+- **O1:** vid en ordnad omstart bokförs de levande båtarna i samma minne som vid en radering, och
+  appens befintliga logik för en båt som hörs igen tar över efter omstarten. En krasch hinner
+  inte spara något.
+- **Den rena positionen.** Den senaste positionen som inte är ett obekräftat GPS-hopp sparas;
+  finns ingen sparas båten inte. Granskningens första varv visade varför: ett hopp norr om
+  Järnvägsbron sparat strax före omstarten gav "passerade Järnvägsbron" och "passerade Klaffbron
+  under AIS-tystnad" medan båten låg 458 m söder om Klaffbron.
+- **U83 (dirigentens beslut): positionen från stoppet gäller i 15 minuter.** En uppdatering eller
+  omstart av Homey tar sekunder till minuter; efter en längre paus vet appen inte vad båten gjort.
+  Gränsen gäller appens paus och prövas när positionerna laddas. En båt som inte hörs efter
+  omstarten behåller posten som en vanlig sist känd position (6 timmar), som en raderad båt i en
+  körning utan omstart.
+- **Förbrukningen.** Posten används vid båtens första position efter omstarten och tas bort vid
+  den andra, så att en senare krasch inte laddar en position från en tidigare ordnad omstart.
+- **U84 (dirigentens beslut): ett obekräftat GPS-hopp sparas inte heller vid radering.** Felet
+  fanns på `main` sedan tidigare: en båt som låg still söder om Klaffbron, vars sista position före
+  raderingen var ett hopp, fick när hon hördes igen falska "passerade Järnvägsbron/Klaffbron" och
+  ett riktningslås åt fel håll. Nu sparas hennes rena position, och ingenting om ingen finns.
+  Banken och fältkörningarna har ett enda flaggat hopp, OSPREY 2026-06-02 09:59 (583 m), och det
+  var en verklig förflyttning som nästa position bekräftade. Felet är alltså mycket sällsynt, men
+  det är en falsk notis.
+- **Timern.** En pausfunktions timer på 200 ms låg kvar efter `onUninit` i tre av drygt 2 000
+  omstarter; ofarlig, men den kunde fälla `replay:monitoring`. Den spåras nu och löses upp.
+- Registerposten OMSTART-RESETILLSTÅND och persistenstabellen i `docs/ARCHITECTURE.md` §6 säger nu
+  att positionen sparas vid en ordnad omstart och gäller i 15 minuter, men inte vid en krasch.
+
+**O3: ett obekräftat hopp är inte belägg någonstans.** Regeln från den rena positionen och U84
+gäller nu på alla ställen där appen sparar en position som belägg. Rättaren räknade upp dem och
+prövade vart och ett; tre hade verkligt fel och är rättade med regressionstest:
+
+- **Graven** (det appen minns om en raderad båt): en båt utan fartgivare som sänder var 180 s fick
+  en helt tyst resa när hoppets punkt sparades.
+- **Kajkartan**, som minns kajplatser i 365 dygn: hoppets punkt lärdes in som kajplats, och en ny
+  båt som syntes där fick inga notiser om passager under tystnad.
+- **Kajbokföringen vid Kanalinfarten:** ett hopp raderade posten, och ett vobbel gav sedan ett
+  falskt "närmar sig Kanalinfarten".
+
+Två ställen är medvetet orörda, med en prob som belägg för att hoppet inte ger något fel där:
+öppningslagrets kajankare och stillhetsankaret. Inte prövade: reseankaret på vägarna för vändning,
+ACCELERATED och NEW_JOURNEY, och ETA-räknarens minnen.
+
+**Nyttan.** I rättarens svep, i samma punkter före och efter: uteblivna och extra notiser 436 och
+50 före O1, 231 och 5 efter, av 1 686 omstarter med två minuters paus; med tio minuters paus 265 →
+142 och 17 → 6. Varningar och text är i stort sett oförändrade. Med granskarens strängare mått
+(riktning och tid räknas också) blev 122 omstarter bättre och 10 sämre av 1 938 med 45 s och 5
+minuters paus, och notisfelen gick från 780 till 588. Med 30 minuters och två timmars paus blev 12
+bättre och 7 sämre av 1 319.
+
+**Kända gränser.**
+
+- **PILOT 761 (k1)** passerade Stridsbergsbron under pausen och vände sedan i låg fart.
+  Riktningslåset som sätts när en båt hörs igen höll henne: cirka 39 minuter fel text och ingen
+  varning söderut. ELFKUNGEN (2026-07-02) miste utfartsnotisen vid Kanalinfarten i två omstarter,
+  och PRICKBJORN (k3) "har precis passerat Stallbackabron", av samma skäl: utan portgissningen
+  sätts inget riktningslås.
+- **Lång paus.** Vid en paus över 15 minuter kastas positionen från stoppet, och eftersom den skrev
+  över en äldre raderingspost för samma båt finns inte heller den kvar; appen startar utan kunskap
+  om båten. ELFKUNGEN (2026-08-04, 30 minuters paus) miste fem notiser som körningen utan omstart
+  ger. Dirigenten lät det stå: att lägga tillbaka den äldre posten ger exakt basens utfall, alltså
+  12 sämre och 7 bättre än i dag.
+- **Klocksteg bakåt.** Backar Homeys klocka lika mycket som pausen varade ser en gammal post färsk
+  ut. Ett orimligt läge i drift.
+- **U86 (dirigentens beslut): priset i graven kvitteras.** En båt utan fartgivare som sänder var
+  180 s, där en verklig position flaggas som hopp (fel klocka), och som raderas och hörs igen inom
+  15 minuter vid hoppets punkt, får ingen grav, eftersom den båtklassen inte har någon ren position,
+  och förlorar båda öppningsvarningarna; notiserna kommer. Det omvända fallet, ett falskt hopp för
+  en stilla båt, gav 0 notiser före O3 och är nu rätt. Kedjan av flaggat hopp, radering och
+  återfödelse har aldrig setts i inspelad trafik, och regeln är densamma som i den rena positionen
+  och U84. Förslaget att spara båda punkterna i graven står kvar till nästa omgång.
+- **Kajbokföringen räknar också osäkra positioner** (samma prövning som öppningslagrets band i
+  samma funktion). För en båt där varje position är osäker kan posten stå kvar upp till två timmar
+  efter att hon lämnat närområdet. Grinden blir då strängare, inte falskare; kvitterad.
+- **U82 (dirigentens beslut): ankomstspärren över omstarten står kvar som känd gräns.** En båt som
+  varnats långt i förväg och sedan väntat får i basen en andra varning cirka tio minuter före
+  passagen, när en annan båt använt den första öppningen (U45). Efter en omstart finns spärren kvar
+  men inte öppningshändelsen som släpper den: 9 varningar tystades i 48 omstarter (CALIMA
+  2026-07-11: varnad 10:19, basens andra varning 11:26 uteblir efter en omstart 11:00). Att släppa
+  en laddad spärr när båten passerar den andra målbron mättes i 818 omstarter: dubbla varningar för
+  samma ankomst 3 → 8, och 18 omstarter blev sämre mot 1 bättre, eftersom öppningshändelsen redan
+  avfyrats och tystats och inte avfyras igen.
+- **Det som inte sparas.** Båtens resetillstånd (rörelsebevis, målbro, riktning, passerade broar)
+  och öppningshändelserna sparas inte över en omstart. "Inga båtar" direkt efter omstarten varar i
+  median 50 s, mer än tio minuter i 116 omstarter, mest för stilla båtar utan rörelsebevis (U63).
+  Tysta båtar varnas inte efter omstarten, och en båt som ansluter till en redan varnad öppning
+  får en egen varning. Under pausen står enhetens gamla text kvar.
+
+**Granskningen.** O1 gick två varv. Första varvet fann att O1 rättade ett verkligt fel på rätt
+ställe men sparade positionen utan att pröva om den dög som bevis (det obekräftade hoppet, en krasch
+inom sex timmar efter en ordnad omstart och en lång paus där båten vänt); det gav den rena
+positionen, förbrukningen och U83. Andra varvet godkände O1 som helhet, timern, registerposten och
+svepet, och fann systerstället vid radering. Ärendet med U84, svepets nya mått och texterna
+godkändes i ett varv. O3 gick ett varv och ett sista varv med bara test och text. I O3:s första
+varv var alla 29 korpusar (banken och k1–k4) bitlika med spetsen före O3, omstartssvepet före och
+efter gav 0 bättre och 0 sämre av 1 112 omstarter, och regressionstesten fällde spetsen före O3 (4
+röda av 8); två mutanter av kajbokföringen överlevde. Det sista varvet lade till två test som fäller
+dem (ett hopp inom närområdet flyttar inte posten, och kajbokföringens bredare prövning) och
+meningar i `docs/ARCHITECTURE.md` om priset i graven (U86), kajbokföringens prövning och de ställen
+som inte är prövade.
+
+**Sidofynd.** PRICKBJORN i k1 (2026-11-12 08:26) får en öppningsvarning efter en omstart, men den
+finns i samma omstartspunkter på basen och är inte O1:s verk. En båt utan fartgivare som sänder var
+180 s får i granskarens prob inga notiser alls, också på `a7e83bb`, eftersom hon aldrig bygger
+rörelsebevis (U63); det går till nästa omgång.
+
+**Verktyget.** `npm run replay:restart` (`docs/VALIDATION.md`) kör omstartssvepet som ett stående
+verktyg, med `--compare` för före och efter och granskarens strängare mått. Miljövariablerna heter
+`REPLAY_RESTART_*`, och uppspelningen utan dem är bitlik med förut. Det prövar inte sammanslagningen
+av källorna, AISHub efter omstarten eller fler än en omstart per uppspelning.
+
+**U85 (dirigentens beslut): resetillståndet sparas inte över en omstart.** Förslaget var att spara
+båtens rörelsebevis, målbro, riktning och passerade broar vid stoppet och återställa dem för en båt
+som hörs igen inom 15 minuter och 50 m från sin sparade position. En förstudie prövade det på samma
+1 686 omstarter med två minuters paus och granskarens mått, med O1 som jämförelse:
+
+- **Under förslagets eget villkor går det mesta inte att rätta.** Av felen som är kvar efter O1
+  uppfyller högst 8 av 602 notisfel, 84 av 536 varningsfel och 3 389 av 8 201 minuter fel text
+  villkoret (en övre gräns för nyttan), och nästan allt gäller den stilla båten i kön. O1:s kända
+  pris rättas inte i ett enda fall: PILOT 761 hörs igen 521 respektive 260 m från den sparade
+  positionen i de två omstarterna, och ELFKUNGEN 859 och 765 m.
+- **Hur ofta appen startar om.** I fältproven startade appen 4 gånger på 266,8 timmar logg, alla
+  avsiktliga driftsättningar, utan krascher och utan oplanerade omstarter. Hur ofta den installerade
+  appen startar om (appuppdateringar, Homeys uppdateringar, strömavbrott) går inte att mäta i
+  något befintligt underlag; uppskattat 10–25 gånger per år.
+- **Tre engångsprototyper**, inte committade. *Hela listan* gav 1 414 minuter mindre fel text
+  (−17 %), men 4 omstarter blev sämre, bland dem en där MARY (2026-08-07) fick en falsk
+  "Stridsbergsbron öppnar snart" för en bro hon aldrig gick till och tre varningar uteblev. *Bara
+  riktningen* (rörelsebevisen plus ruttlåset och slutmålet, prövad på 849 omstarter) gav 5 sämre,
+  bland dem samma falska varning och en utebliven varning i k1. *Bara gravens fält*
+  (rörelsebevis, stillhetsklocka och episodankare) gav 1 sämre omstart som inte märks för
+  användaren (ett konvojbyte) och 49 minuter mindre fel text.
+- **Per slumpvis omstart** ger hela listan under en minut rättare text i sommartrafik (0,95
+  minuter) och 0,15 i november; uppskattat 5–12 minuter rättare text och 0,1–0,3 rättade
+  varningsfel per år.
+
+Skälet: nyttan är minuter per år, och priset är risken för falska öppningsvarningar, eftersom de
+händelser som släpper fälten i minnet (en väntande vändning, en ny resa, en avgång efter lång
+förtöjning) inte följer med. Beslutet omprövas om det visar sig att den installerade appen startar
+om ofta under säsongen (gränsen ligger runt 60 omstarter per säsong för en timme rättare text). Om
+det ändå byggs är gravens fält den enda nivå som inte gav något sämre.
+
+### 19.8 Uppföljning i fältprov 4
+
+Fältprov 4 går på `a7e83bb` (omgång 9). Ingenting från omgång 10 finns i det, och spåren i 19.3–19.6
+ändrade ingen appkod.
+
+1. **Det fältprov 3 inte kunde mäta** eftersom det gick på `a0d8706`: punkt 4 i 18.8 (vilka sändare
+   som ignoreras, att fångstjournalens löpnummer är hela och svansen bevisad, klocksteg och
+   framtida stämplar, och vaktens omstarter och larm med U66 + U73). Simulerat på fältprov 3:s
+   trafik gav U66 och U73 0 omstarter och 0 meddelanden; fältprov 4 visar det verkliga talet, och om
+   AISstream någon gång dör helt, det enda läge där paketet kostar något.
+2. **Hålen i loggströmmen och Homeys eget nät** (19.1, punkt 4): följer ett hål ett nätfel på Homey
+   (AISHub-räknaren för nätfel, en AISstream-återanslutning inne i hålet), och läker journalen det?
+3. **Den sena varningen efter väntan vid Järnvägsbron** (19.3): fler fall med båda källorna. När
+   bron öppnar syns inte i data, så den öppna frågan i 19.3 besvaras inte av ett fältprov.
+4. **Restiden före väntan vid Järnvägsbron** (19.1, punkt 2; 14.6, punkt 1).
+5. **Omstarter i fält** (16.4, punkt 1): fältprov 3 hade inga.
+6. Mätlistorna i 17.9 och 18.8 och uppföljningslistorna i 14.6, 15.6 och 16.4 i övrigt.
+
+### 19.9 Slutbatteriet
+
+Utfallet förs in när slutbatteriet är kört på omgångens slutliga spets.
