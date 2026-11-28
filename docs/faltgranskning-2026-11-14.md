@@ -5327,4 +5327,71 @@ snabbjakten från 2 kandidatkluster till 0 och standardjakten från 25 kandidatu
 
 ### 20.9 Slutbatteriet
 
-Utfallet förs in när slutbatteriet är kört på omgångens slutliga spets.
+Kört 2026-11-28 kl. 05:12–07:31 lokal tid i fristående kopior av integrationsgrenens spets
+`5459db6`, med de tunga stegen genom kön. Det är spetsen före den här dokumentcommiten, som bara rör
+dokumentationen. Alla 18 steg, desamma som i 19.9, slutade med kod 0. Jämförelsen görs mot
+slutbatteriet i omgång 10 (19.9).
+
+| Steg | Utfall |
+|---|---|
+| `npm run lint` | 0 |
+| hela jest (`--detectOpenHandles`) | 459 sviter, 7 276 test gröna, 2 överhoppade (omgång 10: 456 och 7 229; skillnaden är omgång 11:s nya test) |
+| `replay:all`, med och utan monitoring | alla låsta korpusar matchar facit; loggarna identiska med omgång 10 |
+| `replay:synthetic` | 256 scenarier rena; de 245 äldre raderna identiska med omgång 10; 25 WARN-rader i 24 scenarier, samma som omgång 10 (de elva nya ger ingen) |
+| `replay:openings` | loggen identisk med omgång 10 |
+| soak och `replay:monitoring` (72 h) | stabila, 0 processfel |
+| `measure:eta` | alla tal identiska med omgång 10 |
+| fassvepet, med och utan monitoring | identiska med omgång 10 utöver tider och sökvägar |
+| omstartssvepet (`replay:restart`) | inga processfel och inga timers kvar efter `onUninit` |
+| `hunt:selftest` | grönt |
+| snabbjakten | samma 45 utslag; kandidaterna 2 kluster (3 utslag) → 0 |
+| standardjakten | samma 218 utslag; kandidaterna 25 utslag i 2 kluster → 5 utslag i 1 kluster |
+| nattjakten (20 000 världar, slumpfrö 1) | 2 373 utslag, 0 körfel och 0 häng; kandidaterna 16 kluster med 429 utslag → 12 kluster med 93 utslag |
+| `git status --porcelain` före och efter nattjakten | tom |
+
+**Nattjakten med slumpfrö 1** gav samma utslag som i omgång 10, utom att T3-oraklets nya U17-kedja
+(20.7) klassar om utslag i fyra världar: 13468, som avsett, och 5509, 18959 och 18480, där samma
+varning får en annan eller ytterligare klass. De fyra världarna spelades upp på `5a975d8` och på
+`5459db6`, och appens notiser och öppningsvarningar är identiska: skillnaden ligger i oraklet, inte
+i appen. Kandidaterna per klass:
+
+| Klass | Omgång 10 | Omgång 11 |
+|---|---|---|
+| INV-3 (sågtand och oscillation) | 309 | 52 |
+| ÖPPNING-MISS:OKLASSAD | 41 | 11 |
+| LEDTID<60s | 36 | 9 |
+| VARNING-EFTER-SANN-PASSAGE | 22 | 12 |
+| INV-14 DEFAULT-FLASH | 7 | 0 |
+| INV-13 MÅLBRO SOM MELLANBRO | 5 | 1 |
+| VARNING-PÅ-FRUSET-FIX | 5 | 5 |
+| FANTOM-UTAN-AVBROTT | 2 | 2 |
+| FEL-RIKTNING | 1 | 0 |
+| NOTIS-UTEBLIVEN | 1 | 1 |
+
+15 utslag gick från ACCEPTERAD till KANDIDAT genom U91: den strängare U34-posten förklarar inte
+längre det den gamla posten godtog utan korsnings- och rimlighetsprov.
+
+**Nattjakten med slumpfrö 2** på slutspetsen jämfördes med samma jakt på basen (`5a975d8`): 2 168
+utslag i båda. Fantompassagen i värld 13227 är borta, alltså verkar U93 där den ska. I övrigt är
+utslagen desamma, utom att oraklets U17-kedja klassar om ett utslag (värld 3277) och ger en
+ytterligare klass för en varning som redan var ett U17-utslag (värld 2332, samma varning och tid som
+på basen). Kandidaterna gick från 19 kluster med 450 utslag till 16 kluster med 133:
+
+| Klass | Basen | Omgång 11 |
+|---|---|---|
+| INV-3 (sågtand och oscillation) | 308 | 52 |
+| ÖPPNING-MISS:OKLASSAD | 47 | 29 |
+| LEDTID<60s | 27 | 11 |
+| VARNING-EFTER-SANN-PASSAGE | 24 | 13 |
+| INV-14 DEFAULT-FLASH | 12 | 2 |
+| NOTIS-UTEBLIVEN | 9 | 9 |
+| INV-13 MÅLBRO SOM MELLANBRO | 9 | 6 |
+| FEL-RIKTNING | 5 | 4 |
+| INV-2, INV-5 och PASSAGE-EJ-REGISTRERAD | 2, 2 och 2 | 2, 2 och 2 |
+| FANTOMPASSAGE (målbro) | 1 | 0 |
+| FANTOM-UTAN-AVBROTT | 1 | 0 |
+| VARNING-PÅ-FRUSET-FIX | 1 | 1 |
+
+**Slutsatsen:** appens utfall är oförändrat i alla uppspelningar och i jaktens världar, utom där U93
+verkar (en värld med slumpfrö 2). Registret känner nu igen större delen av de utslag som utretts,
+och det som står kvar som kandidater är det registret medvetet inte förklarar.
