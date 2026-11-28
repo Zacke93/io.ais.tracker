@@ -1341,6 +1341,40 @@ function defaultEpisod(f, ctx) {
 }
 
 // ---------------------------------------------------------------------------
+// U90 spår C (omgång 11): hjälpare för F06 (R2:s liv)
+// ---------------------------------------------------------------------------
+
+/**
+ * F06: appen raderade båten mellan raderna a och b medan hon inte kunde ha
+ * målbro. Alla krävs:
+ *  - glappet a → b är minst p.livGlappKortMin;
+ *  - a ligger utanför AIS_CONFIG.BOUNDING_BOX, där
+ *    VesselDataService.js#_calculateTargetBridge aldrig ger målbro
+ *    ("Outside canal bounds");
+ *  - appens domspår (resultatets vesselRemovals) har en radering av båten med
+ *    skälet 'timeout' efter a och före b, mindre än p.aktivResaMs efter a: en
+ *    båt med målbro hålls minst ACTIVE_JOURNEY_MIN (ProximityService.js#calculateProximityTimeout).
+ * Glappet ensamt räcker inte, och inte heller ett avstånd till broarna: en
+ * båt med målbro mer än 600 m från varje bro raderas inte förrän efter 30 min.
+ * @returns {string|null} beskrivningen, eller null när raderingen inte är belagd
+ */
+function raderingUtanMålbro(a, b, mmsi, ctx, p) {
+  if (!a || !b || !Number.isFinite(p.livGlappKortMin) || !Number.isFinite(p.aktivResaMs)) return null;
+  if (b.aisTimestamp - a.aisTimestamp < p.livGlappKortMin * MIN) return null;
+  const box = C.AIS_CONFIG && C.AIS_CONFIG.BOUNDING_BOX;
+  if (!box) return null;
+  const utanför = a.lat < box.SOUTH || a.lat > box.NORTH || a.lon < box.WEST || a.lon > box.EAST;
+  if (!utanför) return null;
+  const res = (ctx && ctx.resultat) || {};
+  if (!Array.isArray(res.vesselRemovals)) return null;
+  const r = res.vesselRemovals.find((x) => x && String(x.mmsi) === String(mmsi) && x.reason === 'timeout'
+    && Number.isFinite(x.t) && x.t > a.aisTimestamp && x.t < b.aisTimestamp);
+  if (!r || !(r.t - a.aisTimestamp < p.aktivResaMs)) return null;
+  return `appens radering ${fmtT(r.t)} (timeout ${Math.round((r.t - a.aisTimestamp) / 1000)} s efter raden ${fmtT(a.aisTimestamp)} `
+    + `utanför kanalens gräns, glapp ${Math.round((b.aisTimestamp - a.aisTimestamp) / MIN)} min)`;
+}
+
+// ---------------------------------------------------------------------------
 // Predikaten: namn → {parametrar: {namn: standardvärde}, fn(fynd, kontext, p)}
 // ---------------------------------------------------------------------------
 
@@ -3744,6 +3778,10 @@ const PREDICATES = {
       rörelseSogKn: C.MOORING_DETECTION.MOVEMENT_PROOF_SOG_KN,
       rörelseNettoM: C.MOORING_DETECTION.MOVEMENT_PROOF_NET_M,
       livGlappMin: 30,
+      // U90 spår C (F06, omgång 11): livet börjar också efter ett kortare
+      // glapp när appen själv raderade båten där hon inte kunde ha målbro.
+      livGlappKortMin: 10,
+      aktivResaMs: C.TIMEOUT_SETTINGS.ACTIVE_JOURNEY_MIN,
       maxEfterMin: 10,
       maxBortomM: C.UNDER_BRIDGE_CLEAR_DISTANCE,
       nordFrån: C.COG_DIRECTIONS.NORTH_MIN,
@@ -3759,7 +3797,19 @@ const PREDICATES = {
       const upTo = rowsOf(ctx, f.mmsi).filter((r) => r.aisTimestamp <= f.t);
       if (!upTo.length) return nej('ingen rad före utslaget');
       let liv0 = 0;
-      for (let i = 1; i < upTo.length; i++) if (upTo[i].aisTimestamp - upTo[i - 1].aisTimestamp >= p.livGlappMin * MIN) liv0 = i;
+      let raderad = null;
+      for (let i = 1; i < upTo.length; i++) {
+        if (upTo[i].aisTimestamp - upTo[i - 1].aisTimestamp >= p.livGlappMin * MIN) {
+          liv0 = i;
+          raderad = null;
+        } else {
+          const r = raderingUtanMålbro(upTo[i - 1], upTo[i], f.mmsi, ctx, p);
+          if (r) {
+            liv0 = i;
+            raderad = r;
+          }
+        }
+      }
       const liv = upTo.slice(liv0);
       const sist = liv[liv.length - 1];
       const söderut = sist.lat < X.lat;
@@ -3775,7 +3825,8 @@ const PREDICATES = {
       if (f.t - F.aisTimestamp > p.maxEfterMin * MIN) {
         return nej(`registreringen ${fmtT(f.t)} kom mer än ${p.maxEfterMin} min efter första raden bortom bron ${fmtT(F.aisTimestamp)}`);
       }
-      const återfödd = liv0 > 0 ? `, återfödd efter ett glapp ≥ ${p.livGlappMin} min` : '';
+      let återfödd = liv0 > 0 ? `, återfödd efter ett glapp ≥ ${p.livGlappMin} min` : '';
+      if (raderad) återfödd = `, återfödd efter ${raderad}`;
       if (!före.length) return ok(`livets första rad ${fmtT(F.aisTimestamp)} ligger redan bortom ${f.bro} (${söderut ? 'söderut' : 'norrut'}${återfödd}); registrerad ${fmtT(f.t)}`);
       const motBron = (cog) => Number.isFinite(cog) && (söderut
         ? cog >= p.sydFrån && cog <= p.sydStriktTill
@@ -4375,6 +4426,175 @@ const PREDICATES = {
       return ok(förklarade.map((x) => `U39: ${x.radering ? `appen raderade båten ${fmtT(x.radering.t)} (${x.radering.reason})` : `omstart ${fmtT(x.omstart.aisTimestamp)}`} efter notisen för `
         + `korsningen ${fmtT(x.gammal.t)} (${x.gammal.dir}); returen ${fmtT(x.ny.t)} (${x.ny.dir}), bokförd ${fmtT(x.pass.t)}, `
         + `stoppades av spärren (${x.spärr.ageMin} min < ${p.maxÅlderMin})`).join('; '));
+    },
+  },
+
+  // -------------------------------------------------------------------------
+  // U90 spår C (omgång 11): P5:s strikta sydband, dödbandet i Fix D och den
+  // ensamma fixen före en mellanbro (nattkorten F06 r1, F10 och F14).
+  // -------------------------------------------------------------------------
+
+  // P5 (lib/constants.js, P5-beslutet; lib/utils/cogDirection.js#isSouthCogStrict):
+  // målbron tilldelas bara med en kurs i nordbandet (315–45°) eller i det
+  // STRIKTA sydbandet (135–225°); en kurs däremellan ger "Osäker COG → ingen
+  // målbro" (VesselDataService.js#_calculateTargetBridge). Sant när livets
+  // första rad bortom bron (F) ligger högst UNDER_BRIDGE_CLEAR_DISTANCE från
+  // bron, registreringen kom högst 10 min efter F, livet har minst en rad före
+  // F och VARJE sådan rad har en finit kurs utanför båda banden. Livet räknas
+  // som i målbroEfterLinjen (glapp ≥ 30 min, eller appens radering utanför
+  // kanalens gräns). En rad före bron med kurs i ett band, eller utan kurs, ger
+  // nej: då kunde appen ge målbro (eller ruttlåset avgör).
+  p5OsäkerKursFöreLinjen: {
+    parametrar: {
+      livGlappMin: 30,
+      livGlappKortMin: 10,
+      aktivResaMs: C.TIMEOUT_SETTINGS.ACTIVE_JOURNEY_MIN,
+      maxEfterMin: 10,
+      maxBortomM: C.UNDER_BRIDGE_CLEAR_DISTANCE,
+      nordFrån: C.COG_DIRECTIONS.NORTH_MIN,
+      nordTill: C.COG_DIRECTIONS.NORTH_MAX,
+      sydFrån: 135,
+      sydStriktTill: 225,
+    },
+    fn(f, ctx, p) {
+      if (låstBank(f)) return nej(LÅST_BANK);
+      if (!Array.isArray(ctx.rader) || !f.mmsi || !f.bro || !Number.isFinite(f.t)) return nej('saknar rader, mmsi, bro eller tid');
+      const X = platser.POINTS[f.bro];
+      if (!X) return nej(`${f.bro} är ingen bro`);
+      const upTo = rowsOf(ctx, f.mmsi).filter((r) => r.aisTimestamp <= f.t);
+      if (!upTo.length) return nej('ingen rad före utslaget');
+      let liv0 = 0;
+      for (let i = 1; i < upTo.length; i++) {
+        if (upTo[i].aisTimestamp - upTo[i - 1].aisTimestamp >= p.livGlappMin * MIN
+          || raderingUtanMålbro(upTo[i - 1], upTo[i], f.mmsi, ctx, p)) liv0 = i;
+      }
+      const liv = upTo.slice(liv0);
+      const söderut = liv[liv.length - 1].lat < X.lat;
+      const bortom = (r) => (söderut ? r.lat <= X.lat : r.lat >= X.lat);
+      let k = liv.length - 1;
+      while (k > 0 && bortom(liv[k - 1])) k--;
+      const F = liv[k];
+      const före = liv.slice(0, k);
+      const dF = platser.distanceToPoint(F, f.bro);
+      if (!(dF <= p.maxBortomM)) return nej(`första raden bortom bron ${fmtT(F.aisTimestamp)} ligger ${Math.round(dF)} m från ${f.bro}, mer än ${p.maxBortomM} m`);
+      if (f.t - F.aisTimestamp > p.maxEfterMin * MIN) return nej(`registreringen ${fmtT(f.t)} kom mer än ${p.maxEfterMin} min efter första raden bortom bron`);
+      if (!före.length) return nej('livet har ingen rad före bron (R2-posten gäller)');
+      const iBand = (cog) => cog >= p.nordFrån || cog <= p.nordTill || (cog >= p.sydFrån && cog <= p.sydStriktTill);
+      for (const r of före) {
+        if (!Number.isFinite(r.cog)) return nej(`raden ${fmtT(r.aisTimestamp)} före bron saknar kurs`);
+        if (iBand(r.cog)) return nej(`raden ${fmtT(r.aisTimestamp)} före bron har kurs ${r.cog}° i ett riktningsband: appen kunde ge målbro`);
+      }
+      return ok(`P5: ${före.length} rad(er) före ${f.bro} i livet, alla med kurs utanför 315–45° och 135–225° `
+        + `(${före.map((r) => `${fmtT(r.aisTimestamp)} ${r.cog}°`).join(', ')}); första raden bortom bron ${fmtT(F.aisTimestamp)} `
+        + `${Math.round(dF)} m från bron, registrerad ${fmtT(f.t)}`);
+    },
+  },
+
+  // F10 (känd gräns, U18; omgång 11): Fix D-blocket nollar en väntande
+  // vändning på en fix vars kurs inte är omvänd (VesselDataService.js#updateVessel,
+  // grenen `else if (vessel._fixDPendingReversal)`), också när kursen ligger i
+  // dödbandet (varken nordbandet 315–45° eller det breda sydbandet 135–<315°)
+  // och positionen fortsätter i den nya riktningen. Sant för T9 FEL-RIKTNING
+  // på en varning när alla gäller: varningen leds av båten och har låsets
+  // riktning; båtens två sista rader före varningen är b och c; Fix D spelat
+  // över hennes rader fram till och med b slutar med en flagga i motsatt
+  // riktning satt av b (ingen bekräftelse); c har minst FIX_D_MIN_SOG och kurs
+  // i dödbandet och ligger minst minVidareM längre i flaggans riktning än b
+  // (latitud); L0 visar en vändning högst FIX_D_PENDING_MAX_AGE_MS före b; och
+  // båten har ingen rad mellan c och varningen. minVidareM = 100 m: utanför
+  // GPS-brusets 40–60 m, så att c inte är en brusfix.
+  dödbandNollarVändningVarning: {
+    parametrar: {
+      fixDMinSogKn: FIX_D_MIN_SOG,
+      maxÅlderMin: C.FIX_D_PENDING_MAX_AGE_MS / MIN,
+      nordFrån: C.COG_DIRECTIONS.NORTH_MIN,
+      nordTill: C.COG_DIRECTIONS.NORTH_MAX,
+      sydFrån: 135,
+      minVidareM: 100,
+    },
+    fn(f, ctx, p) {
+      if (!Number.isFinite(p.fixDMinSogKn)) return nej('FIX_D_MIN_SOG kunde inte läsas ur lib/services/VesselDataService.js');
+      if (låstBank(f)) return nej(LÅST_BANK);
+      if (!Array.isArray(ctx.rader) || !f.mmsi || !f.bro) return nej('saknar rader, mmsi eller bro');
+      const w = fyndetsVarning(f, ctx);
+      if (!w) return nej('fyndet gäller ingen levererad varning');
+      if (String(w.leadMmsi) !== String(f.mmsi)) return nej(`varningen ${w.eventId} leds av ${w.leadMmsi}, inte av fyndets båt`);
+      const lås = RIKTNINGSORD[w.direction];
+      if (!lås) return nej(`varningens riktning ${w.direction} är inte bestämd`);
+      const maxÅlderMs = p.maxÅlderMin * MIN;
+      const före = rowsOf(ctx, f.mmsi).filter((r) => r.aisTimestamp <= w.t);
+      if (före.length < 2) return nej('färre än två rader före varningen');
+      const c = före[före.length - 1];
+      const b = före[före.length - 2];
+      const band = fixDBand(p);
+      if (!(Number.isFinite(c.sog) && c.sog >= p.fixDMinSogKn && Number.isFinite(c.cog))) return nej(`raden ${fmtT(c.aisTimestamp)} har inte finit kurs och minst ${p.fixDMinSogKn} kn`);
+      if (band(c.cog) !== null) return nej(`raden ${fmtT(c.aisTimestamp)} har kurs ${c.cog}° i ett Fix D-band, inte i dödbandet`);
+      const fd = spelaFixD(före.filter((r) => r.aisTimestamp > b.aisTimestamp - maxÅlderMs && r.aisTimestamp <= b.aisTimestamp), {
+        lås, minSogKn: p.fixDMinSogKn, maxÅlderMs, band,
+      });
+      if (fd.bekräftad) return nej(`Fix D bekräftade en vändning ${fmtT(fd.bekräftad.t)} före dödbandsfixen`);
+      if (!fd.flagga || fd.flagga.riktning !== motsatt(lås) || fd.flagga.t !== b.aisTimestamp) {
+        return nej(`raden ${fmtT(b.aisTimestamp)} satte ingen väntande vändning (${motsatt(lås)}ut) före dödbandsfixen`);
+      }
+      const vidareM = (c.lat - b.lat) * 111320 * (motsatt(lås) === 'norr' ? 1 : -1);
+      if (!(vidareM >= p.minVidareM)) return nej(`dödbandsfixen ${fmtT(c.aisTimestamp)} ligger ${Math.round(vidareM)} m längre ${motsatt(lås)}ut än flaggan, under ${p.minVidareM} m`);
+      const u = ((ctx.sanning && ctx.sanning.uturns) || []).filter((x) => String(x.mmsi) === String(f.mmsi)
+        && x.t <= b.aisTimestamp && x.t >= b.aisTimestamp - maxÅlderMs).pop();
+      if (!u) return nej(`L0 visar ingen vändning högst ${p.maxÅlderMin} min före flaggan ${fmtT(b.aisTimestamp)}`);
+      return ok(`känd gräns (F10, U18): flaggan ${fmtT(b.aisTimestamp)} (${b.cog}°) nollades av ${fmtT(c.aisTimestamp)} (${c.cog}°, dödbandet) `
+        + `fast båten gått ${Math.round(vidareM)} m ${motsatt(lås)}ut; L0-vändning ${fmtT(u.t)}; ingen rad före varningen ${w.eventId} ${fmtT(w.t)} (${w.direction})`);
+    },
+  },
+
+  // F14 (känd gräns, omgång 11): notiskandidaterna (app.js, målbro, aktuell
+  // bro, just passerad bro och närmaste bro bara när listan är tom) tar inte
+  // med en mellanbro som båten ligger strax före när samma fix bokför en annan
+  // bros passage och byter målbro. Sant för T1 NOTIS-UTEBLIVEN vid en
+  // mellanbro (inte Klaffbron eller Stridsbergsbron) när alla gäller: besöket
+  // har exakt en fix högst radieM från bron (F), F ligger före bron i
+  // färdriktningen (latitud) och högst UNDER_BRIDGE_CLEAR_DISTANCE från den;
+  // appen bokförde en ANNAN bros passage för båten vid F:s bearbetning (högst
+  // sammaTidMs, resultatets targetPassages eller intermediatePassages); och
+  // båten har ingen rad efter F till besökets slut + 15 min (oraklets fönster),
+  // så ingen passage kunde bokföras senare.
+  ensamFixFöreMellanbro: {
+    parametrar: {
+      radieM: C.PROTECTION_ZONE_RADIUS,
+      maxFöreM: C.UNDER_BRIDGE_CLEAR_DISTANCE,
+      sammaTidMs: 1000,
+      efterMin: 15,
+    },
+    fn(f, ctx, p) {
+      if (låstBank(f)) return nej(LÅST_BANK);
+      if (!Array.isArray(ctx.rader) || !f.mmsi || !f.bro) return nej('saknar rader, mmsi eller bro');
+      if (['Klaffbron', 'Stridsbergsbron'].includes(f.bro) || !platser.POINTS[f.bro]) return nej(`${f.bro} är ingen mellanbro`);
+      const b = f.belägg || {};
+      const tIn = Number.isFinite(b.tIn) ? b.tIn : null;
+      const tOut = Number.isFinite(b.tOut) ? b.tOut : null;
+      if (tIn === null || tOut === null) return nej('beläggen saknar besökets tider');
+      const lås = RIKTNINGSORD[f.riktning] || (b.förväntadRiktning && RIKTNINGSORD[b.förväntadRiktning]);
+      if (!lås) return nej('besökets riktning är inte bestämd');
+      const rader = rowsOf(ctx, f.mmsi);
+      const slut = tOut + p.efterMin * MIN;
+      const nära = rader.filter((r) => r.aisTimestamp >= tIn - 10 * MIN && r.aisTimestamp <= slut && platser.distanceToPoint(r, f.bro) <= p.radieM);
+      if (nära.length !== 1) return nej(`${nära.length} fixar högst ${p.radieM} m från ${f.bro} i besöket, inte exakt en`);
+      const F = nära[0];
+      const X = platser.POINTS[f.bro];
+      const föreLinjen = lås === 'norr' ? F.lat < X.lat : F.lat > X.lat;
+      const dF = platser.distanceToPoint(F, f.bro);
+      if (!föreLinjen || !(dF <= p.maxFöreM)) {
+        return nej(`fixen ${fmtT(F.aisTimestamp)} ligger ${Math.round(dF)} m från bron ${föreLinjen ? 'före' : 'bortom'} linjen: inte högst ${p.maxFöreM} m före`);
+      }
+      const efter = rader.find((r) => r.aisTimestamp > F.aisTimestamp && r.aisTimestamp <= slut);
+      if (efter) return nej(`båten hördes igen ${fmtT(efter.aisTimestamp)} inom besökets fönster`);
+      const tF = harnessTider(ctx).get(F);
+      const tBearb = Number.isFinite(tF) ? tF : F.aisTimestamp;
+      const res = ctx.resultat || {};
+      const pass = [...(res.targetPassages || []), ...(res.intermediatePassages || [])].find((x) => x && String(x.mmsi) === String(f.mmsi)
+        && x.bridge !== f.bro && Number.isFinite(x.t) && Math.abs(x.t - tBearb) <= p.sammaTidMs);
+      if (!pass) return nej(`appen bokförde ingen annan bros passage vid fixen ${fmtT(F.aisTimestamp)}`);
+      return ok(`känd gräns (F14): enda fixen ${fmtT(F.aisTimestamp)} ${Math.round(dF)} m före ${f.bro} bokförde ${pass.bridge} i samma tick (${fmtT(pass.t)}), `
+        + `och båten hördes inte mer i fönstret (till ${fmtT(slut)})`);
     },
   },
 };
