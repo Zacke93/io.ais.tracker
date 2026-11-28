@@ -25,7 +25,7 @@ const pred = (namn) => (f, ctx) => PREDICATES[namn].fn(f, ctx, { ...PREDICATES[n
 describe('registret laddar spår B:s poster', () => {
   test('sex poster med egna predikat och inga varningar', () => {
     const reg = loadRegistry();
-    for (const id of ['U34-LEDARBYTE-OMG11B', 'U16-TICK-OMG11B', 'U31-REST-OMG11B', 'U1-C11-OMG11B', 'E2-VÄNDNING-OMG11B', 'E1-KÖAVGÅNG-OMG11B', 'U92-VÄNDNING-UTAN-BEKRÄFTELSE-OMG11B']) {
+    for (const id of ['C-BÄRARE-LÄMNADE-OMG11B', 'U34-LEDARBYTE-OMG11B', 'U16-TICK-OMG11B', 'U31-REST-OMG11B', 'U1-C11-OMG11B', 'E1-KÖAVGÅNG-OMG11B', 'U92-VÄNDNING-UTAN-BEKRÄFTELSE-OMG11B']) {
       expect(reg.entry(id)).not.toBeNull();
     }
     expect(reg.varningar).toEqual([]);
@@ -122,9 +122,10 @@ describe('straxSläppsVidTick (U16, tickvarianten)', () => {
   });
 });
 
-describe('INV-3: bäraren lämnade gruppen (mekanism C)', () => {
+describe('bärareLämnadeISanningen (mekanism C; INV-3 som på basen)', () => {
   // strax (båt 1) → om 4 (båt 2) → strax (båt 2 når bron): två båtar efter varandra.
-  const resultat = (passage) => {
+  const p = pred('bärareLämnadeISanningen');
+  const resultat = (passageS) => {
     const tr = [
       { t: s(0), iso: '', text: 'Två båtar på väg mot Klaffbron, beräknad broöppning strax' },
       { t: s(60), iso: '', text: 'Två båtar på väg mot Klaffbron, beräknad broöppning om 4 minuter' },
@@ -143,19 +144,31 @@ describe('INV-3: bäraren lämnade gruppen (mekanism C)', () => {
           t: s(150), text: tr[2].text, leads: [{ bridge: 'Klaffbron', mmsi: '2' }], vessels: [båt('1'), båt('2', { etaMinutes: 2.5, imminent: true })],
         },
       ],
-      targetPassages: passage ? [{
-        mmsi: '1', bridge: 'Klaffbron', t: s(40), iso: '',
-      }] : [],
-      notifications: passage ? [{ mmsi: '1', bridge: 'Klaffbron', t: s(10) }] : [],
+      targetPassages: passageS === null ? [] : [{
+        mmsi: '1', bridge: 'Klaffbron', t: s(passageS), iso: '',
+      }],
+      notifications: [{ mmsi: '1', bridge: 'Klaffbron', t: s(10) }],
       journeyResets: [],
     };
   };
-  const inv3 = (r) => validateInvariants(r).filter((v) => /ETA-OSCILLATION/.test(v));
-  test('strax → nästa båts tid → strax efter strax-båtens bokförda passage fälls inte', () => {
-    expect(inv3(resultat(true))).toEqual([]);
+  const f = {
+    orakel: 'INV-F', inv: 'INV-3', klass: 'INV-3 ETA-OSCILLATION', bro: 'Klaffbron', t: s(150), detalj: '',
+  };
+  const ctx = (passageS, korsS) => ({ resultat: resultat(passageS), sanning: { crossings: korsS === null ? [] : [{ mmsi: '1', bridge: 'Klaffbron', t: s(korsS) }], uturns: [] } });
+  test('INV-3 fäller växlingen som på basen', () => {
+    expect(validateInvariants(resultat(40)).filter((v) => /ETA-OSCILLATION/.test(v)).length).toBe(1);
   });
-  test('samma växling utan passage fälls som förut (mutanten M6)', () => {
-    expect(inv3(resultat(false)).length).toBe(1);
+  test('bokförd passage som motsvaras av en sann korsning känns igen', () => {
+    expect(p(f, ctx(40, 30)).sant).toBe(true);
+  });
+  test('en för tidig bokföring (korsningen kommer mer än 30 s senare) blir kandidat', () => {
+    expect(p(f, ctx(40, 120)).sant).toBe(false);
+  });
+  test('en falsk bokföring (ingen sann korsning) blir kandidat', () => {
+    expect(p(f, ctx(40, null)).sant).toBe(false);
+  });
+  test('utan bokförd passage och utan väntan blir det kandidat (mutanten M6)', () => {
+    expect(p(f, ctx(null, 30)).sant).toBe(false);
   });
 });
 
@@ -192,27 +205,6 @@ describe('inbromsningEfterStrax (U31:s rest)', () => {
   });
   test('imminent utanför 300 m (mutanten M8) fälls', () => {
     expect(p(f, läge({ dX2: 360 })).sant).toBe(false);
-  });
-});
-
-describe('vändningUnderHoppet (E2)', () => {
-  const p = pred('vändningUnderHoppet');
-  const läge = (uturnS, o = {}) => {
-    const L = [
-      text(s(0), 'En båt på väg mot Klaffbron, beräknad broöppning om 15 minuter', [{ bridge: 'Klaffbron', mmsi: '1' }], [båt('1', { etaMinutes: 15.2, confirmedMs: s(-600) })]),
-      text(s(20), 'En båt på väg mot Klaffbron, beräknad broöppning om 24 minuter', [{ bridge: 'Klaffbron', mmsi: '1' }], [båt('1', { etaMinutes: 24.1, confirmedMs: o.utanNy ? s(-600) : s(20) })]),
-    ];
-    return { resultat: { bridgeTextLeads: L }, rader: [], sanning: { uturns: [{ mmsi: '1', t: s(uturnS) }], crossings: [] } };
-  };
-  const f = fynd('INV-3 ETA-SÅGTAND UPP', 'Klaffbron', s(20));
-  test('en vändning mellan appens positioner känns igen', () => {
-    expect(p(f, läge(-300)).sant).toBe(true);
-  });
-  test('en vändning efter appens senaste position förklarar inte hoppet', () => {
-    expect(p(f, läge(60)).sant).toBe(false);
-  });
-  test('utan ny position under hoppet förklarar vändningen inte hoppet', () => {
-    expect(p(f, läge(-300, { utanNy: true })).sant).toBe(false);
   });
 });
 

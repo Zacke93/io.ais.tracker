@@ -1189,26 +1189,6 @@
       "regel": "U1/C11 som U1-C11-TYST-FÖRE-DEFAULT, med två skillnader (omgång 11, spår B, F1): bäraren är den enda båten med målbron i texten före episoden enligt appen (bridgeTextLeads), inte en båt vars kurs ligger i ett kursband, och släppet får komma högst en halvminutstick, ett harnessteg och mikrograce (60,04 s) efter trappsteget i stället för 30,04 s. Texten före har klausulen 'En båt på väg mot X, ETA okänd' och bärarens tid är null; tystnaden räknas på appens positionsklocka (confirmedMs); steget följer trappan för en båt med målbro ur hennes senaste rad och appens fart (25 min under 1,5 kn eller under 3 kn inom 600 m från en opasserad bro, 20 min inom 300 m från en opasserad bro eller X framför henne, annars 15 min); hon kommer tillbaka i texten efter episoden med en ny position."
     },
     {
-      "id": "E2-VÄNDNING-OMG11B",
-      "klass": "MÄTGRÄNS",
-      "datum": "2026-11-28",
-      "källa": "docs/BUGGJAKT.md §7 (omgång 11, spår B, mekanism E2: en båt som vänder i världen); docs/BUGGJAKT.md §4.5 (U-svängen: inbromsning och vändning på stället); app.js#_reevaluateVesselStatuses (Fix G räknar ned under tystnad även om båten vänt); tests/replay-validation/replayRunner.js#bridgeTextLeads (confirmedMs per båt); tests/replay-validation/bugHunt/lib/registerOmg11B.js#registerOmg11B (predikatet vändningUnderHoppet)",
-      "gäller": {
-        "orakel": [
-          "INV-F"
-        ],
-        "inv": [
-          "INV-3"
-        ],
-        "klassRegex": "^INV-3 ETA-(SÅGTAND UPP|OSCILLATION)$"
-      },
-      "predikat": {
-        "namn": "vändningUnderHoppet",
-        "parametrar": {}
-      },
-      "regel": "INV-3 vet inte att bäraren vänt: en båt som bromsar in och vänder före bron får en stigande tid (hon kommer inte), och ett 'strax' vid vändningen följs av minuter. Kraven: ledaren i utslagets första eller sista text har en vändning i sanningen (L0) efter appens bekräftade position för henne i första texten (högst 60 s före, världens inbromsning före vändningen: 0,06 m/s² från högst cirka 3,6 m/s) och före hennes bekräftade position i sista texten, så att appens senare tid bygger på en ny position efter vändningen (hon har en ny bekräftad position under hoppet); och hon korsade inte bron emellan. Posten skiljer inte appens hantering av vändningen från världens: sådana fel döms av T9, T10 och U18-oraklen, inte av INV-3."
-    },
-    {
       "id": "E1-KÖAVGÅNG-OMG11B",
       "klass": "KOSTNAD",
       "datum": "2026-11-28",
@@ -1248,6 +1228,26 @@
       },
       "regel": "U92 (F2 i spår B:s rapport, omgång 11): en båt vänder och går därifrån långsammare än Fix D:s gräns. Appen rensar målbron med MOVING_AWAY ('Inga båtar'), sätter samma bro igen med ACCELERATED vid nästa fix innan vändningen bekräftats, och texten säger 'på väg mot' bron bakom henne med stigande tid tills hon går över gränsen. Kraven, på appens egna rader: texten före episoden bars av exakt en båt med målbron X; appens [TARGET_CHANGE] X → none med skälet MOVING_AWAY mellan texten före och episodens start; [TARGET_CHANGE] none → X med skälet ACCELERATED efter rensningen och senast vid texten efter, i en fart under FIX_D_MIN_SOG; ingen TARGET_RECALC (bekräftad vändning) för henne däremellan; och hon vände i världen (sanningens U-sväng) högst 15 min före rensningen. Mätt: 1 utslag i nattjakten med slumpfrö 1, 6 med slumpfrö 2 (två världar, en med idealradio); 0 gånger i banken (1 MOVING_AWAY på 25 korpusar, ingen omsättning) och i k1–k4 och falt5.",
       "fråga": "Ska målbron hållas (inte sättas om till bron bakom båten) medan en vändning under FIX_D_MIN_SOG väntar på bekräftelse? U92: tas upp om mönstret syns i fält."
+    },
+    {
+      "id": "C-BÄRARE-LÄMNADE-OMG11B",
+      "klass": "MÄTGRÄNS",
+      "datum": "2026-11-28",
+      "källa": "docs/BUGGJAKT.md §7 (omgång 11, spår B, mekanism C; dirigentens beslut i andra varvet: INV-3 förblir som på basen och mekanismen känns igen i registret med sanningens korsning); tests/replay-validation/invariants.js#validateInvariants (INV-3 godtar ett bärarbyte med bokförd passage bara från en minuttid och inte i en oscillation); tests/replay-validation/replayRunner.js#bridgeTextLeads (imminent, waitingAt och klausulens bärare vid varje text); tests/replay-validation/bugHunt/lib/registerOmg11B.js#registerOmg11B (predikatet bärareLämnadeISanningen)",
+      "gäller": {
+        "orakel": [
+          "INV-F"
+        ],
+        "inv": [
+          "INV-3"
+        ],
+        "klassRegex": "^INV-3 ETA-(SÅGTAND UPP|OSCILLATION)$"
+      },
+      "predikat": {
+        "namn": "bärareLämnadeISanningen",
+        "parametrar": {}
+      },
+      "regel": "Mekanism C: den båt som bar klausulen lämnar gruppen och nästa båts tid visas; antalsordet står kvar (en passerad båt räknas en stund, eller en annan båt kommer in). INV-3 ser två båtars tider som ett hopp, också från strax och i en oscillation (strax → nästa båts tid → strax när den båten når bron). Kraven, för ett steg (a, b) i utslaget (sågtanden: föregående och fyndets text; oscillationen: X → Y eller Y → X′): bärarna i a är båtarna med imminent-flaggan (utom väntgruppen) när a är strax, annars ledaren; ledaren i b är en annan båt; varje bärare har antingen en bokförd passage vid bron mellan a och b som motsvaras av en sann korsning i världens sanning (korsningen högst 30 s efter och högst 900 s före bokföringen; mätt på 38 C-utslag: bokföringen −25 till +483 s efter korsningen), eller står i väntgruppen i b enligt appens domspår (waitingAt och 'väntar vid' i texten); och den nya nivån håller (ingen text inom 120 s med samma ledare eller antal som är 6 min eller mer lägre). En falsk eller för tidig passagebokföring utan motsvarande sann korsning blir KANDIDAT. Posten gäller bara sanningsspåret (kräver sanningens korsningar); banken döms som förut av INV-3."
     }
   ]
 }

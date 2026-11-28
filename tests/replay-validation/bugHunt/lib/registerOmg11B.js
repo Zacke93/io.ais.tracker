@@ -311,6 +311,64 @@ module.exports = function registerOmg11B(h) {
       },
     },
 
+    // Mekanism C (spår B, omgång 11; INV-3 är orörd sedan andra varvet): den
+    // som bar klausulen före ett steg (ledaren, vid strax båtarna med
+    // imminent-flaggan) lämnade gruppen. Antingen passerade hon bron, och
+    // appens bokförda passage motsvaras av en sann korsning i världen (inte
+    // mer än tidigMs före korsningen och högst senMs efter), eller så står hon
+    // i väntgruppen i den nya texten enligt appens domspår ("väntar vid").
+    // Den nya tiden är då nästa båts, och nivån ska hålla som i INV-3.
+    bärareLämnadeISanningen: {
+      parametrar: {
+        tidigMs: 30000, senMs: 900000, fallMin: 6, fallMs: 120000,
+      },
+      fn(f, ctx, p) {
+        if (!f.bro || !Number.isFinite(f.t)) return nej('saknar bro eller tid');
+        const sanning = ctx.sanning && Array.isArray(ctx.sanning.crossings) ? ctx.sanning.crossings : null;
+        if (!sanning) return nej('saknar sanningens korsningar (posten gäller bara sanningsspåret)');
+        const ser = serieMedMeta(ctx, f.bro);
+        if (!ser) return nej('resultatet saknar bridgeTextLeads');
+        const tx = utslagetsTexter(f, ser);
+        if (!tx) return nej('hittar inte utslaget');
+        const res = ctx.resultat || {};
+        const bokförda = [...(res.targetPassages || []), ...(res.intermediatePassages || [])];
+        const iVäntgrupp = (s, v) => !!v && !!v.waitingAt && s.text.includes(`väntar vid ${v.waitingAt}`);
+        const skäl = [];
+        for (let k = 0; k + 1 < tx.length; k++) {
+          const a = tx[k]; const b = tx[k + 1];
+          const imm = a.eta < 1 ? (a.meta.vessels || []).filter((v) => v && v.targetBridge === f.bro && v.imminent && !iVäntgrupp(a, v)).map((v) => String(v.mmsi)) : [];
+          let bärare = imm;
+          if (!bärare.length && a.lead) bärare = [a.lead];
+          if (!bärare.length || !b.lead || bärare.includes(b.lead)) {
+            skäl.push(`${fmtT(a.t)}→${fmtT(b.t)}: inget bärarbyte`); continue;
+          }
+          const förklaring = [];
+          for (const m of bärare) {
+            const bok = bokförda.find((x) => x && String(x.mmsi) === m && x.bridge === f.bro && Number.isFinite(x.t) && x.t > a.t && x.t <= b.t);
+            if (bok) {
+              const kors = sanning.find((c) => String(c.mmsi) === m && c.bridge === f.bro && c.t <= bok.t + p.tidigMs && bok.t - c.t <= p.senMs);
+              if (kors) {
+                förklaring.push(`${m} passerade ${f.bro} ${fmtT(kors.t)} (bokförd ${fmtT(bok.t)})`); continue;
+              }
+              förklaring.push(null); skäl.push(`${m}:s bokförda passage ${fmtT(bok.t)} har ingen sann korsning inom −${p.tidigMs / 1000}/+${p.senMs / 1000} s`); continue;
+            }
+            if (iVäntgrupp(b, båt(b, m))) {
+              förklaring.push(`${m} väntar vid ${båt(b, m).waitingAt}`); continue;
+            }
+            förklaring.push(null); skäl.push(`${m} varken passerade eller väntar`);
+          }
+          if (förklaring.some((x) => x === null)) continue;
+          const i = ser.indexOf(b);
+          const fall = ser.slice(i + 1).find((x) => x.t - b.t <= p.fallMs && (x.lead === b.lead || x.antal === b.antal) && x.eta <= b.eta - p.fallMin);
+          if (fall) {
+            skäl.push(`den nya nivån ${b.eta} höll inte (${fmtT(fall.t)}: ${fall.eta})`); continue;
+          }
+          return ok(`bärarbyte: ${förklaring.join(', ')}; ${b.lead} bär ${b.eta} min ${fmtT(b.t)}`);
+        }
+        return nej(skäl.join('; ') || 'inget steg');
+      },
+    },
+
     // U31:s kända rest (mekanism D): båten går in i strax på ETA under 3 min
     // utanför 300 m med en fix som själv lovar strax, bromsar nästa fix (tiden
     // går upp till minst 3) och får strax igen av imminent-flaggan inom 300 m.
@@ -354,58 +412,6 @@ module.exports = function registerOmg11B(h) {
         if (!(Number.isFinite(rY.sog) && rY.sog * p.kvot <= rX.sog)) return nej(`ingen inbromsning mellan X och Y (${rX.sog} → ${rY.sog} kn)`);
         return ok(`U31:s rest: strax på ETA ${vX.etaMinutes.toFixed(1)} vid ${Math.round(dX)} m och ${rX.sog} kn (momentant ${momentan.toFixed(1)} min), `
           + `inbromsning till ${rY.sog} kn ger ${Y.eta} min vid ${Math.round(dY)} m, imminent inom ${p.radieM} m (${Math.round(d2)} m)`);
-      },
-    },
-
-    // E2: båten vände i världen (sanningens U-sväng) medan hoppet pågick.
-    // Bäraren är ledaren i utslagets första eller sista text; vändningen ligger
-    // mellan appens bekräftade positioner för henne i första och sista texten
-    // (inbromsningen före vändningen räknas med: högst inbromsningMs före den
-    // första), appen såg en position efter vändningen, och hon korsade inte
-    // bron emellan.
-    vändningUnderHoppet: {
-      parametrar: { inbromsningMs: 60000, hysteresM: 350 },
-      fn(f, ctx, p) {
-        if (!f.bro || !Number.isFinite(f.t)) return nej('saknar bro eller tid');
-        const { sanning } = ctx;
-        if (!sanning || !Array.isArray(sanning.uturns)) return nej('saknar sanningens vändningar');
-        const ser = serieMedMeta(ctx, f.bro);
-        if (!ser) return nej('resultatet saknar bridgeTextLeads');
-        const tx = utslagetsTexter(f, ser);
-        if (!tx) return nej('hittar inte utslaget');
-        const första = tx[0]; const sista = tx[tx.length - 1];
-        // Hoppet slutar inte i strax (vändningen tar båten från bron), och varje
-        // strax i utslaget bärs av en imminent-flagga inom imminent-hysteresens
-        // yttre gräns (350 m) eller av en egen tid under 3 min.
-        if (sista.eta < 1) return nej('utslaget slutar i strax: en vändning förklarar inte en återgång till strax');
-        for (const x of tx.filter((y) => y.eta < 1)) {
-          for (const v of (x.meta.vessels || []).filter((w) => w && w.targetBridge === f.bro && w.imminent && harFälten(w))) {
-            const r = egnaRader(ctx, v.mmsi, v.confirmedMs);
-            const d = r ? platser.distanceToPoint(r, f.bro) : null;
-            if (d !== null && d > p.hysteresM && !v.fromExhausted) return nej(`${v.mmsi} var imminent ${Math.round(d)} m från bron vid ${fmtT(x.t)}`);
-          }
-        }
-        const kandidater = [...new Set([första.lead, sista.lead].filter(Boolean))];
-        const skäl = [];
-        for (const m of kandidater) {
-          const vF = båt(första, m); const vS = båt(sista, m);
-          if (!harFälten(vF) || !harFälten(vS)) {
-            skäl.push(`${m}: fälten saknas`); continue;
-          }
-          const u = sanning.uturns.find((x) => String(x.mmsi) === m && x.t > vF.confirmedMs - p.inbromsningMs && x.t < vS.confirmedMs);
-          if (!u) {
-            skäl.push(`${m}: ingen vändning mellan ${fmtT(vF.confirmedMs)} och ${fmtT(vS.confirmedMs)}`); continue;
-          }
-          if (!(vS.confirmedMs > vF.confirmedMs)) {
-            skäl.push(`${m}: ingen ny position under hoppet`); continue;
-          }
-          const kors = (sanning.crossings || []).find((c) => String(c.mmsi) === m && c.bridge === f.bro && c.t > vF.confirmedMs && c.t <= sista.t);
-          if (kors) {
-            skäl.push(`${m} korsade ${f.bro} ${fmtT(kors.t)}`); continue;
-          }
-          return ok(`vändning i världen: ${m} vände ${fmtT(u.t)}, mellan appens positioner ${fmtT(vF.confirmedMs)} och ${fmtT(vS.confirmedMs)}, utan att korsa ${f.bro}`);
-        }
-        return nej(skäl.join('; ') || 'ingen bärare');
       },
     },
 

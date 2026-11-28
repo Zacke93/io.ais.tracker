@@ -432,34 +432,6 @@ function validateInvariants(result) {
     const vände = journeyResetsInv3.find((r) => r && String(r.mmsi) === prev.lead && Number.isFinite(r.t) && r.t > prev.t && r.t <= cur.t);
     return vände ? `${prev.lead} vände (journeyReset ${new Date(vände.t).toISOString()})` : null;
   }
-  // BÄRAREN LÄMNADE GRUPPEN (omgång 11, spår B, U90; nattens mekanism C): den
-  // som bar klausulen före ett steg, ledaren eller vid "strax" varje båt med
-  // imminent-flaggan, har en bokförd passage vid bron mellan texterna eller
-  // står i en väntgrupp i den nya texten ("väntar vid X", U65/U53). Då är den
-  // nya tiden en annan båts, också från "strax" och i en oscillation (strax →
-  // nästa båts tid → strax när den båten når bron). Nivån måste hålla som för
-  // de andra bevisen. En båt som tappar "strax" utan passage och utan väntan
-  // (studs, tystnad) döms som förut.
-  const bärarenLämnade = (prev, cur, bridge) => {
-    if (!cur.lead || !prev.meta || !Array.isArray(prev.meta.vessels)) return null;
-    const imm = prev.eta < 1
-      ? prev.meta.vessels.filter((v) => v && v.targetBridge === bridge && v.imminent === true).map((v) => String(v.mmsi))
-      : [];
-    let bärare = imm;
-    if (!bärare.length && prev.lead) bärare = [prev.lead];
-    if (!bärare.length || bärare.includes(cur.lead)) return null;
-    const skäl = [];
-    for (const m of bärare) {
-      const passage = inv3Passages.find((p) => p && String(p.mmsi) === m && p.bridge === bridge
-        && Number.isFinite(p.t) && p.t > prev.t && p.t <= cur.t);
-      const nu = cur.meta && Array.isArray(cur.meta.vessels) ? cur.meta.vessels.find((v) => v && String(v.mmsi) === m) : null;
-      const väntar = nu && nu.waitingAt && cur.text.includes(`väntar vid ${nu.waitingAt}`);
-      if (passage) skäl.push(`${m} passerade ${bridge}`);
-      else if (väntar) skäl.push(`${m} väntar vid ${nu.waitingAt}`);
-      else return null;
-    }
-    return skäl.join(', ');
-  };
   for (const [bridge, series] of clauseSeries) {
     for (let i = 1; i < series.length; i++) {
       const dt = (series[i].t - series[i - 1].t) / 1000;
@@ -496,8 +468,7 @@ function validateInvariants(result) {
           }
         }
         if ((!fromSoftZone || revertsQuickly)
-            && !(leaderChangeExplained(series[i - 1], series[i], bridge) && newLevelHolds(series, i))
-            && !(bärarenLämnade(series[i - 1], series[i], bridge) && newLevelHolds(series, i))) {
+            && !(leaderChangeExplained(series[i - 1], series[i], bridge) && newLevelHolds(series, i))) {
           violations.push(`ETA-SÅGTAND UPP: ${series[i].iso} ${bridge} ${series[i - 1].eta}→${series[i].eta} på ${Math.round(dt)}s`);
         }
       }
@@ -532,12 +503,8 @@ function validateInvariants(result) {
         // vändningen räknas här; köet och passagen gäller som förut bara
         // upp-hoppet.
         const vändBärare = bärarenVände(y, x2, bridge) && newLevelHolds(series, i);
-        // Spår B (omgång 11): bärarbytet med passage eller väntan, i
-        // avvikelsen X → Y eller i återgången Y → X′.
-        const lämnadeBärare = (bärarenLämnade(x, y, bridge) && newLevelHolds(series, i - 1))
-          || (bärarenLämnade(y, x2, bridge) && newLevelHolds(series, i));
         if (span <= 240 && Math.abs(y.eta - x.eta) >= oscThreshold && Math.abs(x2.eta - x.eta) <= 1
-            && x.count === y.count && y.count === x2.count && !extrapolationCorrection && !vändBärare && !lämnadeBärare) {
+            && x.count === y.count && y.count === x2.count && !extrapolationCorrection && !vändBärare) {
           violations.push(`ETA-OSCILLATION: ${x2.iso} ${bridge} ${x.eta}→${y.eta}→${x2.eta} inom ${Math.round(span)}s`);
         }
       }

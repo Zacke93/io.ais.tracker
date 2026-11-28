@@ -749,6 +749,6 @@ describe('U16 U16-F40-STRAX-STUDS: studsen vid den strax-bärande båtens nästa
     // Spår B:s INV-3-poster från omgång 11 (U90) står sist och prövas också;
     // U34-LEDARBYTE-OMG11B ersatte LEDARBYTE-TYST-FRÄMSTA (U91).
     expect(c.prövade.map((p) => p.post)).toEqual(['KIE-PER-KORPUS', U16,
-      'U34-LEDARBYTE-OMG11B', 'U16-TICK-OMG11B', 'U31-REST-OMG11B', 'E2-VÄNDNING-OMG11B', 'E1-KÖAVGÅNG-OMG11B']);
+      'U34-LEDARBYTE-OMG11B', 'U16-TICK-OMG11B', 'U31-REST-OMG11B', 'E1-KÖAVGÅNG-OMG11B', 'C-BÄRARE-LÄMNADE-OMG11B']);
   });
 });
