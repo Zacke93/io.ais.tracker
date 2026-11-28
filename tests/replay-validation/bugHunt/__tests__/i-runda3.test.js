@@ -746,7 +746,9 @@ describe('U16 U16-F40-STRAX-STUDS: studsen vid den strax-bärande båtens nästa
       orakel: 'INV-F', inv: 'INV-3', klass: 'INV-3 ETA-OSCILLATION', bro: 'Klaffbron', t: at('09:42:15.126'), detalj: 'x',
     }, { rader: [], resultat: {} });
     expect(c).toMatchObject({ klass: 'KANDIDAT', närmast: { post: 'KIE-PER-KORPUS' } });
-    // LEDARBYTE-TYST-FRÄMSTA (U34, 2026-11-16) står efter U16 och prövas också.
-    expect(c.prövade.map((p) => p.post)).toEqual(['KIE-PER-KORPUS', U16, 'LEDARBYTE-TYST-FRÄMSTA']);
+    // Spår B:s INV-3-poster från omgång 11 (U90) står sist och prövas också;
+    // U34-LEDARBYTE-OMG11B ersatte LEDARBYTE-TYST-FRÄMSTA (U91).
+    expect(c.prövade.map((p) => p.post)).toEqual(['KIE-PER-KORPUS', U16,
+      'U34-LEDARBYTE-OMG11B', 'U16-TICK-OMG11B', 'U31-REST-OMG11B', 'E2-VÄNDNING-OMG11B', 'E1-KÖAVGÅNG-OMG11B']);
   });
 });

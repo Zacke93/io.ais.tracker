@@ -78,7 +78,9 @@ Module.prototype.require = function requireOverride(id) {
 const mockHomeyModule = require(path.join(ROOT, 'tests', '__mocks__', 'homey'));
 const mockHomey = mockHomeyModule.__mockHomey;
 const AISBridgeApp = require(path.join(ROOT, 'app'));
-const { waitingBridge, waitingBridgeForText, hasFreshPosition } = require('../../lib/utils/bridgeQueue');
+const {
+  waitingBridge, waitingBridgeForText, hasFreshPosition, queueBridge,
+} = require('../../lib/utils/bridgeQueue');
 const { UI_CONSTANTS, AIS_CONFIG } = require('../../lib/constants');
 
 // Äkta setImmediate (sparas innan klockan installeras) för microtask-dränering.
@@ -382,6 +384,11 @@ async function main() {
   // mellanbro-registreringar (INV-13: en målbro som loggas som INTERMEDIATE
   // är en tyst degraderad målbropassage — osynlig för INV-5:s regex).
   const journeyResets = [];
+  // Omgång 11, spår B (U92): appens målbrobyten ur dess egen loggrad
+  // ([TARGET_CHANGE], VesselDataService.js, loggas alltid), så att registret
+  // kan binda en känd gräns till appens rensning och omsättning av målbron.
+  const targetChanges = [];
+  const targetChangeRe = /\[TARGET_CHANGE\] (\d+): "([^"]*)" → "([^"]*)" \| Reason: ([^|]+?) \|(?:.*?Speed: ([\d.]+)kn)?/;
   // En återkomst till samma område behöver inte starta om hela resan.
   // Fångas direkt ur den riktiga besöksservicen och binds till båt + plats.
   const visitReentries = [];
@@ -478,9 +485,20 @@ async function main() {
               // 90 s), med uttömningens stämpel. Fälten finns bara på det
               // levande fartyget, inte på presentationskopian.
               imminent: v._isImminentAtTargetBridge === true,
+              // Omgång 11, spår B (U90): tiden som texten byggdes på (presentations-
+              // kopians etaMinutes, null = nollad), och ur det levande fartyget
+              // appens egen positionsklocka (_lastConfirmedPositionMs: max av
+              // timestamp och lastPositionUpdate), farten och köbron framför
+              // (queueBridge, samma funktion som tystnadsgrenen i
+              // _reevaluateVesselStatuses läser). Bara bokföring av det appen
+              // redan räknat; registrets U34-, U16- och U31-poster läser fälten.
+              etaMinutes: Number.isFinite(v.etaMinutes) ? v.etaMinutes : null,
               ...((live) => ({
                 fromExhausted: !!live && live._imminentFromExhausted === true,
                 exhaustedAt: live && Number.isFinite(live._etaExhaustedAtMs) ? live._etaExhaustedAtMs : null,
+                confirmedMs: live ? Math.max(live.timestamp || 0, live.lastPositionUpdate || 0) : null,
+                sog: live && Number.isFinite(live.sog) ? live.sog : null,
+                queueAhead: (live && queueBridge(live)?.name) || null,
               }))(instance.vesselDataService?.getVessel?.(v.mmsi)),
             })),
           };
@@ -705,6 +723,12 @@ async function main() {
       const jm = line.match(journeyResetRe);
       if (jm) {
         journeyResets.push({ t: Date.now(), iso: new Date(Date.now()).toISOString(), mmsi: jm[1] });
+      }
+      const tc = line.match(targetChangeRe);
+      if (tc) {
+        targetChanges.push({
+          t: Date.now(), mmsi: tc[1], from: tc[2], to: tc[3], reason: tc[4].trim(), sog: tc[5] !== undefined ? Number(tc[5]) : null,
+        });
       }
       const im = line.match(intermediateRe);
       if (im) {
@@ -1308,6 +1332,7 @@ async function main() {
     journeyResets,
     openingHolds,
     reversalTargetDeferrals,
+    targetChanges,
     visitReentries,
     visitReturnReleases,
     vesselRemovals,

@@ -4488,6 +4488,29 @@ Object.assign(PREDICATES, require('./predikatA11')({
   ok, nej, fmtT, rowsOf, deliveredWarnings, fyndetsVarning, fyndetsKorsning, senasteVändning, riktningshändelser, fixtid,
 }));
 
+// Omgång 11, spår B (U90): predikaten för INV-3:s och INV-14:s kända utfall
+// ligger i en egen fil (registerOmg11B.js) och får registrets hjälpare här.
+const HJÄLPARE_OMG11B = {
+  ok,
+  nej,
+  fmtT,
+  platser,
+  rowsOf,
+  medFramfördKursOchFart,
+  bäringTill,
+  appKonstant,
+  C,
+  STALE_SOFT_MS,
+  STALE_HARD_MS,
+  IMMINENT_EXHAUSTED_MAX_AGE_MS,
+  defaultEpisod,
+  klausulFör,
+  låstBank,
+  LÅST_BANK,
+  FIX_D_MIN_SOG,
+};
+Object.assign(PREDICATES, require('./registerOmg11B')(HJÄLPARE_OMG11B));
+
 // ---------------------------------------------------------------------------
 // Laddning och validering
 // ---------------------------------------------------------------------------

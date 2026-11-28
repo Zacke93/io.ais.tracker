@@ -142,7 +142,8 @@ describe('H7: U34 gren (c) kräver uttömningens stämpel och tystnad över 300 
   test.each(['M3b-ledare:s578', 'M3b-ledare:s1975'])('[mutant] %s: ledarbytet när den främsta var tyst 90–300 s är KANDIDAT', (k) => {
     const inv3 = mutant(k).filter((f) => f.inv === 'INV-3');
     expect(inv3.length).toBeGreaterThan(0);
-    expect(inv3.filter((f) => f.register.post === 'LEDARBYTE-TYST-FRÄMSTA')).toEqual([]);
+    // U91 (omgång 11): U34-LEDARBYTE-OMG11B ersatte LEDARBYTE-TYST-FRÄMSTA.
+    expect(inv3.filter((f) => /LEDARBYTE/.test(f.register.post || ''))).toEqual([]);
   });
 });
 

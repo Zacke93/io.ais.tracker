@@ -27,10 +27,16 @@ const post = (f, ctx) => {
   return [c.klass, c.post || null];
 };
 
-describe('LEDARBYTE-TYST-FRÄMSTA (U34): texten när den främsta båten tystnat', () => {
-  test.each(['F20-r1', 'F21-r3'])('[träff] %s', (id) => {
+describe('U34 (U91: U34-LEDARBYTE-OMG11B ersatte LEDARBYTE-TYST-FRÄMSTA): texten när den främsta båten tystnat', () => {
+  // Fixturens resultat är från f543190, före harnessens bokföring av appens
+  // ETA-läge (omgång 11). Utan fälten kan den nya posten inte belägga bytet,
+  // och utslaget är KANDIDAT med det skälet. Träffarna prövas i
+  // w-omg11b-register.test.js och i omgång 11:s ombyggda världar.
+  test.each(['F20-r1', 'F21-r3'])('[utan harnessfält] %s', (id) => {
     const { f, ctx } = fall(id, /^INV-F INV-3/);
-    expect(post(f, ctx)).toEqual(['ACCEPTERAD', 'LEDARBYTE-TYST-FRÄMSTA']);
+    const c = klassa(f, ctx);
+    expect([c.klass, c.post || null]).toEqual(['KANDIDAT', null]);
+    expect(c.prövade.find((x) => x.post === 'U34-LEDARBYTE-OMG11B').skäl).toMatch(/harnessen bokförde inte/);
   });
 
   test('[vakt] F21 r1: hoppet från "strax" (U16:s studs) förklaras inte', () => {

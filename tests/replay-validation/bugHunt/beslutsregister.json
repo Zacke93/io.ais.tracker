@@ -71,26 +71,6 @@
       "regel": "Användarbeslut U16 (2026-11-04): beteendet behålls. Appen visar aldrig 'strax' på en position som är äldre än STALE_ETA_HARD (10 min; U1/C11 och F40-avvägningen). När en köande båts 'strax'-bärande fix blir äldre än 600 s tappar klausulen 'strax' och lånar nästa båts ETA, och 'strax' kommer tillbaka med båtens nästa fix. INV-3:s studsdiskriminator (tests/replay-validation/invariants.js#validateInvariants, fromSoftZone och revertsQuickly) fäller studsen som ETA-OSCILLATION och ETA-SÅGTAND UPP. Posten gäller bara studsen hos den båt som kan ha burit 'strax', när hennes nästa rad bearbetas: harnessen dränerar väntande UI-arbete när klockan når raden, före sampelbearbetningen, och texten där bygger på läget före raden. Den varianten är en mätgräns: harnessen kör appens asynkrona UI-arbete först vid sin nästa dränering (en verklig setImmediate efter varje clock.tick, tests/replay-validation/replayRunner.js#drain), så hoppet är svansen av en tidigare UI-cykel, i värld 1608 omkörningen (setImmediate, app.js#_publishUpdate, rerun-after-inflight) av halvminutens cykel 09:42:00. I fält hade omkörningen gått vid halvminuten med åldern cirka 590 s. Kraven: nivån före hoppet och återgången är 'strax' i brons ETA-serie; hoppet publicerades exakt när harnessen bearbetade båtens rad (harnessens klocka: en rad bearbetas vid max(radens tid, förra AIS-radens bearbetning + 60 ms)); båtens föregående fix bearbetades mer än 600 s före hoppet (appens ålder, med samma jämförelse som dataIsFreshEnough); båda fixarna ligger inom 350 m från bron (WAITING_CLEAR_DISTANCE) och utanför kajkapslarna (MOORING_ZONES); ingen brotext publicerades och ingen halvminutstick (i variantens fas för M-FAS) föll mellan 600 s-gränsen och hoppet, eftersom appen annars hade tappat 'strax' där om båten bar det; återgången kom efter radens bearbetning och högst 1 s efter radens tid, utan att någon annan båts rad inom 500 m från bron (den vidaste radie där appen sätter 'strax') bearbetades emellan; ingen styrrad (avbrott, återanslutning, omstart) bearbetades mellan båtens förra fix och återgången; båten kunde bära 'strax' vid sin förra fix (fixen inom 300 m, imminent SET, eller inom 350 m efter en tidigare fix inom 270 m, väntläget, utan att båten lämnat 350 m emellan); och ingen annan båt kunde bära 'strax' vid hoppet (ingen annan båt har sin senaste fix före hoppet inom 500 m, högst 600 s gammal i appens klocka, utanför kajkapslarna och på väg mot bron: kursen inom ±90° från bäringen till bron, eller saknad kurs inom 350 m). B4-VARIANTEN (2026-11-15, buggjägarens kort F04 och F05, standardvärld 1907): positionen är yngre än 600 s, men båtens 'strax' bars av en uttömd extrapolering och 90 s-taket på uttömt 'strax' (app.js IMMINENT_EXHAUSTED_MAX_AGE_MS, läst ur källtexten) löste ut. Uttömningen syns inte i raderna; underlaget är appens läge vid varje publicerad text i replayresultatets bridgeTextLeads. Kraven i stället för åldern och kraven på bäraren: vid nivån före hoppet bar båten 'strax' på en uttömd extrapolering och ingen annan båt med samma målbro var imminent; vid hoppet var hennes flagga släppt, hoppet kom mer än taket efter uttömningens stämpel och klausulen visade en annan båts ETA; vid återgången bar hon 'strax' på en färsk fix. Fixarna får ligga inom 500 m (den uttömda grenen), gränsen för textgenereringen är taket i stället för 600 s, och återgången ska publiceras vid första dräneringen efter hennes rad (ingen text och ingen egen rad emellan, senast när nästa rad bearbetas och senast ett av harnessens klocksteg, 30 s, efter hennes rad; granskningen 2026-11-16); övriga krav gäller som för huvudvarianten. Saknas underlaget blir B4 KANDIDAT. Tick-varianten och ETA-hoppet vid 600 s utan 'strax' omfattas inte, inte heller en B4-studs vid en annan båts rad. En äkta studs med bäraren i en kajkapsel blir också KANDIDAT. På den låsta banken (relation BAS) gäller ingen registeramnesti. Snävad i efterrättningarna R3b och R3c, och klassen ändrad från DESIGN till MÄTGRÄNS i R3c (BUGGJAKT §7 rad 19 och 21). U65 (ägarens beslut 2026-11-24): en båt med köbeviset vid målbron visas som 'väntar vid <bro>' och bär aldrig 'strax'; mekanismen finns kvar för 'strax' genom imminent-flaggan utan köbevis (en båt under gång eller som släppt köbeviset, och B4:s uttömda 'strax'). Krav 9b: visar ETA-bärarna (bridgeTextLeads) båten i kön vid bron (waitingAt lika med bron) vid nivån före hoppet eller vid återgången, och står målbrons vänttext ('väntar vid <bro>' utan 'på väg mot') i den texten, gäller posten inte. Före U65 fanns ingen sådan text och köaren bar 'strax', så äldre resultat (värld 1608 i fixturen u16-b4) och resultat utan underlaget dömer som förut."
     },
     {
-      "id": "LEDARBYTE-TYST-FRÄMSTA",
-      "klass": "ACCEPTERAD",
-      "datum": "2026-11-16",
-      "källa": "docs/BUGGJAKT.md §7 (dirigentens beslut U34 2026-11-16 på ägarens uppdrag, fråga F21 i docs/faltgranskning-2026-11-14.md avsnitt 11.5: texten när den främsta båten tystnat behålls, hoppet är en känd gräns); lib/services/BridgeTextService.js#_selectLeadVessel (ledarvalet); lib/constants.js#STALE_ETA_HARD_THRESHOLD_MS och lib/constants.js#STALE_ETA_SOFT_THRESHOLD_MS (tystnadsgrenarna); tests/replay-validation/replayRunner.js#bridgeTextLeads (bärarna och båtarnas läge vid varje text); tests/replay-validation/bugHunt/lib/registry.js#PREDICATES (predikatet ledarbyteTystFrämsta)",
-      "gäller": {
-        "orakel": [
-          "INV-F"
-        ],
-        "inv": [
-          "INV-3"
-        ],
-        "klassRegex": "^INV-3 ETA-(SÅGTAND UPP|OSCILLATION)$"
-      },
-      "predikat": {
-        "namn": "ledarbyteTystFrämsta",
-        "parametrar": {}
-      },
-      "regel": "U34: när den främsta båten L1 tystnar och hennes tid nollas av en dokumenterad tystnadsgren visar klausulen nästa båts (L2) tid, och när L1 hörs igen tar hon tillbaka klausulen. Hoppet i den visade tiden är en känd gräns. Posten gäller hoppet (föregående text, fyndets text) i brons ETA-serie, för ETA-OSCILLATION hoppet in i X′, när alla gäller: (1) två bärare, L1 före och L2 efter; (2) nivån före var L1:s egen minuttid, inte 'strax' (U16:s studsar); (3) L1:s tid nollades av en tystnadsgren och inget annat: hennes senaste rad (harnessens bearbetningstid) var vid hoppet äldre än STALE_ETA_HARD (600 s), eller äldre än STALE_ETA_SOFT (300 s) med fart under 1 kn eller i kö vid en annan bro, eller hennes nedräkning var uttömd (stämpeln exhaustedAt satt, inte bara flaggan), positionen äldre än STALE_ETA_SOFT och hon låg mer än 300 m från bron (granskningen 2026-11-16, H7); och hon hade ingen egen rad mellan nivån före och hoppet; (4) L1 räknas kvar i gruppen: samma antalsord, och hon står i hoppets text med samma målbro och utan imminent; (5) ingen vändning: hennes sista rad har kursen mot bron (inom 90° från bäringen, eller under 0,5 kn) och ingen journeyReset för henne från den raden till hoppet. Ett äkta fel i ledarvalet (L2 väljs medan L1:s tid är giltig), en båt som vänt, ett ledarbyte utan att antalet står kvar och en studs från 'strax' blir KANDIDAT. Förslaget är sågtandsmätningens (LEDARBYTE-TYST-FRÄMSTA); villkoret att L2:s tid är hennes egen giltiga tid prövas inte (bärarens tid är klausulens per konstruktion i bridgeTextLeads), och en bestående felnivå hos L2 syns inte. (6) Den nya nivån håller: ingen senare text inom 120 s där L2 bär klausulen visar 6 min eller mer lägre (granskningen 2026-11-16, mutanten M3: en uppblåst tid i en halvminut hos L2 dolde sig bakom ett äkta ledarbyte). Att L1 hörs igen och tar tillbaka klausulen räknas inte."
-    },
-    {
       "id": "U23-KAJZON-UTANFÖR-VÄNTZONEN",
       "klass": "DESIGN",
       "datum": "2026-11-09",
@@ -1127,6 +1107,147 @@
       },
       "regel": "Båtens egen varning gick på en bakkantsdom där appens prognos låg efter fönstrets slut men armens fysik inom, med armen högst 100 m från bron i minst MOVING_SOG_KN, ett fönster av rätt längd och den sanna korsningen inom fönstret (U88).",
       "fråga": "Ska bakkanten nära bron räkna med den tidigare av prognosen och fysiken, som U49:s håll vid täckningsslutet?"
+    },
+    {
+      "id": "U34-LEDARBYTE-OMG11B",
+      "klass": "ACCEPTERAD",
+      "datum": "2026-11-28",
+      "källa": "docs/BUGGJAKT.md §7 (omgång 11, spår B, U90; dirigentens beslut U34 och U87: texten när den främsta båten tystnat behålls, hoppet är en känd gräns; fråga F21 i docs/faltgranskning-2026-11-14.md avsnitt 11.5); app.js#_reevaluateVesselStatuses (tystnadsgrenarna: STALE_ETA_HARD, STALE_ETA_SOFT med fart under 1 kn eller köbro framför, uttömd nedräkning); lib/utils/bridgeQueue.js#queueBridge (köbron framför); app.js#_lastConfirmedPositionMs (positionsklockan); lib/services/BridgeTextService.js#_selectLeadVessel (ledarvalet); tests/replay-validation/replayRunner.js#bridgeTextLeads (etaMinutes, confirmedMs, sog och queueAhead per båt vid varje text); tests/replay-validation/bugHunt/lib/registerOmg11B.js#registerOmg11B (predikatet ledarbyteTystFrämstaB)",
+      "gäller": {
+        "orakel": [
+          "INV-F"
+        ],
+        "inv": [
+          "INV-3"
+        ],
+        "klassRegex": "^INV-3 ETA-(SÅGTAND UPP|OSCILLATION)$"
+      },
+      "predikat": {
+        "namn": "ledarbyteTystFrämstaB",
+        "parametrar": {}
+      },
+      "regel": "U34 bundet till appens eget läge vid texterna (luckorna A-i, A-ii, A-iii och A-v i LEDARBYTE-TYST-FRÄMSTA). Hoppet är paret (föregående text, fyndets text); i en oscillation paret X → Y när Y är högre än X (bytet ligger i avvikelsen), annars Y → X′. Kraven: två bärare L1 och L2, nivån före var L1:s egen minuttid (inte strax) och antalsordet står kvar; L1 står kvar i hoppets text med samma målbro och utan imminent; appens tid för L1 var satt i texten före och null vid hoppet (presentationskopians etaMinutes); appens positionsklocka för L1 (confirmedMs) är densamma i båda texterna (hon har inte hörts); och nollningen förklaras av en av appens tystnadsgrenar räknad på appens värden vid hoppet: åldern över STALE_ETA_HARD (600 s), eller över STALE_ETA_SOFT (300 s) med fart under 1 kn, med en köbro framför som inte är målbron (queueBridge) eller med uttömd nedräkning. Appens imminent-regel hade inte gett strax: ingen båt i gruppen under gång (L1 eller någon annan) har en position högst STALE_ETA_HARD gammal inom APPROACH_RADIUS (300 m) utan imminent, och L1:s nedräkning tog inte slut inom taket högst 500 m från bron. L1 blir inte imminent igen inom 5 min utan ny position eller ny uttömning (en flapp är ett fel). L1 var verkligen främst: hon korsar bron före L2 (sanningens korsningar, annars L1-facit). Klausulens tid efter hoppet är L2:s egen (avrundad inom 1 min) och rimlig: högst 2 gånger tiden till hennes verkliga korsning plus 5 min (mätt på spår B:s 229 träffar: (visad − 5)/sann p95 1,56, max 2,63; ett räknefel som restiden mot fel bro ger över 2). Ingen vändning (kursen mot bron, ingen journeyReset). Den nya nivån håller: ingen text inom 120 s där L2 bär klausulen visar 6 min eller mer lägre, utom när den lägre texten är strax som bärs av en annan båts imminent-flagga, eller när den kom med en ny position för L2 och den visade tiden var L2:s egen redan i texten före bytet. En bestående felnivå hos L1 eller L2 inom rimlighetsbandet syns inte (mutanterna M2 och M3 i dirigent/omg11/B/RESULTAT.md: 1 respektive 7 nya hopp godtogs, 63 respektive 31 nya blev KANDIDAT)."
+    },
+    {
+      "id": "U16-TICK-OMG11B",
+      "klass": "DESIGN",
+      "datum": "2026-11-28",
+      "källa": "docs/BUGGJAKT.md §7 (användarbeslut U16: aldrig strax på en position äldre än 10 min; stycket om tickvarianten, som U16 täcker men U16-F40-STRAX-STUDS utesluter; omgång 11, spår B, mekanism B); app.js#_imminentVerdict (färskhetsgränsen STALE_ETA_HARD och B4:s tak); app.js#IMMINENT_EXHAUSTED_MAX_AGE_MS; tests/replay-validation/replayRunner.js#bridgeTextLeads (imminent, fromExhausted, exhaustedAt och confirmedMs vid varje text); tests/replay-validation/bugHunt/lib/registerOmg11B.js#registerOmg11B (predikatet straxSläppsVidTick)",
+      "gäller": {
+        "orakel": [
+          "INV-F"
+        ],
+        "inv": [
+          "INV-3"
+        ],
+        "klassRegex": "^INV-3 ETA-(SÅGTAND UPP|OSCILLATION)$"
+      },
+      "predikat": {
+        "namn": "straxSläppsVidTick",
+        "parametrar": {}
+      },
+      "regel": "U16:s tickvariant och B4:s 90 s-tak. I utslaget går en text från strax (a) till en minuttid (b). Varje båt som var imminent i a står kvar i b utan imminent och utan ny bekräftad position (appens positionsklocka), och hennes släpp faller på appens egen gräns: positionsklockan + STALE_ETA_HARD, eller uttömningens stämpel + IMMINENT_EXHAUSTED_MAX_AGE_MS när strax bars av en uttömd nedräkning. Gränsen ligger mellan a och b, och b kommer högst en halvminutstick, ett harnessteg och mikrograce (60,04 s) efter gränsen. Hon var inte imminent i en tidigare text med samma position utan ny uttömning (strax hade underlag), och hon blir inte imminent igen inom 5 min utan ny position. Klausulen i b visar en annan båts tid, och den är rimlig mot hennes verkliga korsning (som i U34-LEDARBYTE-OMG11B). I en oscillation strax → minuttid → strax bärs återgången av en ny position (imminent eller egen tid under 3 min) eller av en nedräkning som tog slut efter släppet. Ett släpp före gränsen eller mer än 60 s efter, eller ett släpp av en båt som hördes emellan, blir KANDIDAT."
+    },
+    {
+      "id": "U31-REST-OMG11B",
+      "klass": "KOSTNAD",
+      "datum": "2026-11-28",
+      "källa": "docs/ARCHITECTURE.md §8 e (F02 gick in: inbromsningsregeln håller bara vid ett nytt inträde i strax; resten och den förkastade hysteresen C-hyst); docs/faltgranskning-2026-11-14.md avsnitt 11.5 och 12 (U31); lib/services/ProgressiveETACalculator.js#DECEL_HOLD_MIN_RATIO; lib/services/ProgressiveETACalculator.js#DECEL_HOLD_MIN_INSTANT_ETA_MINUTES; lib/constants.js#APPROACH_RADIUS; tests/replay-validation/bugHunt/lib/registerOmg11B.js#registerOmg11B (predikatet inbromsningEfterStrax)",
+      "gäller": {
+        "orakel": [
+          "INV-F"
+        ],
+        "inv": [
+          "INV-3"
+        ],
+        "klassRegex": "^INV-3 ETA-OSCILLATION$"
+      },
+      "predikat": {
+        "namn": "inbromsningEfterStrax",
+        "parametrar": {}
+      },
+      "regel": "U31:s rest (omgång 11, spår B, mekanism D): strax → om N → strax med samma bärare. Vid X var strax appens ETA under 3 min utan imminent (ingen båt imminent), och fixen bakom låg 300–600 m från bron med en fart som själv gav under DECEL_HOLD_MIN_INSTANT_ETA_MINUTES (3,5 min), så inbromsningsregeln skulle inte ha hållit. Vid Y kom en ny fix utanför 300 m med farten minst DECEL_HOLD_MIN_RATIO (1,2) gånger lägre, appens tid minst 3 min och ingen imminent. Vid X′ bar bärarens imminent-flagga strax med en fix inom APPROACH_RADIUS (300 m). Ett inträde som bara medelfarten lovade (XENIA-formen, där U31 ska hålla) blir KANDIDAT."
+    },
+    {
+      "id": "U1-C11-OMG11B",
+      "klass": "DESIGN",
+      "datum": "2026-11-28",
+      "källa": "docs/etapp7-plan-2026-08-08.md (U1: en båt som slutar sända tas bort ur texten; C11 och C11b, staleDisplayLimit-trappan); lib/services/VesselDataService.js#getVesselsForBridgeText (STALE_DISPLAY_DROP); docs/BUGGJAKT.md §7 (omgång 11, spår B, F1); tests/replay-validation/replayRunner.js#bridgeTextLeads (målbro, etaMinutes, confirmedMs och sog per båt); tests/replay-validation/bugHunt/lib/registerOmg11B.js#registerOmg11B (predikatet tystBärareFörfallenB)",
+      "gäller": {
+        "orakel": [
+          "INV-F"
+        ],
+        "inv": [
+          "INV-14"
+        ],
+        "klassRegex": "^INV-14 DEFAULT-FLASH$"
+      },
+      "predikat": {
+        "namn": "tystBärareFörfallenB",
+        "parametrar": {}
+      },
+      "regel": "U1/C11 som U1-C11-TYST-FÖRE-DEFAULT, med två skillnader (omgång 11, spår B, F1): bäraren är den enda båten med målbron i texten före episoden enligt appen (bridgeTextLeads), inte en båt vars kurs ligger i ett kursband, och släppet får komma högst en halvminutstick, ett harnessteg och mikrograce (60,04 s) efter trappsteget i stället för 30,04 s. Texten före har klausulen 'En båt på väg mot X, ETA okänd' och bärarens tid är null; tystnaden räknas på appens positionsklocka (confirmedMs); steget följer trappan för en båt med målbro ur hennes senaste rad och appens fart (25 min under 1,5 kn eller under 3 kn inom 600 m från en opasserad bro, 20 min inom 300 m från en opasserad bro eller X framför henne, annars 15 min); hon kommer tillbaka i texten efter episoden med en ny position."
+    },
+    {
+      "id": "E2-VÄNDNING-OMG11B",
+      "klass": "MÄTGRÄNS",
+      "datum": "2026-11-28",
+      "källa": "docs/BUGGJAKT.md §7 (omgång 11, spår B, mekanism E2: en båt som vänder i världen); docs/BUGGJAKT.md §4.5 (U-svängen: inbromsning och vändning på stället); app.js#_reevaluateVesselStatuses (Fix G räknar ned under tystnad även om båten vänt); tests/replay-validation/replayRunner.js#bridgeTextLeads (confirmedMs per båt); tests/replay-validation/bugHunt/lib/registerOmg11B.js#registerOmg11B (predikatet vändningUnderHoppet)",
+      "gäller": {
+        "orakel": [
+          "INV-F"
+        ],
+        "inv": [
+          "INV-3"
+        ],
+        "klassRegex": "^INV-3 ETA-(SÅGTAND UPP|OSCILLATION)$"
+      },
+      "predikat": {
+        "namn": "vändningUnderHoppet",
+        "parametrar": {}
+      },
+      "regel": "INV-3 vet inte att bäraren vänt: en båt som bromsar in och vänder före bron får en stigande tid (hon kommer inte), och ett 'strax' vid vändningen följs av minuter. Kraven: ledaren i utslagets första eller sista text har en vändning i sanningen (L0) efter appens bekräftade position för henne i första texten (högst 60 s före, världens inbromsning före vändningen: 0,06 m/s² från högst cirka 3,6 m/s) och före hennes bekräftade position i sista texten, så att appens senare tid bygger på en ny position efter vändningen (hon har en ny bekräftad position under hoppet); och hon korsade inte bron emellan. Posten skiljer inte appens hantering av vändningen från världens: sådana fel döms av T9, T10 och U18-oraklen, inte av INV-3."
+    },
+    {
+      "id": "E1-KÖAVGÅNG-OMG11B",
+      "klass": "KOSTNAD",
+      "datum": "2026-11-28",
+      "källa": "docs/ARCHITECTURE.md (U53-stycket under bridge_text-pipelinen: avgångssiffran efter väntan är bättre men inte rätt, kömodellen och ETA-omgången); docs/BUGGJAKT.md §7 (omgång 11, spår B, mekanism E1); tests/replay-validation/replayRunner.js#bridgeTextLeads (confirmedMs och sog per båt); tests/replay-validation/bugHunt/lib/registerOmg11B.js#registerOmg11B (predikatet köavgångSammaBärare)",
+      "gäller": {
+        "orakel": [
+          "INV-F"
+        ],
+        "inv": [
+          "INV-3"
+        ],
+        "klassRegex": "^INV-3 ETA-OSCILLATION$"
+      },
+      "predikat": {
+        "namn": "köavgångSammaBärare",
+        "parametrar": {}
+      },
+      "regel": "En båt lämnar en kö: samma bärare i X, Y och X′; vid X låg hon still (appens fart och fixen bakom högst 0,5 kn) och avgångsfixen kom minst en minut senare; Y och X′ bärs av var sin ny position i rörelse (minst 1 kn), Y:s tid är högre än X:s och X′ går tillbaka; ingen imminent. Den hållna tiden under väntan och den första fixens låga avgångsfart ger växlingen; avgångssiffran är en känd gräns."
+    },
+    {
+      "id": "U92-VÄNDNING-UTAN-BEKRÄFTELSE-OMG11B",
+      "klass": "KÄND_ÖPPEN",
+      "datum": "2026-11-28",
+      "källa": "docs/BUGGJAKT.md §7 (dirigentens beslut U92 i omgång 11: F2 rättas inte nu, 0 gånger i inspelad trafik; tas upp om den syns i fält); lib/services/VesselDataService.js#FIX_D_MIN_SOG (Fix D bekräftar en vändning först med en omvänd fix i minst 2,0 kn); lib/services/VesselDataService.js#_confirmDirectionReversal (TARGET_RECALC, bekräftelsen); tests/replay-validation/replayRunner.js#targetChanges (appens [TARGET_CHANGE]-rader) och tests/replay-validation/replayRunner.js#journeyResets (TARGET_RECALC); tests/replay-validation/bugHunt/lib/registerOmg11B.js#registerOmg11B (predikatet vändningUtanBekräftelse)",
+      "gäller": {
+        "orakel": [
+          "INV-F"
+        ],
+        "inv": [
+          "INV-14"
+        ],
+        "klassRegex": "^INV-14 DEFAULT-FLASH$"
+      },
+      "predikat": {
+        "namn": "vändningUtanBekräftelse",
+        "parametrar": {}
+      },
+      "regel": "U92 (F2 i spår B:s rapport, omgång 11): en båt vänder och går därifrån långsammare än Fix D:s gräns. Appen rensar målbron med MOVING_AWAY ('Inga båtar'), sätter samma bro igen med ACCELERATED vid nästa fix innan vändningen bekräftats, och texten säger 'på väg mot' bron bakom henne med stigande tid tills hon går över gränsen. Kraven, på appens egna rader: texten före episoden bars av exakt en båt med målbron X; appens [TARGET_CHANGE] X → none med skälet MOVING_AWAY mellan texten före och episodens start; [TARGET_CHANGE] none → X med skälet ACCELERATED efter rensningen och senast vid texten efter, i en fart under FIX_D_MIN_SOG; ingen TARGET_RECALC (bekräftad vändning) för henne däremellan; och hon vände i världen (sanningens U-sväng) högst 15 min före rensningen. Mätt: 1 utslag i nattjakten med slumpfrö 1, 6 med slumpfrö 2 (två världar, en med idealradio); 0 gånger i banken (1 MOVING_AWAY på 25 korpusar, ingen omsättning) och i k1–k4 och falt5.",
+      "fråga": "Ska målbron hållas (inte sättas om till bron bakom båten) medan en vändning under FIX_D_MIN_SOG väntar på bekräftelse? U92: tas upp om mönstret syns i fält."
     }
   ]
 }
