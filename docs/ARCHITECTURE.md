@@ -399,6 +399,23 @@ Moduler (ansvar / ägda tillstånd / in-ut):
   grannarna. Varför ingen rättning: som i U57 går bruset bara att skilja från en verklig passage
   genom att vänta en position med beslutet, vilket är samma ombyggnad av GPS-grinden. Står också
   i `docs/BUGGJAKT.md` §7 (omgång 9), utan registerpost.
+  **Känd gräns (beslut U89, omgång 11): en båt som helt saknar fartvärde och sänder glest.**
+  Hoppanalysens storgren (ett steg över 500 m) räknar ett saknat fartvärde som 0 kn i
+  fartkontrollen (`GPSJumpAnalyzer._checkSpeedConsistency`), medan mellangrenen (100–500 m) antar
+  kanalrealistiska 5 kn när farten saknas (helgranskningen 2026-07-06 och GJ-2). En båt som
+  saknar fartvärde i varje position och sänder glesare än ungefär var tredje minut, så att
+  steget blir längre än 500 m och den skenbara farten högre än 5 kn (till exempel var 180:e
+  sekund i 6 kn), får därför varje position märkt osäker (`uncertain_movement`): målbron
+  avvisas och rörelsebeviset från positionen spärras (S-F5), så hon får inga öppningsvarningar
+  och, om appen hör henne första gången inne i kanalen, inga notiser. Vid 30 och 60 s är stegen
+  kortare än 500 m och båten följs som vanligt, och ett fartvärde som bara saknas i enstaka
+  positioner fungerar också. Båtklassen finns inte i 795,6 timmar inspelad trafik (banken,
+  k1–k4 och fältprov 4:s första 13 timmar): 3 av 41 193 positioner saknar fartvärde (en stilla
+  båt och en ensam AISHub-position), och ingen båt rapporterar fart 0 medan hon flyttar sig
+  (0 av 3 077 rörelsepar). En rättning (max(förra fixens fart, 5 kn) också i storgrenen) var
+  bitlik på all inspelad trafik men gav falska notiser i tre byggda kajfall, och nyttan gäller
+  en båt som inte finns; den byggs inte. Scenariot `fartlös-var-180-s-6kn-inne-i-kanalen-tyst
+  (känd gräns, U89)` låser dagens beteende.
 - **PassageLatchService**: latch per båt+bro som blockerar retrograda statusar
   ("tidsresor"); 10 min latch-timeout. Konsumeras av StatusService via
   `shouldBlockStatus` (StatusService.js:772, 846, 912, 960, 1176).

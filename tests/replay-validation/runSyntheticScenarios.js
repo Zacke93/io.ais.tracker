@@ -6681,6 +6681,35 @@ const SCENARIOS = [
       }],
     },
   },
+  // U89 (omgång 11): känd gräns, låser dagens beteende. En båt utan fartvärde i
+  // varje position går norrut i 6 kn och sänder var 180:e sekund; appen hör
+  // henne första gången cirka 445 m söder om Olidebron. Varje steg är längre än
+  // 500 m, och hoppanalysens storgren räknar den saknade farten som 0 kn i
+  // fartkontrollen (GPSJumpAnalyzer#_checkSpeedConsistency), så varje position
+  // blir osäker (uncertain_movement): ingen målbro, inget rörelsebevis, ingen
+  // text, inga notiser och inga varningar (docs/ARCHITECTURE.md, U89).
+  // Båtklassen finns inte i 795 h inspelad trafik. Ändras utfallet ska U89
+  // omprövas, inte facit låsas om i tysthet. Motfallet (4,5 kn, 60 s) är
+  // 'fartgivarlös-genomresa (sog=null)' ovan.
+  {
+    name: 'fartlös-var-180-s-6kn-inne-i-kanalen-tyst (känd gräns, U89)',
+    seed: 8901,
+    vessels: [{
+      mmsi: '265891001',
+      name: 'SYNT-U89-FARTLOS',
+      direction: 'north',
+      speedKn: 6,
+      reportIntervalS: 180,
+      sogNull: true,
+    }],
+    patchSamples: (samples) => {
+      const gräns = BRIDGES.olidebron.lat - 0.004;
+      for (let i = samples.length - 1; i >= 0; i--) {
+        if (samples[i].mmsi === '265891001' && samples[i].lat <= gräns) samples.splice(i, 1);
+      }
+    },
+    expect: { zeroNotifications: true, noVesselText: true, zeroOpeningWarnings: true },
+  },
 ];
 
 function runScenario(scenario) {
