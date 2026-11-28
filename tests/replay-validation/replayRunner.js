@@ -747,7 +747,7 @@ async function main() {
           const rm = !hm && line.match(holdReleaseRe);
           if (rm) {
             openingHolds.push({
-              t: Date.now(), mmsi: rm[1], bridge: rm[2], typ: 'släpp', skäl: rm[3].trim(),
+              t: Date.now(), mmsi: rm[1], bridge: rm[2], typ: 'släpp', skäl: rm[3].replace(/\s*\d{4}-\d\d-\d\dT\S*/g, '').trim(),
             });
           }
         } else if (line.includes('[REVERSAL_TARGET_DEFERRED]')) {
