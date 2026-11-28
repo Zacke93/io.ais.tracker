@@ -1070,7 +1070,7 @@
         "namn": "a11KursbandNyBat",
         "parametrar": {}
       },
-      "regel": "Alla båtens rader i minst 2 kn den sista timmen före korsningen har kursen utanför de strikta banden (nord 315–45°, syd 135–225°). Utan varning: inga täckningsrader för bron före korsningen. Med en sen varning: båtens egen, avfyrad av första raden med kursen i ett strikt band.",
+      "regel": "Alla båtens rader i minst 2 kn inom bevakningsboxen (AIS_CONFIG.BOUNDING_BOX) den sista timmen före korsningen har kursen utanför de strikta banden (nord 315–45°, syd 135–225°). Utan varning: inga täckningsrader för bron före korsningen. Med en sen varning: båtens egen, avfyrad av första raden med kursen i ett strikt band.",
       "fråga": "U48: ska riktningen tas ur förflyttningen när kursen är osäker och farten minst 2 kn (prövas med ETA-etappen)?"
     },
     {

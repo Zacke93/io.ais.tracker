@@ -36,6 +36,9 @@ const nordKurs = (c) => Number.isFinite(c) && (c >= 315 || c <= 45);
 const strikSydKurs = (c) => Number.isFinite(c) && c >= 135 && c <= 225;
 const bredSydKurs = (c) => Number.isFinite(c) && c >= 135 && c < 315;
 const osäkerKurs = (c) => Number.isFinite(c) && !nordKurs(c) && !strikSydKurs(c);
+/** Inom appens bevakningsbox (AIS_CONFIG.BOUNDING_BOX): utanför den får ingen båt målbro, vilken kurs hon än har. */
+const BOX = constants.AIS_CONFIG.BOUNDING_BOX;
+const iBoxen = (r) => r.lat >= BOX.SOUTH && r.lat <= BOX.NORTH && r.lon >= BOX.WEST && r.lon <= BOX.EAST;
 
 module.exports = function predikatA11(h) {
   const {
@@ -222,7 +225,8 @@ module.exports = function predikatA11(h) {
         const rader = positioner(ctx, f.mmsi).filter((r) => r.aisTimestamp < k.t && r.aisTimestamp > k.t - p.horisontMs);
         if (!rader.length) return nej('inga rader före korsningen');
         const w = fyndetsVarning(f, ctx);
-        const fartRader = rader.filter((r) => Number.isFinite(r.sog) && r.sog >= p.minKn);
+        // Bara rader inom bevakningsboxen kan ge målbro (_calculateTargetBridge: Outside canal bounds).
+        const fartRader = rader.filter((r) => Number.isFinite(r.sog) && r.sog >= p.minKn && iBoxen(r));
         if (w) {
           if (String(w.leadMmsi) !== String(f.mmsi) || w.firedBy !== 'fix') return nej('varningen är inte båtens egen, avfyrad av en rad');
           const q = rader.find((r) => Math.abs(r.aisTimestamp - w.t) <= p.toleransMs);
