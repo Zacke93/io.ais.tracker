@@ -5392,6 +5392,6 @@ på basen). Kandidaterna gick från 19 kluster med 450 utslag till 16 kluster me
 | FANTOM-UTAN-AVBROTT | 1 | 0 |
 | VARNING-PÅ-FRUSET-FIX | 1 | 1 |
 
-**Slutsatsen:** appens utfall är oförändrat i alla uppspelningar och i jaktens världar, utom där U93
-verkar (en värld med slumpfrö 2). Registret känner nu igen större delen av de utslag som utretts,
+**Slutsatsen:** appens utfall är oförändrat i alla uppspelningar, och jaktens utslag är desamma i
+alla världar utom där U93 verkar (en värld med slumpfrö 2) och där oraklet klassar om (20.7). Registret känner nu igen större delen av de utslag som utretts,
 och det som står kvar som kandidater är det registret medvetet inte förklarar.
