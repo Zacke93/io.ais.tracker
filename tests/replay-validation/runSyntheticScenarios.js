@@ -804,6 +804,94 @@ function u57Vandning(seed, mmsi, name, B, dir, D, retKn, expect, { utanFart = fa
   };
 }
 
+/**
+ * U93 (omgång 11, nattjaktens F13): en punkt `n` m från brons linje (positivt
+ * på nordöstra sidan, samma projektion som geometry.bridgeLineOffsetM) och
+ * `t` m längs broaxeln (positivt åt axelns bäring, alltså sydost) från brons
+ * punkt. Brolinjen går snett (axel 130°), så en punkt kan ligga förbi linjen
+ * men inte förbi brons latitud: den omvända kilen.
+ */
+function u93Punkt(bridgeKey, n, t) {
+  const b = BRIDGES[bridgeKey];
+  const axis = b.axisBearing || 125;
+  const perp = ((axis - 90) * Math.PI) / 180;
+  const ax = (axis * Math.PI) / 180;
+  const dN = n * Math.cos(perp) + t * Math.cos(ax);
+  const dE = n * Math.sin(perp) + t * Math.sin(ax);
+  return { lat: b.lat + dN / 111320, lon: b.lon + dE / (111320 * Math.cos((b.lat * Math.PI) / 180)) };
+}
+
+/** U93: positionens avstånd (m) från brons linje, samma tecken som u93Punkt. */
+function u93LinjeM(bridgeKey, pos) {
+  const b = BRIDGES[bridgeKey];
+  const perp = (((b.axisBearing || 125) - 90) * Math.PI) / 180;
+  return (pos.lat - b.lat) * 111320 * Math.cos(perp)
+    + (pos.lon - b.lon) * 111320 * Math.cos((b.lat * Math.PI) / 180) * Math.sin(perp);
+}
+
+/**
+ * U93: en båt i 5 kn som tystnar före den första målbron och hörs först efter
+ * att ha korsat båda målbroarna i glappet (norrut: Klaffbron och
+ * Stridsbergsbron; söderut tvärtom). Den första positionen efter glappet
+ * flyttas till `landning` = {n, t} från den andra målbron, med farten `sog`.
+ * `vanta` lägger in en väntan där, med positionerna `vanta.punkter` i tur och
+ * ordning (stillabrus) och farten `vanta.sog`, innan båten fortsätter.
+ */
+function u93Glapp(seed, mmsi, name, dir, landning, expect, { sog = 5.8, vanta = null } = {}) {
+  const N = dir === 'N';
+  const bridgeKey = N ? 'stridsbergsbron' : 'klaffbron';
+  const sAndra = N ? METRICS.cum[4] : METRICS.cum[2];
+  const sForsta = N ? METRICS.cum[2] : METRICS.cum[4];
+  const legs = [];
+  const fore = N ? METRICS.cum[1] - 600 : METRICS.cum[4] + 600;
+  if (vanta) {
+    legs.push({
+      toS: sAndra + (N ? 10 : -10), speedKn: 5, intervalS: 60, gapFromS: fore, gapToS: sAndra + (N ? 10 : -10),
+    });
+    legs.push({ stopS: (vanta.punkter.length + 1) * 60, stopIntervalS: 60, stopSog: vanta.sog });
+    legs.push({ toS: sAndra + (N ? 1500 : -1500), speedKn: 5, intervalS: 60 });
+  } else {
+    legs.push({
+      toS: sAndra + (N ? 1500 : -1500), speedKn: 5, intervalS: 60, gapFromS: fore, gapToS: sAndra + (N ? 10 : -10),
+    });
+  }
+  return {
+    name,
+    seed,
+    vessels: [{
+      mmsi,
+      name: `SYNT-${name.slice(0, 8).toUpperCase()}`,
+      startS: N ? METRICS.cum[1] - 1100 : sForsta + 1100,
+      jitterM: 0,
+      legs,
+    }],
+    patchSamples: (samples) => {
+      const own = samples.filter((x) => x.mmsi === mmsi);
+      let iGap = -1;
+      let longest = 0;
+      for (let i = 0; i + 1 < own.length; i++) {
+        const d = own[i + 1].aisTimestamp - own[i].aisTimestamp;
+        if (d > longest) {
+          longest = d;
+          iGap = i;
+        }
+      }
+      const land = own[iGap + 1];
+      const p = u93Punkt(bridgeKey, landning.n, landning.t);
+      land.lat = p.lat; land.lon = p.lon; land.sog = sog;
+      land.cog = BRIDGES[bridgeKey].axisBearing - 90 + (N ? 0 : 180);
+      if (vanta) {
+        vanta.punkter.forEach((q, k) => {
+          const r = own[iGap + 2 + k];
+          const pq = u93Punkt(bridgeKey, q.n, q.t);
+          r.lat = pq.lat; r.lon = pq.lon; r.sog = vanta.sog;
+        });
+      }
+    },
+    expect,
+  };
+}
+
 const SCENARIOS = [
   {
     name: 'ren-nord-normal',
@@ -6710,6 +6798,107 @@ const SCENARIOS = [
     },
     expect: { zeroNotifications: true, noVesselText: true, zeroOpeningWarnings: true },
   },
+  // U93 (omgång 11, nattjaktens F13): en båt i 5 kn tystnar före Olidebron och
+  // hörs först 17,7 m bortom Stridsbergsbrons linje men 26 m åt sydost längs
+  // broaxeln, alltså 3 m söder om brons latitud (den omvända kilen). I samma
+  // position korsas Klaffbron (målbron). Förut löstes målbrobytet på vägen
+  // TARGET_PENDING_RESOLVED utan S-F3:s kedja, svepets latitudfönster nådde
+  // inte bron, och passagen bokfördes först vid nästa bro: en öppningsvarning
+  // efter passagen och "på väg mot Stridsbergsbron" medan hon gick bort.
+  u93Glapp(9301, '930100001', 'u93-glapp-över-båda-målbroarna-norrut-landar-i-omvända-kilen', 'N', { n: 17.7, t: 26 }, {
+    gapEndPassage: [{
+      mmsi: '930100001', bridge: 'Stridsbergsbron', booked: true, textFreeS: 600,
+    }],
+    forbiddenOpeningBridges: ['Stridsbergsbron'],
+  }),
+  // U93, söderut: glapp över Stridsbergsbron och Klaffbron, landning 17,7 m
+  // söder om Klaffbrons linje men 26 m åt nordväst (norr om brons latitud).
+  u93Glapp(9302, '930200002', 'u93-glapp-över-båda-målbroarna-söderut-landar-i-omvända-kilen', 'S', { n: -17.7, t: -26 }, {
+    gapEndPassage: [{
+      mmsi: '930200002', bridge: 'Klaffbron', booked: true, textFreeS: 600,
+    }],
+    maxOpeningsPerBridge: { Klaffbron: 1 },
+  }),
+  // U93, motfall: samma glapp med landningen 17 m bortom linjen mitt för
+  // bropunkten (förbi latituden). Svepet bokför bron som förut.
+  u93Glapp(9303, '930300003', 'u93-glapp-över-båda-målbroarna-landar-förbi-latituden (motfall)', 'N', { n: 17, t: 0 }, {
+    gapEndPassage: [{
+      mmsi: '930300003', bridge: 'Stridsbergsbron', booked: true, textFreeS: 600,
+    }],
+    forbiddenOpeningBridges: ['Stridsbergsbron'],
+  }),
+  // U93, motfall i spegelkilen: landningen ligger 15 m FÖRE linjen men förbi
+  // brons latitud (26 m åt nordväst), och båten väntar där i 5 min med
+  // stillabrus innan hon går igenom. Ingen passage vid landningen
+  // (SKIPPED_BRIDGES_BEFORE_LINE) och notisen i förvarningsform. (Att ingen
+  // öppningsvarning hinner gå när hon lämnar väntan i krypfart är basens
+  // utfall och låses inte här.)
+  u93Glapp(9304, '930400004', 'u93-glapp-landar-i-spegelkilen-före-linjen-och-väntar (motfall)', 'N', { n: -15, t: -26 }, {
+    gapEndPassage: [{ mmsi: '930400004', bridge: 'Stridsbergsbron', booked: false }],
+    maxPassagesPerBridge: { Stridsbergsbron: 1 },
+    noticeForms: { Stridsbergsbron: ['närmar'] },
+  }, {
+    sog: 0.2,
+    vanta: {
+      sog: 0.1, punkter: [{ n: -13, t: -24 }, { n: -17, t: -27 }, { n: -14, t: -29 }, { n: -16, t: -23 }],
+    },
+  }),
+  // U93, motfall: en väntande båt tätt före linjen på sydostsidan (söder om
+  // brons latitud, där svepets fönster inte når bron) med GPS-brus på 10–20 m
+  // åt båda hållen om linjen. Landningen ligger 5 m före linjen; kedjan får
+  // inte bokföra (inte entydigt bortom linjen, fart under 2 kn), och
+  // notisen ska vara en förvarning.
+  u93Glapp(9305, '930500005', 'u93-glapp-landar-tätt-före-linjen-väntar-med-brus (motfall)', 'N', { n: -5, t: 26 }, {
+    gapEndPassage: [{ mmsi: '930500005', bridge: 'Stridsbergsbron', booked: false }],
+    maxPassagesPerBridge: { Stridsbergsbron: 1 },
+    noticeForms: { Stridsbergsbron: ['närmar'] },
+  }, {
+    sog: 0.2,
+    vanta: {
+      sog: 0.2, punkter: [{ n: -8, t: 26 }, { n: 12, t: 26 }, { n: -6, t: 20 }, { n: -12, t: 28 }],
+    },
+  }),
+  // U93, motfall: samma väntande båt, men landningen efter glappet är en
+  // utliggare 12 m BORTOM linjen i kilen (fart 0,2 kn). Kedjan kräver 2 kn i
+  // positionens egen fart och bokför inte. (Notisens form avgörs av BN2 på
+  // linjen, som förut: utliggaren ger "passerade … under AIS-tystnad". Det är
+  // basens utfall och låses inte här.)
+  u93Glapp(9306, '930600006', 'u93-glapp-landar-som-utliggare-bortom-linjen-i-kilen-väntar (motfall)', 'N', { n: 12, t: 26 }, {
+    gapEndPassage: [{ mmsi: '930600006', bridge: 'Stridsbergsbron', booked: false }],
+    maxPassagesPerBridge: { Stridsbergsbron: 1 },
+  }, {
+    sog: 0.2,
+    vanta: {
+      sog: 0.2, punkter: [{ n: -15, t: 26 }, { n: -18, t: 24 }, { n: -14, t: 28 }, { n: -16, t: 25 }],
+    },
+  }),
+  // U93, motfall: en vanlig transit (positioner var 60:e sekund, målbron är
+  // redan Stridsbergsbron) där positionen efter korsningen ligger i kilen,
+  // 2 m bortom linjen och 10 m åt sydost, som de fyra inspelade kilfallen
+  // (CYGNUS, VISTEN ×2, NORDIC SOLA). Passagen bokförs på den positionen och
+  // varningen kommer före, som förut.
+  {
+    name: 'u93-vanlig-transit-genom-kilen-norrut (motfall)',
+    seed: 9307,
+    vessels: [{
+      mmsi: '930700007',
+      name: 'SYNT-U93-TRANSIT',
+      startS: METRICS.cum[2] + 300,
+      jitterM: 0,
+      legs: [{ toS: METRICS.cum[4] + 1500, speedKn: 5, intervalS: 60 }],
+    }],
+    patchSamples: (samples) => {
+      const own = samples.filter((x) => x.mmsi === '930700007');
+      const i = own.findIndex((x) => u93LinjeM('stridsbergsbron', x) > 0);
+      const p = u93Punkt('stridsbergsbron', 2, 10);
+      own[i].lat = p.lat; own[i].lon = p.lon;
+    },
+    expect: {
+      minPassagesPerBridge: { Stridsbergsbron: 1 },
+      maxPassagesPerBridge: { Stridsbergsbron: 1 },
+      openingBeforeEachPassage: ['Stridsbergsbron'],
+    },
+  },
 ];
 
 function runScenario(scenario) {
@@ -7178,6 +7367,48 @@ function checkExpectations(scenario, result, truthPaths = {}, samples = []) {
         .reduce((min, p) => (min === null || p.t < min ? p.t : min), null);
       if (firstPassage !== null && !forBridge.some((w) => Number.isFinite(w.t) && w.t < firstPassage)) {
         problems.push(`ÖPPNINGSVARNING FÖR SENT för ${bridge}: alla varningar ligger EFTER passagen ${new Date(firstPassage).toISOString()}`);
+      }
+    }
+  }
+  // U93 (omgång 11, nattjaktens F13): bokförs bron på positionen som avslutar
+  // båtens längsta glapp (högst 2 s efter dess tid), eller inte? Med textFreeS
+  // får ingen text under så många sekunder efter positionen räkna båtar mot
+  // bron (en båt som passerat ska inte stå "på väg mot" den).
+  if (e.gapEndPassage) {
+    const transitions = result.bridgeTextTransitions || [];
+    for (const g of e.gapEndPassage) {
+      const own = samples.filter((x) => String(x.mmsi) === g.mmsi).sort((a, b) => a.aisTimestamp - b.aisTimestamp);
+      let iGap = -1;
+      let longest = 0;
+      for (let i = 0; i + 1 < own.length; i++) {
+        const d = own[i + 1].aisTimestamp - own[i].aisTimestamp;
+        if (d > longest) {
+          longest = d;
+          iGap = i;
+        }
+      }
+      if (iGap < 0) {
+        problems.push(`GLAPPSLUT: inget glapp för ${g.mmsi}`);
+        continue;
+      }
+      const tEnd = own[iGap + 1].aisTimestamp;
+      const booked = [...passages, ...(result.intermediatePassages || [])]
+        .some((p) => String(p.mmsi) === g.mmsi && p.bridge === g.bridge && p.t >= tEnd && p.t <= tEnd + 2000);
+      if (g.booked && !booked) {
+        problems.push(`GLAPPSLUT: ${g.bridge} bokfördes inte på positionen ${new Date(tEnd).toISOString()} efter glappet`);
+      }
+      if (!g.booked && booked) {
+        problems.push(`GLAPPSLUT: ${g.bridge} bokfördes på positionen ${new Date(tEnd).toISOString()} fast båten inte passerat`);
+      }
+      if (Number.isFinite(g.textFreeS)) {
+        const atStart = transitions.filter((x) => x.t <= tEnd + 1000).pop();
+        const inWindow = [...(atStart ? [atStart] : []),
+          ...transitions.filter((x) => x.t > tEnd + 1000 && x.t <= tEnd + g.textFreeS * 1000)];
+        const bad = inWindow.find((x) => vesselCountInText(x.text, g.bridge) > 0);
+        if (bad) {
+          problems.push(`GLAPPSLUT: texten räknar en båt mot ${g.bridge} ${new Date(Math.max(bad.t, tEnd)).toISOString()} `
+            + `("${bad.text}") efter passagen`);
+        }
       }
     }
   }

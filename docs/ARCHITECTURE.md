@@ -643,7 +643,19 @@ detektionsögonblicket.
   Stallbackabron: första positionen 4 m från brolinjen med kursen längs broaxeln
   i 33 kn; ingen korsning i rådatafacit), fick två falska "passerade … under
   AIS-tystnad". Den omvända kilen (förbi linjen men inte förbi
-  latituden) bokförs fortfarande först vid nästa fix.
+  latituden) bokförs inte av svepet. Är bron redan målbro bokför linjeprovet den
+  på samma position (fyra inspelade fall, alla rätt); blev den målbro i samma
+  hopp bokför gap-kedjan den (U93, se Gap-kedjan nedan). För en mellanbro gäller
+  nästa fix som förut.
+  *Känd gräns (U93, nattjaktens F11):* en båt som passerar en målbro i ett glapp
+  och vänder strax bortom kan höras igen i kilen med kursen tillbaka. Appen
+  bokför passagen på linjen, men S10-vakten bedömer "bakom" på latitud och tiger
+  med notisen, och vid nästa position har hon korsat tillbaka, så ingen notis
+  går ut för bron (nattvärldarna 12310 och 16376). 0 gånger i inspelad trafik
+  (4 av 481 linjekorsningar slutar i kilen, ingen med vänd kurs). En prototyp där
+  S10 inte avstår när passagen bokförts i samma tick förkastades: notisen fick
+  fel tempus ("har precis passerat" för en passage minuter tidigare), och en
+  vändning precis före linjen med positionen i kilen hade gett en falsk notis.
 - **U36 (dirigentens beslut 2026-11-16, nattjaktens F13)**: har appen själv sett
   att en återfödd båt vände i glappet (svepets riktningslås släpps, se
   `SKIPPED_BRIDGES_DIRECTION_LOCK_RELEASED` i §4) och är sist kända position
@@ -2140,6 +2152,29 @@ båt.
 - **Gap-kedjan**: `_handleTargetBridgeTransition` (:2223) omvärderar efter
   bekräftad passage det NYA targetet mot SAMMA AIS-segment (`_gapChainDepth`,
   max djup 3, :2311–2312 — ett stort gap kan korsa flera broar).
+  - **U93 (omgång 11, nattjaktens F13): kedjan efter `TARGET_PENDING_RESOLVED`.**
+    Ett långt hopp tar alltid den uppskjutna vägen (båten är mer än 300 m från
+    den passerade bron), och den saknade kedjan; den andra målbron bokförs där
+    normalt av svepet (`GAP_TARGET_INFERRED`, 16 gånger i banken). Svepet väljer
+    broar på latitud, så en första position efter glappet förbi den andra
+    målbrons linje men inte förbi dess latitud (den omvända kilen) bokfördes
+    först vid nästa bro (`MISSED_TARGET_INFERRED`): i nattvärld 13227 en
+    öppningsvarning för Stridsbergsbron 5 s efter passagen och 12 min "på väg mot
+    Stridsbergsbron". Nu körs kedjan där när `_reverseWedgeTargetCrossing`
+    håller: (a) svepets latitudfönster når inte bron, (b) segmentets start
+    ligger entydigt (> 10 m) före och båten entydigt bortom linjen i segmentets
+    riktning, (c) positionens egen fart är minst `FIX_D_MIN_SOG`. Bokföringen
+    görs av den vanliga vägen. (b) och (c) gör kedjan smalare än S-F3:s: utan
+    dem bokför avståndsreserven (inom 50 m, ±10 m räknas som sidbyte, och
+    stillhetsgrinden verkar inte eftersom segmentets start är en position i fart)
+    en båt som efter glappet väntar tätt före linjen, eller vars första position
+    är en utliggare bortom linjen; de syntetiska motfallen `u93-…` fäller då.
+    Utan (a) flyttas bokföringen i bankens 16 fall från svepet till kedjan och
+    notisens källa byts (golden-events i 20260708-21h). Banken och fältet
+    (k1–k4, ögonblicksbilden av fältprov 4) är oförändrade.
+    *Kvar:* en båt i minst 2 kn vars första position efter glappet är en
+    utliggare mer än 10 m bortom linjen i kilen bokförs som passerad, på samma
+    sätt som när bron redan var målbro.
 - **`_pendingTarget`**: target-byte fångat i 300 m-skyddszonen skjuts upp
   (`{source, next, since}`) tills zonen lämnats/grace löpt ut (:2229–2263;
   sätts :2358–2370, :3172–3176; rensas vid moored-demote :132).
