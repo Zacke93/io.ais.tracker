@@ -2,7 +2,8 @@
 
 /**
  * U90, spår C (omgång 11): registrets och oraklets ändringar för nattkorten
- * F06, F09, F10 och F14 (nattjakten efter omgång 10, seed 1). Varje post prövas
+ * F06, F09 och F10 (nattjakten efter omgång 10, seed 1). Posterna för P5 (F06
+ * r1) och F14 och U19:s RECOVER-prov ströks efter granskningen. Varje post prövas
  * åt båda hållen: kortets minsta repro känns igen, och ett motfall där appen
  * eller världen ändrats i just den punkt som posten bygger på blir KANDIDAT.
  *
@@ -11,6 +12,7 @@
  */
 
 const core = require('../lib/synthCore');
+const C = require('../../../../lib/constants');
 const { loadRegistry } = require('../lib/registry');
 const F = require('./fixtures/u90-spar-c-2026-11-28.json');
 
@@ -74,29 +76,7 @@ describe('F06: R2-MÅLBRO-EFTER-LINJEN, livet efter appens radering utanför kan
   });
 });
 
-describe('F06: C-P5-SYDBAND-FÖRE-LINJEN', () => {
-  test('VEGA (värld 19102), 228° 215 m före Stridsbergsbron: P5, och R2 känner inte igen den', () => {
-    const f = utslag(döm('F06-r1-vega'), /^INV-F INV-13/);
-    expect(klass(f)).toEqual(['DESIGN', 'C-P5-SYDBAND-FÖRE-LINJEN']);
-    expect(f.register.prövade.map((p) => p.post)).toContain('R2-MÅLBRO-EFTER-LINJEN');
-  });
-
-  test('[motfall] samma rad med 220° (i det strikta sydbandet, appen kunde ge målbro): KANDIDAT', () => {
-    const f = utslag(döm('F06-r1-vega', (r, b) => {
-      for (const x of b.rows) if (x.mmsi === '265827977' && x.cog === 228) x.cog = 220;
-    }), /^INV-F INV-13/);
-    expect(f.register.klass).toBe('KANDIDAT');
-  });
-
-  test('[motfall] samma rad utan kurs: KANDIDAT', () => {
-    const f = utslag(döm('F06-r1-vega', (r, b) => {
-      for (const x of b.rows) if (x.mmsi === '265827977' && x.cog === 228) x.cog = null;
-    }), /^INV-F INV-13/);
-    expect(f.register.klass).toBe('KANDIDAT');
-  });
-});
-
-describe('F09: oraklets U17-kedja och U19:s RECOVER-prov', () => {
+describe('F09: oraklets U17-kedja', () => {
   test('ALVA (värld 13468): VARNING-EFTER-SANN-PASSAGE, U17-TYST-BÅT-RECOVER (förut FANTOM-UTAN-AVBROTT)', () => {
     const fynd = döm('F09-r1-alva');
     expect(utslag(fynd, /^T3 FANTOM-UTAN-AVBROTT/)).toBeUndefined();
@@ -113,23 +93,6 @@ describe('F09: oraklets U17-kedja och U19:s RECOVER-prov', () => {
     expect(t3[0].register.klass).toBe('KANDIDAT');
   });
 
-  test('IRMA (värld 15940): RECOVER-provet läser domspåret och avvisar inte längre på absorptionen; KANDIDAT av ett annat skäl (RE_CROSS)', () => {
-    const f = utslag(döm('F09-r2-irma'), /^T3 FANTOM-UTAN-AVBROTT/);
-    expect(f.register.klass).toBe('KANDIDAT');
-    expect(f.register.närmast.post).toBe('U19-VARNING-UNDER-VÄNTANDE-VÄNDNING');
-    expect(f.register.närmast.skäl).not.toMatch(/absorberades/);
-  });
-
-  test('[motfall] IRMA med en dom täckningsslut vid varningens tick: RECOVER-släpp', () => {
-    const f = utslag(döm('F09-r2-irma', (r) => {
-      const w = r.openingWarnings.find((x) => (x.mmsis || []).includes('265274506') && x.bridge === 'Klaffbron');
-      r.openingCoverageVerdicts.push({
-        t: w.t - 1, mmsi: '265274506', bridge: 'Klaffbron', eventId: 'Klaffbron#2', verdict: { kind: 'täckningsslut' },
-      });
-    }), /^T3 FANTOM-UTAN-AVBROTT/);
-    expect(f.register.klass).toBe('KANDIDAT');
-    expect(f.register.närmast.skäl).toMatch(/RECOVER-släpp/);
-  });
 });
 
 describe('F10: C-FIXD-DÖDBAND-NOLLAR-VÄNDNING', () => {
@@ -153,26 +116,13 @@ describe('F10: C-FIXD-DÖDBAND-NOLLAR-VÄNDNING', () => {
     }), /^T9 FEL-RIKTNING/);
     expect(f.register.klass).toBe('KANDIDAT');
   });
-});
 
-describe('F14: C-ENSAM-FIX-FÖRE-MELLANBRO', () => {
-  test('WILMA (värld 7810): enda fixen 20 m före Järnvägsbron bokförde Klaffbron, inga fler rader', () => {
-    expect(klass(utslag(döm('F14-r1-wilma'), /^T1 NOTIS-UTEBLIVEN/))).toEqual(['KÄND_ÖPPEN', 'C-ENSAM-FIX-FÖRE-MELLANBRO']);
-  });
-
-  test('[motfall] utan Klaffbrons bokföring vid fixen: KANDIDAT', () => {
-    const f = utslag(döm('F14-r1-wilma', (r) => {
-      r.targetPassages = r.targetPassages.filter((x) => x.mmsi !== '265577961' || x.bridge !== 'Klaffbron');
-      r.intermediatePassages = r.intermediatePassages.filter((x) => x.mmsi !== '265577961' || x.bridge !== 'Klaffbron');
-    }), /^T1 NOTIS-UTEBLIVEN/);
+  test('[motfall] Stallbackabrons linje mellan flaggan och dödbandsfixen (en återkorsning kan ha bekräftat): KANDIDAT', () => {
+    const f = utslag(döm('F10-r1-gunhild', (r, b) => {
+      const egna = b.rows.filter((x) => x.mmsi === '265703867');
+      const c = egna.find((x) => x.cog === 75.4);
+      c.lat = C.BRIDGES.stallbackabron.lat + 0.0005;
+    }), /^T9 FEL-RIKTNING/);
     expect(f.register.klass).toBe('KANDIDAT');
-  });
-
-  test('[motfall] fixen 90 m före bron (utanför under-bron-bandet): KANDIDAT', () => {
-    const f = utslag(döm('F14-r1-wilma', (r, b) => {
-      const x = b.rows.find((y) => y.mmsi === '265577961' && Math.abs(y.aisTimestamp - Date.parse('2026-06-08T07:41:30.573Z')) < 1000);
-      x.lat -= 70 / 111320;
-    }), /^T1 NOTIS-UTEBLIVEN/);
-    expect(f === undefined || f.register.klass === 'KANDIDAT').toBe(true);
   });
 });

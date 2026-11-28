@@ -221,13 +221,8 @@ describe('medel: verktygets egna beslutade tal mot appens konstanter', () => {
 });
 
 describe('medel: R2 utan villkor (c), KAJVOBBEL kräver reservens tystnad', () => {
-  // U90 (spår C, omgång 11): F09 r1 är VEGA, samma värld som nattkortet F06
-  // r1 efter omgång 10. R2 känner fortfarande inte igen den (appens utdata
-  // förklarar inte appen), men P5-posten gör det på radernas kurser.
-  test('F09 r1 känns inte igen av R2 (appens utdata förklarar inte appen); sedan U90 är den C-P5-SYDBAND-FÖRE-LINJEN', () => {
-    const f = utslag(döm('F09-r1').fynd, /^INV-F INV-13/);
-    expect(f.register.post).toBe('C-P5-SYDBAND-FÖRE-LINJEN');
-    expect(f.register.prövade.map((p) => p.post)).toContain('R2-MÅLBRO-EFTER-LINJEN');
+  test('F09 r1 är KANDIDAT (appens utdata förklarar inte appen)', () => {
+    expect(utslag(döm('F09-r1').fynd, /^INV-F INV-13/).register.klass).toBe('KANDIDAT');
   });
 
   test('[motfall] F19 med en rad från köaren 2 min före varningen: FANTOM:KAJVOBBEL', () => {

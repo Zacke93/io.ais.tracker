@@ -985,26 +985,6 @@
       "fråga": "Ska en långsam återkorsning bokföras i efterhand när vändningen bekräftas (en kandidat {bro, riktning, tid} som bokförs när en vändning i samma riktning bekräftas och bron ligger bakom båten)?"
     },
     {
-      "id": "C-P5-SYDBAND-FÖRE-LINJEN",
-      "klass": "DESIGN",
-      "datum": "2026-11-28",
-      "källa": "lib/constants.js#COG_DIRECTIONS (P5-beslutet: två medvetet olika sydband); lib/utils/cogDirection.js#isSouthCogStrict (det strikta sydbandet 135–225° väljer målbro; 226–314° låser ingen riktning, avsiktligt); lib/services/VesselDataService.js#_calculateTargetBridge (Osäker COG → ingen målbro); tests/replay-validation/invariants.js#validateInvariants (INV-13); lib/constants.js#UNDER_BRIDGE_CLEAR_DISTANCE; docs/BUGGJAKT.md §7 (U90, omgång 11: spår C:s poster)",
-      "gäller": {
-        "orakel": [
-          "INV-F"
-        ],
-        "inv": [
-          "INV-13"
-        ],
-        "klassRegex": "^INV-13 MÅLBRO SOM MELLANBRO$"
-      },
-      "predikat": {
-        "namn": "p5OsäkerKursFöreLinjen",
-        "parametrar": {}
-      },
-      "regel": "P5: målbron tilldelas bara med en kurs i nordbandet (315–45°) eller i det strikta sydbandet (135–225°). En båt som före bron bara rapporterar kurser däremellan får ingen målbro och bokför bron som mellanbro när första raden bortom bron kommer. Kraven: livet räknas som i R2-MÅLBRO-EFTER-LINJEN; livets första rad bortom bron (latitud i passagens riktning) ligger högst UNDER_BRIDGE_CLEAR_DISTANCE (70 m) från bropunkten och registreringen kom högst 10 min efter den; livet har minst en rad före bron; och varje sådan rad har en finit kurs utanför båda banden. En rad före bron med kurs i ett band eller utan kurs ger KANDIDAT. Exempel: VEGA i nattjaktens värld 19102 (14:14:44, 215 m före Stridsbergsbron, 6,6 kn och 228°; nästa rad 15 m bortom linjen). I banken och k1–k4 har 34 av 280 transitfixar söderut 50–600 m före Stridsbergsbron en kurs utanför bandet (kanalens axel där är 220°), men ingen av de tre som är en båts första fix efter ett glapp."
-    },
-    {
       "id": "C-FIXD-DÖDBAND-NOLLAR-VÄNDNING",
       "klass": "KÄND_ÖPPEN",
       "datum": "2026-11-28",
@@ -1019,26 +999,8 @@
         "namn": "dödbandNollarVändningVarning",
         "parametrar": {}
       },
-      "regel": "Känd gräns (nattkortet F10, omgång 11; ingen rättning, 0 fall i inspelad trafik): Fix D nollar en väntande vändning på en fix med kurs i dödbandet (varken 315–45° eller 135–<315°), också när positionen fortsätter i den nya riktningen. Tystnar båten sedan får hon en planerad varning i låsets gamla riktning. Kraven, för T9 FEL-RIKTNING på en varning: varningen leds av båten; hennes två sista rader före varningen är b och c; Fix D spelat över hennes rader fram till och med b (högst FIX_D_PENDING_MAX_AGE_MS bakåt) slutar med en flagga i motsatt riktning satt av b och ingen bekräftelse; c har minst FIX_D_MIN_SOG och kurs i dödbandet och ligger minst 100 m längre i flaggans riktning än b (utanför GPS-brusets 40–60 m); L0 visar en vändning högst 15 min före b. Exempel: GUNHILD i värld 18849 (flagga 13:52:48 vid 30°, nollad 13:53:48 vid 75,4° 255 m längre norrut; varning Klaffbron söderut 13:59:10). I banken och k1–k4: 9 fixpar med omvänd kurs i minst 2 kn, 0 med en sådan dödbandsfix efter. Mellan Stridsbergsbron och Stallbackabron har 47 av 720 norrgående transitfixar kurs i dödbandet.",
+      "regel": "Känd gräns (nattkortet F10, omgång 11; ingen rättning, 0 fall i inspelad trafik): Fix D nollar en väntande vändning på en fix med kurs i dödbandet (varken 315–45° eller 135–<315°), också när positionen fortsätter i den nya riktningen. Tystnar båten sedan får hon en planerad varning i låsets gamla riktning. Kraven, för T9 FEL-RIKTNING på en varning: varningen leds av båten; hennes två sista rader före varningen är b och c; Fix D spelat över hennes rader fram till och med b (högst FIX_D_PENDING_MAX_AGE_MS bakåt) slutar med en flagga i motsatt riktning satt av b och ingen bekräftelse; c har minst FIX_D_MIN_SOG och kurs i dödbandet och ligger minst 100 m längre i flaggans riktning än b (utanför GPS-brusets 40–60 m); ingen brolinje (latitud) ligger mellan b och c, så att en återkorsning (RE_CROSS_EVIDENCED) inte kan ha bekräftat vändningen (granskningen av U90); L0 visar en vändning högst 15 min före b. Exempel: GUNHILD i värld 18849 (flagga 13:52:48 vid 30°, nollad 13:53:48 vid 75,4° 255 m längre norrut; varning Klaffbron söderut 13:59:10). I banken och k1–k4: 9 fixpar med omvänd kurs i minst 2 kn, 0 med en sådan dödbandsfix efter. Mellan Stridsbergsbron och Stallbackabron har 47 av 720 norrgående transitfixar kurs i dödbandet.",
       "fråga": "Ska en fix i dödbandet som flyttat sig minst 100 m i den väntande riktningen behålla eller bekräfta Fix D:s väntande vändning (U18 kräver två positioner)?"
-    },
-    {
-      "id": "C-ENSAM-FIX-FÖRE-MELLANBRO",
-      "klass": "KÄND_ÖPPEN",
-      "datum": "2026-11-28",
-      "källa": "app.js#_getFlowTriggerCandidates (notiskandidaterna: målbro, aktuell bro, just passerad bro, närmaste bro bara när listan är tom); lib/constants.js#UNDER_BRIDGE_CLEAR_DISTANCE; lib/constants.js#PROTECTION_ZONE_RADIUS; docs/BUGGJAKT.md §7 (U90, omgång 11: spår C:s poster)",
-      "gäller": {
-        "orakel": [
-          "T1"
-        ],
-        "klassRegex": "^NOTIS-UTEBLIVEN$"
-      },
-      "predikat": {
-        "namn": "ensamFixFöreMellanbro",
-        "parametrar": {}
-      },
-      "regel": "Känd gräns (nattkortet F14, omgång 11; ingen rättning, 0 av 223 passager vid Järnvägsbron i sommarbokslutet): när samma fix bokför en annan bros passage och byter målbro tar notiskandidaterna inte med en mellanbro som båten ligger strax före, och hörs hon inte igen bokförs ingen passage. Kraven, för T1 NOTIS-UTEBLIVEN vid en mellanbro (inte Klaffbron eller Stridsbergsbron): besöket har exakt en fix högst PROTECTION_ZONE_RADIUS (300 m) från bron; den ligger före bron i färdriktningen (latitud) och högst UNDER_BRIDGE_CLEAR_DISTANCE (70 m) från den; appen bokförde en annan bros passage för båten högst 1 s från fixens bearbetning (resultatets targetPassages eller intermediatePassages, harnessens klocka); och båten har ingen rad efter fixen till besökets slut + 15 min. Exempel: WILMA i värld 7810 (07:41:30, 20 m före Järnvägsbron; samma fix bokförde Klaffbron och bytte målbro till Stridsbergsbron; inga fler rader).",
-      "fråga": "Ska notiskandidaterna också ta med den närmaste opasserade bron framför båten när den ligger inom 70 m?"
     }
   ]
 }
