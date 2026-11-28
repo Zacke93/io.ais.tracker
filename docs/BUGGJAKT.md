@@ -677,6 +677,53 @@ Dirigentens beslut U90: registret och oraklen lär sig det utredarna i omgång 1
 - **Struket efter granskningen av U90:** posten för P5:s strikta sydband (F06, VEGA i värld 19102) svalde ett fel i återfödelsens riktning ur förflyttningen sedan graven (M3, `VesselDataService.js#_rebirthTransitDirection`); posten för en ensam fix före en mellanbro (F14, WILMA i värld 7810) svalde en utebliven notis när närmaste-bro-grenen i `app.js#_getFlowTriggerCandidates` stängs av; och U19:s RECOVER-prov på domen 'täckningsslut' kände inte igen bakkantens RECOVER-släpp. De utslagen är kandidater som förut, och U19 prövar absorptionen som förut.
 - **U89 (känd gräns):** en båt som helt saknar fartvärde och sänder glesare än ungefär var tredje minut får inga notiser eller varningar (`docs/ARCHITECTURE.md`, GPSJumpGateService-punkten). Scenariot `fartlös-var-180-s-6kn-inne-i-kanalen-tyst (känd gräns, U89)` låser dagens beteende. Ingen registerpost (inget nattjaktsutslag: buggjägarens radio sätter alltid ett finit fartvärde).
 
+### Spår A, omgång 11 (U90): öppningsvarningarnas kända mekanismer
+
+Nattjaktens kandidatkluster om öppningsvarningen (F03, F04, F05, F08, F13, F15 och F16 i omgång
+10:s slutbatteri, 104 utslag) utreddes i omgång 4 (spår T2) och omgång 11 (spår A). Alla är
+beslutat beteende eller känd gräns. Dirigentens beslut U90 (omgång 11) lägger in poster för dem,
+med kraven att varje predikat binds till appens egen bokföring eller till appens egen tidsregel
+räknad på samma rader, och att varje post har ett mutantbevis: en app som gör fel i just den
+mekanismen ger fortfarande KANDIDAT. Predikaten ligger i `lib/predikatA11.js`
+(`registry.js` kopplar in dem med registrets egna hjälpare), posterna sist i registret.
+
+**Harnessens bokföring (ny, additiv).** `replayRunner.js` bokför två av appens egna debugrader,
+som appen anropar oavsett loggnivå: `openingHolds` (spärren vid en tidigare bro: håll med bro och
+gren, släpp med skäl) och `reversalTargetDeferrals` (under-bro-vaktens uppskjutna målbro). Inget
+annat i resultatet ändras (de 98 nattvärldarna bitlika i notiser, varningar, texter, passager,
+täckning, domspår och journeyResets).
+
+| Post | Klass | Gäller | Känner igen (domspår) |
+|---|---|---|---|
+| A11-SPÄRR-VID-TIDIGARE-BRO | DESIGN | T2 LEDTID, OKLASSAD; T3 VARNING-EFTER | Båtens egen varning sammanfaller (högst 250 ms) med ett släpp i `openingHolds` och med appens släppregel räknad ur hennes sista rad F: rörelsegrenen (ankaret + avstånd/fart − WARNING_LEAD_MS, högst 300 s), reserven (ankaret + 300 s) eller första raden bortom den tidigare bron. F ligger före en annan öppningsbar bro, ingen rad emellan, och appens håll gällde den bron |
+| A11-U18-INGEN-OMVÄND-FIX | DESIGN | T2 OKLASSAD | L0-vändning ≤ 30 min före korsningen, ingen rad i den nya riktningen (Fix D:s breda band) i minst FIX_D_MIN_SOG däremellan, ingen riktningshändelse i `journeyResets` |
+| A11-UNDER-BRO-VAKT | DESIGN | T2 OKLASSAD | Bekräftelsen i `journeyResets` har en post i `reversalTargetDeferrals`, raden ligger högst UNDER_BRIDGE_CLEAR_DISTANCE från den uppskjutna bron, nästa rad kom efter korsningen |
+| A11-U48-KURSBAND-NY-BÅT | KÄND_ÖPPEN | T2 OKLASSAD, LEDTID | Alla rader i minst 2 kn den sista timmen före korsningen har kursen utanför de strikta banden; utan täckningsrader före korsningen, eller med en egen varning på första raden i strikt band |
+| A11-D8B-KURSBAND-EFTER-VÄNDNING | KÄND_ÖPPEN | T2 OKLASSAD, LEDTID | Bekräftelsen i `journeyResets` kom på en rad med kursen i det osäkra bandet; varningen på nästa rad, eller nästa rad efter korsningen |
+| A11-KONVOJ-FÖNSTERKANT | KÄND_ÖPPEN | T2 OKLASSAD, LEDTID | Sista domen i händelsen före korsningen 'covered' med appens ankomst inom domens fönsterslut, fönstret av rätt längd (högst max(avfyrning, skattad första passage, bokföring) + CONVOY_WINDOW_MS + 1 s), korsningen 600–645 s efter händelsens första sanna passage och högst 45 s efter fönstret; en sen egen varning är släppet ur händelsen |
+| U15-REFERENS-VID-FÖNSTERKANTEN | ACCEPTERAD | T2 LEDTID; T3 VARNING-EFTER | U47: absorberad efter egen passage k när händelsens referens (domspåret) låg mer än ett fönster från k; en annan medlem korsade inom fönstret från k; egen varning högst en tick efter bokföringen av den passagen |
+| A11-BAKKANT-PROGNOS-VID-LINJEN | KÄND_ÖPPEN | T2 LEDTID; T3 VARNING-EFTER | U88: bakkantsdom vid varningen med prognosen efter och fysiken inom fönstret, armen ≤ 100 m och ≥ MOVING_SOG_KN, fönstret av rätt längd, korsningen inom fönstret |
+
+**Mutantbevis (omgång 11, de 98 nattvärldarna, appen tillfälligt ändrad bakom en miljövariabel och
+återställd).** Varje rad: mutanten, de utslag i mutantens körning som inte finns i basens, och hur
+många av dem den riktade posten förklarar (ska vara 0).
+- Spärren släpps 120 s för sent (`sparr120`, 31 världar): 28 nya, 0 förklarade. Utan kravet att
+  spärren ur raden före inte redan löpt ut förklarade gren (iii) tre av dem; kravet lades till.
+- Fix D bekräftar aldrig (`fixd-aldrig`, 26 världar): 5 nya, 0 förklarade.
+- Under-bro-vakten vidgad till 300 m (`underbro300`, 23 världar): 2 nya, 0 förklarade.
+- Målbron nekas 120 s efter en bekräftad vändning (`d8b-extra`, 29 världar): 5 nya, 0 förklarade.
+- Nordbandet smalnat till 325–35° i målbrovalet (`kursband-smal`, 98 världar): 3 nya, 0 förklarade.
+- Bakkanten släpper aldrig (`bakkant-av`, 31 världar): 3 nya, 0 förklarade av fönsterkantsposten.
+- Bakkanten släpper 120 s för tidigt (`bakkant-tidig`, 21 världar): 4 nya, 0 förklarade av
+  bakkantsposten.
+- U15-släppet 120 s efter bokföringen (`u15sen`, 25 världar): 1 nytt, 0 förklarade (svagt prov:
+  bara ett nytt utslag).
+
+**Lämnade som kandidater (inga poster):** U42 begränsning 1 (två utslag), stilla eller tyst täckt
+båt (U25, U26, U38 för T3 och bakkantens släpp på nästa fix, sex utslag), U17-predikatets
+tystnadsprov (tolv utslag), oraklets U15-referens ur `etaMin` (ett utslag, som dessutom faller på
+U2-postens krav att en annan båt korsar först) och kajgrinden efter kryp och vändning (M14).
+
 ## 8. Klustring, krympning och bekräftelse
 
 **Klustring** (`lib/cluster.js`). Identiteten är registerutfall + mekanism: `registerklass | post | orakel | normaliserad klass`. Sanningsspårets fynd får dessutom `| synt`, och fynd ur världar med uppmätt stresstäthet (nivå stress, 4.4) får `| synt | stress`. Klassen normaliseras så att ISO-tid blir T, mmsi blir M och övriga tal blir N, men INV-id:t behålls. Bro, riktning, era, radioprofil, familj, korpus, δ och taggar är metadata och visas som fördelningar på kortet. Räknarfynd klustras inte; de summeras i täckningsrutan.

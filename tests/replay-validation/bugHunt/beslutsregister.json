@@ -1001,6 +1001,150 @@
       },
       "regel": "Känd gräns (nattkortet F10, omgång 11; ingen rättning, 0 fall i inspelad trafik): Fix D nollar en väntande vändning på en fix med kurs i dödbandet (varken 315–45° eller 135–<315°), också när positionen fortsätter i den nya riktningen. Tystnar båten sedan får hon en planerad varning i låsets gamla riktning. Kraven, för T9 FEL-RIKTNING på en varning: varningen leds av båten; hennes två sista rader före varningen är b och c; Fix D spelat över hennes rader fram till och med b (högst FIX_D_PENDING_MAX_AGE_MS bakåt) slutar med en flagga i motsatt riktning satt av b och ingen bekräftelse; c har minst FIX_D_MIN_SOG och kurs i dödbandet och ligger minst 100 m längre i flaggans riktning än b (utanför GPS-brusets 40–60 m); ingen brolinje (latitud) ligger mellan b och c, så att en återkorsning (RE_CROSS_EVIDENCED) inte kan ha bekräftat vändningen (granskningen av U90); L0 visar en vändning högst 15 min före b. Exempel: GUNHILD i värld 18849 (flagga 13:52:48 vid 30°, nollad 13:53:48 vid 75,4° 255 m längre norrut; varning Klaffbron söderut 13:59:10). I banken och k1–k4: 9 fixpar med omvänd kurs i minst 2 kn, 0 med en sådan dödbandsfix efter. Mellan Stridsbergsbron och Stallbackabron har 47 av 720 norrgående transitfixar kurs i dödbandet.",
       "fråga": "Ska en fix i dödbandet som flyttat sig minst 100 m i den väntande riktningen behålla eller bekräfta Fix D:s väntande vändning (U18 kräver två positioner)?"
+    },
+    {
+      "id": "A11-SPÄRR-VID-TIDIGARE-BRO",
+      "klass": "DESIGN",
+      "datum": "2026-11-28",
+      "källa": "lib/services/BridgeOpeningService.js#_earlierBridgeAhead och lib/services/BridgeOpeningService.js#_silentHoldLimitMs (spärren vid en tidigare bro, rörelsegrenen och reserven; M6 val B, U32, U38, U81); tests/replay-validation/bugHunt/lib/predikatA11.js#a11SparrSlapp; docs/BUGGJAKT.md §7 (Spår A, omgång 11, U90)",
+      "gäller": {
+        "orakel": [
+          "T2",
+          "T3"
+        ],
+        "klassRegex": "^LEDTID<60s$|^ÖPPNING-MISS:OKLASSAD$|^VARNING-EFTER-SANN-PASSAGE$"
+      },
+      "predikat": {
+        "namn": "a11SparrSlapp",
+        "parametrar": {}
+      },
+      "regel": "Båtens egen varning gick exakt när spärren vid en tidigare bro släppte henne, räknat ur hennes sista rad F före varningen: rörelsegrenen (ankaret + avståndet/farten − WARNING_LEAD_MS, högst 300 s, F i minst 2 kn), reserven (ankaret + 300 s) eller första raden bortom den tidigare bron (varningen avfyrad av den raden, raden före den före bron). Ankaret är F:s fixtid. F ska ligga före en annan öppningsbar bro i färdriktningen och ingen rad ligga mellan F och varningen. Tolerans 1,5 s. Tystnadsgränsen, fartökningen och en egen deadline som binder senare ger andra tider och förblir kandidater."
+    },
+    {
+      "id": "A11-U18-INGEN-OMVÄND-FIX",
+      "klass": "DESIGN",
+      "datum": "2026-11-28",
+      "källa": "lib/services/VesselDataService.js#FIX_D_MIN_SOG (Fix D kräver två omvända rader i minst 2 kn, U18); tests/replay-validation/bugHunt/lib/predikatA11.js#a11ReturUtanOmvandFix; docs/BUGGJAKT.md §7 (Spår A, omgång 11, U90)",
+      "gäller": {
+        "orakel": [
+          "T2",
+          "T3"
+        ],
+        "klassRegex": "^ÖPPNING-MISS:OKLASSAD$"
+      },
+      "predikat": {
+        "namn": "a11ReturUtanOmvandFix",
+        "parametrar": {}
+      },
+      "regel": "Returen efter en L0-vändning högst 30 min före korsningen: båten sände ingen rad i den nya riktningen (Fix D:s breda band) i minst FIX_D_MIN_SOG mellan vändningen och korsningen, och appen bokförde ingen riktningshändelse (journeyResets) däremellan. Fix D hade inget att bekräfta på. En retur med en enda omvänd rad i fart, eller där appen bekräftade, prövas av U18-RETUR-BEKRÄFTAD-SENT."
+    },
+    {
+      "id": "A11-UNDER-BRO-VAKT",
+      "klass": "DESIGN",
+      "datum": "2026-11-28",
+      "källa": "lib/services/VesselDataService.js#assignTargetAfterReversal (UNDER-BRO-VAKTEN, familj A varv 2); lib/constants.js#UNDER_BRIDGE_CLEAR_DISTANCE; tests/replay-validation/bugHunt/lib/predikatA11.js#a11UnderBroVakt; docs/BUGGJAKT.md §7 (Spår A, omgång 11, U90)",
+      "gäller": {
+        "orakel": [
+          "T2"
+        ],
+        "klassRegex": "^ÖPPNING-MISS:OKLASSAD$"
+      },
+      "predikat": {
+        "namn": "a11UnderBroVakt",
+        "parametrar": {}
+      },
+      "regel": "Appens bekräftelse av vändningen (journeyResets) kom på en rad högst UNDER_BRIDGE_CLEAR_DISTANCE (70 m) från bron, efter en L0-vändning högst 30 min före korsningen; målbron väntar då på nästa rad, och nästa rad kom först efter korsningen."
+    },
+    {
+      "id": "A11-U48-KURSBAND-NY-BÅT",
+      "klass": "KÄND_ÖPPEN",
+      "datum": "2026-11-28",
+      "källa": "lib/services/VesselDataService.js#_calculateTargetBridge (strikt kursband, Osäker COG; U48 skjuten till ETA-etappen); tests/replay-validation/bugHunt/lib/predikatA11.js#a11KursbandNyBat; docs/BUGGJAKT.md §7 (Spår A, omgång 11, U90)",
+      "gäller": {
+        "orakel": [
+          "T2"
+        ],
+        "klassRegex": "^ÖPPNING-MISS:OKLASSAD$|^LEDTID<60s$"
+      },
+      "predikat": {
+        "namn": "a11KursbandNyBat",
+        "parametrar": {}
+      },
+      "regel": "Alla båtens rader i minst 2 kn den sista timmen före korsningen har kursen utanför de strikta banden (nord 315–45°, syd 135–225°). Utan varning: inga täckningsrader för bron före korsningen. Med en sen varning: båtens egen, avfyrad av första raden med kursen i ett strikt band.",
+      "fråga": "U48: ska riktningen tas ur förflyttningen när kursen är osäker och farten minst 2 kn (prövas med ETA-etappen)?"
+    },
+    {
+      "id": "A11-D8B-KURSBAND-EFTER-VÄNDNING",
+      "klass": "KÄND_ÖPPEN",
+      "datum": "2026-11-28",
+      "källa": "lib/services/VesselDataService.js#assignTargetAfterReversal och lib/services/VesselDataService.js#_calculateTargetBridge (D8B fälld i omgång 4: gästhamnsfallet); tests/replay-validation/bugHunt/lib/predikatA11.js#a11KursbandEfterVandning; docs/BUGGJAKT.md §7 (Spår A, omgång 11, U90)",
+      "gäller": {
+        "orakel": [
+          "T2"
+        ],
+        "klassRegex": "^ÖPPNING-MISS:OKLASSAD$|^LEDTID<60s$"
+      },
+      "predikat": {
+        "namn": "a11KursbandEfterVandning",
+        "parametrar": {}
+      },
+      "regel": "Appens bekräftelse av vändningen (journeyResets) kom på en rad med kursen i det osäkra bandet, så målbron nekades i samma tick; båtens egen varning gick på nästa rad, eller nästa rad kom först efter korsningen.",
+      "fråga": "Ska en nyss bekräftad vändning ge målbro också vid osäker kurs, om bekräftelsens förflyttning går längs farleden (granskarens förslag efter D8B)?"
+    },
+    {
+      "id": "A11-KONVOJ-FÖNSTERKANT",
+      "klass": "KÄND_ÖPPEN",
+      "datum": "2026-11-28",
+      "källa": "lib/services/BridgeOpeningService.js#_coverageVerdict (bakkanten och domens fönsterslut); docs/faltgranskning-2026-11-14.md §12.5 (U42: släppet strax bortom ett konvojfönster, golvet en egen fråga); tests/replay-validation/bugHunt/lib/predikatA11.js#a11KonvojFonsterkant; docs/BUGGJAKT.md §7 (Spår A, omgång 11, U90)",
+      "gäller": {
+        "orakel": [
+          "T2"
+        ],
+        "klassRegex": "^ÖPPNING-MISS:OKLASSAD$|^LEDTID<60s$"
+      },
+      "predikat": {
+        "namn": "a11KonvojFonsterkant",
+        "parametrar": {}
+      },
+      "regel": "Båten var absorberad i E, och hennes sista dom i E före korsningen var 'covered' med appens ankomst inom domens fönsterslut och ett fönster av rätt längd (högst max(E:s avfyrning, skattad första passage) + CONVOY_WINDOW_MS + 1 s). Den sanna korsningen kom högst 45 s efter fönstrets slut och högst 645 s efter E:s första sanna passage av en annan båt. En sen egen varning ska vara släppet ur E (täckningsslut eller bakkant).",
+      "fråga": "Ska en täckt båt som korsar strax efter konvojfönstret ha ett golv för sin egen varning (fältgranskningen 12.5)?"
+    },
+    {
+      "id": "U15-REFERENS-VID-FÖNSTERKANTEN",
+      "klass": "ACCEPTERAD",
+      "datum": "2026-11-17",
+      "källa": "lib/services/BridgeOpeningService.js#_describesPassedOpening och lib/services/BridgeOpeningService.js#_releaseReturnCoverage (U15 villkor (b) mot händelsens referens); dirigentens beslut U47 (omgång 4) och U90 (omgång 11); tests/replay-validation/bugHunt/lib/predikatA11.js#a11U15ReferensVidFonsterkanten; docs/BUGGJAKT.md §7 (Spår A, omgång 11, U90)",
+      "gäller": {
+        "orakel": [
+          "T2",
+          "T3"
+        ],
+        "klassRegex": "^LEDTID<60s$|^VARNING-EFTER-SANN-PASSAGE$"
+      },
+      "predikat": {
+        "namn": "a11U15ReferensVidFonsterkanten",
+        "parametrar": {}
+      },
+      "regel": "U47: returbåten absorberades i E efter sin egen passage k, när E:s referens (fönsterslut − CONVOY_WINDOW_MS i hennes första dom i E före första passagen) låg mer än ett fönster från k. En annan båt i E korsade inom fönstret från k, och hennes egen varning gick högst en tick efter att den passagen bokfördes (U15 (b) släppte henne). E:s varning kom minst 60 s före returen. Gäller också när varningen kom efter returkorsningen (T3)."
+    },
+    {
+      "id": "A11-BAKKANT-PROGNOS-VID-LINJEN",
+      "klass": "KÄND_ÖPPEN",
+      "datum": "2026-11-28",
+      "källa": "lib/services/BridgeOpeningService.js#_coverageVerdict (bakkanten jämför prognosen; känd gräns, systerstället till U49); dirigentens beslut U88 (omgång 11: rättas inte); tests/replay-validation/bugHunt/lib/predikatA11.js#a11BakkantPrognosVidLinjen; docs/BUGGJAKT.md §7 (Spår A, omgång 11, U90)",
+      "gäller": {
+        "orakel": [
+          "T2",
+          "T3"
+        ],
+        "klassRegex": "^LEDTID<60s$|^VARNING-EFTER-SANN-PASSAGE$"
+      },
+      "predikat": {
+        "namn": "a11BakkantPrognosVidLinjen",
+        "parametrar": {}
+      },
+      "regel": "Båtens egen varning gick på en bakkantsdom där appens prognos låg efter fönstrets slut men armens fysik inom, med armen högst 100 m från bron i minst MOVING_SOG_KN, ett fönster av rätt längd och den sanna korsningen inom fönstret (U88).",
+      "fråga": "Ska bakkanten nära bron räkna med den tidigare av prognosen och fysiken, som U49:s håll vid täckningsslutet?"
     }
   ]
 }

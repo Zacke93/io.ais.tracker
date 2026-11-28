@@ -4482,6 +4482,12 @@ const PREDICATES = {
   },
 };
 
+// Spår A, omgång 11 (U90): öppningsvarningarnas kända mekanismer. Predikaten ligger i
+// predikatA11.js och får registrets egna hjälpare (docs/BUGGJAKT.md §7, "Spår A, omgång 11").
+Object.assign(PREDICATES, require('./predikatA11')({
+  ok, nej, fmtT, rowsOf, deliveredWarnings, fyndetsVarning, fyndetsKorsning, senasteVändning, riktningshändelser, fixtid,
+}));
+
 // ---------------------------------------------------------------------------
 // Laddning och validering
 // ---------------------------------------------------------------------------
