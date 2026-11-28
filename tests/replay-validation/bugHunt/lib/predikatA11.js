@@ -36,9 +36,6 @@ const nordKurs = (c) => Number.isFinite(c) && (c >= 315 || c <= 45);
 const strikSydKurs = (c) => Number.isFinite(c) && c >= 135 && c <= 225;
 const bredSydKurs = (c) => Number.isFinite(c) && c >= 135 && c < 315;
 const osäkerKurs = (c) => Number.isFinite(c) && !nordKurs(c) && !strikSydKurs(c);
-/** Inom appens bevakningsbox (AIS_CONFIG.BOUNDING_BOX): utanför den får ingen båt målbro, vilken kurs hon än har. */
-const BOX = constants.AIS_CONFIG.BOUNDING_BOX;
-const iBoxen = (r) => r.lat >= BOX.SOUTH && r.lat <= BOX.NORTH && r.lon >= BOX.WEST && r.lon <= BOX.EAST;
 
 module.exports = function predikatA11(h) {
   const {
@@ -208,38 +205,6 @@ module.exports = function predikatA11(h) {
         const nästa = rader.find((x) => x.aisTimestamp > r.aisTimestamp);
         if (nästa && nästa.aisTimestamp <= k.t) return nej(`nästa rad ${fmtT(nästa.aisTimestamp)} kom före korsningen`);
         return ok(`vändningen bekräftad ${fmtT(bek.t)} ${Math.round(d)} m från ${def.bridge} (appen sköt upp målbron); målbron väntar på nästa rad (${nästa ? fmtT(nästa.aisTimestamp) : 'ingen'}), efter korsningen ${fmtT(k.t)}`);
-      },
-    },
-
-    /**
-     * M6a. U48 (känd gräns): en båt i fart vars alla rader före korsningen har kursen i
-     * det osäkra bandet får ingen målbro. Utan varning före korsningen: inga täckningsrader
-     * för bron före korsningen. Med en sen varning: varningen gick på första raden med
-     * kursen i ett strikt band.
-     */
-    a11KursbandNyBat: {
-      parametrar: { minKn: 2, toleransMs: 1500, horisontMs: 60 * 60000 },
-      fn(f, ctx, p) {
-        const k = fyndetsKorsning(f);
-        if (!Number.isFinite(k.t)) return nej('saknar korsning');
-        const rader = positioner(ctx, f.mmsi).filter((r) => r.aisTimestamp < k.t && r.aisTimestamp > k.t - p.horisontMs);
-        if (!rader.length) return nej('inga rader före korsningen');
-        const w = fyndetsVarning(f, ctx);
-        // Bara rader inom bevakningsboxen kan ge målbro (_calculateTargetBridge: Outside canal bounds).
-        const fartRader = rader.filter((r) => Number.isFinite(r.sog) && r.sog >= p.minKn && iBoxen(r));
-        if (w) {
-          if (String(w.leadMmsi) !== String(f.mmsi) || w.firedBy !== 'fix') return nej('varningen är inte båtens egen, avfyrad av en rad');
-          const q = rader.find((r) => Math.abs(r.aisTimestamp - w.t) <= p.toleransMs);
-          if (!q || osäkerKurs(q.cog)) return nej('varningen gick inte på en rad med kursen i ett strikt band');
-          const före = fartRader.filter((r) => r.aisTimestamp < q.aisTimestamp);
-          if (!före.length || före.some((r) => !osäkerKurs(r.cog))) return nej('en tidigare rad i fart hade kursen i ett strikt band');
-          return ok(`${före.length} rader i fart före ${fmtT(q.aisTimestamp)} med kursen i det osäkra bandet; varningen ${w.eventId} på första raden i strikt band (U48)`);
-        }
-        if (täckning(ctx, f.mmsi, f.bro).some((c) => c.t < k.t)) return nej('båten var beväpnad eller täckt vid bron före korsningen');
-        if (!fartRader.length) return nej(`ingen rad i minst ${p.minKn} kn före korsningen`);
-        const strikt = fartRader.find((r) => !osäkerKurs(r.cog));
-        if (strikt) return nej(`raden ${fmtT(strikt.aisTimestamp)} i fart hade kursen ${strikt.cog}° i ett strikt band`);
-        return ok(`alla ${fartRader.length} rader i fart före korsningen har kursen i det osäkra bandet (${fartRader.map((r) => r.cog).join(', ')}°); ingen målbro (U48)`);
       },
     },
 

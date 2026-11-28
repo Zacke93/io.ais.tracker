@@ -1056,24 +1056,6 @@
       "regel": "Appens bekräftelse av vändningen (journeyResets) kom på en rad högst UNDER_BRIDGE_CLEAR_DISTANCE (70 m) från bron, efter en L0-vändning högst 30 min före korsningen; målbron väntar då på nästa rad, och nästa rad kom först efter korsningen."
     },
     {
-      "id": "A11-U48-KURSBAND-NY-BÅT",
-      "klass": "KÄND_ÖPPEN",
-      "datum": "2026-11-28",
-      "källa": "lib/services/VesselDataService.js#_calculateTargetBridge (strikt kursband, Osäker COG; U48 skjuten till ETA-etappen); tests/replay-validation/bugHunt/lib/predikatA11.js#a11KursbandNyBat; docs/BUGGJAKT.md §7 (Spår A, omgång 11, U90)",
-      "gäller": {
-        "orakel": [
-          "T2"
-        ],
-        "klassRegex": "^ÖPPNING-MISS:OKLASSAD$|^LEDTID<60s$"
-      },
-      "predikat": {
-        "namn": "a11KursbandNyBat",
-        "parametrar": {}
-      },
-      "regel": "Alla båtens rader i minst 2 kn inom bevakningsboxen (AIS_CONFIG.BOUNDING_BOX) den sista timmen före korsningen har kursen utanför de strikta banden (nord 315–45°, syd 135–225°). Utan varning: inga täckningsrader för bron före korsningen. Med en sen varning: båtens egen, avfyrad av första raden med kursen i ett strikt band.",
-      "fråga": "U48: ska riktningen tas ur förflyttningen när kursen är osäker och farten minst 2 kn (prövas med ETA-etappen)?"
-    },
-    {
       "id": "A11-D8B-KURSBAND-EFTER-VÄNDNING",
       "klass": "KÄND_ÖPPEN",
       "datum": "2026-11-28",

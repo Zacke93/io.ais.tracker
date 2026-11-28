@@ -698,7 +698,6 @@ täckning, domspår och journeyResets).
 | A11-SPÄRR-VID-TIDIGARE-BRO | DESIGN | T2 LEDTID, OKLASSAD; T3 VARNING-EFTER | Båtens egen varning sammanfaller (högst 250 ms) med ett släpp i `openingHolds` och med appens släppregel räknad ur hennes sista rad F: rörelsegrenen (ankaret + avstånd/fart − WARNING_LEAD_MS, högst 300 s), reserven (ankaret + 300 s) eller första raden bortom den tidigare bron. F ligger före en annan öppningsbar bro, ingen rad emellan, och appens håll gällde den bron |
 | A11-U18-INGEN-OMVÄND-FIX | DESIGN | T2 OKLASSAD | L0-vändning ≤ 30 min före korsningen, ingen rad i den nya riktningen (Fix D:s breda band) i minst FIX_D_MIN_SOG däremellan, ingen riktningshändelse i `journeyResets` |
 | A11-UNDER-BRO-VAKT | DESIGN | T2 OKLASSAD | Bekräftelsen i `journeyResets` har en post i `reversalTargetDeferrals`, raden ligger högst UNDER_BRIDGE_CLEAR_DISTANCE från den uppskjutna bron, nästa rad kom efter korsningen |
-| A11-U48-KURSBAND-NY-BÅT | KÄND_ÖPPEN | T2 OKLASSAD, LEDTID | Alla rader i minst 2 kn inom bevakningsboxen den sista timmen före korsningen har kursen utanför de strikta banden; utan täckningsrader före korsningen, eller med en egen varning på första raden i strikt band |
 | A11-D8B-KURSBAND-EFTER-VÄNDNING | KÄND_ÖPPEN | T2 OKLASSAD, LEDTID | Bekräftelsen i `journeyResets` kom på en rad med kursen i det osäkra bandet; varningen på nästa rad, eller nästa rad efter korsningen |
 | A11-KONVOJ-FÖNSTERKANT | KÄND_ÖPPEN | T2 OKLASSAD, LEDTID | Sista domen i händelsen före korsningen 'covered' med appens ankomst inom domens fönsterslut, fönstret av rätt längd (högst max(avfyrning, skattad första passage, bokföring) + CONVOY_WINDOW_MS + 1 s), korsningen 600–645 s efter händelsens första sanna passage och högst 45 s efter fönstret; en sen egen varning är släppet ur händelsen |
 | U15-REFERENS-VID-FÖNSTERKANTEN | ACCEPTERAD | T2 LEDTID; T3 VARNING-EFTER | U47: absorberad efter egen passage k när händelsens referens (domspåret) låg mer än ett fönster från k; en annan medlem korsade inom fönstret från k; egen varning högst en tick efter bokföringen av den passagen |
@@ -712,14 +711,15 @@ många av dem den riktade posten förklarar (ska vara 0).
 - Fix D bekräftar aldrig (`fixd-aldrig`, 26 världar): 5 nya, 0 förklarade.
 - Under-bro-vakten vidgad till 300 m (`underbro300`, 23 världar): 2 nya, 0 förklarade.
 - Målbron nekas 120 s efter en bekräftad vändning (`d8b-extra`, 29 världar): 5 nya, 0 förklarade.
-- Nordbandet smalnat till 325–35° i målbrovalet (`kursband-smal`, 98 världar): 3 nya, 0 förklarade.
 - Bakkanten släpper aldrig (`bakkant-av`, 31 världar): 3 nya, 0 förklarade av fönsterkantsposten.
 - Bakkanten släpper 120 s för tidigt (`bakkant-tidig`, 21 världar): 4 nya, 0 förklarade av
   bakkantsposten.
 - U15-släppet 120 s efter bokföringen (`u15sen`, 25 världar): 1 nytt, 0 förklarade (svagt prov:
   bara ett nytt utslag).
 
-**Lämnade som kandidater (inga poster):** U42 begränsning 1 (två utslag), stilla eller tyst täckt
+**Lämnade som kandidater (inga poster):** U48 (ny båt i fart med kursen i det osäkra bandet; posten
+A11-U48-KURSBAND-NY-BÅT togs bort efter granskningen: den godtog också ett fel i återfödelsen M3,
+som ger målbro ur förflyttningen sedan graven), U42 begränsning 1 (två utslag), stilla eller tyst täckt
 båt (U25, U26, U38 för T3 och bakkantens släpp på nästa fix, sex utslag), U17-predikatets
 tystnadsprov (tolv utslag), oraklets U15-referens ur `etaMin` (ett utslag, som dessutom faller på
 U2-postens krav att en annan båt korsar först) och kajgrinden efter kryp och vändning (M14).
