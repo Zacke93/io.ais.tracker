@@ -291,6 +291,14 @@ function judgeT2T3(ctx) {
         && c.eventId !== E.eventId && c.eventId !== w.eventId && släpp.some((v) => Math.abs(c.t - v.t) <= BO.TICK_INTERVAL_MS));
       const E2 = nästa ? warnings.find((e) => e.eventId === nästa.eventId) : null;
       if (!E2) break;
+      // U90 spår C (F09, omgång 11, nattkortet F09 värld 13468): en
+      // återabsorption i en händelse vars täckning för henne redan låg före
+      // återabsorptionen (armens coverUntilMs i hennes domar i E2) är ingen
+      // täckning; appen släpper henne ur E2 i samma utvärdering. Kedjan stannar
+      // då vid E, och fönsterslutet räknas från E, inte från E2.
+      const täcktTill = verdicts.filter((v) => v && String(v.mmsi) === m && v.eventId === E2.eventId
+        && v.arm && Number.isFinite(v.arm.coverUntilMs)).map((v) => v.arm.coverUntilMs);
+      if (täcktTill.length && Math.max(...täcktTill) <= nästa.t) break;
       E = E2;
     }
     const iE = verdicts.filter((v) => v && v.eventId === E.eventId);

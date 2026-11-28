@@ -2800,6 +2800,7 @@ const PREDICATES = {
       nordTill: C.COG_DIRECTIONS.NORTH_MAX,
       sydFrån: 135,
       absorptionFöreMin: 30,
+      tickMs: C.BRIDGE_OPENING.TICK_INTERVAL_MS,
     },
     fn(f, ctx, p) {
       if (!Number.isFinite(p.fixDMinSogKn)) return nej('FIX_D_MIN_SOG kunde inte läsas ur lib/services/VesselDataService.js');
@@ -2809,9 +2810,22 @@ const PREDICATES = {
       if (String(w.leadMmsi) !== String(f.mmsi)) return nej(`varningen ${w.eventId} leds av ${w.leadMmsi}, inte av fyndets båt`);
       const lås = RIKTNINGSORD[w.direction];
       if (!lås) return nej(`varningens riktning ${w.direction} är inte bestämd`);
-      const abs = ((ctx.resultat && ctx.resultat.openingCoverage) || []).find((c) => c.reason === 'absorbed' && String(c.mmsi) === String(f.mmsi)
-        && c.bridge === f.bro && Number.isFinite(c.t) && c.t <= w.t && c.t >= w.t - p.absorptionFöreMin * MIN);
-      if (abs) return nej(`båten absorberades i ${abs.eventId} ${fmtT(abs.t)}: varningen är ett RECOVER-släpp, inte en planerad varning`);
+      // U90 spår C (F09, omgång 11): RECOVER-släppet känns igen på släppvägens
+      // domspår, inte på en absorption någon gång under de senaste 30 min.
+      // Släppet är en dom 'täckningsslut' för båten vid bron högst en tick
+      // före varningen (BridgeOpeningService.js#_coverageVerdict släpper och
+      // varningen avfyras i samma utvärdering eller på nästa tick). Saknas
+      // domspåret prövas absorptionen som förut.
+      const domspår = ctx.resultat && ctx.resultat.openingCoverageVerdicts;
+      if (Array.isArray(domspår)) {
+        const släpp = domspår.find((v) => v && String(v.mmsi) === String(f.mmsi) && v.bridge === f.bro && v.verdict
+          && v.verdict.kind === 'täckningsslut' && Number.isFinite(v.t) && v.t <= w.t && w.t - v.t <= p.tickMs);
+        if (släpp) return nej(`båten släpptes ur ${släpp.eventId} vid täckningsslutet ${fmtT(släpp.t)}: varningen är ett RECOVER-släpp, inte en planerad varning`);
+      } else {
+        const abs = ((ctx.resultat && ctx.resultat.openingCoverage) || []).find((c) => c.reason === 'absorbed' && String(c.mmsi) === String(f.mmsi)
+          && c.bridge === f.bro && Number.isFinite(c.t) && c.t <= w.t && c.t >= w.t - p.absorptionFöreMin * MIN);
+        if (abs) return nej(`båten absorberades i ${abs.eventId} ${fmtT(abs.t)}: varningen är ett RECOVER-släpp, inte en planerad varning`);
+      }
       const maxÅlderMs = p.maxÅlderMin * MIN;
       const opts = {
         lås, minSogKn: p.fixDMinSogKn, maxÅlderMs, band: fixDBand(p),
