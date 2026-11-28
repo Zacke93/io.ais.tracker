@@ -835,7 +835,8 @@ function u93LinjeM(bridgeKey, pos) {
  * Stridsbergsbron; söderut tvärtom). Den första positionen efter glappet
  * flyttas till `landning` = {n, t} från den andra målbron, med farten `sog`.
  * `vanta` lägger in en väntan där, med positionerna `vanta.punkter` i tur och
- * ordning (stillabrus) och farten `vanta.sog`, innan båten fortsätter.
+ * ordning (stillabrus) och farten `vanta.sog`, innan båten fortsätter;
+ * `vanta.foreM` lägger hennes sanna väntplats så många meter före bron.
  */
 function u93Glapp(seed, mmsi, name, dir, landning, expect, { sog = 5.8, vanta = null } = {}) {
   const N = dir === 'N';
@@ -845,8 +846,11 @@ function u93Glapp(seed, mmsi, name, dir, landning, expect, { sog = 5.8, vanta = 
   const legs = [];
   const fore = N ? METRICS.cum[1] - 600 : METRICS.cum[4] + 600;
   if (vanta) {
+    // vanta.foreM: båtens sanna väntplats så många meter FÖRE bron (annars 10 m
+    // bortom, som i de första motfallen; positionerna är patchade i båda).
+    const slut = Number.isFinite(vanta.foreM) ? sAndra - (N ? 1 : -1) * vanta.foreM : sAndra + (N ? 10 : -10);
     legs.push({
-      toS: sAndra + (N ? 10 : -10), speedKn: 5, intervalS: 60, gapFromS: fore, gapToS: sAndra + (N ? 10 : -10),
+      toS: slut, speedKn: 5, intervalS: 60, gapFromS: fore, gapToS: slut,
     });
     legs.push({ stopS: (vanta.punkter.length + 1) * 60, stopIntervalS: 60, stopSog: vanta.sog });
     legs.push({ toS: sAndra + (N ? 1500 : -1500), speedKn: 5, intervalS: 60 });
@@ -6870,6 +6874,47 @@ const SCENARIOS = [
     sog: 0.2,
     vanta: {
       sog: 0.2, punkter: [{ n: -15, t: 26 }, { n: -18, t: 24 }, { n: -14, t: 28 }, { n: -16, t: 25 }],
+    },
+  }),
+  // U93, motfall för villkor (b) (granskningen av U93, fall N-A5): båten
+  // väntar 5 m före Stridsbergsbron i 2,5 kn med brus ±10 m kring linjen, och
+  // landningen efter glappet ligger 5 m FÖRE linjen på kilsidan (söder om
+  // brons latitud, där svepets fönster inte når bron). Farten räcker för (c);
+  // bara (b) (entydigt bortom linjen) hindrar kedjan från att bokföra en
+  // passage som inte skett. Utan (b): "har precis passerat Stridsbergsbron".
+  u93Glapp(9308, '930800008', 'u93-glapp-landar-5m-före-linjen-i-kilsidan-väntar-i-2,5kn (motfall för b)', 'N', { n: -5, t: 26 }, {
+    gapEndPassage: [{ mmsi: '930800008', bridge: 'Stridsbergsbron', booked: false }],
+    noticeForms: { Stridsbergsbron: ['närmar'] },
+  }, {
+    sog: 2.5,
+    vanta: {
+      foreM: 5, sog: 2.5, punkter: [{ n: 8, t: 26 }, { n: -3, t: 20 }, { n: 9, t: 30 }, { n: -8, t: 24 }],
+    },
+  }),
+  // Samma söderut vid Klaffbron (granskningens S-A5): kilsidan är nordväst.
+  u93Glapp(9309, '930900009', 'u93-glapp-landar-5m-före-linjen-i-kilsidan-väntar-i-2,5kn-söderut (motfall för b)', 'S', { n: 5, t: -26 }, {
+    gapEndPassage: [{ mmsi: '930900009', bridge: 'Klaffbron', booked: false }],
+    noticeForms: { Klaffbron: ['närmar'] },
+  }, {
+    sog: 2.5,
+    vanta: {
+      foreM: 5, sog: 2.5, punkter: [{ n: -8, t: -26 }, { n: 3, t: -20 }, { n: -9, t: -30 }, { n: 8, t: -24 }],
+    },
+  }),
+  // KÄND GRÄNS, U93 (granskningen av U93, fall N-A2; dirigenten har godtagit
+  // priset): båten väntar 20 m före Stridsbergsbron, och hennes första
+  // position efter glappet över Klaffbron är en utliggare 15 m in i kilen i
+  // 2,5 kn. Kedjan bokför då en passage som inte skett, och öppningsvarningen
+  // för Stridsbergsbron uteblir. Basen bokförde samma falska passage vid nästa
+  // position men hann skicka varningen i landningens tick. Scenariot låser
+  // dagens utfall, så att en senare rättning syns.
+  u93Glapp(9310, '931000010', 'u93-glapp-utliggare-15m-in-i-kilen-2,5kn-båten-väntar-20m-före (känd gräns, U93)', 'N', { n: 15, t: 30 }, {
+    gapEndPassage: [{ mmsi: '931000010', bridge: 'Stridsbergsbron', booked: true }],
+    forbiddenOpeningBridges: ['Stridsbergsbron'],
+  }, {
+    sog: 2.5,
+    vanta: {
+      foreM: 20, sog: 0.3, punkter: [{ n: -20, t: 0 }, { n: -21, t: 2 }, { n: -19, t: -2 }, { n: -20, t: 1 }],
     },
   }),
   // U93, motfall: en vanlig transit (positioner var 60:e sekund, målbron är

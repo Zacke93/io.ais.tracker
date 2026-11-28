@@ -2171,10 +2171,25 @@ båt.
     är en utliggare bortom linjen; de syntetiska motfallen `u93-…` fäller då.
     Utan (a) flyttas bokföringen i bankens 16 fall från svepet till kedjan och
     notisens källa byts (golden-events i 20260708-21h). Banken och fältet
-    (k1–k4, ögonblicksbilden av fältprov 4) är oförändrade.
-    *Kvar:* en båt i minst 2 kn vars första position efter glappet är en
-    utliggare mer än 10 m bortom linjen i kilen bokförs som passerad, på samma
-    sätt som när bron redan var målbro.
+    (k1–k4, ögonblicksbilden av fältprov 4) är oförändrade. I ett sådant hopp
+    bokförs Järnvägsbron som härledd passage vid TARGET_END (`INFERRED_PASSAGE`)
+    i stället för som mellanbropassage; ingen notis, text eller varning ändras.
+    *Priset (känd gräns, godtaget av dirigenten i U93):* är båten i själva verket
+    FÖRE bron och hennes första position efter glappet över den förra målbron en
+    utliggare mer än 10 m in i kilen i minst 2 kn, bokför kedjan en passage som
+    inte skett, i landningens tick. Basen bokförde samma falska passage vid nästa
+    position (det bakåtkorsande segmentet utliggare → verklig position räknas
+    också som passage, ett fel som inte rättas här) men hann skicka
+    öppningsvarningen i landningens tick. Nu uteblir varningen norrut för
+    Stridsbergsbron; i granskningens fall gick 53 s till 6 min ledtid förlorade.
+    Söderut har Klaffbrons varning redan gått under glappet; där bokförs passagen
+    60 s tidigare, och med en utliggare till under väntan kan en falsk "har precis
+    passerat Klaffbron" norrut tillkomma. Det kräver en utliggare minst 10 m in i
+    kilen som första position efter ett glapp över båda målbroarna: i 795 h
+    inspelad trafik spänner 38 segment båda målbroarnas linjer, och inget slutar
+    närmare den andra målbron än 79 m; 4 av 481 linjekorsningar landar i kilen,
+    alla 1,2–3,4 m in. Låst som scenariot "u93-glapp-utliggare-15m-in-i-kilen-…
+    (känd gräns, U93)".
 - **`_pendingTarget`**: target-byte fångat i 300 m-skyddszonen skjuts upp
   (`{source, next, since}`) tills zonen lämnats/grace löpt ut (:2229–2263;
   sätts :2358–2370, :3172–3176; rensas vid moored-demote :132).
