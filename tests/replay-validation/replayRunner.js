@@ -401,6 +401,15 @@ async function main() {
   // mellanbro-registreringar (INV-13 c). Riktningsrelativa N1-resets utan
   // broar framför loggar ingen JOURNEY_RESET-rad — TARGET_RECALC loggas alltid.
   const journeyResetRe = /\[(?:JOURNEY_RESET|NEW_JOURNEY|REENTRY_NEW_JOURNEY|TARGET_RECALC)\] (\d+):/;
+  // Omgång 11, spår A (U90): spärren vid en tidigare bro och under-bro-vaktens uppskjutna
+  // målbro bokförs ur appens egna debugrader. Appen anropar debug oavsett loggnivå (nivån
+  // prövas inne i app.debug), så bokföringen är densamma med REPLAY_DEBUG_LEVEL=off. Läses bara
+  // av buggjägarens register (predikatA11.js); påverkar ingen produktlogik.
+  const openingHolds = [];
+  const reversalTargetDeferrals = [];
+  const holdStartRe = /\[OPENING_HOLD\] (\d+) \(.*?\): (\S+) hålls av (\S+) — .*?gren ([^,]+),/;
+  const holdReleaseRe = /\[OPENING_HOLD\] (\d+) \(.*?\): (\S+) släpps — ([^(;]+)/;
+  const deferRe = /\[REVERSAL_TARGET_DEFERRED\] (\d+): (\S+) /;
   const intermediatePassages = [];
   const intermediateRe = /\[INTERMEDIATE_PASSAGE_RECORDED\] (\d+): Recorded passage of intermediate bridge (\S+)/;
 
@@ -724,6 +733,30 @@ async function main() {
       }
       return origAppLog(...args);
     };
+    if (typeof instance.debug === 'function') {
+      const origAppDebug = instance.debug.bind(instance);
+      instance.debug = (...args) => {
+        const line = args.map(String).join(' ');
+        if (line.includes('[OPENING_HOLD]')) {
+          const hm = line.match(holdStartRe);
+          if (hm) {
+            openingHolds.push({
+              t: Date.now(), mmsi: hm[1], bridge: hm[2], typ: 'håll', av: hm[3], gren: hm[4],
+            });
+          }
+          const rm = !hm && line.match(holdReleaseRe);
+          if (rm) {
+            openingHolds.push({
+              t: Date.now(), mmsi: rm[1], bridge: rm[2], typ: 'släpp', skäl: rm[3].trim(),
+            });
+          }
+        } else if (line.includes('[REVERSAL_TARGET_DEFERRED]')) {
+          const fm = line.match(deferRe);
+          if (fm) reversalTargetDeferrals.push({ t: Date.now(), mmsi: fm[1], bridge: fm[2] });
+        }
+        return origAppDebug(...args);
+      };
+    }
   };
 
   await app.onInit();
@@ -1273,6 +1306,8 @@ async function main() {
     firstSampleMs: samples.length > 0 ? samples[0].aisTimestamp : null,
     targetPassages,
     journeyResets,
+    openingHolds,
+    reversalTargetDeferrals,
     visitReentries,
     visitReturnReleases,
     vesselRemovals,
